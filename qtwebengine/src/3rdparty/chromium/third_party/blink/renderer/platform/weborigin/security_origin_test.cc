@@ -33,12 +33,13 @@
 #include <stdint.h>
 
 #include "base/stl_util.h"
-#include "services/network/public/mojom/cors.mojom-shared.h"
+#include "services/network/public/mojom/cors.mojom-blink.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/blink/renderer/platform/blob/blob_url.h"
 #include "third_party/blink/renderer/platform/testing/runtime_enabled_features_test_helpers.h"
 #include "third_party/blink/renderer/platform/weborigin/kurl.h"
 #include "third_party/blink/renderer/platform/weborigin/scheme_registry.h"
+#include "third_party/blink/renderer/platform/weborigin/security_origin_hash.h"
 #include "third_party/blink/renderer/platform/weborigin/security_policy.h"
 #include "third_party/blink/renderer/platform/wtf/text/string_builder.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
@@ -203,7 +204,7 @@ TEST_F(SecurityOriginTest, IsSecureViaTrustworthy) {
   for (const char* test : urls) {
     KURL url(test);
     EXPECT_FALSE(SecurityOrigin::IsSecure(url));
-    SecurityPolicy::AddOriginTrustworthyWhiteList(
+    SecurityPolicy::AddOriginToTrustworthySafelist(
         SecurityOrigin::CreateFromString(url)->ToRawString());
     EXPECT_TRUE(SecurityOrigin::IsSecure(url));
   }
@@ -212,7 +213,7 @@ TEST_F(SecurityOriginTest, IsSecureViaTrustworthy) {
 TEST_F(SecurityOriginTest, IsSecureViaTrustworthyHostnamePattern) {
   KURL url("http://bar.foo.com");
   EXPECT_FALSE(SecurityOrigin::IsSecure(url));
-  SecurityPolicy::AddOriginTrustworthyWhiteList("*.foo.com");
+  SecurityPolicy::AddOriginToTrustworthySafelist("*.foo.com");
   EXPECT_TRUE(SecurityOrigin::IsSecure(url));
 }
 
@@ -220,7 +221,7 @@ TEST_F(SecurityOriginTest, IsSecureViaTrustworthyHostnamePattern) {
 TEST_F(SecurityOriginTest, IsSecureViaTrustworthyHostnamePatternEmptyHostname) {
   KURL url("file://foo");
   EXPECT_FALSE(SecurityOrigin::IsSecure(url));
-  SecurityPolicy::AddOriginTrustworthyWhiteList("*.foo.com");
+  SecurityPolicy::AddOriginToTrustworthySafelist("*.foo.com");
   EXPECT_FALSE(SecurityOrigin::IsSecure(url));
 }
 
@@ -361,7 +362,10 @@ TEST_F(SecurityOriginTest, CanRequestWithAllowListedAccess) {
   EXPECT_FALSE(origin->CanRequest(url));
   // Adding the url to the access allowlist should allow the request.
   SecurityPolicy::AddOriginAccessAllowListEntry(
-      *origin, "https", "example.com", false,
+      *origin, "https", "example.com",
+      /*destination_port=*/0,
+      network::mojom::CorsDomainMatchMode::kDisallowSubdomains,
+      network::mojom::CorsPortMatchMode::kAllowAnyPort,
       network::mojom::CorsOriginAccessMatchPriority::kMediumPriority);
   EXPECT_TRUE(origin->CanRequest(url));
 }
@@ -374,10 +378,16 @@ TEST_F(SecurityOriginTest, CannotRequestWithBlockListedAccess) {
 
   // BlockList that is more or same specificity wins.
   SecurityPolicy::AddOriginAccessAllowListEntry(
-      *origin, "https", "example.com", true,
+      *origin, "https", "example.com",
+      /*destination_port=*/0,
+      network::mojom::CorsDomainMatchMode::kAllowSubdomains,
+      network::mojom::CorsPortMatchMode::kAllowAnyPort,
       network::mojom::CorsOriginAccessMatchPriority::kDefaultPriority);
   SecurityPolicy::AddOriginAccessBlockListEntry(
-      *origin, "https", "example.com", false,
+      *origin, "https", "example.com",
+      /*destination_port=*/0,
+      network::mojom::CorsDomainMatchMode::kDisallowSubdomains,
+      network::mojom::CorsPortMatchMode::kAllowAnyPort,
       network::mojom::CorsOriginAccessMatchPriority::kLowPriority);
   // Block since example.com is on the allowlist & blocklist.
   EXPECT_FALSE(origin->CanRequest(blocked_url));
@@ -392,16 +402,45 @@ TEST_F(SecurityOriginTest, CanRequestWithMoreSpecificAllowList) {
   const blink::KURL blocked_url("https://example.com");
 
   SecurityPolicy::AddOriginAccessAllowListEntry(
-      *origin, "https", "test.example.com", true,
+      *origin, "https", "test.example.com",
+      /*destination_port=*/0,
+      network::mojom::CorsDomainMatchMode::kAllowSubdomains,
+      network::mojom::CorsPortMatchMode::kAllowAnyPort,
       network::mojom::CorsOriginAccessMatchPriority::kMediumPriority);
   SecurityPolicy::AddOriginAccessBlockListEntry(
-      *origin, "https", "example.com", true,
+      *origin, "https", "example.com",
+      /*destination_port=*/0,
+      network::mojom::CorsDomainMatchMode::kAllowSubdomains,
+      network::mojom::CorsPortMatchMode::kAllowAnyPort,
       network::mojom::CorsOriginAccessMatchPriority::kLowPriority);
   // Allow since test.example.com (allowlist) has a higher priority than
   // *.example.com (blocklist).
   EXPECT_TRUE(origin->CanRequest(allowed_url));
   // Block since example.com isn't on the allowlist.
   EXPECT_FALSE(origin->CanRequest(blocked_url));
+}
+
+TEST_F(SecurityOriginTest, CanRequestWithPortSpecificAllowList) {
+  scoped_refptr<const SecurityOrigin> origin =
+      SecurityOrigin::CreateFromString("https://chromium.org");
+  SecurityPolicy::AddOriginAccessAllowListEntry(
+      *origin, "https", "test1.example.com", 443,
+      network::mojom::CorsDomainMatchMode::kAllowSubdomains,
+      network::mojom::CorsPortMatchMode::kAllowOnlySpecifiedPort,
+      network::mojom::CorsOriginAccessMatchPriority::kMediumPriority);
+  SecurityPolicy::AddOriginAccessAllowListEntry(
+      *origin, "https", "test2.example.com", 444,
+      network::mojom::CorsDomainMatchMode::kAllowSubdomains,
+      network::mojom::CorsPortMatchMode::kAllowOnlySpecifiedPort,
+      network::mojom::CorsOriginAccessMatchPriority::kMediumPriority);
+
+  EXPECT_TRUE(origin->CanRequest(blink::KURL("https://test1.example.com")));
+  EXPECT_TRUE(origin->CanRequest(blink::KURL("https://test1.example.com:443")));
+  EXPECT_FALSE(origin->CanRequest(blink::KURL("https://test1.example.com:43")));
+
+  EXPECT_FALSE(origin->CanRequest(blink::KURL("https://test2.example.com")));
+  EXPECT_FALSE(origin->CanRequest(blink::KURL("https://test2.example.com:44")));
+  EXPECT_TRUE(origin->CanRequest(blink::KURL("https://test2.example.com:444")));
 }
 
 TEST_F(SecurityOriginTest, PunycodeNotUnicode) {
@@ -416,14 +455,20 @@ TEST_F(SecurityOriginTest, PunycodeNotUnicode) {
 
   // Verify unicode origin can not be allowlisted.
   SecurityPolicy::AddOriginAccessAllowListEntry(
-      *origin, "https", "☃.net", true,
+      *origin, "https", "☃.net",
+      /*destination_port=*/0,
+      network::mojom::CorsDomainMatchMode::kAllowSubdomains,
+      network::mojom::CorsPortMatchMode::kAllowAnyPort,
       network::mojom::CorsOriginAccessMatchPriority::kMediumPriority);
   EXPECT_FALSE(origin->CanRequest(punycode_url));
   EXPECT_FALSE(origin->CanRequest(unicode_url));
 
   // Verify punycode allowlist only affects punycode URLs.
   SecurityPolicy::AddOriginAccessAllowListEntry(
-      *origin, "https", "xn--n3h.net", true,
+      *origin, "https", "xn--n3h.net",
+      /*destination_port=*/0,
+      network::mojom::CorsDomainMatchMode::kAllowSubdomains,
+      network::mojom::CorsPortMatchMode::kAllowAnyPort,
       network::mojom::CorsOriginAccessMatchPriority::kMediumPriority);
   EXPECT_TRUE(origin->CanRequest(punycode_url));
   EXPECT_FALSE(origin->CanRequest(unicode_url));
@@ -436,7 +481,10 @@ TEST_F(SecurityOriginTest, PunycodeNotUnicode) {
 
   // Simulate <all_urls> being in the extension permissions.
   SecurityPolicy::AddOriginAccessAllowListEntry(
-      *origin, "https", "", true,
+      *origin, "https", "",
+      /*destination_port=*/0,
+      network::mojom::CorsDomainMatchMode::kAllowSubdomains,
+      network::mojom::CorsPortMatchMode::kAllowAnyPort,
       network::mojom::CorsOriginAccessMatchPriority::kDefaultPriority);
 
   EXPECT_TRUE(origin->CanRequest(punycode_url));
@@ -444,14 +492,20 @@ TEST_F(SecurityOriginTest, PunycodeNotUnicode) {
 
   // Verify unicode origin can not be blocklisted.
   SecurityPolicy::AddOriginAccessBlockListEntry(
-      *origin, "https", "☃.net", true,
+      *origin, "https", "☃.net",
+      /*destination_port=*/0,
+      network::mojom::CorsDomainMatchMode::kAllowSubdomains,
+      network::mojom::CorsPortMatchMode::kAllowAnyPort,
       network::mojom::CorsOriginAccessMatchPriority::kLowPriority);
   EXPECT_TRUE(origin->CanRequest(punycode_url));
   EXPECT_FALSE(origin->CanRequest(unicode_url));
 
   // Verify punycode blocklist only affects punycode URLs.
   SecurityPolicy::AddOriginAccessBlockListEntry(
-      *origin, "https", "xn--n3h.net", true,
+      *origin, "https", "xn--n3h.net",
+      /*destination_port=*/0,
+      network::mojom::CorsDomainMatchMode::kAllowSubdomains,
+      network::mojom::CorsPortMatchMode::kAllowAnyPort,
       network::mojom::CorsOriginAccessMatchPriority::kLowPriority);
   EXPECT_FALSE(origin->CanRequest(punycode_url));
   EXPECT_FALSE(origin->CanRequest(unicode_url));
@@ -459,8 +513,8 @@ TEST_F(SecurityOriginTest, PunycodeNotUnicode) {
 
 TEST_F(SecurityOriginTest, PortAndEffectivePortMethod) {
   struct TestCase {
-    unsigned short port;
-    unsigned short effective_port;
+    uint16_t port;
+    uint16_t effective_port;
     const char* origin;
   } cases[] = {
       {0, 80, "http://example.com"},
@@ -806,6 +860,50 @@ TEST_F(SecurityOriginTest, NonStandardSchemeWithAndroidWebViewHack) {
   EXPECT_EQ("", origin->Host());
   EXPECT_EQ(0, origin->Port());
   url::Shutdown();
+}
+
+TEST_F(SecurityOriginTest, OpaqueIsolatedCopy) {
+  scoped_refptr<const SecurityOrigin> origin =
+      SecurityOrigin::CreateUniqueOpaque();
+  scoped_refptr<const SecurityOrigin> copied = origin->IsolatedCopy();
+  EXPECT_TRUE(origin->CanAccess(copied.get()));
+  EXPECT_TRUE(origin->IsSameSchemeHostPort(copied.get()));
+  EXPECT_EQ(SecurityOriginHash::GetHash(origin),
+            SecurityOriginHash::GetHash(copied));
+  EXPECT_TRUE(SecurityOriginHash::Equal(origin, copied));
+}
+
+TEST_F(SecurityOriginTest, EdgeCases) {
+  scoped_refptr<SecurityOrigin> nulled_domain =
+      SecurityOrigin::CreateFromString("http://localhost");
+  nulled_domain->SetDomainFromDOM("null");
+  EXPECT_TRUE(nulled_domain->CanAccess(nulled_domain.get()));
+
+  scoped_refptr<SecurityOrigin> local =
+      SecurityOrigin::CreateFromString("file:///foo/bar");
+  local->BlockLocalAccessFromLocalOrigin();
+  EXPECT_TRUE(local->IsSameSchemeHostPort(local.get()));
+}
+
+TEST_F(SecurityOriginTest, RegistrableDomain) {
+  scoped_refptr<SecurityOrigin> opaque = SecurityOrigin::CreateUniqueOpaque();
+  EXPECT_TRUE(opaque->RegistrableDomain().IsNull());
+
+  scoped_refptr<SecurityOrigin> ip_address =
+      SecurityOrigin::CreateFromString("http://0.0.0.0");
+  EXPECT_TRUE(ip_address->RegistrableDomain().IsNull());
+
+  scoped_refptr<SecurityOrigin> public_suffix =
+      SecurityOrigin::CreateFromString("http://com");
+  EXPECT_TRUE(public_suffix->RegistrableDomain().IsNull());
+
+  scoped_refptr<SecurityOrigin> registrable =
+      SecurityOrigin::CreateFromString("http://example.com");
+  EXPECT_EQ(String("example.com"), registrable->RegistrableDomain());
+
+  scoped_refptr<SecurityOrigin> subdomain =
+      SecurityOrigin::CreateFromString("http://foo.example.com");
+  EXPECT_EQ(String("example.com"), subdomain->RegistrableDomain());
 }
 
 }  // namespace blink

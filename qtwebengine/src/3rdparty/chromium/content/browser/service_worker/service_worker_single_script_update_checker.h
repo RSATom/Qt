@@ -6,9 +6,12 @@
 #define CONTENT_BROWSER_SERVICE_WORKER_SERVICE_WORKER_SINGLE_SCRIPT_UPDATE_CHECKER_H_
 
 #include "content/browser/service_worker/service_worker_disk_cache.h"
+#include "content/browser/service_worker/service_worker_new_script_loader.h"
 #include "content/common/content_export.h"
 #include "mojo/public/cpp/bindings/binding.h"
 #include "services/network/public/mojom/url_loader.mojom.h"
+#include "third_party/blink/public/common/service_worker/service_worker_status_code.h"
+#include "third_party/blink/public/mojom/service_worker/service_worker_registration.mojom.h"
 
 namespace network {
 class MojoToNetPendingBuffer;
@@ -37,14 +40,27 @@ class CONTENT_EXPORT ServiceWorkerSingleScriptUpdateChecker
     kDifferent,
   };
 
+  // This contains detailed error info of update check when it failed.
+  struct CONTENT_EXPORT FailureInfo {
+    FailureInfo(blink::ServiceWorkerStatusCode status,
+                const std::string& error_message);
+    ~FailureInfo();
+
+    const blink::ServiceWorkerStatusCode status;
+    const std::string error_message;
+  };
+
   // The paused state consists of Mojo endpoints and a cache writer
   // detached/paused in the middle of loading script body and would be used in
   // the left steps of the update process.
   struct CONTENT_EXPORT PausedState {
-    PausedState(std::unique_ptr<ServiceWorkerCacheWriter> cache_writer,
-                network::mojom::URLLoaderPtr network_loader,
-                network::mojom::URLLoaderClientRequest network_client_request,
-                mojo::ScopedDataPipeConsumerHandle network_consumer);
+    PausedState(
+        std::unique_ptr<ServiceWorkerCacheWriter> cache_writer,
+        network::mojom::URLLoaderPtr network_loader,
+        network::mojom::URLLoaderClientRequest network_client_request,
+        mojo::ScopedDataPipeConsumerHandle network_consumer,
+        ServiceWorkerNewScriptLoader::NetworkLoaderState network_loader_state,
+        ServiceWorkerNewScriptLoader::WriterState body_writer_state);
     PausedState(const PausedState& other) = delete;
     PausedState& operator=(const PausedState& other) = delete;
     ~PausedState();
@@ -53,23 +69,35 @@ class CONTENT_EXPORT ServiceWorkerSingleScriptUpdateChecker
     network::mojom::URLLoaderPtr network_loader;
     network::mojom::URLLoaderClientRequest network_client_request;
     mojo::ScopedDataPipeConsumerHandle network_consumer;
+    ServiceWorkerNewScriptLoader::NetworkLoaderState network_loader_state;
+    ServiceWorkerNewScriptLoader::WriterState body_writer_state;
   };
 
   // This callback is only called after all of the work is done by the checker.
   // It notifies the check result to the callback and the ownership of
   // internal state variables (the cache writer and Mojo endpoints for loading)
   // is transferred to the callback in the PausedState only when the result is
-  // Result::kDifferent. Otherwise it's set to nullptr.
-  using ResultCallback = base::OnceCallback<
-      void(const GURL&, int64_t, Result, std::unique_ptr<PausedState>)>;
+  // Result::kDifferent. Otherwise it's set to nullptr. FailureInfo is set to a
+  // valid value if the result is Result::kFailed, otherwise it'll be nullptr.
+  using ResultCallback = base::OnceCallback<void(const GURL&,
+                                                 Result,
+                                                 std::unique_ptr<FailureInfo>,
+                                                 std::unique_ptr<PausedState>)>;
 
   // Both |compare_reader| and |copy_reader| should be created from the same
   // resource ID, and this ID should locate where the script specified with
-  // |url| is stored. |writer| should be created with a new resource ID.
+  // |script_url| is stored. |writer| should be created with a new resource ID.
+  // |main_script_url| could be different from |script_url| when the script is
+  // imported.
   ServiceWorkerSingleScriptUpdateChecker(
-      const GURL& url,
-      int64_t resource_id,
+      const GURL& script_url,
       bool is_main_script,
+      const GURL& main_script_url,
+      const GURL& scope,
+      bool force_bypass_cache,
+      blink::mojom::ServiceWorkerUpdateViaCache update_via_cache,
+      base::TimeDelta time_since_last_check,
+      const net::HttpRequestHeaders& default_headers,
       scoped_refptr<network::SharedURLLoaderFactory> loader_factory,
       std::unique_ptr<ServiceWorkerResponseReader> compare_reader,
       std::unique_ptr<ServiceWorkerResponseReader> copy_reader,
@@ -87,22 +115,16 @@ class CONTENT_EXPORT ServiceWorkerSingleScriptUpdateChecker
   void OnUploadProgress(int64_t current_position,
                         int64_t total_size,
                         OnUploadProgressCallback ack_callback) override;
-  void OnReceiveCachedMetadata(const std::vector<uint8_t>& data) override;
+  void OnReceiveCachedMetadata(mojo_base::BigBuffer data) override;
   void OnTransferSizeUpdated(int32_t transfer_size_diff) override;
   void OnStartLoadingResponseBody(
       mojo::ScopedDataPipeConsumerHandle consumer) override;
   void OnComplete(const network::URLLoaderCompletionStatus& status) override;
 
- private:
-  enum class NetworkLoaderState {
-    kNotStarted,
-    kLoadingHeader,
-    kWaitingForBody,
-    kLoadingBody,
-    kCompleted
-  };
+  bool network_accessed() const { return network_accessed_; }
 
-  enum class CacheWriterState { kNotStarted, kWriting, kCompleted };
+ private:
+  class WrappedIOBuffer;
 
   void WriteHeaders(scoped_refptr<HttpResponseInfoIOBuffer> info_buffer);
   void OnWriteHeadersComplete(net::Error error);
@@ -117,10 +139,22 @@ class CONTENT_EXPORT ServiceWorkerSingleScriptUpdateChecker
       scoped_refptr<network::MojoToNetPendingBuffer> pending_buffer,
       uint32_t bytes_written,
       net::Error error);
-  void Finish(Result result);
+
+  // Called when the update check for this script failed. It calls Finish().
+  void Fail(blink::ServiceWorkerStatusCode status,
+            const std::string& error_message);
+
+  // Called when the update check for this script succeeded. It calls Finish().
+  void Succeed(Result result);
+  void Finish(Result result, std::unique_ptr<FailureInfo> failure_info);
 
   const GURL script_url_;
-  const int64_t resource_id_;
+  const bool is_main_script_;
+  const GURL scope_;
+  const bool force_bypass_cache_;
+  const blink::mojom::ServiceWorkerUpdateViaCache update_via_cache_;
+  const base::TimeDelta time_since_last_check_;
+  bool network_accessed_ = false;
 
   network::mojom::URLLoaderPtr network_loader_;
   mojo::Binding<network::mojom::URLLoaderClient> network_client_binding_;
@@ -143,7 +177,8 @@ class CONTENT_EXPORT ServiceWorkerSingleScriptUpdateChecker
   // CreateLoaderAndStart(): kNotStarted -> kLoadingHeader
   // OnReceiveResponse(): kLoadingHeader -> kWaitingForBody
   // OnComplete(): kWaitingForBody -> kCompleted
-  NetworkLoaderState network_loader_state_ = NetworkLoaderState::kNotStarted;
+  ServiceWorkerNewScriptLoader::NetworkLoaderState network_loader_state_ =
+      ServiceWorkerNewScriptLoader::NetworkLoaderState::kNotStarted;
 
   // Represents the state of |cache_writer_|.
   // Set to kWriting when it starts to send the header to |cache_writer_|, and
@@ -151,7 +186,8 @@ class CONTENT_EXPORT ServiceWorkerSingleScriptUpdateChecker
   //
   // OnReceiveResponse(): kNotStarted -> kWriting (in WriteHeaders())
   // OnWriteHeadersComplete(): kWriting -> kCompleted
-  CacheWriterState header_writer_state_ = CacheWriterState::kNotStarted;
+  ServiceWorkerNewScriptLoader::WriterState header_writer_state_ =
+      ServiceWorkerNewScriptLoader::WriterState::kNotStarted;
 
   // Represents the state of |cache_writer_| and |network_consumer_|.
   // Set to kWriting when |this| starts watching |network_consumer_|, and set to
@@ -167,9 +203,11 @@ class CONTENT_EXPORT ServiceWorkerSingleScriptUpdateChecker
   //
   // When response body is empty:
   // OnComplete(): kNotStarted -> kCompleted
-  CacheWriterState body_writer_state_ = CacheWriterState::kNotStarted;
+  ServiceWorkerNewScriptLoader::WriterState body_writer_state_ =
+      ServiceWorkerNewScriptLoader::WriterState::kNotStarted;
 
-  base::WeakPtrFactory<ServiceWorkerSingleScriptUpdateChecker> weak_factory_;
+  base::WeakPtrFactory<ServiceWorkerSingleScriptUpdateChecker> weak_factory_{
+      this};
 
   DISALLOW_IMPLICIT_CONSTRUCTORS(ServiceWorkerSingleScriptUpdateChecker);
 };

@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2017 The Qt Company Ltd.
+** Copyright (C) 2019 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtSensors module of the Qt Toolkit.
@@ -48,28 +48,18 @@
 **
 ****************************************************************************/
 
-#include <QtQml/QQmlExtensionPlugin>
-#include <QtQml/QtQml>
+#include "main.h"
 #include "explorer.h"
-#include <QtCore/QDebug>
 
 QT_BEGIN_NAMESPACE
 
-class SensorExplorerDeclarativeModule : public QQmlExtensionPlugin
+void SensorExplorerDeclarativeModule::registerTypes(const char *uri)
 {
-    Q_OBJECT
-    Q_PLUGIN_METADATA(IID QQmlExtensionInterface_iid FILE "import.json")
-public:
-    void registerTypes(const char *uri) override
-    {
-        Q_ASSERT(QLatin1String(uri) == QLatin1String("Explorer"));
-        // @uri Explorer
-        qmlRegisterType<QSensorExplorer>(uri, 1, 0, "SensorExplorer");
-        qmlRegisterType<QSensorItem>(uri, 1, 0, "SensorItem");
-        qmlRegisterType<QPropertyInfo>(uri, 1, 0, "PropertyInfo");
-    }
-};
+    Q_ASSERT(QLatin1String(uri) == QLatin1String("Explorer"));
+    // @uri Explorer
+    qmlRegisterType<QSensorExplorer>(uri, 1, 0, "SensorExplorer");
+    qmlRegisterType<QSensorItem>(uri, 1, 0, "SensorItem");
+    qmlRegisterType<QPropertyInfo>(uri, 1, 0, "PropertyInfo");
+}
 
 QT_END_NAMESPACE
-
-#include "main.moc"

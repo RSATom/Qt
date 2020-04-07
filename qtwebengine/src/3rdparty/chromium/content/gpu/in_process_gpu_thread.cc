@@ -11,6 +11,7 @@
 #include "content/gpu/gpu_process.h"
 #include "content/public/common/content_client.h"
 #include "content/public/common/content_switches.h"
+#include "gpu/config/gpu_finch_features.h"
 #include "gpu/config/gpu_preferences.h"
 #include "gpu/ipc/service/gpu_init.h"
 
@@ -81,9 +82,9 @@ public:
         // WGL needs to create its own window and pump messages on it.
         options.message_loop_type = base::MessageLoop::TYPE_UI;
 #endif
-#if defined(OS_ANDROID) || defined(OS_CHROMEOS)
-        options.priority = base::ThreadPriority::DISPLAY;
-#endif
+
+        if (base::FeatureList::IsEnabled(features::kGpuUseDisplayThreadPriority))
+          options.priority = base::ThreadPriority::DISPLAY;
         thread_->StartWithOptions(options);
     }
 

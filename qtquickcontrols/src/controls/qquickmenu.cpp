@@ -174,7 +174,7 @@ QT_BEGIN_NAMESPACE
 /*!
     \qmlmethod MenuItem Menu::addItem(string text)
 
-    Adds an item to the menu. Returns the newly created \l MenuItem.
+    Adds a \a text item to the menu. Returns the newly created \l MenuItem.
 
     \sa insertItem()
 */
@@ -182,7 +182,7 @@ QT_BEGIN_NAMESPACE
 /*!
     \qmlmethod MenuItem Menu::insertItem(int before, string title)
 
-    Creates and inserts an item with title \c title at the index \c before in the current menu.
+    Creates and inserts an item with title \a title at the index \a before in the current menu.
     Returns the newly created \l MenuItem.
 
     \sa addItem()
@@ -199,14 +199,14 @@ QT_BEGIN_NAMESPACE
 /*!
     \qmlmethod void Menu::insertSeparator(int before)
 
-    Creates and inserts a separator at the index \c before in the current menu.
+    Creates and inserts a separator at the index \a before in the current menu.
 
     \sa addSeparator()
 */
 
 /*!
     \qmlmethod Menu Menu::addMenu(string title)
-    Adds a submenu to the menu. Returns the newly created \l Menu.
+    Adds a submenu with a title \a title to the menu. Returns the newly created \l Menu.
 
     \sa insertMenu()
 */
@@ -214,7 +214,7 @@ QT_BEGIN_NAMESPACE
 /*!
     \qmlmethod MenuItem Menu::insertMenu(int before, string title)
 
-    Creates and inserts a submenu with title \c title at the index \c before in the current menu.
+    Creates and inserts a submenu with a title \a title at the index \a before in the current menu.
     Returns the newly created \l Menu.
 
     \sa addMenu()
@@ -223,7 +223,7 @@ QT_BEGIN_NAMESPACE
 /*!
     \qmlmethod void Menu::insertItem(int before, object item)
 
-    Inserts the \c item at the index \c before in the current menu.
+    Inserts the \a item at the index \a before in the current menu.
     In this case, \c item can be either a \l MenuItem, a \l MenuSeparator,
     or a \l Menu.
 
@@ -233,8 +233,8 @@ QT_BEGIN_NAMESPACE
 /*!
     \qmlmethod void Menu::removeItem(item)
 
-    Removes the \c item from the menu.
-    In this case, \c item can be either a \l MenuItem, a \l MenuSeparator,
+    Removes the \a item from the menu.
+    In this case, \a item can be either a \l MenuItem, a \l MenuSeparator,
     or a \l Menu.
 
     \sa insertItem()

@@ -68,6 +68,8 @@ namespace PickingUtils {
 typedef QVector<RayCasting::QCollisionQueryResult::Hit> HitList;
 }
 
+class RayCastingJobPrivate;
+
 class Q_AUTOTEST_EXPORT RayCastingJob : public AbstractPickingJob
 {
 public:

@@ -217,9 +217,8 @@ CollectionIndexCache<Collection, NodeType>::NodeAfterCachedNode(
       collection.TraverseForwardToOffset(index, *CachedNode(), current_index);
   if (!current_node) {
     // Did not find the node. On plus side, we now know the length.
-    if (IsCachedNodeCountValid()) {
+    if (IsCachedNodeCountValid())
       DCHECK_EQ(current_index + 1, CachedNodeCount());
-    }
     SetCachedNodeCount(current_index + 1);
     return nullptr;
   }

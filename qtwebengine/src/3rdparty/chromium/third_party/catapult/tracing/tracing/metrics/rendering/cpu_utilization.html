@@ -70,21 +70,27 @@ tr.exportTo('tr.metrics.rendering', function() {
   CATEGORY_THREAD_MAP.set(
       'browser', [/^Browser Compositor$/, /^CrBrowserMain$/]);
   CATEGORY_THREAD_MAP.set('display_compositor', [/^VizCompositorThread$/]);
-  CATEGORY_THREAD_MAP.set(
-      'total_fast_path', [
-        /^Browser Compositor$/, /^Chrome_InProcGpuThread$/, /^Compositor$/,
-        /^CrBrowserMain$/, /^CrGpuMain$/, /IOThread/, /^VizCompositorThread$/]);
   CATEGORY_THREAD_MAP.set('GPU', [/^Chrome_InProcGpuThread$/, /^CrGpuMain$/]);
   CATEGORY_THREAD_MAP.set('IO', [/IOThread/]);
   CATEGORY_THREAD_MAP.set('raster', [/CompositorTileWorker/]);
   CATEGORY_THREAD_MAP.set('renderer_compositor', [/^Compositor$/]);
   CATEGORY_THREAD_MAP.set('renderer_main', [/^CrRendererMain$/]);
+  CATEGORY_THREAD_MAP.set(
+      'total_rendering', [
+        /^Browser Compositor$/, /^Chrome_InProcGpuThread$/, /^Compositor$/,
+        /CompositorTileWorker/, /^CrBrowserMain$/, /^CrGpuMain$/,
+        /^CrRendererMain$/, /IOThread/, /^VizCompositorThread$/]);
+
 
   const ALL_CATEGORIES = [...CATEGORY_THREAD_MAP.keys(), 'other'];
 
   function addValueToMap_(map, key, value) {
     const oldValue = map.get(key) || 0;
     map.set(key, oldValue + value);
+  }
+
+  function categoryShouldHaveBreakdown(category) {
+    return category === 'total_all' || category === 'total_rendering';
   }
 
   function* getCategories_(threadName) {
@@ -155,6 +161,7 @@ tr.exportTo('tr.metrics.rendering', function() {
       for (const [threadName, coresPerSec] of threadValues) {
         for (const category of getCategories_(threadName)) {
           addValueToMap_(categoryValues, category, coresPerSec);
+          if (!categoryShouldHaveBreakdown(category)) continue;
           if (!breakdowns.has(category)) {
             breakdowns.set(category, new tr.v.d.Breakdown());
           }
@@ -185,6 +192,7 @@ tr.exportTo('tr.metrics.rendering', function() {
 
   const SUMMARY_OPTIONS = {
     percentile: [0.90, 0.95],
+    ci: [0.95],
   };
 
   return {

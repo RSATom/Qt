@@ -588,7 +588,7 @@ void serializeInvokePacket(DataStreamPacket &ds, const QString &name, int call, 
     ds << index;
 
     ds << (quint32)args.size();
-    foreach (const auto &arg, args)
+    for (const auto &arg : args)
         ds << encodeVariant(arg);
 
     ds << serialId;

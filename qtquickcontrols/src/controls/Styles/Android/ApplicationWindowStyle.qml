@@ -37,6 +37,7 @@
 **
 ****************************************************************************/
 
+import QtQml 2.14 as Qml
 import QtQuick 2.2
 import QtQuick.Controls 1.2
 import QtQuick.Controls.Styles 1.3
@@ -111,12 +112,13 @@ QtObject {
                 items: control.menuBar ? control.menuBar.menus : []
             }
 
-            Binding {
+            Qml.Binding {
                 target: control.toolBar
                 property: "__menu"
                 value: proxyMenu.items.length > 1 ? proxyMenu :
                        proxyMenu.items.length === 1 ? proxyMenu.items[0] : null
                 when: hasToolBar
+                restoreMode: Binding.RestoreBinding
             }
         }
     }

@@ -290,7 +290,7 @@ struct QV4ParticleData : public QV4::Object
 
 DEFINE_OBJECT_VTABLE(QV4ParticleData);
 
-class QV4ParticleDataDeletable : public QV8Engine::Deletable
+class QV4ParticleDataDeletable : public QV4::ExecutionEngine::Deletable
 {
 public:
     QV4ParticleDataDeletable(QV4::ExecutionEngine *engine);
@@ -528,9 +528,9 @@ QQuickV4ParticleData::~QQuickV4ParticleData()
 {
 }
 
-QQmlV4Handle QQuickV4ParticleData::v4Value() const
+QV4::ReturnedValue QQuickV4ParticleData::v4Value() const
 {
-    return QQmlV4Handle(m_v4Value.value());
+    return m_v4Value.value();
 }
 
 QT_END_NAMESPACE

@@ -44,6 +44,7 @@ private slots:
     void realloc();
     void reverseIterators();
     void count();
+    void cpp17ctad();
     void first();
     void last();
     void squeeze();
@@ -57,26 +58,27 @@ private slots:
     void initializeListComplex();
     void insertMove();
     void nonCopyable();
+    void implicitDefaultCtor();
 
 private:
     template<typename T>
     void initializeList();
 };
 
-int fooCtor = 0;
-int fooDtor = 0;
-
-struct Foo
+struct Tracker
 {
-    int *p;
+    static int count;
+    Tracker() { ++count; }
+    Tracker(const Tracker &) { ++count; }
+    Tracker(Tracker &&) { ++count; }
 
-    Foo() { p = new int; ++fooCtor; }
-    Foo(const Foo &/*other*/) { p = new int; ++fooCtor; }
+    Tracker &operator=(const Tracker &) = default;
+    Tracker &operator=(Tracker &&) = default;
 
-    void operator=(const Foo & /* other */) { }
-
-    ~Foo() { delete p; ++fooDtor; }
+    ~Tracker() { --count; }
 };
+
+int Tracker::count = 0;
 
 void tst_QVarLengthArray::append()
 {
@@ -129,6 +131,23 @@ void tst_QVarLengthArray::removeLast()
         v.removeLast();
         QCOMPARE(v.size(), 2);
     }
+
+    {
+        Tracker t;
+        QCOMPARE(Tracker::count, 1);
+        QVarLengthArray<Tracker, 2> v;
+        v.append(t);
+        v.append({});
+        QCOMPARE(Tracker::count, 3);
+        v.removeLast();
+        QCOMPARE(Tracker::count, 2);
+        v.append(t);
+        v.append({});
+        QCOMPARE(Tracker::count, 4);
+        v.removeLast();
+        QCOMPARE(Tracker::count, 3);
+    }
+    QCOMPARE(Tracker::count, 0);
 }
 
 void tst_QVarLengthArray::oldTests()
@@ -699,6 +718,34 @@ void tst_QVarLengthArray::count()
     }
 }
 
+void tst_QVarLengthArray::cpp17ctad()
+{
+#ifdef __cpp_deduction_guides
+#define QVERIFY_IS_VLA_OF(obj, Type) \
+    QVERIFY2((std::is_same<decltype(obj), QVarLengthArray<Type>>::value), \
+             QMetaType::typeName(qMetaTypeId<decltype(obj)::value_type>()))
+#define CHECK(Type, One, Two, Three) \
+    do { \
+        const Type v[] = {One, Two, Three}; \
+        QVarLengthArray v1 = {One, Two, Three}; \
+        QVERIFY_IS_VLA_OF(v1, Type); \
+        QVarLengthArray v2(v1.begin(), v1.end()); \
+        QVERIFY_IS_VLA_OF(v2, Type); \
+        QVarLengthArray v3(std::begin(v), std::end(v)); \
+        QVERIFY_IS_VLA_OF(v3, Type); \
+    } while (false) \
+    /*end*/
+    CHECK(int, 1, 2, 3);
+    CHECK(double, 1.0, 2.0, 3.0);
+    CHECK(QString, QStringLiteral("one"), QStringLiteral("two"), QStringLiteral("three"));
+#undef QVERIFY_IS_VLA_OF
+#undef CHECK
+#else
+    QSKIP("This test requires C++17 Constructor Template Argument Deduction support enabled in the compiler.");
+#endif
+
+}
+
 void tst_QVarLengthArray::first()
 {
     // append some items, make sure it stays sane
@@ -908,7 +955,6 @@ void tst_QVarLengthArray::initializeListComplex()
 template<typename T>
 void tst_QVarLengthArray::initializeList()
 {
-#ifdef Q_COMPILER_INITIALIZER_LISTS
     T val1(110);
     T val2(105);
     T val3(101);
@@ -945,9 +991,6 @@ void tst_QVarLengthArray::initializeList()
 
     v6 = {}; // assign empty
     QCOMPARE(v6.size(), 0);
-#else
-    QSKIP("This tests requires a compiler that supports initializer lists.");
-#endif
 }
 
 void tst_QVarLengthArray::insertMove()
@@ -1080,6 +1123,12 @@ void tst_QVarLengthArray::nonCopyable()
     QVERIFY(ptr4 == vec.at(3).get());
     QVERIFY(ptr5 == vec.at(4).get());
     QVERIFY(ptr6 == vec.at(5).get());
+}
+
+void tst_QVarLengthArray::implicitDefaultCtor()
+{
+    QVarLengthArray<int> def = {};
+    QCOMPARE(def.size(), 0);
 }
 
 QTEST_APPLESS_MAIN(tst_QVarLengthArray)

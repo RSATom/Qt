@@ -37,6 +37,7 @@ ALIGNMENT_ORDER = [
     'TransformOperations',
     'Vector<CSSPropertyID>',
     'Vector<GridTrackSize>',
+    'Vector<AtomicString>',
     'GridPosition',
     'GapLength',
     'AtomicString',
@@ -61,8 +62,8 @@ ALIGNMENT_ORDER = [
     'TabSize',
     'float',
     # Aligns like int
-    'ScrollSnapType',
-    'ScrollSnapAlign',
+    'cc::ScrollSnapType',
+    'cc::ScrollSnapAlign',
     'BorderValue',
     'StyleColor',
     'Color',

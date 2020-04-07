@@ -14,7 +14,6 @@
 #include "third_party/blink/renderer/core/html/canvas/canvas_rendering_context.h"
 #include "third_party/blink/renderer/core/html/canvas/html_canvas_element.h"
 #include "third_party/blink/renderer/core/paint/paint_controller_paint_test.h"
-#include "third_party/blink/renderer/core/paint/stub_chrome_client_for_cap.h"
 #include "third_party/blink/renderer/platform/graphics/canvas_2d_layer_bridge.h"
 #include "third_party/blink/renderer/platform/graphics/gpu/shared_gpu_context.h"
 #include "third_party/blink/renderer/platform/graphics/test/fake_gles2_interface.h"
@@ -30,8 +29,7 @@ namespace blink {
 
 class HTMLCanvasPainterTestForCAP : public PaintControllerPaintTest {
  public:
-  HTMLCanvasPainterTestForCAP()
-      : chrome_client_(MakeGarbageCollected<StubChromeClientForCAP>()) {}
+  HTMLCanvasPainterTestForCAP() {}
 
  protected:
   void SetUp() override {
@@ -58,10 +56,8 @@ class HTMLCanvasPainterTestForCAP : public PaintControllerPaintTest {
     };
   }
 
-  ChromeClient& GetChromeClient() const override { return *chrome_client_; }
-
   bool HasLayerAttached(const cc::Layer& layer) {
-    return chrome_client_->HasLayer(layer);
+    return GetChromeClient().HasLayer(layer);
   }
 
   std::unique_ptr<Canvas2DLayerBridge> MakeCanvas2DLayerBridge(
@@ -72,11 +68,10 @@ class HTMLCanvasPainterTestForCAP : public PaintControllerPaintTest {
   }
 
  private:
-  Persistent<StubChromeClientForCAP> chrome_client_;
   FakeGLES2Interface gl_;
 };
 
-INSTANTIATE_CAP_TEST_CASE_P(HTMLCanvasPainterTestForCAP);
+INSTANTIATE_CAP_TEST_SUITE_P(HTMLCanvasPainterTestForCAP);
 
 TEST_P(HTMLCanvasPainterTestForCAP, Canvas2DLayerAppearsInLayerTree) {
   // Insert a <canvas> and force it into accelerated mode.

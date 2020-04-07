@@ -94,9 +94,6 @@ extern QClipboard *qt_clipboard;
 typedef QHash<QByteArray, QFont> FontHash;
 Q_WIDGETS_EXPORT FontHash *qt_app_fonts_hash();
 
-typedef QHash<QByteArray, QPalette> PaletteHash;
-PaletteHash *qt_app_palettes_hash();
-
 #define QApplicationPrivateBase QGuiApplicationPrivate
 
 class Q_WIDGETS_EXPORT QApplicationPrivate : public QApplicationPrivateBase
@@ -112,15 +109,8 @@ public:
     virtual bool shouldQuit() override;
     bool tryCloseAllWindows() override;
 
-#if 0 // Used to be included in Qt4 for Q_WS_X11
-#if QT_CONFIG(settings)
-    static bool x11_apply_settings();
-#endif
-    static void reset_instance_pointer();
-#endif
     static bool autoSipEnabled;
     static QString desktopStyleKey();
-
 
     void createEventDispatcher() override;
     static void dispatchEnterLeave(QWidget *enter, QWidget *leave, const QPointF &globalPosF);
@@ -128,28 +118,24 @@ public:
     void notifyWindowIconChanged() override;
 
     //modality
-    bool isWindowBlocked(QWindow *window, QWindow **blockingWindow = 0) const override;
+    bool isWindowBlocked(QWindow *window, QWindow **blockingWindow = nullptr) const override;
     static bool isBlockedByModal(QWidget *widget);
     static bool modalState();
-    static bool tryModalHelper(QWidget *widget, QWidget **rettop = 0);
-#if 0 // Used to be included in Qt4 for Q_WS_MAC
-    static QWidget *tryModalHelper_sys(QWidget *top);
-    bool canQuit();
+    static bool tryModalHelper(QWidget *widget, QWidget **rettop = nullptr);
+
+#ifdef QT_KEYPAD_NAVIGATION
+    static bool keypadNavigationEnabled()
+    {
+        return navigationMode == Qt::NavigationModeKeypadTabOrder ||
+                navigationMode == Qt::NavigationModeKeypadDirectional;
+    }
 #endif
 
     bool notify_helper(QObject *receiver, QEvent * e);
 
-    void init(
-#if 0 // Used to be included in Qt4 for Q_WS_X11
-                   Display *dpy = 0, Qt::HANDLE visual = 0, Qt::HANDLE cmap = 0
-#endif
-                   );
+    void init();
     void initialize();
     void process_cmdline();
-
-#if 0 // Used to be included in Qt4 for Q_WS_X11
-    static void x11_initialize_style();
-#endif
 
     static bool inPopupMode();
     bool popupActive() override { return inPopupMode(); }
@@ -157,7 +143,7 @@ public:
     void openPopup(QWidget *popup);
     static void setFocusWidget(QWidget *focus, Qt::FocusReason reason);
     static QWidget *focusNextPrevChild_helper(QWidget *toplevel, bool next,
-                                              bool *wrappingOccurred = 0);
+                                              bool *wrappingOccurred = nullptr);
 
 #if QT_CONFIG(graphicsview)
     // Maintain a list of all scenes to ensure font and palette propagation to
@@ -173,7 +159,6 @@ public:
     static QWidgetList *popupWidgets;
     static QStyle *app_style;
     static QPalette *sys_pal;
-    static QPalette *set_pal;
 
 protected:
     void notifyThemeChanged() override;
@@ -200,14 +185,13 @@ public:
     static bool widgetCount; // Coupled with -widgetcount switch
 
     static void setSystemPalette(const QPalette &pal);
-    static void setPalette_helper(const QPalette &palette, const char* className, bool clearWidgetPaletteHash);
+    static void setPalette_helper(const QPalette &palette, const char* className);
     static void initializeWidgetPaletteHash();
     static void initializeWidgetFontHash();
     static void setSystemFont(const QFont &font);
 
-#if 0 // Used to be included in Qt4 for Q_WS_X11
-    static void applyX11SpecificCommandLineArguments(QWidget *main_widget);
-#endif
+    using PaletteHash = QHash<QByteArray, QPalette>;
+    static PaletteHash widgetPalettes;
 
     static QApplicationPrivate *instance() { return self; }
 
@@ -216,10 +200,6 @@ public:
     static Qt::NavigationMode navigationMode;
 #endif
 
-#if 0 /* Used to be included in Qt4 for Q_WS_MAC */ || 0 /* Used to be included in Qt4 for Q_WS_X11 */
-    void _q_alertTimeOut();
-    QHash<QWidget *, QTimer *> alertTimerHash;
-#endif
 #ifndef QT_NO_STYLE_STYLESHEET
     static QString styleSheet;
 #endif
@@ -238,7 +218,7 @@ public:
             return window;
         if (const QWidget *nativeParent = widget->nativeParentWidget())
             return nativeParent->windowHandle();
-        return 0;
+        return nullptr;
     }
 
 #ifdef Q_OS_WIN
@@ -255,14 +235,6 @@ public:
 #ifndef QT_NO_GESTURES
     QGestureManager *gestureManager;
     QWidget *gestureWidget;
-#endif
-#if 0 /* Used to be included in Qt4 for Q_WS_X11 */ || 0 /* Used to be included in Qt4 for Q_WS_WIN */
-    QPixmap *move_cursor;
-    QPixmap *copy_cursor;
-    QPixmap *link_cursor;
-#endif
-#if 0 // Used to be included in Qt4 for Q_WS_WIN
-    QPixmap *ignore_cursor;
 #endif
 
     static bool updateTouchPointsForWidget(QWidget *widget, QTouchEvent *touchEvent);
@@ -292,14 +264,7 @@ private:
     static bool isAlien(QWidget *);
 };
 
-#if 0 // Used to be included in Qt4 for Q_WS_WIN
-  extern void qt_win_set_cursor(QWidget *, bool);
-#elif 0 // Used to be included in Qt4 for Q_WS_X11
-  extern void qt_x11_enforce_cursor(QWidget *, bool);
-  extern void qt_x11_enforce_cursor(QWidget *);
-#else
-  extern void qt_qpa_set_cursor(QWidget * w, bool force);
-#endif
+extern void qt_qpa_set_cursor(QWidget * w, bool force);
 
 QT_END_NAMESPACE
 

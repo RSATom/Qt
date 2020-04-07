@@ -2,14 +2,16 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "base/bind.h"
 #include "base/run_loop.h"
 #include "base/test/bind_test_util.h"
 #include "build/build_config.h"
 #if defined(OS_CHROMEOS)
-#include "chromeos/dbus/dbus_thread_manager.h"
+#include "chromeos/dbus/shill/shill_clients.h"
 #include "chromeos/network/geolocation_handler.h"
 #endif
 #include "mojo/public/cpp/bindings/interface_ptr.h"
+#include "net/base/network_change_notifier.h"
 #include "services/device/device_service_test_base.h"
 #include "services/device/geolocation/geolocation_provider_impl.h"
 #include "services/device/geolocation/network_location_request.h"
@@ -38,10 +40,10 @@ class GeolocationServiceUnitTest : public DeviceServiceTestBase {
  protected:
   void SetUp() override {
 #if defined(OS_CHROMEOS)
-    chromeos::DBusThreadManager::Initialize();
+    chromeos::shill_clients::InitializeFakes();
     chromeos::NetworkHandler::Initialize();
 #endif
-
+    network_change_notifier_ = net::NetworkChangeNotifier::CreateMock();
     // We need to initialize the above *before* the base fixture instantiates
     // the device service.
     DeviceServiceTestBase::SetUp();
@@ -58,7 +60,7 @@ class GeolocationServiceUnitTest : public DeviceServiceTestBase {
 
 #if defined(OS_CHROMEOS)
     chromeos::NetworkHandler::Shutdown();
-    chromeos::DBusThreadManager::Shutdown();
+    chromeos::shill_clients::Shutdown();
 #endif
 
     // Let the GeolocationImpl destruct earlier than GeolocationProviderImpl to
@@ -74,6 +76,7 @@ class GeolocationServiceUnitTest : public DeviceServiceTestBase {
     connector()->BindInterface(mojom::kServiceName, &geolocation_config_);
   }
 
+  std::unique_ptr<net::NetworkChangeNotifier> network_change_notifier_;
   mojom::GeolocationControlPtr geolocation_control_;
   mojom::GeolocationContextPtr geolocation_context_;
   mojom::GeolocationPtr geolocation_;

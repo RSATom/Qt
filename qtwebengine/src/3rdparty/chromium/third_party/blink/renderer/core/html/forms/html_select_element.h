@@ -52,8 +52,6 @@ class CORE_EXPORT HTMLSelectElement final
   DEFINE_WRAPPERTYPEINFO();
 
  public:
-  static HTMLSelectElement* Create(Document&);
-
   explicit HTMLSelectElement(Document&);
   ~HTMLSelectElement() override;
 
@@ -204,9 +202,10 @@ class CORE_EXPORT HTMLSelectElement final
   void ParseAttribute(const AttributeModificationParams&) override;
   bool IsPresentationAttribute(const QualifiedName&) const override;
 
-  LayoutObject* CreateLayoutObject(const ComputedStyle&) override;
-  void DidRecalcStyle(StyleRecalcChange) override;
-  void DetachLayoutTree(const AttachContext& = AttachContext()) override;
+  LayoutObject* CreateLayoutObject(const ComputedStyle&, LegacyLayout) override;
+  void DidRecalcStyle(const StyleRecalcChange) override;
+  void AttachLayoutTree(AttachContext&) override;
+  void DetachLayoutTree(bool performing_reattach = false) override;
   void AppendToFormData(FormData&) override;
   void DidAddUserAgentShadowRoot(ShadowRoot&) override;
 
@@ -283,6 +282,10 @@ class CORE_EXPORT HTMLSelectElement final
 
   void ObserveTreeMutation();
   void UnobserveTreeMutation();
+
+  // Apply changes to rendering as a result of attribute changes (multiple,
+  // size).
+  void ChangeRendering();
 
   // list_items_ contains HTMLOptionElement, HTMLOptGroupElement, and
   // HTMLHRElement objects.

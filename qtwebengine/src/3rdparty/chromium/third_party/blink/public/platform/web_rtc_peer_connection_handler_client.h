@@ -35,14 +35,24 @@
 
 #include "base/memory/scoped_refptr.h"
 #include "third_party/blink/public/platform/web_common.h"
+#include "third_party/blink/public/platform/web_vector.h"
 #include "third_party/webrtc/api/peer_connection_interface.h"
+#include "third_party/webrtc/api/sctp_transport_interface.h"
 
 namespace blink {
 
-class WebRTCDataChannelHandler;
 class WebRTCICECandidate;
 class WebRTCRtpReceiver;
 class WebRTCRtpTransceiver;
+class WebString;
+
+struct BLINK_PLATFORM_EXPORT WebRTCSctpTransportSnapshot {
+  rtc::scoped_refptr<webrtc::SctpTransportInterface> transport;
+  webrtc::SctpTransportInformation sctp_transport_state =
+      webrtc::SctpTransportInformation(webrtc::SctpTransportState::kNew);
+  webrtc::DtlsTransportInformation dtls_transport_state =
+      webrtc::DtlsTransportInformation(webrtc::DtlsTransportState::kNew);
+};
 
 class BLINK_PLATFORM_EXPORT WebRTCPeerConnectionHandlerClient {
  public:
@@ -50,6 +60,10 @@ class BLINK_PLATFORM_EXPORT WebRTCPeerConnectionHandlerClient {
 
   virtual void NegotiationNeeded() = 0;
   virtual void DidGenerateICECandidate(scoped_refptr<WebRTCICECandidate>) = 0;
+  virtual void DidFailICECandidate(const WebString& host_candidate,
+                                   const WebString& url,
+                                   int error_code,
+                                   const WebString& error_text) = 0;
   virtual void DidChangeSignalingState(
       webrtc::PeerConnectionInterface::SignalingState) = 0;
   virtual void DidChangeIceGatheringState(
@@ -57,13 +71,15 @@ class BLINK_PLATFORM_EXPORT WebRTCPeerConnectionHandlerClient {
   virtual void DidChangeIceConnectionState(
       webrtc::PeerConnectionInterface::IceConnectionState) = 0;
   virtual void DidChangePeerConnectionState(
-      webrtc::PeerConnectionInterface::PeerConnectionState){};
+      webrtc::PeerConnectionInterface::PeerConnectionState) {}
   virtual void DidAddReceiverPlanB(std::unique_ptr<WebRTCRtpReceiver>) = 0;
   virtual void DidRemoveReceiverPlanB(std::unique_ptr<WebRTCRtpReceiver>) = 0;
   virtual void DidModifyTransceivers(
-      std::vector<std::unique_ptr<WebRTCRtpTransceiver>>,
+      WebVector<std::unique_ptr<WebRTCRtpTransceiver>>,
       bool is_remote_description) = 0;
-  virtual void DidAddRemoteDataChannel(WebRTCDataChannelHandler*) = 0;
+  virtual void DidModifySctpTransport(WebRTCSctpTransportSnapshot) = 0;
+  virtual void DidAddRemoteDataChannel(
+      scoped_refptr<webrtc::DataChannelInterface>) = 0;
   virtual void DidNoteInterestingUsage(int usage_pattern) = 0;
   virtual void ReleasePeerConnectionHandler() = 0;
   virtual void ClosePeerConnection();

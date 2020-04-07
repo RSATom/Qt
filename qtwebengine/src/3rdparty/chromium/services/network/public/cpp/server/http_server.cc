@@ -55,8 +55,7 @@ HttpServer::HttpServer(mojom::TCPServerSocketPtr server_socket,
                        HttpServer::Delegate* delegate)
     : server_socket_(std::move(server_socket)),
       delegate_(delegate),
-      last_id_(0),
-      weak_ptr_factory_(this) {
+      last_id_(0) {
   DCHECK(server_socket_);
   // Start accepting connections in next run loop in case when delegate is not
   // ready to get callbacks.
@@ -78,7 +77,7 @@ void HttpServer::AcceptWebSocket(
 
 void HttpServer::SendOverWebSocket(
     int connection_id,
-    const std::string& data,
+    base::StringPiece data,
     net::NetworkTrafficAnnotationTag traffic_annotation) {
   HttpConnection* connection = FindConnection(connection_id);
   if (connection == NULL)
@@ -274,7 +273,7 @@ void HttpServer::HandleReadResult(HttpConnection* connection, MojoResult rv) {
         Close(connection->id());
         return;
       }
-      delegate_->OnWebSocketMessage(connection->id(), message);
+      delegate_->OnWebSocketMessage(connection->id(), std::move(message));
       if (HasClosedConnection(connection)) {
         return;
       }

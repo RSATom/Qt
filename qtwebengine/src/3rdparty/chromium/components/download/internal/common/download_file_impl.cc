@@ -4,19 +4,23 @@
 
 #include "components/download/public/common/download_file_impl.h"
 
+#include <algorithm>
 #include <string>
 #include <utility>
 
 #include "base/bind.h"
 #include "base/files/file_util.h"
-#include "base/message_loop/message_loop_current.h"
 #include "base/strings/stringprintf.h"
 #include "base/threading/sequenced_task_runner_handle.h"
+#include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
+#include "base/timer/timer.h"
 #include "base/values.h"
+#include "build/build_config.h"
 #include "components/download/internal/common/parallel_download_utils.h"
 #include "components/download/public/common/download_create_info.h"
 #include "components/download/public/common/download_destination_observer.h"
+#include "components/download/public/common/download_features.h"
 #include "components/download/public/common/download_interrupt_reasons_utils.h"
 #include "components/download/public/common/download_stats.h"
 #include "crypto/secure_hash.h"
@@ -24,6 +28,12 @@
 #include "mojo/public/c/system/types.h"
 #include "net/base/io_buffer.h"
 #include "services/network/public/cpp/features.h"
+#include "services/service_manager/public/cpp/connector.h"
+
+#if defined(OS_ANDROID)
+#include "base/android/content_uri_utils.h"
+#include "components/download/internal/common/android/download_collection_bridge.h"
+#endif  // defined(OS_ANDROID)
 
 namespace download {
 
@@ -52,13 +62,24 @@ const int kUnknownContentLength = -1;
 DownloadFileImpl::SourceStream::SourceStream(
     int64_t offset,
     int64_t length,
+    int64_t starting_file_write_offset,
     std::unique_ptr<InputStream> stream)
     : offset_(offset),
       length_(length),
+      starting_file_write_offset_(starting_file_write_offset),
+      bytes_read_(0),
       bytes_written_(0),
       finished_(false),
       index_(0u),
-      input_stream_(std::move(stream)) {}
+      input_stream_(std::move(stream)) {
+  CHECK_LE(offset_, starting_file_write_offset_);
+  CHECK_GE(offset_, 0);
+  DCHECK(length <= 0 || length >= starting_file_write_offset - offset)
+      << "Not enough for content validation. offset = " << offset
+      << ", length = " << length
+      << " , starting_file_write_offset = " << starting_file_write_offset
+      << ".";
+}
 
 DownloadFileImpl::SourceStream::~SourceStream() = default;
 
@@ -66,19 +87,25 @@ void DownloadFileImpl::SourceStream::Initialize() {
   input_stream_->Initialize();
 }
 
-void DownloadFileImpl::SourceStream::OnWriteBytesToDisk(int64_t bytes_write) {
-  bytes_written_ += bytes_write;
+void DownloadFileImpl::SourceStream::OnBytesConsumed(int64_t bytes_read,
+                                                     int64_t bytes_written) {
+  CHECK_GE(bytes_read, bytes_written);
+  bytes_read_ += bytes_read;
+  bytes_written_ += bytes_written;
 }
 
 void DownloadFileImpl::SourceStream::TruncateLengthWithWrittenDataBlock(
-    int64_t offset,
+    int64_t received_slice_offset,
     int64_t bytes_written) {
   DCHECK_GT(bytes_written, 0);
   if (length_ == kNoBytesToWrite)
     return;
 
-  if (offset <= offset_) {
-    if (offset + bytes_written > offset_) {
+  if (received_slice_offset <= starting_file_write_offset_) {
+    // If validation has completed, mark the stream as finished if the file
+    // write position already has data.
+    if (received_slice_offset + bytes_written > starting_file_write_offset_ &&
+        GetRemainingBytesToValidate() == 0) {
       length_ = kNoBytesToWrite;
       finished_ = true;
     }
@@ -86,8 +113,12 @@ void DownloadFileImpl::SourceStream::TruncateLengthWithWrittenDataBlock(
   }
 
   if (length_ == DownloadSaveInfo::kLengthFullContent ||
-      length_ > offset - offset_) {
-    length_ = offset - offset_;
+      (length_ > received_slice_offset - offset_ &&
+       length_ > starting_file_write_offset_ - offset_)) {
+    // Stream length should always include the validation data, unless the
+    // response is too short.
+    length_ =
+        std::max(received_slice_offset, starting_file_write_offset_) - offset_;
   }
 }
 
@@ -117,23 +148,15 @@ InputStream::StreamState DownloadFileImpl::SourceStream::Read(
   return input_stream_->Read(data, length);
 }
 
-DownloadFileImpl::DownloadFileImpl(
-    std::unique_ptr<DownloadSaveInfo> save_info,
-    const base::FilePath& default_download_directory,
-    std::unique_ptr<InputStream> stream,
-    uint32_t download_id,
-    base::WeakPtr<DownloadDestinationObserver> observer)
-    : DownloadFileImpl(std::move(save_info),
-                       default_download_directory,
-                       download_id,
-                       observer) {
-  source_streams_[save_info_->offset] = std::make_unique<SourceStream>(
-      save_info_->offset, save_info_->length, std::move(stream));
+size_t DownloadFileImpl::SourceStream::GetRemainingBytesToValidate() {
+  int64_t bytes_remaining = starting_file_write_offset_ - offset_ - bytes_read_;
+  return bytes_remaining < 0 ? 0 : bytes_remaining;
 }
 
 DownloadFileImpl::DownloadFileImpl(
     std::unique_ptr<DownloadSaveInfo> save_info,
     const base::FilePath& default_download_directory,
+    std::unique_ptr<InputStream> stream,
     uint32_t download_id,
     base::WeakPtr<DownloadDestinationObserver> observer)
     : file_(download_id),
@@ -147,13 +170,16 @@ DownloadFileImpl::DownloadFileImpl(
       bytes_seen_without_parallel_streams_(0),
       is_paused_(false),
       download_id_(download_id),
-      main_task_runner_(base::MessageLoopCurrent::Get()->task_runner()),
-      observer_(observer),
-      weak_factory_(this) {
+      main_task_runner_(base::ThreadTaskRunnerHandle::Get()),
+      observer_(observer) {
   TRACE_EVENT_INSTANT0("download", "DownloadFileCreated",
                        TRACE_EVENT_SCOPE_THREAD);
   TRACE_EVENT_NESTABLE_ASYNC_BEGIN0("download", "DownloadFileActive",
                                     download_id);
+
+  source_streams_[save_info_->offset] = std::make_unique<SourceStream>(
+      save_info_->offset, save_info_->length,
+      save_info_->GetStartingFileWriteOffset(), std::move(stream));
 
   DETACH_FROM_SEQUENCE(sequence_checker_);
 }
@@ -188,7 +214,7 @@ void DownloadFileImpl::Initialize(
       bytes_so_far += received_slice.received_bytes;
     }
   } else {
-    bytes_so_far = save_info_->offset;
+    bytes_so_far = save_info_->GetStartingFileWriteOffset();
   }
   int64_t bytes_wasted = 0;
   DownloadInterruptReason reason = file_.Initialize(
@@ -231,7 +257,7 @@ void DownloadFileImpl::AddInputStream(std::unique_ptr<InputStream> stream,
   }
   DCHECK(source_streams_.find(offset) == source_streams_.end());
   source_streams_[offset] =
-      std::make_unique<SourceStream>(offset, length, std::move(stream));
+      std::make_unique<SourceStream>(offset, length, offset, std::move(stream));
   OnSourceStreamAdded(source_streams_[offset].get());
 }
 
@@ -248,46 +274,73 @@ void DownloadFileImpl::OnSourceStreamAdded(SourceStream* source_stream) {
     RegisterAndActivateStream(source_stream);
 }
 
-DownloadInterruptReason DownloadFileImpl::WriteDataToFile(int64_t offset,
-                                                          const char* data,
-                                                          size_t data_len) {
+DownloadInterruptReason DownloadFileImpl::ValidateAndWriteDataToFile(
+    int64_t offset,
+    const char* data,
+    size_t bytes_to_validate,
+    size_t bytes_to_write) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-
-  WillWriteToDisk(data_len);
-  return file_.WriteDataToFile(offset, data, data_len);
+  // Check if some of the data is for validation purpose.
+  if (bytes_to_validate > 0 &&
+      !file_.ValidateDataInFile(offset, data, bytes_to_validate)) {
+    return DOWNLOAD_INTERRUPT_REASON_FILE_HASH_MISMATCH;
+  }
+  // If there is no data to write, just return DOWNLOAD_INTERRUPT_REASON_NONE
+  // and read the next chunk.
+  if (bytes_to_write <= 0)
+    return DOWNLOAD_INTERRUPT_REASON_NONE;
+  // Write the remaining data to disk.
+  WillWriteToDisk(bytes_to_write);
+  return file_.WriteDataToFile(offset + bytes_to_validate,
+                               data + bytes_to_validate, bytes_to_write);
 }
 
 bool DownloadFileImpl::CalculateBytesToWrite(SourceStream* source_stream,
                                              size_t bytes_available_to_write,
+                                             size_t* bytes_to_validate,
                                              size_t* bytes_to_write) {
+  *bytes_to_validate = 0;
   if (source_stream->length() == kNoBytesToWrite) {
     *bytes_to_write = 0;
     return true;
   }
 
+  // First calculate the number of bytes to validate.
+  *bytes_to_write = bytes_available_to_write;
+  size_t remaining_bytes_to_validate =
+      source_stream->GetRemainingBytesToValidate();
+  if (remaining_bytes_to_validate > 0) {
+    *bytes_to_validate =
+        std::min(remaining_bytes_to_validate, bytes_available_to_write);
+    *bytes_to_write -= *bytes_to_validate;
+  }
+  if (source_stream->length() != DownloadSaveInfo::kLengthFullContent &&
+      source_stream->bytes_read() +
+              static_cast<int64_t>(bytes_available_to_write) >
+          source_stream->length()) {
+    // Total bytes to consume is capped by the length of the stream.
+    int64_t bytes_to_consume =
+        source_stream->length() - source_stream->bytes_read();
+    // The validation data should always be streamed.
+    DCHECK_GE(bytes_to_consume, static_cast<int64_t>(*bytes_to_validate));
+    *bytes_to_write = bytes_to_consume - *bytes_to_validate;
+    return true;
+  }
+
   // If a new slice finds that its target position has already been written,
-  // terminate the stream.
-  if (source_stream->bytes_written() == 0) {
+  // terminate the stream if there are no bytes to validate.
+  if (source_stream->bytes_written() == 0 && *bytes_to_write > 0) {
     for (const auto& received_slice : received_slices_) {
-      if (received_slice.offset <= source_stream->offset() &&
+      if (received_slice.offset <=
+              source_stream->starting_file_write_offset() &&
           received_slice.offset + received_slice.received_bytes >
-              source_stream->offset()) {
+              source_stream->starting_file_write_offset()) {
         *bytes_to_write = 0;
         return true;
       }
     }
   }
 
-  if (source_stream->length() != DownloadSaveInfo::kLengthFullContent &&
-      source_stream->bytes_written() +
-              static_cast<int64_t>(bytes_available_to_write) >
-          source_stream->length()) {
-    // Write a partial buffer as the incoming data exceeds the length limit.
-    *bytes_to_write = source_stream->length() - source_stream->bytes_written();
-    return true;
-  }
-
-  *bytes_to_write = bytes_available_to_write;
   return false;
 }
 
@@ -304,14 +357,53 @@ void DownloadFileImpl::RenameAndAnnotate(
     const std::string& client_guid,
     const GURL& source_url,
     const GURL& referrer_url,
+    std::unique_ptr<service_manager::Connector> connector,
     const RenameCompletionCallback& callback) {
   std::unique_ptr<RenameParameters> parameters(new RenameParameters(
       ANNOTATE_WITH_SOURCE_INFORMATION, full_path, callback));
   parameters->client_guid = client_guid;
   parameters->source_url = source_url;
   parameters->referrer_url = referrer_url;
+  parameters->connector = std::move(connector);
   RenameWithRetryInternal(std::move(parameters));
 }
+
+#if defined(OS_ANDROID)
+void DownloadFileImpl::RenameToIntermediateUri(
+    const GURL& original_url,
+    const GURL& referrer_url,
+    const base::FilePath& file_name,
+    const std::string& mime_type,
+    const base::FilePath& current_path,
+    const RenameCompletionCallback& callback) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  // Create new content URI if |current_path| is not content URI
+  // or if it is already deleted.
+  base::FilePath content_path =
+      current_path.IsContentUri() && base::ContentUriExists(current_path)
+          ? current_path
+          : DownloadCollectionBridge::CreateIntermediateUriForPublish(
+                original_url, referrer_url, file_name, mime_type);
+  DownloadInterruptReason reason = DOWNLOAD_INTERRUPT_REASON_FILE_FAILED;
+  if (!content_path.empty()) {
+    reason = file_.Rename(content_path);
+    display_name_ = DownloadCollectionBridge::GetDisplayName(content_path);
+  }
+  if (display_name_.empty())
+    display_name_ = file_name;
+  OnRenameComplete(content_path, callback, reason);
+}
+
+void DownloadFileImpl::PublishDownload(
+    const RenameCompletionCallback& callback) {
+  DownloadInterruptReason reason = file_.PublishDownload();
+  OnRenameComplete(file_.full_path(), callback, reason);
+}
+
+base::FilePath DownloadFileImpl::GetDisplayName() {
+  return display_name_;
+}
+#endif  // defined(OS_ANDROID)
 
 base::TimeDelta DownloadFileImpl::GetRetryDelayForFailedRename(
     int attempt_number) {
@@ -333,8 +425,9 @@ DownloadInterruptReason DownloadFileImpl::HandleStreamCompletionStatus(
   DownloadInterruptReason reason = source_stream->GetCompletionStatus();
   if (source_stream->length() == DownloadSaveInfo::kLengthFullContent &&
       !received_slices_.empty() &&
-      (source_stream->offset() == received_slices_.back().offset +
-                                      received_slices_.back().received_bytes) &&
+      (source_stream->starting_file_write_offset() ==
+       received_slices_.back().offset +
+           received_slices_.back().received_bytes) &&
       reason == DOWNLOAD_INTERRUPT_REASON_SERVER_NO_RANGE) {
     // We are probably reaching the end of the stream, don't treat this
     // as an error.
@@ -350,11 +443,7 @@ void DownloadFileImpl::RenameWithRetryInternal(
   base::FilePath new_path = parameters->new_path;
 
   if ((parameters->option & UNIQUIFY) && new_path != file_.full_path()) {
-    int uniquifier =
-        base::GetUniquePathNumber(new_path, base::FilePath::StringType());
-    if (uniquifier > 0)
-      new_path = new_path.InsertBeforeExtensionASCII(
-          base::StringPrintf(" (%d)", uniquifier));
+    new_path = base::GetUniquePath(new_path);
   }
 
   DownloadInterruptReason reason = file_.Rename(new_path);
@@ -386,11 +475,33 @@ void DownloadFileImpl::RenameWithRetryInternal(
     // anti-virus scanners on Windows to actually see the data
     // (http://crbug.com/127999) under the correct name (which is information
     // it uses).
-    reason = file_.AnnotateWithSourceInformation(parameters->client_guid,
-                                                 parameters->source_url,
-                                                 parameters->referrer_url);
+    //
+    // If concurrent downloads with the same target path are allowed, an
+    // asynchronous quarantine file may cause a file to be stamped with
+    // incorrect mark-of-the-web data. Therefore, fall back to non-service
+    // QuarantineFile when kPreventDownloadsWithSamePath is disabled.
+    if (base::FeatureList::IsEnabled(
+            download::features::kPreventDownloadsWithSamePath)) {
+      file_.AnnotateWithSourceInformation(
+          parameters->client_guid, parameters->source_url,
+          parameters->referrer_url, std::move(parameters->connector),
+          base::BindOnce(&DownloadFileImpl::OnRenameComplete,
+                         weak_factory_.GetWeakPtr(), new_path,
+                         parameters->completion_callback));
+      return;
+    }
+    reason = file_.AnnotateWithSourceInformationSync(parameters->client_guid,
+                                                     parameters->source_url,
+                                                     parameters->referrer_url);
   }
 
+  OnRenameComplete(new_path, parameters->completion_callback, reason);
+}
+
+void DownloadFileImpl::OnRenameComplete(
+    const base::FilePath& new_path,
+    const RenameCompletionCallback& callback,
+    DownloadInterruptReason reason) {
   if (reason != DOWNLOAD_INTERRUPT_REASON_NONE) {
     // Make sure our information is updated, since we're about to
     // error out.
@@ -401,13 +512,13 @@ void DownloadFileImpl::RenameWithRetryInternal(
     // the download being interrupted.
     for (auto& stream : source_streams_)
       stream.second->ClearDataReadyCallback();
-
-    new_path.clear();
   }
 
   main_task_runner_->PostTask(
-      FROM_HERE,
-      base::BindOnce(parameters->completion_callback, reason, new_path));
+      FROM_HERE, base::BindOnce(callback, reason,
+                                reason == DOWNLOAD_INTERRUPT_REASON_NONE
+                                    ? new_path
+                                    : base::FilePath()));
 }
 
 void DownloadFileImpl::Detach() {
@@ -477,6 +588,7 @@ void DownloadFileImpl::StreamActive(SourceStream* source_stream,
   size_t incoming_data_size = 0;
   size_t total_incoming_data_size = 0;
   size_t num_buffers = 0;
+  size_t bytes_to_validate = 0;
   size_t bytes_to_write = 0;
   bool should_terminate = false;
   InputStream::StreamState state(InputStream::EMPTY);
@@ -493,24 +605,26 @@ void DownloadFileImpl::StreamActive(SourceStream* source_stream,
         break;
       case InputStream::HAS_DATA: {
         ++num_buffers;
-        should_terminate = CalculateBytesToWrite(
-            source_stream, incoming_data_size, &bytes_to_write);
+        should_terminate =
+            CalculateBytesToWrite(source_stream, incoming_data_size,
+                                  &bytes_to_validate, &bytes_to_write);
         DCHECK_GE(incoming_data_size, bytes_to_write);
-        reason = WriteDataToFile(
-            source_stream->offset() + source_stream->bytes_written(),
-            incoming_data->data(), bytes_to_write);
+        reason = ValidateAndWriteDataToFile(
+            source_stream->offset() + source_stream->bytes_read(),
+            incoming_data->data(), bytes_to_validate, bytes_to_write);
         bytes_seen_ += bytes_to_write;
-        total_incoming_data_size += bytes_to_write;
+        total_incoming_data_size += incoming_data_size;
         if (reason == DOWNLOAD_INTERRUPT_REASON_NONE) {
           int64_t prev_bytes_written = source_stream->bytes_written();
-          source_stream->OnWriteBytesToDisk(bytes_to_write);
+          source_stream->OnBytesConsumed(incoming_data_size, bytes_to_write);
           if (!IsSparseFile())
             break;
           // If the write operation creates a new slice, add it to the
           // |received_slices_| and update all the entries in
           // |source_streams_|.
           if (bytes_to_write > 0 && prev_bytes_written == 0) {
-            AddNewSlice(source_stream->offset(), bytes_to_write);
+            AddNewSlice(source_stream->starting_file_write_offset(),
+                        bytes_to_write);
           } else {
             received_slices_[source_stream->index()].received_bytes +=
                 bytes_to_write;
@@ -580,7 +694,7 @@ void DownloadFileImpl::NotifyObserver(SourceStream* source_stream,
       }
 
       SetPotentialFileLength(source_stream->offset() +
-                             source_stream->bytes_written());
+                             source_stream->bytes_read());
     }
     num_active_streams_--;
 
@@ -667,10 +781,10 @@ void DownloadFileImpl::AddNewSlice(int64_t offset, int64_t length) {
   // Update the index of exising SourceStreams.
   for (auto& stream : source_streams_) {
     SourceStream* source_stream = stream.second.get();
-    if (source_stream->offset() > offset) {
+    if (source_stream->starting_file_write_offset() > offset) {
       if (slice_added && source_stream->bytes_written() > 0)
         source_stream->set_index(source_stream->index() + 1);
-    } else if (source_stream->offset() == offset) {
+    } else if (source_stream->starting_file_write_offset() == offset) {
       source_stream->set_index(index);
     } else {
       source_stream->TruncateLengthWithWrittenDataBlock(offset, length);
@@ -705,26 +819,29 @@ void DownloadFileImpl::HandleStreamError(SourceStream* source_stream,
   source_stream->set_finished(true);
   num_active_streams_--;
 
-  // If previous stream has already written data at the starting offset of
-  // the error stream. The download can complete.
-  bool can_recover_from_error = (source_stream->length() == kNoBytesToWrite);
+  bool can_recover_from_error = false;
+  if (reason != DOWNLOAD_INTERRUPT_REASON_FILE_HASH_MISMATCH) {
+    // If previous stream has already written data at the starting offset of
+    // the error stream. The download can complete.
+    can_recover_from_error = (source_stream->length() == kNoBytesToWrite);
 
-  // See if the previous stream can download the full content.
-  // If the current stream has written some data, length of all preceding
-  // streams will be truncated.
-  if (IsSparseFile() && !can_recover_from_error) {
-    SourceStream* preceding_neighbor = FindPrecedingNeighbor(source_stream);
-    while (preceding_neighbor) {
-      if (CanRecoverFromError(source_stream, preceding_neighbor)) {
-        can_recover_from_error = true;
-        break;
+    // See if the previous stream can download the full content.
+    // If the current stream has written some data, length of all preceding
+    // streams will be truncated.
+    if (IsSparseFile() && !can_recover_from_error) {
+      SourceStream* preceding_neighbor = FindPrecedingNeighbor(source_stream);
+      while (preceding_neighbor) {
+        if (CanRecoverFromError(source_stream, preceding_neighbor)) {
+          can_recover_from_error = true;
+          break;
+        }
+
+        // If the neighbor cannot recover the error and it has already created
+        // a slice, just interrupt the download.
+        if (preceding_neighbor->bytes_written() > 0)
+          break;
+        preceding_neighbor = FindPrecedingNeighbor(preceding_neighbor);
       }
-
-      // If the neighbor cannot recover the error and it has already created
-      // a slice, just interrupt the download.
-      if (preceding_neighbor->bytes_written() > 0)
-        break;
-      preceding_neighbor = FindPrecedingNeighbor(preceding_neighbor);
     }
   }
 
@@ -753,8 +870,9 @@ DownloadFileImpl::SourceStream* DownloadFileImpl::FindPrecedingNeighbor(
   int64_t max_preceding_offset = 0;
   SourceStream* ret = nullptr;
   for (auto& stream : source_streams_) {
-    int64_t offset = stream.second->offset();
-    if (offset < source_stream->offset() && offset >= max_preceding_offset) {
+    int64_t offset = stream.second->starting_file_write_offset();
+    if (offset < source_stream->starting_file_write_offset() &&
+        offset >= max_preceding_offset) {
       ret = stream.second.get();
       max_preceding_offset = offset;
     }
@@ -774,6 +892,9 @@ void DownloadFileImpl::DebugStates() const {
   DVLOG(1) << "Total source stream count = " << source_streams_.size();
   for (const auto& stream : source_streams_) {
     DVLOG(1) << "Source stream, offset = " << stream.second->offset()
+             << " , bytes_read = " << stream.second->bytes_read()
+             << " , starting_file_write_offset = "
+             << stream.second->starting_file_write_offset()
              << " , bytes_written = " << stream.second->bytes_written()
              << " , is_finished = " << stream.second->is_finished()
              << " , length = " << stream.second->length()

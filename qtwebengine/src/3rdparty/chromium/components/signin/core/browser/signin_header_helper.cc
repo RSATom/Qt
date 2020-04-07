@@ -22,16 +22,6 @@
 
 namespace signin {
 
-namespace {
-// Buckes of the |Signin.RequestHeaderOperation.Dice| and
-// |SigninRequestHeaderOperation.Mirror| histograms.
-enum class RequestHeaderOperation {
-  kHeaderAdded = 0,
-  kHeaderRemoved = 1,
-  kMaxValue = kHeaderRemoved
-};
-}  // namespace
-
 const char kChromeConnectedHeader[] = "X-Chrome-Connected";
 const char kDiceRequestHeader[] = "X-Chrome-ID-Consistency-Request";
 const char kDiceResponseHeader[] = "X-Chrome-ID-Consistency-Response";
@@ -106,8 +96,7 @@ std::string BuildMirrorRequestCookieIfPossible(
       url, account_id, account_consistency, cookie_settings, profile_mode_mask);
 }
 
-SigninHeaderHelper::SigninHeaderHelper(const std::string& histogram_suffix)
-    : histogram_suffix_(histogram_suffix){};
+SigninHeaderHelper::SigninHeaderHelper() = default;
 SigninHeaderHelper::~SigninHeaderHelper() = default;
 
 bool SigninHeaderHelper::AppendOrRemoveRequestHeader(
@@ -122,16 +111,12 @@ bool SigninHeaderHelper::AppendOrRemoveRequestHeader(
     if (!redirect_url.is_empty() && request->HasHeader(header_name) &&
         IsUrlEligibleForRequestHeader(request->GetUrl()) &&
         !IsUrlEligibleForRequestHeader(redirect_url)) {
-      base::UmaHistogramEnumeration(
-          GetSuffixedHistogramName("Signin.RequestHeaderOperation"),
-          RequestHeaderOperation::kHeaderRemoved);
+      VLOG(1) << "Sign-in request header [" << header_name << "] removed.";
       request->RemoveRequestHeaderByName(header_name);
     }
     return false;
   }
-  base::UmaHistogramEnumeration(
-      GetSuffixedHistogramName("Signin.RequestHeaderOperation"),
-      RequestHeaderOperation::kHeaderAdded);
+  VLOG(1) << "Sign-in request header [" << header_name << "] added.";
   request->SetExtraHeaderByName(header_name, header_value);
   return true;
 }
@@ -159,11 +144,6 @@ SigninHeaderHelper::ParseAccountConsistencyResponseHeader(
   return dictionary;
 }
 
-std::string SigninHeaderHelper::GetSuffixedHistogramName(
-    const std::string& histogram_name) {
-  return histogram_name + "." + histogram_suffix_;
-}
-
 void AppendOrRemoveMirrorRequestHeader(
     RequestAdapter* request,
     const GURL& redirect_url,
@@ -188,15 +168,12 @@ bool AppendOrRemoveDiceRequestHeader(
     const GURL& redirect_url,
     const std::string& account_id,
     bool sync_enabled,
-    bool sync_has_auth_error,
     AccountConsistencyMethod account_consistency,
     const content_settings::CookieSettings* cookie_settings,
     const std::string& device_id) {
 #if BUILDFLAG(ENABLE_DICE_SUPPORT)
   const GURL& url = redirect_url.is_empty() ? request->GetUrl() : redirect_url;
-  DiceHeaderHelper dice_helper(
-      !account_id.empty() && sync_has_auth_error && sync_enabled,
-      account_consistency);
+  DiceHeaderHelper dice_helper(account_consistency);
   std::string dice_header_value;
   if (dice_helper.ShouldBuildRequestHeader(url, cookie_settings)) {
     dice_header_value = dice_helper.BuildRequestHeader(

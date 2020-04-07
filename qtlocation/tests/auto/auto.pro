@@ -2,6 +2,8 @@ TEMPLATE = subdirs
 
 qtHaveModule(location) {
 
+    SUBDIRS += geotestplugin    # several subtargets depend on this
+
     #Place unit tests
     SUBDIRS += qplace \
            qplaceattribute \
@@ -25,19 +27,22 @@ qtHaveModule(location) {
            qplacesearchsuggestionreply \
            qplaceuser
 
-    !android: SUBDIRS += \
+    !android: {
+        SUBDIRS += \
            qplacemanager \
            qplacemanager_nokia \
            qplacemanager_unsupported \
            placesplugin_unsupported
+
+        qplacemanager.depends = geotestplugin
+    }
 
     #misc tests
     SUBDIRS +=   doublevectors
     !android: SUBDIRS += cmake qmlinterface # looks for .qmls locally
 
     #Map and Navigation tests
-    SUBDIRS += geotestplugin \
-           qgeocodingmanagerplugins \
+    SUBDIRS += qgeocodingmanagerplugins \
            qgeocameracapabilities\
            qgeocameradata \
            qgeocodereply \
@@ -54,17 +59,25 @@ qtHaveModule(location) {
            qgeocameratiles
 
     # These use plugins
-    !android: SUBDIRS += qgeoserviceprovider \
+    !android: {
+        SUBDIRS += qgeoserviceprovider \
                          qgeoroutingmanager \
                          nokia_services \
                          qgeocodingmanager \
                          qgeotiledmap
 
+        qgeoserviceprovider.depends = geotestplugin
+        qgeotiledmap.depends = geotestplugin
+    }
     qtHaveModule(quick):!android {
         SUBDIRS += declarative_geoshape \
                    declarative_core
+        declarative_core.depends = geotestplugin
 
-        !mac: SUBDIRS += declarative_ui
+        !mac: {
+            SUBDIRS += declarative_ui
+            declarative_ui.depends = geotestplugin
+        }
     }
 }
 
@@ -86,6 +99,7 @@ SUBDIRS += \
 
 !android: SUBDIRS += \
             positionplugin \
+            positionpluginV1 \
             positionplugintest \
             qgeoareamonitor \
             qgeopositioninfosource \

@@ -40,10 +40,10 @@
 # That's why we need to use Andoid-21 API version in Qt 5.9.
 
 # NDK
-$ndkVersion = "r19c"
+$ndkVersion = "r20"
 $ndkCachedUrl = "\\ci-files01-hki.intra.qt.io\provisioning\android\android-ndk-$ndkVersion-windows-x86_64.zip"
 $ndkOfficialUrl = "https://dl.google.com/android/repository/android-ndk-$ndkVersion-windows-x86_64.zip"
-$ndkChecksum = "c4cd8c0b6e7618ca0a871a5f24102e40c239f6a3"
+$ndkChecksum = "36e1dc77fad08ad2498fb94b13ad8caf26bbd9df"
 $ndkFolder = "c:\Utils\Android\android-ndk-$ndkVersion"
 $ndkZip = "c:\Windows\Temp\android_ndk_$ndkVersion.zip"
 
@@ -95,9 +95,12 @@ Out-File -FilePath C:\Utils\Android\licenses\android-sdk-license -Encoding utf8 
 # Get a PATH where Java's path is defined from previous provisioning
 [Environment]::SetEnvironmentVariable("PATH", [Environment]::GetEnvironmentVariable("PATH", "Machine"), "Process")
 
+# Attempt to catch all errors of sdkmanager.bat, even when hidden behind a pipeline.
+$ErrorActionPreference = "Stop"
+
 cd $toolsFolder\bin\
 $sdkmanager_args += "platforms;$sdkApiLevel", "platform-tools", "build-tools;$sdkBuildToolsVersion"
-$command = 'for($i=0;$i -lt 6;$i++) { $response += "y`n"}; $response | .\sdkmanager.bat @sdkmanager_args'
+$command = 'for($i=0;$i -lt 6;$i++) { $response += "y`n"}; $response | .\sdkmanager.bat @sdkmanager_args | Out-Null'
 Invoke-Expression $command
 $command = 'for($i=0;$i -lt 6;$i++) { $response += "y`n"}; $response | .\sdkmanager.bat --licenses'
 iex $command

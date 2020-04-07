@@ -2,6 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "base/bind.h"
 #include "content/browser/web_contents/web_contents_impl.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/test/content_browser_test.h"
@@ -27,8 +28,8 @@ bool AbortOnEndInterceptor(URLLoaderInterceptor::RequestParams* params) {
       "HTTP/1.1 400 This is not OK\n"
       "Content-type: text/plain\n";
   net::HttpResponseInfo info;
-  info.headers = new net::HttpResponseHeaders(
-      net::HttpUtil::AssembleRawHeaders(headers.c_str(), headers.length()));
+  info.headers = base::MakeRefCounted<net::HttpResponseHeaders>(
+      net::HttpUtil::AssembleRawHeaders(headers));
   network::ResourceResponseHead response;
   response.headers = info.headers;
   response.headers->GetMimeType(&response.mime_type);

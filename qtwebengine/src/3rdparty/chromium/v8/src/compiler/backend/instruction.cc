@@ -6,12 +6,12 @@
 
 #include <iomanip>
 
+#include "src/codegen/register-configuration.h"
+#include "src/codegen/source-position.h"
 #include "src/compiler/common-operator.h"
 #include "src/compiler/graph.h"
 #include "src/compiler/schedule.h"
 #include "src/compiler/state-values-utils.h"
-#include "src/register-configuration.h"
-#include "src/source-position.h"
 
 namespace v8 {
 namespace internal {
@@ -56,7 +56,6 @@ FlagsCondition CommuteFlagsCondition(FlagsCondition condition) {
     case kPositiveOrZero:
     case kNegative:
       UNREACHABLE();
-      break;
     case kEqual:
     case kNotEqual:
     case kOverflow:
@@ -230,6 +229,15 @@ std::ostream& operator<<(std::ostream& os, const InstructionOperand& op) {
           break;
         case MachineRepresentation::kTagged:
           os << "|t";
+          break;
+        case MachineRepresentation::kCompressedSigned:
+          os << "|cs";
+          break;
+        case MachineRepresentation::kCompressedPointer:
+          os << "|cp";
+          break;
+        case MachineRepresentation::kCompressed:
+          os << "|c";
           break;
       }
       return os << "]";
@@ -522,7 +530,7 @@ Constant::Constant(RelocatablePtrConstantInfo info) {
 }
 
 Handle<HeapObject> Constant::ToHeapObject() const {
-  DCHECK_EQ(kHeapObject, type());
+  DCHECK(kHeapObject == type() || kCompressedHeapObject == type());
   Handle<HeapObject> value(
       reinterpret_cast<Address*>(static_cast<intptr_t>(value_)));
   return value;
@@ -553,7 +561,8 @@ std::ostream& operator<<(std::ostream& os, const Constant& constant) {
       return os << constant.ToFloat64().value();
     case Constant::kExternalReference:
       return os << constant.ToExternalReference().address();
-    case Constant::kHeapObject:
+    case Constant::kHeapObject:  // Fall through.
+    case Constant::kCompressedHeapObject:
       return os << Brief(*constant.ToHeapObject());
     case Constant::kRpoNumber:
       return os << "RPO" << constant.ToRpoNumber().ToInt();
@@ -642,7 +651,11 @@ std::ostream& operator<<(std::ostream& os,
   const InstructionSequence* code = printable_block.code_;
 
   os << "B" << block->rpo_number();
-  os << ": AO#" << block->ao_number();
+  if (block->ao_number().IsValid()) {
+    os << ": AO#" << block->ao_number();
+  } else {
+    os << ": AO#?";
+  }
   if (block->IsDeferred()) os << " (deferred)";
   if (!block->needs_frame()) os << " (no frame)";
   if (block->must_construct_frame()) os << " (construct frame)";
@@ -892,6 +905,9 @@ static MachineRepresentation FilterRepresentation(MachineRepresentation rep) {
     case MachineRepresentation::kFloat32:
     case MachineRepresentation::kFloat64:
     case MachineRepresentation::kSimd128:
+    case MachineRepresentation::kCompressedSigned:
+    case MachineRepresentation::kCompressedPointer:
+    case MachineRepresentation::kCompressed:
       return rep;
     case MachineRepresentation::kNone:
       break;

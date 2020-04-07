@@ -37,6 +37,7 @@ SourceFrame.ImageView = class extends UI.SimpleView {
   constructor(mimeType, contentProvider) {
     super(Common.UIString('Image'));
     this.registerRequiredCSS('source_frame/imageView.css');
+    this.element.tabIndex = 0;
     this.element.classList.add('image-view');
     this._url = contentProvider.contentURL();
     this._parsedURL = new Common.ParsedURL(this._url);
@@ -58,6 +59,7 @@ SourceFrame.ImageView = class extends UI.SimpleView {
     this._container = this.element.createChild('div', 'image');
     this._imagePreviewElement = this._container.createChild('img', 'resource-image-view');
     this._imagePreviewElement.addEventListener('contextmenu', this._contextMenu.bind(this), true);
+    this._imagePreviewElement.alt = ls`Image from ${this._url}`;
   }
 
   /**
@@ -103,26 +105,11 @@ SourceFrame.ImageView = class extends UI.SimpleView {
       imageSrc = this._url;
     const loadPromise = new Promise(x => this._imagePreviewElement.onload = x);
     this._imagePreviewElement.src = imageSrc;
-    const size = content && !contentEncoded ? content.length : this._base64ToSize(content);
+    const size = content && !contentEncoded ? content.length : base64ToSize(content);
     this._sizeLabel.setText(Number.bytesToString(size));
     await loadPromise;
     this._dimensionsLabel.setText(
         Common.UIString('%d × %d', this._imagePreviewElement.naturalWidth, this._imagePreviewElement.naturalHeight));
-  }
-
-  /**
-   * @param {?string} content
-   * @return {number}
-   */
-  _base64ToSize(content) {
-    if (!content)
-      return 0;
-    let size = content.length * 3 / 4;
-    if (content[content.length - 1] === '=')
-      size--;
-    if (content.length > 1 && content[content.length - 2] === '=')
-      size--;
-    return size;
   }
 
   _contextMenu(event) {

@@ -13,6 +13,7 @@
 #include "third_party/blink/renderer/core/style/grid_positions_resolver.h"
 #include "third_party/blink/renderer/core/style/grid_track_size.h"
 #include "third_party/blink/renderer/platform/geometry/layout_unit.h"
+#include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 #include "third_party/blink/renderer/platform/wtf/hash_set.h"
 
 namespace blink {
@@ -33,6 +34,8 @@ enum TrackSizeComputationPhase {
 };
 
 class GridTrack {
+  DISALLOW_NEW();
+
  public:
   GridTrack() : infinitely_growable_(false) {}
 
@@ -84,7 +87,7 @@ class GridTrackSizingAlgorithm final {
         layout_grid_(layout_grid),
         sizing_state_(kColumnSizingFirstIteration) {}
 
-  // setup() must be run before calling run() as it configures the behaviour of
+  // Setup() must be run before calling Run() as it configures the behaviour of
   // the algorithm.
   void Setup(GridTrackSizingDirection,
              size_t num_tracks,
@@ -97,8 +100,8 @@ class GridTrackSizingAlgorithm final {
   // TODO (jfernandez): We should remove any public getter for this attribute
   // and encapsulate any access in the algorithm class.
   Grid& GetMutableGrid() const { return grid_; }
-  LayoutUnit MinContentSize() const { return min_content_size_; };
-  LayoutUnit MaxContentSize() const { return max_content_size_; };
+  LayoutUnit MinContentSize() const { return min_content_size_; }
+  LayoutUnit MaxContentSize() const { return max_content_size_; }
 
   LayoutUnit BaselineOffsetForChild(const LayoutBox&, GridAxis) const;
 
@@ -284,6 +287,7 @@ class GridTrackSizingAlgorithmStrategy {
       Vector<LayoutUnit>& increments,
       LayoutUnit& total_growth) const = 0;
   virtual LayoutUnit FreeSpaceForStretchAutoTracksStep() const = 0;
+  virtual bool IsComputingSizeContainment() const = 0;
 
  protected:
   GridTrackSizingAlgorithmStrategy(GridTrackSizingAlgorithm& algorithm)

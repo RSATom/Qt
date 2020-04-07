@@ -63,7 +63,7 @@ class SpecialMenuAction: public QAction
 {
     Q_OBJECT
 public:
-    SpecialMenuAction(QObject *parent = 0);
+    SpecialMenuAction(QObject *parent = nullptr);
     ~SpecialMenuAction() override;
 };
 
@@ -73,7 +73,7 @@ class QDESIGNER_SHARED_EXPORT QDesignerMenuBar: public QMenuBar
 {
     Q_OBJECT
 public:
-    QDesignerMenuBar(QWidget *parent = 0);
+    QDesignerMenuBar(QWidget *parent = nullptr);
     ~QDesignerMenuBar() override;
 
     bool eventFilter(QObject *object, QEvent *event) override;
@@ -82,7 +82,6 @@ public:
     QDesignerActionProviderExtension *actionProvider();
 
     void adjustSpecialActions();
-    bool interactive(bool i);
     bool dragging() const;
 
     void moveLeft(bool ctrl = false);
@@ -152,11 +151,10 @@ private:
     QAction *m_addMenu;
     QPointer<QMenu> m_activeMenu;
     QPoint m_startPosition;
-    int m_currentIndex;
-    bool m_interactive;
+    int m_currentIndex = 0;
     QLineEdit *m_editor;
-    bool m_dragging;
-    int m_lastMenuActionIndex;
+    bool m_dragging = false;
+    int m_lastMenuActionIndex = -1;
     QPointer<QWidget> m_lastFocusWidget;
     qdesigner_internal::PromotionTaskMenu* m_promotionTaskMenu;
 };

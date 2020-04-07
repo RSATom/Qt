@@ -24,12 +24,20 @@
 namespace sw
 {
 	VertexProgram::VertexProgram(const VertexProcessor::State &state, const VertexShader *shader)
-		: VertexRoutine(state, shader), shader(shader), r(shader->indirectAddressableTemporaries)
+		: VertexRoutine(state, shader),
+		  shader(shader),
+		  r(shader->indirectAddressableTemporaries),
+		  aL(shader->getLimits().loops),
+		  increment(shader->getLimits().loops),
+		  iteration(shader->getLimits().loops),
+		  callStack(shader->getLimits().stack)
 	{
-		for(int i = 0; i < MAX_SHADER_CALL_SITES; i++)
-		{
-			labelBlock[i] = 0;
-		}
+		auto limits = shader->getLimits();
+		ifFalseBlock.resize(limits.ifs);
+		loopRepTestBlock.resize(limits.loops);
+		loopRepEndBlock.resize(limits.loops);
+		labelBlock.resize(limits.maxLabel + 1);
+		isConditionalIf.resize(limits.ifs);
 
 		loopDepth = -1;
 		enableStack[0] = Int4(0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF);
@@ -84,7 +92,7 @@ namespace sw
 		{
 			if(state.textureSampling)
 			{
-				vertexID = Int4(index);
+				vertexID = Int4(Int(index));
 			}
 			else
 			{
@@ -1124,7 +1132,7 @@ namespace sw
 
 		if(callRetBlock[labelIndex].size() > 1)
 		{
-			callStack[Min(stackIndex++, Int(MAX_SHADER_CALL_STACK_SIZE))] = UInt(callSiteIndex);
+			callStack[stackIndex++] = UInt(callSiteIndex);
 		}
 
 		Int4 restoreLeave = enableLeave;
@@ -1164,7 +1172,7 @@ namespace sw
 
 		if(callRetBlock[labelIndex].size() > 1)
 		{
-			callStack[Min(stackIndex++, Int(MAX_SHADER_CALL_STACK_SIZE))] = UInt(callSiteIndex);
+			callStack[stackIndex++] = UInt(callSiteIndex);
 		}
 
 		Int4 restoreLeave = enableLeave;
@@ -1193,7 +1201,7 @@ namespace sw
 
 		if(callRetBlock[labelIndex].size() > 1)
 		{
-			callStack[Min(stackIndex++, Int(MAX_SHADER_CALL_STACK_SIZE))] = UInt(callSiteIndex);
+			callStack[stackIndex++] = UInt(callSiteIndex);
 		}
 
 		enableIndex++;

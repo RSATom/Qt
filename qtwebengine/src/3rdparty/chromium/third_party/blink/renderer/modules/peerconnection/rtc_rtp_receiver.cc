@@ -7,6 +7,8 @@
 #include "third_party/blink/public/platform/web_media_stream.h"
 #include "third_party/blink/public/platform/web_media_stream_track.h"
 #include "third_party/blink/public/platform/web_rtc_rtp_source.h"
+#include "third_party/blink/renderer/core/loader/document_loader.h"
+#include "third_party/blink/renderer/modules/peerconnection/rtc_dtls_transport.h"
 #include "third_party/blink/renderer/modules/peerconnection/rtc_peer_connection.h"
 #include "third_party/blink/renderer/modules/peerconnection/rtc_rtp_capabilities.h"
 #include "third_party/blink/renderer/modules/peerconnection/rtc_rtp_sender.h"
@@ -36,29 +38,57 @@ MediaStreamTrack* RTCRtpReceiver::track() const {
 }
 
 RTCDtlsTransport* RTCRtpReceiver::transport() {
-  if (!transceiver_)
-    return nullptr;
-  return pc_->LookupDtlsTransportByMid(transceiver_->mid());
+  return transport_;
 }
 
-RTCDtlsTransport* RTCRtpReceiver::rtcp_transport() {
+RTCDtlsTransport* RTCRtpReceiver::rtcpTransport() {
   // Chrome does not support turning off RTCP-mux.
   return nullptr;
+}
+
+double RTCRtpReceiver::jitterBufferDelayHint(bool& is_null, ExceptionState&) {
+  is_null = !jitter_buffer_delay_hint_.has_value();
+  return jitter_buffer_delay_hint_.value_or(0.0);
+}
+
+void RTCRtpReceiver::setJitterBufferDelayHint(double value,
+                                              bool is_null,
+                                              ExceptionState& exception_state) {
+  base::Optional<double> hint =
+      is_null ? base::nullopt : base::Optional<double>(value);
+  if (hint && *hint < 0.0) {
+    exception_state.ThrowDOMException(
+        DOMExceptionCode::kInvalidAccessError,
+        "jitterBufferDelayHint can't be negative");
+    return;
+  }
+
+  jitter_buffer_delay_hint_ = hint;
+  receiver_->SetJitterBufferMinimumDelay(jitter_buffer_delay_hint_);
 }
 
 HeapVector<Member<RTCRtpSynchronizationSource>>
 RTCRtpReceiver::getSynchronizationSources() {
   UpdateSourcesIfNeeded();
+
+  Document* document = To<Document>(pc_->GetExecutionContext());
+  DocumentLoadTiming& time_converter = document->Loader()->GetTiming();
+
   HeapVector<Member<RTCRtpSynchronizationSource>> synchronization_sources;
   for (const auto& web_source : web_sources_) {
     if (web_source->SourceType() != WebRTCRtpSource::Type::kSSRC)
       continue;
     RTCRtpSynchronizationSource* synchronization_source =
         MakeGarbageCollected<RTCRtpSynchronizationSource>();
-    synchronization_source->setTimestamp(web_source->TimestampMs());
+    synchronization_source->setTimestamp(
+        time_converter
+            .MonotonicTimeToPseudoWallTime(
+                pc_->WebRtcMsToBlinkTimeTicks(web_source->TimestampMs()))
+            .InMilliseconds());
     synchronization_source->setSource(web_source->Source());
     if (web_source->AudioLevel())
       synchronization_source->setAudioLevel(*web_source->AudioLevel());
+    synchronization_source->setRtpTimestamp(web_source->RtpTimestamp());
     synchronization_sources.push_back(synchronization_source);
   }
   return synchronization_sources;
@@ -67,31 +97,41 @@ RTCRtpReceiver::getSynchronizationSources() {
 HeapVector<Member<RTCRtpContributingSource>>
 RTCRtpReceiver::getContributingSources() {
   UpdateSourcesIfNeeded();
+
+  Document* document = To<Document>(pc_->GetExecutionContext());
+  DocumentLoadTiming& time_converter = document->Loader()->GetTiming();
+
   HeapVector<Member<RTCRtpContributingSource>> contributing_sources;
   for (const auto& web_source : web_sources_) {
     if (web_source->SourceType() != WebRTCRtpSource::Type::kCSRC)
       continue;
     RTCRtpContributingSource* contributing_source =
         MakeGarbageCollected<RTCRtpContributingSource>();
-    contributing_source->setTimestamp(web_source->TimestampMs());
+    contributing_source->setTimestamp(
+        time_converter
+            .MonotonicTimeToPseudoWallTime(
+                pc_->WebRtcMsToBlinkTimeTicks(web_source->TimestampMs()))
+            .InMilliseconds());
     contributing_source->setSource(web_source->Source());
     if (web_source->AudioLevel())
       contributing_source->setAudioLevel(*web_source->AudioLevel());
+    contributing_source->setRtpTimestamp(web_source->RtpTimestamp());
     contributing_sources.push_back(contributing_source);
   }
   return contributing_sources;
 }
 
 ScriptPromise RTCRtpReceiver::getStats(ScriptState* script_state) {
-  ScriptPromiseResolver* resolver = ScriptPromiseResolver::Create(script_state);
+  auto* resolver = MakeGarbageCollected<ScriptPromiseResolver>(script_state);
   ScriptPromise promise = resolver->Promise();
-  receiver_->GetStats(WebRTCStatsReportCallbackResolver::Create(resolver),
-                      GetRTCStatsFilter(script_state));
+  receiver_->GetStats(
+      WTF::Bind(WebRTCStatsReportCallbackResolver, WrapPersistent(resolver)),
+      GetExposedGroupIds(script_state));
   return promise;
 }
 
-const WebRTCRtpReceiver& RTCRtpReceiver::web_receiver() const {
-  return *receiver_;
+WebRTCRtpReceiver* RTCRtpReceiver::web_receiver() {
+  return receiver_.get();
 }
 
 MediaStreamVector RTCRtpReceiver::streams() const {
@@ -104,6 +144,10 @@ void RTCRtpReceiver::set_streams(MediaStreamVector streams) {
 
 void RTCRtpReceiver::set_transceiver(RTCRtpTransceiver* transceiver) {
   transceiver_ = transceiver;
+}
+
+void RTCRtpReceiver::set_transport(RTCDtlsTransport* transport) {
+  transport_ = transport;
 }
 
 void RTCRtpReceiver::UpdateSourcesIfNeeded() {
@@ -128,6 +172,7 @@ void RTCRtpReceiver::SetContributingSourcesNeedsUpdating() {
 void RTCRtpReceiver::Trace(blink::Visitor* visitor) {
   visitor->Trace(pc_);
   visitor->Trace(track_);
+  visitor->Trace(transport_);
   visitor->Trace(streams_);
   visitor->Trace(transceiver_);
   ScriptWrappable::Trace(visitor);
@@ -155,10 +200,10 @@ RTCRtpCapabilities* RTCRtpReceiver::getCapabilities(const String& kind) {
       codec->setClockRate(rtc_codec.clock_rate.value());
     if (rtc_codec.num_channels)
       codec->setChannels(rtc_codec.num_channels.value());
-    if (rtc_codec.parameters.size()) {
+    if (!rtc_codec.parameters.empty()) {
       std::string sdp_fmtp_line;
       for (const auto& parameter : rtc_codec.parameters) {
-        if (sdp_fmtp_line.size())
+        if (!sdp_fmtp_line.empty())
           sdp_fmtp_line += ";";
         sdp_fmtp_line += parameter.first + "=" + parameter.second;
       }

@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2019 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the tools applications of the Qt Toolkit.
@@ -26,13 +26,15 @@
 **
 ****************************************************************************/
 
-#include "generator.h"
-#include "atom.h"
-#include "tree.h"
 #include "qdocdatabase.h"
-#include "qdoctagfiles.h"
+
+#include "atom.h"
+#include "generator.h"
 #include "qdocindexfiles.h"
-#include <qdebug.h>
+#include "qdoctagfiles.h"
+#include "tree.h"
+
+#include <QtCore/qdebug.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -86,7 +88,7 @@ bool QDocDatabase::debug = false;
  */
 QDocForest::~QDocForest()
 {
-    for (int i=0; i<searchOrder_.size(); ++i)
+    for (int i = 0; i < searchOrder_.size(); ++i)
         delete searchOrder_.at(i);
     forest_.clear();
     searchOrder_.clear();
@@ -167,15 +169,15 @@ void QDocForest::setPrimaryTree(const QString &t)
   If the search order array is empty, create the search order.
   If the search order array is not empty, do nothing.
  */
-void QDocForest::setSearchOrder(QStringList &t)
+void QDocForest::setSearchOrder(const QStringList &t)
 {
     if (!searchOrder_.isEmpty())
         return;
 
     /* Allocate space for the search order. */
-    searchOrder_.reserve(forest_.size()+1);
+    searchOrder_.reserve(forest_.size() + 1);
     searchOrder_.clear();
-    moduleNames_.reserve(forest_.size()+1);
+    moduleNames_.reserve(forest_.size() + 1);
     moduleNames_.clear();
 
     /* The primary tree is always first in the search order. */
@@ -184,12 +186,11 @@ void QDocForest::setSearchOrder(QStringList &t)
     moduleNames_.append(primaryName);
     forest_.remove(primaryName);
 
-    QMap<QString, Tree*>::iterator i;
-    foreach (const QString &m, t) {
+    for (const QString &m : t) {
         if (primaryName != m) {
-            i = forest_.find(m);
-            if (i != forest_.end()) {
-                searchOrder_.append(i.value());
+            auto it = forest_.find(m);
+            if (it != forest_.end()) {
+                searchOrder_.append(it.value());
                 moduleNames_.append(m);
                 forest_.remove(m);
             }
@@ -201,11 +202,9 @@ void QDocForest::setSearchOrder(QStringList &t)
       know any better at this point.
      */
     if (!forest_.isEmpty()) {
-        i = forest_.begin();
-        while (i != forest_.end()) {
-            searchOrder_.append(i.value());
-            moduleNames_.append(i.key());
-            ++i;
+        for (auto it = forest_.begin(); it != forest_.end(); ++it) {
+            searchOrder_.append(it.value());
+            moduleNames_.append(it.key());
         }
         forest_.clear();
     }
@@ -218,18 +217,11 @@ void QDocForest::setSearchOrder(QStringList &t)
       Note that this loop also inserts the primary tree into the
       forrest. That is a requirement.
      */
-    for (int i=0; i<searchOrder_.size(); ++i) {
+    for (int i = 0; i < searchOrder_.size(); ++i) {
         if (!forest_.contains(moduleNames_.at(i))) {
             forest_.insert(moduleNames_.at(i), searchOrder_.at(i));
         }
     }
-#if 0
-    qDebug() << "    SEARCH ORDER:";
-    for (int i=0; i<moduleNames_.size(); ++i)
-        qDebug() << "      " << i+1 << "." << moduleNames_.at(i);
-    qDebug() << "    FOREST:" << forest_.keys();
-    qDebug() << "SEARCH ORDER:" << moduleNames_;
-#endif
 }
 
 /*!
@@ -257,7 +249,7 @@ void QDocForest::setSearchOrder(QStringList &t)
   ordering required in this temporary search order is that
   the current tree must be searched first.
  */
-const QVector<Tree*> &QDocForest::searchOrder()
+const QVector<Tree *> &QDocForest::searchOrder()
 {
     if (searchOrder_.isEmpty())
         return indexSearchOrder();
@@ -279,7 +271,7 @@ const QVector<Tree*> &QDocForest::searchOrder()
   one being read now. That one is prepended to the front of
   the vector.
  */
-const QVector<Tree*> &QDocForest::indexSearchOrder()
+const QVector<Tree *> &QDocForest::indexSearchOrder()
 {
     if (forest_.size() > indexSearchOrder_.size())
         indexSearchOrder_.prepend(primaryTree_);
@@ -317,10 +309,8 @@ void QDocForest::newPrimaryTree(const QString &module)
   to 0, the starting point for each index tree is the root
   of the index tree.
  */
-const Node *QDocForest::findNodeForTarget(QStringList &targetPath,
-                                          const Node *relative,
-                                          Node::Genus genus,
-                                          QString &ref)
+const Node *QDocForest::findNodeForTarget(QStringList &targetPath, const Node *relative,
+                                          Node::Genus genus, QString &ref)
 {
     int flags = SearchBaseClasses | SearchEnumValues;
 
@@ -331,8 +321,8 @@ const Node *QDocForest::findNodeForTarget(QStringList &targetPath,
     if (!targetPath.isEmpty())
         target = targetPath.takeFirst();
 
-    foreach (Tree *t, searchOrder()) {
-        const Node *n = t->findNodeForTarget(entityPath, target, relative, flags, genus, ref);
+    for (const auto *tree : searchOrder()) {
+        const Node *n = tree->findNodeForTarget(entityPath, target, relative, flags, genus, ref);
         if (n)
             return n;
         relative = nullptr;
@@ -346,28 +336,26 @@ const Node *QDocForest::findNodeForTarget(QStringList &targetPath,
  */
 void QDocForest::printLinkCounts(const QString &project)
 {
-    Location::null.report(QString("%1: Link Counts").arg(project));
+    Location().report(QString("%1: Link Counts").arg(project));
     QMultiMap<int, QString> m;
-    foreach (Tree *t, searchOrder()) {
-        if (t->linkCount() < 0)
-            m.insert(t->linkCount(), t->physicalModuleName());
+    for (const auto *tree : searchOrder()) {
+        if (tree->linkCount() < 0)
+            m.insert(tree->linkCount(), tree->physicalModuleName());
     }
     QString depends = "depends                 +=";
     QString module = project.toLower();
-    QMultiMap<int, QString>::iterator i = m.begin();
-    while (i != m.end()) {
-        QString line = "  " + i.value();
-        if (i.value() != module)
-            depends += QLatin1Char(' ') + i.value();
+    for (auto it = m.begin(); it != m.end(); ++it) {
+        QString line = "  " + it.value();
+        if (it.value() != module)
+            depends += QLatin1Char(' ') + it.value();
         int pad = 30 - line.length();
-        for (int k=0; k<pad; ++k)
+        for (int k = 0; k < pad; ++k)
             line += QLatin1Char(' ');
         line += "%1";
-        Location::null.report(line.arg(-(i.key())));
-        ++i;
+        Location().report(line.arg(-(it.key())));
     }
-    Location::null.report("Optimal depends variable:");
-    Location::null.report(depends);
+    Location().report("Optimal depends variable:");
+    Location().report(depends);
 }
 
 /*!
@@ -377,20 +365,18 @@ void QDocForest::printLinkCounts(const QString &project)
 QString QDocForest::getLinkCounts(QStringList &strings, QVector<int> &counts)
 {
     QMultiMap<int, QString> m;
-    foreach (Tree *t, searchOrder()) {
-        if (t->linkCount() < 0)
-            m.insert(t->linkCount(), t->physicalModuleName());
+    for (const auto *tree : searchOrder()) {
+        if (tree->linkCount() < 0)
+            m.insert(tree->linkCount(), tree->physicalModuleName());
     }
     QString depends = "depends                 +=";
     QString module = Generator::defaultModuleName().toLower();
-    QMultiMap<int, QString>::iterator i = m.begin();
-    while (i != m.end()) {
-        if (i.value() != module) {
-            counts.append(-(i.key()));
-            strings.append(i.value());
-            depends += QLatin1Char(' ') + i.value();
+    for (auto it = m.begin(); it != m.end(); ++it) {
+        if (it.value() != module) {
+            counts.append(-(it.key()));
+            strings.append(it.value());
+            depends += QLatin1Char(' ') + it.value();
         }
-        ++i;
     }
     return depends;
 }
@@ -406,12 +392,11 @@ QString QDocForest::getLinkCounts(QStringList &strings, QVector<int> &counts)
   C++ function or a QML function.
  */
 const FunctionNode *QDocForest::findFunctionNode(const QStringList &path,
-                                                 const Parameters &parameters,
-                                                 const Node *relative,
+                                                 const Parameters &parameters, const Node *relative,
                                                  Node::Genus genus)
 {
-    foreach (Tree *t, searchOrder()) {
-        const FunctionNode *fn = t->findFunctionNode(path, parameters, relative, genus);
+    for (const auto *tree : searchOrder()) {
+        const FunctionNode *fn = tree->findFunctionNode(path, parameters, relative, genus);
         if (fn)
             return fn;
         relative = nullptr;
@@ -435,8 +420,8 @@ NodeMultiMap QDocDatabase::cppClasses_;
 NodeMultiMap QDocDatabase::qmlBasicTypes_;
 NodeMultiMap QDocDatabase::qmlTypes_;
 NodeMultiMap QDocDatabase::examples_;
-NodeMapMap   QDocDatabase::newClassMaps_;
-NodeMapMap   QDocDatabase::newQmlTypeMaps_;
+NodeMapMap QDocDatabase::newClassMaps_;
+NodeMapMap QDocDatabase::newQmlTypeMaps_;
 NodeMultiMapMap QDocDatabase::newSinceMaps_;
 
 /*!
@@ -455,8 +440,7 @@ NodeMultiMapMap QDocDatabase::newSinceMaps_;
   modules sequentially in a loop. Each source file for each module
   is read exactly once.
  */
-QDocDatabase::QDocDatabase()
-    : showInternal_(false), singleExec_(false), forest_(this)
+QDocDatabase::QDocDatabase() : showInternal_(false), singleExec_(false), forest_(this)
 {
     // nothing
 }
@@ -478,10 +462,10 @@ QDocDatabase::~QDocDatabase()
 QDocDatabase *QDocDatabase::qdocDB()
 {
     if (qdocDB_ == nullptr) {
-      qdocDB_ = new QDocDatabase;
-      initializeDB();
+        qdocDB_ = new QDocDatabase;
+        initializeDB();
     }
-   return qdocDB_;
+    return qdocDB_;
 }
 
 /*!
@@ -514,139 +498,139 @@ void QDocDatabase::destroyQdocDB()
 void QDocDatabase::initializeDB()
 {
     Node::initialize();
-    typeNodeMap_.insert( "accepted", nullptr);
-    typeNodeMap_.insert( "actionPerformed", nullptr);
-    typeNodeMap_.insert( "activated", nullptr);
-    typeNodeMap_.insert( "alias", nullptr);
-    typeNodeMap_.insert( "anchors", nullptr);
-    typeNodeMap_.insert( "any", nullptr);
-    typeNodeMap_.insert( "array", nullptr);
-    typeNodeMap_.insert( "autoSearch", nullptr);
-    typeNodeMap_.insert( "axis", nullptr);
-    typeNodeMap_.insert( "backClicked", nullptr);
-    typeNodeMap_.insert( "boomTime", nullptr);
-    typeNodeMap_.insert( "border", nullptr);
-    typeNodeMap_.insert( "buttonClicked", nullptr);
-    typeNodeMap_.insert( "callback", nullptr);
-    typeNodeMap_.insert( "char", nullptr);
-    typeNodeMap_.insert( "clicked", nullptr);
-    typeNodeMap_.insert( "close", nullptr);
-    typeNodeMap_.insert( "closed", nullptr);
-    typeNodeMap_.insert( "cond", nullptr);
-    typeNodeMap_.insert( "data", nullptr);
-    typeNodeMap_.insert( "dataReady", nullptr);
-    typeNodeMap_.insert( "dateString", nullptr);
-    typeNodeMap_.insert( "dateTimeString", nullptr);
-    typeNodeMap_.insert( "datetime", nullptr);
-    typeNodeMap_.insert( "day", nullptr);
-    typeNodeMap_.insert( "deactivated", nullptr);
-    typeNodeMap_.insert( "drag", nullptr);
-    typeNodeMap_.insert( "easing", nullptr);
-    typeNodeMap_.insert( "error", nullptr);
-    typeNodeMap_.insert( "exposure", nullptr);
-    typeNodeMap_.insert( "fatalError", nullptr);
-    typeNodeMap_.insert( "fileSelected", nullptr);
-    typeNodeMap_.insert( "flags", nullptr);
-    typeNodeMap_.insert( "float", nullptr);
-    typeNodeMap_.insert( "focus", nullptr);
-    typeNodeMap_.insert( "focusZone", nullptr);
-    typeNodeMap_.insert( "format", nullptr);
-    typeNodeMap_.insert( "framePainted", nullptr);
-    typeNodeMap_.insert( "from", nullptr);
-    typeNodeMap_.insert( "frontClicked", nullptr);
-    typeNodeMap_.insert( "function", nullptr);
-    typeNodeMap_.insert( "hasOpened", nullptr);
-    typeNodeMap_.insert( "hovered", nullptr);
-    typeNodeMap_.insert( "hoveredTitle", nullptr);
-    typeNodeMap_.insert( "hoveredUrl", nullptr);
-    typeNodeMap_.insert( "imageCapture", nullptr);
-    typeNodeMap_.insert( "imageProcessing", nullptr);
-    typeNodeMap_.insert( "index", nullptr);
-    typeNodeMap_.insert( "initialized", nullptr);
-    typeNodeMap_.insert( "isLoaded", nullptr);
-    typeNodeMap_.insert( "item", nullptr);
-    typeNodeMap_.insert( "jsdict", nullptr);
-    typeNodeMap_.insert( "jsobject", nullptr);
-    typeNodeMap_.insert( "key", nullptr);
-    typeNodeMap_.insert( "keysequence", nullptr);
-    typeNodeMap_.insert( "listViewClicked", nullptr);
-    typeNodeMap_.insert( "loadRequest", nullptr);
-    typeNodeMap_.insert( "locale", nullptr);
-    typeNodeMap_.insert( "location", nullptr);
-    typeNodeMap_.insert( "long", nullptr);
-    typeNodeMap_.insert( "message", nullptr);
-    typeNodeMap_.insert( "messageReceived", nullptr);
-    typeNodeMap_.insert( "mode", nullptr);
-    typeNodeMap_.insert( "month", nullptr);
-    typeNodeMap_.insert( "name", nullptr);
-    typeNodeMap_.insert( "number", nullptr);
-    typeNodeMap_.insert( "object", nullptr);
-    typeNodeMap_.insert( "offset", nullptr);
-    typeNodeMap_.insert( "ok", nullptr);
-    typeNodeMap_.insert( "openCamera", nullptr);
-    typeNodeMap_.insert( "openImage", nullptr);
-    typeNodeMap_.insert( "openVideo", nullptr);
-    typeNodeMap_.insert( "padding", nullptr);
-    typeNodeMap_.insert( "parent", nullptr);
-    typeNodeMap_.insert( "path", nullptr);
-    typeNodeMap_.insert( "photoModeSelected", nullptr);
-    typeNodeMap_.insert( "position", nullptr);
-    typeNodeMap_.insert( "precision", nullptr);
-    typeNodeMap_.insert( "presetClicked", nullptr);
-    typeNodeMap_.insert( "preview", nullptr);
-    typeNodeMap_.insert( "previewSelected", nullptr);
-    typeNodeMap_.insert( "progress", nullptr);
-    typeNodeMap_.insert( "puzzleLost", nullptr);
-    typeNodeMap_.insert( "qmlSignal", nullptr);
-    typeNodeMap_.insert( "rectangle", nullptr);
-    typeNodeMap_.insert( "request", nullptr);
-    typeNodeMap_.insert( "requestId", nullptr);
-    typeNodeMap_.insert( "section", nullptr);
-    typeNodeMap_.insert( "selected", nullptr);
-    typeNodeMap_.insert( "send", nullptr);
-    typeNodeMap_.insert( "settingsClicked", nullptr);
-    typeNodeMap_.insert( "shoe", nullptr);
-    typeNodeMap_.insert( "short", nullptr);
-    typeNodeMap_.insert( "signed", nullptr);
-    typeNodeMap_.insert( "sizeChanged", nullptr);
-    typeNodeMap_.insert( "size_t", nullptr);
-    typeNodeMap_.insert( "sockaddr", nullptr);
-    typeNodeMap_.insert( "someOtherSignal", nullptr);
-    typeNodeMap_.insert( "sourceSize", nullptr);
-    typeNodeMap_.insert( "startButtonClicked", nullptr);
-    typeNodeMap_.insert( "state", nullptr);
-    typeNodeMap_.insert( "std::initializer_list", nullptr);
-    typeNodeMap_.insert( "std::list", nullptr);
-    typeNodeMap_.insert( "std::map", nullptr);
-    typeNodeMap_.insert( "std::pair", nullptr);
-    typeNodeMap_.insert( "std::string", nullptr);
-    typeNodeMap_.insert( "std::vector", nullptr);
-    typeNodeMap_.insert( "stringlist", nullptr);
-    typeNodeMap_.insert( "swapPlayers", nullptr);
-    typeNodeMap_.insert( "symbol", nullptr);
-    typeNodeMap_.insert( "t", nullptr);
-    typeNodeMap_.insert( "T", nullptr);
-    typeNodeMap_.insert( "tagChanged", nullptr);
-    typeNodeMap_.insert( "timeString", nullptr);
-    typeNodeMap_.insert( "timeout", nullptr);
-    typeNodeMap_.insert( "to", nullptr);
-    typeNodeMap_.insert( "toggled", nullptr);
-    typeNodeMap_.insert( "type", nullptr);
-    typeNodeMap_.insert( "unsigned", nullptr);
-    typeNodeMap_.insert( "urllist", nullptr);
-    typeNodeMap_.insert( "va_list", nullptr);
-    typeNodeMap_.insert( "value", nullptr);
-    typeNodeMap_.insert( "valueEmitted", nullptr);
-    typeNodeMap_.insert( "videoFramePainted", nullptr);
-    typeNodeMap_.insert( "videoModeSelected", nullptr);
-    typeNodeMap_.insert( "videoRecorder", nullptr);
-    typeNodeMap_.insert( "void", nullptr);
-    typeNodeMap_.insert( "volatile", nullptr);
-    typeNodeMap_.insert( "wchar_t", nullptr);
-    typeNodeMap_.insert( "x", nullptr);
-    typeNodeMap_.insert( "y", nullptr);
-    typeNodeMap_.insert( "zoom", nullptr);
-    typeNodeMap_.insert( "zoomTo", nullptr);
+    typeNodeMap_.insert("accepted", nullptr);
+    typeNodeMap_.insert("actionPerformed", nullptr);
+    typeNodeMap_.insert("activated", nullptr);
+    typeNodeMap_.insert("alias", nullptr);
+    typeNodeMap_.insert("anchors", nullptr);
+    typeNodeMap_.insert("any", nullptr);
+    typeNodeMap_.insert("array", nullptr);
+    typeNodeMap_.insert("autoSearch", nullptr);
+    typeNodeMap_.insert("axis", nullptr);
+    typeNodeMap_.insert("backClicked", nullptr);
+    typeNodeMap_.insert("boomTime", nullptr);
+    typeNodeMap_.insert("border", nullptr);
+    typeNodeMap_.insert("buttonClicked", nullptr);
+    typeNodeMap_.insert("callback", nullptr);
+    typeNodeMap_.insert("char", nullptr);
+    typeNodeMap_.insert("clicked", nullptr);
+    typeNodeMap_.insert("close", nullptr);
+    typeNodeMap_.insert("closed", nullptr);
+    typeNodeMap_.insert("cond", nullptr);
+    typeNodeMap_.insert("data", nullptr);
+    typeNodeMap_.insert("dataReady", nullptr);
+    typeNodeMap_.insert("dateString", nullptr);
+    typeNodeMap_.insert("dateTimeString", nullptr);
+    typeNodeMap_.insert("datetime", nullptr);
+    typeNodeMap_.insert("day", nullptr);
+    typeNodeMap_.insert("deactivated", nullptr);
+    typeNodeMap_.insert("drag", nullptr);
+    typeNodeMap_.insert("easing", nullptr);
+    typeNodeMap_.insert("error", nullptr);
+    typeNodeMap_.insert("exposure", nullptr);
+    typeNodeMap_.insert("fatalError", nullptr);
+    typeNodeMap_.insert("fileSelected", nullptr);
+    typeNodeMap_.insert("flags", nullptr);
+    typeNodeMap_.insert("float", nullptr);
+    typeNodeMap_.insert("focus", nullptr);
+    typeNodeMap_.insert("focusZone", nullptr);
+    typeNodeMap_.insert("format", nullptr);
+    typeNodeMap_.insert("framePainted", nullptr);
+    typeNodeMap_.insert("from", nullptr);
+    typeNodeMap_.insert("frontClicked", nullptr);
+    typeNodeMap_.insert("function", nullptr);
+    typeNodeMap_.insert("hasOpened", nullptr);
+    typeNodeMap_.insert("hovered", nullptr);
+    typeNodeMap_.insert("hoveredTitle", nullptr);
+    typeNodeMap_.insert("hoveredUrl", nullptr);
+    typeNodeMap_.insert("imageCapture", nullptr);
+    typeNodeMap_.insert("imageProcessing", nullptr);
+    typeNodeMap_.insert("index", nullptr);
+    typeNodeMap_.insert("initialized", nullptr);
+    typeNodeMap_.insert("isLoaded", nullptr);
+    typeNodeMap_.insert("item", nullptr);
+    typeNodeMap_.insert("jsdict", nullptr);
+    typeNodeMap_.insert("jsobject", nullptr);
+    typeNodeMap_.insert("key", nullptr);
+    typeNodeMap_.insert("keysequence", nullptr);
+    typeNodeMap_.insert("listViewClicked", nullptr);
+    typeNodeMap_.insert("loadRequest", nullptr);
+    typeNodeMap_.insert("locale", nullptr);
+    typeNodeMap_.insert("location", nullptr);
+    typeNodeMap_.insert("long", nullptr);
+    typeNodeMap_.insert("message", nullptr);
+    typeNodeMap_.insert("messageReceived", nullptr);
+    typeNodeMap_.insert("mode", nullptr);
+    typeNodeMap_.insert("month", nullptr);
+    typeNodeMap_.insert("name", nullptr);
+    typeNodeMap_.insert("number", nullptr);
+    typeNodeMap_.insert("object", nullptr);
+    typeNodeMap_.insert("offset", nullptr);
+    typeNodeMap_.insert("ok", nullptr);
+    typeNodeMap_.insert("openCamera", nullptr);
+    typeNodeMap_.insert("openImage", nullptr);
+    typeNodeMap_.insert("openVideo", nullptr);
+    typeNodeMap_.insert("padding", nullptr);
+    typeNodeMap_.insert("parent", nullptr);
+    typeNodeMap_.insert("path", nullptr);
+    typeNodeMap_.insert("photoModeSelected", nullptr);
+    typeNodeMap_.insert("position", nullptr);
+    typeNodeMap_.insert("precision", nullptr);
+    typeNodeMap_.insert("presetClicked", nullptr);
+    typeNodeMap_.insert("preview", nullptr);
+    typeNodeMap_.insert("previewSelected", nullptr);
+    typeNodeMap_.insert("progress", nullptr);
+    typeNodeMap_.insert("puzzleLost", nullptr);
+    typeNodeMap_.insert("qmlSignal", nullptr);
+    typeNodeMap_.insert("rectangle", nullptr);
+    typeNodeMap_.insert("request", nullptr);
+    typeNodeMap_.insert("requestId", nullptr);
+    typeNodeMap_.insert("section", nullptr);
+    typeNodeMap_.insert("selected", nullptr);
+    typeNodeMap_.insert("send", nullptr);
+    typeNodeMap_.insert("settingsClicked", nullptr);
+    typeNodeMap_.insert("shoe", nullptr);
+    typeNodeMap_.insert("short", nullptr);
+    typeNodeMap_.insert("signed", nullptr);
+    typeNodeMap_.insert("sizeChanged", nullptr);
+    typeNodeMap_.insert("size_t", nullptr);
+    typeNodeMap_.insert("sockaddr", nullptr);
+    typeNodeMap_.insert("someOtherSignal", nullptr);
+    typeNodeMap_.insert("sourceSize", nullptr);
+    typeNodeMap_.insert("startButtonClicked", nullptr);
+    typeNodeMap_.insert("state", nullptr);
+    typeNodeMap_.insert("std::initializer_list", nullptr);
+    typeNodeMap_.insert("std::list", nullptr);
+    typeNodeMap_.insert("std::map", nullptr);
+    typeNodeMap_.insert("std::pair", nullptr);
+    typeNodeMap_.insert("std::string", nullptr);
+    typeNodeMap_.insert("std::vector", nullptr);
+    typeNodeMap_.insert("stringlist", nullptr);
+    typeNodeMap_.insert("swapPlayers", nullptr);
+    typeNodeMap_.insert("symbol", nullptr);
+    typeNodeMap_.insert("t", nullptr);
+    typeNodeMap_.insert("T", nullptr);
+    typeNodeMap_.insert("tagChanged", nullptr);
+    typeNodeMap_.insert("timeString", nullptr);
+    typeNodeMap_.insert("timeout", nullptr);
+    typeNodeMap_.insert("to", nullptr);
+    typeNodeMap_.insert("toggled", nullptr);
+    typeNodeMap_.insert("type", nullptr);
+    typeNodeMap_.insert("unsigned", nullptr);
+    typeNodeMap_.insert("urllist", nullptr);
+    typeNodeMap_.insert("va_list", nullptr);
+    typeNodeMap_.insert("value", nullptr);
+    typeNodeMap_.insert("valueEmitted", nullptr);
+    typeNodeMap_.insert("videoFramePainted", nullptr);
+    typeNodeMap_.insert("videoModeSelected", nullptr);
+    typeNodeMap_.insert("videoRecorder", nullptr);
+    typeNodeMap_.insert("void", nullptr);
+    typeNodeMap_.insert("volatile", nullptr);
+    typeNodeMap_.insert("wchar_t", nullptr);
+    typeNodeMap_.insert("x", nullptr);
+    typeNodeMap_.insert("y", nullptr);
+    typeNodeMap_.insert("zoom", nullptr);
+    typeNodeMap_.insert("zoomTo", nullptr);
 }
 
 /*! \fn NamespaceNode *QDocDatabase::primaryTreeRoot()
@@ -801,7 +785,7 @@ QmlTypeNode *QDocDatabase::findQmlType(const QString &qmid, const QString &name)
     QStringList path(name);
     Node *n = forest_.findNodeByNameAndType(path, &Node::isQmlType);
     if (n && (n->isQmlType() || n->isJsType()))
-        return static_cast<QmlTypeNode*>(n);
+        return static_cast<QmlTypeNode *>(n);
     return nullptr;
 }
 
@@ -825,7 +809,7 @@ Aggregate *QDocDatabase::findQmlBasicType(const QString &qmid, const QString &na
     QStringList path(name);
     Node *n = forest_.findNodeByNameAndType(path, &Node::isQmlBasicType);
     if (n && n->isQmlBasicType())
-        return static_cast<Aggregate*>(n);
+        return static_cast<Aggregate *>(n);
     return nullptr;
 }
 
@@ -845,7 +829,7 @@ QmlTypeNode *QDocDatabase::findQmlType(const ImportRec &import, const QString &n
             qmName = import.name_;
         else
             qmName = import.importUri_;
-        for (int i=0; i<dotSplit.size(); ++i) {
+        for (int i = 0; i < dotSplit.size(); ++i) {
             QString qualifiedName = qmName + "::" + dotSplit[i];
             QmlTypeNode *qcn = forest_.lookupQmlType(qualifiedName);
             if (qcn)
@@ -885,7 +869,7 @@ void QDocDatabase::processForest()
   mode, each tree is analyzed in turn, and its classes and
   types are added to the appropriate node maps.
  */
-void QDocDatabase::processForest(void (QDocDatabase::*func) (Aggregate*))
+void QDocDatabase::processForest(void (QDocDatabase::*func)(Aggregate *))
 {
     Tree *t = forest_.firstTree();
     while (t) {
@@ -1037,15 +1021,13 @@ NodeMapMap &QDocDatabase::getFunctionIndex()
  */
 void QDocDatabase::findAllLegaleseTexts(Aggregate *node)
 {
-    NodeList::ConstIterator c = node->constBegin();
-    while (c != node->constEnd()) {
-        if (!(*c)->isPrivate()) {
-            if (!(*c)->doc().legaleseText().isEmpty())
-                legaleseTexts_.insertMulti((*c)->doc().legaleseText(), *c);
-            if ((*c)->isAggregate())
-                findAllLegaleseTexts(static_cast<Aggregate *>(*c));
+    for (auto it = node->constBegin(); it != node->constEnd(); ++it) {
+        if (!(*it)->isPrivate()) {
+            if (!(*it)->doc().legaleseText().isEmpty())
+                legaleseTexts_.insertMulti((*it)->doc().legaleseText(), *it);
+            if ((*it)->isAggregate())
+                findAllLegaleseTexts(static_cast<Aggregate *>(*it));
         }
-        ++c;
     }
 }
 
@@ -1077,9 +1059,9 @@ const NodeMap &QDocDatabase::getClassMap(const QString &key)
 {
     if (newSinceMaps_.isEmpty() && newClassMaps_.isEmpty() && newQmlTypeMaps_.isEmpty())
         processForest(&QDocDatabase::findAllSince);
-    NodeMapMap::const_iterator i = newClassMaps_.constFind(key);
-    if (i != newClassMaps_.constEnd())
-        return i.value();
+    auto it = newClassMaps_.constFind(key);
+    if (it != newClassMaps_.constEnd())
+        return it.value();
     return emptyNodeMap_;
 }
 
@@ -1092,9 +1074,9 @@ const NodeMap &QDocDatabase::getQmlTypeMap(const QString &key)
 {
     if (newSinceMaps_.isEmpty() && newClassMaps_.isEmpty() && newQmlTypeMaps_.isEmpty())
         processForest(&QDocDatabase::findAllSince);
-    NodeMapMap::const_iterator i = newQmlTypeMaps_.constFind(key);
-    if (i != newQmlTypeMaps_.constEnd())
-        return i.value();
+    auto it = newQmlTypeMaps_.constFind(key);
+    if (it != newQmlTypeMaps_.constEnd())
+        return it.value();
     return emptyNodeMap_;
 }
 
@@ -1107,9 +1089,9 @@ const NodeMap &QDocDatabase::getSinceMap(const QString &key)
 {
     if (newSinceMaps_.isEmpty() && newClassMaps_.isEmpty() && newQmlTypeMaps_.isEmpty())
         processForest(&QDocDatabase::findAllSince);
-    NodeMultiMapMap::const_iterator i = newSinceMaps_.constFind(key);
-    if (i != newSinceMaps_.constEnd())
-        return i.value();
+    auto it = newSinceMaps_.constFind(key);
+    if (it != newSinceMaps_.constEnd())
+        return it.value();
     return emptyNodeMultiMap_;
 }
 
@@ -1118,7 +1100,8 @@ const NodeMap &QDocDatabase::getSinceMap(const QString &key)
   documentation. These tasks create required data structures
   and resolve links.
  */
-void QDocDatabase::resolveStuff() {
+void QDocDatabase::resolveStuff()
+{
     if (Generator::dualExec() || Generator::preparing()) {
         primaryTree()->resolveBaseClasses(primaryTreeRoot());
         primaryTree()->resolvePropertyOverriddenFromPtrs(primaryTreeRoot());
@@ -1136,7 +1119,7 @@ void QDocDatabase::resolveStuff() {
         primaryTree()->resolveBaseClasses(primaryTreeRoot());
         primaryTree()->resolvePropertyOverriddenFromPtrs(primaryTreeRoot());
         primaryTreeRoot()->resolveQmlInheritance();
-        //primaryTree()->resolveTargets(primaryTreeRoot());
+        // primaryTree()->resolveTargets(primaryTreeRoot());
         primaryTree()->resolveCppToQmlLinks();
         primaryTree()->resolveUsingClauses();
     }
@@ -1186,15 +1169,15 @@ void QDocDatabase::resolveNamespaces()
         t->root()->findAllNamespaces(namespaceMultimap);
         t = forest_.nextTree();
     }
-    QList<QString> keys = namespaceMultimap.uniqueKeys();
-    foreach (const QString &s, keys) {
+    const QList<QString> keys = namespaceMultimap.uniqueKeys();
+    for (const QString &key : keys) {
         NamespaceNode *ns = nullptr;
         NamespaceNode *somewhere = nullptr;
-        NodeList namespaces = namespaceMultimap.values(s);
-        int count = namespaceMultimap.remove(s);
+        const NodeList namespaces = namespaceMultimap.values(key);
+        int count = namespaceMultimap.remove(key);
         if (count > 0) {
-            foreach (Node *n, namespaces) {
-                ns = static_cast<NamespaceNode*>(n);
+            for (auto *node : namespaces) {
+                ns = static_cast<NamespaceNode *>(node);
                 if (ns->isDocumentedHere())
                     break;
                 else if (ns->hadDoc())
@@ -1202,24 +1185,24 @@ void QDocDatabase::resolveNamespaces()
                 ns = nullptr;
             }
             if (ns) {
-                foreach (Node *n, namespaces) {
-                    NamespaceNode *NS = static_cast<NamespaceNode*>(n);
+                for (auto *node : namespaces) {
+                    NamespaceNode *NS = static_cast<NamespaceNode *>(node);
                     if (NS->hadDoc() && NS != ns) {
-                        ns->doc().location().warning(tr("Namespace %1 documented more than once")
-                                                     .arg(NS->name()));
+                        ns->doc().location().warning(
+                                tr("Namespace %1 documented more than once").arg(NS->name()));
                         NS->doc().location().warning(tr("...also seen here"));
                     }
                 }
 
             } else if (somewhere == nullptr) {
-                foreach (Node *n, namespaces) {
-                    NamespaceNode *NS = static_cast<NamespaceNode*>(n);
+                for (auto *node : namespaces) {
+                    NamespaceNode *NS = static_cast<NamespaceNode *>(node);
                     NS->reportDocumentedChildrenInUndocumentedNamespace();
                 }
             }
             if (somewhere) {
-                foreach (Node *n, namespaces) {
-                    NamespaceNode *NS = static_cast<NamespaceNode*>(n);
+                for (auto *node : namespaces) {
+                    NamespaceNode *NS = static_cast<NamespaceNode *>(node);
                     if (NS != somewhere)
                         NS->setDocNode(somewhere);
                 }
@@ -1234,21 +1217,20 @@ void QDocDatabase::resolveNamespaces()
           the namespace.
          */
         if (ns && count > 1) {
-            foreach (Node *n, namespaces) {
-                NamespaceNode *NS = static_cast<NamespaceNode*>(n);
-                if (NS != ns) {
-                    NodeList::ConstIterator c = NS->constBegin();
-                    while (c != NS->constEnd()) {
-                        Node *N = *c;
+            for (auto *node : namespaces) {
+                auto *nameSpaceNode = static_cast<NamespaceNode *>(node);
+                if (nameSpaceNode != ns) {
+                    for (auto it = nameSpaceNode->constBegin(); it != nameSpaceNode->constEnd();
+                         ++it) {
+                        Node *N = *it;
                         if (N && N->isPublic() && !N->isInternal())
                             ns->includeChild(N);
-                        ++c;
                     }
                 }
             }
         }
         if (ns == nullptr)
-            ns = static_cast<NamespaceNode*>(namespaces.at(0));
+            ns = static_cast<NamespaceNode *>(namespaces.at(0));
         namespaceIndex_.insert(ns->name(), ns);
     }
 }
@@ -1270,10 +1252,10 @@ void QDocDatabase::resolveProxies()
     Tree *t = forest_.firstTree();
     t = forest_.nextTree();
     while (t) {
-        NodeList &proxies = t->proxies();
+        const NodeList &proxies = t->proxies();
         if (!proxies.isEmpty()) {
-            foreach (Node *n, proxies) {
-                ProxyNode *pn = static_cast<ProxyNode*>(n);
+            for (auto *node : proxies) {
+                ProxyNode *pn = static_cast<ProxyNode *>(node);
                 if (pn->count() > 0) {
                     Aggregate *aggregate = primaryTree()->findAggregate(pn->name());
                     if (aggregate != nullptr)
@@ -1284,7 +1266,6 @@ void QDocDatabase::resolveProxies()
         t = forest_.nextTree();
     }
 }
-
 
 /*!
   Finds the function node for the qualified function path in
@@ -1299,8 +1280,7 @@ void QDocDatabase::resolveProxies()
 
   The entire forest is searched, but the first match is accepted.
  */
-const FunctionNode *QDocDatabase::findFunctionNode(const QString &target,
-                                                   const Node *relative,
+const FunctionNode *QDocDatabase::findFunctionNode(const QString &target, const Node *relative,
                                                    Node::Genus genus)
 {
     QString signature;
@@ -1331,9 +1311,9 @@ const Node *QDocDatabase::findTypeNode(const QString &type, const Node *relative
 {
     QStringList path = type.split("::");
     if ((path.size() == 1) && (path.at(0)[0].isLower() || path.at(0) == QString("T"))) {
-        NodeMap::iterator i = typeNodeMap_.find(path.at(0));
-        if (i != typeNodeMap_.end())
-            return i.value();
+        auto it = typeNodeMap_.find(path.at(0));
+        if (it != typeNodeMap_.end())
+            return it.value();
     }
     return forest_.findTypeNode(path, relative, genus);
 }
@@ -1354,8 +1334,8 @@ const Node *QDocDatabase::findNodeForTarget(const QString &target, const Node *r
     else {
         QStringList path = target.split("::");
         int flags = SearchBaseClasses | SearchEnumValues;
-        foreach (Tree *t, searchOrder()) {
-            const Node *n = t->findNode(path, relative, flags, Node::DontCare);
+        for (const auto *tree : searchOrder()) {
+            const Node *n = tree->findNode(path, relative, flags, Node::DontCare);
             if (n)
                 return n;
             relative = nullptr;
@@ -1377,19 +1357,19 @@ void QDocDatabase::generateTagFile(const QString &name, Generator *g)
 }
 
 /*!
-  Reads and parses the qdoc index files listed in \a t.
+  Reads and parses the qdoc index files listed in \a indexFiles.
  */
-void QDocDatabase::readIndexes(const QStringList &t)
+void QDocDatabase::readIndexes(const QStringList &indexFiles)
 {
-    QStringList indexFiles;
-    foreach (const QString &f, t) {
-        QString fn = f.mid(f.lastIndexOf(QChar('/'))+1);
+    QStringList filesToRead;
+    for (const QString &file : indexFiles) {
+        QString fn = file.mid(file.lastIndexOf(QChar('/')) + 1);
         if (!isLoaded(fn))
-            indexFiles << f;
+            filesToRead << file;
         else
-            qDebug() << "This index file is already in memory:" << f;
+            qDebug() << "This index file is already in memory:" << file;
     }
-    QDocIndexFiles::qdocIndexFiles()->readIndexes(indexFiles);
+    QDocIndexFiles::qdocIndexFiles()->readIndexes(filesToRead);
 }
 
 /*!
@@ -1397,9 +1377,10 @@ void QDocDatabase::readIndexes(const QStringList &t)
   index file is generated with the parameters \a url and \a title,
   using the generator \a g.
  */
-void QDocDatabase::generateIndex(const QString &fileName, const QString &url, const QString &title, Generator *g)
+void QDocDatabase::generateIndex(const QString &fileName, const QString &url, const QString &title,
+                                 Generator *g)
 {
-    QString t = fileName.mid(fileName.lastIndexOf(QChar('/'))+1);
+    QString t = fileName.mid(fileName.lastIndexOf(QChar('/')) + 1);
     primaryTree()->setIndexFileName(t);
     QDocIndexFiles::qdocIndexFiles()->generateIndex(fileName, url, title, g);
     QDocIndexFiles::destroyQDocIndexFiles();
@@ -1415,13 +1396,14 @@ void QDocDatabase::generateIndex(const QString &fileName, const QString &url, co
 
   This function only searches in the current primary tree.
  */
-Node *QDocDatabase::findNodeInOpenNamespace(QStringList &path, bool (Node::*isMatch) () const)
+Node *QDocDatabase::findNodeInOpenNamespace(QStringList &path, bool (Node::*isMatch)() const)
 {
     if (path.isEmpty())
         return nullptr;
     Node *n = nullptr;
     if (!openNamespaces_.isEmpty()) {
-        foreach (const QString &t, openNamespaces_) {
+        const auto &openNamespaces = openNamespaces_;
+        for (const QString &t : openNamespaces) {
             QStringList p;
             if (t != path[0])
                 p = t.split("::") + path;
@@ -1446,42 +1428,41 @@ void QDocDatabase::mergeCollections(Node::NodeType type, CNMap &cnm, const Node 
 {
     cnm.clear();
     CNMultiMap cnmm;
-    foreach (Tree *t, searchOrder()) {
-        CNMap *m = t->getCollectionMap(type);
+    for (auto *tree : searchOrder()) {
+        CNMap *m = tree->getCollectionMap(type);
         if (m && !m->isEmpty()) {
-            CNMap::const_iterator i = m->cbegin();
-            while (i != m->cend()) {
-                if (!i.value()->isInternal())
-                    cnmm.insert(i.key(), i.value());
-                ++i;
+            for (auto it = m->cbegin(); it != m->cend(); ++it) {
+                if (!it.value()->isInternal())
+                    cnmm.insert(it.key(), it.value());
             }
         }
     }
     if (cnmm.isEmpty())
         return;
     QRegExp singleDigit("\\b([0-9])\\b");
-    QStringList keys = cnmm.uniqueKeys();
-    foreach (const QString &key, keys) {
-        QList<CollectionNode*> values = cnmm.values(key);
+    const QStringList keys = cnmm.uniqueKeys();
+    for (const auto &key : keys) {
+        const QList<CollectionNode *> values = cnmm.values(key);
         CollectionNode *n = nullptr;
-        foreach (CollectionNode *v, values) {
-            if (v && v->wasSeen() && (v != relative)) {
-                n = v;
+        for (auto *value : values) {
+            if (value && value->wasSeen() && value != relative) {
+                n = value;
                 break;
             }
         }
         if (n) {
             if (values.size() > 1) {
-                foreach (CollectionNode *v, values) {
-                    if (v != n) {
+                for (CollectionNode *value : values) {
+                    if (value != n) {
                         // Allow multiple (major) versions of QML/JS modules
-                        if ((n->isQmlModule() || n->isJsModule()) &&
-                                n->logicalModuleIdentifier() != v->logicalModuleIdentifier()) {
-                            if (v->wasSeen() && v != relative && !v->members().isEmpty())
-                                cnm.insert(v->fullTitle().toLower(), v);
+                        if ((n->isQmlModule() || n->isJsModule())
+                            && n->logicalModuleIdentifier() != value->logicalModuleIdentifier()) {
+                            if (value->wasSeen() && value != relative
+                                && !value->members().isEmpty())
+                                cnm.insert(value->fullTitle().toLower(), value);
                             continue;
                         }
-                        foreach (Node *t, v->members())
+                        for (Node *t : value->members())
                             n->addMember(t);
                     }
                 }
@@ -1508,14 +1489,14 @@ void QDocDatabase::mergeCollections(Node::NodeType type, CNMap &cnm, const Node 
  */
 void QDocDatabase::mergeCollections(CollectionNode *c)
 {
-    foreach (Tree *t, searchOrder()) {
-        CollectionNode *cn = t->getCollection(c->name(), c->nodeType());
+    for (auto *tree : searchOrder()) {
+        CollectionNode *cn = tree->getCollection(c->name(), c->nodeType());
         if (cn && cn != c) {
-            if ((cn->isQmlModule() || cn->isJsModule()) &&
-                cn->logicalModuleIdentifier() != c->logicalModuleIdentifier())
+            if ((cn->isQmlModule() || cn->isJsModule())
+                && cn->logicalModuleIdentifier() != c->logicalModuleIdentifier())
                 continue;
-            foreach (Node *n, cn->members())
-                c->addMember(n);
+            for (auto *node : cn->members())
+                c->addMember(node);
         }
     }
 }
@@ -1533,20 +1514,20 @@ const Node *QDocDatabase::findNodeForAtom(const Atom *a, const Node *relative, Q
 {
     const Node *node = nullptr;
 
-    Atom *atom = const_cast<Atom*>(a);
+    Atom *atom = const_cast<Atom *>(a);
     QStringList targetPath = atom->string().split(QLatin1Char('#'));
     QString first = targetPath.first().trimmed();
 
     Tree *domain = nullptr;
     Node::Genus genus = Node::DontCare;
     // Reserved for future use
-    //Node::NodeType goal = Node::NoType;
+    // Node::NodeType goal = Node::NoType;
 
     if (atom->isLinkAtom()) {
         domain = atom->domain();
         genus = atom->genus();
         // Reserved for future use
-        //goal = atom->goal();
+        // goal = atom->goal();
     }
 
     if (first.isEmpty())
@@ -1579,8 +1560,7 @@ const Node *QDocDatabase::findNodeForAtom(const Atom *a, const Node *relative, Q
                 relative = nullptr;
             return domain->findNodeForTarget(nodePath, target, relative, flags, genus, ref);
         }
-    }
-    else {
+    } else {
         if (first.endsWith(".html"))
             node = findNodeByNameAndType(QStringList(first), &Node::isPageNode);
         else if (first.endsWith(QChar(')')))

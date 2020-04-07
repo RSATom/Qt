@@ -10,19 +10,18 @@
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/blink/public/common/features.h"
+#include "third_party/blink/public/mojom/devtools/console_message.mojom-blink.h"
 #include "third_party/blink/public/platform/web_insecure_request_policy.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_binding_for_core.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_binding_for_testing.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/execution_context/security_context.h"
 #include "third_party/blink/renderer/core/fileapi/blob.h"
-#include "third_party/blink/renderer/core/inspector/console_types.h"
 #include "third_party/blink/renderer/core/testing/dummy_page_holder.h"
 #include "third_party/blink/renderer/core/typed_arrays/dom_typed_array.h"
 #include "third_party/blink/renderer/platform/bindings/exception_state.h"
 #include "third_party/blink/renderer/platform/heap/handle.h"
 #include "third_party/blink/renderer/platform/testing/unit_test_helpers.h"
-#include "third_party/blink/renderer/platform/wtf/text/cstring.h"
 #include "third_party/blink/renderer/platform/wtf/text/string_builder.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
 #include "third_party/blink/renderer/platform/wtf/vector.h"
@@ -50,25 +49,20 @@ class MockWebSocketChannel : public WebSocketChannel {
   ~MockWebSocketChannel() override = default;
 
   MOCK_METHOD2(Connect, bool(const KURL&, const String&));
-  MOCK_METHOD1(Send, void(const CString&));
+  MOCK_METHOD1(Send, void(const std::string&));
   MOCK_METHOD3(Send, void(const DOMArrayBuffer&, unsigned, unsigned));
   MOCK_METHOD1(SendMock, void(BlobDataHandle*));
   void Send(scoped_refptr<BlobDataHandle> handle) override {
     SendMock(handle.get());
   }
-  MOCK_METHOD1(SendTextAsCharVectorMock, void(Vector<char>*));
-  void SendTextAsCharVector(std::unique_ptr<Vector<char>> vector) override {
-    SendTextAsCharVectorMock(vector.get());
-  }
-  MOCK_METHOD1(SendBinaryAsCharVectorMock, void(Vector<char>*));
-  void SendBinaryAsCharVector(std::unique_ptr<Vector<char>> vector) override {
-    SendBinaryAsCharVectorMock(vector.get());
-  }
   MOCK_CONST_METHOD0(BufferedAmount, unsigned());
   MOCK_METHOD2(Close, void(int, const String&));
-  MOCK_METHOD3(FailMock, void(const String&, MessageLevel, SourceLocation*));
+  MOCK_METHOD3(FailMock,
+               void(const String&,
+                    mojom::ConsoleMessageLevel,
+                    SourceLocation*));
   void Fail(const String& reason,
-            MessageLevel level,
+            mojom::ConsoleMessageLevel level,
             std::unique_ptr<SourceLocation> location) override {
     FailMock(reason, level, location.get());
   }
@@ -82,7 +76,7 @@ class DOMWebSocketWithMockChannel final : public DOMWebSocket {
   static DOMWebSocketWithMockChannel* Create(ExecutionContext* context) {
     DOMWebSocketWithMockChannel* websocket =
         MakeGarbageCollected<DOMWebSocketWithMockChannel>(context);
-    websocket->PauseIfNeeded();
+    websocket->UpdateStateIfNeeded();
     return websocket;
   }
 
@@ -111,6 +105,8 @@ class DOMWebSocketWithMockChannel final : public DOMWebSocket {
 };
 
 class DOMWebSocketTestScope {
+  STACK_ALLOCATED();
+
  public:
   explicit DOMWebSocketTestScope(ExecutionContext* execution_context)
       : websocket_(DOMWebSocketWithMockChannel::Create(execution_context)) {}
@@ -272,7 +268,7 @@ TEST(DOMWebSocketTest, insecureRequestsDoNotUpgrade) {
 TEST(DOMWebSocketTest, mixedContentAutoUpgrade) {
   base::test::ScopedFeatureList scoped_feature_list;
   scoped_feature_list.InitAndEnableFeature(features::kMixedContentAutoupgrade);
-  V8TestingScope scope;
+  V8TestingScope scope(KURL("https://example.com"));
   DOMWebSocketTestScope websocket_scope(scope.GetExecutionContext());
   {
     InSequence s;
@@ -280,8 +276,6 @@ TEST(DOMWebSocketTest, mixedContentAutoUpgrade) {
                 Connect(KURL("wss://example.com/endpoint"), String()))
         .WillOnce(Return(true));
   }
-  scope.GetDocument().SetSecurityOrigin(
-      SecurityOrigin::Create(KURL("https://example.com")));
   scope.GetDocument().SetInsecureRequestPolicy(kLeaveInsecureRequestsAlone);
   websocket_scope.Socket().Connect("ws://example.com/endpoint",
                                    Vector<String>(), scope.GetExceptionState());
@@ -354,8 +348,7 @@ TEST(DOMWebSocketTest, isValidSubprotocolString) {
       "abcdefghijklmnopqrstuvwxyz|~";
   size_t length = strlen(kValidCharacters);
   for (size_t i = 0; i < length; ++i) {
-    String s;
-    s.append(static_cast<UChar>(kValidCharacters[i]));
+    String s(kValidCharacters + i, 1u);
     EXPECT_TRUE(DOMWebSocket::IsValidSubprotocolString(s));
   }
   for (size_t i = 0; i < 256; ++i) {
@@ -363,8 +356,8 @@ TEST(DOMWebSocketTest, isValidSubprotocolString) {
                   static_cast<char>(i)) != kValidCharacters + length) {
       continue;
     }
-    String s;
-    s.append(static_cast<UChar>(i));
+    char to_check = char{i};
+    String s(&to_check, 1u);
     EXPECT_FALSE(DOMWebSocket::IsValidSubprotocolString(s));
   }
 }
@@ -483,7 +476,7 @@ TEST(DOMWebSocketTest, closeWhenConnecting) {
         websocket_scope.Channel(),
         FailMock(
             String("WebSocket is closed before the connection is established."),
-            kWarningMessageLevel, _));
+            mojom::ConsoleMessageLevel::kWarning, _));
   }
   websocket_scope.Socket().Connect("ws://example.com/", Vector<String>(),
                                    scope.GetExceptionState());
@@ -712,7 +705,7 @@ TEST(DOMWebSocketTest, sendStringSuccess) {
     EXPECT_CALL(websocket_scope.Channel(),
                 Connect(KURL("ws://example.com/"), String()))
         .WillOnce(Return(true));
-    EXPECT_CALL(websocket_scope.Channel(), Send(CString("hello")));
+    EXPECT_CALL(websocket_scope.Channel(), Send(std::string("hello")));
   }
   websocket_scope.Socket().Connect("ws://example.com/", Vector<String>(),
                                    scope.GetExceptionState());
@@ -735,7 +728,7 @@ TEST(DOMWebSocketTest, sendNonLatin1String) {
                 Connect(KURL("ws://example.com/"), String()))
         .WillOnce(Return(true));
     EXPECT_CALL(websocket_scope.Channel(),
-                Send(CString("\xe7\x8b\x90\xe0\xa4\x94")));
+                Send(std::string("\xe7\x8b\x90\xe0\xa4\x94")));
   }
   websocket_scope.Socket().Connect("ws://example.com/", Vector<String>(),
                                    scope.GetExceptionState());
@@ -861,8 +854,8 @@ TEST(DOMWebSocketTest, bufferedAmountUpdated) {
     EXPECT_CALL(websocket_scope.Channel(),
                 Connect(KURL("ws://example.com/"), String()))
         .WillOnce(Return(true));
-    EXPECT_CALL(websocket_scope.Channel(), Send(CString("hello")));
-    EXPECT_CALL(websocket_scope.Channel(), Send(CString("world")));
+    EXPECT_CALL(websocket_scope.Channel(), Send(std::string("hello")));
+    EXPECT_CALL(websocket_scope.Channel(), Send(std::string("world")));
   }
   websocket_scope.Socket().Connect("ws://example.com/", Vector<String>(),
                                    scope.GetExceptionState());
@@ -891,7 +884,7 @@ TEST(DOMWebSocketTest, bufferedAmountUpdatedBeforeOnMessage) {
     EXPECT_CALL(websocket_scope.Channel(),
                 Connect(KURL("ws://example.com/"), String()))
         .WillOnce(Return(true));
-    EXPECT_CALL(websocket_scope.Channel(), Send(CString("hello")));
+    EXPECT_CALL(websocket_scope.Channel(), Send(std::string("hello")));
   }
   websocket_scope.Socket().Connect("ws://example.com/", Vector<String>(),
                                    scope.GetExceptionState());
@@ -934,8 +927,7 @@ TEST(DOMWebSocketTest, binaryType) {
 
 // FIXME: We should add tests for suspend / resume.
 
-class DOMWebSocketValidClosingTest
-    : public testing::TestWithParam<unsigned short> {};
+class DOMWebSocketValidClosingTest : public testing::TestWithParam<uint16_t> {};
 
 TEST_P(DOMWebSocketValidClosingTest, test) {
   V8TestingScope scope;
@@ -959,12 +951,12 @@ TEST_P(DOMWebSocketValidClosingTest, test) {
   EXPECT_EQ(DOMWebSocket::kClosing, websocket_scope.Socket().readyState());
 }
 
-INSTANTIATE_TEST_CASE_P(DOMWebSocketValidClosing,
-                        DOMWebSocketValidClosingTest,
-                        testing::Values(1000, 3000, 3001, 4998, 4999));
+INSTANTIATE_TEST_SUITE_P(DOMWebSocketValidClosing,
+                         DOMWebSocketValidClosingTest,
+                         testing::Values(1000, 3000, 3001, 4998, 4999));
 
 class DOMWebSocketInvalidClosingCodeTest
-    : public testing::TestWithParam<unsigned short> {};
+    : public testing::TestWithParam<uint16_t> {};
 
 TEST_P(DOMWebSocketInvalidClosingCodeTest, test) {
   V8TestingScope scope;
@@ -993,7 +985,7 @@ TEST_P(DOMWebSocketInvalidClosingCodeTest, test) {
   EXPECT_EQ(DOMWebSocket::kConnecting, websocket_scope.Socket().readyState());
 }
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     DOMWebSocketInvalidClosingCode,
     DOMWebSocketInvalidClosingCodeTest,
     testing::Values(0, 1, 998, 999, 1001, 2999, 5000, 9999, 65535));

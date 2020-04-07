@@ -5,15 +5,14 @@
  * found in the LICENSE file.
  */
 
-#include "Sample.h"
-#include "SkAAClip.h"
-#include "SkCanvas.h"
-#include "SkColorPriv.h"
-#include "SkFont.h"
-#include "SkPaint.h"
-#include "SkPath.h"
-#include "SkRandom.h"
-#include "SkClipOpPriv.h"
+#include "include/core/SkCanvas.h"
+#include "include/core/SkColorPriv.h"
+#include "include/core/SkFont.h"
+#include "include/core/SkPaint.h"
+#include "include/core/SkPath.h"
+#include "include/utils/SkRandom.h"
+#include "samplecode/Sample.h"
+#include "src/core/SkClipOpPriv.h"
 
 constexpr int W = 150;
 constexpr int H = 200;
@@ -102,26 +101,9 @@ static void show_thick(SkCanvas* canvas, bool doAA) {
 typedef void (*CanvasProc)(SkCanvas*, bool);
 
 class ClipView : public Sample {
-public:
-    ClipView() {
-        SkAAClip clip;
-        SkIRect r = { -2, -3, 842, 18 };
-        clip.setRect(r);
-    }
+    SkString name() override { return SkString("Clip"); }
 
-    virtual ~ClipView() {
-    }
-
-protected:
-    virtual bool onQuery(Sample::Event* evt) {
-        if (Sample::TitleQ(*evt)) {
-            Sample::TitleR(evt, "Clip");
-            return true;
-        }
-        return this->INHERITED::onQuery(evt);
-    }
-
-    virtual void onDrawContent(SkCanvas* canvas) {
+    void onDrawContent(SkCanvas* canvas) override {
         canvas->drawColor(SK_ColorWHITE);
         canvas->translate(SkIntToScalar(20), SkIntToScalar(20));
 
@@ -150,11 +132,6 @@ protected:
             canvas->translate(0, H * SK_Scalar1 * 8 / 7);
         }
     }
-
-private:
-    typedef Sample INHERITED;
 };
-
-//////////////////////////////////////////////////////////////////////////////
 
 DEF_SAMPLE( return new ClipView(); )

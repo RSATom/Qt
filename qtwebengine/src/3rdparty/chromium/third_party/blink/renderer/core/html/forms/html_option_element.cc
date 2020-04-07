@@ -47,7 +47,9 @@ namespace blink {
 using namespace html_names;
 
 HTMLOptionElement::HTMLOptionElement(Document& document)
-    : HTMLElement(kOptionTag, document), is_selected_(false) {}
+    : HTMLElement(kOptionTag, document), is_selected_(false) {
+  EnsureUserAgentShadowRoot();
+}
 
 // An explicit empty destructor should be in html_option_element.cc, because
 // if an implicit destructor is used or an empty destructor is defined in
@@ -55,12 +57,6 @@ HTMLOptionElement::HTMLOptionElement(Document& document)
 // msvc tries to expand the destructor and causes
 // a compile error because of lack of ComputedStyle definition.
 HTMLOptionElement::~HTMLOptionElement() = default;
-
-HTMLOptionElement* HTMLOptionElement::Create(Document& document) {
-  HTMLOptionElement* option = MakeGarbageCollected<HTMLOptionElement>(document);
-  option->EnsureUserAgentShadowRoot();
-  return option;
-}
 
 HTMLOptionElement* HTMLOptionElement::CreateForJSConstructor(
     Document& document,
@@ -345,7 +341,8 @@ void HTMLOptionElement::RemovedFrom(ContainerNode& insertion_point) {
     if (!parentNode() || IsHTMLOptGroupElement(*parentNode()))
       select->OptionRemoved(*this);
   } else if (IsHTMLOptGroupElement(insertion_point)) {
-    if (auto* select = ToHTMLSelectElementOrNull(insertion_point.parentNode()))
+    select = ToHTMLSelectElementOrNull(insertion_point.parentNode());
+    if (select)
       select->OptionRemoved(*this);
   }
   HTMLElement::RemovedFrom(insertion_point);
@@ -357,7 +354,8 @@ String HTMLOptionElement::CollectOptionInnerText() const {
     if (node->IsTextNode())
       text.Append(node->nodeValue());
     // Text nodes inside script elements are not part of the option text.
-    if (node->IsElementNode() && ToElement(node)->IsScriptElement())
+    auto* element = DynamicTo<Element>(node);
+    if (element && element->IsScriptElement())
       node = NodeTraversal::NextSkippingChildren(*node, this);
     else
       node = NodeTraversal::Next(*node, this);

@@ -33,7 +33,7 @@ namespace {
 // Appends a description of the structure of the frame tree to |result|.
 void AppendTreeNodeState(FrameTreeNode* node, std::string* result) {
   result->append(
-      base::Int64ToString(node->current_frame_host()->GetRoutingID()));
+      base::NumberToString(node->current_frame_host()->GetRoutingID()));
   if (!node->current_frame_host()->IsRenderFrameLive())
     result->append("*");  // Asterisk next to dead frames.
 
@@ -139,7 +139,8 @@ class FrameTreeTest : public RenderViewHostImplTestHarness {
          frame_tree->NodesExceptSubtree(subtree_to_skip)) {
       if (!result.empty())
         result += " ";
-      result += base::Int64ToString(node->current_frame_host()->GetRoutingID());
+      result +=
+          base::NumberToString(node->current_frame_host()->GetRoutingID());
     }
     return result;
   }
@@ -551,8 +552,8 @@ TEST_F(FrameTreeTest, ObserverWalksTreeAfterCrash) {
   main_test_rfh()->GetProcess()->SimulateCrash();
   EXPECT_EQ(
       "RenderProcessGone -> 3*: [22*: [], 23*: []]\n"
-      "RenderFrameDeleted(23) -> 3*: [22*: [], 23*: []]\n"
-      "RenderFrameDeleted(22) -> 3*: [22*: [], 23*: []]\n"
+      "RenderFrameDeleted(23) -> 3*: []\n"
+      "RenderFrameDeleted(22) -> 3*: []\n"
       "RenderFrameDeleted(3) -> 3*: []",
       activity.GetLog());
 }

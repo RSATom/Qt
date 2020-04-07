@@ -272,6 +272,9 @@ class tst_QGraphicsItem : public QObject
 {
     Q_OBJECT
 
+public:
+    static void initMain();
+
 private slots:
     void construction();
     void constructionWithParent();
@@ -473,6 +476,14 @@ private:
     QList<QGraphicsItem *> paintedItems;
     QTouchDevice *m_touchDevice = nullptr;
 };
+
+void tst_QGraphicsItem::initMain()
+{
+#ifdef Q_OS_WIN
+    // Ensure minimum size constraints of framed windows on High DPI screens
+    QCoreApplication::setAttribute(Qt::AA_EnableHighDpiScaling);
+#endif
+}
 
 void tst_QGraphicsItem::construction()
 {
@@ -4440,15 +4451,19 @@ protected:
             break;
         case QGraphicsItem::ItemPositionHasChanged:
             break;
+#if QT_DEPRECATED_SINCE(5, 14)
         case QGraphicsItem::ItemMatrixChange: {
+#if QT_DEPRECATED_SINCE(5, 13)
 QT_WARNING_PUSH
 QT_WARNING_DISABLE_DEPRECATED
             QVariant variant;
             variant.setValue<QMatrix>(matrix());
             oldValues << variant;
 QT_WARNING_POP
+#endif
         }
             break;
+#endif
         case QGraphicsItem::ItemTransformChange: {
             QVariant variant;
             variant.setValue<QTransform>(transform());
@@ -4566,6 +4581,7 @@ void tst_QGraphicsItem::itemChange()
         QCOMPARE(tester.oldValues.last(), QVariant(true));
         QCOMPARE(tester.isEnabled(), true);
     }
+#if QT_DEPRECATED_SINCE(5, 13)
     {
 QT_WARNING_PUSH
 QT_WARNING_DISABLE_DEPRECATED // QDesktopWidget::screen()
@@ -4585,6 +4601,7 @@ QT_WARNING_DISABLE_DEPRECATED // QDesktopWidget::screen()
         QCOMPARE(tester.matrix(), QMatrix().rotate(90));
 QT_WARNING_POP
     }
+#endif
     {
         tester.resetTransform();
         ++changeCount;
@@ -8397,7 +8414,7 @@ void tst_QGraphicsItem::focusProxy()
     QString err;
     QTextStream stream(&err);
     stream << "QGraphicsItem::setFocusProxy: "
-           << (void*)item << " is already in the focus proxy chain" << flush;
+           << (void*)item << " is already in the focus proxy chain" << Qt::flush;
     QTest::ignoreMessage(QtWarningMsg, err.toLatin1().constData());
     item2->setFocusProxy(item); // fails
     QCOMPARE(item->focusProxy(), (QGraphicsItem *)item2);
@@ -10960,7 +10977,7 @@ static QList<QTouchEvent::TouchPoint>
     tp.setStartScreenPos(screenPos);
     tp.setLastScreenPos(screenPos);
     tp.setEllipseDiameters(ellipseDiameters);
-    const QSizeF screenSize = QApplication::desktop()->screenGeometry(&view).size();
+    const QSizeF screenSize = view.screen()->geometry().size();
     tp.setNormalizedPos(QPointF(screenPos.x() / screenSize.width(), screenPos.y() / screenSize.height()));
     return QList<QTouchEvent::TouchPoint>() << tp;
 }

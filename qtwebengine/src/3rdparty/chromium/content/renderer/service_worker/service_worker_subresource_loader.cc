@@ -5,6 +5,7 @@
 #include "content/renderer/service_worker/service_worker_subresource_loader.h"
 
 #include "base/atomic_sequence_num.h"
+#include "base/bind.h"
 #include "base/callback.h"
 #include "base/feature_list.h"
 #include "base/metrics/histogram_functions.h"
@@ -14,7 +15,6 @@
 #include "base/trace_event/trace_event.h"
 #include "content/common/fetch/fetch_request_type_converters.h"
 #include "content/common/service_worker/service_worker_loader_helpers.h"
-#include "content/common/service_worker/service_worker_types.h"
 #include "content/common/service_worker/service_worker_utils.h"
 #include "content/public/common/content_features.h"
 #include "content/renderer/loader/web_url_request_util.h"
@@ -34,7 +34,6 @@
 #include "third_party/blink/public/mojom/blob/blob.mojom.h"
 #include "third_party/blink/public/mojom/service_worker/dispatch_fetch_event_params.mojom.h"
 #include "third_party/blink/public/platform/interface_provider.h"
-#include "third_party/blink/public/platform/modules/service_worker/web_service_worker_request.h"
 #include "third_party/blink/public/platform/web_http_body.h"
 #include "third_party/blink/public/platform/web_string.h"
 #include "ui/base/page_transition_types.h"
@@ -96,9 +95,9 @@ class HeaderRewritingURLLoaderClient : public network::mojom::URLLoaderClient {
                                          std::move(ack_callback));
   }
 
-  void OnReceiveCachedMetadata(const std::vector<uint8_t>& data) override {
+  void OnReceiveCachedMetadata(mojo_base::BigBuffer data) override {
     DCHECK(url_loader_client_.is_bound());
-    url_loader_client_->OnReceiveCachedMetadata(data);
+    url_loader_client_->OnReceiveCachedMetadata(std::move(data));
   }
 
   void OnTransferSizeUpdated(int32_t transfer_size_diff) override {
@@ -178,8 +177,7 @@ ServiceWorkerSubresourceLoader::ServiceWorkerSubresourceLoader(
       resource_request_(resource_request),
       fallback_factory_(std::move(fallback_factory)),
       task_runner_(std::move(task_runner)),
-      response_source_(network::mojom::FetchResponseSource::kUnspecified),
-      weak_factory_(this) {
+      response_source_(network::mojom::FetchResponseSource::kUnspecified) {
   DCHECK(controller_connector_);
   response_head_.request_start = base::TimeTicks::Now();
   response_head_.load_timing.request_start = base::TimeTicks::Now();
@@ -205,9 +203,6 @@ void ServiceWorkerSubresourceLoader::StartRequest(
                           TRACE_ID_LOCAL(request_id_)),
       TRACE_EVENT_FLAG_FLOW_OUT, "url", resource_request.url.spec());
   TransitionToStatus(Status::kStarted);
-
-  DCHECK(!ServiceWorkerUtils::IsMainResourceType(
-      static_cast<ResourceType>(resource_request.resource_type)));
 
   DCHECK(!controller_connector_observer_.IsObservingSources());
   controller_connector_observer_.Add(controller_connector_.get());
@@ -267,7 +262,7 @@ void ServiceWorkerSubresourceLoader::DispatchFetchEvent() {
 
   // TODO(falken): Grant the controller service worker's process access to files
   // in the body, like ServiceWorkerFetchDispatcher::DispatchFetchEvent() does.
-  controller->DispatchFetchEvent(
+  controller->DispatchFetchEventForSubresource(
       std::move(params), std::move(response_callback_ptr),
       base::BindOnce(&ServiceWorkerSubresourceLoader::OnFetchEventFinished,
                      weak_factory_.GetWeakPtr()));
@@ -298,6 +293,7 @@ void ServiceWorkerSubresourceLoader::OnFetchEventFinished(
       // promise, and handle this request.
       break;
     case blink::mojom::ServiceWorkerEventStatus::ABORTED:
+    case blink::mojom::ServiceWorkerEventStatus::TIMEOUT:
       // Fetch event dispatch did not complete, possibly due to timeout of
       // respondWith() or waitUntil(). Return network error.
 
@@ -380,15 +376,16 @@ void ServiceWorkerSubresourceLoader::OnFallback(
   // preflight logic is implemented in Blink. So we return a "fallback required"
   // response to Blink.
   // TODO(falken): Remove this mechanism after OOB-CORS ships.
-  if ((resource_request_.fetch_request_mode ==
-           network::mojom::FetchRequestMode::kCors ||
-       resource_request_.fetch_request_mode ==
-           network::mojom::FetchRequestMode::kCorsWithForcedPreflight) &&
-      (!resource_request_.request_initiator.has_value() ||
-       !resource_request_.request_initiator->IsSameOriginWith(
-           url::Origin::Create(resource_request_.url)))) {
+  if (!network::features::ShouldEnableOutOfBlinkCors() &&
+      ((resource_request_.mode == network::mojom::RequestMode::kCors ||
+        resource_request_.mode ==
+            network::mojom::RequestMode::kCorsWithForcedPreflight) &&
+       (!resource_request_.request_initiator.has_value() ||
+        !resource_request_.request_initiator->IsSameOriginWith(
+            url::Origin::Create(resource_request_.url))))) {
     TRACE_EVENT_WITH_FLOW0(
-        "ServiceWorker", "ServiceWorkerSubresourceLoader::OnFallback",
+        "ServiceWorker",
+        "ServiceWorkerSubresourceLoader::OnFallback - CORS workaround",
         TRACE_ID_WITH_SCOPE(kServiceWorkerSubresourceLoaderScope,
                             TRACE_ID_LOCAL(request_id_)),
         TRACE_EVENT_FLAG_FLOW_IN | TRACE_EVENT_FLAG_FLOW_OUT);
@@ -497,22 +494,29 @@ void ServiceWorkerSubresourceLoader::StartResponse(
     body_as_blob_.Bind(std::move(response->blob->blob));
     body_as_blob_size_ = response->blob->size;
 
-    // If parallel reading is enabled, then start reading the body blob
-    // immediately. This will allow the body to start buffering in the
-    // pipe while the side data is read.
+    // Start reading the body blob immediately. This will allow the body to
+    // start buffering in the pipe while the side data is read.
     mojo::ScopedDataPipeConsumerHandle data_pipe;
-    if (base::FeatureList::IsEnabled(
-            blink::features::kServiceWorkerParallelSideDataReading)) {
-      int error = StartBlobReading(&data_pipe);
-      if (error != net::OK) {
-        CommitCompleted(error);
-        return;
-      }
+    int error = StartBlobReading(&data_pipe);
+    if (error != net::OK) {
+      CommitCompleted(error);
+      return;
     }
 
-    body_as_blob_->ReadSideData(base::BindOnce(
-        &ServiceWorkerSubresourceLoader::OnBlobSideDataReadingComplete,
-        weak_factory_.GetWeakPtr(), std::move(data_pipe)));
+    // Read side data if necessary.
+    auto resource_type =
+        static_cast<content::ResourceType>(resource_request_.resource_type);
+    if (resource_type == content::ResourceType::kScript) {
+      body_as_blob_->ReadSideData(base::BindOnce(
+          &ServiceWorkerSubresourceLoader::OnBlobSideDataReadingComplete,
+          weak_factory_.GetWeakPtr(), std::move(data_pipe)));
+    } else {
+      // Bypass reading side data when the request isn't for script. Currently
+      // side data only exists for scripts (as cached metadata).
+      OnBlobSideDataReadingComplete(std::move(data_pipe),
+                                    base::Optional<mojo_base::BigBuffer>());
+    }
+
     return;
   }
 
@@ -702,10 +706,6 @@ int ServiceWorkerSubresourceLoader::StartBlobReading(
   DCHECK(body_pipe);
   DCHECK(!blob_reading_complete_);
 
-  base::TimeDelta delay =
-      base::TimeTicks::Now() - response_head_.response_start;
-  UMA_HISTOGRAM_TIMES("ServiceWorker.SubresourceStartBlobReadingDelay", delay);
-
   return ServiceWorkerLoaderHelpers::ReadBlobResponseBody(
       &body_as_blob_, body_as_blob_size_,
       base::BindOnce(&ServiceWorkerSubresourceLoader::OnBlobReadingComplete,
@@ -715,7 +715,7 @@ int ServiceWorkerSubresourceLoader::StartBlobReading(
 
 void ServiceWorkerSubresourceLoader::OnBlobSideDataReadingComplete(
     mojo::ScopedDataPipeConsumerHandle data_pipe,
-    const base::Optional<std::vector<uint8_t>>& metadata) {
+    base::Optional<mojo_base::BigBuffer> metadata) {
   TRACE_EVENT_WITH_FLOW1(
       "ServiceWorker",
       "ServiceWorkerSubresourceLoader::OnBlobSideDataReadingComplete",
@@ -729,18 +729,11 @@ void ServiceWorkerSubresourceLoader::OnBlobSideDataReadingComplete(
   side_data_reading_complete_ = true;
 
   if (metadata.has_value())
-    url_loader_client_->OnReceiveCachedMetadata(metadata.value());
+    url_loader_client_->OnReceiveCachedMetadata(std::move(metadata.value()));
 
-  // If parallel reading is disabled then we need to start reading the blob.
-  if (!data_pipe.is_valid()) {
-    DCHECK(!base::FeatureList::IsEnabled(
-        blink::features::kServiceWorkerParallelSideDataReading));
-    int error = StartBlobReading(&data_pipe);
-    if (error != net::OK) {
-      CommitCompleted(error);
-      return;
-    }
-  }
+  // We should have started reading the body in parallel before trying to load
+  // side data.
+  DCHECK(data_pipe.is_valid());
 
   base::TimeDelta delay =
       base::TimeTicks::Now() - response_head_.response_start;
@@ -753,9 +746,6 @@ void ServiceWorkerSubresourceLoader::OnBlobSideDataReadingComplete(
   // If the blob reading completed before the side data reading, then we
   // must manually finalize the blob reading now.
   if (blob_reading_complete_) {
-    // This should only be possible if parallel reading is enabled.
-    DCHECK(base::FeatureList::IsEnabled(
-        blink::features::kServiceWorkerParallelSideDataReading));
     OnBlobReadingComplete(net::OK);
   }
 

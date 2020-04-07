@@ -4,16 +4,13 @@
 
 #include "src/profiler/profile-generator.h"
 
-#include "src/base/adapters.h"
-#include "src/debug/debug.h"
-#include "src/deoptimizer.h"
-#include "src/global-handles.h"
-#include "src/objects-inl.h"
+#include <algorithm>
+
+#include "src/objects/shared-function-info-inl.h"
 #include "src/profiler/cpu-profiler.h"
 #include "src/profiler/profile-generator-inl.h"
 #include "src/tracing/trace-event.h"
 #include "src/tracing/traced-value.h"
-#include "src/unicode.h"
 
 namespace v8 {
 namespace internal {
@@ -73,6 +70,7 @@ const char* const CodeEntry::kProgramEntryName = "(program)";
 const char* const CodeEntry::kIdleEntryName = "(idle)";
 const char* const CodeEntry::kGarbageCollectorEntryName = "(garbage collector)";
 const char* const CodeEntry::kUnresolvedFunctionName = "(unresolved function)";
+const char* const CodeEntry::kRootEntryName = "(root)";
 
 base::LazyDynamicInstance<CodeEntry, CodeEntry::ProgramEntryCreateTrait>::type
     CodeEntry::kProgramEntry = LAZY_DYNAMIC_INSTANCE_INITIALIZER;
@@ -86,6 +84,9 @@ base::LazyDynamicInstance<CodeEntry, CodeEntry::GCEntryCreateTrait>::type
 base::LazyDynamicInstance<CodeEntry,
                           CodeEntry::UnresolvedEntryCreateTrait>::type
     CodeEntry::kUnresolvedEntry = LAZY_DYNAMIC_INSTANCE_INITIALIZER;
+
+base::LazyDynamicInstance<CodeEntry, CodeEntry::RootEntryCreateTrait>::type
+    CodeEntry::kRootEntry = LAZY_DYNAMIC_INSTANCE_INITIALIZER;
 
 CodeEntry* CodeEntry::ProgramEntryCreateTrait::Create() {
   return new CodeEntry(CodeEventListener::FUNCTION_TAG,
@@ -105,6 +106,11 @@ CodeEntry* CodeEntry::GCEntryCreateTrait::Create() {
 CodeEntry* CodeEntry::UnresolvedEntryCreateTrait::Create() {
   return new CodeEntry(CodeEventListener::FUNCTION_TAG,
                        CodeEntry::kUnresolvedFunctionName);
+}
+
+CodeEntry* CodeEntry::RootEntryCreateTrait::Create() {
+  return new CodeEntry(CodeEventListener::FUNCTION_TAG,
+                       CodeEntry::kRootEntryName);
 }
 
 uint32_t CodeEntry::GetHash() const {
@@ -175,12 +181,12 @@ void CodeEntry::set_deopt_info(
 }
 
 void CodeEntry::FillFunctionInfo(SharedFunctionInfo shared) {
-  if (!shared->script()->IsScript()) return;
-  Script script = Script::cast(shared->script());
-  set_script_id(script->id());
-  set_position(shared->StartPosition());
-  if (shared->optimization_disabled()) {
-    set_bailout_reason(GetBailoutReason(shared->disable_optimization_reason()));
+  if (!shared.script().IsScript()) return;
+  Script script = Script::cast(shared.script());
+  set_script_id(script.id());
+  set_position(shared.StartPosition());
+  if (shared.optimization_disabled()) {
+    set_bailout_reason(GetBailoutReason(shared.disable_optimization_reason()));
   }
 }
 
@@ -313,20 +319,20 @@ bool ProfileNode::GetLineTicks(v8::CpuProfileNode::LineTick* entries,
 
 void ProfileNode::Print(int indent) {
   int line_number = line_number_ != 0 ? line_number_ : entry_->line_number();
-  base::OS::Print("%5u %*s %s:%d %d #%d", self_ticks_, indent, "",
-                  entry_->name(), line_number, entry_->script_id(), id());
+  base::OS::Print("%5u %*s %s:%d %d %d #%d", self_ticks_, indent, "",
+                  entry_->name(), line_number, source_type(),
+                  entry_->script_id(), id());
   if (entry_->resource_name()[0] != '\0')
     base::OS::Print(" %s:%d", entry_->resource_name(), entry_->line_number());
   base::OS::Print("\n");
   for (size_t i = 0; i < deopt_infos_.size(); ++i) {
     CpuProfileDeoptInfo& info = deopt_infos_[i];
-    base::OS::Print("%*s;;; deopted at script_id: %d position: %" PRIuS
-                    " with reason '%s'.\n",
-                    indent + 10, "", info.stack[0].script_id,
-                    info.stack[0].position, info.deopt_reason);
+    base::OS::Print(
+        "%*s;;; deopted at script_id: %d position: %zu with reason '%s'.\n",
+        indent + 10, "", info.stack[0].script_id, info.stack[0].position,
+        info.deopt_reason);
     for (size_t index = 1; index < info.stack.size(); ++index) {
-      base::OS::Print("%*s;;;     Inline point: script_id %d position: %" PRIuS
-                      ".\n",
+      base::OS::Print("%*s;;;     Inline point: script_id %d position: %zu.\n",
                       indent + 10, "", info.stack[index].script_id,
                       info.stack[index].position);
     }
@@ -355,9 +361,8 @@ class DeleteNodesCallback {
 };
 
 ProfileTree::ProfileTree(Isolate* isolate)
-    : root_entry_(CodeEventListener::FUNCTION_TAG, "(root)"),
-      next_node_id_(1),
-      root_(new ProfileNode(this, &root_entry_, nullptr)),
+    : next_node_id_(1),
+      root_(new ProfileNode(this, CodeEntry::root_entry(), nullptr)),
       isolate_(isolate),
       next_function_id_(1) {}
 
@@ -470,10 +475,9 @@ using v8::tracing::TracedValue;
 std::atomic<uint32_t> CpuProfile::last_id_;
 
 CpuProfile::CpuProfile(CpuProfiler* profiler, const char* title,
-                       bool record_samples, ProfilingMode mode)
+                       CpuProfilingOptions options)
     : title_(title),
-      record_samples_(record_samples),
-      mode_(mode),
+      options_(options),
       start_time_(base::TimeTicks::HighResolutionNow()),
       top_down_(profiler->isolate()),
       profiler_(profiler),
@@ -486,16 +490,38 @@ CpuProfile::CpuProfile(CpuProfiler* profiler, const char* title,
                               "Profile", id_, "data", std::move(value));
 }
 
+bool CpuProfile::CheckSubsample(base::TimeDelta source_sampling_interval) {
+  DCHECK_GE(source_sampling_interval, base::TimeDelta());
+
+  // If the sampling source's sampling interval is 0, record as many samples
+  // are possible irrespective of the profile's sampling interval. Manually
+  // taken samples (via CollectSample) fall into this case as well.
+  if (source_sampling_interval.IsZero()) return true;
+
+  next_sample_delta_ -= source_sampling_interval;
+  if (next_sample_delta_ <= base::TimeDelta()) {
+    next_sample_delta_ =
+        base::TimeDelta::FromMicroseconds(options_.sampling_interval_us());
+    return true;
+  }
+  return false;
+}
+
 void CpuProfile::AddPath(base::TimeTicks timestamp,
                          const ProfileStackTrace& path, int src_line,
-                         bool update_stats) {
-  ProfileNode* top_frame_node =
-      top_down_.AddPathFromEnd(path, src_line, update_stats, mode_);
+                         bool update_stats, base::TimeDelta sampling_interval) {
+  if (!CheckSubsample(sampling_interval)) return;
 
-  if (record_samples_ && !timestamp.IsNull()) {
-    timestamps_.push_back(timestamp);
-    samples_.push_back(top_frame_node);
-  }
+  ProfileNode* top_frame_node =
+      top_down_.AddPathFromEnd(path, src_line, update_stats, options_.mode());
+
+  bool should_record_sample =
+      !timestamp.IsNull() &&
+      (options_.max_samples() == CpuProfilingOptions::kNoSampleLimit ||
+       samples_.size() < options_.max_samples());
+
+  if (should_record_sample)
+    samples_.push_back({top_frame_node, timestamp, src_line});
 
   const int kSamplesFlushCount = 100;
   const int kNodesFlushCount = 10;
@@ -553,7 +579,7 @@ void CpuProfile::StreamPendingTraceEvents() {
     if (streaming_next_sample_ != samples_.size()) {
       value->BeginArray("samples");
       for (size_t i = streaming_next_sample_; i < samples_.size(); ++i) {
-        value->AppendInteger(samples_[i]->id());
+        value->AppendInteger(samples_[i].node->id());
       }
       value->EndArray();
     }
@@ -562,15 +588,24 @@ void CpuProfile::StreamPendingTraceEvents() {
   if (streaming_next_sample_ != samples_.size()) {
     value->BeginArray("timeDeltas");
     base::TimeTicks lastTimestamp =
-        streaming_next_sample_ ? timestamps_[streaming_next_sample_ - 1]
+        streaming_next_sample_ ? samples_[streaming_next_sample_ - 1].timestamp
                                : start_time();
-    for (size_t i = streaming_next_sample_; i < timestamps_.size(); ++i) {
-      value->AppendInteger(
-          static_cast<int>((timestamps_[i] - lastTimestamp).InMicroseconds()));
-      lastTimestamp = timestamps_[i];
+    for (size_t i = streaming_next_sample_; i < samples_.size(); ++i) {
+      value->AppendInteger(static_cast<int>(
+          (samples_[i].timestamp - lastTimestamp).InMicroseconds()));
+      lastTimestamp = samples_[i].timestamp;
     }
     value->EndArray();
-    DCHECK_EQ(samples_.size(), timestamps_.size());
+    bool has_non_zero_lines =
+        std::any_of(samples_.begin() + streaming_next_sample_, samples_.end(),
+                    [](const SampleInfo& sample) { return sample.line != 0; });
+    if (has_non_zero_lines) {
+      value->BeginArray("lines");
+      for (size_t i = streaming_next_sample_; i < samples_.size(); ++i) {
+        value->AppendInteger(samples_[i].line);
+      }
+      value->EndArray();
+    }
     streaming_next_sample_ = samples_.size();
   }
 
@@ -685,8 +720,7 @@ CpuProfilesCollection::CpuProfilesCollection(Isolate* isolate)
     : profiler_(nullptr), current_profiles_semaphore_(1) {}
 
 bool CpuProfilesCollection::StartProfiling(const char* title,
-                                           bool record_samples,
-                                           ProfilingMode mode) {
+                                           CpuProfilingOptions options) {
   current_profiles_semaphore_.Wait();
   if (static_cast<int>(current_profiles_.size()) >= kMaxSimultaneousProfiles) {
     current_profiles_semaphore_.Signal();
@@ -700,23 +734,20 @@ bool CpuProfilesCollection::StartProfiling(const char* title,
       return true;
     }
   }
-  current_profiles_.emplace_back(
-      new CpuProfile(profiler_, title, record_samples, mode));
+  current_profiles_.emplace_back(new CpuProfile(profiler_, title, options));
   current_profiles_semaphore_.Signal();
   return true;
 }
 
-
 CpuProfile* CpuProfilesCollection::StopProfiling(const char* title) {
-  const int title_len = StrLength(title);
+  const bool empty_title = (title[0] == '\0');
   CpuProfile* profile = nullptr;
   current_profiles_semaphore_.Wait();
 
-  auto it =
-      std::find_if(current_profiles_.rbegin(), current_profiles_.rend(),
-                   [&](const std::unique_ptr<CpuProfile>& p) {
-                     return title_len == 0 || strcmp(p->title(), title) == 0;
-                   });
+  auto it = std::find_if(current_profiles_.rbegin(), current_profiles_.rend(),
+                         [&](const std::unique_ptr<CpuProfile>& p) {
+                           return empty_title || strcmp(p->title(), title) == 0;
+                         });
 
   if (it != current_profiles_.rend()) {
     (*it)->FinishProfile();
@@ -735,8 +766,7 @@ bool CpuProfilesCollection::IsLastProfile(const char* title) {
   // Called from VM thread, and only it can mutate the list,
   // so no locking is needed here.
   if (current_profiles_.size() != 1) return false;
-  return StrLength(title) == 0
-      || strcmp(current_profiles_[0]->title(), title) == 0;
+  return title[0] == '\0' || strcmp(current_profiles_[0]->title(), title) == 0;
 }
 
 
@@ -751,15 +781,46 @@ void CpuProfilesCollection::RemoveProfile(CpuProfile* profile) {
   finished_profiles_.erase(pos);
 }
 
+namespace {
+
+int64_t GreatestCommonDivisor(int64_t a, int64_t b) {
+  return b ? GreatestCommonDivisor(b, a % b) : a;
+}
+
+}  // namespace
+
+base::TimeDelta CpuProfilesCollection::GetCommonSamplingInterval() const {
+  DCHECK(profiler_);
+
+  int64_t base_sampling_interval_us =
+      profiler_->sampling_interval().InMicroseconds();
+  if (base_sampling_interval_us == 0) return base::TimeDelta();
+
+  int64_t interval_us = 0;
+  for (const auto& profile : current_profiles_) {
+    // Snap the profile's requested sampling interval to the next multiple of
+    // the base sampling interval.
+    int64_t profile_interval_us =
+        std::max<int64_t>(
+            (profile->sampling_interval_us() + base_sampling_interval_us - 1) /
+                base_sampling_interval_us,
+            1) *
+        base_sampling_interval_us;
+    interval_us = GreatestCommonDivisor(interval_us, profile_interval_us);
+  }
+  return base::TimeDelta::FromMicroseconds(interval_us);
+}
+
 void CpuProfilesCollection::AddPathToCurrentProfiles(
     base::TimeTicks timestamp, const ProfileStackTrace& path, int src_line,
-    bool update_stats) {
+    bool update_stats, base::TimeDelta sampling_interval) {
   // As starting / stopping profiles is rare relatively to this
   // method, we don't bother minimizing the duration of lock holding,
   // e.g. copying contents of the list to a local vector.
   current_profiles_semaphore_.Wait();
   for (const std::unique_ptr<CpuProfile>& profile : current_profiles_) {
-    profile->AddPath(timestamp, path, src_line, update_stats);
+    profile->AddPath(timestamp, path, src_line, update_stats,
+                     sampling_interval);
   }
   current_profiles_semaphore_.Signal();
 }
@@ -893,7 +954,8 @@ void ProfileGenerator::RecordTickSample(const TickSample& sample) {
   }
 
   profiles_->AddPathToCurrentProfiles(sample.timestamp, stack_trace, src_line,
-                                      sample.update_stats);
+                                      sample.update_stats,
+                                      sample.sampling_interval);
 }
 
 CodeEntry* ProfileGenerator::EntryForVMState(StateTag tag) {

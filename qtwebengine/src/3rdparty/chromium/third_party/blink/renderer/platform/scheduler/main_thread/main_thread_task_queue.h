@@ -5,6 +5,7 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_PLATFORM_SCHEDULER_MAIN_THREAD_MAIN_THREAD_TASK_QUEUE_H_
 #define THIRD_PARTY_BLINK_RENDERER_PLATFORM_SCHEDULER_MAIN_THREAD_MAIN_THREAD_TASK_QUEUE_H_
 
+#include "base/memory/weak_ptr.h"
 #include "base/task/sequence_manager/task_queue.h"
 #include "base/task/sequence_manager/task_queue_impl.h"
 #include "net/base/request_priority.h"
@@ -18,6 +19,14 @@ class SequenceManager;
 
 namespace blink {
 namespace scheduler {
+
+namespace main_thread_scheduler_impl_unittest {
+class MainThreadSchedulerImplTest;
+}
+
+namespace frame_interference_recorder_test {
+class FrameInterferenceRecorderTest;
+}
 
 class FrameSchedulerImpl;
 class MainThreadSchedulerImpl;
@@ -60,8 +69,8 @@ class PLATFORM_EXPORT MainThreadTaskQueue
 
     kCleanup = 20,
 
-    kWebSchedulingUserInteraction = 21,
-    kWebSchedulingBestEffort = 22,
+    // 21 : kWebSchedulingUserInteraction, obsolete.
+    // 22 : kWebSchedulingBestEffort, obsolete.
 
     // Used to group multiple types when calculating Expected Queueing Time.
     kOther = 23,
@@ -98,7 +107,9 @@ class PLATFORM_EXPORT MainThreadTaskQueue
           can_be_throttled(false),
           can_be_paused(false),
           can_be_frozen(false),
-          can_run_in_background(true) {}
+          can_run_in_background(true),
+          should_use_virtual_time(false),
+          is_high_priority(false) {}
 
     QueueTraits(const QueueTraits&) = default;
 
@@ -127,12 +138,24 @@ class PLATFORM_EXPORT MainThreadTaskQueue
       return *this;
     }
 
+    QueueTraits SetShouldUseVirtualTime(bool value) {
+      should_use_virtual_time = value;
+      return *this;
+    }
+
+    QueueTraits SetIsHighPriority(bool value) {
+      is_high_priority = value;
+      return *this;
+    }
+
     bool operator==(const QueueTraits& other) const {
       return can_be_deferred == other.can_be_deferred &&
              can_be_throttled == other.can_be_throttled &&
              can_be_paused == other.can_be_paused &&
              can_be_frozen == other.can_be_frozen &&
-             can_run_in_background == other.can_run_in_background;
+             can_run_in_background == other.can_run_in_background &&
+             should_use_virtual_time == other.should_use_virtual_time &&
+             is_high_priority == other.is_high_priority;
     }
 
     // Return a key suitable for WTF::HashMap.
@@ -144,6 +167,8 @@ class PLATFORM_EXPORT MainThreadTaskQueue
       key |= can_be_paused << 3;
       key |= can_be_frozen << 4;
       key |= can_run_in_background << 5;
+      key |= should_use_virtual_time << 6;
+      key |= is_high_priority << 7;
       return key;
     }
 
@@ -152,6 +177,8 @@ class PLATFORM_EXPORT MainThreadTaskQueue
     bool can_be_paused : 1;
     bool can_be_frozen : 1;
     bool can_run_in_background : 1;
+    bool should_use_virtual_time : 1;
+    bool is_high_priority : 1;
   };
 
   struct QueueCreationParams {
@@ -201,6 +228,12 @@ class PLATFORM_EXPORT MainThreadTaskQueue
 
     QueueCreationParams SetCanRunInBackground(bool value) {
       queue_traits = queue_traits.SetCanRunInBackground(value);
+      ApplyQueueTraitsToSpec();
+      return *this;
+    }
+
+    QueueCreationParams SetShouldUseVirtualTime(bool value) {
+      queue_traits = queue_traits.SetShouldUseVirtualTime(value);
       ApplyQueueTraitsToSpec();
       return *this;
     }
@@ -270,9 +303,17 @@ class PLATFORM_EXPORT MainThreadTaskQueue
     return queue_traits_.can_run_in_background;
   }
 
+  bool ShouldUseVirtualTime() const {
+    return queue_traits_.should_use_virtual_time;
+  }
+
   bool FreezeWhenKeepActive() const { return freeze_when_keep_active_; }
 
   QueueTraits GetQueueTraits() const { return queue_traits_; }
+
+  void OnTaskReady(const void* frame_scheduler,
+                   const base::sequence_manager::Task& task,
+                   base::sequence_manager::LazyNow* lazy_now);
 
   void OnTaskStarted(
       const base::sequence_manager::Task& task,
@@ -280,7 +321,8 @@ class PLATFORM_EXPORT MainThreadTaskQueue
 
   void OnTaskCompleted(
       const base::sequence_manager::Task& task,
-      const base::sequence_manager::TaskQueue::TaskTiming& task_timing);
+      base::sequence_manager::TaskQueue::TaskTiming* task_timing,
+      base::sequence_manager::LazyNow* lazy_now);
 
   void DetachFromMainThreadScheduler();
 
@@ -288,7 +330,6 @@ class PLATFORM_EXPORT MainThreadTaskQueue
   void ShutdownTaskQueue() override;
 
   FrameSchedulerImpl* GetFrameScheduler() const;
-  void DetachFromFrameScheduler();
 
   scoped_refptr<base::SingleThreadTaskRunner> CreateTaskRunner(
       TaskType task_type) {
@@ -310,6 +351,9 @@ class PLATFORM_EXPORT MainThreadTaskQueue
 
  private:
   friend class base::sequence_manager::SequenceManager;
+  friend class blink::scheduler::main_thread_scheduler_impl_unittest::
+      MainThreadSchedulerImplTest;
+  friend class frame_interference_recorder_test::FrameInterferenceRecorderTest;
 
   // Clear references to main thread scheduler and frame scheduler and dispatch
   // appropriate notifications. This is the common part of ShutdownTaskQueue and
@@ -333,7 +377,11 @@ class PLATFORM_EXPORT MainThreadTaskQueue
   // Needed to notify renderer scheduler about completed tasks.
   MainThreadSchedulerImpl* main_thread_scheduler_;  // NOT OWNED
 
+  // Set in the constructor. Cleared in ClearReferencesToSchedulers(). Can never
+  // be set to a different value afterwards (except in tests).
   FrameSchedulerImpl* frame_scheduler_;  // NOT OWNED
+
+  base::WeakPtrFactory<MainThreadTaskQueue> weak_ptr_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(MainThreadTaskQueue);
 };

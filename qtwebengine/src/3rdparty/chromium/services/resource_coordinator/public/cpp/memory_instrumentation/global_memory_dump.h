@@ -5,6 +5,11 @@
 #ifndef SERVICES_RESOURCE_COORDINATOR_PUBLIC_CPP_MEMORY_INSTRUMENTATION_GLOBAL_MEMORY_DUMP_H_
 #define SERVICES_RESOURCE_COORDINATOR_PUBLIC_CPP_MEMORY_INSTRUMENTATION_GLOBAL_MEMORY_DUMP_H_
 
+#include <memory>
+#include <string>
+#include <utility>
+#include <vector>
+
 #include "base/component_export.h"
 #include "base/optional.h"
 #include "services/resource_coordinator/public/mojom/memory_instrumentation/memory_instrumentation.mojom.h"
@@ -30,6 +35,9 @@ class COMPONENT_EXPORT(RESOURCE_COORDINATOR_PUBLIC_MEMORY_INSTRUMENTATION)
 
     base::ProcessId pid() const { return raw_dump_->pid; }
     mojom::ProcessType process_type() const { return raw_dump_->process_type; }
+    const std::vector<std::string>& service_names() const {
+      return raw_dump_->service_names;
+    }
 
     const mojom::OSMemDump& os_dump() const { return *raw_dump_->os_dump; }
 
@@ -37,6 +45,33 @@ class COMPONENT_EXPORT(RESOURCE_COORDINATOR_PUBLIC_MEMORY_INSTRUMENTATION)
     mojom::ProcessMemoryDumpPtr raw_dump_;
 
     DISALLOW_COPY_AND_ASSIGN(ProcessDump);
+  };
+
+ public:
+  class COMPONENT_EXPORT(RESOURCE_COORDINATOR_PUBLIC_MEMORY_INSTRUMENTATION)
+      AggregatedMetrics {
+   public:
+    explicit AggregatedMetrics(mojom::AggregatedMetricsPtr aggregated_metrics);
+    ~AggregatedMetrics();
+
+    int32_t native_library_resident_kb() const {
+      return aggregated_metrics_->native_library_resident_kb;
+    }
+
+    int32_t native_library_resident_not_ordered_kb() const {
+      return aggregated_metrics_->native_library_resident_not_ordered_kb;
+    }
+
+    int32_t native_library_not_resident_ordered_kb() const {
+      return aggregated_metrics_->native_library_not_resident_ordered_kb;
+    }
+
+    static constexpr int32_t kInvalid = -1;
+
+   private:
+    const mojom::AggregatedMetricsPtr aggregated_metrics_;
+
+    DISALLOW_COPY_AND_ASSIGN(AggregatedMetrics);
   };
 
   ~GlobalMemoryDump();
@@ -49,10 +84,14 @@ class COMPONENT_EXPORT(RESOURCE_COORDINATOR_PUBLIC_MEMORY_INSTRUMENTATION)
     return process_dumps_;
   }
 
+  const AggregatedMetrics& aggregated_metrics() { return aggregated_metrics_; }
+
  private:
-  GlobalMemoryDump(std::vector<mojom::ProcessMemoryDumpPtr> process_dumps);
+  GlobalMemoryDump(std::vector<mojom::ProcessMemoryDumpPtr> process_dumps,
+                   mojom::AggregatedMetricsPtr aggregated_metrics);
 
   std::forward_list<ProcessDump> process_dumps_;
+  AggregatedMetrics aggregated_metrics_;
 
   DISALLOW_COPY_AND_ASSIGN(GlobalMemoryDump);
 };

@@ -97,24 +97,4 @@ AuthenticatorGetAssertionResponse::SetNumCredentials(uint8_t num_credentials) {
   return *this;
 }
 
-std::vector<uint8_t> GetSerializedCtapDeviceResponse(
-    const AuthenticatorGetAssertionResponse& response) {
-  cbor::Value::MapValue response_map;
-  if (response.credential())
-    response_map.emplace(cbor::CBORValue(1), response.credential()->ConvertToCBOR());
-
-  response_map.emplace(cbor::CBORValue(2), cbor::CBORValue(response.auth_data().SerializeToByteArray()));
-  response_map.emplace(cbor::CBORValue(3), cbor::CBORValue(response.signature()));
-
-  if (response.user_entity())
-    response_map.emplace(cbor::CBORValue(4), response.user_entity()->ConvertToCBOR());
-
-  // Multiple account selection is not supported.
-  response_map.emplace(cbor::CBORValue(5), cbor::CBORValue(1));
-  auto encoded_response =
-      cbor::Writer::Write(cbor::Value(std::move(response_map)));
-  DCHECK(encoded_response);
-  return *encoded_response;
-}
-
 }  // namespace device

@@ -23,8 +23,6 @@
 #include "net/http/http_server_properties_impl.h"
 #include "net/http/transport_security_state.h"
 #include "net/proxy_resolution/proxy_retry_info.h"
-#include "net/ssl/channel_id_service.h"
-#include "net/ssl/default_channel_id_store.h"
 #include "net/url_request/static_http_user_agent_settings.h"
 #include "net/url_request/url_request_job.h"
 #include "net/url_request/url_request_job_factory_impl.h"
@@ -74,8 +72,10 @@ void TestURLRequestContext::Init() {
         std::unique_ptr<HostResolver>(new MockCachingHostResolver()));
   if (!proxy_resolution_service())
     context_storage_.set_proxy_resolution_service(ProxyResolutionService::CreateDirect());
-  if (!cert_verifier())
-    context_storage_.set_cert_verifier(CertVerifier::CreateDefault());
+  if (!cert_verifier()) {
+    context_storage_.set_cert_verifier(
+        CertVerifier::CreateDefault(/*cert_net_fetcher=*/nullptr));
+  }
   if (!transport_security_state()) {
     context_storage_.set_transport_security_state(
         std::make_unique<TransportSecurityState>());
@@ -94,7 +94,7 @@ void TestURLRequestContext::Init() {
   }
   if (!http_auth_handler_factory()) {
     context_storage_.set_http_auth_handler_factory(
-        HttpAuthHandlerFactory::CreateDefault(host_resolver()));
+        HttpAuthHandlerFactory::CreateDefault());
   }
   if (!http_server_properties()) {
     context_storage_.set_http_server_properties(
@@ -103,15 +103,13 @@ void TestURLRequestContext::Init() {
   // In-memory cookie store.
   if (!cookie_store()) {
     context_storage_.set_cookie_store(std::make_unique<CookieMonster>(
-        nullptr /* store */, nullptr /* channel_id_service */,
-        nullptr /* netlog */));
+        nullptr /* store */, nullptr /* netlog */));
   }
 
-  // In-memory Channel ID service.  Must be created before the
-  // HttpNetworkSession.
-  if (!channel_id_service()) {
-    context_storage_.set_channel_id_service(
-        std::make_unique<ChannelIDService>(new DefaultChannelIDStore(nullptr)));
+  if (!http_user_agent_settings() && create_default_http_user_agent_settings_) {
+    context_storage_.set_http_user_agent_settings(
+        std::make_unique<StaticHttpUserAgentSettings>("en-us,fr",
+                                                      std::string()));
   }
   if (http_transaction_factory()) {
     // Make sure we haven't been passed an object we're not going to use.
@@ -131,11 +129,12 @@ void TestURLRequestContext::Init() {
     session_context.ct_policy_enforcer = ct_policy_enforcer();
     session_context.transport_security_state = transport_security_state();
     session_context.proxy_resolution_service = proxy_resolution_service();
+    session_context.proxy_delegate = proxy_delegate();
+    session_context.http_user_agent_settings = http_user_agent_settings();
     session_context.ssl_config_service = ssl_config_service();
     session_context.http_auth_handler_factory = http_auth_handler_factory();
     session_context.http_server_properties = http_server_properties();
     session_context.net_log = net_log();
-    session_context.channel_id_service = channel_id_service();
 #if BUILDFLAG(ENABLE_REPORTING)
     session_context.network_error_logging_service =
         network_error_logging_service();
@@ -145,11 +144,6 @@ void TestURLRequestContext::Init() {
     context_storage_.set_http_transaction_factory(std::make_unique<HttpCache>(
         context_storage_.http_network_session(),
         HttpCache::DefaultBackend::InMemory(0), true /* is_main_cache */));
-  }
-  if (!http_user_agent_settings() && create_default_http_user_agent_settings_) {
-    context_storage_.set_http_user_agent_settings(
-        std::make_unique<StaticHttpUserAgentSettings>("en-us,fr",
-                                                      std::string()));
   }
   if (!job_factory()) {
     context_storage_.set_job_factory(
@@ -248,7 +242,7 @@ void TestDelegate::OnReceivedRedirect(URLRequest* request,
 }
 
 void TestDelegate::OnAuthRequired(URLRequest* request,
-                                  AuthChallengeInfo* auth_info) {
+                                  const AuthChallengeInfo& auth_info) {
   auth_required_ = true;
   if (on_auth_required_) {
     std::move(on_auth_required_).Run();
@@ -262,6 +256,7 @@ void TestDelegate::OnAuthRequired(URLRequest* request,
 }
 
 void TestDelegate::OnSSLCertificateError(URLRequest* request,
+                                         int net_error,
                                          const SSLInfo& ssl_info,
                                          bool fatal) {
   // The caller can control whether it needs all SSL requests to go through,

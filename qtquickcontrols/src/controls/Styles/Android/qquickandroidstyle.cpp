@@ -85,11 +85,11 @@ QByteArray QQuickAndroidStyle1::data() const
     return m_data;
 }
 
-QString QQuickAndroidStyle1::filePath(const QString &fileName) const
+QUrl QQuickAndroidStyle1::filePath(const QString &fileName) const
 {
     if (!fileName.isEmpty())
-        return m_path + QFileInfo(fileName).fileName();
-    return QString();
+        return QUrl::fromLocalFile(m_path + QFileInfo(fileName).fileName());
+    return {};
 }
 
 QColor QQuickAndroidStyle1::colorValue(uint value) const

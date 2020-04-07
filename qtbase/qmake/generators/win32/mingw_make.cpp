@@ -38,10 +38,6 @@
 
 QT_BEGIN_NAMESPACE
 
-MingwMakefileGenerator::MingwMakefileGenerator() : Win32MakefileGenerator()
-{
-}
-
 QString MingwMakefileGenerator::escapeDependencyPath(const QString &path) const
 {
     QString ret = path;
@@ -97,18 +93,6 @@ bool MingwMakefileGenerator::writeMakefile(QTextStream &t)
        project->first("TEMPLATE") == "aux") {
         if(project->isActiveConfig("create_pc") && project->first("TEMPLATE") == "lib")
             writePkgConfigFile();
-
-        if(Option::mkfile::do_stub_makefile) {
-            t << "QMAKE    = " << var("QMAKE_QMAKE") << endl;
-            const ProStringList &qut = project->values("QMAKE_EXTRA_TARGETS");
-            for (ProStringList::ConstIterator it = qut.begin(); it != qut.end(); ++it)
-                t << escapeDependencyPath(*it) << ' ';
-            t << "first all clean install distclean uninstall: qmake\n"
-              << "qmake_all:\n";
-            writeMakeQmake(t);
-            t << "FORCE:\n\n";
-            return true;
-        }
         writeMingwParts(t);
         return MakefileGenerator::writeMakefile(t);
     }
@@ -131,30 +115,6 @@ QString MingwMakefileGenerator::installRoot() const
     return QStringLiteral("$(INSTALL_ROOT:@msyshack@%=%)");
 }
 
-static void createResponseFile(const QString &fileName, const ProStringList &objList)
-{
-    QString filePath = Option::output_dir + QDir::separator() + fileName;
-    QFile file(filePath);
-    if (file.open(QIODevice::WriteOnly | QIODevice::Text)) {
-        QTextStream t(&file);
-        for (ProStringList::ConstIterator it = objList.constBegin(); it != objList.constEnd(); ++it) {
-            QString path = (*it).toQString();
-            // In response files, whitespace and special characters are
-            // escaped with a backslash; backslashes themselves can either
-            // be escaped into double backslashes, or, as this is a list of
-            // path names, converted to forward slashes.
-            path.replace(QLatin1Char('\\'), QLatin1String("/"))
-                .replace(QLatin1Char(' '), QLatin1String("\\ "))
-                .replace(QLatin1Char('\t'), QLatin1String("\\\t"))
-                .replace(QLatin1Char('"'), QLatin1String("\\\""))
-                .replace(QLatin1Char('\''), QLatin1String("\\'"));
-            t << path << endl;
-        }
-        t.flush();
-        file.close();
-    }
-}
-
 void MingwMakefileGenerator::writeMingwParts(QTextStream &t)
 {
     writeStandardParts(t);
@@ -166,13 +126,13 @@ void MingwMakefileGenerator::writeMingwParts(QTextStream &t)
           << finalizeDependencyPaths(findDependencies(header)).join(" \\\n\t\t")
           << "\n\t" << mkdir_p_asstring(preCompHeaderOut)
           << "\n\t$(CC) -x c-header -c $(CFLAGS) $(INCPATH) -o " << escapeFilePath(cHeader)
-          << ' ' << escapeFilePath(header) << endl << endl;
+          << ' ' << escapeFilePath(header) << Qt::endl << Qt::endl;
         QString cppHeader = preCompHeaderOut + Option::dir_sep + "c++";
         t << escapeDependencyPath(cppHeader) << ": " << escapeDependencyPath(header) << " "
           << finalizeDependencyPaths(findDependencies(header)).join(" \\\n\t\t")
           << "\n\t" << mkdir_p_asstring(preCompHeaderOut)
           << "\n\t$(CXX) -x c++-header -c $(CXXFLAGS) $(INCPATH) -o " << escapeFilePath(cppHeader)
-          << ' ' << escapeFilePath(header) << endl << endl;
+          << ' ' << escapeFilePath(header) << Qt::endl << Qt::endl;
     }
 }
 
@@ -257,21 +217,21 @@ void MingwMakefileGenerator::writeIncPart(QTextStream &t)
             t << "-I";
         t << escapeFilePath(inc) << ' ';
     }
-    t << endl;
+    t << Qt::endl;
 }
 
 void MingwMakefileGenerator::writeLibsPart(QTextStream &t)
 {
     if(project->isActiveConfig("staticlib") && project->first("TEMPLATE") == "lib") {
-        t << "LIB        =        " << var("QMAKE_LIB") << endl;
+        t << "LIB        =        " << var("QMAKE_LIB") << Qt::endl;
     } else {
-        t << "LINKER      =        " << var("QMAKE_LINK") << endl;
-        t << "LFLAGS        =        " << var("QMAKE_LFLAGS") << endl;
+        t << "LINKER      =        " << var("QMAKE_LINK") << Qt::endl;
+        t << "LFLAGS        =        " << var("QMAKE_LFLAGS") << Qt::endl;
         t << "LIBS        =        "
           << fixLibFlags("LIBS").join(' ') << ' '
           << fixLibFlags("LIBS_PRIVATE").join(' ') << ' '
           << fixLibFlags("QMAKE_LIBS").join(' ') << ' '
-          << fixLibFlags("QMAKE_LIBS_PRIVATE").join(' ') << endl;
+          << fixLibFlags("QMAKE_LIBS_PRIVATE").join(' ') << Qt::endl;
     }
 }
 
@@ -332,7 +292,7 @@ void MingwMakefileGenerator::writeBuildRulesPart(QTextStream &t)
     }
     if(!project->isEmpty("QMAKE_POST_LINK"))
         t << "\n\t" <<var("QMAKE_POST_LINK");
-    t << endl;
+    t << Qt::endl;
 }
 
 void MingwMakefileGenerator::writeRcFilePart(QTextStream &t)
@@ -358,7 +318,11 @@ void MingwMakefileGenerator::writeRcFilePart(QTextStream &t)
         if (defines.isEmpty())
             defines = ProString(" $(DEFINES)");
 
-        t << escapeDependencyPath(var("RES_FILE")) << ": " << escapeDependencyPath(rc_file) << "\n\t"
+        addSourceFile(rc_file, QMakeSourceFileInfo::SEEK_DEPS);
+        const QStringList rcDeps = QStringList(rc_file) << dependencies(rc_file);
+
+        t << escapeDependencyPath(var("RES_FILE")) << ": "
+          << escapeDependencyPaths(rcDeps).join(' ') << "\n\t"
           << var("QMAKE_RC") << " -i " << escapeFilePath(rc_file) << " -o " << fileVar("RES_FILE")
           << incPathStr << defines << "\n\n";
     }

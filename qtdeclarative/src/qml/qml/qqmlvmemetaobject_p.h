@@ -65,9 +65,7 @@
 
 #include "qqmlguard_p.h"
 #include "qqmlcontext_p.h"
-#include "qqmlpropertycache_p.h"
 
-#include <private/qv8engine_p.h>
 #include <private/qflagpointer_p.h>
 
 #include <private/qv4object_p.h>
@@ -146,7 +144,7 @@ class QQmlVMEMetaObjectEndpoint;
 class Q_QML_PRIVATE_EXPORT QQmlVMEMetaObject : public QQmlInterceptorMetaObject
 {
 public:
-    QQmlVMEMetaObject(QV4::ExecutionEngine *engine, QObject *obj, const QQmlRefPointer<QQmlPropertyCache> &cache, const QQmlRefPointer<QV4::CompiledData::CompilationUnit> &qmlCompilationUnit, int qmlObjectId);
+    QQmlVMEMetaObject(QV4::ExecutionEngine *engine, QObject *obj, const QQmlRefPointer<QQmlPropertyCache> &cache, const QQmlRefPointer<QV4::ExecutableCompilationUnit> &qmlCompilationUnit, int qmlObjectId);
     ~QQmlVMEMetaObject() override;
 
     bool aliasTarget(int index, QObject **target, int *coreIndex, int *valueTypeIndex) const;
@@ -196,12 +194,18 @@ public:
     void writeProperty(int id, bool v);
     void writeProperty(int id, double v);
     void writeProperty(int id, const QString& v);
-    void writeProperty(int id, const QPointF& v);
-    void writeProperty(int id, const QSizeF& v);
-    void writeProperty(int id, const QUrl& v);
-    void writeProperty(int id, const QDate& v);
-    void writeProperty(int id, const QDateTime& v);
-    void writeProperty(int id, const QRectF& v);
+
+    template<typename VariantCompatible>
+    void writeProperty(int id, const VariantCompatible &v)
+    {
+        QV4::MemberData *md = propertyAndMethodStorageAsMemberData();
+        if (md) {
+            QV4::Scope scope(engine);
+            QV4::Scoped<QV4::MemberData>(scope, md)->set(engine, id, engine->newVariantObject(
+                                                             QVariant::fromValue(v)));
+        }
+    }
+
     void writeProperty(int id, QObject *v);
 
     void ensureQObjectWrapper();
@@ -228,7 +232,7 @@ public:
 
     // keep a reference to the compilation unit in order to still
     // do property access when the context has been invalidated.
-    QQmlRefPointer<QV4::CompiledData::CompilationUnit> compilationUnit;
+    QQmlRefPointer<QV4::ExecutableCompilationUnit> compilationUnit;
     const QV4::CompiledData::Object *compiledObject;
 };
 

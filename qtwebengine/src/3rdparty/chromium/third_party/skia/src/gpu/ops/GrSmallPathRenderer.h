@@ -8,16 +8,16 @@
 #ifndef GrSmallPathRenderer_DEFINED
 #define GrSmallPathRenderer_DEFINED
 
-#include "GrDrawOpAtlas.h"
-#include "GrOnFlushResourceProvider.h"
-#include "GrPathRenderer.h"
-#include "GrRect.h"
-#include "GrShape.h"
+#include "src/gpu/GrDrawOpAtlas.h"
+#include "src/gpu/GrOnFlushResourceProvider.h"
+#include "src/gpu/GrPathRenderer.h"
+#include "src/gpu/geometry/GrRect.h"
+#include "src/gpu/geometry/GrShape.h"
 
-#include "SkOpts.h"
-#include "SkTDynamicHash.h"
+#include "src/core/SkOpts.h"
+#include "src/core/SkTDynamicHash.h"
 
-class GrContext;
+class GrRecordingContext;
 
 class ShapeData;
 class ShapeDataKey;
@@ -50,7 +50,7 @@ public:
     using ShapeCache = SkTDynamicHash<ShapeData, ShapeDataKey>;
     typedef SkTInternalLList<ShapeData> ShapeDataList;
 
-    static std::unique_ptr<GrDrawOp> createOp_TestingOnly(GrContext*,
+    static std::unique_ptr<GrDrawOp> createOp_TestingOnly(GrRecordingContext*,
                                                           GrPaint&&,
                                                           const GrShape&,
                                                           const SkMatrix& viewMatrix,

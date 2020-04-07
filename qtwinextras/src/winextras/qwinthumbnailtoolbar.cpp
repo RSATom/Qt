@@ -185,7 +185,7 @@ void QWinThumbnailToolBar::removeButton(QWinThumbnailToolButton *button)
 {
     Q_D(QWinThumbnailToolBar);
     if (button && d->buttonList.contains(button)) {
-        button->d_func()->toolbar = 0;
+        button->d_func()->toolbar = nullptr;
         disconnect(button, &QWinThumbnailToolButton::changed,
                    d, &QWinThumbnailToolBarPrivate::_q_scheduleUpdate);
 
@@ -259,7 +259,7 @@ void QWinThumbnailToolBarPrivate::IconicPixmapCache::deleteBitmap()
     if (m_bitmap) {
         DeleteObject(m_bitmap);
         m_size = QSize();
-        m_bitmap = 0;
+        m_bitmap = nullptr;
     }
 }
 
@@ -275,7 +275,7 @@ bool QWinThumbnailToolBarPrivate::IconicPixmapCache::setPixmap(const QPixmap &pi
 HBITMAP QWinThumbnailToolBarPrivate::IconicPixmapCache::bitmap(const QSize &maxSize)
 {
     if (m_pixmap.isNull())
-        return 0;
+        return nullptr;
     if (m_bitmap && m_size.width() <= maxSize.width() && m_size.height() <= maxSize.height())
         return m_bitmap;
     deleteBitmap();
@@ -421,13 +421,13 @@ void QWinThumbnailToolBar::clear()
 
 static inline ITaskbarList4 *createTaskbarList()
 {
-    ITaskbarList4 *result = 0;
-    HRESULT hresult = CoCreateInstance(CLSID_TaskbarList, 0, CLSCTX_INPROC_SERVER, qIID_ITaskbarList4, reinterpret_cast<void **>(&result));
+    ITaskbarList4 *result = nullptr;
+    HRESULT hresult = CoCreateInstance(CLSID_TaskbarList, nullptr, CLSCTX_INPROC_SERVER, qIID_ITaskbarList4, reinterpret_cast<void **>(&result));
     if (FAILED(hresult)) {
         const QString err = QtWin::errorStringFromHresult(hresult);
         qWarning("QWinThumbnailToolBar: qIID_ITaskbarList4 was not created: %#010x, %s.",
                  unsigned(hresult), qPrintable(err));
-        return 0;
+        return nullptr;
     }
     hresult = result->HrInit();
     if (FAILED(hresult)) {
@@ -435,14 +435,13 @@ static inline ITaskbarList4 *createTaskbarList()
         const QString err = QtWin::errorStringFromHresult(hresult);
         qWarning("QWinThumbnailToolBar: qIID_ITaskbarList4 was not initialized: %#010x, %s.",
                  unsigned(hresult), qPrintable(err));
-        return 0;
+        return nullptr;
     }
     return result;
 }
 
 QWinThumbnailToolBarPrivate::QWinThumbnailToolBarPrivate() :
-    QObject(0), updateScheduled(false), window(0), pTbList(createTaskbarList()), q_ptr(0),
-    withinIconicThumbnailRequest(false), withinIconicLivePreviewRequest(false)
+    QObject(nullptr), pTbList(createTaskbarList())
 {
     buttonList.reserve(windowsLimitedThumbbarSize);
     QCoreApplication::instance()->installNativeEventFilter(this);
@@ -462,7 +461,7 @@ inline bool QWinThumbnailToolBarPrivate::hasHandle() const
 
 inline HWND QWinThumbnailToolBarPrivate::handle() const
 {
-    return hasHandle() ? reinterpret_cast<HWND>(window->winId()) : HWND(0);
+    return hasHandle() ? reinterpret_cast<HWND>(window->winId()) : nullptr;
 }
 
 void QWinThumbnailToolBarPrivate::initToolbar()
@@ -504,7 +503,7 @@ void QWinThumbnailToolBarPrivate::_q_updateToolbar()
         if (!button->icon().isNull()) {;
             buttons[i].hIcon = QtWin::toHICON(button->icon().pixmap(GetSystemMetrics(SM_CXSMICON)));
             if (!buttons[i].hIcon)
-                buttons[i].hIcon = static_cast<HICON>(LoadImage(0, IDI_APPLICATION, IMAGE_ICON, SM_CXSMICON, SM_CYSMICON, LR_SHARED));
+                buttons[i].hIcon = static_cast<HICON>(LoadImage(nullptr, IDI_APPLICATION, IMAGE_ICON, SM_CXSMICON, SM_CYSMICON, LR_SHARED));
             else
                 createdIcons << buttons[i].hIcon;
         }
@@ -543,7 +542,11 @@ bool QWinThumbnailToolBarPrivate::eventFilter(QObject *object, QEvent *event)
     return QObject::eventFilter(object, event);
 }
 
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+bool QWinThumbnailToolBarPrivate::nativeEventFilter(const QByteArray &, void *message, qintptr *result)
+#else
 bool QWinThumbnailToolBarPrivate::nativeEventFilter(const QByteArray &, void *message, long *result)
+#endif
 {
     const MSG *msg = static_cast<const MSG *>(message);
     if (handle() != msg->hwnd)

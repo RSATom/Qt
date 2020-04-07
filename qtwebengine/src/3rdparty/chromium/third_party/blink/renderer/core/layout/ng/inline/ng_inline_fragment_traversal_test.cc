@@ -21,8 +21,8 @@ class NGInlineFragmentTraversalTest : public NGLayoutTest {
     const LayoutObject* layout_object = element->GetLayoutObject();
     DCHECK(layout_object) << element;
     DCHECK(layout_object->IsLayoutBlockFlow()) << element;
-    DCHECK(ToLayoutBlockFlow(layout_object)->CurrentFragment()) << element;
-    return *ToLayoutBlockFlow(layout_object)->CurrentFragment();
+    DCHECK(To<LayoutBlockFlow>(layout_object)->CurrentFragment()) << element;
+    return *To<LayoutBlockFlow>(layout_object)->CurrentFragment();
   }
 
   const NGPhysicalFragment& GetFragmentOfNode(
@@ -55,7 +55,7 @@ class NGInlineFragmentTraversalTest : public NGLayoutTest {
     const auto& current = *iter++;                                           \
     EXPECT_TRUE(current.fragment->IsText()) << current.fragment->ToString(); \
     EXPECT_EQ(content,                                                       \
-              ToNGPhysicalTextFragment(current.fragment.get())->Text());     \
+              To<NGPhysicalTextFragment>(current.fragment.get())->Text());   \
   }
 
 TEST_F(NGInlineFragmentTraversalTest, DescendantsOf) {
@@ -66,25 +66,6 @@ TEST_F(NGInlineFragmentTraversalTest, DescendantsOf) {
       NGInlineFragmentTraversal::DescendantsOf(GetRootFragmentById("t"));
   auto* iter = descendants.begin();
 
-  EXPECT_NEXT_LINE_BOX(iter);
-  EXPECT_NEXT_TEXT(iter, "foo");
-  EXPECT_NEXT_BOX(iter, "b");
-  EXPECT_NEXT_TEXT(iter, "bar");
-  EXPECT_NEXT_TEXT(iter, "\n");
-  EXPECT_NEXT_LINE_BOX(iter);
-  EXPECT_NEXT_TEXT(iter, "baz");
-  EXPECT_EQ(iter, descendants.end());
-}
-
-TEST_F(NGInlineFragmentTraversalTest, InclusiveDescendantsOf) {
-  SetBodyInnerHTML(
-      "<style>* { border: 1px solid}</style>"
-      "<div id=t>foo<b id=b>bar</b><br>baz</div>");
-  auto descendants = NGInlineFragmentTraversal::InclusiveDescendantsOf(
-      GetRootFragmentById("t"));
-  auto* iter = descendants.begin();
-
-  EXPECT_NEXT_BOX(iter, "t");
   EXPECT_NEXT_LINE_BOX(iter);
   EXPECT_NEXT_TEXT(iter, "foo");
   EXPECT_NEXT_BOX(iter, "b");
@@ -108,46 +89,6 @@ TEST_F(NGInlineFragmentTraversalTest, SelfFragmentsOf) {
   EXPECT_NEXT_BOX(iter, "filter");
   EXPECT_NEXT_BOX(iter, "filter");
   EXPECT_EQ(iter, descendants.end());
-}
-
-TEST_F(NGInlineFragmentTraversalTest, AncestorsOf) {
-  SetBodyInnerHTML(
-      "<style>* { border: 1px solid}</style>"
-      "<div id=t>x"
-      "<b id=b>y<i id=i>z<u id=target>foo</u>z</i>y</b>"
-      "x</div>");
-  const NGPhysicalContainerFragment& root = GetRootFragmentById("t");
-  const NGPhysicalFragment& target =
-      GetFragmentOfNode(root, GetElementById("target")->firstChild());
-  auto ancestors = NGInlineFragmentTraversal::AncestorsOf(root, target);
-  auto* iter = ancestors.begin();
-
-  EXPECT_NEXT_BOX(iter, "target");
-  EXPECT_NEXT_BOX(iter, "i");
-  EXPECT_NEXT_BOX(iter, "b");
-  EXPECT_NEXT_LINE_BOX(iter);
-  EXPECT_EQ(iter, ancestors.end());
-}
-
-TEST_F(NGInlineFragmentTraversalTest, InclusiveAncestorsOf) {
-  SetBodyInnerHTML(
-      "<style>* { border: 1px solid}</style>"
-      "<div id=t>x"
-      "<b id=b>y<i id=i>z<u id=target>foo</u>z</i>y</b>"
-      "x</div>");
-  const NGPhysicalContainerFragment& root = GetRootFragmentById("t");
-  const NGPhysicalFragment& target =
-      GetFragmentOfNode(root, GetElementById("target")->firstChild());
-  auto ancestors =
-      NGInlineFragmentTraversal::InclusiveAncestorsOf(root, target);
-  auto* iter = ancestors.begin();
-
-  EXPECT_NEXT_TEXT(iter, "foo");
-  EXPECT_NEXT_BOX(iter, "target");
-  EXPECT_NEXT_BOX(iter, "i");
-  EXPECT_NEXT_BOX(iter, "b");
-  EXPECT_NEXT_LINE_BOX(iter);
-  EXPECT_EQ(iter, ancestors.end());
 }
 
 }  // namespace blink

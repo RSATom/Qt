@@ -370,8 +370,6 @@ class NET_EXPORT_PRIVATE SpdyStream {
   // yet.
   bool IsReservedRemote() const;
 
-  int response_status() const { return response_status_; }
-
   void AddRawReceivedBytes(size_t received_bytes);
   void AddRawSentBytes(size_t sent_bytes);
 
@@ -427,10 +425,6 @@ class NET_EXPORT_PRIVATE SpdyStream {
     TRAILERS_RECEIVED
   };
 
-  // Update the histograms.  Can safely be called repeatedly, but should only
-  // be called after the stream has completed.
-  void UpdateHistograms();
-
   // When a server-push stream is claimed by SetDelegate(), this function is
   // posted on the current MessageLoop to replay everything the server has sent.
   // From the perspective of SpdyStream's state machine, headers, data, and
@@ -451,7 +445,8 @@ class NET_EXPORT_PRIVATE SpdyStream {
 
   // Saves the given headers into |response_headers_| and calls
   // OnHeadersReceived() on the delegate if attached.
-  void SaveResponseHeaders(const spdy::SpdyHeaderBlock& response_headers);
+  void SaveResponseHeaders(const spdy::SpdyHeaderBlock& response_headers,
+                           int status);
 
   static std::string DescribeState(State state);
 
@@ -511,10 +506,6 @@ class NET_EXPORT_PRIVATE SpdyStream {
 
   State io_state_;
 
-  // Since we buffer the response, we also buffer the response status.
-  // Not valid until the stream is closed.
-  int response_status_;
-
   NetLogWithSource net_log_;
 
   base::TimeTicks send_time_;
@@ -528,9 +519,8 @@ class NET_EXPORT_PRIVATE SpdyStream {
   // overhead and headers.
   int64_t raw_sent_bytes_;
 
-  // Number of data bytes that have been sent/received on this stream, not
-  // including frame overhead. Note that this does not count headers.
-  int send_bytes_;
+  // Number of data bytes that have been received on this stream, not including
+  // frame overhead. Note that this does not count headers.
   int recv_bytes_;
 
   // Guards calls of delegate write handlers ensuring |this| is not destroyed.
@@ -540,7 +530,7 @@ class NET_EXPORT_PRIVATE SpdyStream {
 
   const NetworkTrafficAnnotationTag traffic_annotation_;
 
-  base::WeakPtrFactory<SpdyStream> weak_ptr_factory_;
+  base::WeakPtrFactory<SpdyStream> weak_ptr_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(SpdyStream);
 };

@@ -460,8 +460,7 @@ Sources.SourcesPanel = class extends UI.Panel {
   _pauseOnExceptionEnabledChanged() {
     const enabled = Common.moduleSetting('pauseOnExceptionEnabled').get();
     this._pauseOnExceptionButton.setToggled(enabled);
-    this._pauseOnExceptionButton.setTitle(
-        Common.UIString(enabled ? 'Don\'t pause on exceptions' : 'Pause on exceptions'));
+    this._pauseOnExceptionButton.setTitle(enabled ? ls`Don't pause on exceptions` : ls`Pause on exceptions`);
     this._debugToolbarDrawer.classList.toggle('expanded', enabled);
   }
 
@@ -694,19 +693,13 @@ Sources.SourcesPanel = class extends UI.Panel {
     const terminateExecutionButton =
         new UI.ToolbarButton(ls`Terminate current JavaScript call`, 'largeicon-terminate-execution');
     terminateExecutionButton.addEventListener(UI.ToolbarButton.Events.Click, this._terminateExecution, this);
-    debugToolbar.appendToolbarItem(
-        UI.Toolbar.createActionButton(this._togglePauseAction, [terminateExecutionButton, longResumeButton], []));
+    debugToolbar.appendToolbarItem(UI.Toolbar.createLongPressActionButton(
+        this._togglePauseAction, [terminateExecutionButton, longResumeButton], []));
 
-    if (Runtime.experiments.isEnabled('stepIntoAsync')) {
-      debugToolbar.appendToolbarItem(UI.Toolbar.createActionButton(this._stepOverAction));
-      debugToolbar.appendToolbarItem(UI.Toolbar.createActionButton(this._stepIntoAction));
-      debugToolbar.appendToolbarItem(UI.Toolbar.createActionButton(this._stepOutAction));
-      debugToolbar.appendToolbarItem(UI.Toolbar.createActionButton(this._stepAction));
-    } else {
-      debugToolbar.appendToolbarItem(UI.Toolbar.createActionButton(this._stepOverAction));
-      debugToolbar.appendToolbarItem(UI.Toolbar.createActionButton(this._stepAction));
-      debugToolbar.appendToolbarItem(UI.Toolbar.createActionButton(this._stepOutAction));
-    }
+    debugToolbar.appendToolbarItem(UI.Toolbar.createActionButton(this._stepOverAction));
+    debugToolbar.appendToolbarItem(UI.Toolbar.createActionButton(this._stepIntoAction));
+    debugToolbar.appendToolbarItem(UI.Toolbar.createActionButton(this._stepOutAction));
+    debugToolbar.appendToolbarItem(UI.Toolbar.createActionButton(this._stepAction));
 
     debugToolbar.appendSeparator();
     debugToolbar.appendToolbarItem(UI.Toolbar.createActionButton(this._toggleBreakpointsActiveAction));

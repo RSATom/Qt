@@ -2,10 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-// This file implements the ScopedClipboardWriter class. Documentation on its
-// purpose can be found in our header. Documentation on the format of the
-// parameters for each clipboard target can be found in clipboard.h.
-
 #include "ui/base/clipboard/scoped_clipboard_writer.h"
 
 #include "base/pickle.h"
@@ -14,6 +10,8 @@
 #include "ui/base/clipboard/clipboard_format_type.h"
 #include "ui/gfx/geometry/size.h"
 
+// Documentation on the format of the parameters for each clipboard target can
+// be found in clipboard.h.
 namespace ui {
 
 ScopedClipboardWriter::ScopedClipboardWriter(ClipboardType type) : type_(type) {
@@ -76,11 +74,11 @@ void ScopedClipboardWriter::WriteHyperlink(const base::string16& anchor_text,
     return;
 
   // Construct the hyperlink.
-  std::string html("<a href=\"");
-  html.append(net::EscapeForHTML(url));
-  html.append("\">");
-  html.append(net::EscapeForHTML(base::UTF16ToUTF8(anchor_text)));
-  html.append("</a>");
+  std::string html = "<a href=\"";
+  html += net::EscapeForHTML(url);
+  html += "\">";
+  html += net::EscapeForHTML(base::UTF16ToUTF8(anchor_text));
+  html += "</a>";
   WriteHTML(base::UTF8ToUTF16(html), std::string());
 }
 
@@ -91,8 +89,7 @@ void ScopedClipboardWriter::WriteWebSmartPaste() {
 void ScopedClipboardWriter::WriteImage(const SkBitmap& bitmap) {
   if (bitmap.drawsNothing())
     return;
-  // TODO(crbug.com/918717): Remove CHECK if no crashes occur on it in canary.
-  CHECK(bitmap.getPixels());
+  DCHECK(bitmap.getPixels());
 
   bitmap_ = bitmap;
   // TODO(dcheng): This is slightly less horrible than what we used to do, but

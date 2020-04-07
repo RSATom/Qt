@@ -50,7 +50,7 @@ base::Optional<FontTableMatcher::MatchResult> FontTableMatcher::MatchName(
 
   const auto& found_font = font_table_.fonts()[find_result->font_index()];
 
-  if (!found_font.file_path().size())
+  if (found_font.file_path().empty())
     return {};
   return base::Optional<MatchResult>(
       {found_font.file_path(), found_font.ttc_index()});
@@ -75,6 +75,15 @@ bool FontTableMatcher::FontListIsDisjointFrom(
                         paths_other.begin(), paths_other.end(),
                         std::back_inserter(intersection_result));
   return intersection_result.empty();
+}
+
+void FontTableMatcher::SortUniqueNameTableForSearch(
+    FontUniqueNameTable* font_table) {
+  std::sort(font_table->mutable_name_map()->begin(),
+            font_table->mutable_name_map()->end(),
+            [](const auto& a, const auto& b) {
+              return a.font_name() < b.font_name();
+            });
 }
 
 }  // namespace blink

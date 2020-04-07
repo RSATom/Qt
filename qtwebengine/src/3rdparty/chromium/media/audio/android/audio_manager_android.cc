@@ -13,14 +13,13 @@
 #include "base/bind.h"
 #include "base/logging.h"
 #include "base/strings/string_number_conversions.h"
-#include "jni/AudioManagerAndroid_jni.h"
-#include "media/audio/android/audio_record_input.h"
 #include "media/audio/android/audio_track_output_stream.h"
 #include "media/audio/android/opensles_input.h"
 #include "media/audio/android/opensles_output.h"
 #include "media/audio/audio_device_description.h"
 #include "media/audio/audio_manager.h"
 #include "media/audio/fake_audio_input_stream.h"
+#include "media/base/android/media_jni_headers/AudioManagerAndroid_jni.h"
 #include "media/base/audio_parameters.h"
 #include "media/base/channel_layout.h"
 
@@ -69,9 +68,9 @@ AudioManagerAndroid::~AudioManagerAndroid() = default;
 
 void AudioManagerAndroid::InitializeIfNeeded() {
   GetTaskRunner()->PostTask(
-      FROM_HERE,
-      base::Bind(base::IgnoreResult(&AudioManagerAndroid::GetJavaAudioManager),
-                 base::Unretained(this)));
+      FROM_HERE, base::BindOnce(base::IgnoreResult(
+                                    &AudioManagerAndroid::GetJavaAudioManager),
+                                base::Unretained(this)));
 }
 
 void AudioManagerAndroid::ShutdownOnAudioThread() {
@@ -113,11 +112,8 @@ void AudioManagerAndroid::GetAudioInputDeviceNames(
     // MODIFY_AUDIO_SETTINGS or RECORD_AUDIO permissions.
     return;
   }
-  jsize len = env->GetArrayLength(j_device_array.obj());
   AudioDeviceName device;
-  for (jsize i = 0; i < len; ++i) {
-    ScopedJavaLocalRef<jobject> j_device(
-        env, env->GetObjectArrayElement(j_device_array.obj(), i));
+  for (auto j_device : j_device_array.ReadElements<jobject>()) {
     ScopedJavaLocalRef<jstring> j_device_name =
         Java_AudioDeviceName_name(env, j_device);
     ConvertJavaStringToUTF8(env, j_device_name.obj(), &device.device_name);
@@ -298,20 +294,14 @@ void AudioManagerAndroid::SetMute(JNIEnv* env,
                                   const JavaParamRef<jobject>& obj,
                                   jboolean muted) {
   GetTaskRunner()->PostTask(
-      FROM_HERE,
-      base::Bind(
-          &AudioManagerAndroid::DoSetMuteOnAudioThread,
-          base::Unretained(this),
-          muted));
+      FROM_HERE, base::BindOnce(&AudioManagerAndroid::DoSetMuteOnAudioThread,
+                                base::Unretained(this), muted));
 }
 
 void AudioManagerAndroid::SetOutputVolumeOverride(double volume) {
   GetTaskRunner()->PostTask(
-      FROM_HERE,
-      base::Bind(
-          &AudioManagerAndroid::DoSetVolumeOnAudioThread,
-          base::Unretained(this),
-          volume));
+      FROM_HERE, base::BindOnce(&AudioManagerAndroid::DoSetVolumeOnAudioThread,
+                                base::Unretained(this), volume));
 }
 
 bool AudioManagerAndroid::HasOutputVolumeOverride(double* out_volume) const {

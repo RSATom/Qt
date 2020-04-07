@@ -4,10 +4,14 @@
 
 module blink.mojom;
 
-import "mojo/public/mojom/base/big_string.mojom";
+import "mojo/public/mojom/base/big_buffer.mojom";
 import "mojo/public/mojom/base/unguessable_token.mojom";
 import "ui/gfx/geometry/mojo/geometry.mojom";
 import "url/mojom/url.mojom";
+
+struct DevToolsMessage {
+  mojo_base.mojom.BigBuffer data;
+};
 
 // Debugging interactions are defined in Remote Debugging Protocol.
 // See https://chromedevtools.github.io/devtools-protocol/ for more
@@ -64,10 +68,15 @@ interface DevToolsAgent {
   // relative to anything coming over regular |session|.
   // For example, |session| may be already detached (interface unbound),
   // while commands are still coming to |io_session|, and vice versa.
+  //
+  // |client_expects_binary_response| indicates that responses (and
+  // notifications) sent from this session should use binary (CBOR)
+  // encoding as opposed to JSON encoding.
   AttachDevToolsSession(associated DevToolsSessionHost host,
                         associated DevToolsSession& session,
                         DevToolsSession& io_session,
-                        DevToolsSessionState? reattach_session_state);
+                        DevToolsSessionState? reattach_session_state,
+                        bool client_expects_binary_responses);
 
   // Requests an element at specific position to be inspected in every
   // attached session (or the next attached one if none yet).
@@ -96,6 +105,7 @@ interface DevToolsAgentHost {
       DevToolsAgent worker_devtools_agent,
       DevToolsAgentHost& worker_devtools_agent_host,
       url.mojom.Url url,
+      string name,
       mojo_base.mojom.UnguessableToken devtools_worker_token,
       bool waiting_for_debugger);
 };
@@ -111,7 +121,7 @@ interface DevToolsSession {
   // |method| is a method name as defined in protocol (e.g. "Runtime.evaluate").
   // |call_id| is a command id as defined in protocol, and is going to be
   // reported back to host in a response message (see DevToolsSessionHost).
-  DispatchProtocolCommand(int32 call_id, string method, string message);
+  DispatchProtocolCommand(int32 call_id, string method, DevToolsMessage message);
 };
 
 // A peer of DevToolsSession representing a remote debugging client
@@ -123,12 +133,12 @@ interface DevToolsSessionHost {
   // |updates| are the session state deltas for future reattach (see
   // DevToolsAgent), may be missing if the state did not change since
   // last time.
-  DispatchProtocolResponse(mojo_base.mojom.BigString message,
+  DispatchProtocolResponse(DevToolsMessage message,
                            int32 call_id,
                            DevToolsSessionState? updates);
 
   // Dispatches protocol notification to a remote debugging client.
-  DispatchProtocolNotification(mojo_base.mojom.BigString message,
+  DispatchProtocolNotification(DevToolsMessage message,
                                DevToolsSessionState? updates);
 };
 
@@ -139,5 +149,5 @@ interface DevToolsSessionHost {
 // the respective key when its applying the updates in
 // DevToolsSession::ApplySessionStateUpdates.
 struct DevToolsSessionState {
-  map<string, string?> entries;
+  map<string, array<uint8>?> entries;
 };

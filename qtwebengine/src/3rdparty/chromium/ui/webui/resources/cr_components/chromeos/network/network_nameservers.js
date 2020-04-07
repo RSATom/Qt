@@ -21,12 +21,6 @@ Polymer({
       observer: 'networkPropertiesChanged_',
     },
 
-    /** Whether or not the nameservers can be edited. */
-    editable: {
-      type: Boolean,
-      value: false,
-    },
-
     /**
      * Array of nameserver addresses stored as strings.
      * @private {!Array<string>}
@@ -59,7 +53,7 @@ Polymer({
     /** @private */
     canChangeConfigType_: {
       type: Boolean,
-      computed: 'computeCanChangeConfigType_(editable, networkProperties)',
+      computed: 'computeCanChangeConfigType_(networkProperties)',
     }
   },
 
@@ -70,6 +64,9 @@ Polymer({
   ],
 
   /** @const */
+  EMPTY_NAMESERVER: '0.0.0.0',
+
+  /** @const */
   MAX_NAMESERVERS: 4,
 
   /**
@@ -77,6 +74,39 @@ Polymer({
    * @private {!Array<string>}
    */
   savedNameservers_: [],
+
+  /**
+   * Returns true if |nameservers| contains any all google nameserver entries
+   * and only google nameserver entries or empty entries.
+   * @param {!Array<string>} nameservers
+   * @private
+   */
+  isGoogleNameservers_: function(nameservers) {
+    const matches = [];
+    for (let i = 0; i < nameservers.length; ++i) {
+      const nameserver = nameservers[i];
+      if (nameserver == this.EMPTY_NAMESERVER) {
+        continue;
+      }
+      let valid = false;
+      for (let j = 0; j < this.GOOGLE_NAMESERVERS.length; ++j) {
+        if (nameserver == this.GOOGLE_NAMESERVERS[j]) {
+          valid = true;
+          matches[j] = true;
+          break;
+        }
+      }
+      if (!valid) {
+        return false;
+      }
+    }
+    for (let j = 0; j < this.GOOGLE_NAMESERVERS.length; ++j) {
+      if (!matches[j]) {
+        return false;
+      }
+    }
+    return true;
+  },
 
   /** @private */
   networkPropertiesChanged_: function(newValue, oldValue) {
@@ -101,8 +131,9 @@ Polymer({
         CrOnc.getActiveValue(this.networkProperties.NameServersConfigType);
     let type;
     if (configType == CrOnc.IPConfigType.STATIC) {
-      if (nameservers.join(',') == this.GOOGLE_NAMESERVERS.join(',')) {
+      if (this.isGoogleNameservers_(nameservers)) {
         type = 'google';
+        nameservers = this.GOOGLE_NAMESERVERS;  // Use consistent order.
       } else {
         type = 'custom';
       }
@@ -124,9 +155,11 @@ Polymer({
     if (nameserversType == 'custom') {
       // Add empty entries for unset custom nameservers.
       for (let i = nameservers.length; i < this.MAX_NAMESERVERS; ++i) {
-        nameservers[i] = '';
+        nameservers[i] = this.EMPTY_NAMESERVER;
       }
-      this.savedNameservers_ = nameservers.slice();
+      if (!this.isGoogleNameservers_(nameservers)) {
+        this.savedNameservers_ = nameservers.slice();
+      }
     }
     this.nameservers_ = nameservers;
     // Set nameserversType_ after dom-repeat has been stamped.
@@ -139,16 +172,11 @@ Polymer({
   },
 
   /**
-   * @param {boolean} editable
    * @param {!CrOnc.NetworkProperties} networkProperties
    * @return {boolean} True if the nameservers config type type can be changed.
    * @private
    */
-  computeCanChangeConfigType_: function(editable, networkProperties) {
-    if (!editable) {
-      return false;
-    }
-
+  computeCanChangeConfigType_: function(networkProperties) {
     return !this.isNetworkPolicyPathEnforced(
                networkProperties, 'NameServersConfigType') &&
         !this.isNetworkPolicyPathEnforced(
@@ -156,20 +184,18 @@ Polymer({
   },
 
   /**
-   * @param {boolean} editable
    * @param {string} nameserversType
    * @param {!CrOnc.NetworkProperties} networkProperties
    * @return {boolean} True if the nameservers are editable.
    * @private
    */
-  canEditCustomNameServers_: function(
-      editable, nameserversType, networkProperties) {
-    return editable && nameserversType == 'custom' &&
+  canEditCustomNameServers_: function(nameserversType, networkProperties) {
+    return nameserversType == 'custom' &&
         !this.isNetworkPolicyEnforced(
             networkProperties.NameServersConfigType) &&
-        !!networkProperties.StaticIPConfig &&
-        !this.isNetworkPolicyEnforced(
-            networkProperties.StaticIPConfig.NameServers);
+        (!networkProperties.StaticIPConfig ||
+         !this.isNetworkPolicyEnforced(
+             networkProperties.StaticIPConfig.NameServers));
   },
 
   /**

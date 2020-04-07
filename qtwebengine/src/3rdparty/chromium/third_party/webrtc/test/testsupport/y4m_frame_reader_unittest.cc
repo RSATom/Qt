@@ -10,13 +10,14 @@
 
 #include <stdint.h>
 #include <stdio.h>
+
 #include <memory>
 #include <string>
 
 #include "absl/strings/string_view.h"
+#include "api/scoped_refptr.h"
 #include "api/video/i420_buffer.h"
 #include "api/video/video_frame_buffer.h"
-#include "rtc_base/scoped_ref_ptr.h"
 #include "test/gtest.h"
 #include "test/testsupport/file_utils.h"
 #include "test/testsupport/frame_reader.h"
@@ -35,7 +36,7 @@ const size_t kFrameLength = 3 * kFrameWidth * kFrameHeight / 2;  // I420.
 
 }  // namespace
 
-class Y4mFrameReaderTest : public testing::Test {
+class Y4mFrameReaderTest : public ::testing::Test {
  protected:
   Y4mFrameReaderTest() = default;
   ~Y4mFrameReaderTest() override = default;

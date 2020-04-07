@@ -18,10 +18,6 @@ using base::trace_event::ProcessMemoryDump;
 
 namespace {
 
-const int kTraceEventNumArgs = 1;
-const char* const kTraceEventArgNames[] = {"dumps"};
-const unsigned char kTraceEventArgTypes[] = {TRACE_VALUE_TYPE_CONVERTABLE};
-
 bool IsMemoryInfraTracingEnabled() {
   bool enabled;
   TRACE_EVENT_CATEGORY_GROUP_ENABLED(
@@ -35,6 +31,12 @@ void OsDumpAsValueInto(TracedValue* value, const mojom::OSMemDump& os_dump) {
       base::StringPrintf(
           "%" PRIx64,
           static_cast<uint64_t>(os_dump.private_footprint_kb) * 1024));
+  value->SetString(
+      "peak_resident_set_size",
+      base::StringPrintf(
+          "%" PRIx64,
+          static_cast<uint64_t>(os_dump.peak_resident_set_kb) * 1024));
+  value->SetBoolean("is_peak_rss_resettable", os_dump.is_peak_rss_resettable);
 }
 
 std::string ApplyPathFiltering(const std::string& file,
@@ -46,7 +48,7 @@ std::string ApplyPathFiltering(const std::string& file,
   return file;
 }
 
-};  // namespace
+}  // namespace
 
 TracingObserver::TracingObserver(
     base::trace_event::TraceLog* trace_log,
@@ -120,15 +122,14 @@ void TracingObserver::AddToTrace(
   const uint64_t dump_guid = args.dump_guid;
   const char* const event_name =
       base::trace_event::MemoryDumpTypeToString(args.dump_type);
-  std::unique_ptr<base::trace_event::ConvertableToTraceFormat> event_value(
-      std::move(traced_value));
+  base::trace_event::TraceArguments trace_args("dumps",
+                                               std::move(traced_value));
   TRACE_EVENT_API_ADD_TRACE_EVENT_WITH_PROCESS_ID(
       TRACE_EVENT_PHASE_MEMORY_DUMP,
       base::trace_event::TraceLog::GetCategoryGroupEnabled(
           base::trace_event::MemoryDumpManager::kTraceCategory),
       event_name, trace_event_internal::kGlobalScope, dump_guid, pid,
-      kTraceEventNumArgs, kTraceEventArgNames, kTraceEventArgTypes,
-      nullptr /* arg_values */, &event_value, TRACE_EVENT_FLAG_HAS_ID);
+      &trace_args, TRACE_EVENT_FLAG_HAS_ID);
 }
 
 bool TracingObserver::AddChromeDumpToTraceIfEnabled(

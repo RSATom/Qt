@@ -16,6 +16,7 @@ source_set("renderer") {
     "spellcheck_provider.h",
     "spellcheck_worditerator.cc",
     "spellcheck_worditerator.h",
+    "spelling_engine.cc",
     "spelling_engine.h",
   ]
 
@@ -56,10 +57,6 @@ source_set("renderer") {
 
   if (!is_android) {
     deps += [ "//third_party/hunspell" ]
-  }
-
-  if (is_win) {
-    cflags = [ "/wd4267" ]  # conversion from 'size_t' to 'int' on x64 (crbug.com/633312)
   }
 }
 
@@ -104,9 +101,5 @@ source_set("unit_tests") {
 
   if (is_mac && !is_ios) {
     deps += [ "//third_party/hunspell" ]
-  }
-
-  if (is_win) {
-    cflags = [ "/wd4267" ]  # conversion from 'size_t' to 'int' on x64 (crbug.com/633312)
   }
 }

@@ -11,9 +11,10 @@
 #include <vector>
 
 #include "core/fpdfdoc/cpdf_formcontrol.h"
-#include "core/fxcrt/observable.h"
+#include "core/fxcrt/observed_ptr.h"
 #include "core/fxcrt/unowned_ptr.h"
 #include "core/fxge/cfx_color.h"
+#include "core/fxge/cfx_renderdevice.h"
 #include "fpdfsdk/cpdfsdk_formfillenvironment.h"
 #include "fpdfsdk/cpdfsdk_widget.h"
 #include "fpdfsdk/pwl/cpwl_timer.h"
@@ -92,7 +93,7 @@ struct CPWL_Dash {
 #define PWL_DEFAULT_BLACKCOLOR CFX_Color(CFX_Color::kGray, 0)
 #define PWL_DEFAULT_WHITECOLOR CFX_Color(CFX_Color::kGray, 1)
 
-class CPWL_Wnd : public CPWL_TimerHandler, public Observable<CPWL_Wnd> {
+class CPWL_Wnd : public CPWL_TimerHandler, public Observable {
  public:
   class PrivateData {
    public:
@@ -100,7 +101,7 @@ class CPWL_Wnd : public CPWL_TimerHandler, public Observable<CPWL_Wnd> {
     virtual std::unique_ptr<PrivateData> Clone() const = 0;
   };
 
-  class ProviderIface : public Observable<ProviderIface> {
+  class ProviderIface : public Observable {
    public:
     virtual ~ProviderIface() = default;
 
@@ -123,20 +124,20 @@ class CPWL_Wnd : public CPWL_TimerHandler, public Observable<CPWL_Wnd> {
     CFX_FloatRect rcRectWnd;                          // required
     UnownedPtr<CFX_SystemHandler> pSystemHandler;     // required
     UnownedPtr<IPVT_FontMap> pFontMap;                // required
-    ProviderIface::ObservedPtr pProvider;             // required
+    ObservedPtr<ProviderIface> pProvider;             // required
     UnownedPtr<FocusHandlerIface> pFocusHandler;      // optional
-    uint32_t dwFlags;                                 // optional
+    uint32_t dwFlags = 0;                             // optional
     CFX_Color sBackgroundColor;                       // optional
-    CPDFSDK_Widget::ObservedPtr pAttachedWidget;      // required
-    BorderStyle nBorderStyle;                         // optional
-    int32_t dwBorderWidth;                            // optional
+    ObservedPtr<CPDFSDK_Widget> pAttachedWidget;      // required
+    BorderStyle nBorderStyle = BorderStyle::SOLID;    // optional
+    int32_t dwBorderWidth = 1;                        // optional
     CFX_Color sBorderColor;                           // optional
     CFX_Color sTextColor;                             // optional
-    int32_t nTransparency;                            // optional
+    int32_t nTransparency = 255;                      // optional
     float fFontSize;                                  // optional
     CPWL_Dash sDash;                                  // optional
-    CPWL_MsgControl* pMsgControl;                     // ignore
-    int32_t eCursorType;                              // ignore
+    CPWL_MsgControl* pMsgControl = nullptr;           // ignore
+    int32_t eCursorType = FXCT_ARROW;                 // ignore
     CFX_Matrix mtChild;                               // ignore
   };
 
@@ -205,7 +206,7 @@ class CPWL_Wnd : public CPWL_TimerHandler, public Observable<CPWL_Wnd> {
   CFX_Color GetBorderLeftTopColor(BorderStyle nBorderStyle) const;
   CFX_Color GetBorderRightBottomColor(BorderStyle nBorderStyle) const;
 
-  void SetBorderStyle(BorderStyle eBorderStyle);
+  void SetBorderStyle(BorderStyle nBorderStyle);
   BorderStyle GetBorderStyle() const;
   const CPWL_Dash& GetBorderDash() const;
 

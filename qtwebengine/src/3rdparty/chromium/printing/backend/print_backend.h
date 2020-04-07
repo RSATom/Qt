@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "base/memory/ref_counted.h"
+#include "build/build_config.h"
 #include "printing/print_job_constants.h"
 #include "printing/printing_export.h"
 #include "ui/gfx/geometry/size.h"
@@ -21,15 +22,18 @@ class DictionaryValue;
 // This is the interface for platform-specific code for a print backend
 namespace printing {
 
-// Note: There are raw values. The |printer_name| and |printer_description|
-// require further interpretation on Windows, Mac and Chrome OS. See existing
-// callers for examples.
 struct PRINTING_EXPORT PrinterBasicInfo {
   PrinterBasicInfo();
   PrinterBasicInfo(const PrinterBasicInfo& other);
   ~PrinterBasicInfo();
 
+  // The name of the printer as understood by OS.
   std::string printer_name;
+
+  // The name of the printer as shown in Print Preview.
+  // For Windows SetGetDisplayNameFunction() can be used to set the setter of
+  // this field.
+  std::string display_name;
   std::string printer_description;
   int printer_status = 0;
   int is_default = false;
@@ -67,6 +71,10 @@ struct PRINTING_EXPORT PrinterSemanticCapsAndDefaults {
 
   std::vector<gfx::Size> dpis;
   gfx::Size default_dpi;
+
+#if defined(OS_CHROMEOS)
+  bool pin_supported = false;
+#endif  // defined(OS_CHROMEOS)
 };
 
 struct PRINTING_EXPORT PrinterCapsAndDefaults {
@@ -116,8 +124,7 @@ class PRINTING_EXPORT PrintBackend
 #endif  // !defined(OS_CHROMEOS)
 
   // Gets the information about driver for a specific printer.
-  virtual std::string GetPrinterDriverInfo(
-      const std::string& printer_name) = 0;
+  virtual std::string GetPrinterDriverInfo(const std::string& printer_name) = 0;
 
   // Returns true if printer_name points to a valid printer.
   virtual bool IsValidPrinter(const std::string& printer_name) = 0;

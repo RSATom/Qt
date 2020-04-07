@@ -7,6 +7,7 @@
 #include <memory>
 #include <utility>
 
+#include "base/bind.h"
 #include "base/guid.h"
 #include "base/location.h"
 #include "base/single_thread_task_runner.h"
@@ -52,8 +53,7 @@ DomDistillerService::DomDistillerService(
       distiller_page_factory_(std::move(distiller_page_factory)),
       distilled_page_prefs_(std::move(distilled_page_prefs)) {}
 
-DomDistillerService::~DomDistillerService() {
-}
+DomDistillerService::~DomDistillerService() {}
 
 std::unique_ptr<DistillerPage> DomDistillerService::CreateDefaultDistillerPage(
     const gfx::Size& render_view_size) {

@@ -3,7 +3,7 @@ TARGET = qtremoteobjects
 TARGETPATH = QtRemoteObjects
 IMPORT_VERSION = 5.$$QT_MINOR_VERSION
 
-QT += qml remoteobjects
+QT += qml qml-private remoteobjects
 
 SOURCES = \
     $$PWD/plugin.cpp \

@@ -17,6 +17,7 @@
 #include "src/profiling/memory/system_property.h"
 
 #include "perfetto/base/logging.h"
+#include "perfetto/ext/base/utils.h"
 
 #if PERFETTO_BUILDFLAG(PERFETTO_OS_ANDROID)
 #include <sys/system_properties.h>
@@ -93,15 +94,20 @@ SystemProperties::Handle SystemProperties::SetAll() {
 #endif
 
 // static
-void SystemProperties::ResetProperties() {
+void SystemProperties::ResetHeapprofdProperties() {
 #if PERFETTO_BUILDFLAG(PERFETTO_OS_ANDROID)
   int r = __system_property_foreach(
       [](const prop_info* pi, void*) {
         __system_property_read_callback(
             pi,
             [](void*, const char* name, const char*, uint32_t) {
-              const char* found = strstr(name, "heapprofd");
-              if (found == name) {
+              constexpr char kDebugModePropName[] = "heapprofd.userdebug.mode";
+
+              // Unset everything starting with "heapprofd.", except for the
+              // property stating which mode to use on debug builds.
+              const char* found = strstr(name, "heapprofd.");
+              if (found == name && strncmp(name, kDebugModePropName,
+                                           strlen(kDebugModePropName))) {
                 int ret = __system_property_set(name, "");
                 PERFETTO_DCHECK(ret == 0);
               }
@@ -111,7 +117,8 @@ void SystemProperties::ResetProperties() {
       nullptr);
   PERFETTO_DCHECK(r == 0);
 #else
-  PERFETTO_DFATAL("Cannot ResetProperties on out-of-tree builds.");
+  PERFETTO_DFATAL_OR_ELOG(
+      "Cannot ResetHeapprofdProperties on out-of-tree builds.");
 #endif
 }
 
@@ -136,7 +143,7 @@ bool SystemProperties::SetAndroidProperty(const std::string& name,
 void SystemProperties::UnsetProperty(const std::string& name) {
   auto it = properties_.find(name);
   if (it == properties_.end()) {
-    PERFETTO_DFATAL("Unsetting unknown property.");
+    PERFETTO_DFATAL_OR_ELOG("Unsetting unknown property.");
     return;
   }
   if (--(it->second) == 0) {

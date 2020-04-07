@@ -5,12 +5,13 @@
  * found in the LICENSE file.
  */
 
-#include "GrShaderVar.h"
-#include "GrShaderCaps.h"
-#include "GrSwizzle.h"
-#include "glsl/GrGLSLShaderBuilder.h"
-#include "glsl/GrGLSLColorSpaceXformHelper.h"
-#include "glsl/GrGLSLProgramBuilder.h"
+#include "src/gpu/glsl/GrGLSLShaderBuilder.h"
+
+#include "src/gpu/GrShaderCaps.h"
+#include "src/gpu/GrShaderVar.h"
+#include "src/gpu/GrSwizzle.h"
+#include "src/gpu/glsl/GrGLSLColorSpaceXformHelper.h"
+#include "src/gpu/glsl/GrGLSLProgramBuilder.h"
 
 GrGLSLShaderBuilder::GrGLSLShaderBuilder(GrGLSLProgramBuilder* program)
     : fProgramBuilder(program)
@@ -22,8 +23,6 @@ GrGLSLShaderBuilder::GrGLSLShaderBuilder(GrGLSLProgramBuilder* program)
     // We push back some dummy pointers which will later become our header
     for (int i = 0; i <= kCode; i++) {
         fShaderStrings.push_back();
-        fCompilerStrings.push_back(nullptr);
-        fCompilerStringLengths.push_back(0);
     }
 
     this->main() = "void main() {";
@@ -46,7 +45,7 @@ void GrGLSLShaderBuilder::emitFunction(GrSLType returnType,
                                        const GrShaderVar* args,
                                        const char* body,
                                        SkString* outName) {
-    this->functions().append(GrGLSLTypeString(fProgramBuilder->shaderCaps(), returnType));
+    this->functions().append(GrGLSLTypeString(returnType));
     fProgramBuilder->nameVariable(outName, '\0', name);
     this->functions().appendf(" %s", outName->c_str());
     this->functions().append("(");
@@ -71,8 +70,8 @@ void GrGLSLShaderBuilder::appendTextureLookup(SkString* out,
                                               SamplerHandle samplerHandle,
                                               const char* coordName,
                                               GrSLType varyingType) const {
-    const GrShaderVar& sampler = fProgramBuilder->samplerVariable(samplerHandle);
-    out->appendf("texture(%s, %s)", sampler.c_str(), coordName);
+    const char* sampler = fProgramBuilder->samplerVariable(samplerHandle);
+    out->appendf("texture(%s, %s)", sampler, coordName);
     append_texture_swizzle(out, fProgramBuilder->samplerSwizzle(samplerHandle));
 }
 
@@ -160,7 +159,7 @@ void GrGLSLShaderBuilder::appendColorGamutXform(SkString* out,
         const GrShaderVar gColorXformArgs[] = { GrShaderVar("color", kHalf4_GrSLType) };
         SkString body;
         if (colorXformHelper->applyUnpremul()) {
-            body.append("half nonZeroAlpha = max(color.a, 0.00001);");
+            body.append("half nonZeroAlpha = max(color.a, 0.0001);");
             body.append("color = half4(color.rgb / nonZeroAlpha, nonZeroAlpha);");
         }
         if (colorXformHelper->applySrcTF()) {
@@ -241,7 +240,6 @@ void GrGLSLShaderBuilder::compileAndAppendLayoutQualifiers() {
 
 void GrGLSLShaderBuilder::finalize(uint32_t visibility) {
     SkASSERT(!fFinalized);
-    this->versionDecl() = fProgramBuilder->shaderCaps()->versionDeclString();
     this->compileAndAppendLayoutQualifiers();
     SkASSERT(visibility);
     fProgramBuilder->appendUniformDecls((GrShaderFlags) visibility, &this->uniforms());
@@ -252,8 +250,7 @@ void GrGLSLShaderBuilder::finalize(uint32_t visibility) {
     this->code().append("}");
 
     for (int i = 0; i <= fCodeIndex; i++) {
-        fCompilerStrings[i] = fShaderStrings[i].c_str();
-        fCompilerStringLengths[i] = (int)fShaderStrings[i].size();
+        fCompilerString.append(fShaderStrings[i].c_str(), fShaderStrings[i].size());
     }
 
     fFinalized = true;

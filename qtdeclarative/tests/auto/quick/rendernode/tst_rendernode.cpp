@@ -49,8 +49,7 @@ public:
         view.setResizeMode(QQuickView::SizeViewToRootObject);
         view.setSource(testFileUrl(fileName));
         view.setVisible(true);
-        QTest::qWaitForWindowExposed(&view);
-        return view.grabWindow();
+        return QTest::qWaitForWindowExposed(&view) ? view.grabWindow() : QImage();
     }
 
     //It is important for platforms that only are able to show fullscreen windows
@@ -61,6 +60,9 @@ private slots:
     void renderOrder();
     void messUpState();
     void matrix();
+
+private:
+    bool isRunningOnRhi() const;
 };
 
 class ClearNode : public QSGRenderNode
@@ -218,7 +220,11 @@ void tst_rendernode::renderOrder()
         || (QGuiApplication::platformName() == QLatin1String("minimal")))
         QSKIP("Skipping due to grabWindow not functional on offscreen/minimimal platforms");
 
+    if (isRunningOnRhi())
+        QSKIP("Render nodes not yet supported with QRhi");
+
     QImage fb = runTest("RenderOrder.qml");
+    QVERIFY(!fb.isNull());
 
     const qreal scaleFactor = QGuiApplication::primaryScreen()->devicePixelRatio();
     QCOMPARE(fb.width(), qRound(200 * scaleFactor));
@@ -247,7 +253,11 @@ void tst_rendernode::messUpState()
         || (QGuiApplication::platformName() == QLatin1String("minimal")))
         QSKIP("Skipping due to grabWindow not functional on offscreen/minimimal platforms");
 
+    if (isRunningOnRhi())
+        QSKIP("Render nodes not yet supported with QRhi");
+
     QImage fb = runTest("MessUpState.qml");
+    QVERIFY(!fb.isNull());
     int x1 = 0;
     int x2 = fb.width() / 2;
     int x3 = fb.width() - 1;
@@ -304,9 +314,12 @@ void tst_rendernode::matrix()
         || (QGuiApplication::platformName() == QLatin1String("minimal")))
         QSKIP("Skipping due to grabWindow not functional on offscreen/minimimal platforms");
 
+    if (isRunningOnRhi())
+        QSKIP("Render nodes not yet supported with QRhi");
+
     qmlRegisterType<StateRecordingRenderNodeItem>("RenderNode", 1, 0, "StateRecorder");
     StateRecordingRenderNode::matrices.clear();
-    runTest("matrix.qml");
+    QVERIFY(!runTest("matrix.qml").isNull());
 
     QMatrix4x4 noRotateOffset;
     noRotateOffset.translate(20, 20);
@@ -351,6 +364,22 @@ void tst_rendernode::matrix()
     }
 }
 
+bool tst_rendernode::isRunningOnRhi() const
+{
+    static bool retval = false;
+    static bool decided = false;
+    if (!decided) {
+        decided = true;
+        QQuickView dummy;
+        dummy.show();
+        if (QTest::qWaitForWindowExposed(&dummy)) {
+            QSGRendererInterface::GraphicsApi api = dummy.rendererInterface()->graphicsApi();
+            retval = QSGRendererInterface::isApiRhiBased(api);
+        }
+        dummy.hide();
+    }
+    return retval;
+}
 
 QTEST_MAIN(tst_rendernode)
 

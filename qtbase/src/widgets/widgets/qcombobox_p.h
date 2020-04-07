@@ -86,7 +86,7 @@ class QComboBoxListView : public QListView
 {
     Q_OBJECT
 public:
-    QComboBoxListView(QComboBox *cmb = 0) : combo(cmb) {}
+    QComboBoxListView(QComboBox *cmb = nullptr) : combo(cmb) {}
 
 protected:
     void resizeEvent(QResizeEvent *event) override
@@ -146,7 +146,7 @@ public:
         setAttribute(Qt::WA_NoMousePropagation);
     }
     QSize sizeHint() const override {
-        return QSize(20, style()->pixelMetric(QStyle::PM_MenuScrollerHeight));
+        return QSize(20, style()->pixelMetric(QStyle::PM_MenuScrollerHeight, nullptr, this));
     }
 
 protected:
@@ -331,7 +331,7 @@ protected:
     QSize sizeHint(const QStyleOptionViewItem &option,
                    const QModelIndex &index) const override {
         if (isSeparator(index)) {
-            int pm = mCombo->style()->pixelMetric(QStyle::PM_DefaultFrameWidth, 0, mCombo);
+            int pm = mCombo->style()->pixelMetric(QStyle::PM_DefaultFrameWidth, nullptr, mCombo);
             return QSize(pm, pm);
         }
         return QItemDelegate::sizeHint(option, index);
@@ -390,6 +390,16 @@ public:
 #ifdef Q_OS_MAC
     void cleanupNativePopup();
     bool showNativePopup();
+    struct IndexSetter {
+        int index;
+        QComboBox *cb;
+
+        void operator()(void)
+        {
+            cb->setCurrentIndex(index);
+            cb->d_func()->emitActivated(cb->d_func()->currentIndex);
+        }
+    };
 #endif
 
     QAbstractItemModel *model;

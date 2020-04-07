@@ -16,7 +16,7 @@ class CustomElementReaction;
 class CustomElementReactionQueue;
 class Element;
 
-// https://html.spec.whatwg.org/multipage/scripting.html#custom-element-reactions
+// https://html.spec.whatwg.org/C/#custom-element-reactions
 class CORE_EXPORT CustomElementReactionStack final
     : public GarbageCollected<CustomElementReactionStack>,
       public NameClient {
@@ -40,8 +40,7 @@ class CORE_EXPORT CustomElementReactionStack final
   friend class CustomElementReactionStackTestSupport;
 
   using ElementReactionQueueMap =
-      HeapHashMap<TraceWrapperMember<Element>,
-                  Member<CustomElementReactionQueue>>;
+      HeapHashMap<Member<Element>, Member<CustomElementReactionQueue>>;
   ElementReactionQueueMap map_;
 
   using ElementQueue = HeapVector<Member<Element>, 1>;

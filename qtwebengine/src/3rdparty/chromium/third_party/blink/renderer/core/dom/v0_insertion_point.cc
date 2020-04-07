@@ -36,6 +36,7 @@
 #include "third_party/blink/renderer/core/dom/shadow_root.h"
 #include "third_party/blink/renderer/core/dom/shadow_root_v0.h"
 #include "third_party/blink/renderer/core/dom/static_node_list.h"
+#include "third_party/blink/renderer/core/dom/text.h"
 #include "third_party/blink/renderer/core/dom/whitespace_attacher.h"
 #include "third_party/blink/renderer/core/html_names.h"
 
@@ -55,6 +56,15 @@ void V0InsertionPoint::SetDistributedNodes(
   // Attempt not to reattach nodes that would be distributed to the exact same
   // location by comparing the old and new distributions.
 
+  if (DistributedNodesAreFallback() && distributed_nodes.size() &&
+      distributed_nodes.at(0)->parentNode() != this) {
+    // Detach fallback nodes. Host children which are no longer distributed are
+    // detached in the DistributionPool destructor.
+    for (wtf_size_t i = 0; i < distributed_nodes_.size(); ++i)
+      distributed_nodes_.at(i)->RemovedFromFlatTree();
+    distributed_nodes_.Clear();
+  }
+
   wtf_size_t i = 0;
   wtf_size_t j = 0;
 
@@ -66,7 +76,7 @@ void V0InsertionPoint::SetDistributedNodes(
       for (; j < distributed_nodes.size() &&
              distributed_nodes_.at(i) != distributed_nodes.at(j);
            ++j)
-        distributed_nodes.at(j)->LazyReattachIfAttached();
+        distributed_nodes.at(j)->FlatTreeParentChanged();
       if (j == distributed_nodes.size())
         break;
     } else if (distributed_nodes_.size() > distributed_nodes.size()) {
@@ -75,13 +85,13 @@ void V0InsertionPoint::SetDistributedNodes(
       for (; i < distributed_nodes_.size() &&
              distributed_nodes_.at(i) != distributed_nodes.at(j);
            ++i)
-        distributed_nodes_.at(i)->LazyReattachIfAttached();
+        distributed_nodes_.at(i)->FlatTreeParentChanged();
       if (i == distributed_nodes_.size())
         break;
     } else if (distributed_nodes_.at(i) != distributed_nodes.at(j)) {
       // If both distributions are the same length reattach both old and new.
-      distributed_nodes_.at(i)->LazyReattachIfAttached();
-      distributed_nodes.at(j)->LazyReattachIfAttached();
+      distributed_nodes_.at(i)->FlatTreeParentChanged();
+      distributed_nodes.at(j)->FlatTreeParentChanged();
     }
   }
 
@@ -89,10 +99,10 @@ void V0InsertionPoint::SetDistributedNodes(
   // nodes.
 
   for (; i < distributed_nodes_.size(); ++i)
-    distributed_nodes_.at(i)->LazyReattachIfAttached();
+    distributed_nodes_.at(i)->FlatTreeParentChanged();
 
   for (; j < distributed_nodes.size(); ++j)
-    distributed_nodes.at(j)->LazyReattachIfAttached();
+    distributed_nodes.at(j)->FlatTreeParentChanged();
 
   distributed_nodes_.Swap(distributed_nodes);
   // Deallocate a Vector and a HashMap explicitly so that
@@ -102,28 +112,24 @@ void V0InsertionPoint::SetDistributedNodes(
 }
 
 void V0InsertionPoint::AttachLayoutTree(AttachContext& context) {
-  // We need to attach the distribution here so that they're inserted in the
-  // right order otherwise the n^2 protection inside LayoutTreeBuilder will
-  // cause them to be inserted in the wrong place later. This also lets
-  // distributed nodes benefit from the n^2 protection.
-  AttachContext children_context(context);
-
-  for (wtf_size_t i = 0; i < distributed_nodes_.size(); ++i) {
-    Node* child = distributed_nodes_.at(i);
-    if (child->NeedsAttach())
-      child->AttachLayoutTree(children_context);
+  // If the distributed children are the direct fallback children they are
+  // attached in ContainerNodes::AttachLayoutTree() via the base class call
+  // below.
+  if (!DistributedNodesAreFallback()) {
+    AttachContext children_context(context);
+    for (wtf_size_t i = 0; i < distributed_nodes_.size(); ++i)
+      distributed_nodes_.at(i)->AttachLayoutTree(children_context);
+    if (children_context.previous_in_flow)
+      context.previous_in_flow = children_context.previous_in_flow;
   }
-  if (children_context.previous_in_flow)
-    context.previous_in_flow = children_context.previous_in_flow;
-
   HTMLElement::AttachLayoutTree(context);
 }
 
-void V0InsertionPoint::DetachLayoutTree(const AttachContext& context) {
+void V0InsertionPoint::DetachLayoutTree(bool performing_reattach) {
   for (wtf_size_t i = 0; i < distributed_nodes_.size(); ++i)
-    distributed_nodes_.at(i)->LazyReattachIfAttached();
+    distributed_nodes_.at(i)->DetachLayoutTree(performing_reattach);
 
-  HTMLElement::DetachLayoutTree(context);
+  HTMLElement::DetachLayoutTree(performing_reattach);
 }
 
 void V0InsertionPoint::RebuildDistributedChildrenLayoutTrees(
@@ -136,28 +142,21 @@ void V0InsertionPoint::RebuildDistributedChildrenLayoutTrees(
   }
 }
 
-void V0InsertionPoint::DidRecalcStyle(StyleRecalcChange change) {
-  if (!HasDistribution() || DistributedNodeAt(0)->parentNode() == this) {
-    // We either do not have distributed children or the distributed children
-    // are the fallback children. Fallback children have already been
-    // recalculated in ContainerNode::RecalcDescendantStyles().
+void V0InsertionPoint::DidRecalcStyle(const StyleRecalcChange change) {
+  if (DistributedNodesAreFallback()) {
+    // Fallback children have already been recalculated in
+    // ContainerNode::RecalcDescendantStyles().
     return;
   }
 
-  StyleChangeType style_change_type =
-      change == kForce ? kSubtreeStyleChange : kLocalStyleChange;
-
   for (wtf_size_t i = 0; i < distributed_nodes_.size(); ++i) {
     Node* node = distributed_nodes_.at(i);
-    if (change == kReattach && node->IsElementNode()) {
-      if (node->ShouldCallRecalcStyle(kReattach))
-        ToElement(node)->RecalcStyle(kReattach);
+    if (!change.TraverseChild(*node))
       continue;
-    }
-    node->SetNeedsStyleRecalc(
-        style_change_type,
-        StyleChangeReasonForTracing::Create(
-            style_change_reason::kPropagateInheritChangeToDistributedNodes));
+    if (auto* this_element = DynamicTo<Element>(node))
+      this_element->RecalcStyle(change);
+    else if (auto* text_node = DynamicTo<Text>(node))
+      text_node->RecalcTextStyle(change);
   }
 }
 

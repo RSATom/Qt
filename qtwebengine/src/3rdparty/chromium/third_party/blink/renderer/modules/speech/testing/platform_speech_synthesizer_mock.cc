@@ -110,13 +110,17 @@ void PlatformSpeechSynthesizerMock::SpeakNow() {
   Client()->DidStartSpeaking(current_utterance_);
 
   // Fire a fake word and then sentence boundary event.
-  Client()->BoundaryEventOccurred(current_utterance_, kSpeechWordBoundary, 0);
+  String utterance_text = current_utterance_->GetText();
+  int char_length = utterance_text.find(' ');
+  int sentence_length = current_utterance_->GetText().length();
+  Client()->BoundaryEventOccurred(current_utterance_, kSpeechWordBoundary, 0,
+                                  char_length);
   Client()->BoundaryEventOccurred(current_utterance_, kSpeechSentenceBoundary,
-                                  current_utterance_->GetText().length());
+                                  0, sentence_length);
 
   // Give the fake speech job some time so that pause and other functions have
   // time to be called.
-  speaking_finished_timer_.StartOneShot(TimeDelta::FromMilliseconds(100),
+  speaking_finished_timer_.StartOneShot(base::TimeDelta::FromMilliseconds(100),
                                         FROM_HERE);
 }
 
@@ -128,8 +132,8 @@ void PlatformSpeechSynthesizerMock::Cancel() {
   queued_utterances_.clear();
 
   speaking_finished_timer_.Stop();
-  speaking_error_occurred_timer_.StartOneShot(TimeDelta::FromMilliseconds(100),
-                                              FROM_HERE);
+  speaking_error_occurred_timer_.StartOneShot(
+      base::TimeDelta::FromMilliseconds(100), FROM_HERE);
 }
 
 void PlatformSpeechSynthesizerMock::Pause() {

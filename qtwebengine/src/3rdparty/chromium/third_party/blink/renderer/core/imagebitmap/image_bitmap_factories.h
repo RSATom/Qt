@@ -37,7 +37,7 @@
 #include "third_party/blink/renderer/bindings/core/v8/image_bitmap_source.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise_resolver.h"
-#include "third_party/blink/renderer/core/dom/context_lifecycle_observer.h"
+#include "third_party/blink/renderer/core/execution_context/context_lifecycle_observer.h"
 #include "third_party/blink/renderer/core/fileapi/file_reader_loader.h"
 #include "third_party/blink/renderer/core/fileapi/file_reader_loader_client.h"
 #include "third_party/blink/renderer/core/frame/local_dom_window.h"
@@ -47,6 +47,7 @@
 #include "third_party/blink/renderer/platform/bindings/name_client.h"
 #include "third_party/blink/renderer/platform/bindings/script_state.h"
 #include "third_party/blink/renderer/platform/geometry/int_rect.h"
+#include "third_party/blink/renderer/platform/image-decoders/image_decoder.h"
 #include "third_party/blink/renderer/platform/supplementable.h"
 #include "third_party/skia/include/core/SkRefCnt.h"
 
@@ -129,6 +130,8 @@ class ImageBitmapFactories final
     ~ImageBitmapLoader() override;
 
    private:
+    SEQUENCE_CHECKER(sequence_checker_);
+
     enum ImageBitmapRejectionReason {
       kUndecodableImageBitmapRejectionReason,
       kAllocationFailureImageBitmapRejectionReason,
@@ -136,12 +139,7 @@ class ImageBitmapFactories final
 
     void RejectPromise(ImageBitmapRejectionReason);
 
-    void ScheduleAsyncImageBitmapDecoding(DOMArrayBuffer*);
-    void DecodeImageOnDecoderThread(
-        scoped_refptr<base::SingleThreadTaskRunner>,
-        DOMArrayBuffer*,
-        const String& premultiply_alpha_option,
-        const String& color_space_conversion_option);
+    void ScheduleAsyncImageBitmapDecoding(WTF::ArrayBufferContents::DataHandle);
     void ResolvePromiseOnOriginalThread(sk_sp<SkImage>);
 
     // ContextLifecycleObserver

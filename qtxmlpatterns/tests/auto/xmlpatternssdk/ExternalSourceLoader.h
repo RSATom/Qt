@@ -48,7 +48,7 @@ namespace QPatternistSDK
      * @ingroup PatternistSDK
      * @author Frans Englich <frans.englich@nokia.com>
      */
-    class Q_PATTERNISTSDK_EXPORT ExternalSourceLoader : public QPatternist::ExternalVariableLoader
+    class ExternalSourceLoader : public QPatternist::ExternalVariableLoader
     {
     public:
         enum TargetOfURI

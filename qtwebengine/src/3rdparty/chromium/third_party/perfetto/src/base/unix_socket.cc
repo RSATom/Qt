@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-#include "perfetto/base/unix_socket.h"
+#include "perfetto/ext/base/unix_socket.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -32,7 +32,7 @@
 #include "perfetto/base/build_config.h"
 #include "perfetto/base/logging.h"
 #include "perfetto/base/task_runner.h"
-#include "perfetto/base/utils.h"
+#include "perfetto/ext/base/utils.h"
 
 #if PERFETTO_BUILDFLAG(PERFETTO_OS_MACOSX)
 #include <sys/ucred.h>
@@ -228,13 +228,12 @@ void UnixSocketRaw::Shutdown() {
 ssize_t UnixSocketRaw::SendMsgAll(struct msghdr* msg) {
   // This does not make sense on non-blocking sockets.
   PERFETTO_DCHECK(fd_);
-  PERFETTO_DCHECK(IsBlocking());
 
   ssize_t total_sent = 0;
   while (msg->msg_iov) {
     ssize_t sent = PERFETTO_EINTR(sendmsg(*fd_, msg, kNoSigPipe));
     if (sent <= 0) {
-      if (sent == -1 && (errno == EAGAIN || errno == EWOULDBLOCK))
+      if (sent == -1 && IsAgain(errno))
         return total_sent;
       return sent;
     }
@@ -343,6 +342,19 @@ bool UnixSocketRaw::SetTxTimeout(uint32_t timeout_ms) {
       (timeout_ms - (timeout_sec * 1000)) * 1000);
 
   return setsockopt(*fd_, SOL_SOCKET, SO_SNDTIMEO,
+                    reinterpret_cast<const char*>(&timeout),
+                    sizeof(timeout)) == 0;
+}
+
+bool UnixSocketRaw::SetRxTimeout(uint32_t timeout_ms) {
+  PERFETTO_DCHECK(fd_);
+  struct timeval timeout {};
+  uint32_t timeout_sec = timeout_ms / 1000;
+  timeout.tv_sec = static_cast<decltype(timeout.tv_sec)>(timeout_sec);
+  timeout.tv_usec = static_cast<decltype(timeout.tv_usec)>(
+      (timeout_ms - (timeout_sec * 1000)) * 1000);
+
+  return setsockopt(*fd_, SOL_SOCKET, SO_RCVTIMEO,
                     reinterpret_cast<const char*>(&timeout),
                     sizeof(timeout)) == 0;
 }
@@ -465,6 +477,15 @@ UnixSocket::UnixSocket(EventListener* event_listener,
 UnixSocket::~UnixSocket() {
   // The implicit dtor of |weak_ptr_factory_| will no-op pending callbacks.
   Shutdown(true);
+}
+
+UnixSocketRaw UnixSocket::ReleaseSocket() {
+  // This will invalidate any pending calls to OnEvent.
+  state_ = State::kDisconnected;
+  if (sock_raw_)
+    task_runner_->RemoveFileDescriptorWatch(sock_raw_.fd());
+
+  return std::move(sock_raw_);
 }
 
 // Called only by the Connect() static constructor.
@@ -602,7 +623,7 @@ bool UnixSocket::Send(const void* msg,
     return false;
   }
 
-  // Either the the other endpoint disconnect (ECONNRESET) or some other error
+  // Either the other endpoint disconnected (ECONNRESET) or some other error
   // happened.
   last_error_ = saved_errno;
   PERFETTO_DPLOG("sendmsg() failed");

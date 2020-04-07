@@ -1,10 +1,9 @@
 CXX_MODULE = qtlottie
-TARGET  = lottieqt
+TARGET  = lottieqtplugin
 TARGETPATH = Qt/labs/lottieqt
 IMPORT_VERSION = 1.0
 
 QT += qml quick gui-private bodymovin-private
-CONFIG += plugin c++11
 
 QMAKE_DOCS = $$PWD/doc/qtlottieanimation.qdocconf
 
@@ -20,5 +19,8 @@ HEADERS += \
     lottie_plugin.h \
     rasterrenderer/lottierasterrenderer.h \
     rasterrenderer/batchrenderer.h
+
+OTHER_FILES += \
+    qmldir
 
 load(qml_plugin)

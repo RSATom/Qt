@@ -10,6 +10,7 @@
 #include <utility>
 
 #include "core/fxcrt/fx_system.h"
+#include "core/fxcrt/unowned_ptr.h"
 
 namespace fxcrt {
 
@@ -51,6 +52,7 @@ class RetainPtr {
   }
 
   T* Get() const { return m_pObj.get(); }
+  UnownedPtr<T> BackPointer() const { return UnownedPtr<T>(Get()); }
   void Swap(RetainPtr& that) { m_pObj.swap(that.m_pObj); }
 
   // Useful for passing notion of object ownership across a C API.
@@ -71,12 +73,22 @@ class RetainPtr {
   bool operator==(const RetainPtr& that) const { return Get() == that.Get(); }
   bool operator!=(const RetainPtr& that) const { return !(*this == that); }
 
+  template <typename U>
+  bool operator==(const U& that) const {
+    return Get() == that;
+  }
+
+  template <typename U>
+  bool operator!=(const U& that) const {
+    return !(*this == that);
+  }
+
   bool operator<(const RetainPtr& that) const {
     return std::less<T*>()(Get(), that.Get());
   }
 
   explicit operator bool() const { return !!m_pObj; }
-  T& operator*() const { return *m_pObj.get(); }
+  T& operator*() const { return *m_pObj; }
   T* operator->() const { return m_pObj.get(); }
 
  private:
@@ -103,14 +115,14 @@ class Retainable {
   Retainable(const Retainable& that) = delete;
   Retainable& operator=(const Retainable& that) = delete;
 
-  void Retain() { ++m_nRefCount; }
-  void Release() {
+  void Retain() const { ++m_nRefCount; }
+  void Release() const {
     ASSERT(m_nRefCount > 0);
     if (--m_nRefCount == 0)
       delete this;
   }
 
-  intptr_t m_nRefCount = 0;
+  mutable intptr_t m_nRefCount = 0;
 };
 
 }  // namespace fxcrt
@@ -128,6 +140,12 @@ namespace pdfium {
 template <typename T, typename... Args>
 RetainPtr<T> MakeRetain(Args&&... args) {
   return RetainPtr<T>(new T(std::forward<Args>(args)...));
+}
+
+// Type-deducing wrapper to make a RetainPtr from an ordinary pointer.
+template <typename T>
+RetainPtr<T> WrapRetain(T* that) {
+  return RetainPtr<T>(that);
 }
 
 }  // namespace pdfium

@@ -43,30 +43,101 @@
 #include <QtSerialPort/qserialportinfo.h>
 #include <QtCore/qloggingcategory.h>
 #include <QSet>
+#include "qiopipe_p.h"
+#include <QSharedPointer>
+#include "qnmeasatelliteinfosource_p.h"
 
 Q_LOGGING_CATEGORY(lcSerial, "qt.positioning.serialnmea")
+
+class IODeviceContainer
+{
+public:
+    IODeviceContainer() {}
+    IODeviceContainer(IODeviceContainer const&) = delete;
+    void operator=(IODeviceContainer const&)  = delete;
+
+    QSharedPointer<QIOPipe> serial(const QString &portName)
+    {
+        if (m_serialPorts.contains(portName)) {
+            m_serialPorts[portName].refs++;
+            QIOPipe *endPipe = new QIOPipe(m_serialPorts[portName].proxy);
+            m_serialPorts[portName].proxy->addChildPipe(endPipe);
+            return QSharedPointer<QIOPipe>(endPipe);
+        }
+        IODevice device;
+        QSerialPort *port = new QSerialPort(portName);
+        port->setBaudRate(4800);
+        qCDebug(lcSerial) << "Opening serial port" << portName;
+        if (!port->open(QIODevice::ReadOnly)) {
+            qWarning("serialnmea: Failed to open %s", qPrintable(portName));
+            delete port;
+            return {};
+        }
+        qCDebug(lcSerial) << "Opened successfully";
+        device.device = port;
+        device.refs = 1;
+        device.proxy = new QIOPipe(port, QIOPipe::ProxyPipe);
+        m_serialPorts[portName] = device;
+        QIOPipe *endPipe = new QIOPipe(device.proxy);
+        device.proxy->addChildPipe(endPipe);
+        return QSharedPointer<QIOPipe>(endPipe);
+    }
+
+    void releaseSerial(const QString &portName, QSharedPointer<QIOPipe> &pipe) {
+        if (!m_serialPorts.contains(portName))
+            return;
+
+        pipe.clear(); // make sure to release the pipe returned by getSerial, or else, if there are still refs, data will be leaked through it
+        IODevice &device = m_serialPorts[portName];
+        if (device.refs > 1) {
+            device.refs--;
+            return;
+        }
+
+        IODevice taken = m_serialPorts.take(portName);
+        taken.device->deleteLater();
+    }
+
+private:
+
+    struct IODevice {
+        QIODevice *device = nullptr;
+        QIOPipe *proxy = nullptr;  // adding client pipes as children of proxy allows to dynamically add clients to one device.
+        unsigned int refs = 1;
+    };
+
+    QMap<QString, IODevice> m_serialPorts;
+};
+
+Q_GLOBAL_STATIC(IODeviceContainer, deviceContainer)
+
 
 class NmeaSource : public QNmeaPositionInfoSource
 {
 public:
-    NmeaSource(QObject *parent);
+    explicit NmeaSource(QObject *parent, const QVariantMap &parameters);
+    ~NmeaSource() override;
     bool isValid() const { return !m_port.isNull(); }
 
 private:
-    QScopedPointer<QSerialPort> m_port;
+    QSharedPointer<QIOPipe> m_port;
+    QString m_portName;
 };
 
-NmeaSource::NmeaSource(QObject *parent)
-    : QNmeaPositionInfoSource(RealTimeMode, parent),
-      m_port(new QSerialPort)
+NmeaSource::NmeaSource(QObject *parent, const QVariantMap &parameters)
+    : QNmeaPositionInfoSource(RealTimeMode, parent)
 {
-    QByteArray requestedPort = qgetenv("QT_NMEA_SERIAL_PORT");
+    QByteArray requestedPort;
+    if (parameters.contains(QStringLiteral("serialnmea.serial_port")))
+        requestedPort = parameters.value(QStringLiteral("serialnmea.serial_port")).toString().toLatin1();
+    else
+        requestedPort = qgetenv("QT_NMEA_SERIAL_PORT");
+    QString portName;
     if (requestedPort.isEmpty()) {
         const QList<QSerialPortInfo> ports = QSerialPortInfo::availablePorts();
         qCDebug(lcSerial) << "Found" << ports.count() << "serial ports";
         if (ports.isEmpty()) {
             qWarning("serialnmea: No serial ports found");
-            m_port.reset();
             return;
         }
 
@@ -74,8 +145,7 @@ NmeaSource::NmeaSource(QObject *parent)
         QSet<int> supportedDevices;
         supportedDevices << 0x67b; // GlobalSat (BU-353S4 and probably others)
         supportedDevices << 0xe8d; // Qstarz MTK II
-        QString portName;
-        foreach (const QSerialPortInfo& port, ports) {
+        for (const QSerialPortInfo& port : ports) {
             if (port.hasVendorIdentifier() && supportedDevices.contains(port.vendorIdentifier())) {
                 portName = port.portName();
                 break;
@@ -84,44 +154,116 @@ NmeaSource::NmeaSource(QObject *parent)
 
         if (portName.isEmpty()) {
             qWarning("serialnmea: No known GPS device found. Specify the COM port via QT_NMEA_SERIAL_PORT.");
-            m_port.reset();
             return;
         }
-
-        m_port->setPortName(portName);
+        m_portName = portName;
     } else {
-        m_port->setPortName(QString::fromUtf8(requestedPort));
+        m_portName = QString::fromUtf8(requestedPort);
     }
 
-    m_port->setBaudRate(4800);
-
-    qCDebug(lcSerial) << "Opening serial port" << m_port->portName();
-
-    if (!m_port->open(QIODevice::ReadOnly)) {
-        qWarning("serialnmea: Failed to open %s", qPrintable(m_port->portName()));
-        m_port.reset();
+    m_port = deviceContainer->serial(m_portName);
+    if (!m_port)
         return;
-    }
 
     setDevice(m_port.data());
-
-    qCDebug(lcSerial) << "Opened successfully";
 }
+
+NmeaSource::~NmeaSource()
+{
+    deviceContainer->releaseSerial(m_portName, m_port);
+}
+
+
+
+class NmeaSatelliteSource : public QNmeaSatelliteInfoSource
+{
+public:
+    NmeaSatelliteSource(QObject *parent, const QVariantMap &parameters)
+        : QNmeaSatelliteInfoSource(parent)
+    {
+        QByteArray requestedPort;
+        if (parameters.contains(QStringLiteral("serialnmea.serial_port")))
+            requestedPort = parameters.value(QStringLiteral("serialnmea.serial_port")).toString().toLatin1();
+        else
+            requestedPort = qgetenv("QT_NMEA_SERIAL_PORT");
+        QString portName;
+        if (requestedPort.isEmpty()) {
+            const QList<QSerialPortInfo> ports = QSerialPortInfo::availablePorts();
+            qCDebug(lcSerial) << "Found" << ports.count() << "serial ports";
+            if (ports.isEmpty()) {
+                qWarning("serialnmea: No serial ports found");
+                return;
+            }
+
+            // Try to find a well-known device.
+            QSet<int> supportedDevices;
+            supportedDevices << 0x67b; // GlobalSat (BU-353S4 and probably others)
+            supportedDevices << 0xe8d; // Qstarz MTK II
+            foreach (const QSerialPortInfo& port, ports) {
+                if (port.hasVendorIdentifier() && supportedDevices.contains(port.vendorIdentifier())) {
+                    portName = port.portName();
+                    break;
+                }
+            }
+
+            if (portName.isEmpty()) {
+                qWarning("serialnmea: No known GPS device found. Specify the COM port via QT_NMEA_SERIAL_PORT.");
+                return;
+            }
+            m_portName = portName;
+        } else {
+            m_portName = QString::fromUtf8(requestedPort);
+        }
+
+        m_port = deviceContainer->serial(m_portName);
+        if (!m_port)
+            return;
+
+        setDevice(m_port.data());
+    }
+
+    ~NmeaSatelliteSource()
+    {
+        deviceContainer->releaseSerial(m_portName, m_port);
+    }
+
+    bool isValid() const { return !m_port.isNull(); }
+
+private:
+    QSharedPointer<QIOPipe> m_port;
+    QString m_portName;
+};
 
 QGeoPositionInfoSource *QGeoPositionInfoSourceFactorySerialNmea::positionInfoSource(QObject *parent)
 {
-    QScopedPointer<NmeaSource> src(new NmeaSource(parent));
-    return src->isValid() ? src.take() : nullptr;
+    return positionInfoSourceWithParameters(parent, QVariantMap());
 }
 
 QGeoSatelliteInfoSource *QGeoPositionInfoSourceFactorySerialNmea::satelliteInfoSource(QObject *parent)
 {
-    Q_UNUSED(parent);
-    return nullptr;
+    return satelliteInfoSourceWithParameters(parent, QVariantMap());
 }
 
 QGeoAreaMonitorSource *QGeoPositionInfoSourceFactorySerialNmea::areaMonitor(QObject *parent)
 {
+    return areaMonitorWithParameters(parent, QVariantMap());
+}
+
+QGeoPositionInfoSource *QGeoPositionInfoSourceFactorySerialNmea::positionInfoSourceWithParameters(QObject *parent, const QVariantMap &parameters)
+{
+    QScopedPointer<NmeaSource> src(new NmeaSource(parent, parameters));
+    return src->isValid() ? src.take() : nullptr;
+}
+
+QGeoSatelliteInfoSource *QGeoPositionInfoSourceFactorySerialNmea::satelliteInfoSourceWithParameters(QObject *parent, const QVariantMap &parameters)
+{
+    QScopedPointer<NmeaSatelliteSource> src(new NmeaSatelliteSource(parent, parameters));
+    return src->isValid() ? src.take() : nullptr;
+}
+
+QGeoAreaMonitorSource *QGeoPositionInfoSourceFactorySerialNmea::areaMonitorWithParameters(QObject *parent, const QVariantMap &parameters)
+{
     Q_UNUSED(parent);
+    Q_UNUSED(parameters)
     return nullptr;
 }

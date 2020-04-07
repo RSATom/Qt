@@ -93,7 +93,11 @@ public:
     bool setDWMTitleBar(TitleBarChangeType type);
     void setTitleBarIconAndCaptionVisible(bool visible);
     void mouseEvent(QEvent *event);
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+    bool handleWinEvent(MSG *message, qintptr *result);
+#else
     bool handleWinEvent(MSG *message, long *result);
+#endif
     void resizeEvent(QResizeEvent *event);
     void paintEvent(QPaintEvent *event);
     QVistaBackButton *backButton() const { return backButton_; }
@@ -104,10 +108,10 @@ public:
     static VistaState vistaState();
     static int titleBarSize() { return QVistaHelper::titleBarSizeDp() / QVistaHelper::m_devicePixelRatio; }
     static int titleBarSizeDp() { return QVistaHelper::frameSizeDp() + QVistaHelper::captionSizeDp(); }
-    static int topPadding() { // padding under text
-        return int(QStyleHelper::dpiScaled(4));
+    static int topPadding(const QPaintDevice *device) { // padding under text
+        return int(QStyleHelper::dpiScaled(4, device));
     }
-    static int topOffset();
+    static int topOffset(const QPaintDevice *device);
 
     static HDC backingStoreDC(const QWidget *wizard, QPoint *offset);
 
@@ -121,16 +125,22 @@ private:
     static int captionSize() { return QVistaHelper::captionSizeDp() / QVistaHelper::m_devicePixelRatio; }
     static int captionSizeDp();
 
-    static int backButtonSize() { return int(QStyleHelper::dpiScaled(30)); }
-    static int iconSize();
-    static int glowSize();
-    int leftMargin() { return backButton_->isVisible() ? backButtonSize() + iconSpacing : 0; }
+    static int backButtonSize(const QPaintDevice *device)
+        { return int(QStyleHelper::dpiScaled(30, device)); }
+    static int iconSize(const QPaintDevice *device);
+    static int glowSize(const QPaintDevice *device);
+    int leftMargin(const QPaintDevice *device)
+        { return backButton_->isVisible() ? backButtonSize(device) + iconSpacing : 0; }
 
     int titleOffset();
     void drawTitleBar(QPainter *painter);
     void setMouseCursor(QPoint pos);
     void collapseTopFrameStrut();
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+    bool winEvent(MSG *message, qintptr *result);
+#else
     bool winEvent(MSG *message, long *result);
+#endif
     void mouseMoveEvent(QMouseEvent *event);
     void mousePressEvent(QMouseEvent *event);
     void mouseReleaseEvent(QMouseEvent *event);

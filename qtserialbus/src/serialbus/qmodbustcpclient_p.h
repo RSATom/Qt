@@ -86,8 +86,8 @@ public:
            cleanupTransactionStore();
         });
 
-        using TypeId = void (QAbstractSocket::*)(QAbstractSocket::SocketError);
-        QObject::connect(m_socket, static_cast<TypeId>(&QAbstractSocket::error), q,
+        QObject::connect(m_socket,
+                         QOverload<QAbstractSocket::SocketError>::of(&QAbstractSocket::error), q,
                          [this](QAbstractSocket::SocketError /*error*/)
         {
             Q_Q(QModbusTcpClient);
@@ -121,7 +121,7 @@ public:
                 if (knownTransaction && m_transactionStore[transactionId].timer)
                     m_transactionStore[transactionId].timer->stop();
 
-                qCDebug(QT_MODBUS) << "(TCP client) tid:" << hex << transactionId << "size:"
+                qCDebug(QT_MODBUS) << "(TCP client) tid:" << Qt::hex << transactionId << "size:"
                     << bytesPdu << "server address:" << serverAddress;
 
                 // The length field is the byte count of the following fields, including the Unit
@@ -169,7 +169,7 @@ public:
                 return false;
             }
             qCDebug(QT_MODBUS_LOW) << "(TCP client) Sent TCP ADU:" << buffer.toHex();
-            qCDebug(QT_MODBUS) << "(TCP client) Sent TCP PDU:" << request << "with tId:" << hex
+            qCDebug(QT_MODBUS) << "(TCP client) Sent TCP PDU:" << request << "with tId:" <<Qt:: hex
                 << tId;
             return true;
         };
@@ -193,9 +193,8 @@ public:
         });
 
         if (element.timer) {
-            using TypeId = void (QTimer::*)(int);
             q->connect(q, &QModbusClient::timeoutChanged,
-                       element.timer.data(), static_cast<TypeId>(&QTimer::setInterval));
+                       element.timer.data(), QOverload<int>::of(&QTimer::setInterval));
             QObject::connect(element.timer.data(), &QTimer::timeout, q, [this, writeToSocket, tId]() {
                 if (!m_transactionStore.contains(tId))
                     return;
@@ -210,9 +209,9 @@ public:
                         return;
                     m_transactionStore.insert(tId, elem);
                     elem.timer->start();
-                    qCDebug(QT_MODBUS) << "(TCP client) Resend request with tId:" << hex << tId;
+                    qCDebug(QT_MODBUS) << "(TCP client) Resend request with tId:" << Qt::hex << tId;
                 } else {
-                    qCDebug(QT_MODBUS) << "(TCP client) Timeout of request with tId:" << hex << tId;
+                    qCDebug(QT_MODBUS) << "(TCP client) Timeout of request with tId:" <<Qt::hex << tId;
                     elem.reply->setError(QModbusDevice::TimeoutError,
                         QModbusClient::tr("Request timeout."));
                 }
@@ -220,7 +219,7 @@ public:
             element.timer->start();
         } else {
             qCWarning(QT_MODBUS) << "(TCP client) No response timeout timer for request with tId:"
-                << hex << tId << ". Expected timeout:" << m_responseTimeoutDuration;
+                << Qt::hex << tId << ". Expected timeout:" << m_responseTimeoutDuration;
         }
         incrementTransactionId();
 
@@ -254,6 +253,8 @@ public:
     // This doesn't overflow, it rather "wraps around". Expected.
     inline void incrementTransactionId() { m_transactionId++; }
     inline int transactionId() const { return m_transactionId; }
+
+    QIODevice *device() const override { return m_socket; }
 
     QTcpSocket *m_socket = nullptr;
     QByteArray responseBuffer;

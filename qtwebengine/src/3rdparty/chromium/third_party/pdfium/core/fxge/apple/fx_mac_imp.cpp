@@ -12,6 +12,7 @@
 #include "core/fxge/cfx_folderfontinfo.h"
 #include "core/fxge/cfx_fontmgr.h"
 #include "core/fxge/cfx_gemodule.h"
+#include "core/fxge/fx_font.h"
 #include "core/fxge/systemfontinfo_iface.h"
 #include "third_party/base/ptr_util.h"
 
@@ -141,13 +142,18 @@ std::unique_ptr<SystemFontInfoIface> SystemFontInfoIface::CreateDefault(
   return std::move(pInfo);
 }
 
-void CFX_GEModule::InitPlatform() {
-  m_pPlatformData = new CApplePlatform;
-  m_pFontMgr->SetSystemFontInfo(
-      SystemFontInfoIface::CreateDefault(m_pUserFontPaths));
+CApplePlatform::CApplePlatform() = default;
+
+CApplePlatform::~CApplePlatform() = default;
+
+void CApplePlatform::Init() {
+  CFX_GEModule* pModule = CFX_GEModule::Get();
+  pModule->GetFontMgr()->SetSystemFontInfo(
+      SystemFontInfoIface::CreateDefault(pModule->GetUserFontPaths()));
 }
 
-void CFX_GEModule::DestroyPlatform() {
-  delete reinterpret_cast<CApplePlatform*>(m_pPlatformData);
-  m_pPlatformData = nullptr;
+// static
+std::unique_ptr<CFX_GEModule::PlatformIface>
+CFX_GEModule::PlatformIface::Create() {
+  return pdfium::MakeUnique<CApplePlatform>();
 }

@@ -48,6 +48,7 @@
 // We mean it.
 //
 
+import QtQml 2.14 as Qml
 import QtQuick 2.6
 import QtQuick.Controls 1.5
 import QtQuick.Controls.Private 1.0
@@ -56,7 +57,6 @@ import QtQuick.Window 2.2
 
 /*!
     \qmltype BasicTableView
-    \internal
     \qmlabstract
     \inqmlmodule QtQuick.Controls.Private
 */
@@ -97,7 +97,6 @@ ScrollView {
     property Component itemDelegate: __style ? __style.itemDelegate : null
 
     /*! \qmlproperty Component BasicTableView::rowDelegate
-        \keyword basictableview-rowdelegate
 
         This property defines a delegate to draw a row.
 
@@ -120,7 +119,6 @@ ScrollView {
     property Component rowDelegate: __style ? __style.rowDelegate : null
 
     /*! \qmlproperty Component BasicTableView::headerDelegate
-        \keyword basictableview-headerdelegate
 
         This property defines a delegate to draw a header.
 
@@ -426,7 +424,7 @@ ScrollView {
                                                   && !transientScrollBars && Qt.platform.os === "osx" ?
                                                   __verticalScrollBar.width + __scroller.scrollBarSpacing + root.__style.padding.right : 0
 
-        Binding {
+        Qml.Binding {
             // On Mac, we reserve the vSB space in the contentItem because the vSB should
             // appear under the header. Unfortunately, the ListView header won't expand
             // beyond the ListView's boundaries, that's why we need to ressort to this.
@@ -434,6 +432,7 @@ ScrollView {
             when: Qt.platform.os === "osx"
             property: "verticalScrollbarOffset"
             value: 0
+            restoreMode: Binding.RestoreBinding
         }
 
         function incrementCurrentIndexBlocking() {

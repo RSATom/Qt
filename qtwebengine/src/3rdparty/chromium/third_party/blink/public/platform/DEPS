@@ -1,4 +1,5 @@
 include_rules = [
+    "+base/atomicops.h",
     "+base/callback.h",
     "+base/callback_forward.h",
     "+base/containers/flat_set.h",
@@ -6,6 +7,7 @@ include_rules = [
     "+base/files/file.h",
     "+base/location.h",
     "+base/logging.h",
+    "+base/macros.h",
     "+base/memory/ref_counted.h",
     "+base/memory/scoped_refptr.h",
     "+base/memory/weak_ptr.h",
@@ -13,13 +15,18 @@ include_rules = [
     "+base/optional.h",
     "+base/single_thread_task_runner.h",
     "+base/strings",
+    "+base/synchronization/lock.h",
     "+base/threading/thread.h",
+    "+base/threading/thread_checker.h",
     "+base/time",
     "+base/trace_event",
     "+build/build_config.h",
     "+cc",
     "+components/viz/common",
-    "+media/base/video_rotation.h",
+    "+media/base/audio_capturer_source.h",
+    "+media/base/audio_renderer_sink.h",
+    "+media/base/eme_constants.h",
+    "+media/base/video_transformation.h",
     "+mojo/public",
     "+net/cert",
     "+net/http",
@@ -30,9 +37,9 @@ include_rules = [
 
     # Enforce to use mojom-shared.h in blink/public so that it can compile
     # inside and outside Blink.
+    "+media/mojo/interfaces/display_media_information.mojom-shared.h",
     "+services/network/public/mojom/cors.mojom-shared.h",
     "+services/network/public/mojom/fetch_api.mojom-shared.h",
-    "+services/network/public/mojom/request_context_frame_type.mojom-shared.h",
     "+services/network/public/mojom/restricted_cookie_manager.mojom-shared.h",
     "+services/network/public/mojom/referrer_policy.mojom-shared.h",
 
@@ -41,10 +48,15 @@ include_rules = [
     "-third_party/blink/public/web",
     "-third_party/blink/renderer/bindings",
     "+third_party/skia",
+    "+ui/base/ime/text_input_action.h",
+    "+ui/base/page_transition_types.h",
+    "+ui/base/cursor/types",
+    "+ui/events/types",
     "+ui/gfx",
     "+url",
     "-web",
 
     # Allowed only inside INSIDE_BLINK
+    "+third_party/blink/renderer/core",
     "+third_party/blink/renderer/platform",
 ]

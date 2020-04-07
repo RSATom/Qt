@@ -26,7 +26,7 @@
 #include <memory>
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/platform/heap/handle.h"
-#include "third_party/blink/renderer/platform/wtf/allocator.h"
+#include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 #include "third_party/blink/renderer/platform/wtf/forward.h"
 #include "third_party/blink/renderer/platform/wtf/text/atomic_string_hash.h"
 #include "third_party/blink/renderer/platform/wtf/vector.h"
@@ -35,8 +35,8 @@ namespace blink {
 
 class Document;
 class FormKeyGenerator;
-class HTMLFormControlElementWithState;
 class HTMLFormElement;
+class ListedElement;
 class SavedFormState;
 
 class FormControlState {
@@ -47,8 +47,9 @@ class FormControlState {
   explicit FormControlState(const String& value) : type_(kTypeRestore) {
     values_.push_back(value);
   }
-  static FormControlState Deserialize(const Vector<String>& state_vector,
-                                      wtf_size_t& index);
+  CORE_EXPORT static FormControlState Deserialize(
+      const Vector<String>& state_vector,
+      wtf_size_t& index);
   FormControlState(const FormControlState& another) = default;
   FormControlState& operator=(const FormControlState&);
 
@@ -88,8 +89,7 @@ class CORE_EXPORT DocumentState final
 
  private:
   Member<Document> document_;
-  using FormElementList =
-      HeapVector<Member<HTMLFormControlElementWithState>, 64>;
+  using FormElementList = HeapVector<Member<ListedElement>, 64>;
   FormElementList form_controls_;
   bool form_controls_dirty_ = true;
 };
@@ -110,15 +110,16 @@ class CORE_EXPORT FormController final
   // which are not consumed yet.
   bool HasFormStates() const;
   void WillDeleteForm(HTMLFormElement*);
-  void RestoreControlStateFor(HTMLFormControlElementWithState&);
+  void RestoreControlStateFor(ListedElement&);
   void RestoreControlStateIn(HTMLFormElement&);
+  // For a upgraded form-associated custom element.
+  void RestoreControlStateOnUpgrade(ListedElement&);
 
   static Vector<String> GetReferencedFilePaths(
       const Vector<String>& state_vector);
 
  private:
-  FormControlState TakeStateForFormElement(
-      const HTMLFormControlElementWithState&);
+  FormControlState TakeStateForFormElement(const ListedElement&);
   static void FormStatesFromStateVector(const Vector<String>&,
                                         SavedFormStateMap&);
 
@@ -126,6 +127,9 @@ class CORE_EXPORT FormController final
   SavedFormStateMap saved_form_state_map_;
   Member<FormKeyGenerator> form_key_generator_;
 };
+
+// Exposed for testing.
+CORE_EXPORT String FormSignature(const HTMLFormElement& form);
 
 }  // namespace blink
 #endif

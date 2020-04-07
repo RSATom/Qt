@@ -20,22 +20,39 @@ class SourceDir;
 // ends in one.
 class SourceFile {
  public:
-  enum SwapIn { SWAP_IN };
+  // This should be sequential integers starting from 0 so they can be used as
+  // array indices.
+  enum Type {
+    SOURCE_UNKNOWN = 0,
+    SOURCE_ASM,
+    SOURCE_C,
+    SOURCE_CPP,
+    SOURCE_H,
+    SOURCE_M,
+    SOURCE_MM,
+    SOURCE_S,
+    SOURCE_RC,
+    SOURCE_O,  // Object files can be inputs, too. Also counts .obj.
+    SOURCE_DEF,
 
-  SourceFile();
+    SOURCE_RS,
+    SOURCE_GO,
+
+    // Must be last.
+    SOURCE_NUMTYPES,
+  };
+
+  SourceFile() = default;
 
   // Takes a known absolute source file. Always begins in a slash.
-  explicit SourceFile(const base::StringPiece& p);
-  SourceFile(const SourceFile& other) = default;
+  explicit SourceFile(const std::string& value);
+  explicit SourceFile(std::string&& value);
 
-  // Constructs from the given string by swapping in the contents of the given
-  // value. The value will be the empty string after this call.
-  SourceFile(SwapIn, std::string* value);
-
-  ~SourceFile();
+  ~SourceFile() = default;
 
   bool is_null() const { return value_.empty(); }
   const std::string& value() const { return value_; }
+  Type type() const { return type_; }
 
   // Returns everything after the last slash.
   std::string GetName() const;
@@ -74,14 +91,13 @@ class SourceFile {
     return value_ < other.value_;
   }
 
-  void swap(SourceFile& other) { value_.swap(other.value_); }
-
  private:
   friend class SourceDir;
 
-  std::string value_;
+  void SetValue(const std::string& value);
 
-  // Copy & assign supported.
+  std::string value_;
+  Type type_ = SOURCE_UNKNOWN;
 };
 
 namespace std {
@@ -96,8 +112,30 @@ struct hash<SourceFile> {
 
 }  // namespace std
 
-inline void swap(SourceFile& lhs, SourceFile& rhs) {
-  lhs.swap(rhs);
-}
+// Represents a set of tool types.
+class SourceFileTypeSet {
+ public:
+  SourceFileTypeSet();
+
+  void Set(SourceFile::Type type) {
+    flags_[static_cast<int>(type)] = true;
+    empty_ = false;
+  }
+  bool Get(SourceFile::Type type) const {
+    return flags_[static_cast<int>(type)];
+  }
+
+  bool empty() const { return empty_; }
+
+  bool CSourceUsed() const;
+  bool RustSourceUsed() const;
+  bool GoSourceUsed() const;
+
+  bool MixedSourceUsed() const;
+
+ private:
+  bool empty_;
+  bool flags_[static_cast<int>(SourceFile::SOURCE_NUMTYPES)];
+};
 
 #endif  // TOOLS_GN_SOURCE_FILE_H_

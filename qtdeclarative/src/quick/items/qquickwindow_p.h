@@ -82,6 +82,10 @@ class QQuickWindowPrivate;
 class QQuickWindowRenderLoop;
 class QSGRenderLoop;
 class QTouchEvent;
+class QRhi;
+class QRhiSwapChain;
+class QRhiRenderBuffer;
+class QRhiRenderPassDescriptor;
 
 //Make it easy to identify and customize the root item if needed
 class QQuickRootItem : public QQuickItem
@@ -130,7 +134,7 @@ public:
 #if QT_CONFIG(cursor)
     QQuickItem *cursorItem;
 #endif
-#if QT_CONFIG(draganddrop)
+#if QT_CONFIG(quick_draganddrop)
     QQuickDragGrabber *dragGrabber;
 #endif
     int touchMouseId;
@@ -186,9 +190,9 @@ public:
                         Qt::KeyboardModifiers modifiers, ulong timestamp, bool accepted);
     bool clearHover(ulong timestamp = 0);
 
-#if QT_CONFIG(draganddrop)
+#if QT_CONFIG(quick_draganddrop)
     void deliverDragEvent(QQuickDragGrabber *, QEvent *);
-    bool deliverDragEvent(QQuickDragGrabber *, QQuickItem *, QDragMoveEvent *);
+    bool deliverDragEvent(QQuickDragGrabber *, QQuickItem *, QDragMoveEvent *, QVarLengthArray<QQuickItem*, 64> *currentGrabItems = nullptr);
 #endif
 #if QT_CONFIG(cursor)
     void updateCursor(const QPointF &scenePos);
@@ -215,7 +219,7 @@ public:
     void polishItems();
     void forcePolish();
     void syncSceneGraph();
-    void renderSceneGraph(const QSize &size);
+    void renderSceneGraph(const QSize &size, const QSize &surfaceSize = QSize());
 
     bool isRenderable() const;
 
@@ -250,7 +254,7 @@ public:
 
     QSGRenderLoop *windowManager;
     QQuickRenderControl *renderControl;
-    QQuickAnimatorController *animationController;
+    QScopedPointer<QQuickAnimatorController> animationController;
     QScopedPointer<QTouchEvent> delayedTouch;
 
     int pointerEventRecursionGuard;
@@ -317,6 +321,9 @@ public:
                                               QString *untranslatedMessage,
                                               bool isEs);
 
+    static void emitBeforeRenderPassRecording(void *ud);
+    static void emitAfterRenderPassRecording(void *ud);
+
     QMutex renderJobMutex;
     QList<QRunnable *> beforeSynchronizingJobs;
     QList<QRunnable *> afterSynchronizingJobs;
@@ -325,6 +332,15 @@ public:
     QList<QRunnable *> afterSwapJobs;
 
     void runAndClearJobs(QList<QRunnable *> *jobs);
+
+    QQuickWindow::GraphicsStateInfo rhiStateInfo;
+    QRhi *rhi = nullptr;
+    QRhiSwapChain *swapchain = nullptr;
+    QRhiRenderBuffer *depthStencilForSwapchain = nullptr;
+    QRhiRenderPassDescriptor *rpDescForSwapchain = nullptr;
+    uint hasActiveSwapchain : 1;
+    uint hasRenderableSwapchain : 1;
+    uint swapchainJustBecameRenderable : 1;
 
 private:
     static void cleanupNodesOnShutdown(QQuickItem *);

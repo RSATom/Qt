@@ -5,13 +5,26 @@
  * found in the LICENSE file.
  */
 
-#include "gm.h"
-#include "sk_tool_utils.h"
-#include "SkPolyUtils.h"
-#include "SkPathPriv.h"
+#include "gm/gm.h"
+#include "include/core/SkCanvas.h"
+#include "include/core/SkColor.h"
+#include "include/core/SkPaint.h"
+#include "include/core/SkPath.h"
+#include "include/core/SkPoint.h"
+#include "include/core/SkRect.h"
+#include "include/core/SkScalar.h"
+#include "include/core/SkSize.h"
+#include "include/core/SkString.h"
+#include "include/core/SkTypes.h"
+#include "include/private/SkTDArray.h"
+#include "src/utils/SkPolyUtils.h"
+#include "tools/ToolUtils.h"
+
+#include <functional>
+#include <memory>
 
 static void create_ngon(int n, SkPoint* pts, SkScalar w, SkScalar h, SkPath::Direction dir) {
-    float angleStep = 360.0f / n, angle = 0.0f, sin, cos;
+    float angleStep = 360.0f / n, angle = 0.0f;
     if ((n % 2) == 1) {
         angle = angleStep/2.0f;
     }
@@ -21,9 +34,8 @@ static void create_ngon(int n, SkPoint* pts, SkScalar w, SkScalar h, SkPath::Dir
     }
 
     for (int i = 0; i < n; ++i) {
-        sin = SkScalarSinCos(SkDegreesToRadians(angle), &cos);
-        pts[i].fX = -sin * w;
-        pts[i].fY = cos * h;
+        pts[i].fX = -SkScalarSin(SkDegreesToRadians(angle)) * w;
+        pts[i].fY =  SkScalarCos(SkDegreesToRadians(angle)) * h;
         angle += angleStep;
     }
 }
@@ -562,7 +574,9 @@ protected:
             if (fConvexOnly) {
                 result = SkInsetConvexPolygon(data.get(), numPts, offset, &offsetPoly);
             } else {
-                result = SkOffsetSimplePolygon(data.get(), numPts, offset, &offsetPoly);
+                SkRect bounds;
+                bounds.setBoundsCheck(data.get(), numPts);
+                result = SkOffsetSimplePolygon(data.get(), numPts, bounds, offset, &offsetPoly);
             }
             if (result) {
                 SkPath path;
@@ -572,7 +586,7 @@ protected:
                 }
                 path.close();
 
-                paint.setColor(sk_tool_utils::color_to_565(colors[i]));
+                paint.setColor(ToolUtils::color_to_565(colors[i]));
                 canvas->save();
                 canvas->translate(center.fX, center.fY);
                 canvas->drawPath(path, paint);

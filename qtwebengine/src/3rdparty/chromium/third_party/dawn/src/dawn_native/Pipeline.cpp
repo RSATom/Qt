@@ -15,54 +15,54 @@
 #include "dawn_native/Pipeline.h"
 
 #include "dawn_native/Device.h"
-#include "dawn_native/InputState.h"
 #include "dawn_native/PipelineLayout.h"
 #include "dawn_native/ShaderModule.h"
 
 namespace dawn_native {
+
+    MaybeError ValidatePipelineStageDescriptor(const DeviceBase* device,
+                                               const PipelineStageDescriptor* descriptor,
+                                               const PipelineLayoutBase* layout,
+                                               ShaderStage stage) {
+        DAWN_TRY(device->ValidateObject(descriptor->module));
+
+        if (descriptor->entryPoint != std::string("main")) {
+            return DAWN_VALIDATION_ERROR("Entry point must be \"main\"");
+        }
+        if (descriptor->module->GetExecutionModel() != stage) {
+            return DAWN_VALIDATION_ERROR("Setting module with wrong stages");
+        }
+        if (!descriptor->module->IsCompatibleWithPipelineLayout(layout)) {
+            return DAWN_VALIDATION_ERROR("Stage not compatible with layout");
+        }
+        return {};
+    }
 
     // PipelineBase
 
     PipelineBase::PipelineBase(DeviceBase* device,
                                PipelineLayoutBase* layout,
                                dawn::ShaderStageBit stages)
-        : ObjectBase(device), mStageMask(stages), mLayout(layout), mDevice(device) {
+        : ObjectBase(device), mStageMask(stages), mLayout(layout) {
     }
 
-    void PipelineBase::ExtractModuleData(dawn::ShaderStage stage, ShaderModuleBase* module) {
-        PushConstantInfo* info = &mPushConstants[stage];
-
-        const auto& moduleInfo = module->GetPushConstants();
-        info->mask = moduleInfo.mask;
-
-        for (uint32_t i = 0; i < moduleInfo.names.size(); i++) {
-            uint32_t size = moduleInfo.sizes[i];
-            if (size == 0) {
-                continue;
-            }
-
-            for (uint32_t offset = 0; offset < size; offset++) {
-                info->types[i + offset] = moduleInfo.types[i];
-            }
-            i += size - 1;
-        }
-    }
-
-    const PipelineBase::PushConstantInfo& PipelineBase::GetPushConstants(
-        dawn::ShaderStage stage) const {
-        return mPushConstants[stage];
+    PipelineBase::PipelineBase(DeviceBase* device, ObjectBase::ErrorTag tag)
+        : ObjectBase(device, tag) {
     }
 
     dawn::ShaderStageBit PipelineBase::GetStageMask() const {
+        ASSERT(!IsError());
         return mStageMask;
     }
 
     PipelineLayoutBase* PipelineBase::GetLayout() {
+        ASSERT(!IsError());
         return mLayout.Get();
     }
 
-    DeviceBase* PipelineBase::GetDevice() const {
-        return mDevice;
+    const PipelineLayoutBase* PipelineBase::GetLayout() const {
+        ASSERT(!IsError());
+        return mLayout.Get();
     }
 
 }  // namespace dawn_native

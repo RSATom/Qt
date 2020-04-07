@@ -712,9 +712,8 @@ struct QBidiAlgorithm {
                         analysis[pos].bidiDirection = QChar::DirEN;
                         ++it;
                     }
-                } else {
-                    lastETPosition.clear();
                 }
+                lastETPosition.clear();
             }
             last = current;
             lastPos = pos;
@@ -989,7 +988,7 @@ struct QBidiAlgorithm {
             BIDI_DEBUG() << "before implicit level processing:";
             IsolatedRunSequenceIterator it(runs, i);
             while (!it.atEnd()) {
-                BIDI_DEBUG() << "    " << *it << hex << text[*it].unicode() << analysis[*it].bidiDirection;
+                BIDI_DEBUG() << "    " << *it << Qt::hex << text[*it].unicode() << analysis[*it].bidiDirection;
                 ++it;
             }
         }
@@ -1002,7 +1001,7 @@ struct QBidiAlgorithm {
             BIDI_DEBUG() << "after W4/W5";
             IsolatedRunSequenceIterator it(runs, i);
             while (!it.atEnd()) {
-                BIDI_DEBUG() << "    " << *it << hex << text[*it].unicode() << analysis[*it].bidiDirection;
+                BIDI_DEBUG() << "    " << *it << Qt::hex << text[*it].unicode() << analysis[*it].bidiDirection;
                 ++it;
             }
         }
@@ -1088,7 +1087,7 @@ struct QBidiAlgorithm {
         if (BidiDebugEnabled) {
             BIDI_DEBUG() << ">>>> start bidi, text length" << length;
             for (int i = 0; i < length; ++i)
-                BIDI_DEBUG() << hex << "    (" << i << ")" << text[i].unicode() << text[i].direction();
+                BIDI_DEBUG() << Qt::hex << "    (" << i << ")" << text[i].unicode() << text[i].direction();
         }
 
         {
@@ -1157,7 +1156,7 @@ struct QBidiAlgorithm {
         if (BidiDebugEnabled) {
             BIDI_DEBUG() << "final resolved levels:";
             for (int i = 0; i < length; ++i)
-                BIDI_DEBUG() << "    " << i << hex << text[i].unicode() << dec << (int)analysis[i].bidiLevel;
+                BIDI_DEBUG() << "    " << i << Qt::hex << text[i].unicode() << Qt::dec << (int)analysis[i].bidiLevel;
         }
 
         return true;
@@ -1968,7 +1967,9 @@ const QCharAttributes *QTextEngine::attributes() const
     QUnicodeTools::initCharAttributes(reinterpret_cast<const ushort *>(layoutData->string.constData()),
                                       layoutData->string.length(),
                                       scriptItems.data(), scriptItems.size(),
-                                      (QCharAttributes *)layoutData->memory);
+                                      (QCharAttributes *)layoutData->memory,
+                                      QUnicodeTools::CharAttributeOptions(QUnicodeTools::DefaultOptionsCompat
+                                                                          | QUnicodeTools::HangulLineBreakTailoring));
 
 
     layoutData->haveCharAttributes = true;
@@ -2123,22 +2124,7 @@ void QTextEngine::itemize() const
     }
 #if QT_CONFIG(harfbuzz)
     analysis = scriptAnalysis.data();
-    if (qt_useHarfbuzzNG()) {
-        // ### pretend HB-old behavior for now
-        for (int i = 0; i < length; ++i) {
-            switch (analysis[i].script) {
-            case QChar::Script_Latin:
-            case QChar::Script_Hiragana:
-            case QChar::Script_Katakana:
-            case QChar::Script_Bopomofo:
-            case QChar::Script_Han:
-                analysis[i].script = QChar::Script_Common;
-                break;
-            default:
-                break;
-            }
-        }
-    } else {
+    if (!qt_useHarfbuzzNG()) {
         for (int i = 0; i < length; ++i)
             analysis[i].script = hbscript_to_script(script_to_hbscript(analysis[i].script));
     }
@@ -3617,7 +3603,12 @@ int QTextEngine::positionInLigature(const QScriptItem *si, int end,
     int clusterLength = 0;
 
     if (si->analysis.script != QChar::Script_Common &&
-        si->analysis.script != QChar::Script_Greek) {
+        si->analysis.script != QChar::Script_Greek &&
+        si->analysis.script != QChar::Script_Latin &&
+        si->analysis.script != QChar::Script_Hiragana &&
+        si->analysis.script != QChar::Script_Katakana &&
+        si->analysis.script != QChar::Script_Bopomofo &&
+        si->analysis.script != QChar::Script_Han) {
         if (glyph_pos == -1)
             return si->position + end;
         else {

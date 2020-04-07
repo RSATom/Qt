@@ -27,6 +27,7 @@
 #include "third_party/blink/renderer/core/css/css_property_names.h"
 #include "third_party/blink/renderer/core/dom/attribute.h"
 #include "third_party/blink/renderer/core/dom/element_traversal.h"
+#include "third_party/blink/renderer/core/dom/node_computed_style.h"
 #include "third_party/blink/renderer/core/dom/shadow_root.h"
 #include "third_party/blink/renderer/core/frame/local_frame_client.h"
 #include "third_party/blink/renderer/core/html/html_image_loader.h"
@@ -41,18 +42,13 @@ namespace blink {
 
 using namespace html_names;
 
-inline HTMLEmbedElement::HTMLEmbedElement(Document& document,
-                                          const CreateElementFlags flags)
+HTMLEmbedElement::HTMLEmbedElement(Document& document,
+                                   const CreateElementFlags flags)
     : HTMLPlugInElement(kEmbedTag,
                         document,
                         flags,
-                        kShouldPreferPlugInsForImages) {}
-
-HTMLEmbedElement* HTMLEmbedElement::Create(Document& document,
-                                           const CreateElementFlags flags) {
-  auto* element = MakeGarbageCollected<HTMLEmbedElement>(document, flags);
-  element->EnsureUserAgentShadowRoot();
-  return element;
+                        kShouldPreferPlugInsForImages) {
+  EnsureUserAgentShadowRoot();
 }
 
 const AttrNameToTrustedType& HTMLEmbedElement::GetCheckedAttributeTypes()
@@ -92,9 +88,11 @@ void HTMLEmbedElement::CollectStyleForPresentationAttribute(
     if (DeprecatedEqualIgnoringCase(value, "yes") ||
         DeprecatedEqualIgnoringCase(value, "true")) {
       AddPropertyToPresentationAttributeStyle(
-          style, CSSPropertyWidth, 0, CSSPrimitiveValue::UnitType::kPixels);
+          style, CSSPropertyID::kWidth, 0,
+          CSSPrimitiveValue::UnitType::kPixels);
       AddPropertyToPresentationAttributeStyle(
-          style, CSSPropertyHeight, 0, CSSPrimitiveValue::UnitType::kPixels);
+          style, CSSPropertyID::kHeight, 0,
+          CSSPrimitiveValue::UnitType::kPixels);
     }
   } else {
     HTMLPlugInElement::CollectStyleForPresentationAttribute(name, value, style);
@@ -103,6 +101,10 @@ void HTMLEmbedElement::CollectStyleForPresentationAttribute(
 
 void HTMLEmbedElement::ParseAttribute(
     const AttributeModificationParams& params) {
+  // Changing an attribute may change the content, type of content, layout
+  // object type, or all of the above. Not safe to re-use through reattach.
+  SetDisposeView();
+
   if (params.name == kTypeAttr) {
     SetServiceType(params.new_value.LowerASCII());
     wtf_size_t pos = service_type_.Find(";");
@@ -121,13 +123,13 @@ void HTMLEmbedElement::ParseAttribute(
     SetUrl(StripLeadingAndTrailingHTMLSpaces(params.new_value));
     if (GetLayoutObject() && IsImageType()) {
       if (!image_loader_)
-        image_loader_ = HTMLImageLoader::Create(this);
+        image_loader_ = MakeGarbageCollected<HTMLImageLoader>(this);
       image_loader_->UpdateFromElement(ImageLoader::kUpdateIgnorePreviousError);
     } else if (GetLayoutObject()) {
       // Check if this Embed can transition from potentially-active to active
       if (FastHasAttribute(kTypeAttr)) {
         SetNeedsPluginUpdate(true);
-        LazyReattachIfNeeded();
+        ReattachOnPluginChangeIfNeeded();
       }
     }
   } else {
@@ -180,7 +182,7 @@ bool HTMLEmbedElement::LayoutObjectIsNeeded(const ComputedStyle& style) const {
   if (IsImageType())
     return HTMLPlugInElement::LayoutObjectIsNeeded(style);
 
-  // https://html.spec.whatwg.org/multipage/embedded-content.html#the-embed-element
+  // https://html.spec.whatwg.org/C/#the-embed-element
   // While any of the following conditions are occurring, any plugin
   // instantiated for the element must be removed, and the embed element
   // represents nothing:

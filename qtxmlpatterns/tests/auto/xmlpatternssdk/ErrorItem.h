@@ -47,7 +47,7 @@ namespace QPatternistSDK
      * @ingroup PatternistSDK
      * @author Frans Englich <frans.englich@nokia.com>
      */
-    class Q_PATTERNISTSDK_EXPORT ErrorItem : public TreeItem
+    class ErrorItem : public TreeItem
     {
     public:
         ErrorItem(const ErrorHandler::Message &error, ErrorItem *parent);

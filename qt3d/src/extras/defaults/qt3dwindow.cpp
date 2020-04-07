@@ -61,6 +61,7 @@
 #include <Qt3DLogic/qlogicaspect.h>
 #include <Qt3DRender/qcamera.h>
 #include <QtGui/qopenglcontext.h>
+#include <private/qrendersettings_p.h>
 
 #include <QEvent>
 
@@ -236,7 +237,7 @@ void Qt3DWindow::showEvent(QShowEvent *e)
 void Qt3DWindow::resizeEvent(QResizeEvent *)
 {
     Q_D(Qt3DWindow);
-    d->m_defaultCamera->setAspectRatio(float(width()) / float(height()));
+    d->m_defaultCamera->setAspectRatio(float(width()) / std::max(1.f, static_cast<float>(height())));
 }
 
 /*!
@@ -248,8 +249,11 @@ bool Qt3DWindow::event(QEvent *e)
 {
     Q_D(Qt3DWindow);
     const bool needsRedraw = (e->type() == QEvent::Expose || e->type() == QEvent::UpdateRequest);
-    if (needsRedraw && d->m_renderSettings->renderPolicy() == Qt3DRender::QRenderSettings::OnDemand)
-        d->m_renderSettings->sendCommand(QLatin1Literal("InvalidateFrame"));
+    if (needsRedraw && d->m_renderSettings->renderPolicy() == Qt3DRender::QRenderSettings::OnDemand) {
+        Qt3DRender::QRenderSettingsPrivate *p = static_cast<Qt3DRender::QRenderSettingsPrivate *>(
+                    Qt3DCore::QNodePrivate::get(d->m_renderSettings));
+        p->invalidateFrame();
+    }
     return QWindow::event(e);
 }
 

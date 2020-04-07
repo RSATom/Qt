@@ -47,7 +47,7 @@
 #include <QtCore/qbasictimer.h> // conceptual inheritance
 #include <QtCore/qobject.h>
 
-#if QT_HAS_INCLUDE(<chrono>)
+#if __has_include(<chrono>)
 #  include <chrono>
 #endif
 
@@ -177,7 +177,7 @@ Q_SIGNALS:
     void timeout(QPrivateSignal);
 
 public:
-#if QT_HAS_INCLUDE(<chrono>) || defined(Q_QDOC)
+#if __has_include(<chrono>) || defined(Q_QDOC)
     void setInterval(std::chrono::milliseconds value)
     {
         setInterval(int(value.count()));
@@ -218,12 +218,12 @@ private:
     inline int startTimer(int){ return -1;}
     inline void killTimer(int){}
 
-    static Q_DECL_CONSTEXPR Qt::TimerType defaultTypeFor(int msecs) Q_DECL_NOTHROW
+    static Q_DECL_CONSTEXPR Qt::TimerType defaultTypeFor(int msecs) noexcept
     { return msecs >= 2000 ? Qt::CoarseTimer : Qt::PreciseTimer; }
     static void singleShotImpl(int msec, Qt::TimerType timerType,
                                const QObject *receiver, QtPrivate::QSlotObjectBase *slotObj);
 
-#if QT_HAS_INCLUDE(<chrono>)
+#if __has_include(<chrono>)
     static Qt::TimerType defaultTypeFor(std::chrono::milliseconds interval)
     { return defaultTypeFor(int(interval.count())); }
 

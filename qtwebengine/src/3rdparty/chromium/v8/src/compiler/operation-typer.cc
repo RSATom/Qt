@@ -5,12 +5,13 @@
 #include "src/compiler/operation-typer.h"
 
 #include "src/compiler/common-operator.h"
+#include "src/compiler/js-heap-broker.h"
 #include "src/compiler/type-cache.h"
 #include "src/compiler/types.h"
+#include "src/execution/isolate.h"
 #include "src/heap/factory.h"
-#include "src/isolate.h"
 
-#include "src/objects-inl.h"
+#include "src/objects/objects-inl.h"
 
 namespace v8 {
 namespace internal {
@@ -259,7 +260,8 @@ Type OperationTyper::ConvertReceiver(Type type) {
   type = Type::Intersect(type, Type::Receiver(), zone());
   if (maybe_primitive) {
     // ConvertReceiver maps null and undefined to the JSGlobalProxy of the
-    // target function, and all other primitives are wrapped into a JSValue.
+    // target function, and all other primitives are wrapped into a
+    // JSPrimitiveWrapper.
     type = Type::Union(type, Type::OtherObject(), zone());
   }
   return type;
@@ -576,6 +578,13 @@ Type OperationTyper::NumberSilenceNaN(Type type) {
   if (type.Maybe(Type::NaN())) return Type::Number();
   return type;
 }
+
+Type OperationTyper::BigIntAsUintN(Type type) {
+  DCHECK(type.Is(Type::BigInt()));
+  return Type::BigInt();
+}
+
+Type OperationTyper::CheckBigInt(Type type) { return Type::BigInt(); }
 
 Type OperationTyper::NumberAdd(Type lhs, Type rhs) {
   DCHECK(lhs.Is(Type::Number()));
@@ -1111,6 +1120,26 @@ SPECULATIVE_NUMBER_BINOP(NumberShiftRight)
 SPECULATIVE_NUMBER_BINOP(NumberShiftRightLogical)
 #undef SPECULATIVE_NUMBER_BINOP
 
+Type OperationTyper::BigIntAdd(Type lhs, Type rhs) {
+  if (lhs.IsNone() || rhs.IsNone()) return Type::None();
+  return Type::BigInt();
+}
+
+Type OperationTyper::BigIntNegate(Type type) {
+  if (type.IsNone()) return type;
+  return Type::BigInt();
+}
+
+Type OperationTyper::SpeculativeBigIntAdd(Type lhs, Type rhs) {
+  if (lhs.IsNone() || rhs.IsNone()) return Type::None();
+  return Type::BigInt();
+}
+
+Type OperationTyper::SpeculativeBigIntNegate(Type type) {
+  if (type.IsNone()) return type;
+  return Type::BigInt();
+}
+
 Type OperationTyper::SpeculativeToNumber(Type type) {
   return ToNumber(Type::Intersect(type, Type::NumberOrOddball(), zone()));
 }
@@ -1124,7 +1153,7 @@ Type OperationTyper::ToPrimitive(Type type) {
 
 Type OperationTyper::Invert(Type type) {
   DCHECK(type.Is(Type::Boolean()));
-  DCHECK(!type.IsNone());
+  CHECK(!type.IsNone());
   if (type.Is(singleton_false())) return singleton_true();
   if (type.Is(singleton_true())) return singleton_false();
   return type;
@@ -1187,7 +1216,16 @@ Type OperationTyper::SameValue(Type lhs, Type rhs) {
   return Type::Boolean();
 }
 
+Type OperationTyper::SameValueNumbersOnly(Type lhs, Type rhs) {
+  // SameValue and SamevalueNumbersOnly only differ in treatment of
+  // strings and biginits. Since the SameValue typer does not do anything
+  // special about strings or bigints, we can just use it here.
+  return SameValue(lhs, rhs);
+}
+
 Type OperationTyper::StrictEqual(Type lhs, Type rhs) {
+  CHECK(!lhs.IsNone());
+  CHECK(!rhs.IsNone());
   if (!JSType(lhs).Maybe(JSType(rhs))) return singleton_false();
   if (lhs.Is(Type::NaN()) || rhs.Is(Type::NaN())) return singleton_false();
   if (lhs.Is(Type::Number()) && rhs.Is(Type::Number()) &&

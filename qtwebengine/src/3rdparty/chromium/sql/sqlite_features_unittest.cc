@@ -20,11 +20,7 @@
 #include "third_party/sqlite/sqlite3.h"
 
 #if defined(OS_MACOSX) && !defined(OS_IOS)
-#include <CoreFoundation/CoreFoundation.h>
-#include <CoreServices/CoreServices.h>
-
 #include "base/mac/mac_util.h"
-#include "base/mac/scoped_cftyperef.h"
 #endif
 
 // Test that certain features are/are-not enabled in our SQLite.
@@ -180,24 +176,18 @@ TEST_F(SQLiteFeaturesTest, BooleanSupport) {
   EXPECT_TRUE(!s.ColumnBool(3)) << " default FALSE added by altering the table";
 }
 
-#if defined(OS_FUCHSIA)
-// If the platform cannot support SQLite mmap'ed I/O, make sure SQLite isn't
-// offering to support it.
-TEST_F(SQLiteFeaturesTest, NoMmap) {
-  // For recent versions of SQLite, SQLITE_MAX_MMAP_SIZE=0 can be used to
-  // disable mmap support.  Alternately, sqlite3_config() could be used.  In
-  // that case, the pragma will run successfully, but the size will always be 0.
-  //
-  // MojoVFS implements a no-op for xFileControl().  PRAGMA mmap_size is
-  // implemented in terms of SQLITE_FCNTL_MMAP_SIZE.  In that case, the pragma
-  // will succeed but with no effect.
-  ignore_result(db().Execute("PRAGMA mmap_size = 1048576"));
-  sql::Statement s(db().GetUniqueStatement("PRAGMA mmap_size"));
-  ASSERT_TRUE(!s.Step() || !s.ColumnInt64(0));
-}
-#endif  // defined(OS_FUCHSIA)
+TEST_F(SQLiteFeaturesTest, IcuEnabled) {
+  sql::Statement lower_en(
+      db().GetUniqueStatement("SELECT lower('I', 'en_us')"));
+  ASSERT_TRUE(lower_en.Step());
+  EXPECT_EQ("i", lower_en.ColumnString(0));
 
-#if !defined(OS_FUCHSIA)
+  sql::Statement lower_tr(
+      db().GetUniqueStatement("SELECT lower('I', 'tr_tr')"));
+  ASSERT_TRUE(lower_tr.Step());
+  EXPECT_EQ("\u0131", lower_tr.ColumnString(0));
+}
+
 // Verify that OS file writes are reflected in the memory mapping of a
 // memory-mapped file.  Normally SQLite writes to memory-mapped files using
 // memcpy(), which should stay consistent.  Our SQLite is slightly patched to
@@ -269,7 +259,6 @@ TEST_F(SQLiteFeaturesTest, Mmap) {
     ASSERT_EQ('4', m.data()[kOffset]);
   }
 }
-#endif  // !defined(OS_FUCHSIA)
 
 // Verify that http://crbug.com/248608 is fixed.  In this bug, the
 // compiled regular expression is effectively cached with the prepared
@@ -305,47 +294,30 @@ TEST_F(SQLiteFeaturesTest, CachedRegexp) {
 }
 
 #if defined(OS_MACOSX) && !defined(OS_IOS)
-base::ScopedCFTypeRef<CFURLRef> CFURLRefForPath(const base::FilePath& path){
-  base::ScopedCFTypeRef<CFStringRef> urlString(
-      CFStringCreateWithFileSystemRepresentation(
-          kCFAllocatorDefault, path.value().c_str()));
-  base::ScopedCFTypeRef<CFURLRef> url(
-      CFURLCreateWithFileSystemPath(kCFAllocatorDefault, urlString,
-                                    kCFURLPOSIXPathStyle, FALSE));
-  return url;
-}
-
 // If a database file is marked to be excluded from Time Machine, verify that
 // journal files are also excluded.
 TEST_F(SQLiteFeaturesTest, TimeMachine) {
   ASSERT_TRUE(db().Execute("CREATE TABLE t (id INTEGER PRIMARY KEY)"));
   db().Close();
 
-  base::FilePath journal = sql::Database::JournalPath(db_path());
+  base::FilePath journal_path = sql::Database::JournalPath(db_path());
   ASSERT_TRUE(GetPathExists(db_path()));
-  ASSERT_TRUE(GetPathExists(journal));
-
-  base::ScopedCFTypeRef<CFURLRef> dbURL(CFURLRefForPath(db_path()));
-  base::ScopedCFTypeRef<CFURLRef> journalURL(CFURLRefForPath(journal));
+  ASSERT_TRUE(GetPathExists(journal_path));
 
   // Not excluded to start.
-  EXPECT_FALSE(CSBackupIsItemExcluded(dbURL, nullptr));
-  EXPECT_FALSE(CSBackupIsItemExcluded(journalURL, nullptr));
+  EXPECT_FALSE(base::mac::GetFileBackupExclusion(db_path()));
+  EXPECT_FALSE(base::mac::GetFileBackupExclusion(journal_path));
 
   // Exclude the main database file.
   EXPECT_TRUE(base::mac::SetFileBackupExclusion(db_path()));
 
-  Boolean excluded_by_path = FALSE;
-  EXPECT_TRUE(CSBackupIsItemExcluded(dbURL, &excluded_by_path));
-  EXPECT_FALSE(excluded_by_path);
-  EXPECT_FALSE(CSBackupIsItemExcluded(journalURL, nullptr));
+  EXPECT_TRUE(base::mac::GetFileBackupExclusion(db_path()));
+  EXPECT_FALSE(base::mac::GetFileBackupExclusion(journal_path));
 
   EXPECT_TRUE(db().Open(db_path()));
   ASSERT_TRUE(db().Execute("INSERT INTO t VALUES (1)"));
-  EXPECT_TRUE(CSBackupIsItemExcluded(dbURL, &excluded_by_path));
-  EXPECT_FALSE(excluded_by_path);
-  EXPECT_TRUE(CSBackupIsItemExcluded(journalURL, &excluded_by_path));
-  EXPECT_FALSE(excluded_by_path);
+  EXPECT_TRUE(base::mac::GetFileBackupExclusion(db_path()));
+  EXPECT_TRUE(base::mac::GetFileBackupExclusion(journal_path));
 
   // TODO(shess): In WAL mode this will touch -wal and -shm files.  -shm files
   // could be always excluded.

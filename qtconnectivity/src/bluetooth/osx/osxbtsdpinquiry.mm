@@ -41,6 +41,7 @@
 #include "osxbtsdpinquiry_p.h"
 #include "qbluetoothuuid.h"
 #include "osxbtutility_p.h"
+#include "btdelegates_p.h"
 
 #include <QtCore/qvariant.h>
 #include <QtCore/qstring.h>
@@ -48,10 +49,6 @@
 QT_BEGIN_NAMESPACE
 
 namespace OSXBluetooth {
-
-SDPInquiryDelegate::~SDPInquiryDelegate()
-{
-}
 
 namespace {
 
@@ -213,12 +210,12 @@ using namespace OSXBluetooth;
 
 @implementation QT_MANGLE_NAMESPACE(OSXBTSDPInquiry)
 {
-    QT_PREPEND_NAMESPACE(OSXBluetooth::SDPInquiryDelegate) *delegate;
+    QT_PREPEND_NAMESPACE(DarwinBluetooth::SDPInquiryDelegate) *delegate;
     IOBluetoothDevice *device;
     bool isActive;
 }
 
-- (id)initWithDelegate:(SDPInquiryDelegate *)aDelegate
+- (id)initWithDelegate:(DarwinBluetooth::SDPInquiryDelegate *)aDelegate
 {
     Q_ASSERT_X(aDelegate, Q_FUNC_INFO, "invalid delegate (null)");
 

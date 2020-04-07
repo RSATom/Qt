@@ -107,7 +107,7 @@ class WEBDATA_EXPORT WebDatabaseService
   // be stored or called.
   void RegisterDBErrorCallback(const DBLoadErrorCallback& callback);
 
-  bool db_loaded() const { return db_loaded_; };
+  bool db_loaded() const { return db_loaded_; }
 
  private:
   class BackendDelegate;
@@ -141,7 +141,7 @@ class WEBDATA_EXPORT WebDatabaseService
   scoped_refptr<base::SingleThreadTaskRunner> db_task_runner_;
 
   // All vended weak pointers are invalidated in ShutdownDatabase().
-  base::WeakPtrFactory<WebDatabaseService> weak_ptr_factory_;
+  base::WeakPtrFactory<WebDatabaseService> weak_ptr_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(WebDatabaseService);
 };

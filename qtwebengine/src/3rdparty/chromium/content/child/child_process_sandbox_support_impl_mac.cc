@@ -6,6 +6,7 @@
 
 #include <utility>
 
+#include "base/bind.h"
 #include "base/mac/scoped_cftyperef.h"
 #include "base/numerics/safe_conversions.h"
 #include "base/strings/string16.h"
@@ -20,7 +21,7 @@ namespace content {
 
 WebSandboxSupportMac::WebSandboxSupportMac(
     service_manager::Connector* connector) {
-  connector->BindInterface(content::mojom::kBrowserServiceName,
+  connector->BindInterface(content::mojom::kSystemServiceName,
                            mojo::MakeRequest(&sandbox_support_));
   sandbox_support_->GetSystemColors(base::BindOnce(
       &WebSandboxSupportMac::OnGotSystemColors, base::Unretained(this)));

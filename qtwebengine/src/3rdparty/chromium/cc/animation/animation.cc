@@ -41,16 +41,6 @@ scoped_refptr<Animation> Animation::CreateImplInstance() const {
   return Animation::Create(id());
 }
 
-ElementId Animation::element_id_of_keyframe_effect(
-    KeyframeEffectId keyframe_effect_id) const {
-  DCHECK(GetKeyframeEffectById(keyframe_effect_id));
-  return GetKeyframeEffectById(keyframe_effect_id)->element_id();
-}
-
-bool Animation::IsElementAttached(ElementId id) const {
-  return base::ContainsKey(element_to_keyframe_effect_id_map_, id);
-}
-
 void Animation::SetAnimationHost(AnimationHost* animation_host) {
   animation_host_ = animation_host;
 }
@@ -257,7 +247,7 @@ void Animation::UpdateState(bool start_ready_animations,
                             AnimationEvents* events) {
   for (auto& keyframe_effect : keyframe_effects_) {
     keyframe_effect->UpdateState(start_ready_animations, events);
-    keyframe_effect->UpdateTickingState(UpdateTickingType::NORMAL);
+    keyframe_effect->UpdateTickingState();
   }
 }
 
@@ -269,7 +259,7 @@ void Animation::AddToTicking() {
   animation_host_->AddToTicking(this);
 }
 
-void Animation::KeyframeModelRemovedFromTicking() {
+void Animation::RemoveFromTicking() {
   DCHECK_GE(ticking_keyframe_effects_count, 0);
   if (!ticking_keyframe_effects_count)
     return;
@@ -335,7 +325,7 @@ void Animation::SetNeedsPushProperties() {
 void Animation::ActivateKeyframeEffects() {
   for (auto& keyframe_effect : keyframe_effects_) {
     keyframe_effect->ActivateKeyframeEffects();
-    keyframe_effect->UpdateTickingState(UpdateTickingType::NORMAL);
+    keyframe_effect->UpdateTickingState();
   }
 }
 

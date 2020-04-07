@@ -37,6 +37,7 @@ class HidManagerImpl : public mojom::HidManager, public HidService::Observer {
                               GetDevicesCallback callback) override;
   void GetDevices(GetDevicesCallback callback) override;
   void Connect(const std::string& device_guid,
+               mojom::HidConnectionClientPtr connection_client,
                ConnectCallback callback) override;
 
  private:
@@ -45,6 +46,7 @@ class HidManagerImpl : public mojom::HidManager, public HidService::Observer {
                         std::vector<mojom::HidDeviceInfoPtr> devices);
 
   void CreateConnection(ConnectCallback callback,
+                        mojom::HidConnectionClientPtr connection_client,
                         scoped_refptr<HidConnection> connection);
 
   // HidService::Observer:
@@ -56,7 +58,7 @@ class HidManagerImpl : public mojom::HidManager, public HidService::Observer {
   mojo::AssociatedInterfacePtrSet<mojom::HidManagerClient> clients_;
   ScopedObserver<HidService, HidService::Observer> hid_service_observer_;
 
-  base::WeakPtrFactory<HidManagerImpl> weak_factory_;
+  base::WeakPtrFactory<HidManagerImpl> weak_factory_{this};
   DISALLOW_COPY_AND_ASSIGN(HidManagerImpl);
 };
 

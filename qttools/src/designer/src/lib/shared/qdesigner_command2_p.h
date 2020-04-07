@@ -59,14 +59,14 @@ class BreakLayoutCommand;
  * QLayoutWidget's. */
 
 class QDESIGNER_SHARED_EXPORT MorphLayoutCommand : public QDesignerFormWindowCommand {
-    Q_DISABLE_COPY(MorphLayoutCommand)
+    Q_DISABLE_COPY_MOVE(MorphLayoutCommand)
 public:
     explicit MorphLayoutCommand(QDesignerFormWindowInterface *formWindow);
     ~MorphLayoutCommand() override;
 
     bool init(QWidget *w, int newType);
 
-    static bool canMorph(const QDesignerFormWindowInterface *formWindow, QWidget *w, int *ptrToCurrentType = 0);
+    static bool canMorph(const QDesignerFormWindowInterface *formWindow, QWidget *w, int *ptrToCurrentType = nullptr);
 
     void redo() override;
     void undo() override;
@@ -83,7 +83,7 @@ private:
 
 // Change the alignment of a widget in a managed grid/box layout cell.
 class LayoutAlignmentCommand : public QDesignerFormWindowCommand {
-    Q_DISABLE_COPY(LayoutAlignmentCommand)
+    Q_DISABLE_COPY_MOVE(LayoutAlignmentCommand)
 public:
     explicit LayoutAlignmentCommand(QDesignerFormWindowInterface *formWindow);
 
@@ -93,7 +93,7 @@ public:
     void undo() override;
 
     // Find out alignment and return whether command is enabled.
-    static Qt::Alignment alignmentOf(const QDesignerFormEditorInterface *core, QWidget *w, bool *enabled = 0);
+    static Qt::Alignment alignmentOf(const QDesignerFormEditorInterface *core, QWidget *w, bool *enabled = nullptr);
 
 private:
     static void applyAlignment(const QDesignerFormEditorInterface *core, QWidget *w, Qt::Alignment a);

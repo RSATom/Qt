@@ -17,9 +17,11 @@
  * Boston, MA 02110-1301, USA.
  */
 
-// https://html.spec.whatwg.org/#the-optgroup-element
-[HTMLConstructor]
-interface HTMLOptGroupElement : HTMLElement {
+// https://html.spec.whatwg.org/C/#the-optgroup-element
+[
+    Exposed=Window,
+    HTMLConstructor
+] interface HTMLOptGroupElement : HTMLElement {
     [CEReactions, Reflect] attribute boolean disabled;
     [CEReactions, Reflect] attribute DOMString label;
 };

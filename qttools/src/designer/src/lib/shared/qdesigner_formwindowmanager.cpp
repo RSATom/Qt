@@ -38,6 +38,7 @@ using namespace qdesigner_internal;
 /*!
     \class qdesigner_internal::QDesignerFormWindowManager
     \inmodule QtDesigner
+    \internal
 
     Extends QDesignerFormWindowManagerInterface with methods to control
     the preview and printing of forms. It provides a facade that simplifies
@@ -49,13 +50,11 @@ using namespace qdesigner_internal;
 
 
 QDesignerFormWindowManager::QDesignerFormWindowManager(QObject *parent)
-    : QDesignerFormWindowManagerInterface(parent), m_unused(0)
+    : QDesignerFormWindowManagerInterface(parent)
 {
 }
 
-QDesignerFormWindowManager::~QDesignerFormWindowManager()
-{
-}
+QDesignerFormWindowManager::~QDesignerFormWindowManager() = default;
 
 /*!
     \fn PreviewManager *qdesigner_internal::QDesignerFormWindowManager::previewManager() const

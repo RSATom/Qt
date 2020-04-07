@@ -100,9 +100,19 @@
 
     \image qtwinextras-musicplayer-taskbar.png Screenshot of the Music Player taskbar
 
-    The following snippet shows how the taskbar button is prepared. The playback
-    progress is wired directly to the taskbar progress indicator by using signals
-    and slots.
+    The following snippets show how the taskbar button is prepared.
+
+    For the taskbar and the thumbnail toolbar to work, a native window handle
+    must be set by passing an instance of \c QWindow to
+    \c QWinTaskbarButton::setWindow() or \c QWinThumbnailToolBar::setWindow(),
+    respectively. This instance is created in the process of \c QWidget::show()
+    and can be retrieved by calling \c QWidget::windowHandle() afterwards.
+    We override \c QWidget::showEvent() for this purpose:
+
+    \snippet musicplayer/musicplayer.cpp 7
+
+    The playback progress is wired directly to the taskbar progress indicator
+    by using signals and slots.
 
     \snippet musicplayer/musicplayer.cpp 5
 

@@ -34,6 +34,7 @@
 #include <Qt3DCore/private/qobservableinterface_p.h>
 #include <Qt3DCore/private/qlockableobserverinterface_p.h>
 #include <private/qnode_p.h>
+#include "testpostmanarbiter.h"
 
 class tst_QScene : public QObject
 {
@@ -58,14 +59,6 @@ private slots:
     void removePropertyTrackData();
     void nodeSetAndUnsetPropertyTrackData();
     void nodeUpdatePropertyTrackData();
-};
-
-class tst_LockableObserver : public Qt3DCore::QLockableObserverInterface
-{
-public:
-    void sceneChangeEvent(const Qt3DCore::QSceneChangePtr &) override {}
-    void sceneChangeEventWithLock(const Qt3DCore::QSceneChangePtr &) override {}
-    void sceneChangeEventWithLock(const Qt3DCore::QSceneChangeList &) override {}
 };
 
 class tst_Observable : public Qt3DCore::QObservableInterface
@@ -111,7 +104,7 @@ void tst_QScene::addObservable()
         observables.append(new tst_Observable());
 
     Qt3DCore::QScene *scene = new Qt3DCore::QScene;
-    scene->setArbiter(new tst_LockableObserver);
+    scene->setArbiter(new TestArbiter);
 
     // WHEN
     for (int i = 0; i < 5; i++)
@@ -120,18 +113,18 @@ void tst_QScene::addObservable()
     for (int i = 0; i < 5; i++)
         scene->addObservable(observables.at(i + 5), node2->id());
 
-    Qt3DCore::QObservableList obs1 = scene->lookupObservables(node1->id());
-    Qt3DCore::QObservableList obs2 = scene->lookupObservables(node2->id());
+    const Qt3DCore::QObservableList obs1 = scene->lookupObservables(node1->id());
+    const Qt3DCore::QObservableList obs2 = scene->lookupObservables(node2->id());
 
     // THEN
     QCOMPARE(obs1.count(), 5);
     QCOMPARE(obs2.count(), obs1.count());
 
-    Q_FOREACH (Qt3DCore::QObservableInterface *o, obs1) {
+    for (Qt3DCore::QObservableInterface *o : obs1) {
         QVERIFY(scene->nodeIdFromObservable(o) == node1->id());
         QVERIFY(scene->lookupNode(node1->id()) == nullptr);
     }
-    Q_FOREACH (Qt3DCore::QObservableInterface *o, obs2) {
+    for (Qt3DCore::QObservableInterface *o : obs2) {
         QVERIFY(scene->nodeIdFromObservable(o) == node2->id());
         QVERIFY(scene->lookupNode(node2->id()) == nullptr);
     }
@@ -146,14 +139,14 @@ void tst_QScene::addNodeObservable()
         nodes.append(new tst_Node());
 
     Qt3DCore::QScene *scene = new Qt3DCore::QScene;
-    scene->setArbiter(new tst_LockableObserver);
+    scene->setArbiter(new TestArbiter);
 
     // WHEN
     for (int i = 0; i < 10; i++)
         scene->addObservable(nodes.at(i));
 
     // THEN
-    Q_FOREACH (Qt3DCore::QNode *n, nodes) {
+    for (Qt3DCore::QNode *n : qAsConst(nodes)) {
         QVERIFY(n == scene->lookupNode(n->id()));
         QVERIFY(scene->lookupObservables(n->id()).isEmpty());
     }
@@ -171,7 +164,7 @@ void tst_QScene::removeObservable()
         observables.append(new tst_Observable());
 
     Qt3DCore::QScene *scene = new Qt3DCore::QScene;
-    scene->setArbiter(new tst_LockableObserver);
+    scene->setArbiter(new TestArbiter);
 
     // WHEN
     for (int i = 0; i < 5; i++)
@@ -222,7 +215,7 @@ void tst_QScene::removeNodeObservable()
         observables.append(new tst_Observable());
 
     Qt3DCore::QScene *scene = new Qt3DCore::QScene;
-    scene->setArbiter(new tst_LockableObserver);
+    scene->setArbiter(new TestArbiter);
 
     // WHEN
     scene->addObservable(node1);
@@ -281,7 +274,7 @@ void tst_QScene::addChildNode()
     QCoreApplication::processEvents();
 
     // THEN
-    Q_FOREACH (Qt3DCore::QNode *n, nodes) {
+    for (Qt3DCore::QNode *n : qAsConst(nodes)) {
         QVERIFY(scene->lookupNode(n->id()) == n);
     }
 }
@@ -311,10 +304,12 @@ void tst_QScene::deleteChildNode()
     for (int i = 0; i < 10; i++) {
         Qt3DCore::QNode *child1 = new tst_Node();
         child1->setParent(nodes1.isEmpty() ? root1 : nodes1.last());
+        Qt3DCore::QNodePrivate::get(child1)->m_hasBackendNode = true;
         nodes1.append(child1);
 
         Qt3DCore::QNode *child2 = new tst_Node();
         child2->setParent(nodes2.isEmpty() ? root2 : nodes2.last());
+        Qt3DCore::QNodePrivate::get(child2)->m_hasBackendNode = true;
         nodes2.append(child2);
     }
     QCoreApplication::processEvents();
@@ -370,6 +365,7 @@ void tst_QScene::removeChildNode()
             child->setParent(root);
         else
             child->setParent(nodes.last());
+        Qt3DCore::QNodePrivate::get(child)->m_hasBackendNode = true;
         nodes.append(child);
     }
 

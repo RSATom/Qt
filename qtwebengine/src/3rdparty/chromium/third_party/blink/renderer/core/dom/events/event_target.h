@@ -44,7 +44,7 @@
 #include "third_party/blink/renderer/core/event_type_names.h"
 #include "third_party/blink/renderer/platform/bindings/script_wrappable.h"
 #include "third_party/blink/renderer/platform/heap/handle.h"
-#include "third_party/blink/renderer/platform/wtf/allocator.h"
+#include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 #include "third_party/blink/renderer/platform/wtf/text/atomic_string.h"
 
 namespace blink {
@@ -61,6 +61,7 @@ class Node;
 class ScriptState;
 class ServiceWorker;
 class V8EventListener;
+class PortalHost;
 
 struct FiringEventIterator {
   DISALLOW_NEW();
@@ -108,13 +109,11 @@ class CORE_EXPORT EventTargetData final
 //   file.
 // - Override EventTarget::interfaceName() and getExecutionContext(). The former
 //   will typically return EventTargetNames::YourClassName. The latter will
-//   return PausableObject::executionContext (if you are an
-//   PausableObject)
+//   return ContextLifecycleObserver::executionContext (if you are an
+//   ContextLifecycleObserver)
 //   or the document you're in.
 // - Your trace() method will need to call EventTargetWithInlineData::trace
 //   depending on the base class of your class.
-// - EventTargets do not support EAGERLY_FINALIZE. You need to use
-//   a pre-finalizer instead.
 class CORE_EXPORT EventTarget : public ScriptWrappable {
   DEFINE_WRAPPERTYPEINFO();
 
@@ -130,6 +129,7 @@ class CORE_EXPORT EventTarget : public ScriptWrappable {
   virtual LocalDOMWindow* ToLocalDOMWindow();
   virtual MessagePort* ToMessagePort();
   virtual ServiceWorker* ToServiceWorker();
+  virtual PortalHost* ToPortalHost();
 
   static EventTarget* Create(ScriptState*);
 
@@ -170,7 +170,7 @@ class CORE_EXPORT EventTarget : public ScriptWrappable {
                                  EventListener*);
   EventListener* GetAttributeEventListener(const AtomicString& event_type);
 
-  bool HasEventListeners() const;
+  bool HasEventListeners() const override;
   bool HasEventListeners(const AtomicString& event_type) const;
   bool HasCapturingEventListeners(const AtomicString& event_type);
   EventListenerVector* GetEventListeners(const AtomicString& event_type);

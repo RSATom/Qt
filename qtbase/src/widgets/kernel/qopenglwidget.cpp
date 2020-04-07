@@ -379,7 +379,7 @@ QT_BEGIN_NAMESPACE
   This is naturally not the only possible solution. One alternative is to use
   the \l{QOpenGLContext::aboutToBeDestroyed()}{aboutToBeDestroyed()} signal of
   QOpenGLContext. By connecting a slot, using direct connection, to this signal,
-  it is possible to perform cleanup whenever the the underlying native context
+  it is possible to perform cleanup whenever the underlying native context
   handle, or the entire QOpenGLContext instance, is going to be released. The
   following snippet is in principle equivalent to the previous one:
 
@@ -1335,11 +1335,8 @@ int QOpenGLWidget::metric(QPaintDevice::PaintDeviceMetric metric) const
     if (d->inBackingStorePaint)
         return QWidget::metric(metric);
 
-    QWidget *tlw = window();
-    QWindow *window = tlw ? tlw->windowHandle() : 0;
-    QScreen *screen = tlw && tlw->windowHandle() ? tlw->windowHandle()->screen() : 0;
-    if (!screen && QGuiApplication::primaryScreen())
-        screen = QGuiApplication::primaryScreen();
+    auto window = d->windowHandle(QWidgetPrivate::WindowHandleMode::TopLevel);
+    QScreen *screen = window ? window->screen() : QGuiApplication::primaryScreen();
 
     const float dpmx = qt_defaultDpiX() * 100. / 2.54;
     const float dpmy = qt_defaultDpiY() * 100. / 2.54;
@@ -1437,7 +1434,7 @@ bool QOpenGLWidget::event(QEvent *e)
     Q_D(QOpenGLWidget);
     switch (e->type()) {
     case QEvent::WindowChangeInternal:
-        if (qGuiApp->testAttribute(Qt::AA_ShareOpenGLContexts))
+        if (QCoreApplication::testAttribute(Qt::AA_ShareOpenGLContexts))
             break;
         if (d->initialized)
             d->reset();
@@ -1450,7 +1447,7 @@ bool QOpenGLWidget::event(QEvent *e)
         {
             // Special case: did grabFramebuffer() for a hidden widget that then became visible.
             // Recreate all resources since the context now needs to share with the TLW's.
-            if (!qGuiApp->testAttribute(Qt::AA_ShareOpenGLContexts))
+            if (!QCoreApplication::testAttribute(Qt::AA_ShareOpenGLContexts))
                 d->reset();
         }
         if (!d->initialized && !size().isEmpty() && window()->windowHandle()) {

@@ -7,6 +7,8 @@
 #include <memory>
 #include <string>
 
+#include "base/bind.h"
+#include "base/feature_list.h"
 #include "base/i18n/rtl.h"
 #include "base/memory/ref_counted_memory.h"
 #include "base/strings/utf_string_conversions.h"
@@ -17,7 +19,7 @@
 #include "chrome/browser/ui/webui/ntp/ntp_resource_cache.h"
 #include "chrome/browser/ui/webui/ntp/ntp_resource_cache_factory.h"
 #include "chrome/browser/ui/webui/theme_handler.h"
-#include "chrome/common/pref_names.h"
+#include "chrome/common/chrome_features.h"
 #include "chrome/common/url_constants.h"
 #include "components/bookmarks/common/bookmark_pref_names.h"
 #include "components/prefs/pref_service.h"
@@ -28,6 +30,7 @@
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_ui.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/native_theme/native_theme.h"
 #include "url/gurl.h"
 
 namespace {
@@ -40,8 +43,7 @@ const char kLTRHtmlTextDirection[] = "ltr";
 const char* GetHtmlTextDirection(const base::string16& text) {
   if (base::i18n::IsRTL() && base::i18n::StringContainsStrongRTLChars(text))
     return kRTLHtmlTextDirection;
-  else
-    return kLTRHtmlTextDirection;
+  return kLTRHtmlTextDirection;
 }
 
 }  // namespace
@@ -65,9 +67,6 @@ NewTabUI::NewTabUI(content::WebUI* web_ui) : content::WebUIController(web_ui) {
   pref_change_registrar_.Add(bookmarks::prefs::kShowBookmarkBar,
                              base::Bind(&NewTabUI::OnShowBookmarkBarChanged,
                                         base::Unretained(this)));
-  pref_change_registrar_.Add(
-      prefs::kWebKitDefaultFontSize,
-      base::Bind(&NewTabUI::OnDefaultFontSizeChanged, base::Unretained(this)));
 }
 
 NewTabUI::~NewTabUI() {}
@@ -79,10 +78,6 @@ void NewTabUI::OnShowBookmarkBarChanged() {
           : "false");
   web_ui()->CallJavascriptFunctionUnsafe("ntp.setBookmarkBarAttached",
                                          attached);
-}
-
-void NewTabUI::OnDefaultFontSizeChanged() {
-  web_ui()->CallJavascriptFunctionUnsafe("ntp.defaultFontSizeChanged");
 }
 
 // static
@@ -149,7 +144,7 @@ NewTabUI::NewTabHTMLSource::NewTabHTMLSource(Profile* profile)
     : profile_(profile) {
 }
 
-std::string NewTabUI::NewTabHTMLSource::GetSource() const {
+std::string NewTabUI::NewTabHTMLSource::GetSource() {
   return chrome::kChromeUINewTabHost;
 }
 
@@ -179,35 +174,31 @@ void NewTabUI::NewTabHTMLSource::StartDataRequest(
   callback.Run(html_bytes.get());
 }
 
-std::string NewTabUI::NewTabHTMLSource::GetMimeType(const std::string& resource)
-    const {
+std::string NewTabUI::NewTabHTMLSource::GetMimeType(
+    const std::string& resource) {
   return "text/html";
 }
 
-bool NewTabUI::NewTabHTMLSource::ShouldReplaceExistingSource() const {
+bool NewTabUI::NewTabHTMLSource::ShouldReplaceExistingSource() {
   return false;
 }
 
-std::string NewTabUI::NewTabHTMLSource::GetContentSecurityPolicyScriptSrc()
-    const {
+std::string NewTabUI::NewTabHTMLSource::GetContentSecurityPolicyScriptSrc() {
   // 'unsafe-inline' and google resources are added to script-src.
   return "script-src chrome://resources 'self' 'unsafe-eval' 'unsafe-inline' "
       "*.google.com *.gstatic.com;";
 }
 
-std::string NewTabUI::NewTabHTMLSource::GetContentSecurityPolicyStyleSrc()
-    const {
+std::string NewTabUI::NewTabHTMLSource::GetContentSecurityPolicyStyleSrc() {
   return "style-src 'self' chrome://resources 'unsafe-inline' chrome://theme;";
 }
 
-std::string NewTabUI::NewTabHTMLSource::GetContentSecurityPolicyImgSrc()
-    const {
+std::string NewTabUI::NewTabHTMLSource::GetContentSecurityPolicyImgSrc() {
   return "img-src chrome-search://thumb chrome-search://thumb2 "
       "chrome-search://theme chrome://theme data:;";
 }
 
-std::string NewTabUI::NewTabHTMLSource::GetContentSecurityPolicyChildSrc()
-    const {
+std::string NewTabUI::NewTabHTMLSource::GetContentSecurityPolicyChildSrc() {
   return "child-src chrome-search://most-visited;";
 }
 

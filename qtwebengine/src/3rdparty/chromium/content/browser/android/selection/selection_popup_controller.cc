@@ -11,8 +11,8 @@
 #include "content/browser/renderer_host/render_widget_host_view_android.h"
 #include "content/browser/web_contents/web_contents_impl.h"
 #include "content/browser/web_contents/web_contents_view_android.h"
+#include "content/public/android/content_jni_headers/SelectionPopupControllerImpl_jni.h"
 #include "content/public/common/context_menu_params.h"
-#include "jni/SelectionPopupControllerImpl_jni.h"
 #include "third_party/blink/public/web/web_context_menu_data.h"
 #include "ui/gfx/geometry/point_conversions.h"
 
@@ -216,6 +216,15 @@ void SelectionPopupController::HidePopupsAndPreserveSelection() {
     return;
 
   Java_SelectionPopupControllerImpl_hidePopupsAndPreserveSelection(env, obj);
+}
+
+void SelectionPopupController::RestoreSelectionPopupsIfNecessary() {
+  JNIEnv* env = AttachCurrentThread();
+  ScopedJavaLocalRef<jobject> obj = java_obj_.get(env);
+  if (obj.is_null())
+    return;
+
+  Java_SelectionPopupControllerImpl_restoreSelectionPopupsIfNecessary(env, obj);
 }
 
 }  // namespace content

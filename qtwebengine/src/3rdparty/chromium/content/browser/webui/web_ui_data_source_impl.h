@@ -40,18 +40,17 @@ class CONTENT_EXPORT WebUIDataSourceImpl : public URLDataSourceImpl,
   void SetJsonPath(base::StringPiece path) override;
   void AddResourcePath(base::StringPiece path, int resource_id) override;
   void SetDefaultResource(int resource_id) override;
-  void SetRequestFilter(
-      const WebUIDataSource::HandleRequestCallback& callback) override;
+  void SetRequestFilter(const WebUIDataSource::ShouldHandleRequestCallback&
+                            should_handle_request_callback,
+                        const WebUIDataSource::HandleRequestCallback&
+                            handle_request_callback) override;
   void DisableReplaceExistingSource() override;
   void DisableContentSecurityPolicy() override;
   void OverrideContentSecurityPolicyScriptSrc(const std::string& data) override;
   void OverrideContentSecurityPolicyObjectSrc(const std::string& data) override;
   void OverrideContentSecurityPolicyChildSrc(const std::string& data) override;
   void DisableDenyXFrameOptions() override;
-  void UseGzip() override;
-  void UseGzip(base::RepeatingCallback<bool(const std::string&)>
-                   is_gzipped_callback) override;
-  std::string GetSource() const override;
+  std::string GetSource() override;
 
   // URLDataSourceImpl:
   const ui::TemplateReplacements* GetReplacements() const override;
@@ -79,7 +78,8 @@ class CONTENT_EXPORT WebUIDataSourceImpl : public URLDataSourceImpl,
   friend class WebUIDataSourceTest;
 
   FRIEND_TEST_ALL_PREFIXES(WebUIDataSourceTest, IsGzipped);
-  FRIEND_TEST_ALL_PREFIXES(WebUIDataSourceTest, IsGzippedWithCallback);
+  FRIEND_TEST_ALL_PREFIXES(WebUIDataSourceTest, IsGzippedNoDefaultResource);
+  FRIEND_TEST_ALL_PREFIXES(WebUIDataSourceTest, IsGzippedWithRequestFiltering);
 
   // Methods that match URLDataSource which are called by
   // InternalDataSource.
@@ -88,6 +88,8 @@ class CONTENT_EXPORT WebUIDataSourceImpl : public URLDataSourceImpl,
       const std::string& path,
       const ResourceRequestInfo::WebContentsGetter& wc_getter,
       const URLDataSource::GotDataCallback& callback);
+
+  int PathToIdrOrDefault(const std::string& path) const;
 
   // Note: this must be called before StartDataRequest() to have an effect.
   void disable_load_time_data_defaults_for_testing() {
@@ -112,6 +114,8 @@ class CONTENT_EXPORT WebUIDataSourceImpl : public URLDataSourceImpl,
   // to |load_time_flags_| if the usage is reduced to storing flags only).
   base::DictionaryValue localized_strings_;
   WebUIDataSource::HandleRequestCallback filter_callback_;
+  WebUIDataSource::ShouldHandleRequestCallback should_handle_request_callback_;
+
   bool add_csp_;
   bool script_src_set_;
   std::string script_src_;
@@ -122,8 +126,6 @@ class CONTENT_EXPORT WebUIDataSourceImpl : public URLDataSourceImpl,
   bool deny_xframe_options_;
   bool add_load_time_data_defaults_;
   bool replace_existing_source_;
-  bool use_gzip_;
-  base::RepeatingCallback<bool(const std::string&)> is_gzipped_callback_;
 
   DISALLOW_COPY_AND_ASSIGN(WebUIDataSourceImpl);
 };

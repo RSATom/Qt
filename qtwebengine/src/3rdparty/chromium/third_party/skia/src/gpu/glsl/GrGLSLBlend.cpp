@@ -5,10 +5,10 @@
  * found in the LICENSE file.
  */
 
-#include "GrGLSLBlend.h"
-#include "glsl/GrGLSLFragmentShaderBuilder.h"
-#include "glsl/GrGLSLProgramBuilder.h"
-#include "SkBlendModePriv.h"
+#include "src/core/SkBlendModePriv.h"
+#include "src/gpu/glsl/GrGLSLBlend.h"
+#include "src/gpu/glsl/GrGLSLFragmentShaderBuilder.h"
+#include "src/gpu/glsl/GrGLSLProgramBuilder.h"
 
 //////////////////////////////////////////////////////////////////////////////
 //  Advanced (non-coeff) blend helpers
@@ -146,7 +146,7 @@ static void add_lum_function(GrGLSLFragmentBuilder* fsBuilder, SkString* setLumF
     GrShaderVar getLumArgs[] = {
         GrShaderVar("color", kHalf3_GrSLType),
     };
-    SkString getLumBody("return dot(float3(0.3, 0.59, 0.11), color);");
+    SkString getLumBody("return dot(half3(0.3, 0.59, 0.11), color);");
     fsBuilder->emitFunction(kHalf_GrSLType,
                             "luminance",
                             SK_ARRAY_COUNT(getLumArgs), getLumArgs,

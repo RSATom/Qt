@@ -85,10 +85,10 @@ public:
     bool isPaused() const;
     void setPaused(bool pause);
 
-    int currentFrame() const;
-    void setCurrentFrame(int frame);
+    int currentFrame() const override;
+    void setCurrentFrame(int frame) override;
 
-    int frameCount() const;
+    int frameCount() const override;
 
     qreal speed() const;
     void setSpeed(qreal speed);
@@ -101,6 +101,7 @@ Q_SIGNALS:
     void playingChanged();
     void pausedChanged();
     void frameChanged();
+    void currentFrameChanged();
     void frameCountChanged();
     Q_REVISION(11) void speedChanged();
 

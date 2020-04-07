@@ -9,6 +9,7 @@ mojom("mojom") {
     "device.mojom",
     "device_factory.mojom",
     "device_factory_provider.mojom",
+    "devices_changed_observer.mojom",
     "producer.mojom",
     "receiver.mojom",
     "scoped_access_permission.mojom",
@@ -22,9 +23,12 @@ mojom("mojom") {
     "//media/capture/mojom:image_capture",
     "//media/capture/mojom:video_capture",
     "//media/mojo/interfaces",
-    "//services/ws/public/mojom",
     "//ui/gfx/geometry/mojo",
   ]
+
+  if (is_chromeos) {
+    deps += [ "//components/chromeos_camera/common" ]
+  }
 }
 
 mojom("constants") {

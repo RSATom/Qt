@@ -42,7 +42,8 @@
 #include "web_contents_view_qt.h"
 
 #include "base/values.h"
-#include "content/browser/renderer_host/pepper/pepper_truetype_font_list.h"
+#include "content/browser/accessibility/accessibility_tree_formatter_blink.h"
+#include "content/browser/accessibility/accessibility_tree_formatter_browser.h"
 #include "content/browser/renderer_host/render_widget_host_view_base.h"
 #include "content/browser/web_contents/web_contents_impl.h"
 #include "content/common/font_list.h"
@@ -117,24 +118,8 @@ std::unique_ptr<base::ListValue> GetFontList_SlowBlocking()
         // TODO(yusukes): Support localized family names.
         font_list->Append(std::move(font_item));
     }
-    return std::move(font_list);
+    return font_list;
 }
-
-#if QT_CONFIG(webengine_pepper_plugins)
-// content/browser/renderer_host/pepper/pepper_truetype_font_list.h
-void GetFontFamilies_SlowBlocking(std::vector<std::string> *font_families)
-{
-    QFontDatabase database;
-    for (auto family : database.families()){
-        font_families->push_back(family.toStdString());
-    }
-}
-
-void GetFontsInFamily_SlowBlocking(const std::string &, std::vector<ppapi::proxy::SerializedTrueTypeFontDesc> *)
-{
-    QT_NOT_USED
-}
-#endif // QT_CONFIG(webengine_pepper_plugins)
 
 } // namespace content
 
@@ -152,6 +137,16 @@ ActivationClient *GetActivationClient(aura::Window *)
 
 } // namespace wm
 #endif // defined(USE_AURA) || defined(USE_OZONE)
+
+namespace content {
+std::vector<AccessibilityTreeFormatter::TestPass> AccessibilityTreeFormatter::GetTestPasses()
+{
+    return {
+        {"blink", &AccessibilityTreeFormatterBlink::CreateBlink, nullptr},
+        {"native", &AccessibilityTreeFormatter::Create, nullptr},
+    };
+}
+} // namespace content
 
 #if defined(USE_AURA)
 namespace ui {

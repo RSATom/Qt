@@ -39,10 +39,12 @@
 # based on the SHA length). Target filename should also be given.
 
 ############################ BOILERPLATE ###############################
-command -v sha1sum >/dev/null   ||  alias   sha1sum='shasum -a 1'
-command -v sha256sum >/dev/null ||  alias sha256sum='shasum -a 256'
-command -v sha384sum >/dev/null ||  alias sha384sum='shasum -a 384'
-command -v sha512sum >/dev/null ||  alias sha512sum='shasum -a 512'
+
+command -v sha1sum   >/dev/null ||  sha1sum   () { shasum -a 1   "$@" ; }
+command -v sha256sum >/dev/null ||  sha256sum () { shasum -a 256 "$@" ; }
+command -v sha384sum >/dev/null ||  sha384sum () { shasum -a 384 "$@" ; }
+command -v sha512sum >/dev/null ||  sha512sum () { shasum -a 512 "$@" ; }
+
 ########################################################################
 
 
@@ -89,22 +91,36 @@ DownloadURL () {
     url=$1
     url2=$2
     expectedHash=$3
-    targetFile=$4
-
-    if VerifyHash "$targetFile" "$expectedHash"
+    # Optional argument $4: destination filename
+    if [ x"$4" = x ]
     then
-        echo "Skipping download, found and validated existing file:  $targetFile"
+        # defaults to the last component of $url
+        targetFile=$(echo $url | sed 's|^.*/||')
     else
-        echo "Downloading from primary URL:  $url"
-        if  ! Download "$url" "$targetFile"
-        then
-            echo "FAIL! to download, trying alternative URL:  $url2"  1>&2
-            if  ! Download "$url" "$targetFile"
-            then
-                echo 'FAIL! to download even from alternative url'  1>&2
-                return 1
-            fi
-        fi
-        VerifyHash "$targetFile" "$expectedHash"
+        targetFile=$4
     fi
+
+    # If a non-empty file already exists
+    if [ -s "$targetFile" ]
+    then
+        if   VerifyHash "$targetFile" "$expectedHash"
+        then
+            echo "Skipping download, found and validated existing file:  $targetFile"
+            return
+        else
+            echo "WARNING: Non-empty but different file found at destination; will re-download and overwrite file:  $targetFile"
+        fi
+    fi
+
+    echo "Downloading from primary URL:  $url"
+    if  ! Download "$url" "$targetFile"
+    then
+        echo "FAIL! to download, trying alternative URL:  $url2"  1>&2
+        if  ! Download "$url2" "$targetFile"
+        then
+            echo 'FAIL! to download even from alternative URL'  1>&2
+            return 1
+        fi
+    fi
+    VerifyHash "$targetFile" "$expectedHash"
 }

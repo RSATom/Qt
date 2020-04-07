@@ -158,7 +158,7 @@ class MultiThreadedProxyResolver : public ProxyResolver,
 
 class Job : public base::RefCountedThreadSafe<Job> {
  public:
-  Job() : executor_(NULL), was_cancelled_(false) {}
+  Job() : executor_(nullptr), was_cancelled_(false) {}
 
   void set_executor(Executor* executor) {
     executor_ = executor;
@@ -239,7 +239,8 @@ class CreateResolverJob : public Job {
 
     DCHECK_NE(rv, ERR_IO_PENDING);
     origin_runner->PostTask(
-        FROM_HERE, base::Bind(&CreateResolverJob::RequestComplete, this, rv));
+        FROM_HERE,
+        base::BindOnce(&CreateResolverJob::RequestComplete, this, rv));
   }
 
  protected:
@@ -293,21 +294,21 @@ class MultiThreadedProxyResolver::GetProxyForURLJob : public Job {
       net_log_.EndEvent(NetLogEventType::WAITING_FOR_PROXY_RESOLVER_THREAD);
     }
 
-    net_log_.AddEvent(
-        NetLogEventType::SUBMITTED_TO_RESOLVER_THREAD,
-        NetLog::IntCallback("thread_number", executor()->thread_number()));
+    net_log_.AddEventWithIntParams(
+        NetLogEventType::SUBMITTED_TO_RESOLVER_THREAD, "thread_number",
+        executor()->thread_number());
   }
 
   // Runs on the worker thread.
   void Run(scoped_refptr<base::SingleThreadTaskRunner> origin_runner) override {
     ProxyResolver* resolver = executor()->resolver();
     DCHECK(resolver);
-    int rv = resolver->GetProxyForURL(url_, &results_buf_,
-                                      CompletionOnceCallback(), NULL, net_log_);
+    int rv = resolver->GetProxyForURL(
+        url_, &results_buf_, CompletionOnceCallback(), nullptr, net_log_);
     DCHECK_NE(rv, ERR_IO_PENDING);
 
     origin_runner->PostTask(
-        FROM_HERE, base::Bind(&GetProxyForURLJob::QueryComplete, this, rv));
+        FROM_HERE, base::BindOnce(&GetProxyForURLJob::QueryComplete, this, rv));
   }
 
  protected:
@@ -362,12 +363,12 @@ void Executor::StartJob(Job* job) {
   job->FinishedWaitingForThread();
   thread_->task_runner()->PostTask(
       FROM_HERE,
-      base::Bind(&Job::Run, job, base::ThreadTaskRunnerHandle::Get()));
+      base::BindOnce(&Job::Run, job, base::ThreadTaskRunnerHandle::Get()));
 }
 
 void Executor::OnJobCompleted(Job* job) {
   DCHECK_EQ(job, outstanding_job_.get());
-  outstanding_job_ = NULL;
+  outstanding_job_ = nullptr;
   coordinator_->OnExecutorReady(this);
 }
 
@@ -375,7 +376,7 @@ void Executor::Destroy() {
   DCHECK(coordinator_);
 
   {
-    // TODO(http://crbug.com/69710): Use TaskScheduler instead of creating a
+    // TODO(http://crbug.com/69710): Use ThreadPool instead of creating a
     // base::Thread.
     MultiThreadedProxyResolverScopedAllowJoinOnIO allow_thread_join;
 
@@ -387,7 +388,7 @@ void Executor::Destroy() {
   if (outstanding_job_.get()) {
     outstanding_job_->Cancel();
     // Orphan the job (since this executor may be deleted soon).
-    outstanding_job_->set_executor(NULL);
+    outstanding_job_->set_executor(nullptr);
   }
 
   // It is now safe to free the ProxyResolver, since all the tasks that
@@ -395,8 +396,8 @@ void Executor::Destroy() {
   resolver_.reset();
 
   // Null some stuff as a precaution.
-  coordinator_ = NULL;
-  outstanding_job_ = NULL;
+  coordinator_ = nullptr;
+  outstanding_job_ = nullptr;
 }
 
 Executor::~Executor() {
@@ -478,7 +479,7 @@ Executor* MultiThreadedProxyResolver::FindIdleExecutor() {
     if (!executor->outstanding_job())
       return executor;
   }
-  return NULL;
+  return nullptr;
 }
 
 void MultiThreadedProxyResolver::AddNewExecutor() {

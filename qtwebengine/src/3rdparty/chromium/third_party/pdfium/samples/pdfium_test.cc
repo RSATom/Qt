@@ -32,7 +32,10 @@
 #include "samples/pdfium_test_dump_helper.h"
 #include "samples/pdfium_test_event_helper.h"
 #include "samples/pdfium_test_write_helper.h"
-#include "testing/test_support.h"
+#include "testing/fx_string_testhelpers.h"
+#include "testing/test_loader.h"
+#include "testing/utils/file_util.h"
+#include "testing/utils/hash.h"
 #include "testing/utils/path_service.h"
 #include "third_party/base/logging.h"
 #include "third_party/base/optional.h"
@@ -48,6 +51,7 @@
 #endif  // ENABLE_CALLGRIND
 
 #ifdef PDF_ENABLE_V8
+#include "testing/v8_initializer.h"
 #include "v8/include/libplatform/libplatform.h"
 #include "v8/include/v8.h"
 #endif  // PDF_ENABLE_V8
@@ -95,9 +99,13 @@ struct Options {
   bool show_config = false;
   bool show_metadata = false;
   bool send_events = false;
+  bool use_load_mem_document = false;
   bool render_oneshot = false;
   bool save_attachments = false;
   bool save_images = false;
+  bool save_thumbnails = false;
+  bool save_thumbnails_decoded = false;
+  bool save_thumbnails_raw = false;
 #ifdef PDF_ENABLE_V8
   bool disable_javascript = false;
 #ifdef PDF_ENABLE_XFA
@@ -108,7 +116,10 @@ struct Options {
   bool md5 = false;
 #ifdef ENABLE_CALLGRIND
   bool callgrind_delimiters = false;
-#endif  // ENABLE_CALLGRIND
+#endif
+#if defined(__APPLE__) || (defined(__linux__) && !defined(__ANDROID__))
+  bool linux_no_system_fonts = false;
+#endif
   OutputFormat output_format = OUTPUT_NONE;
   std::string scale_factor_as_string;
   std::string exe_path;
@@ -134,6 +145,22 @@ Optional<std::string> ExpandDirectoryPath(const std::string& path) {
 #else
   return {path};
 #endif  // WORDEXP_AVAILABLE
+}
+
+Optional<const char*> GetCustomFontPath(const Options& options) {
+#if defined(__APPLE__) || (defined(__linux__) && !defined(__ANDROID__))
+  // Set custom font path to an empty path. This avoids the fallback to default
+  // font paths.
+  if (options.linux_no_system_fonts)
+    return nullptr;
+#endif
+
+  // No custom font path. Use default.
+  if (options.font_directory.empty())
+    return pdfium::nullopt;
+
+  // Set custom font path to |options.font_directory|.
+  return options.font_directory.c_str();
 }
 
 struct FPDF_FORMFILLINFO_PDFiumTest final : public FPDF_FORMFILLINFO {
@@ -317,12 +344,20 @@ bool ParseCommandLine(const std::vector<std::string>& args,
       options->show_metadata = true;
     } else if (cur_arg == "--send-events") {
       options->send_events = true;
+    } else if (cur_arg == "--mem-document") {
+      options->use_load_mem_document = true;
     } else if (cur_arg == "--render-oneshot") {
       options->render_oneshot = true;
     } else if (cur_arg == "--save-attachments") {
       options->save_attachments = true;
     } else if (cur_arg == "--save-images") {
       options->save_images = true;
+    } else if (cur_arg == "--save-thumbs") {
+      options->save_thumbnails = true;
+    } else if (cur_arg == "--save-thumbs-dec") {
+      options->save_thumbnails_decoded = true;
+    } else if (cur_arg == "--save-thumbs-raw") {
+      options->save_thumbnails_raw = true;
 #ifdef PDF_ENABLE_V8
     } else if (cur_arg == "--disable-javascript") {
       options->disable_javascript = true;
@@ -334,7 +369,11 @@ bool ParseCommandLine(const std::vector<std::string>& args,
 #ifdef ENABLE_CALLGRIND
     } else if (cur_arg == "--callgrind-delim") {
       options->callgrind_delimiters = true;
-#endif  // ENABLE_CALLGRIND
+#endif
+#if defined(__APPLE__) || (defined(__linux__) && !defined(__ANDROID__))
+    } else if (cur_arg == "--no-system-fonts") {
+      options->linux_no_system_fonts = true;
+#endif
     } else if (cur_arg == "--ppm") {
       if (options->output_format != OUTPUT_NONE) {
         fprintf(stderr, "Duplicate or conflicting --ppm argument\n");
@@ -523,7 +562,6 @@ void PrintLastError() {
       fprintf(stderr, "Unknown error %ld", err);
   }
   fprintf(stderr, ".\n");
-  return;
 }
 
 FPDF_BOOL Is_Data_Avail(FX_FILEAVAIL* avail, size_t offset, size_t size) {
@@ -577,7 +615,12 @@ bool RenderPage(const std::string& name,
     SendPageEvents(form, page, events);
   if (options.save_images)
     WriteImages(page, name.c_str(), page_index);
-
+  if (options.save_thumbnails)
+    WriteThumbnail(page, name.c_str(), page_index);
+  if (options.save_thumbnails_decoded)
+    WriteDecodedThumbnailStream(page, name.c_str(), page_index);
+  if (options.save_thumbnails_raw)
+    WriteRawThumbnailStream(page, name.c_str(), page_index);
   if (options.output_format == OUTPUT_PAGEINFO) {
     DumpPageInfo(page, page_index);
     return true;
@@ -689,11 +732,11 @@ bool RenderPage(const std::string& name,
 }
 
 void RenderPdf(const std::string& name,
-               const char* pBuf,
+               const char* buf,
                size_t len,
                const Options& options,
                const std::string& events) {
-  TestLoader loader(pBuf, len);
+  TestLoader loader({buf, len});
 
   FPDF_FILEACCESS file_access = {};
   file_access.m_FileLen = static_cast<unsigned long>(len);
@@ -708,35 +751,40 @@ void RenderPdf(const std::string& name,
   hints.version = 1;
   hints.AddSegment = Add_Segment;
 
-  // The pdf_avail must outlive doc.
+  // |pdf_avail| must outlive |doc|.
   ScopedFPDFAvail pdf_avail(FPDFAvail_Create(&file_avail, &file_access));
 
-  // The document must outlive |form_callbacks.loaded_pages|.
+  // |doc| must outlive |form_callbacks.loaded_pages|.
   ScopedFPDFDocument doc;
 
-  int nRet = PDF_DATA_NOTAVAIL;
-  bool bIsLinearized = false;
-  if (FPDFAvail_IsLinearized(pdf_avail.get()) == PDF_LINEARIZED) {
-    doc.reset(FPDFAvail_GetDocument(pdf_avail.get(), nullptr));
-    if (doc) {
-      while (nRet == PDF_DATA_NOTAVAIL)
-        nRet = FPDFAvail_IsDocAvail(pdf_avail.get(), &hints);
-
-      if (nRet == PDF_DATA_ERROR) {
-        fprintf(stderr, "Unknown error in checking if doc was available.\n");
-        return;
-      }
-      nRet = FPDFAvail_IsFormAvail(pdf_avail.get(), &hints);
-      if (nRet == PDF_FORM_ERROR || nRet == PDF_FORM_NOTAVAIL) {
-        fprintf(stderr,
-                "Error %d was returned in checking if form was available.\n",
-                nRet);
-        return;
-      }
-      bIsLinearized = true;
-    }
+  bool is_linearized = false;
+  if (options.use_load_mem_document) {
+    doc.reset(FPDF_LoadMemDocument(buf, len, nullptr));
   } else {
-    doc.reset(FPDF_LoadCustomDocument(&file_access, nullptr));
+    if (FPDFAvail_IsLinearized(pdf_avail.get()) == PDF_LINEARIZED) {
+      int avail_status = PDF_DATA_NOTAVAIL;
+      doc.reset(FPDFAvail_GetDocument(pdf_avail.get(), nullptr));
+      if (doc) {
+        while (avail_status == PDF_DATA_NOTAVAIL)
+          avail_status = FPDFAvail_IsDocAvail(pdf_avail.get(), &hints);
+
+        if (avail_status == PDF_DATA_ERROR) {
+          fprintf(stderr, "Unknown error in checking if doc was available.\n");
+          return;
+        }
+        avail_status = FPDFAvail_IsFormAvail(pdf_avail.get(), &hints);
+        if (avail_status == PDF_FORM_ERROR ||
+            avail_status == PDF_FORM_NOTAVAIL) {
+          fprintf(stderr,
+                  "Error %d was returned in checking if form was available.\n",
+                  avail_status);
+          return;
+        }
+        is_linearized = true;
+      }
+    } else {
+      doc.reset(FPDF_LoadCustomDocument(&file_access, nullptr));
+    }
   }
 
   if (!doc) {
@@ -814,12 +862,12 @@ void RenderPdf(const std::string& name,
   int first_page = options.pages ? options.first_page : 0;
   int last_page = options.pages ? options.last_page + 1 : page_count;
   for (int i = first_page; i < last_page; ++i) {
-    if (bIsLinearized) {
-      nRet = PDF_DATA_NOTAVAIL;
-      while (nRet == PDF_DATA_NOTAVAIL)
-        nRet = FPDFAvail_IsPageAvail(pdf_avail.get(), i, &hints);
+    if (is_linearized) {
+      int avail_status = PDF_DATA_NOTAVAIL;
+      while (avail_status == PDF_DATA_NOTAVAIL)
+        avail_status = FPDFAvail_IsPageAvail(pdf_avail.get(), i, &hints);
 
-      if (nRet == PDF_DATA_ERROR) {
+      if (avail_status == PDF_DATA_ERROR) {
         fprintf(stderr, "Unknown error in checking if page %d is available.\n",
                 i);
         return;
@@ -867,28 +915,39 @@ void ShowConfig() {
 
 constexpr char kUsageString[] =
     "Usage: pdfium_test [OPTION] [FILE]...\n"
-    "  --show-config       - print build options and exit\n"
-    "  --show-metadata     - print the file metadata\n"
-    "  --show-pageinfo     - print information about pages\n"
-    "  --show-structure    - print the structure elements from the document\n"
-    "  --send-events       - send input described by .evt file\n"
-    "  --render-oneshot    - render image without using progressive renderer\n"
-    "  --save-attachments  - write embedded attachments "
+    "  --show-config        - print build options and exit\n"
+    "  --show-metadata      - print the file metadata\n"
+    "  --show-pageinfo      - print information about pages\n"
+    "  --show-structure     - print the structure elements from the document\n"
+    "  --send-events        - send input described by .evt file\n"
+    "  --mem-document       - load document with FPDF_LoadMemDocument()\n"
+    "  --render-oneshot     - render image without using progressive renderer\n"
+    "  --save-attachments   - write embedded attachments "
     "<pdf-name>.attachment.<attachment-name>\n"
-    "  --save-images       - write embedded images "
+    "  --save-images        - write embedded images "
     "<pdf-name>.<page-number>.<object-number>.png\n"
+    "  --save-thumbs        - write page thumbnails "
+    "<pdf-name>.thumbnail.<page-number>.png\n"
+    "  --save-thumbs-dec    - write page thumbnails' decoded stream data"
+    "<pdf-name>.thumbnail.decoded.<page-number>.png\n"
+    "  --save-thumbs-raw    - write page thumbnails' raw stream data"
+    "<pdf-name>.thumbnail.raw.<page-number>.png\n"
 #ifdef PDF_ENABLE_V8
-    "  --disable-javascript- do not execute JS in PDF files\n"
+    "  --disable-javascript - do not execute JS in PDF files\n"
 #ifdef PDF_ENABLE_XFA
-    "  --disable-xfa       - do not process XFA forms\n"
+    "  --disable-xfa        - do not process XFA forms\n"
 #endif  // PDF_ENABLE_XFA
 #endif  // PDF_ENABLE_V8
 #ifdef ENABLE_CALLGRIND
-    "  --callgrind-delim   - delimit interesting section when using callgrind\n"
-#endif  // ENABLE_CALLGRIND
-    "  --bin-dir=<path>    - override path to v8 external data\n"
-    "  --font-dir=<path>   - override path to external fonts\n"
-    "  --scale=<number>    - scale output size by number (e.g. 0.5)\n"
+    "  --callgrind-delim    - delimit interesting section when using "
+    "callgrind\n"
+#endif
+#if defined(__APPLE__) || (defined(__linux__) && !defined(__ANDROID__))
+    "  --no-system-fonts    - do not use system fonts, overrides --font-dir\n"
+#endif
+    "  --bin-dir=<path>     - override path to v8 external data\n"
+    "  --font-dir=<path>    - override path to external fonts\n"
+    "  --scale=<number>     - scale output size by number (e.g. 0.5)\n"
     "  --pages=<number>(-<number>) - only render the given 0-based page(s)\n"
 #ifdef _WIN32
     "  --bmp   - write page images <pdf-name>.<page-number>.bmp\n"
@@ -897,7 +956,7 @@ constexpr char kUsageString[] =
     "<pdf-name>.<page-number>.ps\n"
     "  --ps3   - write page raw PostScript (Lvl 3) "
     "<pdf-name>.<page-number>.ps\n"
-#endif  // _WIN32
+#endif
     "  --txt   - write page text in UTF32-LE <pdf-name>.<page-number>.txt\n"
     "  --png   - write page images <pdf-name>.<page-number>.png\n"
     "  --ppm   - write page images <pdf-name>.<page-number>.ppm\n"
@@ -935,10 +994,13 @@ int main(int argc, const char* argv[]) {
 #ifdef V8_USE_EXTERNAL_STARTUP_DATA
   v8::StartupData natives;
   v8::StartupData snapshot;
-  platform = InitializeV8ForPDFiumWithStartupData(
-      options.exe_path, options.bin_directory, &natives, &snapshot);
+  if (!options.disable_javascript) {
+    platform = InitializeV8ForPDFiumWithStartupData(
+        options.exe_path, options.bin_directory, &natives, &snapshot);
+  }
 #else   // V8_USE_EXTERNAL_STARTUP_DATA
-  platform = InitializeV8ForPDFium(options.exe_path);
+  if (!options.disable_javascript)
+    platform = InitializeV8ForPDFium(options.exe_path);
 #endif  // V8_USE_EXTERNAL_STARTUP_DATA
 #endif  // PDF_ENABLE_V8
 
@@ -948,12 +1010,13 @@ int main(int argc, const char* argv[]) {
   config.m_pIsolate = nullptr;
   config.m_v8EmbedderSlot = 0;
 
-  const char* path_array[2];
-  if (!options.font_directory.empty()) {
-    path_array[0] = options.font_directory.c_str();
-    path_array[1] = nullptr;
+  const char* path_array[2] = {nullptr, nullptr};
+  Optional<const char*> custom_font_path = GetCustomFontPath(options);
+  if (custom_font_path.has_value()) {
+    path_array[0] = custom_font_path.value();
     config.m_pUserFontPaths = path_array;
   }
+
   FPDF_InitLibraryWithConfig(&config);
 
   UNSUPPORT_INFO unsupported_info = {};
@@ -1011,13 +1074,15 @@ int main(int argc, const char* argv[]) {
   }
 
   FPDF_DestroyLibrary();
-#ifdef PDF_ENABLE_V8
-  v8::V8::ShutdownPlatform();
 
+#ifdef PDF_ENABLE_V8
+  if (!options.disable_javascript) {
+    v8::V8::ShutdownPlatform();
 #ifdef V8_USE_EXTERNAL_STARTUP_DATA
-  free(const_cast<char*>(natives.data));
-  free(const_cast<char*>(snapshot.data));
+    free(const_cast<char*>(natives.data));
+    free(const_cast<char*>(snapshot.data));
 #endif  // V8_USE_EXTERNAL_STARTUP_DATA
+  }
 #endif  // PDF_ENABLE_V8
 
   return 0;

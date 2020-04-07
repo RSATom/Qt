@@ -77,9 +77,6 @@ static INLINE void variance_final_from_32bit_sum_avx2(__m256i vsse,
   *((int *)sum) = _mm_extract_epi32(res, 1);
 }
 
-#if defined(_MSC_VER) && (_MSC_VER <= 1922)
-#pragma optimize("", off)
-#endif
 static INLINE void variance_final_from_16bit_sum_avx2(__m256i vsse,
                                                       __m256i vsum,
                                                       unsigned int *const sse,
@@ -93,9 +90,6 @@ static INLINE void variance_final_from_16bit_sum_avx2(__m256i vsse,
 
   variance_final_from_32bit_sum_avx2(vsse, sum_int32, sse, sum);
 }
-#if defined(_MSC_VER) && (_MSC_VER <= 1922)
-#pragma optimize("", on)
-#endif
 
 static INLINE __m256i sum_to_32bit_avx2(const __m256i sum) {
   const __m256i sum_lo = _mm256_cvtepi16_epi32(_mm256_castsi256_si128(sum));

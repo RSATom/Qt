@@ -100,18 +100,18 @@ void QEvdevGamepadDevice::EvdevAxisInfo::setAbsInfo(int fd, int abs)
 
 void QEvdevGamepadDevice::EvdevAxisInfo::restoreSavedData(int fd, int abs, const QVariantMap &value)
 {
-    gamepadAxis = QGamepadManager::GamepadAxis(value[QLatin1Literal("axis")].toInt());
-    gamepadMinButton = QGamepadManager::GamepadButton(value[QLatin1Literal("minButton")].toInt());
-    gamepadMaxButton = QGamepadManager::GamepadButton(value[QLatin1Literal("maxButton")].toInt());
+    gamepadAxis = QGamepadManager::GamepadAxis(value[QLatin1String("axis")].toInt());
+    gamepadMinButton = QGamepadManager::GamepadButton(value[QLatin1String("minButton")].toInt());
+    gamepadMaxButton = QGamepadManager::GamepadButton(value[QLatin1String("maxButton")].toInt());
     setAbsInfo(fd, abs);
 }
 
 QVariantMap QEvdevGamepadDevice::EvdevAxisInfo::dataToSave() const
 {
     QVariantMap data;
-    data[QLatin1Literal("axis")] = gamepadAxis;
-    data[QLatin1Literal("minButton")] = gamepadMinButton;
-    data[QLatin1Literal("maxButton")] = gamepadMaxButton;
+    data[QLatin1String("axis")] = gamepadAxis;
+    data[QLatin1String("minButton")] = gamepadMinButton;
+    data[QLatin1String("maxButton")] = gamepadMaxButton;
     return data;
 }
 
@@ -332,13 +332,13 @@ bool QEvdevGamepadDevice::openDevice(const QByteArray &dev)
         QVariant settings = m_backend->readSettings(m_productId);
         if (!settings.isNull()) {
             m_needsConfigure = false;
-            QVariantMap data = settings.toMap()[QLatin1Literal("axes")].toMap();
+            QVariantMap data = settings.toMap()[QLatin1String("axes")].toMap();
             for (QVariantMap::const_iterator it = data.begin(); it != data.end(); ++it) {
                 const int key = it.key().toInt();
                 m_axisMap[key].restoreSavedData(m_fd, key, it.value().toMap());
             }
 
-            data = settings.toMap()[QLatin1Literal("buttons")].toMap();
+            data = settings.toMap()[QLatin1String("buttons")].toMap();
             for (QVariantMap::const_iterator it = data.begin(); it != data.end(); ++it)
                 m_buttonsMap[it.key().toInt()] = QGamepadManager::GamepadButton(it.value().toInt());
         }
@@ -416,13 +416,13 @@ void QEvdevGamepadDevice::saveData()
     QVariantMap settings, data;
     for (AxisMap::const_iterator it = m_axisMap.begin(); it != m_axisMap.end(); ++it)
         data[QString::number(it.key())] = it.value().dataToSave();
-    settings[QLatin1Literal("axes")] = data;
+    settings[QLatin1String("axes")] = data;
 
     data.clear();
     for (ButtonsMap::const_iterator it = m_buttonsMap.begin(); it != m_buttonsMap.end(); ++it)
         data[QString::number(it.key())] = it.value();
 
-    settings[QLatin1Literal("buttons")] = data;
+    settings[QLatin1String("buttons")] = data;
 
     m_backend->saveSettings(m_productId, settings);
 }

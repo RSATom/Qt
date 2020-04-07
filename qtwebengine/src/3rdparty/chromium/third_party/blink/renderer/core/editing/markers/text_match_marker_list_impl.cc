@@ -71,7 +71,7 @@ bool TextMatchMarkerListImpl::ShiftMarkers(const String&,
       &markers_, offset, old_length, new_length);
 }
 
-void TextMatchMarkerListImpl::Trace(blink::Visitor* visitor) {
+void TextMatchMarkerListImpl::Trace(Visitor* visitor) {
   visitor->Trace(markers_);
   DocumentMarkerList::Trace(visitor);
 }
@@ -85,20 +85,20 @@ static void UpdateMarkerLayoutRect(const Node& node, TextMatchMarker& marker) {
   LocalFrameView* frame_view = node.GetDocument().GetFrame()->View();
 
   DCHECK(frame_view);
-  marker.SetLayoutRect(
-      frame_view->FrameToDocument(LayoutRect(ComputeTextRect(range))));
+  marker.SetRect(
+      frame_view->FrameToDocument(PhysicalRect(ComputeTextRect(range))));
 }
 
 Vector<IntRect> TextMatchMarkerListImpl::LayoutRects(const Node& node) const {
   Vector<IntRect> result;
 
   for (DocumentMarker* marker : markers_) {
-    TextMatchMarker* const text_match_marker = ToTextMatchMarker(marker);
+    auto* const text_match_marker = To<TextMatchMarker>(marker);
     if (!text_match_marker->IsValid())
       UpdateMarkerLayoutRect(node, *text_match_marker);
     if (!text_match_marker->IsRendered())
       continue;
-    result.push_back(PixelSnappedIntRect(text_match_marker->GetLayoutRect()));
+    result.push_back(PixelSnappedIntRect(text_match_marker->GetRect()));
   }
 
   return result;
@@ -119,7 +119,7 @@ bool TextMatchMarkerListImpl::SetTextMatchMarkersActive(unsigned start_offset,
     // range.
     if (marker.StartOffset() >= end_offset)
       break;
-    ToTextMatchMarker(marker).SetIsActiveMatch(active);
+    To<TextMatchMarker>(marker).SetIsActiveMatch(active);
     doc_dirty = true;
   }
   return doc_dirty;

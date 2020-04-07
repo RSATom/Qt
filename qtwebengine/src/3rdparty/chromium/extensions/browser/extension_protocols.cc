@@ -14,10 +14,12 @@
 #include <vector>
 
 #include "base/base64.h"
+#include "base/bind.h"
 #include "base/compiler_specific.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/format_macros.h"
+#include "base/hash/sha1.h"
 #include "base/logging.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
@@ -26,7 +28,6 @@
 #include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/numerics/safe_conversions.h"
-#include "base/sha1.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
@@ -129,14 +130,6 @@ class GeneratedBackgroundPageJob : public net::URLRequestSimpleJob {
     return net::OK;
   }
 
-  // base::PowerObserver override:
-  void OnSuspend() override {
-    // Unlike URLRequestJob, don't suspend active requests here. Requests for
-    // generated background pages need not be suspended when the system
-    // suspends. This is not needed for URLRequestExtensionJob since it inherits
-    // from URLRequestFileJob, which has the same behavior.
-  }
-
   void GetResponseInfo(net::HttpResponseInfo* info) override {
     *info = response_info_;
   }
@@ -175,12 +168,7 @@ void ReadResourceFilePathAndLastModifiedTime(
   // tolerates blocking operations.
   *file_path = resource.GetFilePath();
   *last_modified_time = GetFileLastModifiedTime(*file_path);
-  // While we're here, log the delta between extension directory
-  // creation time and the resource's last modification time.
-  base::ElapsedTimer query_timer;
   base::Time dir_creation_time = GetFileCreationTime(directory);
-  UMA_HISTOGRAM_TIMES("Extensions.ResourceDirectoryTimestampQueryLatency",
-                      query_timer.Elapsed());
   int64_t delta_seconds = (*last_modified_time - dir_creation_time).InSeconds();
   if (delta_seconds >= 0) {
     UMA_HISTOGRAM_CUSTOM_COUNTS("Extensions.ResourceLastModifiedDelta",
@@ -273,8 +261,8 @@ class URLRequestExtensionJob : public net::URLRequestFileJob {
       // proceed; see crbug.com/703888.
       if (verify_job_.get()) {
         std::string tmp;
-        verify_job_->BytesRead(0, base::data(tmp));
-        verify_job_->DoneReading();
+        verify_job_->Read(base::data(tmp), 0, MOJO_RESULT_OK);
+        verify_job_->Done();
       }
     }
   }
@@ -284,8 +272,9 @@ class URLRequestExtensionJob : public net::URLRequestFileJob {
     seek_position_ = result;
     // TODO(asargent) - we'll need to add proper support for range headers.
     // crbug.com/369895.
-    if (result > 0 && verify_job_.get())
-      verify_job_ = NULL;
+    const bool is_seek_contiguous = result == bytes_read_;
+    if (result > 0 && verify_job_.get() && !is_seek_contiguous)
+      verify_job_ = nullptr;
   }
 
   void OnReadComplete(net::IOBuffer* buffer, int result) override {
@@ -298,14 +287,14 @@ class URLRequestExtensionJob : public net::URLRequestFileJob {
     if (result > 0) {
       bytes_read_ += result;
       if (verify_job_.get())
-        verify_job_->BytesRead(result, buffer->data());
+        verify_job_->Read(buffer->data(), result, MOJO_RESULT_OK);
     }
   }
 
   void DoneReading() override {
     URLRequestFileJob::DoneReading();
     if (verify_job_.get())
-      verify_job_->DoneReading();
+      verify_job_->Done();
   }
 
  private:
@@ -380,7 +369,7 @@ bool ExtensionCanLoadInIncognito(bool is_main_frame,
                                  bool extension_enabled_in_incognito) {
   if (!extension || !extension_enabled_in_incognito)
     return false;
-  if (!is_main_frame)
+  if (!is_main_frame || extension->is_login_screen_extension())
     return true;
 
   // Only allow incognito toplevel navigations to extension resources in
@@ -404,7 +393,7 @@ bool AllowExtensionResourceLoad(const GURL& url,
                                 bool extension_enabled_in_incognito,
                                 const ExtensionSet& extensions,
                                 const ProcessMap& process_map) {
-  const bool is_main_frame = resource_type == content::RESOURCE_TYPE_MAIN_FRAME;
+  const bool is_main_frame = resource_type == content::ResourceType::kMainFrame;
   if (is_incognito &&
       !ExtensionCanLoadInIncognito(is_main_frame, extension,
                                    extension_enabled_in_incognito)) {
@@ -429,8 +418,15 @@ bool AllowExtensionResourceLoad(const GURL& url,
 
   // Frame navigations to extensions have already been checked in
   // the ExtensionNavigationThrottle.
-  if (child_id == -1 && content::IsResourceTypeFrame(resource_type))
+  // Service Worker and the imported scripts can be loaded with extension URLs
+  // in browser process during update check when
+  // ServiceWorkerImportedScriptUpdateCheck is enabled.
+  if (child_id == -1 &&
+      (content::IsResourceTypeFrame(resource_type) ||
+       resource_type == content::ResourceType::kScript ||
+       resource_type == content::ResourceType::kServiceWorker)) {
     return true;
+  }
 
   // Allow the extension module embedder to grant permission for loads.
   if (ExtensionsBrowserClient::Get()->AllowCrossRendererResourceLoad(
@@ -487,7 +483,7 @@ bool GetDirectoryForExtensionURL(const GURL& url,
 }
 
 bool IsWebViewRequest(net::URLRequest* request) {
-  const content::ResourceRequestInfo* info =
+  content::ResourceRequestInfo* info =
       content::ResourceRequestInfo::ForRequest(request);
   // |info| can be null sometimes: http://crbug.com/370070.
   if (!info)
@@ -527,8 +523,9 @@ void GetSecurityPolicyForURL(const GURL& url,
 }
 
 bool IsBackgroundPageURL(const GURL& url) {
-  std::string path = url.path();
-  return path.size() > 1 && path.substr(1) == kGeneratedBackgroundPageFilename;
+  base::StringPiece path_piece = url.path_piece();
+  return path_piece.size() > 1 &&
+         path_piece.substr(1) == kGeneratedBackgroundPageFilename;
 }
 
 class ExtensionProtocolHandler
@@ -560,7 +557,7 @@ ExtensionProtocolHandler::MaybeCreateJob(
   std::string extension_id = request->url().host();
   const Extension* extension =
       extension_info_map_->extensions().GetByID(extension_id);
-  const ResourceRequestInfo* info = ResourceRequestInfo::ForRequest(request);
+  ResourceRequestInfo* info = ResourceRequestInfo::ForRequest(request);
   const bool enabled_in_incognito =
       extension_info_map_->IsIncognitoEnabled(extension_id);
 
@@ -658,9 +655,7 @@ ExtensionProtocolHandler::MaybeCreateJob(
   ContentVerifier* verifier = extension_info_map_->content_verifier();
   if (verifier) {
     verify_job =
-        verifier->CreateJobFor(extension_id, directory_path, relative_path);
-    if (verify_job)
-      verify_job->Start(verifier);
+        verifier->CreateAndStartJobFor(extension_id, directory_path, relative_path);
   }
 
   return new URLRequestExtensionJob(
@@ -709,31 +704,31 @@ class FileLoaderObserver : public content::FileURLLoaderObserver {
     seek_position_ = result;
     // TODO(asargent) - we'll need to add proper support for range headers.
     // crbug.com/369895.
-    if (result > 0 && verify_job_.get())
+    const bool is_seek_contiguous = result == bytes_read_;
+    if (result > 0 && verify_job_.get() && !is_seek_contiguous)
       verify_job_ = nullptr;
   }
 
-  void OnBytesRead(const void* data,
-                   size_t num_bytes_read,
-                   base::File::Error read_result) override {
-    if (read_result == base::File::FILE_OK) {
-      UMA_HISTOGRAM_COUNTS_1M("ExtensionUrlRequest.OnReadCompleteResult",
-                              read_result);
+  void OnRead(base::span<char> buffer,
+              mojo::DataPipeProducer::DataSource::ReadResult* result) override {
+    DCHECK(result);
+    {
       base::AutoLock auto_lock(lock_);
-      bytes_read_ += num_bytes_read;
-      if (verify_job_.get())
-        verify_job_->BytesRead(num_bytes_read, static_cast<const char*>(data));
-    } else {
-      net::Error net_error = net::FileErrorToNetError(read_result);
-      base::UmaHistogramSparse("ExtensionUrlRequest.OnReadCompleteError",
-                               net_error);
+      bytes_read_ += result->bytes_read;
+      if (verify_job_) {
+        // Note: We still pass the data to |verify_job_|, even if there was a
+        // read error, because some errors are ignorable. See
+        // ContentVerifyJob::BytesRead() for more details.
+        verify_job_->Read(static_cast<const char*>(buffer.data()),
+                          result->bytes_read, result->result);
+      }
     }
   }
 
-  void OnDoneReading() override {
+  void OnDone() override {
     base::AutoLock auto_lock(lock_);
     if (verify_job_.get())
-      verify_job_->DoneReading();
+      verify_job_->Done();
   }
 
  private:
@@ -971,11 +966,9 @@ class ExtensionURLLoaderFactory : public network::mojom::URLLoaderFactory {
       scoped_refptr<net::HttpResponseHeaders> response_headers) {
     scoped_refptr<ContentVerifyJob> verify_job;
     if (content_verifier) {
-      verify_job = content_verifier->CreateJobFor(resource.extension_id(),
-                                                  resource.extension_root(),
-                                                  resource.relative_path());
-      if (verify_job)
-        verify_job->Start(content_verifier.get());
+      verify_job = content_verifier->CreateAndStartJobFor(
+          resource.extension_id(), resource.extension_root(),
+          resource.relative_path());
     }
 
     content::CreateFileURLLoader(
@@ -1053,6 +1046,13 @@ CreateExtensionNavigationURLLoaderFactory(
     bool is_web_view_request) {
   return std::make_unique<ExtensionURLLoaderFactory>(browser_context,
                                                      is_web_view_request);
+}
+
+std::unique_ptr<network::mojom::URLLoaderFactory>
+CreateExtensionServiceWorkerScriptURLLoaderFactory(
+    content::BrowserContext* browser_context) {
+  return std::make_unique<ExtensionURLLoaderFactory>(
+      browser_context, /*is_web_view_request=*/false);
 }
 
 std::unique_ptr<network::mojom::URLLoaderFactory>

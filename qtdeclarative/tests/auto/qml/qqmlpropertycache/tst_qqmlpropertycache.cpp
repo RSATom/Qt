@@ -31,7 +31,6 @@
 #include <QtQml/qqmlengine.h>
 #include <QtQml/qqmlcontext.h>
 #include <QtQml/qqmlcomponent.h>
-#include <private/qv8engine_p.h>
 #include <private/qmetaobjectbuilder_p.h>
 #include <QCryptographicHash>
 #include "../../shared/util.h"
@@ -55,6 +54,7 @@ private slots:
     void metaObjectSize_data();
     void metaObjectSize();
     void metaObjectChecksum();
+    void metaObjectsForRootElements();
 
 private:
     QQmlEngine engine;
@@ -542,6 +542,16 @@ void tst_qqmlpropertycache::metaObjectChecksum()
         hash.reset();
         QVERIFY(initialHash != nextHash);
     }
+}
+
+void tst_qqmlpropertycache::metaObjectsForRootElements()
+{
+    QQmlEngine engine;
+    QQmlComponent c(&engine, testFileUrl("noDuckType.qml"));
+    QVERIFY(c.isReady());
+    QScopedPointer<QObject> obj(c.create());
+    QVERIFY(!obj.isNull());
+    QCOMPARE(obj->property("result").toString(), QString::fromLatin1("good"));
 }
 
 QTEST_MAIN(tst_qqmlpropertycache)

@@ -108,9 +108,6 @@ TEST(ColorSpace, ConversionToAndFromSkColorSpace) {
   }};
   skcms_TransferFunction transfer_fn = {2.1f, 1.f, 0.f, 0.f, 0.f, 0.f, 0.f};
 
-  SkColorSpaceTransferFn sk_transfer_fn;
-  memcpy(&sk_transfer_fn, &transfer_fn, sizeof(sk_transfer_fn));
-
   ColorSpace color_spaces[kNumTests] = {
       ColorSpace(ColorSpace::PrimaryID::BT709,
                  ColorSpace::TransferID::IEC61966_2_1),
@@ -120,7 +117,7 @@ TEST(ColorSpace, ConversionToAndFromSkColorSpace) {
                  ColorSpace::TransferID::LINEAR),
       ColorSpace(ColorSpace::PrimaryID::BT2020,
                  ColorSpace::TransferID::IEC61966_2_1),
-      ColorSpace::CreateCustom(primary_matrix, sk_transfer_fn),
+      ColorSpace::CreateCustom(primary_matrix, transfer_fn),
   };
   sk_sp<SkColorSpace> sk_color_spaces[kNumTests] = {
       SkColorSpace::MakeSRGB(),
@@ -148,6 +145,38 @@ TEST(ColorSpace, ConversionToAndFromSkColorSpace) {
     EXPECT_TRUE(SkColorSpace::Equals(
         sk_color_spaces[i].get(), from_sk_color_space.ToSkColorSpace().get()));
   }
+}
+
+TEST(ColorSpace, MixedInvalid) {
+  ColorSpace color_space;
+  color_space = color_space.GetWithMatrixAndRange(ColorSpace::MatrixID::INVALID,
+                                                  ColorSpace::RangeID::INVALID);
+  EXPECT_TRUE(!color_space.IsValid());
+  color_space = color_space.GetWithMatrixAndRange(
+      ColorSpace::MatrixID::SMPTE170M, ColorSpace::RangeID::LIMITED);
+  EXPECT_TRUE(!color_space.IsValid());
+}
+
+TEST(ColorSpace, MixedSRGBWithRec601) {
+  const ColorSpace expected_color_space = ColorSpace(
+      ColorSpace::PrimaryID::BT709, ColorSpace::TransferID::IEC61966_2_1,
+      ColorSpace::MatrixID::SMPTE170M, ColorSpace::RangeID::LIMITED);
+  ColorSpace color_space = ColorSpace::CreateSRGB();
+  color_space = color_space.GetWithMatrixAndRange(
+      ColorSpace::MatrixID::SMPTE170M, ColorSpace::RangeID::LIMITED);
+  EXPECT_TRUE(expected_color_space.IsValid());
+  EXPECT_EQ(color_space, expected_color_space);
+}
+
+TEST(ColorSpace, MixedHDR10WithRec709) {
+  const ColorSpace expected_color_space = ColorSpace(
+      ColorSpace::PrimaryID::BT2020, ColorSpace::TransferID::SMPTEST2084,
+      ColorSpace::MatrixID::BT709, ColorSpace::RangeID::LIMITED);
+  ColorSpace color_space = ColorSpace::CreateHDR10();
+  color_space = color_space.GetWithMatrixAndRange(ColorSpace::MatrixID::BT709,
+                                                  ColorSpace::RangeID::LIMITED);
+  EXPECT_TRUE(expected_color_space.IsValid());
+  EXPECT_EQ(color_space, expected_color_space);
 }
 
 }  // namespace

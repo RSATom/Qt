@@ -23,7 +23,7 @@ see the [Linux instructions](linux_build_instructions.md) for some suggestions.
 
 Building the Android client on Windows or Mac is not supported and doesn't work.
 
-## Install `depot_tools`
+## Install depot\_tools
 
 Clone the `depot_tools` repository:
 
@@ -158,7 +158,7 @@ ro.product.cpu.abi`:
 *** promo
 `arm` and `x86` may optionally be used instead of `arm64` and `x64` for
 non-WebView targets. This is also allowed for Monochrome, but only when not set
-as WebView the provider.
+as the WebView provider.
 ***
 
 ## Build Chromium
@@ -181,7 +181,7 @@ out/Default chrome/test:unit_tests`).
 
 The Google Play Store allows apps to send customized `.apk` files depending on
 the version of Android running on a device. Chrome uses this feature to target
-3 different versions using 3 different ninja targets:
+4 different versions using 4 different ninja targets:
 
 1. `chrome_public_apk` (ChromePublic.apk)
    * `minSdkVersion=19` (KitKat).
@@ -198,7 +198,14 @@ the version of Android running on a device. Chrome uses this feature to target
    * `minSdkVersion=24` (Nougat).
    * Contains both WebView and Chrome within the same APK.
      * This APK is even bigger, but much smaller than SystemWebView.apk + ChromePublic.apk.
-   * Stores libchrome.so uncompressed within the APK.
+   * Stores libmonochrome.so uncompressed within the APK.
+   * Does not use Crazy Linker (WebView requires system linker).
+     * But system linker supports crazy linker features now anyways.
+4. `trichrome_chrome_apk` and `trichrome_library_apk` (TrichromeChrome.apk and TrichromeLibrary.apk)
+   * `minSdkVersion=Q` (Q).
+   * TrichromeChrome contains only the Chrome code that is not shared with WebView.
+   * TrichromeLibrary contains the shared code and is a "static shared library APK", which must be installed prior to TrichromeChrome.
+   * Stores libmonochrome.so uncompressed within TrichromeLibrary.apk.
    * Does not use Crazy Linker (WebView requires system linker).
      * But system linker supports crazy linker features now anyways.
 
@@ -247,7 +254,7 @@ plugged in.
 You can check if the device is connected by running:
 
 ```shell
-third_party/android_tools/sdk/platform-tools/adb devices
+third_party/android_sdk/public/platform-tools/adb devices
 ```
 
 Which prints a list of connected devices. If not connected, try
@@ -263,7 +270,7 @@ In case that setting isn't present, it may be possible to configure it via
 `adb shell` instead:
 
 ```shell
-third_party/android_tools/sdk/platform-tools/adb shell settings put global verifier_verify_adb_installs 0
+third_party/android_sdk/public/platform-tools/adb shell settings put global verifier_verify_adb_installs 0
 ```
 
 ### Build the full browser
@@ -343,7 +350,8 @@ for more on debugging, including how to debug Java code.
 
 ### Testing
 
-For information on running tests, see [Android Test Instructions](android_test_instructions.md).
+For information on running tests, see
+[Android Test Instructions](testing/android_test_instructions.md).
 
 ### Faster Edit/Deploy
 
@@ -353,11 +361,6 @@ Args that affect build speed:
    * What it does: Uses multiple `.so` files instead of just one (faster links)
  * `is_java_debug = true` *(default=`is_debug`)*
    * What it does: Disables ProGuard (slow build step)
- * `enable_incremental_javac = true` *(default=`false`)*
-   * What it does: Tries to compile only a subset of `.java` files within an
-     `android_library` for subsequent builds.
-   * Can cause infrequent (once a month-ish) failures due to not recompiling a
-     class that should be recompiled.
 
 #### Incremental Install
 "Incremental install" uses reflection and side-loading to speed up the edit
@@ -397,7 +400,7 @@ out/Default/bin/chrome_public_apk uninstall
 
 To avoid typing `_incremental` when building targets, you can use the GN arg:
 
-```
+```gn
 incremental_apk_by_default = true
 ```
 

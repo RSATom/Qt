@@ -45,7 +45,6 @@
 #include <QtQuick/private/qquickevents_p_p.h>
 #include <private/qquickitemchangelistener_p.h>
 #include <private/qquickpixmapcache_p.h>
-#include <private/qv8engine_p.h>
 #include <private/qv4scopedvalue_p.h>
 #include <QtCore/qmimedata.h>
 #include <QtQml/qqmlinfo.h>
@@ -53,7 +52,6 @@
 #include <QtGui/qstylehints.h>
 #include <QtGui/qguiapplication.h>
 
-#if QT_CONFIG(draganddrop)
 #include <qpa/qplatformdrag.h>
 #include <QtGui/qdrag.h>
 
@@ -442,7 +440,7 @@ void QQuickDragAttached::setImageSource(const QUrl &url)
         if (url.isEmpty()) {
             d->pixmapLoader.clear();
         } else {
-            d->pixmapLoader.load(qmlEngine(this), url);
+            d->pixmapLoader.load(qmlEngine(parent()), url);
         }
 
         Q_EMIT imageSourceChanged();
@@ -1001,5 +999,3 @@ QQuickDragAttached *QQuickDrag::qmlAttachedProperties(QObject *obj)
 QT_END_NAMESPACE
 
 #include "moc_qquickdrag_p.cpp"
-
-#endif // draganddrop

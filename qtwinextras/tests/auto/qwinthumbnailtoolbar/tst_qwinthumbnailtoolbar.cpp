@@ -48,9 +48,9 @@ void tst_QWinThumbnailToolBar::testWindow()
     tbar1.setWindow(&window);
     QCOMPARE(tbar1.window(), &window);
 
-    QWinThumbnailToolBar *tbar2 = new QWinThumbnailToolBar(&window);
+    auto *tbar2 = new QWinThumbnailToolBar(&window);
     QCOMPARE(tbar2->window(), &window);
-    tbar2->setWindow(0);
+    tbar2->setWindow(nullptr);
     QVERIFY(!tbar2->window());
 }
 
@@ -60,12 +60,12 @@ void tst_QWinThumbnailToolBar::testButtons()
     QCOMPARE(tbar.count(), 0);
     QVERIFY(tbar.buttons().isEmpty());
 
-    tbar.addButton(0);
+    tbar.addButton(nullptr);
     QCOMPARE(tbar.count(), 0);
     QVERIFY(tbar.buttons().isEmpty());
 
-    QWinThumbnailToolButton *btn1 = new QWinThumbnailToolButton;
-    QWinThumbnailToolButton *btn2 = new QWinThumbnailToolButton;
+    auto *btn1 = new QWinThumbnailToolButton;
+    auto *btn2 = new QWinThumbnailToolButton;
 
     tbar.addButton(btn1);
     QCOMPARE(tbar.count(), 1);

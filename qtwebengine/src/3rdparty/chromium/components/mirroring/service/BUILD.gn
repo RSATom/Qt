@@ -2,13 +2,7 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-import("//services/service_manager/public/service_manifest.gni")
 import("//testing/test.gni")
-
-service_manifest("manifest") {
-  name = "mirroring"
-  source = "manifest.json"
-}
 
 component("mirroring_service") {
   sources = [
@@ -70,7 +64,7 @@ component("mirroring_service") {
     "//services/network/public/cpp",
     "//services/network/public/mojom",
     "//services/service_manager/public/cpp:cpp",
-    "//services/ws/public/cpp/gpu",
+    "//services/viz/public/cpp/gpu",
     "//ui/base",
     "//ui/gfx",
   ]
@@ -115,8 +109,22 @@ source_set("unittests") {
     "//net",
     "//services/network:test_support",
     "//services/network/public/mojom",
-    "//services/ws/public/cpp/gpu",
+    "//services/viz/public/cpp/gpu",
     "//testing/gmock",
     "//testing/gtest",
+  ]
+}
+
+source_set("manifest") {
+  sources = [
+    "manifest.cc",
+    "manifest.h",
+  ]
+
+  deps = [
+    "//base",
+    "//components/mirroring/mojom:constants",
+    "//components/mirroring/mojom:service",
+    "//services/service_manager/public/cpp",
   ]
 }

@@ -52,7 +52,7 @@
 //
 
 #include <QtScript/qscriptvalue.h>
-#include <QtCore/qdatetime.h>
+#include <QtCore/qelapsedtimer.h>
 #include <QtCore/qhash.h>
 #include <QtCore/qmap.h>
 #include <QtCore/qlist.h>
@@ -113,7 +113,7 @@ public:
     QList<qint64> checkpointContextIdStack;
     qint64 nextContextId;
 
-    QTime processEventsTimer;
+    QElapsedTimer processEventsTimer;
     int statementCounter;
 
     QScriptDebuggerBackendPrivate *backend;

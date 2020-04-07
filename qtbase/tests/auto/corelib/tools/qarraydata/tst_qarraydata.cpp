@@ -78,12 +78,8 @@ private slots:
     void fromRawData_data();
     void fromRawData();
     void literals();
-#if defined(Q_COMPILER_VARIADIC_MACROS) && defined(Q_COMPILER_LAMBDA)
     void variadicLiterals();
-#endif
-#ifdef Q_COMPILER_RVALUE_REFS
     void rValueReferences();
-#endif
     void grow();
 };
 
@@ -95,7 +91,7 @@ void tst_QArrayData::referenceCounting()
         // Reference counting initialized to 1 (owned)
         QArrayData array = { { Q_BASIC_ATOMIC_INITIALIZER(1) }, 0, 0, 0, 0 };
 
-        QCOMPARE(array.ref.atomic.load(), 1);
+        QCOMPARE(array.ref.atomic.loadRelaxed(), 1);
 
         QVERIFY(!array.ref.isStatic());
 #if !defined(QT_NO_UNSHARABLE_CONTAINERS)
@@ -103,19 +99,19 @@ void tst_QArrayData::referenceCounting()
 #endif
 
         QVERIFY(array.ref.ref());
-        QCOMPARE(array.ref.atomic.load(), 2);
+        QCOMPARE(array.ref.atomic.loadRelaxed(), 2);
 
         QVERIFY(array.ref.deref());
-        QCOMPARE(array.ref.atomic.load(), 1);
+        QCOMPARE(array.ref.atomic.loadRelaxed(), 1);
 
         QVERIFY(array.ref.ref());
-        QCOMPARE(array.ref.atomic.load(), 2);
+        QCOMPARE(array.ref.atomic.loadRelaxed(), 2);
 
         QVERIFY(array.ref.deref());
-        QCOMPARE(array.ref.atomic.load(), 1);
+        QCOMPARE(array.ref.atomic.loadRelaxed(), 1);
 
         QVERIFY(!array.ref.deref());
-        QCOMPARE(array.ref.atomic.load(), 0);
+        QCOMPARE(array.ref.atomic.loadRelaxed(), 0);
 
         // Now would be a good time to free/release allocated data
     }
@@ -125,17 +121,17 @@ void tst_QArrayData::referenceCounting()
         // Reference counting initialized to 0 (non-sharable)
         QArrayData array = { { Q_BASIC_ATOMIC_INITIALIZER(0) }, 0, 0, 0, 0 };
 
-        QCOMPARE(array.ref.atomic.load(), 0);
+        QCOMPARE(array.ref.atomic.loadRelaxed(), 0);
 
         QVERIFY(!array.ref.isStatic());
         QVERIFY(!array.ref.isSharable());
 
         QVERIFY(!array.ref.ref());
         // Reference counting fails, data should be copied
-        QCOMPARE(array.ref.atomic.load(), 0);
+        QCOMPARE(array.ref.atomic.loadRelaxed(), 0);
 
         QVERIFY(!array.ref.deref());
-        QCOMPARE(array.ref.atomic.load(), 0);
+        QCOMPARE(array.ref.atomic.loadRelaxed(), 0);
 
         // Free/release data
     }
@@ -145,7 +141,7 @@ void tst_QArrayData::referenceCounting()
         // Reference counting initialized to -1 (static read-only data)
         QArrayData array = { Q_REFCOUNT_INITIALIZE_STATIC, 0, 0, 0, 0 };
 
-        QCOMPARE(array.ref.atomic.load(), -1);
+        QCOMPARE(array.ref.atomic.loadRelaxed(), -1);
 
         QVERIFY(array.ref.isStatic());
 #if !defined(QT_NO_UNSHARABLE_CONTAINERS)
@@ -153,10 +149,10 @@ void tst_QArrayData::referenceCounting()
 #endif
 
         QVERIFY(array.ref.ref());
-        QCOMPARE(array.ref.atomic.load(), -1);
+        QCOMPARE(array.ref.atomic.loadRelaxed(), -1);
 
         QVERIFY(array.ref.deref());
-        QCOMPARE(array.ref.atomic.load(), -1);
+        QCOMPARE(array.ref.atomic.loadRelaxed(), -1);
 
     }
 }
@@ -172,8 +168,8 @@ void tst_QArrayData::sharedNullEmpty()
     QVERIFY(empty->ref.isStatic());
     QVERIFY(empty->ref.isShared());
 
-    QCOMPARE(null->ref.atomic.load(), -1);
-    QCOMPARE(empty->ref.atomic.load(), -1);
+    QCOMPARE(null->ref.atomic.loadRelaxed(), -1);
+    QCOMPARE(empty->ref.atomic.loadRelaxed(), -1);
 
 #if !defined(QT_NO_UNSHARABLE_CONTAINERS)
     QVERIFY(null->ref.isSharable());
@@ -183,14 +179,14 @@ void tst_QArrayData::sharedNullEmpty()
     QVERIFY(null->ref.ref());
     QVERIFY(empty->ref.ref());
 
-    QCOMPARE(null->ref.atomic.load(), -1);
-    QCOMPARE(empty->ref.atomic.load(), -1);
+    QCOMPARE(null->ref.atomic.loadRelaxed(), -1);
+    QCOMPARE(empty->ref.atomic.loadRelaxed(), -1);
 
     QVERIFY(null->ref.deref());
     QVERIFY(empty->ref.deref());
 
-    QCOMPARE(null->ref.atomic.load(), -1);
-    QCOMPARE(empty->ref.atomic.load(), -1);
+    QCOMPARE(null->ref.atomic.loadRelaxed(), -1);
+    QCOMPARE(empty->ref.atomic.loadRelaxed(), -1);
 
     QVERIFY(null != empty);
 
@@ -1618,9 +1614,7 @@ void tst_QArrayData::literals()
         QCOMPARE(v.size(), size_t(11));
         // v.capacity() is unspecified, for now
 
-#if defined(Q_COMPILER_VARIADIC_MACROS) && defined(Q_COMPILER_LAMBDA)
         QVERIFY(v.isStatic());
-#endif
 
 #if !defined(QT_NO_UNSHARABLE_CONTAINERS)
         QVERIFY(v.isSharable());
@@ -1631,9 +1625,20 @@ void tst_QArrayData::literals()
             QCOMPARE(const_(v)[i], char('A' + i));
         QCOMPARE(const_(v)[10], char('\0'));
     }
+
+    {
+        struct LiteralType {
+            int value;
+            Q_DECL_CONSTEXPR LiteralType(int v = 0) : value(v) {}
+        };
+
+        QArrayDataPointer<LiteralType> d = Q_ARRAY_LITERAL(LiteralType, LiteralType(0), LiteralType(1), LiteralType(2));
+        QCOMPARE(d->size, 3);
+        for (int i = 0; i < 3; ++i)
+            QCOMPARE(d->data()[i].value, i);
+    }
 }
 
-#if defined(Q_COMPILER_VARIADIC_MACROS) && defined(Q_COMPILER_LAMBDA)
 // Variadic Q_ARRAY_LITERAL need to be available in the current configuration.
 void tst_QArrayData::variadicLiterals()
 {
@@ -1682,9 +1687,7 @@ void tst_QArrayData::variadicLiterals()
             QCOMPARE(const_(v)[i], i);
     }
 }
-#endif
 
-#ifdef Q_COMPILER_RVALUE_REFS
 // std::remove_reference is in C++11, but requires library support
 template <class T> struct RemoveReference { typedef T Type; };
 template <class T> struct RemoveReference<T &> { typedef T Type; };
@@ -1767,7 +1770,6 @@ void tst_QArrayData::rValueReferences()
     QCOMPARE(v3.size(), size_t(1));
     QCOMPARE(v3.front(), 42);
 }
-#endif
 
 void tst_QArrayData::grow()
 {

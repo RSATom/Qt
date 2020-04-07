@@ -88,13 +88,8 @@ class CORE_EXPORT InspectorPageAgent final
     kOtherResource
   };
 
-  static InspectorPageAgent* Create(InspectedFrames*,
-                                    Client*,
-                                    InspectorResourceContentLoader*,
-                                    v8_inspector::V8InspectorSession*);
-
   static HeapVector<Member<Document>> ImportsForFrame(LocalFrame*);
-  static bool CachedResourceContent(Resource*,
+  static bool CachedResourceContent(const Resource*,
                                     String* result,
                                     bool* base64_encoded);
   static bool SharedBufferContent(scoped_refptr<const SharedBuffer>,
@@ -177,13 +172,16 @@ class CORE_EXPORT InspectorPageAgent final
   // InspectorInstrumentation API
   void DidClearDocumentOfWindowObject(LocalFrame*);
   void DidNavigateWithinDocument(LocalFrame*);
-  void DOMContentLoadedEventFired(LocalFrame*);
+  void DomContentLoadedEventFired(LocalFrame*);
   void LoadEventFired(LocalFrame*);
   void WillCommitLoad(LocalFrame*, DocumentLoader*);
   void FrameAttachedToParent(LocalFrame*);
   void FrameDetachedFromParent(LocalFrame*);
   void FrameStartedLoading(LocalFrame*);
   void FrameStoppedLoading(LocalFrame*);
+  void FrameRequestedNavigation(Frame* target_frame,
+                                const KURL&,
+                                ClientNavigationReason);
   void FrameScheduledNavigation(LocalFrame*,
                                 const KURL&,
                                 double delay,
@@ -230,6 +228,10 @@ class CORE_EXPORT InspectorPageAgent final
       bool case_sensitive,
       bool is_regex,
       std::unique_ptr<SearchInResourceCallback>);
+  scoped_refptr<DOMWrapperWorld> EnsureDOMWrapperWorld(
+      LocalFrame* frame,
+      const String& world_name,
+      bool grant_universal_access);
 
   static KURL UrlWithoutFragment(const KURL&);
 
@@ -242,6 +244,8 @@ class CORE_EXPORT InspectorPageAgent final
       LocalFrame*);
   Member<InspectedFrames> inspected_frames_;
   HashMap<String, protocol::Binary> compilation_cache_;
+  using FrameIsolatedWorlds = HashMap<String, scoped_refptr<DOMWrapperWorld>>;
+  HeapHashMap<WeakMember<LocalFrame>, FrameIsolatedWorlds> isolated_worlds_;
   v8_inspector::V8InspectorSession* v8_session_;
   Client* client_;
   String pending_script_to_evaluate_on_load_once_;

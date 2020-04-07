@@ -11,23 +11,20 @@
 #ifndef MODULES_VIDEO_CODING_VIDEO_CODING_IMPL_H_
 #define MODULES_VIDEO_CODING_VIDEO_CODING_IMPL_H_
 
-#include "modules/video_coding/include/video_coding.h"
-
 #include <memory>
 #include <string>
 #include <vector>
 
 #include "absl/types/optional.h"
 #include "modules/video_coding/decoder_database.h"
-#include "modules/video_coding/encoder_database.h"
 #include "modules/video_coding/frame_buffer.h"
 #include "modules/video_coding/generic_decoder.h"
-#include "modules/video_coding/generic_encoder.h"
+#include "modules/video_coding/include/video_coding.h"
 #include "modules/video_coding/jitter_buffer.h"
 #include "modules/video_coding/receiver.h"
 #include "modules/video_coding/timing.h"
 #include "rtc_base/one_time_event.h"
-#include "rtc_base/sequenced_task_checker.h"
+#include "rtc_base/synchronization/sequence_checker.h"
 #include "rtc_base/thread_annotations.h"
 #include "rtc_base/thread_checker.h"
 #include "system_wrappers/include/clock.h"
@@ -57,53 +54,9 @@ class VCMProcessTimer {
   int64_t _latestMs;
 };
 
-class VideoSender {
- public:
-  typedef VideoCodingModule::SenderNackMode SenderNackMode;
-
-  VideoSender(Clock* clock, EncodedImageCallback* post_encode_callback);
-  ~VideoSender();
-
-  // Register the send codec to be used.
-  // This method must be called on the construction thread.
-  int32_t RegisterSendCodec(const VideoCodec* sendCodec,
-                            uint32_t numberOfCores,
-                            uint32_t maxPayloadSize);
-
-  void RegisterExternalEncoder(VideoEncoder* externalEncoder,
-                               bool internalSource);
-
-  // Update the the encoder with new bitrate allocation and framerate.
-  int32_t SetChannelParameters(const VideoBitrateAllocation& bitrate_allocation,
-                               uint32_t framerate_fps);
-
-  int32_t AddVideoFrame(const VideoFrame& videoFrame,
-                        const CodecSpecificInfo* codecSpecificInfo,
-                        absl::optional<VideoEncoder::EncoderInfo> encoder_info);
-
-  int32_t IntraFrameRequest(size_t stream_index);
-
- private:
-  rtc::CriticalSection encoder_crit_;
-  VCMGenericEncoder* _encoder;
-  VCMEncodedFrameCallback _encodedFrameCallback RTC_GUARDED_BY(encoder_crit_);
-  VCMEncoderDataBase _codecDataBase RTC_GUARDED_BY(encoder_crit_);
-
-  // Must be accessed on the construction thread of VideoSender.
-  VideoCodec current_codec_;
-  rtc::SequencedTaskChecker sequenced_checker_;
-
-  rtc::CriticalSection params_crit_;
-  bool encoder_has_internal_source_ RTC_GUARDED_BY(params_crit_);
-  std::vector<FrameType> next_frame_types_ RTC_GUARDED_BY(params_crit_);
-};
-
 class VideoReceiver : public Module {
  public:
-  VideoReceiver(Clock* clock,
-                VCMTiming* timing,
-                NackSender* nack_sender = nullptr,
-                KeyFrameRequestSender* keyframe_request_sender = nullptr);
+  VideoReceiver(Clock* clock, VCMTiming* timing);
   ~VideoReceiver() override;
 
   int32_t RegisterReceiveCodec(const VideoCodec* receiveCodec,
@@ -113,8 +66,6 @@ class VideoReceiver : public Module {
   void RegisterExternalDecoder(VideoDecoder* externalDecoder,
                                uint8_t payloadType);
   int32_t RegisterReceiveCallback(VCMReceiveCallback* receiveCallback);
-  int32_t RegisterReceiveStatisticsCallback(
-      VCMReceiveStatisticsCallback* receiveStats);
   int32_t RegisterFrameTypeCallback(VCMFrameTypeCallback* frameTypeCallback);
   int32_t RegisterPacketRequestCallback(VCMPacketRequestCallback* callback);
 
@@ -124,21 +75,12 @@ class VideoReceiver : public Module {
 
   int32_t IncomingPacket(const uint8_t* incomingPayload,
                          size_t payloadLength,
-                         const WebRtcRTPHeader& rtpInfo);
-  int32_t SetMinimumPlayoutDelay(uint32_t minPlayoutDelayMs);
-  int32_t SetRenderDelay(uint32_t timeMS);
-  int32_t Delay() const;
-
-  // DEPRECATED.
-  int SetReceiverRobustnessMode(
-      VideoCodingModule::ReceiverRobustness robustnessMode);
+                         const RTPHeader& rtp_header,
+                         const RTPVideoHeader& video_header);
 
   void SetNackSettings(size_t max_nack_list_size,
                        int max_packet_age_to_nack,
                        int max_incomplete_time_ms);
-
-  int32_t SetReceiveChannelParameters(int64_t rtt);
-  int32_t SetVideoProtection(VCMVideoProtection videoProtection, bool enable);
 
   int64_t TimeUntilNextProcess() override;
   void Process() override;
@@ -176,7 +118,6 @@ class VideoReceiver : public Module {
   // These callbacks are set on the construction thread before being attached
   // to the module thread or decoding started, so a lock is not required.
   VCMFrameTypeCallback* _frameTypeCallback;
-  VCMReceiveStatisticsCallback* _receiveStatsCallback;
   VCMPacketRequestCallback* _packetRequestCallback;
 
   // Used on both the module and decoder thread.

@@ -211,7 +211,7 @@ void* oom_killer_memalign_purgeable(struct _malloc_zone_t* zone,
 // === Core Foundation CFAllocators ===
 
 bool CanGetContextForCFAllocator() {
-  return !base::mac::IsOSLaterThan10_14_DontCallThis();
+  return !base::mac::IsOSLaterThan10_15_DontCallThis();
 }
 
 CFAllocatorContext* ContextForCFAllocator(CFAllocatorRef allocator) {
@@ -500,7 +500,7 @@ void ShimNewMallocZonesAndReschedule(base::Time end_time,
   base::TimeDelta next_delay = delay * 2;
   SequencedTaskRunnerHandle::Get()->PostDelayedTask(
       FROM_HERE,
-      base::Bind(&ShimNewMallocZonesAndReschedule, end_time, next_delay),
+      base::BindOnce(&ShimNewMallocZonesAndReschedule, end_time, next_delay),
       delay);
 }
 

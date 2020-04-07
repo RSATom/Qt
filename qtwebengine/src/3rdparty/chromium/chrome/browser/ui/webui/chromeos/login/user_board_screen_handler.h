@@ -21,7 +21,9 @@ namespace chromeos {
 // A class that handles WebUI hooks in Gaia screen.
 class UserBoardScreenHandler : public BaseScreenHandler, public UserBoardView {
  public:
-  UserBoardScreenHandler();
+  using TView = UserBoardView;
+
+  explicit UserBoardScreenHandler(JSCallsContainer* js_calls_container);
   ~UserBoardScreenHandler() override;
 
  private:

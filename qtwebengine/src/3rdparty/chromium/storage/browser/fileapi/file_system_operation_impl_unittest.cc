@@ -23,7 +23,7 @@
 #include "base/strings/stringprintf.h"
 #include "base/test/scoped_task_environment.h"
 #include "base/threading/thread_task_runner_handle.h"
-#include "components/services/filesystem/public/interfaces/types.mojom.h"
+#include "components/services/filesystem/public/mojom/types.mojom.h"
 #include "storage/browser/blob/shareable_file_reference.h"
 #include "storage/browser/fileapi/file_system_context.h"
 #include "storage/browser/fileapi/file_system_file_util.h"
@@ -1208,7 +1208,7 @@ TEST_F(FileSystemOperationImplTest, TestCreateSnapshotFile) {
 TEST_F(FileSystemOperationImplTest,
        TestMoveSuccessSrcDirRecursiveWithQuota) {
   FileSystemURL src(CreateDirectory("src"));
-  int src_path_cost = GetUsage();
+  int64_t src_path_cost = GetUsage();
 
   FileSystemURL dest(CreateDirectory("dest"));
   FileSystemURL child_file1(CreateFile("src/file1"));
@@ -1217,7 +1217,7 @@ TEST_F(FileSystemOperationImplTest,
   FileSystemURL grandchild_file1(CreateFile("src/dir/file1"));
   FileSystemURL grandchild_file2(CreateFile("src/dir/file2"));
 
-  int total_path_cost = GetUsage();
+  int64_t total_path_cost = GetUsage();
   EXPECT_EQ(0, GetDataSizeOnDisk());
 
   EXPECT_EQ(base::File::FILE_OK, Truncate(child_file1, 5000));

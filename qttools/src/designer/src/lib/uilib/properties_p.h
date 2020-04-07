@@ -133,7 +133,7 @@ public:
 
 // Convert key to value for a given QMetaEnum
 template <class EnumType>
-inline EnumType enumKeyToValue(const QMetaEnum &metaEnum,const char *key, const EnumType* = 0)
+inline EnumType enumKeyToValue(const QMetaEnum &metaEnum,const char *key, const EnumType* = nullptr)
 {
     int val = metaEnum.keyToValue(key);
     if (val == -1) {
@@ -147,7 +147,7 @@ inline EnumType enumKeyToValue(const QMetaEnum &metaEnum,const char *key, const 
 
 // Convert keys to value for a given QMetaEnum
 template <class EnumType>
-inline EnumType enumKeysToValue(const QMetaEnum &metaEnum,const char *keys, const EnumType* = 0)
+inline EnumType enumKeysToValue(const QMetaEnum &metaEnum,const char *keys, const EnumType* = nullptr)
 {
     int val = metaEnum.keysToValue(keys);
     if (val == -1) {
@@ -161,7 +161,7 @@ inline EnumType enumKeysToValue(const QMetaEnum &metaEnum,const char *keys, cons
 
 // Access meta enumeration object of a qobject
 template <class QObjectType>
-inline QMetaEnum metaEnum(const char *name, const QObjectType* = 0)
+inline QMetaEnum metaEnum(const char *name)
 {
     const int e_index = QObjectType::staticMetaObject.indexOfProperty(name);
     Q_ASSERT(e_index != -1);
@@ -170,7 +170,7 @@ inline QMetaEnum metaEnum(const char *name, const QObjectType* = 0)
 
 // Convert key to value for enumeration by name
 template <class QObjectType, class EnumType>
-inline EnumType enumKeyOfObjectToValue(const char *enumName, const char *key, const QObjectType* = 0, const EnumType* = 0)
+inline EnumType enumKeyOfObjectToValue(const char *enumName, const char *key)
 {
     const QMetaEnum me = metaEnum<QObjectType>(enumName);
     return enumKeyToValue<EnumType>(me, key);

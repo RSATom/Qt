@@ -14,14 +14,16 @@
  * limitations under the License.
  */
 
-#include "perfetto/base/string_utils.h"
+#include "perfetto/ext/base/string_utils.h"
 
-#include "gmock/gmock.h"
-#include "gtest/gtest.h"
+#include <gmock/gmock.h>
+#include <gtest/gtest.h>
 
 namespace perfetto {
 namespace base {
 namespace {
+
+using testing::ElementsAre;
 
 TEST(StringUtilsTest, StartsWith) {
   EXPECT_TRUE(StartsWith("", ""));
@@ -43,6 +45,25 @@ TEST(StringUtilsTest, EndsWith) {
   EXPECT_FALSE(EndsWith("bcd", "abcd"));
   EXPECT_FALSE(EndsWith("abc", "abd"));
   EXPECT_FALSE(EndsWith("", "c"));
+}
+
+TEST(StringUtilsTest, CaseInsensitiveEqual) {
+  EXPECT_TRUE(CaseInsensitiveEqual("", ""));
+  EXPECT_TRUE(CaseInsensitiveEqual("abc", "abc"));
+  EXPECT_TRUE(CaseInsensitiveEqual("ABC", "abc"));
+  EXPECT_TRUE(CaseInsensitiveEqual("abc", "ABC"));
+  EXPECT_FALSE(CaseInsensitiveEqual("abc", "AB"));
+  EXPECT_FALSE(CaseInsensitiveEqual("ab", "ABC"));
+}
+
+TEST(StringUtilsTest, SplitString) {
+  EXPECT_THAT(SplitString("", ":"), ElementsAre(""));
+  EXPECT_THAT(SplitString("a:b:c", ":"), ElementsAre("a", "b", "c"));
+  EXPECT_THAT(SplitString("a::b::c", "::"), ElementsAre("a", "b", "c"));
+  EXPECT_THAT(SplitString("abc", ":"), ElementsAre("abc"));
+  EXPECT_THAT(SplitString("abc", "::"), ElementsAre("abc"));
+  EXPECT_THAT(SplitString("abc", ":"), ElementsAre("abc"));
+  EXPECT_THAT(SplitString("abc", "::"), ElementsAre("abc"));
 }
 
 }  // namespace

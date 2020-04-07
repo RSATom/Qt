@@ -32,6 +32,13 @@ const char kClearKeyKeySystem[] = "org.w3.clearkey";
 const char kClearKeyKeySystemNameForUMA[] = "ClearKey";
 const char kUnknownKeySystemNameForUMA[] = "Unknown";
 
+enum KeySystemForUkm {
+  // These values reported to UKM. Do not change their ordinal values.
+  kUnknownKeySystemForUkm = 0,
+  kClearKeyKeySystemForUkm,
+  kWidevineKeySystemForUkm,
+};
+
 struct MimeTypeToCodecs {
   const char* mime_type;
   SupportedCodecs codecs;
@@ -96,13 +103,14 @@ EmeCodec ToVideoEmeCodec(VideoCodec codec, VideoCodecProfile profile) {
     case kCodecHEVC:
       return EME_CODEC_HEVC;
     case kCodecDolbyVision:
-      // Only profiles 0, 4, 5 and 7 are valid. Profile 0 is encoded based on
-      // AVC while profile 4, 5 and 7 are based on HEVC.
-      if (profile == DOLBYVISION_PROFILE0) {
+      // Only profiles 0, 4, 5, 7, 8, 9 are valid. Profile 0 and 9 are encoded
+      // based on AVC while profile 4, 5, 7 and 8 are based on HEVC.
+      if (profile == DOLBYVISION_PROFILE0 || profile == DOLBYVISION_PROFILE9) {
         return EME_CODEC_DOLBY_VISION_AVC;
       } else if (profile == DOLBYVISION_PROFILE4 ||
                  profile == DOLBYVISION_PROFILE5 ||
-                 profile == DOLBYVISION_PROFILE7) {
+                 profile == DOLBYVISION_PROFILE7 ||
+                 profile == DOLBYVISION_PROFILE8) {
         return EME_CODEC_DOLBY_VISION_HEVC;
       } else {
         return EME_CODEC_NONE;
@@ -225,8 +233,6 @@ class KeySystemsImpl : public KeySystems {
   static KeySystemsImpl* GetInstance();
 
   void UpdateIfNeeded();
-
-  std::string GetKeySystemNameForUMA(const std::string& key_system) const;
 
   // These two functions are for testing purpose only.
   void AddCodecMaskForTesting(EmeMediaType media_type,
@@ -571,22 +577,6 @@ EmeConfigRule KeySystemsImpl::GetEncryptionSchemeConfigRule(
       encryption_scheme);
 }
 
-std::string KeySystemsImpl::GetKeySystemNameForUMA(
-    const std::string& key_system) const {
-  DCHECK(thread_checker_.CalledOnValidThread());
-
-  // Here we maintain a short list of known key systems to facilitate UMA
-  // reporting. Mentioned key systems are not necessarily supported by
-  // the current platform.
-  if (key_system == kWidevineKeySystem)
-    return kWidevineKeySystemNameForUMA;
-
-  if (key_system == kClearKeyKeySystem)
-    return kClearKeyKeySystemNameForUMA;
-
-  return kUnknownKeySystemNameForUMA;
-}
-
 void KeySystemsImpl::AddCodecMaskForTesting(EmeMediaType media_type,
                                             const std::string& codec,
                                             uint32_t mask) {
@@ -787,7 +777,26 @@ bool IsSupportedKeySystemWithInitDataType(const std::string& key_system,
 }
 
 std::string GetKeySystemNameForUMA(const std::string& key_system) {
-  return KeySystemsImpl::GetInstance()->GetKeySystemNameForUMA(key_system);
+  // Here we maintain a short list of known key systems to facilitate UMA
+  // reporting. Mentioned key systems are not necessarily supported by
+  // the current platform.
+  if (key_system == kWidevineKeySystem)
+    return kWidevineKeySystemNameForUMA;
+
+  if (key_system == kClearKeyKeySystem)
+    return kClearKeyKeySystemNameForUMA;
+
+  return kUnknownKeySystemNameForUMA;
+}
+
+int GetKeySystemIntForUKM(const std::string& key_system) {
+  if (key_system == kWidevineKeySystem)
+    return KeySystemForUkm::kWidevineKeySystemForUkm;
+
+  if (key_system == kClearKeyKeySystem)
+    return KeySystemForUkm::kClearKeyKeySystemForUkm;
+
+  return KeySystemForUkm::kUnknownKeySystemForUkm;
 }
 
 bool CanUseAesDecryptor(const std::string& key_system) {

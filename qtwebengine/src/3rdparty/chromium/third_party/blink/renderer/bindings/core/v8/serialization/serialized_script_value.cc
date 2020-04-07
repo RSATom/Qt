@@ -300,7 +300,7 @@ scoped_refptr<SerializedScriptValue> SerializedScriptValue::NullValue() {
 }
 
 String SerializedScriptValue::ToWireString() const {
-  // Add the padding '\0', but don't put it in |m_dataBuffer|.
+  // Add the padding '\0', but don't put it in |data_buffer_|.
   // This requires direct use of uninitialized strings, though.
   UChar* destination;
   wtf_size_t string_size_bytes =
@@ -452,7 +452,7 @@ void SerializedScriptValue::TransferTransformStreams(
 MessagePort* SerializedScriptValue::AddStreamChannel(
     ExecutionContext* execution_context) {
   mojo::MessagePipe pipe;
-  MessagePort* local_port = MessagePort::Create(*execution_context);
+  auto* local_port = MakeGarbageCollected<MessagePort>(*execution_context);
   local_port->Entangle(std::move(pipe.handle0));
   stream_channels_.push_back(MessagePortChannel(std::move(pipe.handle1)));
   return local_port;

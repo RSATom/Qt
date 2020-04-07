@@ -39,7 +39,7 @@
 QT_BEGIN_NAMESPACE
 
 namespace {
-    typedef QList<QStandardItem *> StandardItemList;
+    using StandardItemList = QList<QStandardItem *>;
 
     // Model columns.
     enum { ClassNameColumn, IncludeFileColumn, IncludeTypeColumn, ReferencedColumn, NumColumns };
@@ -74,7 +74,7 @@ namespace {
         data.promotedItem = dbItem;
         data.referenced = referenced;
 
-        const QVariant userData = qVariantFromValue(data);
+        const QVariant userData = QVariant::fromValue(data);
 
         StandardItemList rc =  modelRow();
         // name
@@ -120,7 +120,7 @@ namespace qdesigner_internal {
     }
 
     void PromotionModel::updateFromWidgetDatabase() {
-        typedef QDesignerPromotionInterface::PromotedClasses PromotedClasses;
+        using PromotedClasses = QDesignerPromotionInterface::PromotedClasses;
 
         clear();
         initializeHeaders();
@@ -134,8 +134,8 @@ namespace qdesigner_internal {
 
         const QSet<QString> usedPromotedClasses = m_core->promotion()->referencedPromotedClassNames();
 
-        QDesignerWidgetDataBaseItemInterface *baseClass = 0;
-        QStandardItem *baseItem = 0;
+        QDesignerWidgetDataBaseItemInterface *baseClass = nullptr;
+        QStandardItem *baseItem = nullptr;
 
         const PromotedClasses::const_iterator bcend = promotedClasses.constEnd();
         for (PromotedClasses::const_iterator it = promotedClasses.constBegin(); it !=  bcend; ++it) {

@@ -44,8 +44,6 @@
 #include "qquickitem_p.h"
 #include "qquickitemchangelistener_p.h"
 
-#include <private/qqmlmemoryprofiler_p.h>
-
 #include <QtQml/qqmlengine.h>
 #include <private/qqmlengine_p.h>
 #include <private/qv4qobjectwrapper_p.h>
@@ -101,7 +99,6 @@ void QQuickViewPrivate::execute()
         component = nullptr;
     }
     if (!source.isEmpty()) {
-        QML_MEMORY_SCOPE_URL(engine.data()->baseUrl().resolved(source));
         component = new QQmlComponent(engine.data(), source, q);
         if (!component->isLoading()) {
             q->continueExecute();
@@ -240,6 +237,21 @@ void QQuickView::setSource(const QUrl& url)
     Q_D(QQuickView);
     d->source = url;
     d->execute();
+}
+
+/*!
+   Sets the initial properties \a initialProperties with which the QML
+   component gets initialized after calling \l QQuickView::setSource().
+
+   \note You can only use this function to initialize top-level properties.
+
+   \sa QQmlComponent::createWithInitialProperties()
+   \since 5.14
+*/
+void QQuickView::setInitialProperties(const QVariantMap &initialProperties)
+{
+    Q_D(QQuickView);
+    d->initialProperties = initialProperties;
 }
 
 /*!
@@ -474,7 +486,7 @@ void QQuickView::continueExecute()
         return;
     }
 
-    QObject *obj = d->component->create();
+    QObject *obj = d->initialProperties.empty() ? d->component->create() : d->component->createWithInitialProperties(d->initialProperties);
 
     if (d->component->isError()) {
         const QList<QQmlError> errorList = d->component->errors();

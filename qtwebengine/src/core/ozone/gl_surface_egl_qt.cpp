@@ -128,7 +128,7 @@ EGLDisplay GLSurfaceEGL::GetHardwareDisplay()
 
 bool GLSurfaceEGL::IsCreateContextRobustnessSupported()
 {
-    return false;
+    return GLContextHelper::isCreateContextRobustnessSupported() && HasEGLExtension("EGL_EXT_create_context_robustness");
 }
 
 bool GLSurfaceEGL::IsCreateContextBindGeneratesResourceSupported()
@@ -160,6 +160,16 @@ bool GLSurfaceEGL::IsDisplayTextureShareGroupSupported()
 }
 
 bool GLSurfaceEGL::IsCreateContextClientArraysSupported()
+{
+    return false;
+}
+
+bool GLSurfaceEGL::IsPixelFormatFloatSupported()
+{
+    return false;
+}
+
+bool GLSurfaceEGL::IsANGLEFeatureControlSupported()
 {
     return false;
 }

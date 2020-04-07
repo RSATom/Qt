@@ -7,18 +7,19 @@
 #include <stdint.h>
 
 #include "base/bind.h"
-#include "base/lazy_instance.h"
 #include "base/location.h"
 #include "base/logging.h"
 #include "base/macros.h"
 #include "base/memory/ptr_util.h"
 #include "base/message_loop/message_loop_current.h"
+#include "base/no_destructor.h"
 #include "base/run_loop.h"
 #include "base/synchronization/lock.h"
 #include "base/threading/sequence_local_storage_slot.h"
 #include "base/trace_event/trace_event.h"
 #include "mojo/public/cpp/bindings/features.h"
 #include "mojo/public/cpp/bindings/lib/may_auto_lock.h"
+#include "mojo/public/cpp/bindings/lib/tracing_helper.h"
 #include "mojo/public/cpp/bindings/mojo_buildflags.h"
 #include "mojo/public/cpp/bindings/sync_handle_watcher.h"
 #include "mojo/public/cpp/system/wait.h"
@@ -30,13 +31,6 @@
 namespace mojo {
 
 namespace {
-
-// The NestingObserver for each thread. Note that this is always a
-// Connector::RunLoopNestingObserver; we use the base type here because that
-// subclass is private to Connector.
-base::LazyInstance<
-    base::SequenceLocalStorageSlot<base::RunLoop::NestingObserver*>>::Leaky
-    g_sls_nesting_observer = LAZY_INSTANCE_INITIALIZER;
 
 // The default outgoing serialization mode for new Connectors.
 Connector::OutgoingSerializationMode g_default_outgoing_serialization_mode =
@@ -79,15 +73,15 @@ class Connector::ActiveDispatchTracker {
 // Watches the MessageLoop on the current thread. Notifies the current chain of
 // ActiveDispatchTrackers when a nested run loop is started.
 class Connector::RunLoopNestingObserver
-    : public base::RunLoop::NestingObserver,
-      public base::MessageLoopCurrent::DestructionObserver {
+    : public base::RunLoop::NestingObserver {
  public:
   RunLoopNestingObserver() {
     base::RunLoop::AddNestingObserverOnCurrentThread(this);
-    base::MessageLoopCurrent::Get()->AddDestructionObserver(this);
   }
 
-  ~RunLoopNestingObserver() override {}
+  ~RunLoopNestingObserver() override {
+    base::RunLoop::RemoveNestingObserverOnCurrentThread(this);
+  }
 
   // base::RunLoop::NestingObserver:
   void OnBeginNestedRunLoop() override {
@@ -95,25 +89,16 @@ class Connector::RunLoopNestingObserver
       top_tracker_->NotifyBeginNesting();
   }
 
-  // base::MessageLoopCurrent::DestructionObserver:
-  void WillDestroyCurrentMessageLoop() override {
-    base::RunLoop::RemoveNestingObserverOnCurrentThread(this);
-    base::MessageLoopCurrent::Get()->RemoveDestructionObserver(this);
-    DCHECK_EQ(this, g_sls_nesting_observer.Get().Get());
-    g_sls_nesting_observer.Get().Set(nullptr);
-    delete this;
-  }
-
   static RunLoopNestingObserver* GetForThread() {
     if (!base::MessageLoopCurrent::Get())
       return nullptr;
-    auto* observer = static_cast<RunLoopNestingObserver*>(
-        g_sls_nesting_observer.Get().Get());
-    if (!observer) {
-      observer = new RunLoopNestingObserver;
-      g_sls_nesting_observer.Get().Set(observer);
-    }
-    return observer;
+    // The NestingObserver for each thread. Note that this is always a
+    // Connector::RunLoopNestingObserver; we use the base type here because that
+    // subclass is private to Connector.
+    static base::NoDestructor<
+        base::SequenceLocalStorageSlot<RunLoopNestingObserver>>
+        sls_nesting_observer;
+    return &sls_nesting_observer->GetOrCreateValue();
   }
 
  private:
@@ -160,8 +145,7 @@ Connector::Connector(ScopedMessagePipeHandle message_pipe,
       force_immediate_dispatch_(!EnableTaskPerMessage()),
       outgoing_serialization_mode_(g_default_outgoing_serialization_mode),
       incoming_serialization_mode_(g_default_incoming_serialization_mode),
-      nesting_observer_(RunLoopNestingObserver::GetForThread()),
-      weak_factory_(this) {
+      nesting_observer_(RunLoopNestingObserver::GetForThread()) {
   if (config == MULTI_THREADED_SEND)
     lock_.emplace();
 
@@ -222,6 +206,10 @@ void Connector::RaiseError() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
   HandleError(true, true);
+}
+
+void Connector::SetConnectionGroup(ConnectionGroup::Ref ref) {
+  connection_group_ = std::move(ref);
 }
 
 bool Connector::WaitForIncomingMessage(MojoDeadline deadline) {
@@ -457,7 +445,7 @@ void Connector::WaitToReadMore() {
     // no longer be met, we signal the error asynchronously to avoid reentry.
     task_runner_->PostTask(
         FROM_HERE,
-        base::Bind(&Connector::OnWatcherHandleReady, weak_self_, rv));
+        base::BindOnce(&Connector::OnWatcherHandleReady, weak_self_, rv));
   } else {
     handle_watcher_->ArmOrNotify();
   }
@@ -512,11 +500,16 @@ bool Connector::DispatchMessage(Message message) {
               incoming_serialization_mode_);
   }
 
+  TRACE_EVENT_WITH_FLOW0(
+      TRACE_DISABLED_BY_DEFAULT("toplevel.flow"), "mojo::Message Receive",
+      MANGLE_MESSAGE_ID(message.header()->trace_id), TRACE_EVENT_FLAG_FLOW_IN);
 #if !BUILDFLAG(MOJO_TRACE_ENABLED)
   // This emits just full class name, and is inferior to mojo tracing.
   TRACE_EVENT0("mojom", heap_profiler_tag_);
 #endif
 
+  if (connection_group_)
+    message.set_receiver_connection_group(&connection_group_);
   bool receiver_result =
       incoming_receiver_ && incoming_receiver_->Accept(&message);
   if (!weak_self)

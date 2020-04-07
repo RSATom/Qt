@@ -61,6 +61,10 @@ Polymer({
           return CrPolicyIndicatorType.USER_POLICY;
         case chrome.settingsPrivate.ControlledBy.DEVICE_POLICY:
           return CrPolicyIndicatorType.DEVICE_POLICY;
+        case chrome.settingsPrivate.ControlledBy.PARENT:
+          return CrPolicyIndicatorType.PARENT;
+        case chrome.settingsPrivate.ControlledBy.CHILD_RESTRICTION:
+          return CrPolicyIndicatorType.CHILD_RESTRICTION;
       }
     }
     return CrPolicyIndicatorType.NONE;

@@ -5,6 +5,7 @@
 #include "media/base/android/media_drm_bridge.h"
 
 #include <stddef.h>
+#include <sys/system_properties.h>
 #include <algorithm>
 #include <memory>
 #include <utility>
@@ -25,22 +26,23 @@
 #include "base/sys_byteorder.h"
 #include "base/system/sys_info.h"
 #include "base/threading/thread_task_runner_handle.h"
-#include "jni/MediaDrmBridge_jni.h"
 #include "media/base/android/android_util.h"
 #include "media/base/android/media_codec_util.h"
 #include "media/base/android/media_drm_bridge_client.h"
 #include "media/base/android/media_drm_bridge_delegate.h"
 #include "media/base/android/media_drm_key_type.h"
+#include "media/base/android/media_jni_headers/MediaDrmBridge_jni.h"
 #include "media/base/cdm_key_information.h"
 #include "media/base/media_switches.h"
 #include "media/base/provision_fetcher.h"
 #include "third_party/widevine/cdm/widevine_cdm_common.h"
 
 using base::android::AttachCurrentThread;
-using base::android::ConvertUTF8ToJavaString;
 using base::android::ConvertJavaStringToUTF8;
+using base::android::ConvertUTF8ToJavaString;
 using base::android::JavaByteArrayToByteVector;
 using base::android::JavaByteArrayToString;
+using base::android::JavaObjectArrayReader;
 using base::android::JavaParamRef;
 using base::android::ScopedJavaGlobalRef;
 using base::android::ScopedJavaLocalRef;
@@ -69,6 +71,7 @@ enum class KeyStatus : uint32_t {
   KEY_STATUS_OUTPUT_NOT_ALLOWED = 2,
   KEY_STATUS_PENDING = 3,
   KEY_STATUS_INTERNAL_ERROR = 4,
+  KEY_STATUS_USABLE_IN_FUTURE = 5,  // Added in API level 29.
 };
 
 const uint8_t kWidevineUuid[16] = {
@@ -134,10 +137,24 @@ CdmKeyInformation::KeyStatus ConvertKeyStatus(KeyStatus key_status,
     case KeyStatus::KEY_STATUS_OUTPUT_NOT_ALLOWED:
       return CdmKeyInformation::OUTPUT_RESTRICTED;
     case KeyStatus::KEY_STATUS_PENDING:
-      // TODO(xhwang): This should probably be renamed to "PENDING".
-      return CdmKeyInformation::KEY_STATUS_PENDING;
+      // On pre-Q versions of Android, 'status-pending' really means "usable in
+      // the future". Translate this to 'expired' as that's the only status that
+      // makes sense in this case. Starting with Android Q, 'status-pending'
+      // means what you expect. See crbug.com/889272 for explanation.
+      // TODO(jrummell): "KEY_STATUS_PENDING" should probably be renamed to
+      // "STATUS_PENDING".
+      return (base::android::BuildInfo::GetInstance()->sdk_int() <=
+              base::android::SDK_VERSION_P)
+                 ? CdmKeyInformation::EXPIRED
+                 : CdmKeyInformation::KEY_STATUS_PENDING;
     case KeyStatus::KEY_STATUS_INTERNAL_ERROR:
       return CdmKeyInformation::INTERNAL_ERROR;
+    case KeyStatus::KEY_STATUS_USABLE_IN_FUTURE:
+      // This was added in Android Q.
+      // https://developer.android.com/reference/android/media/MediaDrm.KeyStatus.html#STATUS_USABLE_IN_FUTURE
+      // notes this happens "because the start time is in the future." There is
+      // no matching EME status, so returning EXPIRED as the closest match.
+      return CdmKeyInformation::EXPIRED;
   }
 
   NOTREACHED();
@@ -263,6 +280,12 @@ bool AreMediaDrmApisAvailable() {
   return true;
 }
 
+int GetFirstApiLevel() {
+  JNIEnv* env = AttachCurrentThread();
+  int first_api_level = Java_MediaDrmBridge_getFirstApiLevel(env);
+  return first_api_level;
+}
+
 }  // namespace
 
 // MediaDrm is not generally usable without MediaCodec. Thus, both the MediaDrm
@@ -284,6 +307,22 @@ bool MediaDrmBridge::IsKeySystemSupported(const std::string& key_system) {
 bool MediaDrmBridge::IsPerOriginProvisioningSupported() {
   return base::android::BuildInfo::GetInstance()->sdk_int() >=
          base::android::SDK_VERSION_MARSHMALLOW;
+}
+
+// static
+bool MediaDrmBridge::IsPerApplicationProvisioningSupported() {
+  // Start by checking "ro.product.first_api_level", which may not exist.
+  // If it is non-zero, then it is the API level.
+  static int first_api_level = GetFirstApiLevel();
+  DVLOG(1) << "first_api_level = " << first_api_level;
+  if (first_api_level >= base::android::SDK_VERSION_OREO)
+    return true;
+
+  // If "ro.product.first_api_level" does not match, then check build number.
+  DVLOG(1) << "api_level = "
+           << base::android::BuildInfo::GetInstance()->sdk_int();
+  return base::android::BuildInfo::GetInstance()->sdk_int() >=
+         base::android::SDK_VERSION_OREO;
 }
 
 // static
@@ -337,6 +376,9 @@ scoped_refptr<MediaDrmBridge> MediaDrmBridge::CreateInternal(
   // All paths requires the MediaDrmApis.
   DCHECK(AreMediaDrmApisAvailable());
   DCHECK(!scheme_uuid.empty());
+
+  // TODO(crbug.com/917527): Check that |origin_id| is specified on devices
+  // that support it.
 
   scoped_refptr<MediaDrmBridge> media_drm_bridge(new MediaDrmBridge(
       scheme_uuid, origin_id, security_level, requires_media_crypto,
@@ -599,12 +641,12 @@ void MediaDrmBridge::RejectPromise(uint32_t promise_id,
 }
 
 void MediaDrmBridge::SetMediaCryptoReadyCB(
-    const MediaCryptoReadyCB& media_crypto_ready_cb) {
+    MediaCryptoReadyCB media_crypto_ready_cb) {
   if (!task_runner_->BelongsToCurrentThread()) {
     task_runner_->PostTask(
-        FROM_HERE,
-        base::BindOnce(&MediaDrmBridge::SetMediaCryptoReadyCB,
-                       weak_factory_.GetWeakPtr(), media_crypto_ready_cb));
+        FROM_HERE, base::BindOnce(&MediaDrmBridge::SetMediaCryptoReadyCB,
+                                  weak_factory_.GetWeakPtr(),
+                                  std::move(media_crypto_ready_cb)));
     return;
   }
 
@@ -616,7 +658,7 @@ void MediaDrmBridge::SetMediaCryptoReadyCB(
   }
 
   DCHECK(!media_crypto_ready_cb_);
-  media_crypto_ready_cb_ = media_crypto_ready_cb;
+  media_crypto_ready_cb_ = std::move(media_crypto_ready_cb);
 
   if (!j_media_crypto_)
     return;
@@ -746,13 +788,10 @@ void MediaDrmBridge::OnSessionKeysChange(
 
   CdmKeysInfo cdm_keys_info;
 
-  size_t size = env->GetArrayLength(j_keys_info);
-  DCHECK_GT(size, 0u);
+  JavaObjectArrayReader<jobject> j_keys_info_array(j_keys_info);
+  DCHECK_GT(j_keys_info_array.size(), 0);
 
-  for (size_t i = 0; i < size; ++i) {
-    ScopedJavaLocalRef<jobject> j_key_status(
-        env, env->GetObjectArrayElement(j_keys_info, i));
-
+  for (auto j_key_status : j_keys_info_array) {
     ScopedJavaLocalRef<jbyteArray> j_key_id =
         Java_KeyStatus_getKeyId(env, j_key_status);
     std::vector<uint8_t> key_id;
@@ -849,9 +888,6 @@ MediaDrmBridge::MediaDrmBridge(
       ConvertUTF8ToJavaString(env, security_level_str);
 
   bool use_origin_isolated_storage =
-      // TODO(yucliu): Remove the check once persistent storage is fully
-      // supported and check if origin is valid.
-      base::FeatureList::IsEnabled(kMediaDrmPersistentLicense) &&
       // Per-origin provisioning must be supported for origin isolated storage.
       IsPerOriginProvisioningSupported() &&
       // origin id can be empty when MediaDrmBridge is created by

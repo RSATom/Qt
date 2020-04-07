@@ -71,9 +71,7 @@ QQuickDwmFeatures::QQuickDwmFeatures(QQuickItem *parent) :
     QWinEventFilter::setup();
 }
 
-QQuickDwmFeatures::~QQuickDwmFeatures()
-{
-}
+QQuickDwmFeatures::~QQuickDwmFeatures() = default;
 
 void QQuickDwmFeatures::setCompositionEnabled(bool enabled)
 {
@@ -230,10 +228,7 @@ void QQuickDwmFeatures::setBlurBehindEnabled(bool enabled)
 bool QQuickDwmFeatures::isExcludedFromPeek() const
 {
     Q_D(const QQuickDwmFeatures);
-    if (window())
-        return QtWin::isWindowExcludedFromPeek(window());
-    else
-        return d->peekExcluded;
+    return window() ? QtWin::isWindowExcludedFromPeek(window()) : d->peekExcluded;
 }
 
 void QQuickDwmFeatures::setExcludedFromPeek(bool exclude)
@@ -257,10 +252,7 @@ void QQuickDwmFeatures::setExcludedFromPeek(bool exclude)
 bool QQuickDwmFeatures::isPeekDisallowed() const
 {
     Q_D(const QQuickDwmFeatures);
-    if (window())
-        return QtWin::isWindowPeekDisallowed(window());
-    else
-        return d->peekDisallowed;
+    return window() ? QtWin::isWindowPeekDisallowed(window()) : d->peekDisallowed;
 }
 
 void QQuickDwmFeatures::setPeekDisallowed(bool disallow)
@@ -321,8 +313,8 @@ bool QQuickDwmFeatures::eventFilter(QObject *object, QEvent *event)
 
 QQuickDwmFeatures *QQuickDwmFeatures::qmlAttachedProperties(QObject *parentObject)
 {
-    QQuickDwmFeatures *featuresObj = new QQuickDwmFeatures();
-    QQuickItem *parentItem = qobject_cast<QQuickItem *>(parentObject);
+    auto *featuresObj = new QQuickDwmFeatures();
+    auto *parentItem = qobject_cast<QQuickItem *>(parentObject);
     if (parentItem)
         featuresObj->setParentItem(parentItem);
     else
@@ -344,9 +336,6 @@ void QQuickDwmFeatures::itemChange(QQuickItem::ItemChange change, const QQuickIt
 
 
 QQuickDwmFeaturesPrivate::QQuickDwmFeaturesPrivate(QQuickDwmFeatures *parent) :
-    topMargin(0), rightMargin(0), bottomMargin(0), leftMargin(0),
-    blurBehindEnabled(false),
-    peekDisallowed(false), peekExcluded(false), flipPolicy(QQuickWin::FlipDefault),
     q_ptr(parent)
 {
 }

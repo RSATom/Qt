@@ -78,7 +78,7 @@ class QWindow;
 HWND hwndForWidget(QWidget *widget);
 HRGN qaxHrgnFromQRegion(const QRegion &region, const QWindow *window);
 
-typedef QPair<qreal, qreal> QDpi;
+using QDpi = QPair<qreal, qreal>;
 
 extern SIZEL qaxMapPixToLogHiMetrics(const QSize &s, const QDpi &d, const QWindow *w);
 extern QSize qaxMapLogHiMetricsToPix(const SIZEL &s, const QDpi &d, const QWindow *w);

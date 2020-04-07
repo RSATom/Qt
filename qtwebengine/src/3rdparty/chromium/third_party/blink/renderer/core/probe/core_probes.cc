@@ -47,6 +47,23 @@ void* AsyncId(void* task) {
 }
 }  // namespace
 
+base::TimeTicks ProbeBase::CaptureStartTime() const {
+  if (start_time_.is_null())
+    start_time_ = base::TimeTicks::Now();
+  return start_time_;
+}
+
+base::TimeTicks ProbeBase::CaptureEndTime() const {
+  if (end_time_.is_null())
+    end_time_ = base::TimeTicks::Now();
+  return end_time_;
+}
+
+base::TimeDelta ProbeBase::Duration() const {
+  DCHECK(!start_time_.is_null());
+  return CaptureEndTime() - start_time_;
+}
+
 AsyncTask::AsyncTask(ExecutionContext* context,
                      void* task,
                      const char* step,
@@ -91,7 +108,7 @@ void AsyncTaskScheduledBreakable(ExecutionContext* context,
                                  const char* name,
                                  void* task) {
   AsyncTaskScheduled(context, name, task);
-  breakableLocation(context, name);
+  BreakableLocation(context, name);
 }
 
 void AsyncTaskCanceled(ExecutionContext* context, void* task) {
@@ -109,7 +126,7 @@ void AsyncTaskCanceledBreakable(ExecutionContext* context,
                                 const char* name,
                                 void* task) {
   AsyncTaskCanceled(context, task);
-  breakableLocation(context, name);
+  BreakableLocation(context, name);
 }
 
 void AllAsyncTasksCanceled(ExecutionContext* context) {

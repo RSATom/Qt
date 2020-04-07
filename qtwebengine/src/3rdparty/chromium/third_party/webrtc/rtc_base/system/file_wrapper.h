@@ -44,7 +44,8 @@ class FileWrapper final {
 
   FileWrapper() = default;
 
-  // Takes over ownership of |file|, closing it on destruction.
+  // Takes over ownership of |file|, closing it on destruction. Calling with
+  // null |file| is allowed, and results in a FileWrapper with is_open() false.
   explicit FileWrapper(FILE* file) : file_(file) {}
   ~FileWrapper() { Close(); }
 
@@ -71,7 +72,6 @@ class FileWrapper final {
 
   // Seeks to the beginning of file. Returns true on success, false on failure,
   // e.g., if the underlying file isn't seekable.
-  // TODO(nisse): Delete this method.
   bool Rewind();
 
   // Returns number of bytes read. Short count indicates EOF or error.

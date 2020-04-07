@@ -15,10 +15,11 @@
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/frame/web_local_frame_impl.h"
 #include "third_party/blink/renderer/core/page/page.h"
+#include "third_party/blink/renderer/core/testing/internal_settings.h"
 #include "third_party/blink/renderer/core/workers/dedicated_worker_messaging_proxy.h"
 #include "third_party/blink/renderer/core/workers/worker_thread.h"
 #include "third_party/blink/renderer/platform/bindings/v8_per_isolate_data.h"
-#include "third_party/blink/renderer/platform/instance_counters.h"
+#include "third_party/blink/renderer/platform/instrumentation/instance_counters.h"
 #include "third_party/blink/renderer/platform/loader/fetch/memory_cache.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource_fetcher.h"
 
@@ -54,23 +55,6 @@ void BlinkLeakDetector::PerformLeakDetection(
   WorkerThread::TerminateAllWorkersForTesting();
   GetMemoryCache()->EvictResources();
 
-  // If the spellchecker is allowed to continue issuing requests while the
-  // leak detector runs, leaks may flakily be reported as the requests keep
-  // their associated element (and document) alive.
-  //
-  // Stop the spellchecker to prevent this.
-  // Currently PrepareForLeakDetection takes frame to get the spellchecker,
-  // but in the future when leak detection runs with multiple frames,
-  // this code must be refactored so that it iterates thru all the frames.
-  for (Page* page : Page::OrdinaryPages()) {
-    for (Frame* frame = page->MainFrame(); frame;
-         frame = frame->Tree().TraverseNext()) {
-      if (!frame->IsLocalFrame())
-        continue;
-      ToLocalFrame(frame)->GetSpellChecker().PrepareForLeakDetection();
-    }
-  }
-
   // FIXME: HTML5 Notification should be closed because notification affects
   // the result of number of DOM objects.
   V8PerIsolateData::From(isolate)->ClearScriptRegexpContext();
@@ -82,12 +66,17 @@ void BlinkLeakDetector::PerformLeakDetection(
   for (auto resource_fetcher : ResourceFetcher::MainThreadFetchers())
     resource_fetcher->PrepareForLeakDetection();
 
+  // Internal settings are ScriptWrappable and thus may retain documents
+  // depending on whether the garbage collector(s) are able to find the settings
+  // object through the Page supplement.
+  InternalSettings::PrepareForLeakDetection();
+
   // Task queue may contain delayed object destruction tasks.
   // This method is called from navigation hook inside FrameLoader,
   // so previous document is still held by the loader until the next event loop.
   // Complete all pending tasks before proceeding to gc.
   number_of_gc_needed_ = 3;
-  delayed_gc_timer_.StartOneShot(TimeDelta(), FROM_HERE);
+  delayed_gc_timer_.StartOneShot(base::TimeDelta(), FROM_HERE);
 }
 
 void BlinkLeakDetector::TimerFiredGC(TimerBase*) {
@@ -98,12 +87,13 @@ void BlinkLeakDetector::TimerFiredGC(TimerBase*) {
   V8GCController::CollectAllGarbageForTesting(
       V8PerIsolateData::MainThreadIsolate(),
       v8::EmbedderHeapTracer::EmbedderStackState::kEmpty);
-  CoreInitializer::GetInstance().CollectAllGarbageForAnimationAndPaintWorklet();
+  CoreInitializer::GetInstance()
+      .CollectAllGarbageForAnimationAndPaintWorkletForTesting();
   // Note: Oilpan precise GC is scheduled at the end of the event loop.
 
   // Inspect counters on the next event loop.
   if (--number_of_gc_needed_ > 0) {
-    delayed_gc_timer_.StartOneShot(TimeDelta(), FROM_HERE);
+    delayed_gc_timer_.StartOneShot(base::TimeDelta(), FROM_HERE);
   } else if (number_of_gc_needed_ > -1 &&
              DedicatedWorkerMessagingProxy::ProxyCount()) {
     // It is possible that all posted tasks for finalizing in-process proxy
@@ -114,7 +104,7 @@ void BlinkLeakDetector::TimerFiredGC(TimerBase*) {
     // TODO(sof): use proxyCount() to always decide if another GC needs to be
     // scheduled.  Some debug bots running browser unit tests disagree
     // (crbug.com/616714)
-    delayed_gc_timer_.StartOneShot(TimeDelta(), FROM_HERE);
+    delayed_gc_timer_.StartOneShot(base::TimeDelta(), FROM_HERE);
   } else {
     ReportResult();
   }
@@ -133,8 +123,9 @@ void BlinkLeakDetector::ReportResult() {
       InstanceCounters::CounterValue(InstanceCounters::kLayoutObjectCounter);
   result->number_of_live_resources =
       InstanceCounters::CounterValue(InstanceCounters::kResourceCounter);
-  result->number_of_live_pausable_objects =
-      InstanceCounters::CounterValue(InstanceCounters::kPausableObjectCounter);
+  result->number_of_live_context_lifecycle_state_observers =
+      InstanceCounters::CounterValue(
+          InstanceCounters::kContextLifecycleStateObserverCounter);
   result->number_of_live_script_promises =
       InstanceCounters::CounterValue(InstanceCounters::kScriptPromiseCounter);
   result->number_of_live_frames =

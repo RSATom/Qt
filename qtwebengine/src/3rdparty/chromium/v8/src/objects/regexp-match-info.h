@@ -6,8 +6,8 @@
 #define V8_OBJECTS_REGEXP_MATCH_INFO_H_
 
 #include "src/base/compiler-specific.h"
-#include "src/objects.h"
 #include "src/objects/fixed-array.h"
+#include "src/objects/objects.h"
 
 // Has to be the last include (doesn't have include guards):
 #include "src/objects/object-macros.h"
@@ -57,16 +57,8 @@ class V8_EXPORT_PRIVATE RegExpMatchInfo : NON_EXPORTED_BASE(public FixedArray) {
   static const int kFirstCaptureIndex = 3;
   static const int kLastMatchOverhead = kFirstCaptureIndex;
 
-// Layout description.
-#define REG_EXP_MATCH_INFO_FIELDS(V)      \
-  V(kNumberOfCapturesOffset, kTaggedSize) \
-  V(kLastSubjectOffset, kTaggedSize)      \
-  V(kLastInputOffset, kTaggedSize)        \
-  V(kFirstCaptureOffset, 0)
-
   DEFINE_FIELD_OFFSET_CONSTANTS(FixedArray::kHeaderSize,
-                                REG_EXP_MATCH_INFO_FIELDS)
-#undef REG_EXP_MATCH_INFO_FIELDS
+                                TORQUE_GENERATED_REG_EXP_MATCH_INFO_FIELDS)
 
   // Every match info is guaranteed to have enough space to store two captures.
   static const int kInitialCaptureIndices = 2;

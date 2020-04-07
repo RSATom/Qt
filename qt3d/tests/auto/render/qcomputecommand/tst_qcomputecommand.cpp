@@ -32,7 +32,6 @@
 #include <Qt3DRender/private/qcomputecommand_p.h>
 #include <QObject>
 #include <QSignalSpy>
-#include <Qt3DCore/qpropertyupdatedchange.h>
 #include <Qt3DCore/private/qnodecreatedchangegenerator_p.h>
 #include <Qt3DCore/qnodecreatedchange.h>
 #include "testpostmanarbiter.h"
@@ -214,13 +213,11 @@ private Q_SLOTS:
             QCoreApplication::processEvents();
 
             // THEN
-            QCOMPARE(arbiter.events.size(), 1);
-            auto change = arbiter.events.first().staticCast<Qt3DCore::QPropertyUpdatedChange>();
-            QCOMPARE(change->propertyName(), "workGroupX");
-            QCOMPARE(change->value().value<int>(), computeCommand.workGroupX());
-            QCOMPARE(change->type(), Qt3DCore::PropertyUpdated);
+            QCOMPARE(arbiter.events.size(), 0);
+            QCOMPARE(arbiter.dirtyNodes.size(), 1);
+            QCOMPARE(arbiter.dirtyNodes.front(), &computeCommand);
 
-            arbiter.events.clear();
+            arbiter.dirtyNodes.clear();
         }
 
         {
@@ -229,7 +226,7 @@ private Q_SLOTS:
             QCoreApplication::processEvents();
 
             // THEN
-            QCOMPARE(arbiter.events.size(), 0);
+            QCOMPARE(arbiter.dirtyNodes.size(), 0);
         }
 
     }
@@ -244,25 +241,22 @@ private Q_SLOTS:
         {
             // WHEN
             computeCommand.setWorkGroupY(512);
-            QCoreApplication::processEvents();
 
             // THEN
-            QCOMPARE(arbiter.events.size(), 1);
-            auto change = arbiter.events.first().staticCast<Qt3DCore::QPropertyUpdatedChange>();
-            QCOMPARE(change->propertyName(), "workGroupY");
-            QCOMPARE(change->value().value<int>(), computeCommand.workGroupY());
-            QCOMPARE(change->type(), Qt3DCore::PropertyUpdated);
+            QCOMPARE(arbiter.events.size(), 0);
+            QCOMPARE(arbiter.dirtyNodes.size(), 1);
+            QCOMPARE(arbiter.dirtyNodes.front(), &computeCommand);
 
-            arbiter.events.clear();
+            arbiter.dirtyNodes.clear();
         }
 
         {
             // WHEN
             computeCommand.setWorkGroupY(512);
-            QCoreApplication::processEvents();
 
             // THEN
             QCOMPARE(arbiter.events.size(), 0);
+            QCOMPARE(arbiter.dirtyNodes.size(), 0);
         }
 
     }
@@ -280,13 +274,11 @@ private Q_SLOTS:
             QCoreApplication::processEvents();
 
             // THEN
-            QCOMPARE(arbiter.events.size(), 1);
-            auto change = arbiter.events.first().staticCast<Qt3DCore::QPropertyUpdatedChange>();
-            QCOMPARE(change->propertyName(), "workGroupZ");
-            QCOMPARE(change->value().value<int>(), computeCommand.workGroupZ());
-            QCOMPARE(change->type(), Qt3DCore::PropertyUpdated);
+            QCOMPARE(arbiter.events.size(), 0);
+            QCOMPARE(arbiter.dirtyNodes.size(), 1);
+            QCOMPARE(arbiter.dirtyNodes.front(), &computeCommand);
 
-            arbiter.events.clear();
+            arbiter.dirtyNodes.clear();
         }
 
         {
@@ -296,6 +288,7 @@ private Q_SLOTS:
 
             // THEN
             QCOMPARE(arbiter.events.size(), 0);
+            QCOMPARE(arbiter.dirtyNodes.size(), 0);
         }
 
     }
@@ -313,13 +306,11 @@ private Q_SLOTS:
             QCoreApplication::processEvents();
 
             // THEN
-            QCOMPARE(arbiter.events.size(), 1);
-            auto change = arbiter.events.first().staticCast<Qt3DCore::QPropertyUpdatedChange>();
-            QCOMPARE(change->propertyName(), "runType");
-            QCOMPARE(change->value().value<int>(), int(computeCommand.runType()));
-            QCOMPARE(change->type(), Qt3DCore::PropertyUpdated);
+            QCOMPARE(arbiter.events.size(), 0);
+            QCOMPARE(arbiter.dirtyNodes.size(), 1);
+            QCOMPARE(arbiter.dirtyNodes.front(), &computeCommand);
 
-            arbiter.events.clear();
+            arbiter.dirtyNodes.clear();
         }
 
         {
@@ -329,6 +320,7 @@ private Q_SLOTS:
 
             // THEN
             QCOMPARE(arbiter.events.size(), 0);
+            QCOMPARE(arbiter.dirtyNodes.size(), 0);
         }
     }
 
@@ -349,23 +341,14 @@ private Q_SLOTS:
             QCoreApplication::processEvents();
 
             // THEN
-            QCOMPARE(arbiter.events.size(), 2);
-            {
-                auto change = arbiter.events.first().staticCast<Qt3DCore::QPropertyUpdatedChange>();
-                QCOMPARE(change->propertyName(), "frameCount");
-                QCOMPARE(change->value().value<int>(), 1);
-                QCOMPARE(change->type(), Qt3DCore::PropertyUpdated);
-            }
-            {
-                auto change = arbiter.events.last().staticCast<Qt3DCore::QPropertyUpdatedChange>();
-                QCOMPARE(change->propertyName(), "enabled");
-                QCOMPARE(change->value().value<bool>(), true);
-                QCOMPARE(change->type(), Qt3DCore::PropertyUpdated);
-            }
+            QCOMPARE(arbiter.events.size(), 0);
+            QCOMPARE(arbiter.dirtyNodes.size(), 1);
+            QCOMPARE(arbiter.dirtyNodes.front(), &computeCommand);
+            QCOMPARE(computeCommand.isEnabled(), true);
 
             computeCommand.setEnabled(false);
             QCoreApplication::processEvents();
-            arbiter.events.clear();
+            arbiter.dirtyNodes.clear();
         }
 
         {
@@ -374,24 +357,15 @@ private Q_SLOTS:
             QCoreApplication::processEvents();
 
             // THEN
-            QCOMPARE(arbiter.events.size(), 2);
-            {
-                auto change = arbiter.events.first().staticCast<Qt3DCore::QPropertyUpdatedChange>();
-                QCOMPARE(change->propertyName(), "frameCount");
-                QCOMPARE(change->value().value<int>(), 2);
-                QCOMPARE(change->type(), Qt3DCore::PropertyUpdated);
-            }
-            {
-                auto change = arbiter.events.last().staticCast<Qt3DCore::QPropertyUpdatedChange>();
-                QCOMPARE(change->propertyName(), "enabled");
-                QCOMPARE(change->value().value<bool>(), true);
-                QCOMPARE(change->type(), Qt3DCore::PropertyUpdated);
-            }
-
+            QCOMPARE(arbiter.events.size(), 0);
+            QCOMPARE(arbiter.dirtyNodes.size(), 1);
+            QCOMPARE(arbiter.dirtyNodes.front(), &computeCommand);
+            QCOMPARE(computeCommand.isEnabled(), true);
 
             computeCommand.setEnabled(false);
             QCoreApplication::processEvents();
             arbiter.events.clear();
+            arbiter.dirtyNodes.clear();
         }
 
         {
@@ -400,41 +374,16 @@ private Q_SLOTS:
             QCoreApplication::processEvents();
 
             // THEN
-            QCOMPARE(arbiter.events.size(), 5);
-            {
-                auto change = arbiter.events.at(0).staticCast<Qt3DCore::QPropertyUpdatedChange>();
-                QCOMPARE(change->propertyName(), "workGroupX");
-                QCOMPARE(change->value().value<int>(), 10);
-                QCOMPARE(change->type(), Qt3DCore::PropertyUpdated);
-            }
-            {
-                auto change = arbiter.events.at(1).staticCast<Qt3DCore::QPropertyUpdatedChange>();
-                QCOMPARE(change->propertyName(), "workGroupY");
-                QCOMPARE(change->value().value<int>(), 11);
-                QCOMPARE(change->type(), Qt3DCore::PropertyUpdated);
-            }
-            {
-                auto change = arbiter.events.at(2).staticCast<Qt3DCore::QPropertyUpdatedChange>();
-                QCOMPARE(change->propertyName(), "workGroupZ");
-                QCOMPARE(change->value().value<int>(), 12);
-                QCOMPARE(change->type(), Qt3DCore::PropertyUpdated);
-            }
-            {
-                auto change = arbiter.events.at(3).staticCast<Qt3DCore::QPropertyUpdatedChange>();
-                QCOMPARE(change->propertyName(), "frameCount");
-                QCOMPARE(change->value().value<int>(), 1);
-                QCOMPARE(change->type(), Qt3DCore::PropertyUpdated);
-            }
-            {
-                auto change = arbiter.events.last().staticCast<Qt3DCore::QPropertyUpdatedChange>();
-                QCOMPARE(change->propertyName(), "enabled");
-                QCOMPARE(change->value().value<bool>(), true);
-                QCOMPARE(change->type(), Qt3DCore::PropertyUpdated);
-            }
+            QCOMPARE(arbiter.events.size(), 0);
+            QCOMPARE(arbiter.dirtyNodes.size(), 1);
+            QCOMPARE(arbiter.dirtyNodes.front(), &computeCommand);
+            QCOMPARE(computeCommand.isEnabled(), true);
+            QCOMPARE(computeCommand.workGroupX(), 10);
+            QCOMPARE(computeCommand.workGroupY(), 11);
+            QCOMPARE(computeCommand.workGroupZ(), 12);
 
             computeCommand.setEnabled(false);
-            QCoreApplication::processEvents();
-            arbiter.events.clear();
+            arbiter.dirtyNodes.clear();
         }
     }
 

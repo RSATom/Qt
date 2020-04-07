@@ -68,10 +68,11 @@
 #include <QtCore/qfile.h>
 #include <QtCore/qmutex.h>
 #include <QtCore/qlibrary.h>
+#include <QtCore/qoperatingsystemversion.h>
 
 QT_BEGIN_NAMESPACE
 
-Q_GLOBAL_STATIC_WITH_ARGS(QMutex, qt_opensslInitMutex, (QMutex::Recursive))
+Q_GLOBAL_STATIC(QRecursiveMutex, qt_opensslInitMutex)
 
 void QSslSocketPrivate::deinitialize()
 {
@@ -142,13 +143,12 @@ void QSslSocketPrivate::ensureCiphersAndCertsLoaded()
     if (!s_loadRootCertsOnDemand)
         setDefaultCaCertificates(systemCaCertificates());
 #ifdef Q_OS_WIN
-    //Enabled for fetching additional root certs from windows update on windows 6+
+    //Enabled for fetching additional root certs from windows update on windows.
     //This flag is set false by setDefaultCaCertificates() indicating the app uses
     //its own cert bundle rather than the system one.
     //Same logic that disables the unix on demand cert loading.
     //Unlike unix, we do preload the certificates from the cert store.
-    if ((QSysInfo::windowsVersion() & QSysInfo::WV_NT_based) >= QSysInfo::WV_6_0)
-        s_loadRootCertsOnDemand = true;
+    s_loadRootCertsOnDemand = true;
 #endif
 }
 

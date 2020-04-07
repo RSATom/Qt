@@ -54,6 +54,7 @@ Item {
             mapping: Plugin.OfflineMappingFeature;
             geocoding: Plugin.OfflineGeocodingFeature;
             places: Plugin.AnyPlacesFeatures;
+            navigation: Plugin.AnyNavigationFeatures;
         }
     }
 
@@ -120,6 +121,7 @@ Item {
             verify(requiredPlugin.supportsMapping(requiredPlugin.required.mapping))
             verify(requiredPlugin.supportsGeocoding(requiredPlugin.required.geocoding))
             verify(requiredPlugin.supportsPlaces(requiredPlugin.required.places))
+            verify(requiredPlugin.supportsNavigation(requiredPlugin.required.navigation))
         }
 
         function test_placesFeatures() {

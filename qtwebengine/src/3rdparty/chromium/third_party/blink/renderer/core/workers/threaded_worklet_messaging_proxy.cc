@@ -23,9 +23,10 @@
 #include "third_party/blink/renderer/core/workers/worklet_global_scope.h"
 #include "third_party/blink/renderer/core/workers/worklet_module_responses_map.h"
 #include "third_party/blink/renderer/core/workers/worklet_pending_tasks.h"
-#include "third_party/blink/renderer/platform/cross_thread_functional.h"
 #include "third_party/blink/renderer/platform/loader/fetch/fetch_client_settings_object_snapshot.h"
+#include "third_party/blink/renderer/platform/loader/fetch/worker_resource_timing_notifier.h"
 #include "third_party/blink/renderer/platform/scheduler/public/post_cross_thread_task.h"
+#include "third_party/blink/renderer/platform/wtf/cross_thread_functional.h"
 
 namespace blink {
 
@@ -44,6 +45,12 @@ void ThreadedWorkletMessagingProxy::Initialize(
   worklet_object_proxy_ =
       CreateObjectProxy(this, GetParentExecutionContextTaskRunners());
 
+  // For now we don't use global scope name for threaded worklets.
+  // TODO(nhiroki): Threaded worklets may want to have the global scope name to
+  // distinguish multiple worklets created from the same script URL like
+  // LayoutWorklet and PaintWorklet.
+  const String global_scope_name = g_empty_string;
+
   Document* document = To<Document>(GetExecutionContext());
   ContentSecurityPolicy* csp = document->GetContentSecurityPolicy();
   DCHECK(csp);
@@ -55,7 +62,8 @@ void ThreadedWorkletMessagingProxy::Initialize(
   auto global_scope_creation_params =
       std::make_unique<GlobalScopeCreationParams>(
           document->Url(), mojom::ScriptType::kModule,
-          OffMainThreadWorkerScriptFetchOption::kEnabled, document->UserAgent(),
+          OffMainThreadWorkerScriptFetchOption::kEnabled, global_scope_name,
+          document->UserAgent(),
           document->GetFrame()->Client()->CreateWorkerFetchContext(),
           csp->Headers(), document->GetReferrerPolicy(),
           document->GetSecurityOrigin(), document->IsSecureContext(),
@@ -80,20 +88,22 @@ void ThreadedWorkletMessagingProxy::Trace(blink::Visitor* visitor) {
 
 void ThreadedWorkletMessagingProxy::FetchAndInvokeScript(
     const KURL& module_url_record,
-    network::mojom::FetchCredentialsMode credentials_mode,
-    FetchClientSettingsObjectSnapshot* outside_settings_object,
+    network::mojom::CredentialsMode credentials_mode,
+    const FetchClientSettingsObjectSnapshot& outside_settings_object,
+    WorkerResourceTimingNotifier& outside_resource_timing_notifier,
     scoped_refptr<base::SingleThreadTaskRunner> outside_settings_task_runner,
     WorkletPendingTasks* pending_tasks) {
   DCHECK(IsMainThread());
   PostCrossThreadTask(
       *GetWorkerThread()->GetTaskRunner(TaskType::kInternalLoading), FROM_HERE,
-      CrossThreadBind(&ThreadedWorkletObjectProxy::FetchAndInvokeScript,
-                      CrossThreadUnretained(worklet_object_proxy_.get()),
-                      module_url_record, credentials_mode,
-                      WTF::Passed(outside_settings_object->CopyData()),
-                      std::move(outside_settings_task_runner),
-                      WrapCrossThreadPersistent(pending_tasks),
-                      CrossThreadUnretained(GetWorkerThread())));
+      CrossThreadBindOnce(
+          &ThreadedWorkletObjectProxy::FetchAndInvokeScript,
+          CrossThreadUnretained(worklet_object_proxy_.get()), module_url_record,
+          credentials_mode, WTF::Passed(outside_settings_object.CopyData()),
+          WrapCrossThreadPersistent(&outside_resource_timing_notifier),
+          std::move(outside_settings_task_runner),
+          WrapCrossThreadPersistent(pending_tasks),
+          CrossThreadUnretained(GetWorkerThread())));
 }
 
 void ThreadedWorkletMessagingProxy::WorkletObjectDestroyed() {

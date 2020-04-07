@@ -12,7 +12,7 @@
 #include "third_party/blink/renderer/platform/graphics/paint/paint_chunk.h"
 #include "third_party/blink/renderer/platform/graphics/paint/property_tree_state.h"
 #include "third_party/blink/renderer/platform/platform_export.h"
-#include "third_party/blink/renderer/platform/wtf/allocator.h"
+#include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 #include "third_party/blink/renderer/platform/wtf/vector.h"
 
 namespace blink {
@@ -27,7 +27,9 @@ class PLATFORM_EXPORT PaintChunker final {
   PaintChunker();
   ~PaintChunker();
 
+#if DCHECK_IS_ON()
   bool IsInInitialState() const;
+#endif
 
   const PropertyTreeState& CurrentPaintChunkProperties() const {
     return current_properties_;

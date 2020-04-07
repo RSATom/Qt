@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2020 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the tools applications of the Qt Toolkit.
@@ -32,7 +32,6 @@
 #include <qfile.h>
 #include <qlist.h>
 #include <qbuffer.h>
-#include <qregexp.h>
 #include <qvector.h>
 #include <qdebug.h>
 
@@ -62,7 +61,7 @@ static const char docTypeHeader[] =
 
 #define PROGRAMNAME     "qdbuscpp2xml"
 #define PROGRAMVERSION  "0.2"
-#define PROGRAMCOPYRIGHT "Copyright (C) 2019 The Qt Company Ltd."
+#define PROGRAMCOPYRIGHT "Copyright (C) 2020 The Qt Company Ltd."
 
 static QString outputFile;
 static int flags;

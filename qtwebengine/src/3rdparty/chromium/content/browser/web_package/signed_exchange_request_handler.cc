@@ -11,6 +11,7 @@
 #include "content/browser/web_package/signed_exchange_devtools_proxy.h"
 #include "content/browser/web_package/signed_exchange_loader.h"
 #include "content/browser/web_package/signed_exchange_prefetch_metric_recorder.h"
+#include "content/browser/web_package/signed_exchange_reporter.h"
 #include "content/browser/web_package/signed_exchange_utils.h"
 #include "content/common/throttling_url_loader.h"
 #include "content/public/common/content_features.h"
@@ -35,21 +36,21 @@ SignedExchangeRequestHandler::SignedExchangeRequestHandler(
     const base::UnguessableToken& devtools_navigation_token,
     scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
     URLLoaderThrottlesGetter url_loader_throttles_getter,
-    scoped_refptr<SignedExchangePrefetchMetricRecorder> metric_recorder)
+    scoped_refptr<SignedExchangePrefetchMetricRecorder> metric_recorder,
+    std::string accept_langs)
     : url_loader_options_(url_loader_options),
       frame_tree_node_id_(frame_tree_node_id),
       devtools_navigation_token_(devtools_navigation_token),
       url_loader_factory_(url_loader_factory),
       url_loader_throttles_getter_(std::move(url_loader_throttles_getter)),
       metric_recorder_(std::move(metric_recorder)),
-      weak_factory_(this) {
-  DCHECK(signed_exchange_utils::IsSignedExchangeHandlingEnabled());
-}
+      accept_langs_(std::move(accept_langs)) {}
 
 SignedExchangeRequestHandler::~SignedExchangeRequestHandler() = default;
 
 void SignedExchangeRequestHandler::MaybeCreateLoader(
     const network::ResourceRequest& tentative_resource_request,
+    BrowserContext* browser_context,
     ResourceContext* resource_context,
     LoaderCallback callback,
     FallbackCallback fallback_callback) {
@@ -76,19 +77,23 @@ void SignedExchangeRequestHandler::MaybeCreateLoader(
 
 bool SignedExchangeRequestHandler::MaybeCreateLoaderForResponse(
     const network::ResourceRequest& request,
-    const network::ResourceResponseHead& response,
+    const network::ResourceResponseHead& response_head,
+    mojo::ScopedDataPipeConsumerHandle* response_body,
     network::mojom::URLLoaderPtr* loader,
     network::mojom::URLLoaderClientRequest* client_request,
     ThrottlingURLLoader* url_loader,
     bool* skip_other_interceptors) {
   DCHECK(!signed_exchange_loader_);
   if (!signed_exchange_utils::ShouldHandleAsSignedHTTPExchange(request.url,
-                                                               response)) {
+                                                               response_head)) {
     return false;
   }
 
   network::mojom::URLLoaderClientPtr client;
   *client_request = mojo::MakeRequest(&client);
+
+  base::RepeatingCallback<int(void)> frame_tree_node_id_getter =
+      base::BindRepeating([](int id) { return id; }, frame_tree_node_id_);
 
   // This lets the SignedExchangeLoader directly returns an artificial redirect
   // to the downstream client without going through ThrottlingURLLoader, which
@@ -96,15 +101,17 @@ bool SignedExchangeRequestHandler::MaybeCreateLoaderForResponse(
   // the redirected request will be checked when it's restarted we suppose
   // this is fine.
   signed_exchange_loader_ = std::make_unique<SignedExchangeLoader>(
-      request, response, std::move(client), url_loader->Unbind(),
-      url_loader_options_, true /* should_redirect_to_fallback */,
+      request, response_head, std::move(*response_body), std::move(client),
+      url_loader->Unbind(), url_loader_options_,
+      true /* should_redirect_to_fallback */,
       std::make_unique<SignedExchangeDevToolsProxy>(
-          request.url, response,
-          base::BindRepeating([](int id) { return id; }, frame_tree_node_id_),
+          request.url, response_head, frame_tree_node_id_getter,
           devtools_navigation_token_, request.report_raw_headers),
+      SignedExchangeReporter::MaybeCreate(request.url, request.referrer.spec(),
+                                          response_head,
+                                          frame_tree_node_id_getter),
       url_loader_factory_, url_loader_throttles_getter_,
-      base::BindRepeating([](int id) { return id; }, frame_tree_node_id_),
-      metric_recorder_);
+      frame_tree_node_id_getter, metric_recorder_, accept_langs_);
 
   *skip_other_interceptors = true;
   return true;

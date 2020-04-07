@@ -64,6 +64,7 @@
 #  include "qshortcut.h"
 #endif
 #include "qstyle.h"
+#include "qstyleoption.h"
 #include "qvarlengtharray.h"
 #if defined(Q_OS_MACX)
 #include <QtCore/QMetaMethod>
@@ -897,7 +898,9 @@ QWizardLayoutInfo QWizardPrivate::layoutInfoForCurrentPage()
 
     QWizardLayoutInfo info;
 
-    const int layoutHorizontalSpacing = style->pixelMetric(QStyle::PM_LayoutHorizontalSpacing);
+    QStyleOption option;
+    option.initFrom(q);
+    const int layoutHorizontalSpacing = style->pixelMetric(QStyle::PM_LayoutHorizontalSpacing, &option);
     info.topLevelMarginLeft = style->pixelMetric(QStyle::PM_LayoutLeftMargin, 0, q);
     info.topLevelMarginRight = style->pixelMetric(QStyle::PM_LayoutRightMargin, 0, q);
     info.topLevelMarginTop = style->pixelMetric(QStyle::PM_LayoutTopMargin, 0, q);
@@ -909,7 +912,7 @@ QWizardLayoutInfo QWizardPrivate::layoutInfoForCurrentPage()
     info.hspacing = (layoutHorizontalSpacing == -1)
         ? style->layoutSpacing(QSizePolicy::DefaultType, QSizePolicy::DefaultType, Qt::Horizontal)
         : layoutHorizontalSpacing;
-    info.vspacing = style->pixelMetric(QStyle::PM_LayoutVerticalSpacing);
+    info.vspacing = style->pixelMetric(QStyle::PM_LayoutVerticalSpacing, &option);
     info.buttonSpacing = (layoutHorizontalSpacing == -1)
         ? style->layoutSpacing(QSizePolicy::PushButton, QSizePolicy::PushButton, Qt::Horizontal)
         : layoutHorizontalSpacing;
@@ -1299,7 +1302,7 @@ void QWizardPrivate::updateMinMaxSizes(const QWizardLayoutInfo &info)
     int extraHeight = 0;
 #if QT_CONFIG(style_windowsvista)
     if (isVistaThemeEnabled())
-        extraHeight = vistaHelper->titleBarSize() + vistaHelper->topOffset();
+        extraHeight = vistaHelper->titleBarSize() + vistaHelper->topOffset(q);
 #endif
     QSize minimumSize = mainLayout->totalMinimumSize() + QSize(0, extraHeight);
     QSize maximumSize = mainLayout->totalMaximumSize();
@@ -1565,23 +1568,25 @@ bool QWizardPrivate::handleAeroStyleChange()
     bool vistaMargins = false;
 
     if (isVistaThemeEnabled()) {
+        const int topOffset = vistaHelper->topOffset(q);
+        const int topPadding = vistaHelper->topPadding(q);
         if (isVistaThemeEnabled(QVistaHelper::VistaAero)) {
             if (isWindow) {
                 vistaHelper->setDWMTitleBar(QVistaHelper::ExtendedTitleBar);
                 q->installEventFilter(vistaHelper);
             }
             q->setMouseTracking(true);
-            antiFlickerWidget->move(0, vistaHelper->titleBarSize() + vistaHelper->topOffset());
+            antiFlickerWidget->move(0, vistaHelper->titleBarSize() + topOffset);
             vistaHelper->backButton()->move(
-                0, vistaHelper->topOffset() // ### should ideally work without the '+ 1'
-                - qMin(vistaHelper->topOffset(), vistaHelper->topPadding() + 1));
+                0, topOffset // ### should ideally work without the '+ 1'
+                - qMin(topOffset, topPadding + 1));
             vistaMargins = true;
             vistaHelper->backButton()->show();
         } else {
             if (isWindow)
                 vistaHelper->setDWMTitleBar(QVistaHelper::NormalTitleBar);
             q->setMouseTracking(true);
-            antiFlickerWidget->move(0, vistaHelper->topOffset());
+            antiFlickerWidget->move(0, topOffset);
             vistaHelper->backButton()->move(0, -1); // ### should ideally work with (0, 0)
         }
         if (isWindow)
@@ -2545,7 +2550,7 @@ void QWizard::setWizardStyle(WizardStyle style)
             //Send a resizeevent since the antiflicker widget probably needs a new size
             //because of the backbutton in the window title
             QResizeEvent ev(geometry().size(), geometry().size());
-            QApplication::sendEvent(this, &ev);
+            QCoreApplication::sendEvent(this, &ev);
         }
 #endif
         d->updateLayout();
@@ -3182,7 +3187,7 @@ void QWizard::resizeEvent(QResizeEvent *event)
     int heightOffset = 0;
 #if QT_CONFIG(style_windowsvista)
     if (d->isVistaThemeEnabled()) {
-        heightOffset = d->vistaHelper->topOffset();
+        heightOffset = d->vistaHelper->topOffset(this);
         if (d->isVistaThemeEnabled(QVistaHelper::VistaAero))
             heightOffset += d->vistaHelper->titleBarSize();
     }
@@ -3214,7 +3219,7 @@ void QWizard::paintEvent(QPaintEvent * event)
         if (d->isVistaThemeEnabled(QVistaHelper::VistaBasic)) {
             QPainter painter(this);
             QColor color = d->vistaHelper->basicWindowFrameColor();
-            painter.fillRect(0, 0, width(), QVistaHelper::topOffset(), color);
+            painter.fillRect(0, 0, width(), QVistaHelper::topOffset(this), color);
         }
         d->vistaHelper->paintEvent(event);
     }
@@ -3227,7 +3232,11 @@ void QWizard::paintEvent(QPaintEvent * event)
 /*!
     \reimp
 */
+#  if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+bool QWizard::nativeEvent(const QByteArray &eventType, void *message, qintptr *result)
+#  else
 bool QWizard::nativeEvent(const QByteArray &eventType, void *message, long *result)
+#  endif
 {
 #if QT_CONFIG(style_windowsvista)
     Q_D(QWizard);

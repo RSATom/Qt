@@ -1,4 +1,4 @@
-/// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -18,6 +18,7 @@ const base::Feature* const kAllFeatures[] = {
     &kIPHDummyFeature,  // Ensures non-empty array for all platforms.
 #if defined(OS_ANDROID)
     &kIPHDataSaverDetailFeature,
+    &kIPHDataSaverMilestonePromoFeature,
     &kIPHDataSaverPreviewFeature,
     &kIPHDownloadHomeFeature,
     &kIPHDownloadPageFeature,
@@ -25,34 +26,48 @@ const base::Feature* const kAllFeatures[] = {
     &kIPHChromeDuetFeature,
     &kIPHChromeHomeExpandFeature,
     &kIPHChromeHomePullToRefreshFeature,
-    &kIPHMediaDownloadFeature,
     &kIPHContextualSearchWebSearchFeature,
     &kIPHContextualSearchPromoteTapFeature,
     &kIPHContextualSearchPromotePanelOpenFeature,
     &kIPHContextualSearchOptInFeature,
-    &kIPHContextualSuggestionsFeature,
     &kIPHDownloadSettingsFeature,
     &kIPHDownloadInfoBarDownloadContinuingFeature,
     &kIPHDownloadInfoBarDownloadsAreFasterFeature,
+    &kIPHFeedCardMenuFeature,
     &kIPHHomePageButtonFeature,
     &kIPHHomepageTileFeature,
+    &kIPHIdentityDiscFeature,
+    &kIPHKeyboardAccessoryAddressFillingFeature,
+    &kIPHKeyboardAccessoryPasswordFillingFeature,
+    &kIPHKeyboardAccessoryPaymentFillingFeature,
     &kIPHNewTabPageButtonFeature,
     &kIPHPreviewsOmniboxUIFeature,
+    &kIPHTabGroupsQuicklyComparePagesFeature,
+    &kIPHTabGroupsTapToSeeAnotherTabFeature,
+    &kIPHTabGroupsYourTabsAreTogetherFeature,
+    &kIPHTabGroupsDragAndDropFeature,
     &kIPHTranslateMenuButtonFeature,
+    &kIPHExploreSitesTileFeature,
 #endif  // defined(OS_ANDROID)
-#if BUILDFLAG(ENABLE_DESKTOP_IN_PRODUCT_HELP)
-    &kIPHBookmarkFeature,
-    &kIPHIncognitoWindowFeature,
-    &kIPHNewTabFeature,
-    &kIPHReopenTabFeature,
-#endif  // BUILDFLAG(ENABLE_DESKTOP_IN_PRODUCT_HELP)
 #if defined(OS_IOS)
     &kIPHBottomToolbarTipFeature,
     &kIPHLongPressToolbarTipFeature,
     &kIPHNewTabTipFeature,
     &kIPHNewIncognitoTabTipFeature,
     &kIPHBadgedReadingListFeature,
+    &kIPHBadgedTranslateManualTriggerFeature,
 #endif  // defined(OS_IOS)
+#if defined(OS_WIN) || defined(OS_MACOSX) || defined(OS_LINUX) || \
+    defined(OS_CHROMEOS)
+    &kIPHReopenTabFeature,
+    &kIPHFocusModeFeature,
+#if BUILDFLAG(ENABLE_LEGACY_DESKTOP_IN_PRODUCT_HELP)
+    &kIPHBookmarkFeature,
+    &kIPHIncognitoWindowFeature,
+    &kIPHNewTabFeature,
+#endif  // BUILDFLAG(ENABLE_LEGACY_DESKTOP_IN_PRODUCT_HELP)
+#endif  // defined(OS_WIN) || defined(OS_MACOSX) || defined(OS_LINUX) ||
+        // defined(OS_CHROMEOS)
 };
 }  // namespace
 

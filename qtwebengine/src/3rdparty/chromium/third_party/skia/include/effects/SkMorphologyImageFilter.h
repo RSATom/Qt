@@ -8,10 +8,10 @@
 #ifndef SkMorphologyImageFilter_DEFINED
 #define SkMorphologyImageFilter_DEFINED
 
-#include "SkColor.h"
-#include "SkFlattenable.h"
-#include "SkImageFilter.h"
-#include "SkSize.h"
+#include "include/core/SkColor.h"
+#include "include/core/SkFlattenable.h"
+#include "include/core/SkImageFilter.h"
+#include "include/core/SkSize.h"
 
 ///////////////////////////////////////////////////////////////////////////////
 class SK_API SkMorphologyImageFilter : public SkImageFilter {
@@ -44,7 +44,6 @@ protected:
     sk_sp<SkSpecialImage> onFilterImage(SkSpecialImage* source,
                                         const Context&,
                                         SkIPoint* offset) const override;
-    sk_sp<SkImageFilter> onMakeColorSpace(SkColorSpaceXformer*) const override;
     void flatten(SkWriteBuffer&) const override;
 
     SkISize radius() const { return fRadius; }

@@ -8,10 +8,13 @@
 
 #include <utility>
 
+#include "base/bind.h"
 #include "base/callback.h"
 #include "base/lazy_instance.h"
+#include "base/metrics/histogram_functions.h"
 #include "base/strings/string_piece.h"
 #include "base/strings/string_util.h"
+#include "base/time/time.h"
 #include "components/device_event_log/device_event_log.h"
 #include "device/bluetooth/bluetooth_adapter.h"
 #include "device/bluetooth/bluetooth_adapter_factory.h"
@@ -20,8 +23,14 @@
 #include "extensions/browser/api/bluetooth/bluetooth_api.h"
 #include "extensions/browser/api/bluetooth/bluetooth_api_pairing_delegate.h"
 #include "extensions/browser/api/bluetooth/bluetooth_event_router.h"
+#include "extensions/common/api/bluetooth.h"
 #include "extensions/common/api/bluetooth_private.h"
 
+#if defined(OS_CHROMEOS)
+#include "device/bluetooth/chromeos/bluetooth_utils.h"
+#endif
+
+namespace bt = extensions::api::bluetooth;
 namespace bt_private = extensions::api::bluetooth_private;
 namespace SetDiscoveryFilter = bt_private::SetDiscoveryFilter;
 
@@ -32,9 +41,89 @@ static base::LazyInstance<BrowserContextKeyedAPIFactory<BluetoothPrivateAPI>>::
 
 namespace {
 
+// This enum is tied directly to a UMA enum defined in
+// //tools/metrics/histograms/enums.xml, and should always reflect it (do not
+// change one without changing the other).
+enum BluetoothTransportType {
+  kUnknown = 0,
+  kClassic = 1,
+  kLE = 2,
+  kDual = 3,
+  kInvalid = 4,
+  kMaxValue
+};
+
 std::string GetListenerId(const EventListenerInfo& details) {
   return !details.extension_id.empty() ? details.extension_id
                                        : details.listener_url.host();
+}
+
+void RecordPairingDuration(const std::string& histogram_name,
+                           base::TimeDelta pairing_duration) {
+  base::UmaHistogramCustomTimes(histogram_name, pairing_duration,
+                                base::TimeDelta::FromMilliseconds(1) /* min */,
+                                base::TimeDelta::FromSeconds(30) /* max */,
+                                50 /* buckets */);
+}
+
+void RecordPairingResult(bool success,
+                         bt::Transport transport,
+                         int pairing_duration_ms) {
+  std::string transport_histogram_name;
+  switch (transport) {
+    case bt::Transport::TRANSPORT_CLASSIC:
+      transport_histogram_name = "Classic";
+      break;
+    case bt::Transport::TRANSPORT_LE:
+      transport_histogram_name = "BLE";
+      break;
+    case bt::Transport::TRANSPORT_DUAL:
+      transport_histogram_name = "Dual";
+      break;
+    default:
+      // A transport type of INVALID or other is unexpected, and no success
+      // metric for it exists.
+      return;
+  }
+
+  base::UmaHistogramBoolean("Bluetooth.ChromeOS.Pairing.Result", success);
+  base::UmaHistogramBoolean(
+      "Bluetooth.ChromeOS.Pairing.Result." + transport_histogram_name, success);
+
+  std::string duration_histogram_name_prefix =
+      "Bluetooth.ChromeOS.Pairing.Duration";
+  std::string success_histogram_name = success ? "Success" : "Failure";
+
+  std::string base_histogram_name =
+      duration_histogram_name_prefix + "." + success_histogram_name;
+  RecordPairingDuration(base_histogram_name,
+                        base::TimeDelta::FromMilliseconds(pairing_duration_ms));
+  RecordPairingDuration(base_histogram_name + "." + transport_histogram_name,
+                        base::TimeDelta::FromMilliseconds(pairing_duration_ms));
+}
+
+void RecordPairingTransport(bt::Transport transport) {
+  BluetoothTransportType type;
+  switch (transport) {
+    case bt::Transport::TRANSPORT_CLASSIC:
+      type = BluetoothTransportType::kClassic;
+      break;
+    case bt::Transport::TRANSPORT_LE:
+      type = BluetoothTransportType::kLE;
+      break;
+    case bt::Transport::TRANSPORT_DUAL:
+      type = BluetoothTransportType::kDual;
+      break;
+    case bt::Transport::TRANSPORT_INVALID:
+      type = BluetoothTransportType::kInvalid;
+      break;
+    default:
+      type = BluetoothTransportType::kUnknown;
+      break;
+  }
+
+  base::UmaHistogramEnumeration("Bluetooth.ChromeOS.Pairing.TransportType",
+                                type);
 }
 
 }  // namespace
@@ -588,6 +677,87 @@ void BluetoothPrivatePairFunction::OnSuccessCallback() {
 void BluetoothPrivatePairFunction::OnErrorCallback(
     device::BluetoothDevice::ConnectErrorCode error) {
   Respond(Error(kPairingFailed));
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+BluetoothPrivateRecordPairingFunction::BluetoothPrivateRecordPairingFunction() =
+    default;
+
+BluetoothPrivateRecordPairingFunction::
+    ~BluetoothPrivateRecordPairingFunction() = default;
+
+bool BluetoothPrivateRecordPairingFunction::CreateParams() {
+  params_ = bt_private::RecordPairing::Params::Create(*args_);
+  return params_ != nullptr;
+}
+
+void BluetoothPrivateRecordPairingFunction::DoWork(
+    scoped_refptr<device::BluetoothAdapter> adapter) {
+  RecordPairingResult(params_->success, params_->transport,
+                      params_->pairing_duration_ms);
+  RecordPairingTransport(params_->transport);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+BluetoothPrivateRecordReconnectionFunction::
+    BluetoothPrivateRecordReconnectionFunction() = default;
+
+BluetoothPrivateRecordReconnectionFunction::
+    ~BluetoothPrivateRecordReconnectionFunction() = default;
+
+bool BluetoothPrivateRecordReconnectionFunction::CreateParams() {
+  params_ = bt_private::RecordReconnection::Params::Create(*args_);
+  return params_ != nullptr;
+}
+
+void BluetoothPrivateRecordReconnectionFunction::DoWork(
+    scoped_refptr<device::BluetoothAdapter> adapter) {
+  base::UmaHistogramBoolean(
+      "Bluetooth.ChromeOS.UserInitiatedReconnectionAttempt.Result",
+      params_->success);
+  base::UmaHistogramBoolean(
+      "Bluetooth.ChromeOS.UserInitiatedReconnectionAttempt.Result.Settings",
+      params_->success);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+BluetoothPrivateRecordDeviceSelectionFunction::
+    BluetoothPrivateRecordDeviceSelectionFunction() = default;
+
+BluetoothPrivateRecordDeviceSelectionFunction::
+    ~BluetoothPrivateRecordDeviceSelectionFunction() = default;
+
+bool BluetoothPrivateRecordDeviceSelectionFunction::CreateParams() {
+  params_ = bt_private::RecordDeviceSelection::Params::Create(*args_);
+  return params_ != nullptr;
+}
+
+void BluetoothPrivateRecordDeviceSelectionFunction::DoWork(
+    scoped_refptr<device::BluetoothAdapter> adapter) {
+#if defined(OS_CHROMEOS)
+  device::BluetoothTransport transport;
+  switch (params_->transport) {
+    case bt::Transport::TRANSPORT_CLASSIC:
+      transport = device::BLUETOOTH_TRANSPORT_CLASSIC;
+      break;
+    case bt::Transport::TRANSPORT_LE:
+      transport = device::BLUETOOTH_TRANSPORT_LE;
+      break;
+    case bt::Transport::TRANSPORT_DUAL:
+      transport = device::BLUETOOTH_TRANSPORT_DUAL;
+      break;
+    default:
+      transport = device::BLUETOOTH_TRANSPORT_INVALID;
+      break;
+  }
+
+  device::RecordDeviceSelectionDuration(
+      base::TimeDelta::FromMilliseconds(params_->selection_duration_ms),
+      device::BluetoothUiSurface::kSettings, params_->was_paired, transport);
+#endif
 }
 
 ////////////////////////////////////////////////////////////////////////////////

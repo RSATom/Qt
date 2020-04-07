@@ -16,15 +16,13 @@
 #include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
 #include "build/build_config.h"
-#include "components/viz/common/display/renderer_settings.h"
 #include "components/viz/common/gpu/context_lost_observer.h"
 #include "components/viz/common/surfaces/frame_sink_id_allocator.h"
 #include "components/viz/host/host_frame_sink_manager.h"
 #include "content/browser/compositor/image_transport_factory.h"
 #include "gpu/ipc/client/gpu_channel_host.h"
-#include "gpu/vulkan/buildflags.h"
-#include "services/ws/public/cpp/gpu/command_buffer_metrics.h"
-#include "services/ws/public/cpp/gpu/shared_worker_context_provider_factory.h"
+#include "services/viz/public/cpp/gpu/command_buffer_metrics.h"
+#include "services/viz/public/cpp/gpu/shared_worker_context_provider_factory.h"
 #include "ui/compositor/compositor.h"
 
 namespace base {
@@ -38,19 +36,16 @@ class SurfaceManager;
 
 namespace gpu {
 class GpuChannelEstablishFactory;
-class VulkanImplementation;
 }
 
 namespace viz {
 class CompositingModeReporterImpl;
-class OutputDeviceBacking;
 class RasterContextProvider;
 class ServerSharedBitmapManager;
 class SoftwareOutputDevice;
-class VulkanInProcessContextProvider;
 }
 
-namespace ws {
+namespace viz {
 class ContextProviderCommandBuffer;
 }
 
@@ -74,6 +69,9 @@ class GpuProcessTransportFactory : public ui::ContextFactory,
       base::WeakPtr<ui::Compositor> compositor) override;
   scoped_refptr<viz::ContextProvider> SharedMainThreadContextProvider()
       override;
+  scoped_refptr<viz::RasterContextProvider>
+  SharedMainThreadRasterContextProvider() override;
+
   gpu::GpuMemoryBufferManager* GetGpuMemoryBufferManager() override;
   cc::TaskGraphRunner* GetTaskGraphRunner() override;
   void AddObserver(ui::ContextFactoryObserver* observer) override;
@@ -94,21 +92,23 @@ class GpuProcessTransportFactory : public ui::ContextFactory,
   void SetDisplayColorMatrix(ui::Compositor* compositor,
                              const SkMatrix44& matrix) override;
   void SetDisplayColorSpace(ui::Compositor* compositor,
-                            const gfx::ColorSpace& blending_color_space,
-                            const gfx::ColorSpace& output_color_space) override;
+                            const gfx::ColorSpace& output_color_space,
+                            float sdr_white_level) override;
   void SetDisplayVSyncParameters(ui::Compositor* compositor,
                                  base::TimeTicks timebase,
                                  base::TimeDelta interval) override;
   void IssueExternalBeginFrame(ui::Compositor* compositor,
                                const viz::BeginFrameArgs& args) override;
   void SetOutputIsSecure(ui::Compositor* compositor, bool secure) override;
+  void AddVSyncParameterObserver(
+      ui::Compositor* compositor,
+      viz::mojom::VSyncParameterObserverPtr observer) override;
 
   // ImageTransportFactory implementation.
   void DisableGpuCompositing() override;
   bool IsGpuCompositingDisabled() override;
   ui::ContextFactory* GetContextFactory() override;
   ui::ContextFactoryPrivate* GetContextFactoryPrivate() override;
-  viz::FrameSinkManagerImpl* GetFrameSinkManager() override;
 
  private:
   struct PerCompositorData;
@@ -128,15 +128,10 @@ class GpuProcessTransportFactory : public ui::ContextFactory,
 
   void OnLostMainThreadSharedContext();
 
-#if BUILDFLAG(ENABLE_VULKAN)
-  scoped_refptr<viz::VulkanInProcessContextProvider>
-  SharedVulkanContextProvider();
-#endif
-
   // viz::ContextLostObserver implementation.
   void OnContextLost() override;
 
-  scoped_refptr<ws::ContextProviderCommandBuffer> CreateContextCommon(
+  scoped_refptr<viz::ContextProviderCommandBuffer> CreateContextCommon(
       scoped_refptr<gpu::GpuChannelHost> gpu_channel_host,
       gpu::SurfaceHandle surface_handle,
       bool need_alpha_channel,
@@ -145,40 +140,25 @@ class GpuProcessTransportFactory : public ui::ContextFactory,
       bool support_gles2_interface,
       bool support_raster_interface,
       bool support_grcontext,
-      ws::command_buffer_metrics::ContextType type);
+      viz::command_buffer_metrics::ContextType type);
 
   viz::FrameSinkIdAllocator frame_sink_id_allocator_;
-
-#if defined(OS_WIN)
-  // Used by output surface, stored in PerCompositorData.
-  std::unique_ptr<viz::OutputDeviceBacking> software_backing_;
-#endif
-
-#if BUILDFLAG(ENABLE_VULKAN)
-  std::unique_ptr<gpu::VulkanImplementation> vulkan_implementation_;
-#endif
 
   // Depends on SurfaceManager.
   typedef std::map<ui::Compositor*, std::unique_ptr<PerCompositorData>>
       PerCompositorDataMap;
   PerCompositorDataMap per_compositor_data_;
 
-  const viz::RendererSettings renderer_settings_;
-  scoped_refptr<ws::ContextProviderCommandBuffer> shared_main_thread_contexts_;
+  scoped_refptr<viz::ContextProviderCommandBuffer> shared_main_thread_contexts_;
   base::ObserverList<ui::ContextFactoryObserver>::Unchecked observer_list_;
   scoped_refptr<base::SingleThreadTaskRunner> resize_task_runner_;
   std::unique_ptr<cc::SingleThreadTaskGraphRunner> task_graph_runner_;
-  ws::SharedWorkerContextProviderFactory
+  viz::SharedWorkerContextProviderFactory
       shared_worker_context_provider_factory_;
 
   bool is_gpu_compositing_disabled_ = false;
   bool disable_frame_rate_limit_ = false;
   bool wait_for_all_pipeline_stages_before_draw_ = false;
-#if BUILDFLAG(ENABLE_VULKAN)
-  bool shared_vulkan_context_provider_initialized_ = false;
-  scoped_refptr<viz::VulkanInProcessContextProvider>
-      shared_vulkan_context_provider_;
-#endif
 
   gpu::GpuChannelEstablishFactory* const gpu_channel_factory_;
   // Service-side impl that controls the compositing mode based on what mode the
@@ -187,7 +167,7 @@ class GpuProcessTransportFactory : public ui::ContextFactory,
   // Manages a mapping of SharedBitmapId to shared memory objects.
   viz::ServerSharedBitmapManager* const server_shared_bitmap_manager_;
 
-  base::WeakPtrFactory<GpuProcessTransportFactory> callback_factory_;
+  base::WeakPtrFactory<GpuProcessTransportFactory> callback_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(GpuProcessTransportFactory);
 };

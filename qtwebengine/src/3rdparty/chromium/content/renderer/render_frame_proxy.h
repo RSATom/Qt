@@ -24,10 +24,6 @@
 #include "third_party/blink/public/web/web_remote_frame_client.h"
 #include "url/origin.h"
 
-#if defined(USE_AURA)
-#include "content/renderer/mus/mus_embedded_frame_delegate.h"
-#endif
-
 namespace blink {
 struct FramePolicy;
 struct WebRect;
@@ -48,10 +44,6 @@ struct ContentSecurityPolicyHeader;
 struct FrameOwnerProperties;
 struct FrameReplicationState;
 struct ResourceTimingInfo;
-
-#if defined(USE_AURA) && !defined(TOOLKIT_QT)
-class MusEmbeddedFrame;
-#endif
 
 // When a page's frames are rendered by multiple processes, each renderer has a
 // full copy of the frame tree. It has full RenderFrames for the frames it is
@@ -75,9 +67,6 @@ class MusEmbeddedFrame;
 // RenderFrame is created for it.
 class CONTENT_EXPORT RenderFrameProxy : public IPC::Listener,
                                         public IPC::Sender,
-#if defined(USE_AURA) && !defined(TOOLKIT_QT)
-                                        public MusEmbeddedFrameDelegate,
-#endif
                                         public ChildFrameCompositor,
                                         public blink::WebRemoteFrameClient {
  public:
@@ -114,8 +103,11 @@ class CONTENT_EXPORT RenderFrameProxy : public IPC::Listener,
 
   // Creates a RenderFrameProxy to be used with a portal owned by |parent|.
   // |routing_id| is the routing id of this new RenderFrameProxy.
-  static RenderFrameProxy* CreateProxyForPortal(RenderFrameImpl* parent,
-                                                int proxy_routing_id);
+  static RenderFrameProxy* CreateProxyForPortal(
+      RenderFrameImpl* parent,
+      int proxy_routing_id,
+      const base::UnguessableToken& devtools_frame_token,
+      const blink::WebElement& portal_element);
 
   // Returns the RenderFrameProxy for the given routing ID.
   static RenderFrameProxy* FromRoutingID(int routing_id);
@@ -132,10 +124,6 @@ class CONTENT_EXPORT RenderFrameProxy : public IPC::Listener,
   // IPC::Listener
   bool OnMessageReceived(const IPC::Message& msg) override;
 
-  // Out-of-process child frames receive a signal from blink::LayerTreeView
-  // when a compositor frame will begin.
-  void WillBeginCompositorFrame();
-
   // Out-of-process child frames receive a signal from RenderWidget when the
   // ScreenInfo has changed.
   void OnScreenInfoChanged(const ScreenInfo& screen_info);
@@ -145,8 +133,9 @@ class CONTENT_EXPORT RenderFrameProxy : public IPC::Listener,
   void OnZoomLevelChanged(double zoom_level);
 
   // Out-of-process child frames receive a signal from RenderWidget when the
-  // page scale factor has changed.
-  void OnPageScaleFactorChanged(float page_scale_factor);
+  // page scale factor has changed, and/or a pinch-zoom gesture starts/ends.
+  void OnPageScaleFactorChanged(float page_scale_factor,
+                                bool is_pinch_gesture_active);
 
   // Invoked by RenderWidget when a new capture sequence number was set,
   // indicating that surfaces should be synchronized.
@@ -169,11 +158,6 @@ class CONTENT_EXPORT RenderFrameProxy : public IPC::Listener,
 
   // Returns the widget used for the local frame root.
   RenderWidget* render_widget() { return render_widget_; }
-
-#if defined(USE_AURA) && !defined(TOOLKIT_QT)
-  void SetMusEmbeddedFrame(
-      std::unique_ptr<MusEmbeddedFrame> mus_embedded_frame);
-#endif
 
   void SynchronizeVisualProperties();
 
@@ -199,17 +183,20 @@ class CONTENT_EXPORT RenderFrameProxy : public IPC::Listener,
                           blink::WebSecurityOrigin target,
                           blink::WebDOMMessageEvent event,
                           bool has_user_gesture) override;
-  void Navigate(const blink::WebURLRequest& request,
-                bool should_replace_current_entry,
-                bool is_opener_navigation,
-                bool prevent_sandboxed_download,
-                mojo::ScopedMessagePipeHandle blob_url_token) override;
+  void Navigate(
+      const blink::WebURLRequest& request,
+      bool should_replace_current_entry,
+      bool is_opener_navigation,
+      bool has_download_sandbox_flag,
+      bool blocking_downloads_in_sandbox_without_user_activation_enabled,
+      bool initiator_frame_is_ad,
+      mojo::ScopedMessagePipeHandle blob_url_token) override;
   void FrameRectsChanged(const blink::WebRect& local_frame_rect,
                          const blink::WebRect& screen_space_rect) override;
   void UpdateRemoteViewportIntersection(
       const blink::WebRect& viewport_intersection,
-      bool occluded_or_obscured) override;
-  void VisibilityChanged(bool visible) override;
+      blink::FrameOcclusionState occlusion_state) override;
+  void VisibilityChanged(blink::mojom::FrameVisibility visibility) override;
   void SetIsInert(bool) override;
   void SetInheritedEffectiveTouchAction(cc::TouchAction) override;
   void UpdateRenderThrottlingStatus(bool is_throttled,
@@ -225,6 +212,10 @@ class CONTENT_EXPORT RenderFrameProxy : public IPC::Listener,
   void OnDidStartLoading();
 
   void WasEvicted();
+
+  bool is_pinch_gesture_active_for_testing() {
+    return pending_visual_properties_.is_pinch_gesture_active;
+  }
 
  private:
   RenderFrameProxy(int routing_id);
@@ -253,6 +244,7 @@ class CONTENT_EXPORT RenderFrameProxy : public IPC::Listener,
   void OnForwardResourceTimingToParent(
       const ResourceTimingInfo& resource_timing);
   void OnDispatchLoad();
+  void OnSetNeedsOcclusionTracking(bool);
   void OnCollapse(bool collapsed);
   void OnDidUpdateName(const std::string& name, const std::string& unique_name);
   void OnAddContentSecurityPolicies(
@@ -267,21 +259,16 @@ class CONTENT_EXPORT RenderFrameProxy : public IPC::Listener,
   void OnSetFocusedFrame();
   void OnWillEnterFullscreen();
   void OnUpdateUserActivationState(blink::UserActivationUpdateType update_type);
+  void OnTransferUserActivationFrom(int32_t source_routing_id);
   void OnScrollRectToVisible(const gfx::Rect& rect_to_scroll,
                              const blink::WebScrollIntoViewParams& params);
   void OnBubbleLogicalScroll(blink::WebScrollDirection direction,
-                             blink::WebScrollGranularity granularity);
+                             ui::input_types::ScrollGranularity granularity);
   void OnDidUpdateVisualProperties(const cc::RenderFrameMetadata& metadata);
   void OnEnableAutoResize(const gfx::Size& min_size, const gfx::Size& max_size);
   void OnDisableAutoResize();
   void OnSetHasReceivedUserGestureBeforeNavigation(bool value);
   void OnRenderFallbackContent() const;
-
-#if defined(USE_AURA) && !defined(TOOLKIT_QT)
-  // MusEmbeddedFrameDelegate
-  void OnMusEmbeddedFrameSinkIdAllocated(
-      const viz::FrameSinkId& frame_sink_id) override;
-#endif
 
   // ChildFrameCompositor:
   cc::Layer* GetLayer() override;
@@ -327,17 +314,15 @@ class CONTENT_EXPORT RenderFrameProxy : public IPC::Listener,
   bool crashed_ = false;
 
   viz::FrameSinkId frame_sink_id_;
-  viz::ParentLocalSurfaceIdAllocator parent_local_surface_id_allocator_;
+  std::unique_ptr<viz::ParentLocalSurfaceIdAllocator>
+      parent_local_surface_id_allocator_;
 
   bool enable_surface_synchronization_ = false;
 
   gfx::Rect last_intersection_rect_;
   gfx::Rect last_compositor_visible_rect_;
-  bool last_occluded_or_obscured_ = false;
-
-#if defined(USE_AURA) && !defined(TOOLKIT_QT)
-  std::unique_ptr<MusEmbeddedFrame> mus_embedded_frame_;
-#endif
+  blink::FrameOcclusionState last_occlusion_state_ =
+      blink::FrameOcclusionState::kUnknown;
 
   // The layer used to embed the out-of-process content.
   scoped_refptr<cc::Layer> embedded_layer_;

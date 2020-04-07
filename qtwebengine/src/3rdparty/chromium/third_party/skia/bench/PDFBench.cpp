@@ -5,20 +5,20 @@
  * found in the LICENSE file.
  */
 
-#include "Benchmark.h"
+#include "bench/Benchmark.h"
 
-#include "Resources.h"
-#include "SkAutoPixmapStorage.h"
-#include "SkData.h"
-#include "SkExecutor.h"
-#include "SkFloatToDecimal.h"
-#include "SkGradientShader.h"
-#include "SkImage.h"
-#include "SkPDFUnion.h"
-#include "SkPixmap.h"
-#include "SkRandom.h"
-#include "SkStream.h"
-#include "SkTo.h"
+#include "include/core/SkData.h"
+#include "include/core/SkExecutor.h"
+#include "include/core/SkImage.h"
+#include "include/core/SkPixmap.h"
+#include "include/core/SkStream.h"
+#include "include/effects/SkGradientShader.h"
+#include "include/private/SkTo.h"
+#include "include/utils/SkRandom.h"
+#include "src/core/SkAutoPixmapStorage.h"
+#include "src/pdf/SkPDFUnion.h"
+#include "src/utils/SkFloatToDecimal.h"
+#include "tools/Resources.h"
 
 namespace {
 struct WStreamWriteTextBenchmark : public Benchmark {
@@ -75,10 +75,10 @@ DEF_BENCH(return new PDFScalarBench("PDFScalar_random", next_any);)
 
 #ifdef SK_SUPPORT_PDF
 
-#include "SkPDFBitmap.h"
-#include "SkPDFDocumentPriv.h"
-#include "SkPDFShader.h"
-#include "SkPDFUtils.h"
+#include "src/pdf/SkPDFBitmap.h"
+#include "src/pdf/SkPDFDocumentPriv.h"
+#include "src/pdf/SkPDFShader.h"
+#include "src/pdf/SkPDFUtils.h"
 
 namespace {
 class PDFImageBench : public Benchmark {
@@ -210,7 +210,7 @@ struct PDFShaderBench : public Benchmark {
         };
         fShader = SkGradientShader::MakeLinear(
                 pts, colors, nullptr, SK_ARRAY_COUNT(colors),
-                SkShader::kClamp_TileMode);
+                SkTileMode::kClamp);
     }
     void onDraw(int loops, SkCanvas*) final {
         SkASSERT(fShader);
@@ -219,7 +219,7 @@ struct PDFShaderBench : public Benchmark {
             SkPDFDocument doc(&nullStream, SkPDF::Metadata());
             doc.beginPage(256, 256);
             (void) SkPDFMakeShader(&doc, fShader.get(), SkMatrix::I(),
-                                   {0, 0, 400, 400}, SK_ColorBLACK);
+                                   {0, 0, 400, 400}, SkColors::kBlack);
         }
     }
 };
@@ -243,6 +243,64 @@ struct WritePDFTextBenchmark : public Benchmark {
     }
 };
 
+// Test for regression chromium:947381
+// with    5c83ae81aa :   2364.99 microsec
+// without 5c83ae81aa : 302821.78 microsec
+struct PDFClipPathBenchmark : public Benchmark {
+    SkPath fPath;
+    void onDelayedSetup() override {
+        SkBitmap bitmap;
+        bitmap.allocN32Pixels(256, 256);
+        bitmap.eraseColor(SK_ColorWHITE);
+        {
+            SkCanvas tmp(bitmap);
+            SkPaint paint;
+            paint.setAntiAlias(false);
+            paint.setStyle(SkPaint::kStroke_Style);
+            paint.setStrokeWidth(10);
+            for (int r : {20, 40, 60, 80, 100, 120}) {
+                tmp.drawCircle(128, 128, (float)r, paint);
+            }
+        }
+        fPath.reset();
+        for (int y = 0; y < 256; ++y) {
+            SkColor current = bitmap.getColor(0, y);
+            int start = 0;
+            for (int x = 0; x < 256; ++x) {
+                SkColor color = bitmap.getColor(x, y);
+                if (color == current) {
+                    continue;
+                }
+                if (color == SK_ColorBLACK) {
+                    start = x;
+                } else {
+                    fPath.addRect(SkRect::Make(SkIRect{start, y, x, y + 1}));
+                }
+                current = color;
+            }
+            if (current == SK_ColorBLACK) {
+                fPath.addRect(SkRect::Make(SkIRect{start, y, 256, y + 1}));
+            }
+        }
+    }
+    const char* onGetName() override { return "PDFClipPath"; }
+    bool isSuitableFor(Backend backend) override {
+        return backend == kNonRendering_Backend;
+    }
+    void onDraw(int loops, SkCanvas*) override {
+        while (loops-- > 0) {
+            SkNullWStream wStream;
+            SkPDFDocument doc(&wStream, SkPDF::Metadata());
+            SkCanvas* canvas = doc.beginPage(256, 256);
+            canvas->clipPath(fPath);
+            canvas->translate(4.0f/3, 4.0f/3);
+            canvas->clipPath(fPath);
+            canvas->clear(SK_ColorRED);
+            doc.endPage();
+        }
+    }
+};
+
 }  // namespace
 DEF_BENCH(return new PDFImageBench;)
 DEF_BENCH(return new PDFJpegImageBench;)
@@ -250,9 +308,10 @@ DEF_BENCH(return new PDFCompressionBench;)
 DEF_BENCH(return new PDFColorComponentBench;)
 DEF_BENCH(return new PDFShaderBench;)
 DEF_BENCH(return new WritePDFTextBenchmark;)
+DEF_BENCH(return new PDFClipPathBenchmark;)
 
 #ifdef SK_PDF_ENABLE_SLOW_TESTS
-#include "SkExecutor.h"
+#include "include/core/SkExecutor.h"
 namespace {
 void big_pdf_test(SkDocument* doc, const SkBitmap& background) {
     static const char* kText[] = {

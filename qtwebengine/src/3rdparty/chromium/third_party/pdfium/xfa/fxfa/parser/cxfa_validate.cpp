@@ -6,8 +6,8 @@
 
 #include "xfa/fxfa/parser/cxfa_validate.h"
 
+#include "fxjs/xfa/cjx_node.h"
 #include "fxjs/xfa/cjx_object.h"
-#include "fxjs/xfa/cjx_validate.h"
 #include "third_party/base/ptr_util.h"
 #include "xfa/fxfa/parser/cxfa_message.h"
 #include "xfa/fxfa/parser/cxfa_picture.h"
@@ -21,7 +21,7 @@ const CXFA_Node::PropertyData kValidatePropertyData[] = {
     {XFA_Element::Picture, 1, 0},
     {XFA_Element::Script, 1, 0},
     {XFA_Element::Extras, 1, 0},
-    {XFA_Element::Unknown, 0, 0}};
+};
 const CXFA_Node::AttributeData kValidateAttributeData[] = {
     {XFA_Attribute::Id, XFA_AttributeType::CData, nullptr},
     {XFA_Attribute::Use, XFA_AttributeType::CData, nullptr},
@@ -34,7 +34,7 @@ const CXFA_Node::AttributeData kValidateAttributeData[] = {
     {XFA_Attribute::FormatTest, XFA_AttributeType::Enum,
      (void*)XFA_AttributeValue::Warning},
     {XFA_Attribute::Lock, XFA_AttributeType::Integer, (void*)0},
-    {XFA_Attribute::Unknown, XFA_AttributeType::Integer, nullptr}};
+};
 
 constexpr wchar_t kFormatTest[] = L"formatTest";
 constexpr wchar_t kNullTest[] = L"nullTest";
@@ -51,7 +51,7 @@ CXFA_Validate::CXFA_Validate(CXFA_Document* doc, XFA_PacketType packet)
           XFA_Element::Validate,
           kValidatePropertyData,
           kValidateAttributeData,
-          pdfium::MakeUnique<CJX_Validate>(this)) {}
+          pdfium::MakeUnique<CJX_Node>(this)) {}
 
 CXFA_Validate::~CXFA_Validate() = default;
 
@@ -137,7 +137,7 @@ void CXFA_Validate::SetMessageText(const WideString& wsMessageType,
   }
 
   CXFA_Node* pTextNode = pNode->CreateSamePacketNode(XFA_Element::Text);
-  pNode->InsertChild(pTextNode, nullptr);
+  pNode->InsertChildAndNotify(pTextNode, nullptr);
   pTextNode->JSObject()->SetCData(XFA_Attribute::Name, wsMessageType, false,
                                   false);
   pTextNode->JSObject()->SetContent(wsMessage, wsMessage, false, false, true);

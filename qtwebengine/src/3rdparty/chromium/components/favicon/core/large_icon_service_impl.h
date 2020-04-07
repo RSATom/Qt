@@ -8,6 +8,7 @@
 #include <memory>
 #include <vector>
 
+#include "base/feature_list.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/task/cancelable_task_tracker.h"
@@ -27,6 +28,8 @@ namespace favicon {
 class FaviconService;
 class FaviconServerFetcherParams;
 
+extern const base::Feature kLargeIconServiceFetchingFeature;
+
 // Implementation class for LargeIconService.
 class LargeIconServiceImpl : public LargeIconService {
  public:
@@ -41,20 +44,28 @@ class LargeIconServiceImpl : public LargeIconService {
       const GURL& page_url,
       int min_source_size_in_pixel,
       int desired_size_in_pixel,
-      const favicon_base::LargeIconCallback& callback,
+      favicon_base::LargeIconCallback callback,
       base::CancelableTaskTracker* tracker) override;
   base::CancelableTaskTracker::TaskId
   GetLargeIconImageOrFallbackStyleForPageUrl(
       const GURL& page_url,
       int min_source_size_in_pixel,
       int desired_size_in_pixel,
-      const favicon_base::LargeIconImageCallback& callback,
+      favicon_base::LargeIconImageCallback callback,
+      base::CancelableTaskTracker* tracker) override;
+  base::CancelableTaskTracker::TaskId
+  GetLargeIconRawBitmapOrFallbackStyleForIconUrl(
+      const GURL& icon_url,
+      int min_source_size_in_pixel,
+      int desired_size_in_pixel,
+      favicon_base::LargeIconCallback callback,
       base::CancelableTaskTracker* tracker) override;
   void GetLargeIconOrFallbackStyleFromGoogleServerSkippingLocalCache(
       std::unique_ptr<FaviconServerFetcherParams> params,
       bool may_page_url_be_private,
+      bool should_trim_page_url_path,
       const net::NetworkTrafficAnnotationTag& traffic_annotation,
-      const favicon_base::GoogleFaviconServerCallback& callback) override;
+      favicon_base::GoogleFaviconServerCallback callback) override;
   void TouchIconFromGoogleServer(const GURL& icon_url) override;
   // Extracts the organization-identifying domain from |url| which excludes
   // registrar portion (e.g. final ".com"). Used for logging UMA metrics.
@@ -66,8 +77,8 @@ class LargeIconServiceImpl : public LargeIconService {
       const GURL& page_url,
       int min_source_size_in_pixel,
       int desired_size_in_pixel,
-      const favicon_base::LargeIconCallback& raw_bitmap_callback,
-      const favicon_base::LargeIconImageCallback& image_callback,
+      favicon_base::LargeIconCallback raw_bitmap_callback,
+      favicon_base::LargeIconImageCallback image_callback,
       base::CancelableTaskTracker* tracker);
 
   void OnCanSetOnDemandFaviconComplete(
@@ -75,7 +86,7 @@ class LargeIconServiceImpl : public LargeIconService {
       const GURL& page_url,
       favicon_base::IconType icon_type,
       const net::NetworkTrafficAnnotationTag& traffic_annotation,
-      const favicon_base::GoogleFaviconServerCallback& callback,
+      favicon_base::GoogleFaviconServerCallback callback,
       bool can_set_on_demand_favicon);
 
   FaviconService* favicon_service_;
@@ -87,7 +98,7 @@ class LargeIconServiceImpl : public LargeIconService {
 
   std::unique_ptr<image_fetcher::ImageFetcher> image_fetcher_;
 
-  base::WeakPtrFactory<LargeIconServiceImpl> weak_ptr_factory_;
+  base::WeakPtrFactory<LargeIconServiceImpl> weak_ptr_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(LargeIconServiceImpl);
 };

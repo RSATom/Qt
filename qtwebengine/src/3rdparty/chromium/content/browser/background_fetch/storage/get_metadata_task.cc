@@ -6,12 +6,12 @@
 
 #include <utility>
 
+#include "base/bind.h"
 #include "content/browser/background_fetch/storage/database_helpers.h"
 #include "content/browser/service_worker/service_worker_context_wrapper.h"
 #include "url/gurl.h"
 
 namespace content {
-
 namespace background_fetch {
 
 GetMetadataTask::GetMetadataTask(DatabaseTaskHost* host,
@@ -23,8 +23,7 @@ GetMetadataTask::GetMetadataTask(DatabaseTaskHost* host,
       service_worker_registration_id_(service_worker_registration_id),
       origin_(origin),
       developer_id_(developer_id),
-      callback_(std::move(callback)),
-      weak_factory_(this) {}
+      callback_(std::move(callback)) {}
 
 GetMetadataTask::~GetMetadataTask() = default;
 
@@ -102,5 +101,4 @@ void GetMetadataTask::FinishWithError(
 }
 
 }  // namespace background_fetch
-
 }  // namespace content

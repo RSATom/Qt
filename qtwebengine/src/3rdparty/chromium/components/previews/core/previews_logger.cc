@@ -77,8 +77,6 @@ std::string GetReasonDescription(PreviewsEligibilityReason reason,
       return want_inverse_description
                  ? "Cache-control no-transform not received"
                  : "Cache-control no-transform received";
-    case PreviewsEligibilityReason::LAST:
-      break;
     case PreviewsEligibilityReason::NETWORK_NOT_SLOW_FOR_SESSION:
       return want_inverse_description
                  ? "Network is slow enough for the session"
@@ -90,6 +88,15 @@ std::string GetReasonDescription(PreviewsEligibilityReason reason,
       return want_inverse_description
                  ? "URL did not contain basic authentication"
                  : "URL contained basic authentication";
+    case PreviewsEligibilityReason::OPTIMIZATION_HINTS_NOT_AVAILABLE:
+      return want_inverse_description ? "Optimization hints are available"
+                                      : "Optimization hints are not available";
+    case PreviewsEligibilityReason::EXCLUDED_BY_MEDIA_SUFFIX:
+      return want_inverse_description
+                 ? "URL suffix is not an excluded media suffix previews"
+                 : "URL suffix is an excluded media suffix";
+    case PreviewsEligibilityReason::LAST:
+      break;
   }
   NOTREACHED();
   return "";
@@ -125,8 +132,7 @@ PreviewsLogger::MessageLog::MessageLog(const MessageLog& other)
       page_id(other.page_id) {}
 
 PreviewsLogger::PreviewsLogger()
-    : blacklist_ignored_(base::CommandLine::ForCurrentProcess()->HasSwitch(
-          switches::kIgnorePreviewsBlacklist)) {}
+    : blacklist_ignored_(switches::ShouldIgnorePreviewsBlacklist()) {}
 
 PreviewsLogger::~PreviewsLogger() {}
 

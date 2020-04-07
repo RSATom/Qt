@@ -53,42 +53,82 @@
 #include <QSGRendererInterface>
 
 #include "openglrenderer.h"
+#ifdef Q_OS_MACOS
+#include "metalrenderer.h"
+#endif
+#if QT_CONFIG(d3d12)
 #include "d3d12renderer.h"
+#endif
 #include "softwarerenderer.h"
 
+//! [1]
 CustomRenderItem::CustomRenderItem(QQuickItem *parent)
     : QQuickItem(parent)
 {
     // Our item shows something so set the flag.
     setFlag(ItemHasContents);
 }
+//! [1]
 
+//! [2]
 QSGNode *CustomRenderItem::updatePaintNode(QSGNode *node, UpdatePaintNodeData *)
 {
     QSGRenderNode *n = static_cast<QSGRenderNode *>(node);
-    if (!n) {
-        QSGRendererInterface *ri = window()->rendererInterface();
-        if (!ri)
-            return nullptr;
-        switch (ri->graphicsApi()) {
-            case QSGRendererInterface::OpenGL:
-#if QT_CONFIG(opengl)
-                n = new OpenGLRenderNode(this);
-                break;
-#endif
-            case QSGRendererInterface::Direct3D12:
-#if QT_CONFIG(d3d12)
-                n = new D3D12RenderNode(this);
-                break;
-#endif
-            case QSGRendererInterface::Software:
-                n = new SoftwareRenderNode(this);
-                break;
 
-            default:
-                return nullptr;
+    QSGRendererInterface *ri = window()->rendererInterface();
+    if (!ri)
+        return nullptr;
+
+    switch (ri->graphicsApi()) {
+    case QSGRendererInterface::OpenGL:
+        Q_FALLTHROUGH();
+    case QSGRendererInterface::OpenGLRhi:
+#if QT_CONFIG(opengl)
+        if (!n)
+            n = new OpenGLRenderNode;
+        static_cast<OpenGLRenderNode *>(n)->sync(this);
+#endif
+        break;
+
+    case QSGRendererInterface::MetalRhi:
+// Restore when QTBUG-78580 is done and the .pro is updated accordingly
+//#ifdef Q_OS_DARWIN
+#ifdef Q_OS_MACOS
+        if (!n) {
+            MetalRenderNode *metalNode = new MetalRenderNode;
+            n = metalNode;
+            metalNode->resourceBuilder()->setWindow(window());
+            QObject::connect(window(), &QQuickWindow::beforeRendering,
+                             metalNode->resourceBuilder(), &MetalRenderNodeResourceBuilder::build);
         }
+        static_cast<MetalRenderNode *>(n)->sync(this);
+#endif
+        break;
+
+    case QSGRendererInterface::Direct3D12: // ### Qt 6: remove
+#if QT_CONFIG(d3d12)
+        if (!n)
+            n = new D3D12RenderNode;
+        static_cast<D3D12RenderNode *>(n)->sync(this);
+#endif
+        break;
+
+    case QSGRendererInterface::Software:
+        if (!n)
+            n = new SoftwareRenderNode;
+        static_cast<SoftwareRenderNode *>(n)->sync(this);
+        break;
+
+    default:
+        break;
     }
+
+    if (!n)
+        qWarning("QSGRendererInterface reports unknown graphics API %d", ri->graphicsApi());
 
     return n;
 }
+//! [2]
+
+// This item does not support being moved between windows. If that is desired,
+// itemChange() should be reimplemented as well.

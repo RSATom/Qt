@@ -2,17 +2,14 @@
 
 <link rel="import" href="chrome://resources/cr_elements/cr_checkbox/cr_checkbox.html">
 <link rel="import" href="chrome://resources/cr_elements/cr_link_row/cr_link_row.html">
+<link rel="import" href="chrome://resources/cr_elements/cr_tabs/cr_tabs.html">
 <link rel="import" href="chrome://resources/cr_elements/cr_toggle/cr_toggle.html">
-<link rel="import" href="chrome://resources/cr_elements/paper_tabs_style_css.html">
 <link rel="import" href="chrome://resources/cr_elements/policy/cr_policy_pref_indicator.html">
 <link rel="import" href="chrome://resources/html/assert.html">
 <link rel="import" href="chrome://resources/html/cr/ui/focus_without_ink.html">
 <link rel="import" href="chrome://resources/html/i18n_behavior.html">
-<link rel="import" href="chrome://resources/html/md_select_css.html">
+<link rel="import" href="chrome://resources/cr_elements/md_select_css.html">
 <link rel="import" href="chrome://resources/polymer/v1_0/iron-flex-layout/iron-flex-layout-classes.html">
-<link rel="import" href="chrome://resources/polymer/v1_0/paper-button/paper-button.html">
-<link rel="import" href="chrome://resources/polymer/v1_0/paper-icon-button/paper-icon-button-light.html">
-<link rel="import" href="chrome://resources/polymer/v1_0/paper-tabs/paper-tabs.html">
 <link rel="import" href="display_layout.html">
 <link rel="import" href="display_overscan_dialog.html">
 <link rel="import" href="night_light_slider.html">
@@ -24,7 +21,7 @@
 
 <dom-module id="settings-display">
   <template>
-    <style include="settings-shared md-select iron-flex iron-flex-alignment paper-tabs-style">
+    <style include="settings-shared md-select iron-flex iron-flex-alignment">
       .indented {
         align-self: stretch;
         margin-inline-start: var(--cr-section-indent-padding);
@@ -51,7 +48,7 @@
         margin: 10px 0;
       }
 
-      .settings-box > paper-button:first-child {
+      .settings-box > cr-button:first-child {
         padding-inline-start: 0
       }
 
@@ -66,6 +63,10 @@
       #nightLightSlider {
         flex-grow: 1;
         margin-top: 20px;
+      }
+
+      iron-collapse {
+       width: 100%;
       }
     </style>
     <div class="settings-box first layout vertical self-stretch">
@@ -94,12 +95,9 @@
 
     </div>
     <div hidden="[[!hasMultipleDisplays_(displays)]]" class="settings-box">
-      <paper-tabs noink selected="[[selectedDisplay.id]]" class="display-tabs"
-          on-iron-select="onSelectDisplayTab_" attr-for-selected="display-id">
-        <template is="dom-repeat" items="[[displays]]">
-          <paper-tab display-id="[[item.id]]">[[item.name]]</paper-tab>
-        </template>
-      </paper-tabs>
+      <cr-tabs selected="[[selectedTab_]]" class="display-tabs"
+          on-selected-changed="onSelectDisplayTab_"
+          tab-names="[[displayTabNames_]]"></cr-tabs>
     </div>
     <div hidden="[[hasMultipleDisplays_(displays)]]"
         class="settings-box line-only"></div>
@@ -210,17 +208,17 @@
               aria-labelledby="displayOrientation"
               on-change="onOrientationChange_">
             <option value="0">$i18n{displayOrientationStandard}</option>
-            <option value="90">90</option>
-            <option value="180">180</option>
-            <option value="270">270</option>
+            <option value="90">90&deg;</option>
+            <option value="180">180&deg;</option>
+            <option value="270">270&deg;</option>
           </select>
         </div>
       </template>
 
-      <cr-link-row embedded icon-class="subpage-arrow" class="indented hr"
-          id="overscan" label="$i18n{displayOverscanPageTitle}"
+      <cr-link-row class="indented hr" id="overscan"
+          label="$i18n{displayOverscanPageTitle}"
           sub-label="$i18n{displayOverscanPageText}" on-click="onOverscanTap_"
-          hidden$="[[!showOverscanSetting_(selectedDisplay)]]">
+          hidden$="[[!showOverscanSetting_(selectedDisplay)]]" embedded>
       </cr-link-row>
 
       <settings-display-overscan-dialog id="displayOverscan"
@@ -228,70 +226,69 @@
           on-close="onCloseOverscanDialog_">
       </settings-display-overscan-dialog>
 
-      <cr-link-row embedded icon-class="subpage-arrow" class="indented hr"
-          id="touchCalibration" label="$i18n{displayTouchCalibrationTitle}"
+      <cr-link-row class="indented hr" id="touchCalibration"
+          label="$i18n{displayTouchCalibrationTitle}"
           sub-label="$i18n{displayTouchCalibrationText}"
           on-click="onTouchCalibrationTap_"
-          hidden$="[[!showTouchCalibrationSetting_(selectedDisplay)]]">
+          hidden$="[[!showTouchCalibrationSetting_(selectedDisplay)]]" embedded>
       </cr-link-row>
     </div>
 
     <!-- Night Light Settings -->
-    <template is="dom-if" if="[[nightLightFeatureEnabled_]]" restamp>
-      <settings-toggle-button
-          id="nightLightToggleButton"
-          label="$i18n{displayNightLightLabel}"
-          pref="{{prefs.ash.night_light.enabled}}"
-          sub-label="$i18n{displayNightLightText}">
-      </settings-toggle-button>
-      <div id="nightLightSettingsDiv"
-          class="settings-box continuation start layout vertical">
-        <!-- Color temperature slider -->
-        <div id="nightLightTemperatureDiv"
-            class="settings-box indented continuation"
+    <settings-toggle-button
+        id="nightLightToggleButton"
+        label="$i18n{displayNightLightLabel}"
+        pref="{{prefs.ash.night_light.enabled}}"
+        sub-label="$i18n{displayNightLightText}">
+    </settings-toggle-button>
+    <div id="nightLightSettingsDiv"
+        class="settings-box continuation start layout vertical">
+      <!-- Color temperature slider -->
+      <div id="nightLightTemperatureDiv"
+          class="settings-box indented continuation"
+          disabled$="[[!prefs.ash.night_light.enabled.value]]">
+        <div class="start text-area" id="colorTemperatureLabel">
+          $i18n{displayNightLightTemperatureLabel}
+        </div>
+        <settings-slider id="colorTemperatureSlider"
+            aria-labelledby="colorTemperatureLabel" min="0" max="100"
+            scale="100" label-min="$i18n{displayNightLightTempSliderMinLabel}"
+            label-max="$i18n{displayNightLightTempSliderMaxLabel}"
+            pref="{{prefs.ash.night_light.color_temperature}}"
             disabled$="[[!prefs.ash.night_light.enabled.value]]">
-          <div class="start text-area" id="colorTemperatureLabel">
-            $i18n{displayNightLightTemperatureLabel}
+        </settings-slider>
+      </div>
+      <!-- Schedule settings -->
+      <div class="settings-box indented">
+        <div class="start text-area">
+          <div id="nightLightScheduleLabel" class="label">
+            $i18n{displayNightLightScheduleLabel}
           </div>
-          <settings-slider id="colorTemperatureSlider"
-              aria-labelledby="colorTemperatureLabel" min="0" max="100"
-              scale="100" label-min="$i18n{displayNightLightTempSliderMinLabel}"
-              label-max="$i18n{displayNightLightTempSliderMaxLabel}"
-              pref="{{prefs.ash.night_light.color_temperature}}"
-              disabled$="[[!prefs.ash.night_light.enabled.value]]">
-          </settings-slider>
-        </div>
-        <!-- Schedule settings -->
-        <div class="settings-box indented">
-          <div class="start text-area">
-            <div id="nightLightScheduleLabel" class="label">
-              $i18n{displayNightLightScheduleLabel}
-            </div>
-            <div id="nightLightScheduleSubLabel" class="secondary label"
-                hidden$="[[!nightLightScheduleSubLabel_]]">
-              [[nightLightScheduleSubLabel_]]
-            </div>
+          <div id="nightLightScheduleSubLabel" class="secondary label"
+              hidden$="[[!nightLightScheduleSubLabel_]]">
+            [[nightLightScheduleSubLabel_]]
           </div>
-          <settings-dropdown-menu
-              id="nightLightScheduleTypeDropDown"
-              aria-labelledby="nightLightScheduleLabel"
-              pref="{{prefs.ash.night_light.schedule_type}}"
-              menu-options="[[scheduleTypesList_]]">
-          </settings-dropdown-menu>
         </div>
-        <!-- Custom schedule slider -->
+        <settings-dropdown-menu
+            id="nightLightScheduleTypeDropDown"
+            aria-labelledby="nightLightScheduleLabel"
+            pref="{{prefs.ash.night_light.schedule_type}}"
+            menu-options="[[scheduleTypesList_]]">
+        </settings-dropdown-menu>
+      </div>
+      <!-- Custom schedule slider -->
+      <iron-collapse id="nightLightCustomScheduleCollapse"
+           opened="[[shouldOpenCustomScheduleCollapse_]]">
         <div class="settings-box indented continuation">
-          <iron-collapse id="nightLightCustomScheduleCollapse"
-              class="start text-area layout vertical"
-              opened="[[shouldOpenCustomScheduleCollapse_]]">
+          <div class="start text-area layout vertical">
             <div class="settings-box continuation self-stretch">
               <night-light-slider id="nightLightSlider" prefs="{{prefs}}">
               </night-light-slider>
             </div>
-          </iron-collapse>
+          </div>
         </div>
-      </div>
-    </template>
+      </iron-collapse>
+    </div>
 
   </template>
   <script src="display.js"></script>

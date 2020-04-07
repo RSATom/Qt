@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <list>
 
+#include "base/bind.h"
 #include "base/compiler_specific.h"
 #include "base/logging.h"
 #include "base/macros.h"
@@ -17,13 +18,13 @@
 #include "base/strings/stringprintf.h"
 #include "base/threading/thread_checker.h"
 #include "base/trace_event/trace_event.h"
-#include "content/renderer/media/webrtc_logging.h"
 #include "content/renderer/p2p/host_address_request.h"
 #include "content/renderer/p2p/socket_client_delegate.h"
 #include "content/renderer/p2p/socket_client_impl.h"
 #include "content/renderer/p2p/socket_dispatcher.h"
 #include "jingle/glue/utils.h"
 #include "net/base/ip_address.h"
+#include "third_party/blink/public/platform/modules/webrtc/webrtc_logging.h"
 #include "third_party/webrtc/rtc_base/async_packet_socket.h"
 
 namespace content {
@@ -391,7 +392,7 @@ int IpcPacketSocket::SendTo(const void *data, size_t data_size,
                          "id",
                          client_->GetSocketID());
     if (!writable_signal_expected_) {
-      WebRtcLogMessage(base::StringPrintf(
+      blink::WebRtcLogMessage(base::StringPrintf(
           "IpcPacketSocket: sending is blocked. %d packets_in_flight.",
           static_cast<int>(in_flight_packet_records_.size())));
 
@@ -600,16 +601,11 @@ void IpcPacketSocket::OnSendComplete(
   in_flight_packet_records_.pop_front();
   TraceSendThrottlingState();
 
-  int64_t send_time_ms = -1;
-  if (send_metrics.rtc_packet_id >= 0) {
-    send_time_ms = (send_metrics.send_time - base::TimeTicks::UnixEpoch())
-                       .InMilliseconds();
-  }
   SignalSentPacket(this, rtc::SentPacket(send_metrics.rtc_packet_id,
-                                         send_time_ms));
+                                         send_metrics.send_time_ms));
 
   if (writable_signal_expected_ && send_bytes_available_ > 0) {
-    WebRtcLogMessage(base::StringPrintf(
+    blink::WebRtcLogMessage(base::StringPrintf(
         "IpcPacketSocket: sending is unblocked. %d packets in flight.",
         static_cast<int>(in_flight_packet_records_.size())));
 
@@ -667,9 +663,9 @@ void AsyncAddressResolverImpl::Start(const rtc::SocketAddress& addr) {
   // GetResolvedAddress.
   addr_ = addr;
 
-  resolver_->Start(addr, base::Bind(
-      &AsyncAddressResolverImpl::OnAddressResolved,
-      base::Unretained(this)));
+  resolver_->Start(addr,
+                   base::BindOnce(&AsyncAddressResolverImpl::OnAddressResolved,
+                                  base::Unretained(this)));
 }
 
 bool AsyncAddressResolverImpl::GetResolvedAddress(

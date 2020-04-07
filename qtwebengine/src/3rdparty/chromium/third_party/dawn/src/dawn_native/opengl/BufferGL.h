@@ -17,7 +17,7 @@
 
 #include "dawn_native/Buffer.h"
 
-#include "glad/glad.h"
+#include "dawn_native/opengl/opengl_platform.h"
 
 namespace dawn_native { namespace opengl {
 
@@ -26,14 +26,20 @@ namespace dawn_native { namespace opengl {
     class Buffer : public BufferBase {
       public:
         Buffer(Device* device, const BufferDescriptor* descriptor);
+        ~Buffer();
 
         GLuint GetHandle() const;
 
       private:
-        void SetSubDataImpl(uint32_t start, uint32_t count, const uint8_t* data) override;
-        void MapReadAsyncImpl(uint32_t serial, uint32_t start, uint32_t count) override;
-        void MapWriteAsyncImpl(uint32_t serial, uint32_t start, uint32_t count) override;
+        // Dawn API
+        MaybeError SetSubDataImpl(uint32_t start, uint32_t count, const void* data) override;
+        MaybeError MapReadAsyncImpl(uint32_t serial) override;
+        MaybeError MapWriteAsyncImpl(uint32_t serial) override;
         void UnmapImpl() override;
+        void DestroyImpl() override;
+
+        bool IsMapWritable() const override;
+        MaybeError MapAtCreationImpl(uint8_t** mappedPointer) override;
 
         GLuint mBuffer = 0;
     };

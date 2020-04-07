@@ -34,9 +34,9 @@
 #include "third_party/blink/renderer/platform/language.h"
 #include "third_party/blink/renderer/platform/wtf/assertions.h"
 #include "third_party/blink/renderer/platform/wtf/hash_functions.h"
-#include "third_party/blink/renderer/platform/wtf/string_hasher.h"
 #include "third_party/blink/renderer/platform/wtf/text/atomic_string_hash.h"
 #include "third_party/blink/renderer/platform/wtf/text/string_hash.h"
+#include "third_party/blink/renderer/platform/wtf/text/string_hasher.h"
 
 #if defined(OS_LINUX) || defined(OS_CHROMEOS)
 #include "third_party/blink/renderer/platform/fonts/font_cache.h"
@@ -365,8 +365,8 @@ SkFontStyle FontDescription::SkiaFontStyle() const {
   }
 
   int skia_weight = SkFontStyle::kNormal_Weight;
-  if (Weight() >= 100 && Weight() <= 1000)
-    skia_weight = static_cast<int>(roundf(Weight() / 100) * 100);
+  if (Weight() >= MinWeightValue() && Weight() <= MaxWeightValue())
+    skia_weight = static_cast<int>(Weight());
 
   return SkFontStyle(skia_weight, skia_width, slant);
 }
@@ -474,8 +474,8 @@ String FontDescription::Size::ToString() const {
 String FontDescription::FamilyDescription::ToString() const {
   return String::Format(
       "generic_family=%s, family=[%s]",
-      FontDescription::ToString(generic_family).Ascii().data(),
-      family.ToString().Ascii().data());
+      FontDescription::ToString(generic_family).Ascii().c_str(),
+      family.ToString().Ascii().c_str());
 }
 
 static const char* ToBooleanString(bool value) {
@@ -497,34 +497,34 @@ String FontDescription::ToString() const {
       "synthetic_bold=%s, synthetic_italic=%s, subpixel_positioning=%s, "
       "subpixel_ascent_descent=%s, variant_numeric=[%s], "
       "variant_east_asian=[%s]",
-      family_list_.ToString().Ascii().data(),
-      (feature_settings_ ? feature_settings_->ToString().Ascii().data() : ""),
-      (variation_settings_ ? variation_settings_->ToString().Ascii().data()
+      family_list_.ToString().Ascii().c_str(),
+      (feature_settings_ ? feature_settings_->ToString().Ascii().c_str() : ""),
+      (variation_settings_ ? variation_settings_->ToString().Ascii().c_str()
                            : ""),
       // TODO(wkorman): Locale has additional internal fields such as
       // hyphenation and script. Consider adding a more detailed
       // string method.
-      (locale_ ? locale_->LocaleString().Ascii().data() : ""), specified_size_,
+      (locale_ ? locale_->LocaleString().Ascii().c_str() : ""), specified_size_,
       computed_size_, adjusted_size_, size_adjust_, letter_spacing_,
-      word_spacing_, font_selection_request_.ToString().Ascii().data(),
+      word_spacing_, font_selection_request_.ToString().Ascii().c_str(),
       blink::ToString(
           static_cast<TypesettingFeatures>(fields_.typesetting_features_))
           .Ascii()
           .data(),
-      blink::ToString(Orientation()).Ascii().data(),
-      blink::ToString(WidthVariant()).Ascii().data(),
-      FontDescription::ToString(VariantCaps()).Ascii().data(),
+      blink::ToString(Orientation()).Ascii().c_str(),
+      blink::ToString(WidthVariant()).Ascii().c_str(),
+      FontDescription::ToString(VariantCaps()).Ascii().c_str(),
       ToBooleanString(IsAbsoluteSize()),
-      FontDescription::ToString(GenericFamily()).Ascii().data(),
-      FontDescription::ToString(Kerning()).Ascii().data(),
-      GetVariantLigatures().ToString().Ascii().data(), KeywordSize(),
-      blink::ToString(FontSmoothing()).Ascii().data(),
-      blink::ToString(TextRendering()).Ascii().data(),
+      FontDescription::ToString(GenericFamily()).Ascii().c_str(),
+      FontDescription::ToString(Kerning()).Ascii().c_str(),
+      GetVariantLigatures().ToString().Ascii().c_str(), KeywordSize(),
+      blink::ToString(FontSmoothing()).Ascii().c_str(),
+      blink::ToString(TextRendering()).Ascii().c_str(),
       ToBooleanString(IsSyntheticBold()), ToBooleanString(IsSyntheticItalic()),
       ToBooleanString(UseSubpixelPositioning()),
       ToBooleanString(SubpixelAscentDescent()),
-      VariantNumeric().ToString().Ascii().data(),
-      VariantEastAsian().ToString().Ascii().data());
+      VariantNumeric().ToString().Ascii().c_str(),
+      VariantEastAsian().ToString().Ascii().c_str());
 }
 
 }  // namespace blink

@@ -38,12 +38,12 @@
 ****************************************************************************/
 
 #include "qqmldelayedcallqueue_p.h"
-#include <private/qv8engine_p.h>
 #include <private/qqmlengine_p.h>
 #include <private/qqmljavascriptexpression_p.h>
 #include <private/qv4value_p.h>
 #include <private/qv4jscall_p.h>
 #include <private/qv4qobjectwrapper_p.h>
+#include <private/qv4qmlcontext_p.h>
 
 #include <QQmlError>
 

@@ -610,9 +610,7 @@ void tst_QPlaceManagerNokia::content()
 
     QVERIFY(results.count() > 0);
 
-    QMapIterator<int, QPlaceContent> iter(results);
-    while (iter.hasNext()) {
-        iter.next();
+    for (auto iter = results.cbegin(), end = results.cend(); iter != end; ++iter) {
         switch (type) {
         case (QPlaceContent::ImageType): {
             QPlaceImage image = iter.value();

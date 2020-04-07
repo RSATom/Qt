@@ -118,9 +118,8 @@ void EventPath::CalculatePath() {
         continue;
       }
     }
-    if (current->IsShadowRoot()) {
-      if (event_ &&
-          ShouldStopAtShadowRoot(*event_, *ToShadowRoot(current), *node_))
+    if (auto* shadow_root = DynamicTo<ShadowRoot>(current)) {
+      if (event_ && ShouldStopAtShadowRoot(*event_, *shadow_root, *node_))
         break;
       current = current->OwnerShadowHost();
       nodes_in_path.push_back(current);
@@ -181,7 +180,8 @@ TreeScopeEventContext* EventPath::EnsureTreeScopeEventContext(
   TreeScopeEventContext* tree_scope_event_context =
       GetTreeScopeEventContext(*tree_scope);
   if (!tree_scope_event_context) {
-    tree_scope_event_context = TreeScopeEventContext::Create(*tree_scope);
+    tree_scope_event_context =
+        MakeGarbageCollected<TreeScopeEventContext>(*tree_scope);
     tree_scope_event_contexts_.push_back(tree_scope_event_context);
 
     TreeScopeEventContext* parent_tree_scope_event_context =
@@ -407,13 +407,13 @@ void EventPath::EnsureWindowEventContext() {
 #if DCHECK_IS_ON()
 void EventPath::CheckReachability(TreeScope& tree_scope,
                                   TouchList& touch_list) {
-  for (wtf_size_t i = 0; i < touch_list.length(); ++i)
+  for (wtf_size_t i = 0; i < touch_list.length(); ++i) {
     DCHECK(touch_list.item(i)
                ->target()
                ->ToNode()
                ->GetTreeScope()
-               .IsInclusiveOlderSiblingShadowRootOrAncestorTreeScopeOf(
-                   tree_scope));
+               .IsInclusiveAncestorTreeScopeOf(tree_scope));
+  }
 }
 #endif
 

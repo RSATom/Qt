@@ -16,6 +16,7 @@
 
 #include "aom/aom_codec.h"
 #include "aom/aom_integer.h"
+#include "aom_ports/mem.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -206,7 +207,7 @@ enum {
 #define TX_PAD_HOR 4
 // Pad 6 extra rows (2 on top and 4 on bottom) to remove vertical availability
 // check.
-#define TX_PAD_TOP 2
+#define TX_PAD_TOP 0
 #define TX_PAD_BOTTOM 4
 #define TX_PAD_VER (TX_PAD_TOP + TX_PAD_BOTTOM)
 // Pad 16 extra bytes to avoid reading overflow in SIMD optimization.

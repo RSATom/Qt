@@ -34,11 +34,11 @@ using syncer::SyncData;
 using syncer::SyncDataList;
 using syncer::SyncError;
 using syncer::SyncErrorFactory;
+using testing::_;
 using testing::AssertionFailure;
 using testing::AssertionResult;
 using testing::AssertionSuccess;
 using testing::SaveArgPointee;
-using testing::_;
 
 namespace dom_distiller {
 
@@ -182,12 +182,12 @@ AssertionResult AreEntriesEqual(const DomDistillerStore::EntryVector& entries,
   for (auto it = entries.begin(); it != entries.end(); ++it) {
     auto expected_it = expected_entries.find(it->entry_id());
     if (expected_it == expected_entries.end()) {
-      return AssertionFailure() << "Found unexpected entry with id <"
-                                << it->entry_id() << ">";
+      return AssertionFailure()
+             << "Found unexpected entry with id <" << it->entry_id() << ">";
     }
     if (!AreEntriesEqual(expected_it->second, *it)) {
-      return AssertionFailure() << "Mismatched entry with id <"
-                                << it->entry_id() << ">";
+      return AssertionFailure()
+             << "Mismatched entry with id <" << it->entry_id() << ">";
     }
     expected_entries.erase(expected_it);
   }
@@ -209,9 +209,7 @@ TEST_F(DomDistillerStoreTest, TestDatabaseLoad) {
 
   CreateStore();
 
-  fake_db_->InitCallback(true);
-  EXPECT_EQ(fake_db_->GetDirectory(),
-            FakeDB<ArticleEntry>::DirectoryForTestDB());
+  fake_db_->InitStatusCallback(leveldb_proto::Enums::InitStatus::kOK);
 
   fake_db_->LoadCallback(true);
   EXPECT_TRUE(AreEntriesEqual(store_->GetEntries(), db_model_));
@@ -231,7 +229,7 @@ TEST_F(DomDistillerStoreTest, TestDatabaseLoadMerge) {
   AddEntry(GetSampleEntry(4), &expected_model);
 
   CreateStore();
-  fake_db_->InitCallback(true);
+  fake_db_->InitStatusCallback(leveldb_proto::Enums::InitStatus::kOK);
   fake_db_->LoadCallback(true);
 
   EXPECT_TRUE(AreEntriesEqual(store_->GetEntries(), expected_model));
@@ -240,7 +238,7 @@ TEST_F(DomDistillerStoreTest, TestDatabaseLoadMerge) {
 
 TEST_F(DomDistillerStoreTest, TestAddAndRemoveEntry) {
   CreateStore();
-  fake_db_->InitCallback(true);
+  fake_db_->InitStatusCallback(leveldb_proto::Enums::InitStatus::kOK);
   fake_db_->LoadCallback(true);
 
   EXPECT_TRUE(store_->GetEntries().empty());
@@ -263,7 +261,7 @@ TEST_F(DomDistillerStoreTest, TestAddAndRemoveEntry) {
 
 TEST_F(DomDistillerStoreTest, TestAddAndUpdateEntry) {
   CreateStore();
-  fake_db_->InitCallback(true);
+  fake_db_->InitStatusCallback(leveldb_proto::Enums::InitStatus::kOK);
   fake_db_->LoadCallback(true);
 
   EXPECT_TRUE(store_->GetEntries().empty());
@@ -297,7 +295,7 @@ TEST_F(DomDistillerStoreTest, TestObserver) {
   CreateStore();
   MockDistillerObserver observer;
   store_->AddObserver(&observer);
-  fake_db_->InitCallback(true);
+  fake_db_->InitStatusCallback(leveldb_proto::Enums::InitStatus::kOK);
   fake_db_->LoadCallback(true);
   std::vector<DomDistillerObserver::ArticleUpdate> expected_updates;
   DomDistillerObserver::ArticleUpdate update;

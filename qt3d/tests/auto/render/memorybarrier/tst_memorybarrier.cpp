@@ -31,7 +31,6 @@
 #include <Qt3DRender/qmemorybarrier.h>
 #include <Qt3DRender/private/qmemorybarrier_p.h>
 #include <Qt3DRender/private/memorybarrier_p.h>
-#include <Qt3DCore/qpropertyupdatedchange.h>
 #include "qbackendnodetester.h"
 #include "testrenderer.h"
 
@@ -56,28 +55,34 @@ private Q_SLOTS:
     void checkInitializeFromPeer()
     {
         // GIVEN
+        TestRenderer renderer;
         Qt3DRender::QMemoryBarrier memoryBarrier;
         memoryBarrier.setWaitOperations(Qt3DRender::QMemoryBarrier::VertexAttributeArray);
 
         {
             // WHEN
             Qt3DRender::Render::MemoryBarrier backendMemoryBarrier;
-            simulateInitialization(&memoryBarrier, &backendMemoryBarrier);
+            backendMemoryBarrier.setRenderer(&renderer);
+            simulateInitializationSync(&memoryBarrier, &backendMemoryBarrier);
 
             // THEN
             QCOMPARE(backendMemoryBarrier.isEnabled(), true);
             QCOMPARE(backendMemoryBarrier.peerId(), memoryBarrier.id());
             QCOMPARE(backendMemoryBarrier.waitOperations(), Qt3DRender::QMemoryBarrier::VertexAttributeArray);
+            QVERIFY(renderer.dirtyBits() & Qt3DRender::Render::AbstractRenderer::FrameGraphDirty);
         }
+        renderer.clearDirtyBits(Qt3DRender::Render::AbstractRenderer::AllDirty);
         {
             // WHEN
             Qt3DRender::Render::MemoryBarrier backendMemoryBarrier;
+            backendMemoryBarrier.setRenderer(&renderer);
             memoryBarrier.setEnabled(false);
-            simulateInitialization(&memoryBarrier, &backendMemoryBarrier);
+            simulateInitializationSync(&memoryBarrier, &backendMemoryBarrier);
 
             // THEN
             QCOMPARE(backendMemoryBarrier.peerId(), memoryBarrier.id());
             QCOMPARE(backendMemoryBarrier.isEnabled(), false);
+            QVERIFY(renderer.dirtyBits() & Qt3DRender::Render::AbstractRenderer::FrameGraphDirty);
         }
     }
 
@@ -87,14 +92,15 @@ private Q_SLOTS:
         Qt3DRender::Render::MemoryBarrier backendMemoryBarrier;
         TestRenderer renderer;
         backendMemoryBarrier.setRenderer(&renderer);
+        Qt3DRender::QMemoryBarrier memoryBarrier;
+
+        simulateInitializationSync(&memoryBarrier, &backendMemoryBarrier);
 
         {
              // WHEN
              const bool newValue = false;
-             const auto change = Qt3DCore::QPropertyUpdatedChangePtr::create(Qt3DCore::QNodeId());
-             change->setPropertyName("enabled");
-             change->setValue(newValue);
-             backendMemoryBarrier.sceneChangeEvent(change);
+             memoryBarrier.setEnabled(newValue);
+             backendMemoryBarrier.syncFromFrontEnd(&memoryBarrier, false);
 
              // THEN
             QCOMPARE(backendMemoryBarrier.isEnabled(), newValue);
@@ -104,10 +110,8 @@ private Q_SLOTS:
         {
              // WHEN
              const Qt3DRender::QMemoryBarrier::Operations newValue(Qt3DRender::QMemoryBarrier::AtomicCounter|Qt3DRender::QMemoryBarrier::ElementArray);
-             const auto change = Qt3DCore::QPropertyUpdatedChangePtr::create(Qt3DCore::QNodeId());
-             change->setPropertyName("waitOperations");
-             change->setValue(QVariant::fromValue(newValue));
-             backendMemoryBarrier.sceneChangeEvent(change);
+             memoryBarrier.setWaitOperations(newValue);
+             backendMemoryBarrier.syncFromFrontEnd(&memoryBarrier, false);
 
              // THEN
             QCOMPARE(backendMemoryBarrier.waitOperations(), newValue);

@@ -45,14 +45,14 @@
 
 #include <qdebug.h>
 
+#include <mutex>
+
 QT_BEGIN_NAMESPACE
 
 DirectShowPin::DirectShowPin(DirectShowBaseFilter *filter, const QString &name, PIN_DIRECTION direction)
-    : m_mutex(QMutex::Recursive)
-    , m_filter(filter)
+    : m_filter(filter)
     , m_name(name)
     , m_direction(direction)
-    , m_peerPin(nullptr)
 {
 }
 
@@ -64,7 +64,7 @@ HRESULT DirectShowPin::Connect(IPin *pReceivePin, const AM_MEDIA_TYPE *pmt)
         return E_POINTER;
 
     HRESULT hr = E_FAIL;
-    QMutexLocker locker(&m_mutex);
+    const std::lock_guard<QRecursiveMutex> locker(m_mutex);
 
     if (m_peerPin)
         return VFW_E_ALREADY_CONNECTED;
@@ -170,7 +170,7 @@ HRESULT DirectShowPin::ReceiveConnection(IPin *pConnector, const AM_MEDIA_TYPE *
     if (!pConnector || !pmt)
         return E_POINTER;
 
-    QMutexLocker locker(&m_mutex);
+    const std::lock_guard<QRecursiveMutex> locker(m_mutex);
 
     if (m_peerPin)
         return VFW_E_ALREADY_CONNECTED;
@@ -207,7 +207,7 @@ HRESULT DirectShowPin::ReceiveConnection(IPin *pConnector, const AM_MEDIA_TYPE *
 
 HRESULT DirectShowPin::Disconnect()
 {
-    QMutexLocker locker(&m_mutex);
+    const std::lock_guard<QRecursiveMutex> locker(m_mutex);
 
     if (m_filter->state() != State_Stopped)
         return VFW_E_NOT_STOPPED;
@@ -233,9 +233,9 @@ HRESULT DirectShowPin::ConnectedTo(IPin **ppPin)
     if (!ppPin)
         return E_POINTER;
 
-    QMutexLocker locker(&m_mutex);
+    const std::lock_guard<QRecursiveMutex> locker(m_mutex);
     if (!m_peerPin) {
-        *ppPin = 0;
+        *ppPin = nullptr;
         return VFW_E_NOT_CONNECTED;
     }
     m_peerPin->AddRef();
@@ -248,7 +248,7 @@ HRESULT DirectShowPin::ConnectionMediaType(AM_MEDIA_TYPE *pmt)
     if (!pmt)
         return E_POINTER;
 
-    QMutexLocker locker(&m_mutex);
+    const std::lock_guard<QRecursiveMutex> locker(m_mutex);
     if (!m_peerPin) {
         DirectShowMediaType::init(pmt);
         return VFW_E_NOT_CONNECTED;
@@ -380,8 +380,6 @@ HRESULT DirectShowPin::setActive(bool active)
 
 DirectShowOutputPin::DirectShowOutputPin(DirectShowBaseFilter *filter, const QString &name)
     : DirectShowPin(filter, name, PINDIR_OUTPUT)
-    , m_allocator(nullptr)
-    , m_inputPin(nullptr)
 {
 
 }
@@ -485,9 +483,6 @@ HRESULT DirectShowOutputPin::EndOfStream()
 
 DirectShowInputPin::DirectShowInputPin(DirectShowBaseFilter *filter, const QString &name)
     : DirectShowPin(filter, name, PINDIR_INPUT)
-    , m_allocator(nullptr)
-    , m_flushing(false)
-    , m_inErrorState(false)
 {
     ZeroMemory(&m_sampleProperties, sizeof(m_sampleProperties));
 }
@@ -537,14 +532,14 @@ HRESULT DirectShowInputPin::EndOfStream()
 
 HRESULT DirectShowInputPin::BeginFlush()
 {
-    QMutexLocker locker(&m_mutex);
+    const std::lock_guard<QRecursiveMutex> locker(m_mutex);
     m_flushing = true;
     return S_OK;
 }
 
 HRESULT DirectShowInputPin::EndFlush()
 {
-    QMutexLocker locker(&m_mutex);
+    const std::lock_guard<QRecursiveMutex> locker(m_mutex);
     m_flushing = false;
     m_inErrorState = false;
     return S_OK;
@@ -555,7 +550,7 @@ HRESULT DirectShowInputPin::GetAllocator(IMemAllocator **ppAllocator)
     if (!ppAllocator)
         return E_POINTER;
 
-    QMutexLocker locker(&m_mutex);
+    const std::lock_guard<QRecursiveMutex> locker(m_mutex);
 
     if (!m_allocator) {
         m_allocator = com_new<IMemAllocator>(CLSID_MemoryAllocator);;
@@ -576,7 +571,7 @@ HRESULT DirectShowInputPin::NotifyAllocator(IMemAllocator *pAllocator, BOOL bRea
     if (!pAllocator)
         return E_POINTER;
 
-    QMutexLocker locker(&m_mutex);
+    const std::lock_guard<QRecursiveMutex> locker(m_mutex);
 
     if (m_allocator)
         m_allocator->Release();

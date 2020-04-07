@@ -17,6 +17,8 @@ namespace content {
 // posting tasks back to them.
 class CONTENT_EXPORT WorkerThread {
  public:
+  constexpr static int kInvalidWorkerThreadId = -1;
+
   // Observes worker thread lifetime.
   class CONTENT_EXPORT Observer {
    public:
@@ -36,16 +38,16 @@ class CONTENT_EXPORT WorkerThread {
   static void AddObserver(Observer* observer);
   static void RemoveObserver(Observer* observer);
 
-  // Returns the thread ID for the current worker thread, or 0 if this is not a
-  // worker thread (for example, the render thread). Worker thread IDs will
-  // always be > 0.
+  // Returns the worker thread ID for the current worker thread, or 0 if this is
+  // not a worker thread (for example, the render thread). Worker thread IDs
+  // will always be > 0.
   static int GetCurrentId();
 
   // Posts a task to the worker thread with ID |id|. ID must be > 0.
   static void PostTask(int id, base::OnceClosure task);
 
  private:
-  WorkerThread(){};
+  WorkerThread() {}
   DISALLOW_COPY_AND_ASSIGN(WorkerThread);
 };
 

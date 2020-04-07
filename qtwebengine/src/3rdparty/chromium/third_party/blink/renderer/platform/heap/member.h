@@ -9,7 +9,7 @@
 #include "third_party/blink/renderer/platform/heap/heap_buildflags.h"
 #include "third_party/blink/renderer/platform/heap/heap_page.h"
 #include "third_party/blink/renderer/platform/heap/marking_visitor.h"
-#include "third_party/blink/renderer/platform/wtf/allocator.h"
+#include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 #include "third_party/blink/renderer/platform/wtf/hash_functions.h"
 #include "third_party/blink/renderer/platform/wtf/hash_traits.h"
 
@@ -22,8 +22,6 @@ namespace blink {
 
 template <typename T>
 class Persistent;
-template <typename T>
-class TraceWrapperMember;
 
 enum class TracenessMemberConfiguration {
   kTraced,
@@ -48,20 +46,15 @@ class MemberPointerVerifier {
       DCHECK(creation_thread_state_ || !pointer);
     }
   }
+
   void CheckPointer(T* pointer) {
     if (!pointer)
       return;
-    // HashTable can store a special value (which is not aligned to the
-    // allocation granularity) to Member<> to represent a deleted entry.
-    // Thus we treat a pointer that is not aligned to the granularity
-    // as a valid pointer.
-    if (reinterpret_cast<intptr_t>(pointer) % kAllocationGranularity)
-      return;
 
+    ThreadState* current = ThreadState::Current();
+    DCHECK(current);
     if (tracenessConfiguration != TracenessMemberConfiguration::kUntraced) {
-      ThreadState* current = ThreadState::Current();
-      DCHECK(current);
-      // m_creationThreadState may be null when this is used in a heap
+      // creation_thread_state_ may be null when this is used in a heap
       // collection which initialized the Member with memset and the
       // constructor wasn't called.
       if (creation_thread_state_) {
@@ -74,20 +67,14 @@ class MemberPointerVerifier {
       }
     }
 
-#if defined(ADDRESS_SANITIZER)
-    // TODO(haraken): What we really want to check here is that the pointer
-    // is a traceable object. In other words, the pointer is either of:
-    //
-    //   (a) a pointer to the head of an on-heap object.
-    //   (b) a pointer to the head of an on-heap mixin object.
-    //
-    // We can check it by calling ThreadHeap::isHeapObjectAlive(pointer),
-    // but we cannot call it here because it requires to include T.h.
-    // So we currently only try to implement the check for (a), but do
-    // not insist that T's definition is in scope.
-    if (IsFullyDefined<T>::value && !IsGarbageCollectedMixin<T>::value)
-      HeapObjectHeader::CheckFromPayload(pointer);
-#endif  // ADDRESS_SANITIZER
+    if (current->IsSweepingInProgress()) {
+      // During sweeping the object start bitmap is invalid. Check the header
+      // when the type is available and not pointing to a mixin.
+      if (IsFullyDefined<T>::value && !IsGarbageCollectedMixin<T>::value)
+        HeapObjectHeader::CheckFromPayload(pointer);
+    } else {
+      DCHECK(HeapObjectHeader::FromInnerAddress(pointer));
+    }
   }
 
  private:
@@ -213,14 +200,16 @@ class MemberBase {
   static constexpr intptr_t kHashTableDeletedRawValue = -1;
 
   ALWAYS_INLINE void WriteBarrier() const {
-#if BUILDFLAG(BLINK_HEAP_INCREMENTAL_MARKING)
     MarkingVisitor::WriteBarrier(
         const_cast<typename std::remove_const<T>::type*>(this->raw_));
-#endif  // BUILDFLAG(BLINK_HEAP_INCREMENTAL_MARKING)
   }
 
   void CheckPointer() {
 #if DCHECK_IS_ON()
+    // Should not be called for deleted hash table values. A value can be
+    // propagated here if a MemberBase containing the deleted value is copied.
+    if (IsHashTableDeletedValue())
+      return;
     pointer_verifier_.CheckPointer(raw_);
 #endif  // DCHECK_IS_ON()
   }
@@ -553,12 +542,6 @@ struct DefaultHash<blink::SameThreadCheckedMember<T>> {
 };
 
 template <typename T>
-struct DefaultHash<blink::TraceWrapperMember<T>> {
-  STATIC_ONLY(DefaultHash);
-  using Hash = MemberHash<T>;
-};
-
-template <typename T>
 struct IsTraceable<blink::Member<T>> {
   STATIC_ONLY(IsTraceable);
   static const bool value = true;
@@ -578,12 +561,6 @@ struct IsTraceable<blink::WeakMember<T>> {
 
 template <typename T>
 struct IsTraceable<blink::SameThreadCheckedMember<T>> {
-  STATIC_ONLY(IsTraceable);
-  static const bool value = true;
-};
-
-template <typename T>
-struct IsTraceable<blink::TraceWrapperMember<T>> {
   STATIC_ONLY(IsTraceable);
   static const bool value = true;
 };

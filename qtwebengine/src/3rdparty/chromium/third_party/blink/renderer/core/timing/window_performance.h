@@ -32,9 +32,9 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_TIMING_WINDOW_PERFORMANCE_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_TIMING_WINDOW_PERFORMANCE_H_
 
-#include "third_party/blink/public/platform/web_layer_tree_view.h"
+#include "third_party/blink/public/web/web_widget_client.h"
 #include "third_party/blink/renderer/core/core_export.h"
-#include "third_party/blink/renderer/core/dom/context_lifecycle_observer.h"
+#include "third_party/blink/renderer/core/execution_context/context_lifecycle_observer.h"
 #include "third_party/blink/renderer/core/frame/performance_monitor.h"
 #include "third_party/blink/renderer/core/timing/memory_info.h"
 #include "third_party/blink/renderer/core/timing/performance.h"
@@ -51,10 +51,6 @@ class CORE_EXPORT WindowPerformance final : public Performance,
   friend class WindowPerformanceTest;
 
  public:
-  static WindowPerformance* Create(LocalDOMWindow* window) {
-    return MakeGarbageCollected<WindowPerformance>(window);
-  }
-
   explicit WindowPerformance(LocalDOMWindow*);
   ~WindowPerformance() override;
 
@@ -65,11 +61,7 @@ class CORE_EXPORT WindowPerformance final : public Performance,
 
   MemoryInfo* memory() const override;
 
-  bool shouldYield() const override;
-
   void UpdateLongTaskInstrumentation() override;
-
-  bool ShouldBufferEntries();
 
   bool FirstInputDetected() const { return !!first_input_timing_; }
 
@@ -77,16 +69,31 @@ class CORE_EXPORT WindowPerformance final : public Performance,
   // promise to calculate the |duration| attribute when such promise is
   // resolved.
   void RegisterEventTiming(const AtomicString& event_type,
-                           TimeTicks start_time,
-                           TimeTicks processing_start,
-                           TimeTicks processing_end,
+                           base::TimeTicks start_time,
+                           base::TimeTicks processing_start,
+                           base::TimeTicks processing_end,
                            bool cancelable);
 
   void AddElementTiming(const AtomicString& name,
-                        const IntRect& rect,
-                        TimeTicks timestamp);
+                        const String& url,
+                        const FloatRect& rect,
+                        base::TimeTicks start_time,
+                        base::TimeTicks load_time,
+                        const AtomicString& identifier,
+                        const IntSize& intrinsic_size,
+                        const AtomicString& id,
+                        Element*);
 
-  void AddLayoutJankFraction(double jank_fraction);
+  void AddLayoutJankFraction(double jank_fraction,
+                             bool input_detected,
+                             base::TimeTicks input_timestamp);
+
+  void OnLargestContentfulPaintUpdated(base::TimeTicks paint_time,
+                                       uint64_t paint_size,
+                                       base::TimeTicks load_time,
+                                       const AtomicString& id,
+                                       const String& url,
+                                       Element*);
 
   void Trace(blink::Visitor*) override;
 
@@ -110,8 +117,8 @@ class CORE_EXPORT WindowPerformance final : public Performance,
 
   // Method called once swap promise is resolved. It will add all event timings
   // that have not been added since the last swap promise.
-  void ReportEventTimings(WebLayerTreeView::SwapResult result,
-                          TimeTicks timestamp);
+  void ReportEventTimings(WebWidgetClient::SwapResult result,
+                          base::TimeTicks timestamp);
 
   void DispatchFirstInputTiming(PerformanceEventTiming* entry);
 

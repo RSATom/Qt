@@ -52,14 +52,15 @@ class CFXJSE_Value {
   void SetString(ByteStringView szString);
   void SetFloat(float fFloat);
 
-  void SetObject(CFXJSE_HostObject* lpObject, CFXJSE_Class* pClass);
+  void SetHostObject(CFXJSE_HostObject* lpObject, CFXJSE_Class* pClass);
+  void ClearHostObject();
+
   void SetArray(const std::vector<std::unique_ptr<CFXJSE_Value>>& values);
   void SetDate(double dDouble);
 
   bool GetObjectProperty(ByteStringView szPropName, CFXJSE_Value* lpPropValue);
   bool SetObjectProperty(ByteStringView szPropName, CFXJSE_Value* lpPropValue);
   bool GetObjectPropertyByIdx(uint32_t uPropIdx, CFXJSE_Value* lpPropValue);
-  bool SetObjectProperty(uint32_t uPropIdx, CFXJSE_Value* lpPropValue);
   bool DeleteObjectProperty(ByteStringView szPropName);
   bool HasObjectOwnProperty(ByteStringView szPropName, bool bUseTypeGetter);
   bool SetObjectOwnProperty(ByteStringView szPropName,
@@ -81,9 +82,6 @@ class CFXJSE_Value {
   }
 
  private:
-  friend class CFXJSE_Class;
-  friend class CFXJSE_Context;
-
   CFXJSE_Value() = delete;
   CFXJSE_Value(const CFXJSE_Value&) = delete;
   CFXJSE_Value& operator=(const CFXJSE_Value&) = delete;

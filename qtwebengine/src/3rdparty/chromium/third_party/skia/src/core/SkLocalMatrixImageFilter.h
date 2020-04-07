@@ -8,8 +8,8 @@
 #ifndef SkLocalMatrixImageFilter_DEFINED
 #define SkLocalMatrixImageFilter_DEFINED
 
-#include "SkFlattenable.h"
-#include "SkImageFilter.h"
+#include "include/core/SkFlattenable.h"
+#include "include/core/SkImageFilter.h"
 
 /**
  *  Wraps another imagefilter + matrix, such that using this filter will give the same result
@@ -23,9 +23,10 @@ protected:
     void flatten(SkWriteBuffer&) const override;
     sk_sp<SkSpecialImage> onFilterImage(SkSpecialImage* source, const Context&,
                                         SkIPoint* offset) const override;
-    sk_sp<SkImageFilter> onMakeColorSpace(SkColorSpaceXformer*) const override;
     SkIRect onFilterBounds(const SkIRect& src, const SkMatrix& ctm,
                            MapDirection, const SkIRect* inputRect) const override;
+
+    bool onCanHandleComplexCTM() const override { return true; }
 
 private:
     SK_FLATTENABLE_HOOKS(SkLocalMatrixImageFilter)

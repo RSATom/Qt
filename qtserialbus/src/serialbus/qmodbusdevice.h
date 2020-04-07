@@ -82,7 +82,7 @@ public:
         NetworkAddressParameter,
 
         // Reserved
-        UserParameter = 0x100
+        UserParameter = 0x100 // ### Qt6: remove
     };
     Q_ENUM(ConnectionParameter)
 
@@ -99,6 +99,8 @@ public:
 
     Error error() const;
     QString errorString() const;
+
+    QIODevice *device() const;
 
 Q_SIGNALS:
     void errorOccurred(QModbusDevice::Error error);

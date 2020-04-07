@@ -6,6 +6,7 @@
 
 #include <utility>
 
+#include "base/bind.h"
 #include "base/logging.h"
 #include "base/memory/ptr_util.h"
 #include "base/numerics/safe_conversions.h"
@@ -36,8 +37,7 @@ TCPServerSocket::TCPServerSocket(
     : delegate_(delegate),
       socket_(std::move(server_socket)),
       backlog_(backlog),
-      traffic_annotation_(traffic_annotation),
-      weak_factory_(this) {}
+      traffic_annotation_(traffic_annotation) {}
 
 TCPServerSocket::~TCPServerSocket() {}
 

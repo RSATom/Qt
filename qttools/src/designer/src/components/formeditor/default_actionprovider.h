@@ -64,7 +64,7 @@ class QT_FORMEDITOR_EXPORT QToolBarActionProvider: public QObject, public Action
     Q_OBJECT
     Q_INTERFACES(QDesignerActionProviderExtension)
 public:
-    explicit QToolBarActionProvider(QToolBar *widget, QObject *parent = 0);
+    explicit QToolBarActionProvider(QToolBar *widget, QObject *parent = nullptr);
 
     QRect actionGeometry(QAction *action) const override;
     QAction *actionAt(const QPoint &pos) const override;
@@ -82,7 +82,7 @@ class QT_FORMEDITOR_EXPORT QMenuBarActionProvider: public QObject, public Action
     Q_OBJECT
     Q_INTERFACES(QDesignerActionProviderExtension)
 public:
-    explicit QMenuBarActionProvider(QMenuBar *widget, QObject *parent = 0);
+    explicit QMenuBarActionProvider(QMenuBar *widget, QObject *parent = nullptr);
 
     QRect actionGeometry(QAction *action) const override;
     QAction *actionAt(const QPoint &pos) const override;
@@ -97,7 +97,7 @@ class QT_FORMEDITOR_EXPORT QMenuActionProvider: public QObject, public ActionPro
     Q_OBJECT
     Q_INTERFACES(QDesignerActionProviderExtension)
 public:
-    explicit QMenuActionProvider(QMenu *widget, QObject *parent = 0);
+    explicit QMenuActionProvider(QMenu *widget, QObject *parent = nullptr);
 
     QRect actionGeometry(QAction *action) const override;
     QAction *actionAt(const QPoint &pos) const override;
@@ -107,9 +107,9 @@ private:
     QMenu *m_widget;
 };
 
-typedef ExtensionFactory<QDesignerActionProviderExtension, QToolBar, QToolBarActionProvider> QToolBarActionProviderFactory;
-typedef ExtensionFactory<QDesignerActionProviderExtension, QMenuBar, QMenuBarActionProvider> QMenuBarActionProviderFactory;
-typedef ExtensionFactory<QDesignerActionProviderExtension, QMenu, QMenuActionProvider> QMenuActionProviderFactory;
+using QToolBarActionProviderFactory = ExtensionFactory<QDesignerActionProviderExtension, QToolBar, QToolBarActionProvider>;
+using QMenuBarActionProviderFactory = ExtensionFactory<QDesignerActionProviderExtension, QMenuBar, QMenuBarActionProvider>;
+using QMenuActionProviderFactory = ExtensionFactory<QDesignerActionProviderExtension, QMenu, QMenuActionProvider>;
 
 } // namespace qdesigner_internal
 

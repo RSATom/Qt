@@ -18,13 +18,12 @@
 
 namespace blink {
 
+class Document;
 class ScriptState;
 
 class ComputedAccessibleNodePromiseResolver final
     : public GarbageCollectedFinalized<ComputedAccessibleNodePromiseResolver> {
  public:
-  static ComputedAccessibleNodePromiseResolver* Create(ScriptState*, Element&);
-
   ComputedAccessibleNodePromiseResolver(ScriptState*, Element&);
   ~ComputedAccessibleNodePromiseResolver() {}
 
@@ -48,9 +47,7 @@ class ComputedAccessibleNode : public ScriptWrappable {
   DEFINE_WRAPPERTYPEINFO();
 
  public:
-  static ComputedAccessibleNode* Create(AXID, WebComputedAXTree*, LocalFrame*);
-
-  ComputedAccessibleNode(AXID, WebComputedAXTree*, LocalFrame*);
+  ComputedAccessibleNode(AXID, WebComputedAXTree*, Document*);
   ~ComputedAccessibleNode() override;
 
   void Trace(Visitor*) override;
@@ -108,7 +105,7 @@ class ComputedAccessibleNode : public ScriptWrappable {
 
   // This tree is owned by the RenderFrame.
   blink::WebComputedAXTree* tree_;
-  Member<LocalFrame> frame_;
+  Member<Document> document_;
   std::unique_ptr<AXContext> ax_context_;
 };
 

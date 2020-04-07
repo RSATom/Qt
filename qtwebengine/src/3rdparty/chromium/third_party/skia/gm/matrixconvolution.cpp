@@ -5,11 +5,24 @@
  * found in the LICENSE file.
  */
 
-#include "gm.h"
-#include "sk_tool_utils.h"
-#include "SkColor.h"
-#include "SkGradientShader.h"
-#include "SkMatrixConvolutionImageFilter.h"
+#include "gm/gm.h"
+#include "include/core/SkBitmap.h"
+#include "include/core/SkCanvas.h"
+#include "include/core/SkColor.h"
+#include "include/core/SkFont.h"
+#include "include/core/SkImageFilter.h"
+#include "include/core/SkPaint.h"
+#include "include/core/SkPoint.h"
+#include "include/core/SkRect.h"
+#include "include/core/SkScalar.h"
+#include "include/core/SkShader.h"
+#include "include/core/SkSize.h"
+#include "include/core/SkString.h"
+#include "include/core/SkTileMode.h"
+#include "include/core/SkTypeface.h"
+#include "include/effects/SkGradientShader.h"
+#include "include/effects/SkMatrixConvolutionImageFilter.h"
+#include "tools/ToolUtils.h"
 
 namespace skiagm {
 
@@ -39,8 +52,8 @@ protected:
                            {0, 80.0f} };
         SkScalar pos[2] = { 0, 80.0f };
         paint.setShader(SkGradientShader::MakeLinear(
-            pts, fColors, pos, 2, SkShader::kClamp_TileMode));
-        SkFont font(sk_tool_utils::create_portable_typeface(), 180.0f);
+            pts, fColors, pos, 2, SkTileMode::kClamp));
+        SkFont font(ToolUtils::create_portable_typeface(), 180.0f);
         canvas.drawString("e", -10.0f, 80.0f, font, paint);
     }
 

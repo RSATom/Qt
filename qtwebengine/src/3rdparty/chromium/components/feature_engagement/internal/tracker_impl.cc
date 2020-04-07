@@ -38,7 +38,7 @@
 namespace feature_engagement {
 
 namespace {
-const char kFeatureName[] = "FeatureEngagement";
+
 const char kEventDBName[] = "EventDB";
 const char kAvailabilityDBName[] = "AvailabilityDB";
 
@@ -99,7 +99,7 @@ Tracker* Tracker::Create(
   base::FilePath event_storage_dir =
       storage_dir.AppendASCII(std::string(kEventDBName));
   auto event_db = db_provider->GetDB<Event>(
-      std::string(kFeatureName), std::string(kEventDBName), event_storage_dir,
+      leveldb_proto::ProtoDbType::FEATURE_ENGAGEMENT_EVENT, event_storage_dir,
       background_task_runner);
 
   auto event_store =
@@ -124,7 +124,7 @@ Tracker* Tracker::Create(
   base::FilePath availability_storage_dir =
       storage_dir.AppendASCII(std::string(kAvailabilityDBName));
   auto availability_db = db_provider->GetDB<Availability>(
-      std::string(kFeatureName), std::string(kAvailabilityDBName),
+      leveldb_proto::ProtoDbType::FEATURE_ENGAGEMENT_AVAILABILITY,
       availability_storage_dir, background_task_runner);
   auto availability_store_loader = base::BindOnce(
       &PersistentAvailabilityStore::LoadAndUpdateStore,
@@ -153,8 +153,7 @@ TrackerImpl::TrackerImpl(
       condition_validator_(std::move(condition_validator)),
       time_provider_(std::move(time_provider)),
       event_model_initialization_finished_(false),
-      availability_model_initialization_finished_(false),
-      weak_ptr_factory_(this) {
+      availability_model_initialization_finished_(false) {
   event_model_->Initialize(
       base::Bind(&TrackerImpl::OnEventModelInitializationFinished,
                  weak_ptr_factory_.GetWeakPtr()),

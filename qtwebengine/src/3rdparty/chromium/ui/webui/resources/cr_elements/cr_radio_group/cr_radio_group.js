@@ -21,14 +21,16 @@
         type: Boolean,
         value: false,
         reflectToAttribute: true,
+        observer: 'update_',
       },
 
       selected: {
         type: String,
         notify: true,
+        observer: 'update_',
       },
 
-      selectable: {
+      selectableElements: {
         type: String,
         value: 'cr-radio-button, controlled-radio-button',
       },
@@ -39,7 +41,7 @@
        */
       selectableRegExp_: {
         value: Object,
-        computed: 'computeSelectableRegExp_(selectable)',
+        computed: 'computeSelectableRegExp_(selectableElements)',
       },
     },
 
@@ -48,11 +50,8 @@
       click: 'onClick_',
     },
 
-    observers: [
-      'update_(disabled, selected)',
-    ],
-
     hostAttributes: {
+      'aria-disabled': 'false',
       role: 'radiogroup',
     },
 
@@ -165,7 +164,12 @@
         // If nothing selected, start from the first radio then add |delta|.
         const lastSelection = enabledRadios.findIndex(radio => radio.checked);
         selectedIndex = Math.max(0, lastSelection) + delta;
-        selectedIndex = Math.min(max, Math.max(0, selectedIndex));
+        // Wrap the selection, if needed.
+        if (selectedIndex > max) {
+          selectedIndex = 0;
+        } else if (selectedIndex < 0) {
+          selectedIndex = max;
+        }
       } else {
         return;
       }
@@ -184,7 +188,7 @@
      * @private
      */
     computeSelectableRegExp_: function() {
-      const tags = this.selectable.split(', ').join('|');
+      const tags = this.selectableElements.split(', ').join('|');
       return new RegExp(`^(${tags})$`, 'i');
     },
 
@@ -212,7 +216,7 @@
           this.$$('slot')
               .assignedNodes({flatten: true})
               .filter(n => this.selectableRegExp_.test(n.tagName)) :
-          this.queryAllEffectiveChildren(this.selectable);
+          this.queryAllEffectiveChildren(this.selectableElements);
       this.buttonEventTracker_.removeAll();
       this.buttons_.forEach(el => {
         this.buttonEventTracker_.add(
@@ -247,11 +251,13 @@
       this.buttons_.forEach(radio => {
         radio.checked = this.selected != undefined &&
             radio.name == this.selected;
-        const canBeFocused =
-            radio.checked && !this.disabled && isEnabled(radio);
+        const disabled = this.disabled || !isEnabled(radio);
+        const canBeFocused = radio.checked && !disabled;
         noneMadeFocusable &= !canBeFocused;
         radio.setAttribute('tabindex', canBeFocused ? '0' : '-1');
+        radio.setAttribute('aria-disabled', `${disabled}`);
       });
+      this.setAttribute('aria-disabled', `${this.disabled}`);
       if (noneMadeFocusable && !this.disabled) {
         const focusable = this.buttons_.find(isEnabled);
         if (focusable) {

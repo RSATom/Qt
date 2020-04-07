@@ -9,8 +9,11 @@
 
 #include "base/bind.h"
 #include "base/lazy_instance.h"
+#include "base/memory/ref_counted_memory.h"
 #include "base/observer_list.h"
+#include "base/stl_util.h"
 #include "content/browser/devtools/devtools_manager.h"
+#include "content/browser/devtools/devtools_stream_file.h"
 #include "content/browser/devtools/forwarding_agent_host.h"
 #include "content/browser/devtools/protocol/page.h"
 #include "content/browser/devtools/protocol/security_handler.h"
@@ -133,6 +136,8 @@ bool DevToolsAgentHostImpl::AttachInternal(
     return false;
   renderer_channel_.AttachSession(session);
   sessions_.push_back(session);
+  DCHECK(session_by_client_.find(session->client()) ==
+         session_by_client_.end());
   session_by_client_[session->client()] = std::move(session_owned);
   if (sessions_.size() == 1)
     NotifyAttached();
@@ -169,9 +174,10 @@ bool DevToolsAgentHostImpl::DispatchProtocolMessage(
 void DevToolsAgentHostImpl::DetachInternal(DevToolsSession* session) {
   std::unique_ptr<DevToolsSession> session_owned =
       std::move(session_by_client_[session->client()]);
+  DCHECK_EQ(session, session_owned.get());
   // Make sure we dispose session prior to reporting it to the host.
   session->Dispose();
-  sessions_.erase(std::remove(sessions_.begin(), sessions_.end(), session));
+  base::Erase(sessions_, session);
   session_by_client_.erase(session->client());
   DetachSession(session);
   DevToolsManager* manager = DevToolsManager::GetInstance();
@@ -193,6 +199,15 @@ void DevToolsAgentHostImpl::InspectElement(RenderFrameHost* frame_host,
 
 std::string DevToolsAgentHostImpl::GetId() {
   return id_;
+}
+
+std::string DevToolsAgentHostImpl::CreateIOStreamFromData(
+    scoped_refptr<base::RefCountedMemory> data) {
+  scoped_refptr<DevToolsStreamFile> stream =
+      DevToolsStreamFile::Create(GetIOContext(), true /* binary */);
+  std::string text(reinterpret_cast<const char*>(data->front()), data->size());
+  stream->Append(std::make_unique<std::string>(text));
+  return stream->handle();
 }
 
 std::string DevToolsAgentHostImpl::GetParentId() {

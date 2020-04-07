@@ -40,7 +40,7 @@ LoadingModel::LoadingModel(const Node::Vector &content,
                                                    , m_nodes(content)
 {
     /*
-    foreach(const Node *n, content)
+    for (const Node *n : content)
         qDebug() << "this:" << n
                  << "kind:" << n->kind
                  << "parent: " << n->parent

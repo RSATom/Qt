@@ -26,9 +26,9 @@ constexpr char kImageKey[] = "key";
 constexpr char kImageData[] = "data";
 }  // namespace
 
-class ImageDataStoreDiskTest : public testing::Test {
+class CachedImageFetcherImageDataStoreDiskTest : public testing::Test {
  public:
-  ImageDataStoreDiskTest() {}
+  CachedImageFetcherImageDataStoreDiskTest() {}
   void SetUp() override { ASSERT_TRUE(temp_dir_.CreateUniqueTempDir()); }
 
   void CreateDataStore() {
@@ -39,35 +39,39 @@ class ImageDataStoreDiskTest : public testing::Test {
 
   void InitializeDataStore() {
     EXPECT_CALL(*this, OnInitialized());
-    data_store()->Initialize(base::BindOnce(
-        &ImageDataStoreDiskTest::OnInitialized, base::Unretained(this)));
+    data_store()->Initialize(
+        base::BindOnce(&CachedImageFetcherImageDataStoreDiskTest::OnInitialized,
+                       base::Unretained(this)));
     RunUntilIdle();
   }
 
-  void PrepareDataStore(bool initialize) {
+  void PrepareDataStore(bool initialize, bool setup_for_needs_transcoding) {
     CreateDataStore();
     InitializeDataStore();
-    SaveData(kImageKey);
+    SaveData(kImageKey, setup_for_needs_transcoding);
 
     if (!initialize) {
       CreateDataStore();
     }
   }
 
-  void AssertDataPresent(const std::string& key) {
-    AssertDataPresent(key, kImageData);
+  void AssertDataPresent(const std::string& key, bool needs_transcoding) {
+    AssertDataPresent(key, kImageData, needs_transcoding);
   }
 
-  void AssertDataPresent(const std::string& key, const std::string& data) {
-    EXPECT_CALL(*this, DataCallback(data));
+  void AssertDataPresent(const std::string& key,
+                         const std::string& data,
+                         bool needs_transcoding) {
+    EXPECT_CALL(*this, DataCallback(needs_transcoding, data));
     data_store()->LoadImage(
-        key, base::BindOnce(&ImageDataStoreDiskTest::DataCallback,
-                            base::Unretained(this)));
+        key, needs_transcoding,
+        base::BindOnce(&CachedImageFetcherImageDataStoreDiskTest::DataCallback,
+                       base::Unretained(this)));
     RunUntilIdle();
   }
 
-  void SaveData(const std::string& key) {
-    data_store()->SaveImage(key, kImageData);
+  void SaveData(const std::string& key, bool needs_transcoding) {
+    data_store()->SaveImage(key, kImageData, needs_transcoding);
     RunUntilIdle();
   }
 
@@ -80,7 +84,7 @@ class ImageDataStoreDiskTest : public testing::Test {
   ImageDataStore* data_store() { return data_store_.get(); }
 
   MOCK_METHOD0(OnInitialized, void());
-  MOCK_METHOD1(DataCallback, void(std::string));
+  MOCK_METHOD2(DataCallback, void(bool, std::string));
   MOCK_METHOD1(KeysCallback, void(std::vector<std::string>));
 
  private:
@@ -90,21 +94,21 @@ class ImageDataStoreDiskTest : public testing::Test {
 
   base::test::ScopedTaskEnvironment scoped_task_environment_;
 
-  DISALLOW_COPY_AND_ASSIGN(ImageDataStoreDiskTest);
+  DISALLOW_COPY_AND_ASSIGN(CachedImageFetcherImageDataStoreDiskTest);
 };
 
-TEST_F(ImageDataStoreDiskTest, SanityTest) {
+TEST_F(CachedImageFetcherImageDataStoreDiskTest, SanityTest) {
   CreateDataStore();
   InitializeDataStore();
 
-  SaveData(kImageKey);
-  AssertDataPresent(kImageKey);
+  SaveData(kImageKey, /* needs_transcoding */ false);
+  AssertDataPresent(kImageKey, /* needs_transcoding */ false);
 
   DeleteData(kImageKey);
-  AssertDataPresent(kImageKey, "");
+  AssertDataPresent(kImageKey, "", /* needs_transcoding */ false);
 }
 
-TEST_F(ImageDataStoreDiskTest, Init) {
+TEST_F(CachedImageFetcherImageDataStoreDiskTest, Init) {
   CreateDataStore();
   ASSERT_FALSE(data_store()->IsInitialized());
 
@@ -112,75 +116,83 @@ TEST_F(ImageDataStoreDiskTest, Init) {
   ASSERT_TRUE(data_store()->IsInitialized());
 }
 
-TEST_F(ImageDataStoreDiskTest, InitWithExistingDirectory) {
-  PrepareDataStore(/* initialize */ true);
+TEST_F(CachedImageFetcherImageDataStoreDiskTest, InitWithExistingDirectory) {
+  PrepareDataStore(/* initialize */ true, /* needs_transcoding */ false);
 
   // Recreating the data store shouldn't wipe the directory.
   CreateDataStore();
   InitializeDataStore();
 
-  AssertDataPresent(kImageKey);
+  AssertDataPresent(kImageKey, /* needs_transcoding */ false);
 }
 
-TEST_F(ImageDataStoreDiskTest, SaveBeforeInit) {
-  PrepareDataStore(/* initialize */ false);
+TEST_F(CachedImageFetcherImageDataStoreDiskTest, SaveBeforeInit) {
+  PrepareDataStore(/* initialize */ false, /* needs_transcoding */ false);
   // No data should be present (empty string).
-  AssertDataPresent(kImageKey, "");
+  AssertDataPresent(kImageKey, "", /* needs_transcoding */ false);
 }
 
-TEST_F(ImageDataStoreDiskTest, Save) {
-  PrepareDataStore(/* initialize */ true);
-  AssertDataPresent(kImageKey);
+TEST_F(CachedImageFetcherImageDataStoreDiskTest, Save) {
+  PrepareDataStore(/* initialize */ true, /* needs_transcoding */ false);
+  AssertDataPresent(kImageKey, /* needs_transcoding */ false);
+
+  PrepareDataStore(/* initialize */ true, /* needs_transcoding */ true);
+  AssertDataPresent(kImageKey, /* needs_transcoding */ true);
 }
 
-TEST_F(ImageDataStoreDiskTest, DeleteBeforeInit) {
-  PrepareDataStore(/* initialize */ false);
+TEST_F(CachedImageFetcherImageDataStoreDiskTest, DeleteBeforeInit) {
+  PrepareDataStore(/* initialize */ false, /* needs_transcoding */ false);
 
   DeleteData(kImageKey);
 
   InitializeDataStore();
   // Delete should have failed, data still there.
-  AssertDataPresent(kImageKey);
+  AssertDataPresent(kImageKey, /* needs_transcoding */ false);
 }
 
-TEST_F(ImageDataStoreDiskTest, Delete) {
-  PrepareDataStore(/* initialize */ true);
+TEST_F(CachedImageFetcherImageDataStoreDiskTest, Delete) {
+  PrepareDataStore(/* initialize */ true, /* needs_transcoding */ false);
 
   DeleteData(kImageKey);
 
   // Should be empty string (not present).
-  AssertDataPresent(kImageKey, "");
+  AssertDataPresent(kImageKey, "", /* needs_transcoding */ false);
 }
 
-TEST_F(ImageDataStoreDiskTest, GetAllKeysBeforeInit) {
-  PrepareDataStore(/* initialize */ false);
+TEST_F(CachedImageFetcherImageDataStoreDiskTest, GetAllKeysBeforeInit) {
+  PrepareDataStore(/* initialize */ false, /* needs_transcoding */ false);
 
   // Should return empty vector even though there is a file present.
   EXPECT_CALL(*this, KeysCallback(std::vector<std::string>()));
-  data_store()->GetAllKeys(base::BindOnce(&ImageDataStoreDiskTest::KeysCallback,
-                                          base::Unretained(this)));
+  data_store()->GetAllKeys(
+      base::BindOnce(&CachedImageFetcherImageDataStoreDiskTest::KeysCallback,
+                     base::Unretained(this)));
   RunUntilIdle();
 }
 
-TEST_F(ImageDataStoreDiskTest, GetAllKeys) {
-  PrepareDataStore(/* initialize */ true);
+TEST_F(CachedImageFetcherImageDataStoreDiskTest, GetAllKeys) {
+  PrepareDataStore(/* initialize */ true, /* needs_transcoding */ false);
 
   // Should return empty vector even though there is a file present.
   EXPECT_CALL(*this, KeysCallback(std::vector<std::string>({kImageKey})));
-  data_store()->GetAllKeys(base::BindOnce(&ImageDataStoreDiskTest::KeysCallback,
-                                          base::Unretained(this)));
+  data_store()->GetAllKeys(
+      base::BindOnce(&CachedImageFetcherImageDataStoreDiskTest::KeysCallback,
+                     base::Unretained(this)));
   RunUntilIdle();
 }
 
-TEST_F(ImageDataStoreDiskTest, QueuedLoadIsServedBeforeDelete) {
+TEST_F(CachedImageFetcherImageDataStoreDiskTest,
+       QueuedLoadIsServedBeforeDelete) {
   CreateDataStore();
   InitializeDataStore();
 
-  SaveData(kImageKey);
-  EXPECT_CALL(*this, DataCallback(kImageData));
-  data_store()->LoadImage(kImageKey,
-                          base::BindOnce(&ImageDataStoreDiskTest::DataCallback,
-                                         base::Unretained(this)));
+  SaveData(kImageKey, /* needs_transcoding */ false);
+  EXPECT_CALL(*this, DataCallback(false, kImageData));
+  data_store()->LoadImage(
+      kImageKey,
+      /* needs_transcoding */ false,
+      base::BindOnce(&CachedImageFetcherImageDataStoreDiskTest::DataCallback,
+                     base::Unretained(this)));
   DeleteData(kImageKey);
 
   RunUntilIdle();

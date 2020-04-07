@@ -32,8 +32,7 @@ MultiBufferReader::MultiBufferReader(
       preload_pos_(-1),
       loading_(true),
       current_wait_size_(0),
-      progress_callback_(progress_callback),
-      weak_factory_(this) {
+      progress_callback_(progress_callback) {
   DCHECK_GE(start, 0);
   DCHECK_GE(end_, 0);
 }
@@ -181,11 +180,12 @@ void MultiBufferReader::NotifyAvailableRange(
   if (!progress_callback_.is_null()) {
     base::ThreadTaskRunnerHandle::Get()->PostTask(
         FROM_HERE,
-        base::Bind(progress_callback_, static_cast<int64_t>(range.begin)
-                                           << multibuffer_->block_size_shift(),
-                   (static_cast<int64_t>(range.end)
-                    << multibuffer_->block_size_shift()) +
-                       multibuffer_->UncommittedBytesAt(range.end)));
+        base::BindOnce(progress_callback_,
+                       static_cast<int64_t>(range.begin)
+                           << multibuffer_->block_size_shift(),
+                       (static_cast<int64_t>(range.end)
+                        << multibuffer_->block_size_shift()) +
+                           multibuffer_->UncommittedBytesAt(range.end)));
   }
 }
 

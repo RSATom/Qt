@@ -4,6 +4,7 @@
 
 #include "storage/browser/blob/blob_builder_from_stream.h"
 
+#include "base/bind.h"
 #include "base/containers/span.h"
 #include "base/guid.h"
 #include "base/metrics/histogram_macros.h"
@@ -304,9 +305,6 @@ BlobBuilderFromStream::BlobBuilderFromStream(
     base::WeakPtr<BlobStorageContext> context,
     std::string content_type,
     std::string content_disposition,
-    uint64_t length_hint,
-    mojo::ScopedDataPipeConsumerHandle data,
-    blink::mojom::ProgressClientAssociatedPtrInfo progress_client,
     ResultCallback callback)
     : kMemoryBlockSize(std::min(
           kMaxMemoryChunkSize,
@@ -321,14 +319,23 @@ BlobBuilderFromStream::BlobBuilderFromStream(
       content_disposition_(std::move(content_disposition)),
       weak_factory_(this) {
   DCHECK(context_);
+}
 
+BlobBuilderFromStream::~BlobBuilderFromStream() {
+  DCHECK(!callback_) << "BlobBuilderFromStream was destroyed before finishing";
+}
+
+void BlobBuilderFromStream::Start(
+    uint64_t length_hint,
+    mojo::ScopedDataPipeConsumerHandle data,
+    blink::mojom::ProgressClientAssociatedPtrInfo progress_client) {
   context_->mutable_memory_controller()->CallWhenStorageLimitsAreKnown(
       base::BindOnce(&BlobBuilderFromStream::AllocateMoreMemorySpace,
                      weak_factory_.GetWeakPtr(), length_hint,
                      std::move(progress_client), std::move(data)));
 }
 
-BlobBuilderFromStream::~BlobBuilderFromStream() {
+void BlobBuilderFromStream::Abort() {
   OnError(Result::kAborted);
 }
 

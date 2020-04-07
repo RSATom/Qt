@@ -123,8 +123,7 @@ private:
     which provides the URL of the content.
 
     A non-null QMediaContent will always have a reference to
-    the content available through the canonicalUrl() or canonicalRequest()
-    methods.
+    the content available through the request() method.
 
     Alternatively QMediaContent can represent a playlist and contain a pointer to a
     valid QMediaPlaylist object. In this case URL is optional and can either be empty
@@ -259,24 +258,39 @@ bool QMediaContent::isNull() const
 }
 
 /*!
-    Returns a QUrl that represents that canonical resource for this media content.
+    \since 5.14
+
+    Returns a QNetworkRequest that represents the resource for this media content.
 */
 
-QUrl QMediaContent::canonicalUrl() const
-{
-    return canonicalRequest().url();
-}
-
-/*!
-    Returns a QNetworkRequest that represents that canonical resource for this media content.
-*/
-
-QNetworkRequest QMediaContent::canonicalRequest() const
+QNetworkRequest QMediaContent::request() const
 {
     return (d && !d->requests.isEmpty()) ? d->requests.first() : QNetworkRequest();
 }
 
 #if QT_DEPRECATED_SINCE(6, 0)
+/*!
+    \obsolete
+
+    Returns a QUrl that represents that canonical resource for this media content.
+*/
+
+QUrl QMediaContent::canonicalUrl() const
+{
+    return request().url();
+}
+
+/*!
+    \obsolete
+
+    Returns a QNetworkRequest that represents that canonical resource for this media content.
+*/
+
+QNetworkRequest QMediaContent::canonicalRequest() const
+{
+    return request();
+}
+
 /*!
     \obsolete
 

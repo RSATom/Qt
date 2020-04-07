@@ -4,6 +4,7 @@
 
 #include "third_party/blink/renderer/core/offscreencanvas/offscreen_canvas.h"
 
+#include "services/viz/public/interfaces/hit_test/hit_test_region_list.mojom-blink.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/blink/renderer/core/dom/document.h"
@@ -32,7 +33,7 @@ constexpr uint32_t kSinkId = 1;
 
 struct TestParams {
   bool alpha;
-  bool low_latency;
+  bool desynchronized;
 };
 }  // unnamed namespace
 
@@ -82,7 +83,7 @@ void OffscreenCanvasTest::SetUp() {
   CanvasContextCreationAttributesCore attrs;
   if (testing::UnitTest::GetInstance()->current_test_info()->value_param()) {
     attrs.alpha = GetParam().alpha;
-    attrs.low_latency = GetParam().low_latency;
+    attrs.desynchronized = GetParam().desynchronized;
   }
   context_ = static_cast<OffscreenCanvasRenderingContext2D*>(
       offscreen_canvas_->GetCanvasRenderingContext(&GetDocument(), String("2d"),
@@ -172,10 +173,11 @@ TEST_P(OffscreenCanvasTest, CompositorFrameOpacity) {
   platform->RunUntilIdle();
 }
 
-const TestParams kTestCases[] = {{false /* alpha */, false /* low_latency */},
-                                 {false, true},
-                                 {true, false},
-                                 {true, true}};
+const TestParams kTestCases[] = {
+    {false /* alpha */, false /* desynchronized */},
+    {false, true},
+    {true, false},
+    {true, true}};
 
-INSTANTIATE_TEST_CASE_P(, OffscreenCanvasTest, ValuesIn(kTestCases));
+INSTANTIATE_TEST_SUITE_P(, OffscreenCanvasTest, ValuesIn(kTestCases));
 }  // namespace blink

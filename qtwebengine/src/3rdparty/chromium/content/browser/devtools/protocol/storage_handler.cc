@@ -9,7 +9,9 @@
 #include <utility>
 #include <vector>
 
+#include "base/bind.h"
 #include "base/strings/string_split.h"
+#include "base/strings/utf_string_conversions.h"
 #include "base/task/post_task.h"
 #include "content/browser/cache_storage/cache_storage_context_impl.h"
 #include "content/browser/indexed_db/indexed_db_context_impl.h"
@@ -58,8 +60,7 @@ void ReportUsageAndQuotaDataOnUIThread(
         Response::Error("Quota information is not available"));
   }
 
-  std::unique_ptr<Array<Storage::UsageForType>> usageList =
-      Array<Storage::UsageForType>::create();
+  auto usageList = std::make_unique<Array<Storage::UsageForType>>();
 
   blink::mojom::UsageBreakdown* breakdown_ptr = usage_breakdown.get();
   for (const auto initializer : initializers) {
@@ -68,7 +69,7 @@ void ReportUsageAndQuotaDataOnUIThread(
             .SetStorageType(initializer.type)
             .SetUsage(breakdown_ptr->*(initializer.usage_member))
             .Build();
-    usageList->addItem(std::move(entry));
+    usageList->emplace_back(std::move(entry));
   }
 
   callback->sendSuccess(usage, quota, std::move(usageList));
@@ -108,55 +109,44 @@ class StorageHandler::CacheStorageObserver : CacheStorageContextImpl::Observer {
   CacheStorageObserver(base::WeakPtr<StorageHandler> owner_storage_handler,
                        CacheStorageContextImpl* cache_storage_context)
       : owner_(owner_storage_handler), context_(cache_storage_context) {
-    base::PostTaskWithTraits(
-        FROM_HERE, {BrowserThread::IO},
-        base::BindOnce(&CacheStorageObserver::AddObserverOnIOThread,
-                       base::Unretained(this)));
+    DCHECK_CURRENTLY_ON(BrowserThread::UI);
+    context_->AddObserver(this);
   }
 
   ~CacheStorageObserver() override {
-    DCHECK_CURRENTLY_ON(BrowserThread::IO);
+    DCHECK_CURRENTLY_ON(BrowserThread::UI);
     context_->RemoveObserver(this);
   }
 
-  void TrackOriginOnIOThread(const url::Origin& origin) {
-    DCHECK_CURRENTLY_ON(BrowserThread::IO);
+  void TrackOrigin(const url::Origin& origin) {
+    DCHECK_CURRENTLY_ON(BrowserThread::UI);
     if (origins_.find(origin) != origins_.end())
       return;
     origins_.insert(origin);
   }
 
-  void UntrackOriginOnIOThread(const url::Origin& origin) {
-    DCHECK_CURRENTLY_ON(BrowserThread::IO);
+  void UntrackOrigin(const url::Origin& origin) {
+    DCHECK_CURRENTLY_ON(BrowserThread::UI);
     origins_.erase(origin);
   }
 
   void OnCacheListChanged(const url::Origin& origin) override {
+    DCHECK_CURRENTLY_ON(BrowserThread::UI);
     auto found = origins_.find(origin);
     if (found == origins_.end())
       return;
-    base::PostTaskWithTraits(
-        FROM_HERE, {BrowserThread::UI},
-        base::BindOnce(&StorageHandler::NotifyCacheStorageListChanged, owner_,
-                       origin.Serialize()));
+    owner_->NotifyCacheStorageListChanged(origin.Serialize());
   }
 
   void OnCacheContentChanged(const url::Origin& origin,
                              const std::string& cache_name) override {
+    DCHECK_CURRENTLY_ON(BrowserThread::UI);
     if (origins_.find(origin) == origins_.end())
       return;
-    base::PostTaskWithTraits(
-        FROM_HERE, {BrowserThread::UI},
-        base::BindOnce(&StorageHandler::NotifyCacheStorageContentChanged,
-                       owner_, origin.Serialize(), cache_name));
+    owner_->NotifyCacheStorageContentChanged(origin.Serialize(), cache_name);
   }
 
  private:
-  void AddObserverOnIOThread() {
-    DCHECK_CURRENTLY_ON(BrowserThread::IO);
-    context_->AddObserver(this);
-  }
-
   // Maintained on the IO thread to avoid thread contention.
   base::flat_set<url::Origin> origins_;
 
@@ -243,8 +233,7 @@ class StorageHandler::IndexedDBObserver : IndexedDBContextImpl::Observer {
 
 StorageHandler::StorageHandler()
     : DevToolsDomainHandler(Storage::Metainfo::domainName),
-      storage_partition_(nullptr),
-      weak_ptr_factory_(this) {}
+      storage_partition_(nullptr) {}
 
 StorageHandler::~StorageHandler() {
   DCHECK(!cache_storage_observer_);
@@ -263,10 +252,7 @@ void StorageHandler::SetRenderer(int process_host_id,
 }
 
 Response StorageHandler::Disable() {
-  if (cache_storage_observer_) {
-    BrowserThread::DeleteSoon(BrowserThread::IO, FROM_HERE,
-                              cache_storage_observer_.release());
-  }
+  cache_storage_observer_.reset();
   if (indexed_db_observer_) {
     scoped_refptr<base::SequencedTaskRunner> observer_task_runner =
         indexed_db_observer_->TaskRunner();
@@ -348,11 +334,7 @@ Response StorageHandler::TrackCacheStorageForOrigin(const std::string& origin) {
   if (!origin_url.is_valid())
     return Response::InvalidParams(origin + " is not a valid URL");
 
-  base::PostTaskWithTraits(
-      FROM_HERE, {BrowserThread::IO},
-      base::BindOnce(&CacheStorageObserver::TrackOriginOnIOThread,
-                     base::Unretained(GetCacheStorageObserver()),
-                     url::Origin::Create(origin_url)));
+  GetCacheStorageObserver()->TrackOrigin(url::Origin::Create(origin_url));
   return Response::OK();
 }
 
@@ -365,11 +347,7 @@ Response StorageHandler::UntrackCacheStorageForOrigin(
   if (!origin_url.is_valid())
     return Response::InvalidParams(origin + " is not a valid URL");
 
-  base::PostTaskWithTraits(
-      FROM_HERE, {BrowserThread::IO},
-      base::BindOnce(&CacheStorageObserver::UntrackOriginOnIOThread,
-                     base::Unretained(GetCacheStorageObserver()),
-                     url::Origin::Create(origin_url)));
+  GetCacheStorageObserver()->UntrackOrigin(url::Origin::Create(origin_url));
   return Response::OK();
 }
 

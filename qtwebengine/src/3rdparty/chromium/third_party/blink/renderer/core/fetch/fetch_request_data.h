@@ -9,10 +9,9 @@
 #include "base/memory/scoped_refptr.h"
 #include "base/unguessable_token.h"
 #include "services/network/public/mojom/fetch_api.mojom-blink.h"
-#include "services/network/public/mojom/referrer_policy.mojom-shared.h"
+#include "services/network/public/mojom/referrer_policy.mojom-blink.h"
 #include "services/network/public/mojom/url_loader_factory.mojom-blink.h"
 #include "third_party/blink/public/mojom/fetch/fetch_api_request.mojom-blink.h"
-#include "third_party/blink/public/platform/modules/service_worker/web_service_worker_request.h"
 #include "third_party/blink/public/platform/web_url_request.h"
 #include "third_party/blink/renderer/core/fetch/body_stream_buffer.h"
 #include "third_party/blink/renderer/platform/heap/handle.h"
@@ -29,18 +28,17 @@ class ExceptionState;
 class FetchHeaderList;
 class SecurityOrigin;
 class ScriptState;
-class WebServiceWorkerRequest;
 
-class FetchRequestData final
+class CORE_EXPORT FetchRequestData final
     : public GarbageCollectedFinalized<FetchRequestData> {
  public:
   enum Tainting { kBasicTainting, kCorsTainting, kOpaqueTainting };
+  enum class ForServiceWorkerFetchEvent { kFalse, kTrue };
 
   static FetchRequestData* Create();
-  static FetchRequestData* Create(ScriptState*, const WebServiceWorkerRequest&);
   static FetchRequestData* Create(ScriptState*,
-                                  const mojom::blink::FetchAPIRequest&);
-  // Call Request::refreshBody() after calling clone() or pass().
+                                  const mojom::blink::FetchAPIRequest&,
+                                  ForServiceWorkerFetchEvent);
   FetchRequestData* Clone(ScriptState*, ExceptionState&);
   FetchRequestData* Pass(ScriptState*, ExceptionState&);
 
@@ -69,22 +67,20 @@ class FetchRequestData final
   void SetReferrerPolicy(network::mojom::ReferrerPolicy p) {
     referrer_policy_ = p;
   }
-  void SetMode(network::mojom::FetchRequestMode mode) { mode_ = mode; }
-  network::mojom::FetchRequestMode Mode() const { return mode_; }
-  void SetCredentials(network::mojom::FetchCredentialsMode credentials) {
+  void SetMode(network::mojom::RequestMode mode) { mode_ = mode; }
+  network::mojom::RequestMode Mode() const { return mode_; }
+  void SetCredentials(network::mojom::CredentialsMode credentials) {
     credentials_ = credentials;
   }
-  network::mojom::FetchCredentialsMode Credentials() const {
-    return credentials_;
-  }
+  network::mojom::CredentialsMode Credentials() const { return credentials_; }
   void SetCacheMode(mojom::FetchCacheMode cache_mode) {
     cache_mode_ = cache_mode;
   }
   mojom::FetchCacheMode CacheMode() const { return cache_mode_; }
-  void SetRedirect(network::mojom::FetchRedirectMode redirect) {
+  void SetRedirect(network::mojom::RedirectMode redirect) {
     redirect_ = redirect;
   }
-  network::mojom::FetchRedirectMode Redirect() const { return redirect_; }
+  network::mojom::RedirectMode Redirect() const { return redirect_; }
   void SetImportance(mojom::FetchImportanceMode importance) {
     importance_ = importance;
   }
@@ -96,10 +92,9 @@ class FetchRequestData final
     header_list_ = header_list;
   }
   BodyStreamBuffer* Buffer() const { return buffer_; }
-  // Call Request::refreshBody() after calling setBuffer().
   void SetBuffer(BodyStreamBuffer* buffer) { buffer_ = buffer; }
   String MimeType() const { return mime_type_; }
-  void SetMIMEType(const String& type) { mime_type_ = type; }
+  void SetMimeType(const String& type) { mime_type_ = type; }
   String Integrity() const { return integrity_; }
   void SetIntegrity(const String& integrity) { integrity_ = integrity; }
   ResourceLoadPriority Priority() const { return priority_; }
@@ -117,6 +112,12 @@ class FetchRequestData final
   }
   const base::UnguessableToken& WindowId() const { return window_id_; }
   void SetWindowId(const base::UnguessableToken& id) { window_id_ = id; }
+  bool ShouldAlsoUseFactoryBoundOriginForCors() const {
+    return should_also_use_factory_bound_origin_for_cors_;
+  }
+  void SetShouldAlsoUseFactoryBoundOriginForCors(bool value) {
+    should_also_use_factory_bound_origin_for_cors_ = value;
+  }
 
   void Trace(blink::Visitor*);
 
@@ -135,18 +136,18 @@ class FetchRequestData final
   network::mojom::ReferrerPolicy referrer_policy_;
   // FIXME: Support m_authenticationFlag;
   // FIXME: Support m_synchronousFlag;
-  network::mojom::FetchRequestMode mode_;
-  network::mojom::FetchCredentialsMode credentials_;
+  network::mojom::RequestMode mode_;
+  network::mojom::CredentialsMode credentials_;
   // TODO(yiyix): |cache_mode_| is exposed but does not yet affect fetch
   // behavior. We must transfer the mode to the network layer and service
   // worker.
   mojom::FetchCacheMode cache_mode_;
-  network::mojom::FetchRedirectMode redirect_;
+  network::mojom::RedirectMode redirect_;
   mojom::FetchImportanceMode importance_;
   // FIXME: Support m_useURLCredentialsFlag;
   // FIXME: Support m_redirectCount;
   Tainting response_tainting_;
-  TraceWrapperMember<BodyStreamBuffer> buffer_;
+  Member<BodyStreamBuffer> buffer_;
   String mime_type_;
   String integrity_;
   ResourceLoadPriority priority_;
@@ -158,6 +159,7 @@ class FetchRequestData final
   // the URL got revoked after creating the request.
   network::mojom::blink::URLLoaderFactoryPtr url_loader_factory_;
   base::UnguessableToken window_id_;
+  bool should_also_use_factory_bound_origin_for_cors_ = false;
 
   DISALLOW_COPY_AND_ASSIGN(FetchRequestData);
 };

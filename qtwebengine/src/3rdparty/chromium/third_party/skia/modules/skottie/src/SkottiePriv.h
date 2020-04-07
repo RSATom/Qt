@@ -8,15 +8,15 @@
 #ifndef SkottiePriv_DEFINED
 #define SkottiePriv_DEFINED
 
-#include "Skottie.h"
+#include "modules/skottie/include/Skottie.h"
 
-#include "SkFontStyle.h"
-#include "SkottieProperty.h"
-#include "SkSGScene.h"
-#include "SkString.h"
-#include "SkTHash.h"
-#include "SkTypeface.h"
-#include "SkUTF.h"
+#include "include/core/SkFontStyle.h"
+#include "include/core/SkString.h"
+#include "include/core/SkTypeface.h"
+#include "include/private/SkTHash.h"
+#include "modules/skottie/include/SkottieProperty.h"
+#include "modules/sksg/include/SkSGScene.h"
+#include "src/utils/SkUTF.h"
 
 #include <functional>
 
@@ -37,6 +37,9 @@ class Transform;
 
 namespace skottie {
 
+class TransformAdapter2D;
+class TransformAdapter3D;
+
 namespace internal {
 
 using AnimatorScope = sksg::AnimatorList;
@@ -45,11 +48,20 @@ class AnimationBuilder final : public SkNoncopyable {
 public:
     AnimationBuilder(sk_sp<ResourceProvider>, sk_sp<SkFontMgr>, sk_sp<PropertyObserver>,
                      sk_sp<Logger>, sk_sp<MarkerObserver>,
-                     Animation::Builder::Stats*, float duration, float framerate);
+                     Animation::Builder::Stats*, const SkSize& size,
+                     float duration, float framerate);
 
     std::unique_ptr<sksg::Scene> parse(const skjson::ObjectValue&);
 
-    sk_sp<SkTypeface> findFont(const SkString& name) const;
+    struct FontInfo {
+        SkString                  fFamily,
+                                  fStyle;
+        SkScalar                  fAscentPct;
+        sk_sp<SkTypeface>         fTypeface;
+
+        bool matches(const char family[], const char style[]) const;
+    };
+    const FontInfo* findFont(const SkString& name) const;
 
     // This is the workhorse for property binding: depending on whether the property is animated,
     // it will either apply immediately or instantiate and attach a keyframe animator.
@@ -74,10 +86,14 @@ public:
     sk_sp<sksg::Transform> attachMatrix2D(const skjson::ObjectValue&, AnimatorScope*,
                                           sk_sp<sksg::Transform>) const;
     sk_sp<sksg::Transform> attachMatrix3D(const skjson::ObjectValue&, AnimatorScope*,
-                                          sk_sp<sksg::Transform>) const;
+                                          sk_sp<sksg::Transform>,
+                                          sk_sp<TransformAdapter3D> = nullptr,
+                                          bool precompose_parent = false) const;
     sk_sp<sksg::RenderNode> attachOpacity(const skjson::ObjectValue&, AnimatorScope*,
                                       sk_sp<sksg::RenderNode>) const;
     sk_sp<sksg::Path> attachPath(const skjson::Value&, AnimatorScope*) const;
+
+    bool hasNontrivialBlending() const { return fHasNontrivialBlending; }
 
 private:
     struct AttachLayerContext;
@@ -92,31 +108,34 @@ private:
     void dispatchMarkers(const skjson::ArrayValue*) const;
 
     sk_sp<sksg::RenderNode> attachComposition(const skjson::ObjectValue&, AnimatorScope*) const;
-    sk_sp<sksg::RenderNode> attachLayer(const skjson::ObjectValue*, AttachLayerContext*) const;
-    sk_sp<sksg::RenderNode> attachLayerEffects(const skjson::ArrayValue& jeffects, AnimatorScope*,
-                                               sk_sp<sksg::RenderNode>) const;
+    sk_sp<sksg::RenderNode> attachLayer(const skjson::ObjectValue*,
+                                        AnimatorScope*,
+                                        AttachLayerContext*) const;
+
+    sk_sp<sksg::RenderNode> attachBlendMode(const skjson::ObjectValue&,
+                                            sk_sp<sksg::RenderNode>) const;
 
     sk_sp<sksg::RenderNode> attachShape(const skjson::ArrayValue*, AttachShapeContext*) const;
     sk_sp<sksg::RenderNode> attachAssetRef(const skjson::ObjectValue&, AnimatorScope*,
         const std::function<sk_sp<sksg::RenderNode>(const skjson::ObjectValue&,
                                                     AnimatorScope* ctx)>&) const;
     const ImageAssetInfo* loadImageAsset(const skjson::ObjectValue&) const;
-    sk_sp<sksg::RenderNode> attachImageAsset(const skjson::ObjectValue&, const LayerInfo&,
+    sk_sp<sksg::RenderNode> attachImageAsset(const skjson::ObjectValue&, LayerInfo*,
                                              AnimatorScope*) const;
 
     sk_sp<sksg::RenderNode> attachNestedAnimation(const char* name, AnimatorScope* ascope) const;
 
-    sk_sp<sksg::RenderNode> attachImageLayer  (const skjson::ObjectValue&, const LayerInfo&,
+    sk_sp<sksg::RenderNode> attachImageLayer  (const skjson::ObjectValue&, LayerInfo*,
                                                AnimatorScope*) const;
-    sk_sp<sksg::RenderNode> attachNullLayer   (const skjson::ObjectValue&, const LayerInfo&,
+    sk_sp<sksg::RenderNode> attachNullLayer   (const skjson::ObjectValue&, LayerInfo*,
                                                AnimatorScope*) const;
-    sk_sp<sksg::RenderNode> attachPrecompLayer(const skjson::ObjectValue&, const LayerInfo&,
+    sk_sp<sksg::RenderNode> attachPrecompLayer(const skjson::ObjectValue&, LayerInfo*,
                                                AnimatorScope*) const;
-    sk_sp<sksg::RenderNode> attachShapeLayer  (const skjson::ObjectValue&, const LayerInfo&,
+    sk_sp<sksg::RenderNode> attachShapeLayer  (const skjson::ObjectValue&, LayerInfo*,
                                                AnimatorScope*) const;
-    sk_sp<sksg::RenderNode> attachSolidLayer  (const skjson::ObjectValue&, const LayerInfo&,
+    sk_sp<sksg::RenderNode> attachSolidLayer  (const skjson::ObjectValue&, LayerInfo*,
                                                AnimatorScope*) const;
-    sk_sp<sksg::RenderNode> attachTextLayer   (const skjson::ObjectValue&, const LayerInfo&,
+    sk_sp<sksg::RenderNode> attachTextLayer   (const skjson::ObjectValue&, LayerInfo*,
                                                AnimatorScope*) const;
 
     bool dispatchColorProperty(const sk_sp<sksg::Color>&) const;
@@ -169,28 +188,21 @@ private:
     sk_sp<Logger>              fLogger;
     sk_sp<MarkerObserver>      fMarkerObserver;
     Animation::Builder::Stats* fStats;
+    const SkSize               fSize;
     const float                fDuration,
                                fFrameRate;
-
     mutable const char*        fPropertyObserverContext;
+    mutable bool               fHasNontrivialBlending : 1;
 
     struct LayerInfo {
-        float fInPoint,
-              fOutPoint;
+        SkSize      fSize;
+        const float fInPoint,
+                    fOutPoint;
     };
 
     struct AssetInfo {
         const skjson::ObjectValue* fAsset;
         mutable bool               fIsAttaching; // Used for cycle detection
-    };
-
-    struct FontInfo {
-        SkString                  fFamily,
-                                  fStyle;
-        SkScalar                  fAscent;
-        sk_sp<SkTypeface>         fTypeface;
-
-        bool matches(const char family[], const char style[]) const;
     };
 
     struct ImageAssetInfo {
@@ -203,6 +215,48 @@ private:
     mutable SkTHashMap<SkString, ImageAssetInfo> fImageAssetCache;
 
     using INHERITED = SkNoncopyable;
+};
+
+struct AnimationBuilder::AttachLayerContext {
+    explicit AttachLayerContext(const skjson::ArrayValue&);
+    ~AttachLayerContext();
+
+    struct TransformRec {
+        sk_sp<sksg::Transform> fTransformNode;
+        AnimatorScope          fTransformScope;
+    };
+
+    const skjson::ArrayValue&     fLayerList;
+    SkTHashMap<int, TransformRec> fLayerTransformMap;
+    sk_sp<sksg::RenderNode>       fCurrentMatte;
+    sk_sp<sksg::Transform>        fCameraTransform;
+
+    size_t                        fMotionBlurSamples = 1;
+    float                         fMotionBlurAngle   = 0,
+                                  fMotionBlurPhase   = 0;
+
+    enum class TransformType { kLayer, kCamera };
+
+    TransformRec attachLayerTransform(const skjson::ObjectValue& jlayer,
+                                      const AnimationBuilder* abuilder,
+                                      TransformType type = TransformType::kLayer);
+
+    bool hasMotionBlur(const skjson::ObjectValue& jlayer) const;
+
+private:
+    sk_sp<sksg::Transform> attachParentLayerTransform(const skjson::ObjectValue& jlayer,
+                                                      const AnimationBuilder* abuilder,
+                                                      int layer_index);
+
+    sk_sp<sksg::Transform> attachTransformNode(const skjson::ObjectValue& jlayer,
+                                               const AnimationBuilder* abuilder,
+                                               AnimatorScope*,
+                                               sk_sp<sksg::Transform> parent_transform,
+                                               TransformType type) const;
+
+    TransformRec* attachLayerTransformImpl(const skjson::ObjectValue& jlayer,
+                                           const AnimationBuilder* abuilder,
+                                           TransformType type, int layer_index);
 };
 
 } // namespace internal

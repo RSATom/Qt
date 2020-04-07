@@ -40,30 +40,29 @@ void TestPackStereo::RegisterReceiverACM(AudioCodingModule* acm) {
   return;
 }
 
-int32_t TestPackStereo::SendData(const FrameType frame_type,
+int32_t TestPackStereo::SendData(const AudioFrameType frame_type,
                                  const uint8_t payload_type,
                                  const uint32_t timestamp,
                                  const uint8_t* payload_data,
-                                 const size_t payload_size,
-                                 const RTPFragmentationHeader* fragmentation) {
-  WebRtcRTPHeader rtp_info;
+                                 const size_t payload_size) {
+  RTPHeader rtp_header;
   int32_t status = 0;
 
-  rtp_info.header.markerBit = false;
-  rtp_info.header.ssrc = 0;
-  rtp_info.header.sequenceNumber = seq_no_++;
-  rtp_info.header.payloadType = payload_type;
-  rtp_info.header.timestamp = timestamp;
-  if (frame_type == kEmptyFrame) {
+  rtp_header.markerBit = false;
+  rtp_header.ssrc = 0;
+  rtp_header.sequenceNumber = seq_no_++;
+  rtp_header.payloadType = payload_type;
+  rtp_header.timestamp = timestamp;
+  if (frame_type == AudioFrameType::kEmptyFrame) {
     // Skip this frame
     return 0;
   }
 
   if (lost_packet_ == false) {
     status =
-        receiver_acm_->IncomingPacket(payload_data, payload_size, rtp_info);
+        receiver_acm_->IncomingPacket(payload_data, payload_size, rtp_header);
 
-    if (frame_type != kAudioFrameCN) {
+    if (frame_type != AudioFrameType::kAudioFrameCN) {
       payload_size_ = static_cast<int>(payload_size);
     } else {
       payload_size_ = -1;
@@ -105,8 +104,7 @@ TestStereo::TestStereo()
       test_cntr_(0),
       pack_size_samp_(0),
       pack_size_bytes_(0),
-      counter_(0) {
-}
+      counter_(0) {}
 
 TestStereo::~TestStereo() {
   if (channel_a2b_ != NULL) {

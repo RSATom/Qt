@@ -5,9 +5,9 @@
  * found in the LICENSE file.
  */
 
-#include "SkSGGeometryNode.h"
+#include "modules/sksg/include/SkSGGeometryNode.h"
 
-#include "SkPath.h"
+#include "include/core/SkPath.h"
 
 namespace sksg {
 
@@ -22,6 +22,11 @@ void GeometryNode::clip(SkCanvas* canvas, bool aa) const {
 void GeometryNode::draw(SkCanvas* canvas, const SkPaint& paint) const {
     SkASSERT(!this->hasInval());
     this->onDraw(canvas, paint);
+}
+
+bool GeometryNode::contains(const SkPoint& p) const {
+    SkASSERT(!this->hasInval());
+    return this->bounds().contains(p.x(), p.y()) ? this->onContains(p) : false;
 }
 
 SkPath GeometryNode::asPath() const {

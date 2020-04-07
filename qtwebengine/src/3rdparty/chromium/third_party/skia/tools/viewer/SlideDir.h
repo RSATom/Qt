@@ -8,9 +8,9 @@
 #ifndef SlideDir_DEFINED
 #define SlideDir_DEFINED
 
-#include "Slide.h"
+#include "tools/viewer/Slide.h"
 
-#include "SkTArray.h"
+#include "include/private/SkTArray.h"
 
 class SkString;
 
@@ -33,10 +33,10 @@ protected:
     SkISize getDimensions() const override;
 
     void draw(SkCanvas*) override;
-    bool animate(const SkAnimTimer&) override;
+    bool animate(double) override;
 
     bool onChar(SkUnichar) override;
-    bool onMouse(SkScalar x, SkScalar y, sk_app::Window::InputState, uint32_t modifiers) override;
+    bool onMouse(SkScalar x, SkScalar y, InputState, ModifierKey modifiers) override;
 
 private:
     struct Rec;

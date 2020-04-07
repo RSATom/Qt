@@ -19,7 +19,7 @@
 
 #include <memory>
 
-#include "perfetto/tracing/ipc/service_ipc_host.h"
+#include "perfetto/ext/tracing/ipc/service_ipc_host.h"
 
 namespace perfetto {
 
@@ -42,7 +42,7 @@ class ServiceIPCHostImpl : public ServiceIPCHost {
   bool Start(base::ScopedFile producer_socket_fd,
              base::ScopedFile consumer_socket_fd) override;
 
-  TracingService* service_for_testing() const;
+  TracingService* service() const override;
 
  private:
   bool DoStart();

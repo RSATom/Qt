@@ -136,7 +136,7 @@ void ArthurFrame::createGlWindow()
 
 void ArthurFrame::paintEvent(QPaintEvent *e)
 {
-    static QImage *static_image = 0;
+    static QImage *static_image = nullptr;
 
     QPainter painter;
 
@@ -153,7 +153,7 @@ void ArthurFrame::paintEvent(QPaintEvent *e)
 
         int o = 10;
 
-        QBrush bg = palette().brush(QPalette::Background);
+        QBrush bg = palette().brush(QPalette::Window);
         painter.fillRect(0, 0, o, o, bg);
         painter.fillRect(width() - o, 0, o, o, bg);
         painter.fillRect(0, height() - o, o, o, bg);
@@ -376,7 +376,7 @@ void ArthurFrame::showSource()
 
     const QString html = QStringLiteral("<html><pre>") + contents + QStringLiteral("</pre></html>");
 
-    QTextBrowser *sourceViewer = new QTextBrowser(0);
+    QTextBrowser *sourceViewer = new QTextBrowser;
     sourceViewer->setWindowTitle(tr("Source: %1").arg(m_sourceFileName.midRef(5)));
     sourceViewer->setParent(this, Qt::Dialog);
     sourceViewer->setAttribute(Qt::WA_DeleteOnClose);

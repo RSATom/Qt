@@ -35,6 +35,16 @@ DecoderStreamTraits<DemuxerStream::AUDIO>::CreateEOSOutput() {
   return OutputType::CreateEOSBuffer();
 }
 
+void DecoderStreamTraits<DemuxerStream::AUDIO>::SetIsPlatformDecoder(
+    bool is_platform_decoder) {
+  stats_.audio_decoder_info.is_platform_decoder = is_platform_decoder;
+}
+
+void DecoderStreamTraits<DemuxerStream::AUDIO>::SetIsDecryptingDemuxerStream(
+    bool is_dds) {
+  stats_.audio_decoder_info.is_decrypting_demuxer_stream = is_dds;
+}
+
 DecoderStreamTraits<DemuxerStream::AUDIO>::DecoderStreamTraits(
     MediaLog* media_log,
     ChannelLayout initial_hw_layout)
@@ -61,7 +71,7 @@ void DecoderStreamTraits<DemuxerStream::AUDIO>::InitializeDecoder(
     const DecoderConfigType& config,
     bool /* low_delay */,
     CdmContext* cdm_context,
-    const InitCB& init_cb,
+    InitCB init_cb,
     const OutputCB& output_cb,
     const WaitingCB& waiting_cb) {
   DCHECK(config.IsValidConfig());
@@ -70,8 +80,9 @@ void DecoderStreamTraits<DemuxerStream::AUDIO>::InitializeDecoder(
     OnConfigChanged(config);
   config_ = config;
 
-  stats_.audio_decoder_name = decoder->GetDisplayName();
-  decoder->Initialize(config, cdm_context, init_cb, output_cb, waiting_cb);
+  stats_.audio_decoder_info.decoder_name = decoder->GetDisplayName();
+  decoder->Initialize(config, cdm_context, std::move(init_cb), output_cb,
+                      waiting_cb);
 }
 
 void DecoderStreamTraits<DemuxerStream::AUDIO>::OnStreamReset(
@@ -89,8 +100,8 @@ void DecoderStreamTraits<DemuxerStream::AUDIO>::OnDecode(
 }
 
 PostDecodeAction DecoderStreamTraits<DemuxerStream::AUDIO>::OnDecodeDone(
-    const scoped_refptr<OutputType>& buffer) {
-  audio_ts_validator_->RecordOutputDuration(buffer);
+    OutputType* buffer) {
+  audio_ts_validator_->RecordOutputDuration(*buffer);
   return PostDecodeAction::DELIVER;
 }
 
@@ -118,6 +129,16 @@ bool DecoderStreamTraits<DemuxerStream::VIDEO>::NeedsBitstreamConversion(
 scoped_refptr<DecoderStreamTraits<DemuxerStream::VIDEO>::OutputType>
 DecoderStreamTraits<DemuxerStream::VIDEO>::CreateEOSOutput() {
   return OutputType::CreateEOSFrame();
+}
+
+void DecoderStreamTraits<DemuxerStream::VIDEO>::SetIsPlatformDecoder(
+    bool is_platform_decoder) {
+  stats_.video_decoder_info.is_platform_decoder = is_platform_decoder;
+}
+
+void DecoderStreamTraits<DemuxerStream::VIDEO>::SetIsDecryptingDemuxerStream(
+    bool is_dds) {
+  stats_.video_decoder_info.is_decrypting_demuxer_stream = is_dds;
 }
 
 DecoderStreamTraits<DemuxerStream::VIDEO>::DecoderStreamTraits(
@@ -153,21 +174,21 @@ void DecoderStreamTraits<DemuxerStream::VIDEO>::InitializeDecoder(
     const DecoderConfigType& config,
     bool low_delay,
     CdmContext* cdm_context,
-    const InitCB& init_cb,
+    InitCB init_cb,
     const OutputCB& output_cb,
     const WaitingCB& waiting_cb) {
   DCHECK(config.IsValidConfig());
-  stats_.video_decoder_name = decoder->GetDisplayName();
-  DVLOG(2) << stats_.video_decoder_name;
-  decoder->Initialize(config, low_delay, cdm_context, init_cb, output_cb,
-                      waiting_cb);
+  stats_.video_decoder_info.decoder_name = decoder->GetDisplayName();
+  DVLOG(2) << stats_.video_decoder_info.decoder_name;
+  decoder->Initialize(config, low_delay, cdm_context, std::move(init_cb),
+                      output_cb, waiting_cb);
 }
 
 void DecoderStreamTraits<DemuxerStream::VIDEO>::OnStreamReset(
     DemuxerStream* stream) {
   DCHECK(stream);
   last_keyframe_timestamp_ = base::TimeDelta();
-  frames_to_drop_.clear();
+  frame_metadata_.clear();
 }
 
 void DecoderStreamTraits<DemuxerStream::VIDEO>::OnDecode(
@@ -177,8 +198,10 @@ void DecoderStreamTraits<DemuxerStream::VIDEO>::OnDecode(
     return;
   }
 
-  if (buffer.discard_padding().first == kInfiniteDuration)
-    frames_to_drop_.insert(buffer.timestamp());
+  frame_metadata_[buffer.timestamp()] = {
+      buffer.discard_padding().first == kInfiniteDuration,  // should_drop
+      buffer.duration(),                                    // duration
+  };
 
   if (!buffer.is_key_frame())
     return;
@@ -196,18 +219,37 @@ void DecoderStreamTraits<DemuxerStream::VIDEO>::OnDecode(
 }
 
 PostDecodeAction DecoderStreamTraits<DemuxerStream::VIDEO>::OnDecodeDone(
-    const scoped_refptr<OutputType>& buffer) {
-  auto it = frames_to_drop_.find(buffer->timestamp());
-  if (it != frames_to_drop_.end()) {
-    // We erase from the beginning onward to our target frame since frames
-    // should be returned in presentation order. It's possible to accumulate
-    // entries in this queue if playback begins at a non-keyframe; those frames
-    // may never be returned from the decoder.
-    frames_to_drop_.erase(frames_to_drop_.begin(), it + 1);
-    return PostDecodeAction::DROP;
+    OutputType* buffer) {
+  // Add a timestamp here (after decoding completed) to enable buffering delay
+  // measurements down the line.
+  buffer->metadata()->SetTimeTicks(media::VideoFrameMetadata::DECODE_TIME,
+                                   base::TimeTicks::Now());
+
+  auto it = frame_metadata_.find(buffer->timestamp());
+
+  // If the frame isn't in |frame_metadata_| it probably was erased below on a
+  // previous cycle. We could drop these, but today our video algorithm will put
+  // them back into sorted order or drop the frame if a later frame has already
+  // been rendered.
+  if (it == frame_metadata_.end())
+    return PostDecodeAction::DELIVER;
+
+  auto action = it->second.should_drop ? PostDecodeAction::DROP
+                                       : PostDecodeAction::DELIVER;
+
+  // Provide duration information to help the rendering algorithm on the very
+  // first and very last frames.
+  if (it->second.duration != kNoTimestamp) {
+    buffer->metadata()->SetTimeDelta(VideoFrameMetadata::FRAME_DURATION,
+                                     it->second.duration);
   }
 
-  return PostDecodeAction::DELIVER;
+  // We erase from the beginning onward to our target frame since frames should
+  // be returned in presentation order. It's possible to accumulate entries in
+  // this queue if playback begins at a non-keyframe; those frames may never be
+  // returned from the decoder.
+  frame_metadata_.erase(frame_metadata_.begin(), it + 1);
+  return action;
 }
 
 }  // namespace media

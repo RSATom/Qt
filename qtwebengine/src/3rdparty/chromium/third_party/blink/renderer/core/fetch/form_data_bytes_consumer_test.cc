@@ -8,16 +8,18 @@
 #include "base/stl_util.h"
 #include "mojo/public/cpp/bindings/binding_set.h"
 #include "mojo/public/cpp/system/data_pipe_utils.h"
+#include "services/network/public/mojom/data_pipe_getter.mojom-blink.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/blink/public/platform/web_http_body.h"
-#include "third_party/blink/public/platform/web_string.h"
 #include "third_party/blink/renderer/core/fetch/bytes_consumer_test_util.h"
 #include "third_party/blink/renderer/core/html/forms/form_data.h"
 #include "third_party/blink/renderer/core/testing/page_test_base.h"
 #include "third_party/blink/renderer/core/typed_arrays/dom_array_buffer.h"
 #include "third_party/blink/renderer/core/typed_arrays/dom_typed_array.h"
 #include "third_party/blink/renderer/platform/blob/blob_data.h"
+#include "third_party/blink/renderer/platform/heap/heap.h"
+#include "third_party/blink/renderer/platform/loader/testing/bytes_consumer_test_reader.h"
 #include "third_party/blink/renderer/platform/network/encoded_form_data.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
 #include "third_party/blink/renderer/platform/wtf/vector.h"
@@ -47,7 +49,7 @@ class SimpleDataPipeGetter : public network::mojom::blink::DataPipeGetter {
   // network::mojom::DataPipeGetter implementation:
   void Read(mojo::ScopedDataPipeProducerHandle handle,
             ReadCallback callback) override {
-    bool result = mojo::BlockingCopyFromString(WebString(str_).Utf8(), handle);
+    bool result = mojo::BlockingCopyFromString(str_.Utf8(), handle);
     ASSERT_TRUE(result);
     std::move(callback).Run(0 /* OK */, str_.length());
   }
@@ -73,7 +75,7 @@ scoped_refptr<EncodedFormData> ComplexFormData() {
 
   data->AppendData("foo", 3);
   data->AppendFileRange("/foo/bar/baz", 3, 4, 5);
-  std::unique_ptr<BlobData> blob_data = BlobData::Create();
+  auto blob_data = std::make_unique<BlobData>();
   blob_data->AppendText("hello", false);
   auto size = blob_data->length();
   scoped_refptr<BlobDataHandle> blob_data_handle =
@@ -128,7 +130,7 @@ class FormDataBytesConsumerTest : public PageTestBase {
 
 TEST_F(FormDataBytesConsumerTest, TwoPhaseReadFromString) {
   auto result =
-      (MakeGarbageCollected<BytesConsumerTestUtil::TwoPhaseReader>(
+      (MakeGarbageCollected<BytesConsumerTestReader>(
            MakeGarbageCollected<FormDataBytesConsumer>("hello, world")))
           ->Run();
   EXPECT_EQ(Result::kDone, result.first);
@@ -138,7 +140,7 @@ TEST_F(FormDataBytesConsumerTest, TwoPhaseReadFromString) {
 
 TEST_F(FormDataBytesConsumerTest, TwoPhaseReadFromStringNonLatin) {
   constexpr UChar kCs[] = {0x3042, 0};
-  auto result = (MakeGarbageCollected<BytesConsumerTestUtil::TwoPhaseReader>(
+  auto result = (MakeGarbageCollected<BytesConsumerTestReader>(
                      MakeGarbageCollected<FormDataBytesConsumer>(String(kCs))))
                     ->Run();
   EXPECT_EQ(Result::kDone, result.first);
@@ -150,7 +152,7 @@ TEST_F(FormDataBytesConsumerTest, TwoPhaseReadFromArrayBuffer) {
   constexpr unsigned char kData[] = {0x21, 0xfe, 0x00, 0x00, 0xff, 0xa3,
                                      0x42, 0x30, 0x42, 0x99, 0x88};
   DOMArrayBuffer* buffer = DOMArrayBuffer::Create(kData, base::size(kData));
-  auto result = (MakeGarbageCollected<BytesConsumerTestUtil::TwoPhaseReader>(
+  auto result = (MakeGarbageCollected<BytesConsumerTestReader>(
                      MakeGarbageCollected<FormDataBytesConsumer>(buffer)))
                     ->Run();
   Vector<char> expected;
@@ -165,7 +167,7 @@ TEST_F(FormDataBytesConsumerTest, TwoPhaseReadFromArrayBufferView) {
                                      0x42, 0x30, 0x42, 0x99, 0x88};
   constexpr size_t kOffset = 1, kSize = 4;
   DOMArrayBuffer* buffer = DOMArrayBuffer::Create(kData, base::size(kData));
-  auto result = (MakeGarbageCollected<BytesConsumerTestUtil::TwoPhaseReader>(
+  auto result = (MakeGarbageCollected<BytesConsumerTestReader>(
                      MakeGarbageCollected<FormDataBytesConsumer>(
                          DOMUint8Array::Create(buffer, kOffset, kSize))))
                     ->Run();
@@ -182,7 +184,7 @@ TEST_F(FormDataBytesConsumerTest, TwoPhaseReadFromSimpleFormData) {
   data->AppendData("hoge", 4);
 
   auto result =
-      (MakeGarbageCollected<BytesConsumerTestUtil::TwoPhaseReader>(
+      (MakeGarbageCollected<BytesConsumerTestReader>(
            MakeGarbageCollected<FormDataBytesConsumer>(&GetDocument(), data)))
           ->Run();
   EXPECT_EQ(Result::kDone, result.first);
@@ -192,7 +194,7 @@ TEST_F(FormDataBytesConsumerTest, TwoPhaseReadFromSimpleFormData) {
 
 TEST_F(FormDataBytesConsumerTest, TwoPhaseReadFromComplexFormData) {
   scoped_refptr<EncodedFormData> data = ComplexFormData();
-  MockBytesConsumer* underlying = MockBytesConsumer::Create();
+  auto* underlying = MakeGarbageCollected<MockBytesConsumer>();
   BytesConsumer* consumer =
       FormDataBytesConsumer::CreateForTesting(&GetDocument(), data, underlying);
   Checkpoint checkpoint;
@@ -262,7 +264,7 @@ TEST_F(FormDataBytesConsumerTest, DrainAsBlobDataHandleFromArrayBuffer) {
 }
 
 TEST_F(FormDataBytesConsumerTest, DrainAsBlobDataHandleFromSimpleFormData) {
-  FormData* data = FormData::Create(UTF8Encoding());
+  auto* data = MakeGarbageCollected<FormData>(UTF8Encoding());
   data->append("name1", "value1");
   data->append("name2", "value2");
   scoped_refptr<EncodedFormData> input_form_data =
@@ -330,7 +332,7 @@ TEST_F(FormDataBytesConsumerTest, DrainAsFormDataFromArrayBuffer) {
 }
 
 TEST_F(FormDataBytesConsumerTest, DrainAsFormDataFromSimpleFormData) {
-  FormData* data = FormData::Create(UTF8Encoding());
+  auto* data = MakeGarbageCollected<FormData>(UTF8Encoding());
   data->append("name1", "value1");
   data->append("name2", "value2");
   scoped_refptr<EncodedFormData> input_form_data =
@@ -375,7 +377,7 @@ TEST_F(FormDataBytesConsumerTest, BeginReadAffectsDraining) {
 }
 
 TEST_F(FormDataBytesConsumerTest, BeginReadAffectsDrainingWithComplexFormData) {
-  MockBytesConsumer* underlying = MockBytesConsumer::Create();
+  auto* underlying = MakeGarbageCollected<MockBytesConsumer>();
   BytesConsumer* consumer = FormDataBytesConsumer::CreateForTesting(
       &GetDocument(), ComplexFormData(), underlying);
 
@@ -414,7 +416,7 @@ TEST_F(FormDataBytesConsumerTest, BeginReadAffectsDrainingWithComplexFormData) {
 TEST_F(FormDataBytesConsumerTest, SetClientWithComplexFormData) {
   scoped_refptr<EncodedFormData> input_form_data = ComplexFormData();
 
-  MockBytesConsumer* underlying = MockBytesConsumer::Create();
+  auto* underlying = MakeGarbageCollected<MockBytesConsumer>();
   BytesConsumer* consumer = FormDataBytesConsumer::CreateForTesting(
       &GetDocument(), input_form_data, underlying);
   Checkpoint checkpoint;
@@ -436,7 +438,7 @@ TEST_F(FormDataBytesConsumerTest, SetClientWithComplexFormData) {
 TEST_F(FormDataBytesConsumerTest, CancelWithComplexFormData) {
   scoped_refptr<EncodedFormData> input_form_data = ComplexFormData();
 
-  MockBytesConsumer* underlying = MockBytesConsumer::Create();
+  auto* underlying = MakeGarbageCollected<MockBytesConsumer>();
   BytesConsumer* consumer = FormDataBytesConsumer::CreateForTesting(
       &GetDocument(), input_form_data, underlying);
   Checkpoint checkpoint;
@@ -456,8 +458,7 @@ TEST_F(FormDataBytesConsumerTest, DataPipeFormData) {
   scoped_refptr<EncodedFormData> input_form_data = DataPipeFormData();
   auto* consumer = MakeGarbageCollected<FormDataBytesConsumer>(&GetDocument(),
                                                                input_form_data);
-  auto* reader =
-      MakeGarbageCollected<BytesConsumerTestUtil::TwoPhaseReader>(consumer);
+  auto* reader = MakeGarbageCollected<BytesConsumerTestReader>(consumer);
   std::pair<BytesConsumer::Result, Vector<char>> result = reader->Run();
   EXPECT_EQ(Result::kDone, result.first);
   EXPECT_EQ("foo hello world here's another data pipe bar baz",
@@ -498,8 +499,7 @@ TEST_F(FormDataBytesConsumerTest,
   EXPECT_EQ(BytesConsumer::Result::kOk, consumer->EndRead(available));
 
   // The consumer should still be readable. Finish reading.
-  auto* reader =
-      MakeGarbageCollected<BytesConsumerTestUtil::TwoPhaseReader>(consumer);
+  auto* reader = MakeGarbageCollected<BytesConsumerTestReader>(consumer);
   std::pair<BytesConsumer::Result, Vector<char>> result = reader->Run();
   EXPECT_EQ(Result::kDone, result.first);
   EXPECT_EQ(" hello world here's another data pipe bar baz",

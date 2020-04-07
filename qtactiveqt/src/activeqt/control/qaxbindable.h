@@ -63,7 +63,7 @@ struct IAxServerBase;
 
 class QAxBindable
 {
-    Q_DISABLE_COPY(QAxBindable)
+    Q_DISABLE_COPY_MOVE(QAxBindable)
     friend class QAxServerBase;
 public:
     QAxBindable();
@@ -82,7 +82,7 @@ protected:
     IUnknown *clientSite() const;
 
 private:
-    IAxServerBase *activex;
+    IAxServerBase *activex = nullptr;
 };
 
 QT_END_NAMESPACE

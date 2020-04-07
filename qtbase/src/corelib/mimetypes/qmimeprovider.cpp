@@ -460,6 +460,7 @@ void QMimeBinaryProvider::addAllMimeTypes(QList<QMimeType> &result)
 void QMimeBinaryProvider::loadMimeTypePrivate(QMimeTypePrivate &data)
 {
 #ifdef QT_NO_XMLSTREAMREADER
+    Q_UNUSED(data);
     qWarning("Cannot load mime type since QXmlStreamReader is not available.");
     return;
 #else
@@ -672,7 +673,7 @@ void QMimeXMLProvider::load(const QString &fileName)
 {
     QString errorMessage;
     if (!load(fileName, &errorMessage))
-        qWarning("QMimeDatabase: Error loading %s\n%s", qPrintable(fileName), qPrintable(errorMessage));
+        qWarning("QMimeDatabase: Error loading %ls\n%ls", qUtf16Printable(fileName), qUtf16Printable(errorMessage));
 }
 
 bool QMimeXMLProvider::load(const QString &fileName, QString *errorMessage)

@@ -13,6 +13,8 @@
 #include "third_party/blink/renderer/core/paint/object_paint_properties.h"
 #include "third_party/blink/renderer/core/paint/paint_info.h"
 #include "third_party/blink/renderer/core/paint/paint_layer.h"
+#include "third_party/blink/renderer/core/paint/paint_layer_paint_order_iterator.h"
+#include "third_party/blink/renderer/core/paint/paint_layer_scrollable_area.h"
 #include "third_party/blink/renderer/core/paint/scrollable_area_painter.h"
 #include "third_party/blink/renderer/platform/geometry/float_point_3d.h"
 #include "third_party/blink/renderer/platform/graphics/graphics_layer.h"
@@ -25,25 +27,12 @@
 
 namespace blink {
 
-static inline bool ShouldSuppressPaintingLayer(const PaintLayer& layer) {
-  // Avoid painting descendants of the root layer when stylesheets haven't
-  // loaded. This avoids some FOUC.  It's ok not to draw, because later on, when
-  // all the stylesheets do load, Document::styleResolverMayHaveChanged() will
-  // invalidate all painted output via a call to
-  // LayoutView::invalidatePaintForViewAndCompositedLayers().  We also avoid
-  // caching subsequences in this mode; see shouldCreateSubsequence().
-  return layer.GetLayoutObject()
-             .GetDocument()
-             .DidLayoutWithPendingStylesheets() &&
-         !layer.IsRootLayer() && !layer.GetLayoutObject().IsDocumentElement();
-}
-
 void PaintLayerPainter::Paint(GraphicsContext& context,
                               const CullRect& cull_rect,
                               const GlobalPaintFlags global_paint_flags,
                               PaintLayerFlags paint_flags) {
   PaintLayerPaintingInfo painting_info(&paint_layer_, cull_rect,
-                                       global_paint_flags, LayoutSize());
+                                       global_paint_flags, PhysicalOffset());
   if (!paint_layer_.PaintsIntoOwnOrGroupedBacking(global_paint_flags))
     Paint(context, painting_info, paint_flags);
 }
@@ -85,12 +74,6 @@ PaintResult PaintLayerPainter::Paint(
     GraphicsContext& context,
     const PaintLayerPaintingInfo& painting_info,
     PaintLayerFlags paint_flags) {
-  if (paint_layer_.GetLayoutObject().PaintBlockedByDisplayLock())
-    return kFullyPainted;
-  // TODO(vmpstr): This should be called after paint succeeds, but due to
-  // multiple early outs this is more convenient. We should use RAII here.
-  paint_layer_.GetLayoutObject().NotifyDisplayLockDidPaint();
-
   if (paint_layer_.GetLayoutObject().GetFrameView()->ShouldThrottleRendering())
     return kFullyPainted;
 
@@ -112,9 +95,6 @@ PaintResult PaintLayerPainter::Paint(
   // painted as their layoutObject() should properly paint itself.
   if (!paint_layer_.IsSelfPaintingLayer() &&
       !paint_layer_.HasSelfPaintingLayerDescendant())
-    return kFullyPainted;
-
-  if (ShouldSuppressPaintingLayer(paint_layer_))
     return kFullyPainted;
 
   // If this layer is totally invisible then there is nothing to paint. In CAP
@@ -170,15 +150,6 @@ static bool ShouldCreateSubsequence(const PaintLayer& paint_layer,
     return false;
   if (paint_flags &
       (kPaintLayerPaintingOverlayScrollbars | kPaintLayerUncachedClipRects))
-    return false;
-
-  // When in FOUC-avoidance mode, don't cache any subsequences, to avoid having
-  // to invalidate all of them when leaving this mode. There is an early-out in
-  // BlockPainter::paintContents that may result in nothing getting painted in
-  // this mode, in addition to early-out logic in PaintLayerPainter.
-  if (paint_layer.GetLayoutObject()
-          .GetDocument()
-          .DidLayoutWithPendingStylesheets())
     return false;
 
   return true;
@@ -279,16 +250,16 @@ void PaintLayerPainter::AdjustForPaintProperties(
     const auto& first_root_fragment =
         painting_info.root_layer->GetLayoutObject().FirstFragment();
     const auto* source_transform =
-        first_root_fragment.LocalBorderBoxProperties().Transform();
+        &first_root_fragment.LocalBorderBoxProperties().Transform();
     if (RuntimeEnabledFeatures::CompositeAfterPaintEnabled() &&
         IsMainFrameNotClippingContents(*painting_info.root_layer)) {
       // Use PostScrollTranslation as the source transform to avoid clipping of
       // the scrolling contents in CullRect::ApplyTransforms().
-      source_transform = first_root_fragment.PostScrollTranslation();
+      source_transform = &first_root_fragment.PostScrollTranslation();
     }
-    const auto* destination_transform =
+    const auto& destination_transform =
         first_fragment.LocalBorderBoxProperties().Transform();
-    if (source_transform == destination_transform)
+    if (source_transform == &destination_transform)
       return;
 
     if (RuntimeEnabledFeatures::CompositeAfterPaintEnabled()) {
@@ -302,7 +273,7 @@ void PaintLayerPainter::AdjustForPaintProperties(
         // Convert old_cull_rect into the layer's transform space.
         old_cull_rect->MoveBy(RoundedIntPoint(first_fragment.PaintOffset()));
       }
-      cull_rect.ApplyTransforms(source_transform, destination_transform,
+      cull_rect.ApplyTransforms(*source_transform, destination_transform,
                                 old_cull_rect);
       // Convert cull_rect from the layer's transform space to the layer's local
       // space.
@@ -325,8 +296,7 @@ void PaintLayerPainter::AdjustForPaintProperties(
 
   if (first_fragment.PaintProperties() &&
       first_fragment.PaintProperties()->PaintOffsetTranslation()) {
-    painting_info.sub_pixel_accumulation =
-        ToLayoutSize(first_fragment.PaintOffset());
+    painting_info.sub_pixel_accumulation = first_fragment.PaintOffset();
   }
 }
 
@@ -338,9 +308,19 @@ PaintResult PaintLayerPainter::PaintLayerContents(
          paint_layer_.HasSelfPaintingLayerDescendant());
 
   PaintResult result = kFullyPainted;
-
   if (paint_layer_.GetLayoutObject().GetFrameView()->ShouldThrottleRendering())
     return result;
+
+  // If we're blocked from painting by the display lock, return early.
+  if (paint_layer_.GetLayoutObject().PaintBlockedByDisplayLock(
+          DisplayLockContext::kSelf)) {
+    return result;
+  }
+
+  // TODO(vmpstr): This should be called after paint succeeds, but due to
+  // multiple early outs this is more convenient. We should use RAII here.
+  paint_layer_.GetLayoutObject().NotifyDisplayLockDidPaint(
+      DisplayLockContext::kSelf);
 
   // A paint layer should always have LocalBorderBoxProperties when it's ready
   // for paint.
@@ -382,7 +362,7 @@ PaintResult PaintLayerPainter::PaintLayerContents(
        (!is_painting_overflow_contents && !is_painting_mask)) &&
       paint_layer_.GetLayoutObject().StyleRef().HasOutline();
 
-  LayoutSize subpixel_accumulation =
+  PhysicalOffset subpixel_accumulation =
       paint_layer_.GetCompositingState() == kPaintsIntoOwnBacking
           ? paint_layer_.SubpixelAccumulation()
           : painting_info.sub_pixel_accumulation;
@@ -404,12 +384,12 @@ PaintResult PaintLayerPainter::PaintLayerContents(
     subsequence_recorder.emplace(context, paint_layer_);
   }
 
-  LayoutPoint offset_from_root;
+  PhysicalOffset offset_from_root;
   paint_layer_.ConvertToLayerCoords(painting_info.root_layer, offset_from_root);
-  offset_from_root.Move(subpixel_accumulation);
+  offset_from_root += subpixel_accumulation;
 
-  LayoutRect bounds = paint_layer_.PhysicalBoundingBox(offset_from_root);
-  if (!LayoutRect(painting_info.cull_rect.Rect()).Contains(bounds))
+  PhysicalRect bounds = paint_layer_.PhysicalBoundingBox(offset_from_root);
+  if (!PhysicalRect(painting_info.cull_rect.Rect()).Contains(bounds))
     result = kMayBeClippedByCullRect;
 
   // These helpers output clip and compositing operations using a RAII pattern.
@@ -419,10 +399,10 @@ PaintResult PaintLayerPainter::PaintLayerContents(
   bool should_paint_clip_path =
       is_painting_mask && paint_layer_.GetLayoutObject().HasClipPath();
   if (should_paint_clip_path) {
-    LayoutPoint visual_offset_from_root =
+    PhysicalOffset visual_offset_from_root =
         paint_layer_.EnclosingPaginationLayer()
-            ? paint_layer_.VisualOffsetFromAncestor(
-                  painting_info.root_layer, LayoutPoint(subpixel_accumulation))
+            ? paint_layer_.VisualOffsetFromAncestor(painting_info.root_layer,
+                                                    subpixel_accumulation)
             : offset_from_root;
     clip_path_clipper.emplace(context, paint_layer_.GetLayoutObject(),
                               visual_offset_from_root);
@@ -445,7 +425,7 @@ PaintResult PaintLayerPainter::PaintLayerContents(
       is_painting_overlay_scrollbars) {
     // Collect the fragments. This will compute the clip rectangles and paint
     // offsets for each layer fragment.
-    LayoutPoint offset_to_clipper;
+    PhysicalOffset offset_to_clipper;
     const PaintLayer* paint_layer_for_fragments = &paint_layer_;
     if (paint_flags & kPaintLayerPaintingAncestorClippingMaskPhase) {
       // Compute fragments and their clips with respect to the outermost
@@ -461,8 +441,8 @@ PaintResult PaintLayerPainter::PaintLayerContents(
       local_painting_info.root_layer = paint_layer_for_fragments;
       paint_layer_.ConvertToLayerCoords(local_painting_info.root_layer,
                                         offset_to_clipper);
-      LayoutRect new_cull_rect(local_painting_info.cull_rect.Rect());
-      new_cull_rect.MoveBy(offset_to_clipper);
+      PhysicalRect new_cull_rect(local_painting_info.cull_rect.Rect());
+      new_cull_rect.Move(offset_to_clipper);
       local_painting_info.cull_rect = CullRect(EnclosingIntRect(new_cull_rect));
       // Overflow clip of the compositing container is irrelevant.
       respect_overflow_clip = kIgnoreOverflowClip;
@@ -485,8 +465,7 @@ PaintResult PaintLayerPainter::PaintLayerContents(
       // layer's coordinate system, but for the rest of painting we need
       // them in the layer coordinate. So move them and the
       // foreground/background rects that are also in the clipper's space.
-      LayoutSize negative_offset(-offset_to_clipper.X(),
-                                 -offset_to_clipper.Y());
+      PhysicalOffset negative_offset = -offset_to_clipper;
       for (auto& fragment : layer_fragments) {
         fragment.background_rect.Move(negative_offset);
         fragment.foreground_rect.Move(negative_offset);
@@ -513,13 +492,14 @@ PaintResult PaintLayerPainter::PaintLayerContents(
          (is_painting_root_layer &&
           !(paint_flags & kPaintLayerPaintingSkipRootBackground)));
     bool should_paint_neg_z_order_list =
-        (is_painting_scrolling_content && is_painting_overflow_contents) ||
-        (!is_painting_scrolling_content && is_painting_composited_background);
+        !is_painting_overlay_scrollbars &&
+        (is_painting_scrolling_content ? is_painting_overflow_contents
+                                       : is_painting_composited_background);
     bool should_paint_own_contents =
         is_painting_composited_foreground && should_paint_content;
     bool should_paint_normal_flow_and_pos_z_order_lists =
-        is_painting_composited_foreground;
-    bool should_paint_overlay_scrollbars = is_painting_overlay_scrollbars;
+        is_painting_composited_foreground && !is_painting_overlay_scrollbars;
+    bool is_video = paint_layer_.GetLayoutObject().IsVideo();
 
     base::Optional<ScopedPaintChunkProperties>
         subsequence_forced_chunk_properties;
@@ -541,8 +521,8 @@ PaintResult PaintLayerPainter::PaintLayerContents(
         context.GetPaintController().ForceNewChunk(
             paint_layer_, DisplayItem::kLayerChunkBackground);
       }
-      PaintBackgroundForFragments(layer_fragments, context,
-                                  local_painting_info, paint_flags);
+      PaintBackgroundForFragments(layer_fragments, context, local_painting_info,
+                                  paint_flags);
     }
 
     if (should_paint_neg_z_order_list) {
@@ -561,7 +541,7 @@ PaintResult PaintLayerPainter::PaintLayerContents(
           !!subsequence_forced_chunk_properties, paint_flags);
     }
 
-    if (should_paint_self_outline) {
+    if (!is_video && should_paint_self_outline) {
       PaintSelfOutlineForFragments(layer_fragments, context,
                                    local_painting_info, paint_flags);
     }
@@ -572,14 +552,25 @@ PaintResult PaintLayerPainter::PaintLayerContents(
             paint_layer_,
             DisplayItem::kLayerChunkNormalFlowAndPositiveZOrderChildren);
       }
-      if (PaintChildren(kNormalFlowChildren | kPositiveZOrderChildren, context,
+      if (PaintChildren(kNormalFlowAndPositiveZOrderChildren, context,
                         painting_info, paint_flags) == kMayBeClippedByCullRect)
         result = kMayBeClippedByCullRect;
     }
 
-    if (should_paint_overlay_scrollbars) {
-      PaintOverflowControlsForFragments(layer_fragments, context,
-                                        local_painting_info, paint_flags);
+    if (paint_layer_.GetScrollableArea() &&
+        paint_layer_.GetScrollableArea()->HasOverlayScrollbars()) {
+      if (is_painting_overlay_scrollbars ||
+          !paint_layer_.NeedsReorderOverlayScrollbars()) {
+        PaintOverlayScrollbarsForFragments(layer_fragments, context,
+                                           local_painting_info, paint_flags);
+      }
+    }
+
+    if (is_video && should_paint_self_outline) {
+      // We paint outlines for video later so that they aren't obscured by the
+      // video controls.
+      PaintSelfOutlineForFragments(layer_fragments, context,
+                                   local_painting_info, paint_flags);
     }
 
     if (!is_painting_overlay_scrollbars && paint_layer_.PaintsWithFilters() &&
@@ -611,10 +602,10 @@ PaintResult PaintLayerPainter::PaintLayerContents(
     auto state = fragment_data.LocalBorderBoxProperties();
     const auto* properties = fragment_data.PaintProperties();
     DCHECK(properties && properties->Mask());
-    state.SetEffect(properties->Mask());
+    state.SetEffect(*properties->Mask());
     if (properties && properties->ClipPathClip()) {
       DCHECK_EQ(properties->ClipPathClip()->Parent(), properties->MaskClip());
-      state.SetClip(properties->ClipPathClip());
+      state.SetClip(*properties->ClipPathClip());
     }
     ScopedPaintChunkProperties path_based_clip_path_scope(
         context.GetPaintController(), state,
@@ -623,9 +614,9 @@ PaintResult PaintLayerPainter::PaintLayerContents(
 
     const GraphicsLayer* mask_layer =
         paint_layer_.GetCompositedLayerMapping()->MaskLayer();
-    ClipRect layer_rect = LayoutRect(
-        LayoutPoint(LayoutSize(mask_layer->OffsetFromLayoutObject())),
-        LayoutSize(IntSize(mask_layer->Size())));
+    ClipRect layer_rect =
+        PhysicalRect(PhysicalOffset(mask_layer->OffsetFromLayoutObject()),
+                     PhysicalSize(IntSize(mask_layer->Size())));
     FillMaskingFragment(context, layer_rect, *mask_layer);
   }
 
@@ -655,7 +646,7 @@ bool PaintLayerPainter::AtLeastOneFragmentIntersectsDamageRect(
     PaintLayerFragments& fragments,
     const PaintLayerPaintingInfo& local_painting_info,
     PaintLayerFlags local_paint_flags,
-    const LayoutPoint& offset_from_root) {
+    const PhysicalOffset& offset_from_root) {
   if (&paint_layer_ == local_painting_info.root_layer &&
       (local_paint_flags & kPaintLayerPaintingOverflowContents))
     return true;
@@ -684,26 +675,21 @@ static void ForAllFragments(GraphicsContext& context,
 }
 
 PaintResult PaintLayerPainter::PaintChildren(
-    unsigned children_to_visit,
+    PaintLayerIteration children_to_visit,
     GraphicsContext& context,
     const PaintLayerPaintingInfo& painting_info,
     PaintLayerFlags paint_flags) {
   PaintResult result = kFullyPainted;
   if (!paint_layer_.HasSelfPaintingLayerDescendant())
     return result;
-  if (!paint_layer_.StackingNode())
-    return result;
 
-#if DCHECK_IS_ON()
-  LayerListMutationDetector mutation_checker(paint_layer_.StackingNode());
-#endif
-
-  PaintLayerStackingNodeIterator iterator(*paint_layer_.StackingNode(),
-                                          children_to_visit);
-  PaintLayer* child = iterator.Next();
-  if (!child)
+  if (paint_layer_.GetLayoutObject().PaintBlockedByDisplayLock(
+          DisplayLockContext::kChildren)) {
     return result;
-  for (; child; child = iterator.Next()) {
+  }
+
+  PaintLayerPaintOrderIterator iterator(paint_layer_, children_to_visit);
+  while (PaintLayer* child = iterator.Next()) {
     // If this Layer should paint into its own backing or a grouped backing,
     // that will be done via CompositedLayerMapping::PaintContents() and
     // CompositedLayerMapping::DoPaintTask().
@@ -717,44 +703,44 @@ PaintResult PaintLayerPainter::PaintChildren(
     if (PaintLayerPainter(*child).Paint(context, painting_info, paint_flags) ==
         kMayBeClippedByCullRect)
       result = kMayBeClippedByCullRect;
+
+    if (const auto* layers_painting_overlay_scrollbars_after =
+            iterator.LayersPaintingOverlayScrollbarsAfter(child)) {
+      for (auto* reparent_scrollbar_layer :
+           *layers_painting_overlay_scrollbars_after) {
+        DCHECK(reparent_scrollbar_layer->NeedsReorderOverlayScrollbars());
+        if (PaintLayerPainter(*reparent_scrollbar_layer)
+                .Paint(context, painting_info,
+                       kPaintLayerPaintingOverlayScrollbars) ==
+            kMayBeClippedByCullRect)
+          result = kMayBeClippedByCullRect;
+      }
+    }
   }
 
   return result;
 }
 
-void PaintLayerPainter::PaintOverflowControlsForFragments(
+void PaintLayerPainter::PaintOverlayScrollbarsForFragments(
     const PaintLayerFragments& layer_fragments,
     GraphicsContext& context,
     const PaintLayerPaintingInfo& painting_info,
     PaintLayerFlags paint_flags) {
-  PaintLayerScrollableArea* scrollable_area = paint_layer_.GetScrollableArea();
-  if (!scrollable_area)
+  DCHECK(paint_layer_.GetScrollableArea() &&
+         paint_layer_.GetScrollableArea()->HasOverlayScrollbars());
+
+  // We don't need to paint composited scrollbars.
+  if (paint_layer_.GetScrollableArea()->HasLayerForHorizontalScrollbar() ||
+      paint_layer_.GetScrollableArea()->HasLayerForVerticalScrollbar())
     return;
 
   ForAllFragments(
       context, layer_fragments, [&](const PaintLayerFragment& fragment) {
-        ScopedPaintChunkProperties fragment_paint_chunk_properties(
-            context.GetPaintController(),
-            fragment.fragment_data->LocalBorderBoxProperties(), paint_layer_,
-            DisplayItem::kOverflowControls);
-
-        // We need to apply the same clips and transforms that
-        // paintFragmentWithPhase would have.
-        LayoutRect cull_rect = fragment.background_rect.Rect();
-        PaintInfo paint_info(
-            context, PixelSnappedIntRect(cull_rect),
-            PaintPhase::kSelfBlockBackgroundOnly,
-            painting_info.GetGlobalPaintFlags(), paint_flags,
-            &painting_info.root_layer->GetLayoutObject(),
-            fragment.fragment_data
-                ? fragment.fragment_data->LogicalTopInFlowThread()
-                : LayoutUnit());
-        // We pass IntPoint() as the paint offset here, because
-        // ScrollableArea::paintOverflowControls just ignores it and uses the
-        // offset found in a previous pass.
-        ScrollableAreaPainter(*scrollable_area)
-            .PaintOverflowControls(paint_info, IntPoint(),
-                                   true /* painting_overlay_controls */);
+        if (!fragment.background_rect.IsEmpty()) {
+          PaintFragmentWithPhase(PaintPhase::kOverlayScrollbars, fragment,
+                                 context, fragment.background_rect,
+                                 painting_info, paint_flags);
+        }
       });
 }
 
@@ -771,38 +757,32 @@ void PaintLayerPainter::PaintFragmentWithPhase(
   if (phase == PaintPhase::kMask) {
     const auto* properties = fragment.fragment_data->PaintProperties();
     DCHECK(properties && properties->Mask());
-    chunk_properties.SetEffect(properties->Mask());
+    chunk_properties.SetEffect(*properties->Mask());
     // Special case for SPv1 composited mask layer. Path-based clip-path
     // is only applies to the mask chunk, but not to the layer property
     // or local box box property.
     if (properties->ClipPathClip() &&
         properties->ClipPathClip()->Parent() == properties->MaskClip()) {
-      chunk_properties.SetClip(properties->ClipPathClip());
+      chunk_properties.SetClip(*properties->ClipPathClip());
     }
   }
   ScopedPaintChunkProperties fragment_paint_chunk_properties(
       context.GetPaintController(), chunk_properties, paint_layer_,
       DisplayItem::PaintPhaseToDrawingType(phase));
 
-  LayoutRect new_cull_rect(clip_rect.Rect());
+  PhysicalRect new_cull_rect(clip_rect.Rect());
   // Now |new_cull_rect| is in the pixel-snapped border box space of
   // |fragment.root_fragment_data|. Adjust it to the containing transform node's
   // space in which we will paint.
-  new_cull_rect.MoveBy(
-      RoundedIntPoint(fragment.root_fragment_data->PaintOffset()));
+  new_cull_rect.Move(PhysicalOffset(
+      RoundedIntPoint(fragment.root_fragment_data->PaintOffset())));
 
-  // If we had pending stylesheets, we should avoid painting descendants of
-  // layout view to avoid FOUC.
-  bool suppress_painting_descendants = paint_layer_.GetLayoutObject()
-                                           .GetDocument()
-                                           .DidLayoutWithPendingStylesheets();
   PaintInfo paint_info(context, PixelSnappedIntRect(new_cull_rect), phase,
                        painting_info.GetGlobalPaintFlags(), paint_flags,
                        &painting_info.root_layer->GetLayoutObject(),
                        fragment.fragment_data
                            ? fragment.fragment_data->LogicalTopInFlowThread()
-                           : LayoutUnit(),
-                       suppress_painting_descendants);
+                           : LayoutUnit());
   paint_layer_.GetLayoutObject().Paint(paint_info);
 }
 
@@ -877,14 +857,14 @@ void PaintLayerPainter::PaintForegroundForFragmentsWithPhase(
     GraphicsContext& context,
     const PaintLayerPaintingInfo& local_painting_info,
     PaintLayerFlags paint_flags) {
-  ForAllFragments(
-      context, layer_fragments, [&](const PaintLayerFragment& fragment) {
-        if (!fragment.foreground_rect.IsEmpty()) {
-          PaintFragmentWithPhase(phase, fragment, context,
-                                 fragment.foreground_rect, local_painting_info,
-                                 paint_flags);
-        }
-      });
+  ForAllFragments(context, layer_fragments,
+                  [&](const PaintLayerFragment& fragment) {
+                    if (!fragment.foreground_rect.IsEmpty()) {
+                      PaintFragmentWithPhase(phase, fragment, context,
+                                             fragment.foreground_rect,
+                                             local_painting_info, paint_flags);
+                    }
+                  });
 }
 
 void PaintLayerPainter::PaintSelfOutlineForFragments(
@@ -930,7 +910,7 @@ void PaintLayerPainter::PaintAncestorClippingMask(
   ScopedPaintChunkProperties properties(context.GetPaintController(), state,
                                         client, DisplayItem::kClippingMask);
   ClipRect mask_rect = fragment.background_rect;
-  mask_rect.MoveBy(layer_fragment.PaintOffset());
+  mask_rect.Move(layer_fragment.PaintOffset());
   FillMaskingFragment(context, mask_rect, client);
 }
 
@@ -965,14 +945,9 @@ void PaintLayerPainter::PaintOverlayScrollbars(
     GraphicsContext& context,
     const CullRect& cull_rect,
     const GlobalPaintFlags paint_flags) {
-  if (!paint_layer_.ContainsDirtyOverlayScrollbars())
-    return;
-
   PaintLayerPaintingInfo painting_info(&paint_layer_, cull_rect, paint_flags,
-                                       LayoutSize());
+                                       PhysicalOffset());
   Paint(context, painting_info, kPaintLayerPaintingOverlayScrollbars);
-
-  paint_layer_.SetContainsDirtyOverlayScrollbars(false);
 }
 
 void PaintLayerPainter::FillMaskingFragment(GraphicsContext& context,

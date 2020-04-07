@@ -18,17 +18,6 @@
 namespace extensions {
 namespace util {
 
-namespace {
-
-// Returns true if |extension| should always be enabled in incognito mode.
-bool IsWhitelistedForIncognito(const Extension* extension) {
-  const Feature* feature = FeatureProvider::GetBehaviorFeature(
-      behavior_feature::kWhitelistedForIncognito);
-  return feature && feature->IsAvailableToExtension(extension).is_available();
-}
-
-}  // namespace
-
 bool SiteHasIsolatedStorage(const GURL& extension_site_url,
                             content::BrowserContext* context) {
   const Extension* extension = ExtensionRegistry::Get(context)->
@@ -55,10 +44,20 @@ bool IsIncognitoEnabled(const std::string& extension_id,
     // work in incognito mode.
     if (Manifest::IsComponentLocation(extension->location()))
       return true;
-    if (IsWhitelistedForIncognito(extension))
+    if (extension->is_login_screen_extension())
       return true;
   }
   return ExtensionPrefs::Get(context)->IsIncognitoEnabled(extension_id);
+}
+
+bool CanCrossIncognito(const Extension* extension,
+                       content::BrowserContext* context) {
+  // We allow the extension to see events and data from another profile iff it
+  // uses "spanning" behavior and it has incognito access. "split" mode
+  // extensions only see events for a matching profile.
+  CHECK(extension);
+  return IsIncognitoEnabled(extension->id(), context) &&
+         !IncognitoInfo::IsSplitMode(extension);
 }
 
 GURL GetSiteForExtensionId(const std::string& extension_id,

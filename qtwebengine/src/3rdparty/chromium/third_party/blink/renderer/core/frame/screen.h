@@ -30,7 +30,7 @@
 #define THIRD_PARTY_BLINK_RENDERER_CORE_FRAME_SCREEN_H_
 
 #include "third_party/blink/renderer/core/core_export.h"
-#include "third_party/blink/renderer/core/dom/context_lifecycle_observer.h"
+#include "third_party/blink/renderer/core/execution_context/context_lifecycle_observer.h"
 #include "third_party/blink/renderer/platform/bindings/script_wrappable.h"
 #include "third_party/blink/renderer/platform/heap/handle.h"
 #include "third_party/blink/renderer/platform/supplementable.h"
@@ -46,10 +46,6 @@ class CORE_EXPORT Screen final : public ScriptWrappable,
   USING_GARBAGE_COLLECTED_MIXIN(Screen);
 
  public:
-  static Screen* Create(LocalFrame* frame) {
-    return MakeGarbageCollected<Screen>(frame);
-  }
-
   explicit Screen(LocalFrame*);
 
   int height() const;

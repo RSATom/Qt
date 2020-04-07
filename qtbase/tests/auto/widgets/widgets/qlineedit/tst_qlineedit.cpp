@@ -762,6 +762,14 @@ void tst_QLineEdit::keypress_inputMask_data()
     }
     {
         QTestEventList keys;
+        // inserting at end
+        addKeySequenceStandardKey(keys, QKeySequence::MoveToEndOfLine);
+        keys.addKeyClick(Qt::Key_Left);
+        keys.addKeyClick(Qt::Key_0);
+        QTest::newRow("insert at end") << QString("9-9-9") << keys << QString("--0") << QString(" - -0");
+    }
+    {
+        QTestEventList keys;
         // inserting '12.12' then two backspaces
         addKeySequenceStandardKey(keys, QKeySequence::MoveToStartOfLine);
         keys.addKeyClick(Qt::Key_1);
@@ -3530,6 +3538,13 @@ void tst_QLineEdit::textMargin()
     centerOnScreen(&tlw);
     tlw.show();
 
+    const QMargins margins = testWidget.textMargins();
+    QCOMPARE(left, margins.left());
+    QCOMPARE(top, margins.top());
+    QCOMPARE(right, margins.right());
+    QCOMPARE(bottom, margins.bottom());
+
+#if QT_DEPRECATED_SINCE(5, 14)
     int l;
     int t;
     int r;
@@ -3539,6 +3554,7 @@ void tst_QLineEdit::textMargin()
     QCOMPARE(top, t);
     QCOMPARE(right, r);
     QCOMPARE(bottom, b);
+#endif
 
     QTest::mouseClick(&testWidget, Qt::LeftButton, 0, mousePressPos);
     QTRY_COMPARE(testWidget.cursorPosition(), cursorPosition);
@@ -3615,6 +3631,14 @@ void tst_QLineEdit::task174640_editingFinished()
 
     le2->setFocus();
     QTRY_VERIFY(le2->hasFocus());
+    // editingFinished will not be emitted anew because no editing happened
+    QCOMPARE(editingFinishedSpy.count(), 0);
+
+    le1->setFocus();
+    QTRY_VERIFY(le1->hasFocus());
+    QTest::keyPress(le1, Qt::Key_Plus);
+    le2->setFocus();
+    QTRY_VERIFY(le2->hasFocus());
     QCOMPARE(editingFinishedSpy.count(), 1);
     editingFinishedSpy.clear();
 
@@ -3632,6 +3656,8 @@ void tst_QLineEdit::task174640_editingFinished()
     delete testMenu1;
     QCOMPARE(editingFinishedSpy.count(), 0);
     QTRY_VERIFY(le1->hasFocus());
+    // Ensure le1 has been edited
+    QTest::keyPress(le1, Qt::Key_Plus);
 
     QMenu *testMenu2 = new QMenu(le2);
     testMenu2->addAction("foo2");
@@ -3986,7 +4012,7 @@ void tst_QLineEdit::QTBUG7174_inputMaskCursorBlink()
     edit.setFocus();
     edit.setText(QLatin1String("AAAA"));
     edit.show();
-    QRect cursorRect = edit.inputMethodQuery(Qt::ImMicroFocus).toRect();
+    QRect cursorRect = edit.inputMethodQuery(Qt::ImCursorRectangle).toRect();
     QVERIFY(QTest::qWaitForWindowExposed(&edit));
     edit.updateRegion = QRegion();
     QTest::qWait(QApplication::cursorFlashTime());

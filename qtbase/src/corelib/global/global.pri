@@ -7,12 +7,12 @@ HEADERS +=  \
         global/qsystemdetection.h \
         global/qcompilerdetection.h \
         global/qprocessordetection.h \
+        global/qmemory_p.h \
 	global/qnamespace.h \
         global/qendian.h \
         global/qendian_p.h \
         global/qnumeric_p.h \
         global/qnumeric.h \
-        global/qfloat16_p.h \
         global/qfloat16.h \
         global/qglobalstatic.h \
         global/qlibraryinfo.h \
@@ -39,6 +39,10 @@ SOURCES += \
         global/qlogging.cpp \
         global/qrandom.cpp \
         global/qhooks.cpp
+
+# To get listed in IDEs
+false: SOURCES += \
+        global/qfloat16tables.cpp
 
 # Only add global/qfloat16_f16c.c if qfloat16.cpp can't #include it.
 # Any compiler: if it is already generating F16C code, let qfloat16.cpp do it
@@ -124,14 +128,3 @@ gcc:ltcg {
 } else {
     SOURCES += $$VERSIONTAGGING_SOURCES
 }
-
-QMAKE_QFLOAT16_TABLES_GENERATE = global/qfloat16.h
-
-qtPrepareTool(QMAKE_QFLOAT16_TABLES, qfloat16-tables)
-
-qfloat16_tables.commands = $$QMAKE_QFLOAT16_TABLES ${QMAKE_FILE_OUT}
-qfloat16_tables.output = global/qfloat16tables.cpp
-qfloat16_tables.depends = $$QMAKE_QFLOAT16_TABLES_EXE
-qfloat16_tables.input = QMAKE_QFLOAT16_TABLES_GENERATE
-qfloat16_tables.variable_out = SOURCES
-QMAKE_EXTRA_COMPILERS += qfloat16_tables

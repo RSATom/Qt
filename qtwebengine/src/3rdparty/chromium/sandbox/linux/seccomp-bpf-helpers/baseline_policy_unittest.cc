@@ -24,6 +24,7 @@
 #include <time.h>
 #include <unistd.h>
 
+#include "base/clang_coverage_buildflags.h"
 #include "base/files/scoped_file.h"
 #include "base/macros.h"
 #include "base/posix/eintr_wrapper.h"
@@ -268,28 +269,28 @@ BPF_DEATH_TEST_C(BaselinePolicy,
     _exit(1);                                                            \
   }
 
-TEST_BASELINE_SIGSYS(__NR_acct);
-TEST_BASELINE_SIGSYS(__NR_chroot);
-TEST_BASELINE_SIGSYS(__NR_fanotify_init);
-TEST_BASELINE_SIGSYS(__NR_fgetxattr);
-TEST_BASELINE_SIGSYS(__NR_getcpu);
-TEST_BASELINE_SIGSYS(__NR_getitimer);
-TEST_BASELINE_SIGSYS(__NR_init_module);
-TEST_BASELINE_SIGSYS(__NR_io_cancel);
-TEST_BASELINE_SIGSYS(__NR_keyctl);
-TEST_BASELINE_SIGSYS(__NR_mq_open);
-TEST_BASELINE_SIGSYS(__NR_ptrace);
-TEST_BASELINE_SIGSYS(__NR_sched_setaffinity);
-TEST_BASELINE_SIGSYS(__NR_setpgid);
-TEST_BASELINE_SIGSYS(__NR_swapon);
-TEST_BASELINE_SIGSYS(__NR_sysinfo);
-TEST_BASELINE_SIGSYS(__NR_syslog);
-TEST_BASELINE_SIGSYS(__NR_timer_create);
+TEST_BASELINE_SIGSYS(__NR_acct)
+TEST_BASELINE_SIGSYS(__NR_chroot)
+TEST_BASELINE_SIGSYS(__NR_fanotify_init)
+TEST_BASELINE_SIGSYS(__NR_fgetxattr)
+TEST_BASELINE_SIGSYS(__NR_getcpu)
+TEST_BASELINE_SIGSYS(__NR_getitimer)
+TEST_BASELINE_SIGSYS(__NR_init_module)
+TEST_BASELINE_SIGSYS(__NR_io_cancel)
+TEST_BASELINE_SIGSYS(__NR_keyctl)
+TEST_BASELINE_SIGSYS(__NR_mq_open)
+TEST_BASELINE_SIGSYS(__NR_ptrace)
+TEST_BASELINE_SIGSYS(__NR_sched_setaffinity)
+TEST_BASELINE_SIGSYS(__NR_setpgid)
+TEST_BASELINE_SIGSYS(__NR_swapon)
+TEST_BASELINE_SIGSYS(__NR_sysinfo)
+TEST_BASELINE_SIGSYS(__NR_syslog)
+TEST_BASELINE_SIGSYS(__NR_timer_create)
 
 #if !defined(__aarch64__)
-TEST_BASELINE_SIGSYS(__NR_eventfd);
-TEST_BASELINE_SIGSYS(__NR_inotify_init);
-TEST_BASELINE_SIGSYS(__NR_vserver);
+TEST_BASELINE_SIGSYS(__NR_eventfd)
+TEST_BASELINE_SIGSYS(__NR_inotify_init)
+TEST_BASELINE_SIGSYS(__NR_vserver)
 #endif
 
 #if defined(LIBC_GLIBC) && !defined(OS_CHROMEOS)
@@ -342,6 +343,7 @@ BPF_TEST_C(BaselinePolicy, PrctlDumpable, BaselinePolicy) {
 #define PR_CAPBSET_READ 23
 #endif
 
+#if !BUILDFLAG(CLANG_COVERAGE)
 BPF_DEATH_TEST_C(BaselinePolicy,
                  PrctlSigsys,
                  DEATH_SEGV_MESSAGE(GetPrctlErrorMessageContentForTests()),
@@ -349,6 +351,7 @@ BPF_DEATH_TEST_C(BaselinePolicy,
   prctl(PR_CAPBSET_READ, 0, 0, 0, 0);
   _exit(1);
 }
+#endif
 
 BPF_TEST_C(BaselinePolicy, GetOrSetPriority, BaselinePolicy) {
   errno = 0;
@@ -391,6 +394,17 @@ BPF_DEATH_TEST_C(BaselinePolicy,
                  BaselinePolicy) {
   struct timespec ts;
   syscall(SYS_clock_gettime, CLOCK_MONOTONIC_RAW, &ts);
+}
+
+BPF_DEATH_TEST_C(BaselinePolicy,
+                 ClockNanosleepWithDisallowedClockCrashes,
+                 DEATH_SEGV_MESSAGE(GetErrorMessageContentForTests()),
+                 BaselinePolicy) {
+  struct timespec ts;
+  struct timespec out_ts;
+  ts.tv_sec = 0;
+  ts.tv_nsec = 0;
+  syscall(SYS_clock_nanosleep, (~0) | CLOCKFD, 0, &ts, &out_ts);
 }
 
 #if !defined(GRND_RANDOM)

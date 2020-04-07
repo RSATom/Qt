@@ -34,13 +34,13 @@
 #include <memory>
 #include <sstream>
 
+#include "media/base/logging_override_if_enabled.h"
 #include "third_party/blink/public/platform/task_type.h"
 #include "third_party/blink/public/platform/web_source_buffer.h"
 #include "third_party/blink/renderer/core/dom/events/event.h"
 #include "third_party/blink/renderer/core/dom/events/event_queue.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
 #include "third_party/blink/renderer/core/frame/deprecation.h"
-#include "third_party/blink/renderer/core/frame/use_counter.h"
 #include "third_party/blink/renderer/core/html/media/html_media_element.h"
 #include "third_party/blink/renderer/core/html/time_ranges.h"
 #include "third_party/blink/renderer/core/html/track/audio_track.h"
@@ -53,15 +53,13 @@
 #include "third_party/blink/renderer/modules/mediasource/source_buffer_track_base_supplement.h"
 #include "third_party/blink/renderer/platform/bindings/exception_messages.h"
 #include "third_party/blink/renderer/platform/bindings/exception_state.h"
+#include "third_party/blink/renderer/platform/heap/heap.h"
 #include "third_party/blink/renderer/platform/instrumentation/tracing/trace_event.h"
+#include "third_party/blink/renderer/platform/instrumentation/use_counter.h"
 #include "third_party/blink/renderer/platform/network/mime/content_type.h"
 #include "third_party/blink/renderer/platform/runtime_enabled_features.h"
 #include "third_party/blink/renderer/platform/wtf/functional.h"
 #include "third_party/blink/renderer/platform/wtf/math_extras.h"
-
-#ifndef BLINK_SBLOG
-#define BLINK_SBLOG DVLOG(3)
-#endif
 
 using blink::WebSourceBuffer;
 
@@ -119,7 +117,7 @@ SourceBuffer::SourceBuffer(std::unique_ptr<WebSourceBuffer> web_source_buffer,
     : ContextLifecycleObserver(source->GetExecutionContext()),
       web_source_buffer_(std::move(web_source_buffer)),
       source_(source),
-      track_defaults_(TrackDefaultList::Create()),
+      track_defaults_(MakeGarbageCollected<TrackDefaultList>()),
       async_event_queue_(async_event_queue),
       mode_(SegmentsKeyword()),
       updating_(false),
@@ -130,18 +128,20 @@ SourceBuffer::SourceBuffer(std::unique_ptr<WebSourceBuffer> web_source_buffer,
       pending_append_data_offset_(0),
       pending_remove_start_(-1),
       pending_remove_end_(-1) {
-  BLINK_SBLOG << __func__ << " this=" << this;
+  DVLOG(1) << __func__ << " this=" << this;
 
   DCHECK(web_source_buffer_);
   DCHECK(source_);
   DCHECK(source_->MediaElement());
-  audio_tracks_ = AudioTrackList::Create(*source_->MediaElement());
-  video_tracks_ = VideoTrackList::Create(*source_->MediaElement());
+  audio_tracks_ =
+      MakeGarbageCollected<AudioTrackList>(*source_->MediaElement());
+  video_tracks_ =
+      MakeGarbageCollected<VideoTrackList>(*source_->MediaElement());
   web_source_buffer_->SetClient(this);
 }
 
 SourceBuffer::~SourceBuffer() {
-  BLINK_SBLOG << __func__ << " this=" << this;
+  DVLOG(1) << __func__ << " this=" << this;
 }
 
 void SourceBuffer::Dispose() {
@@ -162,7 +162,7 @@ const AtomicString& SourceBuffer::SequenceKeyword() {
 
 void SourceBuffer::setMode(const AtomicString& new_mode,
                            ExceptionState& exception_state) {
-  BLINK_SBLOG << __func__ << " this=" << this << " new_mode=" << new_mode;
+  DVLOG(3) << __func__ << " this=" << this << " new_mode=" << new_mode;
   // Section 3.1 On setting mode attribute steps.
   // https://www.w3.org/TR/media-source/#dom-sourcebuffer-mode
   // 1. If this object has been removed from the sourceBuffers attribute of the
@@ -229,7 +229,11 @@ TimeRanges* SourceBuffer::buffered(ExceptionState& exception_state) const {
 
   // 2. Return a new static normalized TimeRanges object for the media segments
   //    buffered.
-  return TimeRanges::Create(web_source_buffer_->Buffered());
+  return MakeGarbageCollected<TimeRanges>(web_source_buffer_->Buffered());
+}
+
+WebTimeRanges SourceBuffer::buffered() const {
+  return web_source_buffer_->Buffered();
 }
 
 double SourceBuffer::timestampOffset() const {
@@ -238,7 +242,7 @@ double SourceBuffer::timestampOffset() const {
 
 void SourceBuffer::setTimestampOffset(double offset,
                                       ExceptionState& exception_state) {
-  BLINK_SBLOG << __func__ << " this=" << this << " offset=" << offset;
+  DVLOG(3) << __func__ << " this=" << this << " offset=" << offset;
   // Section 3.1 timestampOffset attribute setter steps.
   // https://dvcs.w3.org/hg/html-media/raw-file/tip/media-source/media-source.html#widl-SourceBuffer-timestampOffset
   // 1. Let new timestamp offset equal the new value being assigned to this
@@ -292,7 +296,7 @@ double SourceBuffer::appendWindowStart() const {
 
 void SourceBuffer::setAppendWindowStart(double start,
                                         ExceptionState& exception_state) {
-  BLINK_SBLOG << __func__ << " this=" << this << " start=" << start;
+  DVLOG(3) << __func__ << " this=" << this << " start=" << start;
   // Section 3.1 appendWindowStart attribute setter steps.
   // https://www.w3.org/TR/media-source/#widl-SourceBuffer-appendWindowStart
   // 1. If this object has been removed from the sourceBuffers attribute of the
@@ -327,7 +331,7 @@ double SourceBuffer::appendWindowEnd() const {
 
 void SourceBuffer::setAppendWindowEnd(double end,
                                       ExceptionState& exception_state) {
-  BLINK_SBLOG << __func__ << " this=" << this << " end=" << end;
+  DVLOG(3) << __func__ << " this=" << this << " end=" << end;
   // Section 3.1 appendWindowEnd attribute setter steps.
   // https://www.w3.org/TR/media-source/#widl-SourceBuffer-appendWindowEnd
   // 1. If this object has been removed from the sourceBuffers attribute of the
@@ -364,8 +368,8 @@ void SourceBuffer::setAppendWindowEnd(double end,
 void SourceBuffer::appendBuffer(DOMArrayBuffer* data,
                                 ExceptionState& exception_state) {
   double media_time = GetMediaTime();
-  BLINK_SBLOG << __func__ << " this=" << this << " media_time=" << media_time
-              << " size=" << data->ByteLength();
+  DVLOG(2) << __func__ << " this=" << this << " media_time=" << media_time
+           << " size=" << data->ByteLength();
   // Section 3.2 appendBuffer()
   // https://dvcs.w3.org/hg/html-media/raw-file/default/media-source/media-source.html#widl-SourceBuffer-appendBuffer-void-ArrayBufferView-data
   AppendBufferInternal(media_time,
@@ -376,8 +380,8 @@ void SourceBuffer::appendBuffer(DOMArrayBuffer* data,
 void SourceBuffer::appendBuffer(NotShared<DOMArrayBufferView> data,
                                 ExceptionState& exception_state) {
   double media_time = GetMediaTime();
-  BLINK_SBLOG << __func__ << " this=" << this << " media_time=" << media_time
-              << " size=" << data.View()->byteLength();
+  DVLOG(3) << __func__ << " this=" << this << " media_time=" << media_time
+           << " size=" << data.View()->byteLength();
   // Section 3.2 appendBuffer()
   // https://dvcs.w3.org/hg/html-media/raw-file/default/media-source/media-source.html#widl-SourceBuffer-appendBuffer-void-ArrayBufferView-data
   AppendBufferInternal(
@@ -386,7 +390,7 @@ void SourceBuffer::appendBuffer(NotShared<DOMArrayBufferView> data,
 }
 
 void SourceBuffer::abort(ExceptionState& exception_state) {
-  BLINK_SBLOG << __func__ << " this=" << this;
+  DVLOG(2) << __func__ << " this=" << this;
   // http://w3c.github.io/media-source/#widl-SourceBuffer-abort-void
   // 1. If this object has been removed from the sourceBuffers attribute of the
   //    parent media source then throw an InvalidStateError exception and abort
@@ -443,8 +447,8 @@ void SourceBuffer::abort(ExceptionState& exception_state) {
 void SourceBuffer::remove(double start,
                           double end,
                           ExceptionState& exception_state) {
-  BLINK_SBLOG << __func__ << " this=" << this << " start=" << start
-              << " end=" << end;
+  DVLOG(2) << __func__ << " this=" << this << " start=" << start
+           << " end=" << end;
 
   // Section 3.2 remove() method steps.
   // https://www.w3.org/TR/media-source/#widl-SourceBuffer-remove-void-double-start-unrestricted-double-end
@@ -513,7 +517,7 @@ void SourceBuffer::remove(double start,
 
 void SourceBuffer::changeType(const String& type,
                               ExceptionState& exception_state) {
-  BLINK_SBLOG << __func__ << " this=" << this << " type=" << type;
+  DVLOG(2) << __func__ << " this=" << this << " type=" << type;
 
   // Per 30 May 2018 Codec Switching feature incubation spec:
   // https://rawgit.com/WICG/media-source/3b3742ea788999bb7ae4a4553ac7d574b0547dbe/index.html#dom-sourcebuffer-changetype
@@ -541,6 +545,10 @@ void SourceBuffer::changeType(const String& type,
   //    abort these steps.
   ContentType content_type(type);
   String codecs = content_type.Parameter("codecs");
+  // TODO(wolenetz): Refactor and use a less-strict version of isTypeSupported
+  // here. As part of that, CanChangeType in Chromium should inherit relaxation
+  // of impl's StreamParserFactory (since it returns true iff a stream parser
+  // can be constructed with |type|). See https://crbug.com/535738.
   if (!MediaSource::isTypeSupported(type) ||
       !web_source_buffer_->CanChangeType(content_type.GetType(), codecs)) {
     MediaSource::LogAndThrowDOMException(
@@ -646,7 +654,7 @@ void SourceBuffer::RemovedFromMediaSource() {
   if (IsRemoved())
     return;
 
-  BLINK_SBLOG << __func__ << " this=" << this;
+  DVLOG(3) << __func__ << " this=" << this;
   if (pending_remove_start_ != -1) {
     CancelRemove();
   } else {
@@ -671,7 +679,7 @@ double SourceBuffer::HighestPresentationTimestamp() {
   DCHECK(!IsRemoved());
 
   double pts = web_source_buffer_->HighestPresentationTimestamp();
-  BLINK_SBLOG << __func__ << " this=" << this << ", pts=" << pts;
+  DVLOG(3) << __func__ << " this=" << this << ", pts=" << pts;
   return pts;
 }
 
@@ -842,8 +850,7 @@ AtomicString SourceBuffer::DefaultTrackLanguage(
 
 bool SourceBuffer::InitializationSegmentReceived(
     const WebVector<MediaTrackInfo>& new_tracks) {
-  BLINK_SBLOG << __func__ << " this=" << this
-              << " tracks=" << new_tracks.size();
+  DVLOG(3) << __func__ << " this=" << this << " tracks=" << new_tracks.size();
   DCHECK(source_);
   DCHECK(source_->MediaElement());
   DCHECK(updating_);
@@ -874,28 +881,27 @@ bool SourceBuffer::InitializationSegmentReceived(
       if (first_initialization_segment_received_)
         track = FindExistingTrackById(videoTracks(), track_info.id);
     } else {
-      BLINK_SBLOG << __func__ << " this=" << this
-                  << " failed: unsupported track type "
-                  << track_info.track_type;
+      DVLOG(3) << __func__ << " this=" << this
+               << " failed: unsupported track type " << track_info.track_type;
       // TODO(servolk): Add handling of text tracks.
       NOTREACHED();
     }
     if (first_initialization_segment_received_ && !track) {
-      BLINK_SBLOG << __func__ << " this=" << this
-                  << " failed: tracks mismatch the first init segment.";
+      DVLOG(3) << __func__ << " this=" << this
+               << " failed: tracks mismatch the first init segment.";
       return false;
     }
 #if DCHECK_IS_ON()
     const char* log_track_type_str =
         (track_info.track_type == WebMediaPlayer::kAudioTrack) ? "audio"
                                                                : "video";
-    BLINK_SBLOG << __func__ << " this=" << this << " : " << log_track_type_str
-                << " track "
-                << " id=" << String(track_info.id) << " byteStreamTrackID="
-                << String(track_info.byte_stream_track_id)
-                << " kind=" << String(track_info.kind)
-                << " label=" << String(track_info.label)
-                << " language=" << String(track_info.language);
+    DVLOG(3) << __func__ << " this=" << this << " : " << log_track_type_str
+             << " track "
+             << " id=" << String(track_info.id)
+             << " byteStreamTrackID=" << String(track_info.byte_stream_track_id)
+             << " kind=" << String(track_info.kind)
+             << " label=" << String(track_info.label)
+             << " language=" << String(track_info.language);
 #endif
   }
 
@@ -905,9 +911,9 @@ bool SourceBuffer::InitializationSegmentReceived(
   // 2. If the initialization segment has no audio, video, or text tracks, then
   //    run the append error algorithm with the decode error parameter set to
   //    true and abort these steps.
-  if (new_tracks.size() == 0) {
-    BLINK_SBLOG << __func__ << " this=" << this
-                << " failed: no tracks found in the init segment.";
+  if (new_tracks.empty()) {
+    DVLOG(3) << __func__ << " this=" << this
+             << " failed: no tracks found in the init segment.";
     // The append error algorithm will be called at the top level after we
     // return false here to indicate failure.
     return false;
@@ -955,8 +961,8 @@ bool SourceBuffer::InitializationSegmentReceived(
     }
 
     if (!tracks_match_first_init_segment) {
-      BLINK_SBLOG << __func__ << " this=" << this
-                  << " failed: tracks mismatch the first init segment.";
+      DVLOG(3) << __func__ << " this=" << this
+               << " failed: tracks mismatch the first init segment.";
       // The append error algorithm will be called at the top level after we
       // return false here to indicate failure.
       return false;
@@ -1016,8 +1022,8 @@ bool SourceBuffer::InitializationSegmentReceived(
       const auto& kind = track_info.kind;
       // 5.2.7 TODO(servolk): Implement track kind processing.
       // 5.2.8.2 Let new audio track be a new AudioTrack object.
-      AudioTrack* audio_track =
-          AudioTrack::Create(track_info.id, kind, label, language, false);
+      auto* audio_track = MakeGarbageCollected<AudioTrack>(
+          track_info.id, kind, label, language, false);
       SourceBufferTrackBaseSupplement::SetSourceBuffer(*audio_track, this);
       // 5.2.8.7 If audioTracks.length equals 0, then run the following steps:
       if (audioTracks().length() == 0) {
@@ -1077,8 +1083,8 @@ bool SourceBuffer::InitializationSegmentReceived(
       const auto& kind = track_info.kind;
       // 5.3.7 TODO(servolk): Implement track kind processing.
       // 5.3.8.2 Let new video track be a new VideoTrack object.
-      VideoTrack* video_track =
-          VideoTrack::Create(track_info.id, kind, label, language, false);
+      auto* video_track = MakeGarbageCollected<VideoTrack>(
+          track_info.id, kind, label, language, false);
       SourceBufferTrackBaseSupplement::SetSourceBuffer(*video_track, this);
       // 5.3.8.7 If videoTracks.length equals 0, then run the following steps:
       if (videoTracks().length() == 0) {
@@ -1218,8 +1224,7 @@ bool SourceBuffer::PrepareAppend(double media_time,
   if (!EvictCodedFrames(media_time, new_data_size)) {
     // 6. If the buffer full flag equals true, then throw a QUOTA_EXCEEDED_ERR
     //    exception and abort these steps.
-    BLINK_SBLOG << __func__ << " this=" << this
-                << " -> throw QuotaExceededError";
+    DVLOG(3) << __func__ << " this=" << this << " -> throw QuotaExceededError";
     MediaSource::LogAndThrowDOMException(exception_state,
                                          DOMExceptionCode::kQuotaExceededError,
                                          "The SourceBuffer is full, and cannot "
@@ -1245,10 +1250,10 @@ bool SourceBuffer::EvictCodedFrames(double media_time, size_t new_data_size) {
 
   bool result = web_source_buffer_->EvictCodedFrames(media_time, new_data_size);
   if (!result) {
-    BLINK_SBLOG << __func__ << " this=" << this
-                << " failed. newDataSize=" << new_data_size
-                << " media_time=" << media_time << " buffered="
-                << WebTimeRangesToString(web_source_buffer_->Buffered());
+    DVLOG(3) << __func__ << " this=" << this
+             << " failed. newDataSize=" << new_data_size
+             << " media_time=" << media_time << " buffered="
+             << WebTimeRangesToString(web_source_buffer_->Buffered());
   }
   return result;
 }
@@ -1362,9 +1367,9 @@ void SourceBuffer::AppendBufferAsyncPart() {
 
   TRACE_EVENT_ASYNC_END0("media", "SourceBuffer::appendBuffer", this);
   double media_time = GetMediaTime();
-  BLINK_SBLOG << __func__ << " done. this=" << this
-              << " media_time=" << media_time << " buffered="
-              << WebTimeRangesToString(web_source_buffer_->Buffered());
+  DVLOG(3) << __func__ << " done. this=" << this << " media_time=" << media_time
+           << " buffered="
+           << WebTimeRangesToString(web_source_buffer_->Buffered());
 }
 
 void SourceBuffer::RemoveAsyncPart() {
@@ -1394,7 +1399,7 @@ void SourceBuffer::RemoveAsyncPart() {
 }
 
 void SourceBuffer::AppendError() {
-  BLINK_SBLOG << __func__ << " this=" << this;
+  DVLOG(3) << __func__ << " this=" << this;
   // Section 3.5.3 Append Error Algorithm
   // https://dvcs.w3.org/hg/html-media/raw-file/default/media-source/media-source.html#sourcebuffer-append-error
 

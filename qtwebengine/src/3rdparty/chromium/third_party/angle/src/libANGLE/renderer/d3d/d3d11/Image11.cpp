@@ -360,7 +360,8 @@ angle::Result Image11::copyFromTexStorage(const gl::Context *context,
     const TextureHelper11 *textureHelper = nullptr;
     ANGLE_TRY(storage11->getResource(context, &textureHelper));
 
-    UINT subresourceIndex = storage11->getSubresourceIndex(imageIndex);
+    UINT subresourceIndex = 0;
+    ANGLE_TRY(storage11->getSubresourceIndex(context, imageIndex, &subresourceIndex));
 
     gl::Box sourceBox(0, 0, 0, mWidth, mHeight, mDepth);
     return copyWithoutConversion(context, gl::Offset(), sourceBox, *textureHelper,
@@ -372,7 +373,7 @@ angle::Result Image11::copyFromFramebuffer(const gl::Context *context,
                                            const gl::Rectangle &sourceArea,
                                            const gl::Framebuffer *sourceFBO)
 {
-    const gl::FramebufferAttachment *srcAttachment = sourceFBO->getReadColorbuffer();
+    const gl::FramebufferAttachment *srcAttachment = sourceFBO->getReadColorAttachment();
     ASSERT(srcAttachment);
 
     GLenum sourceInternalFormat = srcAttachment->getFormat().info->sizedInternalFormat;
@@ -519,6 +520,7 @@ angle::Result Image11::getStagingTexture(const gl::Context *context,
 void Image11::releaseStagingTexture()
 {
     mStagingTexture.reset();
+    mStagingTextureSubresourceVerifier.reset();
 }
 
 angle::Result Image11::createStagingTexture(const gl::Context *context)
@@ -576,6 +578,7 @@ angle::Result Image11::createStagingTexture(const gl::Context *context)
 
             mStagingTexture.setDebugName("Image11::StagingTexture3D");
             mStagingSubresource = D3D11CalcSubresource(lodOffset, 0, lodOffset + 1);
+            mStagingTextureSubresourceVerifier.setDesc(desc);
         }
         break;
 
@@ -614,6 +617,7 @@ angle::Result Image11::createStagingTexture(const gl::Context *context)
 
             mStagingTexture.setDebugName("Image11::StagingTexture2D");
             mStagingSubresource = D3D11CalcSubresource(lodOffset, 0, lodOffset + 1);
+            mStagingTextureSubresourceVerifier.setDesc(desc);
         }
         break;
 
@@ -641,6 +645,17 @@ angle::Result Image11::map(const gl::Context *context,
     ANGLE_TRY(
         mRenderer->mapResource(context, stagingTexture->get(), subresourceIndex, mapType, 0, map));
 
+    if (!mStagingTextureSubresourceVerifier.wrap(mapType, map))
+    {
+        ID3D11DeviceContext *deviceContext = mRenderer->getDeviceContext();
+        deviceContext->Unmap(mStagingTexture.get(), mStagingSubresource);
+        Context11 *context11 = GetImplAs<Context11>(context);
+        context11->handleError(GL_OUT_OF_MEMORY,
+                               "Failed to allocate staging texture mapping verifier buffer.",
+                               __FILE__, ANGLE_FUNCTION, __LINE__);
+        return angle::Result::Stop;
+    }
+
     mDirty = true;
 
     return angle::Result::Continue;
@@ -650,6 +665,7 @@ void Image11::unmap()
 {
     if (mStagingTexture.valid())
     {
+        mStagingTextureSubresourceVerifier.unwrap();
         ID3D11DeviceContext *deviceContext = mRenderer->getDeviceContext();
         deviceContext->Unmap(mStagingTexture.get(), mStagingSubresource);
     }

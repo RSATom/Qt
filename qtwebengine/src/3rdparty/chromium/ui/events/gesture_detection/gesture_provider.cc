@@ -10,8 +10,10 @@
 
 #include "base/auto_reset.h"
 #include "base/macros.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/trace_event/trace_event.h"
 #include "ui/events/event_constants.h"
+#include "ui/events/gesture_detection/gesture_configuration.h"
 #include "ui/events/gesture_detection/gesture_event_data.h"
 #include "ui/events/gesture_detection/gesture_listeners.h"
 #include "ui/events/gesture_detection/motion_event.h"
@@ -125,7 +127,7 @@ class GestureProvider::GestureListenerImpl : public ScaleGestureListener,
 
     const MotionEvent::Action action = event.GetAction();
     if (action == MotionEvent::Action::DOWN) {
-      current_down_time_ = event.GetEventTime();
+      current_down_action_event_time_ = event.GetEventTime();
       current_longpress_time_ = base::TimeTicks();
       ignore_single_tap_ = false;
       scroll_event_sent_ = false;
@@ -145,7 +147,14 @@ class GestureProvider::GestureListenerImpl : public ScaleGestureListener,
       // |Fling()| will have already signalled an end to touch-scrolling.
       if (scroll_event_sent_)
         Send(CreateGesture(ET_GESTURE_SCROLL_END, event));
-      current_down_time_ = base::TimeTicks();
+
+      // If this was the last pointer that was canceled or lifted reset the
+      // |current_down_action_event_time_| to indicate no sequence is going on.
+      if (action != MotionEvent::Action::CANCEL ||
+          !GestureConfiguration::GetInstance()
+               ->single_pointer_cancel_enabled() ||
+          event.GetPointerCount() == 1)
+        current_down_action_event_time_ = base::TimeTicks();
     } else if (action == MotionEvent::Action::MOVE) {
       if (!show_press_event_sent_ && !scroll_event_sent_) {
         max_diameter_before_show_press_ =
@@ -159,7 +168,8 @@ class GestureProvider::GestureListenerImpl : public ScaleGestureListener,
     // The only valid events that should be sent without an active touch
     // sequence are SHOW_PRESS and TAP, potentially triggered by the double-tap
     // delay timing out.
-    DCHECK(!current_down_time_.is_null() || gesture.type() == ET_GESTURE_TAP ||
+    DCHECK(!current_down_action_event_time_.is_null() ||
+           gesture.type() == ET_GESTURE_TAP ||
            gesture.type() == ET_GESTURE_SHOW_PRESS ||
            gesture.type() == ET_GESTURE_BEGIN ||
            gesture.type() == ET_GESTURE_END);
@@ -326,14 +336,16 @@ class GestureProvider::GestureListenerImpl : public ScaleGestureListener,
 
     float distance_x = raw_distance_x;
     float distance_y = raw_distance_y;
+    base::TimeTicks original_event_timestamp;
     if (!scroll_event_sent_ && e2.GetPointerCount() < 3) {
       // Remove the touch slop region from the first scroll event to avoid a
       // jump. Touch slop isn't used for scroll gestures with greater than 2
       // pointers down, in those cases we don't subtract the slop.
-      gfx::Vector2dF delta =
+      std::pair<gfx::Vector2dF, base::TimeTicks> slop_delta_with_timestamp =
           ComputeFirstScrollDelta(e1, e2, secondary_pointer_down);
-      distance_x = delta.x();
-      distance_y = delta.y();
+      distance_x = slop_delta_with_timestamp.first.x();
+      distance_y = slop_delta_with_timestamp.first.y();
+      original_event_timestamp = slop_delta_with_timestamp.second;
     }
 
     snap_scroll_controller_.UpdateSnapScrollMode(distance_x, distance_y);
@@ -348,6 +360,15 @@ class GestureProvider::GestureListenerImpl : public ScaleGestureListener,
       return true;
 
     if (!scroll_event_sent_) {
+      if (!original_event_timestamp.is_null()) {
+        // Calculate the latency (and log once per gesture-based scroll
+        // initiation) by determining the amount of time it took from when
+        // the pointer down event happened until now (when we've recognized
+        // that it should be a scroll).
+        UMA_HISTOGRAM_TIMES("Event.Scroll.TouchGestureLatency",
+                            base::TimeTicks::Now() - original_event_timestamp);
+      }
+
       // Note that scroll start hints are in distance traveled, where
       // scroll deltas are in the opposite direction.
       GestureEventDetails scroll_details(ET_GESTURE_SCROLL_BEGIN, -distance_x,
@@ -469,7 +490,7 @@ class GestureProvider::GestureListenerImpl : public ScaleGestureListener,
     // OnSingleTapUp() in this case. This assumes singleTapUp
     // gets always called before singleTapConfirmed.
     if (!ignore_single_tap_) {
-      if (e.GetEventTime() - current_down_time_ >
+      if (e.GetEventTime() - current_down_action_event_time_ >
           config_.gesture_detector_config.double_tap_timeout) {
         return OnSingleTapImpl(e, tap_count);
       } else if (!IsDoubleTapEnabled()) {
@@ -712,7 +733,7 @@ class GestureProvider::GestureListenerImpl : public ScaleGestureListener,
   // for the first time, scroll delta is adjusted.
   // The new deltas are calculated for each pointer individually,
   // and the final scroll delta is the average over all delta values.
-  gfx::Vector2dF ComputeFirstScrollDelta(
+  std::pair<gfx::Vector2dF, base::TimeTicks> ComputeFirstScrollDelta(
       const MotionEvent& ev1,
       const MotionEvent& ev2,
       const MotionEvent& secondary_pointer_down) {
@@ -721,6 +742,7 @@ class GestureProvider::GestureListenerImpl : public ScaleGestureListener,
     DCHECK(ev2.GetPointerCount() < 3);
 
     gfx::Vector2dF delta(0, 0);
+    base::TimeTicks original_timestamp;
     for (size_t i = 0; i < ev2.GetPointerCount(); i++) {
       const int pointer_id = ev2.GetPointerId(i);
       const MotionEvent* source_pointer_down_event =
@@ -737,9 +759,13 @@ class GestureProvider::GestureListenerImpl : public ScaleGestureListener,
       float dx = source_pointer_down_event->GetX(source_index) - ev2.GetX(i);
       float dy = source_pointer_down_event->GetY(source_index) - ev2.GetY(i);
       delta += SubtractSlopRegion(dx, dy);
+
+      if (original_timestamp.is_null()) {
+        original_timestamp = source_pointer_down_event->GetEventTime();
+      }
     }
     delta.Scale(1.0 / ev2.GetPointerCount());
-    return delta;
+    return std::make_pair(delta, original_timestamp);
   }
 
   const GestureProvider::Config config_;
@@ -749,7 +775,9 @@ class GestureProvider::GestureListenerImpl : public ScaleGestureListener,
   ScaleGestureDetector scale_gesture_detector_;
   SnapScrollController snap_scroll_controller_;
 
-  base::TimeTicks current_down_time_;
+  // Keeps track of the event time of the first down action in current touch
+  // sequence.
+  base::TimeTicks current_down_action_event_time_;
 
   // Keeps track of the current GESTURE_LONG_PRESS event. If a context menu is
   // opened after a GESTURE_LONG_PRESS, this is used to insert a
@@ -917,7 +945,11 @@ void GestureProvider::OnTouchEventHandlingEnd(const MotionEvent& event) {
         gesture_listener_->Send(
             gesture_listener_->CreateGesture(ET_GESTURE_END, event));
 
-      current_down_event_.reset();
+      if (event.GetAction() != MotionEvent::Action::CANCEL ||
+          !GestureConfiguration::GetInstance()
+               ->single_pointer_cancel_enabled() ||
+          event.GetPointerCount() == 1)
+        current_down_event_.reset();
 
       UpdateDoubleTapDetectionSupport();
       break;

@@ -440,12 +440,14 @@ void QQuickMenuText1::updateIcon()
 
 /*! \qmlsignal MenuItem::toggled(checked)
 
-    Emitted whenever a menu item's \c checked property changes.
+    Emitted whenever a menu item's \a checked property changes.
     This usually happens at the same time as \l triggered.
 
     \sa checked, triggered, Action::triggered, Action::toggled
 
     The corresponding handler is \c onToggled.
+
+    \sa checked
 */
 
 /*!

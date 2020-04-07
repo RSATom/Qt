@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2019 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the documentation of the Qt Toolkit.
@@ -58,6 +58,11 @@
     \li \l{Qt Style Sheets Reference}
     \li \l{Qt Style Sheets Examples}
     \endlist
+
+    \note If Qt Style Sheets are used on the same widget as functions that
+    set the appearance of widgets, such as \l QWidget::setFont() or
+    \l QTreeWidgetItem::setBackground(), style sheets will take precedence
+    if the settings conflict.
 
     \target overview
     \section1 Overview
@@ -549,6 +554,10 @@
     If the property references an enum declared with Q_ENUMS, you should
     reference its constants by name, i.e., not their numeric value.
 
+    \note Use the qproperty syntax with care, as it modifies the
+    widget that is being painted. Also, the qproperty syntax is evaluated only
+    once, which is when the widget is polished by the style. This means that any
+    attempt to use them in pseudo-states such as QPushButton:hover, will not work.
 */
 
 /*!
@@ -2517,6 +2526,18 @@
 
            See also \l{#height-prop}{height}.
 
+    \row
+        \li \b -qt-background-role
+        \li \l{#paletterole}{PaletteRole}
+        \li The \c{background-color} for the subcontrol or widget based on the
+            chosen role.
+
+    \row
+        \li \b -qt-style-features
+        \li \c list
+        \li The list of CSS properties that you want to apply Qt-specific styles on.
+
+            \note The \c list can only include properties that are not pixmap-based.
     \endtable
 
     \target list of icons

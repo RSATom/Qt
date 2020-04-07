@@ -6,12 +6,13 @@
 
 #include <string>
 
+#include "base/bind.h"
 #include "base/command_line.h"
 #include "base/single_thread_task_runner.h"
-#include "base/strings/string_number_conversions.h"
 #include "build/build_config.h"
 #include "cc/base/switches.h"
 #include "components/viz/common/features.h"
+#include "components/viz/common/viz_utils.h"
 #include "content/browser/browser_main_loop.h"
 #include "content/browser/gpu/gpu_process_host.h"
 #include "content/public/common/content_features.h"
@@ -23,15 +24,6 @@
 #include "media/media_buildflags.h"
 
 namespace {
-
-bool GetUintFromSwitch(const base::CommandLine* command_line,
-                       const base::StringPiece& switch_string,
-                       uint32_t* value) {
-  if (!command_line->HasSwitch(switch_string))
-    return false;
-  std::string switch_value(command_line->GetSwitchValueASCII(switch_string));
-  return base::StringToUint(switch_value, value);
-}
 
 void RunTaskOnTaskRunner(
     scoped_refptr<base::SingleThreadTaskRunner> task_runner,
@@ -55,12 +47,9 @@ bool ShouldEnableAndroidSurfaceControl(const base::CommandLine& cmd_line) {
 #if !defined(OS_ANDROID)
   return false;
 #else
-  if (!base::FeatureList::IsEnabled(features::kVizDisplayCompositor))
+  if (viz::PreferRGB565ResourcesForDisplay())
     return false;
-  if (!base::FeatureList::IsEnabled(features::kAImageReaderMediaPlayer))
-    return false;
-
-  return base::FeatureList::IsEnabled(features::kAndroidSurfaceControl);
+  return features::IsAndroidSurfaceControlEnabled();
 #endif
 }
 
@@ -70,23 +59,11 @@ const gpu::GpuPreferences GetGpuPreferencesFromCommandLine() {
       base::CommandLine::ForCurrentProcess();
   gpu::GpuPreferences gpu_preferences =
       gpu::gles2::ParseGpuPreferences(command_line);
-  gpu_preferences.single_process =
-      command_line->HasSwitch(switches::kSingleProcess);
-  gpu_preferences.in_process_gpu =
-      command_line->HasSwitch(switches::kInProcessGPU);
   gpu_preferences.disable_accelerated_video_decode =
       command_line->HasSwitch(switches::kDisableAcceleratedVideoDecode);
   gpu_preferences.disable_accelerated_video_encode =
       command_line->HasSwitch(switches::kDisableAcceleratedVideoEncode);
 #if defined(OS_WIN)
-  uint32_t enable_accelerated_vpx_decode_val =
-      gpu::GpuPreferences::VPX_VENDOR_MICROSOFT;
-  if (GetUintFromSwitch(command_line, switches::kEnableAcceleratedVpxDecode,
-                        &enable_accelerated_vpx_decode_val)) {
-    gpu_preferences.enable_accelerated_vpx_decode =
-        static_cast<gpu::GpuPreferences::VpxDecodeVendors>(
-            enable_accelerated_vpx_decode_val);
-  }
   gpu_preferences.enable_low_latency_dxva =
       !command_line->HasSwitch(switches::kDisableLowLatencyDxva);
   gpu_preferences.enable_zero_copy_dxgi_video =
@@ -98,17 +75,12 @@ const gpu::GpuPreferences GetGpuPreferencesFromCommandLine() {
       command_line->HasSwitch(switches::kDisableSoftwareRasterizer);
   gpu_preferences.log_gpu_control_list_decisions =
       command_line->HasSwitch(switches::kLogGpuControlListDecisions);
-#if defined(OS_WIN)
-  gpu_preferences.enable_trace_export_events_to_etw =
-      command_line->HasSwitch(switches::kTraceExportEventsToETW);
-#endif
-  GetUintFromSwitch(command_line, switches::kMaxActiveWebGLContexts,
-                    &gpu_preferences.max_active_webgl_contexts);
   gpu_preferences.gpu_startup_dialog =
       command_line->HasSwitch(switches::kGpuStartupDialog);
   gpu_preferences.disable_gpu_watchdog =
       command_line->HasSwitch(switches::kDisableGpuWatchdog) ||
-      (gpu_preferences.single_process || gpu_preferences.in_process_gpu);
+      command_line->HasSwitch(switches::kSingleProcess) ||
+      command_line->HasSwitch(switches::kInProcessGPU);
   gpu_preferences.gpu_sandbox_start_early =
       command_line->HasSwitch(switches::kGpuSandboxStartEarly);
 
@@ -119,11 +91,25 @@ const gpu::GpuPreferences GetGpuPreferencesFromCommandLine() {
 
   gpu_preferences.enable_oop_rasterization_ddl =
       command_line->HasSwitch(switches::kEnableOopRasterizationDDL);
-  gpu_preferences.enable_passthrough_raster_decoder =
-      command_line->HasSwitch(switches::kEnablePassthroughRasterDecoder);
+  if (command_line->HasSwitch(switches::kUseVulkan)) {
+    auto value = command_line->GetSwitchValueASCII(switches::kUseVulkan);
+    if (value.empty() || value == switches::kVulkanImplementationNameNative) {
+      gpu_preferences.use_vulkan = gpu::VulkanImplementationName::kNative;
+    } else if (value == switches::kVulkanImplementationNameSwiftshader) {
+      gpu_preferences.use_vulkan = gpu::VulkanImplementationName::kSwiftshader;
+    } else {
+      gpu_preferences.use_vulkan = gpu::VulkanImplementationName::kNone;
+    }
+  } else {
+    gpu_preferences.use_vulkan = gpu::VulkanImplementationName::kNone;
+  }
 
-  gpu_preferences.enable_vulkan =
-      command_line->HasSwitch(switches::kEnableVulkan);
+  gpu_preferences.disable_vulkan_fallback_to_gl_for_testing =
+      command_line->HasSwitch(switches::kDisableVulkanFallbackToGLForTesting);
+
+#if defined(OS_MACOSX)
+  gpu_preferences.enable_metal = base::FeatureList::IsEnabled(features::kMetal);
+#endif
 
   gpu_preferences.enable_gpu_benchmarking_extension =
       command_line->HasSwitch(cc::switches::kEnableGpuBenchmarking);
@@ -138,8 +124,7 @@ const gpu::GpuPreferences GetGpuPreferencesFromCommandLine() {
 
 void StopGpuProcess(const base::Closure& callback) {
   content::GpuProcessHost::CallOnIO(
-      content::GpuProcessHost::GPU_PROCESS_KIND_SANDBOXED,
-      false /* force_create */,
+      content::GPU_PROCESS_KIND_SANDBOXED, false /* force_create */,
       base::Bind(&StopGpuProcessImpl,
                  base::Bind(RunTaskOnTaskRunner,
                             base::ThreadTaskRunnerHandle::Get(), callback)));

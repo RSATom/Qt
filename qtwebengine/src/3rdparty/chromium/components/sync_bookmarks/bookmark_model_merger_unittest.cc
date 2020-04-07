@@ -6,6 +6,7 @@
 
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "base/strings/utf_string_conversions.h"
@@ -28,7 +29,7 @@ namespace {
 const char kBookmarkBarId[] = "bookmark_bar_id";
 const char kBookmarkBarTag[] = "bookmark_bar";
 
-syncer::UpdateResponseData CreateUpdateResponseData(
+std::unique_ptr<syncer::UpdateResponseData> CreateUpdateResponseData(
     const std::string& server_id,
     const std::string& parent_id,
     const std::string& title,
@@ -37,37 +38,37 @@ syncer::UpdateResponseData CreateUpdateResponseData(
     const syncer::UniquePosition& unique_position,
     const std::string& icon_url = std::string(),
     const std::string& icon_data = std::string()) {
-  syncer::EntityData data;
-  data.id = server_id;
-  data.parent_id = parent_id;
-  data.unique_position = unique_position.ToProto();
+  auto data = std::make_unique<syncer::EntityData>();
+  data->id = server_id;
+  data->parent_id = parent_id;
+  data->unique_position = unique_position.ToProto();
 
   sync_pb::BookmarkSpecifics* bookmark_specifics =
-      data.specifics.mutable_bookmark();
+      data->specifics.mutable_bookmark();
   bookmark_specifics->set_title(title);
   bookmark_specifics->set_url(url);
   bookmark_specifics->set_icon_url(icon_url);
   bookmark_specifics->set_favicon(icon_data);
 
-  data.is_folder = is_folder;
-  syncer::UpdateResponseData response_data;
-  response_data.entity = data.PassToPtr();
+  data->is_folder = is_folder;
+  auto response_data = std::make_unique<syncer::UpdateResponseData>();
+  response_data->entity = std::move(data);
   // Similar to what's done in the loopback_server.
-  response_data.response_version = 0;
+  response_data->response_version = 0;
   return response_data;
 }
 
-syncer::UpdateResponseData CreateBookmarkBarNodeUpdateData() {
-  syncer::EntityData data;
-  data.id = kBookmarkBarId;
-  data.server_defined_unique_tag = kBookmarkBarTag;
+std::unique_ptr<syncer::UpdateResponseData> CreateBookmarkBarNodeUpdateData() {
+  auto data = std::make_unique<syncer::EntityData>();
+  data->id = kBookmarkBarId;
+  data->server_defined_unique_tag = kBookmarkBarTag;
 
-  data.specifics.mutable_bookmark();
+  data->specifics.mutable_bookmark();
 
-  syncer::UpdateResponseData response_data;
-  response_data.entity = data.PassToPtr();
+  auto response_data = std::make_unique<syncer::UpdateResponseData>();
+  response_data->entity = std::move(data);
   // Similar to what's done in the loopback_server.
-  response_data.response_version = 0;
+  response_data->response_version = 0;
   return response_data;
 }
 
@@ -81,25 +82,26 @@ syncer::UniquePosition PositionOf(const bookmarks::BookmarkNode* node,
 
 bool PositionsInTrackerMatchModel(const bookmarks::BookmarkNode* node,
                                   const SyncedBookmarkTracker& tracker) {
-  if (node->child_count() == 0) {
+  if (node->children().empty()) {
     return true;
   }
-  syncer::UniquePosition pos = PositionOf(node->GetChild(0), tracker);
-  for (int i = 1; i < node->child_count(); ++i) {
-    if (PositionOf(node->GetChild(i), tracker).LessThan(pos)) {
-      DLOG(ERROR) << "Position of " << node->GetChild(i)->GetTitle()
+  syncer::UniquePosition last_pos =
+      PositionOf(node->children().front().get(), tracker);
+  for (size_t i = 1; i < node->children().size(); ++i) {
+    syncer::UniquePosition pos = PositionOf(node->children()[i].get(), tracker);
+    if (pos.LessThan(last_pos)) {
+      DLOG(ERROR) << "Position of " << node->children()[i]->GetTitle()
                   << " is less than position of "
-                  << node->GetChild(i - 1)->GetTitle();
+                  << node->children()[i - 1]->GetTitle();
       return false;
     }
-    pos = PositionOf(node->GetChild(i), tracker);
+    last_pos = pos;
   }
-  for (int i = 0; i < node->child_count(); ++i) {
-    if (!PositionsInTrackerMatchModel(node->GetChild(i), tracker)) {
-      return false;
-    }
-  }
-  return true;
+  return std::all_of(node->children().cbegin(), node->children().cend(),
+                     [&tracker](const auto& child) {
+                       return PositionsInTrackerMatchModel(child.get(),
+                                                           tracker);
+                     });
 }
 
 }  // namespace
@@ -231,54 +233,54 @@ TEST(BookmarkModelMergerTest, ShouldMergeLocalAndRemoteModels) {
   BookmarkModelMerger(&updates, bookmark_model.get(), &favicon_service,
                       &tracker)
       .Merge();
-  ASSERT_THAT(bookmark_bar_node->child_count(), Eq(3));
+  ASSERT_THAT(bookmark_bar_node->children().size(), Eq(3u));
 
   // Verify Folder 1.
-  EXPECT_THAT(bookmark_bar_node->GetChild(0)->GetTitle(),
+  EXPECT_THAT(bookmark_bar_node->children()[0]->GetTitle(),
               Eq(base::ASCIIToUTF16(kFolder1Title)));
-  ASSERT_THAT(bookmark_bar_node->GetChild(0)->child_count(), Eq(3));
+  ASSERT_THAT(bookmark_bar_node->children()[0]->children().size(), Eq(3u));
 
-  EXPECT_THAT(bookmark_bar_node->GetChild(0)->GetChild(0)->GetTitle(),
+  EXPECT_THAT(bookmark_bar_node->children()[0]->children()[0]->GetTitle(),
               Eq(base::ASCIIToUTF16(kUrl1Title)));
-  EXPECT_THAT(bookmark_bar_node->GetChild(0)->GetChild(0)->url(),
+  EXPECT_THAT(bookmark_bar_node->children()[0]->children()[0]->url(),
               Eq(GURL(kUrl1)));
 
-  EXPECT_THAT(bookmark_bar_node->GetChild(0)->GetChild(1)->GetTitle(),
+  EXPECT_THAT(bookmark_bar_node->children()[0]->children()[1]->GetTitle(),
               Eq(base::ASCIIToUTF16(kUrl2Title)));
-  EXPECT_THAT(bookmark_bar_node->GetChild(0)->GetChild(1)->url(),
+  EXPECT_THAT(bookmark_bar_node->children()[0]->children()[1]->url(),
               Eq(GURL(kAnotherUrl2)));
 
-  EXPECT_THAT(bookmark_bar_node->GetChild(0)->GetChild(2)->GetTitle(),
+  EXPECT_THAT(bookmark_bar_node->children()[0]->children()[2]->GetTitle(),
               Eq(base::ASCIIToUTF16(kUrl2Title)));
-  EXPECT_THAT(bookmark_bar_node->GetChild(0)->GetChild(2)->url(),
+  EXPECT_THAT(bookmark_bar_node->children()[0]->children()[2]->url(),
               Eq(GURL(kUrl2)));
 
   // Verify Folder 3.
-  EXPECT_THAT(bookmark_bar_node->GetChild(1)->GetTitle(),
+  EXPECT_THAT(bookmark_bar_node->children()[1]->GetTitle(),
               Eq(base::ASCIIToUTF16(kFolder3Title)));
-  ASSERT_THAT(bookmark_bar_node->GetChild(1)->child_count(), Eq(2));
+  ASSERT_THAT(bookmark_bar_node->children()[1]->children().size(), Eq(2u));
 
-  EXPECT_THAT(bookmark_bar_node->GetChild(1)->GetChild(0)->GetTitle(),
+  EXPECT_THAT(bookmark_bar_node->children()[1]->children()[0]->GetTitle(),
               Eq(base::ASCIIToUTF16(kUrl3Title)));
-  EXPECT_THAT(bookmark_bar_node->GetChild(1)->GetChild(0)->url(),
+  EXPECT_THAT(bookmark_bar_node->children()[1]->children()[0]->url(),
               Eq(GURL(kUrl3)));
-  EXPECT_THAT(bookmark_bar_node->GetChild(1)->GetChild(1)->GetTitle(),
+  EXPECT_THAT(bookmark_bar_node->children()[1]->children()[1]->GetTitle(),
               Eq(base::ASCIIToUTF16(kUrl4Title)));
-  EXPECT_THAT(bookmark_bar_node->GetChild(1)->GetChild(1)->url(),
+  EXPECT_THAT(bookmark_bar_node->children()[1]->children()[1]->url(),
               Eq(GURL(kUrl4)));
 
   // Verify Folder 2.
-  EXPECT_THAT(bookmark_bar_node->GetChild(2)->GetTitle(),
+  EXPECT_THAT(bookmark_bar_node->children()[2]->GetTitle(),
               Eq(base::ASCIIToUTF16(kFolder2Title)));
-  ASSERT_THAT(bookmark_bar_node->GetChild(2)->child_count(), Eq(2));
+  ASSERT_THAT(bookmark_bar_node->children()[2]->children().size(), Eq(2u));
 
-  EXPECT_THAT(bookmark_bar_node->GetChild(2)->GetChild(0)->GetTitle(),
+  EXPECT_THAT(bookmark_bar_node->children()[2]->children()[0]->GetTitle(),
               Eq(base::ASCIIToUTF16(kUrl3Title)));
-  EXPECT_THAT(bookmark_bar_node->GetChild(2)->GetChild(0)->url(),
+  EXPECT_THAT(bookmark_bar_node->children()[2]->children()[0]->url(),
               Eq(GURL(kUrl3)));
-  EXPECT_THAT(bookmark_bar_node->GetChild(2)->GetChild(1)->GetTitle(),
+  EXPECT_THAT(bookmark_bar_node->children()[2]->children()[1]->GetTitle(),
               Eq(base::ASCIIToUTF16(kUrl4Title)));
-  EXPECT_THAT(bookmark_bar_node->GetChild(2)->GetChild(1)->url(),
+  EXPECT_THAT(bookmark_bar_node->children()[2]->children()[1]->url(),
               Eq(GURL(kUrl4)));
 
   // Verify the tracker contents.
@@ -293,12 +295,12 @@ TEST(BookmarkModelMergerTest, ShouldMergeLocalAndRemoteModels) {
   }
   // Verify that url2(http://www.url2.com), Folder 2 and children have
   // corresponding update.
-  EXPECT_THAT(
-      nodes_with_local_changes,
-      UnorderedElementsAre(bookmark_bar_node->GetChild(0)->GetChild(2),
-                           bookmark_bar_node->GetChild(2),
-                           bookmark_bar_node->GetChild(2)->GetChild(0),
-                           bookmark_bar_node->GetChild(2)->GetChild(1)));
+  EXPECT_THAT(nodes_with_local_changes,
+              UnorderedElementsAre(
+                  bookmark_bar_node->children()[0]->children()[2].get(),
+                  bookmark_bar_node->children()[2].get(),
+                  bookmark_bar_node->children()[2]->children()[0].get(),
+                  bookmark_bar_node->children()[2]->children()[1].get()));
 
   // Verify positions in tracker.
   EXPECT_TRUE(PositionsInTrackerMatchModel(bookmark_bar_node, tracker));
@@ -379,13 +381,13 @@ TEST(BookmarkModelMergerTest, ShouldMergeRemoteReorderToLocalModel) {
   BookmarkModelMerger(&updates, bookmark_model.get(), &favicon_service,
                       &tracker)
       .Merge();
-  ASSERT_THAT(bookmark_bar_node->child_count(), Eq(3));
+  ASSERT_THAT(bookmark_bar_node->children().size(), Eq(3u));
 
-  EXPECT_THAT(bookmark_bar_node->GetChild(0)->GetTitle(),
+  EXPECT_THAT(bookmark_bar_node->children()[0]->GetTitle(),
               Eq(base::ASCIIToUTF16(kFolder1Title)));
-  EXPECT_THAT(bookmark_bar_node->GetChild(1)->GetTitle(),
+  EXPECT_THAT(bookmark_bar_node->children()[1]->GetTitle(),
               Eq(base::ASCIIToUTF16(kFolder3Title)));
-  EXPECT_THAT(bookmark_bar_node->GetChild(2)->GetTitle(),
+  EXPECT_THAT(bookmark_bar_node->children()[2]->GetTitle(),
               Eq(base::ASCIIToUTF16(kFolder2Title)));
 
   // Verify the tracker contents.
@@ -492,7 +494,7 @@ TEST(BookmarkModelMergerTest,
 
   // Both titles should have matched against each other and only node is in the
   // model and the tracker.
-  EXPECT_THAT(bookmark_bar_node->child_count(), Eq(1));
+  EXPECT_THAT(bookmark_bar_node->children().size(), Eq(1u));
   EXPECT_THAT(tracker.TrackedEntitiesCountForTest(), Eq(2U));
 }
 
@@ -544,7 +546,7 @@ TEST(BookmarkModelMergerTest,
 
   // Both titles should have matched against each other and only node is in the
   // model and the tracker.
-  EXPECT_THAT(bookmark_bar_node->child_count(), Eq(1));
+  EXPECT_THAT(bookmark_bar_node->children().size(), Eq(1u));
   EXPECT_THAT(tracker.TrackedEntitiesCountForTest(), Eq(2U));
 }
 

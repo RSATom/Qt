@@ -6,6 +6,8 @@
 #define CONTENT_BROWSER_NOTIFICATIONS_NOTIFICATION_EVENT_DISPATCHER_IMPL_H_
 
 #include <map>
+#include <string>
+#include <utility>
 
 #include "base/callback_forward.h"
 #include "base/macros.h"
@@ -13,7 +15,9 @@
 #include "content/common/content_export.h"
 #include "content/public/browser/notification_database_data.h"
 #include "content/public/browser/notification_event_dispatcher.h"
-#include "third_party/blink/public/platform/modules/notifications/notification_service.mojom.h"
+#include "mojo/public/cpp/bindings/pending_remote.h"
+#include "mojo/public/cpp/bindings/remote.h"
+#include "third_party/blink/public/mojom/notifications/notification_service.mojom.h"
 
 namespace content {
 
@@ -51,7 +55,8 @@ class CONTENT_EXPORT NotificationEventDispatcherImpl
   // non-persistent notification identified by |notification_id|.
   void RegisterNonPersistentNotificationListener(
       const std::string& notification_id,
-      blink::mojom::NonPersistentNotificationListenerPtr event_listener_ptr);
+      mojo::PendingRemote<blink::mojom::NonPersistentNotificationListener>
+          event_listener_remote);
 
  private:
   friend class NotificationEventDispatcherImplTest;
@@ -67,13 +72,6 @@ class CONTENT_EXPORT NotificationEventDispatcherImpl
   void OnNonPersistentCloseComplete(const std::string& notification_id,
                                     base::OnceClosure completed_closure);
 
-  // Replace listener for existing non-persistent notification.
-  // This method is called after a non-persistent notification has
-  // been replaced and |OnNonPersistentCloseComplete| is executed.
-  void ReplaceNonPersistentNotificationListener(
-      const std::string& notification_id,
-      blink::mojom::NonPersistentNotificationListenerPtr event_listener_ptr);
-
   // Removes all references to the listener registered to receive events
   // from the non-persistent notification identified by |notification_id|.
   // Should be called when the connection to this listener goes away.
@@ -81,7 +79,8 @@ class CONTENT_EXPORT NotificationEventDispatcherImpl
       const std::string& notification_id);
 
   // Notification Id -> listener.
-  std::map<std::string, blink::mojom::NonPersistentNotificationListenerPtr>
+  std::map<std::string,
+           mojo::Remote<blink::mojom::NonPersistentNotificationListener>>
       non_persistent_notification_listeners_;
 
   DISALLOW_COPY_AND_ASSIGN(NotificationEventDispatcherImpl);

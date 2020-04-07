@@ -9,7 +9,6 @@
 #include "base/task/post_task.h"
 #include "content/browser/renderer_host/render_process_host_impl.h"
 #include "content/browser/utility_process_host.h"
-#include "content/browser/utility_process_host_client.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/gpu_service_registry.h"
@@ -46,9 +45,7 @@ void VerifyPowerStateInChildProcess(mojom::PowerMonitorTest* power_monitor_test,
 }
 
 void StartUtilityProcessOnIOThread(mojom::PowerMonitorTestRequest request) {
-  UtilityProcessHost* host =
-      new UtilityProcessHost(/*client=*/nullptr,
-                             /*client_task_runner=*/nullptr);
+  UtilityProcessHost* host = new UtilityProcessHost();
   host->SetMetricsName("test_process");
   host->SetName(base::ASCIIToUTF16("TestProcess"));
   EXPECT_TRUE(host->Start());
@@ -198,6 +195,11 @@ IN_PROC_BROWSER_TEST_F(PowerMonitorTest, TestRendererProcess) {
       shell()->web_contents()->GetMainFrame()->GetProcess();
   BindInterface(rph, &power_monitor_renderer);
 
+  // Ensure that the PowerMonitorTestImpl instance has been created and is
+  // observing power state changes in the child process before simulating a
+  // power state change.
+  power_monitor_renderer.FlushForTesting();
+
   SimulatePowerStateChange(true);
   // Verify renderer process on_battery_power changed to true.
   VerifyPowerStateInChildProcess(power_monitor_renderer.get(), true);
@@ -215,6 +217,11 @@ IN_PROC_BROWSER_TEST_F(PowerMonitorTest, TestUtilityProcess) {
   StartUtilityProcess(&power_monitor_utility, run_loop.QuitClosure());
   run_loop.Run();
   EXPECT_EQ(1, request_count_from_utility());
+
+  // Ensure that the PowerMonitorTestImpl instance has been created and is
+  // observing power state changes in the child process before simulating a
+  // power state change.
+  power_monitor_utility.FlushForTesting();
 
   SimulatePowerStateChange(true);
   // Verify utility process on_battery_power changed to true.
@@ -244,6 +251,11 @@ IN_PROC_BROWSER_TEST_F(PowerMonitorTest, TestGpuProcess) {
       FROM_HERE, {BrowserThread::IO},
       base::BindOnce(&BindInterfaceForGpuOnIOThread,
                      mojo::MakeRequest(&power_monitor_gpu)));
+
+  // Ensure that the PowerMonitorTestImpl instance has been created and is
+  // observing power state changes in the child process before simulating a
+  // power state change.
+  power_monitor_gpu.FlushForTesting();
 
   SimulatePowerStateChange(true);
   // Verify gpu process on_battery_power changed to true.

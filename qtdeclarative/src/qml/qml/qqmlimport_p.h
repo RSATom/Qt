@@ -44,9 +44,10 @@
 #include <QtCore/qcoreapplication.h>
 #include <QtCore/qset.h>
 #include <QtCore/qstringlist.h>
+#include <QtQml/qqmlerror.h>
 #include <private/qqmldirparser_p.h>
-#include <private/qqmlmetatype_p.h>
-#include <private/qhashedstring_p.h>
+#include <private/qqmltype_p.h>
+#include <private/qstringhash_p.h>
 
 //
 //  W A R N I N G
@@ -211,7 +212,9 @@ public:
     QQmlImportDatabase(QQmlEngine *);
     ~QQmlImportDatabase();
 
+#if QT_CONFIG(library)
     bool importDynamicPlugin(const QString &filePath, const QString &uri, const QString &importNamespace, int vmaj, QList<QQmlError> *errors);
+#endif
 
     QStringList importPathList(PathType type = LocalOrRemote) const;
     void setImportPathList(const QStringList &paths);

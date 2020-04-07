@@ -35,16 +35,9 @@
 #include <Qt3DInput/QAnalogAxisInput>
 #include <Qt3DInput/private/qaxis_p.h>
 
-#include <Qt3DCore/QPropertyUpdatedChange>
-#include <Qt3DCore/QPropertyNodeAddedChange>
-#include <Qt3DCore/QPropertyNodeRemovedChange>
-
 #include "testpostmanarbiter.h"
 
-// We need to call QNode::clone which is protected
-// We need to call QAxis::sceneChangeEvent which is protected
-// So we sublcass QAxis instead of QObject
-class tst_QAxis: public Qt3DInput::QAxis
+class tst_QAxis: public QObject
 {
     Q_OBJECT
 public:
@@ -113,42 +106,22 @@ private Q_SLOTS:
         QCoreApplication::processEvents();
 
         // THEN
-        QCOMPARE(arbiter.events.size(), 1);
-        Qt3DCore::QPropertyNodeAddedChangePtr change = arbiter.events.first().staticCast<Qt3DCore::QPropertyNodeAddedChange>();
-        QCOMPARE(change->propertyName(), "input");
-        QCOMPARE(change->addedNodeId(), input->id());
-        QCOMPARE(change->type(), Qt3DCore::PropertyValueAdded);
+        QCOMPARE(arbiter.events.size(), 0);
+        QCOMPARE(arbiter.dirtyNodes.size(), 1);
+        QCOMPARE(arbiter.dirtyNodes.front(), axis.data());
 
-        arbiter.events.clear();
+        arbiter.dirtyNodes.clear();
 
         // WHEN
         axis->removeInput(input);
         QCoreApplication::processEvents();
 
         // THEN
-        QCOMPARE(arbiter.events.size(), 1);
-        Qt3DCore::QPropertyNodeRemovedChangePtr nodeRemovedChange = arbiter.events.first().staticCast<Qt3DCore::QPropertyNodeRemovedChange>();
-        QCOMPARE(nodeRemovedChange->propertyName(), "input");
-        QCOMPARE(nodeRemovedChange->removedNodeId(), input->id());
-        QCOMPARE(nodeRemovedChange->type(), Qt3DCore::PropertyValueRemoved);
+        QCOMPARE(arbiter.events.size(), 0);
+        QCOMPARE(arbiter.dirtyNodes.size(), 1);
+        QCOMPARE(arbiter.dirtyNodes.front(), axis.data());
 
         arbiter.events.clear();
-    }
-
-    void checkValuePropertyChanged()
-    {
-        // GIVEN
-        QCOMPARE(value(), 0.0f);
-
-        // Note: simulate backend change to frontend
-        // WHEN
-        Qt3DCore::QPropertyUpdatedChangePtr valueChange(new Qt3DCore::QPropertyUpdatedChange(Qt3DCore::QNodeId()));
-        valueChange->setPropertyName("value");
-        valueChange->setValue(383.0f);
-        sceneChangeEvent(valueChange);
-
-        // THEN
-        QCOMPARE(value(), 383.0f);
     }
 
     void checkAxisInputBookkeeping()

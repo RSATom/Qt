@@ -20,18 +20,14 @@ namespace dawn_wire { namespace client {
         // Callbacks need to be fired in all cases, as they can handle freeing resources
         // so we call them with "Unknown" status.
         ClearMapRequests(DAWN_BUFFER_MAP_ASYNC_STATUS_UNKNOWN);
-
-        if (mappedData) {
-            free(mappedData);
-        }
     }
 
-    void Buffer::ClearMapRequests(dawnBufferMapAsyncStatus status) {
+    void Buffer::ClearMapRequests(DawnBufferMapAsyncStatus status) {
         for (auto& it : requests) {
-            if (it.second.isWrite) {
-                it.second.writeCallback(status, nullptr, it.second.userdata);
+            if (it.second.writeHandle) {
+                it.second.writeCallback(status, nullptr, 0, it.second.userdata);
             } else {
-                it.second.readCallback(status, nullptr, it.second.userdata);
+                it.second.readCallback(status, nullptr, 0, it.second.userdata);
             }
         }
         requests.clear();

@@ -7,6 +7,7 @@
 #include <memory>
 #include <tuple>
 
+#include "base/bind.h"
 #include "base/files/file_path.h"
 #include "base/format_macros.h"
 #include "base/logging.h"
@@ -22,7 +23,7 @@ namespace media {
 
 InMemoryVideoDecodeStatsDBImpl::InMemoryVideoDecodeStatsDBImpl(
     VideoDecodeStatsDBProvider* seed_db_provider)
-    : seed_db_provider_(seed_db_provider), weak_ptr_factory_(this) {
+    : seed_db_provider_(seed_db_provider) {
   DVLOG(2) << __func__;
 }
 

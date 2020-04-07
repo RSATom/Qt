@@ -6,9 +6,10 @@
 
 #include "base/containers/adapters.h"
 #include "base/lazy_instance.h"
+#include "base/unguessable_token.h"
 #include "components/viz/common/quads/draw_quad.h"
 #include "components/viz/common/quads/solid_color_draw_quad.h"
-#include "components/viz/common/quads/texture_draw_quad.h"
+#include "components/viz/common/quads/video_hole_draw_quad.h"
 #include "ui/gfx/geometry/rect_conversions.h"
 
 namespace viz {
@@ -54,14 +55,15 @@ bool OverlayStrategyUnderlayCast::Attempt(
       // sitting underneath the primary plane. This is only looking at where the
       // quad is supposed to be to replace it with a transparent quad to allow
       // the underlay to be visible.
+      // VIDEO_HOLE implies it requires overlay.
       is_underlay =
+          quad->material == DrawQuad::Material::kVideoHole &&
           OverlayCandidate::FromDrawQuad(resource_provider, output_color_matrix,
-                                         quad, &candidate) &&
-          OverlayCandidate::RequiresOverlay(quad);
+                                         quad, &candidate);
       found_underlay = is_underlay;
     }
 
-    if (!found_underlay && quad->material == DrawQuad::SOLID_COLOR) {
+    if (!found_underlay && quad->material == DrawQuad::Material::kSolidColor) {
       const SolidColorDrawQuad* solid = SolidColorDrawQuad::MaterialCast(quad);
       if (solid->color == SK_ColorBLACK)
         continue;
@@ -79,21 +81,28 @@ bool OverlayStrategyUnderlayCast::Attempt(
     VLOG(1) << (found_underlay ? "Overlay activated" : "Overlay deactivated");
   }
 
-  if (found_underlay) {
-    // If the primary plane shows up in the candidates list make sure it isn't
-    // opaque otherwise the video underlay won't be visible.
-    if (!candidate_list->empty()) {
-      DCHECK_EQ(1u, candidate_list->size());
-      DCHECK(candidate_list->front().use_output_surface_for_resource);
-      candidate_list->front().is_opaque = false;
-    }
+  // If the primary plane shows up in the candidates list make sure it isn't
+  // opaque otherwise the content underneath won't be visible.
+  if (!candidate_list->empty()) {
+    DCHECK_EQ(1u, candidate_list->size());
+    DCHECK(candidate_list->front().use_output_surface_for_resource);
+    candidate_list->front().is_opaque = false;
+  }
 
+  if (found_underlay) {
     for (auto it = quad_list.begin(); it != quad_list.end(); ++it) {
       OverlayCandidate candidate;
-      if (!OverlayCandidate::FromDrawQuad(
+      if (it->material != DrawQuad::Material::kVideoHole ||
+          !OverlayCandidate::FromDrawQuad(
               resource_provider, output_color_matrix, *it, &candidate)) {
         continue;
       }
+
+      // TODO(guohuideng): activate overlay through MediaServe when it's
+      // ready, using |overlay_plane_id|. see b/79266094.
+      base::UnguessableToken overlay_plane_id =
+          VideoHoleDrawQuad::MaterialCast(*it)->overlay_plane_id;
+      ANALYZER_ALLOW_UNUSED(overlay_plane_id);
 
       render_pass->quad_list.ReplaceExistingQuadWithOpaqueTransparentSolidColor(
           it);
@@ -102,7 +111,6 @@ bool OverlayStrategyUnderlayCast::Attempt(
         g_overlay_composited_callback.Get().Run(candidate.display_rect,
                                                 candidate.transform);
       }
-
       break;
     }
   }
@@ -114,8 +122,8 @@ bool OverlayStrategyUnderlayCast::Attempt(
   return found_underlay;
 }
 
-OverlayProcessor::StrategyType OverlayStrategyUnderlayCast::GetUMAEnum() const {
-  return OverlayProcessor::StrategyType::kUnderlayCast;
+OverlayStrategy OverlayStrategyUnderlayCast::GetUMAEnum() const {
+  return OverlayStrategy::kUnderlayCast;
 }
 
 // static

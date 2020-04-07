@@ -79,16 +79,16 @@ enum GuardValues {
     Q_GLOBAL_STATIC_INTERNAL_DECORATION Type *innerFunction()   \
     {                                                           \
         struct HolderBase {                                     \
-            ~HolderBase() Q_DECL_NOTHROW                        \
-            { if (guard.load() == QtGlobalStatic::Initialized)  \
-                  guard.store(QtGlobalStatic::Destroyed); }     \
+            ~HolderBase() noexcept                        \
+            { if (guard.loadRelaxed() == QtGlobalStatic::Initialized)  \
+                  guard.storeRelaxed(QtGlobalStatic::Destroyed); }     \
         };                                                      \
         static struct Holder : public HolderBase {              \
             Type value;                                         \
             Holder()                                            \
-                Q_DECL_NOEXCEPT_EXPR(noexcept(Type ARGS))       \
+                noexcept(noexcept(Type ARGS))       \
                 : value ARGS                                    \
-            { guard.store(QtGlobalStatic::Initialized); }       \
+            { guard.storeRelaxed(QtGlobalStatic::Initialized); }       \
         } holder;                                               \
         return &holder.value;                                   \
     }
@@ -98,6 +98,7 @@ enum GuardValues {
 
 QT_END_NAMESPACE
 #include <QtCore/qmutex.h>
+#include <mutex>
 QT_BEGIN_NAMESPACE
 
 #define Q_GLOBAL_STATIC_INTERNAL(ARGS)                                  \
@@ -107,13 +108,13 @@ QT_BEGIN_NAMESPACE
         static QBasicMutex mutex;                                       \
         int x = guard.loadAcquire();                                    \
         if (Q_UNLIKELY(x >= QtGlobalStatic::Uninitialized)) {           \
-            QMutexLocker locker(&mutex);                                \
-            if (guard.load() == QtGlobalStatic::Uninitialized) {        \
+            const std::lock_guard<QBasicMutex> locker(mutex);           \
+            if (guard.loadRelaxed() == QtGlobalStatic::Uninitialized) {        \
                 d = new Type ARGS;                                      \
                 static struct Cleanup {                                 \
                     ~Cleanup() {                                        \
                         delete d;                                       \
-                        guard.store(QtGlobalStatic::Destroyed);         \
+                        guard.storeRelaxed(QtGlobalStatic::Destroyed);         \
                     }                                                   \
                 } cleanup;                                              \
                 guard.storeRelease(QtGlobalStatic::Initialized);        \
@@ -129,10 +130,10 @@ struct QGlobalStatic
 {
     typedef T Type;
 
-    bool isDestroyed() const { return guard.load() <= QtGlobalStatic::Destroyed; }
-    bool exists() const { return guard.load() == QtGlobalStatic::Initialized; }
-    operator Type *() { if (isDestroyed()) return 0; return innerFunction(); }
-    Type *operator()() { if (isDestroyed()) return 0; return innerFunction(); }
+    bool isDestroyed() const { return guard.loadRelaxed() <= QtGlobalStatic::Destroyed; }
+    bool exists() const { return guard.loadRelaxed() == QtGlobalStatic::Initialized; }
+    operator Type *() { if (isDestroyed()) return nullptr; return innerFunction(); }
+    Type *operator()() { if (isDestroyed()) return nullptr; return innerFunction(); }
     Type *operator->()
     {
       Q_ASSERT_X(!isDestroyed(), "Q_GLOBAL_STATIC", "The global static was used after being destroyed");

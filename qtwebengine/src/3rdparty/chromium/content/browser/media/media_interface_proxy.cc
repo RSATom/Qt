@@ -7,6 +7,7 @@
 #include <memory>
 #include <string>
 
+#include "base/bind.h"
 #include "base/logging.h"
 #include "base/macros.h"
 #include "base/strings/string_util.h"
@@ -14,9 +15,10 @@
 #include "content/browser/frame_host/render_frame_host_impl.h"
 #include "content/public/browser/content_browser_client.h"
 #include "content/public/browser/render_frame_host.h"
+#include "content/public/browser/system_connector.h"
 #include "content/public/common/content_client.h"
-#include "content/public/common/service_manager_connection.h"
 #include "media/mojo/buildflags.h"
+#include "media/mojo/interfaces/cdm_proxy.mojom.h"
 #include "media/mojo/interfaces/constants.mojom.h"
 #include "media/mojo/interfaces/media_service.mojom.h"
 #include "media/mojo/services/media_interface_provider.h"
@@ -150,34 +152,62 @@ void MediaInterfaceProxy::CreateVideoDecoder(
     factory->CreateVideoDecoder(std::move(request));
 }
 
-void MediaInterfaceProxy::CreateRenderer(
-    media::mojom::HostedRendererType type,
-    const std::string& type_specific_id,
+void MediaInterfaceProxy::CreateDefaultRenderer(
+    const std::string& audio_device_id,
     media::mojom::RendererRequest request) {
   DCHECK(thread_checker_.CalledOnValidThread());
 
-#if defined(OS_ANDROID)
-  if (type == media::mojom::HostedRendererType::kMediaPlayer) {
-    CreateMediaPlayerRenderer(std::move(request));
-    return;
-  }
+  InterfaceFactory* factory = GetMediaInterfaceFactory();
+  if (factory)
+    factory->CreateDefaultRenderer(audio_device_id, std::move(request));
+}
 
-  if (type == media::mojom::HostedRendererType::kFlinging) {
-    std::unique_ptr<FlingingRenderer> renderer =
-        FlingingRenderer::Create(render_frame_host_, type_specific_id);
-
-    media::MojoRendererService::Create(
-        nullptr, std::move(renderer),
-        media::MojoRendererService::InitiateSurfaceRequestCB(),
-        std::move(request));
-    return;
-  }
-#endif
+#if BUILDFLAG(ENABLE_CAST_RENDERER)
+void MediaInterfaceProxy::CreateCastRenderer(
+    const base::UnguessableToken& overlay_plane_id,
+    media::mojom::RendererRequest request) {
+  DCHECK(thread_checker_.CalledOnValidThread());
 
   InterfaceFactory* factory = GetMediaInterfaceFactory();
   if (factory)
-    factory->CreateRenderer(type, type_specific_id, std::move(request));
+    factory->CreateCastRenderer(overlay_plane_id, std::move(request));
 }
+#endif
+
+#if defined(OS_ANDROID)
+void MediaInterfaceProxy::CreateFlingingRenderer(
+    const std::string& presentation_id,
+    media::mojom::FlingingRendererClientExtensionPtr client_extension,
+    media::mojom::RendererRequest request) {
+  DCHECK(thread_checker_.CalledOnValidThread());
+
+  media::MojoRendererService::Create(
+      nullptr,
+      FlingingRenderer::Create(render_frame_host_, presentation_id,
+                               std::move(client_extension)),
+      std::move(request));
+}
+
+void MediaInterfaceProxy::CreateMediaPlayerRenderer(
+    media::mojom::MediaPlayerRendererClientExtensionPtr client_extension_ptr,
+    media::mojom::RendererRequest request,
+    media::mojom::MediaPlayerRendererExtensionRequest
+        renderer_extension_request) {
+  DCHECK(thread_checker_.CalledOnValidThread());
+
+  media::MojoRendererService::Create(
+      nullptr,
+      std::make_unique<MediaPlayerRenderer>(
+          render_frame_host_->GetProcess()->GetID(),
+          render_frame_host_->GetRoutingID(),
+          static_cast<RenderFrameHostImpl*>(render_frame_host_)
+              ->delegate()
+              ->GetAsWebContents(),
+          std::move(renderer_extension_request),
+          std::move(client_extension_ptr)),
+      std::move(request));
+}
+#endif
 
 void MediaInterfaceProxy::CreateCdm(
     const std::string& key_system,
@@ -267,9 +297,8 @@ void MediaInterfaceProxy::ConnectToMediaService() {
   media::mojom::MediaServicePtr media_service;
 
   // TODO(slan): Use the BrowserContext Connector instead. See crbug.com/638950.
-  service_manager::Connector* connector =
-      ServiceManagerConnection::GetForProcess()->GetConnector();
-  connector->BindInterface(media::mojom::kMediaServiceName, &media_service);
+  GetSystemConnector()->BindInterface(media::mojom::kMediaServiceName,
+                                      &media_service);
 
   media_service->CreateInterfaceFactory(
       MakeRequest(&interface_factory_ptr_),
@@ -331,13 +360,11 @@ media::mojom::CdmFactory* MediaInterfaceProxy::ConnectToCdmService(
   DCHECK(!cdm_factory_map_.count(cdm_guid));
 
   // TODO(slan): Use the BrowserContext Connector instead. See crbug.com/638950.
-  service_manager::Connector* connector =
-      ServiceManagerConnection::GetForProcess()->GetConnector();
-
   media::mojom::CdmServicePtr cdm_service;
-  connector->BindInterface(service_manager::ServiceFilter::ByNameWithId(
-                               media::mojom::kCdmServiceName, cdm_guid),
-                           &cdm_service);
+  GetSystemConnector()->BindInterface(
+      service_manager::ServiceFilter::ByNameWithId(
+          media::mojom::kCdmServiceName, cdm_guid),
+      &cdm_service);
 
 #if defined(OS_MACOSX)
   // LoadCdm() should always be called before CreateInterfaceFactory().
@@ -383,26 +410,4 @@ void MediaInterfaceProxy::CreateCdmProxyInternal(
     factory->CreateCdmProxy(cdm_guid, std::move(request));
 }
 #endif  // BUILDFLAG(ENABLE_LIBRARY_CDMS)
-
-#if defined(OS_ANDROID)
-void MediaInterfaceProxy::CreateMediaPlayerRenderer(
-    media::mojom::RendererRequest request) {
-  auto renderer = std::make_unique<MediaPlayerRenderer>(
-      render_frame_host_->GetProcess()->GetID(),
-      render_frame_host_->GetRoutingID(),
-      static_cast<RenderFrameHostImpl*>(render_frame_host_)
-          ->delegate()
-          ->GetAsWebContents());
-
-  // base::Unretained is safe here because the lifetime of the MediaPlayerRender
-  // is tied to the lifetime of the MojoRendererService.
-  media::MojoRendererService::InitiateSurfaceRequestCB surface_request_cb =
-      base::BindRepeating(&MediaPlayerRenderer::InitiateScopedSurfaceRequest,
-                          base::Unretained(renderer.get()));
-
-  media::MojoRendererService::Create(nullptr, std::move(renderer),
-                                     surface_request_cb, std::move(request));
-}
-#endif  // defined(OS_ANDROID)
-
 }  // namespace content

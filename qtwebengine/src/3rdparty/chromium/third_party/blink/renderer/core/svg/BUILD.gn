@@ -14,6 +14,8 @@ blink_core_sources("svg") {
   }
 
   sources = [
+    "animation/smil_animation_sandwich.cc",
+    "animation/smil_animation_sandwich.h",
     "animation/smil_time.cc",
     "animation/smil_time.h",
     "animation/smil_time_container.cc",
@@ -23,6 +25,8 @@ blink_core_sources("svg") {
     "color_distance.cc",
     "color_distance.h",
     "gradient_attributes.h",
+    "graphics/dark_mode_svg_image_classifier.cc",
+    "graphics/dark_mode_svg_image_classifier.h",
     "graphics/filters/svg_fe_image.cc",
     "graphics/filters/svg_fe_image.h",
     "graphics/filters/svg_filter_builder.cc",

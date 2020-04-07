@@ -101,15 +101,10 @@ QT_BEGIN_NAMESPACE
 /*!
     \qmlproperty Route Qt.labs.location::Navigator::route
 
-    This property holds the Route that the navigator is supposed to use
+    This property holds the Route that the navigator is using
     to perform the navigation.
 
-    \note
-    This property is not necessarily the same as \l currentRoute.
-    currentRoute may differ, during routing, for various reasons.
-    It is reasonable to assume, however, that currentRoute's destination
-    will be the same as route's destination.
-    Setting this property while a navigation session is ongoing will
+    \note Setting this property while a navigation session is ongoing will
     stop the navigation.
 
     \sa Route
@@ -155,6 +150,33 @@ QT_BEGIN_NAMESPACE
     Navigator plugins can also control this property directly e.g. user map
     interaction could trigger the property change. Honoring the user-specified
     value of this property is plugin dependent.
+*/
+
+/*!
+    \qmlproperty bool Qt.labs.location::Navigator::automaticReroutingEnabled
+
+    This property tells whether the Navigator should automatically recalculate
+    the route when the position from \l positionSource ends too far from the route.
+    The operation performed in such case is equivalent to calling \l recalculateRoutes.
+    The default value is \c true.
+
+    \note Whether this property has any effect is plugin-dependent.
+    Also, whether or not it has an effect while the navigator is active is plugin-dependent.
+*/
+
+/*!
+    \qmlproperty bool Qt.labs.location::Navigator::isOnRoute
+
+    While the Navigator is in active tracking mode, this property tells
+    whether the position from \l positionSource is on the route or not.
+*/
+
+/*!
+    \qmlmethod void Qt.labs.location::Navigator::recalculateRoutes()
+
+    Calling this method forces the backend to trigger a routes recalculation.
+
+    \sa automaticReroutingEnabled
 */
 
 /*!
@@ -284,6 +306,27 @@ QDeclarativePositionSource *QDeclarativeNavigator::positionSource() const
     return d_ptr->m_params->m_positionSource;
 }
 
+// navigator automatically adjusts route when user leaves it
+bool QDeclarativeNavigator::automaticReroutingEnabled() const
+{
+    if (d_ptr->m_navigator)
+        return d_ptr->m_navigator->automaticReroutingEnabled();
+    return d_ptr->m_params->m_autoRerouting;
+}
+
+// Whether or not it has an effect while the navigator is active should be plugin-dependent
+void QDeclarativeNavigator::setAutomaticReroutingEnabled(bool autoRerouting)
+{
+    const bool autoReroutingOld = automaticReroutingEnabled();
+    d_ptr->m_params->m_autoRerouting = autoRerouting;
+    // Done this way, and not via signal like setTrackPositionSource because
+    // plugins might not support automatic rerouting.
+    if (d_ptr->m_navigator)
+        d_ptr->m_navigator->setAutomaticReroutingEnabled(autoRerouting);
+    if (autoRerouting != autoReroutingOld)
+        emit automaticReroutingEnabledChanged();
+}
+
 
 bool QDeclarativeNavigator::navigatorReady() const
 {
@@ -295,6 +338,15 @@ bool QDeclarativeNavigator::navigatorReady() const
 bool QDeclarativeNavigator::trackPositionSource() const
 {
     return d_ptr->m_params->m_trackPositionSource;
+}
+
+// Navigator is in active tracking mode and the route is being followed.
+// This may turn \c false if the user leaves the route.
+bool QDeclarativeNavigator::isOnRoute() const
+{
+    if (d_ptr->m_navigator)
+        return d_ptr->m_navigator->isOnRoute();
+    return false;
 }
 
 void QDeclarativeNavigator::setTrackPositionSource(bool trackPositionSource)
@@ -320,6 +372,12 @@ QDeclarativeNavigator::NavigationError QDeclarativeNavigator::error() const
 QString QDeclarativeNavigator::errorString() const
 {
     return d_ptr->m_errorString;
+}
+
+void QDeclarativeNavigator::recalculateRoutes()
+{
+    if (d_ptr->m_navigator)
+        d_ptr->m_navigator->recalculateRoutes();
 }
 
 /*  !NOT DOCUMENTED YET!
@@ -478,6 +536,10 @@ bool QDeclarativeNavigator::ensureEngine()
             &d_ptr->m_basicDirections, &QDeclarativeNavigationBasicDirections::nextManeuverIconChanged);
     connect(d_ptr->m_navigator.get(), &QAbstractNavigator::progressInformationChanged,
             &d_ptr->m_basicDirections, &QDeclarativeNavigationBasicDirections::progressInformationChanged);
+    connect(d_ptr->m_navigator.get(), &QAbstractNavigator::isOnRouteChanged,
+            this, &QDeclarativeNavigator::isOnRouteChanged);
+    connect(d_ptr->m_navigator.get(), &QAbstractNavigator::alternativeRoutesChanged,
+            &d_ptr->m_basicDirections, &QDeclarativeNavigationBasicDirections::onAlternativeRoutesChanged);
 
     emit navigatorReadyChanged(true);
     return true;
@@ -502,7 +564,7 @@ void QDeclarativeNavigator::setError(QDeclarativeNavigator::NavigationError erro
 }
 
 QDeclarativeNavigationBasicDirections::QDeclarativeNavigationBasicDirections(QDeclarativeNavigator *parent)
-:   QObject(parent), m_navigator(parent)
+:   QObject(parent), m_navigator(parent), m_routes(QByteArrayLiteral("routeData"), this)
 {
     if (m_navigator)
         m_navigatorPrivate = m_navigator->d_ptr.data();
@@ -523,6 +585,7 @@ QDeclarativeNavigationBasicDirections::QDeclarativeNavigationBasicDirections(QDe
     \qmlproperty Route Qt.labs.location::Navigator::directions.currentRoute
     \qmlproperty RouteLeg Qt.labs.location::Navigator::directions.currentRouteLeg
     \qmlproperty int Qt.labs.location::Navigator::directions.currentSegment
+    \qmlproperty model Qt.labs.location::Navigator::directions.alternativeRoutes
 
     These read-only properties are part of the \e directions property group.
     This property group holds the navigation progress information that can be
@@ -561,6 +624,8 @@ QDeclarativeNavigationBasicDirections::QDeclarativeNavigationBasicDirections(QDe
             holds the same route as \c currentRoute.
         \li The \c currentSegment property holds the index of the current
             RouteSegment in the \c currentRoute.
+        \li The \c alternativeRoutes property holds the list of alternative routes provided by
+            the engine. If no alternative routes are present, the model will be empty.
     \endlist
 
     \sa directions.waypointReached(), directions.destinationReached(), Route, RouteLeg, RouteSegment, Waypoint
@@ -672,6 +737,11 @@ int QDeclarativeNavigationBasicDirections::currentSegment() const
     return m_navigatorPrivate->m_navigator->currentSegment();
 }
 
+QAbstractItemModel *QDeclarativeNavigationBasicDirections::alternativeRoutes()
+{
+    return &m_routes;
+}
+
 void QDeclarativeNavigationBasicDirections::onCurrentRouteChanged()
 {
     if (m_currentRoute)
@@ -686,6 +756,18 @@ void QDeclarativeNavigationBasicDirections::onCurrentRouteLegChanged()
         m_currentRouteLeg->deleteLater();
     m_currentRouteLeg = new QDeclarativeGeoRouteLeg(m_navigatorPrivate->m_navigator->currentRouteLeg(), this);
     emit currentRouteLegChanged();
+}
+
+void QDeclarativeNavigationBasicDirections::onAlternativeRoutesChanged()
+{
+    const QList<QGeoRoute> &routes = m_navigatorPrivate->m_navigator->alternativeRoutes();
+    QList<QDeclarativeGeoRoute *> declarativeRoutes;
+    for (int i = 0; i < routes.size(); ++i) {
+        QDeclarativeGeoRoute *route = new QDeclarativeGeoRoute(routes.at(i), &m_routes);
+        QQmlEngine::setContextForObject(route, QQmlEngine::contextForObject(this));
+        declarativeRoutes.append(route);
+    }
+    m_routes.updateData(declarativeRoutes);
 }
 
 QT_END_NAMESPACE

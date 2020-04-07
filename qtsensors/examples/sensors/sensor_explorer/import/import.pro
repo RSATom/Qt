@@ -15,6 +15,7 @@ SOURCES = \
     propertyinfo.cpp
 
 HEADERS = \
+    main.h \
     explorer.h \
     sensoritem.h \
     propertyinfo.h

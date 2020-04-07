@@ -42,10 +42,10 @@
 
 #include <QtCore/qtimer.h>
 #include <QtCore/qdir.h>
-#include <QtQml/private/qqmldelegatemodel_p.h>
-#include <QtQml/private/qqmldelegatemodel_p_p.h>
+#include <QtQmlModels/private/qqmldelegatemodel_p.h>
+#include <QtQmlModels/private/qqmldelegatemodel_p_p.h>
 #include <QtQml/private/qqmlincubator_p.h>
-#include <QtQml/private/qqmlchangeset_p.h>
+#include <QtQmlModels/private/qqmlchangeset_p.h>
 #include <QtQml/qqmlinfo.h>
 
 #include <QtQuick/private/qquickflickable_p_p.h>
@@ -53,12 +53,11 @@
 
 /*!
     \qmltype TableView
-    \instantiates QQuickTableView
     \inqmlmodule QtQuick
     \since 5.12
     \ingroup qtquick-views
     \inherits Flickable
-    \brief Provides a table view of items provided by the model.
+    \brief Provides a table view of items to display data from a model.
 
     A TableView has a \l model that defines the data to be displayed, and a
     \l delegate that defines how the data should be displayed.
@@ -73,25 +72,34 @@
 
     A TableView displays data from models created from built-in QML types
     such as ListModel and XmlListModel, which populates the first column only
-    in a TableView. To create models with multiple columns, create a model in
-    C++ that inherits QAbstractItemModel, and expose it to QML.
+    in a TableView. To create models with multiple columns, either use
+    \l TableModel or a C++ model that inherits QAbstractItemModel.
 
     \section1 Example Usage
+
+    \section2 C++ Models
 
     The following example shows how to create a model from C++ with multiple
     columns:
 
-    \snippet qml/tableview/tablemodel.cpp 0
+    \snippet qml/tableview/cpp-tablemodel.cpp 0
 
     And then how to use it from QML:
 
-    \snippet qml/tableview/tablemodel.qml 0
+    \snippet qml/tableview/cpp-tablemodel.qml 0
+
+    \section2 QML Models
+
+    For prototyping and displaying very simple data (from a web API, for
+    example), \l TableModel can be used:
+
+    \snippet qml/tableview/qml-tablemodel.qml 0
 
     \section1 Reusing items
 
     TableView recycles delegate items by default, instead of instantiating from
     the \l delegate whenever new rows and columns are flicked into view. This
-    can give a huge performance boost, depending on the complexity of the
+    approach gives a huge performance boost, depending on the complexity of the
     delegate.
 
     When an item is flicked out, it moves to the \e{reuse pool}, which is an
@@ -125,8 +133,8 @@
     \section1 Row heights and column widths
 
     When a new column is flicked into view, TableView will determine its width
-    by calling the \l columnWidthProvider function. TableView itself will never
-    store row height or column width, as it's designed to support large models
+    by calling the \l columnWidthProvider function. TableView does not store
+    row height or column width, as it's designed to support large models
     containing any number of rows and columns. Instead, it will ask the
     application whenever it needs to know.
 
@@ -140,9 +148,9 @@
     \note The calculated width of a column is discarded when it is flicked out
     of the viewport, and is recalculated if the column is flicked back in. The
     calculation is always based on the items that are visible when the column
-    is flicked in. This means that it can end up different each time, depending
-    on which row you're at when the column enters. You should therefore have the
-    same \c implicitWidth for all items in a column, or set
+    is flicked in. This means that column width can be different each time,
+    depending on which row you're at when the column enters. You should
+    therefore have the same \c implicitWidth for all items in a column, or set
     \l columnWidthProvider. The same logic applies for the row height
     calculation.
 
@@ -151,10 +159,11 @@
     must call \l forceLayout. This informs TableView that it needs to use the
     provider functions again to recalculate and update the layout.
 
-    Since Qt 5.13, if you want to hide a specific column, you can return \c 0 from the
-    \l columnWidthProvider for that column. Likewise, you can return 0 from the
-    \l rowHeightProvider to hide a row. If you return a negative number, TableView
-    will fall back to calculate the size based on the delegate items.
+    Since Qt 5.13, if you want to hide a specific column, you can return \c 0
+    from the \l columnWidthProvider for that column. Likewise, you can return 0
+    from the \l rowHeightProvider to hide a row. If you return a negative
+    number, TableView will fall back to calculate the size based on the delegate
+    items.
 
     \note The size of a row or column should be a whole number to avoid
     sub-pixel alignment of items.
@@ -168,11 +177,11 @@
 
     \section1 Overlays and underlays
 
-    Tableview inherits \l Flickable. And when new items are instantiated from the
-    delegate, it will parent them to the \l{Flickable::}{contentItem}
-    with a \c z value equal to \c 1. You can add your own items inside the
-    Tableview, as child items of the Flickable. By controlling their \c z
-    value, you can make them be on top of or underneath the table items.
+    All new items that are instantiated from the delegate are parented to the
+    \l{Flickable::}{contentItem} with the \c z value, \c 1. You can add your
+    own items inside the Tableview, as child items of the Flickable. By
+    controlling their \c z value, you can make them be on top of or
+    underneath the table items.
 
     Here is an example that shows how to add some text on top of the table, that
     moves together with the table as you flick:
@@ -182,6 +191,7 @@
 
 /*!
     \qmlproperty int QtQuick::TableView::rows
+    \readonly
 
     This property holds the number of rows in the table. This is
     equal to the number of rows in the model.
@@ -191,10 +201,11 @@
 
 /*!
     \qmlproperty int QtQuick::TableView::columns
+    \readonly
 
     This property holds the number of columns in the table. This is
     equal to the number of columns in the model. If the model is
-    a list, columns will be 1.
+    a list, columns will be \c 1.
 
     This property is read only.
 */
@@ -204,7 +215,7 @@
 
     This property holds the spacing between the rows.
 
-    The default value is 0.
+    The default value is \c 0.
 */
 
 /*!
@@ -212,20 +223,20 @@
 
     This property holds the spacing between the columns.
 
-    The default value is 0.
+    The default value is \c 0.
 */
 
 /*!
     \qmlproperty var QtQuick::TableView::rowHeightProvider
 
     This property can hold a function that returns the row height for each row
-    in the model. When assigned, it will be called whenever TableView needs to
-    know the height of a specific row. The function takes one argument, \c row,
-    for which the TableView needs to know the height.
+    in the model. It is called whenever TableView needs to know the height of
+    a specific row. The function takes one argument, \c row, for which the
+    TableView needs to know the height.
 
-    Since Qt 5.13, if you want to hide a specific row, you can return \c 0 height for
-    that row. If you return a negative number, TableView will fall back to
-    calculate the height based on the delegate items.
+    Since Qt 5.13, if you want to hide a specific row, you can return \c 0
+    height for that row. If you return a negative number, TableView calculates
+    the height based on the delegate items.
 
     \sa columnWidthProvider, {Row heights and column widths}
 */
@@ -234,13 +245,13 @@
     \qmlproperty var QtQuick::TableView::columnWidthProvider
 
     This property can hold a function that returns the column width for each
-    column in the model. When assigned, it is called whenever TableView needs
-    to know the width of a specific column. The function takes one argument,
-    \c column, for which the TableView needs to know the width.
+    column in the model. It is called whenever TableView needs to know the
+    width of a specific column. The function takes one argument, \c column,
+    for which the TableView needs to know the width.
 
-    Since Qt 5.13, if you want to hide a specific column, you can return \c 0 width for
-    that column. If you return a negative number, TableView will fall back to
-    calculate the width based on the delegate items.
+    Since Qt 5.13, if you want to hide a specific column, you can return \c 0
+    width for that column. If you return a negative number, TableView
+    calculates the width based on the delegate items.
 
     \sa rowHeightProvider, {Row heights and column widths}
 */
@@ -250,9 +261,9 @@
     This property holds the model that provides data for the table.
 
     The model provides the set of data that is used to create the items
-    in the view. Models can be created directly in QML using \l ListModel,
-    \l XmlListModel or \l ObjectModel, or provided by a custom C++ model
-    class. If it is a C++ model, it must be a subclass of \l QAbstractItemModel
+    in the view. Models can be created directly in QML using \l TableModel,
+    \l ListModel, \l XmlListModel, or \l ObjectModel, or provided by a custom
+    C++ model class. The C++ model must be a subclass of \l QAbstractItemModel
     or a simple list.
 
     \sa {qml-data-models}{Data Models}
@@ -266,10 +277,9 @@
     applies to \c row and \c column. Properties of the model are also available
     depending upon the type of \l {qml-data-models}{Data Model}.
 
-    A delegate should specify its size using \l [QML]{Item::implicitWidth}{implicitWidth} and
-    \l [QML]{Item::implicitHeight}{implicitHeight}.
-    The TableView lays out the items based on that information. Explicit width or
-    height settings are ignored and overwritten.
+    A delegate should specify its size using \l{Item::}{implicitWidth} and
+    \l {Item::}{implicitHeight}. The TableView lays out the items based on that
+    information. Explicit width or height settings are ignored and overwritten.
 
     \note Delegates are instantiated as needed and may be destroyed at any time.
     They are also reused if the \l reuseItems property is set to \c true. You
@@ -291,37 +301,35 @@
 /*!
     \qmlproperty real QtQuick::TableView::contentWidth
 
-    This property holds the width of the \l view, which is also
-    the width of the table (including margins). As a TableView cannot
-    always know the exact width of the table without loading all columns
-    in the model, the \c contentWidth is usually an estimated width based on
-    the columns it has seen so far. This estimate is recalculated whenever
-    new columns are flicked into view, which means that the content width
-    can change dynamically.
+    This property holds the table width required to accommodate the number of
+    columns in the model. This is usually not the same as the \c width of the
+    \l view, which means that the table's width could be larger or smaller than
+    the viewport width. As a TableView cannot always know the exact width of
+    the table without loading all columns in the model, the \c contentWidth is
+    usually an estimate based on the initially loaded table.
 
-    If you know up front what the width of the table will be, assign a value
-    to \c contentWidth explicitly, to avoid unnecessary calculations and
-    updates to the TableView.
+    If you know what the width of the table will be, assign a value to
+    \c contentWidth, to avoid unnecessary calculations and updates to the
+    TableView.
 
-    \sa contentHeight
+    \sa contentHeight, columnWidthProvider
 */
 
 /*!
     \qmlproperty real QtQuick::TableView::contentHeight
 
-    This property holds the height of the \l view, which is also
-    the height of the table (including margins). As a TableView cannot
-    always know the exact height of the table without loading all rows
-    in the model, the \c contentHeight is usually an estimated height
-    based on the rows it has seen so far. This estimate is recalculated
-    whenever new rows are flicked into view, which means that the content height
-    can change dynamically.
+    This property holds the table height required to accommodate the number of
+    rows in the data model. This is usually not the same as the \c height of the
+    \c view, which means that the table's height could be larger or smaller than the
+    viewport height. As a TableView cannot always know the exact height of the
+    table without loading all rows in the model, the \c contentHeight is
+    usually an estimate based on the initially loaded table.
 
-    If you know up front what the height of the table will be, assign a
-    value to \c contentHeight explicitly, to avoid unnecessary calculations and
-    updates to the TableView.
+    If you know what the height of the table will be, assign a
+    value to \c contentHeight, to avoid unnecessary calculations and updates to
+    the TableView.
 
-    \sa contentWidth
+    \sa contentWidth, rowHeightProvider
 */
 
 /*!
@@ -330,7 +338,7 @@
     Responding to changes in the model are batched so that they are handled
     only once per frame. This means the TableView delays showing any changes
     while a script is being run. The same is also true when changing
-    properties such as \l rowSpacing or \l {Item::anchors.leftMargin}{leftMargin}.
+    properties, such as \l rowSpacing or \l{Item::anchors.leftMargin}{leftMargin}.
 
     This method forces the TableView to immediately update the layout so
     that any recent changes take effect.
@@ -367,9 +375,9 @@
     item has been taken out of the pool and placed inside the content view,
     and the model properties such as index, row, and column have been updated.
 
-    Other properties that are not provided by the model does not change when an item
-    is reused. You should avoid storing any state inside a delegate, but if you do,
-    manually reset that state on receiving this signal.
+    Other properties that are not provided by the model does not change when an
+    item is reused. You should avoid storing any state inside a delegate, but if
+    you do, manually reset that state on receiving this signal.
 
     This signal is emitted when the item is reused, and not the first time the
     item is created.
@@ -425,11 +433,24 @@ bool QQuickTableViewPrivate::EdgeRange::containsIndex(Qt::Edge edge, int index)
 QQuickTableViewPrivate::QQuickTableViewPrivate()
     : QQuickFlickablePrivate()
 {
+    QObject::connect(&columnWidths, &QQuickTableSectionSizeProvider::sizeChanged,
+                            [this] { this->forceLayout();});
+    QObject::connect(&rowHeights, &QQuickTableSectionSizeProvider::sizeChanged,
+                            [this] { this->forceLayout();});
 }
 
 QQuickTableViewPrivate::~QQuickTableViewPrivate()
 {
-    releaseLoadedItems(QQmlTableInstanceModel::NotReusable);
+    for (auto *fxTableItem : loadedItems) {
+        if (auto item = fxTableItem->item) {
+            if (fxTableItem->ownItem)
+                delete item;
+            else if (tableModel)
+                tableModel->dispose(item);
+        }
+        delete fxTableItem;
+    }
+
     if (tableModel)
         delete tableModel;
 }
@@ -604,9 +625,21 @@ void QQuickTableViewPrivate::updateContentWidth()
 {
     Q_Q(QQuickTableView);
 
+    if (syncHorizontally) {
+        QBoolBlocker fixupGuard(inUpdateContentSize, true);
+        q->QQuickFlickable::setContentWidth(syncView->contentWidth());
+        return;
+    }
+
     if (explicitContentWidth.isValid()) {
         // Don't calculate contentWidth when it
         // was set explicitly by the application.
+        return;
+    }
+
+    if (loadedItems.isEmpty()) {
+        QBoolBlocker fixupGuard(inUpdateContentSize, true);
+        q->QQuickFlickable::setContentWidth(0);
         return;
     }
 
@@ -616,6 +649,8 @@ void QQuickTableViewPrivate::updateContentWidth()
     const qreal remainingSpacing = columnsRemaining * cellSpacing.width();
     const qreal estimatedRemainingWidth = remainingColumnWidths + remainingSpacing;
     const qreal estimatedWidth = loadedTableOuterRect.right() + estimatedRemainingWidth;
+
+    QBoolBlocker fixupGuard(inUpdateContentSize, true);
     q->QQuickFlickable::setContentWidth(estimatedWidth);
 }
 
@@ -623,9 +658,21 @@ void QQuickTableViewPrivate::updateContentHeight()
 {
     Q_Q(QQuickTableView);
 
+    if (syncVertically) {
+        QBoolBlocker fixupGuard(inUpdateContentSize, true);
+        q->QQuickFlickable::setContentHeight(syncView->contentHeight());
+        return;
+    }
+
     if (explicitContentHeight.isValid()) {
         // Don't calculate contentHeight when it
         // was set explicitly by the application.
+        return;
+    }
+
+    if (loadedItems.isEmpty()) {
+        QBoolBlocker fixupGuard(inUpdateContentSize, true);
+        q->QQuickFlickable::setContentHeight(0);
         return;
     }
 
@@ -635,64 +682,204 @@ void QQuickTableViewPrivate::updateContentHeight()
     const qreal remainingSpacing = rowsRemaining * cellSpacing.height();
     const qreal estimatedRemainingHeight = remainingRowHeights + remainingSpacing;
     const qreal estimatedHeight = loadedTableOuterRect.bottom() + estimatedRemainingHeight;
+
+    QBoolBlocker fixupGuard(inUpdateContentSize, true);
     q->QQuickFlickable::setContentHeight(estimatedHeight);
 }
 
-void QQuickTableViewPrivate::enforceTableAtOrigin()
+void QQuickTableViewPrivate::updateExtents()
 {
-    // Gaps before the first row/column can happen if rows/columns
-    // changes size while flicking e.g because of spacing changes or
-    // changes to a column maxWidth/row maxHeight. Check for this, and
-    // move the whole table rect accordingly.
-    bool layoutNeeded = false;
-    const qreal flickMargin = 50;
+    // When rows or columns outside the viewport are removed or added, or a rebuild
+    // forces us to guesstimate a new top-left, the edges of the table might end up
+    // out of sync with the edges of the content view. We detect this situation here, and
+    // move the origin to ensure that there will never be gaps at the end of the table.
+    // Normally we detect that the size of the whole table is not going to be equal to the
+    // size of the content view already when we load the last row/column, and especially
+    // before it's flicked completely inside the viewport. For those cases we simply adjust
+    // the origin/endExtent, to give a smooth flicking experience.
+    // But if flicking fast (e.g with a scrollbar), it can happen that the viewport ends up
+    // outside the end of the table in just one viewport update. To avoid a "blink" in the
+    // viewport when that happens, we "move" the loaded table into the viewport to cover it.
+    Q_Q(QQuickTableView);
 
-    const bool noMoreColumns = nextVisibleEdgeIndexAroundLoadedTable(Qt::LeftEdge) == kEdgeIndexAtEnd;
-    const bool noMoreRows = nextVisibleEdgeIndexAroundLoadedTable(Qt::TopEdge) == kEdgeIndexAtEnd;
+    bool tableMovedHorizontally = false;
+    bool tableMovedVertically = false;
 
-    if (noMoreColumns) {
-        if (!qFuzzyIsNull(loadedTableOuterRect.left())) {
-            // There are no more columns, but the table rect
-            // is not at origin. So we move it there.
-            loadedTableOuterRect.moveLeft(0);
-            layoutNeeded = true;
+    const int nextLeftColumn = nextVisibleEdgeIndexAroundLoadedTable(Qt::LeftEdge);
+    const int nextRightColumn = nextVisibleEdgeIndexAroundLoadedTable(Qt::RightEdge);
+    const int nextTopRow = nextVisibleEdgeIndexAroundLoadedTable(Qt::TopEdge);
+    const int nextBottomRow = nextVisibleEdgeIndexAroundLoadedTable(Qt::BottomEdge);
+
+    if (syncHorizontally) {
+        const auto syncView_d = syncView->d_func();
+        origin.rx() = syncView_d->origin.x();
+        endExtent.rwidth() = syncView_d->endExtent.width();
+        hData.markExtentsDirty();
+    } else if (nextLeftColumn == kEdgeIndexAtEnd) {
+        // There are no more columns to load on the left side of the table.
+        // In that case, we ensure that the origin match the beginning of the table.
+        if (loadedTableOuterRect.left() > viewportRect.left()) {
+            // We have a blank area at the left end of the viewport. In that case we don't have time to
+            // wait for the viewport to move (after changing origin), since that will take an extra
+            // update cycle, which will be visible as a blink. Instead, unless the blank spot is just
+            // us overshooting, we brute force the loaded table inside the already existing viewport.
+            if (loadedTableOuterRect.left() > origin.x()) {
+                const qreal diff = loadedTableOuterRect.left() - origin.x();
+                loadedTableOuterRect.moveLeft(loadedTableOuterRect.left() - diff);
+                loadedTableInnerRect.moveLeft(loadedTableInnerRect.left() - diff);
+                tableMovedHorizontally = true;
+            }
         }
-    } else {
-        if (loadedTableOuterRect.left() <= 0) {
-            // The table rect is at origin, or outside. But we still have
-            // more visible columns to the left. So we need to make some
-            // space so that they can be flicked in.
-            loadedTableOuterRect.moveLeft(flickMargin);
-            layoutNeeded = true;
+        origin.rx() = loadedTableOuterRect.left();
+        hData.markExtentsDirty();
+    } else if (loadedTableOuterRect.left() <= origin.x() + cellSpacing.width()) {
+        // The table rect is at the origin, or outside, but we still have more
+        // visible columns to the left. So we try to guesstimate how much space
+        // the rest of the columns will occupy, and move the origin accordingly.
+        const int columnsRemaining = nextLeftColumn + 1;
+        const qreal remainingColumnWidths = columnsRemaining * averageEdgeSize.width();
+        const qreal remainingSpacing = columnsRemaining * cellSpacing.width();
+        const qreal estimatedRemainingWidth = remainingColumnWidths + remainingSpacing;
+        origin.rx() = loadedTableOuterRect.left() - estimatedRemainingWidth;
+        hData.markExtentsDirty();
+    } else if (nextRightColumn == kEdgeIndexAtEnd) {
+        // There are no more columns to load on the right side of the table.
+        // In that case, we ensure that the end of the content view match the end of the table.
+        if (loadedTableOuterRect.right() < viewportRect.right()) {
+            // We have a blank area at the right end of the viewport. In that case we don't have time to
+            // wait for the viewport to move (after changing endExtent), since that will take an extra
+            // update cycle, which will be visible as a blink. Instead, unless the blank spot is just
+            // us overshooting, we brute force the loaded table inside the already existing viewport.
+            const qreal w = qMin(viewportRect.right(), q->contentWidth() + endExtent.width());
+            if (loadedTableOuterRect.right() < w) {
+                const qreal diff = loadedTableOuterRect.right() - w;
+                loadedTableOuterRect.moveRight(loadedTableOuterRect.right() - diff);
+                loadedTableInnerRect.moveRight(loadedTableInnerRect.right() - diff);
+                tableMovedHorizontally = true;
+            }
         }
+        endExtent.rwidth() = loadedTableOuterRect.right() - q->contentWidth();
+        hData.markExtentsDirty();
+    } else if (loadedTableOuterRect.right() >= q->contentWidth() + endExtent.width() - cellSpacing.width()) {
+        // The right-most column is outside the end of the content view, and we
+        // still have more visible columns in the model. This can happen if the application
+        // has set a fixed content width.
+        const int columnsRemaining = tableSize.width() - nextRightColumn;
+        const qreal remainingColumnWidths = columnsRemaining * averageEdgeSize.width();
+        const qreal remainingSpacing = columnsRemaining * cellSpacing.width();
+        const qreal estimatedRemainingWidth = remainingColumnWidths + remainingSpacing;
+        const qreal pixelsOutsideContentWidth = loadedTableOuterRect.right() - q->contentWidth();
+        endExtent.rwidth() = pixelsOutsideContentWidth + estimatedRemainingWidth;
+        hData.markExtentsDirty();
     }
 
-    if (noMoreRows) {
-        if (!qFuzzyIsNull(loadedTableOuterRect.top())) {
-            loadedTableOuterRect.moveTop(0);
-            layoutNeeded = true;
+    if (syncVertically) {
+        const auto syncView_d = syncView->d_func();
+        origin.ry() = syncView_d->origin.y();
+        endExtent.rheight() = syncView_d->endExtent.height();
+        vData.markExtentsDirty();
+    } else if (nextTopRow == kEdgeIndexAtEnd) {
+        // There are no more rows to load on the top side of the table.
+        // In that case, we ensure that the origin match the beginning of the table.
+        if (loadedTableOuterRect.top() > viewportRect.top()) {
+            // We have a blank area at the top of the viewport. In that case we don't have time to
+            // wait for the viewport to move (after changing origin), since that will take an extra
+            // update cycle, which will be visible as a blink. Instead, unless the blank spot is just
+            // us overshooting, we brute force the loaded table inside the already existing viewport.
+            if (loadedTableOuterRect.top() > origin.y()) {
+                const qreal diff = loadedTableOuterRect.top() - origin.y();
+                loadedTableOuterRect.moveTop(loadedTableOuterRect.top() - diff);
+                loadedTableInnerRect.moveTop(loadedTableInnerRect.top() - diff);
+                tableMovedVertically = true;
+            }
         }
-    } else {
-        if (loadedTableOuterRect.top() <= 0) {
-            loadedTableOuterRect.moveTop(flickMargin);
-            layoutNeeded = true;
+        origin.ry() = loadedTableOuterRect.top();
+        vData.markExtentsDirty();
+    } else if (loadedTableOuterRect.top() <= origin.y() + cellSpacing.height()) {
+        // The table rect is at the origin, or outside, but we still have more
+        // visible rows at the top. So we try to guesstimate how much space
+        // the rest of the rows will occupy, and move the origin accordingly.
+        const int rowsRemaining = nextTopRow + 1;
+        const qreal remainingRowHeights = rowsRemaining * averageEdgeSize.height();
+        const qreal remainingSpacing = rowsRemaining * cellSpacing.height();
+        const qreal estimatedRemainingHeight = remainingRowHeights + remainingSpacing;
+        origin.ry() = loadedTableOuterRect.top() - estimatedRemainingHeight;
+        vData.markExtentsDirty();
+    } else if (nextBottomRow == kEdgeIndexAtEnd) {
+        // There are no more rows to load on the bottom side of the table.
+        // In that case, we ensure that the end of the content view match the end of the table.
+        if (loadedTableOuterRect.bottom() < viewportRect.bottom()) {
+            // We have a blank area at the bottom of the viewport. In that case we don't have time to
+            // wait for the viewport to move (after changing endExtent), since that will take an extra
+            // update cycle, which will be visible as a blink. Instead, unless the blank spot is just
+            // us overshooting, we brute force the loaded table inside the already existing viewport.
+            const qreal h = qMin(viewportRect.bottom(), q->contentHeight() + endExtent.height());
+            if (loadedTableOuterRect.bottom() < h) {
+                const qreal diff = loadedTableOuterRect.bottom() - h;
+                loadedTableOuterRect.moveBottom(loadedTableOuterRect.bottom() - diff);
+                loadedTableInnerRect.moveBottom(loadedTableInnerRect.bottom() - diff);
+                tableMovedVertically = true;
+            }
         }
+        endExtent.rheight() = loadedTableOuterRect.bottom() - q->contentHeight();
+        vData.markExtentsDirty();
+    } else if (loadedTableOuterRect.bottom() >= q->contentHeight() + endExtent.height() - cellSpacing.height()) {
+        // The bottom-most row is outside the end of the content view, and we
+        // still have more visible rows in the model. This can happen if the application
+        // has set a fixed content height.
+        const int rowsRemaining = tableSize.height() - nextBottomRow;
+        const qreal remainingRowHeigts = rowsRemaining * averageEdgeSize.height();
+        const qreal remainingSpacing = rowsRemaining * cellSpacing.height();
+        const qreal estimatedRemainingHeight = remainingRowHeigts + remainingSpacing;
+        const qreal pixelsOutsideContentHeight = loadedTableOuterRect.bottom() - q->contentHeight();
+        endExtent.rheight() = pixelsOutsideContentHeight + estimatedRemainingHeight;
+        vData.markExtentsDirty();
     }
 
-    if (layoutNeeded) {
-        qCDebug(lcTableViewDelegateLifecycle);
+    if (tableMovedHorizontally || tableMovedVertically) {
+        qCDebug(lcTableViewDelegateLifecycle) << "move table to" << loadedTableOuterRect;
+
+        // relayoutTableItems() will take care of moving the existing
+        // delegate items into the new loadedTableOuterRect.
         relayoutTableItems();
+
+        // Inform the sync children that they need to rebuild to stay in sync
+        for (auto syncChild : qAsConst(syncChildren)) {
+            auto syncChild_d = syncChild->d_func();
+            syncChild_d->scheduledRebuildOptions |= RebuildOption::ViewportOnly;
+            if (tableMovedHorizontally)
+                syncChild_d->scheduledRebuildOptions |= RebuildOption::CalculateNewTopLeftColumn;
+            if (tableMovedVertically)
+                syncChild_d->scheduledRebuildOptions |= RebuildOption::CalculateNewTopLeftRow;
+        }
+    }
+
+    if (hData.minExtentDirty || vData.minExtentDirty) {
+        qCDebug(lcTableViewDelegateLifecycle) << "move origin and endExtent to:" << origin << endExtent;
+        // updateBeginningEnd() will let the new extents take effect. This will also change the
+        // visualArea of the flickable, which again will cause any attached scrollbars to adjust
+        // the position of the handle. Note the latter will cause the viewport to move once more.
+        updateBeginningEnd();
     }
 }
 
 void QQuickTableViewPrivate::updateAverageEdgeSize()
 {
-    const int loadedRowCount = loadedRows.count();
-    const int loadedColumnCount = loadedColumns.count();
-    const qreal accRowSpacing = (loadedRowCount - 1) * cellSpacing.height();
-    const qreal accColumnSpacing = (loadedColumnCount - 1) * cellSpacing.width();
-    averageEdgeSize.setHeight((loadedTableOuterRect.height() - accRowSpacing) / loadedRowCount);
-    averageEdgeSize.setWidth((loadedTableOuterRect.width() - accColumnSpacing) / loadedColumnCount);
+    if (explicitContentWidth.isValid()) {
+        const qreal accColumnSpacing = (tableSize.width() - 1) * cellSpacing.width();
+        averageEdgeSize.setWidth((explicitContentWidth - accColumnSpacing) / tableSize.width());
+    } else {
+        const qreal accColumnSpacing = (loadedColumns.count() - 1) * cellSpacing.width();
+        averageEdgeSize.setWidth((loadedTableOuterRect.width() - accColumnSpacing) / loadedColumns.count());
+    }
+
+    if (explicitContentHeight.isValid()) {
+        const qreal accRowSpacing = (tableSize.height() - 1) * cellSpacing.height();
+        averageEdgeSize.setHeight((explicitContentHeight - accRowSpacing) / tableSize.height());
+    } else {
+        const qreal accRowSpacing = (loadedRows.count() - 1) * cellSpacing.height();
+        averageEdgeSize.setHeight((loadedTableOuterRect.height() - accRowSpacing) / loadedRows.count());
+    }
 }
 
 void QQuickTableViewPrivate::syncLoadedTableRectFromLoadedTable()
@@ -705,18 +892,13 @@ void QQuickTableViewPrivate::syncLoadedTableRectFromLoadedTable()
     loadedTableInnerRect = QRectF(topLeftRect.bottomRight(), bottomRightRect.topLeft());
 }
 
-void QQuickTableViewPrivate::forceLayout()
+QQuickTableViewPrivate::RebuildOptions QQuickTableViewPrivate::checkForVisibilityChanges()
 {
-    if (loadedItems.isEmpty())
-        return;
-
-    columnRowPositionsInvalid = true;
-    clearEdgeSizeCache();
-    RebuildOptions rebuildOptions = RebuildOption::None;
-
     // Go through all columns from first to last, find the columns that used
     // to be hidden and not loaded, and check if they should become visible
     // (and vice versa). If there is a change, we need to rebuild.
+    RebuildOptions rebuildOptions = RebuildOption::None;
+
     for (int column = leftColumn(); column <= rightColumn(); ++column) {
         const bool wasVisibleFromBefore = loadedColumns.contains(column);
         const bool isVisibleNow = !qFuzzyIsNull(getColumnWidth(column));
@@ -751,16 +933,36 @@ void QQuickTableViewPrivate::forceLayout()
         break;
     }
 
-    if (rebuildOptions)
-        scheduleRebuildTable(rebuildOptions);
+    return rebuildOptions;
+}
 
-    if (polishing) {
-        qWarning() << "TableView::forceLayout(): Cannot do an immediate re-layout during an ongoing layout!";
-        q_func()->polish();
+void QQuickTableViewPrivate::forceLayout()
+{
+    if (loadedItems.isEmpty())
         return;
+
+    clearEdgeSizeCache();
+    RebuildOptions rebuildOptions = RebuildOption::None;
+
+    const QSize actualTableSize = calculateTableSize();
+    if (tableSize != actualTableSize) {
+        // This can happen if the app is calling forceLayout while
+        // the model is updated, but before we're notified about it.
+        rebuildOptions = RebuildOption::All;
+    } else {
+        rebuildOptions = checkForVisibilityChanges();
+        if (!rebuildOptions)
+            rebuildOptions = RebuildOption::LayoutOnly;
     }
 
-    updatePolish();
+    scheduleRebuildTable(rebuildOptions);
+
+    auto rootView = rootSyncView();
+    const bool updated = rootView->d_func()->updateTableRecursive();
+    if (!updated) {
+        qWarning() << "TableView::forceLayout(): Cannot do an immediate re-layout during an ongoing layout!";
+        rootView->polish();
+    }
 }
 
 void QQuickTableViewPrivate::syncLoadedTableFromLoadRequest()
@@ -873,12 +1075,14 @@ void QQuickTableViewPrivate::releaseLoadedItems(QQmlTableInstanceModel::Reusable
 void QQuickTableViewPrivate::releaseItem(FxTableItem *fxTableItem, QQmlTableInstanceModel::ReusableFlag reusableFlag)
 {
     Q_Q(QQuickTableView);
+    // Note that fxTableItem->item might already have been destroyed, in case
+    // the item is owned by the QML context rather than the model (e.g ObjectModel etc).
     auto item = fxTableItem->item;
-    Q_TABLEVIEW_ASSERT(item, fxTableItem->index);
 
     if (fxTableItem->ownItem) {
+        Q_TABLEVIEW_ASSERT(item, fxTableItem->index);
         delete item;
-    } else {
+    } else if (item) {
         // Only QQmlTableInstanceModel supports reusing items
         auto releaseFlag = tableModel ?
                     tableModel->release(item, reusableFlag) :
@@ -1020,24 +1224,29 @@ qreal QQuickTableViewPrivate::sizeHintForRow(int row)
     return rowHeight;
 }
 
-void QQuickTableViewPrivate::calculateTableSize()
+void QQuickTableViewPrivate::updateTableSize()
 {
     // tableSize is the same as row and column count, and will always
     // be the same as the number of rows and columns in the model.
     Q_Q(QQuickTableView);
-    QSize prevTableSize = tableSize;
 
-    if (tableModel)
-        tableSize = QSize(tableModel->columns(), tableModel->rows());
-    else if (model)
-        tableSize = QSize(1, model->count());
-    else
-        tableSize = QSize(0, 0);
+    const QSize prevTableSize = tableSize;
+    tableSize = calculateTableSize();
 
     if (prevTableSize.width() != tableSize.width())
         emit q->columnsChanged();
     if (prevTableSize.height() != tableSize.height())
         emit q->rowsChanged();
+}
+
+QSize QQuickTableViewPrivate::calculateTableSize()
+{
+    if (tableModel)
+        return QSize(tableModel->columns(), tableModel->rows());
+    else if (model)
+        return QSize(1, model->count());
+
+    return QSize(0, 0);
 }
 
 qreal QQuickTableViewPrivate::getColumnLayoutWidth(int column)
@@ -1051,6 +1260,11 @@ qreal QQuickTableViewPrivate::getColumnLayoutWidth(int column)
     if (explicitColumnWidth >= 0)
         return explicitColumnWidth;
 
+    if (syncHorizontally) {
+        if (syncView->d_func()->loadedColumns.contains(column))
+            return syncView->d_func()->getColumnLayoutWidth(column);
+    }
+
     // Iterate over the currently visible items in the column. The downside
     // of doing that, is that the column width will then only be based on the implicit
     // width of the currently loaded items (which can be different depending on which
@@ -1061,9 +1275,9 @@ qreal QQuickTableViewPrivate::getColumnLayoutWidth(int column)
     if (qIsNaN(columnWidth) || columnWidth <= 0) {
         if (!layoutWarningIssued) {
             layoutWarningIssued = true;
-            qmlWarning(q_func()) << "the delegate's implicitHeight needs to be greater than zero";
+            qmlWarning(q_func()) << "the delegate's implicitWidth needs to be greater than zero";
         }
-        columnWidth = kDefaultRowHeight;
+        columnWidth = kDefaultColumnWidth;
     }
 
     return columnWidth;
@@ -1079,6 +1293,11 @@ qreal QQuickTableViewPrivate::getRowLayoutHeight(int row)
     const qreal explicitRowHeight = getRowHeight(row);
     if (explicitRowHeight >= 0)
         return explicitRowHeight;
+
+    if (syncVertically) {
+        if (syncView->d_func()->loadedRows.contains(row))
+            return syncView->d_func()->getRowLayoutHeight(row);
+    }
 
     // Iterate over the currently visible items in the row. The downside
     // of doing that, is that the row height will then only be based on the implicit
@@ -1108,6 +1327,13 @@ qreal QQuickTableViewPrivate::getColumnWidth(int column)
 
     if (cachedColumnWidth.startIndex == column)
         return cachedColumnWidth.size;
+
+    if (syncHorizontally)
+        return syncView->d_func()->getColumnWidth(column);
+
+    auto cw = columnWidths.size(column);
+    if (cw >= 0)
+        return cw;
 
     if (columnWidthProvider.isUndefined())
         return noExplicitColumnWidth;
@@ -1142,6 +1368,13 @@ qreal QQuickTableViewPrivate::getRowHeight(int row)
 
     if (cachedRowHeight.startIndex == row)
         return cachedRowHeight.size;
+
+    if (syncVertically)
+        return syncView->d_func()->getRowHeight(row);
+
+    auto rh = rowHeights.size(row);
+    if (rh >= 0)
+        return rh;
 
     if (rowHeightProvider.isUndefined())
         return noExplicitRowHeight;
@@ -1180,23 +1413,9 @@ bool QQuickTableViewPrivate::isRowHidden(int row)
     return qFuzzyIsNull(getRowHeight(row));
 }
 
-void QQuickTableViewPrivate::relayoutTable()
-{
-    clearEdgeSizeCache();
-    relayoutTableItems();
-    syncLoadedTableRectFromLoadedTable();
-    enforceTableAtOrigin();
-    updateContentWidth();
-    updateContentHeight();
-    // Return back to updatePolish to loadAndUnloadVisibleEdges()
-    // since the re-layout might have caused some edges to be pushed
-    // out, while others might have been pushed in.
-}
-
 void QQuickTableViewPrivate::relayoutTableItems()
 {
     qCDebug(lcTableViewDelegateLifecycle);
-    columnRowPositionsInvalid = false;
 
     qreal nextColumnX = loadedTableOuterRect.x();
     qreal nextRowY = loadedTableOuterRect.y();
@@ -1378,20 +1597,7 @@ void QQuickTableViewPrivate::processLoadRequest()
     if (rebuildState == RebuildState::Done) {
         // Loading of this edge was not done as a part of a rebuild, but
         // instead as an incremental build after e.g a flick.
-        switch (loadRequest.edge()) {
-        case Qt::LeftEdge:
-        case Qt::TopEdge:
-            enforceTableAtOrigin();
-            break;
-        case Qt::RightEdge:
-            updateAverageEdgeSize();
-            updateContentWidth();
-            break;
-        case Qt::BottomEdge:
-            updateAverageEdgeSize();
-            updateContentHeight();
-            break;
-        }
+        updateExtents();
         drainReusePoolAfterLoadRequest();
     }
 
@@ -1402,6 +1608,22 @@ void QQuickTableViewPrivate::processLoadRequest()
 
 void QQuickTableViewPrivate::processRebuildTable()
 {
+    Q_Q(QQuickTableView);
+
+    if (rebuildState == RebuildState::Begin) {
+        if (Q_UNLIKELY(lcTableViewDelegateLifecycle().isDebugEnabled())) {
+            qCDebug(lcTableViewDelegateLifecycle()) << "begin rebuild:" << q;
+            if (rebuildOptions & RebuildOption::All)
+                qCDebug(lcTableViewDelegateLifecycle()) << "RebuildOption::All, options:" << rebuildOptions;
+            else if (rebuildOptions & RebuildOption::ViewportOnly)
+                qCDebug(lcTableViewDelegateLifecycle()) << "RebuildOption::ViewportOnly, options:" << rebuildOptions;
+            else if (rebuildOptions & RebuildOption::LayoutOnly)
+                qCDebug(lcTableViewDelegateLifecycle()) << "RebuildOption::LayoutOnly, options:" << rebuildOptions;
+            else
+                Q_TABLEVIEW_UNREACHABLE(rebuildOptions);
+        }
+    }
+
     moveToNextRebuildState();
 
     if (rebuildState == RebuildState::LoadInitalTable) {
@@ -1412,12 +1634,13 @@ void QQuickTableViewPrivate::processRebuildTable()
 
     if (rebuildState == RebuildState::VerifyTable) {
         if (loadedItems.isEmpty()) {
-            qCDebug(lcTableViewDelegateLifecycle()) << "no items loaded, meaning empty model, all rows or columns hidden, or no delegate";
+            qCDebug(lcTableViewDelegateLifecycle()) << "no items loaded!";
+            updateContentWidth();
+            updateContentHeight();
             rebuildState = RebuildState::Done;
+        } else if (!moveToNextRebuildState()) {
             return;
         }
-        if (!moveToNextRebuildState())
-            return;
     }
 
     if (rebuildState == RebuildState::LayoutTable) {
@@ -1457,6 +1680,7 @@ void QQuickTableViewPrivate::processRebuildTable()
     }
 
     Q_TABLEVIEW_ASSERT(rebuildState == RebuildState::Done, int(rebuildState));
+    qCDebug(lcTableViewDelegateLifecycle()) << "rebuild complete:" << q;
 }
 
 bool QQuickTableViewPrivate::moveToNextRebuildState()
@@ -1466,99 +1690,212 @@ bool QQuickTableViewPrivate::moveToNextRebuildState()
         // that the current state is not yet done.
         return false;
     }
-    rebuildState = RebuildState(int(rebuildState) + 1);
+
+    if (rebuildState == RebuildState::Begin
+            && rebuildOptions.testFlag(RebuildOption::LayoutOnly))
+        rebuildState = RebuildState::LayoutTable;
+    else
+        rebuildState = RebuildState(int(rebuildState) + 1);
+
     qCDebug(lcTableViewDelegateLifecycle()) << int(rebuildState);
     return true;
 }
 
-QPoint QQuickTableViewPrivate::calculateNewTopLeft()
-{
-    const int firstVisibleLeft = nextVisibleEdgeIndex(Qt::RightEdge, 0);
-    const int firstVisibleTop = nextVisibleEdgeIndex(Qt::BottomEdge, 0);
-
-    return QPoint(firstVisibleLeft, firstVisibleTop);
-}
-
-void QQuickTableViewPrivate::calculateTopLeft(QPoint &topLeft, QPointF &topLeftPos)
+void QQuickTableViewPrivate::calculateTopLeft(QPoint &topLeftCell, QPointF &topLeftPos)
 {
     if (tableSize.isEmpty()) {
-        releaseLoadedItems(QQmlTableInstanceModel::NotReusable);
-        topLeft = QPoint(kEdgeIndexAtEnd, kEdgeIndexAtEnd);
+        // There is no cell that can be top left
+        topLeftCell.rx() = kEdgeIndexAtEnd;
+        topLeftCell.ry() = kEdgeIndexAtEnd;
         return;
     }
 
-    if (rebuildOptions & RebuildOption::All) {
-        qCDebug(lcTableViewDelegateLifecycle()) << "RebuildOption::All";
-        releaseLoadedItems(QQmlTableInstanceModel::NotReusable);
-        topLeft = calculateNewTopLeft();
-    } else if (rebuildOptions & RebuildOption::ViewportOnly) {
-        qCDebug(lcTableViewDelegateLifecycle()) << "RebuildOption::ViewportOnly";
-        releaseLoadedItems(reusableFlag);
+    if (syncHorizontally || syncVertically) {
+        const auto syncView_d = syncView->d_func();
 
-        if (rebuildOptions & RebuildOption::CalculateNewTopLeftRow) {
-            const int newRow = int(viewportRect.y() / (averageEdgeSize.height() + cellSpacing.height()));
-            topLeft.ry() = qBound(0, newRow, tableSize.height() - 1);
-            topLeftPos.ry() = topLeft.y() * (averageEdgeSize.height() + cellSpacing.height());
-        } else {
-            topLeft.ry() = qBound(0, topRow(), tableSize.height() - 1);
-            topLeftPos.ry() = loadedTableOuterRect.topLeft().y();
+        if (syncView_d->loadedItems.isEmpty()) {
+            // The sync view contains no loaded items. This probably means
+            // that it has not been rebuilt yet. Which also means that
+            // we cannot rebuild anything before this happens.
+            topLeftCell.rx() = kEdgeIndexNotSet;
+            topLeftCell.ry() = kEdgeIndexNotSet;
+            return;
         }
-        if (rebuildOptions & RebuildOption::CalculateNewTopLeftColumn) {
+
+        // Get sync view top left, and use that as our own top left (if possible)
+        const QPoint syncViewTopLeftCell(syncView_d->leftColumn(), syncView_d->topRow());
+        const auto syncViewTopLeftFxItem = syncView_d->loadedTableItem(syncViewTopLeftCell);
+        const QPointF syncViewTopLeftPos = syncViewTopLeftFxItem->geometry().topLeft();
+
+        if (syncHorizontally) {
+            topLeftCell.rx() = syncViewTopLeftCell.x();
+            topLeftPos.rx() = syncViewTopLeftPos.x();
+
+            if (topLeftCell.x() >= tableSize.width()) {
+                // Top left is outside our own model.
+                topLeftCell.rx() = kEdgeIndexAtEnd;
+                topLeftPos.rx() = kEdgeIndexAtEnd;
+            }
+        }
+
+        if (syncVertically) {
+            topLeftCell.ry() = syncViewTopLeftCell.y();
+            topLeftPos.ry() = syncViewTopLeftPos.y();
+
+            if (topLeftCell.y() >= tableSize.height()) {
+                // Top left is outside our own model.
+                topLeftCell.ry() = kEdgeIndexAtEnd;
+                topLeftPos.ry() = kEdgeIndexAtEnd;
+            }
+        }
+
+        if (syncHorizontally && syncVertically) {
+            // We have a valid top left, so we're done
+            return;
+        }
+    }
+
+    // Since we're not sync-ing both horizontal and vertical, calculate the missing
+    // dimention(s) ourself. If we rebuild all, we find the first visible top-left
+    // item starting from cell(0, 0). Otherwise, guesstimate which row or column that
+    // should be the new top-left given the geometry of the viewport.
+
+    if (!syncHorizontally) {
+        if (rebuildOptions & RebuildOption::All) {
+            // Find the first visible column from the beginning
+            topLeftCell.rx() = nextVisibleEdgeIndex(Qt::RightEdge, 0);
+            if (topLeftCell.x() == kEdgeIndexAtEnd) {
+                // No visible column found
+                return;
+            }
+        } else if (rebuildOptions & RebuildOption::CalculateNewTopLeftColumn) {
+            // Guesstimate new top left
             const int newColumn = int(viewportRect.x() / (averageEdgeSize.width() + cellSpacing.width()));
-            topLeft.rx() = qBound(0, newColumn, tableSize.width() - 1);
-            topLeftPos.rx() = topLeft.x() * (averageEdgeSize.width() + cellSpacing.width());
+            topLeftCell.rx() = qBound(0, newColumn, tableSize.width() - 1);
+            topLeftPos.rx() = topLeftCell.x() * (averageEdgeSize.width() + cellSpacing.width());
         } else {
-            topLeft.rx() = qBound(0, leftColumn(), tableSize.width() - 1);
+            // Keep the current top left, unless it's outside model
+            topLeftCell.rx() = qBound(0, leftColumn(), tableSize.width() - 1);
             topLeftPos.rx() = loadedTableOuterRect.topLeft().x();
         }
-    } else {
-        Q_TABLEVIEW_UNREACHABLE(rebuildOptions);
+    }
+
+    if (!syncVertically) {
+        if (rebuildOptions & RebuildOption::All) {
+            // Find the first visible row from the beginning
+            topLeftCell.ry() = nextVisibleEdgeIndex(Qt::BottomEdge, 0);
+            if (topLeftCell.y() == kEdgeIndexAtEnd) {
+                // No visible row found
+                return;
+            }
+        } else if (rebuildOptions & RebuildOption::CalculateNewTopLeftRow) {
+            // Guesstimate new top left
+            const int newRow = int(viewportRect.y() / (averageEdgeSize.height() + cellSpacing.height()));
+            topLeftCell.ry() = qBound(0, newRow, tableSize.height() - 1);
+            topLeftPos.ry() = topLeftCell.y() * (averageEdgeSize.height() + cellSpacing.height());
+        } else {
+            // Keep the current top left, unless it's outside model
+            topLeftCell.ry() = qBound(0, topRow(), tableSize.height() - 1);
+            topLeftPos.ry() = loadedTableOuterRect.topLeft().y();
+        }
     }
 }
 
 void QQuickTableViewPrivate::beginRebuildTable()
 {
-    calculateTableSize();
+    updateTableSize();
 
     QPoint topLeft;
     QPointF topLeftPos;
     calculateTopLeft(topLeft, topLeftPos);
 
+    if (!loadedItems.isEmpty()) {
+        if (rebuildOptions & RebuildOption::All)
+            releaseLoadedItems(QQmlTableInstanceModel::NotReusable);
+        else if (rebuildOptions & RebuildOption::ViewportOnly)
+            releaseLoadedItems(reusableFlag);
+    }
+
+    if (rebuildOptions & RebuildOption::All) {
+        origin = QPointF(0, 0);
+        endExtent = QSizeF(0, 0);
+        hData.markExtentsDirty();
+        vData.markExtentsDirty();
+        updateBeginningEnd();
+    }
+
     loadedColumns.clear();
     loadedRows.clear();
     loadedTableOuterRect = QRect();
     loadedTableInnerRect = QRect();
-    columnRowPositionsInvalid = false;
     clearEdgeSizeCache();
 
-    if (topLeft.x() == kEdgeIndexAtEnd || topLeft.y() == kEdgeIndexAtEnd) {
-        // No visible columns or rows, so nothing to load
+    if (syncHorizontally) {
+        setLocalViewportX(syncView->contentX());
+        viewportRect.moveLeft(syncView->d_func()->viewportRect.left());
+    }
+
+    if (syncVertically) {
+        setLocalViewportY(syncView->contentY());
+        viewportRect.moveTop(syncView->d_func()->viewportRect.top());
+    }
+
+    if (!model) {
+        qCDebug(lcTableViewDelegateLifecycle()) << "no model found, leaving table empty";
         return;
     }
 
-    loadInitialTopLeftItem(topLeft, topLeftPos);
+    if (model->count() == 0) {
+        qCDebug(lcTableViewDelegateLifecycle()) << "empty model found, leaving table empty";
+        return;
+    }
+
+    if (tableModel && !tableModel->delegate()) {
+        qCDebug(lcTableViewDelegateLifecycle()) << "no delegate found, leaving table empty";
+        return;
+    }
+
+    if (topLeft.x() == kEdgeIndexAtEnd || topLeft.y() == kEdgeIndexAtEnd) {
+        qCDebug(lcTableViewDelegateLifecycle()) << "no visible row or column found, leaving table empty";
+        return;
+    }
+
+    if (topLeft.x() == kEdgeIndexNotSet || topLeft.y() == kEdgeIndexNotSet) {
+        qCDebug(lcTableViewDelegateLifecycle()) << "could not resolve top-left item, leaving table empty";
+        return;
+    }
+
+    // Load top-left item. After loaded, loadItemsInsideRect() will take
+    // care of filling out the rest of the table.
+    loadRequest.begin(topLeft, topLeftPos, QQmlIncubator::AsynchronousIfNested);
+    processLoadRequest();
     loadAndUnloadVisibleEdges();
 }
 
 void QQuickTableViewPrivate::layoutAfterLoadingInitialTable()
 {
-    relayoutTable();
-    updateAverageEdgeSize();
-    updateContentWidth();
-    updateContentHeight();
-}
+    clearEdgeSizeCache();
+    relayoutTableItems();
+    syncLoadedTableRectFromLoadedTable();
 
-void QQuickTableViewPrivate::loadInitialTopLeftItem(const QPoint &cell, const QPointF &pos)
-{
-    Q_TABLEVIEW_ASSERT(loadedItems.isEmpty(), "");
+    if (syncView || rebuildOptions.testFlag(RebuildOption::All)) {
+        // We try to limit how often we update the content size. The main reason is that is has a
+        // tendency to cause flicker in the viewport if it happens while flicking. But another just
+        // as valid reason is that we actually never really know what the size of the full table will
+        // ever be. Even if e.g spacing changes, and we normally would assume that the size of the table
+        // would increase accordingly, the model might also at some point have removed/hidden/resized
+        // rows/columns outside the viewport. This would also affect the size, but since we don't load
+        // rows or columns outside the viewport, this information is ignored. And even if we did, we
+        // might also have been fast-flicked to a new location at some point, and started a new rebuild
+        // there based on a new guesstimated top-left cell. Either way, changing the content size
+        // based on the currently visible row/columns/spacing can be really off. So instead of pretending
+        // that we know what the actual size of the table is, we just keep the first guesstimate.
+        updateAverageEdgeSize();
+        updateContentWidth();
+        updateContentHeight();
+    }
 
-    if (tableModel && !tableModel->delegate())
-        return;
-
-    // Load top-left item. After loaded, loadItemsInsideRect() will take
-    // care of filling out the rest of the table.
-    loadRequest.begin(cell, pos, QQmlIncubator::AsynchronousIfNested);
-    processLoadRequest();
+    updateExtents();
 }
 
 void QQuickTableViewPrivate::unloadEdge(Qt::Edge edge)
@@ -1573,8 +1910,6 @@ void QQuickTableViewPrivate::unloadEdge(Qt::Edge edge)
             unloadItem(QPoint(column, r.key()));
         loadedColumns.remove(column);
         syncLoadedTableRectFromLoadedTable();
-        updateAverageEdgeSize();
-        updateContentWidth();
         break; }
     case Qt::TopEdge:
     case Qt::BottomEdge: {
@@ -1583,8 +1918,6 @@ void QQuickTableViewPrivate::unloadEdge(Qt::Edge edge)
             unloadItem(QPoint(c.key(), row));
         loadedRows.remove(row);
         syncLoadedTableRectFromLoadedTable();
-        updateAverageEdgeSize();
-        updateContentHeight();
         break; }
     }
 
@@ -1697,21 +2030,63 @@ void QQuickTableViewPrivate::scheduleRebuildTable(RebuildOptions options) {
         return;
     }
 
-    rebuildScheduled = true;
     scheduledRebuildOptions |= options;
     q_func()->polish();
 }
 
-void QQuickTableViewPrivate::invalidateColumnRowPositions() {
-    columnRowPositionsInvalid = true;
-    q_func()->polish();
+QQuickTableView *QQuickTableViewPrivate::rootSyncView() const
+{
+    QQuickTableView *root = const_cast<QQuickTableView *>(q_func());
+    while (QQuickTableView *view = root->d_func()->syncView)
+        root = view;
+    return root;
 }
 
 void QQuickTableViewPrivate::updatePolish()
 {
+    // We always start updating from the top of the syncView tree, since
+    // the layout of a syncView child will depend on the layout of the syncView.
+    //  E.g when a new column is flicked in, the syncView should load and layout
+    // the column first, before any syncChildren gets a chance to do the same.
+    Q_TABLEVIEW_ASSERT(!polishing, "recursive updatePolish() calls are not allowed!");
+    rootSyncView()->d_func()->updateTableRecursive();
+}
+
+bool QQuickTableViewPrivate::updateTableRecursive()
+{
+    if (polishing) {
+        // We're already updating the Table in this view, so
+        // we cannot continue. Signal this back by returning false.
+        // The caller can then choose to call "polish()" instead, to
+        // do the update later.
+        return false;
+    }
+
+    const bool updateComplete = updateTable();
+    if (!updateComplete)
+        return false;
+
+    for (auto syncChild : qAsConst(syncChildren)) {
+        auto syncChild_d = syncChild->d_func();
+        syncChild_d->scheduledRebuildOptions |= rebuildOptions;
+
+        const bool descendantUpdateComplete = syncChild_d->updateTableRecursive();
+        if (!descendantUpdateComplete)
+            return false;
+    }
+
+    rebuildOptions = RebuildOption::None;
+
+    return true;
+}
+
+bool QQuickTableViewPrivate::updateTable()
+{
     // Whenever something changes, e.g viewport moves, spacing is set to a
     // new value, model changes etc, this function will end up being called. Here
     // we check what needs to be done, and load/unload cells accordingly.
+    // If we cannot complete the update (because we need to wait for an item
+    // to load async), we return false.
 
     Q_TABLEVIEW_ASSERT(!polishing, "recursive updatePolish() calls are not allowed!");
     QBoolBlocker polishGuard(polishing, true);
@@ -1721,38 +2096,42 @@ void QQuickTableViewPrivate::updatePolish()
         // as an atomic operation, which means that we don't continue doing anything else until all
         // items have been received and laid out. Note that updatePolish is then called once more
         // after the loadRequest has completed to handle anything that might have occurred in-between.
-        return;
+        return false;
     }
 
     if (rebuildState != RebuildState::Done) {
         processRebuildTable();
-        return;
+        return rebuildState == RebuildState::Done;
     }
 
     syncWithPendingChanges();
 
     if (rebuildState == RebuildState::Begin) {
         processRebuildTable();
-        return;
+        return rebuildState == RebuildState::Done;
     }
 
     if (loadedItems.isEmpty())
-        return;
-
-    if (columnRowPositionsInvalid) {
-        relayoutTable();
-        updateAverageEdgeSize();
-        updateContentWidth();
-        updateContentHeight();
-    }
+        return !loadRequest.isActive();
 
     loadAndUnloadVisibleEdges();
+
+    return !loadRequest.isActive();
 }
 
 void QQuickTableViewPrivate::fixup(QQuickFlickablePrivate::AxisData &data, qreal minExtent, qreal maxExtent)
 {
-    if (rebuildScheduled || rebuildState != RebuildState::Done)
+    if (inUpdateContentSize) {
+        // We update the content size dynamically as we load and unload edges.
+        // Unfortunately, this also triggers a call to this function. The base
+        // implementation will do things like start a momentum animation or move
+        // the content view somewhere else, which causes glitches. This can
+        // especially happen if flicking on one of the syncView children, which triggers
+        // an update to our content size. In that case, the base implementation don't know
+        // that the view is being indirectly dragged, and will therefore do strange things as
+        // it tries to 'fixup' the geometry. So we use a guard to prevent this from happening.
         return;
+    }
 
     QQuickFlickablePrivate::fixup(data, minExtent, maxExtent);
 }
@@ -1836,37 +2215,46 @@ void QQuickTableViewPrivate::syncWithPendingChanges()
     // such assignments into effect until we're in a state that allows it.
     Q_Q(QQuickTableView);
     viewportRect = QRectF(q->contentX(), q->contentY(), q->width(), q->height());
-    syncRebuildOptions();
+
     syncModel();
     syncDelegate();
+    syncSyncView();
+
+    syncRebuildOptions();
 }
 
 void QQuickTableViewPrivate::syncRebuildOptions()
 {
-    if (!rebuildScheduled)
+    if (!scheduledRebuildOptions)
         return;
 
     rebuildState = RebuildState::Begin;
     rebuildOptions = scheduledRebuildOptions;
     scheduledRebuildOptions = RebuildOption::None;
-    rebuildScheduled = false;
 
-    if (loadedItems.isEmpty()) {
-        // If we have no items from before, we cannot just rebuild the viewport, but need
-        // to rebuild everything, since we have no top-left loaded item to start from.
+    if (loadedItems.isEmpty())
         rebuildOptions.setFlag(RebuildOption::All);
+
+    // Some options are exclusive:
+    if (rebuildOptions.testFlag(RebuildOption::All)) {
+        rebuildOptions.setFlag(RebuildOption::ViewportOnly, false);
+        rebuildOptions.setFlag(RebuildOption::LayoutOnly, false);
+    } else if (rebuildOptions.testFlag(RebuildOption::ViewportOnly)) {
+        rebuildOptions.setFlag(RebuildOption::LayoutOnly, false);
     }
 }
 
 void QQuickTableViewPrivate::syncDelegate()
 {
-    if (tableModel && assignedDelegate == tableModel->delegate())
+    if (!tableModel) {
+        // Only the tableModel uses the delegate assigned to a
+        // TableView. DelegateModel has it's own delegate, and
+        // ObjectModel etc. doesn't use one.
         return;
+    }
 
-    if (!tableModel)
-        createWrapperModel();
-
-    tableModel->setDelegate(assignedDelegate);
+    if (assignedDelegate != tableModel->delegate())
+        tableModel->setDelegate(assignedDelegate);
 }
 
 void QQuickTableViewPrivate::syncModel()
@@ -1874,8 +2262,10 @@ void QQuickTableViewPrivate::syncModel()
     if (modelVariant == assignedModel)
         return;
 
-    if (model)
+    if (model) {
         disconnectFromModel();
+        releaseLoadedItems(QQmlTableInstanceModel::NotReusable);
+    }
 
     modelVariant = assignedModel;
     QVariant effectiveModelVariant = modelVariant;
@@ -1899,8 +2289,63 @@ void QQuickTableViewPrivate::syncModel()
     connectToModel();
 }
 
+void QQuickTableViewPrivate::syncSyncView()
+{
+    Q_Q(QQuickTableView);
+
+    if (assignedSyncView != syncView) {
+        if (syncView)
+            syncView->d_func()->syncChildren.removeOne(q);
+
+        if (assignedSyncView) {
+            QQuickTableView *view = assignedSyncView;
+
+            while (view) {
+                if (view == q) {
+                    if (!layoutWarningIssued) {
+                        layoutWarningIssued = true;
+                        qmlWarning(q) << "TableView: recursive syncView connection detected!";
+                    }
+                    syncView = nullptr;
+                    return;
+                }
+                view = view->d_func()->syncView;
+            }
+
+            assignedSyncView->d_func()->syncChildren.append(q);
+            scheduledRebuildOptions |= RebuildOption::ViewportOnly;
+        }
+
+        syncView = assignedSyncView;
+    }
+
+    syncHorizontally = syncView && assignedSyncDirection & Qt::Horizontal;
+    syncVertically = syncView && assignedSyncDirection & Qt::Vertical;
+
+    if (syncHorizontally)
+        q->setColumnSpacing(syncView->columnSpacing());
+    if (syncVertically)
+        q->setRowSpacing(syncView->rowSpacing());
+
+    if (syncView && loadedItems.isEmpty() && !tableSize.isEmpty()) {
+        // When we have a syncView, we can sometimes temporarily end up with no loaded items.
+        // This can happen if the syncView has a model with more rows or columns than us, in
+        // which case the viewport can end up in a place where we have no rows or columns to
+        // show. In that case, check now if the viewport has been flicked back again, and
+        // that we can rebuild the table with a visible top-left cell.
+        const auto syncView_d = syncView->d_func();
+        if (!syncView_d->loadedItems.isEmpty()) {
+            if (syncHorizontally && syncView_d->leftColumn() <= tableSize.width() - 1)
+                scheduledRebuildOptions |= QQuickTableViewPrivate::RebuildOption::ViewportOnly;
+            else if (syncVertically && syncView_d->topRow() <= tableSize.height() - 1)
+                scheduledRebuildOptions |= QQuickTableViewPrivate::RebuildOption::ViewportOnly;
+        }
+    }
+}
+
 void QQuickTableViewPrivate::connectToModel()
 {
+    Q_Q(QQuickTableView);
     Q_TABLEVIEW_ASSERT(model, "");
 
     QObjectPrivate::connect(model, &QQmlInstanceModel::createdItem, this, &QQuickTableViewPrivate::itemCreatedCallback);
@@ -1910,6 +2355,8 @@ void QQuickTableViewPrivate::connectToModel()
         const auto tm = tableModel.data();
         QObjectPrivate::connect(tm, &QQmlTableInstanceModel::itemPooled, this, &QQuickTableViewPrivate::itemPooledCallback);
         QObjectPrivate::connect(tm, &QQmlTableInstanceModel::itemReused, this, &QQuickTableViewPrivate::itemReusedCallback);
+        // Connect atYEndChanged to a function that fetches data if more is available
+        QObjectPrivate::connect(q, &QQuickTableView::atYEndChanged, this, &QQuickTableViewPrivate::fetchMoreData);
     }
 
     if (auto const aim = model->abstractItemModel()) {
@@ -1933,6 +2380,7 @@ void QQuickTableViewPrivate::connectToModel()
 
 void QQuickTableViewPrivate::disconnectFromModel()
 {
+    Q_Q(QQuickTableView);
     Q_TABLEVIEW_ASSERT(model, "");
 
     QObjectPrivate::disconnect(model, &QQmlInstanceModel::createdItem, this, &QQuickTableViewPrivate::itemCreatedCallback);
@@ -1942,6 +2390,7 @@ void QQuickTableViewPrivate::disconnectFromModel()
         const auto tm = tableModel.data();
         QObjectPrivate::disconnect(tm, &QQmlTableInstanceModel::itemPooled, this, &QQuickTableViewPrivate::itemPooledCallback);
         QObjectPrivate::disconnect(tm, &QQmlTableInstanceModel::itemReused, this, &QQuickTableViewPrivate::itemReusedCallback);
+        QObjectPrivate::disconnect(q, &QQuickTableView::atYEndChanged, this, &QQuickTableViewPrivate::fetchMoreData);
     }
 
     if (auto const aim = model->abstractItemModel()) {
@@ -2023,9 +2472,94 @@ void QQuickTableViewPrivate::layoutChangedCallback(const QList<QPersistentModelI
     scheduleRebuildTable(RebuildOption::ViewportOnly);
 }
 
+void QQuickTableViewPrivate::fetchMoreData()
+{
+    if (tableModel && tableModel->canFetchMore()) {
+        tableModel->fetchMore();
+        scheduleRebuildTable(RebuildOption::ViewportOnly);
+    }
+}
+
 void QQuickTableViewPrivate::modelResetCallback()
 {
     scheduleRebuildTable(RebuildOption::All);
+}
+
+void QQuickTableViewPrivate::scheduleRebuildIfFastFlick()
+{
+    Q_Q(QQuickTableView);
+    // If the viewport has moved more than one page vertically or horizontally, we switch
+    // strategy from refilling edges around the current table to instead rebuild the table
+    // from scratch inside the new viewport. This will greatly improve performance when flicking
+    // a long distance in one go, which can easily happen when dragging on scrollbars.
+
+    // Check the viewport moved more than one page vertically
+    if (!viewportRect.intersects(QRectF(viewportRect.x(), q->contentY(), 1, q->height()))) {
+        scheduledRebuildOptions |= RebuildOption::CalculateNewTopLeftRow;
+        scheduledRebuildOptions |= RebuildOption::ViewportOnly;
+    }
+
+    // Check the viewport moved more than one page horizontally
+    if (!viewportRect.intersects(QRectF(q->contentX(), viewportRect.y(), q->width(), 1))) {
+        scheduledRebuildOptions |= RebuildOption::CalculateNewTopLeftColumn;
+        scheduledRebuildOptions |= RebuildOption::ViewportOnly;
+    }
+}
+
+void QQuickTableViewPrivate::setLocalViewportX(qreal contentX)
+{
+    // Set the new viewport position if changed, but don't trigger any
+    // rebuilds or updates. We use this function internally to distinguish
+    // external flicking from internal sync-ing of the content view.
+    Q_Q(QQuickTableView);
+    QBoolBlocker blocker(inSetLocalViewportPos, true);
+
+    if (qFuzzyCompare(contentX, q->contentX()))
+        return;
+
+    q->setContentX(contentX);
+}
+
+void QQuickTableViewPrivate::setLocalViewportY(qreal contentY)
+{
+    // Set the new viewport position if changed, but don't trigger any
+    // rebuilds or updates. We use this function internally to distinguish
+    // external flicking from internal sync-ing of the content view.
+    Q_Q(QQuickTableView);
+    QBoolBlocker blocker(inSetLocalViewportPos, true);
+
+    if (qFuzzyCompare(contentY, q->contentY()))
+        return;
+
+    q->setContentY(contentY);
+}
+
+void QQuickTableViewPrivate::syncViewportPosRecursive()
+{
+    Q_Q(QQuickTableView);
+    QBoolBlocker recursionGuard(inSyncViewportPosRecursive, true);
+
+    if (syncView) {
+        auto syncView_d = syncView->d_func();
+        if (!syncView_d->inSyncViewportPosRecursive) {
+            if (syncHorizontally)
+                syncView_d->setLocalViewportX(q->contentX());
+            if (syncVertically)
+                syncView_d->setLocalViewportY(q->contentY());
+            syncView_d->syncViewportPosRecursive();
+        }
+    }
+
+    for (auto syncChild : qAsConst(syncChildren)) {
+        auto syncChild_d = syncChild->d_func();
+        if (!syncChild_d->inSyncViewportPosRecursive) {
+            if (syncChild_d->syncHorizontally)
+                syncChild_d->setLocalViewportX(q->contentX());
+            if (syncChild_d->syncVertically)
+                syncChild_d->setLocalViewportY(q->contentY());
+            syncChild_d->syncViewportPosRecursive();
+        }
+    }
 }
 
 QQuickTableView::QQuickTableView(QQuickItem *parent)
@@ -2042,6 +2576,26 @@ QQuickTableView::QQuickTableView(QQuickTableViewPrivate &dd, QQuickItem *parent)
     : QQuickFlickable(dd, parent)
 {
     setFlag(QQuickItem::ItemIsFocusScope);
+}
+
+qreal QQuickTableView::minXExtent() const
+{
+    return QQuickFlickable::minXExtent() - d_func()->origin.x();
+}
+
+qreal QQuickTableView::maxXExtent() const
+{
+    return QQuickFlickable::maxXExtent() - d_func()->endExtent.width();
+}
+
+qreal QQuickTableView::minYExtent() const
+{
+    return QQuickFlickable::minYExtent() - d_func()->origin.y();
+}
+
+qreal QQuickTableView::maxYExtent() const
+{
+    return QQuickFlickable::maxYExtent() - d_func()->endExtent.height();
 }
 
 int QQuickTableView::rows() const
@@ -2068,7 +2622,7 @@ void QQuickTableView::setRowSpacing(qreal spacing)
         return;
 
     d->cellSpacing.setHeight(spacing);
-    d->invalidateColumnRowPositions();
+    d->scheduleRebuildTable(QQuickTableViewPrivate::RebuildOption::LayoutOnly);
     emit rowSpacingChanged();
 }
 
@@ -2086,7 +2640,7 @@ void QQuickTableView::setColumnSpacing(qreal spacing)
         return;
 
     d->cellSpacing.setWidth(spacing);
-    d->invalidateColumnRowPositions();
+    d->scheduleRebuildTable(QQuickTableViewPrivate::RebuildOption::LayoutOnly);
     emit columnSpacingChanged();
 }
 
@@ -2095,7 +2649,7 @@ QJSValue QQuickTableView::rowHeightProvider() const
     return d_func()->rowHeightProvider;
 }
 
-void QQuickTableView::setRowHeightProvider(QJSValue provider)
+void QQuickTableView::setRowHeightProvider(const QJSValue &provider)
 {
     Q_D(QQuickTableView);
     if (provider.strictlyEquals(d->rowHeightProvider))
@@ -2111,7 +2665,7 @@ QJSValue QQuickTableView::columnWidthProvider() const
     return d_func()->columnWidthProvider;
 }
 
-void QQuickTableView::setColumnWidthProvider(QJSValue provider)
+void QQuickTableView::setColumnWidthProvider(const QJSValue &provider)
 {
     Q_D(QQuickTableView);
     if (provider.strictlyEquals(d->columnWidthProvider))
@@ -2191,6 +2745,76 @@ void QQuickTableView::setContentHeight(qreal height)
     QQuickFlickable::setContentHeight(height);
 }
 
+/*!
+    \qmlproperty TableView QtQuick::TableView::syncView
+
+    If this property of a TableView is set to another TableView, both the
+    tables will synchronize with regard to flicking, column widths/row heights,
+    and spacing according to \l syncDirection.
+
+    If \l syncDirection contains \l Qt.Horizontal, current tableView's column
+    widths, column spacing, and horizontal flicking movement synchronizes with
+    syncView's.
+
+    If \l syncDirection contains \l Qt.Vertical, current tableView's row
+    heights, row spacing, and vertical flicking movement synchronizes with
+    syncView's.
+
+    \sa syncDirection
+*/
+QQuickTableView *QQuickTableView::syncView() const
+{
+   return d_func()->assignedSyncView;
+}
+
+void QQuickTableView::setSyncView(QQuickTableView *view)
+{
+    Q_D(QQuickTableView);
+    if (d->assignedSyncView == view)
+        return;
+
+    d->assignedSyncView = view;
+    d->scheduleRebuildTable(QQuickTableViewPrivate::RebuildOption::ViewportOnly);
+
+    emit syncViewChanged();
+}
+
+/*!
+    \qmlproperty Qt::Orientations QtQuick::TableView::syncDirection
+
+    If the \l syncView is set on a TableView, this property controls
+    synchronization of flicking direction(s) for both tables. The default is \c
+    {Qt.Horizontal | Qt.Vertical}, which means that if you flick either table
+    in either direction, the other table is flicked the same amount in the
+    same direction.
+
+    This property and \l syncView can be used to make two tableViews
+    synchronize with each other smoothly in flicking regardless of the different
+    overshoot/undershoot, velocity, acceleration/deceleration or rebound
+    animation, and so on.
+
+    A typical use case is to make several headers flick along with the table.
+
+    \sa syncView, headerView
+*/
+Qt::Orientations QQuickTableView::syncDirection() const
+{
+   return d_func()->assignedSyncDirection;
+}
+
+void QQuickTableView::setSyncDirection(Qt::Orientations direction)
+{
+    Q_D(QQuickTableView);
+    if (d->assignedSyncDirection == direction)
+        return;
+
+    d->assignedSyncDirection = direction;
+    if (d->assignedSyncView)
+        d->scheduleRebuildTable(QQuickTableViewPrivate::RebuildOption::ViewportOnly);
+
+    emit syncDirectionChanged();
+}
+
 void QQuickTableView::forceLayout()
 {
     d_func()->forceLayout();
@@ -2218,45 +2842,42 @@ void QQuickTableView::geometryChanged(const QRectF &newGeometry, const QRectF &o
 void QQuickTableView::viewportMoved(Qt::Orientations orientation)
 {
     Q_D(QQuickTableView);
+
+    // If the new viewport position was set from the setLocalViewportXY()
+    // functions, we just update the position silently and return. Otherwise, if
+    // the viewport was flicked by the user, or some other control, we
+    // recursively sync all the views in the hierarchy to the same position.
     QQuickFlickable::viewportMoved(orientation);
-
-    QQuickTableViewPrivate::RebuildOptions options = QQuickTableViewPrivate::RebuildOption::None;
-
-    // Check the viewport moved more than one page vertically
-    if (!d->viewportRect.intersects(QRectF(d->viewportRect.x(), contentY(), 1, height())))
-        options |= QQuickTableViewPrivate::RebuildOption::CalculateNewTopLeftRow;
-    // Check the viewport moved more than one page horizontally
-    if (!d->viewportRect.intersects(QRectF(contentX(), d->viewportRect.y(), width(), 1)))
-        options |= QQuickTableViewPrivate::RebuildOption::CalculateNewTopLeftColumn;
-
-    if (options) {
-        // When the viewport has moved more than one page vertically or horizontally, we switch
-        // strategy from refilling edges around the current table to instead rebuild the table
-        // from scratch inside the new viewport. This will greatly improve performance when flicking
-        // a long distance in one go, which can easily happen when dragging on scrollbars.
-        options |= QQuickTableViewPrivate::RebuildOption::ViewportOnly;
-        d->scheduleRebuildTable(options);
-    }
-
-    if (d->rebuildScheduled) {
-        // No reason to do anything, since we're about to rebuild the whole table anyway.
-        // Besides, calling updatePolish, which will start the rebuild, can easily cause
-        // binding loops to happen since we usually end up modifying the geometry of the
-        // viewport (contentItem) as well.
+    if (d->inSetLocalViewportPos)
         return;
-    }
 
-    // Calling polish() will schedule a polish event. But while the user is flicking, several
-    // mouse events will be handled before we get an updatePolish() call. And the updatePolish()
-    // call will only see the last mouse position. This results in a stuttering flick experience
-    // (especially on windows). We improve on this by calling updatePolish() directly. But this
-    // has the pitfall that we open up for recursive callbacks. E.g while inside updatePolish(), we
-    // load/unload items, and emit signals. The application can listen to those signals and set a
-    // new contentX/Y on the flickable. So we need to guard for this, to avoid unexpected behavior.
-    if (d->polishing)
-        polish();
-    else
-        d->updatePolish();
+    // Move all views in the syncView hierarchy to the same contentX/Y.
+    // We need to start from this view (and not the root syncView) to
+    // ensure that we respect all the individual syncDirection flags
+    // between the individual views in the hierarchy.
+    d->syncViewportPosRecursive();
+
+    auto rootView = d->rootSyncView();
+    auto rootView_d = rootView->d_func();
+
+    rootView_d->scheduleRebuildIfFastFlick();
+
+    if (!rootView_d->polishScheduled) {
+        if (rootView_d->scheduledRebuildOptions) {
+            // When we need to rebuild, collecting several viewport
+            // moves and do a single polish gives a quicker UI.
+            rootView->polish();
+        } else {
+            // Updating the table right away when flicking
+            // slowly gives a smoother experience.
+            const bool updated = rootView->d_func()->updateTableRecursive();
+            if (!updated) {
+                // One, or more, of the views are already in an
+                // update, so we need to wait a cycle.
+                rootView->polish();
+            }
+        }
+    }
 }
 
 void QQuickTableViewPrivate::_q_componentFinalized()
@@ -2292,6 +2913,71 @@ void QQuickTableView::componentComplete()
     d_func()->registerCallbackWhenBindingsAreEvaluated();
 }
 
+class QObjectPrivate;
+class QQuickTableSectionSizeProviderPrivate : public QObjectPrivate {
+public:
+    QQuickTableSectionSizeProviderPrivate();
+    ~QQuickTableSectionSizeProviderPrivate();
+    QHash<int, qreal> hash;
+};
+
+QQuickTableSectionSizeProvider::QQuickTableSectionSizeProvider(QObject *parent)
+    : QObject (*(new QQuickTableSectionSizeProviderPrivate), parent)
+{
+}
+
+void QQuickTableSectionSizeProvider::setSize(int section, qreal size)
+{
+    Q_D(QQuickTableSectionSizeProvider);
+    if (section < 0 || size < 0) {
+        qmlWarning(this) << "setSize: section or size less than zero";
+        return;
+    }
+    if (qFuzzyCompare(QQuickTableSectionSizeProvider::size(section), size))
+        return;
+    d->hash.insert(section, size);
+    emit sizeChanged();
+}
+
+// return -1.0 if no valid explicit size retrieved
+qreal QQuickTableSectionSizeProvider::size(int section)
+{
+    Q_D(QQuickTableSectionSizeProvider);
+    auto it = d->hash.find(section);
+    if (it != d->hash.end())
+        return *it;
+    return -1.0;
+}
+
+// return true if section is valid
+bool QQuickTableSectionSizeProvider::resetSize(int section)
+{
+    Q_D(QQuickTableSectionSizeProvider);
+    if (d->hash.empty())
+        return false;
+
+    auto ret = d->hash.remove(section);
+    if (ret)
+        emit sizeChanged();
+    return ret;
+}
+
+void QQuickTableSectionSizeProvider::resetAll()
+{
+    Q_D(QQuickTableSectionSizeProvider);
+    d->hash.clear();
+    emit sizeChanged();
+}
+
+QQuickTableSectionSizeProviderPrivate::QQuickTableSectionSizeProviderPrivate()
+    : QObjectPrivate()
+{
+}
+
+QQuickTableSectionSizeProviderPrivate::~QQuickTableSectionSizeProviderPrivate()
+{
+
+}
 #include "moc_qquicktableview_p.cpp"
 
 QT_END_NAMESPACE

@@ -72,12 +72,10 @@ public:
     QProcessEnvironment();
     QProcessEnvironment(const QProcessEnvironment &other);
     ~QProcessEnvironment();
-#ifdef Q_COMPILER_RVALUE_REFS
-    QProcessEnvironment &operator=(QProcessEnvironment && other) Q_DECL_NOTHROW { swap(other); return *this; }
-#endif
+    QProcessEnvironment &operator=(QProcessEnvironment && other) noexcept { swap(other); return *this; }
     QProcessEnvironment &operator=(const QProcessEnvironment &other);
 
-    void swap(QProcessEnvironment &other) Q_DECL_NOTHROW { qSwap(d, other.d); }
+    void swap(QProcessEnvironment &other) noexcept { qSwap(d, other.d); }
 
     bool operator==(const QProcessEnvironment &other) const;
     inline bool operator!=(const QProcessEnvironment &other) const
@@ -280,7 +278,8 @@ Q_SIGNALS:
     void finished(int exitCode); // ### Qt 6: merge the two signals with a default value
 #endif
     void finished(int exitCode, QProcess::ExitStatus exitStatus);
-#if QT_DEPRECATED_SINCE(5,6)
+#if QT_DEPRECATED_SINCE(5, 6)
+    QT_DEPRECATED_X("Use QProcess::errorOccurred(QProcess::ProcessError) instead")
     void error(QProcess::ProcessError error);
 #endif
     void errorOccurred(QProcess::ProcessError error);

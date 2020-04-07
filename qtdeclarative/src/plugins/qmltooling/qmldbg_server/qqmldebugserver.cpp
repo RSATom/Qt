@@ -355,14 +355,12 @@ void QQmlDebugServerImpl::parseArguments()
             if (argsNext == argsItEnd)
                 break;
             if (ok) {
-                const QString nextArgument = argsNext->toString();
-
-                // Don't use QStringLiteral here. QRegExp has a global cache and will save an implicitly
-                // shared copy of the passed string. That copy isn't properly detached when the library
-                // is unloaded if the original string lives in the library's .rodata
-                if (nextArgument.contains(QRegExp(QLatin1String("^\\s*\\d+\\s*$")))) {
-                    portTo = nextArgument.toInt(&ok);
+                portTo = argsNext->toString().toInt(&ok);
+                if (ok) {
                     ++argsIt;
+                } else {
+                    portTo = portFrom;
+                    ok = true;
                 }
             }
         } else if (strArgument.startsWith(QLatin1String("host:"))) {
@@ -508,7 +506,7 @@ void QQmlDebugServerImpl::receiveMessage()
             in >> m_clientPlugins;
 
             for (DebugServiceConstIt iter = m_plugins.constBegin(), cend = m_plugins.constEnd(); iter != cend; ++iter) {
-                const QString pluginName = iter.key();
+                const QString &pluginName = iter.key();
                 QQmlDebugService::State newState = QQmlDebugService::Unavailable;
                 if (m_clientPlugins.contains(pluginName))
                     newState = QQmlDebugService::Enabled;

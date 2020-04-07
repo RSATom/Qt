@@ -83,7 +83,7 @@ static void printItems(const QList<QQuickItem *> &items)
     std::cout << "     QQuickItems: " << items.count() << " (total of QObjects: " << qt_qobjects->count() << ")" << std::endl;
 
     if (qt_verbose) {
-        foreach (QObject *object, *qt_qobjects)
+        for (QObject *object : qAsConst(*qt_qobjects))
             qInfo() << "\t" << object;
     }
 }
@@ -101,7 +101,7 @@ void tst_ObjectCount::controls()
     QVERIFY2(object.data(), qPrintable(component.errorString()));
 
     QList<QQuickItem *> items;
-    foreach (QObject *object, *qt_qobjects()) {
+    for (QObject *object : qAsConst(*qt_qobjects)) {
         QQuickItem *item = qobject_cast<QQuickItem *>(object);
         if (item)
             items += item;

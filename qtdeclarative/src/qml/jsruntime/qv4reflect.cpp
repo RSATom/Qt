@@ -98,7 +98,8 @@ ReturnedValue Reflect::method_apply(const FunctionObject *f, const Value *, cons
     if (scope.hasException())
         return Encode::undefined();
 
-    return static_cast<const FunctionObject &>(argv[0]).call(&argv[1], arguments.argv, arguments.argc);
+    return checkedResult(scope.engine, static_cast<const FunctionObject &>(argv[0]).call(
+                &argv[1], arguments.argv, arguments.argc));
 }
 
 ReturnedValue Reflect::method_construct(const FunctionObject *f, const Value *, const Value *argv, int argc)
@@ -148,7 +149,7 @@ ReturnedValue Reflect::method_deleteProperty(const FunctionObject *f, const Valu
     if (!argc || !argv[0].isObject())
         return e->throwTypeError();
 
-    bool result =  Runtime::method_deleteProperty(e, argv[0], argc > 1 ? argv[1] : Value::undefinedValue());
+    bool result =  Runtime::DeleteProperty_NoThrow::call(e, argv[0], argc > 1 ? argv[1] : Value::undefinedValue());
     return Encode(result);
 }
 

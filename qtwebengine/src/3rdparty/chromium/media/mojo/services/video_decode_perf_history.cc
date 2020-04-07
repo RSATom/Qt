@@ -4,6 +4,7 @@
 
 #include "media/mojo/services/video_decode_perf_history.h"
 
+#include "base/bind.h"
 #include "base/callback.h"
 #include "base/format_macros.h"
 #include "base/logging.h"
@@ -11,9 +12,11 @@
 #include "base/metrics/field_trial_params.h"
 #include "base/strings/stringprintf.h"
 #include "media/base/bind_to_current_loop.h"
+#include "media/base/key_systems.h"
 #include "media/base/media_switches.h"
 #include "media/base/video_codecs.h"
 #include "media/capabilities/learning_helper.h"
+#include "media/mojo/interfaces/media_types.mojom.h"
 #include "mojo/public/cpp/bindings/strong_binding.h"
 #include "services/metrics/public/cpp/ukm_builders.h"
 #include "services/metrics/public/cpp/ukm_recorder.h"
@@ -22,7 +25,7 @@ namespace media {
 
 namespace {
 
-const double kMaxSmoothDroppedFramesPercentParamDefault = .10;
+const double kMaxSmoothDroppedFramesPercentParamDefault = .05;
 
 }  // namespace
 
@@ -37,17 +40,18 @@ double VideoDecodePerfHistory::GetMaxSmoothDroppedFramesPercent() {
 }
 
 VideoDecodePerfHistory::VideoDecodePerfHistory(
-    std::unique_ptr<VideoDecodeStatsDB> db)
+    std::unique_ptr<VideoDecodeStatsDB> db,
+    learning::FeatureProviderFactoryCB feature_factory_cb)
     : db_(std::move(db)),
       db_init_status_(UNINITIALIZED),
-      weak_ptr_factory_(this) {
+      feature_factory_cb_(std::move(feature_factory_cb)) {
   DVLOG(2) << __func__;
   DCHECK(db_);
 
   // If the local learning experiment is enabled, then also create
   // |learning_helper_| to send data to it.
   if (base::FeatureList::IsEnabled(kMediaLearningExperiment))
-    learning_helper_ = std::make_unique<LearningHelper>();
+    learning_helper_ = std::make_unique<LearningHelper>(feature_factory_cb_);
 }
 
 VideoDecodePerfHistory::~VideoDecodePerfHistory() {
@@ -120,7 +124,8 @@ void VideoDecodePerfHistory::GetPerfInfo(mojom::PredictionFeaturesPtr features,
 
   VideoDecodeStatsDB::VideoDescKey video_key =
       VideoDecodeStatsDB::VideoDescKey::MakeBucketedKey(
-          features->profile, features->video_size, features->frames_per_sec);
+          features->profile, features->video_size, features->frames_per_sec,
+          features->key_system, features->use_hw_secure_codecs);
 
   db_->GetDecodeStats(
       video_key, base::BindOnce(&VideoDecodePerfHistory::OnGotStatsForRequest,
@@ -203,19 +208,21 @@ VideoDecodePerfHistory::SaveCallback VideoDecodePerfHistory::GetSaveCallback() {
 }
 
 void VideoDecodePerfHistory::SavePerfRecord(ukm::SourceId source_id,
+                                            learning::FeatureValue origin,
                                             bool is_top_frame,
                                             mojom::PredictionFeatures features,
                                             mojom::PredictionTargets targets,
                                             uint64_t player_id,
                                             base::OnceClosure save_done_cb) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  DVLOG(3) << __func__
-           << base::StringPrintf(
-                  " profile:%s size:%s fps:%d decoded:%d dropped:%d",
-                  GetProfileName(features.profile).c_str(),
-                  features.video_size.ToString().c_str(),
-                  features.frames_per_sec, targets.frames_decoded,
-                  targets.frames_dropped);
+  DVLOG(3)
+      << __func__
+      << base::StringPrintf(
+             " profile:%s size:%s fps:%d decoded:%d dropped:%d efficient:%d",
+             GetProfileName(features.profile).c_str(),
+             features.video_size.ToString().c_str(), features.frames_per_sec,
+             targets.frames_decoded, targets.frames_dropped,
+             targets.frames_power_efficient);
 
   if (db_init_status_ == FAILED) {
     DVLOG(3) << __func__ << " Can't save stats. No DB!";
@@ -226,21 +233,22 @@ void VideoDecodePerfHistory::SavePerfRecord(ukm::SourceId source_id,
   if (db_init_status_ != COMPLETE) {
     init_deferred_api_calls_.push_back(base::BindOnce(
         &VideoDecodePerfHistory::SavePerfRecord, weak_ptr_factory_.GetWeakPtr(),
-        source_id, is_top_frame, std::move(features), std::move(targets),
-        player_id, std::move(save_done_cb)));
+        source_id, origin, is_top_frame, std::move(features),
+        std::move(targets), player_id, std::move(save_done_cb)));
     InitDatabase();
     return;
   }
 
   VideoDecodeStatsDB::VideoDescKey video_key =
       VideoDecodeStatsDB::VideoDescKey::MakeBucketedKey(
-          features.profile, features.video_size, features.frames_per_sec);
+          features.profile, features.video_size, features.frames_per_sec,
+          features.key_system, features.use_hw_secure_codecs);
   VideoDecodeStatsDB::DecodeStatsEntry new_stats(
       targets.frames_decoded, targets.frames_dropped,
       targets.frames_power_efficient);
 
   if (learning_helper_)
-    learning_helper_->AppendStats(video_key, new_stats);
+    learning_helper_->AppendStats(video_key, origin, new_stats);
 
   // Get past perf info and report UKM metrics before saving this record.
   db_->GetDecodeStats(
@@ -318,6 +326,11 @@ void VideoDecodePerfHistory::ReportUkmMetrics(
   builder.SetVideo_NaturalHeight(video_key.size.height());
   builder.SetVideo_NaturalWidth(video_key.size.width());
 
+  if (!video_key.key_system.empty()) {
+    builder.SetVideo_EME_KeySystem(GetKeySystemIntForUKM(video_key.key_system));
+    builder.SetVideo_EME_UseHwSecureCodecs(video_key.use_hw_secure_codecs);
+  }
+
   bool past_is_smooth = false;
   bool past_is_efficient = false;
   AssessStats(past_stats, &past_is_smooth, &past_is_efficient);
@@ -353,7 +366,7 @@ void VideoDecodePerfHistory::ClearHistory(base::OnceClosure clear_done_cb) {
   // If we have a learning helper, then replace it.  This will erase any data
   // that it currently has.
   if (learning_helper_)
-    learning_helper_ = std::make_unique<LearningHelper>();
+    learning_helper_ = std::make_unique<LearningHelper>(feature_factory_cb_);
 
   if (db_init_status_ == FAILED) {
     DVLOG(3) << __func__ << " Can't clear history - No DB!";

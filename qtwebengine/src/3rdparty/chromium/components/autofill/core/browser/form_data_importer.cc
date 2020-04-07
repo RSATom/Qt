@@ -14,22 +14,24 @@
 #include <set>
 #include <utility>
 
+#include "base/bind.h"
 #include "base/strings/string16.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
 #include "components/autofill/core/browser/autofill_client.h"
-#include "components/autofill/core/browser/autofill_country.h"
 #include "components/autofill/core/browser/autofill_metrics.h"
-#include "components/autofill/core/browser/autofill_profile.h"
 #include "components/autofill/core/browser/autofill_type.h"
-#include "components/autofill/core/browser/credit_card.h"
+#include "components/autofill/core/browser/data_model/autofill_profile.h"
+#include "components/autofill/core/browser/data_model/credit_card.h"
+#include "components/autofill/core/browser/data_model/phone_number.h"
 #include "components/autofill/core/browser/form_structure.h"
+#include "components/autofill/core/browser/geo/autofill_country.h"
+#include "components/autofill/core/browser/geo/phone_number_i18n.h"
 #include "components/autofill/core/browser/personal_data_manager.h"
-#include "components/autofill/core/browser/phone_number.h"
-#include "components/autofill/core/browser/phone_number_i18n.h"
 #include "components/autofill/core/browser/validation.h"
 #include "components/autofill/core/common/autofill_features.h"
+#include "components/autofill/core/common/autofill_payments_features.h"
 #include "components/autofill/core/common/autofill_util.h"
 
 namespace autofill {
@@ -132,12 +134,17 @@ void FormDataImporter::ImportFormData(const FormStructure& submitted_form,
       ImportedCreditCardRecordType::NO_CARD) {
     return;
   }
+  // Do not offer upload save for google domain.
+  if (net::HasGoogleHost(submitted_form.main_frame_origin().GetURL()) &&
+      is_credit_card_upstream_enabled) {
+    return;
+  }
   // A credit card was successfully imported, but it's possible it is already a
   // local or server card. First, check to see if we should offer local card
   // migration in this case, as local cards could go either way.
   if (local_card_migration_manager_ &&
       local_card_migration_manager_->ShouldOfferLocalCardMigration(
-          imported_credit_card_record_type_)) {
+          imported_credit_card.get(), imported_credit_card_record_type_)) {
     local_card_migration_manager_->AttemptToOfferLocalCardMigration(
         /*is_from_settings_page=*/false);
     return;
@@ -176,7 +183,8 @@ void FormDataImporter::ImportFormData(const FormStructure& submitted_form,
            imported_credit_card_record_type_ ==
                ImportedCreditCardRecordType::NEW_CARD);
     credit_card_save_manager_->AttemptToOfferCardUploadSave(
-        submitted_form, *imported_credit_card,
+        submitted_form, from_dynamic_change_form_, has_non_focusable_field_,
+        *imported_credit_card,
         /*uploading_local_card=*/imported_credit_card_record_type_ ==
             ImportedCreditCardRecordType::LOCAL_CARD);
   } else {
@@ -184,6 +192,7 @@ void FormDataImporter::ImportFormData(const FormStructure& submitted_form,
     DCHECK(imported_credit_card_record_type_ ==
            ImportedCreditCardRecordType::NEW_CARD);
     credit_card_save_manager_->AttemptToOfferCardLocalSave(
+        from_dynamic_change_form_, has_non_focusable_field_,
         *imported_credit_card);
   }
 }
@@ -442,7 +451,10 @@ bool FormDataImporter::ImportCreditCard(
   // there is for local cards.
   for (const CreditCard* card :
        personal_data_manager_->GetServerCreditCards()) {
-    if (candidate_credit_card.HasSameNumberAs(*card)) {
+    if ((card->record_type() == CreditCard::MASKED_SERVER_CARD &&
+         card->LastFourDigits() == candidate_credit_card.LastFourDigits()) ||
+        (card->record_type() == CreditCard::FULL_SERVER_CARD &&
+         candidate_credit_card.HasSameNumberAs(*card))) {
       // Don't update card if the expiration date is missing
       if (candidate_credit_card.expiration_month() == 0 ||
           candidate_credit_card.expiration_year() == 0) {
@@ -503,6 +515,11 @@ CreditCard FormDataImporter::ExtractCreditCardFromForm(
     // Field was not identified as a credit card field.
     if (field_type.group() != CREDIT_CARD)
       continue;
+
+    if (form.value_from_dynamic_change_form())
+      from_dynamic_change_form_ = true;
+    if (!field->is_focusable)
+      has_non_focusable_field_ = true;
 
     // If we've seen the same credit card field type twice in the same form,
     // set |has_duplicate_field_type| to true.

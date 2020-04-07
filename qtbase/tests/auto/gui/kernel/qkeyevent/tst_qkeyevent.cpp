@@ -121,7 +121,7 @@ static QByteArray modifiersTestRowName(const QString &keySequence)
         if (uc > 32 && uc < 128)
             str << '"' << c << '"';
         else
-            str << "U+" << hex << uc << dec;
+            str << "U+" << Qt::hex << uc << Qt::dec;
         if (i < size - 1)
             str << ',';
     }
@@ -155,7 +155,7 @@ void tst_QKeyEvent::modifiers_data()
         modifierCombinations.append(modifierCombination);
     }
 
-    qSort(modifierCombinations.begin(), modifierCombinations.end(), orderByModifier);
+    std::sort(modifierCombinations.begin(), modifierCombinations.end(), orderByModifier);
 
     QTest::addColumn<Qt::KeyboardModifiers>("modifiers");
     foreach (const QVector<int> combination, modifierCombinations) {

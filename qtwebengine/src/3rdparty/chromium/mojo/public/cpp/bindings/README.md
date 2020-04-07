@@ -10,14 +10,14 @@ set of primitives for communicating over Mojo message pipes. Combined with
 generated code from the
 [Mojom IDL and bindings generator](/mojo/public/tools/bindings/README.md), users
 can easily connect interface clients and implementations across arbitrary intra-
-and inter-process bounaries.
+and inter-process boundaries.
 
 This document provides a detailed guide to bindings API usage with example code
 snippets. For a detailed API references please consult the headers in
 [//mojo/public/cpp/bindings](https://cs.chromium.org/chromium/src/mojo/public/cpp/bindings/README.md).
 
 For a simplified guide targeted at Chromium developers, see [this
-link](/docs/mojo_guide.md).
+link](/docs/mojo_and_services.md).
 
 ## Getting Started
 
@@ -153,7 +153,7 @@ routed to some implementation which will **bind** it. The `InterfaceRequest<T>`
 doesn't actually *do* anything other than hold onto a pipe endpoint and carry
 useful compile-time type information.
 
-![Diagram illustrating InterfacePtr and InterfaceRequest on either end of a message pipe](https://docs.google.com/drawings/d/1_Ocprq7EGgTKcSE_WlOn_RBfXcr5C3FJyIbWhwzwNX8/pub?w=608&h=100)
+![Diagram illustrating InterfacePtr and InterfaceRequest on either end of a message pipe](/docs/images/mojo_pipe.png)
 
 So how do we create a strongly-typed message pipe?
 
@@ -211,7 +211,7 @@ logger->Log("Hello!");
 
 This actually writes a `Log` message to the pipe.
 
-![Diagram illustrating a message traveling on a pipe from LoggerPtr to LoggerRequest](https://docs.google.com/drawings/d/11vnOpNP3UBLlWg4KplQuIU3r_e1XqwDFETD-O_bV-2w/pub?w=635&h=112)
+![Diagram illustrating a message traveling on a pipe from LoggerPtr to LoggerRequest](/docs/images/mojo_message.png)
 
 But as mentioned above, `InterfaceRequest` *doesn't actually do anything*, so
 that message will just sit on the pipe forever. We need a way to read messages
@@ -278,7 +278,7 @@ motion by the above line of code:
 3. The `Log` message is read and deserialized, causing the `Binding` to invoke
    the `Logger::Log` implementation on its bound `LoggerImpl`.
 
-![Diagram illustrating the progression of binding a request, reading a pending message, and dispatching it](https://docs.google.com/drawings/d/1F2VvfoOINGuNibomqeEU8KekYCtxYVFC00146CFGGQY/pub?w=550&h=500)
+![Diagram illustrating the progression of binding a request, reading a pending message, and dispatching it](/docs/images/mojo_binding_and_dispatch.png)
 
 As a result, our implementation will eventually log the client's `"Hello!"`
 message via `LOG(ERROR)`.
@@ -384,7 +384,7 @@ which case that endpoint won't get such a notification). If there are remaining
 incoming messages for an endpoint on disconnection, the connection error won't
 be triggered until the messages are drained.
 
-Pipe disconnecition may be caused by:
+Pipe disconnection may be caused by:
 * Mojo system-level causes: process terminated, resource exhausted, etc.
 * The bindings close the pipe due to a validation error when processing a
   received message.
@@ -603,7 +603,7 @@ roughly equivalent to a `std::unique_ptr` with some additional utility methods.
 This allows struct values to be nullable and struct types to be potentially
 self-referential.
 
-Every genereated struct class has a static `New()` method which returns a new
+Every generated struct class has a static `New()` method which returns a new
 `mojo::StructPtr<T>` wrapping a new instance of the class constructed by
 forwarding the arguments from `New`. For example:
 
@@ -657,7 +657,7 @@ Similarly to [structs](#Structs), tagged unions generate an identically named,
 representative C++ class which is typically wrapped in a `mojo::StructPtr<T>`.
 
 Unlike structs, all generated union fields are private and must be retrieved and
-manipulated using accessors. A field `foo` is accessible by `foo()` and
+manipulated using accessors. A field `foo` is accessible by `get_foo()` and
 settable by `set_foo()`. There is also a boolean `is_foo()` for each field which
 indicates whether the union is currently taking on the value of field `foo` in
 exclusion to all other union fields.
@@ -1261,8 +1261,7 @@ sync method call? It continues to process incoming sync request messages
 messages and sync response messages that don’t match the ongoing sync
 call.
 
-![Diagram illustrating sync call flow](
-https://docs.google.com/a/google.com/drawings/d/e/2PACX-1vRvsmrmZBszFl_OX9AhCn2Cqwx63K0GC7cYrDNPoRYRuHzxS30OZ4ygMBpeU_cThuQY2lYZkYpvSCdM/pub?w=960&h=560)
+![Diagram illustrating sync call flow](/docs/images/mojo_sync_call_flow.png)
 
 Please note that sync response messages that don’t match the ongoing
 sync call cannot re-enter. That is because they correspond to sync calls
@@ -1274,8 +1273,7 @@ while the stack unwinds.
 Please note that the re-entrancy behavior doesn’t prevent deadlocks
 involving async calls. You need to avoid call sequences such as:
 
-![Diagram illustrating a sync call deadlock](
-https://docs.google.com/a/google.com/drawings/d/e/2PACX-1vTBl5XPA8K-kVPt0oByMNSSoxpCKh1p2_atIDR9Me4xGfa6nf0fNAKkJ-Hg5utllY5ghXtoS1haHL6d/pub?w=960&h=480)
+![Diagram illustrating a sync call deadlock](/docs/images/mojo_sync_call_deadlock.png)
 
 ### Read more
 
@@ -1373,10 +1371,10 @@ some less common requirements. See
 
 In order to define the mapping for `gfx::Rect`, we want the following
 `StructTraits` specialization, which we'll define in
-`//ui/gfx/geometry/mojo/geometry_struct_traits.h`:
+`//ui/gfx/geometry/mojo/geometry_mojom_traits.h`:
 
 ``` cpp
-#include "mojo/public/cpp/bindings/struct_traits.h"
+#include "mojo/public/cpp/bindings/mojom_traits.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/mojo/geometry.mojom.h"
 
@@ -1396,10 +1394,10 @@ class StructTraits<gfx::mojom::RectDataView, gfx::Rect> {
 }  // namespace mojo
 ```
 
-And in `//ui/gfx/geometry/mojo/geometry_struct_traits.cc`:
+And in `//ui/gfx/geometry/mojo/geometry_mojom_traits.cc`:
 
 ``` cpp
-#include "ui/gfx/geometry/mojo/geometry_struct_traits.h"
+#include "ui/gfx/geometry/mojo/geometry_mojom_traits.h"
 
 namespace mojo {
 
@@ -1467,10 +1465,10 @@ Let's place this `geometry.typemap` file alongside our Mojom file:
 mojom = "//ui/gfx/geometry/mojo/geometry.mojom"
 os_whitelist = [ "android" ]
 public_headers = [ "//ui/gfx/geometry/rect.h" ]
-traits_headers = [ "//ui/gfx/geometry/mojo/geometry_struct_traits.h" ]
+traits_headers = [ "//ui/gfx/geometry/mojo/geometry_mojom_traits.h" ]
 sources = [
-  "//ui/gfx/geometry/mojo/geometry_struct_traits.cc",
-  "//ui/gfx/geometry/mojo/geometry_struct_traits.h",
+  "//ui/gfx/geometry/mojo/geometry_mojom_traits.cc",
+  "//ui/gfx/geometry/mojo/geometry_mojom_traits.h",
 ]
 public_deps = [ "//ui/gfx/geometry" ]
 type_mappings = [
@@ -1491,9 +1489,9 @@ Let's look at each of the variables above:
   here.
 * `traits_headers`: Headers which contain the relevant `StructTraits`
   specialization(s) for any type mappings described by this file.
-* `sources`: Any implementation sources and headers needed for the
-  `StructTraits` definition. These sources are compiled directly into the
-  generated C++ bindings target for a `mojom` file applying this typemap.
+* `sources`: Any implementation sources needed for the `StructTraits`
+  definition. These sources are compiled directly into the generated C++
+  bindings target for a `mojom` file applying this typemap.
 * `public_deps`: Target dependencies exposed by the `public_headers` and
   `traits_headers`.
 * `deps`: Target dependencies exposed by `sources` but not already covered by
@@ -1744,7 +1742,7 @@ depend on `"//sample:mojom_blink"`.
 ## Versioning Considerations
 
 For general documentation of versioning in the Mojom IDL see
-[Versioning](/mojo/public/tools/bindings/README.md#Versiwoning).
+[Versioning](/mojo/public/tools/bindings/README.md#Versioning).
 
 This section briefly discusses some C++-specific considerations relevant to
 versioned Mojom types.
@@ -1795,10 +1793,10 @@ inline bool IsKnownEnumValue(Department value);
 
 ### Using Mojo Bindings in Chrome
 
-See [Converting Legacy Chrome IPC To Mojo](/ipc/README.md).
+See [Converting Legacy Chrome IPC To Mojo](/docs/mojo_ipc_conversion.md).
 
 ### Additional Documentation
 
-[Calling Mojo From Blink](https://www.chromium.org/developers/design-documents/mojo/calling-mojo-from-blink)
-:    A brief overview of what it looks like to use Mojom C++ bindings from
-     within Blink code.
+[Calling Mojo From Blink](/docs/mojo_ipc_conversion.md#Blink_Specific-Advice):
+A brief overview of what it looks like to use Mojom C++ bindings from
+within Blink code.

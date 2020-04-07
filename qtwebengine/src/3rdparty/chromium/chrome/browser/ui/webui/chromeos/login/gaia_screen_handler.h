@@ -6,19 +6,25 @@
 #define CHROME_BROWSER_UI_WEBUI_CHROMEOS_LOGIN_GAIA_SCREEN_HANDLER_H_
 
 #include <string>
+#include <vector>
 
 #include "base/command_line.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
-#include "chrome/browser/chromeos/login/screens/core_oobe_view.h"
-#include "chrome/browser/chromeos/login/screens/gaia_view.h"
+#include "chrome/browser/chromeos/authpolicy/authpolicy_helper.h"
+#include "chrome/browser/chromeos/login/login_client_cert_usage_observer.h"
 #include "chrome/browser/ui/webui/chromeos/login/base_screen_handler.h"
+#include "chrome/browser/ui/webui/chromeos/login/core_oobe_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/network_state_informer.h"
-#include "chromeos/login/auth/authpolicy_login_helper.h"
 #include "chromeos/network/portal_detector/network_portal_detector.h"
+#include "components/user_manager/user_type.h"
 #include "net/base/net_errors.h"
 
 class AccountId;
+
+namespace base {
+class DictionaryValue;
+}  // namespace base
 
 namespace net {
 class CanonicalCookie;
@@ -32,13 +38,62 @@ namespace chromeos {
 
 class ActiveDirectoryPasswordChangeScreenHandler;
 class Key;
+class SamlPasswordAttributes;
 class SigninScreenHandler;
+class UserContext;
+
+class GaiaView {
+ public:
+  constexpr static StaticOobeScreenId kScreenId{"gaia-signin"};
+
+  GaiaView() = default;
+  virtual ~GaiaView() = default;
+
+  // Decides whether an auth extension should be pre-loaded. If it should,
+  // pre-loads it.
+  virtual void MaybePreloadAuthExtension() = 0;
+
+  virtual void DisableRestrictiveProxyCheckForTest() = 0;
+
+  // Show the sign-in screen. Depending on internal state, the screen will
+  // either be shown immediately or after an asynchronous clean-up process that
+  // cleans DNS cache and cookies. If available, |account_id| is used for
+  // prefilling information.
+  virtual void ShowGaiaAsync(const AccountId& account_id) = 0;
+
+  // Show sign-in screen for the given credentials. |services| is a list of
+  // services returned by userInfo call as JSON array. Should be an empty array
+  // for a regular user: "[]".
+  virtual void ShowSigninScreenForTest(const std::string& username,
+                                       const std::string& password,
+                                       const std::string& services) = 0;
+
+ private:
+  DISALLOW_COPY_AND_ASSIGN(GaiaView);
+};
 
 // A class that handles WebUI hooks in Gaia screen.
 class GaiaScreenHandler : public BaseScreenHandler,
                           public GaiaView,
                           public NetworkPortalDetector::Observer {
  public:
+  using TView = GaiaView;
+
+  // The possible modes that the Gaia signin screen can be in.
+  enum GaiaScreenMode {
+    // Default Gaia authentication will be used.
+    GAIA_SCREEN_MODE_DEFAULT = 0,
+
+    // Gaia offline mode will be used.
+    GAIA_SCREEN_MODE_OFFLINE = 1,
+
+    // An interstitial page will be used before SAML redirection.
+    GAIA_SCREEN_MODE_SAML_INTERSTITIAL = 2,
+
+    // Offline UI for Active Directory authentication.
+    GAIA_SCREEN_MODE_AD = 3,
+  };
+
   enum FrameState {
     FRAME_STATE_UNKNOWN = 0,
     FRAME_STATE_LOADING,
@@ -47,6 +102,7 @@ class GaiaScreenHandler : public BaseScreenHandler,
   };
 
   GaiaScreenHandler(
+      JSCallsContainer* js_calls_container,
       CoreOobeView* core_oobe_view,
       const scoped_refptr<NetworkStateInformer>& network_state_informer,
       ActiveDirectoryPasswordChangeScreenHandler*
@@ -56,10 +112,14 @@ class GaiaScreenHandler : public BaseScreenHandler,
   // GaiaView:
   void MaybePreloadAuthExtension() override;
   void DisableRestrictiveProxyCheckForTest() override;
-  void ShowGaiaAsync(const base::Optional<AccountId>& account_id) override;
+  void ShowGaiaAsync(const AccountId& account_id) override;
   void ShowSigninScreenForTest(const std::string& username,
                                const std::string& password,
                                const std::string& services) override;
+
+  // Returns true if offline login mode was either required, or reported by the
+  // WebUI (i.e. WebUI mignt not have completed transition to the new mode).
+  bool IsOfflineLoginActive() const;
 
  private:
   // TODO (xiaoyinh): remove this dependency.
@@ -75,9 +135,10 @@ class GaiaScreenHandler : public BaseScreenHandler,
                              const std::string& partition_name);
 
   // Called after the GAPS cookie, if present, is added to the cookie store.
-  void OnSetCookieForLoadGaiaWithPartition(const GaiaContext& context,
-                                           const std::string& partition_name,
-                                           bool success);
+  void OnSetCookieForLoadGaiaWithPartition(
+      const GaiaContext& context,
+      const std::string& partition_name,
+      net::CanonicalCookie::CookieInclusionStatus status);
 
   // Callback that loads GAIA after version and stat consent information has
   // been retrieved.
@@ -114,18 +175,22 @@ class GaiaScreenHandler : public BaseScreenHandler,
 
   // WebUI message handlers.
   void HandleWebviewLoadAborted(const std::string& error_reason_str);
-  void HandleCompleteAuthentication(const std::string& gaia_id,
-                                    const std::string& email,
-                                    const std::string& password,
-                                    bool using_saml,
-                                    const ::login::StringList& services);
+  void HandleCompleteAuthentication(
+      const std::string& gaia_id,
+      const std::string& email,
+      const std::string& password,
+      bool using_saml,
+      const ::login::StringList& services,
+      const base::DictionaryValue* password_attributes);
   void OnGetCookiesForCompleteAuthentication(
       const std::string& gaia_id,
       const std::string& email,
       const std::string& password,
       bool using_saml,
       const ::login::StringList& services,
-      const std::vector<net::CanonicalCookie>& cookies);
+      const SamlPasswordAttributes& password_attributes,
+      const std::vector<net::CanonicalCookie>& cookies,
+      const net::CookieStatusList& excluded_cookies);
   void HandleCompleteLogin(const std::string& gaia_id,
                            const std::string& typed_email,
                            const std::string& password,
@@ -163,7 +228,8 @@ class GaiaScreenHandler : public BaseScreenHandler,
   void DoCompleteLogin(const std::string& gaia_id,
                        const std::string& typed_email,
                        const std::string& password,
-                       bool using_saml);
+                       bool using_saml,
+                       const SamlPasswordAttributes& password_attributes);
 
   // Fill GAIA user name.
   void set_populated_email(const std::string& populated_email) {
@@ -227,10 +293,21 @@ class GaiaScreenHandler : public BaseScreenHandler,
                          const std::string& id,
                          const AccountType& account_type) const;
 
-  bool offline_login_is_active() const { return offline_login_is_active_; }
-  void set_offline_login_is_active(bool offline_login_is_active) {
-    offline_login_is_active_ = offline_login_is_active;
-  }
+  // Records whether WebUI is currently in offline mode.
+  void SetOfflineLoginIsActive(bool is_active);
+
+  // Builds the UserContext with the information from the given Gaia user
+  // sign-in. On failure, returns false and sets |error_message|.
+  bool BuildUserContextForGaiaSignIn(
+      user_manager::UserType user_type,
+      const AccountId& account_id,
+      bool using_saml,
+      const std::string& password,
+      const std::string& auth_code,
+      const std::string& gaps_cookie,
+      const SamlPasswordAttributes& password_attributes,
+      UserContext* user_context,
+      std::string* error_message);
 
   // Current state of Gaia frame.
   FrameState frame_state_ = FRAME_STATE_UNKNOWN;
@@ -249,6 +326,9 @@ class GaiaScreenHandler : public BaseScreenHandler,
   // Email to pre-populate with.
   std::string populated_email_;
 
+  // Whether the handler has been initialized.
+  bool initialized_ = false;
+
   // True if dns cache cleanup is done.
   bool dns_cleared_ = false;
 
@@ -259,8 +339,8 @@ class GaiaScreenHandler : public BaseScreenHandler,
   bool cookies_cleared_ = false;
 
   // If true, the sign-in screen will be shown when DNS cache and cookie
-  // clean-up finish.
-  bool show_when_dns_and_cookies_cleared_ = false;
+  // clean-up finish, and the handler is initialized (i.e. the web UI is ready).
+  bool show_when_ready_ = false;
 
   // Has Gaia page silent load been started for the current sign-in attempt?
   bool gaia_silent_load_ = false;
@@ -270,6 +350,10 @@ class GaiaScreenHandler : public BaseScreenHandler,
 
   // If the user authenticated via SAML, this indicates whether the principals
   // API was used.
+  // TODO(emaxx): This is also currently set when the user authenticated via
+  // Gaia, since Gaia uses the same API for passing the password to Chrome.
+  // Either fix this behavior, or change the naming and the comments to reflect
+  // it.
   bool using_saml_api_ = false;
 
   // Test credentials.
@@ -292,7 +376,7 @@ class GaiaScreenHandler : public BaseScreenHandler,
   // signin_screen_handler directly.
   SigninScreenHandler* signin_screen_handler_ = nullptr;
 
-  // True if offline GAIA is active.
+  // True if WebUI is currently displaying offline GAIA.
   bool offline_login_is_active_ = false;
 
   // True if the authentication extension is still loading.
@@ -300,12 +384,18 @@ class GaiaScreenHandler : public BaseScreenHandler,
 
   // Helper to call AuthPolicyClient and cancel calls if needed. Used to
   // authenticate users against Active Directory server.
-  std::unique_ptr<AuthPolicyLoginHelper> authpolicy_login_helper_;
+  std::unique_ptr<AuthPolicyHelper> authpolicy_login_helper_;
 
   // Makes untrusted authority certificates from device policy available for
   // client certificate discovery.
   std::unique_ptr<network::NSSTempCertsCacheChromeOS>
       untrusted_authority_certs_cache_;
+
+  // The type of Gaia page to show.
+  GaiaScreenMode screen_mode_ = GAIA_SCREEN_MODE_DEFAULT;
+
+  std::unique_ptr<LoginClientCertUsageObserver>
+      extension_provided_client_cert_usage_observer_;
 
   base::WeakPtrFactory<GaiaScreenHandler> weak_factory_;
 

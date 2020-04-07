@@ -57,7 +57,11 @@
 #include <QtBluetooth/qlowenergyservice.h>
 #include <QtBluetooth/qlowenergyservicedata.h>
 #include <QtCore/qbytearray.h>
+#ifndef Q_OS_ANDROID
 #include <QtCore/qcoreapplication.h>
+#else
+#include <QtGui/qguiapplication.h>
+#endif
 #include <QtCore/qlist.h>
 #include <QtCore/qloggingcategory.h>
 #include <QtCore/qscopedpointer.h>
@@ -66,7 +70,11 @@
 int main(int argc, char *argv[])
 {
     //QLoggingCategory::setFilterRules(QStringLiteral("qt.bluetooth* = true"));
+#ifndef Q_OS_ANDROID
     QCoreApplication app(argc, argv);
+#else
+    QGuiApplication app(argc, argv);
+#endif
 
     //! [Advertising Data]
     QLowEnergyAdvertisingData advertisingData;

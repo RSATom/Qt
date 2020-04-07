@@ -34,16 +34,6 @@
 #include <private/qitem_p.h>
 #include <private/qnamepool_p.h>
 
-#if defined(Q_OS_WIN) && !defined(QT_STATIC)
-#   ifdef Q_PATTERNISTSDK_BUILDING
-        #define Q_PATTERNISTSDK_EXPORT __declspec(dllexport)
-    #else
-        #define Q_PATTERNISTSDK_EXPORT __declspec(dllimport)
-    #endif
-#else
-    #define Q_PATTERNISTSDK_EXPORT
-#endif
-
 /**
  * @short Contains testing utilities for Patternist, interfacing W3C's XQuery Test Suite.
  *
@@ -60,7 +50,7 @@ namespace QPatternistSDK
      * @ingroup PatternistSDK
      * @author Frans Englich <frans.englich@nokia.com>
      */
-    class Q_PATTERNISTSDK_EXPORT Global
+    class Global
     {
     public:
 

@@ -8,14 +8,13 @@
 #include <vector>
 
 #include <memory>
-#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/time/time.h"
 #include "cc/animation/animation_curve.h"
 #include "cc/animation/animation_export.h"
 #include "cc/animation/element_animations.h"
 #include "cc/animation/keyframe_model.h"
-#include "cc/trees/element_id.h"
+#include "cc/paint/element_id.h"
 
 namespace cc {
 
@@ -43,11 +42,11 @@ class CC_ANIMATION_EXPORT Animation : public base::RefCounted<Animation> {
   static scoped_refptr<Animation> Create(int id);
   virtual scoped_refptr<Animation> CreateImplInstance() const;
 
+  Animation(const Animation&) = delete;
+  Animation& operator=(const Animation&) = delete;
+
   int id() const { return id_; }
   typedef size_t KeyframeEffectId;
-  ElementId element_id_of_keyframe_effect(
-      KeyframeEffectId keyframe_effect_id) const;
-  bool IsElementAttached(ElementId id) const;
 
   // Parent AnimationHost. Animation can be detached from AnimationTimeline.
   AnimationHost* animation_host() { return animation_host_; }
@@ -100,7 +99,7 @@ class CC_ANIMATION_EXPORT Animation : public base::RefCounted<Animation> {
   virtual void Tick(base::TimeTicks monotonic_time);
 
   void AddToTicking();
-  void KeyframeModelRemovedFromTicking();
+  void RemoveFromTicking();
 
   // AnimationDelegate routing.
   void NotifyKeyframeModelStarted(const AnimationEvent& event);
@@ -168,8 +167,6 @@ class CC_ANIMATION_EXPORT Animation : public base::RefCounted<Animation> {
   KeyframeEffects keyframe_effects_;
 
   int ticking_keyframe_effects_count;
-
-  DISALLOW_COPY_AND_ASSIGN(Animation);
 };
 
 }  // namespace cc

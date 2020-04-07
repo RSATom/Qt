@@ -33,11 +33,11 @@ Host *
 FVM_TYPE_QCOW = 'qcow'
 FVM_TYPE_SPARSE = 'sparse'
 
+# Specifies boot files intended for use by an emulator.
+TARGET_TYPE_QEMU = 'qemu'
 
-def _TargetCpuToSdkBinPath(target_arch):
-  """Returns the path to the SDK 'target' file directory for |target_cpu|."""
-
-  return os.path.join(common.SDK_ROOT, 'target', target_arch)
+# Specifies boot files intended for use by anything (incl. physical devices).
+TARGET_TYPE_GENERIC = 'generic'
 
 
 def _GetPubKeyPath(output_dir):
@@ -86,25 +86,27 @@ def _MakeQcowDisk(output_dir, disk_path):
   return output_path
 
 
-def GetTargetFile(target_arch, filename):
-  """Computes a path to |filename| in the Fuchsia target directory specific to
-  |target_arch|."""
+def GetTargetFile(filename, target_arch, target_type):
+  """Computes a path to |filename| in the Fuchsia boot image directory specific
+  to |target_type| and |target_arch|."""
 
-  return os.path.join(_TargetCpuToSdkBinPath(target_arch), filename)
+  assert target_type == TARGET_TYPE_QEMU or target_type == TARGET_TYPE_GENERIC
+
+  return os.path.join(common.IMAGES_ROOT, target_arch, target_type, filename)
 
 
 def GetSSHConfigPath(output_dir):
   return output_dir + '/ssh_config'
 
 
-def GetBootImage(output_dir, target_arch):
+def GetBootImage(output_dir, target_arch, target_type):
   """"Gets a path to the Zircon boot image, with the SSH client public key
   added."""
 
   ProvisionSSH(output_dir)
   pubkey_path = _GetPubKeyPath(output_dir)
   zbi_tool = os.path.join(common.SDK_ROOT, 'tools', 'zbi')
-  image_source_path = GetTargetFile(target_arch, 'fuchsia.zbi')
+  image_source_path = GetTargetFile('zircon-a.zbi', target_arch, target_type)
   image_dest_path = os.path.join(output_dir, 'gen', 'fuchsia-with-keys.zbi')
 
   cmd = [ zbi_tool, '-o', image_dest_path, image_source_path,
@@ -114,24 +116,5 @@ def GetBootImage(output_dir, target_arch):
   return image_dest_path
 
 
-def GetNodeName(output_dir):
-  """Returns the cached Zircon node name, or generates one if it doesn't
-  already exist. The node name is used by Discover to find the prior
-  deployment on the LAN."""
-
-  nodename_file = os.path.join(output_dir, 'nodename')
-  if not os.path.exists(nodename_file):
-    nodename = uuid.uuid4()
-    f = open(nodename_file, 'w')
-    f.write(str(nodename))
-    f.flush()
-    f.close()
-    return str(nodename)
-  else:
-    f = open(nodename_file, 'r')
-    return f.readline()
-
-
 def GetKernelArgs(output_dir):
-  return ['devmgr.epoch=%d' % time.time(),
-          'zircon.nodename=' + GetNodeName(output_dir)]
+  return ['devmgr.epoch=%d' % time.time()]

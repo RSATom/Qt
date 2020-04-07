@@ -33,19 +33,17 @@
 #include "third_party/blink/renderer/core/dom/attribute.h"
 #include "third_party/blink/renderer/core/editing/editing_utilities.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
-#include "third_party/blink/renderer/core/frame/use_counter.h"
 #include "third_party/blink/renderer/core/html/html_frame_element_base.h"
 #include "third_party/blink/renderer/core/html/parser/html_parser_idioms.h"
 #include "third_party/blink/renderer/core/html_names.h"
+#include "third_party/blink/renderer/platform/instrumentation/use_counter.h"
 
 namespace blink {
 
 using namespace html_names;
 
-inline HTMLBodyElement::HTMLBodyElement(Document& document)
+HTMLBodyElement::HTMLBodyElement(Document& document)
     : HTMLElement(kBodyTag, document) {}
-
-DEFINE_NODE_FACTORY(HTMLBodyElement)
 
 HTMLBodyElement::~HTMLBodyElement() = default;
 
@@ -67,21 +65,22 @@ void HTMLBodyElement::CollectStyleForPresentationAttribute(
       CSSImageValue* image_value =
           CSSImageValue::Create(url, GetDocument().CompleteURL(url),
                                 Referrer(GetDocument().OutgoingReferrer(),
-                                         GetDocument().GetReferrerPolicy()));
+                                         GetDocument().GetReferrerPolicy()),
+                                OriginClean::kTrue);
       image_value->SetInitiator(localName());
       style->SetProperty(
           CSSPropertyValue(GetCSSPropertyBackgroundImage(), *image_value));
     }
   } else if (name == kMarginwidthAttr || name == kLeftmarginAttr) {
-    AddHTMLLengthToStyle(style, CSSPropertyMarginRight, value);
-    AddHTMLLengthToStyle(style, CSSPropertyMarginLeft, value);
+    AddHTMLLengthToStyle(style, CSSPropertyID::kMarginRight, value);
+    AddHTMLLengthToStyle(style, CSSPropertyID::kMarginLeft, value);
   } else if (name == kMarginheightAttr || name == kTopmarginAttr) {
-    AddHTMLLengthToStyle(style, CSSPropertyMarginBottom, value);
-    AddHTMLLengthToStyle(style, CSSPropertyMarginTop, value);
+    AddHTMLLengthToStyle(style, CSSPropertyID::kMarginBottom, value);
+    AddHTMLLengthToStyle(style, CSSPropertyID::kMarginTop, value);
   } else if (name == kBgcolorAttr) {
-    AddHTMLColorToStyle(style, CSSPropertyBackgroundColor, value);
+    AddHTMLColorToStyle(style, CSSPropertyID::kBackgroundColor, value);
   } else if (name == kTextAttr) {
-    AddHTMLColorToStyle(style, CSSPropertyColor, value);
+    AddHTMLColorToStyle(style, CSSPropertyID::kColor, value);
   } else {
     HTMLElement::CollectStyleForPresentationAttribute(name, value, style);
   }

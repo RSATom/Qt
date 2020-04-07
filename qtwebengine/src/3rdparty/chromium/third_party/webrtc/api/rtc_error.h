@@ -20,6 +20,7 @@
 #include "absl/strings/string_view.h"
 #include "rtc_base/checks.h"
 #include "rtc_base/logging.h"
+#include "rtc_base/system/rtc_export.h"
 
 namespace webrtc {
 
@@ -80,7 +81,7 @@ enum class RTCErrorType {
 //
 // Doesn't contain anything beyond a type and message now, but will in the
 // future as more errors are implemented.
-class RTCError {
+class RTC_EXPORT RTCError {
  public:
   // Constructors.
 
@@ -220,6 +221,7 @@ class RTCErrorOr {
   // NOTE: Not explicit - we want to use RTCErrorOr<T> as a return type
   // so it is convenient and sensible to be able to do 'return T()'
   // when the return type is RTCErrorOr<T>.
+  RTCErrorOr(const T& value) : value_(value) {}        // NOLINT
   RTCErrorOr(T&& value) : value_(std::move(value)) {}  // NOLINT
 
   // Delete the copy constructor and assignment operator; there aren't any use

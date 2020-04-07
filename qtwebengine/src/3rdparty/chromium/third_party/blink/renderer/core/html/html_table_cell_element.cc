@@ -28,22 +28,20 @@
 #include "third_party/blink/renderer/core/css_value_keywords.h"
 #include "third_party/blink/renderer/core/dom/attribute.h"
 #include "third_party/blink/renderer/core/dom/element_traversal.h"
-#include "third_party/blink/renderer/core/frame/use_counter.h"
 #include "third_party/blink/renderer/core/html/html_table_element.h"
 #include "third_party/blink/renderer/core/html/parser/html_parser_idioms.h"
 #include "third_party/blink/renderer/core/html/table_constants.h"
 #include "third_party/blink/renderer/core/html_names.h"
 #include "third_party/blink/renderer/core/layout/layout_table_cell.h"
+#include "third_party/blink/renderer/platform/instrumentation/use_counter.h"
 
 namespace blink {
 
 using namespace html_names;
 
-inline HTMLTableCellElement::HTMLTableCellElement(const QualifiedName& tag_name,
-                                                  Document& document)
+HTMLTableCellElement::HTMLTableCellElement(const QualifiedName& tag_name,
+                                           Document& document)
     : HTMLTablePartElement(tag_name, document) {}
-
-DEFINE_ELEMENT_FACTORY_WITH_TAGNAME(HTMLTableCellElement)
 
 unsigned HTMLTableCellElement::colSpan() const {
   const AtomicString& col_span_value = FastGetAttribute(kColspanAttr);
@@ -98,20 +96,20 @@ void HTMLTableCellElement::CollectStyleForPresentationAttribute(
     const AtomicString& value,
     MutableCSSPropertyValueSet* style) {
   if (name == kNowrapAttr) {
-    AddPropertyToPresentationAttributeStyle(style, CSSPropertyWhiteSpace,
-                                            CSSValueWebkitNowrap);
+    AddPropertyToPresentationAttributeStyle(style, CSSPropertyID::kWhiteSpace,
+                                            CSSValueID::kWebkitNowrap);
   } else if (name == kWidthAttr) {
     if (!value.IsEmpty()) {
       int width_int = value.ToInt();
       if (width_int > 0)  // width="0" is ignored for compatibility with WinIE.
-        AddHTMLLengthToStyle(style, CSSPropertyWidth, value);
+        AddHTMLLengthToStyle(style, CSSPropertyID::kWidth, value);
     }
   } else if (name == kHeightAttr) {
     if (!value.IsEmpty()) {
       int height_int = value.ToInt();
       if (height_int >
           0)  // height="0" is ignored for compatibility with WinIE.
-        AddHTMLLengthToStyle(style, CSSPropertyHeight, value);
+        AddHTMLLengthToStyle(style, CSSPropertyID::kHeight, value);
     }
   } else {
     HTMLTablePartElement::CollectStyleForPresentationAttribute(name, value,

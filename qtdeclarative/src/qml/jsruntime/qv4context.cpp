@@ -60,7 +60,7 @@ Heap::CallContext *ExecutionContext::newBlockContext(CppStackFrame *frame, int b
 {
     Function *function = frame->v4Function;
 
-    Heap::InternalClass *ic = function->compilationUnit->runtimeBlocks.at(blockIndex);
+    Heap::InternalClass *ic = function->executableCompilationUnit()->runtimeBlocks.at(blockIndex);
     uint nLocals = ic->size;
     size_t requiredMemory = sizeof(CallContext::Data) - sizeof(Value) + sizeof(Value) * nLocals;
 
@@ -71,27 +71,28 @@ Heap::CallContext *ExecutionContext::newBlockContext(CppStackFrame *frame, int b
 
     Heap::ExecutionContext *outer = static_cast<Heap::ExecutionContext *>(frame->context()->m());
     c->outer.set(v4, outer);
-    c->function.set(v4, static_cast<Heap::FunctionObject *>(frame->jsFrame->function.m()));
+    c->function.set(v4, static_cast<Heap::FunctionObject *>(
+                                Value::fromStaticValue(frame->jsFrame->function).m()));
 
     c->locals.size = nLocals;
     c->locals.alloc = nLocals;
 
-    c->setupLocalTemporalDeadZone(function->compilationUnit->unitData()->blockAt(blockIndex));
+    c->setupLocalTemporalDeadZone(function->executableCompilationUnit()->unitData()->blockAt(blockIndex));
 
     return c;
 }
 
-Heap::CallContext *ExecutionContext::cloneBlockContext(Heap::CallContext *context)
+Heap::CallContext *ExecutionContext::cloneBlockContext(ExecutionEngine *engine,
+                                                       Heap::CallContext *callContext)
 {
-    uint nLocals = context->locals.alloc;
+    uint nLocals = callContext->locals.alloc;
     size_t requiredMemory = sizeof(CallContext::Data) - sizeof(Value) + sizeof(Value) * nLocals;
 
-    ExecutionEngine *v4 = context->internalClass->engine;
-    Heap::CallContext *c = v4->memoryManager->allocManaged<CallContext>(requiredMemory, context->internalClass);
-    memcpy(c, context, requiredMemory);
+    Heap::CallContext *c = engine->memoryManager->allocManaged<CallContext>(
+                requiredMemory, callContext->internalClass);
+    memcpy(c, callContext, requiredMemory);
 
     return c;
-
 }
 
 Heap::CallContext *ExecutionContext::newCallContext(CppStackFrame *frame)
@@ -108,7 +109,8 @@ Heap::CallContext *ExecutionContext::newCallContext(CppStackFrame *frame)
     c->init();
 
     c->outer.set(v4, outer);
-    c->function.set(v4, static_cast<Heap::FunctionObject *>(frame->jsFrame->function.m()));
+    c->function.set(v4, static_cast<Heap::FunctionObject *>(
+                                Value::fromStaticValue(frame->jsFrame->function).m()));
 
     const CompiledData::Function *compiledFunction = function->compiledFunction;
     uint nLocals = compiledFunction->nLocals;
@@ -128,7 +130,7 @@ Heap::CallContext *ExecutionContext::newCallContext(CppStackFrame *frame)
     return c;
 }
 
-Heap::ExecutionContext *ExecutionContext::newWithContext(Heap::Object *with)
+Heap::ExecutionContext *ExecutionContext::newWithContext(Heap::Object *with) const
 {
     Heap::ExecutionContext *c = engine()->memoryManager->alloc<ExecutionContext>(Heap::ExecutionContext::Type_WithContext);
     c->outer.set(engine(), d());

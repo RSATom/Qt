@@ -59,7 +59,7 @@
 class MediaAxWidget : public QAxWidget
 {
 public:
-    MediaAxWidget(QWidget *parent = nullptr, Qt::WindowFlags f = 0)
+    MediaAxWidget(QWidget *parent = nullptr, Qt::WindowFlags f = {})
         : QAxWidget(parent, f)
     {
     }

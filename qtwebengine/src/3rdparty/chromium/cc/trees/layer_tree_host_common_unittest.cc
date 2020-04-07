@@ -51,6 +51,8 @@
 #include "components/viz/common/frame_sinks/copy_output_result.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/gfx/geometry/quad_f.h"
+#include "ui/gfx/geometry/rect_conversions.h"
+#include "ui/gfx/geometry/size_conversions.h"
 #include "ui/gfx/geometry/vector2d_conversions.h"
 #include "ui/gfx/transform.h"
 
@@ -113,6 +115,10 @@ class LayerTreeHostCommonTestBase : public LayerTestCommon::LayerImplTest {
         gfx::Size(root_layer->bounds().width() * device_scale_factor,
                   root_layer->bounds().height() * device_scale_factor);
 
+    root_layer->layer_tree_host()->SetViewportSizeAndScale(
+        device_viewport_size, device_scale_factor,
+        viz::LocalSurfaceIdAllocation());
+
     // We are probably not testing what is intended if the root_layer bounds are
     // empty.
     DCHECK(!root_layer->bounds().IsEmpty());
@@ -162,7 +168,6 @@ class LayerTreeHostCommonTestBase : public LayerTestCommon::LayerImplTest {
     inputs.page_scale_layer = page_scale_layer;
     inputs.inner_viewport_scroll_layer = inner_viewport_scroll_layer;
     inputs.outer_viewport_scroll_layer = outer_viewport_scroll_layer;
-    inputs.can_adjust_raster_scales = true;
     if (page_scale_layer) {
       PropertyTrees* property_trees =
           root_layer->layer_tree_impl()->property_trees();
@@ -230,7 +235,6 @@ class LayerTreeHostCommonTestBase : public LayerTestCommon::LayerImplTest {
   void ExecuteCalculateDrawPropertiesAndSaveUpdateLayerList(
       LayerImpl* root_layer) {
     DCHECK(root_layer->layer_tree_impl());
-    bool can_adjust_raster_scales = true;
 
     const LayerImpl* page_scale_layer = nullptr;
     LayerImpl* inner_viewport_scroll_layer =
@@ -256,8 +260,8 @@ class LayerTreeHostCommonTestBase : public LayerTestCommon::LayerImplTest {
         outer_viewport_scroll_layer, overscroll_elasticity_element_id,
         elastic_overscroll, page_scale_factor, device_scale_factor,
         gfx::Rect(device_viewport_size), gfx::Transform(), property_trees);
-    draw_property_utils::UpdatePropertyTreesAndRenderSurfaces(
-        root_layer, property_trees, can_adjust_raster_scales);
+    draw_property_utils::UpdatePropertyTreesAndRenderSurfaces(root_layer,
+                                                              property_trees);
     draw_property_utils::FindLayersThatNeedUpdates(
         root_layer->layer_tree_impl(), property_trees,
         update_layer_impl_list_.get());
@@ -274,7 +278,6 @@ class LayerTreeHostCommonTestBase : public LayerTestCommon::LayerImplTest {
     DCHECK(!root_layer->bounds().IsEmpty());
     LayerTreeHostCommon::CalcDrawPropsImplInputsForTesting inputs(
         root_layer, device_viewport_size, render_surface_list_impl_.get());
-    inputs.can_adjust_raster_scales = false;
 
     LayerTreeHostCommon::CalculateDrawPropertiesForTesting(&inputs);
   }
@@ -305,7 +308,7 @@ class LayerTreeHostCommonTestBase : public LayerTestCommon::LayerImplTest {
 
   bool VerifyLayerInList(scoped_refptr<Layer> layer,
                          const LayerList* layer_list) {
-    return base::ContainsValue(*layer_list, layer);
+    return base::Contains(*layer_list, layer);
   }
 
  private:
@@ -317,18 +320,11 @@ class LayerTreeHostCommonTestBase : public LayerTestCommon::LayerImplTest {
 class LayerTreeHostCommonTest : public LayerTreeHostCommonTestBase,
                                 public testing::Test {};
 
-class LayerTreeSettingsScaleContent : public VerifyTreeCalcsLayerTreeSettings {
- public:
-  LayerTreeSettingsScaleContent() {
-    layer_transforms_should_scale_layer_contents = true;
-  }
-};
-
 class LayerTreeHostCommonScalingTest : public LayerTreeHostCommonTestBase,
                                        public testing::Test {
  public:
   LayerTreeHostCommonScalingTest()
-      : LayerTreeHostCommonTestBase(LayerTreeSettingsScaleContent()) {}
+      : LayerTreeHostCommonTestBase(VerifyTreeCalcsLayerTreeSettings()) {}
 };
 
 class LayerTreeHostCommonDrawRectsTest : public LayerTreeHostCommonTest {
@@ -1323,7 +1319,7 @@ TEST_F(LayerTreeHostCommonTest, RenderSurfaceForNonAxisAlignedClipping) {
   EffectTree& effect_tree =
       root->layer_tree_impl()->property_trees()->effect_tree;
   EffectNode* node = effect_tree.Node(clips_subtree->effect_tree_index());
-  EXPECT_TRUE(node->has_render_surface);
+  EXPECT_TRUE(node->HasRenderSurface());
 }
 
 TEST_F(LayerTreeHostCommonTest, EffectNodesForNonAxisAlignedClips) {
@@ -1395,7 +1391,6 @@ TEST_F(LayerTreeHostCommonTest, RenderSurfaceListForTransparentChild) {
   RenderSurfaceList render_surface_list;
   LayerTreeHostCommon::CalcDrawPropsImplInputsForTesting inputs(
       root, root->bounds(), &render_surface_list);
-  inputs.can_adjust_raster_scales = true;
   LayerTreeHostCommon::CalculateDrawPropertiesForTesting(&inputs);
 
   // Since the layer is transparent, render_surface1->GetRenderSurface() should
@@ -1431,7 +1426,6 @@ TEST_F(LayerTreeHostCommonTest,
     RenderSurfaceList render_surface_list;
     LayerTreeHostCommon::CalcDrawPropsImplInputsForTesting inputs(
         root, root->bounds(), &render_surface_list);
-    inputs.can_adjust_raster_scales = true;
     LayerTreeHostCommon::CalculateDrawPropertiesForTesting(&inputs);
     EXPECT_EQ(2U, render_surface_list.size());
   }
@@ -1455,7 +1449,6 @@ TEST_F(LayerTreeHostCommonTest,
     RenderSurfaceList render_surface_list;
     LayerTreeHostCommon::CalcDrawPropsImplInputsForTesting inputs(
         root, root->bounds(), &render_surface_list);
-    inputs.can_adjust_raster_scales = true;
     LayerTreeHostCommon::CalculateDrawPropertiesForTesting(&inputs);
   }
 
@@ -1490,7 +1483,6 @@ TEST_F(LayerTreeHostCommonTest, RenderSurfaceListForFilter) {
   RenderSurfaceList render_surface_list;
   LayerTreeHostCommon::CalcDrawPropsImplInputsForTesting inputs(
       root, root->bounds(), &render_surface_list);
-  inputs.can_adjust_raster_scales = true;
   LayerTreeHostCommon::CalculateDrawPropertiesForTesting(&inputs);
 
   ASSERT_TRUE(GetRenderSurface(parent));
@@ -3846,7 +3838,7 @@ TEST_F(LayerTreeHostCommonTest, BackFaceCullingWithPreserves3d) {
   EXPECT_EQ(GetRenderSurface(front_facing_child), GetRenderSurface(root));
   EXPECT_EQ(GetRenderSurface(back_facing_child), GetRenderSurface(root));
   EXPECT_NE(GetRenderSurface(front_facing_surface), GetRenderSurface(root));
-  // We expect that a has_render_surface was created but not used.
+  // We expect that a render surface was created but not used.
   EXPECT_NE(GetRenderSurface(back_facing_surface), GetRenderSurface(root));
   EXPECT_NE(GetRenderSurface(back_facing_surface),
             GetRenderSurface(front_facing_surface));
@@ -4430,7 +4422,6 @@ TEST_F(LayerTreeHostCommonTest, OpacityAnimatingOnPendingTree) {
   RenderSurfaceList render_surface_list;
   LayerTreeHostCommon::CalcDrawPropsImplInputsForTesting inputs(
       root_layer, root_layer->bounds(), &render_surface_list);
-  inputs.can_adjust_raster_scales = true;
   LayerTreeHostCommon::CalculateDrawPropertiesForTesting(&inputs);
 
   // We should have one render surface and two layers. The child
@@ -4445,7 +4436,6 @@ TEST_F(LayerTreeHostCommonTest, OpacityAnimatingOnPendingTree) {
   RenderSurfaceList render_surface_list2;
   LayerTreeHostCommon::CalcDrawPropsImplInputsForTesting inputs2(
       root_layer, root_layer->bounds(), &render_surface_list2);
-  inputs2.can_adjust_raster_scales = true;
   LayerTreeHostCommon::CalculateDrawPropertiesForTesting(&inputs2);
 
   LayerImpl* child_ptr = root_layer->layer_tree_impl()->LayerById(2);
@@ -4462,7 +4452,6 @@ TEST_F(LayerTreeHostCommonTest, OpacityAnimatingOnPendingTree) {
   RenderSurfaceList render_surface_list3;
   LayerTreeHostCommon::CalcDrawPropsImplInputsForTesting inputs3(
       root_layer, root_layer->bounds(), &render_surface_list3);
-  inputs3.can_adjust_raster_scales = true;
   LayerTreeHostCommon::CalculateDrawPropertiesForTesting(&inputs3);
 
   child_ptr = root_layer->layer_tree_impl()->LayerById(2);
@@ -4654,6 +4643,13 @@ TEST_P(LCDTextTest, CanUseLCDText) {
   EXPECT_EQ(expect_lcd_text, root_->CanUseLCDText());
   EXPECT_EQ(expect_lcd_text, child_->CanUseLCDText());
   EXPECT_EQ(expect_lcd_text, grand_child_->CanUseLCDText());
+
+  // Case 11: will-change: transform
+  child_->SetHasWillChangeTransformHint(true);
+  ExecuteCalculateDrawProperties(root_, 1.f, 1.f, nullptr, nullptr, nullptr);
+  EXPECT_EQ(expect_lcd_text, root_->CanUseLCDText());
+  EXPECT_EQ(expect_not_lcd_text, child_->CanUseLCDText());
+  EXPECT_EQ(expect_lcd_text, grand_child_->CanUseLCDText());
 }
 
 TEST_P(LCDTextTest, CanUseLCDTextWithAnimation) {
@@ -4703,11 +4699,11 @@ TEST_P(LCDTextTest, CanUseLCDTextWithAnimationContentsOpaque) {
   EXPECT_EQ(expect_lcd_text, grand_child_->CanUseLCDText());
 }
 
-INSTANTIATE_TEST_CASE_P(LayerTreeHostCommonTest,
-                        LCDTextTest,
-                        testing::Combine(testing::Bool(),
-                                         testing::Bool(),
-                                         testing::Bool()));
+INSTANTIATE_TEST_SUITE_P(LayerTreeHostCommonTest,
+                         LCDTextTest,
+                         testing::Combine(testing::Bool(),
+                                          testing::Bool(),
+                                          testing::Bool()));
 
 TEST_F(LayerTreeHostCommonTest, SubtreeHidden_SingleLayerImpl) {
   FakeImplTaskRunnerProvider task_runner_provider;
@@ -4741,7 +4737,6 @@ TEST_F(LayerTreeHostCommonTest, SubtreeHidden_SingleLayerImpl) {
   RenderSurfaceList render_surface_list;
   LayerTreeHostCommon::CalcDrawPropsImplInputsForTesting inputs(
       root_layer, root_layer->bounds(), &render_surface_list);
-  inputs.can_adjust_raster_scales = true;
   LayerTreeHostCommon::CalculateDrawPropertiesForTesting(&inputs);
 
   // We should have one render surface and two layers. The grand child has
@@ -4785,7 +4780,6 @@ TEST_F(LayerTreeHostCommonTest, SubtreeHidden_TwoLayersImpl) {
   RenderSurfaceList render_surface_list;
   LayerTreeHostCommon::CalcDrawPropsImplInputsForTesting inputs(
       root_layer, root_layer->bounds(), &render_surface_list);
-  inputs.can_adjust_raster_scales = true;
   LayerTreeHostCommon::CalculateDrawPropertiesForTesting(&inputs);
 
   // We should have one render surface and one layer. The child has
@@ -4881,7 +4875,6 @@ TEST_F(LayerTreeHostCommonTest, SubtreeHiddenWithCopyRequest) {
   RenderSurfaceList render_surface_list;
   LayerTreeHostCommon::CalcDrawPropsImplInputsForTesting inputs(
       root_layer, root_layer->bounds(), &render_surface_list);
-  inputs.can_adjust_raster_scales = true;
   LayerTreeHostCommon::CalculateDrawPropertiesForTesting(&inputs);
 
   auto& effect_tree =
@@ -4989,7 +4982,6 @@ TEST_F(LayerTreeHostCommonTest, ClippedOutCopyRequest) {
   root_layer->layer_tree_impl()->SetRootLayerForTesting(std::move(root));
   LayerTreeHostCommon::CalcDrawPropsImplInputsForTesting inputs(
       root_layer, root_layer->bounds(), &render_surface_list);
-  inputs.can_adjust_raster_scales = true;
   LayerTreeHostCommon::CalculateDrawPropertiesForTesting(&inputs);
 
   // We should have two render surface, as the others are clipped out.
@@ -6429,7 +6421,7 @@ TEST_F(LayerTreeHostCommonTest, StickyPositionSubpixelScroll) {
   sticky_position.is_sticky = true;
   sticky_position.is_anchored_bottom = true;
   sticky_position.bottom_offset = 10.0f;
-  sticky_position.constraint_box_rect = gfx::RectF(0, 0, 100, 100);
+  sticky_position.constraint_box_rect = gfx::Rect(0, 0, 100, 100);
   sticky_position.scroll_container_relative_sticky_box_rect =
       gfx::Rect(0, 200, 10, 10);
   sticky_position.scroll_container_relative_containing_block_rect =
@@ -6476,7 +6468,7 @@ TEST_F(LayerTreeHostCommonTest, StickyPositionBottom) {
   sticky_position.is_sticky = true;
   sticky_position.is_anchored_bottom = true;
   sticky_position.bottom_offset = 10.0f;
-  sticky_position.constraint_box_rect = gfx::RectF(0, 0, 100, 100);
+  sticky_position.constraint_box_rect = gfx::Rect(0, 0, 100, 100);
   sticky_position.scroll_container_relative_sticky_box_rect =
       gfx::Rect(0, 150, 10, 10);
   sticky_position.scroll_container_relative_containing_block_rect =
@@ -6546,7 +6538,7 @@ TEST_F(LayerTreeHostCommonTest, StickyPositionBottomOuterViewportDelta) {
   outer_viewport->AddChild(sticky_pos);
   host()->SetRootLayer(root);
   scroller->SetElementId(LayerIdToElementIdForTesting(scroller->id()));
-  LayerTreeHost::ViewportLayers viewport_layers;
+  ViewportLayers viewport_layers;
   viewport_layers.page_scale = page_scale;
   viewport_layers.inner_viewport_container = root;
   viewport_layers.outer_viewport_container = outer_clip;
@@ -6558,7 +6550,7 @@ TEST_F(LayerTreeHostCommonTest, StickyPositionBottomOuterViewportDelta) {
   sticky_position.is_sticky = true;
   sticky_position.is_anchored_bottom = true;
   sticky_position.bottom_offset = 10.0f;
-  sticky_position.constraint_box_rect = gfx::RectF(0, 0, 100, 100);
+  sticky_position.constraint_box_rect = gfx::Rect(0, 0, 100, 100);
   sticky_position.scroll_container_relative_sticky_box_rect =
       gfx::Rect(0, 70, 10, 10);
   sticky_position.scroll_container_relative_containing_block_rect =
@@ -6637,7 +6629,7 @@ TEST_F(LayerTreeHostCommonTest, StickyPositionLeftRight) {
   sticky_position.is_anchored_right = true;
   sticky_position.left_offset = 10.f;
   sticky_position.right_offset = 10.f;
-  sticky_position.constraint_box_rect = gfx::RectF(0, 0, 100, 100);
+  sticky_position.constraint_box_rect = gfx::Rect(0, 0, 100, 100);
   sticky_position.scroll_container_relative_sticky_box_rect =
       gfx::Rect(145, 0, 10, 10);
   sticky_position.scroll_container_relative_containing_block_rect =
@@ -7290,7 +7282,6 @@ TEST_F(LayerTreeHostCommonTest, MaximumAnimationScaleFactor) {
   FakeImplTaskRunnerProvider task_runner_provider;
   TestTaskGraphRunner task_graph_runner;
   LayerTreeSettings settings = host()->GetSettings();
-  settings.layer_transforms_should_scale_layer_contents = true;
   FakeLayerTreeHostImpl host_impl(settings, &task_runner_provider,
                                   &task_graph_runner);
   std::unique_ptr<AnimationScaleFactorTrackingLayerImpl> grand_parent =
@@ -7320,15 +7311,15 @@ TEST_F(LayerTreeHostCommonTest, MaximumAnimationScaleFactor) {
   ExecuteCalculateDrawProperties(grand_parent_raw);
 
   // No layers have animations.
-  EXPECT_EQ(0.f, GetMaximumAnimationScale(grand_parent_raw));
-  EXPECT_EQ(0.f, GetMaximumAnimationScale(parent_raw));
-  EXPECT_EQ(0.f, GetMaximumAnimationScale(child_raw));
-  EXPECT_EQ(0.f, GetMaximumAnimationScale(grand_child_raw));
+  EXPECT_EQ(kNotScaled, GetMaximumAnimationScale(grand_parent_raw));
+  EXPECT_EQ(kNotScaled, GetMaximumAnimationScale(parent_raw));
+  EXPECT_EQ(kNotScaled, GetMaximumAnimationScale(child_raw));
+  EXPECT_EQ(kNotScaled, GetMaximumAnimationScale(grand_child_raw));
 
-  EXPECT_EQ(0.f, GetStartingAnimationScale(grand_parent_raw));
-  EXPECT_EQ(0.f, GetStartingAnimationScale(parent_raw));
-  EXPECT_EQ(0.f, GetStartingAnimationScale(child_raw));
-  EXPECT_EQ(0.f, GetStartingAnimationScale(grand_child_raw));
+  EXPECT_EQ(kNotScaled, GetStartingAnimationScale(grand_parent_raw));
+  EXPECT_EQ(kNotScaled, GetStartingAnimationScale(parent_raw));
+  EXPECT_EQ(kNotScaled, GetStartingAnimationScale(child_raw));
+  EXPECT_EQ(kNotScaled, GetStartingAnimationScale(grand_child_raw));
 
   TransformOperations translation;
   translation.AppendTranslate(1.f, 2.f, 3.f);
@@ -7367,15 +7358,15 @@ TEST_F(LayerTreeHostCommonTest, MaximumAnimationScaleFactor) {
                                   TransformOperations(), translation);
 
   // No layers have scale-affecting animations.
-  EXPECT_EQ(0.f, GetMaximumAnimationScale(grand_parent_raw));
-  EXPECT_EQ(0.f, GetMaximumAnimationScale(parent_raw));
-  EXPECT_EQ(0.f, GetMaximumAnimationScale(child_raw));
-  EXPECT_EQ(0.f, GetMaximumAnimationScale(grand_child_raw));
+  EXPECT_EQ(kNotScaled, GetMaximumAnimationScale(grand_parent_raw));
+  EXPECT_EQ(kNotScaled, GetMaximumAnimationScale(parent_raw));
+  EXPECT_EQ(kNotScaled, GetMaximumAnimationScale(child_raw));
+  EXPECT_EQ(kNotScaled, GetMaximumAnimationScale(grand_child_raw));
 
-  EXPECT_EQ(0.f, GetStartingAnimationScale(grand_parent_raw));
-  EXPECT_EQ(0.f, GetStartingAnimationScale(parent_raw));
-  EXPECT_EQ(0.f, GetStartingAnimationScale(child_raw));
-  EXPECT_EQ(0.f, GetStartingAnimationScale(grand_child_raw));
+  EXPECT_EQ(kNotScaled, GetStartingAnimationScale(grand_parent_raw));
+  EXPECT_EQ(kNotScaled, GetStartingAnimationScale(parent_raw));
+  EXPECT_EQ(kNotScaled, GetStartingAnimationScale(child_raw));
+  EXPECT_EQ(kNotScaled, GetStartingAnimationScale(grand_child_raw));
 
   TransformOperations scale;
   scale.AppendScale(5.f, 4.f, 3.f);
@@ -7386,13 +7377,13 @@ TEST_F(LayerTreeHostCommonTest, MaximumAnimationScaleFactor) {
   ExecuteCalculateDrawProperties(grand_parent_raw);
 
   // Only |child| has a scale-affecting animation.
-  EXPECT_EQ(0.f, GetMaximumAnimationScale(grand_parent_raw));
-  EXPECT_EQ(0.f, GetMaximumAnimationScale(parent_raw));
+  EXPECT_EQ(kNotScaled, GetMaximumAnimationScale(grand_parent_raw));
+  EXPECT_EQ(kNotScaled, GetMaximumAnimationScale(parent_raw));
   EXPECT_EQ(5.f, GetMaximumAnimationScale(child_raw));
   EXPECT_EQ(5.f, GetMaximumAnimationScale(grand_child_raw));
 
-  EXPECT_EQ(0.f, GetStartingAnimationScale(grand_parent_raw));
-  EXPECT_EQ(0.f, GetStartingAnimationScale(parent_raw));
+  EXPECT_EQ(kNotScaled, GetStartingAnimationScale(grand_parent_raw));
+  EXPECT_EQ(kNotScaled, GetStartingAnimationScale(parent_raw));
   EXPECT_EQ(1.f, GetStartingAnimationScale(child_raw));
   EXPECT_EQ(1.f, GetStartingAnimationScale(grand_child_raw));
 
@@ -7406,13 +7397,13 @@ TEST_F(LayerTreeHostCommonTest, MaximumAnimationScaleFactor) {
   EXPECT_EQ(5.f, GetMaximumAnimationScale(parent_raw));
   // We don't support combining animated scales from two nodes; 0.f means
   // that the maximum scale could not be computed.
-  EXPECT_EQ(0.f, GetMaximumAnimationScale(child_raw));
-  EXPECT_EQ(0.f, GetMaximumAnimationScale(grand_child_raw));
+  EXPECT_EQ(kNotScaled, GetMaximumAnimationScale(child_raw));
+  EXPECT_EQ(kNotScaled, GetMaximumAnimationScale(grand_child_raw));
 
   EXPECT_EQ(1.f, GetStartingAnimationScale(grand_parent_raw));
   EXPECT_EQ(1.f, GetStartingAnimationScale(parent_raw));
-  EXPECT_EQ(0.f, GetStartingAnimationScale(child_raw));
-  EXPECT_EQ(0.f, GetStartingAnimationScale(grand_child_raw));
+  EXPECT_EQ(kNotScaled, GetStartingAnimationScale(child_raw));
+  EXPECT_EQ(kNotScaled, GetStartingAnimationScale(grand_child_raw));
 
   AddAnimatedTransformToAnimation(parent_animation.get(), 1.0,
                                   TransformOperations(), scale);
@@ -7421,14 +7412,14 @@ TEST_F(LayerTreeHostCommonTest, MaximumAnimationScaleFactor) {
 
   // |grand_parent|, |parent|, and |child| have scale-affecting animations.
   EXPECT_EQ(5.f, GetMaximumAnimationScale(grand_parent_raw));
-  EXPECT_EQ(0.f, GetMaximumAnimationScale(parent_raw));
-  EXPECT_EQ(0.f, GetMaximumAnimationScale(child_raw));
-  EXPECT_EQ(0.f, GetMaximumAnimationScale(grand_child_raw));
+  EXPECT_EQ(kNotScaled, GetMaximumAnimationScale(parent_raw));
+  EXPECT_EQ(kNotScaled, GetMaximumAnimationScale(child_raw));
+  EXPECT_EQ(kNotScaled, GetMaximumAnimationScale(grand_child_raw));
 
   EXPECT_EQ(1.f, GetStartingAnimationScale(grand_parent_raw));
-  EXPECT_EQ(0.f, GetStartingAnimationScale(parent_raw));
-  EXPECT_EQ(0.f, GetStartingAnimationScale(child_raw));
-  EXPECT_EQ(0.f, GetStartingAnimationScale(grand_child_raw));
+  EXPECT_EQ(kNotScaled, GetStartingAnimationScale(parent_raw));
+  EXPECT_EQ(kNotScaled, GetStartingAnimationScale(child_raw));
+  EXPECT_EQ(kNotScaled, GetStartingAnimationScale(grand_child_raw));
 
   grand_parent_animation->AbortKeyframeModelsWithProperty(
       TargetProperty::TRANSFORM, false);
@@ -7447,15 +7438,15 @@ TEST_F(LayerTreeHostCommonTest, MaximumAnimationScaleFactor) {
 
   // |child| has a scale-affecting animation but computing the maximum of this
   // animation is not supported.
-  EXPECT_EQ(0.f, GetMaximumAnimationScale(grand_parent_raw));
-  EXPECT_EQ(0.f, GetMaximumAnimationScale(parent_raw));
-  EXPECT_EQ(0.f, GetMaximumAnimationScale(child_raw));
-  EXPECT_EQ(0.f, GetMaximumAnimationScale(grand_child_raw));
+  EXPECT_EQ(kNotScaled, GetMaximumAnimationScale(grand_parent_raw));
+  EXPECT_EQ(kNotScaled, GetMaximumAnimationScale(parent_raw));
+  EXPECT_EQ(kNotScaled, GetMaximumAnimationScale(child_raw));
+  EXPECT_EQ(kNotScaled, GetMaximumAnimationScale(grand_child_raw));
 
-  EXPECT_EQ(0.f, GetStartingAnimationScale(grand_parent_raw));
-  EXPECT_EQ(0.f, GetStartingAnimationScale(parent_raw));
-  EXPECT_EQ(0.f, GetStartingAnimationScale(child_raw));
-  EXPECT_EQ(0.f, GetStartingAnimationScale(grand_child_raw));
+  EXPECT_EQ(kNotScaled, GetStartingAnimationScale(grand_parent_raw));
+  EXPECT_EQ(kNotScaled, GetStartingAnimationScale(parent_raw));
+  EXPECT_EQ(kNotScaled, GetStartingAnimationScale(child_raw));
+  EXPECT_EQ(kNotScaled, GetStartingAnimationScale(grand_child_raw));
 
   child_animation->AbortKeyframeModelsWithProperty(TargetProperty::TRANSFORM,
                                                    false);
@@ -7472,12 +7463,12 @@ TEST_F(LayerTreeHostCommonTest, MaximumAnimationScaleFactor) {
 
   // |grand_parent| and |parent| each have scale 2.f. |parent| has a  scale
   // animation with maximum scale 5.f.
-  EXPECT_EQ(0.f, GetMaximumAnimationScale(grand_parent_raw));
+  EXPECT_EQ(kNotScaled, GetMaximumAnimationScale(grand_parent_raw));
   EXPECT_EQ(10.f, GetMaximumAnimationScale(parent_raw));
   EXPECT_EQ(10.f, GetMaximumAnimationScale(child_raw));
   EXPECT_EQ(10.f, GetMaximumAnimationScale(grand_child_raw));
 
-  EXPECT_EQ(0.f, GetStartingAnimationScale(grand_parent_raw));
+  EXPECT_EQ(kNotScaled, GetStartingAnimationScale(grand_parent_raw));
   EXPECT_EQ(2.f, GetStartingAnimationScale(parent_raw));
   EXPECT_EQ(2.f, GetStartingAnimationScale(child_raw));
   EXPECT_EQ(2.f, GetStartingAnimationScale(grand_child_raw));
@@ -7489,15 +7480,15 @@ TEST_F(LayerTreeHostCommonTest, MaximumAnimationScaleFactor) {
   ExecuteCalculateDrawProperties(grand_parent_raw);
 
   // |child| has a transform that's neither a translation nor a scale.
-  EXPECT_EQ(0.f, GetMaximumAnimationScale(grand_parent_raw));
+  EXPECT_EQ(kNotScaled, GetMaximumAnimationScale(grand_parent_raw));
   EXPECT_EQ(10.f, GetMaximumAnimationScale(parent_raw));
-  EXPECT_EQ(0.f, GetMaximumAnimationScale(child_raw));
-  EXPECT_EQ(0.f, GetMaximumAnimationScale(grand_child_raw));
+  EXPECT_EQ(kNotScaled, GetMaximumAnimationScale(child_raw));
+  EXPECT_EQ(kNotScaled, GetMaximumAnimationScale(grand_child_raw));
 
-  EXPECT_EQ(0.f, GetStartingAnimationScale(grand_parent_raw));
+  EXPECT_EQ(kNotScaled, GetStartingAnimationScale(grand_parent_raw));
   EXPECT_EQ(2.f, GetStartingAnimationScale(parent_raw));
-  EXPECT_EQ(0.f, GetStartingAnimationScale(child_raw));
-  EXPECT_EQ(0.f, GetStartingAnimationScale(grand_child_raw));
+  EXPECT_EQ(kNotScaled, GetStartingAnimationScale(child_raw));
+  EXPECT_EQ(kNotScaled, GetStartingAnimationScale(grand_child_raw));
 
   parent_raw->test_properties()->transform = perspective_matrix;
   grand_parent_raw->layer_tree_impl()->property_trees()->needs_rebuild = true;
@@ -7505,15 +7496,15 @@ TEST_F(LayerTreeHostCommonTest, MaximumAnimationScaleFactor) {
 
   // |parent| and |child| have transforms that are neither translations nor
   // scales.
-  EXPECT_EQ(0.f, GetMaximumAnimationScale(grand_parent_raw));
-  EXPECT_EQ(0.f, GetMaximumAnimationScale(parent_raw));
-  EXPECT_EQ(0.f, GetMaximumAnimationScale(child_raw));
-  EXPECT_EQ(0.f, GetMaximumAnimationScale(grand_child_raw));
+  EXPECT_EQ(kNotScaled, GetMaximumAnimationScale(grand_parent_raw));
+  EXPECT_EQ(kNotScaled, GetMaximumAnimationScale(parent_raw));
+  EXPECT_EQ(kNotScaled, GetMaximumAnimationScale(child_raw));
+  EXPECT_EQ(kNotScaled, GetMaximumAnimationScale(grand_child_raw));
 
-  EXPECT_EQ(0.f, GetStartingAnimationScale(grand_parent_raw));
-  EXPECT_EQ(0.f, GetStartingAnimationScale(parent_raw));
-  EXPECT_EQ(0.f, GetStartingAnimationScale(child_raw));
-  EXPECT_EQ(0.f, GetStartingAnimationScale(grand_child_raw));
+  EXPECT_EQ(kNotScaled, GetStartingAnimationScale(grand_parent_raw));
+  EXPECT_EQ(kNotScaled, GetStartingAnimationScale(parent_raw));
+  EXPECT_EQ(kNotScaled, GetStartingAnimationScale(child_raw));
+  EXPECT_EQ(kNotScaled, GetStartingAnimationScale(grand_child_raw));
 
   parent_raw->test_properties()->transform = gfx::Transform();
   child_raw->test_properties()->transform = gfx::Transform();
@@ -7523,15 +7514,15 @@ TEST_F(LayerTreeHostCommonTest, MaximumAnimationScaleFactor) {
   ExecuteCalculateDrawProperties(grand_parent_raw);
 
   // |grand_parent| has a transform that's neither a translation nor a scale.
-  EXPECT_EQ(0.f, GetMaximumAnimationScale(grand_parent_raw));
-  EXPECT_EQ(0.f, GetMaximumAnimationScale(parent_raw));
-  EXPECT_EQ(0.f, GetMaximumAnimationScale(child_raw));
-  EXPECT_EQ(0.f, GetMaximumAnimationScale(grand_child_raw));
+  EXPECT_EQ(kNotScaled, GetMaximumAnimationScale(grand_parent_raw));
+  EXPECT_EQ(kNotScaled, GetMaximumAnimationScale(parent_raw));
+  EXPECT_EQ(kNotScaled, GetMaximumAnimationScale(child_raw));
+  EXPECT_EQ(kNotScaled, GetMaximumAnimationScale(grand_child_raw));
 
-  EXPECT_EQ(0.f, GetStartingAnimationScale(grand_parent_raw));
-  EXPECT_EQ(0.f, GetStartingAnimationScale(parent_raw));
-  EXPECT_EQ(0.f, GetStartingAnimationScale(child_raw));
-  EXPECT_EQ(0.f, GetStartingAnimationScale(grand_child_raw));
+  EXPECT_EQ(kNotScaled, GetStartingAnimationScale(grand_parent_raw));
+  EXPECT_EQ(kNotScaled, GetStartingAnimationScale(parent_raw));
+  EXPECT_EQ(kNotScaled, GetStartingAnimationScale(child_raw));
+  EXPECT_EQ(kNotScaled, GetStartingAnimationScale(grand_child_raw));
 }
 
 static void GatherDrawnLayers(LayerTreeImpl* tree_impl,
@@ -7777,7 +7768,6 @@ TEST_F(LayerTreeHostCommonTest, DrawPropertyScales) {
   FakeImplTaskRunnerProvider task_runner_provider;
   TestTaskGraphRunner task_graph_runner;
   LayerTreeSettings settings = host()->GetSettings();
-  settings.layer_transforms_should_scale_layer_contents = true;
   FakeLayerTreeHostImpl host_impl(settings, &task_runner_provider,
                                   &task_graph_runner);
 
@@ -7834,8 +7824,8 @@ TEST_F(LayerTreeHostCommonTest, DrawPropertyScales) {
       child1_layer->test_properties()->mask_layer->GetIdealContentsScale());
   EXPECT_FLOAT_EQ(5.f, child2_layer->GetIdealContentsScale());
 
-  EXPECT_FLOAT_EQ(0.f, GetMaximumAnimationScale(root_layer));
-  EXPECT_FLOAT_EQ(0.f, GetMaximumAnimationScale(child1_layer));
+  EXPECT_FLOAT_EQ(kNotScaled, GetMaximumAnimationScale(root_layer));
+  EXPECT_FLOAT_EQ(kNotScaled, GetMaximumAnimationScale(child1_layer));
   EXPECT_FLOAT_EQ(8.f, GetMaximumAnimationScale(child2_layer));
 
   // Changing page-scale would affect ideal_contents_scale and
@@ -7851,7 +7841,6 @@ TEST_F(LayerTreeHostCommonTest, DrawPropertyScales) {
       root_layer, device_viewport_size, &render_surface_list);
 
   inputs.page_scale_factor = page_scale_factor;
-  inputs.can_adjust_raster_scales = true;
   inputs.page_scale_layer = root_layer;
   inputs.page_scale_transform_node = inputs.property_trees->transform_tree.Node(
       inputs.page_scale_layer->transform_tree_index());
@@ -7864,8 +7853,8 @@ TEST_F(LayerTreeHostCommonTest, DrawPropertyScales) {
       child1_layer->test_properties()->mask_layer->GetIdealContentsScale());
   EXPECT_FLOAT_EQ(15.f, child2_layer->GetIdealContentsScale());
 
-  EXPECT_FLOAT_EQ(0.f, GetMaximumAnimationScale(root_layer));
-  EXPECT_FLOAT_EQ(0.f, GetMaximumAnimationScale(child1_layer));
+  EXPECT_FLOAT_EQ(kNotScaled, GetMaximumAnimationScale(root_layer));
+  EXPECT_FLOAT_EQ(kNotScaled, GetMaximumAnimationScale(child1_layer));
   EXPECT_FLOAT_EQ(24.f, GetMaximumAnimationScale(child2_layer));
 
   // Changing device-scale would affect ideal_contents_scale and
@@ -7873,7 +7862,6 @@ TEST_F(LayerTreeHostCommonTest, DrawPropertyScales) {
 
   device_scale_factor = 4.0f;
   inputs.device_scale_factor = device_scale_factor;
-  inputs.can_adjust_raster_scales = true;
   root_layer->layer_tree_impl()->property_trees()->needs_rebuild = true;
   LayerTreeHostCommon::CalculateDrawPropertiesForTesting(&inputs);
 
@@ -7884,8 +7872,8 @@ TEST_F(LayerTreeHostCommonTest, DrawPropertyScales) {
       child1_layer->test_properties()->mask_layer->GetIdealContentsScale());
   EXPECT_FLOAT_EQ(60.f, child2_layer->GetIdealContentsScale());
 
-  EXPECT_FLOAT_EQ(0.f, GetMaximumAnimationScale(root_layer));
-  EXPECT_FLOAT_EQ(0.f, GetMaximumAnimationScale(child1_layer));
+  EXPECT_FLOAT_EQ(kNotScaled, GetMaximumAnimationScale(root_layer));
+  EXPECT_FLOAT_EQ(kNotScaled, GetMaximumAnimationScale(child1_layer));
   EXPECT_FLOAT_EQ(96.f, GetMaximumAnimationScale(child2_layer));
 }
 
@@ -7893,7 +7881,6 @@ TEST_F(LayerTreeHostCommonTest, AnimationScales) {
   FakeImplTaskRunnerProvider task_runner_provider;
   TestTaskGraphRunner task_graph_runner;
   LayerTreeSettings settings = host()->GetSettings();
-  settings.layer_transforms_should_scale_layer_contents = true;
   FakeLayerTreeHostImpl host_impl(settings, &task_runner_provider,
                                   &task_graph_runner);
 
@@ -7937,12 +7924,12 @@ TEST_F(LayerTreeHostCommonTest, AnimationScales) {
   root_layer->layer_tree_impl()->property_trees()->needs_rebuild = true;
   ExecuteCalculateDrawProperties(root_layer);
 
-  EXPECT_FLOAT_EQ(0.f, GetMaximumAnimationScale(root_layer));
-  EXPECT_FLOAT_EQ(0.f, GetMaximumAnimationScale(child1_layer));
+  EXPECT_FLOAT_EQ(kNotScaled, GetMaximumAnimationScale(root_layer));
+  EXPECT_FLOAT_EQ(kNotScaled, GetMaximumAnimationScale(child1_layer));
   EXPECT_FLOAT_EQ(24.f, GetMaximumAnimationScale(child2_layer));
 
-  EXPECT_FLOAT_EQ(0.f, GetStartingAnimationScale(root_layer));
-  EXPECT_FLOAT_EQ(0.f, GetStartingAnimationScale(child1_layer));
+  EXPECT_FLOAT_EQ(kNotScaled, GetStartingAnimationScale(root_layer));
+  EXPECT_FLOAT_EQ(kNotScaled, GetStartingAnimationScale(child1_layer));
   EXPECT_FLOAT_EQ(3.f, GetStartingAnimationScale(child2_layer));
 
   // Correctly updates animation scale when layer property changes.
@@ -7959,56 +7946,6 @@ TEST_F(LayerTreeHostCommonTest, AnimationScales) {
       child2_layer->transform_tree_index(), 100.f, 100.f);
   EXPECT_FLOAT_EQ(100.f, GetMaximumAnimationScale(child2_layer));
   EXPECT_FLOAT_EQ(100.f, GetStartingAnimationScale(child2_layer));
-}
-
-TEST_F(LayerTreeHostCommonTest,
-       AnimationScaleWhenLayerTransformShouldNotScaleLayerBounds) {
-  // Returns empty scale if layer_transforms_should_scale_layer_contents is
-  // false.
-  FakeImplTaskRunnerProvider task_runner_provider;
-  TestTaskGraphRunner task_graph_runner;
-  LayerTreeSettings settings = host()->GetSettings();
-  settings.layer_transforms_should_scale_layer_contents = false;
-  FakeLayerTreeHostImpl host_impl(settings, &task_runner_provider,
-                                  &task_graph_runner);
-
-  std::unique_ptr<LayerImpl> root =
-      LayerImpl::Create(host_impl.active_tree(), 1);
-  LayerImpl* root_layer = root.get();
-  std::unique_ptr<LayerImpl> child =
-      LayerImpl::Create(host_impl.active_tree(), 2);
-  LayerImpl* child_layer = child.get();
-
-  root->test_properties()->AddChild(std::move(child));
-  host_impl.active_tree()->SetRootLayerForTesting(std::move(root));
-
-  host_impl.active_tree()->SetElementIdsForTesting();
-
-  gfx::Transform scale_transform_child;
-  scale_transform_child.Scale(4, 5);
-
-  root_layer->SetBounds(gfx::Size(1, 1));
-  child_layer->test_properties()->transform = scale_transform_child;
-  child_layer->SetBounds(gfx::Size(1, 1));
-
-  TransformOperations scale;
-  scale.AppendScale(5.f, 8.f, 3.f);
-
-  scoped_refptr<AnimationTimeline> timeline =
-      AnimationTimeline::Create(AnimationIdProvider::NextTimelineId());
-  host_impl.animation_host()->AddAnimationTimeline(timeline);
-
-  AddAnimatedTransformToElementWithAnimation(
-      child_layer->element_id(), timeline, 1.0, TransformOperations(), scale);
-
-  root_layer->layer_tree_impl()->property_trees()->needs_rebuild = true;
-  ExecuteCalculateDrawProperties(root_layer);
-
-  EXPECT_FLOAT_EQ(0.f, GetMaximumAnimationScale(root_layer));
-  EXPECT_FLOAT_EQ(0.f, GetMaximumAnimationScale(child_layer));
-
-  EXPECT_FLOAT_EQ(0.f, GetStartingAnimationScale(root_layer));
-  EXPECT_FLOAT_EQ(0.f, GetStartingAnimationScale(child_layer));
 }
 
 TEST_F(LayerTreeHostCommonTest, VisibleContentRectInChildRenderSurface) {
@@ -8115,7 +8052,7 @@ TEST_F(LayerTreeHostCommonTest, NodesAffectedByViewportBoundsDeltaGetUpdated) {
   outer_viewport_scroll_layer->SetIsResizedByBrowserControls(true);
 
   host()->SetRootLayer(root);
-  LayerTreeHost::ViewportLayers viewport_layers;
+  ViewportLayers viewport_layers;
   viewport_layers.page_scale = page_scale_layer;
   viewport_layers.inner_viewport_container = inner_viewport_container_layer;
   viewport_layers.outer_viewport_container = outer_viewport_container_layer;
@@ -8843,11 +8780,12 @@ TEST_F(LayerTreeHostCommonTest, SkippingLayerImpl) {
       KeyframeModel::Create(std::move(curve), 3, 3, TargetProperty::TRANSFORM));
   scoped_refptr<SingleKeyframeEffectAnimation> animation(
       SingleKeyframeEffectAnimation::Create(1));
-  timeline()->AttachAnimation(animation);
-  // TODO(smcgruer): Should attach a timeline and element rather than call this
-  // directly. See http://crbug.com/771316
-  host_impl.animation_host()->RegisterKeyframeEffectForElement(
-      root_ptr->element_id(), animation->keyframe_effect());
+  scoped_refptr<AnimationTimeline> timeline =
+      AnimationTimeline::Create(AnimationIdProvider::NextTimelineId());
+  host_impl.animation_host()->AddAnimationTimeline(timeline);
+  timeline->AttachAnimation(animation);
+  animation->AttachElementForKeyframeEffect(root_ptr->element_id(),
+                                            animation->keyframe_effect()->id());
   animation->AddKeyframeModel(std::move(transform_animation));
   grandchild_ptr->set_visible_layer_rect(gfx::Rect());
   root_ptr->test_properties()->transform = singular;
@@ -8855,31 +8793,15 @@ TEST_F(LayerTreeHostCommonTest, SkippingLayerImpl) {
   root_ptr->layer_tree_impl()->property_trees()->needs_rebuild = true;
   ExecuteCalculateDrawPropertiesAndSaveUpdateLayerList(root_ptr);
   EXPECT_EQ(gfx::Rect(0, 0), grandchild_ptr->visible_layer_rect());
-
-  host_impl.animation_host()->UnregisterKeyframeEffectForElement(
-      root_ptr->element_id(), animation->keyframe_effect());
-  host_impl.animation_host()->RemoveFromTicking(animation.get());
-  timeline()->DetachAnimation(animation);
 }
 
+// This tests for correctness of an optimization.  If a node in the tree
+// maps all possible spaces to a single point (ie has a singular transform)
+// we can ignore the size of all its children.  We need to make sure that
+// we don't do this if an animation can replace this transform in the
+// compositor without recomputing the trees.
 TEST_F(LayerTreeHostCommonTest, LayerSkippingInSubtreeOfSingularTransform) {
-  LayerImpl* root = root_layer_for_testing();
-  LayerImpl* child = AddChild<LayerImpl>(root);
-  LayerImpl* grand_child = AddChild<LayerImpl>(child);
-
-  SetElementIdsForTesting();
-
-  gfx::Transform singular;
-  singular.matrix().set(0, 0, 0);
-  singular.matrix().set(0, 1, 1);
-
-  root->SetBounds(gfx::Size(10, 10));
-  child->test_properties()->transform = singular;
-  child->SetBounds(gfx::Size(10, 10));
-  child->SetDrawsContent(true);
-  grand_child->SetBounds(gfx::Size(10, 10));
-  grand_child->SetDrawsContent(true);
-
+  // Set up a transform animation
   std::unique_ptr<KeyframedTransformAnimationCurve> curve(
       KeyframedTransformAnimationCurve::Create());
   TransformOperations start;
@@ -8896,23 +8818,72 @@ TEST_F(LayerTreeHostCommonTest, LayerSkippingInSubtreeOfSingularTransform) {
       KeyframeModel::Create(std::move(curve), 3, 3, TargetProperty::TRANSFORM));
   scoped_refptr<SingleKeyframeEffectAnimation> animation(
       SingleKeyframeEffectAnimation::Create(1));
-  timeline()->AttachAnimation(animation);
-  // TODO(smcgruer): Should attach a timeline and element rather than call this
-  // directly. See http://crbug.com/771316
-  host_impl()->animation_host()->RegisterKeyframeEffectForElement(
-      grand_child->element_id(), animation->keyframe_effect());
+  timeline_impl()->AttachAnimation(animation);
   animation->AddKeyframeModel(std::move(transform_animation));
 
-  ExecuteCalculateDrawProperties(root);
-  EXPECT_EQ(gfx::Rect(0, 0), grand_child->visible_layer_rect());
-  EXPECT_EQ(gfx::Rect(0, 0), child->visible_layer_rect());
+  // Set up some layers to have a tree.
+  LayerImpl* root = root_layer_for_testing();
+  LayerImpl* child = AddChild<LayerImpl>(root);
+  LayerImpl* grand_child = AddChild<LayerImpl>(child);
 
-  host_impl()->animation_host()->UnregisterKeyframeEffectForElement(
-      grand_child->element_id(), animation->keyframe_effect());
-  host_impl()->animation_host()->RemoveFromTicking(animation.get());
-  timeline()->DetachAnimation(animation);
+  SetElementIdsForTesting();
+
+  // If these are not on the same host we are doomed to fail.
+  ASSERT_EQ(timeline_impl()->animation_host(),
+            child->layer_tree_impl()->mutator_host());
+
+  // A non-invertible matrix for use later.
+  gfx::Transform singular;
+  singular.matrix().set(0, 0, 0);
+  singular.matrix().set(0, 1, 1);
+
+  root->SetBounds(gfx::Size(10, 10));
+  child->SetBounds(gfx::Size(10, 10));
+  child->SetDrawsContent(true);
+  grand_child->SetBounds(gfx::Size(10, 10));
+  grand_child->SetDrawsContent(true);
+
+  // Check that we set the visible sizes as expected in CalculateDrawProperties
+  grand_child->set_visible_layer_rect(gfx::Rect());
+  child->set_visible_layer_rect(gfx::Rect());
+  ExecuteCalculateDrawProperties(root);
+  ASSERT_EQ(gfx::Rect(10, 10), grand_child->visible_layer_rect());
+  ASSERT_EQ(gfx::Rect(10, 10), child->visible_layer_rect());
+
+  // See if we optimize out irrelevant pieces of work.
+  child->test_properties()->transform = singular;
+  grand_child->set_visible_layer_rect(gfx::Rect());
+  child->set_visible_layer_rect(gfx::Rect());
+  root->layer_tree_impl()->property_trees()->needs_rebuild = true;
+  ExecuteCalculateDrawProperties(root);
+  EXPECT_EQ(gfx::Rect(), grand_child->visible_layer_rect());
+  EXPECT_EQ(gfx::Rect(), child->visible_layer_rect());
+
+  // Check that undoing the transform is still valid (memoryless enough)
+  child->test_properties()->transform = gfx::Transform();
+  grand_child->set_visible_layer_rect(gfx::Rect());
+  child->set_visible_layer_rect(gfx::Rect());
+  root->layer_tree_impl()->property_trees()->needs_rebuild = true;
+  ExecuteCalculateDrawProperties(root);
+  ASSERT_EQ(gfx::Rect(10, 10), grand_child->visible_layer_rect());
+  ASSERT_EQ(gfx::Rect(10, 10), child->visible_layer_rect());
+
+  // If the transform is singular, but there is an animation on it, we
+  // should not skip the subtree.  Note that the animation has not started or
+  // ticked, there is also code along that path.  This is not its test.
+  animation->AttachElementForKeyframeEffect(child->element_id(),
+                                            animation->keyframe_effect()->id());
+  child->test_properties()->transform = singular;
+  grand_child->set_visible_layer_rect(gfx::Rect(1, 1));
+  child->set_visible_layer_rect(gfx::Rect(1, 1));
+  root->layer_tree_impl()->property_trees()->needs_rebuild = true;
+  ExecuteCalculateDrawProperties(root);
+  EXPECT_EQ(gfx::Rect(10, 10), grand_child->visible_layer_rect());
+  EXPECT_EQ(gfx::Rect(10, 10), child->visible_layer_rect());
 }
 
+// This tests that we skip computing the visible areas for the subtree
+// rooted at nodes with constant zero opacity.
 TEST_F(LayerTreeHostCommonTest, SkippingPendingLayerImpl) {
   FakeImplTaskRunnerProvider task_runner_provider;
   TestTaskGraphRunner task_graph_runner;
@@ -8946,9 +8917,20 @@ TEST_F(LayerTreeHostCommonTest, SkippingPendingLayerImpl) {
   host_impl.pending_tree()->SetElementIdsForTesting();
 
   // Check the non-skipped case.
+  root_ptr->test_properties()->opacity = 1.f;
+  grandchild_ptr->set_visible_layer_rect(gfx::Rect());
+  root_ptr->layer_tree_impl()->property_trees()->needs_rebuild = true;
   ExecuteCalculateDrawPropertiesAndSaveUpdateLayerList(root_ptr);
-  EXPECT_EQ(gfx::Rect(10, 10), grandchild_ptr->visible_layer_rect());
+  ASSERT_EQ(gfx::Rect(10, 10), grandchild_ptr->visible_layer_rect());
 
+  // Check the skipped case.
+  root_ptr->test_properties()->opacity = 0.f;
+  grandchild_ptr->set_visible_layer_rect(gfx::Rect());
+  root_ptr->layer_tree_impl()->property_trees()->needs_rebuild = true;
+  ExecuteCalculateDrawPropertiesAndSaveUpdateLayerList(root_ptr);
+  EXPECT_EQ(gfx::Rect(), grandchild_ptr->visible_layer_rect());
+
+  // Check the animated case is not skipped.
   std::unique_ptr<KeyframedFloatAnimationCurve> curve(
       KeyframedFloatAnimationCurve::Create());
   std::unique_ptr<TimingFunction> func =
@@ -8962,22 +8944,18 @@ TEST_F(LayerTreeHostCommonTest, SkippingPendingLayerImpl) {
       KeyframeModel::Create(std::move(curve), 3, 3, TargetProperty::OPACITY));
   scoped_refptr<SingleKeyframeEffectAnimation> animation(
       SingleKeyframeEffectAnimation::Create(1));
-  timeline()->AttachAnimation(animation);
-  // TODO(smcgruer): Should attach a timeline and element rather than call this
-  // directly. See http://crbug.com/771316
-  host_impl.animation_host()->RegisterKeyframeEffectForElement(
-      root_ptr->element_id(), animation->keyframe_effect());
+  scoped_refptr<AnimationTimeline> timeline =
+      AnimationTimeline::Create(AnimationIdProvider::NextTimelineId());
+  host_impl.animation_host()->AddAnimationTimeline(timeline);
+  timeline->AttachAnimation(animation);
   animation->AddKeyframeModel(std::move(keyframe_model));
-  root_ptr->test_properties()->opacity = 0.f;
+  animation->AttachElementForKeyframeEffect(root_ptr->element_id(),
+                                            animation->keyframe_effect()->id());
+  // Repeat the calculation invocation.
   grandchild_ptr->set_visible_layer_rect(gfx::Rect());
   root_ptr->layer_tree_impl()->property_trees()->needs_rebuild = true;
   ExecuteCalculateDrawPropertiesAndSaveUpdateLayerList(root_ptr);
   EXPECT_EQ(gfx::Rect(10, 10), grandchild_ptr->visible_layer_rect());
-
-  host_impl.animation_host()->UnregisterKeyframeEffectForElement(
-      root_ptr->element_id(), animation->keyframe_effect());
-  host_impl.animation_host()->RemoveFromTicking(animation.get());
-  timeline()->DetachAnimation(animation);
 }
 
 TEST_F(LayerTreeHostCommonTest, SkippingLayer) {
@@ -9735,7 +9713,7 @@ TEST_F(LayerTreeHostCommonTest, LargeTransformTest) {
 
   // The root layer should be in the RenderSurfaceList.
   const auto* rsl = render_surface_list_impl();
-  EXPECT_TRUE(base::ContainsValue(*rsl, GetRenderSurface(root)));
+  EXPECT_TRUE(base::Contains(*rsl, GetRenderSurface(root)));
 }
 
 TEST_F(LayerTreeHostCommonTest, PropertyTreesRebuildWithOpacityChanges) {
@@ -9977,7 +9955,7 @@ TEST_F(LayerTreeHostCommonTest, ScrollTreeBuilderTest) {
   parent5->SetNonFastScrollableRegion(gfx::Rect(0, 0, 50, 50));
   parent5->SetBounds(gfx::Size(10, 10));
 
-  LayerTreeHost::ViewportLayers viewport_layers;
+  ViewportLayers viewport_layers;
   viewport_layers.page_scale = page_scale_layer;
   viewport_layers.inner_viewport_container = root1;
   viewport_layers.inner_viewport_scroll = parent2;
@@ -10089,40 +10067,7 @@ TEST_F(LayerTreeHostCommonTest, ScrollTreeBuilderTest) {
   EXPECT_EQ(scroll_root1.id, grand_child12->scroll_tree_index());
 }
 
-TEST_F(LayerTreeHostCommonTest, CanAdjustRasterScaleTest) {
-  LayerImpl* root = root_layer_for_testing();
-  LayerImpl* render_surface = AddChild<LayerImpl>(root);
-  LayerImpl* child = AddChild<LayerImpl>(render_surface);
-
-  root->SetBounds(gfx::Size(50, 50));
-
-  render_surface->SetBounds(gfx::Size(10, 10));
-  render_surface->test_properties()->force_render_surface = true;
-  gfx::Transform transform;
-  transform.Scale(5.f, 5.f);
-  render_surface->test_properties()->transform = transform;
-
-  child->SetDrawsContent(true);
-  child->SetMasksToBounds(true);
-  child->SetBounds(gfx::Size(10, 10));
-
-  ExecuteCalculateDrawPropertiesWithoutAdjustingRasterScales(root);
-
-  // Check surface draw properties.
-  EXPECT_EQ(gfx::Rect(10, 10),
-            GetRenderSurface(render_surface)->content_rect());
-  EXPECT_EQ(transform, GetRenderSurface(render_surface)->draw_transform());
-  EXPECT_EQ(gfx::RectF(50.0f, 50.0f),
-            GetRenderSurface(render_surface)->DrawableContentRect());
-
-  // Check child layer draw properties.
-  EXPECT_EQ(gfx::Rect(10, 10), child->visible_layer_rect());
-  EXPECT_EQ(gfx::Transform(), child->DrawTransform());
-  EXPECT_EQ(gfx::Rect(10, 10), child->clip_rect());
-  EXPECT_EQ(gfx::Rect(10, 10), child->drawable_content_rect());
-}
-
-TEST_F(LayerTreeHostCommonTest, SurfaceContentsScaleChangeWithCopyRequestTest) {
+TEST_F(LayerTreeHostCommonTest, CopyRequestScalingTest) {
   LayerImpl* root = root_layer_for_testing();
   LayerImpl* scale_layer = AddChild<LayerImpl>(root);
   LayerImpl* copy_layer = AddChild<LayerImpl>(scale_layer);
@@ -10149,7 +10094,7 @@ TEST_F(LayerTreeHostCommonTest, SurfaceContentsScaleChangeWithCopyRequestTest) {
   test_layer->SetMasksToBounds(true);
   test_layer->SetBounds(gfx::Size(20, 20));
 
-  ExecuteCalculateDrawPropertiesWithoutAdjustingRasterScales(root);
+  ExecuteCalculateDrawProperties(root);
 
   // Check surface with copy request draw properties.
   EXPECT_EQ(gfx::Rect(50, 50), GetRenderSurface(copy_layer)->content_rect());
@@ -10165,19 +10110,7 @@ TEST_F(LayerTreeHostCommonTest, SurfaceContentsScaleChangeWithCopyRequestTest) {
 
   // Clear the copy request and call UpdateSurfaceContentsScale.
   host_impl()->active_tree()->property_trees()->effect_tree.ClearCopyRequests();
-  ExecuteCalculateDrawPropertiesWithoutAdjustingRasterScales(root);
-
-  // Check surface draw properties without copy request.
-  EXPECT_EQ(gfx::Rect(10, 10), GetRenderSurface(copy_layer)->content_rect());
-  EXPECT_EQ(transform, GetRenderSurface(copy_layer)->draw_transform());
-  EXPECT_EQ(gfx::RectF(50.0f, 50.0f),
-            GetRenderSurface(copy_layer)->DrawableContentRect());
-
-  // Check test layer draw properties without copy request.
-  EXPECT_EQ(gfx::Rect(10, 10), test_layer->visible_layer_rect());
-  EXPECT_EQ(gfx::Transform(), test_layer->DrawTransform());
-  EXPECT_EQ(gfx::Rect(10, 10), test_layer->clip_rect());
-  EXPECT_EQ(gfx::Rect(10, 10), test_layer->drawable_content_rect());
+  ExecuteCalculateDrawProperties(root);
 }
 
 TEST_F(LayerTreeHostCommonTest, SubtreeHiddenWithCacheRenderSurface) {
@@ -10262,7 +10195,6 @@ TEST_F(LayerTreeHostCommonTest, SubtreeHiddenWithCacheRenderSurface) {
   RenderSurfaceList render_surface_list;
   LayerTreeHostCommon::CalcDrawPropsImplInputsForTesting inputs(
       root_layer, root_layer->bounds(), &render_surface_list);
-  inputs.can_adjust_raster_scales = true;
   LayerTreeHostCommon::CalculateDrawPropertiesForTesting(&inputs);
 
   // We should have four render surfaces, one for the root, one for the grand
@@ -10487,7 +10419,6 @@ TEST_F(LayerTreeHostCommonTest, RenderSurfaceListForTrilinearFiltering) {
   RenderSurfaceList render_surface_list;
   LayerTreeHostCommon::CalcDrawPropsImplInputsForTesting inputs(
       root, root->bounds(), &render_surface_list);
-  inputs.can_adjust_raster_scales = true;
   LayerTreeHostCommon::CalculateDrawPropertiesForTesting(&inputs);
 
   ASSERT_TRUE(GetRenderSurface(parent));
@@ -10521,6 +10452,1330 @@ TEST_F(LayerTreeHostCommonTest, VisibleRectClippedByViewport) {
 
   EXPECT_EQ(viewport_visible_rect, root->visible_layer_rect());
   EXPECT_EQ(gfx::Rect(root_layer_size), root->drawable_content_rect());
+}
+
+TEST_F(LayerTreeHostCommonTest, RoundedCornerBounds) {
+  // Layer Tree:
+  // +root
+  // +--render surface
+  // +----rounded corner layer 1 [should trigger render surface]
+  // +----layer 1
+  // +--rounded corner layer 2 [should trigger render surface]
+  // +----layer 2
+  // +------rounded corner layer 3 [should trigger render surface]
+  // +--------rounded corner layer 4 [should trigger render surface]
+
+  constexpr int kRoundedCorner1Radius = 2;
+  constexpr int kRoundedCorner2Radius = 5;
+  constexpr int kRoundedCorner3Radius = 1;
+  constexpr int kRoundedCorner4Radius = 1;
+
+  constexpr gfx::RectF kRoundedCornerLayer1Bound(15.f, 15.f, 20.f, 20.f);
+  constexpr gfx::RectF kRoundedCornerLayer2Bound(40.f, 40.f, 60.f, 60.f);
+  constexpr gfx::RectF kRoundedCornerLayer3Bound(0.f, 15.f, 5.f, 5.f);
+  constexpr gfx::RectF kRoundedCornerLayer4Bound(1.f, 1.f, 3.f, 3.f);
+
+  constexpr float kDeviceScale = 1.6f;
+
+  scoped_refptr<Layer> root = Layer::Create();
+  scoped_refptr<Layer> render_surface = Layer::Create();
+  scoped_refptr<Layer> rounded_corner_layer_1 = Layer::Create();
+  scoped_refptr<Layer> layer_1 = Layer::Create();
+  scoped_refptr<Layer> rounded_corner_layer_2 = Layer::Create();
+  scoped_refptr<Layer> layer_2 = Layer::Create();
+  scoped_refptr<Layer> rounded_corner_layer_3 = Layer::Create();
+  scoped_refptr<Layer> rounded_corner_layer_4 = Layer::Create();
+
+  // Set up layer tree
+  root->AddChild(render_surface);
+  root->AddChild(rounded_corner_layer_2);
+
+  render_surface->AddChild(rounded_corner_layer_1);
+  render_surface->AddChild(layer_1);
+
+  rounded_corner_layer_2->AddChild(layer_2);
+
+  layer_2->AddChild(rounded_corner_layer_3);
+
+  rounded_corner_layer_3->AddChild(rounded_corner_layer_4);
+
+  // Set the root layer on host.
+  host()->SetRootLayer(root);
+
+  // Set layer positions.
+  render_surface->SetPosition(gfx::PointF(0, 0));
+  rounded_corner_layer_1->SetPosition(kRoundedCornerLayer1Bound.origin());
+  layer_1->SetPosition(gfx::PointF(10.f, 10.f));
+  rounded_corner_layer_2->SetPosition(kRoundedCornerLayer2Bound.origin());
+  layer_2->SetPosition(gfx::PointF(30.f, 30.f));
+  rounded_corner_layer_3->SetPosition(kRoundedCornerLayer3Bound.origin());
+  rounded_corner_layer_4->SetPosition(kRoundedCornerLayer4Bound.origin());
+
+  // Set up layer bounds.
+  root->SetBounds(gfx::Size(100, 100));
+  render_surface->SetBounds(gfx::Size(50, 50));
+  rounded_corner_layer_1->SetBounds(
+      gfx::ToRoundedSize(kRoundedCornerLayer1Bound.size()));
+  layer_1->SetBounds(gfx::Size(10, 10));
+  rounded_corner_layer_2->SetBounds(
+      gfx::ToRoundedSize(kRoundedCornerLayer2Bound.size()));
+  layer_2->SetBounds(gfx::Size(25, 25));
+  rounded_corner_layer_3->SetBounds(
+      gfx::ToRoundedSize(kRoundedCornerLayer3Bound.size()));
+  rounded_corner_layer_4->SetBounds(
+      gfx::ToRoundedSize(kRoundedCornerLayer4Bound.size()));
+
+  // Add Layer transforms.
+  gfx::Transform layer_2_transform;
+  constexpr gfx::Vector2dF kLayer2Translation(10.f, 10.f);
+  layer_2_transform.Translate(kLayer2Translation);
+  layer_2->SetTransform(layer_2_transform);
+
+  gfx::Transform rounded_corner_layer_3_transform;
+  constexpr float kRoundedCorner3Scale = 2.f;
+  rounded_corner_layer_3_transform.Scale(kRoundedCorner3Scale,
+                                         kRoundedCorner3Scale);
+  rounded_corner_layer_3->SetTransform(rounded_corner_layer_3_transform);
+
+  // Set the layer properties
+  render_surface->SetForceRenderSurfaceForTesting(true);
+
+  root->SetIsDrawable(true);
+  render_surface->SetIsDrawable(true);
+  rounded_corner_layer_1->SetIsDrawable(true);
+  layer_1->SetIsDrawable(true);
+  rounded_corner_layer_2->SetIsDrawable(true);
+  layer_2->SetIsDrawable(true);
+  rounded_corner_layer_3->SetIsDrawable(true);
+  rounded_corner_layer_4->SetIsDrawable(true);
+
+  // Set Rounded corners
+  rounded_corner_layer_1->SetRoundedCorner(
+      {kRoundedCorner1Radius, kRoundedCorner1Radius, kRoundedCorner1Radius,
+       kRoundedCorner1Radius});
+  rounded_corner_layer_2->SetRoundedCorner(
+      {kRoundedCorner2Radius, kRoundedCorner2Radius, kRoundedCorner2Radius,
+       kRoundedCorner2Radius});
+  rounded_corner_layer_3->SetRoundedCorner(
+      {kRoundedCorner3Radius, kRoundedCorner3Radius, kRoundedCorner3Radius,
+       kRoundedCorner3Radius});
+  rounded_corner_layer_4->SetRoundedCorner(
+      {kRoundedCorner4Radius, kRoundedCorner4Radius, kRoundedCorner4Radius,
+       kRoundedCorner4Radius});
+
+  ExecuteCalculateDrawProperties(root.get(), kDeviceScale);
+
+  const EffectTree& effect_tree =
+      root->layer_tree_host()->property_trees()->effect_tree;
+
+  // Since this effect node has no descendants that draw and no descendant that
+  // has a rounded corner, it does not need a render surface.
+  const EffectNode* effect_node =
+      effect_tree.Node(rounded_corner_layer_1->effect_tree_index());
+  gfx::RRectF rounded_corner_bounds_1 = effect_node->rounded_corner_bounds;
+  EXPECT_FALSE(effect_node->HasRenderSurface());
+  EXPECT_FLOAT_EQ(rounded_corner_bounds_1.GetSimpleRadius(),
+                  kRoundedCorner1Radius);
+  EXPECT_EQ(rounded_corner_bounds_1.rect(),
+            gfx::RectF(kRoundedCornerLayer1Bound.size()));
+
+  // Since this node has descendants with roudned corners, it needs a render
+  // surface. It also has 2 descendants that draw.
+  effect_node = effect_tree.Node(rounded_corner_layer_2->effect_tree_index());
+  gfx::RRectF rounded_corner_bounds_2 = effect_node->rounded_corner_bounds;
+  EXPECT_TRUE(effect_node->HasRenderSurface());
+  EXPECT_FLOAT_EQ(rounded_corner_bounds_2.GetSimpleRadius(),
+                  kRoundedCorner2Radius);
+  EXPECT_EQ(rounded_corner_bounds_2.rect(),
+            gfx::RectF(kRoundedCornerLayer2Bound.size()));
+
+  // Since this node has a descendant that has a rounded corner, it will trigger
+  // the creation of a render surface.
+  effect_node = effect_tree.Node(rounded_corner_layer_3->effect_tree_index());
+  gfx::RRectF rounded_corner_bounds_3 = effect_node->rounded_corner_bounds;
+  EXPECT_TRUE(effect_node->HasRenderSurface());
+  EXPECT_FLOAT_EQ(rounded_corner_bounds_3.GetSimpleRadius(),
+                  kRoundedCorner3Radius);
+  EXPECT_EQ(rounded_corner_bounds_3.rect(),
+            gfx::RectF(kRoundedCornerLayer3Bound.size()));
+
+  // Since this node has no descendants that draw nor any descendant that has a
+  // rounded corner, it does not need a render surface.
+  effect_node = effect_tree.Node(rounded_corner_layer_4->effect_tree_index());
+  gfx::RRectF rounded_corner_bounds_4 = effect_node->rounded_corner_bounds;
+  EXPECT_FALSE(effect_node->HasRenderSurface());
+  EXPECT_FLOAT_EQ(rounded_corner_bounds_4.GetSimpleRadius(),
+                  kRoundedCorner4Radius);
+  EXPECT_EQ(rounded_corner_bounds_4.rect(),
+            gfx::RectF(kRoundedCornerLayer4Bound.size()));
+
+  host()->host_impl()->CreatePendingTree();
+  host()->CommitAndCreatePendingTree();
+  // TODO(https://crbug.com/939968) This call should be handled by
+  // FakeLayerTreeHost instead of manually pushing the properties from the
+  // layer tree host to the pending tree.
+  root->layer_tree_host()->PushLayerTreePropertiesTo(host()->pending_tree());
+  host()->host_impl()->ActivateSyncTree();
+  LayerTreeImpl* layer_tree_impl = host()->host_impl()->active_tree();
+
+  // Get the layer impl for each Layer.
+  LayerImpl* root_impl = layer_tree_impl->LayerById(root->id());
+  LayerImpl* rounded_corner_layer_1_impl =
+      layer_tree_impl->LayerById(rounded_corner_layer_1->id());
+  LayerImpl* rounded_corner_layer_2_impl =
+      layer_tree_impl->LayerById(rounded_corner_layer_2->id());
+  LayerImpl* rounded_corner_layer_3_impl =
+      layer_tree_impl->LayerById(rounded_corner_layer_3->id());
+  LayerImpl* rounded_corner_layer_4_impl =
+      layer_tree_impl->LayerById(rounded_corner_layer_4->id());
+
+  // Set the root layer on host.
+  ExecuteCalculateDrawProperties(root_impl, kDeviceScale);
+
+  // Rounded corner layer 1
+  // The render target for this layer is |render_surface|, hence its target
+  // bounds are relative to |render_surface|.
+  // The offset from the origin of the render target is [15, 15] and the device
+  // scale factor is 1.6 thus giving the target space origin of [24, 24]. The
+  // corner radius is also scaled by a factor of 1.6.
+  const gfx::RRectF actual_rrect_1 =
+      rounded_corner_layer_1_impl->draw_properties().rounded_corner_bounds;
+  gfx::RectF bounds_in_target_space = kRoundedCornerLayer1Bound;
+  bounds_in_target_space.Scale(kDeviceScale);
+  EXPECT_EQ(actual_rrect_1.rect(), bounds_in_target_space);
+  EXPECT_FLOAT_EQ(actual_rrect_1.GetSimpleRadius(),
+                  kRoundedCorner1Radius * kDeviceScale);
+
+  // Rounded corner layer 2
+  // The render target for this layer is |root|.
+  // The offset from the origin of the render target is [40, 40] and the device
+  // scale factor is 1.6 thus giving the target space origin of [64, 64]. The
+  // corner radius is also scaled by a factor of 1.6.
+  const gfx::RRectF actual_self_rrect_2 =
+      rounded_corner_layer_2_impl->draw_properties().rounded_corner_bounds;
+  EXPECT_TRUE(actual_self_rrect_2.IsEmpty());
+
+  bounds_in_target_space = kRoundedCornerLayer2Bound;
+  bounds_in_target_space.Scale(kDeviceScale);
+  const gfx::RRectF actual_render_target_rrect_2 =
+      rounded_corner_layer_2_impl->render_target()->rounded_corner_bounds();
+  EXPECT_EQ(actual_render_target_rrect_2.rect(), bounds_in_target_space);
+  EXPECT_FLOAT_EQ(actual_render_target_rrect_2.GetSimpleRadius(),
+                  kRoundedCorner2Radius * kDeviceScale);
+
+  // Rounded corner layer 3
+  // The render target for this layer is |rounded_corner_2|.
+  // The net offset from the origin of the render target is [40, 55] and the
+  // device scale factor is 1.6 thus giving the target space origin of [64, 88].
+  // The corner radius is also scaled by a factor of 1.6 * transform scale.
+  const gfx::RRectF actual_self_rrect_3 =
+      rounded_corner_layer_3_impl->draw_properties().rounded_corner_bounds;
+  EXPECT_TRUE(actual_self_rrect_3.IsEmpty());
+
+  bounds_in_target_space = kRoundedCornerLayer3Bound;
+  bounds_in_target_space +=
+      layer_2->position().OffsetFromOrigin() + kLayer2Translation;
+  bounds_in_target_space.Scale(kDeviceScale);
+  gfx::SizeF transformed_size = bounds_in_target_space.size();
+  transformed_size.Scale(kRoundedCorner3Scale);
+  bounds_in_target_space.set_size(transformed_size);
+
+  const gfx::RRectF actual_render_target_rrect_3 =
+      rounded_corner_layer_3_impl->render_target()->rounded_corner_bounds();
+  EXPECT_EQ(actual_render_target_rrect_3.rect(), bounds_in_target_space);
+  EXPECT_FLOAT_EQ(actual_render_target_rrect_3.GetSimpleRadius(),
+                  kRoundedCorner3Radius * kDeviceScale * kRoundedCorner3Scale);
+
+  // Rounded corner layer 4
+  // The render target for this layer is |rounded_corner_3|.
+  // The net offset from the origin of the render target is [1, 1] and the
+  // net scale is 1.6 * transform scale = 3.2 thus giving the target space o
+  // rigin of [3.2, 3.2].
+  // The corner radius is also scaled by a factor of 3.2.
+  const gfx::RRectF actual_rrect_4 =
+      rounded_corner_layer_4_impl->draw_properties().rounded_corner_bounds;
+  bounds_in_target_space = kRoundedCornerLayer4Bound;
+  bounds_in_target_space.Scale(kDeviceScale * kRoundedCorner3Scale);
+  EXPECT_EQ(actual_rrect_4.rect(), bounds_in_target_space);
+  EXPECT_FLOAT_EQ(actual_rrect_4.GetSimpleRadius(),
+                  kRoundedCorner4Radius * kDeviceScale * kRoundedCorner3Scale);
+}
+
+TEST_F(LayerTreeHostCommonTest, RoundedCornerBoundsInterveningRenderTarget) {
+  // Layer Tree:
+  // +root
+  // +--rounded corner layer 1 [should not trigger render surface]
+  // +----render surface [Does not draw]
+  // +------rounded corner layer 2 [should not trigger render surface]
+
+  constexpr int kRoundedCorner1Radius = 2;
+  constexpr int kRoundedCorner2Radius = 5;
+
+  constexpr gfx::RectF kRoundedCornerLayer1Bound(60.f, 0.f, 40.f, 30.f);
+  constexpr gfx::RectF kRoundedCornerLayer2Bound(0.f, 0.f, 30.f, 20.f);
+
+  constexpr float kDeviceScale = 1.6f;
+
+  scoped_refptr<Layer> root = Layer::Create();
+  scoped_refptr<Layer> render_surface = Layer::Create();
+  scoped_refptr<Layer> rounded_corner_layer_1 = Layer::Create();
+  scoped_refptr<Layer> rounded_corner_layer_2 = Layer::Create();
+
+  // Set up layer tree
+  root->AddChild(rounded_corner_layer_1);
+  rounded_corner_layer_1->AddChild(render_surface);
+  render_surface->AddChild(rounded_corner_layer_2);
+
+  // Set the root layer on host.
+  host()->SetRootLayer(root);
+
+  // Set layer positions.
+  rounded_corner_layer_1->SetPosition(kRoundedCornerLayer1Bound.origin());
+  render_surface->SetPosition(gfx::PointF(0, 0));
+  rounded_corner_layer_2->SetPosition(kRoundedCornerLayer2Bound.origin());
+
+  // Set up layer bounds.
+  root->SetBounds(gfx::Size(100, 100));
+  rounded_corner_layer_1->SetBounds(
+      gfx::ToRoundedSize(kRoundedCornerLayer1Bound.size()));
+  render_surface->SetBounds(gfx::Size(30, 30));
+  rounded_corner_layer_2->SetBounds(
+      gfx::ToRoundedSize(kRoundedCornerLayer2Bound.size()));
+
+  // Set the layer properties
+  render_surface->SetForceRenderSurfaceForTesting(true);
+
+  root->SetIsDrawable(true);
+  rounded_corner_layer_1->SetIsDrawable(true);
+  rounded_corner_layer_2->SetIsDrawable(true);
+
+  // Set Rounded corners
+  rounded_corner_layer_1->SetRoundedCorner(
+      {kRoundedCorner1Radius, kRoundedCorner1Radius, kRoundedCorner1Radius,
+       kRoundedCorner1Radius});
+  rounded_corner_layer_2->SetRoundedCorner(
+      {kRoundedCorner2Radius, kRoundedCorner2Radius, kRoundedCorner2Radius,
+       kRoundedCorner2Radius});
+
+  ExecuteCalculateDrawProperties(root.get(), kDeviceScale);
+
+  const EffectTree& effect_tree =
+      root->layer_tree_host()->property_trees()->effect_tree;
+
+  // Since this effect node has only 1 descendant that draws and no descendant
+  // that has a rounded corner before the render surface, it does not need a
+  // render surface.
+  const EffectNode* effect_node =
+      effect_tree.Node(rounded_corner_layer_1->effect_tree_index());
+  gfx::RRectF rounded_corner_bounds_1 = effect_node->rounded_corner_bounds;
+  EXPECT_FALSE(effect_node->HasRenderSurface());
+  EXPECT_FLOAT_EQ(rounded_corner_bounds_1.GetSimpleRadius(),
+                  kRoundedCorner1Radius);
+  EXPECT_EQ(rounded_corner_bounds_1.rect(),
+            gfx::RectF(kRoundedCornerLayer1Bound.size()));
+
+  // Since this effect node has no descendants that draw and no descendant that
+  // has a rounded corner, it does not need a render surface.
+  effect_node = effect_tree.Node(rounded_corner_layer_2->effect_tree_index());
+  gfx::RRectF rounded_corner_bounds_2 = effect_node->rounded_corner_bounds;
+  EXPECT_FALSE(effect_node->HasRenderSurface());
+  EXPECT_FLOAT_EQ(rounded_corner_bounds_2.GetSimpleRadius(),
+                  kRoundedCorner2Radius);
+  EXPECT_EQ(rounded_corner_bounds_2.rect(),
+            gfx::RectF(kRoundedCornerLayer2Bound.size()));
+
+  host()->host_impl()->CreatePendingTree();
+  host()->CommitAndCreatePendingTree();
+  // TODO(https://crbug.com/939968) This call should be handled by
+  // FakeLayerTreeHost instead of manually pushing the properties from the
+  // layer tree host to the pending tree.
+  root->layer_tree_host()->PushLayerTreePropertiesTo(host()->pending_tree());
+  host()->host_impl()->ActivateSyncTree();
+  LayerTreeImpl* layer_tree_impl = host()->host_impl()->active_tree();
+
+  // Get the layer impl for each Layer.
+  LayerImpl* root_impl = layer_tree_impl->LayerById(root->id());
+  LayerImpl* rounded_corner_layer_1_impl =
+      layer_tree_impl->LayerById(rounded_corner_layer_1->id());
+  LayerImpl* rounded_corner_layer_2_impl =
+      layer_tree_impl->LayerById(rounded_corner_layer_2->id());
+
+  // Set the root layer on host.
+  ExecuteCalculateDrawProperties(root_impl, kDeviceScale);
+
+  // Rounded corner layer 1
+  // The render target for this layer is |root|, hence its target
+  // bounds are relative to |root|.
+  // The offset from the origin of the render target is [60, 0] and the device
+  // scale factor is 1.6 thus giving the target space origin of [96, 0]. The
+  // corner radius is also scaled by a factor of 1.6.
+  const gfx::RRectF actual_rrect_1 =
+      rounded_corner_layer_1_impl->draw_properties().rounded_corner_bounds;
+  gfx::RectF bounds_in_target_space = kRoundedCornerLayer1Bound;
+  bounds_in_target_space.Scale(kDeviceScale);
+  EXPECT_EQ(actual_rrect_1.rect(), bounds_in_target_space);
+  EXPECT_FLOAT_EQ(actual_rrect_1.GetSimpleRadius(),
+                  kRoundedCorner1Radius * kDeviceScale);
+
+  // Rounded corner layer 2
+  // The render target for this layer is |render_surface|.
+  // The offset from the origin of the render target is [0, 0].
+  const gfx::RRectF actual_rrect_2 =
+      rounded_corner_layer_2_impl->draw_properties().rounded_corner_bounds;
+  bounds_in_target_space = kRoundedCornerLayer2Bound;
+  bounds_in_target_space.Scale(kDeviceScale);
+  EXPECT_EQ(actual_rrect_2.rect(), bounds_in_target_space);
+  EXPECT_FLOAT_EQ(actual_rrect_2.GetSimpleRadius(),
+                  kRoundedCorner2Radius * kDeviceScale);
+}
+
+TEST_F(LayerTreeHostCommonTest, RoundedCornerBoundsSiblingRenderTarget) {
+  // Layer Tree:
+  // +root
+  // +--rounded corner layer 1 [should trigger render surface]
+  // +----render surface [Does not draw]
+  // +----rounded corner layer 2 [should not trigger render surface]
+
+  constexpr int kRoundedCorner1Radius = 2;
+  constexpr int kRoundedCorner2Radius = 5;
+
+  constexpr gfx::RectF kRoundedCornerLayer1Bound(0.f, 60.f, 30.f, 40.f);
+  constexpr gfx::RectF kRoundedCornerLayer2Bound(0.f, 0.f, 20.f, 30.f);
+
+  constexpr float kDeviceScale = 1.6f;
+
+  scoped_refptr<Layer> root = Layer::Create();
+  scoped_refptr<Layer> render_surface = Layer::Create();
+  scoped_refptr<Layer> rounded_corner_layer_1 = Layer::Create();
+  scoped_refptr<Layer> rounded_corner_layer_2 = Layer::Create();
+
+  // Set up layer tree
+  root->AddChild(rounded_corner_layer_1);
+  rounded_corner_layer_1->AddChild(render_surface);
+  rounded_corner_layer_1->AddChild(rounded_corner_layer_2);
+
+  // Set the root layer on host.
+  host()->SetRootLayer(root);
+
+  // Set layer positions.
+  rounded_corner_layer_1->SetPosition(kRoundedCornerLayer1Bound.origin());
+  render_surface->SetPosition(gfx::PointF(0, 0));
+  rounded_corner_layer_2->SetPosition(kRoundedCornerLayer2Bound.origin());
+
+  // Set up layer bounds.
+  root->SetBounds(gfx::Size(100, 100));
+  rounded_corner_layer_1->SetBounds(
+      gfx::ToRoundedSize(kRoundedCornerLayer1Bound.size()));
+  render_surface->SetBounds(gfx::Size(30, 30));
+  rounded_corner_layer_2->SetBounds(
+      gfx::ToRoundedSize(kRoundedCornerLayer2Bound.size()));
+
+  // Set the layer properties
+  render_surface->SetForceRenderSurfaceForTesting(true);
+
+  root->SetIsDrawable(true);
+  rounded_corner_layer_1->SetIsDrawable(true);
+  rounded_corner_layer_2->SetIsDrawable(true);
+
+  // Set Rounded corners
+  rounded_corner_layer_1->SetRoundedCorner(
+      {kRoundedCorner1Radius, kRoundedCorner1Radius, kRoundedCorner1Radius,
+       kRoundedCorner1Radius});
+  rounded_corner_layer_2->SetRoundedCorner(
+      {kRoundedCorner2Radius, kRoundedCorner2Radius, kRoundedCorner2Radius,
+       kRoundedCorner2Radius});
+
+  ExecuteCalculateDrawProperties(root.get(), kDeviceScale);
+
+  const EffectTree& effect_tree =
+      root->layer_tree_host()->property_trees()->effect_tree;
+
+  // Since this effect node has 1 descendant with a rounded corner without a
+  // render surface along the chain, it need a render surface.
+  const EffectNode* effect_node =
+      effect_tree.Node(rounded_corner_layer_1->effect_tree_index());
+  gfx::RRectF rounded_corner_bounds_1 = effect_node->rounded_corner_bounds;
+  EXPECT_TRUE(effect_node->HasRenderSurface());
+  EXPECT_FLOAT_EQ(rounded_corner_bounds_1.GetSimpleRadius(),
+                  kRoundedCorner1Radius);
+  EXPECT_EQ(rounded_corner_bounds_1.rect(),
+            gfx::RectF(kRoundedCornerLayer1Bound.size()));
+
+  // Since this effect node has no descendants that draw and no descendant that
+  // has a rounded corner, it does not need a render surface.
+  effect_node = effect_tree.Node(rounded_corner_layer_2->effect_tree_index());
+  gfx::RRectF rounded_corner_bounds_2 = effect_node->rounded_corner_bounds;
+  EXPECT_FALSE(effect_node->HasRenderSurface());
+  EXPECT_FLOAT_EQ(rounded_corner_bounds_2.GetSimpleRadius(),
+                  kRoundedCorner2Radius);
+  EXPECT_EQ(rounded_corner_bounds_2.rect(),
+            gfx::RectF(kRoundedCornerLayer2Bound.size()));
+
+  host()->host_impl()->CreatePendingTree();
+  host()->CommitAndCreatePendingTree();
+  // TODO(https://crbug.com/939968) This call should be handled by
+  // FakeLayerTreeHost instead of manually pushing the properties from the
+  // layer tree host to the pending tree.
+  root->layer_tree_host()->PushLayerTreePropertiesTo(host()->pending_tree());
+  host()->host_impl()->ActivateSyncTree();
+  LayerTreeImpl* layer_tree_impl = host()->host_impl()->active_tree();
+
+  // Get the layer impl for each Layer.
+  LayerImpl* root_impl = layer_tree_impl->LayerById(root->id());
+  LayerImpl* rounded_corner_layer_1_impl =
+      layer_tree_impl->LayerById(rounded_corner_layer_1->id());
+  LayerImpl* rounded_corner_layer_2_impl =
+      layer_tree_impl->LayerById(rounded_corner_layer_2->id());
+
+  // Set the root layer on host.
+  ExecuteCalculateDrawProperties(root_impl, kDeviceScale);
+
+  // Rounded corner layer 1
+  // The render target for this layer is |root|, hence its target
+  // bounds are relative to |root|.
+  // The offset from the origin of the render target is [0, 60] and the device
+  // scale factor is 1.6 thus giving the target space origin of [0, 96]. The
+  // corner radius is also scaled by a factor of 1.6.
+  const gfx::RRectF actual_self_rrect_1 =
+      rounded_corner_layer_1_impl->draw_properties().rounded_corner_bounds;
+  EXPECT_TRUE(actual_self_rrect_1.IsEmpty());
+
+  gfx::RectF bounds_in_target_space = kRoundedCornerLayer1Bound;
+  bounds_in_target_space.Scale(kDeviceScale);
+  const gfx::RRectF actual_render_target_rrect_1 =
+      rounded_corner_layer_1_impl->render_target()->rounded_corner_bounds();
+  EXPECT_EQ(actual_render_target_rrect_1.rect(), bounds_in_target_space);
+  EXPECT_FLOAT_EQ(actual_render_target_rrect_1.GetSimpleRadius(),
+                  kRoundedCorner1Radius * kDeviceScale);
+
+  // Rounded corner layer 2
+  // The render target for this layer is |render_surface|.
+  // The offset from the origin of the render target is [0, 0].
+  const gfx::RRectF actual_rrect_2 =
+      rounded_corner_layer_2_impl->draw_properties().rounded_corner_bounds;
+  bounds_in_target_space = kRoundedCornerLayer2Bound;
+  bounds_in_target_space.Scale(kDeviceScale);
+  EXPECT_EQ(actual_rrect_2.rect(), bounds_in_target_space);
+  EXPECT_FLOAT_EQ(actual_rrect_2.GetSimpleRadius(),
+                  kRoundedCorner2Radius * kDeviceScale);
+}
+
+TEST_F(LayerTreeHostCommonTest, FastRoundedCornerDoesNotTriggerRenderSurface) {
+  // Layer Tree:
+  // +root
+  // +--fast rounded corner layer [should not trigger render surface]
+  // +----layer 1
+  // +----layer 2
+  // +--rounded corner layer [should trigger render surface]
+  // +----layer 3
+  // +----layer 4
+
+  constexpr int kRoundedCorner1Radius = 2;
+  constexpr int kRoundedCorner2Radius = 5;
+
+  constexpr gfx::RectF kRoundedCornerLayer1Bound(0.f, 0.f, 50.f, 50.f);
+  constexpr gfx::RectF kRoundedCornerLayer2Bound(40.f, 40.f, 60.f, 60.f);
+
+  constexpr float kDeviceScale = 1.6f;
+
+  scoped_refptr<Layer> root = Layer::Create();
+  scoped_refptr<Layer> fast_rounded_corner_layer = Layer::Create();
+  scoped_refptr<Layer> layer_1 = Layer::Create();
+  scoped_refptr<Layer> layer_2 = Layer::Create();
+  scoped_refptr<Layer> rounded_corner_layer = Layer::Create();
+  scoped_refptr<Layer> layer_3 = Layer::Create();
+  scoped_refptr<Layer> layer_4 = Layer::Create();
+
+  // Set up layer tree
+  root->AddChild(fast_rounded_corner_layer);
+  root->AddChild(rounded_corner_layer);
+
+  fast_rounded_corner_layer->AddChild(layer_1);
+  fast_rounded_corner_layer->AddChild(layer_2);
+
+  rounded_corner_layer->AddChild(layer_3);
+  rounded_corner_layer->AddChild(layer_4);
+
+  // Set the root layer on host.
+  host()->SetRootLayer(root);
+
+  // Set layer positions.
+  fast_rounded_corner_layer->SetPosition(kRoundedCornerLayer1Bound.origin());
+  layer_1->SetPosition(gfx::PointF(0.f, 0.f));
+  layer_2->SetPosition(gfx::PointF(25.f, 0.f));
+  rounded_corner_layer->SetPosition(kRoundedCornerLayer2Bound.origin());
+  layer_3->SetPosition(gfx::PointF(0.f, 0.f));
+  layer_4->SetPosition(gfx::PointF(30.f, 0.f));
+
+  // Set up layer bounds.
+  root->SetBounds(gfx::Size(100, 100));
+  fast_rounded_corner_layer->SetBounds(
+      gfx::ToRoundedSize(kRoundedCornerLayer1Bound.size()));
+  layer_1->SetBounds(gfx::Size(25, 25));
+  layer_2->SetBounds(gfx::Size(25, 25));
+  rounded_corner_layer->SetBounds(
+      gfx::ToRoundedSize(kRoundedCornerLayer2Bound.size()));
+  layer_3->SetBounds(gfx::Size(30, 60));
+  layer_4->SetBounds(gfx::Size(30, 60));
+
+  root->SetIsDrawable(true);
+  fast_rounded_corner_layer->SetIsDrawable(true);
+  layer_1->SetIsDrawable(true);
+  layer_2->SetIsDrawable(true);
+  rounded_corner_layer->SetIsDrawable(true);
+  layer_3->SetIsDrawable(true);
+  layer_4->SetIsDrawable(true);
+
+  // Set Rounded corners
+  fast_rounded_corner_layer->SetRoundedCorner(
+      {kRoundedCorner1Radius, kRoundedCorner1Radius, kRoundedCorner1Radius,
+       kRoundedCorner1Radius});
+  rounded_corner_layer->SetRoundedCorner(
+      {kRoundedCorner2Radius, kRoundedCorner2Radius, kRoundedCorner2Radius,
+       kRoundedCorner2Radius});
+
+  fast_rounded_corner_layer->SetIsFastRoundedCorner(true);
+
+  ExecuteCalculateDrawProperties(root.get(), kDeviceScale);
+
+  const EffectTree& effect_tree =
+      root->layer_tree_host()->property_trees()->effect_tree;
+
+  // Since this layer has a fast rounded corner, it should not have a render
+  // surface even though it has 2 layers in the subtree that draws content.
+  const EffectNode* effect_node =
+      effect_tree.Node(fast_rounded_corner_layer->effect_tree_index());
+  gfx::RRectF rounded_corner_bounds_1 = effect_node->rounded_corner_bounds;
+  EXPECT_FALSE(effect_node->HasRenderSurface());
+  EXPECT_TRUE(effect_node->is_fast_rounded_corner);
+  EXPECT_FLOAT_EQ(rounded_corner_bounds_1.GetSimpleRadius(),
+                  kRoundedCorner1Radius);
+  EXPECT_EQ(rounded_corner_bounds_1.rect(),
+            gfx::RectF(kRoundedCornerLayer1Bound.size()));
+
+  // Since this node has 2 descendants that draw, it will have a rounded corner.
+  effect_node = effect_tree.Node(rounded_corner_layer->effect_tree_index());
+  gfx::RRectF rounded_corner_bounds_2 = effect_node->rounded_corner_bounds;
+  EXPECT_TRUE(effect_node->HasRenderSurface());
+  EXPECT_FALSE(effect_node->is_fast_rounded_corner);
+  EXPECT_FLOAT_EQ(rounded_corner_bounds_2.GetSimpleRadius(),
+                  kRoundedCorner2Radius);
+  EXPECT_EQ(rounded_corner_bounds_2.rect(),
+            gfx::RectF(kRoundedCornerLayer2Bound.size()));
+
+  host()->host_impl()->CreatePendingTree();
+  host()->CommitAndCreatePendingTree();
+  // TODO(https://crbug.com/939968) This call should be handled by
+  // FakeLayerTreeHost instead of manually pushing the properties from the
+  // layer tree host to the pending tree.
+  root->layer_tree_host()->PushLayerTreePropertiesTo(host()->pending_tree());
+  host()->host_impl()->ActivateSyncTree();
+  LayerTreeImpl* layer_tree_impl = host()->host_impl()->active_tree();
+
+  // Get the layer impl for each Layer.
+  LayerImpl* root_impl = layer_tree_impl->LayerById(root->id());
+  LayerImpl* fast_rounded_corner_layer_impl =
+      layer_tree_impl->LayerById(fast_rounded_corner_layer->id());
+  LayerImpl* layer_1_impl = layer_tree_impl->LayerById(layer_1->id());
+  LayerImpl* layer_2_impl = layer_tree_impl->LayerById(layer_2->id());
+  LayerImpl* rounded_corner_layer_impl =
+      layer_tree_impl->LayerById(rounded_corner_layer->id());
+  LayerImpl* layer_3_impl = layer_tree_impl->LayerById(layer_3->id());
+  LayerImpl* layer_4_impl = layer_tree_impl->LayerById(layer_4->id());
+
+  // Set the root layer on host.
+  ExecuteCalculateDrawProperties(root_impl, kDeviceScale);
+
+  // Fast rounded corner layer.
+  // The render target for this layer is |root|, hence its target bounds are
+  // relative to |root|.
+  // The offset from the origin of the render target is [0, 0] and the device
+  // scale factor is 1.6.
+  const gfx::RRectF actual_rrect_1 =
+      fast_rounded_corner_layer_impl->draw_properties().rounded_corner_bounds;
+  gfx::RectF bounds_in_target_space = kRoundedCornerLayer1Bound;
+  bounds_in_target_space.Scale(kDeviceScale);
+  EXPECT_EQ(actual_rrect_1.rect(), bounds_in_target_space);
+  EXPECT_FLOAT_EQ(actual_rrect_1.GetSimpleRadius(),
+                  kRoundedCorner1Radius * kDeviceScale);
+
+  // Layer 1 and layer 2 rounded corner bounds
+  // This should have the same rounded corner boudns as fast rounded corner
+  // layer.
+  const gfx::RRectF layer_1_rrect =
+      layer_1_impl->draw_properties().rounded_corner_bounds;
+  const gfx::RRectF layer_2_rrect =
+      layer_2_impl->draw_properties().rounded_corner_bounds;
+  EXPECT_EQ(actual_rrect_1, layer_1_rrect);
+  EXPECT_EQ(actual_rrect_1, layer_2_rrect);
+
+  // Rounded corner layer
+  // The render target for this layer is |root|.
+  // The offset from the origin of the render target is [40, 40] and the device
+  // scale factor is 1.6 thus giving the target space origin of [64, 64]. The
+  // corner radius is also scaled by a factor of 1.6.
+  const gfx::RRectF actual_self_rrect_2 =
+      rounded_corner_layer_impl->draw_properties().rounded_corner_bounds;
+  EXPECT_TRUE(actual_self_rrect_2.IsEmpty());
+
+  bounds_in_target_space = kRoundedCornerLayer2Bound;
+  bounds_in_target_space.Scale(kDeviceScale);
+  const gfx::RRectF actual_render_target_rrect_2 =
+      rounded_corner_layer_impl->render_target()->rounded_corner_bounds();
+  EXPECT_EQ(actual_render_target_rrect_2.rect(), bounds_in_target_space);
+  EXPECT_FLOAT_EQ(actual_render_target_rrect_2.GetSimpleRadius(),
+                  kRoundedCorner2Radius * kDeviceScale);
+
+  // Layer 3 and layer 4 should have no rounded corner bounds set as their
+  // parent is a render surface.
+  const gfx::RRectF layer_3_rrect =
+      layer_3_impl->draw_properties().rounded_corner_bounds;
+  const gfx::RRectF layer_4_rrect =
+      layer_4_impl->draw_properties().rounded_corner_bounds;
+  EXPECT_TRUE(layer_3_rrect.IsEmpty());
+  EXPECT_TRUE(layer_4_rrect.IsEmpty());
+}
+
+TEST_F(LayerTreeHostCommonTest,
+       FastRoundedCornerTriggersRenderSurfaceInAncestor) {
+  // Layer Tree:
+  // +root
+  // +--rounded corner layer [1] [should trigger render surface]
+  // +----fast rounded corner layer [2] [should not trigger render surface]
+  // +--rounded corner layer [3] [should trigger render surface]
+  // +----rounded corner layer [4] [should not trigger render surface]
+
+  constexpr int kRoundedCorner1Radius = 2;
+  constexpr int kRoundedCorner2Radius = 5;
+  constexpr int kRoundedCorner3Radius = 1;
+  constexpr int kRoundedCorner4Radius = 3;
+
+  constexpr gfx::RectF kRoundedCornerLayer1Bound(5.f, 5.f, 50.f, 50.f);
+  constexpr gfx::RectF kRoundedCornerLayer2Bound(0.f, 0.f, 25.f, 25.f);
+  constexpr gfx::RectF kRoundedCornerLayer3Bound(40.f, 40.f, 60.f, 60.f);
+  constexpr gfx::RectF kRoundedCornerLayer4Bound(30.f, 0.f, 30.f, 60.f);
+
+  constexpr float kDeviceScale = 1.6f;
+
+  scoped_refptr<Layer> root = Layer::Create();
+  scoped_refptr<Layer> rounded_corner_layer_1 = Layer::Create();
+  scoped_refptr<Layer> fast_rounded_corner_layer_2 = Layer::Create();
+  scoped_refptr<Layer> rounded_corner_layer_3 = Layer::Create();
+  scoped_refptr<Layer> rounded_corner_layer_4 = Layer::Create();
+
+  // Set up layer tree
+  root->AddChild(rounded_corner_layer_1);
+  root->AddChild(rounded_corner_layer_3);
+
+  rounded_corner_layer_1->AddChild(fast_rounded_corner_layer_2);
+
+  rounded_corner_layer_3->AddChild(rounded_corner_layer_4);
+
+  // Set the root layer on host.
+  host()->SetRootLayer(root);
+
+  // Set layer positions.
+  rounded_corner_layer_1->SetPosition(kRoundedCornerLayer1Bound.origin());
+  fast_rounded_corner_layer_2->SetPosition(kRoundedCornerLayer2Bound.origin());
+  rounded_corner_layer_3->SetPosition(kRoundedCornerLayer3Bound.origin());
+  rounded_corner_layer_4->SetPosition(kRoundedCornerLayer4Bound.origin());
+
+  // Set up layer bounds.
+  root->SetBounds(gfx::Size(100, 100));
+  rounded_corner_layer_1->SetBounds(
+      gfx::ToRoundedSize(kRoundedCornerLayer1Bound.size()));
+  fast_rounded_corner_layer_2->SetBounds(
+      gfx::ToRoundedSize(kRoundedCornerLayer2Bound.size()));
+  rounded_corner_layer_3->SetBounds(
+      gfx::ToRoundedSize(kRoundedCornerLayer3Bound.size()));
+  rounded_corner_layer_4->SetBounds(
+      gfx::ToRoundedSize(kRoundedCornerLayer4Bound.size()));
+
+  root->SetIsDrawable(true);
+  rounded_corner_layer_1->SetIsDrawable(true);
+  fast_rounded_corner_layer_2->SetIsDrawable(true);
+  rounded_corner_layer_3->SetIsDrawable(true);
+  rounded_corner_layer_4->SetIsDrawable(true);
+
+  // Set Rounded corners
+  rounded_corner_layer_1->SetRoundedCorner(
+      {kRoundedCorner1Radius, kRoundedCorner1Radius, kRoundedCorner1Radius,
+       kRoundedCorner1Radius});
+  fast_rounded_corner_layer_2->SetRoundedCorner(
+      {kRoundedCorner2Radius, kRoundedCorner2Radius, kRoundedCorner2Radius,
+       kRoundedCorner2Radius});
+  rounded_corner_layer_3->SetRoundedCorner(
+      {kRoundedCorner3Radius, kRoundedCorner3Radius, kRoundedCorner3Radius,
+       kRoundedCorner3Radius});
+  rounded_corner_layer_4->SetRoundedCorner(
+      {kRoundedCorner4Radius, kRoundedCorner4Radius, kRoundedCorner4Radius,
+       kRoundedCorner4Radius});
+
+  fast_rounded_corner_layer_2->SetIsFastRoundedCorner(true);
+
+  ExecuteCalculateDrawProperties(root.get(), kDeviceScale);
+
+  const EffectTree& effect_tree =
+      root->layer_tree_host()->property_trees()->effect_tree;
+
+  // Since this layer has a descendant that has rounded corner, this node will
+  // require a render surface.
+  const EffectNode* effect_node =
+      effect_tree.Node(rounded_corner_layer_1->effect_tree_index());
+  gfx::RRectF rounded_corner_bounds_1 = effect_node->rounded_corner_bounds;
+  EXPECT_TRUE(effect_node->HasRenderSurface());
+  EXPECT_FALSE(effect_node->is_fast_rounded_corner);
+  EXPECT_FLOAT_EQ(rounded_corner_bounds_1.GetSimpleRadius(),
+                  kRoundedCorner1Radius);
+  EXPECT_EQ(rounded_corner_bounds_1.rect(),
+            gfx::RectF(kRoundedCornerLayer1Bound.size()));
+
+  // Since this layer has no descendant with rounded corner or drawable, it will
+  // not have a render surface.
+  effect_node =
+      effect_tree.Node(fast_rounded_corner_layer_2->effect_tree_index());
+  gfx::RRectF rounded_corner_bounds_2 = effect_node->rounded_corner_bounds;
+  EXPECT_FALSE(effect_node->HasRenderSurface());
+  EXPECT_TRUE(effect_node->is_fast_rounded_corner);
+  EXPECT_FLOAT_EQ(rounded_corner_bounds_2.GetSimpleRadius(),
+                  kRoundedCorner2Radius);
+  EXPECT_EQ(rounded_corner_bounds_2.rect(),
+            gfx::RectF(kRoundedCornerLayer2Bound.size()));
+
+  // Since this layer has 1 descendant with a rounded corner, it should have a
+  // render surface.
+  effect_node = effect_tree.Node(rounded_corner_layer_3->effect_tree_index());
+  gfx::RRectF rounded_corner_bounds_3 = effect_node->rounded_corner_bounds;
+  EXPECT_TRUE(effect_node->HasRenderSurface());
+  EXPECT_FALSE(effect_node->is_fast_rounded_corner);
+  EXPECT_FLOAT_EQ(rounded_corner_bounds_3.GetSimpleRadius(),
+                  kRoundedCorner3Radius);
+  EXPECT_EQ(rounded_corner_bounds_3.rect(),
+            gfx::RectF(kRoundedCornerLayer3Bound.size()));
+
+  // Since this layer no descendants, it would no thave a render pass.
+  effect_node = effect_tree.Node(rounded_corner_layer_4->effect_tree_index());
+  gfx::RRectF rounded_corner_bounds_4 = effect_node->rounded_corner_bounds;
+  EXPECT_FALSE(effect_node->HasRenderSurface());
+  EXPECT_FALSE(effect_node->is_fast_rounded_corner);
+  EXPECT_FLOAT_EQ(rounded_corner_bounds_4.GetSimpleRadius(),
+                  kRoundedCorner4Radius);
+  EXPECT_EQ(rounded_corner_bounds_4.rect(),
+            gfx::RectF(kRoundedCornerLayer4Bound.size()));
+
+  host()->host_impl()->CreatePendingTree();
+  host()->CommitAndCreatePendingTree();
+  // TODO(https://crbug.com/939968) This call should be handled by
+  // FakeLayerTreeHost instead of manually pushing the properties from the
+  // layer tree host to the pending tree.
+  root->layer_tree_host()->PushLayerTreePropertiesTo(host()->pending_tree());
+  host()->host_impl()->ActivateSyncTree();
+  LayerTreeImpl* layer_tree_impl = host()->host_impl()->active_tree();
+
+  // Get the layer impl for each Layer.
+  LayerImpl* root_impl = layer_tree_impl->LayerById(root->id());
+  LayerImpl* rounded_corner_layer_impl_1 =
+      layer_tree_impl->LayerById(rounded_corner_layer_1->id());
+  LayerImpl* fast_rounded_corner_layer_impl_2 =
+      layer_tree_impl->LayerById(fast_rounded_corner_layer_2->id());
+  LayerImpl* rounded_corner_layer_impl_3 =
+      layer_tree_impl->LayerById(rounded_corner_layer_3->id());
+  LayerImpl* rounded_corner_layer_impl_4 =
+      layer_tree_impl->LayerById(rounded_corner_layer_4->id());
+
+  // Set the root layer on host.
+  ExecuteCalculateDrawProperties(root_impl, kDeviceScale);
+
+  // Rounded corner layer 1.
+  // The render target for this layer is |root|, hence its target bounds are
+  // relative to |root|.
+  // The offset from the origin of the render target is [5, 5] and the device
+  // scale factor is 1.6 giving a total offset of [8, 8].
+  const gfx::RRectF actual_self_rrect_1 =
+      rounded_corner_layer_impl_1->draw_properties().rounded_corner_bounds;
+  EXPECT_TRUE(actual_self_rrect_1.IsEmpty());
+
+  gfx::RectF bounds_in_target_space = kRoundedCornerLayer1Bound;
+  bounds_in_target_space.Scale(kDeviceScale);
+  const gfx::RRectF actual_render_target_rrect_1 =
+      rounded_corner_layer_impl_1->render_target()->rounded_corner_bounds();
+  EXPECT_EQ(actual_render_target_rrect_1.rect(), bounds_in_target_space);
+  EXPECT_FLOAT_EQ(actual_render_target_rrect_1.GetSimpleRadius(),
+                  kRoundedCorner1Radius * kDeviceScale);
+
+  // Fast rounded corner layer 2
+  // The render target for this layer is |rounded_corner_layer_1|.
+  // The offset from the origin of the render target is [0, 0] and the device
+  // scale factor is 1.6. The corner radius is also scaled by a factor of 1.6.
+  const gfx::RRectF actual_self_rrect_2 =
+      fast_rounded_corner_layer_impl_2->draw_properties().rounded_corner_bounds;
+  bounds_in_target_space = kRoundedCornerLayer2Bound;
+  bounds_in_target_space.Scale(kDeviceScale);
+  EXPECT_EQ(actual_self_rrect_2.rect(), bounds_in_target_space);
+  EXPECT_FLOAT_EQ(actual_self_rrect_2.GetSimpleRadius(),
+                  kRoundedCorner2Radius * kDeviceScale);
+
+  // Rounded corner layer 3
+  // The render target for this layer is |root|.
+  // The offset from the origin of the render target is [40, 40] and the device
+  // scale factor is 1.6 thus giving the target space origin of [64, 64]. The
+  // corner radius is also scaled by a factor of 1.6.
+  const gfx::RRectF actual_self_rrect_3 =
+      rounded_corner_layer_impl_3->draw_properties().rounded_corner_bounds;
+  EXPECT_TRUE(actual_self_rrect_3.IsEmpty());
+
+  bounds_in_target_space = kRoundedCornerLayer3Bound;
+  bounds_in_target_space.Scale(kDeviceScale);
+  const gfx::RRectF actual_render_target_rrect_3 =
+      rounded_corner_layer_impl_3->render_target()->rounded_corner_bounds();
+  EXPECT_EQ(actual_render_target_rrect_3.rect(), bounds_in_target_space);
+  EXPECT_FLOAT_EQ(actual_render_target_rrect_3.GetSimpleRadius(),
+                  kRoundedCorner3Radius * kDeviceScale);
+
+  // Rounded corner layer 4
+  // The render target for this layer is |rounded_corner_layer_3|.
+  // The offset from the origin of the render target is [30, 0] and the device
+  // scale factor is 1.6 thus giving the target space origin of [48, 0]. The
+  // corner radius is also scaled by a factor of 1.6.
+  const gfx::RRectF actual_self_rrect_4 =
+      rounded_corner_layer_impl_4->draw_properties().rounded_corner_bounds;
+  bounds_in_target_space = kRoundedCornerLayer4Bound;
+  bounds_in_target_space.Scale(kDeviceScale);
+  EXPECT_EQ(actual_self_rrect_4.rect(), bounds_in_target_space);
+  EXPECT_FLOAT_EQ(actual_self_rrect_4.GetSimpleRadius(),
+                  kRoundedCorner4Radius * kDeviceScale);
+}
+
+TEST_F(LayerTreeHostCommonTest,
+       FastRoundedCornerDoesNotTriggerRenderSurfaceFromSubtree) {
+  // Layer Tree:
+  // +root
+  // +--fast rounded corner layer 1 [should trigger render surface]
+  // +----rounded corner layer 1 [should not trigger render surface]
+  // +--rounded corner layer 2 [should trigger render surface]
+  // +----rounded corner layer 3 [should not trigger render surface]
+  constexpr int kRoundedCorner1Radius = 2;
+  constexpr int kRoundedCorner2Radius = 5;
+  constexpr int kRoundedCorner3Radius = 4;
+  constexpr int kRoundedCorner4Radius = 5;
+
+  constexpr gfx::RectF kRoundedCornerLayer1Bound(10.f, 5.f, 45.f, 50.f);
+  constexpr gfx::RectF kRoundedCornerLayer2Bound(5.f, 5.f, 20.f, 20.f);
+  constexpr gfx::RectF kRoundedCornerLayer3Bound(60.f, 5.f, 40.f, 25.f);
+  constexpr gfx::RectF kRoundedCornerLayer4Bound(0.f, 10.f, 10.f, 20.f);
+
+  constexpr float kDeviceScale = 1.6f;
+
+  scoped_refptr<Layer> root = Layer::Create();
+  scoped_refptr<Layer> fast_rounded_corner_layer_1 = Layer::Create();
+  scoped_refptr<Layer> rounded_corner_layer_1 = Layer::Create();
+  scoped_refptr<Layer> rounded_corner_layer_2 = Layer::Create();
+  scoped_refptr<Layer> rounded_corner_layer_3 = Layer::Create();
+
+  // Set up layer tree
+  root->AddChild(fast_rounded_corner_layer_1);
+  root->AddChild(rounded_corner_layer_2);
+
+  fast_rounded_corner_layer_1->AddChild(rounded_corner_layer_1);
+  rounded_corner_layer_2->AddChild(rounded_corner_layer_3);
+
+  // Set the root layer on host.
+  host()->SetRootLayer(root);
+
+  // Set layer positions.
+  fast_rounded_corner_layer_1->SetPosition(kRoundedCornerLayer1Bound.origin());
+  rounded_corner_layer_1->SetPosition(kRoundedCornerLayer2Bound.origin());
+  rounded_corner_layer_2->SetPosition(kRoundedCornerLayer3Bound.origin());
+  rounded_corner_layer_3->SetPosition(kRoundedCornerLayer4Bound.origin());
+
+  // Set up layer bounds.
+  root->SetBounds(gfx::Size(100, 100));
+  fast_rounded_corner_layer_1->SetBounds(
+      gfx::ToRoundedSize(kRoundedCornerLayer1Bound.size()));
+  rounded_corner_layer_1->SetBounds(
+      gfx::ToRoundedSize(kRoundedCornerLayer2Bound.size()));
+  rounded_corner_layer_2->SetBounds(
+      gfx::ToRoundedSize(kRoundedCornerLayer3Bound.size()));
+  rounded_corner_layer_3->SetBounds(
+      gfx::ToRoundedSize(kRoundedCornerLayer4Bound.size()));
+
+  root->SetIsDrawable(true);
+  fast_rounded_corner_layer_1->SetIsDrawable(true);
+  rounded_corner_layer_1->SetIsDrawable(true);
+  rounded_corner_layer_2->SetIsDrawable(true);
+  rounded_corner_layer_3->SetIsDrawable(true);
+
+  // Set Rounded corners
+  fast_rounded_corner_layer_1->SetRoundedCorner(
+      {kRoundedCorner1Radius, kRoundedCorner1Radius, kRoundedCorner1Radius,
+       kRoundedCorner1Radius});
+  rounded_corner_layer_1->SetRoundedCorner(
+      {kRoundedCorner2Radius, kRoundedCorner2Radius, kRoundedCorner2Radius,
+       kRoundedCorner2Radius});
+  rounded_corner_layer_2->SetRoundedCorner(
+      {kRoundedCorner3Radius, kRoundedCorner3Radius, kRoundedCorner3Radius,
+       kRoundedCorner3Radius});
+  rounded_corner_layer_3->SetRoundedCorner(
+      {kRoundedCorner4Radius, kRoundedCorner4Radius, kRoundedCorner4Radius,
+       kRoundedCorner4Radius});
+
+  fast_rounded_corner_layer_1->SetIsFastRoundedCorner(true);
+
+  ExecuteCalculateDrawProperties(root.get(), kDeviceScale);
+
+  const EffectTree& effect_tree =
+      root->layer_tree_host()->property_trees()->effect_tree;
+
+  // Since this layer has a descendant with rounded corner, it needs a render
+  // surface.
+  const EffectNode* effect_node =
+      effect_tree.Node(fast_rounded_corner_layer_1->effect_tree_index());
+  gfx::RRectF rounded_corner_bounds_1 = effect_node->rounded_corner_bounds;
+  EXPECT_TRUE(effect_node->HasRenderSurface());
+  EXPECT_TRUE(effect_node->is_fast_rounded_corner);
+  EXPECT_FLOAT_EQ(rounded_corner_bounds_1.GetSimpleRadius(),
+                  kRoundedCorner1Radius);
+  EXPECT_EQ(rounded_corner_bounds_1.rect(),
+            gfx::RectF(kRoundedCornerLayer1Bound.size()));
+
+  // Since this layer has no descendant with rounded corner or drawable, it will
+  // not have a render surface.
+  effect_node = effect_tree.Node(rounded_corner_layer_1->effect_tree_index());
+  gfx::RRectF rounded_corner_bounds_2 = effect_node->rounded_corner_bounds;
+  EXPECT_FALSE(effect_node->HasRenderSurface());
+  EXPECT_FALSE(effect_node->is_fast_rounded_corner);
+  EXPECT_FLOAT_EQ(rounded_corner_bounds_2.GetSimpleRadius(),
+                  kRoundedCorner2Radius);
+  EXPECT_EQ(rounded_corner_bounds_2.rect(),
+            gfx::RectF(kRoundedCornerLayer2Bound.size()));
+
+  // Since this layer has a descendant with rounded corner, it should have a
+  // render surface.
+  effect_node = effect_tree.Node(rounded_corner_layer_2->effect_tree_index());
+  gfx::RRectF rounded_corner_bounds_3 = effect_node->rounded_corner_bounds;
+  EXPECT_TRUE(effect_node->HasRenderSurface());
+  EXPECT_FALSE(effect_node->is_fast_rounded_corner);
+  EXPECT_FLOAT_EQ(rounded_corner_bounds_3.GetSimpleRadius(),
+                  kRoundedCorner3Radius);
+  EXPECT_EQ(rounded_corner_bounds_3.rect(),
+            gfx::RectF(kRoundedCornerLayer3Bound.size()));
+
+  // Since this layer has no descendant, it does not need a render surface.
+  effect_node = effect_tree.Node(rounded_corner_layer_3->effect_tree_index());
+  gfx::RRectF rounded_corner_bounds_4 = effect_node->rounded_corner_bounds;
+  EXPECT_FALSE(effect_node->HasRenderSurface());
+  EXPECT_FALSE(effect_node->is_fast_rounded_corner);
+  EXPECT_FLOAT_EQ(rounded_corner_bounds_4.GetSimpleRadius(),
+                  kRoundedCorner4Radius);
+  EXPECT_EQ(rounded_corner_bounds_4.rect(),
+            gfx::RectF(kRoundedCornerLayer4Bound.size()));
+
+  host()->host_impl()->CreatePendingTree();
+  host()->CommitAndCreatePendingTree();
+  // TODO(https://crbug.com/939968) This call should be handled by
+  // FakeLayerTreeHost instead of manually pushing the properties from the
+  // layer tree host to the pending tree.
+  root->layer_tree_host()->PushLayerTreePropertiesTo(host()->pending_tree());
+  host()->host_impl()->ActivateSyncTree();
+  LayerTreeImpl* layer_tree_impl = host()->host_impl()->active_tree();
+
+  // Get the layer impl for each Layer.
+  LayerImpl* root_impl = layer_tree_impl->LayerById(root->id());
+  LayerImpl* fast_rounded_corner_layer_impl_1 =
+      layer_tree_impl->LayerById(fast_rounded_corner_layer_1->id());
+  LayerImpl* rounded_corner_layer_impl_1 =
+      layer_tree_impl->LayerById(rounded_corner_layer_1->id());
+  LayerImpl* rounded_corner_layer_impl_2 =
+      layer_tree_impl->LayerById(rounded_corner_layer_2->id());
+  LayerImpl* rounded_corner_layer_impl_3 =
+      layer_tree_impl->LayerById(rounded_corner_layer_3->id());
+
+  // Set the root layer on host.
+  ExecuteCalculateDrawProperties(root_impl, kDeviceScale);
+
+  // Fast rounded corner layer 1.
+  // The render target for this layer is |root|, hence its target bounds are
+  // relative to |root|.
+  // The offset from the origin of the render target is [5, 5] and the device
+  // scale factor is 1.6.
+  const gfx::RRectF actual_self_rrect_1 =
+      fast_rounded_corner_layer_impl_1->draw_properties().rounded_corner_bounds;
+  EXPECT_TRUE(actual_self_rrect_1.IsEmpty());
+
+  gfx::RectF bounds_in_target_space = kRoundedCornerLayer1Bound;
+  bounds_in_target_space.Scale(kDeviceScale);
+  const gfx::RRectF actual_render_target_rrect_1 =
+      fast_rounded_corner_layer_impl_1->render_target()
+          ->rounded_corner_bounds();
+  EXPECT_EQ(actual_render_target_rrect_1.rect(), bounds_in_target_space);
+  EXPECT_FLOAT_EQ(actual_render_target_rrect_1.GetSimpleRadius(),
+                  kRoundedCorner1Radius * kDeviceScale);
+
+  // Rounded corner layer 1
+  // The render target for this layer is |fast_rounded_corner_layer_1|.
+  // The offset from the origin of the render target is [0, 0] and the device
+  // scale factor is 1.6. The corner radius is also scaled by a factor of 1.6.
+  const gfx::RRectF actual_self_rrect_2 =
+      rounded_corner_layer_impl_1->draw_properties().rounded_corner_bounds;
+  bounds_in_target_space = kRoundedCornerLayer2Bound;
+  bounds_in_target_space.Scale(kDeviceScale);
+  EXPECT_EQ(actual_self_rrect_2.rect(), bounds_in_target_space);
+  EXPECT_FLOAT_EQ(actual_self_rrect_2.GetSimpleRadius(),
+                  kRoundedCorner2Radius * kDeviceScale);
+
+  // Rounded corner layer 3
+  // The render target for this layer is |root|.
+  // The offset from the origin of the render target is [5, 5] and the device
+  // scale factor is 1.6 thus giving the target space origin of [8, 8]. The
+  // corner radius is also scaled by a factor of 1.6.
+  const gfx::RRectF actual_self_rrect_3 =
+      rounded_corner_layer_impl_2->draw_properties().rounded_corner_bounds;
+  EXPECT_TRUE(actual_self_rrect_3.IsEmpty());
+
+  bounds_in_target_space = kRoundedCornerLayer3Bound;
+  bounds_in_target_space.Scale(kDeviceScale);
+  const gfx::RRectF actual_render_target_rrect_3 =
+      rounded_corner_layer_impl_2->render_target()->rounded_corner_bounds();
+  EXPECT_EQ(actual_render_target_rrect_3.rect(), bounds_in_target_space);
+  EXPECT_FLOAT_EQ(actual_render_target_rrect_3.GetSimpleRadius(),
+                  kRoundedCorner3Radius * kDeviceScale);
+
+  // Rounded corner layer 4
+  // The render target for this layer is |rounded_corner_layer_2|.
+  // The offset from the origin of the render target is [0, 5] and the device
+  // scale factor is 1.6 thus giving the target space origin of [0, 8]. The
+  // corner radius is also scaled by a factor of 1.6.
+  const gfx::RRectF actual_self_rrect_4 =
+      rounded_corner_layer_impl_3->draw_properties().rounded_corner_bounds;
+  bounds_in_target_space = kRoundedCornerLayer4Bound;
+  bounds_in_target_space.Scale(kDeviceScale);
+  EXPECT_EQ(actual_self_rrect_4.rect(), bounds_in_target_space);
+  EXPECT_FLOAT_EQ(actual_self_rrect_4.GetSimpleRadius(),
+                  kRoundedCorner4Radius * kDeviceScale);
+}
+
+TEST_F(LayerTreeHostCommonTest, CustomLayerClipBounds) {
+  // The custom clip API should have the same effect as if an intermediate
+  // clip layer has been added to the layer tree. To check this the test creates
+  // 2 subtree for a root layer. One of the subtree uses the clip API to clip
+  // its subtree while the other uses an intermediate layer. The resulting clip
+  // in draw properties are expected to be the same.
+  // -Root
+  //   - Parent [Clip set to |kClipBounds| using API]
+  //     - Child
+  //   - Clip Layer [Masks to bounds = true] [Layer bounds set to |kClipBounds|]
+  //     - Expected Parent
+  //       - Expected Child
+  constexpr float kDeviceScale = 1.f;
+
+  const gfx::Rect kRootLayerBounds(0, 0, 100, 100);
+  const gfx::Rect kParentLayerBounds(0, 0, 50, 100);
+  const gfx::Rect kChildLayerBounds(20, 20, 30, 60);
+
+  constexpr gfx::Rect kClipBounds(10, 10, 50, 50);
+
+  // The position of |Expected Parent| on screen should be same as |Parent|.
+  const gfx::Rect kExpectedParentLayerBounds(
+      gfx::Point(0, 0) - kClipBounds.OffsetFromOrigin(), gfx::Size(50, 100));
+
+  scoped_refptr<Layer> root = Layer::Create();
+  scoped_refptr<Layer> parent = Layer::Create();
+  scoped_refptr<Layer> child = Layer::Create();
+
+  scoped_refptr<Layer> clip_layer = Layer::Create();
+  scoped_refptr<Layer> expected_parent = Layer::Create();
+  scoped_refptr<Layer> expected_child = Layer::Create();
+
+  root->AddChild(parent);
+  parent->AddChild(child);
+
+  root->AddChild(clip_layer);
+  clip_layer->AddChild(expected_parent);
+  expected_parent->AddChild(expected_child);
+
+  host()->SetRootLayer(root);
+
+  root->SetIsDrawable(true);
+  parent->SetIsDrawable(true);
+  child->SetIsDrawable(true);
+  expected_parent->SetIsDrawable(true);
+  expected_child->SetIsDrawable(true);
+
+  // Set layer positions.
+  root->SetPosition(gfx::PointF(kRootLayerBounds.origin()));
+  parent->SetPosition(gfx::PointF(kParentLayerBounds.origin()));
+  child->SetPosition(gfx::PointF(kChildLayerBounds.origin()));
+
+  clip_layer->SetPosition(gfx::PointF(kClipBounds.origin()));
+  expected_parent->SetPosition(
+      gfx::PointF(kExpectedParentLayerBounds.origin()));
+  expected_child->SetPosition(gfx::PointF(kChildLayerBounds.origin()));
+
+  root->SetBounds(kRootLayerBounds.size());
+  parent->SetBounds(kParentLayerBounds.size());
+  child->SetBounds(kChildLayerBounds.size());
+
+  clip_layer->SetBounds(kClipBounds.size());
+  expected_parent->SetBounds(kExpectedParentLayerBounds.size());
+  expected_child->SetBounds(kChildLayerBounds.size());
+
+  parent->SetClipRect(kClipBounds);
+  clip_layer->SetMasksToBounds(true);
+
+  ExecuteCalculateDrawProperties(root.get(), kDeviceScale);
+
+  const ClipTree& clip_tree =
+      root->layer_tree_host()->property_trees()->clip_tree;
+
+  const ClipNode* parent_clip_node = clip_tree.Node(parent->clip_tree_index());
+  EXPECT_EQ(parent_clip_node->clip, gfx::RectF(kClipBounds));
+  EXPECT_TRUE(!parent->clip_rect().IsEmpty());
+
+  const ClipNode* child_clip_node = clip_tree.Node(child->clip_tree_index());
+  EXPECT_EQ(child_clip_node->clip, gfx::RectF(kClipBounds));
+
+  host()->host_impl()->CreatePendingTree();
+  host()->CommitAndCreatePendingTree();
+  // TODO(https://crbug.com/939968) This call should be handled by
+  // FakeLayerTreeHost instead of manually pushing the properties from the
+  // layer tree host to the pending tree.
+  root->layer_tree_host()->PushLayerTreePropertiesTo(host()->pending_tree());
+  host()->host_impl()->ActivateSyncTree();
+  LayerTreeImpl* layer_tree_impl = host()->host_impl()->active_tree();
+
+  // Get the layer impl for each Layer.
+  LayerImpl* root_impl = layer_tree_impl->LayerById(root->id());
+  LayerImpl* parent_impl = layer_tree_impl->LayerById(parent->id());
+  LayerImpl* child_impl = layer_tree_impl->LayerById(child->id());
+  LayerImpl* expected_parent_impl =
+      layer_tree_impl->LayerById(expected_parent->id());
+  LayerImpl* expected_child_impl =
+      layer_tree_impl->LayerById(expected_child->id());
+
+  ExecuteCalculateDrawProperties(root_impl, kDeviceScale);
+
+  EXPECT_TRUE(parent_impl->is_clipped());
+  EXPECT_TRUE(child_impl->is_clipped());
+  ASSERT_TRUE(expected_parent_impl->is_clipped());
+  ASSERT_TRUE(expected_child_impl->is_clipped());
+
+  EXPECT_EQ(parent_impl->clip_rect(), expected_parent_impl->clip_rect());
+  EXPECT_EQ(child_impl->clip_rect(), expected_child_impl->clip_rect());
+}
+
+TEST_F(LayerTreeHostCommonTest, CustomLayerClipBoundsWithMaskToBounds) {
+  // The custom clip API should have the same effect as if an intermediate
+  // clip layer has been added to the layer tree. To check this the test creates
+  // 2 subtree for a root layer. One of the subtree uses the clip API to clip
+  // its subtree while the other uses an intermediate layer. The resulting clip
+  // in draw properties are expected to be the same. In this test, the subtree
+  // roots also have their masks to bounds property set.
+  // -Root
+  //   - Parent [Clip set to |kClipBounds| using API]
+  //     - Child
+  //   - Clip Layer [Masks to bounds = true] [Layer bounds set to |kClipBounds|]
+  //     - Expected Parent [Masks to bounds = true]
+  //       - Expected Child
+  constexpr float kDeviceScale = 1.f;
+
+  const gfx::Rect kRootLayerBounds(0, 0, 100, 100);
+  const gfx::Rect kParentLayerBounds(0, 0, 50, 100);
+  const gfx::Rect kChildLayerBounds(20, 20, 30, 60);
+
+  constexpr gfx::Rect kClipBounds(10, 10, 50, 50);
+
+  // The position of |Expected Parent| on screen should be same as |Parent|.
+  const gfx::Rect kExpectedParentLayerBounds(
+      gfx::Point(0, 0) - kClipBounds.OffsetFromOrigin(), gfx::Size(50, 100));
+
+  scoped_refptr<Layer> root = Layer::Create();
+  scoped_refptr<Layer> parent = Layer::Create();
+  scoped_refptr<Layer> child = Layer::Create();
+
+  scoped_refptr<Layer> clip_layer = Layer::Create();
+  scoped_refptr<Layer> expected_parent = Layer::Create();
+  scoped_refptr<Layer> expected_child = Layer::Create();
+
+  root->AddChild(parent);
+  parent->AddChild(child);
+
+  root->AddChild(clip_layer);
+  clip_layer->AddChild(expected_parent);
+  expected_parent->AddChild(expected_child);
+
+  host()->SetRootLayer(root);
+
+  root->SetIsDrawable(true);
+  parent->SetIsDrawable(true);
+  child->SetIsDrawable(true);
+  expected_parent->SetIsDrawable(true);
+  expected_child->SetIsDrawable(true);
+
+  // Set layer positions.
+  root->SetPosition(gfx::PointF(kRootLayerBounds.origin()));
+  parent->SetPosition(gfx::PointF(kParentLayerBounds.origin()));
+  child->SetPosition(gfx::PointF(kChildLayerBounds.origin()));
+
+  clip_layer->SetPosition(gfx::PointF(kClipBounds.origin()));
+  expected_parent->SetPosition(
+      gfx::PointF(kExpectedParentLayerBounds.origin()));
+  expected_child->SetPosition(gfx::PointF(kChildLayerBounds.origin()));
+
+  root->SetBounds(kRootLayerBounds.size());
+  parent->SetBounds(kParentLayerBounds.size());
+  child->SetBounds(kChildLayerBounds.size());
+
+  clip_layer->SetBounds(kClipBounds.size());
+  expected_parent->SetBounds(kExpectedParentLayerBounds.size());
+  expected_child->SetBounds(kChildLayerBounds.size());
+
+  parent->SetClipRect(kClipBounds);
+  parent->SetMasksToBounds(true);
+
+  clip_layer->SetMasksToBounds(true);
+  expected_parent->SetMasksToBounds(true);
+
+  ExecuteCalculateDrawProperties(root.get(), kDeviceScale);
+
+  const ClipTree& clip_tree =
+      root->layer_tree_host()->property_trees()->clip_tree;
+
+  const ClipNode* parent_clip_node = clip_tree.Node(parent->clip_tree_index());
+  const gfx::RectF expected_clip_bounds = gfx::IntersectRects(
+      gfx::RectF(kClipBounds), gfx::RectF(kParentLayerBounds));
+  EXPECT_EQ(parent_clip_node->clip, expected_clip_bounds);
+  EXPECT_TRUE(!parent->clip_rect().IsEmpty());
+
+  const ClipNode* child_clip_node = clip_tree.Node(child->clip_tree_index());
+  EXPECT_EQ(child_clip_node->clip, expected_clip_bounds);
+
+  host()->host_impl()->CreatePendingTree();
+  host()->CommitAndCreatePendingTree();
+  // TODO(https://crbug.com/939968) This call should be handled by
+  // FakeLayerTreeHost instead of manually pushing the properties from the
+  // layer tree host to the pending tree.
+  root->layer_tree_host()->PushLayerTreePropertiesTo(host()->pending_tree());
+  host()->host_impl()->ActivateSyncTree();
+  LayerTreeImpl* layer_tree_impl = host()->host_impl()->active_tree();
+
+  // Get the layer impl for each Layer.
+  LayerImpl* root_impl = layer_tree_impl->LayerById(root->id());
+  LayerImpl* parent_impl = layer_tree_impl->LayerById(parent->id());
+  LayerImpl* child_impl = layer_tree_impl->LayerById(child->id());
+  LayerImpl* expected_parent_impl =
+      layer_tree_impl->LayerById(expected_parent->id());
+  LayerImpl* expected_child_impl =
+      layer_tree_impl->LayerById(expected_child->id());
+
+  ExecuteCalculateDrawProperties(root_impl, kDeviceScale);
+
+  EXPECT_TRUE(parent_impl->is_clipped());
+  EXPECT_TRUE(child_impl->is_clipped());
+  ASSERT_TRUE(expected_parent_impl->is_clipped());
+  ASSERT_TRUE(expected_child_impl->is_clipped());
+
+  EXPECT_EQ(parent_impl->clip_rect(), expected_parent_impl->clip_rect());
+  EXPECT_EQ(child_impl->clip_rect(), expected_child_impl->clip_rect());
 }
 
 }  // namespace

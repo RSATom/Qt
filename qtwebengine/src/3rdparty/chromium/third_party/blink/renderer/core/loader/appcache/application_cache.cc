@@ -32,10 +32,10 @@
 #include "third_party/blink/renderer/core/frame/deprecation.h"
 #include "third_party/blink/renderer/core/frame/hosts_using_features.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
-#include "third_party/blink/renderer/core/frame/use_counter.h"
 #include "third_party/blink/renderer/core/loader/document_loader.h"
 #include "third_party/blink/renderer/core/loader/frame_loader.h"
 #include "third_party/blink/renderer/platform/bindings/exception_state.h"
+#include "third_party/blink/renderer/platform/instrumentation/use_counter.h"
 
 namespace blink {
 
@@ -56,34 +56,34 @@ ApplicationCacheHost* ApplicationCache::GetApplicationCacheHost() const {
   return GetFrame()->Loader().GetDocumentLoader()->GetApplicationCacheHost();
 }
 
-unsigned short ApplicationCache::status() const {
+uint16_t ApplicationCache::status() const {
   // Application Cache status numeric values are specified in the HTML5 spec.
-  static_assert(static_cast<unsigned short>(
+  static_assert(static_cast<uint16_t>(
                     mojom::AppCacheStatus::APPCACHE_STATUS_UNCACHED) == 0,
                 "");
-  static_assert(static_cast<unsigned short>(
-                    mojom::AppCacheStatus::APPCACHE_STATUS_IDLE) == 1,
-                "");
-  static_assert(static_cast<unsigned short>(
+  static_assert(
+      static_cast<uint16_t>(mojom::AppCacheStatus::APPCACHE_STATUS_IDLE) == 1,
+      "");
+  static_assert(static_cast<uint16_t>(
                     mojom::AppCacheStatus::APPCACHE_STATUS_CHECKING) == 2,
                 "");
-  static_assert(static_cast<unsigned short>(
+  static_assert(static_cast<uint16_t>(
                     mojom::AppCacheStatus::APPCACHE_STATUS_DOWNLOADING) == 3,
                 "");
-  static_assert(static_cast<unsigned short>(
+  static_assert(static_cast<uint16_t>(
                     mojom::AppCacheStatus::APPCACHE_STATUS_UPDATE_READY) == 4,
                 "");
-  static_assert(static_cast<unsigned short>(
+  static_assert(static_cast<uint16_t>(
                     mojom::AppCacheStatus::APPCACHE_STATUS_OBSOLETE) == 5,
                 "");
 
   RecordAPIUseType();
   ApplicationCacheHost* cache_host = GetApplicationCacheHost();
   if (!cache_host) {
-    return static_cast<unsigned short>(
+    return static_cast<uint16_t>(
         mojom::AppCacheStatus::APPCACHE_STATUS_UNCACHED);
   }
-  return static_cast<unsigned short>(cache_host->GetStatus());
+  return static_cast<uint16_t>(cache_host->GetStatus());
 }
 
 void ApplicationCache::update(ExceptionState& exception_state) {

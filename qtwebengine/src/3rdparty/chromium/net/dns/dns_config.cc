@@ -12,19 +12,23 @@ namespace net {
 
 // Default values are taken from glibc resolv.h except timeout which is set to
 // |kDnsDefaultTimeoutMs|.
-DnsConfig::DnsConfig()
-    : unhandled_options(false),
+DnsConfig::DnsConfig() : DnsConfig(std::vector<IPEndPoint>()) {}
+
+DnsConfig::DnsConfig(const DnsConfig& other) = default;
+
+DnsConfig::DnsConfig(DnsConfig&& other) = default;
+
+DnsConfig::DnsConfig(std::vector<IPEndPoint> nameservers)
+    : nameservers(std::move(nameservers)),
+      unhandled_options(false),
       append_to_multi_label_name(true),
       randomize_ports(false),
       ndots(1),
       timeout(kDnsDefaultTimeout),
       attempts(2),
       rotate(false),
-      use_local_ipv6(false) {}
-
-DnsConfig::DnsConfig(const DnsConfig& other) = default;
-
-DnsConfig::DnsConfig(DnsConfig&& other) = default;
+      use_local_ipv6(false),
+      secure_dns_mode(SecureDnsMode::OFF) {}
 
 DnsConfig::~DnsConfig() = default;
 
@@ -36,6 +40,10 @@ bool DnsConfig::Equals(const DnsConfig& d) const {
   return EqualsIgnoreHosts(d) && (hosts == d.hosts);
 }
 
+bool DnsConfig::operator==(const DnsConfig& d) const {
+  return Equals(d);
+}
+
 bool DnsConfig::EqualsIgnoreHosts(const DnsConfig& d) const {
   return (nameservers == d.nameservers) && (search == d.search) &&
          (unhandled_options == d.unhandled_options) &&
@@ -43,7 +51,8 @@ bool DnsConfig::EqualsIgnoreHosts(const DnsConfig& d) const {
          (ndots == d.ndots) && (timeout == d.timeout) &&
          (attempts == d.attempts) && (rotate == d.rotate) &&
          (use_local_ipv6 == d.use_local_ipv6) &&
-         (dns_over_https_servers == d.dns_over_https_servers);
+         (dns_over_https_servers == d.dns_over_https_servers) &&
+         (secure_dns_mode == d.secure_dns_mode);
 }
 
 void DnsConfig::CopyIgnoreHosts(const DnsConfig& d) {
@@ -57,6 +66,7 @@ void DnsConfig::CopyIgnoreHosts(const DnsConfig& d) {
   rotate = d.rotate;
   use_local_ipv6 = d.use_local_ipv6;
   dns_over_https_servers = d.dns_over_https_servers;
+  secure_dns_mode = d.secure_dns_mode;
 }
 
 std::unique_ptr<base::Value> DnsConfig::ToValue() const {
@@ -90,6 +100,7 @@ std::unique_ptr<base::Value> DnsConfig::ToValue() const {
     list->GetList().push_back(std::move(val));
   }
   dict->Set("doh_servers", std::move(list));
+  dict->SetInteger("secure_dns_mode", static_cast<int>(secure_dns_mode));
 
   return std::move(dict);
 }

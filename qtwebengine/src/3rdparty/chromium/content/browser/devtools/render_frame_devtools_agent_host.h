@@ -27,17 +27,15 @@
 #include "ui/android/view_android.h"
 #endif  // OS_ANDROID
 
-namespace viz {
-class CompositorFrameMetadata;
-}
-
 namespace content {
 
 class BrowserContext;
 class DevToolsFrameTraceRecorder;
 class FrameTreeNode;
+class NavigationRequest;
 class NavigationHandleImpl;
 class RenderFrameHostImpl;
+struct DevToolsFrameMetadata;
 
 class CONTENT_EXPORT RenderFrameDevToolsAgentHost
     : public DevToolsAgentHostImpl,
@@ -48,6 +46,12 @@ class CONTENT_EXPORT RenderFrameDevToolsAgentHost
   // Returns appropriate agent host for given frame tree node, traversing
   // up to local root as needed.
   static DevToolsAgentHostImpl* GetFor(FrameTreeNode* frame_tree_node);
+  // Returns appropriate agent host for given render frame host, traversing
+  // up to local root as needed. This will have an effect different from
+  // calling the above overload as GetFor(rfh->frame_tree_node()) when
+  // given RFH is a pending local root.
+  static DevToolsAgentHostImpl* GetFor(RenderFrameHostImpl* rfh);
+
   // Similar to GetFor(), but creates a host if it doesn't exist yet.
   static scoped_refptr<DevToolsAgentHost> GetOrCreateFor(
       FrameTreeNode* frame_tree_node);
@@ -64,9 +68,11 @@ class CONTENT_EXPORT RenderFrameDevToolsAgentHost
 
   static void SignalSynchronousSwapCompositorFrame(
       RenderFrameHost* frame_host,
-      viz::CompositorFrameMetadata frame_metadata);
-
+      const DevToolsFrameMetadata& frame_metadata);
   FrameTreeNode* frame_tree_node() { return frame_tree_node_; }
+
+  void OnNavigationRequestWillBeSent(
+      const NavigationRequest& navigation_request);
 
   // DevToolsAgentHost overrides.
   void DisconnectWebContents() override;
@@ -119,7 +125,6 @@ class CONTENT_EXPORT RenderFrameDevToolsAgentHost
 
   bool IsChildFrame();
 
-  void OnSwapCompositorFrame(const IPC::Message& message);
   void DestroyOnRenderFrameGone();
   void UpdateFrameHost(RenderFrameHostImpl* frame_host);
   void SetFrameTreeNode(FrameTreeNode* frame_tree_node);
@@ -131,7 +136,8 @@ class CONTENT_EXPORT RenderFrameDevToolsAgentHost
 #endif
 
   void SynchronousSwapCompositorFrame(
-      viz::CompositorFrameMetadata frame_metadata);
+      const DevToolsFrameMetadata& frame_metadata);
+  void UpdateResourceLoaderFactories();
 
   std::unique_ptr<DevToolsFrameTraceRecorder> frame_trace_recorder_;
 #if defined(OS_ANDROID)
@@ -142,9 +148,12 @@ class CONTENT_EXPORT RenderFrameDevToolsAgentHost
   RenderFrameHostImpl* frame_host_ = nullptr;
   base::flat_set<NavigationHandleImpl*> navigation_handles_;
   bool render_frame_alive_ = false;
+  void* active_file_chooser_interceptor_ = nullptr;
 
   // The FrameTreeNode associated with this agent.
   FrameTreeNode* frame_tree_node_;
+
+  double page_scale_factor_ = 1;
 
   DISALLOW_COPY_AND_ASSIGN(RenderFrameDevToolsAgentHost);
 };

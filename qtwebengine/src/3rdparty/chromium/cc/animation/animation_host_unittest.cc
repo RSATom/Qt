@@ -32,12 +32,12 @@ class AnimationHostTest : public AnimationTimelinesTest {
   ~AnimationHostTest() override = default;
 
   void AttachWorkletAnimation() {
-    client_.RegisterElement(element_id_, ElementListType::ACTIVE);
-    client_impl_.RegisterElement(element_id_, ElementListType::PENDING);
-    client_impl_.RegisterElement(element_id_, ElementListType::ACTIVE);
+    client_.RegisterElementId(element_id_, ElementListType::ACTIVE);
+    client_impl_.RegisterElementId(element_id_, ElementListType::PENDING);
+    client_impl_.RegisterElementId(element_id_, ElementListType::ACTIVE);
 
     worklet_animation_ = WorkletAnimation::Create(
-        worklet_animation_id_, "test_name", nullptr, nullptr);
+        worklet_animation_id_, "test_name", 1, nullptr, nullptr, nullptr);
     int cc_id = worklet_animation_->id();
     worklet_animation_->AttachElement(element_id_);
     host_->AddAnimationTimeline(timeline_);
@@ -121,8 +121,8 @@ TEST_F(AnimationHostTest, ImplOnlyTimeline) {
 }
 
 TEST_F(AnimationHostTest, ImplOnlyScrollAnimationUpdateTargetIfDetached) {
-  client_.RegisterElement(element_id_, ElementListType::ACTIVE);
-  client_impl_.RegisterElement(element_id_, ElementListType::PENDING);
+  client_.RegisterElementId(element_id_, ElementListType::ACTIVE);
+  client_impl_.RegisterElementId(element_id_, ElementListType::PENDING);
 
   gfx::ScrollOffset target_offset(0., 2.);
   gfx::ScrollOffset current_offset(0., 1.);
@@ -149,7 +149,7 @@ TEST_F(AnimationHostTest, ImplOnlyScrollAnimationUpdateTargetIfDetached) {
 
 // Tests that verify interaction of AnimationHost with LayerTreeMutator.
 
-TEST_F(AnimationHostTest, LayerTreeMutatorUpdateTakesEffectInSameFrame) {
+TEST_F(AnimationHostTest, FastLayerTreeMutatorUpdateTakesEffectInSameFrame) {
   AttachWorkletAnimation();
 
   const float start_opacity = .7f;
@@ -173,11 +173,16 @@ TEST_F(AnimationHostTest, LayerTreeMutatorUpdateTakesEffectInSameFrame) {
 
   // Push the opacity animation to the impl thread.
   host_->PushPropertiesTo(host_impl_);
-  host_impl_->ActivateAnimations();
+  host_impl_->ActivateAnimations(nullptr);
 
   // Ticking host should cause layer tree mutator to update output state which
   // should take effect in the same animation frame.
   TickAnimationsTransferEvents(base::TimeTicks(), 0u);
+
+  // Emulate behavior in PrepareToDraw. Animation worklet updates are best
+  // effort, and the animation tick is deferred until draw to allow time for the
+  // updates to arrive.
+  host_impl_->TickWorkletAnimations();
 
   TestLayer* layer =
       client_.FindTestLayer(element_id_, ElementListType::ACTIVE);
@@ -202,7 +207,7 @@ TEST_F(AnimationHostTest, LayerTreeMutatorsIsMutatedWithCorrectInputState) {
                                   start_opacity, end_opacity, true);
 
   host_->PushPropertiesTo(host_impl_);
-  host_impl_->ActivateAnimations();
+  host_impl_->ActivateAnimations(nullptr);
 
   EXPECT_CALL(*mock_mutator, MutateRef(_));
 
@@ -227,7 +232,7 @@ TEST_F(AnimationHostTest, LayerTreeMutatorsIsMutatedOnlyWhenInputChanges) {
                                   start_opacity, end_opacity, true);
 
   host_->PushPropertiesTo(host_impl_);
-  host_impl_->ActivateAnimations();
+  host_impl_->ActivateAnimations(nullptr);
 
   EXPECT_CALL(*mock_mutator, MutateRef(_)).Times(1);
 
@@ -301,9 +306,9 @@ TEST_F(AnimationHostTest, LayerTreeMutatorUpdateReflectsScrollAnimations) {
   int animation_id2 = 12;
   WorkletAnimationId worklet_animation_id{333, 22};
 
-  client_.RegisterElement(element_id, ElementListType::ACTIVE);
-  client_impl_.RegisterElement(element_id, ElementListType::PENDING);
-  client_impl_.RegisterElement(element_id, ElementListType::ACTIVE);
+  client_.RegisterElementId(element_id, ElementListType::ACTIVE);
+  client_impl_.RegisterElementId(element_id, ElementListType::PENDING);
+  client_impl_.RegisterElementId(element_id, ElementListType::ACTIVE);
   host_impl_->AddAnimationTimeline(timeline_);
 
   PropertyTrees property_trees;
@@ -328,14 +333,14 @@ TEST_F(AnimationHostTest, LayerTreeMutatorUpdateReflectsScrollAnimations) {
 
   // Create scroll timeline that links scroll animation and worklet animation
   // together. Use timerange so that we have 1:1 time & scroll mapping.
-  auto scroll_timeline =
-      std::make_unique<ScrollTimeline>(element_id, ScrollTimeline::ScrollDown,
-                                       base::nullopt, base::nullopt, 100);
+  auto scroll_timeline = std::make_unique<ScrollTimeline>(
+      element_id, ScrollTimeline::ScrollDown, base::nullopt, base::nullopt, 100,
+      KeyframeModel::FillMode::NONE);
 
   // Create a worklet animation that is bound to the scroll timeline.
   scoped_refptr<WorkletAnimation> worklet_animation(
-      new WorkletAnimation(animation_id2, worklet_animation_id, "test_name",
-                           std::move(scroll_timeline), nullptr, true));
+      new WorkletAnimation(animation_id2, worklet_animation_id, "test_name", 1,
+                           std::move(scroll_timeline), nullptr, nullptr, true));
   worklet_animation->AttachElement(element_id);
   timeline_->AttachAnimation(worklet_animation);
 

@@ -1361,9 +1361,12 @@ static void parseFont(QSvgNode *node,
     }
     if (!fontStyle)
         fontStyle = new QSvgFontStyle;
-
-    if (!attributes.fontFamily.isEmpty() && attributes.fontFamily != QT_INHERIT)
-        fontStyle->setFamily(attributes.fontFamily.toString().trimmed());
+    if (!attributes.fontFamily.isEmpty() && attributes.fontFamily != QT_INHERIT) {
+        QString family = attributes.fontFamily.toString().trimmed();
+        if (family.at(0) == QLatin1Char('\'') || family.at(0) == QLatin1Char('\"'))
+            family = family.mid(1, family.length() - 2);
+        fontStyle->setFamily(family);
+    }
 
     if (!attributes.fontSize.isEmpty() && attributes.fontSize != QT_INHERIT) {
         // TODO: Support relative sizes 'larger' and 'smaller'.
@@ -1986,7 +1989,7 @@ static void parseCSStoXMLAttrs(const QVector<QCss::Declaration> &declarations,
     }
 }
 
-void QSvgHandler::parseCSStoXMLAttrs(QString css, QVector<QSvgCssAttribute> *attributes)
+void QSvgHandler::parseCSStoXMLAttrs(const QString &css, QVector<QSvgCssAttribute> *attributes)
 {
     // preprocess (for unicode escapes), tokenize and remove comments
     m_cssParser.init(css);

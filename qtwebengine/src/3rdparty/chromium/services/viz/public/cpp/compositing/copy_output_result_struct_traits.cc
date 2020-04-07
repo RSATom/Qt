@@ -4,6 +4,7 @@
 
 #include "services/viz/public/cpp/compositing/copy_output_result_struct_traits.h"
 
+#include "base/bind.h"
 #include "mojo/public/cpp/bindings/strong_binding.h"
 
 namespace {
@@ -159,16 +160,16 @@ bool StructTraits<viz::mojom::CopyOutputResultDataView,
   if (!data.ReadFormat(&format) || !data.ReadRect(&rect))
     return false;
 
+  if (rect.IsEmpty()) {
+    // An empty rect implies an empty result.
+    *out_p = std::make_unique<viz::CopyOutputResult>(format, gfx::Rect());
+    return true;
+  }
+
   switch (format) {
     case viz::CopyOutputResult::Format::RGBA_BITMAP: {
       SkBitmap bitmap;
-      if (!data.ReadBitmap(&bitmap))
-        return false;
-
-      bool has_bitmap = bitmap.readyToDraw();
-
-      // The rect should be empty iff there is no bitmap.
-      if (!(has_bitmap == !rect.IsEmpty()))
+      if (!data.ReadBitmap(&bitmap) || !bitmap.readyToDraw())
         return false;
 
       *out_p = std::make_unique<viz::CopyOutputSkBitmapResult>(
@@ -187,13 +188,7 @@ bool StructTraits<viz::mojom::CopyOutputResultDataView,
       if (!data.ReadColorSpace(&color_space) || !color_space)
         return false;
 
-      bool has_mailbox = !mailbox->IsZero();
-
-      // The rect should be empty iff there is no texture.
-      if (!(has_mailbox == !rect.IsEmpty()))
-        return false;
-
-      if (!has_mailbox) {
+      if (mailbox->IsZero()) {
         // Returns an empty result.
         *out_p = std::make_unique<viz::CopyOutputResult>(
             viz::CopyOutputResult::Format::RGBA_TEXTURE, gfx::Rect());

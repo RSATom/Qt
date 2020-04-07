@@ -79,6 +79,7 @@ public:
         KeypadModifier = Qt::KeypadModifier
     };
     Q_ENUM(Modifiers) // LCOV_EXCL_LINE
+    // TO DO Qt6 Modifiers -> Modifier and add Q_FLAG(Modifiers)
 
     explicit QMouseEvent(const QT_PREPEND_NAMESPACE(QMouseEvent) &e);
     ~QMouseEvent();
@@ -136,12 +137,13 @@ public:
         KeypadModifier = Qt::KeypadModifier
     };
     Q_ENUM(Modifiers) // LCOV_EXCL_LINE
+    // TO DO Qt6 Modifiers -> Modifier and add Q_FLAG(Modifiers)
 
     explicit QWheelEvent(const QT_PREPEND_NAMESPACE(QWheelEvent) &e);
     ~QWheelEvent();
 
-    inline int x() const { return m_event.x(); }
-    inline int y() const { return m_event.y(); }
+    inline int x() const { return int(m_event.position().x()); }
+    inline int y() const { return int(m_event.position().y()); }
     inline QPoint angleDelta() const { return m_event.angleDelta(); }
     int buttons() const;
     Modifiers modifiers() const;

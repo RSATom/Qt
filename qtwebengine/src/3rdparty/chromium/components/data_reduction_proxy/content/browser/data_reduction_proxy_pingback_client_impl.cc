@@ -7,6 +7,7 @@
 #include <stdint.h>
 #include <string>
 
+#include "base/bind.h"
 #include "base/location.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/optional.h"
@@ -15,12 +16,12 @@
 #include "base/task/post_task.h"
 #include "base/task/task_traits.h"
 #include "base/time/time.h"
+#include "components/data_reduction_proxy/content/browser/data_reduction_proxy_page_load_timing.h"
 #include "components/data_reduction_proxy/core/browser/data_reduction_proxy_data.h"
 #include "components/data_reduction_proxy/core/browser/data_reduction_proxy_util.h"
-#include "components/data_reduction_proxy/core/common/data_reduction_proxy_page_load_timing.h"
 #include "components/data_reduction_proxy/core/common/data_reduction_proxy_params.h"
 #include "components/data_reduction_proxy/proto/client_config.pb.h"
-#include "components/data_use_measurement/core/data_use_user_data.h"
+#include "components/previews/core/previews_lite_page_redirect.h"
 #include "components/variations/net/variations_http_headers.h"
 #include "content/public/common/child_process_host.h"
 #include "net/base/load_flags.h"
@@ -34,6 +35,27 @@
 namespace data_reduction_proxy {
 
 namespace {
+
+// Returns the HTTPSLitePagePreviewInfo_Status for a
+// |previews::ServerLitePageStatus|.
+HTTPSLitePagePreviewInfo_Status
+ProtoLitePageRedirectStatusFromLitePageRedirectStatus(
+    previews::ServerLitePageStatus status) {
+  switch (status) {
+    case previews::ServerLitePageStatus::kUnknown:
+      return HTTPSLitePagePreviewInfo_Status_UNKNOWN;
+    case previews::ServerLitePageStatus::kSuccess:
+      return HTTPSLitePagePreviewInfo_Status_SUCCESS;
+    case previews::ServerLitePageStatus::kBypass:
+      return HTTPSLitePagePreviewInfo_Status_BYPASS;
+    case previews::ServerLitePageStatus::kRedirect:
+      return HTTPSLitePagePreviewInfo_Status_REDIRECT;
+    case previews::ServerLitePageStatus::kFailure:
+      return HTTPSLitePagePreviewInfo_Status_FAILURE;
+    case previews::ServerLitePageStatus::kControl:
+      return HTTPSLitePagePreviewInfo_Status_CONTROL;
+  }
+}
 
 static const char kHistogramSucceeded[] =
     "DataReductionProxy.Pingback.Succeeded";
@@ -145,9 +167,8 @@ void AddDataToPageloadMetrics(const DataReductionProxyData& request_data,
         protobuf_parser::CreateDurationFromTimeDelta(
             timing.lite_page_redirect_penalty.value())
             .release());
-    info->set_status(
-        protobuf_parser::ProtoLitePageRedirectStatusFromLitePageRedirectStatus(
-            timing.lite_page_redirect_status.value()));
+    info->set_status(ProtoLitePageRedirectStatusFromLitePageRedirectStatus(
+        timing.lite_page_redirect_status.value()));
   }
 
   request->set_effective_connection_type(
@@ -173,10 +194,7 @@ void AddDataToPageloadMetrics(const DataReductionProxyData& request_data,
   }
 
   bool was_preview_shown = false;
-  if (request_data.lofi_received() || request_data.client_lofi_requested()) {
-    request->set_previews_type(PageloadMetrics_PreviewsType_LOFI);
-    was_preview_shown = true;
-  } else if (request_data.lite_page_received()) {
+  if (request_data.lite_page_received()) {
     request->set_previews_type(PageloadMetrics_PreviewsType_LITE_PAGE);
     was_preview_shown = true;
   } else if (request_data.black_listed()) {
@@ -231,15 +249,16 @@ DataReductionProxyPingbackClientImpl::DataReductionProxyPingbackClientImpl(
       current_loader_message_count_(0u),
       current_loader_crash_count_(0u),
       ui_task_runner_(std::move(ui_task_runner)),
-      channel_(channel),
+      channel_(channel)
 #if defined(OS_ANDROID)
+      ,
       scoped_observer_(this),
       weak_factory_(this) {
   auto* crash_manager = crash_reporter::CrashMetricsReporter::GetInstance();
   DCHECK(crash_manager);
   scoped_observer_.Add(crash_manager);
 #else
-      weak_factory_(this){
+          {
 #endif
 }
 
@@ -423,17 +442,13 @@ void DataReductionProxyPingbackClientImpl::CreateLoaderForDataAndStart() {
         })");
   auto resource_request = std::make_unique<network::ResourceRequest>();
   resource_request->url = pingback_url_;
-  resource_request->load_flags = net::LOAD_BYPASS_PROXY |
-                                 net::LOAD_DO_NOT_SEND_COOKIES |
-                                 net::LOAD_DO_NOT_SAVE_COOKIES;
+  resource_request->load_flags = net::LOAD_BYPASS_PROXY;
+  resource_request->allow_credentials = false;
   resource_request->method = "POST";
   // Attach variations headers.
-  variations::AppendVariationHeaders(
+  variations::AppendVariationsHeader(
       pingback_url_, variations::InIncognito::kNo, variations::SignedIn::kNo,
-      &resource_request->headers);
-  // TODO(https://crbug.com/808498): Re-add data use measurement once
-  // SimpleURLLoader supports it.
-  // ID=data_use_measurement::DataUseUserData::DATA_REDUCTION_PROXY
+      resource_request.get());
   current_loader_ = network::SimpleURLLoader::Create(
       std::move(resource_request), traffic_annotation);
   current_loader_->AttachStringForUpload(serialized_request,

@@ -73,6 +73,15 @@ HARImporter.HARBase = class {
       return;
     return value;
   }
+
+  /**
+   * @param {string} name
+   * @return {!Array|undefined}
+   */
+  customAsArray(name) {
+    const value = /** @type {!Object} */ (this)['_' + name];
+    return Array.isArray(value) ? value : undefined;
+  }
 };
 
 // Using any of these classes may throw.
@@ -160,10 +169,38 @@ HARImporter.HAREntry = class extends HARImporter.HARBase {
 
     // Chrome specific.
     this._fromCache = HARImporter.HARBase._optionalString(data['_fromCache']);
-    if (data['_initiator'])
-      this._initiator = new HARImporter.HARInitiator(data['_initiator']);
+    this._initiator = this._importInitiator(data['_initiator']);
     this._priority = HARImporter.HARBase._optionalString(data['_priority']);
     this._resourceType = HARImporter.HARBase._optionalString(data['_resourceType']);
+    this._webSocketMessages = this._importWebSocketMessages(data['_webSocketMessages']);
+  }
+
+  /**
+   * @param {*} initiator
+   * @return {!HARImporter.HARInitiator|undefined}
+   */
+  _importInitiator(initiator) {
+    if (typeof initiator !== 'object')
+      return;
+
+    return new HARImporter.HARInitiator(initiator);
+  }
+
+  /**
+   * @param {*} inputMessages
+   * @return {!Array<!HARImporter.HARInitiator>|undefined}
+   */
+  _importWebSocketMessages(inputMessages) {
+    if (!Array.isArray(inputMessages))
+      return;
+
+    const outputMessages = [];
+    for (const message of inputMessages) {
+      if (typeof message !== 'object')
+        return;
+      outputMessages.push(new HARImporter.HARWebSocketMessage(message));
+    }
+    return outputMessages;
   }
 };
 
@@ -329,5 +366,18 @@ HARImporter.HARInitiator = class extends HARImporter.HARBase {
     this.type = HARImporter.HARBase._optionalString(data['type']);
     this.url = HARImporter.HARBase._optionalString(data['url']);
     this.lineNumber = HARImporter.HARBase._optionalNumber(data['lineNumber']);
+  }
+};
+
+HARImporter.HARWebSocketMessage = class extends HARImporter.HARBase {
+  /**
+   * @param {*} data
+   */
+  constructor(data) {
+    super(data);
+    this.time = HARImporter.HARBase._optionalNumber(data['time']);
+    this.opcode = HARImporter.HARBase._optionalNumber(data['opcode']);
+    this.data = HARImporter.HARBase._optionalString(data['data']);
+    this.type = HARImporter.HARBase._optionalString(data['type']);
   }
 };

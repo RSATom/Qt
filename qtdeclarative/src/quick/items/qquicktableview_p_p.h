@@ -54,9 +54,9 @@
 #include "qquicktableview_p.h"
 
 #include <QtCore/qtimer.h>
-#include <QtQml/private/qqmltableinstancemodel_p.h>
+#include <QtQmlModels/private/qqmltableinstancemodel_p.h>
 #include <QtQml/private/qqmlincubator_p.h>
-#include <QtQml/private/qqmlchangeset_p.h>
+#include <QtQmlModels/private/qqmlchangeset_p.h>
 #include <QtQml/qqmlinfo.h>
 
 #include <QtQuick/private/qquickflickable_p_p.h>
@@ -70,6 +70,25 @@ static const qreal kDefaultRowHeight = 50;
 static const qreal kDefaultColumnWidth = 50;
 
 class FxTableItem;
+class QQuickTableSectionSizeProviderPrivate;
+
+class Q_QUICK_PRIVATE_EXPORT QQuickTableSectionSizeProvider : public QObject {
+    Q_OBJECT
+
+public:
+    QQuickTableSectionSizeProvider(QObject *parent=nullptr);
+    void setSize(int section, qreal size);
+    qreal size(int section);
+    bool resetSize(int section);
+    void resetAll();
+
+Q_SIGNALS:
+    void sizeChanged();
+
+private:
+    Q_DISABLE_COPY(QQuickTableSectionSizeProvider)
+    Q_DECLARE_PRIVATE(QQuickTableSectionSizeProvider)
+};
 
 class Q_QML_AUTOTEST_EXPORT QQuickTableViewPrivate : public QQuickFlickablePrivate
 {
@@ -188,10 +207,11 @@ public:
 
     enum class RebuildOption {
         None = 0,
-        ViewportOnly = 0x1,
-        CalculateNewTopLeftRow = 0x2,
-        CalculateNewTopLeftColumn = 0x4,
-        All = 0x8,
+        LayoutOnly = 0x1,
+        ViewportOnly = 0x2,
+        CalculateNewTopLeftRow = 0x4,
+        CalculateNewTopLeftColumn = 0x8,
+        All = 0x10,
     };
     Q_DECLARE_FLAGS(RebuildOptions, RebuildOption)
 
@@ -231,6 +251,9 @@ public:
     QRectF loadedTableOuterRect;
     QRectF loadedTableInnerRect;
 
+    QPointF origin = QPointF(0, 0);
+    QSizeF endExtent = QSizeF(0, 0);
+
     QRectF viewportRect = QRectF(0, 0, -1, -1);
 
     QSize tableSize;
@@ -246,13 +269,18 @@ public:
     QQmlTableInstanceModel::ReusableFlag reusableFlag = QQmlTableInstanceModel::Reusable;
 
     bool blockItemCreatedCallback = false;
-    bool columnRowPositionsInvalid = false;
     bool layoutWarningIssued = false;
     bool polishing = false;
-    bool rebuildScheduled = true;
+    bool syncVertically = false;
+    bool syncHorizontally = false;
+    bool inSetLocalViewportPos = false;
+    bool inSyncViewportPosRecursive = false;
+    bool inUpdateContentSize = false;
 
     QJSValue rowHeightProvider;
     QJSValue columnWidthProvider;
+    QQuickTableSectionSizeProvider rowHeights;
+    QQuickTableSectionSizeProvider columnWidths;
 
     EdgeRange cachedNextVisibleEdgeIndex[4];
     EdgeRange cachedColumnWidth;
@@ -272,6 +300,11 @@ public:
 
     QSizeF averageEdgeSize;
 
+    QPointer<QQuickTableView> assignedSyncView;
+    QPointer<QQuickTableView> syncView;
+    QList<QPointer<QQuickTableView> > syncChildren;
+    Qt::Orientations assignedSyncDirection = Qt::Horizontal | Qt::Vertical;
+
     const static QPoint kLeft;
     const static QPoint kRight;
     const static QPoint kUp;
@@ -289,7 +322,8 @@ public:
 
     qreal sizeHintForColumn(int column);
     qreal sizeHintForRow(int row);
-    void calculateTableSize();
+    QSize calculateTableSize();
+    void updateTableSize();
 
     inline bool isColumnHidden(int column);
     inline bool isRowHidden(int row);
@@ -304,7 +338,10 @@ public:
     inline int leftColumn() const { return loadedColumns.firstKey(); }
     inline int rightColumn() const { return loadedColumns.lastKey(); }
 
-    void relayoutTable();
+    QQuickTableView *rootSyncView() const;
+
+    bool updateTableRecursive();
+    bool updateTable();
     void relayoutTableItems();
 
     void layoutVerticalEdge(Qt::Edge tableEdge);
@@ -315,9 +352,10 @@ public:
     void updateContentWidth();
     void updateContentHeight();
     void updateAverageEdgeSize();
+    RebuildOptions checkForVisibilityChanges();
     void forceLayout();
 
-    void enforceTableAtOrigin();
+    void updateExtents();
     void syncLoadedTableRectFromLoadedTable();
     void syncLoadedTableFromLoadRequest();
 
@@ -342,7 +380,6 @@ public:
     void releaseLoadedItems(QQmlTableInstanceModel::ReusableFlag reusableFlag);
 
     void unloadItem(const QPoint &cell);
-    void loadInitialTopLeftItem(const QPoint &cell, const QPointF &pos);
     void loadEdge(Qt::Edge edge, QQmlIncubator::IncubationMode incubationMode);
     void unloadEdge(Qt::Edge edge);
     void loadAndUnloadVisibleEdges();
@@ -351,13 +388,11 @@ public:
 
     void processRebuildTable();
     bool moveToNextRebuildState();
-    QPoint calculateNewTopLeft();
     void calculateTopLeft(QPoint &topLeft, QPointF &topLeftPos);
     void beginRebuildTable();
     void layoutAfterLoadingInitialTable();
 
     void scheduleRebuildTable(QQuickTableViewPrivate::RebuildOptions options);
-    void invalidateColumnRowPositions();
 
     int resolveImportVersion();
     void createWrapperModel();
@@ -372,6 +407,7 @@ public:
     inline void syncDelegate();
     inline void syncModel();
     inline void syncRebuildOptions();
+    inline void syncSyncView();
 
     void connectToModel();
     void disconnectFromModel();
@@ -384,6 +420,13 @@ public:
     void columnsRemovedCallback(const QModelIndex &parent, int begin, int end);
     void layoutChangedCallback(const QList<QPersistentModelIndex> &parents, QAbstractItemModel::LayoutChangeHint hint);
     void modelResetCallback();
+
+    void scheduleRebuildIfFastFlick();
+    void setLocalViewportX(qreal contentX);
+    void setLocalViewportY(qreal contentY);
+    void syncViewportPosRecursive();
+
+    void fetchMoreData();
 
     void _q_componentFinalized();
     void registerCallbackWhenBindingsAreEvaluated();

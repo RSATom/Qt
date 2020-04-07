@@ -20,8 +20,6 @@
 
 #include "third_party/blink/renderer/platform/fonts/font_platform_data.h"
 
-#include "SkFont.h"
-#include "SkTypeface.h"
 #include "build/build_config.h"
 #include "hb-ot.h"
 #include "hb.h"
@@ -35,6 +33,8 @@
 #include "third_party/blink/renderer/platform/wtf/text/character_names.h"
 #include "third_party/blink/renderer/platform/wtf/text/string_hash.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
+#include "third_party/skia/include/core/SkFont.h"
+#include "third_party/skia/include/core/SkTypeface.h"
 
 #if defined(OS_MACOSX)
 #include "third_party/skia/include/ports/SkTypeface_mac.h"
@@ -126,7 +126,7 @@ FontPlatformData::FontPlatformData(float size,
 
 FontPlatformData::FontPlatformData(const FontPlatformData& source)
     : typeface_(source.typeface_),
-#if !defined(OS_WIN)
+#if !defined(OS_WIN) && !defined(OS_MACOSX)
       family_(source.family_),
 #endif
       text_size_(source.text_size_),
@@ -148,10 +148,10 @@ FontPlatformData::FontPlatformData(const FontPlatformData& source)
 
 FontPlatformData::FontPlatformData(const FontPlatformData& src, float text_size)
     : FontPlatformData(src.typeface_,
-#if !defined(OS_WIN)
+#if !defined(OS_WIN) && !defined(OS_MACOSX)
                        src.family_.data(),
 #else
-                       CString(),
+                       std::string(),
 #endif
                        text_size,
                        src.synthetic_bold_,
@@ -160,13 +160,13 @@ FontPlatformData::FontPlatformData(const FontPlatformData& src, float text_size)
 }
 
 FontPlatformData::FontPlatformData(sk_sp<SkTypeface> typeface,
-                                   const CString& family,
+                                   const std::string& family,
                                    float text_size,
                                    bool synthetic_bold,
                                    bool synthetic_italic,
                                    FontOrientation orientation)
     : typeface_(typeface),
-#if !defined(OS_WIN)
+#if !defined(OS_WIN) && !defined(OS_MACOSX)
       family_(family),
 #endif
       text_size_(text_size),
@@ -207,12 +207,6 @@ FontPlatformData::~FontPlatformData() = default;
 #if defined(OS_MACOSX)
 CTFontRef FontPlatformData::CtFont() const {
   return SkTypeface_GetCTFontRef(typeface_.get());
-};
-
-CGFontRef FontPlatformData::CgFont() const {
-  if (!CtFont())
-    return nullptr;
-  return CTFontCopyGraphicsFont(CtFont(), 0);
 }
 #endif
 
@@ -223,7 +217,7 @@ const FontPlatformData& FontPlatformData::operator=(
     return *this;
 
   typeface_ = other.typeface_;
-#if !defined(OS_WIN)
+#if !defined(OS_WIN) && !defined(OS_MACOSX)
   family_ = other.family_;
 #endif
   text_size_ = other.text_size_;
@@ -328,7 +322,7 @@ bool FontPlatformData::FontContainsCharacter(UChar32 character) {
 #if !defined(OS_MACOSX) && !defined(OS_WIN)
 // static
 WebFontRenderStyle FontPlatformData::QuerySystemRenderStyle(
-    const CString& family,
+    const std::string& family,
     float text_size,
     SkFontStyle font_style) {
   WebFontRenderStyle result;

@@ -16,111 +16,15 @@
 
 #include "src/profiling/memory/client.h"
 
-#include "gtest/gtest.h"
-#include "perfetto/base/unix_socket.h"
+#include <gtest/gtest.h>
+#include "perfetto/ext/base/thread_utils.h"
+#include "perfetto/ext/base/unix_socket.h"
 
 #include <thread>
 
 namespace perfetto {
 namespace profiling {
 namespace {
-
-base::UnixSocketRaw CreateSocket() {
-  auto sock = base::UnixSocketRaw::CreateMayFail(base::SockType::kStream);
-  PERFETTO_CHECK(sock);
-  return sock;
-}
-
-TEST(SocketPoolTest, Basic) {
-  std::vector<base::UnixSocketRaw> socks;
-  socks.emplace_back(CreateSocket());
-  SocketPool pool(std::move(socks));
-  BorrowedSocket sock = pool.Borrow();
-}
-
-TEST(SocketPoolTest, Close) {
-  std::vector<base::UnixSocketRaw> socks;
-  socks.emplace_back(CreateSocket());
-  SocketPool pool(std::move(socks));
-  BorrowedSocket sock = pool.Borrow();
-  sock.Shutdown();
-}
-
-TEST(SocketPoolTest, Multiple) {
-  std::vector<base::UnixSocketRaw> socks;
-  socks.emplace_back(CreateSocket());
-  socks.emplace_back(CreateSocket());
-  SocketPool pool(std::move(socks));
-  BorrowedSocket sock = pool.Borrow();
-  BorrowedSocket sock_2 = pool.Borrow();
-}
-
-TEST(SocketPoolTest, Blocked) {
-  std::vector<base::UnixSocketRaw> socks;
-  socks.emplace_back(CreateSocket());
-  SocketPool pool(std::move(socks));
-  BorrowedSocket sock = pool.Borrow();  // Takes the socket above.
-  std::thread t([&pool] { pool.Borrow(); });
-  {
-    // Return fd to unblock thread.
-    BorrowedSocket temp = std::move(sock);
-  }
-  t.join();
-}
-
-TEST(SocketPoolTest, BlockedClose) {
-  std::vector<base::UnixSocketRaw> socks;
-  socks.emplace_back(CreateSocket());
-  SocketPool pool(std::move(socks));
-  BorrowedSocket sock = pool.Borrow();
-  std::thread t([&pool] { pool.Borrow(); });
-  {
-    // Return fd to unblock thread.
-    BorrowedSocket temp = std::move(sock);
-    temp.Shutdown();
-  }
-  t.join();
-}
-
-TEST(SocketPoolTest, MultipleBlocked) {
-  std::vector<base::UnixSocketRaw> socks;
-  socks.emplace_back(CreateSocket());
-  SocketPool pool(std::move(socks));
-  BorrowedSocket sock = pool.Borrow();
-  std::thread t([&pool] { pool.Borrow(); });
-  std::thread t2([&pool] { pool.Borrow(); });
-  {
-    // Return fd to unblock thread.
-    BorrowedSocket temp = std::move(sock);
-  }
-  t.join();
-  t2.join();
-}
-
-TEST(SocketPoolTest, MultipleBlockedClose) {
-  std::vector<base::UnixSocketRaw> socks;
-  socks.emplace_back(CreateSocket());
-  SocketPool pool(std::move(socks));
-  BorrowedSocket sock = pool.Borrow();
-  std::thread t([&pool] { pool.Borrow(); });
-  std::thread t2([&pool] { pool.Borrow(); });
-  {
-    // Return fd to unblock thread.
-    BorrowedSocket temp = std::move(sock);
-    temp.Shutdown();
-  }
-  t.join();
-  t2.join();
-}
-
-TEST(FreePageTest, ShutdownSocketPool) {
-  std::vector<base::UnixSocketRaw> socks;
-  socks.emplace_back(CreateSocket());
-  SocketPool pool(std::move(socks));
-  pool.Shutdown();
-  FreePage p;
-  p.Add(0, 1, &pool);
-}
 
 TEST(ClientTest, GetThreadStackBase) {
   std::thread th([] {
@@ -131,6 +35,18 @@ TEST(ClientTest, GetThreadStackBase) {
     // stack grows the other way.
     EXPECT_GT(stackbase, __builtin_frame_address(0));
   });
+  th.join();
+}
+
+TEST(ClientTest, IsMainThread) {
+  // Our code relies on the fact that getpid() == GetThreadId() if this
+  // process/thread is the main thread of the process. This test ensures that is
+  // true.
+  auto pid = getpid();
+  auto main_thread_id = base::GetThreadId();
+  EXPECT_EQ(pid, main_thread_id);
+  std::thread th(
+      [main_thread_id] { EXPECT_NE(main_thread_id, base::GetThreadId()); });
   th.join();
 }
 

@@ -25,6 +25,10 @@ class TestResourceFetcherProperties final : public ResourceFetcherProperties {
 
   void Trace(Visitor* visitor) override;
 
+  DetachableResourceFetcherProperties& MakeDetachable() const {
+    return *MakeGarbageCollected<DetachableResourceFetcherProperties>(*this);
+  }
+
   // ResourceFetcherProperties implementation
   const FetchClientSettingsObject& GetFetchClientSettingsObject()
       const override {
@@ -42,11 +46,14 @@ class TestResourceFetcherProperties final : public ResourceFetcherProperties {
   bool IsPaused() const override { return paused_; }
   bool IsDetached() const override { return false; }
   bool IsLoadComplete() const override { return load_complete_; }
-  bool ShouldBlockLoadingMainResource() const override {
-    return should_block_loading_main_resource_;
-  }
   bool ShouldBlockLoadingSubResource() const override {
     return should_block_loading_sub_resource_;
+  }
+  bool IsSubframeDeprioritizationEnabled() const override {
+    return is_subframe_deprioritization_enabled_;
+  }
+  scheduler::FrameStatus GetFrameStatus() const override {
+    return frame_status_;
   }
 
   void SetIsMainFrame(bool value) { is_main_frame_ = value; }
@@ -56,12 +63,13 @@ class TestResourceFetcherProperties final : public ResourceFetcherProperties {
   void SetServiceWorkerId(int64_t id) { service_worker_id_ = id; }
   void SetIsPaused(bool value) { paused_ = value; }
   void SetIsLoadComplete(bool value) { load_complete_ = value; }
-  void SetShouldBlockLoadingMainResource(bool value) {
-    should_block_loading_main_resource_ = value;
-  }
   void SetShouldBlockLoadingSubResource(bool value) {
     should_block_loading_sub_resource_ = value;
   }
+  void SetIsSubframeDeprioritizationEnabled(bool value) {
+    is_subframe_deprioritization_enabled_ = value;
+  }
+  void SetFrameStatus(scheduler::FrameStatus status) { frame_status_ = status; }
 
  private:
   const Member<const FetchClientSettingsObject> fetch_client_settings_object_;
@@ -71,8 +79,9 @@ class TestResourceFetcherProperties final : public ResourceFetcherProperties {
   int64_t service_worker_id_ = 0;
   bool paused_ = false;
   bool load_complete_ = false;
-  bool should_block_loading_main_resource_ = false;
   bool should_block_loading_sub_resource_ = false;
+  bool is_subframe_deprioritization_enabled_ = false;
+  scheduler::FrameStatus frame_status_ = scheduler::FrameStatus::kNone;
 };
 
 }  // namespace blink

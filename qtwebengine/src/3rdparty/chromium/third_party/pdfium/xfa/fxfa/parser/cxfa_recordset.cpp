@@ -6,7 +6,7 @@
 
 #include "xfa/fxfa/parser/cxfa_recordset.h"
 
-#include "fxjs/xfa/cjx_recordset.h"
+#include "fxjs/xfa/cjx_node.h"
 #include "third_party/base/ptr_util.h"
 
 namespace {
@@ -27,7 +27,7 @@ const CXFA_Node::AttributeData kRecordSetAttributeData[] = {
     {XFA_Attribute::Usehref, XFA_AttributeType::CData, nullptr},
     {XFA_Attribute::CursorLocation, XFA_AttributeType::Enum,
      (void*)XFA_AttributeValue::Client},
-    {XFA_Attribute::Unknown, XFA_AttributeType::Integer, nullptr}};
+};
 
 }  // namespace
 
@@ -37,8 +37,8 @@ CXFA_RecordSet::CXFA_RecordSet(CXFA_Document* doc, XFA_PacketType packet)
                 XFA_XDPPACKET_SourceSet,
                 XFA_ObjectType::Node,
                 XFA_Element::RecordSet,
-                nullptr,
+                {},
                 kRecordSetAttributeData,
-                pdfium::MakeUnique<CJX_RecordSet>(this)) {}
+                pdfium::MakeUnique<CJX_Node>(this)) {}
 
 CXFA_RecordSet::~CXFA_RecordSet() = default;

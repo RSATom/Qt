@@ -6,6 +6,7 @@
 
 #include <utility>
 
+#include "base/bind.h"
 #include "base/feature_list.h"
 #include "base/task/post_task.h"
 #include "base/task_runner_util.h"
@@ -111,8 +112,7 @@ OldRenderFrameAudioInputStreamFactory::OldRenderFrameAudioInputStreamFactory(
     : create_delegate_callback_(std::move(create_delegate_callback)),
       media_stream_manager_(media_stream_manager),
       render_process_id_(render_process_id),
-      render_frame_id_(render_frame_id),
-      weak_ptr_factory_(this) {
+      render_frame_id_(render_frame_id) {
   DCHECK(create_delegate_callback_);
   // No thread-hostile state has been initialized yet, so we don't have to bind
   // to this specific thread.
@@ -125,7 +125,7 @@ OldRenderFrameAudioInputStreamFactory::
 
 void OldRenderFrameAudioInputStreamFactory::CreateStream(
     mojom::RendererAudioInputStreamFactoryClientPtr client,
-    int32_t session_id,
+    const base::UnguessableToken& session_id,
     const media::AudioParameters& audio_params,
     bool automatic_gain_control,
     uint32_t shared_memory_count,
@@ -152,7 +152,7 @@ void OldRenderFrameAudioInputStreamFactory::CreateStream(
 
 void OldRenderFrameAudioInputStreamFactory::DoCreateStream(
     mojom::RendererAudioInputStreamFactoryClientPtr client,
-    int session_id,
+    const base::UnguessableToken& session_id,
     const media::AudioParameters& audio_params,
     bool automatic_gain_control,
     uint32_t shared_memory_count,

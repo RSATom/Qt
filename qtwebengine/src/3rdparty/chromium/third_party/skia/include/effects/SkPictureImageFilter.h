@@ -8,9 +8,9 @@
 #ifndef SkPictureImageFilter_DEFINED
 #define SkPictureImageFilter_DEFINED
 
-#include "SkFlattenable.h"
-#include "SkImageFilter.h"
-#include "SkPicture.h"
+#include "include/core/SkFlattenable.h"
+#include "include/core/SkImageFilter.h"
+#include "include/core/SkPicture.h"
 
 class SK_API SkPictureImageFilter : public SkImageFilter {
 public:
@@ -36,20 +36,15 @@ protected:
     void flatten(SkWriteBuffer&) const override;
     sk_sp<SkSpecialImage> onFilterImage(SkSpecialImage* source, const Context&,
                                         SkIPoint* offset) const override;
-    sk_sp<SkImageFilter> onMakeColorSpace(SkColorSpaceXformer*) const override;
 
 private:
     SK_FLATTENABLE_HOOKS(SkPictureImageFilter)
 
     explicit SkPictureImageFilter(sk_sp<SkPicture> picture);
-    SkPictureImageFilter(sk_sp<SkPicture> picture, const SkRect& cropRect, sk_sp<SkColorSpace>);
+    SkPictureImageFilter(sk_sp<SkPicture> picture, const SkRect& cropRect);
 
     sk_sp<SkPicture>    fPicture;
     SkRect              fCropRect;
-
-    // Should never be set by a public constructor.  This is only used when onMakeColorSpace()
-    // forces a deferred color space xform.
-    sk_sp<SkColorSpace>   fColorSpace;
 
     typedef SkImageFilter INHERITED;
 };

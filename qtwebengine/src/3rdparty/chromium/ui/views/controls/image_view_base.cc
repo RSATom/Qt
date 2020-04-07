@@ -9,6 +9,7 @@
 #include "base/logging.h"
 #include "ui/accessibility/ax_node_data.h"
 #include "ui/gfx/geometry/insets.h"
+#include "ui/views/metadata/metadata_impl_macros.h"
 
 namespace views {
 
@@ -39,7 +40,7 @@ void ImageViewBase::SetHorizontalAlignment(Alignment alignment) {
   if (alignment != horizontal_alignment_) {
     horizontal_alignment_ = alignment;
     UpdateImageOrigin();
-    SchedulePaint();
+    OnPropertyChanged(&horizontal_alignment_, kPropertyEffectsPaint);
   }
 }
 
@@ -51,7 +52,7 @@ void ImageViewBase::SetVerticalAlignment(Alignment alignment) {
   if (alignment != vertical_alignment_) {
     vertical_alignment_ = alignment;
     UpdateImageOrigin();
-    SchedulePaint();
+    OnPropertyChanged(&horizontal_alignment_, kPropertyEffectsPaint);
   }
 }
 
@@ -60,20 +61,19 @@ ImageViewBase::Alignment ImageViewBase::GetVerticalAlignment() const {
 }
 
 void ImageViewBase::SetAccessibleName(const base::string16& accessible_name) {
+  if (accessible_name_ == accessible_name)
+    return;
+
   accessible_name_ = accessible_name;
+  OnPropertyChanged(&accessible_name_, kPropertyEffectsNone);
 }
 
 const base::string16& ImageViewBase::GetAccessibleName() const {
   return accessible_name_.empty() ? tooltip_text_ : accessible_name_;
 }
 
-bool ImageViewBase::GetTooltipText(const gfx::Point& p,
-                                   base::string16* tooltip) const {
-  if (tooltip_text_.empty())
-    return false;
-
-  *tooltip = tooltip_text();
-  return true;
+base::string16 ImageViewBase::GetTooltipText(const gfx::Point& p) const {
+  return tooltip_text_;
 }
 
 gfx::Size ImageViewBase::CalculatePreferredSize() const {
@@ -109,31 +109,32 @@ void ImageViewBase::UpdateImageOrigin() {
   // horizontal alignment is set to trailing, then we'll use left alignment for
   // the image instead of right alignment if the UI layout is RTL.
   Alignment actual_horizontal_alignment = horizontal_alignment_;
-  if (base::i18n::IsRTL() && (horizontal_alignment_ != CENTER)) {
-    actual_horizontal_alignment =
-        (horizontal_alignment_ == LEADING) ? TRAILING : LEADING;
+  if (base::i18n::IsRTL() && (horizontal_alignment_ != Alignment::kCenter)) {
+    actual_horizontal_alignment = (horizontal_alignment_ == Alignment::kLeading)
+                                      ? Alignment::kTrailing
+                                      : Alignment::kLeading;
   }
   switch (actual_horizontal_alignment) {
-    case LEADING:
+    case Alignment::kLeading:
       x = insets.left();
       break;
-    case TRAILING:
+    case Alignment::kTrailing:
       x = width() - insets.right() - image_size.width();
       break;
-    case CENTER:
+    case Alignment::kCenter:
       x = (width() - insets.width() - image_size.width()) / 2 + insets.left();
       break;
   }
 
   int y = 0;
   switch (vertical_alignment_) {
-    case LEADING:
+    case Alignment::kLeading:
       y = insets.top();
       break;
-    case TRAILING:
+    case Alignment::kTrailing:
       y = height() - insets.bottom() - image_size.height();
       break;
-    case CENTER:
+    case Alignment::kCenter:
       y = (height() - insets.height() - image_size.height()) / 2 + insets.top();
       break;
   }
@@ -145,5 +146,18 @@ void ImageViewBase::PreferredSizeChanged() {
   View::PreferredSizeChanged();
   UpdateImageOrigin();
 }
+
+DEFINE_ENUM_CONVERTERS(
+    ImageViewBase::Alignment,
+    {ImageViewBase::Alignment::kLeading, base::ASCIIToUTF16("kLeading")},
+    {ImageViewBase::Alignment::kCenter, base::ASCIIToUTF16("kCenter")},
+    {ImageViewBase::Alignment::kTrailing, base::ASCIIToUTF16("kTrailing")})
+
+BEGIN_METADATA(ImageViewBase)
+METADATA_PARENT_CLASS(View)
+ADD_PROPERTY_METADATA(ImageViewBase, Alignment, HorizontalAlignment)
+ADD_PROPERTY_METADATA(ImageViewBase, Alignment, VerticalAlignment)
+ADD_PROPERTY_METADATA(ImageViewBase, base::string16, AccessibleName)
+END_METADATA()
 
 }  // namespace views

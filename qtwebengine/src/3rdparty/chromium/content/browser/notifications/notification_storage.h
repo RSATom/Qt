@@ -22,36 +22,36 @@ class CONTENT_EXPORT NotificationStorage {
 
   void WriteNotificationData(
       const NotificationDatabaseData& data,
-      const PlatformNotificationContext::WriteResultCallback& callback);
+      PlatformNotificationContext::WriteResultCallback callback);
 
   void ReadNotificationDataAndRecordInteraction(
       int64_t service_worker_registration_id,
       const std::string& notification_id,
       PlatformNotificationContext::Interaction interaction,
-      const PlatformNotificationContext::ReadResultCallback& callback);
+      PlatformNotificationContext::ReadResultCallback callback);
 
  private:
   void OnWriteComplete(
       const NotificationDatabaseData& data,
-      const PlatformNotificationContext::WriteResultCallback& callback,
+      PlatformNotificationContext::WriteResultCallback callback,
       blink::ServiceWorkerStatusCode status);
 
   void OnReadCompleteUpdateInteraction(
       int64_t service_worker_registration_id,
       PlatformNotificationContext::Interaction interaction,
-      const PlatformNotificationContext::ReadResultCallback& callback,
+      PlatformNotificationContext::ReadResultCallback callback,
       const std::vector<std::string>& database_data,
       blink::ServiceWorkerStatusCode status);
 
   void OnInteractionUpdateComplete(
       std::unique_ptr<NotificationDatabaseData> data,
-      const PlatformNotificationContext::ReadResultCallback& callback,
+      PlatformNotificationContext::ReadResultCallback callback,
       blink::ServiceWorkerStatusCode status);
 
   scoped_refptr<ServiceWorkerContextWrapper> service_worker_context_;
 
-  base::WeakPtrFactory<NotificationStorage>
-      weak_ptr_factory_;  // Must be last member.
+  base::WeakPtrFactory<NotificationStorage> weak_ptr_factory_{
+      this};  // Must be last member.
 };
 
 }  // namespace content

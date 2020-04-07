@@ -384,9 +384,73 @@ TestCase {
         compare(control.find(data.term, data.flags), data.index)
     }
 
+    function test_valueRole_data() {
+        return [
+            { tag: "ListModel", model: fruitmodel },
+            { tag: "ObjectArray", model: fruitarray }
+        ]
+    }
+
+    function test_valueRole(data) {
+        var control = createTemporaryObject(emptyBox, testCase,
+            { model: data.model, valueRole: "color" })
+        verify(control)
+        compare(control.count, 3)
+        compare(control.currentIndex, 0)
+        compare(control.currentValue, "red")
+
+        control.valueRole = "name"
+        compare(control.currentValue, "Apple")
+
+        control.currentIndex = 1
+        compare(control.currentIndex, 1)
+        compare(control.currentValue, "Orange")
+
+        control.valueRole = "color"
+        compare(control.currentValue, "orange")
+
+        control.model = null
+        compare(control.currentIndex, -1)
+        // An invalid QVariant is represented as undefined.
+        compare(control.currentValue, undefined)
+
+        control.valueRole = ""
+        compare(control.currentValue, undefined)
+    }
+
+    function test_valueAt() {
+        var control = createTemporaryObject(comboBox, testCase,
+            { model: fruitmodel, textRole: "name", valueRole: "color" })
+        verify(control)
+
+        compare(control.valueAt(0), "red")
+        compare(control.valueAt(1), "orange")
+        compare(control.valueAt(2), "yellow")
+        compare(control.valueAt(-1), undefined)
+        compare(control.valueAt(5), undefined)
+    }
+
+    function test_indexOfValue_data() {
+        return [
+            { tag: "red", expectedIndex: 0 },
+            { tag: "orange", expectedIndex: 1 },
+            { tag: "yellow", expectedIndex: 2 },
+            { tag: "brown", expectedIndex: -1 },
+        ]
+    }
+
+    function test_indexOfValue(data) {
+        var control = createTemporaryObject(comboBox, testCase,
+            { model: fruitmodel, textRole: "name", valueRole: "color" })
+        verify(control)
+
+        compare(control.indexOfValue(data.tag), data.expectedIndex)
+    }
+
 
     function test_arrowKeys() {
-        var control = createTemporaryObject(comboBox, testCase, {model: 3})
+        var control = createTemporaryObject(comboBox, testCase,
+            { model: fruitmodel, textRole: "name", valueRole: "color" })
         verify(control)
 
         var activatedSpy = signalSpy.createObject(control, {target: control, signalName: "activated"})
@@ -1788,5 +1852,57 @@ TestCase {
         control.popup.close()
         closedSpy.wait()
         compare(closedSpy.count, 1)
+    }
+
+    // QTBUG-78885: When the edit text is changed on an editable ComboBox,
+    // and then that ComboBox loses focus, its currentIndex should change
+    // to the index of the edit text (assuming a match is found).
+    function test_currentIndexChangeOnLostFocus() {
+        if (Qt.styleHints.tabFocusBehavior !== Qt.TabFocusAllControls)
+            skip("This platform only allows tab focus for text controls")
+
+        let theModel = []
+        for (let i = 0; i < 10; ++i)
+            theModel.push("Item " + (i + 1))
+
+        let comboBox1 = createTemporaryObject(comboBox, testCase,
+            { objectName: "comboBox1", editable: true, model: theModel })
+        verify(comboBox1)
+        compare(comboBox1.currentIndex, 0)
+
+        let comboBox2 = createTemporaryObject(comboBox, testCase, { objectName: "comboBox2" })
+        verify(comboBox2)
+
+        // Give the first ComboBox focus and type in 0 to select "Item 10" (default is "Item 1").
+        waitForRendering(comboBox1)
+        comboBox1.forceActiveFocus()
+        verify(comboBox1.activeFocus)
+        keyClick(Qt.Key_0)
+        compare(comboBox1.editText, "Item 10")
+
+        let currentIndexSpy = signalSpy.createObject(comboBox1,
+            { target: comboBox1, signalName: "currentIndexChanged" })
+        verify(currentIndexSpy.valid)
+
+        // Give focus to the other ComboBox so that the first one loses it.
+        // The first ComboBox's currentIndex should change to that of "Item 10".
+        keyClick(Qt.Key_Tab)
+        verify(comboBox2.activeFocus)
+        compare(comboBox1.currentIndex, 9)
+        compare(currentIndexSpy.count, 1)
+
+        // Give focus back to the first ComboBox, and try the same thing except
+        // with non-existing text; the currentIndex should not change.
+        comboBox1.forceActiveFocus()
+        verify(comboBox1.activeFocus)
+        keySequence(StandardKey.SelectAll)
+        compare(comboBox1.contentItem.selectedText, "Item 10")
+        keyClick(Qt.Key_N)
+        keyClick(Qt.Key_O)
+        keyClick(Qt.Key_P)
+        keyClick(Qt.Key_E)
+        compare(comboBox1.editText, "nope")
+        compare(comboBox1.currentIndex, 9)
+        compare(currentIndexSpy.count, 1)
     }
 }

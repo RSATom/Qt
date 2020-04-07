@@ -11,7 +11,9 @@
 
 #include "base/callback.h"
 #include "base/memory/weak_ptr.h"
+#include "base/optional.h"
 #include "base/task/cancelable_task_tracker.h"
+#include "base/token.h"
 #include "components/sessions/core/base_session_service.h"
 #include "components/sessions/core/session_types.h"
 #include "components/sessions/core/sessions_export.h"
@@ -44,6 +46,9 @@ CreateSetSelectedNavigationIndexCommand(const SessionID& tab_id, int index);
 SESSIONS_EXPORT std::unique_ptr<SessionCommand> CreateSetWindowTypeCommand(
     const SessionID& window_id,
     SessionWindow::WindowType type);
+SESSIONS_EXPORT std::unique_ptr<SessionCommand> CreateTabGroupCommand(
+    const SessionID& tab_id,
+    base::Optional<base::Token> group);
 SESSIONS_EXPORT std::unique_ptr<SessionCommand> CreatePinnedStateCommand(
     const SessionID& tab_id,
     bool is_pinned);
@@ -54,11 +59,9 @@ CreateSessionStorageAssociatedCommand(
 SESSIONS_EXPORT std::unique_ptr<SessionCommand> CreateSetActiveWindowCommand(
     const SessionID& window_id);
 SESSIONS_EXPORT std::unique_ptr<SessionCommand>
-CreateTabNavigationPathPrunedFromBackCommand(const SessionID& tab_id,
-                                             int count);
-SESSIONS_EXPORT std::unique_ptr<SessionCommand>
-CreateTabNavigationPathPrunedFromFrontCommand(const SessionID& tab_id,
-                                              int count);
+CreateTabNavigationPathPrunedCommand(const SessionID& tab_id,
+                                     int index,
+                                     int count);
 SESSIONS_EXPORT std::unique_ptr<SessionCommand>
 CreateUpdateTabNavigationCommand(
     const SessionID& tab_id,

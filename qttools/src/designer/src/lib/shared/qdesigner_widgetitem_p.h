@@ -67,7 +67,7 @@ namespace qdesigner_internal {
 // shrink them.
 
 class QDESIGNER_SHARED_EXPORT QDesignerWidgetItem : public QObject, public QWidgetItemV2  {
-    Q_DISABLE_COPY(QDesignerWidgetItem)
+    Q_DISABLE_COPY_MOVE(QDesignerWidgetItem)
     Q_OBJECT
 public:
     explicit QDesignerWidgetItem(const QLayout *containingLayout, QWidget *w, Qt::Orientations o = Qt::Horizontal|Qt::Vertical);
@@ -87,7 +87,7 @@ public:
     void setNonLaidOutSizeHint(const QSize &s);
 
     // Check whether a QDesignerWidgetItem should be installed
-    static bool check(const QLayout *layout, QWidget *w, Qt::Orientations *ptrToOrientations = 0);
+    static bool check(const QLayout *layout, QWidget *w, Qt::Orientations *ptrToOrientations = nullptr);
 
     // Register itself using QLayoutPrivate's widget item factory method hook
     static void install();
@@ -117,7 +117,7 @@ private:
 // instance is in scope.
 
 class QDESIGNER_SHARED_EXPORT QDesignerWidgetItemInstaller {
-    Q_DISABLE_COPY(QDesignerWidgetItemInstaller)
+    Q_DISABLE_COPY_MOVE(QDesignerWidgetItemInstaller)
 
 public:
     QDesignerWidgetItemInstaller();

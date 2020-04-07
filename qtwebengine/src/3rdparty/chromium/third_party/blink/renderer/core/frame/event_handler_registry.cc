@@ -69,11 +69,11 @@ bool EventHandlerRegistry::EventTypeToClass(
              event_type == event_type_names::kTouchmove) {
     *result = options->passive() ? kTouchStartOrMoveEventPassive
                                  : kTouchStartOrMoveEventBlocking;
-  } else if (event_type == event_type_names::kPointerrawmove) {
+  } else if (event_type == event_type_names::kPointerrawupdate) {
     // This will be used to avoid waking up the main thread to
-    // process pointerrawmove events and hit-test them when
+    // process pointerrawupdate events and hit-test them when
     // there is no listener on the page.
-    *result = kPointerRawMoveEvent;
+    *result = kPointerRawUpdateEvent;
   } else if (event_util::IsPointerEventType(event_type)) {
     // The pointer events never block scrolling and the compositor
     // only needs to know about the touch listeners.
@@ -276,11 +276,11 @@ void EventHandlerRegistry::NotifyHandlersChanged(
               HasEventHandlers(kTouchStartOrMoveEventPassive) ||
                   HasEventHandlers(kPointerEvent)));
       break;
-    case kPointerRawMoveEvent:
+    case kPointerRawUpdateEvent:
       GetPage()->GetChromeClient().SetEventListenerProperties(
-          frame, cc::EventListenerClass::kPointerRawMove,
+          frame, cc::EventListenerClass::kPointerRawUpdate,
           GetEventListenerProperties(false,
-                                     HasEventHandlers(kPointerRawMoveEvent)));
+                                     HasEventHandlers(kPointerRawUpdateEvent)));
       break;
     case kTouchEndOrCancelEventBlocking:
     case kTouchEndOrCancelEventPassive:
@@ -299,25 +299,23 @@ void EventHandlerRegistry::NotifyHandlersChanged(
       break;
   }
 
-  if (RuntimeEnabledFeatures::PaintTouchActionRectsEnabled()) {
-    if (handler_class == kTouchStartOrMoveEventBlocking ||
-        handler_class == kTouchStartOrMoveEventBlockingLowLatency) {
-      if (auto* node = target->ToNode()) {
-        if (auto* layout_object = node->GetLayoutObject()) {
-          layout_object->MarkEffectiveWhitelistedTouchActionChanged();
-          auto* continuation = layout_object->VirtualContinuation();
-          while (continuation) {
-            continuation->MarkEffectiveWhitelistedTouchActionChanged();
-            continuation = continuation->VirtualContinuation();
-          }
+  if (handler_class == kTouchStartOrMoveEventBlocking ||
+      handler_class == kTouchStartOrMoveEventBlockingLowLatency) {
+    if (auto* node = target->ToNode()) {
+      if (auto* layout_object = node->GetLayoutObject()) {
+        layout_object->MarkEffectiveAllowedTouchActionChanged();
+        auto* continuation = layout_object->VirtualContinuation();
+        while (continuation) {
+          continuation->MarkEffectiveAllowedTouchActionChanged();
+          continuation = continuation->VirtualContinuation();
         }
-      } else if (auto* dom_window = target->ToLocalDOMWindow()) {
-        // This event handler is on a window. Ensure the layout view is
-        // invalidated because the layout view tracks the window's blocking
-        // touch event rects.
-        if (auto* layout_view = dom_window->GetFrame()->ContentLayoutObject())
-          layout_view->MarkEffectiveWhitelistedTouchActionChanged();
       }
+    } else if (auto* dom_window = target->ToLocalDOMWindow()) {
+      // This event handler is on a window. Ensure the layout view is
+      // invalidated because the layout view tracks the window's blocking
+      // touch event rects.
+      if (auto* layout_view = dom_window->GetFrame()->ContentLayoutObject())
+        layout_view->MarkEffectiveAllowedTouchActionChanged();
     }
   }
 }

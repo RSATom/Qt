@@ -9,10 +9,12 @@
 #include "base/files/file_path.h"
 #include "base/memory/ptr_util.h"
 #include "base/task/post_task.h"
+#include "base/test/scoped_feature_list.h"
 #include "base/timer/mock_timer.h"
 #include "build/build_config.h"
 #include "chrome/browser/extensions/extension_apitest.h"
 #include "chrome/browser/extensions/extension_function_test_utils.h"
+#include "chrome/browser/media/router/media_router_feature.h"
 #include "chrome/browser/media/router/providers/cast/dual_media_sink_service.h"
 #include "chrome/browser/media/router/test/noop_dual_media_sink_service.h"
 #include "chrome/browser/ui/browser.h"
@@ -29,10 +31,8 @@
 #include "extensions/common/switches.h"
 #include "extensions/test/extension_test_message_listener.h"
 #include "extensions/test/result_catcher.h"
-#include "net/base/completion_callback.h"
 #include "net/base/ip_address.h"
 #include "net/base/net_errors.h"
-#include "net/log/test_net_log.h"
 #include "net/traffic_annotation/network_traffic_annotation_test_helper.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gmock_mutant.h"
@@ -47,21 +47,21 @@ using ::cast_channel::Logger;
 using ::cast_channel::MockCastSocket;
 using ::cast_channel::MockCastTransport;
 using ::cast_channel::ReadyState;
+using extensions::Extension;
 using extensions::api::cast_channel::ErrorInfo;
 using extensions::api::cast_channel::MessageInfo;
-using extensions::Extension;
 
 namespace utils = extension_function_test_utils;
 
 using ::testing::_;
 using ::testing::A;
 using ::testing::DoAll;
-using ::testing::Invoke;
 using ::testing::InSequence;
+using ::testing::Invoke;
 using ::testing::NotNull;
 using ::testing::Return;
-using ::testing::ReturnRef;
 using ::testing::ReturnPointee;
+using ::testing::ReturnRef;
 using ::testing::SaveArg;
 using ::testing::WithArgs;
 
@@ -100,6 +100,7 @@ class CastChannelAPITest : public extensions::ExtensionApiTest {
     // Stub out DualMediaSinkService so it does not interfere with the test.
     media_router::DualMediaSinkService::SetInstanceForTest(
         new media_router::NoopDualMediaSinkService());
+    feature_list_.InitAndDisableFeature(media_router::kDialMediaRouteProvider);
     extensions::ExtensionApiTest::SetUp();
   }
 
@@ -205,8 +206,9 @@ class CastChannelAPITest : public extensions::ExtensionApiTest {
   void CallOnMessage(const std::string& message) {
     base::PostTaskWithTraits(
         FROM_HERE, {content::BrowserThread::IO},
-        base::Bind(&CastChannelAPITest::DoCallOnMessage, base::Unretained(this),
-                   GetApi(), mock_cast_socket_, message));
+        base::BindOnce(&CastChannelAPITest::DoCallOnMessage,
+                       base::Unretained(this), GetApi(), mock_cast_socket_,
+                       message));
   }
 
   void DoCallOnMessage(extensions::CastChannelAPI* api,
@@ -221,8 +223,8 @@ class CastChannelAPITest : public extensions::ExtensionApiTest {
   void FireTimeout() {
     base::PostTaskWithTraits(
         FROM_HERE, {content::BrowserThread::IO},
-        base::Bind(&CastChannelAPITest::DoFireTimeout, base::Unretained(this),
-                   mock_cast_socket_));
+        base::BindOnce(&CastChannelAPITest::DoFireTimeout,
+                       base::Unretained(this), mock_cast_socket_));
   }
 
   void DoFireTimeout(MockCastSocket* cast_socket) {
@@ -233,7 +235,7 @@ class CastChannelAPITest : public extensions::ExtensionApiTest {
   extensions::CastChannelOpenFunction* CreateOpenFunction(
       scoped_refptr<const Extension> extension) {
     extensions::CastChannelOpenFunction* cast_channel_open_function =
-      new extensions::CastChannelOpenFunction;
+        new extensions::CastChannelOpenFunction;
     cast_channel_open_function->set_extension(extension.get());
     return cast_channel_open_function;
   }
@@ -241,7 +243,7 @@ class CastChannelAPITest : public extensions::ExtensionApiTest {
   extensions::CastChannelSendFunction* CreateSendFunction(
       scoped_refptr<const Extension> extension) {
     extensions::CastChannelSendFunction* cast_channel_send_function =
-      new extensions::CastChannelSendFunction;
+        new extensions::CastChannelSendFunction;
     cast_channel_send_function->set_extension(extension.get());
     return cast_channel_send_function;
   }
@@ -250,15 +252,16 @@ class CastChannelAPITest : public extensions::ExtensionApiTest {
   net::IPEndPoint ip_endpoint_;
   LastError last_error_;
   CastSocket::Observer* message_observer_;
-  net::TestNetLog capturing_net_log_;
   int channel_id_;
+  base::test::ScopedFeatureList feature_list_;
 };
 
 ACTION_P2(InvokeObserverOnError, api_test, cast_socket_service) {
   base::PostTaskWithTraits(
       FROM_HERE, {content::BrowserThread::IO},
-      base::Bind(&CastChannelAPITest::DoCallOnError, base::Unretained(api_test),
-                 base::Unretained(cast_socket_service)));
+      base::BindOnce(&CastChannelAPITest::DoCallOnError,
+                     base::Unretained(api_test),
+                     base::Unretained(cast_socket_service)));
 }
 
 // TODO(kmarshall): Win Dbg has a workaround that makes RunExtensionSubtest
@@ -273,8 +276,8 @@ ACTION_P2(InvokeObserverOnError, api_test, cast_socket_service) {
 IN_PROC_BROWSER_TEST_F(CastChannelAPITest, MAYBE_TestOpenSendClose) {
   SetUpOpenSendClose();
 
-  EXPECT_TRUE(RunExtensionSubtest("cast_channel/api",
-                                  "test_open_send_close.html"));
+  EXPECT_TRUE(
+      RunExtensionSubtest("cast_channel/api", "test_open_send_close.html"));
 }
 
 // TODO(kmarshall): Win Dbg has a workaround that makes RunExtensionSubtest
@@ -370,8 +373,8 @@ IN_PROC_BROWSER_TEST_F(CastChannelAPITest, MAYBE_TestOpenReceiveClose) {
         .WillOnce(Return(ReadyState::CLOSED));
   }
 
-  EXPECT_TRUE(RunExtensionSubtest("cast_channel/api",
-                                  "test_open_receive_close.html"));
+  EXPECT_TRUE(
+      RunExtensionSubtest("cast_channel/api", "test_open_receive_close.html"));
 
   extensions::ResultCatcher catcher;
   CallOnMessage("some-message");
@@ -404,8 +407,7 @@ IN_PROC_BROWSER_TEST_F(CastChannelAPITest, MAYBE_TestOpenError) {
   EXPECT_CALL(*mock_cast_socket_, Close(_))
       .WillOnce(InvokeCompletionCallback<0>(net::OK));
 
-  EXPECT_TRUE(RunExtensionSubtest("cast_channel/api",
-                                  "test_open_error.html"));
+  EXPECT_TRUE(RunExtensionSubtest("cast_channel/api", "test_open_error.html"));
 }
 
 IN_PROC_BROWSER_TEST_F(CastChannelAPITest, TestOpenInvalidConnectInfo) {

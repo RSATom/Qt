@@ -6,6 +6,7 @@
 
 #include <stddef.h>
 
+#include "base/bind.h"
 #include "base/logging.h"
 #include "base/trace_event/trace_event.h"
 #include "ppapi/c/ppb_var.h"
@@ -239,12 +240,11 @@ const void* HostDispatcher::GetProxiedInterface(const std::string& iface_name) {
   return NULL;
 }
 
-base::Closure HostDispatcher::AddSyncMessageStatusObserver(
+base::OnceClosure HostDispatcher::AddSyncMessageStatusObserver(
     SyncMessageStatusObserver* obs) {
   sync_status_observer_list_.AddObserver(obs);
-  return base::Bind(&HostDispatcher::RemoveSyncMessageStatusObserver,
-                    weak_ptr_factory_.GetWeakPtr(),
-                    obs);
+  return base::BindOnce(&HostDispatcher::RemoveSyncMessageStatusObserver,
+                        weak_ptr_factory_.GetWeakPtr(), obs);
 }
 
 void HostDispatcher::RemoveSyncMessageStatusObserver(

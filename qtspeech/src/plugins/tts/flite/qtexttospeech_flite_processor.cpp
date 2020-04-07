@@ -179,7 +179,7 @@ bool QTextToSpeechProcessorFlite::init()
     m_fliteVoices.append(voice_enus);
 
     int totalVoiceCount = 0;
-    foreach (const FliteVoice &voice, m_fliteVoices) {
+    for (const FliteVoice &voice : qAsConst(m_fliteVoices)) {
         QTextToSpeechProcessor::VoiceInfo voiceInfo;
         voiceInfo.name = voice.name;
         voiceInfo.locale = voice.locale;
@@ -194,9 +194,8 @@ bool QTextToSpeechProcessorFlite::init()
 
 void QTextToSpeechProcessorFlite::deinit()
 {
-    foreach (const FliteVoice &voice, m_fliteVoices)
+    for (const FliteVoice &voice : qExchange(m_fliteVoices, {}))
         voice.unregister_func(voice.vox);
-    m_fliteVoices.clear();
     m_voices.clear();
 }
 

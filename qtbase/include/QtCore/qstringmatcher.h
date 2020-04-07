@@ -1,1 +1,1 @@
-#include "../../src/corelib/tools/qstringmatcher.h"
+#include "../../src/corelib/text/qstringmatcher.h"

@@ -77,7 +77,7 @@ class Q_NETWORK_EXPORT QBearerEngine : public QObject
     friend class QNetworkConfigurationManagerPrivate;
 
 public:
-    explicit QBearerEngine(QObject *parent = 0);
+    explicit QBearerEngine(QObject *parent = nullptr);
     virtual ~QBearerEngine();
 
     virtual bool hasIdentifier(const QString &id) = 0;
@@ -105,7 +105,7 @@ protected:
     QHash<QString, QNetworkConfigurationPrivatePointer> snapConfigurations;
     QHash<QString, QNetworkConfigurationPrivatePointer> userChoiceConfigurations;
 
-    mutable QMutex mutex;
+    mutable QRecursiveMutex mutex;
 };
 
 QT_END_NAMESPACE

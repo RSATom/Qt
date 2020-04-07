@@ -27,7 +27,6 @@
 #include "third_party/blink/renderer/core/dom/events/event.h"
 #include "third_party/blink/renderer/core/dom/shadow_root.h"
 #include "third_party/blink/renderer/core/dom/text.h"
-#include "third_party/blink/renderer/core/frame/use_counter.h"
 #include "third_party/blink/renderer/core/html/html_div_element.h"
 #include "third_party/blink/renderer/core/html/html_slot_element.h"
 #include "third_party/blink/renderer/core/html/html_summary_element.h"
@@ -37,22 +36,18 @@
 #include "third_party/blink/renderer/core/layout/layout_block_flow.h"
 #include "third_party/blink/renderer/core/layout/layout_object_factory.h"
 #include "third_party/blink/renderer/platform/bindings/exception_state.h"
+#include "third_party/blink/renderer/platform/heap/heap.h"
+#include "third_party/blink/renderer/platform/instrumentation/use_counter.h"
 #include "third_party/blink/renderer/platform/text/platform_locale.h"
 
 namespace blink {
 
 using namespace html_names;
 
-HTMLDetailsElement* HTMLDetailsElement::Create(Document& document) {
-  HTMLDetailsElement* details =
-      MakeGarbageCollected<HTMLDetailsElement>(document);
-  details->EnsureUserAgentShadowRoot();
-  return details;
-}
-
 HTMLDetailsElement::HTMLDetailsElement(Document& document)
     : HTMLElement(kDetailsTag, document), is_open_(false) {
   UseCounter::Count(document, WebFeature::kDetailsElement);
+  EnsureUserAgentShadowRoot();
 }
 
 HTMLDetailsElement::~HTMLDetailsElement() = default;
@@ -71,14 +66,14 @@ void HTMLDetailsElement::DispatchPendingEvent() {
   DispatchEvent(*Event::Create(event_type_names::kToggle));
 }
 
-LayoutObject* HTMLDetailsElement::CreateLayoutObject(
-    const ComputedStyle& style) {
-  return LayoutObjectFactory::CreateBlockFlow(*this, style);
+LayoutObject* HTMLDetailsElement::CreateLayoutObject(const ComputedStyle& style,
+                                                     LegacyLayout legacy) {
+  return LayoutObjectFactory::CreateBlockFlow(*this, style, legacy);
 }
 
 void HTMLDetailsElement::DidAddUserAgentShadowRoot(ShadowRoot& root) {
-  HTMLSummaryElement* default_summary =
-      HTMLSummaryElement::Create(GetDocument());
+  auto* default_summary =
+      MakeGarbageCollected<HTMLSummaryElement>(GetDocument());
   default_summary->AppendChild(
       Text::Create(GetDocument(),
                    GetLocale().QueryString(WebLocalizedString::kDetailsLabel)));
@@ -89,11 +84,11 @@ void HTMLDetailsElement::DidAddUserAgentShadowRoot(ShadowRoot& root) {
   summary_slot->AppendChild(default_summary);
   root.AppendChild(summary_slot);
 
-  HTMLDivElement* content = HTMLDivElement::Create(GetDocument());
+  auto* content = MakeGarbageCollected<HTMLDivElement>(GetDocument());
   content->SetIdAttribute(shadow_element_names::DetailsContent());
   content->AppendChild(
       HTMLSlotElement::CreateUserAgentDefaultSlot(GetDocument()));
-  content->SetInlineStyleProperty(CSSPropertyDisplay, CSSValueNone);
+  content->SetInlineStyleProperty(CSSPropertyID::kDisplay, CSSValueID::kNone);
   root.AppendChild(content);
 }
 
@@ -102,11 +97,12 @@ Element* HTMLDetailsElement::FindMainSummary() const {
           Traversal<HTMLSummaryElement>::FirstChild(*this))
     return summary;
 
-  HTMLSlotElement* slot =
-      ToHTMLSlotElementOrDie(UserAgentShadowRoot()->firstChild());
+  auto* element = UserAgentShadowRoot()->firstChild();
+  CHECK(!element || IsA<HTMLSlotElement>(element));
+  HTMLSlotElement* slot = To<HTMLSlotElement>(element);
   DCHECK(slot->firstChild());
   CHECK(IsHTMLSummaryElement(*slot->firstChild()));
-  return ToElement(slot->firstChild());
+  return To<Element>(slot->firstChild());
 }
 
 void HTMLDetailsElement::ParseAttribute(
@@ -126,10 +122,12 @@ void HTMLDetailsElement::ParseAttribute(
     Element* content = EnsureUserAgentShadowRoot().getElementById(
         shadow_element_names::DetailsContent());
     DCHECK(content);
-    if (is_open_)
-      content->RemoveInlineStyleProperty(CSSPropertyDisplay);
-    else
-      content->SetInlineStyleProperty(CSSPropertyDisplay, CSSValueNone);
+    if (is_open_) {
+      content->RemoveInlineStyleProperty(CSSPropertyID::kDisplay);
+    } else {
+      content->SetInlineStyleProperty(CSSPropertyID::kDisplay,
+                                      CSSValueID::kNone);
+    }
 
     // Invalidate the LayoutDetailsMarker in order to turn the arrow signifying
     // if the details element is open or closed.

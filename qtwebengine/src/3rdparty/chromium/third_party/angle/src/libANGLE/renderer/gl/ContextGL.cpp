@@ -60,7 +60,7 @@ ShaderImpl *ContextGL::createShader(const gl::ShaderState &data)
 
 ProgramImpl *ContextGL::createProgram(const gl::ProgramState &data)
 {
-    return new ProgramGL(data, getFunctions(), getWorkaroundsGL(), getStateManager(),
+    return new ProgramGL(data, getFunctions(), getFeaturesGL(), getStateManager(),
                          getExtensions().pathRendering, mRenderer);
 }
 
@@ -88,7 +88,7 @@ TextureImpl *ContextGL::createTexture(const gl::TextureState &state)
 
 RenderbufferImpl *ContextGL::createRenderbuffer(const gl::RenderbufferState &state)
 {
-    return new RenderbufferGL(state, getFunctions(), getWorkaroundsGL(), getStateManager(),
+    return new RenderbufferGL(state, getFunctions(), getFeaturesGL(), getStateManager(),
                               mRenderer->getBlitter(), getNativeTextureCaps());
 }
 
@@ -168,6 +168,18 @@ std::vector<PathImpl *> ContextGL::createPaths(GLsizei range)
     return ret;
 }
 
+MemoryObjectImpl *ContextGL::createMemoryObject()
+{
+    UNREACHABLE();
+    return nullptr;
+}
+
+SemaphoreImpl *ContextGL::createSemaphore()
+{
+    UNREACHABLE();
+    return nullptr;
+}
+
 angle::Result ContextGL::flush(const gl::Context *context)
 {
     return mRenderer->flush();
@@ -192,13 +204,6 @@ ANGLE_INLINE angle::Result ContextGL::setDrawArraysState(const gl::Context *cont
 
         ANGLE_TRY(vaoGL->syncClientSideData(context, program->getActiveAttribLocationsMask(), first,
                                             count, instanceCount));
-    }
-
-    if (context->getExtensions().webglCompatibility)
-    {
-        const gl::State &glState     = context->getState();
-        FramebufferGL *framebufferGL = GetImplAs<FramebufferGL>(glState.getDrawFramebuffer());
-        framebufferGL->maskOutInactiveOutputDrawBuffers(context);
     }
 
     return angle::Result::Continue;
@@ -228,24 +233,6 @@ ANGLE_INLINE angle::Result ContextGL::setDrawElementsState(const gl::Context *co
     else
     {
         *outIndices = indices;
-    }
-
-    if (context->getExtensions().webglCompatibility)
-    {
-        FramebufferGL *framebufferGL = GetImplAs<FramebufferGL>(glState.getDrawFramebuffer());
-        framebufferGL->maskOutInactiveOutputDrawBuffers(context);
-    }
-
-    return angle::Result::Continue;
-}
-
-ANGLE_INLINE angle::Result ContextGL::setDrawIndirectState(const gl::Context *context)
-{
-    if (context->getExtensions().webglCompatibility)
-    {
-        const gl::State &glState     = context->getState();
-        FramebufferGL *framebufferGL = GetImplAs<FramebufferGL>(glState.getDrawFramebuffer());
-        framebufferGL->maskOutInactiveOutputDrawBuffers(context);
     }
 
     return angle::Result::Continue;
@@ -369,7 +356,6 @@ angle::Result ContextGL::drawArraysIndirect(const gl::Context *context,
                                             gl::PrimitiveMode mode,
                                             const void *indirect)
 {
-    ANGLE_TRY(setDrawIndirectState(context));
     getFunctions()->drawArraysIndirect(ToGLenum(mode), indirect);
     return angle::Result::Continue;
 }
@@ -379,7 +365,6 @@ angle::Result ContextGL::drawElementsIndirect(const gl::Context *context,
                                               gl::DrawElementsType type,
                                               const void *indirect)
 {
-    ANGLE_TRY(setDrawIndirectState(context));
     getFunctions()->drawElementsIndirect(ToGLenum(mode), ToGLenum(type), indirect);
     return angle::Result::Continue;
 }
@@ -478,7 +463,7 @@ void ContextGL::stencilThenCoverStrokePathInstanced(const std::vector<gl::Path *
                                                    transformType, transformValues);
 }
 
-GLenum ContextGL::getResetStatus()
+gl::GraphicsResetStatus ContextGL::getResetStatus()
 {
     return mRenderer->getResetStatus();
 }
@@ -508,9 +493,9 @@ void ContextGL::popGroupMarker()
     mRenderer->popGroupMarker();
 }
 
-void ContextGL::pushDebugGroup(GLenum source, GLuint id, GLsizei length, const char *message)
+void ContextGL::pushDebugGroup(GLenum source, GLuint id, const std::string &message)
 {
-    mRenderer->pushDebugGroup(source, id, length, message);
+    mRenderer->pushDebugGroup(source, id, message);
 }
 
 void ContextGL::popDebugGroup()
@@ -562,19 +547,14 @@ const gl::Limitations &ContextGL::getNativeLimitations() const
     return mRenderer->getNativeLimitations();
 }
 
-void ContextGL::applyNativeWorkarounds(gl::Workarounds *workarounds) const
-{
-    return mRenderer->applyNativeWorkarounds(workarounds);
-}
-
 StateManagerGL *ContextGL::getStateManager()
 {
     return mRenderer->getStateManager();
 }
 
-const WorkaroundsGL &ContextGL::getWorkaroundsGL() const
+const angle::FeaturesGL &ContextGL::getFeaturesGL() const
 {
-    return mRenderer->getWorkarounds();
+    return mRenderer->getFeatures();
 }
 
 BlitGL *ContextGL::getBlitter() const
@@ -608,4 +588,15 @@ angle::Result ContextGL::memoryBarrierByRegion(const gl::Context *context, GLbit
 {
     return mRenderer->memoryBarrierByRegion(barriers);
 }
+
+void ContextGL::setMaxShaderCompilerThreads(GLuint count)
+{
+    mRenderer->setMaxShaderCompilerThreads(count);
+}
+
+void ContextGL::invalidateTexture(gl::TextureType target)
+{
+    mRenderer->getStateManager()->invalidateTexture(target);
+}
+
 }  // namespace rx

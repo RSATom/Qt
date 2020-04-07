@@ -52,14 +52,11 @@
 #include <QtCore/qmutex.h>
 #include <QtMultimedia/private/qmemoryvideobuffer_p.h>
 
+#include <mutex>
+
 QT_BEGIN_NAMESPACE
 
 static const char QtCameraListenerClassName[] = "org/qtproject/qt5/android/multimedia/QtCameraListener";
-
-static QString cameraPermissionKey()
-{
-    return QStringLiteral("android.permission.CAMERA");
-}
 
 typedef QHash<int, AndroidCamera *> CameraMap;
 Q_GLOBAL_STATIC(CameraMap, cameras)
@@ -263,7 +260,7 @@ public:
     Q_INVOKABLE QStringList callParametersStringListMethod(const QByteArray &methodName);
 
     int m_cameraId;
-    QMutex m_parametersMutex;
+    QRecursiveMutex m_parametersMutex;
     QSize m_previewSize;
     int m_rotation;
     QJNIObjectPrivate m_info;
@@ -322,6 +319,9 @@ AndroidCamera::~AndroidCamera()
 
 AndroidCamera *AndroidCamera::open(int cameraId)
 {
+    if (!qt_androidRequestCameraPermission())
+        return nullptr;
+
     AndroidCameraPrivate *d = new AndroidCameraPrivate();
     QThread *worker = new QThread;
     worker->start();
@@ -762,7 +762,7 @@ QJNIObjectPrivate AndroidCamera::getCameraObject()
 
 int AndroidCamera::getNumberOfCameras()
 {
-    if (!requestCameraPermission())
+    if (!qt_androidRequestCameraPermission())
         return 0;
 
     return QJNIObjectPrivate::callStaticMethod<jint>("android/hardware/Camera",
@@ -799,11 +799,6 @@ void AndroidCamera::getCameraInfo(int id, AndroidCameraInfo *info)
     }
 }
 
-bool AndroidCamera::requestCameraPermission()
-{
-    return qt_androidRequestPermission(cameraPermissionKey());
-}
-
 void AndroidCamera::startPreview()
 {
     Q_D(AndroidCamera);
@@ -823,8 +818,7 @@ void AndroidCamera::stopPreviewSynchronous()
 }
 
 AndroidCameraPrivate::AndroidCameraPrivate()
-    : QObject(),
-      m_parametersMutex(QMutex::Recursive)
+    : QObject()
 {
 }
 
@@ -911,7 +905,7 @@ int AndroidCameraPrivate::getNativeOrientation()
 
 QSize AndroidCameraPrivate::getPreferredPreviewSizeForVideo()
 {
-    QMutexLocker parametersLocker(&m_parametersMutex);
+    const std::lock_guard<QRecursiveMutex> locker(m_parametersMutex);
 
     if (!m_parameters.isValid())
         return QSize();
@@ -929,7 +923,7 @@ QList<QSize> AndroidCameraPrivate::getSupportedPreviewSizes()
 {
     QList<QSize> list;
 
-    QMutexLocker parametersLocker(&m_parametersMutex);
+    const std::lock_guard<QRecursiveMutex> locker(m_parametersMutex);
 
     if (m_parameters.isValid()) {
         QJNIObjectPrivate sizeList = m_parameters.callObjectMethod("getSupportedPreviewSizes",
@@ -942,7 +936,7 @@ QList<QSize> AndroidCameraPrivate::getSupportedPreviewSizes()
             list.append(QSize(size.getField<jint>("width"), size.getField<jint>("height")));
         }
 
-        qSort(list.begin(), list.end(), qt_sizeLessThan);
+        std::sort(list.begin(), list.end(), qt_sizeLessThan);
     }
 
     return list;
@@ -950,7 +944,7 @@ QList<QSize> AndroidCameraPrivate::getSupportedPreviewSizes()
 
 QList<AndroidCamera::FpsRange> AndroidCameraPrivate::getSupportedPreviewFpsRange()
 {
-    QMutexLocker parametersLocker(&m_parametersMutex);
+    const std::lock_guard<QRecursiveMutex> locker(m_parametersMutex);
 
     QJNIEnvironmentPrivate env;
 
@@ -987,7 +981,7 @@ QList<AndroidCamera::FpsRange> AndroidCameraPrivate::getSupportedPreviewFpsRange
 
 AndroidCamera::FpsRange AndroidCameraPrivate::getPreviewFpsRange()
 {
-    QMutexLocker parametersLocker(&m_parametersMutex);
+    const std::lock_guard<QRecursiveMutex> locker(m_parametersMutex);
 
     QJNIEnvironmentPrivate env;
 
@@ -1012,7 +1006,7 @@ AndroidCamera::FpsRange AndroidCameraPrivate::getPreviewFpsRange()
 
 void AndroidCameraPrivate::setPreviewFpsRange(int min, int max)
 {
-    QMutexLocker parametersLocker(&m_parametersMutex);
+    const std::lock_guard<QRecursiveMutex> locker(m_parametersMutex);
 
     if (!m_parameters.isValid())
         return;
@@ -1024,7 +1018,7 @@ void AndroidCameraPrivate::setPreviewFpsRange(int min, int max)
 
 AndroidCamera::ImageFormat AndroidCameraPrivate::getPreviewFormat()
 {
-    QMutexLocker parametersLocker(&m_parametersMutex);
+    const std::lock_guard<QRecursiveMutex> locker(m_parametersMutex);
 
     if (!m_parameters.isValid())
         return AndroidCamera::UnknownImageFormat;
@@ -1034,7 +1028,7 @@ AndroidCamera::ImageFormat AndroidCameraPrivate::getPreviewFormat()
 
 void AndroidCameraPrivate::setPreviewFormat(AndroidCamera::ImageFormat fmt)
 {
-    QMutexLocker parametersLocker(&m_parametersMutex);
+    const std::lock_guard<QRecursiveMutex> locker(m_parametersMutex);
 
     if (!m_parameters.isValid())
         return;
@@ -1047,7 +1041,7 @@ QList<AndroidCamera::ImageFormat> AndroidCameraPrivate::getSupportedPreviewForma
 {
     QList<AndroidCamera::ImageFormat> list;
 
-    QMutexLocker parametersLocker(&m_parametersMutex);
+    const std::lock_guard<QRecursiveMutex> locker(m_parametersMutex);
 
     if (m_parameters.isValid()) {
         QJNIObjectPrivate formatList = m_parameters.callObjectMethod("getSupportedPreviewFormats",
@@ -1066,7 +1060,7 @@ QList<AndroidCamera::ImageFormat> AndroidCameraPrivate::getSupportedPreviewForma
 
 QSize AndroidCameraPrivate::getPreviewSize()
 {
-    QMutexLocker parametersLocker(&m_parametersMutex);
+    const std::lock_guard<QRecursiveMutex> locker(m_parametersMutex);
 
     if (!m_parameters.isValid())
         return QSize();
@@ -1082,7 +1076,7 @@ QSize AndroidCameraPrivate::getPreviewSize()
 
 void AndroidCameraPrivate::updatePreviewSize()
 {
-    QMutexLocker parametersLocker(&m_parametersMutex);
+    const std::lock_guard<QRecursiveMutex> locker(m_parametersMutex);
 
     if (m_previewSize.isValid()) {
         m_parameters.callMethod<void>("setPreviewSize", "(II)V", m_previewSize.width(), m_previewSize.height());
@@ -1117,7 +1111,7 @@ void AndroidCameraPrivate::setDisplayOrientation(int degrees)
 
 bool AndroidCameraPrivate::isZoomSupported()
 {
-    QMutexLocker parametersLocker(&m_parametersMutex);
+    const std::lock_guard<QRecursiveMutex> locker(m_parametersMutex);
 
     if (!m_parameters.isValid())
         return false;
@@ -1127,7 +1121,7 @@ bool AndroidCameraPrivate::isZoomSupported()
 
 int AndroidCameraPrivate::getMaxZoom()
 {
-    QMutexLocker parametersLocker(&m_parametersMutex);
+    const std::lock_guard<QRecursiveMutex> locker(m_parametersMutex);
 
     if (!m_parameters.isValid())
         return 0;
@@ -1137,7 +1131,7 @@ int AndroidCameraPrivate::getMaxZoom()
 
 QList<int> AndroidCameraPrivate::getZoomRatios()
 {
-    QMutexLocker parametersLocker(&m_parametersMutex);
+    const std::lock_guard<QRecursiveMutex> locker(m_parametersMutex);
 
     QList<int> ratios;
 
@@ -1159,7 +1153,7 @@ QList<int> AndroidCameraPrivate::getZoomRatios()
 
 int AndroidCameraPrivate::getZoom()
 {
-    QMutexLocker parametersLocker(&m_parametersMutex);
+    const std::lock_guard<QRecursiveMutex> locker(m_parametersMutex);
 
     if (!m_parameters.isValid())
         return 0;
@@ -1169,7 +1163,7 @@ int AndroidCameraPrivate::getZoom()
 
 void AndroidCameraPrivate::setZoom(int value)
 {
-    QMutexLocker parametersLocker(&m_parametersMutex);
+    const std::lock_guard<QRecursiveMutex> locker(m_parametersMutex);
 
     if (!m_parameters.isValid())
         return;
@@ -1180,7 +1174,7 @@ void AndroidCameraPrivate::setZoom(int value)
 
 QString AndroidCameraPrivate::getFlashMode()
 {
-    QMutexLocker parametersLocker(&m_parametersMutex);
+    const std::lock_guard<QRecursiveMutex> locker(m_parametersMutex);
 
     QString value;
 
@@ -1196,7 +1190,7 @@ QString AndroidCameraPrivate::getFlashMode()
 
 void AndroidCameraPrivate::setFlashMode(const QString &value)
 {
-    QMutexLocker parametersLocker(&m_parametersMutex);
+    const std::lock_guard<QRecursiveMutex> locker(m_parametersMutex);
 
     if (!m_parameters.isValid())
         return;
@@ -1209,7 +1203,7 @@ void AndroidCameraPrivate::setFlashMode(const QString &value)
 
 QString AndroidCameraPrivate::getFocusMode()
 {
-    QMutexLocker parametersLocker(&m_parametersMutex);
+    const std::lock_guard<QRecursiveMutex> locker(m_parametersMutex);
 
     QString value;
 
@@ -1225,7 +1219,7 @@ QString AndroidCameraPrivate::getFocusMode()
 
 void AndroidCameraPrivate::setFocusMode(const QString &value)
 {
-    QMutexLocker parametersLocker(&m_parametersMutex);
+    const std::lock_guard<QRecursiveMutex> locker(m_parametersMutex);
 
     if (!m_parameters.isValid())
         return;
@@ -1241,7 +1235,7 @@ int AndroidCameraPrivate::getMaxNumFocusAreas()
     if (QtAndroidPrivate::androidSdkVersion() < 14)
         return 0;
 
-    QMutexLocker parametersLocker(&m_parametersMutex);
+    const std::lock_guard<QRecursiveMutex> locker(m_parametersMutex);
 
     if (!m_parameters.isValid())
         return 0;
@@ -1256,7 +1250,7 @@ QList<QRect> AndroidCameraPrivate::getFocusAreas()
     if (QtAndroidPrivate::androidSdkVersion() < 14)
         return areas;
 
-    QMutexLocker parametersLocker(&m_parametersMutex);
+    const std::lock_guard<QRecursiveMutex> locker(m_parametersMutex);
 
     if (m_parameters.isValid()) {
         QJNIObjectPrivate list = m_parameters.callObjectMethod("getFocusAreas",
@@ -1282,7 +1276,7 @@ void AndroidCameraPrivate::setFocusAreas(const QList<QRect> &areas)
     if (QtAndroidPrivate::androidSdkVersion() < 14)
         return;
 
-    QMutexLocker parametersLocker(&m_parametersMutex);
+    const std::lock_guard<QRecursiveMutex> locker(m_parametersMutex);
 
     if (!m_parameters.isValid())
         return;
@@ -1330,7 +1324,7 @@ bool AndroidCameraPrivate::isAutoExposureLockSupported()
     if (QtAndroidPrivate::androidSdkVersion() < 14)
         return false;
 
-    QMutexLocker parametersLocker(&m_parametersMutex);
+    const std::lock_guard<QRecursiveMutex> locker(m_parametersMutex);
 
     if (!m_parameters.isValid())
         return false;
@@ -1343,7 +1337,7 @@ bool AndroidCameraPrivate::getAutoExposureLock()
     if (QtAndroidPrivate::androidSdkVersion() < 14)
         return false;
 
-    QMutexLocker parametersLocker(&m_parametersMutex);
+    const std::lock_guard<QRecursiveMutex> locker(m_parametersMutex);
 
     if (!m_parameters.isValid())
         return false;
@@ -1356,7 +1350,7 @@ void AndroidCameraPrivate::setAutoExposureLock(bool toggle)
     if (QtAndroidPrivate::androidSdkVersion() < 14)
         return;
 
-    QMutexLocker parametersLocker(&m_parametersMutex);
+    const std::lock_guard<QRecursiveMutex> locker(m_parametersMutex);
 
     if (!m_parameters.isValid())
         return;
@@ -1370,7 +1364,7 @@ bool AndroidCameraPrivate::isAutoWhiteBalanceLockSupported()
     if (QtAndroidPrivate::androidSdkVersion() < 14)
         return false;
 
-    QMutexLocker parametersLocker(&m_parametersMutex);
+    const std::lock_guard<QRecursiveMutex> locker(m_parametersMutex);
 
     if (!m_parameters.isValid())
         return false;
@@ -1383,7 +1377,7 @@ bool AndroidCameraPrivate::getAutoWhiteBalanceLock()
     if (QtAndroidPrivate::androidSdkVersion() < 14)
         return false;
 
-    QMutexLocker parametersLocker(&m_parametersMutex);
+    const std::lock_guard<QRecursiveMutex> locker(m_parametersMutex);
 
     if (!m_parameters.isValid())
         return false;
@@ -1396,7 +1390,7 @@ void AndroidCameraPrivate::setAutoWhiteBalanceLock(bool toggle)
     if (QtAndroidPrivate::androidSdkVersion() < 14)
         return;
 
-    QMutexLocker parametersLocker(&m_parametersMutex);
+    const std::lock_guard<QRecursiveMutex> locker(m_parametersMutex);
 
     if (!m_parameters.isValid())
         return;
@@ -1407,7 +1401,7 @@ void AndroidCameraPrivate::setAutoWhiteBalanceLock(bool toggle)
 
 int AndroidCameraPrivate::getExposureCompensation()
 {
-    QMutexLocker parametersLocker(&m_parametersMutex);
+    const std::lock_guard<QRecursiveMutex> locker(m_parametersMutex);
 
     if (!m_parameters.isValid())
         return 0;
@@ -1417,7 +1411,7 @@ int AndroidCameraPrivate::getExposureCompensation()
 
 void AndroidCameraPrivate::setExposureCompensation(int value)
 {
-    QMutexLocker parametersLocker(&m_parametersMutex);
+    const std::lock_guard<QRecursiveMutex> locker(m_parametersMutex);
 
     if (!m_parameters.isValid())
         return;
@@ -1428,7 +1422,7 @@ void AndroidCameraPrivate::setExposureCompensation(int value)
 
 float AndroidCameraPrivate::getExposureCompensationStep()
 {
-    QMutexLocker parametersLocker(&m_parametersMutex);
+    const std::lock_guard<QRecursiveMutex> locker(m_parametersMutex);
 
     if (!m_parameters.isValid())
         return 0;
@@ -1438,7 +1432,7 @@ float AndroidCameraPrivate::getExposureCompensationStep()
 
 int AndroidCameraPrivate::getMinExposureCompensation()
 {
-    QMutexLocker parametersLocker(&m_parametersMutex);
+    const std::lock_guard<QRecursiveMutex> locker(m_parametersMutex);
 
     if (!m_parameters.isValid())
         return 0;
@@ -1448,7 +1442,7 @@ int AndroidCameraPrivate::getMinExposureCompensation()
 
 int AndroidCameraPrivate::getMaxExposureCompensation()
 {
-    QMutexLocker parametersLocker(&m_parametersMutex);
+    const std::lock_guard<QRecursiveMutex> locker(m_parametersMutex);
 
     if (!m_parameters.isValid())
         return 0;
@@ -1458,7 +1452,7 @@ int AndroidCameraPrivate::getMaxExposureCompensation()
 
 QString AndroidCameraPrivate::getSceneMode()
 {
-    QMutexLocker parametersLocker(&m_parametersMutex);
+    const std::lock_guard<QRecursiveMutex> locker(m_parametersMutex);
 
     QString value;
 
@@ -1474,7 +1468,7 @@ QString AndroidCameraPrivate::getSceneMode()
 
 void AndroidCameraPrivate::setSceneMode(const QString &value)
 {
-    QMutexLocker parametersLocker(&m_parametersMutex);
+    const std::lock_guard<QRecursiveMutex> locker(m_parametersMutex);
 
     if (!m_parameters.isValid())
         return;
@@ -1487,7 +1481,7 @@ void AndroidCameraPrivate::setSceneMode(const QString &value)
 
 QString AndroidCameraPrivate::getWhiteBalance()
 {
-    QMutexLocker parametersLocker(&m_parametersMutex);
+    const std::lock_guard<QRecursiveMutex> locker(m_parametersMutex);
 
     QString value;
 
@@ -1503,7 +1497,7 @@ QString AndroidCameraPrivate::getWhiteBalance()
 
 void AndroidCameraPrivate::setWhiteBalance(const QString &value)
 {
-    QMutexLocker parametersLocker(&m_parametersMutex);
+    const std::lock_guard<QRecursiveMutex> locker(m_parametersMutex);
 
     if (!m_parameters.isValid())
         return;
@@ -1518,7 +1512,7 @@ void AndroidCameraPrivate::setWhiteBalance(const QString &value)
 
 void AndroidCameraPrivate::updateRotation()
 {
-    QMutexLocker parametersLocker(&m_parametersMutex);
+    const std::lock_guard<QRecursiveMutex> locker(m_parametersMutex);
 
     m_parameters.callMethod<void>("setRotation", "(I)V", m_rotation);
     applyParameters();
@@ -1526,7 +1520,7 @@ void AndroidCameraPrivate::updateRotation()
 
 QList<QSize> AndroidCameraPrivate::getSupportedPictureSizes()
 {
-    QMutexLocker parametersLocker(&m_parametersMutex);
+    const std::lock_guard<QRecursiveMutex> locker(m_parametersMutex);
 
     QList<QSize> list;
 
@@ -1541,7 +1535,7 @@ QList<QSize> AndroidCameraPrivate::getSupportedPictureSizes()
             list.append(QSize(size.getField<jint>("width"), size.getField<jint>("height")));
         }
 
-        qSort(list.begin(), list.end(), qt_sizeLessThan);
+        std::sort(list.begin(), list.end(), qt_sizeLessThan);
     }
 
     return list;
@@ -1549,7 +1543,7 @@ QList<QSize> AndroidCameraPrivate::getSupportedPictureSizes()
 
 void AndroidCameraPrivate::setPictureSize(const QSize &size)
 {
-    QMutexLocker parametersLocker(&m_parametersMutex);
+    const std::lock_guard<QRecursiveMutex> locker(m_parametersMutex);
 
     if (!m_parameters.isValid())
         return;
@@ -1560,7 +1554,7 @@ void AndroidCameraPrivate::setPictureSize(const QSize &size)
 
 void AndroidCameraPrivate::setJpegQuality(int quality)
 {
-    QMutexLocker parametersLocker(&m_parametersMutex);
+    const std::lock_guard<QRecursiveMutex> locker(m_parametersMutex);
 
     if (!m_parameters.isValid())
         return;
@@ -1669,7 +1663,7 @@ void AndroidCameraPrivate::applyParameters()
 
 QStringList AndroidCameraPrivate::callParametersStringListMethod(const QByteArray &methodName)
 {
-    QMutexLocker parametersLocker(&m_parametersMutex);
+    const std::lock_guard<QRecursiveMutex> locker(m_parametersMutex);
 
     QStringList stringList;
 

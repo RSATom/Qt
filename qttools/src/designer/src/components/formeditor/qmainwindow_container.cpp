@@ -56,7 +56,7 @@ int QMainWindowContainer::count() const
 QWidget *QMainWindowContainer::widget(int index) const
 {
     if (index == -1)
-        return 0;
+        return nullptr;
 
     return m_widgets.at(index);
 }
@@ -74,12 +74,16 @@ void QMainWindowContainer::setCurrentIndex(int index)
 
 namespace {
     // Pair of <area,break_before>
-    typedef QPair<Qt::ToolBarArea,bool> ToolBarData;
+    using ToolBarData = QPair<Qt::ToolBarArea,bool> ;
 
     ToolBarData toolBarData(QToolBar *me) {
         const QMainWindow *mw = qobject_cast<const QMainWindow*>(me->parentWidget());
-        if (!mw || !mw->layout() ||  mw->layout()->indexOf(me) == -1)
-            return ToolBarData(Qt::TopToolBarArea,false);
+        if (!mw || !mw->layout() ||  mw->layout()->indexOf(me) == -1) {
+            const QVariant desiredAreaV = me->property("_q_desiredArea");
+            const Qt::ToolBarArea desiredArea = desiredAreaV.canConvert<Qt::ToolBarArea>()
+                ? desiredAreaV.value<Qt::ToolBarArea>() : Qt::TopToolBarArea;
+            return {desiredArea, false};
+        }
         return ToolBarData(mw->toolBarArea(me), mw->toolBarBreak(me));
     }
 
@@ -170,12 +174,12 @@ void QMainWindowContainer::remove(int index)
         m_mainWindow->removeToolBar(toolBar);
     } else if (QMenuBar *menuBar = qobject_cast<QMenuBar*>(widget)) {
         menuBar->hide();
-        menuBar->setParent(0);
-        m_mainWindow->setMenuBar(0);
+        menuBar->setParent(nullptr);
+        m_mainWindow->setMenuBar(nullptr);
     } else if (QStatusBar *statusBar = qobject_cast<QStatusBar*>(widget)) {
         statusBar->hide();
-        statusBar->setParent(0);
-        m_mainWindow->setStatusBar(0);
+        statusBar->setParent(nullptr);
+        m_mainWindow->setStatusBar(nullptr);
     } else if (QDockWidget *dockWidget = qobject_cast<QDockWidget*>(widget)) {
         m_mainWindow->removeDockWidget(dockWidget);
     }

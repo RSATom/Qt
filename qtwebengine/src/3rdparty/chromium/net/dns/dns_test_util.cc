@@ -127,7 +127,7 @@ DnsResourceRecord BuildTextRecord(std::string name,
   for (std::string text_string : text_strings) {
     DCHECK(!text_string.empty());
 
-    rdata += base::checked_cast<char>(text_string.size());
+    rdata += base::checked_cast<unsigned char>(text_string.size());
     rdata += std::move(text_string);
   }
   record.SetOwnedRdata(std::move(rdata));
@@ -186,6 +186,8 @@ class MockTransaction : public DnsTransaction,
   MockTransaction(const MockDnsClientRuleList& rules,
                   const std::string& hostname,
                   uint16_t qtype,
+                  bool secure,
+                  URLRequestContext* url_request_context,
                   DnsTransactionFactory::CallbackType callback)
       : result_(MockDnsClientRule::FAIL),
         hostname_(hostname),
@@ -193,11 +195,15 @@ class MockTransaction : public DnsTransaction,
         callback_(std::move(callback)),
         started_(false),
         delayed_(false) {
-    // Find the relevant rule which matches |qtype| and prefix of |hostname|.
+    // Find the relevant rule which matches |qtype|, |secure|, prefix of
+    // |hostname|, and |url_request_context| (iff the rule context is not
+    // null).
     for (size_t i = 0; i < rules.size(); ++i) {
       const std::string& prefix = rules[i].prefix;
-      if ((rules[i].qtype == qtype) && (hostname.size() >= prefix.size()) &&
-          (hostname.compare(0, prefix.size(), prefix) == 0)) {
+      if ((rules[i].qtype == qtype) && (rules[i].secure == secure) &&
+          (hostname.size() >= prefix.size()) &&
+          (hostname.compare(0, prefix.size(), prefix) == 0) &&
+          (!rules[i].context || rules[i].context == url_request_context)) {
         const MockDnsClientRule::Result* result = &rules[i].result;
         result_ = MockDnsClientRule::Result(result->type);
         delayed_ = rules[i].delay;
@@ -268,7 +274,7 @@ class MockTransaction : public DnsTransaction,
       return;
     // Using WeakPtr to cleanly cancel when transaction is destroyed.
     base::ThreadTaskRunnerHandle::Get()->PostTask(
-        FROM_HERE, base::Bind(&MockTransaction::Finish, AsWeakPtr()));
+        FROM_HERE, base::BindOnce(&MockTransaction::Finish, AsWeakPtr()));
   }
 
   void FinishDelayedTransaction() {
@@ -298,7 +304,6 @@ class MockTransaction : public DnsTransaction,
     }
   }
 
-  void SetRequestContext(URLRequestContext*) override {}
   void SetRequestPriority(RequestPriority priority) override {}
 
   MockDnsClientRule::Result result_;
@@ -327,9 +332,10 @@ std::unique_ptr<DnsResponse> BuildTestDnsResponse(std::string name,
       std::vector<DnsResourceRecord>() /* additional_records */, query);
 }
 
-std::unique_ptr<DnsResponse> BuildTestDnsResponse(std::string name,
-                                                  const IPAddress& ip,
-                                                  std::string cannonname) {
+std::unique_ptr<DnsResponse> BuildTestDnsResponseWithCname(
+    std::string name,
+    const IPAddress& ip,
+    std::string cannonname) {
   DCHECK(ip.IsValid());
   DCHECK(!cannonname.empty());
 
@@ -347,7 +353,7 @@ std::unique_ptr<DnsResponse> BuildTestDnsResponse(std::string name,
       std::vector<DnsResourceRecord>() /* additional_records */, query);
 }
 
-std::unique_ptr<DnsResponse> BuildTestDnsResponse(
+std::unique_ptr<DnsResponse> BuildTestDnsTextResponse(
     std::string name,
     std::vector<std::vector<std::string>> text_records,
     std::string answer_name) {
@@ -393,7 +399,7 @@ std::unique_ptr<DnsResponse> BuildTestDnsPointerResponse(
       std::vector<DnsResourceRecord>() /* additional_records */, query);
 }
 
-std::unique_ptr<DnsResponse> BuildTestDnsResponse(
+std::unique_ptr<DnsResponse> BuildTestDnsServiceResponse(
     std::string name,
     std::vector<TestServiceRecord> service_records,
     std::string answer_name) {
@@ -429,6 +435,21 @@ MockDnsClientRule::Result::~Result() = default;
 MockDnsClientRule::Result& MockDnsClientRule::Result::operator=(
     Result&& result) = default;
 
+MockDnsClientRule::MockDnsClientRule(const std::string& prefix,
+                                     uint16_t qtype,
+                                     bool secure,
+                                     Result result,
+                                     bool delay,
+                                     URLRequestContext* context)
+    : result(std::move(result)),
+      prefix(prefix),
+      qtype(qtype),
+      secure(secure),
+      delay(delay),
+      context(context) {}
+
+MockDnsClientRule::MockDnsClientRule(MockDnsClientRule&& rule) = default;
+
 // A DnsTransactionFactory which creates MockTransaction.
 class MockDnsClient::MockTransactionFactory : public DnsTransactionFactory {
  public:
@@ -441,18 +462,19 @@ class MockDnsClient::MockTransactionFactory : public DnsTransactionFactory {
       const std::string& hostname,
       uint16_t qtype,
       DnsTransactionFactory::CallbackType callback,
-      const NetLogWithSource&) override {
+      const NetLogWithSource&,
+      bool secure,
+      URLRequestContext* url_request_context) override {
     std::unique_ptr<MockTransaction> transaction =
-        std::make_unique<MockTransaction>(rules_, hostname, qtype,
+        std::make_unique<MockTransaction>(rules_, hostname, qtype, secure,
+                                          url_request_context,
                                           std::move(callback));
     if (transaction->delayed())
       delayed_transactions_.push_back(transaction->AsWeakPtr());
     return transaction;
   }
 
-  void AddEDNSOption(const OptRecordRdata::Opt& opt) override {
-    NOTREACHED() << "Not implemented";
-  }
+  void AddEDNSOption(const OptRecordRdata::Opt& opt) override {}
 
   void CompleteDelayedTransactions() {
     DelayedTransactionList old_delayed_transactions;
@@ -484,11 +506,11 @@ void MockDnsClient::SetConfig(const DnsConfig& config) {
 }
 
 const DnsConfig* MockDnsClient::GetConfig() const {
-  return config_.IsValid() ? &config_ : NULL;
+  return config_.IsValid() ? &config_ : nullptr;
 }
 
 DnsTransactionFactory* MockDnsClient::GetTransactionFactory() {
-  return config_.IsValid() ? factory_.get() : NULL;
+  return config_.IsValid() ? factory_.get() : nullptr;
 }
 
 AddressSorter* MockDnsClient::GetAddressSorter() {

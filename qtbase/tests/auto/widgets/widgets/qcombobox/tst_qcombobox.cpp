@@ -34,7 +34,6 @@
 #include <qpa/qplatformtheme.h>
 
 #include <qfontcombobox.h>
-#include <qdesktopwidget.h>
 #include <qapplication.h>
 #include <qpushbutton.h>
 #include <qdialog.h>
@@ -48,6 +47,7 @@
 #include <qtablewidget.h>
 #include <qscrollbar.h>
 #include <qboxlayout.h>
+#include <qstackedwidget.h>
 
 #include <qstandarditemmodel.h>
 #include <qstringlistmodel.h>
@@ -165,6 +165,7 @@ private slots:
     void task_QTBUG_56693_itemFontFromModel();
     void inputMethodUpdate();
     void task_QTBUG_52027_mapCompleterIndex();
+    void checkMenuItemPosWhenStyleSheetIsSet();
 
 private:
     PlatformInputContext m_platformInputContext;
@@ -254,12 +255,22 @@ void tst_QComboBox::getSetCheck()
     obj1.setMaxCount(INT_MAX);
     QCOMPARE(INT_MAX, obj1.maxCount());
 
+    // QCompleter *QComboBox::completer()
+    // void QComboBox::setCompleter(QCompleter *)
+    obj1.setCompleter(nullptr);
+    QCOMPARE(nullptr, obj1.completer());
+    QCompleter completer;
+    obj1.setCompleter(&completer);
+    QVERIFY(obj1.completer() == nullptr); // no QLineEdit is set
+
+#if QT_DEPRECATED_SINCE(5, 13)
     // bool QComboBox::autoCompletion()
     // void QComboBox::setAutoCompletion(bool)
     obj1.setAutoCompletion(false);
     QCOMPARE(false, obj1.autoCompletion());
     obj1.setAutoCompletion(true);
     QCOMPARE(true, obj1.autoCompletion());
+#endif
 
     // bool QComboBox::duplicatesEnabled()
     // void QComboBox::setDuplicatesEnabled(bool)
@@ -316,6 +327,9 @@ void tst_QComboBox::getSetCheck()
     obj1.setLineEdit((QLineEdit *)0);
     QCOMPARE(var8, obj1.lineEdit());
     // delete var8; // No delete, since QComboBox takes ownership
+
+    // After setting a line edit, completer() should not return nullptr anymore
+    QVERIFY(obj1.completer() != nullptr);
 
     // const QValidator * QComboBox::validator()
     // void QComboBox::setValidator(const QValidator *)
@@ -777,7 +791,9 @@ void tst_QComboBox::virtualAutocompletion()
     QVERIFY(QTest::qWaitForWindowExposed(&topLevel));
     QComboBox *testWidget = topLevel.comboBox();
     testWidget->clear();
+#if QT_DEPRECATED_SINCE(5, 13)
     testWidget->setAutoCompletion(true);
+#endif
     testWidget->addItem("Foo");
     testWidget->addItem("Bar");
     testWidget->addItem("Boat");
@@ -837,7 +853,9 @@ void tst_QComboBox::autoCompletionCaseSensitivity()
     QCOMPARE(qApp->focusWidget(), (QWidget *)testWidget);
 
     testWidget->clear();
+#if QT_DEPRECATED_SINCE(5, 13)
     testWidget->setAutoCompletion(true);
+#endif
     testWidget->addItem("Cow");
     testWidget->addItem("irrelevant1");
     testWidget->addItem("aww");
@@ -2102,7 +2120,9 @@ void tst_QComboBox::mouseWheel()
         box.setEditable(i==0?false:true);
         box.setCurrentIndex(startIndex);
 
-        QWheelEvent event = QWheelEvent(box.rect().bottomRight() , WHEEL_DELTA * wheelDirection, Qt::NoButton, Qt::NoModifier);
+        const QPoint wheelPoint = box.rect().bottomRight();
+        QWheelEvent event(wheelPoint, box.mapToGlobal(wheelPoint), QPoint(), QPoint(0, WHEEL_DELTA * wheelDirection),
+                              Qt::NoButton, Qt::NoModifier, Qt::NoScrollPhase, false);
         QVERIFY(applicationInstance->sendEvent(&box,&event));
 
         QCOMPARE(box.currentIndex(), expectedIndex);
@@ -2131,7 +2151,9 @@ void tst_QComboBox::popupWheelHandling()
     comboBox->showPopup();
     QTRY_VERIFY(comboBox->view() && comboBox->view()->isVisible());
     const QPoint popupPos = comboBox->view()->pos();
-    QWheelEvent event(QPointF(10, 10), WHEEL_DELTA, Qt::NoButton, Qt::NoModifier);
+    const QPoint wheelPoint(10, 10);
+    QWheelEvent event(wheelPoint, scrollArea.mapToGlobal(wheelPoint), QPoint(), QPoint(0, WHEEL_DELTA),
+                          Qt::NoButton, Qt::NoModifier, Qt::NoScrollPhase, false);
     QVERIFY(QCoreApplication::sendEvent(scrollArea.windowHandle(), &event));
     QCoreApplication::processEvents();
     QVERIFY(comboBox->view()->isVisible());
@@ -2191,15 +2213,13 @@ void tst_QComboBox::itemListPosition()
     QFontComboBox combo(&topLevel);
 
     layout->addWidget(&combo);
-    //the code to get the available screen space is copied from QComboBox code
-    const int scrNumber = QApplication::desktop()->screenNumber(&combo);
 
     bool useFullScreenForPopupMenu = false;
     if (const QPlatformTheme *theme = QGuiApplicationPrivate::platformTheme())
         useFullScreenForPopupMenu = theme->themeHint(QPlatformTheme::UseFullScreenForPopupMenu).toBool();
     const QRect screen = useFullScreenForPopupMenu ?
-                         QApplication::screens().at(scrNumber)->geometry() :
-                         QApplication::screens().at(scrNumber)->availableGeometry();
+                         combo.screen()->geometry() :
+                         combo.screen()->availableGeometry();
 
     topLevel.move(screen.width() - topLevel.sizeHint().width() - 10, 0); //puts the combo to the top-right corner
 
@@ -2419,8 +2439,7 @@ void tst_QComboBox::task248169_popupWithMinimalSize()
 #if defined QT_BUILD_INTERNAL
     QFrame *container = comboBox.findChild<QComboBoxPrivateContainer *>();
     QVERIFY(container);
-    QDesktopWidget desktop;
-    QTRY_VERIFY(desktop.screenGeometry(container).contains(container->geometry()));
+    QTRY_VERIFY(container->screen()->geometry().contains(container->geometry()));
 #endif
 }
 
@@ -3050,7 +3069,9 @@ void tst_QComboBox::task_QTBUG_31146_popupCompletion()
 {
     QComboBox comboBox;
     comboBox.setEditable(true);
+#if QT_DEPRECATED_SINCE(5, 13)
     comboBox.setAutoCompletion(true);
+#endif
     comboBox.setInsertPolicy(QComboBox::NoInsert);
     comboBox.completer()->setCaseSensitivity(Qt::CaseInsensitive);
     comboBox.completer()->setCompletionMode(QCompleter::PopupCompletion);
@@ -3445,6 +3466,47 @@ void tst_QComboBox::task_QTBUG_52027_mapCompleterIndex()
     QApplication::processEvents();
     arguments = spy.takeLast();
     QCOMPARE(arguments.at(0).toInt(), 1);
+}
+
+void tst_QComboBox::checkMenuItemPosWhenStyleSheetIsSet()
+{
+    QString newCss = "QComboBox {font-size: 18pt;}";
+    QString oldCss = qApp->styleSheet();
+    qApp->setStyleSheet(newCss);
+
+    QWidget topLevel;
+    QVBoxLayout *layout = new QVBoxLayout(&topLevel);
+    QStackedWidget *stack = new QStackedWidget(&topLevel);
+    layout->addWidget(stack);
+    QWidget *container = new QWidget(&topLevel);
+    QHBoxLayout *cLayout = new QHBoxLayout(container);
+    QComboBox *cBox = new QComboBox;
+
+    QStandardItemModel *model = new QStandardItemModel(cBox);
+    QStandardItem *item = new QStandardItem(QStringLiteral("Item1"));
+    model->appendRow(item);
+    item = new QStandardItem(QStringLiteral("Item2"));
+    model->appendRow(item);
+    item = new QStandardItem(QStringLiteral("Item3"));
+    model->appendRow(item);
+    item = new QStandardItem(QStringLiteral("Item4"));
+    model->appendRow(item);
+    cBox->setModel(model);
+
+    cLayout->addWidget(cBox);
+    stack->addWidget(container);
+    topLevel.show();
+    cBox->showPopup();
+
+    QTRY_VERIFY(cBox->view());
+    QTRY_VERIFY(cBox->view()->isVisible());
+
+    int menuHeight = cBox->view()->geometry().height();
+    QRect menuItemRect = cBox->view()->visualRect(model->indexFromItem(item));
+
+    QCOMPARE(menuHeight, menuItemRect.y() + menuItemRect.height());
+
+    qApp->setStyleSheet(oldCss);
 }
 
 QTEST_MAIN(tst_QComboBox)

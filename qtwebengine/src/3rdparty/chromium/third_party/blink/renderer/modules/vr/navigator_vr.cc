@@ -7,23 +7,17 @@
 #include "services/metrics/public/cpp/ukm_builders.h"
 #include "third_party/blink/public/mojom/feature_policy/feature_policy.mojom-blink.h"
 #include "third_party/blink/public/platform/platform.h"
-#include "third_party/blink/public/platform/web_security_origin.h"
-#include "third_party/blink/public/web/web_frame.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise_resolver.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/dom/dom_exception.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
-#include "third_party/blink/renderer/core/frame/local_dom_window.h"
+#include "third_party/blink/renderer/core/frame/deprecation.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
-#include "third_party/blink/renderer/core/frame/navigator.h"
-#include "third_party/blink/renderer/core/frame/use_counter.h"
-#include "third_party/blink/renderer/core/inspector/console_message.h"
-#include "third_party/blink/renderer/core/page/page.h"
 #include "third_party/blink/renderer/modules/vr/vr_controller.h"
-#include "third_party/blink/renderer/modules/vr/vr_display.h"
-#include "third_party/blink/renderer/modules/vr/vr_get_devices_callback.h"
 #include "third_party/blink/renderer/modules/vr/vr_pose.h"
-#include "third_party/blink/renderer/modules/xr/xr.h"
+#include "third_party/blink/renderer/modules/xr/navigator_xr.h"
+#include "third_party/blink/renderer/platform/heap/heap.h"
+#include "third_party/blink/renderer/platform/instrumentation/use_counter.h"
 
 namespace blink {
 
@@ -36,13 +30,26 @@ const char kNotAssociatedWithDocumentMessage[] =
     "The object is no longer associated with a document.";
 
 const char kCannotUseBothNewAndOldAPIMessage[] =
-    "Cannot use navigator.getVRDisplays if the XR API is already in "
-    "use.";
+    "Cannot use navigator.getVRDisplays if WebXR is already in use.";
 
 }  // namespace
 
+bool NavigatorVR::HasWebVrBeenUsed(Document& document) {
+  if (!document.GetFrame())
+    return false;
+  Navigator& navigator = *document.GetFrame()->DomWindow()->navigator();
+
+  NavigatorVR* supplement = Supplement<Navigator>::From<NavigatorVR>(navigator);
+  if (!supplement) {
+    // No supplement means WebVR has not been used.
+    return false;
+  }
+
+  return NavigatorVR::From(navigator).did_use_webvr_;
+}
+
 NavigatorVR* NavigatorVR::From(Document& document) {
-  if (!document.GetFrame() || !document.GetFrame()->DomWindow())
+  if (!document.GetFrame())
     return nullptr;
   Navigator& navigator = *document.GetFrame()->DomWindow()->navigator();
   return &From(navigator);
@@ -57,117 +64,60 @@ NavigatorVR& NavigatorVR::From(Navigator& navigator) {
   return *supplement;
 }
 
-XR* NavigatorVR::xr(Navigator& navigator) {
-  // Always return null when the navigator is detached.
-  if (!navigator.GetFrame())
-    return nullptr;
-
-  return NavigatorVR::From(navigator).xr();
-}
-
-XR* NavigatorVR::xr() {
-  if (!did_log_NavigatorXR_) {
-    ukm::builders::XR_WebXR(GetSourceId())
-        .SetDidUseNavigatorXR(1)
-        .Record(GetDocument()->UkmRecorder());
-
-    did_log_NavigatorXR_ = true;
-  }
-
-  LocalFrame* frame = GetSupplementable()->GetFrame();
-  // Always return null when the navigator is detached.
-  if (!frame)
-    return nullptr;
-
-  if (!xr_) {
-    // For the sake of simplicity we're going to block developers from using the
-    // new API if they've already made calls to the legacy API.
-    if (controller_) {
-      if (frame->GetDocument()) {
-        frame->GetDocument()->AddConsoleMessage(ConsoleMessage::Create(
-            kOtherMessageSource, kErrorMessageLevel,
-            "Cannot use navigator.xr if the legacy VR API is already in use."));
-      }
-      return nullptr;
-    }
-
-    xr_ = XR::Create(*frame, ukm_source_id_);
-    MaybeLogDidUseGamepad();
-  }
-  return xr_;
-}
-
-void NavigatorVR::SetDidUseGamepad() {
-  did_use_gamepad_ = true;
-  MaybeLogDidUseGamepad();
-}
-
-void NavigatorVR::MaybeLogDidUseGamepad() {
-  // If we have used WebXR and Gamepad, and haven't already logged the metric,
-  // record that Gamepad is used.
-  if (xr_ && did_use_gamepad_ && !did_log_did_use_gamepad_) {
-    ukm::builders::XR_WebXR(ukm_source_id_)
-        .SetDidGetGamepads(1)
-        .Record(GetDocument()->UkmRecorder());
-    did_log_did_use_gamepad_ = true;
-  }
-}
-
 ScriptPromise NavigatorVR::getVRDisplays(ScriptState* script_state,
                                          Navigator& navigator) {
   if (!navigator.GetFrame()) {
     return ScriptPromise::RejectWithDOMException(
-        script_state, DOMException::Create(DOMExceptionCode::kInvalidStateError,
+        script_state,
+        MakeGarbageCollected<DOMException>(DOMExceptionCode::kInvalidStateError,
                                            kNotAssociatedWithDocumentMessage));
   }
   return NavigatorVR::From(navigator).getVRDisplays(script_state);
 }
 
 ScriptPromise NavigatorVR::getVRDisplays(ScriptState* script_state) {
-  if (!GetDocument()) {
+  did_use_webvr_ = true;
+
+  auto* document = GetDocument();
+  if (!document) {
     return ScriptPromise::RejectWithDOMException(
-        script_state, DOMException::Create(DOMExceptionCode::kInvalidStateError,
+        script_state,
+        MakeGarbageCollected<DOMException>(DOMExceptionCode::kInvalidStateError,
                                            kNotAssociatedWithDocumentMessage));
   }
 
-  if (!did_log_getVRDisplays_ && GetDocument()->IsInMainFrame()) {
+  if (!did_log_getVRDisplays_ && document->IsInMainFrame()) {
     did_log_getVRDisplays_ = true;
 
-    ukm::builders::XR_WebXR(GetDocument()->UkmSourceID())
+    ukm::builders::XR_WebXR(document->UkmSourceID())
         .SetDidRequestAvailableDevices(1)
-        .Record(GetDocument()->UkmRecorder());
+        .Record(document->UkmRecorder());
   }
 
-  LocalFrame* frame = GetDocument()->GetFrame();
-  if (!frame) {
+  if (!document->IsFeatureEnabled(mojom::FeaturePolicyFeature::kWebVr,
+                                  ReportOptions::kReportOnFailure)) {
     return ScriptPromise::RejectWithDOMException(
-        script_state, DOMException::Create(DOMExceptionCode::kInvalidStateError,
-                                           kNotAssociatedWithDocumentMessage));
-  }
-  if (!GetDocument()->IsFeatureEnabled(mojom::FeaturePolicyFeature::kWebVr,
-                                       ReportOptions::kReportOnFailure)) {
-    return ScriptPromise::RejectWithDOMException(
-        script_state, DOMException::Create(DOMExceptionCode::kSecurityError,
+        script_state,
+        MakeGarbageCollected<DOMException>(DOMExceptionCode::kSecurityError,
                                            kFeaturePolicyBlockedMessage));
   }
 
-  // Similar to the restriciton above, we're going to block developers from
-  // using the legacy API if they've already made calls to the new API.
-  if (xr_) {
+  // Block developers from using WebVR if they've already used WebXR.
+  if (NavigatorXR::HasWebXrBeenUsed(*document)) {
     return ScriptPromise::RejectWithDOMException(
-        script_state, DOMException::Create(DOMExceptionCode::kInvalidStateError,
+        script_state,
+        MakeGarbageCollected<DOMException>(DOMExceptionCode::kInvalidStateError,
                                            kCannotUseBothNewAndOldAPIMessage));
   }
 
-  UseCounter::Count(*GetDocument(), WebFeature::kVRGetDisplays);
+  Deprecation::CountDeprecation(*document, WebFeature::kVRGetDisplays);
   ExecutionContext* execution_context = ExecutionContext::From(script_state);
   if (!execution_context->IsSecureContext())
-    UseCounter::Count(*GetDocument(), WebFeature::kVRGetDisplaysInsecureOrigin);
+    UseCounter::Count(*document, WebFeature::kVRGetDisplaysInsecureOrigin);
 
-  Platform::Current()->RecordRapporURL("VR.WebVR.GetDisplays",
-                                       GetDocument()->Url());
+  Platform::Current()->RecordRapporURL("VR.WebVR.GetDisplays", document->Url());
 
-  ScriptPromiseResolver* resolver = ScriptPromiseResolver::Create(script_state);
+  auto* resolver = MakeGarbageCollected<ScriptPromiseResolver>(script_state);
   ScriptPromise promise = resolver->Promise();
   Controller()->GetDisplays(resolver);
 
@@ -195,30 +145,15 @@ Document* NavigatorVR::GetDocument() {
 }
 
 void NavigatorVR::Trace(blink::Visitor* visitor) {
-  visitor->Trace(xr_);
   visitor->Trace(controller_);
   Supplement<Navigator>::Trace(visitor);
 }
 
 NavigatorVR::NavigatorVR(Navigator& navigator)
     : Supplement<Navigator>(navigator),
-      FocusChangedObserver(navigator.GetFrame()->GetPage()),
-      ukm_source_id_(ukm::UkmRecorder::GetNewSourceID()) {
+      FocusChangedObserver(navigator.GetFrame()->GetPage()) {
   navigator.GetFrame()->DomWindow()->RegisterEventListenerObserver(this);
   FocusedFrameChanged();
-
-  if (navigator.GetFrame() && WebFrame::FromFrame(navigator.GetFrame())) {
-    WebFrame* main_frame = WebFrame::FromFrame(navigator.GetFrame())->Top();
-    if (main_frame) {
-      url::Origin main_frame_origin = main_frame->GetSecurityOrigin();
-      GetDocument()->UkmRecorder()->UpdateSourceURL(ukm_source_id_,
-                                                    main_frame_origin.GetURL());
-    }
-  }
-}
-
-int64_t NavigatorVR::GetSourceId() const {
-  return ukm_source_id_;
 }
 
 NavigatorVR::~NavigatorVR() = default;
@@ -256,10 +191,6 @@ void NavigatorVR::FocusedFrameChanged() {
 
 void NavigatorVR::DidAddEventListener(LocalDOMWindow* window,
                                       const AtomicString& event_type) {
-  // Don't bother if we're using the newer API
-  if (xr_)
-    return;
-
   if (event_type == event_type_names::kVrdisplayactivate) {
     listening_for_activate_ = true;
     Controller()->SetListeningForActivate(focused_);
@@ -272,10 +203,6 @@ void NavigatorVR::DidAddEventListener(LocalDOMWindow* window,
 
 void NavigatorVR::DidRemoveEventListener(LocalDOMWindow* window,
                                          const AtomicString& event_type) {
-  // Don't bother if we're using the newer API
-  if (xr_)
-    return;
-
   if (event_type == event_type_names::kVrdisplayactivate &&
       !window->HasEventListeners(event_type_names::kVrdisplayactivate)) {
     listening_for_activate_ = false;
@@ -284,7 +211,7 @@ void NavigatorVR::DidRemoveEventListener(LocalDOMWindow* window,
 }
 
 void NavigatorVR::DidRemoveAllEventListeners(LocalDOMWindow* window) {
-  if (xr_ || !controller_)
+  if (!controller_)
     return;
 
   controller_->SetListeningForActivate(false);

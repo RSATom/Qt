@@ -5,19 +5,19 @@
  * found in the LICENSE file.
  */
 
-#include "GrTextureMaker.h"
+#include "src/gpu/GrTextureMaker.h"
 
-#include "GrColorSpaceXform.h"
-#include "GrContext.h"
-#include "GrContextPriv.h"
-#include "GrGpu.h"
-#include "GrProxyProvider.h"
+#include "include/private/GrRecordingContext.h"
+#include "src/gpu/GrColorSpaceXform.h"
+#include "src/gpu/GrGpu.h"
+#include "src/gpu/GrProxyProvider.h"
+#include "src/gpu/GrRecordingContextPriv.h"
 
 sk_sp<GrTextureProxy> GrTextureMaker::onRefTextureProxyForParams(const GrSamplerState& params,
                                                                  bool willBeMipped,
                                                                  SkScalar scaleAdjust[2]) {
-    if (this->width() > fContext->contextPriv().caps()->maxTextureSize() ||
-        this->height() > fContext->contextPriv().caps()->maxTextureSize()) {
+    if (this->width() > this->context()->priv().caps()->maxTextureSize() ||
+        this->height() > this->context()->priv().caps()->maxTextureSize()) {
         return nullptr;
     }
 
@@ -28,10 +28,10 @@ sk_sp<GrTextureProxy> GrTextureMaker::onRefTextureProxyForParams(const GrSampler
     bool needsCopyForMipsOnly = false;
     if (original) {
         if (!params.isRepeated() ||
-            !GrGpu::IsACopyNeededForRepeatWrapMode(fContext->contextPriv().caps(), original.get(),
+            !GrGpu::IsACopyNeededForRepeatWrapMode(this->context()->priv().caps(), original.get(),
                                                    original->width(), original->height(),
                                                    params.filter(), &copyParams, scaleAdjust)) {
-            needsCopyForMipsOnly = GrGpu::IsACopyNeededForMips(fContext->contextPriv().caps(),
+            needsCopyForMipsOnly = GrGpu::IsACopyNeededForMips(this->context()->priv().caps(),
                                                                original.get(), params.filter(),
                                                                &copyParams);
             if (!needsCopyForMipsOnly) {
@@ -40,14 +40,14 @@ sk_sp<GrTextureProxy> GrTextureMaker::onRefTextureProxyForParams(const GrSampler
         }
     } else {
         if (!params.isRepeated() ||
-            !GrGpu::IsACopyNeededForRepeatWrapMode(fContext->contextPriv().caps(), nullptr,
+            !GrGpu::IsACopyNeededForRepeatWrapMode(this->context()->priv().caps(), nullptr,
                                                    this->width(), this->height(),
                                                    params.filter(), &copyParams, scaleAdjust)) {
             return this->refOriginalTextureProxy(willBeMipped, AllowedTexGenType::kAny);
         }
     }
 
-    GrProxyProvider* proxyProvider = fContext->contextPriv().proxyProvider();
+    GrProxyProvider* proxyProvider = this->context()->priv().proxyProvider();
 
     GrSurfaceOrigin origOrigin = original ? original->origin() : kTopLeft_GrSurfaceOrigin;
     GrUniqueKey copyKey;
@@ -74,7 +74,8 @@ sk_sp<GrTextureProxy> GrTextureMaker::onRefTextureProxyForParams(const GrSampler
         return nullptr;
     }
 
-    sk_sp<GrTextureProxy> result = CopyOnGpu(fContext, source, copyParams, willBeMipped);
+    sk_sp<GrTextureProxy> result =
+            CopyOnGpu(this->context(), source, this->colorType(), copyParams, willBeMipped);
 
     if (!result) {
         // If we were unable to make a copy and we only needed a copy for mips, then we will return
@@ -98,7 +99,7 @@ sk_sp<GrTextureProxy> GrTextureMaker::onRefTextureProxyForParams(const GrSampler
             proxyProvider->removeUniqueKeyFromProxy(cachedProxy.get());
         }
         proxyProvider->assignUniqueKeyToProxy(copyKey, result.get());
-        this->didCacheCopy(copyKey, proxyProvider->contextUniqueID());
+        this->didCacheCopy(copyKey, proxyProvider->contextID());
     }
     return result;
 }
@@ -112,7 +113,7 @@ std::unique_ptr<GrFragmentProcessor> GrTextureMaker::createFragmentProcessor(
     const GrSamplerState::Filter* fmForDetermineDomain = filterOrNullForBicubic;
     if (filterOrNullForBicubic && GrSamplerState::Filter::kMipMap == *filterOrNullForBicubic &&
         kYes_FilterConstraint == filterConstraint) {
-        // TODo: Here we should force a copy restricted to the constraintRect since MIP maps will
+        // TODO: Here we should force a copy restricted to the constraintRect since MIP maps will
         // read outside the constraint rect. However, as in the adjuster case, we aren't currently
         // doing that.
         // We instead we compute the domain as though were bilerping which is only correct if we
@@ -121,25 +122,20 @@ std::unique_ptr<GrFragmentProcessor> GrTextureMaker::createFragmentProcessor(
         fmForDetermineDomain = &kBilerp;
     }
 
-    GrSamplerState samplerState;
-    if (filterOrNullForBicubic) {
-        samplerState = GrSamplerState(GrSamplerState::WrapMode::kClamp, *filterOrNullForBicubic);
-    } else {
-        // Bicubic doesn't use filtering for it's texture accesses.
-        samplerState = GrSamplerState::ClampNearest();
-    }
     SkScalar scaleAdjust[2] = { 1.0f, 1.0f };
-    sk_sp<GrTextureProxy> proxy(this->refTextureProxyForParams(samplerState, scaleAdjust));
+    sk_sp<GrTextureProxy> proxy(this->refTextureProxyForParams(filterOrNullForBicubic,
+                                                               scaleAdjust));
     if (!proxy) {
         return nullptr;
     }
     SkMatrix adjustedMatrix = textureMatrix;
     adjustedMatrix.postScale(scaleAdjust[0], scaleAdjust[1]);
+
     SkRect domain;
     DomainMode domainMode =
         DetermineDomainMode(constraintRect, filterConstraint, coordsLimitedToConstraintRect,
                             proxy.get(), fmForDetermineDomain, &domain);
     SkASSERT(kTightCopy_DomainMode != domainMode);
-    return CreateFragmentProcessorForDomainAndFilter(std::move(proxy), adjustedMatrix, domainMode,
-                                                     domain, filterOrNullForBicubic);
+    return this->createFragmentProcessorForDomainAndFilter(
+            std::move(proxy), adjustedMatrix, domainMode, domain, filterOrNullForBicubic);
 }

@@ -2,13 +2,13 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-import("//build_overrides/build.gni")
 import("//build/config/chrome_build.gni")
 import("//build/config/chromecast_build.gni")
 import("//build/config/clang/clang.gni")
+import("//build/config/features.gni")
 import("//build/config/sanitizers/sanitizers.gni")
 import("//build/toolchain/toolchain.gni")
-import("//build/config/features.gni")
+import("//build_overrides/build.gni")
 
 if (is_ios) {
   import("//build/config/ios/ios_sdk.gni")
@@ -42,7 +42,8 @@ group("deps") {
         use_locally_built_instrumented_libraries) {
       deps += [ "//third_party/instrumented_libraries:deps" ]
     }
-
+  }
+  if (is_asan) {
     # ASAN is supported on iOS but the runtime library depends on the compiler
     # used (Chromium version of clang versus Xcode version of clang). Only copy
     # the ASAN runtime on iOS if building with Chromium clang.
@@ -59,13 +60,14 @@ group("deps") {
   }
 }
 
-if ((is_mac || is_win || (is_ios && !use_xcode_clang)) && using_sanitizer) {
+assert(!(is_win && is_asan && target_cpu == "x86"),
+       "ASan is only supported in 64-bit builds on Windows.")
+
+if ((is_mac || is_win || (is_ios && !use_xcode_clang)) && is_asan) {
   if (is_mac) {
     _clang_rt_dso_path = "darwin/libclang_rt.asan_osx_dynamic.dylib"
   } else if (is_ios) {
     _clang_rt_dso_path = "darwin/libclang_rt.asan_iossim_dynamic.dylib"
-  } else if (is_win && target_cpu == "x86") {
-    _clang_rt_dso_path = "windows/clang_rt.asan_dynamic-i386.dll"
   } else if (is_win && target_cpu == "x64") {
     _clang_rt_dso_path = "windows/clang_rt.asan_dynamic-x86_64.dll"
   }
@@ -180,6 +182,9 @@ config("default_sanitizer_ldflags") {
         ldflags += [ "-fsanitize-address-use-after-scope" ]
       }
     }
+    if (is_hwasan) {
+      ldflags += [ "-fsanitize=hwaddress" ]
+    }
     if (is_lsan) {
       ldflags += [ "-fsanitize=leak" ]
     }
@@ -202,6 +207,11 @@ config("default_sanitizer_ldflags") {
     if (use_sanitizer_coverage) {
       if (use_libfuzzer) {
         ldflags += [ "-fsanitize=fuzzer-no-link" ]
+        if (is_mac) {
+          # TODO(crbug.com/926588): on macOS, dead code stripping does not work
+          # well with `pc-table` instrumentation enabled by `fuzzer-no-link`.
+          ldflags += [ "-fno-sanitize-coverage=pc-table" ]
+        }
       } else {
         ldflags += [ "-fsanitize-coverage=$sanitizer_coverage_flags" ]
       }
@@ -255,7 +265,6 @@ config("default_sanitizer_ldflags") {
       # Incremental linking causes padding that messes up SanitizerCoverage.
       # Don't do it.
       ldflags = [ "/INCREMENTAL:NO" ]
-      libs = [ "clang_rt.fuzzer_no_main-x86_64.lib" ]
     }
   }
 }
@@ -294,19 +303,22 @@ config("asan_flags") {
         "-asan-globals=0",
       ]
     }
-    if (is_win) {
-      if (!defined(asan_win_blacklist_path)) {
-        asan_win_blacklist_path =
-            rebase_path("//tools/memory/asan/blacklist_win.txt", root_build_dir)
+    if (asan_use_blacklist) {
+      if (is_win) {
+        if (!defined(asan_win_blacklist_path)) {
+          asan_win_blacklist_path =
+              rebase_path("//tools/memory/asan/blacklist_win.txt",
+                          root_build_dir)
+        }
+        cflags += [ "-fsanitize-blacklist=$asan_win_blacklist_path" ]
+      } else if(!use_qt) {
+        # TODO(rnk): Remove this as discussed in http://crbug.com/427202.
+        if (!defined(asan_blacklist_path)) {
+          asan_blacklist_path =
+              rebase_path("//tools/memory/asan/blacklist.txt", root_build_dir)
+        }
+        cflags += [ "-fsanitize-blacklist=$asan_blacklist_path" ]
       }
-      cflags += [ "-fsanitize-blacklist=$asan_win_blacklist_path" ]
-    } else if(!use_qt) {
-      # TODO(rnk): Remove this as discussed in http://crbug.com/427202.
-      if (!defined(asan_blacklist_path)) {
-        asan_blacklist_path =
-            rebase_path("//tools/memory/asan/blacklist.txt", root_build_dir)
-      }
-      cflags += [ "-fsanitize-blacklist=$asan_blacklist_path" ]
     }
   }
 }
@@ -400,6 +412,11 @@ config("coverage_flags") {
 
     if (use_libfuzzer) {
       cflags += [ "-fsanitize=fuzzer-no-link" ]
+      if (is_mac) {
+        # TODO(crbug.com/926588): on macOS, dead code stripping does not work
+        # well with `pc-table` instrumentation enabled by `fuzzer-no-link`.
+        cflags += [ "-fno-sanitize-coverage=pc-table" ]
+      }
     } else {
       cflags += [
         "-fsanitize-coverage=$sanitizer_coverage_flags",
@@ -413,6 +430,15 @@ config("coverage_flags") {
           "-sanitizer-coverage-block-threshold=0",
         ]
       }
+    }
+  }
+}
+
+config("hwasan_flags") {
+  if (is_hwasan) {
+    cflags = [ "-fsanitize=hwaddress" ]
+    if (hwasan_platform) {
+      cflags += [ "-fsanitize-hwaddress-abi=platform" ]
     }
   }
 }
@@ -568,6 +594,7 @@ all_sanitizer_configs = [
   ":default_sanitizer_ldflags",
   ":asan_flags",
   ":cfi_flags",
+  ":hwasan_flags",
   ":lsan_flags",
   ":msan_flags",
   ":tsan_flags",
@@ -589,6 +616,10 @@ all_sanitizer_configs = [
 # Keep this list in sync with default_sanitizer_flags_but_ubsan_vptr.
 config("default_sanitizer_flags") {
   configs = all_sanitizer_configs
+
+  if (use_sanitizer_configs_without_instrumentation) {
+    configs = []
+  }
 }
 
 # This config is equivalent to default_sanitizer_flags, but excludes ubsan_vptr.
@@ -597,10 +628,18 @@ config("default_sanitizer_flags") {
 # is a requirement for ubsan_vptr.
 config("default_sanitizer_flags_but_ubsan_vptr") {
   configs = all_sanitizer_configs - [ ":ubsan_vptr_flags" ]
+
+  if (use_sanitizer_configs_without_instrumentation) {
+    configs = []
+  }
 }
 
 config("default_sanitizer_flags_but_coverage") {
   configs = all_sanitizer_configs - [ ":coverage_flags" ]
+
+  if (use_sanitizer_configs_without_instrumentation) {
+    configs = []
+  }
 }
 
 # This config is used by parts of code that aren't targeted in fuzzers and

@@ -17,6 +17,7 @@
 #include "base/threading/thread_checker.h"
 #include "gpu/vulkan/buildflags.h"
 #include "mojo/public/cpp/system/handle.h"
+#include "ui/ozone/platform/scenic/sysmem_buffer_manager.h"
 #include "ui/ozone/public/gl_ozone.h"
 #include "ui/ozone/public/interfaces/scenic_gpu_host.mojom.h"
 #include "ui/ozone/public/surface_factory_ozone.h"
@@ -39,9 +40,16 @@ class ScenicSurfaceFactory : public SurfaceFactoryOzone {
       gfx::AcceleratedWidget widget) override;
   scoped_refptr<gfx::NativePixmap> CreateNativePixmap(
       gfx::AcceleratedWidget widget,
+      VkDevice vk_device,
       gfx::Size size,
       gfx::BufferFormat format,
       gfx::BufferUsage usage) override;
+  void CreateNativePixmapAsync(gfx::AcceleratedWidget widget,
+                               VkDevice vk_device,
+                               gfx::Size size,
+                               gfx::BufferFormat format,
+                               gfx::BufferUsage usage,
+                               NativePixmapCallback callback) override;
 #if BUILDFLAG(ENABLE_VULKAN)
   std::unique_ptr<gpu::VulkanImplementation> CreateVulkanImplementation()
       override;
@@ -74,9 +82,9 @@ class ScenicSurfaceFactory : public SurfaceFactoryOzone {
       fidl::InterfaceRequest<fuchsia::ui::scenic::Session> session_request,
       fidl::InterfaceHandle<fuchsia::ui::scenic::SessionListener> listener);
 
-  // Links a surface to its parent in the host process.
-  void LinkSurfaceToParent(gfx::AcceleratedWidget widget,
-                           mojo::ScopedHandle export_token_mojo);
+  // Links a surface to its parent window in the host process.
+  void AttachSurfaceToWindow(gfx::AcceleratedWidget window,
+                             mojo::ScopedHandle surface_export_token_mojo);
 
   base::flat_map<gfx::AcceleratedWidget, ScenicSurface*> surface_map_
       GUARDED_BY(surface_lock_);
@@ -89,6 +97,8 @@ class ScenicSurfaceFactory : public SurfaceFactoryOzone {
 
   // Task runner for thread that |scenic_| and |gpu_host_| are bound on.
   scoped_refptr<base::SingleThreadTaskRunner> main_thread_task_runner_;
+
+  SysmemBufferManager sysmem_buffer_manager_;
 
   THREAD_CHECKER(thread_checker_);
 

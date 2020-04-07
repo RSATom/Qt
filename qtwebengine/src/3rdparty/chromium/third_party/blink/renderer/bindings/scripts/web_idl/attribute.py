@@ -1,44 +1,94 @@
-# Copyright 2017 The Chromium Authors. All rights reserved.
+# Copyright 2019 The Chromium Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-from .extended_attribute import ExtendedAttributeList
-from .idl_types import RecordType
-from .idl_types import SequenceType
-from .utilities import assert_no_extra_args
+import exceptions
+from .common import WithCodeGeneratorInfo
+from .common import WithComponent
+from .common import WithDebugInfo
+from .common import WithExposure
+from .common import WithExtendedAttributes
+from .common import WithIdentifier
+from .idl_member import IdlMember
+from .idl_type import IdlType
 
 
-# https://heycam.github.io/webidl/#idl-attributes
-class Attribute(object):
-    _INVALID_TYPES = frozenset([SequenceType, RecordType])
+class Attribute(IdlMember):
+    """https://heycam.github.io/webidl/#idl-attributes"""
 
-    def __init__(self, **kwargs):
-        self._identifier = kwargs.pop('identifier')
-        self._type = kwargs.pop('type')
-        self._is_static = kwargs.pop('is_static', False)
-        self._is_readonly = kwargs.pop('is_readonly', False)
-        self._extended_attribute_list = kwargs.pop('extended_attribute_list', ExtendedAttributeList())
-        assert_no_extra_args(kwargs)
+    class IR(WithIdentifier, WithExtendedAttributes, WithExposure,
+             WithCodeGeneratorInfo, WithComponent, WithDebugInfo):
+        def __init__(self,
+                     identifier,
+                     idl_type,
+                     is_static=False,
+                     is_readonly=False,
+                     does_inherit_getter=False,
+                     extended_attributes=None,
+                     exposures=None,
+                     code_generator_info=None,
+                     component=None,
+                     components=None,
+                     debug_info=None):
+            assert isinstance(idl_type, IdlType)
+            assert isinstance(is_static, bool)
+            assert isinstance(is_readonly, bool)
+            assert isinstance(does_inherit_getter, bool)
 
-        if type(self.type) in Attribute._INVALID_TYPES:
-            raise ValueError('The type of an attribute must not be either of sequence<T> and record<K,V>.')
+            WithIdentifier.__init__(self, identifier)
+            WithExtendedAttributes.__init__(self, extended_attributes)
+            WithExposure.__init__(self, exposures)
+            WithCodeGeneratorInfo.__init__(self, code_generator_info)
+            WithComponent.__init__(
+                self, component=component, components=components)
+            WithDebugInfo.__init__(self, debug_info)
+
+            self.idl_type = idl_type
+            self.is_static = is_static
+            self.is_readonly = is_readonly
+            self.does_inherit_getter = does_inherit_getter
+
+        def make_copy(self):
+            return Attribute.IR(
+                identifier=self.identifier,
+                idl_type=self.idl_type,
+                is_static=self.is_static,
+                is_readonly=self.is_readonly,
+                does_inherit_getter=self.does_inherit_getter,
+                extended_attributes=self.extended_attributes.make_copy(),
+                code_generator_info=self.code_generator_info.make_copy(),
+                components=self.components,
+                debug_info=self.debug_info.make_copy())
 
     @property
-    def identifier(self):
-        return self._identifier
-
-    @property
-    def type(self):
-        return self._type
+    def idl_type(self):
+        """
+        Returns type of this attribute.
+        @return IdlType
+        """
+        raise exceptions.NotImplementedError()
 
     @property
     def is_static(self):
-        return self._is_static
+        """
+        Returns True if this attriute is static.
+        @return bool
+        """
+        raise exceptions.NotImplementedError()
 
     @property
     def is_readonly(self):
-        return self._is_readonly
+        """
+        Returns True if this attribute is read only.
+        @return bool
+        """
+        raise exceptions.NotImplementedError()
 
     @property
-    def extended_attribute_list(self):
-        return self._extended_attribute_list
+    def does_inherit_getter(self):
+        """
+        Returns True if |self| inherits its getter.
+        https://heycam.github.io/webidl/#dfn-inherit-getter
+        @return bool
+        """
+        raise exceptions.NotImplementedError()

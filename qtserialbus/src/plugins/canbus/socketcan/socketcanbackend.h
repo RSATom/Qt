@@ -52,7 +52,11 @@
 #include <linux/can.h>
 #include <sys/time.h>
 
+#include <memory>
+
 QT_BEGIN_NAMESPACE
+
+class LibSocketCan;
 
 class SocketCanBackend : public QCanBusDevice
 {
@@ -79,7 +83,11 @@ private:
     void resetConfigurations();
     bool connectSocket();
     bool applyConfigurationParameter(int key, const QVariant &value);
+    void resetController();
+    bool hasBusStatus() const;
+    QCanBusDevice::CanBusStatus busStatus() const;
 
+    int protocol = CAN_RAW;
     canfd_frame m_frame;
     sockaddr_can m_address;
     msghdr m_msg;
@@ -89,6 +97,7 @@ private:
 
     qint64 canSocket = -1;
     QSocketNotifier *notifier = nullptr;
+    std::unique_ptr<LibSocketCan> libSocketCan;
     QString canSocketName;
     bool canFdOptionEnabled = false;
 };

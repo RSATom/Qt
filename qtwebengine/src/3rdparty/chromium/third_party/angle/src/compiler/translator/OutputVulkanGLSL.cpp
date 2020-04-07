@@ -11,6 +11,7 @@
 
 #include "compiler/translator/OutputVulkanGLSL.h"
 
+#include "compiler/translator/BaseTypes.h"
 #include "compiler/translator/Symbol.h"
 #include "compiler/translator/util.h"
 
@@ -60,33 +61,85 @@ void TOutputVulkanGLSL::writeLayoutQualifier(TIntermTyped *variable)
     TIntermSymbol *symbol = variable->getAsSymbolNode();
     ASSERT(symbol);
 
+    ImmutableString name      = symbol->getName();
+    const char *blockStorage  = nullptr;
+    const char *matrixPacking = nullptr;
+
+    // For interface blocks, use the block name instead.  When the layout qualifier is being
+    // replaced in the backend, that would be the name that's available.
+    if (type.isInterfaceBlock())
+    {
+        const TInterfaceBlock *interfaceBlock = type.getInterfaceBlock();
+        name                                  = interfaceBlock->name();
+        TLayoutBlockStorage storage           = interfaceBlock->blockStorage();
+
+        // Make sure block storage format is specified.
+        if (storage != EbsStd430)
+        {
+            // Change interface block layout qualifiers to std140 for any layout that is not
+            // explicitly set to std430.  This is to comply with GL_KHR_vulkan_glsl where shared and
+            // packed are not allowed (and std140 could be used instead) and unspecified layouts can
+            // assume either std140 or std430 (and we choose std140 as std430 is not yet universally
+            // supported).
+            storage = EbsStd140;
+        }
+
+        if (interfaceBlock->blockStorage() != EbsUnspecified)
+        {
+            blockStorage = getBlockStorageString(storage);
+        }
+    }
+
+    // Specify matrix packing if necessary.
+    if (layoutQualifier.matrixPacking != EmpUnspecified)
+    {
+        matrixPacking = getMatrixPackingString(layoutQualifier.matrixPacking);
+    }
+
     if (needsCustomLayout)
     {
-        out << "@@ LAYOUT-" << symbol->getName() << " @@";
+        out << "@@ LAYOUT-" << name << "(";
     }
     else
     {
         out << "layout(";
     }
 
-    if (IsImage(type.getBasicType()) && layoutQualifier.imageInternalFormat != EiifUnspecified)
+    // Output the list of qualifiers already known at this stage, i.e. everything other than
+    // `location` and `set`/`binding`.
+    std::string otherQualifiers = getCommonLayoutQualifiers(variable);
+
+    const char *separator = "";
+    if (blockStorage)
     {
-        ASSERT(type.getQualifier() == EvqTemporary || type.getQualifier() == EvqUniform);
-        out << getImageInternalFormatString(layoutQualifier.imageInternalFormat);
+        out << separator << blockStorage;
+        separator = ", ";
+    }
+    if (matrixPacking)
+    {
+        out << separator << matrixPacking;
+        separator = ", ";
+    }
+    if (!otherQualifiers.empty())
+    {
+        out << separator << otherQualifiers;
     }
 
-    if (!needsCustomLayout)
+    out << ") ";
+    if (needsCustomLayout)
     {
-        out << ") ";
+        out << "@@";
     }
 }
 
-void TOutputVulkanGLSL::writeQualifier(TQualifier qualifier, const TSymbol *symbol)
+void TOutputVulkanGLSL::writeQualifier(TQualifier qualifier,
+                                       const TType &type,
+                                       const TSymbol *symbol)
 {
-    if (qualifier != EvqUniform && qualifier != EvqVaryingIn && qualifier != EvqVaryingOut &&
-        qualifier != EvqAttribute)
+    if (qualifier != EvqUniform && qualifier != EvqBuffer && qualifier != EvqAttribute &&
+        qualifier != EvqVertexIn && !sh::IsVarying(qualifier))
     {
-        TOutputGLSLBase::writeQualifier(qualifier, symbol);
+        TOutputGLSLBase::writeQualifier(qualifier, type, symbol);
         return;
     }
 
@@ -95,8 +148,30 @@ void TOutputVulkanGLSL::writeQualifier(TQualifier qualifier, const TSymbol *symb
         return;
     }
 
+    ImmutableString name = symbol->name();
+
+    // For interface blocks, use the block name instead.  When the qualifier is being replaced in
+    // the backend, that would be the name that's available.
+    if (type.isInterfaceBlock())
+    {
+        name = type.getInterfaceBlock()->name();
+    }
+
     TInfoSinkBase &out = objSink();
-    out << "@@ QUALIFIER-" << symbol->name().data() << " @@ ";
+    out << "@@ QUALIFIER-" << name.data() << "(" << getMemoryQualifiers(type) << ") @@ ";
+}
+
+void TOutputVulkanGLSL::writeVariableType(const TType &type, const TSymbol *symbol)
+{
+    TType overrideType(type);
+
+    // External textures are treated as 2D textures in the vulkan back-end
+    if (type.getBasicType() == EbtSamplerExternalOES)
+    {
+        overrideType.setBasicType(EbtSampler2D);
+    }
+
+    TOutputGLSL::writeVariableType(overrideType, symbol);
 }
 
 void TOutputVulkanGLSL::writeStructType(const TStructure *structure)
@@ -105,6 +180,38 @@ void TOutputVulkanGLSL::writeStructType(const TStructure *structure)
     {
         declareStruct(structure);
         objSink() << ";\n";
+    }
+}
+
+void TOutputVulkanGLSL::visitSymbol(TIntermSymbol *node)
+{
+    TInfoSinkBase &out = objSink();
+
+    // All the special cases are built-ins, so if it's not a built-in we can return early.
+    if (node->variable().symbolType() != SymbolType::BuiltIn)
+    {
+        TOutputGLSL::visitSymbol(node);
+        return;
+    }
+
+    // Some built-ins get a special translation.
+    const ImmutableString &name = node->getName();
+    if (name == "gl_VertexID")
+    {
+        // gl_VertexIndex in Vulkan GLSL has the same semantics as gl_VertexID.
+        out << "gl_VertexIndex";
+    }
+    else if (name == "gl_InstanceID")
+    {
+        // gl_InstanceIndex in Vulkan GLSL is equal to
+        // gl_InstanceID + baseInstance, but in OpenGL ES,
+        // baseInstance is always zero.
+        // (OpenGL ES 3.2 spec page 278 footnote 3)
+        out << "gl_InstanceIndex";
+    }
+    else
+    {
+        TOutputGLSL::visitSymbol(node);
     }
 }
 }  // namespace sh

@@ -565,8 +565,8 @@ void tst_QScriptQObject::readDynamicProperty_data()
     QTest::newRow("int") << QVariant(123);
     QTest::newRow("double") << QVariant(double(123.0));
     QTest::newRow("string") << QVariant(QString::fromLatin1("hello"));
-    QTest::newRow("QObject*") << qVariantFromValue((QObject*)this);
-    QTest::newRow("CustomType") << qVariantFromValue(CustomType());
+    QTest::newRow("QObject*") << QVariant::fromValue((QObject*)this);
+    QTest::newRow("CustomType") << QVariant::fromValue(CustomType());
 }
 
 // Reads a dynamic property from JS. The purpose of this benchmark is

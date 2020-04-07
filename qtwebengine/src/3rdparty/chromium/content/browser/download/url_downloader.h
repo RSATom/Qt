@@ -40,7 +40,7 @@ class UrlDownloader : public net::URLRequest::Delegate,
                 base::WeakPtr<UrlDownloadHandler::Delegate> delegate,
                 bool is_parallel_request,
                 const std::string& request_origin,
-                bool follow_cross_origin_redirects,
+                network::mojom::RedirectMode cross_origin_redirects,
                 download::DownloadSource download_source,
                 const download::DownloadUrlParameters::UploadProgressCallback&
                     upload_callback);
@@ -92,12 +92,12 @@ class UrlDownloader : public net::URLRequest::Delegate,
   base::WeakPtr<download::UrlDownloadHandler::Delegate> delegate_;
   DownloadRequestCore core_;
 
-  const bool follow_cross_origin_redirects_;
+  network::mojom::RedirectMode cross_origin_redirects_;
 
   download::DownloadUrlParameters::UploadProgressCallback upload_callback_;
   std::unique_ptr<network::UploadProgressTracker> upload_progress_tracker_;
 
-  base::WeakPtrFactory<UrlDownloader> weak_ptr_factory_;
+  base::WeakPtrFactory<UrlDownloader> weak_ptr_factory_{this};
 };
 
 }  // namespace content

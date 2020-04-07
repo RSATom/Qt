@@ -38,7 +38,6 @@
 ****************************************************************************/
 
 #include "parameter_p.h"
-#include <Qt3DCore/qpropertyupdatedchange.h>
 #include <Qt3DRender/qparameter.h>
 #include <Qt3DRender/private/qparameter_p.h>
 #include <Qt3DRender/qtexture.h>
@@ -68,35 +67,36 @@ void Parameter::cleanup()
     m_nameId = -1;
     m_name.clear();
     m_uniformValue = UniformValue();
+    m_backendValue = {};
 }
 
-void Parameter::initializeFromPeer(const Qt3DCore::QNodeCreatedChangeBasePtr &change)
+void Parameter::syncFromFrontEnd(const QNode *frontEnd, bool firstTime)
 {
-    const auto typedChange = qSharedPointerCast<Qt3DCore::QNodeCreatedChange<QParameterData>>(change);
-    const auto &data = typedChange->data;
-    m_name = data.name;
-    m_nameId = StringToInt::lookupId(m_name);
-    m_uniformValue = UniformValue::fromVariant(data.backendValue);
-}
+    const QParameter *node = qobject_cast<const QParameter *>(frontEnd);
+    if (!node)
+        return;
 
-void Parameter::sceneChangeEvent(const Qt3DCore::QSceneChangePtr &e)
-{
-    QPropertyUpdatedChangePtr propertyChange = qSharedPointerCast<QPropertyUpdatedChange>(e);
+    AbstractRenderer::BackendNodeDirtySet dirty = firstTime ? AbstractRenderer::ParameterDirty : static_cast<AbstractRenderer::BackendNodeDirtyFlag>(0);
+    if (node->isEnabled() != isEnabled())
+        dirty |= (AbstractRenderer::MaterialDirty | AbstractRenderer::ParameterDirty);
 
-    if (e->type() == PropertyUpdated) {
-        if (propertyChange->propertyName() == QByteArrayLiteral("name")) {
-            m_name = propertyChange->value().toString();
-            m_nameId = StringToInt::lookupId(m_name);
-            markDirty(AbstractRenderer::MaterialDirty | AbstractRenderer::ParameterDirty);
-        } else if (propertyChange->propertyName() == QByteArrayLiteral("value")) {
-            m_uniformValue = UniformValue::fromVariant(propertyChange->value());
-            markDirty(AbstractRenderer::ParameterDirty);
-        } else if (propertyChange->propertyName() == QByteArrayLiteral("enabled")) {
-            markDirty(AbstractRenderer::MaterialDirty | AbstractRenderer::ParameterDirty);
-        }
+    if (node->name() != m_name) {
+        m_name = node->name();
+        m_nameId = StringToInt::lookupId(m_name);
+        dirty |= (AbstractRenderer::MaterialDirty | AbstractRenderer::ParameterDirty);
     }
 
-    BackendNode::sceneChangeEvent(e);
+    QParameterPrivate* d = static_cast<QParameterPrivate *>(QParameterPrivate::get(const_cast<QParameter *>(node)));
+    if (d->m_backendValue != m_backendValue) {
+        m_backendValue = d->m_backendValue;
+        m_uniformValue = UniformValue::fromVariant(m_backendValue);
+        dirty |= (AbstractRenderer::ParameterDirty);
+    }
+
+    if (dirty)
+        markDirty(dirty);
+
+    BackendNode::syncFromFrontEnd(frontEnd, firstTime);
 }
 
 QString Parameter::name() const

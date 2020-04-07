@@ -8,7 +8,7 @@
 #ifndef GrGLSL_DEFINED
 #define GrGLSL_DEFINED
 
-#include "GrTypesPriv.h"
+#include "include/private/GrTypesPriv.h"
 
 class GrShaderCaps;
 
@@ -53,6 +53,6 @@ enum GrGLSLGeneration {
     k320es_GrGLSLGeneration,
 };
 
-const char* GrGLSLTypeString(const GrShaderCaps*, GrSLType);
+const char* GrGLSLTypeString(GrSLType);
 
 #endif

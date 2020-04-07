@@ -6,7 +6,7 @@
 
 #include "xfa/fxfa/parser/cxfa_ui.h"
 
-#include "fxjs/xfa/cjx_ui.h"
+#include "fxjs/xfa/cjx_node.h"
 #include "third_party/base/ptr_util.h"
 
 namespace {
@@ -25,13 +25,13 @@ const CXFA_Node::PropertyData kUiPropertyData[] = {
     {XFA_Element::Signature, 1, XFA_PROPERTYFLAG_OneOf},
     {XFA_Element::TextEdit, 1, XFA_PROPERTYFLAG_OneOf},
     {XFA_Element::Extras, 1, 0},
-    {XFA_Element::Unknown, 0, 0}};
+};
 
 const CXFA_Node::AttributeData kUiAttributeData[] = {
     {XFA_Attribute::Id, XFA_AttributeType::CData, nullptr},
     {XFA_Attribute::Use, XFA_AttributeType::CData, nullptr},
     {XFA_Attribute::Usehref, XFA_AttributeType::CData, nullptr},
-    {XFA_Attribute::Unknown, XFA_AttributeType::Integer, nullptr}};
+};
 
 }  // namespace
 
@@ -43,7 +43,7 @@ CXFA_Ui::CXFA_Ui(CXFA_Document* doc, XFA_PacketType packet)
                 XFA_Element::Ui,
                 kUiPropertyData,
                 kUiAttributeData,
-                pdfium::MakeUnique<CJX_Ui>(this)) {}
+                pdfium::MakeUnique<CJX_Node>(this)) {}
 
 CXFA_Ui::~CXFA_Ui() = default;
 

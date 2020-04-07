@@ -6,6 +6,7 @@
 
 #include <utility>
 
+#include "base/bind.h"
 #include "components/password_manager/core/browser/password_store.h"
 
 namespace browser_sync {
@@ -32,9 +33,7 @@ PasswordModelWorker::~PasswordModelWorker() {}
 void PasswordModelWorker::ScheduleWork(base::OnceClosure work) {
   base::AutoLock lock(password_store_lock_);
   if (password_store_) {
-    password_store_->ScheduleTask(
-        base::BindOnce([](base::OnceClosure work) { std::move(work).Run(); },
-                       base::Passed(std::move(work))));
+    password_store_->ScheduleTask(std::move(work));
   }
 }
 

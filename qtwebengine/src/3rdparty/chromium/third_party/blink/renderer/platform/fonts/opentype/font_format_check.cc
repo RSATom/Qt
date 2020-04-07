@@ -4,8 +4,8 @@
 
 #include "third_party/blink/renderer/platform/fonts/opentype/font_format_check.h"
 
-#include "SkTypeface.h"
 #include "third_party/blink/renderer/platform/wtf/vector.h"
+#include "third_party/skia/include/core/SkTypeface.h"
 
 // Include HarfBuzz to have a cross-platform way to retrieve table tags without
 // having to rely on the platform being able to instantiate this font format.
@@ -16,11 +16,11 @@ namespace blink {
 namespace {
 
 struct HarfbuzzBlobDestroyer {
-  inline void operator()(hb_blob_t* blob) { hb_blob_destroy(blob); };
+  inline void operator()(hb_blob_t* blob) { hb_blob_destroy(blob); }
 };
 
 struct HarfbuzzFaceDestroyer {
-  inline void operator()(hb_face_t* face) { hb_face_destroy(face); };
+  inline void operator()(hb_face_t* face) { hb_face_destroy(face); }
 };
 }  // namespace
 

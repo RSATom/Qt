@@ -1,5 +1,3 @@
-set noparent
-
 bmeurer@chromium.org
 jarin@chromium.org
 mstarzinger@chromium.org
@@ -9,6 +7,7 @@ sigurds@chromium.org
 tebbi@chromium.org
 neis@chromium.org
 mvstanton@chromium.org
+mslekova@chromium.org
 
 per-file wasm-*=ahaas@chromium.org
 per-file wasm-*=bbudge@chromium.org
@@ -18,6 +17,7 @@ per-file wasm-*=gdeepti@chromium.org
 
 per-file int64-lowering.*=ahaas@chromium.org
 
-per-file simd-scalar-lowering.*=aseemgarg@chromium.org
+per-file simd-scalar-lowering.*=bbudge@chromium.org
+per-file simd-scalar-lowering.*=gdeepti@chromium.org
 
 # COMPONENT: Blink>JavaScript>Compiler

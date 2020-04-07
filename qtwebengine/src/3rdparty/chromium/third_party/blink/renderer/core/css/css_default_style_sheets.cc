@@ -38,6 +38,7 @@
 #include "third_party/blink/renderer/core/layout/layout_theme.h"
 #include "third_party/blink/renderer/core/mathml_names.h"
 #include "third_party/blink/renderer/platform/data_resource_helper.h"
+#include "third_party/blink/renderer/platform/heap/heap.h"
 #include "third_party/blink/renderer/platform/runtime_enabled_features.h"
 #include "third_party/blink/renderer/platform/wtf/leak_annotations.h"
 
@@ -51,21 +52,28 @@ CSSDefaultStyleSheets& CSSDefaultStyleSheets::Instance() {
 }
 
 static const MediaQueryEvaluator& ScreenEval() {
-  DEFINE_STATIC_LOCAL(Persistent<MediaQueryEvaluator>, static_screen_eval,
+  DEFINE_STATIC_LOCAL(const Persistent<MediaQueryEvaluator>, static_screen_eval,
                       (MakeGarbageCollected<MediaQueryEvaluator>("screen")));
   return *static_screen_eval;
 }
 
 static const MediaQueryEvaluator& PrintEval() {
-  DEFINE_STATIC_LOCAL(Persistent<MediaQueryEvaluator>, static_print_eval,
+  DEFINE_STATIC_LOCAL(const Persistent<MediaQueryEvaluator>, static_print_eval,
                       (MakeGarbageCollected<MediaQueryEvaluator>("print")));
   return *static_print_eval;
 }
 
+static const MediaQueryEvaluator& ForcedColorsEval() {
+  DEFINE_STATIC_LOCAL(
+      Persistent<MediaQueryEvaluator>, forced_colors_eval,
+      (MakeGarbageCollected<MediaQueryEvaluator>("forced-colors")));
+  return *forced_colors_eval;
+}
+
 static StyleSheetContents* ParseUASheet(const String& str) {
   // UA stylesheets always parse in the insecure context mode.
-  StyleSheetContents* sheet =
-      StyleSheetContents::Create(CSSParserContext::Create(
+  auto* sheet = MakeGarbageCollected<StyleSheetContents>(
+      MakeGarbageCollected<CSSParserContext>(
           kUASheetMode, SecureContextMode::kInsecureContext));
   sheet->ParseString(str);
   // User Agent stylesheets are parsed once for the lifetime of the renderer
@@ -90,22 +98,24 @@ CSSDefaultStyleSheets::CSSDefaultStyleSheets()
 
 #if DCHECK_IS_ON()
   default_style_->CompactRulesIfNeeded();
-  default_print_style_->CompactRulesIfNeeded();
   default_quirks_style_->CompactRulesIfNeeded();
+  default_print_style_->CompactRulesIfNeeded();
+  default_forced_color_style_->CompactRulesIfNeeded();
   DCHECK(default_style_->UniversalRules()->IsEmpty());
-  DCHECK(default_print_style_->UniversalRules()->IsEmpty());
   DCHECK(default_quirks_style_->UniversalRules()->IsEmpty());
+  DCHECK(default_print_style_->UniversalRules()->IsEmpty());
+  DCHECK(default_forced_color_style_->UniversalRules()->IsEmpty());
 #endif
 }
 
 void CSSDefaultStyleSheets::PrepareForLeakDetection() {
   // Clear the optional style sheets.
-  media_controls_style_sheet_.Clear();
   mobile_viewport_style_sheet_.Clear();
   television_viewport_style_sheet_.Clear();
   xhtml_mobile_profile_style_sheet_.Clear();
   svg_style_sheet_.Clear();
   mathml_style_sheet_.Clear();
+  media_controls_style_sheet_.Clear();
   fullscreen_style_sheet_.Clear();
   // Initialize the styles that have the lazily loaded style sheets.
   InitializeDefaultStyles();
@@ -114,18 +124,21 @@ void CSSDefaultStyleSheets::PrepareForLeakDetection() {
 
 void CSSDefaultStyleSheets::InitializeDefaultStyles() {
   // This must be called only from constructor / PrepareForLeakDetection.
-  default_style_ = RuleSet::Create();
-  default_print_style_ = RuleSet::Create();
-  default_quirks_style_ = RuleSet::Create();
+  default_style_ = MakeGarbageCollected<RuleSet>();
+  default_quirks_style_ = MakeGarbageCollected<RuleSet>();
+  default_print_style_ = MakeGarbageCollected<RuleSet>();
+  default_forced_color_style_ = MakeGarbageCollected<RuleSet>();
 
   default_style_->AddRulesFromSheet(DefaultStyleSheet(), ScreenEval());
-  default_print_style_->AddRulesFromSheet(DefaultStyleSheet(), PrintEval());
   default_quirks_style_->AddRulesFromSheet(QuirksStyleSheet(), ScreenEval());
+  default_print_style_->AddRulesFromSheet(DefaultStyleSheet(), PrintEval());
+  default_forced_color_style_->AddRulesFromSheet(DefaultStyleSheet(),
+                                                 ForcedColorsEval());
 }
 
 RuleSet* CSSDefaultStyleSheets::DefaultViewSourceStyle() {
   if (!default_view_source_style_) {
-    default_view_source_style_ = RuleSet::Create();
+    default_view_source_style_ = MakeGarbageCollected<RuleSet>();
     // Loaded stylesheet is leaked on purpose.
     StyleSheetContents* stylesheet =
         ParseUASheet(GetDataResourceAsASCIIString("view-source.css"));
@@ -219,6 +232,7 @@ void CSSDefaultStyleSheets::Trace(blink::Visitor* visitor) {
   visitor->Trace(default_quirks_style_);
   visitor->Trace(default_print_style_);
   visitor->Trace(default_view_source_style_);
+  visitor->Trace(default_forced_color_style_);
   visitor->Trace(default_style_sheet_);
   visitor->Trace(mobile_viewport_style_sheet_);
   visitor->Trace(television_viewport_style_sheet_);

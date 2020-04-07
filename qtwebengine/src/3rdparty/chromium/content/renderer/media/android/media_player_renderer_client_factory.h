@@ -5,6 +5,8 @@
 #ifndef CONTENT_RENDERER_MEDIA_ANDROID_MEDIA_PLAYER_RENDERER_CLIENT_FACTORY_H_
 #define CONTENT_RENDERER_MEDIA_ANDROID_MEDIA_PLAYER_RENDERER_CLIENT_FACTORY_H_
 
+#include <memory>
+
 #include "base/callback.h"
 #include "base/macros.h"
 #include "base/single_thread_task_runner.h"
@@ -14,6 +16,10 @@
 #include "media/mojo/clients/mojo_renderer_factory.h"
 #include "mojo/public/cpp/bindings/interface_request.h"
 
+namespace media {
+class MojoRendererFactory;
+}
+
 namespace content {
 
 // The default class for creating a MediaPlayerRendererClient
@@ -22,11 +28,11 @@ class CONTENT_EXPORT MediaPlayerRendererClientFactory
     : public media::RendererFactory {
  public:
   using GetStreamTextureWrapperCB =
-      base::Callback<media::ScopedStreamTextureWrapper()>;
+      base::RepeatingCallback<media::ScopedStreamTextureWrapper()>;
 
   MediaPlayerRendererClientFactory(
       scoped_refptr<base::SingleThreadTaskRunner> compositor_task_runner,
-      std::unique_ptr<media::RendererFactory> mojo_renderer_factory,
+      std::unique_ptr<media::MojoRendererFactory> mojo_renderer_factory,
       const GetStreamTextureWrapperCB& get_stream_texture_wrapper_cb);
   ~MediaPlayerRendererClientFactory() override;
 
@@ -46,7 +52,7 @@ class CONTENT_EXPORT MediaPlayerRendererClientFactory
 
   scoped_refptr<base::SingleThreadTaskRunner> compositor_task_runner_;
 
-  std::unique_ptr<media::RendererFactory> mojo_renderer_factory_;
+  std::unique_ptr<media::MojoRendererFactory> mojo_renderer_factory_;
 };
 
 }  // namespace content

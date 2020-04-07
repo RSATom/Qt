@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2019 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtWidgets module of the Qt Toolkit.
@@ -97,9 +97,9 @@ class Q_WIDGETS_EXPORT QWidgetTextControl : public QInputControl
     Q_PROPERTY(bool openExternalLinks READ openExternalLinks WRITE setOpenExternalLinks)
     Q_PROPERTY(bool ignoreUnusedNavigationEvents READ ignoreUnusedNavigationEvents WRITE setIgnoreUnusedNavigationEvents)
 public:
-    explicit QWidgetTextControl(QObject *parent = 0);
-    explicit QWidgetTextControl(const QString &text, QObject *parent = 0);
-    explicit QWidgetTextControl(QTextDocument *doc, QObject *parent = 0);
+    explicit QWidgetTextControl(QObject *parent = nullptr);
+    explicit QWidgetTextControl(const QString &text, QObject *parent = nullptr);
+    explicit QWidgetTextControl(QTextDocument *doc, QObject *parent = nullptr);
     virtual ~QWidgetTextControl();
 
     void setDocument(QTextDocument *document);
@@ -116,17 +116,20 @@ public:
     void setCurrentCharFormat(const QTextCharFormat &format);
     QTextCharFormat currentCharFormat() const;
 
-    bool find(const QString &exp, QTextDocument::FindFlags options = 0);
+    bool find(const QString &exp, QTextDocument::FindFlags options = nullptr);
 #ifndef QT_NO_REGEXP
-    bool find(const QRegExp &exp, QTextDocument::FindFlags options = 0);
+    bool find(const QRegExp &exp, QTextDocument::FindFlags options = nullptr);
 #endif
 #if QT_CONFIG(regularexpression)
-    bool find(const QRegularExpression &exp, QTextDocument::FindFlags options = 0);
+    bool find(const QRegularExpression &exp, QTextDocument::FindFlags options = nullptr);
 #endif
 
     QString toPlainText() const;
 #ifndef QT_NO_TEXTHTMLPARSER
     QString toHtml() const;
+#endif
+#if QT_CONFIG(textmarkdownwriter)
+    QString toMarkdown(QTextDocument::MarkdownFeatures features = QTextDocument::MarkdownDialectGitHub) const;
 #endif
 
     virtual void ensureCursorVisible();
@@ -146,6 +149,8 @@ public:
     QPointF anchorPosition(const QString &name) const;
 
     QString anchorAtCursor() const;
+
+    QTextBlock blockWithMarkerAt(const QPointF &pos) const;
 
     bool overwriteMode() const;
     void setOverwriteMode(bool overwrite);
@@ -194,6 +199,9 @@ public:
 
 public Q_SLOTS:
     void setPlainText(const QString &text);
+#if QT_CONFIG(textmarkdownreader)
+    void setMarkdown(const QString &text);
+#endif
     void setHtml(const QString &text);
 
 #ifndef QT_NO_CLIPBOARD
@@ -236,6 +244,7 @@ Q_SIGNALS:
     void microFocusChanged();
     void linkActivated(const QString &link);
     void linkHovered(const QString &);
+    void blockMarkerHovered(const QTextBlock &block);
     void modificationChanged(bool m);
 
 public:
@@ -243,11 +252,11 @@ public:
     QPalette palette() const;
     void setPalette(const QPalette &pal);
 
-    virtual void processEvent(QEvent *e, const QMatrix &matrix, QWidget *contextWidget = 0);
-    void processEvent(QEvent *e, const QPointF &coordinateOffset = QPointF(), QWidget *contextWidget = 0);
+    virtual void processEvent(QEvent *e, const QMatrix &matrix, QWidget *contextWidget = nullptr);
+    void processEvent(QEvent *e, const QPointF &coordinateOffset = QPointF(), QWidget *contextWidget = nullptr);
 
     // control methods
-    void drawContents(QPainter *painter, const QRectF &rect = QRectF(), QWidget *widget = 0);
+    void drawContents(QPainter *painter, const QRectF &rect = QRectF(), QWidget *widget = nullptr);
 
     void setFocus(bool focus, Qt::FocusReason = Qt::OtherFocusReason);
 

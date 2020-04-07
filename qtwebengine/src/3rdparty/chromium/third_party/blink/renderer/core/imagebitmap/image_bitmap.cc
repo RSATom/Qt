@@ -5,21 +5,24 @@
 #include "third_party/blink/renderer/core/imagebitmap/image_bitmap.h"
 
 #include <memory>
+#include <utility>
+
 #include "base/memory/scoped_refptr.h"
 #include "base/numerics/checked_math.h"
+#include "base/numerics/clamped_math.h"
 #include "base/single_thread_task_runner.h"
+#include "third_party/blink/renderer/core/dom/dom_exception.h"
 #include "third_party/blink/renderer/core/html/canvas/html_canvas_element.h"
 #include "third_party/blink/renderer/core/html/canvas/image_data.h"
 #include "third_party/blink/renderer/core/html/media/html_video_element.h"
 #include "third_party/blink/renderer/core/offscreencanvas/offscreen_canvas.h"
-#include "third_party/blink/renderer/platform/cross_thread_functional.h"
 #include "third_party/blink/renderer/platform/graphics/canvas_color_params.h"
 #include "third_party/blink/renderer/platform/graphics/canvas_resource_provider.h"
 #include "third_party/blink/renderer/platform/graphics/skia/skia_utils.h"
 #include "third_party/blink/renderer/platform/image-decoders/image_decoder.h"
-#include "third_party/blink/renderer/platform/scheduler/public/background_scheduler.h"
 #include "third_party/blink/renderer/platform/scheduler/public/post_cross_thread_task.h"
-#include "third_party/blink/renderer/platform/wtf/saturated_arithmetic.h"
+#include "third_party/blink/renderer/platform/scheduler/public/worker_pool.h"
+#include "third_party/blink/renderer/platform/wtf/cross_thread_functional.h"
 #include "third_party/skia/include/core/SkCanvas.h"
 #include "third_party/skia/include/core/SkImageInfo.h"
 #include "third_party/skia/include/core/SkSurface.h"
@@ -51,11 +54,11 @@ static inline IntRect NormalizeRect(const IntRect& rect) {
   int width = rect.Width();
   int height = rect.Height();
   if (width < 0) {
-    x = ClampAdd(x, width);
+    x = base::ClampAdd(x, width);
     width = -width;
   }
   if (height < 0) {
-    y = ClampAdd(y, height);
+    y = base::ClampAdd(y, height);
     height = -height;
   }
   return IntRect(x, y, width, height);
@@ -583,16 +586,17 @@ ImageBitmap::ImageBitmap(HTMLVideoElement* video,
   if (DstBufferSizeHasOverflow(parsed_options))
     return;
 
+  // TODO(fserb): this shouldn't be software?
   std::unique_ptr<CanvasResourceProvider> resource_provider =
       CanvasResourceProvider::Create(
           IntSize(video->videoWidth(), video->videoHeight()),
-          CanvasResourceProvider::kSoftwareResourceUsage,
+          CanvasResourceProvider::ResourceUsage::kSoftwareResourceUsage,
           nullptr,              // context_provider_wrapper
           0,                    // msaa_sample_count
           CanvasColorParams(),  // TODO: set color space here to avoid clamping
           CanvasResourceProvider::kDefaultPresentationMode,
-          nullptr,              // canvas_resource_dispatcher
-          IsAccelerated());     // is_origin_top_left
+          nullptr,           // canvas_resource_dispatcher
+          IsAccelerated());  // is_origin_top_left
   if (!resource_provider)
     return;
 
@@ -823,11 +827,16 @@ void ImageBitmap::UpdateImageBitmapMemoryUsage() {
   // but this is breaking some tests due to the repaint of the image.
   int bytes_per_pixel = 4;
 
-  base::CheckedNumeric<int32_t> memory_usage_checked = bytes_per_pixel;
-  memory_usage_checked *= image_->width();
-  memory_usage_checked *= image_->height();
-  int32_t new_memory_usage =
-      memory_usage_checked.ValueOrDefault(std::numeric_limits<int32_t>::max());
+  int32_t new_memory_usage = 0;
+
+  if (image_) {
+    base::CheckedNumeric<int32_t> memory_usage_checked = bytes_per_pixel;
+    memory_usage_checked *= image_->width();
+    memory_usage_checked *= image_->height();
+    new_memory_usage = memory_usage_checked.ValueOrDefault(
+        std::numeric_limits<int32_t>::max());
+  }
+
   v8::Isolate::GetCurrent()->AdjustAmountOfExternalAllocatedMemory(
       new_memory_usage - memory_usage_);
   memory_usage_ = new_memory_usage;
@@ -951,11 +960,12 @@ void ImageBitmap::RasterizeImageOnBackgroundThread(
   }
   scoped_refptr<base::SingleThreadTaskRunner> task_runner =
       Thread::MainThread()->GetTaskRunner();
-  PostCrossThreadTask(*task_runner, FROM_HERE,
-                      CrossThreadBind(&ResolvePromiseOnOriginalThread,
-                                      WrapCrossThreadPersistent(resolver),
-                                      std::move(skia_image), origin_clean,
-                                      WTF::Passed(std::move(parsed_options))));
+  PostCrossThreadTask(
+      *task_runner, FROM_HERE,
+      CrossThreadBindOnce(&ResolvePromiseOnOriginalThread,
+                          WrapCrossThreadPersistent(resolver),
+                          std::move(skia_image), origin_clean,
+                          WTF::Passed(std::move(parsed_options))));
 }
 
 ScriptPromise ImageBitmap::CreateAsync(ImageElementBase* image,
@@ -963,16 +973,16 @@ ScriptPromise ImageBitmap::CreateAsync(ImageElementBase* image,
                                        Document* document,
                                        ScriptState* script_state,
                                        const ImageBitmapOptions* options) {
-  ScriptPromiseResolver* resolver = ScriptPromiseResolver::Create(script_state);
+  auto* resolver = MakeGarbageCollected<ScriptPromiseResolver>(script_state);
   ScriptPromise promise = resolver->Promise();
 
   scoped_refptr<Image> input = image->CachedImage()->GetImage();
   ParsedOptions parsed_options =
       ParseOptions(options, crop_rect, image->BitmapSourceSize());
   if (DstBufferSizeHasOverflow(parsed_options)) {
-    resolver->Reject(
-        ScriptValue(resolver->GetScriptState(),
-                    v8::Null(resolver->GetScriptState()->GetIsolate())));
+    resolver->Reject(MakeGarbageCollected<DOMException>(
+        DOMExceptionCode::kInvalidStateError,
+        "The ImageBitmap could not be allocated."));
     return promise;
   }
 
@@ -989,9 +999,9 @@ ScriptPromise ImageBitmap::CreateAsync(ImageElementBase* image,
       bitmap->BitmapImage()->SetOriginClean(!image->WouldTaintOrigin());
       resolver->Resolve(bitmap);
     } else {
-      resolver->Reject(
-          ScriptValue(resolver->GetScriptState(),
-                      v8::Null(resolver->GetScriptState()->GetIsolate())));
+      resolver->Reject(MakeGarbageCollected<DOMException>(
+          DOMExceptionCode::kInvalidStateError,
+          "The ImageBitmap could not be allocated."));
     }
     return promise;
   }
@@ -1004,13 +1014,13 @@ ScriptPromise ImageBitmap::CreateAsync(ImageElementBase* image,
                                      draw_dst_rect, parsed_options.flip_y);
   std::unique_ptr<ParsedOptions> passed_parsed_options =
       std::make_unique<ParsedOptions>(parsed_options);
-  background_scheduler::PostOnBackgroundThread(
+  worker_pool::PostTask(
       FROM_HERE,
-      CrossThreadBind(&RasterizeImageOnBackgroundThread,
-                      WrapCrossThreadPersistent(resolver),
-                      std::move(paint_record), draw_dst_rect,
-                      !image->WouldTaintOrigin(),
-                      WTF::Passed(std::move(passed_parsed_options))));
+      CrossThreadBindOnce(&RasterizeImageOnBackgroundThread,
+                          WrapCrossThreadPersistent(resolver),
+                          std::move(paint_record), draw_dst_rect,
+                          !image->WouldTaintOrigin(),
+                          WTF::Passed(std::move(passed_parsed_options))));
   return promise;
 }
 

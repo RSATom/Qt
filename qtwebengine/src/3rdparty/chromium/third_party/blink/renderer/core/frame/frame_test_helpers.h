@@ -43,7 +43,7 @@
 #include "content/test/stub_layer_tree_view_delegate.h"
 #include "services/service_manager/public/cpp/interface_provider.h"
 #include "third_party/blink/public/common/frame/frame_owner_element_type.h"
-#include "third_party/blink/public/mojom/fetch/fetch_api_request.mojom-shared.h"
+#include "third_party/blink/public/mojom/fetch/fetch_api_request.mojom-blink.h"
 #include "third_party/blink/public/platform/platform.h"
 #include "third_party/blink/public/platform/scheduler/test/web_fake_thread_scheduler.h"
 #include "third_party/blink/public/platform/web_mouse_event.h"
@@ -60,6 +60,7 @@
 #include "third_party/blink/renderer/core/scroll/scrollbar_theme.h"
 #include "third_party/blink/renderer/core/testing/use_mock_scrollbar_settings.h"
 #include "third_party/blink/renderer/platform/runtime_enabled_features.h"
+#include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 #include "third_party/blink/renderer/platform/wtf/vector.h"
 
 #define EXPECT_FLOAT_POINT_EQ(expected, actual)    \
@@ -82,15 +83,22 @@
     EXPECT_FLOAT_EQ((expected).Height(), (actual).Height()); \
   } while (false)
 
-namespace blink {
+namespace base {
+class TickClock;
+}
 
+namespace cc {
+class AnimationHost;
+}
+
+namespace blink {
 class WebFrame;
 class WebLocalFrameImpl;
+struct WebNavigationParams;
 class WebRemoteFrameImpl;
 class WebSettings;
 
 namespace frame_test_helpers {
-
 class TestWebFrameClient;
 class TestWebRemoteFrameClient;
 class TestWebWidgetClient;
@@ -105,7 +113,8 @@ void LoadFrame(WebLocalFrame*, const std::string& url);
 // Same as above, but for WebLocalFrame::LoadHTMLString().
 void LoadHTMLString(WebLocalFrame*,
                     const std::string& html,
-                    const WebURL& base_url);
+                    const WebURL& base_url,
+                    const base::TickClock* clock = nullptr);
 // Same as above, but for WebLocalFrame::RequestFromHistoryItem/Load.
 void LoadHistoryItem(WebLocalFrame*,
                      const WebHistoryItem&,
@@ -113,6 +122,9 @@ void LoadHistoryItem(WebLocalFrame*,
 // Same as above, but for WebLocalFrame::Reload().
 void ReloadFrame(WebLocalFrame*);
 void ReloadFrameBypassingCache(WebLocalFrame*);
+
+// Fills navigation params if needed. Params should have the proper url set up.
+void FillNavigationParamsResponse(WebNavigationParams*);
 
 // Pumps pending resource requests while waiting for a frame to load. Consider
 // using one of the above helper methods whenever possible.
@@ -170,6 +182,8 @@ WebRemoteFrameImpl* CreateRemoteChild(WebRemoteFrame& parent,
 // A class that constructs and owns a LayerTreeView for blink
 // unit tests.
 class LayerTreeViewFactory {
+  DISALLOW_NEW();
+
  public:
   // Use this to make a LayerTreeView with a stub delegate.
   content::LayerTreeView* Initialize();
@@ -183,21 +197,61 @@ class LayerTreeViewFactory {
   std::unique_ptr<content::LayerTreeView> layer_tree_view_;
 };
 
+struct InjectedScrollGestureData {
+  WebFloatSize delta;
+  ScrollGranularity granularity;
+  CompositorElementId scrollable_area_element_id;
+  WebInputEvent::Type type;
+};
+
 class TestWebWidgetClient : public WebWidgetClient {
  public:
   // If no delegate is given, a stub is used.
   explicit TestWebWidgetClient(content::LayerTreeViewDelegate* = nullptr);
   ~TestWebWidgetClient() override = default;
 
-  // WebWidgetClient:
+  // WebWidgetClient implementation.
   void ScheduleAnimation() override { animation_scheduled_ = true; }
+  void SetRootLayer(scoped_refptr<cc::Layer> layer) override;
+  void RegisterViewportLayers(const cc::ViewportLayers& layOAers) override;
+  void RegisterSelection(const cc::LayerSelection& selection) override;
+  void SetBackgroundColor(SkColor color) override;
+  void SetAllowGpuRasterization(bool allow) override;
+  void SetPageScaleStateAndLimits(float page_scale_factor,
+                                  bool is_pinch_gesture_active,
+                                  float minimum,
+                                  float maximum) override;
+  void InjectGestureScrollEvent(WebGestureDevice device,
+                                const WebFloatSize& delta,
+                                ScrollGranularity granularity,
+                                cc::ElementId scrollable_area_element_id,
+                                WebInputEvent::Type injected_type) override;
+  void SetHaveScrollEventHandlers(bool) override;
+  void SetEventListenerProperties(
+      cc::EventListenerClass event_class,
+      cc::EventListenerProperties properties) override;
+  cc::EventListenerProperties EventListenerProperties(
+      cc::EventListenerClass event_class) const override;
+  std::unique_ptr<cc::ScopedDeferMainFrameUpdate> DeferMainFrameUpdate()
+      override;
+  void StartDeferringCommits(base::TimeDelta timeout) override;
+  void StopDeferringCommits(cc::PaintHoldingCommitTrigger) override;
+  void DidMeaningfulLayout(WebMeaningfulLayout) override;
 
   content::LayerTreeView* layer_tree_view() { return layer_tree_view_; }
+  cc::LayerTreeHost* layer_tree_host() {
+    return layer_tree_view_->layer_tree_host();
+  }
+  const cc::LayerTreeHost* layer_tree_host() const {
+    return layer_tree_view_->layer_tree_host();
+  }
+  cc::AnimationHost* animation_host() { return animation_host_; }
 
   bool AnimationScheduled() { return animation_scheduled_; }
   void ClearAnimationScheduled() { animation_scheduled_ = false; }
 
-  void DidMeaningfulLayout(WebMeaningfulLayout) override;
+  // Returns the last value given to SetHaveScrollEventHandlers().
+  bool HaveScrollEventHandlers() const { return have_scroll_event_handlers_; }
 
   int VisuallyNonEmptyLayoutCount() const {
     return visually_non_empty_layout_count_;
@@ -208,11 +262,18 @@ class TestWebWidgetClient : public WebWidgetClient {
   int FinishedLoadingLayoutCount() const {
     return finished_loading_layout_count_;
   }
+  const Vector<InjectedScrollGestureData>& GetInjectedScrollGestureData()
+      const {
+    return injected_scroll_gesture_data_;
+  }
 
  private:
   content::LayerTreeView* layer_tree_view_ = nullptr;
+  cc::AnimationHost* animation_host_ = nullptr;
   LayerTreeViewFactory layer_tree_view_factory_;
+  Vector<InjectedScrollGestureData> injected_scroll_gesture_data_;
   bool animation_scheduled_ = false;
+  bool have_scroll_event_handlers_ = false;
   int visually_non_empty_layout_count_ = 0;
   int finished_parsing_layout_count_ = 0;
   int finished_loading_layout_count_ = 0;
@@ -234,8 +295,8 @@ class TestWebViewClient : public WebViewClient {
                       const WebWindowFeatures&,
                       const WebString& name,
                       WebNavigationPolicy,
-                      bool,
                       WebSandboxFlags,
+                      const FeaturePolicy::FeatureState&,
                       const SessionStorageNamespaceId&) override;
 
  private:
@@ -246,6 +307,8 @@ class TestWebViewClient : public WebViewClient {
 // Convenience class for handling the lifetime of a WebView and its associated
 // mainframe in tests.
 class WebViewHelper {
+  USING_FAST_MALLOC(WebViewHelper);
+
  public:
   WebViewHelper();
   ~WebViewHelper();
@@ -306,13 +369,24 @@ class WebViewHelper {
   content::LayerTreeView* GetLayerTreeView() const {
     return test_web_widget_client_->layer_tree_view();
   }
+  TestWebWidgetClient* GetWebWidgetClient() const {
+    return test_web_widget_client_;
+  }
 
   WebLocalFrameImpl* LocalMainFrame() const;
   WebRemoteFrameImpl* RemoteMainFrame() const;
 
+  void set_viewport_enabled(bool viewport) {
+    DCHECK(!web_view_)
+        << "set_viewport_enabled() should be called before Initialize.";
+    viewport_enabled_ = viewport;
+  }
+
  private:
   void InitializeWebView(TestWebViewClient*,
                          class WebView* opener);
+
+  bool viewport_enabled_ = false;
 
   WebViewImpl* web_view_;
   UseMockScrollbarSettings mock_scrollbar_settings_;
@@ -321,6 +395,9 @@ class WebViewHelper {
   TestWebViewClient* test_web_view_client_ = nullptr;
   std::unique_ptr<TestWebWidgetClient> owned_test_web_widget_client_;
   TestWebWidgetClient* test_web_widget_client_ = nullptr;
+
+  // The Platform should not change during the lifetime of the test!
+  Platform* const platform_;
 
   DISALLOW_COPY_AND_ASSIGN(WebViewHelper);
 };
@@ -350,8 +427,7 @@ class TestWebFrameClient : public WebLocalFrameClient {
                                   WebTreeScopeType,
                                   const WebString& name,
                                   const WebString& fallback_name,
-                                  WebSandboxFlags,
-                                  const ParsedFeaturePolicy&,
+                                  const FramePolicy&,
                                   const WebFrameOwnerProperties&,
                                   FrameOwnerElementType) override;
   void DidStartLoading() override;
@@ -396,7 +472,7 @@ class TestWebFrameClient : public WebLocalFrameClient {
   WebEffectiveConnectionType effective_connection_type_;
   Vector<String> console_messages_;
 
-  base::WeakPtrFactory<TestWebFrameClient> weak_factory_;
+  base::WeakPtrFactory<TestWebFrameClient> weak_factory_{this};
 };
 
 // Minimal implementation of WebRemoteFrameClient needed for unit tests that

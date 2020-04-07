@@ -5,6 +5,8 @@
 # TODO(crbug.com/753619): Enable crash reporting on Fuchsia.
 assert(!is_ios && !is_fuchsia)
 
+import("//components/gwp_asan/buildflags/buildflags.gni")
+
 if (is_android) {
   import("//build/config/android/config.gni")
 }
@@ -22,23 +24,34 @@ source_set("lib") {
   ]
 }
 
+source_set("crashpad_handler_main") {
+  sources = [
+    "crashpad_handler_main.cc",
+  ]
+
+  deps = [
+    "//components/gwp_asan/buildflags",
+    "//third_party/crashpad/crashpad/handler:handler",
+  ]
+
+  if (enable_gwp_asan) {
+    deps += [ "//components/gwp_asan/crash_handler" ]
+  }
+}
+
 static_library("app") {
   sources = [
     "crash_export_thunks.h",
     "crash_switches.cc",
     "crash_switches.h",
     "crashpad.h",
+    "crashpad_android.cc",
     "crashpad_mac.mm",
     "crashpad_win.cc",
   ]
 
-  if (is_mac || is_win || is_android || (is_linux && !is_chromeos)) {
+  if (is_mac || is_win || is_android) {
     sources += [ "crashpad.cc" ]
-  }
-
-  if (is_android || (is_linux && !is_chromeos)) {
-    set_sources_assignment_filter([])
-    sources += [ "crashpad_linux.cc" ]
   }
 
   if (is_linux) {
@@ -58,7 +71,7 @@ static_library("app") {
     "//base",
   ]
 
-  if (is_mac || is_win || is_android || (is_linux && !is_chromeos)) {
+  if (is_mac || is_win || is_android) {
     deps += [
       "//third_party/crashpad/crashpad/client",
       "//third_party/crashpad/crashpad/util",
@@ -66,7 +79,12 @@ static_library("app") {
   }
 
   if (is_android) {
-    deps += [ "//components/crash/android:jni_headers" ]
+    deps += [
+      ":crashpad_handler_main",
+      "//components/crash/android:jni_headers",
+      "//third_party/crashpad/crashpad/handler",
+      "//third_party/crashpad/crashpad/snapshot",
+    ]
   }
 
   if (is_android || is_linux) {
@@ -76,11 +94,13 @@ static_library("app") {
       "//content/public/common:content_descriptors",
       "//content/public/common:result_codes",
       "//sandbox",
-      "//third_party/crashpad/crashpad/snapshot",
     ]
 
     if (is_linux) {
-      deps += [ "//third_party/breakpad:client" ]
+      deps += [
+        "//content/public/common",
+        "//third_party/breakpad:client",
+      ]
     }
   }
 
@@ -132,12 +152,16 @@ if (is_win) {
     deps = [
       "//base",
       "//components/browser_watcher:crash_stability",
-      "//components/gwp_asan/crash_handler",
+      "//components/gwp_asan/buildflags",
       "//third_party/crashpad/crashpad/client",
       "//third_party/crashpad/crashpad/handler",
       "//third_party/crashpad/crashpad/minidump",
       "//third_party/crashpad/crashpad/util",
     ]
+
+    if (enable_gwp_asan) {
+      deps += [ "//components/gwp_asan/crash_handler" ]
+    }
   }
 
   # This source set contains the include file that declares the export thunks.
@@ -186,6 +210,50 @@ if (is_win) {
       ":app",
       "//base",
     ]
+  }
+}
+
+if (is_mac) {
+  # We build a chromium-specific crashpad_handler executable so that we can
+  # define custom UserStreamDataSources.
+  executable("chrome_crashpad_handler") {
+    sources = [
+      "chrome_crashpad_handler.cc",
+    ]
+
+    deps = [
+      "//components/gwp_asan/buildflags",
+      "//third_party/crashpad/crashpad/handler:handler",
+    ]
+
+    if (enable_gwp_asan) {
+      deps += [ "//components/gwp_asan/crash_handler" ]
+    }
+
+    if (is_component_build) {
+      ldflags = [
+        # The handler is in
+        # Chromium.app/Contents/Versions/X/Chromium Framework.framework/Versions/A/Helpers/
+        # so set rpath up to the base.
+        "-rpath",
+        "@loader_path/../../../../../../../..",
+
+        # The handler is also in
+        # Content Shell.app/Contents/Frameworks/Content Shell Framework.framework/Versions/C/Helpers/
+        # so set the rpath for that too.
+        "-rpath",
+        "@loader_path/../../../../../../..",
+
+        # The handler can also be executed in an unbundled framework at
+        # Chromium Framework.framework/Versions/A/Helpers/
+        "-rpath",
+        "@loader_path/../../../..",
+
+        # The handler can be executed from headless_browsertests in Helpers/
+        "-rpath",
+        "@loader_path/..",
+      ]
+    }
   }
 }
 

@@ -147,7 +147,7 @@ inline int imageSize(GLsizei width, GLsizei height, GLenum format, GLenum type,
         { GL_RGBA, GL_UNSIGNED_SHORT_5_5_5_1, 2 },
         { GL_RGB, GL_UNSIGNED_BYTE, 3 },
         { GL_RGB, GL_UNSIGNED_SHORT_5_6_5, 2 },
-        { GL_LUMINANCE_ALPHA, GL_UNSIGNED_BYTE, 1 },
+        { GL_LUMINANCE_ALPHA, GL_UNSIGNED_BYTE, 2 },
         { GL_LUMINANCE, GL_UNSIGNED_BYTE, 1 },
         { GL_ALPHA, GL_UNSIGNED_BYTE, 1 },
 
@@ -228,9 +228,8 @@ static int bufferSize(GLsizei count, GLint elemsPerVertex, GLenum type, GLsizei 
 static void setVertexAttribs(QWebGLFunctionCall *event, GLsizei count)
 {
     event->addInt(currentContextData()->vertexAttribPointers.count());
-    QHashIterator<GLuint, ContextData::VertexAttrib> it(currentContextData()->vertexAttribPointers);
-    while (it.hasNext()) {
-        it.next();
+    const auto &vertexAttribPointers = currentContextData()->vertexAttribPointers;
+    for (auto it = vertexAttribPointers.cbegin(), end = vertexAttribPointers.cend(); it != end; ++it) {
         const ContextData::VertexAttrib &va(it.value());
         if (va.arrayBufferBinding == 0 && va.enabled) {
             int len = bufferSize(count, va.size, va.type, va.stride);

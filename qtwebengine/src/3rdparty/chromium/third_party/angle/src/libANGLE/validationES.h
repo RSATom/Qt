@@ -42,8 +42,9 @@ bool ValidTextureTarget(const Context *context, TextureType type);
 bool ValidTexture2DTarget(const Context *context, TextureType type);
 bool ValidTexture3DTarget(const Context *context, TextureType target);
 bool ValidTextureExternalTarget(const Context *context, TextureType target);
+bool ValidTextureExternalTarget(const Context *context, TextureTarget target);
 bool ValidTexture2DDestinationTarget(const Context *context, TextureTarget target);
-bool ValidTexture3DDestinationTarget(const Context *context, TextureType target);
+bool ValidTexture3DDestinationTarget(const Context *context, TextureTarget target);
 bool ValidTexLevelDestinationTarget(const Context *context, TextureType type);
 bool ValidFramebufferTarget(const Context *context, GLenum target);
 bool ValidMipLevel(const Context *context, TextureType type, GLint level);
@@ -58,15 +59,19 @@ bool ValidCompressedImageSize(const Context *context,
                               GLenum internalFormat,
                               GLint level,
                               GLsizei width,
-                              GLsizei height);
+                              GLsizei height,
+                              GLsizei depth);
 bool ValidCompressedSubImageSize(const Context *context,
                                  GLenum internalFormat,
                                  GLint xoffset,
                                  GLint yoffset,
+                                 GLint zoffset,
                                  GLsizei width,
                                  GLsizei height,
+                                 GLsizei depth,
                                  size_t textureWidth,
-                                 size_t textureHeight);
+                                 size_t textureHeight,
+                                 size_t textureDepth);
 bool ValidImageDataSize(Context *context,
                         TextureType texType,
                         GLsizei width,
@@ -325,20 +330,33 @@ bool ValidateDrawArraysInstancedANGLE(Context *context,
                                       GLint first,
                                       GLsizei count,
                                       GLsizei primcount);
+bool ValidateDrawArraysInstancedEXT(Context *context,
+                                    PrimitiveMode mode,
+                                    GLint first,
+                                    GLsizei count,
+                                    GLsizei primcount);
 
-bool ValidateDrawElementsInstancedCommon(Context *context,
-                                         PrimitiveMode mode,
-                                         GLsizei count,
-                                         DrawElementsType type,
-                                         const void *indices,
-                                         GLsizei primcount);
+bool ValidateDrawElementsInstancedBase(Context *context,
+                                       PrimitiveMode mode,
+                                       GLsizei count,
+                                       DrawElementsType type,
+                                       const void *indices,
+                                       GLsizei primcount);
 bool ValidateDrawElementsInstancedANGLE(Context *context,
                                         PrimitiveMode mode,
                                         GLsizei count,
                                         DrawElementsType type,
                                         const void *indices,
                                         GLsizei primcount);
+bool ValidateDrawElementsInstancedEXT(Context *context,
+                                      PrimitiveMode mode,
+                                      GLsizei count,
+                                      DrawElementsType type,
+                                      const void *indices,
+                                      GLsizei primcount);
+
 bool ValidateDrawInstancedANGLE(Context *context);
+bool ValidateDrawInstancedEXT(Context *context);
 
 bool ValidateFramebufferTextureBase(Context *context,
                                     GLenum target,
@@ -570,7 +588,7 @@ bool ValidateSamplerParameterBase(Context *context,
                                   GLenum pname,
                                   GLsizei bufSize,
                                   bool vectorParams,
-                                  ParamType *params);
+                                  const ParamType *params);
 
 bool ValidateGetInternalFormativBase(Context *context,
                                      GLenum target,
@@ -661,8 +679,8 @@ bool ValidateSampleMaskiBase(Context *context, GLuint maskNumber, GLbitfield mas
 // Utility macro for handling implementation methods inside Validation.
 #define ANGLE_HANDLE_VALIDATION_ERR(X) \
     (void)(X);                         \
-    return false;
-#define ANGLE_VALIDATION_TRY(EXPR) ANGLE_TRY_TEMPLATE(EXPR, ANGLE_HANDLE_VALIDATION_ERR);
+    return false
+#define ANGLE_VALIDATION_TRY(EXPR) ANGLE_TRY_TEMPLATE(EXPR, ANGLE_HANDLE_VALIDATION_ERR)
 
 // We should check with Khronos if returning INVALID_FRAMEBUFFER_OPERATION is OK when querying
 // implementation format info for incomplete framebuffers. It seems like these queries are
@@ -697,6 +715,11 @@ ANGLE_INLINE bool ValidateDrawAttribs(Context *context, int64_t maxVertex)
 
 ANGLE_INLINE bool ValidateDrawArraysAttribs(Context *context, GLint first, GLsizei count)
 {
+    if (!context->isBufferAccessValidationEnabled())
+    {
+        return true;
+    }
+
     // Check the computation of maxVertex doesn't overflow.
     // - first < 0 has been checked as an error condition.
     // - if count <= 0, skip validating no-op draw calls.
@@ -715,6 +738,11 @@ ANGLE_INLINE bool ValidateDrawArraysAttribs(Context *context, GLint first, GLsiz
 
 ANGLE_INLINE bool ValidateDrawInstancedAttribs(Context *context, GLint primcount)
 {
+    if (!context->isBufferAccessValidationEnabled())
+    {
+        return true;
+    }
+
     if ((primcount - 1) > context->getStateCache().getInstancedVertexElementLimit())
     {
         RecordDrawAttribsError(context);
@@ -897,7 +925,7 @@ ANGLE_INLINE bool ValidateDrawElementsCommon(Context *context,
         }
     }
 
-    if (!context->getExtensions().robustBufferAccessBehavior && primcount > 0)
+    if (context->isBufferAccessValidationEnabled() && primcount > 0)
     {
         // Use the parameter buffer to retrieve and cache the index range.
         IndexRange indexRange{IndexRange::Undefined()};

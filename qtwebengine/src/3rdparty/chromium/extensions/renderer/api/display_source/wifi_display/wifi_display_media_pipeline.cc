@@ -4,6 +4,7 @@
 
 #include "extensions/renderer/api/display_source/wifi_display/wifi_display_media_pipeline.h"
 
+#include "base/bind.h"
 #include "base/logging.h"
 #include "content/public/renderer/render_thread.h"
 #include "content/public/renderer/video_encode_accelerator.h"
@@ -59,10 +60,10 @@ WiFiDisplayMediaPipeline::~WiFiDisplayMediaPipeline() {
 }
 
 void WiFiDisplayMediaPipeline::InsertRawVideoFrame(
-    const scoped_refptr<media::VideoFrame>& video_frame,
+    scoped_refptr<media::VideoFrame> video_frame,
     base::TimeTicks reference_time) {
   DCHECK(video_encoder_);
-  video_encoder_->InsertRawVideoFrame(video_frame, reference_time);
+  video_encoder_->InsertRawVideoFrame(std::move(video_frame), reference_time);
 }
 
 void WiFiDisplayMediaPipeline::RequestIDRPicture() {

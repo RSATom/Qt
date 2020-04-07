@@ -71,6 +71,16 @@ tr.exportTo('tr.v.d', function() {
       d.diagnostics = this._diagnostics.map(d => d.asDictOrReference());
     }
 
+    static deserialize(data, deserializer) {
+      return new UnmergeableDiagnosticSet(d.map(i =>
+        deserializer.getDiagnostic(i).diagnostic));
+    }
+
+    serialize(serializer) {
+      return this._diagnostics.map(d =>
+        serializer.getOrAllocateDiagnosticId('', d));
+    }
+
     static fromDict(d) {
       return new UnmergeableDiagnosticSet(d.diagnostics.map(
           d => ((typeof d === 'string') ?

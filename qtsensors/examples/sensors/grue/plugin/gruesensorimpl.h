@@ -54,7 +54,7 @@
 #include <qsensorbackend.h>
 #include "gruesensor.h"
 #include <qambientlightsensor.h>
-#include <QTime>
+#include <QElapsedTimer>
 
 QT_BEGIN_NAMESPACE
 class QTimer;
@@ -79,7 +79,7 @@ private:
     GrueSensorReading m_reading;
     QAmbientLightSensor *lightSensor;
     QTimer *darkTimer;
-    QTime timer;
+    QElapsedTimer timer;
     QAmbientLightReading::LightLevel lightLevel;
 };
 

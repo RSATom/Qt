@@ -120,7 +120,6 @@ class CourierRenderer : public Renderer {
   void OnVideoNaturalSizeChange(std::unique_ptr<pb::RpcMessage> message);
   void OnVideoOpacityChange(std::unique_ptr<pb::RpcMessage> message);
   void OnStatisticsUpdate(std::unique_ptr<pb::RpcMessage> message);
-  void OnDurationChange(std::unique_ptr<pb::RpcMessage> message);
 
   // Called when |current_media_time_| is updated.
   void OnMediaTimeUpdated();
@@ -220,7 +219,7 @@ class CourierRenderer : public Renderer {
   // reported buffer underflow.
   bool receiver_is_blocked_on_local_demuxers_ = true;
 
-  base::WeakPtrFactory<CourierRenderer> weak_factory_;
+  base::WeakPtrFactory<CourierRenderer> weak_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(CourierRenderer);
 };

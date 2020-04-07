@@ -6,7 +6,7 @@
 
 #include "third_party/blink/public/platform/web_content_security_policy_struct.h"
 #include "third_party/blink/renderer/core/frame/csp/content_security_policy.h"
-#include "third_party/blink/renderer/core/frame/use_counter.h"
+#include "third_party/blink/renderer/platform/instrumentation/use_counter.h"
 #include "third_party/blink/renderer/platform/weborigin/known_ports.h"
 #include "third_party/blink/renderer/platform/weborigin/kurl.h"
 #include "third_party/blink/renderer/platform/weborigin/security_origin.h"
@@ -115,7 +115,7 @@ CSPSource::SchemeMatchingResult CSPSource::SchemeMatches(
 bool CSPSource::HostMatches(const String& host) const {
   bool match;
 
-  bool equal_hosts = host_ == host;
+  bool equal_hosts = EqualIgnoringASCIICase(host_, host);
   if (host_wildcard_ == kHasWildcard) {
     if (host_.IsEmpty()) {
       // host-part = "*"

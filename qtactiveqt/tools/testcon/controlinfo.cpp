@@ -51,7 +51,7 @@ void ControlInfo::setControl(QWidget *activex)
     group->setText(0, tr("Class Info"));
     group->setText(1, QString::number(mo->classInfoCount()));
 
-    QTreeWidgetItem *item = 0;
+    QTreeWidgetItem *item = nullptr;
     int i;
     int count;
     for (i = mo->classInfoOffset(); i < mo->classInfoCount(); ++i) {

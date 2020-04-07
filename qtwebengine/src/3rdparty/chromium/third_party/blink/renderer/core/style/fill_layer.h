@@ -33,7 +33,7 @@
 #include "third_party/blink/renderer/platform/geometry/length_size.h"
 #include "third_party/blink/renderer/platform/graphics/graphics_types.h"
 #include "third_party/blink/renderer/platform/heap/persistent.h"
-#include "third_party/blink/renderer/platform/wtf/allocator.h"
+#include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 
 namespace blink {
 
@@ -283,10 +283,10 @@ class CORE_EXPORT FillLayer {
     return FillSize(InitialFillSizeType(type), InitialFillSizeLength(type));
   }
   static Length InitialFillPositionX(EFillLayerType) {
-    return Length(0.0, kPercent);
+    return Length::Percent(0.0);
   }
   static Length InitialFillPositionY(EFillLayerType) {
-    return Length(0.0, kPercent);
+    return Length::Percent(0.0);
   }
   static StyleImage* InitialFillImage(EFillLayerType) { return nullptr; }
   static EMaskSourceType InitialFillMaskSourceType(EFillLayerType) {

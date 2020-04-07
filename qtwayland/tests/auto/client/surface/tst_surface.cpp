@@ -28,7 +28,9 @@
 
 #include "mockcompositor.h"
 #include <QtGui/QRasterWindow>
+#if QT_CONFIG(opengl)
 #include <QtGui/QOpenGLWindow>
+#endif
 
 using namespace MockCompositor;
 
@@ -39,8 +41,14 @@ private slots:
     void cleanup() { QTRY_VERIFY2(isClean(), qPrintable(dirtyMessage())); }
     void createDestroySurface();
     void waitForFrameCallbackRaster();
+#if QT_CONFIG(opengl)
     void waitForFrameCallbackGl();
+#endif
     void negotiateShmFormat();
+
+    // Subsurfaces
+    void createSubsurface();
+    void createSubsurfaceForHiddenParent();
 };
 
 void tst_surface::createDestroySurface()
@@ -89,6 +97,7 @@ void tst_surface::waitForFrameCallbackRaster()
     }
 }
 
+#if QT_CONFIG(opengl)
 void tst_surface::waitForFrameCallbackGl()
 {
     QSKIP("TODO: This currently fails, needs a fix");
@@ -129,6 +138,7 @@ void tst_surface::waitForFrameCallbackGl()
         bufferSpy.removeFirst();
     }
 }
+#endif // QT_CONFIG(opengl)
 
 void tst_surface::negotiateShmFormat()
 {
@@ -152,6 +162,43 @@ void tst_surface::negotiateShmFormat()
         qDebug() << "shmBuffer->m_format" << shmBuffer->m_format;
         QCOMPARE(shmBuffer->m_format, Shm::format_xrgb8888);
     });
+}
+
+void tst_surface::createSubsurface()
+{
+    QRasterWindow window;
+    window.resize(64, 64);
+    window.show();
+    QCOMPOSITOR_TRY_VERIFY(xdgToplevel());
+    exec([=] { xdgToplevel()->sendCompleteConfigure(); });
+    QCOMPOSITOR_TRY_VERIFY(xdgSurface()->m_committedConfigureSerial);
+
+    QRasterWindow subWindow;
+    subWindow.setParent(&window);
+    subWindow.resize(64, 64);
+    subWindow.show();
+    QCOMPOSITOR_TRY_VERIFY(subSurface());
+}
+
+// Used to cause a crash in libwayland (QTBUG-79674)
+void tst_surface::createSubsurfaceForHiddenParent()
+{
+    QRasterWindow window;
+    window.resize(64, 64);
+    window.show();
+    QCOMPOSITOR_TRY_VERIFY(xdgToplevel());
+    exec([=] { xdgToplevel()->sendCompleteConfigure(); });
+    QCOMPOSITOR_TRY_VERIFY(xdgSurface()->m_committedConfigureSerial);
+
+    window.hide();
+
+    QRasterWindow subWindow;
+    subWindow.setParent(&window);
+    subWindow.resize(64, 64);
+    subWindow.show();
+
+    // Make sure the client doesn't quit before it has a chance to crash
+    xdgPingAndWaitForPong();
 }
 
 QCOMPOSITOR_TEST_MAIN(tst_surface)

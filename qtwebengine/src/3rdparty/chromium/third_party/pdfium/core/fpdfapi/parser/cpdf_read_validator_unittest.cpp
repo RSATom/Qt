@@ -9,8 +9,8 @@
 #include <vector>
 
 #include "core/fxcrt/cfx_readonlymemorystream.h"
-#include "testing/fx_string_testhelpers.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "testing/invalid_seekable_read_stream.h"
 
 namespace {
 
@@ -131,7 +131,7 @@ TEST(CPDF_ReadValidatorTest, UnavailableDataWithHints) {
 }
 
 TEST(CPDF_ReadValidatorTest, ReadError) {
-  auto file = pdfium::MakeRetain<CFX_InvalidSeekableReadStream>(kTestDataSize);
+  auto file = pdfium::MakeRetain<InvalidSeekableReadStream>(kTestDataSize);
   auto validator = pdfium::MakeRetain<CPDF_ReadValidator>(file, nullptr);
 
   static const uint32_t kBufferSize = 3 * 1000;
@@ -163,13 +163,13 @@ TEST(CPDF_ReadValidatorTest, IntOverflow) {
 TEST(CPDF_ReadValidatorTest, Session) {
   std::vector<uint8_t> test_data(kTestDataSize);
 
-  auto file = pdfium::MakeRetain<CFX_InvalidSeekableReadStream>(kTestDataSize);
+  auto file = pdfium::MakeRetain<InvalidSeekableReadStream>(kTestDataSize);
   MockFileAvail file_avail;
   MockDownloadHints hints;
   auto validator = pdfium::MakeRetain<CPDF_ReadValidator>(file, &file_avail);
   validator->SetDownloadHints(&hints);
 
-  const CPDF_ReadValidator::Session read_session(validator.Get());
+  const CPDF_ReadValidator::Session read_session(validator);
   ASSERT_FALSE(validator->has_read_problems());
 
   // Data is unavailable
@@ -180,7 +180,7 @@ TEST(CPDF_ReadValidatorTest, Session) {
   EXPECT_FALSE(validator->read_error());
 
   {
-    const CPDF_ReadValidator::Session read_subsession(validator.Get());
+    const CPDF_ReadValidator::Session read_subsession(validator);
     // The read problems should be hidden.
     EXPECT_FALSE(validator->has_read_problems());
 
@@ -201,13 +201,13 @@ TEST(CPDF_ReadValidatorTest, Session) {
 TEST(CPDF_ReadValidatorTest, SessionReset) {
   std::vector<uint8_t> test_data(kTestDataSize);
 
-  auto file = pdfium::MakeRetain<CFX_InvalidSeekableReadStream>(kTestDataSize);
+  auto file = pdfium::MakeRetain<InvalidSeekableReadStream>(kTestDataSize);
   MockFileAvail file_avail;
   MockDownloadHints hints;
   auto validator = pdfium::MakeRetain<CPDF_ReadValidator>(file, &file_avail);
   validator->SetDownloadHints(&hints);
 
-  const CPDF_ReadValidator::Session read_session(validator.Get());
+  const CPDF_ReadValidator::Session read_session(validator);
   ASSERT_FALSE(validator->has_read_problems());
 
   // Data is unavailable
@@ -218,7 +218,7 @@ TEST(CPDF_ReadValidatorTest, SessionReset) {
   EXPECT_FALSE(validator->read_error());
 
   {
-    const CPDF_ReadValidator::Session read_subsession(validator.Get());
+    const CPDF_ReadValidator::Session read_subsession(validator);
     // The read problems should be hidden.
     EXPECT_FALSE(validator->has_read_problems());
 

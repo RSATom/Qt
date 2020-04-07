@@ -40,7 +40,7 @@ BrowserContext* SharedWorkerDevToolsAgentHost::GetBrowserContext() {
   if (!worker_host_)
     return nullptr;
   RenderProcessHost* rph =
-      RenderProcessHost::FromID(worker_host_->process_id());
+      RenderProcessHost::FromID(worker_host_->worker_process_id());
   return rph ? rph->GetBrowserContext() : nullptr;
 }
 
@@ -72,7 +72,8 @@ bool SharedWorkerDevToolsAgentHost::Close() {
 bool SharedWorkerDevToolsAgentHost::AttachSession(DevToolsSession* session) {
   session->AddHandler(std::make_unique<protocol::InspectorHandler>());
   session->AddHandler(std::make_unique<protocol::NetworkHandler>(
-      GetId(), devtools_worker_token_, GetIOContext()));
+      GetId(), devtools_worker_token_, GetIOContext(),
+      base::BindRepeating([] {})));
   session->AddHandler(std::make_unique<protocol::SchemaHandler>());
   session->AddHandler(std::make_unique<protocol::TargetHandler>(
       protocol::TargetHandler::AccessMode::kAutoAttachOnly, GetId(),
@@ -126,7 +127,7 @@ void SharedWorkerDevToolsAgentHost::UpdateRendererChannel(bool force) {
                                     mojo::MakeRequest(&agent_ptr));
     GetRendererChannel()->SetRendererAssociated(
         std::move(agent_ptr), std::move(host_request),
-        worker_host_->process_id(), nullptr);
+        worker_host_->worker_process_id(), nullptr);
   } else {
     GetRendererChannel()->SetRendererAssociated(
         nullptr, nullptr, ChildProcessHost::kInvalidUniqueID, nullptr);

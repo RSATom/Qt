@@ -3,6 +3,7 @@
 // found in the LICENSE file.
 
 #include "ui/gl/init/create_gr_gl_interface.h"
+#include "build/build_config.h"
 #include "ui/gl/gl_bindings.h"
 #include "ui/gl/gl_version_info.h"
 #include "ui/gl/progress_reporter.h"
@@ -18,16 +19,6 @@ GrGLFunction<R GR_GL_FUNCTION_TYPE(Args...)> bind(R (gl::GLApi::*func)(Args...),
   return [func, api](Args... args) { return (api->*func)(args...); };
 }
 
-class ScopedProgressReporter {
- public:
-  ScopedProgressReporter(gl::ProgressReporter* progress_reporter)
-      : progress_reporter_(progress_reporter) {}
-  ~ScopedProgressReporter() { progress_reporter_->ReportProgress(); }
-
- private:
-  gl::ProgressReporter* progress_reporter_;
-};
-
 template <typename R, typename... Args>
 GrGLFunction<R GR_GL_FUNCTION_TYPE(Args...)> bind_slow(
     R(GL_BINDING_CALL* func)(Args...),
@@ -35,15 +26,61 @@ GrGLFunction<R GR_GL_FUNCTION_TYPE(Args...)> bind_slow(
   if (!progress_reporter)
     return func;
   return [func, progress_reporter](Args... args) {
-    ScopedProgressReporter scoped_reporter(progress_reporter);
+    gl::ScopedProgressReporter scoped_reporter(progress_reporter);
     return func(args...);
   };
-};
+}
 
-const GLubyte* GetStringHook(const char* version_string, GLenum name) {
+template <typename R, typename... Args>
+GrGLFunction<R GR_GL_FUNCTION_TYPE(Args...)> bind_slow_on_mac(
+    R(GL_BINDING_CALL* func)(Args...),
+    gl::ProgressReporter* progress_reporter) {
+#if defined(OS_MACOSX)
+  if (!progress_reporter)
+    return func;
+  return [func, progress_reporter](Args... args) {
+    gl::ScopedProgressReporter scoped_reporter(progress_reporter);
+    return func(args...);
+  };
+#endif
+  return func;
+}
+
+template <typename R, typename... Args>
+GrGLFunction<R GR_GL_FUNCTION_TYPE(Args...)> bind_with_flush_on_mac(
+    R(GL_BINDING_CALL* func)(Args...)) {
+#if defined(OS_MACOSX)
+  return [func](Args... args) {
+    glFlush();
+    func(args...);
+    glFlush();
+  };
+#else
+  return func;
+#endif
+}
+
+template <typename R, typename... Args>
+GrGLFunction<R GR_GL_FUNCTION_TYPE(Args...)> bind_slow_with_flush_on_mac(
+    R(GL_BINDING_CALL* func)(Args...),
+    gl::ProgressReporter* progress_reporter) {
+  if (!progress_reporter) {
+    return bind_with_flush_on_mac(func);
+  }
+  return [func, progress_reporter](Args... args) {
+    gl::ScopedProgressReporter scoped_reporter(progress_reporter);
+    return bind_with_flush_on_mac(func)(args...);
+  };
+}
+
+const GLubyte* GetStringHook(const char* gl_version_string,
+                             const char* glsl_version_string,
+                             GLenum name) {
   switch (name) {
     case GL_VERSION:
-      return reinterpret_cast<const GLubyte*>(version_string);
+      return reinterpret_cast<const GLubyte*>(gl_version_string);
+    case GL_SHADING_LANGUAGE_VERSION:
+      return reinterpret_cast<const GLubyte*>(glsl_version_string);
     default:
       return glGetString(name);
   }
@@ -92,14 +129,17 @@ sk_sp<GrGLInterface> CreateGrGLInterface(
                                       version_info.IsAtLeastGL(4, 2) ||
                                       version_info.IsAtLeastGLES(3, 1);
   if (apply_version_override) {
-    const char* fake_version = nullptr;
+    const char* fake_gl_version = nullptr;
+    const char* fake_glsl_version = nullptr;
     if (use_version_es2) {
-      fake_version = "OpenGL ES 2.0";
+      fake_gl_version = "OpenGL ES 2.0";
+      fake_glsl_version = "OpenGL ES GLSL ES 1.00";
     } else {
-      fake_version = version_info.is_es ? "OpenGL ES 3.0" : "4.1";
+      fake_gl_version = version_info.is_es ? "OpenGL ES 3.0" : "4.1";
+      fake_glsl_version = version_info.is_es ? "OpenGL ES GLSL ES 3.00" : "4.10";
     }
-    get_string = [fake_version](GLenum name) {
-      return GetStringHook(fake_version, name);
+    get_string = [fake_gl_version, fake_glsl_version](GLenum name) {
+      return GetStringHook(fake_gl_version, fake_glsl_version, name);
     };
   } else {
     get_string = bind(&gl::GLApi::glGetStringFn, api);
@@ -126,7 +166,8 @@ sk_sp<GrGLInterface> CreateGrGLInterface(
   functions->fBindUniformLocation = gl->glBindUniformLocationCHROMIUMFn;
   functions->fBeginQuery = gl->glBeginQueryFn;
   functions->fBindSampler = gl->glBindSamplerFn;
-  functions->fBindTexture = gl->glBindTextureFn;
+  functions->fBindTexture =
+      bind_slow_on_mac(gl->glBindTextureFn, progress_reporter);
 
   functions->fBlendBarrier = gl->glBlendBarrierKHRFn;
 
@@ -135,19 +176,17 @@ sk_sp<GrGLInterface> CreateGrGLInterface(
   functions->fBlendFunc = gl->glBlendFuncFn;
   functions->fBufferData = gl->glBufferDataFn;
   functions->fBufferSubData = gl->glBufferSubDataFn;
-  functions->fClear = gl->glClearFn;
+  functions->fClear =
+      bind_slow_with_flush_on_mac(gl->glClearFn, progress_reporter);
   functions->fClearColor = gl->glClearColorFn;
   functions->fClearStencil = gl->glClearStencilFn;
-
-  // Not used
-  // functions->fClearTexImage = nullptr;
-  // functions->fClearTexSubImage = nullptr;
-
+  functions->fClearTexImage = gl->glClearTexImageFn;
+  functions->fClearTexSubImage = gl->glClearTexSubImageFn;
   functions->fColorMask = gl->glColorMaskFn;
   functions->fCompileShader =
       bind_slow(gl->glCompileShaderFn, progress_reporter);
-  functions->fCompressedTexImage2D =
-      bind_slow(gl->glCompressedTexImage2DFn, progress_reporter);
+  functions->fCompressedTexImage2D = bind_slow_with_flush_on_mac(
+      gl->glCompressedTexImage2DFn, progress_reporter);
   functions->fCompressedTexSubImage2D =
       bind_slow(gl->glCompressedTexSubImage2DFn, progress_reporter);
   functions->fCopyTexSubImage2D =
@@ -162,24 +201,30 @@ sk_sp<GrGLInterface> CreateGrGLInterface(
   functions->fDeleteQueries = gl->glDeleteQueriesFn;
   functions->fDeleteSamplers = gl->glDeleteSamplersFn;
   functions->fDeleteShader = bind_slow(gl->glDeleteShaderFn, progress_reporter);
-  functions->fDeleteTextures = gl->glDeleteTexturesFn;
+  functions->fDeleteTextures =
+      bind_slow_with_flush_on_mac(gl->glDeleteTexturesFn, progress_reporter);
   functions->fDepthMask = gl->glDepthMaskFn;
   functions->fDisable = gl->glDisableFn;
   functions->fDisableVertexAttribArray = gl->glDisableVertexAttribArrayFn;
   functions->fDiscardFramebuffer = gl->glDiscardFramebufferEXTFn;
-  functions->fDrawArrays = gl->glDrawArraysFn;
+  functions->fDrawArrays =
+      bind_slow_on_mac(gl->glDrawArraysFn, progress_reporter);
   functions->fDrawBuffer = gl->glDrawBufferFn;
   functions->fDrawBuffers = gl->glDrawBuffersARBFn;
-  functions->fDrawElements = gl->glDrawElementsFn;
+  functions->fDrawElements =
+      bind_slow_on_mac(gl->glDrawElementsFn, progress_reporter);
 
-  functions->fDrawArraysInstanced = gl->glDrawArraysInstancedANGLEFn;
-  functions->fDrawElementsInstanced = gl->glDrawElementsInstancedANGLEFn;
+  functions->fDrawArraysInstanced =
+      bind_slow_on_mac(gl->glDrawArraysInstancedANGLEFn, progress_reporter);
+  functions->fDrawElementsInstanced =
+      bind_slow_on_mac(gl->glDrawElementsInstancedANGLEFn, progress_reporter);
 
   // GL 4.0 or GL_ARB_draw_indirect or ES 3.1
   functions->fDrawArraysIndirect = gl->glDrawArraysIndirectFn;
   functions->fDrawElementsIndirect = gl->glDrawElementsIndirectFn;
 
-  functions->fDrawRangeElements = gl->glDrawRangeElementsFn;
+  functions->fDrawRangeElements =
+      bind_slow_on_mac(gl->glDrawRangeElementsFn, progress_reporter);
   functions->fEnable = gl->glEnableFn;
   functions->fEnableVertexAttribArray = gl->glEnableVertexAttribArrayFn;
   functions->fEndQuery = gl->glEndQueryFn;
@@ -241,13 +286,16 @@ sk_sp<GrGLInterface> CreateGrGLInterface(
   functions->fStencilOpSeparate = gl->glStencilOpSeparateFn;
   functions->fTexBuffer = gl->glTexBufferFn;
   functions->fTexBufferRange = gl->glTexBufferRangeFn;
-  functions->fTexImage2D = bind_slow(gl->glTexImage2DFn, progress_reporter);
+  functions->fTexImage2D =
+      bind_slow_with_flush_on_mac(gl->glTexImage2DFn, progress_reporter);
   functions->fTexParameterf = gl->glTexParameterfFn;
   functions->fTexParameterfv = gl->glTexParameterfvFn;
   functions->fTexParameteri = gl->glTexParameteriFn;
   functions->fTexParameteriv = gl->glTexParameterivFn;
-  functions->fTexStorage2D = gl->glTexStorage2DEXTFn;
-  functions->fTexSubImage2D = gl->glTexSubImage2DFn;
+  functions->fTexStorage2D =
+      bind_slow_with_flush_on_mac(gl->glTexStorage2DEXTFn, progress_reporter);
+  functions->fTexSubImage2D =
+      bind_slow_with_flush_on_mac(gl->glTexSubImage2DFn, progress_reporter);
 
   // GL 4.5 or GL_ARB_texture_barrier or GL_NV_texture_barrier
   // functions->fTextureBarrier = gl->glTextureBarrierFn;
@@ -300,23 +348,26 @@ sk_sp<GrGLInterface> CreateGrGLInterface(
       gl->glGetFramebufferAttachmentParameterivEXTFn;
   functions->fGetRenderbufferParameteriv =
       gl->glGetRenderbufferParameterivEXTFn;
-  functions->fBindFramebuffer = gl->glBindFramebufferEXTFn;
+  functions->fBindFramebuffer =
+      bind_with_flush_on_mac(gl->glBindFramebufferEXTFn);
   functions->fFramebufferTexture2D = gl->glFramebufferTexture2DEXTFn;
   functions->fCheckFramebufferStatus = gl->glCheckFramebufferStatusEXTFn;
-  functions->fDeleteFramebuffers =
-      bind_slow(gl->glDeleteFramebuffersEXTFn, progress_reporter);
-  functions->fRenderbufferStorage = gl->glRenderbufferStorageEXTFn;
+  functions->fDeleteFramebuffers = bind_slow_with_flush_on_mac(
+      gl->glDeleteFramebuffersEXTFn, progress_reporter);
+  functions->fRenderbufferStorage =
+      bind_with_flush_on_mac(gl->glRenderbufferStorageEXTFn);
   functions->fGenRenderbuffers = gl->glGenRenderbuffersEXTFn;
-  functions->fDeleteRenderbuffers = gl->glDeleteRenderbuffersEXTFn;
+  functions->fDeleteRenderbuffers =
+      bind_with_flush_on_mac(gl->glDeleteRenderbuffersEXTFn);
   functions->fFramebufferRenderbuffer = gl->glFramebufferRenderbufferEXTFn;
   functions->fBindRenderbuffer = gl->glBindRenderbufferEXTFn;
   functions->fRenderbufferStorageMultisample =
-      gl->glRenderbufferStorageMultisampleFn;
+      bind_with_flush_on_mac(gl->glRenderbufferStorageMultisampleFn);
   functions->fFramebufferTexture2DMultisample =
       gl->glFramebufferTexture2DMultisampleEXTFn;
   functions->fRenderbufferStorageMultisampleES2EXT =
-      gl->glRenderbufferStorageMultisampleEXTFn;
-  functions->fBlitFramebuffer = gl->glBlitFramebufferFn;
+      bind_with_flush_on_mac(gl->glRenderbufferStorageMultisampleEXTFn);
+  functions->fBlitFramebuffer = bind_with_flush_on_mac(gl->glBlitFramebufferFn);
 
   functions->fMatrixLoadf = gl->glMatrixLoadfEXTFn;
   functions->fMatrixLoadIdentity = gl->glMatrixLoadIdentityEXTFn;

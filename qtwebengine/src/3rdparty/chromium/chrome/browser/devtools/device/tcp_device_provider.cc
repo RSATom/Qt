@@ -6,6 +6,8 @@
 
 #include <utility>
 
+#include "base/bind.h"
+#include "base/callback_helpers.h"
 #include "base/location.h"
 #include "base/single_thread_task_runner.h"
 #include "base/stl_util.h"
@@ -17,6 +19,7 @@
 #include "chrome/browser/net/system_network_context_manager.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "mojo/public/cpp/bindings/binding.h"
+#include "net/base/completion_repeating_callback.h"
 #include "net/base/net_errors.h"
 #include "net/log/net_log_source.h"
 #include "net/log/net_log_with_source.h"
@@ -64,8 +67,9 @@ class ResolveHostAndOpenSocket final : public network::ResolveHostClientBase {
     std::unique_ptr<net::StreamSocket> socket(new net::TCPClientSocket(
         resolved_addresses.value(), nullptr, nullptr, net::NetLogSource()));
     net::StreamSocket* socket_ptr = socket.get();
-    net::CompletionCallback on_connect =
-        base::Bind(&RunSocketCallback, callback_, base::Passed(&socket));
+    net::CompletionRepeatingCallback on_connect =
+        base::AdaptCallbackForRepeating(
+            base::BindOnce(&RunSocketCallback, callback_, std::move(socket)));
     result = socket_ptr->Connect(on_connect);
     if (result != net::ERR_IO_PENDING)
       on_connect.Run(result);
@@ -93,7 +97,7 @@ void TCPDeviceProvider::QueryDevices(const SerialsCallback& callback) {
   std::vector<std::string> result;
   for (const net::HostPortPair& target : targets_) {
     const std::string& host = target.host();
-    if (base::ContainsValue(result, host))
+    if (base::Contains(result, host))
       continue;
     result.push_back(host);
   }
@@ -110,7 +114,7 @@ void TCPDeviceProvider::QueryDeviceInfo(const std::string& serial,
     if (serial != target.host())
       continue;
     AndroidDeviceManager::BrowserInfo browser_info;
-    browser_info.socket_name = base::UintToString(target.port());
+    browser_info.socket_name = base::NumberToString(target.port());
     browser_info.display_name = kBrowserName;
     browser_info.type = AndroidDeviceManager::BrowserInfo::kTypeChrome;
 

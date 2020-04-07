@@ -93,22 +93,22 @@ std::string RtpExtension::ToString() const {
 
 const char RtpExtension::kAudioLevelUri[] =
     "urn:ietf:params:rtp-hdrext:ssrc-audio-level";
-const int RtpExtension::kAudioLevelDefaultId = 1;
 
 const char RtpExtension::kTimestampOffsetUri[] =
     "urn:ietf:params:rtp-hdrext:toffset";
-const int RtpExtension::kTimestampOffsetDefaultId = 2;
 
 const char RtpExtension::kAbsSendTimeUri[] =
     "http://www.webrtc.org/experiments/rtp-hdrext/abs-send-time";
-const int RtpExtension::kAbsSendTimeDefaultId = 3;
+
+const char RtpExtension::kAbsoluteCaptureTimeUri[] =
+    "http://www.webrtc.org/experiments/rtp-hdrext/abs-capture-time";
 
 const char RtpExtension::kVideoRotationUri[] = "urn:3gpp:video-orientation";
-const int RtpExtension::kVideoRotationDefaultId = 4;
 
 const char RtpExtension::kTransportSequenceNumberUri[] =
     "http://www.ietf.org/id/draft-holmer-rmcat-transport-wide-cc-extensions-01";
-const int RtpExtension::kTransportSequenceNumberDefaultId = 5;
+const char RtpExtension::kTransportSequenceNumberV2Uri[] =
+    "http://www.webrtc.org/experiments/rtp-hdrext/transport-wide-cc-02";
 
 // This extension allows applications to adaptively limit the playout delay
 // on frames as per the current needs. For example, a gaming application
@@ -116,41 +116,36 @@ const int RtpExtension::kTransportSequenceNumberDefaultId = 5;
 // application.
 const char RtpExtension::kPlayoutDelayUri[] =
     "http://www.webrtc.org/experiments/rtp-hdrext/playout-delay";
-const int RtpExtension::kPlayoutDelayDefaultId = 6;
 
 const char RtpExtension::kVideoContentTypeUri[] =
     "http://www.webrtc.org/experiments/rtp-hdrext/video-content-type";
-const int RtpExtension::kVideoContentTypeDefaultId = 7;
 
 const char RtpExtension::kVideoTimingUri[] =
     "http://www.webrtc.org/experiments/rtp-hdrext/video-timing";
-const int RtpExtension::kVideoTimingDefaultId = 8;
 
 const char RtpExtension::kMidUri[] = "urn:ietf:params:rtp-hdrext:sdes:mid";
-const int RtpExtension::kMidDefaultId = 9;
 
 const char RtpExtension::kFrameMarkingUri[] =
     "http://tools.ietf.org/html/draft-ietf-avtext-framemarking-07";
-const int RtpExtension::kFrameMarkingDefaultId = 10;
 
+const char RtpExtension::kGenericFrameDescriptorUri00[] =
+    "http://www.webrtc.org/experiments/rtp-hdrext/generic-frame-descriptor-00";
+const char RtpExtension::kGenericFrameDescriptorUri01[] =
+    "http://www.webrtc.org/experiments/rtp-hdrext/generic-frame-descriptor-01";
 const char RtpExtension::kGenericFrameDescriptorUri[] =
     "http://www.webrtc.org/experiments/rtp-hdrext/generic-frame-descriptor-00";
-const int RtpExtension::kGenericFrameDescriptorDefaultId = 11;
 
 const char RtpExtension::kEncryptHeaderExtensionsUri[] =
     "urn:ietf:params:rtp-hdrext:encrypt";
 
 const char RtpExtension::kColorSpaceUri[] =
     "http://www.webrtc.org/experiments/rtp-hdrext/color-space";
-const int RtpExtension::kColorSpaceDefaultId = 12;
 
 const char RtpExtension::kRidUri[] =
     "urn:ietf:params:rtp-hdrext:sdes:rtp-stream-id";
-const int RtpExtension::kRidDefaultId = 13;
 
 const char RtpExtension::kRepairedRidUri[] =
     "urn:ietf:params:rtp-hdrext:sdes:repaired-rtp-stream-id";
-const int RtpExtension::kRepairedRidDefaultId = 14;
 
 constexpr int RtpExtension::kMinId;
 constexpr int RtpExtension::kMaxId;
@@ -160,7 +155,11 @@ constexpr int RtpExtension::kOneByteHeaderExtensionMaxValueSize;
 
 bool RtpExtension::IsSupportedForAudio(const std::string& uri) {
   return uri == webrtc::RtpExtension::kAudioLevelUri ||
+         uri == webrtc::RtpExtension::kAbsSendTimeUri ||
+         // TODO(bugs.webrtc.org/10739): Uncomment once the audio impl is ready.
+         // uri == webrtc::RtpExtension::kAbsoluteCaptureTimeUri ||
          uri == webrtc::RtpExtension::kTransportSequenceNumberUri ||
+         uri == webrtc::RtpExtension::kTransportSequenceNumberV2Uri ||
          uri == webrtc::RtpExtension::kMidUri ||
          uri == webrtc::RtpExtension::kRidUri ||
          uri == webrtc::RtpExtension::kRepairedRidUri;
@@ -169,14 +168,18 @@ bool RtpExtension::IsSupportedForAudio(const std::string& uri) {
 bool RtpExtension::IsSupportedForVideo(const std::string& uri) {
   return uri == webrtc::RtpExtension::kTimestampOffsetUri ||
          uri == webrtc::RtpExtension::kAbsSendTimeUri ||
+         // TODO(bugs.webrtc.org/10739): Uncomment once the video impl is ready.
+         // uri == webrtc::RtpExtension::kAbsoluteCaptureTimeUri ||
          uri == webrtc::RtpExtension::kVideoRotationUri ||
          uri == webrtc::RtpExtension::kTransportSequenceNumberUri ||
+         uri == webrtc::RtpExtension::kTransportSequenceNumberV2Uri ||
          uri == webrtc::RtpExtension::kPlayoutDelayUri ||
          uri == webrtc::RtpExtension::kVideoContentTypeUri ||
          uri == webrtc::RtpExtension::kVideoTimingUri ||
          uri == webrtc::RtpExtension::kMidUri ||
          uri == webrtc::RtpExtension::kFrameMarkingUri ||
-         uri == webrtc::RtpExtension::kGenericFrameDescriptorUri ||
+         uri == webrtc::RtpExtension::kGenericFrameDescriptorUri00 ||
+         uri == webrtc::RtpExtension::kGenericFrameDescriptorUri01 ||
          uri == webrtc::RtpExtension::kColorSpaceUri ||
          uri == webrtc::RtpExtension::kRidUri ||
          uri == webrtc::RtpExtension::kRepairedRidUri;
@@ -193,8 +196,10 @@ bool RtpExtension::IsEncryptionSupported(const std::string& uri) {
          // encrypted (which can't be done by Chromium).
          uri == webrtc::RtpExtension::kAbsSendTimeUri ||
 #endif
+         uri == webrtc::RtpExtension::kAbsoluteCaptureTimeUri ||
          uri == webrtc::RtpExtension::kVideoRotationUri ||
          uri == webrtc::RtpExtension::kTransportSequenceNumberUri ||
+         uri == webrtc::RtpExtension::kTransportSequenceNumberV2Uri ||
          uri == webrtc::RtpExtension::kPlayoutDelayUri ||
          uri == webrtc::RtpExtension::kVideoContentTypeUri ||
          uri == webrtc::RtpExtension::kMidUri ||
@@ -225,10 +230,10 @@ std::vector<RtpExtension> RtpExtension::FilterDuplicateNonEncrypted(
 
     // Only add non-encrypted extension if no encrypted with the same URI
     // is also present...
-    if (std::find_if(extension + 1, extensions.end(),
-                     [extension](const RtpExtension& check) {
-                       return extension->uri == check.uri;
-                     }) != extensions.end()) {
+    if (std::any_of(extension + 1, extensions.end(),
+                    [&](const RtpExtension& check) {
+                      return extension->uri == check.uri;
+                    })) {
       continue;
     }
 

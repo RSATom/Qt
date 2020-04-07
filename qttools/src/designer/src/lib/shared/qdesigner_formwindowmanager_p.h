@@ -57,7 +57,7 @@ class QDESIGNER_SHARED_EXPORT QDesignerFormWindowManager
 {
     Q_OBJECT
 public:
-    explicit QDesignerFormWindowManager(QObject *parent = 0);
+    explicit QDesignerFormWindowManager(QObject *parent = nullptr);
     ~QDesignerFormWindowManager() override;
 
     virtual PreviewManager *previewManager() const = 0;
@@ -65,7 +65,7 @@ public:
     void showPluginDialog() override;
 
 private:
-    void *m_unused;
+    void *m_unused = nullptr;
 };
 
 } // namespace qdesigner_internal

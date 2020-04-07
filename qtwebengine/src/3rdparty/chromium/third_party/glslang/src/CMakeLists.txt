@@ -73,7 +73,7 @@ if(ENABLE_HLSL)
 endif(ENABLE_HLSL)
 
 if(WIN32)
-    set(CMAKE_DEBUG_POSTFIX "d" CACHE STRING "Adds a postfix for debug-built libraries.")
+    set(CMAKE_DEBUG_POSTFIX "d")
     if(MSVC)
         include(ChooseMSVCCRT.cmake)
     endif(MSVC)
@@ -105,6 +105,8 @@ else()
     set(CMAKE_CXX_EXTENSIONS OFF)
 endif()
 
+add_compile_options(-fno-rtti)
+
 function(glslang_set_link_args TARGET)
     # For MinGW compiles, statically link against the GCC and C++ runtimes.
     # This avoids the need to ship those runtimes as DLLs.
@@ -113,6 +115,12 @@ function(glslang_set_link_args TARGET)
                               LINK_FLAGS "-static -static-libgcc -static-libstdc++")
     endif()
 endfunction(glslang_set_link_args)
+
+# CMake needs to find the right version of python, right from the beginning,
+# otherwise, it will find the wrong version and fail later
+if(IS_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/External)
+    find_package(PythonInterp 3 REQUIRED)
+endif()
 
 # We depend on these for later projects, so they should come first.
 add_subdirectory(External)

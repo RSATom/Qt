@@ -16,6 +16,7 @@
 #include <string>
 
 #include "api/transport/field_trial_based_config.h"
+#include "rtc_base/experiments/field_trial_parser.h"
 #include "rtc_base/logging.h"
 #include "rtc_base/numerics/safe_conversions.h"
 
@@ -23,11 +24,8 @@ namespace webrtc {
 
 namespace {
 
-const char* kCongestionWindowFieldTrialName = "WebRTC-CwndExperiment";
 const int kDefaultAcceptedQueueMs = 250;
 
-const char* kCongestionWindowPushbackFieldTrialName =
-    "WebRTC-CongestionWindowPushback";
 const int kDefaultMinPushbackTargetBitrateBps = 30000;
 
 const char kVp8TrustedRateControllerFieldTrialName[] =
@@ -42,40 +40,6 @@ const char* kScreenshareHysteresisFieldTrialname =
     "WebRTC-SimulcastScreenshareUpswitchHysteresisPercent";
 // Default to 35% hysteresis for simulcast screenshare.
 const double kDefaultScreenshareHysteresisFactor = 1.35;
-
-absl::optional<int> MaybeReadCwndExperimentParameter(
-    const WebRtcKeyValueConfig* const key_value_config) {
-  int64_t accepted_queue_ms;
-  std::string experiment_string =
-      key_value_config->Lookup(kCongestionWindowFieldTrialName);
-  int parsed_values =
-      sscanf(experiment_string.c_str(), "Enabled-%" PRId64, &accepted_queue_ms);
-  if (parsed_values == 1) {
-    RTC_CHECK_GE(accepted_queue_ms, 0)
-        << "Accepted must be greater than or equal to 0.";
-    return rtc::checked_cast<int>(accepted_queue_ms);
-  } else if (experiment_string.find("Enabled") == 0) {
-    return kDefaultAcceptedQueueMs;
-  }
-  return absl::nullopt;
-}
-
-absl::optional<int> MaybeReadCongestionWindowPushbackExperimentParameter(
-    const WebRtcKeyValueConfig* const key_value_config) {
-  uint32_t min_pushback_target_bitrate_bps;
-  std::string experiment_string =
-      key_value_config->Lookup(kCongestionWindowPushbackFieldTrialName);
-  int parsed_values = sscanf(experiment_string.c_str(), "Enabled-%" PRIu32,
-                             &min_pushback_target_bitrate_bps);
-  if (parsed_values == 1) {
-    RTC_CHECK_GE(min_pushback_target_bitrate_bps, 0)
-        << "Min pushback target bitrate must be greater than or equal to 0.";
-    return rtc::checked_cast<int>(min_pushback_target_bitrate_bps);
-  } else if (experiment_string.find("Enabled") == 0) {
-    return kDefaultMinPushbackTargetBitrateBps;
-  }
-  return absl::nullopt;
-}
 
 bool IsEnabled(const WebRtcKeyValueConfig* const key_value_config,
                absl::string_view key) {
@@ -98,14 +62,12 @@ double ParseHysteresisFactor(const WebRtcKeyValueConfig* const key_value_config,
 
 RateControlSettings::RateControlSettings(
     const WebRtcKeyValueConfig* const key_value_config)
-    : congestion_window_("cwnd",
-                         MaybeReadCwndExperimentParameter(key_value_config)),
-      congestion_window_pushback_(
-          "cwnd_pushback",
-          MaybeReadCongestionWindowPushbackExperimentParameter(
-              key_value_config)),
+    : congestion_window_("QueueSize"),
+      congestion_window_pushback_("MinBitrate"),
       pacing_factor_("pacing_factor"),
       alr_probing_("alr_probing", false),
+      vp8_qp_max_("vp8_qp_max"),
+      vp8_min_pixels_("vp8_min_pixels"),
       trust_vp8_(
           "trust_vp8",
           IsEnabled(key_value_config, kVp8TrustedRateControllerFieldTrialName)),
@@ -121,11 +83,19 @@ RateControlSettings::RateControlSettings(
           ParseHysteresisFactor(key_value_config,
                                 kScreenshareHysteresisFieldTrialname,
                                 kDefaultScreenshareHysteresisFactor)),
-      bitrate_adjuster_("bitrate_adjuster", false) {
+      probe_max_allocation_("probe_max_allocation", true),
+      bitrate_adjuster_("bitrate_adjuster", false),
+      adjuster_use_headroom_("adjuster_use_headroom", false),
+      vp8_s0_boost_("vp8_s0_boost", true),
+      vp8_dynamic_rate_("vp8_dynamic_rate", false),
+      vp9_dynamic_rate_("vp9_dynamic_rate", false) {
+  ParseFieldTrial({&congestion_window_, &congestion_window_pushback_},
+                  key_value_config->Lookup("WebRTC-CongestionWindow"));
   ParseFieldTrial(
-      {&congestion_window_, &congestion_window_pushback_, &pacing_factor_,
-       &alr_probing_, &trust_vp8_, &trust_vp9_, &video_hysteresis_,
-       &screenshare_hysteresis_, &bitrate_adjuster_},
+      {&pacing_factor_, &alr_probing_, &vp8_qp_max_, &vp8_min_pixels_,
+       &trust_vp8_, &trust_vp9_, &video_hysteresis_, &screenshare_hysteresis_,
+       &probe_max_allocation_, &bitrate_adjuster_, &adjuster_use_headroom_,
+       &vp8_s0_boost_, &vp8_dynamic_rate_, &vp9_dynamic_rate_},
       key_value_config->Lookup("WebRTC-VideoRateControl"));
 }
 
@@ -145,7 +115,7 @@ RateControlSettings RateControlSettings::ParseFromKeyValueConfig(
 }
 
 bool RateControlSettings::UseCongestionWindow() const {
-  return congestion_window_;
+  return static_cast<bool>(congestion_window_);
 }
 
 int64_t RateControlSettings::GetCongestionWindowAdditionalTimeMs() const {
@@ -170,12 +140,55 @@ bool RateControlSettings::UseAlrProbing() const {
   return alr_probing_.Get();
 }
 
+absl::optional<int> RateControlSettings::LibvpxVp8QpMax() const {
+  if (vp8_qp_max_ && (vp8_qp_max_.Value() < 0 || vp8_qp_max_.Value() > 63)) {
+    RTC_LOG(LS_WARNING) << "Unsupported vp8_qp_max_ value, ignored.";
+    return absl::nullopt;
+  }
+  return vp8_qp_max_.GetOptional();
+}
+
+absl::optional<int> RateControlSettings::LibvpxVp8MinPixels() const {
+  if (vp8_min_pixels_ && vp8_min_pixels_.Value() < 1) {
+    return absl::nullopt;
+  }
+  return vp8_min_pixels_.GetOptional();
+}
+
 bool RateControlSettings::LibvpxVp8TrustedRateController() const {
   return trust_vp8_.Get();
 }
 
+bool RateControlSettings::Vp8BoostBaseLayerQuality() const {
+  return vp8_s0_boost_.Get();
+}
+
+bool RateControlSettings::Vp8DynamicRateSettings() const {
+  return vp8_dynamic_rate_.Get();
+}
+
 bool RateControlSettings::LibvpxVp9TrustedRateController() const {
   return trust_vp9_.Get();
+}
+
+bool RateControlSettings::Vp9DynamicRateSettings() const {
+  return vp9_dynamic_rate_.Get();
+}
+
+double RateControlSettings::GetSimulcastHysteresisFactor(
+    VideoCodecMode mode) const {
+  if (mode == VideoCodecMode::kScreensharing) {
+    return GetSimulcastScreenshareHysteresisFactor();
+  }
+  return GetSimulcastVideoHysteresisFactor();
+}
+
+double RateControlSettings::GetSimulcastHysteresisFactor(
+    VideoEncoderConfig::ContentType content_type) const {
+  if (content_type == VideoEncoderConfig::ContentType::kScreen) {
+    return GetSimulcastScreenshareHysteresisFactor();
+  }
+  return GetSimulcastVideoHysteresisFactor();
 }
 
 double RateControlSettings::GetSimulcastVideoHysteresisFactor() const {
@@ -186,7 +199,16 @@ double RateControlSettings::GetSimulcastScreenshareHysteresisFactor() const {
   return screenshare_hysteresis_.Get();
 }
 
+bool RateControlSettings::TriggerProbeOnMaxAllocatedBitrateChange() const {
+  return probe_max_allocation_.Get();
+}
+
 bool RateControlSettings::UseEncoderBitrateAdjuster() const {
   return bitrate_adjuster_.Get();
 }
+
+bool RateControlSettings::BitrateAdjusterCanUseNetworkHeadroom() const {
+  return adjuster_use_headroom_.Get();
+}
+
 }  // namespace webrtc

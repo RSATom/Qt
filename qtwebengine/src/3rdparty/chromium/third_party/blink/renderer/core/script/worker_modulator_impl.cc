@@ -14,10 +14,6 @@
 
 namespace blink {
 
-ModulatorImplBase* WorkerModulatorImpl::Create(ScriptState* script_state) {
-  return MakeGarbageCollected<WorkerModulatorImpl>(script_state);
-}
-
 WorkerModulatorImpl::WorkerModulatorImpl(ScriptState* script_state)
     : ModulatorImplBase(script_state) {}
 
@@ -53,6 +49,11 @@ bool WorkerModulatorImpl::IsDynamicImportForbidden(String* reason) {
       "Module scripts are not supported on WorkerGlobalScope yet (see "
       "https://crbug.com/680046).";
   return true;
+}
+
+V8CacheOptions WorkerModulatorImpl::GetV8CacheOptions() const {
+  auto* scope = To<WorkerGlobalScope>(GetExecutionContext());
+  return scope->GetV8CacheOptions();
 }
 
 }  // namespace blink

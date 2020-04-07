@@ -8,6 +8,7 @@
 
 #include <algorithm>
 
+#include "base/bind.h"
 #include "base/callback.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "ui/events/devices/device_data_manager.h"
@@ -176,6 +177,12 @@ void InputControllerEvdev::GetTouchEventLog(const base::FilePath& out_dir,
     input_device_factory_->GetTouchEventLog(out_dir, std::move(reply));
   else
     std::move(reply).Run(std::vector<base::FilePath>());
+}
+
+void InputControllerEvdev::GetGesturePropertiesService(
+    ozone::mojom::GesturePropertiesServiceRequest request) {
+  if (input_device_factory_)
+    input_device_factory_->GetGesturePropertiesService(std::move(request));
 }
 
 void InputControllerEvdev::ScheduleUpdateDeviceSettings() {

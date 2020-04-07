@@ -5,6 +5,7 @@
 #include "services/metrics/public/cpp/delegating_ukm_recorder.h"
 #include "services/metrics/public/cpp/ukm_source_id.h"
 
+#include "base/bind.h"
 #include "base/lazy_instance.h"
 
 namespace ukm {
@@ -86,6 +87,12 @@ void DelegatingUkmRecorder::AddEntry(mojom::UkmEntryPtr entry) {
     iterator.second.AddEntry(entry->Clone());
 }
 
+void DelegatingUkmRecorder::MarkSourceForDeletion(ukm::SourceId source_id) {
+  base::AutoLock auto_lock(lock_);
+  for (auto& iterator : delegates_)
+    iterator.second.MarkSourceForDeletion(source_id);
+}
+
 DelegatingUkmRecorder::Delegate::Delegate(
     scoped_refptr<base::SequencedTaskRunner> task_runner,
     base::WeakPtr<UkmRecorder> ptr)
@@ -136,6 +143,17 @@ void DelegatingUkmRecorder::Delegate::AddEntry(mojom::UkmEntryPtr entry) {
   }
   task_runner_->PostTask(FROM_HERE, base::BindOnce(&UkmRecorder::AddEntry, ptr_,
                                                    std::move(entry)));
+}
+
+void DelegatingUkmRecorder::Delegate::MarkSourceForDeletion(
+    ukm::SourceId source_id) {
+  if (task_runner_->RunsTasksInCurrentSequence()) {
+    ptr_->MarkSourceForDeletion(source_id);
+    return;
+  }
+  task_runner_->PostTask(
+      FROM_HERE,
+      base::BindOnce(&UkmRecorder::MarkSourceForDeletion, ptr_, source_id));
 }
 
 }  // namespace ukm

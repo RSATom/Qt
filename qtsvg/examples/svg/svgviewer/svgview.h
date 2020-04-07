@@ -79,7 +79,7 @@ public:
     qreal zoomFactor() const;
 
 public slots:
-    void setHighQualityAntialiasing(bool highQualityAntialiasing);
+    void setAntialiasing(bool antialiasing);
     void setViewBackground(bool enable);
     void setViewOutline(bool enable);
     void zoomIn();

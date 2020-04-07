@@ -7,6 +7,7 @@ qtHaveModule(quick) {
                mapviewer \
                minimal_map \
                itemview_transitions \
-               planespotter \
-               geojson_viewer
+               planespotter
+
+    qtHaveModule(widgets): SUBDIRS += geojson_viewer
 }

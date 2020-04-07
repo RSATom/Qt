@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2019 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the tools applications of the Qt Toolkit.
@@ -29,9 +29,9 @@
 #ifndef PARAMETERS_H
 #define PARAMETERS_H
 
-#include <qregexp.h>
-#include <qvector.h>
-#include <qset.h>
+#include <QtCore/qregexp.h>
+#include <QtCore/qset.h>
+#include <QtCore/qvector.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -41,12 +41,13 @@ class CodeChunk;
 
 class Parameter
 {
- public:
+public:
     Parameter() {}
-    Parameter(const QString &type,
-              const QString &name = QString(),
+    Parameter(const QString &type, const QString &name = QString(),
               const QString &defaultValue = QString())
-        : type_(type), name_(name), defaultValue_(defaultValue) { }
+        : type_(type), name_(name), defaultValue_(defaultValue)
+    {
+    }
 
     void setName(const QString &name) { name_ = name; }
     bool hasType() const { return !type_.isEmpty(); }
@@ -55,17 +56,23 @@ class Parameter
     const QString &defaultValue() const { return defaultValue_; }
     void setDefaultValue(const QString &t) { defaultValue_ = t; }
 
-    void set(const QString &type, const QString &name) {
-        type_ = type; name_ = name; defaultValue_.clear();
+    void set(const QString &type, const QString &name)
+    {
+        type_ = type;
+        name_ = name;
+        defaultValue_.clear();
     }
 
-    void set(const QString &type, const QString &name, const QString &defaultValue) {
-        type_ = type; name_ = name; defaultValue_ = defaultValue;
+    void set(const QString &type, const QString &name, const QString &defaultValue)
+    {
+        type_ = type;
+        name_ = name;
+        defaultValue_ = defaultValue;
     }
 
     QString signature(bool includeValue = false) const;
 
- public:
+public:
     QString type_;
     QString name_;
     QString defaultValue_;
@@ -75,11 +82,16 @@ typedef QVector<Parameter> ParameterVector;
 
 class Parameters
 {
- public:
+public:
     Parameters();
     Parameters(const QString &signature);
 
-    void clear() { parameters_.clear(); privateSignal_ = false; valid_ = true; }
+    void clear()
+    {
+        parameters_.clear();
+        privateSignal_ = false;
+        valid_ = true;
+    }
     const ParameterVector &parameters() const { return parameters_; }
     bool isPrivateSignal() const { return privateSignal_; }
     bool isEmpty() const { return parameters_.isEmpty(); }
@@ -97,12 +109,12 @@ class Parameters
     QString signature(bool includeValues = false) const;
     QString rawSignature(bool names = false, bool values = false) const;
     void set(const QString &signature);
-    void getNames(QSet<QString> &names) const;
-    void getTypeList(QString &out) const;
-    void getTypeAndNameList(QString &out) const;
+    QSet<QString> getNames() const;
+    QString generateTypeList() const;
+    QString generateTypeAndNameList() const;
     bool match(const Parameters &parameters) const;
 
- private:
+private:
     void readToken();
     QString lexeme();
     QString previousLexeme();
@@ -112,7 +124,7 @@ class Parameters
     bool matchParameter();
     bool parse(const QString &signature);
 
- private:
+private:
     static QRegExp varComment_;
 
     bool valid_;

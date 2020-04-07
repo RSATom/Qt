@@ -13,11 +13,13 @@
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/imagebitmap/image_bitmap.h"
 #include "third_party/blink/renderer/core/loader/document_loader.h"
+#include "third_party/blink/renderer/modules/xr/type_converters.h"
 #include "third_party/blink/renderer/modules/xr/xr.h"
-#include "third_party/blink/renderer/modules/xr/xr_presentation_context.h"
+#include "third_party/blink/renderer/modules/xr/xr_plane_detection_state.h"
 #include "third_party/blink/renderer/modules/xr/xr_session.h"
 #include "third_party/blink/renderer/modules/xr/xr_viewport.h"
 #include "third_party/blink/renderer/modules/xr/xr_webgl_layer.h"
+#include "third_party/blink/renderer/modules/xr/xr_world_tracking_state.h"
 #include "third_party/blink/renderer/platform/graphics/gpu/xr_frame_transport.h"
 #include "third_party/blink/renderer/platform/instrumentation/tracing/trace_event.h"
 #include "third_party/blink/renderer/platform/transforms/transformation_matrix.h"
@@ -52,35 +54,9 @@ std::unique_ptr<TransformationMatrix> getPoseMatrix(
   if (!pose)
     return nullptr;
 
-  std::unique_ptr<TransformationMatrix> pose_matrix =
-      TransformationMatrix::Create();
-
-  TransformationMatrix::DecomposedType decomp;
-
-  memset(&decomp, 0, sizeof(decomp));
-  decomp.perspective_w = 1;
-  decomp.scale_x = 1;
-  decomp.scale_y = 1;
-  decomp.scale_z = 1;
-
-  if (pose->orientation) {
-    decomp.quaternion_x = -pose->orientation.value()[0];
-    decomp.quaternion_y = -pose->orientation.value()[1];
-    decomp.quaternion_z = -pose->orientation.value()[2];
-    decomp.quaternion_w = pose->orientation.value()[3];
-  } else {
-    decomp.quaternion_w = 1.0;
-  }
-
-  if (pose->position) {
-    decomp.translate_x = pose->position.value()[0];
-    decomp.translate_y = pose->position.value()[1];
-    decomp.translate_z = pose->position.value()[2];
-  }
-
-  pose_matrix->Recompose(decomp);
-
-  return pose_matrix;
+  return std::make_unique<TransformationMatrix>(
+      mojo::TypeConverter<TransformationMatrix,
+                          device::mojom::blink::VRPosePtr>::Convert(pose));
 }
 
 }  // namespace
@@ -104,12 +80,13 @@ void XRFrameProvider::BeginImmersiveSession(
   immersive_session_ = session;
 
   immersive_data_provider_.Bind(std::move(session_ptr->data_provider));
+  immersive_data_provider_.set_connection_error_handler(WTF::Bind(
+      &XRFrameProvider::OnProviderConnectionError, WrapWeakPersistent(this)));
 
   presentation_provider_.Bind(
       std::move(session_ptr->submit_frame_sink->provider));
-  presentation_provider_.set_connection_error_handler(
-      WTF::Bind(&XRFrameProvider::OnPresentationProviderConnectionError,
-                WrapWeakPersistent(this)));
+  presentation_provider_.set_connection_error_handler(WTF::Bind(
+      &XRFrameProvider::OnProviderConnectionError, WrapWeakPersistent(this)));
 
   frame_transport_->BindSubmitFrameClient(
       std::move(session_ptr->submit_frame_sink->client_request));
@@ -128,12 +105,14 @@ void XRFrameProvider::OnFocusChanged() {
   // to schedule immersive frames when focus is acquired.
   if (focus && !last_has_focus_ && requesting_sessions_.size() > 0 &&
       !immersive_session_) {
-    ScheduleNonImmersiveFrame();
+    ScheduleNonImmersiveFrame(nullptr);
   }
   last_has_focus_ = focus;
 }
 
-void XRFrameProvider::OnPresentationProviderConnectionError() {
+// Ends the immersive session when the presentation or immersive data provider
+// got disconnected.
+void XRFrameProvider::OnProviderConnectionError() {
   presentation_provider_.reset();
   immersive_data_provider_.reset();
   if (vsync_connection_failed_)
@@ -147,7 +126,7 @@ void XRFrameProvider::OnImmersiveSessionEnded() {
   if (!immersive_session_)
     return;
 
-  xr_->xrDevicePtr()->ExitPresent();
+  xr_->ExitPresent();
 
   immersive_session_ = nullptr;
   pending_immersive_vsync_ = false;
@@ -161,7 +140,7 @@ void XRFrameProvider::OnImmersiveSessionEnded() {
   // outstanding frames that were requested while the immersive session was
   // active.
   if (requesting_sessions_.size() > 0)
-    ScheduleNonImmersiveFrame();
+    ScheduleNonImmersiveFrame(nullptr);
 }
 
 // Schedule a session to be notified when the next XR frame is available.
@@ -169,9 +148,12 @@ void XRFrameProvider::RequestFrame(XRSession* session) {
   TRACE_EVENT0("gpu", __FUNCTION__);
   DCHECK(session);
 
+  auto options = device::mojom::blink::XRFrameDataRequestOptions::New(
+      session->worldTrackingState()->planeDetectionState()->enabled());
+
   // Immersive frame logic.
   if (session->immersive()) {
-    ScheduleImmersiveFrame();
+    ScheduleImmersiveFrame(std::move(options));
     return;
   }
 
@@ -184,38 +166,27 @@ void XRFrameProvider::RequestFrame(XRSession* session) {
   if (immersive_session_)
     return;
 
-  ScheduleNonImmersiveFrame();
+  ScheduleNonImmersiveFrame(std::move(options));
 }
 
-bool XRFrameProvider::HasARSession() {
-  for (unsigned i = 0; i < requesting_sessions_.size(); ++i) {
-    XRSession* session = requesting_sessions_.at(i).Get();
-    if (session->environmentIntegration())
-      return true;
-  }
-  return false;
-}
-
-void XRFrameProvider::ScheduleImmersiveFrame() {
+void XRFrameProvider::ScheduleImmersiveFrame(
+    device::mojom::blink::XRFrameDataRequestOptionsPtr options) {
   TRACE_EVENT0("gpu", __FUNCTION__);
   if (pending_immersive_vsync_)
     return;
 
   pending_immersive_vsync_ = true;
 
-  immersive_data_provider_->GetFrameData(WTF::Bind(
-      &XRFrameProvider::OnImmersiveFrameData, WrapWeakPersistent(this)));
+  immersive_data_provider_->GetFrameData(
+      std::move(options), WTF::Bind(&XRFrameProvider::OnImmersiveFrameData,
+                                    WrapWeakPersistent(this)));
 }
 
-// TODO(lincolnfrog): add a ScheduleNonImmersiveARFrame, if we want camera RAF
-// alignment instead of doc RAF alignment.
-void XRFrameProvider::ScheduleNonImmersiveFrame() {
+void XRFrameProvider::ScheduleNonImmersiveFrame(
+    device::mojom::blink::XRFrameDataRequestOptionsPtr options) {
   TRACE_EVENT0("gpu", __FUNCTION__);
   DCHECK(!immersive_session_)
       << "Scheduling should be done via the exclusive session if present.";
-  DCHECK(xr_->xrMagicWindowProviderPtr())
-      << "If there is no exclusive session, it should be impossible to "
-         "schedule a frame without a MagicWindowProvider.";
 
   if (pending_non_immersive_vsync_)
     return;
@@ -230,20 +201,25 @@ void XRFrameProvider::ScheduleNonImmersiveFrame() {
   if (!doc)
     return;
 
+  // This is cleared by either OnNonImmersiveFrameData (GetFrameData callback,
+  // used if we have a magic window provider), or by OnNonImmersiveVSync
+  // (XRFrameProviderRequestCallback's invoke, used if there's no magic window
+  // provider).
   pending_non_immersive_vsync_ = true;
 
-  xr_->xrMagicWindowProviderPtr()->GetFrameData(WTF::Bind(
-      &XRFrameProvider::OnNonImmersiveFrameData, WrapWeakPersistent(this)));
-
-  // TODO(https://crbug.com/839253): Generalize the pass-through images
-  // code path so that it also works for immersive sessions on an AR device
-  // with pass-through technology.
-
-  // TODO(http://crbug.com/856257) Remove the special casing for AR and non-AR.
-  if (!HasARSession()) {
-    doc->RequestAnimationFrame(
-        MakeGarbageCollected<XRFrameProviderRequestCallback>(this));
+  // If we have a Magic Window provider, request frame data and flag that
+  // we're waiting for it.  If not, clear any pose data, so that
+  // ProcessScheduledFrame handles it appropriately.
+  if (xr_->CanRequestNonImmersiveFrameData()) {
+    xr_->GetNonImmersiveFrameData(
+        std::move(options), WTF::Bind(&XRFrameProvider::OnNonImmersiveFrameData,
+                                      WrapWeakPersistent(this)));
+  } else {
+    frame_pose_ = nullptr;
   }
+
+  doc->RequestAnimationFrame(
+      MakeGarbageCollected<XRFrameProviderRequestCallback>(this));
 }
 
 void XRFrameProvider::OnImmersiveFrameData(
@@ -257,8 +233,6 @@ void XRFrameProvider::OnImmersiveFrameData(
 
   // We may have lost the immersive session since the last VSync request.
   if (!immersive_session_) {
-    // TODO(https://crbug.com/836496): do we need to include this in the
-    // image size calculation for AR? What about immersive AR (full-screen?)
     return;
   }
 
@@ -269,7 +243,7 @@ void XRFrameProvider::OnImmersiveFrameData(
   if (!doc)
     return;
 
-  base::TimeTicks monotonic_time_now = TimeTicks() + data->time_delta;
+  base::TimeTicks monotonic_time_now = base::TimeTicks() + data->time_delta;
   double high_res_now_ms =
       doc->Loader()
           ->GetTiming()
@@ -291,9 +265,9 @@ void XRFrameProvider::OnImmersiveFrameData(
   // Used kInternalMedia since 1) this is not spec-ed and 2) this is media
   // related then tasks should not be throttled or frozen in background tabs.
   frame->GetTaskRunner(blink::TaskType::kInternalMedia)
-      ->PostTask(FROM_HERE,
-                 WTF::Bind(&XRFrameProvider::ProcessScheduledFrame,
-                           WrapWeakPersistent(this), nullptr, high_res_now_ms));
+      ->PostTask(FROM_HERE, WTF::Bind(&XRFrameProvider::ProcessScheduledFrame,
+                                      WrapWeakPersistent(this), std::move(data),
+                                      high_res_now_ms));
 }
 
 void XRFrameProvider::OnNonImmersiveVSync(double high_res_now_ms) {
@@ -342,21 +316,6 @@ void XRFrameProvider::OnNonImmersiveFrameData(
   }
 
   frame_pose_ = std::move(frame_data->pose);
-
-  base::TimeTicks monotonic_time_now = TimeTicks() + frame_data->time_delta;
-  double high_res_now_ms =
-      doc->Loader()
-          ->GetTiming()
-          .MonotonicTimeToZeroBasedDocumentTime(monotonic_time_now)
-          .InMillisecondsF();
-
-  if (HasARSession()) {
-    frame->GetTaskRunner(blink::TaskType::kInternalMedia)
-        ->PostTask(FROM_HERE,
-                   WTF::Bind(&XRFrameProvider::ProcessScheduledFrame,
-                             WrapWeakPersistent(this), std::move(frame_data),
-                             high_res_now_ms));
-  }
 }
 
 void XRFrameProvider::ProcessScheduledFrame(
@@ -373,9 +332,13 @@ void XRFrameProvider::ProcessScheduledFrame(
   }
 
   if (immersive_session_) {
-    if (frame_pose_ && frame_pose_->input_state.has_value()) {
-      immersive_session_->OnInputStateChange(frame_id_,
-                                             frame_pose_->input_state.value());
+    if (frame_pose_) {
+      base::span<const device::mojom::blink::XRInputSourceStatePtr>
+          input_states;
+      if (frame_pose_->input_state.has_value())
+        input_states = frame_pose_->input_state.value();
+
+      immersive_session_->OnInputStateChange(frame_id_, input_states);
     }
 
     // Check if immersive session is still set as OnInputStateChange may have
@@ -404,9 +367,22 @@ void XRFrameProvider::ProcessScheduledFrame(
       DCHECK(buffer_mailbox_holder_);
     }
 #endif
-    immersive_session_->OnFrame(high_res_now_ms, std::move(pose_matrix),
-                                buffer_mailbox_holder_, base::nullopt,
-                                base::nullopt);
+    if (frame_data && (frame_data->left_eye || frame_data->right_eye)) {
+      immersive_session_->UpdateEyeParameters(frame_data->left_eye,
+                                              frame_data->right_eye);
+    }
+
+    if (frame_data && frame_data->stage_parameters_updated) {
+      immersive_session_->UpdateStageParameters(frame_data->stage_parameters);
+    }
+    if (frame_data) {
+      immersive_session_->OnFrame(high_res_now_ms, std::move(pose_matrix),
+                                  buffer_mailbox_holder_,
+                                  frame_data->detected_planes_data);
+    } else {
+      immersive_session_->OnFrame(high_res_now_ms, std::move(pose_matrix),
+                                  buffer_mailbox_holder_, nullptr);
+    }
   } else {
     // In the process of fulfilling the frame requests for each session they are
     // extremely likely to request another frame. Work off of a separate list
@@ -418,30 +394,41 @@ void XRFrameProvider::ProcessScheduledFrame(
     for (unsigned i = 0; i < processing_sessions_.size(); ++i) {
       XRSession* session = processing_sessions_.at(i).Get();
 
-      if (frame_pose_ && frame_pose_->input_state.has_value()) {
-        session->OnInputStateChange(frame_id_,
-                                    frame_pose_->input_state.value());
+      // If the session was terminated between requesting and now, we shouldn't
+      // process anything further.
+      if (session->ended())
+        continue;
+
+      if (frame_pose_) {
+        base::span<const device::mojom::blink::XRInputSourceStatePtr>
+            input_states;
+        if (frame_pose_->input_state.has_value())
+          input_states = frame_pose_->input_state.value();
+
+        session->OnInputStateChange(frame_id_, input_states);
       }
 
-      if (frame_data && frame_data->projection_matrix.has_value()) {
-        session->SetNonImmersiveProjectionMatrix(
-            frame_data->projection_matrix.value());
-      }
+      // If the input state change caused this session to end, we should stop
+      // processing.
+      if (session->ended())
+        continue;
 
       if (frame_pose_ && frame_pose_->pose_reset) {
         session->OnPoseReset();
       }
 
+      // If the pose reset caused us to end, we should stop processing.
+      if (session->ended())
+        continue;
+
       std::unique_ptr<TransformationMatrix> pose_matrix =
           getPoseMatrix(frame_pose_);
-      // TODO(https://crbug.com/837883): only render background for
-      // sessions that are using AR.
       if (frame_data) {
         session->OnFrame(high_res_now_ms, std::move(pose_matrix), base::nullopt,
-                         frame_data->buffer_holder, frame_data->buffer_size);
+                         frame_data->detected_planes_data);
       } else {
         session->OnFrame(high_res_now_ms, std::move(pose_matrix), base::nullopt,
-                         base::nullopt, base::nullopt);
+                         nullptr);
       }
     }
 
@@ -515,8 +502,6 @@ void XRFrameProvider::SubmitWebGLLayer(XRWebGLLayer* layer, bool was_changed) {
       presentation_provider_.get(), webgl_context->ContextGL(), webgl_context,
       std::move(image_ref), std::move(image_release_callback), frame_id_,
       needs_copy);
-  // If this layer is being mirrored, try to update the mirror.
-  layer->UpdateWebXRMirror();
 
   // Reset our frame id, since anything we'd want to do (resizing/etc) can
   // no-longer happen to this frame.
@@ -534,16 +519,24 @@ void XRFrameProvider::UpdateWebGLLayerViewports(XRWebGLLayer* layer) {
   float width = layer->framebufferWidth();
   float height = layer->framebufferHeight();
 
-  WebFloatRect left_coords(
-      static_cast<float>(left->x()) / width,
-      static_cast<float>(height - (left->y() + left->height())) / height,
-      static_cast<float>(left->width()) / width,
-      static_cast<float>(left->height()) / height);
-  WebFloatRect right_coords(
-      static_cast<float>(right->x()) / width,
-      static_cast<float>(height - (right->y() + right->height())) / height,
-      static_cast<float>(right->width()) / width,
-      static_cast<float>(right->height()) / height);
+  // We may only have one eye view, i.e. in smartphone immersive AR mode.
+  // Use all-zero bounds for unused views.
+  WebFloatRect left_coords =
+      left ? WebFloatRect(
+                 static_cast<float>(left->x()) / width,
+                 static_cast<float>(height - (left->y() + left->height())) /
+                     height,
+                 static_cast<float>(left->width()) / width,
+                 static_cast<float>(left->height()) / height)
+           : WebFloatRect();
+  WebFloatRect right_coords =
+      right ? WebFloatRect(
+                  static_cast<float>(right->x()) / width,
+                  static_cast<float>(height - (right->y() + right->height())) /
+                      height,
+                  static_cast<float>(right->width()) / width,
+                  static_cast<float>(right->height()) / height)
+            : WebFloatRect();
 
   presentation_provider_->UpdateLayerBounds(
       frame_id_, left_coords, right_coords, WebSize(width, height));

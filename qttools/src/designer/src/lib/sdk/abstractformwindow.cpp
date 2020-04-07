@@ -161,9 +161,7 @@ QDesignerFormWindowInterface::QDesignerFormWindowInterface(QWidget *parent, Qt::
 /*!
     Destroys the form window interface.
 */
-QDesignerFormWindowInterface::~QDesignerFormWindowInterface()
-{
-}
+QDesignerFormWindowInterface::~QDesignerFormWindowInterface() = default;
 
 /*!
     Returns a pointer to \QD's current QDesignerFormEditorInterface
@@ -171,7 +169,7 @@ QDesignerFormWindowInterface::~QDesignerFormWindowInterface()
 */
 QDesignerFormEditorInterface *QDesignerFormWindowInterface::core() const
 {
-    return 0;
+    return nullptr;
 }
 
 /*!
@@ -200,18 +198,16 @@ static inline bool stopFindAtTopLevel(const QObject *w, bool stopAtMenu)
 
 QDesignerFormWindowInterface *QDesignerFormWindowInterface::findFormWindow(QWidget *w)
 {
-    while (w != 0) {
-        if (QDesignerFormWindowInterface *fw = qobject_cast<QDesignerFormWindowInterface*>(w)) {
+    while (w != nullptr) {
+        if (QDesignerFormWindowInterface *fw = qobject_cast<QDesignerFormWindowInterface*>(w))
             return fw;
-        } else {
-            if (w->isWindow() && stopFindAtTopLevel(w, true))
-                break;
-        }
+        if (w->isWindow() && stopFindAtTopLevel(w, true))
+            break;
 
         w = w->parentWidget();
     }
 
-    return 0;
+    return nullptr;
 }
 
 /*!
@@ -224,24 +220,22 @@ QDesignerFormWindowInterface *QDesignerFormWindowInterface::findFormWindow(QWidg
 
 QDesignerFormWindowInterface *QDesignerFormWindowInterface::findFormWindow(QObject *object)
 {
-    while (object != 0) {
-        if (QDesignerFormWindowInterface *fw = qobject_cast<QDesignerFormWindowInterface*>(object)) {
+    while (object != nullptr) {
+        if (QDesignerFormWindowInterface *fw = qobject_cast<QDesignerFormWindowInterface*>(object))
             return fw;
-        } else {
-            QWidget *w = qobject_cast<QWidget *>(object);
-            // QDesignerMenu is a window, so stopFindAtTopLevel(w) returns 0.
-            // However, we want to find the form window for QActions of a menu.
-            // If this check is inside stopFindAtTopLevel(w), it will break designer
-            // menu editing (e.g. when clicking on items inside an opened menu)
-            if (w && w->isWindow() && stopFindAtTopLevel(w, false))
-                break;
 
-        }
+        QWidget *w = qobject_cast<QWidget *>(object);
+        // QDesignerMenu is a window, so stopFindAtTopLevel(w) returns 0.
+        // However, we want to find the form window for QActions of a menu.
+        // If this check is inside stopFindAtTopLevel(w), it will break designer
+        // menu editing (e.g. when clicking on items inside an opened menu)
+        if (w && w->isWindow() && stopFindAtTopLevel(w, false))
+            break;
 
         object = object->parent();
     }
 
-    return 0;
+    return nullptr;
 }
 
 /*!

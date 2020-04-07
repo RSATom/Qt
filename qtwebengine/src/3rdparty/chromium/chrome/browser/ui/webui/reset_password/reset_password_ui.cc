@@ -4,11 +4,13 @@
 
 #include "chrome/browser/ui/webui/reset_password/reset_password_ui.h"
 
+#include "base/bind.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/grit/browser_resources.h"
+#include "components/password_manager/core/browser/password_manager_metrics_util.h"
 #include "components/safe_browsing/common/safe_browsing_prefs.h"
 #include "components/safe_browsing/password_protection/password_protection_service.h"
 #include "components/strings/grit/components_strings.h"
@@ -20,11 +22,6 @@
 #include "content/public/browser/web_ui_data_source.h"
 #include "mojo/public/cpp/bindings/binding.h"
 #include "ui/base/l10n/l10n_util.h"
-
-namespace safe_browsing {
-using PasswordReuseEvent =
-    safe_browsing::LoginReputationClientRequest::PasswordReuseEvent;
-}
 
 namespace {
 
@@ -45,7 +42,7 @@ class ResetPasswordHandlerImpl : public mojom::ResetPasswordHandler {
  public:
   ResetPasswordHandlerImpl(
       content::WebContents* web_contents,
-      safe_browsing::ReusedPasswordType password_type,
+      PasswordType password_type,
       mojo::InterfaceRequest<mojom::ResetPasswordHandler> request)
       : web_contents_(web_contents),
         password_type_(password_type),
@@ -70,28 +67,27 @@ class ResetPasswordHandlerImpl : public mojom::ResetPasswordHandler {
 
  private:
   content::WebContents* web_contents_;
-  safe_browsing::ReusedPasswordType password_type_;
+  PasswordType password_type_;
   mojo::Binding<mojom::ResetPasswordHandler> binding_;
 
   DISALLOW_COPY_AND_ASSIGN(ResetPasswordHandlerImpl);
 };
 
 // Gets the reused password type from post data, or returns
-// REUSED_PASSWORD_TYPE_UNKNOWN if post data is not available.
-safe_browsing::ReusedPasswordType GetPasswordType(
-    content::WebContents* web_contents) {
+// PASSWORD_TYPE_UNKNOWN if post data is not available.
+PasswordType GetPasswordType(content::WebContents* web_contents) {
   content::NavigationEntry* nav_entry =
       web_contents->GetController().GetPendingEntry();
   if (!nav_entry || !nav_entry->GetHasPostData())
-    return safe_browsing::PasswordReuseEvent::REUSED_PASSWORD_TYPE_UNKNOWN;
+    return PasswordType::PASSWORD_TYPE_UNKNOWN;
   auto& post_data = nav_entry->GetPostData()->elements()->at(0);
   int post_data_int = -1;
   if (base::StringToInt(std::string(post_data.bytes(), post_data.length()),
                         &post_data_int)) {
-    return static_cast<safe_browsing::ReusedPasswordType>(post_data_int);
+    return static_cast<PasswordType>(post_data_int);
   }
 
-  return safe_browsing::PasswordReuseEvent::REUSED_PASSWORD_TYPE_UNKNOWN;
+  return PasswordType::PASSWORD_TYPE_UNKNOWN;
 }
 
 // Properly format host name based on text direction.
@@ -110,11 +106,10 @@ ResetPasswordUI::ResetPasswordUI(content::WebUI* web_ui)
   std::unique_ptr<content::WebUIDataSource> html_source(
       content::WebUIDataSource::Create(chrome::kChromeUIResetPasswordHost));
   html_source->AddResourcePath("reset_password.js", IDR_RESET_PASSWORD_JS);
-  html_source->AddResourcePath("reset_password.mojom.js",
-                               IDR_RESET_PASSWORD_MOJO_JS);
+  html_source->AddResourcePath("reset_password.mojom-lite.js",
+                               IDR_RESET_PASSWORD_MOJOM_LITE_JS);
   html_source->SetDefaultResource(IDR_RESET_PASSWORD_HTML);
   html_source->AddLocalizedStrings(PopulateStrings());
-  html_source->UseGzip();
 
   content::WebUIDataSource::Add(web_ui->GetWebContents()->GetBrowserContext(),
                                 html_source.release());
@@ -137,8 +132,7 @@ base::DictionaryValue ResetPasswordUI::PopulateStrings() const {
           GetPasswordProtectionService(Profile::FromWebUI(web_ui()))
               ->GetOrganizationName(password_type_);
   bool known_password_type =
-      password_type_ !=
-      safe_browsing::PasswordReuseEvent::REUSED_PASSWORD_TYPE_UNKNOWN;
+      password_type_ != PasswordType::PASSWORD_TYPE_UNKNOWN;
 
   int heading_string_id = known_password_type
                               ? IDS_RESET_PASSWORD_WARNING_HEADING

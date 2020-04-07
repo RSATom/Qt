@@ -389,8 +389,7 @@ void tst_QXmlName::toClarkName_data() const
  */
 void tst_QXmlName::withinQVariant() const
 {
-    /* The extra paranthesis silences a warning on win32-msvc2005. */
-    QVariant value(qVariantFromValue(QXmlName()));
+    auto value = QVariant::fromValue(QXmlName());
 }
 
 /*!
@@ -398,9 +397,9 @@ void tst_QXmlName::withinQVariant() const
  */
 void tst_QXmlName::typeWithinQVariant() const
 {
-    const int qxmlNameType = QVariant(qVariantFromValue(QXmlName())).userType();
+    const int qxmlNameType = QVariant::fromValue(QXmlName()).userType();
 
-    const QVariant value(qVariantFromValue(QXmlName()));
+    const auto value = QVariant::fromValue(QXmlName());
 
     QCOMPARE(value.userType(), qxmlNameType);
 }

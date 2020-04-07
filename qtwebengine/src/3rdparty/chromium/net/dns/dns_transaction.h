@@ -12,6 +12,7 @@
 
 #include "base/callback.h"
 #include "net/base/request_priority.h"
+#include "net/dns/dns_config.h"
 #include "net/dns/record_rdata.h"
 #include "url/gurl.h"
 
@@ -41,8 +42,6 @@ class NET_EXPORT_PRIVATE DnsTransaction {
   // Starts the transaction.  Always completes asynchronously.
   virtual void Start() = 0;
 
-  virtual void SetRequestContext(URLRequestContext*) = 0;
-
   virtual void SetRequestPriority(RequestPriority priority) = 0;
 };
 
@@ -69,11 +68,16 @@ class NET_EXPORT_PRIVATE DnsTransactionFactory {
   //
   // The transaction will run |callback| upon asynchronous completion.
   // The |net_log| is used as the parent log.
+  //
+  // |secure| specifies whether DNS lookups should be performed using DNS-over-
+  // HTTPS (DoH) or using plaintext DNS.
   virtual std::unique_ptr<DnsTransaction> CreateTransaction(
       const std::string& hostname,
       uint16_t qtype,
       CallbackType callback,
-      const NetLogWithSource& net_log) WARN_UNUSED_RESULT = 0;
+      const NetLogWithSource& net_log,
+      bool secure,
+      URLRequestContext* url_request_context) WARN_UNUSED_RESULT = 0;
 
   // The given EDNS0 option will be included in all DNS queries performed by
   // transactions from this factory.

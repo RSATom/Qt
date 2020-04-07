@@ -67,7 +67,7 @@ static const QChar *checkedToAscii(Buffer &buffer, const QChar *begin, const QCh
         *dst++ = *src++;
     }
     *dst = '\0';
-    return 0;
+    return nullptr;
 }
 
 static bool parseIp4Internal(IPv4Address &address, const char *ptr, bool acceptLeadingZero);
@@ -175,7 +175,7 @@ const QChar *parseIp6(IPv6Address &address, const QChar *begin, const QChar *end
 
     memset(address, 0, sizeof address);
     if (colonCount == 2 && end - begin == 2) // "::"
-        return 0;
+        return nullptr;
 
     // if there's a double colon ("::"), this is how many zeroes it means
     int zeroWordsToFill;
@@ -236,7 +236,7 @@ const QChar *parseIp6(IPv6Address &address, const QChar *begin, const QChar *end
             address[13] = ip4 >> 16;
             address[14] = ip4 >> 8;
             address[15] = ip4;
-            return 0;
+            return nullptr;
         }
 
         address[pos++] = x >> 8;
@@ -248,15 +248,15 @@ const QChar *parseIp6(IPv6Address &address, const QChar *begin, const QChar *end
             return begin + (endptr - buffer.data());
         ptr = endptr + 1;
     }
-    return pos == 16 ? 0 : end;
+    return pos == 16 ? nullptr : end;
 }
 
 static inline QChar toHex(uchar c)
 {
-    return QtMiscUtils::toHexLower(c);
+    return QChar::fromLatin1(QtMiscUtils::toHexLower(c));
 }
 
-void toString(QString &appendTo, IPv6Address address)
+void toString(QString &appendTo, const IPv6Address address)
 {
     // the longest IPv6 address possible is:
     //   "1111:2222:3333:4444:5555:6666:255.255.255.255"
@@ -312,7 +312,7 @@ void toString(QString &appendTo, IPv6Address address)
         }
     }
 
-    const QChar colon = ushort(':');
+    const QChar colon = u':';
     if (zeroRunLength < 4)
         zeroRunOffset = -1;
     else if (zeroRunOffset == 0)

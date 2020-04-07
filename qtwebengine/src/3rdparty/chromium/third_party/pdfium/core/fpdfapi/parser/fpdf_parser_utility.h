@@ -8,11 +8,13 @@
 #define CORE_FPDFAPI_PARSER_FPDF_PARSER_UTILITY_H_
 
 #include <ostream>
+#include <vector>
 
 #include "core/fxcrt/fx_string.h"
 #include "core/fxcrt/retain_ptr.h"
 #include "third_party/base/optional.h"
 
+class CPDF_Array;
 class CPDF_Dictionary;
 class CPDF_Object;
 class IFX_SeekableReadStream;
@@ -47,6 +49,22 @@ int32_t GetDirectInteger(const CPDF_Dictionary* pDict, const ByteString& key);
 
 ByteString PDF_NameDecode(ByteStringView orig);
 ByteString PDF_NameEncode(const ByteString& orig);
+
+// Return |nCount| elements from |pArray| as a vector of floats. |pArray| must
+// have at least |nCount| elements.
+std::vector<float> ReadArrayElementsToVector(const CPDF_Array* pArray,
+                                             size_t nCount);
+
+// Returns true if |dict| has a /Type name entry that matches |type|.
+bool ValidateDictType(const CPDF_Dictionary* dict, const ByteString& type);
+
+// Returns true if |dict| is non-null and all entries in |dict| are dictionaries
+// of |type|.
+bool ValidateDictAllResourcesOfType(const CPDF_Dictionary* dict,
+                                    const ByteString& type);
+
+// Shorthand for ValidateDictAllResourcesOfType(dict, "Font").
+bool ValidateFontResourceDict(const CPDF_Dictionary* dict);
 
 std::ostream& operator<<(std::ostream& buf, const CPDF_Object* pObj);
 

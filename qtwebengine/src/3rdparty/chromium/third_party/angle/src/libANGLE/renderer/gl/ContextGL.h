@@ -13,10 +13,15 @@
 #include "libANGLE/renderer/ContextImpl.h"
 #include "libANGLE/renderer/gl/RendererGL.h"
 
+namespace angle
+{
+struct FeaturesGL;
+}  // namespace angle
+
 namespace sh
 {
 struct BlockMemberInfo;
-}
+}  // namespace sh
 
 namespace rx
 {
@@ -25,7 +30,6 @@ class ClearMultiviewGL;
 class FunctionsGL;
 class RendererGL;
 class StateManagerGL;
-struct WorkaroundsGL;
 
 class ContextGL : public ContextImpl
 {
@@ -74,6 +78,12 @@ class ContextGL : public ContextImpl
 
     // Path object creation
     std::vector<PathImpl *> createPaths(GLsizei range) override;
+
+    // Memory object creation.
+    MemoryObjectImpl *createMemoryObject() override;
+
+    // Semaphore creation.
+    SemaphoreImpl *createSemaphore() override;
 
     // Flush and finish.
     angle::Result flush(const gl::Context *context) override;
@@ -161,7 +171,7 @@ class ContextGL : public ContextImpl
                                              const GLfloat *transformValues) override;
 
     // Device loss
-    GLenum getResetStatus() override;
+    gl::GraphicsResetStatus getResetStatus() override;
 
     // Vendor and description strings.
     std::string getVendorString() const override;
@@ -173,7 +183,7 @@ class ContextGL : public ContextImpl
     void popGroupMarker() override;
 
     // KHR_debug
-    void pushDebugGroup(GLenum source, GLuint id, GLsizei length, const char *message) override;
+    void pushDebugGroup(GLenum source, GLuint id, const std::string &message) override;
     void popDebugGroup() override;
 
     // State sync with dirty bits.
@@ -194,13 +204,11 @@ class ContextGL : public ContextImpl
     const gl::Extensions &getNativeExtensions() const override;
     const gl::Limitations &getNativeLimitations() const override;
 
-    void applyNativeWorkarounds(gl::Workarounds *workarounds) const override;
-
     // Handle helpers
     ANGLE_INLINE const FunctionsGL *getFunctions() const { return mRenderer->getFunctions(); }
 
     StateManagerGL *getStateManager();
-    const WorkaroundsGL &getWorkaroundsGL() const;
+    const angle::FeaturesGL &getFeaturesGL() const;
     BlitGL *getBlitter() const;
     ClearMultiviewGL *getMultiviewClearer() const;
 
@@ -212,6 +220,10 @@ class ContextGL : public ContextImpl
 
     angle::Result memoryBarrier(const gl::Context *context, GLbitfield barriers) override;
     angle::Result memoryBarrierByRegion(const gl::Context *context, GLbitfield barriers) override;
+
+    void setMaxShaderCompilerThreads(GLuint count) override;
+
+    void invalidateTexture(gl::TextureType target) override;
 
   private:
     angle::Result setDrawArraysState(const gl::Context *context,
@@ -225,8 +237,6 @@ class ContextGL : public ContextImpl
                                        const void *indices,
                                        GLsizei instanceCount,
                                        const void **outIndices);
-
-    angle::Result setDrawIndirectState(const gl::Context *context);
 
   protected:
     std::shared_ptr<RendererGL> mRenderer;

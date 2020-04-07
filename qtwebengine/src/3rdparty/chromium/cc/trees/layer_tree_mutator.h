@@ -9,6 +9,7 @@
 #include "base/optional.h"
 #include "base/time/time.h"
 #include "cc/cc_export.h"
+#include "cc/trees/animation_effect_timings.h"
 #include "cc/trees/animation_options.h"
 
 #include <memory>
@@ -17,6 +18,30 @@
 #include <vector>
 
 namespace cc {
+
+// TOOD(kevers): Remove kDrop once confirmed that it is no longer needed under
+// any circumstances.
+enum class MutateQueuingStrategy {
+  kDrop,                           // Discard request if busy.
+  kQueueHighPriority,              // Queues request if busy. This request is
+                                   // is next to run in the queue. Only one
+                                   // high priority request can be in-flight
+                                   // at any point in time.
+  kQueueAndReplaceNormalPriority,  // Queues request if busy. This request
+                                   // replaces an existing normal priority
+                                   // request. In the case of mutations cycles
+                                   // that cannot keep up with the frame rate,
+                                   // replaced mutation requests are dropped
+                                   // from the queue.
+};
+
+enum class MutateStatus {
+  kCompletedWithUpdate,  // Mutation cycle successfully ran to completion with
+                         // at least one update.
+  kCompletedNoUpdate,    // Mutation cycle successfully ran to completion but
+                         // no update was applied.
+  kCanceled              // Mutation cycle dropped from the input queue.
+};
 
 struct CC_EXPORT WorkletAnimationId {
   // Uniquely identifies the animation worklet with which this animation is
@@ -40,13 +65,13 @@ struct CC_EXPORT AnimationWorkletInput {
     // Worklet animation's current time, from its associated timeline.
     double current_time;
     std::unique_ptr<AnimationOptions> options;
-    int num_effects;
+    std::unique_ptr<AnimationEffectTimings> effect_timings;
 
     AddAndUpdateState(WorkletAnimationId worklet_animation_id,
                       std::string name,
                       double current_time,
                       std::unique_ptr<AnimationOptions> options,
-                      int num_effects);
+                      std::unique_ptr<AnimationEffectTimings> effect_timings);
 
     AddAndUpdateState(AddAndUpdateState&&);
     ~AddAndUpdateState();
@@ -65,19 +90,24 @@ struct CC_EXPORT AnimationWorkletInput {
   std::vector<WorkletAnimationId> peeked_animations;
 
   AnimationWorkletInput();
+  AnimationWorkletInput(const AnimationWorkletInput&) = delete;
   ~AnimationWorkletInput();
+
+  AnimationWorkletInput& operator=(const AnimationWorkletInput&) = delete;
 
 #if DCHECK_IS_ON()
   // Verifies all animation states have the expected worklet id.
   bool ValidateId(int worklet_id) const;
 #endif
-  DISALLOW_COPY_AND_ASSIGN(AnimationWorkletInput);
 };
 
 class CC_EXPORT MutatorInputState {
  public:
   MutatorInputState();
+  MutatorInputState(const MutatorInputState&) = delete;
   ~MutatorInputState();
+
+  MutatorInputState& operator=(const MutatorInputState&) = delete;
 
   bool IsEmpty() const;
   void Add(AnimationWorkletInput::AddAndUpdateState&& state);
@@ -105,8 +135,6 @@ class CC_EXPORT MutatorInputState {
   // Returns iterator pointing to the entry in |inputs_| map whose key is id. It
   // inserts a new entry if none exists.
   AnimationWorkletInput& EnsureWorkletEntry(int id);
-
-  DISALLOW_COPY_AND_ASSIGN(MutatorInputState);
 };
 
 struct CC_EXPORT AnimationWorkletOutput {
@@ -144,7 +172,11 @@ class CC_EXPORT LayerTreeMutator {
 
   virtual void SetClient(LayerTreeMutatorClient* client) = 0;
 
-  virtual void Mutate(std::unique_ptr<MutatorInputState> input_state) = 0;
+  using DoneCallback = base::OnceCallback<void(MutateStatus)>;
+
+  virtual bool Mutate(std::unique_ptr<MutatorInputState> input_state,
+                      MutateQueuingStrategy queueing_strategy,
+                      DoneCallback done_callback) = 0;
   // TODO(majidvp): Remove when timeline inputs are known.
   virtual bool HasMutators() = 0;
 };

@@ -59,16 +59,14 @@
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/notification_source.h"
 #include "content/public/browser/render_frame_host.h"
-#include "content/public/browser/render_process_host.h"
 #include "content/public/browser/site_instance.h"
 #include "content/public/browser/storage_partition.h"
+#include "content/public/browser/system_connector.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/drop_data.h"
-#include "content/public/common/service_manager_connection.h"
 #include "extensions/browser/api/file_handlers/app_file_handler_util.h"
 #include "extensions/browser/app_window/app_window.h"
 #include "extensions/browser/app_window/app_window_registry.h"
-#include "extensions/browser/content_verifier.h"
 #include "extensions/browser/disable_reason.h"
 #include "extensions/browser/error_map.h"
 #include "extensions/browser/event_router_factory.h"
@@ -226,26 +224,6 @@ void PerformVerificationCheck(content::BrowserContext* context) {
     InstallVerifier::Get(context)->VerifyAllExtensions();
 }
 
-std::unique_ptr<developer::ProfileInfo> CreateProfileInfo(Profile* profile) {
-  std::unique_ptr<developer::ProfileInfo> info(new developer::ProfileInfo());
-  info->is_supervised = profile->IsSupervised();
-  PrefService* prefs = profile->GetPrefs();
-  const PrefService::Preference* pref =
-      prefs->FindPreference(prefs::kExtensionsUIDeveloperMode);
-  info->is_incognito_available =
-      IncognitoModePrefs::GetAvailability(prefs) !=
-          IncognitoModePrefs::DISABLED;
-  info->is_developer_mode_controlled_by_policy = pref->IsManaged();
-  info->in_developer_mode =
-      !info->is_supervised &&
-      prefs->GetBoolean(prefs::kExtensionsUIDeveloperMode);
-  info->app_info_dialog_enabled = CanShowAppInfoDialog();
-  info->can_load_unpacked =
-      !ExtensionManagementFactory::GetForBrowserContext(profile)
-          ->BlacklistedByDefault();
-  return info;
-}
-
 // Creates a developer::LoadError from the provided data.
 developer::LoadError CreateLoadError(
     const base::FilePath& file_path,
@@ -331,6 +309,27 @@ DeveloperPrivateAPI::GetFactoryInstance() {
   return g_developer_private_api_factory.Pointer();
 }
 
+// static
+std::unique_ptr<developer::ProfileInfo> DeveloperPrivateAPI::CreateProfileInfo(
+    Profile* profile) {
+  std::unique_ptr<developer::ProfileInfo> info(new developer::ProfileInfo());
+  info->is_supervised = profile->IsSupervised();
+  PrefService* prefs = profile->GetPrefs();
+  const PrefService::Preference* pref =
+      prefs->FindPreference(prefs::kExtensionsUIDeveloperMode);
+  info->is_incognito_available = IncognitoModePrefs::GetAvailability(prefs) !=
+                                 IncognitoModePrefs::DISABLED;
+  info->is_developer_mode_controlled_by_policy = pref->IsManaged();
+  info->in_developer_mode =
+      !info->is_supervised &&
+      prefs->GetBoolean(prefs::kExtensionsUIDeveloperMode);
+  info->app_info_dialog_enabled = CanShowAppInfoDialog();
+  info->can_load_unpacked =
+      ExtensionManagementFactory::GetForBrowserContext(profile)
+          ->HasWhitelistedExtension();
+  return info;
+}
+
 template <>
 void BrowserContextKeyedAPIFactory<
     DeveloperPrivateAPI>::DeclareFactoryDependencies() {
@@ -352,7 +351,7 @@ DeveloperPrivateAPI* DeveloperPrivateAPI::Get(
 }
 
 DeveloperPrivateAPI::DeveloperPrivateAPI(content::BrowserContext* context)
-    : profile_(Profile::FromBrowserContext(context)), weak_factory_(this) {
+    : profile_(Profile::FromBrowserContext(context)) {
   RegisterNotifications();
 }
 
@@ -366,8 +365,7 @@ DeveloperPrivateEventRouter::DeveloperPrivateEventRouter(Profile* profile)
       extension_management_observer_(this),
       command_service_observer_(this),
       profile_(profile),
-      event_router_(EventRouter::Get(profile_)),
-      weak_factory_(this) {
+      event_router_(EventRouter::Get(profile_)) {
   extension_registry_observer_.Add(ExtensionRegistry::Get(profile_));
   error_console_observer_.Add(ErrorConsole::Get(profile));
   process_manager_observer_.Add(ProcessManager::Get(profile));
@@ -502,7 +500,8 @@ void DeveloperPrivateEventRouter::OnExtensionRuntimePermissionsChanged(
 
 void DeveloperPrivateEventRouter::OnExtensionManagementSettingsChanged() {
   std::unique_ptr<base::ListValue> args(new base::ListValue());
-  args->Append(CreateProfileInfo(profile_)->ToValue());
+  args->Append(DeveloperPrivateAPI::CreateProfileInfo(profile_)->ToValue());
+
   std::unique_ptr<Event> event(
       new Event(events::DEVELOPER_PRIVATE_ON_PROFILE_STATE_CHANGED,
                 developer::OnProfileStateChanged::kEventName, std::move(args)));
@@ -529,7 +528,7 @@ void DeveloperPrivateEventRouter::Observe(
 
 void DeveloperPrivateEventRouter::OnProfilePrefChanged() {
   std::unique_ptr<base::ListValue> args(new base::ListValue());
-  args->Append(CreateProfileInfo(profile_)->ToValue());
+  args->Append(DeveloperPrivateAPI::CreateProfileInfo(profile_)->ToValue());
   std::unique_ptr<Event> event(
       new Event(events::DEVELOPER_PRIVATE_ON_PROFILE_STATE_CHANGED,
                 developer::OnProfileStateChanged::kEventName, std::move(args)));
@@ -852,7 +851,8 @@ DeveloperPrivateGetProfileConfigurationFunction::
 ExtensionFunction::ResponseAction
 DeveloperPrivateGetProfileConfigurationFunction::Run() {
   std::unique_ptr<developer::ProfileInfo> info =
-      CreateProfileInfo(Profile::FromBrowserContext(browser_context()));
+      DeveloperPrivateAPI::CreateProfileInfo(
+          Profile::FromBrowserContext(browser_context()));
 
   // If this is called from the chrome://extensions page, we use this as a
   // heuristic that it's a good time to verify installs. We do this on startup,
@@ -1218,9 +1218,8 @@ DeveloperPrivateInstallDroppedFileFunction::Run() {
 
   ExtensionService* service = GetExtensionService(browser_context());
   if (path.MatchesExtension(FILE_PATH_LITERAL(".zip"))) {
-    ZipFileInstaller::Create(
-        content::ServiceManagerConnection::GetForProcess()->GetConnector(),
-        MakeRegisterInExtensionServiceCallback(service))
+    ZipFileInstaller::Create(content::GetSystemConnector(),
+                             MakeRegisterInExtensionServiceCallback(service))
         ->LoadFromZipFile(path);
   } else {
     auto prompt = std::make_unique<ExtensionInstallPrompt>(web_contents);
@@ -1414,11 +1413,10 @@ bool DeveloperPrivateLoadDirectoryFunction::RunAsync() {
     }
     return LoadByFileSystemAPI(directory_url);
   } else {
-    // Check if the DirecotryEntry is the instance of chrome filesystem.
+    // Check if the DirectoryEntry is the instance of chrome filesystem.
     if (!app_file_handler_util::ValidateFileEntryAndGetPath(
-            filesystem_name, filesystem_path,
-            render_frame_host()->GetProcess()->GetID(), &project_base_path_,
-            &error_)) {
+            filesystem_name, filesystem_path, source_process_id(),
+            &project_base_path_, &error_)) {
       SetError("DirectoryEntry of unsupported filesystem.");
       return false;
     }
@@ -1823,8 +1821,8 @@ DeveloperPrivateOpenDevToolsFunction::Run() {
     return RespondNow(NoArguments());
 
   TabStripModel* tab_strip = browser->tab_strip_model();
-  tab_strip->ActivateTabAt(tab_strip->GetIndexOfWebContents(web_contents),
-                           false);  // Not through direct user gesture.
+  tab_strip->ActivateTabAt(tab_strip->GetIndexOfWebContents(
+      web_contents));  // Not through direct user gesture.
   return RespondNow(NoArguments());
 }
 
@@ -1881,7 +1879,7 @@ DeveloperPrivateRepairExtensionFunction::Run() {
   // Also note that if we let |reinstaller| continue with the repair, this would
   // have uninstalled the extension but then we would have failed to reinstall
   // it for policy check (see PolicyCheck::Start()).
-  if (ContentVerifier::ShouldRepairIfCorrupted(management_policy, extension))
+  if (management_policy->ShouldRepairIfCorrupted(extension))
     return RespondNow(Error(kCannotRepairPolicyExtension));
 
   content::WebContents* web_contents = GetSenderWebContents();
@@ -2014,7 +2012,8 @@ DeveloperPrivateAddHostPermissionFunction::Run() {
       .GrantRuntimePermissions(
           *extension,
           PermissionSet(APIPermissionSet(), ManifestPermissionSet(),
-                        new_host_permissions, new_host_permissions),
+                        new_host_permissions.Clone(),
+                        new_host_permissions.Clone()),
           base::BindOnce(&DeveloperPrivateAddHostPermissionFunction::
                              OnRuntimePermissionsGranted,
                          base::RetainedRef(this)));
@@ -2054,7 +2053,8 @@ DeveloperPrivateRemoveHostPermissionFunction::Run() {
   std::unique_ptr<const PermissionSet> permissions_to_remove =
       PermissionSet::CreateIntersection(
           PermissionSet(APIPermissionSet(), ManifestPermissionSet(),
-                        host_permissions_to_remove, host_permissions_to_remove),
+                        host_permissions_to_remove.Clone(),
+                        host_permissions_to_remove.Clone()),
           *scripting_modifier.GetRevokablePermissions(),
           URLPatternSet::IntersectionBehavior::kDetailed);
   if (permissions_to_remove->IsEmpty())

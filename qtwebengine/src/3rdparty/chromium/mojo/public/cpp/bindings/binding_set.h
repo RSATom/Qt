@@ -65,13 +65,14 @@ class BindingSetBase {
  public:
   using ContextTraits = BindingSetContextTraits<ContextType>;
   using Context = typename ContextTraits::Type;
-  using PreDispatchCallback = base::Callback<void(const Context&)>;
   using Traits = BindingSetTraits<BindingType>;
   using ProxyType = typename Traits::ProxyType;
   using RequestType = typename Traits::RequestType;
   using ImplPointerType = typename Traits::ImplPointerType;
 
-  BindingSetBase() : weak_ptr_factory_(this) {}
+  BindingSetBase() {}
+  BindingSetBase(BindingSetBase&&) = default;
+  BindingSetBase& operator=(BindingSetBase&&) = default;
 
   void set_connection_error_handler(base::RepeatingClosure error_handler) {
     error_handler_ = std::move(error_handler);
@@ -82,15 +83,6 @@ class BindingSetBase {
       RepeatingConnectionErrorWithReasonCallback error_handler) {
     error_with_reason_handler_ = std::move(error_handler);
     error_handler_.Reset();
-  }
-
-  // Sets a callback to be invoked immediately before dispatching any message or
-  // error received by any of the bindings in the set. This may only be used
-  // with a non-void |ContextType|.
-  void set_pre_dispatch_handler(const PreDispatchCallback& handler) {
-    static_assert(ContextTraits::SupportsContext(),
-                  "Pre-dispatch handler usage requires non-void context type.");
-    pre_dispatch_handler_ = handler;
   }
 
   // Adds a new binding to the set which binds |request| to |impl| with no
@@ -278,8 +270,6 @@ class BindingSetBase {
   void SetDispatchContext(const Context* context, BindingId binding_id) {
     dispatch_context_ = context;
     dispatch_binding_ = binding_id;
-    if (!pre_dispatch_handler_.is_null())
-      pre_dispatch_handler_.Run(*context);
   }
 
   BindingId AddBindingImpl(
@@ -316,13 +306,12 @@ class BindingSetBase {
 
   base::RepeatingClosure error_handler_;
   RepeatingConnectionErrorWithReasonCallback error_with_reason_handler_;
-  PreDispatchCallback pre_dispatch_handler_;
   BindingId next_binding_id_ = 0;
   std::map<BindingId, std::unique_ptr<Entry>> bindings_;
   bool is_flushing_ = false;
   const Context* dispatch_context_ = nullptr;
   BindingId dispatch_binding_;
-  base::WeakPtrFactory<BindingSetBase> weak_ptr_factory_;
+  base::WeakPtrFactory<BindingSetBase> weak_ptr_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(BindingSetBase);
 };

@@ -303,6 +303,8 @@ static QLatin1String formatToString(QImage::Format format)
         return QLatin1String("RGBA64pm");
     case QImage::Format_Grayscale16:
         return QLatin1String("Grayscale16");
+    case QImage::Format_BGR888:
+        return QLatin1String("BGR888");
     default:
         break;
     };
@@ -844,6 +846,13 @@ void tst_QImage::convertToFormat_data()
     QTest::newRow("blue rgb32 -> rgb888") << int(QImage::Format_RGB32) << 0xff0000ff
                                           << int(QImage::Format_RGB888) << 0xff0000ff;
 
+    QTest::newRow("red rgb32 -> bgr888") << int(QImage::Format_RGB32) << 0xffff0000
+                                         << int(QImage::Format_BGR888) << 0xffff0000;
+    QTest::newRow("green rgb32 -> bgr888") << int(QImage::Format_RGB32) << 0xff00ff00
+                                           << int(QImage::Format_BGR888) << 0xff00ff00;
+    QTest::newRow("blue rgb32 -> bgr888") << int(QImage::Format_RGB32) << 0xff0000ff
+                                          << int(QImage::Format_BGR888) << 0xff0000ff;
+
     QTest::newRow("red rgb16 -> rgb888") << int(QImage::Format_RGB16) << 0xffff0000
                                          << int(QImage::Format_RGB888) << 0xffff0000;
     QTest::newRow("green rgb16 -> rgb888") << int(QImage::Format_RGB16) << 0xff00ff00
@@ -856,6 +865,13 @@ void tst_QImage::convertToFormat_data()
     QTest::newRow("green rgb888 -> argb32") << int(QImage::Format_RGB888) << 0xff00ff00
                                             << int(QImage::Format_ARGB32) << 0xff00ff00;
     QTest::newRow("blue rgb888 -> argb32") << int(QImage::Format_RGB888) << 0xff0000ff
+                                           << int(QImage::Format_ARGB32) << 0xff0000ff;
+
+    QTest::newRow("red bgr888 -> argb32") << int(QImage::Format_RGB888) << 0xffff0000
+                                          << int(QImage::Format_ARGB32) << 0xffff0000;
+    QTest::newRow("green bgr888 -> argb32") << int(QImage::Format_RGB888) << 0xff00ff00
+                                            << int(QImage::Format_ARGB32) << 0xff00ff00;
+    QTest::newRow("blue bgr888 -> argb32") << int(QImage::Format_RGB888) << 0xff0000ff
                                            << int(QImage::Format_ARGB32) << 0xff0000ff;
 
     QTest::newRow("red rgb888 -> rgbx8888") << int(QImage::Format_RGB888) << 0xffff0000
@@ -907,6 +923,9 @@ void tst_QImage::convertToFormat_data()
                                            << int(QImage::Format_ARGB32) << 0xff00ff00;
     QTest::newRow("blue rgb30 -> argb32") << int(QImage::Format_RGB30) << 0xff0000ff
                                           << int(QImage::Format_ARGB32) << 0xff0000ff;
+
+    QTest::newRow("semigray argb32 -> a2rgb30 pm") << int(QImage::Format_ARGB32) << 0x4c646565u
+                                                   << int(QImage::Format_A2RGB30_Premultiplied) << 0x55212222u;
 
     QTest::newRow("white gray8 -> argb pm") << int(QImage::Format_Grayscale8) << 0xfffffeffu
                                             << int(QImage::Format_ARGB32_Premultiplied) << 0xfffefefeu;
@@ -1338,6 +1357,12 @@ void tst_QImage::setPixel_data()
                                   << 0xff00ff00 << 0x00ff00u;
     QTest::newRow("RGB888 blue") << int(QImage::Format_RGB888)
                                  << 0xff0000ff << 0x0000ffu;
+    QTest::newRow("BGR888 red") << int(QImage::Format_BGR888)
+                                << 0xffff0000 << 0x0000ffu;
+    QTest::newRow("BGR888 green") << int(QImage::Format_BGR888)
+                                  << 0xff00ff00 << 0x00ff00u;
+    QTest::newRow("BGR888 blue") << int(QImage::Format_BGR888)
+                                 << 0xff0000ff << 0xff0000u;
 #if Q_BYTE_ORDER == Q_BIG_ENDIAN
     QTest::newRow("RGBA8888 red") << int(QImage::Format_RGBA8888)
                                 << 0xffff0000u << 0xff0000ffu;
@@ -1425,6 +1450,7 @@ void tst_QImage::setPixel()
     case int(QImage::Format_ARGB8565_Premultiplied):
     case int(QImage::Format_ARGB8555_Premultiplied):
     case int(QImage::Format_RGB888):
+    case int(QImage::Format_BGR888):
     {
         for (int y = 0; y < h; ++y) {
             const quint24 *row = (const quint24*)(img.scanLine(y));
@@ -1852,7 +1878,9 @@ void tst_QImage::smoothScale4_data()
     QTest::addColumn<QImage::Format>("format");
 
     QTest::newRow("RGB32") << QImage::Format_RGB32;
+#if QT_CONFIG(raster_64bit)
     QTest::newRow("RGBx64") << QImage::Format_RGBX64;
+#endif
 }
 
 void tst_QImage::smoothScale4()
@@ -2107,6 +2135,12 @@ void tst_QImage::paintEngine()
 
     QCOMPARE(engine, img.paintEngine());
     QCOMPARE(img, expected);
+
+    {
+        QImage img1(16, 16, QImage::Format_ARGB32);
+        QImage img2 = img1;
+        QVERIFY(img2.paintEngine());
+    }
 }
 
 void tst_QImage::setAlphaChannelWhilePainting()
@@ -2443,6 +2477,7 @@ void tst_QImage::mirrored_data()
     QTest::newRow("Format_RGB555, vertical") << QImage::Format_RGB555 << true << false << 16 << 16;
     QTest::newRow("Format_ARGB8555_Premultiplied, vertical") << QImage::Format_ARGB8555_Premultiplied << true << false << 16 << 16;
     QTest::newRow("Format_RGB888, vertical") << QImage::Format_RGB888 << true << false << 16 << 16;
+    QTest::newRow("Format_BGR888, vertical") << QImage::Format_BGR888 << true << false << 16 << 16;
     QTest::newRow("Format_RGB444, vertical") << QImage::Format_RGB444 << true << false << 16 << 16;
     QTest::newRow("Format_RGBX8888, vertical") << QImage::Format_RGBX8888 << true << false << 16 << 16;
     QTest::newRow("Format_RGBA8888_Premultiplied, vertical") << QImage::Format_RGBA8888_Premultiplied << true << false << 16 << 16;
@@ -3403,7 +3438,7 @@ void tst_QImage::ditherGradient_data()
     QTest::newRow("rgb32 -> rgb666 (dithering)") << rgb32 << QImage::Format_RGB666 << int(Qt::PreferDither | Qt::OrderedDither) << 129;
 
     // Test we get the same results for opaque input in the ARGBPM implementation.
-    rgb32 = qMove(rgb32).convertToFormat(QImage::Format_ARGB32_Premultiplied);
+    rgb32 = std::move(rgb32).convertToFormat(QImage::Format_ARGB32_Premultiplied);
     QTest::newRow("argb32pm -> argb4444pm (no dither)") << rgb32 << QImage::Format_ARGB4444_Premultiplied << 0 << 16;
     QTest::newRow("argb32pm -> rgb444 (dithering)") << rgb32 << QImage::Format_RGB444 << int(Qt::PreferDither | Qt::OrderedDither) << 33;
     QTest::newRow("argb32pm -> argb4444pm (dithering)") << rgb32 << QImage::Format_ARGB4444_Premultiplied << int(Qt::PreferDither | Qt::OrderedDither) << 33;
@@ -3412,6 +3447,7 @@ void tst_QImage::ditherGradient_data()
     QTest::newRow("argb32pm -> argb6666pm (no dither)") << rgb32 << QImage::Format_ARGB6666_Premultiplied << 0 << 64;
     QTest::newRow("argb32pm -> argb6666pm (dithering)") << rgb32 << QImage::Format_ARGB6666_Premultiplied << int(Qt::PreferDither | Qt::OrderedDither) << 129;
 
+#if QT_CONFIG(raster_64bit)
     QImage rgb30(1024, 16, QImage::Format_RGB30);
     QLinearGradient gradient30(QRectF(rgb30.rect()).topLeft(), QRectF(rgb30.rect()).topRight());
     gradient30.setColorAt(0.0, QColor(0, 0, 0));
@@ -3424,6 +3460,7 @@ void tst_QImage::ditherGradient_data()
     QTest::newRow("rgb30 -> rgb32 (dithering)") << rgb30 << QImage::Format_RGB32 << int(Qt::PreferDither | Qt::OrderedDither) << 513;
     QTest::newRow("rgb30 -> rgb888 (no dither)") << rgb30 << QImage::Format_RGB888 << 0 << 256;
     QTest::newRow("rgb30 -> rgb888 (dithering)") << rgb30 << QImage::Format_RGB888 << int(Qt::PreferDither | Qt::OrderedDither) << 513;
+#endif
 }
 
 void tst_QImage::ditherGradient()

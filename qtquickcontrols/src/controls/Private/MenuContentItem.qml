@@ -37,6 +37,7 @@
 **
 ****************************************************************************/
 
+import QtQml 2.14 as Qml
 import QtQuick 2.2
 import QtQuick.Controls 1.2
 import QtQuick.Controls.Styles 1.1
@@ -155,11 +156,12 @@ Loader {
     Keys.onReturnPressed: d.triggerCurrent()
     Keys.onEnterPressed: d.triggerCurrent()
 
-    Binding {
+    Qml.Binding {
         // Make sure the styled frame is in the background
         target: item
         property: "z"
         value: content.z - 1
+        restoreMode: Binding.RestoreBinding
     }
 
     ColumnMenuContent {
@@ -268,11 +270,12 @@ Loader {
                     d.mnemonicsMap[title[ampersandPos + 1].toUpperCase()] = menuItemLoader
             }
 
-            Binding {
+            Qml.Binding {
                 target: menuItemLoader.item
                 property: "width"
                 property alias menuItem: menuItemLoader.item
                 value: menuItem ? Math.max(__menu.__minimumWidth, content.width) - 2 * menuItem.x : 0
+                restoreMode: Binding.RestoreBinding
             }
         }
     }

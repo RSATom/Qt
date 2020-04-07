@@ -60,6 +60,7 @@
 #include "qandroideventdispatcher.h"
 #include <android/api-level.h>
 
+#include <QtCore/qresource.h>
 #include <QtCore/qthread.h>
 #include <QtCore/private/qjnihelpers_p.h>
 #include <QtCore/private/qjni_p.h>
@@ -68,8 +69,6 @@
 
 #include <qpa/qwindowsysteminterface.h>
 
-Q_IMPORT_PLUGIN(QAndroidPlatformIntegrationPlugin)
-
 QT_BEGIN_NAMESPACE
 
 static JavaVM *m_javaVM = nullptr;
@@ -77,6 +76,7 @@ static jclass m_applicationClass  = nullptr;
 static jobject m_classLoaderObject = nullptr;
 static jmethodID m_loadClassMethodID = nullptr;
 static AAssetManager *m_assetManager = nullptr;
+static jobject m_assets = nullptr;
 static jobject m_resourcesObj = nullptr;
 static jobject m_activityObject = nullptr;
 static jmethodID m_createSurfaceMethodID = nullptr;
@@ -441,6 +441,11 @@ namespace QtAndroid
         return block;
     }
 
+    jobject assets()
+    {
+        return m_assets;
+    }
+
 } // namespace QtAndroid
 
 static jboolean startQtAndroidPlugin(JNIEnv *env, jobject /*object*/, jstring paramsString, jstring environmentString)
@@ -454,9 +459,9 @@ static jboolean startQtAndroidPlugin(JNIEnv *env, jobject /*object*/, jstring pa
         const QList<QByteArray> envVars = QByteArray(nativeString).split('\t');
         env->ReleaseStringUTFChars(environmentString, nativeString);
         for (const QByteArray &envVar : envVars) {
-            const QList<QByteArray> envVarPair = envVar.split('=');
-            if (envVarPair.size() == 2 && ::setenv(envVarPair[0], envVarPair[1], 1) != 0)
-                qWarning() << "Can't set environment" << envVarPair;
+            int pos = envVar.indexOf('=');
+            if (pos != -1 && ::setenv(envVar.left(pos), envVar.mid(pos + 1), 1) != 0)
+                qWarning() << "Can't set environment" << envVar;
         }
     }
 
@@ -485,7 +490,7 @@ static jboolean startQtAndroidPlugin(JNIEnv *env, jobject /*object*/, jstring pa
     }
 
     if (Q_UNLIKELY(!m_main)) {
-        qCritical() << "dlsym failed:" << dlerror() << endl
+        qCritical() << "dlsym failed:" << dlerror() << Qt::endl
                     << "Could not find main method";
         return false;
     }
@@ -520,6 +525,10 @@ static jboolean startQtApplication(JNIEnv */*env*/, jclass /*clazz*/)
         if (vm != 0)
             vm->AttachCurrentThread(&env, &args);
     }
+
+    // Register resources if they are available
+    if (QFile{QStringLiteral("assets:/android_rcc_bundle.rcc")}.exists())
+        QResource::registerResource(QStringLiteral("assets:/android_rcc_bundle.rcc"));
 
     QVarLengthArray<const char *> params(m_applicationParams.size());
     for (int i = 0; i < m_applicationParams.size(); i++)
@@ -590,6 +599,8 @@ static void terminateQt(JNIEnv *env, jclass /*clazz*/)
         env->DeleteGlobalRef(m_RGB_565_BitmapConfigValue);
     if (m_bitmapDrawableClass)
         env->DeleteGlobalRef(m_bitmapDrawableClass);
+    if (m_assets)
+        env->DeleteGlobalRef(m_assets);
     m_androidPlatformIntegration = nullptr;
     delete m_androidAssetsFileEngineHandler;
     m_androidAssetsFileEngineHandler = nullptr;
@@ -842,7 +853,8 @@ static int registerNatives(JNIEnv *env)
     if (object) {
         FIND_AND_CHECK_CLASS("android/content/ContextWrapper");
         GET_AND_CHECK_METHOD(methodID, clazz, "getAssets", "()Landroid/content/res/AssetManager;");
-        m_assetManager = AAssetManager_fromJava(env, env->CallObjectMethod(object, methodID));
+        m_assets = env->NewGlobalRef(env->CallObjectMethod(object, methodID));
+        m_assetManager = AAssetManager_fromJava(env, m_assets);
 
         GET_AND_CHECK_METHOD(methodID, clazz, "getResources", "()Landroid/content/res/Resources;");
         m_resourcesObj = env->NewGlobalRef(env->CallObjectMethod(object, methodID));
@@ -888,7 +900,7 @@ Q_DECL_EXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void */*reserved*/)
     uenv.venv = nullptr;
     m_javaVM = nullptr;
 
-    if (vm->GetEnv(&uenv.venv, JNI_VERSION_1_4) != JNI_OK) {
+    if (vm->GetEnv(&uenv.venv, JNI_VERSION_1_6) != JNI_OK) {
         __android_log_print(ANDROID_LOG_FATAL, "Qt", "GetEnv failed");
         return -1;
     }
@@ -910,5 +922,5 @@ Q_DECL_EXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void */*reserved*/)
     if (threadSetter.thread())
         threadSetter.thread()->setObjectName("QtMainLoopThread");
     __android_log_print(ANDROID_LOG_INFO, "Qt", "qt started");
-    return JNI_VERSION_1_4;
+    return JNI_VERSION_1_6;
 }

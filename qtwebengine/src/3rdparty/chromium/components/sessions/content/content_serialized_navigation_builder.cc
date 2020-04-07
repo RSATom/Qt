@@ -8,6 +8,7 @@
 #include "components/sessions/content/content_record_password_state.h"
 #include "components/sessions/content/content_serialized_navigation_driver.h"
 #include "components/sessions/content/extended_info_handler.h"
+#include "components/sessions/content/navigation_task_id.h"
 #include "components/sessions/core/serialized_navigation_entry.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/favicon_status.h"
@@ -64,6 +65,10 @@ ContentSerializedNavigationBuilder::FromNavigationEntry(
   navigation.replaced_entry_data_ =
       ConvertReplacedEntryData(entry->GetReplacedEntryData());
   navigation.password_state_ = GetPasswordStateFromNavigation(entry);
+  navigation.task_id_ = NavigationTaskId::Get(entry)->id();
+  navigation.parent_task_id_ = NavigationTaskId::Get(entry)->parent_id();
+  navigation.root_task_id_ = NavigationTaskId::Get(entry)->root_id();
+  navigation.children_task_ids_ = NavigationTaskId::Get(entry)->children_ids();
 
   for (const auto& handler_entry :
        ContentSerializedNavigationDriver::GetInstance()
@@ -83,6 +88,10 @@ std::unique_ptr<content::NavigationEntry>
 ContentSerializedNavigationBuilder::ToNavigationEntry(
     const SerializedNavigationEntry* navigation,
     content::BrowserContext* browser_context) {
+  // TODO(lukasza): https://crbug.com/976055: |initiator_origin| should be
+  // persisted across session restore.
+  base::Optional<url::Origin> initiator_origin = base::nullopt;
+
   network::mojom::ReferrerPolicy policy =
       static_cast<network::mojom::ReferrerPolicy>(navigation->referrer_policy_);
   std::unique_ptr<content::NavigationEntry> entry(
@@ -91,6 +100,7 @@ ContentSerializedNavigationBuilder::ToNavigationEntry(
           content::Referrer::SanitizeForRequest(
               navigation->virtual_url_,
               content::Referrer(navigation->referrer_url_, policy)),
+          initiator_origin,
           // Use a transition type of reload so that we don't incorrectly
           // increase the typed count.
           ui::PAGE_TRANSITION_RELOAD, false,
@@ -108,6 +118,11 @@ ContentSerializedNavigationBuilder::ToNavigationEntry(
   entry->SetTimestamp(navigation->timestamp_);
   entry->SetHttpStatusCode(navigation->http_status_code_);
   entry->SetRedirectChain(navigation->redirect_chain_);
+  sessions::NavigationTaskId* navigation_task_id =
+      sessions::NavigationTaskId::Get(entry.get());
+  navigation_task_id->set_id(navigation->task_id());
+  navigation_task_id->set_parent_id(navigation->parent_task_id());
+  navigation_task_id->set_root_id(navigation->root_task_id());
 
   const ContentSerializedNavigationDriver::ExtendedInfoHandlerMap&
       extended_info_handlers = ContentSerializedNavigationDriver::GetInstance()

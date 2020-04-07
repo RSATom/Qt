@@ -70,6 +70,7 @@ class BLINK_PLATFORM_EXPORT WebData {
   void Reset();
   void Assign(const WebData&);
   void Assign(const char* data, size_t size);
+  void Append(const char* data, size_t size);
 
   size_t size() const;
 
@@ -80,7 +81,7 @@ class BLINK_PLATFORM_EXPORT WebData {
   // Same as SharedBuffer::CopyAs, copies the segmented data into a
   // contiguous buffer.  Use GetSomeData() or ForEachSegment() whenever
   // possible, if a copy can be avoided.
-  WebVector<char> Copy() const;
+  WebVector<uint8_t> Copy() const;
 
   // Helper for applying a lambda to all data segments, sequentially:
   //

@@ -168,6 +168,8 @@ TEST_F(RuntimeHooksDelegateTest, GetURL) {
   get_url("''", extension()->url());
   get_url("'foo'", extension()->GetResourceURL("foo"));
   get_url("'/foo'", extension()->GetResourceURL("foo"));
+  get_url("'https://www.google.com'",
+          GURL(extension()->url().spec() + "https://www.google.com"));
 }
 
 TEST_F(RuntimeHooksDelegateTest, Connect) {
@@ -253,15 +255,12 @@ TEST_F(RuntimeHooksDelegateTest, SendMessage) {
   tester.TestSendMessage("null, {data: 'hello'}, function() {}",
                          kStandardMessage, self_target, false,
                          SendMessageTester::OPEN);
-  tester.TestSendMessage("null, 'test', function() {}",
-                         R"("test")", self_target, false,
-                         SendMessageTester::OPEN);
-  tester.TestSendMessage("null, 'test'",
-                         R"("test")", self_target, false,
+  tester.TestSendMessage("null, 'test', function() {}", R"("test")",
+                         self_target, false, SendMessageTester::OPEN);
+  tester.TestSendMessage("null, 'test'", R"("test")", self_target, false,
                          SendMessageTester::CLOSED);
-  tester.TestSendMessage("undefined, 'test', function() {}",
-                         R"("test")", self_target, false,
-                         SendMessageTester::OPEN);
+  tester.TestSendMessage("undefined, 'test', function() {}", R"("test")",
+                         self_target, false, SendMessageTester::OPEN);
 
   // Funny case. The only required argument is `message`, which can be any type.
   // This means that if an extension provides a <string, object> pair for the
@@ -431,15 +430,14 @@ TEST_F(RuntimeHooksDelegateNativeMessagingTest, SendNativeMessage) {
                                        expected_target, kEmptyExpectedChannel,
                                        kExpectedIncludeTlsChannelId));
     Message message(expected_message, false);
-    EXPECT_CALL(
-        *ipc_message_sender(),
-        SendPostMessageToPort(MSG_ROUTING_NONE, expected_port_id, message));
+    EXPECT_CALL(*ipc_message_sender(),
+                SendPostMessageToPort(expected_port_id, message));
     // Note: we don't close native message ports immediately. See comment in
     // OneTimeMessageSender.
     // if (expected_port_status == CLOSED) {
     //   EXPECT_CALL(
     //       *ipc_message_sender(),
-    //       SendCloseMessagePort(MSG_ROUTING_NONE, expected_port_id, true));
+    //       SendCloseMessagePort(expected_port_id, true));
     // }
     v8::Local<v8::Function> send_message = FunctionFromString(
         context, base::StringPrintf(kSendMessageTemplate, args));

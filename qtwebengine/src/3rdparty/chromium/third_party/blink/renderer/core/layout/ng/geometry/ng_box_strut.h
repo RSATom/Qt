@@ -5,15 +5,17 @@
 #ifndef NGBoxStrut_h
 #define NGBoxStrut_h
 
+#include <utility>
+
 #include "third_party/blink/renderer/core/core_export.h"
-#include "third_party/blink/renderer/core/layout/ng/geometry/ng_logical_offset.h"
+#include "third_party/blink/renderer/core/layout/geometry/logical_offset.h"
+#include "third_party/blink/renderer/platform/geometry/layout_rect_outsets.h"
 #include "third_party/blink/renderer/platform/geometry/layout_unit.h"
 #include "third_party/blink/renderer/platform/text/text_direction.h"
 #include "third_party/blink/renderer/platform/text/writing_mode.h"
 
 namespace blink {
 
-class LayoutRectOutsets;
 struct NGLineBoxStrut;
 struct NGPhysicalBoxStrut;
 
@@ -41,11 +43,11 @@ struct CORE_EXPORT NGBoxStrut {
   LayoutUnit InlineSum() const { return inline_start + inline_end; }
   LayoutUnit BlockSum() const { return block_start + block_end; }
 
-  NGLogicalOffset StartOffset() const { return {inline_start, block_start}; }
+  LogicalOffset StartOffset() const { return {inline_start, block_start}; }
 
   bool IsEmpty() const { return *this == NGBoxStrut(); }
 
-  NGPhysicalBoxStrut ConvertToPhysical(WritingMode, TextDirection) const;
+  inline NGPhysicalBoxStrut ConvertToPhysical(WritingMode, TextDirection) const;
 
   // The following two operators exist primarily to have an easy way to access
   // the sum of border and padding.
@@ -154,7 +156,28 @@ struct CORE_EXPORT NGPhysicalBoxStrut {
 
   // Converts physical dimensions to logical ones per
   // https://drafts.csswg.org/css-writing-modes-3/#logical-to-physical
-  NGBoxStrut ConvertToLogical(WritingMode, TextDirection) const;
+  NGBoxStrut ConvertToLogical(WritingMode writing_mode,
+                              TextDirection direction) const {
+    NGBoxStrut strut;
+    switch (writing_mode) {
+      case WritingMode::kHorizontalTb:
+        strut = {left, right, top, bottom};
+        break;
+      case WritingMode::kVerticalRl:
+      case WritingMode::kSidewaysRl:
+        strut = {top, bottom, right, left};
+        break;
+      case WritingMode::kVerticalLr:
+        strut = {top, bottom, left, right};
+        break;
+      case WritingMode::kSidewaysLr:
+        strut = {bottom, top, left, right};
+        break;
+    }
+    if (direction == TextDirection::kRtl)
+      std::swap(strut.inline_start, strut.inline_end);
+    return strut;
+  }
 
   // Converts physical dimensions to line-relative logical ones per
   // https://drafts.csswg.org/css-writing-modes-3/#line-directions
@@ -172,13 +195,49 @@ struct CORE_EXPORT NGPhysicalBoxStrut {
   LayoutUnit HorizontalSum() const { return left + right; }
   LayoutUnit VerticalSum() const { return top + bottom; }
 
-  LayoutRectOutsets ToLayoutRectOutsets() const;
+  LayoutRectOutsets ToLayoutRectOutsets() const {
+    return LayoutRectOutsets(top, right, bottom, left);
+  }
+
+  bool operator==(const NGPhysicalBoxStrut& other) const {
+    return top == other.top && right == other.right && bottom == other.bottom &&
+           left == other.left;
+  }
+
+  bool IsZero() const { return !top && !right && !bottom && !left; }
 
   LayoutUnit top;
   LayoutUnit right;
   LayoutUnit bottom;
   LayoutUnit left;
 };
+
+inline NGPhysicalBoxStrut NGBoxStrut::ConvertToPhysical(
+    WritingMode writing_mode,
+    TextDirection direction) const {
+  LayoutUnit direction_start = inline_start;
+  LayoutUnit direction_end = inline_end;
+  if (direction == TextDirection::kRtl)
+    std::swap(direction_start, direction_end);
+  switch (writing_mode) {
+    case WritingMode::kHorizontalTb:
+      return NGPhysicalBoxStrut(block_start, direction_end, block_end,
+                                direction_start);
+    case WritingMode::kVerticalRl:
+    case WritingMode::kSidewaysRl:
+      return NGPhysicalBoxStrut(direction_start, block_start, direction_end,
+                                block_end);
+    case WritingMode::kVerticalLr:
+      return NGPhysicalBoxStrut(direction_start, block_end, direction_end,
+                                block_start);
+    case WritingMode::kSidewaysLr:
+      return NGPhysicalBoxStrut(direction_end, block_end, direction_start,
+                                block_start);
+    default:
+      NOTREACHED();
+      return NGPhysicalBoxStrut();
+  }
+}
 
 }  // namespace blink
 

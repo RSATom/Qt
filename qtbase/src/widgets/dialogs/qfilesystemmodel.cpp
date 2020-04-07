@@ -57,6 +57,9 @@
 #ifdef Q_OS_WIN
 #  include <QtCore/QVarLengthArray>
 #  include <qt_windows.h>
+#  ifndef Q_OS_WINRT
+#      include <shlobj.h>
+#  endif
 #endif
 
 QT_BEGIN_NAMESPACE
@@ -227,11 +230,9 @@ bool QFileSystemModel::remove(const QModelIndex &aindex)
 /*!
   Constructs a file system model with the given \a parent.
 */
-QFileSystemModel::QFileSystemModel(QObject *parent)
-    : QAbstractItemModel(*new QFileSystemModelPrivate, parent)
+QFileSystemModel::QFileSystemModel(QObject *parent) :
+    QFileSystemModel(*new QFileSystemModelPrivate, parent)
 {
-    Q_D(QFileSystemModel);
-    d->init();
 }
 
 /*!
@@ -247,9 +248,7 @@ QFileSystemModel::QFileSystemModel(QFileSystemModelPrivate &dd, QObject *parent)
 /*!
   Destroys this file system model.
 */
-QFileSystemModel::~QFileSystemModel()
-{
-}
+QFileSystemModel::~QFileSystemModel() = default;
 
 /*!
     \reimp
@@ -798,7 +797,7 @@ QString QFileSystemModelPrivate::time(const QModelIndex &index) const
     if (!index.isValid())
         return QString();
 #if QT_CONFIG(datestring)
-    return node(index)->lastModified().toString(Qt::SystemLocaleDate);
+    return QLocale::system().toString(node(index)->lastModified(), QLocale::ShortFormat);
 #else
     Q_UNUSED(index);
     return QString();
@@ -841,8 +840,8 @@ QString QFileSystemModelPrivate::displayName(const QModelIndex &index) const
 {
 #if defined(Q_OS_WIN)
     QFileSystemNode *dirNode = node(index);
-    if (!dirNode->volumeName.isNull())
-        return dirNode->volumeName + QLatin1String(" (") + name(index) + QLatin1Char(')');
+    if (!dirNode->volumeName.isEmpty())
+        return dirNode->volumeName;
 #endif
     return name(index);
 }
@@ -1215,7 +1214,8 @@ QMimeData *QFileSystemModel::mimeData(const QModelIndexList &indexes) const
 /*!
     Handles the \a data supplied by a drag and drop operation that ended with
     the given \a action over the row in the model specified by the \a row and
-    \a column and by the \a parent index.
+    \a column and by the \a parent index. Returns true if the operation was
+    successful.
 
     \sa supportedDropActions()
 */
@@ -1265,6 +1265,107 @@ bool QFileSystemModel::dropMimeData(const QMimeData *data, Qt::DropAction action
 Qt::DropActions QFileSystemModel::supportedDropActions() const
 {
     return Qt::CopyAction | Qt::MoveAction | Qt::LinkAction;
+}
+
+/*!
+    \enum QFileSystemModel::Option
+    \since 5.14
+
+    \value DontWatchForChanges Do not add file watchers to the paths.
+    This reduces overhead when using the model for simple tasks
+    like line edit completion.
+
+    \value DontResolveSymlinks Don't resolve symlinks in the file
+    system model. By default, symlinks are resolved.
+
+    \value DontUseCustomDirectoryIcons Always use the default directory icon.
+    Some platforms allow the user to set a different icon. Custom icon lookup
+    causes a big performance impact over network or removable drives.
+    This sets the QFileIconProvider::DontUseCustomDirectoryIcons
+    option in the icon provider accordingly.
+
+    \sa resolveSymlinks
+*/
+
+/*!
+    \since 5.14
+    Sets the given \a option to be enabled if \a on is true; otherwise,
+    clears the given \a option.
+
+    Options should be set before changing properties.
+
+    \sa options, testOption()
+*/
+void QFileSystemModel::setOption(Option option, bool on)
+{
+    QFileSystemModel::Options previousOptions = options();
+    setOptions(previousOptions.setFlag(option, on));
+}
+
+/*!
+    \since 5.14
+
+    Returns \c true if the given \a option is enabled; otherwise, returns
+    false.
+
+    \sa options, setOption()
+*/
+bool QFileSystemModel::testOption(Option option) const
+{
+    return options().testFlag(option);
+}
+
+/*!
+    \property QFileSystemModel::options
+    \brief the various options that affect the model
+    \since 5.14
+
+    By default, all options are disabled.
+
+    Options should be set before changing properties.
+
+    \sa setOption(), testOption()
+*/
+void QFileSystemModel::setOptions(Options options)
+{
+    const Options changed = (options ^ QFileSystemModel::options());
+
+    if (changed.testFlag(DontResolveSymlinks))
+        setResolveSymlinks(!options.testFlag(DontResolveSymlinks));
+
+#if QT_CONFIG(filesystemwatcher)
+    Q_D(QFileSystemModel);
+    if (changed.testFlag(DontWatchForChanges))
+        d->fileInfoGatherer.setWatching(!options.testFlag(DontWatchForChanges));
+#endif
+
+    if (changed.testFlag(DontUseCustomDirectoryIcons)) {
+        if (auto provider = iconProvider()) {
+            QFileIconProvider::Options providerOptions = provider->options();
+            providerOptions.setFlag(QFileIconProvider::DontUseCustomDirectoryIcons,
+                                    options.testFlag(QFileSystemModel::DontUseCustomDirectoryIcons));
+            provider->setOptions(providerOptions);
+        } else {
+            qWarning("Setting QFileSystemModel::DontUseCustomDirectoryIcons has no effect when no provider is used");
+        }
+    }
+}
+
+QFileSystemModel::Options QFileSystemModel::options() const
+{
+    QFileSystemModel::Options result;
+    result.setFlag(DontResolveSymlinks, !resolveSymlinks());
+#if QT_CONFIG(filesystemwatcher)
+    Q_D(const QFileSystemModel);
+    result.setFlag(DontWatchForChanges, !d->fileInfoGatherer.isWatching());
+#else
+    result.setFlag(DontWatchForChanges);
+#endif
+    if (auto provider = iconProvider()) {
+        result.setFlag(DontUseCustomDirectoryIcons,
+                       provider->options().testFlag(QFileIconProvider::DontUseCustomDirectoryIcons));
+    }
+    return result;
 }
 
 /*!
@@ -1390,7 +1491,7 @@ QModelIndex QFileSystemModel::setRootPath(const QString &newPath)
     if (d->rootDir.path() == longNewPath)
         return d->index(rootPath());
 
-    bool showDrives = (longNewPath.isEmpty() || longNewPath == d->myComputer());
+    bool showDrives = (longNewPath.isEmpty() || longNewPath == QFileSystemModelPrivate::myComputer());
     if (!showDrives && !newPathDir.exists())
         return d->index(rootPath());
 
@@ -1513,6 +1614,8 @@ QDir::Filters QFileSystemModel::filter() const
     This is only relevant on Windows.
 
     By default, this property is \c true.
+
+    \sa QFileSystemModel::Options
 */
 void QFileSystemModel::setResolveSymlinks(bool enable)
 {
@@ -1674,6 +1777,27 @@ void QFileSystemModelPrivate::_q_directoryChanged(const QString &directory, cons
         removeNode(parentNode, toRemove[i]);
 }
 
+#if defined(Q_OS_WIN) && !defined(Q_OS_WINRT)
+static QString volumeName(const QString &path)
+{
+    IShellItem *item = nullptr;
+    const QString native = QDir::toNativeSeparators(path);
+    HRESULT hr = SHCreateItemFromParsingName(reinterpret_cast<const wchar_t *>(native.utf16()),
+                                             nullptr, IID_IShellItem,
+                                             reinterpret_cast<void **>(&item));
+    if (FAILED(hr))
+        return QString();
+    LPWSTR name = nullptr;
+    hr = item->GetDisplayName(SIGDN_NORMALDISPLAY, &name);
+    if (FAILED(hr))
+        return QString();
+    QString result = QString::fromWCharArray(name);
+    CoTaskMemFree(name);
+    item->Release();
+    return result;
+}
+#endif // Q_OS_WIN && !Q_OS_WINRT
+
 /*!
     \internal
 
@@ -1692,15 +1816,8 @@ QFileSystemModelPrivate::QFileSystemNode* QFileSystemModelPrivate::addNode(QFile
 #endif
 #if defined(Q_OS_WIN) && !defined(Q_OS_WINRT)
     //The parentNode is "" so we are listing the drives
-    if (parentNode->fileName.isEmpty()) {
-        wchar_t name[MAX_PATH + 1];
-        //GetVolumeInformation requires to add trailing backslash
-        const QString nodeName = fileName + QLatin1String("\\");
-        BOOL success = ::GetVolumeInformation((wchar_t *)(nodeName.utf16()),
-                name, MAX_PATH + 1, NULL, 0, NULL, NULL, 0);
-        if (success && name[0])
-            node->volumeName = QString::fromWCharArray(name);
-    }
+    if (parentNode->fileName.isEmpty())
+        node->volumeName = volumeName(fileName);
 #endif
     Q_ASSERT(!parentNode->children.contains(fileName));
     parentNode->children.insert(fileName, node);
@@ -1847,8 +1964,7 @@ void QFileSystemModelPrivate::_q_fileSystemChanged(const QString &path, const QV
     std::sort(rowsToUpdate.begin(), rowsToUpdate.end());
     QString min;
     QString max;
-    for (int i = 0; i < rowsToUpdate.count(); ++i) {
-        QString value = rowsToUpdate.at(i);
+    for (const QString &value : qAsConst(rowsToUpdate)) {
         //##TODO is there a way to bundle signals with QString as the content of the list?
         /*if (min.isEmpty()) {
             min = value;
@@ -1946,6 +2062,9 @@ QStringList QFileSystemModelPrivate::unwatchPathsAt(const QModelIndex &index)
 void QFileSystemModelPrivate::init()
 {
     Q_Q(QFileSystemModel);
+
+    delayedSortTimer.setSingleShot(true);
+
     qRegisterMetaType<QVector<QPair<QString,QFileInfo> > >();
 #if QT_CONFIG(filesystemwatcher)
     q->connect(&fileInfoGatherer, SIGNAL(newListOfFiles(QString,QStringList)),

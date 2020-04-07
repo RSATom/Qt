@@ -61,14 +61,14 @@ inline bool operator==(const QWindowsPixmapCursorCacheKey &k1, const QWindowsPix
     return k1.bitmapCacheKey == k2.bitmapCacheKey && k1.maskCacheKey == k2.maskCacheKey;
 }
 
-inline uint qHash(const QWindowsPixmapCursorCacheKey &k, uint seed) Q_DECL_NOTHROW
+inline uint qHash(const QWindowsPixmapCursorCacheKey &k, uint seed) noexcept
 {
     return (uint(k.bitmapCacheKey) + uint(k.maskCacheKey)) ^ seed;
 }
 
 class CursorHandle
 {
-    Q_DISABLE_COPY(CursorHandle)
+    Q_DISABLE_COPY_MOVE(CursorHandle)
 public:
     explicit CursorHandle(HCURSOR hcursor = nullptr) : m_hcursor(hcursor) {}
     ~CursorHandle()
@@ -84,7 +84,7 @@ private:
     const HCURSOR m_hcursor;
 };
 
-typedef QSharedPointer<CursorHandle> CursorHandlePtr;
+using CursorHandlePtr = QSharedPointer<CursorHandle>;
 
 class QWindowsCursor : public QPlatformCursor
 {
@@ -112,6 +112,8 @@ public:
 
     QPoint pos() const override;
     void setPos(const QPoint &pos) override;
+
+    QSize size() const override;
 
     static HCURSOR createPixmapCursor(QPixmap pixmap, const QPoint &hotSpot, qreal scaleFactor = 1);
     static HCURSOR createPixmapCursor(const PixmapCursor &pc, qreal scaleFactor = 1) { return createPixmapCursor(pc.pixmap, pc.hotSpot, scaleFactor); }

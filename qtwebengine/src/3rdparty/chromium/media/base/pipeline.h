@@ -20,7 +20,7 @@
 #include "media/base/ranges.h"
 #include "media/base/text_track.h"
 #include "media/base/video_decoder_config.h"
-#include "media/base/video_rotation.h"
+#include "media/base/video_transformation.h"
 #include "media/base/waiting.h"
 #include "ui/gfx/geometry/size.h"
 
@@ -45,11 +45,12 @@ class MEDIA_EXPORT Pipeline {
     // Executed when the content duration, container video size, start time,
     // and whether the content has audio and/or video in supported formats are
     // known.
-    virtual void OnMetadata(PipelineMetadata metadata) = 0;
+    virtual void OnMetadata(const PipelineMetadata& metadata) = 0;
 
     // Executed whenever there are changes in the buffering state of the
-    // pipeline.
-    virtual void OnBufferingStateChange(BufferingState state) = 0;
+    // pipeline. |reason| indicates the cause of the state change, when known.
+    virtual void OnBufferingStateChange(BufferingState state,
+                                        BufferingStateChangeReason reason) = 0;
 
     // Executed whenever the presentation duration changes.
     virtual void OnDurationChange() = 0;
@@ -78,14 +79,8 @@ class MEDIA_EXPORT Pipeline {
 
     // Executed whenever the underlying AudioDecoder or VideoDecoder changes
     // during playback.
-    virtual void OnAudioDecoderChange(const std::string& name) = 0;
-    virtual void OnVideoDecoderChange(const std::string& name) = 0;
-
-    // Executed whenever an important status change has happened, and that this
-    // change was not initiated by Pipeline or Pipeline::Client.
-    // Only used with FlingingRenderer, when an external device pauses/resumes
-    // a video that is playing remotely.
-    virtual void OnRemotePlayStateChange(MediaStatus::State state) = 0;
+    virtual void OnAudioDecoderChange(const PipelineDecoderInfo& info) = 0;
+    virtual void OnVideoDecoderChange(const PipelineDecoderInfo& info) = 0;
   };
 
   virtual ~Pipeline() {}

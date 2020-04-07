@@ -5,9 +5,12 @@
 #include "components/viz/common/gpu/vulkan_in_process_context_provider.h"
 #include "gpu/vulkan/buildflags.h"
 #include "gpu/vulkan/vulkan_device_queue.h"
+#include "gpu/vulkan/vulkan_fence_helper.h"
 #include "gpu/vulkan/vulkan_function_pointers.h"
 #include "gpu/vulkan/vulkan_implementation.h"
+#include "gpu/vulkan/vulkan_instance.h"
 #include "third_party/skia/include/gpu/GrContext.h"
+#include "third_party/skia/include/gpu/vk/GrVkExtensions.h"
 
 namespace viz {
 
@@ -32,59 +35,87 @@ GrVkGetProc make_unified_getter(const PFN_vkGetInstanceProcAddr& iproc,
   };
 }
 
+VulkanInProcessContextProvider::VulkanInProcessContextProvider(
+    gpu::VulkanImplementation* vulkan_implementation)
+    : vulkan_implementation_(vulkan_implementation) {}
+
+VulkanInProcessContextProvider::~VulkanInProcessContextProvider() {
+  Destroy();
+}
+
 bool VulkanInProcessContextProvider::Initialize() {
   DCHECK(!device_queue_);
+  const gfx::ExtensionSet& extensions =
+      vulkan_implementation_->GetVulkanInstance()->enabled_extensions();
+  bool support_surface =
+      gfx::HasExtension(extensions, VK_KHR_SURFACE_EXTENSION_NAME);
+  uint32_t flags = gpu::VulkanDeviceQueue::GRAPHICS_QUEUE_FLAG;
+  if (support_surface)
+    flags |= gpu::VulkanDeviceQueue::PRESENTATION_SUPPORT_QUEUE_FLAG;
   std::unique_ptr<gpu::VulkanDeviceQueue> device_queue =
-      gpu::CreateVulkanDeviceQueue(
-          vulkan_implementation_,
-          gpu::VulkanDeviceQueue::GRAPHICS_QUEUE_FLAG |
-              gpu::VulkanDeviceQueue::PRESENTATION_SUPPORT_QUEUE_FLAG);
-  if (!device_queue) {
+      gpu::CreateVulkanDeviceQueue(vulkan_implementation_, flags);
+  if (!device_queue)
     return false;
-  }
-
   device_queue_ = std::move(device_queue);
+
   GrVkBackendContext backend_context;
   backend_context.fInstance = device_queue_->GetVulkanInstance();
   backend_context.fPhysicalDevice = device_queue_->GetVulkanPhysicalDevice();
   backend_context.fDevice = device_queue_->GetVulkanDevice();
   backend_context.fQueue = device_queue_->GetVulkanQueue();
   backend_context.fGraphicsQueueIndex = device_queue_->GetVulkanQueueIndex();
-
-  // gpu::VulkanInstance always initializes apiVersion=1.1.
-  // TODO(sergeyu): Extend VulkanImplementation interface to provide apiVersion
-  // and list of enabled extensions instead of hardcoding them here.
-  backend_context.fInstanceVersion = VK_MAKE_VERSION(1, 1, 0);
-  backend_context.fExtensions =
-      kEXT_debug_report_GrVkExtensionFlag | kKHR_surface_GrVkExtensionFlag |
-      kKHR_swapchain_GrVkExtensionFlag | kKHR_xcb_surface_GrVkExtensionFlag;
-  backend_context.fFeatures = kGeometryShader_GrVkFeatureFlag |
-                              kDualSrcBlend_GrVkFeatureFlag |
-                              kSampleRateShading_GrVkFeatureFlag;
+  backend_context.fMaxAPIVersion =
+      vulkan_implementation_->GetVulkanInstance()->api_version();
 
   gpu::VulkanFunctionPointers* vulkan_function_pointers =
       gpu::GetVulkanFunctionPointers();
-  backend_context.fGetProc =
+  GrVkGetProc get_proc =
       make_unified_getter(vulkan_function_pointers->vkGetInstanceProcAddrFn,
                           vulkan_function_pointers->vkGetDeviceProcAddrFn);
-  backend_context.fOwnsInstanceAndDevice = false;
+
+  std::vector<const char*> instance_extensions;
+  std::vector<const char*> device_extensions;
+  instance_extensions.reserve(extensions.size());
+  for (const auto& extension : extensions)
+    instance_extensions.push_back(extension.data());
+  device_extensions.reserve(device_queue_->enabled_extensions().size());
+  for (const auto& extension : device_queue_->enabled_extensions())
+    device_extensions.push_back(extension.data());
+  GrVkExtensions gr_extensions;
+  gr_extensions.init(get_proc,
+                     vulkan_implementation_->GetVulkanInstance()->vk_instance(),
+                     device_queue_->GetVulkanPhysicalDevice(),
+                     instance_extensions.size(), instance_extensions.data(),
+                     device_extensions.size(), device_extensions.data());
+  backend_context.fVkExtensions = &gr_extensions;
+  backend_context.fDeviceFeatures2 =
+      &device_queue_->enabled_device_features_2();
+  backend_context.fGetProc = get_proc;
+
   gr_context_ = GrContext::MakeVulkan(backend_context);
 
   return gr_context_ != nullptr;
 }
 
 void VulkanInProcessContextProvider::Destroy() {
-  if (gr_context_)
+  if (device_queue_) {
+    // Destroy |fence_helper| will wait idle on the device queue, and then run
+    // all enqueued cleanup tasks.
+    auto* fence_helper = device_queue_->GetFenceHelper();
+    fence_helper->Destroy();
+  }
+
+  if (gr_context_) {
+    // releaseResourcesAndAbandonContext() will wait on GPU to finish all works,
+    // execute pending flush done callbacks and release all resources.
+    gr_context_->releaseResourcesAndAbandonContext();
     gr_context_.reset();
+  }
 
   if (device_queue_) {
     device_queue_->Destroy();
     device_queue_.reset();
   }
-}
-
-GrContext* VulkanInProcessContextProvider::GetGrContext() {
-  return gr_context_.get();
 }
 
 gpu::VulkanImplementation*
@@ -96,12 +127,23 @@ gpu::VulkanDeviceQueue* VulkanInProcessContextProvider::GetDeviceQueue() {
   return device_queue_.get();
 }
 
-VulkanInProcessContextProvider::VulkanInProcessContextProvider(
-    gpu::VulkanImplementation* vulkan_implementation)
-    : vulkan_implementation_(vulkan_implementation) {}
+GrContext* VulkanInProcessContextProvider::GetGrContext() {
+  return gr_context_.get();
+}
 
-VulkanInProcessContextProvider::~VulkanInProcessContextProvider() {
-  Destroy();
+GrVkSecondaryCBDrawContext*
+VulkanInProcessContextProvider::GetGrSecondaryCBDrawContext() {
+  return nullptr;
+}
+
+void VulkanInProcessContextProvider::EnqueueSecondaryCBSemaphores(
+    std::vector<VkSemaphore> semaphores) {
+  NOTREACHED();
+}
+
+void VulkanInProcessContextProvider::EnqueueSecondaryCBPostSubmitTask(
+    base::OnceClosure closure) {
+  NOTREACHED();
 }
 
 }  // namespace viz

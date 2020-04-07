@@ -30,15 +30,13 @@ std::unique_ptr<CPWL_Wnd> CFFL_RadioButton::NewPWLWindow(
   return std::move(pWnd);
 }
 
-bool CFFL_RadioButton::OnKeyDown(CPDFSDK_Annot* pAnnot,
-                                 uint32_t nKeyCode,
-                                 uint32_t nFlags) {
+bool CFFL_RadioButton::OnKeyDown(uint32_t nKeyCode, uint32_t nFlags) {
   switch (nKeyCode) {
     case FWL_VKEY_Return:
     case FWL_VKEY_Space:
       return true;
     default:
-      return CFFL_FormFiller::OnKeyDown(pAnnot, nKeyCode, nFlags);
+      return CFFL_FormFiller::OnKeyDown(nKeyCode, nFlags);
   }
 }
 
@@ -51,7 +49,7 @@ bool CFFL_RadioButton::OnChar(CPDFSDK_Annot* pAnnot,
       CPDFSDK_PageView* pPageView = pAnnot->GetPageView();
       ASSERT(pPageView);
 
-      CPDFSDK_Annot::ObservedPtr pObserved(m_pWidget.Get());
+      ObservedPtr<CPDFSDK_Annot> pObserved(m_pWidget.Get());
       if (m_pFormFillEnv->GetInteractiveFormFiller()->OnButtonUp(
               &pObserved, pPageView, nFlags) ||
           !pObserved) {
@@ -105,8 +103,8 @@ void CFFL_RadioButton::SaveData(CPDFSDK_PageView* pPageView) {
       }
     }
   }
-  CPDFSDK_Widget::ObservedPtr observed_widget(m_pWidget.Get());
-  CFFL_RadioButton::ObservedPtr observed_this(this);
+  ObservedPtr<CPDFSDK_Widget> observed_widget(m_pWidget.Get());
+  ObservedPtr<CFFL_RadioButton> observed_this(this);
   m_pWidget->SetCheck(bNewChecked, NotificationOption::kDoNotNotify);
   if (!observed_widget)
     return;

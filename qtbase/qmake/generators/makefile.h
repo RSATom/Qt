@@ -54,11 +54,11 @@ struct ReplaceExtraCompilerCacheKey;
 class MakefileGenerator : protected QMakeSourceFileInfo
 {
     QString spec;
-    bool no_io;
+    bool no_io = false;
     bool resolveDependenciesInFrameworks = false;
     QHash<QString, bool> init_compiler_already;
     QString makedir, chkexists;
-    QString build_args();
+    QString fullBuildArgs();
 
     //internal caches
     mutable QHash<QString, QMakeLocalFileName> depHeuristicsCache;
@@ -84,10 +84,14 @@ protected:
     void writeExtraVariables(QTextStream &t);
     void writeExtraTargets(QTextStream &t);
     QString resolveDependency(const QDir &outDir, const QString &file);
+    void callExtraCompilerDependCommand(const ProString &extraCompiler, const QString &dep_cd_cmd,
+                                        const QString &tmp_dep_cmd, const QString &inpf,
+                                        const QString &tmp_out, bool dep_lines, QStringList *deps,
+                                        bool existingDepsOnly,
+                                        bool checkCommandAvailability = false);
     void writeExtraCompilerTargets(QTextStream &t);
     void writeExtraCompilerVariables(QTextStream &t);
     bool writeDummyMakefile(QTextStream &t);
-    virtual bool writeStubMakefile(QTextStream &t);
     virtual bool writeMakefile(QTextStream &t);
     virtual void writeDefaultVariables(QTextStream &t);
 
@@ -131,7 +135,7 @@ protected:
     QMakeLocalFileName fixPathForFile(const QMakeLocalFileName &, bool) override;
     QMakeLocalFileName findFileForDep(const QMakeLocalFileName &, const QMakeLocalFileName &) override;
     QFileInfo findFileInfo(const QMakeLocalFileName &) override;
-    QMakeProject *project;
+    QMakeProject *project = nullptr;
 
     //escape
     virtual QString escapeFilePath(const QString &path) const = 0;
@@ -254,10 +258,9 @@ protected:
                                     const QStringRef &fixedBase, int slashOff);
     bool processPrlFileCore(QString &origFile, const QStringRef &origName,
                             const QString &fixedFile);
+    void createResponseFile(const QString &fileName, const ProStringList &objList);
 
 public:
-    MakefileGenerator();
-    ~MakefileGenerator();
     QMakeProject *projectFile() const;
     void setProjectFile(QMakeProject *p);
 
@@ -276,6 +279,7 @@ public:
     virtual bool openOutput(QFile &, const QString &build) const;
     bool isWindowsShell() const { return Option::dir_sep == QLatin1String("\\"); }
     QString shellQuote(const QString &str);
+    virtual ProKey fullTargetVariable() const;
 };
 Q_DECLARE_TYPEINFO(MakefileGenerator::Compiler, Q_MOVABLE_TYPE);
 Q_DECLARE_OPERATORS_FOR_FLAGS(MakefileGenerator::FileFixifyTypes)
@@ -294,9 +298,6 @@ inline QString MakefileGenerator::installRoot() const
 
 inline bool MakefileGenerator::findLibraries(bool, bool)
 { return true; }
-
-inline MakefileGenerator::~MakefileGenerator()
-{ }
 
 struct ReplaceExtraCompilerCacheKey
 {

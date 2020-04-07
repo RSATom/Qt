@@ -225,9 +225,9 @@ class ObjectSafetyImpl : public QAxAggregated,
 {
 public:
 //! [1] //! [2]
-    explicit ObjectSafetyImpl() {}
+    explicit ObjectSafetyImpl() = default;
 
-    long queryInterface(const QUuid &iid, void **iface)
+    long queryInterface(const QUuid &iid, void **iface) override
     {
         *iface = nullptr;
         if (iid == IID_IObjectSafety)
@@ -243,14 +243,14 @@ public:
     QAXAGG_IUNKNOWN;
 
 //! [3] //! [4]
-    HRESULT WINAPI GetInterfaceSafetyOptions(REFIID riid, DWORD *pdwSupportedOptions, DWORD *pdwEnabledOptions)
+    HRESULT WINAPI GetInterfaceSafetyOptions(REFIID riid, DWORD *pdwSupportedOptions, DWORD *pdwEnabledOptions) override
     {
         *pdwSupportedOptions = INTERFACESAFE_FOR_UNTRUSTED_DATA | INTERFACESAFE_FOR_UNTRUSTED_CALLER;
         *pdwEnabledOptions = INTERFACESAFE_FOR_UNTRUSTED_DATA | INTERFACESAFE_FOR_UNTRUSTED_CALLER;
         return S_OK;
     }
 
-    HRESULT WINAPI SetInterfaceSafetyOptions(REFIID riid, DWORD pdwSupportedOptions, DWORD pdwEnabledOptions)
+    HRESULT WINAPI SetInterfaceSafetyOptions(REFIID riid, DWORD pdwSupportedOptions, DWORD pdwEnabledOptions) override
     {
         return S_OK;
     }

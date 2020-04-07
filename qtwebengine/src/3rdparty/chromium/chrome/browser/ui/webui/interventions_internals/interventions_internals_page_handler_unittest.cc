@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "base/base_switches.h"
+#include "base/bind.h"
 #include "base/command_line.h"
 #include "base/macros.h"
 #include "base/metrics/field_trial.h"
@@ -39,6 +40,7 @@
 #include "components/previews/core/previews_switches.h"
 #include "content/public/test/test_browser_thread_bundle.h"
 #include "mojo/public/cpp/bindings/binding.h"
+#include "net/base/features.h"
 #include "net/nqe/effective_connection_type.h"
 #include "net/nqe/network_quality_estimator_params.h"
 #include "services/network/public/cpp/network_switches.h"
@@ -52,8 +54,9 @@ constexpr char kPreviewsAllowedHtmlId[] = "previews-allowed-status";
 constexpr char kOfflinePreviewsHtmlId[] = "offline-preview-status";
 constexpr char kLitePageRedirectHtmlId[] = "lite-page-redirect-status";
 constexpr char kResourceLoadingHintsHtmlId[] = "resource-loading-hints-status";
+constexpr char kDeferAllScriptPreviewsHtmlId[] =
+    "defer-all-script-preview-status";
 constexpr char kNoScriptPreviewsHtmlId[] = "noscript-preview-status";
-constexpr char kClientLoFiPreviewsHtmlId[] = "client-lofi-preview-status";
 
 // Descriptions for previews.
 constexpr char kPreviewsAllowedDescription[] = "Previews Allowed";
@@ -62,14 +65,15 @@ constexpr char kLitePageRedirectDescription[] =
     "Lite Page Redirect / Server Previews";
 constexpr char kResourceLoadingHintsDescription[] =
     "ResourceLoadingHints Previews";
+constexpr char kDeferAllScriptPreviewsDescription[] = "DeferAllScript Previews";
 constexpr char kNoScriptDescription[] = "NoScript Previews";
-constexpr char kClientLoFiDescription[] = "Client LoFi Previews";
 
 // The HTML DOM ID used in Javascript.
 constexpr char kOfflinePageFlagHtmlId[] = "offline-page-flag";
 constexpr char kLitePageRedirectFlagHtmlId[] = "lite-page-redirect-flag";
 constexpr char kResourceLoadingHintsFlagHtmlId[] =
     "resource-loading-hints-flag";
+constexpr char kDeferAllScriptFlagHtmlId[] = "defer-all-script-flag";
 constexpr char kNoScriptFlagHtmlId[] = "noscript-flag";
 constexpr char kEctFlagHtmlId[] = "ect-flag";
 constexpr char kIgnorePreviewsBlacklistFlagHtmlId[] =
@@ -84,6 +88,8 @@ constexpr char kLitePageRedirectFlagLink[] =
     "chrome://flags/#enable-lite-page-server-previews";
 constexpr char kResourceLoadingHintsFlagLink[] =
     "chrome://flags/#enable-resource-loading-hints";
+constexpr char kDeferAllScriptFlagLink[] =
+    "chrome://flags/#enable-defer-all-script";
 constexpr char kNoScriptFlagLink[] = "chrome://flags/#enable-noscript-previews";
 constexpr char kEctFlagLink[] =
     "chrome://flags/#force-effective-connection-type";
@@ -96,6 +102,7 @@ constexpr char kDataSaverAltConfigLink[] =
 constexpr char kOfflinePageFeatureName[] = "OfflinePreviews";
 constexpr char kLitePageRedirectFeatureName[] = "LitePageServerPreviews";
 constexpr char kResourceLoadingHintsFeatureName[] = "ResourceLoadingHints";
+constexpr char kDeferAllScriptFeatureName[] = "DeferAllScriptPreviews";
 constexpr char kNoScriptFeatureName[] = "NoScriptPreviews";
 
 constexpr char kDefaultFlagValue[] = "Default";
@@ -279,21 +286,29 @@ class InterventionsInternalsPageHandlerTest : public testing::Test {
     ASSERT_TRUE(profile_manager_.SetUp());
 
     mojom::InterventionsInternalsPageHandlerPtr page_handler_ptr;
-    handler_request_ = mojo::MakeRequest(&page_handler_ptr);
+
+    mojom::InterventionsInternalsPageHandlerRequest handler_request =
+        mojo::MakeRequest(&page_handler_ptr);
     page_handler_ = std::make_unique<InterventionsInternalsPageHandler>(
-        std::move(handler_request_), previews_ui_service_.get());
+        std::move(handler_request), previews_ui_service_.get(),
+        &test_network_quality_tracker_);
 
     mojom::InterventionsInternalsPagePtr page_ptr;
-    page_request_ = mojo::MakeRequest(&page_ptr);
+    mojom::InterventionsInternalsPageRequest page_request =
+        mojo::MakeRequest(&page_ptr);
     page_ = std::make_unique<TestInterventionsInternalsPage>(
-        std::move(page_request_));
+        std::move(page_request));
 
     page_handler_->SetClientPage(std::move(page_ptr));
 
     scoped_feature_list_ = std::make_unique<base::test::ScopedFeatureList>();
   }
 
-  void TearDown() override { profile_manager_.DeleteAllTestingProfiles(); }
+  void TearDown() override {
+    profile_manager_.DeleteAllTestingProfiles();
+    page_handler_.reset();
+    page_.reset();
+  }
 
   content::TestBrowserThreadBundle thread_bundle_;
 
@@ -305,11 +320,9 @@ class InterventionsInternalsPageHandlerTest : public testing::Test {
   std::unique_ptr<TestPreviewsUIService> previews_ui_service_;
 
   // InterventionsInternalPageHandler's variables.
-  mojom::InterventionsInternalsPageHandlerRequest handler_request_;
   std::unique_ptr<InterventionsInternalsPageHandler> page_handler_;
 
   // InterventionsInternalPage's variables.
-  mojom::InterventionsInternalsPageRequest page_request_;
   std::unique_ptr<TestInterventionsInternalsPage> page_;
 
   std::unique_ptr<base::test::ScopedFeatureList> scoped_feature_list_;
@@ -345,30 +358,6 @@ TEST_F(InterventionsInternalsPageHandlerTest, PreviewsAllowedEnabled) {
   ASSERT_NE(passed_in_modes.end(), previews_allowed);
   EXPECT_EQ(kPreviewsAllowedDescription, previews_allowed->second->description);
   EXPECT_TRUE(previews_allowed->second->enabled);
-}
-
-TEST_F(InterventionsInternalsPageHandlerTest, ClientLoFiDisabled) {
-  // Init with kClientLoFi disabled.
-  scoped_feature_list_->InitWithFeatures({}, {previews::features::kClientLoFi});
-
-  page_handler_->GetPreviewsEnabled(
-      base::BindOnce(&MockGetPreviewsEnabledCallback));
-  auto client_lofi = passed_in_modes.find(kClientLoFiPreviewsHtmlId);
-  ASSERT_NE(passed_in_modes.end(), client_lofi);
-  EXPECT_EQ(kClientLoFiDescription, client_lofi->second->description);
-  EXPECT_FALSE(client_lofi->second->enabled);
-}
-
-TEST_F(InterventionsInternalsPageHandlerTest, ClientLoFiEnabled) {
-  // Init with kClientLoFi enabled.
-  scoped_feature_list_->InitWithFeatures({previews::features::kClientLoFi}, {});
-
-  page_handler_->GetPreviewsEnabled(
-      base::BindOnce(&MockGetPreviewsEnabledCallback));
-  auto client_lofi = passed_in_modes.find(kClientLoFiPreviewsHtmlId);
-  ASSERT_NE(passed_in_modes.end(), client_lofi);
-  EXPECT_EQ(kClientLoFiDescription, client_lofi->second->description);
-  EXPECT_TRUE(client_lofi->second->enabled);
 }
 
 TEST_F(InterventionsInternalsPageHandlerTest, NoScriptDisabled) {
@@ -482,11 +471,39 @@ TEST_F(InterventionsInternalsPageHandlerTest, LitePageRedirectEnabled) {
   EXPECT_TRUE(resource_loading_hints->second->enabled);
 }
 
+TEST_F(InterventionsInternalsPageHandlerTest, DeferAllScriptPreviewsDisabled) {
+  // Init with kDeferAllScriptPreviews disabled.
+  scoped_feature_list_->InitWithFeatures(
+      {}, {previews::features::kDeferAllScriptPreviews});
+
+  page_handler_->GetPreviewsEnabled(
+      base::BindOnce(&MockGetPreviewsEnabledCallback));
+  auto defer_all_script = passed_in_modes.find(kDeferAllScriptPreviewsHtmlId);
+  ASSERT_NE(passed_in_modes.end(), defer_all_script);
+  EXPECT_EQ(kDeferAllScriptPreviewsDescription,
+            defer_all_script->second->description);
+  EXPECT_FALSE(defer_all_script->second->enabled);
+}
+
+TEST_F(InterventionsInternalsPageHandlerTest, DeferAllScriptPreviewsEnabled) {
+  // Init with kDeferAllScriptPreviews enabled.
+  scoped_feature_list_->InitWithFeatures(
+      {previews::features::kDeferAllScriptPreviews}, {});
+
+  page_handler_->GetPreviewsEnabled(
+      base::BindOnce(&MockGetPreviewsEnabledCallback));
+  auto defer_all_script = passed_in_modes.find(kDeferAllScriptPreviewsHtmlId);
+  ASSERT_NE(passed_in_modes.end(), defer_all_script);
+  EXPECT_EQ(kDeferAllScriptPreviewsDescription,
+            defer_all_script->second->description);
+  EXPECT_TRUE(defer_all_script->second->enabled);
+}
+
 TEST_F(InterventionsInternalsPageHandlerTest, GetFlagsCount) {
   page_handler_->GetPreviewsFlagsDetails(
       base::BindOnce(&MockGetPreviewsFlagsCallback));
 
-  constexpr size_t expected = 8;
+  constexpr size_t expected = 9;
   EXPECT_EQ(expected, passed_in_flags.size());
 }
 
@@ -529,15 +546,14 @@ TEST_F(InterventionsInternalsPageHandlerTest, GetFlagsForceEctValue) {
 }
 
 TEST_F(InterventionsInternalsPageHandlerTest, GetFlagsEctForceFieldtrialValue) {
-  base::FieldTrialList field_trial_list_(nullptr);
   const std::string trial_name = "NetworkQualityEstimator";
   const std::string group_name = "Enabled";
   const std::string expected_ect = "Slow-2G";
 
   std::map<std::string, std::string> params;
   params[net::kForceEffectiveConnectionType] = expected_ect;
-  ASSERT_TRUE(base::AssociateFieldTrialParams(trial_name, group_name, params));
-  base::FieldTrialList::CreateFieldTrial(trial_name, group_name);
+  scoped_feature_list_->InitAndEnableFeatureWithParameters(
+      net::features::kNetworkQualityEstimator, params);
 
   page_handler_->GetPreviewsFlagsDetails(
       base::BindOnce(&MockGetPreviewsFlagsCallback));
@@ -679,6 +695,53 @@ TEST_F(InterventionsInternalsPageHandlerTest,
   EXPECT_EQ(kDisabledFlagValue, resource_loading_hints_flag->second->value);
   EXPECT_EQ(kResourceLoadingHintsFlagLink,
             resource_loading_hints_flag->second->link);
+}
+
+TEST_F(InterventionsInternalsPageHandlerTest,
+       GetFlagsDeferAllScriptDefaultValue) {
+  page_handler_->GetPreviewsFlagsDetails(
+      base::BindOnce(&MockGetPreviewsFlagsCallback));
+  auto defer_all_script_flag = passed_in_flags.find(kDeferAllScriptFlagHtmlId);
+
+  ASSERT_NE(passed_in_flags.end(), defer_all_script_flag);
+  EXPECT_EQ(flag_descriptions::kEnableDeferAllScriptName,
+            defer_all_script_flag->second->description);
+  EXPECT_EQ(kDefaultFlagValue, defer_all_script_flag->second->value);
+  EXPECT_EQ(kDeferAllScriptFlagLink, defer_all_script_flag->second->link);
+}
+
+TEST_F(InterventionsInternalsPageHandlerTest, GetFlagsDeferAllScriptEnabled) {
+  base::test::ScopedCommandLine scoped_command_line;
+  base::CommandLine* command_line = scoped_command_line.GetProcessCommandLine();
+  command_line->AppendSwitchASCII(switches::kEnableFeatures,
+                                  kDeferAllScriptFeatureName);
+
+  page_handler_->GetPreviewsFlagsDetails(
+      base::BindOnce(&MockGetPreviewsFlagsCallback));
+  auto defer_all_script_flag = passed_in_flags.find(kDeferAllScriptFlagHtmlId);
+
+  ASSERT_NE(passed_in_flags.end(), defer_all_script_flag);
+  EXPECT_EQ(flag_descriptions::kEnableDeferAllScriptName,
+            defer_all_script_flag->second->description);
+  EXPECT_EQ(kEnabledFlagValue, defer_all_script_flag->second->value);
+  EXPECT_EQ(kDeferAllScriptFlagLink, defer_all_script_flag->second->link);
+}
+
+TEST_F(InterventionsInternalsPageHandlerTest, GetFlagsDeferAllScriptDisabled) {
+  base::test::ScopedCommandLine scoped_command_line;
+  base::CommandLine* command_line = scoped_command_line.GetProcessCommandLine();
+  command_line->AppendSwitchASCII(switches::kDisableFeatures,
+                                  kDeferAllScriptFeatureName);
+
+  page_handler_->GetPreviewsFlagsDetails(
+      base::BindOnce(&MockGetPreviewsFlagsCallback));
+  auto defer_all_script_flag = passed_in_flags.find(kDeferAllScriptFlagHtmlId);
+
+  ASSERT_NE(passed_in_flags.end(), defer_all_script_flag);
+  EXPECT_EQ(flag_descriptions::kEnableDeferAllScriptName,
+            defer_all_script_flag->second->description);
+  EXPECT_EQ(kDisabledFlagValue, defer_all_script_flag->second->value);
+  EXPECT_EQ(kDeferAllScriptFlagLink, defer_all_script_flag->second->link);
 }
 
 TEST_F(InterventionsInternalsPageHandlerTest,
@@ -907,8 +970,7 @@ TEST_F(InterventionsInternalsPageHandlerTest,
 
 TEST_F(InterventionsInternalsPageHandlerTest,
        IgnoreBlacklistReversedOnLastObserverRemovedCalled) {
-  ASSERT_FALSE(base::CommandLine::ForCurrentProcess()->HasSwitch(
-      previews::switches::kIgnorePreviewsBlacklist));
+  ASSERT_FALSE(previews::switches::ShouldIgnorePreviewsBlacklist());
   page_handler_->OnLastObserverRemove();
   base::RunLoop().RunUntilIdle();
   EXPECT_FALSE(page_->blacklist_ignored());
@@ -919,8 +981,7 @@ TEST_F(InterventionsInternalsPageHandlerTest,
   base::test::ScopedCommandLine scoped_command_line;
   base::CommandLine* command_line = scoped_command_line.GetProcessCommandLine();
   command_line->AppendSwitch(previews::switches::kIgnorePreviewsBlacklist);
-  ASSERT_TRUE(base::CommandLine::ForCurrentProcess()->HasSwitch(
-      previews::switches::kIgnorePreviewsBlacklist));
+  ASSERT_TRUE(previews::switches::ShouldIgnorePreviewsBlacklist());
   page_handler_->OnLastObserverRemove();
   base::RunLoop().RunUntilIdle();
   EXPECT_FALSE(page_->blacklist_ignored());

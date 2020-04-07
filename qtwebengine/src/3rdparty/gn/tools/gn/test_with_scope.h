@@ -10,9 +10,12 @@
 
 #include "base/macros.h"
 #include "tools/gn/build_settings.h"
+#include "tools/gn/c_tool.h"
 #include "tools/gn/err.h"
+#include "tools/gn/general_tool.h"
 #include "tools/gn/input_file.h"
 #include "tools/gn/parse_tree.h"
+#include "tools/gn/rust_tool.h"
 #include "tools/gn/scope.h"
 #include "tools/gn/scope_per_file_provider.h"
 #include "tools/gn/settings.h"

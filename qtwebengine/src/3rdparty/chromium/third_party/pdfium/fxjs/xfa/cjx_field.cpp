@@ -59,12 +59,13 @@ CJS_Result CJX_Field::execEvent(
     return CJS_Result::Failure(JSMessage::kParamError);
 
   WideString eventString = runtime->ToWideString(params[0]);
-  int32_t iRet =
+  XFA_EventError iRet =
       execSingleEventByName(eventString.AsStringView(), XFA_Element::Field);
   if (!eventString.EqualsASCII("validate"))
     return CJS_Result::Success();
 
-  return CJS_Result::Success(runtime->NewBoolean(iRet != XFA_EVENTERROR_Error));
+  return CJS_Result::Success(
+      runtime->NewBoolean(iRet != XFA_EventError::kError));
 }
 
 CJS_Result CJX_Field::execInitialize(
@@ -235,9 +236,10 @@ CJS_Result CJX_Field::execValidate(
   if (!pNotify)
     return CJS_Result::Success(runtime->NewBoolean(false));
 
-  int32_t iRet = pNotify->ExecEventByDeepFirst(GetXFANode(), XFA_EVENT_Validate,
-                                               false, false);
-  return CJS_Result::Success(runtime->NewBoolean(iRet != XFA_EVENTERROR_Error));
+  XFA_EventError iRet = pNotify->ExecEventByDeepFirst(
+      GetXFANode(), XFA_EVENT_Validate, false, false);
+  return CJS_Result::Success(
+      runtime->NewBoolean(iRet != XFA_EventError::kError));
 }
 
 void CJX_Field::defaultValue(CFXJSE_Value* pValue,
@@ -283,7 +285,7 @@ void CJX_Field::defaultValue(CFXJSE_Value* pValue,
       pValue->SetString(content.ToUTF8().AsStringView());
     } else {
       CFGAS_Decimal decimal(content.AsStringView());
-      pValue->SetFloat((float)(double)decimal);
+      pValue->SetFloat(decimal.ToFloat());
     }
   } else if (pNode && pNode->GetElementType() == XFA_Element::Integer) {
     pValue->SetInteger(FXSYS_wtoi(content.c_str()));
@@ -291,7 +293,7 @@ void CJX_Field::defaultValue(CFXJSE_Value* pValue,
     pValue->SetBoolean(FXSYS_wtoi(content.c_str()) == 0 ? false : true);
   } else if (pNode && pNode->GetElementType() == XFA_Element::Float) {
     CFGAS_Decimal decimal(content.AsStringView());
-    pValue->SetFloat((float)(double)decimal);
+    pValue->SetFloat(decimal.ToFloat());
   } else {
     pValue->SetString(content.ToUTF8().AsStringView());
   }
@@ -333,6 +335,22 @@ void CJX_Field::formattedValue(CFXJSE_Value* pValue,
       node->GetValue(XFA_VALUEPICTURE_Display).ToUTF8().AsStringView());
 }
 
+void CJX_Field::length(CFXJSE_Value* pValue,
+                       bool bSetting,
+                       XFA_Attribute eAttribute) {
+  if (bSetting) {
+    ThrowInvalidPropertyException();
+    return;
+  }
+
+  CXFA_Node* node = GetXFANode();
+  if (!node->IsWidgetReady()) {
+    pValue->SetInteger(0);
+    return;
+  }
+  pValue->SetInteger(node->CountChoiceListItems(true));
+}
+
 void CJX_Field::parentSubform(CFXJSE_Value* pValue,
                               bool bSetting,
                               XFA_Attribute eAttribute) {
@@ -364,50 +382,8 @@ void CJX_Field::selectedIndex(CFXJSE_Value* pValue,
   node->SetItemState(iIndex, true, true, true, true);
 }
 
-void CJX_Field::borderColor(CFXJSE_Value* pValue,
-                            bool bSetting,
-                            XFA_Attribute eAttribute) {
-  ScriptSomBorderColor(pValue, bSetting, eAttribute);
-}
-
-void CJX_Field::borderWidth(CFXJSE_Value* pValue,
-                            bool bSetting,
-                            XFA_Attribute eAttribute) {
-  ScriptSomBorderWidth(pValue, bSetting, eAttribute);
-}
-
-void CJX_Field::fillColor(CFXJSE_Value* pValue,
-                          bool bSetting,
-                          XFA_Attribute eAttribute) {
-  ScriptSomFillColor(pValue, bSetting, eAttribute);
-}
-
-void CJX_Field::fontColor(CFXJSE_Value* pValue,
-                          bool bSetting,
-                          XFA_Attribute eAttribute) {
-  ScriptSomFontColor(pValue, bSetting, eAttribute);
-}
-
-void CJX_Field::mandatory(CFXJSE_Value* pValue,
-                          bool bSetting,
-                          XFA_Attribute eAttribute) {
-  ScriptSomMandatory(pValue, bSetting, eAttribute);
-}
-
-void CJX_Field::mandatoryMessage(CFXJSE_Value* pValue,
-                                 bool bSetting,
-                                 XFA_Attribute eAttribute) {
-  ScriptSomMandatoryMessage(pValue, bSetting, eAttribute);
-}
-
 void CJX_Field::rawValue(CFXJSE_Value* pValue,
                          bool bSetting,
                          XFA_Attribute eAttribute) {
   defaultValue(pValue, bSetting, eAttribute);
-}
-
-void CJX_Field::validationMessage(CFXJSE_Value* pValue,
-                                  bool bSetting,
-                                  XFA_Attribute eAttribute) {
-  ScriptSomValidationMessage(pValue, bSetting, eAttribute);
 }

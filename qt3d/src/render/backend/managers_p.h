@@ -86,6 +86,7 @@
 #include <Qt3DRender/private/armature_p.h>
 #include <Qt3DRender/private/skeleton_p.h>
 #include <Qt3DRender/private/joint_p.h>
+#include <Qt3DRender/private/shaderimage_p.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -281,6 +282,35 @@ class RenderTargetManager : public Qt3DCore::QResourceManager<
 {
 public:
     RenderTargetManager() {}
+
+    // Called in AspectThread by RenderTarget node functor destroy
+    void addRenderTargetIdToCleanup(Qt3DCore::QNodeId id)
+    {
+        m_renderTargetIdsToCleanup.push_back(id);
+    }
+
+    // Called in AspectThread by RenderTarget node functor create
+    void removeRenderTargetToCleanup(Qt3DCore::QNodeId id)
+    {
+        m_renderTargetIdsToCleanup.removeAll(id);
+    }
+
+    // Called by RenderThread in updateGLResources (locked)
+    QVector<Qt3DCore::QNodeId> takeRenderTargetIdsToCleanup()
+    {
+        return std::move(m_renderTargetIdsToCleanup);
+    }
+
+#ifdef QT_BUILD_INTERNAL
+    // For unit testing purposes only
+    QVector<Qt3DCore::QNodeId> renderTargetIdsToCleanup() const
+    {
+        return m_renderTargetIdsToCleanup;
+    }
+#endif
+
+private:
+    QVector<Qt3DCore::QNodeId> m_renderTargetIdsToCleanup;
 };
 
 class RenderPassManager : public Qt3DCore::QResourceManager<
@@ -300,6 +330,15 @@ class ParameterManager : public Qt3DCore::QResourceManager<
 {
 public:
     ParameterManager() {}
+};
+
+class ShaderImageManager : public Qt3DCore::QResourceManager<
+        ShaderImage,
+        Qt3DCore::QNodeId,
+        Qt3DCore::NonLockingPolicy>
+{
+public:
+    ShaderImageManager() {}
 };
 
 class ShaderDataManager : public Qt3DCore::QResourceManager<
@@ -466,6 +505,7 @@ Q_DECLARE_RESOURCE_INFO(Qt3DRender::Render::Armature, Q_REQUIRES_CLEANUP)
 Q_DECLARE_RESOURCE_INFO(Qt3DRender::Render::Skeleton, Q_REQUIRES_CLEANUP)
 Q_DECLARE_RESOURCE_INFO(Qt3DRender::Render::Joint, Q_REQUIRES_CLEANUP)
 Q_DECLARE_RESOURCE_INFO(Qt3DRender::Render::ShaderBuilder, Q_REQUIRES_CLEANUP)
+Q_DECLARE_RESOURCE_INFO(Qt3DRender::Render::ShaderImage, Q_REQUIRES_CLEANUP)
 
 QT_END_NAMESPACE
 

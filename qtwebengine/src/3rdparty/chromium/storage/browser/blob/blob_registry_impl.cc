@@ -7,6 +7,7 @@
 #include <memory>
 
 #include "base/barrier_closure.h"
+#include "base/bind.h"
 #include "base/callback_helpers.h"
 #include "mojo/public/cpp/bindings/strong_associated_binding.h"
 #include "mojo/public/cpp/bindings/strong_binding.h"
@@ -16,6 +17,8 @@
 #include "storage/browser/blob/blob_storage_context.h"
 #include "storage/browser/blob/blob_transport_strategy.h"
 #include "storage/browser/blob/blob_url_store_impl.h"
+#include "third_party/blink/public/mojom/blob/data_element.mojom.h"
+#include "third_party/blink/public/mojom/blob/serialized_blob.mojom.h"
 
 namespace storage {
 
@@ -476,7 +479,14 @@ BlobRegistryImpl::BlobRegistryImpl(
       file_system_context_(std::move(file_system_context)),
       weak_ptr_factory_(this) {}
 
-BlobRegistryImpl::~BlobRegistryImpl() = default;
+BlobRegistryImpl::~BlobRegistryImpl() {
+  // BlobBuilderFromStream needs to be aborted before it can be destroyed, but
+  // don't iterate directly over |blobs_being_streamed_|, as this iteration can
+  // can change the underlying set.
+  auto builders = std::move(blobs_being_streamed_);
+  for (const auto& builder : builders)
+    builder->Abort();
+}
 
 void BlobRegistryImpl::Bind(blink::mojom::BlobRegistryRequest request,
                             std::unique_ptr<Delegate> delegate) {
@@ -497,7 +507,7 @@ void BlobRegistryImpl::Register(
   }
 
   if (uuid.empty() || context_->registry().HasEntry(uuid) ||
-      base::ContainsKey(blobs_under_construction_, uuid)) {
+      base::Contains(blobs_under_construction_, uuid)) {
     bindings_.ReportBadMessage("Invalid UUID passed to BlobRegistry::Register");
     return;
   }
@@ -557,11 +567,15 @@ void BlobRegistryImpl::RegisterFromStream(
     return;
   }
 
-  blobs_being_streamed_.insert(std::make_unique<BlobBuilderFromStream>(
-      context_, content_type, content_disposition, expected_length,
-      std::move(data), std::move(progress_client),
-      base::BindOnce(&BlobRegistryImpl::StreamingBlobDone,
-                     base::Unretained(this), std::move(callback))));
+  std::unique_ptr<BlobBuilderFromStream> blob_builder =
+      std::make_unique<BlobBuilderFromStream>(
+          context_, content_type, content_disposition,
+          base::BindOnce(&BlobRegistryImpl::StreamingBlobDone,
+                         base::Unretained(this), std::move(callback)));
+  BlobBuilderFromStream* blob_builder_ptr = blob_builder.get();
+  blobs_being_streamed_.insert(std::move(blob_builder));
+  blob_builder_ptr->Start(expected_length, std::move(data),
+                          std::move(progress_client));
 }
 
 void BlobRegistryImpl::GetBlobFromUUID(blink::mojom::BlobRequest blob,

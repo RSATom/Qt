@@ -7,6 +7,7 @@
 
 #include "base/base_export.h"
 #include "base/metrics/field_trial_params.h"
+#include "build/build_config.h"
 
 namespace base {
 
@@ -14,22 +15,31 @@ struct Feature;
 
 extern const BASE_EXPORT Feature kAllTasksUserBlocking;
 extern const BASE_EXPORT Feature kMergeBlockingNonBlockingPools;
-extern const BASE_EXPORT Feature kMayBlockTimings;
 
-// Under this feature, unused threads in SchedulerWorkerPool are only detached
+// Under this feature, unused threads in ThreadGroup are only detached
 // if the total number of threads in the pool is above the initial capacity.
 extern const BASE_EXPORT Feature kNoDetachBelowInitialCapacity;
 
-// Threshold after which the maximum number of tasks running in a foreground
-// pool can be incremented to compensate for a task that is within a MAY_BLOCK
-// ScopedBlockingCall (a constant is used for background pools).
-extern const BASE_EXPORT FeatureParam<int> kMayBlockThresholdMicrosecondsParam;
+// Under this feature, workers blocked with MayBlock are replaced immediately
+// instead of waiting for a threshold.
+extern const BASE_EXPORT Feature kMayBlockWithoutDelay;
 
-// Interval at which the service thread checks for workers in a foreground pool
-// that have been in a MAY_BLOCK ScopedBlockingCall for more than
-// |kMayBlockThresholdMicrosecondsParam| (a constant is used for background
-// pools).
-extern const BASE_EXPORT FeatureParam<int> kBlockedWorkersPollMicrosecondsParam;
+#if defined(OS_WIN) || defined(OS_MACOSX)
+#define HAS_NATIVE_THREAD_POOL() 1
+#else
+#define HAS_NATIVE_THREAD_POOL() 0
+#endif
+
+#if HAS_NATIVE_THREAD_POOL()
+// Under this feature, ThreadPoolImpl will use a ThreadGroup backed by a
+// native thread pool implementation. The Windows Thread Pool API and
+// libdispatch are used on Windows and macOS/iOS respectively.
+extern const BASE_EXPORT Feature kUseNativeThreadPool;
+#endif
+
+// Whether threads in the ThreadPool should be reclaimed after being idle for 5
+// minutes, instead of 30 seconds.
+extern const BASE_EXPORT Feature kUseFiveMinutesThreadReclaimTime;
 
 }  // namespace base
 

@@ -81,7 +81,7 @@ static gpu::gles2::ContextGroup* GetContextGroup(
     return nullptr;
   }
 
-  return stub->context_group().get();
+  return stub->decoder_context()->GetContextGroup();
 }
 
 static std::unique_ptr<gpu::gles2::AbstractTexture> CreateAbstractTexture(
@@ -177,8 +177,7 @@ GpuVideoDecodeAccelerator::GpuVideoDecodeAccelerator(
                       base::WaitableEvent::InitialState::NOT_SIGNALED),
       child_task_runner_(base::ThreadTaskRunnerHandle::Get()),
       io_task_runner_(io_task_runner),
-      overlay_factory_cb_(overlay_factory_cb),
-      weak_factory_for_io_(this) {
+      overlay_factory_cb_(overlay_factory_cb) {
   DCHECK(stub_);
   stub_->AddDestructionObserver(this);
   get_gl_context_cb_ = base::BindRepeating(&GetGLContext, stub_->AsWeakPtr());
@@ -408,10 +407,9 @@ bool GpuVideoDecodeAccelerator::Initialize(
 
 // Runs on IO thread if VDA::TryToSetupDecodeOnSeparateThread() succeeded,
 // otherwise on the main thread.
-void GpuVideoDecodeAccelerator::OnDecode(
-    const BitstreamBuffer& bitstream_buffer) {
+void GpuVideoDecodeAccelerator::OnDecode(BitstreamBuffer bitstream_buffer) {
   DCHECK(video_decode_accelerator_);
-  video_decode_accelerator_->Decode(bitstream_buffer);
+  video_decode_accelerator_->Decode(std::move(bitstream_buffer));
 }
 
 void GpuVideoDecodeAccelerator::OnAssignPictureBuffers(
@@ -424,7 +422,7 @@ void GpuVideoDecodeAccelerator::OnAssignPictureBuffers(
 
   gpu::DecoderContext* decoder_context = stub_->decoder_context();
   gpu::gles2::TextureManager* texture_manager =
-      stub_->context_group()->texture_manager();
+      stub_->decoder_context()->GetContextGroup()->texture_manager();
 
   std::vector<PictureBuffer> buffers;
   std::vector<std::vector<scoped_refptr<gpu::gles2::TextureRef>>> textures;
@@ -555,7 +553,7 @@ void GpuVideoDecodeAccelerator::SetTextureCleared(const Picture& picture) {
   for (auto texture_ref : it->second) {
     GLenum target = texture_ref->texture()->target();
     gpu::gles2::TextureManager* texture_manager =
-        stub_->context_group()->texture_manager();
+        stub_->decoder_context()->GetContextGroup()->texture_manager();
     texture_manager->SetLevelCleared(texture_ref.get(), target, 0, true);
   }
   uncleared_textures_.erase(it);

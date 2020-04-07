@@ -362,14 +362,10 @@ void QGstreamerPlayerControl::setMedia(const QMediaContent &content, QIODevice *
     m_currentResource = content;
     m_stream = stream;
 
-    QNetworkRequest request;
+    QNetworkRequest request = content.request();
 
-    if (m_stream) {
+    if (m_stream)
         userStreamValid = stream->isOpen() && m_stream->isReadable();
-        request = content.canonicalRequest();
-    } else if (!content.isNull()) {
-        request = content.canonicalRequest();
-    }
 
 #if !QT_CONFIG(gstreamer_app)
     m_session->loadFromUri(request);
@@ -454,6 +450,10 @@ void QGstreamerPlayerControl::updateSessionState(QMediaPlayer::State state)
 
 void QGstreamerPlayerControl::updateMediaStatus()
 {
+    //EndOfMedia status should be kept, until reset by pause, play or setMedia
+    if (m_mediaStatus == QMediaPlayer::EndOfMedia)
+        return;
+
     pushState();
     QMediaPlayer::MediaStatus oldStatus = m_mediaStatus;
 
@@ -480,10 +480,6 @@ void QGstreamerPlayerControl::updateMediaStatus()
 
     if (m_currentState == QMediaPlayer::PlayingState && !m_resources->isGranted())
         m_mediaStatus = QMediaPlayer::StalledMedia;
-
-    //EndOfMedia status should be kept, until reset by pause, play or setMedia
-    if (oldStatus == QMediaPlayer::EndOfMedia)
-        m_mediaStatus = QMediaPlayer::EndOfMedia;
 
     popAndNotifyState();
 }

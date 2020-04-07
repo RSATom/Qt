@@ -25,7 +25,11 @@
 #include "logging/rtc_event_log/rtc_stream_config.h"
 #include "modules/audio_coding/audio_network_adaptor/include/audio_network_adaptor_config.h"
 #include "modules/remote_bitrate_estimator/include/bwe_defines.h"
+#include "modules/rtp_rtcp/source/rtcp_packet/extended_reports.h"
+#include "modules/rtp_rtcp/source/rtcp_packet/fir.h"
+#include "modules/rtp_rtcp/source/rtcp_packet/loss_notification.h"
 #include "modules/rtp_rtcp/source/rtcp_packet/nack.h"
+#include "modules/rtp_rtcp/source/rtcp_packet/pli.h"
 #include "modules/rtp_rtcp/source/rtcp_packet/receiver_report.h"
 #include "modules/rtp_rtcp/source/rtcp_packet/remb.h"
 #include "modules/rtp_rtcp/source/rtcp_packet/sender_report.h"
@@ -220,6 +224,21 @@ struct LoggedIceCandidatePairEvent {
   uint32_t transaction_id;
 };
 
+struct LoggedRouteChangeEvent {
+  LoggedRouteChangeEvent() = default;
+  LoggedRouteChangeEvent(int64_t timestamp_ms,
+                         bool connected,
+                         uint32_t overhead)
+      : timestamp_ms(timestamp_ms), connected(connected), overhead(overhead) {}
+
+  int64_t log_time_us() const { return timestamp_ms * 1000; }
+  int64_t log_time_ms() const { return timestamp_ms; }
+
+  int64_t timestamp_ms;
+  bool connected;
+  uint32_t overhead;
+};
+
 struct LoggedRtpPacket {
   LoggedRtpPacket(uint64_t timestamp_us,
                   RTPHeader header,
@@ -333,6 +352,16 @@ struct LoggedRtcpPacketSenderReport {
   rtcp::SenderReport sr;
 };
 
+struct LoggedRtcpPacketExtendedReports {
+  LoggedRtcpPacketExtendedReports() = default;
+
+  int64_t log_time_us() const { return timestamp_us; }
+  int64_t log_time_ms() const { return timestamp_us / 1000; }
+
+  int64_t timestamp_us;
+  rtcp::ExtendedReports xr;
+};
+
 struct LoggedRtcpPacketRemb {
   LoggedRtcpPacketRemb() = default;
   LoggedRtcpPacketRemb(int64_t timestamp_us, const rtcp::Remb& remb)
@@ -357,8 +386,30 @@ struct LoggedRtcpPacketNack {
   rtcp::Nack nack;
 };
 
+struct LoggedRtcpPacketFir {
+  LoggedRtcpPacketFir() = default;
+
+  int64_t log_time_us() const { return timestamp_us; }
+  int64_t log_time_ms() const { return timestamp_us / 1000; }
+
+  int64_t timestamp_us;
+  rtcp::Fir fir;
+};
+
+struct LoggedRtcpPacketPli {
+  LoggedRtcpPacketPli() = default;
+
+  int64_t log_time_us() const { return timestamp_us; }
+  int64_t log_time_ms() const { return timestamp_us / 1000; }
+
+  int64_t timestamp_us;
+  rtcp::Pli pli;
+};
+
 struct LoggedRtcpPacketTransportFeedback {
-  LoggedRtcpPacketTransportFeedback() = default;
+  LoggedRtcpPacketTransportFeedback()
+      : transport_feedback(/*include_timestamps=*/true, /*include_lost*/ true) {
+  }
   LoggedRtcpPacketTransportFeedback(
       int64_t timestamp_us,
       const rtcp::TransportFeedback& transport_feedback)
@@ -369,6 +420,20 @@ struct LoggedRtcpPacketTransportFeedback {
 
   int64_t timestamp_us;
   rtcp::TransportFeedback transport_feedback;
+};
+
+struct LoggedRtcpPacketLossNotification {
+  LoggedRtcpPacketLossNotification() = default;
+  LoggedRtcpPacketLossNotification(
+      int64_t timestamp_us,
+      const rtcp::LossNotification& loss_notification)
+      : timestamp_us(timestamp_us), loss_notification(loss_notification) {}
+
+  int64_t log_time_us() const { return timestamp_us; }
+  int64_t log_time_ms() const { return timestamp_us / 1000; }
+
+  int64_t timestamp_us;
+  rtcp::LossNotification loss_notification;
 };
 
 struct LoggedStartEvent {
@@ -442,7 +507,9 @@ struct LoggedVideoSendConfig {
   rtclog::StreamConfig config;
 };
 
-struct LoggedRouteChangeEvent {
+struct InferredRouteChangeEvent {
+  int64_t log_time_ms() const { return log_time.ms(); }
+  int64_t log_time_us() const { return log_time.us(); }
   uint32_t route_id;
   Timestamp log_time = Timestamp::MinusInfinity();
   uint16_t send_overhead;
@@ -458,6 +525,8 @@ struct LoggedPacketInfo {
                    Timestamp capture_time);
   LoggedPacketInfo(const LoggedPacketInfo&);
   ~LoggedPacketInfo();
+  int64_t log_time_ms() const { return log_packet_time.ms(); }
+  int64_t log_time_us() const { return log_packet_time.us(); }
   uint32_t ssrc;
   uint16_t stream_seq_no;
   uint16_t size;
@@ -505,6 +574,69 @@ struct LoggedIceEvent {
   uint32_t candidate_pair_id;
   Timestamp log_time;
   LoggedIceEventType event_type;
+};
+
+struct LoggedGenericPacketSent {
+  LoggedGenericPacketSent() = default;
+  LoggedGenericPacketSent(int64_t timestamp_us,
+                          int64_t packet_number,
+                          size_t overhead_length,
+                          size_t payload_length,
+                          size_t padding_length)
+      : timestamp_us(timestamp_us),
+        packet_number(packet_number),
+        overhead_length(overhead_length),
+        payload_length(payload_length),
+        padding_length(padding_length) {}
+
+  int64_t log_time_us() const { return timestamp_us; }
+  int64_t log_time_ms() const { return timestamp_us / 1000; }
+
+  size_t packet_length() const {
+    return payload_length + padding_length + overhead_length;
+  }
+  int64_t timestamp_us;
+  int64_t packet_number;
+  size_t overhead_length;
+  size_t payload_length;
+  size_t padding_length;
+};
+
+struct LoggedGenericPacketReceived {
+  LoggedGenericPacketReceived() = default;
+  LoggedGenericPacketReceived(int64_t timestamp_us,
+                              int64_t packet_number,
+                              int packet_length)
+      : timestamp_us(timestamp_us),
+        packet_number(packet_number),
+        packet_length(packet_length) {}
+
+  int64_t log_time_us() const { return timestamp_us; }
+  int64_t log_time_ms() const { return timestamp_us / 1000; }
+
+  int64_t timestamp_us;
+  int64_t packet_number;
+  int packet_length;
+};
+
+struct LoggedGenericAckReceived {
+  LoggedGenericAckReceived() = default;
+  LoggedGenericAckReceived(int64_t timestamp_us,
+                           int64_t packet_number,
+                           int64_t acked_packet_number,
+                           absl::optional<int64_t> receive_acked_packet_time_ms)
+      : timestamp_us(timestamp_us),
+        packet_number(packet_number),
+        acked_packet_number(acked_packet_number),
+        receive_acked_packet_time_ms(receive_acked_packet_time_ms) {}
+
+  int64_t log_time_us() const { return timestamp_us; }
+  int64_t log_time_ms() const { return timestamp_us / 1000; }
+
+  int64_t timestamp_us;
+  int64_t packet_number;
+  int64_t acked_packet_number;
+  absl::optional<int64_t> receive_acked_packet_time_ms;
 };
 
 }  // namespace webrtc

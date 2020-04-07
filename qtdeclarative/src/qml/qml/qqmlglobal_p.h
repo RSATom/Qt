@@ -53,9 +53,8 @@
 
 #include <private/qtqmlglobal_p.h>
 #include <QtCore/QObject>
-#include <private/qqmlpropertycache_p.h>
+#include <private/qqmlmetaobject_p.h>
 #include <private/qmetaobject_p.h>
-#include <private/qv8engine_p.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -91,7 +90,7 @@ QT_BEGIN_NAMESPACE
     \endcode
 */
 #define qmlobject_connect(Sender, SenderType, Signal, Receiver, ReceiverType, Method) \
-{ \
+do { \
     SenderType *sender = (Sender); \
     ReceiverType *receiver = (Receiver); \
     const char *signal = (Signal); \
@@ -99,11 +98,11 @@ QT_BEGIN_NAMESPACE
     static int signalIdx = -1; \
     static int methodIdx = -1; \
     if (signalIdx < 0) { \
-        Q_ASSERT(((int)(*signal) - '0') == QSIGNAL_CODE); \
+        Q_ASSERT((int(*signal) - '0') == QSIGNAL_CODE); \
         signalIdx = SenderType::staticMetaObject.indexOfSignal(signal+1); \
     } \
     if (methodIdx < 0) { \
-        int code = ((int)(*method) - '0'); \
+        int code = (int(*method) - '0'); \
         Q_ASSERT(code == QSLOT_CODE || code == QSIGNAL_CODE); \
         if (code == QSLOT_CODE) \
             methodIdx = ReceiverType::staticMetaObject.indexOfSlot(method+1); \
@@ -112,7 +111,7 @@ QT_BEGIN_NAMESPACE
     } \
     Q_ASSERT(signalIdx != -1 && methodIdx != -1); \
     QMetaObject::connect(sender, signalIdx, receiver, methodIdx, Qt::DirectConnection); \
-}
+} while (0)
 
 /*!
     Disconnect \a Signal of \a Sender from \a Method of \a Receiver.  \a Signal must be
@@ -130,7 +129,7 @@ QT_BEGIN_NAMESPACE
     \endcode
 */
 #define qmlobject_disconnect(Sender, SenderType, Signal, Receiver, ReceiverType, Method) \
-{ \
+do { \
     SenderType *sender = (Sender); \
     ReceiverType *receiver = (Receiver); \
     const char *signal = (Signal); \
@@ -138,11 +137,11 @@ QT_BEGIN_NAMESPACE
     static int signalIdx = -1; \
     static int methodIdx = -1; \
     if (signalIdx < 0) { \
-        Q_ASSERT(((int)(*signal) - '0') == QSIGNAL_CODE); \
+        Q_ASSERT((int(*signal) - '0') == QSIGNAL_CODE); \
         signalIdx = SenderType::staticMetaObject.indexOfSignal(signal+1); \
     } \
     if (methodIdx < 0) { \
-        int code = ((int)(*method) - '0'); \
+        int code = (int(*method) - '0'); \
         Q_ASSERT(code == QSLOT_CODE || code == QSIGNAL_CODE); \
         if (code == QSLOT_CODE) \
             methodIdx = ReceiverType::staticMetaObject.indexOfSlot(method+1); \
@@ -151,7 +150,7 @@ QT_BEGIN_NAMESPACE
     } \
     Q_ASSERT(signalIdx != -1 && methodIdx != -1); \
     QMetaObject::disconnect(sender, signalIdx, receiver, methodIdx); \
-}
+} while (0)
 
 /*!
     This method is identical to qobject_cast<T>() except that it does not require lazy
@@ -233,7 +232,7 @@ public:
 
     QVariant createVariantFromString(const QString &);
     QVariant createVariantFromString(int, const QString &, bool *);
-    QVariant createVariantFromJsObject(int, QQmlV4Handle, QV4::ExecutionEngine *, bool*);
+    QVariant createVariantFromJsObject(int, const QV4::Value &, QV4::ExecutionEngine *, bool *);
 
     bool equalValueType(int, const void *, const QVariant&);
     bool storeValueType(int, const void *, void *, size_t);
@@ -250,7 +249,7 @@ private:
 
     virtual bool variantFromString(const QString &, QVariant *);
     virtual bool variantFromString(int, const QString &, QVariant *);
-    virtual bool variantFromJsObject(int, QQmlV4Handle, QV4::ExecutionEngine *, QVariant *);
+    virtual bool variantFromJsObject(int, const QV4::Value &, QV4::ExecutionEngine *, QVariant *);
 
     virtual bool equal(int, const void *, const QVariant&);
     virtual bool store(int, const void *, void *, size_t);

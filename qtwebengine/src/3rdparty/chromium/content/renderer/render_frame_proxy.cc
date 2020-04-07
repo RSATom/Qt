@@ -6,6 +6,7 @@
 
 #include <stdint.h>
 #include <map>
+#include <memory>
 #include <utility>
 
 #include "base/command_line.h"
@@ -19,6 +20,7 @@
 #include "content/common/input_messages.h"
 #include "content/common/page_messages.h"
 #include "content/common/swapped_out_messages.h"
+#include "content/common/unfreezable_frame_messages.h"
 #include "content/common/view_messages.h"
 #include "content/public/common/content_client.h"
 #include "content/public/common/content_switches.h"
@@ -45,19 +47,12 @@
 #include "third_party/blink/public/web/web_triggering_event_info.h"
 #include "third_party/blink/public/web/web_user_gesture_indicator.h"
 #include "third_party/blink/public/web/web_view.h"
-#include "ui/base/ui_base_features.h"
 #include "ui/gfx/geometry/size_conversions.h"
-
-#if defined(USE_AURA) && !defined(TOOLKIT_QT)
-#include "content/renderer/mus/mus_embedded_frame.h"
-#include "content/renderer/mus/renderer_window_tree_client.h"
-#endif
 
 #if BUILDFLAG(ENABLE_PRINTING)
 // nogncheck because dependency on //printing is conditional upon
 // enable_basic_printing flags.
 #include "printing/metafile_skia.h"          // nogncheck
-#include "printing/metafile_skia_wrapper.h"  // nogncheck
 #endif
 
 namespace content {
@@ -154,8 +149,7 @@ RenderFrameProxy* RenderFrameProxy::CreateFrameProxy(
     web_frame = parent->web_frame()->CreateRemoteChild(
         replicated_state.scope,
         blink::WebString::FromUTF8(replicated_state.name),
-        replicated_state.frame_policy.sandbox_flags,
-        replicated_state.frame_policy.container_policy,
+        replicated_state.frame_policy,
         replicated_state.frame_owner_element_type, proxy.get(), opener);
     proxy->unique_name_ = replicated_state.unique_name;
     render_view = parent->render_view();
@@ -178,11 +172,14 @@ RenderFrameProxy* RenderFrameProxy::CreateFrameProxy(
 
 RenderFrameProxy* RenderFrameProxy::CreateProxyForPortal(
     RenderFrameImpl* parent,
-    int proxy_routing_id) {
+    int proxy_routing_id,
+    const base::UnguessableToken& devtools_frame_token,
+    const blink::WebElement& portal_element) {
   std::unique_ptr<RenderFrameProxy> proxy(
       new RenderFrameProxy(proxy_routing_id));
-  blink::WebRemoteFrame* web_frame = blink::WebRemoteFrame::Create(
-      blink::WebTreeScopeType::kDocument, proxy.get());
+  proxy->devtools_frame_token_ = devtools_frame_token;
+  blink::WebRemoteFrame* web_frame = blink::WebRemoteFrame::CreateForPortal(
+      blink::WebTreeScopeType::kDocument, proxy.get(), portal_element);
   proxy->Init(web_frame, parent->render_view(),
               parent->GetLocalRootRenderWidget(), true);
   return proxy.release();
@@ -219,7 +216,11 @@ RenderFrameProxy::RenderFrameProxy(int routing_id)
       provisional_frame_routing_id_(MSG_ROUTING_NONE),
       web_frame_(nullptr),
       render_view_(nullptr),
-      render_widget_(nullptr) {
+      render_widget_(nullptr),
+      // TODO(samans): Investigate if it is safe to delay creation of this
+      // object until a FrameSinkId is provided.
+      parent_local_surface_id_allocator_(
+          std::make_unique<viz::ParentLocalSurfaceIdAllocator>()) {
   std::pair<RoutingIDProxyMap::iterator, bool> result =
       g_routing_id_proxy_map.Get().insert(std::make_pair(routing_id_, this));
   CHECK(result.second) << "Inserting a duplicate item.";
@@ -259,19 +260,6 @@ void RenderFrameProxy::Init(blink::WebRemoteFrame* web_frame,
 
   pending_visual_properties_.screen_info =
       render_widget_->GetOriginalScreenInfo();
-
-#if defined(USE_AURA) && !defined(TOOLKIT_QT)
-  if (features::IsMultiProcessMash()) {
-    RendererWindowTreeClient* renderer_window_tree_client =
-        RendererWindowTreeClient::Get(render_widget_->routing_id());
-    // It's possible a MusEmbeddedFrame has already been scheduled for creation
-    // (that is, RendererWindowTreeClient::Embed() was called). Call to
-    // OnRenderFrameProxyCreated() to potentially get the MusEmbeddedFrame.
-    // OnRenderFrameProxyCreated() returns null if Embed() was not called.
-    mus_embedded_frame_ =
-        renderer_window_tree_client->OnRenderFrameProxyCreated(this);
-  }
-#endif
 }
 
 void RenderFrameProxy::ResendVisualProperties() {
@@ -279,16 +267,6 @@ void RenderFrameProxy::ResendVisualProperties() {
   // viz::LocalSurfaceId.
   sent_visual_properties_ = base::nullopt;
   SynchronizeVisualProperties();
-}
-
-void RenderFrameProxy::WillBeginCompositorFrame() {
-  if (compositing_helper_ && compositing_helper_->surface_id().is_valid()) {
-    FrameHostMsg_HittestData_Params params;
-    params.surface_id = compositing_helper_->surface_id();
-    params.ignored_for_hittest = web_frame_->IsIgnoredForHitTest();
-    render_widget_->QueueMessage(
-        new FrameHostMsg_HittestData(render_widget_->routing_id(), params));
-  }
 }
 
 void RenderFrameProxy::OnScreenInfoChanged(const ScreenInfo& screen_info) {
@@ -307,8 +285,10 @@ void RenderFrameProxy::OnZoomLevelChanged(double zoom_level) {
   SynchronizeVisualProperties();
 }
 
-void RenderFrameProxy::OnPageScaleFactorChanged(float page_scale_factor) {
+void RenderFrameProxy::OnPageScaleFactorChanged(float page_scale_factor,
+                                                bool is_pinch_gesture_active) {
   pending_visual_properties_.page_scale_factor = page_scale_factor;
+  pending_visual_properties_.is_pinch_gesture_active = is_pinch_gesture_active;
   SynchronizeVisualProperties();
 }
 
@@ -348,7 +328,8 @@ void RenderFrameProxy::SetReplicatedState(const FrameReplicationState& state) {
   web_frame_->SetReplicatedInsecureRequestPolicy(state.insecure_request_policy);
   web_frame_->SetReplicatedInsecureNavigationsSet(
       state.insecure_navigations_set);
-  web_frame_->SetReplicatedFeaturePolicyHeader(state.feature_policy_header);
+  web_frame_->SetReplicatedFeaturePolicyHeaderAndOpenerPolicies(
+      state.feature_policy_header, state.opener_feature_state);
   if (state.has_received_user_gesture) {
     web_frame_->UpdateUserActivationState(
         blink::UserActivationUpdateType::kNotifyActivation);
@@ -377,8 +358,7 @@ void RenderFrameProxy::SetReplicatedState(const FrameReplicationState& state) {
 void RenderFrameProxy::OnDidUpdateFramePolicy(
     const blink::FramePolicy& frame_policy) {
   DCHECK(web_frame()->Parent());
-  web_frame_->SetFrameOwnerPolicy(frame_policy.sandbox_flags,
-                                  frame_policy.container_policy);
+  web_frame_->SetFrameOwnerPolicy(frame_policy);
 }
 
 // Update the proxy's SecurityContext with new sandbox flags or feature policy
@@ -393,7 +373,8 @@ void RenderFrameProxy::OnDidSetFramePolicyHeaders(
     blink::WebSandboxFlags active_sandbox_flags,
     blink::ParsedFeaturePolicy feature_policy_header) {
   web_frame_->SetReplicatedSandboxFlags(active_sandbox_flags);
-  web_frame_->SetReplicatedFeaturePolicyHeader(feature_policy_header);
+  web_frame_->SetReplicatedFeaturePolicyHeaderAndOpenerPolicies(
+      feature_policy_header, blink::FeaturePolicy::FeatureState());
 }
 
 bool RenderFrameProxy::OnMessageReceived(const IPC::Message& msg) {
@@ -407,7 +388,6 @@ bool RenderFrameProxy::OnMessageReceived(const IPC::Message& msg) {
 
   bool handled = true;
   IPC_BEGIN_MESSAGE_MAP(RenderFrameProxy, msg)
-    IPC_MESSAGE_HANDLER(FrameMsg_DeleteProxy, OnDeleteProxy)
     IPC_MESSAGE_HANDLER(FrameMsg_ChildFrameProcessGone, OnChildFrameProcessGone)
     IPC_MESSAGE_HANDLER(FrameMsg_FirstSurfaceActivation,
                         OnFirstSurfaceActivation)
@@ -423,6 +403,8 @@ bool RenderFrameProxy::OnMessageReceived(const IPC::Message& msg) {
     IPC_MESSAGE_HANDLER(FrameMsg_ForwardResourceTimingToParent,
                         OnForwardResourceTimingToParent)
     IPC_MESSAGE_HANDLER(FrameMsg_DispatchLoad, OnDispatchLoad)
+    IPC_MESSAGE_HANDLER(FrameMsg_SetNeedsOcclusionTracking,
+                        OnSetNeedsOcclusionTracking)
     IPC_MESSAGE_HANDLER(FrameMsg_Collapse, OnCollapse)
     IPC_MESSAGE_HANDLER(FrameMsg_DidUpdateName, OnDidUpdateName)
     IPC_MESSAGE_HANDLER(FrameMsg_AddContentSecurityPolicies,
@@ -445,11 +427,14 @@ bool RenderFrameProxy::OnMessageReceived(const IPC::Message& msg) {
     IPC_MESSAGE_HANDLER(FrameMsg_WillEnterFullscreen, OnWillEnterFullscreen)
     IPC_MESSAGE_HANDLER(FrameMsg_UpdateUserActivationState,
                         OnUpdateUserActivationState)
+    IPC_MESSAGE_HANDLER(FrameMsg_TransferUserActivationFrom,
+                        OnTransferUserActivationFrom)
     IPC_MESSAGE_HANDLER(FrameMsg_ScrollRectToVisible, OnScrollRectToVisible)
     IPC_MESSAGE_HANDLER(FrameMsg_BubbleLogicalScroll, OnBubbleLogicalScroll)
     IPC_MESSAGE_HANDLER(FrameMsg_SetHasReceivedUserGestureBeforeNavigation,
                         OnSetHasReceivedUserGestureBeforeNavigation)
     IPC_MESSAGE_HANDLER(FrameMsg_RenderFallbackContent, OnRenderFallbackContent)
+    IPC_MESSAGE_HANDLER(UnfreezableFrameMsg_DeleteProxy, OnDeleteProxy)
     IPC_MESSAGE_UNHANDLED(handled = false)
   IPC_END_MESSAGE_MAP()
 
@@ -504,9 +489,13 @@ void RenderFrameProxy::OnDidStartLoading() {
 void RenderFrameProxy::OnViewChanged(
     const FrameMsg_ViewChanged_Params& params) {
   crashed_ = false;
-  // In mash the FrameSinkId comes from RendererWindowTreeClient.
-  if (!features::IsMultiProcessMash())
-    frame_sink_id_ = *params.frame_sink_id;
+  // The same ParentLocalSurfaceIdAllocator cannot provide LocalSurfaceIds for
+  // two different frame sinks, so recreate it here.
+  if (frame_sink_id_ != params.frame_sink_id) {
+    parent_local_surface_id_allocator_ =
+        std::make_unique<viz::ParentLocalSurfaceIdAllocator>();
+  }
+  frame_sink_id_ = params.frame_sink_id;
 
   // Resend the FrameRects and allocate a new viz::LocalSurfaceId when the view
   // changes.
@@ -525,6 +514,10 @@ void RenderFrameProxy::OnForwardResourceTimingToParent(
 
 void RenderFrameProxy::OnDispatchLoad() {
   web_frame_->DispatchLoadEventForFrameOwner();
+}
+
+void RenderFrameProxy::OnSetNeedsOcclusionTracking(bool needs_tracking) {
+  web_frame_->SetNeedsOcclusionTracking(needs_tracking);
 }
 
 void RenderFrameProxy::OnCollapse(bool collapsed) {
@@ -592,6 +585,14 @@ void RenderFrameProxy::OnUpdateUserActivationState(
   web_frame_->UpdateUserActivationState(update_type);
 }
 
+void RenderFrameProxy::OnTransferUserActivationFrom(int32_t source_routing_id) {
+  RenderFrameProxy* source_proxy =
+      RenderFrameProxy::FromRoutingID(source_routing_id);
+  if (!source_proxy)
+    return;
+  web_frame()->TransferUserActivationFrom(source_proxy->web_frame());
+}
+
 void RenderFrameProxy::OnScrollRectToVisible(
     const gfx::Rect& rect_to_scroll,
     const blink::WebScrollIntoViewParams& params) {
@@ -600,13 +601,13 @@ void RenderFrameProxy::OnScrollRectToVisible(
 
 void RenderFrameProxy::OnBubbleLogicalScroll(
     blink::WebScrollDirection direction,
-    blink::WebScrollGranularity granularity) {
+    ui::input_types::ScrollGranularity granularity) {
   web_frame_->BubbleLogicalScroll(direction, granularity);
 }
 
 void RenderFrameProxy::OnDidUpdateVisualProperties(
     const cc::RenderFrameMetadata& metadata) {
-  if (!parent_local_surface_id_allocator_.UpdateFromChild(
+  if (!parent_local_surface_id_allocator_->UpdateFromChild(
           metadata.local_surface_id_allocation.value_or(
               viz::LocalSurfaceIdAllocation()))) {
     return;
@@ -629,13 +630,6 @@ void RenderFrameProxy::OnDisableAutoResize() {
   pending_visual_properties_.auto_resize_enabled = false;
   SynchronizeVisualProperties();
 }
-
-#if defined(USE_AURA) && !defined(TOOLKIT_QT)
-void RenderFrameProxy::SetMusEmbeddedFrame(
-    std::unique_ptr<MusEmbeddedFrame> mus_embedded_frame) {
-  mus_embedded_frame_ = std::move(mus_embedded_frame);
-}
-#endif
 
 void RenderFrameProxy::SynchronizeVisualProperties() {
   if (!frame_sink_id_.is_valid() || crashed_)
@@ -668,12 +662,15 @@ void RenderFrameProxy::SynchronizeVisualProperties() {
           pending_visual_properties_.zoom_level ||
       sent_visual_properties_->page_scale_factor !=
           pending_visual_properties_.page_scale_factor ||
+      sent_visual_properties_->is_pinch_gesture_active !=
+          pending_visual_properties_.is_pinch_gesture_active ||
       capture_sequence_number_changed;
 
   if (synchronized_props_changed) {
-    parent_local_surface_id_allocator_.GenerateId();
+    parent_local_surface_id_allocator_->GenerateId();
     pending_visual_properties_.local_surface_id_allocation =
-        parent_local_surface_id_allocator_.GetCurrentLocalSurfaceIdAllocation();
+        parent_local_surface_id_allocator_
+            ->GetCurrentLocalSurfaceIdAllocation();
   }
 
   if (enable_surface_synchronization_) {
@@ -692,13 +689,6 @@ void RenderFrameProxy::SynchronizeVisualProperties() {
                           pending_visual_properties_.screen_space_rect;
   bool visual_properties_changed = synchronized_props_changed || rect_changed;
 
-#if defined(USE_AURA) && !defined(TOOLKIT_QT)
-  if (rect_changed && mus_embedded_frame_) {
-    mus_embedded_frame_->SetWindowBounds(GetLocalSurfaceId(),
-                                         gfx::Rect(local_frame_size()));
-  }
-#endif
-
   if (!visual_properties_changed)
     return;
 
@@ -707,13 +697,24 @@ void RenderFrameProxy::SynchronizeVisualProperties() {
       routing_id_, frame_sink_id_, pending_visual_properties_));
   sent_visual_properties_ = pending_visual_properties_;
 
+  TRACE_EVENT_WITH_FLOW2(
+      TRACE_DISABLED_BY_DEFAULT("viz.surface_id_flow"),
+      "RenderFrameProxy::SynchronizeVisualProperties Send Message",
+      TRACE_ID_GLOBAL(pending_visual_properties_.local_surface_id_allocation
+                          .local_surface_id()
+                          .submission_trace_id()),
+      TRACE_EVENT_FLAG_FLOW_OUT, "message",
+      "FrameHostMsg_SynchronizeVisualProperties", "local_surface_id",
+      pending_visual_properties_.local_surface_id_allocation.local_surface_id()
+          .ToString());
+
   // The visible rect that the OOPIF needs to raster depends partially on
   // parameters that might have changed. If they affect the raster area, resend
   // the intersection rects.
   gfx::Rect new_compositor_visible_rect = web_frame_->GetCompositingRect();
   if (new_compositor_visible_rect != last_compositor_visible_rect_)
     UpdateRemoteViewportIntersection(last_intersection_rect_,
-                                     last_occluded_or_obscured_);
+                                     last_occlusion_state_);
 }
 
 void RenderFrameProxy::OnSetHasReceivedUserGestureBeforeNavigation(bool value) {
@@ -725,11 +726,7 @@ void RenderFrameProxy::OnRenderFallbackContent() const {
 }
 
 void RenderFrameProxy::FrameDetached(DetachType type) {
-#if defined(USE_AURA) && !defined(TOOLKIT_QT)
-  mus_embedded_frame_.reset();
-#endif
-
-  if (type == DetachType::kRemove && web_frame_->Parent()) {
+  if (type == DetachType::kRemove) {
     // Let the browser process know this subframe is removed, so that it is
     // destroyed in its current process.
     Send(new FrameHostMsg_Detach(routing_id_));
@@ -797,11 +794,14 @@ void RenderFrameProxy::ForwardPostMessage(
   Send(new FrameHostMsg_RouteMessageEvent(routing_id_, params));
 }
 
-void RenderFrameProxy::Navigate(const blink::WebURLRequest& request,
-                                bool should_replace_current_entry,
-                                bool is_opener_navigation,
-                                bool prevent_sandboxed_download,
-                                mojo::ScopedMessagePipeHandle blob_url_token) {
+void RenderFrameProxy::Navigate(
+    const blink::WebURLRequest& request,
+    bool should_replace_current_entry,
+    bool is_opener_navigation,
+    bool has_download_sandbox_flag,
+    bool blocking_downloads_in_sandbox_without_user_activation_enabled,
+    bool initiator_frame_is_ad,
+    mojo::ScopedMessagePipeHandle blob_url_token) {
   // The request must always have a valid initiator origin.
   DCHECK(!request.RequestorOrigin().IsNull());
 
@@ -822,11 +822,15 @@ void RenderFrameProxy::Navigate(const blink::WebURLRequest& request,
   params.triggering_event_info = blink::WebTriggeringEventInfo::kUnknown;
   params.blob_url_token = blob_url_token.release();
 
-  params.download_policy =
-      prevent_sandboxed_download
-          ? NavigationDownloadPolicy::kDisallowSandbox
-          : RenderFrameImpl::GetOpenerDownloadPolicy(
-                is_opener_navigation, request, web_frame_->GetSecurityOrigin());
+  // Note: For the AdFrame download policy here it only covers the case where
+  // the navigation initiator frame is ad. The download_policy may be further
+  // augmented in RenderFrameProxyHost::OnOpenURL if the navigating frame is ad.
+  RenderFrameImpl::MaybeSetDownloadFramePolicy(
+      is_opener_navigation, request, web_frame_->GetSecurityOrigin(),
+      has_download_sandbox_flag,
+      blocking_downloads_in_sandbox_without_user_activation_enabled,
+      initiator_frame_is_ad, &params.download_policy);
+
   Send(new FrameHostMsg_OpenURL(routing_id_, params));
 }
 
@@ -849,17 +853,18 @@ void RenderFrameProxy::FrameRectsChanged(
 
 void RenderFrameProxy::UpdateRemoteViewportIntersection(
     const blink::WebRect& viewport_intersection,
-    bool occluded_or_obscured) {
+    blink::FrameOcclusionState occlusion_state) {
   last_intersection_rect_ = viewport_intersection;
   last_compositor_visible_rect_ = web_frame_->GetCompositingRect();
-  last_occluded_or_obscured_ = occluded_or_obscured;
+  last_occlusion_state_ = occlusion_state;
   Send(new FrameHostMsg_UpdateViewportIntersection(
       routing_id_, gfx::Rect(viewport_intersection),
-      last_compositor_visible_rect_, last_occluded_or_obscured_));
+      last_compositor_visible_rect_, last_occlusion_state_));
 }
 
-void RenderFrameProxy::VisibilityChanged(bool visible) {
-  Send(new FrameHostMsg_VisibilityChanged(routing_id_, visible));
+void RenderFrameProxy::VisibilityChanged(
+    blink::mojom::FrameVisibility visibility) {
+  Send(new FrameHostMsg_VisibilityChanged(routing_id_, visibility));
 }
 
 void RenderFrameProxy::SetIsInert(bool inert) {
@@ -908,18 +913,6 @@ base::UnguessableToken RenderFrameProxy::GetDevToolsFrameToken() {
   return devtools_frame_token_;
 }
 
-#if defined(USE_AURA) && !defined(TOOLKIT_QT)
-void RenderFrameProxy::OnMusEmbeddedFrameSinkIdAllocated(
-    const viz::FrameSinkId& frame_sink_id) {
-  // RendererWindowTreeClient should only call this when mus is hosting viz.
-  DCHECK(features::IsMultiProcessMash());
-  frame_sink_id_ = frame_sink_id;
-  // Resend the FrameRects and allocate a new viz::LocalSurfaceId when the view
-  // changes.
-  ResendVisualProperties();
-}
-#endif
-
 cc::Layer* RenderFrameProxy::GetLayer() {
   return embedded_layer_.get();
 }
@@ -941,8 +934,7 @@ SkBitmap* RenderFrameProxy::GetSadPageBitmap() {
 uint32_t RenderFrameProxy::Print(const blink::WebRect& rect,
                                  cc::PaintCanvas* canvas) {
 #if BUILDFLAG(ENABLE_PRINTING)
-  printing::MetafileSkia* metafile =
-      printing::MetafileSkiaWrapper::GetMetafileFromCanvas(canvas);
+  auto* metafile = canvas->GetPrintingMetafile();
   DCHECK(metafile);
 
   // Create a place holder content for the remote frame so it can be replaced
@@ -960,7 +952,8 @@ uint32_t RenderFrameProxy::Print(const blink::WebRect& rect,
 }
 
 const viz::LocalSurfaceId& RenderFrameProxy::GetLocalSurfaceId() const {
-  return parent_local_surface_id_allocator_.GetCurrentLocalSurfaceIdAllocation()
+  return parent_local_surface_id_allocator_
+      ->GetCurrentLocalSurfaceIdAllocation()
       .local_surface_id();
 }
 

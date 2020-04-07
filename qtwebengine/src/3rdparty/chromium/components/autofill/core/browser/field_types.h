@@ -169,9 +169,29 @@ enum ServerFieldType {
   // Search term fields are detected, but not filled.
   SEARCH_TERM = 97,
 
+  // Price fields are detected, but not filled.
+  PRICE = 98,
+
+  // Password-type fields which are not actual passwords.
+  NOT_PASSWORD = 99,
+
+  // Username field when there is no corresponding password field. It might be
+  // because of:
+  // 1. Username first flow: a user has to type username first on one page and
+  // then password on another page
+  // 2. Username and password fields are in different <form>s.
+  SINGLE_USERNAME = 100,
+
+  // Text-type fields which are not usernames.
+  NOT_USERNAME = 101,
+
+  // UPI/VPA is a payment method, which is stored and filled. See
+  // https://en.wikipedia.org/wiki/Unified_Payments_Interface
+  UPI_VPA = 102,
+
   // No new types can be added without a corresponding change to the Autofill
   // server.
-  MAX_VALID_FIELD_TYPE = 98,
+  MAX_VALID_FIELD_TYPE = 103,
 };
 
 // The list of all HTML autocomplete field type hints supported by Chrome.

@@ -18,6 +18,7 @@
 #include "base/gtest_prod_util.h"
 #include "base/logging.h"
 #include "base/macros.h"
+#include "base/memory/ref_counted.h"
 #include "base/process/kill.h"
 #include "build/build_config.h"
 #include "content/browser/renderer_host/input/input_device_change_observer.h"
@@ -32,7 +33,7 @@
 #include "third_party/blink/public/web/web_ax_enums.h"
 #include "third_party/blink/public/web/web_console_message.h"
 #include "third_party/skia/include/core/SkColor.h"
-#include "ui/base/mojo/window_open_disposition.mojom.h"
+#include "ui/base/mojom/window_open_disposition.mojom.h"
 #include "ui/gl/gpu_switching_observer.h"
 
 namespace content {
@@ -61,11 +62,13 @@ class TimeoutMonitor;
 //
 // For context, please see https://crbug.com/467770 and
 // https://www.chromium.org/developers/design-documents/site-isolation.
-class CONTENT_EXPORT RenderViewHostImpl : public RenderViewHost,
-                                          public RenderWidgetHostOwnerDelegate,
-                                          public RenderProcessHostObserver,
-                                          public ui::GpuSwitchingObserver,
-                                          public IPC::Listener {
+class CONTENT_EXPORT RenderViewHostImpl
+    : public RenderViewHost,
+      public RenderWidgetHostOwnerDelegate,
+      public RenderProcessHostObserver,
+      public ui::GpuSwitchingObserver,
+      public IPC::Listener,
+      public base::RefCounted<RenderViewHostImpl> {
  public:
   // Convenience function, just like RenderViewHost::FromID.
   static RenderViewHostImpl* FromID(int process_id, int routing_id);
@@ -80,26 +83,20 @@ class CONTENT_EXPORT RenderViewHostImpl : public RenderViewHost,
                      int32_t main_frame_routing_id,
                      bool swapped_out,
                      bool has_initialized_audio_host);
-  // TODO(ajwong): Make destructor private. Deletion of this object should only
-  // be done via ShutdownAndDestroy(). https://crbug.com/545684
-  ~RenderViewHostImpl() override;
-
-  // Shuts down this RenderViewHost and deletes it.
-  void ShutdownAndDestroy();
 
   // RenderViewHost implementation.
   bool Send(IPC::Message* msg) override;
-  RenderWidgetHostImpl* GetWidget() const override;
-  RenderProcessHost* GetProcess() const override;
-  int GetRoutingID() const override;
+  RenderWidgetHostImpl* GetWidget() override;
+  RenderProcessHost* GetProcess() override;
+  int GetRoutingID() override;
   RenderFrameHost* GetMainFrame() override;
   void EnablePreferredSizeMode() override;
   void ExecutePluginActionAtLocation(
       const gfx::Point& location,
       const blink::WebPluginAction& action) override;
-  RenderViewHostDelegate* GetDelegate() const override;
-  SiteInstanceImpl* GetSiteInstance() const override;
-  bool IsRenderViewLive() const override;
+  RenderViewHostDelegate* GetDelegate() override;
+  SiteInstanceImpl* GetSiteInstance() override;
+  bool IsRenderViewLive() override;
   void NotifyMoveOrResizeStarted() override;
   void SetWebUIProperty(const std::string& name,
                         const std::string& value) override;
@@ -133,10 +130,6 @@ class CONTENT_EXPORT RenderViewHostImpl : public RenderViewHost,
       const base::UnguessableToken& devtools_frame_token,
       const FrameReplicationState& replicated_frame_state,
       bool window_was_created_with_opener);
-
-  base::TerminationStatus render_view_termination_status() const {
-    return render_view_termination_status_;
-  }
 
   // Tracks whether this RenderViewHost is in an active state (rather than
   // pending swap out or swapped out), according to its main frame
@@ -206,21 +199,12 @@ class CONTENT_EXPORT RenderViewHostImpl : public RenderViewHost,
   // view is not considered active.
   void SetMainFrameRoutingId(int routing_id);
 
-  // Increases the refcounting on this RVH. This is done by the FrameTree on
-  // creation of a RenderFrameHost or RenderFrameProxyHost.
-  void increment_ref_count() { ++frames_ref_count_; }
-
-  // Decreases the refcounting on this RVH. This is done by the FrameTree on
-  // destruction of a RenderFrameHost or RenderFrameProxyHost.
-  void decrement_ref_count() { --frames_ref_count_; }
-
-  // Returns the refcount on this RVH, that is the number of RenderFrameHosts
-  // and RenderFrameProxyHosts currently using it.
-  int ref_count() { return frames_ref_count_; }
-
   // Called during frame eviction to return all SurfaceIds in the frame tree.
   // Marks all views in the frame tree as evicted.
   std::vector<viz::SurfaceId> CollectSurfaceIdsForEviction();
+
+  // Manual RTTI to ensure safe downcasts in tests.
+  virtual bool IsTestRenderViewHost() const;
 
   // NOTE: Do not add functions that just send an IPC message that are called in
   // one or two places. Have the caller send the IPC message directly (unless
@@ -228,10 +212,12 @@ class CONTENT_EXPORT RenderViewHostImpl : public RenderViewHost,
   // to keep them consistent).
 
  protected:
+  friend class base::RefCounted<RenderViewHostImpl>;
+  ~RenderViewHostImpl() override;
+
   // RenderWidgetHostOwnerDelegate overrides.
   void RenderWidgetDidInit() override;
   void RenderWidgetDidClose() override;
-  void RenderWidgetNeedsToRouteCloseEvent() override;
   void RenderWidgetDidFirstVisuallyNonEmptyPaint() override;
   void RenderWidgetDidCommitAndDrawCompositorFrame() override;
   void RenderWidgetGotFocus() override;
@@ -257,13 +243,13 @@ class CONTENT_EXPORT RenderViewHostImpl : public RenderViewHost,
                   bool user_gesture);
   void OnShowWidget(int widget_route_id, const gfx::Rect& initial_rect);
   void OnShowFullscreenWidget(int widget_route_id);
+  void OnRouteCloseEvent();
   void OnUpdateTargetURL(const GURL& url);
   void OnDocumentAvailableInMainFrame(bool uses_temporary_zoom_level);
   void OnDidContentsPreferredSizeChange(const gfx::Size& new_size);
   void OnPasteFromSelectionClipboard();
   void OnTakeFocus(bool reverse);
   void OnClosePageACK();
-  void OnDidZoomURL(double zoom_level, const GURL& url);
   void OnFocus();
 
  private:
@@ -312,9 +298,6 @@ class CONTENT_EXPORT RenderViewHostImpl : public RenderViewHost,
   // The RenderWidgetHost.
   std::unique_ptr<RenderWidgetHostImpl> render_widget_host_;
 
-  // The number of RenderFrameHosts which have a reference to this RVH.
-  int frames_ref_count_;
-
   // Our delegate, which wants to know about changes in the RenderView.
   RenderViewHostDelegate* delegate_;
 
@@ -343,9 +326,6 @@ class CONTENT_EXPORT RenderViewHostImpl : public RenderViewHost,
   // True if the render view can be shut down suddenly.
   bool sudden_termination_allowed_;
 
-  // The termination status of the last render view that terminated.
-  base::TerminationStatus render_view_termination_status_;
-
   // This is updated every time UpdateWebkitPreferences is called. That method
   // is in turn called when any of the settings change that the WebPreferences
   // values depend on.
@@ -369,7 +349,7 @@ class CONTENT_EXPORT RenderViewHostImpl : public RenderViewHost,
   // duplicate RenderViewCreated events.
   bool has_notified_about_creation_;
 
-  base::WeakPtrFactory<RenderViewHostImpl> weak_factory_;
+  base::WeakPtrFactory<RenderViewHostImpl> weak_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(RenderViewHostImpl);
 };

@@ -22,8 +22,8 @@ class COMPONENT_EXPORT(VULKAN_ANDROID) VulkanImplementationAndroid
   ~VulkanImplementationAndroid() override;
 
   // VulkanImplementation:
-  bool InitializeVulkanInstance() override;
-  VkInstance GetVulkanInstance() override;
+  bool InitializeVulkanInstance(bool using_surface) override;
+  VulkanInstance* GetVulkanInstance() override;
   std::unique_ptr<VulkanSurface> CreateViewSurface(
       gfx::AcceleratedWidget window) override;
   bool GetPhysicalDevicePresentationSupport(
@@ -35,12 +35,22 @@ class COMPONENT_EXPORT(VULKAN_ANDROID) VulkanImplementationAndroid
   std::unique_ptr<gfx::GpuFence> ExportVkFenceToGpuFence(
       VkDevice vk_device,
       VkFence vk_fence) override;
-  bool ImportSemaphoreFdKHR(VkDevice vk_device,
-                            base::ScopedFD sync_fd,
-                            VkSemaphore* vk_semaphore) override;
-  bool GetSemaphoreFdKHR(VkDevice vk_device,
-                         VkSemaphore vk_semaphore,
-                         base::ScopedFD* sync_fd) override;
+  VkSemaphore CreateExternalSemaphore(VkDevice vk_device) override;
+  VkSemaphore ImportSemaphoreHandle(VkDevice vk_device,
+                                    SemaphoreHandle handle) override;
+  SemaphoreHandle GetSemaphoreHandle(VkDevice vk_device,
+                                     VkSemaphore vk_semaphore) override;
+  VkExternalMemoryHandleTypeFlagBits GetExternalImageHandleType() override;
+  bool CanImportGpuMemoryBuffer(
+      gfx::GpuMemoryBufferType memory_buffer_type) override;
+  bool CreateImageFromGpuMemoryHandle(
+      VkDevice vk_device,
+      gfx::GpuMemoryBufferHandle gmb_handle,
+      gfx::Size size,
+      VkImage* vk_image,
+      VkImageCreateInfo* vk_image_info,
+      VkDeviceMemory* vk_device_memory,
+      VkDeviceSize* mem_allocation_size) override;
   bool CreateVkImageAndImportAHB(
       const VkDevice& vk_device,
       const VkPhysicalDevice& vk_physical_device,
@@ -49,12 +59,15 @@ class COMPONENT_EXPORT(VULKAN_ANDROID) VulkanImplementationAndroid
       VkImage* vk_image,
       VkImageCreateInfo* vk_image_info,
       VkDeviceMemory* vk_device_memory,
-      VkDeviceSize* mem_allocation_size) override;
+      VkDeviceSize* mem_allocation_size,
+      VulkanYCbCrInfo* ycbcr_info) override;
+  bool GetSamplerYcbcrConversionInfo(
+      const VkDevice& vk_device,
+      base::android::ScopedHardwareBufferHandle ahb_handle,
+      VulkanYCbCrInfo* ycbcr_info) override;
 
  private:
   VulkanInstance vulkan_instance_;
-
-  PFN_vkCreateAndroidSurfaceKHR vkCreateAndroidSurfaceKHR_ = nullptr;
 
   DISALLOW_COPY_AND_ASSIGN(VulkanImplementationAndroid);
 };

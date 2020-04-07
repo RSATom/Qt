@@ -89,22 +89,26 @@
 
 namespace QtWebEngineCore {
 
-// Maps the LogSeverity defines in base/logging.h to the web engines message levels.
-static WebContentsAdapterClient::JavaScriptConsoleMessageLevel mapToJavascriptConsoleMessageLevel(int32_t messageLevel)
+static WebContentsAdapterClient::JavaScriptConsoleMessageLevel mapToJavascriptConsoleMessageLevel(blink::mojom::ConsoleMessageLevel log_level)
 {
-    if (messageLevel < 1)
+    switch (log_level) {
+    case blink::mojom::ConsoleMessageLevel::kVerbose:
+    case blink::mojom::ConsoleMessageLevel::kInfo:
         return WebContentsAdapterClient::Info;
-    else if (messageLevel > 1)
+    case blink::mojom::ConsoleMessageLevel::kWarning:
+        return WebContentsAdapterClient::Warning;
+    case blink::mojom::ConsoleMessageLevel::kError:
         return WebContentsAdapterClient::Error;
-
-    return WebContentsAdapterClient::Warning;
+    }
 }
 
 WebContentsDelegateQt::WebContentsDelegateQt(content::WebContents *webContents, WebContentsAdapterClient *adapterClient)
     : m_viewClient(adapterClient)
-    , m_lastReceivedFindReply(0)
     , m_faviconManager(new FaviconManager(webContents, adapterClient))
+    , m_findTextHelper(new FindTextHelper(webContents, adapterClient))
     , m_lastLoadProgress(-1)
+    , m_loadingState(determineLoadingState(webContents))
+    , m_didStartLoadingSeen(m_loadingState == LoadingState::Loading)
     , m_frameFocusedObserver(adapterClient)
 {
     webContents->SetDelegate(this);
@@ -185,36 +189,20 @@ static bool shouldUseActualURL(content::NavigationEntry *entry)
 
 void WebContentsDelegateQt::NavigationStateChanged(content::WebContents* source, content::InvalidateTypes changed_flags)
 {
-    if (changed_flags & content::INVALIDATE_TYPE_URL) {
-        content::NavigationEntry *entry = source->GetController().GetVisibleEntry();
-
-        QUrl newUrl;
-        if (source->GetVisibleURL().SchemeIs(content::kViewSourceScheme)) {
-            Q_ASSERT(entry);
-            GURL url = entry->GetURL();
-
-            // Strip user name, password and reference section from view-source URLs
-            if (url.has_password() || url.has_username() || url.has_ref()) {
-                GURL strippedUrl = net::SimplifyUrlForRequest(entry->GetURL());
-                newUrl = QUrl(QString("%1:%2").arg(content::kViewSourceScheme, QString::fromStdString(strippedUrl.spec())));
-            }
-        }
-
-        // If there is a visible entry there are special cases when we dont wan't to use the actual URL
-        if (entry && newUrl.isEmpty())
-            newUrl = shouldUseActualURL(entry) ? toQt(entry->GetURL()) : toQt(entry->GetVirtualURL());
-
-        if (m_url != newUrl) {
-            m_url = newUrl;
-            m_viewClient->urlChanged(m_url);
-        }
+    if (changed_flags & content::INVALIDATE_TYPE_URL && !m_pendingUrlUpdate) {
+        m_pendingUrlUpdate = true;
+        base::WeakPtr<WebContentsDelegateQt> delegate = AsWeakPtr();
+        QTimer::singleShot(0, [delegate, this](){ if (delegate) m_viewClient->urlChanged();});
     }
 
     if (changed_flags & content::INVALIDATE_TYPE_TITLE) {
         QString newTitle = toQt(source->GetTitle());
         if (m_title != newTitle) {
             m_title = newTitle;
-            m_viewClient->titleChanged(m_title);
+            QTimer::singleShot(0, [delegate = AsWeakPtr(), title = newTitle] () {
+                if (delegate)
+                    delegate->adapterClient()->titleChanged(title);
+            });
         }
     }
 
@@ -228,6 +216,25 @@ void WebContentsDelegateQt::NavigationStateChanged(content::WebContents* source,
     }
 }
 
+QUrl WebContentsDelegateQt::url(content::WebContents* source) const {
+
+    content::NavigationEntry *entry = source->GetController().GetVisibleEntry();
+    QUrl newUrl;
+    if (entry) {
+        GURL url = entry->GetURL();
+        // Strip user name, password and reference section from view-source URLs
+        if (source->GetVisibleURL().SchemeIs(content::kViewSourceScheme) &&
+            (url.has_password() || url.has_username() || url.has_ref())) {
+            GURL strippedUrl = net::SimplifyUrlForRequest(url);
+            newUrl = QUrl(QString("%1:%2").arg(content::kViewSourceScheme, QString::fromStdString(strippedUrl.spec())));
+        }
+        // If there is a visible entry there are special cases when we dont wan't to use the actual URL
+        if (newUrl.isEmpty())
+            newUrl = shouldUseActualURL(entry) ? toQt(url) : toQt(entry->GetVirtualURL());
+    }
+    m_pendingUrlUpdate = false;
+    return newUrl;
+}
 void WebContentsDelegateQt::AddNewContents(content::WebContents* source, std::unique_ptr<content::WebContents> new_contents, WindowOpenDisposition disposition, const gfx::Rect& initial_pos, bool user_gesture, bool* was_blocked)
 {
     Q_UNUSED(source)
@@ -278,6 +285,25 @@ void WebContentsDelegateQt::RenderFrameCreated(content::RenderFrameHost *render_
 void WebContentsDelegateQt::RenderFrameDeleted(content::RenderFrameHost *render_frame_host)
 {
     m_loadingErrorFrameList.removeOne(render_frame_host->GetRoutingID());
+}
+
+void WebContentsDelegateQt::RenderProcessGone(base::TerminationStatus status)
+{
+    // RenderProcessHost::FastShutdownIfPossible results in TERMINATION_STATUS_STILL_RUNNING
+    if (status != base::TERMINATION_STATUS_STILL_RUNNING) {
+        m_viewClient->renderProcessTerminated(
+                m_viewClient->renderProcessExitStatus(status),
+                web_contents()->GetCrashedErrorCode());
+    }
+
+    // Based one TabLoadTracker::RenderProcessGone
+
+    if (status == base::TERMINATION_STATUS_NORMAL_TERMINATION
+        || status == base::TERMINATION_STATUS_STILL_RUNNING) {
+        return;
+    }
+
+    setLoadingState(LoadingState::Unloaded);
 }
 
 void WebContentsDelegateQt::RenderFrameHostChanged(content::RenderFrameHost *old_host, content::RenderFrameHost *new_host)
@@ -336,9 +362,7 @@ void WebContentsDelegateQt::EmitLoadFinished(bool success, const QUrl &url, bool
 
 void WebContentsDelegateQt::EmitLoadCommitted()
 {
-    // Make sure that we don't set the findNext WebFindOptions on a new frame.
-    m_lastSearchedString = QString();
-
+    m_findTextHelper->handleLoadCommitted();
     m_viewClient->loadCommitted();
     m_viewClient->updateNavigationActions();
 }
@@ -380,6 +404,46 @@ void WebContentsDelegateQt::DidFinishNavigation(content::NavigationHandle *navig
     }
 }
 
+void WebContentsDelegateQt::DidStartLoading()
+{
+    // Based on TabLoadTracker::DidStartLoading
+
+    if (!web_contents()->IsLoadingToDifferentDocument())
+        return;
+    if (m_loadingState == LoadingState::Loading) {
+        DCHECK(m_didStartLoadingSeen);
+        return;
+    }
+    m_didStartLoadingSeen = true;
+}
+
+void WebContentsDelegateQt::DidReceiveResponse()
+{
+    // Based on TabLoadTracker::DidReceiveResponse
+
+    if (m_loadingState == LoadingState::Loading) {
+        DCHECK(m_didStartLoadingSeen);
+        return;
+    }
+
+    // A transition to loading requires both DidStartLoading (navigation
+    // committed) and DidReceiveResponse (data has been transmitted over the
+    // network) events to occur. This is because NavigationThrottles can block
+    // actual network requests, but not the rest of the state machinery.
+    if (m_didStartLoadingSeen)
+        setLoadingState(LoadingState::Loading);
+}
+
+void WebContentsDelegateQt::DidStopLoading()
+{
+    // Based on TabLoadTracker::DidStopLoading
+
+    // NOTE: PageAlmostIdle feature not implemented
+
+    if (m_loadingState == LoadingState::Loading)
+        setLoadingState(LoadingState::Loaded);
+}
+
 void WebContentsDelegateQt::didFailLoad(const QUrl &url, int errorCode, const QString &errorDescription)
 {
     m_viewClient->iconChanged(QUrl());
@@ -388,6 +452,9 @@ void WebContentsDelegateQt::didFailLoad(const QUrl &url, int errorCode, const QS
 
 void WebContentsDelegateQt::DidFailLoad(content::RenderFrameHost* render_frame_host, const GURL& validated_url, int error_code, const base::string16& error_description)
 {
+    if (m_loadingState == LoadingState::Loading)
+        setLoadingState(LoadingState::Loaded);
+
     if (render_frame_host != web_contents()->GetMainFrame())
         return;
 
@@ -418,8 +485,10 @@ void WebContentsDelegateQt::DidFinishLoad(content::RenderFrameHost* render_frame
         return;
     }
 
-    if (render_frame_host->GetParent())
+    if (render_frame_host->GetParent()) {
+        m_viewClient->updateNavigationActions();
         return;
+    }
 
     if (!m_faviconManager->hasCandidate())
         m_viewClient->iconChanged(QUrl());
@@ -482,7 +551,7 @@ void WebContentsDelegateQt::ExitFullscreenModeForTab(content::WebContents *web_c
         m_viewClient->requestFullScreenMode(toQt(web_contents->GetLastCommittedURL().GetOrigin()), false);
 }
 
-bool WebContentsDelegateQt::IsFullscreenForTabOrPending(const content::WebContents* web_contents) const
+bool WebContentsDelegateQt::IsFullscreenForTabOrPending(const content::WebContents* web_contents)
 {
     Q_UNUSED(web_contents);
     return m_viewClient->isFullScreenMode();
@@ -511,22 +580,17 @@ void WebContentsDelegateQt::RunFileChooser(content::RenderFrameHost * /*frameHos
     });
 }
 
-bool WebContentsDelegateQt::DidAddMessageToConsole(content::WebContents *source, int32_t level, const base::string16 &message, int32_t line_no, const base::string16 &source_id)
+bool WebContentsDelegateQt::DidAddMessageToConsole(content::WebContents *source, blink::mojom::ConsoleMessageLevel log_level,
+                                                   const base::string16 &message, int32_t line_no, const base::string16 &source_id)
 {
     Q_UNUSED(source)
-    m_viewClient->javaScriptConsoleMessage(mapToJavascriptConsoleMessageLevel(level), toQt(message), static_cast<int>(line_no), toQt(source_id));
+    m_viewClient->javaScriptConsoleMessage(mapToJavascriptConsoleMessageLevel(log_level), toQt(message), static_cast<int>(line_no), toQt(source_id));
     return false;
 }
 
 void WebContentsDelegateQt::FindReply(content::WebContents *source, int request_id, int number_of_matches, const gfx::Rect& selection_rect, int active_match_ordinal, bool final_update)
 {
-    Q_UNUSED(source)
-    Q_UNUSED(selection_rect)
-    Q_UNUSED(active_match_ordinal)
-    if (final_update && request_id > m_lastReceivedFindReply) {
-        m_lastReceivedFindReply = request_id;
-        m_viewClient->didFindText(request_id, number_of_matches);
-    }
+    m_findTextHelper->handleFindReply(source, request_id, number_of_matches, selection_rect, active_match_ordinal, final_update);
 }
 
 void WebContentsDelegateQt::RequestMediaAccessPermission(content::WebContents *web_contents, const content::MediaStreamRequest &request,  content::MediaResponseCallback callback)
@@ -566,13 +630,7 @@ void WebContentsDelegateQt::DidFirstVisuallyNonEmptyPaint()
     if (!rwhv)
         return;
 
-    RenderWidgetHostViewQt::LoadVisuallyCommittedState loadVisuallyCommittedState = rwhv->getLoadVisuallyCommittedState();
-    if (loadVisuallyCommittedState == RenderWidgetHostViewQt::NotCommitted) {
-        rwhv->setLoadVisuallyCommittedState(RenderWidgetHostViewQt::DidFirstVisuallyNonEmptyPaint);
-    } else if (loadVisuallyCommittedState == RenderWidgetHostViewQt::DidFirstCompositorFrameSwap) {
-        m_viewClient->loadVisuallyCommitted();
-        rwhv->setLoadVisuallyCommittedState(RenderWidgetHostViewQt::NotCommitted);
-    }
+    rwhv->OnDidFirstVisuallyNonEmptyPaint();
 }
 
 void WebContentsDelegateQt::ActivateContents(content::WebContents* contents)
@@ -683,12 +741,12 @@ void WebContentsDelegateQt::BeforeUnloadFired(bool proceed, const base::TimeTick
     Q_UNUSED(proceed_time);
 }
 
-bool WebContentsDelegateQt::CheckMediaAccessPermission(content::RenderFrameHost *, const GURL& security_origin, blink::MediaStreamType type)
+bool WebContentsDelegateQt::CheckMediaAccessPermission(content::RenderFrameHost *, const GURL& security_origin, blink::mojom::MediaStreamType type)
 {
     switch (type) {
-    case blink::MEDIA_DEVICE_AUDIO_CAPTURE:
+    case blink::mojom::MediaStreamType::DEVICE_AUDIO_CAPTURE:
         return m_viewClient->profileAdapter()->checkPermission(toQt(security_origin), ProfileAdapter::AudioCapturePermission);
-    case blink::MEDIA_DEVICE_VIDEO_CAPTURE:
+    case blink::mojom::MediaStreamType::DEVICE_VIDEO_CAPTURE:
         return m_viewClient->profileAdapter()->checkPermission(toQt(security_origin), ProfileAdapter::VideoCapturePermission);
     default:
         LOG(INFO) << "WebContentsDelegateQt::CheckMediaAccessPermission: "
@@ -741,6 +799,11 @@ FaviconManager *WebContentsDelegateQt::faviconManager()
     return m_faviconManager.data();
 }
 
+FindTextHelper *WebContentsDelegateQt::findTextHelper()
+{
+    return m_findTextHelper.data();
+}
+
 WebEngineSettings *WebContentsDelegateQt::webEngineSettings() const {
     return m_viewClient->webEngineSettings();
 }
@@ -750,6 +813,81 @@ WebContentsAdapter *WebContentsDelegateQt::webContentsAdapter() const
     return m_viewClient->webContentsAdapter();
 }
 
+void WebContentsDelegateQt::copyStateFrom(WebContentsDelegateQt *source)
+{
+    m_title = source->m_title;
+    NavigationStateChanged(web_contents(), content::INVALIDATE_TYPE_URL);
+    m_faviconManager->copyStateFrom(source->m_faviconManager.data());
+}
+
+WebContentsDelegateQt::LoadingState WebContentsDelegateQt::determineLoadingState(content::WebContents *contents)
+{
+    // Based on TabLoadTracker::DetermineLoadingState
+
+    if (contents->IsLoadingToDifferentDocument() && !contents->IsWaitingForResponse())
+        return LoadingState::Loading;
+
+    content::NavigationController &controller = contents->GetController();
+    if (controller.GetLastCommittedEntry() != nullptr && !controller.IsInitialNavigation() && !controller.NeedsReload())
+        return LoadingState::Loaded;
+
+    return LoadingState::Unloaded;
+}
+
+void WebContentsDelegateQt::setLoadingState(LoadingState state)
+{
+    if (m_loadingState == state)
+        return;
+
+    m_loadingState = state;
+
+    webContentsAdapter()->updateRecommendedState();
+}
+
+int &WebContentsDelegateQt::streamCount(blink::mojom::MediaStreamType type)
+{
+    // Based on MediaStreamCaptureIndicator::WebContentsDeviceUsage::GetStreamCount
+    switch (type) {
+    case blink::mojom::MediaStreamType::DEVICE_AUDIO_CAPTURE:
+        return m_audioStreamCount;
+
+    case blink::mojom::MediaStreamType::DEVICE_VIDEO_CAPTURE:
+        return m_videoStreamCount;
+
+    case blink::mojom::MediaStreamType::GUM_TAB_AUDIO_CAPTURE:
+    case blink::mojom::MediaStreamType::GUM_TAB_VIDEO_CAPTURE:
+        return m_mirroringStreamCount;
+
+    case blink::mojom::MediaStreamType::GUM_DESKTOP_VIDEO_CAPTURE:
+    case blink::mojom::MediaStreamType::GUM_DESKTOP_AUDIO_CAPTURE:
+    case blink::mojom::MediaStreamType::DISPLAY_VIDEO_CAPTURE:
+    case blink::mojom::MediaStreamType::DISPLAY_AUDIO_CAPTURE:
+        return m_desktopStreamCount;
+
+    case blink::mojom::MediaStreamType::NO_SERVICE:
+    case blink::mojom::MediaStreamType::NUM_MEDIA_TYPES:
+        NOTREACHED();
+        return m_videoStreamCount;
+    }
+    NOTREACHED();
+    return m_videoStreamCount;
+}
+
+void WebContentsDelegateQt::addDevices(const blink::MediaStreamDevices &devices)
+{
+    for (const auto &device : devices)
+        ++streamCount(device.type);
+
+    webContentsAdapter()->updateRecommendedState();
+}
+
+void WebContentsDelegateQt::removeDevices(const blink::MediaStreamDevices &devices)
+{
+    for (const auto &device : devices)
+        ++streamCount(device.type);
+
+    webContentsAdapter()->updateRecommendedState();
+}
 
 FrameFocusedObserver::FrameFocusedObserver(WebContentsAdapterClient *adapterClient)
     : m_viewClient(adapterClient)

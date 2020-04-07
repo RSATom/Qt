@@ -355,6 +355,29 @@
     </message>
 </context>
 <context>
+    <name>QtWebEngineCore</name>
+    <message>
+        <source>Javascript Alert - %1</source>
+        <translation>Извещение Javascript - %1</translation>
+    </message>
+    <message>
+        <source>Javascript Confirm - %1</source>
+        <translation>Подтверждение Javascript - %1</translation>
+    </message>
+    <message>
+        <source>Javascript Prompt - %1</source>
+        <translation>Приглашение Javascript - %1</translation>
+    </message>
+    <message>
+        <source>Are you sure you want to leave this page?</source>
+        <translation>Покинуть страницу?</translation>
+    </message>
+    <message>
+        <source>Changes that you made may not be saved.</source>
+        <translation>Внесённые изменения могут быть утеряны.</translation>
+    </message>
+</context>
+<context>
     <name>QtWebEnginePlugin</name>
     <message>
         <source>Cannot create a separate instance of WebEngineDownloadItem</source>
@@ -363,10 +386,6 @@
     <message>
         <source>Cannot create separate instance of WebEngineNewViewRequest</source>
         <translation>Невозможно создать отдельный экземпляр WebEngineNewViewRequest</translation>
-    </message>
-    <message>
-        <source>Cannot create a separate instance of WebEngineSettings</source>
-        <translation>Невозможно создать отдельный экземпляр WebEngineSettings</translation>
     </message>
     <message>
         <source>Cannot create a separate instance of NavigationHistory</source>
@@ -504,26 +523,6 @@
     <message>
         <source>Enter username and password for &quot;%1&quot; at %2://%3</source>
         <translation>Введите имя пользователя и пароль для «%1» в %2://%3</translation>
-    </message>
-    <message>
-        <source>Javascript Alert - %1</source>
-        <translation>Извещение Javascript - %1</translation>
-    </message>
-    <message>
-        <source>Javascript Confirm - %1</source>
-        <translation>Подтверждение Javascript - %1</translation>
-    </message>
-    <message>
-        <source>Javascript Prompt - %1</source>
-        <translation>Приглашение Javascript - %1</translation>
-    </message>
-    <message>
-        <source>Are you sure you want to leave this page?</source>
-        <translation>Покинуть страницу?</translation>
-    </message>
-    <message>
-        <source>Changes that you made may not be saved.</source>
-        <translation>Внесённые изменения могут быть утеряны.</translation>
     </message>
 </context>
 <context>

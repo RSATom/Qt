@@ -6,14 +6,16 @@
 #define THIRD_PARTY_BLINK_RENDERER_PLATFORM_NETWORK_SERVER_TIMING_HEADER_H_
 
 #include "third_party/blink/renderer/platform/platform_export.h"
-#include "third_party/blink/renderer/platform/wtf/allocator.h"
+#include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
 
 namespace blink {
 
 class ServerTimingHeader {
+  USING_FAST_MALLOC(ServerTimingHeader);
+
  public:
-  ServerTimingHeader(const String& name) : name_(name) {}
+  explicit ServerTimingHeader(const String& name) : name_(name) {}
 
   const String& Name() const { return name_; }
   const double& Duration() const { return duration_; }

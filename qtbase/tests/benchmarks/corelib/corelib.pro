@@ -4,7 +4,9 @@ SUBDIRS = \
         json \
         mimetypes \
         kernel \
+        text \
         thread \
+        time \
         tools \
         codecs \
         plugin

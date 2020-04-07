@@ -35,7 +35,7 @@
 #include "third_party/blink/public/mojom/indexeddb/indexeddb.mojom-blink.h"
 #include "third_party/blink/renderer/modules/indexeddb/web_idb_callbacks.h"
 #include "third_party/blink/renderer/platform/heap/persistent.h"
-#include "third_party/blink/renderer/platform/wtf/allocator.h"
+#include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 
 namespace blink {
 
@@ -54,8 +54,7 @@ class WebIDBCallbacksImpl final : public WebIDBCallbacks {
   // cases.
   enum : int64_t { kNoTransaction = -1 };
 
-  static std::unique_ptr<WebIDBCallbacksImpl> Create(IDBRequest*);
-
+  explicit WebIDBCallbacksImpl(IDBRequest*);
   ~WebIDBCallbacksImpl() override;
 
   void SetState(base::WeakPtr<WebIDBCursorImpl> cursor,
@@ -94,8 +93,6 @@ class WebIDBCallbacksImpl final : public WebIDBCallbacks {
   void DetachRequestFromCallback() override;
 
  private:
-  explicit WebIDBCallbacksImpl(IDBRequest*);
-
   void Detach();
   void DetachCallbackFromRequest();
 

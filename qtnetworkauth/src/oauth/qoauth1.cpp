@@ -131,7 +131,7 @@ void QOAuth1Private::appendCommonHeaders(QVariantMap *headers)
 
     headers->insert(Key::oauthNonce, QOAuth1::nonce());
     headers->insert(Key::oauthConsumerKey, clientIdentifier);
-    headers->insert(Key::oauthTimestamp, QString::number(currentDateTime.toTime_t()));
+    headers->insert(Key::oauthTimestamp, QString::number(currentDateTime.toSecsSinceEpoch()));
     headers->insert(Key::oauthVersion, oauthVersion);
     headers->insert(Key::oauthSignatureMethod, signatureMethodString().toUtf8());
 }
@@ -288,7 +288,7 @@ QVariantMap QOAuth1Private::createOAuthBaseParams() const
     oauthParams.insert(Key::oauthToken, token);
     oauthParams.insert(Key::oauthSignatureMethod, signatureMethodString());
     oauthParams.insert(Key::oauthNonce, QOAuth1::nonce());
-    oauthParams.insert(Key::oauthTimestamp, QString::number(currentDateTime.toTime_t()));
+    oauthParams.insert(Key::oauthTimestamp, QString::number(currentDateTime.toSecsSinceEpoch()));
 
     return oauthParams;
 }

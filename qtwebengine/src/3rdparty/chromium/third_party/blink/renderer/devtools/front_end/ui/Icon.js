@@ -165,6 +165,12 @@ UI.Icon.Descriptors = {
   'mediumicon-bug': {position: 'd1', spritesheet: 'mediumicons', isMask: true},
   'mediumicon-list': {position: 'e5', spritesheet: 'mediumicons', isMask: true},
   'mediumicon-warning': {position: 'd5', spritesheet: 'mediumicons', isMask: true},
+  'mediumicon-sync': {position: 'a5', spritesheet: 'mediumicons', isMask: true},
+  'mediumicon-fetch': {position: 'b5', spritesheet: 'mediumicons', isMask: true},
+  'mediumicon-cloud': {position: 'a6', spritesheet: 'mediumicons', isMask: true},
+  'mediumicon-bell': {position: 'b6', spritesheet: 'mediumicons', isMask: true},
+  'mediumicon-payment': {position: 'c6', spritesheet: 'mediumicons', isMask: true},
+  'mediumicon-schedule': {position: 'd6', spritesheet: 'mediumicons', isMask: true},
 
   'badge-navigator-file-sync': {position: 'a9', spritesheet: 'largeicons'},
   'largeicon-activate-breakpoints': {position: 'b9', spritesheet: 'largeicons', isMask: true},

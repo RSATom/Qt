@@ -18,6 +18,7 @@ class Window;
 
 namespace client {
 class DragDropClient;
+class ScreenPositionClient;
 }
 }  // namespace aura
 
@@ -40,7 +41,7 @@ class DesktopNativeWidgetAura;
 
 class VIEWS_EXPORT DesktopWindowTreeHost {
  public:
-  virtual ~DesktopWindowTreeHost() {}
+  virtual ~DesktopWindowTreeHost() = default;
 
   static DesktopWindowTreeHost* Create(
       internal::NativeWidgetDelegate* native_widget_delegate,
@@ -69,6 +70,11 @@ class VIEWS_EXPORT DesktopWindowTreeHost {
   // DesktopWindowTreeHost.
   virtual std::unique_ptr<aura::client::DragDropClient> CreateDragDropClient(
       DesktopNativeCursorManager* cursor_manager) = 0;
+
+  // Creates the ScreenPositionClient to use for the WindowTreeHost. Default
+  // implementation creates DesktopScreenPositionClient.
+  virtual std::unique_ptr<aura::client::ScreenPositionClient>
+  CreateScreenPositionClient();
 
   virtual void Close() = 0;
   virtual void CloseNow() = 0;
@@ -124,8 +130,8 @@ class VIEWS_EXPORT DesktopWindowTreeHost {
 
   virtual bool HasCapture() const = 0;
 
-  virtual void SetAlwaysOnTop(bool always_on_top) = 0;
-  virtual bool IsAlwaysOnTop() const = 0;
+  virtual void SetZOrderLevel(ui::ZOrderLevel order) = 0;
+  virtual ui::ZOrderLevel GetZOrderLevel() const = 0;
 
   virtual void SetVisibleOnAllWorkspaces(bool always_visible) = 0;
   virtual bool IsVisibleOnAllWorkspaces() const = 0;

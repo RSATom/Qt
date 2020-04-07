@@ -40,9 +40,11 @@ class TOutputGLSLBase : public TIntermTraverser
     TInfoSinkBase &objSink() { return mObjSink; }
     void writeFloat(TInfoSinkBase &out, float f);
     void writeTriplet(Visit visit, const char *preStr, const char *inStr, const char *postStr);
+    std::string getCommonLayoutQualifiers(TIntermTyped *variable);
+    std::string getMemoryQualifiers(const TType &type);
     virtual void writeLayoutQualifier(TIntermTyped *variable);
     void writeInvariantQualifier(const TType &type);
-    void writeVariableType(const TType &type, const TSymbol *symbol);
+    virtual void writeVariableType(const TType &type, const TSymbol *symbol);
     virtual bool writeVariablePrecision(TPrecision precision) = 0;
     void writeFunctionParameters(const TFunction *func);
     const TConstantUnion *writeConstantUnion(const TType &type, const TConstantUnion *pConstUnion);
@@ -77,7 +79,7 @@ class TOutputGLSLBase : public TIntermTraverser
     virtual ImmutableString translateTextureFunction(const ImmutableString &name) { return name; }
 
     void declareStruct(const TStructure *structure);
-    virtual void writeQualifier(TQualifier qualifier, const TSymbol *symbol);
+    virtual void writeQualifier(TQualifier qualifier, const TType &type, const TSymbol *symbol);
     bool structDeclared(const TStructure *structure) const;
 
   private:

@@ -3,7 +3,6 @@
 // found in the LICENSE file.
 
 #include "base/logging.h"
-#include "base/macros.h"
 
 #include "cc/debug/debug_colors.h"
 
@@ -193,6 +192,25 @@ SkColor DebugColors::PaintRectBorderColor(int step) {
 int DebugColors::PaintRectBorderWidth() { return 2; }
 SkColor DebugColors::PaintRectFillColor(int step) {
   return FadedGreen(60, step);
+}
+
+static SkColor FadedBlue(int initial_value, int step) {
+  DCHECK_GE(step, 0);
+  DCHECK_LE(step, DebugColors::kFadeSteps);
+  int value = step * initial_value / DebugColors::kFadeSteps;
+  return SkColorSetARGB(value, 0, 0, 255);
+}
+/// Layout Shift rects in blue.
+SkColor DebugColors::LayoutShiftRectBorderColor() {
+  return SkColorSetARGB(0, 0, 0, 255);
+}
+int DebugColors::LayoutShiftRectBorderWidth() {
+  // We don't want any border showing for the layout shift debug rects so we set
+  // the border width to be equal to 0.
+  return 0;
+}
+SkColor DebugColors::LayoutShiftRectFillColor(int step) {
+  return FadedBlue(60, step);
 }
 
 // Property-changed rects in blue.

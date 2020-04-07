@@ -61,54 +61,36 @@ namespace dawn_native { namespace opengl {
             switch (mode) {
                 case dawn::AddressMode::Repeat:
                     return GL_REPEAT;
-                case dawn::AddressMode::MirroredRepeat:
+                case dawn::AddressMode::MirrorRepeat:
                     return GL_MIRRORED_REPEAT;
                 case dawn::AddressMode::ClampToEdge:
                     return GL_CLAMP_TO_EDGE;
-                case dawn::AddressMode::ClampToBorderColor:
-                    return GL_CLAMP_TO_BORDER;
                 default:
                     UNREACHABLE();
             }
         }
 
-        static const float kTransparentBlack[4] = {0.0, 0.0, 0.0, 0.0};
-        static const float kOpaqueBlack[4] = {0.0, 0.0, 0.0, 1.0};
-        static const float kOpaqueWhite[4] = {1.0, 1.0, 1.0, 1.0};
-
     }  // namespace
 
     Sampler::Sampler(Device* device, const SamplerDescriptor* descriptor)
         : SamplerBase(device, descriptor) {
-        glGenSamplers(1, &mHandle);
-        glSamplerParameteri(mHandle, GL_TEXTURE_MAG_FILTER, MagFilterMode(descriptor->magFilter));
-        glSamplerParameteri(mHandle, GL_TEXTURE_MIN_FILTER,
-                            MinFilterMode(descriptor->minFilter, descriptor->mipmapFilter));
-        glSamplerParameteri(mHandle, GL_TEXTURE_WRAP_R, WrapMode(descriptor->addressModeW));
-        glSamplerParameteri(mHandle, GL_TEXTURE_WRAP_S, WrapMode(descriptor->addressModeU));
-        glSamplerParameteri(mHandle, GL_TEXTURE_WRAP_T, WrapMode(descriptor->addressModeV));
+        const OpenGLFunctions& gl = ToBackend(GetDevice())->gl;
 
-        glSamplerParameterf(mHandle, GL_TEXTURE_MIN_LOD, descriptor->lodMinClamp);
-        glSamplerParameterf(mHandle, GL_TEXTURE_MAX_LOD, descriptor->lodMaxClamp);
+        gl.GenSamplers(1, &mHandle);
+        gl.SamplerParameteri(mHandle, GL_TEXTURE_MAG_FILTER, MagFilterMode(descriptor->magFilter));
+        gl.SamplerParameteri(mHandle, GL_TEXTURE_MIN_FILTER,
+                             MinFilterMode(descriptor->minFilter, descriptor->mipmapFilter));
+        gl.SamplerParameteri(mHandle, GL_TEXTURE_WRAP_R, WrapMode(descriptor->addressModeW));
+        gl.SamplerParameteri(mHandle, GL_TEXTURE_WRAP_S, WrapMode(descriptor->addressModeU));
+        gl.SamplerParameteri(mHandle, GL_TEXTURE_WRAP_T, WrapMode(descriptor->addressModeV));
 
-        if (ToOpenGLCompareFunction(descriptor->compareFunction) != GL_NEVER) {
-            glSamplerParameteri(mHandle, GL_TEXTURE_COMPARE_MODE, GL_COMPARE_REF_TO_TEXTURE);
-            glSamplerParameteri(mHandle, GL_TEXTURE_COMPARE_FUNC,
-                                ToOpenGLCompareFunction(descriptor->compareFunction));
-        }
+        gl.SamplerParameterf(mHandle, GL_TEXTURE_MIN_LOD, descriptor->lodMinClamp);
+        gl.SamplerParameterf(mHandle, GL_TEXTURE_MAX_LOD, descriptor->lodMaxClamp);
 
-        switch (descriptor->borderColor) {
-            case dawn::BorderColor::TransparentBlack:
-                glSamplerParameterfv(mHandle, GL_TEXTURE_BORDER_COLOR, kTransparentBlack);
-                break;
-            case dawn::BorderColor::OpaqueBlack:
-                glSamplerParameterfv(mHandle, GL_TEXTURE_BORDER_COLOR, kOpaqueBlack);
-                break;
-            case dawn::BorderColor::OpaqueWhite:
-                glSamplerParameterfv(mHandle, GL_TEXTURE_BORDER_COLOR, kOpaqueWhite);
-                break;
-            default:
-                UNREACHABLE();
+        if (ToOpenGLCompareFunction(descriptor->compare) != GL_NEVER) {
+            gl.SamplerParameteri(mHandle, GL_TEXTURE_COMPARE_MODE, GL_COMPARE_REF_TO_TEXTURE);
+            gl.SamplerParameteri(mHandle, GL_TEXTURE_COMPARE_FUNC,
+                                 ToOpenGLCompareFunction(descriptor->compare));
         }
     }
 

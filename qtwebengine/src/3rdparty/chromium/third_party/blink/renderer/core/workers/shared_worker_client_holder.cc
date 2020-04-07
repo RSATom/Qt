@@ -35,6 +35,7 @@
 #include "base/logging.h"
 #include "services/service_manager/public/cpp/interface_provider.h"
 #include "third_party/blink/public/common/messaging/message_port_channel.h"
+#include "third_party/blink/public/mojom/loader/fetch_client_settings_object.mojom-blink.h"
 #include "third_party/blink/public/mojom/worker/shared_worker_info.mojom-blink.h"
 #include "third_party/blink/public/platform/web_content_security_policy.h"
 #include "third_party/blink/public/platform/web_string.h"
@@ -45,6 +46,9 @@
 #include "third_party/blink/renderer/core/frame/csp/content_security_policy.h"
 #include "third_party/blink/renderer/core/workers/shared_worker.h"
 #include "third_party/blink/renderer/core/workers/shared_worker_client.h"
+#include "third_party/blink/renderer/platform/loader/fetch/fetch_client_settings_object_snapshot.h"
+#include "third_party/blink/renderer/platform/loader/fetch/resource_fetcher.h"
+#include "third_party/blink/renderer/platform/loader/fetch/resource_fetcher_properties.h"
 
 namespace blink {
 
@@ -63,9 +67,11 @@ SharedWorkerClientHolder* SharedWorkerClientHolder::From(Document& document) {
 }
 
 SharedWorkerClientHolder::SharedWorkerClientHolder(Document& document)
-    : ContextLifecycleObserver(&document) {
+    : ContextLifecycleObserver(&document),
+      task_runner_(document.GetTaskRunner(blink::TaskType::kDOMManipulation)) {
   DCHECK(IsMainThread());
-  document.GetInterfaceProvider()->GetInterface(mojo::MakeRequest(&connector_));
+  document.GetInterfaceProvider()->GetInterface(
+      mojo::MakeRequest(&connector_, task_runner_));
 }
 
 void SharedWorkerClientHolder::Connect(
@@ -97,10 +103,22 @@ void SharedWorkerClientHolder::Connect(
 
   mojom::blink::SharedWorkerClientPtr client_ptr;
   client_set_.AddBinding(std::make_unique<SharedWorkerClient>(worker),
-                         mojo::MakeRequest(&client_ptr));
+                         mojo::MakeRequest(&client_ptr, task_runner_),
+                         task_runner_);
+
+  auto* outside_fetch_client_settings_object =
+      MakeGarbageCollected<FetchClientSettingsObjectSnapshot>(
+          worker->GetExecutionContext()
+              ->Fetcher()
+              ->GetProperties()
+              .GetFetchClientSettingsObject());
 
   connector_->Connect(
-      std::move(info), std::move(client_ptr),
+      std::move(info),
+      mojom::blink::FetchClientSettingsObject::New(
+          outside_fetch_client_settings_object->GetReferrerPolicy(),
+          KURL(outside_fetch_client_settings_object->GetOutgoingReferrer())),
+      std::move(client_ptr),
       worker->GetExecutionContext()->IsSecureContext()
           ? mojom::SharedWorkerCreationContextType::kSecure
           : mojom::SharedWorkerCreationContextType::kNonsecure,

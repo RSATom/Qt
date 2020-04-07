@@ -5,16 +5,15 @@
 #ifndef V8_REGEXP_PPC_REGEXP_MACRO_ASSEMBLER_PPC_H_
 #define V8_REGEXP_PPC_REGEXP_MACRO_ASSEMBLER_PPC_H_
 
-#include "src/macro-assembler.h"
-#include "src/ppc/assembler-ppc.h"
+#include "src/codegen/macro-assembler.h"
+#include "src/codegen/ppc/assembler-ppc.h"
 #include "src/regexp/regexp-macro-assembler.h"
 
 namespace v8 {
 namespace internal {
 
-
-#ifndef V8_INTERPRETED_REGEXP
-class RegExpMacroAssemblerPPC : public NativeRegExpMacroAssembler {
+class V8_EXPORT_PRIVATE RegExpMacroAssemblerPPC
+    : public NativeRegExpMacroAssembler {
  public:
   RegExpMacroAssemblerPPC(Isolate* isolate, Zone* zone, Mode mode,
                           int registers_to_save);
@@ -207,7 +206,6 @@ class RegExpMacroAssemblerPPC : public NativeRegExpMacroAssembler {
 const RegList kRegExpCalleeSaved =
     1 << 25 | 1 << 26 | 1 << 27 | 1 << 28 | 1 << 29 | 1 << 30 | 1 << 31;
 
-#endif  // V8_INTERPRETED_REGEXP
 }  // namespace internal
 }  // namespace v8
 

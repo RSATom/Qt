@@ -205,11 +205,8 @@ void QtAndroid::startActivity(const QAndroidIntent &intent,
 /*!
   \since 5.13
 
-  Starts the activity given by \a intent using \c startActivityForResult() and provides the result by calling callbackFunc.
-
-  The \a receiverRequestCode is a request code unique to the \a resultReceiver, and will be
-  returned along with the result, making it possible to use the same receiver for more than
-  one intent.
+  Starts the activity given by \a intent, using the request code \a receiverRequestCode,
+  and provides the result by calling \a callbackFunc.
 */
 void QtAndroid::startActivity(const QAndroidJniObject &intent,
                               int receiverRequestCode,

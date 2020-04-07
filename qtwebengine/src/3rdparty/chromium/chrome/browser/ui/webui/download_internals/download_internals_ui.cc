@@ -33,10 +33,8 @@ DownloadInternalsUI::DownloadInternalsUI(content::WebUI* web_ui)
   html_source->AddResourcePath("download_internals_visuals.js",
                                IDR_DOWNLOAD_INTERNALS_VISUALS_JS);
   html_source->SetDefaultResource(IDR_DOWNLOAD_INTERNALS_HTML);
-  html_source->UseGzip();
 
   Profile* profile = Profile::FromWebUI(web_ui);
-  html_source->AddBoolean("isIncognito", profile->IsOffTheRecord());
 
   content::WebUIDataSource::Add(profile, html_source);
 

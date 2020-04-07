@@ -6,6 +6,7 @@
 
 #include <cinttypes>
 
+#include "base/bind.h"
 #include "base/memory/memory_pressure_listener.h"
 #include "base/sampling_heap_profiler/module_cache.h"
 #include "base/sampling_heap_profiler/sampling_heap_profiler.h"
@@ -13,15 +14,13 @@
 #include "content/public/browser/render_process_host.h"
 #include "content/public/common/bind_interface_helpers.h"
 #include "content/public/common/child_process_host.h"
-#include "content/public/common/content_features.h"
 
 namespace content {
 namespace protocol {
 
 MemoryHandler::MemoryHandler()
     : DevToolsDomainHandler(Memory::Metainfo::domainName),
-      process_host_id_(ChildProcessHost::kInvalidUniqueID),
-      weak_factory_(this) {}
+      process_host_id_(ChildProcessHost::kInvalidUniqueID) {}
 
 MemoryHandler::~MemoryHandler() {}
 
@@ -37,36 +36,35 @@ void MemoryHandler::SetRenderer(int process_host_id,
 Response MemoryHandler::GetBrowserSamplingProfile(
     std::unique_ptr<Memory::SamplingProfile>* out_profile) {
   base::ModuleCache module_cache;
-  std::unique_ptr<Array<Memory::SamplingProfileNode>> samples =
-      Array<Memory::SamplingProfileNode>::create();
+  auto samples = std::make_unique<Array<Memory::SamplingProfileNode>>();
   std::vector<base::SamplingHeapProfiler::Sample> raw_samples =
       base::SamplingHeapProfiler::Get()->GetSamples(0);
 
   for (auto& sample : raw_samples) {
-    std::unique_ptr<Array<String>> stack = Array<String>::create();
+    auto stack = std::make_unique<Array<String>>();
     for (const void* frame : sample.stack) {
       uintptr_t address = reinterpret_cast<uintptr_t>(frame);
       module_cache.GetModuleForAddress(address);  // Populates module_cache.
-      stack->addItem(base::StringPrintf("0x%" PRIxPTR, address));
+      stack->emplace_back(base::StringPrintf("0x%" PRIxPTR, address));
     }
-    samples->addItem(Memory::SamplingProfileNode::Create()
-                         .SetSize(sample.size)
-                         .SetTotal(sample.total)
-                         .SetStack(std::move(stack))
-                         .Build());
+    samples->emplace_back(Memory::SamplingProfileNode::Create()
+                              .SetSize(sample.size)
+                              .SetTotal(sample.total)
+                              .SetStack(std::move(stack))
+                              .Build());
   }
 
-  std::unique_ptr<Array<Memory::Module>> modules =
-      Array<Memory::Module>::create();
+  auto modules = std::make_unique<Array<Memory::Module>>();
   for (const auto* module : module_cache.GetModules()) {
-    modules->addItem(Memory::Module::Create()
-                         .SetName(base::StringPrintf(
-                             "%" PRFilePath, module->filename.value().c_str()))
-                         .SetUuid(module->id)
-                         .SetBaseAddress(base::StringPrintf(
-                             "0x%" PRIxPTR, module->base_address))
-                         .SetSize(static_cast<double>(module->size))
-                         .Build());
+    modules->emplace_back(
+        Memory::Module::Create()
+            .SetName(base::StringPrintf(
+                "%" PRFilePath, module->GetDebugBasename().value().c_str()))
+            .SetUuid(module->GetId())
+            .SetBaseAddress(
+                base::StringPrintf("0x%" PRIxPTR, module->GetBaseAddress()))
+            .SetSize(static_cast<double>(module->GetSize()))
+            .Build());
   }
 
   *out_profile = Memory::SamplingProfile::Create()
@@ -78,12 +76,6 @@ Response MemoryHandler::GetBrowserSamplingProfile(
 
 Response MemoryHandler::SetPressureNotificationsSuppressed(
     bool suppressed) {
-  if (base::FeatureList::IsEnabled(features::kMemoryCoordinator)) {
-    return Response::Error(
-        "Cannot enable/disable notifications when memory coordinator is "
-        "enabled");
-  }
-
   base::MemoryPressureListener::SetNotificationsSuppressed(suppressed);
   return Response::OK();
 }

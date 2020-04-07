@@ -34,15 +34,15 @@
 #include "third_party/blink/renderer/platform/network/encoded_form_data.h"
 #include "third_party/blink/renderer/platform/weborigin/security_policy.h"
 #include "third_party/blink/renderer/platform/wtf/assertions.h"
-#include "third_party/blink/renderer/platform/wtf/text/cstring.h"
 #include "third_party/blink/renderer/platform/wtf/time.h"
 
 namespace blink {
 
-static long long GenerateSequenceNumber() {
+static int64_t GenerateSequenceNumber() {
   // Initialize to the current time to reduce the likelihood of generating
   // identifiers that overlap with those from past/future browser sessions.
-  static long long next = static_cast<long long>(CurrentTime() * 1000000.0);
+  static int64_t next =
+      static_cast<int64_t>(base::Time::Now().ToDoubleT() * 1000000.0);
   return ++next;
 }
 
@@ -82,26 +82,26 @@ void HistoryItem::SetReferrer(const Referrer& referrer) {
 
 void HistoryItem::SetVisualViewportScrollOffset(const ScrollOffset& offset) {
   if (!view_state_)
-    view_state_ = std::make_unique<ViewState>();
+    view_state_ = base::make_optional<ViewState>();
   view_state_->visual_viewport_scroll_offset_ = offset;
 }
 
 void HistoryItem::SetScrollOffset(const ScrollOffset& offset) {
   if (!view_state_)
-    view_state_ = std::make_unique<ViewState>();
+    view_state_ = base::make_optional<ViewState>();
   view_state_->scroll_offset_ = offset;
 }
 
 void HistoryItem::SetPageScaleFactor(float scale_factor) {
   if (!view_state_)
-    view_state_ = std::make_unique<ViewState>();
+    view_state_ = base::make_optional<ViewState>();
   view_state_->page_scale_factor_ = scale_factor;
 }
 
 void HistoryItem::SetScrollAnchorData(
     const ScrollAnchorData& scroll_anchor_data) {
   if (!view_state_)
-    view_state_ = std::make_unique<ViewState>();
+    view_state_ = base::make_optional<ViewState>();
   view_state_->scroll_anchor_data_ = scroll_anchor_data;
 }
 
@@ -152,13 +152,16 @@ EncodedFormData* HistoryItem::FormData() {
 ResourceRequest HistoryItem::GenerateResourceRequest(
     mojom::FetchCacheMode cache_mode) {
   ResourceRequest request(url_string_);
-  // TODO(domfarolino): Stop storing ResourceRequest's generated referrer as a
-  // header and instead use a separate member. See https://crbug.com/850813.
-  request.SetHTTPReferrer(referrer_);
+  request.SetReferrerString(
+      referrer_.referrer,
+      ResourceRequest::SetReferrerStringLocation::kHistoryItem);
+  request.SetReferrerPolicy(
+      referrer_.referrer_policy,
+      ResourceRequest::SetReferrerPolicyLocation::kHistoryItem);
   request.SetCacheMode(cache_mode);
   if (form_data_) {
-    request.SetHTTPMethod(http_names::kPOST);
-    request.SetHTTPBody(form_data_);
+    request.SetHttpMethod(http_names::kPOST);
+    request.SetHttpBody(form_data_);
     request.SetHTTPContentType(form_content_type_);
     request.SetHTTPOriginToMatchReferrerIfNeeded();
   }

@@ -197,7 +197,10 @@ tr.exportTo('tr.ui.e.about_tracing', function() {
       categoryFilter: ['benchmark', 'input', 'evdev', 'renderer.scheduler',
         'sequence_manager', 'toplevel']},
     {title: 'Rendering',
-      categoryFilter: ['blink', 'cc', 'gpu', 'toplevel', 'viz']},
+      categoryFilter: ['benchmark', 'blink', 'cc', 'gpu', 'toplevel', 'viz']},
+    {title: 'UI Rendering',
+      categoryFilter: ['benchmark', 'cc', 'gpu', 'input', 'toplevel', 'ui',
+        'views', 'viz']},
     {title: 'Javascript and rendering',
       categoryFilter: ['blink', 'cc', 'gpu', 'renderer.scheduler',
         'sequence_manager', 'v8', 'toplevel', 'viz']},
@@ -401,8 +404,10 @@ tr.exportTo('tr.ui.e.about_tracing', function() {
         const categoryGroup = categorySet[i].children;
         for (let j = 0; j < categoryGroup.length; ++j) {
           const categoryEl = categoryGroup[j].children[0];
+          const category = categoryEl.value;
+          const enabledByDefault = !category.startsWith('disabled-by-default-');
           categoryEl.checked = shouldReadFromSettings ?
-            tr.b.Settings.get(categoryEl.value, false, this.settings_key_) :
+            tr.b.Settings.get(category, enabledByDefault, this.settings_key_) :
             false;
         }
       }

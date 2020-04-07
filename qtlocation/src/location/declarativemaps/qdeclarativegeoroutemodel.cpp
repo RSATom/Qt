@@ -43,6 +43,8 @@
 #include <QtQml/QQmlEngine>
 #include <QtQml/qqmlinfo.h>
 #include <QtQml/private/qqmlengine_p.h>
+#include <QtQml/private/qv4scopedvalue_p.h>
+#include <QtQml/private/qv4arrayobject_p.h>
 #include <QtLocation/QGeoRoutingManager>
 #include <QtPositioning/QGeoRectangle>
 #include "qdeclarativegeomapparameter_p.h"
@@ -242,7 +244,7 @@ void QDeclarativeGeoRouteModel::cancel()
 /*!
     \qmlmethod Route QtLocation::RouteModel::get(int index)
 
-    Returns the Route at the specified index \a int. Use the \l count
+    Returns the Route at the specified \a index. Use the \l count
     property to check the amount of routes available. The routes
     are indexed from zero, so the accessible range is 0...(count - 1).
 
@@ -993,7 +995,7 @@ void QDeclarativeGeoRouteQuery::setExcludedAreas(const QJSValue &value)
 /*!
     \qmlmethod void QtLocation::RouteQuery::addExcludedArea(georectangle area)
 
-    Adds the specified \a georectangle from the excluded areas
+    Adds the specified georectangle \a area to the excluded areas
     (areas that the route must not cross).
     The same area can only be added once.
 
@@ -1198,25 +1200,29 @@ void QDeclarativeGeoRouteQuery::flushWaypoints(QList<QDeclarativeGeoWaypoint *> 
 /*!
     \qmlmethod void QtLocation::RouteQuery::setFeatureWeight(FeatureType feature, FeatureWeight weight)
 
-    Defines the weight (\a FeatureWeight) to associate with a feature
-    (\a FeatureType) during the planning of a route.
+    Defines the \a weight  to associate with a \a feature during the planning
+    of a route.
 
     Following lists the possible feature weights:
 
     \value RouteQuery.NeutralFeatureWeight
-    The presence or absence of the feature will not affect the planning of the route
+    The presence or absence of the feature does not affect the planning of the
+    route
 
     \value RouteQuery.PreferFeatureWeight
-    Routes which contain the feature will be preferred over those that do not
+    Routes which contain the feature are preferred over those that do not
 
     \value RouteQuery.RequireFeatureWeight
-    Only routes which contain the feature will be considered, otherwise no route will be returned
+    Only routes which contain the feature are considered, otherwise no
+    route will be returned
 
     \value RouteQuery.AvoidFeatureWeight
-    Routes which do not contain the feature will be preferred over those that do
+    Routes which do not contain the feature are preferred over those that
+    do
 
     \value RouteQuery.DisallowFeatureWeight
-    Only routes which do not contain the feature will be considered, otherwise no route will be returned
+    Only routes which do not contain the feature are considered, otherwise
+    no route will be returned
 
     \sa featureTypes, resetFeatureWeights, featureWeight
 

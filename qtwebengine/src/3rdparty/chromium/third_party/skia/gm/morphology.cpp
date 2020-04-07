@@ -5,9 +5,20 @@
  * found in the LICENSE file.
  */
 
-#include "gm.h"
-#include "sk_tool_utils.h"
-#include "SkMorphologyImageFilter.h"
+#include "gm/gm.h"
+#include "include/core/SkBitmap.h"
+#include "include/core/SkCanvas.h"
+#include "include/core/SkFont.h"
+#include "include/core/SkImageFilter.h"
+#include "include/core/SkPaint.h"
+#include "include/core/SkRect.h"
+#include "include/core/SkScalar.h"
+#include "include/core/SkSize.h"
+#include "include/core/SkString.h"
+#include "include/core/SkTypeface.h"
+#include "include/core/SkTypes.h"
+#include "include/effects/SkMorphologyImageFilter.h"
+#include "tools/ToolUtils.h"
 
 #define WIDTH 700
 #define HEIGHT 560
@@ -30,7 +41,7 @@ protected:
         SkCanvas canvas(fBitmap);
         canvas.clear(0x0);
 
-        SkFont font(sk_tool_utils::create_portable_typeface(), 64.0f);
+        SkFont  font(ToolUtils::create_portable_typeface(), 64.0f);
         SkPaint paint;
         paint.setColor(0xFFFFFFFF);
         canvas.drawString("ABC", 10, 55,  font, paint);

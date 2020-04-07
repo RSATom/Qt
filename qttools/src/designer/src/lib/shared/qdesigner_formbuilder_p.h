@@ -70,7 +70,7 @@ public:
     QDesignerFormBuilder(QDesignerFormEditorInterface *core,
                          const DeviceProfile &deviceProfile = DeviceProfile());
 
-    virtual QWidget *createWidget(DomWidget *ui_widget, QWidget *parentWidget = 0)
+    virtual QWidget *createWidget(DomWidget *ui_widget, QWidget *parentWidget = nullptr)
     { return QFormBuilder::create(ui_widget, parentWidget); }
 
     inline QDesignerFormEditorInterface *core() const
@@ -122,7 +122,7 @@ protected:
 private:
     QDesignerFormEditorInterface *m_core;
 
-    typedef QSet<QWidget *> WidgetSet;
+    using WidgetSet = QSet<QWidget *>;
     WidgetSet m_customWidgetsWithScript;
 
     const DeviceProfile m_deviceProfile;

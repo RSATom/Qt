@@ -5,26 +5,26 @@
  * found in the LICENSE file.
  */
 
-#include "SkPixmap.h"
+#include "include/core/SkPixmap.h"
 
-#include "SkBitmap.h"
-#include "SkColorData.h"
-#include "SkConvertPixels.h"
-#include "SkData.h"
-#include "SkDraw.h"
-#include "SkHalf.h"
-#include "SkImageInfoPriv.h"
-#include "SkImageShader.h"
-#include "SkMask.h"
-#include "SkNx.h"
-#include "SkPixmapPriv.h"
-#include "SkRasterClip.h"
-#include "SkReadPixelsRec.h"
-#include "SkSurface.h"
-#include "SkTemplates.h"
-#include "SkTo.h"
-#include "SkUnPreMultiply.h"
-#include "SkUtils.h"
+#include "include/core/SkBitmap.h"
+#include "include/core/SkData.h"
+#include "include/core/SkSurface.h"
+#include "include/core/SkUnPreMultiply.h"
+#include "include/private/SkColorData.h"
+#include "include/private/SkHalf.h"
+#include "include/private/SkImageInfoPriv.h"
+#include "include/private/SkNx.h"
+#include "include/private/SkTemplates.h"
+#include "include/private/SkTo.h"
+#include "src/core/SkConvertPixels.h"
+#include "src/core/SkDraw.h"
+#include "src/core/SkMask.h"
+#include "src/core/SkPixmapPriv.h"
+#include "src/core/SkRasterClip.h"
+#include "src/core/SkUtils.h"
+#include "src/image/SkReadPixelsRec.h"
+#include "src/shaders/SkImageShader.h"
 
 #include <utility>
 
@@ -119,6 +119,7 @@ float SkPixmap::getAlphaf(int x, int y) const {
             uint32_t u32 = static_cast<const uint32_t*>(srcPtr)[0];
             value = (u32 >> 30) * (1.0f/3);
         } break;
+        case kRGBA_F16Norm_SkColorType:
         case kRGBA_F16_SkColorType: {
             uint64_t px;
             memcpy(&px, srcPtr, sizeof(px));
@@ -216,8 +217,8 @@ bool SkPixmap::scalePixels(const SkPixmap& actualDst, SkFilterQuality quality) c
 
     // We'll create a shader to do this draw so we have control over the bicubic clamp.
     sk_sp<SkShader> shader = SkImageShader::Make(SkImage::MakeFromBitmap(bitmap),
-                                                 SkShader::kClamp_TileMode,
-                                                 SkShader::kClamp_TileMode,
+                                                 SkTileMode::kClamp,
+                                                 SkTileMode::kClamp,
                                                  &scale,
                                                  clampAsIfUnpremul);
 
@@ -304,6 +305,7 @@ SkColor SkPixmap::getColor(int x, int y) const {
                  | (uint32_t)( b * 255.0f ) <<  0
                  | (uint32_t)( a * 255.0f ) << 24;
         }
+        case kRGBA_F16Norm_SkColorType:
         case kRGBA_F16_SkColorType: {
             const uint64_t* addr =
                 (const uint64_t*)fPixels + y * (fRowBytes >> 3) + x;
@@ -388,6 +390,7 @@ bool SkPixmap::computeIsOpaque() const {
             }
             return true;
         }
+        case kRGBA_F16Norm_SkColorType:
         case kRGBA_F16_SkColorType: {
             const SkHalf* row = (const SkHalf*)this->addr();
             for (int y = 0; y < height; ++y) {

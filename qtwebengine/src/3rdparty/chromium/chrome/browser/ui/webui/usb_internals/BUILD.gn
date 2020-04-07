@@ -10,6 +10,10 @@ mojom("mojo_bindings") {
   ]
 
   deps = [
-    "//device/usb/public/mojom:test",
+    "//services/device/public/mojom:usb",
+    "//services/device/public/mojom:usb_test",
   ]
+
+  # TODO(https://crbug.com/968369): Change to use new names.
+  use_old_js_lite_bindings_names = true
 }

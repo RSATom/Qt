@@ -28,8 +28,7 @@ class MEDIA_EXPORT FrameProcessor {
   typedef base::Callback<void(base::TimeDelta)> UpdateDurationCB;
 
   FrameProcessor(const UpdateDurationCB& update_duration_cb,
-                 MediaLog* media_log,
-                 ChunkDemuxerStream::RangeApi range_api);
+                 MediaLog* media_log);
   ~FrameProcessor();
 
   // This must be called exactly once, before doing any track buffer creation or
@@ -177,17 +176,12 @@ class MEDIA_EXPORT FrameProcessor {
   // MediaLog for reporting messages and properties to debug content and engine.
   MediaLog* media_log_;
 
-  // For differentiating behavior based on buffering by DTS interval versus PTS
-  // interval. See https://crbug.com/718641.
-  const ChunkDemuxerStream::RangeApi range_api_;
-
   // Callback for reporting problematic conditions that are not necessarily
   // errors.
   SourceBufferParseWarningCB parse_warning_cb_;
 
   // Counters that limit spam to |media_log_| for frame processor warnings.
   int num_dropped_preroll_warnings_ = 0;
-  int num_dts_beyond_pts_warnings_ = 0;
   int num_audio_non_keyframe_warnings_ = 0;
   int num_muxed_sequence_mode_warnings_ = 0;
   int num_skipped_empty_frame_warnings_ = 0;

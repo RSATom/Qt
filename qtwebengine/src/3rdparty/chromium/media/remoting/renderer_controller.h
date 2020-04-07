@@ -17,6 +17,7 @@
 #include "media/base/media_observer.h"
 #include "media/media_buildflags.h"
 #include "media/mojo/interfaces/remoting.mojom.h"
+#include "media/mojo/interfaces/remoting_common.mojom.h"
 #include "media/remoting/metrics.h"
 #include "mojo/public/cpp/bindings/binding.h"
 
@@ -223,7 +224,7 @@ class RendererController final : public mojom::RemotingSource,
 
   const base::TickClock* clock_;
 
-  base::WeakPtrFactory<RendererController> weak_factory_;
+  base::WeakPtrFactory<RendererController> weak_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(RendererController);
 };

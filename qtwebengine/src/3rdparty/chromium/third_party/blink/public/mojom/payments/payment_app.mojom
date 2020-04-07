@@ -8,6 +8,7 @@ import "components/payments/mojom/payment_request_data.mojom";
 import "mojo/public/mojom/base/time.mojom";
 import "third_party/blink/public/mojom/manifest/manifest.mojom";
 import "third_party/blink/public/mojom/payments/payment_request.mojom";
+import "third_party/blink/public/mojom/payments/payment_handler_host.mojom";
 import "url/mojom/url.mojom";
 
 enum PaymentHandlerStatus {
@@ -17,6 +18,22 @@ enum PaymentHandlerStatus {
   STORAGE_OPERATION_FAILED,
   FETCH_INSTRUMENT_ICON_FAILED,
   FETCH_PAYMENT_APP_INFO_FAILED,
+};
+
+enum PaymentEventResponseType {
+  PAYMENT_EVENT_SUCCESS,
+  PAYMENT_EVENT_REJECT,
+  PAYMENT_EVENT_SERVICE_WORKER_ERROR,
+  PAYMENT_HANDLER_WINDOW_CLOSING,
+  PAYMENT_EVENT_INTERNAL_ERROR,
+  PAYMENT_EVENT_NO_RESPONSE,
+  PAYMENT_DETAILS_STRINGIFY_ERROR,
+  PAYMENT_METHOD_NAME_EMPTY,
+  PAYMENT_DETAILS_ABSENT,
+  PAYMENT_DETAILS_NOT_OBJECT,
+  PAYMENT_EVENT_BROWSER_ERROR,
+  PAYMENT_EVENT_TIMEOUT,
+  PAYMENT_HANDLER_INSECURE_NAVIGATION,
 };
 
 // This struct is provided to hold a payment instrument from render
@@ -76,6 +93,10 @@ struct PaymentRequestEventData {
   PaymentCurrencyAmount total;
   array<PaymentDetailsModifier> modifiers;
   string instrument_key;
+
+  // Handles events raised by the payment handler, such as "payment method
+  // changed" event. Null in content_browsertests.
+  PaymentHandlerHost? payment_handler_host;
 };
 
 // This struct is provided to receive payment app response from render
@@ -83,6 +104,7 @@ struct PaymentRequestEventData {
 struct PaymentHandlerResponse {
   string method_name;
   string stringified_details;
+  PaymentEventResponseType response_type;
 };
 
 // This interface is provided to pass a payment handler response from payment

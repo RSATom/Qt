@@ -9,6 +9,7 @@
 
 #include "base/callback.h"
 #include "base/macros.h"
+#include "ui/base/models/menu_model_delegate.h"
 #include "ui/views/controls/menu/menu_delegate.h"
 
 namespace ui {
@@ -18,15 +19,18 @@ class MenuModel;
 namespace views {
 class MenuItemView;
 
-// This class wraps an instance of ui::MenuModel with the
-// views::MenuDelegate interface required by views::MenuItemView.
-class VIEWS_EXPORT MenuModelAdapter : public MenuDelegate {
+// This class wraps an instance of ui::MenuModel with the views::MenuDelegate
+// interface required by views::MenuItemView.
+class VIEWS_EXPORT MenuModelAdapter : public MenuDelegate,
+                                      public ui::MenuModelDelegate {
  public:
-  // The caller retains ownership of the ui::MenuModel instance and
-  // must ensure it exists for the lifetime of the adapter.
+  // The caller retains ownership of the ui::MenuModel instance and must ensure
+  // it exists for the lifetime of the adapter. |this| will become the new
+  // MenuModelDelegate of |menu_model| so that subsequent changes to it get
+  // reflected in the created MenuItemView.
   explicit MenuModelAdapter(ui::MenuModel* menu_model);
   MenuModelAdapter(ui::MenuModel* menu_model,
-                   const base::Closure& on_menu_closed_callback);
+                   base::RepeatingClosure on_menu_closed_callback);
   ~MenuModelAdapter() override;
 
   // Populate a MenuItemView menu with the ui::MenuModel items
@@ -56,6 +60,11 @@ class VIEWS_EXPORT MenuModelAdapter : public MenuDelegate {
                                                int model_index,
                                                MenuItemView* menu,
                                                int item_id);
+
+  // MenuModelDelegate:
+  void OnIconChanged(int index) override {}
+  void OnMenuStructureChanged() override;
+  void OnMenuClearingDelegate() override;
 
  protected:
   // Create and add a menu item to |menu| for the item at index |index| in
@@ -88,6 +97,10 @@ class VIEWS_EXPORT MenuModelAdapter : public MenuDelegate {
   // passed to the constructor.
   ui::MenuModel* menu_model_;
 
+  // Pointer to the MenuItemView created and updated by |this|, but not owned by
+  // |this|.
+  MenuItemView* menu_;
+
   // Mouse event flags which can trigger menu actions.
   int triggerable_event_flags_;
 
@@ -95,7 +108,7 @@ class VIEWS_EXPORT MenuModelAdapter : public MenuDelegate {
   std::map<MenuItemView*, ui::MenuModel*> menu_map_;
 
   // Optional callback triggered during OnMenuClosed().
-  base::Closure on_menu_closed_callback_;
+  base::RepeatingClosure on_menu_closed_callback_;
 
   DISALLOW_COPY_AND_ASSIGN(MenuModelAdapter);
 };

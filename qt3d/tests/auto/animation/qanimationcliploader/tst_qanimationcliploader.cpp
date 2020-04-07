@@ -30,7 +30,6 @@
 #include <QtTest/QTest>
 #include <Qt3DAnimation/qanimationcliploader.h>
 #include <Qt3DAnimation/private/qanimationcliploader_p.h>
-#include <Qt3DCore/qpropertyupdatedchange.h>
 #include <Qt3DCore/qnodecreatedchange.h>
 #include <Qt3DCore/private/qnodecreatedchangegenerator_p.h>
 #include <QObject>
@@ -139,59 +138,24 @@ private Q_SLOTS:
         {
             // WHEN
             clip.setSource(QUrl(QStringLiteral("qrc:/toyplane.qlip")));
-            QCoreApplication::processEvents();
 
             // THEN
-            QCOMPARE(arbiter.events.size(), 1);
-            auto change = arbiter.events.first().staticCast<Qt3DCore::QPropertyUpdatedChange>();
-            QCOMPARE(change->propertyName(), "source");
-            QCOMPARE(change->type(), Qt3DCore::PropertyUpdated);
+            QCOMPARE(arbiter.events.size(), 0);
+            QCOMPARE(arbiter.dirtyNodes.size(), 1);
+            QCOMPARE(arbiter.dirtyNodes.front(), &clip);
 
-            arbiter.events.clear();
+            arbiter.dirtyNodes.clear();
         }
 
         {
             // WHEN
             clip.setSource(QStringLiteral("qrc:/toyplane.qlip"));
-            QCoreApplication::processEvents();
 
             // THEN
             QCOMPARE(arbiter.events.size(), 0);
+            QCOMPARE(arbiter.dirtyNodes.size(), 0);
         }
 
-    }
-
-    void checkStatusPropertyUpdate()
-    {
-        // GIVEN
-        qRegisterMetaType<Qt3DAnimation::QAnimationClipLoader::Status>("Status");
-        TestArbiter arbiter;
-        arbiter.setArbiterOnNode(this);
-        QSignalSpy spy(this, SIGNAL(statusChanged(Status)));
-        const Qt3DAnimation::QAnimationClipLoader::Status newStatus = Qt3DAnimation::QAnimationClipLoader::Error;
-
-        // THEN
-        QVERIFY(spy.isValid());
-
-        // WHEN
-        Qt3DCore::QPropertyUpdatedChangePtr valueChange(new Qt3DCore::QPropertyUpdatedChange(Qt3DCore::QNodeId()));
-        valueChange->setPropertyName("status");
-        valueChange->setValue(QVariant::fromValue(newStatus));
-        sceneChangeEvent(valueChange);
-
-        // THEN
-        QCOMPARE(spy.count(), 1);
-        QCOMPARE(arbiter.events.size(), 0);
-        QCOMPARE(status(), newStatus);
-
-        // WHEN
-        spy.clear();
-        sceneChangeEvent(valueChange);
-
-        // THEN
-        QCOMPARE(spy.count(), 0);
-        QCOMPARE(arbiter.events.size(), 0);
-        QCOMPARE(status(), newStatus);
     }
 };
 

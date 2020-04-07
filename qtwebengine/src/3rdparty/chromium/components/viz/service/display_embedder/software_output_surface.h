@@ -5,7 +5,11 @@
 #ifndef COMPONENTS_VIZ_SERVICE_DISPLAY_EMBEDDER_SOFTWARE_OUTPUT_SURFACE_H_
 #define COMPONENTS_VIZ_SERVICE_DISPLAY_EMBEDDER_SOFTWARE_OUTPUT_SURFACE_H_
 
+#include <memory>
+
 #include "base/memory/weak_ptr.h"
+#include "components/viz/common/display/update_vsync_parameters_callback.h"
+#include "components/viz/common/frame_sinks/begin_frame_args.h"
 #include "components/viz/service/display/output_surface.h"
 #include "components/viz/service/viz_service_export.h"
 #include "ui/latency/latency_info.h"
@@ -33,25 +37,41 @@ class VIZ_SERVICE_EXPORT SoftwareOutputSurface : public OutputSurface {
                bool use_stencil) override;
   void SwapBuffers(OutputSurfaceFrame frame) override;
   bool IsDisplayedAsOverlayPlane() const override;
-  OverlayCandidateValidator* GetOverlayCandidateValidator() const override;
   unsigned GetOverlayTextureId() const override;
   gfx::BufferFormat GetOverlayBufferFormat() const override;
   bool HasExternalStencilTest() const override;
   void ApplyExternalStencil() override;
   uint32_t GetFramebufferCopyTextureFormat() override;
-#if BUILDFLAG(ENABLE_VULKAN)
-  gpu::VulkanSurface* GetVulkanSurface() override;
-#endif
   unsigned UpdateGpuFence() override;
+  void SetUpdateVSyncParametersCallback(
+      UpdateVSyncParametersCallback callback) override;
+  void SetDisplayTransformHint(gfx::OverlayTransform transform) override {}
+  gfx::OverlayTransform GetDisplayTransform() override;
+#if defined(USE_X11)
+  void SetNeedsSwapSizeNotifications(
+      bool needs_swap_size_notifications) override;
+#endif
 
  private:
-  void SwapBuffersCallback();
+  void SwapBuffersCallback(base::TimeTicks swap_time,
+                           const gfx::Size& pixel_size);
+  void UpdateVSyncParameters(base::TimeTicks timebase,
+                             base::TimeDelta interval);
 
   OutputSurfaceClient* client_ = nullptr;
-  base::TimeDelta refresh_interval_;
+
+  UpdateVSyncParametersCallback update_vsync_parameters_callback_;
+  base::TimeTicks refresh_timebase_;
+  base::TimeDelta refresh_interval_ = BeginFrameArgs::DefaultInterval();
+
   std::vector<ui::LatencyInfo> stored_latency_info_;
   ui::LatencyTracker latency_tracker_;
-  base::WeakPtrFactory<SoftwareOutputSurface> weak_factory_;
+
+#if defined(USE_X11)
+  bool needs_swap_size_notifications_ = false;
+#endif
+
+  base::WeakPtrFactory<SoftwareOutputSurface> weak_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(SoftwareOutputSurface);
 };

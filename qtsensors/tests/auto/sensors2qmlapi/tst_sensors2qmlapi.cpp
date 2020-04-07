@@ -29,10 +29,14 @@
 #include <QtTest/QtTest>
 #include <QtTest/QSignalSpy>
 #include <QtCore/QDebug>
+
+#include "../../../src/imports/sensors/qmlsensor.h"
 #include "../../../src/imports/sensors/qmlsensorgesture.h"
+
 #include "qtemplategestureplugin.h"
 #include "qtemplaterecognizer.h"
 #include <qsensorgesturemanager.h>
+#include <qsensorbackend.h>
 #include "qsensormanager.h"
 
 QT_USE_NAMESPACE
@@ -46,6 +50,7 @@ class tst_Sensors2QMLAPI : public QObject
 private slots:
     void initTestCase();
     void testGesture();
+    void testSensorRanges();
 };
 
 void tst_Sensors2QMLAPI::initTestCase()
@@ -167,6 +172,114 @@ void tst_Sensors2QMLAPI::testGesture()
     QCOMPARE(spy2_detected.count(), 0);
     gs2->componentComplete();
     QCOMPARE(spy2_detected.count(), 1);
+}
+
+class QDummySensorBackend : public QSensorBackend
+{
+    Q_OBJECT
+public:
+    QDummySensorBackend(QSensor *sensor) : QSensorBackend(sensor)
+    {
+        addDataRate(2, 3);
+        addDataRate(5, 7);
+        addOutputRange(100, 200, 1);
+        addOutputRange(600, 700, 10);
+        addOutputRange(0, 1, 2);
+    }
+
+    void start() override {}
+    void stop() override {}
+};
+
+class QDummySensorReading : public QSensorReading
+{
+    Q_OBJECT
+public:
+    QDummySensorReading(QObject *parent) : QSensorReading(parent, nullptr) {}
+};
+
+class QmlDummySensorReading : public QmlSensorReading
+{
+    Q_OBJECT
+public:
+    QmlDummySensorReading(QSensor *sensor) :
+        QmlSensorReading(sensor),
+        m_reading(new QDummySensorReading(this))
+    {}
+
+    QSensorReading *reading() const override { return m_reading; }
+    void readingUpdate() override {}
+
+private:
+    QSensorReading *m_reading = nullptr;
+};
+
+class QmlDummySensor : public QmlSensor
+{
+    Q_OBJECT
+public:
+    QmlDummySensor(QObject *parent = nullptr) :
+        QmlSensor(parent),
+        m_sensor(new QSensor("dummy", this))
+    {
+        QDummySensorBackend b(m_sensor);
+        Q_UNUSED(b);
+    }
+
+    QSensor *sensor() const override { return m_sensor; }
+    QmlSensorReading *createReading() const override { return new QmlDummySensorReading(m_sensor); }
+
+    void componentComplete() override { QmlSensor::componentComplete(); }
+
+private:
+    QSensor *m_sensor = nullptr;
+};
+
+void tst_Sensors2QMLAPI::testSensorRanges()
+{
+    QScopedPointer<QmlDummySensor> qmlSensor(new QmlDummySensor);
+    qmlSensor->componentComplete();
+
+    auto ranges = qmlSensor->availableDataRates();
+    QCOMPARE(ranges.count(&ranges), 2);
+
+    const auto range0 = ranges.at(&ranges, 0);
+    QCOMPARE(range0->minimum(), 2);
+    QCOMPARE(range0->maximum(), 3);
+    QSignalSpy range0Spy(range0, SIGNAL(destroyed()));
+
+    const auto range1 = ranges.at(&ranges, 1);
+    QCOMPARE(range1->minimum(), 5);
+    QCOMPARE(range1->maximum(), 7);
+    QSignalSpy range1Spy(range1, SIGNAL(destroyed()));
+
+    auto outputs = qmlSensor->outputRanges();
+    QCOMPARE(outputs.count(&outputs), 3);
+
+    const auto output0 = outputs.at(&outputs, 0);
+    QCOMPARE(output0->minimum(), 100);
+    QCOMPARE(output0->maximum(), 200);
+    QCOMPARE(output0->accuracy(), 1);
+    QSignalSpy output0Spy(output0, SIGNAL(destroyed()));
+
+    const auto output1 = outputs.at(&outputs, 1);
+    QCOMPARE(output1->minimum(), 600);
+    QCOMPARE(output1->maximum(), 700);
+    QCOMPARE(output1->accuracy(), 10);
+    QSignalSpy output1Spy(output1, SIGNAL(destroyed()));
+
+    const auto output2 = outputs.at(&outputs, 2);
+    QCOMPARE(output2->minimum(), 0);
+    QCOMPARE(output2->maximum(), 1);
+    QCOMPARE(output2->accuracy(), 2);
+    QSignalSpy output2Spy(output2, SIGNAL(destroyed()));
+
+    qmlSensor.reset();
+    QCOMPARE(range0Spy.count(), 1);
+    QCOMPARE(range1Spy.count(), 1);
+    QCOMPARE(output0Spy.count(), 1);
+    QCOMPARE(output1Spy.count(), 1);
+    QCOMPARE(output2Spy.count(), 1);
 }
 
 QT_END_NAMESPACE

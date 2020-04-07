@@ -6,7 +6,7 @@
 
 #include "xfa/fxfa/parser/cxfa_keyusage.h"
 
-#include "fxjs/xfa/cjx_keyusage.h"
+#include "fxjs/xfa/cjx_node.h"
 #include "third_party/base/ptr_util.h"
 
 namespace {
@@ -26,7 +26,7 @@ const CXFA_Node::AttributeData kKeyUsageAttributeData[] = {
     {XFA_Attribute::DataEncipherment, XFA_AttributeType::CData, nullptr},
     {XFA_Attribute::KeyCertSign, XFA_AttributeType::CData, nullptr},
     {XFA_Attribute::DecipherOnly, XFA_AttributeType::CData, nullptr},
-    {XFA_Attribute::Unknown, XFA_AttributeType::Integer, nullptr}};
+};
 
 }  // namespace
 
@@ -36,8 +36,8 @@ CXFA_KeyUsage::CXFA_KeyUsage(CXFA_Document* doc, XFA_PacketType packet)
                 (XFA_XDPPACKET_Template | XFA_XDPPACKET_Form),
                 XFA_ObjectType::Node,
                 XFA_Element::KeyUsage,
-                nullptr,
+                {},
                 kKeyUsageAttributeData,
-                pdfium::MakeUnique<CJX_KeyUsage>(this)) {}
+                pdfium::MakeUnique<CJX_Node>(this)) {}
 
 CXFA_KeyUsage::~CXFA_KeyUsage() = default;

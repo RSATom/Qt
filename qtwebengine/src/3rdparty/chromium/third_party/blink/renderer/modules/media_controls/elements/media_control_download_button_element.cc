@@ -14,14 +14,13 @@
 #include "third_party/blink/renderer/core/input_type_names.h"
 #include "third_party/blink/renderer/core/page/page.h"
 #include "third_party/blink/renderer/modules/media_controls/media_controls_impl.h"
-#include "third_party/blink/renderer/modules/media_controls/media_download_in_product_help_manager.h"
 #include "third_party/blink/renderer/platform/text/platform_locale.h"
 
 namespace blink {
 
 MediaControlDownloadButtonElement::MediaControlDownloadButtonElement(
     MediaControlsImpl& media_controls)
-    : MediaControlInputElement(media_controls, kMediaIgnore) {
+    : MediaControlInputElement(media_controls) {
   setType(input_type_names::kButton);
   setAttribute(html_names::kAriaLabelAttr,
                WTF::AtomicString(GetLocale().QueryString(
@@ -56,6 +55,10 @@ bool MediaControlDownloadButtonElement::HasOverflowButton() const {
   return true;
 }
 
+bool MediaControlDownloadButtonElement::IsControlPanelButton() const {
+  return true;
+}
+
 void MediaControlDownloadButtonElement::Trace(blink::Visitor* visitor) {
   MediaControlInputElement::Trace(visitor);
 }
@@ -64,18 +67,8 @@ const char* MediaControlDownloadButtonElement::GetNameForHistograms() const {
   return IsOverflowElement() ? "DownloadOverflowButton" : "DownloadButton";
 }
 
-void MediaControlDownloadButtonElement::UpdateShownState() {
-  MediaControlInputElement::UpdateShownState();
-
-  if (!MediaControlsImpl::IsModern() &&
-      GetMediaControls().DownloadInProductHelp()) {
-    GetMediaControls().DownloadInProductHelp()->SetDownloadButtonVisibility(
-        IsWanted() && DoesFit());
-  }
-}
-
 void MediaControlDownloadButtonElement::DefaultEventHandler(Event& event) {
-  const KURL& url = MediaElement().currentSrc();
+  const KURL& url = MediaElement().downloadURL();
   if ((event.type() == event_type_names::kClick ||
        event.type() == event_type_names::kGesturetap) &&
       !(url.IsNull() || url.IsEmpty())) {
@@ -86,7 +79,7 @@ void MediaControlDownloadButtonElement::DefaultEventHandler(Event& event) {
     request.SetRequestContext(mojom::RequestContextType::DOWNLOAD);
     request.SetRequestorOrigin(SecurityOrigin::Create(GetDocument().Url()));
     GetDocument().GetFrame()->Client()->DownloadURL(
-        request, DownloadCrossOriginRedirects::kFollow);
+        request, network::mojom::RedirectMode::kError);
   }
   MediaControlInputElement::DefaultEventHandler(event);
 }

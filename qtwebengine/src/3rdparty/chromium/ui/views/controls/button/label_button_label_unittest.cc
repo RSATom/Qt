@@ -16,7 +16,7 @@ namespace {
 // Basic NativeTheme that can customize colors.
 class TestNativeTheme : public ui::NativeThemeBase {
  public:
-  TestNativeTheme() {}
+  TestNativeTheme() = default;
 
   void Set(ColorId id, SkColor color) { colors_[id] = color; }
 
@@ -43,7 +43,7 @@ class TestLabel : public LabelButtonLabel {
   // LabelButtonLabel:
   void SchedulePaintInRect(const gfx::Rect& r) override {
     LabelButtonLabel::SchedulePaintInRect(r);
-    *last_color_ = enabled_color();
+    *last_color_ = GetEnabledColor();
   }
 
  private:
@@ -56,7 +56,7 @@ class TestLabel : public LabelButtonLabel {
 
 class LabelButtonLabelTest : public ViewsTestBase {
  public:
-  LabelButtonLabelTest() {}
+  LabelButtonLabelTest() = default;
 
   void SetUp() override {
     ViewsTestBase::SetUp();
@@ -91,9 +91,8 @@ TEST_F(LabelButtonLabelTest, Colors) {
           ui::NativeTheme::kColorId_LabelEnabledColor);
   EXPECT_EQ(default_theme_enabled_color, last_color_);
 
-  // Note these are not kColorId_Button{Enabled,Disabled}Color because "Button
-  // colors are used only for STYLE_BUTTON, otherwise we use label colors." See
-  // LabelButton::ResetColorsFromNativeTheme().
+  // Note these are not kColorId_Button{Enabled,Disabled}Color because label
+  // buttons use label colors. See LabelButton::ResetColorsFromNativeTheme().
   theme1_.Set(ui::NativeTheme::kColorId_LabelEnabledColor, SK_ColorGREEN);
   theme1_.Set(ui::NativeTheme::kColorId_LabelDisabledColor, SK_ColorYELLOW);
   label_->SetNativeTheme(&theme1_);

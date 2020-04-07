@@ -17,6 +17,7 @@
 #include "content/public/browser/render_frame_host.h"
 #include "mojo/public/cpp/bindings/strong_binding.h"
 #include "services/service_manager/public/cpp/interface_provider.h"
+#include "third_party/blink/public/mojom/mediastream/media_stream.mojom-shared.h"
 #include "url/origin.h"
 
 namespace content {
@@ -48,8 +49,7 @@ MediaStreamDispatcherHost::MediaStreamDispatcherHost(
       requester_id_(next_requester_id_++),
       media_stream_manager_(media_stream_manager),
       salt_and_origin_callback_(
-          base::BindRepeating(&GetMediaDeviceSaltAndOrigin)),
-      weak_factory_(this) {
+          base::BindRepeating(&GetMediaDeviceSaltAndOrigin)) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
 }
 
@@ -145,9 +145,10 @@ void MediaStreamDispatcherHost::DoGenerateStream(
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
   if (!MediaStreamManager::IsOriginAllowed(render_process_id_,
                                            salt_and_origin.origin)) {
-    std::move(callback).Run(blink::MEDIA_DEVICE_INVALID_SECURITY_ORIGIN,
-                            std::string(), blink::MediaStreamDevices(),
-                            blink::MediaStreamDevices());
+    std::move(callback).Run(
+        blink::mojom::MediaStreamRequestResult::INVALID_SECURITY_ORIGIN,
+        std::string(), blink::MediaStreamDevices(),
+        blink::MediaStreamDevices());
     return;
   }
 
@@ -167,17 +168,19 @@ void MediaStreamDispatcherHost::CancelRequest(int page_request_id) {
                                        requester_id_, page_request_id);
 }
 
-void MediaStreamDispatcherHost::StopStreamDevice(const std::string& device_id,
-                                                 int32_t session_id) {
+void MediaStreamDispatcherHost::StopStreamDevice(
+    const std::string& device_id,
+    const base::Optional<base::UnguessableToken>& session_id) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
 
-  media_stream_manager_->StopStreamDevice(render_process_id_, render_frame_id_,
-                                          requester_id_, device_id, session_id);
+  media_stream_manager_->StopStreamDevice(
+      render_process_id_, render_frame_id_, requester_id_, device_id,
+      session_id.value_or(base::UnguessableToken()));
 }
 
 void MediaStreamDispatcherHost::OpenDevice(int32_t page_request_id,
                                            const std::string& device_id,
-                                           blink::MediaStreamType type,
+                                           blink::mojom::MediaStreamType type,
                                            OpenDeviceCallback callback) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
 
@@ -194,7 +197,7 @@ void MediaStreamDispatcherHost::OpenDevice(int32_t page_request_id,
 void MediaStreamDispatcherHost::DoOpenDevice(
     int32_t page_request_id,
     const std::string& device_id,
-    blink::MediaStreamType type,
+    blink::mojom::MediaStreamType type,
     OpenDeviceCallback callback,
     MediaDeviceSaltAndOrigin salt_and_origin) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
@@ -219,13 +222,14 @@ void MediaStreamDispatcherHost::CloseDevice(const std::string& label) {
 }
 
 void MediaStreamDispatcherHost::SetCapturingLinkSecured(
-    int32_t session_id,
-    blink::MediaStreamType type,
+    const base::Optional<base::UnguessableToken>& session_id,
+    blink::mojom::MediaStreamType type,
     bool is_secure) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
 
-  media_stream_manager_->SetCapturingLinkSecured(render_process_id_, session_id,
-                                                 type, is_secure);
+  media_stream_manager_->SetCapturingLinkSecured(
+      render_process_id_, session_id.value_or(base::UnguessableToken()), type,
+      is_secure);
 }
 
 void MediaStreamDispatcherHost::OnStreamStarted(const std::string& label) {

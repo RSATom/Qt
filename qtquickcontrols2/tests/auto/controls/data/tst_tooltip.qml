@@ -227,13 +227,37 @@ TestCase {
         id: toolTipWithExitTransition
 
         ToolTip {
+            Component.onCompleted: contentItem.objectName = "contentItem"
+
             enter: Transition {
                 NumberAnimation { property: "opacity"; from: 0.0; to: 1.0; duration: 100 }
             }
             exit: Transition {
-                NumberAnimation { property: "opacity"; from: 1.0; to: 0.0; duration: 1000 }
+                NumberAnimation { property: "opacity"; from: 1.0; to: 0.0; duration: 500 }
             }
         }
+    }
+
+    function test_openDuringExitTransitionWithTimeout() {
+        let control = createTemporaryObject(toolTipWithExitTransition, testCase, { timeout: 250 })
+        verify(control)
+        control.open()
+        verify(control.visible)
+        // Can't be fully open yet because the enter transition has only just started.
+        compare(control.opened, false)
+        compare(control.enter.running, true)
+        tryCompare(control, "opened", true)
+
+        // Let it timeout and begin the exit transition.
+        tryCompare(control, "opened", false)
+        verify(control.visible)
+        tryCompare(control.exit, "running", true)
+        verify(control.visible)
+
+        // Quickly open it again; it should still timeout eventually.
+        control.open()
+        tryCompare(control, "opened", true)
+        tryCompare(control.exit, "running", true)
     }
 
     function test_makeVisibleWhileExitTransitionRunning_data() {
@@ -420,5 +444,27 @@ TestCase {
         mouseRelease(button2)
         compare(button2.down, false)
         tryCompare(button2.ToolTip, "visible", false)
+    }
+
+    Component {
+        id: wrapComponent
+
+        Item {
+            ToolTip.text: "This is some very very very very very very very very very very very very"
+                + " very very very very very very very very very very very very very very"
+                + " very very very very very very very very very very very very long text"
+        }
+    }
+
+    // QTBUG-62350
+    function test_wrap() {
+        var item = createTemporaryObject(wrapComponent, testCase)
+        verify(item)
+
+        // Avoid "cannot find window to popup in" warning that can occur if it's made visible too early.
+        item.ToolTip.visible = true
+        tryCompare(item.ToolTip.toolTip, "opened", true)
+        compare(item.ToolTip.toolTip.contentItem.wrapMode, Text.Wrap)
+        verify(item.ToolTip.toolTip.contentItem.width < item.ToolTip.toolTip.contentItem.implicitWidth)
     }
 }

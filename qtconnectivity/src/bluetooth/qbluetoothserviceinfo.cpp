@@ -180,7 +180,12 @@ bool QBluetoothServiceInfo::isRegistered() const
 
 bool QBluetoothServiceInfo::registerService(const QBluetoothAddress &localAdapter)
 {
+#ifdef QT_OSX_BLUETOOTH
+    Q_UNUSED(localAdapter)
+    return d_ptr->registerService(*this);
+#else
     return d_ptr->registerService(localAdapter);
+#endif
 }
 
 /*!

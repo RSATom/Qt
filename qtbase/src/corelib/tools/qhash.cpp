@@ -197,7 +197,7 @@ static uint crc32(...)
 }
 #endif
 
-static inline uint hash(const uchar *p, size_t len, uint seed) Q_DECL_NOTHROW
+static inline uint hash(const uchar *p, size_t len, uint seed) noexcept
 {
     uint h = seed;
 
@@ -210,12 +210,12 @@ static inline uint hash(const uchar *p, size_t len, uint seed) Q_DECL_NOTHROW
     return h;
 }
 
-uint qHashBits(const void *p, size_t len, uint seed) Q_DECL_NOTHROW
+uint qHashBits(const void *p, size_t len, uint seed) noexcept
 {
     return hash(static_cast<const uchar*>(p), int(len), seed);
 }
 
-static inline uint hash(const QChar *p, size_t len, uint seed) Q_DECL_NOTHROW
+static inline uint hash(const QChar *p, size_t len, uint seed) noexcept
 {
     uint h = seed;
 
@@ -228,29 +228,29 @@ static inline uint hash(const QChar *p, size_t len, uint seed) Q_DECL_NOTHROW
     return h;
 }
 
-uint qHash(const QByteArray &key, uint seed) Q_DECL_NOTHROW
+uint qHash(const QByteArray &key, uint seed) noexcept
 {
     return hash(reinterpret_cast<const uchar *>(key.constData()), size_t(key.size()), seed);
 }
 
 #if QT_STRINGVIEW_LEVEL < 2
-uint qHash(const QString &key, uint seed) Q_DECL_NOTHROW
+uint qHash(const QString &key, uint seed) noexcept
 {
     return hash(key.unicode(), size_t(key.size()), seed);
 }
 
-uint qHash(const QStringRef &key, uint seed) Q_DECL_NOTHROW
+uint qHash(const QStringRef &key, uint seed) noexcept
 {
     return hash(key.unicode(), size_t(key.size()), seed);
 }
 #endif
 
-uint qHash(QStringView key, uint seed) Q_DECL_NOTHROW
+uint qHash(QStringView key, uint seed) noexcept
 {
     return hash(key.data(), key.size(), seed);
 }
 
-uint qHash(const QBitArray &bitArray, uint seed) Q_DECL_NOTHROW
+uint qHash(const QBitArray &bitArray, uint seed) noexcept
 {
     int m = bitArray.d.size() - 1;
     uint result = hash(reinterpret_cast<const uchar *>(bitArray.d.constData()),
@@ -264,7 +264,7 @@ uint qHash(const QBitArray &bitArray, uint seed) Q_DECL_NOTHROW
     return result;
 }
 
-uint qHash(QLatin1String key, uint seed) Q_DECL_NOTHROW
+uint qHash(QLatin1String key, uint seed) noexcept
 {
     return hash(reinterpret_cast<const uchar *>(key.data()), size_t(key.size()), seed);
 }
@@ -321,7 +321,7 @@ static QBasicAtomicInt qt_qhash_seed = Q_BASIC_ATOMIC_INITIALIZER(-1);
 */
 static void qt_initialize_qhash_seed()
 {
-    if (qt_qhash_seed.load() == -1) {
+    if (qt_qhash_seed.loadRelaxed() == -1) {
         int x(qt_create_qhash_seed() & INT_MAX);
         qt_qhash_seed.testAndSetRelaxed(-1, x);
     }
@@ -340,7 +340,7 @@ static void qt_initialize_qhash_seed()
 int qGlobalQHashSeed()
 {
     qt_initialize_qhash_seed();
-    return qt_qhash_seed.load();
+    return qt_qhash_seed.loadRelaxed();
 }
 
 /*! \relates QHash
@@ -372,14 +372,14 @@ void qSetGlobalQHashSeed(int newSeed)
         return;
     if (newSeed == -1) {
         int x(qt_create_qhash_seed() & INT_MAX);
-        qt_qhash_seed.store(x);
+        qt_qhash_seed.storeRelaxed(x);
     } else {
         if (newSeed) {
             // can't use qWarning here (reentrancy)
             fprintf(stderr, "qSetGlobalQHashSeed: forced seed value is not 0, cannot guarantee that the "
                             "hashing functions will produce a stable value.");
         }
-        qt_qhash_seed.store(newSeed & INT_MAX);
+        qt_qhash_seed.storeRelaxed(newSeed & INT_MAX);
     }
 }
 
@@ -398,7 +398,7 @@ void qSetGlobalQHashSeed(int newSeed)
     This function can hash discontiguous memory by invoking it on each chunk,
     passing the previous's result in the next call's \a chained argument.
 */
-uint qt_hash(QStringView key, uint chained) Q_DECL_NOTHROW
+uint qt_hash(QStringView key, uint chained) noexcept
 {
     auto n = key.size();
     auto p = key.utf16();
@@ -471,7 +471,7 @@ static int countBits(int hint)
 const int MinNumBits = 4;
 
 const QHashData QHashData::shared_null = {
-    0, 0, Q_REFCOUNT_INITIALIZE_STATIC, 0, 0, MinNumBits, 0, 0, 0, true, false, 0
+    nullptr, nullptr, Q_REFCOUNT_INITIALIZE_STATIC, 0, 0, MinNumBits, 0, 0, 0, true, false, 0
 };
 
 void *QHashData::allocateNode(int nodeAlign)
@@ -501,15 +501,15 @@ QHashData *QHashData::detach_helper(void (*node_duplicate)(Node *, void *),
     if (this == &shared_null)
         qt_initialize_qhash_seed(); // may throw
     d = new QHashData;
-    d->fakeNext = 0;
-    d->buckets = 0;
+    d->fakeNext = nullptr;
+    d->buckets = nullptr;
     d->ref.initializeOwned();
     d->size = size;
     d->nodeSize = nodeSize;
     d->userNumBits = userNumBits;
     d->numBits = numBits;
     d->numBuckets = numBuckets;
-    d->seed = (this == &shared_null) ? uint(qt_qhash_seed.load()) : seed;
+    d->seed = (this == &shared_null) ? uint(qt_qhash_seed.loadRelaxed()) : seed;
     d->sharable = true;
     d->strictAlignment = nodeAlign > 8;
     d->reserved = 0;
@@ -709,7 +709,7 @@ void QHashData::dump()
                 }
                 n = n->next;
             }
-            qDebug("%s", qPrintable(line));
+            qDebug("%ls", qUtf16Printable(line));
         }
     }
 }
@@ -938,7 +938,7 @@ void QHashData::checkSanity()
 
     Returns the hash value for the \a key, using \a seed to seed the calculation.
 */
-uint qHash(float key, uint seed) Q_DECL_NOTHROW
+uint qHash(float key, uint seed) noexcept
 {
     return key != 0.0f ? hash(reinterpret_cast<const uchar *>(&key), sizeof(key), seed) : seed ;
 }
@@ -948,7 +948,7 @@ uint qHash(float key, uint seed) Q_DECL_NOTHROW
 
     Returns the hash value for the \a key, using \a seed to seed the calculation.
 */
-uint qHash(double key, uint seed) Q_DECL_NOTHROW
+uint qHash(double key, uint seed) noexcept
 {
     return key != 0.0  ? hash(reinterpret_cast<const uchar *>(&key), sizeof(key), seed) : seed ;
 }
@@ -959,7 +959,7 @@ uint qHash(double key, uint seed) Q_DECL_NOTHROW
 
     Returns the hash value for the \a key, using \a seed to seed the calculation.
 */
-uint qHash(long double key, uint seed) Q_DECL_NOTHROW
+uint qHash(long double key, uint seed) noexcept
 {
     return key != 0.0L ? hash(reinterpret_cast<const uchar *>(&key), sizeof(key), seed) : seed ;
 }
@@ -1249,6 +1249,17 @@ uint qHash(long double key, uint seed) Q_DECL_NOTHROW
 
     This function is only available if the program is being
     compiled in C++11 mode.
+*/
+
+/*! \fn template <class Key, class T> template <class InputIterator> QHash<Key, T>::QHash(InputIterator begin, InputIterator end)
+    \since 5.14
+
+    Constructs a hash with a copy of each of the elements in the iterator range
+    [\a begin, \a end). Either the elements iterated by the range must be
+    objects with \c{first} and \c{second} data members (like \c{QPair},
+    \c{std::pair}, etc.) convertible to \c Key and to \c T respectively; or the
+    iterators must have \c{key()} and \c{value()} member functions, returning a
+    key convertible to \c Key and a value convertible to \c T respectively.
 */
 
 /*! \fn template <class Key, class T> QHash<Key, T>::QHash(const QHash &other)
@@ -2584,6 +2595,17 @@ uint qHash(long double key, uint seed) Q_DECL_NOTHROW
     QMultiHash).
 
     \sa operator=()
+*/
+
+/*! \fn template <class Key, class T> template <class InputIterator> QMultiHash<Key, T>::QMultiHash(InputIterator begin, InputIterator end)
+    \since 5.14
+
+    Constructs a multi-hash with a copy of each of the elements in the iterator range
+    [\a begin, \a end). Either the elements iterated by the range must be
+    objects with \c{first} and \c{second} data members (like \c{QPair},
+    \c{std::pair}, etc.) convertible to \c Key and to \c T respectively; or the
+    iterators must have \c{key()} and \c{value()} member functions, returning a
+    key convertible to \c Key and a value convertible to \c T respectively.
 */
 
 /*! \fn template <class Key, class T> QMultiHash<Key, T>::iterator QMultiHash<Key, T>::replace(const Key &key, const T &value)

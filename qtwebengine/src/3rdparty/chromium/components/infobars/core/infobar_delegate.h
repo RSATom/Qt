@@ -69,7 +69,7 @@ class InfoBarDelegate {
   enum InfoBarIdentifier {
     INVALID = -1,
     TEST_INFOBAR = 0,
-    APP_BANNER_INFOBAR_DELEGATE = 1,
+    // Removed: APP_BANNER_INFOBAR_DELEGATE = 1,
     // Removed: APP_BANNER_INFOBAR_DELEGATE_DESKTOP = 2,
     // Removed: ANDROID_DOWNLOAD_MANAGER_DUPLICATE_INFOBAR_DELEGATE = 3,
     DUPLICATE_DOWNLOAD_INFOBAR_DELEGATE_ANDROID = 4,
@@ -136,7 +136,7 @@ class InfoBarDelegate {
     AUTOFILL_CREDIT_CARD_FILLING_INFOBAR_DELEGATE_ANDROID = 65,
     ADS_BLOCKED_INFOBAR_DELEGATE_ANDROID = 66,
     INSTANT_APPS_INFOBAR_DELEGATE_ANDROID = 67,
-    DATA_REDUCTION_PROXY_PREVIEW_INFOBAR_DELEGATE = 68,
+    // Removed: DATA_REDUCTION_PROXY_PREVIEW_INFOBAR_DELEGATE = 68,
     SCREEN_CAPTURE_INFOBAR_DELEGATE_ANDROID = 69,
     GROUPED_PERMISSION_INFOBAR_DELEGATE_ANDROID = 70,
     OFFLINE_PAGE_INFOBAR_DELEGATE_ANDROID = 71,
@@ -149,7 +149,7 @@ class InfoBarDelegate {
     SURVEY_INFOBAR_ANDROID = 78,
     NEAR_OOM_INFOBAR_ANDROID = 79,
     INSTALLABLE_AMBIENT_BADGE_INFOBAR_DELEGATE = 80,
-    PAGE_LOAD_CAPPING_INFOBAR_DELEGATE = 81,
+    // Removed: PAGE_LOAD_CAPPING_INFOBAR_DELEGATE = 81,
     DOWNLOAD_PROGRESS_INFOBAR_ANDROID = 82,
     AR_CORE_UPGRADE_ANDROID = 83,
     BLOATED_RENDERER_INFOBAR_DELEGATE = 84,
@@ -159,6 +159,9 @@ class InfoBarDelegate {
     MODULE_INSTALL_FAILURE_INFOBAR_ANDROID = 88,
     INLINE_UPDATE_READY_INFOBAR_ANDROID = 89,
     INLINE_UPDATE_FAILED_INFOBAR_ANDROID = 90,
+    FLASH_DEPRECATION_INFOBAR_DELEGATE = 91,
+    SEND_TAB_TO_SELF_INFOBAR_DELEGATE = 92,
+    TAB_SHARING_INFOBAR_DELEGATE = 93,
   };
 
   // Describes navigation events, used to decide whether infobars should be
@@ -183,7 +186,7 @@ class InfoBarDelegate {
 
   // Returns a unique value identifying the infobar.
   // New implementers must append a new value to the InfoBarIdentifier enum here
-  // and in histograms.xml.
+  // and in histograms/enums.xml.
   virtual InfoBarIdentifier GetIdentifier() const = 0;
 
   virtual InfoBarAutomationType GetInfoBarAutomationType() const;
@@ -221,6 +224,9 @@ class InfoBarDelegate {
 
   // Called when the user clicks on the close button to dismiss the infobar.
   virtual void InfoBarDismissed();
+
+  // Returns true if the InfoBar has a close button; true by default.
+  virtual bool IsCloseable() const;
 
   // Type-checking downcast routines:
   virtual ConfirmInfoBarDelegate* AsConfirmInfoBarDelegate();

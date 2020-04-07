@@ -6,6 +6,7 @@
 
 #include <utility>
 
+#include "base/bind.h"
 #include "base/location.h"
 #include "base/macros.h"
 #include "base/pickle.h"
@@ -27,7 +28,7 @@ ClipboardHostImpl::ClipboardHostImpl(blink::mojom::ClipboardHostRequest request)
     : binding_(this, std::move(request)),
       clipboard_(ui::Clipboard::GetForCurrentThread()),
       clipboard_writer_(
-          new ui::ScopedClipboardWriter(ui::CLIPBOARD_TYPE_COPY_PASTE)) {}
+          new ui::ScopedClipboardWriter(ui::ClipboardType::kCopyPaste)) {}
 
 void ClipboardHostImpl::Create(blink::mojom::ClipboardHostRequest request) {
   // Clipboard implementations do interesting things, like run nested message
@@ -140,23 +141,20 @@ void ClipboardHostImpl::ReadCustomData(ui::ClipboardType clipboard_type,
   std::move(callback).Run(result);
 }
 
-void ClipboardHostImpl::WriteText(ui::ClipboardType,
-                                  const base::string16& text) {
+void ClipboardHostImpl::WriteText(const base::string16& text) {
   clipboard_writer_->WriteText(text);
 }
 
-void ClipboardHostImpl::WriteHtml(ui::ClipboardType,
-                                  const base::string16& markup,
+void ClipboardHostImpl::WriteHtml(const base::string16& markup,
                                   const GURL& url) {
   clipboard_writer_->WriteHTML(markup, url.spec());
 }
 
-void ClipboardHostImpl::WriteSmartPasteMarker(ui::ClipboardType) {
+void ClipboardHostImpl::WriteSmartPasteMarker() {
   clipboard_writer_->WriteWebSmartPaste();
 }
 
 void ClipboardHostImpl::WriteCustomData(
-    ui::ClipboardType,
     const base::flat_map<base::string16, base::string16>& data) {
   base::Pickle pickle;
   ui::WriteCustomDataToPickle(data, &pickle);
@@ -164,19 +162,18 @@ void ClipboardHostImpl::WriteCustomData(
       pickle, ui::ClipboardFormatType::GetWebCustomDataType());
 }
 
-void ClipboardHostImpl::WriteBookmark(ui::ClipboardType,
-                                      const std::string& url,
+void ClipboardHostImpl::WriteBookmark(const std::string& url,
                                       const base::string16& title) {
   clipboard_writer_->WriteBookmark(title, url);
 }
 
-void ClipboardHostImpl::WriteImage(ui::ClipboardType, const SkBitmap& bitmap) {
+void ClipboardHostImpl::WriteImage(const SkBitmap& bitmap) {
   clipboard_writer_->WriteImage(bitmap);
 }
 
-void ClipboardHostImpl::CommitWrite(ui::ClipboardType) {
+void ClipboardHostImpl::CommitWrite() {
   clipboard_writer_.reset(
-      new ui::ScopedClipboardWriter(ui::CLIPBOARD_TYPE_COPY_PASTE));
+      new ui::ScopedClipboardWriter(ui::ClipboardType::kCopyPaste));
 }
 
 }  // namespace content

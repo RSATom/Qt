@@ -615,7 +615,7 @@ public:
 public:
     int features;
     QBrush defaultBackground;
-    QFont font;
+    QFont font; // Be careful using this font directly. Prefer using font.resolve( )
     bool hasFont;
 
     QHash<QString, QVariant> styleHints;
@@ -851,7 +851,7 @@ QHash<QStyle::SubControl, QRect> QStyleSheetStyle::titleBarLayout(const QWidget 
             info.rule = subRule;
             info.offset = offsets[where];
             info.where = where;
-            infos.append(qMove(info));
+            infos.append(std::move(info));
 
             offsets[where] += info.width;
         }
@@ -909,7 +909,7 @@ static QStyle::StandardPixmap subControlIcon(int pe)
 QRenderRule::QRenderRule(const QVector<Declaration> &declarations, const QObject *object)
 : features(0), hasFont(false), pal(0), b(0), bg(0), bd(0), ou(0), geo(0), p(0), img(0), clipset(0)
 {
-    QPalette palette = QApplication::palette(); // ###: ideally widget's palette
+    QPalette palette = QGuiApplication::palette(); // ###: ideally widget's palette
     ValueExtractor v(declarations, palette);
     features = v.extractStyleFeatures();
 
@@ -2734,7 +2734,7 @@ static void updateObjects(const QList<const QObject *>& objects)
     for (const QObject *object : objects) {
         if (auto widget = qobject_cast<QWidget*>(const_cast<QObject*>(object))) {
             widget->style()->polish(widget);
-            QApplication::sendEvent(widget, &event);
+            QCoreApplication::sendEvent(widget, &event);
             QList<const QObject *> children;
             children.reserve(widget->children().size() + 1);
             for (auto child: qAsConst(widget->children()))
@@ -3019,6 +3019,7 @@ void QStyleSheetStyle::drawComplexControl(ComplexControl cc, const QStyleOptionC
                     r = positionRect(w, subRule, subRule2, PseudoElement_ComboBoxArrow, r, opt->direction);
                     subRule2.drawRule(p, r);
                 } else {
+                    rule.configurePalette(&cmbOpt.palette, QPalette::ButtonText, QPalette::Button);
                     cmbOpt.subControls = QStyle::SC_ComboBoxArrow;
                     QWindowsStyle::drawComplexControl(cc, &cmbOpt, p, w);
                 }
@@ -3216,7 +3217,7 @@ void QStyleSheetStyle::drawComplexControl(ComplexControl cc, const QStyleOptionC
                 rule.drawRule(p, opt->rect);
                 toolOpt.rect = rule.contentsRect(opt->rect);
                 if (rule.hasFont)
-                    toolOpt.font = rule.font;
+                    toolOpt.font = rule.font.resolve(toolOpt.font);
                 drawControl(CE_ToolButtonLabel, &toolOpt, p, w);
             }
 
@@ -3451,7 +3452,7 @@ void QStyleSheetStyle::drawControl(ControlElement ce, const QStyleOption *opt, Q
     case CE_ToolButtonLabel:
         if (const QStyleOptionToolButton *btn = qstyleoption_cast<const QStyleOptionToolButton *>(opt)) {
             if (rule.hasBox() || btn->features & QStyleOptionToolButton::Arrow) {
-                QCommonStyle::drawControl(ce, opt, p, w);
+                QWindowsStyle::drawControl(ce, opt, p, w);
             } else {
                 QStyleOptionToolButton butOpt(*btn);
                 rule.configurePalette(&butOpt.palette, QPalette::ButtonText, QPalette::Button);
@@ -3493,6 +3494,7 @@ void QStyleSheetStyle::drawControl(ControlElement ce, const QStyleOption *opt, Q
                 } else {
                     QWindowsStyle::drawControl(ce, &btnOpt, p, w);
                 }
+                rule.drawImage(p, rule.contentsRect(opt->rect));
                 if (!customMenu)
                     return;
             } else {
@@ -3519,7 +3521,7 @@ void QStyleSheetStyle::drawControl(ControlElement ce, const QStyleOption *opt, Q
 
             const QFont oldFont = p->font();
             if (rule.hasFont)
-                p->setFont(rule.font);
+                p->setFont(rule.font.resolve(p->font()));
 
             if (rule.hasPosition() && rule.position()->textAlignment != 0) {
                 Qt::Alignment textAlignment = rule.position()->textAlignment;
@@ -3683,7 +3685,7 @@ void QStyleSheetStyle::drawControl(ControlElement ce, const QStyleOption *opt, Q
             subRule.configurePalette(&mi.palette, QPalette::HighlightedText, QPalette::Highlight);
             QFont oldFont = p->font();
             if (subRule.hasFont)
-                p->setFont(subRule.font.resolve(p->font()));
+                p->setFont(subRule.font.resolve(mi.font));
             else
                 p->setFont(mi.font);
 
@@ -3711,6 +3713,7 @@ void QStyleSheetStyle::drawControl(ControlElement ce, const QStyleOption *opt, Q
                 bool dis = !(opt->state & QStyle::State_Enabled),
                      act = opt->state & QStyle::State_Selected;
 
+                int textRectOffset = m->maxIconWidth;
                 if (!mi.icon.isNull()) {
                     QIcon::Mode mode = dis ? QIcon::Disabled : QIcon::Normal;
                     if (act && !dis)
@@ -3736,19 +3739,21 @@ void QStyleSheetStyle::drawControl(ControlElement ce, const QStyleOption *opt, Q
                     p->drawPixmap(pmr.topLeft(), pixmap);
                 } else if (checkable) {
                     QRenderRule subSubRule = renderRule(w, opt, PseudoElement_MenuCheckMark);
+                    const QRect cmRect = positionRect(w, subRule, subSubRule, PseudoElement_MenuCheckMark, opt->rect, opt->direction);
                     if (subSubRule.hasDrawable() || checked) {
                         QStyleOptionMenuItem newMi = mi;
                         if (!dis)
                             newMi.state |= State_Enabled;
-                        if (act)
+                        if (mi.checked)
                             newMi.state |= State_On;
-                        newMi.rect = positionRect(w, subRule, subSubRule, PseudoElement_MenuCheckMark, opt->rect, opt->direction);
+                        newMi.rect = cmRect;
                         drawPrimitive(PE_IndicatorMenuCheckMark, &newMi, p, w);
                     }
+                    textRectOffset = std::max(textRectOffset, cmRect.width());
                 }
 
                 QRect textRect = subRule.contentsRect(opt->rect);
-                textRect.setLeft(textRect.left() + m->maxIconWidth);
+                textRect.setLeft(textRect.left() + textRectOffset);
                 textRect.setWidth(textRect.width() - mi.tabWidth);
                 const QRect vTextRect = visualRect(opt->direction, m->rect, textRect);
 
@@ -3825,7 +3830,7 @@ void QStyleSheetStyle::drawControl(ControlElement ce, const QStyleOption *opt, Q
 
             if (subRule.hasDrawable()) {
                 subRule.drawRule(p, opt->rect);
-                QCommonStyle::drawControl(ce, &mi, p, w);
+                QCommonStyle::drawControl(ce, &mi, p, w); // deliberate bypass of the base
             } else {
                 if (rule.hasDrawable() && !(opt->state & QStyle::State_Selected)) {
                     // So that the menu bar background is not hidden by the items
@@ -4089,8 +4094,13 @@ void QStyleSheetStyle::drawControl(ControlElement ce, const QStyleOption *opt, Q
             subRule.configurePalette(&boxCopy.palette, QPalette::ButtonText, QPalette::Button);
             QFont oldFont = p->font();
             if (subRule.hasFont)
-                p->setFont(subRule.font);
+                p->setFont(subRule.font.resolve(p->font()));
             boxCopy.rect = subRule.contentsRect(opt->rect);
+            if (subRule.hasImage()) {
+                // the image is already drawn with CE_ToolBoxTabShape, adjust rect here
+                const int iconExtent = proxy()->pixelMetric(QStyle::PM_SmallIconSize, box, w);
+                boxCopy.rect.setLeft(boxCopy.rect.left() + iconExtent);
+            }
             QWindowsStyle::drawControl(ce, &boxCopy, p , w);
             if (subRule.hasFont)
                 p->setFont(oldFont);
@@ -4171,7 +4181,7 @@ void QStyleSheetStyle::drawControl(ControlElement ce, const QStyleOption *opt, Q
             subRule.configurePalette(&tabCopy.palette, QPalette::WindowText, QPalette::Base);
             QFont oldFont = p->font();
             if (subRule.hasFont)
-                p->setFont(subRule.font);
+                p->setFont(subRule.font.resolve(p->font()));
             if (subRule.hasBox() || !subRule.hasNativeBorder()) {
                 tabCopy.rect = ce == CE_TabBarTabShape ? subRule.borderRect(r)
                                                        : subRule.contentsRect(r);
@@ -5030,13 +5040,25 @@ QSize QStyleSheetStyle::sizeFromContents(ContentsType ct, const QStyleOption *op
                 QRenderRule subRule = renderRule(w, opt, PseudoElement_HeaderViewSection);
                 if (subRule.hasGeometry() || subRule.hasBox() || !subRule.hasNativeBorder() || subRule.hasFont) {
                     sz = subRule.adjustSize(csz);
+                    if (!sz.isValid()) {
+                        // Try to set the missing values based on the base style.
+                        const auto baseSize = baseStyle()->sizeFromContents(ct, opt, sz, w);
+                        if (sz.width() < 0)
+                            sz.setWidth(baseSize.width());
+                        if (sz.height() < 0)
+                            sz.setHeight(baseSize.height());
+                    }
                     if (!subRule.hasGeometry()) {
                         QSize nativeContentsSize;
                         bool nullIcon = hdr->icon.isNull();
                         const int margin = pixelMetric(QStyle::PM_HeaderMargin, hdr, w);
                         int iconSize = nullIcon ? 0 : pixelMetric(QStyle::PM_SmallIconSize, hdr, w);
-                        const QSize txt = subRule.hasFont ? QFontMetrics(subRule.font).size(0, hdr->text)
-                                                          : hdr->fontMetrics.size(0, hdr->text);
+                        QFontMetrics fm = hdr->fontMetrics;
+                        if (subRule.hasFont) {
+                            QFont styleFont = w ? subRule.font.resolve(w->font()) : subRule.font;
+                            fm = QFontMetrics(styleFont);
+                        }
+                        const QSize txt = fm.size(0, hdr->text);
                         nativeContentsSize.setHeight(margin + qMax(iconSize, txt.height()) + margin);
                         nativeContentsSize.setWidth((nullIcon ? 0 : margin) + iconSize
                                                     + (hdr->text.isNull() ? 0 : margin) + txt.width() + margin);
@@ -5153,13 +5175,6 @@ QSize QStyleSheetStyle::sizeFromContents(ContentsType ct, const QStyleOption *op
             sz = csz + QSize(vertical ? 0 : spaceForIcon, vertical ? spaceForIcon : 0);
             return subRule.boxSize(subRule.adjustSize(sz));
         }
-#if 0 // Used to be included in Qt4 for Q_WS_MAC
-        if (baseStyle()->inherits("QMacStyle")) {
-            //adjust the size after the call to the style because the mac style ignore the size arguments anyway.
-            //this might cause the (max-){width,height} property to include the native style border while they should not.
-            return subRule.adjustSize(baseStyle()->sizeFromContents(ct, opt, csz, w));
-        }
-#endif
         sz = subRule.adjustSize(csz);
         break;
     }
@@ -6073,7 +6088,7 @@ void QStyleSheetStyle::updateStyleSheetFont(QWidget* w) const
         w->d_func()->directFontResolveMask = font.resolve();
 
         QEvent e(QEvent::FontChange);
-        QApplication::sendEvent(w, &e);
+        QCoreApplication::sendEvent(w, &e);
     }
 }
 

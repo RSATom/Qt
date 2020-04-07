@@ -5,8 +5,7 @@
 #include <fuchsia/fonts/cpp/fidl.h>
 #include <lib/fidl/cpp/binding.h>
 
-#include "base/fuchsia/component_context.h"
-#include "base/path_service.h"
+#include "skia/ext/test_fonts_fuchsia.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/skia/include/core/SkFontMgr.h"
 #include "third_party/skia/include/core/SkTypeface.h"
@@ -19,11 +18,12 @@ class FuchsiaFontManagerTest : public testing::Test {
  public:
   FuchsiaFontManagerTest() {
     font_manager_ = SkFontMgr_New_Fuchsia(
-        base::fuchsia::ComponentContext::GetDefault()
-            ->ConnectToServiceSync<fuchsia::fonts::Provider>());
+        RunTestProviderWithTestFonts(&font_provider_controller_));
   }
 
  protected:
+  fidl::InterfaceHandle<fuchsia::sys::ComponentController>
+      font_provider_controller_;
   sk_sp<SkFontMgr> font_manager_;
 };
 

@@ -33,13 +33,13 @@
 
 #include <algorithm>
 #include <limits>
+
 #include "third_party/blink/renderer/core/accessibility/ax_object_cache.h"
 #include "third_party/blink/renderer/core/dom/events/scoped_event_queue.h"
 #include "third_party/blink/renderer/core/dom/node_computed_style.h"
 #include "third_party/blink/renderer/core/dom/shadow_root.h"
 #include "third_party/blink/renderer/core/events/keyboard_event.h"
 #include "third_party/blink/renderer/core/events/mouse_event.h"
-#include "third_party/blink/renderer/core/frame/use_counter.h"
 #include "third_party/blink/renderer/core/html/forms/html_data_list_element.h"
 #include "third_party/blink/renderer/core/html/forms/html_data_list_options_collection.h"
 #include "third_party/blink/renderer/core/html/forms/html_input_element.h"
@@ -53,6 +53,8 @@
 #include "third_party/blink/renderer/core/input_type_names.h"
 #include "third_party/blink/renderer/core/layout/layout_slider.h"
 #include "third_party/blink/renderer/platform/bindings/exception_state.h"
+#include "third_party/blink/renderer/platform/heap/heap.h"
+#include "third_party/blink/renderer/platform/instrumentation/use_counter.h"
 #include "third_party/blink/renderer/platform/wtf/math_extras.h"
 
 namespace blink {
@@ -68,10 +70,6 @@ static const int kRangeStepScaleFactor = 1;
 static Decimal EnsureMaximum(const Decimal& proposed_value,
                              const Decimal& minimum) {
   return proposed_value >= minimum ? proposed_value : minimum;
-}
-
-InputType* RangeInputType::Create(HTMLInputElement& element) {
-  return MakeGarbageCollected<RangeInputType>(element);
 }
 
 RangeInputType::RangeInputType(HTMLInputElement& element)
@@ -144,7 +142,7 @@ StepRange RangeInputType::CreateStepRange(
                            GetElement().FastGetAttribute(kStepAttr));
   // Range type always has range limitations because it has default
   // minimum/maximum.
-  // https://html.spec.whatwg.org/multipage/forms.html#range-state-(type=range):concept-input-min-default
+  // https://html.spec.whatwg.org/C/#range-state-(type=range):concept-input-min-default
   const bool kHasRangeLimitations = true;
   return StepRange(step_base, minimum, maximum, kHasRangeLimitations, step,
                    step_description);
@@ -160,7 +158,7 @@ void RangeInputType::HandleMouseDownEvent(MouseEvent& event) {
 
   Node* target_node = event.target()->ToNode();
   if (event.button() !=
-          static_cast<short>(WebPointerProperties::Button::kLeft) ||
+          static_cast<int16_t>(WebPointerProperties::Button::kLeft) ||
       !target_node)
     return;
   DCHECK(IsShadowHost(GetElement()));
@@ -228,7 +226,8 @@ void RangeInputType::HandleKeydownEvent(KeyboardEvent& event) {
 
   if (new_value != current) {
     EventQueueScope scope;
-    TextFieldEventBehavior event_behavior = kDispatchInputAndChangeEvent;
+    TextFieldEventBehavior event_behavior =
+        TextFieldEventBehavior::kDispatchInputAndChangeEvent;
     SetValueAsDecimal(new_value, event_behavior, IGNORE_EXCEPTION_FOR_TESTING);
 
     if (AXObjectCache* cache =
@@ -243,16 +242,17 @@ void RangeInputType::CreateShadowSubtree() {
   DCHECK(IsShadowHost(GetElement()));
 
   Document& document = GetElement().GetDocument();
-  HTMLDivElement* track = HTMLDivElement::Create(document);
+  auto* track = MakeGarbageCollected<HTMLDivElement>(document);
   track->SetShadowPseudoId(AtomicString("-webkit-slider-runnable-track"));
   track->setAttribute(kIdAttr, shadow_element_names::SliderTrack());
-  track->AppendChild(SliderThumbElement::Create(document));
-  HTMLElement* container = SliderContainerElement::Create(document);
+  track->AppendChild(MakeGarbageCollected<SliderThumbElement>(document));
+  auto* container = MakeGarbageCollected<SliderContainerElement>(document);
   container->AppendChild(track);
   GetElement().UserAgentShadowRoot()->AppendChild(container);
 }
 
-LayoutObject* RangeInputType::CreateLayoutObject(const ComputedStyle&) const {
+LayoutObject* RangeInputType::CreateLayoutObject(const ComputedStyle&,
+                                                 LegacyLayout) const {
   return new LayoutSlider(&GetElement());
 }
 
@@ -328,7 +328,7 @@ bool RangeInputType::ShouldRespectListAttribute() {
 }
 
 inline SliderThumbElement* RangeInputType::GetSliderThumbElement() const {
-  return ToSliderThumbElementOrDie(
+  return To<SliderThumbElement>(
       GetElement().UserAgentShadowRoot()->getElementById(
           shadow_element_names::SliderThumb()));
 }

@@ -41,9 +41,10 @@ namespace storage {
 // Finally you can pass an |length_hint| to the constructor. If this is done,
 // the size is used for an initial space allocation, and if the size is too
 // large to fit in memory anyway, the entire blob will be stored on disk.
-// TODO(mek): Actually deal with length_hint.
 //
-// If destroyed before building has finished this will not create a blob.
+// If this needs to be destroyed before building has finished, you should make
+// sure to call Abort() before destroying the instance. No blob will be created
+// in that case.
 class COMPONENT_EXPORT(STORAGE_BROWSER) BlobBuilderFromStream {
  public:
   using ResultCallback =
@@ -54,11 +55,16 @@ class COMPONENT_EXPORT(STORAGE_BROWSER) BlobBuilderFromStream {
       base::WeakPtr<BlobStorageContext> context,
       std::string content_type,
       std::string content_disposition,
-      uint64_t length_hint,
-      mojo::ScopedDataPipeConsumerHandle data,
-      blink::mojom::ProgressClientAssociatedPtrInfo progress_client,
       ResultCallback callback);
   ~BlobBuilderFromStream();
+
+  // This may call |callback| synchronously when |length_hint| is larger than
+  // the disk space.
+  void Start(uint64_t length_hint,
+             mojo::ScopedDataPipeConsumerHandle data,
+             blink::mojom::ProgressClientAssociatedPtrInfo progress_client);
+
+  void Abort();
 
  private:
   class WritePipeToFileHelper;
@@ -145,6 +151,7 @@ class COMPONENT_EXPORT(STORAGE_BROWSER) BlobBuilderFromStream {
 
   std::string content_type_;
   std::string content_disposition_;
+
   std::vector<scoped_refptr<ShareableBlobDataItem>> items_;
   uint64_t current_total_size_ = 0;
   base::WeakPtr<BlobMemoryController::QuotaAllocationTask> pending_quota_task_;

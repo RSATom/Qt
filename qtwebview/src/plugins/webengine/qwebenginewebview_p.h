@@ -55,6 +55,8 @@
 #include <QtQml/qqmlcomponent.h>
 
 #include <private/qabstractwebview_p.h>
+#include <QtWebEngine/QQuickWebEngineProfile>
+
 
 QT_BEGIN_NAMESPACE
 
@@ -68,6 +70,8 @@ public:
     explicit QWebEngineWebViewPrivate(QObject *p = 0);
     ~QWebEngineWebViewPrivate() Q_DECL_OVERRIDE;
 
+    QString httpUserAgent() const Q_DECL_OVERRIDE;
+    void setHttpUserAgent(const QString &userAgent) Q_DECL_OVERRIDE;
     QUrl url() const Q_DECL_OVERRIDE;
     void setUrl(const QUrl &url) Q_DECL_OVERRIDE;
     bool canGoBack() const Q_DECL_OVERRIDE;
@@ -95,12 +99,16 @@ private Q_SLOTS:
     void q_loadProgressChanged();
     void q_titleChanged();
     void q_loadingChanged(QQuickWebEngineLoadRequest *loadRequest);
+    void q_profileChanged();
+    void q_httpUserAgentChanged();
 
 protected:
     void runJavaScriptPrivate(const QString& script,
                               int callbackId) Q_DECL_OVERRIDE;
 
 private:
+    QQuickWebEngineProfile *m_profile;
+    QString m_httpUserAgent;
     struct QQuickWebEngineViewPtr
     {
         inline QQuickWebEngineView *operator->() const

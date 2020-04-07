@@ -5,10 +5,10 @@
  * found in the LICENSE file.
  */
 
-#include "SkSGMerge.h"
+#include "modules/sksg/include/SkSGMerge.h"
 
-#include "SkCanvas.h"
-#include "SkPathOps.h"
+#include "include/core/SkCanvas.h"
+#include "include/pathops/SkPathOps.h"
 
 namespace sksg {
 
@@ -31,6 +31,10 @@ void Merge::onClip(SkCanvas* canvas, bool antiAlias) const {
 
 void Merge::onDraw(SkCanvas* canvas, const SkPaint& paint) const {
     canvas->drawPath(fMerged, paint);
+}
+
+bool Merge::onContains(const SkPoint& p) const {
+    return fMerged.contains(p.x(), p.y());
 }
 
 SkPath Merge::onAsPath() const {

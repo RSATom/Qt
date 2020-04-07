@@ -5,41 +5,42 @@
 #ifndef BASE_FUCHSIA_FILTERED_SERVICE_DIRECTORY_H_
 #define BASE_FUCHSIA_FILTERED_SERVICE_DIRECTORY_H_
 
-#include "base/fuchsia/service_directory.h"
-
+#include <fuchsia/io/cpp/fidl.h>
+#include <lib/fidl/cpp/interface_handle.h>
+#include <lib/sys/cpp/outgoing_directory.h>
+#include <lib/sys/cpp/service_directory.h>
 #include <lib/zx/channel.h>
+#include <memory>
 
+#include "base/base_export.h"
 #include "base/macros.h"
 
 namespace base {
 namespace fuchsia {
 
-class ComponentContext;
-
-// ServiceDirectory that uses the supplied ComponentContext to satisfy requests
-// for only a restricted set of services.
+// ServiceDirectory that uses the supplied ServiceDirectoryClient to satisfy
+// requests for only a restricted set of services.
 class BASE_EXPORT FilteredServiceDirectory {
  public:
-  // Creates proxy that proxies requests to the specified |component_context|,
-  // which must outlive the proxy.
-  explicit FilteredServiceDirectory(ComponentContext* component_context);
+  // Creates a directory that proxies requests to the specified service
+  // |directory|.
+  explicit FilteredServiceDirectory(sys::ServiceDirectory* directory);
   ~FilteredServiceDirectory();
 
   // Adds the specified service to the list of whitelisted services.
   void AddService(const char* service_name);
 
-  // Returns a client channel connected to the directory. The returned channel
-  // can be passed to a sandboxed process to be used for /svc namespace.
-  zx::channel ConnectClient();
+  // Connects a directory client. The directory can be passed to a sandboxed
+  // process to be used for /svc namespace.
+  void ConnectClient(
+      fidl::InterfaceRequest<::fuchsia::io::Directory> dir_request);
 
  private:
-  void HandleRequest(const char* service_name, zx::channel channel);
+  const sys::ServiceDirectory* const directory_;
+  sys::OutgoingDirectory outgoing_directory_;
 
-  ComponentContext* const component_context_;
-  std::unique_ptr<ServiceDirectory> service_directory_;
-
-  // Client side of the channel used by |service_directory_|.
-  zx::channel directory_client_channel_;
+  // Client side of the channel used by |outgoing_directory_|.
+  fidl::InterfaceHandle<::fuchsia::io::Directory> outgoing_directory_client_;
 
   DISALLOW_COPY_AND_ASSIGN(FilteredServiceDirectory);
 };

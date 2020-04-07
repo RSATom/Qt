@@ -20,11 +20,19 @@ FORWARD_DECLARE_TEST(WorkletAnimationTest, NonImplInstanceDoesNotTickKeyframe);
 }  // namespace
 
 class AnimationOptions;
+class AnimationEffectTimings;
 class ScrollTimeline;
 
 // A WorkletAnimation is an animation that allows its animation
 // timing to be controlled by an animator instance that is running in a
 // AnimationWorkletGlobalScope.
+
+// Two instances of this class are created for Blink WorkletAnimation:
+// 1. UI thread instance that keeps all the meta data.
+// 2. Impl thread instance that ticks the animations on the Impl thread.
+// When Blink WorkletAnimation is updated, it calls the UI thread instance to
+// modify its properties. The updated properties are pushed by the UI thread
+// instance to the Impl thread instance during commit.
 class CC_ANIMATION_EXPORT WorkletAnimation final
     : public SingleKeyframeEffectAnimation {
  public:
@@ -32,14 +40,18 @@ class CC_ANIMATION_EXPORT WorkletAnimation final
   WorkletAnimation(int cc_animation_id,
                    WorkletAnimationId worklet_animation_id,
                    const std::string& name,
+                   double playback_rate,
                    std::unique_ptr<ScrollTimeline> scroll_timeline,
                    std::unique_ptr<AnimationOptions> options,
+                   std::unique_ptr<AnimationEffectTimings> effect_timings,
                    bool is_controlling_instance);
   static scoped_refptr<WorkletAnimation> Create(
       WorkletAnimationId worklet_animation_id,
       const std::string& name,
+      double playback_rate,
       std::unique_ptr<ScrollTimeline> scroll_timeline,
-      std::unique_ptr<AnimationOptions> options);
+      std::unique_ptr<AnimationOptions> options,
+      std::unique_ptr<AnimationEffectTimings> effect_timings);
   scoped_refptr<Animation> CreateImplInstance() const override;
 
   WorkletAnimationId worklet_animation_id() { return worklet_animation_id_; }
@@ -70,7 +82,15 @@ class CC_ANIMATION_EXPORT WorkletAnimation final
   // require updating the ElementId for the ScrollTimeline scroll source.
   void PromoteScrollTimelinePendingToActive() override;
 
+  // Called by Blink WorkletAnimation when its playback rate is updated.
+  void UpdatePlaybackRate(double playback_rate);
+  void SetPlaybackRateForTesting(double playback_rate) {
+    SetPlaybackRate(playback_rate);
+  }
+
   void RemoveKeyframeModel(int keyframe_model_id) override;
+
+  void ReleasePendingTreeLock() { has_pending_tree_lock_ = false; }
 
  private:
   FRIEND_TEST_ALL_PREFIXES(WorkletAnimationTest,
@@ -78,18 +98,22 @@ class CC_ANIMATION_EXPORT WorkletAnimation final
   WorkletAnimation(int cc_animation_id,
                    WorkletAnimationId worklet_animation_id,
                    const std::string& name,
+                   double playback_rate,
                    std::unique_ptr<ScrollTimeline> scroll_timeline,
                    std::unique_ptr<AnimationOptions> options,
+                   std::unique_ptr<AnimationEffectTimings> effect_timings,
                    bool is_controlling_instance,
                    std::unique_ptr<KeyframeEffect> effect);
 
   ~WorkletAnimation() override;
 
   // Returns the current time to be passed into the underlying AnimationWorklet.
-  // The current time is based on the timeline associated with the animation.
-  double CurrentTime(base::TimeTicks monotonic_time,
-                     const ScrollTree& scroll_tree,
-                     bool is_active_tree);
+  // The current time is based on the timeline associated with the animation and
+  // in case of scroll timeline it may be nullopt when the associated scrolling
+  // node is not available in the particular ScrollTree.
+  base::Optional<base::TimeDelta> CurrentTime(base::TimeTicks monotonic_time,
+                                              const ScrollTree& scroll_tree,
+                                              bool is_active_tree);
 
   // Returns true if the worklet animation needs to be updated which happens iff
   // its current time is going to be different from last time given these input.
@@ -100,6 +124,17 @@ class CC_ANIMATION_EXPORT WorkletAnimation final
   std::unique_ptr<AnimationOptions> CloneOptions() const {
     return options_ ? options_->Clone() : nullptr;
   }
+
+  std::unique_ptr<AnimationEffectTimings> CloneEffectTimings() const {
+    return effect_timings_ ? effect_timings_->Clone() : nullptr;
+  }
+
+  // Updates the playback rate of the Impl thread instance.
+  // Called by the UI thread WorletAnimation instance during commit.
+  void SetPlaybackRate(double playback_rate);
+
+  bool IsTimelineActive(const ScrollTree& scroll_tree,
+                        bool is_active_tree) const;
 
   WorkletAnimationId worklet_animation_id_;
   std::string name_;
@@ -112,7 +147,17 @@ class CC_ANIMATION_EXPORT WorkletAnimation final
   // some other future implementation.
   std::unique_ptr<ScrollTimeline> scroll_timeline_;
 
+  // Controls speed of the animation.
+  // https://drafts.csswg.org/web-animations-2/#animation-effect-playback-rate
+
+  // For UI thread instance contains the meta value to be pushed to the Impl
+  // thread instance.
+  // For the Impl thread instance contains the actual playback rate of the
+  // animation.
+  double playback_rate_;
+
   std::unique_ptr<AnimationOptions> options_;
+  std::unique_ptr<AnimationEffectTimings> effect_timings_;
 
   // Local time is used as an input to the keyframe effect of this animation.
   // The value comes from the user script that runs inside the animation worklet
@@ -120,9 +165,16 @@ class CC_ANIMATION_EXPORT WorkletAnimation final
   base::Optional<base::TimeDelta> local_time_;
 
   base::Optional<base::TimeTicks> start_time_;
-  // Last current time used for updatig. We use this to skip updating if current
-  // time has not changed since last update.
-  base::Optional<double> last_current_time_;
+
+  // Last current time used for updating. We use this to skip updating if
+  // current time has not changed since last update.
+  base::Optional<base::TimeDelta> last_current_time_;
+
+  // To ensure that 'time' progresses forward for scroll animations, we guard
+  // against allowing active tree mutations while the pending tree has a
+  // lock in the worklet. The lock is established when updating the input state
+  // for the pending tree and release on pending tree activation.
+  bool has_pending_tree_lock_;
 
   State state_;
 

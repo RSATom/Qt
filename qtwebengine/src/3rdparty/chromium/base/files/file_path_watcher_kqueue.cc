@@ -81,7 +81,7 @@ int FilePathWatcherKQueue::EventsForPath(FilePath path, EventVector* events) {
 }
 
 uintptr_t FilePathWatcherKQueue::FileDescriptorForPath(const FilePath& path) {
-  ScopedBlockingCall scoped_blocking_call(BlockingType::MAY_BLOCK);
+  ScopedBlockingCall scoped_blocking_call(FROM_HERE, BlockingType::MAY_BLOCK);
   int fd = HANDLE_EINTR(open(path.value().c_str(), O_EVTONLY));
   if (fd == kInvalidFd)
     return kNoFileDescriptor;
@@ -212,7 +212,7 @@ bool FilePathWatcherKQueue::UpdateWatches(bool* target_file_affected) {
     }
 
     EventVector updates(valid);
-    ScopedBlockingCall scoped_blocking_call(BlockingType::MAY_BLOCK);
+    ScopedBlockingCall scoped_blocking_call(FROM_HERE, BlockingType::MAY_BLOCK);
     int count = HANDLE_EINTR(kevent(kqueue_, &events_[0], valid, &updates[0],
                                     valid, NULL));
     if (!AreKeventValuesValid(&updates[0], count)) {
@@ -260,7 +260,7 @@ bool FilePathWatcherKQueue::Watch(const FilePath& path,
 
   EventVector responses(last_entry);
 
-  ScopedBlockingCall scoped_blocking_call(BlockingType::MAY_BLOCK);
+  ScopedBlockingCall scoped_blocking_call(FROM_HERE, BlockingType::MAY_BLOCK);
   int count = HANDLE_EINTR(kevent(kqueue_, &events_[0], last_entry,
                                   &responses[0], last_entry, NULL));
   if (!AreKeventValuesValid(&responses[0], count)) {
@@ -276,8 +276,8 @@ bool FilePathWatcherKQueue::Watch(const FilePath& path,
   // callback cannot be invoked after |kqueue_watch_controller_| (which is a
   // member of |this|) has been deleted.
   kqueue_watch_controller_ = FileDescriptorWatcher::WatchReadable(
-      kqueue_,
-      Bind(&FilePathWatcherKQueue::OnKQueueReadable, Unretained(this)));
+      kqueue_, BindRepeating(&FilePathWatcherKQueue::OnKQueueReadable,
+                             Unretained(this)));
 
   return true;
 }

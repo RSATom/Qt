@@ -26,6 +26,8 @@
 
 namespace media {
 
+class VideoFrameMapper;
+
 // A software image processor which uses libyuv to perform format conversion.
 // It expects input VideoFrame is mapped into CPU space, and output VideoFrame
 // is allocated in user space.
@@ -53,15 +55,13 @@ class MEDIA_GPU_EXPORT LibYUVImageProcessor : public ImageProcessor {
                        const VideoFrameLayout& output_layout,
                        const gfx::Size& output_visible_size,
                        VideoFrame::StorageType output_storage_type,
-                       OutputMode output_mode,
+                       std::unique_ptr<VideoFrameMapper> video_frame_mapper,
                        ErrorCB error_cb);
 
   // ImageProcessor override
 #if defined(OS_POSIX) || defined(OS_FUCHSIA)
   bool ProcessInternal(scoped_refptr<VideoFrame> frame,
-                       int output_buffer_index,
-                       std::vector<base::ScopedFD> output_dmabuf_fds,
-                       FrameReadyCB cb) override;
+                       LegacyFrameReadyCB cb) override;
 #endif
   bool ProcessInternal(scoped_refptr<VideoFrame> input_frame,
                        scoped_refptr<VideoFrame> output_frame,
@@ -73,11 +73,17 @@ class MEDIA_GPU_EXPORT LibYUVImageProcessor : public ImageProcessor {
 
   void NotifyError();
 
-  static bool IsFormatSupported(VideoPixelFormat input_format,
-                                VideoPixelFormat output_format);
+  // Execute Libyuv function for the conversion from |input| to |output|.
+  int DoConversion(const VideoFrame* const input, VideoFrame* const output);
 
   const gfx::Rect input_visible_rect_;
   const gfx::Rect output_visible_rect_;
+
+  std::unique_ptr<VideoFrameMapper> video_frame_mapper_;
+
+  // A VideoFrame for intermediate format conversion when there is no direct
+  // conversion method in libyuv, e.g., RGBA -> I420 (pivot) -> NV12.
+  scoped_refptr<VideoFrame> intermediate_frame_;
 
   // Error callback to the client.
   ErrorCB error_cb_;

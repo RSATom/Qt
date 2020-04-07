@@ -31,6 +31,7 @@
 #include <QCoreApplication>
 #include <QtRemoteObjects/qremoteobjectnode.h>
 #include <QtTest/QtTest>
+#include <QTcpSocket>
 
 const QUrl registryUrl = QUrl(QStringLiteral("tcp://127.0.0.1:65212"));
 
@@ -48,7 +49,7 @@ private Q_SLOTS:
                     [socket, this]() {
                 this->m_repNode.addClientSideConnection(socket);
             });
-            connect(socket, QOverload<QAbstractSocket::SocketError>::of(&QSslSocket::error),
+            connect(socket, QOverload<QAbstractSocket::SocketError>::of(&QTcpSocket::error),
                     [socket](QAbstractSocket::SocketError error) {
                 qDebug() << "SocketError" << error;
                 delete socket;

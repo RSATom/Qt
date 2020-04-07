@@ -378,7 +378,7 @@ void ssl_do_info_callback(const SSL *ssl, int type, int value) {
   }
 }
 
-void ssl_do_msg_callback(SSL *ssl, int is_write, int content_type,
+void ssl_do_msg_callback(const SSL *ssl, int is_write, int content_type,
                          Span<const uint8_t> in) {
   if (ssl->msg_callback == NULL) {
     return;
@@ -399,8 +399,8 @@ void ssl_do_msg_callback(SSL *ssl, int is_write, int content_type,
       version = SSL_version(ssl);
   }
 
-  ssl->msg_callback(is_write, version, content_type, in.data(), in.size(), ssl,
-                    ssl->msg_callback_arg);
+  ssl->msg_callback(is_write, version, content_type, in.data(), in.size(),
+                    const_cast<SSL *>(ssl), ssl->msg_callback_arg);
 }
 
 void ssl_get_current_time(const SSL *ssl, struct OPENSSL_timeval *out_clock) {
@@ -569,7 +569,8 @@ ssl_ctx_st::ssl_ctx_st(const SSL_METHOD *ssl_method)
       false_start_allowed_without_alpn(false),
       ignore_tls13_downgrade(false),
       handoff(false),
-      enable_early_data(false) {
+      enable_early_data(false),
+      pq_experiment_signal(false) {
   CRYPTO_MUTEX_init(&lock);
   CRYPTO_new_ex_data(&ex_data);
 }
@@ -640,7 +641,6 @@ ssl_st::ssl_st(SSL_CTX *ctx_arg)
       max_send_fragment(ctx_arg->max_send_fragment),
       msg_callback(ctx_arg->msg_callback),
       msg_callback_arg(ctx_arg->msg_callback_arg),
-      tls13_variant(ctx_arg->tls13_variant),
       ctx(UpRef(ctx_arg)),
       session_ctx(UpRef(ctx_arg)),
       options(ctx->options),
@@ -715,6 +715,7 @@ SSL *SSL_new(SSL_CTX *ctx) {
   ssl->config->ocsp_stapling_enabled = ctx->ocsp_stapling_enabled;
   ssl->config->handoff = ctx->handoff;
   ssl->config->ignore_tls13_downgrade = ctx->ignore_tls13_downgrade;
+  ssl->quic_method = ctx->quic_method;
 
   if (!ssl->method->ssl_new(ssl.get()) ||
       !ssl->ctx->x509_method->ssl_new(ssl->s3->hs.get())) {
@@ -729,6 +730,7 @@ SSL_CONFIG::SSL_CONFIG(SSL *ssl_arg)
       signed_cert_timestamps_enabled(false),
       ocsp_stapling_enabled(false),
       channel_id_enabled(false),
+      enforce_rsa_key_usage(false),
       retain_only_sha256_of_client_certs(false),
       handoff(false),
       shed_handshake_config(false),
@@ -851,7 +853,7 @@ enum ssl_encryption_level_t SSL_quic_write_level(const SSL *ssl) {
 
 int SSL_provide_quic_data(SSL *ssl, enum ssl_encryption_level_t level,
                           const uint8_t *data, size_t len) {
-  if (ssl->ctx->quic_method == nullptr) {
+  if (ssl->quic_method == nullptr) {
     OPENSSL_PUT_ERROR(SSL, ERR_R_SHOULD_NOT_HAVE_BEEN_CALLED);
     return 0;
   }
@@ -1078,7 +1080,7 @@ int SSL_read(SSL *ssl, void *buf, int num) {
 }
 
 int SSL_peek(SSL *ssl, void *buf, int num) {
-  if (ssl->ctx->quic_method != nullptr) {
+  if (ssl->quic_method != nullptr) {
     OPENSSL_PUT_ERROR(SSL, ERR_R_SHOULD_NOT_HAVE_BEEN_CALLED);
     return 0;
   }
@@ -1099,7 +1101,7 @@ int SSL_peek(SSL *ssl, void *buf, int num) {
 int SSL_write(SSL *ssl, const void *buf, int num) {
   ssl_reset_error_state(ssl);
 
-  if (ssl->ctx->quic_method != nullptr) {
+  if (ssl->quic_method != nullptr) {
     OPENSSL_PUT_ERROR(SSL, ERR_R_SHOULD_NOT_HAVE_BEEN_CALLED);
     return 0;
   }
@@ -1194,7 +1196,7 @@ int SSL_shutdown(SSL *ssl) {
 
   if (ssl->s3->write_shutdown != ssl_shutdown_close_notify) {
     // Send a close_notify.
-    if (ssl_send_alert(ssl, SSL3_AL_WARNING, SSL_AD_CLOSE_NOTIFY) <= 0) {
+    if (ssl_send_alert_impl(ssl, SSL3_AL_WARNING, SSL_AD_CLOSE_NOTIFY) <= 0) {
       return -1;
     }
   } else if (ssl->s3->alert_dispatch) {
@@ -1241,7 +1243,15 @@ int SSL_send_fatal_alert(SSL *ssl, uint8_t alert) {
     return ssl->method->dispatch_alert(ssl);
   }
 
-  return ssl_send_alert(ssl, SSL3_AL_FATAL, alert);
+  return ssl_send_alert_impl(ssl, SSL3_AL_FATAL, alert);
+}
+
+void SSL_CTX_enable_pq_experiment_signal(SSL_CTX *ctx) {
+  ctx->pq_experiment_signal = true;
+}
+
+int SSL_pq_experiment_signal_seen(const SSL *ssl) {
+  return ssl->s3->pq_experiment_signal_seen;
 }
 
 int SSL_set_quic_transport_params(SSL *ssl, const uint8_t *params,
@@ -1259,14 +1269,6 @@ void SSL_get_peer_quic_transport_params(const SSL *ssl,
 
 void SSL_CTX_set_early_data_enabled(SSL_CTX *ctx, int enabled) {
   ctx->enable_early_data = !!enabled;
-}
-
-void SSL_CTX_set_tls13_variant(SSL_CTX *ctx, enum tls13_variant_t variant) {
-  ctx->tls13_variant = variant;
-}
-
-void SSL_set_tls13_variant(SSL *ssl, enum tls13_variant_t variant) {
-  ssl->tls13_variant = variant;
 }
 
 void SSL_set_early_data_enabled(SSL *ssl, int enabled) {
@@ -1299,6 +1301,10 @@ void SSL_reset_early_data_reject(SSL *ssl) {
   // retry. The handshake will transparently flush out the pending record
   // (discarded by the server) to keep the framing correct.
   ssl->s3->wpend_pending = false;
+}
+
+enum ssl_early_data_reason_t SSL_get_early_data_reason(const SSL *ssl) {
+  return ssl->s3->early_data_reason;
 }
 
 static int bio_retry_reason_to_error(int reason) {
@@ -1351,7 +1357,7 @@ int SSL_get_error(const SSL *ssl, int ret_code) {
       return SSL_ERROR_HANDBACK;
 
     case SSL_READING: {
-      if (ssl->ctx->quic_method) {
+      if (ssl->quic_method) {
         return SSL_ERROR_WANT_READ;
       }
       BIO *bio = SSL_get_rbio(ssl);
@@ -2468,6 +2474,14 @@ int SSL_CTX_set_quic_method(SSL_CTX *ctx, const SSL_QUIC_METHOD *quic_method) {
   return 1;
 }
 
+int SSL_set_quic_method(SSL *ssl, const SSL_QUIC_METHOD *quic_method) {
+  if (ssl->method->is_dtls) {
+    return 0;
+  }
+  ssl->quic_method = quic_method;
+  return 1;
+}
+
 int SSL_get_ex_new_index(long argl, void *argp, CRYPTO_EX_unused *unused,
                          CRYPTO_EX_dup *dup_unused, CRYPTO_EX_free *free_func) {
   int index;
@@ -2671,13 +2685,6 @@ int SSL_cutthrough_complete(const SSL *ssl) {
   return SSL_in_false_start(ssl);
 }
 
-void SSL_get_structure_sizes(size_t *ssl_size, size_t *ssl_ctx_size,
-                             size_t *ssl_session_size) {
-  *ssl_size = sizeof(SSL);
-  *ssl_ctx_size = sizeof(SSL_CTX);
-  *ssl_session_size = sizeof(SSL_SESSION);
-}
-
 int SSL_is_server(const SSL *ssl) { return ssl->server; }
 
 int SSL_is_dtls(const SSL *ssl) { return ssl->method->is_dtls; }
@@ -2695,6 +2702,13 @@ void SSL_CTX_set_dos_protection_cb(SSL_CTX *ctx,
 
 void SSL_CTX_set_reverify_on_resume(SSL_CTX *ctx, int enabled) {
   ctx->reverify_on_resume = !!enabled;
+}
+
+void SSL_set_enforce_rsa_key_usage(SSL *ssl, int enabled) {
+  if (!ssl->config) {
+    return;
+  }
+  ssl->config->enforce_rsa_key_usage = !!enabled;
 }
 
 void SSL_set_renegotiate_mode(SSL *ssl, enum ssl_renegotiate_mode_t mode) {

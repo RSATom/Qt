@@ -49,7 +49,7 @@ namespace QPatternistSDK
      * @ingroup PatternistSDK
      * @author Frans Englich <frans.englich@nokia.com>
      */
-    class Q_PATTERNISTSDK_EXPORT ASTItem : public TreeItem
+    class ASTItem : public TreeItem
     {
     public:
         virtual ~ASTItem();

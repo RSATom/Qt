@@ -61,21 +61,14 @@ class MojoRenderer : public Renderer, public mojom::RendererClient {
   void SetVolume(float volume) override;
   base::TimeDelta GetMediaTime() override;
 
-  using ReceiveSurfaceRequestTokenCB =
-      base::Callback<void(const base::UnguessableToken&)>;
-
-  // Asks |remote_renderer_| to register a request in the browser's
-  // ScopedSurfaceRequestManager, and returns the request's token.
-  void InitiateScopedSurfaceRequest(
-      const ReceiveSurfaceRequestTokenCB& receive_request_token_cb);
-
  private:
   // mojom::RendererClient implementation, dispatched on the
   // |task_runner_|.
   void OnTimeUpdate(base::TimeDelta time,
                     base::TimeDelta max_time,
                     base::TimeTicks capture_time) override;
-  void OnBufferingStateChange(BufferingState state) override;
+  void OnBufferingStateChange(BufferingState state,
+                              BufferingStateChangeReason reason) override;
   void OnEnded() override;
   void OnError() override;
   void OnAudioConfigChange(const AudioDecoderConfig& config) override;
@@ -84,8 +77,6 @@ class MojoRenderer : public Renderer, public mojom::RendererClient {
   void OnVideoOpacityChange(bool opaque) override;
   void OnWaiting(WaitingReason reason) override;
   void OnStatisticsUpdate(const PipelineStatistics& stats) override;
-  void OnDurationChange(base::TimeDelta duration) override;
-  void OnRemotePlayStateChange(media::MediaStatus::State state) override;
 
   // Binds |remote_renderer_| to the mojo message pipe. Can be called multiple
   // times. If an error occurs during connection, OnConnectionError will be

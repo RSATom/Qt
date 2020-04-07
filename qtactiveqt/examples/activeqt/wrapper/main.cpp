@@ -64,12 +64,12 @@ public:
         : QAxFactory(lib, app)
     {}
 
-    QStringList featureList() const
+    QStringList featureList() const override
     {
         return m_activeElements.keys();
     }
 
-    QObject *createObject(const QString &key)
+    QObject *createObject(const QString &key) override
     {
         auto it = m_activeElements.find(key);
         if (it != m_activeElements.end())
@@ -77,7 +77,7 @@ public:
         return nullptr;
     }
 
-    const QMetaObject *metaObject(const QString &key) const
+    const QMetaObject *metaObject(const QString &key) const override
     {
         auto it = m_activeElements.find(key);
         if (it != m_activeElements.end())
@@ -85,7 +85,7 @@ public:
         return nullptr;
     }
 
-    QUuid classID(const QString &key) const
+    QUuid classID(const QString &key) const override
     {
         auto it = m_activeElements.find(key);
         if (it != m_activeElements.end())
@@ -93,7 +93,7 @@ public:
         return QUuid();
     }
 
-    QUuid interfaceID(const QString &key) const
+    QUuid interfaceID(const QString &key) const override
     {
         auto it = m_activeElements.find(key);
         if (it != m_activeElements.end())
@@ -101,7 +101,7 @@ public:
         return QUuid();
     }
 
-    QUuid eventsID(const QString &key) const
+    QUuid eventsID(const QString &key) const override
     {
         auto it = m_activeElements.find(key);
         if (it != m_activeElements.end())

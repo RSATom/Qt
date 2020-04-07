@@ -9,7 +9,7 @@
     </message>
     <message>
         <source>Cannot create an instance of StandardButton</source>
-        <translation>No s&apos;ha pogut crear una instància de StandardButton</translation>
+        <translation>No s&apos;ha pogut crear una instància de «StandardButton»</translation>
     </message>
 </context>
 <context>

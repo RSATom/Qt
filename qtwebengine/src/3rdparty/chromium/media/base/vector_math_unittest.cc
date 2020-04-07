@@ -135,16 +135,6 @@ TEST_F(VectorMathTest, FMUL) {
 #endif
 }
 
-TEST_F(VectorMathTest, Crossfade) {
-  FillTestVectors(0, 1);
-  vector_math::Crossfade(
-      input_vector_.get(), kVectorSize, output_vector_.get());
-  for (int i = 0; i < kVectorSize; ++i) {
-    ASSERT_FLOAT_EQ(i / static_cast<float>(kVectorSize), output_vector_[i])
-        << "i=" << i;
-  }
-}
-
 class EWMATestScenario {
  public:
   EWMATestScenario(float initial_value, const float src[], int len,
@@ -278,7 +268,7 @@ static const float kInverseCheckerboard[] = {  // 32 alternating 1, 0
   1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0
 };
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     Scenarios,
     VectorMathEWMAAndMaxPowerTest,
     ::testing::Values(

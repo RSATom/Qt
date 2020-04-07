@@ -123,7 +123,7 @@
     </message>
     <message>
         <source>&amp;Find in Script...</source>
-        <translation>&amp;Cerca en l&apos;script...</translation>
+        <translation>&amp;Troba a l&apos;script...</translation>
     </message>
     <message>
         <source>Ctrl+F</source>
@@ -131,7 +131,7 @@
     </message>
     <message>
         <source>Find &amp;Next</source>
-        <translation>Cerca el se&amp;güent</translation>
+        <translation>Troba el se&amp;güent</translation>
     </message>
     <message>
         <source>F3</source>
@@ -139,7 +139,7 @@
     </message>
     <message>
         <source>Find &amp;Previous</source>
-        <translation>Cerca l&apos;a&amp;nterior</translation>
+        <translation>Troba l&apos;a&amp;nterior</translation>
     </message>
     <message>
         <source>Shift+F3</source>
@@ -266,7 +266,7 @@
     </message>
     <message>
         <source>Qt Script Debugger</source>
-        <translation>Depurador de scripts de Qt</translation>
+        <translation>Depurador de scripts de les Qt</translation>
     </message>
 </context>
 <context>

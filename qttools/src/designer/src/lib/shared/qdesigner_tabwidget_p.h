@@ -106,7 +106,7 @@ private:
 // PropertySheet to handle the page properties
 class QDESIGNER_SHARED_EXPORT QTabWidgetPropertySheet : public QDesignerPropertySheet {
 public:
-    explicit QTabWidgetPropertySheet(QTabWidget *object, QObject *parent = 0);
+    explicit QTabWidgetPropertySheet(QTabWidget *object, QObject *parent = nullptr);
 
     void setProperty(int index, const QVariant &value) override;
     QVariant property(int index) const override;
@@ -133,7 +133,7 @@ private:
     QMap<QWidget *, PageData> m_pageToData;
 };
 
-typedef QDesignerPropertySheetFactory<QTabWidget, QTabWidgetPropertySheet> QTabWidgetPropertySheetFactory;
+using QTabWidgetPropertySheetFactory = QDesignerPropertySheetFactory<QTabWidget, QTabWidgetPropertySheet>;
 
 QT_END_NAMESPACE
 

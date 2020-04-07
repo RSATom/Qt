@@ -242,8 +242,8 @@ QVector<QString> QScxmlStateMachineInfo::transitionEvents(TransitionId transitio
 QVector<QScxmlStateMachineInfo::StateId> QScxmlStateMachineInfo::configuration() const
 {
     Q_D(const QScxmlStateMachineInfo);
-
-    return QVector<StateId>::fromStdVector(d->stateMachinePrivate()->configuration().list());
+    const auto &list = d->stateMachinePrivate()->configuration().list();
+    return QVector<StateId>(list.cbegin(), list.cend());
 }
 
 QT_END_NAMESPACE

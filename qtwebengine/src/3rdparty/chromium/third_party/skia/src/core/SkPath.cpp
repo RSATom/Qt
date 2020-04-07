@@ -5,22 +5,24 @@
  * found in the LICENSE file.
  */
 
-#include "SkPath.h"
+#include "include/core/SkPath.h"
 
-#include "SkBuffer.h"
-#include "SkCubicClipper.h"
-#include "SkData.h"
-#include "SkGeometry.h"
-#include "SkMacros.h"
-#include "SkMath.h"
-#include "SkMatrixPriv.h"
-#include "SkPathPriv.h"
-#include "SkPathRef.h"
-#include "SkPointPriv.h"
-#include "SkRRect.h"
-#include "SkSafeMath.h"
-#include "SkTLazy.h"
-#include "SkTo.h"
+#include "include/core/SkData.h"
+#include "include/core/SkMath.h"
+#include "include/core/SkRRect.h"
+#include "include/private/SkMacros.h"
+#include "include/private/SkPathRef.h"
+#include "include/private/SkTo.h"
+#include "src/core/SkBuffer.h"
+#include "src/core/SkCubicClipper.h"
+#include "src/core/SkGeometry.h"
+#include "src/core/SkMatrixPriv.h"
+#include "src/core/SkPathPriv.h"
+#include "src/core/SkPointPriv.h"
+#include "src/core/SkSafeMath.h"
+#include "src/core/SkTLazy.h"
+// need SkDVector
+#include "src/pathops/SkPathOpsPoint.h"
 
 #include <cmath>
 #include <utility>
@@ -156,7 +158,6 @@ SkPath::SkPath()
     : fPathRef(SkPathRef::CreateEmpty()) {
     this->resetFields();
     fIsVolatile = false;
-    fIsBadForDAA = false;
 }
 
 void SkPath::resetFields() {
@@ -196,7 +197,6 @@ void SkPath::copyFields(const SkPath& that) {
     fLastMoveToIndex = that.fLastMoveToIndex;
     fFillType        = that.fFillType;
     fIsVolatile      = that.fIsVolatile;
-    fIsBadForDAA     = that.fIsBadForDAA;
 
     // Non-atomic assignment of atomic values.
     this->setConvexity(that.getConvexityOrUnknown());
@@ -702,6 +702,17 @@ int SkPath::getVerbs(uint8_t dst[], int max) const {
     return fPathRef->countVerbs();
 }
 
+size_t SkPath::approximateBytesUsed() const {
+    size_t size = sizeof (SkPath);
+    if (fPathRef != nullptr) {
+        size += fPathRef->countPoints() * sizeof(SkPoint)
+              + fPathRef->countVerbs()
+              + fPathRef->countWeights() * sizeof(SkScalar);
+    }
+
+    return size;
+}
+
 bool SkPath::getLastPt(SkPoint* lastPt) const {
     SkDEBUGCODE(this->validate();)
 
@@ -1086,7 +1097,7 @@ SkPath& SkPath::addPoly(const SkPoint pts[], int count, bool close) {
     return *this;
 }
 
-#include "SkGeometry.h"
+#include "src/core/SkGeometry.h"
 
 static bool arc_is_lone_point(const SkRect& oval, SkScalar startAngle, SkScalar sweepAngle,
                               SkPoint* pt) {
@@ -1113,8 +1124,13 @@ static bool arc_is_lone_point(const SkRect& oval, SkScalar startAngle, SkScalar 
 //
 static void angles_to_unit_vectors(SkScalar startAngle, SkScalar sweepAngle,
                                    SkVector* startV, SkVector* stopV, SkRotationDirection* dir) {
-    startV->fY = SkScalarSinCos(SkDegreesToRadians(startAngle), &startV->fX);
-    stopV->fY = SkScalarSinCos(SkDegreesToRadians(startAngle + sweepAngle), &stopV->fX);
+    SkScalar startRad = SkDegreesToRadians(startAngle),
+             stopRad  = SkDegreesToRadians(startAngle + sweepAngle);
+
+    startV->fY = SkScalarSinSnapToZero(startRad);
+    startV->fX = SkScalarCosSnapToZero(startRad);
+    stopV->fY = SkScalarSinSnapToZero(stopRad);
+    stopV->fX = SkScalarCosSnapToZero(stopRad);
 
     /*  If the sweep angle is nearly (but less than) 360, then due to precision
      loss in radians-conversion and/or sin/cos, we may end up with coincident
@@ -1127,13 +1143,13 @@ static void angles_to_unit_vectors(SkScalar startAngle, SkScalar sweepAngle,
     if (*startV == *stopV) {
         SkScalar sw = SkScalarAbs(sweepAngle);
         if (sw < SkIntToScalar(360) && sw > SkIntToScalar(359)) {
-            SkScalar stopRad = SkDegreesToRadians(startAngle + sweepAngle);
             // make a guess at a tiny angle (in radians) to tweak by
             SkScalar deltaRad = SkScalarCopySign(SK_Scalar1/512, sweepAngle);
             // not sure how much will be enough, so we use a loop
             do {
                 stopRad -= deltaRad;
-                stopV->fY = SkScalarSinCos(stopRad, &stopV->fX);
+                stopV->fY = SkScalarSinSnapToZero(stopRad);
+                stopV->fX = SkScalarCosSnapToZero(stopRad);
             } while (*startV == *stopV);
         }
     }
@@ -1371,13 +1387,11 @@ SkPath& SkPath::arcTo(const SkRect& oval, SkScalar startAngle, SkScalar sweepAng
         SkScalar endAngle = SkDegreesToRadians(startAngle + sweepAngle);
         SkScalar radiusX = oval.width() / 2;
         SkScalar radiusY = oval.height() / 2;
-        // We cannot use SkScalarSinCos function in the next line because
-        // SkScalarSinCos has a threshold *SkScalarNearlyZero*. When sin(startAngle)
-        // is 0 and sweepAngle is very small and radius is huge, the expected
-        // behavior here is to draw a line. But calling SkScalarSinCos will
-        // make sin(endAngle) to be 0 which will then draw a dot.
-        singlePt.set(oval.centerX() + radiusX * sk_float_cos(endAngle),
-            oval.centerY() + radiusY * sk_float_sin(endAngle));
+        // We do not use SkScalar[Sin|Cos]SnapToZero here. When sin(startAngle) is 0 and sweepAngle
+        // is very small and radius is huge, the expected behavior here is to draw a line. But
+        // calling SkScalarSinSnapToZero will make sin(endAngle) be 0 which will then draw a dot.
+        singlePt.set(oval.centerX() + radiusX * SkScalarCos(endAngle),
+                     oval.centerY() + radiusY * SkScalarSin(endAngle));
         addPt(singlePt);
         return *this;
     }
@@ -1492,8 +1506,9 @@ SkPath& SkPath::arcTo(SkScalar rx, SkScalar ry, SkScalar angle, SkPath::ArcSize 
         scalar_is_integer(x) && scalar_is_integer(y);
 
     for (int i = 0; i < segments; ++i) {
-        SkScalar endTheta = startTheta + thetaWidth;
-        SkScalar cosEndTheta, sinEndTheta = SkScalarSinCos(endTheta, &cosEndTheta);
+        SkScalar endTheta    = startTheta + thetaWidth,
+                 sinEndTheta = SkScalarSinSnapToZero(endTheta),
+                 cosEndTheta = SkScalarCosSnapToZero(endTheta);
 
         unitPts[1].set(cosEndTheta, sinEndTheta);
         unitPts[1] += centerPoint;
@@ -1559,32 +1574,30 @@ SkPath& SkPath::arcTo(SkScalar x1, SkScalar y1, SkScalar x2, SkScalar y2, SkScal
         return this->lineTo(x1, y1);
     }
 
-    SkVector before, after;
-
     // need to know our prev pt so we can construct tangent vectors
-    {
-        SkPoint start;
-        this->getLastPt(&start);
-        // Handle degenerate cases by adding a line to the first point and
-        // bailing out.
-        before.setNormalize(x1 - start.fX, y1 - start.fY);
-        after.setNormalize(x2 - x1, y2 - y1);
-    }
+    SkPoint start;
+    this->getLastPt(&start);
 
-    SkScalar cosh = SkPoint::DotProduct(before, after);
-    SkScalar sinh = SkPoint::CrossProduct(before, after);
+    // need double precision for these calcs.
+    SkDVector befored, afterd;
+    befored.set({x1 - start.fX, y1 - start.fY}).normalize();
+    afterd.set({x2 - x1, y2 - y1}).normalize();
+    double cosh = befored.dot(afterd);
+    double sinh = befored.cross(afterd);
 
-    if (SkScalarNearlyZero(sinh)) {   // angle is too tight
+    if (!befored.isFinite() || !afterd.isFinite() || SkScalarNearlyZero(SkDoubleToScalar(sinh))) {
         return this->lineTo(x1, y1);
     }
 
-    SkScalar dist = SkScalarAbs(radius * (1 - cosh) / sinh);
-
+    // safe to convert back to floats now
+    SkVector before = befored.asSkVector();
+    SkVector after = afterd.asSkVector();
+    SkScalar dist = SkScalarAbs(SkDoubleToScalar(radius * (1 - cosh) / sinh));
     SkScalar xx = x1 - dist * before.fX;
     SkScalar yy = y1 - dist * before.fY;
     after.setLength(dist);
     this->lineTo(xx, yy);
-    SkScalar weight = SkScalarSqrt(SK_ScalarHalf + cosh * SK_ScalarHalf);
+    SkScalar weight = SkScalarSqrt(SkDoubleToScalar(SK_ScalarHalf + cosh * 0.5));
     return this->conicTo(x1, y1, x1 + after.fX, y1 + after.fY, weight);
 }
 
@@ -2155,9 +2168,9 @@ SkPath::Verb SkPath::Iter::doNext(SkPoint ptsParam[4]) {
 
 ///////////////////////////////////////////////////////////////////////////////
 
-#include "SkString.h"
-#include "SkStringUtils.h"
-#include "SkStream.h"
+#include "include/core/SkStream.h"
+#include "include/core/SkString.h"
+#include "src/core/SkStringUtils.h"
 
 static void append_params(SkString* str, const char label[], const SkPoint pts[],
                           int count, SkScalarAsStringType strType, SkScalar conicWeight = -12345) {
@@ -2323,11 +2336,6 @@ static bool almost_equal(SkScalar compA, SkScalar compB) {
     int bBits = SkFloatAs2sCompliment(compB);
     return aBits < bBits + epsilon && bBits < aBits + epsilon;
 }
-
-static bool approximately_zero_when_compared_to(double x, double y) {
-    return x == 0 || fabs(x) < fabs(y * FLT_EPSILON);
-}
-
 
 // only valid for a single contour
 struct Convexicator {
@@ -2582,7 +2590,6 @@ SkPath::Convexity SkPath::internalGetConvexity() const {
 
 #else
 
-static int sign(SkScalar x1, SkScalar x2) { SkASSERT(x1 != x2); return x2 < x1; }
 static int sign(SkScalar x) { return x < 0; }
 #define kValueNeverReturnedBySign   2
 
@@ -2591,7 +2598,6 @@ enum DirChange {
     kLeft_DirChange,
     kRight_DirChange,
     kStraight_DirChange,
-    kConcave_DirChange,   // if cross on diagonal is too small, assume concave
     kBackwards_DirChange, // if double back, allow simple lines to be convex
     kInvalid_DirChange
 };
@@ -2611,10 +2617,6 @@ static bool almost_equal(SkScalar compA, SkScalar compB) {
     return aBits < bBits + epsilon && bBits < aBits + epsilon;
 }
 
-static DirChange same_sign(SkScalar curr, SkScalar last, SkScalar prior) {
-    return sign(curr, last) == sign(last, prior) ? kStraight_DirChange : kBackwards_DirChange;
-}
-
 // only valid for a single contour
 struct Convexicator {
 
@@ -2631,14 +2633,13 @@ struct Convexicator {
         }
         fCurrPt = pt;
         if (fPriorPt == fLastPt) {  // should only be true for first non-zero vector
+            fLastVec = fCurrPt - fLastPt;
             fFirstPt = pt;
-            fCurrAligned = pt.fX == fLastPt.fX || pt.fY == fLastPt.fY;
-        } else if (!this->addVec()) {
+        } else if (!this->addVec(fCurrPt - fLastPt)) {
             return false;
         }
         fPriorPt = fLastPt;
         fLastPt = fCurrPt;
-        fLastAligned = fCurrAligned;
         return true;
     }
 
@@ -2691,39 +2692,8 @@ struct Convexicator {
     }
 
 private:
-    DirChange directionChange() {
-        // if both vectors are axis-aligned, don't do cross product
-        fCurrAligned = fCurrPt.fX == fLastPt.fX || fCurrPt.fY == fLastPt.fY;
-        if (fLastAligned && fCurrAligned) {
-            bool noYChange = fCurrPt.fY == fLastPt.fY && fLastPt.fY == fPriorPt.fY;
-            if (fCurrPt.fX == fLastPt.fX && fLastPt.fX == fPriorPt.fX) {
-                if (noYChange) {
-                    return kStraight_DirChange;
-                }
-                return same_sign(fCurrPt.fY, fLastPt.fY, fPriorPt.fY);
-            }
-            if (!noYChange) { // must be turn to left or right
-                bool flip = fCurrPt.fX != fLastPt.fX;
-                SkASSERT(flip ? fCurrPt.fY == fLastPt.fY &&
-                        fLastPt.fY != fPriorPt.fY && fLastPt.fX == fPriorPt.fX :
-                        fCurrPt.fY != fLastPt.fY &&
-                        fLastPt.fY == fPriorPt.fY && fLastPt.fX != fPriorPt.fX);
-                bool product = flip ? (fCurrPt.fX > fLastPt.fX) != (fLastPt.fY > fPriorPt.fY) :
-                        (fCurrPt.fY > fLastPt.fY) == (fLastPt.fX > fPriorPt.fX);
-                SkDEBUGCODE(SkVector lastV = fLastPt - fPriorPt);
-                SkDEBUGCODE(SkVector curV = fCurrPt - fLastPt);
-                SkDEBUGCODE(SkScalar crossV = SkPoint::CrossProduct(lastV, curV));
-                SkDEBUGCODE(int signV = SkScalarSignAsInt(crossV));
-                SkASSERT(!signV || signV == (product ? 1 : -1));
-                return product ? kRight_DirChange : kLeft_DirChange;
-            }
-            return same_sign(fCurrPt.fX, fLastPt.fX, fPriorPt.fX);
-        }
-        // there are no subtractions above this line; axis aligned paths
-        // are robust and can handle arbitrary values
-        SkVector lastVec = fLastPt - fPriorPt;
-        SkVector curVec = fCurrPt - fLastPt;
-        SkScalar cross = SkPoint::CrossProduct(lastVec, curVec);
+    DirChange directionChange(const SkVector& curVec) {
+        SkScalar cross = SkPoint::CrossProduct(fLastVec, curVec);
         if (!SkScalarIsFinite(cross)) {
                 return kUnknown_DirChange;
         }
@@ -2732,22 +2702,13 @@ private:
         largest = SkTMax(largest, -smallest);
 
         if (almost_equal(largest, largest + cross)) {
-#if SK_TREAT_COLINEAR_DIAGONAL_POINTS_AS_CONCAVE
-    // colinear diagonals are not allowed; they aren't numerically stable
-    #define COLINEAR_POINT_DIR_CHANGE kConcave_DirChange
-#else
-    // colinear diagonals are allowed; we can survive dealing with 'close enough'
-    #define COLINEAR_POINT_DIR_CHANGE kStraight_DirChange
-#endif
-
-            SkScalar dot = lastVec.dot(curVec);
-            return dot < 0 ? kBackwards_DirChange : COLINEAR_POINT_DIR_CHANGE;
+            return fLastVec.dot(curVec) < 0 ? kBackwards_DirChange : kStraight_DirChange;
         }
         return 1 == SkScalarSignAsInt(cross) ? kRight_DirChange : kLeft_DirChange;
     }
 
-    bool addVec() {
-        DirChange dir = this->directionChange();
+    bool addVec(const SkVector& curVec) {
+        DirChange dir = this->directionChange(curVec);
         switch (dir) {
             case kLeft_DirChange:       // fall through
             case kRight_DirChange:
@@ -2759,17 +2720,16 @@ private:
                     fFirstDirection = SkPathPriv::kUnknown_FirstDirection;
                     return false;
                 }
+                fLastVec = curVec;
                 break;
             case kStraight_DirChange:
                 break;
-            case kConcave_DirChange:
-                fFirstDirection = SkPathPriv::kUnknown_FirstDirection;
-                return false;
             case kBackwards_DirChange:
                 //  allow path to reverse direction twice
                 //    Given path.moveTo(0, 0); path.lineTo(1, 1);
                 //    - 1st reversal: direction change formed by line (0,0 1,1), line (1,1 0,0)
                 //    - 2nd reversal: direction change formed by line (1,1 0,0), line (0,0 1,1)
+                fLastVec = curVec;
                 return ++fReversals < 3;
             case kUnknown_DirChange:
                 return (fIsFinite = false);
@@ -2784,12 +2744,11 @@ private:
     SkPoint             fPriorPt {0, 0};
     SkPoint             fLastPt {0, 0};
     SkPoint             fCurrPt {0, 0};
+    SkVector            fLastVec {0, 0};
     DirChange           fExpectedDir { kInvalid_DirChange };
     SkPathPriv::FirstDirection   fFirstDirection { SkPathPriv::kUnknown_FirstDirection };
     int                 fReversals { 0 };
     bool                fIsFinite { true };
-    bool                fLastAligned { true };
-    bool                fCurrAligned { true };
 };
 
 SkPath::Convexity SkPath::internalGetConvexity() const {
@@ -3831,7 +3790,7 @@ void SkPathPriv::CreateDrawArcPath(SkPath* path, const SkRect& oval, SkScalar st
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
-#include "SkNx.h"
+#include "include/private/SkNx.h"
 
 static int compute_quad_extremas(const SkPoint src[3], SkPoint extremas[3]) {
     SkScalar ts[2];
@@ -3858,7 +3817,7 @@ static int compute_conic_extremas(const SkPoint src[3], SkScalar w, SkPoint extr
     return n + 1;
 }
 
-static int compute_cubic_extremas(const SkPoint src[3], SkPoint extremas[5]) {
+static int compute_cubic_extremas(const SkPoint src[4], SkPoint extremas[5]) {
     SkScalar ts[4];
     int n  = SkFindCubicExtrema(src[0].fX, src[1].fX, src[2].fX, src[3].fX, ts);
         n += SkFindCubicExtrema(src[0].fY, src[1].fY, src[2].fY, src[3].fY, &ts[n]);

@@ -52,7 +52,7 @@ QT_BEGIN_NAMESPACE
 /*!
     \qmltype Label
     \inherits Text
-    \instantiates QQuickLabel
+//!     \instantiates QQuickLabel
     \inqmlmodule QtQuick.Controls
     \since 5.7
     \ingroup text
@@ -183,7 +183,10 @@ void QQuickLabelPrivate::inheritFont(const QFont &font)
     parentFont.resolve(extra.isAllocated() ? extra->requestedFont.resolve() | font.resolve() : font.resolve());
 
     const QFont defaultFont = QQuickTheme::font(QQuickTheme::Label);
-    const QFont resolvedFont = parentFont.resolve(defaultFont);
+    QFont resolvedFont = parentFont.resolve(defaultFont);
+    // See comment in QQuickControlPrivate::inheritFont
+    if (defaultFont.families().isEmpty())
+        resolvedFont.setFamilies(QStringList());
 
     setFont_helper(resolvedFont);
 }
@@ -245,9 +248,7 @@ void QQuickLabelPrivate::updatePalette(const QPalette &palette)
 void QQuickLabelPrivate::textChanged(const QString &text)
 {
 #if QT_CONFIG(accessibility)
-    Q_Q(QQuickLabel);
-    if (QQuickAccessibleAttached *accessibleAttached = QQuickControlPrivate::accessibleAttached(q))
-        accessibleAttached->setName(text);
+    maybeSetAccessibleName(text);
 #else
     Q_UNUSED(text)
 #endif
@@ -263,12 +264,23 @@ void QQuickLabelPrivate::accessibilityActiveChanged(bool active)
     QQuickAccessibleAttached *accessibleAttached = qobject_cast<QQuickAccessibleAttached *>(qmlAttachedPropertiesObject<QQuickAccessibleAttached>(q, true));
     Q_ASSERT(accessibleAttached);
     accessibleAttached->setRole(accessibleRole());
-    accessibleAttached->setName(text);
+    maybeSetAccessibleName(text);
 }
 
 QAccessible::Role QQuickLabelPrivate::accessibleRole() const
 {
     return QAccessible::StaticText;
+}
+
+void QQuickLabelPrivate::maybeSetAccessibleName(const QString &name)
+{
+    Q_Q(QQuickLabel);
+    auto accessibleAttached = qobject_cast<QQuickAccessibleAttached *>(
+        qmlAttachedPropertiesObject<QQuickAccessibleAttached>(q, true));
+    if (accessibleAttached) {
+        if (!accessibleAttached->wasNameExplicitlySet())
+            accessibleAttached->setNameImplicitly(name);
+    }
 }
 #endif
 

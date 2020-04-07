@@ -6,6 +6,7 @@
 
 #include <utility>
 
+#include "base/bind.h"
 #include "base/callback_helpers.h"
 #include "base/lazy_instance.h"
 #include "base/logging.h"
@@ -42,6 +43,10 @@ bool SSLProtocolVersionFromString(const std::string& version_str,
   }
   if (version_str == "tls1.2") {
     *version_out = network::mojom::SSLVersion::kTLS12;
+    return true;
+  }
+  if (version_str == "tls1.3") {
+    *version_out = network::mojom::SSLVersion::kTLS13;
     return true;
   }
   return false;
@@ -81,8 +86,7 @@ TCPSocket::TCPSocket(content::BrowserContext* browser_context,
       browser_context_(browser_context),
       socket_mode_(UNKNOWN),
       mojo_data_pump_(nullptr),
-      task_runner_(base::SequencedTaskRunnerHandle::Get()),
-      weak_factory_(this) {}
+      task_runner_(base::SequencedTaskRunnerHandle::Get()) {}
 
 TCPSocket::TCPSocket(network::mojom::TCPConnectedSocketPtr socket,
                      mojo::ScopedDataPipeConsumerHandle receive_stream,
@@ -96,9 +100,7 @@ TCPSocket::TCPSocket(network::mojom::TCPConnectedSocketPtr socket,
       mojo_data_pump_(std::make_unique<MojoDataPump>(std::move(receive_stream),
                                                      std::move(send_stream))),
       task_runner_(base::SequencedTaskRunnerHandle::Get()),
-      peer_addr_(remote_addr),
-
-      weak_factory_(this) {
+      peer_addr_(remote_addr) {
   is_connected_ = true;
 }
 
@@ -165,8 +167,8 @@ void TCPSocket::Disconnect(bool socket_destroying) {
 
 void TCPSocket::Bind(const std::string& address,
                      uint16_t port,
-                     const net::CompletionCallback& callback) {
-  callback.Run(net::ERR_FAILED);
+                     net::CompletionOnceCallback callback) {
+  std::move(callback).Run(net::ERR_FAILED);
 }
 
 void TCPSocket::Read(int count, ReadCompletionCallback callback) {
@@ -195,17 +197,16 @@ void TCPSocket::Read(int count, ReadCompletionCallback callback) {
                                               base::Unretained(this)));
 }
 
-void TCPSocket::RecvFrom(int count,
-                         const RecvFromCompletionCallback& callback) {
-  callback.Run(net::ERR_FAILED, nullptr, false /* socket_destroying */, nullptr,
-               0);
+void TCPSocket::RecvFrom(int count, RecvFromCompletionCallback callback) {
+  std::move(callback).Run(net::ERR_FAILED, nullptr,
+                          false /* socket_destroying */, nullptr, 0);
 }
 
 void TCPSocket::SendTo(scoped_refptr<net::IOBuffer> io_buffer,
                        int byte_count,
                        const net::IPEndPoint& address,
-                       const CompletionCallback& callback) {
-  callback.Run(net::ERR_FAILED);
+                       net::CompletionOnceCallback callback) {
+  std::move(callback).Run(net::ERR_FAILED);
 }
 
 void TCPSocket::SetKeepAlive(bool enable,
@@ -313,13 +314,14 @@ Socket::SocketType TCPSocket::GetSocketType() const { return Socket::TYPE_TCP; }
 
 int TCPSocket::WriteImpl(net::IOBuffer* io_buffer,
                          int io_buffer_size,
-                         const net::CompletionCallback& callback) {
+                         net::CompletionOnceCallback callback) {
   if (!mojo_data_pump_)
     return net::ERR_SOCKET_NOT_CONNECTED;
 
-  mojo_data_pump_->Write(io_buffer, io_buffer_size,
-                         base::BindOnce(&TCPSocket::OnWriteComplete,
-                                        base::Unretained(this), callback));
+  mojo_data_pump_->Write(
+      io_buffer, io_buffer_size,
+      base::BindOnce(&TCPSocket::OnWriteComplete, base::Unretained(this),
+                     std::move(callback)));
   return net::ERR_IO_PENDING;
 }
 
@@ -449,14 +451,14 @@ void TCPSocket::OnAccept(int result,
            std::move(receive_stream), std::move(send_stream));
 }
 
-void TCPSocket::OnWriteComplete(const net::CompletionCallback& callback,
+void TCPSocket::OnWriteComplete(net::CompletionOnceCallback callback,
                                 int result) {
   if (result < 0) {
     // Write side has terminated. This can be an error or a graceful close.
     // TCPSocketEventDispatcher doesn't distinguish between the two.
     Disconnect(false /* socket_destroying */);
   }
-  callback.Run(result);
+  std::move(callback).Run(result);
 }
 
 void TCPSocket::OnReadComplete(int result,
@@ -527,8 +529,7 @@ void TCPSocket::UpgradeToTLS(api::socket::SecureOptions* options,
   network::mojom::TLSClientSocketOptionsPtr mojo_socket_options =
       network::mojom::TLSClientSocketOptions::New();
 
-  // TODO(https://crbug.com/904470): Support TLS 1.3 in the extensions API.
-  mojo_socket_options->version_max = network::mojom::SSLVersion::kTLS12;
+  mojo_socket_options->version_max = network::mojom::SSLVersion::kTLS13;
 
   if (options && options->tls_version.get()) {
     network::mojom::SSLVersion version_min, version_max;

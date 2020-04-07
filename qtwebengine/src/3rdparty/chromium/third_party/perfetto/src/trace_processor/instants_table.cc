@@ -16,19 +16,15 @@
 
 #include "src/trace_processor/instants_table.h"
 
+#include <string>
+
+#include "src/trace_processor/storage_columns.h"
+
 namespace perfetto {
 namespace trace_processor {
 
 InstantsTable::InstantsTable(sqlite3*, const TraceStorage* storage)
-    : storage_(storage) {
-  ref_types_.resize(RefType::kRefMax);
-  ref_types_[RefType::kRefNoRef] = "";
-  ref_types_[RefType::kRefUtid] = "utid";
-  ref_types_[RefType::kRefCpuId] = "cpu";
-  ref_types_[RefType::kRefIrq] = "irq";
-  ref_types_[RefType::kRefSoftIrq] = "softirq";
-  ref_types_[RefType::kRefUpid] = "upid";
-};
+    : storage_(storage) {}
 
 void InstantsTable::RegisterTable(sqlite3* db, const TraceStorage* storage) {
   Table::Register<InstantsTable>(db, storage, "instants");
@@ -37,12 +33,13 @@ void InstantsTable::RegisterTable(sqlite3* db, const TraceStorage* storage) {
 StorageSchema InstantsTable::CreateStorageSchema() {
   const auto& instants = storage_->instants();
   return StorageSchema::Builder()
-      .AddColumn<IdColumn>("id", TableId::kInstants)
+      .AddGenericNumericColumn("id", RowIdAccessor(TableId::kInstants))
       .AddOrderedNumericColumn("ts", &instants.timestamps())
       .AddStringColumn("name", &instants.name_ids(), &storage_->string_pool())
       .AddNumericColumn("value", &instants.values())
       .AddNumericColumn("ref", &instants.refs())
-      .AddStringColumn("ref_type", &instants.types(), &ref_types_)
+      .AddStringColumn("ref_type", &instants.types(), &GetRefTypeStringMap())
+      .AddNumericColumn("arg_set_id", &instants.arg_set_ids())
       .Build({"name", "ts", "ref"});
 }
 

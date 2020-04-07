@@ -11,6 +11,7 @@
 #include "call/call_factory.h"
 
 #include <stdio.h>
+
 #include <memory>
 #include <string>
 
@@ -25,7 +26,7 @@ namespace webrtc {
 namespace {
 bool ParseConfigParam(std::string exp_name, int* field) {
   std::string group = field_trial::FindFullName(exp_name);
-  if (group == "")
+  if (group.empty())
     return false;
 
   return (sscanf(group.c_str(), "%d", field) == 1);

@@ -50,17 +50,27 @@ class CPDF_ImageRenderer {
   bool GetResult() const { return m_Result; }
 
  private:
+  enum class Mode {
+    kNone = 0,
+    kDefault,
+    kBlend,
+    kTransform,
+  };
+
   bool StartBitmapAlpha();
   bool StartDIBBase();
   bool StartRenderDIBBase();
   bool StartLoadDIBBase();
+  bool ContinueDefault(PauseIndicatorIface* pPause);
+  bool ContinueBlend(PauseIndicatorIface* pPause);
+  bool ContinueTransform(PauseIndicatorIface* pPause);
   bool DrawMaskedImage();
   bool DrawPatternImage();
   bool NotDrawing() const;
   FX_RECT GetDrawRect() const;
   CFX_Matrix GetDrawMatrix(const FX_RECT& rect) const;
-  void CalculateDrawImage(CFX_DefaultRenderDevice* bitmap_device1,
-                          CFX_DefaultRenderDevice* bitmap_device2,
+  void CalculateDrawImage(CFX_DefaultRenderDevice* pBitmapDevice1,
+                          CFX_DefaultRenderDevice* pBitmapDevice2,
                           const RetainPtr<CFX_DIBBase>& pDIBBase,
                           const CFX_Matrix& mtNewMatrix,
                           const FX_RECT& rect) const;
@@ -75,14 +85,14 @@ class CPDF_ImageRenderer {
 
   UnownedPtr<CPDF_RenderStatus> m_pRenderStatus;
   UnownedPtr<CPDF_ImageObject> m_pImageObject;
-  UnownedPtr<CPDF_Pattern> m_pPattern;
+  RetainPtr<CPDF_Pattern> m_pPattern;
   RetainPtr<CFX_DIBBase> m_pDIBBase;
   CFX_Matrix m_mtObj2Device;
   CFX_Matrix m_ImageMatrix;
   CPDF_ImageLoader m_Loader;
   std::unique_ptr<CFX_ImageTransformer> m_pTransformer;
   std::unique_ptr<CFX_ImageRenderer> m_DeviceHandle;
-  int m_Status = 0;
+  Mode m_Mode = Mode::kNone;
   int m_BitmapAlpha = 0;
   BlendMode m_BlendType = BlendMode::kNormal;
   FX_ARGB m_FillArgb = 0;

@@ -47,6 +47,7 @@
 #ifndef QT_NO_QOBJECT
 #include "qmutex.h"
 #include <private/qthread_p.h>
+#include <private/qlocking_p.h>
 #endif
 #include "qtextstream.h"
 #include <ctype.h>
@@ -63,8 +64,6 @@ using namespace Microsoft::WRL::Wrappers;
 #endif
 
 QT_BEGIN_NAMESPACE
-
-int appCmdShow = 0;
 
 Q_CORE_EXPORT QString qAppFileName()                // get application file name
 {
@@ -175,16 +174,12 @@ Q_CORE_EXPORT HINSTANCE qWinAppPrevInst()                // get Windows prev app
 
 Q_CORE_EXPORT int qWinAppCmdShow()                        // get main window show command
 {
-#if defined(Q_OS_WINCE)
-    return appCmdShow;
-#else
     STARTUPINFO startupInfo;
     GetStartupInfo(&startupInfo);
 
     return (startupInfo.dwFlags & STARTF_USESHOWWINDOW)
         ? startupInfo.wShowWindow
         : SW_SHOWDEFAULT;
-#endif
 }
 #endif
 
@@ -925,7 +920,7 @@ void QCoreApplicationPrivate::removePostedTimerEvent(QObject *object, int timerI
 {
     QThreadData *data = object->d_func()->threadData;
 
-    QMutexLocker locker(&data->postEventList.mutex);
+    const auto locker = qt_scoped_lock(data->postEventList.mutex);
     if (data->postEventList.size() == 0)
         return;
     for (int i = 0; i < data->postEventList.size(); ++i) {

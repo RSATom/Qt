@@ -44,17 +44,25 @@
 #include <QtCore/QSet>
 #include <QtCore/QBuffer>
 #include <QtCore/QBitArray>
-#include <QtCore/QLinkedList>
 #include <QtCore/QStack>
 #include <private/qqmljsast_p.h>
 #include <private/qv4compilercontext_p.h>
 #include <private/qv4codegen_p.h>
-#include <private/qv4string_p.h>
 
 QT_USE_NAMESPACE
 using namespace QV4;
 using namespace QV4::Compiler;
+using namespace QQmlJS;
 using namespace QQmlJS::AST;
+
+static CompiledData::Location location(const QQmlJS::AST::SourceLocation &astLocation)
+{
+    CompiledData::Location target;
+    target.line = astLocation.startLine;
+    target.column = astLocation.startColumn;
+    return target;
+}
+
 
 ScanFunctions::ScanFunctions(Codegen *cg, const QString &sourceCode, ContextType defaultProgramType)
     : QQmlJS::AST::Visitor(cg->recursionDepth())
@@ -177,7 +185,7 @@ bool ScanFunctions::visit(ExportDeclaration *declaration)
         Compiler::ExportEntry entry;
         entry.moduleRequest = declaration->fromClause->moduleSpecifier.toString();
         entry.importName = QStringLiteral("*");
-        entry.location = declaration->firstSourceLocation();
+        entry.location = location(declaration->firstSourceLocation());
         _context->exportEntries << entry;
     } else if (declaration->exportClause) {
         for (ExportsList *it = declaration->exportClause->exportsList; it; it = it->next) {
@@ -190,22 +198,22 @@ bool ScanFunctions::visit(ExportDeclaration *declaration)
 
             entry.moduleRequest = module;
             entry.exportName = spec->exportedIdentifier.toString();
-            entry.location = it->firstSourceLocation();
+            entry.location = location(it->firstSourceLocation());
 
             _context->exportEntries << entry;
         }
     } else if (auto *vstmt = AST::cast<AST::VariableStatement*>(declaration->variableStatementOrDeclaration)) {
-        QStringList boundNames;
+        BoundNames boundNames;
         for (VariableDeclarationList *it = vstmt->declarations; it; it = it->next) {
             if (!it->declaration)
                 continue;
             it->declaration->boundNames(&boundNames);
         }
-        for (const QString &name: boundNames) {
+        for (const auto &name: boundNames) {
             Compiler::ExportEntry entry;
-            entry.localName = name;
-            entry.exportName = name;
-            entry.location = vstmt->firstSourceLocation();
+            entry.localName = name.id;
+            entry.exportName = name.id;
+            entry.location = location(vstmt->firstSourceLocation());
             _context->exportEntries << entry;
         }
     } else if (auto *classDecl = AST::cast<AST::ClassDeclaration*>(declaration->variableStatementOrDeclaration)) {
@@ -214,7 +222,7 @@ bool ScanFunctions::visit(ExportDeclaration *declaration)
             Compiler::ExportEntry entry;
             entry.localName = name;
             entry.exportName = name;
-            entry.location = classDecl->firstSourceLocation();
+            entry.location = location(classDecl->firstSourceLocation());
             _context->exportEntries << entry;
             if (declaration->exportDefault)
                 localNameForDefaultExport = entry.localName;
@@ -233,7 +241,7 @@ bool ScanFunctions::visit(ExportDeclaration *declaration)
             Compiler::ExportEntry entry;
             entry.localName = functionName;
             entry.exportName = functionName;
-            entry.location = fdef->firstSourceLocation();
+            entry.location = location(fdef->firstSourceLocation());
             _context->exportEntries << entry;
             if (declaration->exportDefault)
                 localNameForDefaultExport = entry.localName;
@@ -245,7 +253,7 @@ bool ScanFunctions::visit(ExportDeclaration *declaration)
         entry.localName = localNameForDefaultExport;
         _context->localNameForDefaultExport = localNameForDefaultExport;
         entry.exportName = QStringLiteral("default");
-        entry.location = declaration->firstSourceLocation();
+        entry.location = location(declaration->firstSourceLocation());
         _context->exportEntries << entry;
     }
 
@@ -270,7 +278,7 @@ bool ScanFunctions::visit(ImportDeclaration *declaration)
             entry.moduleRequest = module;
             entry.importName = QStringLiteral("default");
             entry.localName = import->importedDefaultBinding.toString();
-            entry.location = declaration->firstSourceLocation();
+            entry.location = location(declaration->firstSourceLocation());
             _context->importEntries << entry;
         }
 
@@ -279,7 +287,7 @@ bool ScanFunctions::visit(ImportDeclaration *declaration)
             entry.moduleRequest = module;
             entry.importName = QStringLiteral("*");
             entry.localName = import->nameSpaceImport->importedBinding.toString();
-            entry.location = declaration->firstSourceLocation();
+            entry.location = location(declaration->firstSourceLocation());
             _context->importEntries << entry;
         }
 
@@ -292,7 +300,7 @@ bool ScanFunctions::visit(ImportDeclaration *declaration)
                     entry.importName = it->importSpecifier->identifier.toString();
                 else
                     entry.importName = entry.localName;
-                entry.location = declaration->firstSourceLocation();
+                entry.location = location(declaration->firstSourceLocation());
                 _context->importEntries << entry;
             }
         }
@@ -319,26 +327,26 @@ bool ScanFunctions::visit(PatternElement *ast)
     if (!ast->isVariableDeclaration())
         return true;
 
-    QStringList names;
+    BoundNames names;
     ast->boundNames(&names);
 
     QQmlJS::AST::SourceLocation lastInitializerLocation = ast->lastSourceLocation();
     if (_context->lastBlockInitializerLocation.isValid())
         lastInitializerLocation = _context->lastBlockInitializerLocation;
 
-    for (const QString &name : qAsConst(names)) {
-        if (_context->isStrict && (name == QLatin1String("eval") || name == QLatin1String("arguments")))
+    for (const auto &name : qAsConst(names)) {
+        if (_context->isStrict && (name.id == QLatin1String("eval") || name.id == QLatin1String("arguments")))
             _cg->throwSyntaxError(ast->identifierToken, QStringLiteral("Variable name may not be eval or arguments in strict mode"));
-        checkName(QStringRef(&name), ast->identifierToken);
-        if (name == QLatin1String("arguments"))
+        checkName(QStringRef(&name.id), ast->identifierToken);
+        if (name.id == QLatin1String("arguments"))
             _context->usesArgumentsObject = Context::ArgumentsObjectNotUsed;
         if (ast->scope == VariableScope::Const && !ast->initializer && !ast->isForDeclaration && !ast->destructuringPattern()) {
             _cg->throwSyntaxError(ast->identifierToken, QStringLiteral("Missing initializer in const declaration"));
             return false;
         }
-        if (!_context->addLocalVar(name, ast->initializer ? Context::VariableDefinition : Context::VariableDeclaration, ast->scope,
+        if (!_context->addLocalVar(name.id, ast->initializer ? Context::VariableDefinition : Context::VariableDeclaration, ast->scope,
                                    /*function*/nullptr, lastInitializerLocation)) {
-            _cg->throwSyntaxError(ast->identifierToken, QStringLiteral("Identifier %1 has already been declared").arg(name));
+            _cg->throwSyntaxError(ast->identifierToken, QStringLiteral("Identifier %1 has already been declared").arg(name.id));
             return false;
         }
     }
@@ -672,6 +680,9 @@ bool ScanFunctions::enterFunction(Node *ast, const QString &name, FormalParamete
             _context->isArrowFunction = true;
         else if (expr->isGenerator)
             _context->isGenerator = true;
+
+        if (expr->typeAnnotation)
+            _context->returnType = expr->typeAnnotation->type->toString();
     }
 
 
@@ -684,11 +695,11 @@ bool ScanFunctions::enterFunction(Node *ast, const QString &name, FormalParamete
 
     bool isSimpleParameterList = formals && formals->isSimpleParameterList();
 
-    _context->arguments = formals ? formals->formals() : QStringList();
+    _context->arguments = formals ? formals->formals() : BoundNames();
 
-    const QStringList boundNames = formals ? formals->boundNames() : QStringList();
+    const BoundNames boundNames = formals ? formals->boundNames() : BoundNames();
     for (int i = 0; i < boundNames.size(); ++i) {
-        const QString &arg = boundNames.at(i);
+        const QString &arg = boundNames.at(i).id;
         if (_context->isStrict || !isSimpleParameterList) {
             bool duplicate = (boundNames.indexOf(arg, i + 1) != -1);
             if (duplicate) {
@@ -705,6 +716,7 @@ bool ScanFunctions::enterFunction(Node *ast, const QString &name, FormalParamete
         if (!_context->arguments.contains(arg))
             _context->addLocalVar(arg, Context::VariableDefinition, VariableScope::Var);
     }
+
     return true;
 }
 

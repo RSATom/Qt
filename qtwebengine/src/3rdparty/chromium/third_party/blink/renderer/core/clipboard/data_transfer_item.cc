@@ -37,15 +37,11 @@
 #include "third_party/blink/renderer/core/clipboard/data_transfer.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
 #include "third_party/blink/renderer/core/probe/core_probes.h"
+#include "third_party/blink/renderer/platform/wtf/functional.h"
 #include "third_party/blink/renderer/platform/wtf/std_lib_extras.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
 
 namespace blink {
-
-DataTransferItem* DataTransferItem::Create(DataTransfer* data_transfer,
-                                           DataObjectItem* item) {
-  return MakeGarbageCollected<DataTransferItem>(data_transfer, item);
-}
 
 String DataTransferItem::kind() const {
   DEFINE_STATIC_LOCAL(const String, kind_string, ("string"));
@@ -75,16 +71,13 @@ void DataTransferItem::getAsString(ScriptState* script_state,
   if (!callback || item_->Kind() != DataObjectItem::kStringKind)
     return;
 
-  auto* v8persistent_callback = ToV8PersistentCallbackFunction(callback);
   ExecutionContext* context = ExecutionContext::From(script_state);
-  probe::AsyncTaskScheduled(context, "DataTransferItem.getAsString",
-                            v8persistent_callback);
+  probe::AsyncTaskScheduled(context, "DataTransferItem.getAsString", callback);
   context->GetTaskRunner(TaskType::kUserInteraction)
       ->PostTask(FROM_HERE,
                  WTF::Bind(&DataTransferItem::RunGetAsStringTask,
                            WrapPersistent(this), WrapPersistent(context),
-                           WrapPersistent(v8persistent_callback),
-                           item_->GetAsString()));
+                           WrapPersistent(callback), item_->GetAsString()));
 }
 
 File* DataTransferItem::getAsFile() const {
@@ -98,10 +91,9 @@ DataTransferItem::DataTransferItem(DataTransfer* data_transfer,
                                    DataObjectItem* item)
     : data_transfer_(data_transfer), item_(item) {}
 
-void DataTransferItem::RunGetAsStringTask(
-    ExecutionContext* context,
-    V8PersistentCallbackFunction<V8FunctionStringCallback>* callback,
-    const String& data) {
+void DataTransferItem::RunGetAsStringTask(ExecutionContext* context,
+                                          V8FunctionStringCallback* callback,
+                                          const String& data) {
   DCHECK(callback);
   probe::AsyncTask async_task(context, callback);
   if (context)

@@ -66,7 +66,8 @@ public:
         InvalidBluetoothAdapterError,
         ConnectionError,
         AdvertisingError,
-        RemoteHostClosedError
+        RemoteHostClosedError,
+        AuthorizationError
     };
     Q_ENUM(Error)
 
@@ -93,12 +94,15 @@ public:
     explicit QLowEnergyController(const QBluetoothAddress &remoteDevice,
                                   QObject *parent = nullptr); // TODO Qt 6 remove ctor
     explicit QLowEnergyController(const QBluetoothDeviceInfo &remoteDevice,
-                                  QObject *parent = nullptr);
+                                  QObject *parent = nullptr); // TODO Qt 6 make private
     explicit QLowEnergyController(const QBluetoothAddress &remoteDevice,
                                   const QBluetoothAddress &localDevice,
                                   QObject *parent = nullptr); // TODO Qt 6 remove ctor
 
     static QLowEnergyController *createCentral(const QBluetoothDeviceInfo &remoteDevice,
+                                               QObject *parent = nullptr);
+    static QLowEnergyController *createCentral(const QBluetoothAddress &remoteDevice,
+                                               const QBluetoothAddress &localDevice,
                                                QObject *parent = nullptr);
     static QLowEnergyController *createPeripheral(QObject *parent = nullptr);
 

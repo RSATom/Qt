@@ -5,7 +5,7 @@
  * found in the LICENSE file.
  */
 
-#include "SkFontMgr_fuchsia.h"
+#include "include/ports/SkFontMgr_fuchsia.h"
 
 #include <fuchsia/fonts/cpp/fidl.h>
 #include <lib/zx/vmar.h>
@@ -13,13 +13,13 @@
 #include <memory>
 #include <unordered_map>
 
-#include "third_party/skia/src/core/SkFontDescriptor.h"
-#include "third_party/skia/src/ports/SkFontMgr_custom.h"
+#include "src/core/SkFontDescriptor.h"
+#include "src/ports/SkFontMgr_custom.h"
 
-#include "SkFontMgr.h"
-#include "SkStream.h"
-#include "SkTypeface.h"
-#include "SkTypefaceCache.h"
+#include "include/core/SkFontMgr.h"
+#include "include/core/SkStream.h"
+#include "include/core/SkTypeface.h"
+#include "src/core/SkTypefaceCache.h"
 
 void UnmapMemory(const void* buffer, uint64_t size) {
     static_assert(sizeof(void*) == sizeof(uint64_t), "pointers aren't 64-bit");
@@ -264,11 +264,7 @@ SkFontStyleSet* SkFontMgr_Fuchsia::onMatchFamily(const char familyName[]) const 
     if (result != ZX_OK || !familyInfo) return nullptr;
 
     std::vector<SkFontStyle> styles;
-#ifdef USE_STD_FOR_NON_NULLABLE_FIDL_FIELDS
     for (auto& style : familyInfo->styles) {
-#else
-    for (auto& style : *(familyInfo->styles)) {
-#endif
         styles.push_back(SkFontStyle(style.weight, style.width, FuchsiaToSkSlant(style.slant)));
     }
 
@@ -331,11 +327,7 @@ sk_sp<SkTypeface> SkFontMgr_Fuchsia::FetchTypeface(const char familyName[],
     request.weight = style.weight();
     request.width = style.width();
     request.slant = SkToFuchsiaSlant(style.slant());
-#ifdef USE_STD_FOR_NON_NULLABLE_FIDL_FIELDS
     request.language.reset(std::vector<std::string>(bcp47, bcp47 + bcp47Count));
-#else
-    request.language.reset(std::vector<fidl::StringPtr>(bcp47, bcp47 + bcp47Count));
-#endif
     request.character = character;
     request.fallback_group = GetFallbackGroupByName(familyName);
 
@@ -396,16 +388,16 @@ static bool FindByTypefaceId(SkTypeface* cachedTypeface, void* ctx) {
 
 sk_sp<SkTypeface> SkFontMgr_Fuchsia::GetOrCreateTypeface(TypefaceId id,
                                                          const fuchsia::mem::Buffer& buffer) const {
-    SkAutoMutexAcquire mutexLock(fCacheMutex);
+    SkAutoMutexExclusive mutexLock(fCacheMutex);
 
-    SkTypeface* cached = fTypefaceCache.findByProcAndRef(FindByTypefaceId, &id);
-    if (cached) return sk_sp<SkTypeface>(cached);
+    sk_sp<SkTypeface> cached = fTypefaceCache.findByProcAndRef(FindByTypefaceId, &id);
+    if (cached) return cached;
 
     sk_sp<SkData> data = GetOrCreateSkData(id.bufferId, buffer);
     if (!data) return nullptr;
 
     auto result = CreateTypefaceFromSkData(std::move(data), id);
-    fTypefaceCache.add(result.get());
+    fTypefaceCache.add(result);
     return result;
 }
 

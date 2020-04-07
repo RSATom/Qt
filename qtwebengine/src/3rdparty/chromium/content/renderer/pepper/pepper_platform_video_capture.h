@@ -14,8 +14,8 @@
 #include "base/memory/weak_ptr.h"
 #include "base/threading/thread_checker.h"
 #include "base/time/time.h"
-#include "content/common/media/video_capture.h"
 #include "media/capture/video_capture_types.h"
+#include "third_party/blink/public/common/media/video_capture.h"
 
 namespace media {
 class VideoFrame;
@@ -41,8 +41,8 @@ class PepperPlatformVideoCapture {
 
  private:
   void OnDeviceOpened(int request_id, bool succeeded, const std::string& label);
-  void OnStateUpdate(VideoCaptureState state);
-  void OnFrameReady(const scoped_refptr<media::VideoFrame>& frame,
+  void OnStateUpdate(blink::VideoCaptureState state);
+  void OnFrameReady(scoped_refptr<media::VideoFrame> frame,
                     base::TimeTicks estimated_capture_time);
 
   // Can return NULL if the RenderFrame referenced by |render_frame_id_| has
@@ -53,9 +53,9 @@ class PepperPlatformVideoCapture {
   const std::string device_id_;
 
   std::string label_;
-  int session_id_;
-  base::Closure release_device_cb_;
-  base::Closure stop_capture_cb_;
+  base::UnguessableToken session_id_;
+  base::OnceClosure release_device_cb_;
+  base::OnceClosure stop_capture_cb_;
 
   PepperVideoCaptureHost* handler_;
 
@@ -66,7 +66,7 @@ class PepperPlatformVideoCapture {
 
   base::ThreadChecker thread_checker_;
 
-  base::WeakPtrFactory<PepperPlatformVideoCapture> weak_factory_;
+  base::WeakPtrFactory<PepperPlatformVideoCapture> weak_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(PepperPlatformVideoCapture);
 };

@@ -10,6 +10,7 @@
 #include "base/run_loop.h"
 #include "base/single_thread_task_runner.h"
 #include "base/test/test_mock_time_task_runner.h"
+#include "base/threading/thread_task_runner_handle.h"
 #include "media/base/mock_media_log.h"
 #include "media/base/watch_time_keys.h"
 #include "media/blink/watch_time_reporter.h"
@@ -22,6 +23,7 @@
 
 namespace media {
 
+constexpr gfx::Size kSizeTooSmall = gfx::Size(101, 101);
 constexpr gfx::Size kSizeJustRight = gfx::Size(201, 201);
 
 using blink::WebMediaPlayer;
@@ -246,6 +248,12 @@ class WatchTimeReporterTest
     void SetContainerName(
         container_names::MediaContainerName container_name) override {}
     void AddBytesReceived(uint64_t bytes_received) override {}
+    void SetHasPlayed() override {}
+    void SetHaveEnough() override {}
+    void SetHasAudio(AudioCodec audio_codec) override {}
+    void SetHasVideo(VideoCodec video_codec) override {}
+    void SetVideoPipelineInfo(const PipelineDecoderInfo& info) override {}
+    void SetAudioPipelineInfo(const PipelineDecoderInfo& info) override {}
 
    private:
     WatchTimeReporterTest* parent_;
@@ -257,7 +265,7 @@ class WatchTimeReporterTest
         fake_metrics_provider_(this) {
     // Do this first. Lots of pieces depend on the task runner.
     auto message_loop = base::MessageLoopCurrent::Get();
-    original_task_runner_ = message_loop.task_runner();
+    original_task_runner_ = base::ThreadTaskRunnerHandle::Get();
     task_runner_ = new base::TestMockTimeTaskRunner();
     message_loop.SetTaskRunner(task_runner_);
   }
@@ -658,6 +666,14 @@ TEST_P(WatchTimeReporterTest, WatchTimeReporter) {
   wtr_.reset();
 }
 
+TEST_P(WatchTimeReporterTest, WatchTimeReporterInfiniteStartTime) {
+  EXPECT_CALL(*this, GetCurrentMediaTime())
+      .WillRepeatedly(testing::Return(kInfiniteDuration));
+  Initialize(false, false, kSizeJustRight);
+  wtr_->OnPlaying();
+  EXPECT_FALSE(IsMonitoring());
+}
+
 TEST_P(WatchTimeReporterTest, WatchTimeReporterBasic) {
   constexpr base::TimeDelta kWatchTimeEarly = base::TimeDelta::FromSeconds(5);
   constexpr base::TimeDelta kWatchTimeLate = base::TimeDelta::FromSeconds(10);
@@ -806,6 +822,51 @@ TEST_P(WatchTimeReporterTest, WatchTimeReporterSecondaryProperties) {
 
   // Ensure expectations are met before |properies| goes out of scope.
   testing::Mock::VerifyAndClearExpectations(this);
+}
+
+TEST_P(WatchTimeReporterTest, SecondaryProperties_SizeIncreased) {
+  if (!has_video_)
+    return;
+
+  EXPECT_CALL(*this, GetCurrentMediaTime())
+      .WillRepeatedly(testing::Return(base::TimeDelta()));
+  Initialize(false, false, kSizeTooSmall);
+  wtr_->OnPlaying();
+  EXPECT_FALSE(IsMonitoring());
+
+  EXPECT_CALL(*this, OnUpdateSecondaryProperties(_))
+      .Times((has_audio_ && has_video_) ? 3 : 2);
+  wtr_->UpdateSecondaryProperties(mojom::SecondaryPlaybackProperties::New(
+      kUnknownAudioCodec, kUnknownVideoCodec, "", "",
+      EncryptionMode::kUnencrypted, EncryptionMode::kUnencrypted,
+      kSizeJustRight));
+  EXPECT_TRUE(IsMonitoring());
+
+  EXPECT_WATCH_TIME_FINALIZED();
+  wtr_.reset();
+}
+
+TEST_P(WatchTimeReporterTest, SecondaryProperties_SizeDecreased) {
+  if (!has_video_)
+    return;
+
+  EXPECT_CALL(*this, GetCurrentMediaTime())
+      .WillRepeatedly(testing::Return(base::TimeDelta()));
+  Initialize(false, false, kSizeJustRight);
+  wtr_->OnPlaying();
+  EXPECT_TRUE(IsMonitoring());
+
+  EXPECT_CALL(*this, OnUpdateSecondaryProperties(_))
+      .Times((has_audio_ && has_video_) ? 3 : 2);
+  wtr_->UpdateSecondaryProperties(mojom::SecondaryPlaybackProperties::New(
+      kUnknownAudioCodec, kUnknownVideoCodec, "", "",
+      EncryptionMode::kUnencrypted, EncryptionMode::kUnencrypted,
+      kSizeTooSmall));
+  EXPECT_WATCH_TIME_FINALIZED();
+  CycleReportingTimer();
+
+  EXPECT_FALSE(IsMonitoring());
+  wtr_.reset();
 }
 
 TEST_P(WatchTimeReporterTest, WatchTimeReporterAutoplayInitiated) {
@@ -1999,29 +2060,29 @@ TEST_P(MutedWatchTimeReporterTest, MutedDisplayType) {
   wtr_.reset();
 }
 
-INSTANTIATE_TEST_CASE_P(WatchTimeReporterTest,
-                        WatchTimeReporterTest,
-                        testing::ValuesIn({// has_video, has_audio
-                                           std::make_tuple(true, true),
-                                           // has_video
-                                           std::make_tuple(true, false),
-                                           // has_audio
-                                           std::make_tuple(false, true)}));
+INSTANTIATE_TEST_SUITE_P(WatchTimeReporterTest,
+                         WatchTimeReporterTest,
+                         testing::ValuesIn({// has_video, has_audio
+                                            std::make_tuple(true, true),
+                                            // has_video
+                                            std::make_tuple(true, false),
+                                            // has_audio
+                                            std::make_tuple(false, true)}));
 
 // Separate test set since display tests only work with video.
-INSTANTIATE_TEST_CASE_P(DisplayTypeWatchTimeReporterTest,
-                        DisplayTypeWatchTimeReporterTest,
-                        testing::ValuesIn({// has_video, has_audio
-                                           std::make_tuple(true, true),
-                                           // has_video
-                                           std::make_tuple(true, false)}));
+INSTANTIATE_TEST_SUITE_P(DisplayTypeWatchTimeReporterTest,
+                         DisplayTypeWatchTimeReporterTest,
+                         testing::ValuesIn({// has_video, has_audio
+                                            std::make_tuple(true, true),
+                                            // has_video
+                                            std::make_tuple(true, false)}));
 
 // Separate test set since muted tests only work with audio+video.
-INSTANTIATE_TEST_CASE_P(MutedWatchTimeReporterTest,
-                        MutedWatchTimeReporterTest,
-                        testing::ValuesIn({
-                            // has_video, has_audio
-                            std::make_tuple(true, true),
-                        }));
+INSTANTIATE_TEST_SUITE_P(MutedWatchTimeReporterTest,
+                         MutedWatchTimeReporterTest,
+                         testing::ValuesIn({
+                             // has_video, has_audio
+                             std::make_tuple(true, true),
+                         }));
 
 }  // namespace media

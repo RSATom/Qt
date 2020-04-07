@@ -10,6 +10,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "base/bind.h"
 #include "base/callback_forward.h"
 #include "base/macros.h"
 #include "base/memory/shared_memory.h"
@@ -44,6 +45,9 @@ class DEVICE_GAMEPAD_EXPORT GamepadService
   // Returns the GamepadService singleton.
   static GamepadService* GetInstance();
 
+  // Sets the GamepadService instance. Exposed for tests.
+  static void SetInstance(GamepadService*);
+
   void StartUp(
       std::unique_ptr<service_manager::Connector> service_manager_connector);
 
@@ -51,28 +55,37 @@ class DEVICE_GAMEPAD_EXPORT GamepadService
 
   // Increments the number of users of the provider. The Provider is running
   // when there's > 0 users, and is paused when the count drops to 0.
-  // consumer is registered to listen for gamepad connections. If this is the
+  // |consumer| is registered to listen for gamepad connections. If this is the
   // first time it is added to the set of consumers it will be treated
   // specially: it will not be informed about connections before a new user
   // gesture is observed at which point it will be notified for every connected
   // gamepads.
+  // .
+  // Returns true on success. If |consumer| is already active, returns false and
+  // exits without modifying the consumer set.
   //
   // Must be called on the I/O thread.
-  void ConsumerBecameActive(device::GamepadConsumer* consumer);
+  bool ConsumerBecameActive(device::GamepadConsumer* consumer);
 
-  // Decrements the number of users of the provider. consumer will not be
+  // Decrements the number of users of the provider. |consumer| will not be
   // informed about connections until it's added back via ConsumerBecameActive.
-  // Must be matched with a ConsumerBecameActive call.
+  //
+  // Returns true on success. If |consumer| is not in the consumer set or is
+  // already inactive, returns false and exits without modifying the consumer
+  // set.
   //
   // Must be called on the I/O thread.
-  void ConsumerBecameInactive(device::GamepadConsumer* consumer);
+  bool ConsumerBecameInactive(device::GamepadConsumer* consumer);
 
-  // Decrements the number of users of the provider and removes consumer from
+  // Decrements the number of users of the provider and removes |consumer| from
   // the set of consumers. Should be matched with a a ConsumerBecameActive
   // call.
   //
+  // Returns true on success, or false if |consumer| was not in the consumer
+  // set.
+  //
   // Must be called on the I/O thread.
-  void RemoveConsumer(device::GamepadConsumer* consumer);
+  bool RemoveConsumer(device::GamepadConsumer* consumer);
 
   // Registers the given closure for calling when the user has interacted with
   // the device. This callback will only be issued once. Should only be called
@@ -120,8 +133,6 @@ class DEVICE_GAMEPAD_EXPORT GamepadService
 
   virtual ~GamepadService();
 
-  static void SetInstance(GamepadService*);
-
   void OnUserGesture();
 
   void OnGamepadConnectionChange(bool connected,
@@ -131,16 +142,15 @@ class DEVICE_GAMEPAD_EXPORT GamepadService
   void SetSanitizationEnabled(bool sanitize);
 
   struct ConsumerInfo {
-    ConsumerInfo(device::GamepadConsumer* consumer)
-        : consumer(consumer), did_observe_user_gesture(false) {}
+    ConsumerInfo(GamepadConsumer* consumer) : consumer(consumer) {}
 
     bool operator<(const ConsumerInfo& other) const {
       return consumer < other.consumer;
     }
 
     device::GamepadConsumer* consumer;
-    mutable bool is_active;
-    mutable bool did_observe_user_gesture;
+    mutable bool is_active = false;
+    mutable bool did_observe_user_gesture = false;
   };
 
   std::unique_ptr<device::GamepadProvider> provider_;
@@ -155,6 +165,7 @@ class DEVICE_GAMEPAD_EXPORT GamepadService
 
   ConsumerConnectedStateMap inactive_consumer_state_;
 
+  // The number of active consumers in |consumers_|.
   int num_active_consumers_;
 
   bool gesture_callback_pending_;

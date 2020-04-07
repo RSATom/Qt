@@ -16,7 +16,7 @@
 #include "base/bind_helpers.h"
 #include "base/logging.h"
 #include "base/memory/ref_counted.h"
-#include "base/test/scoped_feature_list.h"
+#include "base/test/metrics/histogram_tester.h"
 #include "base/time/time.h"
 #include "media/base/audio_decoder_config.h"
 #include "media/base/decoder_buffer.h"
@@ -258,6 +258,35 @@ TEST_F(MP4StreamParserTest, UnalignedAppend) {
   ParseMP4File("bear-1280x720-av_frag.mp4", 512);
 }
 
+constexpr char kShakaPackagerUMA[] = "Media.MSE.DetectedShakaPackagerInMp4";
+
+TEST_F(MP4StreamParserTest, DidNotUseShakaPackager) {
+  // Encrypted files have non-zero duration and are treated as recorded streams.
+  auto params = GetDefaultInitParametersExpectations();
+  params.duration = base::TimeDelta::FromMicroseconds(2736066);
+  params.liveness = DemuxerStream::LIVENESS_RECORDED;
+  params.detected_audio_track_count = 0;
+  InitializeParserWithInitParametersExpectations(params);
+
+  base::HistogramTester tester;
+
+  // Test file has ID32 box, but no shaka player metadata.
+  ParseMP4File("bear-640x360-v_frag-cenc-senc-no-saiz-saio.mp4", 512);
+  tester.ExpectUniqueSample(kShakaPackagerUMA, 0, 1);
+}
+
+TEST_F(MP4StreamParserTest, UsedShakaPackager) {
+  auto params = GetDefaultInitParametersExpectations();
+  params.duration = base::TimeDelta::FromMicroseconds(2736000);
+  params.liveness = DemuxerStream::LIVENESS_RECORDED;
+  params.detected_audio_track_count = 0;
+  InitializeParserWithInitParametersExpectations(params);
+
+  base::HistogramTester tester;
+  ParseMP4File("bear-320x240-v_frag-vp9.mp4", 512);
+  tester.ExpectUniqueSample(kShakaPackagerUMA, 1, 1);
+}
+
 TEST_F(MP4StreamParserTest, BytewiseAppend) {
   // Ensure no incremental errors occur when parsing
   InitializeParser();
@@ -323,37 +352,13 @@ TEST_F(MP4StreamParserTest, AVC_KeyAndNonKeyframeness_Match_Container) {
   ParseMP4File("bear-640x360-v-2frames_frag.mp4", 512);
 }
 
-TEST_F(MP4StreamParserTest, LegacyByDts_AVC_Keyframeness_Mismatches_Container) {
-  // The first AVC video frame's keyframe-ness metadata matches the MP4:
+TEST_F(MP4StreamParserTest, AVC_Keyframeness_Mismatches_Container) {
+  // The first AVC video frame's keyframe-ness metadata mismatches the MP4:
   // Frame 0: AVC IDR, trun.first_sample_flags: NOT sync sample, DEPENDS on
   //          others.
   // Frame 1: AVC Non-IDR, tfhd.default_sample_flags: not sync sample, depends
   //          on others.
   InSequence s;  // The EXPECT* sequence matters for this test.
-  base::test::ScopedFeatureList scoped_feature_list;
-  scoped_feature_list.InitAndDisableFeature(kMseBufferByPts);
-  auto params = GetDefaultInitParametersExpectations();
-  params.detected_audio_track_count = 0;
-  InitializeParserWithInitParametersExpectations(params);
-  verifying_keyframeness_sequence_ = true;
-  EXPECT_MEDIA_LOG(DebugLog(
-      "ISO-BMFF container metadata for video frame indicates that the frame is "
-      "not a keyframe, but the video frame contents indicate the opposite."));
-  EXPECT_CALL(*this, ParsedNonKeyframe());
-  EXPECT_CALL(*this, ParsedNonKeyframe());
-  ParseMP4File("bear-640x360-v-2frames-keyframe-is-non-sync-sample_frag.mp4",
-               512);
-}
-
-TEST_F(MP4StreamParserTest, NewByPts_AVC_Keyframeness_Mismatches_Container) {
-  // The first AVC video frame's keyframe-ness metadata matches the MP4:
-  // Frame 0: AVC IDR, trun.first_sample_flags: NOT sync sample, DEPENDS on
-  //          others.
-  // Frame 1: AVC Non-IDR, tfhd.default_sample_flags: not sync sample, depends
-  //          on others.
-  InSequence s;  // The EXPECT* sequence matters for this test.
-  base::test::ScopedFeatureList scoped_feature_list;
-  scoped_feature_list.InitAndEnableFeature(kMseBufferByPts);
   auto params = GetDefaultInitParametersExpectations();
   params.detected_audio_track_count = 0;
   InitializeParserWithInitParametersExpectations(params);
@@ -367,38 +372,13 @@ TEST_F(MP4StreamParserTest, NewByPts_AVC_Keyframeness_Mismatches_Container) {
                512);
 }
 
-TEST_F(MP4StreamParserTest,
-       LegacyByDts_AVC_NonKeyframeness_Mismatches_Container) {
-  // The second AVC video frame's keyframe-ness metadata matches the MP4:
+TEST_F(MP4StreamParserTest, AVC_NonKeyframeness_Mismatches_Container) {
+  // The second AVC video frame's keyframe-ness metadata mismatches the MP4:
   // Frame 0: AVC IDR, trun.first_sample_flags: sync sample that doesn't
   //          depend on others.
   // Frame 1: AVC Non-IDR, tfhd.default_sample_flags: SYNC sample, DOES NOT
   //          depend on others.
   InSequence s;  // The EXPECT* sequence matters for this test.
-  base::test::ScopedFeatureList scoped_feature_list;
-  scoped_feature_list.InitAndDisableFeature(kMseBufferByPts);
-  auto params = GetDefaultInitParametersExpectations();
-  params.detected_audio_track_count = 0;
-  InitializeParserWithInitParametersExpectations(params);
-  verifying_keyframeness_sequence_ = true;
-  EXPECT_CALL(*this, ParsedKeyframe());
-  EXPECT_MEDIA_LOG(DebugLog(
-      "ISO-BMFF container metadata for video frame indicates that the frame is "
-      "a keyframe, but the video frame contents indicate the opposite."));
-  EXPECT_CALL(*this, ParsedKeyframe());
-  ParseMP4File("bear-640x360-v-2frames-nonkeyframe-is-sync-sample_frag.mp4",
-               512);
-}
-
-TEST_F(MP4StreamParserTest, NewByPts_AVC_NonKeyframeness_Mismatches_Container) {
-  // The second AVC video frame's keyframe-ness metadata matches the MP4:
-  // Frame 0: AVC IDR, trun.first_sample_flags: sync sample that doesn't
-  //          depend on others.
-  // Frame 1: AVC Non-IDR, tfhd.default_sample_flags: SYNC sample, DOES NOT
-  //          depend on others.
-  InSequence s;  // The EXPECT* sequence matters for this test.
-  base::test::ScopedFeatureList scoped_feature_list;
-  scoped_feature_list.InitAndEnableFeature(kMseBufferByPts);
   auto params = GetDefaultInitParametersExpectations();
   params.detected_audio_track_count = 0;
   InitializeParserWithInitParametersExpectations(params);
@@ -491,6 +471,65 @@ TEST_F(MP4StreamParserTest, HEVC_in_MP4_container) {
   EXPECT_EQ(HEVCPROFILE_MAIN, video_decoder_config_.profile());
 #endif
 }
+
+#if BUILDFLAG(ENABLE_HEVC_DEMUXING)
+TEST_F(MP4StreamParserTest, HEVC_KeyAndNonKeyframeness_Match_Container) {
+  // Both HEVC video frames' keyframe-ness metadata matches the MP4:
+  // Frame 0: HEVC IDR, trun.first_sample_flags: sync sample that doesn't
+  //          depend on others.
+  // Frame 1: HEVC Non-IDR, tfhd.default_sample_flags: not sync sample, depends
+  //          on others.
+  // This is the base case; see also the "Mismatches" cases, below.
+  InSequence s;  // The EXPECT* sequence matters for this test.
+  auto params = GetDefaultInitParametersExpectations();
+  params.detected_audio_track_count = 0;
+  InitializeParserWithInitParametersExpectations(params);
+  verifying_keyframeness_sequence_ = true;
+  EXPECT_CALL(*this, ParsedKeyframe());
+  EXPECT_CALL(*this, ParsedNonKeyframe());
+  ParseMP4File("bear-320x240-v-2frames_frag-hevc.mp4", 256);
+}
+
+TEST_F(MP4StreamParserTest, HEVC_Keyframeness_Mismatches_Container) {
+  // The first HEVC video frame's keyframe-ness metadata mismatches the MP4:
+  // Frame 0: HEVC IDR, trun.first_sample_flags: NOT sync sample, DEPENDS on
+  //          others.
+  // Frame 1: HEVC Non-IDR, tfhd.default_sample_flags: not sync sample, depends
+  //          on others.
+  InSequence s;  // The EXPECT* sequence matters for this test.
+  auto params = GetDefaultInitParametersExpectations();
+  params.detected_audio_track_count = 0;
+  InitializeParserWithInitParametersExpectations(params);
+  verifying_keyframeness_sequence_ = true;
+  EXPECT_MEDIA_LOG(DebugLog(
+      "ISO-BMFF container metadata for video frame indicates that the frame is "
+      "not a keyframe, but the video frame contents indicate the opposite."));
+  EXPECT_CALL(*this, ParsedKeyframe());
+  EXPECT_CALL(*this, ParsedNonKeyframe());
+  ParseMP4File(
+      "bear-320x240-v-2frames-keyframe-is-non-sync-sample_frag-hevc.mp4", 256);
+}
+
+TEST_F(MP4StreamParserTest, HEVC_NonKeyframeness_Mismatches_Container) {
+  // The second HEVC video frame's keyframe-ness metadata mismatches the MP4:
+  // Frame 0: HEVC IDR, trun.first_sample_flags: sync sample that doesn't
+  //          depend on others.
+  // Frame 1: HEVC Non-IDR, tfhd.default_sample_flags: SYNC sample, DOES NOT
+  //          depend on others.
+  InSequence s;  // The EXPECT* sequence matters for this test.
+  auto params = GetDefaultInitParametersExpectations();
+  params.detected_audio_track_count = 0;
+  InitializeParserWithInitParametersExpectations(params);
+  verifying_keyframeness_sequence_ = true;
+  EXPECT_CALL(*this, ParsedKeyframe());
+  EXPECT_MEDIA_LOG(DebugLog(
+      "ISO-BMFF container metadata for video frame indicates that the frame is "
+      "a keyframe, but the video frame contents indicate the opposite."));
+  EXPECT_CALL(*this, ParsedNonKeyframe());
+  ParseMP4File(
+      "bear-320x240-v-2frames-nonkeyframe-is-sync-sample_frag-hevc.mp4", 256);
+}
+#endif
 
 // Sample encryption information is stored as CencSampleAuxiliaryDataFormat
 // (ISO/IEC 23001-7:2015 8) inside 'mdat' box. No SampleEncryption ('senc') box.
@@ -644,16 +683,16 @@ TEST_F(MP4StreamParserTest, MediaTrackInfoSourcing) {
   const MediaTrack& video_track = *(media_tracks_->tracks()[0]);
   EXPECT_EQ(video_track.type(), MediaTrack::Video);
   EXPECT_EQ(video_track.bytestream_track_id(), 1);
-  EXPECT_EQ(video_track.kind(), "main");
-  EXPECT_EQ(video_track.label(), "VideoHandler");
-  EXPECT_EQ(video_track.language(), "und");
+  EXPECT_EQ(video_track.kind().value(), "main");
+  EXPECT_EQ(video_track.label().value(), "VideoHandler");
+  EXPECT_EQ(video_track.language().value(), "und");
 
   const MediaTrack& audio_track = *(media_tracks_->tracks()[1]);
   EXPECT_EQ(audio_track.type(), MediaTrack::Audio);
   EXPECT_EQ(audio_track.bytestream_track_id(), 2);
-  EXPECT_EQ(audio_track.kind(), "main");
-  EXPECT_EQ(audio_track.label(), "SoundHandler");
-  EXPECT_EQ(audio_track.language(), "und");
+  EXPECT_EQ(audio_track.kind().value(), "main");
+  EXPECT_EQ(audio_track.label().value(), "SoundHandler");
+  EXPECT_EQ(audio_track.language().value(), "und");
 }
 
 TEST_F(MP4StreamParserTest, TextTrackDetection) {
@@ -681,34 +720,35 @@ TEST_F(MP4StreamParserTest, MultiTrackFile) {
   const MediaTrack& video_track1 = *(media_tracks_->tracks()[0]);
   EXPECT_EQ(video_track1.type(), MediaTrack::Video);
   EXPECT_EQ(video_track1.bytestream_track_id(), 1);
-  EXPECT_EQ(video_track1.kind(), "main");
-  EXPECT_EQ(video_track1.label(), "VideoHandler");
-  EXPECT_EQ(video_track1.language(), "und");
+  EXPECT_EQ(video_track1.kind().value(), "main");
+  EXPECT_EQ(video_track1.label().value(), "VideoHandler");
+  EXPECT_EQ(video_track1.language().value(), "und");
 
   const MediaTrack& audio_track1 = *(media_tracks_->tracks()[1]);
   EXPECT_EQ(audio_track1.type(), MediaTrack::Audio);
   EXPECT_EQ(audio_track1.bytestream_track_id(), 2);
-  EXPECT_EQ(audio_track1.kind(), "main");
-  EXPECT_EQ(audio_track1.label(), "SoundHandler");
-  EXPECT_EQ(audio_track1.language(), "und");
+  EXPECT_EQ(audio_track1.kind().value(), "main");
+  EXPECT_EQ(audio_track1.label().value(), "SoundHandler");
+  EXPECT_EQ(audio_track1.language().value(), "und");
 
   const MediaTrack& video_track2 = *(media_tracks_->tracks()[2]);
   EXPECT_EQ(video_track2.type(), MediaTrack::Video);
   EXPECT_EQ(video_track2.bytestream_track_id(), 3);
-  EXPECT_EQ(video_track2.kind(), "");
-  EXPECT_EQ(video_track2.label(), "VideoHandler");
-  EXPECT_EQ(video_track2.language(), "und");
+  EXPECT_EQ(video_track2.kind().value(), "");
+  EXPECT_EQ(video_track2.label().value(), "VideoHandler");
+  EXPECT_EQ(video_track2.language().value(), "und");
 
   const MediaTrack& audio_track2 = *(media_tracks_->tracks()[3]);
   EXPECT_EQ(audio_track2.type(), MediaTrack::Audio);
   EXPECT_EQ(audio_track2.bytestream_track_id(), 4);
-  EXPECT_EQ(audio_track2.kind(), "");
-  EXPECT_EQ(audio_track2.label(), "SoundHandler");
-  EXPECT_EQ(audio_track2.language(), "und");
+  EXPECT_EQ(audio_track2.kind().value(), "");
+  EXPECT_EQ(audio_track2.label().value(), "SoundHandler");
+  EXPECT_EQ(audio_track2.language().value(), "und");
 }
 
 // <cos(θ), sin(θ), θ expressed as a rotation Enum>
-using MatrixRotationTestCaseParam = std::tuple<double, double, VideoRotation>;
+using MatrixRotationTestCaseParam =
+    std::tuple<double, double, VideoTransformation>;
 
 class MP4StreamParserRotationMatrixEvaluatorTest
     : public ::testing::TestWithParam<MatrixRotationTestCaseParam> {
@@ -741,21 +781,27 @@ TEST_P(MP4StreamParserRotationMatrixEvaluatorTest, RotationCalculation) {
   track_header.display_matrix[1] = -(std::get<1>(data) * (1 << 16));
   track_header.display_matrix[3] = std::get<1>(data) * (1 << 16);
 
-  EXPECT_EQ(parser_->CalculateRotation(track_header, movie_header),
-            std::get<2>(data));
+  VideoTransformation expected = std::get<2>(data);
+  VideoTransformation actual =
+      parser_->CalculateRotation(track_header, movie_header);
+  EXPECT_EQ(actual.rotation, expected.rotation);
+  EXPECT_EQ(actual.mirrored, expected.mirrored);
 }
 
 MatrixRotationTestCaseParam rotation_test_cases[6] = {
-    {1, 0, VIDEO_ROTATION_0},     // cos(0)  = 1, sin(0)  = 0
-    {0, -1, VIDEO_ROTATION_90},   // cos(90) = 0, sin(90) =-1
-    {-1, 0, VIDEO_ROTATION_180},  // cos(180)=-1, sin(180)= 0
-    {0, 1, VIDEO_ROTATION_270},   // cos(270)= 0, sin(270)= 1
-    {1, 1, VIDEO_ROTATION_0},     // Error case
-    {5, 5, VIDEO_ROTATION_0},     // Error case
+    {1, 0, VideoTransformation(VIDEO_ROTATION_0)},  // cos(0)  = 1, sin(0)  = 0
+    {0, -1,
+     VideoTransformation(VIDEO_ROTATION_90)},  // cos(90) = 0, sin(90) =-1
+    {-1, 0,
+     VideoTransformation(VIDEO_ROTATION_180)},  // cos(180)=-1, sin(180)= 0
+    {0, 1,
+     VideoTransformation(VIDEO_ROTATION_270)},      // cos(270)= 0, sin(270)= 1
+    {1, 1, VideoTransformation(VIDEO_ROTATION_0)},  // Error case
+    {5, 5, VideoTransformation(VIDEO_ROTATION_0)},  // Error case
 };
-INSTANTIATE_TEST_CASE_P(CheckMath,
-                        MP4StreamParserRotationMatrixEvaluatorTest,
-                        testing::ValuesIn(rotation_test_cases));
+INSTANTIATE_TEST_SUITE_P(CheckMath,
+                         MP4StreamParserRotationMatrixEvaluatorTest,
+                         testing::ValuesIn(rotation_test_cases));
 
 }  // namespace mp4
 }  // namespace media

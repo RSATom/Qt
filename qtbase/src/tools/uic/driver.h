@@ -56,8 +56,8 @@ public:
 
     // tools
     bool printDependencies(const QString &fileName);
-    bool uic(const QString &fileName, QTextStream *output = 0);
-    bool uic(const QString &fileName, DomUI *ui, QTextStream *output = 0);
+    bool uic(const QString &fileName, QTextStream *output = nullptr);
+    bool uic(const QString &fileName, DomUI *ui, QTextStream *output = nullptr);
 
     // configuration
     inline QTextStream &output() const { return *m_output; }
@@ -84,18 +84,28 @@ public:
     // Find a group by its non-uniqified name
     const DomButtonGroup *findButtonGroup(const QString &attributeName) const;
 
-    const DomWidget *widgetByName(const QString &name) const;
-    const DomActionGroup *actionGroupByName(const QString &name) const;
-    const DomAction *actionByName(const QString &name) const;
+    const DomWidget *widgetByName(const QString &attributeName) const;
+    QString widgetVariableName(const QString &attributeName) const;
+    const DomActionGroup *actionGroupByName(const QString &attributeName) const;
+    const DomAction *actionByName(const QString &attributeName) const;
 
     bool useIdBasedTranslations() const { return m_idBasedTranslations; }
     void setUseIdBasedTranslations(bool u) { m_idBasedTranslations = u; }
 
 private:
     template <class DomClass> using DomObjectHash = QHash<const DomClass *, QString>;
+    template <class DomClass> using DomObjectHashConstIt =
+        typename DomObjectHash<DomClass>::ConstIterator;
 
     template <class DomClass>
-    QString findOrInsert(DomObjectHash<DomClass> *domHash, const DomClass *dom, const QString &className);
+    DomObjectHashConstIt<DomClass> findByAttributeNameIt(const DomObjectHash<DomClass> &domHash,
+                                                         const QString &name) const;
+    template <class DomClass>
+    const DomClass *findByAttributeName(const DomObjectHash<DomClass> &domHash,
+                                        const QString &name) const;
+    template <class DomClass>
+    QString findOrInsert(DomObjectHash<DomClass> *domHash, const DomClass *dom, const QString &className,
+                         bool isMember = true);
 
     Option m_option;
     QTextStream m_stdout;

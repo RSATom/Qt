@@ -27,7 +27,8 @@ void AddHitTestRegion(const FrameSinkId& frame_sink_id,
                       const gfx::Rect& visible_rect,
                       const gfx::Transform& hit_test_region_transform,
                       std::vector<HitTestRegion>* regions,
-                      bool should_ask_for_child_region) {
+                      bool should_ask_for_child_region,
+                      bool ignores_input_event) {
   regions->emplace_back();
   HitTestRegion* hit_test_region = &regions->back();
   hit_test_region->frame_sink_id = frame_sink_id;
@@ -39,6 +40,8 @@ void AddHitTestRegion(const FrameSinkId& frame_sink_id,
     hit_test_region->async_hit_test_reasons =
         AsyncHitTestReasons::kUseDrawQuadData;
   }
+  if (ignores_input_event)
+    hit_test_region->flags |= HitTestRegionFlags::kHitTestIgnore;
   hit_test_region->rect = visible_rect;
   hit_test_region->transform = hit_test_region_transform;
 }
@@ -78,10 +81,25 @@ std::vector<gfx::Rect> ExtractAlphaRects(
   return filter_regions;
 }
 
-void AddHitTestDataFromRenderPass(const CompositorFrame& frame,
-                                  RenderPassId render_pass_id,
-                                  std::vector<HitTestRegion>* regions,
-                                  bool should_ask_for_child_region) {
+void AddHitTestDataFromRenderPass(
+    const CompositorFrame& frame,
+    RenderPassId render_pass_id,
+    std::vector<HitTestRegion>* regions,
+    bool should_ask_for_child_region,
+    base::flat_map<RenderPassId, std::pair<uint32_t, uint32_t>>*
+        render_pass_hit_test_region_list) {
+  if (render_pass_hit_test_region_list->count(render_pass_id)) {
+    const auto& list_range =
+        render_pass_hit_test_region_list->find(render_pass_id)->second;
+    const uint32_t start = list_range.first;
+    const uint32_t end = list_range.second;
+    if (start >= end || regions->size() < end)
+      return;
+    regions->insert(regions->end(), regions->begin() + start,
+                    regions->begin() + end);
+    return;
+  }
+
   const RenderPass* render_pass = GetRenderPassInFrame(frame, render_pass_id);
   if (!render_pass)
     return;
@@ -96,13 +114,10 @@ void AddHitTestDataFromRenderPass(const CompositorFrame& frame,
     return;
   }
 
+  const uint32_t render_pass_hit_test_region_list_start = regions->size();
   for (const DrawQuad* quad : render_pass->quad_list) {
-    if (quad->material == DrawQuad::SURFACE_CONTENT) {
+    if (quad->material == DrawQuad::Material::kSurfaceContent) {
       const SurfaceDrawQuad* surface_quad = SurfaceDrawQuad::MaterialCast(quad);
-
-      // Skip the quad if it has pointer-events:none set.
-      if (surface_quad->ignores_input_event)
-        continue;
 
       // Skip the quad if the transform is not invertible (i.e. it will not
       // be able to receive events).
@@ -126,21 +141,28 @@ void AddHitTestDataFromRenderPass(const CompositorFrame& frame,
       if (filter_regions.empty()) {
         AddHitTestRegion(surface_quad->surface_range.end().frame_sink_id(),
                          surface_quad->rect, hit_test_region_transform, regions,
-                         should_ask_for_child_region);
+                         should_ask_for_child_region,
+                         surface_quad->ignores_input_event);
       } else {
         for (const auto& filter_region : filter_regions) {
           AddHitTestRegion(surface_quad->surface_range.end().frame_sink_id(),
                            filter_region, hit_test_region_transform, regions,
-                           should_ask_for_child_region);
+                           should_ask_for_child_region,
+                           surface_quad->ignores_input_event);
         }
       }
-    } else if (quad->material == DrawQuad::RENDER_PASS) {
+    } else if (quad->material == DrawQuad::Material::kRenderPass) {
       const RenderPassDrawQuad* render_quad =
           RenderPassDrawQuad::MaterialCast(quad);
       AddHitTestDataFromRenderPass(frame, render_quad->render_pass_id, regions,
-                                   should_ask_for_child_region);
+                                   should_ask_for_child_region,
+                                   render_pass_hit_test_region_list);
     }
   }
+  const uint32_t render_pass_hit_test_region_list_end = regions->size();
+  render_pass_hit_test_region_list->emplace(
+      render_pass_id, std::make_pair(render_pass_hit_test_region_list_start,
+                                     render_pass_hit_test_region_list_end));
 }
 
 }  // namespace
@@ -156,9 +178,12 @@ base::Optional<HitTestRegionList> HitTestDataBuilder::CreateHitTestData(
                            : HitTestRegionFlags::kHitTestIgnore) |
       HitTestRegionFlags::kHitTestMouse | HitTestRegionFlags::kHitTestTouch;
   hit_test_region_list->bounds.set_size(compositor_frame.size_in_pixels());
+  base::flat_map<RenderPassId, std::pair<uint32_t, uint32_t>>
+      render_pass_hit_test_region_list_cache;
   AddHitTestDataFromRenderPass(
       compositor_frame, compositor_frame.render_pass_list.back()->id,
-      &hit_test_region_list->regions, should_ask_for_child_region);
+      &hit_test_region_list->regions, should_ask_for_child_region,
+      &render_pass_hit_test_region_list_cache);
   return hit_test_region_list;
 }
 

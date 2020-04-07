@@ -195,12 +195,10 @@ public:
     {
         Q_ASSERT(layer);
         Q_ASSERT(m_nodeIterator != m_sceneGraphNodes->end());
-        QSGInternalImageNode *imageNode = static_cast<QSGInternalImageNode*>(*m_nodeIterator++);
-        imageNode->setTargetRect(rect);
-        imageNode->setInnerTargetRect(rect);
-        imageNode->setSubSourceRect(layer->convertToNormalizedSourceRect(sourceRect));
+        QSGImageNode *imageNode = static_cast<QSGImageNode*>(*m_nodeIterator++);
+        imageNode->setRect(rect);
+        imageNode->setSourceRect(sourceRect);
         imageNode->setTexture(layer);
-        imageNode->update();
     }
 
     void setupTextureContentNode(QSGTexture *texture, const QRect &rect, const QRectF &sourceRect,
@@ -281,13 +279,10 @@ public:
                              QSGNode *layerChain) override
     {
         Q_ASSERT(layer);
-        // Only QSGInternalImageNode currently supports QSGLayer textures.
-        QSGInternalImageNode *imageNode = m_apiDelegate->createInternalImageNode();
-        imageNode->setTargetRect(rect);
-        imageNode->setInnerTargetRect(rect);
-        imageNode->setSubSourceRect(layer->convertToNormalizedSourceRect(sourceRect));
+        QSGImageNode *imageNode = m_apiDelegate->createImageNode();
+        imageNode->setRect(rect);
+        imageNode->setSourceRect(sourceRect);
         imageNode->setTexture(layer);
-        imageNode->update();
 
         layerChain->appendChildNode(imageNode);
         m_sceneGraphNodes->append(imageNode);
@@ -575,10 +570,10 @@ static bool areRenderPassStructuresEqual(const viz::CompositorFrame *frameData,
             if (quad->material != prevQuad->material)
                 return false;
 #ifndef QT_NO_OPENGL
-            if (quad->material == viz::DrawQuad::YUV_VIDEO_CONTENT)
+            if (quad->material == viz::DrawQuad::Material::kYuvVideoContent)
                 return false;
 #ifdef GL_OES_EGL_image_external
-            if (quad->material == viz::DrawQuad::STREAM_VIDEO_CONTENT)
+            if (quad->material == viz::DrawQuad::Material::kStreamVideoContent)
                 return false;
 #endif // GL_OES_EGL_image_external
 #endif // QT_NO_OPENGL
@@ -845,7 +840,7 @@ void DelegatedFrameNode::handleQuad(
     RenderWidgetHostViewQtDelegate *apiDelegate)
 {
     switch (quad->material) {
-    case viz::DrawQuad::RENDER_PASS: {
+    case viz::DrawQuad::Material::kRenderPass: {
         const viz::RenderPassDrawQuad *renderPassQuad = viz::RenderPassDrawQuad::MaterialCast(quad);
         if (!renderPassQuad->mask_texture_size.IsEmpty()) {
             const CompositorResource *resource = findAndHoldResource(renderPassQuad->mask_resource_id(), resourceTracker);
@@ -859,11 +854,11 @@ void DelegatedFrameNode::handleQuad(
 
         break;
     }
-    case viz::DrawQuad::TEXTURE_CONTENT: {
+    case viz::DrawQuad::Material::kTextureContent: {
         const viz::TextureDrawQuad *tquad = viz::TextureDrawQuad::MaterialCast(quad);
         const CompositorResource *resource = findAndHoldResource(tquad->resource_id(), resourceTracker);
         QSGTexture *texture =
-            initAndHoldTexture(resource, quad->ShouldDrawWithBlending(), apiDelegate);
+            initAndHoldTexture(resource, quad->ShouldDrawWithBlending(true), apiDelegate);
         QSizeF textureSize;
         if (texture)
             textureSize = texture->textureSize();
@@ -877,7 +872,7 @@ void DelegatedFrameNode::handleQuad(
             currentLayerChain);
         break;
     }
-    case viz::DrawQuad::SOLID_COLOR: {
+    case viz::DrawQuad::Material::kSolidColor: {
         const viz::SolidColorDrawQuad *scquad = viz::SolidColorDrawQuad::MaterialCast(quad);
         // Qt only supports MSAA and this flag shouldn't be needed.
         // If we ever want to use QSGRectangleNode::setAntialiasing for this we should
@@ -887,7 +882,7 @@ void DelegatedFrameNode::handleQuad(
         break;
 #ifndef QT_NO_OPENGL
     }
-    case viz::DrawQuad::DEBUG_BORDER: {
+    case viz::DrawQuad::Material::kDebugBorder: {
         const viz::DebugBorderDrawQuad *dbquad = viz::DebugBorderDrawQuad::MaterialCast(quad);
 
         QSGGeometry *geometry = new QSGGeometry(QSGGeometry::defaultAttributes_Point2D(), 4);
@@ -910,17 +905,17 @@ void DelegatedFrameNode::handleQuad(
         break;
 #endif
     }
-    case viz::DrawQuad::TILED_CONTENT: {
+    case viz::DrawQuad::Material::kTiledContent: {
         const viz::TileDrawQuad *tquad = viz::TileDrawQuad::MaterialCast(quad);
         const CompositorResource *resource = findAndHoldResource(tquad->resource_id(), resourceTracker);
         nodeHandler->setupTextureContentNode(
-            initAndHoldTexture(resource, quad->ShouldDrawWithBlending(), apiDelegate),
+            initAndHoldTexture(resource, quad->ShouldDrawWithBlending(true), apiDelegate),
             toQt(quad->rect), toQt(tquad->tex_coord_rect),
             QSGImageNode::NoTransform, currentLayerChain);
         break;
 #ifndef QT_NO_OPENGL
     }
-    case viz::DrawQuad::YUV_VIDEO_CONTENT: {
+    case viz::DrawQuad::Material::kYuvVideoContent: {
         const viz::YUVVideoDrawQuad *vquad = viz::YUVVideoDrawQuad::MaterialCast(quad);
         const CompositorResource *yResource =
             findAndHoldResource(vquad->y_plane_resource_id(), resourceTracker);
@@ -935,10 +930,10 @@ void DelegatedFrameNode::handleQuad(
             aResource = findAndHoldResource(vquad->a_plane_resource_id(), resourceTracker);
 
         nodeHandler->setupYUVVideoNode(
-            initAndHoldTexture(yResource, quad->ShouldDrawWithBlending()),
-            initAndHoldTexture(uResource, quad->ShouldDrawWithBlending()),
-            initAndHoldTexture(vResource, quad->ShouldDrawWithBlending()),
-            aResource ? initAndHoldTexture(aResource, quad->ShouldDrawWithBlending()) : 0,
+            initAndHoldTexture(yResource, quad->ShouldDrawWithBlending(true)),
+            initAndHoldTexture(uResource, quad->ShouldDrawWithBlending(true)),
+            initAndHoldTexture(vResource, quad->ShouldDrawWithBlending(true)),
+            aResource ? initAndHoldTexture(aResource, quad->ShouldDrawWithBlending(true)) : 0,
             toQt(vquad->ya_tex_coord_rect), toQt(vquad->uv_tex_coord_rect),
             toQt(vquad->ya_tex_size), toQt(vquad->uv_tex_size), vquad->video_color_space,
             vquad->resource_multiplier, vquad->resource_offset, toQt(quad->rect),
@@ -946,23 +941,23 @@ void DelegatedFrameNode::handleQuad(
         break;
 #ifdef GL_OES_EGL_image_external
     }
-    case viz::DrawQuad::STREAM_VIDEO_CONTENT: {
+    case viz::DrawQuad::Material::kStreamVideoContent: {
         const viz::StreamVideoDrawQuad *squad = viz::StreamVideoDrawQuad::MaterialCast(quad);
         const CompositorResource *resource = findAndHoldResource(squad->resource_id(), resourceTracker);
         MailboxTexture *texture = static_cast<MailboxTexture *>(
-            initAndHoldTexture(resource, quad->ShouldDrawWithBlending(), apiDelegate, GL_TEXTURE_EXTERNAL_OES));
+            initAndHoldTexture(resource, quad->ShouldDrawWithBlending(true), apiDelegate, GL_TEXTURE_EXTERNAL_OES));
 
         QMatrix4x4 qMatrix;
-        convertToQt(squad->matrix.matrix(), qMatrix);
+//        convertToQt(squad->matrix.matrix(), qMatrix);
         nodeHandler->setupStreamVideoNode(texture, toQt(squad->rect), qMatrix, currentLayerChain);
         break;
 #endif // GL_OES_EGL_image_external
 #endif // QT_NO_OPENGL
     }
-    case viz::DrawQuad::SURFACE_CONTENT:
+    case viz::DrawQuad::Material::kSurfaceContent:
         Q_UNREACHABLE();
     default:
-        qWarning("Unimplemented quad material: %d", quad->material);
+        qWarning("Unimplemented quad material: %d", (int)quad->material);
     }
 }
 

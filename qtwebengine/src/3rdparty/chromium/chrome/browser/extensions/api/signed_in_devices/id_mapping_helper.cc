@@ -12,7 +12,7 @@
 #include "chrome/browser/extensions/api/signed_in_devices/signed_in_devices_api.h"
 #include "chrome/browser/profiles/profile.h"
 #include "components/crx_file/id_util.h"
-#include "components/sync/device_info/device_info.h"
+#include "components/sync_device_info/device_info.h"
 
 using base::DictionaryValue;
 using base::Value;
@@ -60,7 +60,7 @@ std::string GetRandomId(
   const base::Value *out_value;
 
   do {
-    string_value = base::IntToString(rand_value);
+    string_value = base::NumberToString(rand_value);
     rand_value++;
   } while (mapping.Get(string_value, &out_value));
 

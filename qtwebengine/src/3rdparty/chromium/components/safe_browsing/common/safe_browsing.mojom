@@ -95,6 +95,8 @@ struct ThreatDOMDetailsNode {
   // routing ID of the local or remote frame in this renderer process that is
   // responsible for rendering the contents of this frame (to handle OOPIFs).
   int32 child_frame_routing_id;
+  // This field holds inline JavaScript content and remotely hosted scripts.
+  string inner_html;
 };
 
 interface ThreatReporter {
@@ -107,18 +109,10 @@ interface ThreatReporter {
 [EnableIf=full_safe_browsing]
 interface PhishingDetector {
   // Tells the renderer to begin phishing detection for the given toplevel URL
-  // which it has started loading
-  StartPhishingDetection(url.mojom.Url url);
-};
-
-[EnableIf=full_safe_browsing]
-interface PhishingDetectorClient {
-  // Inform the browser that the client-side phishing detector running in the
-  // renderer is done classifying the current URL.  If the URL is phishing
-  // the request proto will have |is_phishing()| set to true.
-  // TODO(noelutz): we may want to create custom ParamTraits for MessageLite to
-  // have a generic way to send protocol messages over IPC.
-  PhishingDetectionDone(string request_proto);
+  // which it has started loading. Returns the serialized request proto. If
+  // the URL is phishing the request proto will have |is_phishing()| set to
+  // true.
+  StartPhishingDetection(url.mojom.Url url) => (string request_proto);
 };
 
 interface PhishingModelSetter {

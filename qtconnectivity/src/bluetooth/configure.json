@@ -2,6 +2,12 @@
     "module": "bluetooth",
     "testDir": "../../config.tests",
 
+    "commandline": {
+        "options": {
+            "native-win32-bluetooth": "boolean"
+        }
+    },
+
     "libraries": {
         "bluez": {
             "label": "BlueZ",
@@ -52,9 +58,16 @@
             "condition": "features.bluez_le && tests.linux_crypto_api",
             "output": [ "privateFeature" ]
         },
+        "native-win32-bluetooth": {
+            "label": "Native Win32 Bluetooth",
+            "purpose": "Uses the native Win32 Bluetooth backend.",
+            "section": "Qt Bluetooth",
+            "autoDetect": false,
+            "output": [ "publicFeature", "feature" ]
+        },
         "winrt_bt": {
             "label": "WinRT Bluetooth API (desktop & UWP)",
-            "condition": "config.win32 && tests.winrt_bt",
+            "condition": "config.win32 && !features.native-win32-bluetooth && tests.winrt_bt",
             "output": [ "privateFeature" ]
         },
         "winrt_btle_no_pairing": {
@@ -85,6 +98,7 @@ Only classic Bluetooth will be available."
                 "bluez",
                 "bluez_le",
                 "linux_crypto_api",
+                "native-win32-bluetooth",
                 "winrt_bt",
                 "winrt_btle_no_pairing"
             ]

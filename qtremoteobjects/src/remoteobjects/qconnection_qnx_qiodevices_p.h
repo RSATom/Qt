@@ -78,6 +78,7 @@ public:
     void stopThread();
     QString serverName;
     int serverId, channelId, connectionId;
+    sigevent tx_pulse;
     QAbstractSocket::SocketState state;
     QScopedPointer<QRingBuffer> obuffer;
     MsgType msgType;

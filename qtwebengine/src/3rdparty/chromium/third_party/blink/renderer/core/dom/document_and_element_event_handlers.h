@@ -6,7 +6,7 @@
 #define THIRD_PARTY_BLINK_RENDERER_CORE_DOM_DOCUMENT_AND_ELEMENT_EVENT_HANDLERS_H_
 
 #include "third_party/blink/renderer/core/dom/events/event_target.h"
-#include "third_party/blink/renderer/platform/wtf/allocator.h"
+#include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 
 namespace blink {
 
@@ -14,9 +14,9 @@ class DocumentAndElementEventHandlers {
   STATIC_ONLY(DocumentAndElementEventHandlers);
 
  public:
-  DEFINE_STATIC_ATTRIBUTE_EVENT_LISTENER(copy, kCopy);
-  DEFINE_STATIC_ATTRIBUTE_EVENT_LISTENER(cut, kCut);
-  DEFINE_STATIC_ATTRIBUTE_EVENT_LISTENER(paste, kPaste);
+  DEFINE_STATIC_ATTRIBUTE_EVENT_LISTENER(copy, kCopy)
+  DEFINE_STATIC_ATTRIBUTE_EVENT_LISTENER(cut, kCut)
+  DEFINE_STATIC_ATTRIBUTE_EVENT_LISTENER(paste, kPaste)
 };
 
 }  // namespace blink

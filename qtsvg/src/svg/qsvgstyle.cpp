@@ -126,7 +126,7 @@ void QSvgFillStyle::setFillStyle(QSvgFillStyleProperty* style)
 
 void QSvgFillStyle::setBrush(QBrush brush)
 {
-    m_fill = brush;
+    m_fill = std::move(brush);
     m_style = 0;
     m_fillSet = 1;
 }
@@ -232,7 +232,7 @@ void QSvgFontStyle::apply(QPainter *p, const QSvgNode *, QSvgExtraStates &states
     QFont font = m_oldQFont;
     if (m_familySet) {
         states.svgFont = m_svgFont;
-        font.setFamily(m_qfont.family());
+        font.setFamilies(m_qfont.families());
     }
 
     if (m_sizeSet)

@@ -58,7 +58,7 @@ namespace qdesigner_internal {
 class QDESIGNER_SHARED_EXPORT QDesignerDnDItem: public QDesignerDnDItemInterface
 {
 public:
-    explicit QDesignerDnDItem(DropType type, QWidget *source = 0);
+    explicit QDesignerDnDItem(DropType type, QWidget *source = nullptr);
     ~QDesignerDnDItem() override;
 
     DomUI *domUi() const override;
@@ -82,7 +82,7 @@ private:
     QWidget *m_decoration;
     QPoint m_hot_spot;
 
-    Q_DISABLE_COPY(QDesignerDnDItem)
+    Q_DISABLE_COPY_MOVE(QDesignerDnDItem)
 };
 
 // Mime data for use with designer drag and drop operations.
@@ -91,7 +91,7 @@ class  QDESIGNER_SHARED_EXPORT QDesignerMimeData : public QMimeData {
     Q_OBJECT
 
 public:
-    typedef QList<QDesignerDnDItemInterface *> QDesignerDnDItems;
+    using QDesignerDnDItems = QList<QDesignerDnDItemInterface *>;
 
     ~QDesignerMimeData() override;
 

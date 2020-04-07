@@ -46,15 +46,6 @@ class ExtensionActionAPI : public BrowserContextKeyedAPI {
         content::WebContents* web_contents,
         content::BrowserContext* browser_context);
 
-    // Called when there is a change to the extension action's visibility.
-    virtual void OnExtensionActionVisibilityChanged(
-        const std::string& extension_id,
-        bool is_now_visible);
-
-    // Called when the page actions have been refreshed do to a possible change
-    // in count or visibility.
-    virtual void OnPageActionsUpdated(content::WebContents* web_contents);
-
     // Called when the ExtensionActionAPI is shutting down, giving observers a
     // chance to unregister themselves if there is not a definitive lifecycle.
     virtual void OnExtensionActionAPIShuttingDown();
@@ -101,10 +92,6 @@ class ExtensionActionAPI : public BrowserContextKeyedAPI {
   // Clears the values for all ExtensionActions for the tab associated with the
   // given |web_contents| (and signals that page actions changed).
   void ClearAllValuesForTab(content::WebContents* web_contents);
-
-  // Notifies that the current set of page actions for |web_contents| has
-  // changed, and signals the browser to update.
-  void NotifyPageActionsChanged(content::WebContents* web_contents);
 
   void set_prefs_for_testing(ExtensionPrefs* prefs) {
     extension_prefs_ = prefs;
@@ -261,6 +248,102 @@ class ExtensionActionGetBadgeBackgroundColorFunction
  protected:
   ~ExtensionActionGetBadgeBackgroundColorFunction() override {}
   ResponseAction RunExtensionAction() override;
+};
+
+//
+// action.* aliases for supported action APIs.
+//
+
+class ActionSetIconFunction : public ExtensionActionSetIconFunction {
+ public:
+  DECLARE_EXTENSION_FUNCTION("action.setIcon", ACTION_SETICON)
+
+ protected:
+  ~ActionSetIconFunction() override {}
+};
+
+class ActionGetPopupFunction : public ExtensionActionGetPopupFunction {
+ public:
+  DECLARE_EXTENSION_FUNCTION("action.getPopup", ACTION_GETPOPUP)
+
+ protected:
+  ~ActionGetPopupFunction() override {}
+};
+
+class ActionSetPopupFunction : public ExtensionActionSetPopupFunction {
+ public:
+  DECLARE_EXTENSION_FUNCTION("action.setPopup", ACTION_SETPOPUP)
+
+ protected:
+  ~ActionSetPopupFunction() override {}
+};
+
+class ActionGetTitleFunction : public ExtensionActionGetTitleFunction {
+ public:
+  DECLARE_EXTENSION_FUNCTION("action.getTitle", ACTION_GETTITLE)
+
+ protected:
+  ~ActionGetTitleFunction() override {}
+};
+
+class ActionSetTitleFunction : public ExtensionActionSetTitleFunction {
+ public:
+  DECLARE_EXTENSION_FUNCTION("action.setTitle", ACTION_SETTITLE)
+
+ protected:
+  ~ActionSetTitleFunction() override {}
+};
+
+class ActionGetBadgeTextFunction : public ExtensionActionGetBadgeTextFunction {
+ public:
+  DECLARE_EXTENSION_FUNCTION("action.getBadgeText", ACTION_GETBADGETEXT)
+
+ protected:
+  ~ActionGetBadgeTextFunction() override {}
+};
+
+class ActionSetBadgeTextFunction : public ExtensionActionSetBadgeTextFunction {
+ public:
+  DECLARE_EXTENSION_FUNCTION("action.setBadgeText", ACTION_SETBADGETEXT)
+
+ protected:
+  ~ActionSetBadgeTextFunction() override {}
+};
+
+class ActionGetBadgeBackgroundColorFunction
+    : public ExtensionActionGetBadgeBackgroundColorFunction {
+ public:
+  DECLARE_EXTENSION_FUNCTION("action.getBadgeBackgroundColor",
+                             ACTION_GETBADGEBACKGROUNDCOLOR)
+
+ protected:
+  ~ActionGetBadgeBackgroundColorFunction() override {}
+};
+
+class ActionSetBadgeBackgroundColorFunction
+    : public ExtensionActionSetBadgeBackgroundColorFunction {
+ public:
+  DECLARE_EXTENSION_FUNCTION("action.setBadgeBackgroundColor",
+                             ACTION_SETBADGEBACKGROUNDCOLOR)
+
+ protected:
+  ~ActionSetBadgeBackgroundColorFunction() override {}
+};
+
+class ActionEnableFunction : public ExtensionActionShowFunction {
+ public:
+  DECLARE_EXTENSION_FUNCTION("action.enable", ACTION_ENABLE)
+
+ protected:
+  ~ActionEnableFunction() override {}
+};
+
+class ActionDisableFunction : public ExtensionActionHideFunction {
+ public:
+  DECLARE_EXTENSION_FUNCTION("action.disable", ACTION_DISABLE)
+
+ protected:
+  ~ActionDisableFunction() override {}
 };
 
 //

@@ -22,8 +22,7 @@ AudioDebugRecordingHelper::AudioDebugRecordingHelper(
     : params_(params),
       recording_enabled_(0),
       task_runner_(std::move(task_runner)),
-      on_destruction_closure_(std::move(on_destruction_closure)),
-      weak_factory_(this) {}
+      on_destruction_closure_(std::move(on_destruction_closure)) {}
 
 AudioDebugRecordingHelper::~AudioDebugRecordingHelper() {
   if (on_destruction_closure_)
@@ -97,8 +96,8 @@ void AudioDebugRecordingHelper::OnData(const AudioBus* source) {
 
   task_runner_->PostTask(
       FROM_HERE,
-      base::Bind(&AudioDebugRecordingHelper::DoWrite,
-                 weak_factory_.GetWeakPtr(), base::Passed(&audio_bus_copy)));
+      base::BindOnce(&AudioDebugRecordingHelper::DoWrite,
+                     weak_factory_.GetWeakPtr(), std::move(audio_bus_copy)));
 }
 
 void AudioDebugRecordingHelper::DoWrite(std::unique_ptr<media::AudioBus> data) {

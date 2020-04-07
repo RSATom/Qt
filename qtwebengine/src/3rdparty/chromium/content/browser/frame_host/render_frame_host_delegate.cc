@@ -10,6 +10,7 @@
 #include "content/browser/frame_host/render_frame_host_delegate.h"
 #include "content/public/browser/file_select_listener.h"
 #include "ipc/ipc_message.h"
+#include "third_party/blink/public/mojom/mediastream/media_stream.mojom-shared.h"
 #include "ui/gfx/native_widget_types.h"
 #include "url/gurl.h"
 #include "url/origin.h"
@@ -27,7 +28,7 @@ const GURL& RenderFrameHostDelegate::GetMainFrameLastCommittedURL() {
 }
 
 bool RenderFrameHostDelegate::DidAddMessageToConsole(
-    int32_t level,
+    blink::mojom::ConsoleMessageLevel log_level,
     const base::string16& message,
     int32_t line_no,
     const base::string16& source_id) {
@@ -62,21 +63,21 @@ void RenderFrameHostDelegate::RequestMediaAccessPermission(
   LOG(ERROR) << "RenderFrameHostDelegate::RequestMediaAccessPermission: "
              << "Not supported.";
   std::move(callback).Run(blink::MediaStreamDevices(),
-                          blink::MEDIA_DEVICE_NOT_SUPPORTED,
+                          blink::mojom::MediaStreamRequestResult::NOT_SUPPORTED,
                           std::unique_ptr<MediaStreamUI>());
 }
 
 bool RenderFrameHostDelegate::CheckMediaAccessPermission(
     RenderFrameHost* render_frame_host,
     const url::Origin& security_origin,
-    blink::MediaStreamType type) {
+    blink::mojom::MediaStreamType type) {
   LOG(ERROR) << "RenderFrameHostDelegate::CheckMediaAccessPermission: "
              << "Not supported.";
   return false;
 }
 
 std::string RenderFrameHostDelegate::GetDefaultMediaDeviceID(
-    blink::MediaStreamType type) {
+    blink::mojom::MediaStreamType type) {
   return std::string();
 }
 
@@ -92,10 +93,6 @@ RenderFrameHost* RenderFrameHostDelegate::GetGuestByInstanceID(
 
 device::mojom::GeolocationContext*
 RenderFrameHostDelegate::GetGeolocationContext() {
-  return nullptr;
-}
-
-device::mojom::WakeLock* RenderFrameHostDelegate::GetRendererWakeLock() {
   return nullptr;
 }
 
@@ -145,6 +142,11 @@ Visibility RenderFrameHostDelegate::GetVisibility() {
 ukm::SourceId RenderFrameHostDelegate::GetUkmSourceIdForLastCommittedSource()
     const {
   return ukm::kInvalidSourceId;
+}
+
+RenderFrameHostImpl* RenderFrameHostDelegate::GetMainFrameForInnerDelegate(
+    FrameTreeNode* frame_tree_node) {
+  return nullptr;
 }
 
 }  // namespace content

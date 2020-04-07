@@ -13,8 +13,9 @@
 #include <set>
 #include <vector>
 
+#include "build/build_config.h"
 #include "core/fxcrt/fx_extension.h"
-#include "core/fxcrt/observable.h"
+#include "core/fxcrt/observed_ptr.h"
 #include "core/fxcrt/retain_ptr.h"
 #include "core/fxge/fx_freetype.h"
 #include "core/fxge/systemfontinfo_iface.h"
@@ -25,7 +26,7 @@ class CFX_FontMapper;
 class CFX_FontSourceEnum_File;
 class IFX_SeekableReadStream;
 
-#if _FX_PLATFORM_ == _FX_PLATFORM_WINDOWS_
+#if defined(OS_WIN)
 struct FX_FONTMATCHPARAMS {
   const wchar_t* pwsFamily;
   uint32_t dwFontStyles;
@@ -62,7 +63,7 @@ inline bool operator==(const FX_FONTDESCRIPTOR& left,
          wcscmp(left.wsFontFace, right.wsFontFace) == 0;
 }
 
-#else  // _FX_PLATFORM_ == _FX_PLATFORM_WINDOWS_
+#else  // defined(OS_WIN)
 
 class CFX_FontDescriptor {
  public:
@@ -93,9 +94,9 @@ class CFX_FontDescriptorInfo {
   }
 };
 
-#endif  // _FX_PLATFORM_ == _FX_PLATFORM_WINDOWS_
+#endif  // defined(OS_WIN)
 
-class CFGAS_FontMgr final : public Observable<CFGAS_FontMgr> {
+class CFGAS_FontMgr final : public Observable {
  public:
   CFGAS_FontMgr();
   ~CFGAS_FontMgr();
@@ -121,7 +122,7 @@ class CFGAS_FontMgr final : public Observable<CFGAS_FontMgr> {
                                                uint16_t wCodePage,
                                                uint16_t wBitField);
 
-#if _FX_PLATFORM_ == _FX_PLATFORM_WINDOWS_
+#if defined(OS_WIN)
   const FX_FONTDESCRIPTOR* FindFont(const wchar_t* pszFontFamily,
                                     uint32_t dwFontStyles,
                                     bool matchParagraphStyle,
@@ -129,10 +130,10 @@ class CFGAS_FontMgr final : public Observable<CFGAS_FontMgr> {
                                     uint32_t dwUSB,
                                     wchar_t wUnicode);
 
-#else   // _FX_PLATFORM_ == _FX_PLATFORM_WINDOWS_
+#else   // defined(OS_WIN)
   bool EnumFontsFromFontMapper();
   bool EnumFontsFromFiles();
-  void RegisterFace(FXFT_Face pFace, const WideString* pFaceName);
+  void RegisterFace(RetainPtr<CFX_Face> pFace, const WideString* pFaceName);
   void RegisterFaces(const RetainPtr<IFX_SeekableReadStream>& pFontStream,
                      const WideString* pFaceName);
   void MatchFonts(std::vector<CFX_FontDescriptorInfo>* MatchedFonts,
@@ -142,12 +143,12 @@ class CFGAS_FontMgr final : public Observable<CFGAS_FontMgr> {
                   wchar_t wcUnicode);
   RetainPtr<CFGAS_GEFont> LoadFontInternal(const WideString& wsFaceName,
                                            int32_t iFaceIndex);
-#endif  // _FX_PLATFORM_ == _FX_PLATFORM_WINDOWS_
+#endif  // defined(OS_WIN)
 
   std::map<uint32_t, std::vector<RetainPtr<CFGAS_GEFont>>> m_Hash2Fonts;
   std::set<wchar_t> m_FailedUnicodesSet;
 
-#if _FX_PLATFORM_ == _FX_PLATFORM_WINDOWS_
+#if defined(OS_WIN)
   std::deque<FX_FONTDESCRIPTOR> m_FontFaces;
 #else
   std::unique_ptr<CFX_FontSourceEnum_File> m_pFontSource;
@@ -156,7 +157,7 @@ class CFGAS_FontMgr final : public Observable<CFGAS_FontMgr> {
       m_Hash2CandidateList;
   std::map<RetainPtr<CFGAS_GEFont>, RetainPtr<IFX_SeekableReadStream>>
       m_IFXFont2FileRead;
-#endif  // _FX_PLATFORM_ == _FX_PLATFORM_WINDOWS_
+#endif  // defined(OS_WIN)
 };
 
 #endif  // XFA_FGAS_FONT_CFGAS_FONTMGR_H_

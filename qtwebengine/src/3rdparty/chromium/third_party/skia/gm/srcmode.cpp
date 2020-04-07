@@ -5,12 +5,27 @@
  * found in the LICENSE file.
  */
 
-#include "gm.h"
-#include "sk_tool_utils.h"
-#include "SkCanvas.h"
-#include "SkGradientShader.h"
-#include "SkPath.h"
-#include "SkSurface.h"
+#include "gm/gm.h"
+#include "include/core/SkBlendMode.h"
+#include "include/core/SkCanvas.h"
+#include "include/core/SkColor.h"
+#include "include/core/SkFont.h"
+#include "include/core/SkImageInfo.h"
+#include "include/core/SkPaint.h"
+#include "include/core/SkPath.h"
+#include "include/core/SkPoint.h"
+#include "include/core/SkRect.h"
+#include "include/core/SkRefCnt.h"
+#include "include/core/SkScalar.h"
+#include "include/core/SkShader.h"
+#include "include/core/SkSize.h"
+#include "include/core/SkString.h"
+#include "include/core/SkSurface.h"
+#include "include/core/SkTileMode.h"
+#include "include/core/SkTypeface.h"
+#include "include/core/SkTypes.h"
+#include "include/effects/SkGradientShader.h"
+#include "tools/ToolUtils.h"
 
 #define W   SkIntToScalar(80)
 #define H   SkIntToScalar(60)
@@ -25,7 +40,7 @@ static void gradient_paintproc(SkPaint* paint) {
     const SkColor colors[] = { SK_ColorGREEN, SK_ColorBLUE };
     const SkPoint pts[] = { { 0, 0 }, { W, H } };
     paint->setShader(SkGradientShader::MakeLinear(pts, colors, nullptr, SK_ARRAY_COUNT(colors),
-                                                  SkShader::kClamp_TileMode));
+                                                  SkTileMode::kClamp));
 }
 
 typedef void (*Proc)(SkCanvas*, const SkPaint&, const SkFont&);
@@ -56,25 +71,18 @@ static void draw_text(SkCanvas* canvas, const SkPaint& paint, const SkFont& font
 
 class SrcModeGM : public skiagm::GM {
     SkPath fPath;
-public:
-    SrcModeGM() {
-        this->setBGColor(SK_ColorBLACK);
-    }
 
-protected:
-    virtual SkString onShortName() {
-        return SkString("srcmode");
-    }
+    void onOnceBeforeDraw() override { this->setBGColor(SK_ColorBLACK); }
 
-    virtual SkISize onISize() {
-        return SkISize::Make(640, 760);
-    }
+    SkString onShortName() override { return SkString("srcmode"); }
+
+    SkISize onISize() override { return {640, 760}; }
 
     void drawContent(SkCanvas* canvas) {
         canvas->translate(SkIntToScalar(20), SkIntToScalar(20));
 
         SkPaint paint;
-        SkFont font(sk_tool_utils::create_portable_typeface(), H/4);
+        SkFont  font(ToolUtils::create_portable_typeface(), H / 4);
         paint.setColor(0x80F60000);
 
         const Proc procs[] = {
@@ -126,15 +134,12 @@ protected:
         return surface;
     }
 
-    virtual void onDraw(SkCanvas* canvas) {
+    void onDraw(SkCanvas* canvas) override {
         auto surf(compat_surface(canvas, this->getISize(), this->isCanvasDeferred()));
         surf->getCanvas()->drawColor(SK_ColorWHITE);
         this->drawContent(surf->getCanvas());
         surf->draw(canvas, 0, 0, nullptr);
     }
-
-private:
-    typedef skiagm::GM INHERITED;
 };
 
 ///////////////////////////////////////////////////////////////////////////////

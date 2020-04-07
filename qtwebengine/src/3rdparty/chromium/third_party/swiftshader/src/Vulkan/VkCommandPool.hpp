@@ -25,13 +25,14 @@ class CommandPool : public Object<CommandPool, VkCommandPool>
 {
 public:
 	CommandPool(const VkCommandPoolCreateInfo* pCreateInfo, void* mem);
-	~CommandPool() = delete;
 	void destroy(const VkAllocationCallbacks* pAllocator);
 
 	static size_t ComputeRequiredAllocationSize(const VkCommandPoolCreateInfo* pCreateInfo);
 
 	VkResult allocateCommandBuffers(VkCommandBufferLevel level, uint32_t commandBufferCount, VkCommandBuffer* pCommandBuffers);
 	void freeCommandBuffers(uint32_t commandBufferCount, const VkCommandBuffer* pCommandBuffers);
+	VkResult reset(VkCommandPoolResetFlags flags);
+	void trim(VkCommandPoolTrimFlags flags);
 
 private:
 	std::set<VkCommandBuffer>* commandBuffers;
@@ -39,7 +40,7 @@ private:
 
 static inline CommandPool* Cast(VkCommandPool object)
 {
-	return reinterpret_cast<CommandPool*>(object);
+	return CommandPool::Cast(object);
 }
 
 } // namespace vk

@@ -5,17 +5,24 @@
  * found in the LICENSE file.
  */
 
-#include "gm.h"
-#include "sk_tool_utils.h"
+#include "gm/gm.h"
+#include "include/core/SkBitmap.h"
+#include "include/core/SkCanvas.h"
+#include "include/core/SkColor.h"
+#include "include/core/SkColorPriv.h"
+#include "include/core/SkImageInfo.h"
+#include "include/core/SkPaint.h"
+#include "include/core/SkPixmap.h"
+#include "include/core/SkRect.h"
+#include "include/core/SkRefCnt.h"
+#include "include/core/SkScalar.h"
+#include "include/core/SkSize.h"
+#include "include/core/SkString.h"
+#include "include/private/SkNx.h"
+#include "src/core/SkMipMap.h"
+#include "tools/ToolUtils.h"
 
-#include "Resources.h"
-#include "SkColorPriv.h"
-#include "SkGradientShader.h"
-#include "SkTypeface.h"
-#include "SkStream.h"
-#include "SkPaint.h"
-#include "SkMipMap.h"
-#include "Resources.h"
+#include <math.h>
 
 #define SHOW_MIP_COLOR  0xFF000000
 
@@ -51,7 +58,6 @@ static SkBitmap make_bitmap2(int w, int h) {
     return bm;
 }
 
-#include "SkNx.h"
 static SkBitmap make_bitmap3(int w, int h) {
     SkBitmap bm;
     bm.allocN32Pixels(w, h);
@@ -118,7 +124,7 @@ protected:
 
     static void DrawAndFrame(SkCanvas* canvas, const SkBitmap& orig, SkScalar x, SkScalar y) {
         SkBitmap bm;
-        sk_tool_utils::copy_to(&bm, orig.colorType(), orig);
+        ToolUtils::copy_to(&bm, orig.colorType(), orig);
         apply_gamma(bm);
 
         canvas->drawBitmap(bm, x, y, nullptr);
@@ -169,7 +175,7 @@ protected:
     }
 
     void onOnceBeforeDraw() override {
-        fBM[0] = sk_tool_utils::create_checkerboard_bitmap(fN, fN, SK_ColorBLACK, SK_ColorWHITE, 2);
+        fBM[0] = ToolUtils::create_checkerboard_bitmap(fN, fN, SK_ColorBLACK, SK_ColorWHITE, 2);
         fBM[1] = make_bitmap(fN, fN);
         fBM[2] = make_bitmap2(fN, fN);
         fBM[3] = make_bitmap3(fN, fN);
@@ -196,7 +202,7 @@ DEF_GM( return new ShowMipLevels(256); )
 
 void copy_to(SkBitmap* dst, SkColorType dstColorType, const SkBitmap& src) {
     if (kGray_8_SkColorType == dstColorType) {
-        return sk_tool_utils::copy_to_g8(dst, src);
+        return ToolUtils::copy_to_g8(dst, src);
     }
 
     const SkBitmap* srcPtr = &src;
@@ -206,7 +212,7 @@ void copy_to(SkBitmap* dst, SkColorType dstColorType, const SkBitmap& src) {
         srcPtr = &tmp;
     }
 
-    sk_tool_utils::copy_to(dst, dstColorType, *srcPtr);
+    ToolUtils::copy_to(dst, dstColorType, *srcPtr);
 }
 
 /**
@@ -282,8 +288,7 @@ protected:
     }
 
     void onOnceBeforeDraw() override {
-        fBM[0] = sk_tool_utils::create_checkerboard_bitmap(fW, fH,
-                                                           SHOW_MIP_COLOR, SK_ColorWHITE, 2);
+        fBM[0] = ToolUtils::create_checkerboard_bitmap(fW, fH, SHOW_MIP_COLOR, SK_ColorWHITE, 2);
         fBM[1] = make_bitmap(fW, fH);
         fBM[2] = make_bitmap2(fW, fH);
         fBM[3] = make_bitmap3(fW, fH);

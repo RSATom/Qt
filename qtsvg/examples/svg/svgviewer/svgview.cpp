@@ -153,13 +153,9 @@ void SvgView::setRenderer(RendererType type)
     }
 }
 
-void SvgView::setHighQualityAntialiasing(bool highQualityAntialiasing)
+void SvgView::setAntialiasing(bool antialiasing)
 {
-#ifndef QT_NO_OPENGL
-    setRenderHint(QPainter::HighQualityAntialiasing, highQualityAntialiasing);
-#else
-    Q_UNUSED(highQualityAntialiasing);
-#endif
+    setRenderHint(QPainter::Antialiasing, antialiasing);
 }
 
 void SvgView::setViewBackground(bool enable)
@@ -222,7 +218,7 @@ void SvgView::paintEvent(QPaintEvent *event)
 
 void SvgView::wheelEvent(QWheelEvent *event)
 {
-    zoomBy(qPow(1.2, event->delta() / 240.0));
+    zoomBy(qPow(1.2, event->angleDelta().y() / 240.0));
 }
 
 void SvgView::zoomBy(qreal factor)

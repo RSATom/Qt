@@ -37,6 +37,10 @@
 **
 ****************************************************************************/
 
+#ifdef QT_NO_LINKED_LIST
+# undef QT_NO_LINKED_LIST
+#endif
+
 #include "qlinkedlist.h"
 
 QT_BEGIN_NAMESPACE
@@ -151,6 +155,14 @@ const QLinkedListData QLinkedListData::shared_null = {
 
     This constructor is only enabled if the compiler supports C++11
     initializer lists.
+*/
+
+/*! \fn template <class T> template<typename InputIterator> QLinkedList<T>::QLinkedList(InputIterator first, InputIterator last)
+    \since 5.14
+
+    Constructs a list with the contents in the iterator range [\a first, \a last).
+
+    The value type of \c InputIterator must be convertible to \c T.
 */
 
 /*! \fn template <class T> QLinkedList<T>::~QLinkedList()
@@ -734,8 +746,7 @@ const QLinkedListData QLinkedListData::shared_null = {
     \snippet code/src_corelib_tools_qlinkedlist.cpp 7
 
     STL-style iterators can be used as arguments to \l{generic
-    algorithms}. For example, here's how to find an item in the list
-    using the qFind() algorithm:
+    algorithms}. For example, here's how to find an item in the list:
 
     \snippet code/src_corelib_tools_qlinkedlist.cpp 8
 
@@ -979,8 +990,7 @@ const QLinkedListData QLinkedListData::shared_null = {
     \snippet code/src_corelib_tools_qlinkedlist.cpp 14
 
     STL-style iterators can be used as arguments to \l{generic
-    algorithms}. For example, here's how to find an item in the list
-    using the qFind() algorithm:
+    algorithms}. For example, here's how to find an item in the list:
 
     \snippet code/src_corelib_tools_qlinkedlist.cpp 15
 

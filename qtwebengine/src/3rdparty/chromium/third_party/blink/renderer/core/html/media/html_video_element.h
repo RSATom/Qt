@@ -26,7 +26,6 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_HTML_MEDIA_HTML_VIDEO_ELEMENT_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_HTML_MEDIA_HTML_VIDEO_ELEMENT_H_
 
-#include "third_party/blink/public/common/picture_in_picture/picture_in_picture_control_info.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/html/canvas/canvas_image_source.h"
 #include "third_party/blink/renderer/core/html/html_image_loader.h"
@@ -42,6 +41,7 @@ class GLES2Interface;
 
 namespace blink {
 class ImageBitmapOptions;
+class IntersectionObserverEntry;
 class MediaCustomControlsFullscreenDetector;
 class MediaRemotingInterstitial;
 class PictureInPictureInterstitial;
@@ -53,7 +53,7 @@ class CORE_EXPORT HTMLVideoElement final : public HTMLMediaElement,
   DEFINE_WRAPPERTYPEINFO();
 
  public:
-  static HTMLVideoElement* Create(Document&);
+  static const int kNoAlreadyUploadedFrame = -1;
 
   HTMLVideoElement(Document&);
   void Trace(Visitor*) override;
@@ -94,7 +94,7 @@ class CORE_EXPORT HTMLVideoElement final : public HTMLMediaElement,
       cc::PaintCanvas*,
       const IntRect&,
       const cc::PaintFlags*,
-      int already_uploaded_id = -1,
+      int already_uploaded_id = kNoAlreadyUploadedFrame,
       WebMediaPlayer::VideoFrameUploadMetadata* out_metadata = nullptr) const;
 
   // Used by WebGL to do GPU-GPU texture copy if possible.
@@ -140,6 +140,14 @@ class CORE_EXPORT HTMLVideoElement final : public HTMLMediaElement,
                     bool flip_y,
                     bool premultiply_alpha);
 
+  // Used by WebGL to do GPU_GPU texture sharing if possible.
+  bool PrepareVideoFrameForWebGL(
+      gpu::gles2::GLES2Interface*,
+      GLenum target,
+      GLuint texture,
+      bool already_uploaded_id,
+      WebMediaPlayer::VideoFrameUploadMetadata* out_metadata);
+
   bool ShouldDisplayPosterImage() const { return GetDisplayMode() == kPoster; }
 
   bool HasAvailableVideoFrame() const;
@@ -168,6 +176,7 @@ class CORE_EXPORT HTMLVideoElement final : public HTMLMediaElement,
 
   // WebMediaPlayerClient implementation.
   void OnBecamePersistentVideo(bool) final;
+  void ActivateViewportIntersectionMonitoring(bool) final;
 
   bool IsPersistent() const;
 
@@ -175,31 +184,23 @@ class CORE_EXPORT HTMLVideoElement final : public HTMLMediaElement,
 
   void MediaRemotingStarted(const WebString& remote_device_friendly_name) final;
   bool SupportsPictureInPicture() const final;
-  void enterPictureInPicture(WebMediaPlayer::PipWindowOpenedCallback callback);
-  void exitPictureInPicture(WebMediaPlayer::PipWindowClosedCallback callback);
-  void SendCustomControlsToPipWindow();
-  void PictureInPictureStopped() final;
-  void PictureInPictureControlClicked(const WebString& control_id) final;
   void MediaRemotingStopped(WebLocalizedString::Name error_msg) final;
   WebMediaPlayer::DisplayType DisplayType() const final;
   bool IsInAutoPIP() const final;
+  void OnPictureInPictureStateChange() final;
 
   // Used by the PictureInPictureController as callback when the video element
   // enters or exits Picture-in-Picture state.
   void OnEnteredPictureInPicture();
   void OnExitedPictureInPicture();
 
-  void SetPictureInPictureCustomControls(
-      const std::vector<PictureInPictureControlInfo>& pip_custom_controls);
-  const std::vector<PictureInPictureControlInfo>&
-  GetPictureInPictureCustomControls() const;
-  bool HasPictureInPictureCustomControls() const;
-
   void SetIsEffectivelyFullscreen(blink::WebFullscreenVideoStatus);
 
   void SetImageForTest(ImageResourceContent* content) {
-    DCHECK(image_loader_);
+    if (!image_loader_)
+      image_loader_ = MakeGarbageCollected<HTMLImageLoader>(this);
     image_loader_->SetImageForTest(content);
+    SetDisplayMode(kPoster);
   }
 
   VideoWakeLock* wake_lock_for_tests() const { return wake_lock_; }
@@ -213,12 +214,13 @@ class CORE_EXPORT HTMLVideoElement final : public HTMLMediaElement,
   friend class MediaCustomControlsFullscreenDetectorTest;
   friend class HTMLMediaElementEventListenersTest;
   friend class HTMLVideoElementPersistentTest;
+  friend class VideoFillingViewportTest;
 
-  // PausableObject functions.
+  // ContextLifecycleStateObserver functions.
   void ContextDestroyed(ExecutionContext*) final;
 
   bool LayoutObjectIsNeeded(const ComputedStyle&) const override;
-  LayoutObject* CreateLayoutObject(const ComputedStyle&) override;
+  LayoutObject* CreateLayoutObject(const ComputedStyle&, LegacyLayout) override;
   void AttachLayoutTree(AttachContext&) override;
   void ParseAttribute(const AttributeModificationParams&) override;
   bool IsPresentationAttribute(const QualifiedName&) const override;
@@ -230,8 +232,16 @@ class CORE_EXPORT HTMLVideoElement final : public HTMLMediaElement,
   const AtomicString ImageSourceURL() const override;
 
   void UpdateDisplayState() override;
+  void OnPlay() final;
+  void OnLoadStarted() final;
+  void OnLoadFinished() final;
   void DidMoveToNewDocument(Document& old_document) override;
   void SetDisplayMode(DisplayMode) override;
+
+  void OnViewportIntersectionChanged(
+      const HeapVector<Member<IntersectionObserverEntry>>& entries);
+  void OnIntersectionChangedForLazyLoad(
+      const HeapVector<Member<IntersectionObserverEntry>>& entries);
 
   Member<HTMLImageLoader> image_loader_;
   Member<MediaCustomControlsFullscreenDetector>
@@ -255,10 +265,6 @@ class CORE_EXPORT HTMLVideoElement final : public HTMLMediaElement,
   // Whether this element is in overlay fullscreen mode.
   bool in_overlay_fullscreen_video_;
 
-  // Holds the most recently set custom controls. These will be persistent
-  // across active/inactive windows until new controls are passed in.
-  std::vector<PictureInPictureControlInfo> pip_custom_controls_;
-
   // Whether the video element should be considered as fullscreen with regards
   // to display type and other UI features. This does not mean the DOM element
   // is fullscreen.
@@ -266,6 +272,12 @@ class CORE_EXPORT HTMLVideoElement final : public HTMLMediaElement,
 
   IntSize overridden_intrinsic_size_;
   bool is_default_overridden_intrinsic_size_;
+
+  // The following is always false unless viewport intersection monitoring is
+  // turned on via ActivateViewportIntersectionMonitoring().
+  bool mostly_filling_viewport_ = false;
+
+  Member<IntersectionObserver> viewport_intersection_observer_;
 };
 
 }  // namespace blink

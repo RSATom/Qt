@@ -5,7 +5,7 @@
  * found in the LICENSE file.
  */
 
-#include "Test.h"
+#include "tests/Test.h"
 
 using sk_gpu_test::GrContextFactory;
 using sk_gpu_test::GLTestContext;
@@ -25,8 +25,8 @@ bool IsMetalContextType(sk_gpu_test::GrContextFactory::ContextType type) {
 bool IsRenderingGLContextType(sk_gpu_test::GrContextFactory::ContextType type) {
     return IsGLContextType(type) && GrContextFactory::IsRenderingContext(type);
 }
-bool IsNullGLContextType(sk_gpu_test::GrContextFactory::ContextType type) {
-    return type == GrContextFactory::kNullGL_ContextType;
+bool IsMockContextType(sk_gpu_test::GrContextFactory::ContextType type) {
+    return type == GrContextFactory::kMock_ContextType;
 }
 
 void RunWithGPUTestContexts(GrContextTestFn* test, GrContextTypeFilterFn* contextTypeFilter,
@@ -52,19 +52,12 @@ void RunWithGPUTestContexts(GrContextTestFn* test, GrContextTypeFilterFn* contex
         // also tracks which of its contexts is current above that API and gets tripped up if the
         // native windowing API is used directly outside of the command buffer code.
         GrContextFactory factory(options);
-        ContextInfo ctxInfo = factory.getContextInfo(
-                contextType, GrContextFactory::ContextOverrides::kDisableNVPR);
+        ContextInfo ctxInfo = factory.getContextInfo(contextType);
         if (contextTypeFilter && !(*contextTypeFilter)(contextType)) {
             continue;
         }
 
         ReporterContext ctx(reporter, SkString(GrContextFactory::ContextTypeName(contextType)));
-        if (ctxInfo.grContext()) {
-            (*test)(reporter, ctxInfo);
-            ctxInfo.grContext()->flush();
-        }
-        ctxInfo = factory.getContextInfo(contextType,
-                                         GrContextFactory::ContextOverrides::kRequireNVPRSupport);
         if (ctxInfo.grContext()) {
             (*test)(reporter, ctxInfo);
             ctxInfo.grContext()->flush();

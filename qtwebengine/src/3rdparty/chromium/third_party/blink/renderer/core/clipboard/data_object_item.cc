@@ -127,8 +127,8 @@ File* DataObjectItem::GetAsFile() const {
     if (file_)
       return file_.Get();
     DCHECK(shared_buffer_);
-    // FIXME: This code is currently impossible--we never populate
-    // m_sharedBuffer when dragging in. At some point though, we may need to
+    // TODO: This code is currently impossible--we never populate
+    // |shared_buffer_| when dragging in. At some point though, we may need to
     // support correctly converting a shared buffer into a file.
     return nullptr;
   }
@@ -139,12 +139,13 @@ File* DataObjectItem::GetAsFile() const {
         mojom::ClipboardBuffer::kStandard);
     std::vector<unsigned char> png_data;
     if (gfx::PNGCodec::FastEncodeBGRASkBitmap(image, false, &png_data)) {
-      std::unique_ptr<BlobData> data = BlobData::Create();
+      auto data = std::make_unique<BlobData>();
       data->SetContentType(kMimeTypeImagePng);
       data->AppendBytes(png_data.data(), png_data.size());
       const uint64_t length = data->length();
       auto blob = BlobDataHandle::Create(std::move(data), length);
-      return File::Create("image.png", CurrentTimeMS(), std::move(blob));
+      return File::Create("image.png", base::Time::Now().ToDoubleT() * 1000.0,
+                          std::move(blob));
     }
   }
 
@@ -180,7 +181,7 @@ String DataObjectItem::GetAsString() const {
 }
 
 bool DataObjectItem::IsFilename() const {
-  // FIXME: https://bugs.webkit.org/show_bug.cgi?id=81261: When we properly
+  // TODO(https://bugs.webkit.org/show_bug.cgi?id=81261): When we properly
   // support File dragout, we'll need to make sure this works as expected for
   // DragDataChromium.
   return kind_ == kFileKind && file_;

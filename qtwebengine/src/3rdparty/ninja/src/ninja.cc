@@ -73,10 +73,6 @@ struct Options {
 
   /// Whether phony cycles should warn or print an error.
   bool phony_cycle_should_err;
-
-  /// Whether a depfile with multiple targets on separate lines should
-  /// warn or print an error.
-  bool depfile_distinct_target_lines_should_err;
 };
 
 /// The Ninja main() loads up a series of data structures; various tools need
@@ -158,7 +154,7 @@ struct NinjaMain : public BuildLogUser {
     // Just checking n isn't enough: If an old output is both in the build log
     // and in the deps log, it will have a Node object in state_.  (It will also
     // have an in edge if one of its inputs is another output that's in the deps
-    // log, but having a deps edge product an output that's input to another deps
+    // log, but having a deps edge product an output thats input to another deps
     // edge is rare, and the first recompaction will delete all old outputs from
     // the deps log, and then a second recompaction will clear the build log,
     // which seems good enough for this corner case.)
@@ -205,21 +201,21 @@ void Usage(const BuildConfig& config) {
 "if targets are unspecified, builds the 'default' target (see manual).\n"
 "\n"
 "options:\n"
-"  --version      print ninja version (\"%s\")\n"
-"  -v, --verbose  show all command lines while building\n"
+"  --version  print ninja version (\"%s\")\n"
 "\n"
 "  -C DIR   change to DIR before doing anything else\n"
 "  -f FILE  specify input build file [default=build.ninja]\n"
 "\n"
-"  -j N     run N jobs in parallel (0 means infinity) [default=%d on this system]\n"
-"  -k N     keep going until N jobs fail (0 means infinity) [default=1]\n"
+"  -j N     run N jobs in parallel [default=%d, derived from CPUs available]\n"
+"  -k N     keep going until N jobs fail [default=1]\n"
 "  -l N     do not start new jobs if the load average is greater than N\n"
 "  -n       dry run (don't run commands but act like they succeeded)\n"
+"  -v       show all command lines while building\n"
 "\n"
-"  -d MODE  enable debugging (use '-d list' to list modes)\n"
-"  -t TOOL  run a subtool (use '-t list' to list subtools)\n"
+"  -d MODE  enable debugging (use -d list to list modes)\n"
+"  -t TOOL  run a subtool (use -t list to list subtools)\n"
 "    terminates toplevel options; further flags are passed to the tool\n"
-"  -w FLAG  adjust warnings (use '-w list' to list warnings)\n",
+"  -w FLAG  adjust warnings (use -w list to list warnings)\n",
           kNinjaVersion, config.parallelism);
 }
 
@@ -391,12 +387,7 @@ int NinjaMain::ToolBrowse(const Options* options, int argc, char* argv[]) {
   // If we get here, the browse failed.
   return 1;
 }
-#else
-int NinjaMain::ToolBrowse(const Options*, int, char**) {
-  Fatal("browse tool not supported on this platform");
-  return 1;
-}
-#endif
+#endif  // _WIN32
 
 #if defined(_MSC_VER)
 int NinjaMain::ToolMSVC(const Options* options, int argc, char* argv[]) {
@@ -503,7 +494,7 @@ int NinjaMain::ToolDeps(const Options* options, int argc, char** argv) {
     TimeStamp mtime = disk_interface.Stat((*it)->path(), &err);
     if (mtime == -1)
       Error("%s", err.c_str());  // Log and ignore Stat() errors;
-    printf("%s: #deps %d, deps mtime %" PRId64 " (%s)\n",
+    printf("%s: #deps %d, deps mtime %d (%s)\n",
            (*it)->path().c_str(), deps->node_count, deps->mtime,
            (!mtime || mtime > deps->mtime ? "STALE":"VALID"));
     for (int i = 0; i < deps->node_count; ++i)
@@ -671,65 +662,7 @@ void EncodeJSONString(const char *str) {
   }
 }
 
-enum EvaluateCommandMode {
-  ECM_NORMAL,
-  ECM_EXPAND_RSPFILE
-};
-string EvaluateCommandWithRspfile(Edge* edge, EvaluateCommandMode mode) {
-  string command = edge->EvaluateCommand();
-  if (mode == ECM_NORMAL)
-    return command;
-
-  string rspfile = edge->GetUnescapedRspfile();
-  if (rspfile.empty())
-    return command;
-
-  size_t index = command.find(rspfile);
-  if (index == 0 || index == string::npos || command[index - 1] != '@')
-    return command;
-
-  string rspfile_content = edge->GetBinding("rspfile_content");
-  size_t newline_index = 0;
-  while ((newline_index = rspfile_content.find('\n', newline_index)) !=
-         string::npos) {
-    rspfile_content.replace(newline_index, 1, 1, ' ');
-    ++newline_index;
-  }
-  command.replace(index - 1, rspfile.length() + 1, rspfile_content);
-  return command;
-}
-
-int NinjaMain::ToolCompilationDatabase(const Options* options, int argc,
-                                       char* argv[]) {
-  // The compdb tool uses getopt, and expects argv[0] to contain the name of
-  // the tool, i.e. "compdb".
-  argc++;
-  argv--;
-
-  EvaluateCommandMode eval_mode = ECM_NORMAL;
-
-  optind = 1;
-  int opt;
-  while ((opt = getopt(argc, argv, const_cast<char*>("hx"))) != -1) {
-    switch(opt) {
-      case 'x':
-        eval_mode = ECM_EXPAND_RSPFILE;
-        break;
-
-      case 'h':
-      default:
-        printf(
-            "usage: ninja -t compdb [options] [rules]\n"
-            "\n"
-            "options:\n"
-            "  -x     expand @rspfile style response file invocations\n"
-            );
-        return 1;
-    }
-  }
-  argv += optind;
-  argc -= optind;
-
+int NinjaMain::ToolCompilationDatabase(const Options* options, int argc, char* argv[]) {
   bool first = true;
   vector<char> cwd;
 
@@ -755,11 +688,9 @@ int NinjaMain::ToolCompilationDatabase(const Options* options, int argc,
         printf("\n  {\n    \"directory\": \"");
         EncodeJSONString(&cwd[0]);
         printf("\",\n    \"command\": \"");
-        EncodeJSONString(EvaluateCommandWithRspfile(*e, eval_mode).c_str());
+        EncodeJSONString((*e)->EvaluateCommand().c_str());
         printf("\",\n    \"file\": \"");
         EncodeJSONString((*e)->inputs_[0]->path().c_str());
-        printf("\",\n    \"output\": \"");
-        EncodeJSONString((*e)->outputs_[0]->path().c_str());
         printf("\"\n  }");
 
         first = false;
@@ -812,8 +743,10 @@ int NinjaMain::ToolUrtle(const Options* options, int argc, char** argv) {
 /// Returns a Tool, or NULL if Ninja should exit.
 const Tool* ChooseTool(const string& tool_name) {
   static const Tool kTools[] = {
+#if defined(NINJA_HAVE_BROWSE)
     { "browse", "browse dependency graph in a web browser",
       Tool::RUN_AFTER_LOAD, &NinjaMain::ToolBrowse },
+#endif
 #if defined(_MSC_VER)
     { "msvc", "build helper for MSVC cl.exe (EXPERIMENTAL)",
       Tool::RUN_AFTER_FLAGS, &NinjaMain::ToolMSVC },
@@ -916,9 +849,7 @@ bool WarningEnable(const string& name, Options* options) {
   if (name == "list") {
     printf("warning flags:\n"
 "  dupbuild={err,warn}  multiple build lines for one target\n"
-"  phonycycle={err,warn}  phony build statement references itself\n"
-"  depfilemulti={err,warn}  depfile has multiple output paths on separate lines\n"
-    );
+"  phonycycle={err,warn}  phony build statement references itself\n");
     return false;
   } else if (name == "dupbuild=err") {
     options->dupe_edges_should_err = true;
@@ -931,12 +862,6 @@ bool WarningEnable(const string& name, Options* options) {
     return true;
   } else if (name == "phonycycle=warn") {
     options->phony_cycle_should_err = false;
-    return true;
-  } else if (name == "depfilemulti=err") {
-    options->depfile_distinct_target_lines_should_err = true;
-    return true;
-  } else if (name == "depfilemulti=warn") {
-    options->depfile_distinct_target_lines_should_err = false;
     return true;
   } else {
     const char* suggestion =
@@ -1117,7 +1042,6 @@ int ReadFlags(int* argc, char*** argv,
   const option kLongOptions[] = {
     { "help", no_argument, NULL, 'h' },
     { "version", no_argument, NULL, OPT_VERSION },
-    { "verbose", no_argument, NULL, 'v' },
     { NULL, 0, NULL, 0 }
   };
 
@@ -1136,12 +1060,9 @@ int ReadFlags(int* argc, char*** argv,
       case 'j': {
         char* end;
         int value = strtol(optarg, &end, 10);
-        if (*end != 0 || value < 0)
+        if (*end != 0 || value <= 0)
           Fatal("invalid -j parameter");
-
-        // We want to run N jobs in parallel. For N = 0, INT_MAX
-        // is close enough to infinite for most sane builds.
-        config->parallelism = value > 0 ? value : INT_MAX;
+        config->parallelism = value;
         break;
       }
       case 'k': {
@@ -1197,25 +1118,17 @@ int ReadFlags(int* argc, char*** argv,
   return -1;
 }
 
-NORETURN void real_main(int argc, char** argv) {
-  // Use exit() instead of return in this function to avoid potentially
-  // expensive cleanup when destructing NinjaMain.
+int real_main(int argc, char** argv) {
   BuildConfig config;
   Options options = {};
   options.input_file = "build.ninja";
-  options.dupe_edges_should_err = true;
 
   setvbuf(stdout, NULL, _IOLBF, BUFSIZ);
   const char* ninja_command = argv[0];
 
   int exit_code = ReadFlags(&argc, &argv, &options, &config);
   if (exit_code >= 0)
-    exit(exit_code);
-
-  if (options.depfile_distinct_target_lines_should_err) {
-    config.depfile_parser_options.depfile_distinct_target_lines_action_ =
-        kDepfileDistinctTargetLinesActionError;
-  }
+    return exit_code;
 
   if (options.working_dir) {
     // The formatting of this string, complete with funny quotes, is
@@ -1234,7 +1147,7 @@ NORETURN void real_main(int argc, char** argv) {
     // None of the RUN_AFTER_FLAGS actually use a NinjaMain, but it's needed
     // by other tools.
     NinjaMain ninja(ninja_command, config);
-    exit((ninja.*options.tool->func)(&options, argc, argv));
+    return (ninja.*options.tool->func)(&options, argc, argv);
   }
 
   // Limit number of rebuilds, to prevent infinite loops.
@@ -1253,43 +1166,43 @@ NORETURN void real_main(int argc, char** argv) {
     string err;
     if (!parser.Load(options.input_file, &err)) {
       Error("%s", err.c_str());
-      exit(1);
+      return 1;
     }
 
     if (options.tool && options.tool->when == Tool::RUN_AFTER_LOAD)
-      exit((ninja.*options.tool->func)(&options, argc, argv));
+      return (ninja.*options.tool->func)(&options, argc, argv);
 
     if (!ninja.EnsureBuildDirExists())
-      exit(1);
+      return 1;
 
     if (!ninja.OpenBuildLog() || !ninja.OpenDepsLog())
-      exit(1);
+      return 1;
 
     if (options.tool && options.tool->when == Tool::RUN_AFTER_LOGS)
-      exit((ninja.*options.tool->func)(&options, argc, argv));
+      return (ninja.*options.tool->func)(&options, argc, argv);
 
     // Attempt to rebuild the manifest before building anything else
     if (ninja.RebuildManifest(options.input_file, &err)) {
       // In dry_run mode the regeneration will succeed without changing the
       // manifest forever. Better to return immediately.
       if (config.dry_run)
-        exit(0);
+        return 0;
       // Start the build over with the new manifest.
       continue;
     } else if (!err.empty()) {
       Error("rebuilding '%s': %s", options.input_file, err.c_str());
-      exit(1);
+      return 1;
     }
 
     int result = ninja.RunBuild(argc, argv);
     if (g_metrics)
       ninja.DumpMetrics();
-    exit(result);
+    return result;
   }
 
   Error("manifest '%s' still dirty after %d tries\n",
       options.input_file, kCycleLimit);
-  exit(1);
+  return 1;
 }
 
 }  // anonymous namespace
@@ -1302,7 +1215,7 @@ int main(int argc, char** argv) {
   __try {
     // Running inside __try ... __except suppresses any Windows error
     // dialogs for errors such as bad_alloc.
-    real_main(argc, argv);
+    return real_main(argc, argv);
   }
   __except(ExceptionFilter(GetExceptionCode(), GetExceptionInformation())) {
     // Common error situations return exitCode=1. 2 was chosen to
@@ -1310,6 +1223,6 @@ int main(int argc, char** argv) {
     return 2;
   }
 #else
-  real_main(argc, argv);
+  return real_main(argc, argv);
 #endif
 }

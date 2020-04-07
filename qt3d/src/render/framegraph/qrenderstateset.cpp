@@ -41,9 +41,6 @@
 #include "qrenderstateset_p.h"
 
 #include <Qt3DRender/qrenderstate.h>
-#include <Qt3DCore/qpropertyupdatedchange.h>
-#include <Qt3DCore/qpropertynodeaddedchange.h>
-#include <Qt3DCore/qpropertynoderemovedchange.h>
 #include <Qt3DRender/qframegraphnodecreatedchange.h>
 
 QT_BEGIN_NAMESPACE
@@ -194,11 +191,7 @@ void QRenderStateSet::addRenderState(QRenderState *state)
         if (!state->parent())
             state->setParent(this);
 
-        if (d->m_changeArbiter != nullptr) {
-            const auto change = QPropertyNodeAddedChangePtr::create(id(), state);
-            change->setPropertyName("renderState");
-            d->notifyObservers(change);
-        }
+        d->updateNode(state, "renderState", Qt3DCore::PropertyValueAdded);
     }
 }
 
@@ -210,12 +203,9 @@ void QRenderStateSet::removeRenderState(QRenderState *state)
     Q_ASSERT(state);
     Q_D(QRenderStateSet);
 
-    if (d->m_changeArbiter != nullptr) {
-        const auto change = QPropertyNodeRemovedChangePtr::create(id(), state);
-        change->setPropertyName("renderState");
-        d->notifyObservers(change);
-    }
-    d->m_renderStates.removeOne(state);
+    if (!d->m_renderStates.removeOne(state))
+        return;
+    d->updateNode(state, "renderState", Qt3DCore::PropertyValueRemoved);
     // Remove bookkeeping connection
     d->unregisterDestructionHelper(state);
 }

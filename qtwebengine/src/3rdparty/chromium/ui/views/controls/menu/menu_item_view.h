@@ -16,6 +16,7 @@
 #include "base/strings/string16.h"
 #include "build/build_config.h"
 #include "ui/base/models/menu_separator_types.h"
+#include "ui/gfx/geometry/insets.h"
 #include "ui/gfx/image/image_skia.h"
 #include "ui/views/controls/menu/menu_controller.h"
 #include "ui/views/controls/menu/menu_types.h"
@@ -42,6 +43,7 @@ class TestMenuItemViewShown;
 class TestMenuItemViewNotShown;
 }
 
+class ImageView;
 class MenuController;
 class MenuDelegate;
 class Separator;
@@ -72,10 +74,9 @@ class SubmenuView;
 
 class VIEWS_EXPORT MenuItemView : public View {
  public:
-  friend class MenuController;
+  METADATA_HEADER(MenuItemView);
 
-  // The menu item view's class name.
-  static const char kViewClassName[];
+  friend class MenuController;
 
   // ID used to identify menu items.
   static const int kMenuItemViewID;
@@ -110,20 +111,16 @@ class VIEWS_EXPORT MenuItemView : public View {
 
   // The data structure which is used for the menu size
   struct MenuItemDimensions {
-    MenuItemDimensions()
-        : standard_width(0),
-          children_width(0),
-          minor_text_width(0),
-          height(0) {}
+    MenuItemDimensions() = default;
 
     // Width of everything except the accelerator and children views.
-    int standard_width;
+    int standard_width = 0;
     // The width of all contained views of the item.
-    int children_width;
+    int children_width = 0;
     // The amount of space needed to accommodate the subtext.
-    int minor_text_width;
+    int minor_text_width = 0;
     // The height of the menu item.
-    int height;
+    int height = 0;
   };
 
   // Constructor for use with the top level menu item. This menu is never
@@ -131,9 +128,9 @@ class VIEWS_EXPORT MenuItemView : public View {
   explicit MenuItemView(MenuDelegate* delegate);
 
   // Overridden from View:
-  bool GetTooltipText(const gfx::Point& p,
-                      base::string16* tooltip) const override;
+  base::string16 GetTooltipText(const gfx::Point& p) const override;
   void GetAccessibleNodeData(ui::AXNodeData* node_data) override;
+  bool HandleAccessibleAction(const ui::AXActionData& action_data) override;
 
   // Returns the preferred height of menu items. This is only valid when the
   // menu is about to be shown.
@@ -165,9 +162,13 @@ class VIEWS_EXPORT MenuItemView : public View {
                               Type type,
                               ui::MenuSeparatorType separator_style);
 
-  // Remove an item from the menu at a specified index. The removed MenuItemView
-  // is deleted when ChildrenChanged() is invoked.
-  void RemoveMenuItemAt(int index);
+  // Remove the specified item from the menu. |item| will be deleted when
+  // ChildrenChanged() is invoked.
+  void RemoveMenuItem(View* item);
+
+  // Removes all items from the menu.  The removed MenuItemViews are deleted
+  // when ChildrenChanged() is invoked.
+  void RemoveAllMenuItems();
 
   // Appends an item to this menu.
   // item_id    The id of the item, used to identify it in delegate callbacks
@@ -367,10 +368,11 @@ class VIEWS_EXPORT MenuItemView : public View {
   // border radius, if they are both the same value.
   void SetCornerRadius(int radius);
 
-  // Show an alert on this menu item. An alerted menu item is rendered
-  // differently to draw attention to it.
-  void SetAlerted(bool alerted);
-  bool Alerted() const { return alerted_; }
+  // Shows an alert on this menu item. An alerted menu item is rendered
+  // differently to draw attention to it. This must be called before the menu is
+  // run.
+  void SetAlerted();
+  bool is_alerted() const { return is_alerted_; }
 
  protected:
   // Creates a MenuItemView. This is used by the various AddXXX methods.
@@ -379,9 +381,8 @@ class VIEWS_EXPORT MenuItemView : public View {
   // MenuRunner owns MenuItemView and should be the only one deleting it.
   ~MenuItemView() override;
 
+  // View:
   void ChildPreferredSizeChanged(View* child) override;
-
-  const char* GetClassName() const override;
 
   // Returns the preferred size (and padding) of any children.
   virtual gfx::Size GetChildPreferredSize() const;
@@ -493,6 +494,10 @@ class VIEWS_EXPORT MenuItemView : public View {
   // Returns true if this MenuItemView contains a single child
   // that is responsible for rendering the content.
   bool IsContainer() const;
+
+  // Gets the child view margins. Should only be called when |IsContainer()| is
+  // true.
+  gfx::Insets GetContainerMargins() const;
 
   // Returns number of child views excluding icon_view.
   int NonIconChildViewsCount() const;
@@ -619,7 +624,7 @@ class VIEWS_EXPORT MenuItemView : public View {
   Separator* vertical_separator_;
 
   // Whether this menu item is rendered differently to draw attention to it.
-  bool alerted_ = false;
+  bool is_alerted_ = false;
 
   DISALLOW_COPY_AND_ASSIGN(MenuItemView);
 };

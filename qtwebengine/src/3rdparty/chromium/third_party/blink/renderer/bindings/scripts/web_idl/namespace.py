@@ -1,42 +1,61 @@
-# Copyright 2017 The Chromium Authors. All rights reserved.
+# Copyright 2019 The Chromium Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-from .extended_attribute import ExtendedAttributeList
-from .utilities import assert_no_extra_args
+import exceptions
+from .common import WithCodeGeneratorInfo
+from .common import WithComponent
+from .common import WithDebugInfo
+from .common import WithExposure
+from .common import WithExtendedAttributes
+from .common import WithIdentifier
+from .identifier_ir_map import IdentifierIRMap
 
 
-# https://heycam.github.io/webidl/#idl-namespaces
-class Namespace(object):
+class Namespace(WithIdentifier, WithExtendedAttributes, WithExposure,
+                WithCodeGeneratorInfo, WithComponent, WithDebugInfo):
+    """https://heycam.github.io/webidl/#idl-namespaces"""
 
-    def __init__(self, **kwargs):
-        self._identifier = kwargs.pop('identifier')
-        self._attributes = tuple(kwargs.pop('attributes', []))
-        self._operations = tuple(kwargs.pop('operations', []))
-        self._is_partial = kwargs.pop('is_partial', False)
-        self._extended_attribute_list = kwargs.pop('extended_attribute_list', ExtendedAttributeList())
-        assert_no_extra_args(kwargs)
-
-    @property
-    def identifier(self):
-        return self._identifier
+    class IR(IdentifierIRMap.IR, WithExtendedAttributes, WithExposure,
+             WithCodeGeneratorInfo, WithComponent, WithDebugInfo):
+        def __init__(self,
+                     identifier,
+                     is_partial,
+                     extended_attributes=None,
+                     exposures=None,
+                     code_generator_info=None,
+                     component=None,
+                     debug_info=None):
+            kind = (IdentifierIRMap.IR.Kind.PARTIAL_NAMESPACE
+                    if is_partial else IdentifierIRMap.IR.Kind.NAMESPACE)
+            IdentifierIRMap.IR.__init__(self, identifier=identifier, kind=kind)
+            WithExtendedAttributes.__init__(self, extended_attributes)
+            WithExposure.__init__(self, exposures)
+            WithCodeGeneratorInfo.__init__(self, code_generator_info)
+            WithComponent.__init__(self, component)
+            WithDebugInfo.__init__(self, debug_info)
 
     @property
     def attributes(self):
-        return self._attributes
+        """
+        Returns a list of attributes.
+        @return tuple(Attribute)
+        """
+        raise exceptions.NotImplementedError()
 
     @property
-    def operations(self):
-        return self._operations
+    def operation_groups(self):
+        """
+        Returns a list of OperationGroup. Each OperationGroup may have an operation
+        or a set of overloaded operations.
+        @return tuple(OperationGroup)
+        """
+        raise exceptions.NotImplementedError()
 
     @property
-    def exposures(self):
-        return self.extended_attribute_list.exposures
-
-    @property
-    def is_partial(self):
-        return self._is_partial
-
-    @property
-    def extended_attribute_list(self):
-        return self._extended_attribute_list
+    def constants(self):
+        """
+        Returns a list of constants.
+        @return tuple(Constant)
+        """
+        raise exceptions.NotImplementedError()

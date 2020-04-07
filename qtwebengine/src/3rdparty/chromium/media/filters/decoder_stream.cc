@@ -111,10 +111,7 @@ DecoderStream<StreamType>::DecoderStream(
       pending_decode_requests_(0),
       duration_tracker_(8),
       received_config_change_during_reinit_(false),
-      pending_demuxer_read_(false),
-      weak_factory_(this),
-      fallback_weak_factory_(this),
-      prepare_weak_factory_(this) {
+      pending_demuxer_read_(false) {
   FUNCTION_DVLOG(1);
 }
 
@@ -346,14 +343,21 @@ void DecoderStream<StreamType>::OnDecoderSelected(
     DCHECK(decoder_);
   }
 
-  decoder_ = std::move(selected_decoder);
+  auto* original_stream = stream_;
+  bool is_decrypting_demuxer_stream_selected = !!decrypting_demuxer_stream;
+
   if (decrypting_demuxer_stream) {
+    // Override |stream_| with the decrypted stream provided by
+    // DecryptingDemuxerStream.
     decrypting_demuxer_stream_ = std::move(decrypting_demuxer_stream);
     stream_ = decrypting_demuxer_stream_.get();
+
     // Also clear |cdm_context_|, it shouldn't be passed during reinitialize for
-    // a sream that isn't encrypted.
+    // a stream that isn't encrypted.
     cdm_context_ = nullptr;
   }
+
+  decoder_ = std::move(selected_decoder);
   if (decoder_change_observer_cb_)
     decoder_change_observer_cb_.Run(decoder_.get());
 
@@ -380,7 +384,10 @@ void DecoderStream<StreamType>::OnDecoderSelected(
   }
 
   // Send logs and statistics updates including the decoder name.
+  traits_->SetIsPlatformDecoder(decoder_->IsPlatformDecoder());
+  traits_->SetIsDecryptingDemuxerStream(!!decrypting_demuxer_stream_);
   traits_->ReportStatistics(statistics_cb_, 0);
+
   media_log_->SetBooleanProperty(GetStreamTypeString() + "_dds",
                                  !!decrypting_demuxer_stream_);
   media_log_->SetStringProperty(GetStreamTypeString() + "_decoder",
@@ -388,6 +395,13 @@ void DecoderStream<StreamType>::OnDecoderSelected(
   media_log_->SetBooleanProperty(
       "is_platform_" + GetStreamTypeString() + "_decoder",
       decoder_->IsPlatformDecoder());
+
+  if (is_decrypting_demuxer_stream_selected) {
+    MEDIA_LOG(INFO, media_log_)
+        << "Selected DecryptingDemuxerStream for " << GetStreamTypeString()
+        << " decryption, config: "
+        << traits_->GetDecoderConfig(original_stream).AsHumanReadableString();
+  }
 
   MEDIA_LOG(INFO, media_log_)
       << "Selected " << decoder_->GetDisplayName() << " for "
@@ -407,13 +421,12 @@ void DecoderStream<StreamType>::OnDecoderSelected(
 }
 
 template <DemuxerStream::Type StreamType>
-void DecoderStream<StreamType>::SatisfyRead(
-    Status status,
-    const scoped_refptr<Output>& output) {
+void DecoderStream<StreamType>::SatisfyRead(Status status,
+                                            scoped_refptr<Output> output) {
   DCHECK(read_cb_);
   TRACE_EVENT_ASYNC_END1("media", GetReadTraceString<StreamType>(), this,
                          "status", GetStatusString<StreamType>(status));
-  std::move(read_cb_).Run(status, output);
+  std::move(read_cb_).Run(status, std::move(output));
 }
 
 template <DemuxerStream::Type StreamType>
@@ -576,7 +589,7 @@ void DecoderStream<StreamType>::OnDecodeDone(
 
 template <DemuxerStream::Type StreamType>
 void DecoderStream<StreamType>::OnDecodeOutputReady(
-    const scoped_refptr<Output>& output) {
+    scoped_refptr<Output> output) {
   FUNCTION_DVLOG(3) << ": " << output->timestamp().InMilliseconds() << " ms";
   DCHECK(output);
   DCHECK(state_ == STATE_NORMAL || state_ == STATE_FLUSHING_DECODER ||
@@ -604,12 +617,12 @@ void DecoderStream<StreamType>::OnDecodeOutputReady(
   }
 
   // If the frame should be dropped, exit early and decode another frame.
-  if (traits_->OnDecodeDone(output) == PostDecodeAction::DROP)
+  if (traits_->OnDecodeDone(output.get()) == PostDecodeAction::DROP)
     return;
 
   if (prepare_cb_ && output->timestamp() + AverageDuration() >=
                          skip_prepare_until_timestamp_) {
-    unprepared_outputs_.push_back(output);
+    unprepared_outputs_.push_back(std::move(output));
     MaybePrepareAnotherOutput();
     return;
   }
@@ -618,12 +631,12 @@ void DecoderStream<StreamType>::OnDecodeOutputReady(
     // If |ready_outputs_| was non-empty, the read would have already been
     // satisifed by Read().
     DCHECK(ready_outputs_.empty());
-    SatisfyRead(OK, output);
+    SatisfyRead(OK, std::move(output));
     return;
   }
 
   // Store decoded output.
-  ready_outputs_.push_back(output);
+  ready_outputs_.push_back(std::move(output));
 }
 
 template <DemuxerStream::Type StreamType>
@@ -957,7 +970,7 @@ void DecoderStream<StreamType>::MaybePrepareAnotherOutput() {
 
 template <DemuxerStream::Type StreamType>
 void DecoderStream<StreamType>::OnPreparedOutputReady(
-    const scoped_refptr<Output>& output) {
+    scoped_refptr<Output> output) {
   FUNCTION_DVLOG(2);
   DCHECK(task_runner_->BelongsToCurrentThread());
 
@@ -974,9 +987,9 @@ void DecoderStream<StreamType>::OnPreparedOutputReady(
   CompletePrepare(output.get());
   unprepared_outputs_.pop_front();
   if (!read_cb_)
-    ready_outputs_.emplace_back(output);
+    ready_outputs_.emplace_back(std::move(output));
   else
-    SatisfyRead(OK, output);
+    SatisfyRead(OK, std::move(output));
 
   MaybePrepareAnotherOutput();
 

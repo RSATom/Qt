@@ -9,6 +9,7 @@
 #include <memory>
 #include <utility>
 
+#include "base/bind.h"
 #include "base/values.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/extensions/api/tabs/tabs_constants.h"
@@ -186,38 +187,40 @@ void TabsEventRouter::OnTabStripModelChanged(
     const TabStripSelectionChange& selection) {
   switch (change.type()) {
     case TabStripModelChange::kInserted: {
-      for (const auto& delta : change.deltas()) {
-        DispatchTabInsertedAt(tab_strip_model, delta.insert.contents,
-                              delta.insert.index,
-                              selection.new_contents == delta.insert.contents);
+      for (const auto& contents : change.GetInsert()->contents) {
+        DispatchTabInsertedAt(tab_strip_model, contents.contents,
+                              contents.index,
+                              selection.new_contents == contents.contents);
       }
       break;
     }
     case TabStripModelChange::kRemoved: {
-      for (const auto& delta : change.deltas()) {
-        if (delta.remove.will_be_deleted)
-          DispatchTabClosingAt(tab_strip_model, delta.remove.contents,
-                               delta.remove.index);
+      const bool will_be_deleted = change.GetRemove()->will_be_deleted;
+      for (const auto& contents : change.GetRemove()->contents) {
+        if (will_be_deleted) {
+          DispatchTabClosingAt(tab_strip_model, contents.contents,
+                               contents.index);
+        }
 
-        DispatchTabDetachedAt(delta.remove.contents, delta.remove.index,
-                              selection.old_contents == delta.remove.contents);
+        DispatchTabDetachedAt(contents.contents, contents.index,
+                              selection.old_contents == contents.contents);
       }
       break;
     }
     case TabStripModelChange::kMoved: {
-      for (const auto& delta : change.deltas()) {
-        DispatchTabMoved(delta.move.contents, delta.move.from_index,
-                         delta.move.to_index);
-      }
+      auto* move = change.GetMove();
+      DispatchTabMoved(move->contents, move->from_index, move->to_index);
       break;
     }
     case TabStripModelChange::kReplaced: {
-      for (const auto& delta : change.deltas()) {
-        DispatchTabReplacedAt(delta.replace.old_contents,
-                              delta.replace.new_contents, delta.replace.index);
-      }
+      auto* replace = change.GetReplace();
+      DispatchTabReplacedAt(replace->old_contents, replace->new_contents,
+                            replace->index);
       break;
     }
+    case TabStripModelChange::kGroupChanged:
+      // TODO(crbug.com/930988): Dispatch Tab Group-related events.
+      break;
     case TabStripModelChange::kSelectionOnly:
       break;
   }
@@ -291,8 +294,10 @@ void TabsEventRouter::OnFaviconUpdated(
   }
 }
 
-void TabsEventRouter::OnDiscardedStateChange(WebContents* contents,
-                                             bool is_discarded) {
+void TabsEventRouter::OnDiscardedStateChange(
+    WebContents* contents,
+    ::mojom::LifecycleUnitDiscardReason reason,
+    bool is_discarded) {
   std::set<std::string> changed_property_names;
   changed_property_names.insert(tabs_constants::kDiscardedKey);
   DispatchTabUpdatedEvent(contents, std::move(changed_property_names));

@@ -17,6 +17,7 @@
 #include <string>
 #include <utility>
 
+#include "base/bind.h"
 #include "base/callback.h"
 #include "base/compiler_specific.h"
 #include "base/lazy_instance.h"
@@ -352,7 +353,8 @@ class OCSPRequestSession
     lock_.AssertAcquired();
     if (io_task_runner_) {
       io_task_runner_->PostTask(
-          FROM_HERE, base::Bind(&OCSPRequestSession::CancelURLRequest, this));
+          FROM_HERE,
+          base::BindOnce(&OCSPRequestSession::CancelURLRequest, this));
     }
   }
 
@@ -517,12 +519,12 @@ void OCSPIOLoop::PostTaskToIOLoop(const base::Location& from_here,
 }
 
 void OCSPIOLoop::AddRequest(OCSPRequestSession* request) {
-  DCHECK(!base::ContainsKey(requests_, request));
+  DCHECK(!base::Contains(requests_, request));
   requests_.insert(request);
 }
 
 void OCSPIOLoop::RemoveRequest(OCSPRequestSession* request) {
-  DCHECK(base::ContainsKey(requests_, request));
+  DCHECK(base::Contains(requests_, request));
   requests_.erase(request);
 }
 

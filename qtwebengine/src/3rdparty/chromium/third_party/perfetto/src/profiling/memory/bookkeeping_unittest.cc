@@ -16,8 +16,8 @@
 
 #include "src/profiling/memory/bookkeeping.h"
 
-#include "gmock/gmock.h"
-#include "gtest/gtest.h"
+#include <gmock/gmock.h>
+#include <gtest/gtest.h>
 
 namespace perfetto {
 namespace profiling {
@@ -56,31 +56,58 @@ std::vector<FrameData> stack2() {
 TEST(BookkeepingTest, Basic) {
   uint64_t sequence_number = 1;
   GlobalCallstackTrie c;
-  HeapTracker hd(&c);
+  HeapTracker hd(&c, false);
 
-  hd.RecordMalloc(stack(), 1, 5, sequence_number++);
-  hd.RecordMalloc(stack2(), 2, 2, sequence_number++);
+  hd.RecordMalloc(stack(), 1, 5, 5, sequence_number, 100 * sequence_number);
+  sequence_number++;
+  hd.RecordMalloc(stack2(), 2, 2, 2, sequence_number, 100 * sequence_number);
+  sequence_number++;
   ASSERT_EQ(hd.GetSizeForTesting(stack()), 5);
   ASSERT_EQ(hd.GetSizeForTesting(stack2()), 2);
-  hd.RecordFree(2, sequence_number++);
+  ASSERT_EQ(hd.GetTimestampForTesting(), 100 * (sequence_number - 1));
+  hd.RecordFree(2, sequence_number, 100 * sequence_number);
+  sequence_number++;
   ASSERT_EQ(hd.GetSizeForTesting(stack()), 5);
   ASSERT_EQ(hd.GetSizeForTesting(stack2()), 0);
-  hd.RecordFree(1, sequence_number++);
+  ASSERT_EQ(hd.GetTimestampForTesting(), 100 * (sequence_number - 1));
+  hd.RecordFree(1, sequence_number, 100 * sequence_number);
+  sequence_number++;
   ASSERT_EQ(hd.GetSizeForTesting(stack()), 0);
   ASSERT_EQ(hd.GetSizeForTesting(stack2()), 0);
+  ASSERT_EQ(hd.GetTimestampForTesting(), 100 * (sequence_number - 1));
+}
+
+TEST(BookkeepingTest, Max) {
+  uint64_t sequence_number = 1;
+  GlobalCallstackTrie c;
+  HeapTracker hd(&c, true);
+
+  hd.RecordMalloc(stack(), 1, 5, 5, sequence_number, 100 * sequence_number);
+  sequence_number++;
+  hd.RecordMalloc(stack2(), 2, 2, 2, sequence_number, 100 * sequence_number);
+  sequence_number++;
+  hd.RecordFree(2, sequence_number, 100 * sequence_number);
+  sequence_number++;
+  hd.RecordFree(1, sequence_number, 100 * sequence_number);
+  sequence_number++;
+  ASSERT_EQ(hd.max_timestamp(), 200);
+  ASSERT_EQ(hd.GetMaxForTesting(stack()), 5);
+  ASSERT_EQ(hd.GetMaxForTesting(stack2()), 2);
 }
 
 TEST(BookkeepingTest, TwoHeapTrackers) {
   uint64_t sequence_number = 1;
   GlobalCallstackTrie c;
-  HeapTracker hd(&c);
+  HeapTracker hd(&c, false);
   {
-    HeapTracker hd2(&c);
+    HeapTracker hd2(&c, false);
 
-    hd.RecordMalloc(stack(), 1, 5, sequence_number);
-    hd2.RecordMalloc(stack(), 2, 2, sequence_number++);
+    hd.RecordMalloc(stack(), 1, 5, 5, sequence_number, 100 * sequence_number);
+    hd2.RecordMalloc(stack(), 2, 2, 2, sequence_number, 100 * sequence_number);
+    sequence_number++;
     ASSERT_EQ(hd2.GetSizeForTesting(stack()), 2);
     ASSERT_EQ(hd.GetSizeForTesting(stack()), 5);
+    ASSERT_EQ(hd.GetTimestampForTesting(), 100 * (sequence_number - 1));
   }
   ASSERT_EQ(hd.GetSizeForTesting(stack()), 5);
 }
@@ -88,39 +115,43 @@ TEST(BookkeepingTest, TwoHeapTrackers) {
 TEST(BookkeepingTest, ReplaceAlloc) {
   uint64_t sequence_number = 1;
   GlobalCallstackTrie c;
-  HeapTracker hd(&c);
+  HeapTracker hd(&c, false);
 
-  hd.RecordMalloc(stack(), 1, 5, sequence_number++);
-  hd.RecordMalloc(stack2(), 1, 2, sequence_number++);
+  hd.RecordMalloc(stack(), 1, 5, 5, sequence_number, 100 * sequence_number);
+  sequence_number++;
+  hd.RecordMalloc(stack2(), 1, 2, 2, sequence_number, 100 * sequence_number);
+  sequence_number++;
   EXPECT_EQ(hd.GetSizeForTesting(stack()), 0);
   EXPECT_EQ(hd.GetSizeForTesting(stack2()), 2);
+  ASSERT_EQ(hd.GetTimestampForTesting(), 100 * (sequence_number - 1));
 }
 
 TEST(BookkeepingTest, OutOfOrder) {
   GlobalCallstackTrie c;
-  HeapTracker hd(&c);
+  HeapTracker hd(&c, false);
 
-  hd.RecordMalloc(stack(), 1, 5, 1);
-  hd.RecordMalloc(stack2(), 1, 2, 0);
+  hd.RecordMalloc(stack(), 1, 5, 5, 2, 2);
+  hd.RecordMalloc(stack2(), 1, 2, 2, 1, 1);
   EXPECT_EQ(hd.GetSizeForTesting(stack()), 5);
   EXPECT_EQ(hd.GetSizeForTesting(stack2()), 0);
 }
 
 TEST(BookkeepingTest, ManyAllocations) {
   GlobalCallstackTrie c;
-  HeapTracker hd(&c);
+  HeapTracker hd(&c, false);
 
   std::vector<std::pair<uint64_t, uint64_t>> batch_frees;
 
   for (uint64_t sequence_number = 1; sequence_number < 1000;) {
     if (batch_frees.size() > 10) {
       for (const auto& p : batch_frees)
-        hd.RecordFree(p.first, p.second);
+        hd.RecordFree(p.first, p.second, 100 * p.second);
       batch_frees.clear();
     }
 
     uint64_t addr = sequence_number;
-    hd.RecordMalloc(stack(), addr, 5, sequence_number++);
+    hd.RecordMalloc(stack(), addr, 5, 5, sequence_number, sequence_number);
+    sequence_number++;
     batch_frees.emplace_back(addr, sequence_number++);
     ASSERT_THAT(hd.GetSizeForTesting(stack()), AnyOf(Eq(0), Eq(5)));
   }
@@ -155,16 +186,18 @@ TEST(BookkeepingTest, ArbitraryOrder) {
 
   do {
     GlobalCallstackTrie c;
-    HeapTracker hd(&c);
+    HeapTracker hd(&c, false);
 
     for (auto it = std::begin(operations); it != std::end(operations); ++it) {
       const Operation& operation = *it;
 
       if (operation.bytes == 0) {
-        hd.RecordFree(operation.address, operation.sequence_number);
+        hd.RecordFree(operation.address, operation.sequence_number,
+                      100 * operation.sequence_number);
       } else {
         hd.RecordMalloc(*operation.stack, operation.address, operation.bytes,
-                        operation.sequence_number);
+                        operation.bytes, operation.sequence_number,
+                        100 * operation.sequence_number);
       }
     }
     ASSERT_EQ(hd.GetSizeForTesting(s), s_size);

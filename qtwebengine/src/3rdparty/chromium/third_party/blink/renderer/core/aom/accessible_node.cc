@@ -8,9 +8,11 @@
 #include "third_party/blink/renderer/core/aom/accessible_node_list.h"
 #include "third_party/blink/renderer/core/dom/element.h"
 #include "third_party/blink/renderer/core/dom/qualified_name.h"
+#include "third_party/blink/renderer/core/frame/local_frame_view.h"
 #include "third_party/blink/renderer/core/frame/settings.h"
-#include "third_party/blink/renderer/platform//weborigin/security_origin.h"
+#include "third_party/blink/renderer/core/page/page.h"
 #include "third_party/blink/renderer/platform/runtime_enabled_features.h"
+#include "third_party/blink/renderer/platform/weborigin/security_origin.h"
 
 namespace blink {
 
@@ -285,9 +287,8 @@ bool AccessibleNode::GetProperty(Element* element,
   for (wtf_size_t i = 0; i < node_list->length(); ++i) {
     AccessibleNode* accessible_node = node_list->item(i);
     if (accessible_node) {
-      Element* element = accessible_node->element();
-      if (element)
-        targets.push_back(element);
+      if (Element* target_element = accessible_node->element())
+        targets.push_back(target_element);
     }
   }
 
@@ -372,17 +373,9 @@ const AtomicString& AccessibleNode::GetPropertyOrARIAAttribute(
     return g_null_atom;
 
   const bool is_token_attr = IsStringTokenProperty(property);
-  AccessibleNode* accessible_node = element->ExistingAccessibleNode();
-  if (accessible_node) {
-    const AtomicString& result = accessible_node->GetProperty(property);
-    if (!result.IsNull()) {
-      if (is_token_attr && IsUndefinedAttrValue(result))
-        return g_null_atom;  // Property specifically set to undefined value.
-      return result;
-    }
-  }
 
-  // Fall back on the equivalent ARIA attribute.
+  // We are currently only checking ARIA attributes, instead of AccessibleNode
+  // properties. Further refactoring will be happening as the API is finalised.
   QualifiedName attribute = GetCorrespondingARIAAttribute(property);
   const AtomicString& attr_value = element->FastGetAttribute(attribute);
   if (is_token_attr && IsUndefinedAttrValue(attr_value))
@@ -397,11 +390,6 @@ Element* AccessibleNode::GetPropertyOrARIAAttribute(
     AOMRelationProperty property) {
   if (!element)
     return nullptr;
-
-  if (AccessibleNode* result = GetProperty(element, property))
-    return result->element();
-
-  // Fall back on the equivalent ARIA attribute.
   QualifiedName attribute = GetCorrespondingARIAAttribute(property);
   AtomicString value = element->FastGetAttribute(attribute);
   return element->GetTreeScope().getElementById(value);
@@ -414,11 +402,6 @@ bool AccessibleNode::GetPropertyOrARIAAttribute(
     HeapVector<Member<Element>>& targets) {
   if (!element)
     return false;
-
-  if (GetProperty(element, property, targets))
-    return true;
-
-  // Fall back on the equivalent ARIA attribute.
   QualifiedName attribute = GetCorrespondingARIAAttribute(property);
   String value = element->FastGetAttribute(attribute).GetString();
   if (value.IsEmpty() && property == AOMRelationListProperty::kLabeledBy)
@@ -426,7 +409,6 @@ bool AccessibleNode::GetPropertyOrARIAAttribute(
   if (value.IsEmpty())
     return false;
 
-  value.SimplifyWhiteSpace();
   Vector<String> ids;
   value.Split(' ', ids);
   if (ids.IsEmpty())
@@ -448,13 +430,6 @@ bool AccessibleNode::GetPropertyOrARIAAttribute(Element* element,
   if (!element)
     return false;
 
-  AccessibleNode* accessible_node = element->ExistingAccessibleNode();
-  if (accessible_node) {
-    bool result = accessible_node->GetProperty(property, is_null);
-    if (!is_null)
-      return result;
-  }
-
   // Fall back on the equivalent ARIA attribute.
   QualifiedName attribute = GetCorrespondingARIAAttribute(property);
   AtomicString attr_value = element->FastGetAttribute(attribute);
@@ -469,10 +444,6 @@ float AccessibleNode::GetPropertyOrARIAAttribute(Element* element,
   is_null = true;
   if (!element)
     return 0.0;
-
-  float result = GetProperty(element, property, is_null);
-  if (!is_null)
-    return result;
 
   // Fall back on the equivalent ARIA attribute.
   QualifiedName attribute = GetCorrespondingARIAAttribute(property);
@@ -489,10 +460,6 @@ uint32_t AccessibleNode::GetPropertyOrARIAAttribute(Element* element,
   if (!element)
     return 0;
 
-  int32_t result = GetProperty(element, property, is_null);
-  if (!is_null)
-    return result;
-
   // Fall back on the equivalent ARIA attribute.
   QualifiedName attribute = GetCorrespondingARIAAttribute(property);
   AtomicString attr_value = element->FastGetAttribute(attribute);
@@ -507,10 +474,6 @@ int32_t AccessibleNode::GetPropertyOrARIAAttribute(Element* element,
   is_null = true;
   if (!element)
     return 0;
-
-  int32_t result = GetProperty(element, property, is_null);
-  if (!is_null)
-    return result;
 
   // Fall back on the equivalent ARIA attribute.
   QualifiedName attribute = GetCorrespondingARIAAttribute(property);
@@ -1171,12 +1134,30 @@ void AccessibleNode::NotifyAttributeChanged(
     const blink::QualifiedName& attribute) {
   // TODO(dmazzoni): Make a cleaner API for this rather than pretending
   // the DOM attribute changed.
-  if (AXObjectCache* cache = GetAXObjectCache()) {
-    if (element_)
-      cache->HandleAttributeChanged(attribute, element_);
-    else
-      cache->HandleAttributeChanged(attribute, this);
+  AXObjectCache* cache = GetAXObjectCache();
+  if (!cache)
+    return;
+
+  if (!element_) {
+    cache->HandleAttributeChanged(attribute, this);
+    return;
   }
+
+  // By definition, any attribute on an AccessibleNode is interesting to
+  // AXObjectCache, so no need to check return value.
+  cache->HandleAttributeChanged(attribute, element_);
+
+  auto* page = GetDocument()->GetPage();
+  auto* view = GetDocument()->View();
+  if (!page || !view)
+    return;
+
+  // TODO(aboxhall): add a lifecycle phase for accessibility updates.
+  if (!view->CanThrottleRendering())
+    page->Animator().ScheduleVisualUpdate(GetDocument()->GetFrame());
+
+  GetDocument()->Lifecycle().EnsureStateAtMost(
+      DocumentLifecycle::kVisualUpdatePending);
 }
 
 AXObjectCache* AccessibleNode::GetAXObjectCache() {

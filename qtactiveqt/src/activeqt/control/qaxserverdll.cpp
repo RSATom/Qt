@@ -60,7 +60,7 @@
 QT_BEGIN_NAMESPACE
 
 bool qax_ownQApp = false;
-HHOOK qax_hhook = 0;
+HHOOK qax_hhook = nullptr;
 
 // in qaxserver.cpp
 extern wchar_t qAxModuleFilename[MAX_PATH];
@@ -72,17 +72,34 @@ extern void qAxCleanup();
 extern HANDLE qAxInstance;
 static uint qAxThreadId = 0;
 
-extern HRESULT UpdateRegistry(int bRegister);
+extern HRESULT UpdateRegistry(bool bRegister, bool perUser);
 extern HRESULT GetClassObject(const GUID &clsid, const GUID &iid, void **ppUnk);
 
 STDAPI DllRegisterServer()
 {
-    return UpdateRegistry(true);
+    return UpdateRegistry(true, false);
 }
 
 STDAPI DllUnregisterServer()
 {
-    return UpdateRegistry(false);
+    return UpdateRegistry(false, false);
+}
+
+STDAPI DllInstall(BOOL bInstall, LPCWSTR pszCmdLine) {
+    bool perUser = false; // per-user (un)registration
+    if (pszCmdLine) {
+        if (QStringView(pszCmdLine).compare(u"user", Qt::CaseInsensitive) == 0)
+            perUser = true;
+    }
+
+    if (bInstall) {
+        HRESULT hr = UpdateRegistry(true, perUser);
+        if (FAILED(hr))
+            UpdateRegistry(false, perUser);
+        return hr;
+    } else {
+        return UpdateRegistry(false, perUser);
+    }
 }
 
 STDAPI DllGetClassObject(const GUID &clsid, const GUID &iid, void** ppv)

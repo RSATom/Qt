@@ -5,26 +5,45 @@
  * found in the LICENSE file.
  */
 
-#include "gm.h"
-#include "sk_tool_utils.h"
-#include "GrCaps.h"
-#include "GrContext.h"
-#include "GrRenderTargetContextPriv.h"
-#include "SkRRect.h"
-#include "effects/GrRRectEffect.h"
-#include "ops/GrDrawOp.h"
-#include "ops/GrFillRectOp.h"
+#include "gm/gm.h"
+#include "include/core/SkBlendMode.h"
+#include "include/core/SkCanvas.h"
+#include "include/core/SkColor.h"
+#include "include/core/SkMatrix.h"
+#include "include/core/SkPaint.h"
+#include "include/core/SkRRect.h"
+#include "include/core/SkRect.h"
+#include "include/core/SkScalar.h"
+#include "include/core/SkSize.h"
+#include "include/core/SkString.h"
+#include "include/core/SkTypes.h"
+#include "include/gpu/GrContext.h"
+#include "include/private/GrSharedEnums.h"
+#include "include/private/GrTypesPriv.h"
+#include "src/gpu/GrCaps.h"
+#include "src/gpu/GrFragmentProcessor.h"
+#include "src/gpu/GrPaint.h"
+#include "src/gpu/GrRenderTargetContext.h"
+#include "src/gpu/GrRenderTargetContextPriv.h"
+#include "src/gpu/effects/GrPorterDuffXferProcessor.h"
+#include "src/gpu/effects/GrRRectEffect.h"
+#include "src/gpu/ops/GrDrawOp.h"
+#include "src/gpu/ops/GrFillRectOp.h"
+#include "tools/ToolUtils.h"
+
+#include <memory>
+#include <utility>
 
 namespace skiagm {
 
 ///////////////////////////////////////////////////////////////////////////////
 
-class BigRRectAAEffectGM : public GM {
+class BigRRectAAEffectGM : public GpuGM {
 public:
     BigRRectAAEffectGM(const SkRRect& rrect, const char* name)
         : fRRect(rrect)
         , fName(name) {
-        this->setBGColor(sk_tool_utils::color_to_565(SK_ColorBLUE));
+        this->setBGColor(ToolUtils::color_to_565(SK_ColorBLUE));
         // Each test case draws the rrect with gaps around it.
         fTestWidth = SkScalarCeilToInt(rrect.width()) + 2 * kGap;
         fTestHeight = SkScalarCeilToInt(rrect.height()) + 2 * kGap;
@@ -48,19 +67,8 @@ protected:
 
     SkISize onISize() override { return SkISize::Make(fWidth, fHeight); }
 
-    void onDraw(SkCanvas* canvas) override {
-        GrRenderTargetContext* renderTargetContext =
-            canvas->internal_private_accessTopLayerRenderTargetContext();
-        if (!renderTargetContext) {
-            skiagm::GM::DrawGpuOnlyMessage(canvas);
-            return;
-        }
-
-        GrContext* context = canvas->getGrContext();
-        if (!context) {
-            return;
-        }
-
+    void onDraw(GrContext* context, GrRenderTargetContext* renderTargetContext,
+                SkCanvas* canvas) override {
         SkPaint paint;
 
         int y = kPad;
@@ -95,8 +103,8 @@ protected:
                     bounds.offset(SkIntToScalar(x), SkIntToScalar(y));
 
                     renderTargetContext->priv().testingOnly_addDrawOp(
-                            GrFillRectOp::Make(context, std::move(grPaint), GrAAType::kNone,
-                                               SkMatrix::I(), bounds));
+                            GrFillRectOp::MakeNonAARect(context, std::move(grPaint),
+                                                        SkMatrix::I(), bounds));
                 }
             canvas->restore();
             x = x + fTestOffsetX;

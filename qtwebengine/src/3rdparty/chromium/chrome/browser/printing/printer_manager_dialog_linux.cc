@@ -53,7 +53,8 @@ bool OpenPrinterConfigDialog(const char* const* command) {
 // Detect the command based on the deskop environment and open the printer
 // manager dialog.
 void DetectAndOpenPrinterConfigDialog() {
-  base::ScopedBlockingCall scoped_blocking_call(base::BlockingType::MAY_BLOCK);
+  base::ScopedBlockingCall scoped_blocking_call(FROM_HERE,
+                                                base::BlockingType::MAY_BLOCK);
   std::unique_ptr<base::Environment> env(base::Environment::Create());
 
   bool opened = false;
@@ -86,7 +87,7 @@ void DetectAndOpenPrinterConfigDialog() {
 
 namespace printing {
 
-void PrinterManagerDialog::ShowPrinterManagerDialog() {
+void PrinterManagerDialog::ShowPrinterManagerDialog(Profile* profile) {
   base::PostTaskWithTraits(
       FROM_HERE, {base::MayBlock(), base::TaskPriority::USER_BLOCKING},
       base::BindOnce(&DetectAndOpenPrinterConfigDialog));

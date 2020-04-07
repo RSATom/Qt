@@ -55,6 +55,7 @@
 #include <QtWebEngine/private/qquickwebenginetouchhandleprovider_p_p.h>
 #include <QtWebEngine/private/qquickwebengineview_p.h>
 #include <QtWebEngine/private/qquickwebengineaction_p.h>
+#include <QtWebEngineCore/qwebenginefindtextresult.h>
 #include <QtWebEngineCore/qwebenginenotification.h>
 #include <QtWebEngineCore/qwebenginequotarequest.h>
 #include <QtWebEngineCore/qwebengineregisterprotocolhandlerrequest.h>
@@ -95,6 +96,7 @@ public:
         qmlRegisterType<QQuickWebEngineView, 7>(uri, 1, 7, "WebEngineView");
         qmlRegisterType<QQuickWebEngineView, 8>(uri, 1, 8, "WebEngineView");
         qmlRegisterType<QQuickWebEngineView, 9>(uri, 1, 9, "WebEngineView");
+        qmlRegisterType<QQuickWebEngineView, 10>(uri, 1, 10, "WebEngineView");
         qmlRegisterType<QQuickWebEngineProfile>(uri, 1, 1, "WebEngineProfile");
         qmlRegisterType<QQuickWebEngineProfile, 1>(uri, 1, 2, "WebEngineProfile");
         qmlRegisterType<QQuickWebEngineProfile, 2>(uri, 1, 3, "WebEngineProfile");
@@ -104,21 +106,23 @@ public:
         qmlRegisterType<QQuickWebEngineScript>(uri, 1, 1, "WebEngineScript");
         qmlRegisterUncreatableType<QQuickWebEngineCertificateError>(uri, 1, 1, "WebEngineCertificateError", msgUncreatableType("WebEngineCertificateError"));
         qmlRegisterUncreatableType<QQuickWebEngineDownloadItem>(uri, 1, 1, "WebEngineDownloadItem",
-            tr("Cannot create a separate instance of WebEngineDownloadItem"));
+            msgUncreatableType("WebEngineDownloadItem"));
         qmlRegisterUncreatableType<QQuickWebEngineDownloadItem, 1>(uri, 1, 2, "WebEngineDownloadItem",
-            tr("Cannot create a separate instance of WebEngineDownloadItem"));
+            msgUncreatableType("WebEngineDownloadItem"));
         qmlRegisterUncreatableType<QQuickWebEngineDownloadItem, 2>(uri, 1, 3, "WebEngineDownloadItem",
-            tr("Cannot create a separate instance of WebEngineDownloadItem"));
+            msgUncreatableType("WebEngineDownloadItem"));
         qmlRegisterUncreatableType<QQuickWebEngineDownloadItem, 3>(uri, 1, 4, "WebEngineDownloadItem",
-            tr("Cannot create a separate instance of WebEngineDownloadItem"));
+            msgUncreatableType("WebEngineDownloadItem"));
         qmlRegisterUncreatableType<QQuickWebEngineDownloadItem, 4>(uri, 1, 5, "WebEngineDownloadItem",
-            tr("Cannot create a separate instance of WebEngineDownloadItem"));
+            msgUncreatableType("WebEngineDownloadItem"));
         qmlRegisterUncreatableType<QQuickWebEngineDownloadItem, 5>(uri, 1, 6, "WebEngineDownloadItem",
-            tr("Cannot create a separate instance of WebEngineDownloadItem"));
+            msgUncreatableType("WebEngineDownloadItem"));
         qmlRegisterUncreatableType<QQuickWebEngineDownloadItem, 6>(uri, 1, 7, "WebEngineDownloadItem",
-            tr("Cannot create a separate instance of WebEngineDownloadItem"));
+            msgUncreatableType("WebEngineDownloadItem"));
         qmlRegisterUncreatableType<QQuickWebEngineDownloadItem, 7>(uri, 1, 8, "WebEngineDownloadItem",
-            tr("Cannot create a separate instance of WebEngineDownloadItem"));
+            msgUncreatableType("WebEngineDownloadItem"));
+        qmlRegisterUncreatableType<QQuickWebEngineDownloadItem, 10>(uri, 1, 10, "WebEngineDownloadItem",
+            msgUncreatableType("WebEngineDownloadItem"));
         qmlRegisterUncreatableType<QQuickWebEngineNewViewRequest>(uri, 1, 1, "WebEngineNewViewRequest", msgUncreatableType("WebEngineNewViewRequest"));
         qmlRegisterUncreatableType<QQuickWebEngineNewViewRequest, 1>(uri, 1, 5, "WebEngineNewViewRequest", tr("Cannot create separate instance of WebEngineNewViewRequest"));
         qmlRegisterUncreatableType<QQuickWebEngineSettings>(uri, 1, 1, "WebEngineSettings", msgUncreatableType("WebEngineSettings"));
@@ -132,11 +136,11 @@ public:
         qmlRegisterUncreatableType<QQuickWebEngineSettings, 8>(uri, 1, 9, "WebEngineSettings", msgUncreatableType("WebEngineSettings"));
         qmlRegisterSingletonType<QQuickWebEngineSingleton>(uri, 1, 1, "WebEngine", webEngineSingletonProvider);
         qmlRegisterUncreatableType<QQuickWebEngineHistory>(uri, 1, 1, "NavigationHistory",
-            tr("Cannot create a separate instance of NavigationHistory"));
+            msgUncreatableType("NavigationHistory"));
         qmlRegisterUncreatableType<QQuickWebEngineHistoryListModel>(uri, 1, 1, "NavigationHistoryListModel",
-            tr("Cannot create a separate instance of NavigationHistory"));
+            msgUncreatableType("NavigationHistory"));
         qmlRegisterUncreatableType<QQuickWebEngineFullScreenRequest>(uri, 1, 1, "FullScreenRequest",
-            tr("Cannot create a separate instance of FullScreenRequest"));
+            msgUncreatableType("FullScreenRequest"));
 
         qmlRegisterUncreatableType<QQuickWebEngineContextMenuRequest>(uri, 1, 4, "ContextMenuRequest",
                                                                     msgUncreatableType("ContextMenuRequest"));
@@ -166,6 +170,10 @@ public:
                                                                            msgUncreatableType("WebEngineClientCertificateOption"));
 #endif
         qmlRegisterUncreatableType<QWebEngineNotification>(uri, 1, 9, "WebEngineNotification", msgUncreatableType("WebEngineNotification"));
+        qmlRegisterUncreatableType<QQuickWebEngineTooltipRequest>(uri, 1, 10, "TooltipRequest",
+                                                                  msgUncreatableType("TooltipRequest"));
+        qRegisterMetaType<QWebEngineFindTextResult>();
+        qmlRegisterUncreatableType<QWebEngineFindTextResult>(uri, 1, 10, "FindTextResult", msgUncreatableType("FindTextResult"));
     }
 
 private:

@@ -26,6 +26,7 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_MODULES_WEBGL_WEBGL_OBJECT_H_
 #define THIRD_PARTY_BLINK_RENDERER_MODULES_WEBGL_WEBGL_OBJECT_H_
 
+#include "base/macros.h"
 #include "third_party/blink/renderer/platform/bindings/dom_wrapper_world.h"
 #include "third_party/blink/renderer/platform/bindings/script_wrappable.h"
 #include "third_party/blink/renderer/platform/heap/handle.h"
@@ -56,7 +57,11 @@ GLuint ObjectNonZero(const T* object) {
 }
 
 class WebGLObject : public ScriptWrappable {
-  WTF_MAKE_NONCOPYABLE(WebGLObject);
+  // WebGLObjects are pre-finalized, and the WebGLRenderingContextBase
+  // is specifically not. This is done in order to allow WebGLObjects to
+  // refer back to their owning context in their destructor to delete their
+  // resources if they are GC'd before the context is.
+  USING_PRE_FINALIZER(WebGLObject, Dispose);
 
  public:
   // We can't call virtual functions like deleteObjectImpl in this class's
@@ -64,7 +69,7 @@ class WebGLObject : public ScriptWrappable {
   // making this destructor non-virtual is complicated with respect to
   // Oilpan tracing. Therefore this destructor is declared virtual, but is
   // empty, and the code that would have gone into its body is called by
-  // subclasses via runDestructor().
+  // subclasses via Dispose().
   ~WebGLObject() override;
 
   // deleteObject may not always delete the OpenGL resource.  For programs and
@@ -84,13 +89,6 @@ class WebGLObject : public ScriptWrappable {
   virtual bool Validate(const WebGLContextGroup*,
                         const WebGLRenderingContextBase*) const = 0;
   virtual bool HasObject() const = 0;
-
-  // WebGLObjects are eagerly finalized, and the WebGLRenderingContextBase
-  // is specifically not. This is done in order to allow WebGLObjects to
-  // refer back to their owning context in their destructor to delete their
-  // resources if they are GC'd before the context is.
-  EAGERLY_FINALIZE();
-  DECLARE_EAGER_FINALIZATION_OPERATOR_NEW();
 
  protected:
   explicit WebGLObject(WebGLRenderingContextBase*);
@@ -113,10 +111,9 @@ class WebGLObject : public ScriptWrappable {
 
   virtual gpu::gles2::GLES2Interface* GetAGLInterface() const = 0;
 
-  // Used by leaf subclasses to run the destruction sequence -- what would
-  // be in the destructor of the base class, if it could be. Must be called
-  // no more than once.
-  void RunDestructor();
+  // Runs the pre-finalization sequence -- what would be in the destructor
+  // of the base class, if it could be. Must be called no more than once.
+  void Dispose();
 
   // Indicates to subclasses that the destructor is being run.
   bool DestructionInProgress() const;
@@ -139,6 +136,8 @@ class WebGLObject : public ScriptWrappable {
   // Indicates whether the destructor has been entered and we therefore
   // need to be careful in subclasses to not touch other on-heap objects.
   bool destruction_in_progress_;
+
+  DISALLOW_COPY_AND_ASSIGN(WebGLObject);
 };
 
 }  // namespace blink

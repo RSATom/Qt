@@ -43,7 +43,6 @@
 #include <Qt3DCore/qentity.h>
 #include <Qt3DCore/qcomponent.h>
 #include <Qt3DCore/qbackendnode.h>
-#include <Qt3DCore/private/qsceneobserverinterface_p.h>
 #include <Qt3DCore/private/qnode_p.h>
 #include <Qt3DCore/private/qbackendnode_p.h>
 #include <QThread>
@@ -350,38 +349,6 @@ private:
     bool m_allowFrontendNotifications;
 };
 
-class tst_SceneObserver : public Qt3DCore::QSceneObserverInterface
-{
-    // QSceneObserverInterface interface
-public:
-    void sceneNodeAdded(Qt3DCore::QSceneChangePtr &e)
-    {
-        QVERIFY(!e.isNull());
-        QVERIFY(e->type() == Qt3DCore::NodeCreated);
-        m_lastChange = e;
-    }
-
-    void sceneNodeRemoved(Qt3DCore::QSceneChangePtr &e)
-    {
-        QVERIFY(!e.isNull());
-        QVERIFY((e->type() == Qt3DCore::NodeDeleted));
-        m_lastChange = e;
-    }
-
-    void sceneNodeUpdated(Qt3DCore::QSceneChangePtr &e)
-    {
-        m_lastChange = e;
-    }
-
-    Qt3DCore::QSceneChangePtr lastChange() const
-    {
-        return m_lastChange;
-    }
-
-private:
-    Qt3DCore::QSceneChangePtr m_lastChange;
-};
-
 void tst_QChangeArbiter::registerObservers()
 {
     // GIVEN
@@ -411,12 +378,12 @@ void tst_QChangeArbiter::registerObservers()
     arbiter->syncChanges();
 
     // THEN
-    Q_FOREACH (tst_SimpleObserver *o, observers)
+    for (tst_SimpleObserver *o : qAsConst(observers))
         QVERIFY(o->lastChange().isNull());
 
     child->setParent(root);
     arbiter->syncChanges();
-    Q_FOREACH (tst_SimpleObserver *o, observers) {
+    for (tst_SimpleObserver *o : qAsConst(observers)) {
         QCOMPARE(o->lastChanges().size(), 1);
         QVERIFY(o->lastChanges().last()->type() == Qt3DCore::PropertyValueAdded);
     }
@@ -452,33 +419,20 @@ void tst_QChangeArbiter::registerSceneObserver()
         observers << s;
     }
 
-    QList<tst_SceneObserver *> sceneObservers;
-    for (int i = 0; i < 5; i++) {
-        tst_SceneObserver *s = new tst_SceneObserver();
-        arbiter->registerSceneObserver(s);
-        sceneObservers << s;
-    }
-
     arbiter->syncChanges();
 
     // THEN
-    Q_FOREACH (tst_SimpleObserver *o, observers)
+    for (tst_SimpleObserver *o : qAsConst(observers))
         QVERIFY(o->lastChange().isNull());
-    Q_FOREACH (tst_SceneObserver *s, sceneObservers)
-        QVERIFY(s->lastChange().isNull());
 
     // WHEN
     child->setParent(root);
     arbiter->syncChanges();
 
     // THEN
-    Q_FOREACH (tst_SimpleObserver *o, observers) {
+    for (tst_SimpleObserver *o : qAsConst(observers)) {
         QVERIFY(!o->lastChange().isNull());
         QVERIFY(o->lastChange()->type() == Qt3DCore::PropertyValueAdded);
-    }
-    Q_FOREACH (tst_SceneObserver *s, sceneObservers) {
-        QVERIFY(!s->lastChange().isNull());
-        QVERIFY(s->lastChange()->type() == Qt3DCore::NodeCreated);
     }
 
     // WHEN
@@ -486,13 +440,9 @@ void tst_QChangeArbiter::registerSceneObserver()
     arbiter->syncChanges();
 
     // THEN
-    Q_FOREACH (tst_SimpleObserver *o, observers) {
+    for (tst_SimpleObserver *o : qAsConst(observers)) {
         QVERIFY(!o->lastChange().isNull());
         QVERIFY(o->lastChange()->type() == Qt3DCore::ComponentAdded);
-    }
-    Q_FOREACH (tst_SceneObserver *s, sceneObservers) {
-        QVERIFY(!s->lastChange().isNull());
-        QVERIFY(s->lastChange()->type() == Qt3DCore::NodeCreated);
     }
 
     Qt3DCore::QChangeArbiter::destroyThreadLocalChangeQueue(arbiter.data());
@@ -527,7 +477,7 @@ void tst_QChangeArbiter::unregisterObservers()
     arbiter->syncChanges();
 
     // THEN
-    Q_FOREACH (tst_SimpleObserver *o, observers)
+    for (tst_SimpleObserver *o : qAsConst(observers))
         QVERIFY(o->lastChange().isNull());
 
     // WHEN
@@ -535,20 +485,20 @@ void tst_QChangeArbiter::unregisterObservers()
     arbiter->syncChanges();
 
     // THEN
-    Q_FOREACH (tst_SimpleObserver *o, observers) {
+    for (tst_SimpleObserver *o : qAsConst(observers)) {
         QVERIFY(!o->lastChange().isNull());
         QVERIFY(o->lastChange()->type() == Qt3DCore::PropertyValueAdded);
     }
 
     // WHEN
-    Q_FOREACH (tst_SimpleObserver *o, observers)
+    for (tst_SimpleObserver *o : qAsConst(observers))
         arbiter->unregisterObserver(o, root->id());
 
     root->sendAllChangesNotification();
     arbiter->syncChanges();
 
     // THEN
-    Q_FOREACH (tst_SimpleObserver *o, observers) {
+    for (tst_SimpleObserver *o : qAsConst(observers)) {
         QVERIFY(!o->lastChange().isNull());
         QVERIFY(o->lastChange()->type() == Qt3DCore::PropertyValueAdded);
     }
@@ -575,6 +525,7 @@ void tst_QChangeArbiter::unregisterSceneObservers()
     Qt3DCore::QNode *child = new tst_Node();
     Qt3DCore::QNodePrivate::get(root)->setScene(scene.data());
     Qt3DCore::QNodePrivate::get(root)->m_hasBackendNode = true;
+    Qt3DCore::QNodePrivate::get(child)->m_hasBackendNode = true;
     scene->addObservable(root);
 
     QList<tst_SimpleObserver *> observers;
@@ -584,33 +535,20 @@ void tst_QChangeArbiter::unregisterSceneObservers()
         observers << s;
     }
 
-    QList<tst_SceneObserver *> sceneObservers;
-    for (int i = 0; i < 5; i++) {
-        tst_SceneObserver *s = new tst_SceneObserver();
-        arbiter->registerSceneObserver(s);
-        sceneObservers << s;
-    }
-
     arbiter->syncChanges();
 
     // THEN
-    Q_FOREACH (tst_SimpleObserver *o, observers)
+    for (tst_SimpleObserver *o : qAsConst(observers))
         QVERIFY(o->lastChange().isNull());
-    Q_FOREACH (tst_SceneObserver *s, sceneObservers)
-        QVERIFY(s->lastChange().isNull());
 
     // WHEN
     child->setParent(root);
     arbiter->syncChanges();
 
     // THEN
-    Q_FOREACH (tst_SimpleObserver *o, observers) {
+    for (tst_SimpleObserver *o : qAsConst(observers)) {
         QVERIFY(!o->lastChange().isNull());
         QVERIFY(o->lastChange()->type() == Qt3DCore::PropertyValueAdded);
-    }
-    Q_FOREACH (tst_SceneObserver *s, sceneObservers) {
-        QVERIFY(!s->lastChange().isNull());
-        QVERIFY(s->lastChange()->type() == Qt3DCore::NodeCreated);
     }
 
     // WHEN
@@ -618,13 +556,9 @@ void tst_QChangeArbiter::unregisterSceneObservers()
     arbiter->syncChanges();
 
     // THEN
-    Q_FOREACH (tst_SimpleObserver *o, observers) {
+    for (tst_SimpleObserver *o : qAsConst(observers)) {
         QVERIFY(!o->lastChange().isNull());
         QVERIFY(o->lastChange()->type() == Qt3DCore::ComponentAdded);
-    }
-    Q_FOREACH (tst_SceneObserver *s, sceneObservers) {
-        QVERIFY(!s->lastChange().isNull());
-        QVERIFY(s->lastChange()->type() == Qt3DCore::NodeCreated);
     }
 
     // WHEN
@@ -632,30 +566,19 @@ void tst_QChangeArbiter::unregisterSceneObservers()
     arbiter->syncChanges();
 
     // THEN
-    Q_FOREACH (tst_SimpleObserver *o, observers) {
+    for (tst_SimpleObserver *o : qAsConst(observers)) {
         QVERIFY(!o->lastChange().isNull());
         QVERIFY(o->lastChange()->type() == Qt3DCore::PropertyValueRemoved);
     }
-    Q_FOREACH (tst_SceneObserver *s, sceneObservers) {
-        QVERIFY(!s->lastChange().isNull());
-        QVERIFY(s->lastChange()->type() == Qt3DCore::NodeDeleted);
-    }
-
-    Q_FOREACH (tst_SceneObserver *s, sceneObservers)
-        arbiter->unregisterSceneObserver(s);
 
     // WHEN
     child->setParent(root);
     arbiter->syncChanges();
 
     // THEN
-    Q_FOREACH (tst_SimpleObserver *o, observers) {
+    for (tst_SimpleObserver *o : qAsConst(observers)) {
         QVERIFY(!o->lastChange().isNull());
         QVERIFY(o->lastChange()->type() == Qt3DCore::PropertyValueAdded);
-    }
-    Q_FOREACH (tst_SceneObserver *s, sceneObservers) {
-        QVERIFY(!s->lastChange().isNull());
-        QVERIFY(s->lastChange()->type() == Qt3DCore::NodeDeleted);
     }
 
     Qt3DCore::QChangeArbiter::destroyThreadLocalChangeQueue(arbiter.data());
@@ -810,25 +733,19 @@ void tst_QChangeArbiter::distributePropertyChanges()
 
     // WHEN
     root->setProp1(root->prop1() + 1);
-    arbiter->syncChanges();
 
     // THEN
-    QVERIFY(!rootObserver->lastChange().isNull());
-    QCOMPARE(rootObserver->lastChange()->type(), Qt3DCore::PropertyUpdated);
-    Qt3DCore::QPropertyUpdatedChangePtr propChange = qSharedPointerDynamicCast<Qt3DCore::QPropertyUpdatedChange>(rootObserver->lastChange());
-    QCOMPARE(root->id(), propChange->subjectId());
-    QCOMPARE(QString(propChange->propertyName()), QString("prop1"));
+    auto dirtyNodes = arbiter->takeDirtyFrontEndNodes();
+    QCOMPARE(dirtyNodes.size(), 1);
+    QCOMPARE(dirtyNodes.front(), root);
 
     // WHEN
     root->setProp2(root->prop2() + 1.f);
-    arbiter->syncChanges();
 
     // THEN
-    QVERIFY(!rootObserver->lastChange().isNull());
-    QCOMPARE(rootObserver->lastChange()->type(), Qt3DCore::PropertyUpdated);
-    propChange = qSharedPointerDynamicCast<Qt3DCore::QPropertyUpdatedChange>(rootObserver->lastChange());
-    QCOMPARE(root->id(), propChange->subjectId());
-    QCOMPARE(QString(propChange->propertyName()), QString("prop2"));
+    dirtyNodes = arbiter->takeDirtyFrontEndNodes();
+    QCOMPARE(dirtyNodes.size(), 1);
+    QCOMPARE(dirtyNodes.front(), root);
 
     // Test change notifications made to an entity that was added to the scene
     // via QNode::setParent()
@@ -839,14 +756,11 @@ void tst_QChangeArbiter::distributePropertyChanges()
     tst_SimpleObserver *setParentChildObserver = new tst_SimpleObserver();
     arbiter->registerObserver(setParentChildObserver, setParentChild->id());
     setParentChild->setProp2(setParentChild->prop2() + 1.f);
-    arbiter->syncChanges();
 
     // THEN
-    QVERIFY(!setParentChildObserver->lastChange().isNull());
-    QCOMPARE(setParentChildObserver->lastChange()->type(), Qt3DCore::PropertyUpdated);
-    propChange = qSharedPointerDynamicCast<Qt3DCore::QPropertyUpdatedChange>(setParentChildObserver->lastChange());
-    QCOMPARE(setParentChild->id(), propChange->subjectId());
-    QCOMPARE(QString(propChange->propertyName()), QString("prop2"));
+    dirtyNodes = arbiter->takeDirtyFrontEndNodes();
+    QCOMPARE(dirtyNodes.size(), 1);
+    QCOMPARE(dirtyNodes.front(), setParentChild);
 
     // Test change notifications made to an entity that was added to the scene
     // via the QNode() constructor parent parameter
@@ -857,14 +771,11 @@ void tst_QChangeArbiter::distributePropertyChanges()
     tst_SimpleObserver *directChildObserver = new tst_SimpleObserver();
     arbiter->registerObserver(directChildObserver, directChild->id());
     directChild->setProp1(directChild->prop1() + 1);
-    arbiter->syncChanges();
 
     // THEN
-    QVERIFY(!directChildObserver->lastChange().isNull());
-    QCOMPARE(directChildObserver->lastChange()->type(), Qt3DCore::PropertyUpdated);
-    propChange = qSharedPointerDynamicCast<Qt3DCore::QPropertyUpdatedChange>(directChildObserver->lastChange());
-    QCOMPARE(directChild->id(), propChange->subjectId());
-    QCOMPARE(QString(propChange->propertyName()), QString("prop1"));
+    dirtyNodes = arbiter->takeDirtyFrontEndNodes();
+    QCOMPARE(dirtyNodes.size(), 1);
+    QCOMPARE(dirtyNodes.front(), directChild);
 
     Qt3DCore::QChangeArbiter::destroyThreadLocalChangeQueue(arbiter.data());
 }

@@ -89,7 +89,7 @@ class Q_AUTOTEST_EXPORT QHttpNetworkReply : public QObject, public QHttpNetworkH
     Q_OBJECT
 public:
 
-    explicit QHttpNetworkReply(const QUrl &url = QUrl(), QObject *parent = 0);
+    explicit QHttpNetworkReply(const QUrl &url = QUrl(), QObject *parent = nullptr);
     virtual ~QHttpNetworkReply();
 
     QUrl url() const override;
@@ -114,6 +114,8 @@ public:
 
     QString errorString() const;
     void setErrorString(const QString &error);
+
+    QNetworkReply::NetworkError errorCode() const;
 
     QString reasonPhrase() const;
 
@@ -259,6 +261,7 @@ public:
     qint64 removedContentLength;
     QPointer<QHttpNetworkConnection> connection;
     QPointer<QHttpNetworkConnectionChannel> connectionChannel;
+    QNetworkReply::NetworkError httpErrorCode = QNetworkReply::NoError;
 
     bool autoDecompress;
 

@@ -1,0 +1,6 @@
+SYNCQT.HEADER_FILES = qmockauxplugin.h 
+SYNCQT.GENERATED_HEADER_FILES = QMockAuxPlugin qtmockplugins3version.h QtMockPlugins3Version QtMockPlugins3 
+SYNCQT.PRIVATE_HEADER_FILES = 
+SYNCQT.QPA_HEADER_FILES = 
+SYNCQT.CLEAN_HEADER_FILES = qmockauxplugin.h 
+SYNCQT.INJECTIONS = 

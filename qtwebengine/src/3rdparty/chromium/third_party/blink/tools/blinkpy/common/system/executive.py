@@ -134,7 +134,7 @@ class Executive(object):
 
             command = ['taskkill.exe', '/f', '/t', '/pid', pid]
             # taskkill will exit 128 if the process is not found. We should log.
-            self.run_command(command, error_handler=self.ignore_error)
+            self.run_command(command, error_handler=self.log_error)
             return
 
         try:
@@ -142,7 +142,7 @@ class Executive(object):
             os.waitpid(pid, os.WNOHANG)
         except OSError as error:
             if error.errno == errno.ESRCH:
-                # The process does not exist.
+                _log.debug("PID %s does not exist.", pid)
                 return
             if error.errno == errno.ECHILD:
                 # Can't wait on a non-child process, but the kill worked.
@@ -265,6 +265,10 @@ class Executive(object):
     def ignore_error(error):
         pass
 
+    @staticmethod
+    def log_error(error):
+        _log.debug(error)
+
     def _compute_stdin(self, user_input):
         """Returns (stdin, string_to_communicate)"""
         # FIXME: We should be returning /dev/null for stdin
@@ -307,13 +311,17 @@ class Executive(object):
                     error_handler=None,
                     return_exit_code=False,
                     return_stderr=True,
-                    decode_output=True, debug_logging=True):
+                    ignore_stderr=False,
+                    decode_output=True,
+                    debug_logging=True):
         """Popen wrapper for convenience and to work around python bugs."""
         assert isinstance(args, list) or isinstance(args, tuple)
         start_time = time.time()
 
+        assert not (return_stderr and ignore_stderr)
         stdin, string_to_communicate = self._compute_stdin(input)
-        stderr = self.STDOUT if return_stderr else None
+        stderr = self.STDOUT if return_stderr else (
+            self.DEVNULL if ignore_stderr else None)
 
         process = self.popen(args,
                              stdin=stdin,

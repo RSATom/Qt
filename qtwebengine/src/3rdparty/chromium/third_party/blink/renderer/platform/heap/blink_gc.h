@@ -8,7 +8,7 @@
 // BlinkGC.h is a file that defines common things used by Blink GC.
 
 #include "third_party/blink/renderer/platform/platform_export.h"
-#include "third_party/blink/renderer/platform/wtf/allocator.h"
+#include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 
 #define PRINT_HEAP_STATS 0  // Enable this macro to print heap stats to stderr.
 
@@ -25,7 +25,6 @@ using MarkingVisitorCallback = void (*)(MarkingVisitor*, void*);
 using TraceCallback = VisitorCallback;
 using WeakCallback = VisitorCallback;
 using EphemeronCallback = VisitorCallback;
-using NameCallback = const char* (*)(const void* self);
 
 // Simple alias to avoid heap compaction type signatures turning into
 // a sea of generic |void*|s.
@@ -80,30 +79,34 @@ class PLATFORM_EXPORT BlinkGC final {
   };
 
   enum SweepingType {
-    // The sweeping task is split into chunks and scheduled lazily.
-    kLazySweeping,
-    // The sweeping task executs synchronously right after marking.
+    // The sweeping task is split into chunks and scheduled lazily and
+    // concurrently.
+    kConcurrentAndLazySweeping,
+    // The sweeping task executes synchronously right after marking.
     kEagerSweeping,
   };
 
+  // Commented out reasons have been used in the past but are not used any
+  // longer. We keep them here as the corresponding UMA histograms cannot be
+  // changed.
   enum class GCReason {
-    kIdleGC = 0,
+    // kIdleGC = 0,
     kPreciseGC = 1,
     kConservativeGC = 2,
-    kForcedGC = 3,
+    kForcedGCForTesting = 3,
     kMemoryPressureGC = 4,
-    kPageNavigationGC = 5,
+    // kPageNavigationGC = 5,
     kThreadTerminationGC = 6,
-    kTesting = 7,
-    kIncrementalIdleGC = 8,
+    // kTesting = 7,
+    // kIncrementalIdleGC = 8,
     kIncrementalV8FollowupGC = 9,
     kUnifiedHeapGC = 10,
-    kMaxValue = kUnifiedHeapGC,
+    kUnifiedHeapForMemoryReductionGC = 11,
+    kMaxValue = kUnifiedHeapForMemoryReductionGC,
   };
 
   enum ArenaIndices {
-    kEagerSweepArenaIndex = 0,
-    kNormalPage1ArenaIndex,
+    kNormalPage1ArenaIndex = 0,
     kNormalPage2ArenaIndex,
     kNormalPage3ArenaIndex,
     kNormalPage4ArenaIndex,
@@ -125,6 +128,11 @@ class PLATFORM_EXPORT BlinkGC final {
 
   // Sentinel used to mark not-fully-constructed during mixins.
   static constexpr void* kNotFullyConstructedObject = nullptr;
+
+  static const char* ToString(GCReason);
+  static const char* ToString(MarkingType);
+  static const char* ToString(StackState);
+  static const char* ToString(SweepingType);
 };
 
 }  // namespace blink

@@ -30,6 +30,7 @@
 #define THIRD_PARTY_BLINK_RENDERER_MODULES_WEBAUDIO_AUDIO_LISTENER_H_
 
 #include "third_party/blink/renderer/modules/webaudio/audio_param.h"
+#include "third_party/blink/renderer/modules/webaudio/inspector_helper_mixin.h"
 #include "third_party/blink/renderer/platform/bindings/script_wrappable.h"
 #include "third_party/blink/renderer/platform/geometry/float_point_3d.h"
 #include "third_party/blink/renderer/platform/heap/handle.h"
@@ -42,31 +43,27 @@ class PannerHandler;
 // AudioListener maintains the state of the listener in the audio scene as
 // defined in the OpenAL specification.
 
-class AudioListener : public ScriptWrappable {
+class AudioListener : public ScriptWrappable, public InspectorHelperMixin {
   DEFINE_WRAPPERTYPEINFO();
 
  public:
-  static AudioListener* Create(BaseAudioContext& context) {
-    return MakeGarbageCollected<AudioListener>(context);
-  }
-
-  AudioListener(BaseAudioContext&);
+  explicit AudioListener(BaseAudioContext&);
   ~AudioListener() override;
 
   // Location of the listener
-  AudioParam* positionX() const { return position_x_; };
-  AudioParam* positionY() const { return position_y_; };
-  AudioParam* positionZ() const { return position_z_; };
+  AudioParam* positionX() const { return position_x_; }
+  AudioParam* positionY() const { return position_y_; }
+  AudioParam* positionZ() const { return position_z_; }
 
   // Forward direction vector of the listener
-  AudioParam* forwardX() const { return forward_x_; };
-  AudioParam* forwardY() const { return forward_y_; };
-  AudioParam* forwardZ() const { return forward_z_; };
+  AudioParam* forwardX() const { return forward_x_; }
+  AudioParam* forwardY() const { return forward_y_; }
+  AudioParam* forwardZ() const { return forward_z_; }
 
   // Up direction vector for the listener
-  AudioParam* upX() const { return up_x_; };
-  AudioParam* upY() const { return up_y_; };
-  AudioParam* upZ() const { return up_z_; };
+  AudioParam* upX() const { return up_x_; }
+  AudioParam* upY() const { return up_y_; }
+  AudioParam* upZ() const { return up_z_; }
 
   // True if any of AudioParams have automations.
   bool HasSampleAccurateValues() const;

@@ -311,7 +311,7 @@ void QQuickStateGroup::componentComplete()
         if (!state->isNamed())
             state->setName(QLatin1String("anonymousState") + QString::number(++d->unnamedCount));
 
-        const QString stateName = state->name();
+        QString stateName = state->name();
         if (names.contains(stateName)) {
             qmlWarning(state->parent()) << "Found duplicate state name: " << stateName;
         } else {
@@ -348,10 +348,9 @@ bool QQuickStateGroupPrivate::updateAutoState()
         QQuickState *state = states.at(ii);
         if (state->isWhenKnown()) {
             if (state->isNamed()) {
-                if (state->when() && state->when()->evaluate().toBool()) {
+                if (state->when()) {
                     if (stateChangeDebug())
-                        qWarning() << "Setting auto state due to:"
-                                   << state->when()->expression();
+                        qWarning() << "Setting auto state due to expression";
                     if (currentState != state->name()) {
                         q->setState(state->name());
                         return true;

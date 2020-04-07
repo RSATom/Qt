@@ -9,7 +9,7 @@
 #include "content/public/browser/web_contents_observer.h"
 #include "mojo/public/cpp/bindings/binding_set.h"
 #include "services/device/public/mojom/sensor_provider.mojom.h"
-#include "third_party/blink/public/platform/modules/permissions/permission_status.mojom.h"
+#include "third_party/blink/public/mojom/permissions/permission_status.mojom.h"
 
 namespace content {
 
@@ -43,7 +43,7 @@ class SensorProviderProxyImpl final : public device::mojom::SensorProvider {
   RenderFrameHost* render_frame_host_;
   device::mojom::SensorProviderPtr sensor_provider_;
 
-  base::WeakPtrFactory<SensorProviderProxyImpl> weak_factory_;
+  base::WeakPtrFactory<SensorProviderProxyImpl> weak_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(SensorProviderProxyImpl);
 };

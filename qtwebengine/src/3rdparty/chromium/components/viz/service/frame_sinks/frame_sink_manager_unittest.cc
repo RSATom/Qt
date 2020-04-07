@@ -19,7 +19,7 @@
 #include "components/viz/test/fake_external_begin_frame_source.h"
 #include "components/viz/test/mock_compositor_frame_sink_client.h"
 #include "components/viz/test/mock_display_client.h"
-#include "components/viz/test/test_display_provider.h"
+#include "components/viz/test/test_output_surface_provider.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace viz {
@@ -56,9 +56,7 @@ struct RootCompositorFrameSinkData {
 class FrameSinkManagerTest : public testing::Test {
  public:
   FrameSinkManagerTest()
-      : manager_(&shared_bitmap_manager_,
-                 kDefaultActivationDeadlineInFrames,
-                 &display_provider_) {}
+      : manager_(&shared_bitmap_manager_, &output_surface_provider_) {}
   ~FrameSinkManagerTest() override = default;
 
   std::unique_ptr<CompositorFrameSinkSupport> CreateCompositorFrameSinkSupport(
@@ -80,8 +78,8 @@ class FrameSinkManagerTest : public testing::Test {
 
   // Checks if a [Root]CompositorFrameSinkImpl exists for |frame_sink_id|.
   bool CompositorFrameSinkExists(const FrameSinkId& frame_sink_id) {
-    return base::ContainsKey(manager_.sink_map_, frame_sink_id) ||
-           base::ContainsKey(manager_.root_sink_map_, frame_sink_id);
+    return base::Contains(manager_.sink_map_, frame_sink_id) ||
+           base::Contains(manager_.root_sink_map_, frame_sink_id);
   }
 
   // testing::Test implementation.
@@ -98,7 +96,7 @@ class FrameSinkManagerTest : public testing::Test {
 
  protected:
   ServerSharedBitmapManager shared_bitmap_manager_;
-  TestDisplayProvider display_provider_;
+  TestOutputSurfaceProvider output_surface_provider_;
   FrameSinkManagerImpl manager_;
 };
 
@@ -207,72 +205,6 @@ TEST_F(FrameSinkManagerTest, ClientRestart) {
 
   manager_.UnregisterBeginFrameSource(&source);
   EXPECT_EQ(nullptr, GetBeginFrameSource(client));
-}
-
-// This test verifies that a PrimaryBeginFrameSource will receive BeginFrames
-// from the first BeginFrameSource registered. If that BeginFrameSource goes
-// away then it will receive BeginFrames from the second BeginFrameSource.
-TEST_F(FrameSinkManagerTest, PrimaryBeginFrameSource) {
-  // This PrimaryBeginFrameSource should track the first BeginFrameSource
-  // registered with the SurfaceManager.
-  testing::NiceMock<MockBeginFrameObserver> obs;
-  BeginFrameSource* begin_frame_source = manager_.GetPrimaryBeginFrameSource();
-  begin_frame_source->AddObserver(&obs);
-
-  auto root1 = CreateCompositorFrameSinkSupport(FrameSinkId(1, 1));
-  std::unique_ptr<FakeExternalBeginFrameSource> external_source1 =
-      std::make_unique<FakeExternalBeginFrameSource>(60.f, false);
-  manager_.RegisterBeginFrameSource(external_source1.get(),
-                                    root1->frame_sink_id());
-
-  auto root2 = CreateCompositorFrameSinkSupport(FrameSinkId(2, 2));
-  std::unique_ptr<FakeExternalBeginFrameSource> external_source2 =
-      std::make_unique<FakeExternalBeginFrameSource>(60.f, false);
-  manager_.RegisterBeginFrameSource(external_source2.get(),
-                                    root2->frame_sink_id());
-
-  // Ticking |external_source2| does not propagate to |begin_frame_source|.
-  {
-    BeginFrameArgs args = CreateBeginFrameArgsForTesting(
-        BEGINFRAME_FROM_HERE, external_source2->source_id(), 1);
-    EXPECT_CALL(obs, OnBeginFrame(testing::_)).Times(0);
-    external_source2->TestOnBeginFrame(args);
-    testing::Mock::VerifyAndClearExpectations(&obs);
-  }
-
-  // Ticking |external_source1| does propagate to |begin_frame_source| and
-  // |obs|.
-  {
-    BeginFrameArgs args = CreateBeginFrameArgsForTesting(
-        BEGINFRAME_FROM_HERE, external_source1->source_id(), 1);
-    EXPECT_CALL(obs, OnBeginFrame(args)).Times(1);
-    external_source1->TestOnBeginFrame(args);
-    testing::Mock::VerifyAndClearExpectations(&obs);
-  }
-
-  // Getting rid of |external_source1| means those BeginFrames will not
-  // propagate. Instead, |external_source2|'s BeginFrames will propagate
-  // to |begin_frame_source|.
-  {
-    BeginFrameArgs args = CreateBeginFrameArgsForTesting(
-        BEGINFRAME_FROM_HERE, external_source1->source_id(), 2);
-    manager_.UnregisterBeginFrameSource(external_source1.get());
-    EXPECT_CALL(obs, OnBeginFrame(testing::_)).Times(0);
-    external_source1->TestOnBeginFrame(args);
-    testing::Mock::VerifyAndClearExpectations(&obs);
-  }
-
-  {
-    BeginFrameArgs args = CreateBeginFrameArgsForTesting(
-        BEGINFRAME_FROM_HERE, external_source2->source_id(), 2);
-    EXPECT_CALL(obs, OnBeginFrame(testing::_)).Times(1);
-    external_source2->TestOnBeginFrame(args);
-    testing::Mock::VerifyAndClearExpectations(&obs);
-  }
-
-  // Tear down
-  manager_.UnregisterBeginFrameSource(external_source2.get());
-  begin_frame_source->RemoveObserver(&obs);
 }
 
 TEST_F(FrameSinkManagerTest, MultipleDisplays) {
@@ -420,13 +352,14 @@ TEST_F(FrameSinkManagerTest,
 // Verifies that the SurfaceIds passed to EvictSurfaces will be destroyed in the
 // next garbage collection.
 TEST_F(FrameSinkManagerTest, EvictSurfaces) {
-  ParentLocalSurfaceIdAllocator allocator;
-  allocator.GenerateId();
+  ParentLocalSurfaceIdAllocator allocator1;
+  ParentLocalSurfaceIdAllocator allocator2;
+  allocator1.GenerateId();
   LocalSurfaceId local_surface_id1 =
-      allocator.GetCurrentLocalSurfaceIdAllocation().local_surface_id();
-  allocator.GenerateId();
+      allocator1.GetCurrentLocalSurfaceIdAllocation().local_surface_id();
+  allocator2.GenerateId();
   LocalSurfaceId local_surface_id2 =
-      allocator.GetCurrentLocalSurfaceIdAllocation().local_surface_id();
+      allocator2.GetCurrentLocalSurfaceIdAllocation().local_surface_id();
   SurfaceId surface_id1(kFrameSinkIdA, local_surface_id1);
   SurfaceId surface_id2(kFrameSinkIdB, local_surface_id2);
 
@@ -646,7 +579,7 @@ TEST_P(FrameSinkManagerOrderingParamTest, Ordering) {
     UnregisterBFS();
 }
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     FrameSinkManagerOrderingParamTestInstantiation,
     FrameSinkManagerOrderingParamTest,
     ::testing::Combine(::testing::ValuesIn(kRegisterOrderList),

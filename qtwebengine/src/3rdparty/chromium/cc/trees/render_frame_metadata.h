@@ -75,7 +75,7 @@ class CC_EXPORT RenderFrameMetadata {
   float top_controls_height = 0.f;
   float top_controls_shown_ratio = 0.f;
 
-#if defined(OS_ANDROID)
+#if defined(OS_ANDROID) || defined(TOOLKIT_QT)
   // Used to position Android bottom bar, whose position is computed by the
   // renderer compositor.
   float bottom_controls_height = 0.f;

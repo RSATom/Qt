@@ -346,7 +346,7 @@ void tst_QXmlItem::constCorrectness() const
 void tst_QXmlItem::withinQVariant() const
 {
     QXmlItem val;
-    const QVariant variant(qVariantFromValue(val));
+    const auto variant = QVariant::fromValue(val);
     QXmlItem val2(qvariant_cast<QXmlItem>(variant));
 }
 

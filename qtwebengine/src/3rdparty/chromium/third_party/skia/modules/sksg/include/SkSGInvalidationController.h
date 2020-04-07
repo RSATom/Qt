@@ -8,9 +8,9 @@
 #ifndef SkSGInvalidationController_DEFINED
 #define SkSGInvalidationController_DEFINED
 
-#include "SkMatrix.h"
-#include "SkTDArray.h"
-#include "SkTypes.h"
+#include "include/core/SkMatrix.h"
+#include "include/core/SkTypes.h"
+#include "include/private/SkTDArray.h"
 
 struct SkRect;
 
@@ -32,6 +32,8 @@ public:
     const SkRect& bounds() const { return fBounds;        }
     const SkRect*  begin() const { return fRects.begin(); }
     const SkRect*    end() const { return fRects.end();   }
+
+    void reset();
 
 private:
     SkTDArray<SkRect> fRects;

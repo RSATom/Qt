@@ -10,6 +10,10 @@
 
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
+#include "base/memory/weak_ptr.h"
+#include "mojo/public/cpp/bindings/binding.h"
+#include "mojo/public/cpp/system/data_pipe.h"
+#include "mojo/public/cpp/system/simple_watcher.h"
 #include "services/device/public/mojom/serial.mojom.h"
 
 namespace base {
@@ -29,20 +33,24 @@ class SerialPortImpl : public mojom::SerialPort {
   static void Create(
       const base::FilePath& path,
       mojom::SerialPortRequest request,
+      mojom::SerialPortConnectionWatcherPtrInfo watcher,
       scoped_refptr<base::SingleThreadTaskRunner> ui_task_runner);
 
+ private:
   SerialPortImpl(const base::FilePath& path,
+                 mojom::SerialPortRequest request,
+                 mojom::SerialPortConnectionWatcherPtrInfo watcher,
                  scoped_refptr<base::SingleThreadTaskRunner> ui_task_runner);
   ~SerialPortImpl() override;
 
- private:
   // mojom::SerialPort methods:
   void Open(mojom::SerialConnectionOptionsPtr options,
+            mojo::ScopedDataPipeConsumerHandle in_stream,
+            mojo::ScopedDataPipeProducerHandle out_stream,
+            mojom::SerialPortClientPtr client,
             OpenCallback callback) override;
-  void Read(uint32_t bytes, ReadCallback callback) override;
-  void Write(const std::vector<uint8_t>& data, WriteCallback callback) override;
-  void CancelRead(mojom::SerialReceiveError reason) override;
-  void CancelWrite(mojom::SerialSendError reason) override;
+  void ClearSendError(mojo::ScopedDataPipeConsumerHandle consumer) override;
+  void ClearReadError(mojo::ScopedDataPipeProducerHandle producer) override;
   void Flush(FlushCallback callback) override;
   void GetControlSignals(GetControlSignalsCallback callback) override;
   void SetControlSignals(mojom::SerialHostControlSignalsPtr signals,
@@ -52,9 +60,33 @@ class SerialPortImpl : public mojom::SerialPort {
   void GetPortInfo(GetPortInfoCallback callback) override;
   void SetBreak(SetBreakCallback callback) override;
   void ClearBreak(ClearBreakCallback callback) override;
+  void Close(CloseCallback callback) override;
 
+  void OnOpenCompleted(OpenCallback callback, bool success);
+  void WriteToPort(MojoResult result, const mojo::HandleSignalsState& state);
+  void OnWriteToPortCompleted(uint32_t bytes_expected,
+                              uint32_t bytes_sent,
+                              mojom::SerialSendError error);
+  void ReadFromPortAndWriteOut(MojoResult result,
+                               const mojo::HandleSignalsState& state);
+  void WriteToOutStream(uint32_t bytes_read, mojom::SerialReceiveError error);
+
+  mojo::Binding<mojom::SerialPort> binding_;
+
+  // Underlying connection to the serial port.
   scoped_refptr<SerialIoHandler> io_handler_;
 
+  // Client interfaces.
+  mojom::SerialPortClientPtr client_;
+  mojom::SerialPortConnectionWatcherPtr watcher_;
+
+  // Data pipes for input and output.
+  mojo::ScopedDataPipeConsumerHandle in_stream_;
+  mojo::SimpleWatcher in_stream_watcher_;
+  mojo::ScopedDataPipeProducerHandle out_stream_;
+  mojo::SimpleWatcher out_stream_watcher_;
+
+  base::WeakPtrFactory<SerialPortImpl> weak_factory_{this};
   DISALLOW_COPY_AND_ASSIGN(SerialPortImpl);
 };
 

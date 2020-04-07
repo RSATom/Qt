@@ -48,30 +48,29 @@ class CORE_EXPORT SelectionController final
   USING_GARBAGE_COLLECTED_MIXIN(SelectionController);
 
  public:
-  static SelectionController* Create(LocalFrame&);
-
   explicit SelectionController(LocalFrame&);
   virtual ~SelectionController();
-  void Trace(blink::Visitor*) override;
+  void Trace(Visitor*) override;
 
   bool HandleMousePressEvent(const MouseEventWithHitTestResults&);
   void HandleMouseDraggedEvent(const MouseEventWithHitTestResults&,
                                const IntPoint&,
-                               const LayoutPoint&,
-                               const LayoutPoint&);
+                               const PhysicalOffset&,
+                               const PhysicalOffset&);
   bool HandleMouseReleaseEvent(const MouseEventWithHitTestResults&,
-                               const LayoutPoint&);
+                               const PhysicalOffset&);
   bool HandlePasteGlobalSelection(const WebMouseEvent&);
   bool HandleGestureLongPress(const HitTestResult&);
   void HandleGestureTwoFingerTap(const GestureEventWithHitTestResults&);
   void HandleGestureLongTap(const GestureEventWithHitTestResults&);
 
-  void UpdateSelectionForMouseDrag(const LayoutPoint&, const LayoutPoint&);
+  void UpdateSelectionForMouseDrag(const PhysicalOffset&,
+                                   const PhysicalOffset&);
   void UpdateSelectionForMouseDrag(const HitTestResult&,
-                                   const LayoutPoint&,
-                                   const LayoutPoint&);
+                                   const PhysicalOffset&,
+                                   const PhysicalOffset&);
   void SendContextMenuEvent(const MouseEventWithHitTestResults&,
-                            const LayoutPoint&);
+                            const PhysicalOffset&);
   void PassMousePressEventToSubframe(const MouseEventWithHitTestResults&);
 
   void InitializeSelectionState();

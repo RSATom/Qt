@@ -4,6 +4,7 @@
 
 #include "content/public/browser/provision_fetcher_impl.h"
 
+#include "base/bind.h"
 #include "content/public/browser/provision_fetcher_factory.h"
 #include "mojo/public/cpp/bindings/strong_binding.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
@@ -23,7 +24,7 @@ void ProvisionFetcherImpl::Create(
 
 ProvisionFetcherImpl::ProvisionFetcherImpl(
     std::unique_ptr<media::ProvisionFetcher> provision_fetcher)
-    : provision_fetcher_(std::move(provision_fetcher)), weak_factory_(this) {
+    : provision_fetcher_(std::move(provision_fetcher)) {
   DVLOG(1) << __FUNCTION__;
 }
 

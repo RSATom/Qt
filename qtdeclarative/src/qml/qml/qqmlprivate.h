@@ -51,11 +51,14 @@
 // We mean it.
 //
 
+#include <functional>
+
 #include <QtQml/qtqmlglobal.h>
 
 #include <QtCore/qglobal.h>
 #include <QtCore/qvariant.h>
 #include <QtCore/qurl.h>
+#include <QtCore/qpointer.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -276,6 +279,7 @@ namespace QQmlPrivate
         const QMetaObject *instanceMetaObject; // new in version 1
         int typeId; // new in version 2
         int revision; // new in version 2
+        std::function<QObject*(QQmlEngine *, QJSEngine *)> generalizedQobjectApi; // new in version 3
         // If this is extended ensure "version" is bumped!!!
     };
 
@@ -319,6 +323,13 @@ namespace QQmlPrivate
 
     int Q_QML_EXPORT qmlregister(RegistrationType, void *);
     void Q_QML_EXPORT qmlunregister(RegistrationType, quintptr);
+    struct Q_QML_EXPORT RegisterSingletonFunctor
+    {
+        QObject *operator()(QQmlEngine *, QJSEngine *);
+
+        QPointer<QObject> m_object;
+        bool alreadyCalled = false;
+    };
 }
 
 QT_END_NAMESPACE

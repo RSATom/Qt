@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-// Next MinVersion: 3
+// Next MinVersion: 5
 
 // This file defines the mojo interface between Android and Chromium for video
 // decoding. Any Mojo callee that returns a value does so by callback.
@@ -78,7 +78,7 @@ struct VideoDecodeAcceleratorConfig {
 // the dummy buffer.
 //
 // Deprecated method IDs: 3, 7, 8
-// Next method ID: 10
+// Next method ID: 11
 interface VideoDecodeAccelerator {
   [Extensible]
   enum Result {
@@ -104,7 +104,13 @@ interface VideoDecodeAccelerator {
 
   // Sets the number of output picture buffers.
   // This releases any buffers in use/imported previously.
-  AssignPictureBuffers@2(uint32 count);
+  AssignPictureBuffersDeprecated@2(uint32 count);
+
+  // Sets the number of output picture buffers. |size| is the frame size
+  // adjusted by Android.
+  // This releases any buffers in use/imported previously.
+  [MinVersion=4]
+  AssignPictureBuffers@10(uint32 count, Size size);
 
   // Imports a buffer to be used by the accelerator with specified
   // |picture_buffer_id|.
@@ -131,13 +137,9 @@ interface VideoDecodeAccelerator {
   Flush@6() => (Result result);
 };
 
-// Deprecated method IDs: 0
-// Next method ID: 5
+// Deprecated method IDs: 0, 4
+// Next method ID: 6
 interface VideoDecodeClient {
-
-  // Callback to tell client how many and what size of buffers to provide.
-  [MinVersion=1]
-  ProvidePictureBuffers@4(PictureBufferFormat format);
 
   // Called to notify the client that |picture| is ready to be displayed.
   // The calls to PictureReady() are in display order and Picture should
@@ -153,4 +155,8 @@ interface VideoDecodeClient {
   // The errors in Initialize(), Reset() and Flush(), will not be reported here,
   // but will be returned in its callback function.
   NotifyError@3(VideoDecodeAccelerator.Result error);
+
+  // Callback to tell client how many and what size of buffers to provide.
+  [MinVersion=3]
+  ProvidePictureBuffers@5(PictureBufferFormat format, Rect visible_rect);
 };

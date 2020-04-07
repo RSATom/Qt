@@ -34,7 +34,7 @@
 #include "third_party/blink/renderer/core/imagebitmap/image_bitmap.h"
 #include "third_party/blink/renderer/core/imagebitmap/image_bitmap_options.h"
 #include "third_party/blink/renderer/platform/graphics/color_behavior.h"
-#include "third_party/skia/third_party/skcms/skcms.h"
+#include "third_party/skia/include/third_party/skcms/skcms.h"
 #include "v8/include/v8.h"
 
 namespace blink {
@@ -111,14 +111,14 @@ bool ImageData::ValidateConstructorArguments(
 
     if (!data->byteLength()) {
       return RaiseDOMExceptionAndReturnFalse(
-          exception_state, DOMExceptionCode::kIndexSizeError,
+          exception_state, DOMExceptionCode::kInvalidStateError,
           "The input data has zero elements.");
     }
 
     data_length = data->byteLength() / data->TypeSize();
     if (data_length % 4) {
       return RaiseDOMExceptionAndReturnFalse(
-          exception_state, DOMExceptionCode::kIndexSizeError,
+          exception_state, DOMExceptionCode::kInvalidStateError,
           "The input data length is not a multiple of 4.");
     }
 
@@ -552,9 +552,9 @@ ScriptPromise ImageData::CreateImageBitmap(ScriptState* script_state,
                                            const ImageBitmapOptions* options) {
   if (BufferBase()->IsNeutered()) {
     return ScriptPromise::RejectWithDOMException(
-        script_state,
-        DOMException::Create(DOMExceptionCode::kInvalidStateError,
-                             "The source data has been detached."));
+        script_state, MakeGarbageCollected<DOMException>(
+                          DOMExceptionCode::kInvalidStateError,
+                          "The source data has been detached."));
   }
   return ImageBitmapSource::FulfillImageBitmap(
       script_state, ImageBitmap::Create(this, crop_rect, options));

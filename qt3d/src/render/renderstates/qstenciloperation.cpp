@@ -40,7 +40,6 @@
 #include "qstenciloperation.h"
 #include "qstenciloperation_p.h"
 #include "qstenciloperationarguments.h"
-#include <Qt3DCore/qpropertyupdatedchange.h>
 #include <Qt3DRender/private/qrenderstatecreatedchange_p.h>
 
 QT_BEGIN_NAMESPACE
@@ -106,7 +105,7 @@ QStencilOperation::QStencilOperation(QNode *parent)
 {
     Q_D(QStencilOperation);
 
-    const auto resend = [d]() { d->resendArguments(); };
+    const auto resend = [d]() { d->update(); };
 
     (void) connect(d->m_front, &QStencilOperationArguments::allTestsPassOperationChanged, resend);
     (void) connect(d->m_front, &QStencilOperationArguments::depthTestFailureOperationChanged, resend);
@@ -122,17 +121,6 @@ QStencilOperation::QStencilOperation(QNode *parent)
 /*! \internal */
 QStencilOperation::~QStencilOperation()
 {
-}
-
-/*! \internal */
-void QStencilOperationPrivate::resendArguments()
-{
-    auto e = Qt3DCore::QPropertyUpdatedChangePtr::create(m_id);
-    QStencilOperationData data;
-    fillData(data);
-    e->setPropertyName("arguments");
-    e->setValue(QVariant::fromValue(data));
-    notifyObservers(e);
 }
 
 /*! \internal */

@@ -59,10 +59,10 @@ namespace qdesigner_internal {
 
 class QDESIGNER_SHARED_EXPORT ZoomMenu : public QObject {
     Q_OBJECT
-    Q_DISABLE_COPY(ZoomMenu)
+    Q_DISABLE_COPY_MOVE(ZoomMenu)
 
 public:
-    ZoomMenu(QObject *parent = 0);
+    ZoomMenu(QObject *parent = nullptr);
     void addActions(QMenu *m);
 
     int zoom() const;
@@ -92,9 +92,9 @@ class QDESIGNER_SHARED_EXPORT ZoomView : public QGraphicsView
     Q_PROPERTY(int zoom READ zoom WRITE setZoom DESIGNABLE true SCRIPTABLE true)
     Q_PROPERTY(bool zoomContextMenuEnabled READ isZoomContextMenuEnabled WRITE setZoomContextMenuEnabled DESIGNABLE true SCRIPTABLE true)
     Q_OBJECT
-    Q_DISABLE_COPY(ZoomView)
+    Q_DISABLE_COPY_MOVE(ZoomView)
 public:
-    ZoomView(QWidget *parent = 0);
+    ZoomView(QWidget *parent = nullptr);
 
     /*  Zoom in percent (for easily implementing menus) and qreal zoomFactor
      * in sync */
@@ -120,28 +120,27 @@ public slots:
     void showContextMenu(const QPoint &globalPos);
 
 protected:
-    void contextMenuEvent(QContextMenuEvent *event);
+    void contextMenuEvent(QContextMenuEvent *event) override;
 
     // Overwrite for implementing additional behaviour when doing setZoom();
     virtual void applyZoom();
 
 private:
     QGraphicsScene *m_scene;
-    int m_zoom;
-    qreal m_zoomFactor;
+    int m_zoom = 100;
+    qreal m_zoomFactor = 1;
 
-    bool m_zoomContextMenuEnabled;
-    bool m_resizeBlocked;
-    ZoomMenu *m_zoomMenu;
+    bool m_zoomContextMenuEnabled = false;
+    ZoomMenu *m_zoomMenu = nullptr;
 };
 
 /* The proxy widget used in  ZoomWidget. It  refuses to move away from 0,0,
  * This behaviour is required for Windows only. */
 
 class  QDESIGNER_SHARED_EXPORT ZoomProxyWidget : public QGraphicsProxyWidget {
-    Q_DISABLE_COPY(ZoomProxyWidget)
+    Q_DISABLE_COPY_MOVE(ZoomProxyWidget)
 public:
-    explicit ZoomProxyWidget(QGraphicsItem *parent = 0, Qt::WindowFlags wFlags = 0);
+    explicit ZoomProxyWidget(QGraphicsItem *parent = nullptr, Qt::WindowFlags wFlags = {});
 
 protected:
     QVariant itemChange(GraphicsItemChange change, const QVariant &value) override;
@@ -161,11 +160,11 @@ class QDESIGNER_SHARED_EXPORT ZoomWidget : public ZoomView
     Q_PROPERTY(bool widgetZoomContextMenuEnabled READ isWidgetZoomContextMenuEnabled WRITE setWidgetZoomContextMenuEnabled DESIGNABLE true SCRIPTABLE true)
     Q_PROPERTY(bool itemAcceptDrops READ itemAcceptDrops WRITE setItemAcceptDrops DESIGNABLE true SCRIPTABLE true)
     Q_OBJECT
-    Q_DISABLE_COPY(ZoomWidget)
+    Q_DISABLE_COPY_MOVE(ZoomWidget)
 
 public:
-    ZoomWidget(QWidget *parent = 0);
-    void setWidget(QWidget *w, Qt::WindowFlags wFlags = 0);
+    ZoomWidget(QWidget *parent = nullptr);
+    void setWidget(QWidget *w, Qt::WindowFlags wFlags = {});
 
     const QGraphicsProxyWidget *proxy() const { return m_proxy; }
     QGraphicsProxyWidget *proxy() { return m_proxy; }
@@ -197,18 +196,19 @@ protected:
 
 private:
     // Factory function for QGraphicsProxyWidgets which can be overwritten. Default creates a ZoomProxyWidget
-    virtual QGraphicsProxyWidget *createProxyWidget(QGraphicsItem *parent = 0, Qt::WindowFlags wFlags = 0) const;
-    QSize widgetSizeToViewSize(const QSize &s, bool *ptrToValid = 0) const;
+    virtual QGraphicsProxyWidget *createProxyWidget(QGraphicsItem *parent = nullptr,
+                                                    Qt::WindowFlags wFlags = {}) const;
+    QSize widgetSizeToViewSize(const QSize &s, bool *ptrToValid = nullptr) const;
 
     void resizeToWidgetSize();
     QSize viewPortMargin() const;
     QSize widgetSize() const;
     QSizeF widgetDecorationSizeF() const;
 
-    QGraphicsProxyWidget *m_proxy;
-    bool m_viewResizeBlocked;
-    bool m_widgetResizeBlocked;
-    bool m_widgetZoomContextMenuEnabled;
+    QGraphicsProxyWidget *m_proxy = nullptr;
+    bool m_viewResizeBlocked = false;
+    bool m_widgetResizeBlocked = false;
+    bool m_widgetZoomContextMenuEnabled = false;
 };
 
 } // namespace qdesigner_internal

@@ -8,12 +8,15 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <set>
 #include <vector>
 
 #include "base/callback.h"
 #include "base/compiler_specific.h"
 #include "base/gtest_prod_util.h"
 #include "base/macros.h"
+#include "base/memory/weak_ptr.h"
+#include "base/optional.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
 #include "content/browser/frame_host/back_forward_cache.h"
@@ -35,6 +38,35 @@ struct LoadCommittedDetails;
 
 class CONTENT_EXPORT NavigationControllerImpl : public NavigationController {
  public:
+  // This tracks one NavigationRequest navigating to a pending NavigationEntry.
+  // In some cases, several NavigationRequests are referencing the same pending
+  // NavigationEntry. For instance:
+  // - A reload requested while a reload is already in progress.
+  // - An history navigation causing several subframes to navigate.
+  //
+  // When no NavigationRequests are referencing the pending NavigationEntry
+  // anymore, it should be discarded to avoid a URL spoof.
+  //
+  // The deletion is not always immediate, because it is not possible to delete
+  // the entry while requesting a navigation to it at the same time. In this
+  // case, the deletion happens later, when returning from the function.
+  //
+  // If the pending NavigationEntry is discarded before the PendingEntryRef(s),
+  // then removing the last associated PendingEntryRef is a no-op. It is a no-op
+  // forever, even if the entry becomes the pending NavigationEntry again in the
+  // meantime. Rather than track the NavigationRequest or pending entry
+  // explicitly, this ref class simply goes into a set that gets cleared with
+  // each change to the pending entry
+  class PendingEntryRef {
+   public:
+    PendingEntryRef(base::WeakPtr<NavigationControllerImpl> controller);
+    ~PendingEntryRef();
+
+   private:
+    base::WeakPtr<NavigationControllerImpl> controller_;
+    DISALLOW_COPY_AND_ASSIGN(PendingEntryRef);
+  };
+
   NavigationControllerImpl(
       NavigationControllerDelegate* delegate,
       BrowserContext* browser_context);
@@ -91,21 +123,28 @@ class CONTENT_EXPORT NavigationControllerImpl : public NavigationController {
   void PruneAllButLastCommitted() override;
   void DeleteNavigationEntries(
       const DeletionPredicate& deletionPredicate) override;
+  bool IsEntryMarkedToBeSkipped(int index) override;
 
   // Starts a navigation in a newly created subframe as part of a history
   // navigation. Returns true if the history navigation could start, false
   // otherwise.  If this returns false, the caller should do a regular
-  // navigation to |default_url| should be done instead.
+  // navigation to the default src URL for the frame instead.
   bool StartHistoryNavigationInNewSubframe(
       RenderFrameHostImpl* render_frame_host,
-      const GURL& default_url);
+      mojom::NavigationClientAssociatedPtrInfo* navigation_client);
+
+  // Navigates to a specified offset from the "current entry". Currently records
+  // a histogram indicating whether the session history navigation would only
+  // affect frames within the subtree of |sandbox_frame_tree_node_id|, which
+  // initiated the navigation.
+  void GoToOffsetInSandboxedFrame(int offset, int sandbox_frame_tree_node_id);
 
   // Called when a document requests a navigation through a
   // RenderFrameProxyHost.
   void NavigateFromFrameProxy(
       RenderFrameHostImpl* render_frame_host,
       const GURL& url,
-      const url::Origin& initiator_origin,
+      const base::Optional<url::Origin>& initiator_origin,
       bool is_renderer_initiated,
       SiteInstance* source_site_instance,
       const Referrer& referrer,
@@ -140,6 +179,21 @@ class CONTENT_EXPORT NavigationControllerImpl : public NavigationController {
     return delegate_;
   }
 
+  // These values are persisted to logs. Entries should not be renumbered and
+  // numeric values should never be reused.
+  enum class NeedsReloadType {
+    kRequestedByClient = 0,
+    kRestoreSession = 1,
+    kCopyStateFrom = 2,
+    kCrashedSubframe = 3,
+    kMaxValue = kCrashedSubframe
+  };
+
+  // Request a reload to happen when activated.  Same as the public
+  // SetNeedsReload(), but takes in a |type| which specifies why the reload is
+  // being requested.
+  void SetNeedsReload(NeedsReloadType type);
+
   // For use by WebContentsImpl ------------------------------------------------
 
   // Allow renderer-initiated navigations to create a pending entry when the
@@ -157,7 +211,7 @@ class CONTENT_EXPORT NavigationControllerImpl : public NavigationController {
   // In the case that nothing has changed, the details structure is undefined
   // and it will return false.
   //
-  // |previous_page_was_activated| is true if the previous page had user
+  // |previous_document_was_activated| is true if the previous document had user
   // interaction. This is used for a new renderer-initiated navigation to decide
   // if the page that initiated the navigation should be skipped on
   // back/forward button.
@@ -166,7 +220,7 @@ class CONTENT_EXPORT NavigationControllerImpl : public NavigationController {
       const FrameHostMsg_DidCommitProvisionalLoad_Params& params,
       LoadCommittedDetails* details,
       bool is_same_document_navigation,
-      bool previous_page_was_activated,
+      bool previous_document_was_activated,
       NavigationRequest* navigation_request);
 
   // Notifies us that we just became active. This is used by the WebContentsImpl
@@ -237,6 +291,15 @@ class CONTENT_EXPORT NavigationControllerImpl : public NavigationController {
       const scoped_refptr<const base::RefCountedString>& data_url_as_string);
 #endif
 
+  // Invoked when a user activation occurs within the page, so that relevant
+  // entries can be updated as needed.
+  void NotifyUserActivation();
+
+  // Tracks a new association between the current pending entry and a
+  // NavigationRequest. Callers are responsible for only calling this for
+  // requests corresponding to the current pending entry.
+  std::unique_ptr<PendingEntryRef> ReferencePendingEntry();
+
  private:
   friend class RestoreHelper;
 
@@ -244,15 +307,6 @@ class CONTENT_EXPORT NavigationControllerImpl : public NavigationController {
   FRIEND_TEST_ALL_PREFIXES(TimeSmoother, SingleDuplicate);
   FRIEND_TEST_ALL_PREFIXES(TimeSmoother, ManyDuplicates);
   FRIEND_TEST_ALL_PREFIXES(TimeSmoother, ClockBackwardsJump);
-
-  // These values are persisted to logs. Entries should not be renumbered and
-  // numeric values should never be reused.
-  enum class NeedsReloadType {
-    kRequestedByClient = 0,
-    kRestoreSession = 1,
-    kCopyStateFrom = 2,
-    kMaxValue = kCopyStateFrom
-  };
 
   // Helper class to smooth out runs of duplicate timestamps while still
   // allowing time to jump backwards.
@@ -268,8 +322,18 @@ class CONTENT_EXPORT NavigationControllerImpl : public NavigationController {
     base::Time high_water_mark_;
   };
 
+  // Navigates in session history to the given index. If
+  // |sandbox_frame_tree_node_id| is valid, then this request came
+  // from a sandboxed iframe with top level navigation disallowed. This
+  // is currently only used for tracking metrics.
+  void GoToIndex(int index, int sandbox_frame_tree_node_id);
+
   // Starts a navigation to an already existing pending NavigationEntry.
-  void NavigateToExistingPendingEntry(ReloadType reload_type);
+  // Currently records a histogram indicating whether the session history
+  // navigation would only affect frames within the subtree of
+  // |sandbox_frame_tree_node_id|, which initiated the navigation.
+  void NavigateToExistingPendingEntry(ReloadType reload_type,
+                                      int sandboxed_source_frame_tree_node_id);
 
   // Recursively identifies which frames need to be navigated for a navigation
   // to |pending_entry_|, starting at |frame| and exploring its children.
@@ -332,7 +396,7 @@ class CONTENT_EXPORT NavigationControllerImpl : public NavigationController {
       FrameNavigationEntry* frame_entry,
       ReloadType reload_type,
       bool is_same_document_history_load,
-      bool is_history_navigation_in_new_child);
+      bool is_history_navigation_in_new_child_frame);
 
   // Returns whether there is a pending NavigationEntry whose unique ID matches
   // the given NavigationHandle's pending_nav_entry_id.
@@ -362,14 +426,15 @@ class CONTENT_EXPORT NavigationControllerImpl : public NavigationController {
       const FrameHostMsg_DidCommitProvisionalLoad_Params& params,
       bool is_same_document,
       bool replace_entry,
-      bool previous_page_was_activated,
+      bool previous_document_was_activated,
       NavigationHandleImpl* handle);
   void RendererDidNavigateToExistingPage(
       RenderFrameHostImpl* rfh,
       const FrameHostMsg_DidCommitProvisionalLoad_Params& params,
       bool is_same_document,
       bool was_restored,
-      NavigationHandleImpl* handle);
+      NavigationHandleImpl* handle,
+      bool keep_pending_entry);
   void RendererDidNavigateToSamePage(
       RenderFrameHostImpl* rfh,
       const FrameHostMsg_DidCommitProvisionalLoad_Params& params,
@@ -379,10 +444,13 @@ class CONTENT_EXPORT NavigationControllerImpl : public NavigationController {
       RenderFrameHostImpl* rfh,
       const FrameHostMsg_DidCommitProvisionalLoad_Params& params,
       bool is_same_document,
-      bool replace_entry);
+      bool replace_entry,
+      bool previous_document_was_activated,
+      NavigationHandleImpl* handle);
   bool RendererDidNavigateAutoSubframe(
       RenderFrameHostImpl* rfh,
-      const FrameHostMsg_DidCommitProvisionalLoad_Params& params);
+      const FrameHostMsg_DidCommitProvisionalLoad_Params& params,
+      NavigationHandleImpl* handle);
 
   // Allows the derived class to issue notifications that a load has been
   // committed. This will fill in the active entry to the details structure.
@@ -406,15 +474,13 @@ class CONTENT_EXPORT NavigationControllerImpl : public NavigationController {
   // Removes the entry at |index|, as long as it is not the current entry.
   void RemoveEntryAtIndexInternal(int index);
 
-  // Discards both the pending and transient entries.
-  void DiscardNonCommittedEntriesInternal();
-
   // Discards only the transient entry.
   void DiscardTransientEntry();
 
-  // If we have the maximum number of entries, remove the oldest one in
-  // preparation to add another.
-  void PruneOldestEntryIfFull();
+  // If we have the maximum number of entries, remove the oldest entry that is
+  // marked to be skipped on back/forward button, in preparation to add another.
+  // If no entry is skippable, then the oldest entry will be pruned.
+  void PruneOldestSkippableEntryIfFull();
 
   // Removes all entries except the last committed entry.  If there is a new
   // pending navigation it is preserved. In contrast to
@@ -438,6 +504,34 @@ class CONTENT_EXPORT NavigationControllerImpl : public NavigationController {
   // This updates the URL bar and the history buttons.
   void CommitRestoreFromBackForwardCache();
 
+  // History Manipulation intervention:
+  // The previous document that started this navigation needs to be skipped in
+  // subsequent back/forward UI navigations if it never received any user
+  // gesture. This is to intervene against pages that manipulate the history
+  // such that the user is not able to go back to the last site they interacted
+  // with (crbug.com/907167).
+  // Note that this function must be called before the new navigation entry is
+  // inserted in |entries_| to make sure UKM reports the URL of the document
+  // adding the entry.
+  void SetShouldSkipOnBackForwardUIIfNeeded(
+      RenderFrameHostImpl* rfh,
+      bool replace_entry,
+      bool previous_document_was_activated,
+      bool is_renderer_initiated);
+
+  // This function sets all same document entries with the same value
+  // of skippable flag. This is to avoid back button abuse by inserting
+  // multiple history entries and also to help valid cases where a user gesture
+  // on the document should apply to all same document history entries and none
+  // should be skipped. All entries belonging to the same document as the entry
+  // at |reference_index| will get their skippable flag set to |skippable|.
+  void SetSkippableForSameDocumentEntries(int reference_index, bool skippable);
+
+  // Called when one PendingEntryRef is deleted. When all of the refs for the
+  // current pending entry have been deleted, this automatically discards the
+  // pending NavigationEntry.
+  void PendingEntryRefDeleted(PendingEntryRef* ref);
+
   // ---------------------------------------------------------------------------
 
   // The user browser context associated with this controller.
@@ -454,6 +548,14 @@ class CONTENT_EXPORT NavigationControllerImpl : public NavigationController {
   // != -1, or it may be its own entry that should be deleted. Be careful with
   // the memory management.
   NavigationEntryImpl* pending_entry_;
+
+  // This keeps track of the NavigationRequests associated with the pending
+  // NavigationEntry. When all of them have been deleted, or have stopped
+  // loading, the pending NavigationEntry can be discarded.
+  //
+  // This is meant to avoid a class of URL spoofs where the navigation is
+  // canceled, but the stale pending NavigationEntry is left in place.
+  std::set<PendingEntryRef*> pending_entry_refs_;
 
   // If a new entry fails loading, details about it are temporarily held here
   // until the error page is shown (or 0 otherwise).
@@ -526,18 +628,13 @@ class CONTENT_EXPORT NavigationControllerImpl : public NavigationController {
   // the wrong order in the history view.
   TimeSmoother time_smoother_;
 
-  // Used for tracking consecutive reload requests.  If the last user-initiated
-  // navigation (either browser-initiated or renderer-initiated with a user
-  // gesture) was a reload, these hold the ReloadType and timestamp.  Otherwise
-  // these are ReloadType::NONE and a null timestamp, respectively.
-  ReloadType last_committed_reload_type_;
-  base::Time last_committed_reload_time_;
-
   // BackForwardCache:
   //
   // Stores frozen RenderFrameHost. Restores them on history navigation.
   // See BackForwardCache class documentation.
   BackForwardCache back_forward_cache_;
+  // NOTE: This must be the last member.
+  base::WeakPtrFactory<NavigationControllerImpl> weak_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(NavigationControllerImpl);
 };

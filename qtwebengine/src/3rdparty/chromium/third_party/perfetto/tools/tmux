@@ -13,6 +13,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 set -e
+CUR_DIR="$(realpath "$(dirname "${BASH_SOURCE[0]}")")"
+
+export PATH="$PATH:$CUR_DIR"
 
 if [ "$TMPDIR" == "" ]; then
   TMPDIR=/tmp
@@ -33,6 +36,12 @@ function is_android {
 function is_mac {
   ! test -d /proc
   return $?
+}
+
+function tmux_ensure_bash {
+  if [[ $SHELL == *"fish" ]]; then
+    tmux send-keys "bash" Enter
+  fi
 }
 
 function reset_tracing {
@@ -125,8 +134,8 @@ fi
 CONFIG_DEVICE_PATH="$CONFIG"
 CMD_OPTS=""
 if [[ "$CONFIG" == *.protobuf ]]; then
-  CONFIG_DEVICE_PATH="$CONFIG.protobuf"
-  CONFIG_PATH=$OUT/$CONFIG.protobuf;
+  CONFIG_DEVICE_PATH="$CONFIG"
+  CONFIG_PATH=$OUT/$CONFIG;
   if [[ ! -f $CONFIG_PATH ]]; then
     echo 'Config "'$CONFIG_PATH'" not known.'
     exit 1
@@ -194,16 +203,19 @@ fi
 sleep 2
 
 tmux select-pane -t 1
+tmux_ensure_bash
 tmux send-keys "PS1='[traced_probes]$ '" Enter
 tmux send-keys "cd $DIR" Enter
 tmux send-keys "$PREFIX ./traced $POSTFIX" Enter
 
 tmux select-pane -t 0
+tmux_ensure_bash
 tmux send-keys "PS1='[traced]$ '" Enter
 tmux send-keys "cd $DIR" Enter
-tmux send-keys "$PREFIX PERFETTO_METATRACE_FILE=mtrace ./traced_probes $POSTFIX" Enter
+tmux send-keys "$PREFIX ./traced_probes $POSTFIX" Enter
 
 tmux select-pane -t 2
+tmux_ensure_bash
 tmux send-keys "PS1='[consumer]$ '" Enter
 tmux send-keys "cd $DIR" Enter
 tmux send-keys "$PREFIX ./perfetto $CMD_OPTS -c $CONFIG_DEVICE_PATH -o trace $POSTFIX"
@@ -225,8 +237,3 @@ $OUT/trace_to_text text < /tmp/trace.protobuf > $TRACE.pbtext
 echo -e "\n\x1b[32mPulling trace into $TRACE.json\x1b[0m"
 $OUT/trace_to_text systrace < /tmp/trace.protobuf > $TRACE.json
 # Keep this last so it can fail.
-pull mtrace /tmp/mtrace.json
-# Add [ to beginning of file and replace trailing , with ] to turn into valid
-# JSON array.
-sed -i -e '$ s/.$/]/' /tmp/mtrace.json
-sed -i -e '1s/^/[/' /tmp/mtrace.json

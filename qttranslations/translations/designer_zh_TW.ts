@@ -3458,10 +3458,6 @@ Do you want overwrite the template?</source>
         <translation>全部複製</translation>
     </message>
     <message>
-        <source>&amp;Find in Text...</source>
-        <translation>在文字中尋找(&amp;F)...</translation>
-    </message>
-    <message>
         <source>A temporary form file could not be created in %1.</source>
         <translation>無法於 %1 建立暫存表單檔。</translation>
     </message>
@@ -3492,6 +3488,10 @@ Do you want overwrite the template?</source>
     <message>
         <source>%1 - Error</source>
         <translation>%1─錯誤</translation>
+    </message>
+    <message>
+        <source>&amp;Find in Text...</source>
+        <translation>在文字中尋找(&amp;F)...</translation>
     </message>
 </context>
 <context>
@@ -4517,16 +4517,16 @@ Please select another name.</source>
 <context>
     <name>qdesigner_internal::ObjectInspector</name>
     <message>
+        <source>Filter</source>
+        <translation>篩選器</translation>
+    </message>
+    <message>
         <source>Change Current Page</source>
         <translation>變更當前的頁面</translation>
     </message>
     <message>
         <source>&amp;Find in Text...</source>
         <translation>在文字中尋找(&amp;F)...</translation>
-    </message>
-    <message>
-        <source>Filter</source>
-        <translation>篩選器</translation>
     </message>
 </context>
 <context>

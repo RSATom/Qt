@@ -76,7 +76,7 @@ static const char *ResourceViewDialogC = "ResourceDialog";
 // ---------------- ResourceListWidget: A list widget that has drag enabled
 class ResourceListWidget : public QListWidget {
 public:
-    ResourceListWidget(QWidget *parent = 0);
+    ResourceListWidget(QWidget *parent = nullptr);
 
 protected:
     void startDrag(Qt::DropActions supportedActions) override;
@@ -123,7 +123,7 @@ void ResourceListWidget::startDrag(Qt::DropActions supportedActions)
 // ---------------------------- QtResourceViewPrivate
 class QtResourceViewPrivate
 {
-    QtResourceView *q_ptr;
+    QtResourceView *q_ptr = nullptr;
     Q_DECLARE_PUBLIC(QtResourceView)
 public:
     QtResourceViewPrivate(QDesignerFormEditorInterface *core);
@@ -152,12 +152,12 @@ public:
     QPixmap makeThumbnail(const QPixmap &pix) const;
 
     QDesignerFormEditorInterface *m_core;
-    QtResourceModel *m_resourceModel;
+    QtResourceModel *m_resourceModel = nullptr;
     QToolBar *m_toolBar;
-    QWidget *m_filterWidget;
+    QWidget *m_filterWidget = nullptr;
     QTreeWidget *m_treeWidget;
     QListWidget *m_listWidget;
-    QSplitter *m_splitter;
+    QSplitter *m_splitter = nullptr;
     QMap<QString, QStringList>       m_pathToContents; // full path to contents file names (full path to its resource filenames)
     QMap<QString, QString>           m_pathToParentPath; // full path to full parent path
     QMap<QString, QStringList>       m_pathToSubPaths; // full path to full sub paths
@@ -165,31 +165,23 @@ public:
     QMap<QTreeWidgetItem *, QString> m_itemToPath;
     QMap<QString, QListWidgetItem *> m_resourceToItem;
     QMap<QListWidgetItem *, QString> m_itemToResource;
-    QAction *m_editResourcesAction;
-    QAction *m_reloadResourcesAction;
-    QAction *m_copyResourcePathAction;
+    QAction *m_editResourcesAction = nullptr;
+    QAction *m_reloadResourcesAction = nullptr;
+    QAction *m_copyResourcePathAction = nullptr;
 
     QMap<QString, bool> m_expansionState;
 
-    bool m_ignoreGuiSignals;
     QString m_settingsKey;
-    bool m_resourceEditingEnabled;
     QString m_filterPattern;
+    bool m_ignoreGuiSignals = false;
+    bool m_resourceEditingEnabled = true;
 };
 
 QtResourceViewPrivate::QtResourceViewPrivate(QDesignerFormEditorInterface *core) :
-    q_ptr(0),
     m_core(core),
-    m_resourceModel(0),
     m_toolBar(new QToolBar),
     m_treeWidget(new QTreeWidget),
-    m_listWidget(new ResourceListWidget),
-    m_splitter(0),
-    m_editResourcesAction(0),
-    m_reloadResourcesAction(0),
-    m_copyResourcePathAction(0),
-    m_ignoreGuiSignals(false),
-    m_resourceEditingEnabled(true)
+    m_listWidget(new ResourceListWidget)
 {
     m_toolBar->setIconSize(QSize(22, 22));
 }
@@ -385,7 +377,7 @@ void QtResourceViewPrivate::createPaths()
     }
 
     QQueue<QPair<QString, QTreeWidgetItem *> > pathToParentItemQueue;
-    pathToParentItemQueue.enqueue(qMakePair(root, static_cast<QTreeWidgetItem *>(0)));
+    pathToParentItemQueue.enqueue(qMakePair(root, static_cast<QTreeWidgetItem *>(nullptr)));
     while (!pathToParentItemQueue.isEmpty()) {
         QPair<QString, QTreeWidgetItem *> pathToParentItem = pathToParentItemQueue.dequeue();
         const QString path = pathToParentItem.first;
@@ -504,7 +496,7 @@ void QtResourceViewPrivate::filterOutResources()
 
 QTreeWidgetItem *QtResourceViewPrivate::createPath(const QString &path, QTreeWidgetItem *parent)
 {
-    QTreeWidgetItem *item = 0;
+    QTreeWidgetItem *item = nullptr;
     if (parent)
         item = new QTreeWidgetItem(parent);
     else
@@ -823,7 +815,7 @@ public:
 };
 
 QtResourceViewDialogPrivate::QtResourceViewDialogPrivate(QDesignerFormEditorInterface *core) :
-    q_ptr(0),
+    q_ptr(nullptr),
     m_core(core),
     m_view(new QtResourceView(core)),
     m_box(new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel))

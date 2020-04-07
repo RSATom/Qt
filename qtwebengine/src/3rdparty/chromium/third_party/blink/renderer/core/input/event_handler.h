@@ -35,6 +35,7 @@
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/dom/user_gesture_indicator.h"
 #include "third_party/blink/renderer/core/events/text_event_input_type.h"
+#include "third_party/blink/renderer/core/input/fallback_cursor_event_manager.h"
 #include "third_party/blink/renderer/core/input/gesture_manager.h"
 #include "third_party/blink/renderer/core/input/keyboard_event_manager.h"
 #include "third_party/blink/renderer/core/input/mouse_event_manager.h"
@@ -44,11 +45,12 @@
 #include "third_party/blink/renderer/core/layout/hit_test_request.h"
 #include "third_party/blink/renderer/core/page/drag_actions.h"
 #include "third_party/blink/renderer/core/page/event_with_hit_test_results.h"
+#include "third_party/blink/renderer/core/scroll/scroll_types.h"
 #include "third_party/blink/renderer/core/style/computed_style_constants.h"
 #include "third_party/blink/renderer/platform/cursor.h"
 #include "third_party/blink/renderer/platform/geometry/layout_point.h"
 #include "third_party/blink/renderer/platform/heap/handle.h"
-#include "third_party/blink/renderer/platform/scroll/scroll_types.h"
+#include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 #include "third_party/blink/renderer/platform/wtf/forward.h"
 #include "third_party/blink/renderer/platform/wtf/hash_map.h"
 #include "third_party/blink/renderer/platform/wtf/hash_traits.h"
@@ -102,8 +104,9 @@ class CORE_EXPORT EventHandler final
 
   HitTestResult HitTestResultAtLocation(
       const HitTestLocation&,
-      HitTestRequest::HitTestRequestType hit_type = HitTestRequest::kReadOnly |
-                                                    HitTestRequest::kActive,
+      HitTestRequest::HitTestRequestType hit_type =
+          HitTestRequest::kReadOnly | HitTestRequest::kActive |
+          HitTestRequest::kRetargetForInert,
       const LayoutObject* stop_node = nullptr,
       bool no_lifecycle_update = false);
 
@@ -112,8 +115,6 @@ class CORE_EXPORT EventHandler final
     return mouse_event_manager_->IsMousePositionUnknown();
   }
   void ClearMouseEventManager() const { mouse_event_manager_->Clear(); }
-  void SetCapturingMouseEventsElement(
-      Element*);  // A caller is responsible for resetting capturing node to 0.
 
   WebInputEventResult UpdateDragAndDrop(const WebMouseEvent&, DataTransfer*);
   void CancelDragAndDrop(const WebMouseEvent&, DataTransfer*);
@@ -135,7 +136,8 @@ class CORE_EXPORT EventHandler final
 
   void ResizeScrollableAreaDestroyed();
 
-  IntPoint LastKnownMousePositionInRootFrame() const;
+  FloatPoint LastKnownMousePositionInRootFrame() const;
+  FloatPoint LastKnownMouseScreenPosition() const;
 
   IntPoint DragDataTransferLocationForTesting();
 
@@ -163,7 +165,7 @@ class CORE_EXPORT EventHandler final
   WebInputEventResult HandleWheelEvent(const WebMouseWheelEvent&);
 
   WebInputEventResult HandleTargetedMouseEvent(
-      Node* target,
+      Element* target,
       const WebMouseEvent&,
       const AtomicString& event_type,
       const Vector<WebMouseEvent>& coalesced_events,
@@ -175,8 +177,11 @@ class CORE_EXPORT EventHandler final
   WebInputEventResult HandleGestureEvent(const GestureEventWithHitTestResults&);
 
   // Clear the old hover/active state within frames before moving the hover
-  // state to the another frame
-  void UpdateGestureHoverActiveState(const HitTestRequest&, Element*);
+  // state to the another frame. |is_active| specifies whether the active state
+  // is being applied to or removed from the given element. This method should
+  // be initially called on the root document, it will recurse into child
+  // frames as needed.
+  void UpdateCrossFrameHoverActiveState(bool is_active, Element*);
 
   // Hit-test the provided (non-scroll) gesture event, applying touch-adjustment
   // and updating hover/active state across all frames if necessary. This should
@@ -224,7 +229,6 @@ class CORE_EXPORT EventHandler final
   void ReleasePointerCapture(PointerId, Element*);
   void ReleaseMousePointerCapture();
   bool HasPointerCapture(PointerId, const Element*) const;
-  void ProcessPendingPointerCaptureForPointerLock(const WebMouseEvent&);
 
   void ElementRemoved(Element*);
 
@@ -233,6 +237,7 @@ class CORE_EXPORT EventHandler final
   bool HandleAccessKey(const WebKeyboardEvent&);
   WebInputEventResult KeyEvent(const WebKeyboardEvent&);
   void DefaultKeyboardEventHandler(KeyboardEvent*);
+  bool HandleFallbackCursorModeBackEvent();
 
   bool HandleTextInputEvent(const String& text,
                             Event* underlying_event = nullptr,
@@ -272,7 +277,9 @@ class CORE_EXPORT EventHandler final
                      ScrollGranularity,
                      Node* start_node = nullptr);
 
-  bool IsTouchPointerIdActiveOnFrame(PointerId, LocalFrame*) const;
+  bool IsPointerIdActiveOnFrame(PointerId, LocalFrame*) const;
+
+  LocalFrame* DetermineActivePointerTrackerFrame(PointerId pointer_id) const;
 
   // Clears drag target and related states. It is called when drag is done or
   // canceled.
@@ -284,12 +291,22 @@ class CORE_EXPORT EventHandler final
 
   void AnimateSnapFling(base::TimeTicks monotonic_time);
 
-  void RecomputeMouseHoverState();
+  void RecomputeMouseHoverStateIfNeeded();
+
+  void MarkHoverStateDirty();
+
+  void SetIsFallbackCursorModeOn(bool is_on);
+
+  // Reset the last mouse position so that movement after unlock will be
+  // restart from the lock position.
+  void ResetMousePositionForPointerUnlock();
 
  private:
   enum NoCursorChangeType { kNoCursorChange };
 
   class OptionalCursor {
+    STACK_ALLOCATED();
+
    public:
     OptionalCursor(NoCursorChangeType) : is_cursor_change_(false) {}
     OptionalCursor(const Cursor& cursor)
@@ -317,13 +334,6 @@ class CORE_EXPORT EventHandler final
 
   // Updates the event, location and result to the adjusted target.
   void ApplyTouchAdjustment(WebGestureEvent*, HitTestLocation&, HitTestResult*);
-  WebInputEventResult HandleGestureTapDown(
-      const GestureEventWithHitTestResults&);
-  WebInputEventResult HandleGestureTap(const GestureEventWithHitTestResults&);
-  WebInputEventResult HandleGestureLongPress(
-      const GestureEventWithHitTestResults&);
-  WebInputEventResult HandleGestureLongTap(
-      const GestureEventWithHitTestResults&);
 
   void PerformHitTest(const HitTestLocation& location,
                       HitTestResult&,
@@ -353,8 +363,9 @@ class CORE_EXPORT EventHandler final
 
   Element* EffectiveMouseEventTargetElement(Element*);
 
-  // Dispatches ME after corresponding PE provided the PE has not been canceled.
-  // The |mouse_event_type| arg must be one of {mousedown, mousemove, mouseup}.
+  // Dispatches ME after corresponding PE provided the PE has not been
+  // canceled. The |mouse_event_type| arg must be one of {mousedown,
+  // mousemove, mouseup}.
   WebInputEventResult DispatchMousePointerEvent(
       const WebInputEvent::Type,
       Element* target,
@@ -395,9 +406,16 @@ class CORE_EXPORT EventHandler final
 
   bool ShouldBrowserControlsConsumeScroll(FloatSize) const;
 
-  bool RootFrameTouchPointerActiveInCurrentFrame(PointerId pointer_id) const;
+  bool RootFrameTrackedActivePointerInCurrentFrame(PointerId pointer_id) const;
 
   void CaptureMouseEventsToWidget(bool);
+
+  void ReleaseMouseCaptureFromLocalRoot();
+  void ReleaseMouseCaptureFromCurrentFrame();
+
+  MouseEventWithHitTestResults GetMouseEventTarget(
+      const HitTestRequest& request,
+      const WebMouseEvent& mev);
 
   // NOTE: If adding a new field to this class please ensure that it is
   // cleared in |EventHandler::clear()|.
@@ -414,7 +432,10 @@ class CORE_EXPORT EventHandler final
   TaskRunnerTimer<EventHandler> cursor_update_timer_;
 
   Member<Element> capturing_mouse_events_element_;
-  bool event_handler_will_reset_capturing_mouse_events_node_;
+  // |capturing_subframe_element_| has similar functionality as
+  // |capturing_mouse_events_element_|. It replaces |capturing_..| when
+  // UnifiedPointerCapture enabled.
+  Member<Element> capturing_subframe_element_;
 
   // Indicates whether the current widget is capturing mouse input.
   // Only used for local frame root EventHandlers.
@@ -438,6 +459,7 @@ class CORE_EXPORT EventHandler final
   Member<KeyboardEventManager> keyboard_event_manager_;
   Member<PointerEventManager> pointer_event_manager_;
   Member<GestureManager> gesture_manager_;
+  Member<FallbackCursorEventManager> fallback_cursor_event_manager_;
 
   double max_mouse_moved_duration_;
 
@@ -445,12 +467,11 @@ class CORE_EXPORT EventHandler final
 
   TaskRunnerTimer<EventHandler> active_interval_timer_;
 
-  // last_show_press_timestamp_ prevents the active state rewrited by following
-  // events too soon (less than 0.15s).
-  // It is ok we only record last_show_press_timestamp_ in root frame since
-  // root frame will have subframe as active element if subframe has active
-  // element.
-  base::Optional<WTF::TimeTicks> last_show_press_timestamp_;
+  // last_show_press_timestamp_ prevents the active state rewrited by
+  // following events too soon (less than 0.15s). It is ok we only record
+  // last_show_press_timestamp_ in root frame since root frame will have
+  // subframe as active element if subframe has active element.
+  base::Optional<base::TimeTicks> last_show_press_timestamp_;
   Member<Element> last_deferred_tap_element_;
 
   // Set on GestureTapDown if unique_touch_event_id_ matches cached adjusted
@@ -485,6 +506,13 @@ class CORE_EXPORT EventHandler final
                            EditableAnchorTextCanStartSelection);
   FRIEND_TEST_ALL_PREFIXES(EventHandlerTest,
                            ReadOnlyInputDoesNotInheritUserSelect);
+
+  FRIEND_TEST_ALL_PREFIXES(FallbackCursorEventManagerTest,
+                           MouseMoveCursorLockOnDiv);
+  FRIEND_TEST_ALL_PREFIXES(FallbackCursorEventManagerTest,
+                           MouseMoveCursorLockOnIFrame);
+  FRIEND_TEST_ALL_PREFIXES(FallbackCursorEventManagerTest, KeyBackAndMouseMove);
+  FRIEND_TEST_ALL_PREFIXES(FallbackCursorEventManagerTest, MouseDownOnEditor);
 
   DISALLOW_COPY_AND_ASSIGN(EventHandler);
 };

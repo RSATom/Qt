@@ -62,13 +62,13 @@
 #else
 #include <QtWidgets>
 #endif
-#include <qmath.h>
+#include <QtMath>
 
 #if QT_CONFIG(wheelevent)
 void GraphicsView::wheelEvent(QWheelEvent *e)
 {
     if (e->modifiers() & Qt::ControlModifier) {
-        if (e->delta() > 0)
+        if (e->angleDelta().y() > 0)
             view->zoomIn(6);
         else
             view->zoomOut(6);
@@ -264,7 +264,7 @@ void View::toggleAntialiasing()
 
 void View::print()
 {
-#if QT_CONFIG(printdialog)
+#if defined(QT_PRINTSUPPORT_LIB) && QT_CONFIG(printdialog)
     QPrinter printer;
     QPrintDialog dialog(&printer, this);
     if (dialog.exec() == QDialog::Accepted) {

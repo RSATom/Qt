@@ -87,11 +87,6 @@ class CORE_EXPORT LayoutImage : public LayoutReplaced {
 
   const char* GetName() const override { return "LayoutImage"; }
 
-  // When an image element violates feature policy optimized image policies, it
-  // should be rendered with a placeholder image.
-  // https://github.com/WICG/feature-policy/blob/master/policies/optimized-images.md
-  bool IsImagePolicyViolated() const;
-
   void UpdateAfterLayout() override;
 
  protected:
@@ -117,10 +112,10 @@ class CORE_EXPORT LayoutImage : public LayoutReplaced {
   bool IsImage() const override { return true; }
 
   void PaintReplaced(const PaintInfo&,
-                     const LayoutPoint& paint_offset) const override;
+                     const PhysicalOffset& paint_offset) const override;
 
   bool ForegroundIsKnownToBeOpaqueInRect(
-      const LayoutRect& local_rect,
+      const PhysicalRect& local_rect,
       unsigned max_depth_to_test) const final;
   bool ComputeBackgroundIsKnownToBeObscured() const final;
 
@@ -130,8 +125,8 @@ class CORE_EXPORT LayoutImage : public LayoutReplaced {
 
   void ImageNotifyFinished(ImageResourceContent*) final;
   bool NodeAtPoint(HitTestResult&,
-                   const HitTestLocation& location_in_container,
-                   const LayoutPoint& accumulated_offset,
+                   const HitTestLocation&,
+                   const PhysicalOffset& accumulated_offset,
                    HitTestAction) final;
 
   void InvalidatePaintAndMarkForLayoutIfNeeded(CanDeferInvalidation);
@@ -142,8 +137,6 @@ class CORE_EXPORT LayoutImage : public LayoutReplaced {
   bool OverrideIntrinsicSizingInfo(IntrinsicSizingInfo&) const;
   FloatSize ImageSizeOverriddenByIntrinsicSize(float multiplier) const;
   IntSize GetOverriddenIntrinsicSize() const;
-
-  void ValidateImagePolicies();
 
   // This member wraps the associated decoded image.
   //
@@ -160,12 +153,6 @@ class CORE_EXPORT LayoutImage : public LayoutReplaced {
   // This field stores whether this image is generated with 'content'.
   bool is_generated_content_;
   float image_device_pixel_ratio_;
-
-  // These flags indicate if the image violates one or more optimized image
-  // policies. When any policy is violated, the image should be rendered as a
-  // placeholder image.
-  bool is_legacy_format_or_unoptimized_image_;
-  bool is_oversized_image_;
 };
 
 DEFINE_LAYOUT_OBJECT_TYPE_CASTS(LayoutImage, IsLayoutImage());

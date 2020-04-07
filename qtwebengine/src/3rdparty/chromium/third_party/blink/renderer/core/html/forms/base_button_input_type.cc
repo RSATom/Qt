@@ -62,7 +62,7 @@ void BaseButtonInputType::CreateShadowSubtree() {
 }
 
 void BaseButtonInputType::ValueAttributeChanged() {
-  ToTextOrDie(GetElement().UserAgentShadowRoot()->firstChild())
+  To<Text>(GetElement().UserAgentShadowRoot()->firstChild())
       ->setData(DisplayValue());
 }
 
@@ -76,8 +76,8 @@ bool BaseButtonInputType::ShouldSaveAndRestoreFormControlState() const {
 
 void BaseButtonInputType::AppendToFormData(FormData&) const {}
 
-LayoutObject* BaseButtonInputType::CreateLayoutObject(
-    const ComputedStyle&) const {
+LayoutObject* BaseButtonInputType::CreateLayoutObject(const ComputedStyle&,
+                                                      LegacyLayout) const {
   return new LayoutButton(&GetElement());
 }
 

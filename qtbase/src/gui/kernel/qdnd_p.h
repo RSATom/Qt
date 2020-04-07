@@ -73,9 +73,9 @@ class QDragPrivate : public QObjectPrivate
 {
 public:
     QDragPrivate()
-        : source(0)
-        , target(0)
-        , data(0)
+        : source(nullptr)
+        , target(nullptr)
+        , data(nullptr)
     { }
     QObject *source;
     QObject *target;
@@ -101,13 +101,13 @@ public:
     void setCurrentTarget(QObject *target, bool dropped = false);
     QObject *currentTarget() const;
 
-    QDrag *object() const { return m_object; }
+    QPointer<QDrag> object() const { return m_object; }
     QObject *source() const;
 
 private:
     QObject *m_currentDropTarget;
     QPlatformDrag *m_platformDrag;
-    QDrag *m_object;
+    QPointer<QDrag> m_object;
 
     static QDragManager *m_instance;
     Q_DISABLE_COPY_MOVE(QDragManager)

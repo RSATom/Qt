@@ -18,7 +18,7 @@
 #include "extensions/browser/extensions_browser_api_provider.h"
 #include "extensions/common/extension_id.h"
 #include "extensions/common/view_type.h"
-#include "services/network/public/mojom/url_loader.mojom.h"
+#include "services/network/public/mojom/url_loader.mojom-forward.h"
 #include "services/service_manager/public/cpp/binder_registry.h"
 #include "ui/base/page_transition_types.h"
 
@@ -39,7 +39,6 @@ class WebContents;
 }
 
 namespace net {
-class NetLog;
 class NetworkDelegate;
 class URLRequest;
 class URLRequestJob;
@@ -62,7 +61,6 @@ class Extension;
 class ExtensionCache;
 class ExtensionError;
 class ExtensionHostDelegate;
-class ExtensionPrefsObserver;
 class ExtensionApiFrameIdMap;
 class ExtensionApiFrameIdMapHelper;
 class ExtensionNavigationUIData;
@@ -205,7 +203,7 @@ class ExtensionsBrowserClient {
   // are not owned by ExtensionPrefs.
   virtual void GetEarlyExtensionPrefsObservers(
       content::BrowserContext* context,
-      std::vector<ExtensionPrefsObserver*>* observers) const = 0;
+      std::vector<EarlyExtensionPrefsObserver*>* observers) const = 0;
 
   // Returns the ProcessManagerDelegate shared across all BrowserContexts. May
   // return NULL in tests or for simple embedders.
@@ -270,9 +268,6 @@ class ExtensionsBrowserClient {
       events::HistogramValue histogram_value,
       const std::string& event_name,
       std::unique_ptr<base::ListValue> args) = 0;
-
-  // Returns the embedder's net::NetLog.
-  virtual net::NetLog* GetNetLog() = 0;
 
   // Gets the single ExtensionCache instance shared across the browser process.
   virtual ExtensionCache* GetExtensionCache() = 0;
@@ -364,6 +359,12 @@ class ExtensionsBrowserClient {
 
   // Returns the user agent used by the content module.
   virtual std::string GetUserAgent() const;
+
+  // Returns whether |scheme| should bypass extension-specific navigation checks
+  // (e.g. whether the |scheme| is allowed to initiate navigations to extension
+  // resources that are not declared as web accessible).
+  virtual bool ShouldSchemeBypassNavigationChecks(
+      const std::string& scheme) const;
 
  private:
   std::vector<std::unique_ptr<ExtensionsBrowserAPIProvider>> providers_;

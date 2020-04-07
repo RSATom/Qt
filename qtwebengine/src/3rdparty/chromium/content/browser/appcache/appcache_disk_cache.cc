@@ -107,49 +107,12 @@ void AppCacheDiskCacheEntry::Abandon() {
   disk_cache_entry_ = nullptr;
 }
 
+namespace {
+
 // Separate object to hold state for each Create, Delete, or Doom call
 // while the call is in-flight and to produce an EntryImpl upon completion.
-class AppCacheDiskCache::ActiveCall
-    : public base::RefCounted<AppCacheDiskCache::ActiveCall> {
+class ActiveCall : public base::RefCounted<ActiveCall> {
  public:
-  static net::Error CreateEntry(const base::WeakPtr<AppCacheDiskCache>& owner,
-                                int64_t key,
-                                AppCacheDiskCacheEntry** entry,
-                                net::CompletionOnceCallback callback) {
-    scoped_refptr<ActiveCall> active_call(
-        new ActiveCall(owner, entry, std::move(callback)));
-    net::Error return_value = owner->disk_cache()->CreateEntry(
-        base::Int64ToString(key), net::HIGHEST, &active_call->entry_ptr_,
-        base::BindOnce(&ActiveCall::OnAsyncCompletion, active_call));
-    return active_call->HandleImmediateReturnValue(return_value);
-  }
-
-  static net::Error OpenEntry(const base::WeakPtr<AppCacheDiskCache>& owner,
-                              int64_t key,
-                              AppCacheDiskCacheEntry** entry,
-                              net::CompletionOnceCallback callback) {
-    scoped_refptr<ActiveCall> active_call(
-        new ActiveCall(owner, entry, std::move(callback)));
-    net::Error return_value = owner->disk_cache()->OpenEntry(
-        base::Int64ToString(key), net::HIGHEST, &active_call->entry_ptr_,
-        base::BindOnce(&ActiveCall::OnAsyncCompletion, active_call));
-    return active_call->HandleImmediateReturnValue(return_value);
-  }
-
-  static net::Error DoomEntry(const base::WeakPtr<AppCacheDiskCache>& owner,
-                              int64_t key,
-                              net::CompletionOnceCallback callback) {
-    scoped_refptr<ActiveCall> active_call(
-        new ActiveCall(owner, nullptr, std::move(callback)));
-    net::Error return_value = owner->disk_cache()->DoomEntry(
-        base::Int64ToString(key), net::HIGHEST,
-        base::BindOnce(&ActiveCall::OnAsyncCompletion, active_call));
-    return active_call->HandleImmediateReturnValue(return_value);
-  }
-
- private:
-  friend class base::RefCounted<AppCacheDiskCache::ActiveCall>;
-
   ActiveCall(const base::WeakPtr<AppCacheDiskCache>& owner,
              AppCacheDiskCacheEntry** entry,
              net::CompletionOnceCallback callback)
@@ -160,7 +123,45 @@ class AppCacheDiskCache::ActiveCall
     DCHECK(owner_);
   }
 
-  ~ActiveCall() {}
+  static net::Error CreateEntry(const base::WeakPtr<AppCacheDiskCache>& owner,
+                                int64_t key,
+                                AppCacheDiskCacheEntry** entry,
+                                net::CompletionOnceCallback callback) {
+    scoped_refptr<ActiveCall> active_call =
+        base::MakeRefCounted<ActiveCall>(owner, entry, std::move(callback));
+    net::Error return_value = owner->disk_cache()->CreateEntry(
+        base::NumberToString(key), net::HIGHEST, &active_call->entry_ptr_,
+        base::BindOnce(&ActiveCall::OnAsyncCompletion, active_call));
+    return active_call->HandleImmediateReturnValue(return_value);
+  }
+
+  static net::Error OpenEntry(const base::WeakPtr<AppCacheDiskCache>& owner,
+                              int64_t key,
+                              AppCacheDiskCacheEntry** entry,
+                              net::CompletionOnceCallback callback) {
+    scoped_refptr<ActiveCall> active_call =
+        base::MakeRefCounted<ActiveCall>(owner, entry, std::move(callback));
+    net::Error return_value = owner->disk_cache()->OpenEntry(
+        base::NumberToString(key), net::HIGHEST, &active_call->entry_ptr_,
+        base::BindOnce(&ActiveCall::OnAsyncCompletion, active_call));
+    return active_call->HandleImmediateReturnValue(return_value);
+  }
+
+  static net::Error DoomEntry(const base::WeakPtr<AppCacheDiskCache>& owner,
+                              int64_t key,
+                              net::CompletionOnceCallback callback) {
+    scoped_refptr<ActiveCall> active_call =
+        base::MakeRefCounted<ActiveCall>(owner, nullptr, std::move(callback));
+    net::Error return_value = owner->disk_cache()->DoomEntry(
+        base::NumberToString(key), net::HIGHEST,
+        base::BindOnce(&ActiveCall::OnAsyncCompletion, active_call));
+    return active_call->HandleImmediateReturnValue(return_value);
+  }
+
+ private:
+  friend class base::RefCounted<ActiveCall>;
+
+  ~ActiveCall() = default;
 
   net::Error HandleImmediateReturnValue(net::Error rv) {
     if (rv == net::ERR_IO_PENDING) {
@@ -194,6 +195,8 @@ class AppCacheDiskCache::ActiveCall
   disk_cache::Entry* entry_ptr_;
 };
 
+}  // namespace
+
 AppCacheDiskCache::AppCacheDiskCache()
 #if defined(APPCACHE_USE_SIMPLE_CACHE)
     : AppCacheDiskCache("DiskCache.AppCache", true)
@@ -209,16 +212,16 @@ AppCacheDiskCache::~AppCacheDiskCache() {
 
 net::Error AppCacheDiskCache::InitWithDiskBackend(
     const base::FilePath& disk_cache_directory,
-    int disk_cache_size,
     bool force,
     base::OnceClosure post_cleanup_callback,
     net::CompletionOnceCallback callback) {
-  return Init(net::APP_CACHE, disk_cache_directory, disk_cache_size, force,
+  return Init(net::APP_CACHE, disk_cache_directory,
+              std::numeric_limits<int64_t>::max(), force,
               std::move(post_cleanup_callback), std::move(callback));
 }
 
 net::Error AppCacheDiskCache::InitWithMemBackend(
-    int mem_cache_size,
+    int64_t mem_cache_size,
     net::CompletionOnceCallback callback) {
   return Init(net::MEMORY_CACHE, base::FilePath(), mem_cache_size, false,
               base::OnceClosure(), std::move(callback));
@@ -317,8 +320,7 @@ AppCacheDiskCache::AppCacheDiskCache(const char* uma_name,
     : use_simple_cache_(use_simple_cache),
       is_disabled_(false),
       is_waiting_to_initialize_(false),
-      uma_name_(uma_name),
-      weak_factory_(this) {}
+      uma_name_(uma_name) {}
 
 AppCacheDiskCache::PendingCall::PendingCall()
     : call_type(CREATE), key(0), entry(nullptr) {}
@@ -339,13 +341,14 @@ AppCacheDiskCache::PendingCall::~PendingCall() = default;
 
 net::Error AppCacheDiskCache::Init(net::CacheType cache_type,
                                    const base::FilePath& cache_directory,
-                                   int cache_size,
+                                   int64_t cache_size,
                                    bool force,
                                    base::OnceClosure post_cleanup_callback,
                                    net::CompletionOnceCallback callback) {
   DCHECK(!is_initializing_or_waiting_to_initialize() && !disk_cache_.get());
   is_disabled_ = false;
-  create_backend_callback_ = new CreateBackendCallbackShim(this);
+  create_backend_callback_ =
+      base::MakeRefCounted<CreateBackendCallbackShim>(this);
 
   net::Error return_value = disk_cache::CreateCacheBackend(
       cache_type,

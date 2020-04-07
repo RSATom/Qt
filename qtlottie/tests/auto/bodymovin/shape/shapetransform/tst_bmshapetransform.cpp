@@ -489,11 +489,16 @@ void tst_BMShapeTransform::loadTestData(const QByteArray &filename)
     BMGroup* group = nullptr;
     while (shapesIt != shapes.end()) {
         QJsonObject childObj = (*shapesIt).toObject();
-        QByteArray type = childObj.value(QLatin1String("ty")).toVariant().toByteArray();
-        if (QLatin1String(type.data()) == QLatin1String(BM_SHAPE_GROUP_STR))
-            group = new BMGroup(childObj);
+        BMShape *shape = BMShape::construct(childObj);
+        QVERIFY(shape != nullptr);
+        if (shape->type() == BM_SHAPE_GROUP_IX) {
+            group = static_cast<BMGroup *>(shape);
+            break;
+        }
         shapesIt++;
     }
+    QVERIFY(group != nullptr);
+
     m_transform = static_cast<BMShapeTransform*>(group->findChild("Transform"));
 
     QVERIFY(m_transform != nullptr);

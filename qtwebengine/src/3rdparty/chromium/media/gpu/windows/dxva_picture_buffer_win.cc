@@ -34,11 +34,15 @@ class DummyGLImage : public gl::GLImage {
   // gl::GLImage implementation.
   gfx::Size GetSize() override { return size_; }
   unsigned GetInternalFormat() override { return GL_BGRA_EXT; }
+  BindOrCopy ShouldBindOrCopy() override { return BIND; }
   // PbufferPictureBuffer::CopySurfaceComplete does the actual binding, so
   // this doesn't do anything and always succeeds.
   bool BindTexImage(unsigned target) override { return true; }
   void ReleaseTexImage(unsigned target) override {}
-  bool CopyTexImage(unsigned target) override { return false; }
+  bool CopyTexImage(unsigned target) override {
+    NOTREACHED();
+    return false;
+  }
   bool CopyTexSubImage(unsigned target,
                        const gfx::Point& offset,
                        const gfx::Rect& rect) override {
@@ -308,9 +312,12 @@ bool PbufferPictureBuffer::CopyOutputSampleDataToPictureBuffer(
     // when we receive a notification that the copy was completed or when the
     // DXVAPictureBuffer instance is destroyed.
     decoder_dx11_texture_ = dx11_texture;
-    decoder->CopyTexture(dx11_texture, dx11_decoding_texture_.Get(),
-                         dx11_keyed_mutex_, keyed_mutex_value_, id(),
-                         input_buffer_id, color_space_);
+    if (!decoder->CopyTexture(dx11_texture, dx11_decoding_texture_.Get(),
+                              dx11_keyed_mutex_, keyed_mutex_value_, id(),
+                              input_buffer_id, color_space_)) {
+      // |this| might be destroyed.
+      return false;
+    }
     return true;
   }
   D3DSURFACE_DESC surface_desc;
@@ -602,8 +609,7 @@ bool EGLStreamDelayedCopyPictureBuffer::Initialize(
   RETURN_ON_FAILURE(result, "Could not create stream producer", false);
   scoped_refptr<gl::CopyingGLImageDXGI> copying_image_ =
       base::MakeRefCounted<gl::CopyingGLImageDXGI>(
-          Microsoft::WRL::ComPtr<ID3D11Device>(decoder.D3D11Device()), size(),
-          stream_);
+          ComD3D11Device(decoder.D3D11Device()), size(), stream_);
   gl_image_ = copying_image_;
   return copying_image_->Initialize();
 }
@@ -768,9 +774,12 @@ bool EGLStreamCopyPictureBuffer::CopyOutputSampleDataToPictureBuffer(
   // when we receive a notification that the copy was completed or when the
   // DXVAPictureBuffer instance is destroyed.
   dx11_decoding_texture_ = dx11_texture;
-  decoder->CopyTexture(dx11_texture, decoder_copy_texture_.Get(),
-                       dx11_keyed_mutex_, keyed_mutex_value_, id(),
-                       input_buffer_id, color_space_);
+  if (!decoder->CopyTexture(dx11_texture, decoder_copy_texture_.Get(),
+                            dx11_keyed_mutex_, keyed_mutex_value_, id(),
+                            input_buffer_id, color_space_)) {
+    // |this| might be destroyed
+    return false;
+  }
   // The texture copy will acquire the current keyed mutex value and release
   // with the value + 1.
   keyed_mutex_value_++;

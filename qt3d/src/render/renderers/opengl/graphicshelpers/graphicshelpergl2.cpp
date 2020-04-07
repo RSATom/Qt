@@ -299,6 +299,11 @@ void GraphicsHelperGL2::deleteSync(void *)
     qWarning() << "Fences are not supported by OpenGL 2.0 (since OpenGL 3.2)";
 }
 
+void GraphicsHelperGL2::rasterMode(GLenum faceMode, GLenum rasterMode)
+{
+    m_funcs->glPolygonMode(faceMode, rasterMode);
+}
+
 void GraphicsHelperGL2::blendEquation(GLenum mode)
 {
     m_funcs->glBlendEquation(mode);
@@ -339,6 +344,11 @@ void GraphicsHelperGL2::depthTest(GLenum mode)
 void GraphicsHelperGL2::depthMask(GLenum mode)
 {
     m_funcs->glDepthMask(mode);
+}
+
+void GraphicsHelperGL2::depthRange(GLdouble nearValue, GLdouble farValue)
+{
+    m_funcs->glDepthRange(nearValue, farValue);
 }
 
 void GraphicsHelperGL2::frontFace(GLenum mode)
@@ -478,6 +488,21 @@ void GraphicsHelperGL2::bindFrameBufferObject(GLuint frameBufferId, FBOBindMode 
     } else {
         qWarning() << "FBO not supported by your OpenGL hardware";
     }
+}
+
+void GraphicsHelperGL2::bindImageTexture(GLuint imageUnit, GLuint texture,
+                                         GLint mipLevel, GLboolean layered,
+                                         GLint layer, GLenum access, GLenum format)
+{
+    Q_UNUSED(imageUnit)
+    Q_UNUSED(texture)
+    Q_UNUSED(mipLevel)
+    Q_UNUSED(layered)
+    Q_UNUSED(layer)
+    Q_UNUSED(access)
+    Q_UNUSED(format)
+    qWarning() << "Shader Images are not supported by OpenGL 2.0 (since OpenGL 4.2)";
+
 }
 
 GLuint GraphicsHelperGL2::boundFrameBufferObject()

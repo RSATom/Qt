@@ -113,6 +113,7 @@ QQuickTextControlPrivate::QQuickTextControlPrivate()
       wordSelectionEnabled(false),
       hasImState(false),
       cursorRectangleChanged(false),
+      hoveredMarker(false),
       lastSelectionStart(-1),
       lastSelectionEnd(-1)
 {}
@@ -321,6 +322,9 @@ void QQuickTextControlPrivate::setContent(Qt::TextFormat format, const QString &
             formatCursor.select(QTextCursor::Document);
             formatCursor.setCharFormat(charFormatForInsertion);
             formatCursor.endEditBlock();
+        } else if (format == Qt::MarkdownText) {
+            doc->setBaseUrl(doc->baseUrl().adjusted(QUrl::RemoveFilename));
+            doc->setMarkdown(text);
         } else {
 #if QT_CONFIG(texthtmlparser)
             doc->setHtml(text);
@@ -799,6 +803,12 @@ void QQuickTextControl::setPlainText(const QString &text)
     d->setContent(Qt::PlainText, text);
 }
 
+void QQuickTextControl::setMarkdownText(const QString &text)
+{
+    Q_D(QQuickTextControl);
+    d->setContent(Qt::MarkdownText, text);
+}
+
 void QQuickTextControl::setHtml(const QString &text)
 {
     Q_D(QQuickTextControl);
@@ -1025,6 +1035,8 @@ void QQuickTextControlPrivate::mousePressEvent(QMouseEvent *e, const QPointF &po
             cursor.clearSelection();
         }
     }
+    if (interactionFlags & Qt::TextEditable)
+        blockWithMarkerUnderMousePress = q->blockWithMarkerAt(pos);
     if (e->button() & Qt::MiddleButton) {
         return;
     } else  if (!(e->button() & Qt::LeftButton)) {
@@ -1194,6 +1206,16 @@ void QQuickTextControlPrivate::mouseReleaseEvent(QMouseEvent *e, const QPointF &
     if (cursor.position() != oldCursorPos) {
         emit q->cursorPositionChanged();
         q->updateCursorRectangle(true);
+    }
+
+    if ((interactionFlags & Qt::TextEditable) && (e->button() & Qt::LeftButton) && blockWithMarkerUnderMousePress.isValid()) {
+        QTextBlock block = q->blockWithMarkerAt(pos);
+        if (block == blockWithMarkerUnderMousePress) {
+            auto fmt = block.blockFormat();
+            fmt.setMarker(fmt.marker() == QTextBlockFormat::MarkerType::Unchecked ?
+                              QTextBlockFormat::MarkerType::Checked : QTextBlockFormat::MarkerType::Unchecked);
+            cursor.setBlockFormat(fmt);
+        }
     }
 
     if (interactionFlags & Qt::LinksAccessibleByMouse) {
@@ -1375,7 +1397,7 @@ QVariant QQuickTextControl::inputMethodQuery(Qt::InputMethodQuery property) cons
     return inputMethodQuery(property, QVariant());
 }
 
-QVariant QQuickTextControl::inputMethodQuery(Qt::InputMethodQuery property, QVariant argument) const
+QVariant QQuickTextControl::inputMethodQuery(Qt::InputMethodQuery property, const QVariant &argument) const
 {
     Q_D(const QQuickTextControl);
     QTextBlock block = d->cursor.block();
@@ -1478,8 +1500,15 @@ void QQuickTextControlPrivate::hoverEvent(QHoverEvent *e, const QPointF &pos)
     if (hoveredLink != link) {
         hoveredLink = link;
         emit q->linkHovered(link);
+        qCDebug(DBG_HOVER_TRACE) << q << e->type() << pos << "hoveredLink" << hoveredLink;
+    } else {
+        QTextBlock block = q->blockWithMarkerAt(pos);
+        if (block.isValid() != hoveredMarker)
+            emit q->markerHovered(block.isValid());
+        hoveredMarker = block.isValid();
+        if (hoveredMarker)
+            qCDebug(DBG_HOVER_TRACE) << q << e->type() << pos << "hovered marker" << int(block.blockFormat().marker()) << block.text();
     }
-    qCDebug(DBG_HOVER_TRACE) << q << e->type() << pos << "hoveredLink" << hoveredLink;
 }
 
 bool QQuickTextControl::hasImState() const
@@ -1553,6 +1582,12 @@ QString QQuickTextControl::anchorAt(const QPointF &pos) const
 {
     Q_D(const QQuickTextControl);
     return d->doc->documentLayout()->anchorAt(pos);
+}
+
+QTextBlock QQuickTextControl::blockWithMarkerAt(const QPointF &pos) const
+{
+    Q_D(const QQuickTextControl);
+    return d->doc->documentLayout()->blockWithMarkerAt(pos);
 }
 
 void QQuickTextControl::setAcceptRichText(bool accept)
@@ -1781,6 +1816,13 @@ QString QQuickTextControl::toPlainText() const
 QString QQuickTextControl::toHtml() const
 {
     return document()->toHtml();
+}
+#endif
+
+#if QT_CONFIG(textmarkdownwriter)
+QString QQuickTextControl::toMarkdown() const
+{
+    return document()->toMarkdown();
 }
 #endif
 

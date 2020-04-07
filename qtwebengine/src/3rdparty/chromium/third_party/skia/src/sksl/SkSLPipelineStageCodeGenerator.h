@@ -8,8 +8,8 @@
 #ifndef SKSL_PIPELINESTAGECODEGENERATOR
 #define SKSL_PIPELINESTAGECODEGENERATOR
 
-#include "SkSLGLSLCodeGenerator.h"
-#include "SkSLSectionAndParameterHelper.h"
+#include "src/sksl/SkSLGLSLCodeGenerator.h"
+#include "src/sksl/SkSLSectionAndParameterHelper.h"
 
 #include <set>
 
@@ -58,6 +58,7 @@ private:
     String fExtraEmitCodeCode;
     std::set<int> fWrittenTransformedCoords;
     std::vector<Compiler::FormatArg>* fFormatArgs;
+    const FunctionDeclaration* fCurrentFunction;
 
     typedef GLSLCodeGenerator INHERITED;
 };

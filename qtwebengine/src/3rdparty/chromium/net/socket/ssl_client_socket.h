@@ -7,54 +7,25 @@
 
 #include <stdint.h>
 
-#include <string>
+#include <memory>
 #include <vector>
 
 #include "base/gtest_prod_util.h"
-#include "base/strings/string_piece.h"
-#include "net/base/completion_callback.h"
-#include "net/base/load_flags.h"
-#include "net/base/net_errors.h"
+#include "base/macros.h"
 #include "net/base/net_export.h"
 #include "net/socket/ssl_socket.h"
-#include "net/socket/stream_socket.h"
 
 namespace net {
 
 class CTPolicyEnforcer;
 class CertVerifier;
-class ChannelIDService;
 class CTVerifier;
+class HostPortPair;
+class SSLClientSessionCache;
+struct SSLConfig;
 class SSLKeyLogger;
+class StreamSocket;
 class TransportSecurityState;
-
-// This struct groups together several fields which are used by various
-// classes related to SSLClientSocket.
-struct SSLClientSocketContext {
-  SSLClientSocketContext() = default;
-  SSLClientSocketContext(CertVerifier* cert_verifier_arg,
-                         ChannelIDService* channel_id_service_arg,
-                         TransportSecurityState* transport_security_state_arg,
-                         CTVerifier* cert_transparency_verifier_arg,
-                         CTPolicyEnforcer* ct_policy_enforcer_arg,
-                         const std::string& ssl_session_cache_shard_arg)
-      : cert_verifier(cert_verifier_arg),
-        channel_id_service(channel_id_service_arg),
-        transport_security_state(transport_security_state_arg),
-        cert_transparency_verifier(cert_transparency_verifier_arg),
-        ct_policy_enforcer(ct_policy_enforcer_arg),
-        ssl_session_cache_shard(ssl_session_cache_shard_arg) {}
-
-  CertVerifier* cert_verifier = nullptr;
-  ChannelIDService* channel_id_service = nullptr;
-  TransportSecurityState* transport_security_state = nullptr;
-  CTVerifier* cert_transparency_verifier = nullptr;
-  CTPolicyEnforcer* ct_policy_enforcer = nullptr;
-  // ssl_session_cache_shard is an opaque string that identifies a shard of the
-  // SSL session cache. SSL sockets with the same ssl_session_cache_shard may
-  // resume each other's SSL sessions but we'll never sessions between shards.
-  std::string ssl_session_cache_shard;
-};
 
 // A client socket that uses SSL as the transport layer.
 //
@@ -72,10 +43,6 @@ class NET_EXPORT SSLClientSocket : public SSLSocket {
   // TODO(davidben): Switch this to a parameter on the SSLClientSocketContext
   // once https://crbug.com/458365 is resolved.
   static void SetSSLKeyLogger(std::unique_ptr<SSLKeyLogger> logger);
-
-  // ClearSessionCache clears the SSL session cache, used to resume SSL
-  // sessions.
-  static void ClearSessionCache();
 
  protected:
   void set_signed_cert_timestamps_received(
@@ -108,6 +75,49 @@ class NET_EXPORT SSLClientSocket : public SSLSocket {
   bool signed_cert_timestamps_received_;
   // True if a stapled OCSP response was received.
   bool stapled_ocsp_response_received_;
+};
+
+// Shared state and configuration across multiple SSLClientSockets.
+class NET_EXPORT SSLClientContext {
+ public:
+  // Creates a new SSLClientContext with the specified parameters. The
+  // SSLClientContext may not outlive the input parameters.
+  //
+  // |ssl_client_session_cache| may be null to disable session caching.
+  SSLClientContext(CertVerifier* cert_verifier,
+                   TransportSecurityState* transport_security_state,
+                   CTVerifier* cert_transparency_verifier,
+                   CTPolicyEnforcer* ct_policy_enforcer,
+                   SSLClientSessionCache* ssl_client_session_cache);
+  ~SSLClientContext();
+
+  CertVerifier* cert_verifier() { return cert_verifier_; }
+  TransportSecurityState* transport_security_state() {
+    return transport_security_state_;
+  }
+  CTVerifier* cert_transparency_verifier() {
+    return cert_transparency_verifier_;
+  }
+  CTPolicyEnforcer* ct_policy_enforcer() { return ct_policy_enforcer_; }
+  SSLClientSessionCache* ssl_client_session_cache() {
+    return ssl_client_session_cache_;
+  }
+
+  // Creates a new SSLClientSocket which can then be used to establish an SSL
+  // connection to |host_and_port| over the already-connected |stream_socket|.
+  std::unique_ptr<SSLClientSocket> CreateSSLClientSocket(
+      std::unique_ptr<StreamSocket> stream_socket,
+      const HostPortPair& host_and_port,
+      const SSLConfig& ssl_config);
+
+ private:
+  CertVerifier* cert_verifier_;
+  TransportSecurityState* transport_security_state_;
+  CTVerifier* cert_transparency_verifier_;
+  CTPolicyEnforcer* ct_policy_enforcer_;
+  SSLClientSessionCache* ssl_client_session_cache_;
+
+  DISALLOW_COPY_AND_ASSIGN(SSLClientContext);
 };
 
 }  // namespace net

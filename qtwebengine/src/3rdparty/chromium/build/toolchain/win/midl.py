@@ -2,6 +2,8 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+from __future__ import print_function
+
 import array
 import difflib
 import distutils.dir_util
@@ -151,11 +153,10 @@ def overwrite_cls_guid(h_file, iid_file, tlb_file, dynamic_guid):
   overwrite_cls_guid_tlb(tlb_file, dynamic_guid)
 
 
-def main(arch, outdir, dynamic_guid, tlb, h, dlldata, iid, proxy, idl, *flags):
+def main(arch, gendir, outdir, dynamic_guid, tlb, h, dlldata, iid, proxy, idl,
+         *flags):
   # Copy checked-in outputs to final location.
-  THIS_DIR = os.path.abspath(os.path.dirname(__file__))
-  source = os.path.join(THIS_DIR, '..', '..', '..',
-      'third_party', 'win_build_output', outdir.replace('gen/', 'midl/'))
+  source = gendir
   if os.path.isdir(os.path.join(source, os.path.basename(idl))):
     source = os.path.join(source, os.path.basename(idl))
   source = os.path.join(source, arch.split('.')[1])  # Append 'x86' or 'x64'.
@@ -211,7 +212,7 @@ def main(arch, outdir, dynamic_guid, tlb, h, dlldata, iid, proxy, idl, *flags):
                      for x in lines if x.startswith(prefixes))
     for line in lines:
       if not line.startswith(prefixes) and line not in processing:
-        print line
+        print(line)
     if popen.returncode != 0:
       return popen.returncode
 
@@ -221,18 +222,19 @@ def main(arch, outdir, dynamic_guid, tlb, h, dlldata, iid, proxy, idl, *flags):
     # Now compare the output in tmp_dir to the copied-over outputs.
     diff = filecmp.dircmp(tmp_dir, outdir)
     if diff.diff_files:
-      print 'midl.exe output different from files in %s, see %s' \
-          % (outdir, tmp_dir)
+      print('midl.exe output different from files in %s, see %s' % (outdir,
+                                                                    tmp_dir))
       for f in diff.diff_files:
         if f.endswith('.tlb'): continue
         fromfile = os.path.join(outdir, f)
         tofile = os.path.join(tmp_dir, f)
-        print ''.join(difflib.unified_diff(open(fromfile, 'U').readlines(),
-                                           open(tofile, 'U').readlines(),
-                                           fromfile, tofile))
+        print(''.join(
+            difflib.unified_diff(
+                open(fromfile, 'U').readlines(),
+                open(tofile, 'U').readlines(), fromfile, tofile)))
       delete_tmp_dir = False
-      print 'To rebaseline:'
-      print '  copy /y %s\* %s' % (tmp_dir, source)
+      print('To rebaseline:')
+      print('  copy /y %s\* %s' % (tmp_dir, source))
       sys.exit(1)
     return 0
   finally:

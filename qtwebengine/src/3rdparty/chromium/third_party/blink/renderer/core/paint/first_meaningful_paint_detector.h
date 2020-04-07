@@ -6,11 +6,15 @@
 #define THIRD_PARTY_BLINK_RENDERER_CORE_PAINT_FIRST_MEANINGFUL_PAINT_DETECTOR_H_
 
 #include "base/macros.h"
-#include "third_party/blink/public/platform/web_layer_tree_view.h"
+#include "third_party/blink/public/web/web_widget_client.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/paint/paint_event.h"
 #include "third_party/blink/renderer/platform/heap/handle.h"
 #include "third_party/blink/renderer/platform/wtf/time.h"
+
+namespace base {
+class TickClock;
+}
 
 namespace blink {
 
@@ -19,12 +23,11 @@ class LayoutObjectCounter;
 class PaintTiming;
 
 // FirstMeaningfulPaintDetector observes layout operations during page load
-// until network stable (0.5 seconds of no network activity), and computes the
-// layout-based First Meaningful Paint.
+// until network stable (no more than 2 network connections active in 0.5
+// seconds), and computes the layout-based First Meaningful Paint.
 // See https://goo.gl/vpaxv6 and http://goo.gl/TEiMi4 for more details.
 class CORE_EXPORT FirstMeaningfulPaintDetector
     : public GarbageCollectedFinalized<FirstMeaningfulPaintDetector> {
-
  public:
   static FirstMeaningfulPaintDetector& From(Document&);
 
@@ -37,12 +40,12 @@ class CORE_EXPORT FirstMeaningfulPaintDetector
                                          int visible_height);
   void NotifyInputEvent();
   void NotifyPaint();
-  void ReportSwapTime(PaintEvent,
-                      WebLayerTreeView::SwapResult,
-                      base::TimeTicks);
-  void NotifyFirstContentfulPaint(TimeTicks swap_stamp);
-  void OnNetwork0Quiet();
+  void ReportSwapTime(PaintEvent, WebWidgetClient::SwapResult, base::TimeTicks);
+  void NotifyFirstContentfulPaint(base::TimeTicks swap_stamp);
   void OnNetwork2Quiet();
+
+  // The caller owns the |clock| which must outlive the paint detector.
+  static void SetTickClockForTesting(const base::TickClock* clock);
 
   void Trace(blink::Visitor*);
 
@@ -59,9 +62,8 @@ class CORE_EXPORT FirstMeaningfulPaintDetector
 
   Document* GetDocument();
   int ActiveConnections();
-  void ReportHistograms();
   void RegisterNotifySwapTime(PaintEvent);
-  void SetFirstMeaningfulPaint(TimeTicks swap_stamp);
+  void SetFirstMeaningfulPaint(base::TimeTicks swap_stamp);
 
   bool next_paint_is_meaningful_ = false;
   HadUserInput had_user_input_ = kNoUserInput;
@@ -69,16 +71,14 @@ class CORE_EXPORT FirstMeaningfulPaintDetector
       kNoUserInput;
 
   Member<PaintTiming> paint_timing_;
-  TimeTicks provisional_first_meaningful_paint_;
-  TimeTicks provisional_first_meaningful_paint_swap_;
+  base::TimeTicks provisional_first_meaningful_paint_;
+  base::TimeTicks provisional_first_meaningful_paint_swap_;
   double max_significance_so_far_ = 0.0;
   double accumulated_significance_while_having_blank_text_ = 0.0;
   unsigned prev_layout_object_count_ = 0;
   bool seen_first_meaningful_paint_candidate_ = false;
-  bool network0_quiet_reached_ = false;
-  bool network2_quiet_reached_ = false;
-  TimeTicks first_meaningful_paint0_quiet_;
-  TimeTicks first_meaningful_paint2_quiet_;
+  bool network_quiet_reached_ = false;
+  base::TimeTicks first_meaningful_paint_;
   unsigned outstanding_swap_promise_count_ = 0;
   DeferFirstMeaningfulPaint defer_first_meaningful_paint_ = kDoNotDefer;
   DISALLOW_COPY_AND_ASSIGN(FirstMeaningfulPaintDetector);

@@ -1,11 +1,15 @@
 # GN
 
 GN is a meta-build system that generates build files for
-[Ninja](https://ninja-build.org). There is documentation in
-[docs/](https://gn.googlesource.com/gn/+/master/docs/) and
-[a presentation on it](https://docs.google.com/presentation/d/15Zwb53JcncHfEwHpnG_PoIbbzQ3GQi_cpujYwbpcbZo/edit?usp=sharing).
+[Ninja](https://ninja-build.org).
 
-## Getting started
+Related resources:
+
+  * Documentation in [docs/](https://gn.googlesource.com/gn/+/master/docs/).
+  * An introductory [presentation](https://docs.google.com/presentation/d/15Zwb53JcncHfEwHpnG_PoIbbzQ3GQi_cpujYwbpcbZo/edit?usp=sharing).
+  * The [mailing list](https://groups.google.com/a/chromium.org/forum/#!forum/gn-dev).
+
+## Getting a binary
 
 You can download the latest version of GN binary for
 [Linux](https://chrome-infra-packages.appspot.com/dl/gn/gn/linux-amd64/+/latest),
@@ -28,6 +32,23 @@ similar.
 On Linux and Mac, the default compiler is `clang++`, a recent version is
 expected to be found in `PATH`. This can be overridden by setting `CC`, `CXX`,
 and `AR`.
+
+## Examples
+
+There is a simple example in [examples/simple_build](examples/simple_build)
+directory that is a good place to get started with the minimal configuration.
+
+For a maximal configuration see the Chromium setup:
+  * [.gn](https://cs.chromium.org/chromium/src/.gn)
+  * [BUILDCONFIG.gn](https://cs.chromium.org/chromium/src/build/config/BUILDCONFIG.gn)
+  * [Toolchain setup](https://cs.chromium.org/chromium/src/build/toolchain/)
+  * [Compiler setup](https://cs.chromium.org/chromium/src/build/config/compiler/BUILD.gn)
+
+and the Fuchsia setup:
+  * [.gn](https://fuchsia.googlesource.com/fuchsia/+/refs/heads/master/.gn)
+  * [BUILDCONFIG.gn](https://fuchsia.googlesource.com/fuchsia/+/refs/heads/master/build/config/BUILDCONFIG.gn)
+  * [Toolchain setup](https://fuchsia.googlesource.com/fuchsia/+/refs/heads/master/build/toolchain/)
+  * [Compiler setup](https://fuchsia.googlesource.com/fuchsia/+/refs/heads/master/build/config/BUILD.gn)
 
 ## Reporting bugs
 
@@ -64,6 +85,6 @@ project').
 
 ## Community
 
-You may ask questions and follow along w/ GN's development on Chromium's
+You may ask questions and follow along with GN's development on Chromium's
 [gn-dev@](https://groups.google.com/a/chromium.org/forum/#!forum/gn-dev)
 Google Group.

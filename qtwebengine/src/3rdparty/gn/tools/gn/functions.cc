@@ -328,7 +328,7 @@ Variables on a target used to apply configs
 Example
 
   config("myconfig") {
-    includes = [ "include/common" ]
+    include_dirs = [ "include/common" ]
     defines = [ "ENABLE_DOOM_MELON" ]
   }
 
@@ -911,7 +911,7 @@ Example
   toolchain("toolchain") {
     tool("link") {
       command = "..."
-      pool = ":link_pool($default_toolchain)")
+      pool = ":link_pool($default_toolchain)"
     }
   }
 )*";
@@ -1269,6 +1269,7 @@ struct FunctionInfoInitializer {
     INSERT_FUNCTION(StaticLibrary, true)
     INSERT_FUNCTION(Target, true)
     INSERT_FUNCTION(GeneratedFile, true)
+    INSERT_FUNCTION(RustLibrary, true)
 
     INSERT_FUNCTION(Assert, false)
     INSERT_FUNCTION(Config, false)

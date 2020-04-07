@@ -67,7 +67,7 @@ public:
     enum Columns { NameColumn, UsedColumn, TextColumn, ShortCutColumn, CheckedColumn, ToolTipColumn, NumColumns };
     enum   { ActionRole = Qt::UserRole + 1000 };
 
-    explicit ActionModel(QWidget *parent = 0);
+    explicit ActionModel(QWidget *parent = nullptr);
     void initialize(QDesignerFormEditorInterface *core) { m_core = core; }
 
     void clearActions();
@@ -98,7 +98,7 @@ signals:
     void resourceImageDropped(const QString &path, QAction *action);
 
 private:
-    typedef QList<QStandardItem *> QStandardItemList;
+    using QStandardItemList = QList<QStandardItem *>;
 
     void initializeHeaders();
     static void setItems(QDesignerFormEditorInterface *core, QAction *a,
@@ -107,7 +107,7 @@ private:
 
     const QIcon m_emptyIcon;
 
-    QDesignerFormEditorInterface *m_core;
+    QDesignerFormEditorInterface *m_core = nullptr;
 };
 
 // Internal class that provides the detailed view of actions.
@@ -115,7 +115,7 @@ class  ActionTreeView: public QTreeView
 {
     Q_OBJECT
 public:
-    explicit ActionTreeView(ActionModel *model, QWidget *parent = 0);
+    explicit ActionTreeView(ActionModel *model, QWidget *parent = nullptr);
     QAction *currentAction() const;
 
 public slots:
@@ -149,7 +149,7 @@ class ActionListView: public QListView
 {
     Q_OBJECT
 public:
-    explicit ActionListView(ActionModel *model, QWidget *parent = 0);
+    explicit ActionListView(ActionModel *model, QWidget *parent = nullptr);
     QAction *currentAction() const;
 
 public slots:
@@ -187,7 +187,7 @@ class ActionView : public  QStackedWidget {
 public:
     // Separate initialize() function takes core argument to make this
     // thing usable as promoted widget.
-    explicit ActionView(QWidget *parent = 0);
+    explicit ActionView(QWidget *parent = nullptr);
     void initialize(QDesignerFormEditorInterface *core) { m_model->initialize(core); }
 
     // View mode
@@ -203,7 +203,7 @@ public:
     QAction *currentAction() const;
     void setCurrentIndex(const QModelIndex &index);
 
-    typedef QList<QAction*> ActionList;
+    using ActionList = QList<QAction *>;
     ActionList selectedActions() const;
     QItemSelection selection() const;
 
@@ -232,7 +232,7 @@ class QDESIGNER_SHARED_EXPORT ActionRepositoryMimeData: public QMimeData
 {
     Q_OBJECT
 public:
-    typedef QList<QAction*> ActionList;
+    using ActionList = QList<QAction *>;
 
     ActionRepositoryMimeData(const ActionList &, Qt::DropAction dropAction);
     ActionRepositoryMimeData(QAction *, Qt::DropAction dropAction);

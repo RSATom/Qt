@@ -41,6 +41,7 @@
 
 #include "qwaylandintegration_p.h"
 #include "qwaylandwindow_p.h"
+#include "qwaylandsurface_p.h"
 #include "qwaylandabstractdecoration_p.h"
 #include "qwaylandscreen_p.h"
 #include "qwaylandcursor_p.h"
@@ -51,7 +52,10 @@
 #if QT_CONFIG(wayland_datadevice)
 #include "qwaylanddatadevicemanager_p.h"
 #include "qwaylanddatadevice_p.h"
-#endif
+#endif // QT_CONFIG(wayland_datadevice)
+#if QT_CONFIG(wayland_client_primary_selection)
+#include "qwaylandprimaryselectionv1_p.h"
+#endif // QT_CONFIG(wayland_client_primary_selection)
 #if QT_CONFIG(cursor)
 #include <wayland-cursor.h>
 #endif
@@ -68,6 +72,7 @@
 #include "qwaylandqtkey_p.h"
 
 #include <QtWaylandClient/private/qwayland-text-input-unstable-v2.h>
+#include <QtWaylandClient/private/qwayland-wp-primary-selection-unstable-v1.h>
 
 #include <QtCore/private/qcore_unix_p.h>
 
@@ -109,7 +114,11 @@ struct ::wl_region *QWaylandDisplay::createRegion(const QRegion &qregion)
         return nullptr;
     }
 
-    return mSubCompositor->get_subsurface(window->object(), parent->object());
+    // Make sure we don't pass NULL surfaces to libwayland (crashes)
+    Q_ASSERT(parent->wlSurface());
+    Q_ASSERT(window->wlSurface());
+
+    return mSubCompositor->get_subsurface(window->wlSurface(), parent->wlSurface());
 }
 
 QWaylandShellIntegration *QWaylandDisplay::shellIntegration() const
@@ -162,13 +171,11 @@ QWaylandDisplay::~QWaylandDisplay(void)
     if (mSyncCallback)
         wl_callback_destroy(mSyncCallback);
 
-    qDeleteAll(mInputDevices);
-    mInputDevices.clear();
+    qDeleteAll(qExchange(mInputDevices, {}));
 
-    foreach (QWaylandScreen *screen, mScreens) {
+    for (QWaylandScreen *screen : qExchange(mScreens, {})) {
         QWindowSystemInterface::handleScreenRemoved(screen);
     }
-    mScreens.clear();
     qDeleteAll(mWaitingScreens);
 
 #if QT_CONFIG(wayland_datadevice)
@@ -307,6 +314,10 @@ void QWaylandDisplay::registry_global(uint32_t id, const QString &interface, uin
         mTouchExtension.reset(new QWaylandTouchExtension(this, id));
     } else if (interface == QStringLiteral("zqt_key_v1")) {
         mQtKeyExtension.reset(new QWaylandQtKeyExtension(this, id));
+#if QT_CONFIG(wayland_client_primary_selection)
+    } else if (interface == QStringLiteral("zwp_primary_selection_device_manager_v1")) {
+        mPrimarySelectionManager.reset(new QWaylandPrimarySelectionDeviceManagerV1(this, id, 1));
+#endif
     } else if (interface == QStringLiteral("zwp_text_input_manager_v2") && !mClientSideInputContextRequested) {
         mTextInputManager.reset(new QtWayland::zwp_text_input_manager_v2(registry, id, 1));
         for (QWaylandInputDevice *inputDevice : qAsConst(mInputDevices))
@@ -329,7 +340,8 @@ void QWaylandDisplay::registry_global(uint32_t id, const QString &interface, uin
 
     mGlobals.append(RegistryGlobal(id, interface, version, registry));
 
-    foreach (Listener l, mRegistryListeners)
+    const auto copy = mRegistryListeners; // be prepared for listeners unregistering on notification
+    for (Listener l : copy)
         (*l.listener)(l.data, registry, id, interface, version);
 }
 
@@ -347,7 +359,7 @@ void QWaylandDisplay::registry_global_remove(uint32_t id)
                     }
                 }
 
-                foreach (QWaylandScreen *screen, mScreens) {
+                for (QWaylandScreen *screen : qAsConst(mScreens)) {
                     if (screen->outputId() == id) {
                         mScreens.removeOne(screen);
                         QWindowSystemInterface::handleScreenRemoved(screen);
@@ -367,9 +379,9 @@ void QWaylandDisplay::registry_global_remove(uint32_t id)
     }
 }
 
-bool QWaylandDisplay::hasRegistryGlobal(const QString &interfaceName)
+bool QWaylandDisplay::hasRegistryGlobal(QStringView interfaceName) const
 {
-    Q_FOREACH (const RegistryGlobal &global, mGlobals)
+    for (const RegistryGlobal &global : mGlobals)
         if (global.interface == interfaceName)
             return true;
 

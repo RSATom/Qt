@@ -23,7 +23,6 @@ namespace media {
 
 namespace {
 
-using blink::WebEncryptedMediaInitDataType;
 using blink::WebEncryptedMediaSessionType;
 using blink::WebMediaKeySystemConfiguration;
 using blink::WebMediaKeySystemMediaCapability;
@@ -57,8 +56,8 @@ const char kInvalidContainer[] = "video/invalid";
 // that the test can perform EmeMediaType check.
 // TODO(sandersd): Extended codec variants (requires proprietary codec support).
 // TODO(xhwang): Platform Opus is not available on all Android versions, where
-// some encrypted Opus related tests may fail. See PlatformHasOpusSupport()
-// for more details.
+// some encrypted Opus related tests may fail. See
+// MediaCodecUtil::IsOpusDecoderAvailable() for more details.
 const char kSupportedAudioCodec[] = "audio_codec";
 const char kSupportedVideoCodec[] = "video_codec";
 const char kUnsupportedCodec[] = "unsupported_codec";
@@ -335,15 +334,14 @@ class FakeMediaPermission : public MediaPermission {
  public:
   // MediaPermission implementation.
   void HasPermission(Type type,
-                     const PermissionStatusCB& permission_status_cb) override {
-    permission_status_cb.Run(is_granted);
+                     PermissionStatusCB permission_status_cb) override {
+    std::move(permission_status_cb).Run(is_granted);
   }
 
-  void RequestPermission(
-      Type type,
-      const PermissionStatusCB& permission_status_cb) override {
+  void RequestPermission(Type type,
+                         PermissionStatusCB permission_status_cb) override {
     requests++;
-    permission_status_cb.Run(is_granted);
+    std::move(permission_status_cb).Run(is_granted);
   }
 
   bool IsEncryptedMediaEnabled() override { return is_encrypted_media_enabled; }
@@ -488,9 +486,9 @@ TEST_F(KeySystemConfigSelectorTest, UsableConfig) {
   SelectConfigReturnsConfig();
 
   EXPECT_EQ("", config_.label);
-  EXPECT_TRUE(config_.init_data_types.IsEmpty());
+  EXPECT_TRUE(config_.init_data_types.empty());
   EXPECT_EQ(1u, config_.audio_capabilities.size());
-  EXPECT_TRUE(config_.video_capabilities.IsEmpty());
+  EXPECT_TRUE(config_.video_capabilities.empty());
   EXPECT_EQ(MediaKeysRequirement::kNotAllowed, config_.distinctive_identifier);
   EXPECT_EQ(MediaKeysRequirement::kNotAllowed, config_.persistent_state);
   ASSERT_EQ(1u, config_.session_types.size());
@@ -563,9 +561,9 @@ TEST_F(KeySystemConfigSelectorTest, InitDataTypes_Empty) {
 TEST_F(KeySystemConfigSelectorTest, InitDataTypes_NoneSupported) {
   key_systems_->init_data_type_webm_supported_ = true;
 
-  std::vector<WebEncryptedMediaInitDataType> init_data_types;
-  init_data_types.push_back(WebEncryptedMediaInitDataType::kUnknown);
-  init_data_types.push_back(WebEncryptedMediaInitDataType::kCenc);
+  std::vector<EmeInitDataType> init_data_types;
+  init_data_types.push_back(EmeInitDataType::UNKNOWN);
+  init_data_types.push_back(EmeInitDataType::CENC);
 
   auto config = UsableConfiguration();
   config.init_data_types = init_data_types;
@@ -577,10 +575,10 @@ TEST_F(KeySystemConfigSelectorTest, InitDataTypes_NoneSupported) {
 TEST_F(KeySystemConfigSelectorTest, InitDataTypes_SubsetSupported) {
   key_systems_->init_data_type_webm_supported_ = true;
 
-  std::vector<WebEncryptedMediaInitDataType> init_data_types;
-  init_data_types.push_back(WebEncryptedMediaInitDataType::kUnknown);
-  init_data_types.push_back(WebEncryptedMediaInitDataType::kCenc);
-  init_data_types.push_back(WebEncryptedMediaInitDataType::kWebm);
+  std::vector<EmeInitDataType> init_data_types;
+  init_data_types.push_back(EmeInitDataType::UNKNOWN);
+  init_data_types.push_back(EmeInitDataType::CENC);
+  init_data_types.push_back(EmeInitDataType::WEBM);
 
   auto config = UsableConfiguration();
   config.init_data_types = init_data_types;
@@ -588,7 +586,7 @@ TEST_F(KeySystemConfigSelectorTest, InitDataTypes_SubsetSupported) {
 
   SelectConfigReturnsConfig();
   ASSERT_EQ(1u, config_.init_data_types.size());
-  EXPECT_EQ(WebEncryptedMediaInitDataType::kWebm, config_.init_data_types[0]);
+  EXPECT_EQ(EmeInitDataType::WEBM, config_.init_data_types[0]);
 }
 
 // --- distinctiveIdentifier ---
@@ -700,7 +698,7 @@ TEST_F(KeySystemConfigSelectorTest, SessionTypes_Empty) {
   configs_.push_back(config);
 
   SelectConfigReturnsConfig();
-  EXPECT_TRUE(config_.session_types.IsEmpty());
+  EXPECT_TRUE(config_.session_types.empty());
 }
 
 TEST_F(KeySystemConfigSelectorTest, SessionTypes_SubsetSupported) {
@@ -1452,8 +1450,8 @@ TEST_F(KeySystemConfigSelectorTest, Configurations_AllSupported) {
 TEST_F(KeySystemConfigSelectorTest, Configurations_SubsetSupported) {
   auto config1 = UsableConfiguration();
   config1.label = "a";
-  std::vector<WebEncryptedMediaInitDataType> init_data_types;
-  init_data_types.push_back(WebEncryptedMediaInitDataType::kUnknown);
+  std::vector<EmeInitDataType> init_data_types;
+  init_data_types.push_back(EmeInitDataType::UNKNOWN);
   config1.init_data_types = init_data_types;
   configs_.push_back(config1);
 

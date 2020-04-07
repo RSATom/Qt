@@ -189,7 +189,7 @@ public:
 
 template<> void QSharedDataPointer<QUrlQueryPrivate>::detach()
 {
-    if (d && d->ref.load() == 1)
+    if (d && d->ref.loadRelaxed() == 1)
         return;
     QUrlQueryPrivate *x = (d ? new QUrlQueryPrivate(*d)
                              : new QUrlQueryPrivate);
@@ -262,7 +262,7 @@ inline QString QUrlQueryPrivate::recodeToUser(const QString &input, QUrl::Compon
     if (!(encoding & QUrl::EncodeDelimiters)) {
         QString output;
         if (qt_urlRecode(output, input.constData(), input.constData() + input.length(),
-                         encoding, 0))
+                         encoding, nullptr))
             return output;
         return input;
     }
@@ -290,12 +290,12 @@ void QUrlQueryPrivate::setQuery(const QString &query)
     const QChar *const end = pos + query.size();
     while (pos != end) {
         const QChar *begin = pos;
-        const QChar *delimiter = 0;
+        const QChar *delimiter = nullptr;
         while (pos != end) {
             // scan for the component parts of this pair
-            if (!delimiter && pos->unicode() == valueDelimiter)
+            if (!delimiter && *pos == valueDelimiter)
                 delimiter = pos;
-            if (pos->unicode() == pairDelimiter)
+            if (*pos == pairDelimiter)
                 break;
             ++pos;
         }
@@ -345,7 +345,7 @@ QSharedDataPointer<QUrlQueryPrivate>::clone()
     \sa setQuery(), addQueryItem()
 */
 QUrlQuery::QUrlQuery()
-    : d(0)
+    : d(nullptr)
 {
 }
 
@@ -356,7 +356,7 @@ QUrlQuery::QUrlQuery()
     set the query with setQuery().
 */
 QUrlQuery::QUrlQuery(const QString &queryString)
-    : d(queryString.isEmpty() ? 0 : new QUrlQueryPrivate(queryString))
+    : d(queryString.isEmpty() ? nullptr : new QUrlQueryPrivate(queryString))
 {
 }
 
@@ -369,7 +369,7 @@ QUrlQuery::QUrlQuery(const QString &queryString)
     \sa QUrl::query()
 */
 QUrlQuery::QUrlQuery(const QUrl &url)
-    : d(0)
+    : d(nullptr)
 {
     // use internals to avoid unnecessary recoding
     // ### FIXME: actually do it
@@ -434,7 +434,7 @@ bool QUrlQuery::operator ==(const QUrlQuery &other) const
     Returns the hash value for \a key,
     using \a seed to seed the calculation.
 */
-uint qHash(const QUrlQuery &key, uint seed) Q_DECL_NOTHROW
+uint qHash(const QUrlQuery &key, uint seed) noexcept
 {
     if (const QUrlQueryPrivate *d = key.d) {
         QtPrivate::QHashCombine hash;
@@ -462,7 +462,7 @@ bool QUrlQuery::isEmpty() const
 */
 bool QUrlQuery::isDetached() const
 {
-    return d && d->ref.load() == 1;
+    return d && d->ref.loadRelaxed() == 1;
 }
 
 /*!
@@ -584,8 +584,8 @@ QString QUrlQuery::query(QUrl::ComponentFormattingOptions encoding) const
 */
 void QUrlQuery::setQueryDelimiters(QChar valueDelimiter, QChar pairDelimiter)
 {
-    d->valueDelimiter = valueDelimiter.unicode();
-    d->pairDelimiter = pairDelimiter.unicode();
+    d->valueDelimiter = valueDelimiter;
+    d->pairDelimiter = pairDelimiter;
 }
 
 /*!

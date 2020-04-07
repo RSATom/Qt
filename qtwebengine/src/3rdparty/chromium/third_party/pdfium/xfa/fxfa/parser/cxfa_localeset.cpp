@@ -6,12 +6,15 @@
 
 #include "xfa/fxfa/parser/cxfa_localeset.h"
 
+#include "fxjs/xfa/cjx_node.h"
+#include "third_party/base/ptr_util.h"
+
 namespace {
 
 const CXFA_Node::AttributeData kLocaleSetAttributeData[] = {
     {XFA_Attribute::Desc, XFA_AttributeType::CData, nullptr},
     {XFA_Attribute::Lock, XFA_AttributeType::Integer, (void*)0},
-    {XFA_Attribute::Unknown, XFA_AttributeType::Integer, nullptr}};
+};
 
 }  // namespace
 
@@ -21,7 +24,8 @@ CXFA_LocaleSet::CXFA_LocaleSet(CXFA_Document* doc, XFA_PacketType packet)
                 (XFA_XDPPACKET_Config | XFA_XDPPACKET_LocaleSet),
                 XFA_ObjectType::ModelNode,
                 XFA_Element::LocaleSet,
-                nullptr,
-                kLocaleSetAttributeData) {}
+                {},
+                kLocaleSetAttributeData,
+                pdfium::MakeUnique<CJX_Node>(this)) {}
 
 CXFA_LocaleSet::~CXFA_LocaleSet() = default;

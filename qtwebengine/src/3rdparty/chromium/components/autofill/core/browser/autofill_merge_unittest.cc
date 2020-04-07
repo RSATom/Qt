@@ -19,10 +19,10 @@
 #include "base/test/scoped_task_environment.h"
 #include "components/autofill/core/browser/autofill_test_utils.h"
 #include "components/autofill/core/browser/autofill_type.h"
-#include "components/autofill/core/browser/country_names.h"
 #include "components/autofill/core/browser/data_driven_test.h"
 #include "components/autofill/core/browser/form_data_importer.h"
 #include "components/autofill/core/browser/form_structure.h"
+#include "components/autofill/core/browser/geo/country_names.h"
 #include "components/autofill/core/browser/personal_data_manager.h"
 #include "components/autofill/core/browser/test_autofill_client.h"
 #include "components/autofill/core/common/form_data.h"
@@ -229,7 +229,7 @@ void AutofillMergeTest::MergeProfiles(const std::string& profiles,
   // Create a test form.
   FormData form;
   form.name = base::ASCIIToUTF16("MyTestForm");
-  form.origin = GURL("https://www.example.com/origin.html");
+  form.url = GURL("https://www.example.com/origin.html");
   form.action = GURL("https://www.example.com/action.html");
 
   // Parse the input line by line.
@@ -304,6 +304,8 @@ TEST_P(AutofillMergeTest, DataDrivenMergeProfiles) {
                        kIsExpectedToPass);
 }
 
-INSTANTIATE_TEST_CASE_P(, AutofillMergeTest, testing::ValuesIn(GetTestFiles()));
+INSTANTIATE_TEST_SUITE_P(,
+                         AutofillMergeTest,
+                         testing::ValuesIn(GetTestFiles()));
 
 }  // namespace autofill

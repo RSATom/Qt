@@ -53,11 +53,11 @@
 // We mean it.
 //
 
+#include <QtPositioningQuick/private/qpositioningquickglobal_p.h>
+#include <QtPositioning/QGeoPositionInfo>
 #include <QtCore/QObject>
 #include <QtCore/QDateTime>
 #include <QtQml/qqml.h>
-#include <QtPositioningQuick/private/qpositioningquickglobal_p.h>
-#include <QtPositioning/QGeoPositionInfo>
 
 QT_BEGIN_NAMESPACE
 

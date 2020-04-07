@@ -7,11 +7,13 @@
 #include <stdint.h>
 #include <utility>
 
+#include "base/bind.h"
 #include "base/macros.h"
+#include "base/process/process.h"
 #include "base/rand_util.h"
 #include "base/strings/string_number_conversions.h"
-#include "content/common/child.mojom.h"
 #include "content/public/common/service_manager_connection.h"
+#include "mojo/public/cpp/bindings/remote.h"
 #include "mojo/public/cpp/system/message_pipe.h"
 #include "services/service_manager/public/cpp/connector.h"
 #include "services/service_manager/public/cpp/identity.h"
@@ -63,18 +65,11 @@ class ChildConnection::IOThreadContext
     }
   }
 
-  void SetProcessHandle(base::ProcessHandle handle) {
+  void SetProcess(base::Process process) {
     DCHECK(io_task_runner_);
     io_task_runner_->PostTask(
-        FROM_HERE, base::BindOnce(&IOThreadContext::SetProcessHandleOnIOThread,
-                                  this, handle));
-  }
-
-  void ForceCrash() {
-    DCHECK(io_task_runner_);
-    io_task_runner_->PostTask(
-        FROM_HERE,
-        base::BindOnce(&IOThreadContext::ForceCrashOnIOThread, this));
+        FROM_HERE, base::BindOnce(&IOThreadContext::SetProcessOnIOThread, this,
+                                  std::move(process)));
   }
 
  private:
@@ -85,38 +80,36 @@ class ChildConnection::IOThreadContext
   void InitializeOnIOThread(
       const service_manager::Identity& child_identity,
       mojo::ScopedMessagePipeHandle service_pipe) {
-    service_manager::mojom::ServicePtr service;
-    service.Bind(mojo::InterfacePtrInfo<service_manager::mojom::Service>(
-        std::move(service_pipe), 0u));
-    auto pid_receiver_request = mojo::MakeRequest(&pid_receiver_);
-
+    auto metadata_receiver = remote_metadata_.BindNewPipeAndPassReceiver();
     if (connector_) {
-      connector_->RegisterServiceInstance(child_identity, std::move(service),
-                                          std::move(pid_receiver_request));
-      connector_->BindInterface(child_identity, &child_);
+      connector_->RegisterServiceInstance(
+          child_identity,
+          mojo::PendingRemote<service_manager::mojom::Service>(
+              std::move(service_pipe), 0),
+          std::move(metadata_receiver));
     }
   }
 
   void ShutDownOnIOThread() {
     connector_.reset();
-    pid_receiver_.reset();
+    remote_metadata_.reset();
   }
 
-  void SetProcessHandleOnIOThread(base::ProcessHandle handle) {
-    DCHECK(pid_receiver_.is_bound());
-    pid_receiver_->SetPID(base::GetProcId(handle));
-    pid_receiver_.reset();
+  void SetProcessOnIOThread(base::Process process) {
+    DCHECK(remote_metadata_);
+    remote_metadata_->SetPID(process.Pid());
+    remote_metadata_.reset();
+    process_ = std::move(process);
   }
-
-  void ForceCrashOnIOThread() { child_->Crash(); }
 
   scoped_refptr<base::SequencedTaskRunner> io_task_runner_;
   // Usable from the IO thread only.
   std::unique_ptr<service_manager::Connector> connector_;
   service_manager::Identity child_identity_;
-  // ServiceManagerConnection in the child monitors the lifetime of this pipe.
-  mojom::ChildPtr child_;
-  service_manager::mojom::PIDReceiverPtr pid_receiver_;
+  mojo::Remote<service_manager::mojom::ProcessMetadata> remote_metadata_;
+  // Hold onto the process, and thus its process handle, so that the pid will
+  // remain valid.
+  base::Process process_;
 
   DISALLOW_COPY_AND_ASSIGN(IOThreadContext);
 };
@@ -126,9 +119,7 @@ ChildConnection::ChildConnection(
     mojo::OutgoingInvitation* invitation,
     service_manager::Connector* connector,
     scoped_refptr<base::SequencedTaskRunner> io_task_runner)
-    : context_(new IOThreadContext),
-      child_identity_(child_identity),
-      weak_factory_(this) {
+    : context_(new IOThreadContext), child_identity_(child_identity) {
   service_token_ = base::NumberToString(base::RandUint64());
   context_->Initialize(child_identity_, connector,
                        invitation->AttachMessagePipe(service_token_),
@@ -145,13 +136,8 @@ void ChildConnection::BindInterface(
   context_->BindInterface(interface_name, std::move(interface_pipe));
 }
 
-void ChildConnection::SetProcessHandle(base::ProcessHandle handle) {
-  process_handle_ = handle;
-  context_->SetProcessHandle(handle);
-}
-
-void ChildConnection::ForceCrash() {
-  context_->ForceCrash();
+void ChildConnection::SetProcess(base::Process process) {
+  context_->SetProcess(std::move(process));
 }
 
 }  // namespace content

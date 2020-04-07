@@ -11,24 +11,96 @@ Polymer({
   is: 'viewer-zoom-toolbar',
 
   properties: {
-    strings: {type: Object, observer: 'updateTooltips_'},
+    newPrintPreview: {
+      type: Boolean,
+      reflectToAttribute: true,
+    },
 
-    visible_: {type: Boolean, value: true}
+    /** @private */
+    keyboardNavigationActive_: {
+      type: Boolean,
+      value: false,
+    },
+
+    /** @private */
+    showOnLeft_: {
+      type: Boolean,
+      computed: 'computeShowOnLeft_(newPrintPreview)',
+      reflectToAttribute: true,
+    },
+  },
+
+  listeners: {
+    'focus': 'onFocus_',
+    'keyup': 'onKeyUp_',
+    'pointerdown': 'onPointerDown_',
+  },
+
+  /** @private {boolean} */
+  isPrintPreview_: false,
+
+  /** @private {boolean} */
+  visible_: true,
+
+  /** @param {boolean} isPrintPreview */
+  setIsPrintPreview: function(isPrintPreview) {
+    this.isPrintPreview_ = isPrintPreview;
+  },
+
+  /** @return {boolean} */
+  isPrintPreview: function() {
+    return this.isPrintPreview_;
   },
 
   isVisible: function() {
     return this.visible_;
   },
 
+  /** @private */
+  onFocus_: function() {
+    // This can only happen when the plugin is shown within Print Preview using
+    // keyboard navigation.
+    if (!this.visible_) {
+      assert(this.isPrintPreview_);
+      this.fire('keyboard-navigation-active', true);
+      this.show();
+    }
+  },
+
+  /** @private */
+  onKeyUp_: function() {
+    if (this.isPrintPreview_) {
+      this.fire('keyboard-navigation-active', true);
+    }
+    this.keyboardNavigationActive_ = true;
+  },
+
+  /** @private */
+  onPointerDown_: function() {
+    if (this.isPrintPreview_) {
+      this.fire('keyboard-navigation-active', false);
+    }
+    this.keyboardNavigationActive_ = false;
+  },
+
   /**
+   * @return {boolean} Whether to show the zoom toolbar on the left side of the
+   *     viewport.
    * @private
-   * Change button tooltips to match any changes to localized strings.
    */
-  updateTooltips_: function() {
+  computeShowOnLeft_: function() {
+    return isRTL() !== this.newPrintPreview;
+  },
+
+  /**
+   * Change button tooltips to match any changes to localized strings.
+   * @param {!Object} strings
+   */
+  setStrings: function(strings) {
     this.$['fit-button'].tooltips =
-        [this.strings.tooltipFitToPage, this.strings.tooltipFitToWidth];
-    this.$['zoom-in-button'].tooltips = [this.strings.tooltipZoomIn];
-    this.$['zoom-out-button'].tooltips = [this.strings.tooltipZoomOut];
+        [strings.tooltipFitToPage, strings.tooltipFitToWidth];
+    this.$['zoom-in-button'].tooltips = [strings.tooltipZoomIn];
+    this.$['zoom-out-button'].tooltips = [strings.tooltipZoomOut];
   },
 
   /**

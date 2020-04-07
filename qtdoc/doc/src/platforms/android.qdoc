@@ -31,7 +31,7 @@
 \brief Provides information about Android support in Qt.
 \ingroup supportedplatform
 
-Qt for Android enables you to run Qt 5 applications Android devices.
+Qt for Android enables you to run Qt 5 applications on Android devices.
 All Qt modules (essential and add-on) are supported except Qt \WebEngine,
 Qt Serial Port, and the platform-specific ones (Qt Mac Extras,
 Qt Windows Extras, and Qt X11 Extras).
@@ -60,7 +60,7 @@ The following list summarizes what you can do with Qt for Android:
      \l{Qt Android Extras}.
  \li Develop secure applications using OpenSSL library.
  \li Create \l{Android Services}
- \li Create and deploy Application Package (APK) using Qt Creator.
+ \li Create and deploy Application Package using Qt Creator.
 \endlist
 
 The following topics provide more details about how to use Qt for Android:
@@ -135,8 +135,9 @@ The following topics provide more details about how to use Qt for Android:
 
   And that's it: Provided that the path referenced in the \c{project.properties} file is located
   under the \c{Android Package Source Directory}, the deployment tool will copy it into the
-  packaging directory and perform the necessary steps to include it in your \c{APK}. You can
-  now add Java code to your application which accesses the APIs provided by the library project.
+  packaging directory and perform the necessary steps to include it in your \c{APK} or \c{AAB}.
+  You can now add Java code to your application which accesses the APIs provided by the library
+  project.
 
 */
 
@@ -154,9 +155,27 @@ In order to use \l{Qt for Android}, you need the following:
     \note If your Qt version is earlier than v5.9, use the SDK tools package
     v25.2.5 or earlier.
 \li \l{http://developer.android.com/tools/sdk/ndk/index.html}{The Android NDK}
-    \note Using Qt for Android with the GCC toolchain requires Android NDK
-    version \e r10e. For Qt 5.12 or later, use the latest
-    available version of NDK with \e android-clang toolchain.
+    \list
+        \li Qt 5.11 and below
+            \list
+                \li NDK r10e
+                \li GCC toolchain
+            \endlist
+        \li Qt 5.12.0 to 5.12.5
+            and Qt 5.13.0 to 5.13.1
+        \list
+            \li NDK r19c
+            \li \e android-clang
+        \endlist
+        \li Qt 5.14+, Qt 5.13.2+
+            and Qt 5.12.6+
+        \list
+            \li NDK r20b or r21
+            \li \e android-clang
+            \li \note Qt 5.14.0 and 5.14.1 with NDK r21 have a bug fixed at \l{https://bugreports.qt.io/browse/QTBUG-81461}{QTBUG-81461}.
+        \endlist
+    \endlist
+
 \li \l{http://www.oracle.com/technetwork/java/javase/downloads/jdk7-downloads-1880260.html}{Java SE Development Kit} (JDK) v6 or later. You can also use \l{http://openjdk.java.net}{OpenJDK} on Linux.
 \endlist
 
@@ -166,6 +185,10 @@ either through Android Studio or using the command line tools package you instal
 earlier. For more details, refer to the
 \l{https://developer.android.com/studio/intro/update.html}{Android Studio}
 documentation.
+
+\note Make sure to unpack the Android SDK and NDK to a writeable location that Qt Creator
+can access later. Otherwise, Qt Creator won't be able to use \c sdkmanager or find all
+components even if they were installed manually.
 
 \section2 Updating the Android SDK
 

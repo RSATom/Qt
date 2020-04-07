@@ -9,6 +9,7 @@
 #include <memory>
 #include <string>
 
+#include "base/bind.h"
 #include "base/logging.h"
 #include "base/win/core_winrt_util.h"
 #include "base/win/post_async_results.h"
@@ -43,7 +44,7 @@ void TextDetectionImpl::Create(mojom::TextDetectionRequest request) {
   // OcrEngine class is only available in Win 10 onwards (v10.0.10240.0) that
   // documents in
   // https://docs.microsoft.com/en-us/uwp/api/windows.media.ocr.ocrengine.
-  if (base::win::GetVersion() < base::win::VERSION_WIN10) {
+  if (base::win::GetVersion() < base::win::Version::WIN10) {
     DVLOG(1) << "Optical character recognition not supported before Windows 10";
     return;
   }

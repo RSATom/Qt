@@ -14,11 +14,12 @@
 #include "content/browser/appcache/appcache_job.h"
 #include "content/browser/appcache/appcache_storage.h"
 #include "content/common/content_export.h"
+#include "net/base/ip_endpoint.h"
 #include "net/url_request/url_request_job.h"
 
 namespace net {
 class GrowableIOBuffer;
-};
+}
 
 namespace content {
 class AppCacheHost;
@@ -33,6 +34,21 @@ class CONTENT_EXPORT AppCacheURLRequestJob : public AppCacheJob,
                                              public AppCacheStorage::Delegate,
                                              public net::URLRequestJob {
  public:
+  // Use AppCacheRequestHandler::CreateJob() instead of calling this directly.
+  //
+  // |restart_callback| will be invoked before the request is restarted. The
+  // caller can use this opportunity to grab state from the
+  // AppCacheURLRequestJob to determine how it should behave when the request is
+  // restarted.
+  //
+  // The constructor is exposed for std::make_unique.
+  AppCacheURLRequestJob(net::URLRequest* request,
+                        net::NetworkDelegate* network_delegate,
+                        AppCacheStorage* storage,
+                        AppCacheHost* host,
+                        bool is_main_resource,
+                        base::OnceClosure restart_callback);
+
   ~AppCacheURLRequestJob() override;
 
   // AppCacheJob overrides.
@@ -62,20 +78,9 @@ class CONTENT_EXPORT AppCacheURLRequestJob : public AppCacheJob,
  private:
   friend class AppCacheRequestHandlerTest;
   friend class appcache_url_request_job_unittest::AppCacheURLRequestJobTest;
-  // AppCacheRequestHandler::CreateJob() creates this instance.
   friend class AppCacheRequestHandler;
 
-  // Callback that will be invoked before the request is restarted. The caller
-  // can use this opportunity to grab state from the AppCacheURLRequestJob to
-  // determine how it should behave when the request is restarted.
   using OnPrepareToRestartCallback = base::OnceClosure;
-
-  AppCacheURLRequestJob(net::URLRequest* request,
-                        net::NetworkDelegate* network_delegate,
-                        AppCacheStorage* storage,
-                        AppCacheHost* host,
-                        bool is_main_resource,
-                        OnPrepareToRestartCallback restart_callback_);
 
   // Returns true if one of the Deliver methods has been called.
   bool has_delivery_orders() const { return !IsWaiting(); }
@@ -100,7 +105,7 @@ class CONTENT_EXPORT AppCacheURLRequestJob : public AppCacheJob,
   bool GetCharset(std::string* charset) override;
   void GetResponseInfo(net::HttpResponseInfo* info) override;
   int ReadRawData(net::IOBuffer* buf, int buf_size) override;
-  net::HostPortPair GetSocketAddress() const override;
+  net::IPEndPoint GetResponseRemoteEndpoint() const override;
 
   // Sets extra request headers for Job types that support request headers.
   // This is how we get informed of range-requests.
@@ -128,7 +133,7 @@ class CONTENT_EXPORT AppCacheURLRequestJob : public AppCacheJob,
   scoped_refptr<AppCache> cache_;
   scoped_refptr<AppCacheGroup> group_;
   OnPrepareToRestartCallback on_prepare_to_restart_callback_;
-  base::WeakPtrFactory<AppCacheURLRequestJob> weak_factory_;
+  base::WeakPtrFactory<AppCacheURLRequestJob> weak_factory_{this};
   DISALLOW_COPY_AND_ASSIGN(AppCacheURLRequestJob);
 };
 

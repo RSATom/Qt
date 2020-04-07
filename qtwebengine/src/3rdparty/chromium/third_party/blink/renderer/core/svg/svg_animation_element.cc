@@ -25,11 +25,11 @@
 #include "third_party/blink/renderer/core/svg/svg_animation_element.h"
 
 #include "third_party/blink/renderer/core/dom/document.h"
-#include "third_party/blink/renderer/core/frame/use_counter.h"
 #include "third_party/blink/renderer/core/svg/svg_animate_element.h"
 #include "third_party/blink/renderer/core/svg/svg_parser_utilities.h"
 #include "third_party/blink/renderer/core/svg_names.h"
 #include "third_party/blink/renderer/platform/bindings/exception_state.h"
+#include "third_party/blink/renderer/platform/instrumentation/use_counter.h"
 #include "third_party/blink/renderer/platform/wtf/math_extras.h"
 
 namespace blink {
@@ -70,6 +70,10 @@ fail:
   return false;
 }
 
+static bool IsInZeroToOneRange(float value) {
+  return value >= 0 && value <= 1;
+}
+
 static bool ParseKeyTimes(const String& string,
                           Vector<float>& result,
                           bool verify_order) {
@@ -80,7 +84,7 @@ static bool ParseKeyTimes(const String& string,
     String time_string = parse_list[n].StripWhiteSpace();
     bool ok;
     float time = time_string.ToFloat(&ok);
-    if (!ok || time < 0 || time > 1)
+    if (!ok || !IsInZeroToOneRange(time))
       goto fail;
     if (verify_order) {
       if (!n) {
@@ -107,20 +111,20 @@ static bool ParseKeySplinesInternal(const String& string,
   SkipOptionalSVGSpaces(ptr, end);
 
   while (ptr < end) {
-    float pos_a = 0;
-    if (!ParseNumber(ptr, end, pos_a))
+    float cp1x = 0;
+    if (!ParseNumber(ptr, end, cp1x))
       return false;
 
-    float pos_b = 0;
-    if (!ParseNumber(ptr, end, pos_b))
+    float cp1y = 0;
+    if (!ParseNumber(ptr, end, cp1y))
       return false;
 
-    float pos_c = 0;
-    if (!ParseNumber(ptr, end, pos_c))
+    float cp2x = 0;
+    if (!ParseNumber(ptr, end, cp2x))
       return false;
 
-    float pos_d = 0;
-    if (!ParseNumber(ptr, end, pos_d, kDisallowWhitespace))
+    float cp2y = 0;
+    if (!ParseNumber(ptr, end, cp2y, kDisallowWhitespace))
       return false;
 
     SkipOptionalSVGSpaces(ptr, end);
@@ -129,7 +133,11 @@ static bool ParseKeySplinesInternal(const String& string,
       ptr++;
     SkipOptionalSVGSpaces(ptr, end);
 
-    result.push_back(gfx::CubicBezier(pos_a, pos_b, pos_c, pos_d));
+    // Require that the x values are within the [0, 1] range.
+    if (!IsInZeroToOneRange(cp1x) || !IsInZeroToOneRange(cp2x))
+      return false;
+
+    result.push_back(gfx::CubicBezier(cp1x, cp1y, cp2x, cp2y));
   }
 
   return ptr == end;
@@ -469,10 +477,9 @@ void SVGAnimationElement::CurrentValuesForValuesAnimation(
     return;
   }
 
-  CalcMode calc_mode = this->GetCalcMode();
-  if (IsSVGAnimateElement(*this)) {
-    SVGAnimateElement& animate_element = ToSVGAnimateElement(*this);
-    if (!animate_element.AnimatedPropertyTypeSupportsAddition())
+  CalcMode calc_mode = GetCalcMode();
+  if (auto* animate_element = DynamicTo<SVGAnimateElement>(this)) {
+    if (!animate_element->AnimatedPropertyTypeSupportsAddition())
       calc_mode = kCalcModeDiscrete;
   }
   if (!key_points_.IsEmpty() && calc_mode != kCalcModePaced)
@@ -527,8 +534,8 @@ void SVGAnimationElement::StartedActiveInterval() {
       key_points_.size() != key_times_.size())
     return;
 
-  AnimationMode animation_mode = this->GetAnimationMode();
-  CalcMode calc_mode = this->GetCalcMode();
+  AnimationMode animation_mode = GetAnimationMode();
+  CalcMode calc_mode = GetCalcMode();
   if (calc_mode == kCalcModeSpline) {
     unsigned splines_count = key_splines_.size();
     if (!splines_count ||
@@ -601,8 +608,8 @@ void SVGAnimationElement::UpdateAnimation(float percent,
     return;
 
   float effective_percent;
-  CalcMode calc_mode = this->GetCalcMode();
-  AnimationMode animation_mode = this->GetAnimationMode();
+  CalcMode calc_mode = GetCalcMode();
+  AnimationMode animation_mode = GetAnimationMode();
   if (animation_mode == kValuesAnimation) {
     String from;
     String to;
@@ -627,6 +634,13 @@ void SVGAnimationElement::UpdateAnimation(float percent,
     effective_percent = percent;
 
   CalculateAnimatedValue(effective_percent, repeat_count, result_element);
+}
+
+bool SVGAnimationElement::OverwritesUnderlyingAnimationValue() {
+  return !IsAdditive() && !IsAccumulated() &&
+         GetAnimationMode() != kToAnimation &&
+         GetAnimationMode() != kByAnimation &&
+         GetAnimationMode() != kNoAnimation;
 }
 
 }  // namespace blink

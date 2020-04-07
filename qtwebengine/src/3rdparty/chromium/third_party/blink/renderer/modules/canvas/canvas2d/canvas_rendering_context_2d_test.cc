@@ -35,13 +35,14 @@
 #include "third_party/blink/renderer/platform/graphics/test/fake_canvas_resource_host.h"
 #include "third_party/blink/renderer/platform/graphics/test/fake_gles2_interface.h"
 #include "third_party/blink/renderer/platform/graphics/test/fake_web_graphics_context_3d_provider.h"
+#include "third_party/blink/renderer/platform/heap/heap.h"
 #include "third_party/blink/renderer/platform/loader/fetch/memory_cache.h"
 #include "third_party/blink/renderer/platform/shared_buffer.h"
 #include "third_party/blink/renderer/platform/testing/runtime_enabled_features_test_helpers.h"
 #include "third_party/blink/renderer/platform/testing/unit_test_helpers.h"
 #include "third_party/skia/include/core/SkImage.h"
 #include "third_party/skia/include/core/SkSurface.h"
-#include "third_party/skia/third_party/skcms/skcms.h"
+#include "third_party/skia/include/third_party/skcms/skcms.h"
 
 using testing::_;
 using testing::InSequence;
@@ -144,10 +145,6 @@ class CanvasRenderingContext2DTest : public PageTestBase {
 
   class WrapGradients final : public GarbageCollectedFinalized<WrapGradients> {
    public:
-    static WrapGradients* Create() {
-      return MakeGarbageCollected<WrapGradients>();
-    }
-
     void Trace(blink::Visitor* visitor) {
       visitor->Trace(opaque_gradient_);
       visitor->Trace(alpha_gradient_);
@@ -181,7 +178,7 @@ class CanvasRenderingContext2DTest : public PageTestBase {
 };
 
 CanvasRenderingContext2DTest::CanvasRenderingContext2DTest()
-    : wrap_gradients_(WrapGradients::Create()),
+    : wrap_gradients_(MakeGarbageCollected<WrapGradients>()),
       opaque_bitmap_(IntSize(10, 10), kOpaqueBitmap),
       alpha_bitmap_(IntSize(10, 10), kTransparentBitmap) {}
 
@@ -190,7 +187,7 @@ void CanvasRenderingContext2DTest::CreateContext(OpacityMode opacity_mode,
   String canvas_type("2d");
   CanvasContextCreationAttributesCore attributes;
   attributes.alpha = opacity_mode == kNonOpaque;
-  attributes.low_latency = latency_mode == kLowLatency;
+  attributes.desynchronized = latency_mode == kLowLatency;
   canvas_element_->GetCanvasRenderingContext(canvas_type, attributes);
 }
 
@@ -217,16 +214,16 @@ void CanvasRenderingContext2DTest::SetUp() {
   partial_image_data_ = ImageData::Create(IntSize(2, 2));
 
   NonThrowableExceptionState exception_state;
-  CanvasGradient* opaque_gradient =
-      CanvasGradient::Create(FloatPoint(0, 0), FloatPoint(10, 0));
+  auto* opaque_gradient =
+      MakeGarbageCollected<CanvasGradient>(FloatPoint(0, 0), FloatPoint(10, 0));
   opaque_gradient->addColorStop(0, String("green"), exception_state);
   EXPECT_FALSE(exception_state.HadException());
   opaque_gradient->addColorStop(1, String("blue"), exception_state);
   EXPECT_FALSE(exception_state.HadException());
   this->OpaqueGradient().SetCanvasGradient(opaque_gradient);
 
-  CanvasGradient* alpha_gradient =
-      CanvasGradient::Create(FloatPoint(0, 0), FloatPoint(10, 0));
+  auto* alpha_gradient =
+      MakeGarbageCollected<CanvasGradient>(FloatPoint(0, 0), FloatPoint(10, 0));
   alpha_gradient->addColorStop(0, String("green"), exception_state);
   EXPECT_FALSE(exception_state.HadException());
   alpha_gradient->addColorStop(1, String("rgba(0, 0, 255, 0.5)"),
@@ -235,14 +232,15 @@ void CanvasRenderingContext2DTest::SetUp() {
   StringOrCanvasGradientOrCanvasPattern wrapped_alpha_gradient;
   this->AlphaGradient().SetCanvasGradient(alpha_gradient);
 
-  global_memory_cache_ = ReplaceMemoryCacheForTesting(MemoryCache::Create(
-      blink::scheduler::GetSingleThreadTaskRunnerForTesting()));
+  global_memory_cache_ =
+      ReplaceMemoryCacheForTesting(MakeGarbageCollected<MemoryCache>(
+          blink::scheduler::GetSingleThreadTaskRunnerForTesting()));
 }
 
 void CanvasRenderingContext2DTest::TearDown() {
-  ThreadState::Current()->CollectGarbage(
-      BlinkGC::kNoHeapPointersOnStack, BlinkGC::kAtomicMarking,
-      BlinkGC::kEagerSweeping, BlinkGC::GCReason::kForcedGC);
+  ThreadState::Current()->CollectAllGarbageForTesting(
+      BlinkGC::kNoHeapPointersOnStack);
+
   ReplaceMemoryCacheForTesting(global_memory_cache_.Release());
   SharedGpuContext::ResetForTesting();
 }
@@ -286,17 +284,24 @@ class FakeCanvasResourceProvider : public CanvasResourceProvider {
   FakeCanvasResourceProvider(const IntSize& size,
                              CanvasColorParams color_params,
                              AccelerationHint hint)
-      : CanvasResourceProvider(size, color_params, nullptr, nullptr),
+      : CanvasResourceProvider(CanvasResourceProvider::kBitmap,
+                               size,
+                               color_params,
+                               nullptr,
+                               nullptr),
         is_accelerated_(hint != kPreferNoAcceleration) {}
   ~FakeCanvasResourceProvider() override = default;
   bool IsAccelerated() const override { return is_accelerated_; }
-  scoped_refptr<CanvasResource> ProduceFrame() override {
+  scoped_refptr<CanvasResource> ProduceCanvasResource() override {
     return scoped_refptr<CanvasResource>();
   }
   bool SupportsDirectCompositing() const override { return false; }
   bool IsValid() const override { return false; }
   sk_sp<SkSurface> CreateSkSurface() const override {
     return sk_sp<SkSurface>();
+  }
+  scoped_refptr<StaticBitmapImage> Snapshot() override {
+    return SnapshotInternal();
   }
 
  private:
@@ -656,14 +661,8 @@ TEST_F(CanvasRenderingContext2DTest, ContextDisposedBeforeCanvas) {
   // Passes by not crashing later during teardown
 }
 
-#if defined(MEMORY_SANITIZER)
-#define MAYBE_GetImageDataDisablesAcceleration \
-  DISABLED_GetImageDataDisablesAcceleration
-#else
-#define MAYBE_GetImageDataDisablesAcceleration GetImageDataDisablesAcceleration
-#endif
-
-TEST_F(CanvasRenderingContext2DTest, MAYBE_GetImageDataDisablesAcceleration) {
+TEST_F(CanvasRenderingContext2DTest,
+       DISABLED_GetImageDataDisablesAcceleration) {
   ScopedCanvas2dFixedRenderingModeForTest canvas_2d_fixed_rendering_mode(false);
 
   // This Page is not actually being shown by a compositor, but we act like it
@@ -815,7 +814,7 @@ static void TestDrawSingleHighBitDepthPNGOnCanvas(
   ASSERT_EQ(ImageResourceContent::UpdateImageResult::kNoDecodeError,
             update_result);
 
-  HTMLImageElement* image_element = HTMLImageElement::Create(document);
+  auto* image_element = MakeGarbageCollected<HTMLImageElement>(document);
   image_element->SetImageForTest(resource_content);
 
   context->clearRect(0, 0, 2, 2);
@@ -860,25 +859,26 @@ static void TestDrawHighBitDepthPNGsOnWideGamutCanvas(
       canvas->GetCanvasRenderingContext("2d", attributes));
 
   // Prepare the png file path and call the test routine
-  std::vector<String> interlace_status = {"", "_interlaced"};
-  std::vector<String> color_profiles = {"_sRGB",      "_e-sRGB",   "_AdobeRGB",
-                                        "_DisplayP3", "_ProPhoto", "_Rec2020"};
-  std::vector<String> alpha_status = {"_opaque", "_transparent"};
+  Vector<String> interlace_status = {"", "_interlaced"};
+  Vector<String> color_profiles = {"_sRGB",      "_e-sRGB",   "_AdobeRGB",
+                                   "_DisplayP3", "_ProPhoto", "_Rec2020"};
+  Vector<String> alpha_status = {"_opaque", "_transparent"};
 
-  String path = test::CoreTestDataPath();
-  path.append("/png-16bit/");
+  StringBuilder path;
+  path.Append(test::CoreTestDataPath());
+  path.Append("/png-16bit/");
   for (auto interlace : interlace_status) {
     for (auto color_profile : color_profiles) {
       for (auto alpha : alpha_status) {
-        String filename = "2x2_16bit";
-        filename.append(interlace);
-        filename.append(color_profile);
-        filename.append(alpha);
-        filename.append(".png");
-        String full_path = path;
-        full_path.append(filename);
-        TestDrawSingleHighBitDepthPNGOnCanvas(full_path, context, document,
-                                              script_state);
+        StringBuilder full_path;
+        full_path.Append(path);
+        full_path.Append("2x2_16bit");
+        full_path.Append(interlace);
+        full_path.Append(color_profile);
+        full_path.Append(alpha);
+        full_path.Append(".png");
+        TestDrawSingleHighBitDepthPNGOnCanvas(full_path.ToString(), context,
+                                              document, script_state);
       }
     }
   }
@@ -939,6 +939,7 @@ TEST_F(CanvasRenderingContext2DTest, ImageBitmapColorSpaceConversion) {
     ASSERT_TRUE(converted_image);
     SkPixmap converted_pixmap;
     converted_image->peekPixels(&converted_pixmap);
+    ASSERT_TRUE(converted_pixmap.addr());
 
     // Manual color convert for testing
     sk_sp<SkColorSpace> color_space =
@@ -1157,6 +1158,7 @@ class CanvasRenderingContext2DTestWithTestingPlatform
   }
 
   void SetUp() override {
+    EnableCompositing();
     CanvasRenderingContext2DTest::SetUp();
     GetDocument().View()->UpdateLayout();
   }
@@ -1169,9 +1171,6 @@ class CanvasRenderingContext2DTestWithTestingPlatform
 // In these cases, the element should request a compositing update.
 TEST_F(CanvasRenderingContext2DTestWithTestingPlatform,
        ElementRequestsCompositingUpdateOnHibernateAndWakeUp) {
-  // This Page is not actually being shown by a compositor, but we act like it
-  // will in order to test behaviour.
-  GetPage().GetSettings().SetAcceleratedCompositingEnabled(true);
   CreateContext(kNonOpaque);
   IntSize size(300, 300);
   std::unique_ptr<Canvas2DLayerBridge> bridge =
@@ -1242,7 +1241,7 @@ TEST_F(CanvasRenderingContext2DTestWithTestingPlatform,
 
 TEST_F(CanvasRenderingContext2DTest, LowLatencyIsSingleBuffered) {
 #if defined(OS_MACOSX)
-  // TODO(crbug.com/922218): enable lowLatency on Mac.
+  // TODO(crbug.com/922218): enable desynchronized on Mac.
   return;
 #endif
   CreateContext(kNonOpaque, kLowLatency);
@@ -1251,13 +1250,13 @@ TEST_F(CanvasRenderingContext2DTest, LowLatencyIsSingleBuffered) {
   auto frame1_resource =
       CanvasElement()
           .GetOrCreateCanvasResourceProvider(kPreferNoAcceleration)
-          ->ProduceFrame();
+          ->ProduceCanvasResource();
   EXPECT_TRUE(!!frame1_resource);
   DrawSomething();
   auto frame2_resource =
       CanvasElement()
           .GetOrCreateCanvasResourceProvider(kPreferNoAcceleration)
-          ->ProduceFrame();
+          ->ProduceCanvasResource();
   EXPECT_TRUE(!!frame2_resource);
   EXPECT_EQ(frame1_resource.get(), frame2_resource.get());
 }

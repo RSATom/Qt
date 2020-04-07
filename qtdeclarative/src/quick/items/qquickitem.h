@@ -318,7 +318,7 @@ public:
     void setKeepTouchGrab(bool);
 
     // implemented in qquickitemgrabresult.cpp
-    Q_REVISION(2) Q_INVOKABLE bool grabToImage(const QJSValue &callback, const QSize &targetSize = QSize());
+    Q_REVISION(4) Q_INVOKABLE bool grabToImage(const QJSValue &callback, const QSize &targetSize = QSize());
     QSharedPointer<QQuickItemGrabResult> grabToImage(const QSize &targetSize = QSize());
 
     Q_INVOKABLE virtual bool contains(const QPointF &point) const;
@@ -433,7 +433,7 @@ protected:
     virtual void hoverEnterEvent(QHoverEvent *event);
     virtual void hoverMoveEvent(QHoverEvent *event);
     virtual void hoverLeaveEvent(QHoverEvent *event);
-#if QT_CONFIG(draganddrop)
+#if QT_CONFIG(quick_draganddrop)
     virtual void dragEnterEvent(QDragEnterEvent *);
     virtual void dragMoveEvent(QDragMoveEvent *);
     virtual void dragLeaveEvent(QDragLeaveEvent *);

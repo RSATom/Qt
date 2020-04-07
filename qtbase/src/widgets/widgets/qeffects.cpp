@@ -54,6 +54,15 @@
 
 QT_BEGIN_NAMESPACE
 
+static QWidget *effectParent(const QWidget* w)
+{
+    const int screenNumber = w ? QGuiApplication::screens().indexOf(w->screen()) : 0;
+    QT_WARNING_PUSH // ### Qt 6: Find a replacement for QDesktopWidget::screen()
+    QT_WARNING_DISABLE_DEPRECATED
+    return QApplication::desktop()->screen(screenNumber);
+    QT_WARNING_POP
+}
+
 /*
   Internal class QAlphaWidget.
 
@@ -98,12 +107,9 @@ static QAlphaWidget* q_blend = 0;
 /*
   Constructs a QAlphaWidget.
 */
-QT_WARNING_PUSH
-QT_WARNING_DISABLE_DEPRECATED // QDesktopWidget::screen()
 QAlphaWidget::QAlphaWidget(QWidget* w, Qt::WindowFlags f)
-    : QWidget(QApplication::desktop()->screen(QDesktopWidgetPrivate::screenNumber(w)), f)
+    : QWidget(effectParent(w), f)
 {
-QT_WARNING_POP
 #ifndef Q_OS_WIN
     setEnabled(false);
 #endif
@@ -383,7 +389,7 @@ static QRollEffect* q_roll = 0;
   Construct a QRollEffect widget.
 */
 QRollEffect::QRollEffect(QWidget* w, Qt::WindowFlags f, DirFlags orient)
-    : QWidget(0, f), orientation(orient)
+    : QWidget(effectParent(w), f), orientation(orient)
 {
 #ifndef Q_OS_WIN
     setEnabled(false);
@@ -569,8 +575,8 @@ void qScrollEffect(QWidget* w, QEffects::DirFlags orient, int time)
     if (!w)
         return;
 
-    QApplication::sendPostedEvents(w, QEvent::Move);
-    QApplication::sendPostedEvents(w, QEvent::Resize);
+    QCoreApplication::sendPostedEvents(w, QEvent::Move);
+    QCoreApplication::sendPostedEvents(w, QEvent::Resize);
     Qt::WindowFlags flags = Qt::ToolTip;
 
     // those can be popups - they would steal the focus, but are disabled
@@ -591,8 +597,8 @@ void qFadeEffect(QWidget* w, int time)
     if (!w)
         return;
 
-    QApplication::sendPostedEvents(w, QEvent::Move);
-    QApplication::sendPostedEvents(w, QEvent::Resize);
+    QCoreApplication::sendPostedEvents(w, QEvent::Move);
+    QCoreApplication::sendPostedEvents(w, QEvent::Resize);
 
     Qt::WindowFlags flags = Qt::ToolTip;
 

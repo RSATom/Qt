@@ -15,7 +15,6 @@
 #include "base/time/time.h"
 #include "components/safe_browsing/common/safe_browsing.mojom.h"
 #include "mojo/public/cpp/bindings/binding.h"
-#include "third_party/blink/public/platform/web_callbacks.h"
 #include "third_party/blink/public/platform/websocket_handshake_throttle.h"
 #include "url/gurl.h"
 
@@ -28,9 +27,9 @@ class WebSocketSBHandshakeThrottle : public blink::WebSocketHandshakeThrottle,
                                int render_frame_id);
   ~WebSocketSBHandshakeThrottle() override;
 
-  void ThrottleHandshake(
-      const blink::WebURL& url,
-      blink::WebCallbacks<void, const blink::WebString&>* callbacks) override;
+  void ThrottleHandshake(const blink::WebURL& url,
+                         blink::WebSocketHandshakeThrottle::OnCompletion
+                             completion_callback) override;
 
  private:
   // These values are logged to UMA so do not renumber or reuse.
@@ -53,14 +52,14 @@ class WebSocketSBHandshakeThrottle : public blink::WebSocketHandshakeThrottle,
 
   const int render_frame_id_;
   GURL url_;
-  blink::WebCallbacks<void, const blink::WebString&>* callbacks_;
+  blink::WebSocketHandshakeThrottle::OnCompletion completion_callback_;
   mojom::SafeBrowsingUrlCheckerPtr url_checker_;
   mojom::SafeBrowsing* safe_browsing_;
   std::unique_ptr<mojo::Binding<mojom::UrlCheckNotifier>> notifier_binding_;
   base::TimeTicks start_time_;
   Result result_;
 
-  base::WeakPtrFactory<WebSocketSBHandshakeThrottle> weak_factory_;
+  base::WeakPtrFactory<WebSocketSBHandshakeThrottle> weak_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(WebSocketSBHandshakeThrottle);
 };

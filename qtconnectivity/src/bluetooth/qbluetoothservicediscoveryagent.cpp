@@ -308,6 +308,13 @@ QBluetoothAddress QBluetoothServiceDiscoveryAgent::remoteAddress() const
         return QBluetoothAddress();
 }
 
+namespace OSXBluetooth {
+
+void qt_test_iobluetooth_runloop();
+
+}
+
+
 /*!
     Starts service discovery. \a mode specifies the type of service discovery to perform.
 
@@ -318,6 +325,10 @@ QBluetoothAddress QBluetoothServiceDiscoveryAgent::remoteAddress() const
 void QBluetoothServiceDiscoveryAgent::start(DiscoveryMode mode)
 {
     Q_D(QBluetoothServiceDiscoveryAgent);
+#ifdef QT_OSX_BLUETOOTH
+    // Make sure we are on the right thread/have a run loop:
+    OSXBluetooth::qt_test_iobluetooth_runloop();
+#endif
 
     if (d->discoveryState() == QBluetoothServiceDiscoveryAgentPrivate::Inactive
             && d->error != InvalidBluetoothAdapterError) {

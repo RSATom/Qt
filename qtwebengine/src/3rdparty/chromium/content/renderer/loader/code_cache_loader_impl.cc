@@ -3,6 +3,7 @@
 // found in the LICENSE file.
 
 #include "content/renderer/loader/code_cache_loader_impl.h"
+#include "base/bind.h"
 #include "base/task/post_task.h"
 #include "third_party/blink/public/platform/platform.h"
 
@@ -12,15 +13,14 @@ CodeCacheLoaderImpl::CodeCacheLoaderImpl() : CodeCacheLoaderImpl(nullptr) {}
 
 CodeCacheLoaderImpl::CodeCacheLoaderImpl(
     base::WaitableEvent* terminate_sync_load_event)
-    : terminate_sync_load_event_(terminate_sync_load_event),
-      weak_ptr_factory_(this) {}
+    : terminate_sync_load_event_(terminate_sync_load_event) {}
 
 CodeCacheLoaderImpl::~CodeCacheLoaderImpl() = default;
 
 void CodeCacheLoaderImpl::FetchFromCodeCacheSynchronously(
     const GURL& url,
     base::Time* response_time_out,
-    std::vector<uint8_t>* data_out) {
+    blink::WebVector<uint8_t>* data_out) {
   base::WaitableEvent fetch_code_cache_event(
       base::WaitableEvent::ResetPolicy::AUTOMATIC,
       base::WaitableEvent::InitialState::NOT_SIGNALED);
@@ -56,7 +56,7 @@ void CodeCacheLoaderImpl::FetchFromCodeCacheSynchronously(
 
   // Set the output data
   *response_time_out = response_time_for_sync_load_;
-  *data_out = data_for_sync_load_;
+  *data_out = std::move(data_for_sync_load_);
 }
 
 void CodeCacheLoaderImpl::FetchFromCodeCache(
@@ -81,11 +81,10 @@ void CodeCacheLoaderImpl::FetchFromCodeCacheImpl(
                      fetch_event));
 }
 
-void CodeCacheLoaderImpl::OnReceiveCachedCode(
-    FetchCodeCacheCallback callback,
-    base::WaitableEvent* fetch_event,
-    base::Time response_time,
-    const std::vector<uint8_t>& data) {
+void CodeCacheLoaderImpl::OnReceiveCachedCode(FetchCodeCacheCallback callback,
+                                              base::WaitableEvent* fetch_event,
+                                              base::Time response_time,
+                                              base::span<const uint8_t> data) {
   // The loader would be destroyed once the fetch has completed. On terminate
   // the fetch event would be signalled and the fetch should complete and hence
   // we should not see this callback anymore.
@@ -96,10 +95,10 @@ void CodeCacheLoaderImpl::OnReceiveCachedCode(
 }
 
 void CodeCacheLoaderImpl::ReceiveDataForSynchronousFetch(
-    const base::Time& response_time,
-    const std::vector<uint8_t>& data) {
+    base::Time response_time,
+    base::span<const uint8_t> data) {
   response_time_for_sync_load_ = response_time;
-  data_for_sync_load_ = data;
+  data_for_sync_load_.assign(data.begin(), data.end());
 }
 
 void CodeCacheLoaderImpl::OnTerminate(base::WaitableEvent* fetch_event,

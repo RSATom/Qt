@@ -70,6 +70,7 @@ public:
 
     bool downloadFinished;
     quint32 downloadId;
+    qint64 startTime;
     QWebEngineDownloadItem::DownloadState downloadState;
     QWebEngineDownloadItem::SavePageFormat savePageFormat;
     QWebEngineDownloadItem::DownloadType type;
@@ -78,6 +79,10 @@ public:
     const QUrl downloadUrl;
     QString mimeType;
     bool downloadPaused;
+    QString suggestedFileName;
+    QString downloadDirectory;
+    QString downloadFileName;
+    bool isCustomFileName;
 
     qint64 totalBytes;
     qint64 receivedBytes;

@@ -22,12 +22,12 @@
 #include <set>
 #include <vector>
 
-#include "perfetto/base/thread_checker.h"
-#include "perfetto/ipc/service_proxy.h"
-#include "perfetto/tracing/core/basic_types.h"
-#include "perfetto/tracing/core/shared_memory.h"
-#include "perfetto/tracing/core/tracing_service.h"
-#include "perfetto/tracing/ipc/producer_ipc_client.h"
+#include "perfetto/ext/base/thread_checker.h"
+#include "perfetto/ext/ipc/service_proxy.h"
+#include "perfetto/ext/tracing/core/basic_types.h"
+#include "perfetto/ext/tracing/core/shared_memory.h"
+#include "perfetto/ext/tracing/core/tracing_service.h"
+#include "perfetto/ext/tracing/ipc/producer_ipc_client.h"
 
 #include "perfetto/ipc/producer_port.ipc.h"
 
@@ -55,7 +55,10 @@ class ProducerIPCClientImpl : public TracingService::ProducerEndpoint,
   ProducerIPCClientImpl(const char* service_sock_name,
                         Producer*,
                         const std::string& producer_name,
-                        base::TaskRunner*);
+                        base::TaskRunner*,
+                        TracingService::ProducerSMBScrapingMode,
+                        size_t shared_memory_size_hint_bytes = 0,
+                        size_t shared_memory_page_size_hint_bytes = 0);
   ~ProducerIPCClientImpl() override;
 
   // TracingService::ProducerEndpoint implementation.
@@ -66,10 +69,13 @@ class ProducerIPCClientImpl : public TracingService::ProducerEndpoint,
   void RegisterTraceWriter(uint32_t writer_id, uint32_t target_buffer) override;
   void UnregisterTraceWriter(uint32_t writer_id) override;
   void CommitData(const CommitDataRequest&, CommitDataCallback) override;
+  void NotifyDataSourceStarted(DataSourceInstanceID) override;
   void NotifyDataSourceStopped(DataSourceInstanceID) override;
+  void ActivateTriggers(const std::vector<std::string>&) override;
 
   std::unique_ptr<TraceWriter> CreateTraceWriter(
       BufferID target_buffer) override;
+  SharedMemoryArbiter* GetInProcessShmemArbiter() override;
   void NotifyFlushComplete(FlushRequestID) override;
   SharedMemory* shared_memory() const override;
   size_t shared_buffer_page_size_kb() const override;
@@ -105,6 +111,9 @@ class ProducerIPCClientImpl : public TracingService::ProducerEndpoint,
   std::set<DataSourceInstanceID> data_sources_setup_;
   bool connected_ = false;
   std::string const name_;
+  size_t shared_memory_page_size_hint_bytes_ = 0;
+  size_t shared_memory_size_hint_bytes_ = 0;
+  TracingService::ProducerSMBScrapingMode const smb_scraping_mode_;
   PERFETTO_THREAD_CHECKER(thread_checker_)
 };
 

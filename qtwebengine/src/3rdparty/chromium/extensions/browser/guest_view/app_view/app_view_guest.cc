@@ -6,11 +6,11 @@
 
 #include <utility>
 
+#include "base/bind.h"
 #include "base/command_line.h"
 #include "base/lazy_instance.h"
 #include "components/guest_view/browser/guest_view_manager.h"
 #include "content/public/browser/render_process_host.h"
-#include "content/public/common/renderer_preferences.h"
 #include "extensions/browser/api/app_runtime/app_runtime_api.h"
 #include "extensions/browser/api/extensions_api_client.h"
 #include "extensions/browser/app_window/app_delegate.h"
@@ -107,9 +107,8 @@ GuestViewBase* AppViewGuest::Create(WebContents* owner_web_contents) {
 
 AppViewGuest::AppViewGuest(WebContents* owner_web_contents)
     : GuestView<AppViewGuest>(owner_web_contents),
-      app_view_guest_delegate_(ExtensionsAPIClient::Get()
-                                   ->CreateAppViewGuestDelegate()),
-      weak_ptr_factory_(this) {
+      app_view_guest_delegate_(
+          ExtensionsAPIClient::Get()->CreateAppViewGuestDelegate()) {
   if (app_view_guest_delegate_)
     app_delegate_.reset(app_view_guest_delegate_->CreateAppDelegate());
 }
@@ -117,7 +116,9 @@ AppViewGuest::AppViewGuest(WebContents* owner_web_contents)
 AppViewGuest::~AppViewGuest() {
 }
 
-bool AppViewGuest::HandleContextMenu(const content::ContextMenuParams& params) {
+bool AppViewGuest::HandleContextMenu(
+    content::RenderFrameHost* render_frame_host,
+    const content::ContextMenuParams& params) {
   if (app_view_guest_delegate_) {
     return app_view_guest_delegate_->HandleContextMenu(web_contents(), params);
   }
@@ -145,7 +146,7 @@ void AppViewGuest::RequestMediaAccessPermission(
 bool AppViewGuest::CheckMediaAccessPermission(
     content::RenderFrameHost* render_frame_host,
     const GURL& security_origin,
-    blink::MediaStreamType type) {
+    blink::mojom::MediaStreamType type) {
   if (!app_delegate_) {
     return WebContentsDelegate::CheckMediaAccessPermission(
         render_frame_host, security_origin, type);

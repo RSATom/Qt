@@ -5,6 +5,8 @@
 #include "ui/views/widget/desktop_aura/x11_whole_screen_move_loop.h"
 
 #include <stddef.h>
+
+#include <memory>
 #include <utility>
 
 #include "base/bind.h"
@@ -21,13 +23,13 @@
 #include "ui/aura/window_tree_host.h"
 #include "ui/base/x/x11_pointer_grab.h"
 #include "ui/base/x/x11_util.h"
-#include "ui/base/x/x11_window_event_manager.h"
 #include "ui/events/event.h"
 #include "ui/events/event_utils.h"
 #include "ui/events/keycodes/keyboard_code_conversion_x.h"
 #include "ui/events/platform/platform_event_source.h"
 #include "ui/events/platform/scoped_event_dispatcher.h"
 #include "ui/events/platform/x11/x11_event_source.h"
+#include "ui/events/x/x11_window_event_manager.h"
 #include "ui/gfx/x/x11.h"
 
 namespace views {
@@ -51,10 +53,9 @@ X11WholeScreenMoveLoop::X11WholeScreenMoveLoop(X11MoveLoopDelegate* delegate)
       should_reset_mouse_flags_(false),
       grab_input_window_(x11::None),
       grabbed_pointer_(false),
-      canceled_(false),
-      weak_factory_(this) {}
+      canceled_(false) {}
 
-X11WholeScreenMoveLoop::~X11WholeScreenMoveLoop() {}
+X11WholeScreenMoveLoop::~X11WholeScreenMoveLoop() = default;
 
 void X11WholeScreenMoveLoop::DispatchMouseMovement() {
   if (!last_motion_in_screen_)
@@ -95,8 +96,8 @@ uint32_t X11WholeScreenMoveLoop::DispatchEvent(const ui::PlatformEvent& event) {
         // dispatched without waiting for the drag widget updates.
         base::ThreadTaskRunnerHandle::Get()->PostTask(
             FROM_HERE,
-            base::Bind(&X11WholeScreenMoveLoop::DispatchMouseMovement,
-                       weak_factory_.GetWeakPtr()));
+            base::BindOnce(&X11WholeScreenMoveLoop::DispatchMouseMovement,
+                           weak_factory_.GetWeakPtr()));
       }
       return ui::POST_DISPATCH_NONE;
     }
@@ -153,7 +154,7 @@ bool X11WholeScreenMoveLoop::RunMoveLoop(aura::Window* source,
   if (!source->HasCapture()) {
     aura::client::CaptureClient* capture_client =
         aura::client::GetCaptureClient(source->GetRootWindow());
-    CHECK(capture_client->GetGlobalCaptureWindow() == NULL);
+    CHECK(capture_client->GetGlobalCaptureWindow() == nullptr);
     grabbed_pointer_ = GrabPointer(cursor);
     if (!grabbed_pointer_) {
       XDestroyWindow(gfx::GetXDisplay(), grab_input_window_);
@@ -222,9 +223,8 @@ void X11WholeScreenMoveLoop::EndMoveLoop() {
 
   XDisplay* display = gfx::GetXDisplay();
   unsigned int esc_keycode = XKeysymToKeycode(display, XK_Escape);
-  for (size_t i = 0; i < base::size(kModifiersMasks); ++i) {
-    XUngrabKey(display, esc_keycode, kModifiersMasks[i], grab_input_window_);
-  }
+  for (auto mask : kModifiersMasks)
+    XUngrabKey(display, esc_keycode, mask, grab_input_window_);
 
   // Restore the previous dispatcher.
   nested_dispatcher_.reset();
@@ -234,7 +234,7 @@ void X11WholeScreenMoveLoop::EndMoveLoop() {
   grab_input_window_ = x11::None;
 
   in_move_loop_ = false;
-  quit_closure_.Run();
+  std::move(quit_closure_).Run();
 }
 
 bool X11WholeScreenMoveLoop::GrabPointer(gfx::NativeCursor cursor) {
@@ -254,9 +254,9 @@ bool X11WholeScreenMoveLoop::GrabPointer(gfx::NativeCursor cursor) {
 void X11WholeScreenMoveLoop::GrabEscKey() {
   XDisplay* display = gfx::GetXDisplay();
   unsigned int esc_keycode = XKeysymToKeycode(display, XK_Escape);
-  for (size_t i = 0; i < base::size(kModifiersMasks); ++i) {
-    XGrabKey(display, esc_keycode, kModifiersMasks[i], grab_input_window_,
-             x11::False, GrabModeAsync, GrabModeAsync);
+  for (auto mask : kModifiersMasks) {
+    XGrabKey(display, esc_keycode, mask, grab_input_window_, x11::False,
+             GrabModeAsync, GrabModeAsync);
   }
 }
 
@@ -271,8 +271,8 @@ void X11WholeScreenMoveLoop::CreateDragInputWindow(XDisplay* display) {
   uint32_t event_mask = ButtonPressMask | ButtonReleaseMask |
                         PointerMotionMask | KeyPressMask | KeyReleaseMask |
                         StructureNotifyMask;
-  grab_input_window_events_.reset(
-      new ui::XScopedEventSelector(grab_input_window_, event_mask));
+  grab_input_window_events_ = std::make_unique<ui::XScopedEventSelector>(
+      grab_input_window_, event_mask);
 
   XMapRaised(display, grab_input_window_);
 }

@@ -62,6 +62,7 @@ class QWebChannel;
 class QWebEngineCertificateError;
 class QWebEngineClientCertificateSelection;
 class QWebEngineContextMenuData;
+class QWebEngineFindTextResult;
 class QWebEngineFullScreenRequest;
 class QWebEngineHistory;
 class QWebEnginePage;
@@ -88,6 +89,9 @@ class QWEBENGINEWIDGETS_EXPORT QWebEnginePage : public QObject {
     Q_PROPERTY(QPointF scrollPosition READ scrollPosition NOTIFY scrollPositionChanged)
     Q_PROPERTY(bool audioMuted READ isAudioMuted WRITE setAudioMuted NOTIFY audioMutedChanged)
     Q_PROPERTY(bool recentlyAudible READ recentlyAudible NOTIFY recentlyAudibleChanged)
+    Q_PROPERTY(bool visible READ isVisible WRITE setVisible NOTIFY visibleChanged)
+    Q_PROPERTY(LifecycleState lifecycleState READ lifecycleState WRITE setLifecycleState NOTIFY lifecycleStateChanged)
+    Q_PROPERTY(LifecycleState recommendedState READ recommendedState NOTIFY recommendedStateChanged)
 
 public:
     enum WebAction {
@@ -180,7 +184,8 @@ public:
         NavigationTypeFormSubmitted,
         NavigationTypeBackForward,
         NavigationTypeReload,
-        NavigationTypeOther
+        NavigationTypeOther,
+        NavigationTypeRedirect,
     };
     Q_ENUM(NavigationType)
 
@@ -220,6 +225,14 @@ public:
         KilledTerminationStatus
     };
     Q_ENUM(RenderProcessTerminationStatus)
+
+    // must match WebContentsAdapterClient::LifecycleState
+    enum class LifecycleState {
+        Active,
+        Frozen,
+        Discarded,
+    };
+    Q_ENUM(LifecycleState)
 
     explicit QWebEnginePage(QObject *parent = Q_NULLPTR);
     QWebEnginePage(QWebEngineProfile *profile, QObject *parent = Q_NULLPTR);
@@ -306,6 +319,14 @@ public:
 
     const QWebEngineContextMenuData &contextMenuData() const;
 
+    LifecycleState lifecycleState() const;
+    void setLifecycleState(LifecycleState state);
+
+    LifecycleState recommendedState() const;
+
+    bool isVisible() const;
+    void setVisible(bool visible);
+
 Q_SIGNALS:
     void loadStarted();
     void loadProgress(int progress);
@@ -343,6 +364,13 @@ Q_SIGNALS:
 
     void pdfPrintingFinished(const QString &filePath, bool success);
     void printRequested();
+
+    void visibleChanged(bool visible);
+
+    void lifecycleStateChanged(LifecycleState state);
+    void recommendedStateChanged(LifecycleState state);
+
+    void findTextFinished(const QWebEngineFindTextResult &result);
 
 protected:
     virtual QWebEnginePage *createWindow(WebWindowType type);

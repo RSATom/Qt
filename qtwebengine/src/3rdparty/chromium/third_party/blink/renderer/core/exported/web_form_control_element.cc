@@ -117,11 +117,15 @@ bool WebFormControlElement::AutoComplete() const {
 
 void WebFormControlElement::SetValue(const WebString& value, bool send_events) {
   if (auto* input = ToHTMLInputElementOrNull(*private_)) {
-    input->setValue(
-        value, send_events ? kDispatchInputAndChangeEvent : kDispatchNoEvent);
+    input->setValue(value,
+                    send_events
+                        ? TextFieldEventBehavior::kDispatchInputAndChangeEvent
+                        : TextFieldEventBehavior::kDispatchNoEvent);
   } else if (auto* textarea = ToHTMLTextAreaElementOrNull(*private_)) {
     textarea->setValue(
-        value, send_events ? kDispatchInputAndChangeEvent : kDispatchNoEvent);
+        value, send_events
+                   ? TextFieldEventBehavior::kDispatchInputAndChangeEvent
+                   : TextFieldEventBehavior::kDispatchNoEvent);
   } else if (auto* select = ToHTMLSelectElementOrNull(*private_)) {
     select->setValue(value, send_events);
   }
@@ -244,12 +248,16 @@ unsigned WebFormControlElement::UniqueRendererFormControlId() const {
   return ConstUnwrap<HTMLFormControlElement>()->UniqueRendererFormControlId();
 }
 
+int32_t WebFormControlElement::GetAxId() const {
+  return ConstUnwrap<HTMLFormControlElement>()->GetAxId();
+}
+
 WebFormControlElement::WebFormControlElement(HTMLFormControlElement* elem)
     : WebElement(elem) {}
 
 DEFINE_WEB_NODE_TYPE_CASTS(WebFormControlElement,
                            IsElementNode() &&
-                               ConstUnwrap<Element>()->IsFormControlElement());
+                               ConstUnwrap<Element>()->IsFormControlElement())
 
 WebFormControlElement& WebFormControlElement::operator=(
     HTMLFormControlElement* elem) {
@@ -258,7 +266,7 @@ WebFormControlElement& WebFormControlElement::operator=(
 }
 
 WebFormControlElement::operator HTMLFormControlElement*() const {
-  return ToHTMLFormControlElement(private_.Get());
+  return blink::To<HTMLFormControlElement>(private_.Get());
 }
 
 }  // namespace blink

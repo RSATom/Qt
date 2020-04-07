@@ -69,6 +69,9 @@
 #include <QtWidgets/qstyle.h>
 #include <QtWidgets/qstyleoption.h>
 
+#include <set>
+#include <tuple>
+
 QT_REQUIRE_CONFIG(graphicsview);
 
 QT_BEGIN_NAMESPACE
@@ -122,7 +125,19 @@ public:
     QRectF growingItemsBoundingRect;
 
     void _q_emitUpdated();
-    QList<QRectF> updatedRects;
+
+    struct UpdatedRectsCmp
+    {
+        bool operator() (const QRectF &a, const QRectF &b) const noexcept
+        {
+            return std::make_tuple(a.y(), a.x(), a.height(), a.width())
+                    < std::make_tuple(b.y(), b.x(), b.height(), b.width());
+        }
+    };
+
+    // std::set was used here instead of std::unordered_set due to requiring only a comparator and
+    // showing equivalent performance in empirical measurements within the ranges of interest...
+    std::set<QRectF, UpdatedRectsCmp> updatedRects;
 
     QPainterPath selectionArea;
     int selectionChanging;
@@ -226,7 +241,7 @@ public:
 
     void drawSubtreeRecursive(QGraphicsItem *item, QPainter *painter, const QTransform *const,
                               QRegion *exposedRegion, QWidget *widget, qreal parentOpacity = qreal(1.0),
-                              const QTransform *const effectTransform = 0);
+                              const QTransform *const effectTransform = nullptr);
     void draw(QGraphicsItem *, QPainter *, const QTransform *const, const QTransform *const,
               QRegion *, QWidget *, qreal, const QTransform *const, bool, bool);
 
@@ -312,9 +327,9 @@ public:
     void gestureTargetsAtHotSpots(const QSet<QGesture *> &gestures,
                            Qt::GestureFlag flag,
                            QHash<QGraphicsObject *, QSet<QGesture *> > *targets,
-                           QSet<QGraphicsObject *> *itemsSet = 0,
-                           QSet<QGesture *> *normal = 0,
-                           QSet<QGesture *> *conflicts = 0);
+                           QSet<QGraphicsObject *> *itemsSet = nullptr,
+                           QSet<QGesture *> *normal = nullptr,
+                           QSet<QGesture *> *conflicts = nullptr);
     void cancelGesturesForChildren(QGesture *original);
     void grabGesture(QGraphicsItem *, Qt::GestureType gesture);
     void ungrabGesture(QGraphicsItem *, Qt::GestureType gesture);

@@ -26,8 +26,8 @@
 #include "compiler/translator/tree_ops/ClampPointSize.h"
 #include "compiler/translator/tree_ops/DeclareAndInitBuiltinsForInstancedMultiview.h"
 #include "compiler/translator/tree_ops/DeferGlobalInitializers.h"
-#include "compiler/translator/tree_ops/EmulateGLDrawID.h"
 #include "compiler/translator/tree_ops/EmulateGLFragColorBroadcast.h"
+#include "compiler/translator/tree_ops/EmulateMultiDrawShaderBuiltins.h"
 #include "compiler/translator/tree_ops/EmulatePrecision.h"
 #include "compiler/translator/tree_ops/FoldExpressions.h"
 #include "compiler/translator/tree_ops/InitializeVariables.h"
@@ -49,6 +49,7 @@
 #include "compiler/translator/tree_ops/VectorizeVectorScalarArithmetic.h"
 #include "compiler/translator/tree_util/BuiltIn_autogen.h"
 #include "compiler/translator/tree_util/IntermNodePatternMatcher.h"
+#include "compiler/translator/tree_util/ReplaceShadowingVariables.h"
 #include "compiler/translator/util.h"
 #include "third_party/compiler/ArrayBoundsClamper.h"
 
@@ -68,7 +69,7 @@ void DumpFuzzerCase(char const *const *shaderStrings,
 {
     static int fileIndex = 0;
 
-    std::ostringstream o;
+    std::ostringstream o = sh::InitializeStream<std::ostringstream>();
     o << "corpus/" << fileIndex++ << ".sample";
     std::string s = o.str();
 
@@ -120,8 +121,7 @@ bool RemoveInvariant(sh::GLenum shaderType,
                      ShShaderOutput outputType,
                      ShCompileOptions compileOptions)
 {
-    if ((compileOptions & SH_DONT_REMOVE_INVARIANT_FOR_FRAGMENT_INPUT) == 0 &&
-        shaderType == GL_FRAGMENT_SHADER && IsGLSL420OrNewer(outputType))
+    if (shaderType == GL_FRAGMENT_SHADER && IsGLSL420OrNewer(outputType))
         return true;
 
     if ((compileOptions & SH_REMOVE_INVARIANT_AND_CENTROID_FOR_ESSL3) != 0 &&
@@ -170,7 +170,7 @@ namespace
 class TScopedPoolAllocator
 {
   public:
-    TScopedPoolAllocator(TPoolAllocator *allocator) : mAllocator(allocator)
+    TScopedPoolAllocator(angle::PoolAllocator *allocator) : mAllocator(allocator)
     {
         mAllocator->push();
         SetGlobalPoolAllocator(mAllocator);
@@ -182,7 +182,7 @@ class TScopedPoolAllocator
     }
 
   private:
-    TPoolAllocator *mAllocator;
+    angle::PoolAllocator *mAllocator;
 };
 
 class TScopedSymbolTableLevel
@@ -216,6 +216,8 @@ int MapSpecToShaderVersion(ShShaderSpec spec)
         case SH_GLES3_1_SPEC:
         case SH_WEBGL3_SPEC:
             return 310;
+        case SH_GL3_3_SPEC:
+            return 330;
         default:
             UNREACHABLE();
             return 0;
@@ -356,6 +358,17 @@ TIntermBlock *TCompiler::compileTreeImpl(const char *const shaderStrings[],
         }
     }
 
+    const bool glBaseVertexBaseInstanceSupported =
+        (compileOptions & SH_EMULATE_GL_BASE_VERTEX_BASE_INSTANCE) != 0u;
+    if (!glBaseVertexBaseInstanceSupported)
+    {
+        auto it = mExtensionBehavior.find(TExtension::ANGLE_base_vertex_base_instance);
+        if (it != mExtensionBehavior.end())
+        {
+            mExtensionBehavior.erase(it);
+        }
+    }
+
     // First string is path of source file if flag is set. The actual source follows.
     size_t firstSource = 0;
     if (compileOptions & SH_SOURCE_PATH)
@@ -365,7 +378,8 @@ TIntermBlock *TCompiler::compileTreeImpl(const char *const shaderStrings[],
     }
 
     TParseContext parseContext(mSymbolTable, mExtensionBehavior, mShaderType, mShaderSpec,
-                               compileOptions, true, &mDiagnostics, getResources());
+                               compileOptions, !IsDesktopGLSpec(mShaderSpec), &mDiagnostics,
+                               getResources());
 
     parseContext.setFragmentPrecisionHighOnESSL1(mResources.FragmentPrecisionHigh == 1);
 
@@ -493,6 +507,10 @@ bool TCompiler::checkAndSimplifyAST(TIntermBlock *root,
     FoldExpressions(root, &mDiagnostics);
     // Folding should only be able to generate warnings.
     ASSERT(mDiagnostics.numErrors() == 0);
+    if (!ValidateAST(root, &mDiagnostics, mValidateASTOptions))
+    {
+        return false;
+    }
 
     // We prune no-ops to work around driver bugs and to keep AST processing and output simple.
     // The following kinds of no-ops are pruned:
@@ -502,6 +520,10 @@ bool TCompiler::checkAndSimplifyAST(TIntermBlock *root,
     //      invalid ESSL.
     // After this empty declarations are not allowed in the AST.
     PruneNoOps(root, &mSymbolTable);
+    if (!ValidateAST(root, &mDiagnostics, mValidateASTOptions))
+    {
+        return false;
+    }
 
     // Create the function DAG and check there is no recursion
     if (!initCallDag(root))
@@ -525,6 +547,14 @@ bool TCompiler::checkAndSimplifyAST(TIntermBlock *root,
     if (!(compileOptions & SH_DONT_PRUNE_UNUSED_FUNCTIONS))
     {
         pruneUnusedFunctions(root);
+        if (!ValidateAST(root, &mDiagnostics, mValidateASTOptions))
+        {
+            return false;
+        }
+    }
+    if (IsSpecWithFunctionBodyNewScope(mShaderSpec, mShaderVersion))
+    {
+        ReplaceShadowingVariables(root, &mSymbolTable);
     }
 
     if (mShaderVersion >= 310 && !ValidateVaryingLocations(root, &mDiagnostics, mShaderType))
@@ -553,43 +583,92 @@ bool TCompiler::checkAndSimplifyAST(TIntermBlock *root,
     }
 
     if ((compileOptions & SH_INITIALIZE_BUILTINS_FOR_INSTANCED_MULTIVIEW) &&
-        parseContext.isExtensionEnabled(TExtension::OVR_multiview) &&
+        (parseContext.isExtensionEnabled(TExtension::OVR_multiview2) ||
+         parseContext.isExtensionEnabled(TExtension::OVR_multiview)) &&
         getShaderType() != GL_COMPUTE_SHADER)
     {
         DeclareAndInitBuiltinsForInstancedMultiview(root, mNumViews, mShaderType, compileOptions,
                                                     mOutputType, &mSymbolTable);
+        if (!ValidateAST(root, &mDiagnostics, mValidateASTOptions))
+        {
+            return false;
+        }
     }
 
     // This pass might emit short circuits so keep it before the short circuit unfolding
     if (compileOptions & SH_REWRITE_DO_WHILE_LOOPS)
+    {
         RewriteDoWhile(root, &mSymbolTable);
+        if (!ValidateAST(root, &mDiagnostics, mValidateASTOptions))
+        {
+            return false;
+        }
+    }
 
     if (compileOptions & SH_ADD_AND_TRUE_TO_LOOP_CONDITION)
+    {
         AddAndTrueToLoopCondition(root);
+        if (!ValidateAST(root, &mDiagnostics, mValidateASTOptions))
+        {
+            return false;
+        }
+    }
 
     if (compileOptions & SH_UNFOLD_SHORT_CIRCUIT)
     {
         UnfoldShortCircuitAST(root);
+        if (!ValidateAST(root, &mDiagnostics, mValidateASTOptions))
+        {
+            return false;
+        }
     }
 
     if (compileOptions & SH_REMOVE_POW_WITH_CONSTANT_EXPONENT)
     {
         RemovePow(root, &mSymbolTable);
+        if (!ValidateAST(root, &mDiagnostics, mValidateASTOptions))
+        {
+            return false;
+        }
     }
 
     if (compileOptions & SH_REGENERATE_STRUCT_NAMES)
     {
         RegenerateStructNames gen(&mSymbolTable);
         root->traverse(&gen);
+        if (!ValidateAST(root, &mDiagnostics, mValidateASTOptions))
+        {
+            return false;
+        }
     }
 
     if (mShaderType == GL_VERTEX_SHADER &&
         IsExtensionEnabled(mExtensionBehavior, TExtension::ANGLE_multi_draw))
     {
-        if ((compileOptions & SH_EMULATE_GL_DRAW_ID) != 0)
+        if ((compileOptions & SH_EMULATE_GL_DRAW_ID) != 0u)
         {
             EmulateGLDrawID(root, &mSymbolTable, &mUniforms,
                             shouldCollectVariables(compileOptions));
+            if (!ValidateAST(root, &mDiagnostics, mValidateASTOptions))
+            {
+                return false;
+            }
+        }
+    }
+
+    if (mShaderType == GL_VERTEX_SHADER &&
+        IsExtensionEnabled(mExtensionBehavior, TExtension::ANGLE_base_vertex_base_instance))
+    {
+        if ((compileOptions & SH_EMULATE_GL_BASE_VERTEX_BASE_INSTANCE) != 0u)
+        {
+            EmulateGLBaseVertex(root, &mSymbolTable, &mUniforms,
+                                shouldCollectVariables(compileOptions));
+            EmulateGLBaseInstance(root, &mSymbolTable, &mUniforms,
+                                  shouldCollectVariables(compileOptions));
+            if (!ValidateAST(root, &mDiagnostics, mValidateASTOptions))
+            {
+                return false;
+            }
         }
     }
 
@@ -599,6 +678,10 @@ bool TCompiler::checkAndSimplifyAST(TIntermBlock *root,
     {
         EmulateGLFragColorBroadcast(root, mResources.MaxDrawBuffers, &mOutputVariables,
                                     &mSymbolTable, mShaderVersion);
+        if (!ValidateAST(root, &mDiagnostics, mValidateASTOptions))
+        {
+            return false;
+        }
     }
 
     int simplifyScalarized = (compileOptions & SH_SCALARIZE_VEC_AND_MAT_CONSTRUCTOR_ARGS)
@@ -612,17 +695,38 @@ bool TCompiler::checkAndSimplifyAST(TIntermBlock *root,
                            IntermNodePatternMatcher::kMultiDeclaration |
                                IntermNodePatternMatcher::kArrayLengthMethod | simplifyScalarized,
                            &getSymbolTable());
+    if (!ValidateAST(root, &mDiagnostics, mValidateASTOptions))
+    {
+        return false;
+    }
 
     // Note that separate declarations need to be run before other AST transformations that
     // generate new statements from expressions.
     SeparateDeclarations(root);
+    mValidateASTOptions.validateMultiDeclarations = true;
+    if (!ValidateAST(root, &mDiagnostics, mValidateASTOptions))
+    {
+        return false;
+    }
 
     SplitSequenceOperator(root, IntermNodePatternMatcher::kArrayLengthMethod | simplifyScalarized,
                           &getSymbolTable());
+    if (!ValidateAST(root, &mDiagnostics, mValidateASTOptions))
+    {
+        return false;
+    }
 
     RemoveArrayLengthMethod(root);
+    if (!ValidateAST(root, &mDiagnostics, mValidateASTOptions))
+    {
+        return false;
+    }
 
     RemoveUnreferencedVariables(root, &mSymbolTable);
+    if (!ValidateAST(root, &mDiagnostics, mValidateASTOptions))
+    {
+        return false;
+    }
 
     // In case the last case inside a switch statement is a certain type of no-op, GLSL compilers in
     // drivers may not accept it. In this case we clean up the dead code from the end of switch
@@ -631,6 +735,10 @@ bool TCompiler::checkAndSimplifyAST(TIntermBlock *root,
     // invalid state. Relies on that PruneNoOps and RemoveUnreferencedVariables have already been
     // run.
     PruneEmptyCases(root);
+    if (!ValidateAST(root, &mDiagnostics, mValidateASTOptions))
+    {
+        return false;
+    }
 
     // Built-in function emulation needs to happen after validateLimitations pass.
     // TODO(jmadill): Remove global pool allocator.
@@ -644,6 +752,10 @@ bool TCompiler::checkAndSimplifyAST(TIntermBlock *root,
     if (compileOptions & SH_SCALARIZE_VEC_AND_MAT_CONSTRUCTOR_ARGS)
     {
         ScalarizeVecAndMatConstructorArgs(root, mShaderType, highPrecisionSupported, &mSymbolTable);
+        if (!ValidateAST(root, &mDiagnostics, mValidateASTOptions))
+        {
+            return false;
+        }
     }
 
     if (shouldCollectVariables(compileOptions))
@@ -672,6 +784,10 @@ bool TCompiler::checkAndSimplifyAST(TIntermBlock *root,
         if ((compileOptions & SH_INIT_OUTPUT_VARIABLES) && (mShaderType != GL_COMPUTE_SHADER))
         {
             initializeOutputVariables(root);
+            if (!ValidateAST(root, &mDiagnostics, mValidateASTOptions))
+            {
+                return false;
+            }
         }
     }
 
@@ -680,6 +796,10 @@ bool TCompiler::checkAndSimplifyAST(TIntermBlock *root,
     if (RemoveInvariant(mShaderType, mShaderVersion, mOutputType, compileOptions))
     {
         RemoveInvariantDeclaration(root);
+        if (!ValidateAST(root, &mDiagnostics, mValidateASTOptions))
+        {
+            return false;
+        }
     }
 
     // gl_Position is always written in compatibility output mode.
@@ -690,6 +810,10 @@ bool TCompiler::checkAndSimplifyAST(TIntermBlock *root,
     {
         initializeGLPosition(root);
         mGLPositionInitialized = true;
+        if (!ValidateAST(root, &mDiagnostics, mValidateASTOptions))
+        {
+            return false;
+        }
     }
 
     // DeferGlobalInitializers needs to be run before other AST transformations that generate new
@@ -701,6 +825,10 @@ bool TCompiler::checkAndSimplifyAST(TIntermBlock *root,
     bool canUseLoopsToInitialize = !(compileOptions & SH_DONT_USE_LOOPS_TO_INITIALIZE_VARIABLES);
     DeferGlobalInitializers(root, initializeLocalsAndGlobals, canUseLoopsToInitialize,
                             highPrecisionSupported, &mSymbolTable);
+    if (!ValidateAST(root, &mDiagnostics, mValidateASTOptions))
+    {
+        return false;
+    }
 
     if (initializeLocalsAndGlobals)
     {
@@ -718,30 +846,54 @@ bool TCompiler::checkAndSimplifyAST(TIntermBlock *root,
                                    IntermNodePatternMatcher::kArrayDeclaration |
                                        IntermNodePatternMatcher::kNamelessStructDeclaration,
                                    &getSymbolTable());
+            if (!ValidateAST(root, &mDiagnostics, mValidateASTOptions))
+            {
+                return false;
+            }
         }
 
         InitializeUninitializedLocals(root, getShaderVersion(), canUseLoopsToInitialize,
                                       highPrecisionSupported, &getSymbolTable());
+        if (!ValidateAST(root, &mDiagnostics, mValidateASTOptions))
+        {
+            return false;
+        }
     }
 
     if (getShaderType() == GL_VERTEX_SHADER && (compileOptions & SH_CLAMP_POINT_SIZE))
     {
         ClampPointSize(root, mResources.MaxPointSize, &getSymbolTable());
+        if (!ValidateAST(root, &mDiagnostics, mValidateASTOptions))
+        {
+            return false;
+        }
     }
 
     if (getShaderType() == GL_FRAGMENT_SHADER && (compileOptions & SH_CLAMP_FRAG_DEPTH))
     {
         ClampFragDepth(root, &getSymbolTable());
+        if (!ValidateAST(root, &mDiagnostics, mValidateASTOptions))
+        {
+            return false;
+        }
     }
 
     if (compileOptions & SH_REWRITE_REPEATED_ASSIGN_TO_SWIZZLED)
     {
         sh::RewriteRepeatedAssignToSwizzled(root);
+        if (!ValidateAST(root, &mDiagnostics, mValidateASTOptions))
+        {
+            return false;
+        }
     }
 
     if (compileOptions & SH_REWRITE_VECTOR_SCALAR_ARITHMETIC)
     {
         VectorizeVectorScalarArithmetic(root, &getSymbolTable());
+        if (!ValidateAST(root, &mDiagnostics, mValidateASTOptions))
+        {
+            return false;
+        }
     }
 
     return true;
@@ -782,17 +934,35 @@ bool TCompiler::compile(const char *const shaderStrings[],
             translate(root, compileOptions, &perfDiagnostics);
         }
 
-        if (mShaderType == GL_VERTEX_SHADER &&
-            IsExtensionEnabled(mExtensionBehavior, TExtension::ANGLE_multi_draw))
+        if (mShaderType == GL_VERTEX_SHADER)
         {
-            if ((compileOptions & SH_EMULATE_GL_DRAW_ID) != 0)
+            bool lookForDrawID =
+                IsExtensionEnabled(mExtensionBehavior, TExtension::ANGLE_multi_draw) &&
+                ((compileOptions & SH_EMULATE_GL_DRAW_ID) != 0u);
+            bool lookForBaseVertexBaseInstance =
+                IsExtensionEnabled(mExtensionBehavior,
+                                   TExtension::ANGLE_base_vertex_base_instance) &&
+                ((compileOptions & SH_EMULATE_GL_BASE_VERTEX_BASE_INSTANCE) != 0u);
+
+            if (lookForDrawID || lookForBaseVertexBaseInstance)
             {
                 for (auto &uniform : mUniforms)
                 {
-                    if (uniform.name == "angle_DrawID" && uniform.mappedName == "angle_DrawID")
+                    if (lookForDrawID && uniform.name == "angle_DrawID" &&
+                        uniform.mappedName == "angle_DrawID")
                     {
                         uniform.name = "gl_DrawID";
-                        break;
+                    }
+                    else if (lookForBaseVertexBaseInstance && uniform.name == "angle_BaseVertex" &&
+                             uniform.mappedName == "angle_BaseVertex")
+                    {
+                        uniform.name = "gl_BaseVertex";
+                    }
+                    else if (lookForBaseVertexBaseInstance &&
+                             uniform.name == "angle_BaseInstance" &&
+                             uniform.mappedName == "angle_BaseInstance")
+                    {
+                        uniform.name = "gl_BaseInstance";
                     }
                 }
             }
@@ -823,7 +993,7 @@ bool TCompiler::initBuiltInSymbolTable(const ShBuiltInResources &resources)
 
 void TCompiler::setResourceString()
 {
-    std::ostringstream strstream;
+    std::ostringstream strstream = sh::InitializeStream<std::ostringstream>();
 
     // clang-format off
     strstream << ":MaxVertexAttribs:" << mResources.MaxVertexAttribs
@@ -850,9 +1020,11 @@ void TCompiler::setResourceString()
         << ":EXT_shader_framebuffer_fetch:" << mResources.EXT_shader_framebuffer_fetch
         << ":NV_shader_framebuffer_fetch:" << mResources.NV_shader_framebuffer_fetch
         << ":ARM_shader_framebuffer_fetch:" << mResources.ARM_shader_framebuffer_fetch
+        << ":OVR_multiview2:" << mResources.OVR_multiview2
         << ":OVR_multiview:" << mResources.OVR_multiview
         << ":EXT_YUV_target:" << mResources.EXT_YUV_target
         << ":EXT_geometry_shader:" << mResources.EXT_geometry_shader
+        << ":OES_texture_3D:" << mResources.OES_texture_3D
         << ":MaxVertexOutputVectors:" << mResources.MaxVertexOutputVectors
         << ":MaxFragmentInputVectors:" << mResources.MaxFragmentInputVectors
         << ":MinProgramTexelOffset:" << mResources.MinProgramTexelOffset
@@ -862,6 +1034,7 @@ void TCompiler::setResourceString()
         << ":NV_draw_buffers:" << mResources.NV_draw_buffers
         << ":WEBGL_debug_shader_precision:" << mResources.WEBGL_debug_shader_precision
         << ":ANGLE_multi_draw:" << mResources.ANGLE_multi_draw
+        << ":ANGLE_base_vertex_base_instance:" << mResources.ANGLE_base_vertex_base_instance
         << ":MinProgramTextureGatherOffset:" << mResources.MinProgramTextureGatherOffset
         << ":MaxProgramTextureGatherOffset:" << mResources.MaxProgramTextureGatherOffset
         << ":MaxImageUnits:" << mResources.MaxImageUnits
@@ -977,10 +1150,10 @@ bool TCompiler::checkCallDepth()
 
     for (size_t i = 0; i < mCallDag.size(); i++)
     {
-        int depth    = 0;
-        auto &record = mCallDag.getRecordFromIndex(i);
+        int depth                     = 0;
+        const CallDAG::Record &record = mCallDag.getRecordFromIndex(i);
 
-        for (auto &calleeIndex : record.callees)
+        for (const int &calleeIndex : record.callees)
         {
             depth = std::max(depth, depths[calleeIndex] + 1);
         }
@@ -990,7 +1163,7 @@ bool TCompiler::checkCallDepth()
         if (depth >= mResources.MaxCallStackDepth)
         {
             // Trace back the function chain to have a meaningful info log.
-            std::stringstream errorStream;
+            std::stringstream errorStream = sh::InitializeStream<std::stringstream>();
             errorStream << "Call stack too deep (larger than " << mResources.MaxCallStackDepth
                         << ") with the following call chain: "
                         << record.node->getFunction()->name();
@@ -1005,7 +1178,7 @@ bool TCompiler::checkCallDepth()
                     << mCallDag.getRecordFromIndex(currentFunction).node->getFunction()->name();
 
                 int nextFunction = -1;
-                for (auto &calleeIndex : mCallDag.getRecordFromIndex(currentFunction).callees)
+                for (const int &calleeIndex : mCallDag.getRecordFromIndex(currentFunction).callees)
                 {
                     if (depths[calleeIndex] == currentDepth - 1)
                     {
@@ -1156,7 +1329,7 @@ void TCompiler::useAllMembersInUnusedStandardAndSharedBlocks(TIntermBlock *root)
 {
     sh::InterfaceBlockList list;
 
-    for (auto block : mUniformBlocks)
+    for (const sh::InterfaceBlock &block : mUniformBlocks)
     {
         if (!block.staticUse &&
             (block.layout == sh::BLOCKLAYOUT_STD140 || block.layout == sh::BLOCKLAYOUT_SHARED))
@@ -1173,7 +1346,7 @@ void TCompiler::initializeOutputVariables(TIntermBlock *root)
     InitVariableList list;
     if (mShaderType == GL_VERTEX_SHADER || mShaderType == GL_GEOMETRY_SHADER_EXT)
     {
-        for (auto var : mOutputVaryings)
+        for (const sh::Varying &var : mOutputVaryings)
         {
             list.push_back(var);
             if (var.name == "gl_Position")
@@ -1186,7 +1359,7 @@ void TCompiler::initializeOutputVariables(TIntermBlock *root)
     else
     {
         ASSERT(mShaderType == GL_FRAGMENT_SHADER);
-        for (auto var : mOutputVariables)
+        for (const sh::OutputVariable &var : mOutputVariables)
         {
             list.push_back(var);
         }
@@ -1254,6 +1427,52 @@ bool TCompiler::isVaryingDefined(const char *varyingName)
     }
 
     return false;
+}
+
+void EmitWorkGroupSizeGLSL(const TCompiler &compiler, TInfoSinkBase &sink)
+{
+    if (compiler.isComputeShaderLocalSizeDeclared())
+    {
+        const sh::WorkGroupSize &localSize = compiler.getComputeShaderLocalSize();
+        sink << "layout (local_size_x=" << localSize[0] << ", local_size_y=" << localSize[1]
+             << ", local_size_z=" << localSize[2] << ") in;\n";
+    }
+}
+
+void EmitMultiviewGLSL(const TCompiler &compiler,
+                       const ShCompileOptions &compileOptions,
+                       const TBehavior behavior,
+                       TInfoSinkBase &sink)
+{
+    ASSERT(behavior != EBhUndefined);
+    if (behavior == EBhDisable)
+        return;
+
+    const bool isVertexShader = (compiler.getShaderType() == GL_VERTEX_SHADER);
+    if (compileOptions & SH_INITIALIZE_BUILTINS_FOR_INSTANCED_MULTIVIEW)
+    {
+        // Emit ARB_shader_viewport_layer_array/NV_viewport_array2 in a vertex shader if the
+        // SH_SELECT_VIEW_IN_NV_GLSL_VERTEX_SHADER option is set and the
+        // OVR_multiview(2) extension is requested.
+        if (isVertexShader && (compileOptions & SH_SELECT_VIEW_IN_NV_GLSL_VERTEX_SHADER))
+        {
+            sink << "#if defined(GL_ARB_shader_viewport_layer_array)\n"
+                 << "#extension GL_ARB_shader_viewport_layer_array : require\n"
+                 << "#elif defined(GL_NV_viewport_array2)\n"
+                 << "#extension GL_NV_viewport_array2 : require\n"
+                 << "#endif\n";
+        }
+    }
+    else
+    {
+        sink << "#extension GL_OVR_multiview2 : " << GetBehaviorString(behavior) << "\n";
+
+        const auto &numViews = compiler.getNumViews();
+        if (isVertexShader && numViews != -1)
+        {
+            sink << "layout(num_views=" << numViews << ") in;\n";
+        }
+    }
 }
 
 }  // namespace sh

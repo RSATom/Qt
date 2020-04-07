@@ -43,8 +43,10 @@ Polymer({
       value: false,
     },
 
+    androidEnabled: Boolean,
+
     /** @private */
-    androidEnabled_: {
+    androidRunning_: {
       type: Boolean,
       value: false,
     },
@@ -112,8 +114,8 @@ Polymer({
         'storage-drive-enabled-changed',
         this.handleDriveEnabledChanged_.bind(this));
     this.addWebUIListener(
-        'storage-android-enabled-changed',
-        this.handleAndroidEnabledChanged_.bind(this));
+        'storage-android-running-changed',
+        this.handleAndroidRunningChanged_.bind(this));
   },
 
   /**
@@ -160,7 +162,9 @@ Polymer({
    * @private
    */
   onBrowsingDataTap_: function() {
-    settings.navigateTo(settings.routes.CLEAR_BROWSER_DATA);
+    settings.navigateTo(
+        settings.routes.CLEAR_BROWSER_DATA,
+        /* dynamicParams */ null, /* removeSearch */ true);
   },
 
   /**
@@ -176,7 +180,9 @@ Polymer({
    * @private
    */
   onCrostiniTap_: function() {
-    settings.navigateTo(settings.routes.CROSTINI_DETAILS);
+    settings.navigateTo(
+        settings.routes.CROSTINI_DETAILS, /* dynamicParams */ null,
+        /* removeSearch */ true);
   },
 
   /**
@@ -184,7 +190,17 @@ Polymer({
    * @private
    */
   onOtherUsersTap_: function() {
-    settings.navigateTo(settings.routes.ACCOUNTS);
+    settings.navigateTo(
+        settings.routes.ACCOUNTS,
+        /* dynamicParams */ null, /* removeSearch */ true);
+  },
+
+  /**
+   * Handler for tapping the "External storage preferences" item.
+   * @private
+   */
+  onExternalStoragePreferencesTap_: function() {
+    settings.navigateTo(settings.routes.EXTERNAL_STORAGE_PREFERENCES);
   },
 
   /**
@@ -203,7 +219,7 @@ Polymer({
    * @private
    */
   handleDownloadsSizeChanged_: function(size) {
-    this.$.downloadsSize.textContent = size;
+    this.$.downloadsSize.subLabel = size;
   },
 
   /**
@@ -225,7 +241,7 @@ Polymer({
    * @private
    */
   handleBrowsingDataSizeChanged_: function(size) {
-    this.$.browsingDataSize.textContent = size;
+    this.$.browsingDataSize.subLabel = size;
   },
 
   /**
@@ -234,8 +250,8 @@ Polymer({
    * @private
    */
   handleAndroidSizeChanged_: function(size) {
-    if (this.androidEnabled_) {
-      this.$$('#androidSize').textContent = size;
+    if (this.androidRunning_) {
+      this.$$('#androidSize').subLabel = size;
     }
   },
 
@@ -246,7 +262,7 @@ Polymer({
    */
   handleCrostiniSizeChanged_: function(size) {
     if (this.showCrostiniStorage_) {
-      this.$$('#crostiniSize').textContent = size;
+      this.$$('#crostiniSize').subLabel = size;
     }
   },
 
@@ -256,7 +272,7 @@ Polymer({
    */
   handleOtherUsersSizeChanged_: function(size) {
     if (!this.isGuest_) {
-      this.$$('#otherUsersSize').textContent = size;
+      this.$$('#otherUsersSize').subLabel = size;
     }
   },
 
@@ -269,11 +285,11 @@ Polymer({
   },
 
   /**
-   * @param {boolean} enabled True if Android Play Store is enabled.
+   * @param {boolean} running True if Android (ARC) is running.
    * @private
    */
-  handleAndroidEnabledChanged_: function(enabled) {
-    this.androidEnabled_ = enabled;
+  handleAndroidRunningChanged_: function(running) {
+    this.androidRunning_ = running;
   },
 
   /**

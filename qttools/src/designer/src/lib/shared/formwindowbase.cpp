@@ -84,19 +84,21 @@ public:
     FormWindowBase::LineTerminatorMode m_lineTerminatorMode;
     FormWindowBase::ResourceFileSaveMode m_saveResourcesBehaviour;
     bool m_useIdBasedTranslations;
+    bool m_connectSlotsByName;
 };
 
 FormWindowBasePrivate::FormWindowBasePrivate(QDesignerFormEditorInterface *core) :
     m_feature(QDesignerFormWindowInterface::DefaultFeature),
     m_grid(m_defaultGrid),
     m_hasFormGrid(false),
-    m_pixmapCache(0),
-    m_iconCache(0),
-    m_resourceSet(0),
+    m_pixmapCache(nullptr),
+    m_iconCache(nullptr),
+    m_resourceSet(nullptr),
     m_deviceProfile(QDesignerSharedSettings(core).currentDeviceProfile()),
     m_lineTerminatorMode(FormWindowBase::NativeLineTerminator),
     m_saveResourcesBehaviour(FormWindowBase::SaveAllResourceFiles),
-    m_useIdBasedTranslations(false)
+    m_useIdBasedTranslations(false),
+    m_connectSlotsByName(true)
 {
 }
 
@@ -115,8 +117,11 @@ FormWindowBase::FormWindowBase(QDesignerFormEditorInterface *core, QWidget *pare
 
 FormWindowBase::~FormWindowBase()
 {
-    QSet<QDesignerPropertySheet *> sheets = m_d->m_reloadableResources.keys().toSet();
-    sheets |= m_d->m_reloadablePropertySheets.keys().toSet();
+    QSet<QDesignerPropertySheet *> sheets;
+    for (auto it = m_d->m_reloadableResources.cbegin(), end = m_d->m_reloadableResources.cend(); it != end; ++it)
+        sheets.insert(it.key());
+    for (auto it = m_d->m_reloadablePropertySheets.cbegin(), end = m_d->m_reloadablePropertySheets.cend(); it != end; ++it)
+        sheets.insert(it.key());
 
     m_d->m_reloadableResources.clear();
     m_d->m_reloadablePropertySheets.clear();
@@ -220,12 +225,10 @@ void FormWindowBase::reloadProperties()
 {
     pixmapCache()->clear();
     iconCache()->clear();
-    QMapIterator<QDesignerPropertySheet *, QMap<int, bool> > itSheet(m_d->m_reloadableResources);
-    while (itSheet.hasNext()) {
-        QDesignerPropertySheet *sheet = itSheet.next().key();
-        QMapIterator<int, bool> itIndex(itSheet.value());
-        while (itIndex.hasNext()) {
-            const int index = itIndex.next().key();
+    for (auto it = m_d->m_reloadableResources.cbegin(), end = m_d->m_reloadableResources.cend(); it != end; ++it) {
+        QDesignerPropertySheet *sheet = it.key();
+        for (auto jt = it.value().begin(), end = it.value().end(); jt != end; ++jt) {
+            const int index = jt.key();
             const QVariant newValue = sheet->property(index);
             if (qobject_cast<QLabel *>(sheet->object()) && sheet->propertyName(index) == QStringLiteral("text")) {
                 const PropertySheetStringValue newString = qvariant_cast<PropertySheetStringValue>(newValue);
@@ -260,9 +263,7 @@ void FormWindowBase::reloadProperties()
             toolBox->setCurrentIndex(current);
         }
     }
-    QMapIterator<QDesignerPropertySheet *, QObject *> itSh(m_d->m_reloadablePropertySheets);
-    while (itSh.hasNext()) {
-        QObject *object = itSh.next().value();
+    for (QObject *object : qAsConst(m_d->m_reloadablePropertySheets)) {
         reloadIconResources(iconCache(), object);
     }
 }
@@ -395,7 +396,7 @@ const Grid &FormWindowBase::defaultDesignerGrid()
 
 QMenu *FormWindowBase::initializePopupMenu(QWidget * /*managedWidget*/)
 {
-    return 0;
+    return nullptr;
 }
 
 // Widget under mouse for finding the Widget to highlight
@@ -409,13 +410,13 @@ QWidget *FormWindowBase::widgetUnderMouse(const QPoint &formPos, WidgetUnderMous
     // the actual widget that's part of the edited GUI.
     QWidget *rc = widgetAt(formPos);
     if (!rc || qobject_cast<ConnectionEdit*>(rc))
-        return 0;
+        return nullptr;
 
     if (rc == mainContainer()) {
         // Refuse main container areas if the main container has a container extension,
         // for example when hitting QToolBox/QTabWidget empty areas.
         if (qt_extension<QDesignerContainerExtension*>(core()->extensionManager(), rc))
-            return 0;
+            return nullptr;
         return rc;
     }
 
@@ -427,12 +428,12 @@ QWidget *FormWindowBase::widgetUnderMouse(const QPoint &formPos, WidgetUnderMous
             // make sure the position is within the current page
             const int ci = c->currentIndex();
             if (ci < 0)
-                return 0;
+                return nullptr;
             QWidget *page = c->widget(ci);
             QRect pageGeometry = page->geometry();
             pageGeometry.moveTo(page->mapTo(this, pageGeometry.topLeft()));
             if (!pageGeometry.contains(formPos))
-                return 0;
+                return nullptr;
             return page;
         }
 
@@ -459,7 +460,7 @@ void FormWindowBase::deleteWidgetList(const QWidgetList &widget_list)
 
 QMenu *FormWindowBase::createExtensionTaskMenu(QDesignerFormWindowInterface *fw, QObject *o, bool trailingSeparator)
 {
-    typedef QList<QAction *> ActionList;
+    using ActionList = QList<QAction *>;
     ActionList actions;
     // 1) Standard public extension
     QExtensionManager *em = fw->core()->extensionManager();
@@ -474,7 +475,7 @@ QMenu *FormWindowBase::createExtensionTaskMenu(QDesignerFormWindowInterface *fw,
         actions += intTaskMenu->taskActions();
     }
     if (actions.empty())
-        return 0;
+        return nullptr;
     if (trailingSeparator && !actions.back()->isSeparator()) {
         QAction *a  = new QAction(fw);
         a->setSeparator(true);
@@ -536,6 +537,16 @@ bool FormWindowBase::useIdBasedTranslations() const
 void FormWindowBase::setUseIdBasedTranslations(bool v)
 {
     m_d->m_useIdBasedTranslations = v;
+}
+
+bool FormWindowBase::connectSlotsByName() const
+{
+    return m_d->m_connectSlotsByName;
+}
+
+void FormWindowBase::setConnectSlotsByName(bool v)
+{
+    m_d->m_connectSlotsByName = v;
 }
 
 QStringList FormWindowBase::checkContents() const

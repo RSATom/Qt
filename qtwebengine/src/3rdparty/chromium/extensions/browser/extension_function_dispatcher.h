@@ -80,6 +80,15 @@ class ExtensionFunctionDispatcher
       int routing_id,
       const ExtensionHostMsg_Request_Params& params);
 
+  // Dispatches an IO-thread extension function for a Service Worker. Only
+  // used for specific functions that must be handled on the IO-thread.
+  static void DispatchOnIOThreadForServiceWorker(
+      InfoMap* extension_info_map,
+      void* profile_id,
+      int render_process_id,
+      base::WeakPtr<IOThreadExtensionMessageFilter> ipc_sender,
+      const ExtensionHostMsg_Request_Params& params);
+
   // Public constructor. Callers must ensure that:
   // - This object outlives any RenderFrameHost's passed to created
   //   ExtensionFunctions.
@@ -128,6 +137,14 @@ class ExtensionFunctionDispatcher
   // |ui_thread_response_callback_wrappers_for_worker_|.
   struct WorkerResponseCallbackMapKey;
 
+  static void DoDispatchOnIOThread(
+      InfoMap* extension_info_map,
+      void* profile_id,
+      int render_process_id,
+      base::WeakPtr<IOThreadExtensionMessageFilter> ipc_sender,
+      const ExtensionHostMsg_Request_Params& params,
+      const ExtensionFunction::ResponseCallback& callback);
+
   // Helper to check whether an ExtensionFunction has the required permissions.
   // This should be called after the function is fully initialized.
   // If the check fails, |callback| is run with an access-denied error and false
@@ -152,8 +169,7 @@ class ExtensionFunctionDispatcher
   // Helper to run the response callback with an access denied error. Can be
   // called on any thread.
   static void SendAccessDenied(
-      const ExtensionFunction::ResponseCallback& callback,
-      functions::HistogramValue histogram_value);
+      const ExtensionFunction::ResponseCallback& callback);
 
   void DispatchWithCallbackInternal(
       const ExtensionHostMsg_Request_Params& params,

@@ -49,7 +49,7 @@ Module {
             name: "Direction"
             values: {
                 "Forward": 1,
-                "Reverse": 2
+                "Reverse": -1
             }
         }
         Enum {
@@ -58,7 +58,7 @@ Module {
                 "Infinite": -1
             }
         }
-        Property { name: "source"; type: "string" }
+        Property { name: "source"; type: "QUrl" }
         Property { name: "frameRate"; type: "int" }
         Property { name: "startFrame"; type: "int"; isReadonly: true }
         Property { name: "endFrame"; type: "int"; isReadonly: true }

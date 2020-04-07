@@ -22,14 +22,14 @@
 bool Lexer::Error(const string& message, string* err) {
   // Compute line/column.
   int line = 1;
-  const char* line_start = input_.str_;
+  const char* context = input_.str_;
   for (const char* p = input_.str_; p < last_token_; ++p) {
     if (*p == '\n') {
       ++line;
-      line_start = p + 1;
+      context = p + 1;
     }
   }
-  int col = last_token_ ? (int)(last_token_ - line_start) : 0;
+  int col = last_token_ ? (int)(last_token_ - context) : 0;
 
   char buf[1024];
   snprintf(buf, sizeof(buf), "%s:%d: ", filename_.AsString().c_str(), line);
@@ -42,12 +42,12 @@ bool Lexer::Error(const string& message, string* err) {
     int len;
     bool truncated = true;
     for (len = 0; len < kTruncateColumn; ++len) {
-      if (line_start[len] == 0 || line_start[len] == '\n') {
+      if (context[len] == 0 || context[len] == '\n') {
         truncated = false;
         break;
       }
     }
-    *err += string(line_start, len);
+    *err += string(context, len);
     if (truncated)
       *err += "...";
     *err += "\n";
@@ -182,21 +182,16 @@ void Lexer::EatWhitespace() {
 
 bool Lexer::ReadIdent(string* out) {
   const char* p = ofs_;
-  const char* start;
   for (;;) {
-    start = p;
+    const char* start = p;
     /*!re2c
     varname {
       out->assign(start, p - start);
       break;
     }
-    [^] {
-      last_token_ = start;
-      return false;
-    }
+    [^] { return false; }
     */
   }
-  last_token_ = start;
   ofs_ = p;
   EatWhitespace();
   return true;

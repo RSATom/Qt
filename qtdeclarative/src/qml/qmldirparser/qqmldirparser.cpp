@@ -38,7 +38,6 @@
 ****************************************************************************/
 
 #include "qqmldirparser_p.h"
-#include "qqmlerror.h"
 
 #include <QtCore/QtDebug>
 
@@ -74,12 +73,18 @@ static bool parseVersion(const QString &str, int *major, int *minor)
     return false;
 }
 
-QQmlDirParser::QQmlDirParser() : _designerSupported(false)
+void QQmlDirParser::clear()
 {
-}
-
-QQmlDirParser::~QQmlDirParser()
-{
+    _errors.clear();
+    _typeNamespace.clear();
+    _components.clear();
+    _dependencies.clear();
+    _imports.clear();
+    _scripts.clear();
+    _plugins.clear();
+    _designerSupported = false;
+    _typeInfos.clear();
+    _className.clear();
 }
 
 inline static void scanSpace(const QChar *&ch) {
@@ -102,13 +107,6 @@ inline static void scanWord(const QChar *&ch) {
 */
 bool QQmlDirParser::parse(const QString &source)
 {
-    _errors.clear();
-    _plugins.clear();
-    _components.clear();
-    _scripts.clear();
-    _designerSupported = false;
-    _className.clear();
-
     quint16 lineNumber = 0;
     bool firstLine = true;
 
@@ -263,6 +261,13 @@ bool QQmlDirParser::parse(const QString &source)
             } else {
                 reportError(lineNumber, 0, QStringLiteral("invalid version %1, expected <major>.<minor>").arg(sections[2]));
             }
+        } else if (sections[0] == QLatin1String("import")) {
+            if (sectionCount != 2) {
+                reportError(lineNumber, 0,
+                            QStringLiteral("import requires 2 arguments, but %1 were provided").arg(sectionCount - 1));
+                continue;
+            }
+            _imports << sections[1];
         } else if (sectionCount == 2) {
             // No version specified (should only be used for relative qmldir files)
             const Component entry(sections[0], sections[1], -1, -1);
@@ -297,8 +302,8 @@ bool QQmlDirParser::parse(const QString &source)
 void QQmlDirParser::reportError(quint16 line, quint16 column, const QString &description)
 {
     QQmlJS::DiagnosticMessage error;
-    error.loc.startLine = line;
-    error.loc.startColumn = column;
+    error.line = line;
+    error.column = column;
     error.message = description;
     _errors.append(error);
 }
@@ -311,27 +316,20 @@ bool QQmlDirParser::hasError() const
     return false;
 }
 
-void QQmlDirParser::setError(const QQmlError &e)
+void QQmlDirParser::setError(const QQmlJS::DiagnosticMessage &e)
 {
     _errors.clear();
-    reportError(e.line(), e.column(), e.description());
+    reportError(e.line, e.column, e.message);
 }
 
-QList<QQmlError> QQmlDirParser::errors(const QString &uri) const
+QList<QQmlJS::DiagnosticMessage> QQmlDirParser::errors(const QString &uri) const
 {
-    QUrl url(uri);
-    QList<QQmlError> errors;
+    QList<QQmlJS::DiagnosticMessage> errors;
     const int numErrors = _errors.size();
     errors.reserve(numErrors);
     for (int i = 0; i < numErrors; ++i) {
-        const QQmlJS::DiagnosticMessage &msg = _errors.at(i);
-        QQmlError e;
-        QString description = msg.message;
-        description.replace(QLatin1String("$$URI$$"), uri);
-        e.setDescription(description);
-        e.setUrl(url);
-        e.setLine(msg.loc.startLine);
-        e.setColumn(msg.loc.startColumn);
+        QQmlJS::DiagnosticMessage e = _errors.at(i);
+        e.message.replace(QLatin1String("$$URI$$"), uri);
         errors << e;
     }
     return errors;
@@ -360,6 +358,11 @@ QHash<QString, QQmlDirParser::Component> QQmlDirParser::components() const
 QHash<QString, QQmlDirParser::Component> QQmlDirParser::dependencies() const
 {
     return _dependencies;
+}
+
+QStringList QQmlDirParser::imports() const
+{
+    return _imports;
 }
 
 QList<QQmlDirParser::Script> QQmlDirParser::scripts() const

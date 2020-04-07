@@ -77,6 +77,8 @@ public:
     explicit QWebView(QObject *p = 0);
     ~QWebView() Q_DECL_OVERRIDE;
 
+    QString httpUserAgent() const Q_DECL_OVERRIDE;
+    void setHttpUserAgent(const QString &httpUserAgent) Q_DECL_OVERRIDE;
     QUrl url() const Q_DECL_OVERRIDE;
     void setUrl(const QUrl &url) Q_DECL_OVERRIDE;
     bool canGoBack() const Q_DECL_OVERRIDE;
@@ -106,6 +108,7 @@ Q_SIGNALS:
     void loadProgressChanged();
     void javaScriptResult(int id, const QVariant &result);
     void requestFocus(bool focus);
+    void httpUserAgentChanged();
 
 protected:
     void init() Q_DECL_OVERRIDE;
@@ -117,6 +120,7 @@ private Q_SLOTS:
     void onUrlChanged(const QUrl &url);
     void onLoadProgressChanged(int progress);
     void onLoadingChanged(const QWebViewLoadRequestPrivate &loadRequest);
+    void onHttpUserAgentChanged(const QString &httpUserAgent);
 
 private:
     friend class QQuickViewController;
@@ -128,6 +132,7 @@ private:
     int m_progress;
     QString m_title;
     QUrl m_url;
+    mutable QString m_httpUserAgent;
 };
 
 QT_END_NAMESPACE

@@ -78,6 +78,10 @@ Q_DECLARE_LOGGING_CATEGORY(QT_BT)
 
     \note Due to API limitations it is only possible to find devices that have been paired using
     Windows' settings on Windows.
+
+    \note The Win32 backend currently does not support the Received Signal Strength
+    Indicator (RSSI), as well as the Manufacturer Specific Data, or other data
+    updates advertised by Bluetooth LE devices after discovery.
 */
 
 /*!
@@ -170,8 +174,6 @@ Q_DECLARE_LOGGING_CATEGORY(QT_BT)
     \l {QBluetoothDeviceInfo::manufacturerData()}{manufacturerData}.
     This signal informs you that if your application is displaying this data, it
     can be updated, rather than waiting until the discovery has finished.
-
-    \note This signal is only emitted on Android, iOS, macOS, and BlueZ 5.x.
 
     \sa QBluetoothDeviceInfo::rssi(), lowEnergyDiscoveryTimeout()
 */

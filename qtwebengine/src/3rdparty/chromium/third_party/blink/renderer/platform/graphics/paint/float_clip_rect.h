@@ -10,7 +10,7 @@
 #include "third_party/blink/renderer/platform/geometry/float_rounded_rect.h"
 #include "third_party/blink/renderer/platform/geometry/layout_rect.h"
 #include "third_party/blink/renderer/platform/transforms/transformation_matrix.h"
-#include "third_party/blink/renderer/platform/wtf/allocator.h"
+#include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 
 namespace blink {
 
@@ -92,9 +92,11 @@ class PLATFORM_EXPORT FloatClipRect {
     rect_.MoveBy(offset);
   }
 
+  // Assumes that the transform always makes the clip rect not tight. The caller
+  // should use MoveBy() to keep tightness if the transform is known to be
+  // identity or a 2d translation.
   void Map(const TransformationMatrix& matrix) {
-    if (is_tight_ && !matrix.IsIdentityOr2DTranslation())
-      is_tight_ = false;
+    is_tight_ = false;
     if (is_infinite_)
       return;
     rect_ = matrix.MapRect(rect_);

@@ -58,17 +58,17 @@ public:
     }
 
     struct Element {
-        Element() : name(nullptr), type(0) {}
+        Element() = default;
         Element(const char *n, int t) : name(n), type(t) {}
 
-        const char *name;
-        int type;
+        const char *name = nullptr;
+        int type = 0;
     };
 
-    typedef std::vector<Element> ElementList;
+    using ElementList = std::vector<Element>;
     ElementList elementList;
 
-    typedef std::vector<QTestData *> DataList;
+    using DataList = std::vector<QTestData *>;
     DataList dataList;
 
     void addColumn(int elemType, const char *elemName) { elementList.push_back(Element(elemName, elemType)); }
@@ -78,8 +78,8 @@ public:
     static QTestTable *gTable;
 };
 
-QTestTable *QTestTablePrivate::currentTestTable = 0;
-QTestTable *QTestTablePrivate::gTable = 0;
+QTestTable *QTestTablePrivate::currentTestTable = nullptr;
+QTestTable *QTestTablePrivate::gTable = nullptr;
 
 void QTestTable::addColumn(int type, const char *name)
 {
@@ -119,7 +119,7 @@ QTestTable::QTestTable()
 
 QTestTable::~QTestTable()
 {
-    QTestTablePrivate::currentTestTable = 0;
+    QTestTablePrivate::currentTestTable = nullptr;
     delete d;
 }
 
@@ -152,14 +152,12 @@ private:
 
 int QTestTable::indexOf(const char *elementName) const
 {
-    typedef QTestTablePrivate::ElementList::const_iterator It;
-
     QTEST_ASSERT(elementName);
 
     const QTestTablePrivate::ElementList &elementList = d->elementList;
 
-    const It it = std::find_if(elementList.begin(), elementList.end(),
-                               NamePredicate(elementName));
+    const auto it = std::find_if(elementList.begin(), elementList.end(),
+                                 NamePredicate(elementName));
     return it != elementList.end() ?
         int(it - elementList.begin()) : -1;
 }
@@ -174,7 +172,7 @@ QTestTable *QTestTable::globalTestTable()
 void QTestTable::clearGlobalTestTable()
 {
     delete QTestTablePrivate::gTable;
-    QTestTablePrivate::gTable = 0;
+    QTestTablePrivate::gTable = nullptr;
 }
 
 QTestTable *QTestTable::currentTestTable()

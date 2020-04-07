@@ -13,12 +13,13 @@ namespace net {
 
 class AuthCredentials;
 class HttpAuthChallengeTokenizer;
+class NetLogWithSource;
 
 class NET_EXPORT_PRIVATE HttpNegotiateAuthSystem {
  public:
   virtual ~HttpNegotiateAuthSystem() = default;
 
-  virtual bool Init() = 0;
+  virtual bool Init(const NetLogWithSource& net_log) = 0;
 
   // True if authentication needs the identity of the user from Chrome.
   virtual bool NeedsIdentity() const = 0;
@@ -51,18 +52,19 @@ class NET_EXPORT_PRIVATE HttpNegotiateAuthSystem {
   // being generated for.
   //
   // If this is the first round of a multiple round scheme, credentials are
-  // obtained using |*credentials|. If |credentials| is NULL, the default
+  // obtained using |*credentials|. If |credentials| is nullptr, the default
   // credentials are used instead.
   virtual int GenerateAuthToken(const AuthCredentials* credentials,
                                 const std::string& spn,
                                 const std::string& channel_bindings,
                                 std::string* auth_token,
+                                const NetLogWithSource& net_log,
                                 CompletionOnceCallback callback) = 0;
 
-  // Delegation is allowed on the Kerberos ticket. This allows certain servers
-  // to act as the user, such as an IIS server retrieving data from a
-  // Kerberized MSSQL server.
-  virtual void Delegate() = 0;
+  // Sets the delegation type allowed on the Kerberos ticket. This allows
+  // certain servers to act as the user, such as an IIS server retrieving data
+  // from a Kerberized MSSQL server.
+  virtual void SetDelegation(HttpAuth::DelegationType delegation_type) = 0;
 };
 
 }  // namespace net

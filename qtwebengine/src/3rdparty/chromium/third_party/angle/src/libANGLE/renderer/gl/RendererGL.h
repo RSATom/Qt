@@ -16,32 +16,37 @@
 #include "libANGLE/Caps.h"
 #include "libANGLE/Error.h"
 #include "libANGLE/Version.h"
-#include "libANGLE/renderer/gl/WorkaroundsGL.h"
 #include "libANGLE/renderer/gl/renderergl_utils.h"
+#include "platform/FeaturesGL.h"
+
+namespace angle
+{
+struct FrontendFeatures;
+}  // namespace angle
 
 namespace gl
 {
 struct IndexRange;
 class Path;
 class State;
-struct Workarounds;
 }  // namespace gl
 
 namespace egl
 {
 class AttributeMap;
-}
+}  // namespace egl
 
 namespace sh
 {
 struct BlockMemberInfo;
-}
+}  // namespace sh
 
 namespace rx
 {
 class BlitGL;
 class ClearMultiviewGL;
 class ContextImpl;
+class DisplayGL;
 class FunctionsGL;
 class RendererGL;
 class StateManagerGL;
@@ -51,7 +56,7 @@ class StateManagerGL;
 class WorkerContext : angle::NonCopyable
 {
   public:
-    virtual ~WorkerContext(){};
+    virtual ~WorkerContext() {}
 
     virtual bool makeCurrent()   = 0;
     virtual void unmakeCurrent() = 0;
@@ -73,7 +78,9 @@ class ScopedWorkerContextGL
 class RendererGL : angle::NonCopyable
 {
   public:
-    RendererGL(std::unique_ptr<FunctionsGL> functions, const egl::AttributeMap &attribMap);
+    RendererGL(std::unique_ptr<FunctionsGL> functions,
+               const egl::AttributeMap &attribMap,
+               DisplayGL *display);
     virtual ~RendererGL();
 
     angle::Result flush();
@@ -138,7 +145,7 @@ class RendererGL : angle::NonCopyable
                                              GLenum transformType,
                                              const GLfloat *transformValues);
 
-    GLenum getResetStatus();
+    gl::GraphicsResetStatus getResetStatus();
 
     // EXT_debug_marker
     void insertEventMarker(GLsizei length, const char *marker);
@@ -146,7 +153,7 @@ class RendererGL : angle::NonCopyable
     void popGroupMarker();
 
     // KHR_debug
-    void pushDebugGroup(GLenum source, GLuint id, GLsizei length, const char *message);
+    void pushDebugGroup(GLenum source, GLuint id, const std::string &message);
     void popDebugGroup();
 
     std::string getVendorString() const;
@@ -158,7 +165,7 @@ class RendererGL : angle::NonCopyable
     const gl::Version &getMaxSupportedESVersion() const;
     const FunctionsGL *getFunctions() const { return mFunctions.get(); }
     StateManagerGL *getStateManager() const { return mStateManager; }
-    const WorkaroundsGL &getWorkarounds() const { return mWorkarounds; }
+    const angle::FeaturesGL &getFeatures() const { return mFeatures; }
     BlitGL *getBlitter() const { return mBlitter; }
     ClearMultiviewGL *getMultiviewClearer() const { return mMultiviewClearer; }
 
@@ -167,7 +174,7 @@ class RendererGL : angle::NonCopyable
     const gl::TextureCapsMap &getNativeTextureCaps() const;
     const gl::Extensions &getNativeExtensions() const;
     const gl::Limitations &getNativeLimitations() const;
-    void applyNativeWorkarounds(gl::Workarounds *workarounds) const;
+    void initializeFrontendFeatures(angle::FrontendFeatures *features) const;
 
     angle::Result dispatchCompute(const gl::Context *context,
                                   GLuint numGroupsX,
@@ -180,6 +187,10 @@ class RendererGL : angle::NonCopyable
 
     bool bindWorkerContext(std::string *infoLog);
     void unbindWorkerContext();
+    // Checks if the driver has the KHR_parallel_shader_compile or ARB_parallel_shader_compile
+    // extension.
+    bool hasNativeParallelCompile();
+    void setMaxShaderCompilerThreads(GLuint count);
 
     static unsigned int getMaxWorkerContexts();
 
@@ -201,8 +212,6 @@ class RendererGL : angle::NonCopyable
     BlitGL *mBlitter;
     ClearMultiviewGL *mMultiviewClearer;
 
-    WorkaroundsGL mWorkarounds;
-
     bool mUseDebugOutput;
 
     mutable bool mCapsInitialized;
@@ -218,6 +227,10 @@ class RendererGL : angle::NonCopyable
     std::list<std::unique_ptr<WorkerContext>> mWorkerContextPool;
     // Protect the concurrent accesses to worker contexts.
     std::mutex mWorkerMutex;
+
+    bool mNativeParallelCompileEnabled;
+
+    angle::FeaturesGL mFeatures;
 };
 
 }  // namespace rx

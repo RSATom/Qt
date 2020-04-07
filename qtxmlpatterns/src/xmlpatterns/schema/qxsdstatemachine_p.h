@@ -224,7 +224,7 @@ namespace QPatternist
                 QSet<StateId> result = input;
 
                 // add the input states to the list of to be processed states
-                QList<StateId> workStates = input.toList();
+                QList<StateId> workStates = input.values();
                 while (!workStates.isEmpty()) { // while there are states to be processed left...
 
                     // dequeue one state from list

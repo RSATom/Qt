@@ -110,13 +110,13 @@ Sends your job to the default set of try servers.
 The GPU tests are part of the default set for Chromium CLs, and are run as part
 of the following tryservers' jobs:
 
-*   [linux_chromium_rel_ng], formerly on the `tryserver.chromium.linux` waterfall
-*   [mac_chromium_rel_ng], formerly on the `tryserver.chromium.mac` waterfall
-*   [win_chromium_rel_ng], formerly on the `tryserver.chromium.win` waterfall
+*   [linux-rel], formerly on the `tryserver.chromium.linux` waterfall
+*   [mac-rel], formerly on the `tryserver.chromium.mac` waterfall
+*   [win7-rel], formerly on the `tryserver.chromium.win` waterfall
 
-[linux_chromium_rel_ng]:    https://ci.chromium.org/p/chromium/builders/luci.chromium.try/linux_chromium_rel_ng?limit=100
-[mac_chromium_rel_ng]:      https://ci.chromium.org/p/chromium/builders/luci.chromium.try/mac_chromium_rel_ng?limit=100
-[win7_chromium_rel_ng]:     https://ci.chromium.org/p/chromium/builders/luci.chromium.try/win7_chromium_rel_ng?limit=100
+[linux-rel]:    https://ci.chromium.org/p/chromium/builders/luci.chromium.try/linux-rel?limit=100
+[mac-rel]:      https://ci.chromium.org/p/chromium/builders/luci.chromium.try/mac-rel?limit=100
+[win7-rel]:     https://ci.chromium.org/p/chromium/builders/luci.chromium.try/win7-rel?limit=100
 
 Scan down through the steps looking for the text "GPU"; that identifies those
 tests run on the GPU bots. For each test the "trigger" step can be ignored; the
@@ -127,9 +127,9 @@ tests. If you want to, you must invoke "git cl try" separately for each
 tryserver master you want to reference, for example:
 
 ```sh
-git cl try -b linux_chromium_rel_ng
-git cl try -b mac_chromium_rel_ng
-git cl try -b win7_chromium_rel_ng
+git cl try -b linux-rel
+git cl try -b mac-rel
+git cl try -b win7-rel
 ```
 
 Alternatively, the Gerrit UI can be used to send a patch set to these try
@@ -364,6 +364,10 @@ Email kbr@ if you try this and find it doesn't work.
 
 See the [Swarming documentation] for instructions on how to upload your binaries to the isolate server and trigger execution on Swarming.
 
+Be sure to use the correct swarming dimensions for your desired GPU e.g. "1002:6613" instead of "AMD Radeon R7 240 (1002:6613)" which is how it appears on swarming task page.  You can query bots in the Chrome-GPU pool to find the correct dimensions:
+
+*   `python tools\swarming_client\swarming.py bots -S chromium-swarm.appspot.com -d pool Chrome-GPU`
+
 [Swarming documentation]: https://www.chromium.org/developers/testing/isolated-testing/for-swes#TOC-Run-a-test-built-locally-on-Swarming
 
 ## Moving Test Binaries from Machine to Machine
@@ -476,9 +480,9 @@ to all of the bots, because the GPU bots are a limited resource and do not
 currently have the capacity to absorb large new test suites. It is safer to get
 new tests running on the chromium.gpu.fyi waterfall first, and expand from there
 to the chromium.gpu waterfall (which will also make them run against every
-Chromium CL by virtue of the `linux_chromium_rel_ng`, `mac_chromium_rel_ng`,
-`win7_chromium_rel_ng` and `android-marshmallow-arm64-rel` tryservers' mirroring
-of the bots on this waterfall – so be careful!).
+Chromium CL by virtue of the `linux-rel`, `mac-rel`, `win7-rel` and
+`android-marshmallow-arm64-rel` tryservers' mirroring of the bots on this
+waterfall – so be careful!).
 
 Tryjobs which add new test steps to the chromium.gpu.json file will run those
 new steps during the tryjob, which helps ensure that the new test won't break
@@ -563,7 +567,7 @@ The [GPU rasterization test] is a good example of a recently added test which
 performs such spot checks.
 
 [pixel test]: https://chromium.googlesource.com/chromium/src/+/master/content/test/gpu/gpu_tests/pixel_test_pages.py
-[test expectations]: https://chromium.googlesource.com/chromium/src/+/master/content/test/gpu/gpu_tests/pixel_expectations.py
+[test expectations]: https://chromium.googlesource.com/chromium/src/+/master/content/test/gpu/gpu_tests/test_expectations/pixel_expectations.txt
 [test pages]: https://chromium.googlesource.com/chromium/src/+/master/content/test/gpu/gpu_tests/pixel_test_pages.py
 [cloud storage bucket]: https://console.developers.google.com/storage/chromium-gpu-archive/reference-images
 <!-- XXX: old link -->

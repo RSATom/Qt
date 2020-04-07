@@ -1479,6 +1479,9 @@ const std::string Converter::kPropertyLookupTable[] = {
     "inset-inline-end",
     "inset-inline",
     "inset",
+    "overflow-block",
+    "overflow-inline",
+    "forced-color-adjust",
     "INVALID_PROPERTY",
 };
 
@@ -2147,4 +2150,4 @@ void Converter::AppendPropertyAndValue(
   if (append_semicolon)
     string_ += "; ";
 }
-};  // namespace css_proto_converter
+}  // namespace css_proto_converter

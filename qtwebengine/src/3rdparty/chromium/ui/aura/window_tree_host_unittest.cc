@@ -2,6 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "build/build_config.h"
 #include "ui/aura/test/aura_test_base.h"
 #include "ui/aura/test/test_cursor_client.h"
 #include "ui/aura/test/test_screen.h"
@@ -39,8 +40,6 @@ TEST_F(WindowTreeHostTest, DPIWindowSize) {
 
   EXPECT_EQ(starting_bounds, host()->GetBoundsInPixels());
   EXPECT_EQ(gfx::Rect(0, 1, 534, 401), root_window()->bounds());
-  EXPECT_EQ(gfx::Vector2dF(0, 0),
-            host()->compositor()->root_layer()->subpixel_position_offset());
 }
 
 #if defined(OS_CHROMEOS)
@@ -59,8 +58,8 @@ TEST_F(WindowTreeHostTest, HoldPointerMovesOnChildResizing) {
   // effect of prioritizing the resize event above other operations in aura.
   EXPECT_TRUE(dispatcher_api.HoldingPointerMoves());
 
-  // Wait for a CompositorFrame to be submitted.
-  ui::DrawWaiterForTest::WaitForCompositingStarted(host()->compositor());
+  // Wait for a CompositorFrame to be activated.
+  ui::DrawWaiterForTest::WaitForCompositingEnded(host()->compositor());
 
   // Pointer moves should be routed normally after commit.
   EXPECT_FALSE(dispatcher_api.HoldingPointerMoves());
@@ -83,10 +82,42 @@ TEST_F(WindowTreeHostTest, NoRewritesPostIME) {
 TEST_F(WindowTreeHostTest, ColorSpace) {
   EXPECT_EQ(gfx::ColorSpace::CreateSRGB(),
             host()->compositor()->output_color_space());
-  test_screen()->SetColorSpace(gfx::ColorSpace::CreateSCRGBLinear());
-  EXPECT_EQ(gfx::ColorSpace::CreateSCRGBLinear(),
+
+  test_screen()->SetColorSpace(gfx::ColorSpace::CreateDisplayP3D65());
+  EXPECT_EQ(gfx::ColorSpace::CreateDisplayP3D65(),
             host()->compositor()->output_color_space());
 }
+
+#if defined(OS_WIN)
+TEST_F(WindowTreeHostTest, ColorSpaceHDR) {
+  EXPECT_EQ(gfx::ColorSpace::CreateSRGB(),
+            host()->compositor()->output_color_space());
+
+  // UI compositor overrides HDR color space based on whether alpha blending is
+  // needed or not.
+  test_screen()->SetColorSpace(gfx::ColorSpace::CreateHDR10());
+  host()->compositor()->SetBackgroundColor(SK_ColorBLACK);
+  EXPECT_EQ(gfx::ColorSpace::CreateHDR10(),
+            host()->compositor()->output_color_space());
+
+  test_screen()->SetColorSpace(gfx::ColorSpace::CreateHDR10());
+  host()->compositor()->SetBackgroundColor(SK_ColorTRANSPARENT);
+  EXPECT_EQ(gfx::ColorSpace::CreateSCRGBLinear(),
+            host()->compositor()->output_color_space());
+
+  // UI compositor does not override color space if it's already SCRGB linear.
+  test_screen()->SetColorSpace(gfx::ColorSpace::CreateSCRGBLinear(), 200.f);
+  host()->compositor()->SetBackgroundColor(SK_ColorBLACK);
+  EXPECT_EQ(gfx::ColorSpace::CreateSCRGBLinear(),
+            host()->compositor()->output_color_space());
+
+  // UI compositor does not override SDR color space.
+  test_screen()->SetColorSpace(gfx::ColorSpace::CreateSRGB(), 200.f);
+  host()->compositor()->SetBackgroundColor(SK_ColorTRANSPARENT);
+  EXPECT_EQ(gfx::ColorSpace::CreateSRGB(),
+            host()->compositor()->output_color_space());
+}
+#endif  // OS_WIN
 
 class TestWindow : public ui::StubWindow {
  public:

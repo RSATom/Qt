@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2019 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the tools applications of the Qt Toolkit.
@@ -28,19 +28,20 @@
 
 #include "qmlmarkupvisitor.h"
 
-#include <qstringlist.h>
-#include <qglobal.h>
+#include <QtCore/qglobal.h>
+#include <QtCore/qstringlist.h>
+
 #ifndef QT_NO_DECLARATIVE
-#include <private/qqmljsast_p.h>
-#include <private/qqmljsastfwd_p.h>
-#include <private/qqmljsengine_p.h>
+#    include <private/qqmljsast_p.h>
+#    include <private/qqmljsastfwd_p.h>
+#    include <private/qqmljsengine_p.h>
 #endif
 
 QT_BEGIN_NAMESPACE
 
 #ifndef QT_NO_DECLARATIVE
 QmlMarkupVisitor::QmlMarkupVisitor(const QString &source,
-                                   const QList<QQmlJS::AST::SourceLocation> &pragmas,
+                                   const QVector<QQmlJS::AST::SourceLocation> &pragmas,
                                    QQmlJS::Engine *engine)
 {
     this->source = source;
@@ -78,18 +79,16 @@ QmlMarkupVisitor::QmlMarkupVisitor(const QString &source,
     }
 }
 
-QmlMarkupVisitor::~QmlMarkupVisitor()
-{
-}
+QmlMarkupVisitor::~QmlMarkupVisitor() {}
 
 // The protect() function is a copy of the one from CppCodeMarker.
 
-static const QString samp  = QLatin1String("&amp;");
-static const QString slt   = QLatin1String("&lt;");
-static const QString sgt   = QLatin1String("&gt;");
+static const QString samp = QLatin1String("&amp;");
+static const QString slt = QLatin1String("&lt;");
+static const QString sgt = QLatin1String("&gt;");
 static const QString squot = QLatin1String("&quot;");
 
-QString QmlMarkupVisitor::protect(const QString& str)
+QString QmlMarkupVisitor::protect(const QString &str)
 {
     int n = str.length();
     QString marked;
@@ -97,11 +96,20 @@ QString QmlMarkupVisitor::protect(const QString& str)
     const QChar *data = str.constData();
     for (int i = 0; i != n; ++i) {
         switch (data[i].unicode()) {
-        case '&': marked += samp;  break;
-        case '<': marked += slt;   break;
-        case '>': marked += sgt;   break;
-        case '"': marked += squot; break;
-        default : marked += data[i];
+        case '&':
+            marked += samp;
+            break;
+        case '<':
+            marked += slt;
+            break;
+        case '>':
+            marked += sgt;
+            break;
+        case '"':
+            marked += squot;
+            break;
+        default:
+            marked += data[i];
         }
     }
     return marked;
@@ -178,9 +186,9 @@ void QmlMarkupVisitor::addExtra(quint32 start, quint32 finish)
     cursor = finish;
 }
 
-void QmlMarkupVisitor::addMarkedUpToken(
-        QQmlJS::AST::SourceLocation &location, const QString &tagName,
-        const QHash<QString, QString> &attributes)
+void QmlMarkupVisitor::addMarkedUpToken(QQmlJS::AST::SourceLocation &location,
+                                        const QString &tagName,
+                                        const QHash<QString, QString> &attributes)
 {
     if (!location.isValid())
         return;
@@ -191,7 +199,7 @@ void QmlMarkupVisitor::addMarkedUpToken(
         return;
 
     output += QString(QLatin1String("<@%1")).arg(tagName);
-    foreach (const QString &key, attributes)
+    for (const auto &key : attributes)
         output += QString(QLatin1String(" %1=\"%2\"")).arg(key).arg(attributes[key]);
     output += QString(QLatin1String(">%2</@%3>")).arg(protect(sourceText(location)), tagName);
     cursor += location.length;
@@ -259,7 +267,7 @@ bool QmlMarkupVisitor::visit(QQmlJS::AST::UiPublicMember *member)
         addVerbatim(member->propertyToken);
         addVerbatim(member->typeModifierToken);
         addMarkedUpToken(member->typeToken, QLatin1String("type"));
-        //addVerbatim(member->identifierToken);
+        // addVerbatim(member->identifierToken);
         QQmlJS::AST::Node::accept(member->parameters, this);
     }
     addVerbatim(member->semicolonToken);
@@ -308,7 +316,7 @@ bool QmlMarkupVisitor::visit(QQmlJS::AST::UiArrayMemberList *list)
 {
     for (QQmlJS::AST::UiArrayMemberList *it = list; it; it = it->next) {
         QQmlJS::AST::Node::accept(it->member, this);
-        //addVerbatim(it->commaToken);
+        // addVerbatim(it->commaToken);
     }
     return false;
 }
@@ -386,12 +394,11 @@ void QmlMarkupVisitor::endVisit(QQmlJS::AST::ObjectPattern *literal)
     addVerbatim(literal->rbraceToken);
 }
 
-
 bool QmlMarkupVisitor::visit(QQmlJS::AST::PatternElementList *list)
 {
     for (QQmlJS::AST::PatternElementList *it = list; it; it = it->next) {
         QQmlJS::AST::Node::accept(it->element, this);
-        //addVerbatim(it->commaToken);
+        // addVerbatim(it->commaToken);
     }
     QQmlJS::AST::Node::accept(list->elision, this);
     return false;
@@ -408,7 +415,7 @@ bool QmlMarkupVisitor::visit(QQmlJS::AST::PatternProperty *list)
     QQmlJS::AST::Node::accept(list->name, this);
     addVerbatim(list->colonToken, list->colonToken);
     QQmlJS::AST::Node::accept(list->initializer, this);
-    //addVerbatim(list->commaToken, list->commaToken);
+    // addVerbatim(list->commaToken, list->commaToken);
     return false;
 }
 
@@ -558,7 +565,7 @@ bool QmlMarkupVisitor::visit(QQmlJS::AST::VariableStatement *statement)
 {
     addVerbatim(statement->declarationKindToken);
     QQmlJS::AST::Node::accept(statement->declarations, this);
-    //addVerbatim(statement->semicolonToken);
+    // addVerbatim(statement->semicolonToken);
     return false;
 }
 
@@ -691,7 +698,6 @@ void QmlMarkupVisitor::endVisit(QQmlJS::AST::CaseBlock *block)
     addVerbatim(block->rbraceToken, block->rbraceToken);
 }
 
-
 bool QmlMarkupVisitor::visit(QQmlJS::AST::SwitchStatement *statement)
 {
     addMarkedUpToken(statement->switchToken, QLatin1String("keyword"));
@@ -787,9 +793,9 @@ bool QmlMarkupVisitor::visit(QQmlJS::AST::FunctionDeclaration *declaration)
 
 bool QmlMarkupVisitor::visit(QQmlJS::AST::FormalParameterList *list)
 {
-//    addVerbatim(list->commaToken);
+    //    addVerbatim(list->commaToken);
     QQmlJS::AST::Node::accept(list->element, this);
-    //addMarkedUpToken(list->identifierToken, QLatin1String("name"));
+    // addMarkedUpToken(list->identifierToken, QLatin1String("name"));
     return false;
 }
 

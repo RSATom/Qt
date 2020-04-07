@@ -5,21 +5,31 @@
 #ifndef GPU_COMMAND_BUFFER_SERVICE_SERVICE_TRANSFER_CACHE_H_
 #define GPU_COMMAND_BUFFER_SERVICE_SERVICE_TRANSFER_CACHE_H_
 
+#include <stddef.h>
+#include <stdint.h>
+
+#include <memory>
 #include <vector>
 
 #include "base/containers/mru_cache.h"
 #include "base/containers/span.h"
 #include "base/memory/memory_pressure_listener.h"
+#include "cc/paint/image_transfer_cache_entry.h"
 #include "cc/paint/transfer_cache_entry.h"
 #include "gpu/command_buffer/common/discardable_handle.h"
 #include "gpu/command_buffer/service/context_group.h"
 #include "gpu/gpu_gles2_export.h"
+#include "third_party/skia/include/core/SkRefCnt.h"
+
+class GrContext;
+class SkImage;
 
 namespace gpu {
 
-// ServiceTransferCache is a GPU process interface for retreiving cached entries
+// ServiceTransferCache is a GPU process interface for retrieving cached entries
 // from the transfer cache. These entries are populated by client calls to the
-// ClientTransferCache.
+// ClientTransferCache or by an image decode accelerator task in the GPU
+// process.
 //
 // In addition to access, the ServiceTransferCache is also responsible for
 // unlocking and deleting entries when no longer needed, as well as enforcing
@@ -50,6 +60,22 @@ class GPU_GLES2_EXPORT ServiceTransferCache
   bool DeleteEntry(const EntryKey& key);
   cc::ServiceTransferCacheEntry* GetEntry(const EntryKey& key);
   void DeleteAllEntriesForDecoder(int decoder_id);
+
+  // Creates an image transfer cache entry using |plane_images| (refer to
+  // ServiceImageTransferCacheEntry::BuildFromHardwareDecodedImage() for
+  // details). |decoder_id| and |entry_id| are used for creating the
+  // ServiceTransferCache::EntryKey (assuming cc::TransferCacheEntryType:kImage
+  // for the type). Returns true if the entry could be created and inserted;
+  // false otherwise.
+  bool CreateLockedHardwareDecodedImageEntry(
+      int decoder_id,
+      uint32_t entry_id,
+      ServiceDiscardableHandle handle,
+      GrContext* context,
+      std::vector<sk_sp<SkImage>> plane_images,
+      cc::YUVDecodeFormat plane_images_format,
+      size_t buffer_byte_size,
+      bool needs_mips);
 
   void PurgeMemory(
       base::MemoryPressureListener::MemoryPressureLevel memory_pressure_level);

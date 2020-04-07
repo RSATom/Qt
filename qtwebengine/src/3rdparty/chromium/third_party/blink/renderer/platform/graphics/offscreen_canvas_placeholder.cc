@@ -5,10 +5,10 @@
 #include "third_party/blink/renderer/platform/graphics/offscreen_canvas_placeholder.h"
 
 #include "base/single_thread_task_runner.h"
-#include "third_party/blink/renderer/platform/cross_thread_functional.h"
 #include "third_party/blink/renderer/platform/graphics/canvas_resource.h"
 #include "third_party/blink/renderer/platform/graphics/canvas_resource_dispatcher.h"
 #include "third_party/blink/renderer/platform/scheduler/public/post_cross_thread_task.h"
+#include "third_party/blink/renderer/platform/wtf/cross_thread_functional.h"
 #include "third_party/blink/renderer/platform/wtf/hash_map.h"
 #include "third_party/blink/renderer/platform/wtf/wtf.h"
 
@@ -100,11 +100,11 @@ void OffscreenCanvasPlaceholder::ReleasePlaceholderFrame() {
   if (placeholder_frame_) {
     DCHECK(frame_dispatcher_task_runner_);
     placeholder_frame_->Transfer();
-    PostCrossThreadTask(
-        *frame_dispatcher_task_runner_, FROM_HERE,
-        CrossThreadBind(releaseFrameToDispatcher, std::move(frame_dispatcher_),
-                        std::move(placeholder_frame_),
-                        placeholder_frame_resource_id_));
+    PostCrossThreadTask(*frame_dispatcher_task_runner_, FROM_HERE,
+                        CrossThreadBindOnce(releaseFrameToDispatcher,
+                                            std::move(frame_dispatcher_),
+                                            std::move(placeholder_frame_),
+                                            placeholder_frame_resource_id_));
   }
 }
 
@@ -150,8 +150,8 @@ bool OffscreenCanvasPlaceholder::PostSetSuspendAnimationToOffscreenCanvasThread(
     return false;
   PostCrossThreadTask(
       *frame_dispatcher_task_runner_, FROM_HERE,
-      CrossThreadBind(SetSuspendAnimation, frame_dispatcher_, suspend));
+      CrossThreadBindOnce(SetSuspendAnimation, frame_dispatcher_, suspend));
   return true;
 }
 
-}  // blink
+}  // namespace blink

@@ -11,11 +11,11 @@
 
 #include "base/macros.h"
 #include "base/sequence_checker.h"
+#include "components/optimization_guide/hint_cache.h"
+#include "components/optimization_guide/hints_processing_util.h"
+#include "components/optimization_guide/host_filter.h"
 #include "components/optimization_guide/proto/hints.pb.h"
-#include "components/previews/content/hint_cache.h"
-#include "components/previews/content/previews_hints_util.h"
 #include "components/previews/content/previews_user_data.h"
-#include "components/previews/core/host_filter.h"
 #include "net/nqe/effective_connection_type.h"
 
 class GURL;
@@ -39,7 +39,7 @@ class PreviewsHints {
   // processing.
   static std::unique_ptr<PreviewsHints> CreateFromHintsComponent(
       const optimization_guide::HintsComponentInfo& info,
-      std::unique_ptr<HintCacheStore::ComponentUpdateData>
+      std::unique_ptr<optimization_guide::HintUpdateData>
           component_update_data);
 
   // Creates a Hints instance from the provided hints configuration. This must
@@ -47,7 +47,7 @@ class PreviewsHints {
   // amount of processing.
   static std::unique_ptr<PreviewsHints> CreateFromHintsConfiguration(
       std::unique_ptr<optimization_guide::proto::Configuration> config,
-      std::unique_ptr<HintCacheStore::ComponentUpdateData>
+      std::unique_ptr<optimization_guide::HintUpdateData>
           component_update_data);
 
   // Set |hint_cache_| and updates the hint cache's component data if
@@ -55,15 +55,18 @@ class PreviewsHints {
   // |component_update_data_| is a nullptr, the callback is run synchronously;
   // otherwise, it is run asynchronously after the cache's component data update
   // completes.
-  void Initialize(HintCache* hint_cache, base::OnceClosure callback);
+  void Initialize(optimization_guide::HintCache* hint_cache,
+                  base::OnceClosure callback);
 
   // Whether the URL is whitelisted for the given previews type. If so,
-  // |out_inflation_percent| and |out_ect_threshold| will be populated if
-  // metadata is available for them.
+  // |out_inflation_percent|, |out_ect_threshold|,
+  // |out_serialized_hints_version_string| will be populated if metadata is
+  // available for them.
   bool IsWhitelisted(const GURL& url,
                      PreviewsType type,
                      int* out_inflation_percent,
-                     net::EffectiveConnectionType* out_ect_threshold) const;
+                     net::EffectiveConnectionType* out_ect_threshold,
+                     std::string* out_serialized_hints_version_string) const;
 
   // Whether the URL is blacklisted for the given previews type.
   bool IsBlacklisted(const GURL& url, PreviewsType type) const;
@@ -71,8 +74,9 @@ class PreviewsHints {
   // Returns whether |url| may have PageHints and triggers asynchronous load
   // of such hints are not currently available synchronously. |callback| is
   // called if any applicable hint data is loaded and available for |url|.
-  bool MaybeLoadOptimizationHints(const GURL& url,
-                                  HintLoadedCallback callback) const;
+  bool MaybeLoadOptimizationHints(
+      const GURL& url,
+      optimization_guide::HintLoadedCallback callback) const;
 
   // Whether |url| has loaded resource loading hints and, if it does, populates
   // |out_resource_patterns_to_block| with the resource patterns to block.
@@ -91,8 +95,8 @@ class PreviewsHints {
   friend class PreviewsHintsTest;
 
   // Constructs PreviewsHints with |component_update_data|. This
-  // ComponentUpdateData is later moved into the HintCache during Initialize().
-  PreviewsHints(std::unique_ptr<HintCacheStore::ComponentUpdateData>
+  // HintUpdateData is later moved into the HintCache during Initialize().
+  PreviewsHints(std::unique_ptr<optimization_guide::HintUpdateData>
                     component_update_data);
 
   // Parses optimization filters from |config| and populates corresponding
@@ -102,15 +106,15 @@ class PreviewsHints {
 
   // Holds a pointer to the hint cache; the cache is owned by the optimization
   // guide, which is guaranteed to outlive PreviewsHints.
-  HintCache* hint_cache_;
+  optimization_guide::HintCache* hint_cache_;
 
-  // ComponentUpdateData provided by the HintCache and populated during
+  // HintUpdateData provided by the HintCache and populated during
   // PreviewsHints::Create(). |component_update_data_| is set during
   // construction and moved into the HintCache during Initialize().
-  std::unique_ptr<HintCacheStore::ComponentUpdateData> component_update_data_;
+  std::unique_ptr<optimization_guide::HintUpdateData> component_update_data_;
 
   // Blacklist of host suffixes for LITE_PAGE_REDIRECT Previews.
-  std::unique_ptr<HostFilter> lite_page_redirect_blacklist_;
+  std::unique_ptr<optimization_guide::HostFilter> lite_page_redirect_blacklist_;
 
   SEQUENCE_CHECKER(sequence_checker_);
 

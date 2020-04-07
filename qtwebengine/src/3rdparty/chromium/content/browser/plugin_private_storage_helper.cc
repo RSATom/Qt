@@ -418,7 +418,7 @@ void ClearPluginPrivateDataOnFileTaskRunner(
   if (!storage_origin.is_empty()) {
     DCHECK(origin_matcher.is_null()) << "Only 1 of |storage_origin| and "
                                         "|origin_matcher| should be specified.";
-    if (!base::ContainsKey(origins, storage_origin)) {
+    if (!base::Contains(origins, storage_origin)) {
       // Nothing matches, so nothing to do.
       callback.Run();
       return;
@@ -437,7 +437,8 @@ void ClearPluginPrivateDataOnFileTaskRunner(
     std::set<GURL> origins_to_check;
     origins_to_check.swap(origins);
     for (const auto& origin : origins_to_check) {
-      if (origin_matcher.Run(origin, special_storage_policy.get()))
+      if (origin_matcher.Run(url::Origin::Create(origin),
+                             special_storage_policy.get()))
         origins.insert(origin);
     }
 

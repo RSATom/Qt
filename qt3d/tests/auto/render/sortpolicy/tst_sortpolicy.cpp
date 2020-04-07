@@ -29,7 +29,6 @@
 #include <QtTest/QTest>
 #include <qbackendnodetester.h>
 #include <Qt3DRender/private/sortpolicy_p.h>
-#include <Qt3DCore/qpropertyupdatedchange.h>
 #include "testrenderer.h"
 
 class tst_SortPolicy : public Qt3DCore::QBackendNodeTester
@@ -52,8 +51,10 @@ private Q_SLOTS:
     void checkPeerPropertyMirroring()
     {
         // GIVEN
+        TestRenderer renderer;
         Qt3DRender::QFrameGraphNode parent;
         auto parentBackend = new Qt3DRender::Render::FrameGraphNode;
+        parentBackend->setRenderer(&renderer);
         simulateInitialization(&parent, parentBackend);
 
         Qt3DRender::Render::FrameGraphManager manager;
@@ -67,12 +68,14 @@ private Q_SLOTS:
         sortPolicy.setSortTypes(sortTypes);
 
         // WHEN
-        simulateInitialization(&sortPolicy, &backendNode);
+        backendNode.setRenderer(&renderer);
+        simulateInitializationSync(&sortPolicy, &backendNode);
 
         // THEN
         QCOMPARE(backendNode.peerId(), sortPolicy.id());
         QCOMPARE(backendNode.parentId(), parent.id());
         QCOMPARE(backendNode.sortTypes(), sortTypes);
+        QVERIFY(renderer.dirtyBits() & Qt3DRender::Render::AbstractRenderer::FrameGraphDirty);
     }
 
     void checkPropertyChanges()
@@ -84,18 +87,18 @@ private Q_SLOTS:
         Qt3DRender::Render::SortPolicy backendNode;
         backendNode.setRenderer(&renderer);
 
+        Qt3DRender::QSortPolicy sortPolicy;
+        sortPolicy.setSortTypes(sortTypes);
+
+        simulateInitializationSync(&sortPolicy, &backendNode);
+
         // WHEN
-        auto sortTypeInts = QVector<int>();
-        std::transform(sortTypes.constBegin(), sortTypes.constEnd(),
-                       std::back_inserter(sortTypeInts),
-                       [] (Qt3DRender::QSortPolicy::SortType type) -> int { return type; });
-        Qt3DCore::QPropertyUpdatedChangePtr updateChange(new Qt3DCore::QPropertyUpdatedChange(Qt3DCore::QNodeId()));
-        updateChange->setValue(QVariant::fromValue(sortTypeInts));
-        updateChange->setPropertyName("sortTypes");
-        backendNode.sceneChangeEvent(updateChange);
+        sortPolicy.setSortTypes(sortTypes);
+        backendNode.syncFromFrontEnd(&sortPolicy, false);
 
         // THEN
         QCOMPARE(backendNode.sortTypes(), sortTypes);
+        QVERIFY(renderer.dirtyBits() & Qt3DRender::Render::AbstractRenderer::FrameGraphDirty);
     }
 };
 

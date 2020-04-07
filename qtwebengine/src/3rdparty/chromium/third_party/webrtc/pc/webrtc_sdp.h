@@ -67,9 +67,9 @@ bool SdpDeserialize(const std::string& message,
 // candidates - The JsepIceCandidate from the SDP string.
 // error - The detail error information when parsing fails.
 // return - true on success, false on failure.
-bool SdpDeserializeCandidate(const std::string& message,
-                             JsepIceCandidate* candidate,
-                             SdpParseError* error);
+RTC_EXPORT bool SdpDeserializeCandidate(const std::string& message,
+                                        JsepIceCandidate* candidate,
+                                        SdpParseError* error);
 
 // Deserializes the passed in SDP string to a cricket Candidate.
 // The first line must be a=candidate line and only the first line will be
@@ -83,6 +83,17 @@ RTC_EXPORT bool SdpDeserializeCandidate(const std::string& transport_name,
                                         const std::string& message,
                                         cricket::Candidate* candidate,
                                         SdpParseError* error);
+
+// Parses |message| according to the grammar defined in RFC 5245, Section 15.1
+// and, if successful, stores the result in |candidate| and returns true.
+// If unsuccessful, returns false and stores error information in |error| if
+// |error| is not null.
+// If |is_raw| is false, |message| is expected to be prefixed with "a=".
+// If |is_raw| is true, no prefix is expected in |messaage|.
+RTC_EXPORT bool ParseCandidate(const std::string& message,
+                               cricket::Candidate* candidate,
+                               SdpParseError* error,
+                               bool is_raw);
 
 }  // namespace webrtc
 

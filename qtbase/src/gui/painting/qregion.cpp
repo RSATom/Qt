@@ -1233,10 +1233,10 @@ struct QRegionPrivate {
         }
     }
 
-    const QRect *begin() const Q_DECL_NOTHROW
+    const QRect *begin() const noexcept
     { return numRects == 1 ? &extents : rects.data(); } // avoid vectorize()
 
-    const QRect *end() const Q_DECL_NOTHROW
+    const QRect *end() const noexcept
     { return begin() + numRects; }
 
     inline void append(const QRect *r);
@@ -4267,7 +4267,7 @@ QRegion QRegion::xored(const QRegion &r) const
     }
 }
 
-QRect QRegion::boundingRect() const Q_DECL_NOTHROW
+QRect QRegion::boundingRect() const noexcept
 {
     if (isEmpty())
         return QRect();
@@ -4325,12 +4325,12 @@ QVector<QRect> QRegion::rects() const
 }
 #endif
 
-QRegion::const_iterator QRegion::begin() const Q_DECL_NOTHROW
+QRegion::const_iterator QRegion::begin() const noexcept
 {
     return d->qt_rgn ? d->qt_rgn->begin() : nullptr;
 }
 
-QRegion::const_iterator QRegion::end() const Q_DECL_NOTHROW
+QRegion::const_iterator QRegion::end() const noexcept
 {
     return d->qt_rgn ? d->qt_rgn->end() : nullptr;
 }
@@ -4367,7 +4367,7 @@ void QRegion::setRects(const QRect *rects, int num)
     }
 }
 
-int QRegion::rectCount() const Q_DECL_NOTHROW
+int QRegion::rectCount() const noexcept
 {
     return (d->qt_rgn ? d->qt_rgn->numRects : 0);
 }

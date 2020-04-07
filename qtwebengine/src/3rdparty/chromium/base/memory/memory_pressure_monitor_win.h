@@ -24,16 +24,9 @@ namespace win {
 class BASE_EXPORT MemoryPressureMonitor : public base::MemoryPressureMonitor {
  public:
   // Constants governing the polling and hysteresis behaviour of the observer.
-
-  // The polling interval, in milliseconds. While under critical pressure, this
-  // is also the timer to repeat cleanup attempts.
-  static const int kPollingIntervalMs;
   // The time which should pass between 2 successive moderate memory pressure
   // signals, in milliseconds.
   static const int kModeratePressureCooldownMs;
-  // The number of cycles that should pass between 2 successive moderate memory
-  // pressure signals.
-  static const int kModeratePressureCooldownCycles;
 
   // Constants governing the memory pressure level detection.
 
@@ -62,7 +55,7 @@ class BASE_EXPORT MemoryPressureMonitor : public base::MemoryPressureMonitor {
   void CheckMemoryPressureSoon();
 
   // Get the current memory pressure level. This can be called from any thread.
-  MemoryPressureLevel GetCurrentPressureLevel() override;
+  MemoryPressureLevel GetCurrentPressureLevel() const override;
   void SetDispatchCallback(const DispatchCallback& callback) override;
 
   // Returns the moderate pressure level free memory threshold, in MB.

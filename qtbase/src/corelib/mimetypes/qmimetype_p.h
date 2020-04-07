@@ -84,26 +84,6 @@ public:
 
 QT_END_NAMESPACE
 
-#define QMIMETYPE_BUILDER \
-    QT_BEGIN_NAMESPACE \
-    static QMimeType buildQMimeType ( \
-                         const QString &name, \
-                         const QString &genericIconName, \
-                         const QString &iconName, \
-                         const QStringList &globPatterns \
-                     ) \
-    { \
-        QMimeTypePrivate qMimeTypeData; \
-        qMimeTypeData.name = name; \
-        qMimeTypeData.loaded = true; \
-        qMimeTypeData.genericIconName = genericIconName; \
-        qMimeTypeData.iconName = iconName; \
-        qMimeTypeData.globPatterns = globPatterns; \
-        return QMimeType(qMimeTypeData); \
-    } \
-    QT_END_NAMESPACE
-
-#ifdef Q_COMPILER_RVALUE_REFS
 #define QMIMETYPE_BUILDER_FROM_RVALUE_REFS \
     QT_BEGIN_NAMESPACE \
     static QMimeType buildQMimeType ( \
@@ -122,6 +102,5 @@ QT_END_NAMESPACE
         return QMimeType(qMimeTypeData); \
     } \
     QT_END_NAMESPACE
-#endif
 
 #endif   // QMIMETYPE_P_H

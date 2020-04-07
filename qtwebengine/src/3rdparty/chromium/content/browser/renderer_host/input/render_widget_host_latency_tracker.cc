@@ -70,8 +70,14 @@ void RenderWidgetHostLatencyTracker::ComputeInputLatencyHistograms(
 
   std::string event_name = WebInputEvent::GetName(type);
 
-  if (latency.source_event_type() == ui::SourceEventType::KEY_PRESS)
+  if (latency.source_event_type() == ui::SourceEventType::KEY_PRESS) {
     event_name = "KeyPress";
+  } else if (event_name != "TouchEnd" && event_name != "TouchMove" &&
+             event_name != "TouchStart") {
+    // Only log events we care about (that are documented in histograms.xml),
+    // to avoid using memory and bandwidth for metrics that are not important.
+    return;
+  }
 
   std::string default_action_status =
       action_prevented ? "DefaultPrevented" : "DefaultAllowed";
@@ -137,9 +143,7 @@ void RenderWidgetHostLatencyTracker::OnInputEvent(
       timestamp_original = timestamp_now;
 
     latency->AddLatencyNumberWithTimestamp(
-        ui::INPUT_EVENT_LATENCY_ORIGINAL_COMPONENT,
-        timestamp_original,
-        1);
+        ui::INPUT_EVENT_LATENCY_ORIGINAL_COMPONENT, timestamp_original);
   }
 
   latency->AddLatencyNumberWithTraceName(
@@ -159,14 +163,16 @@ void RenderWidgetHostLatencyTracker::OnInputEvent(
           has_seen_first_gesture_scroll_update_
               ? ui::INPUT_EVENT_LATENCY_SCROLL_UPDATE_ORIGINAL_COMPONENT
               : ui::INPUT_EVENT_LATENCY_FIRST_SCROLL_UPDATE_ORIGINAL_COMPONENT,
-          original_event_timestamp, 1);
+          original_event_timestamp);
       latency->AddLatencyNumberWithTimestamp(
           ui::INPUT_EVENT_LATENCY_SCROLL_UPDATE_LAST_EVENT_COMPONENT,
-          original_event_timestamp, 1);
+          original_event_timestamp);
     }
 
     has_seen_first_gesture_scroll_update_ = true;
     latency->set_scroll_update_delta(
+        static_cast<const WebGestureEvent&>(event).data.scroll_update.delta_y);
+    latency->set_predicted_scroll_update_delta(
         static_cast<const WebGestureEvent&>(event).data.scroll_update.delta_y);
   }
 }

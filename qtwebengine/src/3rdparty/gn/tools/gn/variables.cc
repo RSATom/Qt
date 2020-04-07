@@ -4,6 +4,8 @@
 
 #include "tools/gn/variables.h"
 
+#include "tools/gn/rust_variables.h"
+
 namespace variables {
 
 // Built-in variables ----------------------------------------------------------
@@ -1260,7 +1262,7 @@ const char kLdflags_Help[] =
 #define COMMON_LIB_INHERITANCE_HELP                                          \
   "\n"                                                                       \
   "  libs and lib_dirs work differently than other flags in two respects.\n" \
-  "  First, then are inherited across static library boundaries until a\n"   \
+  "  First, they are inherited across static library boundaries until a\n"   \
   "  shared library or executable target is reached. Second, they are\n"     \
   "  uniquified so each one is only passed once (the first instance of it\n" \
   "  will be the one used).\n"
@@ -1917,6 +1919,10 @@ Sources for binary targets
   static library or source set will have no effect on the executable or shared
   library they're linked into).
 
+  For Rust targets that do not specify a crate_root, then the crate_root will
+  look for a lib.rs file (or main.rs for executable) or a single file in
+  sources, if sources contains only one file.
+
 Sources for non-binary targets
 
   action_foreach
@@ -2054,13 +2060,13 @@ const char kWalkKeys_HelpShort[] =
 const char kWalkKeys_Help[] =
     R"(walk_keys: Key(s) for managing the metadata collection walk.
 
-  Defaults to [].
+  Defaults to [""].
 
   These keys are used to control the next step in a collection walk, acting as
   barriers. If a specified key is defined in a target's metadata, the walk will
   use the targets listed in that value to determine which targets are walked.
 
-  If no walk_keys are specified for a generated_file target (i.e. "[]"), the
+  If no walk_keys are specified for a generated_file target (i.e. "[""]"), the
   walk will touch all deps and data_deps of the specified target recursively.
 
   See "gn help generated_file".
@@ -2083,7 +2089,7 @@ const char kWriteOutputConversion_Help[] =
     R"("output_conversion: Data format for generated_file targets.
 
   Controls how the "contents" of a generated_file target is formatted.
-  See "gn help output_conversion".
+  See "gn help io_conversion".
 )";
 
 const char kWriteRuntimeDeps[] = "write_runtime_deps";
@@ -2221,6 +2227,7 @@ const VariableInfoMap& GetTargetVariables() {
     INSERT_VARIABLE(WriteValueContents)
     INSERT_VARIABLE(WriteRuntimeDeps)
     INSERT_VARIABLE(XcodeExtraAttributes)
+    InsertRustVariables(&info_map);
   }
   return info_map;
 }

@@ -36,6 +36,7 @@ using autofill::FormStructure;
 namespace password_manager {
 
 class FormSaver;
+class PasswordGenerationState;
 class PasswordManager;
 class PasswordManagerClient;
 
@@ -113,9 +114,9 @@ class PasswordFormManager : public PasswordFormManagerInterface,
 
   // PasswordFormManagerInterface:
   bool IsNewLogin() const override;
+  FormFetcher* GetFormFetcher() override;
   bool IsPendingCredentialsPublicSuffixMatch() const override;
   bool IsPossibleChangePasswordFormWithoutUsername() const override;
-  bool RetryPasswordFormPasswordUpdate() const override;
   bool IsPasswordUpdate() const override;
   std::vector<base::WeakPtr<PasswordManagerDriver>> GetDrivers() const override;
   const autofill::PasswordForm* GetSubmittedForm() const override;
@@ -170,6 +171,9 @@ class PasswordFormManager : public PasswordFormManagerInterface,
   void MarkGenerationAvailable();
 
   const autofill::PasswordForm& observed_form() const { return observed_form_; }
+  const autofill::PasswordForm* preferred_match() const {
+    return preferred_match_;
+  }
 
   FormSaver* form_saver() { return form_saver_.get(); }
 
@@ -192,18 +196,18 @@ class PasswordFormManager : public PasswordFormManagerInterface,
   std::unique_ptr<PasswordFormManager> Clone();
 
   // PasswordFormManagerForUI:
-  FormFetcher* GetFormFetcher() override;
   const GURL& GetOrigin() const override;
   const std::map<base::string16, const autofill::PasswordForm*>&
   GetBestMatches() const override;
+  std::vector<const autofill::PasswordForm*> GetFederatedMatches()
+      const override;
   const autofill::PasswordForm& GetPendingCredentials() const override;
   metrics_util::CredentialSourceType GetCredentialSource() override;
   PasswordFormMetricsRecorder* GetMetricsRecorder() override;
-  const std::vector<const autofill::PasswordForm*>& GetBlacklistedMatches()
+  base::span<const autofill::PasswordForm* const> GetBlacklistedMatches()
       const override;
+  base::span<const InteractionsStats> GetInteractionsStats() const override;
   bool IsBlacklisted() const override;
-  bool IsPasswordOverridden() const override;
-  const autofill::PasswordForm* GetPreferredMatch() const override;
 
   void Save() override;
   void Update(const autofill::PasswordForm& credentials_to_update) override;
@@ -218,9 +222,7 @@ class PasswordFormManager : public PasswordFormManagerInterface,
 
  protected:
   // FormFetcher::Consumer:
-  void ProcessMatches(
-      const std::vector<const autofill::PasswordForm*>& non_federated,
-      size_t filtered_count) override;
+  void OnFetchCompleted() override;
 
  private:
   // Through |driver|, supply the associated frame with appropriate information
@@ -235,9 +237,6 @@ class PasswordFormManager : public PasswordFormManagerInterface,
   // has opted to 'Save Password'. The previously preferred login from
   // |best_matches_| will be reset.
   void SaveAsNewLogin();
-
-  // Returns true iff |form| is a non-blacklisted match for |observed_form_|.
-  bool IsMatch(const autofill::PasswordForm& form) const;
 
   // Helper for Save in the case there is at least one match for the pending
   // credentials. This sends needed signals to the autofill server, and also
@@ -293,7 +292,10 @@ class PasswordFormManager : public PasswordFormManagerInterface,
   // the old password and username with |pending_credentials_| to the new
   // password of |pending_credentials_|, and returns copies of all such modified
   // credentials.
-  std::vector<autofill::PasswordForm> FindOtherCredentialsToUpdate();
+  std::vector<autofill::PasswordForm> FindOtherCredentialsToUpdate() const;
+
+  // Save/update |pending_credentials_| to the password store.
+  void SavePendingToStore(bool update);
 
   void SetPasswordOverridden(bool password_overridden) {
     password_overridden_ = password_overridden;
@@ -344,14 +346,8 @@ class PasswordFormManager : public PasswordFormManagerInterface,
   // to an existing one.
   bool is_new_login_;
 
-  // Whether this form has an auto generated password. If the user modifies the
-  // password it remains in status "generated".
-  bool has_generated_password_;
-
-  // If |has_generated_password_|, contains a generated password. If the user
-  // modifies the generated password, this field is updated to reflect the
-  // modified value.
-  base::string16 generated_password_;
+  // Handles the user flows related to the generation.
+  std::unique_ptr<PasswordGenerationState> generation_state_;
 
   // Whether the saved password was overridden.
   bool password_overridden_;

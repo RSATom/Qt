@@ -24,7 +24,8 @@ class ScopedHardwareBufferFenceSync;
 }  // namespace base
 
 namespace gpu {
-class DecoderContext;
+class SharedContextState;
+class TextureBase;
 namespace gles2 {
 class AbstractTexture;
 }  // namespace gles2
@@ -45,12 +46,22 @@ class MEDIA_GPU_EXPORT TextureOwner
   // new TextureOwner attached to it. Returns null on failure.
   // |texture| should be either from CreateAbstractTexture() or a mock.  The
   // corresponding GL context must be current.
+  // Mode indicates which framework API to use and whether the video textures
+  // created using this owner should be hardware protected. It also indicates
+  // whether SurfaceControl is being used or not.
+  enum class Mode {
+    kAImageReaderInsecure,
+    kAImageReaderInsecureSurfaceControl,
+    kAImageReaderSecureSurfaceControl,
+    kSurfaceTextureInsecure
+  };
   static scoped_refptr<TextureOwner> Create(
-      std::unique_ptr<gpu::gles2::AbstractTexture> texture);
+      std::unique_ptr<gpu::gles2::AbstractTexture> texture,
+      Mode mode);
 
   // Create a texture that's appropriate for a TextureOwner.
   static std::unique_ptr<gpu::gles2::AbstractTexture> CreateTexture(
-      gpu::DecoderContext* decoder);
+      scoped_refptr<gpu::SharedContextState> context_state);
 
   scoped_refptr<base::SingleThreadTaskRunner> task_runner() {
     return task_runner_;
@@ -58,6 +69,7 @@ class MEDIA_GPU_EXPORT TextureOwner
 
   // Returns the GL texture id that the TextureOwner is attached to.
   GLuint GetTextureId() const;
+  gpu::TextureBase* GetTextureBase() const;
   virtual gl::GLContext* GetContext() const = 0;
   virtual gl::GLSurface* GetSurface() const = 0;
 
@@ -66,6 +78,11 @@ class MEDIA_GPU_EXPORT TextureOwner
 
   // Update the texture image using the latest available image data.
   virtual void UpdateTexImage() = 0;
+
+  // Ensures that the latest texture image is bound to the texture target.
+  // Should only be used if the TextureOwner requires explicit binding of the
+  // image after an update.
+  virtual void EnsureTexImageBound() = 0;
 
   // Transformation matrix if any associated with the texture image.
   virtual void GetTransformMatrix(float mtx[16]) = 0;
@@ -96,12 +113,15 @@ class MEDIA_GPU_EXPORT TextureOwner
   virtual std::unique_ptr<base::android::ScopedHardwareBufferFenceSync>
   GetAHardwareBuffer() = 0;
 
+  bool binds_texture_on_update() const { return binds_texture_on_update_; }
+
  protected:
   friend class base::RefCountedDeleteOnSequence<TextureOwner>;
   friend class base::DeleteHelper<TextureOwner>;
 
   // |texture| is the texture that we'll own.
-  TextureOwner(std::unique_ptr<gpu::gles2::AbstractTexture> texture);
+  TextureOwner(bool binds_texture_on_update,
+               std::unique_ptr<gpu::gles2::AbstractTexture> texture);
   virtual ~TextureOwner();
 
   // Drop |texture_| immediately.  Will call OnTextureDestroyed immediately if
@@ -118,6 +138,10 @@ class MEDIA_GPU_EXPORT TextureOwner
   gpu::gles2::AbstractTexture* texture() const { return texture_.get(); }
 
  private:
+  // Set to true if the updating the image for this owner will automatically
+  // bind it to the texture target.
+  const bool binds_texture_on_update_;
+
   std::unique_ptr<gpu::gles2::AbstractTexture> texture_;
   scoped_refptr<base::SingleThreadTaskRunner> task_runner_;
 

@@ -57,7 +57,7 @@ namespace QPatternistSDK
      * @ingroup PatternistSDK
      * @author Tobias Koenig <tobias.koenig@nokia.com>
      */
-    class Q_PATTERNISTSDK_EXPORT XSDTestSuiteHandler : public QXmlDefaultHandler
+    class XSDTestSuiteHandler : public QXmlDefaultHandler
     {
     public:
         /**

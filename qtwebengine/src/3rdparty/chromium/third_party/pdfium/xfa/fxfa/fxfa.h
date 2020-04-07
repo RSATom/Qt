@@ -68,13 +68,15 @@ enum class FormType {
 #define XFA_PAGEVIEWEVENT_PostRemoved 3
 #define XFA_PAGEVIEWEVENT_StopLayout 4
 
-#define XFA_EVENTERROR_Success 1
-#define XFA_EVENTERROR_Error -1
-#define XFA_EVENTERROR_NotExist 0
-#define XFA_EVENTERROR_Disabled 2
-
 #define XFA_TRAVERSEWAY_Tranvalse 0x0001
 #define XFA_TRAVERSEWAY_Form 0x0002
+
+enum class XFA_EventError {
+  kError = -1,
+  kNotExist = 0,
+  kSuccess = 1,
+  kDisabled = 2,
+};
 
 enum XFA_WidgetStatus {
   XFA_WidgetStatus_None = 0,
@@ -83,12 +85,11 @@ enum XFA_WidgetStatus {
   XFA_WidgetStatus_ButtonDown = 1 << 1,
   XFA_WidgetStatus_Disabled = 1 << 2,
   XFA_WidgetStatus_Focused = 1 << 3,
-  XFA_WidgetStatus_Highlight = 1 << 4,
-  XFA_WidgetStatus_Printable = 1 << 5,
-  XFA_WidgetStatus_RectCached = 1 << 6,
-  XFA_WidgetStatus_TextEditValueChanged = 1 << 7,
-  XFA_WidgetStatus_Viewable = 1 << 8,
-  XFA_WidgetStatus_Visible = 1 << 9
+  XFA_WidgetStatus_Printable = 1 << 4,
+  XFA_WidgetStatus_RectCached = 1 << 5,
+  XFA_WidgetStatus_TextEditValueChanged = 1 << 6,
+  XFA_WidgetStatus_Viewable = 1 << 7,
+  XFA_WidgetStatus_Visible = 1 << 8
 };
 
 enum XFA_WIDGETTYPE {
@@ -234,7 +235,7 @@ class IXFA_DocEnvironment {
                            float fMaxPopup,
                            const CFX_RectF& rtAnchor,
                            CFX_RectF* pPopupRect) = 0;
-  virtual bool PopupMenu(CXFA_FFWidget* hWidget, CFX_PointF ptPopup) = 0;
+  virtual bool PopupMenu(CXFA_FFWidget* hWidget, const CFX_PointF& ptPopup) = 0;
   virtual void PageViewEvent(CXFA_FFPageView* pPageView, uint32_t dwFlags) = 0;
   virtual void WidgetPostAdd(CXFA_FFWidget* hWidget) = 0;
   virtual void WidgetPreRemove(CXFA_FFWidget* hWidget) = 0;

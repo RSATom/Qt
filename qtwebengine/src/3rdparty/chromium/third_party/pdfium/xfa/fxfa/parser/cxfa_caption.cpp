@@ -6,7 +6,7 @@
 
 #include "xfa/fxfa/parser/cxfa_caption.h"
 
-#include "fxjs/xfa/cjx_caption.h"
+#include "fxjs/xfa/cjx_node.h"
 #include "third_party/base/ptr_util.h"
 #include "xfa/fxfa/parser/cxfa_font.h"
 #include "xfa/fxfa/parser/cxfa_margin.h"
@@ -18,7 +18,8 @@ namespace {
 const CXFA_Node::PropertyData kCaptionPropertyData[] = {
     {XFA_Element::Margin, 1, 0}, {XFA_Element::Para, 1, 0},
     {XFA_Element::Font, 1, 0},   {XFA_Element::Value, 1, 0},
-    {XFA_Element::Extras, 1, 0}, {XFA_Element::Unknown, 0, 0}};
+    {XFA_Element::Extras, 1, 0},
+};
 
 const CXFA_Node::AttributeData kCaptionAttributeData[] = {
     {XFA_Attribute::Id, XFA_AttributeType::CData, nullptr},
@@ -29,7 +30,7 @@ const CXFA_Node::AttributeData kCaptionAttributeData[] = {
     {XFA_Attribute::Usehref, XFA_AttributeType::CData, nullptr},
     {XFA_Attribute::Placement, XFA_AttributeType::Enum,
      (void*)XFA_AttributeValue::Left},
-    {XFA_Attribute::Unknown, XFA_AttributeType::Integer, nullptr}};
+};
 
 }  // namespace
 
@@ -41,7 +42,7 @@ CXFA_Caption::CXFA_Caption(CXFA_Document* doc, XFA_PacketType packet)
                 XFA_Element::Caption,
                 kCaptionPropertyData,
                 kCaptionAttributeData,
-                pdfium::MakeUnique<CJX_Caption>(this)) {}
+                pdfium::MakeUnique<CJX_Node>(this)) {}
 
 CXFA_Caption::~CXFA_Caption() = default;
 
@@ -61,7 +62,7 @@ XFA_AttributeValue CXFA_Caption::GetPlacementType() {
 }
 
 float CXFA_Caption::GetReserve() const {
-  return JSObject()->GetMeasure(XFA_Attribute::Reserve).ToUnit(XFA_Unit::Pt);
+  return JSObject()->GetMeasureInUnit(XFA_Attribute::Reserve, XFA_Unit::Pt);
 }
 
 CXFA_Margin* CXFA_Caption::GetMarginIfExists() {

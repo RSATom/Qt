@@ -104,7 +104,7 @@ extern testing::Test* g_current_test;
     }                                                        \
   }
 
-// Support utilities for tests.
+// Support utilites for tests.
 
 struct Node;
 

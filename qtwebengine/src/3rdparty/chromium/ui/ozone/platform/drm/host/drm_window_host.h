@@ -53,7 +53,7 @@ class DrmWindowHost : public PlatformWindow,
 
   void Initialize();
 
-  gfx::AcceleratedWidget GetAcceleratedWidget();
+  gfx::AcceleratedWidget GetAcceleratedWidget() const;
 
   gfx::Rect GetCursorConfinedBounds() const;
 
@@ -73,10 +73,11 @@ class DrmWindowHost : public PlatformWindow,
   void Minimize() override;
   void Restore() override;
   PlatformWindowState GetPlatformWindowState() const override;
+  void Activate() override;
+  void Deactivate() override;
   void SetCursor(PlatformCursor cursor) override;
   void MoveCursorTo(const gfx::Point& location) override;
   void ConfineCursorToBounds(const gfx::Rect& bounds) override;
-  PlatformImeController* GetPlatformImeController() override;
   void SetRestoredBoundsInPixels(const gfx::Rect& bounds) override;
   gfx::Rect GetRestoredBoundsInPixels() const override;
 
@@ -98,6 +99,7 @@ class DrmWindowHost : public PlatformWindow,
   DrmCursor* const cursor_;                       // Not owned.
   DrmWindowHostManager* const window_manager_;    // Not owned.
   DrmDisplayHostManager* const display_manager_;  // Not owned.
+  // TODO(crbug.com/936425): Remove after VizDisplayCompositor feature launches.
   DrmOverlayManager* const overlay_manager_;      // Not owned.
 
   gfx::Rect bounds_;

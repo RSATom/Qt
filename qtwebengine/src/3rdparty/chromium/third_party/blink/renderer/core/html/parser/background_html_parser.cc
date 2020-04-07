@@ -34,9 +34,9 @@
 #include "third_party/blink/renderer/core/html/parser/text_resource_decoder.h"
 #include "third_party/blink/renderer/core/html/parser/xss_auditor.h"
 #include "third_party/blink/renderer/core/html_names.h"
-#include "third_party/blink/renderer/platform/cross_thread_functional.h"
-#include "third_party/blink/renderer/platform/histogram.h"
+#include "third_party/blink/renderer/platform/instrumentation/histogram.h"
 #include "third_party/blink/renderer/platform/instrumentation/tracing/trace_event.h"
+#include "third_party/blink/renderer/platform/wtf/cross_thread_functional.h"
 #include "third_party/blink/renderer/platform/wtf/functional.h"
 #include "third_party/blink/renderer/platform/wtf/text/text_position.h"
 #include "third_party/blink/renderer/platform/wtf/time.h"
@@ -78,6 +78,8 @@ void BackgroundHTMLParser::Init(
     std::unique_ptr<CachedDocumentParameters> cached_document_parameters,
     const MediaValuesCached::MediaValuesCachedData& media_values_cached_data,
     bool priority_hints_origin_trial_enabled) {
+  TRACE_EVENT1("loading", "BackgroundHTMLParser::Init", "url",
+               document_url.GetString().Utf8());
   preload_scanner_.reset(new TokenPreloadScanner(
       document_url, std::move(cached_document_parameters),
       media_values_cached_data, TokenPreloadScanner::ScannerType::kMainDocument,
@@ -90,7 +92,7 @@ BackgroundHTMLParser::BackgroundHTMLParser(
     std::unique_ptr<Configuration> config,
     scoped_refptr<base::SingleThreadTaskRunner> loading_task_runner)
     : token_(std::make_unique<HTMLToken>()),
-      tokenizer_(HTMLTokenizer::Create(config->options)),
+      tokenizer_(std::make_unique<HTMLTokenizer>(config->options)),
       tree_builder_simulator_(config->options),
       options_(config->options),
       parser_(config->parser),
@@ -99,14 +101,13 @@ BackgroundHTMLParser::BackgroundHTMLParser(
       loading_task_runner_(std::move(loading_task_runner)),
       pending_csp_meta_token_index_(
           HTMLDocumentParser::TokenizedChunk::kNoPendingToken),
-      starting_script_(false),
-      weak_factory_(this) {
-}
+      starting_script_(false) {}
 
 BackgroundHTMLParser::~BackgroundHTMLParser() = default;
 
 void BackgroundHTMLParser::AppendRawBytesFromMainThread(
     std::unique_ptr<Vector<char>> buffer) {
+  TRACE_EVENT0("loading", "BackgroundHTMLParser::AppendRawBytesFromMainThread");
   DCHECK(decoder_);
   UpdateDocument(decoder_->Decode(buffer->data(), buffer->size()));
 }
@@ -271,7 +272,7 @@ void BackgroundHTMLParser::EnqueueTokenizedChunk() {
                          chunk.get(), TRACE_EVENT_FLAG_FLOW_OUT);
 
   chunk->preloads.swap(pending_preloads_);
-  if (viewport_description_.set)
+  if (viewport_description_.has_value())
     chunk->viewport = viewport_description_;
   chunk->xss_infos.swap(pending_xss_infos_);
   chunk->tokenizer_state = tokenizer_->GetState();

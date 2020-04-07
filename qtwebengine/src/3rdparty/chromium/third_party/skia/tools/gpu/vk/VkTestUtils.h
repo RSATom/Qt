@@ -8,13 +8,13 @@
 #ifndef VkTestUtils_DEFINED
 #define VkTestUtils_DEFINED
 
-#include "SkTypes.h"
+#include "include/core/SkTypes.h"
 
 #ifdef SK_VULKAN
 
-#include "GrVulkanDefines.h"
-#include "vk/GrVkBackendContext.h"
-#include "vk/GrVkTypes.h"
+#include "include/gpu/vk/GrVkBackendContext.h"
+#include "include/gpu/vk/GrVkTypes.h"
+#include "tools/gpu/vk/GrVulkanDefines.h"
 #include <functional>
 
 class GrVkExtensions;
@@ -32,7 +32,8 @@ namespace sk_gpu_test {
                                 VkPhysicalDeviceFeatures2*,
                                 VkDebugReportCallbackEXT* debugCallback,
                                 uint32_t* presentQueueIndexPtr = nullptr,
-                                CanPresentFn canPresent = CanPresentFn());
+                                CanPresentFn canPresent = CanPresentFn(),
+                                bool isProtected = false);
 
     void FreeVulkanFeaturesStructs(const VkPhysicalDeviceFeatures2*);
 }

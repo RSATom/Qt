@@ -8,27 +8,10 @@ cr.define('app_management', function() {
    */
   class FakePageHandler {
     /**
-     * @param {number} permissionId
-     * @param {Object=} config
-     * @return {!Permission}
+     * @param {Object=} options
+     * @return {!Object<number, Permission>}
      */
-    static createPermission(permissionId, config) {
-      const permission = app_management.util.createPermission(
-          permissionId, PermissionValueType.kTriState, TriState.kBlock);
-
-      if (config) {
-        Object.assign(permission, config);
-      }
-
-      return permission;
-    }
-
-    /**
-     * @param {string} id
-     * @param {Object=} config
-     * @return {!App}
-     */
-    static createApp(id, config) {
+    static createWebPermissions(options) {
       const permissionIds = [
         PwaPermissionType.CONTENT_SETTINGS_TYPE_GEOLOCATION,
         PwaPermissionType.CONTENT_SETTINGS_TYPE_NOTIFICATIONS,
@@ -38,36 +21,120 @@ cr.define('app_management', function() {
 
       const permissions = {};
 
-      for (const type of permissionIds) {
-        permissions[type] = FakePageHandler.createPermission(type);
+      for (const permissionId of permissionIds) {
+        let permissionValue = TriState.kAllow;
+        let isManaged = false;
+
+        if (options && options[permissionId]) {
+          const opts = options[permissionId];
+          permissionValue = opts.permissionValue || permissionValue;
+          isManaged = opts.isManaged || isManaged;
+        }
+        permissions[permissionId] = app_management.util.createPermission(
+            permissionId, PermissionValueType.kTriState, permissionValue,
+            isManaged);
       }
 
+      return permissions;
+    }
+
+    /**
+     * @param {Array<number>=} optIds
+     * @return {!Object<number, Permission>}
+     */
+    static createArcPermissions(optIds) {
+      const permissionIds = optIds || [
+        ArcPermissionType.CAMERA,
+        ArcPermissionType.LOCATION,
+        ArcPermissionType.MICROPHONE,
+        ArcPermissionType.NOTIFICATIONS,
+        ArcPermissionType.CONTACTS,
+        ArcPermissionType.STORAGE,
+      ];
+
+      const permissions = {};
+
+      for (const permissionId of permissionIds) {
+        permissions[permissionId] = app_management.util.createPermission(
+            permissionId, PermissionValueType.kBool, Bool.kTrue,
+            false /*is_managed*/);
+      }
+
+      return permissions;
+    }
+
+    /**
+     * @param {AppType} appType
+     * @return {!Object<number, Permission>}
+     */
+    static createPermissions(appType) {
+      switch (appType) {
+        case (AppType.kWeb):
+          return FakePageHandler.createWebPermissions();
+        case (AppType.kArc):
+          return FakePageHandler.createArcPermissions();
+        default:
+          return {};
+      }
+    }
+
+    /**
+     * @param {string} id
+     * @param {Object=} optConfig
+     * @return {!App}
+     */
+    static createApp(id, optConfig) {
       const app = {
         id: id,
         type: apps.mojom.AppType.kWeb,
         title: 'App Title',
+        description: '',
         version: '5.1',
         size: '9.0MB',
-        isPinned: apps.mojom.OptionalBool.kUnknown,
-        permissions: permissions,
+        isPinned: apps.mojom.OptionalBool.kFalse,
+        isPolicyPinned: apps.mojom.OptionalBool.kFalse,
+        installSource: apps.mojom.InstallSource.kUser,
+        permissions: {},
+        hideMoreSettings: false,
+        hidePinToShelf: false,
       };
 
-      if (config) {
-        Object.assign(app, config);
+      if (optConfig) {
+        Object.assign(app, optConfig);
+      }
+
+      // Only create default permissions if none were provided in the config.
+      if (!optConfig || optConfig.permissions === undefined) {
+        app.permissions = FakePageHandler.createPermissions(app.type);
       }
 
       return app;
     }
 
     /**
-     * @param {appManagement.mojom.PageInterface} page
+     * @param {appManagement.mojom.PageRemote} page
      */
     constructor(page) {
-      /** @type {appManagement.mojom.PageInterface} */
+      this.receiver_ = new appManagement.mojom.PageHandlerReceiver(this);
+      /** @type {appManagement.mojom.PageRemote} */
       this.page = page;
 
       /** @type {!Array<App>} */
       this.apps_ = [];
+
+      /** @type {number} */
+      this.guid = 0;
+    }
+
+    /**
+     * @returns {!appManagement.mojom.PageHandlerRemote}
+     */
+    getRemote() {
+      return this.receiver_.$.bindNewPipeAndPassRemote();
+    }
+
+    async flushPipesForTesting() {
+      await this.page.$.flushForTesting();
     }
 
     async getApps() {
@@ -81,6 +148,7 @@ cr.define('app_management', function() {
     async getExtensionAppPermissionMessages(appId) {
       return [];
     }
+
     /**
      * @param {!Array<App>} appList
      */
@@ -128,6 +196,31 @@ cr.define('app_management', function() {
      * @param {string} appId
      */
     openNativeSettings(appId) {}
+
+    /**
+     * @param {string} optId
+     * @param {Object=} optConfig
+     * @return {!Promise<!App>}
+     */
+    async addApp(optId, optConfig) {
+      optId = optId || String(this.guid++);
+      const app = FakePageHandler.createApp(optId, optConfig);
+      this.page.onAppAdded(app);
+      await this.flushPipesForTesting();
+      return app;
+    }
+
+    /**
+     * Takes an app id and an object mapping app fields to the values they
+     * should be changed to, and dispatches an action to carry out these
+     * changes.
+     * @param {string} id
+     * @param {Object} changes
+     */
+    async changeApp(id, changes) {
+      this.page.onAppChanged(FakePageHandler.createApp(id, changes));
+      await this.flushPipesForTesting();
+    }
   }
 
   return {FakePageHandler: FakePageHandler};

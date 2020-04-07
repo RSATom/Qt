@@ -9,7 +9,7 @@
 #include "base/callback.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
-#include "base/single_thread_task_runner.h"
+#include "base/sequenced_task_runner.h"
 #include "base/time/time.h"
 #include "content/browser/cache_storage/cache_storage_scheduler_types.h"
 #include "content/common/content_export.h"
@@ -20,11 +20,12 @@ namespace content {
 // to run plus a bunch of metrics data.
 class CONTENT_EXPORT CacheStorageOperation {
  public:
-  CacheStorageOperation(
-      base::OnceClosure closure,
-      CacheStorageSchedulerClient client_type,
-      CacheStorageSchedulerOp op_type,
-      scoped_refptr<base::SingleThreadTaskRunner> task_runner);
+  CacheStorageOperation(base::OnceClosure closure,
+                        CacheStorageSchedulerId id,
+                        CacheStorageSchedulerClient client_type,
+                        CacheStorageSchedulerMode mode,
+                        CacheStorageSchedulerOp op_type,
+                        scoped_refptr<base::SequencedTaskRunner> task_runner);
 
   ~CacheStorageOperation();
 
@@ -32,6 +33,8 @@ class CONTENT_EXPORT CacheStorageOperation {
   void Run();
 
   base::TimeTicks creation_ticks() const { return creation_ticks_; }
+  CacheStorageSchedulerId id() const { return id_; }
+  CacheStorageSchedulerMode mode() const { return mode_; }
   CacheStorageSchedulerOp op_type() const { return op_type_; }
   base::WeakPtr<CacheStorageOperation> AsWeakPtr() {
     return weak_ptr_factory_.GetWeakPtr();
@@ -52,10 +55,12 @@ class CONTENT_EXPORT CacheStorageOperation {
   // If the operation took a long time to run.
   bool was_slow_ = false;
 
+  const CacheStorageSchedulerId id_;
   const CacheStorageSchedulerClient client_type_;
+  const CacheStorageSchedulerMode mode_;
   const CacheStorageSchedulerOp op_type_;
-  scoped_refptr<base::SingleThreadTaskRunner> task_runner_;
-  base::WeakPtrFactory<CacheStorageOperation> weak_ptr_factory_;
+  scoped_refptr<base::SequencedTaskRunner> task_runner_;
+  base::WeakPtrFactory<CacheStorageOperation> weak_ptr_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(CacheStorageOperation);
 };

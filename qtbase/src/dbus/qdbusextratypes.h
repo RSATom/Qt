@@ -54,28 +54,27 @@
 
 QT_BEGIN_NAMESPACE
 
-
 class Q_DBUS_EXPORT QDBusObjectPath
 {
     QString m_path;
 public:
-    QDBusObjectPath() Q_DECL_NOTHROW : m_path() {}
+    QDBusObjectPath() noexcept : m_path() {}
     // compiler-generated copy/move constructor/assignment operators are ok!
     // compiler-generated destructor is ok!
 
     inline explicit QDBusObjectPath(const char *path);
     inline explicit QDBusObjectPath(QLatin1String path);
     inline explicit QDBusObjectPath(const QString &path);
-#ifdef Q_COMPILER_RVALUE_REFS
     explicit QDBusObjectPath(QString &&p) : m_path(std::move(p)) { doCheck(); }
-#endif
 
-    void swap(QDBusObjectPath &other) Q_DECL_NOTHROW { qSwap(m_path, other.m_path); }
+    void swap(QDBusObjectPath &other) noexcept { qSwap(m_path, other.m_path); }
 
     inline void setPath(const QString &path);
 
     inline QString path() const
     { return m_path; }
+
+    operator QVariant() const;
 
 private:
     void doCheck();
@@ -114,18 +113,16 @@ class Q_DBUS_EXPORT QDBusSignature
 {
     QString m_signature;
 public:
-    QDBusSignature() Q_DECL_NOTHROW : m_signature() {}
+    QDBusSignature() noexcept : m_signature() {}
     // compiler-generated copy/move constructor/assignment operators are ok!
     // compiler-generated destructor is ok!
 
     inline explicit QDBusSignature(const char *signature);
     inline explicit QDBusSignature(QLatin1String signature);
     inline explicit QDBusSignature(const QString &signature);
-#ifdef Q_COMPILER_RVALUE_REFS
     explicit QDBusSignature(QString &&sig) : m_signature(std::move(sig)) { doCheck(); }
-#endif
 
-    void swap(QDBusSignature &other) Q_DECL_NOTHROW { qSwap(m_signature, other.m_signature); }
+    void swap(QDBusSignature &other) noexcept { qSwap(m_signature, other.m_signature); }
 
     inline void setSignature(const QString &signature);
 
@@ -168,16 +165,14 @@ class QDBusVariant
 {
     QVariant m_variant;
 public:
-    QDBusVariant() Q_DECL_NOTHROW : m_variant() {}
+    QDBusVariant() noexcept : m_variant() {}
     // compiler-generated copy/move constructor/assignment operators are ok!
     // compiler-generated destructor is ok!
 
     inline explicit QDBusVariant(const QVariant &variant);
-#ifdef Q_COMPILER_RVALUE_REFS
-    explicit QDBusVariant(QVariant &&v) Q_DECL_NOTHROW : m_variant(std::move(v)) {}
-#endif
+    explicit QDBusVariant(QVariant &&v) noexcept : m_variant(std::move(v)) {}
 
-    void swap(QDBusVariant &other) Q_DECL_NOTHROW { qSwap(m_variant, other.m_variant); }
+    void swap(QDBusVariant &other) noexcept { qSwap(m_variant, other.m_variant); }
 
     inline void setVariant(const QVariant &variant);
 

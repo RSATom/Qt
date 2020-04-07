@@ -169,12 +169,11 @@ private Q_SLOTS:
             QCoreApplication::processEvents();
 
             // THEN
-            QCOMPARE(arbiter.events.size(), 1);
-            auto change = arbiter.events.first().staticCast<QPropertyUpdatedChange>();
-            QCOMPARE(change->propertyName(), "source");
-            QCOMPARE(change->type(), PropertyUpdated);
+            QCOMPARE(arbiter.events.size(), 0);
+            QCOMPARE(arbiter.dirtyNodes.size(), 1);
+            QCOMPARE(arbiter.dirtyNodes[0], &skeleton);
 
-            arbiter.events.clear();
+            arbiter.dirtyNodes.clear();
         }
 
         {
@@ -184,21 +183,7 @@ private Q_SLOTS:
 
             // THEN
             QCOMPARE(arbiter.events.size(), 0);
-        }
-
-
-        {
-            // WHEN
-            skeleton.setCreateJointsEnabled(true);
-            QCoreApplication::processEvents();
-
-            // THEN
-            QCOMPARE(arbiter.events.size(), 1);
-            auto change = arbiter.events.first().staticCast<QPropertyUpdatedChange>();
-            QCOMPARE(change->propertyName(), "createJointsEnabled");
-            QCOMPARE(change->type(), PropertyUpdated);
-
-            arbiter.events.clear();
+            QCOMPARE(arbiter.dirtyNodes.size(), 0);
         }
 
         {
@@ -208,66 +193,21 @@ private Q_SLOTS:
 
             // THEN
             QCOMPARE(arbiter.events.size(), 0);
+            QCOMPARE(arbiter.dirtyNodes.size(), 1);
+            QCOMPARE(arbiter.dirtyNodes[0], &skeleton);
+
+            arbiter.dirtyNodes.clear();
         }
-    }
 
-    void checkStatusPropertyUpdate()
-    {
-        // GIVEN
-        qRegisterMetaType<Qt3DCore::QSkeletonLoader::Status>("Status");
-        TestArbiter arbiter;
-        arbiter.setArbiterOnNode(this);
-        QSignalSpy spy(this, SIGNAL(statusChanged(Status)));
-        const QSkeletonLoader::Status newStatus = QSkeletonLoader::Error;
+        {
+            // WHEN
+            skeleton.setCreateJointsEnabled(true);
+            QCoreApplication::processEvents();
 
-        // THEN
-        QVERIFY(spy.isValid());
-
-        // WHEN
-        QPropertyUpdatedChangePtr valueChange(new QPropertyUpdatedChange(QNodeId()));
-        valueChange->setPropertyName("status");
-        valueChange->setValue(QVariant::fromValue(newStatus));
-        sceneChangeEvent(valueChange);
-
-        // THEN
-        QCOMPARE(spy.count(), 1);
-        QCOMPARE(arbiter.events.size(), 0);
-        QCOMPARE(status(), newStatus);
-
-        // WHEN
-        spy.clear();
-        sceneChangeEvent(valueChange);
-
-        // THEN
-        QCOMPARE(spy.count(), 0);
-        QCOMPARE(arbiter.events.size(), 0);
-        QCOMPARE(status(), newStatus);
-    }
-
-    void checkRootJointPropertyUpdate()
-    {
-        // GIVEN
-        qRegisterMetaType<Qt3DCore::QJoint*>();
-        TestArbiter arbiter;
-        arbiter.setArbiterOnNode(this);
-        QSignalSpy spy(this, SIGNAL(rootJointChanged(Qt3DCore::QJoint*)));
-        std::unique_ptr<QJoint> root(new QJoint());
-
-        // THEN
-        QVERIFY(spy.isValid());
-        QVERIFY(rootJoint() == nullptr);
-
-        // WHEN
-        auto valueChange = QJointChangePtr::create(id());
-        valueChange->setDeliveryFlags(Qt3DCore::QSceneChange::Nodes);
-        valueChange->setPropertyName("rootJoint");
-        valueChange->data = std::move(root);
-        sceneChangeEvent(valueChange);
-
-        // THEN
-        QCOMPARE(spy.count(), 1);
-        QCOMPARE(arbiter.events.size(), 1);
-        QVERIFY(rootJoint() != nullptr);
+            // THEN
+            QCOMPARE(arbiter.events.size(), 0);
+            QCOMPARE(arbiter.events.size(), 0);
+        }
     }
 };
 

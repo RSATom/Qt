@@ -20,9 +20,13 @@
 #include <qtest.h>
 #include "../util.h"
 
+#include <QHBoxLayout>
+#include <QMainWindow>
+
 #include <qaccessible.h>
 #include <qwebengineview.h>
 #include <qwebenginepage.h>
+#include <qwebenginesettings.h>
 #include <qwidget.h>
 
 class tst_Accessibility : public QObject
@@ -38,6 +42,8 @@ public Q_SLOTS:
 private Q_SLOTS:
     void noPage();
     void hierarchy();
+    void focusChild();
+    void focusChild_data();
     void text();
     void value();
     void roles_data();
@@ -140,6 +146,80 @@ void tst_Accessibility::hierarchy()
         hitTest = hitTest->childAt(inputCenter.x(), inputCenter.y());
     }
     QCOMPARE(input, child);
+}
+
+void tst_Accessibility::focusChild_data()
+{
+    QTest::addColumn<QString>("interfaceName");
+    QTest::addColumn<QVector<QAccessible::Role>>("ancestorRoles");
+
+    QTest::newRow("QWebEngineView") << QString("QWebEngineView") << QVector<QAccessible::Role>({QAccessible::Client});
+    QTest::newRow("RenderWidgetHostViewQtDelegate") << QString("RenderWidgetHostViewQtDelegate") << QVector<QAccessible::Role>({QAccessible::Client});
+    QTest::newRow("QMainWindow") << QString("QMainWindow") << QVector<QAccessible::Role>({QAccessible::Window, QAccessible::Client /* central widget */, QAccessible::Client /* view */});
+}
+
+void tst_Accessibility::focusChild()
+{
+    auto traverseToWebDocumentAccessibleInterface = [](QAccessibleInterface *iface) -> QAccessibleInterface * {
+        QFETCH(QVector<QAccessible::Role>, ancestorRoles);
+        for (int i = 0; i < ancestorRoles.size(); ++i) {
+            if (iface->childCount() == 0 || iface->role() != ancestorRoles[i])
+                return nullptr;
+            iface = iface->child(0);
+        }
+
+        if (iface->role() != QAccessible::WebDocument)
+            return nullptr;
+
+        return iface;
+    };
+
+    QMainWindow mainWindow;
+    QWebEngineView *webView = new QWebEngineView;
+    QWidget *centralWidget = new QWidget;
+    QHBoxLayout *centralLayout = new QHBoxLayout;
+    centralWidget->setLayout(centralLayout);
+    mainWindow.setCentralWidget(centralWidget);
+    centralLayout->addWidget(webView);
+
+    mainWindow.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&mainWindow));
+
+    webView->settings()->setAttribute(QWebEngineSettings::FocusOnNavigationEnabled, true);
+    webView->setHtml("<html><body>" \
+        "<input id='input1' type='text' value='some text'/>" \
+        "</body></html>");
+    webView->show();
+    QSignalSpy spyFinished(webView, &QWebEngineView::loadFinished);
+    QVERIFY(spyFinished.wait());
+
+    QVERIFY(webView->focusWidget());
+    QAccessibleInterface *iface = nullptr;
+    QFETCH(QString, interfaceName);
+    if (interfaceName == "QWebEngineView")
+        iface = QAccessible::queryAccessibleInterface(webView);
+    else if (interfaceName == "RenderWidgetHostViewQtDelegate")
+        iface = QAccessible::queryAccessibleInterface(webView->focusWidget());
+    else if (interfaceName == "QMainWindow")
+        iface = QAccessible::queryAccessibleInterface(&mainWindow);
+    QVERIFY(iface);
+
+    // Make sure the input field does not have the focus.
+    evaluateJavaScriptSync(webView->page(), "document.getElementById('input1').blur()");
+    QTRY_VERIFY(evaluateJavaScriptSync(webView->page(), "document.activeElement.id").toString().isEmpty());
+
+    QVERIFY(iface->focusChild());
+    QTRY_COMPARE(iface->focusChild()->role(), QAccessible::WebDocument);
+    QCOMPARE(traverseToWebDocumentAccessibleInterface(iface), iface->focusChild());
+
+    // Set active focus on the input field.
+    evaluateJavaScriptSync(webView->page(), "document.getElementById('input1').focus()");
+    QTRY_COMPARE(evaluateJavaScriptSync(webView->page(), "document.activeElement.id").toString(), QStringLiteral("input1"));
+
+    QVERIFY(iface->focusChild());
+    QTRY_COMPARE(iface->focusChild()->role(), QAccessible::EditableText);
+    // <html> -> <body> -> <input>
+    QCOMPARE(traverseToWebDocumentAccessibleInterface(iface)->child(0)->child(0), iface->focusChild());
 }
 
 void tst_Accessibility::text()
@@ -365,7 +445,7 @@ void tst_Accessibility::roles_data()
     //QTest::newRow("AX_ROLE_TABLE_HEADER_CONTAINER"); // No mapping to ARIA role
     QTest::newRow("AX_ROLE_TAB") << QString("<div role='tab'>a</div>") << true << QAccessible::PageTab;
     QTest::newRow("AX_ROLE_TAB_LIST") << QString("<div role='tablist'>a</div>") << true << QAccessible::PageTabList;
-    QTest::newRow("AX_ROLE_TAB_PANEL") << QString("<div role='tab'>a</div>") << true << QAccessible::PageTab;
+    QTest::newRow("AX_ROLE_TAB_PANEL") << QString("<div role='tabpanel'>a</div>") << true << QAccessible::Pane;
     QTest::newRow("AX_ROLE_TERM") << QString("<div role='term'>a</div>") << true << QAccessible::StaticText;
     QTest::newRow("AX_ROLE_TEXT_FIELD") << QString("<input type='text'></input>") << false << QAccessible::EditableText;
     QTest::newRow("AX_ROLE_TIME") << QString("<time>a</time>") << false << QAccessible::Clock;
@@ -389,6 +469,7 @@ void tst_Accessibility::roles()
 
     QWebEngineView webView;
     webView.setHtml("<html><body>" + html + "</body></html>");
+    webView.show();
     QSignalSpy spyFinished(&webView, &QWebEngineView::loadFinished);
     QVERIFY(spyFinished.wait());
 

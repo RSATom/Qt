@@ -1,7 +1,7 @@
 /****************************************************************************
 **
 ** Copyright (C) 2018 The Qt Company Ltd.
-** Copyright (C) 2018 Intel Corporation.
+** Copyright (C) 2019 Intel Corporation.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtCore module of the Qt Toolkit.
@@ -42,7 +42,7 @@
 #include "qresource_p.h"
 #include "qresource_iterator_p.h"
 #include "qset.h"
-#include "qmutex.h"
+#include <private/qlocking_p.h>
 #include "qdebug.h"
 #include "qlocale.h"
 #include "qglobal.h"
@@ -147,7 +147,7 @@ private:
 public:
     mutable QAtomicInt ref;
 
-    inline QResourceRoot(): tree(0), names(0), payloads(0), version(0) {}
+    inline QResourceRoot(): tree(nullptr), names(nullptr), payloads(nullptr), version(0) {}
     inline QResourceRoot(int version, const uchar *t, const uchar *n, const uchar *d) { setSource(version, t, n, d); }
     virtual ~QResourceRoot() { }
     int findNode(const QString &path, const QLocale &locale=QLocale()) const;
@@ -165,7 +165,7 @@ public:
     quint64 lastModified(int node) const;
     QStringList children(int node) const;
     virtual QString mappingRoot() const { return QString(); }
-    bool mappingRootSubdir(const QString &path, QString *match=0) const;
+    bool mappingRootSubdir(const QString &path, QString *match = nullptr) const;
     inline bool operator==(const QResourceRoot &other) const
     { return tree == other.tree && names == other.names && payloads == other.payloads && version == other.version; }
     inline bool operator!=(const QResourceRoot &other) const
@@ -197,14 +197,14 @@ Q_DECLARE_TYPEINFO(QResourceRoot, Q_MOVABLE_TYPE);
 typedef QList<QResourceRoot*> ResourceList;
 struct QResourceGlobalData
 {
-    QMutex resourceMutex{QMutex::Recursive};
+    QRecursiveMutex resourceMutex;
     ResourceList resourceList;
     QStringList resourceSearchPaths;
 };
 Q_GLOBAL_STATIC(QResourceGlobalData, resourceGlobalData)
 
-static inline QMutex *resourceMutex()
-{ return &resourceGlobalData->resourceMutex; }
+static inline QRecursiveMutex &resourceMutex()
+{ return resourceGlobalData->resourceMutex; }
 
 static inline ResourceList *resourceList()
 { return &resourceGlobalData->resourceList; }
@@ -279,14 +279,14 @@ static inline QStringList *resourceSearchPaths()
     This enum is used by compressionAlgorithm() to indicate which algorithm the
     RCC tool used to compress the payload.
 
-    \value NoCompression    Contents are not compressed (isCompressed() is false).
-    \value ZlibCompression  Contents are compressed using \l{zlib}{https://zlib.net} and can
+    \value NoCompression    Contents are not compressed
+    \value ZlibCompression  Contents are compressed using \l{https://zlib.net}{zlib} and can
                             be decompressed using the qUncompress() function.
-    \value ZstdCompression  Contents are compressed using \l{zstd}{https://zstd.net}. To
+    \value ZstdCompression  Contents are compressed using \l{https://zstd.net}{zstd}. To
                             decompress, use the \c{ZSTD_decompress} function from the zstd
                             library.
 
-    \sa compressionAlgorithm(), isCompressed()
+    \sa compressionAlgorithm()
 */
 
 class QResourcePrivate {
@@ -320,7 +320,7 @@ QResourcePrivate::clear()
 {
     absoluteFilePath.clear();
     compressionAlgo = QResource::NoCompression;
-    data = 0;
+    data = nullptr;
     size = 0;
     children.clear();
     lastModified = 0;
@@ -337,7 +337,7 @@ bool
 QResourcePrivate::load(const QString &file)
 {
     related.clear();
-    QMutexLocker lock(resourceMutex());
+    const auto locker = qt_scoped_lock(resourceMutex());
     const ResourceList *list = resourceList();
     QString cleaned = cleanPath(file);
     for(int i = 0; i < list->size(); ++i) {
@@ -392,7 +392,7 @@ QResourcePrivate::ensureInitialized() const
     if(path.startsWith(QLatin1Char('/'))) {
         that->load(path.toString());
     } else {
-        QMutexLocker lock(resourceMutex());
+        const auto locker = qt_scoped_lock(resourceMutex());
         QStringList searchPaths = *resourceSearchPaths();
         searchPaths << QLatin1String("");
         for(int i = 0; i < searchPaths.size(); ++i) {
@@ -551,12 +551,19 @@ bool QResource::isValid() const
     \sa isDir()
 */
 
-
+#if QT_DEPRECATED_SINCE(5, 13)
 /*!
+    \obsolete
+
     Returns \c true if the resource represents a file and the data backing it
     is in a compressed format, false otherwise. If the data is compressed,
     check compressionAlgorithm() to verify what algorithm to use to decompress
     the data.
+
+    \note This function is deprecated and can be replaced with
+    \code
+      compressionAlgorithm() != NoCompression
+    \endcode
 
     \sa data(), compressionAlgorithm(), isFile()
 */
@@ -565,6 +572,7 @@ bool QResource::isCompressed() const
 {
     return compressionAlgorithm() != NoCompression;
 }
+#endif
 
 /*!
     \since 5.13
@@ -582,7 +590,7 @@ bool QResource::isCompressed() const
 
     See \l{http://facebook.github.io/zstd/zstd_manual.html}{Zstandard manual}.
 
-    \sa isCompressed(), data(), isFile()
+    \sa data(), isFile()
 */
 QResource::Compression QResource::compressionAlgorithm() const
 {
@@ -606,11 +614,11 @@ qint64 QResource::size() const
 
 /*!
     Returns direct access to a read only segment of data that this resource
-    represents. If the resource is compressed the data returns is
-    compressed and qUncompress() must be used to access the data. If the
-    resource is a directory \nullptr is returned.
+    represents. If the resource is compressed the data returned is compressed
+    and the appropriate library functions must be used to access the data. If
+    the resource is a directory \nullptr is returned.
 
-    \sa size(), isCompressed(), isFile()
+    \sa size(), compressionAlgorithm(), isFile()
 */
 
 const uchar *QResource::data() const
@@ -621,6 +629,8 @@ const uchar *QResource::data() const
 }
 
 /*!
+    \since 5.8
+
     Returns the date and time when the file was last modified before
     packaging into a resource.
 */
@@ -680,7 +690,7 @@ QResource::addSearchPath(const QString &path)
                  path.toLocal8Bit().data());
         return;
     }
-    QMutexLocker lock(resourceMutex());
+    const auto locker = qt_scoped_lock(resourceMutex());
     resourceSearchPaths()->prepend(path);
 }
 
@@ -698,7 +708,7 @@ QResource::addSearchPath(const QString &path)
 QStringList
 QResource::searchPaths()
 {
-    QMutexLocker lock(resourceMutex());
+    const auto locker = qt_scoped_lock(resourceMutex());
     return *resourceSearchPaths();
 }
 #endif
@@ -864,7 +874,7 @@ const uchar *QResourceRoot::data(int node, qint64 *size) const
 {
     if(node == -1) {
         *size = 0;
-        return 0;
+        return nullptr;
     }
     int offset = findOffset(node) + 4; //jump past name
 
@@ -881,7 +891,7 @@ const uchar *QResourceRoot::data(int node, qint64 *size) const
         return ret;
     }
     *size = 0;
-    return 0;
+    return nullptr;
 }
 
 quint64 QResourceRoot::lastModified(int node) const
@@ -942,12 +952,13 @@ Q_CORE_EXPORT bool qRegisterResourceData(int version, const unsigned char *tree,
 {
     if (resourceGlobalData.isDestroyed())
         return false;
-    QMutexLocker lock(resourceMutex());
+    const auto locker = qt_scoped_lock(resourceMutex());
+    ResourceList *list = resourceList();
     if (version >= 0x01 && version <= 0x3) {
         bool found = false;
         QResourceRoot res(version, tree, name, data);
-        for(int i = 0; i < resourceList()->size(); ++i) {
-            if(*resourceList()->at(i) == res) {
+        for (int i = 0; i < list->size(); ++i) {
+            if (*list->at(i) == res) {
                 found = true;
                 break;
             }
@@ -955,7 +966,7 @@ Q_CORE_EXPORT bool qRegisterResourceData(int version, const unsigned char *tree,
         if(!found) {
             QResourceRoot *root = new QResourceRoot(version, tree, name, data);
             root->ref.ref();
-            resourceList()->append(root);
+            list->append(root);
         }
         return true;
     }
@@ -968,12 +979,13 @@ Q_CORE_EXPORT bool qUnregisterResourceData(int version, const unsigned char *tre
     if (resourceGlobalData.isDestroyed())
         return false;
 
-    QMutexLocker lock(resourceMutex());
+    const auto locker = qt_scoped_lock(resourceMutex());
     if (version >= 0x01 && version <= 0x3) {
         QResourceRoot res(version, tree, name, data);
-        for(int i = 0; i < resourceList()->size(); ) {
-            if(*resourceList()->at(i) == res) {
-                QResourceRoot *root = resourceList()->takeAt(i);
+        ResourceList *list = resourceList();
+        for (int i = 0; i < list->size(); ) {
+            if (*list->at(i) == res) {
+                QResourceRoot *root = list->takeAt(i);
                 if(!root->ref.deref())
                     delete root;
             } else {
@@ -993,7 +1005,7 @@ class QDynamicBufferResourceRoot: public QResourceRoot
     const uchar *buffer;
 
 public:
-    inline QDynamicBufferResourceRoot(const QString &_root) : root(_root), buffer(0) { }
+    inline QDynamicBufferResourceRoot(const QString &_root) : root(_root), buffer(nullptr) { }
     inline ~QDynamicBufferResourceRoot() { }
     inline const uchar *mappingBuffer() const { return buffer; }
     QString mappingRoot() const override { return root; }
@@ -1065,12 +1077,14 @@ class QDynamicFileResourceRoot: public QDynamicBufferResourceRoot
     qsizetype unmapLength;
 
 public:
-    inline QDynamicFileResourceRoot(const QString &_root) : QDynamicBufferResourceRoot(_root), unmapPointer(0), unmapLength(0) { }
+    QDynamicFileResourceRoot(const QString &_root)
+        : QDynamicBufferResourceRoot(_root), unmapPointer(nullptr), unmapLength(0)
+    { }
     ~QDynamicFileResourceRoot() {
 #if defined(QT_USE_MMAP)
         if (unmapPointer) {
             munmap((char*)unmapPointer, unmapLength);
-            unmapPointer = 0;
+            unmapPointer = nullptr;
             unmapLength = 0;
         } else
 #endif
@@ -1186,7 +1200,7 @@ QResource::registerResource(const QString &rccFilename, const QString &resourceR
     QDynamicFileResourceRoot *root = new QDynamicFileResourceRoot(r);
     if(root->registerSelf(rccFilename)) {
         root->ref.ref();
-        QMutexLocker lock(resourceMutex());
+        const auto locker = qt_scoped_lock(resourceMutex());
         resourceList()->append(root);
         return true;
     }
@@ -1210,14 +1224,14 @@ QResource::unregisterResource(const QString &rccFilename, const QString &resourc
 {
     QString r = qt_resource_fixResourceRoot(resourceRoot);
 
-    QMutexLocker lock(resourceMutex());
+    const auto locker = qt_scoped_lock(resourceMutex());
     ResourceList *list = resourceList();
     for(int i = 0; i < list->size(); ++i) {
         QResourceRoot *res = list->at(i);
         if(res->type() == QResourceRoot::Resource_File) {
             QDynamicFileResourceRoot *root = reinterpret_cast<QDynamicFileResourceRoot*>(res);
             if (root->mappingFile() == rccFilename && root->mappingRoot() == r) {
-                resourceList()->removeAt(i);
+                list->removeAt(i);
                 if(!root->ref.deref()) {
                     delete root;
                     return true;
@@ -1257,7 +1271,7 @@ QResource::registerResource(const uchar *rccData, const QString &resourceRoot)
     QDynamicBufferResourceRoot *root = new QDynamicBufferResourceRoot(r);
     if (root->registerSelf(rccData, -1)) {
         root->ref.ref();
-        QMutexLocker lock(resourceMutex());
+        const auto locker = qt_scoped_lock(resourceMutex());
         resourceList()->append(root);
         return true;
     }
@@ -1281,14 +1295,14 @@ QResource::unregisterResource(const uchar *rccData, const QString &resourceRoot)
 {
     QString r = qt_resource_fixResourceRoot(resourceRoot);
 
-    QMutexLocker lock(resourceMutex());
+    const auto locker = qt_scoped_lock(resourceMutex());
     ResourceList *list = resourceList();
     for(int i = 0; i < list->size(); ++i) {
         QResourceRoot *res = list->at(i);
         if(res->type() == QResourceRoot::Resource_Buffer) {
             QDynamicBufferResourceRoot *root = reinterpret_cast<QDynamicBufferResourceRoot*>(res);
             if (root->mappingBuffer() == rccData && root->mappingRoot() == r) {
-                resourceList()->removeAt(i);
+                list->removeAt(i);
                 if(!root->ref.deref()) {
                     delete root;
                     return true;
@@ -1366,9 +1380,15 @@ bool QResourceFileEngine::open(QIODevice::OpenMode flags)
         qWarning("QResourceFileEngine::open: Missing file name");
         return false;
     }
-    if(flags & QIODevice::WriteOnly)
+    if (flags & QIODevice::WriteOnly)
         return false;
-    d->uncompress();
+    if (d->resource.compressionAlgorithm() != QResource::NoCompression) {
+        d->uncompress();
+        if (d->uncompressed.isNull()) {
+            d->errorString = QSystemError::stdString(EIO);
+            return false;
+        }
+    }
     if (!d->resource.isValid()) {
         d->errorString = QSystemError::stdString(ENOENT);
         return false;
@@ -1395,7 +1415,7 @@ qint64 QResourceFileEngine::read(char *data, qint64 len)
         len = size()-d->offset;
     if(len <= 0)
         return 0;
-    if(d->resource.isCompressed())
+    if (!d->uncompressed.isNull())
         memcpy(data, d->uncompressed.constData()+d->offset, len);
     else
         memcpy(data, d->resource.data()+d->offset, len);
@@ -1431,9 +1451,9 @@ bool QResourceFileEngine::link(const QString &)
 qint64 QResourceFileEngine::size() const
 {
     Q_D(const QResourceFileEngine);
-    if(!d->resource.isValid())
+    if (!d->resource.isValid())
         return 0;
-    if (d->resource.isCompressed()) {
+    if (d->resource.compressionAlgorithm() != QResource::NoCompression) {
         d->uncompress();
         return d->uncompressed.size();
     }
@@ -1596,7 +1616,7 @@ uchar *QResourceFileEnginePrivate::map(qint64 offset, qint64 size, QFile::Memory
     Q_UNUSED(flags);
 
     qint64 max = resource.size();
-    if (resource.isCompressed()) {
+    if (resource.compressionAlgorithm() != QResource::NoCompression) {
         uncompress();
         max = uncompressed.size();
     }
@@ -1609,7 +1629,7 @@ uchar *QResourceFileEnginePrivate::map(qint64 offset, qint64 size, QFile::Memory
     }
 
     const uchar *address = resource.data();
-    if (resource.isCompressed())
+    if (resource.compressionAlgorithm() != QResource::NoCompression)
         address = reinterpret_cast<const uchar *>(uncompressed.constData());
 
     return const_cast<uchar *>(address) + offset;

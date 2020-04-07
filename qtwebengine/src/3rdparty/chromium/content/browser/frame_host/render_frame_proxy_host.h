@@ -67,12 +67,10 @@ class RenderFrameProxyHost
     : public IPC::Listener,
       public IPC::Sender {
  public:
-  using DestructionCallback = base::OnceClosure;
-
   static RenderFrameProxyHost* FromID(int process_id, int routing_id);
 
   RenderFrameProxyHost(SiteInstance* site_instance,
-                       RenderViewHostImpl* render_view_host,
+                       scoped_refptr<RenderViewHostImpl> render_view_host,
                        FrameTreeNode* frame_tree_node);
   ~RenderFrameProxyHost() override;
 
@@ -92,7 +90,7 @@ class RenderFrameProxyHost
     return site_instance_.get();
   }
 
-  FrameTreeNode* frame_tree_node() const { return frame_tree_node_; };
+  FrameTreeNode* frame_tree_node() const { return frame_tree_node_; }
 
   // Associates the RenderWidgetHostViewChildFrame |view| with this
   // RenderFrameProxyHost. If |initial_frame_size| isn't specified at this time,
@@ -135,7 +133,7 @@ class RenderFrameProxyHost
   // Continues to bubble a logical scroll from the frame's process. Bubbling
   // continues from the frame owner element in the parent process.
   void BubbleLogicalScroll(blink::WebScrollDirection direction,
-                           blink::WebScrollGranularity granularity);
+                           ui::input_types::ScrollGranularity granularity);
 
   void set_render_frame_proxy_created(bool created) {
     render_frame_proxy_created_ = created;
@@ -143,9 +141,6 @@ class RenderFrameProxyHost
 
   // Returns if the RenderFrameProxy for this host is alive.
   bool is_render_frame_proxy_live() { return render_frame_proxy_created_; }
-
-  // Sets a callback that is run when this is destroyed.
-  void SetDestructionCallback(DestructionCallback destruction_callback);
 
  private:
   // IPC Message handlers.
@@ -182,12 +177,14 @@ class RenderFrameProxyHost
   // parent's renderer process.
   std::unique_ptr<CrossProcessFrameConnector> cross_process_frame_connector_;
 
-  // The RenderViewHost that this RenderFrameProxyHost is associated with. It is
-  // kept alive as long as any RenderFrameHosts or RenderFrameProxyHosts
-  // are associated with it.
-  RenderViewHostImpl* render_view_host_;
-
-  DestructionCallback destruction_callback_;
+  // The RenderViewHost that this RenderFrameProxyHost is associated with.
+  //
+  // It is kept alive as long as any RenderFrameHosts or RenderFrameProxyHosts
+  // are using it.
+  //
+  // TODO(creis): RenderViewHost will eventually go away and be replaced with
+  // some form of page context.
+  scoped_refptr<RenderViewHostImpl> render_view_host_;
 
   DISALLOW_COPY_AND_ASSIGN(RenderFrameProxyHost);
 };

@@ -438,6 +438,10 @@
 #define WTF_OS_WINDOWS 1
 #endif
 
+#ifdef __rtems__
+#define WTF_OS_RTEMS 1
+#endif
+
 #define WTF_OS_WIN ERROR "USE WINDOWS WITH OS NOT WIN"
 #define WTF_OS_MAC ERROR "USE MAC_OS_X WITH OS NOT MAC"
 
@@ -451,6 +455,7 @@
     || OS(NETBSD)           \
     || OS(OPENBSD)          \
     || OS(QNX)              \
+    || OS(RTEMS)            \
     || OS(SOLARIS)          \
     || defined(unix)        \
     || defined(__unix)      \
@@ -1051,6 +1056,7 @@
 #if CPU(ARM64) || (CPU(X86_64) && !OS(WINDOWS))
 /* Enable JIT'ing Regular Expressions that have nested parenthesis. */
 #define ENABLE_YARR_JIT_ALL_PARENS_EXPRESSIONS 1
+#define ENABLE_YARR_JIT_BACKREFERENCES 1
 #endif
 #endif
 

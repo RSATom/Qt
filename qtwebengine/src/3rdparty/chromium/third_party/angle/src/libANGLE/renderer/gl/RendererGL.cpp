@@ -13,6 +13,7 @@
 #include "common/debug.h"
 #include "libANGLE/AttributeMap.h"
 #include "libANGLE/Context.h"
+#include "libANGLE/Display.h"
 #include "libANGLE/Path.h"
 #include "libANGLE/State.h"
 #include "libANGLE/Surface.h"
@@ -21,6 +22,7 @@
 #include "libANGLE/renderer/gl/ClearMultiviewGL.h"
 #include "libANGLE/renderer/gl/CompilerGL.h"
 #include "libANGLE/renderer/gl/ContextGL.h"
+#include "libANGLE/renderer/gl/DisplayGL.h"
 #include "libANGLE/renderer/gl/FenceNVGL.h"
 #include "libANGLE/renderer/gl/FramebufferGL.h"
 #include "libANGLE/renderer/gl/FunctionsGL.h"
@@ -55,6 +57,27 @@ std::vector<GLuint> GatherPaths(const std::vector<gl::Path *> &paths)
     return ret;
 }
 
+void SetMaxShaderCompilerThreads(const rx::FunctionsGL *functions, GLuint count)
+{
+    if (functions->maxShaderCompilerThreadsKHR != nullptr)
+    {
+        functions->maxShaderCompilerThreadsKHR(count);
+    }
+    else
+    {
+        ASSERT(functions->maxShaderCompilerThreadsARB != nullptr);
+        functions->maxShaderCompilerThreadsARB(count);
+    }
+}
+
+#if defined(ANGLE_PLATFORM_ANDROID)
+const char *kIgnoredErrors[] = {
+    // Wrong error message on Android Q Pixel 2. http://anglebug.com/3491
+    "FreeAllocationOnTimestamp - Reference to buffer created from "
+    "different context without a share list. Application failed to pass "
+    "share_context to eglCreateContext. Results are undefined.",
+};
+#endif  // defined(ANGLE_PLATFORM_ANDROID)
 }  // namespace
 
 static void INTERNAL_GL_APIENTRY LogGLDebugMessage(GLenum source,
@@ -140,6 +163,21 @@ static void INTERNAL_GL_APIENTRY LogGLDebugMessage(GLenum source,
             break;
     }
 
+#if defined(ANGLE_PLATFORM_ANDROID)
+    if (type == GL_DEBUG_TYPE_ERROR)
+    {
+        for (const char *&err : kIgnoredErrors)
+        {
+            if (strncmp(err, message, length) == 0)
+            {
+                // There is only one ignored message right now and it is quite spammy, around 3MB
+                // for a complete end2end tests run, so don't print it even as a warning.
+                return;
+            }
+        }
+    }
+#endif  // defined(ANGLE_PLATFORM_ANDROID)
+
     if (type == GL_DEBUG_TYPE_ERROR)
     {
         ERR() << std::endl
@@ -167,7 +205,9 @@ static void INTERNAL_GL_APIENTRY LogGLDebugMessage(GLenum source,
 namespace rx
 {
 
-RendererGL::RendererGL(std::unique_ptr<FunctionsGL> functions, const egl::AttributeMap &attribMap)
+RendererGL::RendererGL(std::unique_ptr<FunctionsGL> functions,
+                       const egl::AttributeMap &attribMap,
+                       DisplayGL *display)
     : mMaxSupportedESVersion(0, 0),
       mFunctions(std::move(functions)),
       mStateManager(nullptr),
@@ -175,12 +215,15 @@ RendererGL::RendererGL(std::unique_ptr<FunctionsGL> functions, const egl::Attrib
       mMultiviewClearer(nullptr),
       mUseDebugOutput(false),
       mCapsInitialized(false),
-      mMultiviewImplementationType(MultiviewImplementationTypeGL::UNSPECIFIED)
+      mMultiviewImplementationType(MultiviewImplementationTypeGL::UNSPECIFIED),
+      mNativeParallelCompileEnabled(false)
 {
     ASSERT(mFunctions);
-    nativegl_gl::GenerateWorkarounds(mFunctions.get(), &mWorkarounds);
-    mStateManager = new StateManagerGL(mFunctions.get(), getNativeCaps(), getNativeExtensions());
-    mBlitter      = new BlitGL(mFunctions.get(), mWorkarounds, mStateManager);
+    nativegl_gl::InitializeFeatures(mFunctions.get(), &mFeatures);
+    OverrideFeaturesWithDisplayState(&mFeatures, display->getState());
+    mStateManager =
+        new StateManagerGL(mFunctions.get(), getNativeCaps(), getNativeExtensions(), mFeatures);
+    mBlitter          = new BlitGL(mFunctions.get(), mFeatures, mStateManager);
     mMultiviewClearer = new ClearMultiviewGL(mFunctions.get(), mStateManager);
 
     bool hasDebugOutput = mFunctions->isAtLeastGL(gl::Version(4, 3)) ||
@@ -205,7 +248,7 @@ RendererGL::RendererGL(std::unique_ptr<FunctionsGL> functions, const egl::Attrib
         mFunctions->debugMessageCallback(&LogGLDebugMessage, nullptr);
     }
 
-    if (mWorkarounds.initializeCurrentVertexAttributes)
+    if (mFeatures.initializeCurrentVertexAttributes.enabled)
     {
         GLint maxVertexAttribs = 0;
         mFunctions->getIntegerv(GL_MAX_VERTEX_ATTRIBS, &maxVertexAttribs);
@@ -214,6 +257,12 @@ RendererGL::RendererGL(std::unique_ptr<FunctionsGL> functions, const egl::Attrib
         {
             mFunctions->vertexAttrib4f(i, 0.0f, 0.0f, 0.0f, 1.0f);
         }
+    }
+
+    if (hasNativeParallelCompile() && !mNativeParallelCompileEnabled)
+    {
+        SetMaxShaderCompilerThreads(mFunctions.get(), 0xffffffff);
+        mNativeParallelCompileEnabled = true;
     }
 }
 
@@ -237,14 +286,14 @@ angle::Result RendererGL::flush()
 
 angle::Result RendererGL::finish()
 {
-    if (mWorkarounds.finishDoesNotCauseQueriesToBeAvailable && mUseDebugOutput)
+    if (mFeatures.finishDoesNotCauseQueriesToBeAvailable.enabled && mUseDebugOutput)
     {
         mFunctions->enable(GL_DEBUG_OUTPUT_SYNCHRONOUS);
     }
 
     mFunctions->finish();
 
-    if (mWorkarounds.finishDoesNotCauseQueriesToBeAvailable && mUseDebugOutput)
+    if (mFeatures.finishDoesNotCauseQueriesToBeAvailable.enabled && mUseDebugOutput)
     {
         mFunctions->disable(GL_DEBUG_OUTPUT_SYNCHRONOUS);
     }
@@ -411,9 +460,9 @@ void RendererGL::stencilThenCoverStrokePathInstanced(const gl::State &state,
     ASSERT(mFunctions->getError() == GL_NO_ERROR);
 }
 
-GLenum RendererGL::getResetStatus()
+gl::GraphicsResetStatus RendererGL::getResetStatus()
 {
-    return mFunctions->getGraphicsResetStatus();
+    return gl::FromGLenum<gl::GraphicsResetStatus>(mFunctions->getGraphicsResetStatus());
 }
 
 void RendererGL::insertEventMarker(GLsizei length, const char *marker) {}
@@ -422,7 +471,7 @@ void RendererGL::pushGroupMarker(GLsizei length, const char *marker) {}
 
 void RendererGL::popGroupMarker() {}
 
-void RendererGL::pushDebugGroup(GLenum source, GLuint id, GLsizei length, const char *message) {}
+void RendererGL::pushDebugGroup(GLenum source, GLuint id, const std::string &message) {}
 
 void RendererGL::popDebugGroup() {}
 
@@ -475,9 +524,8 @@ void RendererGL::generateCaps(gl::Caps *outCaps,
                               gl::Extensions *outExtensions,
                               gl::Limitations * /* outLimitations */) const
 {
-    nativegl_gl::GenerateCaps(mFunctions.get(), mWorkarounds, outCaps, outTextureCaps,
-                              outExtensions, &mMaxSupportedESVersion,
-                              &mMultiviewImplementationType);
+    nativegl_gl::GenerateCaps(mFunctions.get(), mFeatures, outCaps, outTextureCaps, outExtensions,
+                              &mMaxSupportedESVersion, &mMultiviewImplementationType);
 }
 
 GLint RendererGL::getGPUDisjoint()
@@ -532,10 +580,10 @@ MultiviewImplementationTypeGL RendererGL::getMultiviewImplementationType() const
     return mMultiviewImplementationType;
 }
 
-void RendererGL::applyNativeWorkarounds(gl::Workarounds *workarounds) const
+void RendererGL::initializeFrontendFeatures(angle::FrontendFeatures *features) const
 {
     ensureCapsInitialized();
-    nativegl_gl::ApplyWorkarounds(mFunctions.get(), workarounds);
+    nativegl_gl::InitializeFrontendFeatures(mFunctions.get(), features);
 }
 
 angle::Result RendererGL::dispatchCompute(const gl::Context *context,
@@ -566,7 +614,7 @@ angle::Result RendererGL::memoryBarrierByRegion(GLbitfield barriers)
 
 bool RendererGL::bindWorkerContext(std::string *infoLog)
 {
-    if (mWorkarounds.disableWorkerContexts)
+    if (mFeatures.disableWorkerContexts.enabled)
     {
         return false;
     }
@@ -615,6 +663,20 @@ unsigned int RendererGL::getMaxWorkerContexts()
 {
     // No more than 16 worker contexts.
     return std::min(16u, std::thread::hardware_concurrency());
+}
+
+bool RendererGL::hasNativeParallelCompile()
+{
+    return mFunctions->maxShaderCompilerThreadsKHR != nullptr ||
+           mFunctions->maxShaderCompilerThreadsARB != nullptr;
+}
+
+void RendererGL::setMaxShaderCompilerThreads(GLuint count)
+{
+    if (hasNativeParallelCompile())
+    {
+        SetMaxShaderCompilerThreads(mFunctions.get(), count);
+    }
 }
 
 ScopedWorkerContextGL::ScopedWorkerContextGL(RendererGL *renderer, std::string *infoLog)

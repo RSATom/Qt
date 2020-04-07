@@ -5,21 +5,30 @@
 #ifndef UI_VIEWS_CONTROLS_BUTTON_BUTTON_H_
 #define UI_VIEWS_CONTROLS_BUTTON_BUTTON_H_
 
+#include <memory>
+
+#include "base/bind.h"
 #include "base/macros.h"
 #include "build/build_config.h"
 #include "ui/events/event_constants.h"
-#include "ui/gfx/animation/animation_delegate.h"
 #include "ui/gfx/animation/throb_animation.h"
 #include "ui/native_theme/native_theme.h"
+#include "ui/views/animation/animation_delegate_views.h"
 #include "ui/views/animation/ink_drop_host_view.h"
 #include "ui/views/animation/ink_drop_state.h"
+#include "ui/views/controls/button/button_controller_delegate.h"
 #include "ui/views/controls/focus_ring.h"
 #include "ui/views/painter.h"
 #include "ui/views/widget/widget_observer.h"
 
 namespace views {
+namespace test {
+class ButtonTestApi;
+}
 
 class Button;
+class ButtonController;
+class ButtonObserver;
 class Event;
 
 // An interface implemented by an object to let it know that a button was
@@ -29,15 +38,17 @@ class VIEWS_EXPORT ButtonListener {
   virtual void ButtonPressed(Button* sender, const ui::Event& event) = 0;
 
  protected:
-  virtual ~ButtonListener() {}
+  virtual ~ButtonListener() = default;
 };
 
 // A View representing a button. A Button is not focusable by default and will
 // not be part of the focus chain, unless in accessibility mode (see
 // SetFocusForPlatform()).
 class VIEWS_EXPORT Button : public InkDropHostView,
-                            public gfx::AnimationDelegate {
+                            public AnimationDelegateViews {
  public:
+  METADATA_HEADER(Button);
+
   ~Button() override;
 
   // Button states for various button sub-types.
@@ -47,14 +58,6 @@ class VIEWS_EXPORT Button : public InkDropHostView,
     STATE_PRESSED,
     STATE_DISABLED,
     STATE_COUNT,
-  };
-
-  // Button styles with associated images and border painters.
-  // TODO(msw): Add Menu, ComboBox, etc.
-  enum ButtonStyle {
-    STYLE_BUTTON = 0,
-    STYLE_TEXTBUTTON,
-    STYLE_COUNT,
   };
 
   // An enum describing the events on which a button should notify its listener.
@@ -70,9 +73,6 @@ class VIEWS_EXPORT Button : public InkDropHostView,
     CLICK_ON_KEY_RELEASE,
     CLICK_NONE,
   };
-
-  // The menu button's class name.
-  static const char kViewClassName[];
 
   static const Button* AsButton(const View* view);
   static Button* AsButton(View* view);
@@ -138,6 +138,8 @@ class VIEWS_EXPORT Button : public InkDropHostView,
     notify_action_ = notify_action;
   }
 
+  NotifyAction notify_action() const { return notify_action_; }
+
   void set_hide_ink_drop_when_showing_context_menu(
       bool hide_ink_drop_when_showing_context_menu) {
     hide_ink_drop_when_showing_context_menu_ =
@@ -158,9 +160,10 @@ class VIEWS_EXPORT Button : public InkDropHostView,
   // Highlights the ink drop for the button.
   void SetHighlighted(bool bubble_visible);
 
+  void AddButtonObserver(ButtonObserver* observer);
+  void RemoveButtonObserver(ButtonObserver* observer);
+
   // Overridden from View:
-  void OnEnabledChanged() override;
-  const char* GetClassName() const override;
   bool OnMousePressed(const ui::MouseEvent& event) override;
   bool OnMouseDragged(const ui::MouseEvent& event) override;
   void OnMouseReleased(const ui::MouseEvent& event) override;
@@ -173,8 +176,7 @@ class VIEWS_EXPORT Button : public InkDropHostView,
   void OnGestureEvent(ui::GestureEvent* event) override;
   bool AcceleratorPressed(const ui::Accelerator& accelerator) override;
   bool SkipDefaultKeyEventProcessing(const ui::KeyEvent& event) override;
-  bool GetTooltipText(const gfx::Point& p,
-                      base::string16* tooltip) const override;
+  base::string16 GetTooltipText(const gfx::Point& p) const override;
   void ShowContextMenu(const gfx::Point& p,
                        ui::MenuSourceType source_type) override;
   void OnDragDone() override;
@@ -194,19 +196,47 @@ class VIEWS_EXPORT Button : public InkDropHostView,
   std::unique_ptr<InkDrop> CreateInkDrop() override;
   SkColor GetInkDropBaseColor() const override;
 
-  // Overridden from gfx::AnimationDelegate:
+  // Overridden from views::AnimationDelegateViews:
   void AnimationProgressed(const gfx::Animation* animation) override;
-
- protected:
-  // Construct the Button with a Listener. The listener can be null. This can be
-  // true of buttons that don't have a listener - e.g. menubuttons where there's
-  // no default action and checkboxes.
-  explicit Button(ButtonListener* listener);
 
   // Returns the click action for the given key event.
   // Subclasses may override this method to support default actions for key
   // events.
+  // TODO(cyan): Move this into the ButtonController.
   virtual KeyClickAction GetKeyClickActionForEvent(const ui::KeyEvent& event);
+
+  ButtonController* button_controller() const {
+    return button_controller_.get();
+  }
+
+ protected:
+  // TODO(cyan): Consider having Button implement ButtonControllerDelegate.
+  class DefaultButtonControllerDelegate : public ButtonControllerDelegate {
+   public:
+    explicit DefaultButtonControllerDelegate(Button* button);
+    ~DefaultButtonControllerDelegate() override;
+
+    // views::ButtonControllerDelegate:
+    void RequestFocusFromEvent() override;
+    void NotifyClick(const ui::Event& event) override;
+    void OnClickCanceled(const ui::Event& event) override;
+    bool IsTriggerableEvent(const ui::Event& event) override;
+    bool ShouldEnterPushedState(const ui::Event& event) override;
+    bool ShouldEnterHoveredState() override;
+    InkDrop* GetInkDrop() override;
+    int GetDragOperations(const gfx::Point& press_pt) override;
+    bool InDrag() override;
+
+   private:
+    DISALLOW_COPY_AND_ASSIGN(DefaultButtonControllerDelegate);
+  };
+
+  std::unique_ptr<ButtonControllerDelegate> CreateButtonControllerDelegate();
+
+  // Construct the Button with a Listener. The listener can be null. This can be
+  // true of buttons that don't have a listener - e.g. menubuttons where there's
+  // no default action and checkboxes.
+  explicit Button(ButtonListener* listener);
 
   // Called when the button has been clicked or tapped and should request focus
   // if necessary.
@@ -231,6 +261,8 @@ class VIEWS_EXPORT Button : public InkDropHostView,
 
   // Returns true if the event is one that can trigger notifying the listener.
   // This implementation returns true if the left mouse button is down.
+  // TODO(cyan): Remove this method and move the implementation into
+  // ButtonController.
   virtual bool IsTriggerableEvent(const ui::Event& event);
 
   // Returns true if the ink drop should be updated by Button when
@@ -261,10 +293,13 @@ class VIEWS_EXPORT Button : public InkDropHostView,
 
   FocusRing* focus_ring() { return focus_ring_.get(); }
 
+  void SetButtonController(std::unique_ptr<ButtonController> button_controller);
+
   // The button's listener. Notified when clicked.
   ButtonListener* listener_;
 
  private:
+  friend class test::ButtonTestApi;
   FRIEND_TEST_ALL_PREFIXES(BlueButtonTest, Border);
 
   // Bridge class to allow Button to observe a Widget without being a
@@ -274,7 +309,7 @@ class VIEWS_EXPORT Button : public InkDropHostView,
   // well.
   class WidgetObserverButtonBridge : public WidgetObserver {
    public:
-    WidgetObserverButtonBridge(Button* owner);
+    explicit WidgetObserverButtonBridge(Button* owner);
     ~WidgetObserverButtonBridge() override;
 
     // WidgetObserver:
@@ -286,6 +321,8 @@ class VIEWS_EXPORT Button : public InkDropHostView,
 
     DISALLOW_COPY_AND_ASSIGN(WidgetObserverButtonBridge);
   };
+
+  void OnEnabledChanged();
 
   void WidgetActivationChanged(Widget* widget, bool active);
 
@@ -335,6 +372,18 @@ class VIEWS_EXPORT Button : public InkDropHostView,
   std::unique_ptr<Painter> focus_painter_;
 
   std::unique_ptr<WidgetObserverButtonBridge> widget_observer_;
+
+  // ButtonController is responsible for handling events sent to the Button and
+  // related state changes from the events.
+  // TODO(cyan): Make sure all state changes are handled within
+  // ButtonController.
+  std::unique_ptr<ButtonController> button_controller_;
+
+  PropertyChangedSubscription enabled_changed_subscription_{
+      AddEnabledChangedCallback(base::BindRepeating(&Button::OnEnabledChanged,
+                                                    base::Unretained(this)))};
+
+  base::ObserverList<ButtonObserver> button_observers_;
 
   DISALLOW_COPY_AND_ASSIGN(Button);
 };

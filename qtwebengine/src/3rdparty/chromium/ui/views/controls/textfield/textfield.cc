@@ -7,21 +7,22 @@
 #include <string>
 #include <utility>
 
+#if defined(OS_WIN)
+#include <vector>
+#endif
+
 #include "base/command_line.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/trace_event/trace_event.h"
 #include "build/build_config.h"
 #include "ui/accessibility/ax_action_data.h"
 #include "ui/accessibility/ax_node_data.h"
-#include "ui/aura/client/aura_constants.h"
-#include "ui/aura/window.h"
 #include "ui/base/clipboard/scoped_clipboard_writer.h"
 #include "ui/base/cursor/cursor.h"
 #include "ui/base/default_style.h"
 #include "ui/base/dragdrop/drag_drop_types.h"
 #include "ui/base/ime/constants.h"
 #include "ui/base/ime/input_method.h"
-#include "ui/base/ime/text_edit_commands.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/base/ui_base_switches.h"
 #include "ui/base/ui_base_switches_util.h"
@@ -70,6 +71,7 @@
 #endif
 
 #if defined(OS_CHROMEOS)
+#include "ui/aura/window.h"
 #include "ui/wm/core/ime_util_chromeos.h"
 #endif
 
@@ -83,14 +85,14 @@ namespace views {
 namespace {
 
 #if defined(OS_MACOSX)
-const gfx::SelectionBehavior kLineSelectionBehavior = gfx::SELECTION_EXTEND;
-const gfx::SelectionBehavior kWordSelectionBehavior = gfx::SELECTION_CARET;
-const gfx::SelectionBehavior kMoveParagraphSelectionBehavior =
+constexpr gfx::SelectionBehavior kLineSelectionBehavior = gfx::SELECTION_EXTEND;
+constexpr gfx::SelectionBehavior kWordSelectionBehavior = gfx::SELECTION_CARET;
+constexpr gfx::SelectionBehavior kMoveParagraphSelectionBehavior =
     gfx::SELECTION_CARET;
 #else
-const gfx::SelectionBehavior kLineSelectionBehavior = gfx::SELECTION_RETAIN;
-const gfx::SelectionBehavior kWordSelectionBehavior = gfx::SELECTION_RETAIN;
-const gfx::SelectionBehavior kMoveParagraphSelectionBehavior =
+constexpr gfx::SelectionBehavior kLineSelectionBehavior = gfx::SELECTION_RETAIN;
+constexpr gfx::SelectionBehavior kWordSelectionBehavior = gfx::SELECTION_RETAIN;
+constexpr gfx::SelectionBehavior kMoveParagraphSelectionBehavior =
     gfx::SELECTION_RETAIN;
 #endif
 
@@ -215,12 +217,21 @@ ui::TextEditCommand GetTextEditCommandFromMenuCommand(int command_id,
 
 base::TimeDelta GetPasswordRevealDuration(const ui::KeyEvent& event) {
   // The key event may carries the property that indicates it was from the
-  // virtual keyboard.
-  // In that case, reveals the password characters for 1 second.
+  // virtual keyboard and mirroring is not occurring
+  // In that case, reveal the password characters for 1 second.
   auto* properties = event.properties();
   bool from_vk =
       properties && properties->find(ui::kPropertyFromVK) != properties->end();
-  return from_vk ? base::TimeDelta::FromSeconds(1) : base::TimeDelta();
+  if (from_vk) {
+    std::vector<uint8_t> fromVKPropertyArray =
+        properties->find(ui::kPropertyFromVK)->second;
+    DCHECK_GT(fromVKPropertyArray.size(), ui::kPropertyFromVKIsMirroringIndex);
+    uint8_t is_mirroring =
+        fromVKPropertyArray[ui::kPropertyFromVKIsMirroringIndex];
+    if (!is_mirroring)
+      return base::TimeDelta::FromSeconds(1);
+  }
+  return base::TimeDelta();
 }
 
 bool IsControlKeyModifier(int flags) {
@@ -236,9 +247,6 @@ bool IsControlKeyModifier(int flags) {
 }
 
 }  // namespace
-
-// static
-const char Textfield::kViewClassName[] = "Textfield";
 
 // static
 base::TimeDelta Textfield::GetCaretBlinkInterval() {
@@ -265,39 +273,15 @@ const gfx::FontList& Textfield::GetDefaultFontList() {
 
 Textfield::Textfield()
     : model_(new TextfieldModel(this)),
-      controller_(NULL),
-      scheduled_text_edit_command_(ui::TextEditCommand::INVALID_COMMAND),
-      read_only_(false),
-      default_width_in_chars_(0),
-      minimum_width_in_chars_(-1),
-      use_default_text_color_(true),
-      use_default_background_color_(true),
-      use_default_selection_text_color_(true),
-      use_default_selection_background_color_(true),
-      text_color_(SK_ColorBLACK),
-      background_color_(SK_ColorWHITE),
-      selection_text_color_(SK_ColorWHITE),
-      selection_background_color_(SK_ColorBLUE),
       placeholder_text_draw_flags_(gfx::Canvas::DefaultCanvasTextAlignment()),
-      invalid_(false),
-      label_ax_id_(0),
-      text_input_type_(ui::TEXT_INPUT_TYPE_TEXT),
-      text_input_flags_(0),
-      performing_user_action_(false),
-      skip_input_method_cancel_composition_(false),
-      drop_cursor_visible_(false),
-      initiating_drag_(false),
-      selection_controller_(this),
-      drag_start_display_offset_(0),
-      touch_handles_hidden_due_to_scroll_(false),
-      use_focus_ring_(true),
-      weak_ptr_factory_(this) {
+      selection_controller_(this) {
   set_context_menu_controller(this);
   set_drag_controller(this);
   cursor_view_.SetPaintToLayer(ui::LAYER_SOLID_COLOR);
   cursor_view_.layer()->SetColor(GetTextColor());
   // |cursor_view_| is owned by Textfield view.
   cursor_view_.set_owned_by_client();
+  cursor_view_.GetViewAccessibility().OverrideIsIgnored(true);
   AddChildView(&cursor_view_);
   GetRenderText()->SetFontList(GetDefaultFontList());
   UpdateBorder();
@@ -438,7 +422,7 @@ SkColor Textfield::GetBackgroundColor() const {
     return background_color_;
 
   return GetNativeTheme()->GetSystemColor(
-      read_only() || !enabled()
+      read_only() || !GetEnabled()
           ? ui::NativeTheme::kColorId_TextfieldReadOnlyBackground
           : ui::NativeTheme::kColorId_TextfieldDefaultBackground);
 }
@@ -544,7 +528,7 @@ void Textfield::SetHorizontalAlignment(gfx::HorizontalAlignment alignment) {
 
 void Textfield::ShowVirtualKeyboardIfEnabled() {
   // GetInputMethod() may return nullptr in tests.
-  if (enabled() && !read_only() && GetInputMethod())
+  if (GetEnabled() && !read_only() && GetInputMethod())
     GetInputMethod()->ShowVirtualKeyboardIfEnabled();
 }
 
@@ -618,6 +602,11 @@ void Textfield::SetGlyphSpacing(int spacing) {
   GetRenderText()->set_glyph_spacing(spacing);
 }
 
+void Textfield::SetExtraInsets(const gfx::Insets& insets) {
+  extra_insets_ = insets;
+  UpdateBorder();
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 // Textfield, View overrides:
 
@@ -642,10 +631,6 @@ gfx::Size Textfield::GetMinimumSize() const {
         GetFontList().GetExpectedTextWidth(minimum_width_in_chars_) +
         GetInsets().width());
   return minimum_size;
-}
-
-const char* Textfield::GetClassName() const {
-  return kViewClassName;
 }
 
 void Textfield::SetBorder(std::unique_ptr<Border> b) {
@@ -698,6 +683,8 @@ bool Textfield::OnMouseDragged(const ui::MouseEvent& event) {
 }
 
 void Textfield::OnMouseReleased(const ui::MouseEvent& event) {
+  if (controller_)
+    controller_->HandleMouseEvent(this, event);
   selection_controller_.OnMouseReleased(event);
 }
 
@@ -731,9 +718,9 @@ bool Textfield::OnKeyPressed(const ui::KeyEvent& event) {
       ui::GetTextEditKeyBindingsDelegate();
   std::vector<ui::TextEditCommandAuraLinux> commands;
   if (!handled && delegate && delegate->MatchEvent(event, &commands)) {
-    for (size_t i = 0; i < commands.size(); ++i) {
-      if (IsTextEditCommandEnabled(commands[i].command())) {
-        ExecuteTextEditCommand(commands[i].command());
+    for (const auto& command : commands) {
+      if (IsTextEditCommandEnabled(command.command())) {
+        ExecuteTextEditCommand(command.command());
         handled = true;
       }
     }
@@ -824,7 +811,8 @@ void Textfield::OnGestureEvent(ui::GestureEvent* event) {
         event->SetHandled();
       break;
     case ui::ET_GESTURE_SCROLL_BEGIN:
-      touch_handles_hidden_due_to_scroll_ = touch_selection_controller_ != NULL;
+      touch_handles_hidden_due_to_scroll_ =
+          touch_selection_controller_ != nullptr;
       DestroyTouchSelection();
       drag_start_location_ = event->location();
       drag_start_display_offset_ =
@@ -900,9 +888,11 @@ bool Textfield::SkipDefaultKeyEventProcessing(const ui::KeyEvent& event) {
       ui::GetTextEditKeyBindingsDelegate();
   std::vector<ui::TextEditCommandAuraLinux> commands;
   if (delegate && delegate->MatchEvent(event, &commands)) {
-    for (size_t i = 0; i < commands.size(); ++i)
-      if (IsTextEditCommandEnabled(commands[i].command()))
-        return true;
+    const auto is_enabled = [this](const auto& command) {
+      return IsTextEditCommandEnabled(command.command());
+    };
+    if (std::any_of(commands.cbegin(), commands.cend(), is_enabled))
+      return true;
   }
 #endif
 
@@ -915,7 +905,7 @@ bool Textfield::SkipDefaultKeyEventProcessing(const ui::KeyEvent& event) {
 bool Textfield::GetDropFormats(
     int* formats,
     std::set<ui::ClipboardFormatType>* format_types) {
-  if (!enabled() || read_only())
+  if (!GetEnabled() || read_only())
     return false;
   // TODO(msw): Can we support URL, FILENAME, etc.?
   *formats = ui::OSExchangeData::STRING;
@@ -928,7 +918,8 @@ bool Textfield::CanDrop(const OSExchangeData& data) {
   int formats;
   std::set<ui::ClipboardFormatType> format_types;
   GetDropFormats(&formats, &format_types);
-  return enabled() && !read_only() && data.HasAnyFormat(formats, format_types);
+  return GetEnabled() && !read_only() &&
+         data.HasAnyFormat(formats, format_types);
 }
 
 int Textfield::OnDragUpdated(const ui::DropTargetEvent& event) {
@@ -1018,7 +1009,7 @@ void Textfield::GetAccessibleNodeData(ui::AXNodeData* node_data) {
   // Editable state indicates support of editable interface, and is always set
   // for a textfield, even if disabled or readonly.
   node_data->AddState(ax::mojom::State::kEditable);
-  if (enabled()) {
+  if (GetEnabled()) {
     node_data->SetDefaultActionVerb(ax::mojom::DefaultActionVerb::kActivate);
     // Only readonly if enabled. Don't overwrite the disabled restriction.
     if (read_only())
@@ -1074,9 +1065,10 @@ void Textfield::OnBoundsChanged(const gfx::Rect& previous_bounds) {
   // beyond their legibility, or enlarging controls dynamically with content.
   gfx::Rect bounds = GetLocalBounds();
   const gfx::Insets insets = GetInsets();
-  // The text will draw with the correct verticial alignment if we don't apply
+  // The text will draw with the correct vertical alignment if we don't apply
   // the vertical insets.
   bounds.Inset(insets.left(), 0, insets.right(), 0);
+  bounds.set_x(GetMirroredXForRect(bounds));
   GetRenderText()->SetDisplayRect(bounds);
   OnCaretBoundsChanged();
   UpdateCursorViewPosition();
@@ -1092,13 +1084,6 @@ void Textfield::OnVisibleBoundsChanged() {
     touch_selection_controller_->SelectionChanged();
 }
 
-void Textfield::OnEnabledChanged() {
-  View::OnEnabledChanged();
-  if (GetInputMethod())
-    GetInputMethod()->OnTextInputTypeChanged(this);
-  SchedulePaint();
-}
-
 void Textfield::OnPaint(gfx::Canvas* canvas) {
   OnPaintBackground(canvas);
   PaintTextAndCursor(canvas);
@@ -1112,7 +1097,8 @@ void Textfield::OnFocus() {
 
 #if defined(OS_MACOSX)
   if (text_input_type_ == ui::TEXT_INPUT_TYPE_PASSWORD)
-    password_input_enabler_.reset(new ui::ScopedPasswordInputEnabler());
+    password_input_enabler_ =
+        std::make_unique<ui::ScopedPasswordInputEnabler>();
 #endif  // defined(OS_MACOSX)
 
   GetRenderText()->set_focused(true);
@@ -1163,7 +1149,7 @@ gfx::Point Textfield::GetKeyboardContextMenuLocation() {
   return GetCaretBounds().bottom_right();
 }
 
-void Textfield::OnNativeThemeChanged(const ui::NativeTheme* theme) {
+void Textfield::OnThemeChanged() {
   gfx::RenderText* render_text = GetRenderText();
   render_text->SetColor(GetTextColor());
   UpdateBackgroundColor();
@@ -1181,16 +1167,20 @@ void Textfield::OnCompositionTextConfirmedOrCleared() {
     GetInputMethod()->CancelComposition(this);
 }
 
+void Textfield::OnTextChanged() {
+  OnPropertyChanged(&model_ + kTextProperty, kPropertyEffectsPaint);
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 // Textfield, ContextMenuController overrides:
 
-void Textfield::ShowContextMenuForView(View* source,
-                                       const gfx::Point& point,
-                                       ui::MenuSourceType source_type) {
+void Textfield::ShowContextMenuForViewImpl(View* source,
+                                           const gfx::Point& point,
+                                           ui::MenuSourceType source_type) {
   UpdateContextMenu();
-  context_menu_runner_->RunMenuAt(GetWidget(), NULL,
+  context_menu_runner_->RunMenuAt(GetWidget(), nullptr,
                                   gfx::Rect(point, gfx::Size()),
-                                  MENU_ANCHOR_TOPLEFT, source_type);
+                                  MenuAnchorPosition::kTopLeft, source_type);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1225,7 +1215,7 @@ void Textfield::WriteDragDataForView(View* sender,
                         GetWidget()->GetCompositor()->is_pixel_canvas())
           .context(),
       label.size()));
-  const gfx::Vector2d kOffset(-15, 0);
+  constexpr gfx::Vector2d kOffset(-15, 0);
   gfx::ImageSkia image(gfx::ImageSkiaRep(bitmap, raster_scale));
   data->provider().SetDragImage(image, kOffset);
   if (controller_)
@@ -1234,7 +1224,7 @@ void Textfield::WriteDragDataForView(View* sender,
 
 int Textfield::GetDragOperationsForView(View* sender, const gfx::Point& p) {
   int drag_operations = ui::DragDropTypes::DRAG_COPY;
-  if (!enabled() || text_input_type_ == ui::TEXT_INPUT_TYPE_PASSWORD ||
+  if (!GetEnabled() || text_input_type_ == ui::TEXT_INPUT_TYPE_PASSWORD ||
       !GetRenderText()->IsPointInSelection(p)) {
     drag_operations = ui::DragDropTypes::DRAG_NONE;
   } else if (sender == this && !read_only()) {
@@ -1377,7 +1367,7 @@ bool Textfield::IsCommandIdEnabled(int command_id) const {
     return text_services_context_menu_->IsCommandIdEnabled(command_id);
   }
 
-  return Textfield::IsTextEditCommandEnabled(
+  return IsTextEditCommandEnabled(
       GetTextEditCommandFromMenuCommand(command_id, HasSelection()));
 }
 
@@ -1505,7 +1495,7 @@ void Textfield::InsertChar(const ui::KeyEvent& event) {
 }
 
 ui::TextInputType Textfield::GetTextInputType() const {
-  if (read_only() || !enabled())
+  if (read_only() || !GetEnabled())
     return ui::TEXT_INPUT_TYPE_NONE;
   return text_input_type_;
 }
@@ -1718,7 +1708,7 @@ bool Textfield::IsTextEditCommandEnabled(ui::TextEditCommand command) const {
       return readable && model_->HasSelection();
     case ui::TextEditCommand::PASTE:
       ui::Clipboard::GetForCurrentThread()->ReadText(
-          ui::CLIPBOARD_TYPE_COPY_PASTE, &result);
+          ui::ClipboardType::kCopyPaste, &result);
       return editable && !result.empty();
     case ui::TextEditCommand::SELECT_ALL:
       return !text().empty() && GetSelectedRange().length() != text().length();
@@ -1769,6 +1759,30 @@ bool Textfield::ShouldDoLearning() {
   return false;
 }
 
+#if defined(OS_WIN) || defined(OS_CHROMEOS)
+// TODO(https://crbug.com/952355): Implement this method to support Korean IME reconversion feature
+// on native text fields (e.g. find bar).
+bool Textfield::SetCompositionFromExistingText(
+    const gfx::Range& range,
+    const std::vector<ui::ImeTextSpan>& ui_ime_text_spans) {
+  // TODO(https://crbug.com/952355): Support custom text spans.
+  DCHECK(!model_->HasCompositionText());
+  model_->SetCompositionFromExistingText(range);
+  SchedulePaint();
+  OnAfterUserAction();
+  return true;
+}
+#endif
+
+#if defined(OS_WIN)
+// TODO(https://crbug.com/952355): Implement this method once TSF supports reconversion
+// features on native text fields.
+void Textfield::SetActiveCompositionForAccessibility(
+    const gfx::Range& range,
+    const base::string16& active_composition_text,
+    bool is_composition_committed) {}
+#endif
+
 ////////////////////////////////////////////////////////////////////////////////
 // Textfield, protected:
 
@@ -1792,7 +1806,7 @@ gfx::Point Textfield::GetLastClickRootLocation() const {
 
 base::string16 Textfield::GetSelectionClipboardText() const {
   base::string16 selection_clipboard_text;
-  ui::Clipboard::GetForCurrentThread()->ReadText(ui::CLIPBOARD_TYPE_SELECTION,
+  ui::Clipboard::GetForCurrentThread()->ReadText(ui::ClipboardType::kSelection,
                                                  &selection_clipboard_text);
   return selection_clipboard_text;
 }
@@ -1822,7 +1836,7 @@ void Textfield::ExecuteTextEditCommand(ui::TextEditCommand command) {
 
   // We only execute the commands enabled in Textfield::IsTextEditCommandEnabled
   // below. Hence don't do a virtual IsTextEditCommandEnabled call.
-  if (!Textfield::IsTextEditCommandEnabled(command))
+  if (!IsTextEditCommandEnabled(command))
     return;
 
   bool text_changed = false;
@@ -1841,13 +1855,19 @@ void Textfield::ExecuteTextEditCommand(ui::TextEditCommand command) {
       text_changed = cursor_changed = model_->Delete(add_to_kill_buffer);
       break;
     case ui::TextEditCommand::DELETE_TO_BEGINNING_OF_LINE:
-    case ui::TextEditCommand::DELETE_TO_BEGINNING_OF_PARAGRAPH:
       model_->MoveCursor(gfx::LINE_BREAK, begin, gfx::SELECTION_RETAIN);
       text_changed = cursor_changed = model_->Backspace(add_to_kill_buffer);
       break;
+    case ui::TextEditCommand::DELETE_TO_BEGINNING_OF_PARAGRAPH:
+      model_->MoveCursor(gfx::FIELD_BREAK, begin, gfx::SELECTION_RETAIN);
+      text_changed = cursor_changed = model_->Backspace(add_to_kill_buffer);
+      break;
     case ui::TextEditCommand::DELETE_TO_END_OF_LINE:
-    case ui::TextEditCommand::DELETE_TO_END_OF_PARAGRAPH:
       model_->MoveCursor(gfx::LINE_BREAK, end, gfx::SELECTION_RETAIN);
+      text_changed = cursor_changed = model_->Delete(add_to_kill_buffer);
+      break;
+    case ui::TextEditCommand::DELETE_TO_END_OF_PARAGRAPH:
+      model_->MoveCursor(gfx::FIELD_BREAK, end, gfx::SELECTION_RETAIN);
       text_changed = cursor_changed = model_->Delete(add_to_kill_buffer);
       break;
     case ui::TextEditCommand::DELETE_WORD_BACKWARD:
@@ -1886,46 +1906,55 @@ void Textfield::ExecuteTextEditCommand(ui::TextEditCommand command) {
       model_->MoveCursor(gfx::CHARACTER_BREAK, gfx::CURSOR_RIGHT,
                          gfx::SELECTION_RETAIN);
       break;
-    case ui::TextEditCommand::MOVE_TO_BEGINNING_OF_DOCUMENT:
     case ui::TextEditCommand::MOVE_TO_BEGINNING_OF_LINE:
+      model_->MoveCursor(gfx::LINE_BREAK, begin, gfx::SELECTION_NONE);
+      break;
+    case ui::TextEditCommand::MOVE_TO_BEGINNING_OF_DOCUMENT:
     case ui::TextEditCommand::MOVE_TO_BEGINNING_OF_PARAGRAPH:
     case ui::TextEditCommand::MOVE_UP:
     case ui::TextEditCommand::MOVE_PAGE_UP:
-      model_->MoveCursor(gfx::LINE_BREAK, begin, gfx::SELECTION_NONE);
+      model_->MoveCursor(gfx::FIELD_BREAK, begin, gfx::SELECTION_NONE);
+      break;
+    case ui::TextEditCommand::MOVE_TO_BEGINNING_OF_LINE_AND_MODIFY_SELECTION:
+      model_->MoveCursor(gfx::LINE_BREAK, begin, kLineSelectionBehavior);
       break;
     case ui::TextEditCommand::
         MOVE_TO_BEGINNING_OF_DOCUMENT_AND_MODIFY_SELECTION:
-    case ui::TextEditCommand::MOVE_TO_BEGINNING_OF_LINE_AND_MODIFY_SELECTION:
     case ui::TextEditCommand::
         MOVE_TO_BEGINNING_OF_PARAGRAPH_AND_MODIFY_SELECTION:
-      model_->MoveCursor(gfx::LINE_BREAK, begin, kLineSelectionBehavior);
+      model_->MoveCursor(gfx::FIELD_BREAK, begin, kLineSelectionBehavior);
       break;
     case ui::TextEditCommand::MOVE_PAGE_UP_AND_MODIFY_SELECTION:
     case ui::TextEditCommand::MOVE_UP_AND_MODIFY_SELECTION:
-      model_->MoveCursor(gfx::LINE_BREAK, begin, gfx::SELECTION_RETAIN);
+      model_->MoveCursor(gfx::FIELD_BREAK, begin, gfx::SELECTION_RETAIN);
+      break;
+    case ui::TextEditCommand::MOVE_TO_END_OF_LINE:
+      model_->MoveCursor(gfx::LINE_BREAK, end, gfx::SELECTION_NONE);
       break;
     case ui::TextEditCommand::MOVE_TO_END_OF_DOCUMENT:
-    case ui::TextEditCommand::MOVE_TO_END_OF_LINE:
     case ui::TextEditCommand::MOVE_TO_END_OF_PARAGRAPH:
     case ui::TextEditCommand::MOVE_DOWN:
     case ui::TextEditCommand::MOVE_PAGE_DOWN:
-      model_->MoveCursor(gfx::LINE_BREAK, end, gfx::SELECTION_NONE);
+      model_->MoveCursor(gfx::FIELD_BREAK, end, gfx::SELECTION_NONE);
+      break;
+    case ui::TextEditCommand::MOVE_TO_END_OF_LINE_AND_MODIFY_SELECTION:
+      model_->MoveCursor(gfx::LINE_BREAK, end, kLineSelectionBehavior);
       break;
     case ui::TextEditCommand::MOVE_TO_END_OF_DOCUMENT_AND_MODIFY_SELECTION:
-    case ui::TextEditCommand::MOVE_TO_END_OF_LINE_AND_MODIFY_SELECTION:
     case ui::TextEditCommand::MOVE_TO_END_OF_PARAGRAPH_AND_MODIFY_SELECTION:
-      model_->MoveCursor(gfx::LINE_BREAK, end, kLineSelectionBehavior);
+      model_->MoveCursor(gfx::FIELD_BREAK, end, kLineSelectionBehavior);
       break;
     case ui::TextEditCommand::MOVE_PAGE_DOWN_AND_MODIFY_SELECTION:
     case ui::TextEditCommand::MOVE_DOWN_AND_MODIFY_SELECTION:
-      model_->MoveCursor(gfx::LINE_BREAK, end, gfx::SELECTION_RETAIN);
+      model_->MoveCursor(gfx::FIELD_BREAK, end, gfx::SELECTION_RETAIN);
       break;
     case ui::TextEditCommand::MOVE_PARAGRAPH_BACKWARD_AND_MODIFY_SELECTION:
-      model_->MoveCursor(gfx::LINE_BREAK, begin,
+      model_->MoveCursor(gfx::FIELD_BREAK, begin,
                          kMoveParagraphSelectionBehavior);
       break;
     case ui::TextEditCommand::MOVE_PARAGRAPH_FORWARD_AND_MODIFY_SELECTION:
-      model_->MoveCursor(gfx::LINE_BREAK, end, kMoveParagraphSelectionBehavior);
+      model_->MoveCursor(gfx::FIELD_BREAK, end,
+                         kMoveParagraphSelectionBehavior);
       break;
     case ui::TextEditCommand::MOVE_WORD_BACKWARD:
       model_->MoveCursor(gfx::WORD_BREAK, begin, gfx::SELECTION_NONE);
@@ -2006,6 +2035,12 @@ bool Textfield::ShouldShowPlaceholderText() const {
   return text().empty() && !GetPlaceholderText().empty();
 }
 
+views::PropertyChangedSubscription Textfield::AddTextChangedCallback(
+    views::PropertyChangedCallback callback) {
+  return AddPropertyChangedCallback(&model_ + kTextProperty,
+                                    std::move(callback));
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 // Textfield, private:
 
@@ -2078,10 +2113,10 @@ bool Textfield::PasteSelectionClipboard() {
 void Textfield::UpdateSelectionClipboard() {
 #if defined(OS_LINUX) && !defined(OS_CHROMEOS)
   if (text_input_type_ != ui::TEXT_INPUT_TYPE_PASSWORD) {
-    ui::ScopedClipboardWriter(ui::CLIPBOARD_TYPE_SELECTION)
+    ui::ScopedClipboardWriter(ui::ClipboardType::kSelection)
         .WriteText(GetSelectedText());
     if (controller_)
-      controller_->OnAfterCutOrCopy(ui::CLIPBOARD_TYPE_SELECTION);
+      controller_->OnAfterCutOrCopy(ui::ClipboardType::kSelection);
   }
 #endif
 }
@@ -2103,8 +2138,14 @@ void Textfield::UpdateBorder() {
   auto border = std::make_unique<views::FocusableBorder>();
   const LayoutProvider* provider = LayoutProvider::Get();
   border->SetInsets(
-      provider->GetDistanceMetric(DISTANCE_CONTROL_VERTICAL_TEXT_PADDING),
-      provider->GetDistanceMetric(DISTANCE_TEXTFIELD_HORIZONTAL_TEXT_PADDING));
+      extra_insets_.top() +
+          provider->GetDistanceMetric(DISTANCE_CONTROL_VERTICAL_TEXT_PADDING),
+      extra_insets_.left() + provider->GetDistanceMetric(
+                                 DISTANCE_TEXTFIELD_HORIZONTAL_TEXT_PADDING),
+      extra_insets_.bottom() +
+          provider->GetDistanceMetric(DISTANCE_CONTROL_VERTICAL_TEXT_PADDING),
+      extra_insets_.right() + provider->GetDistanceMetric(
+                                  DISTANCE_TEXTFIELD_HORIZONTAL_TEXT_PADDING));
   if (invalid_)
     border->SetColorId(ui::NativeTheme::kColorId_AlertSeverityHigh);
   View::SetBorder(std::move(border));
@@ -2144,8 +2185,8 @@ void Textfield::UpdateCursorViewPosition() {
 }
 
 int Textfield::GetTextStyle() const {
-  return (read_only() || !enabled()) ? style::STYLE_DISABLED
-                                     : style::STYLE_PRIMARY;
+  return (read_only() || !GetEnabled()) ? style::STYLE_DISABLED
+                                        : style::STYLE_PRIMARY;
 }
 
 void Textfield::PaintTextAndCursor(gfx::Canvas* canvas) {
@@ -2231,7 +2272,7 @@ bool Textfield::Cut() {
   if (!read_only() && text_input_type_ != ui::TEXT_INPUT_TYPE_PASSWORD &&
       model_->Cut()) {
     if (controller_)
-      controller_->OnAfterCutOrCopy(ui::CLIPBOARD_TYPE_COPY_PASTE);
+      controller_->OnAfterCutOrCopy(ui::ClipboardType::kCopyPaste);
     return true;
   }
   return false;
@@ -2240,7 +2281,7 @@ bool Textfield::Cut() {
 bool Textfield::Copy() {
   if (text_input_type_ != ui::TEXT_INPUT_TYPE_PASSWORD && model_->Copy()) {
     if (controller_)
-      controller_->OnAfterCutOrCopy(ui::CLIPBOARD_TYPE_COPY_PASTE);
+      controller_->OnAfterCutOrCopy(ui::ClipboardType::kCopyPaste);
     return true;
   }
   return false;
@@ -2257,11 +2298,12 @@ bool Textfield::Paste() {
 
 void Textfield::UpdateContextMenu() {
   // TextfieldController may modify Textfield's menu, so the menu should be
-  // recreated each time it's shown. Reset the MenuRunner first so it doesn't
-  // reference the old menu model.
+  // recreated each time it's shown. Destroy the existing objects in the reverse
+  // order of creation.
   context_menu_runner_.reset();
+  context_menu_contents_.reset();
 
-  context_menu_contents_.reset(new ui::SimpleMenuModel(this));
+  context_menu_contents_ = std::make_unique<ui::SimpleMenuModel>(this);
   context_menu_contents_->AddItemWithStringId(IDS_APP_UNDO, IDS_APP_UNDO);
   context_menu_contents_->AddSeparator(ui::NORMAL_SEPARATOR);
   context_menu_contents_->AddItemWithStringId(IDS_APP_CUT, IDS_APP_CUT);
@@ -2299,8 +2341,8 @@ void Textfield::RevealPasswordChar(int index, base::TimeDelta duration) {
   if (index != -1) {
     password_reveal_timer_.Start(
         FROM_HERE, duration,
-        base::Bind(&Textfield::RevealPasswordChar,
-                   weak_ptr_factory_.GetWeakPtr(), -1, duration));
+        base::BindOnce(&Textfield::RevealPasswordChar,
+                       weak_ptr_factory_.GetWeakPtr(), -1, duration));
   }
 }
 
@@ -2321,7 +2363,7 @@ void Textfield::OnEditFailed() {
 }
 
 bool Textfield::ShouldShowCursor() const {
-  return HasFocus() && !HasSelection() && enabled() && !read_only() &&
+  return HasFocus() && !HasSelection() && GetEnabled() && !read_only() &&
          !drop_cursor_visible_ && GetRenderText()->cursor_enabled();
 }
 
@@ -2342,7 +2384,16 @@ void Textfield::StopBlinkingCursor() {
 void Textfield::OnCursorBlinkTimerFired() {
   DCHECK(ShouldBlinkCursor());
   UpdateCursorViewPosition();
-  cursor_view_.SetVisible(!cursor_view_.visible());
+  cursor_view_.SetVisible(!cursor_view_.GetVisible());
 }
+
+void Textfield::OnEnabledChanged() {
+  if (GetInputMethod())
+    GetInputMethod()->OnTextInputTypeChanged(this);
+}
+
+BEGIN_METADATA(Textfield)
+METADATA_PARENT_CLASS(View)
+END_METADATA()
 
 }  // namespace views

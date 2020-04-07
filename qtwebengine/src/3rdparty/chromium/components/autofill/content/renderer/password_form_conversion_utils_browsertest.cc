@@ -19,7 +19,6 @@
 #include "components/autofill/core/browser/form_structure.h"
 #include "components/autofill/core/common/form_field_data.h"
 #include "components/autofill/core/common/password_form.h"
-#include "components/password_manager/core/common/password_manager_features.h"
 #include "content/public/test/render_view_test.h"
 #include "google_apis/gaia/gaia_urls.h"
 #include "testing/gmock/include/gmock/gmock.h"
@@ -38,6 +37,9 @@ using blink::WebInputElement;
 using blink::WebVector;
 
 namespace autofill {
+
+using mojom::PasswordFormFieldPredictionType;
+
 namespace {
 
 const char kTestFormActionURL[] = "http://cnn.com";
@@ -312,10 +314,10 @@ TEST_F(PasswordFormConversionUtilsTest, BasicFormAttributes) {
   EXPECT_EQ(base::UTF8ToUTF16("johnsmith"), password_form->username_value);
   EXPECT_EQ(base::UTF8ToUTF16("password"), password_form->password_element);
   EXPECT_EQ(base::UTF8ToUTF16("secret"), password_form->password_value);
-  EXPECT_EQ(PasswordForm::SCHEME_HTML, password_form->scheme);
+  EXPECT_EQ(PasswordForm::Scheme::kHtml, password_form->scheme);
   EXPECT_FALSE(password_form->preferred);
   EXPECT_FALSE(password_form->blacklisted_by_user);
-  EXPECT_EQ(PasswordForm::TYPE_MANUAL, password_form->type);
+  EXPECT_EQ(PasswordForm::Type::kManual, password_form->type);
 }
 
 TEST_F(PasswordFormConversionUtilsTest, DisabledFieldsAreIgnored) {
@@ -358,10 +360,6 @@ TEST_F(PasswordFormConversionUtilsTest, OnlyDisabledFields) {
 }
 
 TEST_F(PasswordFormConversionUtilsTest, HTMLDetector_DeveloperGroupAttributes) {
-  base::test::ScopedFeatureList feature_list;
-  feature_list.InitAndEnableFeature(
-      password_manager::features::kHtmlBasedUsernameDetector);
-
   // Each test case consists of a set of parameters to be plugged into the
   // PasswordFormBuilder below, plus the corresponding expectations.
   // The test data contains cases that are identified by HTML detector, and not
@@ -480,10 +478,6 @@ TEST_F(PasswordFormConversionUtilsTest, HTMLDetector_DeveloperGroupAttributes) {
 }
 
 TEST_F(PasswordFormConversionUtilsTest, HTMLDetector_SeveralDetections) {
-  base::test::ScopedFeatureList feature_list;
-  feature_list.InitAndEnableFeature(
-      password_manager::features::kHtmlBasedUsernameDetector);
-
   // If word matches in more than 2 fields, we don't match on it.
   // We search for match with another word.
   PasswordFormBuilder builder(kTestFormActionURL);
@@ -513,10 +507,6 @@ TEST_F(PasswordFormConversionUtilsTest, HTMLDetector_SeveralDetections) {
 }
 
 TEST_F(PasswordFormConversionUtilsTest, HTMLDetector_UserGroupAttributes) {
-  base::test::ScopedFeatureList feature_list;
-  feature_list.InitAndEnableFeature(
-      password_manager::features::kHtmlBasedUsernameDetector);
-
   // Each test case consists of a set of parameters to be plugged into the
   // PasswordFormBuilder below, plus the corresponding expectations.
   // The test data contains cases that are identified by HTML detector, and not
@@ -633,10 +623,6 @@ TEST_F(PasswordFormConversionUtilsTest, HTMLDetector_UserGroupAttributes) {
 }
 
 TEST_F(PasswordFormConversionUtilsTest, HTMLDetectorCache) {
-  base::test::ScopedFeatureList feature_list;
-  feature_list.InitAndEnableFeature(
-      password_manager::features::kHtmlBasedUsernameDetector);
-
   PasswordFormBuilder builder(kTestFormActionURL);
   builder.AddTextField("unknown", "12345", nullptr);
   builder.AddTextField("something", "smith", nullptr);
@@ -764,7 +750,7 @@ TEST_F(PasswordFormConversionUtilsTest,
     const char* autocomplete[3];
     const char* expected_username_element;
     const char* expected_username_value;
-    const char* expected_other_possible_usernames;
+    const char* expected_all_possible_usernames;
   } cases[] = {
       // When no elements are marked with autocomplete='username', the text-type
       // input field before the first password element should get selected as
@@ -775,7 +761,7 @@ TEST_F(PasswordFormConversionUtilsTest,
        "John+usrname1, Smith+usrname3"},
       // When a sole element is marked with autocomplete='username', it should
       // be treated as the username, but other text fields should be added to
-      // |other_possible_usernames|.
+      // |all_possible_usernames|.
       {{"username", nullptr, nullptr},
        "usrname1",
        "John",
@@ -789,7 +775,7 @@ TEST_F(PasswordFormConversionUtilsTest,
        "Smith",
        "John+usrname1, William+usrname2"},
       // When >=2 elements have the attribute, the first should be selected as
-      // the username, and the rest should go to |other_possible_usernames|.
+      // the username, and the rest should go to |all_possible_usernames|.
       {{"username", "username", nullptr},
        "usrname1",
        "John",
@@ -835,7 +821,7 @@ TEST_F(PasswordFormConversionUtilsTest,
                    << (nonempty_username_fields ? "nonempty" : "empty"));
 
       // Repeat each test once with empty, and once with non-empty usernames.
-      // In the former case, no empty other_possible_usernames should be saved.
+      // In the former case, no empty all_possible_usernames should be saved.
       const char* names[3];
       if (nonempty_username_fields) {
         names[0] = "John";
@@ -865,12 +851,12 @@ TEST_F(PasswordFormConversionUtilsTest,
       if (nonempty_username_fields) {
         EXPECT_EQ(base::UTF8ToUTF16(cases[i].expected_username_value),
                   password_form->username_value);
-        EXPECT_EQ(base::UTF8ToUTF16(cases[i].expected_other_possible_usernames),
-                  ValueElementVectorToString(
-                      password_form->other_possible_usernames));
+        EXPECT_EQ(
+            base::UTF8ToUTF16(cases[i].expected_all_possible_usernames),
+            ValueElementVectorToString(password_form->all_possible_usernames));
       } else {
         EXPECT_TRUE(password_form->username_value.empty());
-        EXPECT_TRUE(password_form->other_possible_usernames.empty());
+        EXPECT_TRUE(password_form->all_possible_usernames.empty());
       }
 
       // Do a basic sanity check that we are still having a password field.
@@ -935,7 +921,7 @@ TEST_F(PasswordFormConversionUtilsTest, IdentifyingTwoPasswordFields) {
     EXPECT_EQ(base::UTF8ToUTF16("usrname1"), password_form->username_element);
     EXPECT_EQ(base::UTF8ToUTF16("William"), password_form->username_value);
     EXPECT_THAT(
-        password_form->other_possible_usernames,
+        password_form->all_possible_usernames,
         testing::ElementsAre(ValueElementPair(base::UTF8ToUTF16("Smith"),
                                               base::UTF8ToUTF16("usrname2"))));
   }
@@ -1005,7 +991,7 @@ TEST_F(PasswordFormConversionUtilsTest, IdentifyingThreePasswordFields) {
     EXPECT_EQ(base::UTF8ToUTF16("usrname1"), password_form->username_element);
     EXPECT_EQ(base::UTF8ToUTF16("William"), password_form->username_value);
     EXPECT_THAT(
-        password_form->other_possible_usernames,
+        password_form->all_possible_usernames,
         testing::ElementsAre(ValueElementPair(base::UTF8ToUTF16("Smith"),
                                               base::UTF8ToUTF16("usrname2"))));
   }
@@ -1364,12 +1350,12 @@ TEST_F(PasswordFormConversionUtilsTest,
               password_form->username_value);
     if (strcmp(cases[i].expected_username_value, "William") == 0) {
       EXPECT_THAT(
-          password_form->other_possible_usernames,
+          password_form->all_possible_usernames,
           testing::ElementsAre(ValueElementPair(
               base::UTF8ToUTF16("Smith"), base::UTF8ToUTF16("usrname2"))));
     } else {
       EXPECT_THAT(
-          password_form->other_possible_usernames,
+          password_form->all_possible_usernames,
           testing::ElementsAre(ValueElementPair(
               base::UTF8ToUTF16("William"), base::UTF8ToUTF16("usrname1"))));
     }
@@ -1875,7 +1861,7 @@ TEST_F(PasswordFormConversionUtilsTest, CreditCardNumberWithTypePasswordForm) {
   std::string html = builder.ProduceHTML();
 
   std::map<int, PasswordFormFieldPredictionType> predictions_positions;
-  predictions_positions[1] = PREDICTION_NOT_PASSWORD;
+  predictions_positions[1] = PasswordFormFieldPredictionType::kNotPassword;
 
   FormsPredictionsMap predictions;
   SetPredictions(html, &predictions, predictions_positions);
@@ -1903,7 +1889,7 @@ TEST_F(PasswordFormConversionUtilsTest, UsernamePredictionFromServer) {
   std::string html = builder.ProduceHTML();
 
   std::map<int, PasswordFormFieldPredictionType> predictions_positions;
-  predictions_positions[0] = PREDICTION_USERNAME;
+  predictions_positions[0] = PasswordFormFieldPredictionType::kUsername;
   FormsPredictionsMap predictions;
   SetPredictions(html, &predictions, predictions_positions);
 
@@ -1931,7 +1917,7 @@ TEST_F(PasswordFormConversionUtilsTest,
   std::string html = builder.ProduceHTML();
 
   std::map<int, PasswordFormFieldPredictionType> predictions_positions;
-  predictions_positions[0] = PREDICTION_USERNAME;
+  predictions_positions[0] = PasswordFormFieldPredictionType::kUsername;
   FormsPredictionsMap predictions;
   SetPredictions(html, &predictions, predictions_positions);
 
@@ -1962,7 +1948,7 @@ TEST_F(PasswordFormConversionUtilsTest,
   std::string html = builder.ProduceHTML();
 
   std::map<int, PasswordFormFieldPredictionType> predictions_positions;
-  predictions_positions[2] = PREDICTION_NOT_PASSWORD;
+  predictions_positions[2] = PasswordFormFieldPredictionType::kNotPassword;
 
   FormsPredictionsMap predictions;
   SetPredictions(html, &predictions, predictions_positions);
@@ -1990,7 +1976,7 @@ TEST_F(PasswordFormConversionUtilsTest,
   std::string html = builder.ProduceHTML();
 
   std::map<int, PasswordFormFieldPredictionType> predictions_positions;
-  predictions_positions[1] = PREDICTION_NOT_PASSWORD;
+  predictions_positions[1] = PasswordFormFieldPredictionType::kNotPassword;
 
   FormsPredictionsMap predictions;
   SetPredictions(html, &predictions, predictions_positions);
@@ -2018,7 +2004,7 @@ TEST_F(PasswordFormConversionUtilsTest,
   std::string html = builder.ProduceHTML();
 
   std::map<int, PasswordFormFieldPredictionType> predictions_positions;
-  predictions_positions[2] = PREDICTION_NOT_PASSWORD;
+  predictions_positions[2] = PasswordFormFieldPredictionType::kNotPassword;
 
   FormsPredictionsMap predictions;
   SetPredictions(html, &predictions, predictions_positions);
@@ -2285,9 +2271,6 @@ TEST_F(PasswordFormConversionUtilsTest,
 TEST_F(PasswordFormConversionUtilsTest, ResetPasswordForm) {
   // GetPassword (including HTML classifier) should process correctly forms
   // without any text fields.
-  base::test::ScopedFeatureList feature_list;
-  feature_list.InitAndEnableFeature(
-      password_manager::features::kHtmlBasedUsernameDetector);
   PasswordFormBuilder builder(kTestFormActionURL);
   builder.AddPasswordField("password", "secret", nullptr);
   builder.AddSubmitButton("submit");

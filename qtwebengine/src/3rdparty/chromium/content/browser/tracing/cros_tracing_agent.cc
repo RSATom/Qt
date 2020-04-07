@@ -19,10 +19,11 @@
 #include "chromeos/dbus/debug_daemon_client.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "services/service_manager/public/cpp/connector.h"
-#include "services/tracing/public/cpp/perfetto/producer_client.h"
+#include "services/tracing/public/cpp/perfetto/perfetto_producer.h"
+#include "services/tracing/public/cpp/perfetto/perfetto_traced_process.h"
 #include "services/tracing/public/mojom/constants.mojom.h"
 #include "services/tracing/public/mojom/perfetto_service.mojom.h"
-#include "third_party/perfetto/include/perfetto/tracing/core/trace_writer.h"
+#include "third_party/perfetto/include/perfetto/ext/tracing/core/trace_writer.h"
 #include "third_party/perfetto/protos/perfetto/trace/chrome/chrome_trace_event.pbzero.h"
 #include "third_party/perfetto/protos/perfetto/trace/trace_packet.pbzero.h"
 
@@ -40,11 +41,17 @@ class CrOSSystemTracingSession {
   // |true| if tracing was started and |false| otherwise.
   void StartTracing(const std::string& config, SuccessCallback callback) {
     DCHECK(!is_tracing_);
+    if (!chromeos::DBusThreadManager::IsInitialized()) {
+      if (callback)
+        std::move(callback).Run(/*success=*/false);
+      return;
+    }
+
     base::trace_event::TraceConfig trace_config(config);
     debug_daemon_ = chromeos::DBusThreadManager::Get()->GetDebugDaemonClient();
     if (!trace_config.IsSystraceEnabled() || !debug_daemon_) {
       if (callback)
-        std::move(callback).Run(false /* success */);
+        std::move(callback).Run(/*success=*/false);
       return;
     }
     debug_daemon_->SetStopAgentTracingTaskRunner(
@@ -92,25 +99,25 @@ namespace {
 using ChromeEventBundleHandle =
     protozero::MessageHandle<perfetto::protos::pbzero::ChromeEventBundle>;
 
-class CrOSDataSource : public tracing::ProducerClient::DataSourceBase {
+class CrOSDataSource : public tracing::PerfettoTracedProcess::DataSourceBase {
  public:
   static CrOSDataSource* GetInstance() {
     static base::NoDestructor<CrOSDataSource> instance;
     return instance.get();
   }
 
-  // Called from the tracing::ProducerClient on its sequence.
+  // Called from the tracing::PerfettoProducer on its sequence.
   void StartTracing(
-      tracing::ProducerClient* producer_client,
-      const tracing::mojom::DataSourceConfig& data_source_config) override {
+      tracing::PerfettoProducer* perfetto_producer,
+      const perfetto::DataSourceConfig& data_source_config) override {
     base::PostTaskWithTraits(
         FROM_HERE, {BrowserThread::UI},
         base::BindOnce(&CrOSDataSource::StartTracingOnUI,
-                       base::Unretained(this), producer_client,
+                       base::Unretained(this), perfetto_producer,
                        data_source_config));
   }
 
-  // Called from the tracing::ProducerClient on its sequence.
+  // Called from the tracing::PerfettoProducer on its sequence.
   void StopTracing(base::OnceClosure stop_complete_callback) override {
     base::PostTaskWithTraits(
         FROM_HERE, {BrowserThread::UI},
@@ -131,17 +138,14 @@ class CrOSDataSource : public tracing::ProducerClient::DataSourceBase {
     DETACH_FROM_SEQUENCE(ui_sequence_checker_);
   }
 
-  void StartTracingOnUI(
-      tracing::ProducerClient* producer_client,
-      const tracing::mojom::DataSourceConfig& data_source_config) {
+  void StartTracingOnUI(tracing::PerfettoProducer* producer,
+                        const perfetto::DataSourceConfig& data_source_config) {
     DCHECK_CALLED_ON_VALID_SEQUENCE(ui_sequence_checker_);
-    DCHECK(!producer_client_);
     DCHECK(!session_);
-    producer_client_ = producer_client;
-    target_buffer_ = data_source_config.target_buffer;
+    target_buffer_ = data_source_config.target_buffer();
     session_ = std::make_unique<CrOSSystemTracingSession>();
     session_->StartTracing(
-        data_source_config.trace_config,
+        data_source_config.chrome_config().trace_config(),
         base::BindOnce(&CrOSDataSource::SystemTracerStartedOnUI,
                        base::Unretained(this)));
   }
@@ -155,7 +159,7 @@ class CrOSDataSource : public tracing::ProducerClient::DataSourceBase {
 
   void StopTracingOnUI(base::OnceClosure stop_complete_callback) {
     DCHECK_CALLED_ON_VALID_SEQUENCE(ui_sequence_checker_);
-    DCHECK(producer_client_);
+    DCHECK(producer_);
     DCHECK(session_);
     if (!session_started_) {
       on_session_started_callback_ =
@@ -174,7 +178,7 @@ class CrOSDataSource : public tracing::ProducerClient::DataSourceBase {
                    const scoped_refptr<base::RefCountedString>& events) {
     if (events && !events->data().empty()) {
       std::unique_ptr<perfetto::TraceWriter> trace_writer =
-          producer_client_->CreateTraceWriter(target_buffer_);
+          producer_->CreateTraceWriter(target_buffer_);
       DCHECK(trace_writer);
       {
         perfetto::TraceWriter::TracePacketHandle trace_packet_handle =
@@ -196,13 +200,14 @@ class CrOSDataSource : public tracing::ProducerClient::DataSourceBase {
 
   void OnTraceDataOnUI(base::OnceClosure stop_complete_callback) {
     DCHECK_CALLED_ON_VALID_SEQUENCE(ui_sequence_checker_);
-    auto* producer_client = producer_client_;
     session_.reset();
     session_started_ = false;
-    producer_client_ = nullptr;
+    producer_ = nullptr;
 
-    producer_client->GetTaskRunner()->PostTask(
-        FROM_HERE, std::move(stop_complete_callback));
+    tracing::PerfettoTracedProcess::Get()
+        ->GetTaskRunner()
+        ->GetOrCreateTaskRunner()
+        ->PostTask(FROM_HERE, std::move(stop_complete_callback));
   }
 
   SEQUENCE_CHECKER(ui_sequence_checker_);
@@ -210,7 +215,6 @@ class CrOSDataSource : public tracing::ProducerClient::DataSourceBase {
   bool session_started_ = false;
   base::OnceClosure on_session_started_callback_;
   uint32_t target_buffer_ = 0;
-  tracing::ProducerClient* producer_client_ = nullptr;
 
   DISALLOW_COPY_AND_ASSIGN(CrOSDataSource);
 };
@@ -221,19 +225,21 @@ CrOSTracingAgent::CrOSTracingAgent()
     : BaseAgent(tracing::mojom::kSystemTraceEventLabel,
                 tracing::mojom::TraceDataType::STRING,
                 base::kNullProcessId) {
-  tracing::ProducerClient::Get()->AddDataSource(CrOSDataSource::GetInstance());
+  tracing::PerfettoTracedProcess::Get()->AddDataSource(
+      CrOSDataSource::GetInstance());
 }
 
 CrOSTracingAgent::~CrOSTracingAgent() = default;
 
 // tracing::mojom::Agent. Called by Mojo internals on the UI thread.
 void CrOSTracingAgent::StartTracing(const std::string& config,
-                                    base::TimeTicks coordinator_time) {
+                                    base::TimeTicks coordinator_time,
+                                    Agent::StartTracingCallback callback) {
   DCHECK(!session_);
   session_ = std::make_unique<CrOSSystemTracingSession>();
   session_->StartTracing(
       config, base::BindOnce(&CrOSTracingAgent::StartTracingCallbackProxy,
-                             base::Unretained(this)));
+                             base::Unretained(this), std::move(callback)));
 }
 
 void CrOSTracingAgent::StopAndFlush(tracing::mojom::RecorderPtr recorder) {
@@ -246,9 +252,11 @@ void CrOSTracingAgent::StopAndFlush(tracing::mojom::RecorderPtr recorder) {
 }
 
 void CrOSTracingAgent::StartTracingCallbackProxy(
+    Agent::StartTracingCallback callback,
     bool success) {
   if (!success)
     session_.reset();
+  std::move(callback).Run(success);
 }
 
 void CrOSTracingAgent::RecorderProxy(

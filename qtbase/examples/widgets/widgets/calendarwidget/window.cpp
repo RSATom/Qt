@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2020 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the examples of the Qt Toolkit.
@@ -48,9 +48,17 @@
 **
 ****************************************************************************/
 
-#include <QtWidgets>
-
 #include "window.h"
+
+#include <QCalendarWidget>
+#include <QCheckBox>
+#include <QComboBox>
+#include <QDateEdit>
+#include <QGridLayout>
+#include <QGroupBox>
+#include <QLabel>
+#include <QLocale>
+#include <QTextCharFormat>
 
 //! [0]
 Window::Window(QWidget *parent)
@@ -118,7 +126,7 @@ void Window::selectedDateChanged()
 //! [2]
 
 //! [3]
-void Window::minimumDateChanged(const QDate &date)
+void Window::minimumDateChanged(QDate date)
 {
     calendar->setMinimumDate(date);
     maximumDateEdit->setDate(calendar->maximumDate());
@@ -126,7 +134,7 @@ void Window::minimumDateChanged(const QDate &date)
 //! [3]
 
 //! [4]
-void Window::maximumDateChanged(const QDate &date)
+void Window::maximumDateChanged(QDate date)
 {
     calendar->setMaximumDate(date);
     minimumDateEdit->setDate(calendar->minimumDate());
@@ -166,13 +174,12 @@ void Window::reformatHeaders()
     QString text = headerTextFormatCombo->currentText();
     QTextCharFormat format;
 
-    if (text == tr("Bold")) {
+    if (text == tr("Bold"))
         format.setFontWeight(QFont::Bold);
-    } else if (text == tr("Italic")) {
+    else if (text == tr("Italic"))
         format.setFontItalic(true);
-    } else if (text == tr("Green")) {
+    else if (text == tr("Green"))
         format.setForeground(Qt::green);
-    }
     calendar->setHeaderTextFormat(format);
 }
 //! [7]

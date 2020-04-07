@@ -158,9 +158,7 @@ bool TouchEmulator::InitCursors(float device_scale_factor, bool force) {
       use_2x ? IDR_DEVTOOLS_PINCH_CURSOR_ICON_2X :
           IDR_DEVTOOLS_PINCH_CURSOR_ICON);
 
-  CursorInfo cursor_info;
-  cursor_info.type = blink::WebCursorInfo::kTypePointer;
-  pointer_cursor_.InitFromCursorInfo(cursor_info);
+  pointer_cursor_ = WebCursor(CursorInfo(ui::CursorType::kPointer));
   return true;
 }
 
@@ -169,13 +167,13 @@ gfx::SizeF TouchEmulator::InitCursorFromResource(
   gfx::Image& cursor_image =
       content::GetContentClient()->GetNativeImageNamed(resource_id);
   CursorInfo cursor_info;
-  cursor_info.type = blink::WebCursorInfo::kTypeCustom;
+  cursor_info.type = ui::CursorType::kCustom;
   cursor_info.image_scale_factor = scale;
   cursor_info.custom_image = cursor_image.AsBitmap();
   cursor_info.hotspot =
       gfx::Point(cursor_image.Width() / 2, cursor_image.Height() / 2);
 
-  cursor->InitFromCursorInfo(cursor_info);
+  *cursor = WebCursor(cursor_info);
   return gfx::ScaleSize(gfx::SizeF(cursor_image.Size()), 1.f / scale);
 }
 
@@ -516,7 +514,7 @@ void TouchEmulator::PinchEnd(const WebGestureEvent& event) {
 void TouchEmulator::ScrollEnd(const WebGestureEvent& event) {
   WebGestureEvent scroll_event(
       WebInputEvent::kGestureScrollEnd, ModifiersWithoutMouseButtons(event),
-      event.TimeStamp(), blink::kWebGestureDeviceTouchscreen);
+      event.TimeStamp(), blink::WebGestureDevice::kTouchscreen);
   scroll_event.unique_touch_event_id = event.unique_touch_event_id;
   client_->ForwardEmulatedGestureEvent(scroll_event);
 }
@@ -526,7 +524,7 @@ WebGestureEvent TouchEmulator::GetPinchGestureEvent(
     const WebGestureEvent& original_event) {
   WebGestureEvent event(type, ModifiersWithoutMouseButtons(original_event),
                         original_event.TimeStamp(),
-                        blink::kWebGestureDeviceTouchscreen);
+                        blink::WebGestureDevice::kTouchscreen);
   event.SetPositionInWidget(pinch_anchor_);
   event.unique_touch_event_id = original_event.unique_touch_event_id;
   return event;

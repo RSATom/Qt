@@ -16,7 +16,6 @@
 #include <utility>
 #include <vector>
 
-#include "absl/memory/memory.h"
 #include "rtc_base/checks.h"
 #include "rtc_base/critical_section.h"
 #include "rtc_base/logging.h"
@@ -28,60 +27,11 @@
 namespace webrtc {
 namespace test {
 
-FrameGeneratorCapturer* FrameGeneratorCapturer::Create(
-    int width,
-    int height,
-    absl::optional<FrameGenerator::OutputType> type,
-    absl::optional<int> num_squares,
-    int target_fps,
-    Clock* clock) {
-  auto capturer = absl::make_unique<FrameGeneratorCapturer>(
-      clock,
-      FrameGenerator::CreateSquareGenerator(width, height, type, num_squares),
-      target_fps);
-  if (!capturer->Init())
-    return nullptr;
-
-  return capturer.release();
-}
-
-FrameGeneratorCapturer* FrameGeneratorCapturer::CreateFromYuvFile(
-    const std::string& file_name,
-    size_t width,
-    size_t height,
-    int target_fps,
-    Clock* clock) {
-  auto capturer = absl::make_unique<FrameGeneratorCapturer>(
-      clock,
-      FrameGenerator::CreateFromYuvFile(std::vector<std::string>(1, file_name),
-                                        width, height, 1),
-      target_fps);
-  if (!capturer->Init())
-    return nullptr;
-
-  return capturer.release();
-}
-
-FrameGeneratorCapturer* FrameGeneratorCapturer::CreateSlideGenerator(
-    int width,
-    int height,
-    int frame_repeat_count,
-    int target_fps,
-    Clock* clock) {
-  auto capturer = absl::make_unique<FrameGeneratorCapturer>(
-      clock,
-      FrameGenerator::CreateSlideGenerator(width, height, frame_repeat_count),
-      target_fps);
-  if (!capturer->Init())
-    return nullptr;
-
-  return capturer.release();
-}
-
 FrameGeneratorCapturer::FrameGeneratorCapturer(
     Clock* clock,
     std::unique_ptr<FrameGenerator> frame_generator,
-    int target_fps)
+    int target_fps,
+    TaskQueueFactory& task_queue_factory)
     : clock_(clock),
       sending_(true),
       sink_wants_observer_(nullptr),
@@ -89,7 +39,9 @@ FrameGeneratorCapturer::FrameGeneratorCapturer(
       source_fps_(target_fps),
       target_capture_fps_(target_fps),
       first_frame_capture_time_(-1),
-      task_queue_("FrameGenCapQ", rtc::TaskQueue::Priority::HIGH) {
+      task_queue_(task_queue_factory.CreateTaskQueue(
+          "FrameGenCapQ",
+          TaskQueueFactory::Priority::HIGH)) {
   RTC_DCHECK(frame_generator_);
   RTC_DCHECK_GT(target_fps, 0);
 }
@@ -116,8 +68,8 @@ bool FrameGeneratorCapturer::Init() {
     return false;
 
   RepeatingTaskHandle::DelayedStart(
-      &task_queue_, TimeDelta::seconds(1) / GetCurrentConfiguredFramerate(),
-      [this] {
+      task_queue_.Get(),
+      TimeDelta::seconds(1) / GetCurrentConfiguredFramerate(), [this] {
         InsertFrame();
         return TimeDelta::seconds(1) / GetCurrentConfiguredFramerate();
       });
@@ -138,7 +90,7 @@ void FrameGeneratorCapturer::InsertFrame() {
     frame->set_ntp_time_ms(clock_->CurrentNtpInMilliseconds());
     frame->set_rotation(fake_rotation_);
     if (fake_color_space_) {
-      frame->set_color_space(&fake_color_space_.value());
+      frame->set_color_space(fake_color_space_);
     }
     if (first_frame_capture_time_ == -1) {
       first_frame_capture_time_ = frame->ntp_time_ms();

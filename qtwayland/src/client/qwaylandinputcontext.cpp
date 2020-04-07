@@ -120,7 +120,7 @@ void QWaylandTextInput::updateState(Qt::InputMethodQueries queries, uint32_t fla
         return;
 
     auto *window = static_cast<QWaylandWindow *>(QGuiApplication::focusWindow()->handle());
-    auto *surface = window->object();
+    auto *surface = window->wlSurface();
     if (!surface || (surface != m_surface))
         return;
 
@@ -224,11 +224,11 @@ void QWaylandTextInput::zwp_text_input_v2_leave(uint32_t serial, ::wl_surface *s
 
 void QWaylandTextInput::zwp_text_input_v2_modifiers_map(wl_array *map)
 {
-    QList<QByteArray> modifiersMap = QByteArray::fromRawData(static_cast<const char*>(map->data), map->size).split('\0');
+    const QList<QByteArray> modifiersMap = QByteArray::fromRawData(static_cast<const char*>(map->data), map->size).split('\0');
 
     m_modifiersMap.clear();
 
-    Q_FOREACH (const QByteArray &modifier, modifiersMap) {
+    for (const QByteArray &modifier : modifiersMap) {
         if (modifier == "Shift")
             m_modifiersMap.append(Qt::ShiftModifier);
         else if (modifier == "Control")
@@ -431,7 +431,7 @@ static ::wl_surface *surfaceForWindow(QWindow *window)
         return nullptr;
 
     auto *waylandWindow = static_cast<QWaylandWindow *>(window->handle());
-    return waylandWindow->wl_surface::object();
+    return waylandWindow->wlSurface();
 }
 
 void QWaylandInputContext::update(Qt::InputMethodQueries queries)
@@ -537,7 +537,7 @@ void QWaylandInputContext::setFocusObject(QObject *)
 
     if (mCurrentWindow && mCurrentWindow->handle()) {
         if (mCurrentWindow.data() != window || !inputMethodAccepted()) {
-            struct ::wl_surface *surface = static_cast<QWaylandWindow *>(mCurrentWindow->handle())->object();
+            auto *surface = static_cast<QWaylandWindow *>(mCurrentWindow->handle())->wlSurface();
             if (surface)
                 textInput()->disable(surface);
             mCurrentWindow.clear();
@@ -546,7 +546,7 @@ void QWaylandInputContext::setFocusObject(QObject *)
 
     if (window && window->handle() && inputMethodAccepted()) {
         if (mCurrentWindow.data() != window) {
-            struct ::wl_surface *surface = static_cast<QWaylandWindow *>(window->handle())->object();
+            auto *surface = static_cast<QWaylandWindow *>(window->handle())->wlSurface();
             if (surface) {
                 textInput()->enable(surface);
                 mCurrentWindow = window;

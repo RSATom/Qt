@@ -8,6 +8,8 @@ This file is copied to the build directory as part of toolchain setup and
 is used to set up calls to tools used by the build that need wrappers.
 """
 
+from __future__ import print_function
+
 import os
 import re
 import shutil
@@ -156,7 +158,7 @@ class WinTool(object):
       if (not line.startswith('   Creating library ') and
           not line.startswith('Generating code') and
           not line.startswith('Finished generating code')):
-        print line,
+        print(line)
     result = link.wait()
     """
     if result == 0 and sys.platform == 'win32':
@@ -182,7 +184,7 @@ class WinTool(object):
     out, _ = popen.communicate()
     for line in out.splitlines():
       if not line.startswith(' Assembling: '):
-        print line
+        print(line)
     return popen.returncode
 
   def ExecRcWrapper(self, arch, *args):
@@ -198,7 +200,7 @@ class WinTool(object):
           not line.startswith('Copy' + 'right (C' +
                               ') Microsoft Corporation') and
           line):
-        print line
+        print(line)
     return popen.returncode
 
   def ExecActionWrapper(self, arch, rspfile, *dirname):
@@ -207,7 +209,7 @@ class WinTool(object):
     env = self._GetEnv(arch)
     # TODO(scottmg): This is a temporary hack to get some specific variables
     # through to actions that are set after GN-time. http://crbug.com/333738.
-    for k, v in os.environ.iteritems():
+    for k, v in os.environ.items():
       if k not in env:
         env[k] = v
     args = open(rspfile).read()

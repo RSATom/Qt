@@ -55,12 +55,12 @@ class SiteSettingsHandler : public SettingsPageUIHandler,
   // WebUI
   void TreeNodesAdded(ui::TreeModel* model,
                       ui::TreeModelNode* parent,
-                      int start,
-                      int count) override;
+                      size_t start,
+                      size_t count) override;
   void TreeNodesRemoved(ui::TreeModel* model,
                         ui::TreeModelNode* parent,
-                        int start,
-                        int count) override;
+                        size_t start,
+                        size_t count) override;
   void TreeNodeChanged(ui::TreeModel* model, ui::TreeModelNode* node) override;
   void TreeModelEndBatch(CookiesTreeModel* model) override;
 
@@ -121,18 +121,23 @@ class SiteSettingsHandler : public SettingsPageUIHandler,
   FRIEND_TEST_ALL_PREFIXES(SiteSettingsHandlerTest, ZoomLevels);
   FRIEND_TEST_ALL_PREFIXES(SiteSettingsHandlerTest,
                            HandleClearEtldPlus1DataAndCookies);
+  FRIEND_TEST_ALL_PREFIXES(SiteSettingsHandlerTest, HandleGetFormattedBytes);
+  FRIEND_TEST_ALL_PREFIXES(SiteSettingsHandlerTest,
+                           NotificationPermissionRevokeUkm);
 
   // Creates the CookiesTreeModel if necessary.
-  void EnsureCookiesTreeModelCreated(bool omit_cookies = false);
+  void EnsureCookiesTreeModelCreated();
 
-  // Add this class as an observer for content settings and chooser contexts.
-  void ObserveSources();
+  // Add or remove this class as an observer for content settings and chooser
+  // contexts corresponding to |profile|.
+  void ObserveSourcesForProfile(Profile* profile);
+  void StopObservingSourcesForProfile(Profile* profile);
 
   // Calculates the data storage that has been used for each origin, and
   // stores the information in the |all_sites_map| and |origin_size_map|.
   void GetOriginStorage(
       std::map<std::string, std::set<std::string>>* all_sites_map,
-      std::map<std::string, int>* origin_size_map);
+      std::map<std::string, int64_t>* origin_size_map);
 
   // Calculates the number of cookies for each etld+1 and each origin, and
   // stores the information in the |all_sites_map| and |origin_cookie_map|.
@@ -146,12 +151,6 @@ class SiteSettingsHandler : public SettingsPageUIHandler,
 
   // Deletes the storage being used for a given host.
   void HandleClearUsage(const base::ListValue* args);
-
-  // Handles the request for a list of all USB devices.
-  void HandleFetchUsbDevices(const base::ListValue* args);
-
-  // Removes a particular USB device permission.
-  void HandleRemoveUsbDevice(const base::ListValue* args);
 
   // Gets and sets the default value for a particular content settings type.
   void HandleSetDefaultValueForContentType(const base::ListValue* args);
@@ -231,6 +230,9 @@ class SiteSettingsHandler : public SettingsPageUIHandler,
 
   // Clear web storage data and cookies from cookies tree model for an ETLD+1.
   void HandleClearEtldPlus1DataAndCookies(const base::ListValue* args);
+
+  // Record metrics for actions on All Sites Page.
+  void HandleRecordAction(const base::ListValue* args);
 
   void SetCookiesTreeModelForTesting(
       std::unique_ptr<CookiesTreeModel> cookies_tree_model);

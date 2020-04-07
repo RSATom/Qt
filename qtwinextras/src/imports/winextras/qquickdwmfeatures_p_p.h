@@ -61,15 +61,15 @@ class QQuickDwmFeaturesPrivate
 public:
     QQuickDwmFeaturesPrivate(QQuickDwmFeatures *parent);
 
-    int topMargin;
-    int rightMargin;
-    int bottomMargin;
-    int leftMargin;
-    bool blurBehindEnabled;
+    int topMargin = 0;
+    int rightMargin = 0;
+    int bottomMargin = 0;
+    int leftMargin = 0;
+    bool blurBehindEnabled = false;
 
-    bool peekDisallowed;
-    bool peekExcluded;
-    QQuickWin::WindowFlip3DPolicy flipPolicy;
+    bool peekDisallowed = false;
+    bool peekExcluded = false;
+    QQuickWin::WindowFlip3DPolicy flipPolicy = QQuickWin::FlipDefault;
     QColor originalSurfaceColor;
 
     void updateAll();

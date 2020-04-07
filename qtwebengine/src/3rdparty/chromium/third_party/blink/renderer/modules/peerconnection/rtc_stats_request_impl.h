@@ -26,7 +26,7 @@
 #define THIRD_PARTY_BLINK_RENDERER_MODULES_PEERCONNECTION_RTC_STATS_REQUEST_IMPL_H_
 
 #include "third_party/blink/renderer/bindings/modules/v8/v8_rtc_stats_callback.h"
-#include "third_party/blink/renderer/core/dom/context_lifecycle_observer.h"
+#include "third_party/blink/renderer/core/execution_context/context_lifecycle_observer.h"
 #include "third_party/blink/renderer/modules/peerconnection/rtc_stats_response.h"
 #include "third_party/blink/renderer/platform/heap/handle.h"
 #include "third_party/blink/renderer/platform/peerconnection/rtc_stats_request.h"
@@ -43,11 +43,6 @@ class RTCStatsRequestImpl final : public RTCStatsRequest,
   USING_GARBAGE_COLLECTED_MIXIN(RTCStatsRequestImpl);
 
  public:
-  static RTCStatsRequestImpl* Create(ExecutionContext*,
-                                     RTCPeerConnection*,
-                                     V8RTCStatsCallback*,
-                                     MediaStreamTrack*);
-
   RTCStatsRequestImpl(ExecutionContext*,
                       RTCPeerConnection*,
                       V8RTCStatsCallback*,
@@ -68,12 +63,7 @@ class RTCStatsRequestImpl final : public RTCStatsRequest,
  private:
   void Clear();
 
-  // This request object is held by WebRTCPeerConnectionHandler, which doesn't
-  // support wrapper-tracing. Thus, this object holds the underlying callback
-  // functions as persistent handles. This is acceptable because the request
-  // object will be discarded in a limited time due to success, failure, or
-  // destruction of the execution context.
-  Member<V8PersistentCallbackFunction<V8RTCStatsCallback>> success_callback_;
+  Member<V8RTCStatsCallback> success_callback_;
 
   Member<MediaStreamComponent> component_;
   Member<RTCPeerConnection> requester_;

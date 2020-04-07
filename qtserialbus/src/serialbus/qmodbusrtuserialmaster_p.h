@@ -310,7 +310,7 @@ public:
             onBytesWritten(bytes);
         });
 
-        QObject::connect(m_serialPort, QOverload<QSerialPort::SerialPortError>::of(&QSerialPort::error),
+        QObject::connect(m_serialPort, &QSerialPort::errorOccurred,
                 q, [this](QSerialPort::SerialPortError error) {
             onError(error);
         });
@@ -426,6 +426,8 @@ public:
             return m_serialPort->isOpen();
         return false;
     }
+
+    QIODevice *device() const override { return m_serialPort; }
 
     Timer m_responseTimer;
     QByteArray m_responseBuffer;

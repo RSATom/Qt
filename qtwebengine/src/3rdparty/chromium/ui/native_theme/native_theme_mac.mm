@@ -9,6 +9,7 @@
 
 #include "base/command_line.h"
 #include "base/mac/mac_util.h"
+#include "base/mac/scoped_block.h"
 #include "base/mac/sdk_forward_declarations.h"
 #include "base/macros.h"
 #import "skia/ext/skia_utils_mac.h"
@@ -18,6 +19,30 @@
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/skia_util.h"
 #include "ui/native_theme/common_theme.h"
+#include "ui/native_theme/native_theme_aura.h"
+
+namespace {
+
+bool IsDarkMode() {
+  if (@available(macOS 10.14, *)) {
+    NSAppearanceName appearance =
+        [[NSApp effectiveAppearance] bestMatchFromAppearancesWithNames:@[
+          NSAppearanceNameAqua, NSAppearanceNameDarkAqua
+        ]];
+    return [appearance isEqual:NSAppearanceNameDarkAqua];
+  }
+  return false;
+}
+
+bool IsHighContrast() {
+  NSWorkspace* workspace = [NSWorkspace sharedWorkspace];
+  if ([workspace respondsToSelector:@selector
+                 (accessibilityDisplayShouldIncreaseContrast)]) {
+    return workspace.accessibilityDisplayShouldIncreaseContrast;
+  }
+  return false;
+}
+}  // namespace
 
 @interface NSWorkspace (Redeclarations)
 
@@ -29,11 +54,14 @@
 @interface NativeThemeEffectiveAppearanceObserver : NSObject
 @end
 
-@implementation NativeThemeEffectiveAppearanceObserver
+@implementation NativeThemeEffectiveAppearanceObserver {
+  base::mac::ScopedBlock<void (^)()> handler_;
+}
 
-- (instancetype)init {
+- (instancetype)initWithHandler:(void (^)())handler {
   self = [super init];
   if (self) {
+    handler_.reset([handler copy]);
     if (@available(macOS 10.14, *)) {
       [NSApp addObserver:self
               forKeyPath:@"effectiveAppearance"
@@ -55,7 +83,7 @@
                       ofObject:(id)object
                         change:(NSDictionary*)change
                        context:(void*)context {
-  ui::NativeTheme::GetInstanceForNativeUi()->NotifyObservers();
+  handler_.get()();
 }
 
 @end
@@ -125,6 +153,8 @@ namespace ui {
 
 // static
 NativeTheme* NativeTheme::GetInstanceForWeb() {
+//  if (features::IsFormControlsRefreshEnable())
+//    return NativeThemeAura::web_instance();
   return NativeThemeMac::instance();
 }
 
@@ -144,21 +174,6 @@ SkColor NativeThemeMac::ApplySystemControlTint(SkColor color) {
   if ([NSColor currentControlTint] == NSGraphiteControlTint)
     return ColorToGrayscale(color);
   return color;
-}
-
-// static
-void NativeThemeMac::MaybeUpdateBrowserAppearance() {
-  if (@available(macOS 10.14, *)) {
-    if (!base::FeatureList::IsEnabled(features::kDarkMode)) {
-      NSAppearanceName new_appearance_name =
-          base::CommandLine::ForCurrentProcess()->HasSwitch(
-              switches::kForceDarkMode)
-              ? NSAppearanceNameDarkAqua
-              : NSAppearanceNameAqua;
-
-      [NSApp setAppearance:[NSAppearance appearanceNamed:new_appearance_name]];
-    }
-  }
 }
 
 SkColor NativeThemeMac::GetSystemColor(ColorId color_id) const {
@@ -209,7 +224,9 @@ SkColor NativeThemeMac::GetSystemColor(ColorId color_id) const {
       return NSSystemColorToSkColor([NSColor selectedTextBackgroundColor]);
 
     case kColorId_FocusedBorderColor:
-      return NSSystemColorToSkColor([NSColor keyboardFocusIndicatorColor]);
+      return SkColorSetA(
+          NSSystemColorToSkColor([NSColor keyboardFocusIndicatorColor]),
+          0x66);
 
     default:
       break;
@@ -249,43 +266,29 @@ void NativeThemeMac::PaintMenuItemBackground(
   }
 }
 
-bool NativeThemeMac::UsesHighContrastColors() const {
-  if (NativeThemeBase::UsesHighContrastColors())
+bool NativeThemeMac::SystemDarkModeSupported() const {
+  if (@available(macOS 10.14, *)) {
     return true;
-  NSWorkspace* workspace = [NSWorkspace sharedWorkspace];
-  if ([workspace respondsToSelector:@selector
-                 (accessibilityDisplayShouldIncreaseContrast)]) {
-    return workspace.accessibilityDisplayShouldIncreaseContrast;
   }
   return false;
 }
 
-bool NativeThemeMac::SystemDarkModeEnabled() const {
-  if (@available(macOS 10.14, *)) {
-    NSAppearanceName appearance =
-        [[NSApp effectiveAppearance] bestMatchFromAppearancesWithNames:@[
-          NSAppearanceNameAqua, NSAppearanceNameDarkAqua
-        ]];
-    return [appearance isEqual:NSAppearanceNameDarkAqua];
-  }
-  return NativeThemeBase::SystemDarkModeEnabled();
-}
-
 NativeThemeMac::NativeThemeMac() {
-  if (base::FeatureList::IsEnabled(features::kDarkMode)) {
-    appearance_observer_.reset(
-        [[NativeThemeEffectiveAppearanceObserver alloc] init]);
-  }
-  if (@available(macOS 10.10, *)) {
-    high_contrast_notification_token_ = [[[NSWorkspace sharedWorkspace]
-        notificationCenter]
-        addObserverForName:
-            NSWorkspaceAccessibilityDisplayOptionsDidChangeNotification
-                    object:nil
-                     queue:nil
-                usingBlock:^(NSNotification* notification) {
-                  ui::NativeTheme::GetInstanceForNativeUi()->NotifyObservers();
-                }];
+  InitializeDarkModeStateAndObserver();
+
+  if (!IsForcedHighContrast()) {
+    set_high_contrast(IsHighContrast());
+    __block auto theme = this;
+    high_contrast_notification_token_ =
+        [[[NSWorkspace sharedWorkspace] notificationCenter]
+            addObserverForName:
+                NSWorkspaceAccessibilityDisplayOptionsDidChangeNotification
+                        object:nil
+                         queue:nil
+                    usingBlock:^(NSNotification* notification) {
+                      theme->set_high_contrast(IsHighContrast());
+                      theme->NotifyObservers();
+                    }];
   }
 }
 
@@ -300,6 +303,18 @@ void NativeThemeMac::PaintSelectedMenuItem(cc::PaintCanvas* canvas,
   cc::PaintFlags flags;
   flags.setColor(GetSystemColor(kColorId_FocusedMenuItemBackgroundColor));
   canvas->drawRect(gfx::RectToSkRect(rect), flags);
+}
+
+void NativeThemeMac::InitializeDarkModeStateAndObserver() {
+  __block auto theme = this;
+  set_dark_mode(IsDarkMode());
+  set_preferred_color_scheme(CalculatePreferredColorScheme());
+  appearance_observer_.reset(
+      [[NativeThemeEffectiveAppearanceObserver alloc] initWithHandler:^{
+        theme->set_dark_mode(IsDarkMode());
+        theme->set_preferred_color_scheme(CalculatePreferredColorScheme());
+        theme->NotifyObservers();
+      }]);
 }
 
 }  // namespace ui

@@ -23,7 +23,7 @@ const char* const g_sATypes[] = {
 
 }  // namespace
 
-CPDF_Action::CPDF_Action(const CPDF_Dictionary* pDict) : m_pDict(pDict) {}
+CPDF_Action::CPDF_Action(CPDF_Dictionary* pDict) : m_pDict(pDict) {}
 
 CPDF_Action::CPDF_Action(const CPDF_Action& that) = default;
 
@@ -49,14 +49,14 @@ CPDF_Dest CPDF_Action::GetDest(CPDF_Document* pDoc) const {
   if (type != GoTo && type != GoToR)
     return CPDF_Dest();
 
-  const CPDF_Object* pDest = m_pDict->GetDirectObjectFor("D");
+  CPDF_Object* pDest = m_pDict->GetDirectObjectFor("D");
   if (!pDest)
     return CPDF_Dest();
   if (pDest->IsString() || pDest->IsName()) {
     CPDF_NameTree name_tree(pDoc, "Dests");
     return CPDF_Dest(name_tree.LookupNamedDest(pDoc, pDest->GetUnicodeText()));
   }
-  if (const CPDF_Array* pArray = pDest->AsArray())
+  if (CPDF_Array* pArray = pDest->AsArray())
     return CPDF_Dest(pArray);
 
   return CPDF_Dest();
@@ -94,8 +94,11 @@ ByteString CPDF_Action::GetURI(const CPDF_Document* pDoc) const {
   const CPDF_Dictionary* pURI = pRoot->GetDictFor("URI");
   if (pURI) {
     auto result = csURI.Find(":");
-    if (!result.has_value() || result.value() == 0)
-      csURI = pURI->GetStringFor("Base") + csURI;
+    if (!result.has_value() || result.value() == 0) {
+      auto* pBase = pURI->GetDirectObjectFor("Base");
+      if (pBase && (pBase->IsString() || pBase->IsStream()))
+        csURI = pBase->GetString() + csURI;
+    }
   }
   return csURI;
 }
@@ -113,12 +116,12 @@ uint32_t CPDF_Action::GetFlags() const {
 }
 
 WideString CPDF_Action::GetJavaScript() const {
-  WideString csJS;
   if (!m_pDict)
-    return csJS;
+    return WideString();
 
   const CPDF_Object* pJS = m_pDict->GetDirectObjectFor("JS");
-  return pJS ? pJS->GetUnicodeText() : csJS;
+  return (pJS && (pJS->IsString() || pJS->IsStream())) ? pJS->GetUnicodeText()
+                                                       : WideString();
 }
 
 size_t CPDF_Action::GetSubActionsCount() const {
@@ -138,10 +141,10 @@ CPDF_Action CPDF_Action::GetSubAction(size_t iIndex) const {
   if (!m_pDict || !m_pDict->KeyExist("Next"))
     return CPDF_Action(nullptr);
 
-  const CPDF_Object* pNext = m_pDict->GetDirectObjectFor("Next");
-  if (const CPDF_Array* pArray = ToArray(pNext))
+  CPDF_Object* pNext = m_pDict->GetDirectObjectFor("Next");
+  if (CPDF_Array* pArray = ToArray(pNext))
     return CPDF_Action(pArray->GetDictAt(iIndex));
-  if (const CPDF_Dictionary* pDict = ToDictionary(pNext)) {
+  if (CPDF_Dictionary* pDict = ToDictionary(pNext)) {
     if (iIndex == 0)
       return CPDF_Action(pDict);
   }

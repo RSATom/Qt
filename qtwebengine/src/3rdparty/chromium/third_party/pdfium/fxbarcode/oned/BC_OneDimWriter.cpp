@@ -26,12 +26,14 @@
 #include <memory>
 #include <vector>
 
+#include "build/build_config.h"
 #include "core/fxge/cfx_defaultrenderdevice.h"
 #include "core/fxge/cfx_font.h"
 #include "core/fxge/cfx_graphstatedata.h"
 #include "core/fxge/cfx_pathdata.h"
 #include "core/fxge/cfx_renderdevice.h"
 #include "core/fxge/cfx_unicodeencodingex.h"
+#include "core/fxge/text_char_pos.h"
 #include "fxbarcode/BC_Writer.h"
 
 CBC_OneDimWriter::CBC_OneDimWriter() = default;
@@ -103,7 +105,7 @@ int32_t CBC_OneDimWriter::AppendPattern(uint8_t* target,
 }
 
 void CBC_OneDimWriter::CalcTextInfo(const ByteString& text,
-                                    FXTEXT_CHARPOS* charPos,
+                                    TextCharPos* charPos,
                                     CFX_Font* cFont,
                                     float geWidth,
                                     int32_t fontSize,
@@ -133,7 +135,7 @@ void CBC_OneDimWriter::CalcTextInfo(const ByteString& text,
   charPos[0].m_Origin = CFX_PointF(penX + left, penY + top);
   charPos[0].m_GlyphIndex = encoding->GlyphFromCharCode(charcodes[0]);
   charPos[0].m_FontCharWidth = cFont->GetGlyphWidth(charPos[0].m_GlyphIndex);
-#if _FX_PLATFORM_ == _FX_PLATFORM_APPLE_
+#if defined(OS_MACOSX)
   charPos[0].m_ExtGID = charPos[0].m_GlyphIndex;
 #endif
   penX += (float)(charPos[0].m_FontCharWidth) * (float)fontSize / 1000.0f;
@@ -141,7 +143,7 @@ void CBC_OneDimWriter::CalcTextInfo(const ByteString& text,
     charPos[i].m_Origin = CFX_PointF(penX + left, penY + top);
     charPos[i].m_GlyphIndex = encoding->GlyphFromCharCode(charcodes[i]);
     charPos[i].m_FontCharWidth = cFont->GetGlyphWidth(charPos[i].m_GlyphIndex);
-#if _FX_PLATFORM_ == _FX_PLATFORM_APPLE_
+#if defined(OS_MACOSX)
     charPos[i].m_ExtGID = charPos[i].m_GlyphIndex;
 #endif
     penX += (float)(charPos[i].m_FontCharWidth) * (float)fontSize / 1000.0f;
@@ -152,7 +154,7 @@ void CBC_OneDimWriter::ShowDeviceChars(CFX_RenderDevice* device,
                                        const CFX_Matrix* matrix,
                                        const ByteString str,
                                        float geWidth,
-                                       FXTEXT_CHARPOS* pCharPos,
+                                       TextCharPos* pCharPos,
                                        float locX,
                                        float locY,
                                        int32_t barWidth) {
@@ -171,7 +173,7 @@ void CBC_OneDimWriter::ShowDeviceChars(CFX_RenderDevice* device,
     affine_matrix.Concat(*matrix);
   }
   device->DrawNormalText(str.GetLength(), pCharPos, m_pFont.Get(),
-                         static_cast<float>(iFontSize), &affine_matrix,
+                         static_cast<float>(iFontSize), affine_matrix,
                          m_fontColor, FXTEXT_CLEARTYPE);
 }
 
@@ -184,7 +186,7 @@ bool CBC_OneDimWriter::ShowChars(WideStringView contents,
     return false;
 
   ByteString str = FX_UTF8Encode(contents);
-  std::vector<FXTEXT_CHARPOS> charpos(str.GetLength());
+  std::vector<TextCharPos> charpos(str.GetLength());
   float charsLen = 0;
   float geWidth = 0;
   if (m_locTextLoc == BC_TEXT_LOC_ABOVEEMBED ||
@@ -246,7 +248,7 @@ bool CBC_OneDimWriter::RenderDeviceResult(CFX_RenderDevice* device,
   CFX_Matrix scaledMatrix(m_outputHScale, 0.0, 0.0,
                           static_cast<float>(m_Height), 0.0, 0.0);
   scaledMatrix.Concat(*matrix);
-  for (auto& rect : m_output) {
+  for (const auto& rect : m_output) {
     CFX_GraphStateData data;
     device->DrawPath(&rect, &scaledMatrix, &data, m_barColor, 0,
                      FXFILL_WINDING);
@@ -272,11 +274,11 @@ bool CBC_OneDimWriter::RenderResult(WideStringView contents,
       m_Width > 0 ? static_cast<float>(m_Width) / static_cast<float>(codeLength)
                   : 1.0;
   m_multiple = 1;
-  const int32_t outputHeight = 1;
   const int32_t outputWidth = codeLength;
   m_barWidth = m_Width;
 
   m_output.clear();
+  m_output.reserve(codeOldLength * m_multiple);
   for (int32_t inputX = 0, outputX = leftPadding * m_multiple;
        inputX < codeOldLength; ++inputX, outputX += m_multiple) {
     if (code[inputX] != 1)
@@ -286,23 +288,20 @@ bool CBC_OneDimWriter::RenderResult(WideStringView contents,
       return true;
 
     if (outputX + m_multiple > outputWidth && outputWidth - outputX > 0) {
-      RenderVerticalBars(outputX, outputWidth - outputX, outputHeight);
+      RenderVerticalBars(outputX, outputWidth - outputX);
       return true;
     }
 
-    RenderVerticalBars(outputX, m_multiple, outputHeight);
+    RenderVerticalBars(outputX, m_multiple);
   }
   return true;
 }
 
-void CBC_OneDimWriter::RenderVerticalBars(int32_t outputX,
-                                          int32_t width,
-                                          int32_t height) {
+void CBC_OneDimWriter::RenderVerticalBars(int32_t outputX, int32_t width) {
   for (int i = 0; i < width; ++i) {
     float x = outputX + i;
-    CFX_PathData rect;
-    rect.AppendRect(x, 0.0f, x + 1, static_cast<float>(height));
-    m_output.push_back(rect);
+    m_output.emplace_back();
+    m_output.back().AppendRect(x, 0.0f, x + 1, 1.0f);
   }
 }
 

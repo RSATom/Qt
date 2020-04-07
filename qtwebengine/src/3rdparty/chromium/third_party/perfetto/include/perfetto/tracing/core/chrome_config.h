@@ -33,6 +33,7 @@
 #include <type_traits>
 #include <vector>
 
+#include "perfetto/base/copyable_ptr.h"
 #include "perfetto/base/export.h"
 
 // Forward declarations for protobuf types.
@@ -43,6 +44,7 @@ class ChromeConfig;
 }  // namespace perfetto
 
 namespace perfetto {
+class ChromeConfig;
 
 class PERFETTO_EXPORT ChromeConfig {
  public:
@@ -52,7 +54,11 @@ class PERFETTO_EXPORT ChromeConfig {
   ChromeConfig& operator=(ChromeConfig&&);
   ChromeConfig(const ChromeConfig&);
   ChromeConfig& operator=(const ChromeConfig&);
+  bool operator==(const ChromeConfig&) const;
+  bool operator!=(const ChromeConfig& other) const { return !(*this == other); }
 
+  // Raw proto decoding.
+  void ParseRawProto(const std::string&);
   // Conversion methods from/to the corresponding protobuf types.
   void FromProto(const perfetto::protos::ChromeConfig&);
   void ToProto(perfetto::protos::ChromeConfig*) const;
@@ -60,8 +66,14 @@ class PERFETTO_EXPORT ChromeConfig {
   const std::string& trace_config() const { return trace_config_; }
   void set_trace_config(const std::string& value) { trace_config_ = value; }
 
+  bool privacy_filtering_enabled() const { return privacy_filtering_enabled_; }
+  void set_privacy_filtering_enabled(bool value) {
+    privacy_filtering_enabled_ = value;
+  }
+
  private:
-  std::string trace_config_ = {};
+  std::string trace_config_{};
+  bool privacy_filtering_enabled_{};
 
   // Allows to preserve unknown protobuf fields for compatibility
   // with future versions of .proto files.

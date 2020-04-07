@@ -39,10 +39,7 @@ QT_BEGIN_NAMESPACE
 
 using namespace qdesigner_internal;
 
-BuddyEditorPlugin::BuddyEditorPlugin()
-    : m_initialized(false)
-{
-}
+BuddyEditorPlugin::BuddyEditorPlugin() = default;
 
 BuddyEditorPlugin::~BuddyEditorPlugin() = default;
 
@@ -83,7 +80,7 @@ QDesignerFormEditorInterface *BuddyEditorPlugin::core() const
 
 void BuddyEditorPlugin::addFormWindow(QDesignerFormWindowInterface *formWindow)
 {
-    Q_ASSERT(formWindow != 0);
+    Q_ASSERT(formWindow != nullptr);
     Q_ASSERT(m_tools.contains(formWindow) == false);
 
     BuddyEditorTool *tool = new BuddyEditorTool(formWindow, this);
@@ -94,7 +91,7 @@ void BuddyEditorPlugin::addFormWindow(QDesignerFormWindowInterface *formWindow)
 
 void BuddyEditorPlugin::removeFormWindow(QDesignerFormWindowInterface *formWindow)
 {
-    Q_ASSERT(formWindow != 0);
+    Q_ASSERT(formWindow != nullptr);
     Q_ASSERT(m_tools.contains(formWindow) == true);
 
     BuddyEditorTool *tool = m_tools.value(formWindow);
@@ -112,7 +109,7 @@ QAction *BuddyEditorPlugin::action() const
 
 void BuddyEditorPlugin::activeFormWindowChanged(QDesignerFormWindowInterface *formWindow)
 {
-    m_action->setEnabled(formWindow != 0);
+    m_action->setEnabled(formWindow != nullptr);
 }
 
 QT_END_NAMESPACE

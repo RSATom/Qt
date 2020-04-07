@@ -32,8 +32,7 @@ const char kCreateCdmUMAName[] = "CreateCdm";
 const char kTimeToCreateCdmUMAName[] = "CreateCdmTime";
 }  // namespace
 
-CdmSessionAdapter::CdmSessionAdapter()
-    : trace_id_(0), weak_ptr_factory_(this) {}
+CdmSessionAdapter::CdmSessionAdapter() : trace_id_(0) {}
 
 CdmSessionAdapter::~CdmSessionAdapter() = default;
 
@@ -62,7 +61,7 @@ void CdmSessionAdapter::CreateCdm(
       base::Bind(&CdmSessionAdapter::OnSessionClosed, weak_this),
       base::Bind(&CdmSessionAdapter::OnSessionKeysChange, weak_this),
       base::Bind(&CdmSessionAdapter::OnSessionExpirationUpdate, weak_this),
-      base::Bind(&CdmSessionAdapter::OnCdmCreated, this, key_system,
+      base::Bind(&CdmSessionAdapter::OnCdmCreated, this, key_system, cdm_config,
                  start_time));
 }
 
@@ -87,7 +86,7 @@ bool CdmSessionAdapter::RegisterSession(
     const std::string& session_id,
     base::WeakPtr<WebContentDecryptionModuleSessionImpl> session) {
   // If this session ID is already registered, don't register it again.
-  if (base::ContainsKey(sessions_, session_id))
+  if (base::Contains(sessions_, session_id))
     return false;
 
   sessions_[session_id] = session;
@@ -95,7 +94,7 @@ bool CdmSessionAdapter::RegisterSession(
 }
 
 void CdmSessionAdapter::UnregisterSession(const std::string& session_id) {
-  DCHECK(base::ContainsKey(sessions_, session_id));
+  DCHECK(base::Contains(sessions_, session_id));
   sessions_.erase(session_id);
 }
 
@@ -158,8 +157,14 @@ const std::string& CdmSessionAdapter::GetKeySystemUMAPrefix() const {
   return key_system_uma_prefix_;
 }
 
+const CdmConfig& CdmSessionAdapter::GetCdmConfig() const {
+  DCHECK(cdm_);
+  return cdm_config_;
+}
+
 void CdmSessionAdapter::OnCdmCreated(
     const std::string& key_system,
+    const CdmConfig& cdm_config,
     base::TimeTicks start_time,
     const scoped_refptr<ContentDecryptionModule>& cdm,
     const std::string& error_message) {
@@ -190,6 +195,8 @@ void CdmSessionAdapter::OnCdmCreated(
   // Only report time for successful CDM creation.
   base::UmaHistogramTimes(key_system_uma_prefix_ + kTimeToCreateCdmUMAName,
                           base::TimeTicks::Now() - start_time);
+
+  cdm_config_ = cdm_config;
 
   cdm_ = cdm;
 

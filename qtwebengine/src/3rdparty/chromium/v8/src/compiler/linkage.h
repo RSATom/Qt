@@ -7,15 +7,15 @@
 
 #include "src/base/compiler-specific.h"
 #include "src/base/flags.h"
+#include "src/codegen/interface-descriptors.h"
+#include "src/codegen/machine-type.h"
+#include "src/codegen/register-arch.h"
+#include "src/codegen/reglist.h"
+#include "src/codegen/signature.h"
+#include "src/common/globals.h"
 #include "src/compiler/frame.h"
 #include "src/compiler/operator.h"
-#include "src/globals.h"
-#include "src/interface-descriptors.h"
-#include "src/machine-type.h"
-#include "src/register-arch.h"
-#include "src/reglist.h"
 #include "src/runtime/runtime.h"
-#include "src/signature.h"
 #include "src/zone/zone.h"
 
 namespace v8 {
@@ -153,7 +153,9 @@ class LinkageLocation {
   LinkageLocation(LocationType type, int32_t location,
                   MachineType machine_type) {
     bit_field_ = TypeField::encode(type) |
-                 ((location << LocationField::kShift) & LocationField::kMask);
+                 // {location} can be -1 (ANY_REGISTER).
+                 ((static_cast<uint32_t>(location) << LocationField::kShift) &
+                  LocationField::kMask);
     machine_type_ = machine_type;
   }
 
@@ -161,7 +163,7 @@ class LinkageLocation {
   MachineType machine_type_;
 };
 
-typedef Signature<LinkageLocation> LocationSignature;
+using LocationSignature = Signature<LinkageLocation>;
 
 // Describes a call to various parts of the compiler. Every call has the notion
 // of a "target", which is the first input to the call.
@@ -173,6 +175,7 @@ class V8_EXPORT_PRIVATE CallDescriptor final
     kCallCodeObject,         // target is a Code object
     kCallJSFunction,         // target is a JSFunction object
     kCallAddress,            // target is a machine pointer
+    kCallWasmCapiFunction,   // target is a Wasm C API function
     kCallWasmFunction,       // target is a wasm function
     kCallWasmImportWrapper,  // target is a wasm import wrapper
     kCallBuiltinPointer,     // target is a builtin pointer
@@ -196,7 +199,7 @@ class V8_EXPORT_PRIVATE CallDescriptor final
     kFixedTargetRegister = 1u << 7,
     kAllowCallThroughSlot = 1u << 8
   };
-  typedef base::Flags<Flag> Flags;
+  using Flags = base::Flags<Flag>;
 
   CallDescriptor(Kind kind, MachineType target_type, LinkageLocation target_loc,
                  LocationSignature* location_sig, size_t stack_param_count,
@@ -233,6 +236,9 @@ class V8_EXPORT_PRIVATE CallDescriptor final
 
   // Returns {true} if this descriptor is a call to a WebAssembly function.
   bool IsWasmImportWrapper() const { return kind_ == kCallWasmImportWrapper; }
+
+  // Returns {true} if this descriptor is a call to a Wasm C API function.
+  bool IsWasmCapiFunction() const { return kind_ == kCallWasmCapiFunction; }
 
   bool RequiresFrameAsIncoming() const {
     return IsCFunctionCall() || IsJSFunctionCall() || IsWasmFunctionCall();
@@ -315,9 +321,11 @@ class V8_EXPORT_PRIVATE CallDescriptor final
 
   int GetStackParameterDelta(const CallDescriptor* tail_caller) const;
 
+  int GetTaggedParameterSlots() const;
+
   bool CanTailCall(const Node* call) const;
 
-  int CalculateFixedFrameSize() const;
+  int CalculateFixedFrameSize(Code::Kind code_kind) const;
 
   RegList AllocatableRegisters() const { return allocatable_registers_; }
 

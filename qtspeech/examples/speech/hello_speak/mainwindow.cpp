@@ -62,7 +62,8 @@ MainWindow::MainWindow(QWidget *parent)
 
     // Populate engine selection list
     ui.engine->addItem("Default", QString("default"));
-    foreach (QString engine, QTextToSpeech::availableEngines())
+    const auto engines = QTextToSpeech::availableEngines();
+    for (const QString &engine : engines)
         ui.engine->addItem(engine, engine);
     ui.engine->setCurrentIndex(0);
     engineSelected(0);
@@ -125,9 +126,9 @@ void MainWindow::engineSelected(int index)
     disconnect(ui.language, static_cast<void (QComboBox::*)(int)>(&QComboBox::currentIndexChanged), this, &MainWindow::languageSelected);
     ui.language->clear();
     // Populate the languages combobox before connecting its signal.
-    QVector<QLocale> locales = m_speech->availableLocales();
+    const QVector<QLocale> locales = m_speech->availableLocales();
     QLocale current = m_speech->locale();
-    foreach (const QLocale &locale, locales) {
+    for (const QLocale &locale : locales) {
         QString name(QString("%1 (%2)")
                      .arg(QLocale::languageToString(locale.language()))
                      .arg(QLocale::countryToString(locale.country())));
@@ -171,7 +172,7 @@ void MainWindow::localeChanged(const QLocale &locale)
 
     m_voices = m_speech->availableVoices();
     QVoice currentVoice = m_speech->voice();
-    foreach (const QVoice &voice, m_voices) {
+    for (const QVoice &voice : qAsConst(m_voices)) {
         ui.voice->addItem(QString("%1 - %2 - %3").arg(voice.name())
                           .arg(QVoice::genderName(voice.gender()))
                           .arg(QVoice::ageName(voice.age())));

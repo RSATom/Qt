@@ -23,10 +23,12 @@ typedef int PreviewsState;
 enum PreviewsTypes {
   PREVIEWS_UNSPECIFIED = 0,  // Let the browser process decide whether or
                              // not to request Preview types.
-  SERVER_LOFI_ON = 1 << 0,   // Request a Lo-Fi version of the resource
-                             // from the server.
-  CLIENT_LOFI_ON = 1 << 1,   // Request a Lo-Fi version of the resource
-                             // from the client.
+  // DEPRECATED: SERVER_LOFI_ON = 1 << 0, Request a Lo-Fi version of the
+  // resource from the server. This preview type has been deprecated and should
+  // no longer be used.
+  // DEPRECATED: CLIENT_LOFI_ON = 1 << 1, Request a Lo-Fi version of the
+  // resource from the client. This preview type has been deprecated and should
+  // no longer be used.
   CLIENT_LOFI_AUTO_RELOAD = 1 << 2,  // Request the original version of the
                                      // resource after a decoding error occurred
                                      // when attempting to use Client Lo-Fi.
@@ -46,21 +48,27 @@ enum PreviewsTypes {
                                    // to a Lite Page server.
   LAZY_IMAGE_LOAD_DEFERRED = 1 << 10,  // Request the placeholder version of an
                                        // image that was deferred by lazyload.
-  PREVIEWS_STATE_LAST = LAZY_IMAGE_LOAD_DEFERRED
+  LAZY_IMAGE_AUTO_RELOAD = 1 << 11,  // Request the full image after previously
+                                     // getting a lazy load placeholder.
+  DEFER_ALL_SCRIPT_ON = 1 << 12,  // Request that script execution be deferred
+                                  // until parsing completes.
+  PREVIEWS_STATE_LAST = DEFER_ALL_SCRIPT_ON
 };
 
 // Combination of all previews that are guaranteed not to provide partial
 // content.
-const PreviewsState PARTIAL_CONTENT_SAFE_PREVIEWS = SERVER_LOFI_ON;
+// const PreviewsState PARTIAL_CONTENT_SAFE_PREVIEWS = SERVER_LOFI_ON;
+// deprecated
+
+// Combination of all currently supported previews.
+const PreviewsState ALL_SUPPORTED_PREVIEWS =
+    SERVER_LITE_PAGE_ON | NOSCRIPT_ON | RESOURCE_LOADING_HINTS_ON |
+    OFFLINE_PAGE_ON | LITE_PAGE_REDIRECT_ON;
 
 // Ensure that content::PreviewsState and blink::WebURLRequest::PreviewsState
 // are kept in sync.
 STATIC_ASSERT_PREVIEWS_ENUM(PREVIEWS_UNSPECIFIED,
                             blink::WebURLRequest::kPreviewsUnspecified);
-STATIC_ASSERT_PREVIEWS_ENUM(SERVER_LOFI_ON,
-                            blink::WebURLRequest::kServerLoFiOn);
-STATIC_ASSERT_PREVIEWS_ENUM(CLIENT_LOFI_ON,
-                            blink::WebURLRequest::kClientLoFiOn);
 STATIC_ASSERT_PREVIEWS_ENUM(CLIENT_LOFI_AUTO_RELOAD,
                             blink::WebURLRequest::kClientLoFiAutoReload);
 STATIC_ASSERT_PREVIEWS_ENUM(SERVER_LITE_PAGE_ON,
@@ -77,6 +85,8 @@ STATIC_ASSERT_PREVIEWS_ENUM(LITE_PAGE_REDIRECT_ON,
                             blink::WebURLRequest::kLitePageRedirectOn);
 STATIC_ASSERT_PREVIEWS_ENUM(LAZY_IMAGE_LOAD_DEFERRED,
                             blink::WebURLRequest::kLazyImageLoadDeferred);
+STATIC_ASSERT_PREVIEWS_ENUM(LAZY_IMAGE_AUTO_RELOAD,
+                            blink::WebURLRequest::kLazyImageAutoReload);
 STATIC_ASSERT_PREVIEWS_ENUM(PREVIEWS_STATE_LAST,
                             blink::WebURLRequest::kPreviewsStateLast);
 

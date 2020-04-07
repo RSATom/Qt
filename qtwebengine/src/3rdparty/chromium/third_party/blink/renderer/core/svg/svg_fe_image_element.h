@@ -36,10 +36,10 @@ class SVGFEImageElement final : public SVGFilterPrimitiveStandardAttributes,
                                 public ImageResourceObserver {
   DEFINE_WRAPPERTYPEINFO();
   USING_GARBAGE_COLLECTED_MIXIN(SVGFEImageElement);
+  // Pre-finalize to promptly remove as a ImageResource client.
+  USING_PRE_FINALIZER(SVGFEImageElement, Dispose);
 
  public:
-  DECLARE_NODE_FACTORY(SVGFEImageElement);
-
   bool CurrentFrameHasSingleSecurityOrigin() const;
 
   explicit SVGFEImageElement(Document&);
@@ -48,8 +48,12 @@ class SVGFEImageElement final : public SVGFilterPrimitiveStandardAttributes,
     return preserve_aspect_ratio_.Get();
   }
 
-  // Promptly remove as a ImageResource client.
-  EAGERLY_FINALIZE();
+  const AttrNameToTrustedType& GetCheckedAttributeTypes() const override {
+    return SVGURIReference::GetCheckedAttributeTypes();
+  }
+
+  void Dispose();
+
   void Trace(blink::Visitor*) override;
 
  private:
@@ -66,7 +70,7 @@ class SVGFEImageElement final : public SVGFilterPrimitiveStandardAttributes,
   void BuildPendingResource() override;
   InsertionNotificationRequest InsertedInto(ContainerNode&) override;
   void RemovedFrom(ContainerNode&) override;
-  bool TaintsOrigin(bool inputs_taint_origin) const override;
+  bool TaintsOrigin() const override;
 
   Member<SVGAnimatedPreserveAspectRatio> preserve_aspect_ratio_;
 

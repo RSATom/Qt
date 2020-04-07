@@ -7,35 +7,37 @@
 #include <utility>
 
 #include "core/fpdfapi/cpdf_modulemgr.h"
+#include "core/fpdfapi/page/cpdf_docpagedata.h"
 #include "core/fpdfapi/parser/cpdf_array.h"
 #include "core/fpdfapi/parser/cpdf_dictionary.h"
 #include "core/fpdfapi/parser/cpdf_document.h"
 #include "core/fpdfapi/parser/cpdf_name.h"
+#include "core/fpdfapi/render/cpdf_docrenderdata.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 class CPDF_CIDFontTest : public testing::Test {
  protected:
-  void SetUp() override { CPDF_ModuleMgr::Get()->Init(); }
-
+  void SetUp() override { CPDF_ModuleMgr::Create(); }
   void TearDown() override { CPDF_ModuleMgr::Destroy(); }
 };
 
 TEST_F(CPDF_CIDFontTest, BUG_920636) {
-  CPDF_Document doc;
-  CPDF_Dictionary font_dict;
-  font_dict.SetNewFor<CPDF_Name>("Encoding", "Identity−H");
+  CPDF_Document doc(pdfium::MakeUnique<CPDF_DocRenderData>(),
+                    pdfium::MakeUnique<CPDF_DocPageData>());
+  auto font_dict = pdfium::MakeRetain<CPDF_Dictionary>();
+  font_dict->SetNewFor<CPDF_Name>("Encoding", "Identity−H");
 
   {
-    auto descendant_fonts = pdfium::MakeUnique<CPDF_Array>();
+    auto descendant_fonts = pdfium::MakeRetain<CPDF_Array>();
     {
-      auto descendant_font = pdfium::MakeUnique<CPDF_Dictionary>();
+      auto descendant_font = pdfium::MakeRetain<CPDF_Dictionary>();
       descendant_font->SetNewFor<CPDF_Name>("BaseFont", "CourierStd");
       descendant_fonts->Add(std::move(descendant_font));
     }
-    font_dict.SetFor("DescendantFonts", std::move(descendant_fonts));
+    font_dict->SetFor("DescendantFonts", std::move(descendant_fonts));
   }
 
-  CPDF_CIDFont font(&doc, &font_dict);
+  CPDF_CIDFont font(&doc, font_dict.Get());
   ASSERT_TRUE(font.Load());
 
   // It would be nice if we can test more values here. However, the glyph

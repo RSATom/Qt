@@ -15,7 +15,8 @@
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/messaging/message_channel.h"
 #include "third_party/blink/renderer/core/streams/readable_stream.h"
-#include "third_party/blink/renderer/core/streams/readable_stream_default_controller_wrapper.h"
+#include "third_party/blink/renderer/core/streams/readable_stream_default_controller_interface.h"
+#include "third_party/blink/renderer/core/streams/readable_stream_wrapper.h"
 #include "third_party/blink/renderer/core/streams/test_underlying_source.h"
 #include "third_party/blink/renderer/platform/bindings/exception_state.h"
 #include "third_party/blink/renderer/platform/bindings/script_state.h"
@@ -23,6 +24,7 @@
 #include "third_party/blink/renderer/platform/bindings/v8_throw_exception.h"
 #include "third_party/blink/renderer/platform/heap/handle.h"
 #include "third_party/blink/renderer/platform/runtime_enabled_features.h"
+#include "third_party/blink/renderer/platform/testing/runtime_enabled_features_test_helpers.h"
 #include "third_party/blink/renderer/platform/testing/unit_test_helpers.h"
 #include "v8/include/v8.h"
 
@@ -112,7 +114,26 @@ class ReaderFunction : public ScriptFunction {
   Member<Iteration> iteration_;
 };
 
+// Returns the internal V8 Extras implementation of a ReadableStream object.
+// Requires StreamsNative feature to be off.
+ScriptValue CheckedGetInternalStream(ScriptState* script_state,
+                                     ReadableStream* readable_stream) {
+  CHECK(!RuntimeEnabledFeatures::StreamsNativeEnabled());
+  ReadableStreamWrapper* readable_stream_wrapper =
+      static_cast<ReadableStreamWrapper*>(readable_stream);
+  return readable_stream_wrapper->GetInternalStream(script_state);
+}
+
+ScriptValue CheckedGetInternalStream(ScriptState* script_state,
+                                     ScriptValue stream) {
+  ReadableStream* readable_stream =
+      V8ReadableStream::ToImpl(stream.V8Value().As<v8::Object>());
+  return CheckedGetInternalStream(script_state, readable_stream);
+}
+
 TEST(ReadableStreamOperationsTest, IsReadableStream) {
+  ScopedStreamsNativeForTest enabled(false);
+
   V8TestingScope scope;
   TryCatchScope try_catch_scope(scope.GetIsolate());
   EXPECT_FALSE(ReadableStreamOperations::IsReadableStream(
@@ -141,8 +162,7 @@ TEST(ReadableStreamOperationsTest, IsReadableStream) {
                                             scope.GetIsolate()));
 
   ScriptValue internal_stream =
-      V8ReadableStream::ToImpl(stream.V8Value().As<v8::Object>())
-          ->GetInternalStream(scope.GetScriptState());
+      CheckedGetInternalStream(scope.GetScriptState(), stream);
   ASSERT_FALSE(internal_stream.IsEmpty());
   EXPECT_TRUE(ReadableStreamOperations::IsReadableStream(
                   scope.GetScriptState(), internal_stream, ASSERT_NO_EXCEPTION)
@@ -150,6 +170,8 @@ TEST(ReadableStreamOperationsTest, IsReadableStream) {
 }
 
 TEST(ReadableStreamOperationsTest, IsReadableStreamDefaultReaderInvalid) {
+  ScopedStreamsNativeForTest enabled(false);
+
   V8TestingScope scope;
   TryCatchScope try_catch_scope(scope.GetIsolate());
   EXPECT_FALSE(ReadableStreamOperations::IsReadableStreamDefaultReader(
@@ -178,6 +200,8 @@ TEST(ReadableStreamOperationsTest, IsReadableStreamDefaultReaderInvalid) {
 }
 
 TEST(ReadableStreamOperationsTest, GetReader) {
+  ScopedStreamsNativeForTest enabled(false);
+
   V8TestingScope scope;
   TryCatchScope try_catch_scope(scope.GetIsolate());
   auto* stream =
@@ -185,7 +209,7 @@ TEST(ReadableStreamOperationsTest, GetReader) {
   ASSERT_TRUE(stream);
 
   ScriptValue internal_stream =
-      stream->GetInternalStream(scope.GetScriptState());
+      CheckedGetInternalStream(scope.GetScriptState(), stream);
   ASSERT_FALSE(internal_stream.IsEmpty());
 
   EXPECT_EQ(ReadableStreamOperations::IsLocked(
@@ -215,6 +239,8 @@ TEST(ReadableStreamOperationsTest, GetReader) {
 }
 
 TEST(ReadableStreamOperationsTest, IsDisturbed) {
+  ScopedStreamsNativeForTest enabled(false);
+
   V8TestingScope scope;
   TryCatchScope try_catch_scope(scope.GetIsolate());
   auto* stream =
@@ -222,7 +248,7 @@ TEST(ReadableStreamOperationsTest, IsDisturbed) {
   ASSERT_TRUE(stream);
 
   ScriptValue internal_stream =
-      stream->GetInternalStream(scope.GetScriptState());
+      CheckedGetInternalStream(scope.GetScriptState(), stream);
   EXPECT_EQ(ReadableStreamOperations::IsDisturbed(
                 scope.GetScriptState(), internal_stream, ASSERT_NO_EXCEPTION),
             base::make_optional(false));
@@ -235,6 +261,8 @@ TEST(ReadableStreamOperationsTest, IsDisturbed) {
 }
 
 TEST(ReadableStreamOperationsTest, Read) {
+  ScopedStreamsNativeForTest enabled(false);
+
   V8TestingScope scope;
   TryCatchScope try_catch_scope(scope.GetIsolate());
   ScriptValue reader =
@@ -284,6 +312,8 @@ TEST(ReadableStreamOperationsTest, Read) {
 
 TEST(ReadableStreamOperationsTest,
      CreateReadableStreamWithCustomUnderlyingSourceAndStrategy) {
+  ScopedStreamsNativeForTest enabled(false);
+
   V8TestingScope scope;
   TryCatchScope try_catch_scope(scope.GetIsolate());
   auto* underlying_source =
@@ -350,46 +380,9 @@ TEST(ReadableStreamOperationsTest,
   EXPECT_TRUE(it3->IsDone());
 }
 
-TEST(ReadableStreamOperationsTest,
-     UnderlyingSourceShouldHavePendingActivityWhenLockedAndControllerIsActive) {
-  V8TestingScope scope;
-  TryCatchScope try_catch_scope(scope.GetIsolate());
-  auto* underlying_source =
-      MakeGarbageCollected<TestUnderlyingSource>(scope.GetScriptState());
-
-  ScriptValue strategy = ReadableStreamOperations::CreateCountQueuingStrategy(
-      scope.GetScriptState(), 10);
-  ASSERT_FALSE(strategy.IsEmpty());
-
-  ScriptValue internal_stream = ReadableStreamOperations::CreateReadableStream(
-      scope.GetScriptState(), underlying_source, strategy);
-  ASSERT_FALSE(internal_stream.IsEmpty());
-
-  auto* stream = ReadableStream::CreateFromInternalStream(
-      scope.GetScriptState(), internal_stream, ASSERT_NO_EXCEPTION);
-  ASSERT_TRUE(stream);
-
-  v8::Local<v8::Object> global = scope.GetScriptState()->GetContext()->Global();
-  ASSERT_TRUE(global
-                  ->Set(scope.GetContext(),
-                        V8String(scope.GetIsolate(), "stream"),
-                        ToV8(stream, scope.GetScriptState()))
-                  .IsJust());
-
-  EXPECT_FALSE(underlying_source->HasPendingActivity());
-  EvalWithPrintingError(&scope, "let reader = stream.getReader();");
-  EXPECT_TRUE(underlying_source->HasPendingActivity());
-  EvalWithPrintingError(&scope, "reader.releaseLock();");
-  EXPECT_FALSE(underlying_source->HasPendingActivity());
-  EvalWithPrintingError(&scope, "reader = stream.getReader();");
-  EXPECT_TRUE(underlying_source->HasPendingActivity());
-  underlying_source->Enqueue(
-      ScriptValue(scope.GetScriptState(), v8::Undefined(scope.GetIsolate())));
-  underlying_source->Close();
-  EXPECT_FALSE(underlying_source->HasPendingActivity());
-}
-
 TEST(ReadableStreamOperationsTest, IsReadable) {
+  ScopedStreamsNativeForTest enabled(false);
+
   V8TestingScope scope;
   TryCatchScope try_catch_scope(scope.GetIsolate());
 
@@ -409,27 +402,29 @@ TEST(ReadableStreamOperationsTest, IsReadable) {
   auto* errored = ReadableStream::CreateWithCountQueueingStrategy(
       scope.GetScriptState(), erroring_source, 0);
   ASSERT_TRUE(errored);
-  erroring_source->SetError(
+  erroring_source->Error(
       ScriptValue(scope.GetScriptState(), v8::Undefined(scope.GetIsolate())));
 
   EXPECT_EQ(ReadableStreamOperations::IsReadable(
                 scope.GetScriptState(),
-                readable->GetInternalStream(scope.GetScriptState()),
+                CheckedGetInternalStream(scope.GetScriptState(), readable),
                 ASSERT_NO_EXCEPTION),
             base::make_optional(true));
   EXPECT_EQ(ReadableStreamOperations::IsReadable(
                 scope.GetScriptState(),
-                closed->GetInternalStream(scope.GetScriptState()),
+                CheckedGetInternalStream(scope.GetScriptState(), closed),
                 ASSERT_NO_EXCEPTION),
             base::make_optional(false));
   EXPECT_EQ(ReadableStreamOperations::IsReadable(
                 scope.GetScriptState(),
-                errored->GetInternalStream(scope.GetScriptState()),
+                CheckedGetInternalStream(scope.GetScriptState(), errored),
                 ASSERT_NO_EXCEPTION),
             base::make_optional(false));
 }
 
 TEST(ReadableStreamOperationsTest, IsClosed) {
+  ScopedStreamsNativeForTest enabled(false);
+
   V8TestingScope scope;
   TryCatchScope try_catch_scope(scope.GetIsolate());
 
@@ -449,27 +444,29 @@ TEST(ReadableStreamOperationsTest, IsClosed) {
   auto* errored = ReadableStream::CreateWithCountQueueingStrategy(
       scope.GetScriptState(), erroring_source, 0);
   ASSERT_TRUE(errored);
-  erroring_source->SetError(
+  erroring_source->Error(
       ScriptValue(scope.GetScriptState(), v8::Undefined(scope.GetIsolate())));
 
   EXPECT_EQ(ReadableStreamOperations::IsClosed(
                 scope.GetScriptState(),
-                readable->GetInternalStream(scope.GetScriptState()),
+                CheckedGetInternalStream(scope.GetScriptState(), readable),
                 ASSERT_NO_EXCEPTION),
             base::make_optional(false));
   EXPECT_EQ(ReadableStreamOperations::IsClosed(
                 scope.GetScriptState(),
-                closed->GetInternalStream(scope.GetScriptState()),
+                CheckedGetInternalStream(scope.GetScriptState(), closed),
                 ASSERT_NO_EXCEPTION),
             base::make_optional(true));
   EXPECT_EQ(ReadableStreamOperations::IsClosed(
                 scope.GetScriptState(),
-                errored->GetInternalStream(scope.GetScriptState()),
+                CheckedGetInternalStream(scope.GetScriptState(), errored),
                 ASSERT_NO_EXCEPTION),
             base::make_optional(false));
 }
 
 TEST(ReadableStreamOperationsTest, IsErrored) {
+  ScopedStreamsNativeForTest enabled(false);
+
   V8TestingScope scope;
   TryCatchScope try_catch_scope(scope.GetIsolate());
 
@@ -489,27 +486,29 @@ TEST(ReadableStreamOperationsTest, IsErrored) {
   auto* errored = ReadableStream::CreateWithCountQueueingStrategy(
       scope.GetScriptState(), erroring_source, 0);
   ASSERT_TRUE(errored);
-  erroring_source->SetError(
+  erroring_source->Error(
       ScriptValue(scope.GetScriptState(), v8::Undefined(scope.GetIsolate())));
 
   EXPECT_EQ(ReadableStreamOperations::IsErrored(
                 scope.GetScriptState(),
-                readable->GetInternalStream(scope.GetScriptState()),
+                CheckedGetInternalStream(scope.GetScriptState(), readable),
                 ASSERT_NO_EXCEPTION),
             base::make_optional(false));
   EXPECT_EQ(ReadableStreamOperations::IsErrored(
                 scope.GetScriptState(),
-                closed->GetInternalStream(scope.GetScriptState()),
+                CheckedGetInternalStream(scope.GetScriptState(), closed),
                 ASSERT_NO_EXCEPTION),
             base::make_optional(false));
   EXPECT_EQ(ReadableStreamOperations::IsErrored(
                 scope.GetScriptState(),
-                errored->GetInternalStream(scope.GetScriptState()),
+                CheckedGetInternalStream(scope.GetScriptState(), errored),
                 ASSERT_NO_EXCEPTION),
             base::make_optional(true));
 }
 
 TEST(ReadableStreamOperationsTest, Tee) {
+  ScopedStreamsNativeForTest enabled(false);
+
   V8TestingScope scope;
   TryCatchScope try_catch_scope(scope.GetIsolate());
   v8::Local<v8::Context> context = scope.GetScriptState()->GetContext();
@@ -521,7 +520,8 @@ TEST(ReadableStreamOperationsTest, Tee) {
   ASSERT_TRUE(stream);
 
   ScriptValue result = ReadableStreamOperations::Tee(
-      scope.GetScriptState(), stream->GetInternalStream(scope.GetScriptState()),
+      scope.GetScriptState(),
+      CheckedGetInternalStream(scope.GetScriptState(), stream),
       exception_state);
   ASSERT_FALSE(result.IsEmpty());
   ASSERT_TRUE(result.IsObject());
@@ -580,7 +580,8 @@ TEST(ReadableStreamOperationsTest, Tee) {
 }
 
 TEST(ReadableStreamOperationsTest, Serialize) {
-  RuntimeEnabledFeatures::SetTransferableStreamsEnabled(true);
+  ScopedStreamsNativeForTest streams_native_enabled(false);
+  ScopedTransferableStreamsForTest transferable_streams_enabled(true);
 
   V8TestingScope scope;
   TryCatchScope try_catch_scope(scope.GetIsolate());
@@ -593,8 +594,9 @@ TEST(ReadableStreamOperationsTest, Serialize) {
   source->Enqueue(ScriptValue(scope.GetScriptState(),
                               V8String(scope.GetIsolate(), "hello")));
   ScriptValue internal_stream =
-      stream->GetInternalStream(scope.GetScriptState());
-  MessageChannel* channel = MessageChannel::Create(scope.GetExecutionContext());
+      CheckedGetInternalStream(scope.GetScriptState(), stream);
+  auto* channel =
+      MakeGarbageCollected<MessageChannel>(scope.GetExecutionContext());
   ReadableStreamOperations::Serialize(scope.GetScriptState(), internal_stream,
                                       channel->port1(), ASSERT_NO_EXCEPTION);
   EXPECT_TRUE(ReadableStreamOperations::IsLocked(

@@ -46,8 +46,8 @@
 #include "third_party/blink/renderer/core/html/parser/text_resource_decoder.h"
 #include "third_party/blink/renderer/core/html/parser/xss_auditor.h"
 #include "third_party/blink/renderer/core/html/parser/xss_auditor_delegate.h"
+#include "third_party/blink/renderer/core/page/viewport_description.h"
 #include "third_party/blink/renderer/core/script/html_parser_script_runner_host.h"
-#include "third_party/blink/renderer/platform/bindings/trace_wrapper_member.h"
 #include "third_party/blink/renderer/platform/wtf/deque.h"
 #include "third_party/blink/renderer/platform/wtf/text/text_position.h"
 
@@ -72,13 +72,6 @@ class CORE_EXPORT HTMLDocumentParser : public ScriptableDocumentParser,
   USING_PRE_FINALIZER(HTMLDocumentParser, Dispose);
 
  public:
-  static HTMLDocumentParser* Create(
-      HTMLDocument& document,
-      ParserSynchronizationPolicy background_parsing_policy) {
-    return MakeGarbageCollected<HTMLDocumentParser>(document,
-                                                    background_parsing_policy);
-  }
-
   HTMLDocumentParser(HTMLDocument&, ParserSynchronizationPolicy);
   HTMLDocumentParser(DocumentFragment*,
                      Element* context_element,
@@ -120,7 +113,7 @@ class CORE_EXPORT HTMLDocumentParser : public ScriptableDocumentParser,
    public:
     CompactHTMLTokenStream tokens;
     PreloadRequestStream preloads;
-    ViewportDescriptionWrapper viewport;
+    base::Optional<ViewportDescription> viewport;
     XSSInfoStream xss_infos;
     HTMLTokenizer::State tokenizer_state;
     HTMLTreeBuilderSimulator::State tree_builder_state;
@@ -151,12 +144,6 @@ class CORE_EXPORT HTMLDocumentParser : public ScriptableDocumentParser,
   void ForcePlaintextForTextDocument();
 
  private:
-  static HTMLDocumentParser* Create(DocumentFragment* fragment,
-                                    Element* context_element,
-                                    ParserContentPolicy parser_content_policy) {
-    return MakeGarbageCollected<HTMLDocumentParser>(fragment, context_element,
-                                                    parser_content_policy);
-  }
   HTMLDocumentParser(Document&,
                      ParserContentPolicy,
                      ParserSynchronizationPolicy);
@@ -172,8 +159,8 @@ class CORE_EXPORT HTMLDocumentParser : public ScriptableDocumentParser,
   bool IsWaitingForScripts() const final;
   bool IsExecutingScript() const final;
   void ExecuteScriptsWaitingForResources() final;
-  void DidAddPendingStylesheetInBody() final;
-  void DidLoadAllBodyStylesheets() final;
+  void DidAddPendingParserBlockingStylesheet() final;
+  void DidLoadAllPendingParserBlockingStylesheets() final;
   void CheckIfBodyStylesheetAdded();
   void DocumentElementAvailable() override;
 
@@ -236,7 +223,7 @@ class CORE_EXPORT HTMLDocumentParser : public ScriptableDocumentParser,
 
   std::unique_ptr<HTMLToken> token_;
   std::unique_ptr<HTMLTokenizer> tokenizer_;
-  TraceWrapperMember<HTMLParserScriptRunner> script_runner_;
+  Member<HTMLParserScriptRunner> script_runner_;
   Member<HTMLTreeBuilder> tree_builder_;
 
   std::unique_ptr<HTMLPreloadScanner> preload_scanner_;
@@ -280,10 +267,10 @@ class CORE_EXPORT HTMLDocumentParser : public ScriptableDocumentParser,
   unsigned pump_speculations_session_nesting_level_;
   bool is_parsing_at_line_number_;
   bool tried_loading_link_headers_;
-  bool added_pending_stylesheet_in_body_;
+  bool added_pending_parser_blocking_stylesheet_;
   bool is_waiting_for_stylesheets_;
 
-  base::WeakPtrFactory<HTMLDocumentParser> weak_factory_;
+  base::WeakPtrFactory<HTMLDocumentParser> weak_factory_{this};
 };
 
 }  // namespace blink

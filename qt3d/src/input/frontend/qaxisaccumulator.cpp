@@ -42,7 +42,6 @@
 
 #include <Qt3DInput/qaxis.h>
 #include <Qt3DCore/qnodecreatedchange.h>
-#include <Qt3DCore/qpropertyupdatedchange.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -290,15 +289,9 @@ void QAxisAccumulator::setScale(float scale)
     emit scaleChanged(scale);
 }
 
-/*! \internal */
-void QAxisAccumulator::sceneChangeEvent(const Qt3DCore::QSceneChangePtr &change)
+// TODO Unused remove in Qt6
+void QAxisAccumulator::sceneChangeEvent(const Qt3DCore::QSceneChangePtr &)
 {
-    Q_D(QAxisAccumulator);
-    auto e = qSharedPointerCast<Qt3DCore::QPropertyUpdatedChange>(change);
-    if (e->type() == Qt3DCore::PropertyUpdated && e->propertyName() == QByteArrayLiteral("value"))
-        d->setValue(e->value().toFloat());
-    else if (e->type() == Qt3DCore::PropertyUpdated && e->propertyName() == QByteArrayLiteral("velocity"))
-        d->setVelocity(e->value().toFloat());
 }
 
 /*! \internal */

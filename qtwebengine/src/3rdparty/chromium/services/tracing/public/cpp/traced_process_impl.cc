@@ -6,17 +6,13 @@
 
 #include <utility>
 
+#include "base/bind.h"
 #include "base/no_destructor.h"
-#include "base/task/task_scheduler/task_scheduler.h"
+#include "base/task/thread_pool/thread_pool.h"
 #include "services/tracing/public/cpp/base_agent.h"
+#include "services/tracing/public/cpp/perfetto/producer_client.h"
 #include "services/tracing/public/cpp/trace_event_agent.h"
 #include "services/tracing/public/mojom/constants.mojom.h"
-
-#if (defined(OS_ANDROID) || defined(OS_LINUX) || defined(OS_MACOSX) || \
-    defined(OS_WIN) || defined(OS_FUCHSIA)) && !defined(TOOLKIT_QT)
-#define PERFETTO_AVAILABLE
-#include "services/tracing/public/cpp/perfetto/producer_client.h"
-#endif
 
 namespace tracing {
 
@@ -49,6 +45,7 @@ void TracedProcessImpl::OnTracedProcessRequest(
     return;
   }
 
+  DETACH_FROM_SEQUENCE(sequence_checker_);
   binding_.Bind(std::move(request));
 }
 
@@ -77,12 +74,17 @@ void TracedProcessImpl::UnregisterAgent(BaseAgent* agent) {
 }
 
 void TracedProcessImpl::ConnectToTracingService(
-    mojom::ConnectToTracingRequestPtr request) {
+    mojom::ConnectToTracingRequestPtr request,
+    ConnectToTracingServiceCallback callback) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
-  // Tracing requires a running TaskScheduler; disable tracing
+  // Acknowledge this message so the tracing service knows it was dispatched in
+  // this process.
+  std::move(callback).Run();
+
+  // Tracing requires a running ThreadPool; disable tracing
   // for processes without it.
-  if (!base::TaskScheduler::GetInstance()) {
+  if (!base::ThreadPoolInstance::Get()) {
     return;
   }
 
@@ -105,10 +107,9 @@ void TracedProcessImpl::ConnectToTracingService(
   for (auto* agent : agents_) {
     agent->Connect(agent_registry_.get());
   }
-#if defined(PERFETTO_AVAILABLE)
-  ProducerClient::Get()->Connect(
+
+  PerfettoTracedProcess::Get()->producer_client()->Connect(
       tracing::mojom::PerfettoServicePtr(std::move(request->perfetto_service)));
-#endif
 }
 
 void TracedProcessImpl::GetCategories(std::set<std::string>* category_set) {

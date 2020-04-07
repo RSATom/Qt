@@ -8,48 +8,16 @@
 
 #include "base/macros.h"
 #include "base/strings/utf_string_conversions.h"
-#include "components/payments/core/payment_request_delegate.h"
+#include "base/test/scoped_feature_list.h"
+#include "components/payments/core/mock_payment_request_delegate.h"
 #include "content/public/browser/stored_payment_app.h"
+#include "content/public/common/content_features.h"
 #include "content/public/test/test_browser_context.h"
 #include "content/public/test/test_browser_thread_bundle.h"
-#include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/blink/public/mojom/payments/payment_request.mojom.h"
 
 namespace payments {
-namespace {
-
-class MockPaymentRequestDelegate : public PaymentRequestDelegate {
- public:
-  MockPaymentRequestDelegate() {}
-  ~MockPaymentRequestDelegate() override {}
-  MOCK_METHOD1(ShowDialog, void(PaymentRequest* request));
-  MOCK_METHOD0(RetryDialog, void());
-  MOCK_METHOD0(CloseDialog, void());
-  MOCK_METHOD0(ShowErrorMessage, void());
-  MOCK_METHOD0(ShowProcessingSpinner, void());
-  MOCK_CONST_METHOD0(IsBrowserWindowActive, bool());
-  MOCK_METHOD0(GetPersonalDataManager, autofill::PersonalDataManager*());
-  MOCK_CONST_METHOD0(GetApplicationLocale, const std::string&());
-  MOCK_CONST_METHOD0(IsIncognito, bool());
-  MOCK_METHOD0(IsSslCertificateValid, bool());
-  MOCK_CONST_METHOD0(GetLastCommittedURL, const GURL&());
-  MOCK_METHOD2(
-      DoFullCardRequest,
-      void(const autofill::CreditCard& credit_card,
-           base::WeakPtr<autofill::payments::FullCardRequest::ResultDelegate>
-               result_delegate));
-  MOCK_METHOD0(GetAddressNormalizer, autofill::AddressNormalizer*());
-  MOCK_METHOD0(GetRegionDataLoader, autofill::RegionDataLoader*());
-  MOCK_METHOD0(GetUkmRecorder, ukm::UkmRecorder*());
-  MOCK_CONST_METHOD0(GetAuthenticatedEmail, std::string());
-  MOCK_METHOD0(GetPrefService, PrefService*());
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(MockPaymentRequestDelegate);
-};
-
-}  // namespace
 
 class ServiceWorkerPaymentInstrumentTest : public testing::Test,
                                            public PaymentRequestSpec::Observer {
@@ -58,6 +26,8 @@ class ServiceWorkerPaymentInstrumentTest : public testing::Test,
   ~ServiceWorkerPaymentInstrumentTest() override {}
 
  protected:
+  const SkBitmap* icon_bitmap() const { return icon_bitmap_; }
+
   void OnSpecUpdated() override {}
 
   void SetUp() override {
@@ -70,6 +40,7 @@ class ServiceWorkerPaymentInstrumentTest : public testing::Test,
     total->amount = std::move(amount);
     details->total = std::move(total);
     details->id = base::Optional<std::string>("123456");
+    details->modifiers = std::vector<mojom::PaymentDetailsModifierPtr>();
 
     mojom::PaymentDetailsModifierPtr modifier_1 =
         mojom::PaymentDetailsModifier::New();
@@ -79,7 +50,7 @@ class ServiceWorkerPaymentInstrumentTest : public testing::Test,
     modifier_1->total->amount->value = "4.00";
     modifier_1->method_data = mojom::PaymentMethodData::New();
     modifier_1->method_data->supported_method = "basic-card";
-    details->modifiers.push_back(std::move(modifier_1));
+    details->modifiers->push_back(std::move(modifier_1));
 
     mojom::PaymentDetailsModifierPtr modifier_2 =
         mojom::PaymentDetailsModifier::New();
@@ -89,7 +60,7 @@ class ServiceWorkerPaymentInstrumentTest : public testing::Test,
     modifier_2->total->amount->value = "3.00";
     modifier_2->method_data = mojom::PaymentMethodData::New();
     modifier_2->method_data->supported_method = "https://bobpay.com";
-    details->modifiers.push_back(std::move(modifier_2));
+    details->modifiers->push_back(std::move(modifier_2));
 
     mojom::PaymentDetailsModifierPtr modifier_3 =
         mojom::PaymentDetailsModifier::New();
@@ -99,7 +70,7 @@ class ServiceWorkerPaymentInstrumentTest : public testing::Test,
     modifier_3->total->amount->value = "2.00";
     modifier_3->method_data = mojom::PaymentMethodData::New();
     modifier_3->method_data->supported_method = "https://alicepay.com";
-    details->modifiers.push_back(std::move(modifier_3));
+    details->modifiers->push_back(std::move(modifier_3));
 
     std::vector<mojom::PaymentMethodDataPtr> method_data;
     mojom::PaymentMethodDataPtr entry_1 = mojom::PaymentMethodData::New();
@@ -122,12 +93,16 @@ class ServiceWorkerPaymentInstrumentTest : public testing::Test,
   void TearDown() override {}
 
   void CreateServiceWorkerPaymentInstrument(bool with_url_method) {
+    constexpr int kBitmapDimension = 16;
+
     std::unique_ptr<content::StoredPaymentApp> stored_app =
         std::make_unique<content::StoredPaymentApp>();
     stored_app->registration_id = 123456;
     stored_app->scope = GURL("https://bobpay.com");
     stored_app->name = "bobpay";
-    stored_app->icon.reset(new SkBitmap());
+    stored_app->icon = std::make_unique<SkBitmap>();
+    stored_app->icon->allocN32Pixels(kBitmapDimension, kBitmapDimension);
+    stored_app->icon->eraseColor(SK_ColorRED);
     stored_app->enabled_methods.emplace_back("basic-card");
     if (with_url_method)
       stored_app->enabled_methods.emplace_back("https://bobpay.com");
@@ -141,6 +116,7 @@ class ServiceWorkerPaymentInstrumentTest : public testing::Test,
     stored_app->user_hint = "Visa 4012 ... 1881";
     stored_app->prefer_related_applications = false;
 
+    icon_bitmap_ = stored_app->icon.get();
     instrument_ = std::make_unique<ServiceWorkerPaymentInstrument>(
         &browser_context_, GURL("https://testmerchant.com"),
         GURL("https://testmerchant.com/bobpay"), spec_.get(),
@@ -164,6 +140,7 @@ class ServiceWorkerPaymentInstrumentTest : public testing::Test,
 
   std::unique_ptr<PaymentRequestSpec> spec_;
   std::unique_ptr<ServiceWorkerPaymentInstrument> instrument_;
+  const SkBitmap* icon_bitmap_;
 
   DISALLOW_COPY_AND_ASSIGN(ServiceWorkerPaymentInstrumentTest);
 };
@@ -177,7 +154,10 @@ TEST_F(ServiceWorkerPaymentInstrumentTest, InstrumentInfo) {
 
   EXPECT_EQ(base::UTF16ToUTF8(GetInstrument()->GetLabel()), "bobpay");
   EXPECT_EQ(base::UTF16ToUTF8(GetInstrument()->GetSublabel()), "bobpay.com");
-  EXPECT_NE(GetInstrument()->icon_image_skia(), nullptr);
+
+  const gfx::Size expected_size{icon_bitmap()->width(),
+                                icon_bitmap()->height()};
+  EXPECT_EQ(GetInstrument()->icon_image_skia().size(), expected_size);
 }
 
 // Test payment request event data can be correctly constructed for invoking
@@ -237,6 +217,23 @@ TEST_F(ServiceWorkerPaymentInstrumentTest, CreateCanMakePaymentEvent) {
   EXPECT_EQ(event_data->modifiers[0]->total->amount->currency, "USD");
   EXPECT_EQ(event_data->modifiers[0]->method_data->supported_method,
             "https://bobpay.com");
+}
+
+// Test the case when CanMakePaymentEvent cannot be fired. The instrument should
+// be considered valid, but not ready for payment.
+TEST_F(ServiceWorkerPaymentInstrumentTest, ValidateCanMakePayment) {
+  base::test::ScopedFeatureList feature_list;
+  feature_list.InitAndEnableFeature(
+      features::kPaymentRequestHasEnrolledInstrument);
+
+  // CanMakePaymentEvent is not fired because this test instrument does not have
+  // any explicitly verified methods.
+  CreateServiceWorkerPaymentInstrument(/*with_url_method=*/true);
+  GetInstrument()->ValidateCanMakePayment(
+      base::BindOnce([](ServiceWorkerPaymentInstrument*, bool result) {
+        EXPECT_TRUE(result);
+      }));
+  EXPECT_FALSE(GetInstrument()->IsValidForCanMakePayment());
 }
 
 // Test modifiers can be matched based on capabilities.

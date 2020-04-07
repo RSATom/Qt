@@ -6,7 +6,7 @@
 
 #include <utility>
 
-#include "base/metrics/histogram_macros.h"
+#include "base/bind.h"
 #include "base/stl_util.h"
 #include "base/sys_byteorder.h"
 #include "base/task/post_task.h"
@@ -28,18 +28,15 @@ namespace {
 
 const int kMaxRestartAttempts = 10;
 
-void GetNetworkListInBackground(
-    base::OnceCallback<void(net::NetworkInterfaceList)> callback) {
-  net::NetworkInterfaceList networks;
-  {
-    base::ScopedBlockingCall scoped_blocking_call(
-        base::BlockingType::MAY_BLOCK);
-    if (!GetNetworkList(&networks, net::INCLUDE_HOST_SCOPE_VIRTUAL_INTERFACES))
-      return;
-  }
+void OnGetNetworkList(
+    base::OnceCallback<void(net::NetworkInterfaceList)> callback,
+    const base::Optional<net::NetworkInterfaceList>& networks) {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+  if (!networks.has_value())
+    return;
 
   net::NetworkInterfaceList ip4_networks;
-  for (const auto& network : networks) {
+  for (const auto& network : networks.value()) {
     net::AddressFamily address_family = net::GetAddressFamily(network.address);
     if (address_family == net::ADDRESS_FAMILY_IPV4 &&
         network.prefix_length >= 24) {
@@ -48,17 +45,21 @@ void GetNetworkListInBackground(
   }
 
   net::IPAddress localhost_prefix(127, 0, 0, 0);
-  ip4_networks.push_back(
-      net::NetworkInterface("lo",
-                            "lo",
-                            0,
-                            net::NetworkChangeNotifier::CONNECTION_UNKNOWN,
-                            localhost_prefix,
-                            8,
-                            net::IP_ADDRESS_ATTRIBUTE_NONE));
+  ip4_networks.push_back(net::NetworkInterface(
+      "lo", "lo", 0, net::NetworkChangeNotifier::CONNECTION_UNKNOWN,
+      localhost_prefix, 8, net::IP_ADDRESS_ATTRIBUTE_NONE));
+
   base::PostTaskWithTraits(
       FROM_HERE, {content::BrowserThread::IO},
       base::BindOnce(std::move(callback), std::move(ip4_networks)));
+}
+
+void GetNetworkListOnUIThread(
+    base::OnceCallback<void(net::NetworkInterfaceList)> callback) {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+  content::GetNetworkService()->GetNetworkList(
+      net::INCLUDE_HOST_SCOPE_VIRTUAL_INTERFACES,
+      base::BindOnce(&OnGetNetworkList, std::move(callback)));
 }
 
 void CreateUDPSocketOnUIThread(
@@ -78,7 +79,7 @@ namespace cloud_print {
 
 PrivetTrafficDetector::PrivetTrafficDetector(
     content::BrowserContext* profile,
-    const base::RepeatingClosure& on_traffic_detected)
+    base::RepeatingClosure on_traffic_detected)
     : helper_(new Helper(profile, on_traffic_detected)) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   content::GetNetworkConnectionTracker()->AddNetworkConnectionObserver(this);
@@ -106,12 +107,11 @@ void PrivetTrafficDetector::OnConnectionChanged(
 
 PrivetTrafficDetector::Helper::Helper(
     content::BrowserContext* profile,
-    const base::RepeatingClosure& on_traffic_detected)
+    base::RepeatingClosure on_traffic_detected)
     : profile_(profile),
       on_traffic_detected_(on_traffic_detected),
       restart_attempts_(kMaxRestartAttempts),
-      receiver_binding_(this),
-      weak_ptr_factory_(this) {
+      receiver_binding_(this) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
 }
 
@@ -133,9 +133,9 @@ void PrivetTrafficDetector::Helper::ScheduleRestart() {
   ResetConnection();
   weak_ptr_factory_.InvalidateWeakPtrs();
   base::PostDelayedTaskWithTraits(
-      FROM_HERE, {base::TaskPriority::BEST_EFFORT, base::MayBlock()},
+      FROM_HERE, {content::BrowserThread::UI},
       base::BindOnce(
-          &GetNetworkListInBackground,
+          &GetNetworkListOnUIThread,
           base::BindOnce(&Helper::Restart, weak_ptr_factory_.GetWeakPtr())),
       base::TimeDelta::FromSeconds(3));
 }
@@ -149,11 +149,6 @@ void PrivetTrafficDetector::Helper::Restart(
 
 void PrivetTrafficDetector::Helper::Bind() {
   DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
-  if (!start_time_.is_null()) {
-    base::TimeDelta time_delta = base::Time::Now() - start_time_;
-    UMA_HISTOGRAM_LONG_TIMES("LocalDiscovery.DetectorRestartTime", time_delta);
-  }
-  start_time_ = base::Time::Now();
 
   network::mojom::UDPSocketReceiverPtr receiver_ptr;
   network::mojom::UDPSocketReceiverRequest receiver_request =
@@ -263,8 +258,6 @@ void PrivetTrafficDetector::Helper::OnReceived(
     ResetConnection();
     base::PostTaskWithTraits(FROM_HERE, {content::BrowserThread::UI},
                              on_traffic_detected_);
-    base::TimeDelta time_delta = base::Time::Now() - start_time_;
-    UMA_HISTOGRAM_LONG_TIMES("LocalDiscovery.DetectorTriggerTime", time_delta);
   } else {
     socket_->ReceiveMoreWithBufferSize(1, net::dns_protocol::kMaxMulticastSize);
   }

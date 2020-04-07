@@ -136,12 +136,20 @@
         <source>Invalid opcode detected: %1</source>
         <translation>Ungültiger Opcode %1 festgestellt</translation>
     </message>
+    <message>
+        <source>Timeout when reading data from socket.</source>
+        <translation>Zeitüberschreitung beim Lesen vom Socket.</translation>
+    </message>
 </context>
 <context>
     <name>QWebSocketFrame</name>
     <message>
-        <source>Timeout when reading data from socket.</source>
-        <translation>Zeitüberschreitung beim Lesen vom Socket.</translation>
+        <source>Waiting for more data from socket.</source>
+        <translation>Warte auf weitere Daten vom Socket.</translation>
+    </message>
+    <message>
+        <source>Error occurred while reading header from the network: %1</source>
+        <translation>Beim Lesen des Headers vom Netzwerk trat ein Fehler auf: %1</translation>
     </message>
     <message>
         <source>Error occurred while reading from the network: %1</source>

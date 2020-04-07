@@ -12,7 +12,6 @@
 #include "base/barrier_closure.h"
 #include "base/bind.h"
 #include "storage/browser/quota/client_usage_tracker.h"
-#include "storage/browser/quota/storage_monitor.h"
 
 namespace storage {
 
@@ -35,20 +34,22 @@ void StripUsageWithBreakdownCallback(
 
 UsageTracker::UsageTracker(const std::vector<QuotaClient*>& clients,
                            blink::mojom::StorageType type,
-                           SpecialStoragePolicy* special_storage_policy,
-                           StorageMonitor* storage_monitor)
-    : type_(type), storage_monitor_(storage_monitor), weak_factory_(this) {
+                           SpecialStoragePolicy* special_storage_policy)
+    : type_(type), weak_factory_(this) {
   for (auto* client : clients) {
     if (client->DoesSupport(type)) {
       client_tracker_map_[client->id()] = std::make_unique<ClientUsageTracker>(
-          this, client, type, special_storage_policy, storage_monitor_);
+          this, client, type, special_storage_policy);
     }
   }
 }
 
-UsageTracker::~UsageTracker() = default;
+UsageTracker::~UsageTracker() {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+}
 
 ClientUsageTracker* UsageTracker::GetClientTracker(QuotaClient::ID client_id) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   auto found = client_tracker_map_.find(client_id);
   if (found != client_tracker_map_.end())
     return found->second.get();
@@ -56,6 +57,7 @@ ClientUsageTracker* UsageTracker::GetClientTracker(QuotaClient::ID client_id) {
 }
 
 void UsageTracker::GetGlobalLimitedUsage(UsageCallback callback) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   if (!global_usage_callbacks_.empty()) {
     global_usage_callbacks_.emplace_back(base::BindOnce(
         &DidGetGlobalUsageForLimitedGlobalUsage, std::move(callback)));
@@ -87,6 +89,7 @@ void UsageTracker::GetGlobalLimitedUsage(UsageCallback callback) {
 }
 
 void UsageTracker::GetGlobalUsage(GlobalUsageCallback callback) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   global_usage_callbacks_.emplace_back(std::move(callback));
   if (global_usage_callbacks_.size() > 1)
     return;
@@ -113,6 +116,7 @@ void UsageTracker::GetGlobalUsage(GlobalUsageCallback callback) {
 
 void UsageTracker::GetHostUsage(const std::string& host,
                                 UsageCallback callback) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   UsageTracker::GetHostUsageWithBreakdown(
       host,
       base::BindOnce(&StripUsageWithBreakdownCallback, std::move(callback)));
@@ -121,6 +125,7 @@ void UsageTracker::GetHostUsage(const std::string& host,
 void UsageTracker::GetHostUsageWithBreakdown(
     const std::string& host,
     UsageWithBreakdownCallback callback) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   std::vector<UsageWithBreakdownCallback>& host_callbacks =
       host_usage_callbacks_[host];
   host_callbacks.emplace_back(std::move(callback));
@@ -145,12 +150,14 @@ void UsageTracker::GetHostUsageWithBreakdown(
 void UsageTracker::UpdateUsageCache(QuotaClient::ID client_id,
                                     const url::Origin& origin,
                                     int64_t delta) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   ClientUsageTracker* client_tracker = GetClientTracker(client_id);
   DCHECK(client_tracker);
   client_tracker->UpdateUsageCache(origin, delta);
 }
 
 int64_t UsageTracker::GetCachedUsage() const {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   int64_t usage = 0;
   for (const auto& client_id_and_tracker : client_tracker_map_)
     usage += client_id_and_tracker.second->GetCachedUsage();
@@ -159,6 +166,7 @@ int64_t UsageTracker::GetCachedUsage() const {
 
 void UsageTracker::GetCachedHostsUsage(
     std::map<std::string, int64_t>* host_usage) const {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DCHECK(host_usage);
   host_usage->clear();
   for (const auto& client_id_and_tracker : client_tracker_map_)
@@ -167,6 +175,7 @@ void UsageTracker::GetCachedHostsUsage(
 
 void UsageTracker::GetCachedOriginsUsage(
     std::map<url::Origin, int64_t>* origin_usage) const {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DCHECK(origin_usage);
   origin_usage->clear();
   for (const auto& client_id_and_tracker : client_tracker_map_)
@@ -174,6 +183,7 @@ void UsageTracker::GetCachedOriginsUsage(
 }
 
 void UsageTracker::GetCachedOrigins(std::set<url::Origin>* origins) const {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DCHECK(origins);
   origins->clear();
   for (const auto& client_id_and_tracker : client_tracker_map_)
@@ -183,6 +193,7 @@ void UsageTracker::GetCachedOrigins(std::set<url::Origin>* origins) const {
 void UsageTracker::SetUsageCacheEnabled(QuotaClient::ID client_id,
                                         const url::Origin& origin,
                                         bool enabled) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   ClientUsageTracker* client_tracker = GetClientTracker(client_id);
   DCHECK(client_tracker);
 
@@ -195,6 +206,8 @@ UsageTracker::AccumulateInfo::~AccumulateInfo() = default;
 
 void UsageTracker::AccumulateClientGlobalLimitedUsage(AccumulateInfo* info,
                                                       int64_t limited_usage) {
+  DCHECK_GT(info->pending_clients, 0U);
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   info->usage += limited_usage;
   if (--info->pending_clients)
     return;
@@ -210,6 +223,8 @@ void UsageTracker::AccumulateClientGlobalLimitedUsage(AccumulateInfo* info,
 void UsageTracker::AccumulateClientGlobalUsage(AccumulateInfo* info,
                                                int64_t usage,
                                                int64_t unlimited_usage) {
+  DCHECK_GT(info->pending_clients, 0U);
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   info->usage += usage;
   info->unlimited_usage += unlimited_usage;
   if (--info->pending_clients)
@@ -240,6 +255,7 @@ void UsageTracker::AccumulateClientHostUsage(
     const std::string& host,
     QuotaClient::ID client,
     int64_t usage) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   info->usage += usage;
   // Defend against confusing inputs from clients.
   if (info->usage < 0)
@@ -279,6 +295,7 @@ void UsageTracker::AccumulateClientHostUsage(
 
 void UsageTracker::FinallySendHostUsageWithBreakdown(AccumulateInfo* info,
                                                      const std::string& host) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   auto host_it = host_usage_callbacks_.find(host);
   if (host_it == host_usage_callbacks_.end())
     return;

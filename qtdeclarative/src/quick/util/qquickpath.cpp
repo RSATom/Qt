@@ -60,7 +60,7 @@ QT_BEGIN_NAMESPACE
     This type is the base for all path types.  It cannot
     be instantiated.
 
-    \sa Path, PathAttribute, PathPercent, PathLine, PathQuad, PathCubic, PathArc,
+    \sa Path, PathAttribute, PathPercent, PathLine, PathPolyline, PathQuad, PathCubic, PathArc,
         PathAngleArc, PathCurve, PathSvg
 */
 
@@ -71,7 +71,7 @@ QT_BEGIN_NAMESPACE
     \ingroup qtquick-animation-paths
     \brief Defines a path for use by \l PathView and \l Shape.
 
-    A Path is composed of one or more path segments - PathLine, PathQuad,
+    A Path is composed of one or more path segments - PathLine, PathPolyline, PathQuad,
     PathCubic, PathArc, PathAngleArc, PathCurve, PathSvg.
 
     The spacing of the items along the Path can be adjusted via a
@@ -99,6 +99,17 @@ QT_BEGIN_NAMESPACE
         \li Yes
     \row
         \li PathLine
+        \li Yes
+        \li Yes
+        \li Yes
+        \li Yes
+    \row
+        \li PathPolyline
+        \li Yes
+        \li Yes
+        \li Yes
+        \li Yes
+    \li PathMultiLine
         \li Yes
         \li Yes
         \li Yes
@@ -156,7 +167,7 @@ QT_BEGIN_NAMESPACE
     \note Path is a non-visual type; it does not display anything on its own.
     To draw a path, use \l Shape.
 
-    \sa PathView, Shape, PathAttribute, PathPercent, PathLine, PathMove, PathQuad, PathCubic, PathArc, PathAngleArc, PathCurve, PathSvg
+    \sa PathView, Shape, PathAttribute, PathPercent, PathLine, PathPolyline, PathMove, PathQuad, PathCubic, PathArc, PathAngleArc, PathCurve, PathSvg
 */
 QQuickPath::QQuickPath(QObject *parent)
  : QObject(*(new QQuickPathPrivate), parent)
@@ -240,6 +251,8 @@ bool QQuickPath::isClosed() const
     A path can contain the following path objects:
     \list
         \li \l PathLine - a straight line to a given position.
+        \li \l PathPolyline - a polyline specified as a list of coordinates.
+        \li \l PathMultiline - a list of polylines specified as a list of lists of coordinates.
         \li \l PathQuad - a quadratic Bezier curve to a given position with a control point.
         \li \l PathCubic - a cubic Bezier curve to a given position with two control points.
         \li \l PathArc - an arc to a given position with a radius.
@@ -407,6 +420,19 @@ void QQuickPath::processPath()
     emit changed();
 }
 
+inline static void scalePath(QPainterPath &path, const QSizeF &scale)
+{
+    const qreal xscale = scale.width();
+    const qreal yscale = scale.height();
+    if (xscale == 1 && yscale ==  1)
+        return;
+
+    for (int i = 0; i < path.elementCount(); ++i) {
+        const QPainterPath::Element &element = path.elementAt(i);
+        path.setElementPositionAt(i, element.x * xscale, element.y * yscale);
+    }
+}
+
 QPainterPath QQuickPath::createPath(const QPointF &startPoint, const QPointF &endPoint, const QStringList &attributes, qreal &pathLength, QList<AttributePoint> &attributePoints, bool *closed)
 {
     Q_D(QQuickPath);
@@ -465,7 +491,7 @@ QPainterPath QQuickPath::createPath(const QPointF &startPoint, const QPointF &en
         d->_attributePoints.last().values[percentString] = 1;
         interpolate(d->_attributePoints.count() - 1, percentString, 1);
     }
-
+    scalePath(path, d->scale);
 
     // Adjust percent
     qreal length = path.length();
@@ -491,7 +517,7 @@ QPainterPath QQuickPath::createPath(const QPointF &startPoint, const QPointF &en
 
     if (closed) {
         QPointF end = path.currentPosition();
-        *closed = length > 0 && startX == end.x() && startY == end.y();
+        *closed = length > 0 && startX * d->scale.width() == end.x() && startY * d->scale.height() == end.y();
     }
     pathLength = length;
 
@@ -525,6 +551,7 @@ QPainterPath QQuickPath::createShapePath(const QPointF &startPoint, const QPoint
         QPointF end = path.currentPosition();
         *closed = startX == end.x() && startY == end.y();
     }
+    scalePath(path, d->scale);
 
     // Note: Length of paths inside ShapePath is not used, so currently
     // length is always 0. This avoids potentially heavy path.length()
@@ -570,7 +597,7 @@ void QQuickPath::gatherAttributes()
             attributes.insert(attribute->name());
     }
 
-    d->_attributes = attributes.toList();
+    d->_attributes = attributes.values();
 }
 
 void QQuickPath::componentComplete()
@@ -603,7 +630,7 @@ QStringList QQuickPath::attributes() const
                 qobject_cast<QQuickPathAttribute *>(pathElement))
                 attrs.insert(attribute->name());
         }
-        return attrs.toList();
+        return attrs.values();
     }
     return d->_attributes;
 }
@@ -721,6 +748,33 @@ void QQuickPath::invalidateSequentialHistory() const
 {
     Q_D(const QQuickPath);
     d->prevBez.isValid = false;
+}
+
+/*!
+    \qmlproperty size QtQuick::Path::scale
+
+    This property holds the scale factor for the path.
+    The width and height of \a scale can be different, to
+    achieve anisotropic scaling.
+
+    \note Setting this property will not affect the border width.
+
+    \since QtQuick 2.14
+*/
+QSizeF QQuickPath::scale() const
+{
+    Q_D(const QQuickPath);
+    return d->scale;
+}
+
+void QQuickPath::setScale(const QSizeF &scale)
+{
+    Q_D(QQuickPath);
+    if (scale == d->scale)
+        return;
+    d->scale = scale;
+    emit scaleChanged();
+    processPath();
 }
 
 QPointF QQuickPath::sequentialPointAt(qreal p, qreal *angle) const
@@ -852,9 +906,28 @@ QPointF QQuickPath::backwardsPointAt(const QPainterPath &path, const qreal &path
     return QPointF(0,0);
 }
 
-QPointF QQuickPath::pointAt(qreal p) const
+/*!
+   \qmlmethod point Path::pointAtPercent(real t)
+
+    Returns the point at the percentage \a t of the current path.
+    The argument \a t has to be between 0 and 1.
+
+    \note Similarly to other percent methods in \l QPainterPath,
+    the percentage measurement is not linear with regards to the length,
+    if curves are present in the path.
+    When curves are present, the percentage argument is mapped to the \c t
+    parameter of the Bezier equations.
+
+   \sa QPainterPath::pointAtPercent()
+
+   \since QtQuick 2.14
+*/
+QPointF QQuickPath::pointAtPercent(qreal t) const
 {
     Q_D(const QQuickPath);
+    if (d->isShapePath)                     // this since ShapePath does not calculate the length at all,
+        return d->_path.pointAtPercent(t);  // in order to be faster.
+
     if (d->_pointCache.isEmpty()) {
         createPointCache();
         if (d->_pointCache.isEmpty())
@@ -862,7 +935,7 @@ QPointF QQuickPath::pointAt(qreal p) const
     }
 
     const int segmentCount = d->_pointCache.size() - 1;
-    qreal idxf = p*segmentCount;
+    qreal idxf = t*segmentCount;
     int idx1 = qFloor(idxf);
     qreal delta = idxf - idx1;
     if (idx1 > segmentCount)
@@ -1127,7 +1200,7 @@ void QQuickPathAttribute::setValue(qreal value)
     }
     \endqml
 
-    \sa Path, PathQuad, PathCubic, PathArc, PathAngleArc, PathCurve, PathSvg, PathMove
+    \sa Path, PathQuad, PathCubic, PathArc, PathAngleArc, PathCurve, PathSvg, PathMove, PathPolyline
 */
 
 /*!
@@ -2286,6 +2359,266 @@ void QQuickPathPercent::setValue(qreal value)
         emit changed();
     }
 }
+
+/*!
+    \qmltype PathPolyline
+    \instantiates QQuickPathPolyline
+    \inqmlmodule QtQuick
+    \ingroup qtquick-animation-paths
+    \brief Defines a polyline through a list of coordinates.
+    \since QtQuick 2.14
+
+    The example below creates a triangular path consisting of four vertices
+    on the edge of the containing Shape's bounding box.
+    Through the containing shape's \l {QtQuick::Path::}{scale} property,
+    the path will be rescaled together with its containing shape.
+
+    \qml
+    PathPolyline {
+        id: ppl
+        path: [ Qt.point(0.0, 0.0),
+                Qt.point(1.0, 0.0),
+                Qt.point(0.5, 1.0),
+                Qt.point(0.0, 0.0)
+              ]
+    }
+    \endqml
+
+    \sa Path, PathQuad, PathCubic, PathArc, PathAngleArc, PathCurve, PathSvg, PathMove, PathPolyline
+*/
+
+/*!
+    \qmlproperty point QtQuick::PathPolyline::start
+
+    This read-only property contains the beginning of the polyline.
+*/
+
+/*!
+    \qmlproperty list<point> QtQuick::PathPolyline::path
+
+    This property defines the vertices of the polyline.
+
+    It can be a JS array of points constructed with \c Qt.point(),
+    a QList or QVector of QPointF, or QPolygonF.
+    If you are binding this to a custom property in some C++ object,
+    QPolygonF is the most appropriate type to use.
+*/
+
+QQuickPathPolyline::QQuickPathPolyline(QObject *parent) : QQuickCurve(parent)
+{
+}
+
+QVariant QQuickPathPolyline::path() const
+{
+    return QVariant::fromValue(m_path);
+}
+
+void QQuickPathPolyline::setPath(const QVariant &path)
+{
+    if (path.type() == QVariant::PolygonF) {
+        setPath(path.value<QPolygonF>());
+    } else if (path.canConvert<QVector<QPointF>>()) {
+        setPath(path.value<QVector<QPointF>>());
+    } else if (path.canConvert<QVariantList>()) {
+        // This handles cases other than QPolygonF or QVector<QPointF>, such as
+        // QList<QPointF>, QVector<QPoint>, QVariantList of QPointF, QVariantList of QPoint.
+        QVector<QPointF> pathList;
+        QVariantList vl = path.value<QVariantList>();
+        // If path is a QJSValue, e.g. coming from a JS array of Qt.point() in QML,
+        // then path.value<QVariantList>() is inefficient.
+        // TODO We should be able to iterate over path.value<QSequentialIterable>() eventually
+        for (const QVariant &v : vl)
+            pathList.append(v.toPointF());
+        setPath(pathList);
+    } else {
+        qWarning() << "PathPolyline: path of type" << path.type() << "not supported";
+    }
+}
+
+void QQuickPathPolyline::setPath(const QVector<QPointF> &path)
+{
+    if (m_path != path) {
+        const QPointF &oldStart = start();
+        m_path = path;
+        const QPointF &newStart = start();
+        emit pathChanged();
+        if (oldStart != newStart)
+            emit startChanged();
+        emit changed();
+    }
+}
+
+QPointF QQuickPathPolyline::start() const
+{
+    if (m_path.size()) {
+        const QPointF &p = m_path.first();
+        return p;
+    }
+    return QPointF();
+}
+
+void QQuickPathPolyline::addToPath(QPainterPath &path, const QQuickPathData &/*data*/)
+{
+    if (m_path.size() < 2)
+        return;
+
+    path.moveTo(m_path.first());
+    for (int i = 1; i < m_path.size(); ++i)
+        path.lineTo(m_path.at(i));
+}
+
+
+/*!
+    \qmltype PathMultiline
+    \instantiates QQuickPathMultiline
+    \inqmlmodule QtQuick
+    \ingroup qtquick-animation-paths
+    \brief Defines a set of polylines through a list of lists of coordinates.
+    \since QtQuick 2.14
+
+    This element allows to define a list of polylines at once.
+    Each polyline in the list will be preceded by a \l{QPainterPath::moveTo}{moveTo}
+    command, effectively making each polyline a separate one.
+    The polylines in this list are supposed to be non-intersecting with each other.
+    In any case, when used in conjunction with a \l ShapePath, the containing ShapePath's
+    \l ShapePath::fillRule applies.
+    That is, with the default \c OddEvenFill and non intersecting shapes, the largest shape in the list defines an area to be filled;
+    areas where two shapes overlap are holes; areas where three shapes overlap are filled areas inside holes, etc.
+
+    The example below creates a high voltage symbol by adding each path
+    of the symbol to the list of paths.
+    The coordinates of the vertices are normalized, and through the containing shape's
+    \l {QtQuick::Path::}{scale} property, the path will be rescaled together with its containing shape.
+
+    \qml
+    PathMultiline {
+        paths: [
+                [Qt.point(0.5,     0.06698),
+                 Qt.point(1,       0.93301),
+                 Qt.point(0,       0.93301),
+                 Qt.point(0.5,     0.06698)],
+
+                [Qt.point(0.5,     0.12472),
+                 Qt.point(0.95,    0.90414),
+                 Qt.point(0.05,    0.90414),
+                 Qt.point(0.5,     0.12472)],
+
+                [Qt.point(0.47131, 0.32986),
+                 Qt.point(0.36229, 0.64789),
+                 Qt.point(0.51492, 0.58590),
+                 Qt.point(0.47563, 0.76014),
+                 Qt.point(0.44950, 0.73590),
+                 Qt.point(0.46292, 0.83392),
+                 Qt.point(0.52162, 0.75190),
+                 Qt.point(0.48531, 0.76230),
+                 Qt.point(0.57529, 0.53189),
+                 Qt.point(0.41261, 0.59189),
+                 Qt.point(0.53001, 0.32786),
+                 Qt.point(0.47131, 0.32986)]
+               ]
+    }
+    \endqml
+
+    \sa Path, QPainterPath::setFillRule, PathPolyline, PathQuad, PathCubic, PathArc, PathAngleArc, PathCurve, PathSvg, PathMove
+*/
+
+/*!
+    \qmlproperty point QtQuick::PathMultiline::start
+
+    This read-only property contains the beginning of the polylines.
+*/
+
+/*!
+    \qmlproperty list<list<point>> QtQuick::PathMultiline::paths
+
+    This property defines the vertices of the polylines.
+
+    It can be a JS array of JS arrays of points constructed with \c Qt.point(),
+    a QList or QVector of QPolygonF, or QVector<QVector<QPointF>>.
+    If you are binding this to a custom property in some C++ object,
+    QVector<QPolygonF> or QVector<QVector<QPointF>> is the most
+    appropriate type to use.
+*/
+
+QQuickPathMultiline::QQuickPathMultiline(QObject *parent) : QQuickCurve(parent)
+{
+}
+
+QVariant QQuickPathMultiline::paths() const
+{
+    return QVariant::fromValue(m_paths);
+}
+
+void QQuickPathMultiline::setPaths(const QVariant &paths)
+{
+    if (paths.canConvert<QVector<QPolygonF>>()) {
+        const QVector<QPolygonF> pathPolygons = paths.value<QVector<QPolygonF>>();
+        QVector<QVector<QPointF>> pathVectors;
+        for (const QPolygonF &p : pathPolygons)
+            pathVectors << p;
+        setPaths(pathVectors);
+    } else if (paths.canConvert<QVector<QVector<QPointF>>>()) {
+        setPaths(paths.value<QVector<QVector<QPointF>>>());
+    } else if (paths.canConvert<QVariantList>()) {
+        // This handles cases other than QVector<QPolygonF> or QVector<QVector<QPointF>>, such as
+        // QList<QVector<QPointF>>, QList<QList<QPointF>>, QVariantList of QVector<QPointF>,
+        // QVariantList of QVariantList of QPointF, QVector<QList<QPoint>> etc.
+        QVector<QVector<QPointF>> pathsList;
+        QVariantList vll = paths.value<QVariantList>();
+        for (const QVariant &v : vll) {
+            // If we bind a QVector<QPolygonF> property directly, rather than via QVariant,
+            // it will come through as QJSValue that can be converted to QVariantList of QPolygonF.
+            if (v.canConvert<QPolygonF>()) {
+                pathsList.append(v.value<QPolygonF>());
+            } else {
+                QVariantList vl = v.value<QVariantList>();
+                QVector<QPointF> l;
+                for (const QVariant &point : vl) {
+                    if (point.canConvert<QPointF>())
+                        l.append(point.toPointF());
+                }
+                if (l.size() >= 2)
+                    pathsList.append(l);
+            }
+        }
+        setPaths(pathsList);
+    } else {
+        qWarning() << "PathMultiline: paths of type" << paths.type() << "not supported";
+        setPaths(QVector<QVector<QPointF>>());
+    }
+}
+
+void QQuickPathMultiline::setPaths(const QVector<QVector<QPointF>> &paths)
+{
+    if (m_paths != paths) {
+        const QPointF &oldStart = start();
+        m_paths = paths;
+        const QPointF &newStart = start();
+        emit pathsChanged();
+        if (oldStart != newStart)
+            emit startChanged();
+        emit changed();
+    }
+}
+
+QPointF QQuickPathMultiline::start() const
+{
+    if (m_paths.size())
+        return m_paths.first().first();
+    return QPointF();
+}
+
+void QQuickPathMultiline::addToPath(QPainterPath &path, const QQuickPathData &)
+{
+    if (!m_paths.size())
+        return;
+    for (const QVector<QPointF> &p: m_paths) {
+        path.moveTo(p.first());
+        for (int i = 1; i < p.size(); ++i)
+            path.lineTo(p.at(i));
+    }
+}
+
 QT_END_NAMESPACE
 
 #include "moc_qquickpath_p.cpp"

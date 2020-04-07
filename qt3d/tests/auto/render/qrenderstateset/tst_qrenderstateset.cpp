@@ -37,10 +37,6 @@
 #include <Qt3DRender/qrenderstate.h>
 #include <Qt3DRender/private/qrenderstateset_p.h>
 
-#include <Qt3DCore/qpropertyupdatedchange.h>
-#include <Qt3DCore/qpropertynodeaddedchange.h>
-#include <Qt3DCore/qpropertynoderemovedchange.h>
-
 #include "testpostmanarbiter.h"
 
 class MyStateSet;
@@ -140,14 +136,11 @@ private Q_SLOTS:
         QCoreApplication::processEvents();
 
         // THEN
-        QCOMPARE(arbiter.events.size(), 1);
-        Qt3DCore::QPropertyNodeAddedChangePtr change = arbiter.events.first().staticCast<Qt3DCore::QPropertyNodeAddedChange>();
-        QCOMPARE(change->propertyName(), "renderState");
-        QCOMPARE(change->subjectId(), stateSet->id());
-        QCOMPARE(change->addedNodeId(), state1->id());
-        QCOMPARE(change->type(), Qt3DCore::PropertyValueAdded);
+        QCOMPARE(arbiter.events.size(), 0);
+        QCOMPARE(arbiter.dirtyNodes.size(), 1);
+        QVERIFY(arbiter.dirtyNodes.contains(stateSet.data()));
 
-        arbiter.events.clear();
+        arbiter.dirtyNodes.clear();
 
         // WHEN
         stateSet->addRenderState(state1);
@@ -155,20 +148,17 @@ private Q_SLOTS:
 
         // THEN
         QCOMPARE(arbiter.events.size(), 0);
-
+        QCOMPARE(arbiter.dirtyNodes.size(), 0);
         // WHEN
         stateSet->removeRenderState(state1);
         QCoreApplication::processEvents();
 
         // THEN
-        QCOMPARE(arbiter.events.size(), 1);
-        Qt3DCore::QPropertyNodeRemovedChangePtr nodeRemovedChange = arbiter.events.first().staticCast<Qt3DCore::QPropertyNodeRemovedChange>();
-        QCOMPARE(nodeRemovedChange->propertyName(), "renderState");
-        QCOMPARE(nodeRemovedChange->subjectId(), stateSet->id());
-        QCOMPARE(nodeRemovedChange->removedNodeId(), state1->id());
-        QCOMPARE(nodeRemovedChange->type(), Qt3DCore::PropertyValueRemoved);
+        QCOMPARE(arbiter.events.size(), 0);
+        QCOMPARE(arbiter.dirtyNodes.size(), 1);
+        QVERIFY(arbiter.dirtyNodes.contains(stateSet.data()));
 
-        arbiter.events.clear();
+        arbiter.dirtyNodes.clear();
     }
 
     void checkRenderStateBookkeeping()

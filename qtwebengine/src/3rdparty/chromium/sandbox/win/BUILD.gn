@@ -4,11 +4,26 @@
 
 import("//testing/test.gni")
 
+declare_args() {
+  # Enables Windows sandbox with separate subprocess executable.
+  # The only requirement is then that the sandboxed executable is statically
+  # linked to //sandbox/win:sandbox and makes sure to initialize
+  # SandboxInterfaceInfo using the statically linked methods in case it
+  # has a second copy from dynamically linking the rest of Chromium.
+  heterogeneous_executables = false
+}
+
+config("sandbox_exports") {
+  defines = [ "SANDBOX_EXPORTS=1" ]
+}
+
 # This needs to be a static library rather than a sources set because small
 # portions of this are used in some contexts (like chrome_elf), and it
 # doesn't seem to dead-code strip very well. This saves 12K on chrome_elf.dll,
 # over a source set, for example.
-static_library("sandbox") {
+# QtWebEngine: Needs to be source_set as stripping unreferenced files breaks
+# the sandbox.
+source_set("sandbox") {
   sources = [
     "src/acl.cc",
     "src/acl.h",
@@ -118,6 +133,12 @@ static_library("sandbox") {
     "src/sharedmem_ipc_server.h",
     "src/sid.cc",
     "src/sid.h",
+    "src/signed_dispatcher.cc",
+    "src/signed_dispatcher.h",
+    "src/signed_interception.cc",
+    "src/signed_interception.h",
+    "src/signed_policy.cc",
+    "src/signed_policy.h",
     "src/sync_dispatcher.cc",
     "src/sync_dispatcher.h",
     "src/sync_interception.cc",
@@ -170,6 +191,10 @@ static_library("sandbox") {
       [ "//build/config/sanitizers:default_sanitizer_flags_but_coverage" ]
 
   configs += [ "//build/config:precompiled_headers" ]
+
+  if (heterogeneous_executables) {
+    configs += [ ":sandbox_exports" ]
+  }
 
   deps = [
     "//base",

@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2019 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the tools applications of the Qt Toolkit.
@@ -33,11 +33,11 @@
 #ifndef TOKENIZER_H
 #define TOKENIZER_H
 
-#include <qfile.h>
-#include <qstack.h>
-#include <qstring.h>
-
 #include "location.h"
+
+#include <QtCore/qfile.h>
+#include <QtCore/qstack.h>
+#include <QtCore/qstring.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -49,30 +49,93 @@ QT_BEGIN_NAMESPACE
   tokenizer.cpp as well, and possibly adjust Tok_FirstKeyword and
   Tok_LastKeyword.
 */
-enum { Tok_Eoi, Tok_Ampersand, Tok_Aster, Tok_Caret, Tok_LeftParen,
-       Tok_RightParen, Tok_LeftParenAster, Tok_Equal, Tok_LeftBrace,
-       Tok_RightBrace, Tok_Semicolon, Tok_Colon, Tok_LeftAngle,
-       Tok_RightAngle, Tok_Comma, Tok_Ellipsis, Tok_Gulbrandsen,
-       Tok_LeftBracket, Tok_RightBracket, Tok_Tilde, Tok_SomeOperator,
-       Tok_Number, Tok_String, Tok_Doc, Tok_Comment, Tok_Ident, Tok_At,
-       Tok_char, Tok_class, Tok_const, Tok_double, Tok_enum,
-       Tok_explicit, Tok_friend, Tok_inline, Tok_int, Tok_long,
-       Tok_namespace, Tok_operator, Tok_private, Tok_protected,
-       Tok_public, Tok_short, Tok_signals, Tok_signed, Tok_slots,
-       Tok_static, Tok_struct, Tok_template, Tok_typedef,
-       Tok_typename, Tok_union, Tok_unsigned, Tok_using, Tok_virtual,
-       Tok_void, Tok_volatile, Tok_int64, Tok_default, Tok_delete, Tok_final,
-       Tok_override,
-       Tok_Q_OBJECT, Tok_Q_OVERRIDE,
-       Tok_Q_PROPERTY, Tok_Q_PRIVATE_PROPERTY, Tok_Q_DECLARE_SEQUENTIAL_ITERATOR,
-       Tok_Q_DECLARE_MUTABLE_SEQUENTIAL_ITERATOR,
-       Tok_Q_DECLARE_ASSOCIATIVE_ITERATOR,
-       Tok_Q_DECLARE_MUTABLE_ASSOCIATIVE_ITERATOR,
-       Tok_Q_DECLARE_FLAGS, Tok_Q_SIGNALS, Tok_Q_SLOTS, Tok_QT_COMPAT,
-       Tok_QT_COMPAT_CONSTRUCTOR, Tok_QT_DEPRECATED, Tok_QT_MOC_COMPAT,
-       Tok_QT_MODULE, Tok_QT3_SUPPORT, Tok_QT3_SUPPORT_CONSTRUCTOR,
-       Tok_QT3_MOC_SUPPORT, Tok_QDOC_PROPERTY, Tok_QPrivateSignal,
-       Tok_FirstKeyword = Tok_char, Tok_LastKeyword = Tok_QPrivateSignal };
+enum {
+    Tok_Eoi,
+    Tok_Ampersand,
+    Tok_Aster,
+    Tok_Caret,
+    Tok_LeftParen,
+    Tok_RightParen,
+    Tok_LeftParenAster,
+    Tok_Equal,
+    Tok_LeftBrace,
+    Tok_RightBrace,
+    Tok_Semicolon,
+    Tok_Colon,
+    Tok_LeftAngle,
+    Tok_RightAngle,
+    Tok_Comma,
+    Tok_Ellipsis,
+    Tok_Gulbrandsen,
+    Tok_LeftBracket,
+    Tok_RightBracket,
+    Tok_Tilde,
+    Tok_SomeOperator,
+    Tok_Number,
+    Tok_String,
+    Tok_Doc,
+    Tok_Comment,
+    Tok_Ident,
+    Tok_At,
+    Tok_char,
+    Tok_class,
+    Tok_const,
+    Tok_double,
+    Tok_enum,
+    Tok_explicit,
+    Tok_friend,
+    Tok_inline,
+    Tok_int,
+    Tok_long,
+    Tok_namespace,
+    Tok_operator,
+    Tok_private,
+    Tok_protected,
+    Tok_public,
+    Tok_short,
+    Tok_signals,
+    Tok_signed,
+    Tok_slots,
+    Tok_static,
+    Tok_struct,
+    Tok_template,
+    Tok_typedef,
+    Tok_typename,
+    Tok_union,
+    Tok_unsigned,
+    Tok_using,
+    Tok_virtual,
+    Tok_void,
+    Tok_volatile,
+    Tok_int64,
+    Tok_default,
+    Tok_delete,
+    Tok_final,
+    Tok_override,
+    Tok_Q_OBJECT,
+    Tok_Q_OVERRIDE,
+    Tok_Q_PROPERTY,
+    Tok_Q_PRIVATE_PROPERTY,
+    Tok_Q_DECLARE_SEQUENTIAL_ITERATOR,
+    Tok_Q_DECLARE_MUTABLE_SEQUENTIAL_ITERATOR,
+    Tok_Q_DECLARE_ASSOCIATIVE_ITERATOR,
+    Tok_Q_DECLARE_MUTABLE_ASSOCIATIVE_ITERATOR,
+    Tok_Q_DECLARE_FLAGS,
+    Tok_Q_SIGNALS,
+    Tok_Q_SLOTS,
+    Tok_QT_COMPAT,
+    Tok_QT_COMPAT_CONSTRUCTOR,
+    Tok_QT_DEPRECATED,
+    Tok_QT_MOC_COMPAT,
+    Tok_QT_MODULE,
+    Tok_QT3_SUPPORT,
+    Tok_QT3_SUPPORT_CONSTRUCTOR,
+    Tok_QT3_MOC_SUPPORT,
+    Tok_QDOC_PROPERTY,
+    Tok_QPrivateSignal,
+    Tok_FirstKeyword = Tok_char,
+    Tok_LastKeyword = Tok_QPrivateSignal
+};
 
 /*
   The Tokenizer class implements lexical analysis of C++ source
@@ -88,8 +151,8 @@ class Tokenizer
     Q_DECLARE_TR_FUNCTIONS(QDoc::Tokenizer)
 
 public:
-    Tokenizer(const Location& loc, const QByteArray &in);
-    Tokenizer(const Location& loc, QFile &file);
+    Tokenizer(const Location &loc, const QByteArray &in);
+    Tokenizer(const Location &loc, QFile &file);
 
     ~Tokenizer();
 
@@ -104,7 +167,7 @@ public:
     int braceDepth() const { return yyBraceDepth; }
     int parenDepth() const { return yyParenDepth; }
     int bracketDepth() const { return yyBracketDepth; }
-    Location& tokenLocation() { return yyTokLoc; }
+    Location &tokenLocation() { return yyTokLoc; }
 
     static void initialize(const Config &config);
     static void terminate();
@@ -112,7 +175,7 @@ public:
 
 private:
     void init();
-    void start(const Location& loc);
+    void start(const Location &loc);
     /*
       This limit on the length of a lexeme seems fairly high, but a
       doc comment can be arbitrarily long. The previous 65,536 limit
@@ -120,17 +183,14 @@ private:
     */
     enum { yyLexBufSize = 524288 };
 
-    int getch()
-    {
-        return yyPos == yyIn.size() ? EOF : yyIn[yyPos++];
-    }
+    int getch() { return yyPos == yyIn.size() ? EOF : yyIn[yyPos++]; }
 
     inline int getChar()
     {
         if (yyCh == EOF)
             return EOF;
         if (yyLexLen < yyLexBufSize - 1) {
-            yyLex[yyLexLen++] = (char) yyCh;
+            yyLex[yyLexLen++] = (char)yyCh;
             yyLex[yyLexLen] = '\0';
         }
         yyCurLoc.advance(yyCh);

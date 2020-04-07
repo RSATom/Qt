@@ -9,6 +9,7 @@
 
 #include "core/fpdfdoc/cpdf_dest.h"
 #include "core/fxcrt/fx_string.h"
+#include "core/fxcrt/retain_ptr.h"
 
 class CPDF_Dictionary;
 class CPDF_Document;
@@ -37,11 +38,13 @@ class CPDF_Action {
     GoTo3DView
   };
 
-  explicit CPDF_Action(const CPDF_Dictionary* pDict);
+  explicit CPDF_Action(CPDF_Dictionary* pDict);
   CPDF_Action(const CPDF_Action& that);
   ~CPDF_Action();
 
+  CPDF_Dictionary* GetDict() { return m_pDict.Get(); }
   const CPDF_Dictionary* GetDict() const { return m_pDict.Get(); }
+
   ActionType GetType() const;
   CPDF_Dest GetDest(CPDF_Document* pDoc) const;
   WideString GetFilePath() const;
@@ -54,7 +57,7 @@ class CPDF_Action {
   CPDF_Action GetSubAction(size_t iIndex) const;
 
  private:
-  UnownedPtr<const CPDF_Dictionary> const m_pDict;
+  RetainPtr<CPDF_Dictionary> const m_pDict;
 };
 
 #endif  // CORE_FPDFDOC_CPDF_ACTION_H_

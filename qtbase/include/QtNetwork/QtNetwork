@@ -15,6 +15,9 @@
 #include "qhostinfo.h"
 #include "qhstspolicy.h"
 #if QT_CONFIG(http)
+#include "qhttp2configuration.h"
+#endif
+#if QT_CONFIG(http)
 #include "qhttpmultipart.h"
 #endif
 #if QT_CONFIG(localserver)

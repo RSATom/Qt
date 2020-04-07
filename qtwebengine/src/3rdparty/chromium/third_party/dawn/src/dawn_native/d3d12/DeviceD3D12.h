@@ -31,41 +31,41 @@ namespace dawn_native { namespace d3d12 {
     class MapRequestTracker;
     class PlatformFunctions;
     class ResourceAllocator;
-    class ResourceUploader;
 
     void ASSERT_SUCCESS(HRESULT hr);
 
     // Definition of backend types
     class Device : public DeviceBase {
       public:
-        Device();
+        Device(Adapter* adapter, const DeviceDescriptor* descriptor);
         ~Device();
 
-        CommandBufferBase* CreateCommandBuffer(CommandBufferBuilder* builder) override;
-        InputStateBase* CreateInputState(InputStateBuilder* builder) override;
-        RenderPassDescriptorBase* CreateRenderPassDescriptor(
-            RenderPassDescriptorBuilder* builder) override;
-        SwapChainBase* CreateSwapChain(SwapChainBuilder* builder) override;
+        MaybeError Initialize();
+
+        CommandBufferBase* CreateCommandBuffer(CommandEncoderBase* encoder,
+                                               const CommandBufferDescriptor* descriptor) override;
 
         Serial GetCompletedCommandSerial() const final override;
         Serial GetLastSubmittedCommandSerial() const final override;
         void TickImpl() override;
 
-        const dawn_native::PCIInfo& GetPCIInfo() const override;
+        ComPtr<ID3D12Device> GetD3D12Device() const;
+        ComPtr<ID3D12CommandQueue> GetCommandQueue() const;
 
-        ComPtr<IDXGIFactory4> GetFactory();
-        ComPtr<ID3D12Device> GetD3D12Device();
-        ComPtr<ID3D12CommandQueue> GetCommandQueue();
+        ComPtr<ID3D12CommandSignature> GetDispatchIndirectSignature() const;
+        ComPtr<ID3D12CommandSignature> GetDrawIndirectSignature() const;
+        ComPtr<ID3D12CommandSignature> GetDrawIndexedIndirectSignature() const;
 
-        DescriptorHeapAllocator* GetDescriptorHeapAllocator();
+        DescriptorHeapAllocator* GetDescriptorHeapAllocator() const;
         MapRequestTracker* GetMapRequestTracker() const;
-        const PlatformFunctions* GetFunctions();
-        ResourceAllocator* GetResourceAllocator();
-        ResourceUploader* GetResourceUploader();
+        ResourceAllocator* GetResourceAllocator() const;
+
+        const PlatformFunctions* GetFunctions() const;
+        ComPtr<IDXGIFactory4> GetFactory() const;
 
         void OpenCommandList(ComPtr<ID3D12GraphicsCommandList>* commandList);
         ComPtr<ID3D12GraphicsCommandList> GetPendingCommandList();
-        Serial GetPendingCommandSerial() const;
+        Serial GetPendingCommandSerial() const override;
 
         void NextSerial();
         void WaitForSerial(Serial serial);
@@ -73,6 +73,13 @@ namespace dawn_native { namespace d3d12 {
         void ReferenceUntilUnused(ComPtr<IUnknown> object);
 
         void ExecuteCommandLists(std::initializer_list<ID3D12CommandList*> commandLists);
+
+        ResultOrError<std::unique_ptr<StagingBufferBase>> CreateStagingBuffer(size_t size) override;
+        MaybeError CopyFromStagingToBuffer(StagingBufferBase* source,
+                                           uint64_t sourceOffset,
+                                           BufferBase* destination,
+                                           uint64_t destinationOffset,
+                                           uint64_t size) override;
 
       private:
         ResultOrError<BindGroupBase*> CreateBindGroupImpl(
@@ -90,25 +97,24 @@ namespace dawn_native { namespace d3d12 {
         ResultOrError<SamplerBase*> CreateSamplerImpl(const SamplerDescriptor* descriptor) override;
         ResultOrError<ShaderModuleBase*> CreateShaderModuleImpl(
             const ShaderModuleDescriptor* descriptor) override;
+        ResultOrError<SwapChainBase*> CreateSwapChainImpl(
+            const SwapChainDescriptor* descriptor) override;
         ResultOrError<TextureBase*> CreateTextureImpl(const TextureDescriptor* descriptor) override;
         ResultOrError<TextureViewBase*> CreateTextureViewImpl(
             TextureBase* texture,
             const TextureViewDescriptor* descriptor) override;
-        void CollectPCIInfo();
-
-        // Keep mFunctions as the first member so that in the destructor it is freed. Otherwise the
-        // D3D12 DLLs are unloaded before we are done using it.
-        std::unique_ptr<PlatformFunctions> mFunctions;
 
         Serial mCompletedSerial = 0;
         Serial mLastSubmittedSerial = 0;
         ComPtr<ID3D12Fence> mFence;
         HANDLE mFenceEvent;
 
-        ComPtr<IDXGIFactory4> mFactory;
-        ComPtr<IDXGIAdapter1> mHardwareAdapter;
-        ComPtr<ID3D12Device> mD3d12Device;
+        ComPtr<ID3D12Device> mD3d12Device;  // Device is owned by adapter and will not be outlived.
         ComPtr<ID3D12CommandQueue> mCommandQueue;
+
+        ComPtr<ID3D12CommandSignature> mDispatchIndirectSignature;
+        ComPtr<ID3D12CommandSignature> mDrawIndirectSignature;
+        ComPtr<ID3D12CommandSignature> mDrawIndexedIndirectSignature;
 
         struct PendingCommandList {
             ComPtr<ID3D12GraphicsCommandList> commandList;
@@ -121,7 +127,6 @@ namespace dawn_native { namespace d3d12 {
         std::unique_ptr<DescriptorHeapAllocator> mDescriptorHeapAllocator;
         std::unique_ptr<MapRequestTracker> mMapRequestTracker;
         std::unique_ptr<ResourceAllocator> mResourceAllocator;
-        std::unique_ptr<ResourceUploader> mResourceUploader;
 
         dawn_native::PCIInfo mPCIInfo;
     };

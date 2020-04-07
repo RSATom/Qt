@@ -57,6 +57,8 @@
 #include <QtNetwork/qabstractsocket.h>
 #include <QtNetwork/qnetworksession.h>
 
+#include <qhttp2configuration.h>
+
 #include <private/qobject_p.h>
 #include <qauthenticator.h>
 #include <qnetworkproxy.h>
@@ -67,6 +69,7 @@
 #include <private/qhttpnetworkheader_p.h>
 #include <private/qhttpnetworkrequest_p.h>
 #include <private/qhttpnetworkreply_p.h>
+#include <private/qnetconmonitor_p.h>
 #include <private/http2protocol_p.h>
 
 #include <private/qhttpnetworkconnectionchannel_p.h>
@@ -101,10 +104,10 @@ public:
 #ifndef QT_NO_BEARERMANAGEMENT
     explicit QHttpNetworkConnection(const QString &hostName, quint16 port = 80, bool encrypt = false,
                                     ConnectionType connectionType = ConnectionTypeHTTP,
-                                    QObject *parent = 0, QSharedPointer<QNetworkSession> networkSession
+                                    QObject *parent = nullptr, QSharedPointer<QNetworkSession> networkSession
                                     = QSharedPointer<QNetworkSession>());
     QHttpNetworkConnection(quint16 channelCount, const QString &hostName, quint16 port = 80,
-                           bool encrypt = false, QObject *parent = 0,
+                           bool encrypt = false, QObject *parent = nullptr,
                            QSharedPointer<QNetworkSession> networkSession = QSharedPointer<QNetworkSession>(),
                            ConnectionType connectionType = ConnectionTypeHTTP);
 #else
@@ -141,8 +144,8 @@ public:
     ConnectionType connectionType();
     void setConnectionType(ConnectionType type);
 
-    Http2::ProtocolParameters http2Parameters() const;
-    void setHttp2Parameters(const Http2::ProtocolParameters &params);
+    QHttp2Configuration http2Parameters() const;
+    void setHttp2Parameters(const QHttp2Configuration &params);
 
 #ifndef QT_NO_SSL
     void setSslConfiguration(const QSslConfiguration &config);
@@ -156,6 +159,10 @@ public:
 
     QString peerVerifyName() const;
     void setPeerVerifyName(const QString &peerName);
+
+public slots:
+    void onlineStateChanged(bool isOnline);
+
 private:
     Q_DECLARE_PRIVATE(QHttpNetworkConnection)
     Q_DISABLE_COPY_MOVE(QHttpNetworkConnection)
@@ -289,9 +296,17 @@ public:
     QSharedPointer<QNetworkSession> networkSession;
 #endif
 
-    Http2::ProtocolParameters http2Parameters;
+    QHttp2Configuration http2Parameters;
 
     QString peerVerifyName;
+    // If network status monitoring is enabled, we activate connectionMonitor
+    // as soons as one of channels managed to connect to host (and we
+    // have a pair of addresses (us,peer).
+    // NETMONTODO: consider activating a monitor on a change from
+    // HostLookUp state to ConnectingState (means we have both
+    // local/remote addresses known and can start monitoring this
+    // early).
+    QNetworkConnectionMonitor connectionMonitor;
 
     friend class QHttpNetworkConnectionChannel;
 };

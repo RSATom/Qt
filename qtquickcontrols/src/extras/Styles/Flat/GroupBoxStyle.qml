@@ -36,6 +36,8 @@
 ** $QT_END_LICENSE$
 **
 ****************************************************************************/
+
+import QtQml 2.14 as Qml
 import QtQuick 2.2
 import QtQuick.Controls.Private 1.0 as Private
 import QtQuick.Controls.Styles.Flat 1.0
@@ -67,10 +69,11 @@ Private.GroupBoxStyle {
         }
 
         // TODO:
-        Binding {
+        Qml.Binding {
             target: root.padding
             property: "top"
             value: background.anchors.topMargin + root.spacing
+            restoreMode: Binding.RestoreBinding
         }
 
         CheckBoxDrawer {

@@ -72,7 +72,6 @@ class CONTENT_EXPORT RenderWidgetHostViewEventHandler
     virtual void ForwardKeyboardEventWithLatencyInfo(
         const NativeWebKeyboardEvent& event,
         const ui::LatencyInfo& latency,
-        ui::KeyEvent* original_key_event,
         bool* update_event) = 0;
     // Returns whether the widget needs to grab mouse capture to work properly.
     virtual bool NeedsMouseCapture() = 0;
@@ -207,14 +206,16 @@ class CONTENT_EXPORT RenderWidgetHostViewEventHandler
                                     blink::WebMouseEvent* event);
 
   // This method moves cursor to window center for pointer lock.
-  void MoveCursorToCenter();
+  // In Windows, a non-null |event| is used for creating the synthesize move to
+  // update blink side states.
+  void MoveCursorToCenter(ui::MouseEvent* event);
 
   // Helper function to set keyboard focus to the main window.
   void SetKeyboardFocus();
 
   // Helper method to determine if, in mouse locked mode, the cursor should be
   // moved to center.
-  bool ShouldMoveToCenter();
+  bool ShouldMoveToCenter(gfx::PointF mouse_screen_position);
 
   // Returns true when we can hit test input events with location data to be
   // sent to the targeted RenderWidgetHost.
@@ -270,6 +271,10 @@ class CONTENT_EXPORT RenderWidgetHostViewEventHandler
   // This flag is used to differentiate between these synthetic mouse move
   // events vs. normal mouse move events.
   bool synthetic_move_sent_;
+
+  bool enable_consolidated_movement_;
+  base::Optional<gfx::Point> synthetic_move_position_;
+
   // Stores the current state of the active pointers targeting this
   // object.
   ui::MotionEventAura pointer_state_;

@@ -6,7 +6,6 @@
 
 #include <stddef.h>
 
-#include <algorithm>
 #include <utility>
 
 #include "base/bind.h"
@@ -158,8 +157,7 @@ P2PSocketManager::P2PSocketManager(
       trusted_socket_manager_binding_(
           this,
           std::move(trusted_socket_manager_request)),
-      socket_manager_binding_(this, std::move(socket_manager_request)),
-      weak_factory_(this) {
+      socket_manager_binding_(this, std::move(socket_manager_request)) {
   trusted_socket_manager_binding_.set_connection_error_handler(
       base::Bind(&P2PSocketManager::OnConnectionError, base::Unretained(this)));
   socket_manager_binding_.set_connection_error_handler(
@@ -374,11 +372,7 @@ void P2PSocketManager::OnAddressResolved(
     const net::IPAddressList& addresses) {
   std::move(callback).Run(addresses);
 
-  dns_requests_.erase(
-      std::find_if(dns_requests_.begin(), dns_requests_.end(),
-                   [request](const std::unique_ptr<DnsRequest>& ptr) {
-                     return ptr.get() == request;
-                   }));
+  dns_requests_.erase(dns_requests_.find(request));
 }
 
 void P2PSocketManager::OnConnectionError() {

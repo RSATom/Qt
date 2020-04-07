@@ -24,9 +24,9 @@
 #include "testing/gtest/include/gtest/gtest.h"
 
 using leveldb_proto::test::FakeDB;
+using testing::_;
 using testing::Invoke;
 using testing::Return;
-using testing::_;
 
 namespace dom_distiller {
 namespace test {
@@ -83,8 +83,7 @@ class DomDistillerServiceTest : public testing::Test {
   void SetUp() override {
     FakeDB<ArticleEntry>* fake_db = new FakeDB<ArticleEntry>(&db_model_);
     FakeDB<ArticleEntry>::EntryMap store_model;
-    store_ =
-        test::util::CreateStoreWithFakeDB(fake_db, store_model);
+    store_ = test::util::CreateStoreWithFakeDB(fake_db, store_model);
     distiller_factory_ = new MockDistillerFactory();
     distiller_page_factory_ = new MockDistillerPageFactory();
     service_.reset(new DomDistillerService(
@@ -92,7 +91,7 @@ class DomDistillerServiceTest : public testing::Test {
         std::unique_ptr<DistillerFactory>(distiller_factory_),
         std::unique_ptr<DistillerPageFactory>(distiller_page_factory_),
         std::unique_ptr<DistilledPagePrefs>()));
-    fake_db->InitCallback(true);
+    fake_db->InitStatusCallback(leveldb_proto::Enums::InitStatus::kOK);
     fake_db->LoadCallback(true);
   }
 
@@ -410,7 +409,7 @@ TEST_F(DomDistillerServiceTest, TestMultiplePageArticle) {
   std::string base_url("http://www.example.com/p");
   GURL pages_url[kPageCount];
   for (int page_num = 0; page_num < kPageCount; ++page_num) {
-    pages_url[page_num] = GURL(base_url + base::IntToString(page_num));
+    pages_url[page_num] = GURL(base_url + base::NumberToString(page_num));
   }
 
   MockArticleAvailableCallback article_cb;
@@ -529,7 +528,7 @@ TEST_F(DomDistillerServiceTest, TestGetUrlForMultiPageEntry) {
   std::string base_url("http://www.example.com/p");
   GURL pages_url[kPageCount];
   for (int page_num = 0; page_num < kPageCount; ++page_num) {
-    pages_url[page_num] = GURL(base_url + base::IntToString(page_num));
+    pages_url[page_num] = GURL(base_url + base::NumberToString(page_num));
   }
 
   MockArticleAvailableCallback article_cb;

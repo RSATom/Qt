@@ -8,13 +8,13 @@
 #include "third_party/blink/public/platform/platform.h"
 #include "third_party/blink/public/platform/scheduler/web_thread_scheduler.h"
 #include "third_party/blink/public/platform/web_url_request.h"
-#include "third_party/blink/renderer/bindings/core/v8/script_module.h"
+#include "third_party/blink/renderer/bindings/core/v8/module_record.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_binding_for_core.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_binding_for_testing.h"
 #include "third_party/blink/renderer/core/loader/modulescript/module_script_fetch_request.h"
 #include "third_party/blink/renderer/core/loader/modulescript/module_tree_linker_registry.h"
+#include "third_party/blink/renderer/core/script/js_module_script.h"
 #include "third_party/blink/renderer/core/script/modulator.h"
-#include "third_party/blink/renderer/core/script/module_script.h"
 #include "third_party/blink/renderer/core/testing/dummy_modulator.h"
 #include "third_party/blink/renderer/core/testing/page_test_base.h"
 #include "third_party/blink/renderer/platform/bindings/script_state.h"
@@ -83,13 +83,14 @@ class ModuleTreeLinkerTestModulator final : public DummyModulator {
     }
     source_text.Append("export default 'grapes';");
 
-    ScriptModule script_module = ScriptModule::Compile(
+    ModuleRecord module_record = ModuleRecord::Compile(
         script_state_->GetIsolate(), source_text.ToString(), url, url,
         ScriptFetchOptions(), TextPosition::MinimumPosition(),
         ASSERT_NO_EXCEPTION);
-    auto* module_script = ModuleScript::CreateForTest(this, script_module, url);
+    auto* module_script =
+        JSModuleScript::CreateForTest(this, module_record, url);
     auto result_request = dependency_module_requests_map_.insert(
-        script_module, dependency_module_requests);
+        module_record, dependency_module_requests);
     EXPECT_TRUE(result_request.is_new_entry);
     auto result_map = module_map_.insert(url, module_script);
     EXPECT_TRUE(result_map.is_new_entry);
@@ -128,6 +129,7 @@ class ModuleTreeLinkerTestModulator final : public DummyModulator {
                               String* failure_reason) final {
     return KURL(base_url, module_request);
   }
+  void ClearIsAcquiringImportMaps() final {}
 
   void FetchSingle(const ModuleScriptFetchRequest& request,
                    ResourceFetcher*,
@@ -146,7 +148,7 @@ class ModuleTreeLinkerTestModulator final : public DummyModulator {
     return it->value;
   }
 
-  ScriptValue InstantiateModule(ScriptModule record) override {
+  ScriptValue InstantiateModule(ModuleRecord record) override {
     if (instantiate_should_fail_) {
       ScriptState::Scope scope(script_state_);
       v8::Local<v8::Value> error = V8ThrowException::CreateError(
@@ -157,12 +159,12 @@ class ModuleTreeLinkerTestModulator final : public DummyModulator {
     return ScriptValue();
   }
 
-  Vector<ModuleRequest> ModuleRequestsFromScriptModule(
-      ScriptModule script_module) override {
-    if (script_module.IsNull())
+  Vector<ModuleRequest> ModuleRequestsFromModuleRecord(
+      ModuleRecord module_record) override {
+    if (module_record.IsNull())
       return Vector<ModuleRequest>();
 
-    const auto& it = dependency_module_requests_map_.find(script_module);
+    const auto& it = dependency_module_requests_map_.find(module_record);
     if (it == dependency_module_requests_map_.end())
       return Vector<ModuleRequest>();
 
@@ -171,9 +173,9 @@ class ModuleTreeLinkerTestModulator final : public DummyModulator {
 
   Member<ScriptState> script_state_;
   HeapHashMap<KURL, Member<SingleModuleClient>> pending_clients_;
-  HashMap<ScriptModule, Vector<ModuleRequest>> dependency_module_requests_map_;
+  HashMap<ModuleRecord, Vector<ModuleRequest>> dependency_module_requests_map_;
   HeapHashMap<KURL, Member<ModuleScript>> module_map_;
-  HashSet<ScriptModule> instantiated_records_;
+  HashSet<ModuleRecord> instantiated_records_;
   bool instantiate_should_fail_ = false;
 };
 
@@ -205,7 +207,7 @@ void ModuleTreeLinkerTest::SetUp() {
 }
 
 TEST_F(ModuleTreeLinkerTest, FetchTreeNoDeps) {
-  ModuleTreeLinkerRegistry* registry = ModuleTreeLinkerRegistry::Create();
+  auto* registry = MakeGarbageCollected<ModuleTreeLinkerRegistry>();
 
   KURL url("http://example.com/root.js");
   TestModuleTreeClient* client = MakeGarbageCollected<TestModuleTreeClient>();
@@ -227,7 +229,8 @@ TEST_F(ModuleTreeLinkerTest, FetchTreeNoDeps) {
 TEST_F(ModuleTreeLinkerTest, FetchTreeInstantiationFailure) {
   GetModulator()->SetInstantiateShouldFail(true);
 
-  ModuleTreeLinkerRegistry* registry = ModuleTreeLinkerRegistry::Create();
+  ModuleTreeLinkerRegistry* registry =
+      MakeGarbageCollected<ModuleTreeLinkerRegistry>();
 
   KURL url("http://example.com/root.js");
   TestModuleTreeClient* client = MakeGarbageCollected<TestModuleTreeClient>();
@@ -253,7 +256,8 @@ TEST_F(ModuleTreeLinkerTest, FetchTreeInstantiationFailure) {
 }
 
 TEST_F(ModuleTreeLinkerTest, FetchTreeWithSingleDependency) {
-  ModuleTreeLinkerRegistry* registry = ModuleTreeLinkerRegistry::Create();
+  ModuleTreeLinkerRegistry* registry =
+      MakeGarbageCollected<ModuleTreeLinkerRegistry>();
 
   KURL url("http://example.com/root.js");
   TestModuleTreeClient* client = MakeGarbageCollected<TestModuleTreeClient>();
@@ -280,7 +284,8 @@ TEST_F(ModuleTreeLinkerTest, FetchTreeWithSingleDependency) {
 }
 
 TEST_F(ModuleTreeLinkerTest, FetchTreeWith3Deps) {
-  ModuleTreeLinkerRegistry* registry = ModuleTreeLinkerRegistry::Create();
+  ModuleTreeLinkerRegistry* registry =
+      MakeGarbageCollected<ModuleTreeLinkerRegistry>();
 
   KURL url("http://example.com/root.js");
   TestModuleTreeClient* client = MakeGarbageCollected<TestModuleTreeClient>();
@@ -320,7 +325,8 @@ TEST_F(ModuleTreeLinkerTest, FetchTreeWith3Deps) {
 }
 
 TEST_F(ModuleTreeLinkerTest, FetchTreeWith3Deps1Fail) {
-  ModuleTreeLinkerRegistry* registry = ModuleTreeLinkerRegistry::Create();
+  ModuleTreeLinkerRegistry* registry =
+      MakeGarbageCollected<ModuleTreeLinkerRegistry>();
 
   KURL url("http://example.com/root.js");
   TestModuleTreeClient* client = MakeGarbageCollected<TestModuleTreeClient>();
@@ -379,7 +385,8 @@ TEST_F(ModuleTreeLinkerTest, FetchTreeWith3Deps1Fail) {
 }
 
 TEST_F(ModuleTreeLinkerTest, FetchDependencyTree) {
-  ModuleTreeLinkerRegistry* registry = ModuleTreeLinkerRegistry::Create();
+  ModuleTreeLinkerRegistry* registry =
+      MakeGarbageCollected<ModuleTreeLinkerRegistry>();
 
   KURL url("http://example.com/depth1.js");
   TestModuleTreeClient* client = MakeGarbageCollected<TestModuleTreeClient>();
@@ -405,7 +412,8 @@ TEST_F(ModuleTreeLinkerTest, FetchDependencyTree) {
 }
 
 TEST_F(ModuleTreeLinkerTest, FetchDependencyOfCyclicGraph) {
-  ModuleTreeLinkerRegistry* registry = ModuleTreeLinkerRegistry::Create();
+  ModuleTreeLinkerRegistry* registry =
+      MakeGarbageCollected<ModuleTreeLinkerRegistry>();
 
   KURL url("http://example.com/a.js");
   TestModuleTreeClient* client = MakeGarbageCollected<TestModuleTreeClient>();

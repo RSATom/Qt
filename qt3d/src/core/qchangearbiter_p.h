@@ -53,6 +53,7 @@
 
 #include <Qt3DCore/qnodeid.h>
 #include <Qt3DCore/qscenechange.h>
+#include <Qt3DCore/private/qscenechange_p.h>
 #include <QtCore/QFlags>
 #include <QtCore/QMutex>
 #include <QtCore/QObject>
@@ -81,6 +82,9 @@ class Q_3DCORE_PRIVATE_EXPORT QAbstractArbiter : public QLockableObserverInterfa
 {
 public:
     virtual QAbstractPostman *postman() const = 0;
+    virtual void addDirtyFrontEndNode(QNode *node) = 0;
+    virtual void removeDirtyFrontEndNode(QNode *node) = 0;
+    virtual void addDirtyFrontEndNode(QNode *node, QNode *subNode, const char *property, ChangeFlag change) = 0;
 };
 
 class Q_3DCORE_PRIVATE_EXPORT QChangeArbiter final
@@ -89,7 +93,7 @@ class Q_3DCORE_PRIVATE_EXPORT QChangeArbiter final
 {
     Q_OBJECT
 public:
-    explicit QChangeArbiter(QObject *parent = 0);
+    explicit QChangeArbiter(QObject *parent = nullptr);
     ~QChangeArbiter();
 
     void initialize(Qt3DCore::QAbstractAspectJobManager *jobManager);
@@ -102,15 +106,18 @@ public:
     void unregisterObserver(QObserverInterface *observer,
                             QNodeId nodeId);
 
-    void registerSceneObserver(QSceneObserverInterface *observer);
-    void unregisterSceneObserver(QSceneObserverInterface *observer);
-
     void sceneChangeEvent(const QSceneChangePtr &e) override;         // QLockableObserverInterface impl
     void sceneChangeEventWithLock(const QSceneChangePtr &e) override; // QLockableObserverInterface impl
     void sceneChangeEventWithLock(const QSceneChangeList &e) override; // QLockableObserverInterface impl
 
-    Q_INVOKABLE void setPostman(Qt3DCore::QAbstractPostman *postman);
-    Q_INVOKABLE void setScene(Qt3DCore::QScene *scene);
+    void addDirtyFrontEndNode(QNode *node) override;
+    void addDirtyFrontEndNode(QNode *node, QNode *subNode, const char *property, ChangeFlag change) override;
+    void removeDirtyFrontEndNode(QNode *node) override;
+    QVector<QNode *> takeDirtyFrontEndNodes();
+    QVector<NodeRelationshipChange> takeDirtyFrontEndSubNodes();
+
+    void setPostman(Qt3DCore::QAbstractPostman *postman);
+    void setScene(Qt3DCore::QScene *scene);
 
     QAbstractPostman *postman() const final;
     QScene *scene() const;
@@ -119,6 +126,9 @@ public:
     static void destroyUnmanagedThreadLocalChangeQueue(void *changeArbiter);
     static void createThreadLocalChangeQueue(void *changeArbiter);
     static void destroyThreadLocalChangeQueue(void *changeArbiter);
+
+Q_SIGNALS:
+    void receivedChange();
 
 protected:
     typedef std::vector<QSceneChangePtr> QChangeQueue;
@@ -134,13 +144,12 @@ protected:
     void removeLockingChangeQueue(QChangeQueue *queue);
 
 private:
-    QMutex m_mutex;
+    mutable QRecursiveMutex m_mutex;
     QAbstractAspectJobManager *m_jobManager;
 
     // The lists of observers indexed by observable (QNodeId).
     // m_nodeObservations is for observables in the main thread's object tree
     QHash<QNodeId, QObserverList> m_nodeObservations;
-    QList<QSceneObserverInterface *> m_sceneObservers;
 
     // Each thread has a TLS ChangeQueue so we never need to lock whilst
     // receiving a QSceneChange.
@@ -152,6 +161,9 @@ private:
     QList<QChangeQueue *> m_lockingChangeQueues;
     QAbstractPostman *m_postman;
     QScene *m_scene;
+
+    QVector<QNode *> m_dirtyFrontEndNodes;
+    QVector<NodeRelationshipChange> m_dirtySubNodeChanges;
 };
 
 } // namespace Qt3DCore

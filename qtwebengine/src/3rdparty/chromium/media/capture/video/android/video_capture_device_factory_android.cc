@@ -11,7 +11,7 @@
 #include "base/single_thread_task_runner.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/stringprintf.h"
-#include "jni/VideoCaptureFactory_jni.h"
+#include "media/capture/video/android/capture_jni_headers/VideoCaptureFactory_jni.h"
 #include "media/capture/video/android/video_capture_device_android.h"
 
 using base::android::AttachCurrentThread;
@@ -74,7 +74,7 @@ void VideoCaptureDeviceFactoryAndroid::GetDeviceDescriptors(
         Java_VideoCaptureFactory_getFacingMode(env, camera_id);
     const std::string display_name =
         base::android::ConvertJavaStringToUTF8(device_name);
-    const std::string device_id = base::IntToString(camera_id);
+    const std::string device_id = base::NumberToString(camera_id);
 
     // Android cameras are not typically USB devices, and the model_id is
     // currently only used for USB model identifiers, so this implementation
@@ -112,11 +112,7 @@ void VideoCaptureDeviceFactoryAndroid::GetSupportedFormats(
   if (collected_formats.is_null())
     return;
 
-  jsize num_formats = env->GetArrayLength(collected_formats.obj());
-  for (int i = 0; i < num_formats; ++i) {
-    base::android::ScopedJavaLocalRef<jobject> format(
-        env, env->GetObjectArrayElement(collected_formats.obj(), i));
-
+  for (auto format : collected_formats.ReadElements<jobject>()) {
     VideoPixelFormat pixel_format = PIXEL_FORMAT_UNKNOWN;
     switch (Java_VideoCaptureFactory_getCaptureFormatPixelFormat(env, format)) {
       case VideoCaptureDeviceAndroid::ANDROID_IMAGE_FORMAT_YV12:

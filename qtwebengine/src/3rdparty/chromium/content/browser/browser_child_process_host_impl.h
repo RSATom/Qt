@@ -12,8 +12,8 @@
 
 #include "base/compiler_specific.h"
 #include "base/memory/ref_counted.h"
-#include "base/memory/shared_memory.h"
 #include "base/memory/weak_ptr.h"
+#include "base/memory/writable_shared_memory_region.h"
 #include "base/process/process.h"
 #include "base/single_thread_task_runner.h"
 #include "base/synchronization/waitable_event_watcher.h"
@@ -73,10 +73,10 @@ class CONTENT_EXPORT BrowserChildProcessHostImpl
   void Launch(std::unique_ptr<SandboxedProcessLauncherDelegate> delegate,
               std::unique_ptr<base::CommandLine> cmd_line,
               bool terminate_on_shutdown) override;
-  const ChildProcessData& GetData() const override;
-  ChildProcessHost* GetHost() const override;
+  const ChildProcessData& GetData() override;
+  ChildProcessHost* GetHost() override;
   ChildProcessTerminationInfo GetTerminationInfo(bool known_dead) override;
-  std::unique_ptr<base::SharedPersistentMemoryAllocator> TakeMetricsAllocator()
+  std::unique_ptr<base::PersistentMemoryAllocator> TakeMetricsAllocator()
       override;
   void SetName(const base::string16& name) override;
   void SetMetricsName(const std::string& metrics_name) override;
@@ -86,7 +86,7 @@ class CONTENT_EXPORT BrowserChildProcessHostImpl
   // ChildProcessHostDelegate implementation:
   void OnChannelInitialized(IPC::Channel* channel) override;
   void OnChildDisconnected() override;
-  const base::Process& GetProcess() const override;
+  const base::Process& GetProcess() override;
   void BindInterface(const std::string& interface_name,
                      mojo::ScopedMessagePipeHandle interface_pipe) override;
   bool OnMessageReceived(const IPC::Message& message) override;
@@ -114,6 +114,10 @@ class CONTENT_EXPORT BrowserChildProcessHostImpl
       bool terminate_on_shutdown);
 
   static void HistogramBadMessageTerminated(ProcessType process_type);
+
+#if defined(OS_ANDROID)
+  void EnableWarmUpConnection();
+#endif
 
   BrowserChildProcessHostDelegate* delegate() const { return delegate_; }
 
@@ -148,6 +152,9 @@ class CONTENT_EXPORT BrowserChildProcessHostImpl
   // ChildProcessLauncher::Client implementation.
   void OnProcessLaunched() override;
   void OnProcessLaunchFailed(int error_code) override;
+#if defined(OS_ANDROID)
+  bool CanUseWarmUpConnection() override;
+#endif
 
   // Returns true if the process has successfully launched. Must only be called
   // on the IO thread.
@@ -181,13 +188,23 @@ class CONTENT_EXPORT BrowserChildProcessHostImpl
 #endif
 
   // The memory allocator, if any, in which the process will write its metrics.
-  std::unique_ptr<base::SharedPersistentMemoryAllocator> metrics_allocator_;
+  std::unique_ptr<base::PersistentMemoryAllocator> metrics_allocator_;
+
+  // The shared memory region used by |metrics_allocator_| that should be
+  // transferred to the child process.
+  base::WritableSharedMemoryRegion metrics_shared_region_;
 
   IPC::Channel* channel_ = nullptr;
   bool is_channel_connected_;
   bool notify_child_disconnected_;
 
-  base::WeakPtrFactory<BrowserChildProcessHostImpl> weak_factory_;
+#if defined(OS_ANDROID)
+  // whether the child process can use pre-warmed up connection for better
+  // performance.
+  bool can_use_warm_up_connection_ = false;
+#endif
+
+  base::WeakPtrFactory<BrowserChildProcessHostImpl> weak_factory_{this};
 };
 
 }  // namespace content

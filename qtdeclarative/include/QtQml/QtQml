@@ -2,6 +2,7 @@
 #define QT_QTQML_MODULE_H
 #include <QtQml/QtQmlDepends>
 #include "qtqmlglobal.h"
+#include "qtqmlcompilerglobal.h"
 #include "qjsengine.h"
 #include "qjsvalue.h"
 #include "qjsvalueiterator.h"

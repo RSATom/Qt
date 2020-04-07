@@ -44,7 +44,6 @@
 #include <QtQml/private/qqmlglobal_p.h>
 #include <QtQml/private/qv4engine_p.h>
 #include <QtQml/private/qv4object_p.h>
-#include <QtQml/private/qv8engine_p.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -267,7 +266,7 @@ public:
         return QMatrix4x4();
     }
 
-    static QMatrix4x4 matrix4x4FromObject(QQmlV4Handle object, QV4::ExecutionEngine *v4, bool *ok)
+    static QMatrix4x4 matrix4x4FromObject(const QV4::Value &object, QV4::ExecutionEngine *v4, bool *ok)
     {
         if (ok) *ok = false;
         QV4::Scope scope(v4);
@@ -525,7 +524,7 @@ public:
         return false;
     }
 
-    bool variantFromJsObject(int type, QQmlV4Handle object, QV4::ExecutionEngine *v4, QVariant *v) override
+    bool variantFromJsObject(int type, const QV4::Value &object, QV4::ExecutionEngine *v4, QVariant *v) override
     {
         QV4::Scope scope(v4);
 #ifndef QT_NO_DEBUG

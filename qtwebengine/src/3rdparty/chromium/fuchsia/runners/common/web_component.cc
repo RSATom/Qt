@@ -5,52 +5,27 @@
 #include "fuchsia/runners/common/web_component.h"
 
 #include <fuchsia/sys/cpp/fidl.h>
+#include <fuchsia/ui/views/cpp/fidl.h>
 #include <lib/fidl/cpp/binding_set.h>
 #include <lib/fit/function.h>
 #include <utility>
 
-#include "base/fuchsia/scoped_service_binding.h"
-#include "base/fuchsia/service_directory.h"
+#include "base/fuchsia/fuchsia_logging.h"
 #include "base/logging.h"
 #include "fuchsia/runners/common/web_content_runner.h"
 
-WebComponent::~WebComponent() {
-  // Send process termination details to the client.
-  controller_binding_.events().OnTerminated(termination_exit_code_,
-                                            termination_reason_);
-}
-
-// static
-std::unique_ptr<WebComponent> WebComponent::ForUrlRequest(
-    WebContentRunner* runner,
-    const GURL& url,
-    fuchsia::sys::StartupInfo startup_info,
-    fidl::InterfaceRequest<fuchsia::sys::ComponentController>
-        controller_request) {
-  DCHECK(url.is_valid());
-  std::unique_ptr<WebComponent> component(new WebComponent(
-      runner, std::move(startup_info), std::move(controller_request)));
-  chromium::web::NavigationControllerPtr navigation_controller;
-  component->frame()->GetNavigationController(
-      navigation_controller.NewRequest());
-
-  // Set the page activation flag on the initial load, so that features like
-  // autoplay work as expected when a WebComponent first loads the specified
-  // content.
-  auto params = std::make_unique<chromium::web::LoadUrlParams>();
-  params->user_activated = true;
-
-  navigation_controller->LoadUrl(url.spec(), std::move(params));
-
-  return component;
-}
-
 WebComponent::WebComponent(
     WebContentRunner* runner,
-    fuchsia::sys::StartupInfo startup_info,
+    std::unique_ptr<base::fuchsia::StartupContext> context,
     fidl::InterfaceRequest<fuchsia::sys::ComponentController>
         controller_request)
-    : runner_(runner), controller_binding_(this) {
+    : runner_(runner),
+      startup_context_(std::move(context)),
+      controller_binding_(this),
+      module_context_(
+          startup_context()
+              ->incoming_services()
+              ->ConnectToService<fuchsia::modular::ModuleContext>()) {
   DCHECK(runner);
 
   // If the ComponentController request is valid then bind it, and configure it
@@ -58,27 +33,65 @@ WebComponent::WebComponent(
   if (controller_request.is_valid()) {
     controller_binding_.Bind(std::move(controller_request));
     controller_binding_.set_error_handler([this](zx_status_t status) {
-      // Signal graceful process termination.
-      DestroyComponent(0, fuchsia::sys::TerminationReason::EXITED);
+      ZX_LOG_IF(ERROR, status != ZX_ERR_PEER_CLOSED, status)
+          << " ComponentController disconnected";
+      // Teardown the component with dummy values, since ComponentController
+      // channel isn't there to receive them.
+      DestroyComponent(0, fuchsia::sys::TerminationReason::UNKNOWN);
     });
   }
 
   // Create the underlying Frame and get its NavigationController.
   runner_->context()->CreateFrame(frame_.NewRequest());
 
-  // Create a ServiceDirectory for this component, and publish a ViewProvider
-  // into it, for the caller to use to create a View for this component.
-  // Note that we must publish ViewProvider before returning control to the
-  // message-loop, to ensure that it is available before the ServiceDirectory
-  // starts processing requests.
-  service_directory_ = std::make_unique<base::fuchsia::ServiceDirectory>(
-      std::move(startup_info.launch_info.directory_request));
-  view_provider_binding_ = std::make_unique<
-      base::fuchsia::ScopedServiceBinding<fuchsia::ui::app::ViewProvider>>(
-      service_directory_.get(), this);
-  legacy_view_provider_binding_ = std::make_unique<
-      base::fuchsia::ScopedServiceBinding<fuchsia::ui::viewsv1::ViewProvider>>(
-      service_directory_.get(), this);
+  // If the Frame unexpectedly disconnect us then tear-down this Component.
+  frame_.set_error_handler([this](zx_status_t status) {
+    ZX_LOG_IF(ERROR, status != ZX_ERR_PEER_CLOSED, status)
+        << " Frame disconnected";
+    DestroyComponent(0, fuchsia::sys::TerminationReason::EXITED);
+  });
+
+  if (startup_context()->public_services()) {
+    // Publish services before returning control to the message-loop, to ensure
+    // that it is available before the ServiceDirectory starts processing
+    // requests.
+    view_provider_binding_ = std::make_unique<
+        base::fuchsia::ScopedServiceBinding<fuchsia::ui::app::ViewProvider>>(
+        startup_context()->public_services(), this);
+    lifecycle_ = std::make_unique<cr_fuchsia::LifecycleImpl>(
+        startup_context_->public_services(),
+        base::BindOnce(&WebComponent::Kill, base::Unretained(this)));
+  }
+}
+
+WebComponent::~WebComponent() {
+  // If Modular is available, request to be removed from the Story.
+  if (module_context_)
+    module_context_->RemoveSelfFromStory();
+
+  // Send process termination details to the client.
+  controller_binding_.events().OnTerminated(termination_exit_code_,
+                                            termination_reason_);
+}
+
+void WebComponent::LoadUrl(
+    const GURL& url,
+    std::vector<fuchsia::net::http::Header> extra_headers) {
+  DCHECK(url.is_valid());
+  fuchsia::web::NavigationControllerPtr navigation_controller;
+  frame()->GetNavigationController(navigation_controller.NewRequest());
+
+  // Set the page activation flag on the initial load, so that features like
+  // autoplay work as expected when a WebComponent first loads the specified
+  // content.
+  fuchsia::web::LoadUrlParams params;
+  params.set_was_user_activated(true);
+  if (!extra_headers.empty())
+    params.set_headers(std::move(extra_headers));
+
+  navigation_controller->LoadUrl(
+      url.spec(), std::move(params),
+      [](fuchsia::web::NavigationController_LoadUrl_Result) {});
 }
 
 void WebComponent::Kill() {
@@ -91,26 +104,17 @@ void WebComponent::Detach() {
 }
 
 void WebComponent::CreateView(
-    zx::eventpair view_token,
+    zx::eventpair view_token_value,
     fidl::InterfaceRequest<fuchsia::sys::ServiceProvider> incoming_services,
     fidl::InterfaceHandle<fuchsia::sys::ServiceProvider> outgoing_services) {
   DCHECK(frame_);
   DCHECK(!view_is_bound_);
 
-  frame_->CreateView2(std::move(view_token), std::move(incoming_services),
-                      std::move(outgoing_services));
+  fuchsia::ui::views::ViewToken view_token;
+  view_token.value = std::move(view_token_value);
+  frame_->CreateView(std::move(view_token));
 
   view_is_bound_ = true;
-}
-
-void WebComponent::CreateView(
-    fidl::InterfaceRequest<fuchsia::ui::viewsv1token::ViewOwner> view_owner,
-    fidl::InterfaceRequest<fuchsia::sys::ServiceProvider> services) {
-  // Cast the ViewOwner request to view_token. This is temporary hack for
-  // ViewsV2 transition. This version of CreateView() will be removed in the
-  // future.
-  CreateView(zx::eventpair(view_owner.TakeChannel().release()),
-             std::move(services), nullptr);
 }
 
 void WebComponent::DestroyComponent(int termination_exit_code,

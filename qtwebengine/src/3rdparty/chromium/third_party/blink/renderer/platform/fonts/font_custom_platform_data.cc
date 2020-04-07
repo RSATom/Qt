@@ -114,11 +114,12 @@ FontPlatformData FontCustomPlatformData::GetFontPlatformData(
       }
     }
 
-    sk_sp<SkTypeface> sk_variation_font(
-        FontManagerForSubType(font_sub_type)
-            ->makeFromStream(
-                base_typeface_->openStream(nullptr)->duplicate(),
-                SkFontArguments().setAxes(axes.data(), axes.size())));
+    int index;
+    std::unique_ptr<SkStreamAsset> stream(base_typeface_->openStream(&index));
+    sk_sp<SkTypeface> sk_variation_font(FontManagerForSubType(font_sub_type)
+        ->makeFromStream(std::move(stream),
+                         SkFontArguments().setCollectionIndex(index)
+                                          .setAxes(axes.data(), axes.size())));
 
     if (sk_variation_font) {
       return_typeface = sk_variation_font;
@@ -131,7 +132,7 @@ FontPlatformData FontCustomPlatformData::GetFontPlatformData(
     }
   }
 
-  return FontPlatformData(std::move(return_typeface), CString(), size,
+  return FontPlatformData(std::move(return_typeface), std::string(), size,
                           bold && !base_typeface_->isBold(),
                           italic && !base_typeface_->isItalic(), orientation);
 }

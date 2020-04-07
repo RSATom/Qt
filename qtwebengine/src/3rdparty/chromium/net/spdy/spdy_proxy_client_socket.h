@@ -15,10 +15,8 @@
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
-#include "net/base/completion_callback.h"
 #include "net/base/completion_once_callback.h"
 #include "net/base/host_port_pair.h"
-#include "net/base/load_timing_info.h"
 #include "net/base/net_export.h"
 #include "net/http/http_auth_controller.h"
 #include "net/http/http_request_headers.h"
@@ -36,7 +34,6 @@
 
 namespace net {
 
-class HttpStream;
 class IOBuffer;
 class SpdyStream;
 
@@ -58,7 +55,6 @@ class NET_EXPORT_PRIVATE SpdyProxyClientSocket : public ProxyClientSocket,
 
   // ProxyClientSocket methods:
   const HttpResponseInfo* GetConnectResponseInfo() const override;
-  std::unique_ptr<HttpStream> CreateConnectResponseStream() override;
   const scoped_refptr<HttpAuthController>& GetAuthController() const override;
   int RestartWithAuth(CompletionOnceCallback callback) override;
   bool IsUsingSpdy() const override;
@@ -173,19 +169,16 @@ class NET_EXPORT_PRIVATE SpdyProxyClientSocket : public ProxyClientSocket,
   // True if the transport socket has ever sent data.
   bool was_ever_used_;
 
-  // Used only for redirects.
-  bool redirect_has_load_timing_info_;
-  LoadTimingInfo redirect_load_timing_info_;
-
   const NetLogWithSource net_log_;
   const NetLogSource source_dependency_;
 
   // The default weak pointer factory.
-  base::WeakPtrFactory<SpdyProxyClientSocket> weak_factory_;
+  base::WeakPtrFactory<SpdyProxyClientSocket> weak_factory_{this};
 
   // Only used for posting write callbacks. Weak pointers created by this
   // factory are invalidated in Disconnect().
-  base::WeakPtrFactory<SpdyProxyClientSocket> write_callback_weak_factory_;
+  base::WeakPtrFactory<SpdyProxyClientSocket> write_callback_weak_factory_{
+      this};
 
   DISALLOW_COPY_AND_ASSIGN(SpdyProxyClientSocket);
 };

@@ -5,22 +5,22 @@
  * found in the LICENSE file.
  */
 
-#include "SlideDir.h"
+#include "tools/viewer/SlideDir.h"
 
-#include "SkAnimTimer.h"
-#include "SkCanvas.h"
-#include "SkCubicMap.h"
-#include "SkMakeUnique.h"
-#include "SkSGColor.h"
-#include "SkSGDraw.h"
-#include "SkSGGroup.h"
-#include "SkSGPlane.h"
-#include "SkSGRect.h"
-#include "SkSGRenderNode.h"
-#include "SkSGScene.h"
-#include "SkSGText.h"
-#include "SkSGTransform.h"
-#include "SkTypeface.h"
+#include "include/core/SkCanvas.h"
+#include "include/core/SkCubicMap.h"
+#include "include/core/SkTypeface.h"
+#include "modules/sksg/include/SkSGDraw.h"
+#include "modules/sksg/include/SkSGGroup.h"
+#include "modules/sksg/include/SkSGPaint.h"
+#include "modules/sksg/include/SkSGPlane.h"
+#include "modules/sksg/include/SkSGRect.h"
+#include "modules/sksg/include/SkSGRenderNode.h"
+#include "modules/sksg/include/SkSGScene.h"
+#include "modules/sksg/include/SkSGText.h"
+#include "modules/sksg/include/SkSGTransform.h"
+#include "src/core/SkMakeUnique.h"
+#include "tools/timer/TimeUtils.h"
 
 #include <cmath>
 #include <utility>
@@ -47,7 +47,7 @@ public:
         SkASSERT(fSlide);
     }
 
-    std::unique_ptr<sksg::Animator> makeForwardingAnimator() {
+    sk_sp<sksg::Animator> makeForwardingAnimator() {
         // Trivial sksg::Animator -> skottie::Animation tick adapter
         class ForwardingAnimator final : public sksg::Animator {
         public:
@@ -63,7 +63,7 @@ public:
             sk_sp<SlideAdapter> fAdapter;
         };
 
-        return skstd::make_unique<ForwardingAnimator>(sk_ref_sp(this));
+        return sk_make_sp<ForwardingAnimator>(sk_ref_sp(this));
     }
 
 protected:
@@ -80,9 +80,11 @@ protected:
         fSlide->draw(canvas);
     }
 
+    const RenderNode* onNodeAt(const SkPoint&) const override { return nullptr; }
+
 private:
     void tick(SkMSec t) {
-        fSlide->animate(SkAnimTimer(t * 1e6));
+        fSlide->animate(t * 1e6);
         this->invalidate();
     }
 
@@ -113,9 +115,8 @@ public:
         : fDir(dir)
         , fRect(focusRect)
         , fTarget(nullptr)
+        , fMap(kFocusCtrl1, kFocusCtrl0)
         , fState(State::kIdle) {
-        fMap.setPts(kFocusCtrl1, kFocusCtrl0);
-
         fShadePaint = sksg::Color::Make(kFocusShade);
         fShade = sksg::Draw::Make(sksg::Plane::Make(), fShadePaint);
     }
@@ -157,7 +158,7 @@ public:
         fState = State::kUnfocusing;
     }
 
-    bool onMouse(SkScalar x, SkScalar y, sk_app::Window::InputState state, uint32_t modifiers) {
+    bool onMouse(SkScalar x, SkScalar y, InputState state, ModifierKey modifiers) {
         SkASSERT(fTarget);
 
         if (!fRect.contains(x, y)) {
@@ -352,13 +353,14 @@ void SlideDir::draw(SkCanvas* canvas) {
     fScene->render(canvas);
 }
 
-bool SlideDir::animate(const SkAnimTimer& timer) {
+bool SlideDir::animate(double nanos) {
+    SkMSec msec = TimeUtils::NanosToMSec(nanos);
     if (fTimeBase == 0) {
         // Reset the animation time.
-        fTimeBase = timer.msec();
+        fTimeBase = msec;
     }
 
-    const auto t = timer.msec() - fTimeBase;
+    const auto t = msec - fTimeBase;
     fScene->animate(t);
     fFocusController->tick(t);
 
@@ -377,9 +379,9 @@ bool SlideDir::onChar(SkUnichar c) {
     return false;
 }
 
-bool SlideDir::onMouse(SkScalar x, SkScalar y, sk_app::Window::InputState state,
-                       uint32_t modifiers) {
-    if (state == sk_app::Window::kMove_InputState || modifiers)
+bool SlideDir::onMouse(SkScalar x, SkScalar y, InputState state,
+                       ModifierKey modifiers) {
+    if (state == InputState::kMove || ModifierKeyIsSet(modifiers))
         return false;
 
     if (fFocusController->hasFocus()) {
@@ -393,11 +395,11 @@ bool SlideDir::onMouse(SkScalar x, SkScalar y, sk_app::Window::InputState state,
     static constexpr SkScalar kClickMoveTolerance = 4;
 
     switch (state) {
-    case sk_app::Window::kDown_InputState:
+    case InputState::kDown:
         fTrackingCell = cell;
         fTrackingPos = SkPoint::Make(x, y);
         break;
-    case sk_app::Window::kUp_InputState:
+    case InputState::kUp:
         if (cell == fTrackingCell &&
             SkPoint::Distance(fTrackingPos, SkPoint::Make(x, y)) < kClickMoveTolerance) {
             fFocusController->startFocus(cell);

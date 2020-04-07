@@ -46,7 +46,6 @@ class DevToolsEyeDropper : public content::WebContentsObserver,
   void OnFrameCaptured(
       base::ReadOnlySharedMemoryRegion data,
       ::media::mojom::VideoFrameInfoPtr info,
-      const gfx::Rect& update_rect,
       const gfx::Rect& content_rect,
       viz::mojom::FrameSinkVideoConsumerFrameCallbacksPtr callbacks) override;
   void OnStopped() override;
@@ -58,7 +57,7 @@ class DevToolsEyeDropper : public content::WebContentsObserver,
   content::RenderWidgetHost::MouseEventCallback mouse_event_callback_;
   content::RenderWidgetHost* host_;
   std::unique_ptr<viz::ClientFrameSinkVideoCapturer> video_capturer_;
-  base::WeakPtrFactory<DevToolsEyeDropper> weak_factory_;
+  base::WeakPtrFactory<DevToolsEyeDropper> weak_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(DevToolsEyeDropper);
 };

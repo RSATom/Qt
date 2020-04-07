@@ -41,6 +41,7 @@
 
 #include <QtCore/qfile.h>
 #include <QtCore/qlibraryinfo.h>
+#include <QtCore/private/qlocking_p.h>
 #include <QtCore/qstandardpaths.h>
 #include <QtCore/qtextstream.h>
 #include <QtCore/qdir.h>
@@ -165,7 +166,7 @@ void QLoggingRule::parse(const QStringRef &pattern)
             p = QStringRef(p.string(), p.position() + 1, p.length() - 1);
         }
         if (p.contains(QLatin1Char('*'))) // '*' only supported at start/end
-            flags = 0;
+            flags = PatternFlags();
     }
 
     category = p.toString();
@@ -356,7 +357,7 @@ void QLoggingRegistry::initializeRules()
 */
 void QLoggingRegistry::registerCategory(QLoggingCategory *cat, QtMsgType enableForLevel)
 {
-    QMutexLocker locker(&registryMutex);
+    const auto locker = qt_scoped_lock(registryMutex);
 
     if (!categories.contains(cat)) {
         categories.insert(cat, enableForLevel);
@@ -370,7 +371,7 @@ void QLoggingRegistry::registerCategory(QLoggingCategory *cat, QtMsgType enableF
 */
 void QLoggingRegistry::unregisterCategory(QLoggingCategory *cat)
 {
-    QMutexLocker locker(&registryMutex);
+    const auto locker = qt_scoped_lock(registryMutex);
     categories.remove(cat);
 }
 
@@ -413,9 +414,9 @@ void QLoggingRegistry::updateRules()
 QLoggingCategory::CategoryFilter
 QLoggingRegistry::installFilter(QLoggingCategory::CategoryFilter filter)
 {
-    QMutexLocker locker(&registryMutex);
+    const auto locker = qt_scoped_lock(registryMutex);
 
-    if (filter == 0)
+    if (!filter)
         filter = defaultCategoryFilter;
 
     QLoggingCategory::CategoryFilter old = categoryFilter;

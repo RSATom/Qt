@@ -37,6 +37,7 @@
 **
 ****************************************************************************/
 
+import QtQml 2.14 as Qml
 import QtQuick 2.2
 import QtQuick.Window 2.1
 import QtQuick.Controls 1.2
@@ -78,10 +79,11 @@ Style {
         // ### The Screen attached property can only be set on an Item,
         // ### and will get its values only when put on a Window.
         readonly property int desktopAvailableHeight: Screen.desktopAvailableHeight
-        Binding {
+        Qml.Binding {
             target: styleRoot
             property: "__maxPopupHeight"
             value: desktopAvailableHeight * 0.99
+            restoreMode: Binding.RestoreBinding
         }
     }
 

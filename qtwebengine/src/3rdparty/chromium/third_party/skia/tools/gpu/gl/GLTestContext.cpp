@@ -5,11 +5,11 @@
  * found in the LICENSE file.
  */
 
-#include "GLTestContext.h"
+#include "tools/gpu/gl/GLTestContext.h"
 
-#include "GrContext.h"
-#include "GpuTimer.h"
-#include "gl/GrGLUtil.h"
+#include "include/gpu/GrContext.h"
+#include "src/gpu/gl/GrGLUtil.h"
+#include "tools/gpu/GpuTimer.h"
 
 namespace {
 
@@ -314,9 +314,9 @@ void GLTestContext::finish() {
     }
 }
 
-GrGLint GLTestContext::createTextureRectangle(int width, int height, GrGLenum internalFormat,
-                                          GrGLenum externalFormat, GrGLenum externalType,
-                                          GrGLvoid* data) {
+GrGLuint GLTestContext::createTextureRectangle(int width, int height, GrGLenum internalFormat,
+                                               GrGLenum externalFormat, GrGLenum externalType,
+                                               GrGLvoid* data) {
     // Should match GrGLCaps check for fRectangleTextureSupport.
     if (kGL_GrGLStandard != fGL->fStandard ||
         (GrGLGetVersion(fGL.get()) < GR_GL_VER(3, 1) &&

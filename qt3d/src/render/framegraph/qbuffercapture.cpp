@@ -40,7 +40,6 @@
 #include <Qt3DRender/qbuffercapture.h>
 #include <Qt3DRender/private/qbuffercapture_p.h>
 #include <Qt3DCore/QSceneChange>
-#include <Qt3DCore/QPropertyUpdatedChange>
 #include <Qt3DRender/QFrameGraphNodeCreatedChange>
 
 QT_BEGIN_NAMESPACE
@@ -63,6 +62,14 @@ QBufferCapturePrivate::QBufferCapturePrivate()
     \inmodule Qt3DRender
     \brief Exchanges buffer data between GPU and CPU.
 */
+
+/*!
+    \qmltype BufferCapture
+    \inqmlmodule Qt3D.Render
+    \instantiates Qt3DRender::QBufferCapture
+    \brief Exchanges buffer data between GPU and CPU.
+*/
+
 QBufferCapture::QBufferCapture(Qt3DCore::QNode *parent)
     : QFrameGraphNode(*new QBufferCapturePrivate, parent)
 {

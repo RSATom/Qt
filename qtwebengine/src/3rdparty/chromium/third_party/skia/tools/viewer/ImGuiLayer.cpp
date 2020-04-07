@@ -5,13 +5,15 @@
 * found in the LICENSE file.
 */
 
-#include "ImGuiLayer.h"
+#include "tools/viewer/ImGuiLayer.h"
 
-#include "SkCanvas.h"
-#include "SkImage.h"
-#include "SkPixmap.h"
-#include "SkSwizzle.h"
-#include "SkVertices.h"
+#include "include/core/SkCanvas.h"
+#include "include/core/SkImage.h"
+#include "include/core/SkPixmap.h"
+#include "include/core/SkSurface.h"
+#include "include/core/SkSwizzle.h"
+#include "include/core/SkTime.h"
+#include "include/core/SkVertices.h"
 
 #include "imgui.h"
 
@@ -68,19 +70,19 @@ void ImGuiLayer::onAttach(Window* window) {
     fWindow = window;
 }
 
-bool ImGuiLayer::onMouse(int x, int y, Window::InputState state, uint32_t modifiers) {
+bool ImGuiLayer::onMouse(int x, int y, InputState state, ModifierKey modifiers) {
     ImGuiIO& io = ImGui::GetIO();
     io.MousePos.x = static_cast<float>(x);
     io.MousePos.y = static_cast<float>(y);
-    if (Window::kDown_InputState == state) {
+    if (InputState::kDown == state) {
         io.MouseDown[0] = true;
-    } else if (Window::kUp_InputState == state) {
+    } else if (InputState::kUp == state) {
         io.MouseDown[0] = false;
     }
     return io.WantCaptureMouse;
 }
 
-bool ImGuiLayer::onMouseWheel(float delta, uint32_t modifiers) {
+bool ImGuiLayer::onMouseWheel(float delta, ModifierKey modifiers) {
     ImGuiIO& io = ImGui::GetIO();
     io.MouseWheel += delta;
     return true;
@@ -95,7 +97,12 @@ void ImGuiLayer::skiaWidget(const ImVec2& size, SkiaWidgetFunc func) {
 void ImGuiLayer::onPrePaint() {
     // Update ImGui input
     ImGuiIO& io = ImGui::GetIO();
-    io.DeltaTime = 1.0f / 60.0f;
+
+    static double previousTime = 0.0;
+    double currentTime = SkTime::GetSecs();
+    io.DeltaTime = static_cast<float>(currentTime - previousTime);
+    previousTime = currentTime;
+
     io.DisplaySize.x = static_cast<float>(fWindow->width());
     io.DisplaySize.y = static_cast<float>(fWindow->height());
 
@@ -106,7 +113,7 @@ void ImGuiLayer::onPrePaint() {
     ImGui::NewFrame();
 }
 
-void ImGuiLayer::onPaint(SkCanvas* canvas) {
+void ImGuiLayer::onPaint(SkSurface* surface) {
     // This causes ImGui to rebuild vertex/index data based on all immediate-mode commands
     // (widgets, etc...) that have been issued
     ImGui::Render();
@@ -116,6 +123,8 @@ void ImGuiLayer::onPaint(SkCanvas* canvas) {
     SkTDArray<SkPoint> pos;
     SkTDArray<SkPoint> uv;
     SkTDArray<SkColor> color;
+
+    auto canvas = surface->getCanvas();
 
     for (int i = 0; i < drawData->CmdListsCount; ++i) {
         const ImDrawList* drawList = drawData->CmdLists[i];
@@ -166,8 +175,8 @@ void ImGuiLayer::onPaint(SkCanvas* canvas) {
                                                          drawCmd->ElemCount,
                                                          drawList->IdxBuffer.begin() + indexOffset);
                     canvas->drawVertices(vertices, SkBlendMode::kModulate, *paint);
-                    indexOffset += drawCmd->ElemCount;
                 }
+                indexOffset += drawCmd->ElemCount;
             }
         }
     }
@@ -175,13 +184,13 @@ void ImGuiLayer::onPaint(SkCanvas* canvas) {
     fSkiaWidgetFuncs.reset();
 }
 
-bool ImGuiLayer::onKey(sk_app::Window::Key key, sk_app::Window::InputState state, uint32_t modifiers) {
+bool ImGuiLayer::onKey(sk_app::Window::Key key, InputState state, ModifierKey modifiers) {
     ImGuiIO& io = ImGui::GetIO();
-    io.KeysDown[static_cast<int>(key)] = (Window::kDown_InputState == state);
+    io.KeysDown[static_cast<int>(key)] = (InputState::kDown == state);
     return io.WantCaptureKeyboard;
 }
 
-bool ImGuiLayer::onChar(SkUnichar c, uint32_t modifiers) {
+bool ImGuiLayer::onChar(SkUnichar c, ModifierKey modifiers) {
     ImGuiIO& io = ImGui::GetIO();
     if (io.WantTextInput) {
         if (c > 0 && c < 0x10000) {

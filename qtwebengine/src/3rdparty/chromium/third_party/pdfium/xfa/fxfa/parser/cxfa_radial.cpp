@@ -8,7 +8,8 @@
 
 #include <utility>
 
-#include "fxjs/xfa/cjx_radial.h"
+#include "core/fxge/render_defines.h"
+#include "fxjs/xfa/cjx_node.h"
 #include "third_party/base/ptr_util.h"
 #include "xfa/fxfa/parser/cxfa_color.h"
 #include "xfa/fxgraphics/cxfa_geshading.h"
@@ -18,7 +19,7 @@ namespace {
 const CXFA_Node::PropertyData kRadialPropertyData[] = {
     {XFA_Element::Color, 1, 0},
     {XFA_Element::Extras, 1, 0},
-    {XFA_Element::Unknown, 0, 0}};
+};
 
 const CXFA_Node::AttributeData kRadialAttributeData[] = {
     {XFA_Attribute::Id, XFA_AttributeType::CData, nullptr},
@@ -26,7 +27,7 @@ const CXFA_Node::AttributeData kRadialAttributeData[] = {
     {XFA_Attribute::Type, XFA_AttributeType::Enum,
      (void*)XFA_AttributeValue::ToEdge},
     {XFA_Attribute::Usehref, XFA_AttributeType::CData, nullptr},
-    {XFA_Attribute::Unknown, XFA_AttributeType::Integer, nullptr}};
+};
 
 }  // namespace
 
@@ -38,7 +39,7 @@ CXFA_Radial::CXFA_Radial(CXFA_Document* doc, XFA_PacketType packet)
                 XFA_Element::Radial,
                 kRadialPropertyData,
                 kRadialAttributeData,
-                pdfium::MakeUnique<CJX_Radial>(this)) {}
+                pdfium::MakeUnique<CJX_Node>(this)) {}
 
 CXFA_Radial::~CXFA_Radial() = default;
 

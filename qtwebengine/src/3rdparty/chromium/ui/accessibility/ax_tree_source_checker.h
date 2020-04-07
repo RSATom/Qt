@@ -5,6 +5,8 @@
 #ifndef UI_ACCESSIBILITY_AX_TREE_SOURCE_CHECKER_H_
 #define UI_ACCESSIBILITY_AX_TREE_SOURCE_CHECKER_H_
 
+#include <map>
+
 #include "base/strings/string_number_conversions.h"
 #include "ui/accessibility/ax_tree_source.h"
 
@@ -119,9 +121,9 @@ bool AXTreeSourceChecker<AXSourceNode, AXNodeData, AXTreeData>::Check(
 
     int32_t child_id = tree_->GetId(child);
     if (i == 0)
-      *output += " child_ids=" + base::IntToString(child_id);
+      *output += " child_ids=" + base::NumberToString(child_id);
     else
-      *output += "," + base::IntToString(child_id);
+      *output += "," + base::NumberToString(child_id);
 
     if (node_id_to_parent_id_map_.find(child_id) !=
         node_id_to_parent_id_map_.end()) {
@@ -132,7 +134,7 @@ bool AXTreeSourceChecker<AXSourceNode, AXNodeData, AXTreeData>::Check(
 
       LOG(ERROR) << "Node " << node_id << " has a child with ID " << child_id
                  << ", but we've previously seen a node "
-                 << " with that ID, with a parent of "
+                 << "with that ID, with a parent of "
                  << node_id_to_parent_id_map_[child_id];
       return false;
     }

@@ -10,11 +10,14 @@
 #include <vector>
 
 #include "base/macros.h"
+#include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
 #include "components/autofill/core/browser/address_normalizer.h"
+#include "components/payments/content/initialization_task.h"
 #include "components/payments/content/payment_request_spec.h"
 #include "components/payments/content/payment_response_helper.h"
 #include "components/payments/content/service_worker_payment_app_factory.h"
+#include "components/payments/core/journey_logger.h"
 #include "components/payments/core/payments_profile_comparator.h"
 #include "content/public/browser/payment_app_provider.h"
 #include "content/public/browser/web_contents.h"
@@ -30,7 +33,6 @@ class RegionDataLoader;
 namespace payments {
 
 class ContentPaymentRequestDelegate;
-class JourneyLogger;
 class PaymentInstrument;
 class ServiceWorkerPaymentInstrument;
 
@@ -38,8 +40,12 @@ class ServiceWorkerPaymentInstrument;
 // user is ready to pay. Uses information from the PaymentRequestSpec, which is
 // what the merchant has specified, as input into the "is ready to pay"
 // computation.
+//
+// The initialization state is observed by PaymentRequestDialogView for showing
+// a "Loading..." spinner.
 class PaymentRequestState : public PaymentResponseHelper::Delegate,
-                            public PaymentRequestSpec::Observer {
+                            public PaymentRequestSpec::Observer,
+                            public InitializationTask {
  public:
   // Any class call add itself as Observer via AddObserver() and receive
   // notification about the state changing.
@@ -62,6 +68,9 @@ class PaymentRequestState : public PaymentResponseHelper::Delegate,
     virtual void OnPaymentResponseAvailable(
         mojom::PaymentResponsePtr response) = 0;
 
+    // Called when the invoked payment app failed.
+    virtual void OnPaymentResponseError(const std::string& error_message) = 0;
+
     // Called when the shipping option has changed to |shipping_option_id|.
     virtual void OnShippingOptionIdSelected(std::string shipping_option_id) = 0;
 
@@ -75,7 +84,28 @@ class PaymentRequestState : public PaymentResponseHelper::Delegate,
     virtual ~Delegate() {}
   };
 
+  // Shows the status of the selected section. For example if the user changes
+  // the shipping address section from A to B then the SectionSelectionStatus
+  // will be kSelected. If the user edits an item like B from the shipping
+  // address section before selecting it, then the SectionSelectionStatus will
+  // be kEditedSelected. Finally if the user decides to add a new item like C to
+  // the shipping address section, then the SectionSelectionStatus will be
+  // kAddedSelected. IncrementSelectionStatus uses SectionSelectionStatus to log
+  // the number of times that the user has decided to change, edit, or add the
+  // selected item in any of the sections during payment process.
+  enum class SectionSelectionStatus {
+    // The newly selected section is neither edited nor added.
+    kSelected = 1,
+    // The newly selected section is edited before selection.
+    kEditedSelected = 2,
+    // The newly selected section is added before selection.
+    kAddedSelected = 3,
+  };
+
   using StatusCallback = base::OnceCallback<void(bool)>;
+  using MethodsSupportedCallback =
+      base::OnceCallback<void(bool methods_supported,
+                              const std::string& error_message)>;
 
   PaymentRequestState(content::WebContents* web_contents,
                       const GURL& top_level_origin,
@@ -91,6 +121,7 @@ class PaymentRequestState : public PaymentResponseHelper::Delegate,
   // PaymentResponseHelper::Delegate
   void OnPaymentResponseReady(
       mojom::PaymentResponsePtr payment_response) override;
+  void OnPaymentResponseError(const std::string& error_message) override;
 
   // PaymentRequestSpec::Observer
   void OnStartUpdating(PaymentRequestSpec::UpdateReason reason) override {}
@@ -99,7 +130,8 @@ class PaymentRequestState : public PaymentResponseHelper::Delegate,
   // Checks whether support for the specified payment methods exist, either
   // because the user has a registered payment handler or because the browser
   // can do just-in-time registration for a suitable payment handler.
-  void CanMakePayment(StatusCallback callback);
+  // If |legacy_mode| is true, then also checks that an instrument is enrolled.
+  void CanMakePayment(bool legacy_mode, StatusCallback callback);
 
   // Checks whether the user has at least one instrument that satisfies the
   // specified supported payment methods asynchronously.
@@ -108,7 +140,7 @@ class PaymentRequestState : public PaymentResponseHelper::Delegate,
   // Checks if the payment methods that the merchant website have
   // requested are supported asynchronously. For example, may return true for
   // "basic-card", but false for "https://bobpay.com".
-  void AreRequestedMethodsSupported(StatusCallback callback);
+  void AreRequestedMethodsSupported(MethodsSupportedCallback callback);
 
   // Returns authenticated user email, or empty string.
   std::string GetAuthenticatedEmail() const;
@@ -119,6 +151,9 @@ class PaymentRequestState : public PaymentResponseHelper::Delegate,
   // Initiates the generation of the PaymentResponse. Callers should check
   // |is_ready_to_pay|, which is inexpensive.
   void GeneratePaymentResponse();
+
+  // Cancels the generation of the PaymentResponse.
+  void OnPaymentAppWindowClosed();
 
   // Record the use of the data models that were used in the Payment Request.
   void RecordUseStats();
@@ -184,9 +219,12 @@ class PaymentRequestState : public PaymentResponseHelper::Delegate,
   // Setters to change the selected information. Will have the side effect of
   // recomputing "is ready to pay" and notify observers.
   void SetSelectedShippingOption(const std::string& shipping_option_id);
-  void SetSelectedShippingProfile(autofill::AutofillProfile* profile);
-  void SetSelectedContactProfile(autofill::AutofillProfile* profile);
-  void SetSelectedInstrument(PaymentInstrument* instrument);
+  void SetSelectedShippingProfile(autofill::AutofillProfile* profile,
+                                  SectionSelectionStatus selection_status);
+  void SetSelectedContactProfile(autofill::AutofillProfile* profile,
+                                 SectionSelectionStatus selection_status);
+  void SetSelectedInstrument(PaymentInstrument* instrument,
+                             SectionSelectionStatus selection_status);
 
   bool is_ready_to_pay() { return is_ready_to_pay_; }
 
@@ -217,6 +255,14 @@ class PaymentRequestState : public PaymentResponseHelper::Delegate,
   bool IsPaymentAppInvoked() const;
 
   autofill::AddressNormalizer* GetAddressNormalizer();
+
+  // InitializationTask:
+  bool IsInitialized() const override;
+
+  // Selects the default shipping address.
+  void SelectDefaultShippingAddressAndNotifyObservers();
+
+  base::WeakPtr<PaymentRequestState> AsWeakPtr();
 
  private:
   // Fetches the Autofill Profiles for this user from the PersonalDataManager,
@@ -253,7 +299,8 @@ class PaymentRequestState : public PaymentResponseHelper::Delegate,
       const GURL& top_level_origin,
       const GURL& frame_origin,
       content::PaymentAppProvider::PaymentApps apps,
-      ServiceWorkerPaymentAppFactory::InstallablePaymentApps installable_apps);
+      ServiceWorkerPaymentAppFactory::InstallablePaymentApps installable_apps,
+      const std::string& error_message);
 
   // The ServiceWorkerPaymentInstrument::ValidateCanMakePaymentCallback.
   void OnSWPaymentInstrumentValidated(
@@ -263,7 +310,7 @@ class PaymentRequestState : public PaymentResponseHelper::Delegate,
 
   // Checks whether support for the specified payment methods exists and call
   // the |callback| to return the result.
-  void CheckCanMakePayment(StatusCallback callback);
+  void CheckCanMakePayment(bool legacy_mode, StatusCallback callback);
 
   // Checks whether the user has at least one instrument that satisfies the
   // specified supported payment methods and call the |callback| to return the
@@ -272,10 +319,13 @@ class PaymentRequestState : public PaymentResponseHelper::Delegate,
 
   // Checks if the payment methods that the merchant website have
   // requested are supported and call the |callback| to return the result.
-  void CheckRequestedMethodsSupported(StatusCallback callback);
+  void CheckRequestedMethodsSupported(MethodsSupportedCallback callback);
 
   void OnAddressNormalized(bool success,
                            const autofill::AutofillProfile& normalized_profile);
+
+  void IncrementSelectionStatus(JourneyLogger::Section section,
+                                SectionSelectionStatus selection_status);
 
   bool is_ready_to_pay_;
 
@@ -292,10 +342,15 @@ class PaymentRequestState : public PaymentResponseHelper::Delegate,
   autofill::PersonalDataManager* personal_data_manager_;
   JourneyLogger* journey_logger_;
 
+  // Whether |can_make_payment_callback_| expects the legacy canMakePayment
+  // semantic. Only meaningful when |can_make_payment_callback_| is present.
+  bool can_make_payment_legacy_mode_ = false;
+
   StatusCallback can_make_payment_callback_;
   StatusCallback has_enrolled_instrument_callback_;
-  StatusCallback are_requested_methods_supported_callback_;
+  MethodsSupportedCallback are_requested_methods_supported_callback_;
   bool are_requested_methods_supported_;
+  std::string get_all_payment_apps_error_;
 
   autofill::AutofillProfile* selected_shipping_profile_;
   autofill::AutofillProfile* selected_shipping_option_error_profile_;
@@ -326,7 +381,7 @@ class PaymentRequestState : public PaymentResponseHelper::Delegate,
 
   base::ObserverList<Observer>::Unchecked observers_;
 
-  base::WeakPtrFactory<PaymentRequestState> weak_ptr_factory_;
+  base::WeakPtrFactory<PaymentRequestState> weak_ptr_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(PaymentRequestState);
 };

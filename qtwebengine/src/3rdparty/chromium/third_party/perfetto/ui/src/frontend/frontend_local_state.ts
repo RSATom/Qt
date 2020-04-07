@@ -27,10 +27,15 @@ export class FrontendLocalState {
   visibleWindowTime = new TimeSpan(0, 10);
   timeScale = new TimeScale(this.visibleWindowTime, [0, 0]);
   private _lastUpdate = 0;
-  private pendingGlobalTimeUpdate?: TimeSpan;
+  private pendingGlobalTimeUpdate = false;
   perfDebug = false;
   hoveredUtid = -1;
   hoveredPid = -1;
+  hoveredTimestamp = -1;
+  vidTimestamp = -1;
+  showTimeSelectPreview = false;
+  showNotePreview = false;
+  localOnlyMode = false;
 
   // TODO: there is some redundancy in the fact that both |visibleWindowTime|
   // and a |timeScale| have a notion of time range. That should live in one
@@ -43,19 +48,17 @@ export class FrontendLocalState {
     this._lastUpdate = Date.now() / 1000;
 
     // Post a delayed update to the controller.
-    const alreadyPosted = this.pendingGlobalTimeUpdate !== undefined;
-    this.pendingGlobalTimeUpdate = this.visibleWindowTime;
-    if (alreadyPosted) return;
+    if (this.pendingGlobalTimeUpdate) return;
     setTimeout(() => {
       this._lastUpdate = Date.now() / 1000;
       globals.dispatch(Actions.setVisibleTraceTime({
         time: {
-          startSec: this.pendingGlobalTimeUpdate!.start,
-          endSec: this.pendingGlobalTimeUpdate!.end,
+          startSec: this.visibleWindowTime.start,
+          endSec: this.visibleWindowTime.end,
         },
         lastUpdate: this._lastUpdate,
       }));
-      this.pendingGlobalTimeUpdate = undefined;
+      this.pendingGlobalTimeUpdate = false;
     }, 100);
   }
 
@@ -75,6 +78,29 @@ export class FrontendLocalState {
   setHoveredUtidAndPid(utid: number, pid: number) {
     this.hoveredUtid = utid;
     this.hoveredPid = pid;
+    globals.rafScheduler.scheduleRedraw();
+  }
+
+  // Sets the timestamp at which a vertical line will be drawn.
+  setHoveredTimestamp(ts: number) {
+    if (this.hoveredTimestamp === ts) return;
+    this.hoveredTimestamp = ts;
+    globals.rafScheduler.scheduleRedraw();
+  }
+
+  setVidTimestamp(ts: number) {
+    if (this.vidTimestamp === ts) return;
+    this.vidTimestamp = ts;
+    globals.rafScheduler.scheduleRedraw();
+  }
+
+  setShowNotePreview(show: boolean) {
+    this.showNotePreview = show;
+    globals.rafScheduler.scheduleRedraw();
+  }
+
+  setShowTimeSelectPreview(show: boolean) {
+    this.showTimeSelectPreview = show;
     globals.rafScheduler.scheduleRedraw();
   }
 }

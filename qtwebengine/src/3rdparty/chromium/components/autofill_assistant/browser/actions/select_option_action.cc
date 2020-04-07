@@ -12,30 +12,39 @@
 
 namespace autofill_assistant {
 
-SelectOptionAction::SelectOptionAction(const ActionProto& proto)
-    : Action(proto), weak_ptr_factory_(this) {
+SelectOptionAction::SelectOptionAction(ActionDelegate* delegate,
+                                       const ActionProto& proto)
+    : Action(delegate, proto), weak_ptr_factory_(this) {
   DCHECK(proto_.has_select_option());
 }
 
 SelectOptionAction::~SelectOptionAction() {}
 
-void SelectOptionAction::InternalProcessAction(ActionDelegate* delegate,
-                                               ProcessActionCallback callback) {
+void SelectOptionAction::InternalProcessAction(ProcessActionCallback callback) {
   const SelectOptionProto& select_option = proto_.select_option();
 
   // A non prefilled |select_option| is not supported.
-  DCHECK(select_option.has_selected_option());
-  DCHECK_GT(select_option.element().selectors_size(), 0);
-
-  delegate->ShortWaitForElementExist(
-      Selector(select_option.element()),
-      base::BindOnce(&SelectOptionAction::OnWaitForElement,
-                     weak_ptr_factory_.GetWeakPtr(), base::Unretained(delegate),
-                     std::move(callback)));
+  if (!select_option.has_selected_option()) {
+    DVLOG(1) << __func__ << ": empty option";
+    UpdateProcessedAction(INVALID_ACTION);
+    std::move(callback).Run(std::move(processed_action_proto_));
+    return;
+  }
+  Selector selector = Selector(select_option.element());
+  if (selector.empty()) {
+    DVLOG(1) << __func__ << ": empty selector";
+    UpdateProcessedAction(INVALID_SELECTOR);
+    std::move(callback).Run(std::move(processed_action_proto_));
+    return;
+  }
+  delegate_->ShortWaitForElement(
+      selector, base::BindOnce(&SelectOptionAction::OnWaitForElement,
+                               weak_ptr_factory_.GetWeakPtr(),
+                               std::move(callback), selector));
 }
 
-void SelectOptionAction::OnWaitForElement(ActionDelegate* delegate,
-                                          ProcessActionCallback callback,
+void SelectOptionAction::OnWaitForElement(ProcessActionCallback callback,
+                                          const Selector& selector,
                                           bool element_found) {
   if (!element_found) {
     UpdateProcessedAction(ELEMENT_RESOLUTION_FAILED);
@@ -43,16 +52,15 @@ void SelectOptionAction::OnWaitForElement(ActionDelegate* delegate,
     return;
   }
 
-  delegate->SelectOption(
-      Selector(proto_.select_option().element()),
-      proto_.select_option().selected_option(),
+  delegate_->SelectOption(
+      selector, proto_.select_option().selected_option(),
       base::BindOnce(&::autofill_assistant::SelectOptionAction::OnSelectOption,
                      weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
 }
 
 void SelectOptionAction::OnSelectOption(ProcessActionCallback callback,
-                                        bool status) {
-  UpdateProcessedAction(status ? ACTION_APPLIED : OTHER_ACTION_STATUS);
+                                        const ClientStatus& status) {
+  UpdateProcessedAction(status);
   std::move(callback).Run(std::move(processed_action_proto_));
 }
 

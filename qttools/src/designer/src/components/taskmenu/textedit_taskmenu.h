@@ -45,8 +45,8 @@ class TextEditTaskMenu: public QDesignerTaskMenu
 {
     Q_OBJECT
 public:
-    explicit TextEditTaskMenu(QTextEdit *button, QObject *parent = 0);
-    explicit TextEditTaskMenu(QPlainTextEdit *button, QObject *parent = 0);
+    explicit TextEditTaskMenu(QTextEdit *button, QObject *parent = nullptr);
+    explicit TextEditTaskMenu(QPlainTextEdit *button, QObject *parent = nullptr);
 
     ~TextEditTaskMenu() override;
 
@@ -67,8 +67,8 @@ private:
     QAction *m_editTextAction;
 };
 
-typedef ExtensionFactory<QDesignerTaskMenuExtension, QTextEdit, TextEditTaskMenu> TextEditTaskMenuFactory;
-typedef ExtensionFactory<QDesignerTaskMenuExtension, QPlainTextEdit, TextEditTaskMenu> PlainTextEditTaskMenuFactory;
+using TextEditTaskMenuFactory = ExtensionFactory<QDesignerTaskMenuExtension, QTextEdit, TextEditTaskMenu>;
+using PlainTextEditTaskMenuFactory = ExtensionFactory<QDesignerTaskMenuExtension, QPlainTextEdit, TextEditTaskMenu>;
 }  // namespace qdesigner_internal
 
 QT_END_NAMESPACE

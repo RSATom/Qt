@@ -5,22 +5,24 @@
  * found in the LICENSE file.
  */
 
-#include "SkCanvas.h"
-#include "SkColor.h"
-#include "SkFontStyle.h"
-#include "SkPaint.h"
-#include "SkPoint.h"
-#include "SkRect.h"
-#include "SkRefCnt.h"
-#include "SkScalar.h"
-#include "SkSize.h"
-#include "SkString.h"
-#include "SkTDArray.h"
-#include "SkTextBlob.h"
-#include "SkTypeface.h"
-#include "SkTypes.h"
-#include "gm.h"
-#include "sk_tool_utils.h"
+#include "gm/gm.h"
+#include "include/core/SkCanvas.h"
+#include "include/core/SkColor.h"
+#include "include/core/SkFont.h"
+#include "include/core/SkFontStyle.h"
+#include "include/core/SkFontTypes.h"
+#include "include/core/SkPaint.h"
+#include "include/core/SkPoint.h"
+#include "include/core/SkRect.h"
+#include "include/core/SkRefCnt.h"
+#include "include/core/SkScalar.h"
+#include "include/core/SkSize.h"
+#include "include/core/SkString.h"
+#include "include/core/SkTextBlob.h"
+#include "include/core/SkTypeface.h"
+#include "include/core/SkTypes.h"
+#include "include/private/SkTDArray.h"
+#include "tools/ToolUtils.h"
 
 #include <cstring>
 
@@ -84,13 +86,13 @@ public:
 
 protected:
     void onOnceBeforeDraw() override {
-        fTypeface = sk_tool_utils::create_portable_typeface("serif", SkFontStyle());
+        fTypeface = ToolUtils::create_portable_typeface("serif", SkFontStyle());
         SkFont font(fTypeface);
         size_t txtLen = strlen(fText);
-        int glyphCount = font.countText(fText, txtLen, kUTF8_SkTextEncoding);
+        int glyphCount = font.countText(fText, txtLen, SkTextEncoding::kUTF8);
 
         fGlyphs.append(glyphCount);
-        font.textToGlyphs(fText, txtLen, kUTF8_SkTextEncoding, fGlyphs.begin(), glyphCount);
+        font.textToGlyphs(fText, txtLen, SkTextEncoding::kUTF8, fGlyphs.begin(), glyphCount);
     }
 
     SkString onShortName() override {

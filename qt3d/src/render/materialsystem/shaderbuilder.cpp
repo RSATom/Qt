@@ -39,6 +39,8 @@
 
 #include "shaderbuilder_p.h"
 
+#include <Qt3DCore/qpropertyupdatedchange.h>
+
 #include <Qt3DRender/private/qshaderprogrambuilder_p.h>
 #include <Qt3DRender/qshaderprogram.h>
 #include <Qt3DRender/private/qshaderprogram_p.h>
@@ -113,31 +115,6 @@ using namespace Qt3DCore;
 namespace Qt3DRender {
 namespace Render {
 
-
-namespace {
-
-QShaderProgram::ShaderType toQShaderProgramType(ShaderBuilder::ShaderType type)
-{
-    switch (type) {
-    case ShaderBuilder::ShaderType::Vertex:
-        return QShaderProgram::Vertex;
-    case ShaderBuilder::ShaderType::TessellationControl:
-        return QShaderProgram::TessellationControl;
-    case ShaderBuilder::ShaderType::TessellationEvaluation:
-        return QShaderProgram::TessellationEvaluation;
-    case ShaderBuilder::ShaderType::Geometry:
-        return QShaderProgram::Geometry;
-    case ShaderBuilder::ShaderType::Fragment:
-        return QShaderProgram::Fragment;
-    case ShaderBuilder::ShaderType::Compute:
-        return QShaderProgram::Compute;
-    default:
-        Q_UNREACHABLE();
-    }
-}
-
-} // anonymous
-
 QString ShaderBuilder::getPrototypesFile()
 {
     return qt3dGlobalShaderPrototypes->prototypesFile();
@@ -168,6 +145,7 @@ void ShaderBuilder::cleanup()
     m_enabledLayers.clear();
     m_graphs.clear();
     m_dirtyTypes.clear();
+    m_pendingUpdates.clear();
     QBackendNode::setEnabled(false);
 }
 
@@ -189,7 +167,7 @@ void ShaderBuilder::setEnabledLayers(const QStringList &layers)
 
     m_enabledLayers = layers;
 
-    for (QHash<ShaderType, QUrl>::const_iterator it = m_graphs.cbegin(); it != m_graphs.cend(); ++it) {
+    for (auto it = m_graphs.cbegin(); it != m_graphs.cend(); ++it) {
         if (!it.value().isEmpty())
             m_dirtyTypes.insert(it.key());
     }
@@ -206,18 +184,18 @@ void ShaderBuilder::setGraphicsApi(const GraphicsApiFilterData &graphicsApi)
         return;
 
     m_graphicsApi = graphicsApi;
-    for (QHash<ShaderType, QUrl>::const_iterator it = m_graphs.cbegin(); it != m_graphs.cend(); ++it) {
+    for (auto it = m_graphs.cbegin(); it != m_graphs.cend(); ++it) {
         if (!it.value().isEmpty())
             m_dirtyTypes.insert(it.key());
     }
 }
 
-QUrl ShaderBuilder::shaderGraph(ShaderBuilder::ShaderType type) const
+QUrl ShaderBuilder::shaderGraph(QShaderProgram::ShaderType type) const
 {
     return m_graphs.value(type);
 }
 
-void ShaderBuilder::setShaderGraph(ShaderBuilder::ShaderType type, const QUrl &url)
+void ShaderBuilder::setShaderGraph(QShaderProgram::ShaderType type, const QUrl &url)
 {
     if (url != m_graphs.value(type)) {
         m_graphs.insert(type, url);
@@ -225,17 +203,17 @@ void ShaderBuilder::setShaderGraph(ShaderBuilder::ShaderType type, const QUrl &u
     }
 }
 
-QByteArray ShaderBuilder::shaderCode(ShaderBuilder::ShaderType type) const
+QByteArray ShaderBuilder::shaderCode(QShaderProgram::ShaderType type) const
 {
     return m_codes.value(type);
 }
 
-bool ShaderBuilder::isShaderCodeDirty(ShaderBuilder::ShaderType type) const
+bool ShaderBuilder::isShaderCodeDirty(QShaderProgram::ShaderType type) const
 {
     return m_dirtyTypes.contains(type);
 }
 
-void ShaderBuilder::generateCode(ShaderBuilder::ShaderType type)
+void ShaderBuilder::generateCode(QShaderProgram::ShaderType type)
 {
     const auto graphPath = QUrlHelper::urlToLocalFileOrQrc(shaderGraph(type));
     QFile file(graphPath);
@@ -271,55 +249,51 @@ void ShaderBuilder::generateCode(ShaderBuilder::ShaderType type)
     m_codes.insert(type, QShaderProgramPrivate::deincludify(code, graphPath + QStringLiteral(".glsl")));
     m_dirtyTypes.remove(type);
 
-    // Send notification to the frontend
-    Qt3DCore::QPropertyUpdatedChangePtr propertyChange = Qt3DCore::QPropertyUpdatedChangePtr::create(peerId());
-    propertyChange->setDeliveryFlags(Qt3DCore::QSceneChange::DeliverToAll);
-    propertyChange->setPropertyName("generatedShaderCode");
-    propertyChange->setValue(QVariant::fromValue(qMakePair(int(toQShaderProgramType(type)), m_codes.value(type))));
-    notifyObservers(propertyChange);
+    m_pendingUpdates.push_back({ peerId(),
+                                 type,
+                                 m_codes.value(type) });
 }
 
-void ShaderBuilder::sceneChangeEvent(const Qt3DCore::QSceneChangePtr &e)
+void ShaderBuilder::syncFromFrontEnd(const QNode *frontEnd, bool firstTime)
 {
-    if (e->type() == PropertyUpdated) {
-        QPropertyUpdatedChangePtr propertyChange = e.staticCast<QPropertyUpdatedChange>();
-        QVariant propertyValue = propertyChange->value();
+    const QShaderProgramBuilder *node = qobject_cast<const QShaderProgramBuilder *>(frontEnd);
+    if (!node)
+        return;
 
-        if (propertyChange->propertyName() == QByteArrayLiteral("shaderProgram"))
-            m_shaderProgramId = propertyValue.value<Qt3DCore::QNodeId>();
-        else if (propertyChange->propertyName() == QByteArrayLiteral("enabledLayers"))
-            setEnabledLayers(propertyValue.toStringList());
-        else if (propertyChange->propertyName() == QByteArrayLiteral("vertexShaderGraph"))
-            setShaderGraph(Vertex, propertyValue.toUrl());
-        else if (propertyChange->propertyName() == QByteArrayLiteral("tessellationControlShaderGraph"))
-            setShaderGraph(TessellationControl, propertyValue.toUrl());
-        else if (propertyChange->propertyName() == QByteArrayLiteral("tessellationEvaluationShaderGraph"))
-            setShaderGraph(TessellationEvaluation, propertyValue.toUrl());
-        else if (propertyChange->propertyName() == QByteArrayLiteral("geometryShaderGraph"))
-            setShaderGraph(Geometry, propertyValue.toUrl());
-        else if (propertyChange->propertyName() == QByteArrayLiteral("fragmentShaderGraph"))
-            setShaderGraph(Fragment, propertyValue.toUrl());
-        else if (propertyChange->propertyName() == QByteArrayLiteral("computeShaderGraph"))
-            setShaderGraph(Compute, propertyValue.toUrl());
+    const bool oldEnabled = isEnabled();
+    BackendNode::syncFromFrontEnd(frontEnd, firstTime);
 
+    if (oldEnabled != isEnabled()) {
         markDirty(AbstractRenderer::ShadersDirty);
     }
-    BackendNode::sceneChangeEvent(e);
-}
 
-void ShaderBuilder::initializeFromPeer(const Qt3DCore::QNodeCreatedChangeBasePtr &change)
-{
-    const auto typedChange = qSharedPointerCast<Qt3DCore::QNodeCreatedChange<QShaderProgramBuilderData>>(change);
-    const auto &data = typedChange->data;
+    const Qt3DCore::QNodeId shaderProgramId = Qt3DCore::qIdForNode(node->shaderProgram());
+    if (shaderProgramId != m_shaderProgramId) {
+        m_shaderProgramId = shaderProgramId;
+        markDirty(AbstractRenderer::ShadersDirty);
+    }
 
-    m_shaderProgramId = data.shaderProgramId;
-    m_enabledLayers = data.enabledLayers;
-    setShaderGraph(Vertex, data.vertexShaderGraph);
-    setShaderGraph(TessellationControl, data.tessellationControlShaderGraph);
-    setShaderGraph(TessellationEvaluation, data.tessellationEvaluationShaderGraph);
-    setShaderGraph(Geometry, data.geometryShaderGraph);
-    setShaderGraph(Fragment, data.fragmentShaderGraph);
-    setShaderGraph(Compute, data.computeShaderGraph);
+    if (node->enabledLayers() != m_enabledLayers) {
+        setEnabledLayers(node->enabledLayers());
+        markDirty(AbstractRenderer::ShadersDirty);
+    }
+
+    static const QVector<std::pair<QShaderProgram::ShaderType, QUrl (QShaderProgramBuilder::*)() const>> shaderTypesToGetters = {
+        {QShaderProgram::Vertex, &QShaderProgramBuilder::vertexShaderGraph},
+        {QShaderProgram::TessellationControl, &QShaderProgramBuilder::tessellationControlShaderGraph},
+        {QShaderProgram::TessellationEvaluation, &QShaderProgramBuilder::tessellationEvaluationShaderGraph},
+        {QShaderProgram::Geometry, &QShaderProgramBuilder::geometryShaderGraph},
+        {QShaderProgram::Fragment, &QShaderProgramBuilder::fragmentShaderGraph},
+        {QShaderProgram::Compute, &QShaderProgramBuilder::computeShaderGraph},
+    };
+
+    for (auto it = shaderTypesToGetters.cbegin(), end = shaderTypesToGetters.cend(); it != end; ++it) {
+        const QUrl url = (node->*(it->second))();
+        if (url != m_graphs.value(it->first)) {
+            setShaderGraph(it->first, url);
+            markDirty(AbstractRenderer::ShadersDirty);
+        }
+    }
 }
 
 } // namespace Render

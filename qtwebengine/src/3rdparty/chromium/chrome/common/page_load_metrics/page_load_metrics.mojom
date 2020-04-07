@@ -5,7 +5,8 @@
 module page_load_metrics.mojom;
 
 import "mojo/public/mojom/base/time.mojom";
-import "third_party/blink/public/platform/web_feature.mojom";
+import "third_party/blink/public/mojom/web_feature/web_feature.mojom";
+import "url/mojom/origin.mojom";
 
 // TimeDeltas below relative to navigation start.
 struct DocumentTiming {
@@ -40,24 +41,12 @@ struct PaintTiming {
   // Size = Height * Width.
   uint64 largest_image_paint_size;
 
-  // (Experimental) Time when the page's last image is painted.
-  mojo_base.mojom.TimeDelta? last_image_paint;
-
-  // (Experimental) Size of the last image of the last image paint.
-  uint64 last_image_paint_size;
-
   // (Experimental) Time when the page's largest text is painted.
   mojo_base.mojom.TimeDelta? largest_text_paint;
 
   // (Experimental) Size of the largest text of the largest text paint, by
   // Size = Height * Width.
   uint64 largest_text_paint_size;
-
-  // (Experimental) Time when the page's last text is painted.
-  mojo_base.mojom.TimeDelta? last_text_paint;
-
-  // (Experimental) Size of the last text of the last text paint.
-  uint64 last_text_paint_size;
 };
 
 // TimeDeltas below represent durations of time during the page load.
@@ -178,6 +167,13 @@ struct PageLoadFeatures {
   array<int32> animated_css_properties;
 };
 
+// Enumeration of distinct cache types.
+enum CacheType {
+  kNotCached, // Resource came from network.
+  kHttp, // Resource was serviced by the http cache.
+  kMemory, // Resource was serviced by the Renderer's MemoryCache.
+};
+
 struct ResourceDataUpdate {
   // The id for the resource request.
   int32 request_id = 0;
@@ -210,8 +206,8 @@ struct ResourceDataUpdate {
   // Whether this resource was loaded in the top-level frame.
   bool is_main_frame_resource;
 
-  // Whether this resource was fetched from the http cache.
-  bool was_fetched_via_cache;
+  // Which cache this resource originated from, if any.
+  CacheType cache_type;
 
   // Whether this resource is the primary resource for a frame.
   bool is_primary_frame_resource;
@@ -224,12 +220,39 @@ struct ResourceDataUpdate {
 
   // Whether this resource was fetched via proxy.
   bool proxy_used;
+
+  // The origin of this resource.
+  url.mojom.Origin origin;
 };
 
-// Metrics about how the page rendered during the browsing session.
-struct PageRenderData {
-  // How much visible elements in the frame shifted (bit.ly/lsm-explainer).
-  float layout_jank_score;
+// Metrics about how a RenderFrame rendered since the last UpdateTiming call.
+struct FrameRenderDataUpdate {
+  // How much visible elements in the frame shifted (bit.ly/lsm-explainer) since
+  // the last timing update.
+  float layout_shift_delta;
+
+  // How much visible elements in the frame shifted (bit.ly/lsm-explainer),
+  // before a user input or document scroll, since the last timing update.
+  float layout_shift_delta_before_input_or_scroll;
+};
+
+// Metrics about the time spent in tasks (cpu time) by a frame.
+struct CpuTiming {
+  // Time spent in tasks measured in wall time.
+  mojo_base.mojom.TimeDelta task_time;
+};
+
+// Metrics about the count of resources that were lazy loaded in the frame.
+struct DeferredResourceCounts {
+  // The count of frames that were deferred due to lazy load.
+  uint64 deferred_frames = 0;
+  // The count of frames that were loaded after being deferred due to lazy load.
+  uint64 frames_loaded_after_deferral = 0;
+
+  // The count of images that were deferred due to lazy load.
+  uint64 deferred_images = 0;
+  // The count of images that were loaded after being deferred due to lazy load.
+  uint64 images_loaded_after_deferral = 0;
 };
 
 // Sent from renderer to browser process when the PageLoadTiming for the
@@ -239,5 +262,7 @@ interface PageLoadMetrics {
                PageLoadMetadata page_load_metadata,
                PageLoadFeatures new_features,
                array<ResourceDataUpdate> resources,
-               PageRenderData render_data);
+               FrameRenderDataUpdate render_data,
+               CpuTiming cpu_load_timing,
+               DeferredResourceCounts new_deferred_resource_data);
 };

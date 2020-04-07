@@ -38,8 +38,8 @@
 #include "third_party/blink/renderer/core/html/html_div_element.h"
 #include "third_party/blink/renderer/core/paint/paint_layer.h"
 #include "third_party/blink/renderer/core/paint/paint_layer_scrollable_area.h"
-#include "third_party/blink/renderer/platform/scroll/scroll_alignment.h"
-#include "third_party/blink/renderer/platform/scroll/scroll_types.h"
+#include "third_party/blink/renderer/core/scroll/scroll_alignment.h"
+#include "third_party/blink/renderer/core/scroll/scroll_types.h"
 
 namespace blink {
 
@@ -83,7 +83,7 @@ LayoutUnit LayoutListBox::ItemHeight() const {
     return LayoutUnit();
 
   const auto& items = select->GetListItems();
-  if (items.IsEmpty())
+  if (items.IsEmpty() || ShouldApplySizeContainment())
     return DefaultItemHeight();
 
   LayoutUnit max_height;
@@ -131,7 +131,7 @@ void LayoutListBox::ComputeIntrinsicLogicalWidths(
     min_logical_width = LayoutUnit();
 }
 
-void LayoutListBox::ScrollToRect(const LayoutRect& absolute_rect) {
+void LayoutListBox::ScrollToRect(const PhysicalRect& absolute_rect) {
   if (HasOverflowClip()) {
     DCHECK(Layer());
     DCHECK(Layer()->GetScrollableArea());

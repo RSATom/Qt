@@ -6,9 +6,11 @@
 
 #include <vector>
 
+#include "base/bind.h"
 #include "base/command_line.h"
 #include "base/debug/asan_invalid_access.h"
 #include "base/debug/profiler.h"
+#include "base/sanitizer_buildflags.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/synchronization/waitable_event.h"
 #include "base/task/post_task.h"
@@ -92,7 +94,7 @@ bool IsAsanDebugURL(const GURL& url) {
 }
 
 bool HandleAsanDebugURL(const GURL& url) {
-#if defined(ADDRESS_SANITIZER)
+#if defined(ADDRESS_SANITIZER) || BUILDFLAG(IS_HWASAN)
 #if defined(OS_WIN)
   if (url.path_piece() == kAsanCorruptHeapBlock) {
     base::debug::AsanCorruptHeapBlock();
@@ -134,8 +136,16 @@ bool HandleDebugURL(const GURL& url, ui::PageTransition transition) {
           cc::switches::kEnableGpuBenchmarking) &&
       (PageTransitionCoreTypeIs(transition, ui::PAGE_TRANSITION_TYPED));
 
-  if (!(transition & ui::PAGE_TRANSITION_FROM_ADDRESS_BAR) &&
-      !is_telemetry_navigation)
+  // TODO(crbug.com/986346): allow this behavior to be customized by the
+  // embedder.
+  bool is_explicit_navigation =
+#if defined(ENABLE_ADDRESS_BAR)
+      transition & ui::PAGE_TRANSITION_FROM_ADDRESS_BAR;
+#else
+      ui::PageTransitionCoreTypeIs(transition, ui::PAGE_TRANSITION_TYPED);
+#endif
+
+  if (!is_explicit_navigation && !is_telemetry_navigation)
     return false;
 
   if (IsAsanDebugURL(url))
@@ -170,7 +180,7 @@ bool HandleDebugURL(const GURL& url, ui::PageTransition transition) {
   }
 
   if (url == kChromeUIGpuCleanURL) {
-    GpuProcessHost::CallOnIO(GpuProcessHost::GPU_PROCESS_KIND_SANDBOXED,
+    GpuProcessHost::CallOnIO(GPU_PROCESS_KIND_SANDBOXED,
                              false /* force_create */,
                              base::Bind([](GpuProcessHost* host) {
                                if (host)
@@ -180,7 +190,7 @@ bool HandleDebugURL(const GURL& url, ui::PageTransition transition) {
   }
 
   if (url == kChromeUIGpuCrashURL) {
-    GpuProcessHost::CallOnIO(GpuProcessHost::GPU_PROCESS_KIND_SANDBOXED,
+    GpuProcessHost::CallOnIO(GPU_PROCESS_KIND_SANDBOXED,
                              false /* force_create */,
                              base::Bind([](GpuProcessHost* host) {
                                if (host)
@@ -191,7 +201,7 @@ bool HandleDebugURL(const GURL& url, ui::PageTransition transition) {
 
 #if defined(OS_ANDROID)
   if (url == kChromeUIGpuJavaCrashURL) {
-    GpuProcessHost::CallOnIO(GpuProcessHost::GPU_PROCESS_KIND_SANDBOXED,
+    GpuProcessHost::CallOnIO(GPU_PROCESS_KIND_SANDBOXED,
                              false /* force_create */,
                              base::Bind([](GpuProcessHost* host) {
                                if (host)
@@ -202,7 +212,7 @@ bool HandleDebugURL(const GURL& url, ui::PageTransition transition) {
 #endif
 
   if (url == kChromeUIGpuHangURL) {
-    GpuProcessHost::CallOnIO(GpuProcessHost::GPU_PROCESS_KIND_SANDBOXED,
+    GpuProcessHost::CallOnIO(GPU_PROCESS_KIND_SANDBOXED,
                              false /* force_create */,
                              base::Bind([](GpuProcessHost* host) {
                                if (host)

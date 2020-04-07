@@ -76,6 +76,7 @@ public:
     void bindFrameBufferAttachment(QOpenGLTexture *texture, const Attachment &attachment) override;
     void bindFrameBufferAttachment(RenderBuffer *renderBuffer, const Attachment &attachment) override;
     void bindFrameBufferObject(GLuint frameBufferId, FBOBindMode mode) override;
+    void bindImageTexture(GLuint imageUnit, GLuint texture, GLint mipLevel, GLboolean layered, GLint layer, GLenum access, GLenum format) override;
     void bindShaderStorageBlock(GLuint programId, GLuint shaderStorageBlockIndex, GLuint shaderStorageBlockBinding) override;
     void bindUniformBlock(GLuint programId, GLuint uniformBlockIndex, GLuint uniformBlockBinding) override;
     void blendEquation(GLenum mode) override;
@@ -88,6 +89,7 @@ public:
     void clearBufferf(GLint drawbuffer, const QVector4D &values) override;
     GLuint createFrameBufferObject() override;
     void depthMask(GLenum mode) override;
+    void depthRange(GLdouble nearValue, GLdouble farValue) override;
     void depthTest(GLenum mode) override;
     void disableClipPlane(int clipPlane) override;
     void disablei(GLenum cap, GLuint index) override;
@@ -131,6 +133,7 @@ public:
     void vertexAttributePointer(GLenum shaderDataType, GLuint index, GLint size, GLenum type, GLboolean normalized, GLsizei stride, const GLvoid *pointer) override;
     void readBuffer(GLenum mode) override;
     void drawBuffer(GLenum mode) override;
+    void rasterMode(GLenum faceMode, GLenum rasterMode) override;
 
     void *fenceSync() override;
     void clientWaitSync(void *sync, GLuint64 nanoSecTimeout) override;

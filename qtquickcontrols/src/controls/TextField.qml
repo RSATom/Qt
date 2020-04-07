@@ -547,7 +547,7 @@ Control {
         \qmlmethod void TextField::remove(int start, int end)
         \since QtQuick.Controls 1.4
 
-        Removes the section of text that is between the start and end positions.
+        Removes the section of text that is between the \a start and \a end positions.
     */
     function remove(start, end) {
         textInput.remove(start, end)

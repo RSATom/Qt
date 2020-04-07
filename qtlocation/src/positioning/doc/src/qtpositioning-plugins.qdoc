@@ -27,11 +27,43 @@
 
 /*!
 \page qtpositioning-plugins.html
-\title Qt Positioning service plugins
-\brief Implementing Qt Positioning plugins
+\title Qt Positioning Plugins
+\brief Default Plugins and Implementing Qt Positioning plugins
 
-Qt Positioning provides the majority of its functionality through plugins. This
-document outlines how to develop a new position plugin.
+Qt Positioning provides the majority of its functionality through plugins.
+This document outlines how to develop a new position plugin.
+
+\section1 Default plugins
+Some plugins already ship with Qt. These are:
+
+\table
+    \row
+        \li \b android
+        \li Wraps Android positioning subsystem. Available only on Android.
+    \row
+        \li \b corelocation
+        \li Wraps iOS and macOS positioning subsystems. Available only on Apple platforms supporting corelocation.
+    \row
+        \li \b geoclue
+        \li Interfaces with \l{https://www.freedesktop.org/wiki/Software/GeoClue/}{GeoClue} v0.12. Requires GeoClue 0.12 to be present to function.
+    \row
+        \li \b geoclue2
+        \li Interfaces with \l{https://www.freedesktop.org/wiki/Software/GeoClue/}{GeoClue} v2. Requires GeoClue v2 to be present to function.
+    \row
+        \li \b gypsy
+        \li Interfaces with \l{https://gypsy.freedesktop.org/wiki/}{Gypsy} daemon. Requires Gypsy to be present to function.
+    \row
+        \li \b winrt
+        \li Wraps WinRT positioning subsystem. Available only on WinRT and Windows10.
+    \row
+        \li \b serialnmea
+        \li A \l {Qt Positioning Serial NMEA plugin}{Serial NMEA} backend that parses NMEA streams from a GPS receiver over a
+        serial link to provide position updates.
+    \row
+        \li \b positionpoll
+        \li A backend providing only area monitoring functionalities via polling on position updates.
+\endtable
+
 
 \section1 Plugin Description
 

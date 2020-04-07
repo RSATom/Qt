@@ -8,8 +8,8 @@
 #ifndef SkColorFilterImageFilter_DEFINED
 #define SkColorFilterImageFilter_DEFINED
 
-#include "SkImageFilter.h"
-#include "SkColorFilter.h"
+#include "include/core/SkColorFilter.h"
+#include "include/core/SkImageFilter.h"
 
 class SK_API SkColorFilterImageFilter : public SkImageFilter {
 public:
@@ -21,7 +21,6 @@ protected:
     void flatten(SkWriteBuffer&) const override;
     sk_sp<SkSpecialImage> onFilterImage(SkSpecialImage* source, const Context&,
                                         SkIPoint* offset) const override;
-    sk_sp<SkImageFilter> onMakeColorSpace(SkColorSpaceXformer*) const override;
     bool onIsColorFilterNode(SkColorFilter**) const override;
     bool onCanHandleComplexCTM() const override { return true; }
     bool affectsTransparentBlack() const override;

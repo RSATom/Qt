@@ -5,10 +5,21 @@
  * found in the LICENSE file.
  */
 
-#include "gm.h"
-#include "SkCanvas.h"
-#include "SkColorMatrixFilter.h"
-#include "SkGradientShader.h"
+#include "gm/gm.h"
+#include "include/core/SkCanvas.h"
+#include "include/core/SkColor.h"
+#include "include/core/SkColorFilter.h"
+#include "include/core/SkPaint.h"
+#include "include/core/SkPoint.h"
+#include "include/core/SkRect.h"
+#include "include/core/SkRefCnt.h"
+#include "include/core/SkShader.h"
+#include "include/core/SkSize.h"
+#include "include/core/SkString.h"
+#include "include/core/SkTileMode.h"
+#include "include/core/SkTypes.h"
+#include "include/effects/SkColorMatrixFilter.h"
+#include "include/effects/SkGradientShader.h"
 
 static sk_sp<SkShader> make_shader(const SkRect& bounds) {
     const SkPoint pts[] = {
@@ -20,7 +31,7 @@ static sk_sp<SkShader> make_shader(const SkRect& bounds) {
         SK_ColorCYAN, SK_ColorMAGENTA, SK_ColorYELLOW,
     };
     return SkGradientShader::MakeLinear(pts, colors, nullptr, SK_ARRAY_COUNT(colors),
-                                        SkShader::kClamp_TileMode);
+                                        SkTileMode::kClamp);
 }
 
 typedef void (*InstallPaint)(SkPaint*, uint32_t, uint32_t);
@@ -34,24 +45,14 @@ static void install_lighting(SkPaint* paint, uint32_t mul, uint32_t add) {
 }
 
 class ColorFiltersGM : public skiagm::GM {
-public:
-    ColorFiltersGM() {
-        fName.set("lightingcolorfilter");
-    }
+    SkString onShortName() override { return SkString("lightingcolorfilter"); }
 
-protected:
-    virtual SkString onShortName() override {
-        return fName;
-    }
-
-    virtual SkISize onISize() override {
-        return SkISize::Make(620, 430);
-    }
+    SkISize onISize() override { return {620, 430}; }
 
     void onDraw(SkCanvas* canvas) override {
+        SkRect r = {0, 0, 600, 50};
+
         SkPaint paint;
-        SkRect r;
-        r.setWH(600, 50);
         paint.setShader(make_shader(r));
 
         const struct {
@@ -74,13 +75,6 @@ protected:
             canvas->translate(0, r.height() + 10);
         }
     }
-
-private:
-    SkString fName;
-    typedef GM INHERITED;
 };
-
-
-//////////////////////////////////////////////////////////////////////////////
 
 DEF_GM(return new ColorFiltersGM;)

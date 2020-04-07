@@ -120,7 +120,7 @@ private:
     QString m_word;
     QString m_lettersOwned;
     QStringList m_wordList;
-    QMutex m_lock;
+    QRecursiveMutex m_lock;
     bool m_vowelsUnlocked;
     QSettings m_persistentSettings;
     int m_vowelsAvailable;

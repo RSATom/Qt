@@ -81,6 +81,9 @@ extern const DeviceCapabilities kHammerKeyboard;
 extern const DeviceCapabilities kHammerTouchpad;
 extern const DeviceCapabilities kIlitekTP_Mouse;
 extern const DeviceCapabilities kIlitekTP;
+extern const DeviceCapabilities kSideVolumeButton;
+extern const DeviceCapabilities kNocturneTouchScreen;
+extern const DeviceCapabilities kNocturneStylus;
 
 }  // namspace ui
 

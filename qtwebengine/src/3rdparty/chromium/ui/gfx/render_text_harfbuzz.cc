@@ -10,11 +10,11 @@
 #include "base/command_line.h"
 #include "base/containers/mru_cache.h"
 #include "base/feature_list.h"
-#include "base/hash.h"
+#include "base/hash/hash.h"
 #include "base/i18n/base_i18n_switches.h"
-#include "base/i18n/bidi_line_iterator.h"
 #include "base/i18n/break_iterator.h"
 #include "base/i18n/char_iterator.h"
+#include "base/i18n/rtl.h"
 #include "base/macros.h"
 #include "base/memory/ptr_util.h"
 #include "base/message_loop/message_loop_current.h"
@@ -26,10 +26,12 @@
 #include "base/trace_event/trace_event.h"
 #include "build/build_config.h"
 #include "third_party/icu/source/common/unicode/ubidi.h"
+#include "third_party/icu/source/common/unicode/uscript.h"
 #include "third_party/icu/source/common/unicode/utf16.h"
 #include "third_party/skia/include/core/SkColor.h"
 #include "third_party/skia/include/core/SkFontMetrics.h"
 #include "third_party/skia/include/core/SkTypeface.h"
+#include "ui/gfx/bidi_line_iterator.h"
 #include "ui/gfx/canvas.h"
 #include "ui/gfx/decorated_text.h"
 #include "ui/gfx/font.h"
@@ -46,6 +48,10 @@
 #if defined(OS_MACOSX)
 #include "base/mac/mac_util.h"
 #endif
+
+#if defined(OS_ANDROID)
+#include "base/android/locale_utils.h"
+#endif  // defined(OS_ANDROID)
 
 #include <hb.h>
 
@@ -73,7 +79,7 @@ bool IsBracket(UChar32 character) {
   // 0x300c and 0x300d are「foo」 style brackets.
   constexpr UChar32 kBrackets[] = {'(', ')', '{',       '}',
                                    '<', '>', L'\u300c', L'\u300d'};
-  return base::ContainsValue(kBrackets, character);
+  return base::Contains(kBrackets, character);
 }
 
 // If the given scripts match, returns the one that isn't USCRIPT_INHERITED,
@@ -232,6 +238,18 @@ bool IsNewlineSegment(const base::string16& text,
   return text[segment.char_range.start()] == '\n';
 }
 
+// Returns the line index considering the newline character. Line index is
+// incremented if the caret is right after the newline character, i.e, the
+// cursor affinity is |CURSOR_BACKWARD| while containing the newline character.
+size_t LineIndexForNewline(const size_t line_index,
+                           const base::string16& text,
+                           const internal::LineSegment& segment,
+                           const SelectionModel& caret) {
+  bool at_newline = IsNewlineSegment(text, segment) &&
+                    caret.caret_affinity() == CURSOR_BACKWARD;
+  return line_index + (at_newline ? 1 : 0);
+}
+
 // Helper template function for |TextRunHarfBuzz::GetClusterAt()|. |Iterator|
 // can be a forward or reverse iterator type depending on the text direction.
 // Returns true on success, or false if an error is encountered.
@@ -281,7 +299,6 @@ int GetLineSegmentContainingXCoord(const internal::Line& line,
     return -1;
   for (size_t i = 0; i < line.segments.size(); i++) {
     const internal::LineSegment& segment = line.segments[i];
-
     // segment.x_range is not used because it is in text space.
     if (line_x < segment.width()) {
       *offset_relative_segment = line_x;
@@ -331,7 +348,7 @@ class HarfBuzzLineBreaker {
       segment.char_range = run.range;
       segment.x_range = RangeF(SkScalarToFloat(text_x_),
                                SkScalarToFloat(text_x_) + run.shape.width);
-      AddLineSegment(segment);
+      AddLineSegment(segment, false);
     }
   }
 
@@ -351,15 +368,9 @@ class HarfBuzzLineBreaker {
           IsNewlineSegment(text_, word_segments.back())) {
         new_line = true;
 
-        // Since the line should at least contain some information regarding the
-        // text range it corresponds to, don't pop the newline segment, if it's
-        // the only segment in the line. This ensures that every line has a non-
-        // empty segments vector (except the last in some cases). This segment
-        // won't be drawn though.
-        if (word_segments.size() != 1u || available_width_ != max_width_) {
+        // Subtract the width of newline segments, they are not drawn.
+        if (word_segments.size() != 1u || available_width_ != max_width_)
           word_width -= word_segments.back().width();
-          word_segments.pop_back();
-        }
       }
 
       // If the word is not the first word in the line and it can't fit into
@@ -405,8 +416,19 @@ class HarfBuzzLineBreaker {
       line->size.set_height(std::max(min_height_, max_descent_ + max_ascent_));
       line->baseline = std::max(min_baseline_, SkScalarRoundToInt(max_ascent_));
       line->preceding_heights = std::ceil(total_size_.height());
+      // Subtract newline segment's width from |total_size_| because it's not
+      // drawn.
+      float line_width = line->size.width();
+      if (!line->segments.empty() &&
+          IsNewlineSegment(text_, line->segments.back())) {
+        line_width -= line->segments.back().width();
+      }
+      if (line->segments.size() > 1 &&
+          IsNewlineSegment(text_, line->segments.front())) {
+        line_width -= line->segments.front().width();
+      }
       total_size_.set_height(total_size_.height() + line->size.height());
-      total_size_.set_width(std::max(total_size_.width(), line->size.width()));
+      total_size_.set_width(std::max(total_size_.width(), line_width));
     }
     max_descent_ = 0;
     max_ascent_ = 0;
@@ -425,9 +447,11 @@ class HarfBuzzLineBreaker {
     for (const internal::LineSegment& segment : word_segments) {
       if (has_truncated)
         break;
-      if (segment.width() <= available_width_ ||
+
+      if (IsNewlineSegment(text_, segment) ||
+          segment.width() <= available_width_ ||
           word_wrap_behavior_ == IGNORE_LONG_WORDS) {
-        AddLineSegment(segment);
+        AddLineSegment(segment, true);
       } else {
         DCHECK(word_wrap_behavior_ == TRUNCATE_LONG_WORDS ||
                word_wrap_behavior_ == WRAP_LONG_WORDS);
@@ -446,7 +470,7 @@ class HarfBuzzLineBreaker {
                 Range(remaining_segment.char_range.start(), cutoff_pos);
             cut_segment.x_range = RangeF(SkScalarToFloat(text_x_),
                                          SkScalarToFloat(text_x_ + width));
-            AddLineSegment(cut_segment);
+            AddLineSegment(cut_segment, true);
             // Updates old segment range.
             remaining_segment.char_range.set_start(cutoff_pos);
             remaining_segment.x_range.set_start(SkScalarToFloat(text_x_));
@@ -463,7 +487,7 @@ class HarfBuzzLineBreaker {
   // Add a line segment to the current line. Note that, in order to keep the
   // visual order correct for ltr and rtl language, we need to merge segments
   // that belong to the same run.
-  void AddLineSegment(const internal::LineSegment& segment) {
+  void AddLineSegment(const internal::LineSegment& segment, bool multiline) {
     DCHECK(!lines_.empty());
     internal::Line* line = &lines_.back();
     const internal::TextRunHarfBuzz& run = *(run_list_.runs()[segment.run]);
@@ -491,19 +515,22 @@ class HarfBuzzLineBreaker {
     line->segments.push_back(segment);
     line->size.set_width(line->size.width() + segment.width());
 
-    SkFont font(run.font_params.skia_face, run.font_params.font_size);
-    font.setEdging(run.font_params.render_params.antialiasing
-                       ? SkFont::Edging::kAntiAlias
-                       : SkFont::Edging::kAlias);
-    SkFontMetrics metrics;
-    font.getMetrics(&metrics);
+    // Newline characters are not drawn for multi-line, ignore their metrics.
+    if (!multiline || !IsNewlineSegment(text_, segment)) {
+      SkFont font(run.font_params.skia_face, run.font_params.font_size);
+      font.setEdging(run.font_params.render_params.antialiasing
+                         ? SkFont::Edging::kAntiAlias
+                         : SkFont::Edging::kAlias);
+      SkFontMetrics metrics;
+      font.getMetrics(&metrics);
 
-    // max_descent_ is y-down, fDescent is y-down, baseline_offset is y-down
-    max_descent_ = std::max(max_descent_,
-                            metrics.fDescent + run.font_params.baseline_offset);
-    // max_ascent_ is y-up, fAscent is y-down, baseline_offset is y-down
-    max_ascent_ = std::max(
-        max_ascent_, -(metrics.fAscent + run.font_params.baseline_offset));
+      // max_descent_ is y-down, fDescent is y-down, baseline_offset is y-down
+      max_descent_ = std::max(
+          max_descent_, metrics.fDescent + run.font_params.baseline_offset);
+      // max_ascent_ is y-up, fAscent is y-down, baseline_offset is y-down
+      max_ascent_ = std::max(
+          max_ascent_, -(metrics.fAscent + run.font_params.baseline_offset));
+    }
 
     if (run.font_params.is_rtl) {
       rtl_segments_.push_back(
@@ -814,7 +841,8 @@ void TextRunHarfBuzz::GetClusterAt(size_t pos,
     for (size_t i = 0; i < shape.glyph_count && i < shape.glyph_to_char.size();
          ++i) {
       glyph_to_char_string += base::NumberToString(i) + "->" +
-                              base::UintToString(shape.glyph_to_char[i]) + ", ";
+                              base::NumberToString(shape.glyph_to_char[i]) +
+                              ", ";
     }
     LOG(ERROR) << " TextRunHarfBuzz error, please report at crbug.com/724880:"
                << " range: " << range.ToString()
@@ -1164,6 +1192,15 @@ void ShapeRunWithFont(const ShapeRunWithFontInput& in,
   hb_font_destroy(harfbuzz_font);
 }
 
+std::string GetApplicationLocale() {
+#if defined(OS_ANDROID)
+  // TODO(etienneb): Android locale should work the same way than base locale.
+  return base::android::GetDefaultLocaleString();
+#else
+  return base::i18n::GetConfiguredLocale();
+#endif
+}
+
 }  // namespace
 
 }  // namespace internal
@@ -1174,7 +1211,7 @@ RenderTextHarfBuzz::RenderTextHarfBuzz()
       update_display_run_list_(false),
       update_grapheme_iterator_(false),
       update_display_text_(false),
-      glyph_width_for_test_(0u) {
+      locale_(internal::GetApplicationLocale()) {
   set_truncate_length(kMaxTextLength);
 }
 
@@ -1182,7 +1219,7 @@ RenderTextHarfBuzz::~RenderTextHarfBuzz() {}
 
 std::unique_ptr<RenderText> RenderTextHarfBuzz::CreateInstanceOfSameType()
     const {
-  return base::WrapUnique(new RenderTextHarfBuzz);
+  return std::make_unique<RenderTextHarfBuzz>();
 }
 
 bool RenderTextHarfBuzz::MultilineSupported() const {
@@ -1216,6 +1253,30 @@ SizeF RenderTextHarfBuzz::GetStringSizeF() {
   return total_size_;
 }
 
+Size RenderTextHarfBuzz::GetLineSize(const SelectionModel& caret) {
+  const auto to_size = [](const internal::Line& line) {
+    return Size(std::ceil(line.size.width()), line.size.height());
+  };
+  EnsureLayout();
+  const auto& caret_run = GetRunContainingCaret(caret);
+  for (const auto& line : lines()) {
+    for (const internal::LineSegment& segment : line.segments) {
+      if (segment.run == caret_run)
+        return to_size(line);
+    }
+  }
+
+  return to_size(lines().back());
+}
+
+float RenderTextHarfBuzz::TotalLineWidth() {
+  EnsureLayout();
+  float total_width = 0;
+  for (const auto& line : lines())
+    total_width += line.size.width();
+  return total_width;
+}
+
 SelectionModel RenderTextHarfBuzz::FindCursorPosition(
     const Point& view_point,
     const Point& drag_origin) {
@@ -1245,10 +1306,15 @@ SelectionModel RenderTextHarfBuzz::FindCursorPosition(
     line_index = lines().size() - 1;
   }
   const internal::Line& line = lines()[line_index];
+  // Newline segment should be ignored in finding segment index with x
+  // coordinate because it's not drawn.
+  Vector2d newline_offset;
+  if (line.segments.size() > 1 && IsNewlineSegment(line.segments.front()))
+    newline_offset.set_x(line.segments.front().width());
 
   float point_offset_relative_segment = 0;
   const int segment_index = GetLineSegmentContainingXCoord(
-      line, (view_point - GetLineOffset(line_index)).x(),
+      line, (view_point - GetLineOffset(line_index) + newline_offset).x(),
       &point_offset_relative_segment);
   if (segment_index < 0)
     return LineSelectionModel(line_index, CURSOR_LEFT);
@@ -1336,10 +1402,13 @@ std::vector<Rect> RenderTextHarfBuzz::GetSubstringBounds(const Range& range) {
     const internal::Line& line = lines()[line_index];
     // Only the last line can be empty.
     DCHECK(!line.segments.empty() || (line_index == lines().size() - 1));
-    const float line_start_x =
+    float line_start_x =
         line.segments.empty()
             ? 0
             : run_list->runs()[line.segments[0].run]->preceding_run_widths;
+
+    if (line.segments.size() > 1 && IsNewlineSegment(line.segments[0]))
+      line_start_x += line.segments[0].width();
 
     for (const internal::LineSegment& segment : line.segments) {
       const Range intersection = segment.char_range.Intersect(display_range);
@@ -1358,21 +1427,29 @@ std::vector<Rect> RenderTextHarfBuzz::GetSubstringBounds(const Range& range) {
   return rects;
 }
 
-Range RenderTextHarfBuzz::GetCursorSpan(const Range& text_range) {
+RangeF RenderTextHarfBuzz::GetCursorSpan(const Range& text_range) {
   DCHECK(!text_range.is_reversed());
   EnsureLayout();
   const size_t index = text_range.start();
-  const size_t run_index =
+  size_t run_index =
       GetRunContainingCaret(SelectionModel(index, CURSOR_FORWARD));
   internal::TextRunList* run_list = GetRunList();
-  // Return edge bounds if the index is invalid or beyond the layout text size.
-  if (run_index >= run_list->size())
-    return Range(GetStringSize().width());
+
+  // Return zero if the text is empty.
+  if (run_list->size() == 0 || text().empty())
+    return RangeF(0);
+
+  // Use the last run if the index is invalid or beyond the layout text size.
+  Range valid_range(text_range.start(), text_range.end());
+  if (run_index >= run_list->size()) {
+    valid_range = Range(text().length() - 1, text().length());
+    run_index = run_list->size() - 1;
+  }
 
   internal::TextRunHarfBuzz* run = run_list->runs()[run_index].get();
 
-  Range display_range(TextIndexToDisplayIndex(text_range.start()),
-                      TextIndexToDisplayIndex(text_range.end()));
+  Range display_range(TextIndexToDisplayIndex(valid_range.start()),
+                      TextIndexToDisplayIndex(valid_range.end()));
 
   // Although highly likely, there's no guarantee that a single text run is used
   // for the entire cursor span. For example, Unicode Variation Selectors are
@@ -1382,14 +1459,27 @@ Range RenderTextHarfBuzz::GetCursorSpan(const Range& text_range) {
   display_range = display_range.Intersect(run->range);
 
   RangeF bounds = run->GetGraphemeSpanForCharRange(this, display_range);
-  // If cursor is enabled, extend the last glyph up to the rightmost cursor
-  // position since clients expect them to be contiguous.
-  if (cursor_enabled() && run_index == run_list->size() - 1 &&
-      index ==
-          (run->font_params.is_rtl ? run->range.start() : run->range.end() - 1))
-    bounds.set_end(std::ceil(bounds.end()));
-  return run->font_params.is_rtl ? RangeF(bounds.end(), bounds.start()).Round()
-                                 : bounds.Round();
+  return run->font_params.is_rtl ? RangeF(bounds.end(), bounds.start())
+                                 : bounds;
+}
+
+size_t RenderTextHarfBuzz::GetLineContainingCaret(const SelectionModel& caret) {
+  EnsureLayout();
+
+  if (caret.caret_pos() == 0)
+    return 0;
+
+  size_t layout_position = TextIndexToDisplayIndex(caret.caret_pos());
+  LogicalCursorDirection affinity = caret.caret_affinity();
+  for (size_t line_index = 0; line_index < lines().size(); ++line_index) {
+    const internal::Line& line = lines()[line_index];
+    for (const internal::LineSegment& segment : line.segments) {
+      if (RangeContainsCaret(segment.char_range, layout_position, affinity))
+        return LineIndexForNewline(line_index, text(), segment, caret);
+    }
+  }
+
+  return lines().size() - 1;
 }
 
 base::i18n::BreakIterator* RenderTextHarfBuzz::GetGraphemeIterator() {
@@ -1489,6 +1579,45 @@ SelectionModel RenderTextHarfBuzz::AdjacentWordSelectionModel(
   return current;
 }
 
+SelectionModel RenderTextHarfBuzz::AdjacentLineSelectionModel(
+    const SelectionModel& selection,
+    VisualCursorDirection direction) {
+  DCHECK(direction == CURSOR_UP || direction == CURSOR_DOWN);
+
+  size_t line = GetLineContainingCaret(selection);
+  if (line == 0 && direction == CURSOR_UP) {
+    reset_cached_cursor_x();
+    return SelectionModel(0, CURSOR_BACKWARD);
+  }
+  if (line == lines().size() - 1 && direction == CURSOR_DOWN) {
+    reset_cached_cursor_x();
+    return SelectionModel(text().length(), CURSOR_FORWARD);
+  }
+
+  direction == CURSOR_UP ? --line : ++line;
+  Rect bounds = GetCursorBounds(selection, true);
+  Point target = bounds.origin();
+  if (cached_cursor_x())
+    target.set_x(cached_cursor_x().value());
+  else
+    set_cached_cursor_x(target.x());
+  if (direction == CURSOR_UP)
+    target.Offset(0, -bounds.size().height() / 2);
+  else
+    target.Offset(0, bounds.size().height() * 3 / 2);
+  SelectionModel next = FindCursorPosition(target, Point());
+  size_t next_line = GetLineContainingCaret(next);
+
+  // If the |target| position is at the newline character, the caret is drawn to
+  // the next line. e.g., when the caret is at the beginning of the line in RTL
+  // text. Move the caret to the position of the previous character to move the
+  // caret to the previous line.
+  if (next_line == line + 1)
+    next = SelectionModel(next.caret_pos() - 1, next.caret_affinity());
+
+  return next;
+}
+
 size_t RenderTextHarfBuzz::TextIndexToDisplayIndex(size_t index) {
   return TextIndexToGivenTextIndex(GetDisplayText(), index);
 }
@@ -1574,13 +1703,14 @@ void RenderTextHarfBuzz::DrawVisualText(internal::SkiaTextRenderer* renderer) {
   ApplyCompositionAndSelectionStyles();
 
   internal::TextRunList* run_list = GetRunList();
+  const base::string16& display_text = GetDisplayText();
   for (size_t i = 0; i < lines().size(); ++i) {
     const internal::Line& line = lines()[i];
     const Vector2d origin = GetLineOffset(i) + Vector2d(0, line.baseline);
     SkScalar preceding_segment_widths = 0;
     for (const internal::LineSegment& segment : line.segments) {
       // Don't draw the newline glyph (crbug.com/680430).
-      if (IsNewlineSegment(GetDisplayText(), segment))
+      if (IsNewlineSegment(display_text, segment))
         continue;
 
       const internal::TextRunHarfBuzz& run = *run_list->runs()[segment.run];
@@ -1698,18 +1828,9 @@ void RenderTextHarfBuzz::ItemizeTextToRuns(
   // If ICU fails to itemize the text, we create a run that spans the entire
   // text. This is needed because leaving the runs set empty causes some clients
   // to misbehave since they expect non-zero text metrics from a non-empty text.
-  base::i18n::BiDiLineIterator bidi_iterator;
-  base::i18n::BiDiLineIterator::CustomBehavior behavior =
-      base::i18n::BiDiLineIterator::CustomBehavior::NONE;
+  ui::gfx::BiDiLineIterator bidi_iterator;
 
-  // If the feature flag is enabled, use the special URL behaviour on the Bidi
-  // algorithm, if this is a URL.
-  if (base::FeatureList::IsEnabled(features::kLeftToRightUrls) &&
-      directionality_mode() == DIRECTIONALITY_AS_URL) {
-    behavior = base::i18n::BiDiLineIterator::CustomBehavior::AS_URL;
-  }
-
-  if (!bidi_iterator.Open(text, GetTextDirection(text), behavior)) {
+  if (!bidi_iterator.Open(text, GetTextDirection(text))) {
     auto run = std::make_unique<internal::TextRunHarfBuzz>(
         font_list().GetPrimaryFont());
     run->range = Range(0, text.length());
@@ -1792,6 +1913,33 @@ void RenderTextHarfBuzz::ShapeRuns(
     std::vector<internal::TextRunHarfBuzz*> runs) {
   TRACE_EVENT1("ui", "RenderTextHarfBuzz::ShapeRuns", "run_count", runs.size());
 
+  // Runs with a single newline character should be skipped since they can't be
+  // rendered (see http://crbug/680430). The following code sets the runs
+  // shaping output to report report the missing glyph and removes the runs from
+  // the vector of runs to shape. The newline character doesn't have a
+  // glyph, which otherwise forces this function to go through the expensive
+  // font fallbacks before reporting a missing glyph (see http://crbug/972090).
+  std::vector<internal::TextRunHarfBuzz*> need_shaping_runs;
+  for (internal::TextRunHarfBuzz*& run : runs) {
+    if (run->range.length() == 1 && text[run->range.start()] == '\n') {
+      // Newline runs can't be shaped. Shape this run as if the glyph is
+      // missing.
+      run->font_params = font_params;
+      run->shape.missing_glyph_count = 1;
+      run->shape.glyph_count = 1;
+      run->shape.glyphs.resize(run->shape.glyph_count);
+      run->shape.glyph_to_char.resize(run->shape.glyph_count);
+      run->shape.positions.resize(run->shape.glyph_count);
+      run->shape.width = glyph_width_for_test_;
+    } else {
+      // This run needs shaping.
+      need_shaping_runs.push_back(run);
+    }
+  }
+  runs.swap(need_shaping_runs);
+  if (runs.empty())
+    return;
+
   const Font& primary_font = font_list().GetPrimaryFont();
 
   for (const Font& font : font_list().GetFonts()) {
@@ -1806,11 +1954,18 @@ void RenderTextHarfBuzz::ShapeRuns(
 
   std::string preferred_fallback_family;
 
-#if defined(OS_WIN) || defined(OS_MACOSX)
   Font fallback_font(primary_font);
-  const base::char16* run_text = &(text[runs.front()->range.start()]);
-  if (GetFallbackFont(primary_font, run_text, runs.front()->range.length(),
-                      &fallback_font)) {
+  bool fallback_found;
+  {
+    SCOPED_UMA_HISTOGRAM_LONG_TIMER("RenderTextHarfBuzz.GetFallbackFontTime");
+    TRACE_EVENT1("ui", "RenderTextHarfBuzz::GetFallbackFont", "script",
+                 TRACE_STR_COPY(uscript_getShortName(font_params.script)));
+    const base::StringPiece16 run_text(&text[runs.front()->range.start()],
+                                       runs.front()->range.length());
+    fallback_found =
+        GetFallbackFont(primary_font, locale_, run_text, &fallback_font);
+  }
+  if (fallback_found) {
     preferred_fallback_family = fallback_font.GetFontName();
     internal::TextRunHarfBuzz::FontParams test_font_params = font_params;
     if (test_font_params.SetFontAndRenderParams(
@@ -1820,12 +1975,12 @@ void RenderTextHarfBuzz::ShapeRuns(
     if (runs.empty())
       return;
   }
-#endif
 
   std::vector<Font> fallback_font_list;
   {
     SCOPED_UMA_HISTOGRAM_LONG_TIMER("RenderTextHarfBuzz.GetFallbackFontsTime");
-    TRACE_EVENT0("ui", "RenderTextHarfBuzz::GetFallbackFonts");
+    TRACE_EVENT1("ui", "RenderTextHarfBuzz::GetFallbackFonts", "script",
+                 TRACE_STR_COPY(uscript_getShortName(font_params.script)));
     fallback_font_list = GetFallbackFonts(primary_font);
 
 #if defined(OS_WIN)
@@ -2012,10 +2167,6 @@ bool RenderTextHarfBuzz::GetDecoratedTextForRange(
     }
   }
   return true;
-}
-
-void RenderTextHarfBuzz::SetGlyphWidthForTest(float test_width) {
-  glyph_width_for_test_ = test_width;
 }
 
 }  // namespace gfx

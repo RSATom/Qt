@@ -2,6 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "base/bind.h"
 #include "base/command_line.h"
 #include "base/run_loop.h"
 #include "base/test/scoped_feature_list.h"
@@ -9,9 +10,9 @@
 #include "cc/base/math_util.h"
 #include "components/viz/common/gpu/context_provider.h"
 #include "content/public/browser/browser_thread.h"
+#include "content/public/browser/system_connector.h"
 #include "content/public/common/content_features.h"
 #include "content/public/common/content_switches.h"
-#include "content/public/common/service_manager_connection.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/content_browser_test.h"
 #include "content/public/test/content_browser_test_utils.h"
@@ -21,12 +22,17 @@
 #include "media/base/media_switches.h"
 #include "media/base/video_frame.h"
 #include "media/base/video_frame_metadata.h"
+#include "media/capture/mojom/video_capture_types.mojom.h"
 #include "media/capture/video/shared_memory_handle_provider.h"
 #include "mojo/public/cpp/bindings/strong_binding.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
 #include "services/service_manager/public/cpp/connector.h"
 #include "services/video_capture/public/mojom/constants.mojom.h"
+#include "services/video_capture/public/mojom/device_factory.mojom.h"
 #include "services/video_capture/public/mojom/device_factory_provider.mojom.h"
+#include "services/video_capture/public/mojom/producer.mojom.h"
+#include "services/video_capture/public/mojom/scoped_access_permission.mojom.h"
+#include "services/video_capture/public/mojom/virtual_device.mojom.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "third_party/khronos/GLES2/gl2ext.h"
 #include "ui/compositor/compositor.h"
@@ -89,9 +95,7 @@ class VirtualDeviceExerciser {
 // RGB dummy frames, one dark one and one light one.
 class TextureDeviceExerciser : public VirtualDeviceExerciser {
  public:
-  TextureDeviceExerciser() : weak_factory_(this) {
-    DETACH_FROM_SEQUENCE(sequence_checker_);
-  }
+  TextureDeviceExerciser() { DETACH_FROM_SEQUENCE(sequence_checker_); }
 
   void Initialize() override {
     ImageTransportFactory* factory = ImageTransportFactory::GetInstance();
@@ -224,7 +228,7 @@ class TextureDeviceExerciser : public VirtualDeviceExerciser {
   std::vector<gpu::MailboxHolder> dummy_frame_0_mailbox_holder_;
   std::vector<gpu::MailboxHolder> dummy_frame_1_mailbox_holder_;
   std::array<bool, 2> frame_being_consumed_;
-  base::WeakPtrFactory<TextureDeviceExerciser> weak_factory_;
+  base::WeakPtrFactory<TextureDeviceExerciser> weak_factory_{this};
 };
 
 // A VirtualDeviceExerciser for exercising
@@ -236,9 +240,7 @@ class SharedMemoryDeviceExerciser : public VirtualDeviceExerciser,
  public:
   explicit SharedMemoryDeviceExerciser(
       media::mojom::PlaneStridesPtr strides = nullptr)
-      : strides_(std::move(strides)),
-        producer_binding_(this),
-        weak_factory_(this) {}
+      : strides_(std::move(strides)), producer_binding_(this) {}
 
   // VirtualDeviceExerciser implementation.
   void Initialize() override {}
@@ -390,7 +392,7 @@ class SharedMemoryDeviceExerciser : public VirtualDeviceExerciser,
   std::map<int32_t /*buffer_id*/,
            std::unique_ptr<media::SharedMemoryHandleProvider>>
       outgoing_buffer_id_to_buffer_map_;
-  base::WeakPtrFactory<SharedMemoryDeviceExerciser> weak_factory_;
+  base::WeakPtrFactory<SharedMemoryDeviceExerciser> weak_factory_{this};
 };
 
 // Integration test that obtains a connection to the video capture service via
@@ -401,7 +403,7 @@ class SharedMemoryDeviceExerciser : public VirtualDeviceExerciser,
 class WebRtcVideoCaptureServiceBrowserTest : public ContentBrowserTest {
  public:
   WebRtcVideoCaptureServiceBrowserTest()
-      : virtual_device_thread_("Virtual Device Thread"), weak_factory_(this) {
+      : virtual_device_thread_("Virtual Device Thread") {
     scoped_feature_list_.InitAndEnableFeature(features::kMojoVideoCapture);
     virtual_device_thread_.Start();
   }
@@ -496,9 +498,7 @@ class WebRtcVideoCaptureServiceBrowserTest : public ContentBrowserTest {
     DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
     main_task_runner_ = base::ThreadTaskRunnerHandle::Get();
 
-    auto* connection = content::ServiceManagerConnection::GetForProcess();
-    ASSERT_TRUE(connection);
-    auto* connector = connection->GetConnector();
+    auto* connector = GetSystemConnector();
     ASSERT_TRUE(connector);
     // We need to clone it so that we can use the clone on a different thread.
     connector_ = connector->Clone();
@@ -520,7 +520,8 @@ class WebRtcVideoCaptureServiceBrowserTest : public ContentBrowserTest {
   video_capture::mojom::DeviceFactoryPtr factory_;
   gfx::Size video_size_;
   base::TimeTicks first_frame_time_;
-  base::WeakPtrFactory<WebRtcVideoCaptureServiceBrowserTest> weak_factory_;
+  base::WeakPtrFactory<WebRtcVideoCaptureServiceBrowserTest> weak_factory_{
+      this};
 
   DISALLOW_COPY_AND_ASSIGN(WebRtcVideoCaptureServiceBrowserTest);
 };

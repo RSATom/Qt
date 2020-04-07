@@ -15,10 +15,9 @@
 #ifndef sw_SetupProcessor_hpp
 #define sw_SetupProcessor_hpp
 
+#include <Pipeline/SpirvShader.hpp>
 #include "Context.hpp"
 #include "RoutineCache.hpp"
-#include "Pipeline/VertexShader.hpp"
-#include "Pipeline/PixelShader.hpp"
 #include "System/Types.hpp"
 
 namespace sw
@@ -33,59 +32,46 @@ namespace sw
 	class SetupProcessor
 	{
 	public:
-		struct States
+		struct States : Memset<States>
 		{
-			unsigned int computeHash();
+			States() : Memset(this, 0) {}
+
+			uint32_t computeHash();
 
 			bool isDrawPoint               : 1;
 			bool isDrawLine                : 1;
 			bool isDrawTriangle            : 1;
 			bool interpolateZ              : 1;
 			bool interpolateW              : 1;
-			bool perspective               : 1;
-			unsigned int positionRegister  : BITS(VERTEX_OUTPUT_LAST);
-			unsigned int pointSizeRegister : BITS(VERTEX_OUTPUT_LAST);
-			CullMode cullMode              : BITS(CULL_LAST);
-			bool twoSidedStencil           : 1;
+			VkFrontFace frontFace          : BITS(VK_FRONT_FACE_MAX_ENUM);
+			VkCullModeFlags cullMode       : BITS(VK_CULL_MODE_FLAG_BITS_MAX_ENUM);
 			bool slopeDepthBias            : 1;
-			bool vFace                     : 1;
 			unsigned int multiSample       : 3;   // 1, 2 or 4
 			bool rasterizerDiscard         : 1;
 
-			struct Gradient
-			{
-				unsigned char attribute : BITS(VERTEX_OUTPUT_LAST);
-				bool flat               : 1;
-				bool wrap               : 1;
-			};
-
-			Gradient gradient[MAX_FRAGMENT_INPUTS][4];
+			SpirvShader::InterfaceComponent gradient[MAX_INTERFACE_COMPONENTS];
 		};
 
 		struct State : States
 		{
-			State(int i = 0);
-
 			bool operator==(const State &states) const;
 
-			unsigned int hash;
+			uint32_t hash;
 		};
 
 		typedef bool (*RoutinePointer)(Primitive *primitive, const Triangle *triangle, const Polygon *polygon, const DrawData *draw);
 
-		SetupProcessor(Context *context);
+		SetupProcessor();
 
 		~SetupProcessor();
 
 	protected:
-		State update() const;
+		State update(const sw::Context* context) const;
 		Routine *routine(const State &state);
 
 		void setRoutineCacheSize(int cacheSize);
 
 	private:
-		Context *const context;
-
 		RoutineCache<State> *routineCache;
 	};
 }

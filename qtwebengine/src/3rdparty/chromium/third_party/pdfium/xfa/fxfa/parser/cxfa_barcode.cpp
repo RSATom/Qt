@@ -6,7 +6,7 @@
 
 #include "xfa/fxfa/parser/cxfa_barcode.h"
 
-#include "fxjs/xfa/cjx_barcode.h"
+#include "fxjs/xfa/cjx_node.h"
 #include "third_party/base/ptr_util.h"
 #include "xfa/fxfa/parser/cxfa_measurement.h"
 
@@ -38,7 +38,7 @@ const CXFA_Node::AttributeData kBarcodeAttributeData[] = {
     {XFA_Attribute::RowColumnRatio, XFA_AttributeType::CData, nullptr},
     {XFA_Attribute::DataLength, XFA_AttributeType::CData, nullptr},
     {XFA_Attribute::EndChar, XFA_AttributeType::CData, nullptr},
-    {XFA_Attribute::Unknown, XFA_AttributeType::Integer, nullptr}};
+};
 
 }  // namespace
 
@@ -48,9 +48,9 @@ CXFA_Barcode::CXFA_Barcode(CXFA_Document* doc, XFA_PacketType packet)
                 (XFA_XDPPACKET_Template | XFA_XDPPACKET_Form),
                 XFA_ObjectType::Node,
                 XFA_Element::Barcode,
-                nullptr,
+                {},
                 kBarcodeAttributeData,
-                pdfium::MakeUnique<CJX_Barcode>(this)) {}
+                pdfium::MakeUnique<CJX_Node>(this)) {}
 
 CXFA_Barcode::~CXFA_Barcode() = default;
 

@@ -5,9 +5,10 @@
 #include "third_party/blink/renderer/core/fetch/body.h"
 
 #include <memory>
+#include <utility>
+
 #include "base/memory/scoped_refptr.h"
 #include "base/optional.h"
-#include "third_party/blink/public/platform/web_data_consumer_handle.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise_resolver.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_array_buffer.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
@@ -21,7 +22,9 @@
 #include "third_party/blink/renderer/platform/bindings/exception_state.h"
 #include "third_party/blink/renderer/platform/bindings/script_state.h"
 #include "third_party/blink/renderer/platform/bindings/v8_throw_exception.h"
+#include "third_party/blink/renderer/platform/heap/heap.h"
 #include "third_party/blink/renderer/platform/network/parsed_content_type.h"
+#include "third_party/blink/renderer/platform/wtf/functional.h"
 
 namespace blink {
 
@@ -33,7 +36,9 @@ class BodyConsumerBase : public GarbageCollectedFinalized<BodyConsumerBase>,
 
  public:
   explicit BodyConsumerBase(ScriptPromiseResolver* resolver)
-      : resolver_(resolver) {}
+      : resolver_(resolver),
+        task_runner_(ExecutionContext::From(resolver_->GetScriptState())
+                         ->GetTaskRunner(TaskType::kNetworking)) {}
   ScriptPromiseResolver* Resolver() { return resolver_; }
   void DidFetchDataLoadFailed() override {
     ScriptState::Scope scope(Resolver()->GetScriptState());
@@ -42,7 +47,18 @@ class BodyConsumerBase : public GarbageCollectedFinalized<BodyConsumerBase>,
   }
 
   void Abort() override {
-    resolver_->Reject(DOMException::Create(DOMExceptionCode::kAbortError));
+    resolver_->Reject(
+        MakeGarbageCollected<DOMException>(DOMExceptionCode::kAbortError));
+  }
+
+  // Resource Timing event is not yet added, so delay the resolution timing
+  // a bit. See https://crbug.com/507169.
+  // TODO(yhirano): Fix this problem in a more sophisticated way.
+  template <typename T>
+  void ResolveLater(const T& object) {
+    task_runner_->PostTask(FROM_HERE,
+                           WTF::Bind(&BodyConsumerBase::ResolveNow<T>,
+                                     WrapPersistent(this), object));
   }
 
   void Trace(blink::Visitor* visitor) override {
@@ -51,7 +67,13 @@ class BodyConsumerBase : public GarbageCollectedFinalized<BodyConsumerBase>,
   }
 
  private:
-  Member<ScriptPromiseResolver> resolver_;
+  template <typename T>
+  void ResolveNow(const T& object) {
+    resolver_->Resolve(object);
+  }
+
+  const Member<ScriptPromiseResolver> resolver_;
+  const scoped_refptr<base::SingleThreadTaskRunner> task_runner_;
   DISALLOW_COPY_AND_ASSIGN(BodyConsumerBase);
 };
 
@@ -62,7 +84,7 @@ class BodyBlobConsumer final : public BodyConsumerBase {
 
   void DidFetchDataLoadedBlobHandle(
       scoped_refptr<BlobDataHandle> blob_data_handle) override {
-    Resolver()->Resolve(Blob::Create(std::move(blob_data_handle)));
+    ResolveLater(WrapPersistent(Blob::Create(std::move(blob_data_handle))));
   }
   DISALLOW_COPY_AND_ASSIGN(BodyBlobConsumer);
 };
@@ -73,7 +95,7 @@ class BodyArrayBufferConsumer final : public BodyConsumerBase {
       : BodyConsumerBase(resolver) {}
 
   void DidFetchDataLoadedArrayBuffer(DOMArrayBuffer* array_buffer) override {
-    Resolver()->Resolve(array_buffer);
+    ResolveLater(WrapPersistent(array_buffer));
   }
   DISALLOW_COPY_AND_ASSIGN(BodyArrayBufferConsumer);
 };
@@ -84,11 +106,11 @@ class BodyFormDataConsumer final : public BodyConsumerBase {
       : BodyConsumerBase(resolver) {}
 
   void DidFetchDataLoadedFormData(FormData* formData) override {
-    Resolver()->Resolve(formData);
+    ResolveLater(WrapPersistent(formData));
   }
 
   void DidFetchDataLoadedString(const String& string) override {
-    FormData* formData = FormData::Create();
+    auto* formData = MakeGarbageCollected<FormData>();
     for (const auto& pair : URLSearchParams::Create(string)->Params())
       formData->append(pair.first, pair.second);
     DidFetchDataLoadedFormData(formData);
@@ -102,7 +124,7 @@ class BodyTextConsumer final : public BodyConsumerBase {
       : BodyConsumerBase(resolver) {}
 
   void DidFetchDataLoadedString(const String& string) override {
-    Resolver()->Resolve(string);
+    ResolveLater(string);
   }
   DISALLOW_COPY_AND_ASSIGN(BodyTextConsumer);
 };
@@ -124,7 +146,7 @@ class BodyJsonConsumer final : public BodyConsumerBase {
     if (v8::JSON::Parse(Resolver()->GetScriptState()->GetContext(),
                         input_string)
             .ToLocal(&parsed))
-      Resolver()->Resolve(parsed);
+      ResolveLater(ScriptValue(Resolver()->GetScriptState(), parsed));
     else
       Resolver()->Reject(trycatch.Exception());
   }
@@ -148,7 +170,7 @@ ScriptPromise Body::arrayBuffer(ScriptState* script_state,
   if (!ExecutionContext::From(script_state))
     return ScriptPromise();
 
-  ScriptPromiseResolver* resolver = ScriptPromiseResolver::Create(script_state);
+  auto* resolver = MakeGarbageCollected<ScriptPromiseResolver>(script_state);
   ScriptPromise promise = resolver->Promise();
   if (BodyBuffer()) {
     BodyBuffer()->StartLoading(
@@ -176,7 +198,7 @@ ScriptPromise Body::blob(ScriptState* script_state,
   if (!ExecutionContext::From(script_state))
     return ScriptPromise();
 
-  ScriptPromiseResolver* resolver = ScriptPromiseResolver::Create(script_state);
+  auto* resolver = MakeGarbageCollected<ScriptPromiseResolver>(script_state);
   ScriptPromise promise = resolver->Promise();
   if (BodyBuffer()) {
     BodyBuffer()->StartLoading(
@@ -188,7 +210,7 @@ ScriptPromise Body::blob(ScriptState* script_state,
       return ScriptPromise();
     }
   } else {
-    std::unique_ptr<BlobData> blob_data = BlobData::Create();
+    auto blob_data = std::make_unique<BlobData>();
     blob_data->SetContentType(MimeType());
     resolver->Resolve(
         Blob::Create(BlobDataHandle::Create(std::move(blob_data), 0)));
@@ -206,7 +228,7 @@ ScriptPromise Body::formData(ScriptState* script_state,
   if (!ExecutionContext::From(script_state))
     return ScriptPromise();
 
-  ScriptPromiseResolver* resolver = ScriptPromiseResolver::Create(script_state);
+  auto* resolver = MakeGarbageCollected<ScriptPromiseResolver>(script_state);
   const ParsedContentType parsedTypeWithParameters(ContentType());
   const String parsedType = parsedTypeWithParameters.MimeType().LowerASCII();
   ScriptPromise promise = resolver->Promise();
@@ -238,7 +260,7 @@ ScriptPromise Body::formData(ScriptState* script_state,
         return ScriptPromise();
       }
     } else {
-      resolver->Resolve(FormData::Create());
+      resolver->Resolve(MakeGarbageCollected<FormData>());
     }
     return promise;
   } else {
@@ -271,7 +293,7 @@ ScriptPromise Body::json(ScriptState* script_state,
   if (!ExecutionContext::From(script_state))
     return ScriptPromise();
 
-  ScriptPromiseResolver* resolver = ScriptPromiseResolver::Create(script_state);
+  auto* resolver = MakeGarbageCollected<ScriptPromiseResolver>(script_state);
   ScriptPromise promise = resolver->Promise();
   if (BodyBuffer()) {
     BodyBuffer()->StartLoading(FetchDataLoader::CreateLoaderAsString(),
@@ -299,7 +321,7 @@ ScriptPromise Body::text(ScriptState* script_state,
   if (!ExecutionContext::From(script_state))
     return ScriptPromise();
 
-  ScriptPromiseResolver* resolver = ScriptPromiseResolver::Create(script_state);
+  auto* resolver = MakeGarbageCollected<ScriptPromiseResolver>(script_state);
   ScriptPromise promise = resolver->Promise();
   if (BodyBuffer()) {
     BodyBuffer()->StartLoading(FetchDataLoader::CreateLoaderAsString(),

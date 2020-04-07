@@ -77,7 +77,7 @@ public:
         ChangeLayoutSpanHandleOperation
     };
 
-    explicit FormWindow(FormEditor *core, QWidget *parent = 0, Qt::WindowFlags flags = 0);
+    explicit FormWindow(FormEditor *core, QWidget *parent = nullptr, Qt::WindowFlags flags = {});
     ~FormWindow() override;
 
     QDesignerFormEditorInterface *core() const override;
@@ -118,7 +118,7 @@ public:
     void setFileName(const QString &fileName) override;
 
     QString contents() const override;
-    bool setContents(QIODevice *dev, QString *errorMessage = 0) override;
+    bool setContents(QIODevice *dev, QString *errorMessage = nullptr) override;
     bool setContents(const QString &) override;
 
     QDir absoluteDir() const override;
@@ -223,7 +223,7 @@ public slots:
 #endif
     void selectAll();
 
-    void createLayout(int type, QWidget *container = 0);
+    void createLayout(int type, QWidget *container = nullptr);
     void morphLayout(QWidget *container, int newType);
     void breakLayout(QWidget *w);
 
@@ -320,10 +320,10 @@ private:
 
     FormEditor *m_core;
     FormWindowCursor *m_cursor;
-    QWidget *m_mainContainer;
-    QWidget *m_currentWidget;
+    QWidget *m_mainContainer = nullptr;
+    QWidget *m_currentWidget = nullptr;
 
-    bool m_blockSelectionChanged;
+    bool m_blockSelectionChanged = false;
 
     QPoint m_rectAnchor;
     QRect m_currRect;
@@ -340,18 +340,18 @@ private:
 
     QString m_fileName;
 
-    typedef QPair<QPalette ,bool> PaletteAndFill;
-    typedef QMap<QWidget*, PaletteAndFill> WidgetPaletteMap;
+    using PaletteAndFill = QPair<QPalette ,bool>;
+    using WidgetPaletteMap = QMap<QWidget*, PaletteAndFill>;
     WidgetPaletteMap m_palettesBeforeHighlight;
 
-    QRubberBand *m_rubberBand;
+    QRubberBand *m_rubberBand = nullptr;
 
-    QTimer *m_selectionChangedTimer;
-    QTimer *m_checkSelectionTimer;
-    QTimer *m_geometryChangedTimer;
+    QTimer *m_selectionChangedTimer = nullptr;
+    QTimer *m_checkSelectionTimer = nullptr;
+    QTimer *m_geometryChangedTimer = nullptr;
 
     FormWindowWidgetStack *m_widgetStack;
-    WidgetEditorTool *m_widgetEditor;
+    WidgetEditorTool *m_widgetEditor = nullptr;
 
     QStringList m_resourceFiles;
 

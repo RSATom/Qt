@@ -263,9 +263,9 @@ static const arg_def_t global_error_resilient =
             "Enable global error resiliency features");
 static const arg_def_t lag_in_frames =
     ARG_DEF(NULL, "lag-in-frames", 1, "Max number of frames to lag");
-static const arg_def_t large_scale_tile =
-    ARG_DEF(NULL, "large-scale-tile", 1,
-            "Large scale tile coding (0: off (default), 1: on)");
+static const arg_def_t large_scale_tile = ARG_DEF(
+    NULL, "large-scale-tile", 1,
+    "Large scale tile coding (0: off (default), 1: on (ivf output only))");
 static const arg_def_t monochrome =
     ARG_DEF(NULL, "monochrome", 0, "Monochrome video (no chroma planes)");
 static const arg_def_t full_still_picture_hdr = ARG_DEF(
@@ -415,7 +415,7 @@ static const arg_def_t cpu_used_av1 =
     ARG_DEF(NULL, "cpu-used", 1, "CPU Used (0..8)");
 static const arg_def_t rowmtarg =
     ARG_DEF(NULL, "row-mt", 1,
-            "Enable row based multi-threading (0: off (default), 1: on)");
+            "Enable row based multi-threading (0: off, 1: on (default))");
 static const arg_def_t tile_cols =
     ARG_DEF(NULL, "tile-columns", 1, "Number of tile columns to use, log2");
 static const arg_def_t tile_rows =
@@ -532,6 +532,12 @@ static const arg_def_t qm_max = ARG_DEF(
     NULL, "qm-max", 1, "Max quant matrix flatness (0..15), default is 15");
 static const arg_def_t reduced_tx_type_set = ARG_DEF(
     NULL, "reduced-tx-type-set", 1, "Use reduced set of transform types");
+static const arg_def_t use_intra_dct_only =
+    ARG_DEF(NULL, "use-intra-dct-only", 1, "Use DCT only for INTRA modes");
+static const arg_def_t use_inter_dct_only =
+    ARG_DEF(NULL, "use-inter-dct-only", 1, "Use DCT only for INTER modes");
+static const arg_def_t quant_b_adapt =
+    ARG_DEF(NULL, "quant-b-adapt", 1, "Use adaptive quantize_b");
 #if CONFIG_DIST_8X8
 static const arg_def_t enable_dist_8x8 =
     ARG_DEF(NULL, "enable-dist-8x8", 1,
@@ -602,6 +608,9 @@ static const arg_def_t max_gf_interval = ARG_DEF(
 static const arg_def_t gf_max_pyr_height =
     ARG_DEF(NULL, "gf-max-pyr-height", 1,
             "maximum height for GF group pyramid structure (1 to 4 (default))");
+static const arg_def_t max_reference_frames = ARG_DEF(
+    NULL, "max-reference-frames", 1,
+    "maximum number of reference frames allowed per frame (3 to 7 (default))");
 
 static const struct arg_enum_list color_primaries_enum[] = {
   { "bt709", AOM_CICP_CP_BT_709 },
@@ -752,6 +761,9 @@ static const arg_def_t *av1_args[] = { &cpu_used_av1,
                                        &qm_min,
                                        &qm_max,
                                        &reduced_tx_type_set,
+                                       &use_intra_dct_only,
+                                       &use_inter_dct_only,
+                                       &quant_b_adapt,
 #if CONFIG_DIST_8X8
                                        &enable_dist_8x8,
 #endif
@@ -779,7 +791,8 @@ static const arg_def_t *av1_args[] = { &cpu_used_av1,
 #if CONFIG_DENOISE
                                        &denoise_noise_level,
                                        &denoise_block_size,
-#endif
+#endif  // CONFIG_DENOISE
+                                       &max_reference_frames,
                                        &enable_ref_frame_mvs,
                                        &bitdeptharg,
                                        &inbitdeptharg,
@@ -834,6 +847,9 @@ static const int av1_arg_ctrl_map[] = { AOME_SET_CPUUSED,
                                         AV1E_SET_QM_MIN,
                                         AV1E_SET_QM_MAX,
                                         AV1E_SET_REDUCED_TX_TYPE_SET,
+                                        AV1E_SET_INTRA_DCT_ONLY,
+                                        AV1E_SET_INTER_DCT_ONLY,
+                                        AV1E_SET_QUANT_B_ADAPT,
 #if CONFIG_DIST_8X8
                                         AV1E_SET_ENABLE_DIST_8X8,
 #endif
@@ -861,7 +877,8 @@ static const int av1_arg_ctrl_map[] = { AOME_SET_CPUUSED,
 #if CONFIG_DENOISE
                                         AV1E_SET_DENOISE_NOISE_LEVEL,
                                         AV1E_SET_DENOISE_BLOCK_SIZE,
-#endif
+#endif  // CONFIG_DENOISE
+                                        AV1E_SET_MAX_REFERENCE_FRAMES,
                                         AV1E_SET_ENABLE_REF_FRAME_MVS,
                                         0 };
 #endif  // CONFIG_AV1_ENCODER
@@ -2097,6 +2114,10 @@ int main(int argc, const char **argv_) {
   FOREACH_STREAM(stream, streams) {
     check_encoder_config(global.disable_warning_prompt, &global,
                          &stream->config.cfg);
+
+    // If large_scale_tile = 1, only support to output to ivf format.
+    if (stream->config.cfg.large_scale_tile && !stream->config.write_ivf)
+      die("only support ivf output format while large-scale-tile=1\n");
   }
 
   /* Handle non-option arguments */

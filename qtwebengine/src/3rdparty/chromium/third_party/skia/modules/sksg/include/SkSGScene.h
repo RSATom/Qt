@@ -8,23 +8,25 @@
 #ifndef SkSGScene_DEFINED
 #define SkSGScene_DEFINED
 
-#include "SkRefCnt.h"
-#include "SkTypes.h"
+#include "include/core/SkRefCnt.h"
+#include "include/core/SkTypes.h"
 
 #include <memory>
 #include <vector>
 
 class SkCanvas;
+struct SkPoint;
 
 namespace sksg {
 
+class InvalidationController;
 class RenderNode;
 
 /**
  * Base class for animators.
  *
  */
-class Animator {
+class Animator : public SkRefCnt {
 public:
     virtual ~Animator();
     Animator(const Animator&) = delete;
@@ -38,7 +40,7 @@ protected:
     virtual void onTick(float t) = 0;
 };
 
-using AnimatorList = std::vector<std::unique_ptr<Animator>>;
+using AnimatorList = std::vector<sk_sp<Animator>>;
 
 class GroupAnimator : public Animator {
 protected:
@@ -66,17 +68,14 @@ public:
     Scene& operator=(const Scene&) = delete;
 
     void render(SkCanvas*) const;
-    void animate(float t);
-
-    void setShowInval(bool show) { fShowInval = show; }
+    void animate(float t, InvalidationController* = nullptr);
+    const RenderNode* nodeAt(const SkPoint&) const;
 
 private:
     Scene(sk_sp<RenderNode> root, AnimatorList&& animators);
 
     const sk_sp<RenderNode> fRoot;
     const AnimatorList      fAnimators;
-
-    bool                    fShowInval = false;
 };
 
 } // namespace sksg

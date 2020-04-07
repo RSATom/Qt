@@ -4,6 +4,7 @@
 
 #include "components/viz/host/gpu_client.h"
 
+#include "base/bind.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/numerics/checked_math.h"
 #include "components/viz/host/gpu_host_impl.h"
@@ -29,8 +30,7 @@ GpuClient::GpuClient(std::unique_ptr<GpuClientDelegate> delegate,
     : delegate_(std::move(delegate)),
       client_id_(client_id),
       client_tracing_id_(client_tracing_id),
-      task_runner_(std::move(task_runner)),
-      weak_factory_(this) {
+      task_runner_(std::move(task_runner)) {
   DCHECK(delegate_);
   gpu_bindings_.set_connection_error_handler(
       base::BindRepeating(&GpuClient::OnError, base::Unretained(this),
@@ -43,7 +43,7 @@ GpuClient::~GpuClient() {
   OnError(ErrorReason::kInDestructor);
 }
 
-void GpuClient::Add(ws::mojom::GpuRequest request) {
+void GpuClient::Add(mojom::GpuRequest request) {
   DCHECK(task_runner_->RunsTasksInCurrentSequence());
   gpu_bindings_.AddBinding(this, std::move(request));
 }
@@ -131,38 +131,6 @@ void GpuClient::EstablishGpuChannel(EstablishGpuChannelCallback callback) {
   // At most one channel should be requested. So clear previous request first.
   ClearCallback();
 
-  // TODO(crbug.com/874797): Gpu::EstablishGpuChannelSync() is blocking long
-  // enough that hung renderer detection code is killing the renderer. This
-  // UMA measures how long the request to establish a GPU channel takes after it
-  // arrives in the browser process. Remove this UMA after investigating.
-  if (callback) {
-    callback = base::BindOnce(
-        [](base::TimeTicks start_time, EstablishGpuChannelCallback callback,
-           int32_t client_id, mojo::ScopedMessagePipeHandle handle,
-           const gpu::GPUInfo& gpu_info,
-           const gpu::GpuFeatureInfo& gpu_feature_info) {
-          constexpr base::TimeDelta kMinTime =
-              base::TimeDelta::FromMilliseconds(1);
-          constexpr base::TimeDelta kMaxTime = base::TimeDelta::FromMinutes(10);
-          constexpr int kBuckets = 100;
-
-          base::TimeDelta delta = base::TimeTicks::Now() - start_time;
-          if (handle.is_valid()) {
-            UMA_HISTOGRAM_CUSTOM_TIMES(
-                "GPU.EstablishGpuChannelDuration.Success", delta, kMinTime,
-                kMaxTime, kBuckets);
-          } else {
-            UMA_HISTOGRAM_CUSTOM_TIMES(
-                "GPU.EstablishGpuChannelDuration.Failure", delta, kMinTime,
-                kMaxTime, kBuckets);
-          }
-
-          std::move(callback).Run(client_id, std::move(handle), gpu_info,
-                                  gpu_feature_info);
-        },
-        base::TimeTicks::Now(), std::move(callback));
-  }
-
   if (channel_handle_.is_valid()) {
     // If a channel has been pre-established and cached,
     //   1) if callback is valid, return it right away.
@@ -196,13 +164,15 @@ void GpuClient::EstablishGpuChannel(EstablishGpuChannelCallback callback) {
                      weak_factory_.GetWeakPtr()));
 }
 
+#if defined(OS_CHROMEOS)
 void GpuClient::CreateJpegDecodeAccelerator(
-    media::mojom::JpegDecodeAcceleratorRequest jda_request) {
+    chromeos_camera::mojom::MjpegDecodeAcceleratorRequest jda_request) {
   if (auto* gpu_host = delegate_->EnsureGpuHost()) {
     gpu_host->gpu_service()->CreateJpegDecodeAccelerator(
         std::move(jda_request));
   }
 }
+#endif  // defined(OS_CHROMEOS)
 
 void GpuClient::CreateVideoEncodeAcceleratorProvider(
     media::mojom::VideoEncodeAcceleratorProviderRequest vea_provider_request) {
@@ -217,7 +187,7 @@ void GpuClient::CreateGpuMemoryBuffer(
     const gfx::Size& size,
     gfx::BufferFormat format,
     gfx::BufferUsage usage,
-    ws::mojom::GpuMemoryBufferFactory::CreateGpuMemoryBufferCallback callback) {
+    mojom::GpuMemoryBufferFactory::CreateGpuMemoryBufferCallback callback) {
   auto* gpu_memory_buffer_manager = delegate_->GetGpuMemoryBufferManager();
 
   if (!gpu_memory_buffer_manager || !IsSizeValid(size)) {
@@ -241,7 +211,7 @@ void GpuClient::DestroyGpuMemoryBuffer(gfx::GpuMemoryBufferId id,
 }
 
 void GpuClient::CreateGpuMemoryBufferFactory(
-    ws::mojom::GpuMemoryBufferFactoryRequest request) {
+    mojom::GpuMemoryBufferFactoryRequest request) {
   gpu_memory_buffer_factory_bindings_.AddBinding(this, std::move(request));
 }
 

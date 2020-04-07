@@ -13,10 +13,6 @@
 #include "components/viz/host/viz_host_export.h"
 #include "ui/gfx/geometry/point_f.h"
 
-namespace content {
-class HitTestRegionObserver;
-}
-
 namespace viz {
 
 struct Target {
@@ -36,15 +32,13 @@ enum class EventSource {
 
 // Finds the target for a given location based on the AggregatedHitTestRegion
 // list aggregated by HitTestAggregator.
-// TODO(riajiang): Handle 3d space cases correctly.
+// TODO(crbug.com/966939): Handle 3d space cases correctly.
 class VIZ_HOST_EXPORT HitTestQuery {
  public:
   explicit HitTestQuery(
       base::RepeatingClosure shut_down_gpu_callback = base::RepeatingClosure());
   virtual ~HitTestQuery();
 
-  // TODO(riajiang): Need to validate the data received.
-  // http://crbug.com/746470
   // HitTestAggregator has sent the most recent |hit_test_data| for targeting/
   // transforming requests.
   void OnAggregatedHitTestRegionListUpdated(
@@ -93,7 +87,6 @@ class VIZ_HOST_EXPORT HitTestQuery {
   // |target_ancestors.front()| is the target, and |target_ancestors.back()|
   // is the root.
   bool TransformLocationForTarget(
-      EventSource event_source,
       const std::vector<FrameSinkId>& target_ancestors,
       const gfx::PointF& location_in_root,
       gfx::PointF* transformed_location) const;
@@ -113,6 +106,9 @@ class VIZ_HOST_EXPORT HitTestQuery {
 
   // Returns hit-test data, using indentation to visualize the tree structure.
   std::string PrintHitTestData() const;
+  const std::vector<AggregatedHitTestRegion>& GetHitTestData() const {
+    return hit_test_data_;
+  }
 
  protected:
   // The FindTargetForLocation() functions call into this.
@@ -126,8 +122,6 @@ class VIZ_HOST_EXPORT HitTestQuery {
       bool is_location_relative_to_parent) const;
 
  private:
-  friend class content::HitTestRegionObserver;
-
   // Helper function to find |target| for |location| in the |region_index|,
   // returns true if a target is found and false otherwise. If
   // |is_location_relative_to_parent| is true, |location| is in the coordinate
@@ -143,7 +137,6 @@ class VIZ_HOST_EXPORT HitTestQuery {
   // |location_in_target| is in the coordinate space of |region_index|'s parent
   // at the beginning.
   bool TransformLocationForTargetRecursively(
-      EventSource event_source,
       const std::vector<FrameSinkId>& target_ancestors,
       size_t target_ancestor,
       size_t region_index,

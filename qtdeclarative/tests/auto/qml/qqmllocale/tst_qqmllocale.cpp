@@ -32,6 +32,8 @@
 #include <QtQml/qqmlcomponent.h>
 #include <QtQml/qqmlcontext.h>
 #include <QtCore/QDateTime>
+#include <QtCore/qscopeguard.h>
+#include <QtCore/qscopedpointer.h>
 #include <qcolor.h>
 #include "../../shared/util.h"
 
@@ -1214,10 +1216,9 @@ private:
 
 void tst_qqmllocale::localeAsCppProperty()
 {
-    QQmlComponent component(&engine);
     qmlRegisterType<Calendar>("Test", 1, 0, "Calendar");
-    component.setData("import QtQml 2.2\nimport Test 1.0\nCalendar { locale: Qt.locale('en_GB'); property var testLocale }", QUrl());
-    QVERIFY(!component.isError());
+    QQmlComponent component(&engine, testFileUrl("localeAsCppProperty.qml"));
+    QVERIFY2(!component.isError(), qPrintable(component.errorString()));
     QTRY_VERIFY(component.isReady());
 
     Calendar *item = qobject_cast<Calendar*>(component.create());
@@ -1271,13 +1272,21 @@ void tst_qqmllocale::timeZoneUpdated()
     // Set the timezone to Brisbane time, AEST-10:00
     setTimeZone(QByteArray("Australia/Brisbane"));
 
+    QScopedPointer<QObject> obj;
+    auto cleanup = qScopeGuard([&original, &obj] {
+        // Restore to original time zone
+        setTimeZone(original);
+        QMetaObject::invokeMethod(obj.data(), "resetTimeZone");
+    });
+
     DateFormatter formatter;
 
     QQmlEngine e;
     e.rootContext()->setContextObject(&formatter);
 
     QQmlComponent c(&e, testFileUrl("timeZoneUpdated.qml"));
-    QScopedPointer<QObject> obj(c.create());
+    QVERIFY2(!c.isError(), qPrintable(c.errorString()));
+    obj.reset(c.create());
     QVERIFY(obj);
     QVERIFY(obj->property("success").toBool());
 
@@ -1285,11 +1294,6 @@ void tst_qqmllocale::timeZoneUpdated()
     setTimeZone(QByteArray("Asia/Kolkata"));
 
     QMetaObject::invokeMethod(obj.data(), "check");
-
-    // Reset to original time
-    setTimeZone(original);
-    QMetaObject::invokeMethod(obj.data(), "resetTimeZone");
-
     QVERIFY(obj->property("success").toBool());
 }
 #endif

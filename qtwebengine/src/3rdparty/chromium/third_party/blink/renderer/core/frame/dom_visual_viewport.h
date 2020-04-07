@@ -34,9 +34,9 @@
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/dom/events/event_target.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
+#include "third_party/blink/renderer/core/scroll/scroll_types.h"
 #include "third_party/blink/renderer/platform/bindings/script_wrappable.h"
 #include "third_party/blink/renderer/platform/heap/handle.h"
-#include "third_party/blink/renderer/platform/scroll/scroll_types.h"
 
 namespace blink {
 
@@ -47,10 +47,6 @@ class CORE_EXPORT DOMVisualViewport final : public EventTargetWithInlineData {
   DEFINE_WRAPPERTYPEINFO();
 
  public:
-  static DOMVisualViewport* Create(LocalDOMWindow* window) {
-    return MakeGarbageCollected<DOMVisualViewport>(window);
-  }
-
   explicit DOMVisualViewport(LocalDOMWindow*);
   ~DOMVisualViewport() override;
 
@@ -68,8 +64,8 @@ class CORE_EXPORT DOMVisualViewport final : public EventTargetWithInlineData {
   double height() const;
   double scale() const;
 
-  DEFINE_ATTRIBUTE_EVENT_LISTENER(resize, kResize);
-  DEFINE_ATTRIBUTE_EVENT_LISTENER(scroll, kScroll);
+  DEFINE_ATTRIBUTE_EVENT_LISTENER(resize, kResize)
+  DEFINE_ATTRIBUTE_EVENT_LISTENER(scroll, kScroll)
 
  private:
   Member<LocalDOMWindow> window_;

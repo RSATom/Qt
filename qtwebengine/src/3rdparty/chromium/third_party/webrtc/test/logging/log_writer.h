@@ -10,11 +10,13 @@
 #ifndef TEST_LOGGING_LOG_WRITER_H_
 #define TEST_LOGGING_LOG_WRITER_H_
 
+#include <stdarg.h>
+
 #include <memory>
 #include <string>
 #include <utility>
 
-#include "api/rtceventlogoutput.h"
+#include "api/rtc_event_log_output.h"
 #include "rtc_base/strings/string_builder.h"
 
 namespace webrtc {

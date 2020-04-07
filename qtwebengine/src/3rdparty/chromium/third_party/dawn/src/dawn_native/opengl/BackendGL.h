@@ -12,6 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#ifndef DAWNNATIVE_OPENGL_BACKENDGL_H_
+#define DAWNNATIVE_OPENGL_BACKENDGL_H_
+
 #include "dawn_native/BackendConnection.h"
 
 namespace dawn_native { namespace opengl {
@@ -29,3 +32,5 @@ namespace dawn_native { namespace opengl {
     };
 
 }}  // namespace dawn_native::opengl
+
+#endif  // DAWNNATIVE_OPENGL_BACKENDGL_H_

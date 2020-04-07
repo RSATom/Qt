@@ -43,7 +43,6 @@
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/frame/local_frame_view.h"
 #include "third_party/blink/renderer/core/frame/settings.h"
-#include "third_party/blink/renderer/core/frame/use_counter.h"
 #include "third_party/blink/renderer/core/frame/visual_viewport.h"
 #include "third_party/blink/renderer/core/fullscreen/fullscreen_options.h"
 #include "third_party/blink/renderer/core/fullscreen/scoped_allow_fullscreen.h"
@@ -55,6 +54,7 @@
 #include "third_party/blink/renderer/core/page/page.h"
 #include "third_party/blink/renderer/core/svg/svg_svg_element.h"
 #include "third_party/blink/renderer/platform/bindings/microtask.h"
+#include "third_party/blink/renderer/platform/instrumentation/use_counter.h"
 
 namespace blink {
 
@@ -204,7 +204,7 @@ void Unfullscreen(Document& document) {
     Unfullscreen(*element);
 }
 
-// https://html.spec.whatwg.org/multipage/embedded-content.html#allowed-to-use
+// https://html.spec.whatwg.org/C/#allowed-to-use
 bool AllowedToUseFullscreen(const Document& document,
                             ReportOptions report_on_failure) {
   // To determine whether a Document object |document| is allowed to use the
@@ -225,7 +225,9 @@ bool AllowedToRequestFullscreen(Document& document) {
   // true:
 
   //  The algorithm is triggered by a user activation.
-  if (LocalFrame::HasTransientUserActivation(document.GetFrame()))
+  // We are doing experiment to see if there is any webpage breaking after we
+  // only allow one fullscreen when the user activation state is active.
+  if (LocalFrame::ConsumeTransientUserActivation(document.GetFrame()))
     return true;
 
   //  The algorithm is triggered by a user generated orientation change.
@@ -240,7 +242,8 @@ bool AllowedToRequestFullscreen(Document& document) {
       "requestFullscreen", "Element",
       "API can only be initiated by a user gesture.");
   document.AddConsoleMessage(
-      ConsoleMessage::Create(kJSMessageSource, kWarningMessageLevel, message));
+      ConsoleMessage::Create(mojom::ConsoleMessageSource::kJavaScript,
+                             mojom::ConsoleMessageLevel::kWarning, message));
 
   return false;
 }
@@ -332,8 +335,8 @@ LocalFrame* NextLocalAncestor(Frame& frame) {
   Frame* parent = frame.Tree().Parent();
   if (!parent)
     return nullptr;
-  if (parent->IsLocalFrame())
-    return ToLocalFrame(parent);
+  if (auto* parent_local_frame = DynamicTo<LocalFrame>(parent))
+    return parent_local_frame;
   return NextLocalAncestor(*parent);
 }
 
@@ -501,12 +504,13 @@ Element* Fullscreen::FullscreenElementFrom(Document& document) {
 // https://fullscreen.spec.whatwg.org/#fullscreen-element
 Element* Fullscreen::FullscreenElementForBindingFrom(TreeScope& scope) {
   Element* element = FullscreenElementFrom(scope.GetDocument());
-  if (!element || !RuntimeEnabledFeatures::FullscreenUnprefixedEnabled())
+  if (!element)
     return element;
 
   // TODO(kochi): Once V0 code is removed, we can use the same logic for
   // Document and ShadowRoot.
-  if (!scope.RootNode().IsShadowRoot()) {
+  auto* shadow_root = DynamicTo<ShadowRoot>(scope.RootNode());
+  if (!shadow_root) {
     // For Shadow DOM V0 compatibility: We allow returning an element in V0
     // shadow tree, even though it leaks the Shadow DOM.
     if (element->IsInV0ShadowTree()) {
@@ -514,7 +518,7 @@ Element* Fullscreen::FullscreenElementForBindingFrom(TreeScope& scope) {
                         WebFeature::kDocumentFullscreenElementInV0Shadow);
       return element;
     }
-  } else if (!ToShadowRoot(scope.RootNode()).IsV1()) {
+  } else if (!shadow_root->IsV1()) {
     return nullptr;
   }
   return scope.AdjustedElement(*element);
@@ -577,7 +581,7 @@ ScriptPromise Fullscreen::RequestFullscreen(Element& pending,
   if (script_state) {
     // We should only be creating promises for unprefixed variants.
     DCHECK_EQ(Fullscreen::RequestType::kUnprefixed, request_type);
-    resolver = ScriptPromiseResolver::Create(script_state);
+    resolver = MakeGarbageCollected<ScriptPromiseResolver>(script_state);
   }
 
   bool for_cross_process_descendant =
@@ -705,9 +709,9 @@ void Fullscreen::ContinueRequestFullscreen(Document& document,
   // and processed after the IPC that dispatches fullscreenchange.
   for (Frame* frame = pending.GetDocument().GetFrame(); frame;
        frame = frame->Tree().Parent()) {
-    if (!frame->Owner() || !frame->Owner()->IsLocal())
+    Element* element = DynamicTo<HTMLFrameOwnerElement>(frame->Owner());
+    if (!element)
       continue;
-    Element* element = ToHTMLFrameOwnerElement(frame->Owner());
     fullscreen_elements.push_back(element);
   }
 
@@ -788,7 +792,7 @@ ScriptPromise Fullscreen::ExitFullscreen(Document& doc,
   }
 
   if (script_state)
-    resolver = ScriptPromiseResolver::Create(script_state);
+    resolver = MakeGarbageCollected<ScriptPromiseResolver>(script_state);
 
   // 3. Let |resize| be false.
   bool resize = false;
@@ -906,11 +910,12 @@ void Fullscreen::ContinueExitFullscreen(Document* doc,
   HeapVector<Member<Document>> descendant_docs;
   for (Frame* descendant = doc->GetFrame()->Tree().FirstChild(); descendant;
        descendant = descendant->Tree().TraverseNext(doc->GetFrame())) {
-    if (!descendant->IsLocalFrame())
+    auto* descendant_local_frame = DynamicTo<LocalFrame>(descendant);
+    if (!descendant_local_frame)
       continue;
-    DCHECK(ToLocalFrame(descendant)->GetDocument());
-    if (FullscreenElementFrom(*ToLocalFrame(descendant)->GetDocument()))
-      descendant_docs.push_back(ToLocalFrame(descendant)->GetDocument());
+    DCHECK(descendant_local_frame->GetDocument());
+    if (FullscreenElementFrom(*descendant_local_frame->GetDocument()))
+      descendant_docs.push_back(descendant_local_frame->GetDocument());
   }
 
   // 12. For each |exitDoc| in |exitDocs|:

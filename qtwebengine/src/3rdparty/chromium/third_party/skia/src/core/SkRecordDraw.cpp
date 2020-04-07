@@ -5,10 +5,10 @@
  * found in the LICENSE file.
  */
 
-#include "SkRecordDraw.h"
-#include "SkCanvasPriv.h"
-#include "SkImage.h"
-#include "SkPatchUtils.h"
+#include "include/core/SkImage.h"
+#include "src/core/SkCanvasPriv.h"
+#include "src/core/SkRecordDraw.h"
+#include "src/utils/SkPatchUtils.h"
 
 void SkRecordDraw(const SkRecord& record,
                   SkCanvas* canvas,
@@ -88,6 +88,10 @@ template <> void Draw::draw(const SaveBehind& r) {
     SkCanvasPriv::SaveBehind(fCanvas, r.subset);
 }
 
+template <> void Draw::draw(const DrawBehind& r) {
+    SkCanvasPriv::DrawBehind(fCanvas, r.paint);
+}
+
 DRAW(SetMatrix, setMatrix(SkMatrix::Concat(fInitialCTM, r.matrix)));
 DRAW(Concat, concat(r.matrix));
 DRAW(Translate, translate(r.dx, r.dy));
@@ -115,7 +119,6 @@ template <> void Draw::draw(const DrawImageLattice& r) {
 
 DRAW(DrawImageRect, legacy_drawImageRect(r.image.get(), r.src, r.dst, r.paint, r.constraint));
 DRAW(DrawImageNine, drawImageNine(r.image.get(), r.center, r.dst, r.paint));
-DRAW(DrawImageSet, experimental_DrawImageSetV1(r.set.get(), r.count, r.quality, r.mode));
 DRAW(DrawOval, drawOval(r.oval, r.paint));
 DRAW(DrawPaint, drawPaint(r.paint));
 DRAW(DrawPath, drawPath(r.path, r.paint));
@@ -124,7 +127,6 @@ DRAW(DrawPicture, drawPicture(r.picture.get(), &r.matrix, r.paint));
 DRAW(DrawPoints, drawPoints(r.mode, r.count, r.pts, r.paint));
 DRAW(DrawRRect, drawRRect(r.rrect, r.paint));
 DRAW(DrawRect, drawRect(r.rect, r.paint));
-DRAW(DrawEdgeAARect, experimental_DrawEdgeAARectV1(r.rect, r.aa, r.color, r.mode));
 DRAW(DrawRegion, drawRegion(r.region, r.paint));
 DRAW(DrawTextBlob, drawTextBlob(r.blob.get(), r.x, r.y, r.paint));
 DRAW(DrawAtlas, drawAtlas(r.atlas.get(),
@@ -132,6 +134,12 @@ DRAW(DrawAtlas, drawAtlas(r.atlas.get(),
 DRAW(DrawVertices, drawVertices(r.vertices, r.bones, r.boneCount, r.bmode, r.paint));
 DRAW(DrawShadowRec, private_draw_shadow_rec(r.path, r.rec));
 DRAW(DrawAnnotation, drawAnnotation(r.rect, r.key.c_str(), r.value.get()));
+
+DRAW(DrawEdgeAAQuad, experimental_DrawEdgeAAQuad(
+        r.rect, r.clip, r.aa, r.color, r.mode));
+DRAW(DrawEdgeAAImageSet, experimental_DrawEdgeAAImageSet(
+        r.set.get(), r.count, r.dstClips, r.preViewMatrices, r.paint, r.constraint));
+
 #undef DRAW
 
 template <> void Draw::draw(const DrawDrawable& r) {
@@ -354,11 +362,10 @@ private:
     Bounds bounds(const Flush&) const { return fCullRect; }
 
     Bounds bounds(const DrawPaint&) const { return fCullRect; }
+    Bounds bounds(const DrawBehind&) const { return fCullRect; }
     Bounds bounds(const NoOp&)  const { return Bounds::MakeEmpty(); }    // NoOps don't draw.
 
     Bounds bounds(const DrawRect& op) const { return this->adjustAndMap(op.rect, &op.paint); }
-    Bounds bounds(const DrawEdgeAARect& op) const { return this->adjustAndMap(op.rect, nullptr); }
-
     Bounds bounds(const DrawRegion& op) const {
         SkRect rect = SkRect::Make(op.region.getBounds());
         return this->adjustAndMap(rect, &op.paint);
@@ -386,13 +393,6 @@ private:
     }
     Bounds bounds(const DrawImageNine& op) const {
         return this->adjustAndMap(op.dst, op.paint);
-    }
-    Bounds bounds(const DrawImageSet& op) const {
-        SkRect rect = SkRect::MakeEmpty();
-        for (int i = 0; i < op.count; ++i) {
-            rect.join(this->adjustAndMap(op.set[i].fDstRect, nullptr));
-        }
-        return rect;
     }
     Bounds bounds(const DrawPath& op) const {
         return op.path.isInverseFillType() ? fCullRect
@@ -451,6 +451,29 @@ private:
 
     Bounds bounds(const DrawAnnotation& op) const {
         return this->adjustAndMap(op.rect, nullptr);
+    }
+    Bounds bounds(const DrawEdgeAAQuad& op) const {
+        SkRect bounds = op.rect;
+        if (op.clip) {
+            bounds.setBounds(op.clip, 4);
+        }
+        return this->adjustAndMap(bounds, nullptr);
+    }
+    Bounds bounds(const DrawEdgeAAImageSet& op) const {
+        SkRect rect = SkRect::MakeEmpty();
+        int clipIndex = 0;
+        for (int i = 0; i < op.count; ++i) {
+            SkRect entryBounds = op.set[i].fDstRect;
+            if (op.set[i].fHasClip) {
+                entryBounds.setBounds(op.dstClips + clipIndex, 4);
+                clipIndex += 4;
+            }
+            if (op.set[i].fMatrixIndex >= 0) {
+                op.preViewMatrices[op.set[i].fMatrixIndex].mapRect(&entryBounds);
+            }
+            rect.join(this->adjustAndMap(entryBounds, nullptr));
+        }
+        return rect;
     }
 
     // Returns true if rect was meaningfully adjusted for the effects of paint,

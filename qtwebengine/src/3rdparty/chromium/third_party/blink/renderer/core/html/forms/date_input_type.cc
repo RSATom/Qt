@@ -36,7 +36,7 @@
 #include "third_party/blink/renderer/core/html/forms/html_input_element.h"
 #include "third_party/blink/renderer/core/html_names.h"
 #include "third_party/blink/renderer/core/input_type_names.h"
-#include "third_party/blink/renderer/platform/date_components.h"
+#include "third_party/blink/renderer/platform/text/date_components.h"
 #include "third_party/blink/renderer/platform/text/platform_locale.h"
 
 namespace blink {
@@ -48,12 +48,8 @@ static const int kDateDefaultStep = 1;
 static const int kDateDefaultStepBase = 0;
 static const int kDateStepScaleFactor = 86400000;
 
-inline DateInputType::DateInputType(HTMLInputElement& element)
+DateInputType::DateInputType(HTMLInputElement& element)
     : BaseTemporalInputType(element) {}
-
-InputType* DateInputType::Create(HTMLInputElement& element) {
-  return MakeGarbageCollected<DateInputType>(element);
-}
 
 void DateInputType::CountUsage() {
   CountUsageIfVisible(WebFeature::kInputTypeDate);

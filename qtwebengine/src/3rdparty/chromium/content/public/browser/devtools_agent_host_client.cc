@@ -6,9 +6,7 @@
 
 namespace content {
 
-bool DevToolsAgentHostClient::MayAttachToRenderer(
-    content::RenderFrameHost* render_frame_host,
-    bool is_webui) {
+bool DevToolsAgentHostClient::MayAttachToURL(const GURL& url, bool is_webui) {
   return true;
 }
 
@@ -16,8 +14,16 @@ bool DevToolsAgentHostClient::MayAttachToBrowser() {
   return true;
 }
 
-bool DevToolsAgentHostClient::MayAffectLocalFiles() {
+bool DevToolsAgentHostClient::MayReadLocalFiles() {
   return true;
+}
+
+bool DevToolsAgentHostClient::MayWriteLocalFiles() {
+  return true;
+}
+
+bool DevToolsAgentHostClient::UsesBinaryProtocol() {
+  return false;
 }
 
 }  // namespace content

@@ -5420,7 +5420,8 @@ XsdWildcard::Ptr XsdSchemaParser::parseAny(const XsdParticle::Ptr &particle)
     }
 
     if (hasAttribute(QString::fromLatin1("namespace"))) {
-        const QSet<QString> values = readAttribute(QString::fromLatin1("namespace")).split(QLatin1Char(' '), QString::SkipEmptyParts).toSet();
+        const auto valueList = readAttribute(QString::fromLatin1("namespace")).split(QLatin1Char(' '), QString::SkipEmptyParts);
+        const QSet<QString> values(valueList.cbegin(), valueList.cend());
         if ((values.contains(QString::fromLatin1("##any")) || values.contains(QString::fromLatin1("##other"))) && values.count() != 1) {
             error(QtXmlPatterns::tr("%1 attribute of %2 element must contain %3, %4 or a list of URIs.")
                                    .arg(formatAttribute("namespace"))
@@ -5440,7 +5441,7 @@ XsdWildcard::Ptr XsdSchemaParser::parseAny(const XsdParticle::Ptr &particle)
                 wildcard->namespaceConstraint()->setNamespaces(QSet<QString>() << XsdWildcard::absentNamespace());
         } else {
             wildcard->namespaceConstraint()->setVariety(XsdWildcard::NamespaceConstraint::Enumeration);
-            QStringList newValues = values.toList();
+            QStringList newValues = values.values();
 
             // replace the ##targetNamespace entry
             for (int i = 0; i < newValues.count(); ++i) {
@@ -5466,7 +5467,7 @@ XsdWildcard::Ptr XsdSchemaParser::parseAny(const XsdParticle::Ptr &particle)
                 }
             }
 
-            wildcard->namespaceConstraint()->setNamespaces(newValues.toSet());
+            wildcard->namespaceConstraint()->setNamespaces(QSet<QString>(newValues.cbegin(), newValues.cend()));
         }
     } else {
         wildcard->namespaceConstraint()->setVariety(XsdWildcard::NamespaceConstraint::Any);
@@ -5532,7 +5533,8 @@ XsdWildcard::Ptr XsdSchemaParser::parseAnyAttribute()
 
     // parse attributes
     if (hasAttribute(QString::fromLatin1("namespace"))) {
-        const QSet<QString> values = readAttribute(QString::fromLatin1("namespace")).split(QLatin1Char(' '), QString::SkipEmptyParts).toSet();
+        const auto valueList = readAttribute(QString::fromLatin1("namespace")).split(QLatin1Char(' '), QString::SkipEmptyParts);
+        const QSet<QString> values(valueList.cbegin(), valueList.cend());
         if ((values.contains(QString::fromLatin1("##any")) || values.contains(QString::fromLatin1("##other"))) && values.count() != 1) {
             error(QtXmlPatterns::tr("%1 attribute of %2 element must contain %3, %4 or a list of URIs.")
                                    .arg(formatAttribute("namespace"))
@@ -5552,7 +5554,7 @@ XsdWildcard::Ptr XsdSchemaParser::parseAnyAttribute()
                 wildcard->namespaceConstraint()->setNamespaces(QSet<QString>() << XsdWildcard::absentNamespace());
         } else {
             wildcard->namespaceConstraint()->setVariety(XsdWildcard::NamespaceConstraint::Enumeration);
-            QStringList newValues = values.toList();
+            QStringList newValues = values.values();
 
             // replace the ##targetNamespace entry
             for (int i = 0; i < newValues.count(); ++i) {
@@ -5578,7 +5580,7 @@ XsdWildcard::Ptr XsdSchemaParser::parseAnyAttribute()
                 }
             }
 
-            wildcard->namespaceConstraint()->setNamespaces(newValues.toSet());
+            wildcard->namespaceConstraint()->setNamespaces(QSet<QString>(newValues.cbegin(), newValues.cend()));
         }
     } else {
         wildcard->namespaceConstraint()->setVariety(XsdWildcard::NamespaceConstraint::Any);
@@ -5815,7 +5817,8 @@ SchemaType::DerivationConstraints XsdSchemaParser::readDerivationConstraintAttri
         content = m_finalDefault;
     }
 
-    QSet<QString> contentSet = content.split(QLatin1Char(' '), QString::SkipEmptyParts).toSet();
+    const auto &contentList = content.split(QLatin1Char(' '), QString::SkipEmptyParts);
+    QSet<QString> contentSet(contentList.cbegin(), contentList.cend());
 
     // if the '#all' tag is defined, we return all allowed values
     if (contentSet.contains(QString::fromLatin1("#all"))) {
@@ -5876,7 +5879,8 @@ NamedSchemaComponent::BlockingConstraints XsdSchemaParser::readBlockingConstrain
         content = m_blockDefault;
     }
 
-    QSet<QString> contentSet = content.split(QLatin1Char(' '), QString::SkipEmptyParts).toSet();
+    const auto &contentList = content.split(QLatin1Char(' '), QString::SkipEmptyParts);
+    QSet<QString> contentSet(contentList.cbegin(), contentList.cend());
 
     // if the '#all' tag is defined, we return all allowed values
     if (contentSet.contains(QString::fromLatin1("#all"))) {

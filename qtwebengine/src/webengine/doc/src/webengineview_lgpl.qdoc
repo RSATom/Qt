@@ -415,26 +415,33 @@
     \qmlmethod void WebEngineView::findText(string subString)
     \since QtWebEngine 1.1
     Finds the specified string, \a subString, in the page.
+    The findTextFinished() signal is emitted when a string search is completed.
 
     To clear the search highlight, just pass an empty string.
+
+    \sa findTextFinished()
 */
 
 /*!
     \qmlmethod void WebEngineView::findText(string subString, FindFlags options)
     \since QtWebEngine 1.1
     Finds the specified string, \a subString, in the page, using the given \a options.
+    The findTextFinished() signal is emitted when a string search is completed.
 
     To clear the search highlight, just pass an empty string.
 
     \code
     findText("Qt", WebEngineView.FindBackward | WebEngineView.FindCaseSensitively);
     \endcode
+
+    \sa findTextFinished()
 */
 
 /*!
     \qmlmethod void WebEngineView::findText(string subString, FindFlags options, variant resultCallback)
     \since QtWebEngine 1.1
     Finds the specified string, \a subString, in the page, using the given \a options.
+    The findTextFinished() signal is emitted when a string search is completed.
 
     To clear the search highlight, just pass an empty string.
 
@@ -447,6 +454,8 @@
             console.log("'Qt' tokens found:", matchCount);
     });
     \endcode
+
+    \sa findTextFinished()
 */
 
 /*!
@@ -1505,4 +1514,103 @@
     will continue without a client certificate.
 
     \sa WebEngineClientCertificateSelection
+*/
+
+/*!
+    \qmlsignal WebEngineView::tooltipRequested(TooltipRequest request)
+    \since QtWebEngine 1.10
+
+    This signal is emitted when the web page sends a \a request to show a tooltip at
+    a specified position.
+
+    \note Signal handlers need to call \c{request.accepted = true} to prevent a default tooltip from showing up.
+
+    \sa TooltipRequest
+*/
+
+/*!
+    \qmlproperty enumeration WebEngineView::LifecycleState
+    \since QtWebEngine 1.10
+
+    This enum describes the lifecycle state of the page:
+
+    \value  WebEngineView.LifecycleState.Active
+    Normal state.
+    \value  WebEngineView.LifecycleState.Frozen
+    Low CPU usage state where most HTML task sources are suspended.
+    \value  WebEngineView.LifecycleState.Discarded
+    Very low resource usage state where the entire browsing context is discarded.
+
+    \sa lifecycleState, {Page Lifecycle API}, {WebEngine Lifecycle Example}
+*/
+
+/*!
+    \qmlproperty LifecycleState WebEngineView::lifecycleState
+    \since QtWebEngine 1.10
+
+    \brief The current lifecycle state of the page.
+
+    The following restrictions are enforced by the setter:
+
+    \list
+    \li A visible page must remain in the \c{Active} state.
+    \li If the page is being inspected by a \l{devToolsView} then both pages must
+        remain in the \c{Active} states.
+    \li A page in the \c{Discarded} state can only transition to the \c{Active}
+        state. This will cause a reload of the page.
+    \endlist
+
+    These are the only hard limits on the lifecycle state, but see also
+    \l{recommendedState} for the recommended soft limits.
+
+    \sa recommendedState, {Page Lifecycle API}, {WebEngine Lifecycle Example}
+*/
+
+/*!
+    \qmlproperty LifecycleState WebEngineView::recommendedState
+    \since QtWebEngine 1.10
+
+    \brief The recommended limit for the lifecycle state of the page.
+
+    Setting the lifecycle state to a lower resource usage state than the
+    recommended state may cause side-effects such as stopping background audio
+    playback or loss of HTML form input. Setting the lifecycle state to a higher
+    resource state is however completely safe.
+
+    \sa lifecycleState, {Page Lifecycle API}, {WebEngine Lifecycle Example}
+*/
+
+/*!
+    \qmltype FindTextResult
+    \instantiates QWebEngineFindTextResult
+    \inqmlmodule QtWebEngine
+    \since QtWebEngine 1.10
+
+    \brief A utility type for encapsulating the result of a string search on a page.
+
+    \sa WebEngineView::findTextFinished()
+*/
+
+/*!
+    \qmlproperty int FindTextResult::numberOfMatches
+    \readonly
+
+    \brief The number of matches found.
+*/
+
+/*!
+    \qmlproperty int FindTextResult::activeMatch
+    \readonly
+
+    \brief The index of the currently highlighted match.
+*/
+
+/*!
+    \qmlsignal WebEngineView::findTextFinished(FindTextResult result)
+    \since QtWebEngine 1.10
+
+    This signal is emitted when a string search on a page is completed. \a result is
+    the result of the string search.
+
+    \sa findText(), FindTextResult
 */

@@ -40,6 +40,7 @@
 #ifndef QMLSENSOR_H
 #define QMLSENSOR_H
 
+#include <QObject>
 #include <QQmlParserStatus>
 #include <QQmlListProperty>
 #include "qmlsensorrange.h"
@@ -51,9 +52,11 @@ class QSensorReading;
 
 class QmlSensorReading;
 
+class QmlSensorPrivate;
 class QmlSensor : public QObject, public QQmlParserStatus
 {
     Q_OBJECT
+    Q_DECLARE_PRIVATE(QmlSensor)
     Q_ENUMS(AxesOrientationMode)
     Q_INTERFACES(QQmlParserStatus)
     Q_PROPERTY(QString identifier READ identifier WRITE setIdentifier NOTIFY identifierChanged)

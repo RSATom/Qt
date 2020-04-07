@@ -68,7 +68,8 @@ ContextNULL::ContextNULL(const gl::State &state,
 
     mExtensions                        = gl::Extensions();
     mExtensions.fence                  = true;
-    mExtensions.instancedArrays        = true;
+    mExtensions.instancedArraysANGLE   = true;
+    mExtensions.instancedArraysEXT     = true;
     mExtensions.pixelBufferObject      = true;
     mExtensions.mapBuffer              = true;
     mExtensions.mapBufferRange         = true;
@@ -80,17 +81,18 @@ ContextNULL::ContextNULL(const gl::State &state,
     mExtensions.debugMarker            = true;
     mExtensions.translatedShaderSource = true;
 
-    mExtensions.textureStorage             = true;
-    mExtensions.rgb8rgba8                  = true;
-    mExtensions.textureCompressionDXT1     = true;
-    mExtensions.textureCompressionDXT3     = true;
-    mExtensions.textureCompressionDXT5     = true;
-    mExtensions.textureCompressionS3TCsRGB = true;
-    mExtensions.textureCompressionASTCHDR  = true;
-    mExtensions.textureCompressionASTCLDR  = true;
-    mExtensions.compressedETC1RGB8Texture  = true;
-    mExtensions.lossyETCDecode             = true;
-    mExtensions.geometryShader             = true;
+    mExtensions.textureStorage               = true;
+    mExtensions.rgb8rgba8                    = true;
+    mExtensions.textureCompressionDXT1       = true;
+    mExtensions.textureCompressionDXT3       = true;
+    mExtensions.textureCompressionDXT5       = true;
+    mExtensions.textureCompressionS3TCsRGB   = true;
+    mExtensions.textureCompressionASTCHDRKHR = true;
+    mExtensions.textureCompressionASTCLDRKHR = true;
+    mExtensions.textureCompressionASTCOES    = true;
+    mExtensions.compressedETC1RGB8Texture    = true;
+    mExtensions.lossyETCDecode               = true;
+    mExtensions.geometryShader               = true;
 
     mExtensions.eglImage                  = true;
     mExtensions.eglImageExternal          = true;
@@ -244,9 +246,9 @@ void ContextNULL::stencilThenCoverStrokePathInstanced(const std::vector<gl::Path
                                                       const GLfloat *transformValues)
 {}
 
-GLenum ContextNULL::getResetStatus()
+gl::GraphicsResetStatus ContextNULL::getResetStatus()
 {
-    return GL_NO_ERROR;
+    return gl::GraphicsResetStatus::NoError;
 }
 
 std::string ContextNULL::getVendorString() const
@@ -265,7 +267,7 @@ void ContextNULL::pushGroupMarker(GLsizei length, const char *marker) {}
 
 void ContextNULL::popGroupMarker() {}
 
-void ContextNULL::pushDebugGroup(GLenum source, GLuint id, GLsizei length, const char *message) {}
+void ContextNULL::pushDebugGroup(GLenum source, GLuint id, const std::string &message) {}
 
 void ContextNULL::popDebugGroup() {}
 
@@ -389,6 +391,18 @@ std::vector<PathImpl *> ContextNULL::createPaths(GLsizei range)
         result[idx] = new PathNULL();
     }
     return result;
+}
+
+MemoryObjectImpl *ContextNULL::createMemoryObject()
+{
+    UNREACHABLE();
+    return nullptr;
+}
+
+SemaphoreImpl *ContextNULL::createSemaphore()
+{
+    UNREACHABLE();
+    return nullptr;
 }
 
 angle::Result ContextNULL::dispatchCompute(const gl::Context *context,

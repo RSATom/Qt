@@ -8,7 +8,7 @@
 #ifndef SkSGOpacityEffect_DEFINED
 #define SkSGOpacityEffect_DEFINED
 
-#include "SkSGEffectNode.h"
+#include "modules/sksg/include/SkSGEffectNode.h"
 
 namespace sksg {
 
@@ -28,6 +28,7 @@ protected:
     OpacityEffect(sk_sp<RenderNode>, float);
 
     void onRender(SkCanvas*, const RenderContext*) const override;
+    const RenderNode* onNodeAt(const SkPoint&)     const override;
 
     SkRect onRevalidate(InvalidationController*, const SkMatrix&) override;
 

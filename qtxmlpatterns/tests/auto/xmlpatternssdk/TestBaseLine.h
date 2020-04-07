@@ -57,7 +57,7 @@ namespace QPatternistSDK
      * @ingroup PatternistSDK
      * @author Frans Englich <frans.englich@nokia.com>
      */
-    class Q_PATTERNISTSDK_EXPORT TestBaseLine
+    class TestBaseLine
     {
     public:
         typedef QList<TestBaseLine *> List;

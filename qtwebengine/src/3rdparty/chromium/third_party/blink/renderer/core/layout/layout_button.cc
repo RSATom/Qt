@@ -59,7 +59,7 @@ void LayoutButton::UpdateAnonymousChildStyle(const LayoutObject* child,
   DCHECK_EQ(inner_, child);
   child_style.SetFlexGrow(1.0f);
   // min-width: 0; is needed for correct shrinking.
-  child_style.SetMinWidth(Length(0, kFixed));
+  child_style.SetMinWidth(Length::Fixed(0));
   // Use margin:auto instead of align-items:center to get safe centering, i.e.
   // when the content overflows, treat it the same as align-items: flex-start.
   child_style.SetMarginTop(Length());
@@ -73,10 +73,10 @@ void LayoutButton::UpdateAnonymousChildStyle(const LayoutObject* child,
   child_style.SetAlignContent(StyleRef().AlignContent());
 }
 
-LayoutRect LayoutButton::ControlClipRect(
-    const LayoutPoint& additional_offset) const {
+PhysicalRect LayoutButton::ControlClipRect(
+    const PhysicalOffset& additional_offset) const {
   // Clip to the padding box to at least give content the extra padding space.
-  LayoutRect rect(additional_offset, Size());
+  PhysicalRect rect(additional_offset, Size());
   rect.Expand(BorderInsets());
   return rect;
 }
@@ -90,7 +90,8 @@ LayoutUnit LayoutButton::BaselinePosition(
   // We want to call the LayoutBlock version of firstLineBoxBaseline to
   // avoid LayoutFlexibleBox synthesizing a baseline that we don't want.
   // We use this check as a proxy for "are there any line boxes in this button"
-  if (!HasLineIfEmpty() && LayoutBlock::FirstLineBoxBaseline() == -1) {
+  if (!HasLineIfEmpty() && !ShouldApplyLayoutContainment() &&
+      LayoutBlock::FirstLineBoxBaseline() == -1) {
     // To ensure that we have a consistent baseline when we have no children,
     // even when we have the anonymous LayoutBlock child, we calculate the
     // baseline for the empty case manually here.

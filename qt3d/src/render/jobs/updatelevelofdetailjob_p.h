@@ -65,6 +65,7 @@ class Entity;
 class NodeManagers;
 class LevelOfDetail;
 class FrameGraphNode;
+class UpdateLevelOfDetailJobPrivate;
 
 class Q_3DRENDERSHARED_PRIVATE_EXPORT UpdateLevelOfDetailJob : public Qt3DCore::QAspectJob
 {

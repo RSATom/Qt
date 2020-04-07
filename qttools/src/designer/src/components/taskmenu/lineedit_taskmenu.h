@@ -43,7 +43,7 @@ class LineEditTaskMenu: public QDesignerTaskMenu
 {
     Q_OBJECT
 public:
-    explicit LineEditTaskMenu(QLineEdit *button, QObject *parent = 0);
+    explicit LineEditTaskMenu(QLineEdit *button, QObject *parent = nullptr);
 
     QAction *preferredEditAction() const override;
     QList<QAction*> taskActions() const override;
@@ -53,7 +53,7 @@ private:
     QAction *m_editTextAction;
 };
 
-typedef ExtensionFactory<QDesignerTaskMenuExtension, QLineEdit, LineEditTaskMenu> LineEditTaskMenuFactory;
+using LineEditTaskMenuFactory = ExtensionFactory<QDesignerTaskMenuExtension, QLineEdit, LineEditTaskMenu>;
 }  // namespace qdesigner_internal
 
 QT_END_NAMESPACE

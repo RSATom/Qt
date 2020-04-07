@@ -7,20 +7,20 @@
 
 // Running create_test_font generates ./tools/fonts/test_font_index.inc
 // and ./tools/fonts/test_font_<generic name>.inc which are read by
-// ./tools/fonts/SkTestFontMgr.cpp
+// ./tools/fonts/TestFontMgr.cpp
 
-#include "SkFont.h"
-#include "SkFontMetrics.h"
-#include "SkFontStyle.h"
-#include "SkOSFile.h"
-#include "SkOSPath.h"
-#include "SkPath.h"
-#include "SkSpan.h"
-#include "SkStream.h"
-#include "SkTArray.h"
-#include "SkTSort.h"
-#include "SkTypeface.h"
-#include "SkUTF.h"
+#include "include/core/SkFont.h"
+#include "include/core/SkFontMetrics.h"
+#include "include/core/SkFontStyle.h"
+#include "include/core/SkPath.h"
+#include "include/core/SkStream.h"
+#include "include/core/SkTypeface.h"
+#include "include/private/SkTArray.h"
+#include "src/core/SkOSFile.h"
+#include "src/core/SkSpan.h"
+#include "src/core/SkTSort.h"
+#include "src/utils/SkOSPath.h"
+#include "src/utils/SkUTF.h"
 
 #include <stdio.h>
 
@@ -406,12 +406,12 @@ int main(int , char * const []) {
     };
 
     static constexpr FontFamilyDesc kFamiliesData[] = {
-        {"monospace",  "Liberation Mono",  "LiberationMono",  { kMonoFonts  }},
-        {"sans-serif", "Liberation Sans",  "LiberationSans",  { kSansFonts  }},
-        {"serif",      "Liberation Serif", "LiberationSerif", { kSerifFonts }},
+        {"monospace",  "Liberation Mono",  "LiberationMono",  SkMakeSpan(kMonoFonts)},
+        {"sans-serif", "Liberation Sans",  "LiberationSans",  SkMakeSpan(kSansFonts)},
+        {"serif",      "Liberation Serif", "LiberationSerif", SkMakeSpan(kSerifFonts)},
     };
 
-    static constexpr SkSpan<const FontFamilyDesc> kFamilies(kFamiliesData);
+    static constexpr SkSpan<const FontFamilyDesc> kFamilies(SkMakeSpan(kFamiliesData));
 
 #ifdef SK_BUILD_FOR_UNIX
     generate_fonts("/usr/share/fonts/truetype/liberation/", kFamilies);

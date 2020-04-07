@@ -22,8 +22,6 @@ class MockPasswordStore : public PasswordStore {
   MOCK_METHOD1(RemoveLogin, void(const autofill::PasswordForm&));
   MOCK_METHOD2(GetLogins,
                void(const PasswordStore::FormDigest&, PasswordStoreConsumer*));
-  MOCK_METHOD2(GetLoginsForSameOrganizationName,
-               void(const std::string&, PasswordStoreConsumer*));
   MOCK_METHOD1(AddLogin, void(const autofill::PasswordForm&));
   MOCK_METHOD1(UpdateLogin, void(const autofill::PasswordForm&));
   MOCK_METHOD2(UpdateLoginWithPrimaryKey,
@@ -31,10 +29,12 @@ class MockPasswordStore : public PasswordStore {
                     const autofill::PasswordForm&));
   MOCK_METHOD3(ReportMetrics, void(const std::string&, bool, bool));
   MOCK_METHOD2(ReportMetricsImpl, void(const std::string&, bool));
-  MOCK_METHOD1(AddLoginImpl,
-               PasswordStoreChangeList(const autofill::PasswordForm&));
-  MOCK_METHOD1(UpdateLoginImpl,
-               PasswordStoreChangeList(const autofill::PasswordForm&));
+  MOCK_METHOD2(AddLoginImpl,
+               PasswordStoreChangeList(const autofill::PasswordForm&,
+                                       AddLoginError* error));
+  MOCK_METHOD2(UpdateLoginImpl,
+               PasswordStoreChangeList(const autofill::PasswordForm&,
+                                       UpdateLoginError* error));
   MOCK_METHOD1(RemoveLoginImpl,
                PasswordStoreChangeList(const autofill::PasswordForm&));
   MOCK_METHOD3(RemoveLoginsByURLAndTimeImpl,
@@ -42,8 +42,6 @@ class MockPasswordStore : public PasswordStore {
                                        base::Time,
                                        base::Time));
   MOCK_METHOD2(RemoveLoginsCreatedBetweenImpl,
-               PasswordStoreChangeList(base::Time, base::Time));
-  MOCK_METHOD2(RemoveLoginsSyncedBetweenImpl,
                PasswordStoreChangeList(base::Time, base::Time));
   MOCK_METHOD3(RemoveStatisticsByOriginAndTimeImpl,
                bool(const base::Callback<bool(const GURL&)>&,
@@ -54,10 +52,6 @@ class MockPasswordStore : public PasswordStore {
       PasswordStoreChangeList(const base::Callback<bool(const GURL&)>&));
   std::vector<std::unique_ptr<autofill::PasswordForm>> FillMatchingLogins(
       const PasswordStore::FormDigest& form) override {
-    return std::vector<std::unique_ptr<autofill::PasswordForm>>();
-  }
-  std::vector<std::unique_ptr<autofill::PasswordForm>>
-  FillLoginsForSameOrganizationName(const std::string& signon_realm) override {
     return std::vector<std::unique_ptr<autofill::PasswordForm>>();
   }
   MOCK_METHOD1(FillAutofillableLogins,
@@ -89,10 +83,11 @@ class MockPasswordStore : public PasswordStore {
   MOCK_METHOD0(ClearAllEnterprisePasswordHash, void());
 #endif
   MOCK_METHOD0(BeginTransaction, bool());
+  MOCK_METHOD0(RollbackTransaction, void());
   MOCK_METHOD0(CommitTransaction, bool());
-  MOCK_METHOD1(ReadAllLogins, bool(PrimaryKeyToFormMap*));
+  MOCK_METHOD1(ReadAllLogins, FormRetrievalResult(PrimaryKeyToFormMap*));
   MOCK_METHOD1(RemoveLoginByPrimaryKeySync, PasswordStoreChangeList(int));
-  MOCK_METHOD0(GetMetadataStore, syncer::SyncMetadataStore*());
+  MOCK_METHOD0(GetMetadataStore, PasswordStoreSync::MetadataStore*());
 
   PasswordStoreSync* GetSyncInterface() { return this; }
 

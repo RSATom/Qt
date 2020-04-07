@@ -11,15 +11,16 @@
 #include "base/logging.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
-#include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
+#include "base/test/gmock_callback_support.h"
+#include "base/test/scoped_task_environment.h"
 #include "base/time/time.h"
-#include "media/base/gmock_callback_support.h"
 #include "media/base/mock_filters.h"
 #include "media/base/pipeline.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
+using ::base::test::RunOnceClosure;
 using ::testing::_;
 using ::testing::AnyNumber;
 using ::testing::DoAll;
@@ -142,8 +143,9 @@ class PipelineControllerTest : public ::testing::Test, public Pipeline::Client {
   // Pipeline::Client overrides
   void OnError(PipelineStatus status) override { NOTREACHED(); }
   void OnEnded() override {}
-  void OnMetadata(PipelineMetadata metadata) override {}
-  void OnBufferingStateChange(BufferingState state) override {}
+  void OnMetadata(const PipelineMetadata& metadata) override {}
+  void OnBufferingStateChange(BufferingState state,
+                              BufferingStateChangeReason reason) override {}
   void OnDurationChange() override {}
   void OnAddTextTrack(const TextTrackConfig& config,
                       const AddTextTrackDoneCB& done_cb) override {}
@@ -153,11 +155,10 @@ class PipelineControllerTest : public ::testing::Test, public Pipeline::Client {
   void OnVideoConfigChange(const VideoDecoderConfig& config) override {}
   void OnVideoOpacityChange(bool opaque) override {}
   void OnVideoAverageKeyframeDistanceUpdate() override {}
-  void OnAudioDecoderChange(const std::string& name) override {}
-  void OnVideoDecoderChange(const std::string& name) override {}
-  void OnRemotePlayStateChange(MediaStatus::State state) override {}
+  void OnAudioDecoderChange(const PipelineDecoderInfo& info) override {}
+  void OnVideoDecoderChange(const PipelineDecoderInfo& info) override {}
 
-  base::MessageLoop message_loop_;
+  base::test::ScopedTaskEnvironment scoped_task_environment_;
 
   NiceMock<MockDemuxer> demuxer_;
   StrictMock<MockPipeline>* pipeline_;
@@ -182,6 +183,47 @@ TEST_F(PipelineControllerTest, Startup) {
   EXPECT_FALSE(last_seeked_time_updated_);
   EXPECT_FALSE(was_suspended_);
   EXPECT_TRUE(pipeline_controller_.IsStable());
+}
+
+TEST_F(PipelineControllerTest, StartSuspendedSeekAndResume) {
+  EXPECT_FALSE(pipeline_controller_.IsStable());
+  PipelineStatusCB start_cb;
+  EXPECT_CALL(*pipeline_, Start(_, _, _, _, _)).WillOnce(SaveArg<4>(&start_cb));
+  pipeline_controller_.Start(Pipeline::StartType::kSuspendAfterMetadata,
+                             &demuxer_, this, false, true);
+  Mock::VerifyAndClear(pipeline_);
+
+  // Initiate a seek before the pipeline completes suspended startup.
+  base::TimeDelta seek_time = base::TimeDelta::FromSeconds(5);
+  EXPECT_CALL(demuxer_, StartWaitingForSeek(seek_time));
+  pipeline_controller_.Seek(seek_time, true);
+  base::RunLoop().RunUntilIdle();
+  EXPECT_FALSE(was_seeked_);
+
+  PipelineStatusCB resume_cb;
+  EXPECT_CALL(*pipeline_, Resume(_, _, _))
+      .WillOnce(DoAll(SaveArg<2>(&resume_cb)));
+  EXPECT_CALL(*pipeline_, GetMediaTime())
+      .WillRepeatedly(Return(base::TimeDelta()));
+
+  EXPECT_CALL(*pipeline_, IsSuspended()).WillRepeatedly(Return(true));
+  EXPECT_FALSE(pipeline_controller_.IsStable());
+  Complete(start_cb);
+
+  EXPECT_FALSE(pipeline_controller_.IsStable());
+  EXPECT_FALSE(pipeline_controller_.IsPipelineSuspended());
+  EXPECT_FALSE(pipeline_controller_.IsSuspended());
+  Mock::VerifyAndClear(pipeline_);
+
+  EXPECT_CALL(*pipeline_, IsSuspended()).WillRepeatedly(Return(false));
+  Complete(resume_cb);
+  EXPECT_TRUE(was_seeked_);
+  was_seeked_ = false;
+
+  EXPECT_TRUE(pipeline_controller_.IsStable());
+  EXPECT_FALSE(pipeline_controller_.IsPipelineSuspended());
+  EXPECT_FALSE(pipeline_controller_.IsSuspended());
+  Mock::VerifyAndClear(pipeline_);
 }
 
 TEST_F(PipelineControllerTest, StartSuspendedAndResume) {

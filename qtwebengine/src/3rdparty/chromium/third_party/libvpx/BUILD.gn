@@ -341,9 +341,7 @@ static_library("bundled_libvpx") {
       sources = libvpx_srcs_arm
     }
   } else if (current_cpu == "arm64") {
-    configs -= [ "//build/config/compiler:default_symbols" ]
-    configs += [ "//build/config/compiler:no_symbols" ]
-    if (is_chromeos) {
+    if (is_chromeos || is_win) {
       sources = libvpx_srcs_arm64_highbd
     } else {
       sources = libvpx_srcs_arm64
@@ -370,7 +368,7 @@ static_library("bundled_libvpx") {
     deps += [ ":libvpx_intrinsics_neon" ]
   }
   if (is_android) {
-    deps += [ "//third_party/android_tools:cpu_features" ]
+    deps += [ "//third_party/android_sdk:cpu_features" ]
   }
   if (current_cpu == "arm" && arm_assembly_sources != []) {
     deps += [ ":libvpx_assembly_arm" ]

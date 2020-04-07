@@ -97,7 +97,7 @@ public:
 
 class QAxScriptSite : public IActiveScriptSite, public IActiveScriptSiteWindow
 {
-    Q_DISABLE_COPY(QAxScriptSite)
+    Q_DISABLE_COPY_MOVE(QAxScriptSite)
 public:
     QAxScriptSite(QAxScript *script);
     virtual ~QAxScriptSite() = default;
@@ -125,14 +125,13 @@ protected:
 
 private:
     QAxScript *script;
-    LONG ref;
+    LONG ref = 1;
 };
 
 /*
     Constructs the site for the \a s.
 */
-QAxScriptSite::QAxScriptSite(QAxScript *s)
-: script(s), ref(1)
+QAxScriptSite::QAxScriptSite(QAxScript *s) : script(s)
 {
 }
 
@@ -161,7 +160,7 @@ ULONG WINAPI QAxScriptSite::Release()
 */
 HRESULT WINAPI QAxScriptSite::QueryInterface(REFIID iid, void **ppvObject)
 {
-    *ppvObject = 0;
+    *ppvObject = nullptr;
     if (iid == IID_IUnknown)
         *ppvObject = static_cast<IUnknown *>(static_cast<IActiveScriptSite *>(this));
     else if (iid == IID_IActiveScriptSite)
@@ -194,12 +193,12 @@ HRESULT WINAPI QAxScriptSite::GetLCID(LCID * /*plcid*/)
 HRESULT WINAPI QAxScriptSite::GetItemInfo(LPCOLESTR pstrName, DWORD mask, IUnknown **item, ITypeInfo **type)
 {
     if (item)
-        *item = 0;
+        *item = nullptr;
     else if (mask & SCRIPTINFO_IUNKNOWN)
         return E_POINTER;
 
     if (type)
-        *type = 0;
+        *type = nullptr;
     else if (mask & SCRIPTINFO_ITYPEINFO)
         return E_POINTER;
 
@@ -210,7 +209,7 @@ HRESULT WINAPI QAxScriptSite::GetItemInfo(LPCOLESTR pstrName, DWORD mask, IUnkno
     if (mask & SCRIPTINFO_IUNKNOWN)
         object->queryInterface(IID_IUnknown, reinterpret_cast<void **>(item));
     if (mask & SCRIPTINFO_ITYPEINFO) {
-        IProvideClassInfo *classInfo = 0;
+        IProvideClassInfo *classInfo = nullptr;
         object->queryInterface(IID_IProvideClassInfo, reinterpret_cast<void **>(&classInfo));
         if (classInfo) {
             classInfo->GetClassInfo(type);
@@ -242,7 +241,7 @@ HRESULT WINAPI QAxScriptSite::OnScriptTerminate(const VARIANT *result, const EXC
     emit script->finished();
 
     if (result && result->vt != VT_EMPTY)
-        emit script->finished(VARIANTToQVariant(*result, 0));
+        emit script->finished(VARIANTToQVariant(*result, nullptr));
     if (exception)
         emit script->finished(exception->wCode,
                               QString::fromWCharArray(exception->bstrSource),
@@ -328,7 +327,7 @@ HRESULT WINAPI QAxScriptSite::OnStateChange(SCRIPTSTATE ssScriptState)
 */
 QWidget *QAxScriptSite::window() const
 {
-    QWidget *w = 0;
+    QWidget *w = nullptr;
     QObject *p = script->parent();
     while (!w && p) {
         w = qobject_cast<QWidget*>(p);
@@ -354,7 +353,7 @@ HRESULT WINAPI QAxScriptSite::GetWindow(HWND *phwnd)
     if (!phwnd)
         return E_POINTER;
 
-    *phwnd = 0;
+    *phwnd = nullptr;
     QWidget *w = window();
     if (!w)
         return E_FAIL;
@@ -429,7 +428,7 @@ HRESULT WINAPI QAxScriptSite::EnableModeless(BOOL fEnable)
     script.
 */
 QAxScriptEngine::QAxScriptEngine(const QString &language, QAxScript *script)
-: QAxObject(script), script_code(script), engine(0), script_language(language)
+: QAxObject(script), script_code(script), engine(nullptr), script_language(language)
 {
 #ifdef QT_CHECK_STATE
     if (language.isEmpty())
@@ -471,7 +470,7 @@ QAxScriptEngine::~QAxScriptEngine()
 */
 bool QAxScriptEngine::initialize(IUnknown **ptr)
 {
-    *ptr = 0;
+    *ptr = nullptr;
 
 #ifndef QT_NO_QAXSCRIPT
     if (!script_code || script_language.isEmpty())
@@ -482,57 +481,57 @@ bool QAxScriptEngine::initialize(IUnknown **ptr)
     if(FAILED(hres))
         return false;
 
-    CoCreateInstance(clsid, 0, CLSCTX_INPROC_SERVER, IID_IActiveScript, reinterpret_cast<void **>(&engine));
+    CoCreateInstance(clsid, nullptr, CLSCTX_INPROC_SERVER, IID_IActiveScript, reinterpret_cast<void **>(&engine));
     if (!engine)
         return false;
 
-    IActiveScriptParse *parser = 0;
+    IActiveScriptParse *parser = nullptr;
     engine->QueryInterface(IID_IActiveScriptParse, reinterpret_cast<void **>(&parser));
     if (!parser) {
         engine->Release();
-        engine = 0;
+        engine = nullptr;
         return false;
     }
 
     if (engine->SetScriptSite(script_code->script_site) != S_OK) {
         engine->Release();
-        engine = 0;
+        engine = nullptr;
         return false;
     }
     if (parser->InitNew() != S_OK) {
         parser->Release();
         engine->Release();
-        engine = 0;
+        engine = nullptr;
         return false;
     }
 
     BSTR bstrCode = QStringToBSTR(script_code->scriptCode());
 #ifdef Q_OS_WIN64
-    hres = parser->ParseScriptText(bstrCode, 0, 0, 0, DWORDLONG(this), 0, SCRIPTTEXT_ISVISIBLE, 0, 0);
+    hres = parser->ParseScriptText(bstrCode, nullptr, nullptr, nullptr, DWORDLONG(this), 0, SCRIPTTEXT_ISVISIBLE, nullptr, nullptr);
 #else
     hres = parser->ParseScriptText(bstrCode, 0, 0, 0, DWORD(this), 0, SCRIPTTEXT_ISVISIBLE, 0, 0);
 #endif
     SysFreeString(bstrCode);
 
     parser->Release();
-    parser = 0;
+    parser = nullptr;
 
     script_code->updateObjects();
 
     if (engine->SetScriptState(SCRIPTSTATE_CONNECTED) != S_OK) {
-        engine = 0;
+        engine = nullptr;
         return false;
     }
 
-    IDispatch *scriptDispatch = 0;
-    engine->GetScriptDispatch(0, &scriptDispatch);
+    IDispatch *scriptDispatch = nullptr;
+    engine->GetScriptDispatch(nullptr, &scriptDispatch);
     if (scriptDispatch) {
         scriptDispatch->QueryInterface(IID_IUnknown, reinterpret_cast<void **>(ptr));
         scriptDispatch->Release();
     }
 #endif
 
-    return *ptr != 0;
+    return *ptr != nullptr;
 }
 
 /*!
@@ -552,7 +551,7 @@ bool QAxScriptEngine::hasIntrospection() const
     if (!isValid())
         return false;
 
-    IDispatch *scriptDispatch = 0;
+    IDispatch *scriptDispatch = nullptr;
     QAxBase::queryInterface(IID_IDispatch, reinterpret_cast<void **>(&scriptDispatch));
     if (!scriptDispatch)
         return false;
@@ -574,7 +573,7 @@ bool QAxScriptEngine::hasIntrospection() const
 */
 long QAxScriptEngine::queryInterface(const QUuid &uuid, void **iface) const
 {
-    *iface = 0;
+    *iface = nullptr;
     if (!engine)
         return E_NOTIMPL;
 
@@ -683,7 +682,7 @@ void QAxScriptEngine::addItem(const QString &name)
 */
 QAxScript::QAxScript(const QString &name, QAxScriptManager *manager)
 : QObject(manager), script_name(name), script_manager(manager),
-script_engine(0)
+script_engine(nullptr)
 {
     if (manager) {
         manager->d->scriptDict.insert(name, this);
@@ -706,7 +705,7 @@ script_engine(0)
 QAxScript::~QAxScript()
 {
     delete script_engine;
-    script_engine = 0;
+    script_engine = nullptr;
 
 #ifndef QT_NO_QAXSCRIPT
     script_site->Release();
@@ -850,7 +849,7 @@ void QAxScript::updateObjects()
 QAxBase *QAxScript::findObject(const QString &name)
 {
     if (!script_manager)
-        return 0;
+        return nullptr;
 
     return script_manager->d->objectDict.value(name);
 }
@@ -1067,7 +1066,7 @@ QAxScript *QAxScriptManager::load(const QString &code, const QString &name, cons
         return script;
 
     delete script;
-    return 0;
+    return nullptr;
 }
 
 /*!
@@ -1090,13 +1089,13 @@ QAxScript *QAxScriptManager::load(const QString &file, const QString &name)
 {
     QFile f(file);
     if (!f.open(QIODevice::ReadOnly))
-        return 0;
+        return nullptr;
     QByteArray data = f.readAll();
     QString contents = QString::fromLocal8Bit(data, data.size());
     f.close();
 
     if (contents.isEmpty())
-        return 0;
+        return nullptr;
 
     QString language;
     if (file.endsWith(QLatin1String(".js"))) {
@@ -1118,7 +1117,7 @@ QAxScript *QAxScriptManager::load(const QString &file, const QString &name)
         return script;
 
     delete script;
-    return 0;
+    return nullptr;
 }
 
 /*!
@@ -1283,7 +1282,7 @@ QAxScript *QAxScriptManager::scriptForFunction(const QString &function) const
             return it.value();
     }
 
-    return 0;
+    return nullptr;
 }
 
 /*!

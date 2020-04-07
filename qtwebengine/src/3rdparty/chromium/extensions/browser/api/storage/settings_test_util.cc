@@ -6,6 +6,7 @@
 
 #include <utility>
 
+#include "base/bind.h"
 #include "base/files/file_path.h"
 #include "base/values.h"
 #include "content/public/test/test_utils.h"
@@ -22,11 +23,9 @@ namespace settings_test_util {
 
 // Creates a kilobyte of data.
 std::unique_ptr<base::Value> CreateKilobyte() {
-  std::string kilobyte_string;
-  for (int i = 0; i < 1024; ++i) {
-    kilobyte_string += "a";
-  }
-  return std::unique_ptr<base::Value>(new base::Value(kilobyte_string));
+  std::string kilobyte_string(1024u, 'a');
+  return std::unique_ptr<base::Value>(
+      new base::Value(std::move(kilobyte_string)));
 }
 
 // Creates a megabyte of data.

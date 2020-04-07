@@ -88,10 +88,16 @@ cross_compile: \
 android|uikit|winrt: \
     CONFIG += builtin_testdata
 
+# Prevent warnings about object files without any symbols
+macos: CONFIG += no_warn_empty_obj_files
+
+# Make sure the doc features are loaded last since they depend on other
+# features setting up things like includepaths to find everything.
+CONFIG = prepare_docs qt_docs_targets $$CONFIG
+
 CONFIG += \
     utf8_source \
     create_prl link_prl \
-    prepare_docs qt_docs_targets \
     no_private_qt_headers_warning QTDIR_build \
     qt_example_installs \
     # Qt modules get compiled without exceptions enabled by default.
@@ -107,6 +113,10 @@ macos: CONFIG += testcase_no_bundle
 
 # Override MinGW's definition in _mingw.h
 mingw: DEFINES += WINVER=0x0601 _WIN32_WINNT=0x0601
+
+# By default, the following features should not be used in Qt's own
+# implementation, so declare them invisible to Qt modules.
+DEFINES += QT_NO_LINKED_LIST # QLinkedList
 
 defineTest(qtBuildPart) {
     bp = $$eval($$upper($$section(_QMAKE_CONF_, /, -2, -2))_BUILD_PARTS)

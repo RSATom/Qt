@@ -13,8 +13,6 @@
 #include "base/message_loop/message_loop.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/run_loop.h"
-#include "base/sampling_heap_profiler/sampling_heap_profiler.h"
-#include "base/strings/string_number_conversions.h"
 #include "base/synchronization/atomic_flag.h"
 #include "base/time/time.h"
 #include "base/trace_event/heap_profiler_allocation_context_tracker.h"
@@ -23,13 +21,13 @@
 #include "components/tracing/common/trace_startup_config.h"
 #include "components/tracing/common/tracing_switches.h"
 #include "content/browser/browser_main_loop.h"
-#include "content/browser/browser_shutdown_profile_dumper.h"
 #include "content/browser/notification_service_impl.h"
+#include "content/browser/tracing/tracing_controller_impl.h"
 #include "content/common/content_switches_internal.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/common/main_function_params.h"
 #include "third_party/skia/include/core/SkGraphics.h"
-#include "ui/base/ime/input_method_initializer.h"
+#include "ui/base/ime/init/input_method_initializer.h"
 
 #if defined(OS_ANDROID)
 #include "content/browser/android/tracing_controller_android.h"
@@ -57,7 +55,7 @@ BrowserMainRunnerImpl::BrowserMainRunnerImpl()
     : initialization_started_(false),
       is_shutdown_(false),
       scoped_execution_fence_(
-          std::make_unique<base::TaskScheduler::ScopedExecutionFence>()) {}
+          std::make_unique<base::ThreadPoolInstance::ScopedExecutionFence>()) {}
 
 BrowserMainRunnerImpl::~BrowserMainRunnerImpl() {
   if (initialization_started_ && !is_shutdown_)
@@ -78,19 +76,6 @@ int BrowserMainRunnerImpl::Initialize(const MainFunctionParams& parameters) {
 
     const base::TimeTicks start_time_step1 = base::TimeTicks::Now();
 
-    base::SamplingHeapProfiler::Init();
-    if (parameters.command_line.HasSwitch(switches::kSamplingHeapProfiler)) {
-      base::SamplingHeapProfiler* profiler = base::SamplingHeapProfiler::Get();
-      unsigned sampling_interval = 0;
-      bool parsed =
-          base::StringToUint(parameters.command_line.GetSwitchValueASCII(
-                                 switches::kSamplingHeapProfiler),
-                             &sampling_interval);
-      if (parsed && sampling_interval > 0)
-        profiler->SetSamplingInterval(sampling_interval * 1024);
-      profiler->Start();
-    }
-
     SkGraphics::Init();
 
     if (parameters.command_line.HasSwitch(switches::kWaitForDebugger))
@@ -108,8 +93,7 @@ int BrowserMainRunnerImpl::Initialize(const MainFunctionParams& parameters) {
     // on Windows 8 Metro mode.
     ole_initializer_.reset(new ui::ScopedOleInitializer);
 #endif
-    // Enable DirectWrite font rendering if needed.
-    gfx::win::MaybeInitializeDirectWrite();
+    gfx::win::InitializeDirectWrite();
 #endif  // OS_WIN
 
     main_loop_.reset(
@@ -183,37 +167,9 @@ void BrowserMainRunnerImpl::Shutdown() {
 
   main_loop_->PreShutdown();
 
-  // If startup tracing has not been finished yet, replace it's dumper
-  // with special version, which would save trace file on exit (i.e.
-  // startup tracing becomes a version of shutdown tracing).
-  // There are two cases:
-  // 1. Startup duration is not reached.
-  // 2. Or if the trace should be saved to file for --trace-config-file flag.
-  std::unique_ptr<BrowserShutdownProfileDumper> startup_profiler;
-  if (tracing::TraceStartupConfig::GetInstance()
-          ->IsTracingStartupForDuration()) {
-    main_loop_->StopStartupTracingTimer();
-    if (main_loop_->startup_trace_file() !=
-        base::FilePath().AppendASCII("none")) {
-      startup_profiler.reset(
-          new BrowserShutdownProfileDumper(main_loop_->startup_trace_file()));
-    }
-  } else if (tracing::TraceStartupConfig::GetInstance()
-                 ->ShouldTraceToResultFile()) {
-    base::FilePath result_file = main_loop_->GetStartupTraceFileName();
-    startup_profiler.reset(new BrowserShutdownProfileDumper(result_file));
-  }
-
-  // The shutdown tracing got enabled in AttemptUserExit earlier, but someone
-  // needs to write the result to disc. For that a dumper needs to get created
-  // which will dump the traces to disc when it gets destroyed.
-  const base::CommandLine& command_line =
-      *base::CommandLine::ForCurrentProcess();
-  std::unique_ptr<BrowserShutdownProfileDumper> shutdown_profiler;
-  if (command_line.HasSwitch(switches::kTraceShutdown)) {
-    shutdown_profiler.reset(new BrowserShutdownProfileDumper(
-        BrowserShutdownProfileDumper::GetShutdownProfileFileName()));
-  }
+  // Finalize the startup tracing session if it is still active.
+  if (TracingControllerImpl::GetInstance())
+    TracingControllerImpl::GetInstance()->FinalizeStartupTracingIfNeeded();
 
   {
     // The trace event has to stay between profiler creation and destruction.

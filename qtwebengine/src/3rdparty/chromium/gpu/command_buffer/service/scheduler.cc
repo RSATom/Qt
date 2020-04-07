@@ -6,6 +6,7 @@
 
 #include <algorithm>
 
+#include "base/bind.h"
 #include "base/callback.h"
 #include "base/single_thread_task_runner.h"
 #include "base/stl_util.h"
@@ -290,8 +291,7 @@ void Scheduler::Sequence::RemoveClientWait(CommandBufferId command_buffer_id) {
 Scheduler::Scheduler(scoped_refptr<base::SingleThreadTaskRunner> task_runner,
                      SyncPointManager* sync_point_manager)
     : task_runner_(std::move(task_runner)),
-      sync_point_manager_(sync_point_manager),
-      weak_factory_(this) {
+      sync_point_manager_(sync_point_manager) {
   DCHECK(thread_checker_.CalledOnValidThread());
   // Store weak ptr separately because calling GetWeakPtr() is not thread safe.
   weak_ptr_ = weak_factory_.GetWeakPtr();
@@ -302,7 +302,6 @@ Scheduler::~Scheduler() {
 }
 
 SequenceId Scheduler::CreateSequence(SchedulingPriority priority) {
-  DCHECK(thread_checker_.CalledOnValidThread());
   base::AutoLock auto_lock(lock_);
   scoped_refptr<SyncPointOrderData> order_data =
       sync_point_manager_->CreateSyncPointOrderData();
@@ -314,7 +313,6 @@ SequenceId Scheduler::CreateSequence(SchedulingPriority priority) {
 }
 
 void Scheduler::DestroySequence(SequenceId sequence_id) {
-  DCHECK(thread_checker_.CalledOnValidThread());
   base::AutoLock auto_lock(lock_);
 
   Sequence* sequence = GetSequence(sequence_id);
@@ -334,7 +332,6 @@ Scheduler::Sequence* Scheduler::GetSequence(SequenceId sequence_id) {
 }
 
 void Scheduler::EnableSequence(SequenceId sequence_id) {
-  DCHECK(thread_checker_.CalledOnValidThread());
   base::AutoLock auto_lock(lock_);
   Sequence* sequence = GetSequence(sequence_id);
   DCHECK(sequence);
@@ -342,7 +339,6 @@ void Scheduler::EnableSequence(SequenceId sequence_id) {
 }
 
 void Scheduler::DisableSequence(SequenceId sequence_id) {
-  DCHECK(thread_checker_.CalledOnValidThread());
   base::AutoLock auto_lock(lock_);
   Sequence* sequence = GetSequence(sequence_id);
   DCHECK(sequence);

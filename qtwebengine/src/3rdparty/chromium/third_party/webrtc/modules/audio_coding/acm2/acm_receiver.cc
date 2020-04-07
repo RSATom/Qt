@@ -12,6 +12,7 @@
 
 #include <stdlib.h>
 #include <string.h>
+
 #include <cstdint>
 #include <vector>
 
@@ -34,7 +35,9 @@ namespace acm2 {
 
 AcmReceiver::AcmReceiver(const AudioCodingModule::Config& config)
     : last_audio_buffer_(new int16_t[AudioFrame::kMaxDataSizeSamples]),
-      neteq_(NetEq::Create(config.neteq_config, config.decoder_factory)),
+      neteq_(NetEq::Create(config.neteq_config,
+                           config.clock,
+                           config.decoder_factory)),
       clock_(config.clock),
       resampled_last_output_frame_(true) {
   RTC_DCHECK(clock_);
@@ -58,6 +61,14 @@ int AcmReceiver::SetMaximumDelay(int delay_ms) {
   return -1;
 }
 
+bool AcmReceiver::SetBaseMinimumDelayMs(int delay_ms) {
+  return neteq_->SetBaseMinimumDelayMs(delay_ms);
+}
+
+int AcmReceiver::GetBaseMinimumDelayMs() const {
+  return neteq_->GetBaseMinimumDelayMs();
+}
+
 absl::optional<int> AcmReceiver::last_packet_sample_rate_hz() const {
   rtc::CritScope lock(&crit_sect_);
   if (!last_decoder_) {
@@ -70,15 +81,14 @@ int AcmReceiver::last_output_sample_rate_hz() const {
   return neteq_->last_output_sample_rate_hz();
 }
 
-int AcmReceiver::InsertPacket(const WebRtcRTPHeader& rtp_header,
+int AcmReceiver::InsertPacket(const RTPHeader& rtp_header,
                               rtc::ArrayView<const uint8_t> incoming_payload) {
   if (incoming_payload.empty()) {
-    neteq_->InsertEmptyPacket(rtp_header.header);
+    neteq_->InsertEmptyPacket(rtp_header);
     return 0;
   }
 
-  const RTPHeader& header = rtp_header.header;  // Just a shorthand.
-  int payload_type = header.payloadType;
+  int payload_type = rtp_header.payloadType;
   auto format = neteq_->GetDecoderFormat(payload_type);
   if (format && absl::EqualsIgnoreCase(format->name, "red")) {
     // This is a RED packet. Get the format of the audio codec.
@@ -86,8 +96,7 @@ int AcmReceiver::InsertPacket(const WebRtcRTPHeader& rtp_header,
     format = neteq_->GetDecoderFormat(payload_type);
   }
   if (!format) {
-    RTC_LOG_F(LS_ERROR) << "Payload-type "
-                        << payload_type
+    RTC_LOG_F(LS_ERROR) << "Payload-type " << payload_type
                         << " is not registered.";
     return -1;
   }
@@ -107,9 +116,10 @@ int AcmReceiver::InsertPacket(const WebRtcRTPHeader& rtp_header,
   }  // |crit_sect_| is released.
 
   uint32_t receive_timestamp = NowInTimestamp(format->clockrate_hz);
-  if (neteq_->InsertPacket(header, incoming_payload, receive_timestamp) < 0) {
+  if (neteq_->InsertPacket(rtp_header, incoming_payload, receive_timestamp) <
+      0) {
     RTC_LOG(LERROR) << "AcmReceiver::InsertPacket "
-                    << static_cast<int>(header.payloadType)
+                    << static_cast<int>(rtp_header.payloadType)
                     << " Failed to insert packet";
     return -1;
   }
@@ -208,8 +218,8 @@ int AcmReceiver::TargetDelayMs() const {
   return neteq_->TargetDelayMs();
 }
 
-absl::optional<std::pair<int, SdpAudioFormat>>
-    AcmReceiver::LastDecoder() const {
+absl::optional<std::pair<int, SdpAudioFormat>> AcmReceiver::LastDecoder()
+    const {
   rtc::CritScope lock(&crit_sect_);
   if (!last_decoder_) {
     return absl::nullopt;
@@ -243,12 +253,25 @@ void AcmReceiver::GetNetworkStatistics(NetworkStatistics* acm_stat) {
   NetEqLifetimeStatistics neteq_lifetime_stat = neteq_->GetLifetimeStatistics();
   acm_stat->totalSamplesReceived = neteq_lifetime_stat.total_samples_received;
   acm_stat->concealedSamples = neteq_lifetime_stat.concealed_samples;
+  acm_stat->silentConcealedSamples =
+      neteq_lifetime_stat.silent_concealed_samples;
   acm_stat->concealmentEvents = neteq_lifetime_stat.concealment_events;
   acm_stat->jitterBufferDelayMs = neteq_lifetime_stat.jitter_buffer_delay_ms;
   acm_stat->jitterBufferEmittedCount =
       neteq_lifetime_stat.jitter_buffer_emitted_count;
   acm_stat->delayedPacketOutageSamples =
       neteq_lifetime_stat.delayed_packet_outage_samples;
+  acm_stat->relativePacketArrivalDelayMs =
+      neteq_lifetime_stat.relative_packet_arrival_delay_ms;
+  acm_stat->interruptionCount = neteq_lifetime_stat.interruption_count;
+  acm_stat->totalInterruptionDurationMs =
+      neteq_lifetime_stat.total_interruption_duration_ms;
+  acm_stat->insertedSamplesForDeceleration =
+      neteq_lifetime_stat.inserted_samples_for_deceleration;
+  acm_stat->removedSamplesForAcceleration =
+      neteq_lifetime_stat.removed_samples_for_acceleration;
+  acm_stat->fecPacketsReceived = neteq_lifetime_stat.fec_packets_received;
+  acm_stat->fecPacketsDiscarded = neteq_lifetime_stat.fec_packets_discarded;
 
   NetEqOperationsAndState neteq_operations_and_state =
       neteq_->GetOperationsAndState();

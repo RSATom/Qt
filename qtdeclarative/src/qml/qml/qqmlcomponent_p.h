@@ -60,6 +60,7 @@
 #include "qqmlerror.h"
 #include "qqml.h"
 #include <private/qqmlobjectcreator_p.h>
+#include <private/qqmltypedata_p.h>
 
 #include <QtCore/QString>
 #include <QtCore/QStringList>
@@ -105,7 +106,7 @@ public:
     qreal progress;
 
     int start;
-    QQmlRefPointer<QV4::CompiledData::CompilationUnit> compilationUnit;
+    QQmlRefPointer<QV4::ExecutableCompilationUnit> compilationUnit;
 
     struct ConstructionState {
         ConstructionState()
@@ -142,6 +143,9 @@ public:
     static QQmlComponentPrivate *get(QQmlComponent *c) {
         return static_cast<QQmlComponentPrivate *>(QObjectPrivate::get(c));
     }
+
+    QObject *doBeginCreate(QQmlComponent *q, QQmlContext *context);
+    bool setInitialProperty(QObject *component, const QString &name, const QVariant& value);
 };
 
 QT_END_NAMESPACE

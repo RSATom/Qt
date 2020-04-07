@@ -84,14 +84,14 @@ struct QVulkanLayer
 };
 Q_DECLARE_TYPEINFO(QVulkanLayer, Q_MOVABLE_TYPE);
 
-inline bool operator==(const QVulkanLayer &lhs, const QVulkanLayer &rhs) Q_DECL_NOTHROW
+inline bool operator==(const QVulkanLayer &lhs, const QVulkanLayer &rhs) noexcept
 {
     return lhs.name == rhs.name && lhs.version == rhs.version && lhs.specVersion == rhs.specVersion;
 }
-inline bool operator!=(const QVulkanLayer &lhs, const QVulkanLayer &rhs) Q_DECL_NOTHROW
+inline bool operator!=(const QVulkanLayer &lhs, const QVulkanLayer &rhs) noexcept
 { return !(lhs == rhs); }
 
-inline uint qHash(const QVulkanLayer &key, uint seed = 0) Q_DECL_NOTHROW
+inline uint qHash(const QVulkanLayer &key, uint seed = 0) noexcept
 {
     QtPrivate::QHashCombine hash;
     seed = hash(seed, key.name);
@@ -107,14 +107,14 @@ struct QVulkanExtension
 };
 Q_DECLARE_TYPEINFO(QVulkanExtension, Q_MOVABLE_TYPE);
 
-inline bool operator==(const QVulkanExtension &lhs, const QVulkanExtension &rhs) Q_DECL_NOTHROW
+inline bool operator==(const QVulkanExtension &lhs, const QVulkanExtension &rhs) noexcept
 {
     return lhs.name == rhs.name && lhs.version == rhs.version;
 }
-inline bool operator!=(const QVulkanExtension &lhs, const QVulkanExtension &rhs) Q_DECL_NOTHROW
+inline bool operator!=(const QVulkanExtension &lhs, const QVulkanExtension &rhs) noexcept
 { return !(lhs == rhs); }
 
-inline uint qHash(const QVulkanExtension &key, uint seed = 0) Q_DECL_NOTHROW
+inline uint qHash(const QVulkanExtension &key, uint seed = 0) noexcept
 {
     QtPrivate::QHashCombine hash;
     seed = hash(seed, key.name);
@@ -187,6 +187,11 @@ public:
     bool supportsPresent(VkPhysicalDevice physicalDevice, uint32_t queueFamilyIndex, QWindow *window);
 
     void presentQueued(QWindow *window);
+
+    typedef bool (*DebugFilter)(VkDebugReportFlagsEXT flags, VkDebugReportObjectTypeEXT objectType, uint64_t object,
+                                size_t location, int32_t messageCode, const char *pLayerPrefix, const char *pMessage);
+    void installDebugOutputFilter(DebugFilter filter);
+    void removeDebugOutputFilter(DebugFilter filter);
 
 private:
     QScopedPointer<QVulkanInstancePrivate> d_ptr;

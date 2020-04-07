@@ -40,6 +40,7 @@
 #include "base/trace_event/memory_dump_manager.h"
 #include "base/trace_event/memory_dump_provider.h"
 #include "base/trace_event/process_memory_dump.h"
+#include "base/trace_event/thread_instruction_count.h"
 #include "base/trace_event/trace_buffer.h"
 #include "base/trace_event/trace_event.h"
 #include "build/build_config.h"
@@ -49,7 +50,7 @@
 #endif
 
 #if defined(OS_ANDROID)
-#include "base/debug/elf_reader_linux.h"
+#include "base/debug/elf_reader.h"
 
 // The linker assigns the virtual address of the start of current library to
 // this symbol.
@@ -98,6 +99,11 @@ ThreadTicks ThreadNow() {
              : ThreadTicks();
 }
 
+ThreadInstructionCount ThreadInstructionNow() {
+  return ThreadInstructionCount::IsSupported() ? ThreadInstructionCount::Now()
+                                               : ThreadInstructionCount();
+}
+
 template <typename T>
 void InitializeMetadataEvent(TraceEvent* trace_event,
                              int thread_id,
@@ -107,19 +113,15 @@ void InitializeMetadataEvent(TraceEvent* trace_event,
   if (!trace_event)
     return;
 
-  int num_args = 1;
-  unsigned char arg_type;
-  unsigned long long arg_value;
-  ::trace_event_internal::SetTraceValue(value, &arg_type, &arg_value);
-
-  trace_event->Reset(
-      thread_id, TimeTicks(), ThreadTicks(), TRACE_EVENT_PHASE_METADATA,
-      CategoryRegistry::kCategoryMetadata->state_ptr(), metadata_name,
-      trace_event_internal::kGlobalScope,  // scope
-      trace_event_internal::kNoId,         // id
-      trace_event_internal::kNoId,         // bind_id
-      num_args, &arg_name, &arg_type, &arg_value, nullptr,
-      TRACE_EVENT_FLAG_NONE);
+  TraceArguments args(arg_name, value);
+  trace_event->Reset(thread_id, TimeTicks(), ThreadTicks(),
+                     ThreadInstructionCount(), TRACE_EVENT_PHASE_METADATA,
+                     CategoryRegistry::kCategoryMetadata->state_ptr(),
+                     metadata_name,
+                     trace_event_internal::kGlobalScope,  // scope
+                     trace_event_internal::kNoId,         // id
+                     trace_event_internal::kNoId,         // bind_id
+                     &args, TRACE_EVENT_FLAG_NONE);
 }
 
 class AutoThreadLocalBoolean {
@@ -653,8 +655,26 @@ void TraceLog::SetArgumentFilterPredicate(
     const ArgumentFilterPredicate& argument_filter_predicate) {
   AutoLock lock(lock_);
   DCHECK(!argument_filter_predicate.is_null());
-  DCHECK(argument_filter_predicate_.is_null());
+  // Replace the existing argument filter.
   argument_filter_predicate_ = argument_filter_predicate;
+}
+
+ArgumentFilterPredicate TraceLog::GetArgumentFilterPredicate() const {
+  AutoLock lock(lock_);
+  return argument_filter_predicate_;
+}
+
+void TraceLog::SetMetadataFilterPredicate(
+    const MetadataFilterPredicate& metadata_filter_predicate) {
+  AutoLock lock(lock_);
+  DCHECK(!metadata_filter_predicate.is_null());
+  // Replace the existing argument filter.
+  metadata_filter_predicate_ = metadata_filter_predicate;
+}
+
+MetadataFilterPredicate TraceLog::GetMetadataFilterPredicate() const {
+  AutoLock lock(lock_);
+  return metadata_filter_predicate_;
 }
 
 TraceLog::InternalTraceOptions TraceLog::GetInternalOptionsFromTraceConfig(
@@ -744,7 +764,7 @@ void TraceLog::SetDisabledWhileLocked(uint8_t modes_to_disable) {
 
 int TraceLog::GetNumTracesRecorded() {
   AutoLock lock(lock_);
-  return IsEnabled() ? num_traces_recorded_ : -1;
+  return (enabled_modes_ & RECORDING_MODE) ? num_traces_recorded_ : -1;
 }
 
 void TraceLog::AddEnabledStateObserver(EnabledStateObserver* listener) {
@@ -769,7 +789,7 @@ void TraceLog::AddOwnedEnabledStateObserver(
 
 bool TraceLog::HasEnabledStateObserver(EnabledStateObserver* listener) const {
   AutoLock lock(observers_lock_);
-  return ContainsValue(enabled_state_observers_, listener);
+  return Contains(enabled_state_observers_, listener);
 }
 
 void TraceLog::AddAsyncEnabledStateObserver(
@@ -787,7 +807,7 @@ void TraceLog::RemoveAsyncEnabledStateObserver(
 bool TraceLog::HasAsyncEnabledStateObserver(
     AsyncEnabledStateObserver* listener) const {
   AutoLock lock(observers_lock_);
-  return ContainsKey(async_observers_, listener);
+  return Contains(async_observers_, listener);
 }
 
 TraceLogStatus TraceLog::GetStatus() const {
@@ -986,13 +1006,12 @@ void TraceLog::FinishFlush(int generation, bool discard_events) {
   }
 
   if (use_worker_thread_) {
-    base::PostTaskWithTraits(
-        FROM_HERE,
-        {MayBlock(), TaskPriority::BEST_EFFORT,
-         TaskShutdownBehavior::CONTINUE_ON_SHUTDOWN},
-        BindOnce(&TraceLog::ConvertTraceEventsToTraceFormat,
-                 std::move(previous_logged_events), flush_output_callback,
-                 argument_filter_predicate));
+    base::PostTask(FROM_HERE,
+                   {ThreadPool(), MayBlock(), TaskPriority::BEST_EFFORT,
+                    TaskShutdownBehavior::CONTINUE_ON_SHUTDOWN},
+                   BindOnce(&TraceLog::ConvertTraceEventsToTraceFormat,
+                            std::move(previous_logged_events),
+                            flush_output_callback, argument_filter_predicate));
     return;
   }
 
@@ -1070,29 +1089,14 @@ TraceEventHandle TraceLog::AddTraceEvent(
     const char* name,
     const char* scope,
     unsigned long long id,
-    int num_args,
-    const char* const* arg_names,
-    const unsigned char* arg_types,
-    const unsigned long long* arg_values,
-    std::unique_ptr<ConvertableToTraceFormat>* convertable_values,
+    TraceArguments* args,
     unsigned int flags) {
   int thread_id = static_cast<int>(base::PlatformThread::CurrentId());
   base::TimeTicks now = TRACE_TIME_TICKS_NOW();
   return AddTraceEventWithThreadIdAndTimestamp(
-      phase,
-      category_group_enabled,
-      name,
-      scope,
-      id,
+      phase, category_group_enabled, name, scope, id,
       trace_event_internal::kNoId,  // bind_id
-      thread_id,
-      now,
-      num_args,
-      arg_names,
-      arg_types,
-      arg_values,
-      convertable_values,
-      flags);
+      thread_id, now, args, flags);
 }
 
 TraceEventHandle TraceLog::AddTraceEventWithBindId(
@@ -1102,29 +1106,13 @@ TraceEventHandle TraceLog::AddTraceEventWithBindId(
     const char* scope,
     unsigned long long id,
     unsigned long long bind_id,
-    int num_args,
-    const char* const* arg_names,
-    const unsigned char* arg_types,
-    const unsigned long long* arg_values,
-    std::unique_ptr<ConvertableToTraceFormat>* convertable_values,
+    TraceArguments* args,
     unsigned int flags) {
   int thread_id = static_cast<int>(base::PlatformThread::CurrentId());
   base::TimeTicks now = TRACE_TIME_TICKS_NOW();
   return AddTraceEventWithThreadIdAndTimestamp(
-      phase,
-      category_group_enabled,
-      name,
-      scope,
-      id,
-      bind_id,
-      thread_id,
-      now,
-      num_args,
-      arg_names,
-      arg_types,
-      arg_values,
-      convertable_values,
-      flags | TRACE_EVENT_FLAG_HAS_CONTEXT_ID);
+      phase, category_group_enabled, name, scope, id, bind_id, thread_id, now,
+      args, flags | TRACE_EVENT_FLAG_HAS_CONTEXT_ID);
 }
 
 TraceEventHandle TraceLog::AddTraceEventWithProcessId(
@@ -1134,28 +1122,13 @@ TraceEventHandle TraceLog::AddTraceEventWithProcessId(
     const char* scope,
     unsigned long long id,
     int process_id,
-    int num_args,
-    const char* const* arg_names,
-    const unsigned char* arg_types,
-    const unsigned long long* arg_values,
-    std::unique_ptr<ConvertableToTraceFormat>* convertable_values,
+    TraceArguments* args,
     unsigned int flags) {
   base::TimeTicks now = TRACE_TIME_TICKS_NOW();
   return AddTraceEventWithThreadIdAndTimestamp(
-      phase,
-      category_group_enabled,
-      name,
-      scope,
-      id,
+      phase, category_group_enabled, name, scope, id,
       trace_event_internal::kNoId,  // bind_id
-      process_id,
-      now,
-      num_args,
-      arg_names,
-      arg_types,
-      arg_values,
-      convertable_values,
-      flags | TRACE_EVENT_FLAG_HAS_PROCESS_ID);
+      process_id, now, args, flags | TRACE_EVENT_FLAG_HAS_PROCESS_ID);
 }
 
 // Handle legacy calls to AddTraceEventWithThreadIdAndTimestamp
@@ -1168,27 +1141,12 @@ TraceEventHandle TraceLog::AddTraceEventWithThreadIdAndTimestamp(
     unsigned long long id,
     int thread_id,
     const TimeTicks& timestamp,
-    int num_args,
-    const char* const* arg_names,
-    const unsigned char* arg_types,
-    const unsigned long long* arg_values,
-    std::unique_ptr<ConvertableToTraceFormat>* convertable_values,
+    TraceArguments* args,
     unsigned int flags) {
   return AddTraceEventWithThreadIdAndTimestamp(
-      phase,
-      category_group_enabled,
-      name,
-      scope,
-      id,
+      phase, category_group_enabled, name, scope, id,
       trace_event_internal::kNoId,  // bind_id
-      thread_id,
-      timestamp,
-      num_args,
-      arg_names,
-      arg_types,
-      arg_values,
-      convertable_values,
-      flags);
+      thread_id, timestamp, args, flags);
 }
 
 TraceEventHandle TraceLog::AddTraceEventWithThreadIdAndTimestamp(
@@ -1200,11 +1158,7 @@ TraceEventHandle TraceLog::AddTraceEventWithThreadIdAndTimestamp(
     unsigned long long bind_id,
     int thread_id,
     const TimeTicks& timestamp,
-    int num_args,
-    const char* const* arg_names,
-    const unsigned char* arg_types,
-    const unsigned long long* arg_values,
-    std::unique_ptr<ConvertableToTraceFormat>* convertable_values,
+    TraceArguments* args,
     unsigned int flags) {
   TraceEventHandle handle = {0, 0, 0};
   if (!*category_group_enabled)
@@ -1230,6 +1184,7 @@ TraceEventHandle TraceLog::AddTraceEventWithThreadIdAndTimestamp(
 
   TimeTicks offset_event_timestamp = OffsetTimestamp(timestamp);
   ThreadTicks thread_now = ThreadNow();
+  ThreadInstructionCount thread_instruction_now = ThreadInstructionNow();
 
   ThreadLocalEventBuffer* thread_local_event_buffer = nullptr;
   if (*category_group_enabled & RECORDING_MODE) {
@@ -1243,7 +1198,7 @@ TraceEventHandle TraceLog::AddTraceEventWithThreadIdAndTimestamp(
   // current thread to avoid locks in most cases.
   if (thread_id == static_cast<int>(PlatformThread::CurrentId())) {
     const char* new_name =
-        ThreadIdNameManager::GetInstance()->GetName(thread_id);
+        ThreadIdNameManager::GetInstance()->GetNameForCurrentThread();
     // Check if the thread name has been set or changed since the previous
     // call (if any), but don't bother if the new name is empty. Note this will
     // not detect a thread name change within the same char* buffer address: we
@@ -1264,7 +1219,7 @@ TraceEventHandle TraceLog::AddTraceEventWithThreadIdAndTimestamp(
         std::vector<StringPiece> existing_names = base::SplitStringPiece(
             existing_name->second, ",", base::KEEP_WHITESPACE,
             base::SPLIT_WANT_NONEMPTY);
-        if (!ContainsValue(existing_names, new_name)) {
+        if (!Contains(existing_names, new_name)) {
           if (!existing_names.empty())
             existing_name->second.push_back(',');
           existing_name->second.append(new_name);
@@ -1278,22 +1233,22 @@ TraceEventHandle TraceLog::AddTraceEventWithThreadIdAndTimestamp(
   // acquiring the lock, which is not needed for ETW as it's already threadsafe.
   if (*category_group_enabled & TraceCategory::ENABLED_FOR_ETW_EXPORT)
     TraceEventETWExport::AddEvent(phase, category_group_enabled, name, id,
-                                  num_args, arg_names, arg_types, arg_values,
-                                  convertable_values);
+                                  args);
 #endif  // OS_WIN
 
-  auto trace_event_override =
-      add_trace_event_override_.load(std::memory_order_relaxed);
-  if (trace_event_override) {
-    TraceEvent new_trace_event(thread_id, offset_event_timestamp, thread_now,
-                               phase, category_group_enabled, name, scope, id,
-                               bind_id, num_args, arg_names, arg_types,
-                               arg_values, convertable_values, flags);
+  if (*category_group_enabled & RECORDING_MODE) {
+    auto trace_event_override =
+        add_trace_event_override_.load(std::memory_order_relaxed);
+    if (trace_event_override) {
+      TraceEvent new_trace_event(
+          thread_id, offset_event_timestamp, thread_now, thread_instruction_now,
+          phase, category_group_enabled, name, scope, id, bind_id, args, flags);
 
-    trace_event_override(
-        &new_trace_event,
-        /*thread_will_flush=*/thread_local_event_buffer != nullptr, &handle);
-    return handle;
+      trace_event_override(
+          &new_trace_event,
+          /*thread_will_flush=*/thread_local_event_buffer != nullptr, &handle);
+      return handle;
+    }
   }
 
   std::string console_message;
@@ -1301,9 +1256,8 @@ TraceEventHandle TraceLog::AddTraceEventWithThreadIdAndTimestamp(
   bool disabled_by_filters = false;
   if (*category_group_enabled & TraceCategory::ENABLED_FOR_FILTERING) {
     auto new_trace_event = std::make_unique<TraceEvent>(
-        thread_id, offset_event_timestamp, thread_now, phase,
-        category_group_enabled, name, scope, id, bind_id, num_args, arg_names,
-        arg_types, arg_values, convertable_values, flags);
+        thread_id, offset_event_timestamp, thread_now, thread_instruction_now,
+        phase, category_group_enabled, name, scope, id, bind_id, args, flags);
 
     disabled_by_filters = true;
     ForEachCategoryFilter(
@@ -1334,10 +1288,10 @@ TraceEventHandle TraceLog::AddTraceEventWithThreadIdAndTimestamp(
       if (filtered_trace_event) {
         *trace_event = std::move(*filtered_trace_event);
       } else {
-        trace_event->Reset(thread_id, offset_event_timestamp, thread_now, phase,
+        trace_event->Reset(thread_id, offset_event_timestamp, thread_now,
+                           thread_instruction_now, phase,
                            category_group_enabled, name, scope, id, bind_id,
-                           num_args, arg_names, arg_types, arg_values,
-                           convertable_values, flags);
+                           args, flags);
       }
 
 #if defined(OS_ANDROID)
@@ -1358,27 +1312,23 @@ TraceEventHandle TraceLog::AddTraceEventWithThreadIdAndTimestamp(
   return handle;
 }
 
-void TraceLog::AddMetadataEvent(
-    const unsigned char* category_group_enabled,
-    const char* name,
-    int num_args,
-    const char* const* arg_names,
-    const unsigned char* arg_types,
-    const unsigned long long* arg_values,
-    std::unique_ptr<ConvertableToTraceFormat>* convertable_values,
-    unsigned int flags) {
+void TraceLog::AddMetadataEvent(const unsigned char* category_group_enabled,
+                                const char* name,
+                                TraceArguments* args,
+                                unsigned int flags) {
   HEAP_PROFILER_SCOPED_IGNORE;
   int thread_id = static_cast<int>(base::PlatformThread::CurrentId());
   ThreadTicks thread_now = ThreadNow();
   TimeTicks now = OffsetNow();
+  ThreadInstructionCount thread_instruction_now = ThreadInstructionNow();
   AutoLock lock(lock_);
   auto trace_event = std::make_unique<TraceEvent>(
-      thread_id, now, thread_now, TRACE_EVENT_PHASE_METADATA,
-      category_group_enabled, name,
+      thread_id, now, thread_now, thread_instruction_now,
+      TRACE_EVENT_PHASE_METADATA, category_group_enabled, name,
       trace_event_internal::kGlobalScope,  // scope
       trace_event_internal::kNoId,         // id
       trace_event_internal::kNoId,         // bind_id
-      num_args, arg_names, arg_types, arg_values, convertable_values, flags);
+      args, flags);
   metadata_events_.push_back(std::move(trace_event));
 }
 
@@ -1453,7 +1403,8 @@ void TraceLog::UpdateTraceEventDuration(
     return;
 
   UpdateTraceEventDurationExplicit(category_group_enabled, name, handle,
-                                   OffsetNow(), ThreadNow());
+                                   OffsetNow(), ThreadNow(),
+                                   ThreadInstructionNow());
 }
 
 void TraceLog::UpdateTraceEventDurationExplicit(
@@ -1461,7 +1412,8 @@ void TraceLog::UpdateTraceEventDurationExplicit(
     const char* name,
     TraceEventHandle handle,
     const TimeTicks& now,
-    const ThreadTicks& thread_now) {
+    const ThreadTicks& thread_now,
+    ThreadInstructionCount thread_instruction_now) {
   char category_group_enabled_local = *category_group_enabled;
   if (!category_group_enabled_local)
     return;
@@ -1483,7 +1435,7 @@ void TraceLog::UpdateTraceEventDurationExplicit(
     auto update_duration_callback =
         update_duration_callback_.load(std::memory_order_relaxed);
     if (update_duration_callback) {
-      update_duration_callback(handle, now, thread_now);
+      update_duration_callback(handle, now, thread_now, thread_instruction_now);
       return;
     }
   }
@@ -1496,7 +1448,7 @@ void TraceLog::UpdateTraceEventDurationExplicit(
     if (trace_event) {
       DCHECK(trace_event->phase() == TRACE_EVENT_PHASE_COMPLETE);
 
-      trace_event->UpdateDuration(now, thread_now);
+      trace_event->UpdateDuration(now, thread_now, thread_instruction_now);
 #if defined(OS_ANDROID)
       trace_event->SendToATrace();
 #endif
@@ -1584,11 +1536,12 @@ void TraceLog::AddMetadataEventsWhileLocked() {
   AddMetadataEventWhileLocked(current_thread_id, "chrome_library_address",
                               "start_address",
                               base::StringPrintf("%p", &__executable_start));
-  base::Optional<std::string> buildid =
-      base::debug::ReadElfBuildId(&__executable_start);
-  if (buildid) {
+  base::debug::ElfBuildIdBuffer build_id;
+  size_t build_id_length =
+      base::debug::ReadElfBuildId(&__executable_start, true, build_id);
+  if (build_id_length > 0) {
     AddMetadataEventWhileLocked(current_thread_id, "chrome_library_module",
-                                "id", buildid.value());
+                                "id", std::string(build_id));
   }
 #endif
 
@@ -1608,7 +1561,9 @@ void TraceLog::AddMetadataEventsWhileLocked() {
                                 it.second);
   }
 
-  // Thread names.
+  // TODO(ssid): Stop emitting and tracking thread names when perfetto is
+  // enabled and after crbug/978093 if fixed. The JSON exporter will emit thread
+  // names from thread descriptors.
   AutoLock thread_info_lock(thread_info_lock_);
   for (const auto& it : thread_names_) {
     if (it.second.empty())
@@ -1770,16 +1725,10 @@ base::trace_event::TraceEventHandle AddTraceEvent(
     const char* name,
     const char* scope,
     unsigned long long id,
-    int num_args,
-    const char* const* arg_names,
-    const unsigned char* arg_types,
-    const unsigned long long* arg_values,
-    std::unique_ptr<base::trace_event::ConvertableToTraceFormat>*
-        convertable_values,
+    base::trace_event::TraceArguments* args,
     unsigned int flags) {
   return base::trace_event::TraceLog::GetInstance()->AddTraceEvent(
-      phase, category_group_enabled, name, scope, id, num_args, arg_names,
-      arg_types, arg_values, convertable_values, flags);
+      phase, category_group_enabled, name, scope, id, args, flags);
 }
 
 base::trace_event::TraceEventHandle AddTraceEventWithBindId(
@@ -1789,16 +1738,10 @@ base::trace_event::TraceEventHandle AddTraceEventWithBindId(
     const char* scope,
     unsigned long long id,
     unsigned long long bind_id,
-    int num_args,
-    const char* const* arg_names,
-    const unsigned char* arg_types,
-    const unsigned long long* arg_values,
-    std::unique_ptr<base::trace_event::ConvertableToTraceFormat>*
-        convertable_values,
+    base::trace_event::TraceArguments* args,
     unsigned int flags) {
   return base::trace_event::TraceLog::GetInstance()->AddTraceEventWithBindId(
-      phase, category_group_enabled, name, scope, id, bind_id, num_args,
-      arg_names, arg_types, arg_values, convertable_values, flags);
+      phase, category_group_enabled, name, scope, id, bind_id, args, flags);
 }
 
 base::trace_event::TraceEventHandle AddTraceEventWithProcessId(
@@ -1808,16 +1751,10 @@ base::trace_event::TraceEventHandle AddTraceEventWithProcessId(
     const char* scope,
     unsigned long long id,
     int process_id,
-    int num_args,
-    const char* const* arg_names,
-    const unsigned char* arg_types,
-    const unsigned long long* arg_values,
-    std::unique_ptr<base::trace_event::ConvertableToTraceFormat>*
-        convertable_values,
+    base::trace_event::TraceArguments* args,
     unsigned int flags) {
   return base::trace_event::TraceLog::GetInstance()->AddTraceEventWithProcessId(
-      phase, category_group_enabled, name, scope, id, process_id, num_args,
-      arg_names, arg_types, arg_values, convertable_values, flags);
+      phase, category_group_enabled, name, scope, id, process_id, args, flags);
 }
 
 base::trace_event::TraceEventHandle AddTraceEventWithThreadIdAndTimestamp(
@@ -1828,18 +1765,12 @@ base::trace_event::TraceEventHandle AddTraceEventWithThreadIdAndTimestamp(
     unsigned long long id,
     int thread_id,
     const base::TimeTicks& timestamp,
-    int num_args,
-    const char* const* arg_names,
-    const unsigned char* arg_types,
-    const unsigned long long* arg_values,
-    std::unique_ptr<base::trace_event::ConvertableToTraceFormat>*
-        convertable_values,
+    base::trace_event::TraceArguments* args,
     unsigned int flags) {
   return base::trace_event::TraceLog::GetInstance()
-      ->AddTraceEventWithThreadIdAndTimestamp(
-          phase, category_group_enabled, name, scope, id, thread_id, timestamp,
-          num_args, arg_names, arg_types, arg_values, convertable_values,
-          flags);
+      ->AddTraceEventWithThreadIdAndTimestamp(phase, category_group_enabled,
+                                              name, scope, id, thread_id,
+                                              timestamp, args, flags);
 }
 
 base::trace_event::TraceEventHandle AddTraceEventWithThreadIdAndTimestamp(
@@ -1851,33 +1782,20 @@ base::trace_event::TraceEventHandle AddTraceEventWithThreadIdAndTimestamp(
     unsigned long long bind_id,
     int thread_id,
     const base::TimeTicks& timestamp,
-    int num_args,
-    const char* const* arg_names,
-    const unsigned char* arg_types,
-    const unsigned long long* arg_values,
-    std::unique_ptr<base::trace_event::ConvertableToTraceFormat>*
-        convertable_values,
+    base::trace_event::TraceArguments* args,
     unsigned int flags) {
   return base::trace_event::TraceLog::GetInstance()
       ->AddTraceEventWithThreadIdAndTimestamp(
           phase, category_group_enabled, name, scope, id, bind_id, thread_id,
-          timestamp, num_args, arg_names, arg_types, arg_values,
-          convertable_values, flags);
+          timestamp, args, flags);
 }
 
-void AddMetadataEvent(
-    const unsigned char* category_group_enabled,
-    const char* name,
-    int num_args,
-    const char* const* arg_names,
-    const unsigned char* arg_types,
-    const unsigned long long* arg_values,
-    std::unique_ptr<base::trace_event::ConvertableToTraceFormat>*
-        convertable_values,
-    unsigned int flags) {
+void AddMetadataEvent(const unsigned char* category_group_enabled,
+                      const char* name,
+                      base::trace_event::TraceArguments* args,
+                      unsigned int flags) {
   return base::trace_event::TraceLog::GetInstance()->AddMetadataEvent(
-      category_group_enabled, name, num_args, arg_names, arg_types, arg_values,
-      convertable_values, flags);
+      category_group_enabled, name, args, flags);
 }
 
 int GetNumTracesRecorded() {
@@ -1896,10 +1814,12 @@ void UpdateTraceEventDurationExplicit(
     const char* name,
     base::trace_event::TraceEventHandle handle,
     const base::TimeTicks& now,
-    const base::ThreadTicks& thread_now) {
+    const base::ThreadTicks& thread_now,
+    base::trace_event::ThreadInstructionCount thread_instruction_now) {
   return base::trace_event::TraceLog::GetInstance()
       ->UpdateTraceEventDurationExplicit(category_group_enabled, name, handle,
-                                         now, thread_now);
+                                         now, thread_now,
+                                         thread_instruction_now);
 }
 
 ScopedTraceBinaryEfficient::ScopedTraceBinaryEfficient(
@@ -1918,8 +1838,7 @@ ScopedTraceBinaryEfficient::ScopedTraceBinaryEfficient(
             trace_event_internal::kGlobalScope,                   // scope
             trace_event_internal::kNoId,                          // id
             static_cast<int>(base::PlatformThread::CurrentId()),  // thread_id
-            TRACE_TIME_TICKS_NOW(), 0, nullptr, nullptr, nullptr, nullptr,
-            TRACE_EVENT_FLAG_NONE);
+            TRACE_TIME_TICKS_NOW(), nullptr, TRACE_EVENT_FLAG_NONE);
   }
 }
 

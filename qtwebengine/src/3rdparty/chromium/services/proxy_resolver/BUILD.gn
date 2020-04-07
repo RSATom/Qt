@@ -2,8 +2,6 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-import("//services/service_manager/public/service_manifest.gni")
-
 source_set("lib") {
   sources = [
     "host_resolver_mojo.cc",
@@ -13,8 +11,6 @@ source_set("lib") {
     "proxy_resolver_factory_impl.h",
     "proxy_resolver_impl.cc",
     "proxy_resolver_impl.h",
-    "proxy_resolver_service.cc",
-    "proxy_resolver_service.h",
   ]
 
   configs += [ "//build/config/compiler:wexit_time_destructors" ]
@@ -42,7 +38,6 @@ source_set("tests") {
     "mojo_proxy_resolver_v8_tracing_bindings_unittest.cc",
     "proxy_resolver_factory_impl_unittest.cc",
     "proxy_resolver_impl_unittest.cc",
-    "proxy_resolver_service_unittest.cc",
   ]
 
   deps = [
@@ -56,9 +51,4 @@ source_set("tests") {
   ]
 
   configs += [ "//v8:external_startup_data" ]
-}
-
-service_manifest("proxy_resolver_manifest") {
-  name = "proxy_resolver"
-  source = "manifest.json"
 }

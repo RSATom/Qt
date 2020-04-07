@@ -31,14 +31,6 @@ struct EnumTraits<arc::mojom::VideoEncodeAccelerator::Error,
 };
 
 template <>
-struct EnumTraits<arc::mojom::VideoPixelFormat, media::VideoPixelFormat> {
-  static arc::mojom::VideoPixelFormat ToMojom(media::VideoPixelFormat input);
-
-  static bool FromMojom(arc::mojom::VideoPixelFormat input,
-                        media::VideoPixelFormat* output);
-};
-
-template <>
 struct StructTraits<arc::mojom::VideoEncodeProfileDataView,
                     media::VideoEncodeAccelerator::SupportedProfile> {
   static media::VideoCodecProfile profile(
@@ -96,6 +88,16 @@ struct StructTraits<arc::mojom::VideoEncodeAcceleratorConfigDataView,
   static bool has_initial_framerate(
       const media::VideoEncodeAccelerator::Config& input) {
     return input.initial_framerate.has_value();
+  }
+
+  static uint32_t gop_length(
+      const media::VideoEncodeAccelerator::Config& input) {
+    return input.gop_length.value_or(0);
+  }
+
+  static bool has_gop_length(
+      const media::VideoEncodeAccelerator::Config& input) {
+    return input.gop_length.has_value();
   }
 
   static uint8_t h264_output_level(

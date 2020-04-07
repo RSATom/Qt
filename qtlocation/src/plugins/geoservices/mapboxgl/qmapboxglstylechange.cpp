@@ -552,7 +552,7 @@ QSharedPointer<QMapboxGLStyleChange> QMapboxGLStyleAddSource::fromMapParameter(Q
     Q_ASSERT(param->type() == "source");
 
     static const QStringList acceptedSourceTypes = QStringList()
-        << QStringLiteral("vector") << QStringLiteral("raster") << QStringLiteral("raster-dem") << QStringLiteral("geojson");
+        << QStringLiteral("vector") << QStringLiteral("raster") << QStringLiteral("raster-dem") << QStringLiteral("geojson") << QStringLiteral("image");
 
     QString sourceType = param->property("sourceType").toString();
 
@@ -578,6 +578,10 @@ QSharedPointer<QMapboxGLStyleChange> QMapboxGLStyleAddSource::fromMapParameter(Q
         } else {
             source->m_params[QStringLiteral("data")] = data.toUtf8();
         }
+    } break;
+    case 4: { // image
+        source->m_params[QStringLiteral("url")] = param->property("url");
+        source->m_params[QStringLiteral("coordinates")] = param->property("coordinates");
     } break;
     }
 

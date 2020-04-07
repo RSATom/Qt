@@ -167,6 +167,7 @@ struct ClassDef : BaseDef {
 
     struct PluginData {
         QByteArray iid;
+        QByteArray uri;
         QMap<QString, QJsonArray> metaArgs;
         QJsonDocument metaData;
     } pluginData;
@@ -188,6 +189,7 @@ Q_DECLARE_TYPEINFO(ClassDef::Interface, Q_MOVABLE_TYPE);
 
 struct NamespaceDef : BaseDef {
     bool hasQNamespace = false;
+    bool doGenerate = false;
 };
 Q_DECLARE_TYPEINFO(NamespaceDef, Q_MOVABLE_TYPE);
 
@@ -255,6 +257,8 @@ public:
     bool testFunctionAttribute(FunctionDef *def);
     bool testFunctionAttribute(Token tok, FunctionDef *def);
     bool testFunctionRevision(FunctionDef *def);
+
+    bool skipCxxAttributes();
 
     void checkSuperClasses(ClassDef *def);
     void checkProperties(ClassDef* cdef);

@@ -5,7 +5,7 @@
 **
 ** This file is part of the QtWaylandCompositor module of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL$
+** $QT_BEGIN_LICENSE:GPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
@@ -14,24 +14,14 @@
 ** and conditions see https://www.qt.io/terms-conditions. For further
 ** information use the contact form at https://www.qt.io/contact-us.
 **
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 3 as published by the Free Software
-** Foundation and appearing in the file LICENSE.LGPL3 included in the
-** packaging of this file. Please review the following information to
-** ensure the GNU Lesser General Public License version 3 requirements
-** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
-**
 ** GNU General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU
-** General Public License version 2.0 or (at your option) the GNU General
-** Public license version 3 or any later version approved by the KDE Free
-** Qt Foundation. The licenses are as published by the Free Software
-** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** General Public License version 3 or (at your option) any later version
+** approved by the KDE Free Qt Foundation. The licenses are as published by
+** the Free Software Foundation and appearing in the file LICENSE.GPL3
 ** included in the packaging of this file. Please review the following
 ** information to ensure the GNU General Public License requirements will
-** be met: https://www.gnu.org/licenses/gpl-2.0.html and
-** https://www.gnu.org/licenses/gpl-3.0.html.
+** be met: https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -115,9 +105,9 @@ QWaylandXdgPopupV5 *QWaylandXdgShellV5Private::topmostPopupForClient(wl_client *
     return clientPopups.empty() ? nullptr : clientPopups.last();
 }
 
-QWaylandXdgSurfaceV5 *QWaylandXdgShellV5Private::xdgSurfaceFromSurface(QWaylandSurface *surface)
+QWaylandXdgSurfaceV5 *QWaylandXdgShellV5Private::xdgSurfaceFromSurface(QWaylandSurface *surface) const
 {
-    Q_FOREACH (QWaylandXdgSurfaceV5 *xdgSurface, m_xdgSurfaces) {
+    for (QWaylandXdgSurfaceV5 *xdgSurface : m_xdgSurfaces) {
         if (surface == xdgSurface->surface())
             return xdgSurface;
     }
@@ -414,7 +404,7 @@ void QWaylandXdgSurfaceV5Private::xdg_surface_ack_configure(Resource *resource, 
             break;
     }
 
-    QVector<uint> changedStates;
+    std::vector<uint> changedStates;
     std::set_symmetric_difference(
                 m_lastAckedConfigure.states.begin(), m_lastAckedConfigure.states.end(),
                 config.states.begin(), config.states.end(),
@@ -423,7 +413,7 @@ void QWaylandXdgSurfaceV5Private::xdg_surface_ack_configure(Resource *resource, 
     m_lastAckedConfigure = config;
 
     if (!changedStates.empty()) {
-        Q_FOREACH (uint state, changedStates) {
+        for (uint state : changedStates) {
             switch (state) {
             case QWaylandXdgSurfaceV5::State::MaximizedState:
                 emit q->maximizedChanged();
@@ -580,7 +570,7 @@ void QWaylandXdgShellV5::initialize()
 QWaylandClient *QWaylandXdgShellV5::popupClient() const
 {
     Q_D(const QWaylandXdgShellV5);
-    Q_FOREACH (QWaylandXdgPopupV5 *popup, d->m_xdgPopups) {
+    for (QWaylandXdgPopupV5 *popup : d->m_xdgPopups) {
         if (popup->surface()->hasContent())
             return popup->surface()->client();
     }
@@ -601,7 +591,7 @@ QByteArray QWaylandXdgShellV5::interfaceName()
 }
 
 /*!
- * \qmlmethod void QtWaylandCompositor::XdgShellV5::ping()
+ * \qmlmethod void QtWaylandCompositor::XdgShellV5::ping(WaylandClient client)
  *
  * Sends a ping event to the \a client. If the client replies to the event, the
  * pong signal will be emitted.
@@ -627,15 +617,19 @@ uint QWaylandXdgShellV5::ping(QWaylandClient *client)
     return serial;
 }
 
+// ### remove once QMap has rbegin()/rend()
+template <typename Iterator>
+std::reverse_iterator<Iterator> make_reverse(Iterator it)
+{
+    return std::reverse_iterator<Iterator>(std::move(it));
+}
+
 void QWaylandXdgShellV5::closeAllPopups()
 {
     Q_D(QWaylandXdgShellV5);
-    Q_FOREACH (struct wl_client *client, d->m_xdgPopups.keys()) {
-        QList<QWaylandXdgPopupV5 *> popups = d->m_xdgPopups.values(client);
-        std::reverse(popups.begin(), popups.end());
-        Q_FOREACH (QWaylandXdgPopupV5 *currentTopmostPopup, popups) {
-            currentTopmostPopup->sendPopupDone();
-        }
+    // Close pop-ups from top-most to bottom-most, lest we get protocol errors:
+    for (auto rit = make_reverse(d->m_xdgPopups.end()), rend = make_reverse(d->m_xdgPopups.begin()); rit != rend; ++rit) {
+        (*rit)->sendPopupDone();
     }
 }
 
@@ -790,10 +784,47 @@ void QWaylandXdgShellV5::handleFocusChanged(QWaylandSurface *newSurface, QWaylan
  */
 
 /*!
+    \enum QWaylandXdgSurfaceV5::ResizeEdge
+
+    \value NoneEdge
+           No edge defined.
+    \value TopEdge
+           Top egde.
+    \value BottomEdge
+           Bottom edge.
+    \value LeftEdge
+           Left edge.
+    \value TopLeftEdge
+           Top-left edge.
+    \value BottomLeftEdge
+           Bottom-left edge.
+    \value RightEdge
+           Right edge.
+    \value TopRightEdge
+           Top-right edge.
+    \value BottomRightEdge
+           Bottom-right edge.
+ */
+
+/*!
+ * \fn QWaylandXdgSurfaceV5::setTopLevel()
+ *
+ * This signal is emitted when the parent surface is unset, effectively
+ * making the window top level.
+ */
+
+/*!
  * \qmlsignal QtWaylandCompositor::XdgSurfaceV5::setTopLevel()
  *
  * This signal is emitted when the parent surface is unset, effectively
  * making the window top level.
+ */
+
+/*!
+ * \fn QWaylandXdgSurfaceV5::setTransient()
+ *
+ * This signal is emitted when the parent surface is set, effectively
+ * making the window transient.
  */
 
 /*!
@@ -987,7 +1018,9 @@ void QWaylandXdgSurfaceV5::initialize()
 QList<int> QWaylandXdgSurfaceV5::statesAsInts() const
 {
    QList<int> list;
-   Q_FOREACH (uint state, states()) {
+   const auto s = states();
+   list.reserve(s.size());
+   for (auto state : s) {
        list << static_cast<int>(state);
    }
    return list;
@@ -1238,7 +1271,8 @@ uint QWaylandXdgSurfaceV5::sendConfigure(const QSize &size, const QVector<uint> 
 uint QWaylandXdgSurfaceV5::sendConfigure(const QSize &size, const QVector<QWaylandXdgSurfaceV5::State> &states)
 {
     QVector<uint> asUints;
-    Q_FOREACH (QWaylandXdgSurfaceV5::State state, states) {
+    asUints.reserve(states.size());
+    for (QWaylandXdgSurfaceV5::State state : states) {
         asUints << state;
     }
     return sendConfigure(size, asUints);

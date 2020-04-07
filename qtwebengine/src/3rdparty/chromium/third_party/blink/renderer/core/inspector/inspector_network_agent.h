@@ -31,6 +31,8 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_INSPECTOR_INSPECTOR_NETWORK_AGENT_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_INSPECTOR_INSPECTOR_NETWORK_AGENT_H_
 
+#include "base/containers/span.h"
+#include "base/optional.h"
 #include "base/unguessable_token.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/inspector/inspected_frames.h"
@@ -64,7 +66,6 @@ class NetworkResourcesData;
 class Resource;
 class ResourceError;
 class ResourceResponse;
-class ThreadableLoaderClient;
 class XHRReplayData;
 class XMLHttpRequest;
 class WorkerGlobalScope;
@@ -85,59 +86,67 @@ class CORE_EXPORT InspectorNetworkAgent final
   void Restore() override;
 
   // Probes.
-  void DidBlockRequest(ExecutionContext*,
-                       const ResourceRequest&,
+  void DidBlockRequest(const ResourceRequest&,
                        DocumentLoader*,
+                       const KURL& fetch_context_url,
                        const FetchInitiatorInfo&,
                        ResourceRequestBlockedReason,
                        ResourceType);
   void DidChangeResourcePriority(DocumentLoader*,
-                                 unsigned long identifier,
+                                 uint64_t identifier,
                                  ResourceLoadPriority);
-  void WillSendRequest(ExecutionContext*,
-                       unsigned long identifier,
+  void PrepareRequest(DocumentLoader*,
+                      ResourceRequest&,
+                      const FetchInitiatorInfo&,
+                      ResourceType);
+  void WillSendRequest(uint64_t identifier,
                        DocumentLoader*,
-                       ResourceRequest&,
+                       const KURL& fetch_context_url,
+                       const ResourceRequest&,
                        const ResourceResponse& redirect_response,
                        const FetchInitiatorInfo&,
                        ResourceType);
-  void MarkResourceAsCached(DocumentLoader*, unsigned long identifier);
-  void DidReceiveResourceResponse(unsigned long identifier,
+  void WillSendNavigationRequest(uint64_t identifier,
+                                 DocumentLoader*,
+                                 const KURL&,
+                                 const AtomicString& http_method,
+                                 EncodedFormData* http_body);
+  void MarkResourceAsCached(DocumentLoader*, uint64_t identifier);
+  void DidReceiveResourceResponse(uint64_t identifier,
                                   DocumentLoader*,
                                   const ResourceResponse&,
-                                  Resource*);
-  void DidReceiveData(unsigned long identifier,
+                                  const Resource*);
+  void DidReceiveData(uint64_t identifier,
                       DocumentLoader*,
                       const char* data,
                       uint64_t data_length);
-  void DidReceiveBlob(unsigned long identifier,
+  void DidReceiveBlob(uint64_t identifier,
                       DocumentLoader*,
                       scoped_refptr<BlobDataHandle>);
   void DidReceiveEncodedDataLength(DocumentLoader*,
-                                   unsigned long identifier,
+                                   uint64_t identifier,
                                    size_t encoded_data_length);
-  void DidFinishLoading(unsigned long identifier,
+  void DidFinishLoading(uint64_t identifier,
                         DocumentLoader*,
-                        TimeTicks monotonic_finish_time,
+                        base::TimeTicks monotonic_finish_time,
                         int64_t encoded_data_length,
                         int64_t decoded_body_length,
                         bool should_report_corb_blocking);
-  void DidReceiveCorsRedirectResponse(unsigned long identifier,
+  void DidReceiveCorsRedirectResponse(uint64_t identifier,
                                       DocumentLoader*,
                                       const ResourceResponse&,
                                       Resource*);
-  void DidFailLoading(unsigned long identifier,
+  void DidFailLoading(uint64_t identifier,
                       DocumentLoader*,
                       const ResourceError&);
   void DidCommitLoad(LocalFrame*, DocumentLoader*);
-  void ScriptImported(unsigned long identifier, const String& source_string);
-  void DidReceiveScriptResponse(unsigned long identifier);
+  void ScriptImported(uint64_t identifier, const String& source_string);
+  void DidReceiveScriptResponse(uint64_t identifier);
   void ShouldForceCorsPreflight(bool* result);
   void ShouldBlockRequest(const KURL&, bool* result);
   void ShouldBypassServiceWorker(bool* result);
 
-  void WillLoadXHR(XMLHttpRequest*,
-                   ThreadableLoaderClient*,
+  void WillLoadXHR(ExecutionContext*,
                    const AtomicString& method,
                    const KURL&,
                    bool async,
@@ -146,8 +155,8 @@ class CORE_EXPORT InspectorNetworkAgent final
                    bool include_crendentials);
   void DidFinishXHR(XMLHttpRequest*);
 
-  void WillSendEventSourceRequest(ThreadableLoaderClient*);
-  void WillDispatchEventSourceEvent(unsigned long identifier,
+  void WillSendEventSourceRequest();
+  void WillDispatchEventSourceEvent(uint64_t identifier,
                                     const AtomicString& event_name,
                                     const AtomicString& event_id,
                                     const String& data);
@@ -161,30 +170,29 @@ class CORE_EXPORT InspectorNetworkAgent final
   void FrameClearedScheduledNavigation(LocalFrame*);
 
   void DidCreateWebSocket(ExecutionContext*,
-                          unsigned long identifier,
+                          uint64_t identifier,
                           const KURL& request_url,
                           const String&);
   void WillSendWebSocketHandshakeRequest(
       ExecutionContext*,
-      unsigned long identifier,
+      uint64_t identifier,
       network::mojom::blink::WebSocketHandshakeRequest*);
   void DidReceiveWebSocketHandshakeResponse(
       ExecutionContext*,
-      unsigned long identifier,
+      uint64_t identifier,
       network::mojom::blink::WebSocketHandshakeRequest*,
       network::mojom::blink::WebSocketHandshakeResponse*);
-  void DidCloseWebSocket(ExecutionContext*, unsigned long identifier);
-  void DidReceiveWebSocketMessage(unsigned long identifier,
+  void DidCloseWebSocket(ExecutionContext*, uint64_t identifier);
+  void DidReceiveWebSocketMessage(uint64_t identifier,
                                   int op_code,
                                   bool masked,
-                                  const char* payload,
-                                  size_t payload_length);
-  void DidSendWebSocketMessage(unsigned long identifier,
+                                  const Vector<base::span<const char>>& data);
+  void DidSendWebSocketMessage(uint64_t identifier,
                                int op_code,
                                bool masked,
                                const char* payload,
                                size_t payload_length);
-  void DidReceiveWebSocketMessageError(unsigned long identifier, const String&);
+  void DidReceiveWebSocketMessageError(uint64_t identifier, const String&);
 
   // Called from frontend
   protocol::Response enable(Maybe<int> total_buffer_size,
@@ -238,20 +246,13 @@ class CORE_EXPORT InspectorNetworkAgent final
 
  private:
   void Enable();
-  void WillSendRequestInternal(ExecutionContext*,
-                               unsigned long identifier,
+  void WillSendRequestInternal(uint64_t identifier,
                                DocumentLoader*,
+                               const KURL& fetch_context_url,
                                const ResourceRequest&,
                                const ResourceResponse& redirect_response,
                                const FetchInitiatorInfo&,
                                InspectorPageAgent::ResourceType);
-  void RemoveFinishedReplayXHRFired(TimerBase*);
-  void DidFinishXHRInternal(ExecutionContext*,
-                            XMLHttpRequest*,
-                            ThreadableLoaderClient*,
-                            const AtomicString&,
-                            const String&,
-                            bool);
 
   bool CanGetResponseBodyBlob(const String& request_id);
   void GetResponseBodyBlob(const String& request_id,
@@ -259,8 +260,9 @@ class CORE_EXPORT InspectorNetworkAgent final
 
   static std::unique_ptr<protocol::Network::Initiator> BuildInitiatorObject(
       Document*,
-      const FetchInitiatorInfo&);
-  static bool IsNavigation(DocumentLoader*, unsigned long identifier);
+      const FetchInitiatorInfo&,
+      int max_async_depth);
+  static bool IsNavigation(DocumentLoader*, uint64_t identifier);
 
   // This is null while inspecting workers.
   Member<InspectedFrames> inspected_frames_;
@@ -270,20 +272,18 @@ class CORE_EXPORT InspectorNetworkAgent final
   Member<NetworkResourcesData> resources_data_;
   const base::UnguessableToken devtools_token_;
 
-  // Stores the pending ThreadableLoaderClient till an identifier for
-  // the load is generated by the loader and passed to the inspector
-  // via the WillSendRequest() method.
-  Member<ThreadableLoaderClient> pending_request_;
-  InspectorPageAgent::ResourceType pending_request_type_;
+  // Stores the pending request type till an identifier for the load is
+  // generated by the loader and passed to the inspector via the
+  // WillSendRequest() method.
+  base::Optional<InspectorPageAgent::ResourceType> pending_request_type_;
 
   Member<XHRReplayData> pending_xhr_replay_data_;
+  bool is_handling_sync_xhr_ = false;
 
   HashMap<String, std::unique_ptr<protocol::Network::Initiator>>
       frame_navigation_initiator_map_;
 
   HeapHashSet<Member<XMLHttpRequest>> replay_xhrs_;
-  HeapHashSet<Member<XMLHttpRequest>> replay_xhrs_to_be_deleted_;
-  TaskRunnerTimer<InspectorNetworkAgent> remove_finished_replay_xhr_timer_;
   InspectorAgentState::Boolean enabled_;
   InspectorAgentState::Boolean cache_disabled_;
   InspectorAgentState::Boolean bypass_service_worker_;

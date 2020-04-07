@@ -6,6 +6,8 @@
 
 #include <utility>
 
+#include "base/bind.h"
+#include "base/logging.h"
 #include "base/numerics/safe_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
@@ -29,6 +31,13 @@
 #include "chrome/browser/password_manager/password_manager_util_win.h"
 #elif defined(OS_MACOSX)
 #include "chrome/browser/password_manager/password_manager_util_mac.h"
+#elif defined(OS_CHROMEOS)
+#include "chrome/browser/chromeos/login/quick_unlock/auth_token.h"
+#include "chrome/browser/chromeos/login/quick_unlock/quick_unlock_factory.h"
+#include "chrome/browser/chromeos/login/quick_unlock/quick_unlock_storage.h"
+#include "chrome/browser/chromeos/profiles/profile_helper.h"
+#include "chromeos/login/auth/password_visibility_utils.h"
+#include "components/user_manager/user.h"
 #endif
 
 namespace {
@@ -38,6 +47,14 @@ namespace {
 const char kExportInProgress[] = "in-progress";
 // The error message returned to the UI when the user fails to reauthenticate.
 const char kReauthenticationFailed[] = "reauth-failed";
+
+#if defined(OS_CHROMEOS)
+constexpr static base::TimeDelta kShowPasswordAuthTokenLifetime =
+    base::TimeDelta::FromSeconds(
+        PasswordAccessAuthenticator::kAuthValidityPeriodSeconds);
+constexpr static base::TimeDelta kExportPasswordsAuthTokenLifetime =
+    base::TimeDelta::FromSeconds(5);
+#endif
 
 // Map password_manager::ExportProgressStatus to
 // extensions::api::passwords_private::ExportProgressStatus.
@@ -100,11 +117,11 @@ void PasswordsPrivateDelegateImpl::SendSavedPasswordsList() {
 }
 
 void PasswordsPrivateDelegateImpl::GetSavedPasswordsList(
-    const UiEntriesCallback& callback) {
+    UiEntriesCallback callback) {
   if (current_entries_initialized_)
-    callback.Run(current_entries_);
+    std::move(callback).Run(current_entries_);
   else
-    get_saved_passwords_list_callbacks_.push_back(callback);
+    get_saved_passwords_list_callbacks_.push_back(std::move(callback));
 }
 
 void PasswordsPrivateDelegateImpl::SendPasswordExceptionsList() {
@@ -120,6 +137,16 @@ void PasswordsPrivateDelegateImpl::GetPasswordExceptionsList(
     callback.Run(current_exceptions_);
   else
     get_password_exception_list_callbacks_.push_back(callback);
+}
+
+void PasswordsPrivateDelegateImpl::ChangeSavedPassword(
+    int id,
+    base::string16 new_username,
+    base::Optional<base::string16> new_password) {
+  const std::string* sort_key = password_id_generator_.TryGetSortKey(id);
+  DCHECK(sort_key);
+  password_manager_presenter_->ChangeSavedPassword(
+      *sort_key, std::move(new_username), std::move(new_password));
 }
 
 void PasswordsPrivateDelegateImpl::RemoveSavedPassword(int id) {
@@ -192,6 +219,25 @@ bool PasswordsPrivateDelegateImpl::OsReauthCall(
       web_contents_->GetTopLevelNativeWindow(), purpose);
 #elif defined(OS_MACOSX)
   return password_manager_util_mac::AuthenticateUser(purpose);
+#elif defined(OS_CHROMEOS)
+  const bool user_cannot_manually_enter_password =
+      !chromeos::password_visibility::AccountHasUserFacingPassword(
+          chromeos::ProfileHelper::Get()
+              ->GetUserByProfile(profile_)
+              ->GetAccountId());
+  if (user_cannot_manually_enter_password)
+    return true;
+  chromeos::quick_unlock::QuickUnlockStorage* quick_unlock_storage =
+      chromeos::quick_unlock::QuickUnlockFactory::GetForProfile(profile_);
+  const chromeos::quick_unlock::AuthToken* auth_token =
+      quick_unlock_storage->GetAuthToken();
+  if (!auth_token || !auth_token->GetAge())
+    return false;
+  const base::TimeDelta auth_token_lifespan =
+      (purpose == password_manager::ReauthPurpose::EXPORT)
+          ? kExportPasswordsAuthTokenLifetime
+          : kShowPasswordAuthTokenLifetime;
+  return auth_token->GetAge() <= auth_token_lifespan;
 #else
   return true;
 #endif
@@ -208,8 +254,8 @@ void PasswordsPrivateDelegateImpl::SetPasswordList(
 
   for (const auto& form : password_list) {
     api::passwords_private::PasswordUiEntry entry;
-    entry.login_pair.urls = CreateUrlCollectionFromForm(*form);
-    entry.login_pair.username = base::UTF16ToUTF8(form->username_value);
+    entry.urls = CreateUrlCollectionFromForm(*form);
+    entry.username = base::UTF16ToUTF8(form->username_value);
     entry.id = password_id_generator_.GenerateId(
         password_manager::CreateSortKey(*form));
     entry.num_characters_in_password = form->password_value.length();
@@ -230,8 +276,8 @@ void PasswordsPrivateDelegateImpl::SetPasswordList(
   current_entries_initialized_ = true;
   InitializeIfNecessary();
 
-  for (const auto& callback : get_saved_passwords_list_callbacks_)
-    callback.Run(current_entries_);
+  for (auto& callback : get_saved_passwords_list_callbacks_)
+    std::move(callback).Run(current_entries_);
   get_saved_passwords_list_callbacks_.clear();
 }
 
@@ -310,6 +356,11 @@ void PasswordsPrivateDelegateImpl::OnPasswordsExportProgress(
 void PasswordsPrivateDelegateImpl::Shutdown() {
   password_manager_presenter_.reset();
   password_manager_porter_.reset();
+}
+
+SortKeyIdGenerator&
+PasswordsPrivateDelegateImpl::GetPasswordIdGeneratorForTesting() {
+  return password_id_generator_;
 }
 
 void PasswordsPrivateDelegateImpl::SetOsReauthCallForTesting(

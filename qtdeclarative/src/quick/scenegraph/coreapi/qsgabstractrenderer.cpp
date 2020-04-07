@@ -73,6 +73,22 @@ QT_BEGIN_NAMESPACE
  */
 
 /*!
+    \enum QSGAbstractRenderer::MatrixTransformFlag
+
+    Used with setProjectionMatrixToRect() to indicate the expectations towards
+    the generated projection matrix.
+
+    \value MatrixTransformFlipY The traditional assumption in Qt Quick is that
+    Y points up in the normalized device coordinate system. There is at least
+    one modern graphics API where this is not the case (Vulkan). This flag can
+    then be used to get a projection that is appropriate for such an API.
+
+    \sa setProjectionMatrixToRect()
+
+    \since 5.14
+ */
+
+/*!
     \fn void QSGAbstractRenderer::renderScene(GLuint fboId = 0)
 
     Render the scene to the specified \a fboId
@@ -224,6 +240,9 @@ QRect QSGAbstractRenderer::viewportRect() const
     Convenience method that calls setProjectionMatrix() with an
     orthographic matrix generated from \a rect.
 
+    \note This function assumes that the graphics API uses Y up in its
+    normalized device coordinate system.
+
     \sa setProjectionMatrix(), projectionMatrix()
  */
 void QSGAbstractRenderer::setProjectionMatrixToRect(const QRectF &rect)
@@ -236,6 +255,42 @@ void QSGAbstractRenderer::setProjectionMatrixToRect(const QRectF &rect)
                  1,
                  -1);
     setProjectionMatrix(matrix);
+    setProjectionMatrixWithNativeNDC(matrix);
+}
+
+/*!
+    Convenience method that calls setProjectionMatrix() with an
+    orthographic matrix generated from \a rect.
+
+    Set MatrixTransformFlipY in \a flags when the graphics API uses Y down in
+    its normalized device coordinate system (for example, Vulkan).
+
+    \sa setProjectionMatrix(), projectionMatrix()
+
+    \since 5.14
+ */
+void QSGAbstractRenderer::setProjectionMatrixToRect(const QRectF &rect, MatrixTransformFlags flags)
+{
+    const bool flipY = flags.testFlag(MatrixTransformFlipY);
+    QMatrix4x4 matrix;
+    matrix.ortho(rect.x(),
+                 rect.x() + rect.width(),
+                 flipY ? rect.y() : rect.y() + rect.height(),
+                 flipY ? rect.y() + rect.height() : rect.y(),
+                 1,
+                 -1);
+    setProjectionMatrix(matrix);
+
+    if (flipY) {
+        matrix.setToIdentity();
+        matrix.ortho(rect.x(),
+                     rect.x() + rect.width(),
+                     rect.y() + rect.height(),
+                     rect.y(),
+                     1,
+                     -1);
+    }
+    setProjectionMatrixWithNativeNDC(matrix);
 }
 
 /*!
@@ -250,6 +305,15 @@ void QSGAbstractRenderer::setProjectionMatrix(const QMatrix4x4 &matrix)
 }
 
 /*!
+    \internal
+ */
+void QSGAbstractRenderer::setProjectionMatrixWithNativeNDC(const QMatrix4x4 &matrix)
+{
+    Q_D(QSGAbstractRenderer);
+    d->m_projection_matrix_native_ndc = matrix;
+}
+
+/*!
     Returns the projection matrix
 
     \sa setProjectionMatrix(), setProjectionMatrixToRect()
@@ -258,6 +322,15 @@ QMatrix4x4 QSGAbstractRenderer::projectionMatrix() const
 {
     Q_D(const QSGAbstractRenderer);
     return d->m_projection_matrix;
+}
+
+/*!
+    \internal
+ */
+QMatrix4x4 QSGAbstractRenderer::projectionMatrixWithNativeNDC() const
+{
+    Q_D(const QSGAbstractRenderer);
+    return d->m_projection_matrix_native_ndc;
 }
 
 /*!

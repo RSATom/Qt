@@ -25,6 +25,7 @@
 #include "media/audio/audio_input_delegate.h"
 #include "media/mojo/interfaces/audio_logging.mojom.h"
 #include "mojo/public/cpp/bindings/binding.h"
+#include "services/audio/public/mojom/audio_processing.mojom.h"
 
 namespace media {
 class AudioParameters;
@@ -51,7 +52,7 @@ class CONTENT_EXPORT OldRenderFrameAudioInputStreamFactory
               keyboard_mic_registration,
           uint32_t shared_memory_count,
           int stream_id,
-          int session_id,
+          const base::UnguessableToken& session_id,
           bool automatic_gain_control,
           const media::AudioParameters& parameters,
           media::AudioInputDelegate::EventHandler* event_handler)>;
@@ -71,14 +72,14 @@ class CONTENT_EXPORT OldRenderFrameAudioInputStreamFactory
   // mojom::RendererAudioInputStreamFactory implementation.
   void CreateStream(
       mojom::RendererAudioInputStreamFactoryClientPtr client,
-      int32_t session_id,
+      const base::UnguessableToken& session_id,
       const media::AudioParameters& audio_params,
       bool automatic_gain_control,
       uint32_t shared_memory_count,
       audio::mojom::AudioProcessingConfigPtr processing_config) override;
 
   void DoCreateStream(mojom::RendererAudioInputStreamFactoryClientPtr client,
-                      int session_id,
+                      const base::UnguessableToken& session_id,
                       const media::AudioParameters& audio_params,
                       bool automatic_gain_control,
                       uint32_t shared_memory_count,
@@ -105,7 +106,8 @@ class CONTENT_EXPORT OldRenderFrameAudioInputStreamFactory
   InputStreamSet streams_;
   int next_stream_id_ = 0;
 
-  base::WeakPtrFactory<OldRenderFrameAudioInputStreamFactory> weak_ptr_factory_;
+  base::WeakPtrFactory<OldRenderFrameAudioInputStreamFactory> weak_ptr_factory_{
+      this};
 
   DISALLOW_COPY_AND_ASSIGN(OldRenderFrameAudioInputStreamFactory);
 };

@@ -150,7 +150,7 @@ ElementsTestRunner.computedStyleWidget = function() {
   return UI.panels.elements._computedStyleWidget;
 };
 
-ElementsTestRunner.dumpComputedStyle = function(doNotAutoExpand) {
+ElementsTestRunner.dumpComputedStyle = function(doNotAutoExpand, printInnerText) {
   const computed = ElementsTestRunner.computedStyleWidget();
   const treeOutline = computed._propertiesOutline;
   const children = treeOutline.rootElement().children();
@@ -162,9 +162,8 @@ ElementsTestRunner.dumpComputedStyle = function(doNotAutoExpand) {
       continue;
 
     let dumpText = '';
-    dumpText += treeElement.title.querySelector('.property-name').textContent;
-    dumpText += ' ';
-    dumpText += treeElement.title.querySelector('.property-value').textContent;
+    dumpText += text(treeElement.title.querySelector('.property-name'));
+    dumpText += text(treeElement.title.querySelector('.property-value'));
     TestRunner.addResult(dumpText);
 
     if (doNotAutoExpand && !treeElement.expanded)
@@ -177,9 +176,9 @@ ElementsTestRunner.dumpComputedStyle = function(doNotAutoExpand) {
       if (trace.title.classList.contains('property-trace-inactive'))
         dumpText += 'OVERLOADED ';
 
-      dumpText += title.querySelector('.property-trace-value').textContent;
+      dumpText += text(title.querySelector('.property-trace-value'));
       dumpText += ' - ';
-      dumpText += title.querySelector('.property-trace-selector').textContent;
+      dumpText += text(title.querySelector('.property-trace-selector'));
       const link = title.querySelector('.trace-link');
 
       if (link)
@@ -187,6 +186,10 @@ ElementsTestRunner.dumpComputedStyle = function(doNotAutoExpand) {
 
       TestRunner.addResult('    ' + dumpText);
     }
+  }
+
+  function text(node) {
+    return printInnerText ? node.innerText : node.textContent;
   }
 };
 
@@ -412,11 +415,11 @@ ElementsTestRunner.dumpRenderedMatchedStyles = function() {
 };
 
 ElementsTestRunner.dumpSelectedElementStyles = function(
-    excludeComputed, excludeMatched, omitLonghands, includeSelectorGroupMarks) {
+    excludeComputed, excludeMatched, omitLonghands, includeSelectorGroupMarks, printInnerText) {
   const sectionBlocks = UI.panels.elements._stylesWidget._sectionBlocks;
 
   if (!excludeComputed)
-    ElementsTestRunner.dumpComputedStyle();
+    ElementsTestRunner.dumpComputedStyle(false /* doNotAutoExpand */, printInnerText);
 
   for (const block of sectionBlocks) {
     for (const section of block.sections) {
@@ -427,17 +430,21 @@ ElementsTestRunner.dumpSelectedElementStyles = function(
         let nodeDescription = '';
 
         if (section.element.previousSibling.firstElementChild)
-          nodeDescription = section.element.previousSibling.firstElementChild.shadowRoot.lastChild.textContent;
+          nodeDescription = text(section.element.previousSibling.firstElementChild.shadowRoot.lastChild);
 
-        TestRunner.addResult('======== ' + section.element.previousSibling.textContent + nodeDescription + ' ========');
+        TestRunner.addResult('======== ' + text(section.element.previousSibling) + nodeDescription + ' ========');
       }
 
-      printStyleSection(section, omitLonghands, includeSelectorGroupMarks);
+      printStyleSection(section, omitLonghands, includeSelectorGroupMarks, printInnerText);
     }
+  }
+
+  function text(node) {
+    return printInnerText ? node.innerText : node.textContent;
   }
 };
 
-function printStyleSection(section, omitLonghands, includeSelectorGroupMarks) {
+function printStyleSection(section, omitLonghands, includeSelectorGroupMarks, printInnerText) {
   if (!section)
     return;
 
@@ -447,13 +454,13 @@ function printStyleSection(section, omitLonghands, includeSelectorGroupMarks) {
 
   for (let i = 0; i < medias.length; ++i) {
     const media = medias[i];
-    TestRunner.addResult(media.textContent);
+    TestRunner.addResult(text(media));
   }
 
   const selector =
       section._titleElement.querySelector('.selector') || section._titleElement.querySelector('.keyframe-key');
-  let selectorText = (includeSelectorGroupMarks ? buildMarkedSelectors(selector) : selector.textContent);
-  selectorText += selector.nextSibling.textContent;
+  let selectorText = (includeSelectorGroupMarks ? buildMarkedSelectors(selector) : text(selector));
+  selectorText += text(selector.nextSibling);
   const anchor = section._titleElement.querySelector('.styles-section-subtitle');
 
   if (anchor) {
@@ -462,10 +469,14 @@ function printStyleSection(section, omitLonghands, includeSelectorGroupMarks) {
   }
 
   TestRunner.addResult(selectorText);
-  ElementsTestRunner.dumpStyleTreeOutline(section.propertiesTreeOutline, (omitLonghands ? 1 : 2));
+  ElementsTestRunner.dumpStyleTreeOutline(section.propertiesTreeOutline, (omitLonghands ? 1 : 2), printInnerText);
   if (!section._showAllButton.classList.contains('hidden'))
-    TestRunner.addResult(section._showAllButton.textContent);
+    TestRunner.addResult(text(section._showAllButton));
   TestRunner.addResult('');
+
+  function text(node) {
+    return printInnerText ? node.innerText : node.textContent;
+  }
 }
 
 function extractLinkText(element) {
@@ -524,6 +535,14 @@ ElementsTestRunner.eventListenersWidget = function() {
 
 ElementsTestRunner.showEventListenersWidget = function() {
   return UI.viewManager.showView('elements.eventListeners');
+};
+
+/**
+ * @return {Promise}
+ */
+ElementsTestRunner.showComputedStyles = function() {
+  UI.panels.elements.sidebarPaneView.tabbedPane().selectTab('Computed', true);
+  return ElementsTestRunner.computedStyleWidget().doUpdate();
 };
 
 ElementsTestRunner.expandAndDumpSelectedElementEventListeners = function(callback, force) {
@@ -605,15 +624,16 @@ ElementsTestRunner.getFirstPropertyTreeItemForSection = function(section, proper
   return null;
 };
 
-ElementsTestRunner.dumpStyleTreeOutline = function(treeItem, depth) {
+ElementsTestRunner.dumpStyleTreeOutline = function(treeItem, depth, printInnerText) {
   const children = treeItem.rootElement().children();
 
   for (let i = 0; i < children.length; ++i)
-    ElementsTestRunner.dumpStyleTreeItem(children[i], '', depth || 2);
+    ElementsTestRunner.dumpStyleTreeItem(children[i], '', depth || 2, printInnerText);
 };
 
-ElementsTestRunner.dumpStyleTreeItem = function(treeItem, prefix, depth) {
-  const textContent = TestRunner.textContentWithoutStyles(treeItem.listItemElement);
+ElementsTestRunner.dumpStyleTreeItem = function(treeItem, prefix, depth, printInnerText) {
+  const textContent = printInnerText ? treeItem.listItemElement.innerText :
+                                       TestRunner.textContentWithoutStyles(treeItem.listItemElement);
   if (textContent.indexOf(' width:') !== -1 || textContent.indexOf(' height:') !== -1)
     return;
 
@@ -1115,6 +1135,36 @@ ElementsTestRunner.dumpInspectorHighlightJSON = function(idValue, callback) {
     const result = await TestRunner.OverlayAgent.getHighlightObjectForTest(node.id);
     TestRunner.addResult(idValue + JSON.stringify(result, null, 2));
     callback();
+  }
+};
+
+ElementsTestRunner.dumpInspectorDistanceJSON = function(idValue, callback) {
+  ElementsTestRunner.nodeWithId(idValue, nodeResolved);
+
+  async function nodeResolved(node) {
+    const result = await TestRunner.OverlayAgent.getHighlightObjectForTest(node.id, true);
+    const info = result['distanceInfo'];
+    if (!info) {
+      TestRunner.addResult(`${idValue}: No distance info`);
+    } else {
+      if (info['style'])
+        info['style'] = '<style data>';
+      TestRunner.addResult(idValue + JSON.stringify(info, null, 2));
+    }
+    callback();
+  }
+};
+
+ElementsTestRunner.dumpInspectorHighlightStyleJSON = async function(idValue) {
+  const node = await ElementsTestRunner.nodeWithIdPromise(idValue);
+  const result = await TestRunner.OverlayAgent.getHighlightObjectForTest(node.id, false, true /* includeStyle */);
+  const info = result['elementInfo'] ? result['elementInfo']['style'] : null;
+  if (!info) {
+    TestRunner.addResult(`${idValue}: No style info`);
+  } else {
+    if (info['font-family'])
+      info['font-family'] = '<font-family value>';
+    TestRunner.addResult(idValue + JSON.stringify(info, null, 2));
   }
 };
 

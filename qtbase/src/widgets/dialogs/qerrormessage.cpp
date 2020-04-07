@@ -295,7 +295,7 @@ QErrorMessage * QErrorMessage::qtHandler()
     if (!qtMessageHandler) {
         qtMessageHandler = new QErrorMessage(0);
         qAddPostRoutine(deleteStaticcQErrorMessage); // clean up
-        qtMessageHandler->setWindowTitle(QApplication::applicationName());
+        qtMessageHandler->setWindowTitle(QCoreApplication::applicationName());
         qInstallMessageHandler(jump);
     }
     return qtMessageHandler;
@@ -322,8 +322,8 @@ bool QErrorMessagePrivate::nextPending()
 #else
             errors->setPlainText(message);
 #endif
-            currentMessage = qMove(message);
-            currentType = qMove(type);
+            currentMessage = std::move(message);
+            currentType = std::move(type);
             return true;
         }
     }

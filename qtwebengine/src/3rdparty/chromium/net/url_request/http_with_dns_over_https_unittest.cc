@@ -2,10 +2,20 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "base/big_endian.h"
+#include "base/bind.h"
+#include "base/logging.h"
+#include "base/memory/scoped_refptr.h"
+#include "net/base/privacy_mode.h"
+#include "net/base/proxy_server.h"
+#include "net/dns/context_host_resolver.h"
 #include "net/dns/dns_client.h"
 #include "net/dns/dns_config.h"
+#include "net/dns/dns_query.h"
 #include "net/dns/dns_transaction.h"
-#include "net/dns/host_resolver_impl.h"
+#include "net/dns/host_resolver.h"
+#include "net/dns/host_resolver_manager.h"
+#include "net/dns/host_resolver_proc.h"
 #include "net/http/http_stream_factory_test_util.h"
 #include "net/log/net_log.h"
 #include "net/socket/transport_client_socket_pool.h"
@@ -45,7 +55,7 @@ class TestHostResolverProc : public HostResolverProc {
 class HttpWithDnsOverHttpsTest : public TestWithScopedTaskEnvironment {
  public:
   HttpWithDnsOverHttpsTest()
-      : resolver_(HostResolver::Options(), nullptr),
+      : resolver_(HostResolver::CreateStandaloneContextResolver(nullptr)),
         request_context_(true),
         doh_server_(EmbeddedTestServer::Type::TYPE_HTTPS),
         test_server_(EmbeddedTestServer::Type::TYPE_HTTPS),
@@ -64,12 +74,14 @@ class HttpWithDnsOverHttpsTest : public TestWithScopedTaskEnvironment {
     DnsConfig config;
     config.nameservers.push_back(IPEndPoint());
     config.dns_over_https_servers.emplace_back(url.spec(), true /* use_post */);
+    config.secure_dns_mode = DnsConfig::SecureDnsMode::AUTOMATIC;
     dns_client->SetConfig(config);
-    resolver_.SetRequestContext(&request_context_);
-    resolver_.set_proc_params_for_test(
-        HostResolverImpl::ProcTaskParams(new TestHostResolverProc(), 1));
-    resolver_.SetDnsClient(std::move(dns_client));
-    request_context_.set_host_resolver(&resolver_);
+    resolver_->SetRequestContext(&request_context_);
+    resolver_->SetProcParamsForTesting(
+        ProcTaskParams(new TestHostResolverProc(), 1));
+    resolver_->GetManagerForTesting()->SetDnsClientForTesting(
+        std::move(dns_client));
+    request_context_.set_host_resolver(resolver_.get());
     request_context_.Init();
   }
 
@@ -79,19 +91,24 @@ class HttpWithDnsOverHttpsTest : public TestWithScopedTaskEnvironment {
       const test_server::HttpRequest& request) {
     if (request.relative_url.compare("/dns_query") == 0) {
       doh_queries_served_++;
-      uint8_t id1 = request.content[0];
-      uint8_t id2 = request.content[1];
-      std::unique_ptr<test_server::BasicHttpResponse> http_response(
-          new test_server::BasicHttpResponse);
-      const uint8_t header_data[] = {
-          id1,  id2,   // - Same ID as before
-          0x81, 0x80,  // - Different flags, we'll look at this below
-          0x00, 0x01,  // - 1 question
-          0x00, 0x01,  // - 1 answer
-          0x00, 0x00,  // - No authority records
-          0x00, 0x00,  // - No additional records
-      };
-      std::string question = request.content.substr(kHeaderSize);
+
+      // Parse request content as a DnsQuery to access the question.
+      auto request_buffer =
+          base::MakeRefCounted<IOBufferWithSize>(request.content.size());
+      memcpy(request_buffer->data(), request.content.data(),
+             request.content.size());
+      DnsQuery query(std::move(request_buffer));
+      EXPECT_TRUE(query.Parse(request.content.size()));
+
+      char header_data[kHeaderSize];
+      base::BigEndianWriter header_writer(header_data, kHeaderSize);
+      header_writer.WriteU16(query.id());  // Same ID as before
+      char flags[] = {0x81, 0x80};
+      header_writer.WriteBytes(flags, 2);
+      header_writer.WriteU16(1);  // 1 question
+      header_writer.WriteU16(1);  // 1 answer
+      header_writer.WriteU16(0);  // No authority records
+      header_writer.WriteU16(0);  // No additional records
 
       const uint8_t answer_data[]{0xC0, 0x0C,  // - NAME
                                   0x00, 0x01,  // - TYPE
@@ -101,8 +118,12 @@ class HttpWithDnsOverHttpsTest : public TestWithScopedTaskEnvironment {
                                   0x00, 0x04,  // - RDLENGTH = 4 bytes
                                   0x7f, 0x00,  // - RDDATA, IP is 127.0.0.1
                                   0x00, 0x01};
+
+      std::unique_ptr<test_server::BasicHttpResponse> http_response(
+          new test_server::BasicHttpResponse);
       http_response->set_content(
-          std::string((char*)header_data, sizeof(header_data)) + question +
+          std::string(header_data, sizeof(header_data)) +
+          query.question().as_string() +
           std::string((char*)answer_data, sizeof(answer_data)));
       http_response->set_content_type("application/dns-message");
       return std::move(http_response);
@@ -117,7 +138,7 @@ class HttpWithDnsOverHttpsTest : public TestWithScopedTaskEnvironment {
   }
 
  protected:
-  HostResolverImpl resolver_;
+  std::unique_ptr<ContextHostResolver> resolver_;
   TestURLRequestContext request_context_;
   EmbeddedTestServer doh_server_;
   EmbeddedTestServer test_server_;
@@ -148,7 +169,8 @@ class TestHttpDelegate : public HttpStreamRequest::Delegate {
 
   void OnStreamFailed(int status,
                       const NetErrorDetails& net_error_details,
-                      const SSLConfig& used_ssl_config) override {}
+                      const SSLConfig& used_ssl_config,
+                      const ProxyInfo& used_proxy_info) override {}
 
   void OnCertificateError(int status,
                           const SSLConfig& used_ssl_config,
@@ -161,12 +183,6 @@ class TestHttpDelegate : public HttpStreamRequest::Delegate {
 
   void OnNeedsClientAuth(const SSLConfig& used_ssl_config,
                          SSLCertRequestInfo* cert_info) override {}
-
-  void OnHttpsProxyTunnelResponseRedirect(
-      const HttpResponseInfo& response_info,
-      const SSLConfig& used_ssl_config,
-      const ProxyInfo& used_proxy_info,
-      std::unique_ptr<HttpStream> stream) override {}
 
   void OnQuicBroken() override {}
 
@@ -202,12 +218,14 @@ TEST_F(HttpWithDnsOverHttpsTest, EndToEnd) {
       &request_delegate, false, false, NetLogWithSource()));
   loop.Run();
 
-  std::string group_name(request_info.url.host() + ":" +
-                         request_info.url.port());
+  ClientSocketPool::GroupId group_id(
+      HostPortPair(request_info.url.host(), request_info.url.IntPort()),
+      ClientSocketPool::SocketType::kHttp, PrivacyMode::PRIVACY_MODE_DISABLED);
   EXPECT_EQ(network_session
-                ->GetTransportSocketPool(HttpNetworkSession::NORMAL_SOCKET_POOL)
-                ->IdleSocketCountInGroup(group_name),
-            1);
+                ->GetSocketPool(HttpNetworkSession::NORMAL_SOCKET_POOL,
+                                ProxyServer::Direct())
+                ->IdleSocketCountInGroup(group_id),
+            1u);
 
   // Make a request that will trigger a DoH query as well.
   TestDelegate d;

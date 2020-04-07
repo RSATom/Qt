@@ -11,13 +11,12 @@
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/memory/aligned_memory.h"
-#include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
+#include "base/test/scoped_task_environment.h"
 #include "gpu/command_buffer/client/cmd_buffer_helper.h"
 #include "gpu/command_buffer/client/fenced_allocator.h"
 #include "gpu/command_buffer/service/command_buffer_direct.h"
 #include "gpu/command_buffer/service/mocks.h"
-#include "gpu/command_buffer/service/transfer_buffer_manager.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace gpu {
@@ -37,9 +36,7 @@ class BaseFencedAllocatorTest : public testing::Test {
   static const int kAllocAlignment = 16;
 
   void SetUp() override {
-    transfer_buffer_manager_ = std::make_unique<TransferBufferManager>(nullptr);
-    command_buffer_.reset(
-        new CommandBufferDirect(transfer_buffer_manager_.get()));
+    command_buffer_.reset(new CommandBufferDirect());
     api_mock_.reset(new AsyncAPIMock(true, command_buffer_->service()));
     command_buffer_->set_handler(api_mock_.get());
 
@@ -58,11 +55,10 @@ class BaseFencedAllocatorTest : public testing::Test {
 
   int32_t GetToken() { return command_buffer_->GetLastState().token; }
 
-  std::unique_ptr<TransferBufferManager> transfer_buffer_manager_;
   std::unique_ptr<CommandBufferDirect> command_buffer_;
   std::unique_ptr<AsyncAPIMock> api_mock_;
   std::unique_ptr<CommandBufferHelper> helper_;
-  base::MessageLoop message_loop_;
+  base::test::ScopedTaskEnvironment scoped_task_environment_;
 };
 
 #ifndef _MSC_VER

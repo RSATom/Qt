@@ -67,7 +67,7 @@ QDesignerFormEditorInterface *QDesignerFormWindowCommand::core() const
     if (QDesignerFormWindowInterface *fw = formWindow())
         return fw->core();
 
-    return 0;
+    return nullptr;
 }
 
 void QDesignerFormWindowCommand::undo()
@@ -100,7 +100,7 @@ void QDesignerFormWindowCommand::updateBuddies(QDesignerFormWindowInterface *for
 {
     QExtensionManager* extensionManager = form->core()->extensionManager();
 
-    typedef QList<QLabel*> LabelList;
+    using LabelList = QList<QLabel *>;
 
     const LabelList label_list = form->findChildren<QLabel*>();
     if (label_list.empty())

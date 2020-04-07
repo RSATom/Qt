@@ -130,23 +130,26 @@ class SpellCheckTest : public testing::Test {
   base::test::ScopedTaskEnvironment task_environment_;
 };
 
+struct MockTextCheckingResult {
+  size_t completion_count_ = 0;
+  blink::WebVector<blink::WebTextCheckingResult> last_results_;
+};
+
 // A fake completion object for verification.
 class MockTextCheckingCompletion : public blink::WebTextCheckingCompletion {
  public:
-  MockTextCheckingCompletion()
-      : completion_count_(0) {
-  }
+  explicit MockTextCheckingCompletion(MockTextCheckingResult* result)
+      : result_(result) {}
 
   void DidFinishCheckingText(
       const blink::WebVector<blink::WebTextCheckingResult>& results) override {
-    completion_count_++;
-    last_results_ = results;
+    result_->completion_count_++;
+    result_->last_results_ = results;
   }
 
-  void DidCancelCheckingText() override { completion_count_++; }
+  void DidCancelCheckingText() override { result_->completion_count_++; }
 
-  size_t completion_count_;
-  blink::WebVector<blink::WebTextCheckingResult> last_results_;
+  MockTextCheckingResult* result_;
 };
 
 // Operates unit tests for the content::SpellCheck::SpellCheckWord() function
@@ -188,8 +191,8 @@ TEST_F(SpellCheckTest, SpellCheckStrings_EN_US) {
     //   * false: the input string has one or more invalid words.
     bool expected_result;
     // The position and the length of the first invalid word.
-    int misspelling_start;
-    int misspelling_length;
+    size_t misspelling_start;
+    size_t misspelling_length;
   } kTestCases[] = {
     // Empty strings.
     {L"", true},
@@ -406,12 +409,11 @@ TEST_F(SpellCheckTest, SpellCheckStrings_EN_US) {
     size_t input_length = 0;
     if (kTestCases[i].input)
       input_length = wcslen(kTestCases[i].input);
-    int misspelling_start;
-    int misspelling_length;
+    size_t misspelling_start;
+    size_t misspelling_length;
     bool result = spell_check()->SpellCheckWord(
-        base::WideToUTF16(kTestCases[i].input).c_str(), kNoOffset,
-        static_cast<int>(input_length), kNoTag, &misspelling_start,
-        &misspelling_length, nullptr);
+        base::WideToUTF16(kTestCases[i].input).c_str(), kNoOffset, input_length,
+        kNoTag, &misspelling_start, &misspelling_length, nullptr);
 
     EXPECT_EQ(kTestCases[i].expected_result, result);
     EXPECT_EQ(kTestCases[i].misspelling_start, misspelling_start);
@@ -455,18 +457,17 @@ TEST_F(SpellCheckTest, SpellCheckSuggestions_EN_US) {
     size_t input_length = 0;
     if (test_case.input)
       input_length = wcslen(test_case.input);
-    int misspelling_start;
-    int misspelling_length;
+    size_t misspelling_start;
+    size_t misspelling_length;
     bool result = spell_check()->SpellCheckWord(
-        base::WideToUTF16(test_case.input).c_str(), kNoOffset,
-        static_cast<int>(input_length), kNoTag, &misspelling_start,
-        &misspelling_length, &suggestions);
+        base::WideToUTF16(test_case.input).c_str(), kNoOffset, input_length,
+        kNoTag, &misspelling_start, &misspelling_length, &suggestions);
 
     // Check for spelling.
     EXPECT_EQ(test_case.expected_result, result);
 
     // Check if the suggested words occur.
-    bool suggested_word_is_present = base::ContainsValue(
+    bool suggested_word_is_present = base::Contains(
         suggestions, base::WideToUTF16(test_case.suggested_word));
     EXPECT_TRUE(suggested_word_is_present);
   }
@@ -511,6 +512,11 @@ TEST_F(SpellCheckTest, SpellCheckText) {
       L"uspo\x0159\x00E1\x0064\x0061t informace z cel\x00E9ho sv\x011Bta "
       L"tak, aby byly v\x0161\x0065obecn\x011B p\x0159\x00EDstupn\x00E9 "
       L"a u\x017Eite\x010Dn\x00E9."
+    }, {
+      // Welsh
+      "cy-GB",
+      L"Y genhadaeth yw trefnu gwybodaeth y byd a'i gwneud yn hygyrch ac yn "
+      L"ddefnyddiol i bawb."
     }, {
       // Danish
       "da-DK",
@@ -626,6 +632,18 @@ TEST_F(SpellCheckTest, SpellCheckText) {
       L"je misija organizirati svjetske informacije i u\x010Diniti ih "
       // L"univerzalno " - to be added.
       L"pristupa\x010Dnima i korisnima."
+    }, {
+      // Armenian
+      "hy",
+      L"Google- \x056B \x0561\x057C\x0561\x0584\x0565\x056C\x0578\x0582\x0569"
+      L"\x0575\x0578\x0582\x0576\x0576 \x0567 \x0570\x0561\x0574\x0561\x0577"
+      L"\x056D\x0561\x0580\x0570\x0561\x0575\x056B\x0576 \x057F\x0565\x0572"
+      L"\x0565\x056F\x0561\x057F\x057E\x0578\x0582\x0569\x0575\x0578\x0582"
+      L"\x0576\x0568 \x056F\x0561\x0566\x0574\x0561\x056F\x0565\x0580\x057A"
+      L"\x0565\x056C \x0565\x0582 \x0564\x0561\x0580\x0571\x0576\x0565\x056C "
+      L"\x0561\x0575\x0576 \x0570\x0561\x0574\x0568\x0576\x0564\x0570\x0561"
+      L"\x0576\x0578\x0582\x0580 \x0570\x0561\x057D\x0561\x0576\x0565\x056C"
+      L"\x056B \x0565\x0582 \x0585\x0563\x057F\x0561\x056F\x0561\x0580:"
     }, {
       // Indonesian
       "id-ID",
@@ -830,12 +848,11 @@ TEST_F(SpellCheckTest, SpellCheckText) {
     if (kTestCases[i].input)
       input_length = wcslen(kTestCases[i].input);
 
-    int misspelling_start = 0;
-    int misspelling_length = 0;
+    size_t misspelling_start = 0;
+    size_t misspelling_length = 0;
     bool result = spell_check()->SpellCheckWord(
-        base::WideToUTF16(kTestCases[i].input).c_str(), kNoOffset,
-        static_cast<int>(input_length), kNoTag, &misspelling_start,
-        &misspelling_length, nullptr);
+        base::WideToUTF16(kTestCases[i].input).c_str(), kNoOffset, input_length,
+        kNoTag, &misspelling_start, &misspelling_length, nullptr);
 
     EXPECT_TRUE(result)
         << "\""
@@ -844,8 +861,8 @@ TEST_F(SpellCheckTest, SpellCheckText) {
         << "\" is misspelled in "
         << kTestCases[i].language
         << ".";
-    EXPECT_EQ(0, misspelling_start);
-    EXPECT_EQ(0, misspelling_length);
+    EXPECT_EQ(0u, misspelling_start);
+    EXPECT_EQ(0u, misspelling_length);
   }
 }
 
@@ -887,14 +904,14 @@ TEST_F(SpellCheckTest, MisspelledWords) {
     ReinitializeSpellCheck(kTestCases[i].language);
 
     base::string16 word(base::WideToUTF16(kTestCases[i].input));
-    int word_length = static_cast<int>(word.length());
-    int misspelling_start = 0;
-    int misspelling_length = 0;
+    size_t word_length = word.length();
+    size_t misspelling_start = 0;
+    size_t misspelling_length = 0;
     bool result = spell_check()->SpellCheckWord(
         word.c_str(), kNoOffset, word_length, kNoTag, &misspelling_start,
         &misspelling_length, nullptr);
     EXPECT_FALSE(result);
-    EXPECT_EQ(0, misspelling_start);
+    EXPECT_EQ(0u, misspelling_start);
     EXPECT_EQ(word_length, misspelling_length);
   }
 }
@@ -985,9 +1002,11 @@ TEST_F(SpellCheckTest, SpellCheckParagraphLongSentenceMultipleMisspellings) {
 
 // Make sure RequestTextChecking does not crash if input is empty.
 TEST_F(SpellCheckTest, RequestSpellCheckWithEmptyString) {
-  MockTextCheckingCompletion completion;
+  MockTextCheckingResult completion;
 
-  spell_check()->RequestTextChecking(base::string16(), &completion);
+  spell_check()->RequestTextChecking(
+      base::string16(),
+      std::make_unique<MockTextCheckingCompletion>(&completion));
 
   base::RunLoop().RunUntilIdle();
 
@@ -996,10 +1015,11 @@ TEST_F(SpellCheckTest, RequestSpellCheckWithEmptyString) {
 
 // A simple test case having no misspellings.
 TEST_F(SpellCheckTest, RequestSpellCheckWithoutMisspelling) {
-  MockTextCheckingCompletion completion;
+  MockTextCheckingResult completion;
 
   const base::string16 text = base::ASCIIToUTF16("hello");
-  spell_check()->RequestTextChecking(text, &completion);
+  spell_check()->RequestTextChecking(
+      text, std::make_unique<MockTextCheckingCompletion>(&completion));
 
   base::RunLoop().RunUntilIdle();
 
@@ -1008,10 +1028,11 @@ TEST_F(SpellCheckTest, RequestSpellCheckWithoutMisspelling) {
 
 // A simple test case having one misspelling.
 TEST_F(SpellCheckTest, RequestSpellCheckWithSingleMisspelling) {
-  MockTextCheckingCompletion completion;
+  MockTextCheckingResult completion;
 
   const base::string16 text = base::ASCIIToUTF16("apple, zz");
-  spell_check()->RequestTextChecking(text, &completion);
+  spell_check()->RequestTextChecking(
+      text, std::make_unique<MockTextCheckingCompletion>(&completion));
 
   base::RunLoop().RunUntilIdle();
 
@@ -1023,10 +1044,11 @@ TEST_F(SpellCheckTest, RequestSpellCheckWithSingleMisspelling) {
 
 // A simple test case having a few misspellings.
 TEST_F(SpellCheckTest, RequestSpellCheckWithMisspellings) {
-  MockTextCheckingCompletion completion;
+  MockTextCheckingResult completion;
 
   const base::string16 text = base::ASCIIToUTF16("apple, zz, orange, zz");
-  spell_check()->RequestTextChecking(text, &completion);
+  spell_check()->RequestTextChecking(
+      text, std::make_unique<MockTextCheckingCompletion>(&completion));
 
   base::RunLoop().RunUntilIdle();
 
@@ -1041,7 +1063,7 @@ TEST_F(SpellCheckTest, RequestSpellCheckWithMisspellings) {
 // A test case that multiple requests comes at once. Make sure all
 // requests are processed.
 TEST_F(SpellCheckTest, RequestSpellCheckWithMultipleRequests) {
-  MockTextCheckingCompletion completion[3];
+  MockTextCheckingResult completion[3];
 
   const base::string16 text[3] = {
     base::ASCIIToUTF16("what, zz"),
@@ -1050,7 +1072,8 @@ TEST_F(SpellCheckTest, RequestSpellCheckWithMultipleRequests) {
   };
 
   for (int i = 0; i < 3; ++i)
-    spell_check()->RequestTextChecking(text[i], &completion[i]);
+    spell_check()->RequestTextChecking(
+        text[i], std::make_unique<MockTextCheckingCompletion>(&completion[i]));
 
   base::RunLoop().RunUntilIdle();
 
@@ -1067,10 +1090,11 @@ TEST_F(SpellCheckTest, RequestSpellCheckWithMultipleRequests) {
 TEST_F(SpellCheckTest, RequestSpellCheckWithoutInitialization) {
   UninitializeSpellCheck();
 
-  MockTextCheckingCompletion completion;
+  MockTextCheckingResult completion;
   const base::string16 text = base::ASCIIToUTF16("zz");
 
-  spell_check()->RequestTextChecking(text, &completion);
+  spell_check()->RequestTextChecking(
+      text, std::make_unique<MockTextCheckingCompletion>(&completion));
 
   // The task will not be posted yet.
   base::RunLoop().RunUntilIdle();
@@ -1082,7 +1106,7 @@ TEST_F(SpellCheckTest, RequestSpellCheckWithoutInitialization) {
 TEST_F(SpellCheckTest, RequestSpellCheckMultipleTimesWithoutInitialization) {
   UninitializeSpellCheck();
 
-  MockTextCheckingCompletion completion[3];
+  MockTextCheckingResult completion[3];
   const base::string16 text[3] = {
     base::ASCIIToUTF16("what, zz"),
     base::ASCIIToUTF16("apple, zz"),
@@ -1091,7 +1115,8 @@ TEST_F(SpellCheckTest, RequestSpellCheckMultipleTimesWithoutInitialization) {
 
   // Calls RequestTextchecking a few times.
   for (int i = 0; i < 3; ++i)
-    spell_check()->RequestTextChecking(text[i], &completion[i]);
+    spell_check()->RequestTextChecking(
+        text[i], std::make_unique<MockTextCheckingCompletion>(&completion[i]));
 
   // The last task will be posted after initialization, however the other
   // requests should be pressed without spellchecking.
@@ -1298,12 +1323,12 @@ TEST_F(SpellCheckTest, EnglishWords) {
       if (kTestCases[i].input)
         input_length = strlen(kTestCases[i].input);
 
-      int misspelling_start = 0;
-      int misspelling_length = 0;
+      size_t misspelling_start = 0;
+      size_t misspelling_length = 0;
       bool result = spell_check()->SpellCheckWord(
           base::ASCIIToUTF16(kTestCases[i].input).c_str(), kNoOffset,
-          static_cast<int>(input_length), kNoTag, &misspelling_start,
-          &misspelling_length, nullptr);
+          input_length, kNoTag, &misspelling_start, &misspelling_length,
+          nullptr);
 
       EXPECT_EQ(kTestCases[i].should_pass, result) << kTestCases[i].input <<
           " in " << kLocales[j];
@@ -1342,12 +1367,12 @@ TEST_F(SpellCheckTest, NoSuggest) {
 
     // First check that the NOSUGGEST flag didn't mark this word as not being in
     // the dictionary.
-    int misspelling_start = 0;
-    int misspelling_length = 0;
+    size_t misspelling_start = 0;
+    size_t misspelling_length = 0;
     bool result = spell_check()->SpellCheckWord(
         base::ASCIIToUTF16(test_case.suggestion).c_str(), kNoOffset,
-        static_cast<int>(suggestion_length), kNoTag, &misspelling_start,
-        &misspelling_length, nullptr);
+        suggestion_length, kNoTag, &misspelling_start, &misspelling_length,
+        nullptr);
 
     EXPECT_EQ(test_case.should_pass, result)
         << test_case.suggestion << " in " << test_case.locale;
@@ -1360,7 +1385,7 @@ TEST_F(SpellCheckTest, NoSuggest) {
       input_length = strlen(test_case.input);
     result = spell_check()->SpellCheckWord(
         base::ASCIIToUTF16(test_case.input).c_str(), kNoOffset,
-        static_cast<int>(input_length), kNoTag, &misspelling_start,
+        input_length, kNoTag, &misspelling_start,
         &misspelling_length, &suggestions);
     // Input word should be a misspelling.
     EXPECT_FALSE(result) << test_case.input << " is not a misspelling in "
@@ -1443,8 +1468,8 @@ TEST_F(SpellCheckTest, LogicalSuggestions) {
   };
 
   for (size_t i = 0; i < base::size(kTestCases); ++i) {
-    int misspelling_start = 0;
-    int misspelling_length = 0;
+    size_t misspelling_start = 0;
+    size_t misspelling_length = 0;
     std::vector<base::string16> suggestions;
     EXPECT_FALSE(spell_check()->SpellCheckWord(
         base::ASCIIToUTF16(kTestCases[i].misspelled).c_str(),
@@ -1505,13 +1530,14 @@ TEST_F(SpellCheckTest, FillSuggestions_OneLanguageManySuggestions) {
 
   suggestions_list.resize(1);
   for (int i = 0; i < spellcheck::kMaxSuggestions + 2; ++i)
-    suggestions_list[0].push_back(base::ASCIIToUTF16(base::IntToString(i)));
+    suggestions_list[0].push_back(base::ASCIIToUTF16(base::NumberToString(i)));
 
   FillSuggestions(suggestions_list, &suggestion_results);
   ASSERT_EQ(static_cast<size_t>(spellcheck::kMaxSuggestions),
             suggestion_results.size());
   for (int i = 0; i < spellcheck::kMaxSuggestions; ++i)
-    EXPECT_EQ(base::ASCIIToUTF16(base::IntToString(i)), suggestion_results[i]);
+    EXPECT_EQ(base::ASCIIToUTF16(base::NumberToString(i)),
+              suggestion_results[i]);
 }
 
 TEST_F(SpellCheckTest, FillSuggestions_RemoveDuplicates) {
@@ -1538,7 +1564,7 @@ TEST_F(SpellCheckTest, FillSuggestions_TwoLanguages) {
 
   suggestions_list.resize(2);
   for (size_t i = 0; i < 2; ++i) {
-    std::string prefix = base::IntToString(i);
+    std::string prefix = base::NumberToString(i);
     suggestions_list[i].push_back(base::ASCIIToUTF16(prefix + "foo"));
     suggestions_list[i].push_back(base::ASCIIToUTF16(prefix + "bar"));
     suggestions_list[i].push_back(base::ASCIIToUTF16(prefix + "baz"));
@@ -1562,7 +1588,7 @@ TEST_F(SpellCheckTest, FillSuggestions_ThreeLanguages) {
 
   suggestions_list.resize(3);
   for (size_t i = 0; i < 3; ++i) {
-    std::string prefix = base::IntToString(i);
+    std::string prefix = base::NumberToString(i);
     suggestions_list[i].push_back(base::ASCIIToUTF16(prefix + "foo"));
     suggestions_list[i].push_back(base::ASCIIToUTF16(prefix + "bar"));
     suggestions_list[i].push_back(base::ASCIIToUTF16(prefix + "baz"));

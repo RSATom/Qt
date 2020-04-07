@@ -66,14 +66,19 @@ void SecurityInterstitialPage::DontCreateViewForTesting() {
   create_view_ = false;
 }
 
+bool SecurityInterstitialPage::ShouldDisplayURL() const {
+  return true;
+}
+
 std::string SecurityInterstitialPage::GetHTMLContents() {
   base::DictionaryValue load_time_data;
   PopulateInterstitialStrings(&load_time_data);
   webui::SetLoadTimeDataDefaults(controller()->GetApplicationLocale(),
                                  &load_time_data);
-  std::string html = ui::ResourceBundle::GetSharedInstance()
-                         .GetRawDataResource(GetHTMLTemplateId())
-                         .as_string();
+  std::string html =
+      ui::ResourceBundle::GetSharedInstance().DecompressDataResource(
+          GetHTMLTemplateId());
+
   webui::AppendWebUiCssTextDefaults(&html);
   return webui::GetI18nTemplateHtml(html, &load_time_data);
 }

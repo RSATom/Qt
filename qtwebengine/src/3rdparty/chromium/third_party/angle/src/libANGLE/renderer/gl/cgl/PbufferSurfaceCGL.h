@@ -18,7 +18,6 @@ namespace rx
 class FunctionsGL;
 class RendererGL;
 class StateManagerGL;
-struct WorkaroundsGL;
 
 class PbufferSurfaceCGL : public SurfaceGL
 {
@@ -30,7 +29,7 @@ class PbufferSurfaceCGL : public SurfaceGL
     ~PbufferSurfaceCGL() override;
 
     egl::Error initialize(const egl::Display *display) override;
-    egl::Error makeCurrent() override;
+    egl::Error makeCurrent(const gl::Context *context) override;
 
     egl::Error swap(const gl::Context *context) override;
     egl::Error postSubBuffer(const gl::Context *context,

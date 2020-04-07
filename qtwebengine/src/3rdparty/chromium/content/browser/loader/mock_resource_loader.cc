@@ -44,7 +44,7 @@ class MockResourceLoader::TestResourceController : public ResourceController {
 };
 
 MockResourceLoader::MockResourceLoader(ResourceHandler* resource_handler)
-    : resource_handler_(resource_handler), weak_factory_(this) {
+    : resource_handler_(resource_handler) {
   resource_handler_->SetDelegate(this);
 }
 
@@ -116,7 +116,7 @@ MockResourceLoader::Status MockResourceLoader::OnWillRead() {
   }
 
   return status_;
-};
+}
 
 MockResourceLoader::Status MockResourceLoader::OnReadCompleted(
     base::StringPiece bytes) {

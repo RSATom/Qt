@@ -42,7 +42,7 @@ enum TextFieldSelectionDirection {
   kSelectionHasForwardDirection,
   kSelectionHasBackwardDirection
 };
-enum TextFieldEventBehavior {
+enum class TextFieldEventBehavior {
   kDispatchNoEvent,
   kDispatchChangeEvent,
   kDispatchInputAndChangeEvent
@@ -50,6 +50,7 @@ enum TextFieldEventBehavior {
 
 enum class TextControlSetValueSelection {
   kSetSelectionToEnd,
+  kClamp,
   kDoNotSet,
 };
 
@@ -123,7 +124,7 @@ class CORE_EXPORT TextControlElement : public HTMLFormControlElementWithState {
   virtual String value() const = 0;
   virtual void setValue(
       const String&,
-      TextFieldEventBehavior = kDispatchNoEvent,
+      TextFieldEventBehavior = TextFieldEventBehavior::kDispatchNoEvent,
       TextControlSetValueSelection =
           TextControlSetValueSelection::kSetSelectionToEnd) = 0;
 
@@ -174,6 +175,7 @@ class CORE_EXPORT TextControlElement : public HTMLFormControlElementWithState {
                                        CloneChildrenFlag) override;
 
  private:
+  bool ShouldApplySelectionCache() const;
   unsigned ComputeSelectionStart() const;
   unsigned ComputeSelectionEnd() const;
   TextFieldSelectionDirection ComputeSelectionDirection() const;
@@ -190,6 +192,7 @@ class CORE_EXPORT TextControlElement : public HTMLFormControlElementWithState {
                          WebFocusType,
                          InputDeviceCapabilities* source_capabilities) final;
   void ScheduleSelectEvent();
+  void DisabledOrReadonlyAttributeChanged(const QualifiedName&);
 
   // Returns true if user-editable value is empty. Used to check placeholder
   // visibility.
@@ -231,7 +234,8 @@ class CORE_EXPORT TextControlElement : public HTMLFormControlElementWithState {
 };
 
 inline bool IsTextControl(const Node& node) {
-  return node.IsElementNode() && ToElement(node).IsTextControl();
+  auto* element = DynamicTo<Element>(node);
+  return element && element->IsTextControl();
 }
 inline bool IsTextControl(const Node* node) {
   return node && IsTextControl(*node);

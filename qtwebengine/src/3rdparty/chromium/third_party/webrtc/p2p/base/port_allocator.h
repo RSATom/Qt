@@ -244,7 +244,7 @@ class RTC_EXPORT PortAllocatorSession : public sigslot::has_slots<> {
   // Get candidate-level stats from all candidates on the ready ports and return
   // the stats to the given list.
   virtual void GetCandidateStatsFromReadyPorts(
-      CandidateStatsList* candidate_stats_list) const;
+      CandidateStatsList* candidate_stats_list) const {}
   // Set the interval at which STUN candidates will resend STUN binding requests
   // on the underlying ports to keep NAT bindings open.
   // The default value of the interval in implementation is restored if a null
@@ -271,6 +271,8 @@ class RTC_EXPORT PortAllocatorSession : public sigslot::has_slots<> {
       SignalPortsPruned;
   sigslot::signal2<PortAllocatorSession*, const std::vector<Candidate>&>
       SignalCandidatesReady;
+  sigslot::signal2<PortAllocatorSession*, const IceCandidateErrorEvent&>
+      SignalCandidateError;
   // Candidates should be signaled to be removed when the port that generated
   // the candidates is removed.
   sigslot::signal2<PortAllocatorSession*, const std::vector<Candidate>&>
@@ -428,6 +430,13 @@ class RTC_EXPORT PortAllocator : public sigslot::has_slots<> {
   // Discard any remaining pooled sessions.
   void DiscardCandidatePool();
 
+  // Clears the address and the related address fields of a local candidate to
+  // avoid IP leakage. This is applicable in several scenarios:
+  // 1. Sanitization is configured via the candidate filter.
+  // 2. Sanitization is configured via the port allocator flags.
+  // 3. mDNS concealment of private IPs is enabled.
+  Candidate SanitizeCandidate(const Candidate& c) const;
+
   uint32_t flags() const {
     CheckRunOnValidThreadIfInitialized();
     return flags_;
@@ -528,10 +537,22 @@ class RTC_EXPORT PortAllocator : public sigslot::has_slots<> {
     return candidate_filter_;
   }
 
-  void set_candidate_filter(uint32_t filter) {
-    CheckRunOnValidThreadIfInitialized();
-    candidate_filter_ = filter;
-  }
+  // The new filter value will be populated to future allocation sessions, when
+  // they are created via CreateSession, and also pooled sessions when one is
+  // taken via TakePooledSession.
+  //
+  // A change in the candidate filter also fires a signal
+  // |SignalCandidateFilterChanged|, so that objects subscribed to this signal
+  // can, for example, update the candidate filter for sessions created by this
+  // allocator and already taken by the object.
+  //
+  // Specifically for the session taken by the ICE transport, we currently do
+  // not support removing candidate pairs formed with local candidates from this
+  // session that are disabled by the new candidate filter.
+  void SetCandidateFilter(uint32_t filter);
+  // Deprecated.
+  // TODO(qingsi): Remove this after Chromium migrates to the new method.
+  void set_candidate_filter(uint32_t filter) { SetCandidateFilter(filter); }
 
   bool prune_turn_ports() const {
     CheckRunOnValidThreadIfInitialized();
@@ -565,6 +586,10 @@ class RTC_EXPORT PortAllocator : public sigslot::has_slots<> {
   // Return IceParameters of the pooled sessions.
   std::vector<IceParameters> GetPooledIceCredentials();
 
+  // Fired when |candidate_filter_| changes.
+  sigslot::signal2<uint32_t /* prev_filter */, uint32_t /* cur_filter */>
+      SignalCandidateFilterChanged;
+
  protected:
   virtual PortAllocatorSession* CreateSessionInternal(
       const std::string& content_name,
@@ -576,14 +601,17 @@ class RTC_EXPORT PortAllocator : public sigslot::has_slots<> {
     return pooled_sessions_;
   }
 
+  // Returns true if there is an mDNS responder attached to the network manager.
+  virtual bool MdnsObfuscationEnabled() const { return false; }
+
   // The following thread checks are only done in DCHECK for the consistency
   // with the exsiting thread checks.
   void CheckRunOnValidThreadIfInitialized() const {
-    RTC_DCHECK(!initialized_ || thread_checker_.CalledOnValidThread());
+    RTC_DCHECK(!initialized_ || thread_checker_.IsCurrent());
   }
 
   void CheckRunOnValidThreadAndInitialized() const {
-    RTC_DCHECK(initialized_ && thread_checker_.CalledOnValidThread());
+    RTC_DCHECK(initialized_ && thread_checker_.IsCurrent());
   }
 
   bool initialized_ = false;

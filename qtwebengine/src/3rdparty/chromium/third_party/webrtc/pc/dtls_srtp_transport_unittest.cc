@@ -11,6 +11,7 @@
 #include "pc/dtls_srtp_transport.h"
 
 #include <string.h>
+
 #include <cstdint>
 #include <memory>
 #include <set>
@@ -34,12 +35,12 @@
 using cricket::FakeDtlsTransport;
 using cricket::FakeIceTransport;
 using webrtc::DtlsSrtpTransport;
-using webrtc::SrtpTransport;
 using webrtc::RtpTransport;
+using webrtc::SrtpTransport;
 
 const int kRtpAuthTagLen = 10;
 
-class DtlsSrtpTransportTest : public testing::Test,
+class DtlsSrtpTransportTest : public ::testing::Test,
                               public sigslot::has_slots<> {
  protected:
   DtlsSrtpTransportTest() {}

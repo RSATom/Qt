@@ -74,7 +74,7 @@ QString qax_docuFromName(ITypeInfo *typeInfo, const QString &name)
     if (memId != DISPID_UNKNOWN) {
         BSTR docStringBstr, helpFileBstr;
         ulong helpContext;
-        HRESULT hres = typeInfo->GetDocumentation(memId, 0, &docStringBstr, &helpContext, &helpFileBstr);
+        HRESULT hres = typeInfo->GetDocumentation(memId, nullptr, &docStringBstr, &helpContext, &helpFileBstr);
         QString docString = QString::fromWCharArray(docStringBstr);
         QString helpFile = QString::fromWCharArray(helpFileBstr);
         SysFreeString(docStringBstr);
@@ -142,8 +142,8 @@ QString qax_generateDocumentation(QAxBase *that)
     if (that->isNull())
         return QString();
 
-    ITypeInfo *typeInfo = 0;
-    IDispatch *dispatch = 0;
+    ITypeInfo *typeInfo = nullptr;
+    IDispatch *dispatch = nullptr;
     that->queryInterface(IID_IDispatch, reinterpret_cast<void **>(&dispatch));
     if (dispatch)
         dispatch->GetTypeInfo(0, LOCALE_SYSTEM_DEFAULT, &typeInfo);
@@ -160,7 +160,7 @@ QString qax_generateDocumentation(QAxBase *that)
 
     stream << "<h3>Interfaces</h3>" << endl;
     stream << "<ul>" << endl;
-    const char *inter = 0;
+    const char *inter = nullptr;
     UINT interCount = 1;
     while ((inter = mo->classInfo(mo->indexOfClassInfo("Interface " + QByteArray::number(interCount))).value())) {
         stream << "<li>" << inter << endl;
@@ -246,13 +246,13 @@ QString qax_generateDocumentation(QAxBase *that)
     }
     int signalCount = mo->methodCount();
     if (signalCount) {
-        ITypeLib *typeLib = 0;
+        ITypeLib *typeLib = nullptr;
         if (typeInfo) {
             UINT index = 0;
             typeInfo->GetContainingTypeLib(&typeLib, &index);
             typeInfo->Release();
         }
-        typeInfo = 0;
+        typeInfo = nullptr;
 
         stream << "<h2>Signals:</h2>" << endl;
         stream << "<ul>" << endl;
@@ -275,7 +275,7 @@ QString qax_generateDocumentation(QAxBase *that)
                 do {
                     if (typeInfo)
                         typeInfo->Release();
-                    typeInfo = 0;
+                    typeInfo = nullptr;
                     typeLib->GetTypeInfo(++interCount, &typeInfo);
                     QString typeLibDocu = docuFromName(typeInfo, QString::fromLatin1(name.constData()));
                     if (!typeLibDocu.isEmpty()) {
@@ -294,7 +294,7 @@ QString qax_generateDocumentation(QAxBase *that)
             methodDetails << detail;
             if (typeInfo)
                 typeInfo->Release();
-            typeInfo = 0;
+            typeInfo = nullptr;
         }
         stream << "</ul>" << endl;
 

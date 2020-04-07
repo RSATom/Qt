@@ -10,6 +10,7 @@
 #include <map>
 #include <memory>
 
+#include "base/bind.h"
 #include "base/macros.h"
 #include "base/memory/ptr_util.h"
 #include "base/memory/weak_ptr.h"
@@ -67,7 +68,7 @@ class DeferredDestroyStrongBindingSet {
     DeleteCallback delete_cb_;
   };
 
-  DeferredDestroyStrongBindingSet() : weak_factory_(this) {}
+  DeferredDestroyStrongBindingSet() {}
 
   void AddBinding(std::unique_ptr<DeferredDestroy<Interface>> impl,
                   mojo::InterfaceRequest<Interface> request) {
@@ -127,7 +128,7 @@ class DeferredDestroyStrongBindingSet {
 
   // Note: This should remain the last member so it'll be destroyed and
   // invalidate its weak pointers before any other members are destroyed.
-  base::WeakPtrFactory<DeferredDestroyStrongBindingSet> weak_factory_;
+  base::WeakPtrFactory<DeferredDestroyStrongBindingSet> weak_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(DeferredDestroyStrongBindingSet);
 };

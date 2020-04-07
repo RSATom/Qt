@@ -704,7 +704,33 @@
                         }
                     }
                 }
-
+            },
+            "ANGLEBaseVertexBaseInstance":{
+                "condition": "mResources.ANGLE_base_vertex_base_instance",
+                "subgroups":{
+                  "ESSL3":{
+                        "variables":{
+                            "gl_BaseVertex":{
+                                "level":"ESSL3_BUILTINS",
+                                "extension":"ANGLE_base_vertex_base_instance",
+                                "type":{
+                                    "basic":"Int",
+                                    "precision":"High",
+                                    "qualifier":"BaseVertex"
+                                }
+                            },
+                            "gl_BaseInstance":{
+                                "level":"ESSL3_BUILTINS",
+                                "extension":"ANGLE_base_vertex_base_instance",
+                                "type":{
+                                    "basic":"Int",
+                                    "precision":"High",
+                                    "qualifier":"BaseInstance"
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     },
@@ -856,13 +882,12 @@
         }
     },
     "Multiview":{
-        "condition":"mResources.OVR_multiview && shaderType != GL_COMPUTE_SHADER",
+        "condition":"(mResources.OVR_multiview||mResources.OVR_multiview2) && shaderType != GL_COMPUTE_SHADER",
         "subgroups":{
             "ESSL3":{
                 "variables":{
                     "gl_ViewID_OVR":{
                         "level":"ESSL3_BUILTINS",
-                        "extension":"OVR_multiview",
                         "type":{
                             "basic":"UInt",
                             "precision":"High",
@@ -876,7 +901,6 @@
                     "gl_ViewID_OVR":{
                         "suffix":"ESSL1",
                         "level":"ESSL1_BUILTINS",
-                        "extension":"OVR_multiview",
                         "type":{
                             "basic":"Int",
                             "precision":"High",

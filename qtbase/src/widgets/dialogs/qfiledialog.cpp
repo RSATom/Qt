@@ -44,6 +44,7 @@
 #include "qfiledialog.h"
 
 #include "qfiledialog_p.h"
+#include <private/qapplication_p.h>
 #include <private/qguiapplication_p.h>
 #include <qfontmetrics.h>
 #include <qaction.h>
@@ -76,6 +77,8 @@
 #if defined(Q_OS_WASM)
 #include <private/qwasmlocalfileaccess_p.h>
 #endif
+
+#include <algorithm>
 
 QT_BEGIN_NAMESPACE
 
@@ -2371,7 +2374,8 @@ QList<QUrl> QFileDialog::getOpenFileUrls(QWidget *parent,
 
     This function is used to access local files on Qt for WebAssembly, where the web
     sandbox places restrictions on how such access may happen. Its implementation will
-    make the browser display a native file dialog, where the user makes the file selection.
+    make the browser display a native file dialog, where the user makes the file selection
+    based on the parameter \a nameFilter.
 
     It can also be used on other platforms, where it will fall back to using QFileDialog.
 
@@ -2431,6 +2435,51 @@ void QFileDialog::getOpenFileContent(const QString &nameFilter, const std::funct
             fileContent = selectedFile.readAll();
         }
         fileOpenCompleted(fileName, fileContent);
+    };
+
+    auto dialogClosed = [=](int code) {
+        Q_UNUSED(code);
+        delete dialog;
+    };
+
+    connect(dialog, &QFileDialog::fileSelected, fileSelected);
+    connect(dialog, &QFileDialog::finished, dialogClosed);
+    dialog->show();
+#endif
+}
+
+/*!
+    This is a convenience static function that saves \a fileContent to a file, using
+    a file name and location chosen by the user. \a fileNameHint can be provided to
+    suggest a file name to the user.
+
+    This function is used to save files to the local file system on Qt for WebAssembly, where
+    the web sandbox places restrictions on how such access may happen. Its implementation will
+    make the browser display a native file dialog, where the user makes the file selection.
+
+    It can also be used on other platforms, where it will fall back to using QFileDialog.
+
+    The function is asynchronous and returns immediately.
+
+    \snippet code/src_gui_dialogs_qfiledialog.cpp 16
+    \since 5.14
+*/
+void QFileDialog::saveFileContent(const QByteArray &fileContent, const QString &fileNameHint)
+{
+#ifdef Q_OS_WASM
+    QWasmLocalFileAccess::saveFile(fileContent.constData(), fileContent.size(), fileNameHint.toStdString());
+#else
+    QFileDialog *dialog = new QFileDialog();
+    dialog->setAcceptMode(QFileDialog::AcceptSave);
+    dialog->setFileMode(QFileDialog::AnyFile);
+    dialog->selectFile(fileNameHint);
+
+    auto fileSelected = [=](const QString &fileName) {
+        if (!fileName.isNull()) {
+            QFile selectedFile(fileName);
+            if (selectedFile.open(QIODevice::WriteOnly))
+                selectedFile.write(fileContent);
+        }
     };
 
     auto dialogClosed = [=](int code) {
@@ -3372,6 +3421,18 @@ void QFileDialogPrivate::_q_goHome()
     q->setDirectory(QDir::homePath());
 }
 
+
+void QFileDialogPrivate::saveHistorySelection()
+{
+    if (qFileDialogUi.isNull() || currentHistoryLocation < 0 || currentHistoryLocation >= currentHistory.size())
+        return;
+    auto &item = currentHistory[currentHistoryLocation];
+    item.selection.clear();
+    const auto selectedIndexes = qFileDialogUi->listView->selectionModel()->selectedRows();
+    for (const auto &index : selectedIndexes)
+        item.selection.append(QPersistentModelIndex(index));
+}
+
 /*!
     \internal
 
@@ -3385,15 +3446,47 @@ void QFileDialogPrivate::_q_pathChanged(const QString &newPath)
     qFileDialogUi->sidebar->selectUrl(QUrl::fromLocalFile(newPath));
     q->setHistory(qFileDialogUi->lookInCombo->history());
 
-    if (currentHistoryLocation < 0 || currentHistory.value(currentHistoryLocation) != QDir::toNativeSeparators(newPath)) {
+    const QString newNativePath = QDir::toNativeSeparators(newPath);
+
+    // equal paths indicate this was invoked by _q_navigateBack/Forward()
+    if (currentHistoryLocation < 0 || currentHistory.value(currentHistoryLocation).path != newNativePath) {
+        if (currentHistoryLocation >= 0)
+            saveHistorySelection();
         while (currentHistoryLocation >= 0 && currentHistoryLocation + 1 < currentHistory.count()) {
             currentHistory.removeLast();
         }
-        currentHistory.append(QDir::toNativeSeparators(newPath));
+        currentHistory.append({newNativePath, PersistentModelIndexList()});
         ++currentHistoryLocation;
     }
     qFileDialogUi->forwardButton->setEnabled(currentHistory.size() - currentHistoryLocation > 1);
     qFileDialogUi->backButton->setEnabled(currentHistoryLocation > 0);
+}
+
+void QFileDialogPrivate::navigate(HistoryItem &historyItem)
+{
+    Q_Q(QFileDialog);
+    q->setDirectory(historyItem.path);
+    // Restore selection unless something has changed in the file system
+    if (qFileDialogUi.isNull() || historyItem.selection.isEmpty())
+        return;
+    if (std::any_of(historyItem.selection.cbegin(), historyItem.selection.cend(),
+                    [](const QPersistentModelIndex &i) { return !i.isValid(); })) {
+        historyItem.selection.clear();
+        return;
+    }
+
+    QAbstractItemView *view = q->viewMode() == QFileDialog::List
+        ? static_cast<QAbstractItemView *>(qFileDialogUi->listView)
+        : static_cast<QAbstractItemView *>(qFileDialogUi->treeView);
+    auto selectionModel = view->selectionModel();
+    const QItemSelectionModel::SelectionFlags flags = QItemSelectionModel::Select
+        | QItemSelectionModel::Rows;
+    selectionModel->select(historyItem.selection.constFirst(),
+                           flags | QItemSelectionModel::Clear | QItemSelectionModel::Current);
+    for (int i = 1, size = historyItem.selection.size(); i < size; ++i)
+        selectionModel->select(historyItem.selection.at(i), flags);
+
+    view->scrollTo(historyItem.selection.constFirst());
 }
 
 /*!
@@ -3403,11 +3496,9 @@ void QFileDialogPrivate::_q_pathChanged(const QString &newPath)
 */
 void QFileDialogPrivate::_q_navigateBackward()
 {
-    Q_Q(QFileDialog);
     if (!currentHistory.isEmpty() && currentHistoryLocation > 0) {
-        --currentHistoryLocation;
-        QString previousHistory = currentHistory.at(currentHistoryLocation);
-        q->setDirectory(previousHistory);
+        saveHistorySelection();
+        navigate(currentHistory[--currentHistoryLocation]);
     }
 }
 
@@ -3418,11 +3509,9 @@ void QFileDialogPrivate::_q_navigateBackward()
 */
 void QFileDialogPrivate::_q_navigateForward()
 {
-    Q_Q(QFileDialog);
     if (!currentHistory.isEmpty() && currentHistoryLocation < currentHistory.size() - 1) {
-        ++currentHistoryLocation;
-        QString nextHistory = currentHistory.at(currentHistoryLocation);
-        q->setDirectory(nextHistory);
+        saveHistorySelection();
+        navigate(currentHistory[++currentHistoryLocation]);
     }
 }
 
@@ -3633,12 +3722,13 @@ void QFileDialogPrivate::_q_autoCompleteFileName(const QString &text)
             if (oldFiles.removeAll(idx) == 0)
                 newFiles.append(idx);
         }
-        for (int i = 0; i < newFiles.count(); ++i)
-            select(newFiles.at(i));
-        if (lineEdit()->hasFocus())
-            for (int i = 0; i < oldFiles.count(); ++i)
-                qFileDialogUi->listView->selectionModel()->select(oldFiles.at(i),
-                    QItemSelectionModel::Toggle | QItemSelectionModel::Rows);
+        for (const auto &newFile : qAsConst(newFiles))
+            select(newFile);
+        if (lineEdit()->hasFocus()) {
+            auto *sm = qFileDialogUi->listView->selectionModel();
+            for (const auto &oldFile : qAsConst(oldFiles))
+                sm->select(oldFile, QItemSelectionModel::Toggle | QItemSelectionModel::Rows);
+        }
     }
 }
 
@@ -3992,7 +4082,7 @@ bool QFileDialogPrivate::itemViewKeyboardEvent(QKeyEvent *event) {
         return true;
     case Qt::Key_Back:
 #ifdef QT_KEYPAD_NAVIGATION
-        if (QApplication::keypadNavigationEnabled())
+        if (QApplicationPrivate::keypadNavigationEnabled())
             return false;
 #endif
     case Qt::Key_Left:

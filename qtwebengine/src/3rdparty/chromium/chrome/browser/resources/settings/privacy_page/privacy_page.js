@@ -95,14 +95,6 @@ Polymer({
     },
 
     /** @private */
-    enableSoundContentSetting_: {
-      type: Boolean,
-      value: function() {
-        return loadTimeData.getBoolean('enableSoundContentSetting');
-      }
-    },
-
-    /** @private */
     enableBlockAutoplayContentSetting_: {
       type: Boolean,
       value: function() {
@@ -115,14 +107,6 @@ Polymer({
       type: Object,
       value: function() {
         return /** @type {BlockAutoplayStatus} */ ({});
-      }
-    },
-
-    /** @private */
-    enableClipboardContentSetting_: {
-      type: Boolean,
-      value: function() {
-        return loadTimeData.getBoolean('enableClipboardContentSetting');
       }
     },
 
@@ -143,6 +127,31 @@ Polymer({
       }
     },
 
+    /** @private */
+    enableExperimentalWebPlatformFeatures_: {
+      type: Boolean,
+      value: function() {
+        return loadTimeData.getBoolean('enableExperimentalWebPlatformFeatures');
+      },
+    },
+
+    /** @private */
+    enableSecurityKeysSubpage_: {
+      type: Boolean,
+      readOnly: true,
+      value: function() {
+        return loadTimeData.getBoolean('enableSecurityKeysSubpage');
+      }
+    },
+
+    /** @private */
+    enableBluetoothScanningContentSetting_: {
+      type: Boolean,
+      value: function() {
+        return loadTimeData.getBoolean('enableBluetoothScanningContentSetting');
+      }
+    },
+
     /** @private {!Map<string, string>} */
     focusConfig_: {
       type: Object,
@@ -150,21 +159,25 @@ Polymer({
         const map = new Map();
         // <if expr="use_nss_certs">
         if (settings.routes.CERTIFICATES) {
-          map.set(
-              settings.routes.CERTIFICATES.path,
-              '#manageCertificates .subpage-arrow button');
+          map.set(settings.routes.CERTIFICATES.path, '#manageCertificates');
         }
         // </if>
         if (settings.routes.SITE_SETTINGS) {
           map.set(
               settings.routes.SITE_SETTINGS.path,
-              '#site-settings-subpage-trigger .subpage-arrow button');
+              '#site-settings-subpage-trigger');
         }
 
         if (settings.routes.SITE_SETTINGS_SITE_DATA) {
           map.set(
               settings.routes.SITE_SETTINGS_SITE_DATA.path,
-              '#site-data-trigger .subpage-arrow button');
+              '#site-data-trigger');
+        }
+
+        if (settings.routes.SECURITY_KEYS) {
+          map.set(
+              settings.routes.SECURITY_KEYS.path,
+              '#security-keys-subpage-trigger');
         }
         return map;
       },
@@ -173,7 +186,7 @@ Polymer({
     /**
      * This flag is used to conditionally show a set of sync UIs to the
      * profiles that have been migrated to have a unified consent flow.
-     * TODO(scottchen): In the future when all profiles are completely migrated,
+     * TODO(tangltom): In the future when all profiles are completely migrated,
      * this should be removed, and UIs hidden behind it should become default.
      * @private
      */
@@ -199,6 +212,7 @@ Polymer({
   /** @override */
   ready: function() {
     this.ContentSettingsTypes = settings.ContentSettingsTypes;
+    this.ChooserType = settings.ChooserType;
 
     this.browserProxy_ = settings.PrivacyPageBrowserProxyImpl.getInstance();
 
@@ -367,18 +381,12 @@ Polymer({
   /** @private */
   onDialogClosed_: function() {
     settings.navigateTo(settings.routes.CLEAR_BROWSER_DATA.parent);
-    cr.ui.focusWithoutInk(assert(this.$.clearBrowsingDataTrigger));
+    cr.ui.focusWithoutInk(assert(this.$.clearBrowsingData));
   },
 
-  /**
-   * The sub-page title for the site or content settings.
-   * @return {string}
-   * @private
-   */
-  siteSettingsPageTitle_: function() {
-    return loadTimeData.getBoolean('enableSiteSettings') ?
-        loadTimeData.getString('siteSettings') :
-        loadTimeData.getString('contentSettings');
+  /** @private */
+  onSecurityKeysTap_: function() {
+    settings.navigateTo(settings.routes.SECURITY_KEYS);
   },
 
   /** @private */

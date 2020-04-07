@@ -41,9 +41,6 @@ CJS_Result CJX_Tree::resolveNode(
 
   WideString expression = runtime->ToWideString(params[0]);
   CFXJSE_Engine* pScriptContext = GetDocument()->GetScriptContext();
-  if (!pScriptContext)
-    return CJS_Result::Success();
-
   CXFA_Object* refNode = GetXFAObject();
   if (refNode->GetElementType() == XFA_Element::Xfa)
     refNode = pScriptContext->GetThisObject();
@@ -61,9 +58,7 @@ CJS_Result CJX_Tree::resolveNode(
   if (resolveNodeRS.dwFlags == XFA_ResolveNode_RSType_Nodes) {
     CXFA_Object* pObject = resolveNodeRS.objects.front().Get();
     CFXJSE_Value* value =
-        GetDocument()->GetScriptContext()->GetJSValueFromMap(pObject);
-    if (!value)
-      return CJS_Result::Success(runtime->NewNull());
+        GetDocument()->GetScriptContext()->GetOrCreateJSBindingFromMap(pObject);
 
     return CJS_Result::Success(
         value->DirectGetValue().Get(runtime->GetIsolate()));
@@ -93,9 +88,6 @@ CJS_Result CJX_Tree::resolveNodes(
     refNode = GetDocument()->GetScriptContext()->GetThisObject();
 
   CFXJSE_Engine* pScriptContext = GetDocument()->GetScriptContext();
-  if (!pScriptContext)
-    return CJS_Result::Success();
-
   auto pValue = pdfium::MakeUnique<CFXJSE_Value>(pScriptContext->GetIsolate());
   ResolveNodeList(pValue.get(), runtime->ToWideString(params[0]),
                   XFA_RESOLVENODE_Children | XFA_RESOLVENODE_Attributes |
@@ -136,19 +128,16 @@ void CJX_Tree::classAll(CFXJSE_Value* pValue,
 void CJX_Tree::nodes(CFXJSE_Value* pValue,
                      bool bSetting,
                      XFA_Attribute eAttribute) {
-  CFXJSE_Engine* pScriptContext = GetDocument()->GetScriptContext();
-  if (!pScriptContext)
-    return;
-
   if (bSetting) {
     WideString wsMessage = L"Unable to set ";
     FXJSE_ThrowMessage(wsMessage.ToUTF8().AsStringView());
     return;
   }
 
+  CFXJSE_Engine* pScriptContext = GetDocument()->GetScriptContext();
   CXFA_AttachNodeList* pNodeList =
       new CXFA_AttachNodeList(GetDocument(), ToNode(GetXFAObject()));
-  pValue->SetObject(pNodeList, pScriptContext->GetJseNormalClass());
+  pValue->SetHostObject(pNodeList, pScriptContext->GetJseNormalClass());
 }
 
 void CJX_Tree::parent(CFXJSE_Value* pValue,
@@ -165,7 +154,8 @@ void CJX_Tree::parent(CFXJSE_Value* pValue,
     return;
   }
 
-  pValue->Assign(GetDocument()->GetScriptContext()->GetJSValueFromMap(pParent));
+  pValue->Assign(
+      GetDocument()->GetScriptContext()->GetOrCreateJSBindingFromMap(pParent));
 }
 
 void CJX_Tree::index(CFXJSE_Value* pValue,
@@ -176,12 +166,9 @@ void CJX_Tree::index(CFXJSE_Value* pValue,
     return;
   }
 
-  CFXJSE_Engine* pScriptContext = GetDocument()->GetScriptContext();
-  if (!pScriptContext) {
-    pValue->SetInteger(-1);
-    return;
-  }
-  pValue->SetInteger(pScriptContext->GetIndexByName(ToNode(GetXFAObject())));
+  CXFA_Node* pNode = ToNode(GetXFAObject());
+  size_t iIndex = pNode ? pNode->GetIndexByName() : 0;
+  pValue->SetInteger(pdfium::base::checked_cast<int32_t>(iIndex));
 }
 
 void CJX_Tree::classIndex(CFXJSE_Value* pValue,
@@ -192,13 +179,9 @@ void CJX_Tree::classIndex(CFXJSE_Value* pValue,
     return;
   }
 
-  CFXJSE_Engine* pScriptContext = GetDocument()->GetScriptContext();
-  if (!pScriptContext) {
-    pValue->SetInteger(-1);
-    return;
-  }
-  pValue->SetInteger(
-      pScriptContext->GetIndexByClassName(ToNode(GetXFAObject())));
+  CXFA_Node* pNode = ToNode(GetXFAObject());
+  size_t iIndex = pNode ? pNode->GetIndexByClassName() : 0;
+  pValue->SetInteger(pdfium::base::checked_cast<int32_t>(iIndex));
 }
 
 void CJX_Tree::somExpression(CFXJSE_Value* pValue,
@@ -217,13 +200,11 @@ void CJX_Tree::ResolveNodeList(CFXJSE_Value* pValue,
                                WideString wsExpression,
                                uint32_t dwFlag,
                                CXFA_Node* refNode) {
-  CFXJSE_Engine* pScriptContext = GetDocument()->GetScriptContext();
-  if (!pScriptContext)
-    return;
   if (!refNode)
     refNode = ToNode(GetXFAObject());
 
   XFA_RESOLVENODE_RS resolveNodeRS;
+  CFXJSE_Engine* pScriptContext = GetDocument()->GetScriptContext();
   pScriptContext->ResolveObjects(refNode, wsExpression.AsStringView(),
                                  &resolveNodeRS, dwFlag, nullptr);
   CXFA_ArrayNodeList* pNodeList = new CXFA_ArrayNodeList(GetDocument());
@@ -248,5 +229,5 @@ void CJX_Tree::ResolveNodeList(CFXJSE_Value* pValue,
       }
     }
   }
-  pValue->SetObject(pNodeList, pScriptContext->GetJseNormalClass());
+  pValue->SetHostObject(pNodeList, pScriptContext->GetJseNormalClass());
 }

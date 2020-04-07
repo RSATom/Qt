@@ -5,11 +5,11 @@
  * found in the LICENSE file.
  */
 
-#include "SkSGTrimEffect.h"
+#include "modules/sksg/include/SkSGTrimEffect.h"
 
-#include "SkCanvas.h"
-#include "SkStrokeRec.h"
-#include "SkTrimPathEffect.h"
+#include "include/core/SkCanvas.h"
+#include "include/core/SkStrokeRec.h"
+#include "include/effects/SkTrimPathEffect.h"
 
 namespace sksg {
 
@@ -30,6 +30,10 @@ void TrimEffect::onDraw(SkCanvas* canvas, const SkPaint& paint) const {
     SkASSERT(!paint.getPathEffect());
 
     canvas->drawPath(fTrimmedPath, paint);
+}
+
+bool TrimEffect::onContains(const SkPoint& p) const {
+    return fTrimmedPath.contains(p.x(), p.y());
 }
 
 SkPath TrimEffect::onAsPath() const {

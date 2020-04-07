@@ -84,7 +84,7 @@ class PreviewsDeciderImpl : public PreviewsDecider,
       base::Time time,
       PreviewsType type,
       std::vector<PreviewsEligibilityReason>&& passed_reasons,
-      uint64_t page_id) const;
+      PreviewsUserData* user_data) const;
 
   // Adds a navigation to |url| to the black list with result |opt_out|.
   void AddPreviewNavigation(const GURL& url,
@@ -93,7 +93,9 @@ class PreviewsDeciderImpl : public PreviewsDecider,
                             uint64_t page_id);
 
   // Clears the history of the black list between |begin_time| and |end_time|,
-  // both inclusive.
+  // both inclusive. Additional, clears the appropriate data from the hint
+  // cache. TODO(mcrouse): Rename to denote clearing all necessary data,
+  // including the Fetched hints and the blacklist.
   void ClearBlackList(base::Time begin_time, base::Time end_time);
 
   // Change the status of whether to ignore the decisions made by
@@ -130,6 +132,10 @@ class PreviewsDeciderImpl : public PreviewsDecider,
 
   void SetEffectiveConnectionType(
       net::EffectiveConnectionType effective_connection_type);
+
+  PreviewsOptimizationGuide* previews_opt_guide() const {
+    return previews_opt_guide_.get();
+  }
 
   // When a preview is reloaded, this is called. No Previews are allowed for
   // params::SingleOptOutDuration after that reload is reported.
@@ -181,10 +187,6 @@ class PreviewsDeciderImpl : public PreviewsDecider,
 
   std::unique_ptr<PreviewsBlackList> previews_black_list_;
 
-  // Only used when the blacklist has been disabled to allow "Show Original" to
-  // function as expected. The time of the most recent opt out event.
-  base::Time last_opt_out_time_;
-
   // Holds optimization guidance from the server.
   std::unique_ptr<PreviewsOptimizationGuide> previews_opt_guide_;
 
@@ -214,7 +216,7 @@ class PreviewsDeciderImpl : public PreviewsDecider,
 
   SEQUENCE_CHECKER(sequence_checker_);
 
-  base::WeakPtrFactory<PreviewsDeciderImpl> weak_factory_;
+  base::WeakPtrFactory<PreviewsDeciderImpl> weak_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(PreviewsDeciderImpl);
 };

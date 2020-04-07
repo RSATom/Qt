@@ -18,9 +18,11 @@
  * Boston, MA 02110-1301, USA.
  */
 
-// https://html.spec.whatwg.org/#htmlelement
-[HTMLConstructor]
-interface HTMLElement : Element {
+// https://html.spec.whatwg.org/C/#htmlelement
+[
+    Exposed=Window,
+    HTMLConstructor
+] interface HTMLElement : Element {
     // metadata attributes
     [CEReactions, Reflect] attribute DOMString title;
     [CEReactions, Reflect] attribute DOMString lang;
@@ -40,9 +42,10 @@ interface HTMLElement : Element {
     [CEReactions] attribute boolean spellcheck;
     [Measure] attribute DOMString autocapitalize;
 
-    // HTMLElement implements ElementContentEditable
-    // https://html.spec.whatwg.org/#contenteditable
+    // HTMLElement includes ElementContentEditable
+    // https://html.spec.whatwg.org/C/#contenteditable
     [CEReactions, CustomElementCallbacks, RaisesException=Setter] attribute DOMString contentEditable;
+    [RuntimeEnabled=EnterKeyHintAttribute, CEReactions, Reflect, ReflectOnly=("enter","done","go","next","previous","search","send")] attribute DOMString enterKeyHint;
     [ImplementedAs=isContentEditableForBinding] readonly attribute boolean isContentEditable;
     [CEReactions, Reflect, ReflectOnly=("none","text","tel","url","email","numeric","decimal","search")] attribute DOMString inputMode;
 
@@ -67,6 +70,6 @@ interface HTMLElement : Element {
     [Affects=Nothing, CEReactions, CustomElementCallbacks, RaisesException=Setter, MeasureAs=HTMLElementOuterText] attribute [TreatNullAs=EmptyString] DOMString outerText;
 };
 
-HTMLElement implements GlobalEventHandlers;
-HTMLElement implements DocumentAndElementEventHandlers;
-HTMLElement implements NoncedElement;
+HTMLElement includes GlobalEventHandlers;
+HTMLElement includes DocumentAndElementEventHandlers;
+HTMLElement includes NoncedElement;

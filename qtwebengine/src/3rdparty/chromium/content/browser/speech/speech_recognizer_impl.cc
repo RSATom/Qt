@@ -109,12 +109,6 @@ bool DetectClipping(const AudioChunk& chunk) {
 
 }  // namespace
 
-const int SpeechRecognizerImpl::kAudioSampleRate = 16000;
-const ChannelLayout SpeechRecognizerImpl::kChannelLayout =
-    media::CHANNEL_LAYOUT_MONO;
-const int SpeechRecognizerImpl::kNumBitsPerAudioSample = 16;
-const int SpeechRecognizerImpl::kNoSpeechTimeoutMs = 8000;
-const int SpeechRecognizerImpl::kEndpointerEstimationTimeMs = 300;
 media::AudioSystem* SpeechRecognizerImpl::audio_system_for_tests_ = nullptr;
 media::AudioCapturerSource*
     SpeechRecognizerImpl::audio_capturer_source_for_tests_ = nullptr;
@@ -193,8 +187,7 @@ SpeechRecognizerImpl::SpeechRecognizerImpl(
       is_dispatching_event_(false),
       provisional_results_(provisional_results),
       end_of_utterance_(false),
-      state_(STATE_IDLE),
-      weak_ptr_factory_(this) {
+      state_(STATE_IDLE) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
   DCHECK(recognition_engine_ != nullptr);
   DCHECK(audio_system_ != nullptr);
@@ -278,7 +271,7 @@ SpeechRecognizerImpl::~SpeechRecognizerImpl() {
 }
 
 void SpeechRecognizerImpl::Capture(const AudioBus* data,
-                                   int audio_delay_milliseconds,
+                                   base::TimeTicks audio_capture_time,
                                    double volume,
                                    bool key_pressed) {
   // Convert audio from native format to fixed format used by WebSpeech.
@@ -886,9 +879,10 @@ void SpeechRecognizerImpl::CreateAudioCapturerSource() {
   if (connector) {
     audio_capturer_source_ = audio::CreateInputDevice(
         connector->Clone(), device_id_,
-        MediaInternals::GetInstance()->CreateMojoAudioLog(
-            media::AudioLogFactory::AUDIO_INPUT_CONTROLLER,
-            0 /* component_id */));
+        MediaInternals::GetInstance()
+            ->CreateMojoAudioLog(media::AudioLogFactory::AUDIO_INPUT_CONTROLLER,
+                                 0 /* component_id */)
+            .PassInterface());
   }
 }
 

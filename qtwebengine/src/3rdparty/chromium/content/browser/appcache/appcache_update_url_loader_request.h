@@ -8,9 +8,10 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <memory>
+#include <string>
 
 #include "base/macros.h"
-#include "content/browser/appcache/appcache_update_request_base.h"
+#include "content/browser/appcache/appcache_update_job.h"
 #include "mojo/public/cpp/bindings/binding.h"
 #include "mojo/public/cpp/system/simple_watcher.h"
 #include "net/base/io_buffer.h"
@@ -31,25 +32,63 @@ class URLLoaderFactoryGetter;
 // functionality to update the AppCache using functionality provided by the
 // network URL loader.
 class AppCacheUpdateJob::UpdateURLLoaderRequest
-    : public AppCacheUpdateJob::UpdateRequestBase,
-      public network::mojom::URLLoaderClient {
+    : public network::mojom::URLLoaderClient {
  public:
+  UpdateURLLoaderRequest(URLLoaderFactoryGetter* loader_factory_getter,
+                         base::WeakPtr<StoragePartitionImpl> partition,
+                         const GURL& url,
+                         int buffer_size,
+                         URLFetcher* fetcher);
   ~UpdateURLLoaderRequest() override;
 
-  // UpdateRequestBase overrides.
-  void Start() override;
-  void SetExtraRequestHeaders(const net::HttpRequestHeaders& headers) override;
-  GURL GetURL() const override;
-  void SetLoadFlags(int flags) override;
-  int GetLoadFlags() const override;
-  std::string GetMimeType() const override;
-  void SetSiteForCookies(const GURL& site_for_cookies) override;
-  void SetInitiator(const base::Optional<url::Origin>& initiator) override;
-  net::HttpResponseHeaders* GetResponseHeaders() const override;
-  int GetResponseCode() const override;
-  const net::HttpResponseInfo& GetResponseInfo() const override;
-  void Read() override;
-  int Cancel() override;
+  // This method is called to start the request.
+  void Start();
+
+  // Sets all extra request headers.  Any extra request headers set by other
+  // methods are overwritten by this method.  This method may only be called
+  // before Start() is called.  It is an error to call it later.
+  void SetExtraRequestHeaders(const net::HttpRequestHeaders& headers);
+
+  // Returns the request URL.
+  GURL GetURL() const;
+
+  // Sets flags which control the request load. e.g. if it can be loaded
+  // from cache, etc.
+  void SetLoadFlags(int flags);
+
+  // Gets the load flags on the request.
+  int GetLoadFlags() const;
+
+  // Get the mime type.  This method may only be called after the response was
+  // started.
+  std::string GetMimeType() const;
+
+  // Cookie policy.
+  void SetSiteForCookies(const GURL& site_for_cookies);
+
+  // Sets the origin of the context which initiated the request.
+  void SetInitiator(const base::Optional<url::Origin>& initiator);
+
+  // Get all response headers, as a HttpResponseHeaders object.  See comments
+  // in HttpResponseHeaders class as to the format of the data.
+  net::HttpResponseHeaders* GetResponseHeaders() const;
+
+  // Returns the HTTP response code (e.g., 200, 404, and so on).  This method
+  // may only be called once the delegate's OnResponseStarted method has been
+  // called.  For non-HTTP requests, this method returns -1.
+  int GetResponseCode() const;
+
+  // Get the HTTP response info in its entirety.
+  const net::HttpResponseInfo& GetResponseInfo() const;
+
+  // Initiates an asynchronous read. Multiple concurrent reads are not
+  // supported.
+  void Read();
+
+  // This method may be called at any time after Start() has been called to
+  // cancel the request.
+  // Returns net::ERR_ABORTED or any applicable net error.
+  int Cancel();
 
   // network::mojom::URLLoaderClient implementation.
   // These methods are called by the network loader.
@@ -61,18 +100,13 @@ class AppCacheUpdateJob::UpdateURLLoaderRequest
   void OnUploadProgress(int64_t current_position,
                         int64_t total_size,
                         OnUploadProgressCallback ack_callback) override;
-  void OnReceiveCachedMetadata(const std::vector<uint8_t>& data) override;
+  void OnReceiveCachedMetadata(mojo_base::BigBuffer data) override;
   void OnTransferSizeUpdated(int32_t transfer_size_diff) override;
   void OnStartLoadingResponseBody(
       mojo::ScopedDataPipeConsumerHandle body) override;
   void OnComplete(const network::URLLoaderCompletionStatus& status) override;
 
  private:
-  UpdateURLLoaderRequest(URLLoaderFactoryGetter* loader_factory_getter,
-                         const GURL& url,
-                         int buffer_size,
-                         URLFetcher* fetcher);
-
   // Helper function to initiate an asynchronous read on the data pipe.
   void StartReading(MojoResult unused);
 
@@ -81,12 +115,13 @@ class AppCacheUpdateJob::UpdateURLLoaderRequest
   // a pending read.
   void MaybeStartReading();
 
-  friend class AppCacheUpdateJob::UpdateRequestBase;
-
   URLFetcher* fetcher_;
   // Used to retrieve the network URLLoader interface to issue network
   // requests
   scoped_refptr<URLLoaderFactoryGetter> loader_factory_getter_;
+  // If NavigationLoaderOnUI is enabled, |partition_| is used to get the network
+  // URLLoader.
+  base::WeakPtr<StoragePartitionImpl> partition_;
 
   network::ResourceRequest request_;
   network::ResourceResponseHead response_;

@@ -15,7 +15,7 @@ namespace views {
 
 AXWidgetObjWrapper::AXWidgetObjWrapper(AXAuraObjCache* aura_obj_cache,
                                        Widget* widget)
-    : aura_obj_cache_(aura_obj_cache), widget_(widget) {
+    : AXAuraObjWrapper(aura_obj_cache), widget_(widget) {
   widget->AddObserver(this);
   widget->AddRemovalsObserver(this);
 }
@@ -36,7 +36,7 @@ AXAuraObjWrapper* AXWidgetObjWrapper::GetParent() {
 void AXWidgetObjWrapper::GetChildren(
     std::vector<AXAuraObjWrapper*>* out_children) {
   if (!widget_->IsVisible() || !widget_->GetRootView() ||
-      !widget_->GetRootView()->visible()) {
+      !widget_->GetRootView()->GetVisible()) {
     return;
   }
 

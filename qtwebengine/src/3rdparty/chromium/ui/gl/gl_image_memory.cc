@@ -47,7 +47,8 @@ GLenum TextureFormat(gfx::BufferFormat format) {
     case gfx::BufferFormat::YVU_420:
     case gfx::BufferFormat::YUV_420_BIPLANAR:
     case gfx::BufferFormat::UYVY_422:
-      NOTREACHED();
+    case gfx::BufferFormat::P010:
+      NOTREACHED() << gfx::BufferFormatToString(format);
       return 0;
   }
 
@@ -75,7 +76,8 @@ GLenum DataFormat(gfx::BufferFormat format) {
     case gfx::BufferFormat::YVU_420:
     case gfx::BufferFormat::YUV_420_BIPLANAR:
     case gfx::BufferFormat::UYVY_422:
-      NOTREACHED();
+    case gfx::BufferFormat::P010:
+      NOTREACHED() << gfx::BufferFormatToString(format);
       return 0;
   }
 
@@ -106,7 +108,8 @@ GLenum DataType(gfx::BufferFormat format) {
     case gfx::BufferFormat::YVU_420:
     case gfx::BufferFormat::YUV_420_BIPLANAR:
     case gfx::BufferFormat::UYVY_422:
-      NOTREACHED();
+    case gfx::BufferFormat::P010:
+      NOTREACHED() << gfx::BufferFormatToString(format);
       return 0;
   }
 
@@ -135,7 +138,8 @@ GLint DataRowLength(size_t stride, gfx::BufferFormat format) {
     case gfx::BufferFormat::YVU_420:
     case gfx::BufferFormat::YUV_420_BIPLANAR:
     case gfx::BufferFormat::UYVY_422:
-      NOTREACHED();
+    case gfx::BufferFormat::P010:
+      NOTREACHED() << gfx::BufferFormatToString(format);
       return 0;
   }
 
@@ -262,6 +266,7 @@ std::unique_ptr<uint8_t[]> GLES2Data(const gfx::Size& size,
     case gfx::BufferFormat::YVU_420:
     case gfx::BufferFormat::YUV_420_BIPLANAR:
     case gfx::BufferFormat::UYVY_422:
+    case gfx::BufferFormat::P010:
       NOTREACHED() << gfx::BufferFormatToString(format);
       return nullptr;
   }
@@ -316,7 +321,12 @@ unsigned GLImageMemory::GetInternalFormat() {
   return TextureFormat(format_);
 }
 
+GLImage::BindOrCopy GLImageMemory::ShouldBindOrCopy() {
+  return COPY;
+}
+
 bool GLImageMemory::BindTexImage(unsigned target) {
+  NOTREACHED();
   return false;
 }
 
@@ -324,7 +334,6 @@ bool GLImageMemory::CopyTexImage(unsigned target) {
   TRACE_EVENT2("gpu", "GLImageMemory::CopyTexImage", "width", size_.width(),
                "height", size_.height());
 
-  // GL_TEXTURE_EXTERNAL_OES is not a supported target.
   if (target == GL_TEXTURE_EXTERNAL_OES)
     return false;
 
@@ -423,6 +432,7 @@ bool GLImageMemory::ValidFormat(gfx::BufferFormat format) {
     case gfx::BufferFormat::YVU_420:
     case gfx::BufferFormat::YUV_420_BIPLANAR:
     case gfx::BufferFormat::UYVY_422:
+    case gfx::BufferFormat::P010:
       return false;
   }
 

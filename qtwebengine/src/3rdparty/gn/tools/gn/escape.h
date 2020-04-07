@@ -16,6 +16,9 @@ enum EscapingMode {
   // Ninja string escaping.
   ESCAPE_NINJA,
 
+  // Ninja/makefile depfile string escaping.
+  ESCAPE_DEPFILE,
+
   // For writing commands to ninja files. This assumes the output is "one
   // thing" like a filename, so will escape or quote spaces as necessary for
   // both Ninja and the shell to keep that thing together.
@@ -23,8 +26,8 @@ enum EscapingMode {
 
   // For writing preformatted shell commands to Ninja files. This assumes the
   // output already has the proper quoting and may include special shell
-  // shell characters which we want to pass to the shell (like when writing
-  // tool commands). Only Ninja "$" are escaped.
+  // characters which we want to pass to the shell (like when writing tool
+  // commands). Only Ninja "$" are escaped.
   ESCAPE_NINJA_PREFORMATTED_COMMAND,
 
   // Like ESCAPE_NINJA_COMMAND but without ninja string escaping
@@ -41,16 +44,11 @@ enum EscapingPlatform {
 };
 
 struct EscapeOptions {
-  EscapeOptions()
-      : mode(ESCAPE_NONE),
-        platform(ESCAPE_PLATFORM_CURRENT),
-        inhibit_quoting(false) {}
-
-  EscapingMode mode;
+  EscapingMode mode = ESCAPE_NONE;
 
   // Controls how "fork" escaping is done. You will generally want to keep the
   // default "current" platform.
-  EscapingPlatform platform;
+  EscapingPlatform platform = ESCAPE_PLATFORM_CURRENT;
 
   // When the escaping mode is ESCAPE_SHELL, the escaper will normally put
   // quotes around things with spaces. If this value is set to true, we'll
@@ -60,7 +58,7 @@ struct EscapeOptions {
   // false. Note that Windows has strange behavior where the meaning of the
   // backslashes changes according to if it is followed by a quote. The
   // escaping rules assume that a double-quote will be appended to the result.
-  bool inhibit_quoting;
+  bool inhibit_quoting = false;
 };
 
 // Escapes the given input, returnining the result.

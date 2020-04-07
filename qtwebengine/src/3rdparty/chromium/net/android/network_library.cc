@@ -9,8 +9,8 @@
 #include "base/android/jni_string.h"
 #include "base/android/scoped_java_ref.h"
 #include "base/logging.h"
-#include "jni/AndroidNetworkLibrary_jni.h"
 #include "net/dns/public/dns_protocol.h"
+#include "net/net_jni_headers/AndroidNetworkLibrary_jni.h"
 
 using base::android::AttachCurrentThread;
 using base::android::ConvertJavaStringToUTF8;
@@ -121,6 +121,18 @@ std::string GetWifiSSID() {
   return base::android::ConvertJavaStringToUTF8(
       Java_AndroidNetworkLibrary_getWifiSSID(
           base::android::AttachCurrentThread()));
+}
+
+base::Optional<int32_t> GetWifiSignalLevel() {
+  const int count_buckets = 5;
+  int signal_strength = Java_AndroidNetworkLibrary_getWifiSignalLevel(
+      base::android::AttachCurrentThread(), count_buckets);
+  if (signal_strength < 0)
+    return base::nullopt;
+  DCHECK_LE(0, signal_strength);
+  DCHECK_GE(count_buckets - 1, signal_strength);
+
+  return signal_strength;
 }
 
 internal::ConfigParsePosixResult GetDnsServers(

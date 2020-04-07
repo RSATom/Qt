@@ -24,7 +24,7 @@
 #include "device/bluetooth/bluetooth_gatt_notify_session.h"
 #include "device/bluetooth/bluetooth_local_gatt_service.h"
 #include "device/bluetooth/bluetooth_remote_gatt_service.h"
-#include "device/bluetooth/bluetooth_uuid.h"
+#include "device/bluetooth/public/cpp/bluetooth_uuid.h"
 #include "extensions/browser/extension_event_histogram_value.h"
 #include "extensions/browser/extension_registry_observer.h"
 #include "extensions/common/api/bluetooth_low_energy.h"
@@ -68,15 +68,15 @@ class BluetoothLowEnergyEventRouter
    public:
     enum RequestType { ATTRIBUTE_READ_REQUEST, ATTRIBUTE_WRITE_REQUEST };
 
-    AttributeValueRequest(const Delegate::ValueCallback& value_callback,
-                          const Delegate::ErrorCallback& error_callback);
-    AttributeValueRequest(const base::Closure& success_callback,
-                          const Delegate::ErrorCallback& error_callback);
+    AttributeValueRequest(Delegate::ValueCallback value_callback,
+                          Delegate::ErrorCallback error_callback);
+    AttributeValueRequest(base::OnceClosure success_callback,
+                          Delegate::ErrorCallback error_callback);
     ~AttributeValueRequest();
 
     RequestType type;
     Delegate::ValueCallback value_callback;
-    base::Closure success_callback;
+    base::OnceClosure success_callback;
     Delegate::ErrorCallback error_callback;
 
    private:
@@ -310,36 +310,36 @@ class BluetoothLowEnergyEventRouter
       const device::BluetoothDevice* device,
       const device::BluetoothLocalGattCharacteristic* characteristic,
       int offset,
-      const Delegate::ValueCallback& value_callback,
-      const Delegate::ErrorCallback& error_callback) override;
+      Delegate::ValueCallback value_callback,
+      Delegate::ErrorCallback error_callback) override;
   void OnCharacteristicWriteRequest(
       const device::BluetoothDevice* device,
       const device::BluetoothLocalGattCharacteristic* characteristic,
       const std::vector<uint8_t>& value,
       int offset,
-      const base::Closure& callback,
-      const Delegate::ErrorCallback& error_callback) override;
+      base::OnceClosure callback,
+      Delegate::ErrorCallback error_callback) override;
   void OnCharacteristicPrepareWriteRequest(
       const device::BluetoothDevice* device,
       const device::BluetoothLocalGattCharacteristic* characteristic,
       const std::vector<uint8_t>& value,
       int offset,
       bool has_subsequent_request,
-      const base::Closure& callback,
-      const Delegate::ErrorCallback& error_callback) override;
+      base::OnceClosure callback,
+      Delegate::ErrorCallback error_callback) override;
   void OnDescriptorReadRequest(
       const device::BluetoothDevice* device,
       const device::BluetoothLocalGattDescriptor* descriptor,
       int offset,
-      const Delegate::ValueCallback& value_callback,
-      const Delegate::ErrorCallback& error_callback) override;
+      Delegate::ValueCallback value_callback,
+      Delegate::ErrorCallback error_callback) override;
   void OnDescriptorWriteRequest(
       const device::BluetoothDevice* device,
       const device::BluetoothLocalGattDescriptor* descriptor,
       const std::vector<uint8_t>& value,
       int offset,
-      const base::Closure& callback,
-      const Delegate::ErrorCallback& error_callback) override;
+      base::OnceClosure callback,
+      Delegate::ErrorCallback error_callback) override;
   void OnNotificationsStart(
       const device::BluetoothDevice* device,
       device::BluetoothGattCharacteristic::NotificationType notification_type,
@@ -587,7 +587,7 @@ class BluetoothLowEnergyEventRouter
 
   // Note: This should remain the last member so it'll be destroyed and
   // invalidate its weak pointers before any other members are destroyed.
-  base::WeakPtrFactory<BluetoothLowEnergyEventRouter> weak_ptr_factory_;
+  base::WeakPtrFactory<BluetoothLowEnergyEventRouter> weak_ptr_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(BluetoothLowEnergyEventRouter);
 };

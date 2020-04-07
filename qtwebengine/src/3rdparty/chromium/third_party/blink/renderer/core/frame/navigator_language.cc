@@ -6,6 +6,8 @@
 
 #include "third_party/blink/renderer/core/probe/core_probes.h"
 #include "third_party/blink/renderer/platform/language.h"
+#include "third_party/blink/renderer/platform/runtime_enabled_features.h"
+#include "third_party/blink/renderer/platform/wtf/text/string_builder.h"
 
 namespace blink {
 
@@ -33,23 +35,35 @@ NavigatorLanguage::NavigatorLanguage(ExecutionContext* context)
     : context_(context) {}
 
 AtomicString NavigatorLanguage::language() {
-  return AtomicString(languages().front());
+  if (RuntimeEnabledFeatures::NavigatorLanguageInInsecureContextEnabled() ||
+      context_->IsSecureContext()) {
+    return AtomicString(languages().front());
+  }
+  return AtomicString();
 }
 
 const Vector<String>& NavigatorLanguage::languages() {
-  if (languages_dirty_) {
-    String accept_languages_override;
-    probe::applyAcceptLanguageOverride(context_, &accept_languages_override);
-
-    if (!accept_languages_override.IsNull()) {
-      languages_ = ParseAndSanitize(accept_languages_override);
-    } else {
-      languages_ = ParseAndSanitize(GetAcceptLanguages());
-    }
-
-    languages_dirty_ = false;
+  if (RuntimeEnabledFeatures::NavigatorLanguageInInsecureContextEnabled() ||
+      context_->IsSecureContext()) {
+    EnsureUpdatedLanguage();
+    return languages_;
   }
-  return languages_;
+  DEFINE_STATIC_LOCAL(const Vector<String>, empty_vector, {});
+  return empty_vector;
+}
+
+AtomicString NavigatorLanguage::SerializeLanguagesForClientHintHeader() {
+  EnsureUpdatedLanguage();
+
+  StringBuilder builder;
+  for (size_t i = 0; i < languages_.size(); i++) {
+    if (i)
+      builder.Append(", ");
+    builder.Append('"');
+    builder.Append(languages_[i]);
+    builder.Append('"');
+  }
+  return builder.ToAtomicString();
 }
 
 bool NavigatorLanguage::IsLanguagesDirty() const {
@@ -59,6 +73,25 @@ bool NavigatorLanguage::IsLanguagesDirty() const {
 void NavigatorLanguage::SetLanguagesDirty() {
   languages_dirty_ = true;
   languages_.clear();
+}
+
+void NavigatorLanguage::SetLanguagesForTesting(const String& languages) {
+  languages_ = ParseAndSanitize(languages);
+}
+
+void NavigatorLanguage::EnsureUpdatedLanguage() {
+  if (languages_dirty_) {
+    String accept_languages_override;
+    probe::ApplyAcceptLanguageOverride(context_, &accept_languages_override);
+
+    if (!accept_languages_override.IsNull()) {
+      languages_ = ParseAndSanitize(accept_languages_override);
+    } else {
+      languages_ = ParseAndSanitize(GetAcceptLanguages());
+    }
+
+    languages_dirty_ = false;
+  }
 }
 
 void NavigatorLanguage::Trace(blink::Visitor* visitor) {

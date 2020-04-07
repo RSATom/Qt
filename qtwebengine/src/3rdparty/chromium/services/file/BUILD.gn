@@ -2,8 +2,6 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-import("//services/service_manager/public/service_manifest.gni")
-
 source_set("lib") {
   sources = [
     "file_service.cc",
@@ -19,18 +17,13 @@ source_set("lib") {
   deps = [
     "//base",
     "//components/services/filesystem:lib",
-    "//components/services/filesystem/public/interfaces",
+    "//components/services/filesystem/public/mojom",
     "//components/services/leveldb:lib",
-    "//components/services/leveldb/public/interfaces",
-    "//mojo/public/cpp/system",
+    "//components/services/leveldb/public/mojom",
+    "//mojo/public/cpp/bindings",
     "//services/file/public/mojom",
     "//services/service_manager/public/cpp",
     "//services/service_manager/public/mojom",
     "//url",
   ]
-}
-
-service_manifest("manifest") {
-  name = "file"
-  source = "manifest.json"
 }

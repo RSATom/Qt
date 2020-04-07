@@ -86,6 +86,8 @@ jumbo_source_set("browser_sources") {
     "content_verifier/content_hash.cc",
     "content_verifier/content_hash.h",
     "content_verifier/content_verifier_key.h",
+    "content_verifier/content_verifier_utils.cc",
+    "content_verifier/content_verifier_utils.h",
     "content_verifier_delegate.h",
     "content_verifier_io_data.cc",
     "content_verifier_io_data.h",
@@ -231,6 +233,8 @@ jumbo_source_set("browser_sources") {
     "guest_view/mime_handler_view/mime_handler_view_attach_helper.h",
     "guest_view/mime_handler_view/mime_handler_view_constants.cc",
     "guest_view/mime_handler_view/mime_handler_view_constants.h",
+    "guest_view/mime_handler_view/mime_handler_view_embedder.cc",
+    "guest_view/mime_handler_view/mime_handler_view_embedder.h",
     "guest_view/mime_handler_view/mime_handler_view_guest.cc",
     "guest_view/mime_handler_view/mime_handler_view_guest.h",
     "guest_view/mime_handler_view/mime_handler_view_guest_delegate.cc",
@@ -325,6 +329,10 @@ jumbo_source_set("browser_sources") {
     "script_executor.h",
     "serial_extension_host_queue.cc",
     "serial_extension_host_queue.h",
+    "service_worker/worker_id.cc",
+    "service_worker/worker_id.h",
+    "service_worker/worker_id_set.cc",
+    "service_worker/worker_id_set.h",
     "service_worker_manager.cc",
     "service_worker_manager.h",
     "service_worker_task_queue.cc",
@@ -374,6 +382,7 @@ jumbo_source_set("browser_sources") {
     "//components/keyed_service/core",
     "//components/pref_registry",
     "//components/prefs",
+    "//components/services/unzip/public/cpp",
     "//components/sessions",
     "//components/sync",
     "//components/update_client",
@@ -396,6 +405,7 @@ jumbo_source_set("browser_sources") {
     "//services/device/public/mojom",
     "//services/preferences/public/cpp",
     "//services/service_manager/public/cpp",
+    "//third_party/blink/public/common",
     "//ui/display",
   ]
 
@@ -467,8 +477,6 @@ source_set("core_api_provider") {
 source_set("browser_tests") {
   testonly = true
   sources = [
-    "api/audio/audio_apitest.cc",
-
     # TODO(michaelpg): bluetooth_appshell_test.cc is a crutch until we have a
     # better system for testing APIs in both app_shell and chrome. See
     # crbug.com/650835.
@@ -510,9 +518,7 @@ source_set("browser_tests") {
     "//components/guest_view/browser:test_support",
     "//components/storage_monitor:test_support",
     "//content/test:test_support",
-    "//device/base:mocks",
     "//device/bluetooth:mocks",
-    "//device/usb:test_support",
     "//extensions:test_support",
     "//extensions/browser:test_support",
     "//extensions/common",
@@ -520,7 +526,9 @@ source_set("browser_tests") {
     "//extensions/shell:app_shell_lib",
     "//extensions/shell:browser_tests",
     "//net:test_support",
+    "//services/device/public/cpp:test_support",
     "//services/device/public/cpp/hid",
+    "//services/device/public/cpp/hid:test_support",
     "//services/device/public/mojom",
     "//services/service_manager/public/cpp",
     "//ui/display:test_support",
@@ -528,6 +536,7 @@ source_set("browser_tests") {
 
   if (is_chromeos) {
     sources += [
+      "api/audio/audio_apitest_chromeos.cc",
       "api/cec_private/cec_private_apitest.cc",
       "api/media_perception_private/media_perception_private_apitest.cc",
       "api/system_power_source/system_power_source_apitest.cc",
@@ -535,11 +544,15 @@ source_set("browser_tests") {
     ]
 
     deps += [
-      "//chromeos",
       "//chromeos/audio",
-      "//chromeos/dbus:media_perception_proto",
-      "//chromeos/dbus:power_manager_proto",
       "//chromeos/dbus:test_support",
+      "//chromeos/dbus/audio",
+      "//chromeos/dbus/media_analytics",
+      "//chromeos/dbus/media_analytics:media_perception_proto",
+      "//chromeos/dbus/permission_broker",
+      "//chromeos/dbus/power",
+      "//chromeos/dbus/power:power_manager_proto",
+      "//chromeos/dbus/upstart",
       "//chromeos/login/login_state",
       "//chromeos/network",
     ]
@@ -566,6 +579,8 @@ jumbo_source_set("test_support") {
     "preload_check_test_util.h",
     "test_event_router_observer.cc",
     "test_event_router_observer.h",
+    "updater/extension_downloader_test_helper.cc",
+    "updater/extension_downloader_test_helper.h",
     "value_store/test_value_store_factory.cc",
     "value_store/test_value_store_factory.h",
     "value_store/testing_value_store.cc",
@@ -574,12 +589,21 @@ jumbo_source_set("test_support") {
 
   deps = [
     "//base",
+    "//base/test:test_support",
     "//content/public/browser",
+    "//content/test:test_support",
     "//extensions/browser",
-    "//extensions/browser/api/declarative_net_request:test_support",
     "//extensions/common",
     "//extensions/common:test_support",
+    "//services/data_decoder:lib",
+    "//services/data_decoder/public/cpp:test_support",
+    "//services/network:test_support",
+    "//testing/gmock",
     "//testing/gtest",
+  ]
+
+  public_deps = [
+    "//extensions/browser/api/declarative_net_request:test_support",
   ]
 }
 
@@ -595,15 +619,19 @@ source_set("unit_tests") {
     "api/declarative/declarative_rule_unittest.cc",
     "api/declarative/deduping_factory_unittest.cc",
     "api/declarative/rules_registry_unittest.cc",
+    "api/declarative_net_request/composite_matcher_unittest.cc",
+    "api/declarative_net_request/declarative_net_request_api_unittest.cc",
+    "api/declarative_net_request/file_sequence_helper_unittest.cc",
     "api/declarative_net_request/flat_ruleset_indexer_unittest.cc",
     "api/declarative_net_request/indexed_rule_unittest.cc",
     "api/declarative_net_request/indexed_ruleset_format_version_unittest.cc",
+    "api/declarative_net_request/ruleset_matcher_unittest.cc",
     "api/declarative_webrequest/webrequest_condition_attribute_unittest.cc",
     "api/declarative_webrequest/webrequest_condition_unittest.cc",
     "api/document_scan/document_scan_api_unittest.cc",
     "api/document_scan/document_scan_interface_chromeos_unittest.cc",
-    "api/document_scan/mock_document_scan_interface.cc",
-    "api/document_scan/mock_document_scan_interface.h",
+    "api/document_scan/fake_document_scan_interface.cc",
+    "api/document_scan/fake_document_scan_interface.h",
     "api/file_handlers/app_file_handler_util_unittest.cc",
     "api/file_handlers/directory_util_unittest.cc",
     "api/file_handlers/mime_util_unittest.cc",
@@ -634,7 +662,6 @@ source_set("unit_tests") {
     "error_map_unittest.cc",
     "event_listener_map_unittest.cc",
     "event_router_unittest.cc",
-    "extension_api_frame_id_map_unittest.cc",
     "extension_creator_filter_unittest.cc",
     "extension_creator_unittest.cc",
     "extension_event_histogram_value_unittest.cc",
@@ -663,6 +690,8 @@ source_set("unit_tests") {
     "requirements_checker_unittest.cc",
     "runtime_data_unittest.cc",
     "sandboxed_unpacker_unittest.cc",
+    "service_worker/worker_id_set_unittest.cc",
+    "updater/extension_downloader_unittest.cc",
     "updater/extension_installer_unittest.cc",
     "updater/safe_manifest_parser_unittest.cc",
     "updater/update_data_provider_unittest.cc",
@@ -702,8 +731,10 @@ source_set("unit_tests") {
     "//device/bluetooth:mocks",
     "//extensions:extensions_browser_resources",
     "//extensions:test_support",
+    "//extensions/browser/api/declarative_net_request/filter_list_converter:unit_tests",
     "//extensions/buildflags",
     "//extensions/common",
+    "//extensions/common:test_support",
     "//extensions/common/api",
     "//extensions/strings",
     "//ipc:test_support",
@@ -712,6 +743,7 @@ source_set("unit_tests") {
     "//services/data_decoder/public/cpp:test_support",
     "//services/device/public/mojom",
     "//services/network:test_support",
+    "//services/network/public/cpp",
     "//services/service_manager/public/cpp/test:test_support",
     "//storage/browser:test_support",
     "//third_party/leveldatabase",
@@ -738,8 +770,12 @@ source_set("unit_tests") {
 
     deps += [
       "//chromeos:test_support",
-      "//chromeos/dbus:media_perception_proto",
       "//chromeos/dbus:test_support",
+      "//chromeos/dbus/audio",
+      "//chromeos/dbus/media_analytics",
+      "//chromeos/dbus/media_analytics:media_perception_proto",
+      "//chromeos/dbus/power",
+      "//chromeos/dbus/upstart",
       "//chromeos/login/login_state",
       "//chromeos/network:test_support",
       "//components/feedback",

@@ -4,6 +4,8 @@
 
 #include "content/browser/media/flinging_renderer.h"
 
+#include <utility>
+
 #include "base/memory/ptr_util.h"
 #include "content/browser/frame_host/render_frame_host_delegate.h"
 #include "content/browser/frame_host/render_frame_host_impl.h"
@@ -15,19 +17,22 @@
 namespace content {
 
 FlingingRenderer::FlingingRenderer(
-    std::unique_ptr<media::FlingingController> controller)
-    : controller_(std::move(controller)) {
+    std::unique_ptr<media::FlingingController> controller,
+    ClientExtensionPtr client_extension)
+    : client_extension_(std::move(client_extension)),
+      controller_(std::move(controller)) {
   controller_->AddMediaStatusObserver(this);
 }
 
 FlingingRenderer::~FlingingRenderer() {
   controller_->RemoveMediaStatusObserver(this);
-};
+}
 
 // static
 std::unique_ptr<FlingingRenderer> FlingingRenderer::Create(
     RenderFrameHost* render_frame_host,
-    const std::string& presentation_id) {
+    const std::string& presentation_id,
+    ClientExtensionPtr client_extension) {
   DVLOG(1) << __func__;
 
   ContentClient* content_client = GetContentClient();
@@ -54,8 +59,8 @@ std::unique_ptr<FlingingRenderer> FlingingRenderer::Create(
   if (!flinging_controller)
     return nullptr;
 
-  return base::WrapUnique<FlingingRenderer>(
-      new FlingingRenderer(std::move(flinging_controller)));
+  return base::WrapUnique<FlingingRenderer>(new FlingingRenderer(
+      std::move(flinging_controller), std::move(client_extension)));
 }
 
 // media::Renderer implementation
@@ -93,7 +98,8 @@ void FlingingRenderer::StartPlayingFrom(base::TimeDelta time) {
   // changes here might be surprising, but the same signals are sent from
   // MediaPlayerRenderer::StartPlayingFrom(), and it has been working mostly
   // smoothly for all HLS playback.
-  client_->OnBufferingStateChange(media::BUFFERING_HAVE_ENOUGH);
+  client_->OnBufferingStateChange(media::BUFFERING_HAVE_ENOUGH,
+                                  media::BUFFERING_CHANGE_REASON_UNKNOWN);
 }
 
 void FlingingRenderer::SetPlaybackRate(double playback_rate) {
@@ -158,7 +164,7 @@ void FlingingRenderer::OnMediaStatusUpdated(const media::MediaStatus& status) {
   // reached a new stable PlayState without WMPI having asked for it.
   // Let WMPI know it should update itself.
   if (current_state != target_play_state_)
-    client_->OnRemotePlayStateChange(current_state);
+    client_extension_->OnRemotePlayStateChange(current_state);
 }
 
 }  // namespace content

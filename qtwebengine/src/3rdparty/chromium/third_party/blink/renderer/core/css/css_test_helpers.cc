@@ -5,8 +5,16 @@
 #include "third_party/blink/renderer/core/css/css_test_helpers.h"
 
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/blink/renderer/core/css/css_custom_ident_value.h"
 #include "third_party/blink/renderer/core/css/css_rule_list.h"
 #include "third_party/blink/renderer/core/css/css_style_sheet.h"
+#include "third_party/blink/renderer/core/css/css_variable_data.h"
+#include "third_party/blink/renderer/core/css/parser/css_parser_context.h"
+#include "third_party/blink/renderer/core/css/parser/css_parser_local_context.h"
+#include "third_party/blink/renderer/core/css/parser/css_property_parser.h"
+#include "third_party/blink/renderer/core/css/parser/css_tokenizer.h"
+#include "third_party/blink/renderer/core/css/properties/css_property_ref.h"
+#include "third_party/blink/renderer/core/css/properties/longhand.h"
 #include "third_party/blink/renderer/core/css/property_descriptor.h"
 #include "third_party/blink/renderer/core/css/property_registration.h"
 #include "third_party/blink/renderer/core/css/property_registry.h"
@@ -15,6 +23,7 @@
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/testing/page_test_base.h"
 #include "third_party/blink/renderer/platform/bindings/exception_state.h"
+#include "third_party/blink/renderer/platform/heap/heap.h"
 #include "third_party/blink/renderer/platform/wtf/text/text_encoding.h"
 
 namespace blink {
@@ -23,7 +32,7 @@ namespace css_test_helpers {
 TestStyleSheet::~TestStyleSheet() = default;
 
 TestStyleSheet::TestStyleSheet() {
-  document_ = Document::CreateForTest();
+  document_ = MakeGarbageCollected<Document>();
   TextPosition position;
   style_sheet_ = CSSStyleSheet::CreateInline(*document_, NullURL(), position,
                                              UTF8Encoding());
@@ -43,7 +52,7 @@ RuleSet& TestStyleSheet::GetRuleSet() {
   return rule_set;
 }
 
-void TestStyleSheet::AddCSSRules(const char* css_text, bool is_empty_sheet) {
+void TestStyleSheet::AddCSSRules(const String& css_text, bool is_empty_sheet) {
   TextPosition position;
   unsigned sheet_length = style_sheet_->length();
   style_sheet_->Contents()->ParseStringAtPosition(css_text, position);
@@ -67,6 +76,35 @@ void RegisterProperty(Document& document,
   PropertyRegistration::registerProperty(&document, property_descriptor,
                                          exception_state);
   ASSERT_FALSE(exception_state.HadException());
+}
+
+scoped_refptr<CSSVariableData> CreateVariableData(String s) {
+  auto tokens = CSSTokenizer(s).TokenizeToEOF();
+  CSSParserTokenRange range(tokens);
+  bool is_animation_tainted = false;
+  bool needs_variable_resolution = false;
+  return CSSVariableData::Create(range, is_animation_tainted,
+                                 needs_variable_resolution, KURL(),
+                                 WTF::TextEncoding());
+}
+
+const CSSValue* CreateCustomIdent(AtomicString s) {
+  return MakeGarbageCollected<CSSCustomIdentValue>(s);
+}
+
+const CSSValue* ParseLonghand(Document& document,
+                              const CSSProperty& property,
+                              const String& value) {
+  const auto* longhand = DynamicTo<Longhand>(property);
+  if (!longhand)
+    return nullptr;
+
+  const auto* context = MakeGarbageCollected<CSSParserContext>(document);
+  CSSParserLocalContext local_context;
+  auto tokens = CSSTokenizer(value).TokenizeToEOF();
+  CSSParserTokenRange range(tokens);
+
+  return longhand->ParseSingleValue(range, *context, local_context);
 }
 
 }  // namespace css_test_helpers

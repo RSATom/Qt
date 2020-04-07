@@ -9,9 +9,6 @@
 
 #if defined(COMPILER_MSVC)
 
-// For _Printf_format_string_.
-#include <sal.h>
-
 // Macros for suppressing and disabling warnings on MSVC.
 //
 // Warning numbers are enumerated at:
@@ -33,7 +30,6 @@
 
 #else  // Not MSVC
 
-#define _Printf_format_string_
 #define MSVC_PUSH_DISABLE_WARNING(n)
 #define MSVC_POP_WARNING()
 #define MSVC_DISABLE_OPTIMIZE()
@@ -138,6 +134,7 @@
 // |dots_param| is the one-based index of the "..." parameter.
 // For v*printf functions (which take a va_list), pass 0 for dots_param.
 // (This is undocumented but matches what the system C headers do.)
+// For member functions, the implicit this parameter counts as index 1.
 #if defined(COMPILER_GCC) || defined(__clang__)
 #define PRINTF_FORMAT(format_param, dots_param) \
     __attribute__((format(printf, format_param, dots_param)))
@@ -239,6 +236,24 @@
 #else
 // See https://en.cppreference.com/w/c/language/function_definition#func
 #define PRETTY_FUNCTION __func__
+#endif
+
+#if !defined(CPU_ARM_NEON)
+#if defined(__arm__)
+#if !defined(__ARMEB__) && !defined(__ARM_EABI__) && !defined(__EABI__) && \
+    !defined(__VFP_FP__) && !defined(_WIN32_WCE) && !defined(ANDROID)
+#error Chromium does not support middle endian architecture
+#endif
+#if defined(__ARM_NEON__)
+#define CPU_ARM_NEON 1
+#endif
+#endif  // defined(__arm__)
+#endif  // !defined(CPU_ARM_NEON)
+
+#if !defined(HAVE_MIPS_MSA_INTRINSICS)
+#if defined(__mips_msa) && defined(__mips_isa_rev) && (__mips_isa_rev >= 5)
+#define HAVE_MIPS_MSA_INTRINSICS 1
+#endif
 #endif
 
 #endif  // BASE_COMPILER_SPECIFIC_H_

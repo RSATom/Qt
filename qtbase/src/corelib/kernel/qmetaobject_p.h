@@ -54,6 +54,7 @@
 
 #include <QtCore/qglobal.h>
 #include <QtCore/qobjectdefs.h>
+#include <QtCore/qmutex.h>
 #ifndef QT_NO_QOBJECT
 #include <private/qobject_p.h> // For QObjectPrivate::Connection
 #endif
@@ -168,7 +169,6 @@ Q_DECLARE_TYPEINFO(QArgumentType, Q_MOVABLE_TYPE);
 typedef QVarLengthArray<QArgumentType, 10> QArgumentTypeArray;
 
 class QMetaMethodPrivate;
-class QMutex;
 
 struct QMetaObjectPrivate
 {
@@ -208,7 +208,13 @@ struct QMetaObjectPrivate
     static int indexOfConstructor(const QMetaObject *m, const QByteArray &name,
                                   int argc, const QArgumentType *types);
     Q_CORE_EXPORT static QMetaMethod signal(const QMetaObject *m, int signal_index);
-    Q_CORE_EXPORT static int signalOffset(const QMetaObject *m);
+    static inline int signalOffset(const QMetaObject *m) {
+        Q_ASSERT(m != nullptr);
+        int offset = 0;
+        for (m = m->d.superdata; m; m = m->d.superdata)
+            offset += reinterpret_cast<const QMetaObjectPrivate*>(m->d.data)->signalCount;
+        return offset;
+    }
     Q_CORE_EXPORT static int absoluteSignalCount(const QMetaObject *m);
     Q_CORE_EXPORT static int signalIndex(const QMetaMethod &m);
     static bool checkConnectArgs(int signalArgc, const QArgumentType *signalTypes,
@@ -226,15 +232,15 @@ struct QMetaObjectPrivate
     static QObjectPrivate::Connection *connect(const QObject *sender, int signal_index,
                         const QMetaObject *smeta,
                         const QObject *receiver, int method_index_relative,
-                        const QMetaObject *rmeta = 0,
-                        int type = 0, int *types = 0);
+                        const QMetaObject *rmeta = nullptr,
+                        int type = 0, int *types = nullptr);
     static bool disconnect(const QObject *sender, int signal_index,
                            const QMetaObject *smeta,
                            const QObject *receiver, int method_index, void **slot,
                            DisconnectType = DisconnectAll);
-    static inline bool disconnectHelper(QObjectPrivate::Connection *c,
+    static inline bool disconnectHelper(QObjectPrivate::ConnectionData *connections, int signalIndex,
                                         const QObject *receiver, int method_index, void **slot,
-                                        QMutex *senderMutex, DisconnectType = DisconnectAll);
+                                        QBasicMutex *senderMutex, DisconnectType = DisconnectAll);
 #endif
 };
 

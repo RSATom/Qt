@@ -209,9 +209,9 @@ HRGN QtWin::toHRGN(const QRegion &region)
 {
     const int size = region.rectCount();
     if (size == 0)
-        return 0;
+        return nullptr;
 
-    HRGN resultRgn = 0;
+    HRGN resultRgn = nullptr;
     const auto rects = region.begin();
     resultRgn = qt_RectToHRGN(rects[0]);
     for (int i = 1; i < size; i++) {
@@ -231,17 +231,17 @@ HRGN QtWin::toHRGN(const QRegion &region)
  */
 QRegion QtWin::fromHRGN(HRGN hrgn)
 {
-    DWORD regionDataSize = GetRegionData(hrgn, 0, NULL);
+    DWORD regionDataSize = GetRegionData(hrgn, 0, nullptr);
     if (regionDataSize == 0)
         return QRegion();
 
-    LPRGNDATA regionData = reinterpret_cast<LPRGNDATA>(malloc(regionDataSize));
+    auto regionData = reinterpret_cast<LPRGNDATA>(malloc(regionDataSize));
     if (!regionData)
         return QRegion();
 
     QRegion region;
     if (GetRegionData(hrgn, regionDataSize, regionData) == regionDataSize) {
-        LPRECT pRect = reinterpret_cast<LPRECT>(regionData->Buffer);
+        auto pRect = reinterpret_cast<LPRECT>(regionData->Buffer);
         for (DWORD i = 0; i < regionData->rdh.nCount; ++i)
             region += QRect(pRect[i].left, pRect[i].top,
                             pRect[i].right - pRect[i].left,
@@ -1623,7 +1623,7 @@ QtWin::WindowFlip3DPolicy QtWin::windowFlip3DPolicy(QWindow *window)
 {
     Q_ASSERT_X(window, Q_FUNC_INFO, "window is null");
 
-    const DWORD value =
+    const auto value =
         QtDwmApiDll::windowAttribute<DWORD>(reinterpret_cast<HWND>(window->winId()),
                                             DWMWA_FLIP3D_POLICY, DWORD(DWMFLIP3D_DEFAULT));
     QtWin::WindowFlip3DPolicy policy = QtWin::FlipDefault;
@@ -1664,8 +1664,8 @@ void qt_ExtendFrameIntoClientArea(QWindow *window, int left, int top, int right,
     If you want the extended frame to act like a standard window border, you
     should handle that yourself.
 
-    \note If \a window is a QWidget handle, set the
-    Qt::WA_NoSystemBackground attribute for your widget.
+    \note Qt::WA_NoSystemBackground must not be set on widgets for
+    extendFrameIntoClientArea() to work.
 
     \sa resetExtendedFrame()
  */
@@ -1709,7 +1709,7 @@ void QtWin::extendFrameIntoClientArea(QWindow *window, const QMargins &margins)
     This convenience function calls extendFrameIntoClientArea() with margins set
     to 0.
 
-    \note You must unset the Qt::WA_NoSystemBackground attribute for
+    \note Qt::WA_NoSystemBackground must not be set on widgets for
     extendFrameIntoClientArea() to work.
 
     \sa extendFrameIntoClientArea()
@@ -1738,10 +1738,10 @@ void QtWin::enableBlurBehindWindow(QWindow *window, const QRegion &region)
 {
     Q_ASSERT_X(window, Q_FUNC_INFO, "window is null");
 
-    DWM_BLURBEHIND dwmbb = {0, 0, 0, 0};
+    DWM_BLURBEHIND dwmbb = {0, 0, nullptr, 0};
     dwmbb.dwFlags = DWM_BB_ENABLE;
     dwmbb.fEnable = TRUE;
-    HRGN rgn = 0;
+    HRGN rgn = nullptr;
     if (!region.isNull()) {
         rgn = toHRGN(region);
         if (rgn) {
@@ -1788,7 +1788,7 @@ void QtWin::enableBlurBehindWindow(QWindow *window)
 void QtWin::disableBlurBehindWindow(QWindow *window)
 {
     Q_ASSERT_X(window, Q_FUNC_INFO, "window is null");
-    DWM_BLURBEHIND dwmbb = {0, 0, 0, 0};
+    DWM_BLURBEHIND dwmbb = {0, 0, nullptr, 0};
     dwmbb.dwFlags = DWM_BB_ENABLE;
     DwmEnableBlurBehindWindow(reinterpret_cast<HWND>(window->winId()), &dwmbb);
 }
@@ -1859,12 +1859,12 @@ void QtWin::setCurrentProcessExplicitAppUserModelID(const QString &id)
  */
 ITaskbarList3 *qt_createITaskbarList3()
 {
-    ITaskbarList3 *pTbList = 0;
-    HRESULT result = CoCreateInstance(CLSID_TaskbarList, 0, CLSCTX_INPROC_SERVER, qIID_ITaskbarList3, reinterpret_cast<void **>(&pTbList));
+    ITaskbarList3 *pTbList = nullptr;
+    HRESULT result = CoCreateInstance(CLSID_TaskbarList, nullptr, CLSCTX_INPROC_SERVER, qIID_ITaskbarList3, reinterpret_cast<void **>(&pTbList));
     if (SUCCEEDED(result)) {
         if (FAILED(pTbList->HrInit())) {
             pTbList->Release();
-            pTbList = 0;
+            pTbList = nullptr;
         }
     }
     return pTbList;
@@ -1875,12 +1875,12 @@ ITaskbarList3 *qt_createITaskbarList3()
  */
 ITaskbarList2 *qt_createITaskbarList2()
 {
-    ITaskbarList3 *pTbList = 0;
-    HRESULT result = CoCreateInstance(CLSID_TaskbarList, 0, CLSCTX_INPROC_SERVER, qIID_ITaskbarList2, reinterpret_cast<void **>(&pTbList));
+    ITaskbarList3 *pTbList = nullptr;
+    HRESULT result = CoCreateInstance(CLSID_TaskbarList, nullptr, CLSCTX_INPROC_SERVER, qIID_ITaskbarList2, reinterpret_cast<void **>(&pTbList));
     if (SUCCEEDED(result)) {
         if (FAILED(pTbList->HrInit())) {
             pTbList->Release();
-            pTbList = 0;
+            pTbList = nullptr;
         }
     }
     return pTbList;

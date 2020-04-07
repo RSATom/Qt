@@ -8,10 +8,10 @@
 #ifndef SkLayerDrawLooper_DEFINED
 #define SkLayerDrawLooper_DEFINED
 
-#include "SkDrawLooper.h"
-#include "SkPaint.h"
-#include "SkPoint.h"
-#include "SkBlendMode.h"
+#include "include/core/SkBlendMode.h"
+#include "include/core/SkDrawLooper.h"
+#include "include/core/SkPaint.h"
+#include "include/core/SkPoint.h"
 
 class SK_API SkLayerDrawLooper : public SkDrawLooper {
 public:
@@ -77,8 +77,6 @@ public:
     bool asABlurShadow(BlurShadowRec* rec) const override;
 
 protected:
-    sk_sp<SkDrawLooper> onMakeColorSpace(SkColorSpaceXformer*) const override;
-
     SkLayerDrawLooper();
 
     void flatten(SkWriteBuffer&) const override;

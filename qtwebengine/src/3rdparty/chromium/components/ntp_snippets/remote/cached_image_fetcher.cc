@@ -3,6 +3,7 @@
 // found in the LICENSE file.
 
 #include "components/ntp_snippets/remote/cached_image_fetcher.h"
+
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/location.h"
@@ -15,7 +16,11 @@
 #include "ui/gfx/image/image.h"
 
 namespace ntp_snippets {
+
 namespace {
+
+constexpr char kImageFetcherUmaClientName[] = "NtpSnippets";
+
 constexpr net::NetworkTrafficAnnotationTag kTrafficAnnotation =
     net::DefineNetworkTrafficAnnotation("remote_suggestions_provider", R"(
         semantics {
@@ -49,13 +54,7 @@ CachedImageFetcher::CachedImageFetcher(
       database_(database),
       thumbnail_requests_throttler_(
           pref_service,
-          RequestThrottler::RequestType::CONTENT_SUGGESTION_THUMBNAIL) {
-  // |image_fetcher_| can be null in tests.
-  if (image_fetcher_) {
-    image_fetcher_->SetDataUseServiceName(
-        data_use_measurement::DataUseUserData::NTP_SNIPPETS_THUMBNAILS);
-  }
-}
+          RequestThrottler::RequestType::CONTENT_SUGGESTION_THUMBNAIL) {}
 
 CachedImageFetcher::~CachedImageFetcher() {}
 
@@ -67,13 +66,21 @@ void CachedImageFetcher::FetchSuggestionImage(
   database_->LoadImage(
       suggestion_id.id_within_category(),
       base::BindOnce(&CachedImageFetcher::OnImageFetchedFromDatabase,
-                     base::Unretained(this), std::move(image_data_callback),
-                     std::move(image_callback), suggestion_id, url));
+                     weak_ptr_factory_.GetWeakPtr(),
+                     std::move(image_data_callback), std::move(image_callback),
+                     suggestion_id, url));
 }
 
 void CachedImageFetcher::OnImageDecodingDone(
     ImageFetchedCallback callback,
     const std::string& id_within_category,
+    const gfx::Image& image,
+    const image_fetcher::RequestMetadata& metadata) {
+  std::move(callback).Run(image);
+}
+
+void CachedImageFetcher::OnImageFetchingDone(
+    ImageFetchedCallback callback,
     const gfx::Image& image,
     const image_fetcher::RequestMetadata& metadata) {
   std::move(callback).Run(image);
@@ -101,10 +108,9 @@ void CachedImageFetcher::OnImageFetchedFromDatabase(
         data,
         // We're not dealing with multi-frame images.
         /*desired_image_frame_size=*/gfx::Size(),
-        base::Bind(&CachedImageFetcher::OnImageDecodedFromDatabase,
-                   base::Unretained(this),
-                   base::Passed(std::move(image_callback)), suggestion_id,
-                   url));
+        base::BindOnce(&CachedImageFetcher::OnImageDecodedFromDatabase,
+                       weak_ptr_factory_.GetWeakPtr(),
+                       std::move(image_callback), suggestion_id, url));
   }
 }
 
@@ -144,17 +150,20 @@ void CachedImageFetcher::FetchImageFromNetwork(
   // Image decoding callback only set when requested.
   image_fetcher::ImageFetcherCallback decode_callback;
   if (image_callback) {
-    decode_callback =
-        base::BindOnce(&CachedImageFetcher::OnImageDecodingDone,
-                       base::Unretained(this), std::move(image_callback));
+    decode_callback = base::BindOnce(&CachedImageFetcher::OnImageFetchingDone,
+                                     weak_ptr_factory_.GetWeakPtr(),
+                                     std::move(image_callback));
   }
 
+  image_fetcher::ImageFetcherParams params(kTrafficAnnotation,
+                                           kImageFetcherUmaClientName);
   image_fetcher_->FetchImageAndData(
-      suggestion_id.id_within_category(), url,
+      url,
       base::BindOnce(&CachedImageFetcher::SaveImageAndInvokeDataCallback,
-                     base::Unretained(this), suggestion_id.id_within_category(),
+                     weak_ptr_factory_.GetWeakPtr(),
+                     suggestion_id.id_within_category(),
                      std::move(image_data_callback)),
-      std::move(decode_callback), kTrafficAnnotation);
+      std::move(decode_callback), std::move(params));
 }
 
 void CachedImageFetcher::SaveImageAndInvokeDataCallback(

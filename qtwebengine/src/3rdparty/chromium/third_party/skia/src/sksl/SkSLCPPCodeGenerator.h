@@ -8,8 +8,8 @@
 #ifndef SKSL_CPPCODEGENERATOR
 #define SKSL_CPPCODEGENERATOR
 
-#include "SkSLGLSLCodeGenerator.h"
-#include "SkSLSectionAndParameterHelper.h"
+#include "src/sksl/SkSLGLSLCodeGenerator.h"
+#include "src/sksl/SkSLSectionAndParameterHelper.h"
 
 #include <set>
 
@@ -115,7 +115,7 @@ private:
     // Append CPP code to the current extra emit code block.
     void addExtraEmitCodeLine(const String& toAppend);
 
-    int getChildFPIndex(const VariableReference& reference) const;
+    int getChildFPIndex(const Variable& var) const;
 
     String fName;
     String fFullName;

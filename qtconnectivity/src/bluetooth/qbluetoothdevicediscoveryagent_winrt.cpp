@@ -50,6 +50,7 @@
 #include <QtBluetooth/private/qtbluetoothglobal_p.h>
 #include <QtBluetooth/private/qbluetoothutils_winrt_p.h>
 #include <QtCore/QLoggingCategory>
+#include <QtCore/qmutex.h>
 #include <QtCore/private/qeventdispatcher_winrt_p.h>
 #include <QtCore/qmutex.h>
 
@@ -440,8 +441,11 @@ void QWinRTBluetoothDeviceDiscoveryWorker::classicBluetoothInfoFromDeviceIdAsync
         hr = deviceFromIdOperation->put_Completed(Callback<IAsyncOperationCompletedHandler<BluetoothDevice *>>
                                                   ([thisPointer](IAsyncOperation<BluetoothDevice *> *op, AsyncStatus status)
         {
-            if (status == Completed && thisPointer)
-                thisPointer->onPairedClassicBluetoothDeviceFoundAsync(op, status);
+            if (thisPointer) {
+                if (status == Completed)
+                    thisPointer->onPairedClassicBluetoothDeviceFoundAsync(op, status);
+                --thisPointer->m_pendingPairedDevices;
+            }
             return S_OK;
         }).Get());
         if (FAILED(hr)) {
@@ -474,8 +478,11 @@ void QWinRTBluetoothDeviceDiscoveryWorker::leBluetoothInfoFromDeviceIdAsync(HSTR
         hr = deviceFromIdOperation->put_Completed(Callback<IAsyncOperationCompletedHandler<BluetoothLEDevice *>>
                                                   ([thisPointer] (IAsyncOperation<BluetoothLEDevice *> *op, AsyncStatus status)
         {
-            if (status == Completed && thisPointer)
-                thisPointer->onPairedBluetoothLEDeviceFoundAsync(op, status);
+            if (thisPointer) {
+                if (status == Completed)
+                    thisPointer->onPairedBluetoothLEDeviceFoundAsync(op, status);
+                --thisPointer->m_pendingPairedDevices;
+            }
             return S_OK;
         }).Get());
         if (FAILED(hr)) {
@@ -759,13 +766,13 @@ HRESULT QWinRTBluetoothDeviceDiscoveryWorker::onBluetoothLEDeviceFound(ComPtr<IB
     boolean isPaired;
     hr = pairing->get_IsPaired(&isPaired);
     Q_ASSERT_SUCCEEDED(hr);
-    QList<QBluetoothUuid> uuids;
+    QVector<QBluetoothUuid> uuids;
 
     const LEAdvertisingInfo adInfo = m_foundLEDevicesMap.value(address);
     const qint16 rssi = adInfo.rssi;
     // Use the services obtained from the advertisement data if the device is not paired
     if (!isPaired) {
-        uuids = adInfo.services.toList();
+        uuids = adInfo.services;
     } else {
         IVectorView <GenericAttributeProfile::GattDeviceService *> *deviceServices;
         hr = device->get_GattServices(&deviceServices);
@@ -791,7 +798,7 @@ HRESULT QWinRTBluetoothDeviceDiscoveryWorker::onBluetoothLEDeviceFound(ComPtr<IB
 
     QBluetoothDeviceInfo info(QBluetoothAddress(address), btName, 0);
     info.setCoreConfigurations(QBluetoothDeviceInfo::LowEnergyCoreConfiguration);
-    info.setServiceUuids(uuids, QBluetoothDeviceInfo::DataIncomplete);
+    info.setServiceUuids(uuids);
     info.setRssi(rssi);
     for (quint16 key : manufacturerData.keys())
         info.setManufacturerData(key, manufacturerData.value(key));
@@ -881,9 +888,9 @@ void QBluetoothDeviceDiscoveryAgentPrivate::registerDevice(const QBluetoothDevic
             // merge service uuids
             QList<QBluetoothUuid> uuids = iter->serviceUuids();
             uuids.append(info.serviceUuids());
-            const QSet<QBluetoothUuid> uuidSet = uuids.toSet();
+            const QSet<QBluetoothUuid> uuidSet(uuids.begin(), uuids.end());
             if (iter->serviceUuids().count() != uuidSet.count())
-                iter->setServiceUuids(uuidSet.toList().toVector());
+                iter->setServiceUuids(uuidSet.values().toVector());
             if (iter->coreConfigurations() != info.coreConfigurations())
                 iter->setCoreConfigurations(QBluetoothDeviceInfo::BaseRateAndLowEnergyCoreConfiguration);
             return;

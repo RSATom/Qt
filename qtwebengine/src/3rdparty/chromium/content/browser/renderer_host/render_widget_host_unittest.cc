@@ -15,14 +15,12 @@
 #include "base/run_loop.h"
 #include "base/single_thread_task_runner.h"
 #include "base/test/metrics/histogram_tester.h"
-#include "base/test/scoped_feature_list.h"
 #include "base/test/simple_test_tick_clock.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
 #include "base/timer/timer.h"
 #include "build/build_config.h"
 #include "cc/trees/render_frame_metadata.h"
-#include "components/viz/common/features.h"
 #include "components/viz/common/surfaces/local_surface_id.h"
 #include "components/viz/common/surfaces/parent_local_surface_id_allocator.h"
 #include "components/viz/test/begin_frame_args_test.h"
@@ -30,7 +28,9 @@
 #include "components/viz/test/mock_compositor_frame_sink_client.h"
 #include "content/browser/gpu/compositor_util.h"
 #include "content/browser/renderer_host/frame_token_message_queue.h"
+#include "content/browser/renderer_host/input/mock_input_router.h"
 #include "content/browser/renderer_host/input/touch_emulator.h"
+#include "content/browser/renderer_host/mock_render_widget_host.h"
 #include "content/browser/renderer_host/render_view_host_delegate_view.h"
 #include "content/browser/renderer_host/render_widget_host_delegate.h"
 #include "content/browser/renderer_host/render_widget_host_view_base.h"
@@ -91,220 +91,6 @@ using blink::WebTouchPoint;
 using testing::_;
 
 namespace content {
-
-// MockInputRouter -------------------------------------------------------------
-
-class MockInputRouter : public InputRouter {
- public:
-  explicit MockInputRouter(InputRouterClient* client)
-      : sent_mouse_event_(false),
-        sent_wheel_event_(false),
-        sent_keyboard_event_(false),
-        sent_gesture_event_(false),
-        send_touch_event_not_cancelled_(false),
-        has_handlers_(false),
-        client_(client) {}
-  ~MockInputRouter() override {}
-
-  // InputRouter
-  void SendMouseEvent(const MouseEventWithLatencyInfo& mouse_event,
-                      MouseEventCallback event_result_callback) override {
-    sent_mouse_event_ = true;
-  }
-  void SendWheelEvent(
-      const MouseWheelEventWithLatencyInfo& wheel_event) override {
-    sent_wheel_event_ = true;
-  }
-  void SendKeyboardEvent(const NativeWebKeyboardEventWithLatencyInfo& key_event,
-                         KeyboardEventCallback event_result_callback) override {
-    sent_keyboard_event_ = true;
-  }
-  void SendGestureEvent(
-      const GestureEventWithLatencyInfo& gesture_event) override {
-    sent_gesture_event_ = true;
-  }
-  void SendTouchEvent(const TouchEventWithLatencyInfo& touch_event) override {
-    send_touch_event_not_cancelled_ =
-        client_->FilterInputEvent(touch_event.event, touch_event.latency) ==
-        INPUT_EVENT_ACK_STATE_NOT_CONSUMED;
-  }
-  void NotifySiteIsMobileOptimized(bool is_mobile_optimized) override {}
-  bool HasPendingEvents() const override { return false; }
-  void SetDeviceScaleFactor(float device_scale_factor) override {}
-  void SetFrameTreeNodeId(int frameTreeNodeId) override {}
-  base::Optional<cc::TouchAction> AllowedTouchAction() override {
-    return cc::kTouchActionAuto;
-  }
-  void SetForceEnableZoom(bool enabled) override {}
-  void BindHost(mojom::WidgetInputHandlerHostRequest request,
-                bool frame_handler) override {}
-  void StopFling() override {}
-  bool FlingCancellationIsDeferred() override { return false; }
-  void OnSetTouchAction(cc::TouchAction touch_action) override {}
-  void ForceSetTouchActionAuto() override {}
-  void OnHasTouchEventHandlers(bool has_handlers) override {
-    has_handlers_ = has_handlers;
-  }
-  void WaitForInputProcessed(base::OnceClosure callback) override {}
-
-  bool sent_mouse_event_;
-  bool sent_wheel_event_;
-  bool sent_keyboard_event_;
-  bool sent_gesture_event_;
-  bool send_touch_event_not_cancelled_;
-  bool has_handlers_;
-
- private:
-  InputRouterClient* client_;
-
-  DISALLOW_COPY_AND_ASSIGN(MockInputRouter);
-};
-
-// TestFrameTokenMessageQueue ----------------------------------------------
-
-class TestFrameTokenMessageQueue : public FrameTokenMessageQueue {
- public:
-  explicit TestFrameTokenMessageQueue(FrameTokenMessageQueue::Client* client)
-      : FrameTokenMessageQueue(client) {}
-  ~TestFrameTokenMessageQueue() override {}
-
-  uint32_t processed_frame_messages_count() {
-    return processed_frame_messages_count_;
-  }
-
- protected:
-  void ProcessSwapMessages(std::vector<IPC::Message> messages) override {
-    processed_frame_messages_count_++;
-  }
-
- private:
-  uint32_t processed_frame_messages_count_ = 0;
-
-  DISALLOW_COPY_AND_ASSIGN(TestFrameTokenMessageQueue);
-};
-
-// MockRenderWidgetHost ----------------------------------------------------
-
-class MockRenderWidgetHost : public RenderWidgetHostImpl {
- public:
-  // Allow poking at a few private members.
-  using RenderWidgetHostImpl::GetVisualProperties;
-  using RenderWidgetHostImpl::RendererExited;
-  using RenderWidgetHostImpl::SetInitialVisualProperties;
-  using RenderWidgetHostImpl::old_visual_properties_;
-  using RenderWidgetHostImpl::is_hidden_;
-  using RenderWidgetHostImpl::visual_properties_ack_pending_;
-  using RenderWidgetHostImpl::input_router_;
-  using RenderWidgetHostImpl::frame_token_message_queue_;
-
-  void OnTouchEventAck(const TouchEventWithLatencyInfo& event,
-                       InputEventAckSource ack_source,
-                       InputEventAckState ack_result) override {
-    // Sniff touch acks.
-    acked_touch_event_type_ = event.event.GetType();
-    RenderWidgetHostImpl::OnTouchEventAck(event, ack_source, ack_result);
-  }
-
-  void reset_new_content_rendering_timeout_fired() {
-    new_content_rendering_timeout_fired_ = false;
-  }
-
-  bool new_content_rendering_timeout_fired() const {
-    return new_content_rendering_timeout_fired_;
-  }
-
-  void DisableGestureDebounce() {
-    input_router_.reset(new InputRouterImpl(this, this, fling_scheduler_.get(),
-                                            InputRouter::Config()));
-  }
-
-  void ExpectForceEnableZoom(bool enable) {
-    EXPECT_EQ(enable, force_enable_zoom_);
-
-    InputRouterImpl* input_router =
-        static_cast<InputRouterImpl*>(input_router_.get());
-    EXPECT_EQ(enable, input_router->touch_action_filter_.force_enable_zoom_);
-  }
-
-  WebInputEvent::Type acked_touch_event_type() const {
-    return acked_touch_event_type_;
-  }
-
-  // Mocks out |renderer_compositor_frame_sink_| with a
-  // CompositorFrameSinkClientPtr bound to
-  // |mock_renderer_compositor_frame_sink|.
-  void SetMockRendererCompositorFrameSink(
-      viz::MockCompositorFrameSinkClient* mock_renderer_compositor_frame_sink) {
-    renderer_compositor_frame_sink_ =
-        mock_renderer_compositor_frame_sink->BindInterfacePtr();
-  }
-
-  void SetupForInputRouterTest() {
-    input_router_.reset(new MockInputRouter(this));
-  }
-
-  MockInputRouter* mock_input_router() {
-    return static_cast<MockInputRouter*>(input_router_.get());
-  }
-
-  InputRouter* input_router() { return input_router_.get(); }
-
-  uint32_t processed_frame_messages_count() {
-    CHECK(frame_token_message_queue_);
-    return static_cast<TestFrameTokenMessageQueue*>(
-               frame_token_message_queue_.get())
-        ->processed_frame_messages_count();
-  }
-
-  static MockRenderWidgetHost* Create(RenderWidgetHostDelegate* delegate,
-                                      RenderProcessHost* process,
-                                      int32_t routing_id) {
-    mojom::WidgetPtr widget;
-    std::unique_ptr<MockWidgetImpl> widget_impl =
-        std::make_unique<MockWidgetImpl>(mojo::MakeRequest(&widget));
-
-    return new MockRenderWidgetHost(delegate, process, routing_id,
-                                    std::move(widget_impl), std::move(widget));
-  }
-
-  mojom::WidgetInputHandler* GetWidgetInputHandler() override {
-    return &mock_widget_input_handler_;
-  }
-
-  MockWidgetInputHandler mock_widget_input_handler_;
-
- protected:
-  void NotifyNewContentRenderingTimeoutForTesting() override {
-    new_content_rendering_timeout_fired_ = true;
-  }
-
-  bool new_content_rendering_timeout_fired_;
-  WebInputEvent::Type acked_touch_event_type_;
-
- private:
-  MockRenderWidgetHost(RenderWidgetHostDelegate* delegate,
-                       RenderProcessHost* process,
-                       int routing_id,
-                       std::unique_ptr<MockWidgetImpl> widget_impl,
-                       mojom::WidgetPtr widget)
-      : RenderWidgetHostImpl(delegate,
-                             process,
-                             routing_id,
-                             std::move(widget),
-                             false),
-        new_content_rendering_timeout_fired_(false),
-        widget_impl_(std::move(widget_impl)),
-        fling_scheduler_(std::make_unique<FlingScheduler>(this)) {
-    acked_touch_event_type_ = blink::WebInputEvent::kUndefined;
-    frame_token_message_queue_.reset(new TestFrameTokenMessageQueue(this));
-  }
-
-  std::unique_ptr<MockWidgetImpl> widget_impl_;
-
-  std::unique_ptr<FlingScheduler> fling_scheduler_;
-  DISALLOW_COPY_AND_ASSIGN(MockRenderWidgetHost);
-};
-
 namespace  {
 
 // RenderWidgetHostProcess -----------------------------------------------------
@@ -334,9 +120,7 @@ class TestView : public TestRenderWidgetHostView {
         acked_event_count_(0),
         gesture_event_type_(-1),
         use_fake_compositor_viewport_pixel_size_(false),
-        ack_result_(INPUT_EVENT_ACK_STATE_UNKNOWN),
-        top_controls_height_(0.f),
-        bottom_controls_height_(0.f) {
+        ack_result_(INPUT_EVENT_ACK_STATE_UNKNOWN) {
     local_surface_id_allocator_.GenerateId();
   }
 
@@ -357,16 +141,8 @@ class TestView : public TestRenderWidgetHostView {
 
   void InvalidateLocalSurfaceId() { local_surface_id_allocator_.Invalidate(); }
 
-  void GetScreenInfo(ScreenInfo* screen_info) const override {
+  void GetScreenInfo(ScreenInfo* screen_info) override {
     *screen_info = screen_info_;
-  }
-
-  void set_top_controls_height(float top_controls_height) {
-    top_controls_height_ = top_controls_height;
-  }
-
-  void set_bottom_controls_height(float bottom_controls_height) {
-    bottom_controls_height_ = bottom_controls_height;
   }
 
   const WebTouchEvent& acked_event() const { return acked_event_; }
@@ -408,11 +184,7 @@ class TestView : public TestRenderWidgetHostView {
   }
 
   // RenderWidgetHostView override.
-  gfx::Rect GetViewBounds() const override { return bounds_; }
-  float GetTopControlsHeight() const override { return top_controls_height_; }
-  float GetBottomControlsHeight() const override {
-    return bottom_controls_height_;
-  }
+  gfx::Rect GetViewBounds() override { return bounds_; }
   const viz::LocalSurfaceIdAllocation& GetLocalSurfaceIdAllocation()
       const override {
     return local_surface_id_allocator_.GetCurrentLocalSurfaceIdAllocation();
@@ -435,7 +207,7 @@ class TestView : public TestRenderWidgetHostView {
     gesture_event_type_ = event.GetType();
     ack_result_ = ack_result;
   }
-  gfx::Size GetCompositorViewportPixelSize() const override {
+  gfx::Size GetCompositorViewportPixelSize() override {
     if (use_fake_compositor_viewport_pixel_size_)
       return mock_compositor_viewport_pixel_size_;
     return TestRenderWidgetHostView::GetCompositorViewportPixelSize();
@@ -454,8 +226,6 @@ class TestView : public TestRenderWidgetHostView {
   bool use_fake_compositor_viewport_pixel_size_;
   gfx::Size mock_compositor_viewport_pixel_size_;
   InputEventAckState ack_result_;
-  float top_controls_height_;
-  float bottom_controls_height_;
   viz::BeginFrameAck last_did_not_produce_frame_ack_;
   viz::ParentLocalSurfaceIdAllocator local_surface_id_allocator_;
   ScreenInfo screen_info_;
@@ -503,6 +273,9 @@ class FakeRenderFrameMetadataObserver
       mojom::RenderFrameMetadataObserverClientPtrInfo client_info);
   ~FakeRenderFrameMetadataObserver() override {}
 
+#if defined(OS_ANDROID)
+  void ReportAllRootScrollsForAccessibility(bool enabled) override {}
+#endif
   void ReportAllFrameSubmissionsForTesting(bool enabled) override {}
 
  private:
@@ -671,9 +444,7 @@ class RenderWidgetHostTest : public testing::Test {
       : process_(nullptr),
         handle_key_press_event_(false),
         handle_mouse_event_(false),
-        last_simulated_event_time_(ui::EventTimeForNow()) {
-    feature_list_.Init();
-  }
+        last_simulated_event_time_(ui::EventTimeForNow()) {}
   ~RenderWidgetHostTest() override {}
 
   bool KeyPressEventCallback(const NativeWebKeyboardEvent& /* event */) {
@@ -704,7 +475,8 @@ class RenderWidgetHostTest : public testing::Test {
         std::make_unique<TestImageTransportFactory>());
 #endif
 #if defined(OS_ANDROID)
-    ui::SetScreenAndroid();  // calls display::Screen::SetScreenInstance().
+    // calls display::Screen::SetScreenInstance().
+    ui::SetScreenAndroid(false /* use_display_wide_color_gamut */);
 #endif
 #if defined(USE_AURA)
     screen_.reset(aura::TestScreen::Create(gfx::Size()));
@@ -943,7 +715,6 @@ class RenderWidgetHostTest : public testing::Test {
   SyntheticWebTouchEvent touch_event_;
 
   TestBrowserThreadBundle thread_bundle_;
-  base::test::ScopedFeatureList feature_list_;
   viz::mojom::CompositorFrameSinkClientPtr renderer_compositor_frame_sink_ptr_;
 
   DISALLOW_COPY_AND_ASSIGN(RenderWidgetHostTest);
@@ -1152,7 +923,7 @@ TEST_F(RenderWidgetHostTest, ResizeScreenInfo) {
       WidgetMsg_SynchronizeVisualProperties::ID));
 }
 
-// Test for crbug.com/25097.  If a renderer crashes between a resize and the
+// Test for crbug.com/25097. If a renderer crashes between a resize and the
 // corresponding update message, we must be sure to clear the visual properties
 // ACK logic.
 TEST_F(RenderWidgetHostTest, ResizeThenCrash) {
@@ -1168,11 +939,11 @@ TEST_F(RenderWidgetHostTest, ResizeThenCrash) {
   EXPECT_TRUE(process_->sink().GetUniqueMessageMatching(
       WidgetMsg_SynchronizeVisualProperties::ID));
 
-  // Simulate a renderer crash before the update message.  Ensure all the
-  // visual properties ACK logic is cleared.  Must clear the view first so it
-  // doesn't get deleted.
+  // Simulate a renderer crash before the update message. Ensure all the visual
+  // properties ACK logic is cleared. Must clear the view first so it doesn't
+  // get deleted.
   host_->SetView(nullptr);
-  host_->RendererExited(base::TERMINATION_STATUS_PROCESS_CRASHED, -1);
+  host_->RendererExited();
   EXPECT_FALSE(host_->visual_properties_ack_pending_);
   EXPECT_EQ(nullptr, host_->old_visual_properties_);
 
@@ -1186,8 +957,7 @@ TEST_F(RenderWidgetHostTest, ResizeThenCrash) {
 TEST_F(RenderWidgetHostTest, Background) {
   std::unique_ptr<RenderWidgetHostViewBase> view;
 #if defined(USE_AURA)
-  view.reset(new RenderWidgetHostViewAura(
-      host_.get(), false, false /* is_mus_browser_plugin_guest */));
+  view.reset(new RenderWidgetHostViewAura(host_.get(), false));
   // TODO(derat): Call this on all platforms: http://crbug.com/102450.
   view->InitAsChild(nullptr);
 #elif defined(OS_ANDROID)
@@ -1249,7 +1019,7 @@ TEST_F(RenderWidgetHostTest, HideShowMessages) {
 
   // Now unhide.
   process_->sink().ClearMessages();
-  host_->WasShown(false /* record_presentation_time */);
+  host_->WasShown(base::nullopt /* record_tab_switch_time_request */);
   EXPECT_FALSE(host_->is_hidden_);
 
   // It should have sent out a restored message.
@@ -1460,17 +1230,17 @@ TEST_F(RenderWidgetHostTest, EventsCausingFocus) {
   EXPECT_EQ(2, delegate_->GetFocusOwningWebContentsCallCount());
 
   SimulateGestureEvent(WebInputEvent::kGestureTapDown,
-                       blink::kWebGestureDeviceTouchscreen);
+                       blink::WebGestureDevice::kTouchscreen);
   EXPECT_EQ(2, delegate_->GetFocusOwningWebContentsCallCount());
 
   SimulateGestureEvent(WebInputEvent::kGestureTap,
-                       blink::kWebGestureDeviceTouchscreen);
+                       blink::WebGestureDevice::kTouchscreen);
   EXPECT_EQ(3, delegate_->GetFocusOwningWebContentsCallCount());
 }
 
 TEST_F(RenderWidgetHostTest, UnhandledGestureEvent) {
   SimulateGestureEvent(WebInputEvent::kGestureTwoFingerTap,
-                       blink::kWebGestureDeviceTouchscreen);
+                       blink::WebGestureDevice::kTouchscreen);
 
   MockWidgetInputHandler::MessageVector dispatched_events =
       host_->mock_widget_input_handler_.GetAndResetDispatchedMessages();
@@ -1554,7 +1324,7 @@ TEST_F(RenderWidgetHostTest, InputEventAckTimeoutDisabledForInputWhenHidden) {
 
   // Showing the widget should restore the timeout, as the events have
   // not yet been ack'ed.
-  host_->WasShown(false /* record_presentation_time */);
+  host_->WasShown(base::nullopt /* record_tab_switch_time_request */);
   RunLoopFor(TimeDelta::FromMicroseconds(2));
   EXPECT_TRUE(delegate_->unresponsive_timer_fired());
 }
@@ -1583,156 +1353,6 @@ TEST_F(RenderWidgetHostTest, MultipleInputEvents) {
   RunLoopFor(TimeDelta::FromMicroseconds(20));
   EXPECT_TRUE(delegate_->unresponsive_timer_fired());
 }
-
-// Test that the rendering timeout for newly loaded content fires when enough
-// time passes without receiving a new compositor frame. This test assumes
-// Surface Synchronization is off.
-// Disabled due to flakiness on Android.  See https://crbug.com/892700.
-#if defined(OS_ANDROID)
-#define MAYBE_NewContentRenderingTimeoutWithoutSurfaceSync \
-  DISABLED_NewContentRenderingTimeoutWithoutSurfaceSync
-#else
-#define MAYBE_NewContentRenderingTimeoutWithoutSurfaceSync \
-  NewContentRenderingTimeoutWithoutSurfaceSync
-#endif
-TEST_F(RenderWidgetHostTest,
-       NewContentRenderingTimeoutWithoutSurfaceSync_MAYBE) {
-  // If Surface Synchronization is on, we have a separate code path for
-  // cancelling new content rendering timeout that is tested separately.
-  if (features::IsSurfaceSynchronizationEnabled())
-    return;
-
-  const viz::LocalSurfaceId local_surface_id(1,
-                                             base::UnguessableToken::Create());
-
-  // Mocking |renderer_compositor_frame_sink_| to prevent crashes in
-  // renderer_compositor_frame_sink_->DidReceiveCompositorFrameAck(resources).
-  std::unique_ptr<viz::MockCompositorFrameSinkClient>
-      mock_compositor_frame_sink_client =
-          std::make_unique<viz::MockCompositorFrameSinkClient>();
-  host_->SetMockRendererCompositorFrameSink(
-      mock_compositor_frame_sink_client.get());
-
-  host_->set_new_content_rendering_delay_for_testing(
-      base::TimeDelta::FromMicroseconds(10));
-
-  // Start the timer and immediately send a CompositorFrame with the
-  // content_source_id of the new page. The timeout shouldn't fire.
-  host_->DidNavigate(5);
-  auto frame = viz::CompositorFrameBuilder()
-                   .AddDefaultRenderPass()
-                   .SetContentSourceId(5)
-                   .Build();
-  host_->SubmitCompositorFrame(local_surface_id, std::move(frame),
-                               base::nullopt, 0);
-  RunLoopFor(TimeDelta::FromMicroseconds(20));
-
-  EXPECT_FALSE(host_->new_content_rendering_timeout_fired());
-  host_->reset_new_content_rendering_timeout_fired();
-
-  // Start the timer but receive frames only from the old page. The timer
-  // should fire.
-  host_->DidNavigate(10);
-  frame = viz::CompositorFrameBuilder()
-              .AddDefaultRenderPass()
-              .SetContentSourceId(9)
-              .Build();
-  host_->SubmitCompositorFrame(local_surface_id, std::move(frame),
-                               base::nullopt, 0);
-  RunLoopFor(TimeDelta::FromMicroseconds(20));
-
-  EXPECT_TRUE(host_->new_content_rendering_timeout_fired());
-  host_->reset_new_content_rendering_timeout_fired();
-
-  // Send a CompositorFrame with content_source_id of the new page before we
-  // attempt to start the timer. The timer shouldn't fire.
-  frame = viz::CompositorFrameBuilder()
-              .AddDefaultRenderPass()
-              .SetContentSourceId(7)
-              .Build();
-  host_->SubmitCompositorFrame(local_surface_id, std::move(frame),
-                               base::nullopt, 0);
-  host_->DidNavigate(7);
-  RunLoopFor(TimeDelta::FromMicroseconds(20));
-
-  EXPECT_FALSE(host_->new_content_rendering_timeout_fired());
-  host_->reset_new_content_rendering_timeout_fired();
-
-  // Don't send any frames after the timer starts. The timer should fire.
-  host_->DidNavigate(20);
-  RunLoopFor(TimeDelta::FromMicroseconds(20));
-  EXPECT_TRUE(host_->new_content_rendering_timeout_fired());
-  host_->reset_new_content_rendering_timeout_fired();
-}
-
-// This tests that a compositor frame received with a stale content source ID
-// in its metadata is properly discarded.
-TEST_F(RenderWidgetHostTest, SwapCompositorFrameWithBadSourceId) {
-  // If Surface Synchronization is on, we don't keep track of content_source_id
-  // in CompositorFrameMetadata.
-  if (features::IsSurfaceSynchronizationEnabled())
-    return;
-  const viz::LocalSurfaceId local_surface_id(1,
-                                             base::UnguessableToken::Create());
-
-  host_->DidNavigate(100);
-  host_->set_new_content_rendering_delay_for_testing(
-      base::TimeDelta::FromMicroseconds(9999));
-
-  {
-    // First swap a frame with an invalid ID.
-    auto frame = viz::CompositorFrameBuilder()
-                     .AddDefaultRenderPass()
-                     .SetBeginFrameAck(viz::BeginFrameAck(0, 1, true))
-                     .SetContentSourceId(99)
-                     .Build();
-
-    // Mocking |renderer_compositor_frame_sink_| to prevent crashes in
-    // renderer_compositor_frame_sink_->DidReceiveCompositorFrameAck(resources).
-    std::unique_ptr<viz::MockCompositorFrameSinkClient>
-        mock_compositor_frame_sink_client =
-            std::make_unique<viz::MockCompositorFrameSinkClient>();
-    host_->SetMockRendererCompositorFrameSink(
-        mock_compositor_frame_sink_client.get());
-
-    host_->SubmitCompositorFrame(local_surface_id, std::move(frame),
-                                 base::nullopt, 0);
-    EXPECT_FALSE(
-        static_cast<TestView*>(host_->GetView())->did_swap_compositor_frame());
-    EXPECT_EQ(viz::BeginFrameAck(0, 1, false),
-              static_cast<TestView*>(host_->GetView())
-                  ->last_did_not_produce_frame_ack());
-    static_cast<TestView*>(host_->GetView())->reset_did_swap_compositor_frame();
-  }
-
-  {
-    // Test with a valid content ID as a control.
-    auto frame = viz::CompositorFrameBuilder()
-                     .AddDefaultRenderPass()
-                     .SetContentSourceId(100)
-                     .Build();
-    host_->SubmitCompositorFrame(local_surface_id, std::move(frame),
-                                 base::nullopt, 0);
-    EXPECT_TRUE(
-        static_cast<TestView*>(host_->GetView())->did_swap_compositor_frame());
-    static_cast<TestView*>(host_->GetView())->reset_did_swap_compositor_frame();
-  }
-
-  {
-    // We also accept frames with higher content IDs, to cover the case where
-    // the browser process receives a compositor frame for a new page before
-    // the corresponding DidCommitProvisionalLoad (it's a race).
-    auto frame = viz::CompositorFrameBuilder()
-                     .AddDefaultRenderPass()
-                     .SetContentSourceId(101)
-                     .Build();
-    host_->SubmitCompositorFrame(local_surface_id, std::move(frame),
-                                 base::nullopt, 0);
-    EXPECT_TRUE(
-        static_cast<TestView*>(host_->GetView())->did_swap_compositor_frame());
-  }
-}
-
 TEST_F(RenderWidgetHostTest, IgnoreInputEvent) {
   host_->SetupForInputRouterTest();
 
@@ -1748,7 +1368,7 @@ TEST_F(RenderWidgetHostTest, IgnoreInputEvent) {
   EXPECT_FALSE(host_->mock_input_router()->sent_wheel_event_);
 
   SimulateGestureEvent(WebInputEvent::kGestureScrollBegin,
-                       blink::kWebGestureDeviceTouchpad);
+                       blink::WebGestureDevice::kTouchpad);
   EXPECT_FALSE(host_->mock_input_router()->sent_gesture_event_);
 
   PressTouchPoint(100, 100);
@@ -1900,7 +1520,7 @@ TEST_F(RenderWidgetHostTest, InputEventRWHLatencyComponent) {
                                      WebInputEvent::kTouchStart);
 
   SimulateGestureEvent(WebInputEvent::kGestureScrollBegin,
-                       blink::kWebGestureDeviceTouchscreen);
+                       blink::WebGestureDevice::kTouchscreen);
   dispatched_events =
       host_->mock_widget_input_handler_.GetAndResetDispatchedMessages();
   CheckLatencyInfoComponentInMessage(dispatched_events,
@@ -1908,7 +1528,7 @@ TEST_F(RenderWidgetHostTest, InputEventRWHLatencyComponent) {
 
   // Tests RWHI::ForwardGestureEventWithLatencyInfo().
   SimulateGestureEventWithLatencyInfo(WebInputEvent::kGestureScrollUpdate,
-                                      blink::kWebGestureDeviceTouchscreen,
+                                      blink::WebGestureDevice::kTouchscreen,
                                       ui::LatencyInfo());
   dispatched_events =
       host_->mock_widget_input_handler_.GetAndResetDispatchedMessages();
@@ -1931,7 +1551,7 @@ TEST_F(RenderWidgetHostTest, InputEventRWHLatencyComponent) {
 TEST_F(RenderWidgetHostTest, RendererExitedResetsInputRouter) {
   // RendererExited will delete the view.
   host_->SetView(new TestView(host_.get()));
-  host_->RendererExited(base::TERMINATION_STATUS_PROCESS_CRASHED, -1);
+  host_->RendererExited();
 
   // Make sure the input router is in a fresh state.
   ASSERT_FALSE(host_->input_router()->HasPendingEvents());
@@ -1941,10 +1561,10 @@ TEST_F(RenderWidgetHostTest, RendererExitedResetsInputRouter) {
 TEST_F(RenderWidgetHostTest, RendererExitedResetsIsHidden) {
   // RendererExited will delete the view.
   host_->SetView(new TestView(host_.get()));
-  host_->WasShown(false /* record_presentation_time */);
+  host_->WasShown(base::nullopt /* record_tab_switch_time_request */);
 
   ASSERT_FALSE(host_->is_hidden());
-  host_->RendererExited(base::TERMINATION_STATUS_PROCESS_CRASHED, -1);
+  host_->RendererExited();
   ASSERT_TRUE(host_->is_hidden());
 
   // Make sure the input router is in a fresh state.
@@ -1966,8 +1586,7 @@ TEST_F(RenderWidgetHostTest, VisualProperties) {
 }
 
 // Make sure no dragging occurs after renderer exited. See crbug.com/704832.
-// DISABLED for crbug.com/908012
-TEST_F(RenderWidgetHostTest, DISABLED_RendererExitedNoDrag) {
+TEST_F(RenderWidgetHostTest, RendererExitedNoDrag) {
   host_->SetView(new TestView(host_.get()));
 
   EXPECT_EQ(delegate_->mock_delegate_view()->start_dragging_count(), 0);
@@ -1983,7 +1602,7 @@ TEST_F(RenderWidgetHostTest, DISABLED_RendererExitedNoDrag) {
   EXPECT_EQ(delegate_->mock_delegate_view()->start_dragging_count(), 1);
 
   // Simulate that renderer exited due navigation to the next page.
-  host_->RendererExited(base::TERMINATION_STATUS_NORMAL_TERMINATION, 0);
+  host_->RendererExited();
   EXPECT_FALSE(host_->GetView());
   host_->OnStartDragging(drop_data, drag_operation, SkBitmap(), gfx::Vector2d(),
                          event_info);
@@ -2040,7 +1659,7 @@ TEST_F(RenderWidgetHostTest, EventDispatchPostDetach) {
 
   // Tests RWHI::ForwardGestureEventWithLatencyInfo().
   SimulateGestureEventWithLatencyInfo(WebInputEvent::kGestureScrollUpdate,
-                                      blink::kWebGestureDeviceTouchscreen,
+                                      blink::WebGestureDevice::kTouchscreen,
                                       ui::LatencyInfo());
 
   // Tests RWHI::ForwardWheelEventWithLatencyInfo().
@@ -2259,7 +1878,7 @@ TEST_F(RenderWidgetHostTest, FrameToken_RendererCrash) {
   EXPECT_EQ(1u, host_->frame_token_message_queue_->size());
   EXPECT_EQ(0u, host_->processed_frame_messages_count());
 
-  host_->RendererExited(base::TERMINATION_STATUS_PROCESS_CRASHED, -1);
+  host_->RendererExited();
   EXPECT_EQ(0u, host_->frame_token_message_queue_->size());
   EXPECT_EQ(0u, host_->processed_frame_messages_count());
   host_->Init();
@@ -2274,7 +1893,7 @@ TEST_F(RenderWidgetHostTest, FrameToken_RendererCrash) {
   EXPECT_EQ(0u, host_->frame_token_message_queue_->size());
   EXPECT_EQ(0u, host_->processed_frame_messages_count());
 
-  host_->RendererExited(base::TERMINATION_STATUS_PROCESS_CRASHED, -1);
+  host_->RendererExited();
   EXPECT_EQ(0u, host_->frame_token_message_queue_->size());
   EXPECT_EQ(0u, host_->processed_frame_messages_count());
   host_->SetView(view_.get());
@@ -2352,20 +1971,20 @@ TEST_F(RenderWidgetHostTest, RenderWidgetSurfaceProperties) {
 TEST_F(RenderWidgetHostTest, NavigateInBackgroundShowsBlank) {
   // When visible, navigation does not immediately call into
   // ClearDisplayedGraphics.
-  host_->WasShown(false /* record_presentation_time */);
-  host_->DidNavigate(5);
+  host_->WasShown(base::nullopt /* record_tab_switch_time_request */);
+  host_->DidNavigate();
   EXPECT_FALSE(host_->new_content_rendering_timeout_fired());
 
   // Hide then show. ClearDisplayedGraphics must be called.
   host_->WasHidden();
-  host_->WasShown(false /* record_presentation_time */);
+  host_->WasShown(base::nullopt /* record_tab_switch_time_request */);
   EXPECT_TRUE(host_->new_content_rendering_timeout_fired());
   host_->reset_new_content_rendering_timeout_fired();
 
   // Hide, navigate, then show. ClearDisplayedGraphics must be called.
   host_->WasHidden();
-  host_->DidNavigate(6);
-  host_->WasShown(false /* record_presentation_time */);
+  host_->DidNavigate();
+  host_->WasShown(base::nullopt /* record_tab_switch_time_request */);
   EXPECT_TRUE(host_->new_content_rendering_timeout_fired());
 }
 

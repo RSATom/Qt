@@ -35,9 +35,7 @@ SurfaceImpl *DisplayVkWin32::createWindowSurfaceVk(const egl::SurfaceState &stat
 egl::ConfigSet DisplayVkWin32::generateConfigs()
 {
     constexpr GLenum kColorFormats[] = {GL_BGRA8_EXT, GL_BGRX8_ANGLEX};
-    constexpr EGLint kSampleCounts[] = {0};
-    return egl_vk::GenerateConfigs(kColorFormats, egl_vk::kConfigDepthStencilFormats, kSampleCounts,
-                                   this);
+    return egl_vk::GenerateConfigs(kColorFormats, egl_vk::kConfigDepthStencilFormats, this);
 }
 
 bool DisplayVkWin32::checkConfigSupport(egl::Config *config)
@@ -47,7 +45,7 @@ bool DisplayVkWin32::checkConfigSupport(egl::Config *config)
     return true;
 }
 
-const char *DisplayVkWin32::getWSIName() const
+const char *DisplayVkWin32::getWSIExtension() const
 {
     return VK_KHR_WIN32_SURFACE_EXTENSION_NAME;
 }

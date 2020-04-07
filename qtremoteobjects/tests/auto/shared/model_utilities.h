@@ -68,7 +68,7 @@ struct WaitForDataChanged
                 cancel = m_pending.isEmpty();
             }
             if (!cancel)
-                m_spy->wait(50);
+                m_spy->wait();
             ++runs;
             if (runs >= maxRuns)
                 cancel = true;
@@ -96,22 +96,19 @@ struct WaitForDataChanged
     void checkAndRemoveRange(const QModelIndex &topLeft, const QModelIndex &bottomRight)
     {
         QVERIFY(topLeft.parent() == bottomRight.parent());
-        QVector<QModelIndex>  toRemove;
-        for (int i = 0; i < m_pending.size(); ++i) {
-            const QModelIndex &pending = m_pending.at(i);
+        const auto isInRange = [topLeft, bottomRight] (const QModelIndex &pending) noexcept -> bool {
             if (pending.isValid()  && compareIndices(pending.parent(), topLeft.parent())) {
                 const bool fitLeft = topLeft.column() <= pending.column();
                 const bool fitRight = bottomRight.column() >= pending.column();
                 const bool fitTop = topLeft.row() <= pending.row();
                 const bool fitBottom = bottomRight.row() >= pending.row();
                 if (fitLeft && fitRight && fitTop && fitBottom)
-                    toRemove.append(pending);
+                    return true;
             }
-        }
-        foreach (const QModelIndex &index, toRemove) {
-            const int ind = m_pending.indexOf(index);
-            m_pending.remove(ind);
-        }
+            return false;
+        };
+        m_pending.erase(std::remove_if(m_pending.begin(), m_pending.end(), isInRange),
+                        m_pending.end());
     }
 
     QVector<QModelIndex> m_pending;

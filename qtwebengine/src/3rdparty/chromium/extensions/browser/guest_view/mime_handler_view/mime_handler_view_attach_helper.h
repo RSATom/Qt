@@ -10,13 +10,14 @@
 #include <map>
 #include <string>
 
+#include "base/bind_helpers.h"
+#include "base/containers/flat_map.h"
 #include "base/macros.h"
+#include "base/memory/weak_ptr.h"
 #include "content/public/browser/render_process_host_observer.h"
-#include "extensions/common/mojo/guest_view.mojom.h"
+#include "extensions/common/mojom/guest_view.mojom.h"
 
 namespace content {
-class NavigationHandle;
-class NavigationThrottle;
 class RenderFrameHost;
 class RenderProcessHost;
 class WebContents;
@@ -28,17 +29,33 @@ class MimeHandlerViewGuest;
 
 // Helper class for attaching a MimeHandlerViewGuest to its outer WebContents.
 // This class is exclusively used for frame-based MimeHandlerView. There is one
-// instance of this class per process.
+// instance of this class per process. All the associated state in this class
+// is accessed on UI thread.
 class MimeHandlerViewAttachHelper : content::RenderProcessHostObserver {
  public:
   // Returns the unique helper for process identified with |render_process_id|.
   static MimeHandlerViewAttachHelper* Get(int render_process_id);
 
-  // During attaching guest to embedder WebContentses the corresponding plugin
-  // frame might be navigated to "about:blank" first. During this time all
-  // navigations for the same FrameTreeNode must be canceled.
-  static std::unique_ptr<content::NavigationThrottle> MaybeCreateThrottle(
-      content::NavigationHandle* navigation_handle);
+  // Called on IO thread to give this class a chance to override the response
+  // body for frame-based MimeHandlerView. |payload| will be populated with a
+  // template HTML page which appends a child frame to the frame associated
+  // with |navigating_frame_tree_node_id|. Then, an observer of the associated
+  // WebContents will observe the newly created RenderFrameHosts. As soon the
+  // expected RFH (i.e., the one added by the HTML string) is found, the
+  // renderer is notified to start the MimHandlerView creation process. The
+  // mentioned child frame will be used to attach the GuestView's WebContents to
+  // the outer WebContents (WebContents associated with
+  // |navigating_frame_tree_node_id|). When this method returns true, the
+  // corresponding resource load will be halted until |resume| is invoked. This
+  // provides an opportunity for UI thread initializations.
+  static bool OverrideBodyForInterceptedResponse(
+      int32_t navigating_frame_tree_node_id,
+      const GURL& resource_url,
+      const std::string& mime_type,
+      const std::string& stream_id,
+      std::string* payload,
+      uint32_t* data_pipe_size,
+      base::OnceClosure resume_load = base::DoNothing());
 
   ~MimeHandlerViewAttachHelper() override;
 
@@ -49,30 +66,43 @@ class MimeHandlerViewAttachHelper : content::RenderProcessHostObserver {
   // outer WebContents (embedder WebContents) on the UI thread.
   void AttachToOuterWebContents(MimeHandlerViewGuest* guest_view,
                                 int32_t embedder_render_process_id,
-                                int32_t plugin_frame_routing_id,
+                                content::RenderFrameHost* outer_contents_frame,
                                 int32_t element_instance_id,
                                 bool is_full_page_plugin);
 
  private:
-  class FrameNavigationHelper;
-  friend class MimeHandlerViewAttachHelper::FrameNavigationHelper;
+  // Called after the content layer finishes preparing a frame for attaching to
+  // the embedder WebContents. If |plugin_rfh| is nullptr then attaching is not
+  // possible and the guest should be destroyed; otherwise it is safe to proceed
+  // to attaching the WebContentses.
+  void ResumeAttachOrDestroy(int32_t element_instance_id,
+                             bool is_full_page_plugin,
+                             content::RenderFrameHost* plugin_rfh);
+
+  // Called on UI thread to start observing the frame associated with
+  // |frame_tree_node_id| and have the renderer create a
+  // MimeHandlerViewFrameContainer as soon as the observed frame is ready, i.e.,
+  // the frame has committed the |resource_url| and its child frame (in the same
+  // SiteInstance) has been created.
+  static void CreateFullPageMimeHandlerView(int32_t frame_tree_node_id,
+                                            const GURL& resource_url,
+                                            const std::string& mime_type,
+                                            const std::string& stream_id,
+                                            const std::string& token);
 
   MimeHandlerViewAttachHelper(content::RenderProcessHost* render_process_host);
 
-  // Called by a FrameNavigationHelper on UI thread to notify the message filter
-  // whether or not it should proceed with attaching a guest. If the
-  // RenderFrameHost associated with |plugin_frame_routing_id| in the process
-  // identified by |render_process_id_| is not found, the MimeHandlerViewGuest
-  // associated with |element_instance_id| will be destroyed and deleted.
-  void ResumeAttachOrDestroy(int32_t element_instance_id,
-                             int32_t plugin_frame_routing_id);
-
-  std::map<int32_t, std::unique_ptr<FrameNavigationHelper>>
-      frame_navigation_helpers_;
+  // From the time the MimeHandlerViewGuest starts the attach process
+  // (AttachToOuterWebContents) to when the inner WebContents of GuestView
+  // attaches to the outer WebContents, there is a gap where the embedder
+  // RenderFrameHost (parent frame to the outer contents frame) can go away.
+  // Therefore, we keep a weak pointer to the GuestViews here (see
+  // https://crbug.com/959572).
+  base::flat_map<int32_t, base::WeakPtr<MimeHandlerViewGuest>> pending_guests_;
 
   content::RenderProcessHost* const render_process_host_;
 
-  base::WeakPtrFactory<MimeHandlerViewAttachHelper> weak_factory_;
+  base::WeakPtrFactory<MimeHandlerViewAttachHelper> weak_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(MimeHandlerViewAttachHelper);
 };

@@ -40,12 +40,8 @@ namespace blink {
 
 using namespace html_names;
 
-inline HTMLFieldSetElement::HTMLFieldSetElement(Document& document)
+HTMLFieldSetElement::HTMLFieldSetElement(Document& document)
     : HTMLFormControlElement(kFieldsetTag, document) {}
-
-HTMLFieldSetElement* HTMLFieldSetElement::Create(Document& document) {
-  return MakeGarbageCollected<HTMLFieldSetElement>(document);
-}
 
 bool HTMLFieldSetElement::MatchesValidityPseudoClasses() const {
   return true;
@@ -53,12 +49,12 @@ bool HTMLFieldSetElement::MatchesValidityPseudoClasses() const {
 
 bool HTMLFieldSetElement::IsValidElement() {
   for (Element* element : *elements()) {
-    if (element->IsFormControlElement()) {
-      if (!ToHTMLFormControlElement(element)->IsNotCandidateOrValid())
+    if (auto* html_form_element = DynamicTo<HTMLFormControlElement>(element)) {
+      if (!html_form_element->IsNotCandidateOrValid())
         return false;
-    } else if (element->IsHTMLElement() &&
-               ToHTMLElement(element)->IsFormAssociatedCustomElement()) {
-      if (!element->EnsureElementInternals().IsNotCandidateOrValid())
+    } else if (auto* html_element = DynamicTo<HTMLElement>(element)) {
+      if (html_element->IsFormAssociatedCustomElement() &&
+          !element->EnsureElementInternals().IsNotCandidateOrValid())
         return false;
     }
   }
@@ -126,11 +122,12 @@ const AtomicString& HTMLFieldSetElement::FormControlType() const {
 }
 
 LayoutObject* HTMLFieldSetElement::CreateLayoutObject(
-    const ComputedStyle& style) {
-  return LayoutObjectFactory::CreateFieldset(*this, style);
+    const ComputedStyle& style,
+    LegacyLayout legacy) {
+  return LayoutObjectFactory::CreateFieldset(*this, style, legacy);
 }
 
-bool HTMLFieldSetElement::ShouldForceLegacyLayout() const {
+bool HTMLFieldSetElement::TypeShouldForceLegacyLayout() const {
   return !RuntimeEnabledFeatures::LayoutNGFieldsetEnabled();
 }
 

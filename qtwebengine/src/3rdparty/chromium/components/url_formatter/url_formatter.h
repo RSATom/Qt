@@ -57,7 +57,7 @@ struct IDNConversionResult {
   std::string matching_top_domain;
 };
 
-// Nothing is ommitted.
+// Nothing is omitted.
 extern const FormatUrlType kFormatUrlOmitNothing;
 
 // If set, any username and password are removed.
@@ -87,7 +87,7 @@ extern const FormatUrlType kFormatUrlOmitFileScheme;
 // If the scheme is 'mailto:', it's removed. Not in kFormatUrlOmitDefaults.
 extern const FormatUrlType kFormatUrlOmitMailToScheme;
 
-// Convenience for omitting all unecessary types. Does not include HTTPS scheme
+// Convenience for omitting all unnecessary types. Does not include HTTPS scheme
 // removal, or experimental flags.
 extern const FormatUrlType kFormatUrlOmitDefaults;
 
@@ -174,8 +174,11 @@ void AppendFormattedHost(const GURL& url, base::string16* output);
 // function does NOT accept UTF-8!
 base::string16 IDNToUnicode(base::StringPiece host);
 
-// Same as IDNToUnicode, but returns more details.
-IDNConversionResult IDNToUnicodeWithDetails(base::StringPiece host);
+// Same as IDNToUnicode, but disables spoof checks and returns more details.
+// In particular, it doesn't fall back to punycode if |host| fails spoof checks
+// in IDN spoof checker or is a lookalike of a top domain.
+// DO NOT use this for displaying URLs.
+IDNConversionResult UnsafeIDNToUnicodeWithDetails(base::StringPiece host);
 
 // If |text| starts with "www." it is removed, otherwise |text| is returned
 // unmodified.

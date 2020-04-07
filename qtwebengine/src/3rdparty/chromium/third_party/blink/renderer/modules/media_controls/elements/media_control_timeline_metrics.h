@@ -6,13 +6,16 @@
 #define THIRD_PARTY_BLINK_RENDERER_MODULES_MEDIA_CONTROLS_ELEMENTS_MEDIA_CONTROL_TIMELINE_METRICS_H_
 
 #include "third_party/blink/public/common/screen_orientation/web_screen_orientation_type.h"
-#include "third_party/blink/renderer/platform/histogram.h"
+#include "third_party/blink/renderer/platform/instrumentation/histogram.h"
+#include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 #include "third_party/blink/renderer/platform/wtf/time.h"
 
 namespace blink {
 
 // Helpers for tracking and reporting media control timeline metrics to UMA.
 class MediaControlTimelineMetrics {
+  DISALLOW_NEW();
+
  public:
   // Start tracking a pointer gesture. |fromThumb| indicates whether the user
   // started dragging from the thumb, as opposed to pressing down their pointer
@@ -30,11 +33,6 @@ class MediaControlTimelineMetrics {
   // pressed key. Each sequence of calls to this should usually be sandwiched by
   // startGesture/Key and recordEndGesture/Key.
   void OnInput(double from_seconds, double to_seconds);
-
-  // Reports width to UMA the first time the media starts playing.
-  void RecordPlaying(WebScreenOrientationType,
-                     bool is_fullscreen,
-                     int timeline_width);
 
  private:
   enum class State {
@@ -64,7 +62,7 @@ class MediaControlTimelineMetrics {
   State state_ = State::kInactive;
 
   // The following are only valid during a pointer gesture.
-  TimeTicks drag_start_time_ticks_;
+  base::TimeTicks drag_start_time_ticks_;
   float drag_delta_media_seconds_ = 0;
   float drag_sum_abs_delta_media_seconds_ = 0;
 };

@@ -180,18 +180,18 @@ class Q_CORE_EXPORT QReadWriteLock
 {
 public:
     enum RecursionMode { NonRecursive, Recursive };
-    inline explicit QReadWriteLock(RecursionMode = NonRecursive) Q_DECL_NOTHROW { }
+    inline explicit QReadWriteLock(RecursionMode = NonRecursive) noexcept { }
     inline ~QReadWriteLock() { }
 
-    static inline void lockForRead() Q_DECL_NOTHROW { }
-    static inline bool tryLockForRead() Q_DECL_NOTHROW { return true; }
-    static inline bool tryLockForRead(int timeout) Q_DECL_NOTHROW { Q_UNUSED(timeout); return true; }
+    void lockForRead() noexcept { }
+    bool tryLockForRead() noexcept { return true; }
+    bool tryLockForRead(int timeout) noexcept { Q_UNUSED(timeout); return true; }
 
-    static inline void lockForWrite() Q_DECL_NOTHROW { }
-    static inline bool tryLockForWrite() Q_DECL_NOTHROW { return true; }
-    static inline bool tryLockForWrite(int timeout) Q_DECL_NOTHROW { Q_UNUSED(timeout); return true; }
+    void lockForWrite() noexcept { }
+    bool tryLockForWrite() noexcept { return true; }
+    bool tryLockForWrite(int timeout) noexcept { Q_UNUSED(timeout); return true; }
 
-    static inline void unlock() Q_DECL_NOTHROW { }
+    void unlock() noexcept { }
 
 private:
     Q_DISABLE_COPY(QReadWriteLock)
@@ -200,12 +200,12 @@ private:
 class Q_CORE_EXPORT QReadLocker
 {
 public:
-    inline QReadLocker(QReadWriteLock *) Q_DECL_NOTHROW { }
-    inline ~QReadLocker() Q_DECL_NOTHROW { }
+    inline explicit QReadLocker(QReadWriteLock *) noexcept { }
+    inline ~QReadLocker() noexcept { }
 
-    static inline void unlock() Q_DECL_NOTHROW { }
-    static inline void relock() Q_DECL_NOTHROW { }
-    static inline QReadWriteLock *readWriteLock() Q_DECL_NOTHROW { return nullptr; }
+    void unlock() noexcept { }
+    void relock() noexcept { }
+    QReadWriteLock *readWriteLock() noexcept { return nullptr; }
 
 private:
     Q_DISABLE_COPY(QReadLocker)
@@ -214,12 +214,12 @@ private:
 class Q_CORE_EXPORT QWriteLocker
 {
 public:
-    inline explicit QWriteLocker(QReadWriteLock *) Q_DECL_NOTHROW { }
-    inline ~QWriteLocker() Q_DECL_NOTHROW { }
+    inline explicit QWriteLocker(QReadWriteLock *) noexcept { }
+    inline ~QWriteLocker() noexcept { }
 
-    static inline void unlock() Q_DECL_NOTHROW { }
-    static inline void relock() Q_DECL_NOTHROW { }
-    static inline QReadWriteLock *readWriteLock() Q_DECL_NOTHROW { return nullptr; }
+    void unlock() noexcept { }
+    void relock() noexcept { }
+    QReadWriteLock *readWriteLock() noexcept { return nullptr; }
 
 private:
     Q_DISABLE_COPY(QWriteLocker)

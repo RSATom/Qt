@@ -66,7 +66,8 @@ DelayNode::DelayNode(BaseAudioContext& context, double max_delay_time)
     : AudioNode(context),
       delay_time_(
           AudioParam::Create(context,
-                             kParamTypeDelayDelayTime,
+                             Uuid(),
+                             AudioParamHandler::kParamTypeDelayDelayTime,
                              0.0,
                              AudioParamHandler::AutomationRate::kAudio,
                              AudioParamHandler::AutomationRateMode::kVariable,
@@ -88,11 +89,6 @@ DelayNode* DelayNode::Create(BaseAudioContext& context,
                              double max_delay_time,
                              ExceptionState& exception_state) {
   DCHECK(IsMainThread());
-
-  if (context.IsContextClosed()) {
-    context.ThrowExceptionForClosedState(exception_state);
-    return nullptr;
-  }
 
   if (max_delay_time <= 0 || max_delay_time >= kMaximumAllowedDelayTime) {
     exception_state.ThrowDOMException(

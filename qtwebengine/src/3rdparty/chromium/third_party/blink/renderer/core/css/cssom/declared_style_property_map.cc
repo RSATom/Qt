@@ -17,21 +17,21 @@ namespace blink {
 DeclaredStylePropertyMap::DeclaredStylePropertyMap(CSSStyleRule* owner_rule)
     : StylePropertyMap(), owner_rule_(owner_rule) {}
 
-unsigned int DeclaredStylePropertyMap::size() {
+unsigned int DeclaredStylePropertyMap::size() const {
   if (!GetStyleRule())
     return 0;
   return GetStyleRule()->Properties().PropertyCount();
 }
 
 const CSSValue* DeclaredStylePropertyMap::GetProperty(
-    CSSPropertyID property_id) {
+    CSSPropertyID property_id) const {
   if (!GetStyleRule())
     return nullptr;
   return GetStyleRule()->Properties().GetPropertyCSSValue(property_id);
 }
 
 const CSSValue* DeclaredStylePropertyMap::GetCustomProperty(
-    AtomicString property_name) {
+    AtomicString property_name) const {
   if (!GetStyleRule())
     return nullptr;
   return GetStyleRule()->Properties().GetPropertyCSSValue(property_name);
@@ -63,12 +63,12 @@ void DeclaredStylePropertyMap::SetCustomProperty(
     return;
   CSSStyleSheet::RuleMutationScope mutation_scope(owner_rule_);
 
-  DCHECK(value.IsVariableReferenceValue());
-  CSSVariableData* variable_data =
-      ToCSSVariableReferenceValue(value).VariableDataValue();
+  auto* variable_data =
+      To<CSSVariableReferenceValue>(value).VariableDataValue();
   GetStyleRule()->MutableProperties().SetProperty(
-      CSSPropertyVariable,
-      *CSSCustomPropertyDeclaration::Create(property_name, variable_data));
+      CSSPropertyID::kVariable,
+      *MakeGarbageCollected<CSSCustomPropertyDeclaration>(property_name,
+                                                          variable_data));
 }
 
 void DeclaredStylePropertyMap::RemoveProperty(CSSPropertyID property_id) {
@@ -111,7 +111,7 @@ StyleRule* DeclaredStylePropertyMap::GetStyleRule() const {
 }
 
 String DeclaredStylePropertyMap::SerializationForShorthand(
-    const CSSProperty& property) {
+    const CSSProperty& property) const {
   DCHECK(property.IsShorthand());
   if (StyleRule* style_rule = GetStyleRule()) {
     return StylePropertySerializer(style_rule->Properties())

@@ -4,31 +4,20 @@
 
 module network.mojom;
 
+import "mojo/public/mojom/base/big_buffer.mojom";
+import "mojo/public/mojom/base/file.mojom";
+import "mojo/public/mojom/base/file_path.mojom";
+import "mojo/public/mojom/base/time.mojom";
 import "mojo/public/mojom/base/unguessable_token.mojom";
 import "services/network/public/mojom/cors.mojom";
+import "services/network/public/mojom/chunked_data_pipe_getter.mojom";
+import "services/network/public/mojom/data_pipe_getter.mojom";
 import "services/network/public/mojom/fetch_api.mojom";
 import "services/network/public/mojom/http_request_headers.mojom";
+import "services/network/public/mojom/network_isolation_key.mojom";
 import "services/network/public/mojom/network_param.mojom";
-import "services/network/public/mojom/request_context_frame_type.mojom";
-import "url/mojom/url.mojom";
 import "url/mojom/origin.mojom";
-
-// Typemapped to network::ResourceRequestBody
-struct URLRequestBody {
-  // Store upload bodies
-  array<DataElement> elements;
-
-  // Identifies a particular upload instance, which is used by the cache to
-  // formulate a cache key.
-  uint64 identifier;
-
-  // Indicates whether the post data contains sensitive information like
-  // passwords.
-  bool contains_sensitive_info;
-};
-
-[Native]
-struct DataElement;
+import "url/mojom/url.mojom";
 
 [Native]
 struct URLResponseHead;
@@ -82,6 +71,21 @@ enum DataElementType {
   kBytes,
 };
 
+// Used to determine if URLRequest::trusted_network_isolation_key should be
+// updated on redirect.
+enum UpdateNetworkIsolationKeyOnRedirect {
+  kDoNotUpdate,
+
+  // The updated network isolation key will take the redirected url's origin as
+  // the top frame origin and frame origin.
+  kUpdateTopFrameAndFrameOrigin,
+
+  // The updated network isolation key will take existing
+  // |trusted_network_isolation_key|'s top frame origin and redirected url's
+  // origin as the frame origin.
+  kUpdateFrameOrigin
+};
+
 // Typemapped to network::ResourceRequest.
 struct URLRequest {
   // The request method: GET, POST, etc.
@@ -98,11 +102,39 @@ struct URLRequest {
   // done if there really is no way to determine the correct value.
   url.mojom.Url site_for_cookies;
 
+  // Top-level frame URL for QtWebEngine.
+  url.mojom.Url first_party_url;
+
   // A non-null |top_frame_origin| contains the origin of the top frame of the
-  // page making the request. Note that this is experimental and is only set for
-  // navigation and document subresource requests but not other cases such as
-  // workers.
+  // page making the request. |top_frame_origin| depends on the context making
+  // the request.
+  // - If a page is making the request, it is the origin of the top-level
+  //   frame of the page. This is set for the navigation and subresource
+  //   requests.
+  // - If a dedicated worker is making the request, it is the top-frame
+  //   origin of its creator (which may be a page or a dedicated worker).
+  // - If a shared worker or a service worker is making the request, it is null,
+  //   including for both the main script request and subresource requests.
+  //
+  // In some other cases(?) |top_frame_origin| may be null.
+  //
+  // Note that this is experimental.
+  //
+  // TODO(crbug.com/911299, crbug.com/978968): This field will most likely be
+  // removed at some point.
   url.mojom.Origin? top_frame_origin;
+
+  // This resource request will be keyed using |trusted_network_isolation_key|
+  // for accessing shared network resources like the http cache. This must only
+  // be populated from a trusted process. Optional since it is not filled for
+  // all requests e.g. those coming from a less trusted process. This parameter
+  // may only be set if the URLLoaderFactory was not created with a pre-bound
+  // network isolation key, and it is an error to do otherwise.
+  NetworkIsolationKey? trusted_network_isolation_key;
+
+  // Whether or not the network isolation key needs to be recomputed on
+  // redirects. Typically this is only done for navigations.
+  UpdateNetworkIsolationKeyOnRedirect update_network_isolation_key_on_redirect;
 
   // Boolean indicating whether SameSite cookies are allowed to be attached
   // to the request. It should be used as additional input to network side
@@ -130,19 +162,21 @@ struct URLRequest {
   // Additional HTTP request headers.
   HttpRequestHeaders headers;
 
-  // 'X-Requested-With' header value. Some consumers want to set this header,
-  // but such internal headers must be ignored by CORS checks (which run inside
-  // Network Service), so the value is stored here (rather than in |headers|)
-  // and later populated in the headers after CORS check.
-  // TODO(toyoshim): Remove it once PPAPI is deprecated.
-  string requested_with_header;
-
-  // 'X-Client-Data' header value. See comments for |requested_with_header|
-  // above, too.
-  // TODO(toyoshim): Consider to rename this to have a chrome specific prefix
-  // such as 'Chrome-' instead of 'X-', and to add 'Chrome-' prefixed header
-  // names into the forbidden header name list.
-  string client_data_header;
+  // HTTP request headers that has been internally added. Some consumers want to
+  // set additional HTTP headers, but such internal headers must be ignored by
+  // CORS check (which run inside Network Service), so the values are stored
+  // here (rather than in |headers|) and later merged into the |headers| after
+  // CORS check.
+  //
+  // *Warning*: Adding new headers to this list is strongly discouraged. What
+  // usually you need is to update the fetch spec, and add your custom headers
+  // to the CORS-safelisted header so to pass proper CORS checks. 'Proxy-' or
+  // 'Sec-' prefixes are also available. See cors::IsCORSSafelistedHeader and
+  // cors::IsForbiddenHeader for details.
+  //
+  // You should ask Loading and CORS OWNERS when you need to add your own
+  // headers to the list.
+  HttpRequestHeaders cors_exempt_headers;  // See Note above before using.
 
   // net::URLRequest load flags.
   int32 load_flags;
@@ -169,9 +203,8 @@ struct URLRequest {
   // The priority of this request determined by Blink.
   RequestPriority priority;
 
-  // Indicates which frame (or worker context) the request is being loaded into,
-  // or kAppCacheNoHostId.
-  int32 appcache_host_id;
+  // Indicates which frame (or worker context) the request is being loaded into.
+  mojo_base.mojom.UnguessableToken? appcache_host_id;
 
   // True if corresponding AppCache group should be reset.
   bool should_reset_appcache;
@@ -185,12 +218,6 @@ struct URLRequest {
   // A policy to decide if CORS-preflight fetch should be performed.
   CorsPreflightPolicy cors_preflight_policy;
 
-  // Indicates which frame (or worker context) the request is being loaded into.
-  // -1 corresponds to kInvalidServiceWorkerProviderId.
-  // TODO(jam): remove this from the struct since network service shouldn't know
-  // about this.
-  int32 service_worker_provider_id;
-
   // True if the request originated from a Service Worker, e.g. due to a
   // fetch() in the Service Worker script.
   bool originated_from_service_worker;
@@ -201,23 +228,31 @@ struct URLRequest {
   // about this.
   bool skip_service_worker;
 
+  // If true then the request continues even if it's blocked by CORB.
+  bool corb_detachable = false;
+
+  // TODO(lukasza): https://crbug.com/846339: Remove the field below and instead
+  // make plugins use a separate URLoaderFactory. Note requests of this type are
+  // only excluded if mode is kNoCors.
+  bool corb_excluded = false;
+
   // https://fetch.spec.whatwg.org/#concept-request-mode
   // Used mainly by CORS handling (out-of-blink CORS), CORB, Service Worker.
   // CORS handling needs a proper origin (including a unique opaque origin).
   // Hence a request with kSameOrigin, kCors, or kCorsWithForcedPreflight should
   // have a non-null request_initiator.
-  FetchRequestMode fetch_request_mode;
+  RequestMode mode;
 
   // https://fetch.spec.whatwg.org/#concept-request-credentials-mode
   // Used mainly by CORS handling (out-of-blink CORS), Service Worker.
   // If this member is kOmit, then DO_NOT_SAVE_COOKIES, DO_NOT_SEND_COOKIES,
   // and DO_NOT_SEND_AUTH_DATA must be set on load_flags.
-  FetchCredentialsMode fetch_credentials_mode;
+  CredentialsMode credentials_mode;
 
   // https://fetch.spec.whatwg.org/#concept-request-redirect-mode
   // Used mainly by CORS handling (out-of-blink CORS), Service Worker.
-  // This member must be kFollow as long as |fetch_request_mode| is kNoCors.
-  FetchRedirectMode fetch_redirect_mode;
+  // This member must be kFollow as long as |mode| is kNoCors.
+  RedirectMode redirect_mode;
 
   // The integrity used in Fetch API.
   string fetch_integrity;
@@ -227,9 +262,6 @@ struct URLRequest {
   // TODO(jam): remove this from the struct since network service shouldn't know
   // about this.
   int32 fetch_request_context_type;
-
-  // The frame type passed to the ServiceWorker.
-  RequestContextFrameType fetch_frame_type;
 
   // Optional resource request body.
   URLRequestBody? request_body;
@@ -292,17 +324,19 @@ struct URLRequest {
   // some CORS logic for a revalidating request.
   bool is_revalidating;
 
+  // True when the CORS module should *also* use the origin set to the
+  // associated URLLoaderFactory.
+  bool should_also_use_factory_bound_origin_for_cors;
+
   // The profile ID of network conditions to throttle the network request.
   mojo_base.mojom.UnguessableToken? throttling_profile_id;
 
-  // Headers that will be added pre and post cache if the network context uses
-  // the custom proxy for this request. The custom proxy is used for requests
-  // that match the custom proxy config, and would otherwise be made direct.
+  // Headers that will be added pre and post cache for http:// requests if the
+  // network context uses the custom proxy for this request. The custom proxy
+  // is used for requests that match the custom proxy config, and would
+  // otherwise be made direct.
   HttpRequestHeaders custom_proxy_pre_cache_headers;
   HttpRequestHeaders custom_proxy_post_cache_headers;
-
-  // Whether to use the alternate proxies set in the custom proxy config.
-  bool custom_proxy_use_alternate_proxy_list;
 
   // See https://fetch.spec.whatwg.org/#concept-request-window
   //
@@ -322,6 +356,57 @@ struct URLRequest {
   // goes through a service worker, the id is
   // ServiceWorkerProviderHost::fetch_request_window_id.
   mojo_base.mojom.UnguessableToken? fetch_window_id;
+
+  // The ID that DevTools uses to track network requests. It is generated in the
+  // renderer process and is only present when DevTools is enabled in the
+  // renderer.
+  string? devtools_request_id;
+
+  // True for prefetch requests when SignedExchangePrefetchCacheForNavigations
+  // feature is enabled by flags or SignedExchangeSubresourcePrefetch feature is
+  // enabled by flags, or OriginTrial. TODO(horo): Remove this when these
+  // features are enabled by default.
+  bool is_signed_exchange_prefetch_cache_enabled;
+};
+
+// URLRequestBody represents body (i.e. upload data) of a HTTP request.
+// Typemapped to network::ResourceRequestBody
+struct URLRequestBody {
+  // Store upload bodies
+  array<DataElement> elements;
+
+  // Identifies a particular upload instance, which is used by the cache to
+  // formulate a cache key.
+  uint64 identifier;
+
+  // Indicates whether the post data contains sensitive information like
+  // passwords.
+  bool contains_sensitive_info;
+};
+
+// Represents part of an upload body. This could be either one of bytes, file or
+// a data pipe.
+// Typemapped to network::DataElement
+struct DataElement {
+  DataElementType type;
+
+  // For kBytes.
+  array<uint8> buf;
+  // For kFile and kRawFile
+  mojo_base.mojom.FilePath path;
+  // For kRawFile
+  mojo_base.mojom.File? file;
+  // For kBlob
+  // TODO(richard.li): Deprecate this once NetworkService is fully shipped.
+  string? blob_uuid;
+  // For kDataPipe
+  network.mojom.DataPipeGetter? data_pipe_getter;
+  // For kChunkedDataPipe
+  network.mojom.ChunkedDataPipeGetter? chunked_data_pipe_getter;
+
+  uint64 offset;
+  uint64 length;
+  mojo_base.mojom.Time expected_modification_time;
 };
 
 // Destroying a URLLoader will cancel the associated request.
@@ -393,7 +478,7 @@ interface URLLoaderClient {
   OnUploadProgress(int64 current_position, int64 total_size) => ();
 
   // Called when cached metadata from a resource request is ready.
-  OnReceiveCachedMetadata(array<uint8> data);
+  OnReceiveCachedMetadata(mojo_base.mojom.BigBuffer data);
 
   // Called when the transfer size is updated. This is only called if
   // |report_raw_headers| is set or the renderer has permission to read the

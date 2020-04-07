@@ -110,7 +110,9 @@ SDK.ChildTargetManager = class extends SDK.SDKModel {
    */
   attachedToTarget(sessionId, targetInfo, waitingForDebugger) {
     let targetName = '';
-    if (targetInfo.type !== 'iframe') {
+    if (targetInfo.type === 'worker' && targetInfo.title && targetInfo.title !== targetInfo.url) {
+      targetName = targetInfo.title;
+    } else if (targetInfo.type !== 'iframe') {
       const parsedURL = targetInfo.url.asParsedURL();
       targetName = parsedURL ? parsedURL.lastPathComponentWithFragment() :
                                '#' + (++SDK.ChildTargetManager._lastAnonymousTargetId);
@@ -118,6 +120,9 @@ SDK.ChildTargetManager = class extends SDK.SDKModel {
 
     let type = SDK.Target.Type.Browser;
     if (targetInfo.type === 'iframe')
+      type = SDK.Target.Type.Frame;
+    // TODO(lfg): ensure proper capabilities for child pages (e.g. portals).
+    else if (targetInfo.type === 'page')
       type = SDK.Target.Type.Frame;
     else if (targetInfo.type === 'worker')
       type = SDK.Target.Type.Worker;

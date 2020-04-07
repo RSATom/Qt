@@ -14,7 +14,6 @@
 #include "base/memory/ref_counted.h"
 #include "base/optional.h"
 #include "base/sequence_checker.h"
-#include "components/data_use_measurement/core/data_use_user_data.h"
 #include "components/image_fetcher/core/image_fetcher_types.h"
 #include "components/image_fetcher/core/request_metadata.h"
 #include "net/traffic_annotation/network_traffic_annotation.h"
@@ -35,9 +34,6 @@ class ImageDataFetcher {
   explicit ImageDataFetcher(
       scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory);
   ~ImageDataFetcher();
-
-  // Sets a service name against which to track data usage.
-  void SetDataUseServiceName(DataUseServiceName data_use_service_name);
 
   // Sets an upper limit for image downloads.
   // Already running downloads are not affected.
@@ -83,8 +79,6 @@ class ImageDataFetcher {
       pending_requests_;
 
   scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory_;
-
-  DataUseServiceName data_use_service_name_;
 
   // Upper limit for the number of bytes to download per image.
   base::Optional<int64_t> max_download_bytes_;

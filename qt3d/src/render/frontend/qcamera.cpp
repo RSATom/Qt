@@ -227,7 +227,7 @@ void QCameraPrivate::updateViewMatrixAndTransform(bool doEmit)
  * Rotates and moves the camera so that it's viewCenter is the center of the scene's bounding volume
  * and the entire scene fits in the view port.
  *
- * \note Only works if the lens is in perspective projection mode.
+ * \note Only works if the lens is in perspective or orthographic projection mode.
  * \sa Qt3D.Render::Camera::projectionType
  */
 
@@ -235,9 +235,9 @@ void QCameraPrivate::updateViewMatrixAndTransform(bool doEmit)
  * \qmlmethod void Qt3D.Render::Camera::viewEntity(Entity entity)
  *
  * Rotates and moves the camera so that it's viewCenter is the center of the entity's bounding volume
- * and the entire entity fits in the view port.
+ * and the entire \a entity fits in the view port.
  *
- * \note Only works if the lens is in perspective projection mode.
+ * \note Only works if the lens is in perspective or orthographic projection mode.
  * \sa Qt3D.Render::Camera::projectionType
  */
 
@@ -247,7 +247,7 @@ void QCameraPrivate::updateViewMatrixAndTransform(bool doEmit)
  * Rotates and moves the camera so that it's viewCenter is \a center
  * and a sphere of \a radius fits in the view port.
  *
- * \note Only works if the lens is in perspective projection mode.
+ * \note Only works if the lens is in perspective or orthographic projection mode.
  * \sa Qt3D.Render::Camera::projectionType
  */
 
@@ -278,6 +278,18 @@ void QCameraPrivate::updateViewMatrixAndTransform(bool doEmit)
  * \qmlproperty real Qt3D.Render::Camera::farPlane
  * Holds the current camera far plane of the camera. Objects that
  * are farther from the camera than the farPlane will not be rendered.
+ */
+
+/*!
+ * \qmlproperty Qt3DRender::QCameraLens QCamera::lens
+ * Holds the CameraLens component of the camera.
+ * \since 5.14
+ */
+
+/*!
+ * \qmlproperty Qt3DCore::QTransform QCamera::transform
+ * Holds the Transform component of the camera.
+ * \since 5.14
  */
 
 /*!
@@ -420,6 +432,18 @@ void QCameraPrivate::updateViewMatrixAndTransform(bool doEmit)
  * \property QCamera::farPlane
  * Holds the current camera far plane. Objects that are farther from the
  * camera than the farPlane will not be rendered.
+ */
+
+/*!
+ * \property QCamera::lens
+ * Holds the Qt3DRender::QCameraLens component of the camera.
+ * \since 5.14
+ */
+
+/*!
+ * \property QCamera::transform
+ * Holds the Qt3DCore::QTransform component of the camera.
+ * \since 5.14
  */
 
 /*!
@@ -799,7 +823,7 @@ void QCamera::rotateAboutViewCenter(const QQuaternion& q)
  * Rotates and moves the camera so that it's viewCenter is the center of the scene's bounding volume
  * and the entire scene fits in the view port.
  *
- * \note Only works if the lens is in perspective projection mode.
+ * \note Only works if the lens is in perspective or orthographic projection mode.
  * \sa Qt3D.Render::Camera::projectionType
  */
 void QCamera::viewAll()
@@ -812,15 +836,31 @@ void QCamera::viewAll()
  * Rotates and moves the camera so that it's viewCenter is \a center
  * and a sphere of \a radius fits in the view port.
  *
- * \note Only works if the lens is in perspective projection mode.
+ * \note Only works if the lens is in perspective or orthographic projection mode.
  * \sa Qt3D.Render::Camera::projectionType
  */
 void QCamera::viewSphere(const QVector3D &center, float radius)
 {
     Q_D(QCamera);
-    if (d->m_lens->projectionType() != QCameraLens::PerspectiveProjection || radius <= 0.f)
+    if ((d->m_lens->projectionType() != QCameraLens::PerspectiveProjection &&
+        d->m_lens->projectionType() != QCameraLens::OrthographicProjection) ||
+        radius <= 0.f)
         return;
-    double dist = radius / std::tan(qDegreesToRadians(d->m_lens->fieldOfView()) / 2.0f);
+
+    // Ensure the sphere fits in the view port even if aspect ratio < 1 (i.e. width < height)
+    float height = (1.05f * radius) / (d->m_lens->aspectRatio() < 1.0f ? d->m_lens->aspectRatio() : 1.0f);
+    float dist = 1.0f;
+    if (d->m_lens->projectionType() == QCameraLens::PerspectiveProjection) {
+        dist = height / std::sin(qDegreesToRadians(d->m_lens->fieldOfView()) / 2.0f);
+    }
+    else if (d->m_lens->projectionType() == QCameraLens::OrthographicProjection) {
+        d->m_lens->setOrthographicProjection(-height * d->m_lens->aspectRatio(), height * d->m_lens->aspectRatio(), -height, height,
+            nearPlane(), farPlane());
+        dist = height / std::sin(qDegreesToRadians(d->m_lens->fieldOfView()) / 2.0f);
+    }
+    else {
+        dist = (d->m_viewCenter - d->m_position).length();
+    }
     QVector3D dir = (d->m_viewCenter - d->m_position).normalized();
     QVector3D newPos = center - (dir * dist);
     setViewCenter(center);
@@ -831,7 +871,7 @@ void QCamera::viewSphere(const QVector3D &center, float radius)
  * Rotates and moves the camera so that it's viewCenter is the center of the
  * \a {entity}'s bounding volume and the entire entity fits in the view port.
  *
- * \note Only works if the lens is in perspective projection mode.
+ * \note Only works if the lens is in perspective or orthographic projection mode.
  * \sa {Qt3D.Render::Camera::projectionType}{Camera.projectionType}
  */
 void QCamera::viewEntity(Qt3DCore::QEntity *entity)

@@ -1,7 +1,7 @@
 ortuno@chromium.org
-
-# For changes related to Chrome OS.
-rkc@chromium.org
+reillyg@chromium.org
+odejesush@chromium.org
+dougt@chromium.org
 
 per-file BUILD.gn=*
 

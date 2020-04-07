@@ -22,12 +22,14 @@
 
 namespace dawn_native { namespace vulkan {
 
-    class Device;
+    class Adapter;
+    class Backend;
 
     extern const char kLayerNameLunargStandardValidation[];
     extern const char kLayerNameLunargVKTrace[];
     extern const char kLayerNameRenderDocCapture[];
 
+    extern const char kExtensionNameExtDebugMarker[];
     extern const char kExtensionNameExtDebugReport[];
     extern const char kExtensionNameMvkMacosSurface[];
     extern const char kExtensionNameKhrSurface[];
@@ -65,6 +67,7 @@ namespace dawn_native { namespace vulkan {
         VkPhysicalDeviceFeatures features;
 
         // Extensions
+        bool debugMarker = false;
         bool swapchain = false;
     };
 
@@ -87,11 +90,10 @@ namespace dawn_native { namespace vulkan {
         std::vector<bool> supportedQueueFamilies;
     };
 
-    ResultOrError<VulkanGlobalInfo> GatherGlobalInfo(const Device& device);
-    ResultOrError<std::vector<VkPhysicalDevice>> GetPhysicalDevices(const Device& device);
-    ResultOrError<VulkanDeviceInfo> GatherDeviceInfo(const Device& device,
-                                                     VkPhysicalDevice physicalDevice);
-    MaybeError GatherSurfaceInfo(const Device& device,
+    ResultOrError<VulkanGlobalInfo> GatherGlobalInfo(const Backend& backend);
+    ResultOrError<std::vector<VkPhysicalDevice>> GetPhysicalDevices(const Backend& backend);
+    ResultOrError<VulkanDeviceInfo> GatherDeviceInfo(const Adapter& adapter);
+    MaybeError GatherSurfaceInfo(const Adapter& adapter,
                                  VkSurfaceKHR surface,
                                  VulkanSurfaceInfo* info);
 }}  // namespace dawn_native::vulkan

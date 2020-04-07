@@ -45,6 +45,7 @@
 #include <qbytearraymatcher.h>
 #include <qimage.h>
 #include <qmap.h>
+#include <qregexp.h>
 #include <qtextstream.h>
 #include <qvariant.h>
 
@@ -1124,53 +1125,45 @@ static bool write_xpm_image(const QImage &sourceImage, QIODevice *device, const 
             break;
     }
 
-    QString line;
-
     // write header
     QTextStream s(device);
-    s << "/* XPM */" << endl
-      << "static char *" << fbname(fileName) << "[]={" << endl
+    s << "/* XPM */" << Qt::endl
+      << "static char *" << fbname(fileName) << "[]={" << Qt::endl
       << '\"' << w << ' ' << h << ' ' << ncolors << ' ' << cpp << '\"';
 
     // write palette
     QMap<QRgb, int>::Iterator c = colorMap.begin();
     while (c != colorMap.end()) {
         QRgb color = c.key();
-        if (image.format() != QImage::Format_RGB32 && !qAlpha(color))
-            line = QString::asprintf("\"%s c None\"",
-                                     xpm_color_name(cpp, *c));
-        else
-            line = QString::asprintf("\"%s c #%02x%02x%02x\"",
-                                     xpm_color_name(cpp, *c),
-                                     qRed(color),
-                                     qGreen(color),
-                                     qBlue(color));
+        const QString line = image.format() != QImage::Format_RGB32 && !qAlpha(color)
+            ? QString::asprintf("\"%s c None\"", xpm_color_name(cpp, *c))
+            : QString::asprintf("\"%s c #%02x%02x%02x\"", xpm_color_name(cpp, *c),
+                                qRed(color), qGreen(color), qBlue(color));
         ++c;
-        s << ',' << endl << line;
+        s << ',' << Qt::endl << line;
     }
 
     // write pixels, limit to 4 characters per pixel
-    line.truncate(cpp*w);
+    QByteArray line;
     for(y=0; y<h; y++) {
+        line.clear();
         const QRgb *yp = reinterpret_cast<const QRgb *>(image.constScanLine(y));
-        int cc = 0;
         for(x=0; x<w; x++) {
             int color = (int)(*(yp + x));
             const QByteArray chars(xpm_color_name(cpp, colorMap[color]));
-            line[cc++] = QLatin1Char(chars[0]);
+            line.append(chars[0]);
             if (cpp > 1) {
-                line[cc++] = QLatin1Char(chars[1]);
+                line.append(chars[1]);
                 if (cpp > 2) {
-                    line[cc++] = QLatin1Char(chars[2]);
-                    if (cpp > 3) {
-                        line[cc++] = QLatin1Char(chars[3]);
-                    }
+                    line.append(chars[2]);
+                    if (cpp > 3)
+                        line.append(chars[3]);
                 }
             }
         }
-        s << ',' << endl << '\"' << line << '\"';
+        s << ',' << Qt::endl << '\"' << line << '\"';
     }
-    s << "};" << endl;
+    s << "};" << Qt::endl;
     return (s.status() == QTextStream::Ok);
 }
 

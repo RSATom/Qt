@@ -6,14 +6,29 @@
 
 #include "build/build_config.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/blink/renderer/core/css/css_font_selector.h"
 #include "third_party/blink/renderer/core/css/css_gradient_value.h"
+#include "third_party/blink/renderer/core/css/css_identifier_value.h"
+#include "third_party/blink/renderer/core/css/css_numeric_literal_value.h"
+#include "third_party/blink/renderer/core/css/css_test_helpers.h"
+#include "third_party/blink/renderer/core/css/css_value_list.h"
+#include "third_party/blink/renderer/core/css/properties/css_property_ref.h"
+#include "third_party/blink/renderer/core/css/resolver/style_resolver_state.h"
+#include "third_party/blink/renderer/core/css/style_engine.h"
+#include "third_party/blink/renderer/core/dom/document.h"
+#include "third_party/blink/renderer/core/frame/settings.h"
 #include "third_party/blink/renderer/core/style/clip_path_operation.h"
 #include "third_party/blink/renderer/core/style/shape_clip_path_operation.h"
 #include "third_party/blink/renderer/core/style/shape_value.h"
 #include "third_party/blink/renderer/core/style/style_difference.h"
 #include "third_party/blink/renderer/core/style/style_generated_image.h"
+#include "third_party/blink/renderer/core/testing/dummy_page_holder.h"
+#include "third_party/blink/renderer/platform/heap/heap.h"
+#include "third_party/blink/renderer/platform/testing/runtime_enabled_features_test_helpers.h"
 
 namespace blink {
+
+using namespace css_test_helpers;
 
 TEST(ComputedStyleTest, ShapeOutsideBoxEqual) {
   ShapeValue* shape1 = ShapeValue::CreateBoxShapeValue(CSSBoxType::kContent);
@@ -55,13 +70,22 @@ TEST(ComputedStyleTest, ClipPathEqual) {
 TEST(ComputedStyleTest, FocusRingWidth) {
   scoped_refptr<ComputedStyle> style = ComputedStyle::Create();
   style->SetEffectiveZoom(3.5);
-#if defined(OS_MACOSX)
   style->SetOutlineStyle(EBorderStyle::kSolid);
+#if defined(OS_MACOSX)
   EXPECT_EQ(3, style->GetOutlineStrokeWidthForFocusRing());
 #else
-  EXPECT_EQ(3.5, style->GetOutlineStrokeWidthForFocusRing());
+  style->SetOutlineStyleIsAuto(static_cast<bool>(OutlineIsAuto::kOn));
+  static uint16_t outline_width = 4;
+  style->SetOutlineWidth(outline_width);
+
+  double expected_width =
+      LayoutTheme::GetTheme().IsFocusRingOutset() ? outline_width : 3.5;
+  EXPECT_EQ(expected_width, style->GetOutlineStrokeWidthForFocusRing());
+
+  expected_width =
+      LayoutTheme::GetTheme().IsFocusRingOutset() ? outline_width : 1.0;
   style->SetEffectiveZoom(0.5);
-  EXPECT_EQ(1, style->GetOutlineStrokeWidthForFocusRing());
+  EXPECT_EQ(expected_width, style->GetOutlineStrokeWidthForFocusRing());
 #endif
 }
 
@@ -169,17 +193,6 @@ TEST(ComputedStyleTest,
   scoped_refptr<ComputedStyle> other = ComputedStyle::Clone(*style);
 
   other->SetHasCurrentBackdropFilterAnimation(true);
-  StyleDifference diff;
-  style->UpdatePropertySpecificDifferences(*other, diff);
-  EXPECT_TRUE(diff.CompositingReasonsChanged());
-}
-
-TEST(ComputedStyleTest,
-     UpdatePropertySpecificDifferencesCompositingReasonsInlineTransform) {
-  scoped_refptr<ComputedStyle> style = ComputedStyle::Create();
-  scoped_refptr<ComputedStyle> other = ComputedStyle::Clone(*style);
-
-  other->SetHasInlineTransform(true);
   StyleDifference diff;
   style->UpdatePropertySpecificDifferences(*other, diff);
   EXPECT_TRUE(diff.CompositingReasonsChanged());
@@ -313,12 +326,12 @@ TEST(ComputedStyleTest, CursorList) {
   scoped_refptr<ComputedStyle> style = ComputedStyle::Create();
   scoped_refptr<ComputedStyle> other = ComputedStyle::Create();
 
-  cssvalue::CSSGradientValue* gradient =
-      cssvalue::CSSLinearGradientValue::Create(
-          nullptr, nullptr, nullptr, nullptr, nullptr, cssvalue::kRepeating);
+  auto* gradient = MakeGarbageCollected<cssvalue::CSSLinearGradientValue>(
+      nullptr, nullptr, nullptr, nullptr, nullptr, cssvalue::kRepeating);
 
-  StyleImage* image_value = StyleGeneratedImage::Create(*gradient);
-  StyleImage* other_image_value = StyleGeneratedImage::Create(*gradient);
+  auto* image_value = MakeGarbageCollected<StyleGeneratedImage>(*gradient);
+  auto* other_image_value =
+      MakeGarbageCollected<StyleGeneratedImage>(*gradient);
 
   EXPECT_TRUE(DataEquivalent(image_value, other_image_value));
 
@@ -390,6 +403,136 @@ TEST(ComputedStyleTest, BorderStyle) {
   EXPECT_FALSE(style->BorderSizeEquals(*other));
   style->SetBorderBottomStyle(EBorderStyle::kSolid);
   EXPECT_TRUE(style->BorderSizeEquals(*other));
+}
+
+#define TEST_ANIMATION_FLAG(flag, inherited)                               \
+  do {                                                                     \
+    auto style = ComputedStyle::Create();                                  \
+    auto other = ComputedStyle::Create();                                  \
+    EXPECT_FALSE(style->flag());                                           \
+    EXPECT_FALSE(other->flag());                                           \
+    style->Set##flag(true);                                                \
+    EXPECT_TRUE(style->flag());                                            \
+    EXPECT_EQ(ComputedStyle::Difference::inherited,                        \
+              ComputedStyle::ComputeDifference(style.get(), other.get())); \
+    auto diff = style->VisualInvalidationDiff(*document, *other);          \
+    EXPECT_TRUE(diff.HasDifference());                                     \
+    EXPECT_TRUE(diff.CompositingReasonsChanged());                         \
+  } while (false)
+
+#define TEST_ANIMATION_FLAG_NO_DIFF(flag)                                  \
+  do {                                                                     \
+    auto style = ComputedStyle::Create();                                  \
+    auto other = ComputedStyle::Create();                                  \
+    EXPECT_FALSE(style->flag());                                           \
+    EXPECT_FALSE(other->flag());                                           \
+    style->Set##flag(true);                                                \
+    EXPECT_TRUE(style->flag());                                            \
+    EXPECT_EQ(ComputedStyle::Difference::kEqual,                           \
+              ComputedStyle::ComputeDifference(style.get(), other.get())); \
+    auto diff = style->VisualInvalidationDiff(*document, *other);          \
+    EXPECT_FALSE(diff.HasDifference());                                    \
+    EXPECT_FALSE(diff.CompositingReasonsChanged());                        \
+  } while (false)
+
+TEST(ComputedStyleTest, AnimationFlags) {
+  Persistent<Document> document = MakeGarbageCollected<Document>();
+  TEST_ANIMATION_FLAG(HasCurrentTransformAnimation, kNonInherited);
+  TEST_ANIMATION_FLAG(HasCurrentOpacityAnimation, kNonInherited);
+  TEST_ANIMATION_FLAG(HasCurrentFilterAnimation, kNonInherited);
+  TEST_ANIMATION_FLAG(HasCurrentBackdropFilterAnimation, kNonInherited);
+  TEST_ANIMATION_FLAG(SubtreeWillChangeContents, kInherited);
+  TEST_ANIMATION_FLAG_NO_DIFF(IsRunningTransformAnimationOnCompositor);
+  TEST_ANIMATION_FLAG_NO_DIFF(IsRunningOpacityAnimationOnCompositor);
+  TEST_ANIMATION_FLAG_NO_DIFF(IsRunningFilterAnimationOnCompositor);
+  TEST_ANIMATION_FLAG_NO_DIFF(IsRunningBackdropFilterAnimationOnCompositor);
+}
+
+TEST(ComputedStyleTest, CustomPropertiesEqual_Values) {
+  auto* document = MakeGarbageCollected<Document>();
+  RegisterProperty(*document, "--x", "<length>", "0px", false);
+
+  scoped_refptr<ComputedStyle> style1 = ComputedStyle::Create();
+  scoped_refptr<ComputedStyle> style2 = ComputedStyle::Create();
+
+  using UnitType = CSSPrimitiveValue::UnitType;
+
+  const auto* value1 = CSSNumericLiteralValue::Create(1.0, UnitType::kPixels);
+  const auto* value2 = CSSNumericLiteralValue::Create(2.0, UnitType::kPixels);
+  const auto* value3 = CSSNumericLiteralValue::Create(1.0, UnitType::kPixels);
+
+  Vector<AtomicString> properties;
+  properties.push_back("--x");
+
+  style1->SetVariableValue("--x", value1, false);
+  style2->SetVariableValue("--x", value1, false);
+  EXPECT_TRUE(style1->CustomPropertiesEqual(properties, *style2));
+
+  style1->SetVariableValue("--x", value1, false);
+  style2->SetVariableValue("--x", value3, false);
+  EXPECT_TRUE(style1->CustomPropertiesEqual(properties, *style2));
+
+  style1->SetVariableValue("--x", value1, false);
+  style2->SetVariableValue("--x", value2, false);
+  EXPECT_FALSE(style1->CustomPropertiesEqual(properties, *style2));
+}
+
+TEST(ComputedStyleTest, CustomPropertiesEqual_Data) {
+  auto* document = MakeGarbageCollected<Document>();
+  RegisterProperty(*document, "--x", "<length>", "0px", false);
+
+  scoped_refptr<ComputedStyle> style1 = ComputedStyle::Create();
+  scoped_refptr<ComputedStyle> style2 = ComputedStyle::Create();
+
+  auto value1 = CreateVariableData("foo");
+  auto value2 = CreateVariableData("bar");
+  auto value3 = CreateVariableData("foo");
+
+  Vector<AtomicString> properties;
+  properties.push_back("--x");
+
+  style1->SetVariableData("--x", value1, false);
+  style2->SetVariableData("--x", value1, false);
+  EXPECT_TRUE(style1->CustomPropertiesEqual(properties, *style2));
+
+  style1->SetVariableData("--x", value1, false);
+  style2->SetVariableData("--x", value3, false);
+  EXPECT_TRUE(style1->CustomPropertiesEqual(properties, *style2));
+
+  style1->SetVariableData("--x", value1, false);
+  style2->SetVariableData("--x", value2, false);
+  EXPECT_FALSE(style1->CustomPropertiesEqual(properties, *style2));
+}
+
+TEST(ComputedStyleTest, ApplyColorSchemeLightOnDark) {
+  ScopedCSSColorSchemeForTest scoped_property_enabled(true);
+
+  std::unique_ptr<DummyPageHolder> dummy_page_holder_ =
+      std::make_unique<DummyPageHolder>(IntSize(0, 0), nullptr);
+  const ComputedStyle* initial = &ComputedStyle::InitialStyle();
+
+  dummy_page_holder_->GetDocument().GetSettings()->SetPreferredColorScheme(
+      PreferredColorScheme::kDark);
+  StyleResolverState state(dummy_page_holder_->GetDocument(),
+                           *dummy_page_holder_->GetDocument().documentElement(),
+                           nullptr /* pseudo_element */, initial, initial);
+
+  scoped_refptr<ComputedStyle> style = ComputedStyle::Create();
+  state.SetStyle(style);
+
+  CSSPropertyRef ref("color-scheme", state.GetDocument());
+
+  CSSValueList* dark_value = CSSValueList::CreateSpaceSeparated();
+  dark_value->Append(*CSSIdentifierValue::Create(CSSValueID::kDark));
+
+  CSSValueList* light_value = CSSValueList::CreateSpaceSeparated();
+  light_value->Append(*CSSIdentifierValue::Create(CSSValueID::kLight));
+
+  To<Longhand>(ref.GetProperty()).ApplyValue(state, *dark_value);
+  EXPECT_EQ(ColorScheme::kDark, style->UsedColorScheme());
+
+  To<Longhand>(ref.GetProperty()).ApplyValue(state, *light_value);
+  EXPECT_EQ(ColorScheme::kLight, style->UsedColorScheme());
 }
 
 }  // namespace blink

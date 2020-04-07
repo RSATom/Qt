@@ -52,6 +52,7 @@ class PrefRegistrySyncable;
 namespace extensions {
 
 class AppSorting;
+class EarlyExtensionPrefsObserver;
 class ExtensionPrefsObserver;
 class URLPatternSet;
 
@@ -140,16 +141,16 @@ class ExtensionPrefs : public KeyedService {
   // Creates an ExtensionPrefs object.
   // Does not take ownership of |prefs| or |extension_pref_value_map|.
   // If |extensions_disabled| is true, extension controlled preferences and
-  // content settings do not become effective. ExtensionPrefsObservers should be
-  // included in |early_observers| if they need to observe events which occur
-  // during initialization of the ExtensionPrefs object.
+  // content settings do not become effective. EarlyExtensionPrefsObservers
+  // should be included in |early_observers| if they need to observe events
+  // which occur during initialization of the ExtensionPrefs object.
   static ExtensionPrefs* Create(
       content::BrowserContext* browser_context,
       PrefService* prefs,
       const base::FilePath& root_dir,
       ExtensionPrefValueMap* extension_pref_value_map,
       bool extensions_disabled,
-      const std::vector<ExtensionPrefsObserver*>& early_observers);
+      const std::vector<EarlyExtensionPrefsObserver*>& early_observers);
 
   // A version of Create which allows injection of a custom base::Time provider.
   // Use this as needed for testing.
@@ -159,7 +160,7 @@ class ExtensionPrefs : public KeyedService {
       const base::FilePath& root_dir,
       ExtensionPrefValueMap* extension_pref_value_map,
       bool extensions_disabled,
-      const std::vector<ExtensionPrefsObserver*>& early_observers,
+      const std::vector<EarlyExtensionPrefsObserver*>& early_observers,
       base::Clock* clock);
 
   ~ExtensionPrefs() override;
@@ -184,6 +185,13 @@ class ExtensionPrefs : public KeyedService {
   // Get/Set the order that the browser actions appear in the toolbar.
   ExtensionIdList GetToolbarOrder() const;
   void SetToolbarOrder(const ExtensionIdList& extension_ids);
+
+  // Get/Set the set of extensions that are pinned to the toolbar. Only used
+  // when the experiment ExtensionsMenu is active."
+  // TODO(crbug.com/943702): Remove reference to experiment when it launches or
+  // remove code if it does not.
+  ExtensionIdList GetPinnedExtensions() const;
+  void SetPinnedExtensions(const ExtensionIdList& extension_ids);
 
   // Called when an extension is installed, so that prefs get created.
   // If |page_ordinal| is invalid then a page will be found for the App.
@@ -280,6 +288,10 @@ class ExtensionPrefs : public KeyedService {
   void ReplaceDisableReasons(const std::string& extension_id,
                              int disable_reasons);
   void ClearDisableReasons(const std::string& extension_id);
+
+  // Clears disable reasons that do not apply to component extensions.
+  void ClearInapplicableDisableReasonsForComponentExtension(
+      const std::string& component_extension_id);
 
   // Gets the set of extensions that have been blacklisted in prefs. This will
   // return only the blocked extensions, not the "greylist" extensions.
@@ -566,19 +578,28 @@ class ExtensionPrefs : public KeyedService {
   int GetCorruptedDisableCount() const;
   void IncrementCorruptedDisableCount();
 
-  // Whether the extension with the given |id| needs to be synced. This is set
-  // when the state (such as enabled/disabled or allowed in incognito) is
-  // changed before Sync is ready.
+  // Whether the extension with the given |extension_id| needs to be synced.
+  // This is set when the state (such as enabled/disabled or allowed in
+  // incognito) is changed before Sync is ready.
   bool NeedsSync(const std::string& extension_id) const;
   void SetNeedsSync(const std::string& extension_id, bool needs_sync);
 
   // Returns false if there is no ruleset checksum corresponding to
   // |extension_id|. On success, returns true and populates
-  // |dnr_ruleset_checksum|.
+  // the checksum.
   bool GetDNRRulesetChecksum(const ExtensionId& extension_id,
-                             int* dnr_ruleset_checksum) const;
-  void SetDNRRulesetChecksum(const ExtensionId& extension_id,
-                             int dnr_ruleset_checksum);
+                             int* checksum) const;
+  void SetDNRRulesetChecksum(const ExtensionId& extension_id, int checksum);
+
+  // Returns false if there is no dynamic ruleset corresponding to
+  // |extension_id|. On success, returns true and populates the checksum.
+  // TODO(crbug.com/696822): Use a single dictionary to store checksums for
+  // static and dynamic rulesets. This will be more relevant if and when we do
+  // support multiple static rulesets.
+  bool GetDNRDynamicRulesetChecksum(const ExtensionId& extension_id,
+                                    int* checksum) const;
+  void SetDNRDynamicRulesetChecksum(const ExtensionId& extension_id,
+                                    int checksum);
 
   // Sets the set of allowed pages for the given |extension_id|.
   void SetDNRAllowedPages(const ExtensionId& extension_id, URLPatternSet set);
@@ -586,11 +607,26 @@ class ExtensionPrefs : public KeyedService {
   // Returns the set of allowed pages for the given |extension_id|.
   URLPatternSet GetDNRAllowedPages(const ExtensionId& extension_id) const;
 
+  // Whether the extension with the given |extension_id| is using its ruleset's
+  // matched action count for the badge text. This is set via the
+  // setActionCountAsBadgeText API call.
+  bool GetDNRUseActionCountAsBadgeText(const ExtensionId& extension_id) const;
+  void SetDNRUseActionCountAsBadgeText(const ExtensionId& extension_id,
+                                       bool use_action_count_as_badge_text);
+
+  // Iterates over the extension pref entries and removes any obsolete keys. We
+  // need to do this here specially (rather than in
+  // MigrateObsoleteProfilePrefs()) because these entries are subkeys of the
+  // extension's dictionary, which is keyed on the extension ID.
+  void MigrateObsoleteExtensionPrefs();
+
   // When called before the ExtensionService is created, alerts that are
   // normally suppressed in first run will still trigger.
   static void SetRunAlertsInFirstRunForTest();
 
   void ClearExternalUninstallForTesting(const ExtensionId& id);
+
+  static const char kFakeObsoletePrefForTesting[];
 
  private:
   friend class ExtensionPrefsBlacklistedExtensions;  // Unit test.
@@ -605,13 +641,14 @@ class ExtensionPrefs : public KeyedService {
   };
 
   // See the Create methods.
-  ExtensionPrefs(content::BrowserContext* browser_context,
-                 PrefService* prefs,
-                 const base::FilePath& root_dir,
-                 ExtensionPrefValueMap* extension_pref_value_map,
-                 base::Clock* clock,
-                 bool extensions_disabled,
-                 const std::vector<ExtensionPrefsObserver*>& early_observers);
+  ExtensionPrefs(
+      content::BrowserContext* browser_context,
+      PrefService* prefs,
+      const base::FilePath& root_dir,
+      ExtensionPrefValueMap* extension_pref_value_map,
+      base::Clock* clock,
+      bool extensions_disabled,
+      const std::vector<EarlyExtensionPrefsObserver*>& early_observers);
 
   // Converts absolute paths in the pref to paths relative to the
   // install_directory_.

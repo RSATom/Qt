@@ -4,6 +4,8 @@
 
 #include "content/browser/browser_process_sub_thread.h"
 
+#include "base/bind.h"
+#include "base/clang_coverage_buildflags.h"
 #include "base/compiler_specific.h"
 #include "base/debug/alias.h"
 #include "base/metrics/histogram_macros.h"
@@ -72,24 +74,6 @@ void BrowserProcessSubThread::RegisterAsBrowserThread() {
 void BrowserProcessSubThread::AllowBlockingForTesting() {
   DCHECK(!IsRunning());
   is_blocking_allowed_for_testing_ = true;
-}
-
-// static
-std::unique_ptr<BrowserProcessSubThread>
-BrowserProcessSubThread::CreateIOThread() {
-  TRACE_EVENT0("startup", "BrowserProcessSubThread::CreateIOThread");
-  base::Thread::Options options;
-  options.message_loop_type = base::MessageLoop::TYPE_IO;
-#if defined(OS_ANDROID) || defined(OS_CHROMEOS)
-  // Up the priority of the |io_thread_| as some of its IPCs relate to
-  // display tasks.
-  options.priority = base::ThreadPriority::DISPLAY;
-#endif
-  std::unique_ptr<BrowserProcessSubThread> io_thread(
-      new BrowserProcessSubThread(BrowserThread::IO));
-  if (!io_thread->StartWithOptions(options))
-    LOG(FATAL) << "Failed to start BrowserThread:IO";
-  return io_thread;
 }
 
 void BrowserProcessSubThread::Init() {
@@ -192,7 +176,17 @@ void BrowserProcessSubThread::IOThreadCleanUp() {
         service_manager::SANDBOX_TYPE_NETWORK) {
       // This ensures that cookies and cache are flushed to disk on shutdown.
       // https://crbug.com/841001
+#if BUILDFLAG(CLANG_COVERAGE)
+      // On coverage build, browser_tests runs 10x slower.
+      const int kMaxSecondsToWaitForNetworkProcess = 100;
+#elif defined(OS_CHROMEOS)
+      // ChromeOS will kill the browser process if it doesn't shut down within
+      // 3 seconds, so make sure we wait for less than that.
+      const int kMaxSecondsToWaitForNetworkProcess = 1;
+#else
       const int kMaxSecondsToWaitForNetworkProcess = 10;
+#endif
+
       ChildProcessHostImpl* child_process =
           static_cast<ChildProcessHostImpl*>(it.GetHost());
       auto& process = child_process->peer_process();
@@ -206,8 +200,8 @@ void BrowserProcessSubThread::IOThreadCleanUp() {
       // Record time spent for the method call.
       base::TimeDelta network_wait_time = base::TimeTicks::Now() - start_time;
       UMA_HISTOGRAM_TIMES("NetworkService.ShutdownTime", network_wait_time);
-      LOG(ERROR) << "Waited " << network_wait_time.InMilliseconds()
-                 << " ms for network service";
+      DVLOG(1) << "Waited " << network_wait_time.InMilliseconds()
+               << " ms for network service";
     }
   }
 

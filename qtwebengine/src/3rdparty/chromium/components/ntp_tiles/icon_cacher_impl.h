@@ -69,7 +69,6 @@ class IconCacherImpl : public IconCacher {
   void OnPopularSitesFaviconDownloaded(
       PopularSites::Site site,
       std::unique_ptr<CancelableImageCallback> preliminary_callback,
-      const std::string& id,
       const gfx::Image& fetched_image,
       const image_fetcher::RequestMetadata& metadata);
 
@@ -101,7 +100,7 @@ class IconCacherImpl : public IconCacher {
   std::unique_ptr<image_fetcher::ImageFetcher> const image_fetcher_;
   std::map<GURL, std::vector<base::Closure>> in_flight_requests_;
 
-  base::WeakPtrFactory<IconCacherImpl> weak_ptr_factory_;
+  base::WeakPtrFactory<IconCacherImpl> weak_ptr_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(IconCacherImpl);
 };

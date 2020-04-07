@@ -135,6 +135,7 @@ void QBluetoothDeviceDiscoveryAgentPrivate::start(QBluetoothDeviceDiscoveryAgent
     }
 
     discoveredDevices.clear();
+    devicesProperties.clear();
 
     if (managerBluez5) {
         startBluez5(methods);
@@ -291,6 +292,17 @@ void QBluetoothDeviceDiscoveryAgentPrivate::startBluez5(QBluetoothDeviceDiscover
                      q, [this](const QString &path){
         this->_q_discoveryInterrupted(path);
     });
+    OrgFreedesktopDBusPropertiesInterface *prop = new OrgFreedesktopDBusPropertiesInterface(
+                QStringLiteral("org.bluez"), QStringLiteral(""), QDBusConnection::systemBus());
+    QObject::connect(prop, &OrgFreedesktopDBusPropertiesInterface::PropertiesChanged,
+                     q, [this](const QString &interface, const QVariantMap &changedProperties,
+                     const QStringList &invalidatedProperties,
+                     const QDBusMessage &signal) {
+        this->_q_PropertiesChanged(interface, signal.path(), changedProperties, invalidatedProperties);
+    });
+
+    // remember what we have to cleanup
+    propertyMonitors.append(prop);
 
     // collect initial set of information
     QDBusPendingReply<ManagedObjectList> reply = managerBluez5->GetManagedObjects();
@@ -309,7 +321,7 @@ void QBluetoothDeviceDiscoveryAgentPrivate::startBluez5(QBluetoothDeviceDiscover
                     if (path.path().indexOf(adapterBluez5->path()) != 0)
                         continue; //devices whose path doesn't start with same path we skip
 
-                    deviceFoundBluez5(path.path());
+                    deviceFoundBluez5(path.path(), jt.value());
                     if (!isActive()) // Can happen if stop() was called from a slot in user code.
                       return;
                 }
@@ -403,50 +415,23 @@ void QBluetoothDeviceDiscoveryAgentPrivate::_q_deviceFound(const QString &addres
     emit q->deviceDiscovered(device);
 }
 
-void QBluetoothDeviceDiscoveryAgentPrivate::deviceFoundBluez5(const QString& devicePath)
+// Returns invalid QBluetoothDeviceInfo in case of error
+static QBluetoothDeviceInfo createDeviceInfoFromBluez5Device(const QVariantMap& properties)
 {
-    Q_Q(QBluetoothDeviceDiscoveryAgent);
+    const QBluetoothAddress btAddress(properties[QStringLiteral("Address")].toString());
+    if (btAddress.isNull())
+        return QBluetoothDeviceInfo();
 
-    if (!q->isActive())
-        return;
+    const QString btName = properties[QStringLiteral("Alias")].toString();
+    quint32 btClass = properties[QStringLiteral("Class")].toUInt();
 
-    OrgBluezDevice1Interface device(QStringLiteral("org.bluez"), devicePath,
-                                    QDBusConnection::systemBus());
-
-    if (device.adapter().path() != adapterBluez5->path())
-        return;
-
-    const QBluetoothAddress btAddress(device.address());
-    if (btAddress.isNull()) // no point reporting an empty address
-        return;
-
-    const QString btName = device.alias();
-    quint32 btClass = device.classProperty();
-
-    qCDebug(QT_BT_BLUEZ) << "Discovered: " << btAddress.toString() << btName
-                         << "Num UUIDs" << device.uUIDs().count()
-                         << "total device" << discoveredDevices.count() << "cached"
-                         << "RSSI" << device.rSSI() << "Class" << btClass
-                         << "Num ManufacturerData" << device.manufacturerData().size();
-
-    OrgFreedesktopDBusPropertiesInterface *prop = new OrgFreedesktopDBusPropertiesInterface(
-                QStringLiteral("org.bluez"), devicePath, QDBusConnection::systemBus(), q);
-    QObject::connect(prop, &OrgFreedesktopDBusPropertiesInterface::PropertiesChanged,
-                     q, [this](const QString &interface, const QVariantMap &changedProperties,
-                            const QStringList &invalidatedProperties) {
-        this->_q_PropertiesChanged(interface, changedProperties, invalidatedProperties);
-    });
-
-    // remember what we have to cleanup
-    propertyMonitors.append(prop);
-
-    // read information
     QBluetoothDeviceInfo deviceInfo(btAddress, btName, btClass);
-    deviceInfo.setRssi(device.rSSI());
+    deviceInfo.setRssi(qvariant_cast<short>(properties[QStringLiteral("RSSI")]));
 
     QVector<QBluetoothUuid> uuids;
     bool foundLikelyLowEnergyUuid = false;
-    for (const auto &u: device.uUIDs()) {
+    const QStringList foundUuids = qvariant_cast<QStringList>(properties[QStringLiteral("UUIDs")]);
+    for (const auto &u: foundUuids) {
         const QBluetoothUuid id(u);
         if (id.isNull())
             continue;
@@ -470,16 +455,45 @@ void QBluetoothDeviceDiscoveryAgentPrivate::deviceFoundBluez5(const QString& dev
             deviceInfo.setCoreConfigurations(QBluetoothDeviceInfo::BaseRateAndLowEnergyCoreConfiguration);
     }
 
-    const ManufacturerDataList deviceManufacturerData = device.manufacturerData();
+    const ManufacturerDataList deviceManufacturerData = qdbus_cast<ManufacturerDataList>(properties[QStringLiteral("ManufacturerData")]);
     const QList<quint16> keys = deviceManufacturerData.keys();
     for (quint16 key : keys)
         deviceInfo.setManufacturerData(
                     key, deviceManufacturerData.value(key).variant().toByteArray());
 
+    return deviceInfo;
+}
+
+void QBluetoothDeviceDiscoveryAgentPrivate::deviceFoundBluez5(const QString &devicePath,
+                                                              const QVariantMap &properties)
+{
+    Q_Q(QBluetoothDeviceDiscoveryAgent);
+
+    if (!q->isActive())
+        return;
+
+    auto deviceAdapter = qvariant_cast<QDBusObjectPath>(properties[QStringLiteral("Adapter")]);
+     if (deviceAdapter.path() != adapterBluez5->path())
+         return;
+
+    // read information
+    QBluetoothDeviceInfo deviceInfo = createDeviceInfoFromBluez5Device(properties);
+    if (!deviceInfo.isValid()) // no point reporting an empty address
+        return;
+
+    qCDebug(QT_BT_BLUEZ) << "Discovered: " << deviceInfo.name() << deviceInfo.address()
+                         << "Num UUIDs" << deviceInfo.serviceUuids().count()
+                         << "total device" << discoveredDevices.count() << "cached"
+                         << "RSSI" << deviceInfo.rssi()
+                         << "Num ManufacturerData" << deviceInfo.manufacturerData().size();
+
+    // Cache the properties so we do not have to access dbus every time to get a value
+    devicesProperties[devicePath] = properties;
+
     for (int i = 0; i < discoveredDevices.size(); i++) {
         if (discoveredDevices[i].address() == deviceInfo.address()) {
-            if (discoveredDevices[i] == deviceInfo && lowEnergySearchTimeout > 0) {
-                qCDebug(QT_BT_BLUEZ) << "Duplicate: " << btAddress.toString();
+            if (lowEnergySearchTimeout > 0 && discoveredDevices[i] == deviceInfo) {
+                qCDebug(QT_BT_BLUEZ) << "Duplicate: " << deviceInfo.address();
                 return;
             }
             discoveredDevices.replace(i, deviceInfo);
@@ -567,7 +581,7 @@ void QBluetoothDeviceDiscoveryAgentPrivate::_q_InterfacesAdded(const QDBusObject
     if (interfaces_and_properties.contains(QStringLiteral("org.bluez.Device1"))) {
         // device interfaces belonging to different adapter
         // will be filtered out by deviceFoundBluez5();
-        deviceFoundBluez5(object_path.path());
+        deviceFoundBluez5(object_path.path(), interfaces_and_properties[QStringLiteral("org.bluez.Device1")]);
     }
 }
 
@@ -627,41 +641,80 @@ void QBluetoothDeviceDiscoveryAgentPrivate::_q_discoveryInterrupted(const QStrin
 }
 
 void QBluetoothDeviceDiscoveryAgentPrivate::_q_PropertiesChanged(const QString &interface,
+                                                                 const QString &path,
                                                                  const QVariantMap &changed_properties,
-                                                                 const QStringList &)
+                                                                 const QStringList &invalidated_properties)
 {
     Q_Q(QBluetoothDeviceDiscoveryAgent);
-    if (interface == QStringLiteral("org.bluez.Device1")
-            && (changed_properties.contains(QStringLiteral("RSSI"))
-                || changed_properties.contains(QStringLiteral("ManufacturerData")))) {
-        OrgFreedesktopDBusPropertiesInterface *props =
-                qobject_cast<OrgFreedesktopDBusPropertiesInterface *>(q->sender());
-        if (!props)
-            return;
+    if (interface != QStringLiteral("org.bluez.Device1"))
+        return;
 
-        OrgBluezDevice1Interface device(QStringLiteral("org.bluez"), props->path(),
-                                            QDBusConnection::systemBus());
+    if (!devicesProperties.contains(path))
+        return;
+
+    // Update the cached properties before checking changed_properties for RSSI and ManufacturerData
+    // so the cached properties are always up to date.
+    QVariantMap & properties = devicesProperties[path];
+    for (QVariantMap::const_iterator it = changed_properties.constBegin();
+         it != changed_properties.constEnd(); ++it) {
+        properties[it.key()] = it.value();
+    }
+
+    for (const QString & property : invalidated_properties)
+        properties.remove(property);
+
+    const auto info = createDeviceInfoFromBluez5Device(properties);
+    if (!info.isValid())
+        return;
+
+    if (changed_properties.contains(QStringLiteral("RSSI"))
+        || changed_properties.contains(QStringLiteral("ManufacturerData"))) {
+
         for (int i = 0; i < discoveredDevices.size(); i++) {
-            if (discoveredDevices[i].address().toString() == device.address()) {
+            if (discoveredDevices[i].address() == info.address()) {
                 QBluetoothDeviceInfo::Fields updatedFields = QBluetoothDeviceInfo::Field::None;
                 if (changed_properties.contains(QStringLiteral("RSSI"))) {
-                    qCDebug(QT_BT_BLUEZ) << "Updating RSSI for" << device.address()
+                    qCDebug(QT_BT_BLUEZ) << "Updating RSSI for" << info.address()
                                          << changed_properties.value(QStringLiteral("RSSI"));
                     discoveredDevices[i].setRssi(
                                 changed_properties.value(QStringLiteral("RSSI")).toInt());
                     updatedFields.setFlag(QBluetoothDeviceInfo::Field::RSSI);
                 }
                 if (changed_properties.contains(QStringLiteral("ManufacturerData"))) {
-                    qCDebug(QT_BT_BLUEZ) << "Updating ManufacturerData for" << device.address();
+                    qCDebug(QT_BT_BLUEZ) << "Updating ManufacturerData for" << info.address();
                     ManufacturerDataList changedManufacturerData =
                             qdbus_cast< ManufacturerDataList >(changed_properties.value(QStringLiteral("ManufacturerData")));
 
                     const QList<quint16> keys = changedManufacturerData.keys();
+                    bool wasNewValue = false;
                     for (quint16 key : keys) {
-                        if (discoveredDevices[i].setManufacturerData(key, changedManufacturerData.value(key).variant().toByteArray()))
-                            updatedFields.setFlag(QBluetoothDeviceInfo::Field::ManufacturerData);
+                        bool added = discoveredDevices[i].setManufacturerData(key, changedManufacturerData.value(key).variant().toByteArray());
+                        wasNewValue = (wasNewValue || added);
                     }
+
+                    if (wasNewValue)
+                        updatedFields.setFlag(QBluetoothDeviceInfo::Field::ManufacturerData);
                 }
+
+                if (lowEnergySearchTimeout > 0) {
+                    if (discoveredDevices[i] != info) { // field other than manufacturer or rssi changed
+                        if (discoveredDevices.at(i).name() == info.name()) {
+                            qCDebug(QT_BT_BLUEZ) << "Almost Duplicate " << info.address()
+                                                   << info.name() << "- replacing in place";
+                            discoveredDevices.replace(i, info);
+                            emit q->deviceDiscovered(info);
+                        }
+                    } else {
+                        if (!updatedFields.testFlag(QBluetoothDeviceInfo::Field::None))
+                            emit q->deviceUpdated(discoveredDevices[i], updatedFields);
+                    }
+
+                    return;
+                }
+
+                discoveredDevices.replace(i, info);
+                emit q_ptr->deviceDiscovered(discoveredDevices[i]);
+
                 if (!updatedFields.testFlag(QBluetoothDeviceInfo::Field::None))
                     emit q->deviceUpdated(discoveredDevices[i], updatedFields);
                 return;
@@ -669,5 +722,4 @@ void QBluetoothDeviceDiscoveryAgentPrivate::_q_PropertiesChanged(const QString &
         }
     }
 }
-
 QT_END_NAMESPACE

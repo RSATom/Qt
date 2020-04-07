@@ -63,7 +63,7 @@ LayerImpl::LayerImpl(LayerTreeImpl* tree_impl,
       should_check_backface_visibility_(false),
       draws_content_(false),
       contributes_to_drawn_render_surface_(false),
-      hit_testable_without_draws_content_(false),
+      hit_testable_(false),
       is_resized_by_browser_controls_(false),
       viewport_layer_type_(NOT_VIEWPORT_LAYER),
       background_color_(0),
@@ -80,7 +80,8 @@ LayerImpl::LayerImpl(LayerTreeImpl* tree_impl,
       scrollbars_hidden_(false),
       needs_show_scrollbars_(false),
       raster_even_if_not_drawn_(false),
-      has_transform_node_(false) {
+      has_transform_node_(false),
+      mirror_count_(0) {
   DCHECK_GT(layer_id_, 0);
 
   DCHECK(layer_tree_impl_);
@@ -137,32 +138,52 @@ void LayerImpl::SetScrollTreeIndex(int index) {
 
 void LayerImpl::PopulateSharedQuadState(viz::SharedQuadState* state,
                                         bool contents_opaque) const {
+  EffectNode* effect_node = GetEffectTree().Node(effect_tree_index_);
   state->SetAll(draw_properties_.target_space_transform, gfx::Rect(bounds()),
-                draw_properties_.visible_layer_rect, draw_properties_.clip_rect,
-                draw_properties_.is_clipped, contents_opaque,
-                draw_properties_.opacity, SkBlendMode::kSrcOver,
+                draw_properties_.visible_layer_rect,
+                draw_properties_.rounded_corner_bounds,
+                draw_properties_.clip_rect, draw_properties_.is_clipped,
+                contents_opaque, draw_properties_.opacity,
+                effect_node->HasRenderSurface() ? SkBlendMode::kSrcOver
+                                                : effect_node->blend_mode,
                 GetSortingContextId());
+  state->is_fast_rounded_corner = draw_properties_.is_fast_rounded_corner;
 }
 
 void LayerImpl::PopulateScaledSharedQuadState(viz::SharedQuadState* state,
-                                              float layer_to_content_scale_x,
-                                              float layer_to_content_scale_y,
+                                              float layer_to_content_scale,
                                               bool contents_opaque) const {
-  gfx::Transform scaled_draw_transform =
-      draw_properties_.target_space_transform;
-  scaled_draw_transform.Scale(SK_MScalar1 / layer_to_content_scale_x,
-                              SK_MScalar1 / layer_to_content_scale_y);
-  gfx::Size scaled_bounds = gfx::ScaleToCeiledSize(
-      bounds(), layer_to_content_scale_x, layer_to_content_scale_y);
-  gfx::Rect scaled_visible_layer_rect = gfx::ScaleToEnclosingRect(
-      visible_layer_rect(), layer_to_content_scale_x, layer_to_content_scale_y);
+  gfx::Size scaled_bounds =
+      gfx::ScaleToCeiledSize(bounds(), layer_to_content_scale);
+  gfx::Rect scaled_visible_layer_rect =
+      gfx::ScaleToEnclosingRect(visible_layer_rect(), layer_to_content_scale);
   scaled_visible_layer_rect.Intersect(gfx::Rect(scaled_bounds));
 
-  state->SetAll(scaled_draw_transform, gfx::Rect(scaled_bounds),
-                scaled_visible_layer_rect, draw_properties().clip_rect,
-                draw_properties().is_clipped, contents_opaque,
-                draw_properties().opacity, SkBlendMode::kSrcOver,
+  PopulateScaledSharedQuadStateWithContentRects(
+      state, layer_to_content_scale, gfx::Rect(scaled_bounds),
+      scaled_visible_layer_rect, contents_opaque);
+}
+
+void LayerImpl::PopulateScaledSharedQuadStateWithContentRects(
+    viz::SharedQuadState* state,
+    float layer_to_content_scale,
+    const gfx::Rect& content_rect,
+    const gfx::Rect& visible_content_rect,
+    bool contents_opaque) const {
+  gfx::Transform scaled_draw_transform =
+      draw_properties_.target_space_transform;
+  scaled_draw_transform.Scale(SK_MScalar1 / layer_to_content_scale,
+                              SK_MScalar1 / layer_to_content_scale);
+
+  EffectNode* effect_node = GetEffectTree().Node(effect_tree_index_);
+  state->SetAll(scaled_draw_transform, content_rect, visible_content_rect,
+                draw_properties().rounded_corner_bounds,
+                draw_properties().clip_rect, draw_properties().is_clipped,
+                contents_opaque, draw_properties().opacity,
+                effect_node->HasRenderSurface() ? SkBlendMode::kSrcOver
+                                                : effect_node->blend_mode,
                 GetSortingContextId());
+  state->is_fast_rounded_corner = draw_properties().is_fast_rounded_corner;
 }
 
 bool LayerImpl::WillDraw(DrawMode draw_mode,
@@ -171,6 +192,16 @@ bool LayerImpl::WillDraw(DrawMode draw_mode,
       draw_properties().occlusion_in_content_space.IsOccluded(
           visible_layer_rect())) {
     return false;
+  }
+
+  // Resourceless mode does not support non-default blend mode. If we draw,
+  // the result will be just like kSrcOver which is not too bad for blend modes
+  // other than kDstIn. For kDstIn mode, we should ignore the source because
+  // otherwise we would draw a bad black mask over the destination.
+  if (draw_mode == DRAW_MODE_RESOURCELESS_SOFTWARE) {
+    const auto* effect_node = GetEffectTree().Node(effect_tree_index());
+    if (effect_node && effect_node->blend_mode == SkBlendMode::kDstIn)
+      return false;
   }
 
   current_draw_mode_ = draw_mode;
@@ -287,6 +318,25 @@ void LayerImpl::SetScrollable(const gfx::Size& bounds) {
   NoteLayerPropertyChanged();
 }
 
+void LayerImpl::SetTouchActionRegion(TouchActionRegion region) {
+  // Avoid recalculating the cached |all_touch_action_regions_| value.
+  if (touch_action_region_ == region)
+    return;
+  touch_action_region_ = std::move(region);
+  all_touch_action_regions_ = nullptr;
+}
+
+const Region& LayerImpl::GetAllTouchActionRegions() const {
+  if (!all_touch_action_regions_) {
+    all_touch_action_regions_ =
+        std::make_unique<Region>(touch_action_region_.GetAllRegions());
+  } else {
+    // Ensure the cached value of |all_touch_action_regions_| is up to date.
+    DCHECK_EQ(touch_action_region_.GetAllRegions(), *all_touch_action_regions_);
+  }
+  return *all_touch_action_regions_;
+}
+
 std::unique_ptr<LayerImpl> LayerImpl::CreateLayerImpl(
     LayerTreeImpl* tree_impl) {
   return LayerImpl::Create(tree_impl, layer_id_);
@@ -314,10 +364,13 @@ void LayerImpl::PushPropertiesTo(LayerImpl* layer) {
   layer->use_parent_backface_visibility_ = use_parent_backface_visibility_;
   layer->should_check_backface_visibility_ = should_check_backface_visibility_;
   layer->draws_content_ = draws_content_;
-  layer->hit_testable_without_draws_content_ =
-      hit_testable_without_draws_content_;
+  layer->hit_testable_ = hit_testable_;
   layer->non_fast_scrollable_region_ = non_fast_scrollable_region_;
   layer->touch_action_region_ = touch_action_region_;
+  layer->all_touch_action_regions_ =
+      all_touch_action_regions_
+          ? std::make_unique<Region>(*all_touch_action_regions_)
+          : nullptr;
   layer->wheel_event_handler_region_ = wheel_event_handler_region_;
   layer->background_color_ = background_color_;
   layer->safe_opaque_background_color_ = safe_opaque_background_color_;
@@ -326,6 +379,7 @@ void LayerImpl::PushPropertiesTo(LayerImpl* layer) {
   layer->clip_tree_index_ = clip_tree_index_;
   layer->scroll_tree_index_ = scroll_tree_index_;
   layer->has_will_change_transform_hint_ = has_will_change_transform_hint_;
+  layer->mirror_count_ = mirror_count_;
   layer->scrollbars_hidden_ = scrollbars_hidden_;
   if (needs_show_scrollbars_)
     layer->needs_show_scrollbars_ = needs_show_scrollbars_;
@@ -403,8 +457,7 @@ std::unique_ptr<base::DictionaryValue> LayerImpl::LayerAsJson() const {
   result->Set("Transform", std::move(list));
 
   result->SetBoolean("DrawsContent", draws_content_);
-  result->SetBoolean("HitTestableWithoutDrawsContent",
-                     hit_testable_without_draws_content_);
+  result->SetBoolean("HitTestable", hit_testable_);
   result->SetBoolean("Is3dSorted", Is3dSorted());
   result->SetDouble("Opacity", Opacity());
   result->SetBoolean("ContentsOpaque", contents_opaque_);
@@ -417,9 +470,8 @@ std::unique_ptr<base::DictionaryValue> LayerImpl::LayerAsJson() const {
   if (scrollable())
     result->SetBoolean("Scrollable", true);
 
-  if (!touch_action_region_.region().IsEmpty()) {
-    std::unique_ptr<base::Value> region =
-        touch_action_region_.region().AsValue();
+  if (!GetAllTouchActionRegions().IsEmpty()) {
+    std::unique_ptr<base::Value> region = GetAllTouchActionRegions().AsValue();
     result->Set("TouchRegion", std::move(region));
   }
 
@@ -498,7 +550,6 @@ void LayerImpl::ResetChangeTracking() {
   needs_push_properties_ = false;
 
   update_rect_.SetRect(0, 0, 0, 0);
-  damage_rect_.SetRect(0, 0, 0, 0);
 }
 
 bool LayerImpl::IsActive() const {
@@ -506,6 +557,12 @@ bool LayerImpl::IsActive() const {
 }
 
 gfx::Size LayerImpl::bounds() const {
+  // As an optimization, we do not need to include the viewport bounds delta if
+  // the layer is not a viewport layer.
+  if (viewport_layer_type_ == NOT_VIEWPORT_LAYER) {
+    DCHECK(ViewportBoundsDelta().IsZero());
+    return bounds_;
+  }
   auto viewport_bounds_delta = gfx::ToCeiledVector2d(ViewportBoundsDelta());
   return gfx::Size(bounds_.width() + viewport_bounds_delta.x(),
                    bounds_.height() + viewport_bounds_delta.y());
@@ -597,20 +654,25 @@ void LayerImpl::SetDrawsContent(bool draws_content) {
   NoteLayerPropertyChanged();
 }
 
-void LayerImpl::SetHitTestableWithoutDrawsContent(bool should_hit_test) {
-  if (hit_testable_without_draws_content_ == should_hit_test)
+void LayerImpl::SetHitTestable(bool should_hit_test) {
+  if (hit_testable_ == should_hit_test)
     return;
 
-  hit_testable_without_draws_content_ = should_hit_test;
+  hit_testable_ = should_hit_test;
   NoteLayerPropertyChanged();
 }
 
-bool LayerImpl::ShouldHitTest() const {
-  bool should_hit_test = draws_content_;
-  if (GetEffectTree().Node(effect_tree_index()))
-    should_hit_test &=
-        !GetEffectTree().Node(effect_tree_index())->subtree_hidden;
-  should_hit_test |= hit_testable_without_draws_content_;
+bool LayerImpl::HitTestable() const {
+  EffectTree& effect_tree = GetEffectTree();
+  bool should_hit_test = hit_testable_;
+  // TODO(sunxd): remove or refactor SetHideLayerAndSubtree, or move this logic
+  // to subclasses of Layer. See https://crbug.com/595843 and
+  // https://crbug.com/931865.
+  // The bit |subtree_hidden| can only be true for ui::Layers. Other layers are
+  // not supposed to set this bit.
+  if (effect_tree.Node(effect_tree_index())) {
+    should_hit_test &= !effect_tree.Node(effect_tree_index())->subtree_hidden;
+  }
   return should_hit_test;
 }
 
@@ -627,8 +689,13 @@ void LayerImpl::SetSafeOpaqueBackgroundColor(SkColor background_color) {
 }
 
 SkColor LayerImpl::SafeOpaqueBackgroundColor() const {
-  if (contents_opaque())
+  if (contents_opaque()) {
+    // TODO(936906): We should uncomment this DCHECK, since the
+    // |safe_opaque_background_color_| could be transparent if it is never set
+    // (the default is 0). But to do that, one test needs to be fixed.
+    // DCHECK_EQ(SkColorGetA(safe_opaque_background_color_), SK_AlphaOPAQUE);
     return safe_opaque_background_color_;
+  }
   SkColor color = background_color();
   if (SkColorGetA(color) == 255)
     color = SK_ColorTRANSPARENT;
@@ -662,12 +729,16 @@ void LayerImpl::SetElementId(ElementId element_id) {
   layer_tree_impl_->AddToElementLayerList(element_id_, this);
 }
 
+void LayerImpl::SetMirrorCount(int mirror_count) {
+  mirror_count_ = mirror_count;
+}
+
 void LayerImpl::SetUpdateRect(const gfx::Rect& update_rect) {
   update_rect_ = update_rect;
 }
 
-void LayerImpl::AddDamageRect(const gfx::Rect& damage_rect) {
-  damage_rect_.Union(damage_rect);
+gfx::Rect LayerImpl::GetDamageRect() const {
+  return gfx::Rect();
 }
 
 void LayerImpl::SetCurrentScrollOffset(const gfx::ScrollOffset& scroll_offset) {
@@ -768,9 +839,9 @@ void LayerImpl::AsValueInto(base::trace_event::TracedValue* state) const {
       MathUtil::MapQuad(ScreenSpaceTransform(),
                         gfx::QuadF(gfx::RectF(gfx::Rect(bounds()))), &clipped);
   MathUtil::AddToTracedValue("layer_quad", layer_quad, state);
-  if (!touch_action_region_.region().IsEmpty()) {
-    state->BeginArray("touch_action_region_region");
-    touch_action_region_.region().AsValueInto(state);
+  if (!GetAllTouchActionRegions().IsEmpty()) {
+    state->BeginArray("all_touch_action_regions");
+    GetAllTouchActionRegions().AsValueInto(state);
     state->EndArray();
   }
   if (!wheel_event_handler_region_.IsEmpty()) {
@@ -849,6 +920,9 @@ bool LayerImpl::CanUseLCDText() const {
   if (static_cast<int>(offset_to_transform_parent().y()) !=
       offset_to_transform_parent().y())
     return false;
+
+  if (has_will_change_transform_hint())
+    return false;
   return true;
 }
 
@@ -888,11 +962,6 @@ float LayerImpl::GetIdealContentsScale() const {
   float device_scale = layer_tree_impl()->device_scale_factor();
 
   float default_scale = page_scale * device_scale;
-  if (!layer_tree_impl()
-           ->settings()
-           .layer_transforms_should_scale_layer_contents) {
-    return default_scale;
-  }
 
   const auto& transform = ScreenSpaceTransform();
   if (transform.HasPerspective()) {

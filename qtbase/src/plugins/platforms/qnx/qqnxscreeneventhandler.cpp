@@ -45,6 +45,7 @@
 #include "qqnxkeytranslator.h"
 #include "qqnxscreen.h"
 #include "qqnxscreeneventfilter.h"
+#include "qqnxscreentraits.h"
 
 #include <QDebug>
 #include <QGuiApplication>
@@ -87,6 +88,51 @@ static QString capKeyString(int cap, int modifiers, int key)
             return QChar((int)(key & 0x3f));
     }
     return QString();
+}
+
+template <typename T>
+static void finishCloseEvent(screen_event_t event)
+{
+    T t;
+    screen_get_event_property_pv(event,
+            screen_traits<T>::propertyName,
+            reinterpret_cast<void**>(&t));
+    screen_traits<T>::destroy(t);
+}
+
+static void finishCloseEvent(screen_event_t event)
+{
+    // Let libscreen know that we're finished with anything that may have been acquired.
+    int objectType = SCREEN_OBJECT_TYPE_CONTEXT;
+    screen_get_event_property_iv(event, SCREEN_PROPERTY_OBJECT_TYPE, &objectType);
+    switch (objectType) {
+    case SCREEN_OBJECT_TYPE_CONTEXT:
+        finishCloseEvent<screen_context_t>(event);
+        break;
+    case SCREEN_OBJECT_TYPE_DEVICE:
+        finishCloseEvent<screen_device_t>(event);
+        break;
+    case SCREEN_OBJECT_TYPE_DISPLAY:
+        // no screen_destroy_display
+        break;
+    case SCREEN_OBJECT_TYPE_GROUP:
+        finishCloseEvent<screen_group_t>(event);
+        break;
+    case SCREEN_OBJECT_TYPE_PIXMAP:
+        finishCloseEvent<screen_pixmap_t>(event);
+        break;
+    case SCREEN_OBJECT_TYPE_SESSION:
+        finishCloseEvent<screen_session_t>(event);
+        break;
+#if _SCREEN_VERSION >= _SCREEN_MAKE_VERSION(2, 0, 0)
+    case SCREEN_OBJECT_TYPE_STREAM:
+        finishCloseEvent<screen_stream_t>(event);
+        break;
+#endif
+    case SCREEN_OBJECT_TYPE_WINDOW:
+        finishCloseEvent<screen_window_t>(event);
+        break;
+    }
 }
 
 QT_BEGIN_NAMESPACE
@@ -242,11 +288,18 @@ void QQnxScreenEventHandler::processEvents()
             break;
 
         ++count;
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+        qintptr result = 0;
+#else
         long result = 0;
+#endif
         QAbstractEventDispatcher* dispatcher = QAbstractEventDispatcher::instance();
         bool handled = dispatcher && dispatcher->filterNativeEvent(QByteArrayLiteral("screen_event_t"), event, &result);
         if (!handled)
             handleEvent(event);
+
+        if (type == SCREEN_EVENT_CLOSE)
+            finishCloseEvent(event);
     }
 
     m_eventThread->armEventsPending(count);
@@ -583,7 +636,7 @@ void QQnxScreenEventHandler::handleDisplayEvent(screen_event_t event)
         // We never remove the primary display, the qpa plugin doesn't support that and it crashes.
         // To support it, this would be needed:
         // - Adjust all qnx qpa code which uses screens
-        // - Make QWidgetBackingStore not dereference a null paint device
+        // - Make QWidgetRepaintManager not dereference a null paint device
         // - Create platform resources ( QQnxWindow ) for all QWindow because they would be deleted
         //   when you delete the screen
 

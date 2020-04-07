@@ -27,8 +27,6 @@ struct LinePrinter {
   bool is_smart_terminal() const { return smart_terminal_; }
   void set_smart_terminal(bool smart) { smart_terminal_ = smart; }
 
-  bool supports_color() const { return supports_color_; }
-
   enum LineType {
     FULL,
     ELIDE
@@ -47,9 +45,6 @@ struct LinePrinter {
  private:
   /// Whether we can do fancy terminal control codes.
   bool smart_terminal_;
-
-  /// Whether we can use ISO 6429 (ANSI) color sequences.
-  bool supports_color_;
 
   /// Whether the caret is at the beginning of a blank line.
   bool have_blank_line_;

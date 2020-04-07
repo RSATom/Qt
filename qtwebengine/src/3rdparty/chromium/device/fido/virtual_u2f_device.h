@@ -20,13 +20,18 @@ namespace device {
 class COMPONENT_EXPORT(DEVICE_FIDO) VirtualU2fDevice
     : public VirtualFidoDevice {
  public:
+  // Returns true if the |transport| is supported by virtual U2F devices, false
+  // otherwise.
+  static bool IsTransportSupported(FidoTransportProtocol transport);
+
   VirtualU2fDevice();
   explicit VirtualU2fDevice(scoped_refptr<State> state);
   ~VirtualU2fDevice() override;
 
   // FidoDevice:
-  void Cancel() override;
-  void DeviceTransact(std::vector<uint8_t> command, DeviceCallback cb) override;
+  void Cancel(CancelToken) override;
+  CancelToken DeviceTransact(std::vector<uint8_t> command,
+                             DeviceCallback cb) override;
   base::WeakPtr<FidoDevice> GetWeakPtr() override;
 
  private:

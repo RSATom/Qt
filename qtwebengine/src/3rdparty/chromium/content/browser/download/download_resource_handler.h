@@ -45,7 +45,7 @@ class CONTENT_EXPORT DownloadResourceHandler
   DownloadResourceHandler(net::URLRequest* request,
                           const std::string& request_origin,
                           download::DownloadSource download_source,
-                          bool follow_cross_origin_redirects);
+                          network::mojom::RedirectMode cross_origin_redirects);
 
   // static
   // This function is passed into ResourceDispatcherHostImpl during its
@@ -63,7 +63,7 @@ class CONTENT_EXPORT DownloadResourceHandler
       net::URLRequest* request,
       const std::string& request_origin,
       download::DownloadSource download_source,
-      bool follow_cross_origin_redirects);
+      network::mojom::RedirectMode cross_origin_redirects);
 
   void OnRequestRedirected(
       const net::RedirectInfo& redirect_info,
@@ -119,7 +119,7 @@ class CONTENT_EXPORT DownloadResourceHandler
   // deletion must occur on the IO thread.
   std::unique_ptr<DownloadTabInfo> tab_info_;
 
-  bool follow_cross_origin_redirects_;
+  network::mojom::RedirectMode cross_origin_redirects_;
   url::Origin first_origin_;
 
   DownloadRequestCore core_;

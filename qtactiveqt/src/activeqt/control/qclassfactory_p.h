@@ -71,7 +71,7 @@ QT_BEGIN_NAMESPACE
 // One instance of this class for each ActiveX the server can provide.
 class QClassFactory : public IClassFactory2
 {
-    Q_DISABLE_COPY(QClassFactory)
+    Q_DISABLE_COPY_MOVE(QClassFactory)
 public:
     QClassFactory(CLSID clsid);
 
@@ -102,8 +102,8 @@ public:
 
 protected:
     CRITICAL_SECTION refCountSection;
-    LONG ref;
-    bool licensed;
+    LONG ref = 0;
+    bool licensed = false;
     QString classKey;
 };
 

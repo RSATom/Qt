@@ -24,7 +24,6 @@
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "ui/aura/window.h"
-#include "ui/base/ui_base_features.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/rect_conversions.h"
 #include "ui/gfx/geometry/rect_f.h"
@@ -178,9 +177,9 @@ class AuraWindowVideoCaptureDeviceBrowserTest
   }
 
   std::unique_ptr<FrameSinkVideoCaptureDevice> CreateDevice() final {
-    const DesktopMediaID source_id = DesktopMediaID::RegisterAuraWindow(
+    const DesktopMediaID source_id = DesktopMediaID::RegisterNativeWindow(
         DesktopMediaID::TYPE_WINDOW, GetCapturedWindow());
-    EXPECT_TRUE(DesktopMediaID::GetAuraWindowById(source_id));
+    EXPECT_TRUE(DesktopMediaID::GetNativeWindowById(source_id));
     return std::make_unique<AuraWindowVideoCaptureDevice>(source_id);
   }
 
@@ -196,9 +195,9 @@ IN_PROC_BROWSER_TEST_F(AuraWindowVideoCaptureDeviceBrowserTest,
                        ErrorsOutIfWindowHasGoneBeforeDeviceStart) {
   NavigateToInitialDocument();
 
-  const DesktopMediaID source_id = DesktopMediaID::RegisterAuraWindow(
+  const DesktopMediaID source_id = DesktopMediaID::RegisterNativeWindow(
       DesktopMediaID::TYPE_WINDOW, GetCapturedWindow());
-  EXPECT_TRUE(DesktopMediaID::GetAuraWindowById(source_id));
+  EXPECT_TRUE(DesktopMediaID::GetNativeWindowById(source_id));
   const auto capture_params = SnapshotCaptureParams();
 
   // Close the Shell. This should close the window it owned, making the capture
@@ -228,9 +227,6 @@ IN_PROC_BROWSER_TEST_F(AuraWindowVideoCaptureDeviceBrowserTest,
 // stopped.
 IN_PROC_BROWSER_TEST_F(AuraWindowVideoCaptureDeviceBrowserTest,
                        ErrorsOutWhenWindowIsDestroyed) {
-  // TODO(crbug.com/877172): CopyOutputRequests not allowed.
-  if (features::IsSingleProcessMash())
-    return;
   NavigateToInitialDocument();
   AllocateAndStartAndWaitForFirstFrame();
 
@@ -253,9 +249,6 @@ IN_PROC_BROWSER_TEST_F(AuraWindowVideoCaptureDeviceBrowserTest,
 // to be delivered, to ensure the client is up-to-date.
 IN_PROC_BROWSER_TEST_F(AuraWindowVideoCaptureDeviceBrowserTest,
                        SuspendsAndResumes) {
-  // TODO(crbug.com/877172): CopyOutputRequests not allowed.
-  if (features::IsSingleProcessMash())
-    return;
   NavigateToInitialDocument();
   AllocateAndStartAndWaitForFirstFrame();
 
@@ -290,9 +283,6 @@ IN_PROC_BROWSER_TEST_F(AuraWindowVideoCaptureDeviceBrowserTest,
 // content is not changing.
 IN_PROC_BROWSER_TEST_F(AuraWindowVideoCaptureDeviceBrowserTest,
                        DeliversRefreshFramesUponRequest) {
-  // TODO(crbug.com/877172): CopyOutputRequests not allowed.
-  if (features::IsSingleProcessMash())
-    return;
   NavigateToInitialDocument();
   AllocateAndStartAndWaitForFirstFrame();
 
@@ -311,6 +301,31 @@ IN_PROC_BROWSER_TEST_F(AuraWindowVideoCaptureDeviceBrowserTest,
   StopAndDeAllocate();
 }
 
+#if defined(OS_CHROMEOS)
+// On ChromeOS, another window may occlude a window that is being captured.
+// Make sure the visibility is set to visible during capture if it's occluded.
+IN_PROC_BROWSER_TEST_F(AuraWindowVideoCaptureDeviceBrowserTest,
+                       CapturesOccludedWindows) {
+  NavigateToInitialDocument();
+  AllocateAndStartAndWaitForFirstFrame();
+
+  ASSERT_EQ(aura::Window::OcclusionState::VISIBLE,
+            shell()->web_contents()->GetNativeView()->occlusion_state());
+  // Create a window on top of the window being captured with same size so that
+  // it is occluded.
+  auto window = std::make_unique<aura::Window>(nullptr);
+  window->Init(ui::LAYER_TEXTURED);
+  shell()->window()->GetRootWindow()->AddChild(window.get());
+  window->SetBounds(shell()->window()->bounds());
+  window->Show();
+  EXPECT_EQ(aura::Window::OcclusionState::VISIBLE,
+            shell()->web_contents()->GetNativeView()->occlusion_state());
+
+  window.reset();
+  StopAndDeAllocate();
+}
+#endif  // defined(OS_CHROMEOS)
+
 class AuraWindowVideoCaptureDeviceBrowserTestP
     : public AuraWindowVideoCaptureDeviceBrowserTest,
       public testing::WithParamInterface<std::tuple<bool, bool>> {
@@ -324,7 +339,7 @@ class AuraWindowVideoCaptureDeviceBrowserTestP
 };
 
 #if defined(OS_CHROMEOS)
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     ,
     AuraWindowVideoCaptureDeviceBrowserTestP,
     testing::Combine(
@@ -333,7 +348,7 @@ INSTANTIATE_TEST_CASE_P(
         testing::Values(false /* variable aspect ratio */,
                         true /* fixed aspect ratio */)));
 #else
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     ,
     AuraWindowVideoCaptureDeviceBrowserTestP,
     testing::Combine(testing::Values(false /* GPU-accelerated compositing */,
@@ -347,9 +362,6 @@ INSTANTIATE_TEST_CASE_P(
 // compositing.
 IN_PROC_BROWSER_TEST_P(AuraWindowVideoCaptureDeviceBrowserTestP,
                        CapturesContentChanges) {
-  // TODO(crbug.com/877172): CopyOutputRequests not allowed.
-  if (features::IsSingleProcessMash())
-    return;
   SCOPED_TRACE(testing::Message()
                << "Test parameters: "
                << (IsSoftwareCompositingTest() ? "Software Compositing"

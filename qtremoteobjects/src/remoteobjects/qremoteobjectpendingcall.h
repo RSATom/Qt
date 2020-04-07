@@ -130,6 +130,36 @@ public:
 
 };
 
+// NOTE: manual expansion of Q_DECLARE_METATYPE_TEMPLATE_1ARG, minus the IsSequentialContainer
+template <typename T>
+struct QMetaTypeId< QRemoteObjectPendingReply<T> >
+{
+    enum {
+        Defined = QMetaTypeId2<T>::Defined
+    };
+    static int qt_metatype_id()
+    {
+        static QBasicAtomicInt metatype_id = Q_BASIC_ATOMIC_INITIALIZER(0);
+        if (const int id = metatype_id.loadRelaxed())
+            return id;
+        const char *tName = QMetaType::typeName(qMetaTypeId<T>());
+        Q_ASSERT(tName);
+        const int tNameLen = int(qstrlen(tName));
+        QByteArray typeName;
+        typeName.reserve(int(sizeof("QRemoteObjectPendingReply")) + 1 + tNameLen + 1 + 1);
+        typeName.append("QRemoteObjectPendingReply", int(sizeof("QRemoteObjectPendingReply")) - 1)
+            .append('<').append(tName, tNameLen);
+        if (typeName.endsWith('>'))
+            typeName.append(' ');
+        typeName.append('>');
+        const int newId = qRegisterNormalizedMetaType< QRemoteObjectPendingReply<T> >(
+                        typeName,
+                        reinterpret_cast< QRemoteObjectPendingReply<T> *>(quintptr(-1)));
+        metatype_id.storeRelease(newId);
+        return newId;
+    }
+};
+
 QT_END_NAMESPACE
 
 #endif

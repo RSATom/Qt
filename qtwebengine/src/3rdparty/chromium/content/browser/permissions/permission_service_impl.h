@@ -11,7 +11,7 @@
 #include "base/memory/weak_ptr.h"
 #include "content/browser/permissions/permission_service_context.h"
 #include "content/common/content_export.h"
-#include "third_party/blink/public/platform/modules/permissions/permission.mojom.h"
+#include "third_party/blink/public/mojom/permissions/permission.mojom.h"
 #include "url/origin.h"
 
 namespace content {
@@ -73,7 +73,7 @@ class CONTENT_EXPORT PermissionServiceImpl
   // context_ owns |this|.
   PermissionServiceContext* context_;
   const url::Origin origin_;
-  base::WeakPtrFactory<PermissionServiceImpl> weak_factory_;
+  base::WeakPtrFactory<PermissionServiceImpl> weak_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(PermissionServiceImpl);
 };

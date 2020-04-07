@@ -12,6 +12,7 @@
 
 #include "base/callback.h"
 #include "base/memory/ref_counted.h"
+#include "base/task/task_traits.h"
 #include "base/trace_event/trace_event.h"
 #include "base/values.h"
 #include "content/common/content_export.h"
@@ -58,7 +59,8 @@ class TracingController {
   // to dump the trace data to a file.
   CONTENT_EXPORT static scoped_refptr<TraceDataEndpoint> CreateFileEndpoint(
       const base::FilePath& file_path,
-      const base::Closure& callback);
+      const base::Closure& callback,
+      base::TaskPriority write_priority = base::TaskPriority::BEST_EFFORT);
 
   // Get a set of category groups. The category groups can change as
   // new code paths are reached.
@@ -75,9 +77,8 @@ class TracingController {
   // Tracing begins immediately locally, and asynchronously on child processes
   // as soon as they receive the StartTracing request.
   //
-  // Once tracing is enabled in the current process and trace events can be
-  // emitted (unless excluded from the config), StartTracingDoneCallback will
-  // be called back.
+  // Once all child processes have acked to the StartTracing request,
+  // StartTracingDoneCallback will be called back.
   //
   // |category_filter| is a filter to control what category groups should be
   // traced. A filter can have an optional '-' prefix to exclude category groups
@@ -122,7 +123,7 @@ class TracingController {
   virtual bool GetTraceBufferUsage(GetTraceBufferUsageCallback callback) = 0;
 
   // Check if the tracing system is tracing
-  virtual bool IsTracing() const = 0;
+  virtual bool IsTracing() = 0;
 
  protected:
   virtual ~TracingController() {}

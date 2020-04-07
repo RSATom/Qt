@@ -5,15 +5,15 @@
  * found in the LICENSE file.
  */
 
-#include "SkRecorder.h"
+#include "src/core/SkRecorder.h"
 
-#include "SkBigPicture.h"
-#include "SkCanvasPriv.h"
-#include "SkImage.h"
-#include "SkPatchUtils.h"
-#include "SkPicture.h"
-#include "SkSurface.h"
-#include "SkTo.h"
+#include "include/core/SkImage.h"
+#include "include/core/SkPicture.h"
+#include "include/core/SkSurface.h"
+#include "include/private/SkTo.h"
+#include "src/core/SkBigPicture.h"
+#include "src/core/SkCanvasPriv.h"
+#include "src/utils/SkPatchUtils.h"
 
 #include <new>
 
@@ -139,6 +139,10 @@ void SkRecorder::onDrawPaint(const SkPaint& paint) {
     this->append<SkRecords::DrawPaint>(paint);
 }
 
+void SkRecorder::onDrawBehind(const SkPaint& paint) {
+    this->append<SkRecords::DrawBehind>(paint);
+}
+
 void SkRecorder::onDrawPoints(PointMode mode,
                               size_t count,
                               const SkPoint pts[],
@@ -149,11 +153,6 @@ void SkRecorder::onDrawPoints(PointMode mode,
 void SkRecorder::onDrawRect(const SkRect& rect, const SkPaint& paint) {
     TRY_MINIRECORDER(drawRect, rect, paint);
     this->append<SkRecords::DrawRect>(paint, rect);
-}
-
-void SkRecorder::onDrawEdgeAARect(const SkRect& rect, SkCanvas::QuadAAFlags aa, SkColor color,
-                                  SkBlendMode mode) {
-    this->append<SkRecords::DrawEdgeAARect>(rect, aa, color, mode);
 }
 
 void SkRecorder::onDrawRegion(const SkRegion& region, const SkPaint& paint) {
@@ -258,15 +257,6 @@ void SkRecorder::onDrawImageLattice(const SkImage* image, const Lattice& lattice
            this->copy(lattice.fColors, flagCount), *lattice.fBounds, dst);
 }
 
-void SkRecorder::onDrawImageSet(const ImageSetEntry set[], int count, SkFilterQuality filterQuality,
-                                SkBlendMode mode) {
-    SkAutoTArray<ImageSetEntry> setCopy(count);
-    for (int i = 0; i < count; ++i) {
-        setCopy[i] = set[i];
-    }
-    this->append<SkRecords::DrawImageSet>(std::move(setCopy), count, filterQuality, mode);
-}
-
 void SkRecorder::onDrawTextBlob(const SkTextBlob* blob, SkScalar x, SkScalar y,
                                 const SkPaint& paint) {
     TRY_MINIRECORDER(drawTextBlob, blob, x, y, paint);
@@ -322,6 +312,28 @@ void SkRecorder::onDrawShadowRec(const SkPath& path, const SkDrawShadowRec& rec)
 
 void SkRecorder::onDrawAnnotation(const SkRect& rect, const char key[], SkData* value) {
     this->append<SkRecords::DrawAnnotation>(rect, SkString(key), sk_ref_sp(value));
+}
+
+void SkRecorder::onDrawEdgeAAQuad(const SkRect& rect, const SkPoint clip[4],
+                                  QuadAAFlags aa, SkColor color, SkBlendMode mode) {
+    this->append<SkRecords::DrawEdgeAAQuad>(
+            rect, this->copy(clip, 4), aa, color, mode);
+}
+
+void SkRecorder::onDrawEdgeAAImageSet(const ImageSetEntry set[], int count,
+                                      const SkPoint dstClips[], const SkMatrix preViewMatrices[],
+                                      const SkPaint* paint, SrcRectConstraint constraint) {
+    int totalDstClipCount, totalMatrixCount;
+    SkCanvasPriv::GetDstClipAndMatrixCounts(set, count, &totalDstClipCount, &totalMatrixCount);
+
+    SkAutoTArray<ImageSetEntry> setCopy(count);
+    for (int i = 0; i < count; ++i) {
+        setCopy[i] = set[i];
+    }
+
+    this->append<SkRecords::DrawEdgeAAImageSet>(this->copy(paint), std::move(setCopy), count,
+            this->copy(dstClips, totalDstClipCount),
+            this->copy(preViewMatrices, totalMatrixCount), constraint);
 }
 
 void SkRecorder::onFlush() {

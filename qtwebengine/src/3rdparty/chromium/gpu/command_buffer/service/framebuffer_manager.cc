@@ -375,17 +375,19 @@ void FramebufferManager::CreateFramebuffer(
   DCHECK(result.second);
 }
 
-Framebuffer::Framebuffer(
-    FramebufferManager* manager, GLuint service_id)
+Framebuffer::Framebuffer(FramebufferManager* manager, GLuint service_id)
     : manager_(manager),
       deleted_(false),
       service_id_(service_id),
       has_been_bound_(false),
       framebuffer_complete_state_count_id_(0),
       draw_buffer_type_mask_(0u),
+      draw_buffer_float32_mask_(0u),
       draw_buffer_bound_mask_(0u),
       adjusted_draw_buffer_bound_mask_(0u),
-      read_buffer_(GL_COLOR_ATTACHMENT0) {
+      last_color_attachment_id_(-1),
+      read_buffer_(GL_COLOR_ATTACHMENT0),
+      flip_y_(false) {
   manager->StartTracking(this);
   DCHECK_GT(manager->max_draw_buffers_, 0u);
   draw_buffers_.reset(new GLenum[manager->max_draw_buffers_]);
@@ -538,7 +540,8 @@ void Framebuffer::RestoreDrawBuffers() const {
 bool Framebuffer::ValidateAndAdjustDrawBuffers(
     uint32_t fragment_output_type_mask, uint32_t fragment_output_written_mask) {
   uint32_t mask = draw_buffer_bound_mask_ & fragment_output_written_mask;
-  if ((mask & fragment_output_type_mask) != (mask & draw_buffer_type_mask_))
+  if (mask != draw_buffer_bound_mask_ ||
+      (mask & fragment_output_type_mask) != (mask & draw_buffer_type_mask_))
     return false;
 
   AdjustDrawBuffersImpl(mask);
@@ -639,6 +642,10 @@ bool Framebuffer::HasStencilAttachment() const {
   return attachments_.find(GL_STENCIL_ATTACHMENT) != attachments_.end();
 }
 
+bool Framebuffer::HasActiveFloat32ColorAttachment() const {
+  return draw_buffer_float32_mask_ != 0u;
+}
+
 GLenum Framebuffer::GetReadBufferInternalFormat() const {
   if (read_buffer_ == GL_NONE)
     return 0;
@@ -702,6 +709,8 @@ GLenum Framebuffer::IsPossiblyComplete(const FeatureInfo* feature_info) const {
   GLsizei width = -1;
   GLsizei height = -1;
   GLsizei samples = -1;
+  uint32_t colorbufferSize = 0;
+  bool colorbufferSizeValid = false;
   const bool kSamplesMustMatch = feature_info->IsWebGLContext() ||
       !feature_info->feature_flags().chromium_framebuffer_mixed_samples;
 
@@ -744,10 +753,26 @@ GLenum Framebuffer::IsPossiblyComplete(const FeatureInfo* feature_info) const {
       return GL_FRAMEBUFFER_INCOMPLETE_ATTACHMENT;
     }
 
-    // Attaching an image to more than one color attachment point should return
-    // FRAMEBUFFER_UNSUPPORTED.
     if (it->first >= GL_COLOR_ATTACHMENT0 &&
         it->first < GL_COLOR_ATTACHMENT0 + manager_->max_color_attachments_) {
+      // in GLES 2.0, all color attachments attachments must have the same
+      // number of bitplanes.
+      // in GLES 3.0, there is no such restriction.
+      if (feature_info->context_type() == CONTEXT_TYPE_WEBGL1) {
+        if (colorbufferSizeValid) {
+          if (colorbufferSize !=
+              GLES2Util::GetGLTypeSizeForTextures(attachment->texture_type())) {
+            return GL_FRAMEBUFFER_UNSUPPORTED;
+          }
+        } else {
+          colorbufferSize =
+              GLES2Util::GetGLTypeSizeForTextures(attachment->texture_type());
+          colorbufferSizeValid = true;
+        }
+      }
+
+      // Attaching an image to more than one color attachment point should
+      // return FRAMEBUFFER_UNSUPPORTED.
       for (GLenum i = it->first + 1;
            i < GL_COLOR_ATTACHMENT0 + manager_->max_color_attachments_; i++) {
         const Attachment* other = GetAttachment(i);
@@ -943,6 +968,7 @@ void Framebuffer::UnbindTexture(
 
 void Framebuffer::UpdateDrawBufferMasks() {
   draw_buffer_type_mask_ = 0u;
+  draw_buffer_float32_mask_ = 0u;
   draw_buffer_bound_mask_ = 0u;
   for (uint32_t index = 0; index < manager_->max_color_attachments_; ++index) {
     GLenum draw_buffer = draw_buffers_[index];
@@ -964,6 +990,9 @@ void Framebuffer::UpdateDrawBufferMasks() {
     size_t shift_bits = index * 2;
     draw_buffer_type_mask_ |= base_type << shift_bits;
     draw_buffer_bound_mask_ |= 0x3 << shift_bits;
+    if (GLES2Util::IsFloat32Format(internal_format)) {
+      draw_buffer_float32_mask_ |= 0x3 << shift_bits;
+    }
   }
 }
 
@@ -989,6 +1018,29 @@ void Framebuffer::DoUnbindGLAttachmentsForWorkaround(GLenum target) {
   }
 }
 
+void Framebuffer::OnInsertUpdateLastColorAttachmentId(GLenum attachment) {
+  if (attachment >= GL_COLOR_ATTACHMENT0 &&
+      attachment < GL_COLOR_ATTACHMENT0 + manager_->max_color_attachments_) {
+    last_color_attachment_id_ =
+        std::max(last_color_attachment_id_,
+                 static_cast<GLsizei>(attachment - GL_COLOR_ATTACHMENT0));
+  }
+}
+
+void Framebuffer::OnEraseUpdateLastColorAttachmentId(GLenum attachment) {
+  if (attachment >= GL_COLOR_ATTACHMENT0 &&
+      attachment < GL_COLOR_ATTACHMENT0 + manager_->max_color_attachments_ &&
+      static_cast<GLsizei>(attachment - GL_COLOR_ATTACHMENT0) ==
+          last_color_attachment_id_) {
+    for (last_color_attachment_id_--; last_color_attachment_id_ >= 0;
+         last_color_attachment_id_--) {
+      if (attachments_.find(GL_COLOR_ATTACHMENT0 + last_color_attachment_id_) !=
+          attachments_.end())
+        break;
+    }
+  }
+}
+
 void Framebuffer::AttachRenderbuffer(
     GLenum attachment, Renderbuffer* renderbuffer) {
   DCHECK_NE(static_cast<GLenum>(GL_DEPTH_STENCIL_ATTACHMENT), attachment);
@@ -999,8 +1051,10 @@ void Framebuffer::AttachRenderbuffer(
     attachments_[attachment] = scoped_refptr<Attachment>(
         new RenderbufferAttachment(renderbuffer));
     renderbuffer->AddFramebufferAttachmentPoint(this, attachment);
+    OnInsertUpdateLastColorAttachmentId(attachment);
   } else {
     attachments_.erase(attachment);
+    OnEraseUpdateLastColorAttachmentId(attachment);
   }
   UnmarkAsComplete();
 }
@@ -1016,8 +1070,10 @@ void Framebuffer::AttachTexture(
     attachments_[attachment] = scoped_refptr<Attachment>(
         new TextureAttachment(texture_ref, target, level, samples, 0));
     texture_ref->texture()->AttachToFramebuffer();
+    OnInsertUpdateLastColorAttachmentId(attachment);
   } else {
     attachments_.erase(attachment);
+    OnEraseUpdateLastColorAttachmentId(attachment);
   }
   UnmarkAsComplete();
 }
@@ -1033,8 +1089,10 @@ void Framebuffer::AttachTextureLayer(
     attachments_[attachment] = scoped_refptr<Attachment>(
         new TextureAttachment(texture_ref, target, level, 0, layer));
     texture_ref->texture()->AttachToFramebuffer();
+    OnInsertUpdateLastColorAttachmentId(attachment);
   } else {
     attachments_.erase(attachment);
+    OnEraseUpdateLastColorAttachmentId(attachment);
   }
   UnmarkAsComplete();
 }

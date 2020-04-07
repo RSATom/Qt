@@ -5,15 +5,15 @@
  * found in the LICENSE file.
  */
 
-#include "GrGLGpu.h"
+#include "src/gpu/gl/GrGLGpu.h"
 
-#include "builders/GrGLProgramBuilder.h"
-#include "GrProcessor.h"
-#include "GrProgramDesc.h"
-#include "GrGLPathRendering.h"
-#include "glsl/GrGLSLFragmentProcessor.h"
-#include "glsl/GrGLSLProgramDataManager.h"
-#include "SkTSearch.h"
+#include "src/core/SkTSearch.h"
+#include "src/gpu/GrProcessor.h"
+#include "src/gpu/GrProgramDesc.h"
+#include "src/gpu/gl/GrGLPathRendering.h"
+#include "src/gpu/gl/builders/GrGLProgramBuilder.h"
+#include "src/gpu/glsl/GrGLSLFragmentProcessor.h"
+#include "src/gpu/glsl/GrGLSLProgramDataManager.h"
 
 #ifdef PROGRAM_CACHE_STATS
 // Display program cache usage
@@ -56,19 +56,26 @@ GrGLGpu::ProgramCache::~ProgramCache() {
 }
 
 void GrGLGpu::ProgramCache::abandon() {
+    fMap.foreach([](std::unique_ptr<Entry>* e) {
+        (*e)->fProgram->abandon();
+    });
+
+    this->reset();
+}
+
+void GrGLGpu::ProgramCache::reset() {
 #ifdef PROGRAM_CACHE_STATS
     fTotalRequests = 0;
     fCacheMisses = 0;
     fHashMisses = 0;
 #endif
 
-    fMap.foreach([](std::unique_ptr<Entry>* e) {
-        (*e)->fProgram->abandon();
-    });
     fMap.reset();
 }
 
 GrGLProgram* GrGLGpu::ProgramCache::refProgram(GrGLGpu* gpu,
+                                               GrRenderTarget* renderTarget,
+                                               GrSurfaceOrigin origin,
                                                const GrPrimitiveProcessor& primProc,
                                                const GrTextureProxy* const primProcProxies[],
                                                const GrPipeline& pipeline,
@@ -79,23 +86,22 @@ GrGLProgram* GrGLGpu::ProgramCache::refProgram(GrGLGpu* gpu,
 
     // Get GrGLProgramDesc
     GrProgramDesc desc;
-    if (!GrProgramDesc::Build(&desc, primProc, isPoints, pipeline, gpu)) {
+    if (!GrProgramDesc::Build(&desc, renderTarget, primProc, isPoints, pipeline, gpu)) {
         GrCapsDebugf(gpu->caps(), "Failed to gl program descriptor!\n");
         return nullptr;
     }
+    // If we knew the shader won't depend on origin, we could skip this (and use the same program
+    // for both origins). Instrumenting all fragment processors would be difficult and error prone.
+    desc.setSurfaceOriginKey(GrGLSLFragmentShaderBuilder::KeyForSurfaceOrigin(origin));
+
     std::unique_ptr<Entry>* entry = fMap.find(desc);
-    if (!entry) {
-        // Didn't find an origin-independent version, check with the specific origin
-        GrSurfaceOrigin origin = pipeline.proxy()->origin();
-        desc.setSurfaceOriginKey(GrGLSLFragmentShaderBuilder::KeyForSurfaceOrigin(origin));
-        entry = fMap.find(desc);
-    }
     if (!entry) {
         // We have a cache miss
 #ifdef PROGRAM_CACHE_STATS
         ++fCacheMisses;
 #endif
-        GrGLProgram* program = GrGLProgramBuilder::CreateProgram(primProc, primProcProxies,
+        GrGLProgram* program = GrGLProgramBuilder::CreateProgram(renderTarget, origin,
+                                                                 primProc, primProcProxies,
                                                                  pipeline, &desc, fGpu);
         if (nullptr == program) {
             return nullptr;

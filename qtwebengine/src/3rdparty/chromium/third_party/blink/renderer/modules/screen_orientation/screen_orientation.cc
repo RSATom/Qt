@@ -16,6 +16,7 @@
 #include "third_party/blink/renderer/modules/event_target_modules.h"
 #include "third_party/blink/renderer/modules/screen_orientation/lock_orientation_callback.h"
 #include "third_party/blink/renderer/modules/screen_orientation/screen_orientation_controller_impl.h"
+#include "third_party/blink/renderer/platform/heap/heap.h"
 #include "third_party/blink/renderer/platform/wtf/assertions.h"
 
 // This code assumes that WebScreenOrientationType values are included in
@@ -134,7 +135,7 @@ String ScreenOrientation::type() const {
   return OrientationTypeToString(type_);
 }
 
-unsigned short ScreenOrientation::angle() const {
+uint16_t ScreenOrientation::angle() const {
   return angle_;
 }
 
@@ -142,30 +143,30 @@ void ScreenOrientation::SetType(WebScreenOrientationType type) {
   type_ = type;
 }
 
-void ScreenOrientation::SetAngle(unsigned short angle) {
+void ScreenOrientation::SetAngle(uint16_t angle) {
   angle_ = angle;
 }
 
 ScriptPromise ScreenOrientation::lock(ScriptState* state,
                                       const AtomicString& lock_string) {
-  ScriptPromiseResolver* resolver = ScriptPromiseResolver::Create(state);
+  auto* resolver = MakeGarbageCollected<ScriptPromiseResolver>(state);
   ScriptPromise promise = resolver->Promise();
 
   Document* document = GetFrame() ? GetFrame()->GetDocument() : nullptr;
 
   if (!document || !Controller()) {
-    DOMException* exception = DOMException::Create(
+    auto* exception = MakeGarbageCollected<DOMException>(
         DOMExceptionCode::kInvalidStateError,
         "The object is no longer associated to a document.");
     resolver->Reject(exception);
     return promise;
   }
 
-  if (document->IsSandboxed(kSandboxOrientationLock)) {
-    DOMException* exception =
-        DOMException::Create(DOMExceptionCode::kSecurityError,
-                             "The document is sandboxed and lacks the "
-                             "'allow-orientation-lock' flag.");
+  if (document->IsSandboxed(WebSandboxFlags::kOrientationLock)) {
+    auto* exception = MakeGarbageCollected<DOMException>(
+        DOMExceptionCode::kSecurityError,
+        "The document is sandboxed and lacks the "
+        "'allow-orientation-lock' flag.");
     resolver->Reject(exception);
     return promise;
   }

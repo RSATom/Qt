@@ -4,43 +4,26 @@
 
 #include "net/tools/quic/quic_simple_server_packet_writer.h"
 
-#include "base/callback_helpers.h"
+#include <utility>
+
+#include "base/bind.h"
 #include "base/location.h"
 #include "base/logging.h"
 #include "base/metrics/histogram_functions.h"
 #include "net/base/io_buffer.h"
 #include "net/base/net_errors.h"
+#include "net/quic/address_utils.h"
 #include "net/socket/udp_server_socket.h"
-#include "net/third_party/quic/core/quic_dispatcher.h"
+#include "net/third_party/quiche/src/quic/core/quic_dispatcher.h"
 
 namespace net {
 
 QuicSimpleServerPacketWriter::QuicSimpleServerPacketWriter(
     UDPServerSocket* socket,
     quic::QuicDispatcher* dispatcher)
-    : socket_(socket),
-      dispatcher_(dispatcher),
-      write_blocked_(false),
-      weak_factory_(this) {}
+    : socket_(socket), dispatcher_(dispatcher), write_blocked_(false) {}
 
 QuicSimpleServerPacketWriter::~QuicSimpleServerPacketWriter() = default;
-
-quic::WriteResult QuicSimpleServerPacketWriter::WritePacketWithCallback(
-    const char* buffer,
-    size_t buf_len,
-    const quic::QuicIpAddress& self_address,
-    const quic::QuicSocketAddress& peer_address,
-    quic::PerPacketOptions* options,
-    WriteCallback callback) {
-  DCHECK(callback_.is_null());
-  callback_ = callback;
-  quic::WriteResult result =
-      WritePacket(buffer, buf_len, self_address, peer_address, options);
-  if (!quic::IsWriteBlockedStatus(result.status)) {
-    callback_.Reset();
-  }
-  return result;
-}
 
 void QuicSimpleServerPacketWriter::OnWriteComplete(int rv) {
   DCHECK_NE(rv, ERR_IO_PENDING);
@@ -48,14 +31,9 @@ void QuicSimpleServerPacketWriter::OnWriteComplete(int rv) {
   quic::WriteResult result(
       rv < 0 ? quic::WRITE_STATUS_ERROR : quic::WRITE_STATUS_OK, rv);
   if (!callback_.is_null()) {
-    base::ResetAndReturn(&callback_).Run(result);
+    std::move(callback_).Run(result);
   }
   dispatcher_->OnCanWrite();
-}
-
-bool QuicSimpleServerPacketWriter::IsWriteBlockedDataBuffered() const {
-  // UDPServerSocket::SendTo buffers the data until the Write is permitted.
-  return true;
 }
 
 bool QuicSimpleServerPacketWriter::IsWriteBlocked() const {
@@ -78,8 +56,7 @@ quic::WriteResult QuicSimpleServerPacketWriter::WritePacket(
   int rv;
   if (buf_len <= static_cast<size_t>(std::numeric_limits<int>::max())) {
     rv = socket_->SendTo(
-        buf.get(), static_cast<int>(buf_len),
-        peer_address.impl().socket_address(),
+        buf.get(), static_cast<int>(buf_len), ToIPEndPoint(peer_address),
         base::Bind(&QuicSimpleServerPacketWriter::OnWriteComplete,
                    weak_factory_.GetWeakPtr()));
   } else {
@@ -100,7 +77,7 @@ quic::WriteResult QuicSimpleServerPacketWriter::WritePacket(
 
 quic::QuicByteCount QuicSimpleServerPacketWriter::GetMaxPacketSize(
     const quic::QuicSocketAddress& peer_address) const {
-  return quic::kMaxPacketSize;
+  return quic::kMaxOutgoingPacketSize;
 }
 
 bool QuicSimpleServerPacketWriter::SupportsReleaseTime() const {

@@ -11,6 +11,7 @@ Module {
         "Qt.labs.folderlistmodel 2.1",
         "Qt.labs.settings 1.0",
         "QtGraphicalEffects 1.12",
+        "QtQml 2.14",
         "QtQml.Models 2.2",
         "QtQuick 2.9",
         "QtQuick.Controls 1.5",
@@ -325,6 +326,11 @@ Module {
         Property { name: "contentItem"; type: "QQuickItem"; isPointer: true }
     }
     Component {
+        name: "QQuickControlsPrivate1Attached"
+        prototype: "QObject"
+        Property { name: "window"; type: "QQuickWindow"; isReadonly: true; isPointer: true }
+    }
+    Component {
         name: "QQuickDialog1"
         defaultProperty: "contentItem"
         prototype: "QQuickAbstractDialog"
@@ -403,7 +409,7 @@ Module {
         exportMetaObjectRevisions: [0]
     }
     Component {
-        prototype: "QObject"
+        prototype: "QQuickColorDialog"
         name: "QtQuick.Dialogs/ColorDialog 1.0"
         exports: ["QtQuick.Dialogs/ColorDialog 1.0"]
         exportMetaObjectRevisions: [0]
@@ -411,146 +417,9 @@ Module {
         defaultProperty: "contentItem"
         Property { name: "__valueSet"; type: "bool" }
         Method { name: "__setControlsFromColor"; type: "QVariant" }
-        Property { name: "contentItem"; type: "QQuickItem"; isPointer: true }
-        Property { name: "showAlphaChannel"; type: "bool" }
-        Property { name: "color"; type: "QColor" }
-        Property { name: "currentColor"; type: "QColor" }
-        Property { name: "currentHue"; type: "double"; isReadonly: true }
-        Property { name: "currentSaturation"; type: "double"; isReadonly: true }
-        Property { name: "currentLightness"; type: "double"; isReadonly: true }
-        Property { name: "currentAlpha"; type: "double"; isReadonly: true }
-        Signal { name: "selectionAccepted" }
-        Method {
-            name: "setVisible"
-            Parameter { name: "v"; type: "bool" }
-        }
-        Method {
-            name: "setModality"
-            Parameter { name: "m"; type: "Qt::WindowModality" }
-        }
-        Method {
-            name: "setTitle"
-            Parameter { name: "t"; type: "string" }
-        }
-        Method {
-            name: "setColor"
-            Parameter { name: "arg"; type: "QColor" }
-        }
-        Method {
-            name: "setCurrentColor"
-            Parameter { name: "currentColor"; type: "QColor" }
-        }
-        Method {
-            name: "setShowAlphaChannel"
-            Parameter { name: "arg"; type: "bool" }
-        }
-        Property { name: "visible"; type: "bool" }
-        Property { name: "modality"; type: "Qt::WindowModality" }
-        Property { name: "title"; type: "string" }
-        Property { name: "isWindow"; type: "bool"; isReadonly: true }
-        Property { name: "x"; type: "int" }
-        Property { name: "y"; type: "int" }
-        Property { name: "width"; type: "int" }
-        Property { name: "height"; type: "int" }
-        Property { name: "__maximumDimension"; type: "int"; isReadonly: true }
-        Signal { name: "visibilityChanged" }
-        Signal { name: "geometryChanged" }
-        Signal { name: "accepted" }
-        Signal { name: "rejected" }
-        Method { name: "open" }
-        Method { name: "close" }
-        Method {
-            name: "setX"
-            Parameter { name: "arg"; type: "int" }
-        }
-        Method {
-            name: "setY"
-            Parameter { name: "arg"; type: "int" }
-        }
-        Method {
-            name: "setWidth"
-            Parameter { name: "arg"; type: "int" }
-        }
-        Method {
-            name: "setHeight"
-            Parameter { name: "arg"; type: "int" }
-        }
     }
     Component {
-        prototype: "QObject"
-        name: "QtQuick.Dialogs/Dialog 1.3"
-        exports: ["QtQuick.Dialogs/Dialog 1.3"]
-        exportMetaObjectRevisions: [3]
-        isComposite: true
-        defaultProperty: "data"
-        Property { name: "data"; type: "QObject"; isList: true; isReadonly: true }
-        Signal {
-            name: "actionChosen"
-            Parameter { name: "action"; type: "QVariant" }
-        }
-        Method { name: "setupButtons"; type: "QVariant" }
-        Property { name: "title"; type: "string" }
-        Property { name: "standardButtons"; type: "QQuickAbstractDialog::StandardButtons" }
-        Property {
-            name: "clickedButton"
-            type: "QQuickAbstractDialog::StandardButton"
-            isReadonly: true
-        }
-        Property { name: "contentItem"; type: "QQuickItem"; isPointer: true }
-        Signal { name: "buttonClicked" }
-        Signal { name: "discard" }
-        Signal { name: "help" }
-        Signal { name: "yes" }
-        Signal { name: "no" }
-        Signal { name: "apply" }
-        Signal { name: "reset" }
-        Method {
-            name: "setTitle"
-            Parameter { name: "arg"; type: "string" }
-        }
-        Method {
-            name: "setStandardButtons"
-            Parameter { name: "buttons"; type: "StandardButtons" }
-        }
-        Method {
-            name: "click"
-            Parameter { name: "button"; type: "QQuickAbstractDialog::StandardButton" }
-        }
-        Method { name: "__standardButtonsLeftModel"; type: "QJSValue" }
-        Method { name: "__standardButtonsRightModel"; type: "QJSValue" }
-        Property { name: "visible"; type: "bool" }
-        Property { name: "modality"; type: "Qt::WindowModality" }
-        Property { name: "isWindow"; type: "bool"; isReadonly: true }
-        Property { name: "x"; type: "int" }
-        Property { name: "y"; type: "int" }
-        Property { name: "width"; type: "int" }
-        Property { name: "height"; type: "int" }
-        Property { name: "__maximumDimension"; type: "int"; isReadonly: true }
-        Signal { name: "visibilityChanged" }
-        Signal { name: "geometryChanged" }
-        Signal { name: "accepted" }
-        Signal { name: "rejected" }
-        Method { name: "open" }
-        Method { name: "close" }
-        Method {
-            name: "setX"
-            Parameter { name: "arg"; type: "int" }
-        }
-        Method {
-            name: "setY"
-            Parameter { name: "arg"; type: "int" }
-        }
-        Method {
-            name: "setWidth"
-            Parameter { name: "arg"; type: "int" }
-        }
-        Method {
-            name: "setHeight"
-            Parameter { name: "arg"; type: "int" }
-        }
-    }
-    Component {
-        prototype: "QObject"
+        prototype: "QQuickDialog1"
         name: "QtQuick.Dialogs/Dialog 1.2"
         exports: ["QtQuick.Dialogs/Dialog 1.2"]
         exportMetaObjectRevisions: [2]
@@ -562,68 +431,23 @@ Module {
             Parameter { name: "action"; type: "QVariant" }
         }
         Method { name: "setupButtons"; type: "QVariant" }
-        Property { name: "title"; type: "string" }
-        Property { name: "standardButtons"; type: "QQuickAbstractDialog::StandardButtons" }
-        Property {
-            name: "clickedButton"
-            type: "QQuickAbstractDialog::StandardButton"
-            isReadonly: true
-        }
-        Property { name: "contentItem"; type: "QQuickItem"; isPointer: true }
-        Signal { name: "buttonClicked" }
-        Signal { name: "discard" }
-        Signal { name: "help" }
-        Signal { name: "yes" }
-        Signal { name: "no" }
-        Signal { name: "apply" }
-        Signal { name: "reset" }
-        Method {
-            name: "setTitle"
-            Parameter { name: "arg"; type: "string" }
-        }
-        Method {
-            name: "setStandardButtons"
-            Parameter { name: "buttons"; type: "StandardButtons" }
-        }
-        Method {
-            name: "click"
-            Parameter { name: "button"; type: "QQuickAbstractDialog::StandardButton" }
-        }
-        Method { name: "__standardButtonsLeftModel"; type: "QJSValue" }
-        Method { name: "__standardButtonsRightModel"; type: "QJSValue" }
-        Property { name: "visible"; type: "bool" }
-        Property { name: "modality"; type: "Qt::WindowModality" }
-        Property { name: "isWindow"; type: "bool"; isReadonly: true }
-        Property { name: "x"; type: "int" }
-        Property { name: "y"; type: "int" }
-        Property { name: "width"; type: "int" }
-        Property { name: "height"; type: "int" }
-        Property { name: "__maximumDimension"; type: "int"; isReadonly: true }
-        Signal { name: "visibilityChanged" }
-        Signal { name: "geometryChanged" }
-        Signal { name: "accepted" }
-        Signal { name: "rejected" }
-        Method { name: "open" }
-        Method { name: "close" }
-        Method {
-            name: "setX"
-            Parameter { name: "arg"; type: "int" }
-        }
-        Method {
-            name: "setY"
-            Parameter { name: "arg"; type: "int" }
-        }
-        Method {
-            name: "setWidth"
-            Parameter { name: "arg"; type: "int" }
-        }
-        Method {
-            name: "setHeight"
-            Parameter { name: "arg"; type: "int" }
-        }
     }
     Component {
-        prototype: "QObject"
+        prototype: "QQuickDialog1"
+        name: "QtQuick.Dialogs/Dialog 1.3"
+        exports: ["QtQuick.Dialogs/Dialog 1.3"]
+        exportMetaObjectRevisions: [3]
+        isComposite: true
+        defaultProperty: "data"
+        Property { name: "data"; type: "QObject"; isList: true; isReadonly: true }
+        Signal {
+            name: "actionChosen"
+            Parameter { name: "action"; type: "QVariant" }
+        }
+        Method { name: "setupButtons"; type: "QVariant" }
+    }
+    Component {
+        prototype: "QQuickFileDialog"
         name: "QtQuick.Dialogs/FileDialog 1.0"
         exports: ["QtQuick.Dialogs/FileDialog 1.0"]
         exportMetaObjectRevisions: [0]
@@ -642,108 +466,9 @@ Module {
         }
         Method { name: "dirUp"; type: "QVariant" }
         Method { name: "acceptSelection"; type: "QVariant" }
-        Property { name: "contentItem"; type: "QQuickItem"; isPointer: true }
-        Method { name: "clearSelection" }
-        Method {
-            name: "addSelection"
-            type: "bool"
-            Parameter { name: "path"; type: "QUrl" }
-        }
-        Property { name: "selectExisting"; type: "bool" }
-        Property { name: "selectMultiple"; type: "bool" }
-        Property { name: "selectFolder"; type: "bool" }
-        Property { name: "folder"; type: "QUrl" }
-        Property { name: "nameFilters"; type: "QStringList" }
-        Property { name: "selectedNameFilter"; type: "string" }
-        Property { name: "selectedNameFilterExtensions"; type: "QStringList"; isReadonly: true }
-        Property { name: "selectedNameFilterIndex"; type: "int" }
-        Property { name: "fileUrl"; type: "QUrl"; isReadonly: true }
-        Property { name: "fileUrls"; type: "QList<QUrl>"; isReadonly: true }
-        Property { name: "sidebarVisible"; type: "bool" }
-        Property { name: "defaultSuffix"; type: "string" }
-        Property { name: "shortcuts"; type: "QJSValue"; isReadonly: true }
-        Property { name: "__shortcuts"; type: "QJSValue"; isReadonly: true }
-        Signal { name: "filterSelected" }
-        Signal { name: "fileModeChanged" }
-        Signal { name: "selectionAccepted" }
-        Method {
-            name: "setVisible"
-            Parameter { name: "v"; type: "bool" }
-        }
-        Method {
-            name: "setTitle"
-            Parameter { name: "t"; type: "string" }
-        }
-        Method {
-            name: "setSelectExisting"
-            Parameter { name: "s"; type: "bool" }
-        }
-        Method {
-            name: "setSelectMultiple"
-            Parameter { name: "s"; type: "bool" }
-        }
-        Method {
-            name: "setSelectFolder"
-            Parameter { name: "s"; type: "bool" }
-        }
-        Method {
-            name: "setFolder"
-            Parameter { name: "f"; type: "QUrl" }
-        }
-        Method {
-            name: "setNameFilters"
-            Parameter { name: "f"; type: "QStringList" }
-        }
-        Method {
-            name: "selectNameFilter"
-            Parameter { name: "f"; type: "string" }
-        }
-        Method {
-            name: "setSelectedNameFilterIndex"
-            Parameter { name: "idx"; type: "int" }
-        }
-        Method {
-            name: "setSidebarVisible"
-            Parameter { name: "s"; type: "bool" }
-        }
-        Method {
-            name: "setDefaultSuffix"
-            Parameter { name: "suffix"; type: "string" }
-        }
-        Property { name: "visible"; type: "bool" }
-        Property { name: "modality"; type: "Qt::WindowModality" }
-        Property { name: "title"; type: "string" }
-        Property { name: "isWindow"; type: "bool"; isReadonly: true }
-        Property { name: "x"; type: "int" }
-        Property { name: "y"; type: "int" }
-        Property { name: "width"; type: "int" }
-        Property { name: "height"; type: "int" }
-        Property { name: "__maximumDimension"; type: "int"; isReadonly: true }
-        Signal { name: "visibilityChanged" }
-        Signal { name: "geometryChanged" }
-        Signal { name: "accepted" }
-        Signal { name: "rejected" }
-        Method { name: "open" }
-        Method { name: "close" }
-        Method {
-            name: "setX"
-            Parameter { name: "arg"; type: "int" }
-        }
-        Method {
-            name: "setY"
-            Parameter { name: "arg"; type: "int" }
-        }
-        Method {
-            name: "setWidth"
-            Parameter { name: "arg"; type: "int" }
-        }
-        Method {
-            name: "setHeight"
-            Parameter { name: "arg"; type: "int" }
-        }
     }
     Component {
-        prototype: "QObject"
+        prototype: "QQuickFontDialog"
         name: "QtQuick.Dialogs/FontDialog 1.1"
         exports: ["QtQuick.Dialogs/FontDialog 1.1"]
         exportMetaObjectRevisions: [1]
@@ -751,169 +476,14 @@ Module {
         defaultProperty: "contentItem"
         Property { name: "font"; type: "QFont" }
         Property { name: "currentFont"; type: "QFont" }
-        Property { name: "contentItem"; type: "QQuickItem"; isPointer: true }
-        Property { name: "scalableFonts"; type: "bool" }
-        Property { name: "nonScalableFonts"; type: "bool" }
-        Property { name: "monospacedFonts"; type: "bool" }
-        Property { name: "proportionalFonts"; type: "bool" }
-        Signal { name: "selectionAccepted" }
-        Method {
-            name: "setVisible"
-            Parameter { name: "v"; type: "bool" }
-        }
-        Method {
-            name: "setModality"
-            Parameter { name: "m"; type: "Qt::WindowModality" }
-        }
-        Method {
-            name: "setTitle"
-            Parameter { name: "t"; type: "string" }
-        }
-        Method {
-            name: "setFont"
-            Parameter { name: "arg"; type: "QFont" }
-        }
-        Method {
-            name: "setCurrentFont"
-            Parameter { name: "arg"; type: "QFont" }
-        }
-        Method {
-            name: "setScalableFonts"
-            Parameter { name: "arg"; type: "bool" }
-        }
-        Method {
-            name: "setNonScalableFonts"
-            Parameter { name: "arg"; type: "bool" }
-        }
-        Method {
-            name: "setMonospacedFonts"
-            Parameter { name: "arg"; type: "bool" }
-        }
-        Method {
-            name: "setProportionalFonts"
-            Parameter { name: "arg"; type: "bool" }
-        }
-        Property { name: "visible"; type: "bool" }
-        Property { name: "modality"; type: "Qt::WindowModality" }
-        Property { name: "title"; type: "string" }
-        Property { name: "isWindow"; type: "bool"; isReadonly: true }
-        Property { name: "x"; type: "int" }
-        Property { name: "y"; type: "int" }
-        Property { name: "width"; type: "int" }
-        Property { name: "height"; type: "int" }
-        Property { name: "__maximumDimension"; type: "int"; isReadonly: true }
-        Signal { name: "visibilityChanged" }
-        Signal { name: "geometryChanged" }
-        Signal { name: "accepted" }
-        Signal { name: "rejected" }
-        Method { name: "open" }
-        Method { name: "close" }
-        Method {
-            name: "setX"
-            Parameter { name: "arg"; type: "int" }
-        }
-        Method {
-            name: "setY"
-            Parameter { name: "arg"; type: "int" }
-        }
-        Method {
-            name: "setWidth"
-            Parameter { name: "arg"; type: "int" }
-        }
-        Method {
-            name: "setHeight"
-            Parameter { name: "arg"; type: "int" }
-        }
     }
     Component {
-        prototype: "QObject"
+        prototype: "QQuickMessageDialog"
         name: "QtQuick.Dialogs/MessageDialog 1.1"
         exports: ["QtQuick.Dialogs/MessageDialog 1.1"]
         exportMetaObjectRevisions: [1]
         isComposite: true
         defaultProperty: "contentItem"
         Method { name: "calculateImplicitWidth"; type: "QVariant" }
-        Property { name: "contentItem"; type: "QQuickItem"; isPointer: true }
-        Property { name: "text"; type: "string" }
-        Property { name: "informativeText"; type: "string" }
-        Property { name: "detailedText"; type: "string" }
-        Property { name: "icon"; type: "Icon" }
-        Property { name: "standardIconSource"; type: "QUrl"; isReadonly: true }
-        Property { name: "standardButtons"; type: "QQuickAbstractDialog::StandardButtons" }
-        Property {
-            name: "clickedButton"
-            type: "QQuickAbstractDialog::StandardButton"
-            isReadonly: true
-        }
-        Signal { name: "buttonClicked" }
-        Signal { name: "discard" }
-        Signal { name: "help" }
-        Signal { name: "yes" }
-        Signal { name: "no" }
-        Signal { name: "apply" }
-        Signal { name: "reset" }
-        Method {
-            name: "setVisible"
-            Parameter { name: "v"; type: "bool" }
-        }
-        Method {
-            name: "setTitle"
-            Parameter { name: "arg"; type: "string" }
-        }
-        Method {
-            name: "setText"
-            Parameter { name: "arg"; type: "string" }
-        }
-        Method {
-            name: "setInformativeText"
-            Parameter { name: "arg"; type: "string" }
-        }
-        Method {
-            name: "setDetailedText"
-            Parameter { name: "arg"; type: "string" }
-        }
-        Method {
-            name: "setIcon"
-            Parameter { name: "icon"; type: "Icon" }
-        }
-        Method {
-            name: "setStandardButtons"
-            Parameter { name: "buttons"; type: "StandardButtons" }
-        }
-        Method {
-            name: "click"
-            Parameter { name: "button"; type: "QQuickAbstractDialog::StandardButton" }
-        }
-        Property { name: "visible"; type: "bool" }
-        Property { name: "modality"; type: "Qt::WindowModality" }
-        Property { name: "title"; type: "string" }
-        Property { name: "isWindow"; type: "bool"; isReadonly: true }
-        Property { name: "x"; type: "int" }
-        Property { name: "y"; type: "int" }
-        Property { name: "width"; type: "int" }
-        Property { name: "height"; type: "int" }
-        Property { name: "__maximumDimension"; type: "int"; isReadonly: true }
-        Signal { name: "visibilityChanged" }
-        Signal { name: "geometryChanged" }
-        Signal { name: "accepted" }
-        Signal { name: "rejected" }
-        Method { name: "open" }
-        Method { name: "close" }
-        Method {
-            name: "setX"
-            Parameter { name: "arg"; type: "int" }
-        }
-        Method {
-            name: "setY"
-            Parameter { name: "arg"; type: "int" }
-        }
-        Method {
-            name: "setWidth"
-            Parameter { name: "arg"; type: "int" }
-        }
-        Method {
-            name: "setHeight"
-            Parameter { name: "arg"; type: "int" }
-        }
     }
 }

@@ -9,6 +9,7 @@
 #include "third_party/blink/renderer/core/layout/ng/inline/ng_line_height_metrics.h"
 #include "third_party/blink/renderer/core/layout/ng/ng_physical_container_fragment.h"
 #include "third_party/blink/renderer/platform/fonts/font_baseline.h"
+#include "third_party/blink/renderer/platform/wtf/casting.h"
 
 namespace blink {
 
@@ -31,7 +32,7 @@ class CORE_EXPORT NGPhysicalLineBoxFragment final
       NGLineBoxFragmentBuilder* builder);
 
   ~NGPhysicalLineBoxFragment() {
-    for (const NGLinkStorage& child : Children())
+    for (const NGLink& child : Children())
       child.fragment->Release();
   }
 
@@ -40,11 +41,9 @@ class CORE_EXPORT NGPhysicalLineBoxFragment final
   }
   bool IsEmptyLineBox() const { return LineBoxType() == kEmptyLineBox; }
 
-  ChildLinkList Children() const final {
-    return ChildLinkList(num_children_, &children_[0]);
-  }
+  // True if descendants were propagated to outside of this fragment.
+  bool HasPropagatedDescendants() const { return has_propagated_descendants_; }
 
-  const ComputedStyle& Style() const { return *style_; }
   const NGLineHeightMetrics& Metrics() const { return metrics_; }
 
   // The base direction of this line. Also known as the paragraph direction.
@@ -57,25 +56,26 @@ class CORE_EXPORT NGPhysicalLineBoxFragment final
   // Compute baseline for the specified baseline type.
   NGLineHeightMetrics BaselineMetrics(FontBaseline) const;
 
-  // Ink overflow of itself including contents, in the local coordinate.
-  NGPhysicalOffsetRect InkOverflow() const;
-
-  // Ink overflow of children in local coordinates.
-  NGPhysicalOffsetRect ContentsInkOverflow() const;
-
   // Scrollable overflow. including contents, in the local coordinate.
   // ScrollableOverflow is not precomputed/cached because it cannot be computed
   // when LineBox is generated because it needs container dimensions to
   // resolve relative position of its children.
-  NGPhysicalOffsetRect ScrollableOverflow(
-      const LayoutObject* container,
-      const ComputedStyle* container_style,
-      NGPhysicalSize container_physical_size) const;
+  PhysicalRect ScrollableOverflow(const LayoutObject* container,
+                                  const ComputedStyle* container_style,
+                                  PhysicalSize container_physical_size) const;
 
   // Returns the first/last leaf fragment in the line in logical order. Returns
   // nullptr if the line box is empty.
   const NGPhysicalFragment* FirstLogicalLeaf() const;
   const NGPhysicalFragment* LastLogicalLeaf() const;
+
+  const LayoutObject* ClosestLeafChildForPoint(const PhysicalOffset&,
+                                               bool only_editable_leaves) const;
+
+  // Returns a point at the visual start/end of the line.
+  // Encapsulates the handling of text direction and writing mode.
+  PhysicalOffset LineStartPoint() const;
+  PhysicalOffset LineEndPoint() const;
 
   // Whether the content soft-wraps to the next line.
   bool HasSoftWrapToNextLine() const;
@@ -83,16 +83,16 @@ class CORE_EXPORT NGPhysicalLineBoxFragment final
  private:
   NGPhysicalLineBoxFragment(NGLineBoxFragmentBuilder* builder);
 
-  scoped_refptr<const ComputedStyle> style_;
   NGLineHeightMetrics metrics_;
-  NGLinkStorage children_[];
+  NGLink children_[];
 };
 
-DEFINE_TYPE_CASTS(NGPhysicalLineBoxFragment,
-                  NGPhysicalFragment,
-                  fragment,
-                  fragment->Type() == NGPhysicalFragment::kFragmentLineBox,
-                  fragment.Type() == NGPhysicalFragment::kFragmentLineBox);
+template <>
+struct DowncastTraits<NGPhysicalLineBoxFragment> {
+  static bool AllowFrom(const NGPhysicalFragment& fragment) {
+    return fragment.Type() == NGPhysicalFragment::kFragmentLineBox;
+  }
+};
 
 }  // namespace blink
 

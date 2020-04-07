@@ -4,6 +4,7 @@
 
 #include <utility>
 
+#include "base/bind.h"
 #include "base/run_loop.h"
 #include "base/test/scoped_task_environment.h"
 #include "build/build_config.h"
@@ -56,8 +57,8 @@
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/skia/include/core/SkString.h"
 #include "ui/gfx/geometry/mojo/geometry_struct_traits.h"
-#include "ui/gfx/ipc/color/gfx_param_traits.h"
 #include "ui/gfx/mojo/buffer_types_struct_traits.h"
+#include "ui/gfx/mojo/color_space_mojom_traits.h"
 #include "ui/gfx/mojo/selection_bound_struct_traits.h"
 #include "ui/gfx/mojo/transform_struct_traits.h"
 #include "ui/latency/mojo/latency_info_struct_traits.h"
@@ -412,6 +413,7 @@ TEST_F(StructTraitsTest, SharedQuadState) {
                                                 13.f, 14.f, 15.f, 16.f);
   const gfx::Rect layer_rect(1234, 5678);
   const gfx::Rect visible_layer_rect(12, 34, 56, 78);
+  const gfx::RRectF rounded_corner_bounds(gfx::RectF(1.f, 2.f, 30.f, 40.f), 5);
   const gfx::Rect clip_rect(123, 456, 789, 101112);
   const bool is_clipped = true;
   bool are_contents_opaque = true;
@@ -420,14 +422,16 @@ TEST_F(StructTraitsTest, SharedQuadState) {
   const int sorting_context_id = 1337;
   SharedQuadState input_sqs;
   input_sqs.SetAll(quad_to_target_transform, layer_rect, visible_layer_rect,
-                   clip_rect, is_clipped, are_contents_opaque, opacity,
-                   blend_mode, sorting_context_id);
+                   rounded_corner_bounds, clip_rect, is_clipped,
+                   are_contents_opaque, opacity, blend_mode,
+                   sorting_context_id);
   SharedQuadState output_sqs;
   mojo::test::SerializeAndDeserialize<mojom::SharedQuadState>(&input_sqs,
                                                               &output_sqs);
   EXPECT_EQ(quad_to_target_transform, output_sqs.quad_to_target_transform);
   EXPECT_EQ(layer_rect, output_sqs.quad_layer_rect);
   EXPECT_EQ(visible_layer_rect, output_sqs.visible_quad_layer_rect);
+  EXPECT_EQ(rounded_corner_bounds, output_sqs.rounded_corner_bounds);
   EXPECT_EQ(clip_rect, output_sqs.clip_rect);
   EXPECT_EQ(is_clipped, output_sqs.is_clipped);
   EXPECT_EQ(opacity, output_sqs.opacity);
@@ -448,6 +452,8 @@ TEST_F(StructTraitsTest, CompositorFrame) {
       15.f, 16.f);
   const gfx::Rect sqs_layer_rect(1234, 5678);
   const gfx::Rect sqs_visible_layer_rect(12, 34, 56, 78);
+  const gfx::RRectF sqs_rounded_corner_bounds(gfx::RectF(3.f, 4.f, 50.f, 15.f),
+                                              3);
   const gfx::Rect sqs_clip_rect(123, 456, 789, 101112);
   const bool sqs_is_clipped = true;
   bool sqs_are_contents_opaque = false;
@@ -456,9 +462,9 @@ TEST_F(StructTraitsTest, CompositorFrame) {
   const int sqs_sorting_context_id = 1337;
   SharedQuadState* sqs = render_pass->CreateAndAppendSharedQuadState();
   sqs->SetAll(sqs_quad_to_target_transform, sqs_layer_rect,
-              sqs_visible_layer_rect, sqs_clip_rect, sqs_is_clipped,
-              sqs_are_contents_opaque, sqs_opacity, sqs_blend_mode,
-              sqs_sorting_context_id);
+              sqs_visible_layer_rect, sqs_rounded_corner_bounds, sqs_clip_rect,
+              sqs_is_clipped, sqs_are_contents_opaque, sqs_opacity,
+              sqs_blend_mode, sqs_sorting_context_id);
 
   // DebugBorderDrawQuad.
   const gfx::Rect rect1(1234, 4321, 1357, 7531);
@@ -492,7 +498,6 @@ TEST_F(StructTraitsTest, CompositorFrame) {
   const gfx::Vector2dF root_scroll_offset(1234.5f, 6789.1f);
   const float page_scale_factor = 1337.5f;
   const gfx::SizeF scrollable_viewport_size(1337.7f, 1234.5f);
-  const uint32_t content_source_id = 3;
   const BeginFrameAck begin_frame_ack(5, 10, false);
   const base::TimeTicks local_surface_id_allocation_time =
       base::TimeTicks::Now();
@@ -504,7 +509,6 @@ TEST_F(StructTraitsTest, CompositorFrame) {
   input.metadata.scrollable_viewport_size = scrollable_viewport_size;
   input.render_pass_list.push_back(std::move(render_pass));
   input.resource_list.push_back(resource);
-  input.metadata.content_source_id = content_source_id;
   input.metadata.begin_frame_ack = begin_frame_ack;
   input.metadata.frame_token = 1;
   input.metadata.local_surface_id_allocation_time =
@@ -517,7 +521,6 @@ TEST_F(StructTraitsTest, CompositorFrame) {
   EXPECT_EQ(root_scroll_offset, output.metadata.root_scroll_offset);
   EXPECT_EQ(page_scale_factor, output.metadata.page_scale_factor);
   EXPECT_EQ(scrollable_viewport_size, output.metadata.scrollable_viewport_size);
-  EXPECT_EQ(content_source_id, output.metadata.content_source_id);
   EXPECT_EQ(begin_frame_ack, output.metadata.begin_frame_ack);
   EXPECT_EQ(local_surface_id_allocation_time,
             output.metadata.local_surface_id_allocation_time);
@@ -539,6 +542,7 @@ TEST_F(StructTraitsTest, CompositorFrame) {
   EXPECT_EQ(sqs_quad_to_target_transform, out_sqs->quad_to_target_transform);
   EXPECT_EQ(sqs_layer_rect, out_sqs->quad_layer_rect);
   EXPECT_EQ(sqs_visible_layer_rect, out_sqs->visible_quad_layer_rect);
+  EXPECT_EQ(sqs_rounded_corner_bounds, out_sqs->rounded_corner_bounds);
   EXPECT_EQ(sqs_clip_rect, out_sqs->clip_rect);
   EXPECT_EQ(sqs_is_clipped, out_sqs->is_clipped);
   EXPECT_EQ(sqs_are_contents_opaque, out_sqs->are_contents_opaque);
@@ -636,6 +640,7 @@ TEST_F(StructTraitsTest, CompositorFrameMetadata) {
   const float top_bar_shown_ratio(1.0f);
   const base::TimeTicks local_surface_id_allocation_time =
       base::TimeTicks::Now();
+  const gfx::Rect mirror_rect(10, 10, 50, 50);
 
 #if defined(OS_ANDROID)
   const float max_page_scale_factor = 4.6f;
@@ -673,6 +678,7 @@ TEST_F(StructTraitsTest, CompositorFrameMetadata) {
   input.top_controls_height = top_bar_height;
   input.top_controls_shown_ratio = top_bar_shown_ratio;
   input.local_surface_id_allocation_time = local_surface_id_allocation_time;
+  input.mirror_rect = mirror_rect;
 
 #if defined(OS_ANDROID)
   input.max_page_scale_factor = max_page_scale_factor;
@@ -713,6 +719,7 @@ TEST_F(StructTraitsTest, CompositorFrameMetadata) {
   EXPECT_EQ(top_bar_shown_ratio, output.top_controls_shown_ratio);
   EXPECT_EQ(local_surface_id_allocation_time,
             output.local_surface_id_allocation_time);
+  EXPECT_EQ(mirror_rect, output.mirror_rect);
 
 #if defined(OS_ANDROID)
   EXPECT_EQ(max_page_scale_factor, output.max_page_scale_factor);
@@ -740,7 +747,8 @@ TEST_F(StructTraitsTest, RenderPass) {
   backdrop_filters.Append(cc::FilterOperation::CreateSaturateFilter(4.f));
   backdrop_filters.Append(cc::FilterOperation::CreateZoomFilter(2.0f, 1));
   backdrop_filters.Append(cc::FilterOperation::CreateSaturateFilter(2.f));
-  gfx::RectF backdrop_filter_bounds = gfx::RectF(10, 20, 130, 140);
+  base::Optional<gfx::RRectF> backdrop_filter_bounds(
+      {10, 20, 130, 140, 1, 2, 3, 4, 5, 6, 7, 8});
   gfx::ColorSpace color_space = gfx::ColorSpace::CreateXYZD50();
   const bool has_transparent_background = true;
   const bool cache_render_pass = true;
@@ -760,6 +768,7 @@ TEST_F(StructTraitsTest, RenderPass) {
       gfx::Transform(16.1f, 15.3f, 14.3f, 13.7f, 12.2f, 11.4f, 10.4f, 9.8f,
                      8.1f, 7.3f, 6.3f, 5.7f, 4.8f, 3.4f, 2.4f, 1.2f),
       gfx::Rect(1, 2), gfx::Rect(1337, 5679, 9101112, 131415),
+      gfx::RRectF(gfx::RectF(5.f, 6.f, 70.f, 89.f), 10.f),
       gfx::Rect(1357, 2468, 121314, 1337), true, true, 2, SkBlendMode::kSrcOver,
       1);
 
@@ -768,6 +777,7 @@ TEST_F(StructTraitsTest, RenderPass) {
       gfx::Transform(1.1f, 2.3f, 3.3f, 4.7f, 5.2f, 6.4f, 7.4f, 8.8f, 9.1f,
                      10.3f, 11.3f, 12.7f, 13.8f, 14.4f, 15.4f, 16.2f),
       gfx::Rect(1337, 1234), gfx::Rect(1234, 5678, 9101112, 13141516),
+      gfx::RRectF(gfx::RectF(23.f, 45.f, 60.f, 70.f), 8.f),
       gfx::Rect(1357, 2468, 121314, 1337), true, true, 2, SkBlendMode::kSrcOver,
       1);
 
@@ -810,8 +820,7 @@ TEST_F(StructTraitsTest, RenderPass) {
   EXPECT_EQ(has_transparent_background, output->has_transparent_background);
   EXPECT_EQ(filters, output->filters);
   EXPECT_EQ(backdrop_filters, output->backdrop_filters);
-  EXPECT_EQ(gfx::ToNearestRect(backdrop_filter_bounds),
-            gfx::ToNearestRect(output->backdrop_filter_bounds));
+  EXPECT_EQ(backdrop_filter_bounds, output->backdrop_filter_bounds);
   EXPECT_EQ(cache_render_pass, output->cache_render_pass);
   EXPECT_EQ(has_damage_from_contributing_content,
             output->has_damage_from_contributing_content);
@@ -825,6 +834,8 @@ TEST_F(StructTraitsTest, RenderPass) {
   EXPECT_EQ(shared_state_1->quad_layer_rect, out_sqs1->quad_layer_rect);
   EXPECT_EQ(shared_state_1->visible_quad_layer_rect,
             out_sqs1->visible_quad_layer_rect);
+  EXPECT_EQ(shared_state_1->rounded_corner_bounds,
+            out_sqs1->rounded_corner_bounds);
   EXPECT_EQ(shared_state_1->clip_rect, out_sqs1->clip_rect);
   EXPECT_EQ(shared_state_1->is_clipped, out_sqs1->is_clipped);
   EXPECT_EQ(shared_state_1->opacity, out_sqs1->opacity);
@@ -837,6 +848,8 @@ TEST_F(StructTraitsTest, RenderPass) {
   EXPECT_EQ(shared_state_2->quad_layer_rect, out_sqs2->quad_layer_rect);
   EXPECT_EQ(shared_state_2->visible_quad_layer_rect,
             out_sqs2->visible_quad_layer_rect);
+  EXPECT_EQ(shared_state_2->rounded_corner_bounds,
+            out_sqs2->rounded_corner_bounds);
   EXPECT_EQ(shared_state_2->clip_rect, out_sqs2->clip_rect);
   EXPECT_EQ(shared_state_2->is_clipped, out_sqs2->is_clipped);
   EXPECT_EQ(shared_state_2->opacity, out_sqs2->opacity);
@@ -875,11 +888,12 @@ TEST_F(StructTraitsTest, RenderPass) {
 TEST_F(StructTraitsTest, RenderPassWithEmptySharedQuadStateList) {
   const RenderPassId render_pass_id = 3u;
   const gfx::Rect output_rect(45, 22, 120, 13);
+  const gfx::Rect damage_rect(56, 123, 19, 43);
   const gfx::Transform transform_to_root =
       gfx::Transform(1.0, 0.5, 0.5, -0.5, -1.0, 0.0);
-  const gfx::Rect damage_rect(56, 123, 19, 43);
+  const base::Optional<gfx::RRectF> backdrop_filter_bounds;
   skcms_Matrix3x3 to_XYZD50 = SkNamedGamut::kXYZ;
-  SkColorSpaceTransferFn fn = {1, 0, 1, 0, 0, 0, 1};
+  skcms_TransferFunction fn = {1, 0, 1, 0, 0, 0, 1};
   gfx::ColorSpace color_space = gfx::ColorSpace::CreateCustom(to_XYZD50, fn);
   const bool has_transparent_background = true;
   const bool cache_render_pass = false;
@@ -887,9 +901,10 @@ TEST_F(StructTraitsTest, RenderPassWithEmptySharedQuadStateList) {
   const bool generate_mipmap = false;
   std::unique_ptr<RenderPass> input = RenderPass::Create();
   input->SetAll(render_pass_id, output_rect, damage_rect, transform_to_root,
-                cc::FilterOperations(), cc::FilterOperations(), gfx::RectF(),
-                color_space, has_transparent_background, cache_render_pass,
-                has_damage_from_contributing_content, generate_mipmap);
+                cc::FilterOperations(), cc::FilterOperations(),
+                backdrop_filter_bounds, color_space, has_transparent_background,
+                cache_render_pass, has_damage_from_contributing_content,
+                generate_mipmap);
 
   // Unlike the previous test, don't add any quads to the list; we need to
   // verify that the serialization code can deal with that.
@@ -903,6 +918,7 @@ TEST_F(StructTraitsTest, RenderPassWithEmptySharedQuadStateList) {
   EXPECT_EQ(output_rect, output->output_rect);
   EXPECT_EQ(damage_rect, output->damage_rect);
   EXPECT_EQ(transform_to_root, output->transform_to_root_target);
+  EXPECT_EQ(backdrop_filter_bounds, output->backdrop_filter_bounds);
   EXPECT_EQ(has_transparent_background, output->has_transparent_background);
   EXPECT_EQ(color_space, output->color_space);
 }
@@ -953,8 +969,8 @@ TEST_F(StructTraitsTest, QuadListBasic) {
   RenderPassDrawQuad* render_pass_quad =
       render_pass->CreateAndAppendDrawQuad<RenderPassDrawQuad>();
   render_pass_quad->SetNew(sqs, rect4, rect4, render_pass_id, resource_id4,
-                           mask_uv_rect, mask_texture_size, filters_scale,
-                           filters_origin, tex_coord_rect,
+                           mask_uv_rect, mask_texture_size, false,
+                           filters_scale, filters_origin, tex_coord_rect,
                            force_anti_aliasing_off, backdrop_filter_quality);
 
   const gfx::Rect rect5(123, 567, 91011, 131415);
@@ -968,8 +984,8 @@ TEST_F(StructTraitsTest, QuadListBasic) {
   const bool nearest_neighbor = true;
   const bool secure_output_only = true;
   const bool needs_blending = true;
-  const ui::ProtectedVideoType protected_video_type =
-      ui::ProtectedVideoType::kClear;
+  const gfx::ProtectedVideoType protected_video_type =
+      gfx::ProtectedVideoType::kClear;
   const gfx::Size resource_size_in_pixels5(1234, 5678);
   TextureDrawQuad* texture_draw_quad =
       render_pass->CreateAndAppendDrawQuad<TextureDrawQuad>();
@@ -983,13 +999,11 @@ TEST_F(StructTraitsTest, QuadListBasic) {
   const bool needs_blending6 = false;
   const ResourceId resource_id6(1234);
   const gfx::Size resource_size_in_pixels(1234, 5678);
-  const gfx::Transform matrix(16.1f, 15.3f, 14.3f, 13.7f, 12.2f, 11.4f, 10.4f,
-                              9.8f, 8.1f, 7.3f, 6.3f, 5.7f, 4.8f, 3.4f, 2.4f,
-                              1.2f);
   StreamVideoDrawQuad* stream_video_draw_quad =
       render_pass->CreateAndAppendDrawQuad<StreamVideoDrawQuad>();
   stream_video_draw_quad->SetNew(sqs, rect6, rect6, needs_blending6,
-                                 resource_id6, resource_size_in_pixels, matrix);
+                                 resource_id6, resource_size_in_pixels,
+                                 uv_top_left, uv_bottom_right);
 
   std::unique_ptr<RenderPass> output;
   mojo::test::SerializeAndDeserialize<mojom::RenderPass>(&render_pass, &output);
@@ -1032,6 +1046,7 @@ TEST_F(StructTraitsTest, QuadListBasic) {
   EXPECT_EQ(render_pass_id, out_render_pass_draw_quad->render_pass_id);
   EXPECT_EQ(resource_id4, out_render_pass_draw_quad->mask_resource_id());
   EXPECT_EQ(mask_texture_size, out_render_pass_draw_quad->mask_texture_size);
+  EXPECT_FALSE(out_render_pass_draw_quad->mask_applies_to_backdrop);
   EXPECT_EQ(filters_scale, out_render_pass_draw_quad->filters_scale);
   EXPECT_EQ(force_anti_aliasing_off,
             out_render_pass_draw_quad->force_anti_aliasing_off);
@@ -1064,7 +1079,8 @@ TEST_F(StructTraitsTest, QuadListBasic) {
   EXPECT_EQ(resource_id6, out_stream_video_draw_quad->resource_id());
   EXPECT_EQ(resource_size_in_pixels,
             out_stream_video_draw_quad->resource_size_in_pixels());
-  EXPECT_EQ(matrix, out_stream_video_draw_quad->matrix);
+  EXPECT_EQ(uv_top_left, out_stream_video_draw_quad->uv_top_left);
+  EXPECT_EQ(uv_bottom_right, out_stream_video_draw_quad->uv_bottom_right);
 }
 
 TEST_F(StructTraitsTest, SurfaceId) {
@@ -1131,7 +1147,7 @@ TEST_F(StructTraitsTest, YUVDrawQuad) {
   std::unique_ptr<RenderPass> render_pass = RenderPass::Create();
   render_pass->SetNew(1, gfx::Rect(), gfx::Rect(), gfx::Transform());
 
-  const DrawQuad::Material material = DrawQuad::YUV_VIDEO_CONTENT;
+  const DrawQuad::Material material = DrawQuad::Material::kYuvVideoContent;
   const gfx::Rect rect(1234, 4321, 1357, 7531);
   const gfx::Rect visible_rect(1337, 7331, 561, 293);
   const bool needs_blending = true;
@@ -1147,8 +1163,8 @@ TEST_F(StructTraitsTest, YUVDrawQuad) {
   const float resource_offset = 1337.5f;
   const float resource_multiplier = 1234.6f;
   const uint32_t bits_per_channel = 13;
-  const ui::ProtectedVideoType protected_video_type =
-      ui::ProtectedVideoType::kSoftwareProtected;
+  const gfx::ProtectedVideoType protected_video_type =
+      gfx::ProtectedVideoType::kSoftwareProtected;
 
   SharedQuadState* sqs = render_pass->CreateAndAppendSharedQuadState();
   YUVVideoDrawQuad* quad =
@@ -1184,7 +1200,7 @@ TEST_F(StructTraitsTest, YUVDrawQuad) {
   EXPECT_EQ(protected_video_type, out_quad->protected_video_type);
 }
 
-TEST_F(StructTraitsTest, CopyOutputResult_Empty) {
+TEST_F(StructTraitsTest, CopyOutputResult_EmptyBitmap) {
   auto input = std::make_unique<CopyOutputResult>(
       CopyOutputResult::Format::RGBA_BITMAP, gfx::Rect());
   std::unique_ptr<CopyOutputResult> output;
@@ -1194,6 +1210,22 @@ TEST_F(StructTraitsTest, CopyOutputResult_Empty) {
   EXPECT_EQ(output->format(), CopyOutputResult::Format::RGBA_BITMAP);
   EXPECT_TRUE(output->rect().IsEmpty());
   EXPECT_FALSE(output->AsSkBitmap().readyToDraw());
+  EXPECT_EQ(output->GetTextureResult(), nullptr);
+}
+
+TEST_F(StructTraitsTest, CopyOutputResult_EmptyTexture) {
+  base::test::ScopedTaskEnvironment scoped_task_environment;
+
+  auto input = std::make_unique<CopyOutputResult>(
+      CopyOutputResult::Format::RGBA_TEXTURE, gfx::Rect());
+  EXPECT_TRUE(input->IsEmpty());
+
+  std::unique_ptr<CopyOutputResult> output;
+  mojo::test::SerializeAndDeserialize<mojom::CopyOutputResult>(&input, &output);
+
+  EXPECT_TRUE(output->IsEmpty());
+  EXPECT_EQ(output->format(), CopyOutputResult::Format::RGBA_TEXTURE);
+  EXPECT_TRUE(output->rect().IsEmpty());
   EXPECT_EQ(output->GetTextureResult(), nullptr);
 }
 

@@ -14,28 +14,21 @@
 #include "third_party/blink/renderer/core/editing/finder/text_finder.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/frame/web_local_frame_impl.h"
-#include "third_party/blink/renderer/platform/histogram.h"
+#include "third_party/blink/renderer/platform/heap/heap.h"
+#include "third_party/blink/renderer/platform/instrumentation/histogram.h"
 #include "third_party/blink/renderer/platform/wtf/time.h"
 
 namespace blink {
 
 namespace {
 const int kFindingTimeoutMS = 100;
-constexpr TimeDelta kFindTaskTestTimeout = TimeDelta::FromSeconds(10);
+constexpr base::TimeDelta kFindTaskTestTimeout =
+    base::TimeDelta::FromSeconds(10);
 }  // namespace
 
 class FindTaskController::IdleFindTask
     : public ScriptedIdleTaskController::IdleTask {
  public:
-  static IdleFindTask* Create(FindTaskController* controller,
-                              Document* document,
-                              int identifier,
-                              const WebString& search_text,
-                              const mojom::blink::FindOptions& options) {
-    return MakeGarbageCollected<IdleFindTask>(controller, document, identifier,
-                                              search_text, options);
-  }
-
   IdleFindTask(FindTaskController* controller,
                Document* document,
                int identifier,
@@ -62,8 +55,9 @@ class FindTaskController::IdleFindTask
   }
 
   void ForceInvocationForTesting() {
-    invoke(IdleDeadline::Create(CurrentTimeTicks() + kFindTaskTestTimeout,
-                                IdleDeadline::CallbackType::kCalledWhenIdle));
+    invoke(MakeGarbageCollected<IdleDeadline>(
+        base::TimeTicks::Now() + kFindTaskTestTimeout,
+        IdleDeadline::CallbackType::kCalledWhenIdle));
   }
 
   void Trace(Visitor* visitor) override {
@@ -80,14 +74,16 @@ class FindTaskController::IdleFindTask
                                  PositionInFlatTree(), 0 /* match_count */);
     }
 
-    const TimeDelta time_available =
-        TimeDelta::FromMillisecondsD(deadline->timeRemaining());
-    const TimeTicks start_time = CurrentTimeTicks();
-
-    PositionInFlatTree search_start = PositionInFlatTree::FirstPositionInNode(
-        *controller_->GetLocalFrame()->GetDocument());
-    PositionInFlatTree search_end = PositionInFlatTree::LastPositionInNode(
-        *controller_->GetLocalFrame()->GetDocument());
+    Document& document = *controller_->GetLocalFrame()->GetDocument();
+    PositionInFlatTree search_start =
+        PositionInFlatTree::FirstPositionInNode(document);
+    PositionInFlatTree search_end;
+    if (document.documentElement() && document.documentElement()->lastChild()) {
+      search_end = PositionInFlatTree::AfterNode(
+          *document.documentElement()->lastChild());
+    } else {
+      search_end = PositionInFlatTree::LastPositionInNode(document);
+    }
     DCHECK_EQ(search_start.GetDocument(), search_end.GetDocument());
 
     if (Range* resume_from_range = controller_->ResumeFindingFromRange()) {
@@ -100,23 +96,29 @@ class FindTaskController::IdleFindTask
         return;
     }
 
-    // TODO(editing-dev): Use of updateStyleAndLayoutIgnorePendingStylesheets
+    // TODO(editing-dev): Use of UpdateStyleAndLayout
     // needs to be audited.  see http://crbug.com/590369 for more details.
-    search_start.GetDocument()->UpdateStyleAndLayoutIgnorePendingStylesheets();
+    search_start.GetDocument()->UpdateStyleAndLayout();
 
     int match_count = 0;
     bool full_range_searched = false;
     PositionInFlatTree next_task_start_position;
-    do {
+
+    blink::FindOptions find_options =
+        (options_->forward ? 0 : kBackwards) |
+        (options_->match_case ? 0 : kCaseInsensitive) |
+        (options_->find_next ? 0 : kStartInSelection);
+
+    while (search_start != search_end) {
       // Find in the whole block.
-      FindBuffer buffer(search_start);
+      FindBuffer buffer(EphemeralRangeInFlatTree(search_start, search_end));
       std::unique_ptr<FindBuffer::Results> match_results =
-          buffer.FindMatches(search_text_, *options_);
+          buffer.FindMatches(search_text_, find_options);
       for (FindBuffer::BufferMatchResult match : *match_results) {
         const EphemeralRangeInFlatTree ephemeral_match_range =
             buffer.RangeFromBufferIndex(match.start,
                                         match.start + match.length);
-        Range* const match_range = Range::Create(
+        auto* const match_range = MakeGarbageCollected<Range>(
             ephemeral_match_range.GetDocument(),
             ToPositionInDOMTree(ephemeral_match_range.StartPosition()),
             ToPositionInDOMTree(ephemeral_match_range.EndPosition()));
@@ -138,11 +140,9 @@ class FindTaskController::IdleFindTask
         break;
       }
       next_task_start_position = search_start;
-    } while (deadline->timeRemaining() > 0);
-
-    const TimeDelta time_spent = CurrentTimeTicks() - start_time;
-    UMA_HISTOGRAM_TIMES("WebCore.FindInPage.ScopingTime",
-                        time_spent - time_available);
+      if (deadline->timeRemaining() <= 0)
+        break;
+    }
 
     controller_->DidFinishTask(identifier_, search_text_, *options_,
                                full_range_searched, next_task_start_position,
@@ -189,8 +189,8 @@ void FindTaskController::RequestIdleFindTask(
     const WebString& search_text,
     const mojom::blink::FindOptions& options) {
   DCHECK_EQ(idle_find_task_, nullptr);
-  idle_find_task_ = IdleFindTask::Create(this, GetLocalFrame()->GetDocument(),
-                                         identifier, search_text, options);
+  idle_find_task_ = MakeGarbageCollected<IdleFindTask>(
+      this, GetLocalFrame()->GetDocument(), identifier, search_text, options);
   // If it's for testing, run the task immediately.
   // TODO(rakina): Change to use general solution when it's available.
   // https://crbug.com/875203
@@ -214,10 +214,10 @@ void FindTaskController::DidFinishTask(
   last_search_string_ = search_text;
 
   if (next_starting_position.IsNotNull()) {
-    resume_finding_from_range_ =
-        Range::Create(*next_starting_position.GetDocument(),
-                      ToPositionInDOMTree(next_starting_position),
-                      ToPositionInDOMTree(next_starting_position));
+    resume_finding_from_range_ = MakeGarbageCollected<Range>(
+        *next_starting_position.GetDocument(),
+        ToPositionInDOMTree(next_starting_position),
+        ToPositionInDOMTree(next_starting_position));
   }
 
   if (match_count > 0) {

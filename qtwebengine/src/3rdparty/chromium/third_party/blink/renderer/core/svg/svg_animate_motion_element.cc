@@ -56,13 +56,11 @@ bool TargetCanHaveMotionTransform(const SVGElement& target) {
 }
 }
 
-inline SVGAnimateMotionElement::SVGAnimateMotionElement(Document& document)
+SVGAnimateMotionElement::SVGAnimateMotionElement(Document& document)
     : SVGAnimationElement(svg_names::kAnimateMotionTag, document),
       has_to_point_at_end_of_duration_(false) {
   SetCalcMode(kCalcModePaced);
 }
-
-DEFINE_NODE_FACTORY(SVGAnimateMotionElement)
 
 SVGAnimateMotionElement::~SVGAnimateMotionElement() = default;
 
@@ -145,7 +143,7 @@ static bool ParsePoint(const String& string, FloatPoint& point) {
 }
 
 void SVGAnimateMotionElement::ResetAnimatedType() {
-  SVGElement* target_element = this->targetElement();
+  SVGElement* target_element = targetElement();
   if (!target_element || !TargetCanHaveMotionTransform(*target_element))
     return;
   if (AffineTransform* transform = target_element->AnimateMotionTransform())
@@ -153,7 +151,7 @@ void SVGAnimateMotionElement::ResetAnimatedType() {
 }
 
 void SVGAnimateMotionElement::ClearAnimatedType() {
-  SVGElement* target_element = this->targetElement();
+  SVGElement* target_element = targetElement();
   if (!target_element)
     return;
 
@@ -200,7 +198,7 @@ bool SVGAnimateMotionElement::CalculateFromAndByValues(
 void SVGAnimateMotionElement::CalculateAnimatedValue(float percentage,
                                                      unsigned repeat_count,
                                                      SVGSMILElement*) {
-  SVGElement* target_element = this->targetElement();
+  SVGElement* target_element = targetElement();
   DCHECK(target_element);
   AffineTransform* transform = target_element->AnimateMotionTransform();
   if (!transform)
@@ -247,7 +245,7 @@ void SVGAnimateMotionElement::CalculateAnimatedValue(float percentage,
   }
 
   transform->Translate(position.X(), position.Y());
-  RotateMode rotate_mode = this->GetRotateMode();
+  RotateMode rotate_mode = GetRotateMode();
   if (rotate_mode != kRotateAuto && rotate_mode != kRotateAutoReverse)
     return;
   if (rotate_mode == kRotateAutoReverse)
@@ -258,23 +256,23 @@ void SVGAnimateMotionElement::CalculateAnimatedValue(float percentage,
 void SVGAnimateMotionElement::ApplyResultsToTarget() {
   // We accumulate to the target element transform list so there is not much to
   // do here.
-  SVGElement* target_element = this->targetElement();
+  SVGElement* target_element = targetElement();
   if (!target_element)
     return;
 
-  AffineTransform* t = target_element->AnimateMotionTransform();
-  if (!t)
+  AffineTransform* target_transform = target_element->AnimateMotionTransform();
+  if (!target_transform)
     return;
 
   // ...except in case where we have additional instances in <use> trees.
-  const HeapHashSet<WeakMember<SVGElement>>& instances =
-      target_element->InstancesForElement();
+  const auto& instances = target_element->InstancesForElement();
   for (SVGElement* shadow_tree_element : instances) {
     DCHECK(shadow_tree_element);
-    AffineTransform* transform = shadow_tree_element->AnimateMotionTransform();
-    if (!transform)
+    AffineTransform* shadow_transform =
+        shadow_tree_element->AnimateMotionTransform();
+    if (!shadow_transform)
       continue;
-    transform->SetMatrix(t->A(), t->B(), t->C(), t->D(), t->E(), t->F());
+    shadow_transform->SetTransform(*target_transform);
     if (LayoutObject* layout_object = shadow_tree_element->GetLayoutObject())
       InvalidateForAnimateMotionTransformChange(*layout_object);
   }

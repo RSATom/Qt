@@ -322,6 +322,11 @@ TEST(FoundationUtilTest, NSStringToFilePath) {
   EXPECT_EQ(FilePath("/a/b"), NSStringToFilePath(@"/a/b"));
 }
 
+TEST(FoundationUtilTest, FilePathToCFURL) {
+  EXPECT_NSEQ([NSURL fileURLWithPath:@"/a/b"],
+              base::mac::CFToNSCast(FilePathToCFURL(FilePath("/a/b"))));
+}
+
 TEST(FoundationUtilTest, CFRangeToNSRange) {
   NSRange range_out;
   EXPECT_TRUE(CFRangeToNSRange(CFRangeMake(10, 5), &range_out));
@@ -402,6 +407,25 @@ TEST(StringNumberConversionsTest, FormatNSInteger) {
     EXPECT_EQ(nsuinteger_cases[i].expected_hex,
               StringPrintf("%" PRIxNS, nsuinteger_cases[i].value));
   }
+}
+
+#define EXPECT_LOG_EQ(expected, val) \
+  EXPECT_EQ(expected, (std::ostringstream() << (val)).str())
+
+TEST(FoundationLoggingTest, ObjCObject) {
+  EXPECT_LOG_EQ("Hello, world!", @"Hello, world!");
+}
+
+TEST(FoundationLoggingTest, ObjCNil) {
+  EXPECT_LOG_EQ("(nil)", static_cast<id>(nil));
+}
+
+TEST(FoundationLoggingTest, CFRange) {
+  EXPECT_LOG_EQ("{0, 100}", CFRangeMake(0, 100));
+}
+
+TEST(FoundationLoggingTest, NSRange) {
+  EXPECT_LOG_EQ("{0, 100}", NSMakeRange(0, 100));
 }
 
 }  // namespace mac

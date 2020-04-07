@@ -70,8 +70,8 @@ public:
     bool copy(QIODevice *dev, const FormBuilderClipboard &selection) override;
     DomUI *copy(const FormBuilderClipboard &selection) override;
 
-    FormBuilderClipboard paste(DomUI *ui, QWidget *widgetParent, QObject *actionParent = 0) override;
-    FormBuilderClipboard paste(QIODevice *dev,  QWidget *widgetParent, QObject *actionParent = 0) override;
+    FormBuilderClipboard paste(DomUI *ui, QWidget *widgetParent, QObject *actionParent = nullptr) override;
+    FormBuilderClipboard paste(QIODevice *dev,  QWidget *widgetParent, QObject *actionParent = nullptr) override;
 
     bool saveRelative() const;
     void setSaveRelative(bool relative);
@@ -145,7 +145,7 @@ private:
     QStringList mergeWithLoadedPaths(const QStringList &paths) const;
     void applyAttributesToPropertySheet(const DomWidget *ui_widget, QWidget *widget);
 
-    typedef QList<DomCustomWidget*> DomCustomWidgetList;
+    using DomCustomWidgetList = QList<DomCustomWidget *>;
     void addCustomWidgetsToWidgetDatabase(DomCustomWidgetList& list);
     FormWindow *m_formWindow;
     bool m_isMainWidget;

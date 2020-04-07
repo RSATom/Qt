@@ -5,17 +5,26 @@
  * found in the LICENSE file.
  */
 
-#include "gm.h"
-#include "sk_tool_utils.h"
+#include "gm/gm.h"
+#include "include/core/SkCanvas.h"
+#include "include/core/SkFont.h"
+#include "include/core/SkPaint.h"
+#include "include/core/SkRect.h"
+#include "include/core/SkScalar.h"
+#include "include/core/SkSize.h"
+#include "include/core/SkString.h"
+#include "include/core/SkTextBlob.h"
+#include "include/core/SkTypeface.h"
+#include "include/gpu/GrContext.h"
+#include "tools/ToolUtils.h"
 
-#include "SkCanvas.h"
-#include "SkSurface.h"
-#include "SkTextBlob.h"
-#include "GrContext.h"
+#include <string.h>
+
+class GrRenderTargetContext;
 
 // This tests that we correctly regenerate textblobs after freeing all gpu resources crbug/491350
 namespace skiagm {
-class TextBlobUseAfterGpuFree : public GM {
+class TextBlobUseAfterGpuFree : public GpuGM {
 public:
     TextBlobUseAfterGpuFree() { }
 
@@ -28,16 +37,10 @@ protected:
         return SkISize::Make(kWidth, kHeight);
     }
 
-    void onDraw(SkCanvas* canvas) override {
-        // This GM exists to test a specific feature of the GPU backend.
-        if (nullptr == canvas->getGrContext()) {
-            skiagm::GM::DrawGpuOnlyMessage(canvas);
-            return;
-        }
-
+    void onDraw(GrContext* context, GrRenderTargetContext*, SkCanvas* canvas) override {
         const char text[] = "Hamburgefons";
 
-        SkFont font(sk_tool_utils::create_portable_typeface(), 20);
+        SkFont font(ToolUtils::create_portable_typeface(), 20);
         auto blob = SkTextBlob::MakeFromText(text, strlen(text), font);
 
         // draw textblob
@@ -48,7 +51,7 @@ protected:
         canvas->drawTextBlob(blob, 20, 60, SkPaint());
 
         // This text should look fine
-        canvas->getGrContext()->freeGpuResources();
+        context->freeGpuResources();
         canvas->drawTextBlob(blob, 20, 160, SkPaint());
     }
 

@@ -40,7 +40,7 @@
 #include "services/service_manager/public/mojom/interface_provider.mojom-blink.h"
 #include "third_party/blink/public/common/privacy_preferences.h"
 #include "third_party/blink/public/mojom/csp/content_security_policy.mojom-blink.h"
-#include "third_party/blink/public/mojom/net/ip_address_space.mojom-shared.h"
+#include "third_party/blink/public/mojom/net/ip_address_space.mojom-blink.h"
 #include "third_party/blink/public/mojom/worker/worker_content_settings_proxy.mojom-blink.h"
 #include "third_party/blink/public/web/web_shared_worker_client.h"
 #include "third_party/blink/renderer/core/core_export.h"
@@ -51,16 +51,15 @@
 
 namespace base {
 class SingleThreadTaskRunner;
-};
+}
 
 namespace network {
 class SharedURLLoaderFactory;
-};
+}
 
 namespace blink {
 
-class WebApplicationCacheHost;
-class WebApplicationCacheHostClient;
+class SharedWorkerThread;
 class WebSharedWorkerClient;
 class WebString;
 class WebURL;
@@ -75,13 +74,15 @@ class WorkerClassicScriptLoader;
 class CORE_EXPORT WebSharedWorkerImpl final : public WebSharedWorker,
                                               public WorkerShadowPage::Client {
  public:
-  explicit WebSharedWorkerImpl(WebSharedWorkerClient*);
+  WebSharedWorkerImpl(WebSharedWorkerClient*,
+                      const base::UnguessableToken& appcache_host_id);
   ~WebSharedWorkerImpl() override;
 
   // WorkerShadowPage::Client overrides.
-  std::unique_ptr<WebApplicationCacheHost> CreateApplicationCacheHost(
-      WebApplicationCacheHostClient*) override;
   void OnShadowPageInitialized() override;
+  WebLocalFrameClient::AppCacheType GetAppCacheType() override {
+    return WebLocalFrameClient::AppCacheType::kAppCacheForSharedWorker;
+  }
 
   // WebDevToolsAgentImpl::Client overrides.
   void ResumeStartup() override;
@@ -109,21 +110,27 @@ class CORE_EXPORT WebSharedWorkerImpl final : public WebSharedWorker,
 
   // Callback methods for SharedWorkerReportingProxy.
   void CountFeature(WebFeature);
+  void DidFetchScript(int64_t app_cache_id);
+  void DidFailToFetchClassicScript();
+  void DidEvaluateClassicScript(bool success);
   void DidCloseWorkerGlobalScope();
   void DidTerminateWorkerThread();
 
  private:
-  WorkerThread* GetWorkerThread() { return worker_thread_.get(); }
+  SharedWorkerThread* GetWorkerThread() { return worker_thread_.get(); }
 
   // Shuts down the worker thread.
   void TerminateWorkerThread();
 
   void DidReceiveScriptLoaderResponse();
   void OnScriptLoaderFinished();
-  void ContinueOnScriptLoaderFinished();
-  void StartWorkerThread(std::unique_ptr<GlobalScopeCreationParams>,
-                         const KURL& script_response_url,
-                         const String& source_code);
+  void OnAppCacheSelected();
+  void ContinueStartWorkerContext();
+  void StartWorkerThread(
+      std::unique_ptr<GlobalScopeCreationParams>,
+      const KURL& script_response_url,
+      const String& source_code,
+      const FetchClientSettingsObjectSnapshot& outside_settings_object);
   WorkerClients* CreateWorkerClients();
 
   void ConnectTaskOnWorkerThread(MessagePortChannel);
@@ -134,7 +141,7 @@ class CORE_EXPORT WebSharedWorkerImpl final : public WebSharedWorker,
   base::UnguessableToken devtools_worker_token_;
 
   Persistent<SharedWorkerReportingProxy> reporting_proxy_;
-  std::unique_ptr<WorkerThread> worker_thread_;
+  std::unique_ptr<SharedWorkerThread> worker_thread_;
   mojom::blink::WorkerContentSettingsProxyPtrInfo content_settings_info_;
 
   // |client_| owns |this|.
@@ -162,8 +169,9 @@ class CORE_EXPORT WebSharedWorkerImpl final : public WebSharedWorker,
   // document.
   Persistent<ParentExecutionContextTaskRunners>
       parent_execution_context_task_runners_;
+  const base::UnguessableToken appcache_host_id_;
 
-  base::WeakPtrFactory<WebSharedWorkerImpl> weak_ptr_factory_;
+  base::WeakPtrFactory<WebSharedWorkerImpl> weak_ptr_factory_{this};
 };
 
 }  // namespace blink

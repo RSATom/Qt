@@ -61,18 +61,19 @@ const NGInlineBreakToken* NGBlockBreakToken::InlineBreakTokenFor(
       case kBlockBreakToken:
         // Currently there are no cases where NGInlineBreakToken is stored in
         // non-direct child descendants.
-        DCHECK(!ToNGBlockBreakToken(child)->InlineBreakTokenFor(layout_object));
+        DCHECK(
+            !To<NGBlockBreakToken>(child)->InlineBreakTokenFor(layout_object));
         break;
       case kInlineBreakToken:
         if (child->InputNode().GetLayoutBox() == &layout_object)
-          return ToNGInlineBreakToken(child);
+          return To<NGInlineBreakToken>(child);
         break;
     }
   }
   return nullptr;
 }
 
-#ifndef NDEBUG
+#if DCHECK_IS_ON()
 
 String NGBlockBreakToken::ToString() const {
   StringBuilder string_builder;
@@ -83,6 +84,6 @@ String NGBlockBreakToken::ToString() const {
   return string_builder.ToString();
 }
 
-#endif  // NDEBUG
+#endif  // DCHECK_IS_ON()
 
 }  // namespace blink

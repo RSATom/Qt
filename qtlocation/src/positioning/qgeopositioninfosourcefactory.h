@@ -61,6 +61,21 @@ public:
 Q_DECLARE_INTERFACE(QGeoPositionInfoSourceFactory,
                     "org.qt-project.qt.position.sourcefactory/5.0")
 
+class Q_POSITIONING_EXPORT QGeoPositionInfoSourceFactoryV2 : public QGeoPositionInfoSourceFactory
+{
+public:
+    virtual ~QGeoPositionInfoSourceFactoryV2();
+
+    virtual QGeoPositionInfoSource *positionInfoSourceWithParameters(QObject *parent, const QVariantMap &parameters) = 0;
+    virtual QGeoSatelliteInfoSource *satelliteInfoSourceWithParameters(QObject *parent, const QVariantMap &parameters) = 0;
+    virtual QGeoAreaMonitorSource *areaMonitorWithParameters(QObject *parent, const QVariantMap &parameters) = 0;
+};
+
+// Although not actually used for constructing a specialized loader, this is required for
+// casting a QObject * into QGeoPositionInfoSourceFactoryV2 *
+Q_DECLARE_INTERFACE(QGeoPositionInfoSourceFactoryV2,
+                    "org.qt-project.qt.position.sourcefactoryV2/5.0")
+
 QT_END_NAMESPACE
 
 #endif // QGEOPOSITIONINFOSOURCEFACTORY_H

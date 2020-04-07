@@ -19,7 +19,7 @@
 #include "fxjs/cjs_document.h"
 #include "fxjs/cjs_event.h"
 #include "fxjs/cjs_event_context.h"
-#include "fxjs/cjs_eventhandler.h"
+#include "fxjs/cjs_eventrecorder.h"
 #include "fxjs/cjs_field.h"
 #include "fxjs/cjs_font.h"
 #include "fxjs/cjs_global.h"
@@ -228,9 +228,10 @@ bool CJS_Runtime::SetValueByNameInGlobalObject(ByteStringView utf8Name,
       v8::String::NewFromUtf8(pIsolate, utf8Name.unterminated_c_str(),
                               v8::NewStringType::kNormal, utf8Name.GetLength())
           .ToLocalChecked();
-  return context->Global()->Set(context, str, propvalue).FromJust();
+  v8::Maybe<bool> result = context->Global()->Set(context, str, propvalue);
+  return result.IsJust() && result.FromJust();
 }
-#endif
+#endif  // PDF_ENABLE_XFA
 
 v8::Local<v8::Value> CJS_Runtime::MaybeCoerceToNumber(
     v8::Local<v8::Value> value) {

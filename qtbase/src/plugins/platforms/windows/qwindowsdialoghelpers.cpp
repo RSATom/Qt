@@ -271,7 +271,7 @@ QWindowsNativeDialogBase *QWindowsDialogHelperBase<BaseClass>::ensureNativeDialo
 class QWindowsDialogThread : public QThread
 {
 public:
-    typedef QSharedPointer<QWindowsNativeDialogBase> QWindowsNativeDialogBasePtr;
+    using QWindowsNativeDialogBasePtr = QSharedPointer<QWindowsNativeDialogBase>;
 
     explicit QWindowsDialogThread(const QWindowsNativeDialogBasePtr &d, HWND owner)
         : m_dialog(d), m_owner(owner) {}
@@ -356,7 +356,7 @@ struct FindDialogContext
 
 static BOOL QT_WIN_CALLBACK findDialogEnumWindowsProc(HWND hwnd, LPARAM lParam)
 {
-    FindDialogContext *context = reinterpret_cast<FindDialogContext *>(lParam);
+    auto *context = reinterpret_cast<FindDialogContext *>(lParam);
     DWORD winPid = 0;
     GetWindowThreadProcessId(hwnd, &winPid);
     if (winPid != context->processId)
@@ -507,7 +507,7 @@ class QWindowsNativeFileDialogBase;
 
 class QWindowsNativeFileDialogEventHandler : public QWindowsComBase<IFileDialogEvents>
 {
-    Q_DISABLE_COPY(QWindowsNativeFileDialogEventHandler)
+    Q_DISABLE_COPY_MOVE(QWindowsNativeFileDialogEventHandler)
 public:
     static IFileDialogEvents *create(QWindowsNativeFileDialogBase *nativeFileDialog);
 
@@ -531,7 +531,7 @@ private:
 IFileDialogEvents *QWindowsNativeFileDialogEventHandler::create(QWindowsNativeFileDialogBase *nativeFileDialog)
 {
     IFileDialogEvents *result;
-    QWindowsNativeFileDialogEventHandler *eventHandler = new QWindowsNativeFileDialogEventHandler(nativeFileDialog);
+    auto *eventHandler = new QWindowsNativeFileDialogEventHandler(nativeFileDialog);
     if (FAILED(eventHandler->QueryInterface(IID_IFileDialogEvents, reinterpret_cast<void **>(&result)))) {
         qErrnoWarning("Unable to obtain IFileDialogEvents");
         return nullptr;
@@ -551,7 +551,7 @@ IFileDialogEvents *QWindowsNativeFileDialogEventHandler::create(QWindowsNativeFi
 class QWindowsShellItem
 {
 public:
-    typedef std::vector<IShellItem *> IShellItems;
+    using IShellItems = std::vector<IShellItem *>;
 
     explicit QWindowsShellItem(IShellItem *item);
 
@@ -736,7 +736,7 @@ QString QWindowsShellItem::libraryItemDefaultSaveFolder(IShellItem *item)
 #ifndef QT_NO_DEBUG_STREAM
 void QWindowsShellItem::format(QDebug &d) const
 {
-    d << "attributes=0x" << hex << attributes() << dec;
+    d << "attributes=0x" << Qt::hex << attributes() << Qt::dec;
     if (isFileSystem())
         d << " [filesys]";
     if (isDir())
@@ -972,7 +972,7 @@ void QWindowsNativeFileDialogBase::doExec(HWND owner)
     // gets a WM_CLOSE or the parent window is destroyed.
     const HRESULT hr = m_fileDialog->Show(owner);
     QWindowsDialogs::eatMouseMove();
-    qCDebug(lcQpaDialogs) << '<' << __FUNCTION__ << " returns " << hex << hr;
+    qCDebug(lcQpaDialogs) << '<' << __FUNCTION__ << " returns " << Qt::hex << hr;
     // Emit accepted() only if there is a result as otherwise UI hangs occur.
     // For example, typing in invalid URLs results in empty result lists.
     if (hr == S_OK && !m_data.selectedFiles().isEmpty()) {
@@ -1013,7 +1013,7 @@ void QWindowsNativeFileDialogBase::setMode(QFileDialogOptions::FileMode mode,
     }
     qCDebug(lcQpaDialogs) << __FUNCTION__ << "mode=" << mode
         << "acceptMode=" << acceptMode << "options=" << options
-        << "results in" << showbase << hex << flags;
+        << "results in" << Qt::showbase << Qt::hex << flags;
 
     if (FAILED(m_fileDialog->SetOptions(flags)))
         qErrnoWarning("%s: SetOptions() failed", __FUNCTION__);
@@ -1112,7 +1112,7 @@ void QWindowsNativeFileDialogBase::setDefaultSuffixSys(const QString &s)
     // If this parameter is non-empty, it will be appended by the dialog for the 'Any files'
     // filter ('*'). If this parameter is non-empty and the current filter has a suffix,
     // the dialog will append the filter's suffix.
-    wchar_t *wSuffix = const_cast<wchar_t *>(reinterpret_cast<const wchar_t *>(s.utf16()));
+    auto *wSuffix = const_cast<wchar_t *>(reinterpret_cast<const wchar_t *>(s.utf16()));
     m_fileDialog->SetDefaultExtension(wSuffix);
 }
 
@@ -1125,7 +1125,7 @@ static inline IFileDialog2 *getFileDialog2(IFileDialog *fileDialog)
 
 void QWindowsNativeFileDialogBase::setLabelText(QFileDialogOptions::DialogLabel l, const QString &text)
 {
-    wchar_t *wText = const_cast<wchar_t *>(reinterpret_cast<const wchar_t *>(text.utf16()));
+    auto *wText = const_cast<wchar_t *>(reinterpret_cast<const wchar_t *>(text.utf16()));
     switch (l) {
     case QFileDialogOptions::FileName:
         m_fileDialog->SetFileNameLabel(wText);
@@ -1688,7 +1688,7 @@ class QWindowsXpNativeFileDialog : public QWindowsNativeDialogBase
 {
     Q_OBJECT
 public:
-    typedef QSharedPointer<QFileDialogOptions> OptionsPtr;
+    using OptionsPtr = QSharedPointer<QFileDialogOptions>;
 
     static QWindowsXpNativeFileDialog *create(const OptionsPtr &options, const QWindowsFileDialogSharedData &data);
 
@@ -1770,7 +1770,7 @@ void QWindowsXpNativeFileDialog::doExec(HWND owner)
 
 static int QT_WIN_CALLBACK xpFileDialogGetExistingDirCallbackProc(HWND hwnd, UINT uMsg, LPARAM lParam, LPARAM lpData)
 {
-    QWindowsXpNativeFileDialog *dialog = reinterpret_cast<QWindowsXpNativeFileDialog *>(lpData);
+    auto *dialog = reinterpret_cast<QWindowsXpNativeFileDialog *>(lpData);
     return dialog->existingDirCallback(hwnd, uMsg, lParam);
 }
 
@@ -1779,7 +1779,7 @@ static int QT_WIN_CALLBACK xpFileDialogGetExistingDirCallbackProc(HWND hwnd, UIN
 #if defined(Q_CC_MINGW) && (!defined(__MINGW64_VERSION_MAJOR) || __MINGW64_VERSION_MAJOR < 3)
 typedef ITEMIDLIST *qt_LpItemIdList;
 #else
-typedef PIDLIST_ABSOLUTE qt_LpItemIdList;
+using qt_LpItemIdList = PIDLIST_ABSOLUTE;
 #endif
 
 int QWindowsXpNativeFileDialog::existingDirCallback(HWND hwnd, UINT uMsg, LPARAM lParam)
@@ -1843,7 +1843,7 @@ void QWindowsXpNativeFileDialog::populateOpenFileName(OPENFILENAME *ofn, HWND ow
     const QList<FilterSpec> specs =
         filterSpecs(m_options->nameFilters(), m_options->options() & QFileDialogOptions::HideNameFilterDetails, &totalStringLength);
     const int size = specs.size();
-    wchar_t *ptr = new wchar_t[totalStringLength + 2 * size + 1];
+    auto *ptr = new wchar_t[totalStringLength + 2 * size + 1];
     ofn->lpstrFilter = ptr;
     for (const FilterSpec &spec : specs) {
         ptr += spec.description.toWCharArray(ptr);
@@ -2007,7 +2007,7 @@ QString QWindowsXpFileDialogHelper::selectedNameFilter() const
     \ingroup qt-lighthouse-win
 */
 
-typedef QSharedPointer<QColor> SharedPointerColor;
+using SharedPointerColor = QSharedPointer<QColor>;
 
 #ifdef USE_NATIVE_COLOR_DIALOG
 class QWindowsNativeColorDialog : public QWindowsNativeDialogBase

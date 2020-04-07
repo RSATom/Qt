@@ -14,26 +14,31 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'gyp'))
 
 from util import build_utils
 from util import md5_check
+from util import resource_utils
 import bundletool
 
+# List of valid modes for GenerateBundleApks()
+BUILD_APKS_MODES = ('default', 'universal', 'system', 'system_compressed')
+_SYSTEM_MODES = ('system_compressed', 'system')
 
 _ALL_ABIS = ['armeabi-v7a', 'arm64-v8a', 'x86', 'x86_64']
 
 
-def _CreateMinimalDeviceSpec(bundle_path):
+def _CreateDeviceSpec(bundle_path, sdk_version, locales):
   # Could also use "bundletool dump resources", but reading directly is faster.
-  with zipfile.ZipFile(bundle_path) as f:
-    manifest_data = f.read('base/manifest/AndroidManifest.xml')
-  min_sdk_version = int(
-      re.search(r'minSdkVersion.*?(\d+)', manifest_data).group(1))
+  if not sdk_version:
+    with zipfile.ZipFile(bundle_path) as f:
+      manifest_data = f.read('base/manifest/AndroidManifest.xml')
+    sdk_version = int(
+        re.search(r'minSdkVersion.*?(\d+)', manifest_data).group(1))
 
   # Setting sdkVersion=minSdkVersion prevents multiple per-minSdkVersion .apk
   # files from being created within the .apks file.
   return {
       'screenDensity': 1000,  # Ignored since we don't split on density.
-      'sdkVersion': min_sdk_version,
+      'sdkVersion': sdk_version,
       'supportedAbis': _ALL_ABIS,  # Our .aab files are already split on abi.
-      'supportedLocales': ['en'],
+      'supportedLocales': locales,
   }
 
 
@@ -43,9 +48,11 @@ def GenerateBundleApks(bundle_path,
                        keystore_path,
                        keystore_password,
                        keystore_alias,
-                       universal=False,
+                       mode=None,
                        minimal=False,
-                       check_for_noop=True):
+                       minimal_sdk_version=None,
+                       check_for_noop=True,
+                       system_image_locales=None):
   """Generate an .apks archive from a an app bundle if needed.
 
   Args:
@@ -56,14 +63,30 @@ def GenerateBundleApks(bundle_path,
     keystore_path: Path to keystore.
     keystore_password: Keystore password, as a string.
     keystore_alias: Keystore signing key alias.
-    universal: Whether to create a single APK that contains the contents of all
-      modules.
+    mode: Build mode, which must be either None or one of BUILD_APKS_MODES.
     minimal: Create the minimal set of apks possible (english-only).
+    minimal_sdk_version: Use this sdkVersion when |minimal| or
+      |system_image_locales| args are present.
     check_for_noop: Use md5_check to short-circuit when inputs have not changed.
+    system_image_locales: Locales to package in the APK when mode is "system"
+      or "system_compressed".
   """
   device_spec = None
   if minimal:
-    device_spec = _CreateMinimalDeviceSpec(bundle_path)
+    # Measure with one language split installed. Use Hindi because it is
+    # popular. resource_size.py looks for splits/base-hi.apk.
+    # Note: English is always included since it's in base-master.apk.
+    device_spec = _CreateDeviceSpec(bundle_path, minimal_sdk_version, ['hi'])
+  elif mode in _SYSTEM_MODES:
+    if not system_image_locales:
+      raise Exception('system modes require system_image_locales')
+    # Bundletool doesn't seem to understand device specs with locales in the
+    # form of "<lang>-r<region>", so just provide the language code instead.
+    locales = [
+        resource_utils.ToAndroidLocaleName(l).split('-')[0]
+        for l in system_image_locales
+    ]
+    device_spec = _CreateDeviceSpec(bundle_path, minimal_sdk_version, locales)
 
   def rebuild():
     logging.info('Building %s', bundle_apks_path)
@@ -83,8 +106,11 @@ def GenerateBundleApks(bundle_path,
         json.dump(device_spec, spec_file)
         spec_file.flush()
         cmd_args += ['--device-spec=' + spec_file.name]
-      if universal:
-        cmd_args += ['--mode=universal']
+      if mode is not None:
+        if mode not in BUILD_APKS_MODES:
+          raise Exception('Invalid mode parameter %s (should be in %s)' %
+                          (mode, BUILD_APKS_MODES))
+        cmd_args += ['--mode=' + mode]
       bundletool.RunBundleTool(cmd_args)
 
   if check_for_noop:
@@ -102,6 +128,9 @@ def GenerateBundleApks(bundle_path,
         bundletool.BUNDLETOOL_VERSION,
         device_spec,
     ]
+    if mode is not None:
+      input_strings.append(mode)
+
     md5_check.CallAndRecordIfStale(
         rebuild,
         input_paths=input_paths,

@@ -46,11 +46,11 @@ use an SSL connection, which would require configuration of certificates, etc.
 \code
     // Create the server and listen outside of QtRO
     QTcpServer tcpServer;
-    tcpServer.listen(QHostAddress(127.0.0.1), 65213);
+    tcpServer.listen(QHostAddress(QStringLiteral("127.0.0.1")), 65213);
 
     // Create the host node.  We don't need a hostUrl unless we want to take
     // advantage of external schemas (see next example).
-    QRemoteObjectHost srcNode();
+    QRemoteObjectHost srcNode;
 
     // Make sure any connections are handed to QtRO
     QObject::connect(&tcpServer, &QTcpServer::newConnection, &srcNode,
@@ -61,14 +61,13 @@ use an SSL connection, which would require configuration of certificates, etc.
 
 The Replica side code needs to manually connect to the Host
 \code
-    QRemoteObjectNode repNode();
+    QRemoteObjectNode repNode;
     QTcpSocket *socket = new QTcpSocket(&repNode);
-    connect(socket, &QTcpSocket::connected, &repNode,
+    QObject::connect(socket, &QTcpSocket::connected, &repNode,
             [socket, &repNode]() {
         repNode.addClientSideConnection(socket);
     });
-    socket->connectToHost(QHostAddress(127.0.0.1), 65213);
-    };
+    socket->connectToHost(QHostAddress(QStringLiteral("127.0.0.1")), 65213);
 \endcode
 
 \section1 External Schemas

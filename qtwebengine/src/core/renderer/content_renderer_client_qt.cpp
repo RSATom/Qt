@@ -153,14 +153,18 @@ void ContentRendererClientQt::RenderThreadStarted()
     // Allow XMLHttpRequests from qrc to file.
     blink::WebURL qrc(blink::KURL("qrc:"));
     blink::WebString file(blink::WebString::FromASCII("file"));
-    blink::WebSecurityPolicy::AddOriginAccessAllowListEntry(qrc, file, blink::WebString(), true,
+    blink::WebSecurityPolicy::AddOriginAccessAllowListEntry(qrc, file, blink::WebString(), 0,
+                                                            network::mojom::CorsDomainMatchMode::kAllowSubdomains,
+                                                            network::mojom::CorsPortMatchMode::kAllowAnyPort,
                                                             network::mojom::CorsOriginAccessMatchPriority::kDefaultPriority);
 
 #if BUILDFLAG(ENABLE_EXTENSIONS)
     // Allow the pdf viewer extension to access chrome resources
     blink::WebURL pdfViewerExtension(blink::KURL("chrome-extension://mhjfbmdgcfjbbpaeojofohoefgiehjai"));
     blink::WebString chromeResources(blink::WebString::FromASCII("chrome"));
-    blink::WebSecurityPolicy::AddOriginAccessAllowListEntry(pdfViewerExtension, chromeResources, blink::WebString(), true,
+    blink::WebSecurityPolicy::AddOriginAccessAllowListEntry(pdfViewerExtension, chromeResources, blink::WebString(), 0,
+                                                            network::mojom::CorsDomainMatchMode::kAllowSubdomains,
+                                                            network::mojom::CorsPortMatchMode::kAllowAnyPort,
                                                             network::mojom::CorsOriginAccessMatchPriority::kDefaultPriority);
 
     ExtensionsRendererClientQt::GetInstance()->RenderThreadStarted();
@@ -170,13 +174,14 @@ void ContentRendererClientQt::RenderThreadStarted()
 void ContentRendererClientQt::RenderViewCreated(content::RenderView* render_view)
 {
     // RenderViewObservers destroy themselves with their RenderView.
-    new RenderViewObserverQt(render_view, m_webCacheImpl.data());
+    new RenderViewObserverQt(render_view);
     UserResourceController::instance()->renderViewCreated(render_view);
 }
 
 void ContentRendererClientQt::RenderFrameCreated(content::RenderFrame* render_frame)
 {
-    QtWebEngineCore::RenderFrameObserverQt *render_frame_observer = new QtWebEngineCore::RenderFrameObserverQt(render_frame);
+    QtWebEngineCore::RenderFrameObserverQt *render_frame_observer =
+            new QtWebEngineCore::RenderFrameObserverQt(render_frame, m_webCacheImpl.data());
 #if QT_CONFIG(webengine_webchannel)
     if (render_frame->IsMainFrame())
         new WebChannelIPCTransport(render_frame);
@@ -280,33 +285,34 @@ void ContentRendererClientQt::GetNavigationErrorStringsInternal(content::RenderF
     if (errorHtml) {
         // Use a local error page.
         int resourceId;
-        base::DictionaryValue errorStrings;
 
         const std::string locale = content::RenderThread::Get()->GetLocale();
         // TODO(elproxy): We could potentially get better diagnostics here by first calling
         // NetErrorHelper::GetErrorStringsForDnsProbe, but that one is harder to untangle.
 
-        error_page::LocalizedError::GetStrings(
-            error.reason(), error.domain(), error.url(), isPost,
-            error.stale_copy_in_cache(), false, RenderThreadObserverQt::is_incognito_process(),
-            error_page::LocalizedError::OfflineContentOnNetErrorFeatureState::kDisabled,
-            false, locale, std::unique_ptr<error_page::ErrorPageParams>(), &errorStrings);
+        error_page::LocalizedError::PageState errorPageState =
+            error_page::LocalizedError::GetPageState(
+                error.reason(), error.domain(), error.url(), isPost,
+                error.stale_copy_in_cache(), false, RenderThreadObserverQt::is_incognito_process(), false,
+                false, locale, std::unique_ptr<error_page::ErrorPageParams>());
+
         resourceId = IDR_NET_ERROR_HTML;
 
-        const base::StringPiece template_html(ui::ResourceBundle::GetSharedInstance().GetRawDataResource(resourceId));
+        std::string extracted_string = ui::ResourceBundle::GetSharedInstance().DecompressDataResource(resourceId);
+        const base::StringPiece template_html(extracted_string.data(), extracted_string.size());
         if (template_html.empty())
             NOTREACHED() << "unable to load template. ID: " << resourceId;
         else // "t" is the id of the templates root node.
-            *errorHtml = webui::GetTemplatesHtml(template_html, &errorStrings, "t");
+            *errorHtml = webui::GetTemplatesHtml(template_html, &errorPageState.strings, "t");
     }
 }
 
-unsigned long long ContentRendererClientQt::VisitedLinkHash(const char *canonicalUrl, size_t length)
+uint64_t ContentRendererClientQt::VisitedLinkHash(const char *canonicalUrl, size_t length)
 {
     return m_visitedLinkSlave->ComputeURLFingerprint(canonicalUrl, length);
 }
 
-bool ContentRendererClientQt::IsLinkVisited(unsigned long long linkHash)
+bool ContentRendererClientQt::IsLinkVisited(uint64_t linkHash)
 {
     return m_visitedLinkSlave->IsVisited(linkHash);
 }
@@ -518,7 +524,7 @@ static void AddWidevine(std::vector<std::unique_ptr<media::KeySystemProperties>>
     }
 
     // Session types.
-    bool cdm_supports_temporary_session = base::ContainsValue(capability->session_types, media::CdmSessionType::kTemporary);
+    bool cdm_supports_temporary_session = base::Contains(capability->session_types, media::CdmSessionType::kTemporary);
     if (!cdm_supports_temporary_session) {
         DVLOG(1) << "Temporary session must be supported.";
         return;

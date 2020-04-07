@@ -38,6 +38,10 @@
 #include "qsgmapboxglnode.h"
 #include "qgeomapmapboxgl.h"
 
+#if QT_HAS_INCLUDE(<QtQuick/private/qsgplaintexture_p.h>)
+#include <QtQuick/private/qsgplaintexture_p.h>
+#endif
+
 #include <QtGui/QOpenGLContext>
 #include <QtGui/QOpenGLFunctions>
 

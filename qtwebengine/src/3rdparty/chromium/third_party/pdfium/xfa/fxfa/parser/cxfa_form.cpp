@@ -13,7 +13,7 @@ namespace {
 
 const CXFA_Node::AttributeData kFormAttributeData[] = {
     {XFA_Attribute::Checksum, XFA_AttributeType::CData, (void*)nullptr},
-    {XFA_Attribute::Unknown, XFA_AttributeType::Integer, nullptr}};
+};
 
 }  // namespace
 
@@ -23,7 +23,7 @@ CXFA_Form::CXFA_Form(CXFA_Document* doc, XFA_PacketType packet)
                 XFA_XDPPACKET_Form,
                 XFA_ObjectType::ModelNode,
                 XFA_Element::Form,
-                nullptr,
+                {},
                 kFormAttributeData,
                 pdfium::MakeUnique<CJX_Form>(this)) {}
 

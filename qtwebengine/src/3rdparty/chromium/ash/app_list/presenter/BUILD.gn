@@ -9,7 +9,6 @@ assert(use_aura)
 
 component("presenter") {
   sources = [
-    "app_list_presenter_delegate.cc",
     "app_list_presenter_delegate.h",
     "app_list_presenter_export.h",
     "app_list_presenter_impl.cc",
@@ -25,8 +24,9 @@ component("presenter") {
     "//ui/aura",
     "//ui/compositor",
     "//ui/gfx/geometry",
-    "//ui/keyboard",
     "//ui/views",
+    "//ui/wm",
+    "//ui/wm/public",
 
     # Temporary dependency to fix compile flake in http://crbug.com/611898.
     # TODO(tapted): Remove once http://crbug.com/612382 is fixed.

@@ -13,5 +13,7 @@ SUBDIRS = \
    plugin \
    serialization \
    statemachine \
+   text \
    thread \
+   time \
    tools

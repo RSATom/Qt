@@ -62,6 +62,7 @@ namespace Input {
 
 class AxisAccumulatorManager;
 class AxisManager;
+class AxisAccumulatorJobPrivate;
 
 class Q_AUTOTEST_EXPORT AxisAccumulatorJob : public Qt3DCore::QAspectJob
 {

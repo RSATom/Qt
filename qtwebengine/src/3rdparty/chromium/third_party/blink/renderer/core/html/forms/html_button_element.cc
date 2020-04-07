@@ -37,14 +37,10 @@ namespace blink {
 
 using namespace html_names;
 
-inline HTMLButtonElement::HTMLButtonElement(Document& document)
+HTMLButtonElement::HTMLButtonElement(Document& document)
     : HTMLFormControlElement(kButtonTag, document),
       type_(SUBMIT),
       is_activated_submit_(false) {}
-
-HTMLButtonElement* HTMLButtonElement::Create(Document& document) {
-  return MakeGarbageCollected<HTMLButtonElement>(document);
-}
 
 const AttrNameToTrustedType& HTMLButtonElement::GetCheckedAttributeTypes()
     const {
@@ -57,7 +53,8 @@ void HTMLButtonElement::setType(const AtomicString& type) {
   setAttribute(kTypeAttr, type);
 }
 
-LayoutObject* HTMLButtonElement::CreateLayoutObject(const ComputedStyle&) {
+LayoutObject* HTMLButtonElement::CreateLayoutObject(const ComputedStyle&,
+                                                    LegacyLayout) {
   return new LayoutButton(this);
 }
 
@@ -115,7 +112,7 @@ void HTMLButtonElement::DefaultEventHandler(Event& event) {
   if (event.type() == event_type_names::kDOMActivate &&
       !IsDisabledFormControl()) {
     if (Form() && type_ == SUBMIT) {
-      Form()->PrepareForSubmission(event, this);
+      Form()->PrepareForSubmission(&event, this);
       event.SetDefaultHandled();
     }
     if (Form() && type_ == RESET) {

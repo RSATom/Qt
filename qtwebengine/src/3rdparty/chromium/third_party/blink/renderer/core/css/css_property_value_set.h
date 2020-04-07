@@ -30,7 +30,7 @@
 #include "third_party/blink/renderer/core/css/parser/css_parser_mode.h"
 #include "third_party/blink/renderer/core/css/property_set_css_style_declaration.h"
 #include "third_party/blink/renderer/platform/heap/persistent.h"
-#include "third_party/blink/renderer/platform/wtf/noncopyable.h"
+#include "third_party/blink/renderer/platform/wtf/casting.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
 #include "third_party/blink/renderer/platform/wtf/vector.h"
 
@@ -39,7 +39,6 @@ namespace blink {
 class CSSStyleDeclaration;
 class ImmutableCSSPropertyValueSet;
 class MutableCSSPropertyValueSet;
-class PropertyRegistry;
 class StyleSheetContents;
 enum class SecureContextMode;
 
@@ -176,7 +175,9 @@ class CSSLazyPropertyParser
   DISALLOW_COPY_AND_ASSIGN(CSSLazyPropertyParser);
 };
 
-class CORE_EXPORT ImmutableCSSPropertyValueSet : public CSSPropertyValueSet {
+class CORE_EXPORT alignas(Member<const CSSValue>) alignas(
+    CSSPropertyValueMetadata) ImmutableCSSPropertyValueSet
+    : public CSSPropertyValueSet {
  public:
   ImmutableCSSPropertyValueSet(const CSSPropertyValue*,
                                unsigned count,
@@ -195,30 +196,35 @@ class CORE_EXPORT ImmutableCSSPropertyValueSet : public CSSPropertyValueSet {
   int FindPropertyIndex(T property) const;
 
   void TraceAfterDispatch(blink::Visitor*);
-
-  void* operator new(std::size_t, void* location) { return location; }
-
-  void* storage_;
 };
 
 inline const Member<const CSSValue>* ImmutableCSSPropertyValueSet::ValueArray()
     const {
-  return reinterpret_cast<const Member<const CSSValue>*>(
-      const_cast<const void**>(&(this->storage_)));
+  static_assert(
+      sizeof(ImmutableCSSPropertyValueSet) % alignof(Member<const CSSValue>) ==
+          0,
+      "ValueArray may be improperly aligned");
+  return reinterpret_cast<const Member<const CSSValue>*>(this + 1);
 }
 
 inline const CSSPropertyValueMetadata*
 ImmutableCSSPropertyValueSet::MetadataArray() const {
-  return reinterpret_cast<const CSSPropertyValueMetadata*>(
-      &reinterpret_cast<const char*>(
-          &(this->storage_))[array_size_ * sizeof(Member<CSSValue>)]);
+  static_assert(
+      sizeof(ImmutableCSSPropertyValueSet) %
+                  alignof(CSSPropertyValueMetadata) ==
+              0 &&
+          sizeof(Member<CSSValue>) % alignof(CSSPropertyValueMetadata) == 0,
+      "MetadataArray may be improperly aligned");
+  return reinterpret_cast<const CSSPropertyValueMetadata*>(ValueArray() +
+                                                           array_size_);
 }
 
-DEFINE_TYPE_CASTS(ImmutableCSSPropertyValueSet,
-                  CSSPropertyValueSet,
-                  set,
-                  !set->IsMutable(),
-                  !set.IsMutable());
+template <>
+struct DowncastTraits<ImmutableCSSPropertyValueSet> {
+  static bool AllowFrom(const CSSPropertyValueSet& set) {
+    return !set.IsMutable();
+  }
+};
 
 class CORE_EXPORT MutableCSSPropertyValueSet : public CSSPropertyValueSet {
  public:
@@ -227,10 +233,6 @@ class CORE_EXPORT MutableCSSPropertyValueSet : public CSSPropertyValueSet {
   MutableCSSPropertyValueSet(const CSSPropertyValue* properties,
                              unsigned count);
   ~MutableCSSPropertyValueSet() = default;
-
-  static MutableCSSPropertyValueSet* Create(CSSParserMode);
-  static MutableCSSPropertyValueSet* Create(const CSSPropertyValue* properties,
-                                            unsigned count);
 
   unsigned PropertyCount() const { return property_vector_.size(); }
 
@@ -249,7 +251,6 @@ class CORE_EXPORT MutableCSSPropertyValueSet : public CSSPropertyValueSet {
                         SecureContextMode,
                         StyleSheetContents* context_style_sheet = nullptr);
   SetResult SetProperty(const AtomicString& custom_property_name,
-                        const PropertyRegistry*,
                         const String& value,
                         bool important,
                         SecureContextMode,
@@ -265,7 +266,7 @@ class CORE_EXPORT MutableCSSPropertyValueSet : public CSSPropertyValueSet {
 
   template <typename T>  // CSSPropertyID or AtomicString
   bool RemoveProperty(T property, String* return_text = nullptr);
-  bool RemovePropertiesInSet(const CSSProperty** set, unsigned length);
+  bool RemovePropertiesInSet(const CSSProperty* const set[], unsigned length);
   void RemoveEquivalentProperties(const CSSPropertyValueSet*);
   void RemoveEquivalentProperties(const CSSStyleDeclaration*);
 
@@ -298,45 +299,35 @@ class CORE_EXPORT MutableCSSPropertyValueSet : public CSSPropertyValueSet {
   HeapVector<CSSPropertyValue, 4> property_vector_;
 };
 
-DEFINE_TYPE_CASTS(MutableCSSPropertyValueSet,
-                  CSSPropertyValueSet,
-                  set,
-                  set->IsMutable(),
-                  set.IsMutable());
-
-inline MutableCSSPropertyValueSet* ToMutableCSSPropertyValueSet(
-    const Persistent<CSSPropertyValueSet>& set) {
-  return ToMutableCSSPropertyValueSet(set.Get());
-}
-
-inline MutableCSSPropertyValueSet* ToMutableCSSPropertyValueSet(
-    const Member<CSSPropertyValueSet>& set) {
-  return ToMutableCSSPropertyValueSet(set.Get());
-}
+template <>
+struct DowncastTraits<MutableCSSPropertyValueSet> {
+  static bool AllowFrom(const CSSPropertyValueSet& set) {
+    return set.IsMutable();
+  }
+};
 
 inline const CSSPropertyValueMetadata&
 CSSPropertyValueSet::PropertyReference::PropertyMetadata() const {
-  if (property_set_->IsMutable()) {
-    return ToMutableCSSPropertyValueSet(*property_set_)
-        .property_vector_.at(index_)
-        .Metadata();
+  if (auto* mutable_property_set =
+          DynamicTo<MutableCSSPropertyValueSet>(property_set_.Get())) {
+    return mutable_property_set->property_vector_.at(index_).Metadata();
   }
-  return ToImmutableCSSPropertyValueSet(*property_set_).MetadataArray()[index_];
+  return To<ImmutableCSSPropertyValueSet>(*property_set_)
+      .MetadataArray()[index_];
 }
 
 inline const CSSValue& CSSPropertyValueSet::PropertyReference::PropertyValue()
     const {
-  if (property_set_->IsMutable()) {
-    return *ToMutableCSSPropertyValueSet(*property_set_)
-                .property_vector_.at(index_)
-                .Value();
+  if (auto* mutable_property_set =
+          DynamicTo<MutableCSSPropertyValueSet>(property_set_.Get())) {
+    return *mutable_property_set->property_vector_.at(index_).Value();
   }
-  return *ToImmutableCSSPropertyValueSet(*property_set_).ValueArray()[index_];
+  return *To<ImmutableCSSPropertyValueSet>(*property_set_).ValueArray()[index_];
 }
 
 inline unsigned CSSPropertyValueSet::PropertyCount() const {
-  if (is_mutable_)
-    return ToMutableCSSPropertyValueSet(this)->property_vector_.size();
+  if (auto* mutable_property_set = DynamicTo<MutableCSSPropertyValueSet>(this))
+    return mutable_property_set->property_vector_.size();
   return array_size_;
 }
 
@@ -346,9 +337,9 @@ inline bool CSSPropertyValueSet::IsEmpty() const {
 
 template <typename T>
 inline int CSSPropertyValueSet::FindPropertyIndex(T property) const {
-  if (is_mutable_)
-    return ToMutableCSSPropertyValueSet(this)->FindPropertyIndex(property);
-  return ToImmutableCSSPropertyValueSet(this)->FindPropertyIndex(property);
+  if (auto* mutable_property_set = DynamicTo<MutableCSSPropertyValueSet>(this))
+    return mutable_property_set->FindPropertyIndex(property);
+  return To<ImmutableCSSPropertyValueSet>(this)->FindPropertyIndex(property);
 }
 
 }  // namespace blink

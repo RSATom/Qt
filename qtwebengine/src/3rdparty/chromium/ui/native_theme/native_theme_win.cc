@@ -12,9 +12,9 @@
 
 #include "base/bind.h"
 #include "base/command_line.h"
-#include "base/feature_list.h"
 #include "base/logging.h"
 #include "base/stl_util.h"
+#include "base/threading/sequenced_task_runner_handle.h"
 #include "base/win/scoped_gdi_object.h"
 #include "base/win/scoped_hdc.h"
 #include "base/win/scoped_select_object.h"
@@ -85,9 +85,8 @@ void SetCheckerboardShader(SkPaint* paint, const RECT& align_rect) {
   SkMatrix local_matrix;
   local_matrix.setTranslate(SkIntToScalar(align_rect.left),
                             SkIntToScalar(align_rect.top));
-  paint->setShader(
-      SkShader::MakeBitmapShader(bitmap, SkShader::kRepeat_TileMode,
-                                 SkShader::kRepeat_TileMode, &local_matrix));
+  paint->setShader(bitmap.makeShader(SkTileMode::kRepeat, SkTileMode::kRepeat,
+                                     &local_matrix));
 }
 
 //    <-a->
@@ -239,9 +238,7 @@ NativeThemeWin::NativeThemeWin()
       open_theme_(NULL),
       close_theme_(NULL),
       theme_dll_(LoadLibrary(L"uxtheme.dll")),
-      color_change_listener_(this),
-      is_using_high_contrast_(false),
-      is_using_high_contrast_valid_(false) {
+      color_change_listener_(this) {
   if (theme_dll_) {
     draw_theme_ = reinterpret_cast<DrawThemeBackgroundPtr>(
         GetProcAddress(theme_dll_, "DrawThemeBackground"));
@@ -256,7 +253,19 @@ NativeThemeWin::NativeThemeWin()
     close_theme_ = reinterpret_cast<CloseThemeDataPtr>(
         GetProcAddress(theme_dll_, "CloseThemeData"));
   }
-  if (base::FeatureList::IsEnabled(features::kDarkMode)) {
+
+  // If there's no sequenced task runner handle, we can't be called back for
+  // dark mode changes. This generally happens in tests. As a result, ignore
+  // dark mode in this case.
+  if (!IsForcedDarkMode() && !IsForcedHighContrast() &&
+      base::SequencedTaskRunnerHandle::IsSet()) {
+    // Add the web native theme as an observer to stay in sync with dark mode,
+    // high contrast, and preferred color scheme changes.
+    color_scheme_observer_ =
+        std::make_unique<NativeTheme::ColorSchemeNativeThemeObserver>(
+            NativeTheme::GetInstanceForWeb());
+    AddObserver(color_scheme_observer_.get());
+
     // Dark Mode currently targets UWP apps, which means Win32 apps need to use
     // alternate, less reliable means of detecting the state. The following
     // can break in future Windows versions.
@@ -266,9 +275,16 @@ NativeThemeWin::NativeThemeWin()
             L"Software\\Microsoft\\Windows\\CurrentVersion\\"
             L"Themes\\Personalize",
             KEY_READ | KEY_NOTIFY) == ERROR_SUCCESS;
-    if (key_open_succeeded)
+    if (key_open_succeeded) {
+      UpdateDarkModeStatus();
       RegisterThemeRegkeyObserver();
+    }
   }
+  if (!IsForcedHighContrast()) {
+    set_high_contrast(IsUsingHighContrastThemeInternal());
+  }
+  set_preferred_color_scheme(CalculatePreferredColorScheme());
+
   memset(theme_handles_, 0, sizeof(theme_handles_));
 
   // Initialize the cached system colors.
@@ -285,15 +301,10 @@ NativeThemeWin::~NativeThemeWin() {
 }
 
 bool NativeThemeWin::IsUsingHighContrastThemeInternal() const {
-  if (is_using_high_contrast_valid_)
-    return is_using_high_contrast_;
   HIGHCONTRAST result;
   result.cbSize = sizeof(HIGHCONTRAST);
-  is_using_high_contrast_ =
-      SystemParametersInfo(SPI_GETHIGHCONTRAST, result.cbSize, &result, 0) &&
-      (result.dwFlags & HCF_HIGHCONTRASTON) == HCF_HIGHCONTRASTON;
-  is_using_high_contrast_valid_ = true;
-  return is_using_high_contrast_;
+  return SystemParametersInfo(SPI_GETHIGHCONTRAST, result.cbSize, &result, 0) &&
+         (result.dwFlags & HCF_HIGHCONTRASTON) == HCF_HIGHCONTRASTON;
 }
 
 void NativeThemeWin::CloseHandlesInternal() {
@@ -310,7 +321,9 @@ void NativeThemeWin::CloseHandlesInternal() {
 
 void NativeThemeWin::OnSysColorChange() {
   UpdateSystemColors();
-  is_using_high_contrast_valid_ = false;
+  if (!IsForcedHighContrast())
+    set_high_contrast(IsUsingHighContrastThemeInternal());
+  set_preferred_color_scheme(CalculatePreferredColorScheme());
   NotifyObservers();
 }
 
@@ -432,6 +445,14 @@ void NativeThemeWin::PaintDirect(SkCanvas* destination_canvas,
 }
 
 SkColor NativeThemeWin::GetSystemColor(ColorId color_id) const {
+  // Win32 system colors currently don't support Dark Mode. As a result,
+  // fallback on the Aura colors. Inverted color schemes can be ignored here
+  // as it's only true when Chrome is running on a high-contrast AND when the
+  // relative luminance of COLOR_WINDOWTEXT is greater than COLOR_WINDOW (e.g.
+  // white on black), which is basically like dark mode.
+  if (SystemDarkModeEnabled())
+    return GetAuraColor(color_id, this);
+
   // TODO: Obtain the correct colors for these using GetSysColor.
   // Button:
   constexpr SkColor kButtonHoverColor = SkColorSetRGB(6, 45, 117);
@@ -490,9 +511,9 @@ SkColor NativeThemeWin::GetSystemColor(ColorId color_id) const {
 
     // Tooltip
     case kColorId_TooltipBackground:
+      return system_colors_[COLOR_WINDOW];
     case kColorId_TooltipText:
-      NOTREACHED();
-      return gfx::kPlaceholderColor;
+      return system_colors_[COLOR_WINDOWTEXT];
 
     // Tree
     // NOTE: these aren't right for all themes, but as close as I could get.
@@ -527,17 +548,6 @@ SkColor NativeThemeWin::GetSystemColor(ColorId color_id) const {
     case kColorId_TableGroupingIndicatorColor:
       return system_colors_[COLOR_GRAYTEXT];
 
-    // Results Tables
-    case kColorId_ResultsTableNormalBackground:
-      return system_colors_[COLOR_WINDOW];
-    case kColorId_ResultsTableHoveredBackground:
-      return color_utils::AlphaBlend(system_colors_[COLOR_HIGHLIGHT],
-                                     system_colors_[COLOR_WINDOW], 0.25f);
-    case kColorId_ResultsTableNormalText:
-      return system_colors_[COLOR_WINDOWTEXT];
-    case kColorId_ResultsTableDimmedText:
-      return color_utils::AlphaBlend(system_colors_[COLOR_WINDOWTEXT],
-                                     system_colors_[COLOR_WINDOW], 0.5f);
     default:
       break;
   }
@@ -572,21 +582,38 @@ gfx::Rect NativeThemeWin::GetNinePatchAperture(Part part) const {
   return gfx::Rect();
 }
 
-bool NativeThemeWin::UsesHighContrastColors() const {
-  bool force_enabled = base::CommandLine::ForCurrentProcess()->HasSwitch(
-      switches::kForceHighContrast);
-  return force_enabled || IsUsingHighContrastThemeInternal();
+bool NativeThemeWin::SystemDarkModeEnabled() const {
+  // Windows high contrast modes are entirely different themes,
+  // so let them take priority over dark mode.
+  // ...unless --force-dark-mode was specified in which case caveat emptor.
+  if (UsesHighContrastColors() && !IsForcedDarkMode())
+    return false;
+  return NativeTheme::SystemDarkModeEnabled();
 }
 
-bool NativeThemeWin::SystemDarkModeEnabled() const {
-  bool fDarkModeEnabled = false;
-  if (hkcu_themes_regkey_.Valid()) {
-    DWORD apps_use_light_theme = 1;
-    hkcu_themes_regkey_.ReadValueDW(L"AppsUseLightTheme",
-                                    &apps_use_light_theme);
-    fDarkModeEnabled = (apps_use_light_theme == 0);
+bool NativeThemeWin::SystemDarkModeSupported() const {
+  return hkcu_themes_regkey_.Valid();
+}
+
+NativeTheme::PreferredColorScheme
+NativeThemeWin::CalculatePreferredColorScheme() const {
+  if (UsesHighContrastColors()) {
+    // The Windows SystemParametersInfo API will return the high contrast theme
+    // as a string. However, this string is language dependent. Instead, to
+    // account for non-English systems, sniff out the system colors to
+    // determine the high contrast color scheme.
+    SkColor fg_color = system_colors_[COLOR_WINDOWTEXT];
+    SkColor bg_color = system_colors_[COLOR_WINDOW];
+    if (bg_color == SK_ColorWHITE && fg_color == SK_ColorBLACK) {
+      return NativeTheme::PreferredColorScheme::kLight;
+    }
+    if (bg_color == SK_ColorBLACK && fg_color == SK_ColorWHITE) {
+      return NativeTheme::PreferredColorScheme::kDark;
+    }
+    return NativeTheme::PreferredColorScheme::kNoPreference;
   }
-  return fDarkModeEnabled || NativeTheme::SystemDarkModeEnabled();
+
+  return NativeTheme::CalculatePreferredColorScheme();
 }
 
 void NativeThemeWin::PaintIndirect(cc::PaintCanvas* destination_canvas,
@@ -1921,12 +1948,25 @@ void NativeThemeWin::RegisterThemeRegkeyObserver() {
   DCHECK(hkcu_themes_regkey_.Valid());
   hkcu_themes_regkey_.StartWatching(base::BindOnce(
       [](NativeThemeWin* native_theme) {
-        native_theme->NotifyObservers();
+        native_theme->UpdateDarkModeStatus();
         // RegKey::StartWatching only provides one notification. Reregistration
         // is required to get future notifications.
         native_theme->RegisterThemeRegkeyObserver();
       },
       base::Unretained(this)));
+}
+
+void NativeThemeWin::UpdateDarkModeStatus() {
+  bool fDarkModeEnabled = false;
+  if (hkcu_themes_regkey_.Valid()) {
+    DWORD apps_use_light_theme = 1;
+    hkcu_themes_regkey_.ReadValueDW(L"AppsUseLightTheme",
+                                    &apps_use_light_theme);
+    fDarkModeEnabled = (apps_use_light_theme == 0);
+  }
+  set_dark_mode(fDarkModeEnabled);
+  set_preferred_color_scheme(CalculatePreferredColorScheme());
+  NotifyObservers();
 }
 
 }  // namespace ui

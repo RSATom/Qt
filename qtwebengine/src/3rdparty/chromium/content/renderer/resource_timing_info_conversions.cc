@@ -49,7 +49,7 @@ ResourceTimingInfo WebResourceTimingInfoToResourceTimingInfo(
   }
 
   resource_timing.last_redirect_end_time = info.last_redirect_end_time;
-  resource_timing.finish_time = info.finish_time;
+  resource_timing.response_end = info.response_end;
 
   resource_timing.transfer_size = info.transfer_size;
   resource_timing.encoded_body_size = info.encoded_body_size;
@@ -109,13 +109,16 @@ blink::WebResourceTimingInfo ResourceTimingInfoToWebResourceTimingInfo(
   }
 
   info.last_redirect_end_time = resource_timing.last_redirect_end_time;
-  info.finish_time = resource_timing.finish_time;
+  info.response_end = resource_timing.response_end;
 
   info.transfer_size = resource_timing.transfer_size;
   info.encoded_body_size = resource_timing.encoded_body_size;
   info.decoded_body_size = resource_timing.decoded_body_size;
 
   info.did_reuse_connection = resource_timing.did_reuse_connection;
+  // TODO(https://crbug.com/970242): This may result in errounous reporting of
+  // iframes with different schemes than its parent frame.
+  info.is_secure_context = false;
 
   info.allow_timing_details = resource_timing.allow_timing_details;
   info.allow_redirect_details = resource_timing.allow_redirect_details;

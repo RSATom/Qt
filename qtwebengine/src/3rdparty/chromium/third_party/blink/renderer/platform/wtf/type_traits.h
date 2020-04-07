@@ -28,7 +28,6 @@
 #include "base/compiler_specific.h"
 #include "base/template_util.h"
 #include "build/build_config.h"
-#include "third_party/blink/renderer/platform/wtf/compiler.h"
 
 namespace WTF {
 
@@ -181,11 +180,9 @@ struct IsDisallowNew {
 };
 
 template <typename T>
-class IsGarbageCollectedType {
+class IsGarbageCollectedTypeInternal {
   typedef char YesType;
   typedef struct NoType { char padding[8]; } NoType;
-
-  static_assert(sizeof(T), "T must be fully defined");
 
   using NonConstType = typename std::remove_const<T>::type;
   template <typename U>
@@ -218,26 +215,15 @@ class IsGarbageCollectedType {
        sizeof(CheckGarbageCollectedMixinType<NonConstType>(nullptr)));
 };
 
+template <typename T>
+class IsGarbageCollectedType : public IsGarbageCollectedTypeInternal<T> {
+  static_assert(sizeof(T), "T must be fully defined");
+};
+
 template <>
 class IsGarbageCollectedType<void> {
  public:
   static const bool value = false;
-};
-
-template <typename T>
-class IsPersistentReferenceType {
-  typedef char YesType;
-  typedef struct NoType { char padding[8]; } NoType;
-
-  template <typename U>
-  static YesType CheckPersistentReferenceType(
-      typename U::IsPersistentReferenceTypeMarker*);
-  template <typename U>
-  static NoType CheckPersistentReferenceType(...);
-
- public:
-  static const bool value =
-      (sizeof(YesType) == sizeof(CheckPersistentReferenceType<T>(nullptr)));
 };
 
 template <typename T,

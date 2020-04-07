@@ -30,10 +30,12 @@
 #include <Qt3DCore/qentity.h>
 #include <Qt3DCore/qtransform.h>
 #include <Qt3DCore/QPropertyUpdatedChange>
+#include <Qt3DCore/private/qscene_p.h>
 #include <Qt3DRender/private/qboundingvolumeprovider_p.h>
 #include <Qt3DRender/private/pickboundingvolumejob_p.h>
 #include <Qt3DRender/private/objectpicker_p.h>
 #include <Qt3DRender/qobjectpicker.h>
+#include <Qt3DRender/private/qobjectpicker_p.h>
 #include <Qt3DExtras/qspheremesh.h>
 #include <Qt3DRender/qattribute.h>
 #include <Qt3DRender/qbuffer.h>
@@ -139,21 +141,25 @@ private Q_SLOTS:
     void testEventPressedAcceptPropagation()
     {
         // GIVEN
+        Qt3DCore::QScene scene;
         PickableEntity root(QVector3D(), 5.0f);
         PickableEntity child1(QVector3D(), 5.0f, &root);
         PickableEntity child2(QVector3D(), 5.0f, &root);
         PickableEntity child11(QVector3D(), 5.0f, &child1);
+        Qt3DCore::QNodePrivate::get(root.picker)->setScene(&scene);
+        Qt3DCore::QNodePrivate::get(child1.picker)->setScene(&scene);
+        Qt3DCore::QNodePrivate::get(child2.picker)->setScene(&scene);
+        Qt3DCore::QNodePrivate::get(child11.picker)->setScene(&scene);
 
         QCoreApplication::processEvents();
 
+        auto dpicker = [](QObjectPicker *node) {
+            return static_cast<QObjectPickerPrivate *>(QObjectPickerPrivate::get(node));
+        };
+
         // WHEN
         Qt3DRender::QPickEventPtr event(new Qt3DRender::QPickEvent());
-        QVariant v;
-        v.setValue<Qt3DRender::QPickEventPtr>(event);
-        Qt3DCore::QPropertyUpdatedChangePtr e(new Qt3DCore::QPropertyUpdatedChange(child11.id()));
-        e->setPropertyName("pressed");
-        e->setValue(v);
-        child11.picker->sceneChangeEvent(e);
+        dpicker(child11.picker)->pressedEvent(event.data());
 
         // THEN
         QCOMPARE(root.pressedCalled, 0);
@@ -164,7 +170,7 @@ private Q_SLOTS:
         // WHEN
         child11.pressedCalled = 0;
         child11.acceptsEvents = false;
-        child11.picker->sceneChangeEvent(e);
+        dpicker(child11.picker)->pressedEvent(event.data());
 
         // THEN
         QCOMPARE(root.pressedCalled, 0);
@@ -177,7 +183,7 @@ private Q_SLOTS:
         child1.pressedCalled = 0;
         child11.acceptsEvents = false;
         child11.pressedCalled = 0;
-        child11.picker->sceneChangeEvent(e);
+        dpicker(child11.picker)->pressedEvent(event.data());
 
         // THEN
         QCOMPARE(root.pressedCalled, 1);
@@ -189,23 +195,26 @@ private Q_SLOTS:
     void testEventReleasedAcceptPropagation()
     {
         // GIVEN
+        Qt3DCore::QScene scene;
         PickableEntity root(QVector3D(), 5.0f);
         PickableEntity child1(QVector3D(), 5.0f, &root);
         PickableEntity child2(QVector3D(), 5.0f, &root);
         PickableEntity child11(QVector3D(), 5.0f, &child1);
+        Qt3DCore::QNodePrivate::get(root.picker)->setScene(&scene);
+        Qt3DCore::QNodePrivate::get(child1.picker)->setScene(&scene);
+        Qt3DCore::QNodePrivate::get(child2.picker)->setScene(&scene);
+        Qt3DCore::QNodePrivate::get(child11.picker)->setScene(&scene);
 
         QCoreApplication::processEvents();
 
+        auto dpicker = [](QObjectPicker *node) {
+            return static_cast<QObjectPickerPrivate *>(QObjectPickerPrivate::get(node));
+        };
+
         // WHEN
         Qt3DRender::QPickEventPtr event(new Qt3DRender::QPickEvent());
-        QVariant v;
-        v.setValue<Qt3DRender::QPickEventPtr>(event);
-        Qt3DCore::QPropertyUpdatedChangePtr e(new Qt3DCore::QPropertyUpdatedChange(child11.id()));
-        e->setPropertyName("pressed");
-        e->setValue(v);
-        child11.picker->sceneChangeEvent(e);
-        e->setPropertyName("released");
-        child11.picker->sceneChangeEvent(e);
+        dpicker(child11.picker)->pressedEvent(event.data());
+        dpicker(child11.picker)->releasedEvent(event.data());
 
         // THEN
         QCOMPARE(root.releasedCalled, 0);
@@ -217,10 +226,8 @@ private Q_SLOTS:
         child11.releasedCalled = 0;
         child11.pressedCalled = 0;
         child11.acceptsEvents = false;
-        e->setPropertyName("pressed");
-        child11.picker->sceneChangeEvent(e);
-        e->setPropertyName("released");
-        child11.picker->sceneChangeEvent(e);
+        dpicker(child11.picker)->pressedEvent(event.data());
+        dpicker(child11.picker)->releasedEvent(event.data());
 
         // THEN
         QCOMPARE(child1.pressedCalled, 1);
@@ -235,21 +242,25 @@ private Q_SLOTS:
     void testEventClickedAcceptPropagation()
     {
         // GIVEN
+        Qt3DCore::QScene scene;
         PickableEntity root(QVector3D(), 5.0f);
         PickableEntity child1(QVector3D(), 5.0f, &root);
         PickableEntity child2(QVector3D(), 5.0f, &root);
         PickableEntity child11(QVector3D(), 5.0f, &child1);
+        Qt3DCore::QNodePrivate::get(root.picker)->setScene(&scene);
+        Qt3DCore::QNodePrivate::get(child1.picker)->setScene(&scene);
+        Qt3DCore::QNodePrivate::get(child2.picker)->setScene(&scene);
+        Qt3DCore::QNodePrivate::get(child11.picker)->setScene(&scene);
 
         QCoreApplication::processEvents();
 
+        auto dpicker = [](QObjectPicker *node) {
+            return static_cast<QObjectPickerPrivate *>(QObjectPickerPrivate::get(node));
+        };
+
         // WHEN
         Qt3DRender::QPickEventPtr event(new Qt3DRender::QPickEvent());
-        QVariant v;
-        v.setValue<Qt3DRender::QPickEventPtr>(event);
-        Qt3DCore::QPropertyUpdatedChangePtr e(new Qt3DCore::QPropertyUpdatedChange(child11.id()));
-        e->setPropertyName("clicked");
-        e->setValue(v);
-        child11.picker->sceneChangeEvent(e);
+        dpicker(child11.picker)->clickedEvent(event.data());
 
         // THEN
         QCOMPARE(root.clickedCalled, 0);
@@ -260,7 +271,7 @@ private Q_SLOTS:
         // WHEN
         child11.clickedCalled = 0;
         child11.acceptsEvents = false;
-        child11.picker->sceneChangeEvent(e);
+        dpicker(child11.picker)->clickedEvent(event.data());
 
         // THEN
         QCOMPARE(root.clickedCalled, 0);
@@ -273,7 +284,7 @@ private Q_SLOTS:
         child1.clickedCalled = 0;
         child11.acceptsEvents = false;
         child11.clickedCalled = 0;
-        child11.picker->sceneChangeEvent(e);
+        dpicker(child11.picker)->clickedEvent(event.data());
 
         // THEN
         QCOMPARE(root.clickedCalled, 1);

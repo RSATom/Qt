@@ -8,7 +8,7 @@
 #include "base/macros.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/platform/heap/handle.h"
-#include "third_party/blink/renderer/platform/wtf/allocator.h"
+#include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 #include "third_party/blink/renderer/platform/wtf/std_lib_extras.h"
 
 namespace blink {
@@ -16,7 +16,7 @@ namespace blink {
 class CustomElementReaction;
 class Element;
 
-// https://html.spec.whatwg.org/multipage/scripting.html#cereactions
+// https://html.spec.whatwg.org/C/#cereactions
 class CORE_EXPORT CEReactionsScope final {
   STACK_ALLOCATED();
 

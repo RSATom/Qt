@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2019 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtWidgets module of the Qt Toolkit.
@@ -55,6 +55,7 @@
 #include "QtGui/qtextdocumentfragment.h"
 #include "QtGui/qtextcursor.h"
 #include "QtGui/qtextformat.h"
+#include "QtGui/qtextobject.h"
 #if QT_CONFIG(menu)
 #include "QtWidgets/qmenu.h"
 #endif
@@ -89,9 +90,9 @@ public:
     void createAutoBulletList();
 
     void init(Qt::TextFormat format = Qt::RichText, const QString &text = QString(),
-              QTextDocument *document = 0);
+              QTextDocument *document = nullptr);
     void setContent(Qt::TextFormat format = Qt::RichText, const QString &text = QString(),
-                    QTextDocument *document = 0);
+                    QTextDocument *document = nullptr);
     void startDrag();
 
     void paste(const QMimeData *source);
@@ -227,6 +228,7 @@ public:
 
     QString highlightedAnchor; // Anchor below cursor
     QString anchorOnMousePress;
+    QTextBlock blockWithMarkerUnderMouse;
     bool hadSelectionOnMousePress;
 
     bool ignoreUnusedNavigationEvents;

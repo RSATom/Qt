@@ -18,8 +18,6 @@ jumbo_source_set("fxcrt") {
     "cfx_datetime.cpp",
     "cfx_datetime.h",
     "cfx_fixedbufgrow.h",
-    "cfx_memorystream.cpp",
-    "cfx_memorystream.h",
     "cfx_readonlymemorystream.cpp",
     "cfx_readonlymemorystream.h",
     "cfx_seekablestreamproxy.cpp",
@@ -55,13 +53,16 @@ jumbo_source_set("fxcrt") {
     "fx_unicode.cpp",
     "fx_unicode.h",
     "maybe_owned.h",
-    "observable.h",
+    "observed_ptr.cpp",
+    "observed_ptr.h",
     "pauseindicator_iface.h",
     "retain_ptr.h",
+    "retained_tree_node.h",
     "shared_copy_on_write.h",
     "string_data_template.h",
     "string_pool_template.h",
     "string_view_template.h",
+    "tree_node.h",
     "unowned_ptr.h",
     "weak_ptr.h",
     "widestring.cpp",
@@ -88,6 +89,8 @@ jumbo_source_set("fxcrt") {
     "../../fpdfsdk/*",
     "../../fxbarcode:*",
     "../../fxjs:*",
+    "../../testing:*",
+    "../../testing/fuzzers/*",
     "../../third_party:fx_agg",
     "../../third_party:fx_lcms2",
     "../../third_party:fx_tiff",
@@ -116,20 +119,11 @@ jumbo_source_set("fxcrt") {
       "cfx_fileaccess_windows.h",
     ]
   }
-}
-
-if (pdf_enable_xfa) {
-  jumbo_source_set("seekablemultistream") {
-    sources = [
-      "cfx_seekablemultistream.cpp",
-      "cfx_seekablemultistream.h",
+  if (pdf_enable_xfa) {
+    sources += [
+      "cfx_memorystream.cpp",
+      "cfx_memorystream.h",
     ]
-    deps = [
-      ":fxcrt",
-      "../fpdfapi/parser",
-    ]
-    configs += [ "../../:pdfium_core_config" ]
-    visibility = [ "../../*" ]
   }
 }
 
@@ -138,7 +132,7 @@ pdfium_unittest_source_set("unittests") {
     "autorestorer_unittest.cpp",
     "bytestring_unittest.cpp",
     "cfx_bitstream_unittest.cpp",
-    "cfx_memorystream_unittest.cpp",
+    "cfx_seekablestreamproxy_unittest.cpp",
     "cfx_widetextbuf_unittest.cpp",
     "fx_bidi_unittest.cpp",
     "fx_coordinates_unittest.cpp",
@@ -149,11 +143,13 @@ pdfium_unittest_source_set("unittests") {
     "fx_string_unittest.cpp",
     "fx_system_unittest.cpp",
     "maybe_owned_unittest.cpp",
-    "observable_unittest.cpp",
+    "observed_ptr_unittest.cpp",
     "pdfium_span_unittest.cpp",
     "retain_ptr_unittest.cpp",
+    "retained_tree_node_unittest.cpp",
     "shared_copy_on_write_unittest.cpp",
     "string_pool_template_unittest.cpp",
+    "tree_node_unittest.cpp",
     "unowned_ptr_unittest.cpp",
     "weak_ptr_unittest.cpp",
     "widestring_unittest.cpp",
@@ -170,13 +166,12 @@ pdfium_unittest_source_set("unittests") {
 
   if (pdf_enable_xfa) {
     sources += [
-      "cfx_seekablemultistream_unittest.cpp",
+      "cfx_memorystream_unittest.cpp",
       "css/cfx_cssdeclaration_unittest.cpp",
       "css/cfx_cssstylesheet_unittest.cpp",
       "css/cfx_cssvaluelistparser_unittest.cpp",
     ]
     deps += [
-      ":seekablemultistream",
       "../fpdfapi/parser",
       "css",
     ]

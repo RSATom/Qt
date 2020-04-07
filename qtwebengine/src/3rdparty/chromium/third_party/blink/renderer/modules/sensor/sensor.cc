@@ -4,6 +4,8 @@
 
 #include "third_party/blink/renderer/modules/sensor/sensor.h"
 
+#include <utility>
+
 #include "services/device/public/cpp/generic_sensor/sensor_traits.h"
 #include "services/device/public/mojom/sensor.mojom-blink.h"
 #include "third_party/blink/public/mojom/feature_policy/feature_policy.mojom-blink.h"
@@ -15,6 +17,7 @@
 #include "third_party/blink/renderer/core/timing/window_performance.h"
 #include "third_party/blink/renderer/modules/sensor/sensor_error_event.h"
 #include "third_party/blink/renderer/modules/sensor/sensor_provider_proxy.h"
+#include "third_party/blink/renderer/platform/heap/heap.h"
 #include "third_party/blink/renderer/platform/web_test_support.h"
 
 namespace blink {
@@ -65,7 +68,8 @@ Sensor::Sensor(ExecutionContext* execution_context,
           "Maximum allowed frequency value for this sensor type is %.0f Hz.",
           max_allowed_frequency);
       ConsoleMessage* console_message = ConsoleMessage::Create(
-          kJSMessageSource, kInfoMessageLevel, std::move(message));
+          mojom::ConsoleMessageSource::kJavaScript,
+          mojom::ConsoleMessageLevel::kInfo, std::move(message));
       execution_context->AddConsoleMessage(console_message);
     }
   }
@@ -136,7 +140,8 @@ DOMHighResTimeStamp Sensor::timestamp(ScriptState* script_state,
   }
 
   return performance->MonotonicTimeToDOMHighResTimeStamp(
-      TimeTicksFromSeconds(sensor_proxy_->GetReading().timestamp()));
+      base::TimeTicks() +
+      base::TimeDelta::FromSecondsD(sensor_proxy_->GetReading().timestamp()));
 }
 
 void Sensor::Trace(blink::Visitor* visitor) {
@@ -231,7 +236,7 @@ void Sensor::OnSensorReadingChanged() {
     pending_reading_notification_ = PostDelayedCancellableTask(
         *GetExecutionContext()->GetTaskRunner(TaskType::kSensor), FROM_HERE,
         std::move(sensor_reading_changed),
-        WTF::TimeDelta::FromSecondsD(waitingTime));
+        base::TimeDelta::FromSecondsD(waitingTime));
   }
 }
 
@@ -328,8 +333,8 @@ void Sensor::HandleError(DOMExceptionCode code,
 
   Deactivate();
 
-  auto* error =
-      DOMException::Create(code, sanitized_message, unsanitized_message);
+  auto* error = MakeGarbageCollected<DOMException>(code, sanitized_message,
+                                                   unsanitized_message);
   pending_error_notification_ = PostCancellableTask(
       *GetExecutionContext()->GetTaskRunner(TaskType::kSensor), FROM_HERE,
       WTF::Bind(&Sensor::NotifyError, WrapWeakPersistent(this),

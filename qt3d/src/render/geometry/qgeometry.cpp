@@ -43,8 +43,6 @@
 #include <private/qnode_p.h>
 #include <Qt3DRender/qattribute.h>
 #include <Qt3DCore/qpropertyupdatedchange.h>
-#include <Qt3DCore/qpropertynodeaddedchange.h>
-#include <Qt3DCore/qpropertynoderemovedchange.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -196,11 +194,7 @@ void QGeometry::addAttribute(QAttribute *attribute)
         if (!attribute->parent())
             attribute->setParent(this);
 
-        if (d->m_changeArbiter != nullptr) {
-            const auto change = QPropertyNodeAddedChangePtr::create(id(), attribute);
-            change->setPropertyName("attribute");
-            d->notifyObservers(change);
-        }
+        d->updateNode(attribute, "attribute", Qt3DCore::PropertyValueAdded);
     }
 }
 
@@ -212,14 +206,11 @@ void QGeometry::removeAttribute(QAttribute *attribute)
 {
     Q_ASSERT(attribute);
     Q_D(QGeometry);
-    if (d->m_changeArbiter != nullptr) {
-        const auto change = QPropertyNodeRemovedChangePtr::create(id(), attribute);
-        change->setPropertyName("attribute");
-        d->notifyObservers(change);
-    }
-    d->m_attributes.removeOne(attribute);
+    if (!d->m_attributes.removeOne(attribute))
+        return;
     // Remove bookkeeping connection
     d->unregisterDestructionHelper(attribute);
+    d->updateNode(attribute, "attribute", Qt3DCore::PropertyValueRemoved);
 }
 
 void QGeometry::setBoundingVolumePositionAttribute(QAttribute *boundingVolumePositionAttribute)

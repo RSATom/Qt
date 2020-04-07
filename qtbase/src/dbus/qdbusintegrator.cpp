@@ -49,6 +49,7 @@
 #include <qstringlist.h>
 #include <qtimer.h>
 #include <qthread.h>
+#include <private/qlocking_p.h>
 
 #include "qdbusargument.h"
 #include "qdbusconnection_p.h"
@@ -304,7 +305,7 @@ static void qDBusNewConnection(DBusServer *server, DBusConnection *connection, v
         q_dbus_connection_set_allow_anonymous(connection, true);
 
     QDBusConnectionPrivate *newConnection = new QDBusConnectionPrivate(serverConnection->parent());
-    QMutexLocker locker(&QDBusConnectionManager::instance()->mutex);
+    const auto locker = qt_scoped_lock(QDBusConnectionManager::instance()->mutex);
     QDBusConnectionManager::instance()->setConnection(QLatin1String("QDBusServer-") + QString::number(reinterpret_cast<qulonglong>(newConnection), 16), newConnection);
     serverConnection->serverConnectionNames << newConnection->name;
 
@@ -340,8 +341,9 @@ static QByteArray buildMatchRule(const QString &service,
                                  const QString &objectPath, const QString &interface,
                                  const QString &member, const QDBusConnectionPrivate::ArgMatchRules &argMatch, const QString & /*signature*/)
 {
-    QString result = QLatin1String("type='signal',");
-    QString keyValue = QLatin1String("%1='%2',");
+    QString result;
+    result += QLatin1String("type='signal',");
+    const auto keyValue = QLatin1String("%1='%2',");
 
     if (!service.isEmpty())
         result += keyValue.arg(QLatin1String("sender"), service);
@@ -354,13 +356,13 @@ static QByteArray buildMatchRule(const QString &service,
 
     // add the argument string-matching now
     if (!argMatch.args.isEmpty()) {
-        keyValue = QLatin1String("arg%1='%2',");
+        const QString keyValue = QLatin1String("arg%1='%2',");
         for (int i = 0; i < argMatch.args.count(); ++i)
             if (!argMatch.args.at(i).isNull())
                 result += keyValue.arg(i).arg(argMatch.args.at(i));
     }
     if (!argMatch.arg0namespace.isEmpty()) {
-        result += QStringLiteral("arg0namespace='%1',").arg(argMatch.arg0namespace);
+        result += QLatin1String("arg0namespace='%1',").arg(argMatch.arg0namespace);
     }
 
     result.chop(1);             // remove ending comma
@@ -534,7 +536,7 @@ qDBusSignalFilter(DBusConnection *connection, DBusMessage *message, void *data)
 
 bool QDBusConnectionPrivate::handleMessage(const QDBusMessage &amsg)
 {
-    if (!ref.load())
+    if (!ref.loadRelaxed())
         return false;
 
     // local message are always delivered, regardless of filtering
@@ -1077,7 +1079,7 @@ QDBusConnectionPrivate::~QDBusConnectionPrivate()
     if (lastMode == ClientMode || lastMode == PeerMode) {
         // the bus service object holds a reference back to us;
         // we need to destroy it before we finish destroying ourselves
-        Q_ASSERT(ref.load() == 0);
+        Q_ASSERT(ref.loadRelaxed() == 0);
         QObject *obj = (QObject *)busService;
         if (obj) {
             disconnect(obj, nullptr, this, nullptr);
@@ -1196,7 +1198,7 @@ void QDBusConnectionPrivate::doDispatch()
             PendingMessageList::Iterator end = pendingMessages.end();
             for ( ; it != end; ++it) {
                 qDBusDebug() << this << "dequeueing message" << *it;
-                handleMessage(qMove(*it));
+                handleMessage(std::move(*it));
             }
             pendingMessages.clear();
         }
@@ -1330,8 +1332,6 @@ bool QDBusConnectionPrivate::prepareHook(QDBusConnectionPrivate::SignalHook &hoo
         hook.midx = findSlot(receiver, normalizedName, hook.params);
     }
     if (hook.midx < minMIdx) {
-        if (hook.midx == -1)
-        {}
         return false;
     }
 
@@ -1371,19 +1371,19 @@ void QDBusConnectionPrivate::sendError(const QDBusMessage &msg, QDBusError::Erro
         if (msg.interface().isEmpty())
             interfaceMsg = QLatin1String("any interface");
         else
-            interfaceMsg = QString::fromLatin1("interface '%1'").arg(msg.interface());
+            interfaceMsg = QLatin1String("interface '%1'").arg(msg.interface());
 
         send(msg.createErrorReply(code,
-                                  QString::fromLatin1("No such method '%1' in %2 at object path '%3' "
-                                                      "(signature '%4')")
+                                  QLatin1String("No such method '%1' in %2 at object path '%3' "
+                                                "(signature '%4')")
                                   .arg(msg.member(), interfaceMsg, msg.path(), msg.signature())));
     } else if (code == QDBusError::UnknownInterface) {
         send(msg.createErrorReply(QDBusError::UnknownInterface,
-                                  QString::fromLatin1("No such interface '%1' at object path '%2'")
+                                  QLatin1String("No such interface '%1' at object path '%2'")
                                   .arg(msg.interface(), msg.path())));
     } else if (code == QDBusError::UnknownObject) {
         send(msg.createErrorReply(QDBusError::UnknownObject,
-                                  QString::fromLatin1("No such object path '%1'").arg(msg.path())));
+                                  QLatin1String("No such object path '%1'").arg(msg.path())));
     }
 }
 
@@ -1553,8 +1553,8 @@ void QDBusConnectionPrivate::handleObjectCall(const QDBusMessage &msg)
         objThread = result.obj->thread();
         if (!objThread) {
             send(msg.createErrorReply(QDBusError::InternalError,
-                                      QString::fromLatin1("Object '%1' (at path '%2')"
-                                                          " has no thread. Cannot deliver message.")
+                                      QLatin1String("Object '%1' (at path '%2')"
+                                                    " has no thread. Cannot deliver message.")
                                       .arg(result.obj->objectName(), msg.path())));
             return;
         }
@@ -1863,7 +1863,7 @@ void QDBusConnectionPrivate::processFinishedCall(QDBusPendingCallPrivate *call)
 {
     QDBusConnectionPrivate *connection = const_cast<QDBusConnectionPrivate *>(call->connection);
 
-    QMutexLocker locker(&call->mutex);
+    auto locker = qt_unique_lock(call->mutex);
 
     connection->pendingCalls.removeOne(call);
 
@@ -1980,7 +1980,7 @@ public:
 #endif
         static bool initializedAmounts = false;
         static QBasicMutex initializeMutex;
-        QMutexLocker locker(&initializeMutex);
+        auto locker = qt_unique_lock(initializeMutex);
 
         if (!initializedAmounts) {
             int tmp = 0;
@@ -2084,7 +2084,7 @@ QDBusMessage QDBusConnectionPrivate::sendWithReplyLocal(const QDBusMessage &mess
         if (interface.isEmpty())
             interface = QLatin1String("<no-interface>");
         return QDBusMessage::createError(QDBusError::InternalError,
-                                         QString::fromLatin1("Internal error trying to call %1.%2 at %3 (signature '%4'")
+                                         QLatin1String("Internal error trying to call %1.%2 at %3 (signature '%4'")
                                          .arg(interface, message.member(),
                                               message.path(), message.signature()));
     }
@@ -2128,11 +2128,11 @@ QDBusPendingCallPrivate *QDBusConnectionPrivate::sendWithReplyAsync(const QDBusM
 
     if ((receiver && returnMethod) || errorMethod) {
        // no one waiting, will delete pcall in processFinishedCall()
-       pcall->ref.store(1);
+       pcall->ref.storeRelaxed(1);
     } else {
        // set double ref to prevent race between processFinishedCall() and ref counting
        // by QDBusPendingCall::QExplicitlySharedDataPointer<QDBusPendingCallPrivate>
-       pcall->ref.store(2);
+       pcall->ref.storeRelaxed(2);
     }
 
     if (isLoopback) {

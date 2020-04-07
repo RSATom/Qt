@@ -5,8 +5,6 @@
 source_set("location_bar") {
   configs += [ "//build/config/compiler:enable_arc" ]
   sources = [
-    "extended_touch_target_button.h",
-    "extended_touch_target_button.mm",
     "location_bar_consumer.h",
     "location_bar_coordinator.h",
     "location_bar_coordinator.mm",
@@ -40,34 +38,47 @@ source_set("location_bar") {
     "//ios/chrome/browser/autocomplete",
     "//ios/chrome/browser/browser_state:browser_state",
     "//ios/chrome/browser/geolocation:geolocation_internal",
+    "//ios/chrome/browser/infobars:badge",
+    "//ios/chrome/browser/infobars:public",
     "//ios/chrome/browser/ntp",
     "//ios/chrome/browser/search_engines",
     "//ios/chrome/browser/ssl",
-    "//ios/chrome/browser/ui",
     "//ios/chrome/browser/ui:feature_flags",
+    "//ios/chrome/browser/ui/badges",
+    "//ios/chrome/browser/ui/badges:public",
     "//ios/chrome/browser/ui/commands",
+    "//ios/chrome/browser/ui/elements",
     "//ios/chrome/browser/ui/fullscreen",
     "//ios/chrome/browser/ui/fullscreen:ui",
+    "//ios/chrome/browser/ui/infobars:feature_flags",
+    "//ios/chrome/browser/ui/infobars/badge",
     "//ios/chrome/browser/ui/ntp:util",
     "//ios/chrome/browser/ui/omnibox:omnibox",
     "//ios/chrome/browser/ui/omnibox:omnibox_internal",
+    "//ios/chrome/browser/ui/omnibox:omnibox_popup_shared",
     "//ios/chrome/browser/ui/omnibox:omnibox_util",
     "//ios/chrome/browser/ui/omnibox/popup",
     "//ios/chrome/browser/ui/orchestrator:orchestrator",
     "//ios/chrome/browser/ui/toolbar/buttons",
+    "//ios/chrome/browser/ui/toolbar/buttons/resources:tab_toolbar_button_color",
+    "//ios/chrome/browser/ui/toolbar/buttons/resources:tab_toolbar_button_color_incognito",
     "//ios/chrome/browser/ui/toolbar/keyboard_assist:keyboard_assist",
     "//ios/chrome/browser/ui/toolbar/public",
     "//ios/chrome/browser/ui/toolbar/public:feature_flags",
     "//ios/chrome/browser/ui/util",
     "//ios/chrome/browser/ui/voice",
     "//ios/chrome/browser/url_loading",
+    "//ios/chrome/browser/web",
     "//ios/chrome/browser/web_state_list",
     "//ios/chrome/common:timing",
+    "//ios/chrome/common/colors",
+    "//ios/chrome/common/ui_util",
     "//ios/public/provider/chrome/browser:browser",
     "//ios/public/provider/chrome/browser/voice",
     "//ios/third_party/material_components_ios",
     "//ios/third_party/material_roboto_font_loader_ios",
     "//ios/web/public:public",
+    "//ios/web/public/security",
     "//skia",
     "//third_party/google_toolbox_for_mac",
     "//ui/base",
@@ -99,9 +110,11 @@ source_set("location_bar_model_delegate") {
     "//ios/chrome/browser",
     "//ios/chrome/browser/autocomplete",
     "//ios/chrome/browser/browser_state",
+    "//ios/chrome/browser/reading_list",
     "//ios/chrome/browser/ssl",
     "//ios/chrome/browser/web_state_list",
     "//ios/web/public",
+    "//ios/web/public/security",
   ]
   libs = [ "UIKit.framework" ]
 }
@@ -116,6 +129,15 @@ source_set("constants") {
     "Foundation.framework",
     "CoreGraphics.framework",
   ]
+}
+
+# TODO(crbug.com/778008): Remove this target.
+source_set("notifications") {
+  sources = [
+    "location_bar_notification_names.h",
+    "location_bar_notification_names.mm",
+  ]
+  configs += [ "//build/config/compiler:enable_arc" ]
 }
 
 source_set("unit_tests") {
@@ -138,6 +160,7 @@ source_set("unit_tests") {
     "//ios/chrome/browser/ui/commands",
     "//ios/chrome/browser/ui/toolbar",
     "//ios/chrome/browser/ui/toolbar/test",
+    "//ios/chrome/browser/url_loading",
     "//ios/chrome/browser/web_state_list",
     "//ios/chrome/browser/web_state_list:test_support",
     "//ios/chrome/test/fakes",

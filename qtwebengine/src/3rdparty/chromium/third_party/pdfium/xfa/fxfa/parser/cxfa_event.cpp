@@ -6,7 +6,7 @@
 
 #include "xfa/fxfa/parser/cxfa_event.h"
 
-#include "fxjs/xfa/cjx_event.h"
+#include "fxjs/xfa/cjx_node.h"
 #include "third_party/base/ptr_util.h"
 #include "xfa/fxfa/parser/cxfa_script.h"
 #include "xfa/fxfa/parser/cxfa_submit.h"
@@ -19,7 +19,7 @@ const CXFA_Node::PropertyData kEventPropertyData[] = {
     {XFA_Element::SignData, 1, XFA_PROPERTYFLAG_OneOf},
     {XFA_Element::Extras, 1, 0},
     {XFA_Element::Submit, 1, XFA_PROPERTYFLAG_OneOf},
-    {XFA_Element::Unknown, 0, 0}};
+};
 
 const CXFA_Node::AttributeData kEventAttributeData[] = {
     {XFA_Attribute::Id, XFA_AttributeType::CData, nullptr},
@@ -31,7 +31,7 @@ const CXFA_Node::AttributeData kEventAttributeData[] = {
     {XFA_Attribute::Usehref, XFA_AttributeType::CData, nullptr},
     {XFA_Attribute::Activity, XFA_AttributeType::Enum,
      (void*)XFA_AttributeValue::Click},
-    {XFA_Attribute::Unknown, XFA_AttributeType::Integer, nullptr}};
+};
 
 }  // namespace
 
@@ -43,7 +43,7 @@ CXFA_Event::CXFA_Event(CXFA_Document* doc, XFA_PacketType packet)
                 XFA_Element::Event,
                 kEventPropertyData,
                 kEventAttributeData,
-                pdfium::MakeUnique<CJX_Event>(this)) {}
+                pdfium::MakeUnique<CJX_Node>(this)) {}
 
 CXFA_Event::~CXFA_Event() = default;
 

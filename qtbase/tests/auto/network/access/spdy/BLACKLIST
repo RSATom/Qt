@@ -1,4 +1,7 @@
 [download]
-linux
+opensuse-leap
 [upload]
-linux
+opensuse-leap
+ubuntu-18.04
+b2qt
+

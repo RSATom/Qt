@@ -38,6 +38,23 @@ TestConfig& TestConfig::operator=(const TestConfig&) = default;
 TestConfig::TestConfig(TestConfig&&) noexcept = default;
 TestConfig& TestConfig::operator=(TestConfig&&) = default;
 
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wfloat-equal"
+bool TestConfig::operator==(const TestConfig& other) const {
+  return (message_count_ == other.message_count_) &&
+         (max_messages_per_second_ == other.max_messages_per_second_) &&
+         (seed_ == other.seed_) && (message_size_ == other.message_size_) &&
+         (send_batch_on_register_ == other.send_batch_on_register_) &&
+         (dummy_fields_ == other.dummy_fields_);
+}
+#pragma GCC diagnostic pop
+
+void TestConfig::ParseRawProto(const std::string& raw) {
+  perfetto::protos::TestConfig proto;
+  proto.ParseFromString(raw);
+  FromProto(proto);
+}
+
 void TestConfig::FromProto(const perfetto::protos::TestConfig& proto) {
   static_assert(sizeof(message_count_) == sizeof(proto.message_count()),
                 "size mismatch");
@@ -62,7 +79,7 @@ void TestConfig::FromProto(const perfetto::protos::TestConfig& proto) {
   send_batch_on_register_ = static_cast<decltype(send_batch_on_register_)>(
       proto.send_batch_on_register());
 
-  dummy_fields_.FromProto(proto.dummy_fields());
+  dummy_fields_->FromProto(proto.dummy_fields());
   unknown_fields_ = proto.unknown_fields();
 }
 
@@ -96,7 +113,7 @@ void TestConfig::ToProto(perfetto::protos::TestConfig* proto) const {
       static_cast<decltype(proto->send_batch_on_register())>(
           send_batch_on_register_));
 
-  dummy_fields_.ToProto(proto->mutable_dummy_fields());
+  dummy_fields_->ToProto(proto->mutable_dummy_fields());
   *(proto->mutable_unknown_fields()) = unknown_fields_;
 }
 
@@ -109,6 +126,33 @@ TestConfig::DummyFields::DummyFields(TestConfig::DummyFields&&) noexcept =
     default;
 TestConfig::DummyFields& TestConfig::DummyFields::operator=(
     TestConfig::DummyFields&&) = default;
+
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wfloat-equal"
+bool TestConfig::DummyFields::operator==(
+    const TestConfig::DummyFields& other) const {
+  return (field_uint32_ == other.field_uint32_) &&
+         (field_int32_ == other.field_int32_) &&
+         (field_uint64_ == other.field_uint64_) &&
+         (field_int64_ == other.field_int64_) &&
+         (field_fixed64_ == other.field_fixed64_) &&
+         (field_sfixed64_ == other.field_sfixed64_) &&
+         (field_fixed32_ == other.field_fixed32_) &&
+         (field_sfixed32_ == other.field_sfixed32_) &&
+         (field_double_ == other.field_double_) &&
+         (field_float_ == other.field_float_) &&
+         (field_sint64_ == other.field_sint64_) &&
+         (field_sint32_ == other.field_sint32_) &&
+         (field_string_ == other.field_string_) &&
+         (field_bytes_ == other.field_bytes_);
+}
+#pragma GCC diagnostic pop
+
+void TestConfig::DummyFields::ParseRawProto(const std::string& raw) {
+  perfetto::protos::TestConfig_DummyFields proto;
+  proto.ParseFromString(raw);
+  FromProto(proto);
+}
 
 void TestConfig::DummyFields::FromProto(
     const perfetto::protos::TestConfig_DummyFields& proto) {

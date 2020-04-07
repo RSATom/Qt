@@ -17,6 +17,7 @@
 class GURL;
 
 namespace content {
+class RenderFrameHost;
 class RenderViewHost;
 class WebContents;
 class WebUI;
@@ -90,6 +91,11 @@ class WEB_DIALOGS_EXPORT WebDialogDelegate {
   virtual void OnDialogShown(content::WebUI* webui,
                              content::RenderViewHost* render_view_host) {}
 
+  // A callback to notify the delegate that the window is requesting to be
+  // closed.  If this returns true, the dialog is closed, otherwise the
+  // dialog remains open. Default implementation returns true.
+  virtual bool OnDialogCloseRequested();
+
   // A callback to notify the delegate that the dialog is about to close due to
   // the user pressing the ESC key.
   virtual void OnDialogClosingFromKeyEvent() {}
@@ -104,9 +110,9 @@ class WEB_DIALOGS_EXPORT WebDialogDelegate {
   // response to a "dialogClose" message from WebUI.
   virtual void OnDialogCloseFromWebUI(const std::string& json_retval);
 
-  // A callback to notify the delegate that the contents have gone
-  // away. Only relevant if your dialog hosts code that calls
-  // windows.close() and you've allowed that.  If the output parameter
+  // A callback to notify the delegate that the contents are requesting
+  // to be closed.  This could be in response to a number of events
+  // that are handled by the WebContents.  If the output parameter
   // is set to true, then the dialog is closed.  The default is false.
   // |out_close_dialog| is never NULL.
   virtual void OnCloseContents(content::WebContents* source,
@@ -120,7 +126,8 @@ class WEB_DIALOGS_EXPORT WebDialogDelegate {
   // customized menu.
   // Returns true iff you do NOT want the standard context menu to be
   // shown (because you want to handle it yourself).
-  virtual bool HandleContextMenu(const content::ContextMenuParams& params);
+  virtual bool HandleContextMenu(content::RenderFrameHost* render_frame_host,
+                                 const content::ContextMenuParams& params);
 
   // A callback to allow the delegate to open a new URL inside |source|.
   // On return |out_new_contents| should contain the WebContents the URL

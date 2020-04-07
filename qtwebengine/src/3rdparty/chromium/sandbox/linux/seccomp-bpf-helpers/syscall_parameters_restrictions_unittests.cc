@@ -59,6 +59,7 @@ class RestrictClockIdPolicy : public bpf_dsl::Policy {
     switch (sysno) {
       case __NR_clock_gettime:
       case __NR_clock_getres:
+      case __NR_clock_nanosleep:
         return RestrictClockID();
       default:
         return Allow();
@@ -99,12 +100,42 @@ BPF_TEST_C(ParameterRestrictions,
 #endif
 }
 
+void CheckClockNanosleep(clockid_t clockid) {
+  struct timespec ts;
+  struct timespec out_ts;
+  ts.tv_sec = 0;
+  ts.tv_nsec = 0;
+  clock_nanosleep(clockid, 0, &ts, &out_ts);
+}
+
+BPF_TEST_C(ParameterRestrictions,
+           clock_nanosleep_allowed,
+           RestrictClockIdPolicy) {
+  CheckClockNanosleep(CLOCK_MONOTONIC);
+  CheckClockNanosleep(CLOCK_MONOTONIC_COARSE);
+  CheckClockNanosleep(CLOCK_MONOTONIC_RAW);
+  CheckClockNanosleep(CLOCK_BOOTTIME);
+  CheckClockNanosleep(CLOCK_REALTIME);
+  CheckClockNanosleep(CLOCK_REALTIME_COARSE);
+}
+
 BPF_DEATH_TEST_C(ParameterRestrictions,
                  clock_gettime_crash_monotonic_raw,
                  DEATH_SEGV_MESSAGE(sandbox::GetErrorMessageContentForTests()),
                  RestrictClockIdPolicy) {
   struct timespec ts;
   syscall(SYS_clock_gettime, CLOCK_MONOTONIC_RAW, &ts);
+}
+
+BPF_DEATH_TEST_C(ParameterRestrictions,
+                 clock_nanosleep_crash_clock_fd,
+                 DEATH_SEGV_MESSAGE(sandbox::GetErrorMessageContentForTests()),
+                 RestrictClockIdPolicy) {
+  struct timespec ts;
+  struct timespec out_ts;
+  ts.tv_sec = 0;
+  ts.tv_nsec = 0;
+  syscall(SYS_clock_nanosleep, (~0) | CLOCKFD, 0, &ts, &out_ts);
 }
 
 #if !defined(OS_ANDROID)
@@ -177,7 +208,7 @@ BPF_TEST_C(ParameterRestrictions,
   base::Thread getparam_thread("sched_getparam_thread");
   BPF_ASSERT(getparam_thread.Start());
   getparam_thread.task_runner()->PostTask(
-      FROM_HERE, base::Bind(&SchedGetParamThread, &thread_run));
+      FROM_HERE, base::BindOnce(&SchedGetParamThread, &thread_run));
   BPF_ASSERT(thread_run.TimedWait(base::TimeDelta::FromMilliseconds(5000)));
   getparam_thread.Stop();
 }
@@ -415,8 +446,10 @@ class PtraceTestHarness {
   DISALLOW_COPY_AND_ASSIGN(PtraceTestHarness);
 };
 
+// Fails on Android L and M.
+// See https://crbug.com/934930
 BPF_TEST_C(ParameterRestrictions,
-           ptrace_getregs_allowed,
+           DISABLED_ptrace_getregs_allowed,
            RestrictPtracePolicy) {
   auto tracer = [](pid_t pid) {
 #if defined(__arm__)
@@ -435,8 +468,10 @@ BPF_TEST_C(ParameterRestrictions,
   PtraceTestHarness(tracer, false).Run();
 }
 
+// Fails on Android L and M.
+// See https://crbug.com/934930
 BPF_TEST_C(ParameterRestrictions,
-           ptrace_syscall_blocked,
+           DISABLED_ptrace_syscall_blocked,
            RestrictPtracePolicy) {
   auto tracer = [](pid_t pid) {
     // The tracer is about to die. Make sure the tracee is not stopped so it
@@ -449,7 +484,7 @@ BPF_TEST_C(ParameterRestrictions,
 }
 
 BPF_TEST_C(ParameterRestrictions,
-           ptrace_setregs_blocked,
+           DISABLED_ptrace_setregs_blocked,
            RestrictPtracePolicy) {
   auto tracer = [](pid_t pid) {
 #if defined(__arm__)

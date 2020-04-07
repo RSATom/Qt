@@ -85,27 +85,42 @@ WASAPIAudioInputStream::WASAPIAudioInputStream(
 
   const SampleFormat kSampleFormat = kSampleFormatS16;
 
-  // Set up the desired output format specified by the client.
+  // The clients asks for an input stream specified by |params|. Start by
+  // setting up an input device format according to the same specification.
+  // If all goes well during the upcoming initialization, this format will not
+  // change. However, under some circumstances, minor changes can be required
+  // to fit the current input audio device. If so, a FIFO and/or and audio
+  // converter might be needed to ensure that the output format of this stream
+  // matches what the client asks for.
   DVLOG(1) << params.AsHumanReadableString();
-  WAVEFORMATEX* format = &output_format_.Format;
+  WAVEFORMATEX* format = &input_format_.Format;
   format->wFormatTag = WAVE_FORMAT_EXTENSIBLE;
   format->nChannels = params.channels();
   format->nSamplesPerSec = params.sample_rate();
   format->wBitsPerSample = SampleFormatToBitsPerChannel(kSampleFormat);
   format->nBlockAlign = (format->wBitsPerSample / 8) * format->nChannels;
   format->nAvgBytesPerSec = format->nSamplesPerSec * format->nBlockAlign;
+
+  // Add the parts which are unique to WAVE_FORMAT_EXTENSIBLE which can be
+  // required in combination with e.g. multi-channel microphone arrays.
   format->cbSize = sizeof(WAVEFORMATEXTENSIBLE) - sizeof(WAVEFORMATEX);
-
-  // Add the parts which are unique to WAVE_FORMAT_EXTENSIBLE.
-  output_format_.Samples.wValidBitsPerSample = format->wBitsPerSample;
-  output_format_.dwChannelMask =
+  input_format_.Samples.wValidBitsPerSample = format->wBitsPerSample;
+  input_format_.dwChannelMask =
       CoreAudioUtil::GetChannelConfig(device_id, eCapture);
-  output_format_.SubFormat = KSDATAFORMAT_SUBTYPE_PCM;
+  input_format_.SubFormat = KSDATAFORMAT_SUBTYPE_PCM;
+  DVLOG(1) << "Input: " << CoreAudioUtil::WaveFormatToString(&input_format_);
 
-  // Set the input (capture) format to the desired output format. In most cases,
-  // it will be used unchanged.
-  input_format_ = output_format_;
-  DVLOG(1) << CoreAudioUtil::WaveFormatToString(&input_format_);
+  // Set up the fixed output format based on |params|. Will not be changed and
+  // does not required an extended wave format structure since any multi-channel
+  // input will be converted to stereo.
+  output_format_.wFormatTag = WAVE_FORMAT_PCM;
+  output_format_.nChannels = format->nChannels;
+  output_format_.nSamplesPerSec = format->nSamplesPerSec;
+  output_format_.wBitsPerSample = format->wBitsPerSample;
+  output_format_.nBlockAlign = format->nBlockAlign;
+  output_format_.nAvgBytesPerSec = format->nAvgBytesPerSec;
+  output_format_.cbSize = 0;
+  DVLOG(1) << "Output: " << CoreAudioUtil::WaveFormatToString(&output_format_);
 
   // Size in bytes of each audio frame.
   frame_size_bytes_ = format->nBlockAlign;
@@ -153,8 +168,8 @@ bool WASAPIAudioInputStream::Open() {
 
   // Obtain an IAudioClient interface which enables us to create and initialize
   // an audio stream between an audio application and the audio engine.
-  hr = endpoint_device_->Activate(__uuidof(IAudioClient), CLSCTX_INPROC_SERVER,
-                                  NULL, &audio_client_);
+  hr = endpoint_device_->Activate(__uuidof(IAudioClient), CLSCTX_ALL, nullptr,
+                                  &audio_client_);
   if (FAILED(hr)) {
     open_result_ = OPEN_RESULT_ACTIVATION_FAILED;
     ReportOpenResult(hr);
@@ -207,7 +222,7 @@ void WASAPIAudioInputStream::Start(AudioInputCallback* callback) {
     // mute it again, and later we do not unmute system audio when stopping
     // capturing.
     if (!muted) {
-      system_audio_volume_->SetMute(true, NULL);
+      system_audio_volume_->SetMute(true, nullptr);
       mute_done_ = true;
     }
   }
@@ -259,7 +274,7 @@ void WASAPIAudioInputStream::Stop() {
       mute_done_) {
     DCHECK(system_audio_volume_);
     if (system_audio_volume_) {
-      system_audio_volume_->SetMute(false, NULL);
+      system_audio_volume_->SetMute(false, nullptr);
       mute_done_ = false;
     }
   }
@@ -286,7 +301,7 @@ void WASAPIAudioInputStream::Stop() {
   }
 
   started_ = false;
-  sink_ = NULL;
+  sink_ = nullptr;
 }
 
 void WASAPIAudioInputStream::Close() {
@@ -329,8 +344,8 @@ void WASAPIAudioInputStream::SetVolume(double volume) {
 
   // Set a new master volume level. Valid volume levels are in the range
   // 0.0 to 1.0. Ignore volume-change events.
-  HRESULT hr =
-      simple_audio_volume_->SetMasterVolume(static_cast<float>(volume), NULL);
+  HRESULT hr = simple_audio_volume_->SetMasterVolume(static_cast<float>(volume),
+                                                     nullptr);
   if (FAILED(hr))
     DLOG(WARNING) << "Failed to set new input master volume.";
 
@@ -500,10 +515,7 @@ void WASAPIAudioInputStream::PullCaptureDataAndPushToSink() {
     // If the device position has not changed we assume this data belongs to the
     // previous chunk, and only update the expected next device position.
     if (device_position != last_device_position) {
-      ReportDelayStatsAndUpdateGlitchCount(
-          flags & AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY, device_position,
-          base::TimeTicks() +
-              CoreAudioUtil::ReferenceTimeToTimeDelta(capture_time_100ns));
+      UpdateGlitchCount(device_position);
       last_device_position = device_position;
       expected_next_device_position_ = device_position + num_frames_to_read;
     } else {
@@ -572,7 +584,7 @@ void WASAPIAudioInputStream::PullCaptureDataAndPushToSink() {
 
         // Move the capture time forward for each vended block.
         capture_time += AudioTimestampHelper::FramesToTime(
-            convert_bus_->frames(), output_format_.Format.nSamplesPerSec);
+            convert_bus_->frames(), output_format_.nSamplesPerSec);
       } else {
         sink_->OnData(fifo_->Consume(), capture_time, volume);
 
@@ -595,9 +607,8 @@ HRESULT WASAPIAudioInputStream::SetCaptureDevice() {
   DCHECK(!endpoint_device_.Get());
 
   Microsoft::WRL::ComPtr<IMMDeviceEnumerator> enumerator;
-  HRESULT hr =
-      ::CoCreateInstance(__uuidof(MMDeviceEnumerator), NULL,
-                         CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&enumerator));
+  HRESULT hr = ::CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr,
+                                  CLSCTX_ALL, IID_PPV_ARGS(&enumerator));
   if (FAILED(hr)) {
     open_result_ = OPEN_RESULT_CREATE_INSTANCE;
     return hr;
@@ -606,36 +617,38 @@ HRESULT WASAPIAudioInputStream::SetCaptureDevice() {
   // Retrieve the IMMDevice by using the specified role or the specified
   // unique endpoint device-identification string.
 
-  if (device_id_ == AudioDeviceDescription::kDefaultDeviceId) {
-    // Retrieve the default capture audio endpoint for the specified role.
-    // Note that, in Windows Vista, the MMDevice API supports device roles
-    // but the system-supplied user interface programs do not.
-    hr = enumerator->GetDefaultAudioEndpoint(eCapture, eConsole,
-                                             endpoint_device_.GetAddressOf());
-  } else if (device_id_ == AudioDeviceDescription::kCommunicationsDeviceId) {
-    hr = enumerator->GetDefaultAudioEndpoint(eCapture, eCommunications,
-                                             endpoint_device_.GetAddressOf());
-  } else if (device_id_ == AudioDeviceDescription::kLoopbackWithMuteDeviceId) {
-    // Capture the default playback stream.
-    hr = enumerator->GetDefaultAudioEndpoint(eRender, eConsole,
-                                             endpoint_device_.GetAddressOf());
-
-    if (SUCCEEDED(hr)) {
-      endpoint_device_->Activate(__uuidof(IAudioEndpointVolume), CLSCTX_ALL,
-                                 NULL, &system_audio_volume_);
-    }
-  } else if (device_id_ == AudioDeviceDescription::kLoopbackInputDeviceId) {
-    // Capture the default playback stream.
-    hr = enumerator->GetDefaultAudioEndpoint(eRender, eConsole,
-                                             endpoint_device_.GetAddressOf());
+  // To open a stream in loopback mode, the client must obtain an IMMDevice
+  // interface for the rendering endpoint device. Make that happen if needed;
+  // otherwise use default capture data-flow direction.
+  const EDataFlow data_flow =
+      AudioDeviceDescription::IsLoopbackDevice(device_id_) ? eRender : eCapture;
+  // Determine selected role to be used if the device is a default device.
+  const ERole role = AudioDeviceDescription::IsCommunicationsDevice(device_id_)
+                         ? eCommunications
+                         : eConsole;
+  if (AudioDeviceDescription::IsDefaultDevice(device_id_) ||
+      AudioDeviceDescription::IsCommunicationsDevice(device_id_) ||
+      AudioDeviceDescription::IsLoopbackDevice(device_id_)) {
+    hr =
+        enumerator->GetDefaultAudioEndpoint(data_flow, role, &endpoint_device_);
   } else {
     hr = enumerator->GetDevice(base::UTF8ToUTF16(device_id_).c_str(),
                                endpoint_device_.GetAddressOf());
   }
-
   if (FAILED(hr)) {
     open_result_ = OPEN_RESULT_NO_ENDPOINT;
     return hr;
+  }
+
+  // If loopback device with muted system audio is requested, get the volume
+  // interface for the endpoint.
+  if (device_id_ == AudioDeviceDescription::kLoopbackWithMuteDeviceId) {
+    hr = endpoint_device_->Activate(__uuidof(IAudioEndpointVolume), CLSCTX_ALL,
+                                    nullptr, &system_audio_volume_);
+    if (FAILED(hr)) {
+      open_result_ = OPEN_RESULT_ACTIVATION_FAILED;
+      return hr;
+    }
   }
 
   // Verify that the audio endpoint device is active, i.e., the audio
@@ -684,6 +697,8 @@ bool WASAPIAudioInputStream::DesiredFormatIsSupported(HRESULT* hr) {
       reinterpret_cast<const WAVEFORMATEX*>(&input_format_), &closest_match);
   DLOG_IF(ERROR, hresult == S_FALSE)
       << "Format is not supported but a closest match exists.";
+  if (FAILED(hresult))
+    LOG(ERROR) << "Input format is not supported: " << std::hex << hresult;
 
   if (hresult == S_FALSE) {
     // Change the format we're going to ask for to better match with what the OS
@@ -732,24 +747,23 @@ void WASAPIAudioInputStream::SetupConverterAndStoreFormatInfo() {
   // Ideally, we want a 1:1 ratio between the buffers we get and the buffers
   // we give to OnData so that each buffer we receive from the OS can be
   // directly converted to a buffer that matches with what was asked for.
-  const double buffer_ratio = output_format_.Format.nSamplesPerSec /
-                              static_cast<double>(packet_size_frames_);
+  const double buffer_ratio =
+      output_format_.nSamplesPerSec / static_cast<double>(packet_size_frames_);
   double new_frames_per_buffer =
       input_format_.Format.nSamplesPerSec / buffer_ratio;
 
   const auto input_layout = GuessChannelLayout(input_format_.Format.nChannels);
   DCHECK_NE(CHANNEL_LAYOUT_UNSUPPORTED, input_layout);
-  const auto output_layout =
-      GuessChannelLayout(output_format_.Format.nChannels);
+  const auto output_layout = GuessChannelLayout(output_format_.nChannels);
   DCHECK_NE(CHANNEL_LAYOUT_UNSUPPORTED, output_layout);
 
   const AudioParameters input(AudioParameters::AUDIO_PCM_LOW_LATENCY,
                               input_layout, input_format_.Format.nSamplesPerSec,
                               static_cast<int>(new_frames_per_buffer));
 
-  const AudioParameters output(
-      AudioParameters::AUDIO_PCM_LOW_LATENCY, output_layout,
-      output_format_.Format.nSamplesPerSec, packet_size_frames_);
+  const AudioParameters output(AudioParameters::AUDIO_PCM_LOW_LATENCY,
+                               output_layout, output_format_.nSamplesPerSec,
+                               packet_size_frames_);
 
   converter_.reset(new AudioConverter(input, output, false));
   converter_->AddInput(this);
@@ -794,7 +808,7 @@ HRESULT WASAPIAudioInputStream::InitializeAudioEngine() {
       100 * 1000 * 10,  // Buffer duration, 100 ms expressed in 100-ns units.
       0,                // Device period, n/a for shared mode.
       reinterpret_cast<const WAVEFORMATEX*>(&input_format_),
-      device_id_ == AudioDeviceDescription::kCommunicationsDeviceId
+      AudioDeviceDescription::IsCommunicationsDevice(device_id_)
           ? &kCommunicationsSessionId
           : nullptr);
 
@@ -814,15 +828,12 @@ HRESULT WASAPIAudioInputStream::InitializeAudioEngine() {
     open_result_ = OPEN_RESULT_GET_BUFFER_SIZE_FAILED;
     return hr;
   }
+
+#ifndef NDEBUG
   const int endpoint_buffer_size_ms =
       static_cast<double>(endpoint_buffer_size_frames_ * 1000) /
           input_format_.Format.nSamplesPerSec +
       0.5;  // Round to closest integer
-  UMA_HISTOGRAM_CUSTOM_TIMES(
-      "Media.Audio.Capture.Win.EndpointBufferSize",
-      base::TimeDelta::FromMilliseconds(endpoint_buffer_size_ms),
-      base::TimeDelta::FromMilliseconds(1), base::TimeDelta::FromSeconds(1),
-      50);
   DVLOG(1) << "Endpoint buffer size: " << endpoint_buffer_size_frames_
            << " frames (" << endpoint_buffer_size_ms << " ms)";
 
@@ -838,11 +849,6 @@ HRESULT WASAPIAudioInputStream::InitializeAudioEngine() {
   if (SUCCEEDED(hr_dbg)) {
     // The 5000 addition is to round end result to closest integer.
     const int device_period_ms = (device_period_shared_mode + 5000) / 10000;
-    UMA_HISTOGRAM_CUSTOM_TIMES(
-        "Media.Audio.Capture.Win.DevicePeriod",
-        base::TimeDelta::FromMilliseconds(device_period_ms),
-        base::TimeDelta::FromMilliseconds(1), base::TimeDelta::FromSeconds(1),
-        50);
     DVLOG(1) << "Device period: " << device_period_ms << " ms";
   }
 
@@ -851,12 +857,9 @@ HRESULT WASAPIAudioInputStream::InitializeAudioEngine() {
   if (SUCCEEDED(hr_dbg)) {
     // The 5000 addition is to round end result to closest integer.
     const int latency_ms = (device_period_shared_mode + 5000) / 10000;
-    UMA_HISTOGRAM_CUSTOM_TIMES("Media.Audio.Capture.Win.StreamLatency",
-                               base::TimeDelta::FromMilliseconds(latency_ms),
-                               base::TimeDelta::FromMilliseconds(1),
-                               base::TimeDelta::FromSeconds(1), 50);
     DVLOG(1) << "Stream latency: " << latency_ms << " ms";
   }
+#endif
 
   // Set the event handle that the audio engine will signal each time a buffer
   // becomes ready to be processed by the client.
@@ -874,9 +877,8 @@ HRESULT WASAPIAudioInputStream::InitializeAudioEngine() {
   //
   // http://msdn.microsoft.com/en-us/library/windows/desktop/dd316551(v=vs.85).aspx
   if (AudioDeviceDescription::IsLoopbackDevice(device_id_)) {
-    hr = endpoint_device_->Activate(
-        __uuidof(IAudioClient), CLSCTX_INPROC_SERVER, NULL,
-        &audio_render_client_for_loopback_);
+    hr = endpoint_device_->Activate(__uuidof(IAudioClient), CLSCTX_ALL, nullptr,
+                                    &audio_render_client_for_loopback_);
     if (FAILED(hr)) {
       open_result_ = OPEN_RESULT_LOOPBACK_ACTIVATE_FAILED;
       return hr;
@@ -885,7 +887,10 @@ HRESULT WASAPIAudioInputStream::InitializeAudioEngine() {
     hr = audio_render_client_for_loopback_->Initialize(
         AUDCLNT_SHAREMODE_SHARED,
         AUDCLNT_STREAMFLAGS_EVENTCALLBACK | AUDCLNT_STREAMFLAGS_NOPERSIST, 0, 0,
-        reinterpret_cast<const WAVEFORMATEX*>(&input_format_), NULL);
+        reinterpret_cast<const WAVEFORMATEX*>(&input_format_),
+        AudioDeviceDescription::IsCommunicationsDevice(device_id_)
+            ? &kCommunicationsSessionId
+            : nullptr);
     if (FAILED(hr)) {
       open_result_ = OPEN_RESULT_LOOPBACK_INIT_FAILED;
       return hr;
@@ -940,12 +945,12 @@ void WASAPIAudioInputStream::ReportOpenResult(HRESULT hr) const {
         input_format_.Format.wBitsPerSample,
         input_format_.Format.nBlockAlign, input_format_.Format.nAvgBytesPerSec,
         input_format_.Format.cbSize,
-        output_format_.Format.wFormatTag, output_format_.Format.nChannels,
-        output_format_.Format.nSamplesPerSec,
-        output_format_.Format.wBitsPerSample,
-        output_format_.Format.nBlockAlign,
-        output_format_.Format.nAvgBytesPerSec,
-        output_format_.Format.cbSize));
+        output_format_.wFormatTag, output_format_.nChannels,
+        output_format_.nSamplesPerSec,
+        output_format_.wBitsPerSample,
+        output_format_.nBlockAlign,
+        output_format_.nAvgBytesPerSec,
+        output_format_.cbSize));
     // clang-format on
   }
 }
@@ -975,23 +980,7 @@ double WASAPIAudioInputStream::ProvideInput(AudioBus* audio_bus,
   return 1.0;
 }
 
-void WASAPIAudioInputStream::ReportDelayStatsAndUpdateGlitchCount(
-    bool discontinuity_flagged,
-    UINT64 device_position,
-    base::TimeTicks capture_time) {
-  // Report delay. Don't report if no valid capture time.
-  // Unreasonably large delays are clamped at 1 second. Some devices sometimes
-  // have capture timestamps way off.
-  if (capture_time > base::TimeTicks()) {
-    base::TimeDelta delay = base::TimeTicks::Now() - capture_time;
-    UMA_HISTOGRAM_CUSTOM_TIMES("Media.Audio.Capture.DeviceLatency", delay,
-                               base::TimeDelta::FromMilliseconds(1),
-                               base::TimeDelta::FromSeconds(1), 50);
-  }
-
-  // Detect glitch. Detect and count separately based on expected device
-  // position and the discontinuity flag since they have showed to not always
-  // be consistent with each other.
+void WASAPIAudioInputStream::UpdateGlitchCount(UINT64 device_position) {
   if (expected_next_device_position_ != 0) {
     if (device_position > expected_next_device_position_) {
       ++total_glitches_;
@@ -999,39 +988,18 @@ void WASAPIAudioInputStream::ReportDelayStatsAndUpdateGlitchCount(
       total_lost_frames_ += lost_frames;
       if (lost_frames > largest_glitch_frames_)
         largest_glitch_frames_ = lost_frames;
-    } else if (device_position < expected_next_device_position_) {
-      ++total_device_position_less_than_expected_;
-    }
-    if (discontinuity_flagged)
-      ++total_discontinuities_;
-    if (device_position > expected_next_device_position_ &&
-        discontinuity_flagged) {
-      ++total_concurrent_glitch_and_discontinuities_;
     }
   }
 }
 
 void WASAPIAudioInputStream::ReportAndResetGlitchStats() {
   UMA_HISTOGRAM_COUNTS_1M("Media.Audio.Capture.Glitches", total_glitches_);
-  UMA_HISTOGRAM_COUNTS_1M(
-      "Media.Audio.Capture.Win.DevicePositionLessThanExpected",
-      total_device_position_less_than_expected_);
-  UMA_HISTOGRAM_COUNTS_1M("Media.Audio.Capture.Win.Discontinuities",
-                          total_discontinuities_);
-  UMA_HISTOGRAM_COUNTS_1M(
-      "Media.Audio.Capture.Win.ConcurrentGlitchAndDiscontinuities",
-      total_concurrent_glitch_and_discontinuities_);
 
   double lost_frames_ms =
       (total_lost_frames_ * 1000) / input_format_.Format.nSamplesPerSec;
   std::string log_message = base::StringPrintf(
-      "WASAPIAIS: Total glitches=%d. Total frames lost=%llu (%.0lf ms). Total "
-      "discontinuities=%d. Total concurrent glitch and discont=%d. Total low "
-      "device "
-      "positions=%d.",
-      total_glitches_, total_lost_frames_, lost_frames_ms,
-      total_discontinuities_, total_concurrent_glitch_and_discontinuities_,
-      total_device_position_less_than_expected_);
+      "WASAPIAIS: Total glitches=%d. Total frames lost=%llu (%.0lf ms).",
+      total_glitches_, total_lost_frames_, lost_frames_ms);
   log_callback_.Run(log_message);
 
   if (total_glitches_ != 0) {
@@ -1049,9 +1017,6 @@ void WASAPIAudioInputStream::ReportAndResetGlitchStats() {
 
   expected_next_device_position_ = 0;
   total_glitches_ = 0;
-  total_device_position_less_than_expected_ = 0;
-  total_discontinuities_ = 0;
-  total_concurrent_glitch_and_discontinuities_ = 0;
   total_lost_frames_ = 0;
   largest_glitch_frames_ = 0;
 }

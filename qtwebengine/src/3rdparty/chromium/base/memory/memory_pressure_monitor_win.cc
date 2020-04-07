@@ -6,6 +6,7 @@
 
 #include <windows.h>
 
+#include "base/bind.h"
 #include "base/single_thread_task_runner.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
@@ -23,10 +24,7 @@ static const DWORDLONG kMBBytes = 1024 * 1024;
 // memory pressure monitor. The values were determined experimentally to ensure
 // sufficient responsiveness of the memory pressure subsystem, and minimal
 // overhead.
-const int MemoryPressureMonitor::kPollingIntervalMs = 5000;
 const int MemoryPressureMonitor::kModeratePressureCooldownMs = 10000;
-const int MemoryPressureMonitor::kModeratePressureCooldownCycles =
-    kModeratePressureCooldownMs / kPollingIntervalMs;
 
 // TODO(chrisha): Explore the following constants further with an experiment.
 
@@ -56,7 +54,7 @@ MemoryPressureMonitor::MemoryPressureMonitor()
           MemoryPressureListener::MEMORY_PRESSURE_LEVEL_NONE),
       moderate_pressure_repeat_count_(0),
       dispatch_callback_(
-          base::Bind(&MemoryPressureListener::NotifyMemoryPressure)),
+          base::BindRepeating(&MemoryPressureListener::NotifyMemoryPressure)),
       weak_ptr_factory_(this) {
   InferThresholds();
   StartObserving();
@@ -70,7 +68,7 @@ MemoryPressureMonitor::MemoryPressureMonitor(int moderate_threshold_mb,
           MemoryPressureListener::MEMORY_PRESSURE_LEVEL_NONE),
       moderate_pressure_repeat_count_(0),
       dispatch_callback_(
-          base::Bind(&MemoryPressureListener::NotifyMemoryPressure)),
+          base::BindRepeating(&MemoryPressureListener::NotifyMemoryPressure)),
       weak_ptr_factory_(this) {
   DCHECK_GE(moderate_threshold_mb_, critical_threshold_mb_);
   DCHECK_LE(0, critical_threshold_mb_);
@@ -85,12 +83,12 @@ void MemoryPressureMonitor::CheckMemoryPressureSoon() {
   DCHECK(thread_checker_.CalledOnValidThread());
 
   ThreadTaskRunnerHandle::Get()->PostTask(
-      FROM_HERE, Bind(&MemoryPressureMonitor::CheckMemoryPressure,
-                      weak_ptr_factory_.GetWeakPtr()));
+      FROM_HERE, BindOnce(&MemoryPressureMonitor::CheckMemoryPressure,
+                          weak_ptr_factory_.GetWeakPtr()));
 }
 
 MemoryPressureListener::MemoryPressureLevel
-MemoryPressureMonitor::GetCurrentPressureLevel() {
+MemoryPressureMonitor::GetCurrentPressureLevel() const {
   return current_memory_pressure_level_;
 }
 
@@ -117,11 +115,11 @@ void MemoryPressureMonitor::InferThresholds() {
 void MemoryPressureMonitor::StartObserving() {
   DCHECK(thread_checker_.CalledOnValidThread());
 
-  timer_.Start(FROM_HERE,
-               TimeDelta::FromMilliseconds(kPollingIntervalMs),
-               Bind(&MemoryPressureMonitor::
-                        CheckMemoryPressureAndRecordStatistics,
-                    weak_ptr_factory_.GetWeakPtr()));
+  timer_.Start(
+      FROM_HERE, base::MemoryPressureMonitor::kUMAMemoryPressureLevelPeriod,
+      BindRepeating(
+          &MemoryPressureMonitor::CheckMemoryPressureAndRecordStatistics,
+          weak_ptr_factory_.GetWeakPtr()));
 }
 
 void MemoryPressureMonitor::StopObserving() {
@@ -154,6 +152,10 @@ void MemoryPressureMonitor::CheckMemoryPressure() {
       } else {
         // Already in moderate pressure, only notify if sustained over the
         // cooldown period.
+        const int kModeratePressureCooldownCycles =
+            kModeratePressureCooldownMs /
+            base::MemoryPressureMonitor::kUMAMemoryPressureLevelPeriod
+                .InMilliseconds();
         if (++moderate_pressure_repeat_count_ ==
                 kModeratePressureCooldownCycles) {
           moderate_pressure_repeat_count_ = 0;

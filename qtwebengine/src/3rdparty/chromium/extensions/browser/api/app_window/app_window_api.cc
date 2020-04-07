@@ -7,6 +7,7 @@
 #include <memory>
 #include <utility>
 
+#include "base/bind.h"
 #include "base/command_line.h"
 #include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
@@ -174,10 +175,10 @@ ExtensionFunction::ResponseAction AppWindowCreateFunction::Run() {
       create_params.window_key = *options->id;
 
       if (options->singleton && *options->singleton == false) {
-        WriteToConsole(
-          content::CONSOLE_MESSAGE_LEVEL_WARNING,
-          "The 'singleton' option in chrome.apps.window.create() is deprecated!"
-          " Change your code to no longer rely on this.");
+        WriteToConsole(blink::mojom::ConsoleMessageLevel::kWarning,
+                       "The 'singleton' option in chrome.apps.window.create() "
+                       "is deprecated!"
+                       " Change your code to no longer rely on this.");
       }
 
       if (!options->singleton || *options->singleton) {
@@ -189,8 +190,7 @@ ExtensionFunction::ResponseAction AppWindowCreateFunction::Run() {
           content::RenderFrameHost* existing_frame =
               existing_window->web_contents()->GetMainFrame();
           int frame_id = MSG_ROUTING_NONE;
-          if (render_frame_host()->GetProcess()->GetID() ==
-              existing_frame->GetProcess()->GetID()) {
+          if (source_process_id() == existing_frame->GetProcess()->GetID()) {
             frame_id = existing_frame->GetRoutingID();
           }
 
@@ -206,7 +206,17 @@ ExtensionFunction::ResponseAction AppWindowCreateFunction::Run() {
           result->SetInteger("frameId", frame_id);
           existing_window->GetSerializedState(result.get());
           result->SetBoolean("existingWindow", true);
-          return RespondNow(OneArgument(std::move(result)));
+          // We should not return the window until that window is properly
+          // initialized. Hence, adding a callback for window first navigation
+          // completion.
+          if (existing_window->DidFinishFirstNavigation()) 
+            return RespondNow(OneArgument(std::move(result)));
+          
+          existing_window->AddOnDidFinishFirstNavigationCallback(
+            base::BindOnce(&AppWindowCreateFunction::
+                           OnAppWindowFinishedFirstNavigationOrClosed,
+                           this, OneArgument(std::move(result))));
+          return RespondLater();
         }
       }
     }
@@ -216,7 +226,7 @@ ExtensionFunction::ResponseAction AppWindowCreateFunction::Run() {
       return RespondNow(Error(error));
 
     if (options->type == app_window::WINDOW_TYPE_PANEL) {
-      WriteToConsole(content::CONSOLE_MESSAGE_LEVEL_WARNING,
+      WriteToConsole(blink::mojom::ConsoleMessageLevel::kWarning,
                      "Panels are no longer supported.");
     }
 
@@ -373,8 +383,7 @@ ExtensionFunction::ResponseAction AppWindowCreateFunction::Run() {
     create_params.show_on_lock_screen = true;
   }
 
-  create_params.creator_process_id =
-      render_frame_host()->GetProcess()->GetID();
+  create_params.creator_process_id = source_process_id();
 
   AppWindow* app_window = nullptr;
   if (action_type == api::app_runtime::ACTION_TYPE_NONE) {
@@ -421,21 +430,21 @@ ExtensionFunction::ResponseAction AppWindowCreateFunction::Run() {
     return did_respond() ? AlreadyResponded() : RespondLater();
   }
 
-  // Delay sending the response until the newly created window has been told to
-  // navigate, and blink has been correctly initialized in the renderer.
-  // SetOnFirstCommitOrWindowClosedCallback() will respond asynchronously.
-  app_window->SetOnFirstCommitOrWindowClosedCallback(base::Bind(
-      &AppWindowCreateFunction::OnAppWindowReadyToCommitFirstNavigationOrClosed,
-      this, base::Passed(&result_arg)));
+  // Delay sending the response until the newly created window has finished its
+  // navigation or was closed during that process.
+  // AddOnDidFinishFirstNavigationCallback() will respond asynchrously.
+  app_window->AddOnDidFinishFirstNavigationCallback(base::BindOnce(
+      &AppWindowCreateFunction::OnAppWindowFinishedFirstNavigationOrClosed,
+      this, std::move(result_arg)));
   return RespondLater();
 }
 
-void AppWindowCreateFunction::OnAppWindowReadyToCommitFirstNavigationOrClosed(
+void AppWindowCreateFunction::OnAppWindowFinishedFirstNavigationOrClosed(
     ResponseValue result_arg,
-    bool ready_to_commit) {
+    bool did_finish) {
   DCHECK(!did_respond());
 
-  if (!ready_to_commit) {
+  if (!did_finish) {
     Respond(Error(app_window_constants::kPrematureWindowClose));
     return;
   }

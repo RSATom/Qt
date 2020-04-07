@@ -7,7 +7,8 @@
 #include "third_party/blink/renderer/bindings/core/v8/v8_script_runner.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_writable_stream.h"
 #include "third_party/blink/renderer/core/messaging/message_port.h"
-#include "third_party/blink/renderer/core/streams/retain_wrapper_during_construction.h"
+#include "third_party/blink/renderer/core/streams/readable_stream_operations.h"
+#include "third_party/blink/renderer/core/streams/underlying_sink_base.h"
 #include "third_party/blink/renderer/platform/bindings/exception_state.h"
 #include "third_party/blink/renderer/platform/bindings/v8_binding.h"
 #include "third_party/blink/renderer/platform/runtime_enabled_features.h"
@@ -44,6 +45,27 @@ WritableStreamWrapper* WritableStreamWrapper::CreateFromInternalStream(
     exception_state.RethrowV8Exception(block.Exception());
     return nullptr;
   }
+  return stream;
+}
+
+WritableStreamWrapper* WritableStreamWrapper::CreateWithCountQueueingStrategy(
+    ScriptState* script_state,
+    UnderlyingSinkBase* underlying_sink,
+    size_t high_water_mark) {
+  ScriptValue strategy = ReadableStreamOperations::CreateCountQueuingStrategy(
+      script_state, high_water_mark);
+  if (strategy.IsEmpty())
+    return nullptr;
+
+  auto underlying_sink_value = ScriptValue::From(script_state, underlying_sink);
+  auto* stream = MakeGarbageCollected<WritableStreamWrapper>();
+
+  ExceptionState exception_state(script_state->GetIsolate(),
+                                 ExceptionState::kConstructionContext,
+                                 "WritableStream");
+  stream->Init(script_state, underlying_sink_value, strategy, exception_state);
+  if (exception_state.HadException())
+    return nullptr;
   return stream;
 }
 
@@ -86,7 +108,7 @@ bool WritableStreamWrapper::InitInternal(
     return false;
   }
 
-  return RetainWrapperDuringConstruction(this, script_state);
+  return true;
 }
 
 v8::MaybeLocal<v8::Object> WritableStreamWrapper::CreateInternalStream(
@@ -131,6 +153,7 @@ ScriptPromise WritableStreamWrapper::abort(ScriptState* script_state,
   if (locked(script_state, exception_state) &&
       !exception_state.HadException()) {
     exception_state.ThrowTypeError("Cannot abort a locked stream");
+    return ScriptPromise();
   }
 
   v8::Local<v8::Value> args[] = {

@@ -9,7 +9,9 @@
  */
 
 #include "api/peer_connection_interface.h"
+
 #include "api/dtls_transport_interface.h"
+#include "api/sctp_transport_interface.h"
 
 namespace webrtc {
 
@@ -170,19 +172,25 @@ PeerConnectionInterface::peer_connection_state() {
   return PeerConnectionInterface::PeerConnectionState::kFailed;
 }
 
-bool PeerConnectionInterface::StartRtcEventLog(rtc::PlatformFile file,
-                                               int64_t max_size_bytes) {
-  return false;
-}
-
 bool PeerConnectionInterface::StartRtcEventLog(
     std::unique_ptr<RtcEventLogOutput> output,
     int64_t output_period_ms) {
   return false;
 }
 
+bool PeerConnectionInterface::StartRtcEventLog(
+    std::unique_ptr<RtcEventLogOutput> output) {
+  return false;
+}
+
 rtc::scoped_refptr<DtlsTransportInterface>
 PeerConnectionInterface::LookupDtlsTransportByMid(const std::string& mid) {
+  RTC_NOTREACHED();
+  return nullptr;
+}
+
+rtc::scoped_refptr<SctpTransportInterface>
+PeerConnectionInterface::GetSctpTransport() const {
   RTC_NOTREACHED();
   return nullptr;
 }
@@ -233,25 +241,6 @@ RtpCapabilities PeerConnectionFactoryInterface::GetRtpSenderCapabilities(
 RtpCapabilities PeerConnectionFactoryInterface::GetRtpReceiverCapabilities(
     cricket::MediaType kind) const {
   return {};
-}
-
-rtc::scoped_refptr<VideoTrackSourceInterface>
-PeerConnectionFactoryInterface::CreateVideoSource(
-    std::unique_ptr<cricket::VideoCapturer> capturer) {
-  return nullptr;
-}
-
-rtc::scoped_refptr<VideoTrackSourceInterface>
-PeerConnectionFactoryInterface::CreateVideoSource(
-    std::unique_ptr<cricket::VideoCapturer> capturer,
-    const MediaConstraintsInterface* constraints) {
-  return nullptr;
-}
-
-rtc::scoped_refptr<VideoTrackSourceInterface>
-PeerConnectionFactoryInterface::CreateVideoSource(
-    cricket::VideoCapturer* capturer) {
-  return CreateVideoSource(std::unique_ptr<cricket::VideoCapturer>(capturer));
 }
 
 }  // namespace webrtc

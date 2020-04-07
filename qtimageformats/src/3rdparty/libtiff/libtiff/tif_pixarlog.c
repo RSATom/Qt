@@ -637,12 +637,13 @@ PixarLogGuessDataFmt(TIFFDirectory *td)
 static tmsize_t
 multiply_ms(tmsize_t m1, tmsize_t m2)
 {
-	return _TIFFMultiplySSize(NULL, m1, m2, NULL);
+        return _TIFFMultiplySSize(NULL, m1, m2, NULL);
 }
 
 static tmsize_t
 add_ms(tmsize_t m1, tmsize_t m2)
 {
+        assert(m1 >= 0 && m2 >= 0);
 	/* if either input is zero, assume overflow already occurred */
 	if (m1 == 0 || m2 == 0)
 		return 0;
@@ -812,9 +813,7 @@ PixarLogDecode(TIFF* tif, uint8* op, tmsize_t occ, uint16 s)
 			TIFFErrorExt(tif->tif_clientdata, module,
 			    "Decoding error at scanline %lu, %s",
 			    (unsigned long) tif->tif_row, sp->stream.msg ? sp->stream.msg : "(null)");
-			if (inflateSync(&sp->stream) != Z_OK)
-				return (0);
-			continue;
+			return (0);
 		}
 		if (state != Z_OK) {
 			TIFFErrorExt(tif->tif_clientdata, module, "ZLib error: %s",
@@ -1148,7 +1147,7 @@ PixarLogEncode(TIFF* tif, uint8* bp, tmsize_t cc, uint16 s)
 
 	llen = sp->stride * td->td_imagewidth;
     /* Check against the number of elements (of size uint16) of sp->tbuf */
-    if( n > (tmsize_t)(td->td_rowsperstrip * llen) )
+    if( n > ((tmsize_t)td->td_rowsperstrip * llen) )
     {
         TIFFErrorExt(tif->tif_clientdata, module,
                      "Too many input bytes provided");

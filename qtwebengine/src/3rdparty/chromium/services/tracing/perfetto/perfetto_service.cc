@@ -6,39 +6,45 @@
 
 #include <utility>
 
+#include "base/bind.h"
 #include "base/no_destructor.h"
+#include "base/strings/strcat.h"
+#include "base/strings/string_number_conversions.h"
 #include "base/task/post_task.h"
 #include "services/service_manager/public/cpp/bind_source_info.h"
+#include "services/tracing/perfetto/consumer_host.h"
 #include "services/tracing/perfetto/producer_host.h"
 #include "services/tracing/public/cpp/perfetto/shared_memory.h"
-#include "third_party/perfetto/include/perfetto/tracing/core/tracing_service.h"
+#include "third_party/perfetto/include/perfetto/ext/tracing/core/tracing_service.h"
 
 namespace tracing {
 
 namespace {
 
-const char kPerfettoProducerName[] = "org.chromium.perfetto_producer";
+bool StringToProcessId(const std::string& input, base::ProcessId* output) {
+  // Pid is encoded as uint in the string.
+  return base::StringToUint(input, reinterpret_cast<uint32_t*>(output));
+}
 
 }  // namespace
 
-/*
-TODO(oysteine): Right now the Perfetto service runs on a dedicated
-thread for a couple of reasons:
-* The sequence needs to be locked to a specific thread, or Perfetto's
-  thread-checker will barf.
-* The PerfettoTracingCoordinator uses
-  mojo::BlockingCopyFromString to pass the string to the tracing
-  controller, which requires the WithBaseSyncPrimitives task trait and
-  SingleThreadTaskRunners which use this trait need to be running on a
-  dedicated trait to avoid blocking other sequences.
-* If a client fills up its Shared Memory Buffer when writing a Perfetto
-  event proto, it'll stall until the Perfetto service clears up space.
-  This won't happen if the client and the service happens to run on the same
-  thread (the Mojo calls will never be executed).
+// static
+bool PerfettoService::ParsePidFromProducerName(const std::string& producer_name,
+                                               base::ProcessId* pid) {
+  if (!base::StartsWith(producer_name, mojom::kPerfettoProducerNamePrefix,
+                        base::CompareCase::SENSITIVE)) {
+    LOG(DFATAL) << "Unexpected producer name: " << producer_name;
+    return false;
+  }
 
-The above should be resolved before we move the Perfetto usage out from the
-flag so we can run this on non-thread-bound sequence.
-*/
+  static const size_t kPrefixLength =
+      strlen(mojom::kPerfettoProducerNamePrefix);
+  if (!StringToProcessId(producer_name.substr(kPrefixLength), pid)) {
+    LOG(DFATAL) << "Unexpected producer name: " << producer_name;
+    return false;
+  }
+  return true;
+}
 
 // static
 PerfettoService* PerfettoService::GetInstance() {
@@ -48,27 +54,9 @@ PerfettoService* PerfettoService::GetInstance() {
 
 PerfettoService::PerfettoService(
     scoped_refptr<base::SequencedTaskRunner> task_runner_for_testing)
-    : perfetto_task_runner_(
-          task_runner_for_testing
-              ? task_runner_for_testing
-              : base::CreateSingleThreadTaskRunnerWithTraits(
-                    {base::MayBlock(),
-                     base::TaskShutdownBehavior::CONTINUE_ON_SHUTDOWN,
-                     base::WithBaseSyncPrimitives(),
-                     base::TaskPriority::BEST_EFFORT},
-                    base::SingleThreadTaskRunnerThreadMode::DEDICATED)) {
-  DETACH_FROM_SEQUENCE(sequence_checker_);
-  perfetto_task_runner_.task_runner()->PostTask(
-      FROM_HERE, base::BindOnce(&PerfettoService::CreateServiceOnSequence,
-                                base::Unretained(this)));
-}
-
-PerfettoService::~PerfettoService() {
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-}
-
-void PerfettoService::CreateServiceOnSequence() {
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+    : perfetto_task_runner_(task_runner_for_testing
+                                ? std::move(task_runner_for_testing)
+                                : base::SequencedTaskRunnerHandle::Get()) {
   service_ = perfetto::TracingService::CreateInstance(
       std::make_unique<MojoSharedMemory::Factory>(), &perfetto_task_runner_);
   // Chromium uses scraping of the shared memory chunks to ensure that data
@@ -77,31 +65,88 @@ void PerfettoService::CreateServiceOnSequence() {
   DCHECK(service_);
 }
 
+PerfettoService::~PerfettoService() = default;
+
 perfetto::TracingService* PerfettoService::GetService() const {
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   return service_.get();
 }
 
-void PerfettoService::BindRequest(mojom::PerfettoServiceRequest request) {
-  perfetto_task_runner_.task_runner()->PostTask(
-      FROM_HERE, base::BindOnce(&PerfettoService::BindOnSequence,
-                                base::Unretained(this), std::move(request)));
-}
-
-void PerfettoService::BindOnSequence(mojom::PerfettoServiceRequest request) {
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  bindings_.AddBinding(this, std::move(request));
+void PerfettoService::BindRequest(mojom::PerfettoServiceRequest request,
+                                  uint32_t pid) {
+  bindings_.AddBinding(this, std::move(request), pid);
 }
 
 void PerfettoService::ConnectToProducerHost(
     mojom::ProducerClientPtr producer_client,
     mojom::ProducerHostRequest producer_host_request) {
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   auto new_producer = std::make_unique<ProducerHost>();
+  uint32_t producer_pid = bindings_.dispatch_context();
   new_producer->Initialize(std::move(producer_client), service_.get(),
-                           kPerfettoProducerName);
+                           base::StrCat({mojom::kPerfettoProducerNamePrefix,
+                                         base::NumberToString(producer_pid)}));
   producer_bindings_.AddBinding(std::move(new_producer),
                                 std::move(producer_host_request));
+}
+
+void PerfettoService::AddActiveServicePid(base::ProcessId pid) {
+  active_service_pids_.insert(pid);
+  for (auto* tracing_session : tracing_sessions_) {
+    tracing_session->OnActiveServicePidAdded(pid);
+  }
+}
+
+void PerfettoService::RemoveActiveServicePid(base::ProcessId pid) {
+  active_service_pids_.erase(pid);
+  for (auto* tracing_session : tracing_sessions_) {
+    tracing_session->OnActiveServicePidRemoved(pid);
+  }
+}
+
+void PerfettoService::SetActiveServicePidsInitialized() {
+  active_service_pids_initialized_ = true;
+  for (auto* tracing_session : tracing_sessions_) {
+    tracing_session->OnActiveServicePidsInitialized();
+  }
+}
+
+void PerfettoService::RegisterTracingSession(
+    ConsumerHost::TracingSession* tracing_session) {
+  tracing_sessions_.insert(tracing_session);
+}
+
+void PerfettoService::UnregisterTracingSession(
+    ConsumerHost::TracingSession* tracing_session) {
+  tracing_sessions_.erase(tracing_session);
+}
+
+void PerfettoService::RequestTracingSession(
+    mojom::TracingClientPriority priority,
+    base::OnceClosure callback) {
+  // TODO(oysteine): This currently assumes we only have one concurrent tracing
+  // session, which is enforced by all ConsumerHost::BeginTracing calls routing
+  // through RequestTracingSession before creating a new TracingSession.
+  // Not running the callback means we'll drop any connection requests and deny
+  // the creation of the tracing session.
+  for (auto* tracing_session : tracing_sessions_) {
+    if (!tracing_session->tracing_enabled()) {
+      continue;
+    }
+
+    if (tracing_session->tracing_priority() > priority) {
+      return;
+    }
+
+    // If the currently active session is the same or lower priority and it's
+    // tracing, then we'll disable it and re-try the request once it's shut
+    // down.
+    tracing_session->RequestDisableTracing(
+        base::BindOnce(&PerfettoService::RequestTracingSession,
+                       base::Unretained(PerfettoService::GetInstance()),
+                       priority, std::move(callback)));
+    return;
+  }
+
+  std::move(callback).Run();
 }
 
 }  // namespace tracing

@@ -348,9 +348,7 @@ void QPlatformWindow::setWindowIcon(const QIcon &icon) { Q_UNUSED(icon); }
 */
 bool QPlatformWindow::close()
 {
-    bool accepted = false;
-    QWindowSystemInterface::handleCloseEvent<QWindowSystemInterface::SynchronousDelivery>(window(), &accepted);
-    return accepted;
+    return QWindowSystemInterface::handleCloseEvent<QWindowSystemInterface::SynchronousDelivery>(window());
 }
 
 /*!
@@ -696,9 +694,12 @@ static QSize fixInitialSize(QSize size, const QWindow *w,
     However if the given window already has geometry which the application has
     initialized, it takes priority.
 */
-QRect QPlatformWindow::initialGeometry(const QWindow *w,
-    const QRect &initialGeometry, int defaultWidth, int defaultHeight)
+QRect QPlatformWindow::initialGeometry(const QWindow *w, const QRect &initialGeometry,
+                                       int defaultWidth, int defaultHeight,
+                                       const QScreen **resultingScreenReturn)
 {
+    if (resultingScreenReturn)
+        *resultingScreenReturn = w->screen();
     if (!w->isTopLevel()) {
         const qreal factor = QHighDpiScaling::factor(w);
         const QSize size = fixInitialSize(QHighDpi::fromNative(initialGeometry.size(), factor),
@@ -714,6 +715,8 @@ QRect QPlatformWindow::initialGeometry(const QWindow *w,
         : QGuiApplication::screenAt(initialGeometry.center());
     if (!screen)
         return initialGeometry;
+    if (resultingScreenReturn)
+        *resultingScreenReturn = screen;
     // initialGeometry refers to window's screen
     QRect rect(QHighDpi::fromNativePixels(initialGeometry, w));
     if (wp->resizeAutomatic)
@@ -744,7 +747,7 @@ QRect QPlatformWindow::initialGeometry(const QWindow *w,
     QPlatformWindow subclasses can re-implement this function to
     provide display refresh synchronized updates. The event
     should be delivered using QPlatformWindow::deliverUpdateRequest()
-    to not get out of sync with the the internal state of QWindow.
+    to not get out of sync with the internal state of QWindow.
 
     The default implementation posts an UpdateRequest event to the
     window after 5 ms. The additional time is there to give the event

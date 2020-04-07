@@ -12,12 +12,12 @@
 #include <memory>
 #include <string>
 
+#include "src/execution/isolate.h"
 #include "src/heap/factory.h"
-#include "src/isolate.h"
-#include "src/objects-inl.h"
 #include "src/objects/intl-objects.h"
 #include "src/objects/js-segment-iterator-inl.h"
 #include "src/objects/managed.h"
+#include "src/objects/objects-inl.h"
 #include "unicode/brkiter.h"
 
 namespace v8 {
@@ -26,7 +26,7 @@ namespace internal {
 MaybeHandle<String> JSSegmentIterator::GetSegment(Isolate* isolate,
                                                   int32_t start,
                                                   int32_t end) const {
-  return Intl::ToString(isolate, *(unicode_string()->raw()), start, end);
+  return Intl::ToString(isolate, *(unicode_string().raw()), start, end);
 }
 
 Handle<String> JSSegmentIterator::GranularityAsString() const {
@@ -37,9 +37,8 @@ Handle<String> JSSegmentIterator::GranularityAsString() const {
       return GetReadOnlyRoots().word_string_handle();
     case JSSegmenter::Granularity::SENTENCE:
       return GetReadOnlyRoots().sentence_string_handle();
-    case JSSegmenter::Granularity::COUNT:
-      UNREACHABLE();
   }
+  UNREACHABLE();
 }
 
 MaybeHandle<JSSegmentIterator> JSSegmentIterator::Create(
@@ -49,22 +48,25 @@ MaybeHandle<JSSegmentIterator> JSSegmentIterator::Create(
   // 1. Let iterator be ObjectCreate(%SegmentIteratorPrototype%).
   Handle<Map> map = Handle<Map>(
       isolate->native_context()->intl_segment_iterator_map(), isolate);
-  Handle<JSObject> result = isolate->factory()->NewJSObjectFromMap(map);
 
+  Handle<Managed<icu::BreakIterator>> managed_break_iterator =
+      Managed<icu::BreakIterator>::FromRawPtr(isolate, 0, break_iterator);
+  Handle<Managed<icu::UnicodeString>> unicode_string =
+      Intl::SetTextToBreakIterator(isolate, text, break_iterator);
+
+  // Now all properties are ready, so we can allocate the result object.
+  Handle<JSObject> result = isolate->factory()->NewJSObjectFromMap(map);
+  DisallowHeapAllocation no_gc;
   Handle<JSSegmentIterator> segment_iterator =
       Handle<JSSegmentIterator>::cast(result);
 
   segment_iterator->set_flags(0);
   segment_iterator->set_granularity(granularity);
   // 2. Let iterator.[[SegmentIteratorSegmenter]] be segmenter.
-  Handle<Managed<icu::BreakIterator>> managed_break_iterator =
-      Managed<icu::BreakIterator>::FromRawPtr(isolate, 0, break_iterator);
   segment_iterator->set_icu_break_iterator(*managed_break_iterator);
 
   // 3. Let iterator.[[SegmentIteratorString]] be string.
-  Managed<icu::UnicodeString> unicode_string =
-      Intl::SetTextToBreakIterator(isolate, text, break_iterator);
-  segment_iterator->set_unicode_string(unicode_string);
+  segment_iterator->set_unicode_string(*unicode_string);
 
   // 4. Let iterator.[[SegmentIteratorIndex]] be 0.
   // step 4 is stored inside break_iterator.
@@ -80,7 +82,7 @@ Handle<Object> JSSegmentIterator::BreakType() const {
   if (!is_break_type_set()) {
     return GetReadOnlyRoots().undefined_value_handle();
   }
-  icu::BreakIterator* break_iterator = icu_break_iterator()->raw();
+  icu::BreakIterator* break_iterator = icu_break_iterator().raw();
   int32_t rule_status = break_iterator->getRuleStatus();
   switch (granularity()) {
     case JSSegmenter::Granularity::GRAPHEME:
@@ -119,16 +121,15 @@ Handle<Object> JSSegmentIterator::BreakType() const {
         return GetReadOnlyRoots().sep_string_handle();
       }
       return GetReadOnlyRoots().undefined_value_handle();
-    case JSSegmenter::Granularity::COUNT:
-      UNREACHABLE();
   }
+  UNREACHABLE();
 }
 
 // ecma402 #sec-segment-iterator-prototype-index
 Handle<Object> JSSegmentIterator::Index(
     Isolate* isolate, Handle<JSSegmentIterator> segment_iterator) {
   icu::BreakIterator* icu_break_iterator =
-      segment_iterator->icu_break_iterator()->raw();
+      segment_iterator->icu_break_iterator().raw();
   CHECK_NOT_NULL(icu_break_iterator);
   return isolate->factory()->NewNumberFromInt(icu_break_iterator->current());
 }
@@ -138,7 +139,7 @@ MaybeHandle<JSReceiver> JSSegmentIterator::Next(
     Isolate* isolate, Handle<JSSegmentIterator> segment_iterator) {
   Factory* factory = isolate->factory();
   icu::BreakIterator* icu_break_iterator =
-      segment_iterator->icu_break_iterator()->raw();
+      segment_iterator->icu_break_iterator().raw();
   // 3. Let _previousIndex be iterator.[[SegmentIteratorIndex]].
   int32_t prev = icu_break_iterator->current();
   // 4. Let done be AdvanceSegmentIterator(iterator, forwards).
@@ -166,19 +167,20 @@ MaybeHandle<JSReceiver> JSSegmentIterator::Next(
   Handle<JSObject> result = factory->NewJSObject(isolate->object_function());
 
   // 11. Perform ! CreateDataProperty(result "segment", segment).
-  CHECK(JSReceiver::CreateDataProperty(
-            isolate, result, factory->segment_string(), segment, kDontThrow)
+  CHECK(JSReceiver::CreateDataProperty(isolate, result,
+                                       factory->segment_string(), segment,
+                                       Just(kDontThrow))
             .FromJust());
 
   // 12. Perform ! CreateDataProperty(result, "breakType", breakType).
   CHECK(JSReceiver::CreateDataProperty(isolate, result,
                                        factory->breakType_string(), break_type,
-                                       kDontThrow)
+                                       Just(kDontThrow))
             .FromJust());
 
   // 13. Perform ! CreateDataProperty(result, "index", newIndex).
   CHECK(JSReceiver::CreateDataProperty(isolate, result, factory->index_string(),
-                                       new_index, kDontThrow)
+                                       new_index, Just(kDontThrow))
             .FromJust());
 
   // 14. Return CreateIterResultObject(result, false).
@@ -191,7 +193,7 @@ Maybe<bool> JSSegmentIterator::Following(
     Handle<Object> from_obj) {
   Factory* factory = isolate->factory();
   icu::BreakIterator* icu_break_iterator =
-      segment_iterator->icu_break_iterator()->raw();
+      segment_iterator->icu_break_iterator().raw();
   // 3. If from is not undefined,
   if (!from_obj->IsUndefined()) {
     // a. Let from be ? ToIndex(from).
@@ -243,7 +245,7 @@ Maybe<bool> JSSegmentIterator::Preceding(
     Handle<Object> from_obj) {
   Factory* factory = isolate->factory();
   icu::BreakIterator* icu_break_iterator =
-      segment_iterator->icu_break_iterator()->raw();
+      segment_iterator->icu_break_iterator().raw();
   // 3. If from is not undefined,
   if (!from_obj->IsUndefined()) {
     // a. Let from be ? ToIndex(from).

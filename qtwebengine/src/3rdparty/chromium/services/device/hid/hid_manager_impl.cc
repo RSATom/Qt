@@ -4,11 +4,12 @@
 
 #include "services/device/hid/hid_manager_impl.h"
 
+#include <utility>
+
 #include "base/bind.h"
 #include "base/callback_helpers.h"
 #include "base/lazy_instance.h"
 #include "base/stl_util.h"
-#include "device/base/device_client.h"
 #include "mojo/public/cpp/bindings/strong_binding.h"
 #include "services/device/hid/hid_connection_impl.h"
 
@@ -17,8 +18,7 @@ namespace device {
 base::LazyInstance<std::unique_ptr<HidService>>::Leaky g_hid_service =
     LAZY_INSTANCE_INITIALIZER;
 
-HidManagerImpl::HidManagerImpl()
-    : hid_service_observer_(this), weak_factory_(this) {
+HidManagerImpl::HidManagerImpl() : hid_service_observer_(this) {
   if (g_hid_service.Get())
     hid_service_ = std::move(g_hid_service.Get());
   else
@@ -69,22 +69,28 @@ void HidManagerImpl::CreateDeviceList(
 }
 
 void HidManagerImpl::Connect(const std::string& device_guid,
+                             mojom::HidConnectionClientPtr connection_client,
                              ConnectCallback callback) {
   hid_service_->Connect(
       device_guid,
-      base::Bind(&HidManagerImpl::CreateConnection, weak_factory_.GetWeakPtr(),
-                 base::Passed(&callback)));
+      base::AdaptCallbackForRepeating(base::BindOnce(
+          &HidManagerImpl::CreateConnection, weak_factory_.GetWeakPtr(),
+          std::move(callback), std::move(connection_client))));
 }
 
-void HidManagerImpl::CreateConnection(ConnectCallback callback,
-                                      scoped_refptr<HidConnection> connection) {
+void HidManagerImpl::CreateConnection(
+    ConnectCallback callback,
+    mojom::HidConnectionClientPtr connection_client,
+    scoped_refptr<HidConnection> connection) {
   if (!connection) {
     std::move(callback).Run(nullptr);
     return;
   }
 
   mojom::HidConnectionPtr client;
-  mojo::MakeStrongBinding(std::make_unique<HidConnectionImpl>(connection),
+  auto connection_impl = std::make_unique<HidConnectionImpl>(
+      connection, std::move(connection_client));
+  mojo::MakeStrongBinding(std::move(connection_impl),
                           mojo::MakeRequest(&client));
   std::move(callback).Run(std::move(client));
 }

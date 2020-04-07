@@ -48,6 +48,7 @@
 **
 ****************************************************************************/
 
+import QtQml 2.14 as Qml
 import QtQuick 2.4
 import QtQuick.Layouts 1.0
 import QtQuick.Controls 1.4
@@ -138,11 +139,12 @@ ApplicationWindow {
             height: parent.height
 
             // Don't let the menus become visible when resizing the window
-            Binding {
+            Qml.Binding {
                 target: controlsMenu
                 property: "x"
                 value: container.x - controlsMenu.width
                 when: !xBehavior.enabled && !xNumberAnimation.running && currentMenu == -1
+                restoreMode: Binding.RestoreBinding
             }
 
             Behavior on x {

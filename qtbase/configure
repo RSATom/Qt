@@ -358,7 +358,7 @@ if [ -z "$QT_MAJOR_VERSION" ]; then
 fi
 
 #-------------------------------------------------------------------------------
-# initalize variables
+# initialize variables
 #-------------------------------------------------------------------------------
 
 # QTDIR may be set and point to an old or system-wide Qt installation
@@ -446,8 +446,7 @@ while [ "$#" -gt 0 ]; do
     -android-ndk| \
     -android-ndk-platform| \
     -android-ndk-host| \
-    -android-arch| \
-    -android-toolchain-version)
+    -android-arch)
         VAR=`echo $1 | sed 's,^-\(.*\),\1,'`
         shift
         VAL="$1"

@@ -49,12 +49,12 @@ OculusRenderLoop::~OculusRenderLoop() {
 }
 
 mojom::XRFrameDataPtr OculusRenderLoop::GetNextFrameData() {
-  if (!session_) {
-    return nullptr;
-  }
-
   mojom::XRFrameDataPtr frame_data = mojom::XRFrameData::New();
   frame_data->frame_id = next_frame_id_;
+
+  if (!session_) {
+    return frame_data;
+  }
 
   auto predicted_time =
       ovr_GetPredictedDisplayTime(session_, ovr_frame_index_ + 1);
@@ -78,15 +78,6 @@ mojom::XRGamepadDataPtr OculusRenderLoop::GetNextGamepadData() {
   }
 
   return OculusGamepadHelper::GetGamepadData(session_);
-}
-
-void OculusRenderLoop::GetEnvironmentIntegrationProvider(
-    mojom::XREnvironmentIntegrationProviderAssociatedRequest
-        environment_provider) {
-  // Environment integration is not supported. This call should not
-  // be made on this device.
-  mojo::ReportBadMessage("Environment integration is not supported.");
-  return;
 }
 
 bool OculusRenderLoop::StartRuntime() {
@@ -139,7 +130,9 @@ void OculusRenderLoop::StopRuntime() {
   ovr_frame_index_ = 0;
 }
 
-void OculusRenderLoop::OnSessionStart() {}
+void OculusRenderLoop::OnSessionStart() {
+  LogViewerType(VrViewerType::OCULUS_UNKNOWN);
+}
 
 bool OculusRenderLoop::PreComposite() {
   // If our current swap chain has a different size than the recommended size
@@ -260,7 +253,7 @@ void OculusRenderLoop::DestroyOvrSwapChain() {
 }
 
 void OculusRenderLoop::OnLayerBoundsChanged() {
-};
+}
 
 std::vector<mojom::XRInputSourceStatePtr> OculusRenderLoop::GetInputState(
     const ovrTrackingState& tracking_state) {
@@ -301,6 +294,8 @@ std::vector<mojom::XRInputSourceStatePtr> OculusRenderLoop::GetInputState(
           primary_input_pressed[ovrControllerType_Remote]) {
         state->primary_input_clicked = true;
       }
+
+      // TODO(https://crbug.com/956190): Expose remote as a gamepad to WebXR.
 
       primary_input_pressed[ovrControllerType_Remote] =
           state->primary_input_pressed;
@@ -368,6 +363,8 @@ device::mojom::XRInputSourceStatePtr OculusRenderLoop::GetTouchData(
   desc->pointer_offset->RotateAboutXAxis(-kGripRotationXDelta);
 
   state->description = std::move(desc);
+
+  state->gamepad = OculusGamepadHelper::CreateGamepad(session_, hand);
 
   return state;
 }

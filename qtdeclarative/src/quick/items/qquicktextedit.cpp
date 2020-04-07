@@ -194,6 +194,11 @@ QString QQuickTextEdit::text() const
             d->text = d->control->toHtml();
         else
 #endif
+#if QT_CONFIG(textmarkdownwriter)
+        if (d->markdownText)
+            d->text = d->control->toMarkdown();
+        else
+#endif
             d->text = d->control->toPlainText();
         d->textCached = true;
     }
@@ -390,6 +395,7 @@ QString QQuickTextEdit::text() const
     The text to display.  If the text format is AutoText the text edit will
     automatically determine whether the text should be treated as
     rich text.  This determination is made using Qt::mightBeRichText().
+    However, detection of Markdown is not automatic.
 
     The text-property is mostly suitable for setting the initial content and
     handling modifications to relatively small text content. The append(),
@@ -397,7 +403,7 @@ QString QQuickTextEdit::text() const
     remarkably better performance for modifying especially large rich text
     content.
 
-    \sa clear()
+    \sa clear(), textFormat
 */
 void QQuickTextEdit::setText(const QString &text)
 {
@@ -407,6 +413,7 @@ void QQuickTextEdit::setText(const QString &text)
 
     d->document->clearResources();
     d->richText = d->format == RichText || (d->format == AutoText && Qt::mightBeRichText(text));
+    d->markdownText = d->format == MarkdownText;
     if (!isComponentComplete()) {
         d->text = text;
     } else if (d->richText) {
@@ -415,6 +422,8 @@ void QQuickTextEdit::setText(const QString &text)
 #else
         d->control->setPlainText(text);
 #endif
+    } else if (d->markdownText) {
+        d->control->setMarkdownText(text);
     } else {
         d->control->setPlainText(text);
     }
@@ -436,41 +445,43 @@ QString QQuickTextEdit::preeditText() const
 /*!
     \qmlproperty enumeration QtQuick::TextEdit::textFormat
 
-    The way the text property should be displayed.
+    The way the \l text property should be displayed.
 
-    \list
-    \li TextEdit.AutoText
-    \li TextEdit.PlainText
-    \li TextEdit.RichText
-    \endlist
+    Supported text formats are:
 
-    The default is TextEdit.PlainText.  If the text format is TextEdit.AutoText the text edit
-    will automatically determine whether the text should be treated as
-    rich text.  This determination is made using Qt::mightBeRichText().
+    \value TextEdit.PlainText       (default) all styling tags are treated as plain text
+    \value TextEdit.AutoText        detected via the Qt::mightBeRichText() heuristic
+    \value TextEdit.RichText        \l {Supported HTML Subset} {a subset of HTML 4}
+    \value TextEdit.MarkdownText    \l {https://commonmark.org/help/}{CommonMark} plus the
+                                    \l {https://guides.github.com/features/mastering-markdown/}{GitHub}
+                                    extensions for tables and task lists (since 5.14)
+
+    The default is \c TextEdit.PlainText. If the text format is set to
+    \c TextEdit.AutoText, the text edit will automatically determine whether
+    the text should be treated as rich text. This determination is made using
+    Qt::mightBeRichText(), which can detect the presence of an HTML tag on the
+    first line of text, but cannot distinguish Markdown from plain text.
 
     \table
     \row
     \li
-    \qml
-Column {
-    TextEdit {
-        font.pointSize: 24
-        text: "<b>Hello</b> <i>World!</i>"
-    }
-    TextEdit {
-        font.pointSize: 24
-        textFormat: TextEdit.RichText
-        text: "<b>Hello</b> <i>World!</i>"
-    }
-    TextEdit {
-        font.pointSize: 24
-        textFormat: TextEdit.PlainText
-        text: "<b>Hello</b> <i>World!</i>"
-    }
-}
-    \endqml
+    \snippet qml/text/textEditFormats.qml 0
     \li \image declarative-textformat.png
     \endtable
+
+    With \c TextEdit.MarkdownText, checkboxes that result from using the
+    \l {https://guides.github.com/features/mastering-markdown/#GitHub-flavored-markdown}{GitHub checkbox extension}
+    are interactively checkable.
+
+    \note Interactively typing markup or markdown formatting is not supported.
+
+    \note With \c Text.MarkdownText, and with the supported subset of HTML,
+    some decorative elements are not rendered as they would be in a web browser:
+    \list
+    \li code blocks use the \l {QFontDatabase::FixedFont}{default monospace font} but without a surrounding highlight box
+    \li block quotes are indented, but there is no vertical line alongside the quote
+    \li horizontal rules are not rendered
+    \endlist
 */
 QQuickTextEdit::TextFormat QQuickTextEdit::textFormat() const
 {
@@ -486,6 +497,7 @@ void QQuickTextEdit::setTextFormat(TextFormat format)
 
     bool wasRich = d->richText;
     d->richText = format == RichText || (format == AutoText && (wasRich || Qt::mightBeRichText(text())));
+    d->markdownText = format == MarkdownText;
 
 #if QT_CONFIG(texthtmlparser)
     if (isComponentComplete()) {
@@ -1463,8 +1475,12 @@ void QQuickTextEdit::componentComplete()
         d->control->setHtml(d->text);
     else
 #endif
-    if (!d->text.isEmpty())
-        d->control->setPlainText(d->text);
+    if (!d->text.isEmpty()) {
+        if (d->markdownText)
+            d->control->setMarkdownText(d->text);
+        else
+            d->control->setPlainText(d->text);
+    }
 
     if (d->dirty) {
         d->determineHorizontalAlignment();
@@ -2047,20 +2063,19 @@ QSGNode *QQuickTextEdit::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *
             firstDirtyPos = nodeIterator->startPos();
             // ### this could be optimized if the first and last dirty nodes are not connected
             // as the intermediate text nodes would usually only need to be transformed differently.
-            int lastDirtyPos = firstDirtyPos;
+            QQuickTextNode *firstCleanNode = nullptr;
             auto it = d->textNodeMap.constEnd();
             while (it != nodeIterator) {
                 --it;
-                if (it->dirty()) {
-                    lastDirtyPos = it->startPos();
+                if (it->dirty())
                     break;
-                }
+                firstCleanNode = it->textNode();
             }
             do {
                 rootNode->removeChildNode(nodeIterator->textNode());
                 delete nodeIterator->textNode();
                 nodeIterator = d->textNodeMap.erase(nodeIterator);
-            } while (nodeIterator != d->textNodeMap.constEnd() && nodeIterator->startPos() <= lastDirtyPos);
+            } while (nodeIterator != d->textNodeMap.constEnd() && nodeIterator->textNode() != firstCleanNode);
         }
 
         // FIXME: the text decorations could probably be handled separately (only updated for affected textFrames)
@@ -2310,6 +2325,7 @@ void QQuickTextEditPrivate::init()
     QObject::connect(document, &QQuickTextDocumentWithImageResources::contentsChange, q, &QQuickTextEdit::q_contentsChange);
     QObject::connect(document->documentLayout(), &QAbstractTextDocumentLayout::updateBlock, q, &QQuickTextEdit::invalidateBlock);
     QObject::connect(control, &QQuickTextControl::linkHovered, q, &QQuickTextEdit::q_linkHovered);
+    QObject::connect(control, &QQuickTextControl::markerHovered, q, &QQuickTextEdit::q_markerHovered);
 
     document->setDefaultFont(font);
     document->setDocumentMargin(textMargin);
@@ -2593,6 +2609,19 @@ void QQuickTextEdit::q_linkHovered(const QString &link)
     emit linkHovered(link);
 #if QT_CONFIG(cursor)
     if (link.isEmpty()) {
+        setCursor(d->cursorToRestoreAfterHover);
+    } else if (cursor().shape() != Qt::PointingHandCursor) {
+        d->cursorToRestoreAfterHover = cursor().shape();
+        setCursor(Qt::PointingHandCursor);
+    }
+#endif
+}
+
+void QQuickTextEdit::q_markerHovered(bool hovered)
+{
+    Q_D(QQuickTextEdit);
+#if QT_CONFIG(cursor)
+    if (!hovered) {
         setCursor(d->cursorToRestoreAfterHover);
     } else if (cursor().shape() != Qt::PointingHandCursor) {
         d->cursorToRestoreAfterHover = cursor().shape();

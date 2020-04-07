@@ -55,6 +55,8 @@
 #include <private/qv4function_p.h>
 #include <QHash>
 
+QT_REQUIRE_CONFIG(qml_jit);
+
 QT_BEGIN_NAMESPACE
 
 namespace QV4 {
@@ -65,7 +67,7 @@ namespace JIT {
 
 #define GENERATE_RUNTIME_CALL(function, destination) \
     callRuntime(JIT_STRINGIFY(function), \
-                reinterpret_cast<void *>(&function), \
+                reinterpret_cast<void *>(&Runtime::function::call), \
                 destination)
 #define GENERATE_TAIL_CALL(function) \
     tailCallRuntime(JIT_STRINGIFY(function), \

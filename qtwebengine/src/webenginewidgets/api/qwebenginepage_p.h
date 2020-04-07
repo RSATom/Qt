@@ -72,6 +72,7 @@ class WebContentsAdapter;
 }
 
 QT_BEGIN_NAMESPACE
+class QWebEngineFindTextResult;
 class QWebEngineHistory;
 class QWebEnginePage;
 class QWebEngineProfile;
@@ -92,8 +93,11 @@ public:
     QtWebEngineCore::RenderWidgetHostViewQtDelegate* CreateRenderWidgetHostViewQtDelegate(QtWebEngineCore::RenderWidgetHostViewQtDelegateClient *client) override;
     QtWebEngineCore::RenderWidgetHostViewQtDelegate* CreateRenderWidgetHostViewQtDelegateForPopup(QtWebEngineCore::RenderWidgetHostViewQtDelegateClient *client) override { return CreateRenderWidgetHostViewQtDelegate(client); }
     void initializationFinished() override;
+    void lifecycleStateChanged(LifecycleState state) override;
+    void recommendedStateChanged(LifecycleState state) override;
+    void visibleChanged(bool visible) override;
     void titleChanged(const QString&) override;
-    void urlChanged(const QUrl&) override;
+    void urlChanged() override;
     void iconChanged(const QUrl&) override;
     void loadProgressChanged(int progress) override;
     void didUpdateTargetURL(const QUrl&) override;
@@ -124,7 +128,6 @@ public:
     void didRunJavaScript(quint64 requestId, const QVariant& result) override;
     void didFetchDocumentMarkup(quint64 requestId, const QString& result) override;
     void didFetchDocumentInnerText(quint64 requestId, const QString& result) override;
-    void didFindText(quint64 requestId, int matchCount) override;
     void didPrintPage(quint64 requestId, QSharedPointer<QByteArray> result) override;
     void didPrintPageToPdf(const QString &filePath, bool success) override;
     bool passOnFocus(bool reverse) override;
@@ -160,15 +163,13 @@ public:
     ClientType clientType() override { return QtWebEngineCore::WebContentsAdapterClient::WidgetsClient; }
     void interceptRequest(QWebEngineUrlRequestInfo &) override;
     void widgetChanged(QtWebEngineCore::RenderWidgetHostViewQtDelegate *newWidget) override;
+    void findTextFinished(const QWebEngineFindTextResult &result) override;
 
     QtWebEngineCore::ProfileAdapter *profileAdapter() override;
     QtWebEngineCore::WebContentsAdapter *webContentsAdapter() override;
 
     void updateAction(QWebEnginePage::WebAction) const;
     void _q_webActionTriggered(bool checked);
-
-    void wasShown();
-    void wasHidden();
 
     QtWebEngineCore::WebContentsAdapter *webContents() { return adapter.data(); }
     void recreateFromSerializedHistory(QDataStream &input);
@@ -185,7 +186,7 @@ public:
     QWebEngineProfile *profile;
     QWebEngineSettings *settings;
     QWebEngineView *view;
-    QUrl explicitUrl;
+    QUrl url;
     QWebEngineContextMenuData contextData;
     bool isLoading;
     QWebEngineScriptCollection scriptCollection;
@@ -209,6 +210,8 @@ public:
 #if QT_CONFIG(webengine_printing_and_pdf)
     QPrinter *currentPrinter;
 #endif
+
+    QList<QSharedPointer<CertificateErrorController>> m_certificateErrorControllers;
 };
 
 class QContextMenuBuilder : public QtWebEngineCore::RenderViewContextMenuQt

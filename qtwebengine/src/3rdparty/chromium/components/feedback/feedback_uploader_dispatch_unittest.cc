@@ -13,6 +13,7 @@
 #include "base/task/task_traits.h"
 #include "base/test/bind_test_util.h"
 #include "components/feedback/feedback_uploader_factory.h"
+#include "components/variations/net/variations_http_headers.h"
 #include "components/variations/variations_associated_data.h"
 #include "components/variations/variations_http_header_provider.h"
 #include "content/public/test/test_browser_context.h"
@@ -97,15 +98,11 @@ TEST_F(FeedbackUploaderDispatchTest, VariationHeaders) {
   net::HttpRequestHeaders headers;
   test_url_loader_factory()->SetInterceptor(
       base::BindLambdaForTesting([&](const network::ResourceRequest& request) {
-        headers = request.headers;
+        EXPECT_TRUE(variations::HasVariationsHeader(request));
       }));
 
   QueueReport(&uploader, "test");
   base::RunLoop().RunUntilIdle();
-
-  std::string value;
-  EXPECT_TRUE(headers.GetHeader("X-Client-Data", &value));
-  EXPECT_FALSE(value.empty());
 
   variations::VariationsHttpHeaderProvider::GetInstance()->ResetForTesting();
 }
@@ -122,7 +119,7 @@ TEST_F(FeedbackUploaderDispatchTest, 204Response) {
   network::ResourceResponseHead head;
   std::string headers("HTTP/1.1 204 No Content\n\n");
   head.headers = base::MakeRefCounted<net::HttpResponseHeaders>(
-      net::HttpUtil::AssembleRawHeaders(headers.c_str(), headers.size()));
+      net::HttpUtil::AssembleRawHeaders(headers));
   network::URLLoaderCompletionStatus status;
   test_url_loader_factory()->AddResponse(GURL(kFeedbackPostUrl), head, "",
                                          status);
@@ -145,7 +142,7 @@ TEST_F(FeedbackUploaderDispatchTest, 400Response) {
   network::ResourceResponseHead head;
   std::string headers("HTTP/1.1 400 Bad Request\n\n");
   head.headers = base::MakeRefCounted<net::HttpResponseHeaders>(
-      net::HttpUtil::AssembleRawHeaders(headers.c_str(), headers.size()));
+      net::HttpUtil::AssembleRawHeaders(headers));
   network::URLLoaderCompletionStatus status;
   test_url_loader_factory()->AddResponse(GURL(kFeedbackPostUrl), head, "",
                                          status);
@@ -167,7 +164,7 @@ TEST_F(FeedbackUploaderDispatchTest, 500Response) {
   network::ResourceResponseHead head;
   std::string headers("HTTP/1.1 500 Server Error\n\n");
   head.headers = base::MakeRefCounted<net::HttpResponseHeaders>(
-      net::HttpUtil::AssembleRawHeaders(headers.c_str(), headers.size()));
+      net::HttpUtil::AssembleRawHeaders(headers));
   network::URLLoaderCompletionStatus status;
   test_url_loader_factory()->AddResponse(GURL(kFeedbackPostUrl), head, "",
                                          status);

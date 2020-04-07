@@ -9,6 +9,7 @@
  */
 
 #include "modules/congestion_controller/goog_cc/trendline_estimator.h"
+
 #include "rtc_base/random.h"
 #include "test/gtest.h"
 
@@ -22,11 +23,11 @@ constexpr int64_t kAvgTimeBetweenPackets = 10;
 constexpr size_t kPacketCount = 2 * kWindowSize + 1;
 class TrendlineEstimatorForTest : public TrendlineEstimator {
  public:
-  using TrendlineEstimator::TrendlineEstimator;
   using TrendlineEstimator::modified_trend;
+  using TrendlineEstimator::TrendlineEstimator;
 };
 void TestEstimator(double slope, double jitter_stddev, double tolerance) {
-  TrendlineEstimatorForTest estimator(kWindowSize, kSmoothing, kGain);
+  TrendlineEstimatorForTest estimator(kWindowSize, kSmoothing, kGain, nullptr);
   Random random(0x1234567);
   int64_t send_times[kPacketCount];
   int64_t recv_times[kPacketCount];
@@ -41,7 +42,7 @@ void TestEstimator(double slope, double jitter_stddev, double tolerance) {
   for (size_t i = 1; i < kPacketCount; ++i) {
     double recv_delta = recv_times[i] - recv_times[i - 1];
     double send_delta = send_times[i] - send_times[i - 1];
-    estimator.Update(recv_delta, send_delta, recv_times[i]);
+    estimator.Update(recv_delta, send_delta, 0, recv_times[i], true);
     if (i < kWindowSize)
       EXPECT_NEAR(estimator.modified_trend(), 0, 0.001);
     else

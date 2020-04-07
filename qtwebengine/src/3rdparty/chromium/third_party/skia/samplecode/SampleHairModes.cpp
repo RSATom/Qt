@@ -5,11 +5,11 @@
  * found in the LICENSE file.
  */
 
-#include "Sample.h"
-#include "SkBitmap.h"
-#include "SkCanvas.h"
-#include "SkColorPriv.h"
-#include "SkShader.h"
+#include "include/core/SkBitmap.h"
+#include "include/core/SkCanvas.h"
+#include "include/core/SkColorPriv.h"
+#include "include/core/SkShader.h"
+#include "samplecode/Sample.h"
 
 static const SkBlendMode gModes[] = {
     SkBlendMode::kClear,
@@ -64,8 +64,7 @@ static sk_sp<SkShader> make_bg_shader() {
     SkMatrix m;
     m.setScale(SkIntToScalar(6), SkIntToScalar(6));
 
-    return SkShader::MakeBitmapShader(bm, SkShader::kRepeat_TileMode,
-                                      SkShader::kRepeat_TileMode, &m);
+    return bm.makeShader(SkTileMode::kRepeat, SkTileMode::kRepeat, &m);
 }
 
 class HairModesView : public Sample {
@@ -76,15 +75,9 @@ public:
     }
 
 protected:
-    virtual bool onQuery(Sample::Event* evt) {
-        if (Sample::TitleQ(*evt)) {
-            Sample::TitleR(evt, "HairlineModes");
-            return true;
-        }
-        return this->INHERITED::onQuery(evt);
-    }
+    SkString name() override { return SkString("HairlineModes"); }
 
-    virtual void onDrawContent(SkCanvas* canvas) {
+    void onDrawContent(SkCanvas* canvas) override {
         const SkRect bounds = SkRect::MakeWH(W, H);
         static const SkAlpha gAlphaValue[] = { 0xFF, 0x88, 0x88 };
 

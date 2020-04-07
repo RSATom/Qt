@@ -5,17 +5,17 @@
  * found in the LICENSE file.
  */
 
-#include "SkImageEncoderPriv.h"
+#include "src/images/SkImageEncoderPriv.h"
 
 #ifdef SK_HAS_PNG_LIBRARY
 
-#include "SkColorTable.h"
-#include "SkImageEncoderFns.h"
-#include "SkImageInfoPriv.h"
-#include "SkStream.h"
-#include "SkString.h"
-#include "SkPngEncoder.h"
-#include "SkPngPriv.h"
+#include "include/core/SkStream.h"
+#include "include/core/SkString.h"
+#include "include/encode/SkPngEncoder.h"
+#include "include/private/SkImageInfoPriv.h"
+#include "src/codec/SkColorTable.h"
+#include "src/codec/SkPngPriv.h"
+#include "src/images/SkImageEncoderFns.h"
 #include <vector>
 
 #include "third_party/libpng/png.h"
@@ -106,6 +106,7 @@ bool SkPngEncoderMgr::setHeader(const SkImageInfo& srcInfo, const SkPngEncoder::
     png_color_8 sigBit;
     int bitDepth = 8;
     switch (srcInfo.colorType()) {
+        case kRGBA_F16Norm_SkColorType:
         case kRGBA_F16_SkColorType:
         case kRGBA_F32_SkColorType:
             sigBit.red = 16;
@@ -232,6 +233,9 @@ bool SkPngEncoderMgr::setHeader(const SkImageInfo& srcInfo, const SkPngEncoder::
 
 static transform_scanline_proc choose_proc(const SkImageInfo& info) {
     switch (info.colorType()) {
+        case kUnknown_SkColorType:
+            break;
+
         case kRGBA_8888_SkColorType:
             switch (info.alphaType()) {
                 case kOpaque_SkAlphaType:
@@ -272,6 +276,8 @@ static transform_scanline_proc choose_proc(const SkImageInfo& info) {
             }
         case kGray_8_SkColorType:
             return transform_scanline_memcpy;
+
+        case kRGBA_F16Norm_SkColorType:
         case kRGBA_F16_SkColorType:
             switch (info.alphaType()) {
                 case kOpaque_SkAlphaType:
@@ -309,10 +315,9 @@ static transform_scanline_proc choose_proc(const SkImageInfo& info) {
             return transform_scanline_101010x;
         case kAlpha_8_SkColorType:
             return transform_scanline_A8_to_GrayAlpha;
-        default:
-            SkASSERT(false);
-            return nullptr;
     }
+    SkASSERT(false);
+    return nullptr;
 }
 
 static void set_icc(png_structp png_ptr, png_infop info_ptr, const SkImageInfo& info) {

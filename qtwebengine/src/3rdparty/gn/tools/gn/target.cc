@@ -10,12 +10,12 @@
 #include "base/stl_util.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
+#include "tools/gn/c_tool.h"
 #include "tools/gn/config_values_extractors.h"
 #include "tools/gn/deps_iterator.h"
 #include "tools/gn/filesystem_utils.h"
 #include "tools/gn/functions.h"
 #include "tools/gn/scheduler.h"
-#include "tools/gn/source_file_type.h"
 #include "tools/gn/substitution_writer.h"
 #include "tools/gn/tool.h"
 #include "tools/gn/toolchain.h"
@@ -94,8 +94,8 @@ bool EnsureFileIsGeneratedByDependency(const Target* target,
   if (consider_object_files && target->IsBinary()) {
     std::vector<OutputFile> source_outputs;
     for (const SourceFile& source : target->sources()) {
-      Toolchain::ToolType tool_type;
-      if (!target->GetOutputFilesForSource(source, &tool_type, &source_outputs))
+      const char* tool_name;
+      if (!target->GetOutputFilesForSource(source, &tool_name, &source_outputs))
         continue;
       if (base::ContainsValue(source_outputs, file))
         return true;
@@ -279,16 +279,7 @@ Dependencies
 Target::Target(const Settings* settings,
                const Label& label,
                const std::set<SourceFile>& build_dependency_files)
-    : Item(settings, label, build_dependency_files),
-      output_type_(UNKNOWN),
-      output_prefix_override_(false),
-      output_extension_set_(false),
-      all_headers_public_(true),
-      check_includes_(true),
-      complete_static_lib_(false),
-      testonly_(false),
-      create_pri_file_(false),
-      toolchain_(nullptr) {}
+    : Item(settings, label, build_dependency_files) {}
 
 Target::~Target() = default;
 
@@ -408,11 +399,12 @@ bool Target::OnResolved(Err* err) {
 bool Target::IsBinary() const {
   return output_type_ == EXECUTABLE || output_type_ == SHARED_LIBRARY ||
          output_type_ == LOADABLE_MODULE || output_type_ == STATIC_LIBRARY ||
-         output_type_ == SOURCE_SET;
+         output_type_ == SOURCE_SET || output_type_ == RUST_LIBRARY;
 }
 
 bool Target::IsLinkable() const {
-  return output_type_ == STATIC_LIBRARY || output_type_ == SHARED_LIBRARY;
+  return output_type_ == STATIC_LIBRARY || output_type_ == SHARED_LIBRARY ||
+         output_type_ == RUST_LIBRARY;
 }
 
 bool Target::IsFinal() const {
@@ -476,30 +468,28 @@ bool Target::SetToolchain(const Toolchain* toolchain, Err* err) {
                 label().GetUserVisibleName(false).c_str(),
                 GetStringForOutputType(output_type_),
                 label().GetToolchainLabel().GetUserVisibleName(false).c_str(),
-                Toolchain::ToolTypeToName(
-                    toolchain->GetToolTypeForTargetFinalOutput(this))
-                    .c_str()));
+                Tool::GetToolTypeForTargetFinalOutput(this)));
   }
   return false;
 }
 
 bool Target::GetOutputFilesForSource(const SourceFile& source,
-                                     Toolchain::ToolType* computed_tool_type,
+                                     const char** computed_tool_type,
                                      std::vector<OutputFile>* outputs) const {
   outputs->clear();
-  *computed_tool_type = Toolchain::TYPE_NONE;
+  *computed_tool_type = Tool::kToolNone;
 
-  SourceFileType file_type = GetSourceFileType(source);
-  if (file_type == SOURCE_UNKNOWN)
+  SourceFile::Type file_type = source.type();
+  if (file_type == SourceFile::SOURCE_UNKNOWN)
     return false;
-  if (file_type == SOURCE_O) {
+  if (file_type == SourceFile::SOURCE_O) {
     // Object files just get passed to the output and not compiled.
     outputs->push_back(OutputFile(settings()->build_settings(), source));
     return true;
   }
 
-  *computed_tool_type = toolchain_->GetToolTypeForSourceType(file_type);
-  if (*computed_tool_type == Toolchain::TYPE_NONE)
+  *computed_tool_type = Tool::GetToolTypeForSourceType(file_type);
+  if (*computed_tool_type == Tool::kToolNone)
     return false;  // No tool for this file (it's a header file or something).
   const Tool* tool = toolchain_->GetTool(*computed_tool_type);
   if (!tool)
@@ -528,7 +518,8 @@ void Target::PullDependentTargetConfigs() {
 void Target::PullDependentTargetLibsFrom(const Target* dep, bool is_public) {
   // Direct dependent libraries.
   if (dep->output_type() == STATIC_LIBRARY ||
-      dep->output_type() == SHARED_LIBRARY || dep->output_type() == SOURCE_SET)
+      dep->output_type() == SHARED_LIBRARY ||
+      dep->output_type() == SOURCE_SET || dep->output_type() == RUST_LIBRARY)
     inherited_libraries_.Append(dep, is_public);
 
   if (dep->output_type() == SHARED_LIBRARY) {
@@ -670,6 +661,7 @@ bool Target::FillOutputFiles(Err* err) {
             this, tool, tool->runtime_outputs(), &runtime_outputs_);
       }
       break;
+    case RUST_LIBRARY:
     case STATIC_LIBRARY:
       // Static libraries both have dependencies and linking going off of the
       // first output.
@@ -685,30 +677,37 @@ bool Target::FillOutputFiles(Err* err) {
     case SHARED_LIBRARY:
       CHECK(tool->outputs().list().size() >= 1);
       check_tool_outputs = true;
-      if (tool->link_output().empty() && tool->depend_output().empty()) {
+      if (const CTool* ctool = tool->AsC()) {
+        if (ctool->link_output().empty() && ctool->depend_output().empty()) {
+          // Default behavior, use the first output file for both.
+          link_output_file_ = dependency_output_file_ =
+              SubstitutionWriter::ApplyPatternToLinkerAsOutputFile(
+                  this, tool, tool->outputs().list()[0]);
+        } else {
+          // Use the tool-specified ones.
+          if (!ctool->link_output().empty()) {
+            link_output_file_ =
+                SubstitutionWriter::ApplyPatternToLinkerAsOutputFile(
+                    this, tool, ctool->link_output());
+          }
+          if (!ctool->depend_output().empty()) {
+            dependency_output_file_ =
+                SubstitutionWriter::ApplyPatternToLinkerAsOutputFile(
+                    this, tool, ctool->depend_output());
+          }
+        }
+        if (tool->runtime_outputs().list().empty()) {
+          // Default to the link output for the runtime output.
+          runtime_outputs_.push_back(link_output_file_);
+        } else {
+          SubstitutionWriter::ApplyListToLinkerAsOutputFile(
+              this, tool, tool->runtime_outputs(), &runtime_outputs_);
+        }
+      } else if (const RustTool* rstool = tool->AsRust()) {
         // Default behavior, use the first output file for both.
         link_output_file_ = dependency_output_file_ =
             SubstitutionWriter::ApplyPatternToLinkerAsOutputFile(
                 this, tool, tool->outputs().list()[0]);
-      } else {
-        // Use the tool-specified ones.
-        if (!tool->link_output().empty()) {
-          link_output_file_ =
-              SubstitutionWriter::ApplyPatternToLinkerAsOutputFile(
-                  this, tool, tool->link_output());
-        }
-        if (!tool->depend_output().empty()) {
-          dependency_output_file_ =
-              SubstitutionWriter::ApplyPatternToLinkerAsOutputFile(
-                  this, tool, tool->depend_output());
-        }
-      }
-      if (tool->runtime_outputs().list().empty()) {
-        // Default to the link output for the runtime output.
-        runtime_outputs_.push_back(link_output_file_);
-      } else {
-        SubstitutionWriter::ApplyListToLinkerAsOutputFile(
-            this, tool, tool->runtime_outputs(), &runtime_outputs_);
       }
       if (create_pri_file()) {
           dependency_output_file_ = OutputFile(label().name() + ".stamp");
@@ -924,6 +923,7 @@ bool Target::GetMetadata(const std::vector<std::string>& keys_to_extract,
   // Gather walk keys and find the appropriate target. Targets identified in
   // the walk key set must be deps or data_deps of the declaring target.
   const DepsIteratorRange& all_deps = GetDeps(Target::DEPS_ALL);
+  const SourceDir current_dir("//");
   for (const auto& next : next_walk_keys) {
     DCHECK(next.type() == Value::STRING);
 
@@ -948,10 +948,19 @@ bool Target::GetMetadata(const std::vector<std::string>& keys_to_extract,
     }
 
     // Otherwise, look through the target's deps for the specified one.
+    // Canonicalize the label if possible.
+    Label next_label =
+        Label::Resolve(current_dir, settings()->toolchain_label(), next, err);
+    if (next_label.is_null()) {
+      *err = Err(next.origin(), std::string("Failed to canonicalize ") +
+                                    next.string_value() + std::string("."));
+    }
+    std::string canonicalize_next_label = next_label.GetUserVisibleName(true);
+
     bool found_next = false;
     for (const auto& dep : all_deps) {
       // Match against the label with the toolchain.
-      if (dep.label.GetUserVisibleName(true) == next.string_value()) {
+      if (dep.label.GetUserVisibleName(true) == canonicalize_next_label) {
         // If we haven't walked this dep yet, go down into it.
         auto pair = targets_walked->insert(dep.ptr);
         if (pair.second) {
@@ -968,7 +977,7 @@ bool Target::GetMetadata(const std::vector<std::string>& keys_to_extract,
     // Propagate it back to the user.
     if (!found_next) {
       *err = Err(next.origin(),
-                 std::string("I was expecting ") + next.string_value() +
+                 std::string("I was expecting ") + canonicalize_next_label +
                      std::string(" to be a dependency of ") +
                      label().GetUserVisibleName(true) +
                      ". Make sure it's included in the deps or data_deps, and "

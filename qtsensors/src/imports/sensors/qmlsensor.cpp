@@ -40,8 +40,38 @@
 #include "qmlsensor.h"
 #include <QtSensors/QSensor>
 #include <QDebug>
+#include <QtCore/private/qobject_p.h>
 
 QT_BEGIN_NAMESPACE
+
+class QmlSensorPrivate : public QObjectPrivate
+{
+    Q_DECLARE_PUBLIC(QmlSensor)
+public:
+
+    QList<QmlSensorRange *> availableRanges;
+    QList<QmlSensorOutputRange *> outputRanges;
+};
+
+template<typename Item>
+int readonlyListCount(QQmlListProperty<Item> *p)
+{
+    return static_cast<const QList<Item *> *>(p->data)->count();
+}
+
+template<typename Item>
+Item *readonlyListAt(QQmlListProperty<Item> *p, int idx)
+{
+    return static_cast<const QList<Item *> *>(p->data)->at(idx);
+};
+
+template<typename Item>
+QQmlListProperty<Item> readonlyListProperty(const QObject *o, const QList<Item *> *list)
+{
+    // Unfortunately QQmlListProperty won't accept a const object, even on the readonly ctor.
+    return QQmlListProperty<Item>(const_cast<QObject *>(o), const_cast<QList<Item *> *>(list),
+                                  readonlyListCount<Item>, readonlyListAt<Item>);
+}
 
 /*!
     \qmltype Sensor
@@ -59,7 +89,7 @@ QT_BEGIN_NAMESPACE
 */
 
 QmlSensor::QmlSensor(QObject *parent)
-    : QObject(parent)
+    : QObject(*(new QmlSensorPrivate), parent)
     , m_parsed(false)
     , m_active(false)
     , m_reading(0)
@@ -193,19 +223,10 @@ void QmlSensor::setSkipDuplicates(bool skipDuplicates)
 
     Please see QSensor::availableDataRates for information about this property.
 */
-
 QQmlListProperty<QmlSensorRange> QmlSensor::availableDataRates() const
 {
-    QList<QmlSensorRange*> ret;
-    ret.reserve(sensor()->availableDataRates().size());
-    foreach (const qrange &r, sensor()->availableDataRates()) {
-        QmlSensorRange *range = new QmlSensorRange;
-        //QQmlEngine::setObjectOwnership(range, QQmlEngine::JavaScriptOwnership);
-        range->setMinumum(r.first);
-        range->setMaximum(r.second);
-        ret << range;
-    }
-    return QQmlListProperty<QmlSensorRange>(const_cast<QmlSensor*>(this), ret);
+    Q_D(const QmlSensor);
+    return readonlyListProperty<QmlSensorRange>(this, &d->availableRanges);
 }
 
 /*!
@@ -237,17 +258,8 @@ void QmlSensor::setDataRate(int rate)
 
 QQmlListProperty<QmlSensorOutputRange> QmlSensor::outputRanges() const
 {
-    QList<QmlSensorOutputRange*> ret;
-    ret.reserve(sensor()->outputRanges().size());
-    foreach (const qoutputrange &r, sensor()->outputRanges()) {
-        QmlSensorOutputRange *range = new QmlSensorOutputRange;
-        //QQmlEngine::setObjectOwnership(range, QQmlEngine::JavaScriptOwnership);
-        range->setMinimum(r.minimum);
-        range->setMaximum(r.maximum);
-        range->setAccuracy(r.accuracy);
-        ret << range;
-    }
-    return QQmlListProperty<QmlSensorOutputRange>(const_cast<QmlSensor*>(this), ret);
+    Q_D(const QmlSensor);
+    return readonlyListProperty<QmlSensorOutputRange>(this, &d->outputRanges);
 }
 
 /*!
@@ -468,12 +480,31 @@ void QmlSensor::componentComplete()
     if (oldOutputRange != outputRange())
         Q_EMIT outputRangeChanged();
 
+    Q_D(QmlSensor);
+    const auto available = sensor()->availableDataRates();
+    d->availableRanges.reserve(available.size());
+    for (const qrange &r : available) {
+        auto *range = new QmlSensorRange(this);
+        range->setMinumum(r.first);
+        range->setMaximum(r.second);
+        d->availableRanges.append(range);
+    }
+    const auto output = sensor()->outputRanges();
+    d->outputRanges.reserve(output.size());
+    for (const qoutputrange &r : output) {
+        auto *range = new QmlSensorOutputRange(this);
+        range->setMinimum(r.minimum);
+        range->setMaximum(r.maximum);
+        range->setAccuracy(r.accuracy);
+        d->outputRanges.append(range);
+    }
+
     // meta-data should become non-empty
     if (!description().isEmpty())
         Q_EMIT descriptionChanged();
-    if (sensor()->availableDataRates().count())
+    if (available.count())
         Q_EMIT availableDataRatesChanged();
-    if (sensor()->outputRanges().count())
+    if (output.count())
         Q_EMIT outputRangesChanged();
 
     _update();

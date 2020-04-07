@@ -1057,7 +1057,7 @@ IPC_SYNC_MESSAGE_ROUTED4_3(PpapiHostMsg_PPBImageData_CreatePlatform,
                            PP_Bool /* init_to_zero */,
                            ppapi::HostResource /* result_resource */,
                            PP_ImageDataDesc /* image_data_desc */,
-                           ppapi::proxy::ImageHandle /* result */)
+                           ppapi::proxy::SerializedHandle /* result */)
 IPC_SYNC_MESSAGE_ROUTED4_3(PpapiHostMsg_PPBImageData_CreateSimple,
                            PP_Instance /* instance */,
                            int32_t /* format */,
@@ -2375,6 +2375,11 @@ IPC_MESSAGE_CONTROL4(PpapiHostMsg_PDF_SelectionChanged,
                      int32_t /* left_height */,
                      PP_FloatPoint /* right */,
                      int32_t /* right_height */)
+
+// Lets the renderer know that the PDF plugin can handle save commands
+// internally. i.e. It will provide the data to save and trigger the download
+// dialog.
+IPC_MESSAGE_CONTROL1(PpapiHostMsg_PDF_SetPluginCanSave, bool /* can_save */)
 
 // VideoCapture ----------------------------------------------------------------
 

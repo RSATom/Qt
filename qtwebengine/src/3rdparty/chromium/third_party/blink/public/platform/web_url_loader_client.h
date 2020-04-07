@@ -38,8 +38,8 @@
 #include "services/network/public/cpp/cors/preflight_timing_info.h"
 #include "services/network/public/mojom/referrer_policy.mojom-shared.h"
 #include "third_party/blink/public/platform/web_common.h"
-#include "third_party/blink/public/platform/web_data_consumer_handle.h"
 #include "third_party/blink/public/platform/web_url_request.h"
+#include "third_party/blink/public/platform/web_vector.h"
 
 namespace blink {
 
@@ -70,18 +70,11 @@ class BLINK_PLATFORM_EXPORT WebURLLoaderClient {
 
   // Called to report upload progress. The bytes reported correspond to
   // the HTTP message body.
-  virtual void DidSendData(unsigned long long bytes_sent,
-                           unsigned long long total_bytes_to_be_sent) {}
+  virtual void DidSendData(uint64_t bytes_sent,
+                           uint64_t total_bytes_to_be_sent) {}
 
   // Called when response headers are received.
   virtual void DidReceiveResponse(const WebURLResponse&) {}
-
-  // Called when response headers are received.
-  virtual void DidReceiveResponse(
-      const WebURLResponse& response,
-      std::unique_ptr<WebDataConsumerHandle> handle) {
-    DidReceiveResponse(response);
-  }
 
   // Called when the response body becomes available. This method is only called
   // if the request's PassResponsePipeToClient flag was set to true.
@@ -116,7 +109,7 @@ class BLINK_PLATFORM_EXPORT WebURLLoaderClient {
       int64_t total_encoded_body_length,
       int64_t total_decoded_body_length,
       bool should_report_corb_blocking,
-      const std::vector<network::cors::PreflightTimingInfo>&) {}
+      const WebVector<network::cors::PreflightTimingInfo>&) {}
 
   // Called when the load completes with an error.
   // |total_encoded_data_length| may be equal to kUnknownEncodedDataLength.
@@ -124,14 +117,6 @@ class BLINK_PLATFORM_EXPORT WebURLLoaderClient {
                        int64_t total_encoded_data_length,
                        int64_t total_encoded_body_length,
                        int64_t total_decoded_body_length) {}
-
-  // This is a callback set for navigation requests, which should be called
-  // to continue the navigation after starting the main resource request.
-  // This is a workaround for using WebURLLoader machinery for navigation
-  // requests which did already happen in the browser process.
-  // TODO(dgozman): remove this once we no longer use WebURLLoader for
-  // the main resource and instead pass the data directly to CommitNavigation.
-  virtual void SetContinueNavigationRequestCallback(base::OnceClosure) {}
 
   // Value passed to DidFinishLoading when total encoded data length isn't
   // known.

@@ -86,11 +86,11 @@ class SpellCheck : public base::SupportsWeakPtr<SpellCheck>,
   // If optional_suggestions is NULL, suggested words will not be looked up.
   // Note that doing suggest lookups can be slow.
   bool SpellCheckWord(const base::char16* text_begin,
-                      int position_in_text,
-                      int text_length,
+                      size_t position_in_text,
+                      size_t text_length,
                       int tag,
-                      int* misspelling_start,
-                      int* misspelling_len,
+                      size_t* misspelling_start,
+                      size_t* misspelling_len,
                       std::vector<base::string16>* optional_suggestions);
 
   // SpellCheck a paragraph.
@@ -100,11 +100,12 @@ class SpellCheck : public base::SupportsWeakPtr<SpellCheck>,
       const base::string16& text,
       blink::WebVector<blink::WebTextCheckingResult>* results);
 
+#if BUILDFLAG(USE_RENDERER_SPELLCHECKER)
   // Requests to spellcheck the specified text in the background. This function
   // posts a background task and calls SpellCheckParagraph() in the task.
-#if !BUILDFLAG(USE_BROWSER_SPELLCHECKER)
-  void RequestTextChecking(const base::string16& text,
-                           blink::WebTextCheckingCompletion* completion);
+  void RequestTextChecking(
+      const base::string16& text,
+      std::unique_ptr<blink::WebTextCheckingCompletion> completion);
 #endif
 
   // Creates a list of WebTextCheckingResult objects (used by WebKit) from a
@@ -155,20 +156,20 @@ class SpellCheck : public base::SupportsWeakPtr<SpellCheck>,
    void NotifyDictionaryObservers(
        const blink::WebVector<blink::WebString>& words_added);
 
-#if !BUILDFLAG(USE_BROWSER_SPELLCHECKER)
-  // Posts delayed spellcheck task and clear it if any.
-  // Takes ownership of |request|.
-  void PostDelayedSpellCheckTask(SpellcheckRequest* request);
+#if BUILDFLAG(USE_RENDERER_SPELLCHECKER)
+   // Posts delayed spellcheck task and clear it if any.
+   // Takes ownership of |request|.
+   void PostDelayedSpellCheckTask(SpellcheckRequest* request);
 
-  // Performs spell checking from the request queue.
-  void PerformSpellCheck(SpellcheckRequest* request);
+   // Performs spell checking from the request queue.
+   void PerformSpellCheck(SpellcheckRequest* request);
 
-  // The parameters of a pending background-spellchecking request. When WebKit
-  // sends a background-spellchecking request before initializing hunspell,
-  // we save its parameters and start spellchecking after we finish initializing
-  // hunspell. (When WebKit sends two or more requests, we cancel the previous
-  // requests so we do not have to use vectors.)
-  std::unique_ptr<SpellcheckRequest> pending_request_param_;
+   // The parameters of a pending background-spellchecking request. When WebKit
+   // sends a background-spellchecking request before initializing hunspell,
+   // we save its parameters and start spellchecking after we finish
+   // initializing hunspell. (When WebKit sends two or more requests, we cancel
+   // the previous requests so we do not have to use vectors.)
+   std::unique_ptr<SpellcheckRequest> pending_request_param_;
 #endif
 
   // Bindings for SpellChecker clients.
@@ -190,7 +191,7 @@ class SpellCheck : public base::SupportsWeakPtr<SpellCheck>,
   base::ObserverList<DictionaryUpdateObserver>::Unchecked
       dictionary_update_observers_;
 
-  base::WeakPtrFactory<SpellCheck> weak_factory_;
+  base::WeakPtrFactory<SpellCheck> weak_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(SpellCheck);
 };

@@ -13,13 +13,14 @@
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
 #include "base/process/process.h"
+#include "base/unguessable_token.h"
 #include "content/browser/renderer_host/media/video_capture_controller_event_handler.h"
 #include "content/browser/renderer_host/media/video_capture_provider.h"
 #include "content/common/content_export.h"
-#include "content/common/media/video_capture.h"
 #include "content/public/browser/video_capture_device_launcher.h"
 #include "media/capture/video/video_frame_receiver.h"
 #include "media/capture/video_capture_types.h"
+#include "third_party/blink/public/common/media/video_capture.h"
 #include "third_party/blink/public/common/mediastream/media_stream_request.h"
 
 namespace content {
@@ -43,7 +44,7 @@ class CONTENT_EXPORT VideoCaptureController
  public:
   VideoCaptureController(
       const std::string& device_id,
-      blink::MediaStreamType stream_type,
+      blink::mojom::MediaStreamType stream_type,
       const media::VideoCaptureParams& params,
       std::unique_ptr<VideoCaptureDeviceLauncher> device_launcher,
       base::RepeatingCallback<void(const std::string&)> emit_log_message_cb);
@@ -58,27 +59,28 @@ class CONTENT_EXPORT VideoCaptureController
   // Start video capturing and try to use the resolution specified in |params|.
   // Buffers will be shared to the client as necessary. The client will continue
   // to receive frames from the device until RemoveClient() is called.
-  void AddClient(VideoCaptureControllerID id,
+  void AddClient(const VideoCaptureControllerID& id,
                  VideoCaptureControllerEventHandler* event_handler,
-                 media::VideoCaptureSessionId session_id,
+                 const media::VideoCaptureSessionId& session_id,
                  const media::VideoCaptureParams& params);
 
-  // Stop video capture. This will take back all buffers held by by
+  // Stop video capture. This will take back all buffers held by
   // |event_handler|, and |event_handler| shouldn't use those buffers any more.
-  // Returns the session_id of the stopped client, or
-  // kInvalidMediaCaptureSessionId if the indicated client was not registered.
-  int RemoveClient(VideoCaptureControllerID id,
-                   VideoCaptureControllerEventHandler* event_handler);
+  // Returns the session_id of the stopped client, or an empty
+  // base::UnguessableToken if the indicated client was not registered.
+  base::UnguessableToken RemoveClient(
+      const VideoCaptureControllerID& id,
+      VideoCaptureControllerEventHandler* event_handler);
 
   // Pause the video capture for specified client.
-  void PauseClient(VideoCaptureControllerID id,
+  void PauseClient(const VideoCaptureControllerID& id,
                    VideoCaptureControllerEventHandler* event_handler);
   // Resume the video capture for specified client.
   // Returns true if the client will be resumed.
-  bool ResumeClient(VideoCaptureControllerID id,
+  bool ResumeClient(const VideoCaptureControllerID& id,
                     VideoCaptureControllerEventHandler* event_handler);
 
-  int GetClientCount() const;
+  size_t GetClientCount() const;
 
   // Return true if there is client that isn't paused.
   bool HasActiveClient() const;
@@ -88,13 +90,13 @@ class CONTENT_EXPORT VideoCaptureController
 
   // API called directly by VideoCaptureManager in case the device is
   // prematurely closed.
-  void StopSession(int session_id);
+  void StopSession(const base::UnguessableToken& session_id);
 
   // Return a buffer with id |buffer_id| previously given in
   // VideoCaptureControllerEventHandler::OnBufferReady.
   // If the consumer provided resource utilization
   // feedback, this will be passed here (-1.0 indicates no feedback).
-  void ReturnBuffer(VideoCaptureControllerID id,
+  void ReturnBuffer(const VideoCaptureControllerID& id,
                     VideoCaptureControllerEventHandler* event_handler,
                     int buffer_id,
                     double consumer_resource_utilization);
@@ -119,6 +121,7 @@ class CONTENT_EXPORT VideoCaptureController
   void OnLog(const std::string& message) override;
   void OnStarted() override;
   void OnStartedUsingGpuDecode() override;
+  void OnStopped() override;
 
   // Implementation of VideoCaptureDeviceLauncher::Callbacks interface:
   void OnDeviceLaunched(
@@ -146,7 +149,7 @@ class CONTENT_EXPORT VideoCaptureController
                                       base::OnceClosure done_cb);
   int serial_id() const { return serial_id_; }
   const std::string& device_id() const { return device_id_; }
-  blink::MediaStreamType stream_type() const { return stream_type_; }
+  blink::mojom::MediaStreamType stream_type() const { return stream_type_; }
   const media::VideoCaptureParams& parameters() const { return parameters_; }
 
  private:
@@ -215,12 +218,12 @@ class CONTENT_EXPORT VideoCaptureController
   ~VideoCaptureController() override;
 
   // Find a client of |id| and |handler| in |clients|.
-  ControllerClient* FindClient(VideoCaptureControllerID id,
+  ControllerClient* FindClient(const VideoCaptureControllerID& id,
                                VideoCaptureControllerEventHandler* handler,
                                const ControllerClients& clients);
 
   // Find a client of |session_id| in |clients|.
-  ControllerClient* FindClient(int session_id,
+  ControllerClient* FindClient(const base::UnguessableToken& session_id,
                                const ControllerClients& clients);
 
   std::vector<BufferContext>::iterator FindBufferContextFromBufferContextId(
@@ -236,14 +239,14 @@ class CONTENT_EXPORT VideoCaptureController
 
   using EventHandlerAction =
       base::RepeatingCallback<void(VideoCaptureControllerEventHandler* client,
-                                   VideoCaptureControllerID id)>;
+                                   const VideoCaptureControllerID& id)>;
   void PerformForClientsWithOpenSession(EventHandlerAction action);
 
   void EmitLogMessage(const std::string& message, int verbose_log_level);
 
   const int serial_id_;
   const std::string device_id_;
-  const blink::MediaStreamType stream_type_;
+  const blink::mojom::MediaStreamType stream_type_;
   const media::VideoCaptureParams parameters_;
   std::unique_ptr<VideoCaptureDeviceLauncher> device_launcher_;
   base::RepeatingCallback<void(const std::string&)> emit_log_message_cb_;
@@ -257,7 +260,7 @@ class CONTENT_EXPORT VideoCaptureController
 
   // Takes on only the states 'STARTING', 'STARTED' and 'ERROR'. 'ERROR' is an
   // absorbing state which stops the flow of data to clients.
-  VideoCaptureState state_;
+  blink::VideoCaptureState state_;
 
   FrameDropLogState frame_drop_log_state_;
 
@@ -269,7 +272,7 @@ class CONTENT_EXPORT VideoCaptureController
 
   base::Optional<media::VideoCaptureFormat> video_capture_format_;
 
-  base::WeakPtrFactory<VideoCaptureController> weak_ptr_factory_;
+  base::WeakPtrFactory<VideoCaptureController> weak_ptr_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(VideoCaptureController);
 };

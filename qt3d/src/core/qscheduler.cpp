@@ -40,7 +40,7 @@
 #include "qscheduler_p.h"
 
 #include <Qt3DCore/qabstractaspect.h>
-
+#include <Qt3DCore/private/qaspectjob_p.h>
 #include <Qt3DCore/private/qabstractaspect_p.h>
 #include <Qt3DCore/private/qaspectmanager_p.h>
 #include <Qt3DCore/private/qabstractaspectjobmanager_p.h>
@@ -91,6 +91,12 @@ void QScheduler::scheduleAndWaitForFrameAspectJobs(qint64 time)
     // whilst the threadpool works its way through the jobs
 
     m_aspectManager->jobManager()->waitForAllJobs();
+
+    for (auto &job : qAsConst(jobQueue))
+        QAspectJobPrivate::get(job.data())->postFrame(m_aspectManager);
+
+    for (QAbstractAspect *aspect : aspects)
+        QAbstractAspectPrivate::get(aspect)->jobsDone();
 }
 
 } // namespace Qt3DCore

@@ -5,14 +5,18 @@
 * found in the LICENSE file.
 */
 
-#include "GrVkPipeline.h"
-#include "GrGeometryProcessor.h"
-#include "GrPipeline.h"
-#include "GrStencilSettings.h"
-#include "GrVkCommandBuffer.h"
-#include "GrVkGpu.h"
-#include "GrVkRenderTarget.h"
-#include "GrVkUtil.h"
+#include "src/gpu/GrGeometryProcessor.h"
+#include "src/gpu/GrPipeline.h"
+#include "src/gpu/GrStencilSettings.h"
+#include "src/gpu/vk/GrVkCommandBuffer.h"
+#include "src/gpu/vk/GrVkGpu.h"
+#include "src/gpu/vk/GrVkPipeline.h"
+#include "src/gpu/vk/GrVkRenderTarget.h"
+#include "src/gpu/vk/GrVkUtil.h"
+
+#if defined(SK_ENABLE_SCOPED_LSAN_SUPPRESSIONS)
+#include <sanitizer/lsan_interface.h>
+#endif
 
 static inline VkFormat attrib_type_to_vkformat(GrVertexAttribType type) {
     switch (type) {
@@ -70,6 +74,11 @@ static inline VkFormat attrib_type_to_vkformat(GrVertexAttribType type) {
             return VK_FORMAT_R32_SINT;
         case kUint_GrVertexAttribType:
             return VK_FORMAT_R32_UINT;
+        case kUShort_norm_GrVertexAttribType:
+            return VK_FORMAT_R16_UNORM;
+        // Experimental (for Y416)
+        case kUShort4_norm_GrVertexAttribType:
+            return VK_FORMAT_R16G16B16A16_UNORM;
     }
     SK_ABORT("Unknown vertex attrib type");
     return VK_FORMAT_UNDEFINED;
@@ -220,8 +229,20 @@ static VkCompareOp stencil_func_to_vk_compare_op(GrStencilTest test) {
     return gTable[(int)test];
 }
 
-static void setup_depth_stencil_state(const GrStencilSettings& stencilSettings,
-                                      VkPipelineDepthStencilStateCreateInfo* stencilInfo) {
+static void setup_stencil_op_state(
+        VkStencilOpState* opState, const GrStencilSettings::Face& stencilFace) {
+    opState->failOp = stencil_op_to_vk_stencil_op(stencilFace.fFailOp);
+    opState->passOp = stencil_op_to_vk_stencil_op(stencilFace.fPassOp);
+    opState->depthFailOp = opState->failOp;
+    opState->compareOp = stencil_func_to_vk_compare_op(stencilFace.fTest);
+    opState->compareMask = stencilFace.fTestMask;
+    opState->writeMask = stencilFace.fWriteMask;
+    opState->reference = stencilFace.fRef;
+}
+
+static void setup_depth_stencil_state(
+        const GrStencilSettings& stencilSettings, GrSurfaceOrigin origin,
+        VkPipelineDepthStencilStateCreateInfo* stencilInfo) {
     memset(stencilInfo, 0, sizeof(VkPipelineDepthStencilStateCreateInfo));
     stencilInfo->sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
     stencilInfo->pNext = nullptr;
@@ -233,28 +254,12 @@ static void setup_depth_stencil_state(const GrStencilSettings& stencilSettings,
     stencilInfo->depthBoundsTestEnable = VK_FALSE;
     stencilInfo->stencilTestEnable = !stencilSettings.isDisabled();
     if (!stencilSettings.isDisabled()) {
-        // Set front face
-        const GrStencilSettings::Face& front = stencilSettings.front();
-        stencilInfo->front.failOp = stencil_op_to_vk_stencil_op(front.fFailOp);
-        stencilInfo->front.passOp = stencil_op_to_vk_stencil_op(front.fPassOp);
-        stencilInfo->front.depthFailOp = stencilInfo->front.failOp;
-        stencilInfo->front.compareOp = stencil_func_to_vk_compare_op(front.fTest);
-        stencilInfo->front.compareMask = front.fTestMask;
-        stencilInfo->front.writeMask = front.fWriteMask;
-        stencilInfo->front.reference = front.fRef;
-
-        // Set back face
         if (!stencilSettings.isTwoSided()) {
+            setup_stencil_op_state(&stencilInfo->front, stencilSettings.frontAndBack());
             stencilInfo->back = stencilInfo->front;
         } else {
-            const GrStencilSettings::Face& back = stencilSettings.back();
-            stencilInfo->back.failOp = stencil_op_to_vk_stencil_op(back.fFailOp);
-            stencilInfo->back.passOp = stencil_op_to_vk_stencil_op(back.fPassOp);
-            stencilInfo->back.depthFailOp = stencilInfo->front.failOp;
-            stencilInfo->back.compareOp = stencil_func_to_vk_compare_op(back.fTest);
-            stencilInfo->back.compareMask = back.fTestMask;
-            stencilInfo->back.writeMask = back.fWriteMask;
-            stencilInfo->back.reference = back.fRef;
+            setup_stencil_op_state(&stencilInfo->front, stencilSettings.front(origin));
+            setup_stencil_op_state(&stencilInfo->back, stencilSettings.back(origin));
         }
     }
     stencilInfo->minDepthBounds = 0.0f;
@@ -276,7 +281,8 @@ static void setup_viewport_scissor_state(VkPipelineViewportStateCreateInfo* view
     SkASSERT(viewportInfo->viewportCount == viewportInfo->scissorCount);
 }
 
-static void setup_multisample_state(const GrPrimitiveProcessor& primProc,
+static void setup_multisample_state(int numColorSamples,
+                                    const GrPrimitiveProcessor& primProc,
                                     const GrPipeline& pipeline,
                                     const GrCaps* caps,
                                     VkPipelineMultisampleStateCreateInfo* multisampleInfo) {
@@ -284,8 +290,7 @@ static void setup_multisample_state(const GrPrimitiveProcessor& primProc,
     multisampleInfo->sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
     multisampleInfo->pNext = nullptr;
     multisampleInfo->flags = 0;
-    int numSamples = pipeline.proxy()->numColorSamples();
-    SkAssertResult(GrSampleCountToVkSampleCount(numSamples,
+    SkAssertResult(GrSampleCountToVkSampleCount(numColorSamples,
                    &multisampleInfo->rasterizationSamples));
     multisampleInfo->sampleShadingEnable = VK_FALSE;
     multisampleInfo->minSampleShading = 0.0f;
@@ -426,8 +431,7 @@ static bool blend_coeff_refs_constant(GrBlendCoeff coeff) {
 static void setup_color_blend_state(const GrPipeline& pipeline,
                                     VkPipelineColorBlendStateCreateInfo* colorBlendInfo,
                                     VkPipelineColorBlendAttachmentState* attachmentState) {
-    GrXferProcessor::BlendInfo blendInfo;
-    pipeline.getXferProcessor().getBlendInfo(&blendInfo);
+    const GrXferProcessor::BlendInfo& blendInfo = pipeline.getXferProcessor().getBlendInfo();
 
     GrBlendEquation equation = blendInfo.fEquation;
     GrBlendCoeff srcCoeff = blendInfo.fSrcBlend;
@@ -496,12 +500,12 @@ static void setup_dynamic_state(VkPipelineDynamicStateCreateInfo* dynamicInfo,
     dynamicInfo->pDynamicStates = dynamicStates;
 }
 
-GrVkPipeline* GrVkPipeline::Create(GrVkGpu* gpu, const GrPrimitiveProcessor& primProc,
-                                   const GrPipeline& pipeline, const GrStencilSettings& stencil,
-                                   VkPipelineShaderStageCreateInfo* shaderStageInfo,
-                                   int shaderStageCount, GrPrimitiveType primitiveType,
-                                   VkRenderPass compatibleRenderPass, VkPipelineLayout layout,
-                                   VkPipelineCache cache) {
+GrVkPipeline* GrVkPipeline::Create(
+        GrVkGpu* gpu, int numColorSamples, const GrPrimitiveProcessor& primProc,
+        const GrPipeline& pipeline, const GrStencilSettings& stencil, GrSurfaceOrigin origin,
+        VkPipelineShaderStageCreateInfo* shaderStageInfo, int shaderStageCount,
+        GrPrimitiveType primitiveType, VkRenderPass compatibleRenderPass, VkPipelineLayout layout,
+        VkPipelineCache cache) {
     VkPipelineVertexInputStateCreateInfo vertexInputInfo;
     SkSTArray<2, VkVertexInputBindingDescription, true> bindingDescs;
     SkSTArray<16, VkVertexInputAttributeDescription> attributeDesc;
@@ -514,13 +518,13 @@ GrVkPipeline* GrVkPipeline::Create(GrVkGpu* gpu, const GrPrimitiveProcessor& pri
     setup_input_assembly_state(primitiveType, &inputAssemblyInfo);
 
     VkPipelineDepthStencilStateCreateInfo depthStencilInfo;
-    setup_depth_stencil_state(stencil, &depthStencilInfo);
+    setup_depth_stencil_state(stencil, origin, &depthStencilInfo);
 
     VkPipelineViewportStateCreateInfo viewportInfo;
     setup_viewport_scissor_state(&viewportInfo);
 
     VkPipelineMultisampleStateCreateInfo multisampleInfo;
-    setup_multisample_state(primProc, pipeline, gpu->caps(), &multisampleInfo);
+    setup_multisample_state(numColorSamples, primProc, pipeline, gpu->caps(), &multisampleInfo);
 
     // We will only have one color attachment per pipeline.
     VkPipelineColorBlendAttachmentState attachmentStates[1];
@@ -557,10 +561,17 @@ GrVkPipeline* GrVkPipeline::Create(GrVkGpu* gpu, const GrPrimitiveProcessor& pri
     pipelineCreateInfo.basePipelineIndex = -1;
 
     VkPipeline vkPipeline;
-    VkResult err = GR_VK_CALL(gpu->vkInterface(), CreateGraphicsPipelines(gpu->device(),
-                                                                          cache, 1,
-                                                                          &pipelineCreateInfo,
-                                                                          nullptr, &vkPipeline));
+    VkResult err;
+    {
+#if defined(SK_ENABLE_SCOPED_LSAN_SUPPRESSIONS)
+        // skia:8712
+        __lsan::ScopedDisabler lsanDisabler;
+#endif
+        err = GR_VK_CALL(gpu->vkInterface(), CreateGraphicsPipelines(gpu->device(),
+                                                                     cache, 1,
+                                                                     &pipelineCreateInfo,
+                                                                     nullptr, &vkPipeline));
+    }
     if (err) {
         SkDebugf("Failed to create pipeline. Error: %d\n", err);
         return nullptr;
@@ -614,16 +625,14 @@ void GrVkPipeline::SetDynamicViewportState(GrVkGpu* gpu,
 
 void GrVkPipeline::SetDynamicBlendConstantState(GrVkGpu* gpu,
                                                 GrVkCommandBuffer* cmdBuffer,
-                                                GrPixelConfig pixelConfig,
+                                                const GrSwizzle& swizzle,
                                                 const GrXferProcessor& xferProcessor) {
-    GrXferProcessor::BlendInfo blendInfo;
-    xferProcessor.getBlendInfo(&blendInfo);
+    const GrXferProcessor::BlendInfo& blendInfo = xferProcessor.getBlendInfo();
     GrBlendCoeff srcCoeff = blendInfo.fSrcBlend;
     GrBlendCoeff dstCoeff = blendInfo.fDstBlend;
     float floatColors[4];
     if (blend_coeff_refs_constant(srcCoeff) || blend_coeff_refs_constant(dstCoeff)) {
         // Swizzle the blend to match what the shader will output.
-        const GrSwizzle& swizzle = gpu->caps()->shaderCaps()->configOutputSwizzle(pixelConfig);
         SkPMColor4f blendConst = swizzle.applyTo(blendInfo.fBlendConstant);
         floatColors[0] = blendConst.fR;
         floatColors[1] = blendConst.fG;

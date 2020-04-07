@@ -62,7 +62,7 @@ static bool prependPath()
 {
     enum { maxEnvironmentSize = 32767 };
     wchar_t buffer[maxEnvironmentSize];
-    if (!GetModuleFileName(NULL, buffer, maxEnvironmentSize))
+    if (!GetModuleFileName(nullptr, buffer, maxEnvironmentSize))
         return false;
     wchar_t *ptr = wcsrchr(buffer, L'\\');
     if (!ptr)
@@ -75,10 +75,10 @@ static bool prependPath()
 
 static QString errorString(DWORD errorCode)
 {
-    wchar_t *resultW = 0;
+    wchar_t *resultW = nullptr;
     FormatMessage(FORMAT_MESSAGE_ALLOCATE_BUFFER|FORMAT_MESSAGE_FROM_SYSTEM,
-                  NULL, errorCode, MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
-                  reinterpret_cast<LPWSTR>(&resultW), 0, NULL);
+                  nullptr, errorCode, MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
+                  reinterpret_cast<LPWSTR>(&resultW), 0, nullptr);
     const QString result = QString::fromWCharArray(resultW);
     LocalFree(resultW);
     return result;
@@ -107,7 +107,7 @@ static bool runWithQtInEnvironment(const QString &cmd)
     QScopedArrayPointer<wchar_t> commandLineW(new wchar_t[cmd.size() + 1]);
     cmd.toWCharArray(commandLineW.data());
     commandLineW[cmd.size()] = 0;
-    if (!CreateProcessW(0, commandLineW.data(), 0, 0, /* InheritHandles */ TRUE, 0, 0, 0, &si, &pi)) {
+    if (!CreateProcessW(nullptr, commandLineW.data(), nullptr, nullptr, /* InheritHandles */ TRUE, 0, nullptr, nullptr, &si, &pi)) {
         fprintf(stderr, "Unable to execute \"%s\": %s\n", qPrintable(cmd),
                 qPrintable(errorString(GetLastError())));
         return false;
@@ -139,7 +139,7 @@ static bool runWithQtInEnvironment(const QString &cmd)
 static bool attachTypeLibrary(const QString &applicationName, int resource, const QByteArray &data, QString *errorMessage)
 {
     HANDLE hExe = BeginUpdateResource(reinterpret_cast<const wchar_t *>(applicationName.utf16()), false);
-    if (hExe == 0) {
+    if (hExe == nullptr) {
         if (errorMessage)
             *errorMessage = QString::fromLatin1("Failed to attach type library to binary %1 - could not open file.").arg(applicationName);
         return false;
@@ -177,54 +177,82 @@ static HMODULE loadLibraryQt(const QString &input)
     // Load DLL with the folder containing the DLL temporarily added to the search path when loading dependencies
     const UINT oldErrorMode = SetErrorMode(SEM_FAILCRITICALERRORS);
     HMODULE result =
-        LoadLibraryEx(inputC, NULL, LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
+        LoadLibraryEx(inputC, nullptr, LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
     // If that fails, call with flags=0 to get LoadLibrary() behavior (search %PATH%).
     if (!result)
-        result = LoadLibraryEx(inputC, NULL, 0);
+        result = LoadLibraryEx(inputC, nullptr, 0);
     SetErrorMode(oldErrorMode);
     return result;
 }
 
-static bool registerServer(const QString &input)
+static bool dllInstall(const QString &input, bool doRegister)
+{
+    HMODULE hdll = loadLibraryQt(input);
+    if (!hdll) {
+        fprintf(stderr, "Couldn't load library file %s\n", qPrintable(input));
+        return false;
+    }
+
+    typedef HRESULT(__stdcall* DllInstallProc)(BOOL bInstall, PCWSTR pszCmdLine);
+    DllInstallProc DllInstall = reinterpret_cast<DllInstallProc>(GetProcAddress(hdll, "DllInstall"));
+    if (!DllInstall) {
+        fprintf(stderr, "Library file %s doesn't appear to be a COM library supporting DllInstall\n", qPrintable(input));
+        return false;
+    }
+
+    return DllInstall(doRegister, L"user") == S_OK;
+}
+
+static bool registerServer(const QString &input, bool perUser)
 {
     bool ok = false;
     if (hasExeExtension(input)) {
-        ok = runWithQtInEnvironment(quotePath(input) + QLatin1String(" -regserver"));
+        ok = runWithQtInEnvironment(quotePath(input) + QLatin1String(perUser ? " -regserverperuser" : " -regserver"));
     } else {
-        HMODULE hdll = loadLibraryQt(input);
-        if (!hdll) {
-            fprintf(stderr, "Couldn't load library file %s\n", qPrintable(input));
-            return false;
+        if (perUser) {
+            return dllInstall(input, true);
+        } else {
+            HMODULE hdll = loadLibraryQt(input);
+            if (!hdll) {
+                fprintf(stderr, "Couldn't load library file %s\n", qPrintable(input));
+                return false;
+            }
+
+            typedef HRESULT(__stdcall* RegServerProc)();
+            RegServerProc DllRegisterServer = reinterpret_cast<RegServerProc>(GetProcAddress(hdll, "DllRegisterServer"));
+            if (!DllRegisterServer) {
+                fprintf(stderr, "Library file %s doesn't appear to be a COM library\n", qPrintable(input));
+                return false;
+            }
+            ok = DllRegisterServer() == S_OK;
         }
-        typedef HRESULT(__stdcall* RegServerProc)();
-        RegServerProc DllRegisterServer = reinterpret_cast<RegServerProc>(GetProcAddress(hdll, "DllRegisterServer"));
-        if (!DllRegisterServer) {
-            fprintf(stderr, "Library file %s doesn't appear to be a COM library\n", qPrintable(input));
-            return false;
-        }
-        ok = DllRegisterServer() == S_OK;
     }
     return ok;
 }
 
-static bool unregisterServer(const QString &input)
+static bool unregisterServer(const QString &input, bool perUser)
 {
     bool ok = false;
     if (hasExeExtension(input)) {
-        ok = runWithQtInEnvironment(quotePath(input) + QLatin1String(" -unregserver"));
+        ok = runWithQtInEnvironment(quotePath(input) + QLatin1String(perUser ? " -unregserverperuser" : " -unregserver"));
     } else {
-        HMODULE hdll = loadLibraryQt(input);
-        if (!hdll) {
-            fprintf(stderr, "Couldn't load library file %s\n", qPrintable(input));
-            return false;
+        if (perUser) {
+            return dllInstall(input, false);
+        } else {
+            HMODULE hdll = loadLibraryQt(input);
+            if (!hdll) {
+                fprintf(stderr, "Couldn't load library file %s\n", qPrintable(input));
+                return false;
+            }
+
+            typedef HRESULT(__stdcall* RegServerProc)();
+            RegServerProc DllUnregisterServer = reinterpret_cast<RegServerProc>(GetProcAddress(hdll, "DllUnregisterServer"));
+            if (!DllUnregisterServer) {
+                fprintf(stderr, "Library file %s doesn't appear to be a COM library\n", qPrintable(input));
+                return false;
+            }
+            ok = DllUnregisterServer() == S_OK;
         }
-        typedef HRESULT(__stdcall* RegServerProc)();
-        RegServerProc DllUnregisterServer = reinterpret_cast<RegServerProc>(GetProcAddress(hdll, "DllUnregisterServer"));
-        if (!DllUnregisterServer) {
-            fprintf(stderr, "Library file %s doesn't appear to be a COM library\n", qPrintable(input));
-            return false;
-        }
-        ok = DllUnregisterServer() == S_OK;
     }
     return ok;
 }
@@ -268,6 +296,8 @@ const char usage[] =
 "  /tlb, -tlb <file>                 Specify the type library file.\n"
 "  /regserver, -regserver            Register server.\n"
 "  /unregserver, -unregserver        Unregister server.\n\n"
+"  /regserverperuser, -regserverperuser     Per-user register server.\n"
+"  /unregserverperuser, -unregserverperuser Per-user unregister server.\n\n"
 "Examples:\n"
 "idc -regserver l.dll                Register the COM server l.dll\n"
 "idc -unregserver l.dll              Unregister the COM server l.dll\n"
@@ -275,7 +305,7 @@ const char usage[] =
 "                                    The type library will have version 2.3\n"
 "idc l.dll -tlb l.tlb                Replaces the type library in l.dll with l.tlb\n";
 
-enum Mode { RegisterServer, UnregisterServer, Other };
+enum Mode { RegisterServer, UnregisterServer, RegServerPerUser, UnregServerPerUser, Other };
 
 int runIdc(int argc, char **argv)
 {
@@ -320,6 +350,10 @@ int runIdc(int argc, char **argv)
             mode = RegisterServer;
         } else if (p == QLatin1String("/unregserver") || p == QLatin1String("-unregserver")) {
             mode = UnregisterServer;
+        } else if (p == QLatin1String("/regserverperuser") || p == QLatin1String("-regserverperuser")) {
+            mode = RegServerPerUser;
+        } else if (p == QLatin1String("/unregserverperuser") || p == QLatin1String("-unregserverperuser")) {
+            mode = UnregServerPerUser;
         } else if (p[0] == QLatin1Char('/') || p[0] == QLatin1Char('-')) {
             error = QLatin1String("Unknown option \"") + p + QLatin1Char('"');
             break;
@@ -342,18 +376,32 @@ int runIdc(int argc, char **argv)
 
     switch (mode) {
     case RegisterServer:
-        if (!registerServer(input)) {
+        if (!registerServer(input, false)) {
             fprintf(stderr, "Failed to register server!\n");
             return 1;
         }
         fprintf(stderr, "Server registered successfully!\n");
         return 0;
     case UnregisterServer:
-        if (!unregisterServer(input)) {
+        if (!unregisterServer(input, false)) {
             fprintf(stderr, "Failed to unregister server!\n");
             return 1;
         }
         fprintf(stderr, "Server unregistered successfully!\n");
+        return 0;
+    case RegServerPerUser:
+        if (!registerServer(input, true)) {
+            fprintf(stderr, "Failed to register server per user!\n");
+            return 1;
+        }
+        fprintf(stderr, "Server registered successfully per user!\n");
+        return 0;
+    case UnregServerPerUser:
+        if (!unregisterServer(input, true)) {
+            fprintf(stderr, "Failed to unregister server per user!\n");
+            return 1;
+        }
+        fprintf(stderr, "Server unregistered successfully per user!\n");
         return 0;
     case Other:
         break;

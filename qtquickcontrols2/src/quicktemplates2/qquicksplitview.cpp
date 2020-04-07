@@ -50,12 +50,12 @@ QT_BEGIN_NAMESPACE
 /*!
     \qmltype SplitView
     \inherits Control
-    \instantiates QQuickSplitView
+//!     \instantiates QQuickSplitView
     \inqmlmodule QtQuick.Controls
     \since 5.13
     \ingroup qtquickcontrols2-containers
     \ingroup qtquickcontrols2-focusscopes
-    \brief Lays out items with a draggable splitter between each item
+    \brief Lays out items with a draggable splitter between each item.
 
     SplitView is a control that lays out items horizontally or vertically with
     a draggable splitter between each item.
@@ -63,25 +63,28 @@ QT_BEGIN_NAMESPACE
     SplitView supports the following attached properties on items it manages:
 
     \list
-    \li \l SplitView.minimumWidth
-    \li \l SplitView.minimumHeight
-    \li \l SplitView.preferredWidth
-    \li \l SplitView.preferredHeight
-    \li \l SplitView.maximumWidth
-    \li \l SplitView.maximumHeight
-    \li \l SplitView.fillWidth (true for only one child)
-    \li \l SplitView.fillHeight (true for only one child)
+    \li \l{minimumWidth}{SplitView.minimumWidth}
+    \li \l{minimumHeight}{SplitView.minimumHeight}
+    \li \l{preferredWidth}{SplitView.preferredWidth}
+    \li \l{preferredHeight}{SplitView.preferredHeight}
+    \li \l{maximumWidth}{SplitView.maximumWidth}
+    \li \l{maximumHeight}{SplitView.maximumHeight}
+    \li \l{fillWidth}{SplitView.fillWidth} (true for only one child)
+    \li \l{fillHeight}{SplitView.fillHeight} (true for only one child)
     \endlist
 
     In addition, each handle has the following read-only attached properties:
 
     \list
-    \li \l SplitHandle.hovered
-    \li \l SplitHandle.pressed
+    \li \l{SplitHandle::hovered}{SplitHandle.hovered}
+    \li \l{SplitHandle::pressed}{SplitHandle.pressed}
     \endlist
 
+    \note Handles should be purely visual and not handle events, as it can
+    interfere with their hovered and pressed states.
+
     The preferred size of items in a SplitView can be specified via
-    \l {Item::}{implicitWidth} and \l {Item::}{implicitHeight} or
+    \l{Item::}{implicitWidth} and \l{Item::}{implicitHeight} or
     \c SplitView.preferredWidth and \c SplitView.preferredHeight:
 
     \code
@@ -849,6 +852,8 @@ QQuickSplitViewPrivate::EffectiveSizeData QQuickSplitViewPrivate::effectiveSizeD
 
 int QQuickSplitViewPrivate::handleIndexForSplitIndex(int splitIndex) const
 {
+    // If it's the first and only item in the view, it doesn't have a handle,
+    // so return -1: splitIndex (0) - 1.
     // If it's the last item in the view, it doesn't have a handle, so use
     // the handle for the previous item.
     return splitIndex == contentModel->count() - 1 ? splitIndex - 1 : splitIndex;
@@ -907,6 +912,40 @@ void QQuickSplitViewPrivate::updateHandleVisibilities()
     }
 }
 
+void QQuickSplitViewPrivate::updateHoveredHandle(QQuickItem *hoveredItem)
+{
+    Q_Q(QQuickSplitView);
+    const int oldHoveredHandleIndex = m_hoveredHandleIndex;
+    m_hoveredHandleIndex = m_handleItems.indexOf(hoveredItem);
+    if (m_hoveredHandleIndex == oldHoveredHandleIndex)
+        return;
+
+    // First, clear the hovered flag of any previously-hovered handle.
+    if (oldHoveredHandleIndex != -1) {
+        QQuickItem *oldHoveredHandle = m_handleItems.at(oldHoveredHandleIndex);
+        QQuickSplitHandleAttached *oldHoveredHandleAttached = qobject_cast<QQuickSplitHandleAttached*>(
+            qmlAttachedPropertiesObject<QQuickSplitHandleAttached>(oldHoveredHandle, true));
+        QQuickSplitHandleAttachedPrivate::get(oldHoveredHandleAttached)->setHovered(false);
+        qCDebug(qlcQQuickSplitViewMouse) << "handle item at index" << oldHoveredHandleIndex << "is no longer hovered";
+    }
+
+    if (m_hoveredHandleIndex != -1) {
+        QQuickSplitHandleAttached *handleAttached = qobject_cast<QQuickSplitHandleAttached*>(
+            qmlAttachedPropertiesObject<QQuickSplitHandleAttached>(hoveredItem, true));
+        QQuickSplitHandleAttachedPrivate::get(handleAttached)->setHovered(true);
+        qCDebug(qlcQQuickSplitViewMouse) << "handle item at index" << m_hoveredHandleIndex << "is now hovered";
+    } else {
+        qCDebug(qlcQQuickSplitViewMouse) << "either there is no hovered item or" << hoveredItem << "is not a handle";
+    }
+
+#if QT_CONFIG(cursor)
+    if (m_hoveredHandleIndex != -1)
+        q->setCursor(m_orientation == Qt::Horizontal ? Qt::SplitHCursor : Qt::SplitVCursor);
+    else
+        q->setCursor(Qt::ArrowCursor);
+#endif
+}
+
 void QQuickSplitViewPrivate::setResizing(bool resizing)
 {
     Q_Q(QQuickSplitView);
@@ -928,7 +967,6 @@ QQuickItem *QQuickSplitViewPrivate::getContentItem()
     if (QQuickItem *item = QQuickContainerPrivate::getContentItem())
         return item;
 
-    // TODO: why are several created?
     return new QQuickContentItem(q);
 }
 
@@ -1016,11 +1054,13 @@ void QQuickSplitViewPrivate::itemVisibilityChanged(QQuickItem *item)
     // of the corresponding handle (if one exists).
 
     const int handleIndex = handleIndexForSplitIndex(itemIndex);
-    QQuickItem *handleItem = m_handleItems.at(handleIndex);
-    handleItem->setVisible(item->isVisible());
+    if (handleIndex != -1) {
+        QQuickItem *handleItem = m_handleItems.at(handleIndex);
+        handleItem->setVisible(item->isVisible());
 
-    qCDebug(qlcQQuickSplitView) << "set visible property of handle item"
-        << handleItem << "at index" << handleIndex << "to" << item->isVisible();
+        qCDebug(qlcQQuickSplitView) << "set visible property of handle item"
+            << handleItem << "at index" << handleIndex << "to" << item->isVisible();
+    }
 
     updateHandleVisibilities();
     updateFillIndex();
@@ -1054,6 +1094,7 @@ QQuickSplitView::QQuickSplitView(QQuickItem *parent)
     d->changeTypes |= QQuickItemPrivate::Visibility;
 
     setAcceptedMouseButtons(Qt::LeftButton);
+    setFiltersChildMouseEvents(true);
 }
 
 QQuickSplitView::QQuickSplitView(QQuickSplitViewPrivate &dd, QQuickItem *parent)
@@ -1063,6 +1104,7 @@ QQuickSplitView::QQuickSplitView(QQuickSplitViewPrivate &dd, QQuickItem *parent)
     d->changeTypes |= QQuickItemPrivate::Visibility;
 
     setAcceptedMouseButtons(Qt::LeftButton);
+    setFiltersChildMouseEvents(true);
 }
 
 QQuickSplitView::~QQuickSplitView()
@@ -1122,7 +1164,7 @@ bool QQuickSplitView::isResizing() const
     This property holds the handle component.
 
     An instance of this component will be instantiated \c {count - 1}
-    times, as long as \l count is greater than than \c {1}.
+    times, as long as \c count is greater than than \c {1}.
 
     The following table explains how each handle will be resized
     depending on the orientation of the split view:
@@ -1135,10 +1177,10 @@ bool QQuickSplitView::isResizing() const
         \row
             \li \c Qt.Horizontal
             \li \c implicitWidth
-            \li The \l height of the SplitView.
+            \li The \c height of the SplitView.
         \row
             \li \c Qt.Vertical
-            \li The \l width of the SplitView.
+            \li The \c width of the SplitView.
             \li \c implicitHeight
     \endtable
 
@@ -1324,52 +1366,21 @@ void QQuickSplitView::hoverMoveEvent(QHoverEvent *event)
     QQuickContainer::hoverMoveEvent(event);
 
     QQuickItem *hoveredItem = childAt(event->pos().x(), event->pos().y());
-    if (!hoveredItem) {
-        // No handle is hovered.
-        if (d->m_hoveredHandleIndex != -1) {
-            // The previously-hovered handle is no longer hovered.
-            QQuickItem *oldHoveredHandle = d->m_handleItems.at(d->m_hoveredHandleIndex);
-            QQuickSplitHandleAttached *handleAttached = qobject_cast<QQuickSplitHandleAttached*>(
-                qmlAttachedPropertiesObject<QQuickSplitHandleAttached>(oldHoveredHandle, true));
-            QQuickSplitHandleAttachedPrivate::get(handleAttached)->setHovered(false);
-        }
+    d->updateHoveredHandle(hoveredItem);
+}
 
-        qCDebug(qlcQQuickSplitViewMouse) << "handle item at index" << d->m_hoveredHandleIndex << "is no longer hovered";
+bool QQuickSplitView::childMouseEventFilter(QQuickItem *item, QEvent *event)
+{
+    Q_D(QQuickSplitView);
+    qCDebug(qlcQQuickSplitViewMouse) << "childMouseEventFilter called with" << item << event;
+    if (event->type() != QEvent::HoverEnter)
+        return false;
 
-        d->m_hoveredHandleIndex = -1;
-
-#if QT_CONFIG(cursor)
-        setCursor(Qt::ArrowCursor);
-#endif
-    } else {
-        // A child item of ours is hovered.
-
-        // First, clear the hovered flag of any previously-hovered handle.
-        if (d->m_hoveredHandleIndex != -1) {
-            QQuickItem *oldHoveredHandle = d->m_handleItems.at(d->m_hoveredHandleIndex);
-            QQuickSplitHandleAttached *handleAttached = qobject_cast<QQuickSplitHandleAttached*>(
-                qmlAttachedPropertiesObject<QQuickSplitHandleAttached>(oldHoveredHandle, true));
-            QQuickSplitHandleAttachedPrivate::get(handleAttached)->setHovered(false);
-        }
-
-        // Now check if the newly hovered item is actually a handle.
-        const int hoveredHandleIndex = d->m_handleItems.indexOf(hoveredItem);
-        if (hoveredHandleIndex == -1)
-            return;
-
-        // It's a handle, so it's now hovered.
-        d->m_hoveredHandleIndex = hoveredHandleIndex;
-
-        QQuickSplitHandleAttached *handleAttached = qobject_cast<QQuickSplitHandleAttached*>(
-            qmlAttachedPropertiesObject<QQuickSplitHandleAttached>(hoveredItem, true));
-        QQuickSplitHandleAttachedPrivate::get(handleAttached)->setHovered(true);
-
-#if QT_CONFIG(cursor)
-        setCursor(d->m_orientation == Qt::Horizontal ? Qt::SplitHCursor : Qt::SplitVCursor);
-#endif
-
-        qCDebug(qlcQQuickSplitViewMouse) << "handle item at index" << d->m_hoveredHandleIndex << "is now hovered";
-    }
+    // If a child item received a hover enter event, then it means our handle is no longer hovered.
+    // Handles should be purely visual and not accept hover events,
+    // so we should never get hover events for them here.
+    d->updateHoveredHandle(nullptr);
+    return false;
 }
 
 void QQuickSplitView::geometryChanged(const QRectF &newGeometry, const QRectF &oldGeometry)
@@ -1623,7 +1634,7 @@ void QQuickSplitViewAttached::resetMinimumHeight()
     \l {Item::}{implicitWidth} will be used instead. To reset this property to
     its default value, set it to \c undefined.
 
-    \note Do not set the \l width property of a split item, as it will be
+    \note Do not set the \l{Item::}{width} property of a split item, as it will be
     overwritten upon each layout of the SplitView.
 
     \sa minimumWidth, maximumWidth, fillWidth, preferredHeight
@@ -1683,16 +1694,16 @@ void QQuickSplitViewAttached::resetPreferredWidth()
     This attached property controls the preferred height of the split item. The
     preferred height will be used as the size of the item, and will be bound
     within the \l minimumHeight and \l maximumHeight. If the preferred height
-    is not set, the item's \l {Item::}{implicitHeight} will be used.
+    is not set, the item's \l{Item::}{implicitHeight} will be used.
 
     When a split item is resized, the preferredHeight will be set in order
     to keep track of the new size.
 
     By default, this property is not set, and therefore
-    \l {Item::}{implicitHeight} will be used instead. To reset this property to
+    \l{Item::}{implicitHeight} will be used instead. To reset this property to
     its default value, set it to \c undefined.
 
-    \note Do not set the \l height property of a split item, as it will be
+    \note Do not set the \l{Item:}{height} property of a split item, as it will be
     overwritten upon each layout of the SplitView.
 
     \sa minimumHeight, maximumHeight, fillHeight, preferredWidth
@@ -2001,10 +2012,10 @@ QQuickSplitHandleAttached::QQuickSplitHandleAttached(QObject *parent)
 /*!
     \qmltype SplitHandle
     \inherits QtObject
-    \instantiates QQuickSplitHandleAttached
+//!     \instantiates QQuickSplitHandleAttached
     \inqmlmodule QtQuick.Controls
     \since 5.13
-    \brief Provides attached properties for SplitView handles
+    \brief Provides attached properties for SplitView handles.
 
     SplitHandle provides attached properties for \l SplitView handles.
 

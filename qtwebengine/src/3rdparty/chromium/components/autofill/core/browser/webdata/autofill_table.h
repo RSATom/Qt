@@ -452,8 +452,8 @@ class AutofillTable : public WebDatabaseTable,
   bool RemoveAutofillDataModifiedBetween(
       const base::Time& delete_begin,
       const base::Time& delete_end,
-      std::vector<std::string>* profile_guids,
-      std::vector<std::string>* credit_card_guids);
+      std::vector<std::unique_ptr<AutofillProfile>>* profiles,
+      std::vector<std::unique_ptr<CreditCard>>* credit_cards);
 
   // Removes origin URLs from the autofill_profiles and credit_cards tables if
   // they were written on or after |delete_begin| and strictly before
@@ -561,11 +561,9 @@ class AutofillTable : public WebDatabaseTable,
       AutofillTableTest,
       Autofill_RemoveFormElementsAddedBetween_OlderThan30Days);
   FRIEND_TEST_ALL_PREFIXES(AutofillTableTest,
-                           RemoveExpiredFormElements_FlagOff_Removes);
+                           RemoveExpiredFormElements_Expires_DeleteEntry);
   FRIEND_TEST_ALL_PREFIXES(AutofillTableTest,
-                           RemoveExpiredFormElements_FlagOn_Expires);
-  FRIEND_TEST_ALL_PREFIXES(AutofillTableTest,
-                           RemoveExpiredFormElements_FlagOn_NotOldEnough);
+                           RemoveExpiredFormElements_NotOldEnough);
   FRIEND_TEST_ALL_PREFIXES(AutofillTableTest, Autofill_AddFormFieldValues);
   FRIEND_TEST_ALL_PREFIXES(AutofillTableTest, AutofillProfile);
   FRIEND_TEST_ALL_PREFIXES(AutofillTableTest, UpdateAutofillProfile);

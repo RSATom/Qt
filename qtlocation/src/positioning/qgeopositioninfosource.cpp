@@ -103,6 +103,16 @@ Q_GLOBAL_STATIC_WITH_ARGS(QFactoryLoader, loader,
     \value AllPositioningMethods Satellite-based positioning methods as soon as available. Otherwise non-satellite based methods.
 */
 
+QGeoPositionInfoSourcePrivate *QGeoPositionInfoSourcePrivate::get(const QGeoPositionInfoSource &source)
+{
+    return source.d;
+}
+
+QGeoPositionInfoSourcePrivate::~QGeoPositionInfoSourcePrivate()
+{
+
+}
+
 void QGeoPositionInfoSourcePrivate::loadMeta()
 {
     metaData = plugins().value(providerName);
@@ -113,7 +123,24 @@ void QGeoPositionInfoSourcePrivate::loadPlugin()
     int idx = int(metaData.value(QStringLiteral("index")).toDouble());
     if (idx < 0)
         return;
-    factory = qobject_cast<QGeoPositionInfoSourceFactory *>(loader()->instance(idx));
+    QObject *instance = loader()->instance(idx);
+    if (!instance)
+        return;
+    factoryV2 = qobject_cast<QGeoPositionInfoSourceFactoryV2 *>(instance);
+    if (!factoryV2)
+        factory = qobject_cast<QGeoPositionInfoSourceFactory *>(instance);
+    else
+        factory = factoryV2;
+}
+
+bool QGeoPositionInfoSourcePrivate::setBackendProperty(const QString &/*name*/, const QVariant & /*value*/)
+{
+    return false;
+}
+
+QVariant QGeoPositionInfoSourcePrivate::backendProperty(const QString &/*name*/) const
+{
+    return QVariant();
 }
 
 QHash<QString, QJsonObject> QGeoPositionInfoSourcePrivate::plugins(bool reload)
@@ -204,6 +231,36 @@ QString QGeoPositionInfoSource::sourceName() const
 }
 
 /*!
+    Sets the backend-specific property named \a name to \a value.
+    Returns \c true on success, \c false otherwise.
+    Backend-specific properties can be used to configure the positioning subsystem behavior
+    at runtime.
+    Supported backend-specific properties are listed and described in
+    \l {Qt Positioning plugins#Default plugins}.
+
+    \sa backendProperty
+    \since Qt 5.14
+*/
+bool QGeoPositionInfoSource::setBackendProperty(const QString &name, const QVariant &value)
+{
+    return d->setBackendProperty(name, value);
+}
+
+/*!
+    Returns the value of the backend-specific property named \a name, if present.
+    Otherwise, the returned value will be invalid.
+    Supported backend-specific properties are listed and described in
+    \l {Qt Positioning plugins#Default plugins}.
+
+    \sa setBackendProperty
+    \since Qt 5.14
+*/
+QVariant QGeoPositionInfoSource::backendProperty(const QString &name) const
+{
+    return d->backendProperty(name);
+}
+
+/*!
     \property QGeoPositionInfoSource::updateInterval
     \brief This property holds the requested interval in milliseconds between each update.
 
@@ -271,6 +328,22 @@ QGeoPositionInfoSource::PositioningMethods QGeoPositionInfoSource::preferredPosi
     return d->methods;
 }
 
+static QGeoPositionInfoSource* createSource_real(const QJsonObject &meta, const QVariantMap &parameters, QObject *parent)
+{
+    QGeoPositionInfoSourcePrivate d;
+    d.metaData = meta;
+    d.loadPlugin();
+    QGeoPositionInfoSource *s = nullptr;
+    if (!parameters.isEmpty() && d.factoryV2)
+        s = d.factoryV2->positionInfoSourceWithParameters(parent, parameters);
+    else if (d.factory)
+        s = d.factory->positionInfoSource(parent);
+    if (s)
+        QGeoPositionInfoSourcePrivate::get(*s)->metaData = d.metaData;
+
+    return s;
+}
+
 /*!
     Creates and returns a position source with the given \a parent that
     reads from the system's default sources of location data, or the plugin
@@ -281,26 +354,34 @@ QGeoPositionInfoSource::PositioningMethods QGeoPositionInfoSource::preferredPosi
 */
 QGeoPositionInfoSource *QGeoPositionInfoSource::createDefaultSource(QObject *parent)
 {
+    return createDefaultSource(QVariantMap(), parent);
+}
+
+/*!
+    Creates and returns a position source with the given \a parent that
+    reads from the system's default sources of location data, or the plugin
+    with the highest available priority.
+
+    Returns nullptr if the system has no default position source, no valid plugins
+    could be found or the user does not have the permission to access the current position.
+
+    This method passes \a parameters to the factory to configure the source.
+
+    \since Qt 5.14
+*/
+QGeoPositionInfoSource *QGeoPositionInfoSource::createDefaultSource(const QVariantMap &parameters, QObject *parent)
+{
     QList<QJsonObject> plugins = QGeoPositionInfoSourcePrivate::pluginsSorted();
     foreach (const QJsonObject &obj, plugins) {
         if (obj.value(QStringLiteral("Position")).isBool()
-                && obj.value(QStringLiteral("Position")).toBool())
-        {
-            QGeoPositionInfoSourcePrivate d;
-            d.metaData = obj;
-            d.loadPlugin();
-            QGeoPositionInfoSource *s = 0;
-            if (d.factory)
-                s = d.factory->positionInfoSource(parent);
-            if (s) {
-                s->d->metaData = d.metaData;
-                return s;
-            }
+                && obj.value(QStringLiteral("Position")).toBool()) {
+            QGeoPositionInfoSource *source = createSource_real(obj, parameters, parent);
+            if (source)
+                return source;
         }
     }
-    return 0;
+    return nullptr;
 }
-
 
 /*!
     Creates and returns a position source with the given \a parent,
@@ -310,24 +391,26 @@ QGeoPositionInfoSource *QGeoPositionInfoSource::createDefaultSource(QObject *par
 */
 QGeoPositionInfoSource *QGeoPositionInfoSource::createSource(const QString &sourceName, QObject *parent)
 {
-    QHash<QString, QJsonObject> plugins = QGeoPositionInfoSourcePrivate::plugins();
-    if (plugins.contains(sourceName))
-    {
-        QGeoPositionInfoSourcePrivate d;
-        d.metaData = plugins.value(sourceName);
-        d.loadPlugin();
-        QGeoPositionInfoSource *src = 0;
-        if (d.factory)
-            src = d.factory->positionInfoSource(parent);
-        if (src)
-        {
-            src->d->metaData = d.metaData;
-            return src;
-        }
-    }
-    return 0;
+    return createSource(sourceName, QVariantMap(), parent);
 }
 
+/*!
+    Creates and returns a position source with the given \a parent,
+    by loading the plugin named \a sourceName.
+
+    Returns nullptr if the plugin cannot be found.
+
+    This method passes \a parameters to the factory to configure the source.
+
+    \since Qt 5.14
+*/
+QGeoPositionInfoSource *QGeoPositionInfoSource::createSource(const QString &sourceName, const QVariantMap &parameters, QObject *parent)
+{
+    QHash<QString, QJsonObject> plugins = QGeoPositionInfoSourcePrivate::plugins();
+    if (plugins.contains(sourceName))
+        return createSource_real(plugins.value(sourceName), parameters, parent);
+    return nullptr;
+}
 
 /*!
     Returns a list of available source plugins. This includes any default backend
@@ -345,6 +428,15 @@ QStringList QGeoPositionInfoSource::availableSources()
     }
 
     return plugins;
+}
+
+QGeoPositionInfoSource::QGeoPositionInfoSource(QGeoPositionInfoSourcePrivate &dd, QObject *parent)
+:   QObject(parent),
+    d(&dd)
+{
+    qRegisterMetaType<QGeoPositionInfo>();
+    d->interval = 0;
+    d->methods = NoPositioningMethods;
 }
 
 /*!

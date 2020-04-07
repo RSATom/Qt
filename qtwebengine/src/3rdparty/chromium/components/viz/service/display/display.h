@@ -10,8 +10,10 @@
 
 #include "base/containers/circular_deque.h"
 #include "base/macros.h"
+#include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
 #include "base/single_thread_task_runner.h"
+#include "base/time/time.h"
 #include "components/viz/common/frame_sinks/begin_frame_source.h"
 #include "components/viz/common/gpu/context_lost_observer.h"
 #include "components/viz/common/resources/returned_resource.h"
@@ -19,10 +21,12 @@
 #include "components/viz/common/surfaces/surface_id.h"
 #include "components/viz/service/display/display_resource_provider.h"
 #include "components/viz/service/display/display_scheduler.h"
+#include "components/viz/service/display/frame_rate_decider.h"
 #include "components/viz/service/display/output_surface_client.h"
 #include "components/viz/service/display/software_output_device_client.h"
 #include "components/viz/service/display/surface_aggregator.h"
 #include "components/viz/service/surfaces/latest_local_surface_id_lookup_delegate.h"
+#include "components/viz/service/surfaces/surface.h"
 #include "components/viz/service/surfaces/surface_manager.h"
 #include "components/viz/service/viz_service_export.h"
 #include "gpu/command_buffer/common/texture_in_use_response.h"
@@ -58,7 +62,8 @@ class VIZ_SERVICE_EXPORT Display : public DisplaySchedulerClient,
                                    public OutputSurfaceClient,
                                    public ContextLostObserver,
                                    public LatestLocalSurfaceIdLookupDelegate,
-                                   public SoftwareOutputDeviceClient {
+                                   public SoftwareOutputDeviceClient,
+                                   public FrameRateDecider::Client {
  public:
   // The |begin_frame_source| and |scheduler| may be null (together). In that
   // case, DrawAndSwap must be called externally when needed.
@@ -71,12 +76,26 @@ class VIZ_SERVICE_EXPORT Display : public DisplaySchedulerClient,
           const FrameSinkId& frame_sink_id,
           std::unique_ptr<OutputSurface> output_surface,
           std::unique_ptr<DisplayScheduler> scheduler,
-          scoped_refptr<base::SingleThreadTaskRunner> current_task_runner,
-          SkiaOutputSurface* skia_output_surface = nullptr);
+          scoped_refptr<base::SingleThreadTaskRunner> current_task_runner);
 
   ~Display() override;
 
-  void Initialize(DisplayClient* client, SurfaceManager* surface_manager);
+  static constexpr base::TimeDelta kDrawToSwapMin =
+      base::TimeDelta::FromMicroseconds(5);
+  static constexpr base::TimeDelta kDrawToSwapMax =
+      base::TimeDelta::FromMilliseconds(50);
+  static constexpr uint32_t kDrawToSwapUsBuckets = 50;
+
+  // TODO(cblume, crbug.com/900973): |enable_shared_images| is a temporary
+  // solution that unblocks us until SharedImages are threadsafe in WebView.
+#if defined(ANDROID)
+  static constexpr bool kEnableSharedImages = false;
+#else
+  static constexpr bool kEnableSharedImages = true;
+#endif
+  void Initialize(DisplayClient* client,
+                  SurfaceManager* surface_manager,
+                  bool enable_shared_images = kEnableSharedImages);
 
   void AddObserver(DisplayObserver* observer);
   void RemoveObserver(DisplayObserver* observer);
@@ -87,12 +106,21 @@ class VIZ_SERVICE_EXPORT Display : public DisplaySchedulerClient,
   void SetVisible(bool visible);
   void Resize(const gfx::Size& new_size);
 
+  // Stop drawing until Resize() is called with a new size. If the display
+  // hasn't drawn a frame at the current size *and* it's possible to immediately
+  // draw then this will run DrawAndSwap() first.
+  //
+  // |no_pending_swaps_callback| will be run there are no more swaps pending and
+  // may be run immediately.
+  void DisableSwapUntilResize(base::OnceClosure no_pending_swaps_callback);
+
   // Sets the color matrix that will be used to transform the output of this
   // display. This is only supported for GPU compositing.
   void SetColorMatrix(const SkMatrix44& matrix);
 
-  void SetColorSpace(const gfx::ColorSpace& blending_color_space,
-                     const gfx::ColorSpace& device_color_space);
+  void SetColorSpace(
+      const gfx::ColorSpace& device_color_space,
+      float sdr_white_level = gfx::ColorSpace::kDefaultSDRWhiteLevel);
   void SetOutputIsSecure(bool secure);
 
   const SurfaceId& CurrentSurfaceId();
@@ -102,12 +130,12 @@ class VIZ_SERVICE_EXPORT Display : public DisplaySchedulerClient,
   bool SurfaceHasUnackedFrame(const SurfaceId& surface_id) const override;
   bool SurfaceDamaged(const SurfaceId& surface_id,
                       const BeginFrameAck& ack) override;
-  void SurfaceDiscarded(const SurfaceId& surface_id) override;
+  void SurfaceDestroyed(const SurfaceId& surface_id) override;
   void DidFinishFrame(const BeginFrameAck& ack) override;
 
   // OutputSurfaceClient implementation.
   void SetNeedsRedrawRect(const gfx::Rect& damage_rect) override;
-  void DidReceiveSwapBuffersAck() override;
+  void DidReceiveSwapBuffersAck(const gfx::SwapTimings& timings) override;
   void DidReceiveTextureInUseResponses(
       const gpu::TextureInUseResponses& responses) override;
   void DidReceiveCALayerParams(
@@ -126,6 +154,11 @@ class VIZ_SERVICE_EXPORT Display : public DisplaySchedulerClient,
   void SoftwareDeviceUpdatedCALayerParams(
       const gfx::CALayerParams& ca_layer_params) override;
 
+  // FrameRateDecider::Client implementation
+  void SetPreferredFrameInterval(base::TimeDelta interval) override;
+  base::TimeDelta GetPreferredFrameIntervalForFrameSinkId(
+      const FrameSinkId& id) override;
+
   bool has_scheduler() const { return !!scheduler_; }
   DirectRenderer* renderer_for_testing() const { return renderer_.get(); }
 
@@ -133,8 +166,19 @@ class VIZ_SERVICE_EXPORT Display : public DisplaySchedulerClient,
   void SetNeedsOneBeginFrame();
   void RemoveOverdrawQuads(CompositorFrame* frame);
 
+  void SetSupportedFrameIntervals(std::vector<base::TimeDelta> intervals);
+  void SetDisplayTransformHint(gfx::OverlayTransform transform);
+
+  base::ScopedClosureRunner GetCacheBackBufferCb();
+
+#if defined(TOOLKIT_QT)
+  FrameSinkId frame_sink_id() const { return frame_sink_id_; }
+#endif
+
  private:
-  void InitializeRenderer();
+  // TODO(cblume, crbug.com/900973): |enable_shared_images| is a temporary
+  // solution that unblocks us until SharedImages are threadsafe in WebView.
+  void InitializeRenderer(bool enable_shared_images = true);
   void UpdateRootFrameMissing();
   void RunDrawCallbacks();
 
@@ -151,17 +195,18 @@ class VIZ_SERVICE_EXPORT Display : public DisplaySchedulerClient,
   SurfaceId current_surface_id_;
   gfx::Size current_surface_size_;
   float device_scale_factor_ = 1.f;
-  gfx::ColorSpace blending_color_space_ = gfx::ColorSpace::CreateSRGB();
   gfx::ColorSpace device_color_space_ = gfx::ColorSpace::CreateSRGB();
+  float sdr_white_level_ = gfx::ColorSpace::kDefaultSDRWhiteLevel;
   bool visible_ = false;
   bool swapped_since_resize_ = false;
   bool output_is_secure_ = false;
 
-  SkiaOutputSurface* skia_output_surface_;
   std::unique_ptr<OutputSurface> output_surface_;
+  SkiaOutputSurface* const skia_output_surface_;
   std::unique_ptr<DisplayScheduler> scheduler_;
   std::unique_ptr<DisplayResourceProvider> resource_provider_;
   std::unique_ptr<SurfaceAggregator> aggregator_;
+  std::unique_ptr<FrameRateDecider> frame_rate_decider_;
   // This may be null if the Display is on a thread without a MessageLoop.
   scoped_refptr<base::SingleThreadTaskRunner> current_task_runner_;
   std::unique_ptr<DirectRenderer> renderer_;
@@ -169,13 +214,22 @@ class VIZ_SERVICE_EXPORT Display : public DisplaySchedulerClient,
   std::vector<ui::LatencyInfo> stored_latency_info_;
   std::vector<SurfaceId> surfaces_to_ack_on_next_draw_;
 
+  // |pending_surfaces_with_presentation_helpers_| is a list of lists of
+  // Surface::PresentationHelpers. The lists are grouped by swap (each surface
+  // involved in an individual Swap is added to the list. These are then
+  // notified of presentation after the appropriate Swap is completed.
   base::circular_deque<
-      std::pair<base::TimeTicks, std::vector<Surface::PresentedCallback>>>
-      pending_presented_callbacks_;
+      std::pair<base::TimeTicks,
+                std::vector<std::unique_ptr<Surface::PresentationHelper>>>>
+      pending_surfaces_with_presentation_helpers_;
+
+  // Callback that will be run after all pending swaps have acked.
+  base::OnceClosure no_pending_swaps_callback_;
 
   int64_t swapped_trace_id_ = 0;
-  int64_t last_acked_trace_id_ = 0;
   int64_t last_presented_trace_id_ = 0;
+
+  base::circular_deque<base::TimeTicks> draw_start_times_pending_swap_ack_;
 
   DISALLOW_COPY_AND_ASSIGN(Display);
 };

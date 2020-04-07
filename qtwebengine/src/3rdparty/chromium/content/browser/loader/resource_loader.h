@@ -73,10 +73,11 @@ class CONTENT_EXPORT ResourceLoader : public net::URLRequest::Delegate,
                           const net::RedirectInfo& redirect_info,
                           bool* defer) override;
   void OnAuthRequired(net::URLRequest* request,
-                      net::AuthChallengeInfo* info) override;
+                      const net::AuthChallengeInfo& info) override;
   void OnCertificateRequested(net::URLRequest* request,
                               net::SSLCertRequestInfo* info) override;
   void OnSSLCertificateError(net::URLRequest* request,
+                             int net_error,
                              const net::SSLInfo& info,
                              bool fatal) override;
   void OnResponseStarted(net::URLRequest* request, int net_error) override;
@@ -163,7 +164,7 @@ class CONTENT_EXPORT ResourceLoader : public net::URLRequest::Delegate,
   std::unique_ptr<ResourceHandler> handler_;
   ResourceLoaderDelegate* delegate_;
 
-  scoped_refptr<LoginDelegate> login_delegate_;
+  std::unique_ptr<LoginDelegate> login_delegate_;
   std::unique_ptr<SSLClientAuthHandler> ssl_client_auth_handler_;
 
   base::TimeTicks read_deferral_start_time_;
@@ -209,7 +210,7 @@ class CONTENT_EXPORT ResourceLoader : public net::URLRequest::Delegate,
 
   base::ThreadChecker thread_checker_;
 
-  base::WeakPtrFactory<ResourceLoader> weak_ptr_factory_;
+  base::WeakPtrFactory<ResourceLoader> weak_ptr_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(ResourceLoader);
 };

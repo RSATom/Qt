@@ -98,8 +98,8 @@ QModbusDevice::~QModbusDevice()
 
     User options:
 
-    \value UserParameter             The first parameter that can be used for user-specific
-                                     purposes. \c QVariant
+    \value UserParameter             This enum value has been deprecated. There
+                                     will be no replacement.
 */
 
 /*!
@@ -143,7 +143,7 @@ QVariant QModbusDevice::connectionParameter(int parameter) const
     default:
         break;
     }
-    return d->m_userConnectionParams.value(parameter);
+    return d->m_userConnectionParams.value(parameter); // ### Qt6: remove
 }
 
 /*!
@@ -182,7 +182,7 @@ void QModbusDevice::setConnectionParameter(int parameter, const QVariant &value)
         d->m_networkAddress = value.toString();
         break;
     default:
-        d->m_userConnectionParams.insert(parameter, value);
+        d->m_userConnectionParams.insert(parameter, value); // ### Qt6: remove
         break;
     }
 }
@@ -334,6 +334,20 @@ QModbusDevice::Error QModbusDevice::error() const
 QString QModbusDevice::errorString() const
 {
     return d_func()->errorString;
+}
+
+/*!
+    \since 5.14
+
+    Returns the underlying \l QIODevice used for ModBus communication or
+    \c nullptr if the device was not yet fully initialized.
+
+    \note Do not store a pointer to the underlying device, because it can be
+    invalidated at any point in time.
+*/
+QIODevice *QModbusDevice::device() const
+{
+    return d_func()->device();
 }
 
 /*!

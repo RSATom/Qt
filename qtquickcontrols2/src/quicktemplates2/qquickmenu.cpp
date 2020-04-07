@@ -53,7 +53,7 @@
 #include <QtQml/private/qv4scopedvalue_p.h>
 #include <QtQml/private/qv4variantobject_p.h>
 #include <QtQml/private/qv4qobjectwrapper_p.h>
-#include <QtQml/private/qqmlobjectmodel_p.h>
+#include <private/qqmlobjectmodel_p.h>
 #include <QtQuick/private/qquickitem_p.h>
 #include <QtQuick/private/qquickitemchangelistener_p.h>
 #include <QtQuick/private/qquickitemview_p.h>
@@ -68,7 +68,7 @@ static const int SUBMENU_DELAY = 225;
 /*!
     \qmltype Menu
     \inherits Popup
-    \instantiates QQuickMenu
+//!     \instantiates QQuickMenu
     \inqmlmodule QtQuick.Controls
     \since 5.7
     \ingroup qtquickcontrols2-menus
@@ -178,8 +178,9 @@ static const int SUBMENU_DELAY = 225;
 
     This property holds whether the popup wants focus.
 
-    When the popup actually receives focus, \l activeFocus will be \c true.
-    For more information, see \l {Keyboard Focus in Qt Quick}.
+    When the popup actually receives focus, \l{Popup::}{activeFocus}
+    will be \c true. For more information, see
+    \l {Keyboard Focus in Qt Quick}.
 
     The default value is \c false.
 

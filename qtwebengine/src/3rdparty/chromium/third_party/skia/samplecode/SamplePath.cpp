@@ -5,24 +5,24 @@
  * found in the LICENSE file.
  */
 
-#include "Sample.h"
-#include "SkAnimTimer.h"
-#include "SkBitmap.h"
-#include "SkCanvas.h"
-#include "SkGradientShader.h"
-#include "SkGraphics.h"
-#include "SkFont.h"
-#include "SkPath.h"
-#include "SkRegion.h"
-#include "SkShader.h"
-#include "SkUTF.h"
-#include "SkColorPriv.h"
-#include "SkColorFilter.h"
-#include "SkParsePath.h"
-#include "SkTime.h"
-#include "SkTypeface.h"
+#include "include/core/SkBitmap.h"
+#include "include/core/SkCanvas.h"
+#include "include/core/SkColorFilter.h"
+#include "include/core/SkColorPriv.h"
+#include "include/core/SkFont.h"
+#include "include/core/SkGraphics.h"
+#include "include/core/SkPath.h"
+#include "include/core/SkRegion.h"
+#include "include/core/SkShader.h"
+#include "include/core/SkTime.h"
+#include "include/core/SkTypeface.h"
+#include "include/effects/SkGradientShader.h"
+#include "include/utils/SkParsePath.h"
+#include "samplecode/Sample.h"
+#include "src/utils/SkUTF.h"
+#include "tools/timer/TimeUtils.h"
 
-#include "SkGeometry.h"
+#include "src/core/SkGeometry.h"
 
 #include <stdlib.h>
 
@@ -130,13 +130,7 @@ public:
     }
 
 protected:
-    bool onQuery(Sample::Event* evt) override {
-        if (Sample::TitleQ(*evt)) {
-            Sample::TitleR(evt, "Paths");
-            return true;
-        }
-        return this->INHERITED::onQuery(evt);
-    }
+    SkString name() override { return SkString("Paths"); }
 
     void drawPath(SkCanvas* canvas, const SkPath& path, SkPaint::Join j) {
         SkPaint paint;
@@ -183,8 +177,8 @@ protected:
         }
     }
 
-    bool onAnimate(const SkAnimTimer& timer) override {
-        SkScalar currSecs = timer.scaled(100);
+    bool onAnimate(double nanos) override {
+        SkScalar currSecs = TimeUtils::Scaled(1e-9 * nanos, 100);
         SkScalar delta = currSecs - fPrevSecs;
         fPrevSecs = currSecs;
 
@@ -195,9 +189,9 @@ protected:
         return true;
     }
 
-    Sample::Click* onFindClickHandler(SkScalar x, SkScalar y, unsigned modi) override {
+    Sample::Click* onFindClickHandler(SkScalar x, SkScalar y, ModifierKey modi) override {
         fShowHairline = !fShowHairline;
-        return this->INHERITED::onFindClickHandler(x, y, modi);
+        return nullptr;
     }
 
 private:
@@ -207,8 +201,8 @@ DEF_SAMPLE( return new PathView; )
 
 //////////////////////////////////////////////////////////////////////////////
 
-#include "SkCornerPathEffect.h"
-#include "SkRandom.h"
+#include "include/effects/SkCornerPathEffect.h"
+#include "include/utils/SkRandom.h"
 
 class ArcToView : public Sample {
     bool fDoFrame, fDoCorner, fDoConic;
@@ -250,21 +244,16 @@ public:
     }
 
 protected:
-    bool onQuery(Sample::Event* evt) override {
-        if (Sample::TitleQ(*evt)) {
-            Sample::TitleR(evt, "ArcTo");
-            return true;
-        }
-        SkUnichar uni;
-        if (Sample::CharQ(*evt, &uni)) {
+    SkString name() override { return SkString("ArcTo"); }
+
+    bool onChar(SkUnichar uni) override {
             switch (uni) {
                 case '1': this->toggle(fDoFrame); return true;
                 case '2': this->toggle(fDoCorner); return true;
                 case '3': this->toggle(fDoConic); return true;
                 default: break;
             }
-        }
-        return this->INHERITED::onQuery(evt);
+            return false;
     }
 
     void makePath(SkPath* path) {
@@ -300,17 +289,17 @@ protected:
         return false;
     }
 
-    Sample::Click* onFindClickHandler(SkScalar x, SkScalar y, unsigned modi) override {
+    Sample::Click* onFindClickHandler(SkScalar x, SkScalar y, ModifierKey modi) override {
         const SkScalar tol = 4;
         const SkRect r = SkRect::MakeXYWH(x - tol, y - tol, tol * 2, tol * 2);
         for (int i = 0; i < N; ++i) {
             if (r.intersects(SkRect::MakeXYWH(fPts[i].fX, fPts[i].fY, 1, 1))) {
-                Click* click = new Click(this);
+                Click* click = new Click();
                 click->fMeta.setS32("index", i);
                 return click;
             }
         }
-        return this->INHERITED::onFindClickHandler(x, y, modi);
+        return nullptr;
     }
 
 private:
@@ -367,13 +356,9 @@ public:
     }
 
 protected:
-    bool onQuery(Sample::Event* evt) override {
-        if (Sample::TitleQ(*evt)) {
-            Sample::TitleR(evt, "FatStroke");
-            return true;
-        }
-        SkUnichar uni;
-        if (Sample::CharQ(*evt, &uni)) {
+    SkString name() override { return SkString("FatStroke"); }
+
+    bool onChar(SkUnichar uni) override {
             switch (uni) {
                 case '1': this->toggle(fShowSkeleton); return true;
                 case '2': this->toggle(fShowStroke); return true;
@@ -385,8 +370,7 @@ protected:
                 case '=': fWidth += 5; return true;
                 default: break;
             }
-        }
-        return this->INHERITED::onQuery(evt);
+            return false;
     }
 
     void makePath(SkPath* path) {
@@ -433,17 +417,17 @@ protected:
         return false;
     }
 
-    Sample::Click* onFindClickHandler(SkScalar x, SkScalar y, unsigned modi) override {
+    Sample::Click* onFindClickHandler(SkScalar x, SkScalar y, ModifierKey modi) override {
         const SkScalar tol = 4;
         const SkRect r = SkRect::MakeXYWH(x - tol, y - tol, tol * 2, tol * 2);
         for (int i = 0; i < N; ++i) {
             if (r.intersects(SkRect::MakeXYWH(fPts[i].fX, fPts[i].fY, 1, 1))) {
-                Click* click = new Click(this);
+                Click* click = new Click();
                 click->fMeta.setS32("index", i);
                 return click;
             }
         }
-        return this->INHERITED::onFindClickHandler(x, y, modi);
+        return nullptr;
     }
 
 private:
@@ -488,13 +472,7 @@ public:
     }
 
 protected:
-    bool onQuery(Sample::Event* evt) override {
-        if (Sample::TitleQ(*evt)) {
-            Sample::TitleR(evt, "CubicCurve");
-            return true;
-        }
-        return this->INHERITED::onQuery(evt);
-    }
+    SkString name() override { return SkString("CubicCurve"); }
 
     void onDrawContent(SkCanvas* canvas) override {
         SkPaint paint;
@@ -556,12 +534,12 @@ protected:
         return false;
     }
 
-    Sample::Click* onFindClickHandler(SkScalar x, SkScalar y, unsigned modi) override {
+    Sample::Click* onFindClickHandler(SkScalar x, SkScalar y, ModifierKey modi) override {
         const SkScalar tol = 8;
         const SkRect r = SkRect::MakeXYWH(x - tol, y - tol, tol * 2, tol * 2);
         for (int i = 0; i < N; ++i) {
             if (r.intersects(SkRect::MakeXYWH(fPts[i].fX, fPts[i].fY, 1, 1))) {
-                Click* click = new Click(this);
+                Click* click = new Click();
                 click->fMeta.setS32("index", i);
                 return click;
             }
@@ -617,25 +595,18 @@ public:
     }
 
 protected:
-    bool onQuery(Sample::Event* evt) override {
-        if (Sample::TitleQ(*evt)) {
-            Sample::TitleR(evt, "CubicCurve2");
-            return true;
-        }
-        SkUnichar uni;
-        if (Sample::CharQ(*evt, &uni)) {
+    SkString name() override { return SkString("CubicCurve2"); }
+
+    bool onChar(SkUnichar uni) override {
             switch (uni) {
                 case 's': fShowSub = !fShowSub; break;
                 case 'f': fShowFlatness = !fShowFlatness; break;
                 case '-': fT -= 1.0f / 32; break;
                 case '=': fT += 1.0f / 32; break;
-                default: goto DONE;
+                default: return false;
             }
             fT = std::min(1.0f, std::max(0.0f, fT));
             return true;
-        }
-        DONE:
-        return this->INHERITED::onQuery(evt);
     }
 
     void showFrame(SkCanvas* canvas, const SkPoint pts[], int count, const SkPaint& p) {
@@ -759,12 +730,12 @@ protected:
         return false;
     }
 
-    Sample::Click* onFindClickHandler(SkScalar x, SkScalar y, unsigned modi) override {
+    Sample::Click* onFindClickHandler(SkScalar x, SkScalar y, ModifierKey modi) override {
         const SkScalar tol = 8;
         const SkRect r = SkRect::MakeXYWH(x - tol, y - tol, tol * 2, tol * 2);
         for (int i = 0; i < N; ++i) {
             if (r.intersects(SkRect::MakeXYWH(fPts[i].fX, fPts[i].fY, 1, 1))) {
-                Click* click = new Click(this);
+                Click* click = new Click();
                 click->fMeta.setS32("index", i);
                 return click;
             }

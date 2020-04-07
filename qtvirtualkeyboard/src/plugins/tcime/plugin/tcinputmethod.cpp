@@ -44,6 +44,8 @@
 #include <QLibraryInfo>
 #include <QFileInfo>
 
+#include <array>
+
 QT_BEGIN_NAMESPACE
 namespace QtVirtualKeyboard {
 
@@ -124,7 +126,7 @@ public:
     bool composeCangjie(QVirtualKeyboardInputContext *ic, const QChar &c)
     {
         bool accept = false;
-        if (!input.contains(0x91CD) && CangjieTable::isLetter(c)) {
+        if (!input.contains(QChar(0x91CD)) && CangjieTable::isLetter(c)) {
             if (input.length() < (cangjieDictionary.simplified() ? CangjieTable::MAX_SIMPLIFIED_CODE_LENGTH : CangjieTable::MAX_CODE_LENGTH)) {
                 input.append(c);
                 ic->setPreeditText(input);
@@ -206,14 +208,14 @@ public:
                 // Tones are accepted only when there's text in composing.
                 return false;
 
-            QStringList pair = ZhuyinTable::stripTones(input);
-            if (pair.isEmpty())
+            auto strippedTones = ZhuyinTable::stripTones(input);
+            if (!strippedTones.ok)
                 // Tones cannot be composed if there's no syllables.
                 return false;
 
             // Replace the original tone with the new tone, but the default tone
             // character should not be composed into the composing text.
-            QChar tone = pair[1].at(0);
+            QChar tone = strippedTones.pair[1].at(0);
             if (c == ZhuyinTable::DEFAULT_TONE) {
                 if (tone != ZhuyinTable::DEFAULT_TONE)
                     input.remove(input.length() - 1, 1);
@@ -229,9 +231,9 @@ public:
                 input.insert(0, c);
             else
                 input.replace(0, 1, c);
-        } else if (ZhuyinTable::getFinals(QString(c)) > 0) {
+        } else if (ZhuyinTable::getFinals(QStringView(&c, 1)) > 0) {
             // Replace the finals in the decomposed of syllables and tones.
-            QList<QChar> decomposed = decomposeZhuyin();
+            std::array<QChar, 4> decomposed = decomposeZhuyin();
             if (ZhuyinTable::isYiWuYuFinals(c)) {
                 decomposed[1] = c;
             } else {
@@ -240,9 +242,9 @@ public:
 
             // Compose back the text after the finals replacement.
             input.clear();
-            for (int i = 0; i < decomposed.length(); ++i) {
-                if (!decomposed[i].isNull())
-                    input.append(decomposed[i]);
+            for (QChar ch : decomposed) {
+                if (!ch.isNull())
+                    input.append(ch);
             }
         } else {
             return false;
@@ -258,18 +260,18 @@ public:
         return true;
     }
 
-    QList<QChar> decomposeZhuyin()
+    std::array<QChar, 4> decomposeZhuyin()
     {
-        QList<QChar> results = QList<QChar>() << 0 << 0 << 0 << 0;
-        QStringList pair = ZhuyinTable::stripTones(input);
-        if (!pair.isEmpty()) {
+        std::array<QChar, 4> results = {};
+        auto strippedTones = ZhuyinTable::stripTones(input);
+        if (strippedTones.ok) {
             // Decompose tones.
-            QChar tone = pair[1].at(0);
+            QChar tone = strippedTones.pair[1].at(0);
             if (tone != ZhuyinTable::DEFAULT_TONE)
                 results[3] = tone;
 
             // Decompose initials.
-            QString syllables = pair[0];
+            QStringView syllables = strippedTones.pair[0];
             if (ZhuyinTable::getInitials(syllables.at(0)) > 0) {
                 results[0] = syllables.at(0);
                 syllables = syllables.mid(1);

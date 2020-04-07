@@ -50,6 +50,10 @@ QT_BEGIN_NAMESPACE
 QT_WARNING_PUSH
 QT_WARNING_DISABLE_GCC("-Wextra")
 
+#ifdef Q_CLANG_QDOC
+#  undef QT_BASIC_ATOMIC_HAS_CONSTRUCTORS
+#endif
+
 // High-level atomic integer operations
 template <typename T>
 class QAtomicInteger : public QBasicAtomicInteger<T>
@@ -57,15 +61,15 @@ class QAtomicInteger : public QBasicAtomicInteger<T>
 public:
     // Non-atomic API
 #ifdef QT_BASIC_ATOMIC_HAS_CONSTRUCTORS
-    constexpr QAtomicInteger(T value = 0) Q_DECL_NOTHROW : QBasicAtomicInteger<T>(value) {}
+    constexpr QAtomicInteger(T value = 0) noexcept : QBasicAtomicInteger<T>(value) {}
 #else
-    inline QAtomicInteger(T value = 0) Q_DECL_NOTHROW
+    inline QAtomicInteger(T value = 0) noexcept
     {
         this->_q_value = value;
     }
 #endif
 
-    inline QAtomicInteger(const QAtomicInteger &other) Q_DECL_NOTHROW
+    inline QAtomicInteger(const QAtomicInteger &other) noexcept
 #ifdef QT_BASIC_ATOMIC_HAS_CONSTRUCTORS
         : QBasicAtomicInteger<T>()
 #endif
@@ -73,7 +77,7 @@ public:
         this->storeRelease(other.loadAcquire());
     }
 
-    inline QAtomicInteger &operator=(const QAtomicInteger &other) Q_DECL_NOTHROW
+    inline QAtomicInteger &operator=(const QAtomicInteger &other) noexcept
     {
         this->storeRelease(other.loadAcquire());
         return *this;
@@ -81,8 +85,10 @@ public:
 
 #ifdef Q_CLANG_QDOC
     T load() const;
+    T loadRelaxed() const;
     T loadAcquire() const;
     void store(T newValue);
+    void storeRelaxed(T newValue);
     void storeRelease(T newValue);
 
     operator T() const;
@@ -159,7 +165,7 @@ public:
 #ifdef QT_BASIC_ATOMIC_HAS_CONSTRUCTORS
     constexpr
 #endif
-    QAtomicInt(int value = 0) Q_DECL_NOTHROW : QAtomicInteger<int>(value) {}
+    QAtomicInt(int value = 0) noexcept : QAtomicInteger<int>(value) {}
 };
 
 // High-level atomic pointer operations
@@ -168,14 +174,14 @@ class QAtomicPointer : public QBasicAtomicPointer<T>
 {
 public:
 #ifdef QT_BASIC_ATOMIC_HAS_CONSTRUCTORS
-    constexpr QAtomicPointer(T *value = nullptr) Q_DECL_NOTHROW : QBasicAtomicPointer<T>(value) {}
+    constexpr QAtomicPointer(T *value = nullptr) noexcept : QBasicAtomicPointer<T>(value) {}
 #else
-    inline QAtomicPointer(T *value = nullptr) Q_DECL_NOTHROW
+    inline QAtomicPointer(T *value = nullptr) noexcept
     {
-        this->store(value);
+        this->storeRelaxed(value);
     }
 #endif
-    inline QAtomicPointer(const QAtomicPointer<T> &other) Q_DECL_NOTHROW
+    inline QAtomicPointer(const QAtomicPointer<T> &other) noexcept
 #ifdef QT_BASIC_ATOMIC_HAS_CONSTRUCTORS
         : QBasicAtomicPointer<T>()
 #endif
@@ -183,7 +189,7 @@ public:
         this->storeRelease(other.loadAcquire());
     }
 
-    inline QAtomicPointer<T> &operator=(const QAtomicPointer<T> &other) Q_DECL_NOTHROW
+    inline QAtomicPointer<T> &operator=(const QAtomicPointer<T> &other) noexcept
     {
         this->storeRelease(other.loadAcquire());
         return *this;
@@ -192,7 +198,9 @@ public:
 #ifdef Q_QDOC
     T *load() const;
     T *loadAcquire() const;
+    T *loadRelaxed() const;
     void store(T *newValue);
+    void storeRelaxed(T *newValue);
     void storeRelease(T *newValue);
 
     static Q_DECL_CONSTEXPR bool isTestAndSetNative();
@@ -255,7 +263,7 @@ inline void qAtomicAssign(T *&d, T *x)
 template <typename T>
 inline void qAtomicDetach(T *&d)
 {
-    if (d->ref.load() == 1)
+    if (d->ref.loadRelaxed() == 1)
         return;
     T *x = d;
     d = new T(*d);

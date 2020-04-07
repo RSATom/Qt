@@ -45,8 +45,8 @@
 #include "third_party/blink/renderer/core/frame/frame_test_helpers.h"
 #include "third_party/blink/renderer/core/frame/web_local_frame_impl.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource_error.h"
+#include "third_party/blink/renderer/platform/mhtml/serialized_resource.h"
 #include "third_party/blink/renderer/platform/scheduler/public/thread.h"
-#include "third_party/blink/renderer/platform/serialized_resource.h"
 #include "third_party/blink/renderer/platform/testing/testing_platform_support.h"
 #include "third_party/blink/renderer/platform/testing/unit_test_helpers.h"
 #include "third_party/blink/renderer/platform/testing/url_test_helpers.h"
@@ -96,8 +96,8 @@ class FrameSerializerTest : public testing::Test,
     ResourceError error = ResourceError::Failure(NullURL());
 
     WebURLResponse response;
-    response.SetMIMEType("text/html");
-    response.SetHTTPStatusCode(status_code);
+    response.SetMimeType("text/html");
+    response.SetHttpStatusCode(status_code);
 
     platform_->GetURLLoaderMockFactory()->RegisterErrorURL(
         KURL(base_url_, file), response, error);
@@ -114,7 +114,7 @@ class FrameSerializerTest : public testing::Test,
   void Serialize(const char* url) {
     frame_test_helpers::LoadFrame(
         helper_.GetWebView()->MainFrameImpl(),
-        KURL(base_url_, url).GetString().Utf8().data());
+        KURL(base_url_, url).GetString().Utf8().c_str());
     // Sometimes we have iframes created in "onload" handler - wait for them to
     // load.
     frame_test_helpers::PumpPendingRequestsForFrameToLoad(
@@ -124,7 +124,7 @@ class FrameSerializerTest : public testing::Test,
     for (; frame; frame = frame->Tree().TraverseNext()) {
       // This is safe, because tests do not do cross-site navigation
       // (and therefore don't have remote frames).
-      serializer.SerializeFrame(*ToLocalFrame(frame));
+      serializer.SerializeFrame(*To<LocalFrame>(frame));
     }
   }
 
@@ -192,6 +192,7 @@ class FrameSerializerTest : public testing::Test,
     return skip_urls_.Contains(url);
   }
 
+  ScopedTestingPlatformSupport<TestingPlatformSupport> platform_;
   frame_test_helpers::WebViewHelper helper_;
   std::string folder_;
   KURL base_url_;
@@ -199,7 +200,6 @@ class FrameSerializerTest : public testing::Test,
   HashMap<String, String> rewrite_urls_;
   Vector<String> skip_urls_;
   String rewrite_folder_;
-  ScopedTestingPlatformSupport<TestingPlatformSupport> platform_;
 };
 
 TEST_F(FrameSerializerTest, HTMLElements) {
@@ -369,7 +369,9 @@ TEST_F(FrameSerializerTest, CSS) {
 
   Serialize("css_test_page.html");
 
-  EXPECT_EQ(16U, GetResources().size());
+  // 16 resoucres added by RegisterURL + 3 resources added due to converting
+  // style elements to link elements.
+  EXPECT_EQ(19U, GetResources().size());
 
   EXPECT_FALSE(IsSerialized("do_not_serialize.png", "image/png"));
   EXPECT_FALSE(IsSerialized("included_in_another_frame.css", "text/css"));

@@ -9,18 +9,21 @@
 #include <set>
 
 #include "base/callback.h"
-#include "mojo/public/cpp/bindings/scoped_interface_endpoint_handle.h"
+#include "services/network/public/mojom/fetch_api.mojom-shared.h"
 #include "third_party/blink/public/common/feature_policy/feature_policy.h"
 #include "third_party/blink/public/common/frame/sandbox_flags.h"
+#include "third_party/blink/public/common/messaging/transferable_message.h"
 #include "third_party/blink/public/mojom/ad_tagging/ad_frame.mojom-shared.h"
+#include "third_party/blink/public/mojom/commit_result/commit_result.mojom-shared.h"
 #include "third_party/blink/public/mojom/fetch/fetch_api_request.mojom-shared.h"
+#include "third_party/blink/public/mojom/frame/lifecycle.mojom-shared.h"
+#include "third_party/blink/public/mojom/selection_menu/selection_menu_behavior.mojom-shared.h"
+#include "third_party/blink/public/mojom/web_feature/web_feature.mojom-shared.h"
 #include "third_party/blink/public/platform/task_type.h"
 #include "third_party/blink/public/platform/web_focus_type.h"
 #include "third_party/blink/public/platform/web_size.h"
 #include "third_party/blink/public/platform/web_url_error.h"
 #include "third_party/blink/public/platform/web_url_request.h"
-#include "third_party/blink/public/web/commit_result.mojom-shared.h"
-#include "third_party/blink/public/web/selection_menu_behavior.mojom-shared.h"
 #include "third_party/blink/public/web/web_document_loader.h"
 #include "third_party/blink/public/web/web_frame.h"
 #include "third_party/blink/public/web/web_frame_load_type.h"
@@ -35,10 +38,11 @@ class FrameScheduler;
 class InterfaceRegistry;
 class WebAssociatedURLLoader;
 class WebAutofillClient;
+class WebContentCaptureClient;
 class WebContentSettingsClient;
 class WebDocument;
 class WebDoubleSize;
-class WebDOMEvent;
+class WebDOMMessageEvent;
 class WebLocalFrameClient;
 class WebFrameWidget;
 class WebInputMethodController;
@@ -52,6 +56,7 @@ class WebTextCheckClient;
 class WebURL;
 class WebView;
 enum class WebTreeScopeType;
+struct TransferableMessage;
 struct WebAssociatedURLLoaderOptions;
 struct WebConsoleMessage;
 struct WebContentSecurityPolicyViolation;
@@ -81,7 +86,9 @@ class WebLocalFrame : public WebFrame {
       mojo::ScopedMessagePipeHandle,
       WebFrame* opener = nullptr,
       const WebString& name = WebString(),
-      WebSandboxFlags = WebSandboxFlags::kNone);
+      WebSandboxFlags = WebSandboxFlags::kNone,
+      const FeaturePolicy::FeatureState& opener_feature_state =
+          FeaturePolicy::FeatureState());
 
   // Used to create a provisional local frame. Currently, it's possible for a
   // provisional navigation not to commit (i.e. it might turn into a download),
@@ -96,7 +103,8 @@ class WebLocalFrame : public WebFrame {
   // frame pointer, the parent frame's children list will not contain the
   // provisional frame. Thus, a provisional frame is invisible to the rest of
   // Blink unless the navigation commits and the provisional frame is fully
-  // attached to the frame tree by calling Swap().
+  // attached to the frame tree by calling Swap(). It swaps with the
+  // |previous_web_frame|.
   //
   // Otherwise, if the load should not commit, call Detach() to discard the
   // frame.
@@ -104,9 +112,8 @@ class WebLocalFrame : public WebFrame {
       WebLocalFrameClient*,
       blink::InterfaceRegistry*,
       mojo::ScopedMessagePipeHandle,
-      WebRemoteFrame*,
-      WebSandboxFlags,
-      ParsedFeaturePolicy);
+      WebFrame* previous_web_frame,
+      const FramePolicy&);
 
   // Creates a new local child of this frame. Similar to the other methods that
   // create frames, the returned frame should be freed by calling Close() when
@@ -136,6 +143,9 @@ class WebLocalFrame : public WebFrame {
 
   virtual void SetAutofillClient(WebAutofillClient*) = 0;
   virtual WebAutofillClient* AutofillClient() = 0;
+
+  virtual void SetContentCaptureClient(WebContentCaptureClient*) = 0;
+  virtual WebContentCaptureClient* ContentCaptureClient() const = 0;
 
   // Closing -------------------------------------------------------------
 
@@ -186,6 +196,11 @@ class WebLocalFrame : public WebFrame {
   // kind of lookup what |window.open(..., name)| would in Javascript.
   virtual WebFrame* FindFrameByName(const WebString& name) = 0;
 
+  // Starts scrolling to a specific offset in a frame. Returns false on failure.
+  virtual bool ScrollTo(const gfx::Point& scrollPosition,
+                        bool animate,
+                        base::OnceClosure on_finish) = 0;
+
   // Navigation Ping --------------------------------------------------------
 
   virtual void SendPings(const WebURL& destination_url) = 0;
@@ -198,10 +213,6 @@ class WebLocalFrame : public WebFrame {
 
   // Start navigation to the given URL.
   virtual void StartNavigation(const WebURLRequest&) = 0;
-
-  // Returns the document loader that is currently loading.  May be null.
-  // TODO(dgozman): move this to WebNavigationControl.
-  virtual WebDocumentLoader* GetProvisionalDocumentLoader() const = 0;
 
   // View-source rendering mode.  Set this before loading an URL to cause
   // it to be rendered in view-source mode.
@@ -240,10 +251,11 @@ class WebLocalFrame : public WebFrame {
   virtual bool IsNavigationScheduledWithin(
       double interval_in_seconds) const = 0;
 
-  // Reports a list of unique blink::WebFeature values representing
-  // Blink features used, performed or encountered by the browser during the
-  // current page load happening on the frame.
-  virtual void BlinkFeatureUsageReport(const std::set<int>& features) = 0;
+  // Reports a list of Blink features used, performed or encountered by the
+  // browser during the current page load happening on the frame.
+  virtual void BlinkFeatureUsageReport(
+      const std::set<blink::mojom::WebFeature>& features) = 0;
+  virtual void BlinkFeatureUsageReport(blink::mojom::WebFeature feature) = 0;
 
   // Informs the renderer that mixed content was found externally regarding this
   // frame. Currently only the the browser process can do so. The included data
@@ -314,6 +326,10 @@ class WebLocalFrame : public WebFrame {
   ExecuteScriptInIsolatedWorldAndReturnValue(int world_id,
                                              const WebScriptSource&) = 0;
 
+  // Clears the isolated world CSP stored for |world_id| by this frame's
+  // Document.
+  virtual void ClearIsolatedWorldCSPForTesting(int world_id) = 0;
+
   // Sets up an isolated world by associating a |world_id| with |info|.
   // worldID must be > 0 (as 0 represents the main world).
   // worldID must be < kEmbedderWorldIdLimit, high number used internally.
@@ -359,22 +375,6 @@ class WebLocalFrame : public WebFrame {
                                         v8::Local<v8::Value> argv[],
                                         WebScriptExecutionCallback*) = 0;
 
-  enum class PausableTaskResult {
-    // The context was invalid or destroyed.
-    kContextInvalidOrDestroyed,
-    // Script is not paused.
-    kReady,
-  };
-  using PausableTaskCallback = base::OnceCallback<void(PausableTaskResult)>;
-
-  // Queues a callback to run script when the context is not paused, e.g. for a
-  // modal JS dialog or window.print(). This callback can run immediately if the
-  // context is not paused. If the context is invalidated before becoming
-  // unpaused, the callback will be run with a kContextInvalidOrDestroyed value.
-  // This asserts that the context is valid at the time of this
-  // call.
-  virtual void PostPausableTask(PausableTaskCallback) = 0;
-
   enum ScriptExecutionType {
     // Execute script synchronously, unless the page is suspended.
     kSynchronous,
@@ -398,8 +398,13 @@ class WebLocalFrame : public WebFrame {
   // As in requestExecuteScriptInIsolatedWorld: 0 < worldId < EmbedderWorldIdLimit
   virtual v8::Local<v8::Context> IsolatedWorldScriptContext(int worldID) const = 0;
 
-  // Logs to the console associated with this frame.
-  virtual void AddMessageToConsole(const WebConsoleMessage&) = 0;
+  // Logs to the console associated with this frame. If |discard_duplicates| is
+  // set, the message will only be added if it is unique (i.e. has not been
+  // added to the console previously from this page).
+  void AddMessageToConsole(const WebConsoleMessage& message,
+                           bool discard_duplicates = false) {
+    AddMessageToConsoleImpl(message, discard_duplicates);
+  }
 
   // Expose modal dialog methods to avoid having to go through JavaScript.
   virtual void Alert(const WebString& message) = 0;
@@ -553,9 +558,17 @@ class WebLocalFrame : public WebFrame {
 
   // Iframe sandbox ---------------------------------------------------------
 
+  // TODO(ekaramad): This method is only exposed for testing for certain tests
+  // outside of blink/ that are interested in approximate value of the
+  // FrameReplicationState. This method should be replaced with one in content/
+  // where the notion of FrameReplicationState is relevant to.
   // Returns the effective sandbox flags which are inherited from their parent
   // frame.
-  virtual WebSandboxFlags EffectiveSandboxFlags() const = 0;
+  virtual WebSandboxFlags EffectiveSandboxFlagsForTesting() const = 0;
+
+  // Returns false if this frame, or any parent frame is sandboxed and does not
+  // have the flag "allow-downloads-without-user-activation" set.
+  virtual bool IsAllowedToDownloadWithoutUserActivation() const = 0;
 
   // Find-in-page -----------------------------------------------------------
 
@@ -600,15 +613,34 @@ class WebLocalFrame : public WebFrame {
   // Dispatches a message event on the current DOMWindow in this WebFrame.
   virtual void DispatchMessageEventWithOriginCheck(
       const WebSecurityOrigin& intended_target_origin,
-      const WebDOMEvent&,
+      const WebDOMMessageEvent&,
       bool has_user_gesture) = 0;
 
   // TEMP: Usage count for chrome.loadtimes deprecation.
   // This will be removed following the deprecation.
   virtual void UsageCountChromeLoadTimes(const WebString& metric) = 0;
 
-  // Dispatches an event when a Portal gets activated.
-  virtual void OnPortalActivated() = 0;
+  // Portals -------------------------------------------------------------
+
+  // Dispatches an event when a Portal gets activated. |portal_token| is the
+  // portal's unique identifier, the message pipe |portal_pipe| is the
+  // portal's mojo interface, and the message pipe |portal_client_pipe| is
+  // a mojo interface to communicate back with the caller of the portal's
+  // mojo interface. |data| is an optional message sent together with the
+  // portal's activation.
+  using OnPortalActivatedCallback = base::OnceCallback<void(bool)>;
+  virtual void OnPortalActivated(
+      const base::UnguessableToken& portal_token,
+      mojo::ScopedInterfaceEndpointHandle portal_pipe,
+      mojo::ScopedInterfaceEndpointHandle portal_client_pipe,
+      TransferableMessage data,
+      OnPortalActivatedCallback callback) = 0;
+
+  // Forwards message to the PortalHost object exposed by the frame.
+  virtual void ForwardMessageFromHost(
+      TransferableMessage message,
+      const WebSecurityOrigin& source_origin,
+      const base::Optional<WebSecurityOrigin>& target_origin) = 0;
 
   // Scheduling ---------------------------------------------------------------
 
@@ -687,10 +719,7 @@ class WebLocalFrame : public WebFrame {
   // This function should be called after pairs of PrintBegin() and PrintEnd().
   virtual void DispatchAfterPrintEvent() = 0;
 
-  // If the frame contains a full-frame plugin or the given node refers to a
-  // plugin whose content indicates that printed output should not be scaled,
-  // return true, otherwise return false.
-  virtual bool IsPrintScalingDisabledForPlugin(const WebNode& = WebNode()) = 0;
+  // Focus --------------------------------------------------------------
 
   // Advance the focus of the WebView to next text input element from current
   // input field wrt sequential navigation with TAB or Shift + TAB
@@ -698,6 +727,10 @@ class WebLocalFrame : public WebFrame {
   // Shift + TAB. (Will be extended to other form controls like select element,
   // checkbox, radio etc.)
   virtual void AdvanceFocusInForm(WebFocusType) = 0;
+
+  // Asks the active WebAutofillClient to show the touch to fill UI for the
+  // currently focused field. Returns whether this request succeeded.
+  virtual bool TryToShowTouchToFillForFocusedElement() = 0;
 
   // Performance --------------------------------------------------------
 
@@ -735,6 +768,11 @@ class WebLocalFrame : public WebFrame {
   virtual void PerformMediaPlayerAction(const WebPoint&,
                                         const WebMediaPlayerAction&) = 0;
 
+  virtual void SetLifecycleState(mojom::FrameLifecycleState state) = 0;
+
+  virtual void WasHidden() = 0;
+  virtual void WasShown() = 0;
+
  protected:
   explicit WebLocalFrame(WebTreeScopeType scope) : WebFrame(scope) {}
 
@@ -744,6 +782,10 @@ class WebLocalFrame : public WebFrame {
   WebLocalFrame* ToWebLocalFrame() override = 0;
   bool IsWebRemoteFrame() const override = 0;
   WebRemoteFrame* ToWebRemoteFrame() override = 0;
+
+ private:
+  virtual void AddMessageToConsoleImpl(const WebConsoleMessage&,
+                                       bool discard_duplicates) = 0;
 };
 
 }  // namespace blink

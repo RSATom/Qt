@@ -23,17 +23,21 @@ struct PacketFeedback;
 
 class SendTimeHistory {
  public:
+  enum class Status { kNotAdded, kOk, kDuplicate };
+
   explicit SendTimeHistory(int64_t packet_age_limit_ms);
   ~SendTimeHistory();
 
   // Cleanup old entries, then add new packet info with provided parameters.
-  void AddAndRemoveOld(const PacketFeedback& packet, int64_t at_time_ms);
+  void RemoveOld(int64_t at_time_ms);
+  void AddNewPacket(PacketFeedback packet);
 
   void AddUntracked(size_t packet_size, int64_t send_time_ms);
 
   // Updates packet info identified by |sequence_number| with |send_time_ms|.
-  // Return false if not found.
-  bool OnSentPacket(uint16_t sequence_number, int64_t send_time_ms);
+  // Returns a PacketSendState indicating if the packet was not found, sent,
+  // or if it was previously already marked as sent.
+  Status OnSentPacket(uint16_t sequence_number, int64_t send_time_ms);
 
   // Retrieves packet info identified by |sequence_number|.
   absl::optional<PacketFeedback> GetPacket(uint16_t sequence_number) const;

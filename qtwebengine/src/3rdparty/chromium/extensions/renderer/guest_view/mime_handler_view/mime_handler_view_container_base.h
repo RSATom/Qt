@@ -10,6 +10,9 @@
 #include "base/macros.h"
 #include "content/public/common/transferrable_url_loader.mojom.h"
 #include "extensions/common/api/mime_handler.mojom.h"
+#include "extensions/common/guest_view/mime_handler_view_uma_types.h"
+#include "extensions/common/mojom/guest_view.mojom.h"
+#include "extensions/renderer/guest_view/mime_handler_view/post_message_support.h"
 #include "ipc/ipc_message.h"
 #include "mojo/public/cpp/bindings/binding.h"
 #include "services/network/public/mojom/url_loader.mojom.h"
@@ -20,7 +23,6 @@
 
 namespace blink {
 class WebAssociatedURLLoader;
-class WebRemoteFrame;
 }  // namespace blink
 
 namespace content {
@@ -29,15 +31,13 @@ class URLLoaderThrottle;
 struct WebPluginInfo;
 }  // namespace content
 
-namespace IPC {
-class Message;
-}
 
 namespace extensions {
-// A base class for MimeHandlerViewContainer which provides a way of reusing the
-// common logic between the BrowserPlugin-based and frame-based container.
+// TODO(ekaramad): This class is no longer needed and should be merged into
+// its subclass, MimeHandlerViewContainer (https://crbug.com/659750).
 class MimeHandlerViewContainerBase : public blink::WebAssociatedURLLoaderClient,
-                                     public mime_handler::BeforeUnloadControl {
+                                     public mime_handler::BeforeUnloadControl,
+                                     public PostMessageSupport::Delegate {
  public:
   MimeHandlerViewContainerBase(content::RenderFrame* embedder_render_frame,
                                const content::WebPluginInfo& info,
@@ -46,10 +46,12 @@ class MimeHandlerViewContainerBase : public blink::WebAssociatedURLLoaderClient,
 
   ~MimeHandlerViewContainerBase() override;
 
+  static mojom::GuestView* GuestView();
+
+  // TODO(ekaramad): Remove this and make MimeHandlerViewContainerManager of
+  // |render_frame| hold on to the list of MimeHandlerViewContainerBase.
   static std::vector<MimeHandlerViewContainerBase*> FromRenderFrame(
       content::RenderFrame* render_frame);
-
-  static bool TryHandleMessage(const IPC::Message& message);
 
   // If the URL matches the same URL that this object has created and it hasn't
   // added a throttle yet, it will return a new one for the purpose of
@@ -57,31 +59,25 @@ class MimeHandlerViewContainerBase : public blink::WebAssociatedURLLoaderClient,
   std::unique_ptr<content::URLLoaderThrottle> MaybeCreatePluginThrottle(
       const GURL& url);
 
-  // Post a JavaScript message to the guest.
-  void PostJavaScriptMessage(v8::Isolate* isolate,
-                             v8::Local<v8::Value> message);
-
-  // Post |message| to the guest.
-  void PostMessageFromValue(const base::Value& message);
-
-  bool OnHandleMessage(const IPC::Message& message);
-
   // WebAssociatedURLLoaderClient overrides.
   void DidReceiveData(const char* data, int data_length) override;
   void DidFinishLoading() override;
 
  protected:
+  MimeHandlerViewContainerBase();
+
   virtual void CreateMimeHandlerViewGuestIfNecessary();
-  virtual void OnRetryCreatingMimeHandlerViewGuest(int32_t element_instance_id);
-  virtual void OnDestroyFrameContainer(int32_t element_instance_id);
-  virtual blink::WebRemoteFrame* GetGuestProxyFrame() const = 0;
   virtual int32_t GetInstanceId() const = 0;
   virtual gfx::Size GetElementSize() const = 0;
 
-  void OnMimeHandlerViewGuestOnLoadCompleted(int32_t element_instance_id);
+  void DidLoadInternal();
   void SendResourceRequest();
   void EmbedderRenderFrameWillBeGone();
-  v8::Local<v8::Object> GetScriptableObject(v8::Isolate* isolate);
+  v8::Local<v8::Object> GetScriptableObjectInternal(v8::Isolate* isolate);
+  void RecordInteraction(MimeHandlerViewUMATypes::Type uma_type);
+
+  // Returns the frame which is embedding the corresponding plugin element.
+  content::RenderFrame* GetEmbedderRenderFrame() const;
 
   bool guest_created() const { return guest_created_; }
 
@@ -97,22 +93,19 @@ class MimeHandlerViewContainerBase : public blink::WebAssociatedURLLoaderClient,
   // The original URL of the plugin.
   const GURL original_url_;
 
-  // Only valid for the cross-process-frame-based implementation. This holds the
-  // routing ID of the frame or proxy whose corresponding WebFrame is the
-  // ContentFrame() of the plugin element.
-  int32_t plugin_frame_routing_id_ = MSG_ROUTING_NONE;
-
  private:
   class PluginResourceThrottle;
-
-  // Returns the frame which is embedding the corresponding plugin element.
-  content::RenderFrame* GetEmbedderRenderFrame() const;
 
   // Called for embedded plugins when network service is enabled. This is called
   // by the URLLoaderThrottle which intercepts the resource load, which is then
   // sent to the browser to be handed off to the plugin.
   void SetEmbeddedLoader(
       content::mojom::TransferrableURLLoaderPtr transferrable_url_loader);
+
+  // mime_handler::BeforeUnloadControl implementation.
+  void SetShowBeforeUnloadDialog(
+      bool show_dialog,
+      SetShowBeforeUnloadDialogCallback callback) override;
 
   // Path of the plugin.
   const std::string plugin_path_;
@@ -128,28 +121,19 @@ class MimeHandlerViewContainerBase : public blink::WebAssociatedURLLoaderClient,
   // the embedded case, no URL request is made automatically.
   std::unique_ptr<blink::WebAssociatedURLLoader> loader_;
 
-  // The scriptable object that backs the plugin.
-  v8::Global<v8::Object> scriptable_object_;
-
-  // Pending postMessage messages that need to be sent to the guest. These are
-  // queued while the guest is loading and once it is fully loaded they are
-  // delivered so that messages aren't lost.
-  std::vector<v8::Global<v8::Value>> pending_messages_;
-
   // True if a guest process has been requested.
   bool guest_created_ = false;
 
   // True if the guest page has fully loaded and its JavaScript onload function
   // has been called.
   bool guest_loaded_ = false;
-
   // The routing ID of the frame which contains the plugin element.
   const int32_t embedder_render_frame_routing_id_;
 
   mojo::Binding<mime_handler::BeforeUnloadControl>
       before_unload_control_binding_;
 
-  base::WeakPtrFactory<MimeHandlerViewContainerBase> weak_factory_;
+  base::WeakPtrFactory<MimeHandlerViewContainerBase> weak_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(MimeHandlerViewContainerBase);
 };

@@ -9,8 +9,8 @@
 #include <string>
 
 #include "base/optional.h"
-#include "components/autofill/core/browser/autofill_profile.h"
-#include "components/autofill/core/browser/credit_card.h"
+#include "components/autofill/core/browser/data_model/autofill_profile.h"
+#include "components/autofill/core/browser/data_model/credit_card.h"
 
 namespace autofill_assistant {
 // Data shared between scripts and actions.
@@ -46,10 +46,12 @@ class ClientMemory {
       const std::string& name,
       std::unique_ptr<autofill::AutofillProfile> address);
 
+  virtual std::string GetAllAddressKeyNames() const;
+
  private:
   base::Optional<std::unique_ptr<autofill::CreditCard>> selected_card_;
 
-  // The selected addresses (keyed by name).
+  // The address key requested by the autofill action.
   std::map<std::string, std::unique_ptr<autofill::AutofillProfile>>
       selected_addresses_;
 };

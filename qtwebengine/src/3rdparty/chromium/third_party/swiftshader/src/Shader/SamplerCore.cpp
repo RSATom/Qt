@@ -506,7 +506,8 @@ namespace sw
 		for(int i = 0; i < 4; ++i)
 		{
 			Int baseLevel = *Pointer<Int>(texture + OFFSET(Texture, baseLevel));
-			Pointer<Byte> mipmap = texture + OFFSET(Texture, mipmap) + (As<Int>(Extract(lod, i)) + baseLevel) * sizeof(Mipmap);
+			Int index = Min(As<UInt>(As<Int>(Extract(lod, i)) + baseLevel), MIPMAP_LEVELS - 1);
+			Pointer<Byte> mipmap = texture + OFFSET(Texture, mipmap) + index * sizeof(Mipmap);
 			size.x = Insert(size.x, As<Float>(Int(*Pointer<Short>(mipmap + OFFSET(Mipmap, width)))), i);
 			size.y = Insert(size.y, As<Float>(Int(*Pointer<Short>(mipmap + OFFSET(Mipmap, height)))), i);
 			size.z = Insert(size.z, As<Float>(Int(*Pointer<Short>(mipmap + OFFSET(Mipmap, depth)))), i);
@@ -2358,10 +2359,6 @@ namespace sw
 			const int oneBits  = 0x3F7FFFFF;   // Value just under 1.0f
 			const int twoBits  = 0x3FFFFFFF;   // Value just under 2.0f
 
-			bool pointFilter = state.textureFilter == FILTER_POINT ||
-			                   state.textureFilter == FILTER_MIN_POINT_MAG_LINEAR ||
-			                   state.textureFilter == FILTER_MIN_LINEAR_MAG_POINT;
-
 			Float4 coord = uvw;
 
 			if(state.textureType == TEXTURE_RECTANGLE)
@@ -2380,14 +2377,16 @@ namespace sw
 				case ADDRESSING_CLAMP:
 				case ADDRESSING_BORDER:
 				case ADDRESSING_SEAMLESS:
-					// Linear filtering of cube doesn't require clamping because the coordinates
-					// are already in [0, 1] range and numerical imprecision is tolerated.
-					if(addressingMode != ADDRESSING_SEAMLESS || pointFilter)
-					{
-						Float4 one = As<Float4>(Int4(oneBits));
-						coord = Min(Max(coord, Float4(0.0f)), one);
-					}
-					break;
+				{
+					// While cube face coordinates are nominally already in the
+					// [0, 1] range due to the projection, and numerical
+					// imprecision is tolerated due to the border of pixels for
+					// seamless filtering, this isn't true for inf and NaN
+					// values. So we always clamp.
+					Float4 one = As<Float4>(Int4(oneBits));
+					coord = Min(Max(coord, Float4(0.0f)), one);
+				}
+				break;
 				case ADDRESSING_MIRROR:
 				{
 					Float4 half = As<Float4>(Int4(halfBits));
@@ -2483,7 +2482,7 @@ namespace sw
 				default:   // Wrap
 					{
 						Int4 under = CmpLT(xyz0, Int4(0));
-						xyz0 = (under & maxXYZ) | (~under & xyz0);   // xyz < 0 ? dim - 1 : xyz   // FIXME: IfThenElse()
+						xyz0 = (under & maxXYZ) | (~under & xyz0);   // xyz < 0 ? dim - 1 : xyz   // TODO: IfThenElse()
 
 						Int4 nover = CmpLT(xyz1, dim);
 						xyz1 = nover & xyz1;   // xyz >= dim ? 0 : xyz

@@ -3,7 +3,6 @@
 # found in the LICENSE file.
 
 import("//printing/buildflags/buildflags.gni")
-import("//services/service_manager/public/service_manifest.gni")
 
 static_library("pdf_compositor") {
   sources = [
@@ -17,25 +16,19 @@ static_library("pdf_compositor") {
     "//base",
     "//components/crash/core/common:crash_key",
     "//components/discardable_memory/client",
-    "//components/discardable_memory/public/interfaces",
+    "//components/discardable_memory/public/mojom",
     "//content/public/child",
     "//content/public/common:service_names",
     "//content/public/utility",
     "//printing/common",
-    "//services/ws/public/mojom",
     "//skia",
     "//third_party/blink/public:blink_headers",
   ]
 
   public_deps = [
-    "//components/services/pdf_compositor/public/interfaces",
+    "//components/services/pdf_compositor/public/mojom",
     "//services/service_manager/public/cpp",
   ]
-}
-
-service_manifest("pdf_compositor_manifest") {
-  name = "pdf_compositor"
-  source = "pdf_compositor_manifest.json"
 }
 
 if (enable_basic_printing) {
@@ -58,7 +51,7 @@ if (enable_basic_printing) {
       "//base/test:test_support",
       "//cc/paint:paint",
       "//components/crash/core/common:crash_key",
-      "//components/services/pdf_compositor/public/interfaces",
+      "//components/services/pdf_compositor/public/mojom",
       "//services/service_manager/public/cpp/test:test_support",
       "//skia",
       "//testing/gmock",

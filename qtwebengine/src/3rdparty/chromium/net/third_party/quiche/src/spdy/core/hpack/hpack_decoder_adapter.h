@@ -13,7 +13,6 @@
 #include <cstdint>
 #include <memory>
 
-#include "base/macros.h"
 #include "net/third_party/quiche/src/http2/hpack/decoder/hpack_decoder.h"
 #include "net/third_party/quiche/src/http2/hpack/decoder/hpack_decoder_listener.h"
 #include "net/third_party/quiche/src/http2/hpack/decoder/hpack_decoder_tables.h"
@@ -79,6 +78,10 @@ class SPDY_EXPORT_PRIVATE HpackDecoderAdapter {
   // header list, or the HPACK block; we probably shouldn't care about the size
   // of individual transport buffers.
   void set_max_decode_buffer_size_bytes(size_t max_decode_buffer_size_bytes);
+
+  // Specifies the maximum size of an on-the-wire header block that will be
+  // accepted.
+  void set_max_header_block_bytes(size_t max_header_block_bytes);
 
   size_t EstimateMemoryUsage() const;
 
@@ -147,6 +150,9 @@ class SPDY_EXPORT_PRIVATE HpackDecoderAdapter {
 
   // How much encoded data this decoder is willing to buffer.
   size_t max_decode_buffer_size_bytes_;
+
+  // How much encoded data this decoder is willing to process.
+  size_t max_header_block_bytes_;
 
   // Flag to keep track of having seen the header block start. Needed at the
   // moment because HandleControlFrameHeadersStart won't be called if a handler

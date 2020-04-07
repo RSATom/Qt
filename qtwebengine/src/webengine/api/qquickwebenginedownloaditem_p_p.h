@@ -67,10 +67,11 @@ class QQuickWebEngineDownloadItemPrivate {
     friend class QQuickWebEngineProfilePrivate;
 public:
     Q_DECLARE_PUBLIC(QQuickWebEngineDownloadItem)
-    QQuickWebEngineDownloadItemPrivate(QQuickWebEngineProfile *p);
+    QQuickWebEngineDownloadItemPrivate(QQuickWebEngineProfile *p, const QUrl &url);
     ~QQuickWebEngineDownloadItemPrivate();
 
     quint32 downloadId;
+    qint64 startTime;
     QQuickWebEngineDownloadItem::DownloadState downloadState;
     QQuickWebEngineDownloadItem::SavePageFormat savePageFormat;
     QQuickWebEngineDownloadItem::DownloadType type;
@@ -82,6 +83,11 @@ public:
     bool downloadFinished;
     bool downloadPaused;
     QQuickWebEngineView *view;
+    QUrl downloadUrl;
+    QString suggestedFileName;
+    QString downloadDirectory;
+    QString downloadFileName;
+    bool isCustomFileName;
 
     void update(const QtWebEngineCore::ProfileAdapterClient::DownloadItemInfo &info);
     void updateState(QQuickWebEngineDownloadItem::DownloadState newState);

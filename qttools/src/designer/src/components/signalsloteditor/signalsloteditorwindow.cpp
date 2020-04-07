@@ -65,8 +65,6 @@
 
 QT_BEGIN_NAMESPACE
 
-typedef void (QComboBox::*QComboIntSignal)(int);
-
 // Add suitable form widgets to a list of objects for the  signal slot
 // editor. Prevent special widgets from showing up there.
 static void addWidgetToObjectList(const QWidget *w, QStringList &r)
@@ -81,8 +79,8 @@ static void addWidgetToObjectList(const QWidget *w, QStringList &r)
 
 static QStringList objectNameList(QDesignerFormWindowInterface *form)
 {
-    typedef QList<QAction*> ActionList;
-    typedef QList<QButtonGroup *> ButtonGroupList;
+    using ActionList = QList<QAction *>;
+    using ButtonGroupList = QList<QButtonGroup *>;
 
     QStringList result;
 
@@ -216,9 +214,9 @@ QModelIndex ConnectionModel::index(int row, int column,
 Connection *ConnectionModel::indexToConnection(const QModelIndex &index) const
 {
     if (!index.isValid() || !m_editor)
-        return 0;
+        return nullptr;
     if (index.row() < 0 || index.row() >= m_editor->connectionCount())
-        return 0;
+        return nullptr;
     return m_editor->connection(index.row());
 }
 
@@ -259,7 +257,7 @@ QVariant ConnectionModel::data(const QModelIndex &index, int role) const
     }
 
     const SignalSlotConnection *con = static_cast<SignalSlotConnection*>(m_editor->connection(index.row()));
-    Q_ASSERT(con != 0);
+    Q_ASSERT(con != nullptr);
 
     // Mark deprecated slots red/italic. Not currently in use (historically for Qt 3 slots in Qt 4),
     // but may be used again in the future.
@@ -375,7 +373,7 @@ void ConnectionModel::connectionChanged(Connection *con)
     Q_ASSERT(m_editor);
     const int idx = m_editor->indexOfConnection(con);
     SignalSlotConnection *changedCon = static_cast<SignalSlotConnection*>(m_editor->connection(idx));
-    SignalSlotConnection *c = 0;
+    SignalSlotConnection *c = nullptr;
     for (int i=0; i<m_editor->connectionCount(); ++i) {
         if (i == idx)
             continue;
@@ -393,7 +391,7 @@ void ConnectionModel::connectionChanged(Connection *con)
 
 void ConnectionModel::updateAll()
 {
-    emit dataChanged(index(0, 0), index(rowCount(), columnCount()));
+    emit dataChanged(index(0, 0), index(rowCount() - 1, columnCount() - 1));
 }
 }
 
@@ -406,7 +404,7 @@ class InlineEditorModel : public QStandardItemModel
 public:
     enum {  TitleItem = 1 };
 
-    InlineEditorModel(int rows, int cols, QObject *parent = 0);
+    InlineEditorModel(int rows, int cols, QObject *parent = nullptr);
 
     void addTitle(const QString &title);
     void addTextList(const QMap<QString, bool> &text_list);
@@ -496,7 +494,7 @@ class InlineEditor : public QComboBox
     Q_OBJECT
     Q_PROPERTY(QString text READ text WRITE setText USER true)
 public:
-    InlineEditor(QWidget *parent = 0);
+    InlineEditor(QWidget *parent = nullptr);
 
     QString text() const;
     void setText(const QString &text);
@@ -510,17 +508,16 @@ private slots:
 
 private:
     InlineEditorModel *m_model;
-    int m_idx;
+    int m_idx = -1;
 };
 
 InlineEditor::InlineEditor(QWidget *parent) :
-    QComboBox(parent),
-    m_idx(-1)
+    QComboBox(parent)
 {
     setModel(m_model = new InlineEditorModel(0, 4, this));
     setFrame(false);
     m_idx = -1;
-    connect(this, static_cast<QComboIntSignal>(&QComboBox::activated),
+    connect(this, QOverload<int>::of(&QComboBox::activated),
             this, &InlineEditor::checkSelection);
 }
 
@@ -569,7 +566,7 @@ class ConnectionDelegate : public QItemDelegate
 {
     Q_OBJECT
 public:
-    ConnectionDelegate(QWidget *parent = 0);
+    ConnectionDelegate(QWidget *parent = nullptr);
 
     void setForm(QDesignerFormWindowInterface *form);
 
@@ -587,10 +584,10 @@ private:
 ConnectionDelegate::ConnectionDelegate(QWidget *parent)
     : QItemDelegate(parent)
 {
-    m_form = 0;
+    m_form = nullptr;
 
-    static QItemEditorFactory *factory = 0;
-    if (factory == 0) {
+    static QItemEditorFactory *factory = nullptr;
+    if (factory == nullptr) {
         factory = new QItemEditorFactory;
         QItemEditorCreatorBase *creator
             = new QItemEditorCreator<InlineEditor>("text");
@@ -609,12 +606,12 @@ QWidget *ConnectionDelegate::createEditor(QWidget *parent,
                                                 const QStyleOptionViewItem &option,
                                                 const QModelIndex &index) const
 {
-    if (m_form == 0)
-        return 0;
+    if (m_form == nullptr)
+        return nullptr;
 
     QWidget *w = QItemDelegate::createEditor(parent, option, index);
     InlineEditor *inline_editor = qobject_cast<InlineEditor*>(w);
-    Q_ASSERT(inline_editor != 0);
+    Q_ASSERT(inline_editor != nullptr);
     const QAbstractItemModel *model = index.model();
 
     const QModelIndex obj_name_idx = model->index(index.row(), index.column() <= 1 ? 0 : 2);
@@ -658,7 +655,7 @@ QWidget *ConnectionDelegate::createEditor(QWidget *parent,
         break;
     }
 
-    connect(inline_editor, static_cast<QComboIntSignal>(&QComboBox::activated),
+    connect(inline_editor, QOverload<int>::of(&QComboBox::activated),
             this, &ConnectionDelegate::emitCommitData);
 
     return inline_editor;
@@ -682,7 +679,7 @@ SignalSlotEditorWindow::SignalSlotEditorWindow(QDesignerFormEditorInterface *cor
                                                 QWidget *parent)  :
     QWidget(parent),
     m_view(new QTreeView),
-    m_editor(0),
+    m_editor(nullptr),
     m_add_button(new QToolButton),
     m_remove_button(new QToolButton),
     m_core(core),
@@ -737,6 +734,8 @@ void SignalSlotEditorWindow::setActiveFormWindow(QDesignerFormWindowInterface *f
                     this, &SignalSlotEditorWindow::updateEditorSelection);
         disconnect(m_editor.data(), &SignalSlotEditor::connectionSelected,
                    this, &SignalSlotEditorWindow::updateDialogSelection);
+        disconnect(m_editor.data(), &SignalSlotEditor::connectionAdded,
+                   this, &SignalSlotEditorWindow::resizeColumns);
         if (integration) {
             disconnect(integration, &QDesignerIntegrationInterface::objectNameChanged,
                        this, &SignalSlotEditorWindow::objectNameChanged);
@@ -748,7 +747,7 @@ void SignalSlotEditorWindow::setActiveFormWindow(QDesignerFormWindowInterface *f
     if (!m_editor.isNull()) {
         ConnectionDelegate *delegate
             = qobject_cast<ConnectionDelegate*>(m_view->itemDelegate());
-        if (delegate != 0)
+        if (delegate != nullptr)
             delegate->setForm(form);
 
         connect(m_view->selectionModel(),
@@ -756,18 +755,21 @@ void SignalSlotEditorWindow::setActiveFormWindow(QDesignerFormWindowInterface *f
                 this, &SignalSlotEditorWindow::updateEditorSelection);
         connect(m_editor.data(), &SignalSlotEditor::connectionSelected,
                 this, &SignalSlotEditorWindow::updateDialogSelection);
+        connect(m_editor.data(), &SignalSlotEditor::connectionAdded,
+                this, &SignalSlotEditorWindow::resizeColumns);
         if (integration) {
             connect(integration, &QDesignerIntegrationInterface::objectNameChanged,
                     this, &SignalSlotEditorWindow::objectNameChanged);
         }
     }
 
+    resizeColumns();
     updateUi();
 }
 
 void SignalSlotEditorWindow::updateDialogSelection(Connection *con)
 {
-    if (m_handling_selection_change || m_editor == 0)
+    if (m_handling_selection_change || m_editor == nullptr)
         return;
 
     QModelIndex index = m_proxy_model->mapFromSource(m_model->connectionToIndex(con));
@@ -782,10 +784,10 @@ void SignalSlotEditorWindow::updateDialogSelection(Connection *con)
 
 void SignalSlotEditorWindow::updateEditorSelection(const QModelIndex &index)
 {
-    if (m_handling_selection_change || m_editor == 0)
+    if (m_handling_selection_change || m_editor == nullptr)
         return;
 
-    if (m_editor == 0)
+    if (m_editor == nullptr)
         return;
 
     Connection *con = m_model->indexToConnection(m_proxy_model->mapToSource(index));
@@ -827,6 +829,12 @@ void SignalSlotEditorWindow::updateUi()
 {
     m_add_button->setEnabled(!m_editor.isNull());
     m_remove_button->setEnabled(!m_editor.isNull() && m_view->currentIndex().isValid());
+}
+
+void SignalSlotEditorWindow::resizeColumns()
+{
+    for (int c = 0, count = m_model->columnCount(); c < count; ++c)
+        m_view->resizeColumnToContents(c);
 }
 
 } // namespace qdesigner_internal

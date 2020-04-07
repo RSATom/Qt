@@ -56,33 +56,23 @@ enum XFA_SOM_MESSAGETYPE {
 
 class CJX_Object {
  public:
-  // Similar, but not exactly equal to XFA_Element enum.
-  // TODO(tsepez): unify with XFA_Element.
+  // Corresponds 1:1 with CJX_ subclasses.
   enum class TypeTag {
     Boolean,
-    Comb,
     Container,
-    DataValue,
     DataWindow,
-    Date,
-    DateTime,
-    Decimal,
     Delta,
     Desc,
     Draw,
     Encrypt,
     EventPseudoModel,
     ExclGroup,
-    ExData,
     Extras,
     Field,
-    Float,
     Form,
     Handler,
     HostPseudoModel,
-    Image,
     InstanceManager,
-    Integer,
     LayoutPseudoModel,
     List,
     LogPseudoModel,
@@ -92,19 +82,15 @@ class CJX_Object {
     Object,
     Occur,
     Packet,
-    Picture,
     Script,
     SignaturePesudoModel,
     Source,
     Subform,
     SubformSet,
     Template,
-    Text,
     TextNode,
-    Time,
     Tree,
     TreeList,
-    Value,
     WsdlConnection,
     Xfa,
   };
@@ -176,16 +162,12 @@ class CJX_Object {
   JSE_PROP(ScriptSomBorderWidth);
   JSE_PROP(ScriptSomValidationMessage);
   JSE_PROP(ScriptSomMandatoryMessage);
-  JSE_PROP(ScriptFieldLength);
   JSE_PROP(ScriptSomDefaultValue);
   JSE_PROP(ScriptSomDefaultValue_Read);
   JSE_PROP(ScriptSomDataNode);
   JSE_PROP(ScriptSomMandatory);
   JSE_PROP(ScriptSomInstanceIndex);
-  JSE_PROP(ScriptSubformInstanceManager);
   JSE_PROP(ScriptSubmitFormatMode);
-  JSE_PROP(ScriptFormChecksumS);
-  JSE_PROP(ScriptExclGroupErrorText);
 
   void ScriptSomMessage(CFXJSE_Value* pValue,
                         bool bSetting,
@@ -193,16 +175,16 @@ class CJX_Object {
 
   Optional<WideString> TryNamespace();
 
-  Optional<int32_t> TryInteger(XFA_Attribute eAttr, bool bUseDefault);
+  Optional<int32_t> TryInteger(XFA_Attribute eAttr, bool bUseDefault) const;
   void SetInteger(XFA_Attribute eAttr, int32_t iValue, bool bNotify);
-  int32_t GetInteger(XFA_Attribute eAttr);
+  int32_t GetInteger(XFA_Attribute eAttr) const;
 
-  Optional<WideString> TryCData(XFA_Attribute eAttr, bool bUseDefault);
+  Optional<WideString> TryCData(XFA_Attribute eAttr, bool bUseDefault) const;
   void SetCData(XFA_Attribute eAttr,
                 const WideString& wsValue,
                 bool bNotify,
                 bool bScriptModify);
-  WideString GetCData(XFA_Attribute eAttr);
+  WideString GetCData(XFA_Attribute eAttr) const;
 
   Optional<XFA_AttributeValue> TryEnum(XFA_Attribute eAttr,
                                        bool bUseDefault) const;
@@ -218,6 +200,7 @@ class CJX_Object {
   Optional<float> TryMeasureAsFloat(XFA_Attribute attr) const;
   void SetMeasure(XFA_Attribute eAttr, CXFA_Measurement mValue, bool bNotify);
   CXFA_Measurement GetMeasure(XFA_Attribute eAttr) const;
+  float GetMeasureInUnit(XFA_Attribute eAttr, XFA_Unit unit) const;
 
   void MergeAllData(CXFA_Object* pDstModule);
 
@@ -263,7 +246,7 @@ class CJX_Object {
   XFA_MAPMODULEDATA* GetMapModuleData() const;
   void SetMapModuleValue(void* pKey, void* pValue);
   Optional<void*> GetMapModuleValue(void* pKey) const;
-  Optional<WideString> GetMapModuleString(void* pKey);
+  Optional<WideString> GetMapModuleString(void* pKey) const;
   void SetMapModuleBuffer(void* pKey,
                           void* pValue,
                           int32_t iBytes,

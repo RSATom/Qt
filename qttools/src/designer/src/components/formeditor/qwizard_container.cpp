@@ -36,8 +36,8 @@
 
 QT_BEGIN_NAMESPACE
 
-typedef QList<int> IdList;
-typedef QList<QWizardPage *> WizardPageList;
+using IdList = QList<int>;
+using WizardPageList = QList<QWizardPage *>;
 
 namespace qdesigner_internal {
 
@@ -54,7 +54,7 @@ int QWizardContainer::count() const
 
 QWidget *QWizardContainer::widget(int index) const
 {
-    QWidget *rc = 0;
+    QWidget *rc = nullptr;
     if (index >= 0) {
         const IdList idList = m_wizard->pageIds();
         if (index < idList.size())

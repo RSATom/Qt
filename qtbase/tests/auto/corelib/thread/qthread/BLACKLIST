@@ -1,2 +1,5 @@
 [wait3_slowDestructor]
-windows
+windows-10
+[sleep]
+windows-7sp1
+

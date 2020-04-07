@@ -4,32 +4,36 @@
 
 #include "components/viz/service/display_embedder/gl_output_surface.h"
 
-#include <stdint.h>
+#include <utility>
+#include <vector>
 
 #include "base/bind.h"
 #include "base/threading/thread_task_runner_handle.h"
+#include "cc/base/math_util.h"
 #include "components/viz/common/frame_sinks/begin_frame_source.h"
 #include "components/viz/common/gpu/context_provider.h"
 #include "components/viz/service/display/output_surface_client.h"
 #include "components/viz/service/display/output_surface_frame.h"
+#include "components/viz/service/display/renderer_utils.h"
 #include "gpu/command_buffer/client/context_support.h"
 #include "gpu/command_buffer/client/gles2_interface.h"
 #include "gpu/command_buffer/common/swap_buffers_complete_params.h"
 #include "gpu/command_buffer/common/swap_buffers_flags.h"
-#include "ui/gl/gl_utils.h"
+#include "ui/gfx/overlay_transform_utils.h"
+#include "ui/gl/color_space_utils.h"
 
 namespace viz {
 
 GLOutputSurface::GLOutputSurface(
     scoped_refptr<VizProcessContextProvider> context_provider,
-    SyntheticBeginFrameSource* synthetic_begin_frame_source)
+    gpu::SurfaceHandle surface_handle)
     : OutputSurface(context_provider),
-      synthetic_begin_frame_source_(synthetic_begin_frame_source),
+      viz_context_provider_(context_provider),
+      surface_handle_(surface_handle),
       use_gpu_fence_(
           context_provider->ContextCapabilities().chromium_gpu_fence &&
           context_provider->ContextCapabilities()
-              .use_gpu_fences_for_overlay_planes),
-      weak_ptr_factory_(this) {
+              .use_gpu_fences_for_overlay_planes) {
   capabilities_.flipped_output_surface =
       context_provider->ContextCapabilities().flips_vertically;
   capabilities_.supports_stencil =
@@ -39,12 +43,14 @@ GLOutputSurface::GLOutputSurface(
   // can use.
   capabilities_.max_frames_pending =
       context_provider->ContextCapabilities().num_surface_buffers - 1;
-  context_provider->SetUpdateVSyncParametersCallback(
-      base::BindRepeating(&GLOutputSurface::OnVSyncParametersUpdated,
-                          weak_ptr_factory_.GetWeakPtr()));
+  capabilities_.supports_gpu_vsync =
+      context_provider->ContextCapabilities().gpu_vsync;
 }
 
 GLOutputSurface::~GLOutputSurface() {
+  viz_context_provider_->SetUpdateVSyncParametersCallback(
+      UpdateVSyncParametersCallback());
+  viz_context_provider_->SetGpuVSyncCallback(GpuVSyncCallback());
   if (gpu_fence_id_ > 0)
     context_provider()->ContextGL()->DestroyGpuFenceCHROMIUM(gpu_fence_id_);
 }
@@ -66,6 +72,9 @@ void GLOutputSurface::BindFramebuffer() {
 }
 
 void GLOutputSurface::SetDrawRectangle(const gfx::Rect& rect) {
+  if (!context_provider_->ContextCapabilities().dc_layers)
+    return;
+
   if (set_draw_rectangle_for_frame_)
     return;
   DCHECK(gfx::Rect(size_).Contains(rect));
@@ -86,19 +95,23 @@ void GLOutputSurface::Reshape(const gfx::Size& size,
   has_set_draw_rectangle_since_last_resize_ = false;
   context_provider()->ContextGL()->ResizeCHROMIUM(
       size.width(), size.height(), device_scale_factor,
-      gl::GetGLColorSpace(color_space), has_alpha);
+      gl::ColorSpaceUtils::GetGLColorSpace(color_space), has_alpha);
 }
 
 void GLOutputSurface::SwapBuffers(OutputSurfaceFrame frame) {
   DCHECK(context_provider_);
 
   uint32_t flags = 0;
-  if (synthetic_begin_frame_source_)
+  if (wants_vsync_parameter_updates_)
     flags |= gpu::SwapBuffersFlags::kVSyncParams;
 
+  // The |swap_size| here should always be in the UI's logical screen space
+  // since it is forwarded to the client code which is unaware of the display
+  // transform optimization.
+  gfx::Size swap_size = ApplyDisplayInverse(gfx::Rect(size_)).size();
   auto swap_callback = base::BindOnce(
       &GLOutputSurface::OnGpuSwapBuffersCompleted,
-      weak_ptr_factory_.GetWeakPtr(), std::move(frame.latency_info), size_);
+      weak_ptr_factory_.GetWeakPtr(), std::move(frame.latency_info), swap_size);
   gpu::ContextSupport::PresentationCallback presentation_callback;
   presentation_callback = base::BindOnce(&GLOutputSurface::OnPresentation,
                                          weak_ptr_factory_.GetWeakPtr());
@@ -107,6 +120,10 @@ void GLOutputSurface::SwapBuffers(OutputSurfaceFrame frame) {
   if (frame.sub_buffer_rect) {
     HandlePartialSwap(*frame.sub_buffer_rect, flags, std::move(swap_callback),
                       std::move(presentation_callback));
+  } else if (!frame.content_bounds.empty()) {
+    context_provider_->ContextSupport()->SwapWithBounds(
+        frame.content_bounds, flags, std::move(swap_callback),
+        std::move(presentation_callback));
   } else {
     context_provider_->ContextSupport()->Swap(flags, std::move(swap_callback),
                                               std::move(presentation_callback));
@@ -116,11 +133,6 @@ void GLOutputSurface::SwapBuffers(OutputSurfaceFrame frame) {
 uint32_t GLOutputSurface::GetFramebufferCopyTextureFormat() {
   auto* gl = static_cast<VizProcessContextProvider*>(context_provider());
   return gl->GetCopyTextureInternalFormat();
-}
-
-OverlayCandidateValidator* GLOutputSurface::GetOverlayCandidateValidator()
-    const {
-  return nullptr;
 }
 
 bool GLOutputSurface::IsDisplayedAsOverlayPlane() const {
@@ -141,8 +153,9 @@ bool GLOutputSurface::HasExternalStencilTest() const {
 
 void GLOutputSurface::ApplyExternalStencil() {}
 
-void GLOutputSurface::DidReceiveSwapBuffersAck(gfx::SwapResult result) {
-  client_->DidReceiveSwapBuffersAck();
+void GLOutputSurface::DidReceiveSwapBuffersAck(
+    const gfx::SwapResponse& response) {
+  client_->DidReceiveSwapBuffersAck(response.timings);
 }
 
 void GLOutputSurface::HandlePartialSwap(
@@ -163,7 +176,7 @@ void GLOutputSurface::OnGpuSwapBuffersCompleted(
     client_->DidReceiveTextureInUseResponses(params.texture_in_use_responses);
   if (!params.ca_layer_params.is_empty)
     client_->DidReceiveCALayerParams(params.ca_layer_params);
-  DidReceiveSwapBuffersAck(params.swap_response.result);
+  DidReceiveSwapBuffersAck(params.swap_response);
 
   UpdateLatencyInfoOnSwap(params.swap_response, &latency_info);
   latency_tracker_.OnGpuSwapBuffersCompleted(latency_info);
@@ -173,27 +186,10 @@ void GLOutputSurface::OnGpuSwapBuffersCompleted(
     client_->DidSwapWithSize(pixel_size);
 }
 
-void GLOutputSurface::OnVSyncParametersUpdated(base::TimeTicks timebase,
-                                               base::TimeDelta interval) {
-  if (synthetic_begin_frame_source_) {
-    // TODO(brianderson): We should not be receiving 0 intervals.
-    synthetic_begin_frame_source_->OnUpdateVSyncParameters(
-        timebase,
-        interval.is_zero() ? BeginFrameArgs::DefaultInterval() : interval);
-  }
-}
-
 void GLOutputSurface::OnPresentation(
     const gfx::PresentationFeedback& feedback) {
   client_->DidReceivePresentationFeedback(feedback);
 }
-
-#if BUILDFLAG(ENABLE_VULKAN)
-gpu::VulkanSurface* GLOutputSurface::GetVulkanSurface() {
-  NOTIMPLEMENTED();
-  return nullptr;
-}
-#endif
 
 unsigned GLOutputSurface::UpdateGpuFence() {
   if (!use_gpu_fence_)
@@ -212,4 +208,38 @@ void GLOutputSurface::SetNeedsSwapSizeNotifications(
   needs_swap_size_notifications_ = needs_swap_size_notifications;
 }
 
+void GLOutputSurface::SetUpdateVSyncParametersCallback(
+    UpdateVSyncParametersCallback callback) {
+  wants_vsync_parameter_updates_ = !callback.is_null();
+  viz_context_provider_->SetUpdateVSyncParametersCallback(std::move(callback));
+}
+
+void GLOutputSurface::SetGpuVSyncCallback(GpuVSyncCallback callback) {
+  DCHECK(capabilities_.supports_gpu_vsync);
+  viz_context_provider_->SetGpuVSyncCallback(std::move(callback));
+}
+
+void GLOutputSurface::SetGpuVSyncEnabled(bool enabled) {
+  DCHECK(capabilities_.supports_gpu_vsync);
+  viz_context_provider_->SetGpuVSyncEnabled(enabled);
+}
+
+gfx::OverlayTransform GLOutputSurface::GetDisplayTransform() {
+  return gfx::OVERLAY_TRANSFORM_NONE;
+}
+
+gfx::Rect GLOutputSurface::ApplyDisplayInverse(const gfx::Rect& input) {
+  gfx::Transform display_inverse = gfx::OverlayTransformToTransform(
+      gfx::InvertOverlayTransform(GetDisplayTransform()), size_);
+  return cc::MathUtil::MapEnclosedRectWith2dAxisAlignedTransform(
+      display_inverse, input);
+}
+
+base::ScopedClosureRunner GLOutputSurface::GetCacheBackBufferCb() {
+  return viz_context_provider_->GetCacheBackBufferCb();
+}
+
+gpu::SurfaceHandle GLOutputSurface::GetSurfaceHandle() const {
+  return surface_handle_;
+}
 }  // namespace viz

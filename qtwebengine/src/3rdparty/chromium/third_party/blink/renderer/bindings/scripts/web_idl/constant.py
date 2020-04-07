@@ -1,42 +1,69 @@
-# Copyright 2017 The Chromium Authors. All rights reserved.
+# Copyright 2019 The Chromium Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-from .extended_attribute import ExtendedAttributeList
-from .idl_types import RecordType
-from .idl_types import SequenceType
-from .utilities import assert_no_extra_args
+from .common import WithCodeGeneratorInfo
+from .common import WithComponent
+from .common import WithDebugInfo
+from .common import WithExtendedAttributes
+from .common import WithExposure
+from .common import WithIdentifier
+from .idl_member import IdlMember
+from .idl_type import IdlType
+from .values import ConstantValue
 
 
-# https://heycam.github.io/webidl/#idl-constants
-class Constant(object):
-    _INVALID_IDENTIFIERS = frozenset(['length', 'name', 'prototype'])
-    _INVALID_TYPES = frozenset([SequenceType, RecordType])
+class Constant(IdlMember):
+    """https://heycam.github.io/webidl/#idl-constants"""
 
-    def __init__(self, **kwargs):
-        self._identifier = kwargs.pop('identifier')
-        self._type = kwargs.pop('type')
-        self._value = kwargs.pop('value')
-        self._extended_attribute_list = kwargs.pop('extended_attribute_list', ExtendedAttributeList())
-        assert_no_extra_args(kwargs)
+    class IR(WithIdentifier, WithExtendedAttributes, WithExposure,
+             WithCodeGeneratorInfo, WithComponent, WithDebugInfo):
+        def __init__(self,
+                     identifier,
+                     value,
+                     idl_type,
+                     extended_attributes=None,
+                     exposures=None,
+                     code_generator_info=None,
+                     component=None,
+                     components=None,
+                     debug_info=None):
+            assert isinstance(value, ConstantValue)
+            assert isinstance(idl_type, IdlType)
 
-        if self.identifier in Constant._INVALID_IDENTIFIERS:
-            raise ValueError('Invalid identifier for a constant: %s' % self.identifier)
-        if type(self.type) in Constant._INVALID_TYPES:
-            raise ValueError('sequence<T> must not be used as the type of a constant.')
+            WithIdentifier.__init__(self, identifier)
+            WithExtendedAttributes.__init__(self, extended_attributes)
+            WithExposure.__init__(self, exposures)
+            WithCodeGeneratorInfo.__init__(self, code_generator_info)
+            WithComponent.__init__(
+                self, component=component, components=components)
+            WithDebugInfo.__init__(self, debug_info)
+
+            self.value = value
+            self.idl_type = idl_type
+
+        def make_copy(self):
+            return Constant.IR(
+                identifier=self.identifier,
+                value=self.value,
+                idl_type=self.idl_type,
+                extended_attributes=self.extended_attributes.make_copy(),
+                code_generator_info=self.code_generator_info.make_copy(),
+                components=self.components,
+                debug_info=self.debug_info.make_copy())
 
     @property
-    def identifier(self):
-        return self._identifier
-
-    @property
-    def type(self):
-        return self._type
+    def idl_type(self):
+        """
+        Returns the type of this constant.
+        @return IdlType
+        """
+        assert False, 'To be implemented'
 
     @property
     def value(self):
-        return self._value
-
-    @property
-    def extended_attribute_list(self):
-        return self._extended_attribute_list
+        """
+        Returns the constant value.
+        @return ConstantValue
+        """
+        assert False, 'To be implemented'

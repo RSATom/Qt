@@ -56,7 +56,7 @@
 #include <QtQml/QQmlParserStatus>
 #include <QtQml/QQmlIncubator>
 #include <QtQml/qqml.h>
-#include <QtQml/private/qqmldelegatemodel_p.h>
+#include <private/qqmldelegatemodel_p.h>
 #include <QtQuick/private/qquicktransition_p.h>
 #include <QtLocation/private/qdeclarativegeomapitemgroup_p.h>
 

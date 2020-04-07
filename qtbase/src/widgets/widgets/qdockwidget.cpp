@@ -267,9 +267,11 @@ QDockWidgetLayout::~QDockWidgetLayout()
 bool QDockWidgetLayout::nativeWindowDeco() const
 {
     bool floating = parentWidget()->isWindow();
+#if QT_CONFIG(tabbar)
     if (auto groupWindow =
             qobject_cast<const QDockWidgetGroupWindow *>(parentWidget()->parentWidget()))
         floating = floating || groupWindow->tabLayoutInfo();
+#endif
     return nativeWindowDeco(floating);
 }
 
@@ -379,11 +381,10 @@ QSize QDockWidgetLayout::sizeFromContent(const QSize &content, bool floating) co
     if (content.height() < 0)
         result.setHeight(-1);
 
-    int left, top, right, bottom;
-    w->getContentsMargins(&left, &top, &right, &bottom);
+    const QMargins margins = w->contentsMargins();
     //we need to subtract the contents margin (it will be added by the caller)
-    QSize min = w->minimumSize() - QSize(left + right, top + bottom);
-    QSize max = w->maximumSize() - QSize(left + right, top + bottom);
+    QSize min = w->minimumSize().shrunkBy(margins);
+    QSize max = w->maximumSize().shrunkBy(margins);
 
     /* A floating dockwidget will automatically get its minimumSize set to the layout's
        minimum size + deco. We're *not* interested in this, we only take minimumSize()
@@ -975,11 +976,7 @@ bool QDockWidgetPrivate::mouseMoveEvent(QMouseEvent *event)
             && (event->pos() - state->pressPos).manhattanLength()
                 > QApplication::startDragDistance()) {
             startDrag();
-#if 0 // Used to be included in Qt4 for Q_WS_WIN
-            grabMouseWhileInWindow();
-#else
             q->grabMouse();
-#endif
             ret = true;
         }
     }
@@ -1027,13 +1024,6 @@ void QDockWidgetPrivate::nonClientAreaMouseEvent(QMouseEvent *event)
     QWidget *tl = q->topLevelWidget();
     QRect geo = tl->geometry();
     QRect titleRect = tl->frameGeometry();
-#if 0 // Used to be included in Qt4 for Q_WS_MAC
-    if ((features & QDockWidget::DockWidgetVerticalTitleBar)) {
-        titleRect.setTop(geo.top());
-        titleRect.setBottom(geo.bottom());
-        titleRect.setRight(geo.left() - 1);
-    } else
-#endif
     {
         titleRect.setLeft(geo.left());
         titleRect.setRight(geo.right());
@@ -1182,6 +1172,8 @@ void QDockWidgetPrivate::setWindowState(bool floating, bool unplug, const QRect 
             QMainWindowLayout *mwlayout = qt_mainwindow_layout_from_dock(q);
             if (mwlayout)
                 emit q->dockLocationChanged(mwlayout->dockWidgetArea(q));
+        } else {
+            emit q->dockLocationChanged(Qt::NoDockWidgetArea);
         }
     }
 
@@ -1533,10 +1525,10 @@ bool QDockWidget::event(QEvent *event)
         d->toggleViewAction->setChecked(true);
         QPoint parentTopLeft(0, 0);
         if (isWindow()) {
-            if (const QWindow *window = windowHandle())
-                parentTopLeft = window->screen()->availableVirtualGeometry().topLeft();
-            else
-                parentTopLeft = QGuiApplication::primaryScreen()->availableVirtualGeometry().topLeft();
+            const QScreen *screen = d->associatedScreen();
+            parentTopLeft = screen
+                ? screen->availableVirtualGeometry().topLeft()
+                : QGuiApplication::primaryScreen()->availableVirtualGeometry().topLeft();
         }
         emit visibilityChanged(geometry().right() >= parentTopLeft.x() && geometry().bottom() >= parentTopLeft.y());
 }
@@ -1554,8 +1546,10 @@ bool QDockWidget::event(QEvent *event)
             const QObjectList &siblings = win->children();
             onTop = siblings.count() > 0 && siblings.last() == (QObject*)this;
         }
+#if QT_CONFIG(tabbar)
         if (!isFloating() && layout != 0 && onTop)
             layout->raise(this);
+#endif
         break;
     }
     case QEvent::WindowActivate:
@@ -1582,17 +1576,6 @@ bool QDockWidget::event(QEvent *event)
         if (d->mouseMoveEvent(static_cast<QMouseEvent *>(event)))
             return true;
         break;
-#if 0 // Used to be included in Qt4 for Q_WS_WIN
-    case QEvent::Leave:
-        if (d->state != 0 && d->state->dragging && !d->state->nca) {
-            // This is a workaround for loosing the mouse on Vista.
-            QPoint pos = QCursor::pos();
-            QMouseEvent fake(QEvent::MouseMove, mapFromGlobal(pos), pos, Qt::NoButton,
-                             QApplication::mouseButtons(), QApplication::keyboardModifiers());
-            d->mouseMoveEvent(&fake);
-        }
-        break;
-#endif
     case QEvent::MouseButtonRelease:
         if (d->mouseReleaseEvent(static_cast<QMouseEvent *>(event)))
             return true;

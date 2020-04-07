@@ -306,10 +306,16 @@ void NinjaBuildWriter::WriteNinjaRules() {
 
   const base::FilePath build_path =
       build_settings_->build_dir().Resolve(build_settings_->root_path());
+
+  EscapeOptions depfile_escape;
+  depfile_escape.mode = ESCAPE_DEPFILE;
   for (const auto& other_file : fileset) {
     const base::FilePath file =
         MakeAbsoluteFilePathRelativeIfPossible(build_path, other_file);
-    dep_out_ << " " << FilePathToUTF8(file.NormalizePathSeparatorsTo('/'));
+    dep_out_ << " ";
+    EscapeStringToStream(dep_out_,
+                         FilePathToUTF8(file.NormalizePathSeparatorsTo('/')),
+                         depfile_escape);
   }
 
   out_ << std::endl;
@@ -319,11 +325,9 @@ void NinjaBuildWriter::WriteAllPools() {
   // Compute the pools referenced by all tools of all used toolchains.
   std::unordered_set<const Pool*> used_pools;
   for (const auto& pair : used_toolchains_) {
-    for (int j = Toolchain::TYPE_NONE + 1; j < Toolchain::TYPE_NUMTYPES; j++) {
-      Toolchain::ToolType tool_type = static_cast<Toolchain::ToolType>(j);
-      const Tool* tool = pair.second->GetTool(tool_type);
-      if (tool && tool->pool().ptr)
-        used_pools.insert(tool->pool().ptr);
+    for (const auto& tool : pair.second->tools()) {
+      if (tool.second->pool().ptr)
+        used_pools.insert(tool.second->pool().ptr);
     }
   }
 

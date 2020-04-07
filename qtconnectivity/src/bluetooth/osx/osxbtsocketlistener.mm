@@ -39,31 +39,20 @@
 
 #include "osxbtsocketlistener_p.h"
 #include "osxbtutility_p.h"
+#include "btdelegates_p.h"
 
 #include <QtCore/qdebug.h>
-
-QT_BEGIN_NAMESPACE
-
-namespace OSXBluetooth {
-
-SocketListener::~SocketListener()
-{
-}
-
-}
-
-QT_END_NAMESPACE
 
 QT_USE_NAMESPACE
 
 @implementation QT_MANGLE_NAMESPACE(OSXBTSocketListener)
 {
     IOBluetoothUserNotification *connectionNotification;
-    QT_PREPEND_NAMESPACE(OSXBluetooth::SocketListener) *delegate;
+    QT_PREPEND_NAMESPACE(DarwinBluetooth::SocketListener) *delegate;
     quint16 port;
 }
 
-- (id)initWithListener:(OSXBluetooth::SocketListener *)aDelegate
+- (id)initWithListener:(DarwinBluetooth::SocketListener *)aDelegate
 {
     Q_ASSERT_X(aDelegate, Q_FUNC_INFO, "invalid delegate (null)");
     if (self = [super init]) {
@@ -119,7 +108,7 @@ QT_USE_NAMESPACE
     Q_UNUSED(notification)
 
     Q_ASSERT_X(delegate, Q_FUNC_INFO, "invalid delegate (null)");
-    delegate->openNotify(newChannel);
+    delegate->openNotifyRFCOMM(newChannel);
 }
 
 - (void)l2capOpenNotification:(IOBluetoothUserNotification *)notification
@@ -128,7 +117,7 @@ QT_USE_NAMESPACE
     Q_UNUSED(notification)
 
     Q_ASSERT_X(delegate, Q_FUNC_INFO, "invalid delegate (null)");
-    delegate->openNotify(newChannel);
+    delegate->openNotifyL2CAP(newChannel);
 }
 
 - (quint16)port

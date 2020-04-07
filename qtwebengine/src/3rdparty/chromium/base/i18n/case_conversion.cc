@@ -64,8 +64,8 @@ string16 CaseMap(StringPiece16 string, CaseMapperFunction case_mapper) {
     // terminator, but will otherwise. So we don't need to save room for that.
     // Don't use WriteInto, which assumes null terminators.
     int32_t new_length = case_mapper(
-        reinterpret_cast<UChar*>(&dest[0]), saturated_cast<int32_t>(dest.size()),
-        reinterpret_cast<const UChar*>(string.data()), saturated_cast<int32_t>(string.size()),
+        &dest[0], saturated_cast<int32_t>(dest.size()),
+        string.data(), saturated_cast<int32_t>(string.size()),
         &error);
     dest.resize(new_length);
   } while (error == U_BUFFER_OVERFLOW_ERROR);

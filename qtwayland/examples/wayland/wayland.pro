@@ -3,12 +3,11 @@ TEMPLATE=subdirs
 !qtHaveModule(waylandcompositor): \
     return()
 
-!qtConfig(opengl): \
-    return()
-
-SUBDIRS += \
-    qwindow-compositor \
-    minimal-cpp
+qtConfig(opengl) {
+    SUBDIRS += \
+        qwindow-compositor \
+        minimal-cpp
+}
 
 qtHaveModule(quick) {
     SUBDIRS += minimal-qml
@@ -21,8 +20,13 @@ qtHaveModule(quick) {
     SUBDIRS += server-side-decoration
     qtHaveModule(waylandclient) {
         SUBDIRS += \
-            custom-extension \
-            server-buffer
+            custom-extension
+
+            qtConfig(opengl) {
+                SUBDIRS += \
+                    server-buffer \
+                    texture-sharing
+            }
     }
     SUBDIRS += hwlayer-compositor
 }

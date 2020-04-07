@@ -5,8 +5,12 @@
  * found in the LICENSE file.
  */
 
-#include "GrMtlGpu.h"
-#include "GrMtlUtil.h"
+#include "src/gpu/mtl/GrMtlGpu.h"
+#include "src/gpu/mtl/GrMtlUtil.h"
+
+#if !__has_feature(objc_arc)
+#error This file must be compiled with Arc. Use -fobjc-arc flag
+#endif
 
 GrMtlStencilAttachment::GrMtlStencilAttachment(GrMtlGpu* gpu,
                                                const Format& format,
@@ -23,12 +27,17 @@ GrMtlStencilAttachment* GrMtlStencilAttachment::Create(GrMtlGpu* gpu,
                                                        int height,
                                                        int sampleCnt,
                                                        const Format& format) {
-    MTLTextureDescriptor* desc = [MTLTextureDescriptor
-                              texture2DDescriptorWithPixelFormat:MTLPixelFormatStencil8
-                              width:width
-                              height:height
-                              mipmapped:NO];
+    MTLTextureDescriptor* desc =
+        [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:format.fInternalFormat
+                                                           width:width
+                                                          height:height
+                                                       mipmapped:NO];
     desc.resourceOptions = MTLResourceStorageModePrivate;
+    desc.usage = MTLTextureUsageRenderTarget;
+    desc.sampleCount = sampleCnt;
+    if (sampleCnt > 1) {
+        desc.textureType = MTLTextureType2DMultisample;
+    }
     return new GrMtlStencilAttachment(gpu, format, [gpu->device() newTextureWithDescriptor:desc]);
 }
 

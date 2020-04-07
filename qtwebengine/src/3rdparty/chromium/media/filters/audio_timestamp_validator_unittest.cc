@@ -104,7 +104,7 @@ TEST_P(AudioTimestampValidatorTest, WarnForEraticTimes) {
       scoped_refptr<AudioBuffer> decoded_buffer = MakeAudioBuffer<float>(
           kSampleFormat, kChannelLayout, kChannelCount, kSamplesPerSecond, 1.0f,
           0.0f, kFramesPerBuffer, i * kBufferDuration);
-      validator.RecordOutputDuration(decoded_buffer.get());
+      validator.RecordOutputDuration(*decoded_buffer);
     }
   }
 }
@@ -143,7 +143,7 @@ TEST_P(AudioTimestampValidatorTest, NoWarningForValidTimes) {
       scoped_refptr<AudioBuffer> decoded_buffer = MakeAudioBuffer<float>(
           kSampleFormat, kChannelLayout, kChannelCount, kSamplesPerSecond, 1.0f,
           0.0f, kFramesPerBuffer, i * kBufferDuration);
-      validator.RecordOutputDuration(decoded_buffer.get());
+      validator.RecordOutputDuration(*decoded_buffer);
     }
   }
 }
@@ -188,7 +188,7 @@ TEST_P(AudioTimestampValidatorTest, SingleWarnForSingleLargeGap) {
       scoped_refptr<AudioBuffer> decoded_buffer = MakeAudioBuffer<float>(
           kSampleFormat, kChannelLayout, kChannelCount, kSamplesPerSecond, 1.0f,
           0.0f, kFramesPerBuffer, i * kBufferDuration);
-      validator.RecordOutputDuration(decoded_buffer.get());
+      validator.RecordOutputDuration(*decoded_buffer);
     }
   }
 }
@@ -238,7 +238,7 @@ TEST_P(AudioTimestampValidatorTest, RepeatedWarnForSlowAccumulatingDrift) {
       scoped_refptr<AudioBuffer> decoded_buffer = MakeAudioBuffer<float>(
           kSampleFormat, kChannelLayout, kChannelCount, kSamplesPerSecond, 1.0f,
           0.0f, kFramesPerBuffer, i * kBufferDuration);
-      validator.RecordOutputDuration(decoded_buffer.get());
+      validator.RecordOutputDuration(*decoded_buffer);
     }
   }
 }
@@ -246,7 +246,7 @@ TEST_P(AudioTimestampValidatorTest, RepeatedWarnForSlowAccumulatingDrift) {
 // Test with cartesian product of various output delay, codec delay, and front
 // discard values. These simulate configurations for different containers/codecs
 // which present different challenges when building timestamp expectations.
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     ,
     AudioTimestampValidatorTest,
     ::testing::Combine(

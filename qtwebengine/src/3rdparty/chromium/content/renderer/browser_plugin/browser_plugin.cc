@@ -11,6 +11,7 @@
 #include <utility>
 #include <vector>
 
+#include "base/bind.h"
 #include "base/command_line.h"
 #include "base/lazy_instance.h"
 #include "base/location.h"
@@ -32,7 +33,6 @@
 #include "content/renderer/accessibility/render_accessibility_impl.h"
 #include "content/renderer/browser_plugin/browser_plugin_manager.h"
 #include "content/renderer/child_frame_compositing_helper.h"
-#include "content/renderer/cursor_utils.h"
 #include "content/renderer/drop_data_builder.h"
 #include "content/renderer/render_thread_impl.h"
 #include "content/renderer/sad_plugin.h"
@@ -47,13 +47,7 @@
 #include "third_party/blink/public/web/web_local_frame.h"
 #include "third_party/blink/public/web/web_plugin_container.h"
 #include "third_party/blink/public/web/web_view.h"
-#include "ui/base/ui_base_features.h"
 #include "ui/events/keycodes/keyboard_codes.h"
-
-#if defined(USE_AURA) && !defined(TOOLKIT_QT)
-#include "content/renderer/mus/mus_embedded_frame.h"
-#include "content/renderer/mus/renderer_window_tree_client.h"
-#endif
 
 using blink::WebPluginContainer;
 using blink::WebPoint;
@@ -97,8 +91,7 @@ BrowserPlugin::BrowserPlugin(
       browser_plugin_instance_id_(browser_plugin::kInstanceIDNone),
       delegate_(delegate),
       task_runner_(
-          render_frame->GetTaskRunner(blink::TaskType::kInternalDefault)),
-      weak_ptr_factory_(this) {
+          render_frame->GetTaskRunner(blink::TaskType::kInternalDefault)) {
   browser_plugin_instance_id_ =
       BrowserPluginManager::Get()->GetNextInstanceID();
 
@@ -136,9 +129,6 @@ bool BrowserPlugin::OnMessageReceived(const IPC::Message& message) {
                         OnDidUpdateVisualProperties)
     IPC_MESSAGE_HANDLER(BrowserPluginMsg_SetCursor, OnSetCursor)
     IPC_MESSAGE_HANDLER(BrowserPluginMsg_SetMouseLock, OnSetMouseLock)
-#if defined(USE_AURA) && !defined(TOOLKIT_QT)
-    IPC_MESSAGE_HANDLER(BrowserPluginMsg_SetMusEmbedToken, OnSetMusEmbedToken)
-#endif
     IPC_MESSAGE_HANDLER(BrowserPluginMsg_ShouldAcceptTouchEvents,
                         OnShouldAcceptTouchEvents)
   IPC_END_MESSAGE_MAP()
@@ -173,14 +163,6 @@ void BrowserPlugin::Attach() {
             ->GetDocument()
             .IsPluginDocument();
   }
-#if defined(USE_AURA) && !defined(TOOLKIT_QT)
-  if (pending_embed_token_) {
-    base::Optional<base::UnguessableToken> embed_token =
-        std::move(pending_embed_token_);
-    CreateMusWindowAndEmbed(*embed_token);
-  }
-#endif
-
   BrowserPluginManager::Get()->Send(new BrowserPluginHostMsg_Attach(
       render_frame_routing_id_,
       browser_plugin_instance_id_,
@@ -213,32 +195,11 @@ void BrowserPlugin::Detach() {
       new BrowserPluginHostMsg_Detach(browser_plugin_instance_id_));
 }
 
-const viz::LocalSurfaceId& BrowserPlugin::GetLocalSurfaceId() const {
-  return parent_local_surface_id_allocator_.GetCurrentLocalSurfaceIdAllocation()
-      .local_surface_id();
+const viz::LocalSurfaceIdAllocation&
+BrowserPlugin::GetLocalSurfaceIdAllocation() const {
+  return parent_local_surface_id_allocator_
+      .GetCurrentLocalSurfaceIdAllocation();
 }
-
-#if defined(USE_AURA) && !defined(TOOLKIT_QT)
-void BrowserPlugin::CreateMusWindowAndEmbed(
-    const base::UnguessableToken& embed_token) {
-  RenderFrameImpl* render_frame =
-      RenderFrameImpl::FromRoutingID(render_frame_routing_id_);
-  if (!render_frame) {
-    pending_embed_token_ = embed_token;
-    return;
-  }
-  RendererWindowTreeClient* renderer_window_tree_client =
-      RendererWindowTreeClient::Get(
-          render_frame->GetLocalRootRenderWidget()->routing_id());
-  DCHECK(renderer_window_tree_client);
-  mus_embedded_frame_ =
-      renderer_window_tree_client->CreateMusEmbeddedFrame(this, embed_token);
-  if (attached() && GetLocalSurfaceId().is_valid()) {
-    mus_embedded_frame_->SetWindowBounds(GetLocalSurfaceId(),
-                                         FrameRectInPixels());
-  }
-}
-#endif
 
 void BrowserPlugin::SynchronizeVisualProperties() {
   bool size_changed = !sent_visual_properties_ ||
@@ -286,7 +247,8 @@ void BrowserPlugin::SynchronizeVisualProperties() {
             ? cc::DeadlinePolicy::UseInfiniteDeadline()
             : cc::DeadlinePolicy::UseDefaultDeadline();
     compositing_helper_->SetSurfaceId(
-        viz::SurfaceId(frame_sink_id_, GetLocalSurfaceId()),
+        viz::SurfaceId(frame_sink_id_,
+                       GetLocalSurfaceIdAllocation().local_surface_id()),
         screen_space_rect().size(), deadline);
   }
 
@@ -309,13 +271,6 @@ void BrowserPlugin::SynchronizeVisualProperties() {
 
   if (visual_properties_changed && attached())
     sent_visual_properties_ = pending_visual_properties_;
-
-#if defined(USE_AURA) && !defined(TOOLKIT_QT)
-  if (features::IsMultiProcessMash() && mus_embedded_frame_) {
-    mus_embedded_frame_->SetWindowBounds(GetLocalSurfaceId(),
-                                         FrameRectInPixels());
-  }
-#endif
 }
 
 void BrowserPlugin::OnAdvanceFocus(int browser_plugin_instance_id,
@@ -400,20 +355,6 @@ void BrowserPlugin::OnSetMouseLock(int browser_plugin_instance_id,
   }
 }
 
-#if defined(USE_AURA) && !defined(TOOLKIT_QT)
-void BrowserPlugin::OnSetMusEmbedToken(
-    int instance_id,
-    const base::UnguessableToken& embed_token) {
-  DCHECK(features::IsMultiProcessMash());
-  if (!attached_) {
-    pending_embed_token_ = embed_token;
-  } else {
-    pending_embed_token_.reset();
-    CreateMusWindowAndEmbed(embed_token);
-  }
-}
-#endif
-
 void BrowserPlugin::OnShouldAcceptTouchEvents(int browser_plugin_instance_id,
                                               bool accept) {
   if (Container()) {
@@ -421,18 +362,6 @@ void BrowserPlugin::OnShouldAcceptTouchEvents(int browser_plugin_instance_id,
         accept ? WebPluginContainer::kTouchEventRequestTypeRaw
                : WebPluginContainer::kTouchEventRequestTypeNone);
   }
-}
-
-gfx::Rect BrowserPlugin::FrameRectInPixels() const {
-  const float device_scale_factor = GetDeviceScaleFactor();
-  return gfx::Rect(
-      gfx::ScaleToFlooredPoint(screen_space_rect().origin(),
-                               device_scale_factor),
-      gfx::ScaleToCeiledSize(screen_space_rect().size(), device_scale_factor));
-}
-
-float BrowserPlugin::GetDeviceScaleFactor() const {
-  return pending_visual_properties_.screen_info.device_scale_factor;
 }
 
 RenderWidget* BrowserPlugin::GetMainWidget() const {
@@ -456,7 +385,7 @@ void BrowserPlugin::UpdateInternalInstanceId() {
   // by firing an event from there.
   UpdateDOMAttribute(
       "internalinstanceid",
-      base::UTF8ToUTF16(base::IntToString(browser_plugin_instance_id_)));
+      base::UTF8ToUTF16(base::NumberToString(browser_plugin_instance_id_)));
 }
 
 void BrowserPlugin::UpdateGuestFocusState(blink::WebFocusType focus_type) {
@@ -659,6 +588,8 @@ blink::WebInputEventResult BrowserPlugin::HandleInputEvent(
   if (blink::WebInputEvent::IsGestureEventType(event.GetType())) {
     auto gesture_event = static_cast<const blink::WebGestureEvent&>(event);
     DCHECK(blink::WebInputEvent::kGestureTapDown == event.GetType() ||
+           blink::WebInputEvent::kGestureScrollBegin == event.GetType() ||
+           blink::WebInputEvent::kGestureScrollEnd == event.GetType() ||
            gesture_event.resending_plugin_id == browser_plugin_instance_id_);
 
     // We shouldn't be forwarding GestureEvents to the Guest anymore. Indicate
@@ -683,7 +614,7 @@ blink::WebInputEventResult BrowserPlugin::HandleInputEvent(
   BrowserPluginManager::Get()->Send(
       new BrowserPluginHostMsg_HandleInputEvent(browser_plugin_instance_id_,
                                                 &event));
-  GetWebCursorInfo(cursor_, &cursor_info);
+  cursor_info = cursor_.info().GetWebCursorInfo();
 
   // Although we forward this event to the guest, we don't report it as consumed
   // since other targets of this event in Blink never get that chance either.
@@ -837,15 +768,6 @@ bool BrowserPlugin::HandleMouseLockedInputEvent(
                                                 &event));
   return true;
 }
-
-#if defined(USE_AURA) && !defined(TOOLKIT_QT)
-void BrowserPlugin::OnMusEmbeddedFrameSinkIdAllocated(
-    const viz::FrameSinkId& frame_sink_id) {
-  // RendererWindowTreeClient should only call this when mus is hosting viz.
-  DCHECK(features::IsMultiProcessMash());
-  OnGuestReady(browser_plugin_instance_id_, frame_sink_id);
-}
-#endif
 
 cc::Layer* BrowserPlugin::GetLayer() {
   return embedded_layer_.get();

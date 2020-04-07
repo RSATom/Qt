@@ -154,11 +154,15 @@ struct SnapAreaData {
 
 typedef std::vector<SnapAreaData> SnapAreaList;
 
-// Snap container is a scroll container that has non-'none' value for
-// scroll-snap-type. It can be snapped to one of its snap areas when a scroll
-// happens.
+// Snap container is a scroll container that at least one snap area assigned to
+// it.  If the snap-type is not 'none', then it can be snapped to one of its
+// snap areas when a scroll happens.
 // This data structure describes the data needed for SnapCoordinator to perform
 // snapping in the snap container.
+//
+// Note that the snap area data should only be used when snap-type is not 'none'
+// There is not guarantee that this information is up-to-date otherwise. In
+// fact, we skip updating these info as an optiomization.
 class CC_EXPORT SnapContainerData {
  public:
   SnapContainerData();
@@ -218,10 +222,13 @@ class CC_EXPORT SnapContainerData {
   // or the original scroll offset if this is the first iteration of search.
   // Returns the candidate as SnapSearchResult that includes the area's
   // |snap_offset| and its visible range on the cross axis.
+  // When |should_consider_covering| is true, the current offset can be valid if
+  // it makes a snap area cover the snapport.
   base::Optional<SnapSearchResult> FindClosestValidAreaInternal(
       SearchAxis axis,
       const SnapSelectionStrategy& strategy,
-      const SnapSearchResult& cross_axis_snap_result) const;
+      const SnapSearchResult& cross_axis_snap_result,
+      bool should_consider_covering = true) const;
 
   // A wrapper of FindClosestValidAreaInternal(). If
   // FindClosestValidAreaInternal() doesn't return a valid result when the snap

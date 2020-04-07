@@ -129,6 +129,12 @@ size_t GetMaxFds() {
   return std::numeric_limits<size_t>::max();
 }
 
+size_t GetHandleLimit() {
+  // Rounded down from value reported here:
+  // http://blogs.technet.com/b/markrussinovich/archive/2009/09/29/3283844.aspx
+  return static_cast<size_t>(1 << 23);
+}
+
 // static
 std::unique_ptr<ProcessMetrics> ProcessMetrics::CreateProcessMetrics(
     ProcessHandle process) {
@@ -141,11 +147,14 @@ TimeDelta ProcessMetrics::GetCumulativeCPUUsage() {
   FILETIME kernel_time;
   FILETIME user_time;
 
+  if (!process_.IsValid())
+    return TimeDelta();
+
   if (!GetProcessTimes(process_.Get(), &creation_time, &exit_time, &kernel_time,
                        &user_time)) {
-    // We don't assert here because in some cases (such as in the Task Manager)
-    // we may call this function on a process that has just exited but we have
-    // not yet received the notification.
+    // This should never fail because we duplicate the handle to guarantee it
+    // will remain valid.
+    DCHECK(false);
     return TimeDelta();
   }
 
@@ -154,6 +163,9 @@ TimeDelta ProcessMetrics::GetCumulativeCPUUsage() {
 }
 
 bool ProcessMetrics::GetIOCounters(IoCounters* io_counters) const {
+  if (!process_.IsValid())
+    return false;
+
   return GetProcessIoCounters(process_.Get(), io_counters) != FALSE;
 }
 
@@ -265,7 +277,8 @@ BASE_EXPORT bool GetSystemPerformanceInfo(SystemPerformanceInfo* info) {
   SYSTEM_PERFORMANCE_INFORMATION counters = {};
   {
     // The call to NtQuerySystemInformation might block on a lock.
-    base::ScopedBlockingCall scoped_blocking_call(BlockingType::MAY_BLOCK);
+    base::ScopedBlockingCall scoped_blocking_call(FROM_HERE,
+                                                  BlockingType::MAY_BLOCK);
     if (query_system_information_ptr(::SystemPerformanceInformation, &counters,
                                      sizeof(SYSTEM_PERFORMANCE_INFORMATION),
                                      nullptr) != STATUS_SUCCESS) {

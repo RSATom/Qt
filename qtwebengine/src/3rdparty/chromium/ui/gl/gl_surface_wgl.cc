@@ -5,6 +5,7 @@
 #include "ui/gl/gl_surface_wgl.h"
 
 #include <memory>
+#include <utility>
 
 #include "base/logging.h"
 #include "base/trace_event/trace_event.h"
@@ -305,7 +306,7 @@ bool NativeViewGLSurfaceWGL::IsOffscreen() {
 }
 
 gfx::SwapResult NativeViewGLSurfaceWGL::SwapBuffers(
-    const PresentationCallback& callback) {
+    PresentationCallback callback) {
   // TODO(penghuang): Provide presentation feedback. https://crbug.com/776877
   TRACE_EVENT2("gpu", "NativeViewGLSurfaceWGL:RealSwapBuffers",
       "width", GetSize().width(),
@@ -330,13 +331,13 @@ gfx::SwapResult NativeViewGLSurfaceWGL::SwapBuffers(
     // TODO(penghuang): Provide more accurate values for presentation feedback.
     constexpr int64_t kRefreshIntervalInMicroseconds =
         base::Time::kMicrosecondsPerSecond / 60;
-    callback.Run(gfx::PresentationFeedback(
+    std::move(callback).Run(gfx::PresentationFeedback(
         base::TimeTicks::Now(),
         base::TimeDelta::FromMicroseconds(kRefreshIntervalInMicroseconds),
         0 /* flags */));
     return gfx::SwapResult::SWAP_ACK;
   } else {
-    callback.Run(gfx::PresentationFeedback::Failure());
+    std::move(callback).Run(gfx::PresentationFeedback::Failure());
     return gfx::SwapResult::SWAP_FAILED;
   }
 }
@@ -354,10 +355,6 @@ void* NativeViewGLSurfaceWGL::GetHandle() {
 
 GLSurfaceFormat NativeViewGLSurfaceWGL::GetFormat() {
   return GLSurfaceFormat();
-}
-
-bool NativeViewGLSurfaceWGL::SupportsPresentationCallback() {
-  return true;
 }
 
 void NativeViewGLSurfaceWGL::SetVSyncEnabled(bool enabled) {
@@ -431,7 +428,7 @@ bool PbufferGLSurfaceWGL::IsOffscreen() {
 }
 
 gfx::SwapResult PbufferGLSurfaceWGL::SwapBuffers(
-    const PresentationCallback& callback) {
+    PresentationCallback callback) {
   NOTREACHED() << "Attempted to call SwapBuffers on a pbuffer.";
   return gfx::SwapResult::SWAP_FAILED;
 }

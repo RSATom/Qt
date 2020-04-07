@@ -5,10 +5,11 @@
  * found in the LICENSE file.
  */
 
-#include "GrGLGpuCommandBuffer.h"
+#include "src/gpu/gl/GrGLGpuCommandBuffer.h"
 
-#include "GrFixedClip.h"
-#include "GrRenderTargetPriv.h"
+#include "src/gpu/GrContextPriv.h"
+#include "src/gpu/GrFixedClip.h"
+#include "src/gpu/GrRenderTargetPriv.h"
 
 void GrGLGpuRTCommandBuffer::begin() {
     if (GrLoadOp::kClear == fColorLoadAndStoreInfo.fLoadOp) {
@@ -28,7 +29,7 @@ void GrGLGpuRTCommandBuffer::set(GrRenderTarget* rt, GrSurfaceOrigin origin,
                                  const GrGpuRTCommandBuffer::StencilLoadAndStoreInfo& stencilInfo) {
     SkASSERT(fGpu);
     SkASSERT(!fRenderTarget);
-    SkASSERT(fGpu == rt->getContext()->contextPriv().getGpu());
+    SkASSERT(fGpu == rt->getContext()->priv().getGpu());
 
     this->INHERITED::set(rt, origin);
     fColorLoadAndStoreInfo = colorInfo;

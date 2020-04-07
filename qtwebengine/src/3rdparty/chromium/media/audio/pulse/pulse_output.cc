@@ -124,6 +124,10 @@ void PulseAudioOutputStream::Close() {
   manager_->ReleaseOutputStream(this);
 }
 
+// This stream is always used with sub second buffer sizes, where it's
+// sufficient to simply always flush upon Start().
+void PulseAudioOutputStream::Flush() {}
+
 void PulseAudioOutputStream::FulfillWriteRequest(size_t requested_bytes) {
   int bytes_remaining = requested_bytes;
   while (bytes_remaining > 0) {
@@ -160,7 +164,8 @@ void PulseAudioOutputStream::FulfillWriteRequest(size_t requested_bytes) {
       frames_to_copy =
           std::min(audio_bus_->frames() - frame_offset_in_bus, frames_to_copy);
 
-      audio_bus_->ToInterleavedPartial<Float32SampleTypeTraits>(
+      // We skip clipping since that occurs at the shared memory boundary.
+      audio_bus_->ToInterleavedPartial<Float32SampleTypeTraitsNoClip>(
           frame_offset_in_bus, frames_to_copy,
           reinterpret_cast<float*>(pa_buffer));
       frame_offset_in_bus += frames_to_copy;

@@ -32,11 +32,9 @@
 
 #include "third_party/blink/renderer/core/layout/layout_view.h"
 #include "third_party/blink/renderer/core/layout/svg/layout_svg_container.h"
-#include "third_party/blink/renderer/core/layout/svg/layout_svg_root.h"
 #include "third_party/blink/renderer/core/layout/svg/svg_layout_support.h"
 #include "third_party/blink/renderer/core/layout/svg/svg_resources.h"
 #include "third_party/blink/renderer/core/layout/svg/svg_resources_cache.h"
-#include "third_party/blink/renderer/core/paint/paint_layer.h"
 #include "third_party/blink/renderer/core/svg/svg_graphics_element.h"
 
 namespace blink {
@@ -56,8 +54,9 @@ void LayoutSVGModelObject::MapLocalToAncestor(
   SVGLayoutSupport::MapLocalToAncestor(this, ancestor, transform_state, flags);
 }
 
-LayoutRect LayoutSVGModelObject::VisualRectInDocument() const {
-  return SVGLayoutSupport::VisualRectInAncestorSpace(*this, *View());
+PhysicalRect LayoutSVGModelObject::VisualRectInDocument(
+    VisualRectFlags flags) const {
+  return SVGLayoutSupport::VisualRectInAncestorSpace(*this, *View(), flags);
 }
 
 void LayoutSVGModelObject::MapAncestorToLocal(
@@ -74,14 +73,6 @@ const LayoutObject* LayoutSVGModelObject::PushMappingToContainer(
                                                   geometry_map);
 }
 
-void LayoutSVGModelObject::AbsoluteRects(
-    Vector<IntRect>& rects,
-    const LayoutPoint& accumulated_offset) const {
-  IntRect rect = EnclosingIntRect(StrokeBoundingBox());
-  rect.MoveBy(RoundedIntPoint(accumulated_offset));
-  rects.push_back(rect);
-}
-
 void LayoutSVGModelObject::AbsoluteQuads(Vector<FloatQuad>& quads,
                                          MapCoordinatesFlags mode) const {
   quads.push_back(LocalToAbsoluteQuad(StrokeBoundingBox(), mode));
@@ -89,10 +80,11 @@ void LayoutSVGModelObject::AbsoluteQuads(Vector<FloatQuad>& quads,
 
 // This method is called from inside PaintOutline(), and since we call
 // PaintOutline() while transformed to our coord system, return local coords.
-void LayoutSVGModelObject::AddOutlineRects(Vector<LayoutRect>& rects,
-                                           const LayoutPoint&,
+void LayoutSVGModelObject::AddOutlineRects(Vector<PhysicalRect>& rects,
+                                           const PhysicalOffset&,
                                            NGOutlineType) const {
-  rects.push_back(LayoutRect(VisualRectInLocalSVGCoordinates()));
+  rects.push_back(
+      PhysicalRect::EnclosingRect(VisualRectInLocalSVGCoordinates()));
 }
 
 FloatRect LayoutSVGModelObject::LocalBoundingBoxRectForAccessibility() const {
@@ -103,24 +95,6 @@ void LayoutSVGModelObject::WillBeDestroyed() {
   SVGResourcesCache::ClientDestroyed(*this);
   SVGResources::ClearClipPathFilterMask(*GetElement(), Style());
   LayoutObject::WillBeDestroyed();
-}
-
-void LayoutSVGModelObject::ComputeLayerHitTestRects(
-    LayerHitTestRects& rects,
-    TouchAction supported_fast_actions) const {
-  // Using just the rect for the SVGRoot is good enough for now.
-  SVGLayoutSupport::FindTreeRootObject(this)->ComputeLayerHitTestRects(
-      rects, supported_fast_actions);
-}
-
-void LayoutSVGModelObject::AddLayerHitTestRects(
-    LayerHitTestRects&,
-    const PaintLayer* current_layer,
-    const LayoutPoint& layer_offset,
-    TouchAction supported_fast_actions,
-    const LayoutRect& container_rect,
-    TouchAction container_whitelisted_touch_action) const {
-  // We don't walk into SVG trees at all - just report their container.
 }
 
 void LayoutSVGModelObject::StyleDidChange(StyleDifference diff,

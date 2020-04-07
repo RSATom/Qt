@@ -64,13 +64,11 @@ public:
 
     QNetworkAddressEntry();
     QNetworkAddressEntry(const QNetworkAddressEntry &other);
-#ifdef Q_COMPILER_RVALUE_REFS
-    QNetworkAddressEntry &operator=(QNetworkAddressEntry &&other) Q_DECL_NOTHROW { swap(other); return *this; }
-#endif
+    QNetworkAddressEntry &operator=(QNetworkAddressEntry &&other) noexcept { swap(other); return *this; }
     QNetworkAddressEntry &operator=(const QNetworkAddressEntry &other);
     ~QNetworkAddressEntry();
 
-    void swap(QNetworkAddressEntry &other) Q_DECL_NOTHROW { qSwap(d, other.d); }
+    void swap(QNetworkAddressEntry &other) noexcept { qSwap(d, other.d); }
 
     bool operator==(const QNetworkAddressEntry &other) const;
     inline bool operator!=(const QNetworkAddressEntry &other) const
@@ -142,13 +140,11 @@ public:
 
     QNetworkInterface();
     QNetworkInterface(const QNetworkInterface &other);
-#ifdef Q_COMPILER_RVALUE_REFS
-    QNetworkInterface &operator=(QNetworkInterface &&other) Q_DECL_NOTHROW { swap(other); return *this; }
-#endif
+    QNetworkInterface &operator=(QNetworkInterface &&other) noexcept { swap(other); return *this; }
     QNetworkInterface &operator=(const QNetworkInterface &other);
     ~QNetworkInterface();
 
-    void swap(QNetworkInterface &other) Q_DECL_NOTHROW { qSwap(d, other.d); }
+    void swap(QNetworkInterface &other) noexcept { qSwap(d, other.d); }
 
     bool isValid() const;
 

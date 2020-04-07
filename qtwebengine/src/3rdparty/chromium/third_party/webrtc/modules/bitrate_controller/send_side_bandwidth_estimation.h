@@ -14,6 +14,7 @@
 #define MODULES_BITRATE_CONTROLLER_SEND_SIDE_BANDWIDTH_ESTIMATION_H_
 
 #include <stdint.h>
+
 #include <deque>
 #include <utility>
 #include <vector>
@@ -24,7 +25,6 @@
 #include "api/units/time_delta.h"
 #include "api/units/timestamp.h"
 #include "modules/bitrate_controller/loss_based_bandwidth_estimation.h"
-#include "modules/rtp_rtcp/include/rtp_rtcp_defines.h"
 #include "rtc_base/experiments/field_trial_parser.h"
 
 namespace webrtc {
@@ -53,16 +53,19 @@ class RttBasedBackoff {
   ~RttBasedBackoff();
   void OnRouteChange();
   void UpdatePropagationRtt(Timestamp at_time, TimeDelta propagation_rtt);
-  TimeDelta RttLowerBound(Timestamp at_time) const;
+  TimeDelta CorrectedRtt(Timestamp at_time) const;
 
   FieldTrialParameter<TimeDelta> rtt_limit_;
   FieldTrialParameter<double> drop_fraction_;
   FieldTrialParameter<TimeDelta> drop_interval_;
   FieldTrialFlag persist_on_route_change_;
+  FieldTrialParameter<bool> safe_timeout_;
+  FieldTrialParameter<DataRate> bandwidth_floor_;
 
  public:
   Timestamp last_propagation_rtt_update_;
   TimeDelta last_propagation_rtt_;
+  Timestamp last_packet_sent_;
 };
 
 class SendSideBandwidthEstimation {
@@ -76,7 +79,7 @@ class SendSideBandwidthEstimation {
   DataRate GetEstimatedLinkCapacity() const;
   // Call periodically to update estimate.
   void UpdateEstimate(Timestamp at_time);
-  void OnSentPacket(SentPacket sent_packet);
+  void OnSentPacket(const SentPacket& sent_packet);
   void UpdatePropagationRtt(Timestamp at_time, TimeDelta propagation_rtt);
 
   // Call when we receive a RTCP message with TMMBR or REMB.
@@ -111,6 +114,8 @@ class SendSideBandwidthEstimation {
   void IncomingPacketFeedbackVector(const TransportPacketsFeedback& report);
 
  private:
+  friend class GoogCcStatePrinter;
+
   enum UmaState { kNoUpdate, kFirstDone, kDone };
 
   bool IsInStartPhase(Timestamp at_time) const;

@@ -11,7 +11,7 @@ namespace autofill {
 
 class TestAutofillProvider : public AutofillProvider {
  public:
-  ~TestAutofillProvider() override{};
+  ~TestAutofillProvider() override {}
 
   // AutofillProvider:
   void OnQueryFormFieldAutofill(AutofillHandlerProxy* handler,
@@ -36,7 +36,7 @@ class TestAutofillProvider : public AutofillProvider {
   void OnFormSubmitted(AutofillHandlerProxy* handler,
                        const FormData& form,
                        bool known_success,
-                       SubmissionSource source) override {}
+                       mojom::SubmissionSource source) override {}
   void OnFocusNoLongerOnForm(AutofillHandlerProxy* handler) override;
   void OnFocusOnFormField(AutofillHandlerProxy* handler,
                           const FormData& form,

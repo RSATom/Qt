@@ -1,0 +1,6 @@
+#ifndef QT_QTMOCKPLUGINS1_MODULE_H
+#define QT_QTMOCKPLUGINS1_MODULE_H
+#include <QtMockPlugins1/QtMockPlugins1Depends>
+#include "qmockplugin.h"
+#include "qtmockplugins1version.h"
+#endif

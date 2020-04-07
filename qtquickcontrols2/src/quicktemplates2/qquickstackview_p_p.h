@@ -54,6 +54,7 @@
 #include <QtQuick/private/qquickitemchangelistener_p.h>
 #include <QtQml/private/qv4value_p.h>
 #include <QtCore/qset.h>
+#include <QtCore/qstack.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -93,6 +94,7 @@ public:
     void depthChange(int newDepth, int oldDepth);
 
     bool busy = false;
+    bool removingElements = false;
     QString operation;
     QJSValue initialItem;
     QQuickItem *currentItem = nullptr;

@@ -46,10 +46,10 @@ class TestPasswordStore : public PasswordStore {
       const override;
 
   // PasswordStore interface
-  PasswordStoreChangeList AddLoginImpl(
-      const autofill::PasswordForm& form) override;
-  PasswordStoreChangeList UpdateLoginImpl(
-      const autofill::PasswordForm& form) override;
+  PasswordStoreChangeList AddLoginImpl(const autofill::PasswordForm& form,
+                                       AddLoginError* error) override;
+  PasswordStoreChangeList UpdateLoginImpl(const autofill::PasswordForm& form,
+                                          UpdateLoginError* error) override;
   PasswordStoreChangeList RemoveLoginImpl(
       const autofill::PasswordForm& form) override;
   std::vector<std::unique_ptr<autofill::PasswordForm>> FillMatchingLogins(
@@ -59,8 +59,6 @@ class TestPasswordStore : public PasswordStore {
   bool FillBlacklistLogins(
       std::vector<std::unique_ptr<autofill::PasswordForm>>* forms) override;
   DatabaseCleanupResult DeleteUndecryptableLogins() override;
-  std::vector<std::unique_ptr<autofill::PasswordForm>>
-  FillLoginsForSameOrganizationName(const std::string& signon_realm) override;
   std::vector<InteractionsStats> GetSiteStatsImpl(
       const GURL& origin_domain) override;
 
@@ -74,9 +72,6 @@ class TestPasswordStore : public PasswordStore {
   PasswordStoreChangeList RemoveLoginsCreatedBetweenImpl(
       base::Time begin,
       base::Time end) override;
-  PasswordStoreChangeList RemoveLoginsSyncedBetweenImpl(
-      base::Time delete_begin,
-      base::Time delete_end) override;
   PasswordStoreChangeList DisableAutoSignInForOriginsImpl(
       const base::Callback<bool(const GURL&)>& origin_filter) override;
   bool RemoveStatisticsByOriginAndTimeImpl(
@@ -89,10 +84,12 @@ class TestPasswordStore : public PasswordStore {
 
   // PasswordStoreSync interface.
   bool BeginTransaction() override;
+  void RollbackTransaction() override;
   bool CommitTransaction() override;
-  bool ReadAllLogins(PrimaryKeyToFormMap* key_to_form_map) override;
+  FormRetrievalResult ReadAllLogins(
+      PrimaryKeyToFormMap* key_to_form_map) override;
   PasswordStoreChangeList RemoveLoginByPrimaryKeySync(int primary_key) override;
-  syncer::SyncMetadataStore* GetMetadataStore() override;
+  PasswordStoreSync::MetadataStore* GetMetadataStore() override;
 
  private:
   PasswordMap stored_passwords_;

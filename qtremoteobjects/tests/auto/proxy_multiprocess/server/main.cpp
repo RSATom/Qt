@@ -52,7 +52,7 @@ private Q_SLOTS:
         subclass.setI(initialI);
         QStringListModel model;
         model.setStringList(QStringList() << "Track1" << "Track2" << "Track3");
-        if (objectMode == QLatin1Literal("ObjectPointer")) {
+        if (objectMode == QLatin1String("ObjectPointer")) {
             parent.setSubClass(&subclass);
             parent.setTracks(&model);
             parent.setMyEnum(ParentClassSource::bar);
@@ -82,7 +82,7 @@ private Q_SLOTS:
         updatedSubclass.setMyPOD(updatedValue);
         updatedSubclass.setI(updatedI);
         parent.setSubClass(&updatedSubclass);
-        if (objectMode == QLatin1Literal("NullPointer"))
+        if (objectMode == QLatin1String("NullPointer"))
             parent.setTracks(&model);
         parent.setMyEnum(ParentClassSource::foobar);
         parent.setDate(Qt::SystemLocaleLongDate);

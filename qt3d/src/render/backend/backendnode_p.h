@@ -58,6 +58,12 @@
 
 QT_BEGIN_NAMESPACE
 
+namespace Qt3DCore {
+
+class QBackendNodePrivate;
+
+}
+
 namespace Qt3DRender {
 
 namespace Render {
@@ -70,12 +76,15 @@ public:
     BackendNode(Qt3DCore::QBackendNode::Mode mode = ReadOnly);
     ~BackendNode();
 
+    virtual void syncFromFrontEnd(const Qt3DCore::QNode *frontEnd, bool firstTime);
+
     void setRenderer(AbstractRenderer *renderer);
     AbstractRenderer *renderer() const;
 
     QSharedPointer<RenderBackendResourceAccessor> resourceAccessor();
 
 protected:
+    explicit BackendNode(Qt3DCore::QBackendNodePrivate &dd);
     void markDirty(AbstractRenderer::BackendNodeDirtySet changes);
     AbstractRenderer *m_renderer;
 };

@@ -22,14 +22,17 @@
 
 #include "third_party/blink/renderer/platform/loader/fetch/memory_cache.h"
 
+#include <utility>
+
 #include "base/auto_reset.h"
+#include "base/bind.h"
 #include "third_party/blink/public/platform/platform.h"
+#include "third_party/blink/renderer/platform/heap/heap.h"
 #include "third_party/blink/renderer/platform/instrumentation/tracing/trace_event.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource_loading_log.h"
 #include "third_party/blink/renderer/platform/weborigin/security_origin.h"
 #include "third_party/blink/renderer/platform/wtf/assertions.h"
 #include "third_party/blink/renderer/platform/wtf/math_extras.h"
-#include "third_party/blink/renderer/platform/wtf/text/cstring.h"
 #include "third_party/blink/renderer/platform/wtf/time.h"
 
 namespace blink {
@@ -37,8 +40,10 @@ namespace blink {
 static Persistent<MemoryCache>* g_memory_cache;
 
 static const unsigned kCDefaultCacheCapacity = 8192 * 1024;
-static const int kCMinDelayBeforeLiveDecodedPrune = 1;  // Seconds.
-static const double kCMaxPruneDeferralDelay = 0.5;      // Seconds.
+static const base::TimeDelta kCMinDelayBeforeLiveDecodedPrune =
+    base::TimeDelta::FromSeconds(1);
+static const base::TimeDelta kCMaxPruneDeferralDelay =
+    base::TimeDelta::FromMilliseconds(500);
 
 // Percentage of capacity toward which we prune, to avoid immediately pruning
 // again.
@@ -47,8 +52,9 @@ static const float kCTargetPrunePercentage = .95f;
 MemoryCache* GetMemoryCache() {
   DCHECK(WTF::IsMainThread());
   if (!g_memory_cache) {
-    g_memory_cache = new Persistent<MemoryCache>(
-        MemoryCache::Create(Thread::MainThread()->GetTaskRunner()));
+    g_memory_cache =
+        new Persistent<MemoryCache>(MakeGarbageCollected<MemoryCache>(
+            Thread::MainThread()->GetTaskRunner()));
   }
   return g_memory_cache->Get();
 }
@@ -74,26 +80,17 @@ void MemoryCacheEntry::ClearResourceWeak(Visitor* visitor) {
   resource_.Clear();
 }
 
-inline MemoryCache::MemoryCache(
+MemoryCache::MemoryCache(
     scoped_refptr<base::SingleThreadTaskRunner> task_runner)
     : in_prune_resources_(false),
       prune_pending_(false),
-      max_prune_deferral_delay_(kCMaxPruneDeferralDelay),
-      prune_time_stamp_(0.0),
-      prune_frame_time_stamp_(0.0),
-      last_frame_paint_time_stamp_(0.0),
       capacity_(kCDefaultCacheCapacity),
       delay_before_live_decoded_prune_(kCMinDelayBeforeLiveDecodedPrune),
       size_(0),
       task_runner_(std::move(task_runner)) {
   MemoryCacheDumpProvider::Instance()->SetMemoryCache(this);
-  if (MemoryCoordinator::IsLowEndDevice())
-    MemoryCoordinator::Instance().RegisterClient(this);
-}
-
-MemoryCache* MemoryCache::Create(
-    scoped_refptr<base::SingleThreadTaskRunner> task_runner) {
-  return MakeGarbageCollected<MemoryCache>(std::move(task_runner));
+  if (MemoryPressureListenerRegistry::IsLowEndDevice())
+    MemoryPressureListenerRegistry::Instance().RegisterClient(this);
 }
 
 MemoryCache::~MemoryCache() = default;
@@ -101,7 +98,7 @@ MemoryCache::~MemoryCache() = default;
 void MemoryCache::Trace(blink::Visitor* visitor) {
   visitor->Trace(resource_maps_);
   MemoryCacheDumpClient::Trace(visitor);
-  MemoryCoordinatorClient::Trace(visitor);
+  MemoryPressureListener::Trace(visitor);
 }
 
 KURL MemoryCache::RemoveFragmentIdentifierIfNeeded(const KURL& original_url) {
@@ -134,7 +131,7 @@ MemoryCache::ResourceMap* MemoryCache::EnsureResourceMap(
 void MemoryCache::Add(Resource* resource) {
   DCHECK(resource);
   ResourceMap* resources = EnsureResourceMap(resource->CacheIdentifier());
-  AddInternal(resources, MemoryCacheEntry::Create(resource));
+  AddInternal(resources, MakeGarbageCollected<MemoryCacheEntry>(resource));
   RESOURCE_LOADING_DVLOG(1)
       << "MemoryCache::add Added " << resource->Url().GetString()
       << ", resource " << resource;
@@ -261,7 +258,8 @@ void MemoryCache::PruneResources(PruneStrategy strategy) {
       if (resource->IsLoaded() && resource->DecodedSize()) {
         // Check to see if the remaining resources are too new to prune.
         if (strategy == kAutomaticPrune &&
-            prune_frame_time_stamp_ < delay_before_live_decoded_prune_)
+            prune_frame_time_stamp_.since_origin() <
+                delay_before_live_decoded_prune_)
           continue;
         resource->Prune();
         if (size_ <= target_size)
@@ -296,6 +294,7 @@ void MemoryCache::TypeStatistic::AddResource(Resource* o) {
   decoded_size += o->DecodedSize();
   encoded_size += o->EncodedSize();
   overhead_size += o->OverheadSize();
+  code_cache_size += o->CodeCacheSize();
   encoded_size_duplicated_in_data_urls +=
       o->Url().ProtocolIsData() ? o->EncodedSize() : 0;
 }
@@ -364,13 +363,13 @@ void MemoryCache::Prune() {
   // the current thread's run loop is not active, then pruning will happen
   // immediately only if it has been over m_maxPruneDeferralDelay since the last
   // prune.
-  double current_time = WTF::CurrentTime();
+  auto current_time = base::TimeTicks::Now();
   if (prune_pending_) {
-    if (current_time - prune_time_stamp_ >= max_prune_deferral_delay_) {
+    if (current_time - prune_time_stamp_ >= kCMaxPruneDeferralDelay) {
       PruneNow(kAutomaticPrune);
     }
   } else {
-    if (current_time - prune_time_stamp_ >= max_prune_deferral_delay_) {
+    if (current_time - prune_time_stamp_ >= kCMaxPruneDeferralDelay) {
       PruneNow(kAutomaticPrune);  // Delay exceeded, prune now.
     } else {
       // Defer.
@@ -393,11 +392,11 @@ void MemoryCache::PruneNow(PruneStrategy strategy) {
 
   PruneResources(strategy);
   prune_frame_time_stamp_ = last_frame_paint_time_stamp_;
-  prune_time_stamp_ = WTF::CurrentTime();
+  prune_time_stamp_ = base::TimeTicks::Now();
 }
 
 void MemoryCache::UpdateFramePaintTimestamp() {
-  last_frame_paint_time_stamp_ = CurrentTime();
+  last_frame_paint_time_stamp_ = base::TimeTicks::Now();
 }
 
 bool MemoryCache::OnMemoryDump(WebMemoryDumpLevelOfDetail level_of_detail,
@@ -427,8 +426,16 @@ bool MemoryCache::OnMemoryDump(WebMemoryDumpLevelOfDetail level_of_detail,
     dump5->AddScalar("size", "bytes",
                      stats.fonts.encoded_size + stats.fonts.overhead_size);
     WebMemoryAllocatorDump* dump6 =
+        memory_dump->CreateMemoryAllocatorDump("web_cache/Code_cache");
+    dump6->AddScalar("size", "bytes", stats.scripts.code_cache_size);
+    WebMemoryAllocatorDump* dump7 = memory_dump->CreateMemoryAllocatorDump(
+        "web_cache/Encoded_size_duplicated_in_data_urls");
+    dump7->AddScalar("size", "bytes",
+                     stats.other.encoded_size +
+                         stats.other.encoded_size_duplicated_in_data_urls);
+    WebMemoryAllocatorDump* dump8 =
         memory_dump->CreateMemoryAllocatorDump("web_cache/Other_resources");
-    dump6->AddScalar("size", "bytes",
+    dump8->AddScalar("size", "bytes",
                      stats.other.encoded_size + stats.other.overhead_size);
     return true;
   }

@@ -88,7 +88,7 @@ class MEDIA_GPU_EXPORT H264Decoder : public AcceleratedVideoDecoder {
         const H264Picture::Vector& ref_pic_listp0,
         const H264Picture::Vector& ref_pic_listb0,
         const H264Picture::Vector& ref_pic_listb1,
-        const scoped_refptr<H264Picture>& pic) = 0;
+        scoped_refptr<H264Picture> pic) = 0;
 
     // Submit one slice for the current frame, passing the current |pps| and
     // |pic| (same as in SubmitFrameMetadata()), the parsed header for the
@@ -106,7 +106,7 @@ class MEDIA_GPU_EXPORT H264Decoder : public AcceleratedVideoDecoder {
         const H264SliceHeader* slice_hdr,
         const H264Picture::Vector& ref_pic_list0,
         const H264Picture::Vector& ref_pic_list1,
-        const scoped_refptr<H264Picture>& pic,
+        scoped_refptr<H264Picture> pic,
         const uint8_t* data,
         size_t size,
         const std::vector<SubsampleEntry>& subsamples) = 0;
@@ -116,7 +116,7 @@ class MEDIA_GPU_EXPORT H264Decoder : public AcceleratedVideoDecoder {
     // the previous call to SubmitDecode().
     // Returns kOk if successful, kFail if there are errors, or kTryAgain if
     // the accelerator needs additional data before being able to proceed.
-    virtual Status SubmitDecode(const scoped_refptr<H264Picture>& pic) = 0;
+    virtual Status SubmitDecode(scoped_refptr<H264Picture> pic) = 0;
 
     // Schedule output (display) of |pic|. Note that returning from this
     // method does not mean that |pic| has already been outputted (displayed),
@@ -124,7 +124,7 @@ class MEDIA_GPU_EXPORT H264Decoder : public AcceleratedVideoDecoder {
     // as this method was called for them. Decoder may drop its reference
     // to |pic| after calling this method.
     // Return true if successful.
-    virtual bool OutputPicture(const scoped_refptr<H264Picture>& pic) = 0;
+    virtual bool OutputPicture(scoped_refptr<H264Picture> pic) = 0;
 
     // Reset any current state that may be cached in the accelerator, dropping
     // any cached parameters/slices that have not been committed yet.
@@ -151,15 +151,14 @@ class MEDIA_GPU_EXPORT H264Decoder : public AcceleratedVideoDecoder {
   ~H264Decoder() override;
 
   // AcceleratedVideoDecoder implementation.
-  void SetStream(int32_t id,
-                 const uint8_t* ptr,
-                 size_t size,
-                 const DecryptConfig* decrypt_config = nullptr) override;
+  void SetStream(int32_t id, const DecoderBuffer& decoder) override;
   bool Flush() override WARN_UNUSED_RESULT;
   void Reset() override;
   DecodeResult Decode() override WARN_UNUSED_RESULT;
   gfx::Size GetPicSize() const override;
+  gfx::Rect GetVisibleRect() const override;
   size_t GetRequiredNumOfPictures() const override;
+  size_t GetNumReferenceFrames() const override;
 
   // Return true if we need to start a new picture.
   static bool IsNewPrimaryCodedPicture(const H264Picture* curr_pic,
@@ -174,17 +173,6 @@ class MEDIA_GPU_EXPORT H264Decoder : public AcceleratedVideoDecoder {
                                              H264Picture* pic);
 
  private:
-  // We need to keep at most kDPBMaxSize pictures in DPB for
-  // reference/to display later and an additional one for the one currently
-  // being decoded. We also ask for some additional ones since VDA needs
-  // to accumulate a few ready-to-output pictures before it actually starts
-  // displaying and giving them back. +2 instead of +1 because of subjective
-  // smoothness improvement during testing.
-  enum {
-    kPicsInPipeline = limits::kMaxVideoFrames + 2,
-    kMaxNumReqPictures = H264DPB::kDPBMaxSize + kPicsInPipeline,
-  };
-
   // Internal state of the decoder.
   enum State {
     // After initialization, need an SPS.
@@ -244,8 +232,8 @@ class MEDIA_GPU_EXPORT H264Decoder : public AcceleratedVideoDecoder {
   void ConstructReferencePicListsB(const H264SliceHeader* slice_hdr);
 
   // Helper functions for reference list construction, per spec.
-  int PicNumF(const scoped_refptr<H264Picture>& pic);
-  int LongTermPicNumF(const scoped_refptr<H264Picture>& pic);
+  int PicNumF(const H264Picture& pic);
+  int LongTermPicNumF(const H264Picture& pic);
 
   // Perform the reference picture lists' modification (reordering), as
   // specified in spec (8.2.4).

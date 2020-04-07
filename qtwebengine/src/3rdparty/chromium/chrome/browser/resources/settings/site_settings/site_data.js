@@ -165,8 +165,7 @@ Polymer({
         /** @type {!IronListElement} */ (this.$$('iron-list'));
     ironList.focusItem(index);
     const siteToSelect = this.sites[index].site.replace(/[.]/g, '\\.');
-    const button =
-        this.$$(`#siteItem_${siteToSelect}`).$$('.subpage-arrow button');
+    const button = this.$$(`#siteItem_${siteToSelect}`).$$('.subpage-arrow');
     cr.ui.focusWithoutInk(assert(button));
   },
 
@@ -177,8 +176,7 @@ Polymer({
   updateSiteList_: function() {
     this.isLoading_ = true;
     this.browserProxy_.getDisplayList(this.filter).then(listInfo => {
-      this.updateList(
-          'sites', item => `${item.site}_${item.localData}`, listInfo.items);
+      this.updateList('sites', item => item.site, listInfo.items);
       this.isLoading_ = false;
       this.fire('site-data-list-complete');
     });

@@ -15,9 +15,9 @@
 namespace blink {
 
 class MessagePort;
+class UnderlyingSinkBase;
 
 // This is an implementation of the corresponding IDL interface.
-// Use TraceWrapperMember to hold a reference to an instance of this class.
 class CORE_EXPORT WritableStream : public ScriptWrappable {
   DEFINE_WRAPPERTYPEINFO();
 
@@ -32,6 +32,10 @@ class CORE_EXPORT WritableStream : public ScriptWrappable {
                                 ScriptValue underlying_sink,
                                 ScriptValue strategy,
                                 ExceptionState&);
+  static WritableStream* CreateWithCountQueueingStrategy(
+      ScriptState*,
+      UnderlyingSinkBase*,
+      size_t high_water_mark);
 
   // IDL defined functions
   virtual bool locked(ScriptState*, ExceptionState&) const = 0;

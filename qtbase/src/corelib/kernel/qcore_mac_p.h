@@ -86,16 +86,24 @@ template <typename T, typename U, U (*RetainFunction)(U), void (*ReleaseFunction
 class QAppleRefCounted
 {
 public:
-    QAppleRefCounted(const T &t = T()) : value(t) {}
-    QAppleRefCounted(QAppleRefCounted &&other) : value(other.value) { other.value = T(); }
+    QAppleRefCounted() : value() {}
+    QAppleRefCounted(const T &t) : value(t) {}
+    QAppleRefCounted(T &&t) noexcept(std::is_nothrow_move_constructible<T>::value)
+        : value(std::move(t)) {}
+    QAppleRefCounted(QAppleRefCounted &&other)
+            noexcept(std::is_nothrow_move_assignable<T>::value &&
+                     std::is_nothrow_move_constructible<T>::value)
+        : value(qExchange(other.value, T())) {}
     QAppleRefCounted(const QAppleRefCounted &other) : value(other.value) { if (value) RetainFunction(value); }
     ~QAppleRefCounted() { if (value) ReleaseFunction(value); }
     operator T() const { return value; }
-    void swap(QAppleRefCounted &other) Q_DECL_NOEXCEPT_EXPR(noexcept(qSwap(value, other.value)))
+    void swap(QAppleRefCounted &other) noexcept(noexcept(qSwap(value, other.value)))
     { qSwap(value, other.value); }
     QAppleRefCounted &operator=(const QAppleRefCounted &other)
     { QAppleRefCounted copy(other); swap(copy); return *this; }
     QAppleRefCounted &operator=(QAppleRefCounted &&other)
+        noexcept(std::is_nothrow_move_assignable<T>::value &&
+                 std::is_nothrow_move_constructible<T>::value)
     { QAppleRefCounted moved(std::move(other)); swap(moved); return *this; }
     T *operator&() { return &value; }
 protected:
@@ -129,8 +137,10 @@ private:
 template <typename T>
 class QCFType : public QAppleRefCounted<T, CFTypeRef, CFRetain, CFRelease>
 {
+    using Base = QAppleRefCounted<T, CFTypeRef, CFRetain, CFRelease>;
 public:
-    using QAppleRefCounted<T, CFTypeRef, CFRetain, CFRelease>::QAppleRefCounted;
+    using Base::Base;
+    explicit QCFType(CFTypeRef r) : Base(static_cast<T>(r)) {}
     template <typename X> X as() const { return reinterpret_cast<X>(this->value); }
     static QCFType constructFromGet(const T &t)
     {
@@ -143,6 +153,7 @@ public:
 class Q_CORE_EXPORT QCFString : public QCFType<CFStringRef>
 {
 public:
+    using QCFType<CFStringRef>::QCFType;
     inline QCFString(const QString &str) : QCFType<CFStringRef>(0), string(str) {}
     inline QCFString(const CFStringRef cfstr = 0) : QCFType<CFStringRef>(cfstr) {}
     inline QCFString(const QCFType<CFStringRef> &other) : QCFType<CFStringRef>(other) {}
@@ -160,7 +171,8 @@ Q_CORE_EXPORT bool qt_mac_applicationIsInDarkMode();
 #endif
 
 #ifndef QT_NO_DEBUG_STREAM
-QDebug operator<<(QDebug debug, const QMacAutoReleasePool *pool);
+Q_CORE_EXPORT QDebug operator<<(QDebug debug, const QMacAutoReleasePool *pool);
+Q_CORE_EXPORT QDebug operator<<(QDebug debug, const QCFString &string);
 #endif
 
 Q_CORE_EXPORT bool qt_apple_isApplicationExtension();

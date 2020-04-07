@@ -8,13 +8,13 @@
 #ifndef GrVkImage_DEFINED
 #define GrVkImage_DEFINED
 
-#include "GrBackendSurface.h"
-#include "GrTexture.h"
-#include "GrTypesPriv.h"
-#include "GrVkImageLayout.h"
-#include "GrVkResource.h"
-#include "SkTypes.h"
-#include "vk/GrVkTypes.h"
+#include "include/core/SkTypes.h"
+#include "include/gpu/GrBackendSurface.h"
+#include "include/gpu/GrTexture.h"
+#include "include/gpu/vk/GrVkTypes.h"
+#include "include/private/GrTypesPriv.h"
+#include "src/gpu/vk/GrVkImageLayout.h"
+#include "src/gpu/vk/GrVkResource.h"
 
 class GrVkGpu;
 class GrVkTexture;
@@ -36,6 +36,7 @@ public:
         } else if (fIsBorrowed) {
             fResource = new BorrowedResource(info.fImage, info.fAlloc, info.fImageTiling);
         } else {
+            SkASSERT(VK_NULL_HANDLE != info.fAlloc.fMemory);
             fResource = new Resource(info.fImage, info.fAlloc, info.fImageTiling);
         }
     }
@@ -55,6 +56,11 @@ public:
     }
     VkFormat imageFormat() const { return fInfo.fFormat; }
     GrBackendFormat getBackendFormat() const {
+        if (fResource && this->ycbcrConversionInfo().isValid()) {
+            SkASSERT(this->imageFormat() == VK_FORMAT_UNDEFINED);
+            return GrBackendFormat::MakeVk(this->ycbcrConversionInfo());
+        }
+        SkASSERT(this->imageFormat() != VK_FORMAT_UNDEFINED);
         return GrBackendFormat::MakeVk(this->imageFormat());
     }
     uint32_t mipLevels() const { return fInfo.fLevelCount; }
@@ -89,6 +95,13 @@ public:
                         bool byRegion,
                         bool releaseFamilyQueue = false);
 
+    // Returns the image to its original queue family and changes the layout to present if the queue
+    // family is not external or foreign.
+    void prepareForPresent(GrVkGpu* gpu);
+
+    // Returns the image to its original queue family
+    void prepareForExternal(GrVkGpu* gpu);
+
     // This simply updates our tracking of the image layout and does not actually do any gpu work.
     // This is only used for mip map generation where we are manually changing the layouts as we
     // blit each layer, and then at the end need to update our tracking.
@@ -109,17 +122,19 @@ public:
         VkImageTiling       fImageTiling;
         VkImageUsageFlags   fUsageFlags;
         VkFlags             fMemProps;
+        GrProtected         fIsProtected;
 
         ImageDesc()
-            : fImageType(VK_IMAGE_TYPE_2D)
-            , fFormat(VK_FORMAT_UNDEFINED)
-            , fWidth(0)
-            , fHeight(0)
-            , fLevels(1)
-            , fSamples(1)
-            , fImageTiling(VK_IMAGE_TILING_OPTIMAL)
-            , fUsageFlags(0)
-            , fMemProps(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT) {}
+                : fImageType(VK_IMAGE_TYPE_2D)
+                , fFormat(VK_FORMAT_UNDEFINED)
+                , fWidth(0)
+                , fHeight(0)
+                , fLevels(1)
+                , fSamples(1)
+                , fImageTiling(VK_IMAGE_TILING_OPTIMAL)
+                , fUsageFlags(0)
+                , fMemProps(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT)
+                , fIsProtected(GrProtected::kNo) {}
     };
 
     static bool InitImageInfo(const GrVkGpu* gpu, const ImageDesc& imageDesc, GrVkImageInfo*);
@@ -130,15 +145,20 @@ public:
     typedef void* ReleaseCtx;
     typedef void (*ReleaseProc)(ReleaseCtx);
 
-    void setResourceRelease(sk_sp<GrReleaseProcHelper> releaseHelper);
+    void setResourceRelease(sk_sp<GrRefCntedCallback> releaseHelper);
 
     // Helpers to use for setting the layout of the VkImage
     static VkPipelineStageFlags LayoutToPipelineSrcStageFlags(const VkImageLayout layout);
     static VkAccessFlags LayoutToSrcAccessMask(const VkImageLayout layout);
 
+#if GR_TEST_UTILS
+    void setCurrentQueueFamilyToGraphicsQueue(GrVkGpu* gpu);
+#endif
+
 protected:
     void releaseImage(GrVkGpu* gpu);
     void abandonImage();
+    bool hasResource() const { return fResource; }
 
     GrVkImageInfo          fInfo;
     uint32_t               fInitialQueueFamily;
@@ -168,17 +188,20 @@ private:
             SkDebugf("GrVkImage: %d (%d refs)\n", fImage, this->getRefCnt());
         }
 #endif
-        void setRelease(sk_sp<GrReleaseProcHelper> releaseHelper) {
+        void setRelease(sk_sp<GrRefCntedCallback> releaseHelper) {
             fReleaseHelper = std::move(releaseHelper);
         }
 
         /**
-         * These are used to coordinate calling the idle proc between the GrVkTexture and the
-         * Resource. If the GrVkTexture becomes purgeable and if there are no command buffers
-         * referring to the Resource then it calls the proc. Otherwise, the Resource calls it
-         * when the last command buffer reference goes away and the GrVkTexture is purgeable.
+         * These are used to coordinate calling the "finished" idle procs between the GrVkTexture
+         * and the Resource. If the GrVkTexture becomes purgeable and if there are no command
+         * buffers referring to the Resource then it calls the procs. Otherwise, the Resource calls
+         * them when the last command buffer reference goes away and the GrVkTexture is purgeable.
          */
-        void setIdleProc(GrVkTexture* owner, GrTexture::IdleProc, void* context) const;
+        void addIdleProc(GrVkTexture*, sk_sp<GrRefCntedCallback>) const;
+        int idleProcCnt() const;
+        sk_sp<GrRefCntedCallback> idleProc(int) const;
+        void resetIdleProcs() const;
         void removeOwningTexture() const;
 
         /**
@@ -190,11 +213,20 @@ private:
         bool isOwnedByCommandBuffer() const { return fNumCommandBufferOwners > 0; }
 
     protected:
-        mutable sk_sp<GrReleaseProcHelper> fReleaseHelper;
+        mutable sk_sp<GrRefCntedCallback> fReleaseHelper;
+
+        void invokeReleaseProc() const {
+            if (fReleaseHelper) {
+                // Depending on the ref count of fReleaseHelper this may or may not actually trigger
+                // the ReleaseProc to be called.
+                fReleaseHelper.reset();
+            }
+        }
 
     private:
         void freeGPUData(GrVkGpu* gpu) const override;
         void abandonGPUData() const override {
+            this->invokeReleaseProc();
             SkASSERT(!fReleaseHelper);
         }
 
@@ -202,8 +234,7 @@ private:
         GrVkAlloc      fAlloc;
         VkImageTiling  fImageTiling;
         mutable int fNumCommandBufferOwners = 0;
-        mutable GrTexture::IdleProc* fIdleProc = nullptr;
-        mutable void* fIdleProcContext = nullptr;
+        mutable SkTArray<sk_sp<GrRefCntedCallback>> fIdleProcs;
         mutable GrVkTexture* fOwningTexture = nullptr;
 
         typedef GrVkResource INHERITED;
@@ -216,14 +247,6 @@ private:
             : Resource(image, alloc, tiling) {
         }
     private:
-        void invokeReleaseProc() const {
-            if (fReleaseHelper) {
-                // Depending on the ref count of fReleaseHelper this may or may not actually trigger
-                // the ReleaseProc to be called.
-                fReleaseHelper.reset();
-            }
-        }
-
         void freeGPUData(GrVkGpu* gpu) const override;
         void abandonGPUData() const override;
     };

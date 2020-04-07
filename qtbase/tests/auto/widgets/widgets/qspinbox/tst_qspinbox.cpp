@@ -206,7 +206,7 @@ private slots:
     void stepModifierPressAndHold_data();
     void stepModifierPressAndHold();
 public slots:
-    void valueChangedHelper(const QString &);
+    void textChangedHelper(const QString &);
     void valueChangedHelper(int);
 private:
     QStringList actualTexts;
@@ -222,19 +222,19 @@ static QLatin1String modifierToName(Qt::KeyboardModifier modifier)
 {
     switch (modifier) {
     case Qt::NoModifier:
-        return QLatin1Literal("No");
+        return QLatin1String("No");
         break;
     case Qt::ControlModifier:
-        return QLatin1Literal("Ctrl");
+        return QLatin1String("Ctrl");
         break;
     case Qt::ShiftModifier:
-        return QLatin1Literal("Shift");
+        return QLatin1String("Shift");
         break;
     case Qt::AltModifier:
-        return QLatin1Literal("Alt");
+        return QLatin1String("Alt");
         break;
     case Qt::MetaModifier:
-        return QLatin1Literal("Meta");
+        return QLatin1String("Meta");
         break;
     default:
         qFatal("Unexpected keyboard modifier");
@@ -490,7 +490,7 @@ void tst_QSpinBox::setPrefixSuffix()
     }
 }
 
-void tst_QSpinBox::valueChangedHelper(const QString &text)
+void tst_QSpinBox::textChangedHelper(const QString &text)
 {
     actualTexts << text;
 }
@@ -568,7 +568,7 @@ void tst_QSpinBox::setTracking()
     QSpinBox spin(0);
     spin.setKeyboardTracking(tracking);
     spin.show();
-    connect(&spin, SIGNAL(valueChanged(QString)), this, SLOT(valueChangedHelper(QString)));
+    connect(&spin, &QSpinBox::textChanged, this, &tst_QSpinBox::textChangedHelper);
 
     keys.simulate(&spin);
     QCOMPARE(actualTexts, texts);
@@ -1331,7 +1331,6 @@ void tst_QSpinBox::wheelEvents_data()
 {
 #if QT_CONFIG(wheelevent)
     QTest::addColumn<QPoint>("angleDelta");
-    QTest::addColumn<int>("qt4Delta");
     QTest::addColumn<int>("stepModifier");
     QTest::addColumn<Qt::KeyboardModifiers>("modifier");
     QTest::addColumn<Qt::MouseEventSource>("source");
@@ -1402,16 +1401,16 @@ void tst_QSpinBox::wheelEvents_data()
                         QLatin1String sourceName;
                         switch (source) {
                         case Qt::MouseEventNotSynthesized:
-                            sourceName = QLatin1Literal("NotSynthesized");
+                            sourceName = QLatin1String("NotSynthesized");
                             break;
                         case Qt::MouseEventSynthesizedBySystem:
-                            sourceName = QLatin1Literal("SynthesizedBySystem");
+                            sourceName = QLatin1String("SynthesizedBySystem");
                             break;
                         case Qt::MouseEventSynthesizedByQt:
-                            sourceName = QLatin1Literal("SynthesizedByQt");
+                            sourceName = QLatin1String("SynthesizedByQt");
                             break;
                         case Qt::MouseEventSynthesizedByApplication:
-                            sourceName = QLatin1Literal("SynthesizedByApplication");
+                            sourceName = QLatin1String("SynthesizedByApplication");
                             break;
                         default:
                             qFatal("Unexpected wheel event source");
@@ -1430,7 +1429,6 @@ void tst_QSpinBox::wheelEvents_data()
                                       modifierName.latin1(),
                                       sourceName.latin1())
                                 << angleDelta
-                                << units
                                 << static_cast<int>(stepModifier)
                                 << modifiers
                                 << source
@@ -1450,7 +1448,6 @@ void tst_QSpinBox::wheelEvents()
 {
 #if QT_CONFIG(wheelevent)
     QFETCH(QPoint, angleDelta);
-    QFETCH(int, qt4Delta);
     QFETCH(int, stepModifier);
     QFETCH(Qt::KeyboardModifiers, modifier);
     QFETCH(Qt::MouseEventSource, source);
@@ -1466,9 +1463,8 @@ void tst_QSpinBox::wheelEvents()
     style->stepModifier = static_cast<Qt::KeyboardModifier>(stepModifier);
     spinBox.setStyle(style.data());
 
-    QWheelEvent event(QPointF(), QPointF(), QPoint(), angleDelta, qt4Delta,
-                      Qt::Vertical, Qt::NoButton, modifier, Qt::NoScrollPhase,
-                      source);
+    QWheelEvent event(QPointF(), QPointF(), QPoint(), angleDelta,
+                      Qt::NoButton, modifier, Qt::NoScrollPhase, false, source);
     for (int expected : expectedValues) {
         qApp->sendEvent(&spinBox, &event);
         QCOMPARE(spinBox.value(), expected);

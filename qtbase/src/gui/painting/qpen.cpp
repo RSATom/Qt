@@ -322,7 +322,7 @@ QPen::QPen(const QBrush &brush, qreal width, Qt::PenStyle s, Qt::PenCapStyle c, 
     Constructs a pen that is a copy of the given \a pen.
 */
 
-QPen::QPen(const QPen &p) Q_DECL_NOTHROW
+QPen::QPen(const QPen &p) noexcept
 {
     d = p.d;
     if (d)
@@ -363,13 +363,13 @@ QPen::~QPen()
 
 void QPen::detach()
 {
-    if (d->ref.load() == 1)
+    if (d->ref.loadRelaxed() == 1)
         return;
 
     QPenData *x = new QPenData(*static_cast<QPenData *>(d));
     if (!d->ref.deref())
         delete d;
-    x->ref.store(1);
+    x->ref.storeRelaxed(1);
     d = x;
 }
 
@@ -381,7 +381,7 @@ void QPen::detach()
     this pen.
 */
 
-QPen &QPen::operator=(const QPen &p) Q_DECL_NOTHROW
+QPen &QPen::operator=(const QPen &p) noexcept
 {
     QPen(p).swap(*this);
     return *this;
@@ -885,7 +885,7 @@ bool QPen::operator==(const QPen &p) const
 
 bool QPen::isDetached()
 {
-    return d->ref.load() == 1;
+    return d->ref.loadRelaxed() == 1;
 }
 
 

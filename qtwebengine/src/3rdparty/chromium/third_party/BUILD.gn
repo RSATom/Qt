@@ -5,8 +5,11 @@
 import("//build/config/freetype/freetype.gni")
 import("//third_party/harfbuzz-ng/harfbuzz.gni")
 import("//third_party/libjpeg.gni")
+import("//build/config/features.gni")
 
+if (!use_qt) {
 assert(!is_ios, "This is not used on iOS, don't drag it in unintentionally")
+}
 
 if (use_system_libjpeg) {
   import("//build/config/linux/pkg_config.gni")

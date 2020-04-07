@@ -41,15 +41,14 @@ gl::ImageIndex GetImageIndex(EGLenum eglTarget, const egl::AttributeMap &attribs
     else
     {
         ASSERT(layer == 0);
-        return gl::ImageIndex::MakeFromTarget(target, mip);
+        return gl::ImageIndex::MakeFromTarget(target, mip, 1);
     }
 }
 
 const Display *DisplayFromContext(const gl::Context *context)
 {
-    return (context ? context->getCurrentDisplay() : nullptr);
+    return (context ? context->getDisplay() : nullptr);
 }
-
 }  // anonymous namespace
 
 ImageSibling::ImageSibling() : FramebufferAttachmentObject(), mSourcesOf(), mTargetOf() {}
@@ -129,6 +128,18 @@ bool ImageSibling::isRenderable(const gl::Context *context,
     return mTargetOf->isRenderable(context);
 }
 
+void ImageSibling::notifySiblings(angle::SubjectMessage message)
+{
+    if (mTargetOf.get())
+    {
+        mTargetOf->notifySiblings(this, message);
+    }
+    for (Image *source : mSourcesOf)
+    {
+        source->notifySiblings(this, message);
+    }
+}
+
 ExternalImageSibling::ExternalImageSibling(rx::EGLImplFactory *factory,
                                            const gl::Context *context,
                                            EGLenum target,
@@ -138,6 +149,16 @@ ExternalImageSibling::ExternalImageSibling(rx::EGLImplFactory *factory,
 {}
 
 ExternalImageSibling::~ExternalImageSibling() = default;
+
+void ExternalImageSibling::onDestroy(const egl::Display *display)
+{
+    mImplementation->onDestroy(display);
+}
+
+Error ExternalImageSibling::initialize(const egl::Display *display)
+{
+    return mImplementation->initialize(display);
+}
 
 gl::Extents ExternalImageSibling::getAttachmentSize(const gl::ImageIndex &imageIndex) const
 {
@@ -197,12 +218,13 @@ rx::FramebufferAttachmentObjectImpl *ExternalImageSibling::getAttachmentImpl() c
 
 ImageState::ImageState(EGLenum target, ImageSibling *buffer, const AttributeMap &attribs)
     : label(nullptr),
+      target(target),
       imageIndex(GetImageIndex(target, attribs)),
       source(buffer),
       targets(),
-      format(buffer->getAttachmentFormat(GL_NONE, imageIndex)),
-      size(buffer->getAttachmentSize(imageIndex)),
-      samples(buffer->getAttachmentSamples(imageIndex)),
+      format(GL_NONE),
+      size(),
+      samples(),
       sourceType(target)
 {}
 
@@ -229,6 +251,9 @@ void Image::onDestroy(const Display *display)
     // no siblings left.
     ASSERT(mState.targets.empty());
 
+    // Make sure the implementation gets a chance to clean up before we delete the source.
+    mImplementation->onDestroy(display);
+
     // Tell the source that it is no longer used by this image
     if (mState.source != nullptr)
     {
@@ -237,7 +262,9 @@ void Image::onDestroy(const Display *display)
         // If the source is an external object, delete it
         if (IsExternalImageTarget(mState.sourceType))
         {
-            delete mState.source;
+            ExternalImageSibling *externalSibling = rx::GetAs<ExternalImageSibling>(mState.source);
+            externalSibling->onDestroy(display);
+            delete externalSibling;
         }
 
         mState.source = nullptr;
@@ -360,6 +387,15 @@ rx::ImageImpl *Image::getImplementation() const
 
 Error Image::initialize(const Display *display)
 {
+    if (IsExternalImageTarget(mState.sourceType))
+    {
+        ANGLE_TRY(rx::GetAs<ExternalImageSibling>(mState.source)->initialize(display));
+    }
+
+    mState.format  = mState.source->getAttachmentFormat(GL_NONE, mState.imageIndex);
+    mState.size    = mState.source->getAttachmentSize(mState.imageIndex);
+    mState.samples = mState.source->getAttachmentSamples(mState.imageIndex);
+
     return mImplementation->initialize(display);
 }
 
@@ -386,6 +422,22 @@ void Image::setInitState(gl::InitState initState)
     }
 
     return mState.source->setInitState(mState.imageIndex, initState);
+}
+
+void Image::notifySiblings(const ImageSibling *notifier, angle::SubjectMessage message)
+{
+    if (mState.source && mState.source != notifier)
+    {
+        mState.source->onSubjectStateChange(rx::kTextureImageSiblingMessageIndex, message);
+    }
+
+    for (ImageSibling *target : mState.targets)
+    {
+        if (target != notifier)
+        {
+            target->onSubjectStateChange(rx::kTextureImageSiblingMessageIndex, message);
+        }
+    }
 }
 
 }  // namespace egl

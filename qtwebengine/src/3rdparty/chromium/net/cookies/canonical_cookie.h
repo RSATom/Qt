@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "base/gtest_prod_util.h"
+#include "base/optional.h"
 #include "base/time/time.h"
 #include "net/base/net_export.h"
 #include "net/cookies/cookie_constants.h"
@@ -47,14 +48,51 @@ class NET_EXPORT CanonicalCookie {
 
   // Supports the default copy constructor.
 
+  // This enum represents if a cookie was included or excluded, and if excluded
+  // why.
+  enum class CookieInclusionStatus {
+    INCLUDE = 0,
+    EXCLUDE_HTTP_ONLY,
+    EXCLUDE_SECURE_ONLY,
+    EXCLUDE_DOMAIN_MISMATCH,
+    EXCLUDE_NOT_ON_PATH,
+    EXCLUDE_SAMESITE_STRICT,
+    EXCLUDE_SAMESITE_LAX,
+    // TODO(crbug.com/953995): Implement EXTENDED_MODE which will use the
+    // following value.
+    EXCLUDE_SAMESITE_EXTENDED,
+    // The following two are used for the SameSiteByDefaultCookies experiment,
+    // where if the SameSite attribute is not specified, it will be treated as
+    // SameSite=Lax by default.
+    EXCLUDE_SAMESITE_UNSPECIFIED_TREATED_AS_LAX,
+    // This is used if SameSite=None is specified, but the cookie is not Secure.
+    // TODO(chlily): Implement the above.
+    EXCLUDE_SAMESITE_NONE_INSECURE,
+    EXCLUDE_USER_PREFERENCES,
+
+    // Statuses specific to setting cookies
+    EXCLUDE_FAILURE_TO_STORE,
+    EXCLUDE_NONCOOKIEABLE_SCHEME,
+    EXCLUDE_OVERWRITE_SECURE,
+    EXCLUDE_OVERWRITE_HTTP_ONLY,
+    EXCLUDE_INVALID_DOMAIN,
+    EXCLUDE_INVALID_PREFIX,
+
+    // Please keep last
+    EXCLUDE_UNKNOWN_ERROR
+  };
+
   // Creates a new |CanonicalCookie| from the |cookie_line| and the
-  // |creation_time|.  Canonicalizes and validates inputs. May return NULL if
-  // an attribute value is invalid.  |creation_time| may not be null.
+  // |creation_time|.  Canonicalizes and validates inputs.  May return NULL if
+  // an attribute value is invalid.  |url| must be valid.  |creation_time| may
+  // not be null. Sets optional |status| to the relevant CookieInclusionStatus
+  // if provided
   static std::unique_ptr<CanonicalCookie> Create(
       const GURL& url,
       const std::string& cookie_line,
       const base::Time& creation_time,
-      const CookieOptions& options);
+      const CookieOptions& options,
+      CookieInclusionStatus* status = nullptr);
 
   // Create a canonical cookie based on sanitizing the passed inputs in the
   // context of the passed URL.  Returns a null unique pointer if the inputs
@@ -101,8 +139,8 @@ class NET_EXPORT CanonicalCookie {
   // having been canonicalized (in
   // GetCookieDomainWithString->CanonicalizeHost).
   bool IsEquivalent(const CanonicalCookie& ecc) const {
-    // It seems like it would make sense to take secure and httponly into
-    // account, but the RFC doesn't specify this.
+    // It seems like it would make sense to take secure, httponly, and samesite
+    // into account, but the RFC doesn't specify this.
     // NOTE: Keep this logic in-sync with TrimDuplicateCookiesForHost().
     return (name_ == ecc.Name() && domain_ == ecc.Domain()
             && path_ == ecc.Path());
@@ -141,17 +179,15 @@ class NET_EXPORT CanonicalCookie {
   // section 5.1.3 of RFC 6265.
   bool IsDomainMatch(const std::string& host) const;
 
-  // This enum represents if a cookie was included or excluded, and if excluded
-  // why.
-  enum class CookieInclusionStatus {
-    INCLUDE = 0,
-    EXCLUDE_HTTP_ONLY,
-    EXCLUDE_SECURE_ONLY,
-    EXCLUDE_DOMAIN_MISMATCH,
-    EXCLUDE_NOT_ON_PATH,
-    EXCLUDE_SAMESITE_STRICT,
-    EXCLUDE_SAMESITE_LAX
-  };
+  // Returns the effective SameSite mode to apply to this cookie. Depends on the
+  // value of the given SameSite attribute and whether the
+  // SameSiteByDefaultCookies feature is enabled.
+  // Note: If you are converting to a different representation of a cookie, you
+  // probably want to use SameSite() instead of this method. Otherwise, if you
+  // are considering using this method, consider whether you should use
+  // IncludeForRequestURL() or IsSetPermittedInContext() instead of doing the
+  // SameSite computation yourself.
+  CookieSameSite GetEffectiveSameSite() const;
 
   // Returns if the cookie should be included (and if not, why) for the given
   // request |url| using the CookieInclusionStatus enum. HTTP only cookies can
@@ -159,6 +195,14 @@ class NET_EXPORT CanonicalCookie {
   // method does not check whether a cookie is expired or not!
   CookieInclusionStatus IncludeForRequestURL(
       const GURL& url,
+      const CookieOptions& options) const;
+
+  // Returns if the cookie with given attributes can be set in context described
+  // by |options|, and if no, describes why.
+  // WARNING: this does not cover checking whether secure cookies are set in
+  // a secure schema, since whether the schema is secure isn't part of
+  // |options|.
+  CookieInclusionStatus IsSetPermittedInContext(
       const CookieOptions& options) const;
 
   std::string DebugString() const;
@@ -177,11 +221,6 @@ class NET_EXPORT CanonicalCookie {
   // domain and path. In particular, two equivalent cookies (see IsEquivalent())
   // are identical for PartialCompare().
   bool PartialCompare(const CanonicalCookie& other) const;
-
-  // Returns true if the cookie is less than |other|, considering all fields.
-  // FullCompare() is consistent with PartialCompare(): cookies sorted using
-  // FullCompare() are also sorted with respect to PartialCompare().
-  bool FullCompare(const CanonicalCookie& other) const;
 
   // Return whether this object is a valid CanonicalCookie().  Invalid
   // cookies may be constructed by the detailed constructor.
@@ -229,6 +268,11 @@ class NET_EXPORT CanonicalCookie {
   static bool IsCookiePrefixValid(CookiePrefix prefix,
                                   const GURL& url,
                                   const ParsedCookie& parsed_cookie);
+  static bool IsCookiePrefixValid(CookiePrefix prefix,
+                                  const GURL& url,
+                                  bool secure,
+                                  const std::string& domain,
+                                  const std::string& path);
 
   // Returns the cookie's domain, with the leading dot removed, if present.
   std::string DomainWithoutDot() const;
@@ -246,7 +290,41 @@ class NET_EXPORT CanonicalCookie {
   CookiePriority priority_;
 };
 
+// These enable us to pass along a list of excluded cookie with the reason they
+// were excluded
+struct CookieWithStatus {
+  CanonicalCookie cookie;
+  CanonicalCookie::CookieInclusionStatus status;
+};
+
+// Used to pass excluded cookie information when it's possible that the
+// canonical cookie object may not be available.
+struct NET_EXPORT CookieAndLineWithStatus {
+  CookieAndLineWithStatus();
+  CookieAndLineWithStatus(base::Optional<CanonicalCookie> cookie,
+                          std::string cookie_string,
+                          CanonicalCookie::CookieInclusionStatus status);
+  CookieAndLineWithStatus(
+      const CookieAndLineWithStatus& cookie_and_line_with_status);
+
+  CookieAndLineWithStatus& operator=(
+      const CookieAndLineWithStatus& cookie_and_line_with_status);
+
+  CookieAndLineWithStatus(
+      CookieAndLineWithStatus&& cookie_and_line_with_status);
+
+  ~CookieAndLineWithStatus();
+
+  base::Optional<CanonicalCookie> cookie;
+  std::string cookie_string;
+  CanonicalCookie::CookieInclusionStatus status;
+};
+
 typedef std::vector<CanonicalCookie> CookieList;
+
+typedef std::vector<CookieWithStatus> CookieStatusList;
+
+typedef std::vector<CookieAndLineWithStatus> CookieAndLineStatusList;
 
 }  // namespace net
 

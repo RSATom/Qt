@@ -14,12 +14,13 @@ Polymer({
   properties: {
     advancedOpened: {
       type: Boolean,
+      value: false,
       notify: true,
     },
 
     /**
      * Dictionary defining page visibility.
-     * @type {!GuestModePageVisibility}
+     * @type {!PageVisibility}
      */
     pageVisibility: Object,
   },
@@ -38,6 +39,11 @@ Polymer({
     }
 
     this.setSelectedUrl_('');  // Nothing is selected.
+  },
+
+  /** @private */
+  onAdvancedButtonToggle_: function() {
+    this.advancedOpened = !this.advancedOpened;
   },
 
   /**

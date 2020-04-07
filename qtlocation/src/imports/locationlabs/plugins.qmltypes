@@ -39,6 +39,8 @@ Module {
         Signal { name: "currentSegmentChanged" }
         Signal { name: "nextManeuverIconChanged" }
         Signal { name: "progressInformationChanged" }
+        Signal { name: "isOnRouteChanged" }
+        Signal { name: "alternativeRoutesChanged" }
         Method { name: "start"; type: "bool" }
         Method { name: "stop"; type: "bool" }
         Method {
@@ -66,6 +68,12 @@ Module {
             isPointer: true
         }
         Property { name: "currentSegment"; type: "int"; isReadonly: true }
+        Property {
+            name: "alternativeRoutes"
+            type: "QAbstractItemModel"
+            isReadonly: true
+            isPointer: true
+        }
         Signal { name: "progressInformationChanged" }
         Signal {
             name: "waypointReached"
@@ -86,6 +94,8 @@ Module {
         Property { name: "active"; type: "bool" }
         Property { name: "navigatorReady"; type: "bool"; isReadonly: true }
         Property { name: "trackPositionSource"; type: "bool" }
+        Property { name: "automaticReroutingEnabled"; type: "bool" }
+        Property { name: "isOnRoute"; type: "bool"; isReadonly: true }
         Property {
             name: "directions"
             type: "QDeclarativeNavigationBasicDirections"
@@ -107,6 +117,7 @@ Module {
             name: "activeChanged"
             Parameter { name: "active"; type: "bool" }
         }
+        Method { name: "recalculateRoutes" }
     }
     Component {
         name: "QGeoMapObject"

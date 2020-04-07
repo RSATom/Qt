@@ -11,9 +11,7 @@ const v8::FunctionCallbackInfo<v8::Value>& info
 {%- endif %}) {
   {% filter format_remove_duplicates(['ExceptionState exception_state']) %}
   {% set define_exception_state -%}
-  ExceptionState exception_state(
-      info.GetIsolate(), ExceptionState::kGetterContext,
-      "{{interface_name}}", "{{attribute.name}}");
+  ExceptionState exception_state(info.GetIsolate(), ExceptionState::kGetterContext, "{{interface_name}}", "{{attribute.name}}");
   {%- endset %}
 
   {% if attribute.is_lenient_this %}
@@ -68,7 +66,7 @@ const v8::FunctionCallbackInfo<v8::Value>& info
   // Same-origin attribute getters are never exposed via the cross-origin
   // interceptors. Since same-origin access requires a LocalDOMWindow, it is
   // safe to downcast here.
-  LocalDOMWindow* impl = ToLocalDOMWindow({{v8_class}}::ToImpl(holder));
+  LocalDOMWindow* impl = To<LocalDOMWindow>({{v8_class}}::ToImpl(holder));
   {% endif %}{# attribute.is_check_security_for_receiver #}
   {% else %}
   {{cpp_class}}* impl = {{v8_class}}::ToImpl(holder);
@@ -101,7 +99,7 @@ const v8::FunctionCallbackInfo<v8::Value>& info
     return;
   }
   {% if local_dom_window_only %}
-  LocalDOMWindow* impl = ToLocalDOMWindow(unchecked_impl);
+  LocalDOMWindow* impl = To<LocalDOMWindow>(unchecked_impl);
   {% endif %}{# local_dom_window_only #}
   {% endif %}
 
@@ -347,7 +345,7 @@ static void {{attribute.camel_case_name}}AttributeSetter{{world_suffix}}(
   // Same-origin attributes setters are never exposed via the cross-origin
   // interceptors. Since same-origin access requires a LocalDOMWindow, it is
   // safe to downcast here.
-  LocalDOMWindow* impl = ToLocalDOMWindow({{v8_class}}::ToImpl(holder));
+  LocalDOMWindow* impl = To<LocalDOMWindow>({{v8_class}}::ToImpl(holder));
   {% endif %}{# attribute.is_check_security_for_receiver #}
   {% else %}
   {{cpp_class}}* impl = {{v8_class}}::ToImpl(holder);
@@ -366,7 +364,7 @@ static void {{attribute.camel_case_name}}AttributeSetter{{world_suffix}}(
     return;
   }
   {% if local_dom_window_only %}
-  LocalDOMWindow* impl = ToLocalDOMWindow(unchecked_impl);
+  LocalDOMWindow* impl = To<LocalDOMWindow>(unchecked_impl);
   {% endif %}{# local_dom_window_only #}
   {% endif %}
 
@@ -429,7 +427,8 @@ static void {{attribute.camel_case_name}}AttributeSetter{{world_suffix}}(
     if (!IsValidEnum(cpp_value, kValidValues, base::size(kValidValues),
                      "{{attribute.enum_type}}", dummy_exception_state)) {
       ExecutionContext::ForCurrentRealm(info)->AddConsoleMessage(
-          ConsoleMessage::Create(kJSMessageSource, kWarningMessageLevel,
+          ConsoleMessage::Create(mojom::ConsoleMessageSource::kJavaScript,
+                                 mojom::ConsoleMessageLevel::kWarning,
                                  dummy_exception_state.Message()));
       return;
     }
@@ -613,7 +612,7 @@ void {{v8_class_or_partial}}::{{attribute.camel_case_name}}AttributeSetterCallba
 
 
 {##############################################################################}
-{# This macro installs |attributes_to_install| on v8::Object/v8::Function, not on v8::ObjectTemplate/v8::FunctionTemplate. #}
+{# This macro installs |attributes_to_install| conditionally based on Exposed, SecureContext, and RuntimeEnabled checks. #}
 {% macro install_conditional_attributes(attributes_to_install) %}
 {% for exposed_test, exposed_attribute_list in attributes_to_install | groupby('exposed_test') %}
 {% filter exposed(exposed_test) %}
@@ -621,15 +620,7 @@ void {{v8_class_or_partial}}::{{attribute.camel_case_name}}AttributeSetterCallba
 {% filter secure_context(secure_context_test) %}
 {% for feature_name, attribute_list in secure_context_attribute_list | groupby('runtime_enabled_feature_name') %}
 {% filter runtime_enabled(feature_name) %}
-static const V8DOMConfiguration::AccessorConfiguration accessor_configurations[] = {
-    {% for attribute in attribute_list | sort %}
-    {{accessor_configuration(attribute) | trim | indent(4)}},
-    {% endfor %}
-};
-V8DOMConfiguration::InstallAccessors(
-    isolate, world, instance_object, prototype_object, interface_object,
-    signature, accessor_configurations,
-    base::size(accessor_configurations));
+{{install_attributes(attribute_list | sort, 'instance_object', 'prototype_object', 'interface_object')}}
 {% endfilter %}{# runtime_enabled #}
 {% endfor %}{# secure_context_attribute_list grouped by runtime_enabled #}
 {% endfilter %}{# secure_context #}
@@ -640,6 +631,23 @@ V8DOMConfiguration::InstallAccessors(
 
 
 {##############################################################################}
+{# This macro installs |attributes_to_install| unconditionally. #}
+{% macro install_attributes(attributes_to_install, instance_variable, prototype_variable, interface_variable) %}
+static constexpr V8DOMConfiguration::AccessorConfiguration
+kAccessorConfigurations[] = {
+    {% for attribute in attributes_to_install %}
+    {{accessor_configuration(attribute) | trim | indent(4)}},
+    {% endfor %}
+};
+V8DOMConfiguration::InstallAccessors(
+    isolate, world, {{instance_variable}}, {{prototype_variable}}, {{interface_variable}},
+    signature, kAccessorConfigurations,
+    base::size(kAccessorConfigurations));
+{% endmacro %}
+
+
+{##############################################################################}
+{# This macro installs |attributes_to_install| conditionally based on Exposed, SecureContext, and RuntimeEnabled checks. #}
 {% macro install_conditional_interface_objects(attributes_to_install) %}
 {% for exposed_test, exposed_attribute_list in attributes_to_install | groupby('exposed_test') %}
 {% filter exposed(exposed_test) %}
@@ -647,18 +655,26 @@ V8DOMConfiguration::InstallAccessors(
 {% filter secure_context(secure_context_test) %}
 {% for feature_name, attribute_list in secure_context_attribute_list | groupby('runtime_enabled_feature_name') %}
 {% filter runtime_enabled(feature_name) %}
-static const V8DOMConfiguration::AttributeConfiguration attribute_configurations[] = {
-    {% for attribute in attribute_list | sort %}
-    {{attribute_configuration(attribute) | trim | indent(4)}},
-    {% endfor %}
-};
-V8DOMConfiguration::InstallAttributes(
-    isolate, world, instance_object, prototype_object,
-    attribute_configurations, base::size(attribute_configurations));
+{{install_interface_objects(attribute_list | sort, 'instance_object', 'prototype_object')}}
 {% endfilter %}{# runtime_enabled #}
 {% endfor %}{# secure_context_attribute_list grouped by runtime_enabled #}
 {% endfilter %}{# secure_context #}
 {% endfor %}{# exposed_attribute_list grouped by secure_context_text #}
 {% endfilter %}{# exposed #}
 {% endfor %}{# attributes grouped by exposed_test #}
+{% endmacro %}
+
+
+{##############################################################################}
+{# This macro installs |attributes_to_install| unconditionally. #}
+{% macro install_interface_objects(attributes_to_install, instance_variable, prototype_variable) %}
+static constexpr V8DOMConfiguration::AttributeConfiguration
+kAttributeConfigurations[] = {
+    {% for attribute in attributes_to_install %}
+    {{attribute_configuration(attribute) | trim | indent(4)}},
+    {% endfor %}
+};
+V8DOMConfiguration::InstallAttributes(
+    isolate, world, {{instance_variable}}, {{prototype_variable}},
+    kAttributeConfigurations, base::size(kAttributeConfigurations));
 {% endmacro %}

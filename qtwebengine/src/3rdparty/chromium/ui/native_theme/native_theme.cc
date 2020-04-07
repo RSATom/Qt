@@ -8,7 +8,6 @@
 
 #include "base/command_line.h"
 #include "ui/base/ui_base_switches.h"
-#include "ui/native_theme/native_theme_observer.h"
 
 namespace ui {
 
@@ -18,14 +17,6 @@ NativeTheme::ExtraParams::ExtraParams() {
 
 NativeTheme::ExtraParams::ExtraParams(const ExtraParams& other) {
   memcpy(this, &other, sizeof(*this));
-}
-
-void NativeTheme::SetScrollbarColors(unsigned inactive_color,
-                                     unsigned active_color,
-                                     unsigned track_color) {
-  thumb_inactive_color_ = inactive_color;
-  thumb_active_color_ = active_color;
-  track_color_ = track_color;
 }
 
 void NativeTheme::AddObserver(NativeThemeObserver* observer) {
@@ -42,24 +33,82 @@ void NativeTheme::NotifyObservers() {
 }
 
 NativeTheme::NativeTheme()
-    : thumb_inactive_color_(0xeaeaea),
-      thumb_active_color_(0xf4f4f4),
-      track_color_(0xd3d3d3) {
-}
+    : is_dark_mode_(IsForcedDarkMode()),
+      is_high_contrast_(IsForcedHighContrast()),
+      preferred_color_scheme_(CalculatePreferredColorScheme()) {}
 
-NativeTheme::~NativeTheme() {}
+NativeTheme::~NativeTheme() = default;
 
 bool NativeTheme::SystemDarkModeEnabled() const {
-  return base::CommandLine::ForCurrentProcess()->HasSwitch(
-      switches::kForceDarkMode);
+  return is_dark_mode_;
 }
 
-CaptionStyle NativeTheme::GetSystemCaptionStyle() const {
-  std::string style =
-      base::CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
-          switches::kForceCaptionStyle);
+bool NativeTheme::SystemDarkModeSupported() const {
+  return false;
+}
 
-  return CaptionStyle::FromSpec(style);
+bool NativeTheme::UsesHighContrastColors() const {
+  return is_high_contrast_;
+}
+
+NativeTheme::PreferredColorScheme NativeTheme::GetPreferredColorScheme() const {
+  return preferred_color_scheme_;
+}
+
+bool NativeTheme::IsForcedDarkMode() const {
+  static bool kIsForcedDarkMode =
+      base::CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kForceDarkMode);
+  return kIsForcedDarkMode;
+}
+
+bool NativeTheme::IsForcedHighContrast() const {
+  static bool kIsForcedHighContrast =
+      base::CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kForceHighContrast);
+  return kIsForcedHighContrast;
+}
+
+NativeTheme::PreferredColorScheme NativeTheme::CalculatePreferredColorScheme()
+    const {
+  return SystemDarkModeEnabled() ? NativeTheme::PreferredColorScheme::kDark
+                                 : NativeTheme::PreferredColorScheme::kLight;
+}
+
+base::Optional<CaptionStyle> NativeTheme::GetSystemCaptionStyle() const {
+  return CaptionStyle::FromSystemSettings();
+}
+
+NativeTheme::ColorSchemeNativeThemeObserver::ColorSchemeNativeThemeObserver(
+    NativeTheme* theme_to_update)
+    : theme_to_update_(theme_to_update) {}
+
+NativeTheme::ColorSchemeNativeThemeObserver::~ColorSchemeNativeThemeObserver() =
+    default;
+
+void NativeTheme::ColorSchemeNativeThemeObserver::OnNativeThemeUpdated(
+    ui::NativeTheme* observed_theme) {
+  bool is_dark_mode = observed_theme->SystemDarkModeEnabled();
+  bool is_high_contrast = observed_theme->UsesHighContrastColors();
+  PreferredColorScheme preferred_color_scheme =
+      observed_theme->GetPreferredColorScheme();
+  bool notify_observers = false;
+
+  if (theme_to_update_->SystemDarkModeEnabled() != is_dark_mode) {
+    theme_to_update_->set_dark_mode(is_dark_mode);
+    notify_observers = true;
+  }
+  if (theme_to_update_->UsesHighContrastColors() != is_high_contrast) {
+    theme_to_update_->set_high_contrast(is_high_contrast);
+    notify_observers = true;
+  }
+  if (theme_to_update_->GetPreferredColorScheme() != preferred_color_scheme) {
+    theme_to_update_->set_preferred_color_scheme(preferred_color_scheme);
+    notify_observers = true;
+  }
+
+  if (notify_observers)
+    theme_to_update_->NotifyObservers();
 }
 
 }  // namespace ui

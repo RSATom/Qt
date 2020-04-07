@@ -6,15 +6,17 @@
 
 #include "xfa/fwl/theme/cfwl_listboxtp.h"
 
+#include "build/build_config.h"
+#include "core/fxge/render_defines.h"
 #include "xfa/fwl/cfwl_listbox.h"
 #include "xfa/fwl/cfwl_themebackground.h"
 #include "xfa/fwl/cfwl_widget.h"
 #include "xfa/fxgraphics/cxfa_gecolor.h"
 #include "xfa/fxgraphics/cxfa_gepath.h"
 
-CFWL_ListBoxTP::CFWL_ListBoxTP() {}
+CFWL_ListBoxTP::CFWL_ListBoxTP() = default;
 
-CFWL_ListBoxTP::~CFWL_ListBoxTP() {}
+CFWL_ListBoxTP::~CFWL_ListBoxTP() = default;
 
 void CFWL_ListBoxTP::DrawBackground(const CFWL_ThemeBackground& pParams) {
   switch (pParams.m_iPart) {
@@ -61,7 +63,7 @@ void CFWL_ListBoxTP::DrawListBoxItem(CXFA_Graphics* pGraphics,
     pGraphics->SaveGraphState();
     pGraphics->SetFillColor(CXFA_GEColor(FWLTHEME_COLOR_BKSelected));
     CXFA_GEPath path;
-#if (_FX_OS_ == _FX_OS_MACOSX_)
+#if defined(OS_MACOSX)
     path.AddRectangle(rtItem.left, rtItem.top, rtItem.width - 1,
                       rtItem.height - 1);
 #else

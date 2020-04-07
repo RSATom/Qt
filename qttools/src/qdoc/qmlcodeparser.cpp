@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2019 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the tools applications of the Qt Toolkit.
@@ -37,8 +37,8 @@
 #include "qmlvisitor.h"
 
 #ifndef QT_NO_DECLARATIVE
-#include <private/qqmljsast_p.h>
-#include <private/qqmljsastvisitor_p.h>
+#    include <private/qqmljsast_p.h>
+#    include <private/qqmljsastvisitor_p.h>
 #endif
 #include <qdebug.h>
 
@@ -49,8 +49,7 @@ QT_BEGIN_NAMESPACE
  */
 QmlCodeParser::QmlCodeParser()
 #ifndef QT_NO_DECLARATIVE
-    : lexer(nullptr),
-      parser(nullptr)
+    : lexer(nullptr), parser(nullptr)
 #endif
 {
 }
@@ -58,9 +57,7 @@ QmlCodeParser::QmlCodeParser()
 /*!
   Destroys the QML code parser.
  */
-QmlCodeParser::~QmlCodeParser()
-{
-}
+QmlCodeParser::~QmlCodeParser() {}
 
 /*!
   Initializes the code parser base class. The \a config argument
@@ -114,7 +111,7 @@ QStringList QmlCodeParser::sourceFileNameFilter()
   If it can't open the file at \a filePath, it reports an error
   and returns without doing anything.
  */
-void QmlCodeParser::parseSourceFile(const Location& location, const QString& filePath)
+void QmlCodeParser::parseSourceFile(const Location &location, const QString &filePath)
 {
     QFile in(filePath);
     currentFile_ = filePath;
@@ -136,10 +133,7 @@ void QmlCodeParser::parseSourceFile(const Location& location, const QString& fil
 
     if (parser->parse()) {
         QQmlJS::AST::UiProgram *ast = parser->ast();
-        QmlDocVisitor visitor(filePath,
-                              newCode,
-                              &engine,
-                              topicCommands() + commonMetaCommands(),
+        QmlDocVisitor visitor(filePath, newCode, &engine, topicCommands() + commonMetaCommands(),
                               topicCommands());
         QQmlJS::AST::Node::accept(ast, &visitor);
         if (visitor.hasError()) {
@@ -147,9 +141,15 @@ void QmlCodeParser::parseSourceFile(const Location& location, const QString& fil
                                << "The output is incomplete.";
         }
     }
-    foreach (const  QQmlJS::DiagnosticMessage &msg, parser->diagnosticMessages()) {
-        qDebug().nospace() << qPrintable(filePath) << ':' << msg.loc.startLine
-                           << ": QML syntax error at col " << msg.loc.startColumn
+    const auto &messages = parser->diagnosticMessages();
+    for (const auto &msg : messages) {
+        qDebug().nospace() << qPrintable(filePath) << ':'
+#    if Q_QML_PRIVATE_API_VERSION < 5
+                           << msg.loc.startLine << ": QML syntax error at col "
+                           << msg.loc.startColumn
+#    else
+                           << msg.line << ": QML syntax error at col " << msg.column
+#    endif
                            << ": " << qPrintable(msg.message);
     }
     currentFile_.clear();
@@ -162,29 +162,17 @@ static QSet<QString> topicCommands_;
 /*!
   Returns the set of strings representing the topic commands.
  */
-const QSet<QString>& QmlCodeParser::topicCommands()
+const QSet<QString> &QmlCodeParser::topicCommands()
 {
     if (topicCommands_.isEmpty()) {
-        topicCommands_ << COMMAND_VARIABLE
-                       << COMMAND_QMLCLASS
-                       << COMMAND_QMLTYPE
-                       << COMMAND_QMLPROPERTY
-                       << COMMAND_QMLPROPERTYGROUP      // mws 13/03/2019
-                       << COMMAND_QMLATTACHEDPROPERTY
-                       << COMMAND_QMLSIGNAL
-                       << COMMAND_QMLATTACHEDSIGNAL
-                       << COMMAND_QMLMETHOD
-                       << COMMAND_QMLATTACHEDMETHOD
-                       << COMMAND_QMLBASICTYPE
-                       << COMMAND_JSTYPE
-                       << COMMAND_JSPROPERTY
-                       << COMMAND_JSPROPERTYGROUP       // mws 13/03/2019
-                       << COMMAND_JSATTACHEDPROPERTY
-                       << COMMAND_JSSIGNAL
-                       << COMMAND_JSATTACHEDSIGNAL
-                       << COMMAND_JSMETHOD
-                       << COMMAND_JSATTACHEDMETHOD
-                       << COMMAND_JSBASICTYPE;
+        topicCommands_ << COMMAND_VARIABLE << COMMAND_QMLCLASS << COMMAND_QMLTYPE
+                       << COMMAND_QMLPROPERTY << COMMAND_QMLPROPERTYGROUP // mws 13/03/2019
+                       << COMMAND_QMLATTACHEDPROPERTY << COMMAND_QMLSIGNAL
+                       << COMMAND_QMLATTACHEDSIGNAL << COMMAND_QMLMETHOD
+                       << COMMAND_QMLATTACHEDMETHOD << COMMAND_QMLBASICTYPE << COMMAND_JSTYPE
+                       << COMMAND_JSPROPERTY << COMMAND_JSPROPERTYGROUP // mws 13/03/2019
+                       << COMMAND_JSATTACHEDPROPERTY << COMMAND_JSSIGNAL << COMMAND_JSATTACHEDSIGNAL
+                       << COMMAND_JSMETHOD << COMMAND_JSATTACHEDMETHOD << COMMAND_JSBASICTYPE;
     }
     return topicCommands_;
 }
@@ -229,15 +217,13 @@ void QmlCodeParser::extractPragmas(QString &script)
 
         token = l.lex();
 
-        if (token != QQmlJSGrammar::T_IDENTIFIER ||
-                l.tokenStartLine() != startLine ||
-                script.mid(l.tokenOffset(), l.tokenLength()) != pragma)
+        if (token != QQmlJSGrammar::T_IDENTIFIER || l.tokenStartLine() != startLine
+            || script.mid(l.tokenOffset(), l.tokenLength()) != pragma)
             return;
 
         token = l.lex();
 
-        if (token != QQmlJSGrammar::T_IDENTIFIER ||
-                l.tokenStartLine() != startLine)
+        if (token != QQmlJSGrammar::T_IDENTIFIER || l.tokenStartLine() != startLine)
             return;
 
         QString pragmaValue = script.mid(l.tokenOffset(), l.tokenLength());

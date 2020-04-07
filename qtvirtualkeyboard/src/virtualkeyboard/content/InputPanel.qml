@@ -28,6 +28,8 @@
 ****************************************************************************/
 
 import QtQuick 2.0
+// Deliberately imported after QtQuick to avoid missing restoreMode property in Binding. Fix in Qt 6.
+import QtQml 2.14
 import QtQuick.VirtualKeyboard 2.1
 
 /*!
@@ -83,10 +85,10 @@ Item {
         It serves as a hook to display a custom language dialog instead of
         the built-in language popup in the virtual keyboard.
 
-        The \a localeList parameter contains a list of locale names to choose
+        The \e localeList parameter contains a list of locale names to choose
         from. To get more information about a particular language, use the
-        \l {QtQml::Qt::locale()}{Qt.locale()} function. The \a currentIndex
-        is the index of current locale in the \a localeList. This item should
+        \l {QtQml::Qt::locale()}{Qt.locale()} function. The \e currentIndex
+        is the index of current locale in the \e localeList. This item should
         be highlighted as the current item in the UI.
 
         To select a new language, use the \l {VirtualKeyboardSettings::locale}
@@ -143,5 +145,6 @@ Item {
                          keyboard.width,
                          keyboard.height - keyboard.wordCandidateView.currentYOffset + (keyboard.shadowInputControl.visible ? keyboard.shadowInputControl.height : 0))
         when: !InputContext.animating
+        restoreMode: Binding.RestoreBinding
     }
 }

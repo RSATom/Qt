@@ -68,7 +68,7 @@ void tst_QContiguousCache::assignment()
    // copy:
    cc1 = cc2;
    // move:
-   cc1 = qMove(cc2);
+   cc1 = std::move(cc2);
 }
 
 void tst_QContiguousCache::empty()
@@ -244,7 +244,7 @@ public:
         return *this;
     }
 
-    int refCount() const { return d->ref.load(); }
+    int refCount() const { return d->ref.loadRelaxed(); }
 private:
     RefCountingClassData *d;
 };

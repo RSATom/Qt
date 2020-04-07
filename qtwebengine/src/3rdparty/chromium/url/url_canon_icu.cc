@@ -95,7 +95,7 @@ void ICUCharsetConverter::ConvertFromUTF16(const base::char16* input,
     UErrorCode err = U_ZERO_ERROR;
     char* dest = &output->data()[begin_offset];
     int required_capacity = ucnv_fromUChars(converter_, dest, dest_capacity,
-                                            (const UChar*)input, input_len, &err);
+                                            input, input_len, &err);
     if (err != U_BUFFER_OVERFLOW_ERROR) {
       output->set_length(begin_offset + required_capacity);
       return;

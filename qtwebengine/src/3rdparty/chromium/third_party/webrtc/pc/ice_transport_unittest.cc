@@ -9,18 +9,41 @@
  */
 
 #include "pc/ice_transport.h"
-#include "p2p/base/fake_port_allocator.h"
 
+#include <memory>
+#include <utility>
+#include <vector>
+
+#include "absl/memory/memory.h"
+#include "api/ice_transport_factory.h"
+#include "p2p/base/fake_ice_transport.h"
+#include "p2p/base/fake_port_allocator.h"
+#include "rtc_base/gunit.h"
+#include "test/gmock.h"
 #include "test/gtest.h"
 
 namespace webrtc {
 
-class IceTransportTest : public testing::Test {};
+class IceTransportTest : public ::testing::Test {};
 
-TEST_F(IceTransportTest, CreateStandaloneIceTransport) {
-  auto port_allocator = new cricket::FakePortAllocator(nullptr, nullptr);
-  auto transport = CreateIceTransport(port_allocator);
-  ASSERT_TRUE(transport->internal());
+TEST_F(IceTransportTest, CreateNonSelfDeletingTransport) {
+  auto cricket_transport =
+      absl::make_unique<cricket::FakeIceTransport>("name", 0, nullptr);
+  rtc::scoped_refptr<IceTransportWithPointer> ice_transport =
+      new rtc::RefCountedObject<IceTransportWithPointer>(
+          cricket_transport.get());
+  EXPECT_EQ(ice_transport->internal(), cricket_transport.get());
+  ice_transport->Clear();
+  EXPECT_NE(ice_transport->internal(), cricket_transport.get());
+}
+
+TEST_F(IceTransportTest, CreateSelfDeletingTransport) {
+  std::unique_ptr<cricket::FakePortAllocator> port_allocator(
+      absl::make_unique<cricket::FakePortAllocator>(nullptr, nullptr));
+  IceTransportInit init;
+  init.set_port_allocator(port_allocator.get());
+  auto ice_transport = CreateIceTransport(std::move(init));
+  EXPECT_NE(nullptr, ice_transport->internal());
 }
 
 }  // namespace webrtc

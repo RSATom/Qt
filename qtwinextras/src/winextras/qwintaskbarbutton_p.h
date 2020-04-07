@@ -80,8 +80,8 @@ public:
 
     void _q_updateProgress();
 
-    ITaskbarList4 *pTbList;
-    QWindow *window;
+    ITaskbarList4 *pTbList = nullptr;
+    QWindow *window = nullptr;
 };
 
 QT_END_NAMESPACE

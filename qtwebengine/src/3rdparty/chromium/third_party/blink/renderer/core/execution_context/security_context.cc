@@ -26,6 +26,7 @@
 
 #include "third_party/blink/renderer/core/execution_context/security_context.h"
 
+#include "base/metrics/histogram_macros.h"
 #include "third_party/blink/public/common/feature_policy/feature_policy.h"
 #include "third_party/blink/public/platform/platform.h"
 #include "third_party/blink/renderer/core/frame/csp/content_security_policy.h"
@@ -34,22 +35,61 @@
 
 namespace blink {
 
+namespace {
+
+// Bucketize image metrics into percentage in the following fashion:
+// if an image's metrics is 0.1, it will be represented as 1 percent
+// if an image's metrics is 5, it will be represented as 50 percents.
+int BucketizeImageMetrics(double ratio) {
+  int ratio_percent = 10 * ratio;
+  if (ratio_percent < 0)
+    return 0;
+  return ratio_percent > 100 ? 100 : ratio_percent;
+}
+
+inline const char* GetImagePolicyHistogramName(
+    mojom::FeaturePolicyFeature feature) {
+  switch (feature) {
+    case mojom::FeaturePolicyFeature::kUnoptimizedLossyImages:
+      return "Blink.UseCounter.FeaturePolicy.LossyImageCompression";
+    case mojom::FeaturePolicyFeature::kUnoptimizedLosslessImages:
+      return "Blink.UseCounter.FeaturePolicy.LosslessImageCompression";
+    case mojom::FeaturePolicyFeature::kUnoptimizedLosslessImagesStrict:
+      return "Blink.UseCounter.FeaturePolicy.StrictLosslessImageCompression";
+    case mojom::FeaturePolicyFeature::kOversizedImages:
+      return "Blink.UseCounter.FeaturePolicy.ImageDownscalingRatio";
+    default:
+      NOTREACHED();
+      break;
+  }
+  return "";
+}
+
+}  // namespace
+
 // static
-std::vector<unsigned> SecurityContext::SerializeInsecureNavigationSet(
+WebVector<unsigned> SecurityContext::SerializeInsecureNavigationSet(
     const InsecureNavigationsSet& set) {
   // The set is serialized as a sorted array. Sorting it makes it easy to know
   // if two serialized sets are equal.
-  std::vector<unsigned> serialized;
+  WebVector<unsigned> serialized;
   serialized.reserve(set.size());
   for (unsigned host : set)
-    serialized.push_back(host);
+    serialized.emplace_back(host);
   std::sort(serialized.begin(), serialized.end());
 
   return serialized;
 }
 
 SecurityContext::SecurityContext()
-    : sandbox_flags_(kSandboxNone),
+    : SecurityContext(nullptr, WebSandboxFlags::kNone, nullptr) {}
+
+SecurityContext::SecurityContext(scoped_refptr<SecurityOrigin> origin,
+                                 WebSandboxFlags sandbox_flags,
+                                 std::unique_ptr<FeaturePolicy> feature_policy)
+    : sandbox_flags_(sandbox_flags),
+      security_origin_(std::move(origin)),
+      feature_policy_(std::move(feature_policy)),
       address_space_(mojom::IPAddressSpace::kPublic),
       insecure_request_policy_(kLeaveInsecureRequestsAlone),
       require_safe_types_(false) {}
@@ -70,23 +110,45 @@ void SecurityContext::SetContentSecurityPolicy(
   content_security_policy_ = content_security_policy;
 }
 
-void SecurityContext::EnforceSandboxFlags(SandboxFlags mask) {
-  ApplySandboxFlags(mask);
-}
-
-void SecurityContext::ApplySandboxFlags(SandboxFlags mask,
-                                        bool is_potentially_trustworthy) {
-  sandbox_flags_ |= mask;
-
-  if (IsSandboxed(kSandboxOrigin) && GetSecurityOrigin() &&
-      !GetSecurityOrigin()->IsOpaque()) {
-    scoped_refptr<SecurityOrigin> security_origin =
-        GetSecurityOrigin()->DeriveNewOpaqueOrigin();
-    security_origin->SetOpaqueOriginIsPotentiallyTrustworthy(
-        is_potentially_trustworthy);
-    SetSecurityOrigin(std::move(security_origin));
-    DidUpdateSecurityOrigin();
+bool SecurityContext::IsSandboxed(WebSandboxFlags mask) const {
+  if (RuntimeEnabledFeatures::FeaturePolicyForSandboxEnabled()) {
+    switch (mask) {
+      case WebSandboxFlags::kAll:
+        NOTREACHED();
+        break;
+      case WebSandboxFlags::kTopNavigation:
+        return !feature_policy_->IsFeatureEnabled(
+            mojom::FeaturePolicyFeature::kTopNavigation);
+      case WebSandboxFlags::kForms:
+        return !feature_policy_->IsFeatureEnabled(
+            mojom::FeaturePolicyFeature::kFormSubmission);
+      case WebSandboxFlags::kScripts:
+        return !feature_policy_->IsFeatureEnabled(
+            mojom::FeaturePolicyFeature::kScript);
+      case WebSandboxFlags::kPopups:
+        return !feature_policy_->IsFeatureEnabled(
+            mojom::FeaturePolicyFeature::kPopups);
+      case WebSandboxFlags::kPointerLock:
+        return !feature_policy_->IsFeatureEnabled(
+            mojom::FeaturePolicyFeature::kPointerLock);
+      case WebSandboxFlags::kOrientationLock:
+        return !feature_policy_->IsFeatureEnabled(
+            mojom::FeaturePolicyFeature::kOrientationLock);
+      case WebSandboxFlags::kModals:
+        return !feature_policy_->IsFeatureEnabled(
+            mojom::FeaturePolicyFeature::kModals);
+      case WebSandboxFlags::kPresentationController:
+        return !feature_policy_->IsFeatureEnabled(
+            mojom::FeaturePolicyFeature::kPresentation);
+      case WebSandboxFlags::kDownloads:
+        return !feature_policy_->IsFeatureEnabled(
+            mojom::FeaturePolicyFeature::kDownloadsWithoutUserActivation);
+      default:
+        // Any other flags fall through to the bitmask test below
+        break;
+    }
   }
+  return (sandbox_flags_ & mask) != WebSandboxFlags::kNone;
 }
 
 String SecurityContext::addressSpaceForBindings() const {
@@ -114,7 +176,7 @@ void SecurityContext::SetRequireTrustedTypesForTesting() {
   require_safe_types_ = true;
 }
 
-bool SecurityContext::RequireTrustedTypes() const {
+bool SecurityContext::TrustedTypesRequiredByPolicy() const {
   return require_safe_types_;
 }
 
@@ -123,22 +185,6 @@ void SecurityContext::SetFeaturePolicy(
   // This method should be called before a FeaturePolicy has been created.
   DCHECK(!feature_policy_);
   feature_policy_ = std::move(feature_policy);
-}
-
-void SecurityContext::InitializeFeaturePolicy(
-    const ParsedFeaturePolicy& parsed_header,
-    const ParsedFeaturePolicy& container_policy,
-    const FeaturePolicy* parent_feature_policy) {
-  report_only_feature_policy_ = nullptr;
-  if (!HasCustomizedFeaturePolicy()) {
-    feature_policy_ = FeaturePolicy::CreateFromParentPolicy(
-        nullptr, {}, security_origin_->ToUrlOrigin());
-    return;
-  }
-
-  feature_policy_ = FeaturePolicy::CreateFromParentPolicy(
-      parent_feature_policy, container_policy, security_origin_->ToUrlOrigin());
-  feature_policy_->SetHeaderPolicy(parsed_header);
 }
 
 // Uses the parent enforcing policy as the basis for the report-only policy.
@@ -154,6 +200,17 @@ void SecurityContext::AddReportOnlyFeaturePolicy(
 bool SecurityContext::IsFeatureEnabled(mojom::FeaturePolicyFeature feature,
                                        ReportOptions report_on_failure,
                                        const String& message) const {
+  return IsFeatureEnabled(
+      feature,
+      PolicyValue::CreateMaxPolicyValue(
+          feature_policy_->GetFeatureList().at(feature).second),
+      report_on_failure, message);
+}
+
+bool SecurityContext::IsFeatureEnabled(mojom::FeaturePolicyFeature feature,
+                                       PolicyValue threshold_value,
+                                       ReportOptions report_on_failure,
+                                       const String& message) const {
   if (report_on_failure == ReportOptions::kReportOnFailure) {
     // We are expecting a violation report in case the feature is disabled in
     // the context. Therefore, this qualifies as a potential violation (i.e.,
@@ -161,7 +218,7 @@ bool SecurityContext::IsFeatureEnabled(mojom::FeaturePolicyFeature feature,
     CountPotentialFeaturePolicyViolation(feature);
   }
 
-  FeatureEnabledState state = GetFeatureEnabledState(feature);
+  FeatureEnabledState state = GetFeatureEnabledState(feature, threshold_value);
   if (state == FeatureEnabledState::kEnabled)
     return true;
   if (report_on_failure == ReportOptions::kReportOnFailure) {
@@ -177,13 +234,45 @@ bool SecurityContext::IsFeatureEnabled(mojom::FeaturePolicyFeature feature,
 
 FeatureEnabledState SecurityContext::GetFeatureEnabledState(
     mojom::FeaturePolicyFeature feature) const {
+  return GetFeatureEnabledState(
+      feature, PolicyValue::CreateMaxPolicyValue(
+                   feature_policy_->GetFeatureList().at(feature).second));
+}
+
+FeatureEnabledState SecurityContext::GetFeatureEnabledState(
+    mojom::FeaturePolicyFeature feature,
+    PolicyValue threshold_value) const {
   // The policy should always be initialized before checking it to ensure we
   // properly inherit the parent policy.
   DCHECK(feature_policy_);
 
-  if (feature_policy_->IsFeatureEnabled(feature)) {
+  // Log metrics for unoptimized-*-images and oversized-images policies.
+  if ((feature >= mojom::FeaturePolicyFeature::kUnoptimizedLossyImages &&
+       feature <=
+           mojom::FeaturePolicyFeature::kUnoptimizedLosslessImagesStrict) ||
+      feature == mojom::FeaturePolicyFeature::kOversizedImages) {
+    // Only log metrics if an image policy is specified.
+    // If an image policy is specified, the policy value would be less than the
+    // max value, otherwise by default the policy value is set to be the max
+    // value.
+    const auto max_value =
+        PolicyValue::CreateMaxPolicyValue(mojom::PolicyValueType::kDecDouble);
+    if (!feature_policy_->IsFeatureEnabled(feature, max_value) &&
+        threshold_value < max_value) {
+      STATIC_HISTOGRAM_POINTER_GROUP(
+          GetImagePolicyHistogramName(feature), static_cast<int>(feature),
+          static_cast<int>(
+              mojom::FeaturePolicyFeature::kUnoptimizedLosslessImagesStrict) +
+              1,
+          Add(BucketizeImageMetrics(threshold_value.DoubleValue())),
+          base::LinearHistogram::FactoryGet(
+              GetImagePolicyHistogramName(feature), 0, 100, 101, 0x1));
+    }
+  }
+  if (feature_policy_->IsFeatureEnabled(feature, threshold_value)) {
     if (report_only_feature_policy_ &&
-        !report_only_feature_policy_->IsFeatureEnabled(feature)) {
+        !report_only_feature_policy_->IsFeatureEnabled(feature,
+                                                       threshold_value)) {
       return FeatureEnabledState::kReportOnly;
     }
     return FeatureEnabledState::kEnabled;

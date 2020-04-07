@@ -6,19 +6,19 @@
 
 #include "xfa/fxfa/parser/cxfa_xmlconnection.h"
 
-#include "fxjs/xfa/cjx_xmlconnection.h"
+#include "fxjs/xfa/cjx_node.h"
 #include "third_party/base/ptr_util.h"
 
 namespace {
 
 const CXFA_Node::PropertyData kXmlConnectionPropertyData[] = {
     {XFA_Element::Uri, 1, 0},
-    {XFA_Element::Unknown, 0, 0}};
+};
 
 const CXFA_Node::AttributeData kXmlConnectionAttributeData[] = {
     {XFA_Attribute::Name, XFA_AttributeType::CData, nullptr},
     {XFA_Attribute::DataDescription, XFA_AttributeType::CData, nullptr},
-    {XFA_Attribute::Unknown, XFA_AttributeType::Integer, nullptr}};
+};
 
 }  // namespace
 
@@ -31,6 +31,6 @@ CXFA_XmlConnection::CXFA_XmlConnection(CXFA_Document* doc,
                 XFA_Element::XmlConnection,
                 kXmlConnectionPropertyData,
                 kXmlConnectionAttributeData,
-                pdfium::MakeUnique<CJX_XmlConnection>(this)) {}
+                pdfium::MakeUnique<CJX_Node>(this)) {}
 
 CXFA_XmlConnection::~CXFA_XmlConnection() = default;

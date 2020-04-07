@@ -14,11 +14,11 @@
  * limitations under the License.
  */
 
-#include "perfetto/base/paged_memory.h"
+#include "perfetto/ext/base/paged_memory.h"
 
 #include <stdint.h>
 
-#include "gtest/gtest.h"
+#include <gtest/gtest.h>
 #include "perfetto/base/build_config.h"
 #include "src/base/test/vm_test_utils.h"
 
@@ -132,7 +132,7 @@ TEST(PagedMemoryTest, AccessUncommittedMemoryTriggersASAN) {
         ptr_raw[kMappedSize] = 'x';
         abort();
       },
-      "AddressSanitizer: container-overflow.*");
+      "AddressSanitizer: .*");
 }
 #endif  // ADDRESS_SANITIZER
 
@@ -171,7 +171,10 @@ TEST(PagedMemoryTest, Unchecked) {
         ASSERT_EQ(0, setrlimit(RLIMIT_AS, &limit));
         auto mem = PagedMemory::Allocate(kMemLimit * 2, PagedMemory::kMayFail);
         ASSERT_FALSE(mem.IsValid());
-        exit(0);
+        // Use _exit() instead of exit() to avoid calling destructors on child
+        // process death, which may interfere with the parent process's test
+        // launcher expectations.
+        _exit(0);
       },
       ::testing::ExitedWithCode(0), "");
 }

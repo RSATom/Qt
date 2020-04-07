@@ -41,9 +41,9 @@
 #include <QtPositioningQuick/private/qdeclarativegeoaddress_p.h>
 #include <QtPositioningQuick/private/qdeclarativegeolocation_p.h>
 #include <QtPositioning/private/qwebmercator_p.h>
-
-#include <QtPositioningQuick/private/qdeclarativepositionsource_p.h>
 #include <QtPositioningQuick/private/qdeclarativeposition_p.h>
+#include <QtPositioningQuick/private/qdeclarativepositionsource_p.h>
+#include <QtPositioningQuick/private/qdeclarativepluginparameter_p.h>
 
 #include <QtPositioningQuick/private/qquickgeocoordinateanimation_p.h>
 #include "locationsingleton.h"
@@ -615,6 +615,9 @@ public:
 
             minor = 13;
             qmlRegisterType<QDeclarativeGeoLocation, 13>(uri, major, minor, "Location");
+
+            minor = 14;
+            qmlRegisterType<QDeclarativePluginParameter >(uri, major, minor, "PluginParameter");
 
             // Register the latest Qt version as QML type version
             qmlRegisterModule(uri, QT_VERSION_MAJOR, QT_VERSION_MINOR);

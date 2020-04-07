@@ -12,66 +12,78 @@ rtc_source_set("task_queue") {
   visibility = [ "*" ]
   public = [
     "queued_task.h",
-    "task_queue_priority.h",
-  ]
-}
-
-# TODO(bugs.webrtc.org/10191): Merge the target into task_queue target above
-# when support for link-time injection is dropped.
-rtc_source_set("task_queue_factory") {
-  visibility = [ "*" ]
-  public = [
     "task_queue_base.h",
     "task_queue_factory.h",
   ]
   sources = [
     "task_queue_base.cc",
-    "task_queue_impl.cc",
-    "task_queue_impl.h",
   ]
 
   deps = [
-    ":task_queue",
     "../../rtc_base:checks",
-    "../../rtc_base:rtc_task_queue_api",
+    "../../rtc_base:macromagic",
+    "//third_party/abseil-cpp/absl/base:config",
     "//third_party/abseil-cpp/absl/base:core_headers",
     "//third_party/abseil-cpp/absl/strings",
   ]
 }
 
-rtc_source_set("default_task_queue_factory") {
-  # TODO(bugs.webrtc.org/10191): Make public when implemented for all
-  # supported platforms.
-  visibility = [ ":global_task_queue_factory" ]
+rtc_source_set("task_queue_test") {
+  visibility = [ "*" ]
+  testonly = true
   sources = [
-    "default_task_queue_factory.cc",
-    "default_task_queue_factory.h",
+    "task_queue_test.cc",
+    "task_queue_test.h",
   ]
   deps = [
-    ":task_queue_factory",
-    "../../rtc_base:checks",
+    ":task_queue",
+    "../../rtc_base:refcount",
+    "../../rtc_base:rtc_event",
+    "../../rtc_base:timeutils",
+    "../../rtc_base/task_utils:to_queued_task",
+    "../../test:test_support",
+    "//third_party/abseil-cpp/absl/memory",
+    "//third_party/abseil-cpp/absl/strings",
   ]
 }
 
-# Linking with global_task_queue_factory adds link-time implementation of the
-# rtc::TaskQueue that allows run-time injection of the TaskQueue implementaion.
-rtc_source_set("global_task_queue_factory") {
-  # TODO(danilchap): Remove this target when task queue factory propagated to
-  # all components that create TaskQueues.
+rtc_source_set("default_task_queue_factory") {
   visibility = [ "*" ]
+  if (!is_ios && !is_android) {
+    poisonous = [ "default_task_queue" ]
+  }
   sources = [
-    "global_task_queue_factory.cc",
-    "global_task_queue_factory.h",
-
-    # TODO(bugs.webrtc.org/10191): Move task_queue.cc to private build
-    # "rtc_task_queue" when "rtc_task_queue_api", "rtc_task_queue",
-    # and "rtc_task_queue_impl" can be joined.
-    "task_queue.cc",
+    "default_task_queue_factory.h",
   ]
   deps = [
-    ":default_task_queue_factory",
-    ":task_queue_factory",
-    "../../rtc_base:checks",
-    "../../rtc_base:rtc_task_queue_api",
+    ":task_queue",
   ]
+
+  if (rtc_enable_libevent) {
+    sources += [ "default_task_queue_factory_libevent.cc" ]
+    deps += [ "../../rtc_base:rtc_task_queue_libevent" ]
+  } else if (is_mac || is_ios) {
+    sources += [ "default_task_queue_factory_gcd.cc" ]
+    deps += [ "../../rtc_base:rtc_task_queue_gcd" ]
+  } else if (is_win && current_os != "winuwp") {
+    sources += [ "default_task_queue_factory_win.cc" ]
+    deps += [ "../../rtc_base:rtc_task_queue_win" ]
+  } else {
+    sources += [ "default_task_queue_factory_stdlib.cc" ]
+    deps += [ "../../rtc_base:rtc_task_queue_stdlib" ]
+  }
+}
+
+if (rtc_include_tests) {
+  rtc_source_set("task_queue_default_factory_unittests") {
+    testonly = true
+    sources = [
+      "default_task_queue_factory_unittest.cc",
+    ]
+    deps = [
+      ":default_task_queue_factory",
+      ":task_queue_test",
+      "../../test:test_support",
+    ]
+  }
 }

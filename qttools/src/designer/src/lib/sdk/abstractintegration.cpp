@@ -233,9 +233,7 @@ QDesignerIntegrationInterface::QDesignerIntegrationInterface(QDesignerFormEditor
     core->setIntegration(this);
 }
 
-QDesignerIntegrationInterface::~QDesignerIntegrationInterface()
-{
-}
+QDesignerIntegrationInterface::~QDesignerIntegrationInterface() = default;
 
 QDesignerFormEditorInterface *QDesignerIntegrationInterface::core() const
 {
@@ -326,14 +324,12 @@ QDesignerIntegrationPrivate::QDesignerIntegrationPrivate(QDesignerIntegration *q
     headerLowercase(true),
     m_features(QDesignerIntegrationInterface::DefaultFeature),
     m_resourceFileWatcherBehaviour(QDesignerIntegrationInterface::PromptToReloadResourceFile),
-    m_gradientManager(0)
+    m_gradientManager(nullptr)
 {
 }
 
 void QDesignerIntegrationPrivate::initialize()
 {
-    typedef void (QDesignerIntegration::*QDesignerIntegrationUpdatePropertySlot3)(const QString &, const QVariant &, bool);
-
     //
     // integrate the `Form Editor component'
     //
@@ -342,7 +338,7 @@ void QDesignerIntegrationPrivate::initialize()
     QDesignerFormEditorInterface *core = q->core();
     if (QDesignerPropertyEditor *designerPropertyEditor= qobject_cast<QDesignerPropertyEditor *>(core->propertyEditor())) {
         QObject::connect(designerPropertyEditor, &QDesignerPropertyEditor::propertyValueChanged,
-                         q, static_cast<QDesignerIntegrationUpdatePropertySlot3>(&QDesignerIntegration::updateProperty));
+                         q, QOverload<const QString &, const QVariant &, bool>::of(&QDesignerIntegration::updateProperty));
         QObject::connect(designerPropertyEditor, &QDesignerPropertyEditor::resetProperty,
                          q, &QDesignerIntegration::resetProperty);
         QObject::connect(designerPropertyEditor, &QDesignerPropertyEditor::addDynamicProperty,
@@ -479,7 +475,7 @@ void QDesignerIntegrationPrivate::updateSelection()
 {
     QDesignerFormEditorInterface *core = q->core();
     QDesignerFormWindowInterface *formWindow = core->formWindowManager()->activeFormWindow();
-    QWidget *selection = 0;
+    QWidget *selection = nullptr;
 
     if (formWindow) {
         selection = formWindow->cursor()->current();
@@ -549,7 +545,7 @@ QObject *QDesignerIntegrationPrivate::propertyEditorObject()
 {
     if (QDesignerPropertyEditorInterface *propertyEditor = q->core()->propertyEditor())
         return propertyEditor->object();
-    return 0;
+    return nullptr;
 }
 
 // Load plugins into widget database and factory.
@@ -761,7 +757,7 @@ void QDesignerIntegration::updateCustomWidgetPlugins()
 
 QDesignerResourceBrowserInterface *QDesignerIntegration::createResourceBrowser(QWidget *)
 {
-    return 0;
+    return nullptr;
 }
 
 QString QDesignerIntegration::contextHelpId() const

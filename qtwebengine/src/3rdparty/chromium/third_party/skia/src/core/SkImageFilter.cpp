@@ -5,27 +5,31 @@
  * found in the LICENSE file.
  */
 
-#include "SkImageFilter.h"
+#include "include/core/SkImageFilter.h"
 
-#include "SkCanvas.h"
-#include "SkFuzzLogging.h"
-#include "SkImageFilterCache.h"
-#include "SkLocalMatrixImageFilter.h"
-#include "SkMatrixImageFilter.h"
-#include "SkReadBuffer.h"
-#include "SkRect.h"
-#include "SkSafe32.h"
-#include "SkSpecialImage.h"
-#include "SkSpecialSurface.h"
-#include "SkValidationUtils.h"
-#include "SkWriteBuffer.h"
+#include "include/core/SkCanvas.h"
+#include "include/core/SkRect.h"
+#include "include/effects/SkComposeImageFilter.h"
+#include "include/private/SkSafe32.h"
+#include "src/core/SkFuzzLogging.h"
+#include "src/core/SkImageFilterCache.h"
+#include "src/core/SkLocalMatrixImageFilter.h"
+#include "src/core/SkMatrixImageFilter.h"
+#include "src/core/SkReadBuffer.h"
+#include "src/core/SkSpecialImage.h"
+#include "src/core/SkSpecialSurface.h"
+#include "src/core/SkValidationUtils.h"
+#include "src/core/SkWriteBuffer.h"
 #if SK_SUPPORT_GPU
-#include "GrColorSpaceXform.h"
-#include "GrContext.h"
-#include "GrFixedClip.h"
-#include "GrRenderTargetContext.h"
-#include "GrTextureProxy.h"
-#include "SkGr.h"
+#include "include/gpu/GrContext.h"
+#include "include/private/GrRecordingContext.h"
+#include "src/gpu/GrColorSpaceXform.h"
+#include "src/gpu/GrContextPriv.h"
+#include "src/gpu/GrFixedClip.h"
+#include "src/gpu/GrRecordingContextPriv.h"
+#include "src/gpu/GrRenderTargetContext.h"
+#include "src/gpu/GrTextureProxy.h"
+#include "src/gpu/SkGr.h"
 #endif
 #include <atomic>
 
@@ -181,7 +185,7 @@ sk_sp<SkSpecialImage> SkImageFilter::filterImage(SkSpecialImage* src, const Cont
     if (src->isTextureBacked() && result && !result->isTextureBacked()) {
         // Keep the result on the GPU - this is still required for some
         // image filters that don't support GPU in all cases
-        GrContext* context = src->getContext();
+        auto context = src->getContext();
         result = result->makeTextureImage(context);
     }
 #endif
@@ -238,23 +242,30 @@ bool SkImageFilter::canComputeFastBounds() const {
 }
 
 #if SK_SUPPORT_GPU
-sk_sp<SkSpecialImage> SkImageFilter::DrawWithFP(GrContext* context,
+sk_sp<SkSpecialImage> SkImageFilter::DrawWithFP(GrRecordingContext* context,
                                                 std::unique_ptr<GrFragmentProcessor> fp,
                                                 const SkIRect& bounds,
-                                                const OutputProperties& outputProperties) {
+                                                const OutputProperties& outputProperties,
+                                                GrProtected isProtected) {
     GrPaint paint;
     paint.addColorFragmentProcessor(std::move(fp));
     paint.setPorterDuffXPFactory(SkBlendMode::kSrc);
 
     sk_sp<SkColorSpace> colorSpace = sk_ref_sp(outputProperties.colorSpace());
-    GrPixelConfig config = SkColorType2GrPixelConfig(outputProperties.colorType());
-    GrBackendFormat format =
-            context->contextPriv().caps()->getBackendFormatFromColorType(
-                    outputProperties.colorType());
+    GrColorType colorType = SkColorTypeToGrColorType(outputProperties.colorType());
     sk_sp<GrRenderTargetContext> renderTargetContext(
-        context->contextPriv().makeDeferredRenderTargetContext(
-                                format, SkBackingFit::kApprox, bounds.width(), bounds.height(),
-                                config, std::move(colorSpace)));
+            context->priv().makeDeferredRenderTargetContext(
+                    SkBackingFit::kApprox,
+                    bounds.width(),
+                    bounds.height(),
+                    colorType,
+                    std::move(colorSpace),
+                    1,
+                    GrMipMapped::kNo,
+                    kBottomLeft_GrSurfaceOrigin,
+                    nullptr,
+                    SkBudgeted::kYes,
+                    isProtected));
     if (!renderTargetContext) {
         return nullptr;
     }
@@ -286,7 +297,10 @@ bool SkImageFilter::asAColorFilter(SkColorFilter** filterPtr) const {
 }
 
 bool SkImageFilter::canHandleComplexCTM() const {
-    if (!this->onCanHandleComplexCTM()) {
+    // CropRects need to apply in the source coordinate system, but are not aware of complex CTMs
+    // when performing clipping. For a simple fix, any filter with a crop rect set cannot support
+    // complex CTMs until that's updated.
+    if (this->cropRectIsSet() || !this->onCanHandleComplexCTM()) {
         return false;
     }
     const int count = this->countInputs();
@@ -441,11 +455,7 @@ sk_sp<SkImageFilter> SkImageFilter::MakeMatrixFilter(const SkMatrix& matrix,
 }
 
 sk_sp<SkImageFilter> SkImageFilter::makeWithLocalMatrix(const SkMatrix& matrix) const {
-    // SkLocalMatrixImageFilter takes SkImage* in its factory, but logically that parameter
-    // is *always* treated as a const ptr. Hence the const-cast here.
-    //
-    SkImageFilter* nonConstThis = const_cast<SkImageFilter*>(this);
-    return SkLocalMatrixImageFilter::Make(matrix, sk_ref_sp<SkImageFilter>(nonConstThis));
+    return SkLocalMatrixImageFilter::Make(matrix, this->refMe());
 }
 
 sk_sp<SkSpecialImage> SkImageFilter::filterInput(int index,
@@ -488,4 +498,87 @@ SkIRect SkImageFilter::DetermineRepeatedSrcBound(const SkIRect& srcBounds,
     }
 
     return tmp;
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////
+
+static sk_sp<SkImageFilter> apply_ctm_to_filter(sk_sp<SkImageFilter> input, const SkMatrix& ctm,
+                                                SkMatrix* remainder, bool asBackdrop) {
+    if (ctm.isScaleTranslate() || input->canHandleComplexCTM()) {
+        // The filter supports the CTM, so leave it as-is and 'remainder' stores the whole CTM
+        *remainder = ctm;
+        return input;
+    }
+
+    // We have a complex CTM and a filter that can't support them, so it needs to use the matrix
+    // transform filter that resamples the image contents. Decompose the simple portion of the ctm
+    // into 'remainder'
+    SkMatrix ctmToEmbed;
+    SkSize scale;
+    if (ctm.decomposeScale(&scale, &ctmToEmbed)) {
+        // decomposeScale splits ctm into scale * ctmToEmbed, so bake ctmToEmbed into DAG
+        // with a matrix filter and return scale as the remaining matrix for the real CTM.
+        remainder->setScale(scale.fWidth, scale.fHeight);
+
+        // ctmToEmbed is passed to SkMatrixImageFilter, which performs its transforms as if it were
+        // a pre-transformation before applying the image-filter context's CTM. In this case, we
+        // need ctmToEmbed to be a post-transformation (i.e. after the scale matrix since
+        // decomposeScale produces ctm = ctmToEmbed * scale). Giving scale^-1 * ctmToEmbed * scale
+        // to the matrix filter achieves this effect.
+        // TODO (michaelludwig) - When the original root node of a filter can be drawn directly to a
+        // device using ctmToEmbed, this abuse of SkMatrixImageFilter can go away.
+        ctmToEmbed.preScale(scale.fWidth, scale.fHeight);
+        ctmToEmbed.postScale(1.f / scale.fWidth, 1.f / scale.fHeight);
+    } else {
+        // Unable to decompose
+        // FIXME Ideally we'd embed the entire CTM as part of the matrix image filter, but
+        // the device <-> src bounds calculations for filters are very brittle under perspective,
+        // and can easily run into precision issues (wrong bounds that clip), or performance issues
+        // (producing large source-space images where 80% of the image is compressed into a few
+        // device pixels). A longer term solution for perspective-space image filtering is needed
+        // see skbug.com/9074
+        if (ctm.hasPerspective()) {
+                *remainder = ctm;
+            return input;
+        }
+
+        ctmToEmbed = ctm;
+        remainder->setIdentity();
+    }
+
+    if (asBackdrop) {
+        // In the backdrop case we also have to transform the existing device-space buffer content
+        // into the source coordinate space prior to the filtering. Non-backdrop filter inputs are
+        // already in the source space because of how the layer is drawn by SkCanvas.
+        SkMatrix invEmbed;
+        if (ctmToEmbed.invert(&invEmbed)) {
+            input = SkComposeImageFilter::Make(std::move(input),
+                            SkMatrixImageFilter::Make(invEmbed, kLow_SkFilterQuality, nullptr));
+        }
+    }
+    return SkMatrixImageFilter::Make(ctmToEmbed, kLow_SkFilterQuality, std::move(input));
+}
+
+sk_sp<SkImageFilter> SkApplyCTMToFilter(const SkImageFilter* filter, const SkMatrix& ctm,
+                                        SkMatrix* remainder) {
+    return apply_ctm_to_filter(sk_ref_sp(filter), ctm, remainder, false);
+}
+
+sk_sp<SkImageFilter> SkApplyCTMToBackdropFilter(const SkImageFilter* filter, const SkMatrix& ctm,
+                                                SkMatrix* remainder) {
+    return apply_ctm_to_filter(sk_ref_sp(filter), ctm, remainder, true);
+}
+
+bool SkIsSameFilter(const SkImageFilter* a, const SkImageFilter* b) {
+    if (!a || !b) {
+        // The filters are the "same" if they're both null
+        return !a && !b;
+    } else {
+        return a->fUniqueID == b->fUniqueID;
+    }
+}
+
+SkIRect SkFilterNodeBounds(const SkImageFilter* filter, const SkIRect& srcRect, const SkMatrix& ctm,
+                           SkImageFilter::MapDirection dir, const SkIRect* inputRect) {
+    return filter->onFilterNodeBounds(srcRect, ctm, dir, inputRect);
 }

@@ -7,12 +7,12 @@
 #include "content/browser/accessibility/browser_accessibility_manager.h"
 #include "content/browser/web_contents/web_contents_impl.h"
 #include "content/public/common/content_switches.h"
+#include "content/public/test/accessibility_notification_waiter.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/content_browser_test.h"
 #include "content/public/test/content_browser_test_utils.h"
 #include "content/public/test/test_utils.h"
 #include "content/shell/browser/shell.h"
-#include "content/test/accessibility_browser_test_utils.h"
 #include "net/base/data_url.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -91,7 +91,8 @@ IN_PROC_BROWSER_TEST_F(AccessibilityObjectModelBrowserTest,
   waiter2.WaitForNotification();
 
   BrowserAccessibility* focus = GetManager()->GetFocus();
-  EXPECT_EQ(focus->GetId(), button->GetId());
+  ASSERT_NE(nullptr, focus);
+  EXPECT_EQ(button->GetId(), focus->GetId());
 }
 
 }  // namespace content

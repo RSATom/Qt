@@ -38,7 +38,6 @@
 #include "qcallbackmapping_p.h"
 
 #include <Qt3DAnimation/private/qchannelmappingcreatedchange_p.h>
-#include <Qt3DCore/qpropertyupdatedchange.h>
 
 #include <QtCore/qmetaobject.h>
 #include <QtCore/QMetaProperty>
@@ -58,7 +57,7 @@ QCallbackMappingPrivate::QCallbackMappingPrivate()
 }
 
 /*!
-    \class QCallbackMapping
+    \class Qt3DAnimation::QCallbackMapping
     \inherits Qt3DCore::QAbstractChannelMapping
     \inmodule Qt3DAnimation
     \brief Allows to map the channels within the clip onto an invocation
@@ -130,24 +129,15 @@ void QCallbackMapping::setCallback(int type, QAnimationCallback *callback, QAnim
     Q_D(QCallbackMapping);
     if (d->m_type != type) {
         d->m_type = type;
-        auto e = Qt3DCore::QPropertyUpdatedChangePtr::create(id());
-        e->setPropertyName("type");
-        e->setValue(QVariant(d->m_type));
-        notifyObservers(e);
+        d->update();
     }
     if (d->m_callback != callback) {
         d->m_callback = callback;
-        auto e = Qt3DCore::QPropertyUpdatedChangePtr::create(id());
-        e->setPropertyName("callback");
-        e->setValue(QVariant::fromValue(static_cast<void *>(d->m_callback)));
-        notifyObservers(e);
+        d->update();
     }
     if (d->m_callbackFlags != flags) {
         d->m_callbackFlags = flags;
-        auto e = Qt3DCore::QPropertyUpdatedChangePtr::create(id());
-        e->setPropertyName("callbackFlags");
-        e->setValue(QVariant::fromValue(int(d->m_callbackFlags)));
-        notifyObservers(e);
+        d->update();
     }
 }
 

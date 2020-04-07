@@ -33,6 +33,7 @@
 #include <QtQml/qqmlexpression.h>
 #include <QtCore/qpoint.h>
 #include <QtCore/qsize.h>
+#include <QtCore/qregularexpression.h>
 #include <QtQml/qqmllist.h>
 #include <QtCore/qrect.h>
 #include <QtGui/qmatrix.h>
@@ -49,7 +50,6 @@
 #include <QtQml/qqmlcomponent.h>
 
 #include <private/qqmlengine_p.h>
-#include <private/qv8engine_p.h>
 #include <private/qv4qobjectwrapper_p.h>
 
 class MyQmlAttachedObject : public QObject
@@ -101,6 +101,7 @@ class MyQmlObject : public QObject
     Q_PROPERTY(QQmlListProperty<QObject> objectListProperty READ objectListProperty CONSTANT)
     Q_PROPERTY(int resettableProperty READ resettableProperty WRITE setResettableProperty RESET resetProperty)
     Q_PROPERTY(QRegExp regExp READ regExp WRITE setRegExp)
+    Q_PROPERTY(QRegularExpression regularExpression READ regularExpression WRITE setRegularExpression)
     Q_PROPERTY(int nonscriptable READ nonscriptable WRITE setNonscriptable SCRIPTABLE false)
     Q_PROPERTY(int intProperty READ intProperty WRITE setIntProperty NOTIFY intChanged)
     Q_PROPERTY(QJSValue qjsvalue READ qjsvalue WRITE setQJSValue NOTIFY qjsvalueChanged)
@@ -169,6 +170,12 @@ public:
 
     QRegExp regExp() { return m_regExp; }
     void setRegExp(const QRegExp &regExp) { m_regExp = regExp; }
+
+    QRegularExpression regularExpression() { return m_regularExpression; }
+    void setRegularExpression(const QRegularExpression &regularExpression)
+    {
+        m_regularExpression = regularExpression;
+    }
 
     int console() const { return 11; }
 
@@ -270,6 +277,7 @@ private:
     int m_value;
     int m_resetProperty;
     QRegExp m_regExp;
+    QRegularExpression m_regularExpression;
     QVariant m_variant;
     QJSValue m_qjsvalue;
     int m_intProperty;
@@ -788,11 +796,11 @@ public:
     Q_INVOKABLE void method_real(qreal a) { invoke(10); m_actuals << a; }
     Q_INVOKABLE void method_QString(QString a) { invoke(11); m_actuals << a; }
     Q_INVOKABLE void method_QPointF(QPointF a) { invoke(12); m_actuals << a; }
-    Q_INVOKABLE void method_QObject(QObject *a) { invoke(13); m_actuals << qVariantFromValue(a); }
-    Q_INVOKABLE void method_QScriptValue(QJSValue a) { invoke(14); m_actuals << qVariantFromValue(a); }
-    Q_INVOKABLE void method_intQScriptValue(int a, QJSValue b) { invoke(15); m_actuals << a << qVariantFromValue(b); }
+    Q_INVOKABLE void method_QObject(QObject *a) { invoke(13); m_actuals << QVariant::fromValue(a); }
+    Q_INVOKABLE void method_QScriptValue(QJSValue a) { invoke(14); m_actuals << QVariant::fromValue(a); }
+    Q_INVOKABLE void method_intQScriptValue(int a, QJSValue b) { invoke(15); m_actuals << a << QVariant::fromValue(b); }
     Q_INVOKABLE void method_QByteArray(QByteArray value) { invoke(29); m_actuals << value; }
-    Q_INVOKABLE QJSValue method_intQJSValue(int a, QJSValue b) { invoke(30); m_actuals << a << qVariantFromValue(b); return b.call(); }
+    Q_INVOKABLE QJSValue method_intQJSValue(int a, QJSValue b) { invoke(30); m_actuals << a << QVariant::fromValue(b); return b.call(); }
     Q_INVOKABLE QJSValue method_intQJSValue(int a, int b) { m_actuals << a << b; return QJSValue();} // Should never be called.
 
     Q_INVOKABLE void method_overload(int a) { invoke(16); m_actuals << a; }
@@ -1090,13 +1098,11 @@ class MyItemUsingRevisionedObject : public QObject
     Q_PROPERTY(MyRevisionedClass *revisioned READ revisioned)
 
 public:
-    MyItemUsingRevisionedObject() {
-        m_revisioned = new MyRevisionedClass;
-    }
+    MyItemUsingRevisionedObject() : m_revisioned (new MyRevisionedClass) {}
 
-    MyRevisionedClass *revisioned() const { return m_revisioned; }
+    MyRevisionedClass *revisioned() const { return m_revisioned.get(); }
 private:
-    MyRevisionedClass *m_revisioned;
+    QScopedPointer<MyRevisionedClass> m_revisioned;
 };
 
 QML_DECLARE_TYPE(MyRevisionedBaseClassRegistered)

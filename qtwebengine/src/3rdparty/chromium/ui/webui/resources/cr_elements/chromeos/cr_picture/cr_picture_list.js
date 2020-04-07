@@ -168,30 +168,10 @@ Polymer({
   },
 
   /**
-   * @param {!CrPicture.ImageElement} image
-   */
-  setSelectedImage_(image) {
-    this.fallbackImage_ = image;
-    // If the user is currently taking a photo, do not change the focus.
-    if (!this.selectedItem ||
-        this.selectedItem.dataset.type != CrPicture.SelectionTypes.CAMERA) {
-      this.$.selector.select(this.$.selector.indexOf(image));
-      this.selectedItem = image;
-    }
-  },
-
-  /** @private */
-  onDefaultImagesChanged_: function() {
-    if (this.selectedImageUrl_) {
-      this.setSelectedImageUrl(this.selectedImageUrl_);
-    }
-  },
-
-  /**
    * Handler for when accessibility-specific keys are pressed.
-   * @param {!{detail: !{key: string, keyboardEvent: Object}}} e
+   * @param {!CustomEvent<!{key: string, keyboardEvent: Object}>} e
    */
-  onKeysPressed_: function(e) {
+  onKeysPressed: function(e) {
     if (!this.selectedItem) {
       return;
     }
@@ -224,6 +204,26 @@ Polymer({
   },
 
   /**
+   * @param {!CrPicture.ImageElement} image
+   */
+  setSelectedImage_(image) {
+    this.fallbackImage_ = image;
+    // If the user is currently taking a photo, do not change the focus.
+    if (!this.selectedItem ||
+        this.selectedItem.dataset.type != CrPicture.SelectionTypes.CAMERA) {
+      this.$.selector.select(this.$.selector.indexOf(image));
+      this.selectedItem = image;
+    }
+  },
+
+  /** @private */
+  onDefaultImagesChanged_: function() {
+    if (this.selectedImageUrl_) {
+      this.setSelectedImageUrl(this.selectedImageUrl_);
+    }
+  },
+
+  /**
    * @param {!CrPicture.ImageElement} selected
    * @param {boolean} activate
    * @private
@@ -248,10 +248,19 @@ Polymer({
    * @private
    */
   onIronActivate_: function(event) {
+    event.stopPropagation();
     const type = event.detail.item.dataset.type;
     // Don't change focus when activating the camera via mouse.
     const activate = type != CrPicture.SelectionTypes.CAMERA;
     this.selectImage_(event.detail.item, activate);
+  },
+
+  /**
+   * @param {!Event} event
+   * @private
+   */
+  onIronSelect_: function(event) {
+    event.stopPropagation();
   },
 
   /**

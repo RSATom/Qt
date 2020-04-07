@@ -78,9 +78,9 @@ QString tst_qtgraphicaleffects::componentErrors(const QQmlComponent* component) 
 
     QStringList out;
 
-    foreach (QQmlError const& error, component->errors()) {
+    const auto errors = component->errors();
+    for (const QQmlError &error : errors)
         out << error.toString();
-    }
 
     return out.join("\n");
 }

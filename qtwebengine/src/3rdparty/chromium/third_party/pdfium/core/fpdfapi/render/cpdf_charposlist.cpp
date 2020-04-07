@@ -6,38 +6,34 @@
 
 #include "core/fpdfapi/render/cpdf_charposlist.h"
 
+#include "build/build_config.h"
 #include "core/fpdfapi/font/cpdf_cidfont.h"
 #include "core/fpdfapi/font/cpdf_font.h"
-#include "core/fxge/cfx_renderdevice.h"
+#include "core/fxge/cfx_substfont.h"
+#include "core/fxge/text_char_pos.h"
 
-CPDF_CharPosList::CPDF_CharPosList() = default;
-
-CPDF_CharPosList::~CPDF_CharPosList() {
-  FX_Free(m_pCharPos);
-}
-
-void CPDF_CharPosList::Load(const std::vector<uint32_t>& charCodes,
-                            const std::vector<float>& charPos,
-                            CPDF_Font* pFont,
-                            float FontSize) {
-  m_pCharPos = FX_Alloc(FXTEXT_CHARPOS, charCodes.size());
-  m_nChars = 0;
+CPDF_CharPosList::CPDF_CharPosList(const std::vector<uint32_t>& charCodes,
+                                   const std::vector<float>& charPos,
+                                   CPDF_Font* pFont,
+                                   float font_size) {
+  m_CharPos.reserve(charCodes.size());
   CPDF_CIDFont* pCIDFont = pFont->AsCIDFont();
   bool bVertWriting = pCIDFont && pCIDFont->IsVertWriting();
-  for (size_t iChar = 0; iChar < charCodes.size(); ++iChar) {
-    uint32_t CharCode = charCodes[iChar];
+  for (size_t i = 0; i < charCodes.size(); ++i) {
+    uint32_t CharCode = charCodes[i];
     if (CharCode == static_cast<uint32_t>(-1))
       continue;
 
     bool bVert = false;
-    FXTEXT_CHARPOS& charpos = m_pCharPos[m_nChars++];
+    m_CharPos.emplace_back();
+    TextCharPos& charpos = m_CharPos.back();
     if (pCIDFont)
       charpos.m_bFontStyle = true;
     WideString unicode = pFont->UnicodeFromCharCode(CharCode);
     charpos.m_Unicode = !unicode.IsEmpty() ? unicode[0] : CharCode;
     charpos.m_GlyphIndex = pFont->GlyphFromCharCode(CharCode, &bVert);
     uint32_t GlyphID = charpos.m_GlyphIndex;
-#if _FX_PLATFORM_ == _FX_PLATFORM_APPLE_
+#if defined(OS_MACOSX)
     charpos.m_ExtGID = pFont->GlyphFromCharCodeExt(CharCode);
     GlyphID = charpos.m_ExtGID != static_cast<uint32_t>(-1)
                   ? charpos.m_ExtGID
@@ -53,7 +49,7 @@ void CPDF_CharPosList::Load(const std::vector<uint32_t>& charCodes,
       charpos.m_GlyphIndex = pFont->FallbackGlyphFromCharcode(
           charpos.m_FallbackFontPosition, CharCode);
       pCurrentFont = pFont->GetFontFallback(charpos.m_FallbackFontPosition);
-#if _FX_PLATFORM_ == _FX_PLATFORM_APPLE_
+#if defined(OS_MACOSX)
       charpos.m_ExtGID = charpos.m_GlyphIndex;
 #endif
     }
@@ -63,7 +59,7 @@ void CPDF_CharPosList::Load(const std::vector<uint32_t>& charCodes,
     else
       charpos.m_FontCharWidth = 0;
 
-    charpos.m_Origin = CFX_PointF(iChar > 0 ? charPos[iChar - 1] : 0, 0);
+    charpos.m_Origin = CFX_PointF(i > 0 ? charPos[i - 1] : 0, 0);
     charpos.m_bGlyphAdjust = false;
 
     float scalingFactor = 1.0f;
@@ -76,7 +72,7 @@ void CPDF_CharPosList::Load(const std::vector<uint32_t>& charCodes,
         // Move the initial x position by half of the excess (transformed to
         // text space coordinates).
         charpos.m_Origin.x +=
-            (pdfGlyphWidth - ftGlyphWidth) * FontSize / 2000.0f;
+            (pdfGlyphWidth - ftGlyphWidth) * font_size / 2000.0f;
       } else if (pdfGlyphWidth && ftGlyphWidth &&
                  pdfGlyphWidth < ftGlyphWidth) {
         scalingFactor = static_cast<float>(pdfGlyphWidth) / ftGlyphWidth;
@@ -97,8 +93,8 @@ void CPDF_CharPosList::Load(const std::vector<uint32_t>& charCodes,
       short vx;
       short vy;
       pCIDFont->GetVertOrigin(CID, vx, vy);
-      charpos.m_Origin.x -= FontSize * vx / 1000;
-      charpos.m_Origin.y -= FontSize * vy / 1000;
+      charpos.m_Origin.x -= font_size * vx / 1000;
+      charpos.m_Origin.y -= font_size * vy / 1000;
     }
 
     const uint8_t* pTransform = pCIDFont->GetCIDTransform(CID);
@@ -110,10 +106,20 @@ void CPDF_CharPosList::Load(const std::vector<uint32_t>& charCodes,
       charpos.m_AdjustMatrix[2] = pCIDFont->CIDTransformToFloat(pTransform[2]);
       charpos.m_AdjustMatrix[3] = pCIDFont->CIDTransformToFloat(pTransform[3]);
       charpos.m_Origin.x +=
-          pCIDFont->CIDTransformToFloat(pTransform[4]) * FontSize;
+          pCIDFont->CIDTransformToFloat(pTransform[4]) * font_size;
       charpos.m_Origin.y +=
-          pCIDFont->CIDTransformToFloat(pTransform[5]) * FontSize;
+          pCIDFont->CIDTransformToFloat(pTransform[5]) * font_size;
       charpos.m_bGlyphAdjust = true;
     }
   }
+}
+
+CPDF_CharPosList::~CPDF_CharPosList() = default;
+
+uint32_t CPDF_CharPosList::GetCount() const {
+  return pdfium::CollectionSize<uint32_t>(m_CharPos);
+}
+
+const TextCharPos& CPDF_CharPosList::GetAt(size_t index) const {
+  return m_CharPos[index];
 }

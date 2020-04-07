@@ -8,7 +8,9 @@
 
 #include <algorithm>
 #include <limits>
+#include <utility>
 
+#include "core/fxge/text_char_pos.h"
 #include "third_party/base/ptr_util.h"
 #include "xfa/fde/cfde_textout.h"
 #include "xfa/fde/cfde_wordbreak_data.h"
@@ -268,8 +270,8 @@ void CFDE_TextEditEngine::Insert(size_t idx,
   WideString text = request_text;
   if (text.GetLength() == 0)
     return;
-  if (idx > text_length_)
-    idx = text_length_;
+
+  idx = std::min(idx, text_length_);
 
   TextChange change;
   change.selection_start = idx;
@@ -287,9 +289,12 @@ void CFDE_TextEditEngine::Insert(size_t idx,
     text = change.text;
     idx = change.selection_start;
 
-    // JS extended the selection, so delete it before we insert.
+    // Delegate extended the selection, so delete it before we insert.
     if (change.selection_end != change.selection_start)
       DeleteSelectedText(RecordOperation::kSkipRecord);
+
+    // Delegate may have changed text entirely, recheck.
+    idx = std::min(idx, text_length_);
   }
 
   size_t length = text.GetLength();
@@ -848,8 +853,13 @@ WideString CFDE_TextEditEngine::Delete(size_t start_idx,
     if (change.cancelled)
       return WideString();
 
+    // Delegate may have changed the selection range.
     start_idx = change.selection_start;
     length = change.selection_end - change.selection_start;
+
+    // Delegate may have changed text entirely, recheck.
+    if (start_idx >= text_length_)
+      return WideString();
   }
 
   length = std::min(length, text_length_ - start_idx);
@@ -1005,7 +1015,7 @@ size_t CFDE_TextEditEngine::GetIndexForPoint(const CFX_PointF& point) {
     }
 
     // Point is not within the horizontal range of any characters, it's
-    // afterwards. Return the position after the the last character.
+    // afterwards. Return the position after the last character.
     // The last line has nCount equal to the number of characters + 1 (sentinel
     // character maybe?). Restrict to the text_length_ to account for that.
     size_t pos = std::min(
@@ -1054,10 +1064,10 @@ std::vector<CFX_RectF> CFDE_TextEditEngine::GetCharRects(
   return text_break_.GetCharRects(&tr, false);
 }
 
-std::vector<FXTEXT_CHARPOS> CFDE_TextEditEngine::GetDisplayPos(
+std::vector<TextCharPos> CFDE_TextEditEngine::GetDisplayPos(
     const FDE_TEXTEDITPIECE& piece) {
   if (piece.nCount < 1)
-    return std::vector<FXTEXT_CHARPOS>();
+    return std::vector<TextCharPos>();
 
   CFX_TxtBreak::Run tr;
   tr.pEdtEngine = this;
@@ -1069,7 +1079,7 @@ std::vector<FXTEXT_CHARPOS> CFDE_TextEditEngine::GetDisplayPos(
   tr.dwCharStyles = piece.dwCharStyles;
   tr.pRect = &piece.rtPiece;
 
-  std::vector<FXTEXT_CHARPOS> data(text_break_.GetDisplayPos(&tr, nullptr));
+  std::vector<TextCharPos> data(text_break_.GetDisplayPos(&tr, nullptr));
   text_break_.GetDisplayPos(&tr, data.data());
   return data;
 }

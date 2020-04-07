@@ -4,8 +4,8 @@
 
 #include "services/device/generic_sensor/platform_sensor_provider.h"
 
+#include "base/bind.h"
 #include "base/macros.h"
-#include "base/memory/singleton.h"
 #include "base/test/scoped_task_environment.h"
 #include "services/device/generic_sensor/fake_platform_sensor_and_provider.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -20,7 +20,6 @@ class PlatformSensorProviderTest : public testing::Test {
  public:
   PlatformSensorProviderTest() {
     provider_ = std::make_unique<FakePlatformSensorProvider>();
-    PlatformSensorProvider::SetProviderForTesting(provider_.get());
   }
 
  protected:

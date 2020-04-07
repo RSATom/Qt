@@ -32,7 +32,7 @@
 #include <qcoreapplication.h>
 #include <qdatastream.h>
 #include <qhostaddress.h>
-#include <qdatetime.h>
+#include <qelapsedtimer.h>
 
 #ifdef Q_OS_UNIX
 #include <unistd.h>
@@ -87,7 +87,8 @@ private slots:
 
 void tst_PlatformSocketEngine::initTestCase()
 {
-    QVERIFY(QtNetworkSettings::verifyTestNetworkSettings());
+    if (!QtNetworkSettings::verifyTestNetworkSettings())
+        QSKIP("No network test server available");
 }
 
 //---------------------------------------------------------------------------
@@ -403,7 +404,7 @@ void tst_PlatformSocketEngine::udpLoopbackPerformance()
     QHostAddress localhost = QHostAddress::LocalHost;
 
     qlonglong readBytes = 0;
-    QTime timer;
+    QElapsedTimer timer;
     timer.start();
     while (timer.elapsed() < 5000) {
         udpSocket2.write(message1.data(), message1.size());
@@ -462,7 +463,7 @@ void tst_PlatformSocketEngine::tcpLoopbackPerformance()
     QByteArray message1(messageSize, '@');
     QByteArray answer(messageSize, '@');
 
-    QTime timer;
+    QElapsedTimer timer;
     timer.start();
     qlonglong readBytes = 0;
     while (timer.elapsed() < 5000) {
@@ -528,12 +529,11 @@ void tst_PlatformSocketEngine::tooManySockets()
 //---------------------------------------------------------------------------
 void tst_PlatformSocketEngine::bind()
 {
-#if !defined Q_OS_WIN
     PLATFORMSOCKETENGINE binder;
     QVERIFY(binder.initialize(QAbstractSocket::TcpSocket, QAbstractSocket::IPv4Protocol));
-    QVERIFY(!binder.bind(QHostAddress::AnyIPv4, 82));
-    QCOMPARE(binder.error(), QAbstractSocket::SocketAccessError);
-#endif
+    QCOMPARE(binder.bind(QHostAddress::AnyIPv4, 82), QtNetworkSettings::canBindToLowPorts());
+    if (!QtNetworkSettings::canBindToLowPorts())
+        QCOMPARE(binder.error(), QAbstractSocket::SocketAccessError);
 
     PLATFORMSOCKETENGINE binder2;
     QVERIFY(binder2.initialize(QAbstractSocket::TcpSocket, QAbstractSocket::IPv4Protocol));
@@ -545,6 +545,12 @@ void tst_PlatformSocketEngine::bind()
     QCOMPARE(binder3.error(), QAbstractSocket::AddressInUseError);
 
     if (QtNetworkSettings::hasIPv6()) {
+        PLATFORMSOCKETENGINE binder;
+        QVERIFY(binder.initialize(QAbstractSocket::TcpSocket, QAbstractSocket::IPv6Protocol));
+        QCOMPARE(binder.bind(QHostAddress::AnyIPv6, 82), QtNetworkSettings::canBindToLowPorts());
+        if (!QtNetworkSettings::canBindToLowPorts())
+            QCOMPARE(binder.error(), QAbstractSocket::SocketAccessError);
+
         PLATFORMSOCKETENGINE binder4;
         QVERIFY(binder4.initialize(QAbstractSocket::TcpSocket, QAbstractSocket::IPv6Protocol));
         QVERIFY(binder4.bind(QHostAddress::AnyIPv6, 31180));

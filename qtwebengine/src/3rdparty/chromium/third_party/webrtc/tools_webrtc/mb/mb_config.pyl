@@ -20,12 +20,13 @@
   'masters': {
     'client.webrtc': {
       # iOS
-      'iOS32 Debug': 'ios',
-      'iOS32 Release': 'ios',
-      'iOS64 Debug': 'ios',
-      'iOS64 Release': 'ios',
-      'iOS64 Sim Debug (iOS 9.0)': 'ios',
-      'iOS64 Sim Debug (iOS 10.0)': 'ios',
+      'iOS32 Debug': 'ios_debug_bot_arm',
+      'iOS32 Release': 'ios_release_bot_arm',
+      'iOS64 Debug': 'ios_debug_bot_arm64',
+      'iOS64 Release': 'ios_release_bot_arm64',
+      'iOS64 Sim Debug (iOS 10.0)': 'ios_debug_bot_x64',
+      'iOS64 Sim Debug (iOS 11)': 'ios_debug_bot_x64',
+      'iOS64 Sim Debug (iOS 12)': 'ios_debug_bot_x64',
 
       # Mac
       'Mac64 Debug': 'debug_bot_x64',
@@ -90,7 +91,7 @@
       'Win32 Builder (Clang)': 'win_clang_pure_release_bot_x86',
       'Win64 Debug (Clang)': 'win_clang_debug_bot_x64',
       'Win64 Release (Clang)': 'win_clang_release_bot_x64',
-      'Win32 ASan': 'win_asan_clang_release_bot_x86',
+      'Win64 ASan': 'win_asan_clang_release_bot_x64',
       'Win64 UWP': 'win_uwp_release_bot_x64',
       'Win (more configs)': {
         'bwe_test_logging':
@@ -98,7 +99,7 @@
         'dummy_audio_file_devices_no_protobuf':
           'dummy_audio_file_devices_no_protobuf_x86',
         'rtti_no_sctp':
-          'rtti_no_sctp_x86',
+          'rtti_no_sctp_no_unicode_win_x86',
       },
     },
     'client.webrtc.perf': {
@@ -136,24 +137,24 @@
       }
     },
     'internal.client.webrtc': {
-      'iOS64 Debug': 'ios',
-      'iOS64 Perf': 'ios',
-      'iOS64 Release': 'ios',
+      'iOS64 Debug': 'ios_internal_debug_bot_arm64',
+      'iOS64 Release': 'ios_internal_release_bot_arm64',
+      'iOS64 Perf': 'ios_internal_pure_release_bot_arm64',
     },
     'internal.tryserver.webrtc': {
-      'ios_arm64_dbg': 'ios',
-      'ios_arm64_rel': 'ios',
+      'ios_arm64_dbg': 'ios_internal_debug_bot_arm64',
+      'ios_arm64_rel': 'ios_internal_release_bot_arm64',
+      'ios_arm64_perf': 'ios_internal_pure_release_bot_arm64',
     },
     'tryserver.webrtc': {
       # iOS
-      'ios_compile_arm_dbg': 'ios',
-      'ios_compile_arm_rel': 'ios',
-      'ios_compile_arm64_dbg': 'ios',
-      'ios_compile_arm64_rel': 'ios',
-      'ios_sim_x86_dbg_ios9': 'ios',
-      'ios_sim_x64_dbg_ios9': 'ios',
-      'ios_sim_x64_dbg_ios10': 'ios',
-      'ios_sim_x64_dbg_ios11': 'ios',
+      'ios_compile_arm_dbg': 'ios_debug_bot_arm',
+      'ios_compile_arm_rel': 'ios_release_bot_arm',
+      'ios_compile_arm64_dbg': 'ios_debug_bot_arm64',
+      'ios_compile_arm64_rel': 'ios_release_bot_arm64',
+      'ios_sim_x64_dbg_ios10': 'ios_debug_bot_x64',
+      'ios_sim_x64_dbg_ios11': 'ios_debug_bot_x64',
+      'ios_sim_x64_dbg_ios12': 'ios_debug_bot_x64',
 
       # Mac
       'mac_compile_dbg': 'debug_bot_x64',
@@ -230,7 +231,7 @@
       'win_x86_clang_rel': 'win_clang_release_bot_x86',
       'win_x64_clang_dbg': 'win_clang_debug_bot_x64',
       'win_x64_clang_rel': 'win_clang_release_bot_x64',
-      'win_asan': 'win_asan_clang_release_bot_x86',
+      'win_asan': 'win_asan_clang_release_bot_x64',
       'win_x64_clang_dbg_win8': 'win_clang_debug_bot_x64',
       'win_x64_clang_dbg_win10': 'win_clang_debug_bot_x64',
       'win_x64_uwp': 'win_uwp_release_bot_x64',
@@ -240,7 +241,7 @@
         'dummy_audio_file_devices_no_protobuf':
           'dummy_audio_file_devices_no_protobuf_x86',
         'rtti_no_sctp':
-          'rtti_no_sctp_x86',
+          'rtti_no_sctp_no_unicode_win_x86',
       },
     }
   },
@@ -252,147 +253,166 @@
   'configs': {
     # Linux, Mac and Windows
     'gcc_release_bot_x64': [
-      'gn', 'gcc', 'release_bot', 'x64', 'no_rtc_tests'
+      'gcc', 'release_bot', 'x64', 'no_rtc_tests'
     ],
-    # TOOD(kjellander): Restore Goma for this when crbug.com/726706 is fixed.
+    # TODO(kjellander): Restore Goma for this when crbug.com/726706 is fixed.
     'debug_bot_arm': [
-      'gn', 'openh264', 'debug', 'arm'
+      'openh264', 'debug', 'arm'
     ],
     'release_bot_arm': [
-      'gn', 'openh264', 'release_bot', 'arm'
+      'openh264', 'release_bot', 'arm'
     ],
     'debug_bot_arm64': [
-      'gn', 'openh264', 'debug_bot', 'arm64'
+      'openh264', 'debug_bot', 'arm64'
     ],
     'release_bot_arm64': [
-      'gn', 'openh264', 'release_bot', 'arm64'
+      'openh264', 'release_bot', 'arm64'
     ],
     'asan_lsan_clang_release_bot_x64': [
-      'gn', 'asan', 'lsan', 'clang', 'openh264', 'release_bot', 'x64'
+      'asan', 'lsan', 'clang', 'openh264', 'release_bot', 'x64'
     ],
     'msan_clang_release_bot_x64': [
-      'gn', 'msan', 'clang', 'openh264', 'release_bot', 'x64'
+      'msan', 'clang', 'openh264', 'release_bot', 'x64'
     ],
     'tsan_clang_release_bot_x64': [
-      'gn', 'tsan', 'clang', 'openh264', 'release_bot', 'x64'
+      'tsan', 'clang', 'openh264', 'release_bot', 'x64'
     ],
     'ubsan_clang_release_bot_x64': [
-      'gn', 'ubsan', 'clang', 'openh264', 'release_bot', 'x64'
+      'ubsan', 'clang', 'openh264', 'release_bot', 'x64'
     ],
     'ubsan_vptr_clang_release_bot_x64': [
-      'gn', 'ubsan_vptr', 'clang', 'openh264', 'release_bot', 'x64'
+      'ubsan_vptr', 'clang', 'openh264', 'release_bot', 'x64'
     ],
     'debug_bot_x86': [
-      'gn', 'openh264', 'debug_bot', 'x86'
+      'openh264', 'debug_bot', 'x86'
     ],
     'no_h264_debug_bot_x86': [
-      'gn', 'debug_bot', 'x86'
+      'debug_bot', 'x86'
     ],
     'release_bot_x86': [
-      'gn', 'openh264', 'release_bot', 'x86'
+      'openh264', 'release_bot', 'x86'
     ],
     'debug_bot_x64': [
-      'gn', 'openh264', 'debug_bot', 'x64'
+      'openh264', 'debug_bot', 'x64'
     ],
     'codesearch_gen_linux_bot': [
-      'gn', 'openh264', 'debug_bot', 'minimal_symbols'
+      'openh264', 'debug_bot', 'minimal_symbols'
     ],
     'release_bot_x64': [
-      'gn', 'openh264', 'release_bot', 'x64'
+      'openh264', 'release_bot', 'x64'
     ],
     'pure_release_bot_x86': [
-      'gn', 'openh264', 'pure_release_bot', 'x86'
+      'openh264', 'pure_release_bot', 'x86'
     ],
     'pure_release_bot_x64': [
-      'gn', 'openh264', 'pure_release_bot', 'x64'
+      'openh264', 'pure_release_bot', 'x64'
     ],
     'libfuzzer_asan_release_bot_x64': [
       'libfuzzer', 'asan', 'optimize_for_fuzzing', 'openh264', 'release_bot',
       'x64', 'no_rtc_tests'
     ],
 
-    # iOS
-    # The 'ios' config is just used for auditing. iOS bots
-    # use the ios recipes and look up their GN arguments via files checked in
-    # under //tools_webrtc/ios/bots. It is an error to actually use one of these
-    # configs to generate the build files.
-    'ios': [ 'error'],
-
     # Windows
     'win_clang_debug_bot_x86': [
-      'gn', 'clang', 'openh264', 'debug_bot', 'x86',
+      'clang', 'openh264', 'debug_bot', 'x86',
     ],
     'win_clang_release_bot_x86': [
-      'gn', 'clang', 'openh264', 'release_bot', 'x86',
+      'clang', 'openh264', 'release_bot', 'x86',
     ],
     'win_clang_pure_release_bot_x86': [
-      'gn', 'clang', 'openh264', 'pure_release_bot', 'x86',
+      'clang', 'openh264', 'pure_release_bot', 'x86',
     ],
     'win_clang_debug_bot_x64': [
-      'gn', 'clang', 'openh264', 'debug_bot', 'x64',
+      'clang', 'openh264', 'debug_bot', 'x64',
     ],
     'win_clang_release_bot_x64': [
-      'gn', 'clang', 'openh264', 'release_bot', 'x64',
+      'clang', 'openh264', 'release_bot', 'x64',
     ],
     'win_msvc_debug_bot_x86': [
-      'gn', 'no_clang', 'debug_bot', 'x86', 'no_lld',
+      'no_clang', 'debug_bot', 'x86', 'no_lld',
     ],
     'win_msvc_release_bot_x86': [
-      'gn', 'no_clang', 'release_bot', 'x86', 'no_lld',
+      'no_clang', 'release_bot', 'x86', 'no_lld',
     ],
     'win_msvc_debug_bot_x64': [
-      'gn', 'no_clang', 'debug_bot', 'x64', 'no_lld'
+      'no_clang', 'debug_bot', 'x64', 'no_lld'
     ],
     'win_msvc_release_bot_x64': [
-      'gn', 'no_clang', 'release_bot', 'x64', 'no_lld',
+      'no_clang', 'release_bot', 'x64', 'no_lld',
     ],
-    'win_asan_clang_release_bot_x86': [
-      'gn', 'asan', 'clang',  'full_symbols', 'openh264', 'release_bot', 'x86',
+    'win_asan_clang_release_bot_x64': [
+      'asan', 'clang',  'full_symbols', 'openh264', 'release_bot', 'x64',
       'win_fastlink',
     ],
     'win_uwp_release_bot_x64': [
       # UWP passes compiler flags that are not supported by goma.
-      'gn', 'no_clang', 'openh264', 'x64', 'winuwp', 'release_bot_no_goma'
+      'no_clang', 'openh264', 'x64', 'winuwp', 'release_bot_no_goma'
     ],
 
     # Mac
     'mac_asan_clang_release_bot_x64': [
-      'gn', 'asan', 'clang', 'openh264', 'release_bot', 'x64',
+      'asan', 'clang', 'openh264', 'release_bot', 'x64',
     ],
 
     # Android
     'android_debug_static_bot_arm': [
-      'android', 'gn', 'debug_static_bot', 'arm'
+      'android', 'debug_static_bot', 'arm'
     ],
     'android_release_bot_arm': [
-      'android', 'gn', 'release_bot', 'arm'
+      'android', 'release_bot', 'arm'
     ],
     'android_pure_release_bot_arm': [
-      'android', 'gn', 'pure_release_bot', 'arm'
+      'android', 'pure_release_bot', 'arm'
     ],
     'android_debug_static_bot_x86': [
-      'android', 'gn', 'debug_static_bot', 'x86'
+      'android', 'debug_static_bot', 'x86'
     ],
     'android_release_bot_x86': [
-      'android', 'gn', 'release_bot', 'x86'
+      'android', 'release_bot', 'x86'
     ],
     'android_debug_static_bot_arm64': [
-      'android', 'gn', 'debug_static_bot', 'arm64'
+      'android', 'debug_static_bot', 'arm64'
     ],
     'android_release_bot_arm64': [
-      'android', 'gn', 'release_bot', 'arm64'
+      'android', 'release_bot', 'arm64'
     ],
     'android_pure_release_bot_arm64': [
-      'android', 'gn', 'pure_release_bot', 'arm64'
+      'android', 'pure_release_bot', 'arm64'
     ],
     'android_debug_static_bot_x64': [
-      'android', 'gn', 'debug_static_bot', 'x64'
+      'android', 'debug_static_bot', 'x64'
     ],
     'android_release_bot_x64': [
-      'android', 'gn', 'release_bot', 'x86'
+      'android', 'release_bot', 'x86'
     ],
     'android_asan_shared_release_bot_arm': [
-      'android', 'gn', 'asan', 'clang', 'release_bot', 'arm'
+      'android', 'asan', 'clang', 'release_bot', 'arm'
+    ],
+
+    # iOS
+    'ios_debug_bot_arm': [
+      'ios', 'debug_bot', 'arm', 'no_ios_code_signing'
+    ],
+    'ios_release_bot_arm': [
+      'ios', 'release_bot', 'arm', 'no_ios_code_signing'
+    ],
+    'ios_debug_bot_arm64': [
+      'ios', 'debug_bot', 'arm64', 'no_ios_code_signing'
+    ],
+    'ios_release_bot_arm64': [
+      'ios', 'release_bot', 'arm64', 'no_ios_code_signing'
+    ],
+    'ios_internal_debug_bot_arm64': [
+      'ios', 'debug_bot', 'arm64'
+    ],
+    'ios_internal_release_bot_arm64': [
+      'ios', 'release_bot', 'arm64'
+    ],
+    'ios_internal_pure_release_bot_arm64': [
+      'ios', 'pure_release_bot', 'arm64'
+    ],
+    'ios_debug_bot_x64': [
+      'ios', 'debug_bot', 'x64'
     ],
 
     # More configs
@@ -412,8 +432,8 @@
     'dummy_audio_file_devices_no_protobuf_x86': [
       'debug_bot', 'x86', 'dummy_audio_file_devices', 'no_protobuf'
     ],
-    'rtti_no_sctp_x86': [
-      'debug_bot', 'x86', 'rtti', 'no_sctp'
+    'rtti_no_sctp_no_unicode_win_x86': [
+      'debug_bot', 'x86', 'rtti', 'no_sctp', 'win_undef_unicode'
     ],
 
     'bwe_test_logging_android_arm': [
@@ -491,10 +511,12 @@
                   'treat_warnings_as_errors=false'),
     },
 
-    'gn': {'type': 'gn'},
-
     'goma': {
       'gn_args': 'use_goma=true',
+    },
+
+    'ios': {
+      'gn_args': 'target_os="ios"',
     },
 
     'no_goma': {
@@ -520,6 +542,10 @@
 
     'no_clang': {
       'gn_args': 'is_clang=false',
+    },
+
+    'no_ios_code_signing': {
+      'gn_args': 'ios_enable_code_signing=false',
     },
 
     'no_lld': {
@@ -600,6 +626,10 @@
 
     'winuwp': {
       'gn_args': 'target_os="winuwp"',
+    },
+
+    'win_undef_unicode': {
+      'gn_args': 'rtc_win_undef_unicode=true',
     },
   },
 }

@@ -79,7 +79,7 @@ class QQuickDwmFeatures : public QQuickItem
     Q_PROPERTY(QQuickWin::WindowFlip3DPolicy flip3DPolicy READ flip3DPolicy WRITE setFlip3DPolicy NOTIFY flip3DPolicyChanged)
 
 public:
-    explicit QQuickDwmFeatures(QQuickItem *parent = 0);
+    explicit QQuickDwmFeatures(QQuickItem *parent = nullptr);
     ~QQuickDwmFeatures();
 
     void setCompositionEnabled(bool enabled);

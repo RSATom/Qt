@@ -16,13 +16,16 @@
 
 #include "src/traced/probes/filesystem/inode_file_data_source.h"
 
-#include "perfetto/trace/filesystem/inode_file_map.pbzero.h"
+#include "perfetto/protozero/scattered_heap_buffer.h"
 #include "src/base/test/test_task_runner.h"
 #include "src/traced/probes/filesystem/lru_inode_cache.h"
 #include "src/tracing/core/null_trace_writer.h"
 
-#include "gmock/gmock.h"
-#include "gtest/gtest.h"
+#include "perfetto/config/inode_file/inode_file_config.pbzero.h"
+#include "perfetto/trace/filesystem/inode_file_map.pbzero.h"
+
+#include <gmock/gmock.h>
+#include <gtest/gtest.h>
 
 namespace perfetto {
 namespace {
@@ -78,10 +81,12 @@ class InodeFileDataSourceTest : public ::testing::Test {
 };
 
 TEST_F(InodeFileDataSourceTest, TestFileSystemScan) {
-  DataSourceConfig config;
-  config.mutable_inode_file_config()->set_scan_interval_ms(1);
-  config.mutable_inode_file_config()->set_scan_delay_ms(1);
-  auto data_source = GetInodeFileDataSource(config);
+  DataSourceConfig ds_config;
+  protozero::HeapBuffered<protos::pbzero::InodeFileConfig> inode_cfg;
+  inode_cfg->set_scan_interval_ms(1);
+  inode_cfg->set_scan_delay_ms(1);
+  ds_config.set_inode_file_config_raw(inode_cfg.SerializeAsString());
+  auto data_source = GetInodeFileDataSource(ds_config);
 
   struct stat buf;
   PERFETTO_CHECK(lstat("src/traced/probes/filesystem/testdata/file2", &buf) !=
@@ -96,7 +101,7 @@ TEST_F(InodeFileDataSourceTest, TestFileSystemScan) {
   data_source->OnInodes({{buf.st_ino, buf.st_dev}});
   task_runner_.RunUntilCheckpoint("done");
 
-  // Expect that the found inode is added the the LRU cache.
+  // Expect that the found inode is added in the LRU cache.
   EXPECT_THAT(cache_.Get(std::make_pair(buf.st_dev, buf.st_ino)),
               Pointee(Eq(value)));
 }

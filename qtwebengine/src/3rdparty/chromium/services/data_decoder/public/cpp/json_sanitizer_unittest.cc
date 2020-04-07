@@ -9,8 +9,8 @@
 #include "base/bind.h"
 #include "base/json/json_reader.h"
 #include "base/json/json_writer.h"
-#include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
+#include "base/test/scoped_task_environment.h"
 #include "base/values.h"
 #include "build/build_config.h"
 #include "services/data_decoder/public/cpp/safe_json_parser.h"
@@ -46,7 +46,7 @@ class JsonSanitizerTest : public ::testing::Test {
   void OnSuccess(const std::string& json);
   void OnError(const std::string& error);
 
-  base::MessageLoop message_loop_;
+  base::test::ScopedTaskEnvironment scoped_task_environment_;
 
 #if !defined(OS_ANDROID)
   TestingJsonParser::ScopedFactoryOverride factory_override_;
@@ -62,15 +62,16 @@ class JsonSanitizerTest : public ::testing::Test {
 void JsonSanitizerTest::CheckSuccess(const std::string& json) {
   SCOPED_TRACE(json);
   Sanitize(json);
-  std::unique_ptr<base::Value> parsed = base::JSONReader::Read(json);
+  std::unique_ptr<base::Value> parsed = base::JSONReader::ReadDeprecated(json);
   ASSERT_TRUE(parsed);
   EXPECT_EQ(State::STATE_SUCCESS, state_) << "Error: " << error_;
 
   // The JSON parser should accept the result.
   int error_code;
   std::string error;
-  std::unique_ptr<base::Value> reparsed = base::JSONReader::ReadAndReturnError(
-      result_, base::JSON_PARSE_RFC, &error_code, &error);
+  std::unique_ptr<base::Value> reparsed =
+      base::JSONReader::ReadAndReturnErrorDeprecated(
+          result_, base::JSON_PARSE_RFC, &error_code, &error);
   EXPECT_TRUE(reparsed) << "Invalid result: " << error;
 
   // The parsed values should be equal.
@@ -90,8 +91,8 @@ void JsonSanitizerTest::Sanitize(const std::string& json) {
   run_loop_.reset(new base::RunLoop);
   JsonSanitizer::Sanitize(
       nullptr, json,
-      base::Bind(&JsonSanitizerTest::OnSuccess, base::Unretained(this)),
-      base::Bind(&JsonSanitizerTest::OnError, base::Unretained(this)));
+      base::BindOnce(&JsonSanitizerTest::OnSuccess, base::Unretained(this)),
+      base::BindOnce(&JsonSanitizerTest::OnError, base::Unretained(this)));
 
   // We should never get a result immediately.
   EXPECT_EQ(State::STATE_IDLE, state_);

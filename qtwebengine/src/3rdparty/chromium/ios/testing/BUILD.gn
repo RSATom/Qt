@@ -12,6 +12,15 @@ group("all_tests") {
   ]
 }
 
+source_set("nserror_support") {
+  configs += [ "//build/config/compiler:enable_arc" ]
+  testonly = true
+  sources = [
+    "nserror_util.h",
+    "nserror_util.mm",
+  ]
+}
+
 source_set("embedded_test_server_support") {
   configs += [ "//build/config/compiler:enable_arc" ]
   testonly = true
@@ -72,6 +81,7 @@ bundle_data("http_server_bundle_data") {
     "data/http_server_files/chromium_logo_page.html",
     "data/http_server_files/console.html",
     "data/http_server_files/console_with_iframe.html",
+    "data/http_server_files/context_menu.html",
     "data/http_server_files/destination.html",
     "data/http_server_files/fullscreen.html",
     "data/http_server_files/generic.pkpass",
@@ -89,11 +99,13 @@ bundle_data("http_server_bundle_data") {
     "data/http_server_files/opensearch.xml",
     "data/http_server_files/pony.html",
     "data/http_server_files/profile_form.html",
+    "data/http_server_files/readonly_form.html",
     "data/http_server_files/redchair.usdz",
     "data/http_server_files/redirect_refresh.html",
     "data/http_server_files/single_page_wide.pdf",
     "data/http_server_files/state_operations.html",
     "data/http_server_files/state_operations.js",
+    "data/http_server_files/tall_page.html",
     "data/http_server_files/testpage.pdf",
     "data/http_server_files/two_pages.pdf",
     "data/http_server_files/user_agent_test_page.html",

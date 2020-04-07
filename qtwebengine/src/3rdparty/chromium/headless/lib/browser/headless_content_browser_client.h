@@ -5,8 +5,9 @@
 #ifndef HEADLESS_LIB_BROWSER_HEADLESS_CONTENT_BROWSER_CLIENT_H_
 #define HEADLESS_LIB_BROWSER_HEADLESS_CONTENT_BROWSER_CLIENT_H_
 
+#include <memory>
+
 #include "content/public/browser/content_browser_client.h"
-#include "headless/lib/browser/headless_resource_dispatcher_host_delegate.h"
 #include "headless/public/headless_browser.h"
 
 namespace headless {
@@ -19,15 +20,15 @@ class HeadlessContentBrowserClient : public content::ContentBrowserClient {
   ~HeadlessContentBrowserClient() override;
 
   // content::ContentBrowserClient implementation:
-  content::BrowserMainParts* CreateBrowserMainParts(
+  std::unique_ptr<content::BrowserMainParts> CreateBrowserMainParts(
       const content::MainFunctionParams&) override;
   void OverrideWebkitPrefs(content::RenderViewHost* render_view_host,
                            content::WebPreferences* prefs) override;
   content::DevToolsManagerDelegate* GetDevToolsManagerDelegate() override;
   base::Optional<service_manager::Manifest> GetServiceManifestOverlay(
       base::StringPiece name) override;
-  void RegisterOutOfProcessServices(OutOfProcessServiceMap* services) override;
-  content::QuotaPermissionContext* CreateQuotaPermissionContext() override;
+  scoped_refptr<content::QuotaPermissionContext> CreateQuotaPermissionContext()
+      override;
   void GetQuotaSettings(
       content::BrowserContext* context,
       content::StoragePartition* partition,
@@ -48,17 +49,16 @@ class HeadlessContentBrowserClient : public content::ContentBrowserClient {
       int cert_error,
       const net::SSLInfo& ssl_info,
       const GURL& request_url,
-      content::ResourceType resource_type,
+      bool is_main_frame_request,
       bool strict_enforcement,
       bool expired_previous_decision,
       const base::Callback<void(content::CertificateRequestResultType)>&
           callback) override;
-  void SelectClientCertificate(
+  base::OnceClosure SelectClientCertificate(
       content::WebContents* web_contents,
       net::SSLCertRequestInfo* cert_request_info,
       net::ClientCertIdentityList client_certs,
       std::unique_ptr<content::ClientCertificateDelegate> delegate) override;
-  void ResourceDispatcherHostCreated() override;
   bool ShouldEnableStrictSiteIsolation() override;
 
   ::network::mojom::NetworkContextPtr CreateNetworkContext(
@@ -66,8 +66,8 @@ class HeadlessContentBrowserClient : public content::ContentBrowserClient {
       bool in_memory,
       const base::FilePath& relative_partition_path) override;
 
-  std::string GetProduct() const override;
-  std::string GetUserAgent() const override;
+  std::string GetProduct() override;
+  std::string GetUserAgent() override;
 
  private:
   std::unique_ptr<base::Value> GetBrowserServiceManifestOverlay();
@@ -79,9 +79,6 @@ class HeadlessContentBrowserClient : public content::ContentBrowserClient {
   // We store the callback here because we may call it from the I/O thread.
   HeadlessBrowser::Options::AppendCommandLineFlagsCallback
       append_command_line_flags_callback_;
-
-  std::unique_ptr<HeadlessResourceDispatcherHostDelegate>
-      resource_dispatcher_host_delegate_;
 
   DISALLOW_COPY_AND_ASSIGN(HeadlessContentBrowserClient);
 };

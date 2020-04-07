@@ -8,18 +8,18 @@
 #ifndef SkBitmapDevice_DEFINED
 #define SkBitmapDevice_DEFINED
 
-#include "SkBitmap.h"
-#include "SkCanvas.h"
-#include "SkColor.h"
-#include "SkDevice.h"
-#include "SkGlyphRunPainter.h"
-#include "SkImageInfo.h"
-#include "SkRasterClip.h"
-#include "SkRasterClipStack.h"
-#include "SkRect.h"
-#include "SkScalar.h"
-#include "SkSize.h"
-#include "SkSurfaceProps.h"
+#include "include/core/SkBitmap.h"
+#include "include/core/SkCanvas.h"
+#include "include/core/SkColor.h"
+#include "include/core/SkImageInfo.h"
+#include "include/core/SkRect.h"
+#include "include/core/SkScalar.h"
+#include "include/core/SkSize.h"
+#include "include/core/SkSurfaceProps.h"
+#include "src/core/SkDevice.h"
+#include "src/core/SkGlyphRunPainter.h"
+#include "src/core/SkRasterClip.h"
+#include "src/core/SkRasterClipStack.h"
 
 class SkImageFilterCache;
 class SkMatrix;
@@ -89,7 +89,6 @@ protected:
      *  path on the stack to hold the representation of the oval.
      */
     void drawPath(const SkPath&, const SkPaint&, bool pathIsMutable) override;
-    void drawBitmap(const SkBitmap&, SkScalar x, SkScalar y, const SkPaint&) override;
     void drawSprite(const SkBitmap&, int x, int y, const SkPaint&) override;
 
     /**

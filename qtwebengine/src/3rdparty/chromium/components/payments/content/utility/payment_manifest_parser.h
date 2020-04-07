@@ -73,6 +73,11 @@ class ErrorLogger;
 //
 // Note the JSON parsing is done using the SafeJsonParser (either OOP or in a
 // safe environment).
+//
+// The command line must be initialized to use this class in tests, because it
+// checks for --unsafely-treat-insecure-origin-as-secure=<origin> flag. For
+// example:
+//  base::CommandLine::Init(0, nullptr);
 class PaymentManifestParser {
  public:
   // Web app icon info parsed from web app manifest.
@@ -148,7 +153,7 @@ class PaymentManifestParser {
   int64_t parse_webapp_callback_counter_ = 0;
 
   std::unique_ptr<ErrorLogger> log_;
-  base::WeakPtrFactory<PaymentManifestParser> weak_factory_;
+  base::WeakPtrFactory<PaymentManifestParser> weak_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(PaymentManifestParser);
 };

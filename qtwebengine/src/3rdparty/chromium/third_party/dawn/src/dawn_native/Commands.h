@@ -15,10 +15,14 @@
 #ifndef DAWNNATIVE_COMMANDS_H_
 #define DAWNNATIVE_COMMANDS_H_
 
-#include "dawn_native/RenderPassDescriptor.h"
+#include "common/Constants.h"
+
 #include "dawn_native/Texture.h"
 
 #include "dawn_native/dawn_platform.h"
+
+#include <array>
+#include <bitset>
 
 namespace dawn_native {
 
@@ -32,15 +36,22 @@ namespace dawn_native {
         CopyBufferToBuffer,
         CopyBufferToTexture,
         CopyTextureToBuffer,
+        CopyTextureToTexture,
         Dispatch,
+        DispatchIndirect,
         Draw,
         DrawIndexed,
+        DrawIndirect,
+        DrawIndexedIndirect,
         EndComputePass,
         EndRenderPass,
+        InsertDebugMarker,
+        PopDebugGroup,
+        PushDebugGroup,
         SetComputePipeline,
         SetRenderPipeline,
-        SetPushConstants,
         SetStencilReference,
+        SetViewport,
         SetScissorRect,
         SetBlendColor,
         SetBindGroup,
@@ -50,28 +61,56 @@ namespace dawn_native {
 
     struct BeginComputePassCmd {};
 
+    struct RenderPassColorAttachmentInfo {
+        Ref<TextureViewBase> view;
+        Ref<TextureViewBase> resolveTarget;
+        dawn::LoadOp loadOp;
+        dawn::StoreOp storeOp;
+        dawn_native::Color clearColor;
+    };
+
+    struct RenderPassDepthStencilAttachmentInfo {
+        Ref<TextureViewBase> view;
+        dawn::LoadOp depthLoadOp;
+        dawn::StoreOp depthStoreOp;
+        dawn::LoadOp stencilLoadOp;
+        dawn::StoreOp stencilStoreOp;
+        float clearDepth;
+        uint32_t clearStencil;
+    };
+
     struct BeginRenderPassCmd {
-        Ref<RenderPassDescriptorBase> info;
+        std::bitset<kMaxColorAttachments> colorAttachmentsSet;
+        RenderPassColorAttachmentInfo colorAttachments[kMaxColorAttachments];
+        bool hasDepthStencilAttachment;
+        RenderPassDepthStencilAttachmentInfo depthStencilAttachment;
+
+        // Cache the width, height and sample count of all attachments for convenience
+        uint32_t width;
+        uint32_t height;
+        uint32_t sampleCount;
     };
 
     struct BufferCopy {
         Ref<BufferBase> buffer;
-        uint32_t offset;       // Bytes
+        uint64_t offset;       // Bytes
         uint32_t rowPitch;     // Bytes
         uint32_t imageHeight;  // Texels
     };
 
     struct TextureCopy {
         Ref<TextureBase> texture;
-        uint32_t level;
-        uint32_t slice;
+        uint32_t mipLevel;
+        uint32_t arrayLayer;
         Origin3D origin;  // Texels
     };
 
     struct CopyBufferToBufferCmd {
-        BufferCopy source;
-        BufferCopy destination;
-        uint32_t size;
+        Ref<BufferBase> source;
+        uint64_t sourceOffset;
+        Ref<BufferBase> destination;
+        uint64_t destinationOffset;
+        uint64_t size;
     };
 
     struct CopyBufferToTextureCmd {
@@ -86,10 +125,21 @@ namespace dawn_native {
         Extent3D copySize;  // Texels
     };
 
+    struct CopyTextureToTextureCmd {
+        TextureCopy source;
+        TextureCopy destination;
+        Extent3D copySize;  // Texels
+    };
+
     struct DispatchCmd {
         uint32_t x;
         uint32_t y;
         uint32_t z;
+    };
+
+    struct DispatchIndirectCmd {
+        Ref<BufferBase> indirectBuffer;
+        uint64_t indirectOffset;
     };
 
     struct DrawCmd {
@@ -103,13 +153,33 @@ namespace dawn_native {
         uint32_t indexCount;
         uint32_t instanceCount;
         uint32_t firstIndex;
-        uint32_t baseVertex;
+        int32_t baseVertex;
         uint32_t firstInstance;
+    };
+
+    struct DrawIndirectCmd {
+        Ref<BufferBase> indirectBuffer;
+        uint64_t indirectOffset;
+    };
+
+    struct DrawIndexedIndirectCmd {
+        Ref<BufferBase> indirectBuffer;
+        uint64_t indirectOffset;
     };
 
     struct EndComputePassCmd {};
 
     struct EndRenderPassCmd {};
+
+    struct InsertDebugMarkerCmd {
+        uint32_t length;
+    };
+
+    struct PopDebugGroupCmd {};
+
+    struct PushDebugGroupCmd {
+        uint32_t length;
+    };
 
     struct SetComputePipelineCmd {
         Ref<ComputePipelineBase> pipeline;
@@ -119,14 +189,12 @@ namespace dawn_native {
         Ref<RenderPipelineBase> pipeline;
     };
 
-    struct SetPushConstantsCmd {
-        dawn::ShaderStageBit stages;
-        uint32_t offset;
-        uint32_t count;
-    };
-
     struct SetStencilReferenceCmd {
         uint32_t reference;
+    };
+
+    struct SetViewportCmd {
+        float x, y, width, height, minDepth, maxDepth;
     };
 
     struct SetScissorRectCmd {
@@ -134,17 +202,18 @@ namespace dawn_native {
     };
 
     struct SetBlendColorCmd {
-        float r, g, b, a;
+        Color color;
     };
 
     struct SetBindGroupCmd {
         uint32_t index;
         Ref<BindGroupBase> group;
+        uint32_t dynamicOffsetCount;
     };
 
     struct SetIndexBufferCmd {
         Ref<BufferBase> buffer;
-        uint32_t offset;
+        uint64_t offset;
     };
 
     struct SetVertexBuffersCmd {

@@ -64,13 +64,11 @@ class Q_NETWORK_EXPORT QDnsDomainNameRecord
 public:
     QDnsDomainNameRecord();
     QDnsDomainNameRecord(const QDnsDomainNameRecord &other);
-#ifdef Q_COMPILER_RVALUE_REFS
-    QDnsDomainNameRecord &operator=(QDnsDomainNameRecord &&other) Q_DECL_NOTHROW { swap(other); return *this; }
-#endif
+    QDnsDomainNameRecord &operator=(QDnsDomainNameRecord &&other) noexcept { swap(other); return *this; }
     QDnsDomainNameRecord &operator=(const QDnsDomainNameRecord &other);
     ~QDnsDomainNameRecord();
 
-    void swap(QDnsDomainNameRecord &other) Q_DECL_NOTHROW { qSwap(d, other.d); }
+    void swap(QDnsDomainNameRecord &other) noexcept { qSwap(d, other.d); }
 
     QString name() const;
     quint32 timeToLive() const;
@@ -88,13 +86,11 @@ class Q_NETWORK_EXPORT QDnsHostAddressRecord
 public:
     QDnsHostAddressRecord();
     QDnsHostAddressRecord(const QDnsHostAddressRecord &other);
-#ifdef Q_COMPILER_RVALUE_REFS
-    QDnsHostAddressRecord &operator=(QDnsHostAddressRecord &&other) Q_DECL_NOTHROW { swap(other); return *this; }
-#endif
+    QDnsHostAddressRecord &operator=(QDnsHostAddressRecord &&other) noexcept { swap(other); return *this; }
     QDnsHostAddressRecord &operator=(const QDnsHostAddressRecord &other);
     ~QDnsHostAddressRecord();
 
-    void swap(QDnsHostAddressRecord &other) Q_DECL_NOTHROW { qSwap(d, other.d); }
+    void swap(QDnsHostAddressRecord &other) noexcept { qSwap(d, other.d); }
 
     QString name() const;
     quint32 timeToLive() const;
@@ -112,13 +108,11 @@ class Q_NETWORK_EXPORT QDnsMailExchangeRecord
 public:
     QDnsMailExchangeRecord();
     QDnsMailExchangeRecord(const QDnsMailExchangeRecord &other);
-#ifdef Q_COMPILER_RVALUE_REFS
-    QDnsMailExchangeRecord &operator=(QDnsMailExchangeRecord &&other) Q_DECL_NOTHROW { swap(other); return *this; }
-#endif
+    QDnsMailExchangeRecord &operator=(QDnsMailExchangeRecord &&other) noexcept { swap(other); return *this; }
     QDnsMailExchangeRecord &operator=(const QDnsMailExchangeRecord &other);
     ~QDnsMailExchangeRecord();
 
-    void swap(QDnsMailExchangeRecord &other) Q_DECL_NOTHROW { qSwap(d, other.d); }
+    void swap(QDnsMailExchangeRecord &other) noexcept { qSwap(d, other.d); }
 
     QString exchange() const;
     QString name() const;
@@ -137,13 +131,11 @@ class Q_NETWORK_EXPORT QDnsServiceRecord
 public:
     QDnsServiceRecord();
     QDnsServiceRecord(const QDnsServiceRecord &other);
-#ifdef Q_COMPILER_RVALUE_REFS
-    QDnsServiceRecord &operator=(QDnsServiceRecord &&other) Q_DECL_NOTHROW { swap(other); return *this; }
-#endif
+    QDnsServiceRecord &operator=(QDnsServiceRecord &&other) noexcept { swap(other); return *this; }
     QDnsServiceRecord &operator=(const QDnsServiceRecord &other);
     ~QDnsServiceRecord();
 
-    void swap(QDnsServiceRecord &other) Q_DECL_NOTHROW { qSwap(d, other.d); }
+    void swap(QDnsServiceRecord &other) noexcept { qSwap(d, other.d); }
 
     QString name() const;
     quint16 port() const;
@@ -164,13 +156,11 @@ class Q_NETWORK_EXPORT QDnsTextRecord
 public:
     QDnsTextRecord();
     QDnsTextRecord(const QDnsTextRecord &other);
-#ifdef Q_COMPILER_RVALUE_REFS
-    QDnsTextRecord &operator=(QDnsTextRecord &&other) Q_DECL_NOTHROW { swap(other); return *this; }
-#endif
+    QDnsTextRecord &operator=(QDnsTextRecord &&other) noexcept { swap(other); return *this; }
     QDnsTextRecord &operator=(const QDnsTextRecord &other);
     ~QDnsTextRecord();
 
-    void swap(QDnsTextRecord &other) Q_DECL_NOTHROW { qSwap(d, other.d); }
+    void swap(QDnsTextRecord &other) noexcept { qSwap(d, other.d); }
 
     QString name() const;
     quint32 timeToLive() const;

@@ -49,13 +49,13 @@ class QtResourceSetPrivate
     QtResourceSet *q_ptr;
     Q_DECLARE_PUBLIC(QtResourceSet)
 public:
-    QtResourceSetPrivate(QtResourceModel *model = 0);
+    QtResourceSetPrivate(QtResourceModel *model = nullptr);
 
     QtResourceModel *m_resourceModel;
 };
 
 QtResourceSetPrivate::QtResourceSetPrivate(QtResourceModel *model) :
-   q_ptr(0),
+   q_ptr(nullptr),
    m_resourceModel(model)
 {
 }
@@ -63,12 +63,12 @@ QtResourceSetPrivate::QtResourceSetPrivate(QtResourceModel *model) :
 // -------------------- QtResourceModelPrivate
 class QtResourceModelPrivate
 {
-    QtResourceModel *q_ptr;
+    QtResourceModel *q_ptr = nullptr;
     Q_DECLARE_PUBLIC(QtResourceModel)
-    Q_DISABLE_COPY(QtResourceModelPrivate)
+    Q_DISABLE_COPY_MOVE(QtResourceModelPrivate)
 public:
     QtResourceModelPrivate();
-    void activate(QtResourceSet *resourceSet, const QStringList &newPaths, int *errorCount = 0, QString *errorMessages = 0);
+    void activate(QtResourceSet *resourceSet, const QStringList &newPaths, int *errorCount = nullptr, QString *errorMessages = nullptr);
     void removeOldPaths(QtResourceSet *resourceSet, const QStringList &newPaths);
 
     QMap<QString, bool>                     m_pathToModified;
@@ -80,7 +80,7 @@ public:
     QMap<QtResourceSet *, bool>             m_newlyCreated; // all created but not activated yet
                                                             // (if was active at some point and it's not now it will not be on that map)
     QMap<QString, QList<QtResourceSet *> >  m_pathToResourceSet;
-    QtResourceSet                          *m_currentResourceSet;
+    QtResourceSet                          *m_currentResourceSet = nullptr;
 
     typedef QMap<QString, const QByteArray *> PathDataMap;
     PathDataMap m_pathToData;
@@ -89,8 +89,8 @@ public:
     QMap<QString, QString>     m_fileToQrc; // this map contains the content of active resource set only.
                                             // Activating different resource set changes the contents.
 
-    QFileSystemWatcher *m_fileWatcher;
-    bool m_fileWatcherEnabled;
+    QFileSystemWatcher *m_fileWatcher = nullptr;
+    bool m_fileWatcherEnabled = true;
     QMap<QString, bool> m_fileWatchedMap;
 private:
     void registerResourceSet(QtResourceSet *resourceSet);
@@ -105,13 +105,7 @@ private:
     void deleteResource(const QByteArray *data) const;
 };
 
-QtResourceModelPrivate::QtResourceModelPrivate() :
-    q_ptr(0),
-    m_currentResourceSet(0),
-    m_fileWatcher(0),
-    m_fileWatcherEnabled(true)
-{
-}
+QtResourceModelPrivate::QtResourceModelPrivate() = default;
 
 // --------------------- QtResourceSet
 QtResourceSet::QtResourceSet() :
@@ -152,8 +146,8 @@ void QtResourceSet::setModified(const QString &path)
 // ------------------- QtResourceModelPrivate
 const QByteArray *QtResourceModelPrivate::createResource(const QString &path, QStringList *contents, int *errorCount, QIODevice &errorDevice) const
 {
-    typedef RCCResourceLibrary::ResourceDataFileMap ResourceDataFileMap;
-    const QByteArray *rc = 0;
+    using ResourceDataFileMap = RCCResourceLibrary::ResourceDataFileMap;
+    const QByteArray *rc = nullptr;
     *errorCount = -1;
     contents->clear();
     do {
@@ -525,7 +519,7 @@ void QtResourceModel::removeResourceSet(QtResourceSet *resourceSet)
     if (!resourceSet)
         return;
     if (currentResourceSet() == resourceSet)
-        setCurrentResourceSet(0);
+        setCurrentResourceSet(nullptr);
 
     // remove rcc files for those paths which are not used in any other resource set
     d_ptr->removeOldPaths(resourceSet, QStringList());

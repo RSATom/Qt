@@ -27,7 +27,6 @@ class FramebufferGL;
 class FunctionsGL;
 class RendererGL;
 class StateManagerGL;
-struct WorkaroundsGL;
 
 struct SharedSwapState
 {
@@ -62,7 +61,7 @@ class WindowSurfaceCGL : public SurfaceGL
     ~WindowSurfaceCGL() override;
 
     egl::Error initialize(const egl::Display *display) override;
-    egl::Error makeCurrent() override;
+    egl::Error makeCurrent(const gl::Context *context) override;
 
     egl::Error swap(const gl::Context *context) override;
     egl::Error postSubBuffer(const gl::Context *context,

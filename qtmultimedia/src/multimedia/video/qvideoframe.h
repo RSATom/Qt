@@ -102,6 +102,7 @@ public:
         Format_CameraRaw,
         Format_AdobeDng,
         Format_ABGR32, // ### Qt 6: reorder
+        Format_YUV422P,
 
 #ifndef Q_QDOC
         NPixelFormats,

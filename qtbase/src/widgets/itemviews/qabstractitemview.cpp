@@ -61,6 +61,7 @@
 #include <qstyleditemdelegate.h>
 #include <private/qabstractitemview_p.h>
 #include <private/qabstractitemmodel_p.h>
+#include <private/qapplication_p.h>
 #include <private/qguiapplication_p.h>
 #include <private/qscrollbar_p.h>
 #ifndef QT_NO_ACCESSIBILITY
@@ -180,7 +181,7 @@ void QAbstractItemViewPrivate::checkMouseMove(const QPersistentModelIndex &index
             QString statustip = model->data(index, Qt::StatusTipRole).toString();
             if (parent && (shouldClearStatusTip || !statustip.isEmpty())) {
                 QStatusTipEvent tip(statustip);
-                QApplication::sendEvent(parent, &tip);
+                QCoreApplication::sendEvent(parent, &tip);
                 shouldClearStatusTip = !statustip.isEmpty();
             }
 #endif
@@ -189,7 +190,7 @@ void QAbstractItemViewPrivate::checkMouseMove(const QPersistentModelIndex &index
             if (parent && shouldClearStatusTip) {
                 QString emptyString;
                 QStatusTipEvent tip( emptyString );
-                QApplication::sendEvent(parent, &tip);
+                QCoreApplication::sendEvent(parent, &tip);
             }
 #endif
             emit q->viewportEntered();
@@ -521,7 +522,7 @@ void QAbstractItemViewPrivate::_q_scrollerStateChanged()
     the mouse was pressed on is specified by \a index. The signal is
     only emitted when the index is valid.
 
-    Use the QApplication::mouseButtons() function to get the state
+    Use the QGuiApplication::mouseButtons() function to get the state
     of the mouse buttons.
 
     \sa activated(), clicked(), doubleClicked(), entered()
@@ -703,15 +704,6 @@ void QAbstractItemView::setModel(QAbstractItemModel *model)
         disconnect(d->model, SIGNAL(layoutChanged()), this, SLOT(_q_layoutChanged()));
     }
     d->model = (model ? model : QAbstractItemModelPrivate::staticEmptyModel());
-
-    // These asserts do basic sanity checking of the model
-    Q_ASSERT_X(d->model->index(0,0) == d->model->index(0,0),
-               "QAbstractItemView::setModel",
-               "A model should return the exact same index "
-               "(including its internal id/pointer) when asked for it twice in a row.");
-    Q_ASSERT_X(!d->model->index(0,0).parent().isValid(),
-               "QAbstractItemView::setModel",
-               "The parent of a top level index should be invalid");
 
     if (d->model != QAbstractItemModelPrivate::staticEmptyModel()) {
         connect(d->model, SIGNAL(destroyed()),
@@ -1713,7 +1705,7 @@ bool QAbstractItemView::viewportEvent(QEvent *event)
         if (d->shouldClearStatusTip && d->parent) {
             QString empty;
             QStatusTipEvent tip(empty);
-            QApplication::sendEvent(d->parent, &tip);
+            QCoreApplication::sendEvent(d->parent, &tip);
             d->shouldClearStatusTip = false;
         }
     #endif
@@ -1965,6 +1957,7 @@ void QAbstractItemView::mouseDoubleClickEvent(QMouseEvent *event)
     if ((event->button() == Qt::LeftButton) && !edit(persistent, DoubleClicked, event)
         && !style()->styleHint(QStyle::SH_ItemView_ActivateItemOnSingleClick, 0, this))
         emit activated(persistent);
+    d->pressedIndex = QModelIndex();
 }
 
 #if QT_CONFIG(draganddrop)
@@ -2290,7 +2283,7 @@ void QAbstractItemView::keyPressEvent(QKeyEvent *event)
 #ifdef QT_KEYPAD_NAVIGATION
     switch (event->key()) {
     case Qt::Key_Select:
-        if (QApplication::keypadNavigationEnabled()) {
+        if (QApplicationPrivate::keypadNavigationEnabled()) {
             if (!hasEditFocus()) {
                 setEditFocus(true);
                 return;
@@ -2298,7 +2291,7 @@ void QAbstractItemView::keyPressEvent(QKeyEvent *event)
         }
         break;
     case Qt::Key_Back:
-        if (QApplication::keypadNavigationEnabled() && hasEditFocus()) {
+        if (QApplicationPrivate::keypadNavigationEnabled() && hasEditFocus()) {
             setEditFocus(false);
         } else {
             event->ignore();
@@ -2309,7 +2302,7 @@ void QAbstractItemView::keyPressEvent(QKeyEvent *event)
         // Let's ignore vertical navigation events, only if there is no other widget
         // what can take the focus in vertical direction. This means widget can handle navigation events
         // even the widget don't have edit focus, and there is no other widget in requested direction.
-        if(QApplication::keypadNavigationEnabled() && !hasEditFocus()
+        if (QApplicationPrivate::keypadNavigationEnabled() && !hasEditFocus()
                 && QWidgetPrivate::canKeypadNavigate(Qt::Vertical)) {
             event->ignore();
             return;
@@ -2318,14 +2311,14 @@ void QAbstractItemView::keyPressEvent(QKeyEvent *event)
     case Qt::Key_Left:
     case Qt::Key_Right:
         // Similar logic as in up and down events
-        if(QApplication::keypadNavigationEnabled() && !hasEditFocus()
+        if (QApplicationPrivate::keypadNavigationEnabled() && !hasEditFocus()
                 && (QWidgetPrivate::canKeypadNavigate(Qt::Horizontal) || QWidgetPrivate::inTabWidget(this))) {
             event->ignore();
             return;
         }
         break;
     default:
-        if (QApplication::keypadNavigationEnabled() && !hasEditFocus()) {
+        if (QApplicationPrivate::keypadNavigationEnabled() && !hasEditFocus()) {
             event->ignore();
             return;
         }
@@ -2338,7 +2331,7 @@ void QAbstractItemView::keyPressEvent(QKeyEvent *event)
         if (d->model)
             variant = d->model->data(currentIndex(), Qt::DisplayRole);
         if (variant.type() == QVariant::String)
-            QApplication::clipboard()->setText(variant.toString());
+            QGuiApplication::clipboard()->setText(variant.toString());
         event->accept();
     }
 #endif
@@ -2413,7 +2406,8 @@ void QAbstractItemView::keyPressEvent(QKeyEvent *event)
     case Qt::Key_Down:
     case Qt::Key_Up:
 #ifdef QT_KEYPAD_NAVIGATION
-        if (QApplication::keypadNavigationEnabled() && QWidgetPrivate::canKeypadNavigate(Qt::Vertical)) {
+        if (QApplicationPrivate::keypadNavigationEnabled()
+                && QWidgetPrivate::canKeypadNavigate(Qt::Vertical)) {
             event->accept(); // don't change focus
             break;
         }
@@ -2845,7 +2839,7 @@ void QAbstractItemView::closeEditor(QWidget *editor, QAbstractItemDelegate::EndE
         }
 
         QPointer<QWidget> ed = editor;
-        QApplication::sendPostedEvents(editor, 0);
+        QCoreApplication::sendPostedEvents(editor, 0);
         editor = ed;
 
         if (!isPersistent && editor)
@@ -3240,8 +3234,10 @@ void QAbstractItemView::setIndexWidget(const QModelIndex &index, QWidget *widget
         widget->installEventFilter(this);
         widget->show();
         dataChanged(index, index); // update the geometry
-        if (!d->delayedPendingLayout)
+        if (!d->delayedPendingLayout) {
             widget->setGeometry(visualRect(index));
+            d->doDelayedItemsLayout();  // relayout due to updated geometry
+        }
     }
 }
 
@@ -3315,6 +3311,8 @@ void QAbstractItemView::update(const QModelIndex &index)
 
     The \a roles which have been changed can either be an empty container (meaning everything
     has changed), or a non-empty container with the subset of roles which have changed.
+
+    \note: Qt::ToolTipRole is not honored by dataChanged() in the views provided by Qt.
 */
 void QAbstractItemView::dataChanged(const QModelIndex &topLeft, const QModelIndex &bottomRight, const QVector<int> &roles)
 {
@@ -3725,12 +3723,10 @@ QStyleOptionViewItem QAbstractItemView::viewOptions() const
     option.state &= ~QStyle::State_MouseOver;
     option.font = font();
 
-#if 1 // Used to be excluded in Qt4 for Q_WS_MAC
     // On mac the focus appearance follows window activation
     // not widget activation
     if (!hasFocus())
         option.state &= ~QStyle::State_Active;
-#endif
 
     option.state &= ~QStyle::State_HasFocus;
     if (d->iconSize.isValid()) {
@@ -3957,7 +3953,7 @@ QItemSelectionModel::SelectionFlags QAbstractItemView::selectionCommand(const QM
                 keyModifiers = (static_cast<const QInputEvent*>(event))->modifiers();
                 break;
             default:
-                keyModifiers = QApplication::keyboardModifiers();
+                keyModifiers = QGuiApplication::keyboardModifiers();
         }
     }
     switch (d->selectionMode) {
@@ -3966,7 +3962,7 @@ QItemSelectionModel::SelectionFlags QAbstractItemView::selectionCommand(const QM
         case SingleSelection: // ClearAndSelect on valid index otherwise NoUpdate
             if (event && event->type() == QEvent::MouseButtonRelease)
                 return QItemSelectionModel::NoUpdate;
-            if ((keyModifiers & Qt::ControlModifier) && d->selectionModel->isSelected(index))
+            if ((keyModifiers & Qt::ControlModifier) && d->selectionModel->isSelected(index) && event->type() != QEvent::MouseMove)
                 return QItemSelectionModel::Deselect | d->selectionBehaviorFlags();
             else
                 return QItemSelectionModel::ClearAndSelect | d->selectionBehaviorFlags();
@@ -4015,7 +4011,7 @@ QItemSelectionModel::SelectionFlags QAbstractItemViewPrivate::multiSelectionComm
 QItemSelectionModel::SelectionFlags QAbstractItemViewPrivate::extendedSelectionCommand(
     const QModelIndex &index, const QEvent *event) const
 {
-    Qt::KeyboardModifiers modifiers = QApplication::keyboardModifiers();
+    Qt::KeyboardModifiers modifiers = QGuiApplication::keyboardModifiers();
     if (event) {
         switch (event->type()) {
         case QEvent::MouseMove: {
@@ -4425,7 +4421,7 @@ bool QAbstractItemViewPrivate::openEditor(const QModelIndex &index, QEvent *even
     w->setFocus();
 
     if (event)
-        QApplication::sendEvent(w->focusProxy() ? w->focusProxy() : w, event);
+        QCoreApplication::sendEvent(w->focusProxy() ? w->focusProxy() : w, event);
 
     return true;
 }
@@ -4450,7 +4446,9 @@ QItemViewPaintPairs QAbstractItemViewPrivate::draggablePaintPairs(const QModelIn
             rect |= current;
         }
     }
-    rect &= viewportRect;
+    QRect clipped = rect & viewportRect;
+    rect.setLeft(clipped.left());
+    rect.setRight(clipped.right());
     return ret;
 }
 
@@ -4461,15 +4459,8 @@ QPixmap QAbstractItemViewPrivate::renderToPixmap(const QModelIndexList &indexes,
     if (paintPairs.isEmpty())
         return QPixmap();
 
-    qreal scale = 1.0f;
-
-    Q_Q(const QAbstractItemView);
-    QWidget *window = q->window();
-    if (window) {
-        QWindow *windowHandle = window->windowHandle();
-        if (windowHandle)
-            scale = windowHandle->devicePixelRatio();
-    }
+    QWindow *window = windowHandle(WindowHandleMode::Closest);
+    const qreal scale = window ? window->devicePixelRatio() : qreal(1);
 
     QPixmap pixmap(r->size() * scale);
     pixmap.setDevicePixelRatio(scale);

@@ -2074,10 +2074,10 @@ void QQuickItemPrivate::updateSubFocusItem(QQuickItem *scope, bool focus)
     in the GPU equal to \c {width x height x 4}. In memory constrained
     configurations, large layers should be used with care.
 
-    In the QPainter / QWidget world, it is some times favorable to
+    In the QPainter / QWidget world, it is sometimes favorable to
     cache complex content in a pixmap, image or texture. In Qt Quick,
     because of the techniques already applied by the \l {Qt Quick
-    Scene Graph OpenGL Renderer} {scene graph renderer}, this will in most
+    Scene Graph Default Renderer} {scene graph renderer}, this will in most
     cases not be the case. Excessive draw calls are already reduced
     because of batching and a cache will in most cases end up blending
     more pixels than the original content. The overhead of rendering
@@ -2568,6 +2568,7 @@ QQuickItem* QQuickItemPrivate::nextPrevItemInTabFocusChain(QQuickItem *item, boo
     bool skip = false;
 
     QQuickItem *startItem = item;
+    QQuickItem *originalStartItem = startItem;
     // Protect from endless loop:
     // If we start on an invisible item we will not find it again.
     // If there is no other item which can become the focus item, we have a forever loop,
@@ -2643,7 +2644,12 @@ QQuickItem* QQuickItemPrivate::nextPrevItemInTabFocusChain(QQuickItem *item, boo
             }
         }
         from = last;
-        if (current == startItem && from == firstFromItem) {
+        // if [from] item is equal to [firstFromItem], means we have traversed one path and
+        // jump back to parent of the chain, and then we have to check whether we have
+        // traversed all of the chain (by compare the [current] item with [startItem])
+        // Since the [startItem] might be promoted to its parent if it is invisible,
+        // we still have to check [current] item with original start item
+        if ((current == startItem || current == originalStartItem) && from == firstFromItem) {
             // wrapped around, avoid endless loops
             if (item == contentItem) {
                 qCDebug(DBG_FOCUS) << "QQuickItemPrivate::nextPrevItemInTabFocusChain: looped, return contentItem";
@@ -2748,22 +2754,36 @@ void QQuickItem::setParentItem(QQuickItem *parentItem)
     }
 
     QQuickWindow *parentWindow = parentItem ? QQuickItemPrivate::get(parentItem)->window : nullptr;
+    bool alreadyAddedChild = false;
     if (d->window == parentWindow) {
         // Avoid freeing and reallocating resources if the window stays the same.
         d->parentItem = parentItem;
     } else {
-        if (d->window)
-            d->derefWindow();
+        auto oldParentItem = d->parentItem;
         d->parentItem = parentItem;
+        if (d->parentItem) {
+            QQuickItemPrivate::get(d->parentItem)->addChild(this);
+            alreadyAddedChild = true;
+        }
+        if (d->window) {
+            d->derefWindow();
+            // as we potentially changed d->parentWindow above
+            // the check in derefWindow could not work
+            // thus, we redo it here with the old parent
+            // Also, the window may have been deleted by derefWindow()
+            if (!oldParentItem && d->window) {
+                QQuickWindowPrivate::get(d->window)->parentlessItems.remove(this);
+            }
+        }
         if (parentWindow)
             d->refWindow(parentWindow);
     }
 
     d->dirty(QQuickItemPrivate::ParentChanged);
 
-    if (d->parentItem)
+    if (d->parentItem && !alreadyAddedChild)
         QQuickItemPrivate::get(d->parentItem)->addChild(this);
-    else if (d->window)
+    else if (d->window && !alreadyAddedChild)
         QQuickWindowPrivate::get(d->window)->parentlessItems.insert(this);
 
     d->setEffectiveVisibleRecur(d->calcEffectiveVisible());
@@ -4163,7 +4183,7 @@ void QQuickItem::hoverLeaveEvent(QHoverEvent *event)
     Q_UNUSED(event);
 }
 
-#if QT_CONFIG(draganddrop)
+#if QT_CONFIG(quick_draganddrop)
 /*!
     This event handler can be reimplemented in a subclass to receive drag-enter
     events for an item. The event information is provided by the
@@ -4231,7 +4251,7 @@ void QQuickItem::dropEvent(QDropEvent *event)
 {
     Q_UNUSED(event);
 }
-#endif // draganddrop
+#endif // quick_draganddrop
 
 /*!
     Reimplement this method to filter the mouse events that are received by
@@ -5083,7 +5103,7 @@ QQuickStateGroup *QQuickItemPrivate::_states()
         if (!componentComplete)
             _stateGroup->classBegin();
         qmlobject_connect(_stateGroup, QQuickStateGroup, SIGNAL(stateChanged(QString)),
-                          q, QQuickItem, SIGNAL(stateChanged(QString)))
+                          q, QQuickItem, SIGNAL(stateChanged(QString)));
     }
 
     return _stateGroup;
@@ -5120,6 +5140,40 @@ void QQuickItemPrivate::transformChanged()
     if (extra.isAllocated() && extra->layer)
         extra->layer->updateMatrix();
 #endif
+}
+
+QPointF QQuickItemPrivate::adjustedPosForTransform(const QPointF &centroidParentPos,
+                                                   const QPointF &startPos,
+                                                   const QVector2D &activeTranslation,  //[0,0] means no additional translation from startPos
+                                                   qreal startScale,
+                                                   qreal activeScale,                   // 1.0 means no additional scale from startScale
+                                                   qreal startRotation,
+                                                   qreal activeRotation)                // 0.0 means no additional rotation from startRotation
+{
+    Q_Q(QQuickItem);
+    QVector3D xformOrigin(q->transformOriginPoint());
+    QMatrix4x4 startMatrix;
+    startMatrix.translate(float(startPos.x()), float(startPos.y()));
+    startMatrix.translate(xformOrigin);
+    startMatrix.scale(float(startScale));
+    startMatrix.rotate(float(startRotation), 0, 0, -1);
+    startMatrix.translate(-xformOrigin);
+
+    const QVector3D centroidParentVector(centroidParentPos);
+    QMatrix4x4 mat;
+    mat.translate(centroidParentVector);
+    mat.rotate(float(activeRotation), 0, 0, 1);
+    mat.scale(float(activeScale));
+    mat.translate(-centroidParentVector);
+    mat.translate(QVector3D(activeTranslation));
+
+    mat = mat * startMatrix;
+
+    QPointF xformOriginPoint = q->transformOriginPoint();
+    QPointF pos = mat * xformOriginPoint;
+    pos -= xformOriginPoint;
+
+    return pos;
 }
 
 bool QQuickItemPrivate::filterKeyEvent(QKeyEvent *e, bool post)
@@ -5652,6 +5706,7 @@ void QQuickItem::setRotation(qreal r)
           color: "red"
           x: 25; y: 25; width: 50; height: 50
           scale: 1.4
+          transformOrigin: Item.TopLeft
       }
   }
   \endqml
@@ -8084,7 +8139,7 @@ bool QQuickItem::event(QEvent *ev)
         wheelEvent(static_cast<QWheelEvent*>(ev));
         break;
 #endif
-#if QT_CONFIG(draganddrop)
+#if QT_CONFIG(quick_draganddrop)
     case QEvent::DragEnter:
         dragEnterEvent(static_cast<QDragEnterEvent*>(ev));
         break;
@@ -8097,7 +8152,7 @@ bool QQuickItem::event(QEvent *ev)
     case QEvent::Drop:
         dropEvent(static_cast<QDropEvent*>(ev));
         break;
-#endif // draganddrop
+#endif // quick_draganddrop
 #if QT_CONFIG(gestures)
     case QEvent::NativeGesture:
         ev->ignore();
@@ -8359,7 +8414,7 @@ void QQuickItemLayer::activateEffect()
         m_effect->stackAfter(m_effectSource);
     }
     m_effect->setVisible(m_item->isVisible());
-    m_effect->setProperty(m_name, qVariantFromValue<QObject *>(m_effectSource));
+    m_effect->setProperty(m_name, QVariant::fromValue<QObject *>(m_effectSource));
     QQuickItemPrivate::get(m_effect)->setTransparentForPositioner(true);
     m_effectComponent->completeCreate();
 }
@@ -8499,7 +8554,11 @@ void QQuickItemLayer::setSourceRect(const QRectF &sourceRect)
 /*!
     \qmlproperty bool QtQuick::Item::layer.smooth
 
-    Holds whether the layer is smoothly transformed.
+    Holds whether the layer is smoothly transformed. When enabled, sampling the
+    layer's texture is performed using \c linear interpolation, while
+    non-smooth results in using the \c nearest filtering mode.
+
+    By default, this property is set to \c false.
 
     \sa {Item Layers}
  */
@@ -8656,7 +8715,7 @@ void QQuickItemLayer::setName(const QByteArray &name) {
         return;
     if (m_effect) {
         m_effect->setProperty(m_name, QVariant());
-        m_effect->setProperty(name, qVariantFromValue<QObject *>(m_effectSource));
+        m_effect->setProperty(name, QVariant::fromValue<QObject *>(m_effectSource));
     }
     m_name = name;
     emit nameChanged(name);

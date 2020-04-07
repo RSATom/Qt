@@ -5,16 +5,15 @@
  * found in the LICENSE file.
  */
 
-#include "SkDropShadowImageFilter.h"
+#include "include/effects/SkDropShadowImageFilter.h"
 
-#include "SkBlurImageFilter.h"
-#include "SkCanvas.h"
-#include "SkColorSpaceXformer.h"
-#include "SkImageFilterPriv.h"
-#include "SkReadBuffer.h"
-#include "SkSpecialImage.h"
-#include "SkSpecialSurface.h"
-#include "SkWriteBuffer.h"
+#include "include/core/SkCanvas.h"
+#include "include/effects/SkBlurImageFilter.h"
+#include "src/core/SkImageFilterPriv.h"
+#include "src/core/SkReadBuffer.h"
+#include "src/core/SkSpecialImage.h"
+#include "src/core/SkSpecialSurface.h"
+#include "src/core/SkWriteBuffer.h"
 
 sk_sp<SkImageFilter> SkDropShadowImageFilter::Make(SkScalar dx, SkScalar dy,
                                                    SkScalar sigmaX, SkScalar sigmaY,
@@ -97,7 +96,7 @@ sk_sp<SkSpecialImage> SkDropShadowImageFilter::onFilterImage(SkSpecialImage* sou
     SkPaint paint;
     paint.setAntiAlias(true);
     paint.setImageFilter(SkBlurImageFilter::Make(sigma.fX, sigma.fY, nullptr));
-    paint.setColorFilter(SkColorFilter::MakeModeFilter(fColor, SkBlendMode::kSrcIn));
+    paint.setColorFilter(SkColorFilters::Blend(fColor, SkBlendMode::kSrcIn));
 
     SkVector offsetVec = SkVector::Make(fDx, fDy);
     ctx.ctm().mapVectors(&offsetVec, 1);
@@ -112,18 +111,6 @@ sk_sp<SkSpecialImage> SkDropShadowImageFilter::onFilterImage(SkSpecialImage* sou
     offset->fX = bounds.fLeft;
     offset->fY = bounds.fTop;
     return surf->makeImageSnapshot();
-}
-
-sk_sp<SkImageFilter> SkDropShadowImageFilter::onMakeColorSpace(SkColorSpaceXformer* xformer) const {
-    SkASSERT(1 == this->countInputs());
-
-    sk_sp<SkImageFilter> input = xformer->apply(this->getInput(0));
-    SkColor color = xformer->apply(fColor);
-    if (input.get() != this->getInput(0) || color != fColor) {
-        return SkDropShadowImageFilter::Make(fDx, fDy, fSigmaX, fSigmaY, color,
-                                             fShadowMode, input, this->getCropRectIfSet());
-    }
-    return this->refMe();
 }
 
 SkRect SkDropShadowImageFilter::computeFastBounds(const SkRect& src) const {

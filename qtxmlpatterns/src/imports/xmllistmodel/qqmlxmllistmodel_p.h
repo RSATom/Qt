@@ -53,11 +53,11 @@
 
 #include <qqml.h>
 #include <qqmlinfo.h>
+#include <qjsvalue.h>
 
 #include <QtCore/qurl.h>
 #include <QtCore/qstringlist.h>
 #include <QtCore/qabstractitemmodel.h>
-#include <private/qv8engine_p.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -115,7 +115,7 @@ public:
     QString namespaceDeclarations() const;
     void setNamespaceDeclarations(const QString&);
 
-    Q_INVOKABLE QQmlV4Handle get(int index) const;
+    Q_INVOKABLE QJSValue get(int index) const;
 
     enum Status { Null, Ready, Loading, Error };
     Q_ENUM(Status)

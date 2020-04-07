@@ -6,12 +6,13 @@
 
 #include "base/logging.h"
 #include "base/metrics/histogram_macros.h"
-#include "ui/base/x/x11_window_event_manager.h"
 #include "ui/events/devices/x11/device_data_manager_x11.h"
 #include "ui/events/devices/x11/touch_factory_x11.h"
 #include "ui/events/event_utils.h"
 #include "ui/events/platform/platform_event_dispatcher.h"
 #include "ui/events/platform/x11/x11_hotplug_event_handler.h"
+#include "ui/events/x/events_x_utils.h"
+#include "ui/events/x/x11_window_event_manager.h"
 #include "ui/gfx/x/x11.h"
 #include "ui/gfx/x/x11_atom_cache.h"
 
@@ -193,7 +194,6 @@ Time X11EventSource::GetTimestamp() {
   return GetCurrentServerTime();
 }
 
-#if !defined(USE_OZONE)
 base::Optional<gfx::Point>
 X11EventSource::GetRootCursorLocationFromCurrentEvent() const {
   if (!dispatching_event_)
@@ -226,21 +226,9 @@ X11EventSource::GetRootCursorLocationFromCurrentEvent() const {
   }
 
   if (is_valid_event)
-    return ui::EventSystemLocationFromNative(event);
+    return ui::EventSystemLocationFromXEvent(*event);
   return base::nullopt;
 }
-#endif
-
-// TODO(crbug.com/965991): Use ui::Event in Aura/X11
-#if !defined(USE_X11)
-void X11EventSource::RemoveXEventDispatcher(XEventDispatcher* dispatcher) {
-  delegate_->RemoveXEventDispatcher(dispatcher);
-}
-
-void X11EventSource::AddXEventDispatcher(XEventDispatcher* dispatcher) {
-  delegate_->AddXEventDispatcher(dispatcher);
-}
-#endif
 
 ////////////////////////////////////////////////////////////////////////////////
 // X11EventSource, protected

@@ -97,6 +97,7 @@ private slots:
     void enumerableProperties();
     void enumProperties();
     void scarceTypes();
+    void nonValueTypes();
 
 private:
     QQmlEngine engine;
@@ -784,6 +785,7 @@ void tst_qqmlvaluetypes::font()
     {
         QQmlComponent component(&engine, testFileUrl("font_read.qml"));
         MyTypeObject *object = qobject_cast<MyTypeObject *>(component.create());
+        QVERIFY2(component.isReady(), qPrintable(component.errorString()));
         QVERIFY(object != nullptr);
 
         QCOMPARE(object->property("f_family").toString(), object->font().family());
@@ -793,8 +795,19 @@ void tst_qqmlvaluetypes::font()
         QCOMPARE(object->property("f_underline").toBool(), object->font().underline());
         QCOMPARE(object->property("f_overline").toBool(), object->font().overline());
         QCOMPARE(object->property("f_strikeout").toBool(), object->font().strikeOut());
-        QCOMPARE(object->property("f_pointSize").toDouble(), object->font().pointSizeF());
-        QCOMPARE(object->property("f_pixelSize").toInt(), int((object->font().pointSizeF() * qt_defaultDpi()) / qreal(72.)));
+
+        // If QFont::pixelSize() was set, QFont::pointSizeF() would return -1.
+        // If QFont::pointSizeF() was set, QFont::pixelSize() would return -1.
+        // QQuickFontValueType doesn't follow this semantic (if its -1 it calculates the value of
+        // the property from the other one)
+        double expectedPointSizeF = object->font().pointSizeF();
+        if (expectedPointSizeF == -1) expectedPointSizeF = object->font().pixelSize() * qreal(72.) / qreal(qt_defaultDpi());
+        int expectedPixelSize = object->font().pixelSize();
+        if (expectedPixelSize == -1) expectedPixelSize = int((object->font().pointSizeF() * qt_defaultDpi()) / qreal(72.));
+
+        QCOMPARE(object->property("f_pointSize").toDouble(), expectedPointSizeF);
+        QCOMPARE(object->property("f_pixelSize").toInt(), expectedPixelSize);
+
         QCOMPARE(object->property("f_capitalization").toInt(), (int)object->font().capitalization());
         QCOMPARE(object->property("f_letterSpacing").toDouble(), object->font().letterSpacing());
         QCOMPARE(object->property("f_wordSpacing").toDouble(), object->font().wordSpacing());
@@ -921,6 +934,11 @@ void tst_qqmlvaluetypes::color()
         QCOMPARE(qRound(object->property("hsl_h").toDouble() * 100), 43);
         QCOMPARE(qRound(object->property("hsl_s").toDouble() * 100), 74);
         QCOMPARE(qRound(object->property("hsl_l").toDouble() * 100), 54);
+
+        QCOMPARE(object->property("valid").userType(), QMetaType::Bool);
+        QVERIFY(object->property("valid").toBool());
+        QCOMPARE(object->property("invalid").userType(), QMetaType::Bool);
+        QVERIFY(!object->property("invalid").toBool());
 
         QColor comparison;
         comparison.setRedF(0.2);
@@ -1713,7 +1731,7 @@ void tst_qqmlvaluetypes::sequences()
         QJSValue value = engine.toScriptValue(qcharVector);
         QCOMPARE(value.property("length").toInt(), qcharVector.length());
         for (int i = 0; i < qcharVector.length(); ++i)
-            QCOMPARE(value.property(i).toInt(), qcharVector.at(i));
+            QCOMPARE(value.property(i).toString(), qcharVector.at(i));
     }
     {
         MyTypeObject a, b, c;
@@ -1832,6 +1850,16 @@ void tst_qqmlvaluetypes::scarceTypes()
     QCOMPARE(QByteArray(pixmapValue->vtable()->className), QByteArray("VariantObject"));
 }
 
+#define CHECK_TYPE_IS_NOT_VALUETYPE(Type, typeId, cppType) \
+    QVERIFY(!QQmlValueTypeFactory::isValueType(QMetaType::Type));
+
+void tst_qqmlvaluetypes::nonValueTypes()
+{
+    CHECK_TYPE_IS_NOT_VALUETYPE(UnknownType, 0, void)
+    QT_FOR_EACH_STATIC_PRIMITIVE_TYPE(CHECK_TYPE_IS_NOT_VALUETYPE);
+}
+
+#undef CHECK_TYPE_IS_NOT_VALUETYPE
 
 QTEST_MAIN(tst_qqmlvaluetypes)
 

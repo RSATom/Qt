@@ -8,20 +8,20 @@
 #ifndef GrRenderTargetOpList_DEFINED
 #define GrRenderTargetOpList_DEFINED
 
-#include "GrAppliedClip.h"
-#include "GrOpList.h"
-#include "GrPathRendering.h"
-#include "GrPrimitiveProcessor.h"
-#include "ops/GrOp.h"
-#include "ops/GrDrawOp.h"
-#include "SkArenaAlloc.h"
-#include "SkClipStack.h"
-#include "SkMatrix.h"
-#include "SkStringUtils.h"
-#include "SkStrokeRec.h"
-#include "SkTArray.h"
-#include "SkTLazy.h"
-#include "SkTypes.h"
+#include "include/core/SkMatrix.h"
+#include "include/core/SkStrokeRec.h"
+#include "include/core/SkTypes.h"
+#include "include/private/SkTArray.h"
+#include "src/core/SkArenaAlloc.h"
+#include "src/core/SkClipStack.h"
+#include "src/core/SkStringUtils.h"
+#include "src/core/SkTLazy.h"
+#include "src/gpu/GrAppliedClip.h"
+#include "src/gpu/GrOpList.h"
+#include "src/gpu/GrPathRendering.h"
+#include "src/gpu/GrPrimitiveProcessor.h"
+#include "src/gpu/ops/GrDrawOp.h"
+#include "src/gpu/ops/GrOp.h"
 
 class GrAuditTrail;
 class GrClearOp;
@@ -33,8 +33,7 @@ private:
     using DstProxy = GrXferProcessor::DstProxy;
 
 public:
-    GrRenderTargetOpList(GrResourceProvider*, sk_sp<GrOpMemoryPool>,
-                         GrRenderTargetProxy*, GrAuditTrail*);
+    GrRenderTargetOpList(sk_sp<GrOpMemoryPool>, sk_sp<GrRenderTargetProxy>, GrAuditTrail*);
 
     ~GrRenderTargetOpList() override;
 
@@ -63,7 +62,7 @@ public:
     bool onExecute(GrOpFlushState* flushState) override;
 
     void addOp(std::unique_ptr<GrOp> op, const GrCaps& caps) {
-        auto addDependency = [ &caps, this ] (GrSurfaceProxy* p) {
+        auto addDependency = [ &caps, this ] (GrSurfaceProxy* p, GrMipMapped) {
             this->addDependency(p, caps);
         };
 
@@ -72,16 +71,21 @@ public:
         this->recordOp(std::move(op), GrProcessorSet::EmptySetAnalysis(), nullptr, nullptr, caps);
     }
 
+    void addWaitOp(std::unique_ptr<GrOp> op, const GrCaps& caps) {
+        fHasWaitOp= true;
+        this->addOp(std::move(op), caps);
+    }
+
     void addDrawOp(std::unique_ptr<GrDrawOp> op, const GrProcessorSet::Analysis& processorAnalysis,
                    GrAppliedClip&& clip, const DstProxy& dstProxy, const GrCaps& caps) {
-        auto addDependency = [ &caps, this ] (GrSurfaceProxy* p) {
+        auto addDependency = [ &caps, this ] (GrSurfaceProxy* p, GrMipMapped) {
             this->addDependency(p, caps);
         };
 
         op->visitProxies(addDependency);
         clip.visitProxies(addDependency);
         if (dstProxy.proxy()) {
-            addDependency(dstProxy.proxy());
+            addDependency(dstProxy.proxy(), GrMipMapped::kNo);
         }
 
         this->recordOp(std::move(op), processorAnalysis, clip.doesClip() ? &clip : nullptr,
@@ -100,7 +104,7 @@ public:
      * depending on the type of surface, configs, etc, and the backend-specific
      * limitations.
      */
-    bool copySurface(GrContext*,
+    bool copySurface(GrRecordingContext*,
                      GrSurfaceProxy* dst,
                      GrSurfaceProxy* src,
                      const SkIRect& srcRect,
@@ -121,8 +125,10 @@ private:
     // however, requires that the RTC be able to coordinate with the op list to achieve similar ends
     friend class GrRenderTargetContext;
 
+    bool onIsUsed(GrSurfaceProxy*) const override;
+
     // Must only be called if native stencil buffer clearing is enabled
-    void setStencilLoadOp(GrLoadOp op);
+    void setStencilLoadOp(GrLoadOp op) { fStencilLoadOp = op; }
     // Must only be called if native color buffer clearing is enabled.
     void setColorLoadOp(GrLoadOp op, const SkPMColor4f& color);
     // Sets the clear color to transparent black
@@ -131,10 +137,15 @@ private:
         this->setColorLoadOp(op, kDefaultClearColor);
     }
 
+    enum class CanDiscardPreviousOps : bool {
+        kYes = true,
+        kNo = false
+    };
+
     // Perform book-keeping for a fullscreen clear, regardless of how the clear is implemented later
     // (i.e. setColorLoadOp(), adding a ClearOp, or adding a GrFillRectOp that covers the device).
     // Returns true if the clear can be converted into a load op (barring device caps).
-    bool resetForFullscreenClear();
+    bool resetForFullscreenClear(CanDiscardPreviousOps);
 
     void deleteOps();
 
@@ -149,7 +160,7 @@ private:
             SkASSERT(fList.empty());
         }
 
-        void visitProxies(const GrOp::VisitProxyFunc&, GrOp::VisitorType) const;
+        void visitProxies(const GrOp::VisitProxyFunc&) const;
 
         GrOp* head() const { return fList.head(); }
 
@@ -221,6 +232,9 @@ private:
     uint32_t                       fLastClipStackGenID;
     SkIRect                        fLastDevClipBounds;
     int                            fLastClipNumAnalyticFPs;
+
+    // We must track if we have a wait op so that we don't delete the op when we have a full clear.
+    bool fHasWaitOp = false;;
 
     // For ops/opList we have mean: 5 stdDev: 28
     SkSTArray<25, OpChain, true> fOpChains;

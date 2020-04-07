@@ -20,6 +20,7 @@
 #include "sql/statement.h"
 #include "sql/transaction.h"
 #include "storage/browser/quota/special_storage_policy.h"
+#include "third_party/blink/public/mojom/quota/quota_types.mojom-shared.h"
 #include "url/gurl.h"
 
 using blink::mojom::StorageType;
@@ -44,15 +45,6 @@ bool VerifyValidQuotaConfig(const char* key) {
 }
 
 const int kCommitIntervalMs = 30000;
-
-void LogDaysSinceLastAccess(base::Time this_time,
-                            const QuotaDatabase::OriginInfoTableEntry& entry) {
-  base::TimeDelta time_since = this_time - std::max(entry.last_access_time,
-                                                    entry.last_modified_time);
-  if (time_since.InDays() < 1)
-    return;
-  UMA_HISTOGRAM_COUNTS_1000("Quota.DaysSinceLastAccess", time_since.InDays());
-}
 
 }  // anonymous namespace
 
@@ -137,15 +129,18 @@ QuotaDatabase::QuotaDatabase(const base::FilePath& path)
     : db_file_path_(path),
       is_recreating_(false),
       is_disabled_(false) {
+  DETACH_FROM_SEQUENCE(sequence_checker_);
 }
 
 QuotaDatabase::~QuotaDatabase() {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   if (db_) {
     db_->CommitTransaction();
   }
 }
 
 void QuotaDatabase::CloseDatabase() {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   meta_table_.reset();
   db_.reset();
 }
@@ -153,6 +148,7 @@ void QuotaDatabase::CloseDatabase() {
 bool QuotaDatabase::GetHostQuota(const std::string& host,
                                  StorageType type,
                                  int64_t* quota) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DCHECK(quota);
   if (!LazyOpen(false))
     return false;
@@ -176,6 +172,7 @@ bool QuotaDatabase::GetHostQuota(const std::string& host,
 bool QuotaDatabase::SetHostQuota(const std::string& host,
                                  StorageType type,
                                  int64_t quota) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DCHECK_GE(quota, 0);
   if (!LazyOpen(true))
     return false;
@@ -190,6 +187,7 @@ bool QuotaDatabase::SetHostQuota(const std::string& host,
 bool QuotaDatabase::SetOriginLastAccessTime(const url::Origin& origin,
                                             StorageType type,
                                             base::Time last_access_time) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   if (!LazyOpen(true))
     return false;
 
@@ -197,7 +195,6 @@ bool QuotaDatabase::SetOriginLastAccessTime(const url::Origin& origin,
 
   OriginInfoTableEntry entry;
   if (GetOriginInfo(origin, type, &entry)) {
-    LogDaysSinceLastAccess(last_access_time, entry);
     ++entry.used_count;
     const char* kSql =
         "UPDATE OriginInfoTable"
@@ -228,6 +225,7 @@ bool QuotaDatabase::SetOriginLastAccessTime(const url::Origin& origin,
 bool QuotaDatabase::SetOriginLastModifiedTime(const url::Origin& origin,
                                               StorageType type,
                                               base::Time last_modified_time) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   if (!LazyOpen(true))
     return false;
 
@@ -235,7 +233,6 @@ bool QuotaDatabase::SetOriginLastModifiedTime(const url::Origin& origin,
 
   OriginInfoTableEntry entry;
   if (GetOriginInfo(origin, type, &entry)) {
-    LogDaysSinceLastAccess(last_modified_time, entry);
     const char* kSql =
         "UPDATE OriginInfoTable"
         " SET last_modified_time = ?"
@@ -263,6 +260,7 @@ bool QuotaDatabase::SetOriginLastModifiedTime(const url::Origin& origin,
 bool QuotaDatabase::GetOriginLastEvictionTime(const url::Origin& origin,
                                               StorageType type,
                                               base::Time* last_modified_time) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DCHECK(last_modified_time);
   if (!LazyOpen(false))
     return false;
@@ -286,6 +284,7 @@ bool QuotaDatabase::GetOriginLastEvictionTime(const url::Origin& origin,
 bool QuotaDatabase::SetOriginLastEvictionTime(const url::Origin& origin,
                                               StorageType type,
                                               base::Time last_modified_time) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   if (!LazyOpen(true))
     return false;
 
@@ -307,6 +306,7 @@ bool QuotaDatabase::SetOriginLastEvictionTime(const url::Origin& origin,
 
 bool QuotaDatabase::DeleteOriginLastEvictionTime(const url::Origin& origin,
                                                  StorageType type) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   if (!LazyOpen(false))
     return false;
 
@@ -328,6 +328,7 @@ bool QuotaDatabase::DeleteOriginLastEvictionTime(const url::Origin& origin,
 bool QuotaDatabase::RegisterInitialOriginInfo(
     const std::set<url::Origin>& origins,
     StorageType type) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   if (!LazyOpen(true))
     return false;
 
@@ -350,6 +351,7 @@ bool QuotaDatabase::RegisterInitialOriginInfo(
 bool QuotaDatabase::GetOriginInfo(const url::Origin& origin,
                                   StorageType type,
                                   QuotaDatabase::OriginInfoTableEntry* entry) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   if (!LazyOpen(false))
     return false;
 
@@ -375,6 +377,7 @@ bool QuotaDatabase::GetOriginInfo(const url::Origin& origin,
 
 bool QuotaDatabase::DeleteHostQuota(
     const std::string& host, StorageType type) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   if (!LazyOpen(false))
     return false;
 
@@ -395,6 +398,7 @@ bool QuotaDatabase::DeleteHostQuota(
 
 bool QuotaDatabase::DeleteOriginInfo(const url::Origin& origin,
                                      StorageType type) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   if (!LazyOpen(false))
     return false;
 
@@ -414,6 +418,7 @@ bool QuotaDatabase::DeleteOriginInfo(const url::Origin& origin,
 }
 
 bool QuotaDatabase::GetQuotaConfigValue(const char* key, int64_t* value) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   if (!LazyOpen(false))
     return false;
   DCHECK(VerifyValidQuotaConfig(key));
@@ -421,6 +426,7 @@ bool QuotaDatabase::GetQuotaConfigValue(const char* key, int64_t* value) {
 }
 
 bool QuotaDatabase::SetQuotaConfigValue(const char* key, int64_t value) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   if (!LazyOpen(true))
     return false;
   DCHECK(VerifyValidQuotaConfig(key));
@@ -431,6 +437,7 @@ bool QuotaDatabase::GetLRUOrigin(StorageType type,
                                  const std::set<url::Origin>& exceptions,
                                  SpecialStoragePolicy* special_storage_policy,
                                  base::Optional<url::Origin>* origin) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DCHECK(origin);
   if (!LazyOpen(false))
     return false;
@@ -446,7 +453,7 @@ bool QuotaDatabase::GetLRUOrigin(StorageType type,
   while (statement.Step()) {
     url::Origin read_origin =
         url::Origin::Create(GURL(statement.ColumnString(0)));
-    if (base::ContainsKey(exceptions, read_origin))
+    if (base::Contains(exceptions, read_origin))
       continue;
 
     if (special_storage_policy &&
@@ -466,6 +473,7 @@ bool QuotaDatabase::GetLRUOrigin(StorageType type,
 bool QuotaDatabase::GetOriginsModifiedSince(StorageType type,
                                             std::set<url::Origin>* origins,
                                             base::Time modified_since) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DCHECK(origins);
   if (!LazyOpen(false))
     return false;
@@ -485,6 +493,7 @@ bool QuotaDatabase::GetOriginsModifiedSince(StorageType type,
 }
 
 bool QuotaDatabase::IsOriginDatabaseBootstrapped() {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   if (!LazyOpen(true))
     return false;
 
@@ -493,6 +502,7 @@ bool QuotaDatabase::IsOriginDatabaseBootstrapped() {
 }
 
 bool QuotaDatabase::SetOriginDatabaseBootstrapped(bool bootstrap_flag) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   if (!LazyOpen(true))
     return false;
 
@@ -500,6 +510,7 @@ bool QuotaDatabase::SetOriginDatabaseBootstrapped(bool bootstrap_flag) {
 }
 
 void QuotaDatabase::Commit() {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   if (!db_)
     return;
 
@@ -514,6 +525,7 @@ void QuotaDatabase::Commit() {
 }
 
 void QuotaDatabase::ScheduleCommit() {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   if (timer_.IsRunning())
     return;
   timer_.Start(FROM_HERE, base::TimeDelta::FromMilliseconds(kCommitIntervalMs),
@@ -521,6 +533,7 @@ void QuotaDatabase::ScheduleCommit() {
 }
 
 bool QuotaDatabase::LazyOpen(bool create_if_needed) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   if (db_)
     return true;
 
@@ -569,6 +582,7 @@ bool QuotaDatabase::LazyOpen(bool create_if_needed) {
 }
 
 bool QuotaDatabase::EnsureDatabaseVersion() {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   static const size_t kTableCount = base::size(kTables);
   static const size_t kIndexCount = base::size(kIndexes);
   if (!sql::MetaTable::DoesTableExist(db_.get()))
@@ -649,6 +663,7 @@ bool QuotaDatabase::CreateSchema(sql::Database* database,
 }
 
 bool QuotaDatabase::ResetSchema() {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DCHECK(!db_file_path_.empty());
   DCHECK(base::PathExists(db_file_path_));
   DCHECK(!db_ || !db_->transaction_nesting());
@@ -669,6 +684,7 @@ bool QuotaDatabase::ResetSchema() {
 }
 
 bool QuotaDatabase::UpgradeSchema(int current_version) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DCHECK_EQ(0, db_->transaction_nesting());
 
   if (current_version == 2) {
@@ -712,6 +728,7 @@ bool QuotaDatabase::UpgradeSchema(int current_version) {
 bool QuotaDatabase::InsertOrReplaceHostQuota(const std::string& host,
                                              StorageType type,
                                              int64_t quota) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DCHECK(db_.get());
   const char* kSql =
       "INSERT OR REPLACE INTO HostQuotaTable"
@@ -725,6 +742,7 @@ bool QuotaDatabase::InsertOrReplaceHostQuota(const std::string& host,
 }
 
 bool QuotaDatabase::DumpQuotaTable(const QuotaTableCallback& callback) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   if (!LazyOpen(true))
     return false;
 
@@ -746,6 +764,7 @@ bool QuotaDatabase::DumpQuotaTable(const QuotaTableCallback& callback) {
 
 bool QuotaDatabase::DumpOriginInfoTable(
     const OriginInfoTableCallback& callback) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
   if (!LazyOpen(true))
     return false;

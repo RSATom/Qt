@@ -19,7 +19,6 @@ rtc_static_library("pacing") {
     "bitrate_prober.h",
     "paced_sender.cc",
     "paced_sender.h",
-    "pacer.h",
     "packet_router.cc",
     "packet_router.h",
     "round_robin_packet_queue.cc",
@@ -29,17 +28,18 @@ rtc_static_library("pacing") {
   deps = [
     ":interval_budget",
     "..:module_api",
+    "../../api:function_view",
+    "../../api/transport:field_trial_based_config",
     "../../api/transport:network_control",
+    "../../api/transport:webrtc_key_value_config",
     "../../logging:rtc_event_bwe",
     "../../logging:rtc_event_log_api",
     "../../logging:rtc_event_pacing",
     "../../rtc_base:checks",
     "../../rtc_base:rtc_base_approved",
-    "../../rtc_base/experiments:alr_experiment",
     "../../rtc_base/experiments:field_trial_parser",
     "../../system_wrappers",
-    "../../system_wrappers:field_trial",
-    "../congestion_controller/goog_cc:alr_detector",
+    "../../system_wrappers:metrics",
     "../remote_bitrate_estimator",
     "../rtp_rtcp",
     "../rtp_rtcp:rtp_rtcp_format",
@@ -86,6 +86,7 @@ if (rtc_include_tests) {
       "../rtp_rtcp",
       "../rtp_rtcp:mock_rtp_rtcp",
       "../rtp_rtcp:rtp_rtcp_format",
+      "//third_party/abseil-cpp/absl/memory",
     ]
   }
 

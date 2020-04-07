@@ -50,9 +50,8 @@ class MEDIA_GPU_EXPORT V4L2VideoEncodeAccelerator
   // VideoEncodeAccelerator implementation.
   VideoEncodeAccelerator::SupportedProfiles GetSupportedProfiles() override;
   bool Initialize(const Config& config, Client* client) override;
-  void Encode(const scoped_refptr<VideoFrame>& frame,
-              bool force_keyframe) override;
-  void UseOutputBitstreamBuffer(const BitstreamBuffer& buffer) override;
+  void Encode(scoped_refptr<VideoFrame> frame, bool force_keyframe) override;
+  void UseOutputBitstreamBuffer(BitstreamBuffer buffer) override;
   void RequestEncodingParametersChange(uint32_t bitrate,
                                        uint32_t framerate) override;
   void Destroy() override;
@@ -71,6 +70,10 @@ class MEDIA_GPU_EXPORT V4L2VideoEncodeAccelerator
     ~InputRecord();
     bool at_device;
     scoped_refptr<VideoFrame> frame;
+
+    // This is valid only if image processor is used. The buffer associated with
+    // this index can be reused in Dequeue().
+    base::Optional<size_t> ip_output_buffer_index;
   };
 
   // Record for output buffers.
@@ -87,10 +90,17 @@ class MEDIA_GPU_EXPORT V4L2VideoEncodeAccelerator
   struct InputFrameInfo {
     InputFrameInfo();
     InputFrameInfo(scoped_refptr<VideoFrame> frame, bool force_keyframe);
+    InputFrameInfo(scoped_refptr<VideoFrame> frame,
+                   bool force_keyframe,
+                   size_t index);
     InputFrameInfo(const InputFrameInfo&);
     ~InputFrameInfo();
     scoped_refptr<VideoFrame> frame;
     bool force_keyframe;
+
+    // This is valid only if image processor is used. This info needs to be
+    // propagated to InputRecord.
+    base::Optional<size_t> ip_output_buffer_index;
   };
 
   enum {
@@ -117,7 +127,7 @@ class MEDIA_GPU_EXPORT V4L2VideoEncodeAccelerator
   // encode.
   void FrameProcessed(bool force_keyframe,
                       base::TimeDelta timestamp,
-                      int output_buffer_index,
+                      size_t output_buffer_index,
                       scoped_refptr<VideoFrame> frame);
 
   // Error callback for handling image processor errors.
@@ -127,12 +137,11 @@ class MEDIA_GPU_EXPORT V4L2VideoEncodeAccelerator
   // Encoding tasks, to be run on encode_thread_.
   //
 
-  void EncodeTask(const scoped_refptr<VideoFrame>& frame, bool force_keyframe);
+  void EncodeTask(scoped_refptr<VideoFrame> frame, bool force_keyframe);
 
   // Add a BitstreamBuffer to the queue of buffers ready to be used for encoder
   // output.
-  void UseOutputBitstreamBufferTask(
-      std::unique_ptr<BitstreamBufferRef> buffer_ref);
+  void UseOutputBitstreamBufferTask(BitstreamBuffer buffer);
 
   // Device destruction task.
   void DestroyTask();
@@ -179,9 +188,23 @@ class MEDIA_GPU_EXPORT V4L2VideoEncodeAccelerator
   // these (e.g. in Initialize() or Destroy()).
   //
 
+  // Create image processor that will process input_layout to output_layout. The
+  // visible size of processed video frames are |visible_size|.
+  bool CreateImageProcessor(const VideoFrameLayout& input_layout,
+                            const VideoFrameLayout& output_layout,
+                            const gfx::Size& visible_size);
+  // Process one video frame in |image_processor_input_queue_| by
+  // |image_processor_|.
+  void InputImageProcessorTask();
+
   // Change encoding parameters.
   void RequestEncodingParametersChangeTask(uint32_t bitrate,
                                            uint32_t framerate);
+
+  // Do several initializations (e.g. set up format) on |encoder_thread_|.
+  void InitializeTask(const Config& config,
+                      bool* result,
+                      base::WaitableEvent* done);
 
   // Set up formats and initialize the device for them.
   bool SetFormats(VideoPixelFormat input_format,
@@ -213,12 +236,13 @@ class MEDIA_GPU_EXPORT V4L2VideoEncodeAccelerator
   // false otherwise.
   bool IsCtrlExposed(uint32_t ctrl_id);
 
-  // Allocates video frames for image processor's output buffers.
-  // Returns false if there's something wrong.
-  bool AllocateImageProcessorOutputBuffers();
+  // Allocates |count| video frames with |visible_size| for image processor's
+  // output buffers. Returns false if there's something wrong.
+  bool AllocateImageProcessorOutputBuffers(size_t count,
+                                           const gfx::Size& visible_size);
 
   // Recycle output buffer of image processor with |output_buffer_index|.
-  void ReuseImageProcessorOutputBuffer(int output_buffer_index);
+  void ReuseImageProcessorOutputBuffer(size_t output_buffer_index);
 
   // Copy encoded stream data from an output V4L2 buffer at |bitstream_data|
   // of size |bitstream_size| into a BitstreamBuffer referenced by |buffer_ref|,

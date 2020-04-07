@@ -5,7 +5,7 @@
 module blink.mojom;
 
 import "mojo/public/mojom/base/time.mojom";
-import "services/network/public/mojom/request_context_frame_type.mojom";
+import "third_party/blink/public/mojom/loader/request_context_frame_type.mojom";
 import "url/mojom/url.mojom";
 
 // Indicates the service worker client type.
@@ -13,6 +13,7 @@ import "url/mojom/url.mojom";
 // and https://w3c.github.io/ServiceWorker/#dom-clientqueryoptions-type.
 enum ServiceWorkerClientType {
   kWindow,
+  kDedicatedWorker,
   kSharedWorker,
   kAll,
 };

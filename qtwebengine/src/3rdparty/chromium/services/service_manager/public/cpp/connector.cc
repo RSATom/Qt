@@ -4,7 +4,9 @@
 
 #include "services/service_manager/public/cpp/connector.h"
 
+#include "base/bind.h"
 #include "services/service_manager/public/cpp/identity.h"
+#include "services/service_manager/public/mojom/service.mojom.h"
 
 namespace service_manager {
 
@@ -36,17 +38,17 @@ void Connector::WarmService(const ServiceFilter& filter,
 
 void Connector::RegisterServiceInstance(
     const Identity& identity,
-    mojom::ServicePtr service,
-    mojom::PIDReceiverRequest pid_receiver_request,
+    mojo::PendingRemote<mojom::Service> service,
+    mojo::PendingReceiver<mojom::ProcessMetadata> metadata_receiver,
     RegisterServiceInstanceCallback callback) {
   if (!BindConnectorIfNecessary())
     return;
 
   DCHECK(identity.IsValid());
-  DCHECK(service.is_bound() && pid_receiver_request.is_pending());
-  connector_->RegisterServiceInstance(
-      identity, service.PassInterface().PassHandle(),
-      std::move(pid_receiver_request), std::move(callback));
+  DCHECK(service);
+  connector_->RegisterServiceInstance(identity, service.PassPipe(),
+                                      std::move(metadata_receiver),
+                                      std::move(callback));
 }
 
 void Connector::QueryService(const std::string& service_name,
@@ -60,6 +62,7 @@ void Connector::QueryService(const std::string& service_name,
 void Connector::BindInterface(const ServiceFilter& filter,
                               const std::string& interface_name,
                               mojo::ScopedMessagePipeHandle interface_pipe,
+                              mojom::BindInterfacePriority priority,
                               BindInterfaceCallback callback) {
   auto service_overrides_iter = local_binder_overrides_.find(filter);
   if (service_overrides_iter != local_binder_overrides_.end()) {
@@ -74,7 +77,7 @@ void Connector::BindInterface(const ServiceFilter& filter,
     return;
 
   connector_->BindInterface(filter, interface_name, std::move(interface_pipe),
-                            std::move(callback));
+                            priority, std::move(callback));
 }
 
 std::unique_ptr<Connector> Connector::Clone() {
@@ -124,7 +127,7 @@ bool Connector::HasBinderOverrideForTesting(
   if (service_overrides == local_binder_overrides_.end())
     return false;
 
-  return base::ContainsKey(service_overrides->second, interface_name);
+  return base::Contains(service_overrides->second, interface_name);
 }
 
 void Connector::ClearBinderOverrideForTesting(

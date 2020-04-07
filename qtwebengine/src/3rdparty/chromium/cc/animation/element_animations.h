@@ -8,20 +8,15 @@
 #include <memory>
 #include <vector>
 
-#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/observer_list.h"
 #include "cc/animation/animation_export.h"
 #include "cc/animation/animation_target.h"
-#include "cc/trees/element_id.h"
+#include "cc/paint/element_id.h"
 #include "cc/trees/property_animation_state.h"
 #include "cc/trees/target_property.h"
 #include "ui/gfx/geometry/scroll_offset.h"
 #include "ui/gfx/transform.h"
-
-namespace gfx {
-class BoxF;
-}
 
 namespace cc {
 
@@ -31,8 +26,6 @@ class KeyframeEffect;
 class TransformOperations;
 enum class ElementListType;
 struct AnimationEvent;
-
-enum class UpdateTickingType { NORMAL, FORCE };
 
 // An ElementAnimations owns a list of all KeyframeEffects attached to a single
 // target (represented by an ElementId).
@@ -44,30 +37,30 @@ class CC_ANIMATION_EXPORT ElementAnimations
     : public AnimationTarget,
       public base::RefCounted<ElementAnimations> {
  public:
-  static scoped_refptr<ElementAnimations> Create();
+  static scoped_refptr<ElementAnimations> Create(AnimationHost* host,
+                                                 ElementId element_id);
+
+  ElementAnimations(const ElementAnimations&) = delete;
+  ElementAnimations& operator=(const ElementAnimations&) = delete;
+
+  bool AnimationHostIs(AnimationHost* host) const {
+    return animation_host_ == host;
+  }
+  void ClearAnimationHost() { animation_host_ = nullptr; }
 
   ElementId element_id() const { return element_id_; }
-  void SetElementId(ElementId element_id);
 
-  // Parent AnimationHost.
-  AnimationHost* animation_host() { return animation_host_; }
-  const AnimationHost* animation_host() const { return animation_host_; }
-  void SetAnimationHost(AnimationHost* host);
-
-  void InitAffectedElementTypes();
   void ClearAffectedElementTypes(const PropertyToElementIdMap& element_id_map);
 
-  void ElementRegistered(ElementId element_id, ElementListType list_type);
-  void ElementUnregistered(ElementId element_id, ElementListType list_type);
+  // Called when |element_id| is available to animate in |list_type|.
+  void ElementIdRegistered(ElementId element_id, ElementListType list_type);
+
+  // Called when |element_id| is no longer avialable to animate in |list_type|.
+  void ElementIdUnregistered(ElementId element_id, ElementListType list_type);
 
   void AddKeyframeEffect(KeyframeEffect* keyframe_effect);
   void RemoveKeyframeEffect(KeyframeEffect* keyframe_effect);
   bool IsEmpty() const;
-
-  typedef base::ObserverList<KeyframeEffect>::Unchecked KeyframeEffectsList;
-  const KeyframeEffectsList& keyframe_effects_list() const {
-    return keyframe_effects_list_;
-  }
 
   // Ensures that the list of active animations on the main thread and the impl
   // thread are kept in sync. This function does not take ownership of the impl
@@ -98,7 +91,6 @@ class CC_ANIMATION_EXPORT ElementAnimations
   void NotifyAnimationStarted(const AnimationEvent& event);
   void NotifyAnimationFinished(const AnimationEvent& event);
   void NotifyAnimationAborted(const AnimationEvent& event);
-  void NotifyAnimationPropertyUpdate(const AnimationEvent& event);
   void NotifyAnimationTakeover(const AnimationEvent& event);
 
   bool has_element_in_active_list() const {
@@ -118,28 +110,28 @@ class CC_ANIMATION_EXPORT ElementAnimations
     has_element_in_pending_list_ = has_element_in_pending_list;
   }
 
-  bool TransformAnimationBoundsForBox(const gfx::BoxF& box,
-                                      gfx::BoxF* bounds) const;
-
-  bool HasOnlyTranslationTransforms(ElementListType list_type) const;
-
   bool AnimationsPreserveAxisAlignment() const;
 
-  // Sets |start_scale| to the maximum of starting animation scale along any
-  // dimension at any destination in active animations. Returns false if the
-  // starting scale cannot be computed.
-  bool AnimationStartScale(ElementListType list_type, float* start_scale) const;
-
-  // Sets |max_scale| to the maximum scale along any dimension at any
-  // destination in active animations. Returns false if the maximum scale cannot
-  // be computed.
-  bool MaximumTargetScale(ElementListType list_type, float* max_scale) const;
+  // Gets scales transform animations. On return, |maximum_scale| is the maximum
+  // scale along any dimension at any destination in active scale animations,
+  // and |starting_scale| is the maximum of starting animation scale along any
+  // dimension at any destination in active scale animations. They are set to
+  // kNotScaled if there is no active scale animation or the scales cannot be
+  // computed.
+  void GetAnimationScales(ElementListType list_type,
+                          float* maximum_scale,
+                          float* starting_scale) const;
 
   bool ScrollOffsetAnimationWasInterrupted() const;
 
   void SetNeedsPushProperties();
-  bool needs_push_properties() const { return needs_push_properties_; }
 
+  // Initializes client animation state by calling client's
+  // ElementIsAnimatingChanged() method with the current animation state.
+  void InitClientAnimationState();
+  // Updates client animation state by calling client's
+  // ElementIsAnimatingChanged() method with the state containing properties
+  // that have changed since the last update.
   void UpdateClientAnimationState();
 
   void NotifyClientFloatAnimated(float opacity,
@@ -150,10 +142,10 @@ class CC_ANIMATION_EXPORT ElementAnimations
                                   KeyframeModel* keyframe_model) override;
   void NotifyClientSizeAnimated(const gfx::SizeF& size,
                                 int target_property_id,
-                                KeyframeModel* keyframe_model) override{};
+                                KeyframeModel* keyframe_model) override {}
   void NotifyClientColorAnimated(SkColor color,
                                  int target_property_id,
-                                 KeyframeModel* keyframe_model) override{};
+                                 KeyframeModel* keyframe_model) override {}
   void NotifyClientTransformOperationsAnimated(
       const TransformOperations& operations,
       int target_property_id,
@@ -173,15 +165,24 @@ class CC_ANIMATION_EXPORT ElementAnimations
   // this is required to let BGPT ship (see http://crbug.com/912574).
   PropertyToElementIdMap GetPropertyToElementIdMap() const;
 
+  unsigned int CountKeyframesForTesting() const;
+  KeyframeEffect* FirstKeyframeEffectForTesting() const;
+  bool HasKeyframeEffectForTesting(const KeyframeEffect* keyframe) const;
+
  private:
   friend class base::RefCounted<ElementAnimations>;
 
-  ElementAnimations();
+  ElementAnimations(AnimationHost* host, ElementId element_id);
   ~ElementAnimations() override;
+
+  void InitAffectedElementTypes();
 
   void OnFilterAnimated(ElementListType list_type,
                         const FilterOperations& filters,
                         KeyframeModel* keyframe_model);
+  void OnBackdropFilterAnimated(ElementListType list_type,
+                                const FilterOperations& backdrop_filters,
+                                KeyframeModel* keyframe_model);
   void OnOpacityAnimated(ElementListType list_type,
                          float opacity,
                          KeyframeModel* keyframe_model);
@@ -194,14 +195,13 @@ class CC_ANIMATION_EXPORT ElementAnimations
 
   static TargetProperties GetPropertiesMaskForAnimationState();
 
-  void UpdateKeyframeEffectsTickingState(
-      UpdateTickingType update_ticking_type) const;
+  void UpdateKeyframeEffectsTickingState() const;
   void RemoveKeyframeEffectsFromTicking() const;
 
   bool KeyframeModelAffectsActiveElements(KeyframeModel* keyframe_model) const;
   bool KeyframeModelAffectsPendingElements(KeyframeModel* keyframe_model) const;
 
-  KeyframeEffectsList keyframe_effects_list_;
+  base::ObserverList<KeyframeEffect>::Unchecked keyframe_effects_list_;
   AnimationHost* animation_host_;
   ElementId element_id_;
 
@@ -212,8 +212,10 @@ class CC_ANIMATION_EXPORT ElementAnimations
 
   PropertyAnimationState active_state_;
   PropertyAnimationState pending_state_;
-
-  DISALLOW_COPY_AND_ASSIGN(ElementAnimations);
+  float active_maximum_scale_;
+  float active_starting_scale_;
+  float pending_maximum_scale_;
+  float pending_starting_scale_;
 };
 
 }  // namespace cc

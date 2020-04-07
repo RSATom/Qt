@@ -1,2 +1,2 @@
 TEMPLATE = subdirs
-SUBDIRS = hello_speak
+qtHaveModule(widgets): SUBDIRS += hello_speak

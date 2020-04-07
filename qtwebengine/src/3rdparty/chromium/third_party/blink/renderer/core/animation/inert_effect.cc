@@ -34,14 +34,6 @@
 
 namespace blink {
 
-InertEffect* InertEffect::Create(KeyframeEffectModelBase* effect,
-                                 const Timing& timing,
-                                 bool paused,
-                                 double inherited_time) {
-  return MakeGarbageCollected<InertEffect>(effect, timing, paused,
-                                           inherited_time);
-}
-
 InertEffect::InertEffect(KeyframeEffectModelBase* model,
                          const Timing& timing,
                          bool paused,
@@ -61,7 +53,7 @@ void InertEffect::Sample(HeapVector<Member<Interpolation>>& result) const {
   double iteration = CurrentIteration();
   DCHECK_GE(iteration, 0);
   model_->Sample(clampTo<int>(iteration, 0), Progress().value(),
-                 IterationDuration(), result);
+                 SpecifiedTiming().IterationDuration(), result);
 }
 
 double InertEffect::CalculateTimeToEffectChange(bool, double, double) const {

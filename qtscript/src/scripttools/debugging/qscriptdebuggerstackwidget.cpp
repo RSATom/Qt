@@ -88,7 +88,7 @@ QScriptDebuggerStackWidget::QScriptDebuggerStackWidget(QWidget *parent)
 //    d->view->header()->setResizeMode(QHeaderView::ResizeToContents);
 
     QVBoxLayout *vbox = new QVBoxLayout(this);
-    vbox->setMargin(0);
+    vbox->setContentsMargins(0, 0, 0, 0);
     vbox->addWidget(d->view);
 }
 

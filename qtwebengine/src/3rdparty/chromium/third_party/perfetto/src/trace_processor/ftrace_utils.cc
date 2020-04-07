@@ -16,13 +16,33 @@
 
 #include "src/trace_processor/ftrace_utils.h"
 
+#include <stdint.h>
 #include <algorithm>
 
 #include "perfetto/base/logging.h"
+#include "perfetto/ext/base/string_writer.h"
 
 namespace perfetto {
 namespace trace_processor {
 namespace ftrace_utils {
+
+namespace {
+struct FtraceTime {
+  FtraceTime(int64_t ns)
+      : secs(ns / 1000000000LL), micros((ns - secs * 1000000000LL) / 1000) {}
+
+  const int64_t secs;
+  const int64_t micros;
+};
+}  // namespace
+
+TaskState::TaskState(uint16_t raw_state) {
+  if (raw_state > kMaxState) {
+    state_ = 0;
+  } else {
+    state_ = raw_state | kValid;
+  }
+}
 
 TaskState::TaskState(const char* state_str) {
   bool invalid_char = false;
@@ -84,14 +104,14 @@ TaskState::TaskState(const char* state_str) {
   }
 
   bool no_state = !is_runnable && state_ == 0;
-  if (invalid_char || no_state) {
+  if (invalid_char || no_state || state_ > kMaxState) {
     state_ = 0;
   } else {
     state_ |= kValid;
   }
 }
 
-TaskState::TaskStateStr TaskState::ToString() const {
+TaskState::TaskStateStr TaskState::ToString(char separator) const {
   PERFETTO_CHECK(is_valid());
 
   char buffer[32];
@@ -104,38 +124,111 @@ TaskState::TaskStateStr TaskState::ToString() const {
   } else {
     if (state_ & Atom::kInterruptibleSleep)
       buffer[pos++] = 'S';
-    if (state_ & Atom::kUninterruptibleSleep)
+    if (state_ & Atom::kUninterruptibleSleep) {
+      if (separator && pos != 0)
+        buffer[pos++] = separator;
       buffer[pos++] = 'D';  // D for (D)isk sleep
-    if (state_ & Atom::kStopped)
+    }
+    if (state_ & Atom::kStopped) {
+      if (separator && pos != 0)
+        buffer[pos++] = separator;
       buffer[pos++] = 'T';
-    if (state_ & Atom::kTraced)
+    }
+    if (state_ & Atom::kTraced) {
+      if (separator && pos != 0)
+        buffer[pos++] = separator;
       buffer[pos++] = 't';
-    if (state_ & Atom::kExitDead)
+    }
+    if (state_ & Atom::kExitDead) {
+      if (separator && pos != 0)
+        buffer[pos++] = separator;
       buffer[pos++] = 'X';
-    if (state_ & Atom::kExitZombie)
+    }
+    if (state_ & Atom::kExitZombie) {
+      if (separator && pos != 0)
+        buffer[pos++] = separator;
       buffer[pos++] = 'Z';
-    if (state_ & Atom::kTaskDead)
+    }
+    if (state_ & Atom::kTaskDead) {
+      if (separator && pos != 0)
+        buffer[pos++] = separator;
       buffer[pos++] = 'x';
-    if (state_ & Atom::kWakeKill)
+    }
+    if (state_ & Atom::kWakeKill) {
+      if (separator && pos != 0)
+        buffer[pos++] = separator;
       buffer[pos++] = 'K';
-    if (state_ & Atom::kWaking)
+    }
+    if (state_ & Atom::kWaking) {
+      if (separator && pos != 0)
+        buffer[pos++] = separator;
       buffer[pos++] = 'W';
-    if (state_ & Atom::kParked)
+    }
+    if (state_ & Atom::kParked) {
+      if (separator && pos != 0)
+        buffer[pos++] = separator;
       buffer[pos++] = 'P';
-    if (state_ & Atom::kNoLoad)
+    }
+    if (state_ & Atom::kNoLoad) {
+      if (separator && pos != 0)
+        buffer[pos++] = separator;
       buffer[pos++] = 'N';
+    }
   }
 
   if (is_kernel_preempt())
     buffer[pos++] = '+';
 
-  // It is very unlikely that we have used more than the size of the string
-  // array. Double check that belief on debug builds.
-  PERFETTO_DCHECK(pos < std::tuple_size<TaskStateStr>() - 1);
-
   TaskStateStr output{};
   memcpy(output.data(), buffer, std::min(pos, output.size() - 1));
   return output;
+}
+
+void FormatSystracePrefix(int64_t timestamp,
+                          uint32_t cpu,
+                          uint32_t pid,
+                          uint32_t tgid,
+                          base::StringView name,
+                          base::StringWriter* writer) {
+  FtraceTime ftrace_time(timestamp);
+  if (pid == 0) {
+    name = "<idle>";
+  } else if (name == "") {
+    name = "<unknown>";
+  } else if (name == "CrRendererMain") {
+    // TODO(taylori): Remove this when crbug.com/978093 is fixed or
+    // when a better solution is found.
+    name = "CrRendererMainThread";
+  }
+
+  int64_t padding = 16 - static_cast<int64_t>(name.size());
+  if (PERFETTO_LIKELY(padding > 0)) {
+    writer->AppendChar(' ', static_cast<size_t>(padding));
+  }
+  writer->AppendString(name);
+  writer->AppendChar('-');
+
+  size_t pre_pid_pos = writer->pos();
+  writer->AppendInt(pid);
+  size_t pid_chars = writer->pos() - pre_pid_pos;
+  if (PERFETTO_LIKELY(pid_chars < 5)) {
+    writer->AppendChar(' ', 5 - pid_chars);
+  }
+
+  writer->AppendLiteral(" (");
+  if (tgid == 0) {
+    writer->AppendLiteral("-----");
+  } else {
+    writer->AppendPaddedInt<' ', 5>(tgid);
+  }
+  writer->AppendLiteral(") [");
+  writer->AppendPaddedInt<'0', 3>(cpu);
+  writer->AppendLiteral("] .... ");
+
+  writer->AppendInt(ftrace_time.secs);
+  writer->AppendChar('.');
+  writer->AppendPaddedInt<'0', 6>(ftrace_time.micros);
+  writer->AppendChar(':');
 }
 
 }  // namespace ftrace_utils

@@ -11,7 +11,6 @@
 #include <vector>
 
 #include "base/bind.h"
-#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "cc/cc_export.h"
 #include "cc/input/browser_controls_state.h"
@@ -75,7 +74,6 @@ class CC_EXPORT LayerTreeHostCommon {
                             const gfx::Vector2dF& elastic_overscroll,
                             const ElementId elastic_overscroll_element_id,
                             int max_texture_size,
-                            bool can_adjust_raster_scales,
                             RenderSurfaceList* render_surface_list,
                             PropertyTrees* property_trees,
                             TransformNode* page_scale_transform_node);
@@ -91,7 +89,6 @@ class CC_EXPORT LayerTreeHostCommon {
     gfx::Vector2dF elastic_overscroll;
     const ElementId elastic_overscroll_element_id;
     int max_texture_size;
-    bool can_adjust_raster_scales;
     RenderSurfaceList* render_surface_list;
     PropertyTrees* property_trees;
     TransformNode* page_scale_transform_node;
@@ -158,7 +155,10 @@ class CC_EXPORT LayerTreeHostCommon {
 
 struct CC_EXPORT ScrollAndScaleSet {
   ScrollAndScaleSet();
+  ScrollAndScaleSet(const ScrollAndScaleSet&) = delete;
   ~ScrollAndScaleSet();
+
+  ScrollAndScaleSet& operator=(const ScrollAndScaleSet&) = delete;
 
   // The inner viewport scroll delta is kept separate since it's special.
   // Because the inner (visual) viewport's maximum offset depends on the
@@ -168,6 +168,7 @@ struct CC_EXPORT ScrollAndScaleSet {
 
   std::vector<LayerTreeHostCommon::ScrollUpdateInfo> scrolls;
   float page_scale_delta;
+  bool is_pinch_gesture_active;
 
   // Elastic overscroll effect offset delta. This is used only on Mac and shows
   // the pixels that the page is rubber-banned/stretched by.
@@ -186,15 +187,14 @@ struct CC_EXPORT ScrollAndScaleSet {
   std::vector<std::unique_ptr<SwapPromise>> swap_promises;
   BrowserControlsState browser_controls_constraint;
   bool browser_controls_constraint_changed;
-  bool has_scrolled_by_wheel;
-  bool has_scrolled_by_touch;
 
   // Set to true when a scroll gesture being handled on the compositor has
   // ended.
   bool scroll_gesture_did_end;
 
- private:
-  DISALLOW_COPY_AND_ASSIGN(ScrollAndScaleSet);
+  // Tracks different methods of scrolling (e.g. wheel, touch, precision
+  // touchpad, etc.).
+  ManipulationInfo manipulation_info;
 };
 
 template <typename Function>

@@ -65,7 +65,7 @@ static const char fontFileKeyC[] = "fontFiles";
 
 class AppFontManager
 {
-    Q_DISABLE_COPY(AppFontManager)
+    Q_DISABLE_COPY_MOVE(AppFontManager)
     AppFontManager();
 public:
     static AppFontManager &instance();
@@ -81,17 +81,15 @@ public:
     bool removeAt(int index, QString *errorMessage);
 
     // Store loaded fonts as pair of file name and Id
-    typedef QPair<QString,int> FileNameFontIdPair;
-    typedef QList<FileNameFontIdPair> FileNameFontIdPairs;
+    using FileNameFontIdPair = QPair<QString,int>;
+    using FileNameFontIdPairs = QList<FileNameFontIdPair>;
     const FileNameFontIdPairs &fonts() const;
 
 private:
     FileNameFontIdPairs m_fonts;
 };
 
-AppFontManager::AppFontManager()
-{
-}
+AppFontManager::AppFontManager() = default;
 
 AppFontManager &AppFontManager::instance()
 {
@@ -213,9 +211,9 @@ const AppFontManager::FileNameFontIdPairs &AppFontManager::fonts() const
 
 // ------------- AppFontModel
 class AppFontModel : public QStandardItemModel {
-    Q_DISABLE_COPY(AppFontModel)
+    Q_DISABLE_COPY_MOVE(AppFontModel)
 public:
-    AppFontModel(QObject *parent = 0);
+    AppFontModel(QObject *parent = nullptr);
 
     void init(const AppFontManager &mgr);
     void add(const QString &fontFile, int id);
@@ -230,7 +228,7 @@ AppFontModel::AppFontModel(QObject * parent) :
 
 void AppFontModel::init(const AppFontManager &mgr)
 {
-    typedef AppFontManager::FileNameFontIdPairs FileNameFontIdPairs;
+    using FileNameFontIdPairs = AppFontManager::FileNameFontIdPairs;
 
     const FileNameFontIdPairs &fonts = mgr.fonts();
     const FileNameFontIdPairs::const_iterator cend = fonts.constEnd();

@@ -78,7 +78,7 @@ FloatPoint FrameTranslation(const LocalFrameView* frame_view) {
 FloatPoint ConvertAbsoluteLocationForLayoutObjectFloat(
     const DoublePoint& location,
     const LayoutObject* layout_object) {
-  return layout_object->AbsoluteToLocal(FloatPoint(location), kUseTransforms);
+  return layout_object->AbsoluteToLocalFloatPoint(FloatPoint(location));
 }
 
 // FIXME: Change |LocalFrameView| to const FrameView& after RemoteFrames get
@@ -198,37 +198,37 @@ WebMouseEventBuilder::WebMouseEventBuilder(const LocalFrameView* plugin_parent,
                                         *this);
 
   switch (event.button()) {
-    case short(WebPointerProperties::Button::kLeft):
+    case int16_t(WebPointerProperties::Button::kLeft):
       button = WebMouseEvent::Button::kLeft;
       break;
-    case short(WebPointerProperties::Button::kMiddle):
+    case int16_t(WebPointerProperties::Button::kMiddle):
       button = WebMouseEvent::Button::kMiddle;
       break;
-    case short(WebPointerProperties::Button::kRight):
+    case int16_t(WebPointerProperties::Button::kRight):
       button = WebMouseEvent::Button::kRight;
       break;
-    case short(WebPointerProperties::Button::kBack):
+    case int16_t(WebPointerProperties::Button::kBack):
       button = WebMouseEvent::Button::kBack;
       break;
-    case short(WebPointerProperties::Button::kForward):
+    case int16_t(WebPointerProperties::Button::kForward):
       button = WebMouseEvent::Button::kForward;
       break;
   }
   if (event.ButtonDown()) {
     switch (event.button()) {
-      case short(WebPointerProperties::Button::kLeft):
+      case int16_t(WebPointerProperties::Button::kLeft):
         modifiers_ |= WebInputEvent::kLeftButtonDown;
         break;
-      case short(WebPointerProperties::Button::kMiddle):
+      case int16_t(WebPointerProperties::Button::kMiddle):
         modifiers_ |= WebInputEvent::kMiddleButtonDown;
         break;
-      case short(WebPointerProperties::Button::kRight):
+      case int16_t(WebPointerProperties::Button::kRight):
         modifiers_ |= WebInputEvent::kRightButtonDown;
         break;
-      case short(WebPointerProperties::Button::kBack):
+      case int16_t(WebPointerProperties::Button::kBack):
         modifiers_ |= WebInputEvent::kBackButtonDown;
         break;
-      case short(WebPointerProperties::Button::kForward):
+      case int16_t(WebPointerProperties::Button::kForward):
         modifiers_ |= WebInputEvent::kForwardButtonDown;
         break;
     }
@@ -321,7 +321,7 @@ WebKeyboardEventBuilder::WebKeyboardEventBuilder(const KeyboardEvent& event) {
 
 Vector<WebMouseEvent> TransformWebMouseEventVector(
     LocalFrameView* frame_view,
-    const std::vector<const WebInputEvent*>& coalesced_events) {
+    const WebVector<const WebInputEvent*>& coalesced_events) {
   Vector<WebMouseEvent> result;
   for (auto* const event : coalesced_events) {
     DCHECK(WebInputEvent::IsMouseEventType(event->GetType()));
@@ -333,7 +333,7 @@ Vector<WebMouseEvent> TransformWebMouseEventVector(
 
 Vector<WebPointerEvent> TransformWebPointerEventVector(
     LocalFrameView* frame_view,
-    const std::vector<const WebInputEvent*>& coalesced_events) {
+    const WebVector<const WebInputEvent*>& coalesced_events) {
   float scale = FrameScale(frame_view);
   FloatPoint translation = FrameTranslation(frame_view);
   Vector<WebPointerEvent> result;

@@ -6,7 +6,7 @@
 #define THIRD_PARTY_BLINK_RENDERER_CORE_PAINT_COMPOSITING_COMPOSITING_INPUTS_UPDATER_H_
 
 #include "third_party/blink/renderer/core/layout/layout_geometry_map.h"
-#include "third_party/blink/renderer/platform/wtf/allocator.h"
+#include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 
 namespace blink {
 
@@ -16,7 +16,8 @@ class CompositingInputsUpdater {
   STACK_ALLOCATED();
 
  public:
-  explicit CompositingInputsUpdater(PaintLayer* root_layer);
+  explicit CompositingInputsUpdater(PaintLayer* root_layer,
+                                    PaintLayer* compositing_inputs_root);
   ~CompositingInputsUpdater();
 
   void Update();
@@ -61,14 +62,29 @@ class CompositingInputsUpdater {
     bool needs_reparent_scroll_for_fixed = false;
 
     bool is_under_video = false;
+    bool is_under_position_sticky = false;
   };
 
-  void UpdateRecursive(PaintLayer*, UpdateType, AncestorInfo);
+  void UpdateSelfAndDescendantsRecursively(PaintLayer*,
+                                           UpdateType,
+                                           AncestorInfo);
   void UpdateAncestorDependentCompositingInputs(PaintLayer*,
                                                 const AncestorInfo&);
+  // This is a recursive method to compute the geometry_map_ and AncestorInfo
+  // starting from the root layer down to the compositing_inputs_root_.
+  void ApplyAncestorInfoToSelfAndAncestorsRecursively(PaintLayer*,
+                                                      UpdateType&,
+                                                      AncestorInfo&);
+  // This method takes care of updating AncestorInfo taking into account the
+  // current value of AncestorInfo.
+  void UpdateAncestorInfo(PaintLayer*, UpdateType&, AncestorInfo&);
+
+  // Combine all reasons for compositing a layer into a single boolean value
+  bool LayerOrDescendantShouldBeComposited(PaintLayer*);
 
   LayoutGeometryMap geometry_map_;
   PaintLayer* root_layer_;
+  PaintLayer* compositing_inputs_root_;
 };
 
 }  // namespace blink

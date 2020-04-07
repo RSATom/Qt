@@ -63,21 +63,19 @@ namespace Ui {
     class NewFormWidget;
 }
 
-class QDesignerWorkbench;
-
 class QDESIGNER_SHARED_EXPORT NewFormWidget : public QDesignerNewFormWidgetInterface
 {
     Q_OBJECT
-    Q_DISABLE_COPY(NewFormWidget)
+    Q_DISABLE_COPY_MOVE(NewFormWidget)
 
 public:
-    typedef QList<qdesigner_internal::DeviceProfile> DeviceProfileList;
+    using DeviceProfileList = QList<qdesigner_internal::DeviceProfile>;
 
     explicit NewFormWidget(QDesignerFormEditorInterface *core, QWidget *parentWidget);
     ~NewFormWidget() override;
 
     bool hasCurrentTemplate() const override;
-    QString currentTemplate(QString *errorMessage = 0) override;
+    QString currentTemplate(QString *errorMessage = nullptr) override;
 
     // Convenience for implementing file dialogs with preview
     static QImage grabForm(QDesignerFormEditorInterface *core,
@@ -112,8 +110,8 @@ private:
     bool showCurrentItemPixmap();
 
     // Pixmap cache (item, profile combo index)
-    typedef QPair<const QTreeWidgetItem *, int> ItemPixmapCacheKey;
-    typedef QMap<ItemPixmapCacheKey, QPixmap> ItemPixmapCache;
+    using ItemPixmapCacheKey = QPair<const QTreeWidgetItem *, int>;
+    using ItemPixmapCache = QMap<ItemPixmapCacheKey, QPixmap>;
     ItemPixmapCache m_itemPixmapCache;
 
     QDesignerFormEditorInterface *m_core;

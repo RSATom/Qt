@@ -10,7 +10,7 @@ namespace blink {
 // Type of <script>'s scheduling.
 //
 // In the spec, this is determined which clause of Step 25 of
-// https://html.spec.whatwg.org/multipage/scripting.html#prepare-a-script
+// https://html.spec.whatwg.org/C/#prepare-a-script
 // is taken.
 //
 // The enum values are used in histograms and thus do not change existing
@@ -62,7 +62,14 @@ enum class ScriptSchedulingType {
   kAsync,
 
   // Inline <script> executed immediately within prepare-a-script.
-  kImmediate
+  kImmediate,
+
+  // Force deferred scripts controlled by HTMLParserScriptRunner.
+  // These are otherwise parser-blocking scripts that are being forced to
+  // execute after parsing completes (due to a ForceDeferScriptIntervention).
+  //
+  // Spec: not yet spec'ed. https://crbug.com/976061
+  kForceDefer
 };
 
 static const int kLastScriptSchedulingType =

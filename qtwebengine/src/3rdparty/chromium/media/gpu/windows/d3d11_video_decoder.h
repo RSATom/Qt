@@ -5,6 +5,7 @@
 #ifndef MEDIA_GPU_D3D11_VIDEO_DECODER_H_
 #define MEDIA_GPU_D3D11_VIDEO_DECODER_H_
 
+#include <d3d11.h>
 #include <string>
 #include <vector>
 
@@ -21,7 +22,9 @@
 #include "media/base/win/d3d11_create_device_cb.h"
 #include "media/gpu/command_buffer_helper.h"
 #include "media/gpu/media_gpu_export.h"
+#include "media/gpu/windows/d3d11_com_defs.h"
 #include "media/gpu/windows/d3d11_h264_accelerator.h"
+#include "media/gpu/windows/d3d11_texture_selector.h"
 #include "media/gpu/windows/d3d11_video_decoder_client.h"
 #include "media/gpu/windows/d3d11_vp9_accelerator.h"
 #include "media/video/supported_video_decoder_config.h"
@@ -44,8 +47,7 @@ class MEDIA_GPU_EXPORT D3D11VideoDecoder : public VideoDecoder,
                                            public D3D11VideoDecoderClient {
  public:
   // Callback to get a D3D11 device.
-  using GetD3D11DeviceCB =
-      base::RepeatingCallback<Microsoft::WRL::ComPtr<ID3D11Device>()>;
+  using GetD3D11DeviceCB = base::RepeatingCallback<ComD3D11Device()>;
 
   // List of configs that we'll check against when initializing.  This is only
   // needed since GpuMojoMediaClient merges our supported configs with the VDA
@@ -67,12 +69,11 @@ class MEDIA_GPU_EXPORT D3D11VideoDecoder : public VideoDecoder,
   void Initialize(const VideoDecoderConfig& config,
                   bool low_delay,
                   CdmContext* cdm_context,
-                  const InitCB& init_cb,
+                  InitCB init_cb,
                   const OutputCB& output_cb,
                   const WaitingCB& waiting_cb) override;
-  void Decode(scoped_refptr<DecoderBuffer> buffer,
-              const DecodeCB& decode_cb) override;
-  void Reset(const base::RepeatingClosure& closure) override;
+  void Decode(scoped_refptr<DecoderBuffer> buffer, DecodeCB decode_cb) override;
+  void Reset(base::OnceClosure closure) override;
   bool NeedsBitstreamConversion() const override;
   bool CanReadWithoutStalling() const override;
   int GetMaxDecodeRequests() const override;
@@ -119,16 +120,12 @@ class MEDIA_GPU_EXPORT D3D11VideoDecoder : public VideoDecoder,
   void DoDecode();
 
   // instantiate |accelerated_video_decoder_| based on the video profile
-  HRESULT InitializeAcceleratedDecoder(
-      const VideoDecoderConfig& config,
-      CdmProxyContext* proxy_context,
-      Microsoft::WRL::ComPtr<ID3D11VideoDecoder> video_decoder);
+  HRESULT InitializeAcceleratedDecoder(const VideoDecoderConfig& config,
+                                       CdmProxyContext* proxy_context,
+                                       ComD3D11VideoDecoder video_decoder);
 
   // Query the video device for a specific decoder ID.
   bool DeviceHasDecoderID(GUID decoder_guid);
-
-  // Gets the Decoder GUID from the config.
-  GUID GetD3D11DecoderGUID(const VideoDecoderConfig& config);
 
   // Create new PictureBuffers.  Currently, this completes synchronously, but
   // really should have an async interface since it must do some work on the
@@ -223,16 +220,16 @@ class MEDIA_GPU_EXPORT D3D11VideoDecoder : public VideoDecoder,
   // the ANGLE device for display (plus texture sharing, if needed).
   GetD3D11DeviceCB get_d3d11_device_cb_;
 
-  Microsoft::WRL::ComPtr<ID3D11Device> device_;
-  Microsoft::WRL::ComPtr<ID3D11DeviceContext> device_context_;
-  Microsoft::WRL::ComPtr<ID3D11VideoDevice> video_device_;
+  ComD3D11Device device_;
+  ComD3D11DeviceContext device_context_;
+  ComD3D11VideoDevice video_device_;
 
   // D3D11 version on this device.
   D3D_FEATURE_LEVEL usable_feature_level_;
 
   std::unique_ptr<AcceleratedVideoDecoder> accelerated_video_decoder_;
 
-  GUID decoder_guid_;
+  std::unique_ptr<TextureSelector> texture_selector_;
 
   std::list<std::pair<scoped_refptr<DecoderBuffer>, DecodeCB>>
       input_buffer_queue_;

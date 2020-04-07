@@ -120,7 +120,7 @@ public:
             case DisplayableFilePermissionsRole:
                 return QVariant(permissionString(fileInfo(index)));
             case LastModifiedRole:
-                return QVariant(fileInfo(index).lastModified().toString(Qt::SystemLocaleShortDate));
+                return QVariant(QLocale::system().toString(fileInfo(index).lastModified(), QLocale::ShortFormat));
             case UrlStringRole:
                 return QVariant(QUrl::fromLocalFile(filePath(index)).toString());
             default:

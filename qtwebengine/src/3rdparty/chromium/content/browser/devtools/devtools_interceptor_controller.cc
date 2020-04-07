@@ -4,6 +4,7 @@
 
 #include "content/browser/devtools/devtools_interceptor_controller.h"
 
+#include "base/bind.h"
 #include "base/supports_user_data.h"
 #include "base/task/post_task.h"
 #include "content/browser/frame_host/frame_tree_node.h"
@@ -99,9 +100,7 @@ DevToolsInterceptorController::DevToolsInterceptorController(
     base::WeakPtr<DevToolsNetworkInterceptor> interceptor,
     std::unique_ptr<DevToolsTargetRegistry> target_registry,
     BrowserContext* browser_context)
-    : interceptor_(interceptor),
-      target_registry_(std::move(target_registry)),
-      weak_factory_(this) {
+    : interceptor_(interceptor), target_registry_(std::move(target_registry)) {
   browser_context->SetUserData(
       kDevToolsInterceptorController,
       std::unique_ptr<DevToolsInterceptorController>(this));

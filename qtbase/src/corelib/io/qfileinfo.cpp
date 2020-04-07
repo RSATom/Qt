@@ -52,7 +52,7 @@ QString QFileInfoPrivate::getFileName(QAbstractFileEngine::FileName name) const
         return fileNames[(int)name];
 
     QString ret;
-    if (fileEngine == 0) { // local file; use the QFileSystemEngine directly
+    if (fileEngine == nullptr) { // local file; use the QFileSystemEngine directly
         switch (name) {
             case QAbstractFileEngine::CanonicalName:
             case QAbstractFileEngine::CanonicalPathName: {
@@ -103,7 +103,7 @@ QString QFileInfoPrivate::getFileOwner(QAbstractFileEngine::FileOwner own) const
     if (cache_enabled && !fileOwners[(int)own].isNull())
         return fileOwners[(int)own];
     QString ret;
-    if (fileEngine == 0) {
+    if (fileEngine == nullptr) {
         switch (own) {
         case QAbstractFileEngine::OwnerUser:
             ret = QFileSystemEngine::resolveUserName(fileEntry, metaData);
@@ -134,7 +134,7 @@ uint QFileInfoPrivate::getFileFlags(QAbstractFileEngine::FileFlags request) cons
     // extra syscall. Bundle detecton on Mac can be slow, expecially on network
     // paths, so we separate out that as well.
 
-    QAbstractFileEngine::FileFlags req = 0;
+    QAbstractFileEngine::FileFlags req = nullptr;
     uint cachedFlags = 0;
 
     if (request & (QAbstractFileEngine::FlagsMask | QAbstractFileEngine::TypesMask)) {
@@ -256,11 +256,11 @@ QDateTime &QFileInfoPrivate::getFileTime(QAbstractFileEngine::FileTime request) 
 
     \snippet code/src_corelib_io_qfileinfo.cpp 0
 
-    On Windows, symlinks (shortcuts) are \c .lnk files. Similarly to Unix
-    systems, the property getters return the size of the targeted file, not
-    the \c .lnk file itself. Please note this behavior is deprecated and will
-    likely be removed in a future version of Qt, after which \c .lnk files will
-    be treated as regular files.
+    On Windows, shortcuts (\c .lnk files) are currently treated as symlinks. As
+    on Unix systems, the property getters return the size of the targeted file,
+    not the \c .lnk file itself.  This behavior is deprecated and will likely be
+    removed in a future version of Qt, after which \c .lnk files will be treated
+    as regular files.
 
     \snippet code/src_corelib_io_qfileinfo.cpp 1
 
@@ -435,7 +435,7 @@ bool QFileInfo::operator==(const QFileInfo &fileinfo) const
         return true;
 
     Qt::CaseSensitivity sensitive;
-    if (d->fileEngine == 0 || fileinfo.d_ptr->fileEngine == 0) {
+    if (d->fileEngine == nullptr || fileinfo.d_ptr->fileEngine == nullptr) {
         if (d->fileEngine != fileinfo.d_ptr->fileEngine) // one is native, the other is a custom file-engine
             return false;
 
@@ -650,7 +650,7 @@ bool QFileInfo::isRelative() const
     Q_D(const QFileInfo);
     if (d->isDefaultConstructed)
         return true;
-    if (d->fileEngine == 0)
+    if (d->fileEngine == nullptr)
         return d->fileEntry.isRelative();
     return d->fileEngine->isRelativePath();
 }
@@ -683,7 +683,7 @@ bool QFileInfo::exists() const
     Q_D(const QFileInfo);
     if (d->isDefaultConstructed)
         return false;
-    if (d->fileEngine == 0) {
+    if (d->fileEngine == nullptr) {
         if (!d->cache_enabled || !d->metaData.hasFlags(QFileSystemMetaData::ExistsAttribute))
             QFileSystemEngine::fillMetaData(d->fileEntry, d->metaData, QFileSystemMetaData::ExistsAttribute);
         return d->metaData.exists();
@@ -708,11 +708,11 @@ bool QFileInfo::exists(const QString &file)
         return false;
     QFileSystemEntry entry(file);
     QFileSystemMetaData data;
-    QAbstractFileEngine *engine =
-        QFileSystemEngine::resolveEntryAndCreateLegacyEngine(entry, data);
+    std::unique_ptr<QAbstractFileEngine> engine
+        {QFileSystemEngine::resolveEntryAndCreateLegacyEngine(entry, data)};
     // Expensive fallback to non-QFileSystemEngine implementation
     if (engine)
-        return QFileInfo(new QFileInfoPrivate(entry, data, engine)).exists();
+        return QFileInfo(new QFileInfoPrivate(entry, data, std::move(engine))).exists();
 
     QFileSystemEngine::fillMetaData(entry, data, QFileSystemMetaData::ExistsAttribute);
     return data.exists();
@@ -997,7 +997,7 @@ bool QFileInfo::isNativePath() const
     Q_D(const QFileInfo);
     if (d->isDefaultConstructed)
         return false;
-    if (d->fileEngine == 0)
+    if (d->fileEngine == nullptr)
         return true;
     return d->getFileFlags(QAbstractFileEngine::LocalDiskFlag);
 }
@@ -1060,7 +1060,7 @@ bool QFileInfo::isBundle() const
 }
 
 /*!
-    Returns \c true if this object points to a symbolic link;
+    Returns \c true if this object points to a symbolic link or shortcut;
     otherwise returns \c false.
 
     Symbolic links exist on Unix (including \macos and iOS) and Windows
@@ -1091,6 +1091,61 @@ bool QFileInfo::isSymLink() const
 }
 
 /*!
+    Returns \c true if this object points to a symbolic link;
+    otherwise returns \c false.
+
+    Symbolic links exist on Unix (including \macos and iOS) and Windows
+    (NTFS-symlink) and are typically created by the \c{ln -s} or \c{mklink}
+    commands, respectively.
+
+    Unix handles symlinks transparently. Opening a symbolic link effectively
+    opens the \l{symLinkTarget()}{link's target}.
+
+    In contrast to isSymLink(), false will be returned for shortcuts
+    (\c *.lnk files) on Windows. Use QFileInfo::isShortcut() instead.
+
+    \note If the symlink points to a non existing file, exists() returns
+    false.
+
+    \sa isFile(), isDir(), isShortcut(), symLinkTarget()
+*/
+
+bool QFileInfo::isSymbolicLink() const
+{
+    Q_D(const QFileInfo);
+    return d->checkAttribute<bool>(
+                QFileSystemMetaData::LegacyLinkType,
+                [d]() { return d->metaData.isLink(); },
+                [d]() { return d->getFileFlags(QAbstractFileEngine::LinkType); });
+}
+
+/*!
+    Returns \c true if this object points to a shortcut;
+    otherwise returns \c false.
+
+    Shortcuts only exist on Windows and are typically \c .lnk files.
+    For instance, true will be returned for shortcuts (\c *.lnk files) on
+    Windows, but false will be returned on Unix (including \macos and iOS).
+
+    The shortcut (.lnk) files are treated as regular files. Opening those will
+    open the \c .lnk file itself. In order to open the file a shortcut
+    references to, it must uses symLinkTarget() on a shortcut.
+
+    \note Even if a shortcut (broken shortcut) points to a non existing file,
+    isShortcut() returns true.
+
+    \sa isFile(), isDir(), isSymbolicLink(), symLinkTarget()
+*/
+bool QFileInfo::isShortcut() const
+{
+    Q_D(const QFileInfo);
+    return d->checkAttribute<bool>(
+            QFileSystemMetaData::LegacyLinkType,
+            [d]() { return d->metaData.isLnkFile(); },
+            [d]() { return d->getFileFlags(QAbstractFileEngine::LinkType); });
+}
+
+/*!
     Returns \c true if the object points to a directory or to a symbolic
     link to a directory, and that directory is the root directory; otherwise
     returns \c false.
@@ -1100,7 +1155,7 @@ bool QFileInfo::isRoot() const
     Q_D(const QFileInfo);
     if (d->isDefaultConstructed)
         return false;
-    if (d->fileEngine == 0) {
+    if (d->fileEngine == nullptr) {
         if (d->fileEntry.isRoot()) {
 #if defined(Q_OS_WIN) && !defined(Q_OS_WINRT)
             //the path is a drive root, but the drive may not exist

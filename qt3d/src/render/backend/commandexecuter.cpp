@@ -248,10 +248,10 @@ QJsonObject parameterPackToJson(const Render::ShaderParameterPack &pack)
 
     const Render::PackUniformHash &uniforms = pack.uniforms();
     QJsonArray uniformsArray;
-    for (auto it = uniforms.cbegin(), end = uniforms.cend(); it != end; ++it) {
+    for (int i = 0, m = uniforms.keys.size(); i < m; ++i) {
         QJsonObject uniformObj;
-        uniformObj.insert(QLatin1String("name"), Render::StringToInt::lookupString(it.key()));
-        const Render::UniformValue::ValueType type = it.value().valueType();
+        uniformObj.insert(QLatin1String("name"), Render::StringToInt::lookupString(uniforms.keys.at(i)));
+        const Render::UniformValue::ValueType type = uniforms.values.at(i).valueType();
         uniformObj.insert(QLatin1String("type"),
                           type == Render::UniformValue::ScalarValue
                           ? QLatin1String("value")
@@ -261,11 +261,11 @@ QJsonObject parameterPackToJson(const Render::ShaderParameterPack &pack)
     obj.insert(QLatin1String("uniforms"), uniformsArray);
 
     QJsonArray texturesArray;
-    const QVector<Render::ShaderParameterPack::NamedTexture> &textures = pack.textures();
+    const QVector<Render::ShaderParameterPack::NamedResource> &textures = pack.textures();
     for (const auto & texture : textures) {
         QJsonObject textureObj;
         textureObj.insert(QLatin1String("name"), Render::StringToInt::lookupString(texture.glslNameId));
-        textureObj.insert(QLatin1String("id"), qint64(texture.texId.id()));
+        textureObj.insert(QLatin1String("id"), qint64(texture.nodeId.id()));
         texturesArray.push_back(textureObj);
     }
     obj.insert(QLatin1String("textures"), texturesArray);
@@ -346,15 +346,15 @@ void CommandExecuter::performAsynchronousCommandExecution(const QVector<Render::
                 viewObj.insert(QLatin1String("clearStencilValue"), v->clearStencilValue());
 
                 QJsonArray renderCommandsArray;
-                for (Render::RenderCommand *c : v->commands()) {
+                for (const Render::RenderCommand &c : v->commands()) {
                     QJsonObject commandObj;
                     Render::NodeManagers *nodeManagers = m_renderer->nodeManagers();
-                    commandObj.insert(QLatin1String("shader"), backendNodeToJSon(c->m_shader, nodeManagers->shaderManager()));
-                    commandObj.insert(QLatin1String("vao"),  double(c->m_vao.handle()));
-                    commandObj.insert(QLatin1String("instanceCount"), c->m_instanceCount);
-                    commandObj.insert(QLatin1String("geometry"),  backendNodeToJSon(c->m_geometry, nodeManagers->geometryManager()));
-                    commandObj.insert(QLatin1String("geometryRenderer"),  backendNodeToJSon(c->m_geometryRenderer, nodeManagers->geometryRendererManager()));
-                    commandObj.insert(QLatin1String("shaderParameterPack"), parameterPackToJson(c->m_parameterPack));
+                    commandObj.insert(QLatin1String("shader"), backendNodeToJSon(c.m_shader, nodeManagers->shaderManager()));
+                    commandObj.insert(QLatin1String("vao"),  double(c.m_vao.handle()));
+                    commandObj.insert(QLatin1String("instanceCount"), c.m_instanceCount);
+                    commandObj.insert(QLatin1String("geometry"),  backendNodeToJSon(c.m_geometry, nodeManagers->geometryManager()));
+                    commandObj.insert(QLatin1String("geometryRenderer"),  backendNodeToJSon(c.m_geometryRenderer, nodeManagers->geometryRendererManager()));
+                    commandObj.insert(QLatin1String("shaderParameterPack"), parameterPackToJson(c.m_parameterPack));
 
                     renderCommandsArray.push_back(commandObj);
                 }

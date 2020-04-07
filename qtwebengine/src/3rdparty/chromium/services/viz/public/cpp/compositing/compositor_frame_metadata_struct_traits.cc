@@ -18,6 +18,8 @@ bool StructTraits<viz::mojom::CompositorFrameMetadataDataView,
                   viz::CompositorFrameMetadata>::
     Read(viz::mojom::CompositorFrameMetadataDataView data,
          viz::CompositorFrameMetadata* out) {
+  if (data.device_scale_factor() <= 0)
+    return false;
   out->device_scale_factor = data.device_scale_factor();
   if (!data.ReadRootScrollOffset(&out->root_scroll_offset))
     return false;
@@ -26,11 +28,13 @@ bool StructTraits<viz::mojom::CompositorFrameMetadataDataView,
   if (!data.ReadScrollableViewportSize(&out->scrollable_viewport_size))
     return false;
 
+  if (data.frame_token() == 0u)
+    return false;
+  out->frame_token = data.frame_token();
+
   out->may_contain_video = data.may_contain_video();
   out->is_resourceless_software_draw_with_scroll_or_animation =
       data.is_resourceless_software_draw_with_scroll_or_animation();
-  out->content_source_id = data.content_source_id();
-  out->frame_token = data.frame_token();
   out->send_frame_token_to_embedder = data.send_frame_token_to_embedder();
   out->root_background_color = data.root_background_color();
   out->min_page_scale_factor = data.min_page_scale_factor();
@@ -55,7 +59,9 @@ bool StructTraits<viz::mojom::CompositorFrameMetadataDataView,
          data.ReadBeginFrameAck(&out->begin_frame_ack) &&
          data.ReadLocalSurfaceIdAllocationTime(
              &out->local_surface_id_allocation_time) &&
-         !out->local_surface_id_allocation_time.is_null();
+         !out->local_surface_id_allocation_time.is_null() &&
+         data.ReadPreferredFrameInterval(&out->preferred_frame_interval) &&
+         data.ReadMirrorRect(&out->mirror_rect);
 }
 
 }  // namespace mojo

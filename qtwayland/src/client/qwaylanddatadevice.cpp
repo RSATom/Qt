@@ -47,6 +47,7 @@
 #include "qwaylandinputdevice_p.h"
 #include "qwaylanddisplay_p.h"
 #include "qwaylandabstractdecoration_p.h"
+#include "qwaylandsurface_p.h"
 
 #include <QtCore/QMimeData>
 #include <QtGui/QGuiApplication>
@@ -80,7 +81,14 @@ QWaylandDataOffer *QWaylandDataDevice::selectionOffer() const
 
 void QWaylandDataDevice::invalidateSelectionOffer()
 {
+    if (m_selectionOffer.isNull())
+        return;
+
     m_selectionOffer.reset();
+
+#if QT_CONFIG(clipboard)
+    QGuiApplicationPrivate::platformIntegration()->clipboard()->emitChanged(QClipboard::Clipboard);
+#endif
 }
 
 QWaylandDataSource *QWaylandDataDevice::selectionSource() const
@@ -104,9 +112,10 @@ QWaylandDataOffer *QWaylandDataDevice::dragOffer() const
 
 bool QWaylandDataDevice::startDrag(QMimeData *mimeData, QWaylandWindow *icon)
 {
-    QWaylandWindow *origin = m_display->currentInputDevice()->pointerFocus();
+    auto *seat = m_display->currentInputDevice();
+    auto *origin = seat->pointerFocus();
     if (!origin)
-        origin = m_display->currentInputDevice()->touchFocus();
+        origin = seat->touchFocus();
 
     if (!origin) {
         qCDebug(lcQpaWayland) << "Couldn't start a drag because the origin window could not be found.";
@@ -116,7 +125,7 @@ bool QWaylandDataDevice::startDrag(QMimeData *mimeData, QWaylandWindow *icon)
     m_dragSource.reset(new QWaylandDataSource(m_display->dndSelectionHandler(), mimeData));
     connect(m_dragSource.data(), &QWaylandDataSource::cancelled, this, &QWaylandDataDevice::dragSourceCancelled);
 
-    start_drag(m_dragSource->object(), origin->object(), icon->object(), m_display->currentInputDevice()->serial());
+    start_drag(m_dragSource->object(), origin->wlSurface(), icon->wlSurface(), m_display->currentInputDevice()->serial());
     return true;
 }
 

@@ -67,9 +67,7 @@ QQuickThumbnailToolButton::QQuickThumbnailToolButton(QObject *parent) :
     connect(m_button, &QWinThumbnailToolButton::clicked, this, &QQuickThumbnailToolButton::clicked);
 }
 
-QQuickThumbnailToolButton::~QQuickThumbnailToolButton()
-{
-}
+QQuickThumbnailToolButton::~QQuickThumbnailToolButton() = default;
 
 /*!
     \qmlproperty url ThumbnailToolButton::iconSource

@@ -118,7 +118,8 @@ private slots:
     void sessionStarted(QDBusPendingCallWatcher *watcher);
     void sessionChanged(const QString &interface,
                         const QVariantMap &changed_properties,
-                        const QStringList &invalidated_properties);
+                        const QStringList &invalidated_properties,
+                        const QDBusMessage &);
 
 public slots:
     void abort();

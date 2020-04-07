@@ -11,6 +11,7 @@
 #include <string>
 #include <utility>
 
+#include "base/bind.h"
 #include "base/json/json_reader.h"
 #include "base/json/json_writer.h"
 #include "base/memory/ptr_util.h"
@@ -152,9 +153,8 @@ bool NetworkLocationRequest::MakeRequest(
   resource_request->url = FormRequestURL(api_key_);
   DCHECK(resource_request->url.is_valid());
   resource_request->load_flags =
-      net::LOAD_BYPASS_CACHE | net::LOAD_DISABLE_CACHE |
-      net::LOAD_DO_NOT_SAVE_COOKIES | net::LOAD_DO_NOT_SEND_COOKIES |
-      net::LOAD_DO_NOT_SEND_AUTH_DATA;
+      net::LOAD_BYPASS_CACHE | net::LOAD_DISABLE_CACHE;
+  resource_request->allow_credentials = false;
 
   url_loader_ = network::SimpleURLLoader::Create(std::move(resource_request),
                                                  traffic_annotation);
@@ -277,8 +277,10 @@ void AddWifiData(const WifiData& wifi_data,
   auto wifi_access_point_list = std::make_unique<base::ListValue>();
   for (auto* ap_data : access_points_by_signal_strength) {
     auto wifi_dict = std::make_unique<base::DictionaryValue>();
-    AddString("macAddress", base::UTF16ToUTF8(ap_data->mac_address),
-              wifi_dict.get());
+    auto macAddress = base::UTF16ToUTF8(ap_data->mac_address);
+    if (macAddress.empty())
+      continue;
+    AddString("macAddress", macAddress, wifi_dict.get());
     AddInteger("signalStrength", ap_data->radio_signal_strength,
                wifi_dict.get());
     AddInteger("age", age_milliseconds, wifi_dict.get());
@@ -286,7 +288,8 @@ void AddWifiData(const WifiData& wifi_data,
     AddInteger("signalToNoiseRatio", ap_data->signal_to_noise, wifi_dict.get());
     wifi_access_point_list->Append(std::move(wifi_dict));
   }
-  request->Set("wifiAccessPoints", std::move(wifi_access_point_list));
+  if (!wifi_access_point_list->empty())
+    request->Set("wifiAccessPoints", std::move(wifi_access_point_list));
 }
 
 void FormatPositionError(const GURL& server_url,
@@ -320,7 +323,7 @@ void GetLocationFromResponse(int net_error,
 
   if (status_code != 200) {  // HTTP OK.
     std::string message = "Returned error code ";
-    message += base::IntToString(status_code);
+    message += base::NumberToString(status_code);
     FormatPositionError(server_url, message, position);
     RecordUmaEvent(NETWORK_LOCATION_REQUEST_EVENT_RESPONSE_NOT_OK);
     return;
@@ -385,8 +388,8 @@ bool ParseServerResponse(const std::string& response_body,
   // Parse the response, ignoring comments.
   std::string error_msg;
   std::unique_ptr<base::Value> response_value =
-      base::JSONReader::ReadAndReturnError(response_body, base::JSON_PARSE_RFC,
-                                           NULL, &error_msg);
+      base::JSONReader::ReadAndReturnErrorDeprecated(
+          response_body, base::JSON_PARSE_RFC, NULL, &error_msg);
   if (response_value == NULL) {
     LOG(WARNING) << "ParseServerResponse() : JSONReader failed : " << error_msg;
     return false;

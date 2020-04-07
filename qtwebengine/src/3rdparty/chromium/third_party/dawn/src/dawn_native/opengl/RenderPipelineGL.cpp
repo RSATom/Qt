@@ -16,13 +16,13 @@
 
 #include "dawn_native/opengl/DeviceGL.h"
 #include "dawn_native/opengl/Forward.h"
-#include "dawn_native/opengl/InputStateGL.h"
 #include "dawn_native/opengl/PersistentPipelineStateGL.h"
 #include "dawn_native/opengl/UtilsGL.h"
 
 namespace dawn_native { namespace opengl {
 
     namespace {
+
         GLenum GLPrimitiveTopology(dawn::PrimitiveTopology primitiveTopology) {
             switch (primitiveTopology) {
                 case dawn::PrimitiveTopology::PointList:
@@ -37,6 +37,23 @@ namespace dawn_native { namespace opengl {
                     return GL_TRIANGLE_STRIP;
                 default:
                     UNREACHABLE();
+            }
+        }
+
+        void ApplyFrontFaceAndCulling(const OpenGLFunctions& gl,
+                                      dawn::FrontFace face,
+                                      dawn::CullMode mode) {
+            if (mode == dawn::CullMode::None) {
+                gl.Disable(GL_CULL_FACE);
+            } else {
+                gl.Enable(GL_CULL_FACE);
+                // Note that we invert winding direction in OpenGL. Because Y axis is up in OpenGL,
+                // which is different from WebGPU and other backends (Y axis is down).
+                GLenum direction = (face == dawn::FrontFace::CCW) ? GL_CW : GL_CCW;
+                gl.FrontFace(direction);
+
+                GLenum cullMode = (mode == dawn::CullMode::Front) ? GL_FRONT : GL_BACK;
+                gl.CullFace(cullMode);
             }
         }
 
@@ -90,23 +107,25 @@ namespace dawn_native { namespace opengl {
             }
         }
 
-        void ApplyBlendState(uint32_t attachment, const BlendStateDescriptor* descriptor) {
-            if (descriptor->blendEnabled) {
-                glEnablei(GL_BLEND, attachment);
-                glBlendEquationSeparatei(attachment, GLBlendMode(descriptor->colorBlend.operation),
-                                         GLBlendMode(descriptor->alphaBlend.operation));
-                glBlendFuncSeparatei(attachment,
-                                     GLBlendFactor(descriptor->colorBlend.srcFactor, false),
-                                     GLBlendFactor(descriptor->colorBlend.dstFactor, false),
-                                     GLBlendFactor(descriptor->alphaBlend.srcFactor, true),
-                                     GLBlendFactor(descriptor->alphaBlend.dstFactor, true));
+        void ApplyColorState(const OpenGLFunctions& gl,
+                             uint32_t attachment,
+                             const ColorStateDescriptor* descriptor) {
+            if (BlendEnabled(descriptor)) {
+                gl.Enablei(GL_BLEND, attachment);
+                gl.BlendEquationSeparatei(attachment, GLBlendMode(descriptor->colorBlend.operation),
+                                          GLBlendMode(descriptor->alphaBlend.operation));
+                gl.BlendFuncSeparatei(attachment,
+                                      GLBlendFactor(descriptor->colorBlend.srcFactor, false),
+                                      GLBlendFactor(descriptor->colorBlend.dstFactor, false),
+                                      GLBlendFactor(descriptor->alphaBlend.srcFactor, true),
+                                      GLBlendFactor(descriptor->alphaBlend.dstFactor, true));
             } else {
-                glDisablei(GL_BLEND, attachment);
+                gl.Disablei(GL_BLEND, attachment);
             }
-            glColorMaski(attachment, descriptor->colorWriteMask & dawn::ColorWriteMask::Red,
-                         descriptor->colorWriteMask & dawn::ColorWriteMask::Green,
-                         descriptor->colorWriteMask & dawn::ColorWriteMask::Blue,
-                         descriptor->colorWriteMask & dawn::ColorWriteMask::Alpha);
+            gl.ColorMaski(attachment, descriptor->writeMask & dawn::ColorWriteMask::Red,
+                          descriptor->writeMask & dawn::ColorWriteMask::Green,
+                          descriptor->writeMask & dawn::ColorWriteMask::Blue,
+                          descriptor->writeMask & dawn::ColorWriteMask::Alpha);
         }
 
         GLuint OpenGLStencilOperation(dawn::StencilOperation stencilOperation) {
@@ -132,71 +151,114 @@ namespace dawn_native { namespace opengl {
             }
         }
 
-        void ApplyDepthStencilState(const DepthStencilStateDescriptor* descriptor,
+        void ApplyDepthStencilState(const OpenGLFunctions& gl,
+                                    const DepthStencilStateDescriptor* descriptor,
                                     PersistentPipelineState* persistentPipelineState) {
             // Depth writes only occur if depth is enabled
             if (descriptor->depthCompare == dawn::CompareFunction::Always &&
                 !descriptor->depthWriteEnabled) {
-                glDisable(GL_DEPTH_TEST);
+                gl.Disable(GL_DEPTH_TEST);
             } else {
-                glEnable(GL_DEPTH_TEST);
+                gl.Enable(GL_DEPTH_TEST);
             }
 
             if (descriptor->depthWriteEnabled) {
-                glDepthMask(GL_TRUE);
+                gl.DepthMask(GL_TRUE);
             } else {
-                glDepthMask(GL_FALSE);
+                gl.DepthMask(GL_FALSE);
             }
 
-            glDepthFunc(ToOpenGLCompareFunction(descriptor->depthCompare));
+            gl.DepthFunc(ToOpenGLCompareFunction(descriptor->depthCompare));
 
             if (StencilTestEnabled(descriptor)) {
-                glEnable(GL_STENCIL_TEST);
+                gl.Enable(GL_STENCIL_TEST);
             } else {
-                glDisable(GL_STENCIL_TEST);
+                gl.Disable(GL_STENCIL_TEST);
             }
 
-            GLenum backCompareFunction = ToOpenGLCompareFunction(descriptor->back.compare);
-            GLenum frontCompareFunction = ToOpenGLCompareFunction(descriptor->front.compare);
+            GLenum backCompareFunction = ToOpenGLCompareFunction(descriptor->stencilBack.compare);
+            GLenum frontCompareFunction = ToOpenGLCompareFunction(descriptor->stencilFront.compare);
             persistentPipelineState->SetStencilFuncsAndMask(
-                backCompareFunction, frontCompareFunction, descriptor->stencilReadMask);
+                gl, backCompareFunction, frontCompareFunction, descriptor->stencilReadMask);
 
-            glStencilOpSeparate(GL_BACK, OpenGLStencilOperation(descriptor->back.stencilFailOp),
-                                OpenGLStencilOperation(descriptor->back.depthFailOp),
-                                OpenGLStencilOperation(descriptor->back.passOp));
-            glStencilOpSeparate(GL_FRONT, OpenGLStencilOperation(descriptor->front.stencilFailOp),
-                                OpenGLStencilOperation(descriptor->front.depthFailOp),
-                                OpenGLStencilOperation(descriptor->front.passOp));
+            gl.StencilOpSeparate(GL_BACK, OpenGLStencilOperation(descriptor->stencilBack.failOp),
+                                 OpenGLStencilOperation(descriptor->stencilBack.depthFailOp),
+                                 OpenGLStencilOperation(descriptor->stencilBack.passOp));
+            gl.StencilOpSeparate(GL_FRONT, OpenGLStencilOperation(descriptor->stencilFront.failOp),
+                                 OpenGLStencilOperation(descriptor->stencilFront.depthFailOp),
+                                 OpenGLStencilOperation(descriptor->stencilFront.passOp));
 
-            glStencilMask(descriptor->stencilWriteMask);
+            gl.StencilMask(descriptor->stencilWriteMask);
         }
 
     }  // anonymous namespace
 
     RenderPipeline::RenderPipeline(Device* device, const RenderPipelineDescriptor* descriptor)
         : RenderPipelineBase(device, descriptor),
+          mVertexArrayObject(0),
           mGlPrimitiveTopology(GLPrimitiveTopology(GetPrimitiveTopology())) {
         PerStage<const ShaderModule*> modules(nullptr);
-        modules[dawn::ShaderStage::Vertex] = ToBackend(descriptor->vertexStage->module);
-        modules[dawn::ShaderStage::Fragment] = ToBackend(descriptor->fragmentStage->module);
+        modules[ShaderStage::Vertex] = ToBackend(descriptor->vertexStage->module);
+        modules[ShaderStage::Fragment] = ToBackend(descriptor->fragmentStage->module);
 
-        PipelineGL::Initialize(ToBackend(GetLayout()), modules);
+        PipelineGL::Initialize(device->gl, ToBackend(GetLayout()), modules);
+        CreateVAOForVertexInput(descriptor->vertexInput);
+    }
+
+    RenderPipeline::~RenderPipeline() {
+        const OpenGLFunctions& gl = ToBackend(GetDevice())->gl;
+        gl.DeleteVertexArrays(1, &mVertexArrayObject);
+        gl.BindVertexArray(0);
     }
 
     GLenum RenderPipeline::GetGLPrimitiveTopology() const {
         return mGlPrimitiveTopology;
     }
 
+    void RenderPipeline::CreateVAOForVertexInput(const VertexInputDescriptor* vertexInput) {
+        const OpenGLFunctions& gl = ToBackend(GetDevice())->gl;
+
+        gl.GenVertexArrays(1, &mVertexArrayObject);
+        gl.BindVertexArray(mVertexArrayObject);
+
+        for (uint32_t location : IterateBitSet(GetAttributesSetMask())) {
+            const auto& attribute = GetAttribute(location);
+            gl.EnableVertexAttribArray(location);
+
+            attributesUsingInput[attribute.inputSlot][location] = true;
+            auto input = GetInput(attribute.inputSlot);
+
+            if (input.stride == 0) {
+                // Emulate a stride of zero (constant vertex attribute) by
+                // setting the attribute instance divisor to a huge number.
+                gl.VertexAttribDivisor(location, 0xffffffff);
+            } else {
+                switch (input.stepMode) {
+                    case dawn::InputStepMode::Vertex:
+                        break;
+                    case dawn::InputStepMode::Instance:
+                        gl.VertexAttribDivisor(location, 1);
+                        break;
+                    default:
+                        UNREACHABLE();
+                }
+            }
+        }
+    }
+
     void RenderPipeline::ApplyNow(PersistentPipelineState& persistentPipelineState) {
-        PipelineGL::ApplyNow();
+        const OpenGLFunctions& gl = ToBackend(GetDevice())->gl;
+        PipelineGL::ApplyNow(gl);
 
-        auto inputState = ToBackend(GetInputState());
-        glBindVertexArray(inputState->GetVAO());
+        ASSERT(mVertexArrayObject);
+        gl.BindVertexArray(mVertexArrayObject);
 
-        ApplyDepthStencilState(GetDepthStencilStateDescriptor(), &persistentPipelineState);
+        ApplyFrontFaceAndCulling(gl, GetFrontFace(), GetCullMode());
+
+        ApplyDepthStencilState(gl, GetDepthStencilStateDescriptor(), &persistentPipelineState);
 
         for (uint32_t attachmentSlot : IterateBitSet(GetColorAttachmentsMask())) {
-            ApplyBlendState(attachmentSlot, GetBlendStateDescriptor(attachmentSlot));
+            ApplyColorState(gl, attachmentSlot, GetColorStateDescriptor(attachmentSlot));
         }
     }
 

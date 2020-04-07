@@ -24,6 +24,7 @@ HEADERS += \
     $$PWD/renderstates_p.h \
     $$PWD/qpointsize.h \
     $$PWD/qseamlesscubemap.h \
+    $$PWD/qdepthrange.h \
     $$PWD/qdepthtest.h \
     $$PWD/qnodepthmask.h \
     $$PWD/qlinewidth.h \
@@ -33,6 +34,7 @@ HEADERS += \
     $$PWD/qclipplane_p.h \
     $$PWD/qcolormask_p.h \
     $$PWD/qcullface_p.h \
+    $$PWD/qdepthrange_p.h \
     $$PWD/qdepthtest_p.h \
     $$PWD/qfrontface_p.h \
     $$PWD/qpointsize_p.h \
@@ -47,7 +49,9 @@ HEADERS += \
     $$PWD/renderstatenode_p.h \
     $$PWD/qmultisampleantialiasing.h \
     $$PWD/statemask_p.h \
-    $$PWD/statevariant_p.h
+    $$PWD/statevariant_p.h \
+    $$PWD/qrastermode.h \
+    $$PWD/qrastermode_p.h
 
 SOURCES += \
     $$PWD/qalphacoverage.cpp \
@@ -57,6 +61,7 @@ SOURCES += \
     $$PWD/qclipplane.cpp \
     $$PWD/qcolormask.cpp \
     $$PWD/qcullface.cpp \
+    $$PWD/qdepthrange.cpp \
     $$PWD/qdepthtest.cpp \
     $$PWD/qdithering.cpp \
     $$PWD/qfrontface.cpp \
@@ -76,4 +81,5 @@ SOURCES += \
     $$PWD/qrenderstatecreatedchange.cpp \
     $$PWD/renderstatenode.cpp \
     $$PWD/statevariant.cpp \
-    $$PWD/qmultisampleantialiasing.cpp
+    $$PWD/qmultisampleantialiasing.cpp \
+    $$PWD/qrastermode.cpp

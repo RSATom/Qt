@@ -22,17 +22,6 @@
 
 namespace safe_browsing {
 
-namespace {
-
-void DeleteChannelIDFiles(base::FilePath channel_id_path) {
-  base::DeleteFile(channel_id_path, false);
-  base::DeleteFile(
-      base::FilePath(channel_id_path.value() + FILE_PATH_LITERAL("-journal")),
-      false);
-}
-
-}  // namespace
-
 class SafeBrowsingNetworkContext::SharedURLLoaderFactory
     : public network::SharedURLLoaderFactory {
  public:
@@ -149,7 +138,8 @@ class SafeBrowsingNetworkContext::SharedURLLoaderFactory
       request_context_getter_ = std::move(request_context_getter);
       network_context_impl_ = std::make_unique<network::NetworkContext>(
           content::GetNetworkServiceImpl(), std::move(network_context_request),
-          request_context_getter_->GetURLRequestContext());
+          request_context_getter_->GetURLRequestContext(),
+          /*cors_exempt_header_list=*/std::vector<std::string>());
     }
 
     scoped_refptr<net::URLRequestContextGetter> request_context_getter_;
@@ -170,9 +160,7 @@ class SafeBrowsingNetworkContext::SharedURLLoaderFactory
 
     network_context_params->http_cache_enabled = false;
 
-    // These are needed for PAC scripts that use file, data or FTP URLs.
-    network_context_params->enable_data_url_support = true;
-    network_context_params->enable_file_url_support = true;
+    // These are needed for PAC scripts that use FTP URLs.
 #if !BUILDFLAG(DISABLE_FTP_SUPPORT)
     network_context_params->enable_ftp_url_support = true;
 #endif  // !BUILDFLAG(DISABLE_FTP_SUPPORT)
@@ -181,16 +169,6 @@ class SafeBrowsingNetworkContext::SharedURLLoaderFactory
         base::FilePath::StringType(kSafeBrowsingBaseFilename) + kCookiesFile);
     network_context_params->cookie_path = cookie_path;
     network_context_params->enable_encrypted_cookies = false;
-
-    // TODO(nharper): Remove the following when no longer needed - see
-    // crbug.com/903642.
-    base::FilePath::StringType channel_id_path =
-        base::FilePath::StringType(kSafeBrowsingBaseFilename) + kChannelIDFile;
-    base::PostTaskWithTraits(
-        FROM_HERE,
-        {base::TaskPriority::BEST_EFFORT, base::MayBlock(),
-         base::TaskShutdownBehavior::CONTINUE_ON_SHUTDOWN},
-        base::BindOnce(DeleteChannelIDFiles, base::FilePath(channel_id_path)));
 
     return network_context_params;
   }

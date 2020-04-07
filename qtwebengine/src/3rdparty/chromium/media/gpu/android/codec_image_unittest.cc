@@ -43,7 +43,7 @@ class CodecImageTest : public testing::Test {
     auto codec = std::make_unique<NiceMock<MockMediaCodecBridge>>();
     codec_ = codec.get();
     wrapper_ = std::make_unique<CodecWrapper>(
-        CodecSurfacePair(std::move(codec), new AVDASurfaceBundle()),
+        CodecSurfacePair(std::move(codec), new CodecSurfaceBundle()),
         base::DoNothing(), base::SequencedTaskRunnerHandle::Get());
     ON_CALL(*codec_, DequeueOutputBuffer(_, _, _, _, _, _, _))
         .WillByDefault(Return(MEDIA_CODEC_OK));
@@ -61,8 +61,8 @@ class CodecImageTest : public testing::Test {
     // The tests rely on this texture being bound.
     glBindTexture(GL_TEXTURE_EXTERNAL_OES, texture_id_);
 
-    texture_owner_ = new NiceMock<MockTextureOwner>(texture_id_, context_.get(),
-                                                    surface_.get());
+    texture_owner_ = new NiceMock<MockTextureOwner>(
+        texture_id_, context_.get(), surface_.get(), BindsTextureOnUpdate());
   }
 
   void TearDown() override {
@@ -78,17 +78,20 @@ class CodecImageTest : public testing::Test {
   enum ImageKind { kOverlay, kTextureOwner };
   scoped_refptr<CodecImage> NewImage(
       ImageKind kind,
-      CodecImage::DestructionCb destruction_cb = base::DoNothing()) {
+      CodecImage::DestructionCB destruction_cb = base::DoNothing()) {
     std::unique_ptr<CodecOutputBuffer> buffer;
     wrapper_->DequeueOutputBuffer(nullptr, nullptr, &buffer);
-    scoped_refptr<CodecImage> image = new CodecImage(
+    scoped_refptr<CodecImage> image = new CodecImage();
+    image->Initialize(
         std::move(buffer), kind == kTextureOwner ? texture_owner_ : nullptr,
         base::BindRepeating(&PromotionHintReceiver::OnPromotionHint,
                             base::Unretained(&promotion_hint_receiver_)));
 
-    image->SetDestructionCb(std::move(destruction_cb));
+    image->SetDestructionCB(std::move(destruction_cb));
     return image;
   }
+
+  virtual bool BindsTextureOnUpdate() { return true; }
 
   base::test::ScopedTaskEnvironment scoped_task_environment_;
   NiceMock<MockMediaCodecBridge>* codec_;
@@ -107,8 +110,20 @@ class CodecImageTest : public testing::Test {
   PromotionHintReceiver promotion_hint_receiver_;
 };
 
-TEST_F(CodecImageTest, DestructionCbRuns) {
-  base::MockCallback<CodecImage::DestructionCb> cb;
+class CodecImageTestExplicitBind : public CodecImageTest {
+  bool BindsTextureOnUpdate() override { return false; }
+};
+
+TEST_F(CodecImageTest, NowUnusedCBRuns) {
+  base::MockCallback<CodecImage::NowUnusedCB> cb;
+  auto i = NewImage(kOverlay);
+  i->SetNowUnusedCB(cb.Get());
+  EXPECT_CALL(cb, Run(i.get()));
+  i = nullptr;
+}
+
+TEST_F(CodecImageTest, DestructionCBRuns) {
+  base::MockCallback<CodecImage::DestructionCB> cb;
   auto i = NewImage(kOverlay, cb.Get());
   EXPECT_CALL(cb, Run(i.get()));
   i = nullptr;
@@ -121,7 +136,7 @@ TEST_F(CodecImageTest, ImageStartsUnrendered) {
 
 TEST_F(CodecImageTest, CopyTexImageIsInvalidForOverlayImages) {
   auto i = NewImage(kOverlay);
-  ASSERT_FALSE(i->CopyTexImage(GL_TEXTURE_EXTERNAL_OES));
+  ASSERT_NE(gl::GLImage::COPY, i->ShouldBindOrCopy());
 }
 
 TEST_F(CodecImageTest, ScheduleOverlayPlaneIsInvalidForTextureOwnerImages) {
@@ -161,7 +176,35 @@ TEST_F(CodecImageTest, CopyTexImageTriggersFrontBufferRendering) {
   ASSERT_TRUE(i->was_rendered_to_front_buffer());
 }
 
+TEST_F(CodecImageTestExplicitBind, CopyTexImageTriggersFrontBufferRendering) {
+  auto i = NewImage(kTextureOwner);
+  // Verify that the release comes before the wait.
+  InSequence s;
+  EXPECT_CALL(*codec_, ReleaseOutputBuffer(_, true));
+  EXPECT_CALL(*texture_owner_, WaitForFrameAvailable());
+  EXPECT_CALL(*texture_owner_, UpdateTexImage());
+  EXPECT_CALL(*texture_owner_, EnsureTexImageBound());
+  i->CopyTexImage(GL_TEXTURE_EXTERNAL_OES);
+  ASSERT_TRUE(i->was_rendered_to_front_buffer());
+}
+
 TEST_F(CodecImageTest, GetTextureMatrixTriggersFrontBufferRendering) {
+  auto i = NewImage(kTextureOwner);
+  InSequence s;
+  EXPECT_CALL(*codec_, ReleaseOutputBuffer(_, true));
+  EXPECT_CALL(*texture_owner_, WaitForFrameAvailable());
+  EXPECT_CALL(*texture_owner_, UpdateTexImage());
+  EXPECT_CALL(*texture_owner_, GetTransformMatrix(_));
+  float matrix[16];
+  i->GetTextureMatrix(matrix);
+  ASSERT_TRUE(i->was_rendered_to_front_buffer());
+}
+
+TEST_F(CodecImageTestExplicitBind,
+       GetTextureMatrixTriggersFrontBufferRendering) {
+  // GetTextureMatrix should not bind the image.
+  texture_owner_->expect_update_tex_image = false;
+
   auto i = NewImage(kTextureOwner);
   InSequence s;
   EXPECT_CALL(*codec_, ReleaseOutputBuffer(_, true));
@@ -241,6 +284,20 @@ TEST_F(CodecImageTest, FrontBufferRenderingFailsIfBackBufferRenderingFailed) {
 }
 
 TEST_F(CodecImageTest, RenderToFrontBufferRestoresTextureBindings) {
+  GLuint pre_bound_texture = 0;
+  glGenTextures(1, &pre_bound_texture);
+  glBindTexture(GL_TEXTURE_EXTERNAL_OES, pre_bound_texture);
+  auto i = NewImage(kTextureOwner);
+  EXPECT_CALL(*texture_owner_, UpdateTexImage());
+  i->RenderToFrontBuffer();
+  GLint post_bound_texture = 0;
+  glGetIntegerv(GL_TEXTURE_BINDING_EXTERNAL_OES, &post_bound_texture);
+  ASSERT_EQ(pre_bound_texture, static_cast<GLuint>(post_bound_texture));
+}
+
+TEST_F(CodecImageTestExplicitBind, RenderToFrontBufferDoesNotBindTexture) {
+  texture_owner_->expect_update_tex_image = false;
+
   GLuint pre_bound_texture = 0;
   glGenTextures(1, &pre_bound_texture);
   glBindTexture(GL_TEXTURE_EXTERNAL_OES, pre_bound_texture);

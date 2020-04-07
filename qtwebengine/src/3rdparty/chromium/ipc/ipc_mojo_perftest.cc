@@ -5,15 +5,16 @@
 #include <stddef.h>
 #include <memory>
 
+#include "base/bind.h"
 #include "base/memory/ptr_util.h"
-#include "base/message_loop/message_loop.h"
-#include "base/message_loop/message_loop_current.h"
 #include "base/process/process_metrics.h"
 #include "base/run_loop.h"
 #include "base/strings/stringprintf.h"
 #include "base/synchronization/waitable_event.h"
 #include "base/test/perf_time_logger.h"
+#include "base/test/scoped_task_environment.h"
 #include "base/threading/thread.h"
+#include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
 #include "ipc/ipc_channel_mojo.h"
 #include "ipc/ipc_perftest_messages.h"
@@ -535,7 +536,7 @@ class MojoInterfacePassingPerfTest : public mojo::core::test::MojoTestBase {
 DEFINE_TEST_CLIENT_WITH_PIPE(InterfacePassingClient,
                              MojoInterfacePassingPerfTest,
                              h) {
-  base::MessageLoop main_message_loop;
+  base::test::ScopedTaskEnvironment scoped_task_environment;
   return RunInterfacePassingClient(h);
 }
 
@@ -570,7 +571,7 @@ using MojoInProcessInterfacePassingPerfTest =
     InProcessPerfTest<MojoInterfacePassingPerfTest>;
 
 DEFINE_TEST_CLIENT_WITH_PIPE(PingPongClient, MojoInterfacePerfTest, h) {
-  base::MessageLoop main_message_loop;
+  base::test::ScopedTaskEnvironment scoped_task_environment;
   return RunPingPongClient(h);
 }
 
@@ -578,7 +579,7 @@ DEFINE_TEST_CLIENT_WITH_PIPE(PingPongClient, MojoInterfacePerfTest, h) {
 // raw IPC::Messages.
 TEST_F(MojoInterfacePerfTest, MultiprocessPingPong) {
   RunTestClient("PingPongClient", [&](MojoHandle h) {
-    base::MessageLoop main_message_loop;
+    base::test::ScopedTaskEnvironment scoped_task_environment;
     RunPingPongServer(h, "Multiprocess");
   });
 }
@@ -586,21 +587,21 @@ TEST_F(MojoInterfacePerfTest, MultiprocessPingPong) {
 TEST_F(MojoInterfacePerfTest, MultiprocessSyncPing) {
   sync_ = true;
   RunTestClient("PingPongClient", [&](MojoHandle h) {
-    base::MessageLoop main_message_loop;
+    base::test::ScopedTaskEnvironment scoped_task_environment;
     RunPingPongServer(h, "MultiprocessSync");
   });
 }
 
 TEST_F(MojoInterfacePassingPerfTest, MultiprocessInterfacePassing) {
   RunTestClient("InterfacePassingClient", [&](MojoHandle h) {
-    base::MessageLoop main_message_loop;
+    base::test::ScopedTaskEnvironment scoped_task_environment;
     RunInterfacePassingServer(h, "InterfacePassing", false /* associated */);
   });
 }
 
 TEST_F(MojoInterfacePassingPerfTest, MultiprocessAssociatedInterfacePassing) {
   RunTestClient("InterfacePassingClient", [&](MojoHandle h) {
-    base::MessageLoop main_message_loop;
+    base::test::ScopedTaskEnvironment scoped_task_environment;
     RunInterfacePassingServer(h, "AssociatedInterfacePassing",
                               true /* associated*/);
   });
@@ -615,9 +616,9 @@ TEST_P(MojoInProcessInterfacePerfTest, MultiThreadPingPong) {
   client_thread.Start();
   client_thread.task_runner()->PostTask(
       FROM_HERE,
-      base::Bind(base::IgnoreResult(&RunPingPongClient), client_handle));
+      base::BindOnce(base::IgnoreResult(&RunPingPongClient), client_handle));
 
-  base::MessageLoop main_message_loop;
+  base::test::ScopedTaskEnvironment scoped_task_environment;
   RunPingPongServer(server_handle, "SingleProcess");
 }
 
@@ -625,7 +626,7 @@ TEST_P(MojoInProcessInterfacePerfTest, SingleThreadPingPong) {
   MojoHandle server_handle, client_handle;
   CreateMessagePipe(&server_handle, &client_handle);
 
-  base::MessageLoop main_message_loop;
+  base::test::ScopedTaskEnvironment scoped_task_environment;
   mojo::MessagePipeHandle mp_handle(client_handle);
   mojo::ScopedMessagePipeHandle scoped_mp(mp_handle);
   LockThreadAffinity thread_locker(kSharedCore);
@@ -634,10 +635,10 @@ TEST_P(MojoInProcessInterfacePerfTest, SingleThreadPingPong) {
   RunPingPongServer(server_handle, "SingleProcess");
 }
 
-INSTANTIATE_TEST_CASE_P(,
-                        MojoInProcessInterfacePerfTest,
-                        testing::Values(InProcessMessageMode::kSerialized,
-                                        InProcessMessageMode::kUnserialized));
+INSTANTIATE_TEST_SUITE_P(,
+                         MojoInProcessInterfacePerfTest,
+                         testing::Values(InProcessMessageMode::kSerialized,
+                                         InProcessMessageMode::kUnserialized));
 
 TEST_P(MojoInProcessInterfacePassingPerfTest, MultiThreadInterfacePassing) {
   MojoHandle server_handle, client_handle;
@@ -646,10 +647,10 @@ TEST_P(MojoInProcessInterfacePassingPerfTest, MultiThreadInterfacePassing) {
   base::Thread client_thread("InterfacePassingClient");
   client_thread.Start();
   client_thread.task_runner()->PostTask(
-      FROM_HERE, base::Bind(base::IgnoreResult(&RunInterfacePassingClient),
-                            client_handle));
+      FROM_HERE, base::BindOnce(base::IgnoreResult(&RunInterfacePassingClient),
+                                client_handle));
 
-  base::MessageLoop main_message_loop;
+  base::test::ScopedTaskEnvironment scoped_task_environment;
   RunInterfacePassingServer(server_handle, "SingleProcess",
                             false /* associated */);
 }
@@ -662,10 +663,10 @@ TEST_P(MojoInProcessInterfacePassingPerfTest,
   base::Thread client_thread("InterfacePassingClient");
   client_thread.Start();
   client_thread.task_runner()->PostTask(
-      FROM_HERE, base::Bind(base::IgnoreResult(&RunInterfacePassingClient),
-                            client_handle));
+      FROM_HERE, base::BindOnce(base::IgnoreResult(&RunInterfacePassingClient),
+                                client_handle));
 
-  base::MessageLoop main_message_loop;
+  base::test::ScopedTaskEnvironment scoped_task_environment;
   RunInterfacePassingServer(server_handle, "SingleProcess",
                             true /* associated */);
 }
@@ -674,7 +675,7 @@ TEST_P(MojoInProcessInterfacePassingPerfTest, SingleThreadInterfacePassing) {
   MojoHandle server_handle, client_handle;
   CreateMessagePipe(&server_handle, &client_handle);
 
-  base::MessageLoop main_message_loop;
+  base::test::ScopedTaskEnvironment scoped_task_environment;
   mojo::MessagePipeHandle mp_handle(client_handle);
   mojo::ScopedMessagePipeHandle scoped_mp(mp_handle);
   LockThreadAffinity thread_locker(kSharedCore);
@@ -689,7 +690,7 @@ TEST_P(MojoInProcessInterfacePassingPerfTest,
   MojoHandle server_handle, client_handle;
   CreateMessagePipe(&server_handle, &client_handle);
 
-  base::MessageLoop main_message_loop;
+  base::test::ScopedTaskEnvironment scoped_task_environment;
   mojo::MessagePipeHandle mp_handle(client_handle);
   mojo::ScopedMessagePipeHandle scoped_mp(mp_handle);
   LockThreadAffinity thread_locker(kSharedCore);
@@ -699,10 +700,10 @@ TEST_P(MojoInProcessInterfacePassingPerfTest,
                             true /* associated */);
 }
 
-INSTANTIATE_TEST_CASE_P(,
-                        MojoInProcessInterfacePassingPerfTest,
-                        testing::Values(InProcessMessageMode::kSerialized,
-                                        InProcessMessageMode::kUnserialized));
+INSTANTIATE_TEST_SUITE_P(,
+                         MojoInProcessInterfacePassingPerfTest,
+                         testing::Values(InProcessMessageMode::kSerialized,
+                                         InProcessMessageMode::kUnserialized));
 
 class CallbackPerfTest : public testing::Test {
  public:
@@ -718,8 +719,8 @@ class CallbackPerfTest : public testing::Test {
     for (size_t i = 0; i < params.size(); i++) {
       std::string hello("hello");
       client_thread_.task_runner()->PostTask(
-          FROM_HERE,
-          base::Bind(&CallbackPerfTest::Ping, base::Unretained(this), hello));
+          FROM_HERE, base::BindOnce(&CallbackPerfTest::Ping,
+                                    base::Unretained(this), hello));
       message_count_ = count_down_ = params[i].message_count();
       payload_ = std::string(params[i].message_size(), 'a');
 
@@ -728,9 +729,9 @@ class CallbackPerfTest : public testing::Test {
   }
 
   void Ping(const std::string& value) {
-    main_message_loop_.task_runner()->PostTask(
-        FROM_HERE,
-        base::Bind(&CallbackPerfTest::OnPong, base::Unretained(this), value));
+    scoped_task_environment_.GetMainThreadTaskRunner()->PostTask(
+        FROM_HERE, base::BindOnce(&CallbackPerfTest::OnPong,
+                                  base::Unretained(this), value));
   }
 
   void OnPong(const std::string& value) {
@@ -753,8 +754,8 @@ class CallbackPerfTest : public testing::Test {
     }
 
     client_thread_.task_runner()->PostTask(
-        FROM_HERE,
-        base::Bind(&CallbackPerfTest::Ping, base::Unretained(this), payload_));
+        FROM_HERE, base::BindOnce(&CallbackPerfTest::Ping,
+                                  base::Unretained(this), payload_));
   }
 
   void RunSingleThreadNoPostTaskPingPongServer() {
@@ -793,9 +794,9 @@ class CallbackPerfTest : public testing::Test {
     std::vector<PingPongTestParams> params = GetDefaultTestParams();
     for (size_t i = 0; i < params.size(); i++) {
       std::string hello("hello");
-      base::MessageLoopCurrent::Get()->task_runner()->PostTask(
-          FROM_HERE, base::Bind(&CallbackPerfTest::SingleThreadPingPostTask,
-                                base::Unretained(this), hello));
+      base::ThreadTaskRunnerHandle::Get()->PostTask(
+          FROM_HERE, base::BindOnce(&CallbackPerfTest::SingleThreadPingPostTask,
+                                    base::Unretained(this), hello));
       message_count_ = count_down_ = params[i].message_count();
       payload_ = std::string(params[i].message_size(), 'a');
 
@@ -804,9 +805,9 @@ class CallbackPerfTest : public testing::Test {
   }
 
   void SingleThreadPingPostTask(const std::string& value) {
-    base::MessageLoopCurrent::Get()->task_runner()->PostTask(
-        FROM_HERE, base::Bind(&CallbackPerfTest::SingleThreadPongPostTask,
-                              base::Unretained(this), value));
+    base::ThreadTaskRunnerHandle::Get()->PostTask(
+        FROM_HERE, base::BindOnce(&CallbackPerfTest::SingleThreadPongPostTask,
+                                  base::Unretained(this), value));
   }
 
   void SingleThreadPongPostTask(const std::string& value) {
@@ -828,14 +829,14 @@ class CallbackPerfTest : public testing::Test {
       }
     }
 
-    base::MessageLoopCurrent::Get()->task_runner()->PostTask(
-        FROM_HERE, base::Bind(&CallbackPerfTest::SingleThreadPingPostTask,
-                              base::Unretained(this), payload_));
+    base::ThreadTaskRunnerHandle::Get()->PostTask(
+        FROM_HERE, base::BindOnce(&CallbackPerfTest::SingleThreadPingPostTask,
+                                  base::Unretained(this), payload_));
   }
 
  private:
   base::Thread client_thread_;
-  base::MessageLoop main_message_loop_;
+  base::test::ScopedTaskEnvironment scoped_task_environment_;
   int message_count_;
   int count_down_;
   std::string payload_;

@@ -330,6 +330,9 @@ cr.define('bookmarks', function() {
        * @private {!Object}
        */
       this.timerProxy_ = window;
+
+      /** @private {boolean} */
+      this.lastPointerWasTouch_ = false;
     }
 
     init() {
@@ -344,7 +347,8 @@ cr.define('bookmarks', function() {
         'dragleave': this.onDragLeave_.bind(this),
         'drop': this.onDrop_.bind(this),
         'dragend': this.clearDragData_.bind(this),
-        // TODO(calamity): Add touch support.
+        'mousedown': this.onMouseDown_.bind(this),
+        'touchstart': this.onTouchStart_.bind(this),
       };
       for (const event in this.documentListeners_) {
         document.addEventListener(event, this.documentListeners_[event]);
@@ -388,13 +392,14 @@ cr.define('bookmarks', function() {
       let draggedNodes = [];
 
       if (isBookmarkItem(dragElement)) {
-        const displayingItems =
-            assert(state.nodes[state.selectedFolder].children);
-
+        const displayingItems = assert(bookmarks.util.getDisplayedList(state));
+        // TODO(crbug.com/980427): Make this search more time efficient to avoid
+        // delay on large amount of bookmark dragging.
         for (const itemId of displayingItems) {
           for (const element of dragData.elements) {
             if (element.id == itemId) {
               draggedNodes.push(element.id);
+              break;
             }
           }
         }
@@ -407,9 +412,9 @@ cr.define('bookmarks', function() {
       const dragNodeIndex = draggedNodes.indexOf(dragElement.itemId);
       assert(dragNodeIndex != -1);
 
-      // TODO(calamity): account for touch.
       chrome.bookmarkManagerPrivate.startDrag(
-          draggedNodes, dragNodeIndex, false);
+          draggedNodes, dragNodeIndex, this.lastPointerWasTouch_, e.clientX,
+          e.clientY);
     }
 
     /** @private */
@@ -422,6 +427,11 @@ cr.define('bookmarks', function() {
      * @param {!Event} e
      */
     onDrop_(e) {
+      // Allow normal DND on text inputs.
+      if (isTextInputElement(e.path[0])) {
+        return;
+      }
+
       e.preventDefault();
 
       if (this.dropDestination_) {
@@ -454,16 +464,16 @@ cr.define('bookmarks', function() {
      * @param {Event} e
      */
     onDragOver_(e) {
-      // The default operation is to allow dropping links etc to do
-      // navigation. We never want to do that for the bookmark manager.
-      e.preventDefault();
-
       this.dropDestination_ = null;
 
       // Allow normal DND on text inputs.
-      if (e.path[0].tagName == 'INPUT') {
+      if (isTextInputElement(e.path[0])) {
         return;
       }
+
+      // The default operation is to allow dropping links etc to do
+      // navigation. We never want to do that for the bookmark manager.
+      e.preventDefault();
 
       if (!this.dragInfo_.isDragValid()) {
         return;
@@ -489,6 +499,16 @@ cr.define('bookmarks', function() {
       }
 
       this.dropIndicator_.update(this.dropDestination_);
+    }
+
+    /** @private */
+    onMouseDown_() {
+      this.lastPointerWasTouch_ = false;
+    }
+
+    /** @private */
+    onTouchStart_() {
+      this.lastPointerWasTouch_ = true;
     }
 
     /**

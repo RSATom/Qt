@@ -6,11 +6,12 @@
 #define V8_INTERPRETER_BYTECODE_GENERATOR_H_
 
 #include "src/ast/ast.h"
-#include "src/feedback-vector.h"
 #include "src/interpreter/bytecode-array-builder.h"
 #include "src/interpreter/bytecode-label.h"
 #include "src/interpreter/bytecode-register.h"
 #include "src/interpreter/bytecodes.h"
+#include "src/objects/feedback-vector.h"
+#include "src/objects/function-kind.h"
 
 namespace v8 {
 namespace internal {
@@ -83,6 +84,8 @@ class BytecodeGenerator final : public AstVisitor<BytecodeGenerator> {
                                            Register object,
                                            const AstRawString* name);
     static AssignmentLhsData KeyedProperty(Register object, Register key);
+    static AssignmentLhsData PrivateMethod(Register object,
+                                           const AstRawString* name);
     static AssignmentLhsData NamedSuperProperty(
         RegisterList super_property_args);
     static AssignmentLhsData KeyedSuperProperty(
@@ -98,15 +101,16 @@ class BytecodeGenerator final : public AstVisitor<BytecodeGenerator> {
       return object_expr_;
     }
     Register object() const {
-      DCHECK(assign_type_ == NAMED_PROPERTY || assign_type_ == KEYED_PROPERTY);
+      DCHECK(assign_type_ == NAMED_PROPERTY || assign_type_ == KEYED_PROPERTY ||
+             assign_type_ == PRIVATE_METHOD);
       return object_;
     }
     Register key() const {
-      DCHECK_EQ(assign_type_, KEYED_PROPERTY);
+      DCHECK(assign_type_ == KEYED_PROPERTY);
       return key_;
     }
     const AstRawString* name() const {
-      DCHECK_EQ(assign_type_, NAMED_PROPERTY);
+      DCHECK(assign_type_ == NAMED_PROPERTY || assign_type_ == PRIVATE_METHOD);
       return name_;
     }
     RegisterList super_property_args() const {
@@ -134,7 +138,7 @@ class BytecodeGenerator final : public AstVisitor<BytecodeGenerator> {
     //
     // NON_PROPERTY: expr
     // NAMED_PROPERTY: object_expr, object, name
-    // KEYED_PROPERTY: object, key
+    // KEYED_PROPERTY, PRIVATE_METHOD: object, key
     // NAMED_SUPER_PROPERTY: super_property_args
     // KEYED_SUPER_PROPERT:  super_property_args
     Expression* expr_;
@@ -203,6 +207,8 @@ class BytecodeGenerator final : public AstVisitor<BytecodeGenerator> {
   void BuildAssignment(const AssignmentLhsData& data, Token::Value op,
                        LookupHoistingMode lookup_hoisting_mode);
 
+  void BuildThisVariableLoad();
+
   Expression* GetDestructuringDefaultValue(Expression** target);
   void BuildDestructuringArrayAssignment(
       ArrayLiteral* pattern, Token::Value op,
@@ -235,8 +241,9 @@ class BytecodeGenerator final : public AstVisitor<BytecodeGenerator> {
 
   // Build jump to targets[value], where
   // start_index <= value < start_index + size.
-  void BuildIndexedJump(Register value, size_t start_index, size_t size,
-                        ZoneVector<BytecodeLabel>& targets);
+  void BuildIndexedJump(
+      Register value, size_t start_index, size_t size,
+      ZoneVector<BytecodeLabel>& targets);  // NOLINT(runtime/references)
 
   void BuildNewLocalActivationContext();
   void BuildLocalActivationContextInitialization();
@@ -288,10 +295,13 @@ class BytecodeGenerator final : public AstVisitor<BytecodeGenerator> {
   void VisitArgumentsObject(Variable* variable);
   void VisitRestArgumentsArray(Variable* rest);
   void VisitCallSuper(Call* call);
+  void BuildThrowPrivateMethodWriteError(const AstRawString* name);
+  void BuildPrivateClassMemberNameAssignment(ClassLiteral::Property* property);
   void BuildClassLiteral(ClassLiteral* expr, Register name);
   void VisitClassLiteral(ClassLiteral* expr, Register name);
   void VisitNewTargetVariable(Variable* variable);
   void VisitThisFunctionVariable(Variable* variable);
+  void BuildPrivateBrandInitialization(Register receiver);
   void BuildInstanceMemberInitialization(Register constructor,
                                          Register instance);
   void BuildGeneratorObjectVariableInitialization();
@@ -381,12 +391,13 @@ class BytecodeGenerator final : public AstVisitor<BytecodeGenerator> {
                                          Variable* variable);
   FeedbackSlot GetCachedStoreGlobalICSlot(LanguageMode language_mode,
                                           Variable* variable);
-  FeedbackSlot GetCachedCreateClosureSlot(FunctionLiteral* literal);
   FeedbackSlot GetCachedLoadICSlot(const Expression* expr,
                                    const AstRawString* name);
   FeedbackSlot GetCachedStoreICSlot(const Expression* expr,
                                     const AstRawString* name);
   FeedbackSlot GetDummyCompareICSlot();
+
+  int GetCachedCreateClosureSlot(FunctionLiteral* literal);
 
   void AddToEagerLiteralsIfEager(FunctionLiteral* literal);
 

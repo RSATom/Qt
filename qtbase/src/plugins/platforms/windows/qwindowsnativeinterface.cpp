@@ -40,6 +40,7 @@
 #include "qwindowsnativeinterface.h"
 #include "qwindowsclipboard.h"
 #include "qwindowswindow.h"
+#include "qwindowsscreen.h"
 #include "qwindowscontext.h"
 #include "qwindowscursor.h"
 #include "qwindowsopenglcontext.h"
@@ -97,7 +98,7 @@ void *QWindowsNativeInterface::nativeResourceForWindow(const QByteArray &resourc
         qWarning("%s: '%s' requested for null window or window without handle.", __FUNCTION__, resource.constData());
         return nullptr;
     }
-    QWindowsWindow *bw = static_cast<QWindowsWindow *>(window->handle());
+    auto *bw = static_cast<QWindowsWindow *>(window->handle());
     int type = resourceType(resource);
     if (type == HandleType)
         return bw->handle();
@@ -124,6 +125,21 @@ void *QWindowsNativeInterface::nativeResourceForWindow(const QByteArray &resourc
     return nullptr;
 }
 
+void *QWindowsNativeInterface::nativeResourceForScreen(const QByteArray &resource, QScreen *screen)
+{
+    if (!screen || !screen->handle()) {
+        qWarning("%s: '%s' requested for null screen or screen without handle.", __FUNCTION__, resource.constData());
+        return nullptr;
+    }
+    auto *bs = static_cast<QWindowsScreen *>(screen->handle());
+    int type = resourceType(resource);
+    if (type == HandleType)
+        return bs->handle();
+
+    qWarning("%s: Invalid key '%s' requested.", __FUNCTION__, resource.constData());
+    return nullptr;
+}
+
 #ifndef QT_NO_CURSOR
 void *QWindowsNativeInterface::nativeResourceForCursor(const QByteArray &resource, const QCursor &cursor)
 {
@@ -141,9 +157,9 @@ static const char customMarginPropertyC[] = "WindowsCustomMargins";
 
 QVariant QWindowsNativeInterface::windowProperty(QPlatformWindow *window, const QString &name) const
 {
-    QWindowsWindow *platformWindow = static_cast<QWindowsWindow *>(window);
+    auto *platformWindow = static_cast<QWindowsWindow *>(window);
     if (name == QLatin1String(customMarginPropertyC))
-        return qVariantFromValue(platformWindow->customMargins());
+        return QVariant::fromValue(platformWindow->customMargins());
     return QVariant();
 }
 
@@ -155,7 +171,7 @@ QVariant QWindowsNativeInterface::windowProperty(QPlatformWindow *window, const 
 
 void QWindowsNativeInterface::setWindowProperty(QPlatformWindow *window, const QString &name, const QVariant &value)
 {
-    QWindowsWindow *platformWindow = static_cast<QWindowsWindow *>(window);
+    auto *platformWindow = static_cast<QWindowsWindow *>(window);
     if (name == QLatin1String(customMarginPropertyC))
         platformWindow->setCustomMargins(qvariant_cast<QMargins>(value));
 }
@@ -190,7 +206,7 @@ void *QWindowsNativeInterface::nativeResourceForContext(const QByteArray &resour
         return nullptr;
     }
 
-    QWindowsOpenGLContext *glcontext = static_cast<QWindowsOpenGLContext *>(context->handle());
+    auto *glcontext = static_cast<QWindowsOpenGLContext *>(context->handle());
     switch (resourceType(resource)) {
     case RenderingContextType: // Fall through.
     case EglContextType:

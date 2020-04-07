@@ -14,32 +14,31 @@
  * limitations under the License.
  */
 
-#include "hello_ar_application.h"
+#include "platform_tools/android/apps/arcore/src/main/cpp/hello_ar_application.h"
 #include <gtx/string_cast.hpp>
 
-#include "anchor_wrapper.h"
-#include "plane_renderer.h"
-#include "pending_anchor.h"
-#include "util.h"
-#include "SkCanvas.h"
-#include "GrContext.h"
-#include "gl/GrGLTypes.h"
-#include "SkSurface.h"
-#include "SkTypeface.h"
-#include "SkFontStyle.h"
-#include "GrBackendSurface.h"
-#include "SkMatrix44.h"
-#include "SkMatrix.h"
-#include "SkTextBlob.h"
-#include "glm.h"
-#include "SkPoint3.h"
-#include "Sk3D.h"
-#include <math.h>       /* acos */
-#include "SkShaper.h"
-#include "Skottie.h"
-#include "SkAnimTimer.h"
-#include "Resources.h"
-#include "SkStream.h"
+#include <math.h> /* acos */
+#include "include/core/SkCanvas.h"
+#include "include/core/SkFontStyle.h"
+#include "include/core/SkMatrix.h"
+#include "include/core/SkMatrix44.h"
+#include "include/core/SkPoint3.h"
+#include "include/core/SkStream.h"
+#include "include/core/SkSurface.h"
+#include "include/core/SkTextBlob.h"
+#include "include/core/SkTypeface.h"
+#include "include/gpu/GrBackendSurface.h"
+#include "include/gpu/GrContext.h"
+#include "include/gpu/gl/GrGLTypes.h"
+#include "include/utils/Sk3D.h"
+#include "modules/skottie/include/Skottie.h"
+#include "modules/skshaper/include/SkShaper.h"
+#include "platform_tools/android/apps/arcore/src/main/cpp/anchor_wrapper.h"
+#include "platform_tools/android/apps/arcore/src/main/cpp/glm.h"
+#include "platform_tools/android/apps/arcore/src/main/cpp/pending_anchor.h"
+#include "platform_tools/android/apps/arcore/src/main/cpp/plane_renderer.h"
+#include "platform_tools/android/apps/arcore/src/main/cpp/util.h"
+#include "tools/Resources.h"
 
 namespace hello_ar {
     namespace {

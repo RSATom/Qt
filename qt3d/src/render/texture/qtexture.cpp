@@ -40,6 +40,7 @@
 #include "qtextureimage.h"
 #include "qabstracttextureimage.h"
 #include "qtextureimage_p.h"
+#include "qtextureimagedata_p.h"
 #include "qtexturedata.h"
 #include "qtexture.h"
 #include "qtexture_p.h"
@@ -56,7 +57,6 @@
 #include <Qt3DRender/private/managers_p.h>
 #include <Qt3DRender/private/texture_p.h>
 #include <Qt3DRender/private/qurlhelper_p.h>
-#include <Qt3DRender/private/texturedatamanager_p.h>
 #include <Qt3DRender/private/gltexturemanager_p.h>
 
 QT_BEGIN_NAMESPACE
@@ -452,7 +452,8 @@ enum ImageFormat {
     GenericImageFormat = 0,
     DDS,
     PKM,
-    HDR
+    HDR,
+    KTX
 };
 
 ImageFormat imageFormatFromSuffix(const QString &suffix)
@@ -463,7 +464,142 @@ ImageFormat imageFormatFromSuffix(const QString &suffix)
         return DDS;
     if (suffix == QStringLiteral("hdr"))
         return HDR;
+    if (suffix == QStringLiteral("ktx"))
+        return KTX;
     return GenericImageFormat;
+}
+
+// NOTE: the ktx loading code is a near-duplication of the code in qt3d-runtime, and changes
+// should be kept up to date in both locations.
+quint32 blockSizeForTextureFormat(QOpenGLTexture::TextureFormat format)
+{
+    switch (format) {
+    case QOpenGLTexture::RGB8_ETC1:
+    case QOpenGLTexture::RGB8_ETC2:
+    case QOpenGLTexture::SRGB8_ETC2:
+    case QOpenGLTexture::RGB8_PunchThrough_Alpha1_ETC2:
+    case QOpenGLTexture::SRGB8_PunchThrough_Alpha1_ETC2:
+    case QOpenGLTexture::R11_EAC_UNorm:
+    case QOpenGLTexture::R11_EAC_SNorm:
+    case QOpenGLTexture::RGB_DXT1:
+        return 8;
+
+    default:
+        return 16;
+    }
+}
+
+QTextureImageDataPtr setKtxFile(QIODevice *source)
+{
+    static const int KTX_IDENTIFIER_LENGTH = 12;
+    static const char ktxIdentifier[KTX_IDENTIFIER_LENGTH] = { '\xAB', 'K', 'T', 'X', ' ', '1', '1', '\xBB', '\r', '\n', '\x1A', '\n' };
+    static const quint32 platformEndianIdentifier = 0x04030201;
+    static const quint32 inversePlatformEndianIdentifier = 0x01020304;
+
+    struct KTXHeader {
+        quint8 identifier[KTX_IDENTIFIER_LENGTH];
+        quint32 endianness;
+        quint32 glType;
+        quint32 glTypeSize;
+        quint32 glFormat;
+        quint32 glInternalFormat;
+        quint32 glBaseInternalFormat;
+        quint32 pixelWidth;
+        quint32 pixelHeight;
+        quint32 pixelDepth;
+        quint32 numberOfArrayElements;
+        quint32 numberOfFaces;
+        quint32 numberOfMipmapLevels;
+        quint32 bytesOfKeyValueData;
+    };
+
+    KTXHeader header;
+    QTextureImageDataPtr imageData;
+    if (source->read(reinterpret_cast<char *>(&header), sizeof(header)) != sizeof(header)
+            || qstrncmp(reinterpret_cast<char *>(header.identifier), ktxIdentifier, KTX_IDENTIFIER_LENGTH) != 0
+            || (header.endianness != platformEndianIdentifier && header.endianness != inversePlatformEndianIdentifier))
+    {
+        return imageData;
+    }
+
+    const bool isInverseEndian = (header.endianness == inversePlatformEndianIdentifier);
+    auto decode = [isInverseEndian](quint32 val) {
+        return isInverseEndian ? qbswap<quint32>(val) : val;
+    };
+
+    const bool isCompressed = decode(header.glType) == 0 && decode(header.glFormat) == 0 && decode(header.glTypeSize) == 1;
+    if (!isCompressed) {
+        qWarning("Uncompressed ktx texture data is not supported");
+        return imageData;
+    }
+
+    if (decode(header.numberOfArrayElements) != 0) {
+        qWarning("Array ktx textures not supported");
+        return imageData;
+    }
+
+    if (decode(header.pixelDepth) != 0) {
+        qWarning("Only 2D and cube ktx textures are supported");
+        return imageData;
+    }
+
+    const int bytesToSkip = decode(header.bytesOfKeyValueData);
+    if (source->read(bytesToSkip).count() != bytesToSkip) {
+        qWarning("Unexpected end of ktx data");
+        return imageData;
+    }
+
+    const int level0Width = decode(header.pixelWidth);
+    const int level0Height = decode(header.pixelHeight);
+    const int faceCount = decode(header.numberOfFaces);
+    const int mipMapLevels = decode(header.numberOfMipmapLevels);
+    const QOpenGLTexture::TextureFormat format = QOpenGLTexture::TextureFormat(decode(header.glInternalFormat));
+    const int blockSize = blockSizeForTextureFormat(format);
+
+    // now for each mipmap level we have (arrays and 3d textures not supported here)
+    // uint32 imageSize
+    // for each array element
+    //   for each face
+    //     for each z slice
+    //       compressed data
+    //     padding so that each face data starts at an offset that is a multiple of 4
+    // padding so that each imageSize starts at an offset that is a multiple of 4
+
+    // assumes no depth or uncompressed textures (per above)
+    auto computeMipMapLevelSize = [&] (int level) {
+        const int w = qMax(level0Width >> level, 1);
+        const int h = qMax(level0Height >> level, 1);
+        return ((w + 3) / 4) * ((h + 3) / 4) * blockSize;
+    };
+
+    int dataSize = 0;
+    for (auto i = 0; i < mipMapLevels; ++i)
+        dataSize += computeMipMapLevelSize(i) * faceCount + 4; // assumes a single layer (per above)
+
+    const QByteArray rawData = source->read(dataSize);
+    if (rawData.size() < dataSize) {
+        qWarning() << "Unexpected end of data in" << source;
+        return imageData;
+    }
+
+    if (!source->atEnd())
+        qWarning() << "Unrecognized data in" << source;
+
+    imageData = QTextureImageDataPtr::create();
+    imageData->setTarget(faceCount == 6 ? QOpenGLTexture::TargetCubeMap : QOpenGLTexture::Target2D);
+    imageData->setFormat(format);
+    imageData->setWidth(level0Width);
+    imageData->setHeight(level0Height);
+    imageData->setLayers(1);
+    imageData->setDepth(1);
+    imageData->setFaces(faceCount);
+    imageData->setMipLevels(mipMapLevels);
+    imageData->setPixelFormat(QOpenGLTexture::NoSourceFormat);
+    imageData->setPixelType(QOpenGLTexture::NoPixelType);
+    imageData->setData(rawData, blockSize, true);
+    QTextureImageDataPrivate::get(imageData.data())->m_isKtx = true; // see note in QTextureImageDataPrivate
+
+    return imageData;
 }
 
 QTextureImageDataPtr setPkmFile(QIODevice *source)
@@ -890,6 +1026,10 @@ QTextureImageDataPtr TextureLoadingHelper::loadTextureData(QIODevice *data, cons
     case HDR:
         textureData = setHdrFile(data);
         break;
+    case KTX: {
+        textureData = setKtxFile(data);
+        break;
+    }
     default: {
         QImage img;
         if (img.load(data, suffix.toLatin1())) {
@@ -925,7 +1065,8 @@ QTextureDataPtr QTextureFromSourceGenerator::operator ()()
                 auto downloadService = Qt3DCore::QDownloadHelperService::getService(m_engine);
                 Qt3DCore::QDownloadRequestPtr request(new TextureDownloadRequest(sharedFromThis(),
                                                                                  m_url,
-                                                                                 m_engine));
+                                                                                 m_engine,
+                                                                                 m_texture));
                 downloadService->submitRequest(request);
             }
             return generatedData;
@@ -974,15 +1115,17 @@ QTextureDataPtr QTextureFromSourceGenerator::operator ()()
 
 TextureDownloadRequest::TextureDownloadRequest(const QTextureFromSourceGeneratorPtr &functor,
                                                const QUrl &source,
-                                               Qt3DCore::QAspectEngine *engine)
+                                               Qt3DCore::QAspectEngine *engine,
+                                               Qt3DCore::QNodeId texNodeId)
     : Qt3DCore::QDownloadRequest(source)
     , m_functor(functor)
     , m_engine(engine)
+    , m_texNodeId(texNodeId)
 {
 
 }
 
-// Executed in aspect thread
+// Executed in main thread
 void TextureDownloadRequest::onCompleted()
 {
     if (cancelled() || !succeeded())
@@ -992,46 +1135,18 @@ void TextureDownloadRequest::onCompleted()
     if (!d_aspect)
         return;
 
-    // Find all textures which share the same functor
-    // Note: this should be refactored to not pull in API specific managers
-    // but texture sharing forces us to do that currently
-    Render::TextureDataManager *textureDataManager = d_aspect->m_nodeManagers->textureDataManager();
-    const QVector<Render::GLTexture *> referencedGLTextures = textureDataManager->referencesForGenerator(m_functor);
-
-    // We should have at most 1 GLTexture referencing this
-    // Since all textures having the same source should have the same functor == same GLTexture
-    Q_ASSERT(referencedGLTextures.size() <= 1);
-
-    Render::GLTexture *glTex = referencedGLTextures.size() > 0 ? referencedGLTextures.first() : nullptr;
-    if (glTex == nullptr)
+    Render::TextureManager *textureManager = d_aspect->m_nodeManagers->textureManager();
+    Render::Texture *texture = textureManager->lookupResource(m_texNodeId);
+    if (texture == nullptr)
         return;
 
-    Render::GLTextureManager *glTextureManager = d_aspect->m_nodeManagers->glTextureManager();
-    Qt3DCore::QNodeIdVector referencingTexturesIds = glTextureManager->referencedTextureIds(glTex);
+    QTextureFromSourceGeneratorPtr oldGenerator = qSharedPointerCast<QTextureFromSourceGenerator>(texture->dataGenerator());
 
+    // Set raw data on functor so that it can really load something
+    oldGenerator->m_sourceData = m_data;
 
-    Render::TextureManager *textureManager = d_aspect->m_nodeManagers->textureManager();
-    for (const Qt3DCore::QNodeId texId : referencingTexturesIds) {
-        Render::Texture *texture = textureManager->lookupResource(texId);
-        if (texture != nullptr) {
-            // Each texture has a QTextureFunctor which matches m_functor;
-            // Update m_sourceData on each functor as we don't know which one
-            // is used as the reference for texture sharing
-
-            QTextureFromSourceGeneratorPtr oldGenerator = qSharedPointerCast<QTextureFromSourceGenerator>(texture->dataGenerator());
-
-            // We create a new functor
-            // Which is a copy of the old one + the downloaded sourceData
-            auto newGenerator = QTextureFromSourceGeneratorPtr::create(*oldGenerator);
-
-            // Set raw data on functor so that it can really load something
-           newGenerator->m_sourceData = m_data;
-
-           // Set new generator on texture
-           // it implictely marks the texture as dirty so that the functor runs again with the downloaded data
-           texture->setDataGenerator(newGenerator);
-        }
-    }
+    // Mark the texture as dirty so that the functor runs again with the downloaded data
+    texture->addDirtyFlag(Render::Texture::DirtyDataGenerator);
 }
 
 /*!
@@ -1040,6 +1155,13 @@ void TextureDownloadRequest::onCompleted()
     \inmodule Qt3DRender
     \since 5.5
     \brief A QAbstractTexture with a Target1D target format.
+ */
+/*!
+    \qmltype Texture1D
+    \instantiates Qt3DRender::QTexture1D
+    \inqmlmodule Qt3D.Render
+    \since 5.5
+    \brief An AbstractTexture with a Target1D target format.
  */
 
 /*!
@@ -1062,6 +1184,13 @@ QTexture1D::~QTexture1D()
     \since 5.5
     \brief A QAbstractTexture with a Target1DArray target format.
  */
+/*!
+    \qmltype Texture1DArray
+    \instantiates Qt3DRender::QTexture1DArray
+    \inqmlmodule Qt3D.Render
+    \since 5.5
+    \brief An AbstractTexture with a Target1DArray target format.
+ */
 
 /*!
     Constructs a new Qt3DRender::QTexture1DArray instance with \a parent as parent.
@@ -1082,6 +1211,13 @@ QTexture1DArray::~QTexture1DArray()
     \inmodule Qt3DRender
     \since 5.5
     \brief A QAbstractTexture with a Target2D target format.
+ */
+/*!
+    \qmltype Texture2D
+    \instantiates Qt3DRender::QTexture2D
+    \inqmlmodule Qt3D.Render
+    \since 5.5
+    \brief An AbstractTexture with a Target2D target format.
  */
 
 /*!
@@ -1104,6 +1240,13 @@ QTexture2D::~QTexture2D()
     \since 5.5
     \brief A QAbstractTexture with a Target2DArray target format.
  */
+/*!
+    \qmltype Texture2DArray
+    \instantiates Qt3DRender::QTexture2DArray
+    \inqmlmodule Qt3D.Render
+    \since 5.5
+    \brief An AbstractTexture with a Target2DArray target format.
+ */
 
 /*!
     Constructs a new Qt3DRender::QTexture2DArray instance with \a parent as parent.
@@ -1124,6 +1267,13 @@ QTexture2DArray::~QTexture2DArray()
     \inmodule Qt3DRender
     \since 5.5
     \brief A QAbstractTexture with a Target3D target format.
+ */
+/*!
+    \qmltype Texture3D
+    \instantiates Qt3DRender::QTexture3D
+    \inqmlmodule Qt3D.Render
+    \since 5.5
+    \brief An AbstractTexture with a Target3D target format.
  */
 
 /*!
@@ -1146,6 +1296,13 @@ QTexture3D::~QTexture3D()
     \since 5.5
     \brief A QAbstractTexture with a TargetCubeMap target format.
  */
+/*!
+    \qmltype TextureCubeMap
+    \instantiates Qt3DRender::QTextureCubeMap
+    \inqmlmodule Qt3D.Render
+    \since 5.5
+    \brief An AbstractTexture with a TargetCubeMap target format.
+ */
 
 /*!
     Constructs a new Qt3DRender::QTextureCubeMap instance with \a parent as parent.
@@ -1166,6 +1323,13 @@ QTextureCubeMap::~QTextureCubeMap()
     \inmodule Qt3DRender
     \since 5.5
     \brief A QAbstractTexture with a TargetCubeMapArray target format.
+ */
+/*!
+    \qmltype TextureCubeMapArray
+    \instantiates Qt3DRender::QTextureCubeMapArray
+    \inqmlmodule Qt3D.Render
+    \since 5.5
+    \brief An AbstractTexture with a TargetCubeMapArray target format.
  */
 
 /*!
@@ -1188,6 +1352,13 @@ QTextureCubeMapArray::~QTextureCubeMapArray()
     \since 5.5
     \brief A QAbstractTexture with a Target2DMultisample target format.
  */
+/*!
+    \qmltype Texture2DMultisample
+    \instantiates Qt3DRender::QTexture2DMultisample
+    \inqmlmodule Qt3D.Render
+    \since 5.5
+    \brief An AbstractTexture with a Target2DMultisample target format.
+ */
 
 /*!
     Constructs a new Qt3DRender::QTexture2DMultisample instance with \a parent as parent.
@@ -1208,6 +1379,13 @@ QTexture2DMultisample::~QTexture2DMultisample()
     \inmodule Qt3DRender
     \since 5.5
     \brief A QAbstractTexture with a Target2DMultisampleArray target format.
+ */
+/*!
+    \qmltype Texture2DMultisampleArray
+    \instantiates Qt3DRender::QTexture2DMultisampleArray
+    \inqmlmodule Qt3D.Render
+    \since 5.5
+    \brief An AbstractTexture with a Target2DMultisampleArray target format.
  */
 
 /*!
@@ -1230,6 +1408,13 @@ QTexture2DMultisampleArray::~QTexture2DMultisampleArray()
     \since 5.5
     \brief A QAbstractTexture with a TargetRectangle target format.
  */
+/*!
+    \qmltype TextureRectangle
+    \instantiates Qt3DRender::QTextureRectangle
+    \inqmlmodule Qt3D.Render
+    \since 5.5
+    \brief An AbstractTexture with a TargetRectangle target format.
+ */
 
 /*!
     Constructs a new Qt3DRender::QTextureRectangle instance with \a parent as parent.
@@ -1250,6 +1435,13 @@ QTextureRectangle::~QTextureRectangle()
     \inmodule Qt3DRender
     \since 5.5
     \brief A QAbstractTexture with a TargetBuffer target format.
+ */
+/*!
+    \qmltype TextureBuffer
+    \instantiates Qt3DRender::QTextureBuffer
+    \inqmlmodule Qt3D.Render
+    \since 5.5
+    \brief An AbstractTexture with a TargetBuffer target format.
  */
 
 /*!
@@ -1323,7 +1515,10 @@ QTextureLoader::QTextureLoader(QNode *parent)
     // Regenerate the texture functor when properties we support overriding
     // from QAbstractTexture get changed.
     Q_D(QTextureLoader);
-    auto regenerate = [=] () { d->updateGenerator(); };
+    auto regenerate = [=] () {
+        if (!notificationsBlocked())    // check the change doesn't come from the backend
+            d->updateGenerator();
+    };
     connect(this, &QAbstractTexture::formatChanged, regenerate);
 }
 
@@ -1363,6 +1558,11 @@ void QTextureLoader::setSource(const QUrl& source)
     Q_D(QTextureLoader);
     if (source != d->m_source) {
         d->m_source = source;
+
+        // Reset target and format
+        d->m_target = TargetAutomatic;
+        setFormat(NoFormat);
+
         d->updateGenerator();
         const bool blocked = blockNotifications(true);
         emit sourceChanged(source);

@@ -42,6 +42,8 @@
 #include "qabstracteventdispatcher.h"
 #include "qcoreapplication.h"
 #include "qobject_p.h"
+#include "qthread.h"
+#include "qcoreapplication_p.h"
 
 QT_BEGIN_NAMESPACE
 
@@ -82,10 +84,10 @@ QT_BEGIN_NAMESPACE
     must start and stop the timer in its thread; it is not possible to
     start a timer from another thread.
 
-    As a special case, a QTimer with a timeout of 0 will time out as
-    soon as all the events in the window system's event queue have
-    been processed. This can be used to do heavy work while providing
-    a snappy user interface:
+    As a special case, a QTimer with a timeout of 0 will time out as soon as
+    possible, though the ordering between zero timers and other sources of
+    events is unspecified. Zero timers can be used to do some work while still
+    providing a snappy user interface:
 
     \snippet timers/timers.cpp 4
     \snippet timers/timers.cpp 5
@@ -343,6 +345,33 @@ void QTimer::singleShotImpl(int msec, Qt::TimerType timerType,
                             const QObject *receiver,
                             QtPrivate::QSlotObjectBase *slotObj)
 {
+    if (msec == 0) {
+        bool deleteReceiver = false;
+        // Optimize: set a receiver context when none is given, such that we can use
+        // QMetaObject::invokeMethod which is more efficient than going through a timer.
+        // We need a QObject living in the current thread. But the QThread itself lives
+        // in a different thread - with the exception of the main QThread which lives in
+        // itself. And QThread::currentThread() is among the few QObjects we know that will
+        // most certainly be there. Note that one can actually call singleShot before the
+        // QApplication is created!
+        if (!receiver && QThread::currentThread() == QCoreApplicationPrivate::mainThread()) {
+            // reuse main thread as context object
+            receiver = QThread::currentThread();
+        } else if (!receiver) {
+            // Create a receiver context object on-demand. According to the benchmarks,
+            // this is still more efficient than going through a timer.
+            receiver = new QObject;
+            deleteReceiver = true;
+        }
+
+        QMetaObject::invokeMethodImpl(const_cast<QObject *>(receiver), slotObj,
+                                      Qt::QueuedConnection, nullptr);
+
+        if (deleteReceiver)
+            const_cast<QObject *>(receiver)->deleteLater();
+        return;
+    }
+
     new QSingleShotTimer(msec, timerType, receiver, slotObj);
 }
 
@@ -575,8 +604,8 @@ void QTimer::singleShot(int msec, Qt::TimerType timerType, const QObject *receiv
     \since 5.12
     \overload
 
-    Creates a connection from the timeout() signal to \a slot, and returns a
-    handle to the connection.
+    Creates a connection of type \a connectionType from the timeout() signal
+    to \a slot, and returns a handle to the connection.
 
     This method is provided for convenience.
     It's equivalent to calling \c {QObject::connect(timer, &QTimer::timeout, timer, slot, connectionType)}.

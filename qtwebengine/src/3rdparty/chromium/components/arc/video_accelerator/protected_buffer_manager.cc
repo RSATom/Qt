@@ -6,24 +6,24 @@
 
 #include <utility>
 
+#include "base/bind.h"
 #include "base/bits.h"
 #include "base/logging.h"
 #include "base/memory/shared_memory.h"
 #include "base/system/sys_info.h"
 #include "components/arc/video_accelerator/protected_buffer_allocator.h"
+#include "media/gpu/macros.h"
 #include "mojo/public/cpp/system/buffer.h"
 #include "mojo/public/cpp/system/platform_handle.h"
 #include "ui/gfx/geometry/size.h"
 #include "ui/ozone/public/ozone_platform.h"
 #include "ui/ozone/public/surface_factory_ozone.h"
 
-#define VLOGF(level) VLOG(level) << __func__ << "(): "
-
 namespace arc {
 
 namespace {
 // Size of the pixmap to be used as the dummy handle for protected buffers.
-constexpr gfx::Size kDummyBufferSize(32, 32);
+constexpr gfx::Size kDummyBufferSize(16, 16);
 
 // Maximum number of concurrent ProtectedBufferAllocatorImpl instances.
 // Currently we have no way to know the resources of ProtectedBufferAllocator.
@@ -164,9 +164,9 @@ ProtectedBufferManager::ProtectedNativePixmap::Create(
 
   ui::OzonePlatform* platform = ui::OzonePlatform::GetInstance();
   ui::SurfaceFactoryOzone* factory = platform->GetSurfaceFactoryOzone();
-  protected_pixmap->native_pixmap_ =
-      factory->CreateNativePixmap(gfx::kNullAcceleratedWidget, size, format,
-                                  gfx::BufferUsage::SCANOUT_VDA_WRITE);
+  protected_pixmap->native_pixmap_ = factory->CreateNativePixmap(
+      gfx::kNullAcceleratedWidget, VK_NULL_HANDLE, size, format,
+      gfx::BufferUsage::SCANOUT_VDA_WRITE);
 
   if (!protected_pixmap->native_pixmap_) {
     VLOGF(1) << "Failed allocating a native pixmap";
@@ -426,10 +426,10 @@ scoped_refptr<gfx::NativePixmap>
 ProtectedBufferManager::GetProtectedNativePixmapFor(
     const gfx::NativePixmapHandle& handle) {
   // Only the first fd is used for lookup.
-  if (handle.fds.empty())
+  if (handle.planes.empty())
     return nullptr;
 
-  base::ScopedFD dummy_fd(HANDLE_EINTR(dup(handle.fds[0].fd)));
+  base::ScopedFD dummy_fd(HANDLE_EINTR(dup(handle.planes[0].fd.get())));
   uint32_t id = 0;
   auto pixmap = ImportDummyFd(std::move(dummy_fd), &id);
 
@@ -438,13 +438,7 @@ ProtectedBufferManager::GetProtectedNativePixmapFor(
   if (iter == buffer_map_.end())
     return nullptr;
 
-  auto native_pixmap = iter->second->GetNativePixmap();
-  if (native_pixmap) {
-    for (const auto& fd : handle.fds)
-      base::ScopedFD scoped_fd(fd.fd);
-  }
-
-  return native_pixmap;
+  return iter->second->GetNativePixmap();
 }
 
 scoped_refptr<gfx::NativePixmap> ProtectedBufferManager::ImportDummyFd(
@@ -457,15 +451,14 @@ scoped_refptr<gfx::NativePixmap> ProtectedBufferManager::ImportDummyFd(
   // CreateNativePixmapFromHandle() takes ownership and will close the handle
   // also on failure.
   gfx::NativePixmapHandle pixmap_handle;
-  pixmap_handle.fds.emplace_back(
-      base::FileDescriptor(dummy_fd.release(), true));
-  pixmap_handle.planes.emplace_back(gfx::NativePixmapPlane());
+  pixmap_handle.planes.emplace_back(
+      gfx::NativePixmapPlane(0, 0, 0, std::move(dummy_fd)));
   ui::OzonePlatform* platform = ui::OzonePlatform::GetInstance();
   ui::SurfaceFactoryOzone* factory = platform->GetSurfaceFactoryOzone();
   scoped_refptr<gfx::NativePixmap> pixmap =
       factory->CreateNativePixmapForProtectedBufferHandle(
-          gfx::kNullAcceleratedWidget, kDummyBufferSize, gfx::BufferFormat::R_8,
-          pixmap_handle);
+          gfx::kNullAcceleratedWidget, kDummyBufferSize,
+          gfx::BufferFormat::RGBA_8888, std::move(pixmap_handle));
   if (!pixmap) {
     VLOGF(1) << "Failed importing dummy handle";
     return nullptr;

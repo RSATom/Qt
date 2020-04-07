@@ -28,7 +28,6 @@
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
 #include "third_party/blink/renderer/core/frame/deprecation.h"
-#include "third_party/blink/renderer/core/frame/use_counter.h"
 #include "third_party/blink/renderer/core/html/media/autoplay_policy.h"
 #include "third_party/blink/renderer/core/timing/dom_window_performance.h"
 #include "third_party/blink/renderer/core/timing/performance.h"
@@ -36,6 +35,7 @@
 #include "third_party/blink/renderer/modules/speech/speech_synthesis_error_event_init.h"
 #include "third_party/blink/renderer/modules/speech/speech_synthesis_event.h"
 #include "third_party/blink/renderer/modules/speech/speech_synthesis_event_init.h"
+#include "third_party/blink/renderer/platform/instrumentation/use_counter.h"
 #include "third_party/blink/renderer/platform/speech/platform_speech_synthesis_voice.h"
 
 namespace blink {
@@ -115,8 +115,8 @@ void SpeechSynthesis::speak(SpeechSynthesisUtterance* utterance) {
   // Note: Non-UseCounter based TTS metrics are of the form TextToSpeech.* and
   // are generally global, whereas these are scoped to a single page load.
   UseCounter::Count(document, WebFeature::kTextToSpeech_Speak);
-  UseCounter::CountCrossOriginIframe(
-      *document, WebFeature::kTextToSpeech_SpeakCrossOrigin);
+  document->CountUseOnlyInCrossOriginIframe(
+      WebFeature::kTextToSpeech_SpeakCrossOrigin);
   if (!IsAllowedToStartByAutoplay()) {
     Deprecation::CountDeprecation(
         document, WebFeature::kTextToSpeech_SpeakDisallowedByAutoplay);
@@ -153,6 +153,7 @@ void SpeechSynthesis::resume() {
 void SpeechSynthesis::FireEvent(const AtomicString& type,
                                 SpeechSynthesisUtterance* utterance,
                                 uint32_t char_index,
+                                uint32_t char_length,
                                 const String& name) {
   double millis;
   if (!GetElapsedTimeMillis(&millis))
@@ -161,6 +162,7 @@ void SpeechSynthesis::FireEvent(const AtomicString& type,
   SpeechSynthesisEventInit* init = SpeechSynthesisEventInit::Create();
   init->setUtterance(utterance);
   init->setCharIndex(char_index);
+  init->setCharLength(char_length);
   init->setElapsedTime(millis - (utterance->StartTime() * 1000.0));
   init->setName(name);
   utterance->DispatchEvent(*SpeechSynthesisEvent::Create(type, init));
@@ -192,7 +194,7 @@ void SpeechSynthesis::HandleSpeakingCompleted(
   // remove it from the queue and start speaking the next one.
   if (utterance == CurrentSpeechUtterance()) {
     utterance_queue_.pop_front();
-    should_start_speaking = !!utterance_queue_.size();
+    should_start_speaking = !utterance_queue_.empty();
   }
 
   // Always fire the event, because the platform may have asynchronously
@@ -204,7 +206,7 @@ void SpeechSynthesis::HandleSpeakingCompleted(
     // generic error.
     FireErrorEvent(utterance, 0, "synthesis-failed");
   } else {
-    FireEvent(event_type_names::kEnd, utterance, 0, String());
+    FireEvent(event_type_names::kEnd, utterance, 0, 0, String());
   }
 
   // Start the next utterance if we just finished one and one was pending.
@@ -215,7 +217,8 @@ void SpeechSynthesis::HandleSpeakingCompleted(
 void SpeechSynthesis::BoundaryEventOccurred(
     PlatformSpeechSynthesisUtterance* utterance,
     SpeechBoundary boundary,
-    unsigned char_index) {
+    unsigned char_index,
+    unsigned char_length) {
   DEFINE_STATIC_LOCAL(const String, word_boundary_string, ("word"));
   DEFINE_STATIC_LOCAL(const String, sentence_boundary_string, ("sentence"));
 
@@ -223,12 +226,12 @@ void SpeechSynthesis::BoundaryEventOccurred(
     case kSpeechWordBoundary:
       FireEvent(event_type_names::kBoundary,
                 static_cast<SpeechSynthesisUtterance*>(utterance->Client()),
-                char_index, word_boundary_string);
+                char_index, char_length, word_boundary_string);
       break;
     case kSpeechSentenceBoundary:
       FireEvent(event_type_names::kBoundary,
                 static_cast<SpeechSynthesisUtterance*>(utterance->Client()),
-                char_index, sentence_boundary_string);
+                char_index, char_length, sentence_boundary_string);
       break;
     default:
       NOTREACHED();
@@ -239,7 +242,7 @@ void SpeechSynthesis::DidStartSpeaking(
     PlatformSpeechSynthesisUtterance* utterance) {
   if (utterance->Client())
     FireEvent(event_type_names::kStart,
-              static_cast<SpeechSynthesisUtterance*>(utterance->Client()), 0,
+              static_cast<SpeechSynthesisUtterance*>(utterance->Client()), 0, 0,
               String());
 }
 
@@ -248,7 +251,7 @@ void SpeechSynthesis::DidPauseSpeaking(
   is_paused_ = true;
   if (utterance->Client())
     FireEvent(event_type_names::kPause,
-              static_cast<SpeechSynthesisUtterance*>(utterance->Client()), 0,
+              static_cast<SpeechSynthesisUtterance*>(utterance->Client()), 0, 0,
               String());
 }
 
@@ -257,7 +260,7 @@ void SpeechSynthesis::DidResumeSpeaking(
   is_paused_ = false;
   if (utterance->Client())
     FireEvent(event_type_names::kResume,
-              static_cast<SpeechSynthesisUtterance*>(utterance->Client()), 0,
+              static_cast<SpeechSynthesisUtterance*>(utterance->Client()), 0, 0,
               String());
 }
 

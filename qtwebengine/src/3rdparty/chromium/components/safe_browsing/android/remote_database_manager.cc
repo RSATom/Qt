@@ -8,6 +8,7 @@
 #include <utility>
 #include <vector>
 
+#include "base/bind.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_split.h"
@@ -105,10 +106,11 @@ RemoteSafeBrowsingDatabaseManager::RemoteSafeBrowsingDatabaseManager() {
   // Avoid memory allocations growing the underlying vector. Although this
   // usually wastes a bit of memory, it will still be less than the default
   // vector allocation strategy.
-  resource_types_to_check_.reserve(content::RESOURCE_TYPE_LAST_TYPE + 1);
+  resource_types_to_check_.reserve(
+      static_cast<int>(content::ResourceType::kMaxValue) + 1);
   // Decide which resource types to check. These two are the minimum.
-  resource_types_to_check_.insert(content::RESOURCE_TYPE_MAIN_FRAME);
-  resource_types_to_check_.insert(content::RESOURCE_TYPE_SUB_FRAME);
+  resource_types_to_check_.insert(content::ResourceType::kMainFrame);
+  resource_types_to_check_.insert(content::ResourceType::kSubFrame);
 
   // The param is expected to be a comma-separated list of ints
   // corresponding to the enum types.  We're keeping this finch
@@ -117,16 +119,17 @@ RemoteSafeBrowsingDatabaseManager::RemoteSafeBrowsingDatabaseManager() {
       kAndroidFieldExperiment, kAndroidTypesToCheckParam);
   if (ints_str.empty()) {
     // By default, we check all types except a few.
-    static_assert(content::RESOURCE_TYPE_LAST_TYPE ==
-                      content::RESOURCE_TYPE_PLUGIN_RESOURCE + 1,
+    static_assert(content::ResourceType::kMaxValue ==
+                      content::ResourceType::kNavigationPreloadSubFrame,
                   "Decide if new resource type should be skipped on mobile.");
-    for (int t_int = 0; t_int < content::RESOURCE_TYPE_LAST_TYPE; t_int++) {
+    for (int t_int = 0;
+         t_int <= static_cast<int>(content::ResourceType::kMaxValue); t_int++) {
       content::ResourceType t = static_cast<content::ResourceType>(t_int);
       switch (t) {
-        case content::RESOURCE_TYPE_STYLESHEET:
-        case content::RESOURCE_TYPE_IMAGE:
-        case content::RESOURCE_TYPE_FONT_RESOURCE:
-        case content::RESOURCE_TYPE_FAVICON:
+        case content::ResourceType::kStylesheet:
+        case content::ResourceType::kImage:
+        case content::ResourceType::kFontResource:
+        case content::ResourceType::kFavicon:
           break;
         default:
           resource_types_to_check_.insert(t);
@@ -138,7 +141,7 @@ RemoteSafeBrowsingDatabaseManager::RemoteSafeBrowsingDatabaseManager() {
              ints_str, ",", base::TRIM_WHITESPACE, base::SPLIT_WANT_ALL)) {
       int i;
       if (base::StringToInt(val_str, &i) && i >= 0 &&
-          i < content::RESOURCE_TYPE_LAST_TYPE) {
+          i <= static_cast<int>(content::ResourceType::kMaxValue)) {
         resource_types_to_check_.insert(static_cast<content::ResourceType>(i));
       }
     }
@@ -233,6 +236,15 @@ bool RemoteSafeBrowsingDatabaseManager::CheckResourceUrl(const GURL& url,
   return true;
 }
 
+AsyncMatch
+RemoteSafeBrowsingDatabaseManager::CheckUrlForHighConfidenceAllowlist(
+    const GURL& url,
+    Client* client) {
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
+  NOTREACHED();
+  return AsyncMatch::NO_MATCH;
+}
+
 bool RemoteSafeBrowsingDatabaseManager::CheckUrlForSubresourceFilter(
     const GURL& url,
     Client* client) {
@@ -294,6 +306,11 @@ safe_browsing::ThreatSource RemoteSafeBrowsingDatabaseManager::GetThreatSource()
 }
 
 std::string RemoteSafeBrowsingDatabaseManager::GetSafetyNetId() const {
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
+  DCHECK(IsSupported());
+  if (!enabled_)
+    return std::string();
+
   SafeBrowsingApiHandler* api_handler = SafeBrowsingApiHandler::GetInstance();
   DCHECK(api_handler) << "SafeBrowsingApiHandler was never constructed";
   return api_handler->GetSafetyNetId();

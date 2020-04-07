@@ -20,8 +20,7 @@
 #include <vector>
 
 #include "api/call/bitrate_allocation.h"
-#include "rtc_base/bitrate_allocation_strategy.h"
-#include "rtc_base/sequenced_task_checker.h"
+#include "rtc_base/synchronization/sequence_checker.h"
 
 namespace webrtc {
 
@@ -55,8 +54,8 @@ struct MediaStreamAllocationConfig {
   uint32_t min_bitrate_bps;
   uint32_t max_bitrate_bps;
   uint32_t pad_up_bitrate_bps;
+  int64_t priority_bitrate_bps;
   bool enforce_min_bitrate;
-  std::string track_id;
   double bitrate_priority;
 };
 
@@ -89,7 +88,7 @@ class BitrateAllocator : public BitrateAllocatorInterface {
     virtual ~LimitObserver() = default;
   };
 
-  explicit BitrateAllocator(LimitObserver* limit_observer);
+  BitrateAllocator(Clock* clock, LimitObserver* limit_observer);
   ~BitrateAllocator() override;
 
   void UpdateStartRate(uint32_t start_rate_bps);
@@ -115,40 +114,43 @@ class BitrateAllocator : public BitrateAllocatorInterface {
   // the list of added observers, a best guess is returned.
   int GetStartBitrate(BitrateAllocatorObserver* observer) const override;
 
-  // Sets external allocation strategy. If strategy is not set default WebRTC
-  // allocation mechanism will be used. The strategy may be changed during call.
-  // Setting NULL value will restore default WEBRTC allocation strategy.
-  void SetBitrateAllocationStrategy(
-      std::unique_ptr<rtc::BitrateAllocationStrategy>
-          bitrate_allocation_strategy);
-
  private:
-  struct ObserverConfig : rtc::BitrateAllocationStrategy::TrackConfig {
+  struct ObserverConfig {
     ObserverConfig(BitrateAllocatorObserver* observer,
                    uint32_t min_bitrate_bps,
                    uint32_t max_bitrate_bps,
                    uint32_t pad_up_bitrate_bps,
+                   int64_t priority_bitrate_bps,
                    bool enforce_min_bitrate,
-                   std::string track_id,
                    double bitrate_priority)
-        : TrackConfig(min_bitrate_bps,
-                      max_bitrate_bps,
-                      enforce_min_bitrate,
-                      track_id),
-          observer(observer),
+        : observer(observer),
           pad_up_bitrate_bps(pad_up_bitrate_bps),
+          priority_bitrate_bps(priority_bitrate_bps),
           allocated_bitrate_bps(-1),
           media_ratio(1.0),
-          bitrate_priority(bitrate_priority) {}
+          bitrate_priority(bitrate_priority),
+          min_bitrate_bps(min_bitrate_bps),
+          max_bitrate_bps(max_bitrate_bps),
+          enforce_min_bitrate(enforce_min_bitrate) {}
 
     BitrateAllocatorObserver* observer;
     uint32_t pad_up_bitrate_bps;
+    int64_t priority_bitrate_bps;
     int64_t allocated_bitrate_bps;
     double media_ratio;  // Part of the total bitrate used for media [0.0, 1.0].
     // The amount of bitrate allocated to this observer relative to all other
     // observers. If an observer has twice the bitrate_priority of other
     // observers, it should be allocated twice the bitrate above its min.
     double bitrate_priority;
+
+    // Minimum bitrate supported by track.
+    uint32_t min_bitrate_bps;
+
+    // Maximum bitrate supported by track.
+    uint32_t max_bitrate_bps;
+
+    // True means track may not be paused by allocating 0 bitrate.
+    bool enforce_min_bitrate;
 
     uint32_t LastAllocatedBitrate() const;
     // The minimum bitrate required by this observer, including
@@ -218,11 +220,10 @@ class BitrateAllocator : public BitrateAllocatorInterface {
   // Allow packets to be transmitted in up to 2 times max video bitrate if the
   // bandwidth estimate allows it.
   // TODO(bugs.webrtc.org/8541): May be worth to refactor to keep this logic in
-  // video send stream. Similar logic is implemented in
-  // AudioPriorityBitrateAllocationStrategy.
+  // video send stream.
   static uint8_t GetTransmissionMaxBitrateMultiplier();
 
-  rtc::SequencedTaskChecker sequenced_checker_;
+  SequenceChecker sequenced_checker_;
   LimitObserver* const limit_observer_ RTC_GUARDED_BY(&sequenced_checker_);
   // Stored in a list to keep track of the insertion order.
   ObserverConfigs bitrate_observer_configs_ RTC_GUARDED_BY(&sequenced_checker_);
@@ -239,8 +240,6 @@ class BitrateAllocator : public BitrateAllocatorInterface {
   uint32_t total_requested_padding_bitrate_ RTC_GUARDED_BY(&sequenced_checker_);
   uint32_t total_requested_min_bitrate_ RTC_GUARDED_BY(&sequenced_checker_);
   uint32_t total_requested_max_bitrate_ RTC_GUARDED_BY(&sequenced_checker_);
-  std::unique_ptr<rtc::BitrateAllocationStrategy> bitrate_allocation_strategy_
-      RTC_GUARDED_BY(&sequenced_checker_);
   const uint8_t transmission_max_bitrate_multiplier_;
 };
 

@@ -283,6 +283,11 @@ Will assume a single universal form.</source>
         <comment>Choose Edit|Find from the menu bar or press Ctrl+F to pop up the Find dialog</comment>
         <translation></translation>
     </message>
+    <message>
+        <source></source>
+        <comment>Choose Edit|Find from the menu bar or press Ctrl+F to pop up the Find dialog</comment>
+        <translation></translation>
+    </message>
 </context>
 <context>
     <name>FormMultiWidget</name>
@@ -970,6 +975,11 @@ Will assume a single universal form.</source>
         <translation></translation>
     </message>
     <message>
+        <source></source>
+        <comment>This is the application&apos;s main window.</comment>
+        <translation></translation>
+    </message>
+    <message>
         <source>Source text</source>
         <translation>來源訊息文字</translation>
     </message>
@@ -1177,8 +1187,12 @@ All files (*)</source>
         <translation>版本 %1</translation>
     </message>
     <message>
-        <source>&lt;center&gt;&lt;img src=&quot;:/images/icons/linguist-128-32.png&quot;/&gt;&lt;/img&gt;&lt;p&gt;%1&lt;/p&gt;&lt;/center&gt;&lt;p&gt;Qt Linguist is a tool for adding translations to Qt applications.&lt;/p&gt;&lt;p&gt;Copyright (C) %2 The Qt Company Ltd.</source>
-        <translation>&lt;center&gt;&lt;img src=&quot;:/images/icons/linguist-128-32.png&quot;/&gt;&lt;/img&gt;&lt;p&gt;%1&lt;/p&gt;&lt;/center&gt;&lt;p&gt;Qt 語言家是款用於將翻譯加入 Qt 應用程式的工具。&lt;/p&gt;&lt;p&gt;版權所有 (C) %2 The Qt Company Ltd.</translation>
+        <source>Qt Linguist is a tool for adding translations to Qt applications.</source>
+        <translation>Qt Linguist 是個用來將翻譯新增至 Qt 應用程式的工具。</translation>
+    </message>
+    <message>
+        <source>Copyright (C) %1 The Qt Company Ltd.</source>
+        <translation>版權所有 (C) %1 The Qt Company Ltd.</translation>
     </message>
     <message>
         <source>Do you want to save the modified files?</source>
@@ -1321,11 +1335,16 @@ All files (*)</source>
     <message>
         <source>&lt;center&gt;&lt;img src=&quot;:/images/splash.png&quot;/&gt;&lt;/img&gt;&lt;p&gt;%1&lt;/p&gt;&lt;/center&gt;&lt;p&gt;Qt Linguist is a tool for adding translations to Qt applications.&lt;/p&gt;&lt;p&gt;Copyright (C) %2 The Qt Company Ltd.</source>
         <translatorcomment>請忽略警告！</translatorcomment>
-        <translation>&lt;center&gt;&lt;img src=&quot;:/images/splash.png&quot;/&gt;&lt;/img&gt;&lt;p&gt;%1&lt;/p&gt;&lt;/center&gt;&lt;p&gt;Qt Linguist 是個對 Qt 應用程式加入翻譯的工具。&lt;/p&gt;&lt;p&gt;版權所有 (C) %2 Qt 公司</translation>
+        <translation>&lt;center&gt;&lt;img src=&quot;:/images/splash.png&quot;/&gt;&lt;/img&gt;&lt;p&gt;%1&lt;/p&gt;&lt;/center&gt;&lt;p&gt;Qt Linguist 是個對 Qt 應用程式加入翻譯的工具。&lt;/p&gt;&lt;p&gt;版權所有 (C) %2 The Qt Company Ltd.</translation>
     </message>
 </context>
 <context>
     <name>MessageEditor</name>
+    <message>
+        <source></source>
+        <comment>This is the right panel of the main window.</comment>
+        <translation></translation>
+    </message>
     <message>
         <source></source>
         <comment>This is the right panel of the main window.</comment>
@@ -1487,6 +1506,11 @@ Line: %2</source>
     <message>
         <source>Close</source>
         <translation>關閉</translation>
+    </message>
+    <message>
+        <source></source>
+        <comment>Go to Phrase &gt; Edit Phrase Book... The dialog that pops up is a PhraseBookBox.</comment>
+        <translation></translation>
     </message>
     <message>
         <source></source>

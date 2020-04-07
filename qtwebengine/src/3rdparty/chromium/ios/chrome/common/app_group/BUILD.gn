@@ -9,6 +9,8 @@ source_set("app_group") {
   sources = [
     "app_group_constants.h",
     "app_group_constants.mm",
+    "app_group_field_trial_version.h",
+    "app_group_field_trial_version.mm",
     "app_group_metrics.h",
     "app_group_metrics.mm",
     "app_group_utils.h",
@@ -33,6 +35,22 @@ source_set("client") {
 
   deps = [
     ":app_group",
+    "//base",
+  ]
+}
+
+# This target will be included into application extensions and the list
+# of its dependencies must be kept as short as possible.
+source_set("command") {
+  configs += [ "//build/config/compiler:enable_arc" ]
+  sources = [
+    "app_group_command.h",
+    "app_group_command.mm",
+  ]
+
+  deps = [
+    ":app_group",
+    ":client",
     "//base",
   ]
 }

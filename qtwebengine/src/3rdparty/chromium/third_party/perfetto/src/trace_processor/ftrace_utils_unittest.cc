@@ -16,8 +16,8 @@
 
 #include "src/trace_processor/ftrace_utils.h"
 
-#include "gmock/gmock.h"
-#include "gtest/gtest.h"
+#include <gmock/gmock.h>
+#include <gtest/gtest.h>
 
 namespace perfetto {
 namespace trace_processor {
@@ -51,6 +51,7 @@ TEST(TaskStateUnittest, Smoke) {
 
 TEST(TaskStateUnittest, MultipleState) {
   ASSERT_STREQ(TaskState(2048).ToString().data(), "R+");
+  ASSERT_STREQ(TaskState(4096).ToString().data(), "R+");
   ASSERT_STREQ(TaskState(130).ToString().data(), "DK");
   ASSERT_STREQ(TaskState(258).ToString().data(), "DW");
 }

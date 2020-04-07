@@ -13,7 +13,7 @@
 .elements-disclosure li {
     /** Keep margin-left & padding-left in sync with ElementsTreeElements.updateDecorators **/
     padding: 0 0 0 14px;
-    margin-top: 1px;
+    border-top: 1px solid transparent;
     margin-left: -2px;
     word-wrap: break-word;
     position: relative;
@@ -44,7 +44,7 @@
 
 .elements-disclosure li.parent::before {
     -webkit-user-select: none;
-    -webkit-mask-image: url(Images/treeoutlineTriangles.png);
+    -webkit-mask-image: url(Images/treeoutlineTriangles.svg);
     -webkit-mask-size: 32px 24px;
     content: '\00a0\00a0';
     color: transparent;
@@ -55,12 +55,6 @@
 .elements-disclosure li.always-parent::before {
     visibility: hidden;
 }
-
-@media (-webkit-min-device-pixel-ratio: 1.1) {
-.elements-disclosure li.parent::before {
-    -webkit-mask-image: url(Images/treeoutlineTriangles_2x.png);
-}
-} /* media */
 
 .elements-disclosure li.parent::before {
     -webkit-mask-position: 0 0;
@@ -305,7 +299,8 @@ ol:hover > li > .elements-tree-shortcut-link {
 }
 
 .gutter-menu-icon {
-    display: none;
+    display: block;
+    visibility: hidden;
     transform: rotate(-90deg) scale(0.8);
     background-color: white;
     position: relative;
@@ -314,7 +309,7 @@ ol:hover > li > .elements-tree-shortcut-link {
 }
 
 .elements-disclosure li.selected .gutter-container:not(.has-decorations) .gutter-menu-icon {
-    display: block;
+    visibility: visible;
 }
 
 /** Guide line */

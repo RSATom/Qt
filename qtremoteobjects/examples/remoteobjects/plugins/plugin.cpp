@@ -76,8 +76,8 @@ public:
     TimeModel(QObject *parent = nullptr) : QObject(parent), d_ptr(nullptr)
     {
         d_ptr.reset(m_client.acquire< MinuteTimerReplica >());
-        connect(d_ptr.data(), SIGNAL(hourChanged()), this, SIGNAL(timeChanged()));
-        connect(d_ptr.data(), SIGNAL(minuteChanged()), this, SIGNAL(timeChanged()));
+        connect(d_ptr.data(), SIGNAL(hourChanged(int)), this, SIGNAL(timeChanged()));
+        connect(d_ptr.data(), SIGNAL(minuteChanged(int)), this, SIGNAL(timeChanged()));
         connect(d_ptr.data(), SIGNAL(timeChanged()), this, SIGNAL(timeChanged()));
         connect(d_ptr.data(), SIGNAL(timeChanged2(QTime)), this, SLOT(test(QTime)));
         connect(d_ptr.data(), SIGNAL(sendCustom(PresetInfo)), this, SLOT(testCustom(PresetInfo)));

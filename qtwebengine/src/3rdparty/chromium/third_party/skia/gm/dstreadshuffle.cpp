@@ -4,13 +4,28 @@
  * Use of this source code is governed by a BSD-style license that can be
  * found in the LICENSE file.
  */
-#include "gm.h"
-#include "sk_tool_utils.h"
-#include "SkBitmap.h"
-#include "SkPath.h"
-#include "SkRandom.h"
-#include "SkShader.h"
-#include "SkSurface.h"
+
+#include "gm/gm.h"
+#include "include/core/SkBlendMode.h"
+#include "include/core/SkCanvas.h"
+#include "include/core/SkColor.h"
+#include "include/core/SkColorSpace.h"
+#include "include/core/SkFont.h"
+#include "include/core/SkImageInfo.h"
+#include "include/core/SkMatrix.h"
+#include "include/core/SkPaint.h"
+#include "include/core/SkPath.h"
+#include "include/core/SkPoint.h"
+#include "include/core/SkRect.h"
+#include "include/core/SkRefCnt.h"
+#include "include/core/SkScalar.h"
+#include "include/core/SkSize.h"
+#include "include/core/SkString.h"
+#include "include/core/SkSurface.h"
+#include "include/core/SkTypeface.h"
+#include "include/core/SkTypes.h"
+#include "include/utils/SkRandom.h"
+#include "tools/ToolUtils.h"
 
 namespace skiagm {
 
@@ -82,7 +97,7 @@ protected:
                 break;
             case kText_ShapeType: {
                 const char* text = "N";
-                SkFont font(sk_tool_utils::create_portable_typeface(), 100);
+                SkFont      font(ToolUtils::create_portable_typeface(), 100);
                 font.setEmbolden(true);
                 canvas->drawString(text, 0.f, 100.f, font, *paint);
             }
@@ -92,7 +107,7 @@ protected:
     }
 
     static SkColor GetColor(SkRandom* random) {
-        SkColor color = sk_tool_utils::color_to_565(random->nextU() | 0xFF000000);
+        SkColor color = ToolUtils::color_to_565(random->nextU() | 0xFF000000);
         return SkColorSetA(color, 0x80);
     }
 
@@ -182,7 +197,6 @@ private:
 
 //////////////////////////////////////////////////////////////////////////////
 
-static GM* MyFactory(void*) { return new DstReadShuffle; }
-static GMRegistry reg(MyFactory);
+DEF_GM( return new DstReadShuffle; )
 
 }

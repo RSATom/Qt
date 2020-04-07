@@ -172,7 +172,7 @@ static QLayout *recreateManagedLayout(const QDesignerFormEditorInterface *core, 
     qdesigner_internal::LayoutProperties properties;
     const int mask = properties.fromPropertySheet(core, lt, qdesigner_internal::LayoutProperties::AllProperties);
     qdesigner_internal::LayoutInfo::deleteLayout(core, w);
-    QLayout *rc = core->widgetFactory()->createLayout(w, 0, t);
+    QLayout *rc = core->widgetFactory()->createLayout(w, nullptr, t);
     properties.toPropertySheet(core, rc, mask, true);
     return rc;
 }
@@ -417,13 +417,9 @@ int LayoutProperties::toPropertySheet(const QDesignerFormEditorInterface *core, 
 }
 
 // ---------------- LayoutHelper
-LayoutHelper::LayoutHelper()
-{
-}
+LayoutHelper::LayoutHelper() = default;
 
-LayoutHelper::~LayoutHelper()
-{
-}
+LayoutHelper::~LayoutHelper() = default;
 
 int LayoutHelper::indexOf(const QLayout *lt, const QWidget *widget)
 {
@@ -464,12 +460,12 @@ QRect LayoutHelper::itemInfo(QLayout *lt, const QWidget *widget) const
         void simplify(const QDesignerFormEditorInterface *, QWidget *, const QRect &) override {}
 
         // Helper for restoring layout states
-        typedef QVector <QLayoutItem *> LayoutItemVector;
+        using LayoutItemVector = QVector<QLayoutItem *>;
         static LayoutItemVector disassembleLayout(QLayout *lt);
         static QLayoutItem *findItemOfWidget(const LayoutItemVector &lv, QWidget *w);
 
     private:
-        typedef QVector<QWidget *> BoxLayoutState;
+        using BoxLayoutState = QVector<QWidget *>;
 
         static BoxLayoutState state(const QBoxLayout*lt);
 
@@ -508,7 +504,7 @@ QRect LayoutHelper::itemInfo(QLayout *lt, const QWidget *widget) const
                 delete boxLayout->takeAt(index);
                 if (visible)
                     before->hide();
-                before->setParent(0);
+                before->setParent(nullptr);
                 boxLayout->insertWidget(index, after);
                 ok = true;
             }
@@ -543,7 +539,7 @@ QRect LayoutHelper::itemInfo(QLayout *lt, const QWidget *widget) const
             if ( (*it)->widget() == w)
                 return *it;
 
-        return 0;
+        return nullptr;
     }
 
     BoxLayoutHelper::LayoutItemVector BoxLayoutHelper::disassembleLayout(QLayout *lt)
@@ -587,7 +583,7 @@ QRect LayoutHelper::itemInfo(QLayout *lt, const QWidget *widget) const
     // that do not change the widgets within the layout; also provides some manipulation
     // functions and ability to apply the state to a layout provided its widgets haven't changed.
     struct GridLayoutState {
-        GridLayoutState();
+        GridLayoutState() = default;
 
         void fromLayout(QGridLayout *l);
         void applyToLayout(const QDesignerFormEditorInterface *core, QWidget *w) const;
@@ -608,7 +604,7 @@ QRect LayoutHelper::itemInfo(QLayout *lt, const QWidget *widget) const
         };
         // Horiontal, Vertical pair of state
         typedef QPair<DimensionCellState, DimensionCellState> CellState;
-        typedef QVector<CellState> CellStates;
+        using CellStates = QVector<CellState>;
 
         // Figure out states of a cell and return as a flat vector of
         // [column1, column2,...] (address as  row * columnCount + col)
@@ -620,8 +616,8 @@ QRect LayoutHelper::itemInfo(QLayout *lt, const QWidget *widget) const
         WidgetItemMap widgetItemMap;
         WidgetAlignmentMap widgetAlignmentMap;
 
-        int rowCount;
-        int colCount;
+        int rowCount = 0;
+        int colCount = 0;
     };
 
     static inline bool needsSpacerItem(const GridLayoutState::CellState &cs) {
@@ -637,12 +633,6 @@ QRect LayoutHelper::itemInfo(QLayout *lt, const QWidget *widget) const
         for (GridLayoutState::WidgetItemMap::const_iterator it = gs.widgetItemMap.constBegin(); it != wcend; ++it)
             str << "Item " << it.key() << it.value() << '\n';
         return str;
-    }
-
-    GridLayoutState::GridLayoutState() :
-         rowCount(0),
-         colCount(0)
-    {
     }
 
     GridLayoutState::CellStates GridLayoutState::cellStates(const QList<QRect> &rects, int numRows, int numColumns)
@@ -701,7 +691,7 @@ QRect LayoutHelper::itemInfo(QLayout *lt, const QWidget *widget) const
 
     void GridLayoutState::applyToLayout(const QDesignerFormEditorInterface *core, QWidget *w) const
     {
-        typedef QHash<QLayoutItem *, QRect> LayoutItemRectMap;
+        using LayoutItemRectMap =QHash<QLayoutItem *, QRect>;
         QGridLayout *grid = qobject_cast<QGridLayout *>(LayoutInfo::managedLayout(core, w));
         Q_ASSERT(grid);
         if (debugLayout)
@@ -731,7 +721,7 @@ QRect LayoutHelper::itemInfo(QLayout *lt, const QWidget *widget) const
         const LayoutItemRectMap::const_iterator icend = itemMap.constEnd();
         for (LayoutItemRectMap::const_iterator it = itemMap.constBegin(); it != icend; ++it) {
             const QRect info = it.value();
-            const Qt::Alignment alignment = widgetAlignmentMap.value(it.key()->widget(), Qt::Alignment(0));
+            const Qt::Alignment alignment = widgetAlignmentMap.value(it.key()->widget(), {});
             grid->addItem(it.key(), info.y(), info.x(), info.height(), info.width(), alignment);
         }
         // create spacers
@@ -866,7 +856,7 @@ QRect LayoutHelper::itemInfo(QLayout *lt, const QWidget *widget) const
     // ---------------- GridLayoutHelper
     class GridLayoutHelper : public  LayoutHelper {
     public:
-        GridLayoutHelper() {}
+        GridLayoutHelper() = default;
 
         QRect itemInfo(QLayout *lt, int index) const override;
         void insertWidget(QLayout *lt, const QRect &info, QWidget *w) override;
@@ -969,7 +959,7 @@ QRect LayoutHelper::itemInfo(QLayout *lt, const QWidget *widget) const
                 delete gridLayout->takeAt(index);
                 if (visible)
                     before->hide();
-                before->setParent(0);
+                before->setParent(nullptr);
                 gridLayout->addWidget(after, row, column, rowSpan, columnSpan);
                 ok = true;
             }
@@ -1021,9 +1011,9 @@ QRect LayoutHelper::itemInfo(QLayout *lt, const QWidget *widget) const
     class FormLayoutHelper : public  LayoutHelper {
     public:
         typedef QPair<QWidget *, QWidget *> WidgetPair;
-        typedef QVector<WidgetPair> FormLayoutState;
+        using FormLayoutState = QVector<WidgetPair>;
 
-        FormLayoutHelper() {}
+        FormLayoutHelper() = default;
 
         QRect itemInfo(QLayout *lt, int index) const override;
         void insertWidget(QLayout *lt, const QRect &info, QWidget *w) override;
@@ -1047,7 +1037,7 @@ QRect LayoutHelper::itemInfo(QLayout *lt, const QWidget *widget) const
         QFormLayout *form = qobject_cast<QFormLayout *>(lt);
         Q_ASSERT(form);
         int row, column, colspan;
-        getFormLayoutItemPosition(form, index, &row, &column, 0, &colspan);
+        getFormLayoutItemPosition(form, index, &row, &column, nullptr, &colspan);
         return QRect(column, row, colspan, 1);
     }
 
@@ -1076,7 +1066,7 @@ QRect LayoutHelper::itemInfo(QLayout *lt, const QWidget *widget) const
         }
         // delete old item and pad with  by spacer items
         int row, column, colspan;
-        getFormLayoutItemPosition(formLayout, index, &row, &column, 0, &colspan);
+        getFormLayoutItemPosition(formLayout, index, &row, &column, nullptr, &colspan);
         if (debugLayout)
             qDebug() << "FormLayoutHelper::removeWidget: #" << index << widget << " at " << row << column <<  colspan;
         delete formLayout->takeAt(index);
@@ -1100,7 +1090,7 @@ QRect LayoutHelper::itemInfo(QLayout *lt, const QWidget *widget) const
                 delete formLayout->takeAt(index);
                 if (visible)
                     before->hide();
-                before->setParent(0);
+                before->setParent(nullptr);
                 formLayout->setWidget(row, role, after);
                 ok = true;
             }
@@ -1122,7 +1112,7 @@ QRect LayoutHelper::itemInfo(QLayout *lt, const QWidget *widget) const
             if (!LayoutInfo::isEmptyItem(item)) {
                 QWidget *w = item->widget();
                 Q_ASSERT(w);
-                getFormLayoutItemPosition(lt, i, &row, &column, 0, &colspan);
+                getFormLayoutItemPosition(lt, i, &row, &column, nullptr, &colspan);
                 if (colspan > 1 || column == 0)
                     rc[row].first = w;
                 if (colspan > 1 || column == 1)
@@ -1160,7 +1150,7 @@ QRect LayoutHelper::itemInfo(QLayout *lt, const QWidget *widget) const
             formLayout = static_cast<QFormLayout*>(recreateManagedLayout(core, widgetWithManagedLayout, formLayout ));
         for (int r = 0; r < rowCount; r++) {
             QWidget *widgets[FormLayoutColumns] = { storedState[r].first, storedState[r].second };
-            const bool spanning = widgets[0] != 0 && widgets[0] == widgets[1];
+            const bool spanning = widgets[0] != nullptr && widgets[0] == widgets[1];
             if (spanning) {
                 formLayout->setWidget(r, QFormLayout::SpanningRole, widgets[0]);
             } else {
@@ -1185,8 +1175,8 @@ QRect LayoutHelper::itemInfo(QLayout *lt, const QWidget *widget) const
 
     void FormLayoutHelper::simplify(const QDesignerFormEditorInterface *core, QWidget *widgetWithManagedLayout, const QRect &restrictionArea)
     {
-        typedef QPair<QLayoutItem*, QLayoutItem*> LayoutItemPair;
-        typedef QVector<LayoutItemPair> LayoutItemPairs;
+        using LayoutItemPair = QPair<QLayoutItem*, QLayoutItem*>;
+        using LayoutItemPairs = QVector<LayoutItemPair>;
 
         QFormLayout *formLayout = qobject_cast<QFormLayout *>(LayoutInfo::managedLayout(core, widgetWithManagedLayout));
         Q_ASSERT(formLayout);
@@ -1197,7 +1187,7 @@ QRect LayoutHelper::itemInfo(QLayout *lt, const QWidget *widget) const
         LayoutItemPairs pairs(rowCount, LayoutItemPair(0, 0));
         for (int i =  formLayout->count() - 1; i >= 0; i--) {
             int row, col,colspan;
-            getFormLayoutItemPosition(formLayout, i, &row, &col, 0, &colspan);
+            getFormLayoutItemPosition(formLayout, i, &row, &col, nullptr, &colspan);
             if (colspan > 1) {
                  pairs[row].first = pairs[row].second = formLayout->takeAt(i);
             } else {
@@ -1232,7 +1222,7 @@ QRect LayoutHelper::itemInfo(QLayout *lt, const QWidget *widget) const
 
 LayoutHelper *LayoutHelper::createLayoutHelper(int type)
 {
-    LayoutHelper *rc = 0;
+    LayoutHelper *rc = nullptr;
     switch (type) {
     case LayoutInfo::HBox:
         rc = new BoxLayoutHelper(Qt::Horizontal);
@@ -1546,7 +1536,7 @@ namespace {
 class QBoxLayoutSupport: public QLayoutSupport
 {
 public:
-    QBoxLayoutSupport(QDesignerFormWindowInterface *formWindow, QWidget *widget, Qt::Orientation orientation, QObject *parent = 0);
+    QBoxLayoutSupport(QDesignerFormWindowInterface *formWindow, QWidget *widget, Qt::Orientation orientation, QObject *parent = nullptr);
 
     void insertWidget(QWidget *widget, const QPair<int, int> &cell) override;
     void removeWidget(QWidget *widget) override;
@@ -1677,7 +1667,7 @@ class GridLikeLayoutSupportBase: public QLayoutSupport
 {
 public:
 
-    GridLikeLayoutSupportBase(QDesignerFormWindowInterface *formWindow, QWidget *widget, LayoutHelper *helper, QObject *parent = 0) :
+    GridLikeLayoutSupportBase(QDesignerFormWindowInterface *formWindow, QWidget *widget, LayoutHelper *helper, QObject *parent = nullptr) :
         QLayoutSupport(formWindow, widget, helper, parent) {}
 
     void insertWidget(QWidget *widget, const QPair<int, int> &cell) override;
@@ -1792,7 +1782,7 @@ class QGridLayoutSupport: public GridLikeLayoutSupportBase<QGridLayout>
 {
 public:
 
-    QGridLayoutSupport(QDesignerFormWindowInterface *formWindow, QWidget *widget, QObject *parent = 0);
+    QGridLayoutSupport(QDesignerFormWindowInterface *formWindow, QWidget *widget, QObject *parent = nullptr);
 
     void simplify() override;
     void insertRow(int row) override;
@@ -1839,7 +1829,7 @@ void QGridLayoutSupport::simplify()
 class QFormLayoutSupport: public GridLikeLayoutSupportBase<QFormLayout>
 {
 public:
-    QFormLayoutSupport(QDesignerFormWindowInterface *formWindow, QWidget *widget, QObject *parent = 0);
+    QFormLayoutSupport(QDesignerFormWindowInterface *formWindow, QWidget *widget, QObject *parent = nullptr);
 
     void simplify() override {}
     void insertRow(int /*row*/) override {}
@@ -1867,7 +1857,7 @@ QLayoutSupport *QLayoutSupport::createLayoutSupport(QDesignerFormWindowInterface
 {
     const QLayout *layout = LayoutInfo::managedLayout(formWindow->core(), widget);
     Q_ASSERT(layout);
-    QLayoutSupport *rc = 0;
+    QLayoutSupport *rc = nullptr;
     switch (LayoutInfo::layoutType(formWindow->core(), layout)) {
     case LayoutInfo::HBox:
         rc = new QBoxLayoutSupport(formWindow, widget, Qt::Horizontal, parent);
@@ -1998,7 +1988,7 @@ int QLayoutWidget::layoutLeftMargin() const
 {
     if (m_leftMargin < 0 && layout()) {
         int margin;
-        layout()->getContentsMargins(&margin, 0, 0, 0);
+        layout()->getContentsMargins(&margin, nullptr, nullptr, nullptr);
         return margin;
     }
     return m_leftMargin;
@@ -2021,7 +2011,7 @@ int QLayoutWidget::layoutTopMargin() const
 {
     if (m_topMargin < 0 && layout()) {
         int margin;
-        layout()->getContentsMargins(0, &margin, 0, 0);
+        layout()->getContentsMargins(nullptr, &margin, nullptr, nullptr);
         return margin;
     }
     return m_topMargin;
@@ -2044,7 +2034,7 @@ int QLayoutWidget::layoutRightMargin() const
 {
     if (m_rightMargin < 0 && layout()) {
         int margin;
-        layout()->getContentsMargins(0, 0, &margin, 0);
+        layout()->getContentsMargins(nullptr, nullptr, &margin, nullptr);
         return margin;
     }
     return m_rightMargin;
@@ -2067,7 +2057,7 @@ int QLayoutWidget::layoutBottomMargin() const
 {
     if (m_bottomMargin < 0 && layout()) {
         int margin;
-        layout()->getContentsMargins(0, 0, 0, &margin);
+        layout()->getContentsMargins(nullptr, nullptr, nullptr, &margin);
         return margin;
     }
     return m_bottomMargin;

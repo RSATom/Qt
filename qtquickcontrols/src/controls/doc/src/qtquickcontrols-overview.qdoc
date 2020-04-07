@@ -30,6 +30,8 @@
     \title Qt Quick Controls 1 Overview
     \brief A set of UI controls to create user interfaces in Qt Quick
 
+    \deprecationwarning
+
     The Qt Quick Controls provide a set of UI controls to create user interfaces
     in Qt Quick.
 

@@ -5,15 +5,15 @@
 #ifndef V8_REGEXP_MIPS64_REGEXP_MACRO_ASSEMBLER_MIPS64_H_
 #define V8_REGEXP_MIPS64_REGEXP_MACRO_ASSEMBLER_MIPS64_H_
 
-#include "src/macro-assembler.h"
-#include "src/mips64/assembler-mips64.h"
+#include "src/codegen/macro-assembler.h"
+#include "src/codegen/mips64/assembler-mips64.h"
 #include "src/regexp/regexp-macro-assembler.h"
 
 namespace v8 {
 namespace internal {
 
-#ifndef V8_INTERPRETED_REGEXP
-class RegExpMacroAssemblerMIPS: public NativeRegExpMacroAssembler {
+class V8_EXPORT_PRIVATE RegExpMacroAssemblerMIPS
+    : public NativeRegExpMacroAssembler {
  public:
   RegExpMacroAssemblerMIPS(Isolate* isolate, Zone* zone, Mode mode,
                            int registers_to_save);
@@ -222,9 +222,6 @@ class RegExpMacroAssemblerMIPS: public NativeRegExpMacroAssembler {
   Label stack_overflow_label_;
   Label internal_failure_label_;
 };
-
-#endif  // V8_INTERPRETED_REGEXP
-
 
 }  // namespace internal
 }  // namespace v8

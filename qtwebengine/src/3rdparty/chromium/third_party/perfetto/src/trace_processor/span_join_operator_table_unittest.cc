@@ -16,8 +16,8 @@
 
 #include "src/trace_processor/span_join_operator_table.h"
 
-#include "gmock/gmock.h"
-#include "gtest/gtest.h"
+#include <gmock/gmock.h>
+#include <gtest/gtest.h>
 #include "src/trace_processor/trace_processor_context.h"
 #include "src/trace_processor/trace_storage.h"
 
@@ -48,6 +48,14 @@ class SpanJoinOperatorTableTest : public ::testing::Test {
   void RunStatement(const std::string& sql) {
     PrepareValidStatement(sql);
     ASSERT_EQ(sqlite3_step(stmt_.get()), SQLITE_DONE);
+  }
+
+  void AssertNextRow(const std::vector<int64_t> elements) {
+    ASSERT_EQ(sqlite3_step(stmt_.get()), SQLITE_ROW);
+    for (size_t i = 0; i < elements.size(); ++i) {
+      ASSERT_EQ(sqlite3_column_int64(stmt_.get(), static_cast<int>(i)),
+                elements[i]);
+    }
   }
 
   ~SpanJoinOperatorTableTest() override { context_.storage->ResetStorage(); }
@@ -181,6 +189,75 @@ TEST_F(SpanJoinOperatorTableTest, NullPartitionKey) {
   ASSERT_EQ(sqlite3_column_int64(stmt_.get(), 1), 10);
   ASSERT_EQ(sqlite3_column_int64(stmt_.get(), 2), 5);
 
+  ASSERT_EQ(sqlite3_step(stmt_.get()), SQLITE_DONE);
+}
+
+TEST_F(SpanJoinOperatorTableTest, MixedPartitioning) {
+  RunStatement(
+      "CREATE TEMP TABLE f("
+      "ts BIG INT PRIMARY KEY, "
+      "dur BIG INT, "
+      "upid UNSIGNED INT"
+      ");");
+  RunStatement(
+      "CREATE TEMP TABLE s("
+      "ts BIG INT PRIMARY KEY, "
+      "dur BIG INT, "
+      "s_val BIG INT"
+      ");");
+  RunStatement(
+      "CREATE VIRTUAL TABLE sp USING span_join(f PARTITIONED upid, s);");
+
+  RunStatement("INSERT INTO f VALUES(30, 20, NULL);");
+  RunStatement("INSERT INTO f VALUES(100, 10, 5);");
+  RunStatement("INSERT INTO f VALUES(110, 50, 5);");
+  RunStatement("INSERT INTO f VALUES(120, 100, 2);");
+  RunStatement("INSERT INTO f VALUES(160, 10, 5);");
+  RunStatement("INSERT INTO f VALUES(300, 100, 2);");
+
+  RunStatement("INSERT INTO s VALUES(100, 5, 11111);");
+  RunStatement("INSERT INTO s VALUES(105, 5, 22222);");
+  RunStatement("INSERT INTO s VALUES(110, 60, 33333);");
+  RunStatement("INSERT INTO s VALUES(320, 10, 44444);");
+
+  PrepareValidStatement("SELECT * FROM sp");
+  AssertNextRow({120, 50, 2, 33333});
+  AssertNextRow({320, 10, 2, 44444});
+  AssertNextRow({100, 5, 5, 11111});
+  AssertNextRow({105, 5, 5, 22222});
+  AssertNextRow({110, 50, 5, 33333});
+  AssertNextRow({160, 10, 5, 33333});
+  ASSERT_EQ(sqlite3_step(stmt_.get()), SQLITE_DONE);
+}
+
+TEST_F(SpanJoinOperatorTableTest, NoPartitioning) {
+  RunStatement(
+      "CREATE TEMP TABLE f("
+      "ts BIG INT PRIMARY KEY, "
+      "dur BIG INT, "
+      "f_val BIG INT"
+      ");");
+  RunStatement(
+      "CREATE TEMP TABLE s("
+      "ts BIG INT PRIMARY KEY, "
+      "dur BIG INT, "
+      "s_val BIG INT"
+      ");");
+  RunStatement("CREATE VIRTUAL TABLE sp USING span_join(f, s);");
+
+  RunStatement("INSERT INTO f VALUES(100, 10, 44444);");
+  RunStatement("INSERT INTO f VALUES(110, 50, 55555);");
+  RunStatement("INSERT INTO f VALUES(160, 10, 44444);");
+
+  RunStatement("INSERT INTO s VALUES(100, 5, 11111);");
+  RunStatement("INSERT INTO s VALUES(105, 5, 22222);");
+  RunStatement("INSERT INTO s VALUES(110, 60, 33333);");
+
+  PrepareValidStatement("SELECT * FROM sp");
+  AssertNextRow({100, 5, 44444, 11111});
+  AssertNextRow({105, 5, 44444, 22222});
+  AssertNextRow({110, 50, 55555, 33333});
+  AssertNextRow({160, 10, 44444, 33333});
   ASSERT_EQ(sqlite3_step(stmt_.get()), SQLITE_DONE);
 }
 

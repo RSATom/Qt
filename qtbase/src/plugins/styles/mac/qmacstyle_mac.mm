@@ -50,92 +50,30 @@
 #define QMAC_QAQUASTYLE_SIZE_CONSTRAIN
 //#define DEBUG_SIZE_CONSTRAINT
 
-#include <private/qcore_mac_p.h>
-#if QT_CONFIG(tabbar)
-#include <private/qtabbar_p.h>
-#endif
-#include <private/qpainter_p.h>
-#include <qapplication.h>
-#include <qbitmap.h>
-#if QT_CONFIG(combobox)
-#include <private/qcombobox_p.h>
-#include <qcombobox.h>
-#endif
-#if QT_CONFIG(dialogbuttonbox)
-#include <qdialogbuttonbox.h>
-#endif
-#if QT_CONFIG(dockwidget)
-#include <qdockwidget.h>
-#endif
-#include <qevent.h>
-#include <qfocusframe.h>
-#include <qformlayout.h>
-#include <qgroupbox.h>
-#include <qhash.h>
-#include <qheaderview.h>
-#if QT_CONFIG(lineedit)
-#include <qlineedit.h>
-#endif
-#if QT_CONFIG(mainwindow)
-#include <qmainwindow.h>
-#endif
-#if QT_CONFIG(mdiarea)
-#include <qmdisubwindow.h>
-#endif
-#if QT_CONFIG(menubar)
-#include <qmenubar.h>
-#endif
-#include <qpaintdevice.h>
-#include <qpainter.h>
-#include <qpixmapcache.h>
-#include <qpointer.h>
-#if QT_CONFIG(progressbar)
-#include <qprogressbar.h>
-#endif
-#if QT_CONFIG(pushbutton)
-#include <qpushbutton.h>
-#endif
-#include <qradiobutton.h>
-#if QT_CONFIG(rubberband)
-#include <qrubberband.h>
-#endif
-#if QT_CONFIG(scrollbar)
-#include <qscrollbar.h>
-#endif
-#if QT_CONFIG(sizegrip)
-#include <qsizegrip.h>
-#endif
-#include <qstyleoption.h>
-#include <qtoolbar.h>
-#if QT_CONFIG(toolbutton)
-#include <qtoolbutton.h>
-#endif
-#if QT_CONFIG(treeview)
-#include <qtreeview.h>
-#endif
-#if QT_CONFIG(tableview)
-#include <qtableview.h>
-#endif
-#include <qoperatingsystemversion.h>
-#if QT_CONFIG(wizard)
-#include <qwizard.h>
-#endif
-#include <qdebug.h>
-#if QT_CONFIG(datetimeedit)
-#include <qdatetimeedit.h>
-#endif
-#include <qmath.h>
-#include <QtWidgets/qgraphicsproxywidget.h>
-#if QT_CONFIG(graphicsview)
-#include <QtWidgets/qgraphicsview.h>
-#endif
+#include <QtCore/qoperatingsystemversion.h>
 #include <QtCore/qvariant.h>
 #include <QtCore/qvarlengtharray.h>
-#include <private/qstylehelper_p.h>
-#include <private/qstyleanimation_p.h>
-#include <qpa/qplatformfontdatabase.h>
-#include <qpa/qplatformtheme.h>
+
+#include <QtCore/private/qcore_mac_p.h>
+
 #include <QtGui/private/qcoregraphics_p.h>
+#include <QtGui/qpa/qplatformfontdatabase.h>
+#include <QtGui/qpa/qplatformtheme.h>
+
+#include <QtWidgets/private/qstyleanimation_p.h>
+
+#if QT_CONFIG(mdiarea)
+#include <QtWidgets/qmdisubwindow.h>
+#endif
+#if QT_CONFIG(scrollbar)
+#include <QtWidgets/qscrollbar.h>
+#endif
+#if QT_CONFIG(tabbar)
+#include <QtWidgets/private/qtabbar_p.h>
+#endif
+#if QT_CONFIG(wizard)
+#include <QtWidgets/qwizard.h>
+#endif
 
 #include <cmath>
 
@@ -297,6 +235,7 @@ static QLinearGradient titlebarGradientInactive()
     return qt_mac_applicationIsInDarkMode() ? darkGradient : lightGradient;
 }
 
+#if QT_CONFIG(tabwidget)
 static void clipTabBarFrame(const QStyleOption *option, const QMacStyle *style, CGContextRef ctx)
 {
     Q_ASSERT(option);
@@ -316,6 +255,7 @@ static void clipTabBarFrame(const QStyleOption *option, const QMacStyle *style, 
             CGContextClipToRects(ctx, &cgRects[0], size_t(cgRects.size()));
     }
 }
+#endif
 
 static const QColor titlebarSeparatorLineActive(111, 111, 111);
 static const QColor titlebarSeparatorLineInactive(131, 131, 131);
@@ -340,6 +280,7 @@ static const qreal titleBarButtonSpacing = 8;
 // hovered: tab is hovered
 bool isDarkMode() { return qt_mac_applicationIsInDarkMode(); }
 
+#if QT_CONFIG(tabbar)
 static const QColor lightTabBarTabBackgroundActive(190, 190, 190);
 static const QColor darkTabBarTabBackgroundActive(38, 38, 38);
 static const QColor tabBarTabBackgroundActive() { return isDarkMode() ? darkTabBarTabBackgroundActive : lightTabBarTabBackgroundActive; }
@@ -385,6 +326,21 @@ static const QColor tabBarCloseButtonCrossSelected(115, 115, 115);
 
 static const int closeButtonSize = 14;
 static const qreal closeButtonCornerRadius = 2.0;
+#endif // QT_CONFIG(tabbar)
+
+#ifndef QT_NO_ACCESSIBILITY // This ifdef to avoid "unused function" warning.
+QBrush brushForToolButton(bool isOnKeyWindow)
+{
+    // When a toolbutton in a toolbar is in the 'ON' state, we draw a
+    // partially transparent background. The colors must be different
+    // for 'Aqua' and 'DarkAqua' appearances though.
+    if (isDarkMode())
+        return isOnKeyWindow ? QColor(73, 73, 73, 100) : QColor(56, 56, 56, 100);
+
+    return isOnKeyWindow ? QColor(0, 0, 0, 28) : QColor(0, 0, 0, 21);
+}
+#endif // QT_NO_ACCESSIBILITY
+
 
 static const int headerSectionArrowHeight = 6;
 static const int headerSectionSeparatorInset = 2;
@@ -560,6 +516,7 @@ static bool isInMacUnifiedToolbarArea(QWindow *window, int windowY)
 }
 
 
+#if QT_CONFIG(tabbar)
 static void drawTabCloseButton(QPainter *p, bool hover, bool selected, bool pressed, bool documentMode)
 {
     p->setRenderHints(QPainter::Antialiasing);
@@ -597,7 +554,6 @@ static void drawTabCloseButton(QPainter *p, bool hover, bool selected, bool pres
     p->drawLine(margin, height - margin, width - margin, margin);
 }
 
-#if QT_CONFIG(tabbar)
 QRect rotateTabPainter(QPainter *p, QTabBar::Shape shape, QRect tabRect)
 {
     const auto tabDirection = QMacStylePrivate::tabDirection(shape);
@@ -613,10 +569,10 @@ QRect rotateTabPainter(QPainter *p, QTabBar::Shape shape, QRect tabRect)
             newRot = -90;
         }
         tabRect.setRect(0, 0, tabRect.height(), tabRect.width());
-        QMatrix m;
-        m.translate(newX, newY);
-        m.rotate(newRot);
-        p->setMatrix(m, true);
+        QTransform transform;
+        transform.translate(newX, newY);
+        transform.rotate(newRot);
+        p->setTransform(transform, true);
     }
     return tabRect;
 }
@@ -919,8 +875,10 @@ static QSize qt_aqua_get_known_size(QStyle::ContentsType ct, const QWidget *widg
         else if (qobject_cast<const QLineEdit *>(widg))
             ct = QStyle::CT_LineEdit;
 #endif
+#if QT_CONFIG(itemviews)
         else if (qobject_cast<const QHeaderView *>(widg))
             ct = QStyle::CT_HeaderSection;
+#endif
 #if QT_CONFIG(menubar)
         else if (qobject_cast<const QMenuBar *>(widg))
             ct = QStyle::CT_MenuBar;
@@ -1782,16 +1740,16 @@ QRectF QMacStylePrivate::comboboxEditBounds(const QRectF &outerBounds, const Coc
     if (cw.type == ComboBox) {
         switch (cw.size) {
         case QStyleHelper::SizeLarge:
-            ret = ret.adjusted(0, 0, -28, 0).translated(3, 4.5);
+            ret = ret.adjusted(0, 0, -25, 0).translated(2, 4.5);
             ret.setHeight(16);
             break;
         case QStyleHelper::SizeSmall:
-            ret = ret.adjusted(0, 0, -24, 0).translated(3, 2);
+            ret = ret.adjusted(0, 0, -22, 0).translated(2, 3);
             ret.setHeight(14);
             break;
         case QStyleHelper::SizeMini:
-            ret = ret.adjusted(0, 0, -21, 0).translated(2, 3);
-            ret.setHeight(11);
+            ret = ret.adjusted(0, 0, -19, 0).translated(2, 2.5);
+            ret.setHeight(10.5);
             break;
         default:
             break;
@@ -2221,10 +2179,12 @@ int QMacStyle::pixelMetric(PixelMetric metric, const QStyleOption *opt, const QW
     int ret = 0;
 
     switch (metric) {
+#if QT_CONFIG(tabbar)
     case PM_TabCloseIndicatorWidth:
     case PM_TabCloseIndicatorHeight:
         ret = closeButtonSize;
         break;
+#endif
     case PM_ToolBarIconSize:
         ret = proxy()->pixelMetric(PM_LargeIconSize);
         break;
@@ -2348,11 +2308,11 @@ int QMacStyle::pixelMetric(PixelMetric metric, const QStyleOption *opt, const QW
         }
         break;
     case PM_SmallIconSize:
-        ret = int(QStyleHelper::dpiScaled(16.));
+        ret = int(QStyleHelper::dpiScaled(16., opt));
         break;
 
     case PM_LargeIconSize:
-        ret = int(QStyleHelper::dpiScaled(32.));
+        ret = int(QStyleHelper::dpiScaled(32., opt));
         break;
 
     case PM_IconViewIconSize:
@@ -2381,10 +2341,12 @@ int QMacStyle::pixelMetric(PixelMetric metric, const QStyleOption *opt, const QW
             ret = 16;
             break;
         case QStyleHelper::SizeDefault:
+#if QT_CONFIG(tabbar)
             const QStyleOptionTab *tb = qstyleoption_cast<const QStyleOptionTab *>(opt);
             if (tb && tb->documentMode)
                 ret = 30;
             else
+#endif
                 ret = QCommonStyle::pixelMetric(metric, opt, widget);
             break;
         }
@@ -2895,9 +2857,11 @@ int QMacStyle::styleHint(StyleHint sh, const QStyleOption *opt, const QWidget *w
             ret = [NSScroller preferredScrollerStyle] == NSScrollerStyleOverlay;
         }
         break;
+#if QT_CONFIG(itemviews)
     case SH_ItemView_ScrollMode:
         ret = QAbstractItemView::ScrollPerPixel;
         break;
+#endif
     case SH_TitleBar_ShowToolTipsOnButtons:
         // min/max/close buttons on windows don't show tool tips
         ret = false;
@@ -3001,24 +2965,24 @@ void QMacStyle::drawPrimitive(PrimitiveElement pe, const QStyleOption *opt, QPai
         }
 #endif
 
-        QMatrix matrix;
-        matrix.translate(opt->rect.center().x() + xOffset, opt->rect.center().y() + 2);
+        QTransform transform;
+        transform.translate(opt->rect.center().x() + xOffset, opt->rect.center().y() + 2);
         QPainterPath path;
         switch(pe) {
         default:
         case PE_IndicatorArrowDown:
             break;
         case PE_IndicatorArrowUp:
-            matrix.rotate(180);
+            transform.rotate(180);
             break;
         case PE_IndicatorArrowLeft:
-            matrix.rotate(90);
+            transform.rotate(90);
             break;
         case PE_IndicatorArrowRight:
-            matrix.rotate(-90);
+            transform.rotate(-90);
             break;
         }
-        p->setMatrix(matrix);
+        p->setTransform(transform);
 
         path.moveTo(-halfSize, -halfSize * 0.5);
         path.lineTo(0.0, halfSize * 0.5);
@@ -3039,7 +3003,7 @@ void QMacStyle::drawPrimitive(PrimitiveElement pe, const QStyleOption *opt, QPai
                 p->restore();
                 return;
             }
-
+#if QT_CONFIG(tabwidget)
             QRegion region(tbb->rect);
             region -= tbb->tabBarRect;
             p->save();
@@ -3063,6 +3027,7 @@ void QMacStyle::drawPrimitive(PrimitiveElement pe, const QStyleOption *opt, QPai
             }
             proxy()->drawPrimitive(PE_FrameTabWidget, &twf, p, w);
             p->restore();
+#endif
         }
         break;
 #endif
@@ -3109,8 +3074,10 @@ void QMacStyle::drawPrimitive(PrimitiveElement pe, const QStyleOption *opt, QPai
             needTranslation = true;
         }
         d->drawNSViewInRect(box, adjustedRect, p, ^(CGContextRef ctx, const CGRect &rect) {
+#if QT_CONFIG(tabwidget)
             if (QTabWidget *tabWidget = qobject_cast<QTabWidget *>(opt->styleObject))
                 clipTabBarFrame(opt, this, ctx);
+#endif
             CGContextTranslateCTM(ctx, 0, rect.origin.y + rect.size.height);
             CGContextScaleCTM(ctx, 1, -1);
             if (QOperatingSystemVersion::current() < QOperatingSystemVersion::MacOSMojave
@@ -3404,6 +3371,7 @@ void QMacStyle::drawPrimitive(PrimitiveElement pe, const QStyleOption *opt, QPai
         } break;
     case PE_FrameStatusBarItem:
         break;
+#if QT_CONFIG(tabbar)
     case PE_IndicatorTabClose: {
         // Make close button visible only on the hovered tab.
         QTabBar *tabBar = qobject_cast<QTabBar*>(w->parentWidget());
@@ -3428,6 +3396,7 @@ void QMacStyle::drawPrimitive(PrimitiveElement pe, const QStyleOption *opt, QPai
             }
         }
         } break;
+#endif // QT_CONFIG(tabbar)
     case PE_PanelStatusBar: {
         // Fill the status bar with the titlebar gradient.
         QLinearGradient linearGrad;
@@ -3507,6 +3476,7 @@ void QMacStyle::drawControl(ControlElement ce, const QStyleOption *opt, QPainter
 {
     Q_D(const QMacStyle);
     const AppearanceSync sync;
+    const QMacAutoReleasePool pool;
     QMacCGContext cg(p);
     QWindow *window = w && w->window() ? w->window()->windowHandle() : nullptr;
     d->resolveCurrentNSView(window);
@@ -3965,7 +3935,20 @@ void QMacStyle::drawControl(ControlElement ce, const QStyleOption *opt, QPainter
                     CGContextRotateCTM(ctx, M_PI_2);
                 }
 
+                // Now, if it's a trick with a popup button, it has an arrow
+                // which makes no sense on tabs.
+                NSPopUpArrowPosition oldPosition = NSPopUpArrowAtCenter;
+                NSPopUpButtonCell *pbCell = nil;
+                if (isPopupButton) {
+                    pbCell = static_cast<NSPopUpButtonCell *>(pb.cell);
+                    oldPosition = pbCell.arrowPosition;
+                    pbCell.arrowPosition = NSPopUpNoArrow;
+                }
+
                 [pb.cell drawBezelWithFrame:r inView:pb.superview];
+
+                if (pbCell) // Restore, we may reuse it for a ComboBox.
+                    pbCell.arrowPosition = oldPosition;
             };
 
             if (needsInactiveHack) {
@@ -4371,7 +4354,6 @@ void QMacStyle::drawControl(ControlElement ce, const QStyleOption *opt, QPainter
         break;
     case CE_ProgressBarContents:
         if (const QStyleOptionProgressBar *pb = qstyleoption_cast<const QStyleOptionProgressBar *>(opt)) {
-            QMacAutoReleasePool pool;
             const bool isIndeterminate = (pb->minimum == 0 && pb->maximum == 0);
             const bool vertical = pb->orientation == Qt::Vertical;
             const bool inverted = pb->invertedAppearance;
@@ -4598,6 +4580,7 @@ QRect QMacStyle::subElementRect(SubElement sr, const QStyleOption *opt,
     const int controlSize = getControlSize(opt, widget);
 
     switch (sr) {
+#if QT_CONFIG(itemviews)
     case SE_ItemViewItemText:
         if (const QStyleOptionViewItem *vopt = qstyleoption_cast<const QStyleOptionViewItem *>(opt)) {
             int fw = proxy()->pixelMetric(PM_FocusFrameHMargin, opt, widget);
@@ -4607,6 +4590,7 @@ QRect QMacStyle::subElementRect(SubElement sr, const QStyleOption *opt,
                 rect.adjust(-fw, 0, 0, 0);
         }
         break;
+#endif
     case SE_ToolBoxTabContents:
         rect = QCommonStyle::subElementRect(sr, opt, widget);
         break;
@@ -5317,9 +5301,20 @@ void QMacStyle::drawComplexControl(ComplexControl cc, const QStyleOptionComplex 
             }
 
             d->drawNSViewInRect(slider, opt->rect, p, ^(CGContextRef ctx, const CGRect &rect) {
-                if (isHorizontal && sl->upsideDown) {
-                    CGContextTranslateCTM(ctx, rect.size.width, 0);
-                    CGContextScaleCTM(ctx, -1, 1);
+
+                // Since the GC is flipped, upsideDown means *not* inverted when vertical.
+                const bool verticalFlip = !isHorizontal && !sl->upsideDown; // FIXME: && !isSierraOrLater
+
+                if (isHorizontal) {
+                    if (sl->upsideDown) {
+                        CGContextTranslateCTM(ctx, rect.size.width, rect.origin.y);
+                        CGContextScaleCTM(ctx, -1, 1);
+                    } else {
+                        CGContextTranslateCTM(ctx, 0, rect.origin.y);
+                    }
+                } else if (verticalFlip) {
+                    CGContextTranslateCTM(ctx, rect.origin.x, rect.size.height);
+                    CGContextScaleCTM(ctx, 1, -1);
                 }
 
                 if (hasDoubleTicks) {
@@ -5329,9 +5324,6 @@ void QMacStyle::drawComplexControl(ComplexControl cc, const QStyleOptionComplex 
                     else
                         CGContextTranslateCTM(ctx, 1, 0);
                 }
-
-                // Since the GC is flipped, upsideDown means *not* inverted when vertical.
-                const bool verticalFlip = !isHorizontal && !sl->upsideDown; // FIXME: && !isSierraOrLater
 
 #if 0
                 // FIXME: Sadly, this part doesn't work. It seems to somehow polute the
@@ -5396,9 +5388,6 @@ void QMacStyle::drawComplexControl(ComplexControl cc, const QStyleOptionComplex 
                         // This ain't HIG kosher: force round knob look.
                         if (hasDoubleTicks)
                             slider.numberOfTickMarks = 0;
-                        // Draw the knob in the symmetrical position instead of flipping.
-                        if (verticalFlip)
-                            slider.intValue = slider.maxValue - slider.intValue + slider.minValue;
                         [cell drawKnob];
                     }
                 }
@@ -5563,7 +5552,7 @@ void QMacStyle::drawComplexControl(ComplexControl cc, const QStyleOptionComplex 
                     const auto ct = d->windowButtonCocoaControl(sc);
                     const auto cw = QMacStylePrivate::CocoaControl(ct, QStyleHelper::SizeLarge);
                     auto *wb = static_cast<NSButton *>(d->cocoaControl(cw));
-                    wb.enabled = (sc & titlebar->subControls);
+                    wb.enabled = (sc & titlebar->subControls) && isActive;
                     [wb highlight:(titlebar->state & State_Sunken) && (sc & titlebar->activeSubControls)];
                     Q_UNUSED(isHovered); // FIXME No public API for this
 
@@ -5641,8 +5630,7 @@ void QMacStyle::drawComplexControl(ComplexControl cc, const QStyleOptionComplex 
                     if (view)
                         isKey = [view.window isKeyWindow];
 
-                    QBrush brush(isKey ? QColor(0, 0, 0, 28)
-                                       : QColor(0, 0, 0, 21));
+                    QBrush brush(brushForToolButton(isKey));
                     QPainterPath path;
                     path.addRoundedRect(QRectF(tb->rect.x(), tb->rect.y(), tb->rect.width(), tb->rect.height() + 4), 4, 4);
                     p->setRenderHint(QPainter::Antialiasing);
@@ -6436,12 +6424,14 @@ QSize QMacStyle::sizeFromContents(ContentsType ct, const QStyleOption *opt,
                 sz = sz.expandedTo(QSize(sz.width(), minimumSize));
         }
         break;
+#if QT_CONFIG(itemviews)
     case CT_ItemViewItem:
         if (const QStyleOptionViewItem *vopt = qstyleoption_cast<const QStyleOptionViewItem *>(opt)) {
             sz = QCommonStyle::sizeFromContents(ct, vopt, csz, widget);
             sz.setHeight(sz.height() + 2);
         }
         break;
+#endif
 
     default:
         sz = QCommonStyle::sizeFromContents(ct, opt, csz, widget);

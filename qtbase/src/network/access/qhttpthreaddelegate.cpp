@@ -190,7 +190,7 @@ public:
                                        QHttpNetworkConnection::ConnectionType connectionType,
                                        QSharedPointer<QNetworkSession> networkSession)
         : QHttpNetworkConnection(hostName, port, encrypt, connectionType, /*parent=*/0,
-                                 qMove(networkSession))
+                                 std::move(networkSession))
 #endif
     {
         setExpires(true);
@@ -354,9 +354,9 @@ void QHttpThreadDelegate::startRequest()
                                                                 networkSession);
 #endif // QT_NO_BEARERMANAGEMENT
         if (connectionType == QHttpNetworkConnection::ConnectionTypeHTTP2
-            && http2Parameters.validate()) {
+            || connectionType == QHttpNetworkConnection::ConnectionTypeHTTP2Direct) {
             httpConnection->setHttp2Parameters(http2Parameters);
-        } // else we ignore invalid parameters and use our own defaults.
+        }
 #ifndef QT_NO_SSL
         // Set the QSslConfiguration from this QNetworkRequest.
         if (ssl)
@@ -428,6 +428,12 @@ void QHttpThreadDelegate::startRequest()
 
     connect(httpReply, SIGNAL(cacheCredentials(QHttpNetworkRequest,QAuthenticator*)),
             this, SLOT(cacheCredentialsSlot(QHttpNetworkRequest,QAuthenticator*)));
+    if (httpReply->errorCode() != QNetworkReply::NoError) {
+        if (synchronous)
+            synchronousFinishedWithErrorSlot(httpReply->errorCode(), httpReply->errorString());
+        else
+            finishedWithErrorSlot(httpReply->errorCode(), httpReply->errorString());
+    }
 }
 
 // This gets called from the user thread or by the synchronous HTTP timeout timer

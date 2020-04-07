@@ -5,12 +5,28 @@
  * found in the LICENSE file.
  */
 
-#include "gm.h"
-#include "SkBlurMask.h"
-#include "SkCanvas.h"
-#include "SkColorFilter.h"
-#include "SkLayerDrawLooper.h"
-#include "SkMaskFilter.h"
+#include "gm/gm.h"
+#include "include/core/SkBlendMode.h"
+#include "include/core/SkBlurTypes.h"
+#include "include/core/SkCanvas.h"
+#include "include/core/SkColor.h"
+#include "include/core/SkColorFilter.h"
+#include "include/core/SkDrawLooper.h"
+#include "include/core/SkMaskFilter.h"
+#include "include/core/SkPaint.h"
+#include "include/core/SkPoint.h"
+#include "include/core/SkRect.h"
+#include "include/core/SkRefCnt.h"
+#include "include/core/SkScalar.h"
+#include "include/core/SkSize.h"
+#include "include/core/SkString.h"
+#include "include/effects/SkLayerDrawLooper.h"
+#include "src/core/SkBlurMask.h"
+#include "src/core/SkClipOpPriv.h"
+
+#ifdef SK_SUPPORT_LEGACY_DRAWLOOPER
+
+namespace {
 
 // This GM tests 3 different ways of drawing four shadows around a square:
 //      just using 4 blurred rects
@@ -28,8 +44,8 @@ public:
 
     MegaLooperGM(Type type) : fType(type) {}
 
-protected:
-    virtual SkString onShortName() {
+private:
+    SkString onShortName() override {
         switch (fType) {
         case k0x0_Type:
             return SkString("megalooper_0x0");
@@ -44,11 +60,11 @@ protected:
         }
     }
 
-    virtual SkISize onISize() {
-        return SkISize::Make(kWidth, kHeight);
+    SkISize onISize() override {
+        return {kWidth, kHeight};
     }
 
-    virtual void onDraw(SkCanvas* canvas) {
+    void onDraw(SkCanvas* canvas) override {
         for (int y = 100; y < kHeight; y += 200) {
             for (int x = 100; x < kWidth; x += 200) {
                 switch (fType) {
@@ -67,7 +83,6 @@ protected:
         }
     }
 
-private:
     static constexpr int kWidth = 800;
     static constexpr int kHeight = 800;
     static constexpr int kHalfOuterClipSize = 100;
@@ -174,7 +189,7 @@ private:
 
         paint->setMaskFilter(MakeBlur());
 
-        paint->setColorFilter(SkColorFilter::MakeModeFilter(color, SkBlendMode::kSrcIn));
+        paint->setColorFilter(SkColorFilters::Blend(color, SkBlendMode::kSrcIn));
 
         return looperBuilder.detach();
     }
@@ -220,13 +235,11 @@ private:
 
             paint->setMaskFilter(MakeBlur());
 
-            paint->setColorFilter(SkColorFilter::MakeModeFilter(gColors[i], SkBlendMode::kSrcIn));
+            paint->setColorFilter(SkColorFilters::Blend(gColors[i], SkBlendMode::kSrcIn));
         }
 
         return looperBuilder.detach();
     }
-
-    typedef GM INHERITED;
 };
 
 const SkPoint MegaLooperGM::gBlurOffsets[4] = {
@@ -239,7 +252,10 @@ const SkPoint MegaLooperGM::gBlurOffsets[4] = {
 const SkColor MegaLooperGM::gColors[4] = {
     SK_ColorGREEN, SK_ColorYELLOW, SK_ColorBLUE, SK_ColorRED
 };
+}  // namespace
 
 DEF_GM( return new MegaLooperGM(MegaLooperGM::k0x0_Type); )
 DEF_GM( return new MegaLooperGM(MegaLooperGM::k4x1_Type); )
 DEF_GM( return new MegaLooperGM(MegaLooperGM::k1x4_Type); )
+
+#endif

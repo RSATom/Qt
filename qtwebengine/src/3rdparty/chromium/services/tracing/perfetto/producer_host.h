@@ -13,8 +13,8 @@
 #include "base/macros.h"
 #include "services/tracing/perfetto/producer_host.h"
 #include "services/tracing/public/mojom/perfetto_service.mojom.h"
-#include "third_party/perfetto/include/perfetto/tracing/core/producer.h"
-#include "third_party/perfetto/include/perfetto/tracing/core/tracing_service.h"
+#include "third_party/perfetto/include/perfetto/ext/tracing/core/producer.h"
+#include "third_party/perfetto/include/perfetto/ext/tracing/core/tracing_service.h"
 
 namespace perfetto {
 class CommitDataRequest;
@@ -61,21 +61,21 @@ class ProducerHost : public tracing::mojom::ProducerHost,
   void Flush(perfetto::FlushRequestID,
              const perfetto::DataSourceInstanceID* raw_data_source_ids,
              size_t num_data_sources) override;
+  void ClearIncrementalState(
+      const perfetto::DataSourceInstanceID* data_source_ids,
+      size_t num_data_sources) override;
 
   // mojom::ProducerHost implementation.
   // This interface gets called by the per-process ProducerClients
   // to signal that there's changes to be committed to the
   // Shared Memory buffer (like finished chunks).
-  void CommitData(mojom::CommitDataRequestPtr data_request) override;
+  void CommitData(const perfetto::CommitDataRequest& data_request,
+                  CommitDataCallback callback) override;
 
   // Called by the ProducerClient to signal the Host that it can
   // provide a specific data source.
   void RegisterDataSource(
-      mojom::DataSourceRegistrationPtr registration_info) override;
-
-  // Called to signal the Host that a specific flush request
-  // is finished.
-  void NotifyFlushComplete(uint64_t flush_request_id) override;
+      const perfetto::DataSourceDescriptor& registration_info) override;
 
   // Called by the ProducerClient to associate a TraceWriter with a target
   // buffer, which is required to support scraping of the SMB by the service.
@@ -83,13 +83,13 @@ class ProducerHost : public tracing::mojom::ProducerHost,
   void UnregisterTraceWriter(uint32_t writer_id) override;
 
  protected:
-  void OnConnectionError();
 
   base::RepeatingCallback<void(const perfetto::CommitDataRequest&)>
       on_commit_callback_for_testing_;
 
  private:
   mojom::ProducerClientPtr producer_client_;
+  bool is_in_process_ = false;
 
  protected:
   // Perfetto guarantees that no OnXX callbacks are invoked on |this|

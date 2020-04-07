@@ -212,6 +212,12 @@ void applyStateHelper<MSAAEnabled>(const MSAAEnabled *state, SubmissionContext *
     gc->setMSAAEnabled(std::get<0>(state->values()));
 }
 
+template<>
+void applyStateHelper<DepthRange>(const DepthRange *state, SubmissionContext *gc)
+{
+    const auto values = state->values();
+    gc->depthRange(std::get<0>(values), std::get<1>(values));
+}
 
 template<>
 void applyStateHelper<DepthTest>(const DepthTest *state, SubmissionContext *gc)
@@ -219,13 +225,17 @@ void applyStateHelper<DepthTest>(const DepthTest *state, SubmissionContext *gc)
     gc->depthTest(std::get<0>(state->values()));
 }
 
+template<>
+void applyStateHelper<RasterMode>(const RasterMode *state, SubmissionContext *gc)
+{
+    gc->rasterMode(std::get<0>(state->values()), std::get<1>(state->values()));
+}
 
 template<>
 void applyStateHelper<NoDepthMask>(const NoDepthMask *state, SubmissionContext *gc)
 {
     gc->depthMask(std::get<0>(state->values()));
 }
-
 
 template<>
 void applyStateHelper<CullFace>(const CullFace *state, SubmissionContext *gc)
@@ -379,6 +389,7 @@ void SubmissionContext::initialize()
 {
     GraphicsContext::initialize();
     m_textureContext.initialize(this);
+    m_imageContext.initialize(this);
 }
 
 void SubmissionContext::resolveRenderTargetFormat()
@@ -469,6 +480,7 @@ void SubmissionContext::endDrawing(bool swapBuffers)
     if (m_ownCurrent)
         m_gl->doneCurrent();
     m_textureContext.endDrawing();
+    m_imageContext.endDrawing();
 }
 
 void SubmissionContext::activateRenderTarget(Qt3DCore::QNodeId renderTargetNodeId, const AttachmentPack &attachments, GLuint defaultFboId)
@@ -478,9 +490,8 @@ void SubmissionContext::activateRenderTarget(Qt3DCore::QNodeId renderTargetNodeI
         // New RenderTarget
         if (!m_renderTargets.contains(renderTargetNodeId)) {
             if (m_defaultFBO && fboId == m_defaultFBO) {
-                // this is the default fbo that some platforms create (iOS), we just register it
-                // Insert FBO into hash
-                m_renderTargets.insert(renderTargetNodeId, fboId);
+                // this is the default fbo that some platforms create (iOS), we never
+                // register it
             } else {
                 fboId = createRenderTarget(renderTargetNodeId, attachments);
             }
@@ -489,9 +500,19 @@ void SubmissionContext::activateRenderTarget(Qt3DCore::QNodeId renderTargetNodeI
         }
     }
     m_activeFBO = fboId;
+    m_activeFBONodeId = renderTargetNodeId;
     m_glHelper->bindFrameBufferObject(m_activeFBO, GraphicsHelperInterface::FBODraw);
     // Set active drawBuffers
     activateDrawBuffers(attachments);
+}
+
+void SubmissionContext::releaseRenderTarget(const Qt3DCore::QNodeId id)
+{
+    if (m_renderTargets.contains(id)) {
+        const RenderTargetInfo targetInfo = m_renderTargets.take(id);
+        const GLuint fboId = targetInfo.fboId;
+        m_glHelper->releaseFrameBufferObject(fboId);
+    }
 }
 
 GLuint SubmissionContext::createRenderTarget(Qt3DCore::QNodeId renderTargetNodeId, const AttachmentPack &attachments)
@@ -499,11 +520,11 @@ GLuint SubmissionContext::createRenderTarget(Qt3DCore::QNodeId renderTargetNodeI
     const GLuint fboId = m_glHelper->createFrameBufferObject();
     if (fboId) {
         // The FBO is created and its attachments are set once
-        // Insert FBO into hash
-        m_renderTargets.insert(renderTargetNodeId, fboId);
         // Bind FBO
         m_glHelper->bindFrameBufferObject(fboId, GraphicsHelperInterface::FBODraw);
-        bindFrameBufferAttachmentHelper(fboId, attachments);
+        // Insert FBO into hash
+        const RenderTargetInfo info = bindFrameBufferAttachmentHelper(fboId, attachments);
+        m_renderTargets.insert(renderTargetNodeId, info);
     } else {
         qCritical("Failed to create FBO");
     }
@@ -512,31 +533,38 @@ GLuint SubmissionContext::createRenderTarget(Qt3DCore::QNodeId renderTargetNodeI
 
 GLuint SubmissionContext::updateRenderTarget(Qt3DCore::QNodeId renderTargetNodeId, const AttachmentPack &attachments, bool isActiveRenderTarget)
 {
-    const GLuint fboId = m_renderTargets.value(renderTargetNodeId);
+    const RenderTargetInfo fboInfo = m_renderTargets.value(renderTargetNodeId);
+    const GLuint fboId =fboInfo.fboId;
 
-    // We need to check if  one of the attachment was resized
-    bool needsResize = !m_renderTargetsSize.contains(fboId);    // not even initialized yet?
-    if (!needsResize) {
+    // We need to check if  one of the attachnent have changed QTBUG-64757
+    bool needsRebuild = attachments != fboInfo.attachments;
+
+    // Even if the attachment packs are the same, one of the inner texture might have
+    // been resized or recreated, we need to check for that
+    if (!needsRebuild) {
         // render target exists, has attachment been resized?
         GLTextureManager *glTextureManager = m_renderer->nodeManagers()->glTextureManager();
-        const QSize s = m_renderTargetsSize[fboId];
+        const QSize s = fboInfo.size;
+
         const auto attachments_ = attachments.attachments();
         for (const Attachment &attachment : attachments_) {
+            const bool textureWasUpdated = m_updateTextureIds.contains(attachment.m_textureUuid);
             GLTexture *rTex = glTextureManager->lookupResource(attachment.m_textureUuid);
-            // ### TODO QTBUG-64757 this check is insufficient since the
-            // texture may have changed to another one with the same size. That
-            // case is not handled atm.
-            needsResize |= (rTex != nullptr && rTex->size() != s);
-            if (isActiveRenderTarget) {
-                if (attachment.m_point == QRenderTargetOutput::Color0)
+            if (rTex) {
+                const bool sizeHasChanged = rTex->size() != s;
+                needsRebuild |= sizeHasChanged;
+                if (isActiveRenderTarget && attachment.m_point == QRenderTargetOutput::Color0)
                     m_renderTargetFormat = rTex->properties().format;
             }
+            needsRebuild |= textureWasUpdated;
         }
     }
 
-    if (needsResize) {
+    if (needsRebuild) {
         m_glHelper->bindFrameBufferObject(fboId, GraphicsHelperInterface::FBODraw);
-        bindFrameBufferAttachmentHelper(fboId, attachments);
+        const RenderTargetInfo updatedInfo = bindFrameBufferAttachmentHelper(fboId, attachments);
+        // Update our stored Render Target Info
+        m_renderTargets.insert(renderTargetNodeId, updatedInfo);
     }
 
     return fboId;
@@ -547,8 +575,8 @@ QSize SubmissionContext::renderTargetSize(const QSize &surfaceSize) const
     QSize renderTargetSize;
     if (m_activeFBO != m_defaultFBO) {
         // For external FBOs we may not have a m_renderTargets entry.
-        if (m_renderTargetsSize.contains(m_activeFBO)) {
-            renderTargetSize = m_renderTargetsSize[m_activeFBO];
+        if (m_renderTargets.contains(m_activeFBONodeId)) {
+            renderTargetSize = m_renderTargets[m_activeFBONodeId].size;
         } else if (surfaceSize.isValid()) {
             renderTargetSize = surfaceSize;
         } else {
@@ -675,8 +703,8 @@ QImage SubmissionContext::readFramebuffer(const QRect &rect)
     GLint samples = 0;
     m_gl->functions()->glGetIntegerv(GL_SAMPLES, &samples);
     if (samples > 0 && !m_glHelper->supportsFeature(GraphicsHelperInterface::BlitFramebuffer)) {
-        qWarning () << Q_FUNC_INFO << "Unable to capture multisampled framebuffer; "
-                       "Required feature BlitFramebuffer is missing.";
+        qCWarning(Backend) << Q_FUNC_INFO << "Unable to capture multisampled framebuffer; "
+                                             "Required feature BlitFramebuffer is missing.";
         return img;
     }
 
@@ -699,7 +727,7 @@ QImage SubmissionContext::readFramebuffer(const QRect &rect)
         if (status != GL_FRAMEBUFFER_COMPLETE) {
             gl->glDeleteRenderbuffers(1, &rb);
             gl->glDeleteFramebuffers(1, &fbo);
-            qWarning () << Q_FUNC_INFO << "Copy-framebuffer not complete: " << status;
+            qCWarning(Backend) << Q_FUNC_INFO << "Copy-framebuffer not complete: " << status;
             return img;
         }
 
@@ -785,7 +813,7 @@ bool SubmissionContext::activateShader(ProgramDNA shaderDNA)
             m_activeShaderDNA = shaderDNA;
         } else {
             m_glHelper->useProgram(0);
-            qWarning() << "No shader program found for DNA";
+            qCWarning(Backend) << "No shader program found for DNA";
             m_activeShaderDNA = 0;
             return false;
         }
@@ -793,7 +821,7 @@ bool SubmissionContext::activateShader(ProgramDNA shaderDNA)
     return true;
 }
 
-void SubmissionContext::bindFrameBufferAttachmentHelper(GLuint fboId, const AttachmentPack &attachments)
+SubmissionContext::RenderTargetInfo SubmissionContext::bindFrameBufferAttachmentHelper(GLuint fboId, const AttachmentPack &attachments)
 {
     // Set FBO attachments. These are normally textures, except that on Open GL
     // ES <= 3.1 we must use a renderbuffer if a combined depth+stencil is
@@ -828,7 +856,7 @@ void SubmissionContext::bindFrameBufferAttachmentHelper(GLuint fboId, const Atta
             }
         }
     }
-    m_renderTargetsSize.insert(fboId, fboSize);
+    return {fboId, fboSize, attachments};
 }
 
 void SubmissionContext::activateDrawBuffers(const AttachmentPack &attachments)
@@ -843,7 +871,7 @@ void SubmissionContext::activateDrawBuffers(const AttachmentPack &attachments)
             }
         }
     } else {
-        qWarning() << "FBO incomplete";
+        qCWarning(Backend) << "FBO incomplete";
     }
 }
 
@@ -854,6 +882,7 @@ void SubmissionContext::setActiveMaterial(Material *rmat)
         return;
 
     m_textureContext.deactivateTexturesWithScope(TextureSubmissionContext::TextureScopeMaterial);
+    m_imageContext.deactivateImages();
     m_material = rmat;
 }
 
@@ -908,6 +937,16 @@ void SubmissionContext::applyState(const StateVariant &stateVariant)
 
     case DepthTestStateMask: {
         applyStateHelper<DepthTest>(static_cast<const DepthTest *>(stateVariant.constState()), this);
+        break;
+    }
+
+    case DepthRangeMask: {
+        applyStateHelper<DepthRange>(static_cast<const DepthRange *>(stateVariant.constState()), this);
+        break;
+    }
+
+    case RasterModeMask: {
+        applyStateHelper<RasterMode>(static_cast<const RasterMode *>(stateVariant.constState()), this);
         break;
     }
 
@@ -993,6 +1032,9 @@ void SubmissionContext::resetMasked(qint64 maskOfStatesToReset)
     if (maskOfStatesToReset & StencilTestStateMask)
         funcs->glDisable(GL_STENCIL_TEST);
 
+    if (maskOfStatesToReset & DepthRangeMask)
+        depthRange(0.0f, 1.0f);
+
     if (maskOfStatesToReset & DepthTestStateMask)
         funcs->glDisable(GL_DEPTH_TEST);
 
@@ -1034,6 +1076,11 @@ void SubmissionContext::resetMasked(qint64 maskOfStatesToReset)
 
     if (maskOfStatesToReset & LineWidthMask)
         funcs->glLineWidth(1.0f);
+
+#ifndef QT_OPENGL_ES_2
+    if (maskOfStatesToReset & RasterModeMask)
+        m_glHelper->rasterMode(GL_FRONT_AND_BACK, GL_FILL);
+#endif
 }
 
 void SubmissionContext::applyStateSet(RenderStateSet *ss)
@@ -1115,6 +1162,11 @@ void SubmissionContext::deleteSync(GLFence sync)
     m_glHelper->deleteSync(sync);
 }
 
+void SubmissionContext::setUpdatedTexture(const Qt3DCore::QNodeIdVector &updatedTextureIds)
+{
+    m_updateTextureIds = updatedTextureIds;
+}
+
 // It will be easier if the QGraphicContext applies the QUniformPack
 // than the other way around
 bool SubmissionContext::setParameters(ShaderParameterPack &parameterPack)
@@ -1132,13 +1184,15 @@ bool SubmissionContext::setParameters(ShaderParameterPack &parameterPack)
     // Update the uniforms with the correct texture unit id's
     PackUniformHash &uniformValues = parameterPack.uniforms();
 
+    // Fill Texture Uniform Value with proper texture units
+    // so that they can be applied as regular uniforms in a second step
     for (int i = 0; i < parameterPack.textures().size(); ++i) {
-        const ShaderParameterPack::NamedTexture &namedTex = parameterPack.textures().at(i);
+        const ShaderParameterPack::NamedResource &namedTex = parameterPack.textures().at(i);
         // Given a Texture QNodeId, we retrieve the associated shared GLTexture
         if (uniformValues.contains(namedTex.glslNameId)) {
-            GLTexture *t = manager->glTextureManager()->lookupResource(namedTex.texId);
+            GLTexture *t = manager->glTextureManager()->lookupResource(namedTex.nodeId);
             if (t != nullptr) {
-                UniformValue &texUniform = uniformValues[namedTex.glslNameId];
+                UniformValue &texUniform = uniformValues.value(namedTex.glslNameId);
                 if (texUniform.valueType() == UniformValue::TextureValue) {
                     const int texUnit = m_textureContext.activateTexture(TextureSubmissionContext::TextureScopeMaterial, m_gl, t);
                     texUniform.data<int>()[namedTex.uniformArrayIndex] = texUnit;
@@ -1146,6 +1200,34 @@ bool SubmissionContext::setParameters(ShaderParameterPack &parameterPack)
                         if (namedTex.glslNameId != irradianceId &&
                             namedTex.glslNameId != specularId) {
                             // Only return false if we are not dealing with env light textures
+                            qCWarning(Backend) << "Unable to find suitable Texture Unit";
+                            return false;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Fill Image Uniform Value with proper image units
+    // so that they can be applied as regular uniforms in a second step
+    for (int i = 0; i < parameterPack.images().size(); ++i) {
+        const ShaderParameterPack::NamedResource &namedTex = parameterPack.images().at(i);
+        // Given a Texture QNodeId, we retrieve the associated shared GLTexture
+        if (uniformValues.contains(namedTex.glslNameId)) {
+            ShaderImage *img = manager->shaderImageManager()->lookupResource(namedTex.nodeId);
+            if (img != nullptr) {
+                GLTexture *t = manager->glTextureManager()->lookupResource(img->textureId());
+                if (t == nullptr) {
+                    qCWarning(Backend) << "Shader Image referencing invalid texture";
+                    continue;
+                } else {
+                    UniformValue &imgUniform = uniformValues.value(namedTex.glslNameId);
+                    if (imgUniform.valueType() == UniformValue::ShaderImageValue) {
+                        const int imgUnit = m_imageContext.activateImage(img, t);
+                        imgUniform.data<int>()[namedTex.uniformArrayIndex] = imgUnit;
+                        if (imgUnit == -1) {
+                            qCWarning(Backend) << "Unable to bind Image to Texture";
                             return false;
                         }
                     }
@@ -1199,10 +1281,12 @@ bool SubmissionContext::setParameters(ShaderParameterPack &parameterPack)
     for (const ShaderUniform &uniform : activeUniforms) {
         // We can use [] as we are sure the the uniform wouldn't
         // be un activeUniforms if there wasn't a matching value
-        const UniformValue &v = values[uniform.m_nameId];
+        const UniformValue &v = values.value(uniform.m_nameId);
 
-        // skip invalid textures
-        if (v.valueType() == UniformValue::TextureValue && *v.constData<int>() == -1)
+        // skip invalid textures/images
+        if ((v.valueType() == UniformValue::TextureValue ||
+             v.valueType() == UniformValue::ShaderImageValue) &&
+            *v.constData<int>() == -1)
             continue;
 
         applyUniform(uniform, v);
@@ -1473,13 +1557,13 @@ void SubmissionContext::blitFramebuffer(Qt3DCore::QNodeId inputRenderTargetId,
 
     // Up until this point the input and output rects are normal Qt rectangles.
     // Convert them to GL rectangles (Y at bottom).
-    const int inputFboHeight = inputFboId == defaultFboId ? m_surfaceSize.height() : m_renderTargetsSize[inputFboId].height();
+    const int inputFboHeight = inputFboId == defaultFboId ? m_surfaceSize.height() : m_renderTargets[inputRenderTargetId].size.height();
     const GLint srcX0 = inputRect.left();
     const GLint srcY0 = inputFboHeight - (inputRect.top() + inputRect.height());
     const GLint srcX1 = srcX0 + inputRect.width();
     const GLint srcY1 = srcY0 + inputRect.height();
 
-    const int outputFboHeight = outputFboId == defaultFboId ? m_surfaceSize.height() : m_renderTargetsSize[outputFboId].height();
+    const int outputFboHeight = outputFboId == defaultFboId ? m_surfaceSize.height() : m_renderTargets[outputRenderTargetId].size.height();
     const GLint dstX0 = outputRect.left();
     const GLint dstY0 = outputFboHeight - (outputRect.top() + outputRect.height());
     const GLint dstX1 = dstX0 + outputRect.width();

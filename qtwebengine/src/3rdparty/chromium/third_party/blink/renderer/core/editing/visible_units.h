@@ -35,17 +35,16 @@
 
 namespace blink {
 
-class LayoutUnit;
 class LayoutObject;
 class Node;
 class IntPoint;
 class IntRect;
 class LocalFrame;
 
-// |EWordSiste| is used as a parameter of |StartOfWord()| and |EndOfWord()|
+// |WordSiste| is used as a parameter of |StartOfWord()| and |EndOfWord()|
 // to control a returning position when they are called for a position before
 // word boundary.
-enum EWordSide {
+enum WordSide {
   kNextWordIfOnBoundary = false,
   kPreviousWordIfOnBoundary = true
 };
@@ -117,23 +116,22 @@ PreviousPositionOf(const VisiblePositionInFlatTree&,
 // returned Position should be canonicalized with |previousBoundary()| by
 // TextItetator.
 CORE_EXPORT Position StartOfWordPosition(const Position&,
-                                         EWordSide = kNextWordIfOnBoundary);
+                                         WordSide = kNextWordIfOnBoundary);
 CORE_EXPORT VisiblePosition StartOfWord(const VisiblePosition&,
-                                        EWordSide = kNextWordIfOnBoundary);
+                                        WordSide = kNextWordIfOnBoundary);
 CORE_EXPORT PositionInFlatTree
 StartOfWordPosition(const PositionInFlatTree&,
-                    EWordSide = kNextWordIfOnBoundary);
+                    WordSide = kNextWordIfOnBoundary);
 CORE_EXPORT VisiblePositionInFlatTree
-StartOfWord(const VisiblePositionInFlatTree&,
-            EWordSide = kNextWordIfOnBoundary);
+StartOfWord(const VisiblePositionInFlatTree&, WordSide = kNextWordIfOnBoundary);
 CORE_EXPORT VisiblePosition EndOfWord(const VisiblePosition&,
-                                      EWordSide = kNextWordIfOnBoundary);
+                                      WordSide = kNextWordIfOnBoundary);
 CORE_EXPORT Position EndOfWordPosition(const Position&,
-                                       EWordSide = kNextWordIfOnBoundary);
+                                       WordSide = kNextWordIfOnBoundary);
 CORE_EXPORT PositionInFlatTree
-EndOfWordPosition(const PositionInFlatTree&, EWordSide = kNextWordIfOnBoundary);
+EndOfWordPosition(const PositionInFlatTree&, WordSide = kNextWordIfOnBoundary);
 CORE_EXPORT VisiblePositionInFlatTree
-EndOfWord(const VisiblePositionInFlatTree&, EWordSide = kNextWordIfOnBoundary);
+EndOfWord(const VisiblePositionInFlatTree&, WordSide = kNextWordIfOnBoundary);
 CORE_EXPORT PositionWithAffinity PreviousWordPosition(const Position&);
 CORE_EXPORT PositionWithAffinity NextWordPosition(const Position&);
 
@@ -166,14 +164,6 @@ StartOfLine(const VisiblePositionInFlatTree&);
 CORE_EXPORT VisiblePosition EndOfLine(const VisiblePosition&);
 CORE_EXPORT VisiblePositionInFlatTree
 EndOfLine(const VisiblePositionInFlatTree&);
-enum EditableType { kContentIsEditable, kHasEditableAXRole };
-CORE_EXPORT VisiblePosition
-PreviousLinePosition(const VisiblePosition&,
-                     LayoutUnit line_direction_point,
-                     EditableType = kContentIsEditable);
-CORE_EXPORT VisiblePosition NextLinePosition(const VisiblePosition&,
-                                             LayoutUnit line_direction_point,
-                                             EditableType = kContentIsEditable);
 CORE_EXPORT bool InSameLine(const VisiblePosition&, const VisiblePosition&);
 CORE_EXPORT bool InSameLine(const VisiblePositionInFlatTree&,
                             const VisiblePositionInFlatTree&);
@@ -303,15 +293,6 @@ VisiblePositionInFlatTree
 AdjustBackwardPositionToAvoidCrossingEditingBoundaries(
     const VisiblePositionInFlatTree&,
     const PositionInFlatTree&);
-
-Position NextRootInlineBoxCandidatePosition(Node*,
-                                            const VisiblePosition&,
-                                            EditableType);
-
-CORE_EXPORT Position
-PreviousRootInlineBoxCandidatePosition(Node*,
-                                       const VisiblePosition&,
-                                       EditableType);
 
 }  // namespace blink
 

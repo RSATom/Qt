@@ -10,21 +10,23 @@
 
 namespace blink {
 
-void PreciselyCollectGarbage() {
+// static
+void TestSupportingGC::PreciselyCollectGarbage(
+    BlinkGC::SweepingType sweeping_type) {
   ThreadState::Current()->CollectGarbage(
-      BlinkGC::kNoHeapPointersOnStack, BlinkGC::kAtomicMarking,
-      BlinkGC::kEagerSweeping, BlinkGC::GCReason::kForcedGC);
+      BlinkGC::kNoHeapPointersOnStack, BlinkGC::kAtomicMarking, sweeping_type,
+      BlinkGC::GCReason::kForcedGCForTesting);
 }
 
-void ConservativelyCollectGarbage(BlinkGC::SweepingType sweeping_type) {
-  ThreadState::Current()->CollectGarbage(BlinkGC::kHeapPointersOnStack,
-                                         BlinkGC::kAtomicMarking, sweeping_type,
-                                         BlinkGC::GCReason::kForcedGC);
+// static
+void TestSupportingGC::ConservativelyCollectGarbage(
+    BlinkGC::SweepingType sweeping_type) {
+  ThreadState::Current()->CollectGarbage(
+      BlinkGC::kHeapPointersOnStack, BlinkGC::kAtomicMarking, sweeping_type,
+      BlinkGC::GCReason::kForcedGCForTesting);
 }
 
-// Do several GCs to make sure that later GCs don't free up old memory from
-// previously run tests in this process.
-void ClearOutOldGarbage() {
+void TestSupportingGC::ClearOutOldGarbage() {
   PreciselyCollectGarbage();
   ThreadHeap& heap = ThreadState::Current()->Heap();
   while (true) {
@@ -33,6 +35,11 @@ void ClearOutOldGarbage() {
     if (heap.ObjectPayloadSizeForTesting() >= used)
       break;
   }
+}
+
+void TestSupportingGC::CompleteSweepingIfNeeded() {
+  if (ThreadState::Current()->IsSweepingInProgress())
+    ThreadState::Current()->CompleteSweep();
 }
 
 }  // namespace blink

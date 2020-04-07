@@ -6,8 +6,8 @@
 #define V8_PARSING_TOKEN_H_
 
 #include "src/base/logging.h"
-#include "src/globals.h"
-#include "src/utils.h"
+#include "src/common/globals.h"
+#include "src/utils/utils.h"
 
 namespace v8 {
 namespace internal {
@@ -171,6 +171,8 @@ namespace internal {
   /* BEGIN AnyIdentifier */                                        \
   /* Identifiers (not keywords or future reserved words). */       \
   T(IDENTIFIER, nullptr, 0)                                        \
+  K(GET, "get", 0)                                                 \
+  K(SET, "set", 0)                                                 \
   K(ASYNC, "async", 0)                                             \
   /* `await` is a reserved word in module code only */             \
   K(AWAIT, "await", 0)                                             \
@@ -199,7 +201,7 @@ namespace internal {
   T(UNINITIALIZED, nullptr, 0)                                     \
   T(REGEXP_LITERAL, nullptr, 0)
 
-class Token {
+class V8_EXPORT_PRIVATE Token {
  public:
   // All token values.
 #define T(name, string, precedence) name,

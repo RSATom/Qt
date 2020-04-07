@@ -6,8 +6,10 @@
 
 #include <utility>
 
+#include "base/bind.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/webui/omnibox/omnibox_page_handler.h"
+#include "chrome/browser/ui/webui/version_ui.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/grit/browser_resources.h"
 #include "content/public/browser/web_ui.h"
@@ -18,6 +20,11 @@ OmniboxUI::OmniboxUI(content::WebUI* web_ui) : ui::MojoWebUIController(web_ui) {
   // Set up the chrome://omnibox/ source.
   content::WebUIDataSource* source =
       content::WebUIDataSource::Create(chrome::kChromeUIOmniboxHost);
+
+  // Expose version information to client because it is useful in output.
+  VersionUI::AddVersionDetailStrings(source);
+  source->SetJsonPath("strings.js");
+
   source->AddResourcePath("omnibox.css", IDR_OMNIBOX_CSS);
   source->AddResourcePath("omnibox_input.css", IDR_OMNIBOX_INPUT_CSS);
   source->AddResourcePath("output_results_group.css",
@@ -32,7 +39,6 @@ OmniboxUI::OmniboxUI(content::WebUI* web_ui) : ui::MojoWebUIController(web_ui) {
       "chrome/browser/ui/webui/omnibox/omnibox.mojom-lite.js",
       IDR_OMNIBOX_MOJO_JS);
   source->SetDefaultResource(IDR_OMNIBOX_HTML);
-  source->UseGzip();
 
   content::WebUIDataSource::Add(Profile::FromWebUI(web_ui), source);
   AddHandlerToRegistry(base::BindRepeating(&OmniboxUI::BindOmniboxPageHandler,

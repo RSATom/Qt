@@ -5,9 +5,10 @@
 #include <drm_fourcc.h>
 #include <stdint.h>
 #include <unistd.h>
-
 #include <memory>
+#include <utility>
 
+#include "base/bind.h"
 #include "base/files/file_util.h"
 #include "base/files/platform_file.h"
 #include "base/macros.h"
@@ -779,18 +780,18 @@ TEST_P(HardwareDisplayPlaneManagerTest,
       crtc_properties_, plane_properties_, property_names_, use_atomic_));
 }
 
-INSTANTIATE_TEST_CASE_P(/* no prefix */,
-                        HardwareDisplayPlaneManagerTest,
-                        testing::Values(false, true));
+INSTANTIATE_TEST_SUITE_P(/* no prefix */,
+                         HardwareDisplayPlaneManagerTest,
+                         testing::Values(false, true));
 
 // TODO(dnicoara): Migrate as many tests as possible to the general list above.
-INSTANTIATE_TEST_CASE_P(/* no prefix */,
-                        HardwareDisplayPlaneManagerLegacyTest,
-                        testing::Values(false));
+INSTANTIATE_TEST_SUITE_P(/* no prefix */,
+                         HardwareDisplayPlaneManagerLegacyTest,
+                         testing::Values(false));
 
-INSTANTIATE_TEST_CASE_P(/* no prefix */,
-                        HardwareDisplayPlaneManagerAtomicTest,
-                        testing::Values(true));
+INSTANTIATE_TEST_SUITE_P(/* no prefix */,
+                         HardwareDisplayPlaneManagerAtomicTest,
+                         testing::Values(true));
 
 class FakeFenceFD {
  public:
@@ -869,7 +870,7 @@ class HardwareDisplayPlaneManagerPlanesReadyTest : public testing::Test {
   bool callback_called = false;
   base::test::ScopedTaskEnvironment task_env_{
       base::test::ScopedTaskEnvironment::MainThreadType::DEFAULT,
-      base::test::ScopedTaskEnvironment::ExecutionMode::QUEUED};
+      base::test::ScopedTaskEnvironment::ThreadPoolExecutionMode::QUEUED};
   scoped_refptr<ui::DrmFramebuffer> drm_framebuffer_;
   const FakeFenceFD fake_fence_fd1_;
   const FakeFenceFD fake_fence_fd2_;

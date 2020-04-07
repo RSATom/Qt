@@ -12,11 +12,11 @@
 #include "third_party/skia/include/core/SkColor.h"
 #include "third_party/skia/include/core/SkMatrix44.h"
 #include "ui/gfx/geometry/rect_f.h"
-#include "ui/gl/dc_renderer_layer_params.h"
+#include "ui/gfx/video_types.h"
 
 namespace viz {
 class DisplayResourceProvider;
-class OutputSurface;
+class ContextProvider;
 
 // Holds all information necessary to construct a DCLayer from a DrawQuad.
 class VIZ_SERVICE_EXPORT DCLayerOverlay {
@@ -32,7 +32,8 @@ class VIZ_SERVICE_EXPORT DCLayerOverlay {
   // hardware protected video and soon for Finch experiment on software
   // protected video.
   bool RequiresOverlay() const {
-    return (protected_video_type == ui::ProtectedVideoType::kHardwareProtected);
+    return (protected_video_type ==
+            gfx::ProtectedVideoType::kHardwareProtected);
   }
 
   // Resource ids for video Y and UV planes.  Can be the same resource.
@@ -62,27 +63,29 @@ class VIZ_SERVICE_EXPORT DCLayerOverlay {
   // normally BT.709.
   gfx::ColorSpace color_space;
 
-  ui::ProtectedVideoType protected_video_type = ui::ProtectedVideoType::kClear;
+  gfx::ProtectedVideoType protected_video_type =
+      gfx::ProtectedVideoType::kClear;
 };
 
 typedef std::vector<DCLayerOverlay> DCLayerOverlayList;
 
 class DCLayerOverlayProcessor {
  public:
-  explicit DCLayerOverlayProcessor(OutputSurface* surface);
+  explicit DCLayerOverlayProcessor(const ContextProvider* context_provider);
   ~DCLayerOverlayProcessor();
 
   void Process(DisplayResourceProvider* resource_provider,
                const gfx::RectF& display_rect,
                RenderPassList* render_passes,
-               gfx::Rect* overlay_damage_rect,
                gfx::Rect* damage_rect,
                DCLayerOverlayList* dc_layer_overlays);
-  void ClearOverlayState() {
-    previous_frame_underlay_rect_ = gfx::Rect();
-    previous_frame_underlay_occlusion_ = gfx::Rect();
-  }
+  void ClearOverlayState();
   void SetHasHwOverlaySupport() { has_hw_overlay_support_ = true; }
+  // This is the damage contribution due to previous frame's overlays which can
+  // be empty.
+  gfx::Rect previous_frame_overlay_damage_contribution() {
+    return previous_frame_overlay_rect_union_;
+  }
 
  private:
   // Returns an iterator to the element after |it|.
@@ -94,30 +97,29 @@ class DCLayerOverlayProcessor {
                          const gfx::RectF& display_rect,
                          RenderPass* render_pass,
                          bool is_root,
-                         gfx::Rect* overlay_damage_rect,
                          gfx::Rect* damage_rect,
                          DCLayerOverlayList* dc_layer_overlays);
-  bool ProcessForOverlay(const gfx::RectF& display_rect,
+  void ProcessForOverlay(const gfx::RectF& display_rect,
                          QuadList* quad_list,
                          const gfx::Rect& quad_rectangle,
-                         const gfx::RectF& occlusion_bounding_box,
                          QuadList::Iterator* it,
                          gfx::Rect* damage_rect);
-  bool ProcessForUnderlay(const gfx::RectF& display_rect,
+  void ProcessForUnderlay(const gfx::RectF& display_rect,
                           RenderPass* render_pass,
                           const gfx::Rect& quad_rectangle,
-                          const gfx::RectF& occlusion_bounding_box,
                           const QuadList::Iterator& it,
                           bool is_root,
                           gfx::Rect* damage_rect,
                           gfx::Rect* this_frame_underlay_rect,
-                          gfx::Rect* this_frame_underlay_occlusion,
                           DCLayerOverlay* dc_layer);
 
   gfx::Rect previous_frame_underlay_rect_;
-  gfx::Rect previous_frame_underlay_occlusion_;
   gfx::RectF previous_display_rect_;
-  bool processed_overlay_in_frame_ = false;
+  // previous and current overlay_rect_union_ include both overlay and underlay
+  gfx::Rect previous_frame_overlay_rect_union_;
+  gfx::Rect current_frame_overlay_rect_union_;
+  int previous_frame_processed_overlay_count_ = 0;
+  int current_frame_processed_overlay_count_ = 0;
   bool has_hw_overlay_support_ = true;
 
   // Store information about clipped punch-through rects in target space for

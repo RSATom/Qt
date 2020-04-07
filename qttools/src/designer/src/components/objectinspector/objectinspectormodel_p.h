@@ -75,7 +75,7 @@ namespace qdesigner_internal {
             ExtensionContainer   // QTabWidget and the like, container extension
         };
 
-        typedef QList<QStandardItem *> StandardItemList;
+        using StandardItemList = QList<QStandardItem *>;
 
         explicit ObjectData(QObject *parent, QObject *object, const ModelRecursionContext &ctx);
         ObjectData();
@@ -102,25 +102,25 @@ namespace qdesigner_internal {
         void initObject(const ModelRecursionContext &ctx);
         void initWidget(QWidget *w, const ModelRecursionContext &ctx);
 
-        QObject *m_parent;
-        QObject *m_object;
-        Type m_type;
+        QObject *m_parent = nullptr;
+        QObject *m_object = nullptr;
+        Type m_type = Object;
         QString m_className;
         QString m_objectName;
         QIcon m_classIcon;
-        LayoutInfo::Type m_managedLayoutType;
+        LayoutInfo::Type m_managedLayoutType = LayoutInfo::NoLayout;
     };
 
     inline bool operator==(const ObjectData &e1, const ObjectData &e2) { return e1.equals(e2); }
     inline bool operator!=(const ObjectData &e1, const ObjectData &e2) { return !e1.equals(e2); }
 
-    typedef QList<ObjectData> ObjectModel;
+    using ObjectModel = QList<ObjectData>;
 
     // QStandardItemModel for ObjectInspector. Uses ObjectData/ObjectModel
     // internally for its updates.
     class ObjectInspectorModel : public QStandardItemModel {
     public:
-        typedef QList<QStandardItem *> StandardItemList;
+        using StandardItemList = QList<QStandardItem *>;
         enum { ObjectNameColumn, ClassNameColumn, NumColumns };
 
         explicit ObjectInspectorModel(QObject *parent);

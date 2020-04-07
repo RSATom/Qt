@@ -16,9 +16,19 @@ mojom("interfaces") {
   public_deps = [
     "//mojo/public/mojom/base",
     "//skia/public/interfaces:interfaces",
-    "//ui/display/mojo:interfaces",
+    "//ui/display/mojom",
     "//ui/gfx/geometry/mojo",
     "//ui/gfx/mojo",
+  ]
+}
+
+mojom("gesture_properties_service") {
+  sources = [
+    "gesture_properties_service.mojom",
+  ]
+
+  public_deps = [
+    "//mojo/public/mojom/base",
   ]
 }
 

@@ -5,7 +5,7 @@
 **
 ** This file is part of the QtWaylandCompositor module of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL$
+** $QT_BEGIN_LICENSE:GPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
@@ -14,24 +14,14 @@
 ** and conditions see https://www.qt.io/terms-conditions. For further
 ** information use the contact form at https://www.qt.io/contact-us.
 **
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 3 as published by the Free Software
-** Foundation and appearing in the file LICENSE.LGPL3 included in the
-** packaging of this file. Please review the following information to
-** ensure the GNU Lesser General Public License version 3 requirements
-** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
-**
 ** GNU General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU
-** General Public License version 2.0 or (at your option) the GNU General
-** Public license version 3 or any later version approved by the KDE Free
-** Qt Foundation. The licenses are as published by the Free Software
-** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** General Public License version 3 or (at your option) any later version
+** approved by the KDE Free Qt Foundation. The licenses are as published by
+** the Free Software Foundation and appearing in the file LICENSE.GPL3
 ** included in the packaging of this file. Please review the following
 ** information to ensure the GNU General Public License requirements will
-** be met: https://www.gnu.org/licenses/gpl-2.0.html and
-** https://www.gnu.org/licenses/gpl-3.0.html.
+** be met: https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -73,6 +63,7 @@
 
 QT_BEGIN_NAMESPACE
 
+#if QT_CONFIG(opengl)
 static const struct {
     const char * const vertexShaderSourceFile;
     const char * const fragmentShaderSourceFile;
@@ -259,6 +250,7 @@ void QWaylandBufferMaterial::ensureTextures(int count)
         m_textures << nullptr;
     }
 }
+#endif // QT_CONFIG(opengl)
 
 QMutex *QWaylandQuickItemPrivate::mutex = nullptr;
 
@@ -284,10 +276,12 @@ public:
         if (m_ref.hasBuffer()) {
             if (buffer.isSharedMemory()) {
                 m_sgTex = surfaceItem->window()->createTextureFromImage(buffer.image());
-                if (m_sgTex) {
+#if QT_CONFIG(opengl)
+                if (m_sgTex)
                     m_sgTex->bind();
-                }
+#endif
             } else {
+#if QT_CONFIG(opengl)
                 QQuickWindow::CreateTextureOptions opt;
                 QWaylandQuickSurface *surface = qobject_cast<QWaylandQuickSurface *>(surfaceItem->surface());
                 if (surface && surface->useTextureAlpha()) {
@@ -297,6 +291,9 @@ public:
                 auto texture = buffer.toOpenGLTexture();
                 auto size = surface->bufferSize();
                 m_sgTex = surfaceItem->window()->createTextureFromId(texture->textureId(), size, opt);
+#else
+                qCWarning(qLcWaylandCompositor) << "Without OpenGL support only shared memory textures are supported";
+#endif
             }
         }
         emit textureChanged();
@@ -603,13 +600,17 @@ void QWaylandQuickItem::wheelEvent(QWheelEvent *event)
 {
     Q_D(QWaylandQuickItem);
     if (d->shouldSendInputEvents()) {
-        if (!inputRegionContains(event->posF())) {
+        if (!inputRegionContains(event->position())) {
             event->ignore();
             return;
         }
 
         QWaylandSeat *seat = compositor()->seatFor(event);
-        seat->sendMouseWheelEvent(event->orientation(), event->delta());
+        // TODO: fix this to send a single event, when diagonal scrolling is supported
+        if (event->angleDelta().x() != 0)
+            seat->sendMouseWheelEvent(Qt::Horizontal, event->angleDelta().x());
+        if (event->angleDelta().y() != 0)
+            seat->sendMouseWheelEvent(Qt::Vertical, event->angleDelta().y());
     } else {
         event->ignore();
     }
@@ -1182,9 +1183,11 @@ QVariant QWaylandQuickItem::inputMethodQuery(Qt::InputMethodQuery query, QVarian
 */
 
 /*!
-    Returns true if the item is hidden, though the texture
+    \property QWaylandQuickItem::paintEnabled
+
+    Holds \c true if the item is hidden, though the texture
     is still updated. As opposed to hiding the item by
-    setting \l{Item::visible}{visible} to \c false, setting this property to \c false
+    setting \l{QQuickItem::}{visible} to \c false, setting this property to \c false
     will not prevent mouse or keyboard input from reaching item.
 */
 bool QWaylandQuickItem::paintEnabled() const
@@ -1200,6 +1203,19 @@ void QWaylandQuickItem::setPaintEnabled(bool enabled)
     update();
 }
 
+/*!
+    \qmlproperty  bool QtWaylandCompositor::WaylandQuickItem::touchEventsEnabled
+
+    This property holds \c true if touch events are forwarded to the client
+    surface, \c false otherwise.
+*/
+
+/*!
+    \property QWaylandQuickItem::touchEventsEnabled
+
+    This property holds \c true if touch events are forwarded to the client
+    surface, \c false otherwise.
+*/
 bool QWaylandQuickItem::touchEventsEnabled() const
 {
     Q_D(const QWaylandQuickItem);
@@ -1327,7 +1343,11 @@ QSGNode *QWaylandQuickItem::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeDat
     const QRectF rect = invertY ? QRectF(0, height(), width(), -height())
                                 : QRectF(0, 0, width(), height());
 
-    if (ref.isSharedMemory() || bufferTypes[ref.bufferFormatEgl()].canProvideTexture) {
+    if (ref.isSharedMemory()
+#if QT_CONFIG(opengl)
+            || bufferTypes[ref.bufferFormatEgl()].canProvideTexture
+#endif
+    ) {
         // This case could covered by the more general path below, but this is more efficient (especially when using ShaderEffect items).
         QSGSimpleTextureNode *node = static_cast<QSGSimpleTextureNode *>(oldNode);
 
@@ -1353,45 +1373,48 @@ QSGNode *QWaylandQuickItem::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeDat
         node->setSourceRect(QRectF(source.topLeft() * scale, source.size() * scale));
 
         return node;
-    } else {
-        Q_ASSERT(!d->provider);
-
-        QSGGeometryNode *node = static_cast<QSGGeometryNode *>(oldNode);
-
-        if (!node) {
-            node = new QSGGeometryNode;
-            d->newTexture = true;
-        }
-
-        QSGGeometry *geometry = node->geometry();
-        QWaylandBufferMaterial *material = static_cast<QWaylandBufferMaterial *>(node->material());
-
-        if (!geometry)
-            geometry = new QSGGeometry(QSGGeometry::defaultAttributes_TexturedPoint2D(), 4);
-
-        if (!material)
-            material = new QWaylandBufferMaterial(ref.bufferFormatEgl());
-
-        if (d->newTexture) {
-            d->newTexture = false;
-            for (int plane = 0; plane < bufferTypes[ref.bufferFormatEgl()].planeCount; plane++)
-                if (auto texture = ref.toOpenGLTexture(plane))
-                    material->setTextureForPlane(plane, texture);
-            material->bind();
-        }
-
-        QSGGeometry::updateTexturedRectGeometry(geometry, rect, QRectF(0, 0, 1, 1));
-
-        node->setGeometry(geometry);
-        node->setFlag(QSGNode::OwnsGeometry, true);
-
-        node->setMaterial(material);
-        node->setFlag(QSGNode::OwnsMaterial, true);
-
-        return node;
     }
 
-    Q_UNREACHABLE();
+#if QT_CONFIG(opengl)
+    Q_ASSERT(!d->provider);
+
+    QSGGeometryNode *node = static_cast<QSGGeometryNode *>(oldNode);
+
+    if (!node) {
+        node = new QSGGeometryNode;
+        d->newTexture = true;
+    }
+
+    QSGGeometry *geometry = node->geometry();
+    QWaylandBufferMaterial *material = static_cast<QWaylandBufferMaterial *>(node->material());
+
+    if (!geometry)
+        geometry = new QSGGeometry(QSGGeometry::defaultAttributes_TexturedPoint2D(), 4);
+
+    if (!material)
+        material = new QWaylandBufferMaterial(ref.bufferFormatEgl());
+
+    if (d->newTexture) {
+        d->newTexture = false;
+        for (int plane = 0; plane < bufferTypes[ref.bufferFormatEgl()].planeCount; plane++)
+            if (auto texture = ref.toOpenGLTexture(plane))
+                material->setTextureForPlane(plane, texture);
+        material->bind();
+    }
+
+    QSGGeometry::updateTexturedRectGeometry(geometry, rect, QRectF(0, 0, 1, 1));
+
+    node->setGeometry(geometry);
+    node->setFlag(QSGNode::OwnsGeometry, true);
+
+    node->setMaterial(material);
+    node->setFlag(QSGNode::OwnsMaterial, true);
+
+    return node;
+#else
+    qCWarning(qLcWaylandCompositor) << "Without OpenGL support only shared memory textures are supported";
+    return nullptr;
+#endif // QT_CONFIG(opengl)
 }
 
 void QWaylandQuickItem::setTouchEventsEnabled(bool enabled)

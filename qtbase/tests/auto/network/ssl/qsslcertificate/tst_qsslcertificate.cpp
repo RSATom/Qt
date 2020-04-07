@@ -33,6 +33,10 @@
 #include <qsslsocket.h>
 #include <qsslcertificateextension.h>
 
+#ifndef QT_NO_OPENSSL
+#include <openssl/obj_mac.h>
+#endif
+
 class tst_QSslCertificate : public QObject
 {
     Q_OBJECT
@@ -401,9 +405,7 @@ void tst_QSslCertificate::subjectAlternativeNames()
         certificate.subjectAlternativeNames();
 
     // verify that each entry in subjAltNames is present in fileContents
-    QMapIterator<QSsl::AlternativeNameEntryType, QString> it(altSubjectNames);
-    while (it.hasNext()) {
-        it.next();
+    for (auto it = altSubjectNames.cbegin(), end = altSubjectNames.cend(); it != end; ++it) {
         QByteArray type;
         if (it.key() == QSsl::EmailEntry)
             type = "email";
@@ -814,7 +816,7 @@ void tst_QSslCertificate::task256066toPem()
 
 void tst_QSslCertificate::nulInCN()
 {
-#if defined(QT_SECURETRANSPORT) || defined(Q_OS_WINRT) || QT_CONFIG(schannel)
+#if QT_CONFIG(securetransport) || defined(Q_OS_WINRT) || QT_CONFIG(schannel)
     QSKIP("Generic QSslCertificatePrivate fails this test");
 #endif
     QList<QSslCertificate> certList =
@@ -833,7 +835,7 @@ void tst_QSslCertificate::nulInCN()
 
 void tst_QSslCertificate::nulInSan()
 {
-#if defined(QT_SECURETRANSPORT) || defined(Q_OS_WINRT) || QT_CONFIG(schannel)
+#if QT_CONFIG(securetransport) || defined(Q_OS_WINRT) || QT_CONFIG(schannel)
     QSKIP("Generic QSslCertificatePrivate fails this test");
 #endif
     QList<QSslCertificate> certList =
@@ -962,13 +964,17 @@ void tst_QSslCertificate::subjectAndIssuerAttributes()
     certList = QSslCertificate::fromPath(testDataDir + "more-certificates/natwest-banking.pem");
     QVERIFY(certList.count() > 0);
 
+    QByteArray shortName("1.3.6.1.4.1.311.60.2.1.3");
+#if !defined(QT_NO_OPENSSL) && defined(SN_jurisdictionCountryName)
+    shortName = SN_jurisdictionCountryName;
+#endif
     attributes = certList[0].subjectInfoAttributes();
-    QVERIFY(attributes.contains(QByteArray("1.3.6.1.4.1.311.60.2.1.3")));
+    QVERIFY(attributes.contains(shortName));
 }
 
 void tst_QSslCertificate::verify()
 {
-#ifdef QT_SECURETRANSPORT
+#if QT_CONFIG(securetransport)
     QSKIP("Not implemented in SecureTransport");
 #endif
     QList<QSslError> errors;

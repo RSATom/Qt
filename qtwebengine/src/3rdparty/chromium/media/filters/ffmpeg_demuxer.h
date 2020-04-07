@@ -113,6 +113,7 @@ class MEDIA_EXPORT FFmpegDemuxerStream : public DemuxerStream {
   Type type() const override;
   Liveness liveness() const override;
   void Read(const ReadCB& read_cb) override;
+  bool IsReadPending() const override;
   void EnableBitstreamConverter() override;
   bool SupportsConfigChanges() override;
   AudioDecoderConfig audio_decoder_config() override;
@@ -341,7 +342,7 @@ class MEDIA_EXPORT FFmpegDemuxer : public Demuxer {
   scoped_refptr<base::SingleThreadTaskRunner> task_runner_;
 
   // Task runner on which all blocking FFmpeg operations are executed; retrieved
-  // from base::TaskScheduler.
+  // from base::ThreadPoolInstance.
   scoped_refptr<base::SequencedTaskRunner> blocking_task_runner_;
 
   PipelineStatusCB init_cb_;
@@ -408,8 +409,8 @@ class MEDIA_EXPORT FFmpegDemuxer : public Demuxer {
 
   // NOTE: Weak pointers must be invalidated before all other member variables.
   base::WeakPtr<FFmpegDemuxer> weak_this_;
-  base::WeakPtrFactory<FFmpegDemuxer> cancel_pending_seek_factory_;
-  base::WeakPtrFactory<FFmpegDemuxer> weak_factory_;
+  base::WeakPtrFactory<FFmpegDemuxer> cancel_pending_seek_factory_{this};
+  base::WeakPtrFactory<FFmpegDemuxer> weak_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(FFmpegDemuxer);
 };

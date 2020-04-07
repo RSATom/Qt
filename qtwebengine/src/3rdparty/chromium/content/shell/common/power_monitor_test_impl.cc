@@ -10,21 +10,17 @@ namespace content {
 
 // static
 void PowerMonitorTestImpl::MakeStrongBinding(
-    std::unique_ptr<PowerMonitorTestImpl> instance,
     mojom::PowerMonitorTestRequest request) {
-  mojo::MakeStrongBinding(std::move(instance), std::move(request));
+  mojo::MakeStrongBinding(std::make_unique<PowerMonitorTestImpl>(),
+                          std::move(request));
 }
 
 PowerMonitorTestImpl::PowerMonitorTestImpl() {
-  base::PowerMonitor* power_monitor = base::PowerMonitor::Get();
-  if (power_monitor)
-    power_monitor->AddObserver(this);
+  base::PowerMonitor::AddObserver(this);
 }
 
 PowerMonitorTestImpl::~PowerMonitorTestImpl() {
-  base::PowerMonitor* power_monitor = base::PowerMonitor::Get();
-  if (power_monitor)
-    power_monitor->RemoveObserver(this);
+  base::PowerMonitor::RemoveObserver(this);
 }
 
 void PowerMonitorTestImpl::QueryNextState(QueryNextStateCallback callback) {

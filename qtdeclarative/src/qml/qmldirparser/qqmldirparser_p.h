@@ -54,31 +54,29 @@
 #include <QtCore/QUrl>
 #include <QtCore/QHash>
 #include <QtCore/QDebug>
+#include <private/qtqmlcompilerglobal_p.h>
 #include <private/qqmljsengine_p.h>
-#include <private/qv4global_p.h>
+#include <private/qqmljsdiagnosticmessage_p.h>
 
 QT_BEGIN_NAMESPACE
 
-class QQmlError;
 class QQmlEngine;
-class Q_QML_PRIVATE_EXPORT QQmlDirParser
+class Q_QMLCOMPILER_PRIVATE_EXPORT QQmlDirParser
 {
 public:
-    QQmlDirParser();
-    ~QQmlDirParser();
-
+    void clear();
     bool parse(const QString &source);
 
     bool hasError() const;
-    void setError(const QQmlError &);
-    QList<QQmlError> errors(const QString &uri) const;
+    void setError(const QQmlJS::DiagnosticMessage &);
+    QList<QQmlJS::DiagnosticMessage> errors(const QString &uri) const;
 
     QString typeNamespace() const;
     void setTypeNamespace(const QString &s);
 
     static void checkNonRelative(const char *item, const QString &typeName, const QString &fileName)
     {
-        if (fileName.startsWith(QLatin1Char('/')) || fileName.contains(QLatin1Char(':'))) {
+        if (fileName.startsWith(QLatin1Char('/'))) {
             qWarning() << item << typeName
                        << "is specified with non-relative URL" << fileName << "in a qmldir file."
                        << "URLs in qmldir files should be relative to the qmldir file's directory.";
@@ -136,6 +134,7 @@ public:
 
     QHash<QString,Component> components() const;
     QHash<QString,Component> dependencies() const;
+    QStringList imports() const;
     QList<Script> scripts() const;
     QList<Plugin> plugins() const;
     bool designerSupported() const;
@@ -162,9 +161,10 @@ private:
     QString _typeNamespace;
     QHash<QString,Component> _components; // multi hash
     QHash<QString,Component> _dependencies;
+    QStringList _imports;
     QList<Script> _scripts;
     QList<Plugin> _plugins;
-    bool _designerSupported;
+    bool _designerSupported = false;
     QList<TypeInfo> _typeInfos;
     QString _className;
 };

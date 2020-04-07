@@ -79,6 +79,47 @@ QShaderProgramBuilderPrivate::QShaderProgramBuilderPrivate()
 {
 }
 
+void QShaderProgramBuilderPrivate::setShaderCode(const QByteArray &code, QShaderProgram::ShaderType type)
+{
+    Q_Q(QShaderProgramBuilder);
+    const bool blocked = q->blockNotifications(true);
+
+    switch (type) {
+    case QShaderProgram::Vertex: {
+        m_vertexShaderCode = code;
+        emit q->vertexShaderCodeChanged(m_vertexShaderCode);
+        break;
+    }
+    case QShaderProgram::Fragment:{
+        m_fragmentShaderCode = code;
+        emit q->fragmentShaderCodeChanged(m_fragmentShaderCode);
+        break;
+    }
+    case QShaderProgram::Geometry: {
+        m_geometryShaderCode = code;
+        emit q->geometryShaderCodeChanged(m_geometryShaderCode);
+        break;
+    }
+    case QShaderProgram::Compute: {
+        m_computeShaderCode = code;
+        emit q->computeShaderCodeChanged(m_computeShaderCode);
+        break;
+    }
+    case QShaderProgram::TessellationControl: {
+        m_tessControlShaderCode = code;
+        emit q->tessellationControlShaderCodeChanged(m_tessControlShaderCode);
+        break;
+    }
+    case QShaderProgram::TessellationEvaluation: {
+        m_tessEvalShaderCode = code;
+        emit q->tessellationEvaluationShaderCodeChanged(m_tessEvalShaderCode);
+        break;
+    }
+    }
+
+    q->blockNotifications(blocked);
+}
+
 QShaderProgramBuilder::QShaderProgramBuilder(QNode *parent)
     : QNode(*new QShaderProgramBuilderPrivate, parent)
 {
@@ -94,51 +135,9 @@ QShaderProgramBuilder::QShaderProgramBuilder(QShaderProgramBuilderPrivate &dd, Q
 {
 }
 
-void QShaderProgramBuilder::sceneChangeEvent(const Qt3DCore::QSceneChangePtr &change)
+// TODO Unused remove in Qt6
+void QShaderProgramBuilder::sceneChangeEvent(const Qt3DCore::QSceneChangePtr &)
 {
-    Q_D(QShaderProgramBuilder);
-    if (change->type() == Qt3DCore::PropertyUpdated) {
-        const Qt3DCore::QPropertyUpdatedChangePtr e = qSharedPointerCast<Qt3DCore::QPropertyUpdatedChange>(change);
-        if (e->propertyName() == QByteArrayLiteral("generatedShaderCode")) {
-            const bool blocked = blockNotifications(true);
-            const QPair<int, QByteArray> data = e->value().value<QPair<int, QByteArray>>();
-
-            switch (data.first) {
-            case QShaderProgram::Vertex: {
-                d->m_vertexShaderCode = data.second;
-                emit vertexShaderCodeChanged(d->m_vertexShaderCode);
-                break;
-            }
-            case QShaderProgram::Fragment:{
-                d->m_fragmentShaderCode = data.second;
-                emit fragmentShaderCodeChanged(d->m_fragmentShaderCode);
-                break;
-            }
-            case QShaderProgram::Geometry: {
-                d->m_geometryShaderCode = data.second;
-                emit geometryShaderCodeChanged(d->m_geometryShaderCode);
-                break;
-            }
-            case QShaderProgram::Compute: {
-                d->m_computeShaderCode = data.second;
-                emit computeShaderCodeChanged(d->m_computeShaderCode);
-                break;
-            }
-            case QShaderProgram::TessellationControl: {
-                d->m_tessControlShaderCode = data.second;
-                emit tessellationControlShaderCodeChanged(d->m_tessControlShaderCode);
-                break;
-            }
-            case QShaderProgram::TessellationEvaluation: {
-                d->m_tessEvalShaderCode = data.second;
-                emit tessellationEvaluationShaderCodeChanged(d->m_tessEvalShaderCode);
-                break;
-            }
-            }
-
-            blockNotifications(blocked);
-        }
-    }
 }
 
 /*!
@@ -359,13 +358,13 @@ QUrl QShaderProgramBuilder::computeShaderGraph() const
 }
 
 /*!
-    \qmlproperty string ShaderProgramBuilder:vertexShaderCode
+    \qmlproperty string ShaderProgramBuilder::vertexShaderCode
 
     Holds the generated vertex shader code
     \since 2.13
 */
 /*!
-    \property QShaderProgram:Builder:vertexShaderCode
+    \property QShaderProgramBuilder::vertexShaderCode
 
     Holds the generate vertex shader code.
     \since 5.13
@@ -377,13 +376,13 @@ QByteArray QShaderProgramBuilder::vertexShaderCode() const
 }
 
 /*!
-    \qmlproperty string ShaderProgramBuilder:tessellationControlShaderCode
+    \qmlproperty string ShaderProgramBuilder::tessellationControlShaderCode
 
     Holds the generated tessellation control shader code
     \since 2.13
 */
 /*!
-    \property QShaderProgram:Builder:tessellationControlShaderCode
+    \property QShaderProgramBuilder::tessellationControlShaderCode
 
     Holds the generate tessellation control shader code.
     \since 5.13
@@ -395,13 +394,13 @@ QByteArray QShaderProgramBuilder::tessellationControlShaderCode() const
 }
 
 /*!
-    \qmlproperty string ShaderProgramBuilder:tessellationEvaluationShaderCode
+    \qmlproperty string ShaderProgramBuilder::tessellationEvaluationShaderCode
 
     Holds the generated tessellation evaluation shader code
     \since 2.13
 */
 /*!
-    \property QShaderProgram:Builder:tessellationEvaluationShaderCode
+    \property QShaderProgramBuilder::tessellationEvaluationShaderCode
 
     Holds the generate tessellation evaluation shader code.
     \since 5.13
@@ -413,13 +412,13 @@ QByteArray QShaderProgramBuilder::tessellationEvaluationShaderCode() const
 }
 
 /*!
-    \qmlproperty string ShaderProgramBuilder:geometryShaderCode
+    \qmlproperty string ShaderProgramBuilder::geometryShaderCode
 
     Holds the generated geometry shader code
     \since 2.13
 */
 /*!
-    \property QShaderProgram:Builder:geometryShaderCode
+    \property QShaderProgramBuilder::geometryShaderCode
 
     Holds the generate geometry shader code.
     \since 5.13
@@ -437,7 +436,7 @@ QByteArray QShaderProgramBuilder::geometryShaderCode() const
     \since 2.13
 */
 /*!
-    \property QShaderProgram:Builder:fragmentShaderCode
+    \property QShaderProgramBuilder::fragmentShaderCode
 
     Holds the generate fragment shader code.
     \since 5.13
@@ -455,7 +454,7 @@ QByteArray QShaderProgramBuilder::fragmentShaderCode() const
     \since 2.13
 */
 /*!
-    \property QShaderProgram:Builder:computeShaderCode
+    \property QShaderProgramBuilder::computeShaderCode
 
     Holds the generate compute shader code.
     \since 5.13

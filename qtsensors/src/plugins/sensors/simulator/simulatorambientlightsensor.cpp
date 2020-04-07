@@ -76,9 +76,9 @@ void SimulatorAmbientLightSensor::poll()
 
     quint64 newTimestamp;
     if (!data.timestamp.isValid())
-        newTimestamp = QDateTime::currentMSecsSinceEpoch() / 1000;
+        newTimestamp = static_cast<quint64>(QDateTime::currentMSecsSinceEpoch()) / 1000;
     else
-        newTimestamp = data.timestamp.toTime_t();
+        newTimestamp = static_cast<quint64>(data.timestamp.toSecsSinceEpoch());
     if (m_reading.lightLevel() != convertedLightLevel) {
             m_reading.setTimestamp(newTimestamp);
             m_reading.setLightLevel(convertedLightLevel);

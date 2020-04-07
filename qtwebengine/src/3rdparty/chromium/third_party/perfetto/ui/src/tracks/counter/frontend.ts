@@ -14,7 +14,6 @@
 
 import {searchSegment} from '../../base/binary_search';
 import {assertTrue} from '../../base/logging';
-import {Actions} from '../../common/actions';
 import {TrackState} from '../../common/state';
 import {checkerboardExcept} from '../../frontend/checkerboard';
 import {globals} from '../../frontend/globals';
@@ -31,19 +30,12 @@ import {
 const MARGIN_TOP = 4.5;
 const RECT_HEIGHT = 30;
 
-function getCurResolution() {
-  // Truncate the resolution to the closest power of 10.
-  const resolution = globals.frontendLocalState.timeScale.deltaPxToDuration(1);
-  return Math.pow(10, Math.floor(Math.log10(resolution)));
-}
-
 class CounterTrack extends Track<Config, Data> {
   static readonly kind = COUNTER_TRACK_KIND;
   static create(trackState: TrackState): CounterTrack {
     return new CounterTrack(trackState);
   }
 
-  private reqPending = false;
   private mouseXpos = 0;
   private hoveredValue: number|undefined = undefined;
   private hoveredTs: number|undefined = undefined;
@@ -53,37 +45,16 @@ class CounterTrack extends Track<Config, Data> {
     super(trackState);
   }
 
-  reqDataDeferred() {
-    const {visibleWindowTime} = globals.frontendLocalState;
-    const reqStart = visibleWindowTime.start - visibleWindowTime.duration;
-    const reqEnd = visibleWindowTime.end + visibleWindowTime.duration;
-    const reqRes = getCurResolution();
-    this.reqPending = false;
-    globals.dispatch(Actions.reqTrackData({
-      trackId: this.trackState.id,
-      start: reqStart,
-      end: reqEnd,
-      resolution: reqRes
-    }));
-  }
-
   renderCanvas(ctx: CanvasRenderingContext2D): void {
     // TODO: fonts and colors should come from the CSS and not hardcoded here.
     const {timeScale, visibleWindowTime} = globals.frontendLocalState;
     const data = this.data();
 
-    // If there aren't enough cached slices data in |data| request more to
-    // the controller.
-    const inRange = data !== undefined &&
-        (visibleWindowTime.start >= data.start &&
-         visibleWindowTime.end <= data.end);
-    if (!inRange || data === undefined ||
-        data.resolution !== getCurResolution()) {
-      if (!this.reqPending) {
-        this.reqPending = true;
-        setTimeout(() => this.reqDataDeferred(), 50);
-      }
+    if (this.shouldRequestData(
+            data, visibleWindowTime.start, visibleWindowTime.end)) {
+      globals.requestTrackData(this.trackState.id);
     }
+
     if (data === undefined) return;  // Can't possibly draw anything.
 
     assertTrue(data.timestamps.length === data.values.length);
@@ -152,7 +123,8 @@ class CounterTrack extends Track<Config, Data> {
 
     if (this.hoveredValue !== undefined && this.hoveredTs !== undefined) {
       // TODO(hjd): Add units.
-      const text = `value: ${this.hoveredValue.toLocaleString()}`;
+      let text = (data.isQuantized) ? 'max value: ' : 'value: ';
+      text += `${this.hoveredValue.toLocaleString()}`;
       const width = ctx.measureText(text).width;
 
       ctx.fillStyle = `hsl(${hue}, 45%, 75%)`;
@@ -184,7 +156,7 @@ class CounterTrack extends Track<Config, Data> {
       ctx.fillStyle = 'hsl(200, 50%, 40%)';
       ctx.textAlign = 'left';
       ctx.textBaseline = 'middle';
-      ctx.fillText(text, this.mouseXpos + 8, MARGIN_TOP + RECT_HEIGHT/2);
+      ctx.fillText(text, this.mouseXpos + 8, MARGIN_TOP + RECT_HEIGHT / 2);
     }
 
     // Write the Y scale on the top left corner.
@@ -192,6 +164,7 @@ class CounterTrack extends Track<Config, Data> {
     ctx.fillRect(0, 0, 40, 16);
     ctx.fillStyle = '#666';
     ctx.textAlign = 'left';
+    ctx.textBaseline = 'alphabetic';
     ctx.fillText(`${yLabel}`, 5, 14);
 
     // If the cached trace slices don't fully cover the visible time range,

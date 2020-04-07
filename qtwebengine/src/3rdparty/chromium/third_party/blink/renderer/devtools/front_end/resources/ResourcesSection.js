@@ -169,7 +169,7 @@ Resources.FrameTreeElement = class extends Resources.BaseStorageTreeElement {
    */
   onselect(selectedByUser) {
     super.onselect(selectedByUser);
-    this._section._panel.showCategoryView(this.titleAsText());
+    this._section._panel.showCategoryView(this.titleAsText(), null);
 
     this.listItemElement.classList.remove('hovered');
     SDK.OverlayModel.hideDOMNodeHighlight();
@@ -264,8 +264,9 @@ Resources.FrameTreeElement = class extends Resources.BaseStorageTreeElement {
 
   /**
    * @override
+   * @returns {!Promise}
    */
-  onpopulate() {
+  async onpopulate() {
     this._populated = true;
     for (const child of this._frame.childFrames)
       this._section._frameAdded(child);

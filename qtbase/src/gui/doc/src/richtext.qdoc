@@ -1175,12 +1175,75 @@
     \row    \li \c vertical-align
             \li baseline | sub | super | middle | top | bottom
             \li Vertical text alignment. For vertical alignment in text table cells only middle, top, and bottom apply.
+    \row    \li \c border-collapse
+            \li collapse | separate
+            \li Border Collapse mode for text tables. If set to collapse, cell-spacing will not be applied.
     \row    \li \c border-color
             \li <color>
-            \li Border color for text tables.
+            \li Border color for text tables and table cells.
+    \row    \li \c border-top-color
+            \li <color>
+            \li Top border color for table cells.
+    \row    \li \c border-bottom-color
+            \li <color>
+            \li Bottom border color for table cells.
+    \row    \li \c border-left-color
+            \li <color>
+            \li Left border color for table cells.
+    \row    \li \c border-right-color
+            \li <color>
+            \li Right border color for table cells.
     \row    \li \c border-style
             \li none | dotted | dashed | dot-dash | dot-dot-dash | solid | double | groove | ridge | inset | outset
-            \li Border style for text tables.
+            \li Border style for text tables and table cells.
+    \row    \li \c border-top-style
+            \li <color>
+            \li Top border style for table cells.
+    \row    \li \c border-bottom-style
+            \li <color>
+            \li Bottom border style for table cells.
+    \row    \li \c border-left-style
+            \li <color>
+            \li Left border style for table cells.
+    \row    \li \c border-right-style
+            \li <color>
+            \li Right border style for table cells.
+    \row    \li \c border-width
+            \li <width>px
+            \li Width of table or cell border
+    \row    \li \c border-top-width
+            \li <length>px
+            \li Top border width for table cells.
+    \row    \li \c border-bottom-width
+            \li <length>px
+            \li Bottom border width for table cells.
+    \row    \li \c border-left-width
+            \li <length>px
+            \li Left border width for table cells.
+    \row    \li \c border-right-width
+            \li <length>px
+            \li Right border width for table cells.
+    \row    \li \c border-top
+            \li <width>px <border-style> <border-color>
+            \li Shorthand for setting top border width, style and color
+    \row    \li \c border-bottom
+            \li <width>px <border-style> <border-color>
+            \li Shorthand for setting bottom border width, style and color
+    \row    \li \c border-left
+            \li <width>px <border-style> <border-color>
+            \li Shorthand for setting left border width, style and color
+    \row    \li \c border-right
+            \li <width>px <border-style> <border-color>
+            \li Shorthand for setting right border width, style and color
+    \row    \li \c border-top
+            \li <width>px <border-style> <border-color>
+            \li Shorthand for setting top border width, style and color
+    \row    \li \c border-bottom
+            \li <width>px <border-style> <border-color>
+            \li Shorthand for setting bottom border width, style and color
+    \row    \li \c border
+            \li <width>px <border-style> <border-color>
+            \li Shorthand for setting all four border's width, style and color
     \row    \li \c background
             \li [ <'background-color'> || <'background-image'> ]
             \li Background shorthand property
@@ -1190,7 +1253,7 @@
     \row    \li \c page-break-after
             \li [ auto | always ]
             \li Make it possible to enforce a page break after the paragraph/table
-    \row    \li float
+    \row    \li \c float
             \li [ left | right | none ]
             \li Specifies where an image or a text will be placed in another element. Note that the \c float property is
                only supported for tables and images.
@@ -1206,6 +1269,55 @@
     \row    \li \c word-spacing
             \li <width>px
             \li Specifies an alternate spacing between each word.
+    \row    \li \c line-height
+            \li <number>[% | px | pt | cm]
+            \li Specifies the height of a line. It can be one of the
+                following:
+                \list
+                 \li fixed line height in pixels, points, or centimeters.
+                 \li a percentage of the current font size.
+                \endlist
+    \endtable
+
+    \section1 Qt-specific CSS properties
+
+    Besides the standard CSS properties listed earlier, the following
+    Qt-specific properties can also be used to style a text block:
+
+    \table
+    \header \li Property
+            \li Values
+            \li Description
+    \row
+            \li \c -qt-block-indent
+            \li \c <number>
+            \li Indents the text block by the specified no. spaces.
+    \row
+            \li \c -qt-list-indent
+            \li \c <number>
+            \li Indents the list items by the specified no. of spaces.
+    \row
+            \li \c -qt-list-number-prefix
+            \li \c <string>
+            \li Prefixes the given string to list number in an HTML ordered list.
+    \row
+            \li \c -qt-list-number-suffix
+            \li <string>
+            \li Suffixes the given string to list number in an HTML ordered list.
+    \row
+            \li \c -qt-paragraph-type
+            \li \c empty
+            \li Hides the text block.
+    \row
+            \li \c -qt-table-type
+            \li \c{root | frame}
+            \li \c root renders the text blocks inline without borders and
+                indentation, whereas \c frame renders them on a new line
+                with a frame around.
+    \row
+            \li \c -qt-user-state
+            \li \c <number>
+            \li Adds it as user data for the text block.
     \endtable
 
     \section1 Supported CSS Selectors

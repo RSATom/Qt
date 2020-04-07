@@ -35,18 +35,13 @@ QT_BEGIN_NAMESPACE
 
 class UnixMakefileGenerator : public MakefileGenerator
 {
-    bool include_deps;
+    bool include_deps = false;
     QString libtoolFileName(bool fixify=true);
     void writeLibtoolFile();     // for libtool
     void writePrlFile(QTextStream &) override;
 
-public:
-    UnixMakefileGenerator();
-    ~UnixMakefileGenerator();
-
 protected:
     virtual bool doPrecompiledHeaders() const { return project->isActiveConfig("precompile_header"); }
-    bool doDepends() const override { return !Option::mkfile::do_stub_makefile && MakefileGenerator::doDepends(); }
 #ifdef Q_OS_WIN // MinGW x-compiling for QNX
     QString installRoot() const override;
 #endif
@@ -63,14 +58,11 @@ protected:
     void writeSubTargets(QTextStream &t, QList<SubTarget*> subtargets, int flags) override;
     void writeMakeParts(QTextStream &);
     bool writeMakefile(QTextStream &) override;
-
+    std::pair<bool, QString> writeObjectsPart(QTextStream &, bool do_incremental);
 private:
     void init2();
     ProStringList libdirToFlags(const ProKey &key);
 };
-
-inline UnixMakefileGenerator::~UnixMakefileGenerator()
-{ }
 
 QT_END_NAMESPACE
 

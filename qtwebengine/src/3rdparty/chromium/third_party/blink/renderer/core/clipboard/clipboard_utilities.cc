@@ -51,8 +51,7 @@ String ConvertURIListToURL(const String& uri_list) {
   uri_list.Split('\n', items);
   // Process the input and return the first valid URL. In case no URLs can
   // be found, return an empty string. This is in line with the HTML5 spec.
-  for (wtf_size_t i = 0; i < items.size(); ++i) {
-    String& line = items[i];
+  for (String& line : items) {
     line = line.StripWhiteSpace();
     if (line.IsEmpty())
       continue;
@@ -66,9 +65,15 @@ String ConvertURIListToURL(const String& uri_list) {
 }
 
 static String EscapeForHTML(const String& str) {
-  std::string output =
-      net::EscapeForHTML(StringUTF8Adaptor(str).AsStringPiece());
-  return String(output.c_str());
+  // net::EscapeForHTML can work on 8-bit Latin-1 strings as well as 16-bit
+  // strings.
+  if (str.Is8Bit()) {
+    auto result = net::EscapeForHTML(
+        {reinterpret_cast<const char*>(str.Characters8()), str.length()});
+    return String(result.data(), result.size());
+  }
+  auto result = net::EscapeForHTML({str.Characters16(), str.length()});
+  return String(result.data(), result.size());
 }
 
 String URLToImageMarkup(const KURL& url, const String& title) {

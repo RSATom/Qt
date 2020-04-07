@@ -11,15 +11,17 @@
 #include <functional>
 #include <vector>
 
-#include "SkFont.h"
-#include "SkPaint.h"
-#include "SkPoint.h"
-#include "SkSpan.h"
-#include "SkTemplates.h"
-#include "SkTypes.h"
+#include "include/core/SkFont.h"
+#include "include/core/SkPaint.h"
+#include "include/core/SkPoint.h"
+#include "include/core/SkTypes.h"
+#include "include/private/SkTemplates.h"
+#include "src/core/SkSpan.h"
 
 class SkBaseDevice;
 class SkGlyph;
+class SkTextBlob;
+class SkTextBlobRunIterator;
 
 class SkGlyphRun {
 public:
@@ -34,7 +36,7 @@ public:
     void filloutGlyphsAndPositions(SkGlyphID* glyphIDs, SkPoint* positions);
 
     size_t runSize() const { return fGlyphIDs.size(); }
-    SkSpan<const SkPoint> positions() const { return fPositions.toConst(); }
+    SkSpan<const SkPoint> positions() const { return fPositions; }
     SkSpan<const SkGlyphID> glyphsIDs() const { return fGlyphIDs; }
     const SkFont& font() const { return fFont; }
     SkSpan<const uint32_t> clusters() const { return fClusters; }
@@ -119,12 +121,12 @@ public:
             const SkPaint&, const SkFont&, SkSpan<const SkGlyphID> glyphIDs, const SkPoint* pos);
     void drawTextBlob(const SkPaint& paint, const SkTextBlob& blob, SkPoint origin, SkBaseDevice*);
 
+    void textBlobToGlyphRunListIgnoringRSXForm(
+            const SkPaint& paint, const SkTextBlob& blob, SkPoint origin);
+
     const SkGlyphRunList& useGlyphRunList();
 
     bool empty() const { return fGlyphRunListStorage.size() == 0; }
-
-    static void DispatchBlob(SkGlyphRunBuilder* builder, const SkPaint& paint,
-                             const SkTextBlob& blob, SkPoint origin, SkBaseDevice* device);
 
 private:
     void initialize(size_t totalRunSize);
@@ -155,6 +157,10 @@ private:
             const SkPoint* pos,
             SkSpan<const char> text = SkSpan<const char>{},
             SkSpan<const uint32_t> clusters = SkSpan<const uint32_t>{});
+    void simplifyTextBlobIgnoringRSXForm(
+            const SkPaint& paint,
+            const SkTextBlobRunIterator& it,
+            SkPoint* positions);
 
     size_t fMaxTotalRunSize{0};
     SkAutoTMalloc<SkPoint> fPositions;
@@ -165,9 +171,6 @@ private:
     // Used as a temporary for preparing using utfN text. This implies that only one run of
     // glyph ids will ever be needed because blobs are already glyph based.
     std::vector<SkGlyphID> fScratchGlyphIDs;
-
-    // Used as temporary storage for calculating positions for drawText.
-    std::vector<SkPoint> fScratchAdvances;
 
     // Used for collecting the set of unique glyphs.
     SkGlyphIDSet fGlyphIDSet;

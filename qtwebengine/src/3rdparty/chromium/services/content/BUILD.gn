@@ -3,8 +3,6 @@
 # found in the LICENSE file.
 
 import("//build/config/ui.gni")
-import("//services/content/public/features.gni")
-import("//services/service_manager/public/service_manifest.gni")
 
 source_set("impl") {
   visibility = [
@@ -30,7 +28,6 @@ source_set("impl") {
 
   public_deps = [
     "//base",
-    "//services/content/public/cpp:buildflags",
     "//services/service_manager/public/cpp",
     "//ui/gfx",
   ]
@@ -49,10 +46,6 @@ source_set("impl") {
 
     if (use_aura) {
       deps += [ "//ui/aura" ]
-    }
-
-    if (enable_remote_navigable_contents_view) {
-      deps += [ "//ui/views/mus/remote_view:remote_view_provider" ]
     }
   }
 }
@@ -75,9 +68,4 @@ source_set("tests") {
     "//testing/gtest",
     "//url",
   ]
-}
-
-service_manifest("manifest") {
-  name = "content"
-  source = "manifest.json"
 }

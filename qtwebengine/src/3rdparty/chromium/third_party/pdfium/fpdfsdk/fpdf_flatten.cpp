@@ -11,7 +11,10 @@
 #include <utility>
 #include <vector>
 
+#include "constants/annotation_common.h"
+#include "constants/annotation_flags.h"
 #include "constants/page_object.h"
+#include "core/fpdfapi/edit/cpdf_contentstream_write_utils.h"
 #include "core/fpdfapi/page/cpdf_page.h"
 #include "core/fpdfapi/page/cpdf_pageobject.h"
 #include "core/fpdfapi/parser/cpdf_array.h"
@@ -48,10 +51,10 @@ bool IsValidRect(const CFX_FloatRect& rect, const CFX_FloatRect& rcPage) {
 void GetContentsRect(CPDF_Document* pDoc,
                      CPDF_Dictionary* pDict,
                      std::vector<CFX_FloatRect>* pRectArray) {
-  auto pPDFPage = pdfium::MakeRetain<CPDF_Page>(pDoc, pDict, false);
+  auto pPDFPage = pdfium::MakeRetain<CPDF_Page>(pDoc, pDict);
   pPDFPage->ParseContent();
 
-  for (const auto& pPageObject : *pPDFPage->GetPageObjectList()) {
+  for (const auto& pPageObject : *pPDFPage) {
     const CFX_FloatRect& rc = pPageObject->GetRect();
     if (IsValidRect(rc, pDict->GetRectFor(pdfium::page_object::kMediaBox)))
       pRectArray->push_back(rc);
@@ -91,25 +94,26 @@ int ParserAnnots(CPDF_Document* pSourceDoc,
 
   CPDF_ArrayLocker locker(pAnnots);
   for (const auto& pAnnot : locker) {
-    CPDF_Dictionary* pAnnotDic = ToDictionary(pAnnot->GetDirect());
-    if (!pAnnotDic)
+    CPDF_Dictionary* pAnnotDict = ToDictionary(pAnnot->GetDirect());
+    if (!pAnnotDict)
       continue;
 
-    ByteString sSubtype = pAnnotDic->GetStringFor("Subtype");
+    ByteString sSubtype =
+        pAnnotDict->GetStringFor(pdfium::annotation::kSubtype);
     if (sSubtype == "Popup")
       continue;
 
-    int nAnnotFlag = pAnnotDic->GetIntegerFor("F");
-    if (nAnnotFlag & ANNOTFLAG_HIDDEN)
+    int nAnnotFlag = pAnnotDict->GetIntegerFor("F");
+    if (nAnnotFlag & pdfium::annotation_flags::kHidden)
       continue;
 
     bool bParseStream;
     if (nUsage == FLAT_NORMALDISPLAY)
-      bParseStream = !(nAnnotFlag & ANNOTFLAG_INVISIBLE);
+      bParseStream = !(nAnnotFlag & pdfium::annotation_flags::kInvisible);
     else
-      bParseStream = !!(nAnnotFlag & ANNOTFLAG_PRINT);
+      bParseStream = !!(nAnnotFlag & pdfium::annotation_flags::kPrint);
     if (bParseStream)
-      ParserStream(pPageDic, pAnnotDic, pRectArray, pObjectArray);
+      ParserStream(pPageDic, pAnnotDict, pRectArray, pObjectArray);
   }
   return FLATTEN_SUCCESS;
 }
@@ -174,7 +178,7 @@ CPDF_Object* NewIndirectContentsStream(CPDF_Document* pDocument,
                                        const ByteString& contents) {
   CPDF_Stream* pNewContents = pDocument->NewIndirect<CPDF_Stream>(
       nullptr, 0, pDocument->New<CPDF_Dictionary>());
-  pNewContents->SetData(contents.AsRawSpan());
+  pNewContents->SetData(contents.raw_span());
   return pNewContents;
 }
 
@@ -209,12 +213,12 @@ void SetPageContents(const ByteString& key,
       sStream += ByteString(pAcc->GetSpan());
       sStream += "\nQ";
     }
-    pContentsStream->SetDataAndRemoveFilter(sStream.AsRawSpan());
-
+    pContentsStream->SetDataAndRemoveFilter(sStream.raw_span());
     pContentsArray = pDocument->NewIndirect<CPDF_Array>();
-    pContentsArray->Add(pContentsStream->MakeReference(pDocument));
-    pPage->SetFor(pdfium::page_object::kContents,
-                  pContentsArray->MakeReference(pDocument));
+    pContentsArray->AddNew<CPDF_Reference>(pDocument,
+                                           pContentsStream->GetObjNum());
+    pPage->SetNewFor<CPDF_Reference>(pdfium::page_object::kContents, pDocument,
+                                     pContentsArray->GetObjNum());
   }
   if (!key.IsEmpty()) {
     pContentsArray->Add(
@@ -313,7 +317,9 @@ FPDF_EXPORT int FPDF_CALLCONV FPDFPage_Flatten(FPDF_PAGE page, int nFlag) {
 
   CPDF_Dictionary* pNewXORes = nullptr;
   if (!key.IsEmpty()) {
-    pPageXObject->SetFor(key, pNewXObject->MakeReference(pDocument));
+    pPageXObject->SetNewFor<CPDF_Reference>(key, pDocument,
+                                            pNewXObject->GetObjNum());
+
     CPDF_Dictionary* pNewOXbjectDic = pNewXObject->GetDict();
     pNewXORes = pNewOXbjectDic->SetNewFor<CPDF_Dictionary>("Resources");
     pNewOXbjectDic->SetNewFor<CPDF_Name>("Type", "XObject");
@@ -323,30 +329,30 @@ FPDF_EXPORT int FPDF_CALLCONV FPDFPage_Flatten(FPDF_PAGE page, int nFlag) {
   }
 
   for (size_t i = 0; i < ObjectArray.size(); ++i) {
-    CPDF_Dictionary* pAnnotDic = ObjectArray[i];
-    if (!pAnnotDic)
+    CPDF_Dictionary* pAnnotDict = ObjectArray[i];
+    if (!pAnnotDict)
       continue;
 
-    CFX_FloatRect rcAnnot = pAnnotDic->GetRectFor("Rect");
+    CFX_FloatRect rcAnnot = pAnnotDict->GetRectFor(pdfium::annotation::kRect);
     rcAnnot.Normalize();
 
-    ByteString sAnnotState = pAnnotDic->GetStringFor("AS");
-    CPDF_Dictionary* pAnnotAP = pAnnotDic->GetDictFor("AP");
+    ByteString sAnnotState = pAnnotDict->GetStringFor("AS");
+    CPDF_Dictionary* pAnnotAP = pAnnotDict->GetDictFor(pdfium::annotation::kAP);
     if (!pAnnotAP)
       continue;
 
     CPDF_Stream* pAPStream = pAnnotAP->GetStreamFor("N");
     if (!pAPStream) {
-      CPDF_Dictionary* pAPDic = pAnnotAP->GetDictFor("N");
-      if (!pAPDic)
+      CPDF_Dictionary* pAPDict = pAnnotAP->GetDictFor("N");
+      if (!pAPDict)
         continue;
 
       if (!sAnnotState.IsEmpty()) {
-        pAPStream = pAPDic->GetStreamFor(sAnnotState);
+        pAPStream = pAPDict->GetStreamFor(sAnnotState);
       } else {
-        if (pAPDic->size() > 0) {
-          CPDF_DictionaryLocker locker(pAPDic);
-          CPDF_Object* pFirstObj = locker.begin()->second.get();
+        if (pAPDict->size() > 0) {
+          CPDF_DictionaryLocker locker(pAPDict);
+          CPDF_Object* pFirstObj = locker.begin()->second.Get();
           if (pFirstObj) {
             if (pFirstObj->IsReference())
               pFirstObj = pFirstObj->GetDirect();
@@ -360,12 +366,12 @@ FPDF_EXPORT int FPDF_CALLCONV FPDFPage_Flatten(FPDF_PAGE page, int nFlag) {
     if (!pAPStream)
       continue;
 
-    CPDF_Dictionary* pAPDic = pAPStream->GetDict();
+    CPDF_Dictionary* pAPDict = pAPStream->GetDict();
     CFX_FloatRect rcStream;
-    if (pAPDic->KeyExist("Rect"))
-      rcStream = pAPDic->GetRectFor("Rect");
-    else if (pAPDic->KeyExist("BBox"))
-      rcStream = pAPDic->GetRectFor("BBox");
+    if (pAPDict->KeyExist("Rect"))
+      rcStream = pAPDict->GetRectFor("Rect");
+    else if (pAPDict->KeyExist("BBox"))
+      rcStream = pAPDict->GetRectFor("BBox");
     rcStream.Normalize();
 
     if (rcStream.IsEmpty())
@@ -373,15 +379,15 @@ FPDF_EXPORT int FPDF_CALLCONV FPDFPage_Flatten(FPDF_PAGE page, int nFlag) {
 
     CPDF_Object* pObj = pAPStream;
     if (pObj->IsInline()) {
-      std::unique_ptr<CPDF_Object> pNew = pObj->Clone();
-      pObj = pNew.get();
+      RetainPtr<CPDF_Object> pNew = pObj->Clone();
+      pObj = pNew.Get();
       pDocument->AddIndirectObject(std::move(pNew));
     }
 
-    CPDF_Dictionary* pObjDic = pObj->GetDict();
-    if (pObjDic) {
-      pObjDic->SetNewFor<CPDF_Name>("Type", "XObject");
-      pObjDic->SetNewFor<CPDF_Name>("Subtype", "Form");
+    CPDF_Dictionary* pObjDict = pObj->GetDict();
+    if (pObjDict) {
+      pObjDict->SetNewFor<CPDF_Name>("Type", "XObject");
+      pObjDict->SetNewFor<CPDF_Name>("Subtype", "Form");
     }
 
     CPDF_Dictionary* pXObject = pNewXORes->GetDictFor("XObject");
@@ -389,7 +395,8 @@ FPDF_EXPORT int FPDF_CALLCONV FPDFPage_Flatten(FPDF_PAGE page, int nFlag) {
       pXObject = pNewXORes->SetNewFor<CPDF_Dictionary>("XObject");
 
     ByteString sFormName = ByteString::Format("F%d", i);
-    pXObject->SetFor(sFormName, pObj->MakeReference(pDocument));
+    pXObject->SetNewFor<CPDF_Reference>(sFormName, pDocument,
+                                        pObj->GetObjNum());
 
     ByteString sStream;
     {
@@ -397,11 +404,16 @@ FPDF_EXPORT int FPDF_CALLCONV FPDFPage_Flatten(FPDF_PAGE page, int nFlag) {
       pAcc->LoadAllDataFiltered();
       sStream = ByteString(pAcc->GetSpan());
     }
-    CFX_Matrix matrix = pAPDic->GetMatrixFor("Matrix");
+    CFX_Matrix matrix = pAPDict->GetMatrixFor("Matrix");
     CFX_Matrix m = GetMatrix(rcAnnot, rcStream, matrix);
-    sStream += ByteString::Format("q %f 0 0 %f %f %f cm /%s Do Q\n", m.a, m.d,
-                                  m.e, m.f, sFormName.c_str());
-    pNewXObject->SetDataAndRemoveFilter(sStream.AsRawSpan());
+    m.b = 0;
+    m.c = 0;
+    std::ostringstream buf;
+    buf << m;
+    ByteString str(buf);
+    sStream += ByteString::Format("q %s cm /%s Do Q\n", str.c_str(),
+                                  sFormName.c_str());
+    pNewXObject->SetDataAndRemoveFilter(sStream.raw_span());
   }
   pPageDict->RemoveFor("Annots");
   return FLATTEN_SUCCESS;

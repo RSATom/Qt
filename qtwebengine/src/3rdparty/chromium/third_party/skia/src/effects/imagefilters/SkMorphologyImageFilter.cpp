@@ -5,29 +5,31 @@
  * found in the LICENSE file.
  */
 
-#include "SkMorphologyImageFilter.h"
+#include "include/effects/SkMorphologyImageFilter.h"
 
-#include "SkBitmap.h"
-#include "SkColorData.h"
-#include "SkColorSpaceXformer.h"
-#include "SkImageFilterPriv.h"
-#include "SkReadBuffer.h"
-#include "SkRect.h"
-#include "SkSpecialImage.h"
-#include "SkWriteBuffer.h"
+#include "include/core/SkBitmap.h"
+#include "include/core/SkRect.h"
+#include "include/private/SkColorData.h"
+#include "src/core/SkImageFilterPriv.h"
+#include "src/core/SkReadBuffer.h"
+#include "src/core/SkSpecialImage.h"
+#include "src/core/SkWriteBuffer.h"
 
 #if SK_SUPPORT_GPU
-#include "GrContext.h"
-#include "GrCoordTransform.h"
-#include "GrFixedClip.h"
-#include "GrRenderTargetContext.h"
-#include "GrTexture.h"
-#include "GrTextureProxy.h"
-#include "SkGr.h"
-#include "glsl/GrGLSLFragmentProcessor.h"
-#include "glsl/GrGLSLFragmentShaderBuilder.h"
-#include "glsl/GrGLSLProgramDataManager.h"
-#include "glsl/GrGLSLUniformHandler.h"
+#include "include/gpu/GrContext.h"
+#include "include/gpu/GrTexture.h"
+#include "include/private/GrRecordingContext.h"
+#include "src/gpu/GrContextPriv.h"
+#include "src/gpu/GrCoordTransform.h"
+#include "src/gpu/GrFixedClip.h"
+#include "src/gpu/GrRecordingContextPriv.h"
+#include "src/gpu/GrRenderTargetContext.h"
+#include "src/gpu/GrTextureProxy.h"
+#include "src/gpu/SkGr.h"
+#include "src/gpu/glsl/GrGLSLFragmentProcessor.h"
+#include "src/gpu/glsl/GrGLSLFragmentShaderBuilder.h"
+#include "src/gpu/glsl/GrGLSLProgramDataManager.h"
+#include "src/gpu/glsl/GrGLSLUniformHandler.h"
 #endif
 
 sk_sp<SkImageFilter> SkDilateImageFilter::Make(int radiusX, int radiusY,
@@ -461,7 +463,7 @@ static void apply_morphology_pass(GrRenderTargetContext* renderTargetContext,
 }
 
 static sk_sp<SkSpecialImage> apply_morphology(
-                                          GrContext* context,
+                                          GrRecordingContext* context,
                                           SkSpecialImage* input,
                                           const SkIRect& rect,
                                           GrMorphologyEffect::Type morphType,
@@ -470,10 +472,7 @@ static sk_sp<SkSpecialImage> apply_morphology(
     sk_sp<GrTextureProxy> srcTexture(input->asTextureProxyRef(context));
     SkASSERT(srcTexture);
     sk_sp<SkColorSpace> colorSpace = sk_ref_sp(outputProperties.colorSpace());
-    SkColorType colorType = outputProperties.colorType();
-    GrBackendFormat format =
-            context->contextPriv().caps()->getBackendFormatFromColorType(colorType);
-    GrPixelConfig config = SkColorType2GrPixelConfig(colorType);
+    GrColorType colorType = SkColorTypeToGrColorType(outputProperties.colorType());
 
     // setup new clip
     const GrFixedClip clip(SkIRect::MakeWH(srcTexture->width(), srcTexture->height()));
@@ -484,9 +483,18 @@ static sk_sp<SkSpecialImage> apply_morphology(
     SkASSERT(radius.width() > 0 || radius.height() > 0);
 
     if (radius.fWidth > 0) {
-        sk_sp<GrRenderTargetContext> dstRTContext(
-            context->contextPriv().makeDeferredRenderTargetContext(
-                format, SkBackingFit::kApprox, rect.width(), rect.height(), config, colorSpace));
+        sk_sp<GrRenderTargetContext> dstRTContext(context->priv().makeDeferredRenderTargetContext(
+                SkBackingFit::kApprox,
+                rect.width(),
+                rect.height(),
+                colorType,
+                colorSpace,
+                1,
+                GrMipMapped::kNo,
+                kBottomLeft_GrSurfaceOrigin,
+                nullptr,
+                SkBudgeted::kYes,
+                srcTexture->isProtected() ? GrProtected::kYes : GrProtected::kNo));
         if (!dstRTContext) {
             return nullptr;
         }
@@ -503,9 +511,18 @@ static sk_sp<SkSpecialImage> apply_morphology(
         srcRect = dstRect;
     }
     if (radius.fHeight > 0) {
-        sk_sp<GrRenderTargetContext> dstRTContext(
-            context->contextPriv().makeDeferredRenderTargetContext(
-                format, SkBackingFit::kApprox, rect.width(), rect.height(), config, colorSpace));
+        sk_sp<GrRenderTargetContext> dstRTContext(context->priv().makeDeferredRenderTargetContext(
+                SkBackingFit::kApprox,
+                rect.width(),
+                rect.height(),
+                colorType,
+                colorSpace,
+                1,
+                GrMipMapped::kNo,
+                kBottomLeft_GrSurfaceOrigin,
+                nullptr,
+                SkBudgeted::kYes,
+                srcTexture->isProtected() ? GrProtected::kYes : GrProtected::kNo));
         if (!dstRTContext) {
             return nullptr;
         }
@@ -677,7 +694,7 @@ sk_sp<SkSpecialImage> SkMorphologyImageFilter::onFilterImage(SkSpecialImage* sou
 
 #if SK_SUPPORT_GPU
     if (source->isTextureBacked()) {
-        GrContext* context = source->getContext();
+        auto context = source->getContext();
 
         // Ensure the input is in the destination color space. Typically applyCropRect will have
         // called pad_image to account for our dilation of bounds, so the result will already be
@@ -750,17 +767,4 @@ sk_sp<SkSpecialImage> SkMorphologyImageFilter::onFilterImage(SkSpecialImage* sou
 
     return SkSpecialImage::MakeFromRaster(SkIRect::MakeWH(bounds.width(), bounds.height()),
                                           dst, &source->props());
-}
-
-sk_sp<SkImageFilter> SkMorphologyImageFilter::onMakeColorSpace(SkColorSpaceXformer* xformer) const{
-    SkASSERT(1 == this->countInputs());
-    auto input = xformer->apply(this->getInput(0));
-    if (input.get() != this->getInput(0)) {
-        return (SkMorphologyImageFilter::kDilate_Op == this->op())
-                ? SkDilateImageFilter::Make(fRadius.width(), fRadius.height(), std::move(input),
-                                            this->getCropRectIfSet())
-                : SkErodeImageFilter::Make(fRadius.width(), fRadius.height(), std::move(input),
-                                           this->getCropRectIfSet());
-    }
-    return this->refMe();
 }

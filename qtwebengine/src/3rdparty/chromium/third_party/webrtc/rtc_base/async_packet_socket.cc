@@ -9,6 +9,7 @@
  */
 
 #include "rtc_base/async_packet_socket.h"
+
 #include "rtc_base/net_helper.h"
 
 namespace rtc {
@@ -42,4 +43,4 @@ void CopySocketInformationToPacketInfo(size_t packet_size_bytes,
   }
 }
 
-};  // namespace rtc
+}  // namespace rtc

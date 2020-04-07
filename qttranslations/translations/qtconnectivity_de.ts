@@ -1342,6 +1342,22 @@
         <source>Invalid Bluetooth address passed to connectToService()</source>
         <translation>Es wurde eine ungültige Bluetooth-Adresse an connectToService() übergeben</translation>
     </message>
+    <message>
+        <source>Unsupported protocol. Win32 only supports RFCOMM sockets</source>
+        <translation>Das Protokoll wird nicht unterstützt. Win32 unterstützt lediglich RFCOMM-Sockets</translation>
+    </message>
+    <message>
+        <source>Failed to create socket</source>
+        <translation>Es konnte kein Socket erzeugt werden</translation>
+    </message>
+    <message>
+        <source>Socket type not handled: %1</source>
+        <translation>Sockettyp nicht unterstützt: %1</translation>
+    </message>
+    <message>
+        <source>Logic error: more bytes sent than passed to ::send</source>
+        <translation>Logischer Fehler: Es wurden mehr Bytes versandt als an ::send übergeben</translation>
+    </message>
 </context>
 <context>
     <name>QBluetoothSocketPrivateAndroid</name>
@@ -1440,6 +1456,10 @@
     <message>
         <source>Error occurred trying to connect to remote device.</source>
         <translation>Beim Aufbau der Verbindung zum Gerät trat ein Fehler auf.</translation>
+    </message>
+    <message>
+        <source>Failed to authorize on the remote device</source>
+        <translation>Fehler bei Autorisierung auf dem Gerät</translation>
     </message>
     <message>
         <source>Error occurred trying to start advertising</source>

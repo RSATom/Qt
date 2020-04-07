@@ -24,7 +24,6 @@
 #include "modules/audio_coding/audio_network_adaptor/include/audio_network_adaptor.h"
 #include "modules/audio_coding/codecs/opus/opus_interface.h"
 #include "rtc_base/constructor_magic.h"
-#include "rtc_base/protobuf_utils.h"
 
 namespace webrtc {
 
@@ -41,9 +40,9 @@ class AudioEncoderOpusImpl final : public AudioEncoder {
     float OptimizePacketLossRate(float packet_loss_rate) const;
 
     // Getters for testing.
-    float min_packet_loss_rate() const { return min_packet_loss_rate_; };
-    float max_packet_loss_rate() const { return max_packet_loss_rate_; };
-    float slope() const { return slope_; };
+    float min_packet_loss_rate() const { return min_packet_loss_rate_; }
+    float max_packet_loss_rate() const { return max_packet_loss_rate_; }
+    float slope() const { return slope_; }
 
    private:
     const float min_packet_loss_rate_;
@@ -82,13 +81,9 @@ class AudioEncoderOpusImpl final : public AudioEncoder {
   AudioEncoderOpusImpl(int payload_type, const SdpAudioFormat& format);
   ~AudioEncoderOpusImpl() override;
 
-  // Static interface for use by BuiltinAudioEncoderFactory.
-  static constexpr const char* GetPayloadName() { return "opus"; }
-  static absl::optional<AudioCodecInfo> QueryAudioEncoder(
-      const SdpAudioFormat& format);
-
   int SampleRateHz() const override;
   size_t NumChannels() const override;
+  int RtpTimestampRateHz() const override;
   size_t Num10MsFramesInNextPacket() const override;
   size_t Max10MsFramesInAPacket() const override;
   int GetTargetBitrate() const override;
@@ -171,7 +166,7 @@ class AudioEncoderOpusImpl final : public AudioEncoder {
 
   void ApplyAudioNetworkAdaptor();
   std::unique_ptr<AudioNetworkAdaptor> DefaultAudioNetworkAdaptorCreator(
-      const ProtoString& config_string,
+      const std::string& config_string,
       RtcEventLog* event_log) const;
 
   void MaybeUpdateUplinkBandwidth();

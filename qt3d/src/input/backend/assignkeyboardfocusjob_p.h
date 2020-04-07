@@ -60,6 +60,7 @@ namespace Qt3DInput {
 namespace Input {
 
 class InputHandler;
+class AssignKeyboardFocusJobPrivate;
 
 class AssignKeyboardFocusJob : public Qt3DCore::QAspectJob
 {

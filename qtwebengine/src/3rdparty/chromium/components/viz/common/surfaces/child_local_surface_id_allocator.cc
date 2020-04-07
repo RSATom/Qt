@@ -4,8 +4,6 @@
 
 #include "components/viz/common/surfaces/child_local_surface_id_allocator.h"
 
-#include <stdint.h>
-
 #include "base/rand_util.h"
 #include "base/time/default_tick_clock.h"
 #include "base/trace_event/trace_event.h"
@@ -47,9 +45,29 @@ bool ChildLocalSurfaceIdAllocator::UpdateFromParent(
     // than the one provided by the parent, then the merged LocalSurfaceId
     // is actually a new LocalSurfaceId and so we report its allocation time
     // as now.
+    if (current_local_surface_id != parent_allocated_local_surface_id) {
+      TRACE_EVENT_WITH_FLOW2(
+          TRACE_DISABLED_BY_DEFAULT("viz.surface_id_flow"),
+          "ChildLocalSurfaceIdAllocator::UpdateFromParent New Id Allocation",
+          TRACE_ID_LOCAL(
+              parent_allocated_local_surface_id.submission_trace_id()),
+          TRACE_EVENT_FLAG_FLOW_IN | TRACE_EVENT_FLAG_FLOW_OUT, "current",
+          current_local_surface_id_allocation_.ToString(), "parent",
+          parent_local_surface_id_allocation.ToString());
+    }
     current_local_surface_id_allocation_.allocation_time_ =
         tick_clock_->NowTicks();
   } else {
+    if (current_local_surface_id != parent_allocated_local_surface_id) {
+      TRACE_EVENT_WITH_FLOW2(
+          TRACE_DISABLED_BY_DEFAULT("viz.surface_id_flow"),
+          "ChildLocalSurfaceIdAllocator::UpdateFromParent Synchronization",
+          TRACE_ID_LOCAL(
+              parent_allocated_local_surface_id.submission_trace_id()),
+          TRACE_EVENT_FLAG_FLOW_IN | TRACE_EVENT_FLAG_FLOW_OUT, "current",
+          current_local_surface_id_allocation_.ToString(), "parent",
+          parent_local_surface_id_allocation.ToString());
+    }
     current_local_surface_id_allocation_.allocation_time_ =
         parent_local_surface_id_allocation.allocation_time();
   }

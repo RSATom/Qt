@@ -10,8 +10,13 @@
 
 #include "base/macros.h"
 #include "base/memory/scoped_refptr.h"
+#include "base/optional.h"
 #include "net/base/completion_once_callback.h"
+#include "net/base/host_port_pair.h"
+#include "net/base/ip_endpoint.h"
+#include "net/base/load_flags.h"
 #include "net/base/net_errors.h"
+#include "net/base/privacy_mode.h"
 #include "net/base/proxy_server.h"
 #include "net/http/http_network_session.h"
 #include "net/http/http_request_headers.h"
@@ -20,8 +25,10 @@
 #include "net/http/http_response_info.h"
 #include "net/log/net_log_with_source.h"
 #include "net/socket/client_socket_handle.h"
+#include "net/socket/connect_job.h"
 #include "net/socket/socket_tag.h"
 #include "net/socket/socket_test_util.h"
+#include "net/socket/ssl_client_socket.h"
 #include "net/socket/websocket_endpoint_lock_manager.h"
 #include "net/spdy/spdy_session.h"
 #include "net/spdy/spdy_session_key.h"
@@ -57,7 +64,22 @@ enum HandshakeStreamType { BASIC_HANDSHAKE_STREAM, HTTP2_HANDSHAKE_STREAM };
 class MockClientSocketHandleFactory {
  public:
   MockClientSocketHandleFactory()
-      : pool_(1, 1, socket_factory_maker_.factory()) {}
+      : common_connect_job_params_(
+            socket_factory_maker_.factory(),
+            nullptr /* host_resolver */,
+            nullptr /* http_auth_cache */,
+            nullptr /* http_auth_handler_factory */,
+            nullptr /* spdy_session_pool */,
+            nullptr /* quic_supported_versions */,
+            nullptr /* quic_stream_factory */,
+            nullptr /* proxy_delegate */,
+            nullptr /* http_user_agent_settings */,
+            nullptr /* ssl_client_context */,
+            nullptr /* socket_performance_watcher_factory */,
+            nullptr /* network_quality_estimator */,
+            nullptr /* net_log */,
+            nullptr /* websocket_endpoint_lock_manager */),
+        pool_(1, 1, &common_connect_job_params_) {}
 
   // The created socket expects |expect_written| to be written to the socket,
   // and will respond with |return_to_read|. The test will fail if the expected
@@ -67,14 +89,20 @@ class MockClientSocketHandleFactory {
       const std::string& return_to_read) {
     socket_factory_maker_.SetExpectations(expect_written, return_to_read);
     auto socket_handle = std::make_unique<ClientSocketHandle>();
-    socket_handle->Init("a", scoped_refptr<MockTransportSocketParams>(), MEDIUM,
-                        SocketTag(), ClientSocketPool::RespectLimits::ENABLED,
-                        CompletionOnceCallback(), &pool_, NetLogWithSource());
+    socket_handle->Init(
+        ClientSocketPool::GroupId(HostPortPair("a", 80),
+                                  ClientSocketPool::SocketType::kHttp,
+                                  PrivacyMode::PRIVACY_MODE_DISABLED),
+        scoped_refptr<ClientSocketPool::SocketParams>(),
+        base::nullopt /* proxy_annotation_tag */, MEDIUM, SocketTag(),
+        ClientSocketPool::RespectLimits::ENABLED, CompletionOnceCallback(),
+        ClientSocketPool::ProxyAuthCallback(), &pool_, NetLogWithSource());
     return socket_handle;
   }
 
  private:
   WebSocketMockClientSocketFactoryMaker socket_factory_maker_;
+  const CommonConnectJobParams common_connect_job_params_;
   MockTransportClientSocketPool pool_;
 
   DISALLOW_COPY_AND_ASSIGN(MockClientSocketHandleFactory);
@@ -94,12 +122,12 @@ class TestConnectDelegate : public WebSocketStream::ConnectDelegate {
   void OnSSLCertificateError(
       std::unique_ptr<WebSocketEventInterface::SSLErrorCallbacks>
           ssl_error_callbacks,
+      int net_error,
       const SSLInfo& ssl_info,
       bool fatal) override {}
-  int OnAuthRequired(scoped_refptr<AuthChallengeInfo> auth_info,
-
+  int OnAuthRequired(const AuthChallengeInfo& auth_info,
                      scoped_refptr<HttpResponseHeaders> response_headers,
-                     const HostPortPair& host_port_pair,
+                     const IPEndPoint& host_port_pair,
                      base::OnceCallback<void(const AuthCredentials*)> callback,
                      base::Optional<AuthCredentials>* credentials) override {
     *credentials = base::nullopt;
@@ -271,9 +299,10 @@ class WebSocketHandshakeStreamCreateHelperTest
   WebSocketEndpointLockManager websocket_endpoint_lock_manager_;
 };
 
-INSTANTIATE_TEST_CASE_P(,
-                        WebSocketHandshakeStreamCreateHelperTest,
-                        Values(BASIC_HANDSHAKE_STREAM, HTTP2_HANDSHAKE_STREAM));
+INSTANTIATE_TEST_SUITE_P(,
+                         WebSocketHandshakeStreamCreateHelperTest,
+                         Values(BASIC_HANDSHAKE_STREAM,
+                                HTTP2_HANDSHAKE_STREAM));
 
 // Confirm that the basic case works as expected.
 TEST_P(WebSocketHandshakeStreamCreateHelperTest, BasicStream) {

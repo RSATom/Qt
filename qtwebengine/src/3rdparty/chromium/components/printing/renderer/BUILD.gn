@@ -6,8 +6,6 @@ static_library("renderer") {
   sources = [
     "print_render_frame_helper.cc",
     "print_render_frame_helper.h",
-    "print_render_frame_helper_android.cc",
-    "print_render_frame_helper_linux.cc",
     "print_render_frame_helper_mac.mm",
   ]
 

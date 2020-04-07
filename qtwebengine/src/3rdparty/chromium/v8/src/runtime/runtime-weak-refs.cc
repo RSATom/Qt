@@ -3,24 +3,25 @@
 // found in the LICENSE file.
 
 #include "include/v8.h"
-#include "src/api.h"
-#include "src/arguments-inl.h"
-#include "src/counters.h"
-#include "src/execution.h"
-#include "src/handles-inl.h"
-#include "src/objects-inl.h"
+#include "src/api/api.h"
+#include "src/execution/arguments-inl.h"
+#include "src/execution/execution.h"
+#include "src/handles/handles-inl.h"
+#include "src/logging/counters.h"
 #include "src/objects/js-weak-refs-inl.h"
+#include "src/objects/objects-inl.h"
 #include "src/runtime/runtime-utils.h"
 
 namespace v8 {
 namespace internal {
 
-RUNTIME_FUNCTION(Runtime_WeakFactoryCleanupJob) {
+RUNTIME_FUNCTION(Runtime_FinalizationGroupCleanupJob) {
   HandleScope scope(isolate);
-  CONVERT_ARG_HANDLE_CHECKED(JSWeakFactory, weak_factory, 0);
-  weak_factory->set_scheduled_for_cleanup(false);
+  CONVERT_ARG_HANDLE_CHECKED(JSFinalizationGroup, finalization_group, 0);
+  finalization_group->set_scheduled_for_cleanup(false);
 
-  JSWeakFactory::Cleanup(weak_factory, isolate);
+  Handle<Object> cleanup(finalization_group->cleanup(), isolate);
+  JSFinalizationGroup::Cleanup(isolate, finalization_group, cleanup);
   return ReadOnlyRoots(isolate).undefined_value();
 }
 

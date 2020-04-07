@@ -12,6 +12,7 @@
 #include <sys/ipc.h>
 #include <sys/shm.h>
 
+#include <bitset>
 #include <list>
 #include <map>
 #include <memory>
@@ -196,19 +197,6 @@ unsigned int GetMaxCursorSize() {
   return min_dimension > 0 ? min_dimension : 64;
 }
 
-struct XImageDeleter {
-  void operator()(XImage* image) const { XDestroyImage(image); }
-};
-
-// Custom release function that will be passed to Skia so that it deletes the
-// image when the SkBitmap goes out of scope.
-// |address| is the pointer to the data inside the XImage.
-// |context| is the pointer to the XImage.
-void ReleaseXImage(void* address, void* context) {
-  if (context)
-    XDestroyImage(static_cast<XImage*>(context));
-}
-
 // A process wide singleton cache for custom X cursors.
 class XCustomCursorCache {
  public:
@@ -272,9 +260,7 @@ class XCustomCursorCache {
       return false;
     }
 
-    const XcursorImage* image() const {
-      return image_;
-    };
+    const XcursorImage* image() const { return image_; }
 
    private:
     XcursorImage* image_;
@@ -541,7 +527,7 @@ bool IsWindowVisible(XID window) {
   std::vector<XAtom> wm_states;
   if (GetAtomArrayProperty(window, "_NET_WM_STATE", &wm_states)) {
     XAtom hidden_atom = gfx::GetAtom("_NET_WM_STATE_HIDDEN");
-    if (base::ContainsValue(wm_states, hidden_atom))
+    if (base::Contains(wm_states, hidden_atom))
       return false;
   }
 
@@ -1116,51 +1102,6 @@ bool GetXWindowStack(Window window, std::vector<XID>* windows) {
   return result;
 }
 
-bool CopyAreaToCanvas(XID drawable,
-                      gfx::Rect source_bounds,
-                      gfx::Point dest_offset,
-                      gfx::Canvas* canvas) {
-  std::unique_ptr<XImage, XImageDeleter> image(XGetImage(
-      gfx::GetXDisplay(), drawable, source_bounds.x(), source_bounds.y(),
-      source_bounds.width(), source_bounds.height(), AllPlanes, ZPixmap));
-  if (!image) {
-    LOG(ERROR) << "XGetImage failed";
-    return false;
-  }
-
-  if (image->bits_per_pixel == 32) {
-    if ((0xff << SK_R32_SHIFT) != image->red_mask ||
-        (0xff << SK_G32_SHIFT) != image->green_mask ||
-        (0xff << SK_B32_SHIFT) != image->blue_mask) {
-      LOG(WARNING) << "XImage and Skia byte orders differ";
-      return false;
-    }
-
-    // Set the alpha channel before copying to the canvas.  Otherwise, areas of
-    // the framebuffer that were cleared by ply-image rather than being obscured
-    // by an image during boot may end up transparent.
-    // TODO(derat|marcheu): Remove this if/when ply-image has been updated to
-    // set the framebuffer's alpha channel regardless of whether the device
-    // claims to support alpha or not.
-    for (int i = 0; i < image->width * image->height * 4; i += 4)
-      image->data[i + 3] = 0xff;
-
-    SkBitmap bitmap;
-    bitmap.installPixels(
-        SkImageInfo::MakeN32Premul(image->width, image->height), image->data,
-        image->bytes_per_line, &ReleaseXImage, image.release());
-    gfx::ImageSkia image_skia;
-    gfx::ImageSkiaRep image_rep(bitmap, canvas->image_scale());
-    image_skia.AddRepresentation(image_rep);
-    canvas->DrawImageInt(image_skia, dest_offset.x(), dest_offset.y());
-  } else {
-    NOTIMPLEMENTED() << "Unsupported bits-per-pixel " << image->bits_per_pixel;
-    return false;
-  }
-
-  return true;
-}
-
 WindowManagerName GuessWindowManager() {
   std::string name;
   if (!GetWindowManagerName(&name))
@@ -1241,7 +1182,7 @@ bool IsX11WindowFullScreen(XID window) {
     if (GetAtomArrayProperty(window,
                              "_NET_WM_STATE",
                              &atom_properties)) {
-      return base::ContainsValue(atom_properties, fullscreen_atom);
+      return base::Contains(atom_properties, fullscreen_atom);
     }
   }
 
@@ -1272,7 +1213,7 @@ bool WmSupportsHint(XAtom atom) {
     return false;
   }
 
-  return base::ContainsValue(supported_atoms, atom);
+  return base::Contains(supported_atoms, atom);
 }
 
 gfx::ICCProfile GetICCProfileForMonitor(int monitor) {
@@ -1302,6 +1243,14 @@ gfx::ICCProfile GetICCProfileForMonitor(int monitor) {
     }
   }
   return icc_profile;
+}
+
+bool IsSyncExtensionAvailable() {
+  auto* display = gfx::GetXDisplay();
+  int unused;
+  static bool result = XSyncQueryExtension(display, &unused, &unused) &&
+                       XSyncInitialize(display, &unused, &unused);
+  return result;
 }
 
 XRefcountedMemory::XRefcountedMemory(unsigned char* x11_data, size_t length)
@@ -1400,7 +1349,7 @@ void LogErrorEventDescription(XDisplay* dpy,
 
   strncpy(request_str, "Unknown", sizeof(request_str));
   if (error_event.request_code < 128) {
-    std::string num = base::UintToString(error_event.request_code);
+    std::string num = base::NumberToString(error_event.request_code);
     XGetErrorDatabaseText(
         dpy, "XRequest", num.c_str(), "Unknown", request_str,
         sizeof(request_str));
@@ -1489,26 +1438,27 @@ void XVisualManager::ChooseVisualForWindow(bool want_argb_visual,
                                            Visual** visual,
                                            int* depth,
                                            Colormap* colormap,
-                                           bool* using_argb_visual) {
+                                           bool* visual_has_alpha) {
   base::AutoLock lock(lock_);
   bool use_argb = want_argb_visual && using_compositing_wm_ &&
                   (using_software_rendering_ || have_gpu_argb_visual_);
   VisualID visual_id = use_argb && transparent_visual_id_
                            ? transparent_visual_id_
                            : system_visual_id_;
-  XVisualData& visual_data = *visuals_[visual_id];
-  const XVisualInfo& visual_info = visual_data.visual_info;
 
-  bool is_default_visual = visual_id == default_visual_id_;
+  bool success =
+      GetVisualInfoImpl(visual_id, visual, depth, colormap, visual_has_alpha);
+  DCHECK(success);
+}
 
-  if (visual)
-    *visual = visual_info.visual;
-  if (depth)
-    *depth = visual_info.depth;
-  if (colormap)
-    *colormap = is_default_visual ? CopyFromParent : visual_data.GetColormap();
-  if (using_argb_visual)
-    *using_argb_visual = use_argb;
+bool XVisualManager::GetVisualInfo(VisualID visual_id,
+                                   Visual** visual,
+                                   int* depth,
+                                   Colormap* colormap,
+                                   bool* visual_has_alpha) {
+  base::AutoLock lock(lock_);
+  return GetVisualInfoImpl(visual_id, visual, depth, colormap,
+                           visual_has_alpha);
 }
 
 bool XVisualManager::OnGPUInfoChanged(bool software_rendering,
@@ -1533,6 +1483,37 @@ bool XVisualManager::ArgbVisualAvailable() const {
   base::AutoLock lock(lock_);
   return using_compositing_wm_ &&
          (using_software_rendering_ || have_gpu_argb_visual_);
+}
+
+bool XVisualManager::GetVisualInfoImpl(VisualID visual_id,
+                                       Visual** visual,
+                                       int* depth,
+                                       Colormap* colormap,
+                                       bool* visual_has_alpha) {
+  auto it = visuals_.find(visual_id);
+  if (it == visuals_.end())
+    return false;
+  XVisualData& visual_data = *it->second;
+  const XVisualInfo& visual_info = visual_data.visual_info;
+
+  bool is_default_visual = visual_id == default_visual_id_;
+
+  if (visual)
+    *visual = visual_info.visual;
+  if (depth)
+    *depth = visual_info.depth;
+  if (colormap)
+    *colormap = is_default_visual ? CopyFromParent : visual_data.GetColormap();
+  if (visual_has_alpha) {
+    auto popcount = [](auto x) {
+      return std::bitset<8 * sizeof(decltype(x))>(x).count();
+    };
+    *visual_has_alpha = popcount(visual_info.red_mask) +
+                            popcount(visual_info.green_mask) +
+                            popcount(visual_info.blue_mask) <
+                        static_cast<std::size_t>(visual_info.depth);
+  }
+  return true;
 }
 
 XVisualManager::XVisualData::XVisualData(XVisualInfo visual_info)

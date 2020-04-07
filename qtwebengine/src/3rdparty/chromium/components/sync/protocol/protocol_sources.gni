@@ -24,6 +24,7 @@ sync_protocol_bases = [
   "extension_specifics",
   "favicon_image_specifics",
   "favicon_tracking_specifics",
+  "gaia_password_reuse",
   "get_updates_caller_info",
   "history_delete_directive_specifics",
   "history_status",
@@ -35,6 +36,7 @@ sync_protocol_bases = [
   "model_type_state",
   "model_type_store_schema_descriptor",
   "mountain_share_specifics",
+  "nigori_local_data",
   "nigori_specifics",
   "password_specifics",
   "persisted_entity_data",
@@ -43,6 +45,7 @@ sync_protocol_bases = [
   "priority_preference_specifics",
   "reading_list_specifics",
   "search_engine_specifics",
+  "security_event_specifics",
   "send_tab_to_self_specifics",
   "session_specifics",
   "sync",
@@ -56,6 +59,8 @@ sync_protocol_bases = [
   "user_consent_specifics",
   "user_consent_types",
   "user_event_specifics",
+  "web_app_specifics",
+  "wifi_configuration_specifics",
   "wifi_credential_specifics",
 ]
 

@@ -20,6 +20,7 @@
 #include "content/public/common/screen_info.h"
 #include "media/base/limits.h"
 #include "media/base/video_frame.h"
+#include "media/capture/mojom/video_capture_types.mojom.h"
 #include "third_party/blink/public/platform/web_input_event.h"
 #include "third_party/blink/public/platform/web_mouse_event.h"
 #include "third_party/skia/include/core/SkCanvas.h"
@@ -34,8 +35,7 @@ DevToolsEyeDropper::DevToolsEyeDropper(content::WebContents* web_contents,
       callback_(callback),
       last_cursor_x_(-1),
       last_cursor_y_(-1),
-      host_(nullptr),
-      weak_factory_(this) {
+      host_(nullptr) {
   mouse_event_callback_ =
       base::Bind(&DevToolsEyeDropper::HandleMouseEvent, base::Unretained(this));
   content::RenderViewHost* rvh = web_contents->GetRenderViewHost();
@@ -80,7 +80,7 @@ void DevToolsEyeDropper::DetachFromHost() {
     return;
   host_->RemoveMouseEventCallback(mouse_event_callback_);
   content::CursorInfo cursor_info;
-  cursor_info.type = blink::WebCursorInfo::kTypePointer;
+  cursor_info.type = ui::CursorType::kPointer;
   host_->SetCursor(cursor_info);
   video_capturer_.reset();
   host_ = nullptr;
@@ -254,7 +254,7 @@ void DevToolsEyeDropper::UpdateCursor() {
   canvas.drawCircle(kCursorSize / 2, kCursorSize / 2, kDiameter / 2, paint);
 
   content::CursorInfo cursor_info;
-  cursor_info.type = blink::WebCursorInfo::kTypeCustom;
+  cursor_info.type = ui::CursorType::kCustom;
   cursor_info.image_scale_factor = device_scale_factor;
   cursor_info.custom_image = result;
   cursor_info.hotspot = gfx::Point(kHotspotOffset * device_scale_factor,
@@ -265,7 +265,6 @@ void DevToolsEyeDropper::UpdateCursor() {
 void DevToolsEyeDropper::OnFrameCaptured(
     base::ReadOnlySharedMemoryRegion data,
     ::media::mojom::VideoFrameInfoPtr info,
-    const gfx::Rect& update_rect,
     const gfx::Rect& content_rect,
     viz::mojom::FrameSinkVideoConsumerFrameCallbacksPtr callbacks) {
   gfx::Size view_size = host_->GetView()->GetViewBounds().size();

@@ -237,6 +237,7 @@ public class QtBluetoothLEServer {
                     qtControllerState = 0; // QLowEnergyController::UnconnectedState
                     clientCharacteristicManager.markDeviceConnectivity(device, false);
                     mGattServer.close();
+                    mGattServer = null;
                     break;
                 case BluetoothProfile.STATE_CONNECTED:
                     clientCharacteristicManager.markDeviceConnectivity(device, true);
@@ -461,7 +462,8 @@ public class QtBluetoothLEServer {
             return;
         }
 
-        mGattServer.addService(service);
+        boolean success = mGattServer.addService(service);
+        Log.w(TAG, "Services successfully added: " + success);
     }
 
     /*

@@ -916,7 +916,7 @@ void QAbstractXmlNodeModel::sendNamespaces(const QXmlNodeModelIndex &n,
   attribute. The implementor guarantees that the returned QVariant has
   a value which is supported in XQuery. It cannot be an arbitrary
   QVariant value.  The implementor also guarantees that stringValue()
-  returns a lexical representation of typedValue()(this is guaranteed
+  returns a lexical representation of typedValue() (this is guaranteed
   by QSimpleXmlNodeModel::stringValue()).
 
   If the return QVariant is a default constructed variant, it signals

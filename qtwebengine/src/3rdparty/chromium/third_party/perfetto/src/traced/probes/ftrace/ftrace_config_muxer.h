@@ -20,12 +20,15 @@
 #include <map>
 #include <set>
 
-#include "src/traced/probes/ftrace/ftrace_config.h"
+#include "src/traced/probes/ftrace/ftrace_config_utils.h"
 #include "src/traced/probes/ftrace/ftrace_controller.h"
 #include "src/traced/probes/ftrace/ftrace_procfs.h"
 #include "src/traced/probes/ftrace/proto_translation_table.h"
 
 namespace perfetto {
+
+constexpr int kDefaultPerCpuBufferSizeKb = 2 * 1024;  // 2mb
+constexpr int kMaxPerCpuBufferSizeKb = 64 * 1024;     // 64mb
 
 // Ftrace is a bunch of globaly modifiable persistent state.
 // Given a number of FtraceConfig's we need to find the best union of all

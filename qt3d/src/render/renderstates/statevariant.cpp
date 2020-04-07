@@ -51,6 +51,7 @@ RenderStateImpl *StateVariant::state()
     case BlendStateMask:
     case AlphaTestMask:
     case MSAAEnabledStateMask:
+    case DepthRangeMask:
     case DepthTestStateMask:
     case DepthWriteStateMask:
     case CullFaceStateMask:
@@ -67,6 +68,7 @@ RenderStateImpl *StateVariant::state()
     case StencilOpMask:
     case StencilWriteStateMask:
     case LineWidthMask:
+    case RasterModeMask:
         return &data.blendEquationArguments;
     default:
         Q_UNREACHABLE();
@@ -80,6 +82,7 @@ const RenderStateImpl *StateVariant::constState() const
     case BlendStateMask:
     case AlphaTestMask:
     case MSAAEnabledStateMask:
+    case DepthRangeMask:
     case DepthTestStateMask:
     case DepthWriteStateMask:
     case CullFaceStateMask:
@@ -96,6 +99,7 @@ const RenderStateImpl *StateVariant::constState() const
     case StencilOpMask:
     case StencilWriteStateMask:
     case LineWidthMask:
+    case RasterModeMask:
         return &data.blendEquationArguments;
     default:
         Q_UNREACHABLE();

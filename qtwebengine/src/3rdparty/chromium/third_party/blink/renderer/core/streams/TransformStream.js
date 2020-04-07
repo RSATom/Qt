@@ -193,7 +193,7 @@
     };
     stream[_readable] = binding.CreateReadableStream(
         startAlgorithm, pullAlgorithm, cancelAlgorithm, readableHighWaterMark,
-        readableSizeAlgorithm, false);
+        readableSizeAlgorithm);
     stream[_backpressure] = undefined;
     stream[_backpressureChangePromise] = undefined;
     TransformStreamSetBackpressure(stream, true);
@@ -341,7 +341,8 @@
 
     if (!binding.ReadableStreamDefaultControllerCanCloseOrEnqueue(
             readableController)) {
-      throw binding.getReadableStreamEnqueueError(stream[_readable]);
+      throw binding.getReadableStreamEnqueueError(stream[_readable],
+                                                  readableController);
     }
 
     try {

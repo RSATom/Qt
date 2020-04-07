@@ -12,6 +12,7 @@
 #include "third_party/blink/renderer/core/layout/layout_block_flow.h"
 #include "third_party/blink/renderer/platform/testing/runtime_enabled_features_test_helpers.h"
 #include "third_party/blink/renderer/platform/wtf/text/string_builder.h"
+#include "third_party/blink/renderer/platform/wtf/text/string_utf8_adaptor.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
 
 namespace blink {
@@ -33,8 +34,7 @@ class ParameterizedTextOffsetMappingTest
     builder.Append(text.Left(offset));
     builder.Append('|');
     builder.Append(text.Substring(offset));
-    const CString result8 = builder.ToString().Utf8();
-    return std::string(result8.data(), result8.length());
+    return builder.ToString().Utf8();
   }
 
   std::string GetRange(const std::string& selection_text) {
@@ -81,9 +81,9 @@ class ParameterizedTextOffsetMappingTest
   }
 };
 
-INSTANTIATE_TEST_CASE_P(All,
-                        ParameterizedTextOffsetMappingTest,
-                        ::testing::Bool());
+INSTANTIATE_TEST_SUITE_P(All,
+                         ParameterizedTextOffsetMappingTest,
+                         ::testing::Bool());
 
 TEST_P(ParameterizedTextOffsetMappingTest, ComputeTextOffsetBasic) {
   EXPECT_EQ("|(1) abc def", ComputeTextOffset("<p>| (1) abc def</p>"));

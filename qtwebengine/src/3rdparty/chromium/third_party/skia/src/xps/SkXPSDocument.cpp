@@ -5,15 +5,15 @@
  * found in the LICENSE file.
  */
 
-#include "SkTypes.h"
+#include "include/core/SkTypes.h"
 #if defined(SK_BUILD_FOR_WIN)
 
-#include "SkXPSDocument.h"
+#include "include/docs/SkXPSDocument.h"
 
-#include "SkHRESULT.h"
-#include "SkStream.h"
-#include "SkTScopedComPtr.h"
-#include "SkXPSDevice.h"
+#include "include/core/SkStream.h"
+#include "src/utils/win/SkHRESULT.h"
+#include "src/utils/win/SkTScopedComPtr.h"
+#include "src/xps/SkXPSDevice.h"
 
 #include <XpsObjectModel.h>
 
@@ -62,7 +62,6 @@ SkCanvas* SkXPSDocument::onBeginPage(SkScalar width, SkScalar height) {
 
 void SkXPSDocument::onEndPage() {
     SkASSERT(fCanvas.get());
-    fCanvas->flush();
     fCanvas.reset(nullptr);
     fDevice.endSheet();
 }

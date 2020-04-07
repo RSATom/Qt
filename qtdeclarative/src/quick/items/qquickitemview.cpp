@@ -235,7 +235,9 @@ void QQuickItemView::setModel(const QVariant &m)
         if (isComponentComplete()) {
             d->updateSectionCriteria();
             d->refill();
-            d->currentIndex = -1;
+            /* Setting currentIndex to -2 ensures that we always enter the "currentIndex changed"
+               code path in setCurrentIndex, updating bindings depending on currentIndex.*/
+            d->currentIndex = -2;
             setCurrentIndex(d->model->count() > 0 ? 0 : -1);
             d->updateViewport();
 
@@ -247,9 +249,12 @@ void QQuickItemView::setModel(const QVariant &m)
 
         connect(d->model, SIGNAL(modelUpdated(QQmlChangeSet,bool)),
                 this, SLOT(modelUpdated(QQmlChangeSet,bool)));
+        if (QQmlDelegateModel *dataModel = qobject_cast<QQmlDelegateModel*>(d->model))
+            QObjectPrivate::connect(dataModel, &QQmlDelegateModel::delegateChanged, d, &QQuickItemViewPrivate::applyDelegateChange);
         emit countChanged();
     }
     emit modelChanged();
+    d->moveReason = QQuickItemViewPrivate::Other;
 }
 
 QQmlComponent *QQuickItemView::delegate() const
@@ -277,22 +282,8 @@ void QQuickItemView::setDelegate(QQmlComponent *delegate)
     if (QQmlDelegateModel *dataModel = qobject_cast<QQmlDelegateModel*>(d->model)) {
         int oldCount = dataModel->count();
         dataModel->setDelegate(delegate);
-        if (isComponentComplete()) {
-            d->releaseVisibleItems();
-            d->releaseItem(d->currentItem);
-            d->currentItem = nullptr;
-            d->updateSectionCriteria();
-            d->refill();
-            d->moveReason = QQuickItemViewPrivate::SetIndex;
-            d->updateCurrent(d->currentIndex);
-            if (d->highlight && d->currentItem) {
-                if (d->autoHighlight)
-                    d->resetHighlightPosition();
-                d->updateTrackedItem();
-            }
-            d->moveReason = QQuickItemViewPrivate::Other;
-            d->updateViewport();
-        }
+        if (isComponentComplete())
+            d->applyDelegateChange();
         if (oldCount != dataModel->count())
             emit countChanged();
     }
@@ -1098,6 +1089,24 @@ qreal QQuickItemViewPrivate::calculatedMaxExtent() const
     return maxExtent;
 }
 
+void QQuickItemViewPrivate::applyDelegateChange()
+{
+    releaseVisibleItems();
+    releaseItem(currentItem);
+    currentItem = nullptr;
+    updateSectionCriteria();
+    refill();
+    moveReason = QQuickItemViewPrivate::SetIndex;
+    updateCurrent(currentIndex);
+    if (highlight && currentItem) {
+        if (autoHighlight)
+            resetHighlightPosition();
+        updateTrackedItem();
+    }
+    moveReason = QQuickItemViewPrivate::Other;
+    updateViewport();
+}
+
 // for debugging only
 void QQuickItemViewPrivate::checkVisible() const
 {
@@ -1496,7 +1505,7 @@ QQuickItemViewPrivate::QQuickItemViewPrivate()
     , inLayout(false), inViewportMoved(false), forceLayout(false), currentIndexCleared(false)
     , haveHighlightRange(false), autoHighlight(true), highlightRangeStartValid(false), highlightRangeEndValid(false)
     , fillCacheBuffer(false), inRequest(false)
-    , runDelayedRemoveTransition(false), delegateValidated(false)
+    , runDelayedRemoveTransition(false), delegateValidated(false), isClearing(false)
 {
     bufferPause.addAnimationChangeListener(this, QAbstractAnimationJob::Completion);
     bufferPause.setLoopCount(1);
@@ -1575,9 +1584,7 @@ FxViewItem *QQuickItemViewPrivate::visibleItem(int modelIndex) const {
     return nullptr;
 }
 
-// should rename to firstItemInView() to avoid confusion with other "*visible*" methods
-// that don't look at the view position and size
-FxViewItem *QQuickItemViewPrivate::firstVisibleItem() const {
+FxViewItem *QQuickItemViewPrivate::firstItemInView() const {
     const qreal pos = isContentFlowReversed() ? -position()-size() : position();
     for (FxViewItem *item : visibleItems) {
         if (item->index != -1 && item->endPosition() > pos)
@@ -1674,6 +1681,10 @@ void QQuickItemViewPrivate::updateCurrent(int modelIndex)
 void QQuickItemViewPrivate::clear(bool onDestruction)
 {
     Q_Q(QQuickItemView);
+
+    isClearing = true;
+    auto cleanup = qScopeGuard([this] { isClearing = false; });
+
     currentChanges.reset();
     bufferedChanges.reset();
     timeline.clear();
@@ -1786,6 +1797,7 @@ void QQuickItemViewPrivate::refill(qreal from, qreal to)
         if (prevCount != itemCount)
             emit q->countChanged();
     } while (currentChanges.hasPendingChanges() || bufferedChanges.hasPendingChanges());
+    storeFirstVisibleItemPosition();
 }
 
 void QQuickItemViewPrivate::regenerate(bool orientationChanged)
@@ -1872,6 +1884,7 @@ void QQuickItemViewPrivate::layout()
 
     updateSections();
     layoutVisibleItems();
+    storeFirstVisibleItemPosition();
 
     int lastIndexInView = findLastIndexInView();
     refill();
@@ -1899,21 +1912,25 @@ void QQuickItemViewPrivate::layout()
 
         prepareVisibleItemTransitions();
 
-        for (auto it = releasePendingTransition.begin(); it != releasePendingTransition.end(); ) {
-            auto old_count = releasePendingTransition.count();
-            auto success = prepareNonVisibleItemTransition(*it, viewBounds);
-            // prepareNonVisibleItemTransition() may invalidate iterators while in fast flicking
-            // invisible animating items are kicked in or out the viewPort
-            // use old_count to test if the abrupt erasure occurs
-            if (old_count > releasePendingTransition.count()) {
+        // We cannot use iterators here as erasing from a container invalidates them.
+        for (int i = 0, count = releasePendingTransition.count(); i < count;) {
+            auto success = prepareNonVisibleItemTransition(releasePendingTransition[i], viewBounds);
+            // prepareNonVisibleItemTransition() may remove items while in fast flicking.
+            // Invisible animating items are kicked in or out the viewPort.
+            // Recheck count to test if the item got removed. In that case the same index points
+            // to a different item now.
+            const int old_count = count;
+            count = releasePendingTransition.count();
+            if (old_count > count)
                 continue;
-            }
+
             if (!success) {
-                releaseItem(*it);
-                it = releasePendingTransition.erase(it);
-                continue;
+                releaseItem(releasePendingTransition[i]);
+                releasePendingTransition.remove(i);
+                --count;
+            } else {
+                ++i;
             }
-            ++it;
         }
 
         for (int i=0; i<visibleItems.count(); i++)
@@ -1949,22 +1966,22 @@ bool QQuickItemViewPrivate::applyModelChanges(ChangeResult *totalInsertionResult
     bool viewportChanged = !currentChanges.pendingChanges.removes().isEmpty()
             || !currentChanges.pendingChanges.inserts().isEmpty();
 
-    FxViewItem *prevFirstVisible = firstVisibleItem();
-    QQmlNullableValue<qreal> prevViewPos;
-    int prevFirstVisibleIndex = -1;
-    if (prevFirstVisible) {
-        prevViewPos = prevFirstVisible->position();
-        prevFirstVisibleIndex = prevFirstVisible->index;
+    FxViewItem *prevFirstItemInView = firstItemInView();
+    QQmlNullableValue<qreal> prevFirstItemInViewPos;
+    int prevFirstItemInViewIndex = -1;
+    if (prevFirstItemInView) {
+        prevFirstItemInViewPos = prevFirstItemInView->position();
+        prevFirstItemInViewIndex = prevFirstItemInView->index;
     }
-    qreal prevVisibleItemsFirstPos = visibleItems.count() ? visibleItems.constFirst()->position() : 0.0;
+    qreal prevVisibleItemsFirstPos = visibleItems.count() ? firstVisibleItemPosition : 0.0;
 
-    totalInsertionResult->visiblePos = prevViewPos;
-    totalRemovalResult->visiblePos = prevViewPos;
+    totalInsertionResult->visiblePos = prevFirstItemInViewPos;
+    totalRemovalResult->visiblePos = prevFirstItemInViewPos;
 
     const QVector<QQmlChangeSet::Change> &removals = currentChanges.pendingChanges.removes();
     const QVector<QQmlChangeSet::Change> &insertions = currentChanges.pendingChanges.inserts();
-    ChangeResult insertionResult(prevViewPos);
-    ChangeResult removalResult(prevViewPos);
+    ChangeResult insertionResult(prevFirstItemInViewPos);
+    ChangeResult removalResult(prevFirstItemInViewPos);
 
     int removedCount = 0;
     for (const QQmlChangeSet::Change &r : removals) {
@@ -1973,7 +1990,7 @@ bool QQuickItemViewPrivate::applyModelChanges(ChangeResult *totalInsertionResult
             visibleAffected = true;
         if (!visibleAffected && needsRefillForAddedOrRemovedIndex(r.index))
             visibleAffected = true;
-        const int correctedFirstVisibleIndex = prevFirstVisibleIndex - removalResult.countChangeBeforeVisible;
+        const int correctedFirstVisibleIndex = prevFirstItemInViewIndex - removalResult.countChangeBeforeVisible;
         if (correctedFirstVisibleIndex >= 0 && r.index < correctedFirstVisibleIndex) {
             if (r.index + r.count < correctedFirstVisibleIndex)
                 removalResult.countChangeBeforeVisible += r.count;
@@ -2000,8 +2017,9 @@ bool QQuickItemViewPrivate::applyModelChanges(ChangeResult *totalInsertionResult
 
         // set positions correctly for the next insertion
         if (!insertions.isEmpty()) {
-            repositionFirstItem(prevVisibleItemsFirst, prevVisibleItemsFirstPos, prevFirstVisible, &insertionResult, &removalResult);
+            repositionFirstItem(prevVisibleItemsFirst, prevVisibleItemsFirstPos, prevFirstItemInView, &insertionResult, &removalResult);
             layoutVisibleItems(removals.first().index);
+            storeFirstVisibleItemPosition();
         }
     }
 
@@ -2020,8 +2038,9 @@ bool QQuickItemViewPrivate::applyModelChanges(ChangeResult *totalInsertionResult
 
         // set positions correctly for the next insertion
         if (i < insertions.count() - 1) {
-            repositionFirstItem(prevVisibleItemsFirst, prevVisibleItemsFirstPos, prevFirstVisible, &insertionResult, &removalResult);
+            repositionFirstItem(prevVisibleItemsFirst, prevVisibleItemsFirstPos, prevFirstItemInView, &insertionResult, &removalResult);
             layoutVisibleItems(insertions[i].index);
+            storeFirstVisibleItemPosition();
         }
         itemCount += insertions[i].count;
     }
@@ -2037,7 +2056,7 @@ bool QQuickItemViewPrivate::applyModelChanges(ChangeResult *totalInsertionResult
         for (const MovedItem &m : qAsConst(movingIntoView)) {
             int fromIndex = findMoveKeyIndex(m.moveKey, removals);
             if (fromIndex >= 0) {
-                if (prevFirstVisibleIndex >= 0 && fromIndex < prevFirstVisibleIndex)
+                if (prevFirstItemInViewIndex >= 0 && fromIndex < prevFirstItemInViewIndex)
                     repositionItemAt(m.item, fromIndex, -totalInsertionResult->sizeChangesAfterVisiblePos);
                 else
                     repositionItemAt(m.item, fromIndex, totalInsertionResult->sizeChangesAfterVisiblePos);
@@ -2048,7 +2067,7 @@ bool QQuickItemViewPrivate::applyModelChanges(ChangeResult *totalInsertionResult
 
     // reposition visibleItems.first() correctly so that the content y doesn't jump
     if (removedCount != prevVisibleItemsCount)
-        repositionFirstItem(prevVisibleItemsFirst, prevVisibleItemsFirstPos, prevFirstVisible, &insertionResult, &removalResult);
+        repositionFirstItem(prevVisibleItemsFirst, prevVisibleItemsFirstPos, prevFirstItemInView, &insertionResult, &removalResult);
 
     // Whatever removed/moved items remain are no longer visible items.
     prepareRemoveTransitions(&currentChanges.removedItems);
@@ -2388,9 +2407,13 @@ bool QQuickItemViewPrivate::releaseItem(FxViewItem *item)
     QQmlInstanceModel::ReleaseFlags flags = {};
     if (model && item->item) {
         flags = model->release(item->item);
-        if (!flags) {
+        if (!flags && !isClearing) {
             // item was not destroyed, and we no longer reference it.
-            QQuickItemPrivate::get(item->item)->setCulled(true);
+            if (item->item->parentItem() == contentItem) {
+                // Only cull the item if its parent item is still our contentItem.
+                // One case where this can happen is moving an item out of one ObjectModel and into another.
+                QQuickItemPrivate::get(item->item)->setCulled(true);
+            }
             unrequestedItems.insert(item->item, model->indexOf(item->item, q));
         } else if (flags & QQmlInstanceModel::Destroyed) {
             item->item->setParentItem(nullptr);

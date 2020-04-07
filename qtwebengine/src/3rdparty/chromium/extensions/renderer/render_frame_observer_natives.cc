@@ -37,8 +37,8 @@ class LoadWatcher : public content::RenderFrameObserver {
   void DidFailProvisionalLoad(const blink::WebURLError& error) override {
     // Use PostTask to avoid running user scripts while handling this
     // DidFailProvisionalLoad notification.
-    base::ThreadTaskRunnerHandle::Get()->PostTask(FROM_HERE,
-                                                  base::Bind(callback_, false));
+    base::ThreadTaskRunnerHandle::Get()->PostTask(
+        FROM_HERE, base::BindOnce(callback_, false));
     delete this;
   }
 
@@ -53,7 +53,7 @@ class LoadWatcher : public content::RenderFrameObserver {
 }  // namespace
 
 RenderFrameObserverNatives::RenderFrameObserverNatives(ScriptContext* context)
-    : ObjectBackedNativeHandler(context), weak_ptr_factory_(this) {}
+    : ObjectBackedNativeHandler(context) {}
 
 RenderFrameObserverNatives::~RenderFrameObserverNatives() {}
 
@@ -92,8 +92,8 @@ void RenderFrameObserverNatives::OnDocumentElementCreated(
     // If the document element is already created, then we can call the callback
     // immediately (though use PostTask to ensure that the callback is called
     // asynchronously).
-    base::ThreadTaskRunnerHandle::Get()->PostTask(FROM_HERE,
-                                                  base::Bind(callback, true));
+    base::ThreadTaskRunnerHandle::Get()->PostTask(
+        FROM_HERE, base::BindOnce(callback, true));
   } else {
     new LoadWatcher(frame, callback);
   }

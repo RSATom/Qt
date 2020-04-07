@@ -71,6 +71,10 @@ void FlingScheduler::ProgressFlingOnBeginFrameIfneeded(
 }
 
 ui::Compositor* FlingScheduler::GetCompositor() {
+#if defined(TOOLKIT_QT)
+  if (host_->GetView())
+    return host_->GetView()->GetCompositor();
+#endif
 #if defined(USE_AURA)
   if (host_->GetView() && host_->GetView()->GetNativeView() &&
       host_->GetView()->GetNativeView()->GetHost() &&

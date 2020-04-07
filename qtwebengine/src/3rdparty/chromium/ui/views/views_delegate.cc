@@ -96,6 +96,10 @@ NonClientFrameView* ViewsDelegate::CreateDefaultNonClientFrameView(
   return nullptr;
 }
 
+bool ViewsDelegate::IsShuttingDown() const {
+  return false;
+}
+
 void ViewsDelegate::AddRef() {}
 
 void ViewsDelegate::ReleaseRef() {}
@@ -123,7 +127,7 @@ std::string ViewsDelegate::GetApplicationName() {
 
 #if defined(OS_WIN)
 int ViewsDelegate::GetAppbarAutohideEdges(HMONITOR monitor,
-                                          const base::Closure& callback) {
+                                          base::OnceClosure callback) {
   return EDGE_BOTTOM;
 }
 #endif

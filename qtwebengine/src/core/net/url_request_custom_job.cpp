@@ -40,6 +40,8 @@
 #include "url_request_custom_job.h"
 #include "url_request_custom_job_proxy.h"
 
+#include "api/qwebengineurlscheme.h"
+
 #include "base/strings/stringprintf.h"
 #include "base/task/post_task.h"
 #include "content/public/browser/browser_task_traits.h"
@@ -60,10 +62,13 @@ URLRequestCustomJob::URLRequestCustomJob(URLRequest *request,
     : URLRequestJob(request, networkDelegate)
     , m_proxy(new URLRequestCustomJobProxy(this, scheme, profileAdapter))
     , m_device(nullptr)
+    , m_firstBytePosition(0)
     , m_error(0)
     , m_pendingReadSize(0)
     , m_pendingReadPos(0)
     , m_pendingReadBuffer(nullptr)
+    , m_corsEnabled(QWebEngineUrlScheme::schemeByName(QByteArray::fromStdString(scheme))
+                    .flags().testFlag(QWebEngineUrlScheme::CorsEnabled))
 {
 }
 
@@ -128,7 +133,7 @@ bool URLRequestCustomJob::GetMimeType(std::string *mimeType) const
     return false;
 }
 
-bool URLRequestCustomJob::GetCharset(std::string* charset)
+bool URLRequestCustomJob::GetCharset(std::string *charset)
 {
     DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
     if (m_charset.size() > 0) {
@@ -138,8 +143,10 @@ bool URLRequestCustomJob::GetCharset(std::string* charset)
     return false;
 }
 
-void URLRequestCustomJob::GetResponseInfo(HttpResponseInfo* info)
+void URLRequestCustomJob::GetResponseInfo(HttpResponseInfo *info)
 {
+    // Based on net::URLRequestRedirectJob::StartAsync()
+
     if (m_error)
         return;
 
@@ -148,13 +155,26 @@ void URLRequestCustomJob::GetResponseInfo(HttpResponseInfo* info)
         headers += "HTTP/1.1 303 See Other\n";
         headers += base::StringPrintf("Location: %s\n", m_redirect.spec().c_str());
     } else {
-        headers += "HTTP/1.1 200 OK\n";
+        headers += base::StringPrintf("HTTP/1.1 %i OK\n", 200);
+        if (m_mimeType.size() > 0) {
+            headers += base::StringPrintf("Content-Type: %s", m_mimeType.c_str());
+            if (m_charset.size() > 0)
+                headers += base::StringPrintf("; charset=%s", m_charset.c_str());
+            headers += "\n";
+        }
+    }
+    if (m_corsEnabled) {
+        std::string origin;
+        if (request_->extra_request_headers().GetHeader("Origin", &origin)) {
+            headers += base::StringPrintf("Access-Control-Allow-Origin: %s\n", origin.c_str());
+            headers += "Access-Control-Allow-Credentials: true\n";
+        }
     }
 
-    info->headers = new HttpResponseHeaders(HttpUtil::AssembleRawHeaders(headers.c_str(), headers.size()));
+    info->headers = new HttpResponseHeaders(HttpUtil::AssembleRawHeaders(headers));
 }
 
-bool URLRequestCustomJob::IsRedirectResponse(GURL* location, int* http_status_code, bool* /*insecure_scheme_was_upgraded*/)
+bool URLRequestCustomJob::IsRedirectResponse(GURL *location, int *http_status_code, bool * /*insecure_scheme_was_upgraded*/)
 {
     DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
     if (m_redirect.is_valid()) {
@@ -163,6 +183,19 @@ bool URLRequestCustomJob::IsRedirectResponse(GURL* location, int* http_status_co
         return true;
     }
     return false;
+}
+
+void URLRequestCustomJob::SetExtraRequestHeaders(const HttpRequestHeaders &headers)
+{
+    std::string rangeHeader;
+    if (headers.GetHeader(HttpRequestHeaders::kRange, &rangeHeader)) {
+        std::vector<HttpByteRange> ranges;
+        if (HttpUtil::ParseRangeHeader(rangeHeader, &ranges)) {
+            // Chromium doesn't support multiple range requests in one single URL request.
+            if (ranges.size() == 1)
+                m_firstBytePosition = ranges[0].first_byte_position();
+        }
+    }
 }
 
 int URLRequestCustomJob::ReadRawData(IOBuffer *buf, int bufSize)

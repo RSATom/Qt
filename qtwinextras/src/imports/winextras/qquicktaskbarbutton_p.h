@@ -68,7 +68,7 @@ class QQuickTaskbarOverlay : public QObject
     Q_PROPERTY(QString accessibleDescription READ accessibleDescription WRITE setAccessibleDescription NOTIFY accessibleDescriptionChanged)
 
 public:
-    explicit QQuickTaskbarOverlay(QWinTaskbarButton *button, QObject *parent = 0);
+    explicit QQuickTaskbarOverlay(QWinTaskbarButton *button, QObject *parent = nullptr);
 
     QUrl iconSource() const;
     void setIconSource(const QUrl &iconSource);
@@ -95,7 +95,7 @@ class QQuickTaskbarButton : public QQuickItem
     Q_PROPERTY(QWinTaskbarProgress *progress READ progress CONSTANT)
 
 public:
-    explicit QQuickTaskbarButton(QQuickItem *parent = 0);
+    explicit QQuickTaskbarButton(QQuickItem *parent = nullptr);
     ~QQuickTaskbarButton();
 
     QQuickTaskbarOverlay *overlay() const;

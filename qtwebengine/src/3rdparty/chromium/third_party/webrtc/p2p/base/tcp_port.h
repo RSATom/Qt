@@ -16,6 +16,7 @@
 #include <string>
 
 #include "absl/memory/memory.h"
+#include "p2p/base/connection.h"
 #include "p2p/base/port.h"
 #include "rtc_base/async_packet_socket.h"
 
@@ -104,8 +105,6 @@ class TCPPort : public Port {
   void OnAddressReady(rtc::AsyncPacketSocket* socket,
                       const rtc::SocketAddress& address);
 
-  // TODO(?): Is this still needed?
-  bool incoming_only_;
   bool allow_listen_;
   rtc::AsyncPacketSocket* socket_;
   int error_;

@@ -14,18 +14,18 @@
 #include "components/viz/service/display_embedder/buffer_queue.h"
 #include "gpu/command_buffer/client/context_support.h"
 #include "gpu/command_buffer/client/gles2_interface.h"
+#include "ui/gl/gl_enums.h"
 
 namespace viz {
 
 GLOutputSurfaceBufferQueue::GLOutputSurfaceBufferQueue(
     scoped_refptr<VizProcessContextProvider> context_provider,
     gpu::SurfaceHandle surface_handle,
-    SyntheticBeginFrameSource* synthetic_begin_frame_source,
     gpu::GpuMemoryBufferManager* gpu_memory_buffer_manager,
-    uint32_t target,
-    uint32_t internalformat,
     gfx::BufferFormat buffer_format)
-    : GLOutputSurface(context_provider, synthetic_begin_frame_source) {
+    : GLOutputSurface(context_provider, surface_handle),
+      current_texture_(0u),
+      fbo_(0u) {
   capabilities_.uses_default_gl_framebuffer = false;
   capabilities_.flipped_output_surface = true;
   // Set |max_frames_pending| to 2 for buffer_queue, which aligns scheduling
@@ -37,19 +37,42 @@ GLOutputSurfaceBufferQueue::GLOutputSurfaceBufferQueue(
   // implementation.
   capabilities_.max_frames_pending = 2;
 
-  buffer_queue_.reset(new BufferQueue(
-      context_provider->ContextGL(), target, internalformat, buffer_format,
-      gpu_memory_buffer_manager, surface_handle));
-  buffer_queue_->Initialize();
+  buffer_queue_ = std::make_unique<BufferQueue>(
+      context_provider->ContextGL(), buffer_format, gpu_memory_buffer_manager,
+      surface_handle, context_provider->ContextCapabilities());
+  context_provider_->ContextGL()->GenFramebuffers(1, &fbo_);
 }
 
 GLOutputSurfaceBufferQueue::~GLOutputSurfaceBufferQueue() {
-  // TODO(rjkroege): Support cleanup.
+  DCHECK_NE(0u, fbo_);
+  context_provider_->ContextGL()->DeleteFramebuffers(1, &fbo_);
 }
 
 void GLOutputSurfaceBufferQueue::BindFramebuffer() {
+  auto* gl = context_provider_->ContextGL();
+  gl->BindFramebuffer(GL_FRAMEBUFFER, fbo_);
   DCHECK(buffer_queue_);
-  buffer_queue_->BindFramebuffer();
+  unsigned stencil;
+  current_texture_ = buffer_queue_->GetCurrentBuffer(&stencil);
+  if (!current_texture_)
+    return;
+  // TODO(andrescj): if the texture hasn't changed since the last call to
+  // BindFrameBuffer(), we may be able to avoid mutating the FBO which may lead
+  // to performance improvements.
+  gl->FramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
+                           buffer_queue_->texture_target(), current_texture_,
+                           0);
+
+#if DCHECK_IS_ON() && defined(OS_CHROMEOS)
+  const GLenum result = gl->CheckFramebufferStatus(GL_FRAMEBUFFER);
+  if (result != GL_FRAMEBUFFER_COMPLETE)
+    DLOG(ERROR) << " Incomplete fb: " << gl::GLEnums::GetStringError(result);
+#endif
+
+  if (stencil) {
+    gl->FramebufferRenderbuffer(GL_FRAMEBUFFER, GL_STENCIL_ATTACHMENT,
+                                GL_RENDERBUFFER, stencil);
+  }
 }
 
 // We call this on every frame that a value changes, but changing the size once
@@ -66,7 +89,20 @@ void GLOutputSurfaceBufferQueue::Reshape(const gfx::Size& size,
   reshape_size_ = size;
   GLOutputSurface::Reshape(size, device_scale_factor, color_space, has_alpha,
                            use_stencil);
-  buffer_queue_->Reshape(size, device_scale_factor, color_space, use_stencil);
+  if (buffer_queue_->Reshape(size, device_scale_factor, color_space,
+                             use_stencil)) {
+    auto* gl = context_provider_->ContextGL();
+    gl->BindFramebuffer(GL_FRAMEBUFFER, fbo_);
+    gl->FramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
+                             buffer_queue_->texture_target(), 0, 0);
+    gl->FramebufferRenderbuffer(GL_FRAMEBUFFER, GL_STENCIL_ATTACHMENT,
+                                GL_RENDERBUFFER, 0);
+  }
+}
+
+void GLOutputSurfaceBufferQueue::SetDrawRectangle(const gfx::Rect& damage) {
+  GLOutputSurface::SetDrawRectangle(damage);
+  buffer_queue_->CopyDamageForCurrentSurface(damage);
 }
 
 void GLOutputSurfaceBufferQueue::SwapBuffers(OutputSurfaceFrame frame) {
@@ -89,12 +125,12 @@ uint32_t GLOutputSurfaceBufferQueue::GetFramebufferCopyTextureFormat() {
 }
 
 bool GLOutputSurfaceBufferQueue::IsDisplayedAsOverlayPlane() const {
-  // TODO(rjkroege): implement remaining overlay functionality.
   return true;
 }
 
 unsigned GLOutputSurfaceBufferQueue::GetOverlayTextureId() const {
-  return buffer_queue_->GetCurrentTextureId();
+  DCHECK(current_texture_);
+  return current_texture_;
 }
 
 gfx::BufferFormat GLOutputSurfaceBufferQueue::GetOverlayBufferFormat() const {
@@ -103,21 +139,32 @@ gfx::BufferFormat GLOutputSurfaceBufferQueue::GetOverlayBufferFormat() const {
 }
 
 void GLOutputSurfaceBufferQueue::DidReceiveSwapBuffersAck(
-    gfx::SwapResult result) {
+    const gfx::SwapResponse& response) {
   bool force_swap = false;
-  if (result == gfx::SwapResult::SWAP_NAK_RECREATE_BUFFERS) {
+  if (response.result == gfx::SwapResult::SWAP_NAK_RECREATE_BUFFERS) {
     // Even through the swap failed, this is a fixable error so we can pretend
     // it succeeded to the rest of the system.
-    result = gfx::SwapResult::SWAP_ACK;
-    buffer_queue_->RecreateBuffers();
+    buffer_queue_->FreeAllSurfaces();
     force_swap = true;
   }
 
   buffer_queue_->PageFlipComplete();
-  client()->DidReceiveSwapBuffersAck();
+  client()->DidReceiveSwapBuffersAck(response.timings);
 
   if (force_swap)
     client()->SetNeedsRedrawRect(gfx::Rect(swap_size_));
+}
+
+void GLOutputSurfaceBufferQueue::SetDisplayTransformHint(
+    gfx::OverlayTransform transform) {
+  display_transform_ = transform;
+
+  if (context_provider_)
+    context_provider_->ContextSupport()->SetDisplayTransform(transform);
+}
+
+gfx::OverlayTransform GLOutputSurfaceBufferQueue::GetDisplayTransform() {
+  return display_transform_;
 }
 
 }  // namespace viz

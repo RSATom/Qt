@@ -8,13 +8,18 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#if defined(OS_WIN)
+#include <vector>
+#endif
+
+#include "base/component_export.h"
 #include "base/i18n/rtl.h"
 #include "base/strings/string16.h"
+#include "build/build_config.h"
 #include "services/metrics/public/cpp/ukm_source_id.h"
 #include "ui/base/ime/composition_text.h"
 #include "ui/base/ime/text_input_mode.h"
 #include "ui/base/ime/text_input_type.h"
-#include "ui/base/ime/ui_base_ime_export.h"
 #include "ui/gfx/native_widget_types.h"
 #include "ui/gfx/range/range.h"
 
@@ -28,7 +33,7 @@ class KeyEvent;
 enum class TextEditCommand;
 
 // An interface implemented by a View that needs text input support.
-class UI_BASE_IME_EXPORT TextInputClient {
+class COMPONENT_EXPORT(UI_BASE_IME) TextInputClient {
  public:
   // The reason the control was focused, used by the virtual keyboard to detect
   // pen input.
@@ -198,6 +203,29 @@ class UI_BASE_IME_EXPORT TextInputClient {
   // improve typing suggestions for the user. This should return false for text
   // fields that are considered 'private' (e.g. in incognito tabs).
   virtual bool ShouldDoLearning() = 0;
+
+#if defined(OS_WIN) || defined(OS_CHROMEOS)
+  // Start composition over a given UTF-16 code range from existing text. This
+  // should only be used for composition scenario when IME wants to start
+  // composition on existing text. Returns whether the operation was successful.
+  // Must not be called with an invalid range.
+  virtual bool SetCompositionFromExistingText(
+      const gfx::Range& range,
+      const std::vector<ui::ImeTextSpan>& ui_ime_text_spans) = 0;
+#endif
+
+#if defined(OS_WIN)
+  // Notifies accessibility about active composition. This API is currently
+  // only defined for TSF which is available only on Windows
+  // https://docs.microsoft.com/en-us/windows/desktop/api/UIAutomationCore/
+  // nf-uiautomationcore-itexteditprovider-getactivecomposition
+  // It notifies the composition range, composition text and whether the
+  // composition has been committed or not.
+  virtual void SetActiveCompositionForAccessibility(
+      const gfx::Range& range,
+      const base::string16& active_composition_text,
+      bool is_composition_committed) = 0;
+#endif
 };
 
 }  // namespace ui

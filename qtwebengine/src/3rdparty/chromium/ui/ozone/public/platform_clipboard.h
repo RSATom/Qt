@@ -9,9 +9,9 @@
 #include <unordered_map>
 #include <vector>
 
+#include "base/component_export.h"
 #include "base/macros.h"
 #include "base/optional.h"
-#include "ui/ozone/ozone_base_export.h"
 
 namespace ui {
 
@@ -19,12 +19,18 @@ namespace ui {
 // data with other applications on the host system. The most familiar use for
 // it is handling copy and paste operations.
 //
-class OZONE_BASE_EXPORT PlatformClipboard {
+class COMPONENT_EXPORT(OZONE_BASE) PlatformClipboard {
  public:
+  virtual ~PlatformClipboard() {}
+
   // DataMap is a map from "mime type" to associated data, whereas
   // the data can be organized differently for each mime type.
   using Data = std::vector<uint8_t>;
   using DataMap = std::unordered_map<std::string, Data>;
+
+  // SequenceNumberUpdateCb is a repeating callback, which can be used to tell
+  // a client of the PlatformClipboard to increment clipboard's sequence number
+  using SequenceNumberUpdateCb = base::RepeatingCallback<void()>;
 
   // Offers a given clipboard data 'data_map' to the host system clipboard.
   //
@@ -71,6 +77,9 @@ class OZONE_BASE_EXPORT PlatformClipboard {
   // caches the clipboard data, and wants to know if it is possible to use
   // the cached data in order to reply faster to read-clipboard operations.
   virtual bool IsSelectionOwner() = 0;
+
+  // See comment above SequenceNumberUpdateCb. Can be called once.
+  virtual void SetSequenceNumberUpdateCb(SequenceNumberUpdateCb cb) = 0;
 };
 
 }  // namespace ui

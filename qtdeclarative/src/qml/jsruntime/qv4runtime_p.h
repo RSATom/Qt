@@ -52,8 +52,6 @@
 
 #include "qv4global_p.h"
 #include "qv4value_p.h"
-#include "qv4context_p.h"
-#include "qv4engine_p.h"
 #include "qv4math_p.h"
 #include "qv4runtimeapi_p.h"
 #include <QtCore/qnumeric.h>
@@ -114,20 +112,16 @@ struct Q_QML_PRIVATE_EXPORT RuntimeHelpers {
     static Bool strictEqual(const Value &x, const Value &y);
 
     static ReturnedValue addHelper(ExecutionEngine *engine, const Value &left, const Value &right);
-
-    static ReturnedValue getTemplateObject(Function *function, int index);
 };
 
 
 // type conversion and testing
-#ifndef V4_BOOTSTRAP
 inline ReturnedValue RuntimeHelpers::toPrimitive(const Value &value, TypeHint typeHint)
 {
     if (!value.isObject())
         return value.asReturnedValue();
     return RuntimeHelpers::objectDefaultValue(&reinterpret_cast<const Object &>(value), typeHint);
 }
-#endif
 
 inline double RuntimeHelpers::toNumber(const Value &value)
 {

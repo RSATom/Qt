@@ -20,8 +20,8 @@
 #include "common/Platform.h"
 #include "dawn_native/Device.h"
 #include "dawn_native/opengl/Forward.h"
-
-#include "glad/glad.h"
+#include "dawn_native/opengl/GLFormat.h"
+#include "dawn_native/opengl/OpenGLFunctions.h"
 
 #include <queue>
 
@@ -34,21 +34,33 @@ namespace dawn_native { namespace opengl {
 
     class Device : public DeviceBase {
       public:
-        Device(AdapterBase* adapter);
+        Device(AdapterBase* adapter,
+               const DeviceDescriptor* descriptor,
+               const OpenGLFunctions& functions);
         ~Device();
+
+        // Contains all the OpenGL entry points, glDoFoo is called via device->gl.DoFoo.
+        const OpenGLFunctions gl;
+
+        const GLFormat& GetGLFormat(const Format& format);
 
         void SubmitFenceSync();
 
         // Dawn API
-        CommandBufferBase* CreateCommandBuffer(CommandBufferBuilder* builder) override;
-        InputStateBase* CreateInputState(InputStateBuilder* builder) override;
-        RenderPassDescriptorBase* CreateRenderPassDescriptor(
-            RenderPassDescriptorBuilder* builder) override;
-        SwapChainBase* CreateSwapChain(SwapChainBuilder* builder) override;
+        CommandBufferBase* CreateCommandBuffer(CommandEncoderBase* encoder,
+                                               const CommandBufferDescriptor* descriptor) override;
 
         Serial GetCompletedCommandSerial() const final override;
         Serial GetLastSubmittedCommandSerial() const final override;
+        Serial GetPendingCommandSerial() const override;
         void TickImpl() override;
+
+        ResultOrError<std::unique_ptr<StagingBufferBase>> CreateStagingBuffer(size_t size) override;
+        MaybeError CopyFromStagingToBuffer(StagingBufferBase* source,
+                                           uint64_t sourceOffset,
+                                           BufferBase* destination,
+                                           uint64_t destinationOffset,
+                                           uint64_t size) override;
 
       private:
         ResultOrError<BindGroupBase*> CreateBindGroupImpl(
@@ -66,6 +78,8 @@ namespace dawn_native { namespace opengl {
         ResultOrError<SamplerBase*> CreateSamplerImpl(const SamplerDescriptor* descriptor) override;
         ResultOrError<ShaderModuleBase*> CreateShaderModuleImpl(
             const ShaderModuleDescriptor* descriptor) override;
+        ResultOrError<SwapChainBase*> CreateSwapChainImpl(
+            const SwapChainDescriptor* descriptor) override;
         ResultOrError<TextureBase*> CreateTextureImpl(const TextureDescriptor* descriptor) override;
         ResultOrError<TextureViewBase*> CreateTextureViewImpl(
             TextureBase* texture,
@@ -76,6 +90,8 @@ namespace dawn_native { namespace opengl {
         Serial mCompletedSerial = 0;
         Serial mLastSubmittedSerial = 0;
         std::queue<std::pair<GLsync, Serial>> mFencesInFlight;
+
+        GLFormatTable mFormatTable;
     };
 
 }}  // namespace dawn_native::opengl

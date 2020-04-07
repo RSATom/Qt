@@ -16,6 +16,7 @@ jumbo_component("cpp") {
   output_name = "network_cpp"
 
   sources = [
+    "constants.h",
     "cors/cors.cc",
     "cors/cors.h",
     "cors/origin_access_entry.cc",
@@ -30,6 +31,10 @@ jumbo_component("cpp") {
     "cross_thread_shared_url_loader_factory_info.h",
     "features.cc",
     "features.h",
+    "header_util.cc",
+    "header_util.h",
+    "is_potentially_trustworthy.cc",
+    "is_potentially_trustworthy.h",
     "net_adapters.cc",
     "net_adapters.h",
     "network_connection_tracker.cc",
@@ -38,6 +43,8 @@ jumbo_component("cpp") {
     "network_quality_tracker.h",
     "network_switches.cc",
     "network_switches.h",
+    "request_mode.cc",
+    "request_mode.h",
     "resolve_host_client_base.cc",
     "resolve_host_client_base.h",
     "shared_url_loader_factory.cc",
@@ -74,6 +81,7 @@ jumbo_component("cpp") {
     ":cpp_base",
     "//net",
     "//services/network/public/mojom",
+    "//url",
     "//url/ipc:url_ipc",
   ]
 
@@ -85,6 +93,10 @@ jumbo_component("cpp") {
   ]
 
   defines = [ "IS_NETWORK_CPP_IMPL" ]
+
+  if (is_chromecast) {
+    defines += [ "IS_CHROMECAST" ]
+  }
 }
 
 jumbo_component("cpp_base") {
@@ -107,6 +119,10 @@ jumbo_component("cpp_base") {
     "net_ipc_param_traits.h",
     "network_ipc_param_traits.cc",
     "network_ipc_param_traits.h",
+    "network_isolation_key_mojom_traits.cc",
+    "network_isolation_key_mojom_traits.h",
+    "origin_policy.cc",
+    "origin_policy.h",
     "p2p_param_traits.cc",
     "p2p_param_traits.h",
     "p2p_socket_type.h",
@@ -172,6 +188,7 @@ source_set("tests") {
   testonly = true
 
   sources = [
+    "cookie_manager_mojom_traits_unittest.cc",
     "cors/cors_unittest.cc",
     "cors/origin_access_entry_unittest.cc",
     "cors/origin_access_list_unittest.cc",
@@ -179,21 +196,20 @@ source_set("tests") {
     "cors/preflight_result_unittest.cc",
     "cross_thread_shared_url_loader_factory_info_unittest.cc",
     "digitally_signed_mojom_traits_unittest.cc",
+    "header_util_unittest.cc",
     "host_resolver_mojom_traits_unittest.cc",
     "ip_address_mojom_traits_unittest.cc",
+    "is_potentially_trustworthy_unittest.cc",
     "mutable_network_traffic_annotation_tag_mojom_traits_unittest.cc",
     "mutable_partial_network_traffic_annotation_tag_mojom_traits_unittest.cc",
     "network_connection_tracker_unittest.cc",
+    "network_isolation_key_mojom_traits_unittest.cc",
     "network_mojom_traits_unittest.cc",
     "network_quality_tracker_unittest.cc",
     "proxy_config_mojom_traits_unittest.cc",
     "simple_url_loader_unittest.cc",
     "url_request_mojom_traits_unittest.cc",
   ]
-
-  if (is_ct_supported) {
-    sources += [ "signed_tree_head_mojom_traits_unittest.cc" ]
-  }
 
   if (!is_ios) {
     sources += [ "server/http_server_unittest.cc" ]
@@ -214,5 +230,18 @@ source_set("tests") {
 
   public_deps = [
     ":buildflags",
+  ]
+}
+
+source_set("manifest") {
+  sources = [
+    "manifest.cc",
+    "manifest.h",
+  ]
+
+  deps = [
+    "//base",
+    "//services/network/public/mojom",
+    "//services/service_manager/public/cpp",
   ]
 }

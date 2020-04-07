@@ -68,7 +68,6 @@ class QScreen;
 
 namespace Qt3DCore {
 class QAbstractFrameAdvanceService;
-class QBackendNodeFactory;
 class QEventFilterService;
 class QAbstractAspectJobManager;
 class QServiceLocator;
@@ -115,7 +114,6 @@ public:
         JointDirty          = 1 << 11,
         LayersDirty         = 1 << 12,
         TechniquesDirty     = 1 << 13,
-        EntityHierarchyDirty= 1 << 14,
         LightsDirty         = 1 << 15,
         AllDirty            = 0xffffff
     };
@@ -142,7 +140,7 @@ public:
     // Threaded renderer
     virtual void render() = 0;
     // Synchronous renderer
-    virtual void doRender(bool scene3dBlocking = false) = 0;
+    virtual void doRender(bool swapBuffers) = 0;
 
     virtual void cleanGraphicsResources() = 0;
 
@@ -153,17 +151,17 @@ public:
 #if defined(QT_BUILD_INTERNAL)
     virtual void clearDirtyBits(BackendNodeDirtySet changes) = 0;
 #endif
-    virtual bool shouldRender() = 0;
+    virtual bool shouldRender() const = 0;
     virtual void skipNextFrame() = 0;
 
     virtual QVector<Qt3DCore::QAspectJobPtr> preRenderingJobs() = 0;
     virtual QVector<Qt3DCore::QAspectJobPtr> renderBinJobs() = 0;
     virtual Qt3DCore::QAspectJobPtr pickBoundingVolumeJob() = 0;
     virtual Qt3DCore::QAspectJobPtr rayCastingJob() = 0;
-    virtual Qt3DCore::QAspectJobPtr syncTextureLoadingJob() = 0;
+    virtual Qt3DCore::QAspectJobPtr syncLoadingJobs() = 0;
     virtual Qt3DCore::QAspectJobPtr expandBoundingVolumeJob() = 0;
 
-    virtual void setSceneRoot(Qt3DCore::QBackendNodeFactory *factory, Entity *root) = 0;
+    virtual void setSceneRoot(Entity *root) = 0;
 
     virtual Entity *sceneRoot() const = 0;
     virtual FrameGraphNode *frameGraphRoot() const = 0;

@@ -215,10 +215,9 @@ QQmlNdefRecord *qNewDeclarativeNdefRecordForNdefRecord(const QNdefRecord &record
 {
     const QString urn = urnForRecordType(record.typeNameFormat(), record.type());
 
-    QMapIterator<QString, const QMetaObject *> i(*registeredNdefRecordTypes());
-    while (i.hasNext()) {
-        i.next();
+    const auto *rt = registeredNdefRecordTypes();
 
+    for (auto i = rt->cbegin(), end = rt->cend(); i != end; ++i) {
         QRegularExpression rx(QRegularExpression::anchoredPattern(i.key()));
         if (!rx.match(urn).hasMatch())
             continue;

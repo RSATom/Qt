@@ -12,6 +12,8 @@
 
 #include <string.h>
 
+#include <utility>
+
 #include "api/video/encoded_image.h"
 #include "api/video/video_timing.h"
 #include "modules/video_coding/packet.h"
@@ -28,7 +30,8 @@ RtpFrameObject::RtpFrameObject(PacketBuffer* packet_buffer,
                                size_t frame_size,
                                int times_nacked,
                                int64_t first_packet_received_time,
-                               int64_t last_packet_received_time)
+                               int64_t last_packet_received_time,
+                               RtpPacketInfos packet_infos)
     : packet_buffer_(packet_buffer),
       first_seq_num_(first_seq_num),
       last_seq_num_(last_seq_num),
@@ -38,8 +41,8 @@ RtpFrameObject::RtpFrameObject(PacketBuffer* packet_buffer,
   RTC_CHECK(first_packet);
 
   // EncodedFrame members
-  frame_type_ = first_packet->frameType;
-  codec_type_ = first_packet->codec;
+  frame_type_ = first_packet->video_header.frame_type;
+  codec_type_ = first_packet->codec();
 
   // TODO(philipel): Remove when encoded image is replaced by EncodedFrame.
   // VCMEncodedFrame members
@@ -48,24 +51,26 @@ RtpFrameObject::RtpFrameObject(PacketBuffer* packet_buffer,
   _payloadType = first_packet->payloadType;
   SetTimestamp(first_packet->timestamp);
   ntp_time_ms_ = first_packet->ntp_time_ms_;
-  _frameType = first_packet->frameType;
+  _frameType = first_packet->video_header.frame_type;
 
   // Setting frame's playout delays to the same values
   // as of the first packet's.
   SetPlayoutDelay(first_packet->video_header.playout_delay);
 
-  AllocateBitstreamBuffer(frame_size);
+  // TODO(nisse): Change GetBitstream to return the buffer?
+  SetEncodedData(EncodedImageBuffer::Create(frame_size));
   bool bitstream_copied = packet_buffer_->GetBitstream(*this, data());
   RTC_DCHECK(bitstream_copied);
-  _encodedWidth = first_packet->width;
-  _encodedHeight = first_packet->height;
+  _encodedWidth = first_packet->width();
+  _encodedHeight = first_packet->height();
 
   // EncodedFrame members
   SetTimestamp(first_packet->timestamp);
+  SetPacketInfos(std::move(packet_infos));
 
   VCMPacket* last_packet = packet_buffer_->GetPacket(last_seq_num);
   RTC_CHECK(last_packet);
-  RTC_CHECK(last_packet->is_last_packet_in_frame);
+  RTC_CHECK(last_packet->is_last_packet_in_frame());
   // http://www.etsi.org/deliver/etsi_ts/126100_126199/126114/12.07.00_60/
   // ts_126114v120700p.pdf Section 7.4.5.
   // The MTSI client shall add the payload bytes as defined in this clause
@@ -73,9 +78,7 @@ RtpFrameObject::RtpFrameObject(PacketBuffer* packet_buffer,
   // frame (I-frame or IDR frame in H.264 (AVC), or an IRAP picture in H.265
   // (HEVC)).
   rotation_ = last_packet->video_header.rotation;
-  SetColorSpace(last_packet->video_header.color_space
-                    ? &last_packet->video_header.color_space.value()
-                    : nullptr);
+  SetColorSpace(last_packet->video_header.color_space);
   _rotation_set = true;
   content_type_ = last_packet->video_header.content_type;
   if (last_packet->video_header.video_timing.flags !=
@@ -123,7 +126,7 @@ int RtpFrameObject::times_nacked() const {
   return times_nacked_;
 }
 
-FrameType RtpFrameObject::frame_type() const {
+VideoFrameType RtpFrameObject::frame_type() const {
   return frame_type_;
 }
 
@@ -166,24 +169,6 @@ absl::optional<FrameMarking> RtpFrameObject::GetFrameMarking() const {
   if (!packet)
     return absl::nullopt;
   return packet->video_header.frame_marking;
-}
-
-void RtpFrameObject::AllocateBitstreamBuffer(size_t frame_size) {
-  // Since FFmpeg use an optimized bitstream reader that reads in chunks of
-  // 32/64 bits we have to add at least that much padding to the buffer
-  // to make sure the decoder doesn't read out of bounds.
-  // NOTE! EncodedImage::_size is the size of the buffer (think capacity of
-  //       an std::vector) and EncodedImage::_length is the actual size of
-  //       the bitstream (think size of an std::vector).
-  size_t new_size = frame_size + (codec_type_ == kVideoCodecH264
-                                      ? EncodedImage::kBufferPaddingBytesH264
-                                      : 0);
-  if (capacity() < new_size) {
-    delete[] data();
-    set_buffer(new uint8_t[new_size], new_size);
-  }
-
-  set_size(frame_size);
 }
 
 }  // namespace video_coding

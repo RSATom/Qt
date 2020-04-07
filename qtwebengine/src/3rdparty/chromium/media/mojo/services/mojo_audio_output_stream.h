@@ -46,6 +46,7 @@ class MEDIA_MOJO_EXPORT MojoAudioOutputStream
   // mojom::AudioOutputStream implementation.
   void Play() override;
   void Pause() override;
+  void Flush() override;
   void SetVolume(double volume) override;
 
   // AudioOutputDelegate::EventHandler implementation.
@@ -63,7 +64,7 @@ class MEDIA_MOJO_EXPORT MojoAudioOutputStream
   DeleterCallback deleter_callback_;
   mojo::Binding<AudioOutputStream> binding_;
   std::unique_ptr<AudioOutputDelegate> delegate_;
-  base::WeakPtrFactory<MojoAudioOutputStream> weak_factory_;
+  base::WeakPtrFactory<MojoAudioOutputStream> weak_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(MojoAudioOutputStream);
 };

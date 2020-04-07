@@ -6,7 +6,7 @@
 
     { "name": "accessibility", "type": "remote" },
     { "name": "animation" },
-    { "name": "audits2" },
+    { "name": "audits" },
     { "name": "browser_debugger" },
     { "name": "cookie_table" },
     { "name": "devices" },
@@ -22,7 +22,8 @@
     { "name": "resources" },
     { "name": "security" },
     { "name": "timeline" },
-    { "name": "timeline_model" }
+    { "name": "timeline_model" },
+    { "name": "web_audio" }
   ],
   "extends": "shell",
   "has_html": true

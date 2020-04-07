@@ -38,7 +38,9 @@
 #include "build/build_config.h"
 #include "third_party/blink/renderer/core/frame/local_frame_client.h"
 #include "third_party/blink/renderer/core/inspector/inspected_frames.h"
-#include "third_party/blink/renderer/platform/instance_counters.h"
+#include "third_party/blink/renderer/core/page/page.h"
+#include "third_party/blink/renderer/platform/bindings/v8_per_isolate_data.h"
+#include "third_party/blink/renderer/platform/instrumentation/instance_counters.h"
 
 namespace blink {
 
@@ -60,6 +62,21 @@ Response InspectorMemoryAgent::getDOMCounters(int* documents,
   *nodes = InstanceCounters::CounterValue(InstanceCounters::kNodeCounter);
   *js_event_listeners =
       InstanceCounters::CounterValue(InstanceCounters::kJSEventListenerCounter);
+  return Response::OK();
+}
+
+Response InspectorMemoryAgent::forciblyPurgeJavaScriptMemory() {
+  for (const auto& page : Page::OrdinaryPages()) {
+    for (Frame* frame = page->MainFrame(); frame;
+         frame = frame->Tree().TraverseNext()) {
+      LocalFrame* local_frame = DynamicTo<LocalFrame>(frame);
+      if (!local_frame)
+        continue;
+      local_frame->ForciblyPurgeV8Memory();
+    }
+  }
+  V8PerIsolateData::MainThreadIsolate()->MemoryPressureNotification(
+      v8::MemoryPressureLevel::kCritical);
   return Response::OK();
 }
 
@@ -112,27 +129,24 @@ Response InspectorMemoryAgent::getSamplingProfile(
 std::unique_ptr<protocol::Memory::SamplingProfile>
 InspectorMemoryAgent::GetSamplingProfileById(uint32_t id) {
   base::ModuleCache module_cache;
-  std::unique_ptr<protocol::Array<protocol::Memory::SamplingProfileNode>>
-      samples =
-          protocol::Array<protocol::Memory::SamplingProfileNode>::create();
-  std::vector<base::SamplingHeapProfiler::Sample> raw_samples =
-      base::SamplingHeapProfiler::Get()->GetSamples(id);
+  auto samples = std::make_unique<
+      protocol::Array<protocol::Memory::SamplingProfileNode>>();
+  auto raw_samples = base::SamplingHeapProfiler::Get()->GetSamples(id);
 
   for (auto& it : raw_samples) {
-    std::unique_ptr<protocol::Array<protocol::String>> stack =
-        protocol::Array<protocol::String>::create();
     for (const void* frame : it.stack) {
       uintptr_t address = reinterpret_cast<uintptr_t>(frame);
       module_cache.GetModuleForAddress(address);  // Populates module_cache.
     }
-    std::vector<std::string> source_stack = Symbolize(it.stack);
-    for (auto& it2 : source_stack)
-      stack->addItem(it2.c_str());
-    samples->addItem(protocol::Memory::SamplingProfileNode::create()
-                         .setSize(it.size)
-                         .setTotal(it.total)
-                         .setStack(std::move(stack))
-                         .build());
+    Vector<String> source_stack = Symbolize(it.stack);
+    auto stack = std::make_unique<protocol::Array<protocol::String>>();
+    for (const auto& frame : source_stack)
+      stack->emplace_back(frame);
+    samples->emplace_back(protocol::Memory::SamplingProfileNode::create()
+                              .setSize(it.size)
+                              .setTotal(it.total)
+                              .setStack(std::move(stack))
+                              .build());
   }
 
   // Mix in v8 main isolate heap size as a synthetic node.
@@ -141,25 +155,24 @@ InspectorMemoryAgent::GetSamplingProfileById(uint32_t id) {
     v8::HeapStatistics heap_stats;
     v8::Isolate::GetCurrent()->GetHeapStatistics(&heap_stats);
     size_t total_bytes = heap_stats.total_heap_size();
-    std::unique_ptr<protocol::Array<protocol::String>> stack =
-        protocol::Array<protocol::String>::create();
-    stack->addItem("<V8 Heap>");
-    samples->addItem(protocol::Memory::SamplingProfileNode::create()
-                         .setSize(total_bytes)
-                         .setTotal(total_bytes)
-                         .setStack(std::move(stack))
-                         .build());
+    auto stack = std::make_unique<protocol::Array<protocol::String>>();
+    stack->emplace_back("<V8 Heap>");
+    samples->emplace_back(protocol::Memory::SamplingProfileNode::create()
+                              .setSize(total_bytes)
+                              .setTotal(total_bytes)
+                              .setStack(std::move(stack))
+                              .build());
   }
 
-  std::unique_ptr<protocol::Array<protocol::Memory::Module>> modules =
-      protocol::Array<protocol::Memory::Module>::create();
+  auto modules = std::make_unique<protocol::Array<protocol::Memory::Module>>();
   for (const auto* module : module_cache.GetModules()) {
-    modules->addItem(
+    modules->emplace_back(
         protocol::Memory::Module::create()
-            .setName(module->filename.value().c_str())
-            .setUuid(module->id.c_str())
-            .setBaseAddress(String::Format("0x%" PRIxPTR, module->base_address))
-            .setSize(static_cast<double>(module->size))
+            .setName(module->GetDebugBasename().value().c_str())
+            .setUuid(module->GetId().c_str())
+            .setBaseAddress(
+                String::Format("0x%" PRIxPTR, module->GetBaseAddress()))
+            .setSize(static_cast<double>(module->GetSize()))
             .build());
   }
 
@@ -169,42 +182,48 @@ InspectorMemoryAgent::GetSamplingProfileById(uint32_t id) {
       .build();
 }
 
-std::vector<std::string> InspectorMemoryAgent::Symbolize(
-    const std::vector<void*>& addresses) {
+Vector<String> InspectorMemoryAgent::Symbolize(
+    const WebVector<void*>& addresses) {
 #if defined(OS_LINUX)
   // TODO(alph): Move symbolization to the client.
-  std::vector<void*> addresses_to_symbolize;
-  for (void* address : addresses) {
+  Vector<void*> addresses_to_symbolize;
+  for (size_t i = 0; i < addresses.size(); i++) {
+    void* address = addresses[i];
     if (!symbols_cache_.Contains(address))
       addresses_to_symbolize.push_back(address);
   }
 
-  std::string text = base::debug::StackTrace(addresses_to_symbolize.data(),
-                                             addresses_to_symbolize.size())
-                         .ToString();
+  String text(base::debug::StackTrace(addresses_to_symbolize.data(),
+                                      addresses_to_symbolize.size())
+                  .ToString()
+                  .c_str());
   // Populate cache with new entries.
   size_t next_pos;
   for (size_t pos = 0, i = 0;; pos = next_pos + 1, ++i) {
     next_pos = text.find('\n', pos);
-    if (next_pos == std::string::npos)
+    if (next_pos == kNotFound)
       break;
-    std::string line = text.substr(pos, next_pos - pos);
-    size_t space_pos = line.rfind(' ');
-    std::string name =
-        line.substr(space_pos == std::string::npos ? 0 : space_pos + 1);
+    String line = text.Substring(pos, next_pos - pos);
+    size_t space_pos = line.ReverseFind(' ');
+    String name = line.Substring(space_pos == kNotFound ? 0 : space_pos + 1);
     symbols_cache_.insert(addresses_to_symbolize[i], name);
   }
 #endif
 
-  std::vector<std::string> result;
+  Vector<String> result;
   for (void* address : addresses) {
     char buffer[20];
     std::snprintf(buffer, sizeof(buffer), "0x%" PRIxPTR,
                   reinterpret_cast<uintptr_t>(address));
-    if (symbols_cache_.Contains(address))
-      result.push_back(std::string(buffer) + " " + symbols_cache_.at(address));
-    else
+    if (symbols_cache_.Contains(address)) {
+      StringBuilder builder;
+      builder.Append(buffer);
+      builder.Append(" ");
+      builder.Append(symbols_cache_.at(address));
+      result.push_back(builder.ToString());
+    } else {
       result.push_back(buffer);
+    }
   }
   return result;
 }

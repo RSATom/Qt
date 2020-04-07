@@ -17,10 +17,12 @@
  * Boston, MA 02110-1301, USA.
  */
 
-// https://html.spec.whatwg.org/#the-ins-element
-// https://html.spec.whatwg.org/#the-del-element
-[HTMLConstructor]
-interface HTMLModElement : HTMLElement {
+// https://html.spec.whatwg.org/C/#the-ins-element
+// https://html.spec.whatwg.org/C/#the-del-element
+[
+    Exposed=Window,
+    HTMLConstructor
+] interface HTMLModElement : HTMLElement {
     [CEReactions, Reflect, URL] attribute DOMString cite;
     [CEReactions, Reflect] attribute DOMString dateTime;
 };

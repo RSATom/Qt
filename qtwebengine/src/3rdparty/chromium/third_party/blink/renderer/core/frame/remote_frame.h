@@ -10,6 +10,7 @@
 #include "third_party/blink/renderer/core/execution_context/remote_security_context.h"
 #include "third_party/blink/renderer/core/frame/frame.h"
 #include "third_party/blink/renderer/core/frame/remote_frame_view.h"
+#include "third_party/blink/renderer/platform/wtf/casting.h"
 
 namespace cc {
 class Layer;
@@ -23,20 +24,19 @@ struct FrameLoadRequest;
 
 class CORE_EXPORT RemoteFrame final : public Frame {
  public:
-  static RemoteFrame* Create(RemoteFrameClient*, Page&, FrameOwner*);
-
-  RemoteFrame(RemoteFrameClient*, Page&, FrameOwner*);
+  // For a description of |inheriting_agent_factory| go see the comment on the
+  // Frame constructor.
+  RemoteFrame(RemoteFrameClient*,
+              Page&,
+              FrameOwner*,
+              WindowAgentFactory* inheriting_agent_factory);
   ~RemoteFrame() override;
 
   // Frame overrides:
   void Trace(blink::Visitor*) override;
-  void ScheduleNavigation(Document& origin_document,
-                          const KURL&,
-                          WebFrameLoadType,
-                          UserGestureStatus) override;
   void Navigate(const FrameLoadRequest&, WebFrameLoadType) override;
   RemoteSecurityContext* GetSecurityContext() const override;
-  bool PrepareForCommit() override;
+  bool DetachDocument() override;
   void CheckCompleted() override;
   bool ShouldClose() override;
   void DidFreeze() override;
@@ -89,11 +89,10 @@ inline RemoteFrameView* RemoteFrame::View() const {
   return view_.Get();
 }
 
-DEFINE_TYPE_CASTS(RemoteFrame,
-                  Frame,
-                  remoteFrame,
-                  remoteFrame->IsRemoteFrame(),
-                  remoteFrame.IsRemoteFrame());
+template <>
+struct DowncastTraits<RemoteFrame> {
+  static bool AllowFrom(const Frame& frame) { return frame.IsRemoteFrame(); }
+};
 
 }  // namespace blink
 

@@ -19,6 +19,7 @@
 #include "base/logging.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/sequenced_task_runner.h"
+#include "base/stl_util.h"
 #include "build/build_config.h"
 #include "components/history/core/browser/history_backend_client.h"
 #include "components/history/core/browser/history_backend_notifier.h"
@@ -169,8 +170,7 @@ ExpireHistoryBackend::ExpireHistoryBackend(
       main_db_(nullptr),
       thumb_db_(nullptr),
       backend_client_(backend_client),
-      task_runner_(task_runner),
-      weak_factory_(this) {
+      task_runner_(task_runner) {
   DCHECK(notifier_);
 }
 
@@ -183,11 +183,12 @@ void ExpireHistoryBackend::SetDatabases(HistoryDatabase* main_db,
   thumb_db_ = thumb_db;
 }
 
-void ExpireHistoryBackend::DeleteURL(const GURL& url) {
-  DeleteURLs(std::vector<GURL>(1, url));
+void ExpireHistoryBackend::DeleteURL(const GURL& url, base::Time end_time) {
+  DeleteURLs({url}, end_time);
 }
 
-void ExpireHistoryBackend::DeleteURLs(const std::vector<GURL>& urls) {
+void ExpireHistoryBackend::DeleteURLs(const std::vector<GURL>& urls,
+                                      base::Time end_time) {
   if (!main_db_)
     return;
 
@@ -206,16 +207,24 @@ void ExpireHistoryBackend::DeleteURLs(const std::vector<GURL>& urls) {
     // Collect all the visits and delete them. Note that we don't give up if
     // there are no visits, since the URL could still have an entry that we
     // should delete.
-    VisitVector visits;
-    main_db_->GetVisitsForURL(url_row.id(), &visits);
+    VisitVector visits_to_delete;
+    main_db_->GetVisitsForURL(url_row.id(), &visits_to_delete);
+    size_t total_visits = visits_to_delete.size();
+    if (!end_time.is_null() && !end_time.is_max()) {
+      // Remove all items that should not be deleted from |visits_to_delete|.
+      base::EraseIf(visits_to_delete,
+                    [=](auto& v) { return v.visit_time > end_time; });
+    }
+    DeleteVisitRelatedInfo(visits_to_delete, &effects);
 
-    DeleteVisitRelatedInfo(visits, &effects);
-
-    // We skip ExpireURLsForVisits (since we are deleting from the
-    // URL, and not starting with visits in a given time range). We
-    // therefore need to call the deletion and favicon update
-    // functions manually.
-    DeleteOneURL(url_row, is_pinned, &effects);
+    // Remove the URL if all visits have been removed.
+    if (visits_to_delete.size() == total_visits) {
+      // We skip ExpireURLsForVisits (since we are deleting from the
+      // URL, and not starting with visits in a given time range). We
+      // therefore need to call the deletion and favicon update
+      // functions manually.
+      DeleteOneURL(url_row, is_pinned, &effects);
+    }
   }
 
   DeleteFaviconsIfPossible(&effects);
@@ -321,6 +330,43 @@ void ExpireHistoryBackend::ExpireHistoryBeforeForTesting(base::Time end_time) {
   ExpireSomeOldHistory(end_time, GetAllVisitsReader(),
                        std::numeric_limits<int>::max());
   ParanoidExpireHistory();
+}
+
+void ExpireHistoryBackend::ClearOldOnDemandFaviconsIfPossible(
+    base::Time expiration_threshold) {
+  if (!thumb_db_)
+    return;
+
+  // Extra precaution to avoid repeated calls to GetOldOnDemandFavicons() close
+  // in time, since it can be fairly expensive.
+  if (expiration_threshold <
+      last_on_demand_expiration_threshold_ +
+          base::TimeDelta::FromHours(kClearOnDemandFaviconsIntervalHours)) {
+    return;
+  }
+
+  last_on_demand_expiration_threshold_ = expiration_threshold;
+
+  std::map<favicon_base::FaviconID, IconMappingsForExpiry> icon_mappings =
+      thumb_db_->GetOldOnDemandFavicons(expiration_threshold);
+  DeleteEffects effects;
+
+  for (auto id_and_mappings_pair : icon_mappings) {
+    favicon_base::FaviconID icon_id = id_and_mappings_pair.first;
+    const IconMappingsForExpiry& mappings = id_and_mappings_pair.second;
+
+    if (backend_client_ &&
+        IsAnyURLPinned(backend_client_, mappings.page_urls)) {
+      continue;
+    }
+
+    thumb_db_->DeleteFavicon(icon_id);
+    thumb_db_->DeleteIconMappingsForFaviconId(icon_id);
+    effects.deleted_favicons.insert(mappings.icon_url);
+  }
+
+  BroadcastNotifications(&effects, DELETION_EXPIRED,
+                         DeletionTimeRange::Invalid(), base::nullopt);
 }
 
 void ExpireHistoryBackend::InitWorkQueue() {
@@ -576,43 +622,6 @@ void ExpireHistoryBackend::DoExpireIteration() {
   }
 
   ScheduleExpire();
-}
-
-void ExpireHistoryBackend::ClearOldOnDemandFaviconsIfPossible(
-    base::Time expiration_threshold) {
-  if (!thumb_db_)
-    return;
-
-  // Extra precaution to avoid repeated calls to GetOldOnDemandFavicons() close
-  // in time, since it can be fairly expensive.
-  if (expiration_threshold <
-      last_on_demand_expiration_threshold_ +
-          base::TimeDelta::FromHours(kClearOnDemandFaviconsIntervalHours)) {
-    return;
-  }
-
-  last_on_demand_expiration_threshold_ = expiration_threshold;
-
-  std::map<favicon_base::FaviconID, IconMappingsForExpiry> icon_mappings =
-      thumb_db_->GetOldOnDemandFavicons(expiration_threshold);
-  DeleteEffects effects;
-
-  for (auto id_and_mappings_pair : icon_mappings) {
-    favicon_base::FaviconID icon_id = id_and_mappings_pair.first;
-    const IconMappingsForExpiry& mappings = id_and_mappings_pair.second;
-
-    if (backend_client_ &&
-        IsAnyURLPinned(backend_client_, mappings.page_urls)) {
-      continue;
-    }
-
-    thumb_db_->DeleteFavicon(icon_id);
-    thumb_db_->DeleteIconMappingsForFaviconId(icon_id);
-    effects.deleted_favicons.insert(mappings.icon_url);
-  }
-
-  BroadcastNotifications(&effects, DELETION_EXPIRED,
-                         DeletionTimeRange::Invalid(), base::nullopt);
 }
 
 bool ExpireHistoryBackend::ExpireSomeOldHistory(

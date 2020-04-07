@@ -16,10 +16,10 @@
 namespace blink {
 
 class MessagePort;
+class WritableStreamWrapper;
 
 // This is an implementation of the WritableStream interface that delegates to
-// the V8 Extras implementation. Use TraceWrapperMember to hold a reference to
-// an instance of this class.
+// the V8 Extras implementation.
 class CORE_EXPORT WritableStreamWrapper final : public WritableStream {
  public:
   // Call one of Init functions before using the instance.
@@ -46,6 +46,11 @@ class CORE_EXPORT WritableStreamWrapper final : public WritableStream {
       ScriptState*,
       v8::Local<v8::Object> internal_stream,
       ExceptionState&);
+
+  static WritableStreamWrapper* CreateWithCountQueueingStrategy(
+      ScriptState*,
+      UnderlyingSinkBase*,
+      size_t high_water_mark);
 
   void Trace(Visitor* visitor) override;
 

@@ -6,7 +6,7 @@
 **
 ** This file is part of the QtWaylandCompositor module of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL$
+** $QT_BEGIN_LICENSE:GPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
@@ -15,24 +15,14 @@
 ** and conditions see https://www.qt.io/terms-conditions. For further
 ** information use the contact form at https://www.qt.io/contact-us.
 **
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 3 as published by the Free Software
-** Foundation and appearing in the file LICENSE.LGPL3 included in the
-** packaging of this file. Please review the following information to
-** ensure the GNU Lesser General Public License version 3 requirements
-** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
-**
 ** GNU General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU
-** General Public License version 2.0 or (at your option) the GNU General
-** Public license version 3 or any later version approved by the KDE Free
-** Qt Foundation. The licenses are as published by the Free Software
-** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** General Public License version 3 or (at your option) any later version
+** approved by the KDE Free Qt Foundation. The licenses are as published by
+** the Free Software Foundation and appearing in the file LICENSE.GPL3
 ** included in the packaging of this file. Please review the following
 ** information to ensure the GNU General Public License requirements will
-** be met: https://www.gnu.org/licenses/gpl-2.0.html and
-** https://www.gnu.org/licenses/gpl-3.0.html.
+** be met: https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -48,6 +38,7 @@
 #include <QtWaylandCompositor/private/qwaylandcompositor_p.h>
 #include <QtWaylandCompositor/private/qwaylandview_p.h>
 #include <QtWaylandCompositor/private/qwaylandutils_p.h>
+#include <QtWaylandCompositor/private/qwaylandxdgoutputv1_p.h>
 
 #include <QtCore/QCoreApplication>
 #include <QtCore/QtMath>
@@ -162,6 +153,9 @@ void QWaylandOutputPrivate::sendGeometryInfo()
         if (resource->version() >= 2)
             send_done(resource->handle);
     }
+
+    if (xdgOutput)
+        QWaylandXdgOutputV1Private::get(xdgOutput)->sendDone();
 }
 
 void QWaylandOutputPrivate::sendMode(const Resource *resource, const QWaylandOutputMode &mode)
@@ -185,6 +179,9 @@ void QWaylandOutputPrivate::sendModesInfo()
         if (resource->version() >= 2)
             send_done(resource->handle);
     }
+
+    if (xdgOutput)
+        QWaylandXdgOutputV1Private::get(xdgOutput)->sendDone();
 }
 
 void QWaylandOutputPrivate::handleWindowPixelSizeChanged()
@@ -831,7 +828,8 @@ void QWaylandOutput::setScaleFactor(int scale)
 
     d->scaleFactor = scale;
 
-    Q_FOREACH (QWaylandOutputPrivate::Resource *resource, d->resourceMap().values()) {
+    const auto resMap = d->resourceMap();
+    for (QWaylandOutputPrivate::Resource *resource : resMap) {
         if (resource->version() >= 2) {
             d->send_scale(resource->handle, scale);
             d->send_done(resource->handle);
@@ -839,6 +837,9 @@ void QWaylandOutput::setScaleFactor(int scale)
     }
 
     Q_EMIT scaleFactorChanged();
+
+    if (d->xdgOutput)
+        QWaylandXdgOutputV1Private::get(d->xdgOutput)->sendDone();
 }
 
 /*!

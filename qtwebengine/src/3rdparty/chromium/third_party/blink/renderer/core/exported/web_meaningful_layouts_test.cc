@@ -177,10 +177,10 @@ TEST_F(WebMeaningfulLayoutsTest,
   test::RunPendingTasks();
   EXPECT_EQ(0, WebWidgetClient().VisuallyNonEmptyLayoutCount());
 
-  // We serve the SVG file and check visuallyNonEmptyLayoutCount() before
-  // mainResource.finish() because finishing the main resource causes
+  // We serve the SVG file and check VisuallyNonEmptyLayoutCount() before
+  // main_resource.Finish() because finishing the main resource causes
   // |FrameView::m_isVisuallyNonEmpty| to be true and
-  // visuallyNonEmptyLayoutCount() to be 1 irrespective of the SVG sizes.
+  // VisuallyNonEmptyLayoutCount() to be 1 irrespective of the SVG sizes.
   svg_resource.Start();
   svg_resource.Write(
       "<svg xmlns=\"http://www.w3.org/2000/svg\" height=\"65536\" "
@@ -207,30 +207,10 @@ TEST_F(WebMeaningfulLayoutsTest, LayoutWithPendingRenderBlockingStylesheet) {
       "</head><body></body></html>");
 
   GetDocument().UpdateStyleAndLayoutTree();
-  EXPECT_FALSE(GetDocument().IsRenderingReady());
+  EXPECT_FALSE(GetDocument().HaveRenderBlockingResourcesLoaded());
 
   style_resource.Complete("");
-  EXPECT_TRUE(GetDocument().IsRenderingReady());
-}
-
-// A pending stylesheet in the body is not render-blocking and should not
-// be considered a pending stylesheet if a layout is triggered before it loads.
-TEST_F(WebMeaningfulLayoutsTest, LayoutWithPendingScriptBlockingStylesheet) {
-  SimRequest main_resource("https://example.com/index.html", "text/html");
-  SimSubresourceRequest style_resource("https://example.com/style.css",
-                                       "text/css");
-
-  LoadURL("https://example.com/index.html");
-
-  main_resource.Complete(
-      "<html><head></head><body>"
-      "<link rel=\"stylesheet\" href=\"style.css\">"
-      "</body></html>");
-
-  GetDocument().UpdateStyleAndLayoutTreeIgnorePendingStylesheets();
-  EXPECT_FALSE(GetDocument().DidLayoutWithPendingStylesheets());
-
-  style_resource.Complete("");
+  EXPECT_TRUE(GetDocument().HaveRenderBlockingResourcesLoaded());
 }
 
 // A pending import in the head is render-blocking and will be treated like
@@ -248,12 +228,12 @@ TEST_F(WebMeaningfulLayoutsTest, LayoutWithPendingImportInHead) {
       "</head><body></body></html>");
 
   GetDocument().UpdateStyleAndLayoutTree();
-  EXPECT_FALSE(GetDocument().IsRenderingReady());
+  EXPECT_FALSE(GetDocument().HaveRenderBlockingResourcesLoaded());
 
   import_resource.Complete("");
   // Pump the HTMLImportTreeRoot::RecalcTimerFired task.
   test::RunPendingTasks();
-  EXPECT_TRUE(GetDocument().IsRenderingReady());
+  EXPECT_TRUE(GetDocument().HaveRenderBlockingResourcesLoaded());
 }
 
 // A pending import in the body is render-blocking and will be treated like
@@ -271,12 +251,12 @@ TEST_F(WebMeaningfulLayoutsTest, LayoutWithPendingImportInBody) {
       "</body></html>");
 
   GetDocument().UpdateStyleAndLayoutTree();
-  EXPECT_FALSE(GetDocument().IsRenderingReady());
+  EXPECT_FALSE(GetDocument().HaveRenderBlockingResourcesLoaded());
 
   import_resource.Complete("");
   // Pump the HTMLImportTreeRoot::RecalcTimerFired task.
   test::RunPendingTasks();
-  EXPECT_TRUE(GetDocument().IsRenderingReady());
+  EXPECT_TRUE(GetDocument().HaveRenderBlockingResourcesLoaded());
 }
 
 }  // namespace blink

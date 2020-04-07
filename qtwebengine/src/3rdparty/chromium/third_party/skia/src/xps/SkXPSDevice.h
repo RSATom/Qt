@@ -8,27 +8,27 @@
 #ifndef SkXPSDevice_DEFINED
 #define SkXPSDevice_DEFINED
 
-#include "SkTypes.h"
+#include "include/core/SkTypes.h"
 
 #ifdef SK_BUILD_FOR_WIN
 
 #include <ObjBase.h>
 #include <XpsObjectModel.h>
 
-#include "SkAutoCoInitialize.h"
-#include "SkBitSet.h"
-#include "SkBitmapDevice.h"
-#include "SkCanvas.h"
-#include "SkClipStackDevice.h"
-#include "SkColor.h"
-#include "SkPaint.h"
-#include "SkPath.h"
-#include "SkPoint.h"
-#include "SkShader.h"
-#include "SkSize.h"
-#include "SkTArray.h"
-#include "SkTScopedComPtr.h"
-#include "SkTypeface.h"
+#include "include/core/SkCanvas.h"
+#include "include/core/SkColor.h"
+#include "include/core/SkPaint.h"
+#include "include/core/SkPath.h"
+#include "include/core/SkPoint.h"
+#include "include/core/SkShader.h"
+#include "include/core/SkSize.h"
+#include "include/core/SkTypeface.h"
+#include "include/private/SkTArray.h"
+#include "src/core/SkBitmapDevice.h"
+#include "src/core/SkClipStackDevice.h"
+#include "src/utils/SkBitSet.h"
+#include "src/utils/win/SkAutoCoInitialize.h"
+#include "src/utils/win/SkTScopedComPtr.h"
 
 class SkGlyphRunList;
 
@@ -88,10 +88,6 @@ protected:
     void drawPath(const SkPath& path,
                   const SkPaint& paint,
                   bool pathIsMutable = false) override;
-    void drawBitmap(const SkBitmap& bitmap,
-                    SkScalar x,
-                    SkScalar y,
-                    const SkPaint& paint) override;
     void drawSprite(const SkBitmap& bitmap,
                     int x, int y, const SkPaint& paint) override;
     void drawBitmapRect(const SkBitmap&,
@@ -173,7 +169,7 @@ private:
     HRESULT createXpsImageBrush(
         const SkBitmap& bitmap,
         const SkMatrix& localMatrix,
-        const SkShader::TileMode (&xy)[2],
+        const SkTileMode (&xy)[2],
         const SkAlpha alpha,
         IXpsOMTileBrush** xpsBrush);
 

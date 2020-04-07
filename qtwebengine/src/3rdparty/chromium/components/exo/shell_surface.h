@@ -5,8 +5,8 @@
 #ifndef COMPONENTS_EXO_SHELL_SURFACE_H_
 #define COMPONENTS_EXO_SHELL_SURFACE_H_
 
+#include "ash/wm/toplevel_window_event_handler.h"
 #include "ash/wm/window_state_observer.h"
-#include "ash/wm/wm_toplevel_window_event_handler.h"
 #include "base/containers/circular_deque.h"
 #include "base/macros.h"
 #include "components/exo/shell_surface_base.h"
@@ -20,8 +20,7 @@ class Surface;
 
 // This class implements toplevel surface for which position and state are
 // managed by the shell.
-class ShellSurface : public ShellSurfaceBase,
-                     public ash::wm::WindowStateObserver {
+class ShellSurface : public ShellSurfaceBase, public ash::WindowStateObserver {
  public:
   // The |origin| is the initial position in screen coordinates. The position
   // specified as part of the geometry is relative to the shell surface.
@@ -39,7 +38,7 @@ class ShellSurface : public ShellSurfaceBase,
   // in steps of NxM pixels).
   using ConfigureCallback =
       base::RepeatingCallback<uint32_t(const gfx::Size& size,
-                                       ash::mojom::WindowStateType state_type,
+                                       ash::WindowStateType state_type,
                                        bool resizing,
                                        bool activated,
                                        const gfx::Vector2d& origin_offset)>;
@@ -86,7 +85,7 @@ class ShellSurface : public ShellSurfaceBase,
   void OnSetParent(Surface* parent, const gfx::Point& position) override;
 
   // Overridden from ShellSurfaceBase:
-  void InitializeWindowState(ash::wm::WindowState* window_state) override;
+  void InitializeWindowState(ash::WindowState* window_state) override;
   base::Optional<gfx::Rect> GetWidgetBounds() const override;
   gfx::Point GetSurfaceOrigin() const override;
 
@@ -96,18 +95,21 @@ class ShellSurface : public ShellSurfaceBase,
                              const gfx::Rect& new_bounds,
                              ui::PropertyChangeReason reason) override;
 
-  // Overridden from ash::wm::WindowStateObserver:
-  void OnPreWindowStateTypeChange(
-      ash::wm::WindowState* window_state,
-      ash::mojom::WindowStateType old_type) override;
-  void OnPostWindowStateTypeChange(
-      ash::wm::WindowState* window_state,
-      ash::mojom::WindowStateType old_type) override;
+  // Overridden from ash::WindowStateObserver:
+  void OnPreWindowStateTypeChange(ash::WindowState* window_state,
+                                  ash::WindowStateType old_type) override;
+  void OnPostWindowStateTypeChange(ash::WindowState* window_state,
+                                   ash::WindowStateType old_type) override;
 
   // Overridden from wm::ActivationChangeObserver:
   void OnWindowActivated(ActivationReason reason,
                          aura::Window* gained_active,
                          aura::Window* lost_active) override;
+
+  // Overridden from ShellSurfaceBase:
+  void SetWidgetBounds(const gfx::Rect& bounds) override;
+  bool OnPreWidgetCommit() override;
+  void OnPostWidgetCommit() override;
 
  private:
   class ScopedAnimationsDisabled;
@@ -134,13 +136,16 @@ class ShellSurface : public ShellSurfaceBase,
     DISALLOW_COPY_AND_ASSIGN(ScopedConfigure);
   };
 
-  // Overridden from ShellSurfaceBase:
-  void SetWidgetBounds(const gfx::Rect& bounds) override;
-  bool OnPreWidgetCommit() override;
-  void OnPostWidgetCommit() override;
+  // Set the parent window of this surface.
+  void SetParentWindow(aura::Window* parent);
 
-  // Asks the client to configure its surface.
-  void Configure();
+  // Sets up a transient window manager for this window if it can (i.e. if the
+  // surface has a widget with a parent).
+  void MaybeMakeTransient();
+
+  // Asks the client to configure its surface. Optionally, the user can override
+  // the behaviour to check for window dragging by setting ends_drag to true.
+  void Configure(bool ends_drag = false);
 
   void AttemptToStartDrag(int component);
 

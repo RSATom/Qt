@@ -59,6 +59,8 @@ private slots:
     void testStrokeWidth();
     void testMapViewBoxToTarget();
     void testRenderElement();
+    void testRenderElementToBounds();
+    void testRenderDocumentWithSizeToBounds();
     void constructorQXmlStreamReader() const;
     void loadQXmlStreamReader() const;
     void nestedQXmlStreamReader() const;
@@ -268,6 +270,18 @@ void tst_QSvgRenderer::testMapViewBoxToTarget()
         QCOMPARE(picture.boundingRect(), QRect(125, 125, 250, 250));
     }
 
+#if 0
+    // Requires keep-aspectratio feature
+    { // Viewport and viewBox specified -> scale 500x500 square to 1000x750 while preserving aspect ratio gives 750x750
+        data = "<svg width=\"1000\" height=\"750\" viewBox=\"-250 -250 500 500\"><g><rect x=\"0\" y=\"0\" width=\"500\" height=\"500\" /></g></svg>";
+        QPicture picture;
+        QPainter painter(&picture);
+        QSvgRenderer rend(data);
+        rend.render(&painter);
+        painter.end();
+        QCOMPARE(picture.boundingRect(), QRect(500, 375, 750, 750));
+    }
+#endif
 }
 
 void tst_QSvgRenderer::testRenderElement()
@@ -325,6 +339,71 @@ void tst_QSvgRenderer::testRenderElement()
         QCOMPARE(picture.boundingRect(), QRect(0, 0, 100, 100));
     }
 
+}
+
+void tst_QSvgRenderer::testRenderElementToBounds()
+{
+    // QTBUG-79933
+    QImage reference(400, 200, QImage::Format_ARGB32);
+    {
+        reference.fill(Qt::transparent);
+        QPainter p(&reference);
+        p.fillRect(  0,   0, 200, 100, Qt::blue);
+        p.fillRect(200, 100, 200, 100, Qt::blue);
+        p.fillRect(  0,   0, 100,  50, Qt::red);
+        p.fillRect(100,  50, 100,  50, Qt::red);
+        p.fillRect(200, 100, 100,  50, Qt::red);
+        p.fillRect(300, 150, 100,  50, Qt::red);
+    }
+
+    QImage rendering(400, 200, QImage::Format_ARGB32);
+    {
+        const char *const src =
+                "<svg viewBox=\"0 0 100 100\">" // Presence of a viewBox triggered QTBUG-79933
+                "<path id=\"el1\" d=\"M 80,10 H 0 V 0 h 40 v 20 h 40 z\" fill=\"red\" />"
+                "<path id=\"el2\" d=\"M 90,100 V 20 h 10 V 60 H 80 v 40 z\" fill=\"blue\" />"
+                "</svg>";
+        const QByteArray data(src);
+        QSvgRenderer rend(data);
+        rendering.fill(Qt::transparent);
+        QPainter p(&rendering);
+        rend.render(&p, "el1", QRectF(  0,   0, 200, 100));
+        rend.render(&p, "el2", QRectF(  0,   0, 200, 100));
+        rend.render(&p, "el1", QRectF(200, 100, 200, 100));
+        rend.render(&p, "el2", QRectF(200, 100, 200, 100));
+    }
+
+    QCOMPARE(reference, rendering);
+}
+
+void tst_QSvgRenderer::testRenderDocumentWithSizeToBounds()
+{
+    // QTBUG-80888
+    QImage reference(400, 200, QImage::Format_ARGB32);
+    {
+        reference.fill(Qt::transparent);
+        QPainter p(&reference);
+        p.fillRect(100, 100, 100,  50, Qt::blue);
+        p.fillRect(200,  50, 100,  50, Qt::blue);
+    }
+
+    QImage rendering(400, 200, QImage::Format_ARGB32);
+    {
+        const char *const src = R"src(
+        <svg width="20" height="80">
+            <g transform="translate(-100,-100)">
+                <path d="m 110,180 v -80 h 10 v 40 h -20 v 40 z" fill="blue" />
+            </g>
+        </svg>
+        )src";
+        const QByteArray data(src);
+        QSvgRenderer rend(data);
+        rendering.fill(Qt::transparent);
+        QPainter p(&rendering);
+        rend.render(&p, QRectF(100, 50, 200, 100));
+    }
+
+    QCOMPARE(reference, rendering);
 }
 
 void tst_QSvgRenderer::constructorQXmlStreamReader() const

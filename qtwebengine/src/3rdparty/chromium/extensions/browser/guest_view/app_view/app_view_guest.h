@@ -60,14 +60,15 @@ class AppViewGuest : public guest_view::GuestView<AppViewGuest> {
   int GetTaskPrefix() const final;
 
   // content::WebContentsDelegate implementation.
-  bool HandleContextMenu(const content::ContextMenuParams& params) final;
+  bool HandleContextMenu(content::RenderFrameHost* render_frame_host,
+                         const content::ContextMenuParams& params) final;
   void RequestMediaAccessPermission(
       content::WebContents* web_contents,
       const content::MediaStreamRequest& request,
       content::MediaResponseCallback callback) final;
   bool CheckMediaAccessPermission(content::RenderFrameHost* render_frame_host,
                                   const GURL& security_origin,
-                                  blink::MediaStreamType type) final;
+                                  blink::mojom::MediaStreamType type) final;
 
   void CompleteCreateWebContents(const GURL& url,
                                  const Extension* guest_extension,
@@ -85,7 +86,7 @@ class AppViewGuest : public guest_view::GuestView<AppViewGuest> {
 
   // This is used to ensure pending tasks will not fire after this object is
   // destroyed.
-  base::WeakPtrFactory<AppViewGuest> weak_ptr_factory_;
+  base::WeakPtrFactory<AppViewGuest> weak_ptr_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(AppViewGuest);
 };

@@ -21,7 +21,6 @@
 #include "base/bind.h"
 #include "base/callback_helpers.h"
 #include "base/command_line.h"
-#include "base/debug/stack_trace.h"
 #include "base/feature_list.h"
 #include "base/files/scoped_file.h"
 #include "base/logging.h"
@@ -34,6 +33,7 @@
 #include "build/build_config.h"
 #include "sandbox/constants.h"
 #include "sandbox/linux/services/credentials.h"
+#include "sandbox/linux/services/libc_interceptor.h"
 #include "sandbox/linux/services/namespace_sandbox.h"
 #include "sandbox/linux/services/proc_util.h"
 #include "sandbox/linux/services/resource_limits.h"
@@ -107,10 +107,15 @@ bool UpdateProcessTypeAndEnableSandbox(
   base::CommandLine::ForCurrentProcess()->InitFromArgv(exec);
 
   base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
-  command_line->AppendSwitchASCII(
-      switches::kProcessType,
-      command_line->GetSwitchValueASCII(switches::kProcessType)
-          .append("-broker"));
+  std::string new_process_type =
+      command_line->GetSwitchValueASCII(switches::kProcessType);
+  if (!new_process_type.empty()) {
+    new_process_type.append("-broker");
+  } else {
+    new_process_type = "broker";
+  }
+
+  command_line->AppendSwitchASCII(switches::kProcessType, new_process_type);
 
   if (broker_side_hook)
     CHECK(std::move(broker_side_hook).Run(options));
@@ -379,6 +384,8 @@ bool SandboxLinux::InitializeSandbox(SandboxType sandbox_type,
       << "InitializeSandbox() called after unexpected directories have been "
       << "opened. This breaks the security of the setuid sandbox.";
 
+  sandbox::InitLibcLocaltimeFunctions();
+
   // Attempt to limit the future size of the address space of the process.
   int error = 0;
   const bool limited_as = LimitAddressSpace(&error);
@@ -407,11 +414,31 @@ bool SandboxLinux::seccomp_bpf_with_tsync_supported() const {
   return seccomp_bpf_with_tsync_supported_;
 }
 
+rlim_t GetProcessDataSizeLimit(SandboxType sandbox_type) {
+#if defined(ARCH_CPU_64_BITS)
+  if (sandbox_type == SANDBOX_TYPE_GPU ||
+      sandbox_type == SANDBOX_TYPE_RENDERER) {
+    // Allow the GPU/RENDERER process's sandbox to access more physical memory
+    // if it's available on the system.
+    constexpr rlim_t GB = 1024 * 1024 * 1024;
+    const rlim_t physical_memory = base::SysInfo::AmountOfPhysicalMemory();
+    if (physical_memory > 16 * GB) {
+      return 16 * GB;
+    } else if (physical_memory > 8 * GB) {
+      return 8 * GB;
+    }
+  }
+#endif
+
+  return static_cast<rlim_t>(sandbox::kDataSizeLimit);
+}
+
 bool SandboxLinux::LimitAddressSpace(int* error) {
 #if !defined(ADDRESS_SANITIZER) && !defined(MEMORY_SANITIZER) && \
     !defined(THREAD_SANITIZER) && !defined(LEAK_SANITIZER)
   base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
-  if (SandboxTypeFromCommandLine(*command_line) == SANDBOX_TYPE_NO_SANDBOX) {
+  SandboxType sandbox_type = SandboxTypeFromCommandLine(*command_line);
+  if (sandbox_type == SANDBOX_TYPE_NO_SANDBOX) {
     return false;
   }
 
@@ -421,8 +448,8 @@ bool SandboxLinux::LimitAddressSpace(int* error) {
   // using integer overflows that require large allocations, heap spray, or
   // other memory-hungry attack modes.
 
-  *error = sandbox::ResourceLimits::Lower(
-      RLIMIT_DATA, static_cast<rlim_t>(sandbox::kDataSizeLimit));
+  rlim_t process_data_size_limit = GetProcessDataSizeLimit(sandbox_type);
+  *error = sandbox::ResourceLimits::Lower(RLIMIT_DATA, process_data_size_limit);
 
   // Cache the resource limit before turning on the sandbox.
   base::SysInfo::AmountOfVirtualMemory();

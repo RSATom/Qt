@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <utility>
 
+#include "base/bind.h"
 #include "base/callback_helpers.h"
 #include "base/location.h"
 #include "base/single_thread_task_runner.h"
@@ -107,7 +108,7 @@ void MockMDnsSocketFactory::SimulateReceive(const uint8_t* packet, int size) {
   DCHECK(!recv_callback_.is_null());
 
   memcpy(recv_buffer_->data(), packet, size);
-  base::ResetAndReturn(&recv_callback_).Run(size);
+  std::move(recv_callback_).Run(size);
 }
 
 int MockMDnsSocketFactory::RecvFromInternal(

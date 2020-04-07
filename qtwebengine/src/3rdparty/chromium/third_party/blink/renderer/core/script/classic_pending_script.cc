@@ -11,15 +11,18 @@
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/dom/scriptable_document_parser.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
+#include "third_party/blink/renderer/core/inspector/inspector_trace_events.h"
 #include "third_party/blink/renderer/core/loader/document_loader.h"
 #include "third_party/blink/renderer/core/loader/resource/script_resource.h"
 #include "third_party/blink/renderer/core/loader/subresource_integrity_helper.h"
 #include "third_party/blink/renderer/core/script/document_write_intervention.h"
 #include "third_party/blink/renderer/core/script/script_loader.h"
 #include "third_party/blink/renderer/platform/bindings/script_state.h"
-#include "third_party/blink/renderer/platform/histogram.h"
+#include "third_party/blink/renderer/platform/instrumentation/histogram.h"
+#include "third_party/blink/renderer/platform/instrumentation/tracing/trace_event.h"
 #include "third_party/blink/renderer/platform/loader/allowed_by_nosniff.h"
 #include "third_party/blink/renderer/platform/loader/fetch/cached_metadata.h"
+#include "third_party/blink/renderer/platform/loader/fetch/detachable_use_counter.h"
 #include "third_party/blink/renderer/platform/loader/fetch/memory_cache.h"
 #include "third_party/blink/renderer/platform/loader/fetch/raw_resource.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource_client.h"
@@ -30,7 +33,7 @@
 
 namespace blink {
 
-// <specdef href="https://html.spec.whatwg.org/#fetch-a-classic-script">
+// <specdef href="https://html.spec.whatwg.org/C/#fetch-a-classic-script">
 ClassicPendingScript* ClassicPendingScript::Fetch(
     const KURL& url,
     Document& element_document,
@@ -98,7 +101,7 @@ ClassicPendingScript::ClassicPendingScript(
       ready_state_(is_external ? kWaitingForResource : kReady),
       integrity_failure_(false) {
   CHECK(GetElement());
-  MemoryCoordinator::Instance().RegisterClient(this);
+  MemoryPressureListenerRegistry::Instance().RegisterClient(this);
 }
 
 ClassicPendingScript::~ClassicPendingScript() {}
@@ -191,7 +194,7 @@ void ClassicPendingScript::RecordStreamingHistogram(
 }
 
 void ClassicPendingScript::DisposeInternal() {
-  MemoryCoordinator::Instance().UnregisterClient(this);
+  MemoryPressureListenerRegistry::Instance().UnregisterClient(this);
   ClearResource();
   integrity_failure_ = false;
 }
@@ -247,10 +250,13 @@ void ClassicPendingScript::NotifyFinished(Resource* resource) {
 
     // It is possible to get back a script resource with integrity metadata
     // for a request with an empty integrity attribute. In that case, the
-    // integrity check should be skipped, so this check ensures that the
-    // integrity attribute isn't empty in addition to checking if the
-    // resource has empty integrity metadata.
-    if (!element->IntegrityAttributeValue().IsEmpty()) {
+    // integrity check should be skipped, as the integrity may not have been
+    // "meant" for this specific request. If the resource is being served from
+    // the preload cache however, we know any associated integrity metadata and
+    // checks were destined for this request, so we cannot skip the integrity
+    // check.
+    if (!element->IntegrityAttributeValue().IsEmpty() ||
+        GetResource()->IsLinkPreload()) {
       integrity_failure_ = GetResource()->IntegrityDisposition() !=
                            ResourceIntegrityDisposition::kPassed;
     }
@@ -263,13 +269,20 @@ void ClassicPendingScript::NotifyFinished(Resource* resource) {
                                        options_, cross_origin);
   }
 
+  TRACE_EVENT_WITH_FLOW1(
+      TRACE_DISABLED_BY_DEFAULT("v8.compile"),
+      "ClassicPendingScript::NotifyFinished", this, TRACE_EVENT_FLAG_FLOW_OUT,
+      "data",
+      inspector_parse_script_event::Data(GetResource()->InspectorId(),
+                                         GetResource()->Url().GetString()));
+
   bool error_occurred = GetResource()->ErrorOccurred() || integrity_failure_;
   AdvanceReadyState(error_occurred ? kErrorOccurred : kReady);
 }
 
-void ClassicPendingScript::Trace(blink::Visitor* visitor) {
+void ClassicPendingScript::Trace(Visitor* visitor) {
   ResourceClient::Trace(visitor);
-  MemoryCoordinatorClient::Trace(visitor);
+  MemoryPressureListener::Trace(visitor);
   PendingScript::Trace(visitor);
 }
 
@@ -322,9 +335,9 @@ ClassicScript* ClassicPendingScript::GetSource(const KURL& document_url) const {
     ScriptSourceCode source_code(source_text_for_inline_script_,
                                  source_location_type_, cache_handler,
                                  document_url, StartingPosition());
-    return ClassicScript::Create(source_code, base_url_for_inline_script_,
-                                 options_,
-                                 SanitizeScriptErrors::kDoNotSanitize);
+    return MakeGarbageCollected<ClassicScript>(
+        source_code, base_url_for_inline_script_, options_,
+        SanitizeScriptErrors::kDoNotSanitize);
   }
 
   DCHECK(GetResource()->IsLoaded());
@@ -333,9 +346,8 @@ ClassicScript* ClassicPendingScript::GetSource(const KURL& document_url) const {
   auto* fetcher = GetElement()->GetDocument().ContextDocument()->Fetcher();
   // If the MIME check fails, which is considered as load failure.
   if (!AllowedByNosniff::MimeTypeAsScript(
-          fetcher->Context(), fetcher->GetConsoleLogger(),
-          resource->GetResponse(), AllowedByNosniff::MimeTypeCheck::kLax,
-          false)) {
+          fetcher->GetUseCounter(), &fetcher->GetConsoleLogger(),
+          resource->GetResponse(), AllowedByNosniff::MimeTypeCheck::kLax)) {
     return nullptr;
   }
 
@@ -360,17 +372,23 @@ ClassicScript* ClassicPendingScript::GetSource(const KURL& document_url) const {
   RecordStreamingHistogram(GetSchedulingType(), streamer_ready,
                            not_streamed_reason);
 
+  TRACE_EVENT_WITH_FLOW1(TRACE_DISABLED_BY_DEFAULT("v8.compile"),
+                         "ClassicPendingScript::GetSource", this,
+                         TRACE_EVENT_FLAG_FLOW_IN, "not_streamed_reason",
+                         not_streamed_reason);
+
   ScriptSourceCode source_code(streamer_ready ? streamer : nullptr, resource,
                                not_streamed_reason);
   // The base URL for external classic script is
   //
-  // <spec href="https://html.spec.whatwg.org/#concept-script-base-url">
+  // <spec href="https://html.spec.whatwg.org/C/#concept-script-base-url">
   // ... the URL from which the script was obtained, ...</spec>
   const KURL& base_url = source_code.Url();
-  return ClassicScript::Create(source_code, base_url, options_,
-                               resource->GetResponse().IsCorsSameOrigin()
-                                   ? SanitizeScriptErrors::kDoNotSanitize
-                                   : SanitizeScriptErrors::kSanitize);
+  return MakeGarbageCollected<ClassicScript>(
+      source_code, base_url, options_,
+      resource->GetResponse().IsCorsSameOrigin()
+          ? SanitizeScriptErrors::kDoNotSanitize
+          : SanitizeScriptErrors::kSanitize);
 }
 
 bool ClassicPendingScript::IsReady() const {

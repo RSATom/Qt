@@ -8,6 +8,7 @@
 #include <string>
 #include <utility>
 
+#include "base/bind.h"
 #include "base/containers/queue.h"
 #include "base/location.h"
 #include "base/logging.h"
@@ -16,7 +17,7 @@
 #include "base/threading/scoped_blocking_call.h"
 #include "device/bluetooth/bluetooth_socket.h"
 #include "device/bluetooth/bluetooth_socket_thread.h"
-#include "net/base/completion_callback.h"
+#include "net/base/completion_repeating_callback.h"
 #include "net/base/io_buffer.h"
 #include "net/base/net_errors.h"
 #include "net/log/net_log_source.h"
@@ -123,7 +124,8 @@ void BluetoothSocketNet::PostErrorCompletion(
 
 void BluetoothSocketNet::DoClose() {
   DCHECK(socket_thread_->task_runner()->RunsTasksInCurrentSequence());
-  base::ScopedBlockingCall scoped_blocking_call(base::BlockingType::MAY_BLOCK);
+  base::ScopedBlockingCall scoped_blocking_call(FROM_HERE,
+                                                base::BlockingType::MAY_BLOCK);
 
   if (tcp_socket_) {
     tcp_socket_->Close();
@@ -152,7 +154,8 @@ void BluetoothSocketNet::DoReceive(
     const ReceiveCompletionCallback& success_callback,
     const ReceiveErrorCompletionCallback& error_callback) {
   DCHECK(socket_thread_->task_runner()->RunsTasksInCurrentSequence());
-  base::ScopedBlockingCall scoped_blocking_call(base::BlockingType::MAY_BLOCK);
+  base::ScopedBlockingCall scoped_blocking_call(FROM_HERE,
+                                                base::BlockingType::MAY_BLOCK);
 
   if (!tcp_socket_) {
     error_callback.Run(BluetoothSocket::kDisconnected, kSocketNotConnected);
@@ -227,7 +230,8 @@ void BluetoothSocketNet::DoSend(
 
 void BluetoothSocketNet::SendFrontWriteRequest() {
   DCHECK(socket_thread_->task_runner()->RunsTasksInCurrentSequence());
-  base::ScopedBlockingCall scoped_blocking_call(base::BlockingType::MAY_BLOCK);
+  base::ScopedBlockingCall scoped_blocking_call(FROM_HERE,
+                                                base::BlockingType::MAY_BLOCK);
 
   if (!tcp_socket_)
     return;
@@ -236,11 +240,9 @@ void BluetoothSocketNet::SendFrontWriteRequest() {
     return;
 
   WriteRequest* request = write_queue_.front().get();
-  net::CompletionCallback callback =
-      base::Bind(&BluetoothSocketNet::OnSocketWriteComplete,
-                 this,
-                 request->success_callback,
-                 request->error_callback);
+  net::CompletionRepeatingCallback callback =
+      base::BindRepeating(&BluetoothSocketNet::OnSocketWriteComplete, this,
+                          request->success_callback, request->error_callback);
   net::NetworkTrafficAnnotationTag traffic_annotation =
       net::DefineNetworkTrafficAnnotation("bluetooth_socket", R"(
         semantics {

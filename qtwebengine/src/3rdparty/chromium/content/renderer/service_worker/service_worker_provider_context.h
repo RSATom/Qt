@@ -10,26 +10,32 @@
 #include <string>
 #include <vector>
 
+#include "base/gtest_prod_util.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
-#include "base/sequenced_task_runner_helpers.h"
 #include "content/common/content_export.h"
-#include "content/renderer/service_worker/service_worker_provider_state_for_client.h"
-#include "content/renderer/service_worker/web_service_worker_provider_impl.h"
 #include "mojo/public/cpp/bindings/associated_binding.h"
-#include "services/network/public/cpp/shared_url_loader_factory.h"
+#include "mojo/public/cpp/bindings/binding_set.h"
+#include "mojo/public/cpp/bindings/pending_remote.h"
+#include "services/network/public/mojom/url_loader_factory.mojom.h"
 #include "third_party/blink/public/mojom/service_worker/controller_service_worker.mojom.h"
 #include "third_party/blink/public/mojom/service_worker/service_worker_container.mojom.h"
 #include "third_party/blink/public/mojom/service_worker/service_worker_object.mojom.h"
 #include "third_party/blink/public/mojom/service_worker/service_worker_provider.mojom.h"
 #include "third_party/blink/public/mojom/service_worker/service_worker_provider_type.mojom.h"
 #include "third_party/blink/public/mojom/service_worker/service_worker_registration.mojom.h"
+#include "third_party/blink/public/mojom/web_feature/web_feature.mojom.h"
 #include "third_party/blink/public/platform/modules/service_worker/web_service_worker_provider_client.h"
 
 namespace base {
 class SingleThreadTaskRunner;
 }  // namespace base
+
+namespace network {
+class SharedURLLoaderFactory;
+class WeakWrapperSharedURLLoaderFactory;
+}  // namespace network
 
 namespace content {
 
@@ -39,15 +45,20 @@ class URLLoaderFactory;
 
 namespace service_worker_provider_context_unittest {
 class ServiceWorkerProviderContextTest;
+FORWARD_DECLARE_TEST(ServiceWorkerProviderContextTest,
+                     SetControllerServiceWorker);
+FORWARD_DECLARE_TEST(ServiceWorkerProviderContextTest,
+                     ControllerWithoutFetchHandler);
 }  // namespace service_worker_provider_context_unittest
 
+class WebServiceWorkerProviderImpl;
 class WebServiceWorkerRegistrationImpl;
 struct ServiceWorkerProviderContextDeleter;
 
-// ServiceWorkerProviderContext stores common state for service worker
-// "providers" (currently WebServiceWorkerProviderImpl and
-// ServiceWorkerNetworkProvider). Providers for the same underlying entity hold
-// strong references to a shared instance of this class.
+// ServiceWorkerProviderContext stores common state for "providers" for service
+// worker clients (currently WebServiceWorkerProviderImpl and
+// ServiceWorkerNetworkProviderFor{Frame,Worker}). Providers for the same
+// underlying entity hold strong references to a shared instance of this class.
 //
 // ServiceWorkerProviderContext is also a
 // blink::mojom::ServiceWorkerWorkerClientRegistry. If it's a provider for a
@@ -64,21 +75,18 @@ class CONTENT_EXPORT ServiceWorkerProviderContext
       public blink::mojom::ServiceWorkerContainer,
       public blink::mojom::ServiceWorkerWorkerClientRegistry {
  public:
-  // |provider_id| is used to identify this provider in IPC messages to the
-  // browser process. |request| is an endpoint which is connected to
-  // the content::ServiceWorkerProviderHost that notifies of changes to the
+  // |request| is an endpoint which is connected to the
+  // content::ServiceWorkerProviderHost that notifies of changes to the
   // registration's and workers' status. |request| is bound with |binding_|.
   //
-  // |controller_info| contains the endpoint (which is non-null only when
-  // S13nServiceWorker is enabled) and object info that is needed to set up the
-  // controller service worker for the context.
-  // For S13nServiceWorker:
+  // |controller_info| contains the endpoint and object info that is needed to
+  // set up the controller service worker for the context.
+  //
   // |fallback_loader_factory| is a default loader factory for fallback
   // requests, and is used when we create a subresource loader for controllees.
   // This is non-null only if the provider is created for controllees, and if
   // the loading context, e.g. a frame, provides it.
   ServiceWorkerProviderContext(
-      int provider_id,
       blink::mojom::ServiceWorkerProviderType provider_type,
       blink::mojom::ServiceWorkerContainerAssociatedRequest request,
       blink::mojom::ServiceWorkerContainerHostAssociatedPtrInfo host_ptr_info,
@@ -89,28 +97,29 @@ class CONTENT_EXPORT ServiceWorkerProviderContext
     return provider_type_;
   }
 
-  int provider_id() const { return provider_id_; }
-
   // Returns version id of the controller service worker object
   // (ServiceWorkerContainer#controller).
   int64_t GetControllerVersionId() const;
 
-  blink::mojom::ControllerServiceWorkerMode IsControlledByServiceWorker() const;
+  blink::mojom::ControllerServiceWorkerMode GetControllerServiceWorkerMode()
+      const;
 
   // Takes the controller service worker object info set by SetController() if
   // any, otherwise returns nullptr.
   blink::mojom::ServiceWorkerObjectInfoPtr TakeController();
 
-  // S13nServiceWorker:
-  // Returns URLLoaderFactory for loading subresources with the controller
-  // ServiceWorker, or nullptr if no controller is attached.
-  network::mojom::URLLoaderFactory* GetSubresourceLoaderFactory();
+  // Returns the factory for loading subresources with the controller
+  // ServiceWorker, or nullptr if no controller is attached. Returns a
+  // WeakWrapperSharedURLLoaderFactory because the inner factory is destroyed
+  // when this context is destroyed but loaders may persist a reference to the
+  // loader returned from this method.
+  scoped_refptr<network::WeakWrapperSharedURLLoaderFactory>
+  GetSubresourceLoaderFactory();
 
   // Returns the feature usage of the controller service worker.
   const std::set<blink::mojom::WebFeature>& used_features() const;
 
-  // S13nServiceWorker:
-  // The Client#id value of the client.
+  // The Client#id value of this context.
   const std::string& client_id() const;
 
   // For providers for frames. See |fetch_request_window_id| in
@@ -131,19 +140,22 @@ class CONTENT_EXPORT ServiceWorkerProviderContext
   void CloneWorkerClientRegistry(
       blink::mojom::ServiceWorkerWorkerClientRegistryRequest request) override;
 
-  // S13nServiceWorker:
   // Returns a ServiceWorkerContainerHostPtrInfo to this context's container
-  // host.
+  // host. This can return null after OnNetworkProviderDestroyed() is called
+  // (in which case |this| will be destroyed soon).
   blink::mojom::ServiceWorkerContainerHostPtrInfo CloneContainerHostPtrInfo();
 
-  // Called when ServiceWorkerNetworkProvider is destructed. This function
+  // Called when WebServiceWorkerNetworkProvider is destructed. This function
   // severs the Mojo binding to the browser-side ServiceWorkerProviderHost. The
-  // reason ServiceWorkerNetworkProvider is special compared to the other
+  // reason WebServiceWorkerNetworkProvider is special compared to the other
   // providers, is that it is destructed synchronously when a service worker
   // client (Document) is removed from the DOM. Once this happens, the
   // ServiceWorkerProviderHost must destruct quickly in order to remove the
   // ServiceWorkerClient from the system (thus allowing unregistration/update to
   // occur and ensuring the Clients API doesn't return the client).
+  //
+  // TODO(https://crbug.com/931497): Remove this weird partially destroyed
+  // state.
   void OnNetworkProviderDestroyed();
 
   // Gets the blink::mojom::ServiceWorkerContainerHost* for sending requests to
@@ -174,6 +186,12 @@ class CONTENT_EXPORT ServiceWorkerProviderContext
       ServiceWorkerProviderContextTest;
   friend class WebServiceWorkerRegistrationImpl;
   friend struct ServiceWorkerProviderContextDeleter;
+  FRIEND_TEST_ALL_PREFIXES(service_worker_provider_context_unittest::
+                               ServiceWorkerProviderContextTest,
+                           SetControllerServiceWorker);
+  FRIEND_TEST_ALL_PREFIXES(service_worker_provider_context_unittest::
+                               ServiceWorkerProviderContextTest,
+                           ControllerWithoutFetchHandler);
 
   ~ServiceWorkerProviderContext() override;
   void DestructOnMainThread() const;
@@ -185,19 +203,20 @@ class CONTENT_EXPORT ServiceWorkerProviderContext
   // Implementation of blink::mojom::ServiceWorkerContainer.
   void SetController(
       blink::mojom::ControllerServiceWorkerInfoPtr controller_info,
-      const std::vector<blink::mojom::WebFeature>& used_features,
       bool should_notify_controllerchange) override;
   void PostMessageToClient(blink::mojom::ServiceWorkerObjectInfoPtr source,
                            blink::TransferableMessage message) override;
   void CountFeature(blink::mojom::WebFeature feature) override;
 
-  // S13nServiceWorker:
   // A convenient utility method to tell if a subresource loader factory
   // can be created for this context.
   bool CanCreateSubresourceLoaderFactory() const;
 
+  // Returns URLLoaderFactory for loading subresources with the controller
+  // ServiceWorker, or nullptr if no controller is attached.
+  network::mojom::URLLoaderFactory* GetSubresourceLoaderFactoryInternal();
+
   const blink::mojom::ServiceWorkerProviderType provider_type_;
-  const int provider_id_;
   scoped_refptr<base::SingleThreadTaskRunner> main_thread_task_runner_;
 
   // Mojo binding for the |request| passed to the constructor. This keeps the
@@ -207,7 +226,9 @@ class CONTENT_EXPORT ServiceWorkerProviderContext
 
   // The |container_host_| interface represents the connection to the
   // browser-side ServiceWorkerProviderHost, whose lifetime is bound to
-  // |container_host_| via the Mojo connection.
+  // |container_host_| via the Mojo connection. This may be nullptr if the Mojo
+  // connection was broken in OnNetworkProviderDestroyed().
+  //
   // The |container_host_| interface also implements functions for
   // navigator.serviceWorker, but all the methods that correspond to
   // navigator.serviceWorker.* can be used only if |this| is a provider
@@ -216,17 +237,73 @@ class CONTENT_EXPORT ServiceWorkerProviderContext
   // Note: Currently this is always bound on main thread.
   blink::mojom::ServiceWorkerContainerHostAssociatedPtr container_host_;
 
-  // State for service worker clients.
-  // TODO(leonhsl): Integrate ServiceWorkerProviderStateForClient back as this
-  // class is only for service worker clients now.
-  std::unique_ptr<ServiceWorkerProviderStateForClient> state_for_client_;
+  // |controller_| will be set by SetController() and taken by TakeController().
+  blink::mojom::ServiceWorkerObjectInfoPtr controller_;
+  // Keeps version id of the current controller service worker object.
+  int64_t controller_version_id_ = blink::mojom::kInvalidServiceWorkerVersionId;
+
+  // Used to intercept requests from the controllee and dispatch them
+  // as events to the controller ServiceWorker.
+  network::mojom::URLLoaderFactoryPtr subresource_loader_factory_;
+
+  // Used when we create |subresource_loader_factory_|.
+  scoped_refptr<network::SharedURLLoaderFactory> fallback_loader_factory_;
+
+  // Used to ensure handed out loader factories are properly detached when the
+  // contained subresource_loader_factory goes away.
+  scoped_refptr<network::WeakWrapperSharedURLLoaderFactory>
+      weak_wrapped_subresource_loader_factory_;
+
+  // The Client#id value for this context.
+  std::string client_id_;
+
+  // Corresponds to a request's "window" in the Fetch spec:
+  // https://fetch.spec.whatwg.org/#concept-request-window
+  base::UnguessableToken fetch_request_window_id_;
+
+  blink::mojom::ControllerServiceWorkerMode controller_mode_ =
+      blink::mojom::ControllerServiceWorkerMode::kNoController;
+
+  // Tracks feature usage for UseCounter.
+  std::set<blink::mojom::WebFeature> used_features_;
+
+  // Corresponds to this context's ServiceWorkerContainer. May be null when not
+  // yet created, when already destroyed, or when this client is not a Document
+  // and therefore doesn't support navigator.serviceWorker.
+  base::WeakPtr<WebServiceWorkerProviderImpl> web_service_worker_provider_;
+
+  // Keeps ServiceWorkerWorkerClient pointers of dedicated or shared workers
+  // which are associated with the ServiceWorkerProviderContext.
+  // - If this ServiceWorkerProviderContext is for a Document, then
+  //   |worker_clients| contains all its dedicated workers.
+  // - If this ServiceWorkerProviderContext is for a SharedWorker (technically
+  //   speaking, for its shadow page), then |worker_clients| has one element:
+  //   the shared worker.
+  std::vector<blink::mojom::ServiceWorkerWorkerClientPtr> worker_clients_;
+
+  // For adding new ServiceWorkerWorkerClients.
+  mojo::BindingSet<blink::mojom::ServiceWorkerWorkerClientRegistry>
+      worker_client_registry_bindings_;
+
+  // Used in |subresource_loader_factory_| to get the connection to the
+  // controller service worker.
+  //
+  // |remote_controller_| is a Mojo pipe to the controller service worker,
+  // and is to be passed to (i.e. taken by) a subresource loader factory when
+  // GetSubresourceLoaderFactory() is called for the first time when a valid
+  // controller exists.
+  //
+  // |controller_connector_| is a Mojo pipe to the
+  // ControllerServiceWorkerConnector that is attached to the newly created
+  // subresource loader factory and lives on a background thread. This is
+  // populated when GetSubresourceLoader() creates the subresource loader
+  // factory and takes |controller_endpoint_|.
+  mojo::PendingRemote<blink::mojom::ControllerServiceWorker> remote_controller_;
+  blink::mojom::ControllerServiceWorkerConnectorPtr controller_connector_;
 
   bool sent_execution_ready_ = false;
 
-  // NOTE: Add new members to |state_for_client_| if they are relevant only for
-  // service worker clients. Not here!
-
-  base::WeakPtrFactory<ServiceWorkerProviderContext> weak_factory_;
+  base::WeakPtrFactory<ServiceWorkerProviderContext> weak_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(ServiceWorkerProviderContext);
 };

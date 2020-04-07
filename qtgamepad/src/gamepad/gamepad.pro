@@ -30,7 +30,7 @@ ANDROID_BUNDLED_JAR_DEPENDENCIES = \
     jar/QtAndroidGamepad.jar
 
 ANDROID_LIB_DEPENDENCIES = \
-    plugins/gamepads/libandroidgamepad.so
+    plugins/gamepads/libplugins_gamepads_androidgamepad.so
 
 ANDROID_FEATURES = \
     android.hardware.gamepad

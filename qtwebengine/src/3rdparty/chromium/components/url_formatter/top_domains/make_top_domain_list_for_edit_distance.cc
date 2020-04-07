@@ -52,7 +52,8 @@ int main(int argc, char* argv[]) {
       *base::CommandLine::ForCurrentProcess();
 
   logging::LoggingSettings settings;
-  settings.logging_dest = logging::LOG_TO_SYSTEM_DEBUG_LOG;
+  settings.logging_dest =
+      logging::LOG_TO_SYSTEM_DEBUG_LOG | logging::LOG_TO_STDERR;
   logging::InitLogging(settings);
 
 #if defined(OS_WIN)
@@ -96,13 +97,17 @@ int main(int argc, char* argv[]) {
   }
 
   size_t count = 0;
-  std::string output = "const char* const kTop500[] = {";
+  std::string output =
+      R"(#include "components/url_formatter/top_domains/top500_domains.h"
+namespace top500_domains {
+const char* const kTop500[500] = {
+)";
   for (std::string line : lines) {
     base::TrimWhitespaceASCII(line, base::TRIM_ALL, &line);
     if (line.empty() || line[0] == '#') {
       continue;
     }
-    if (count > kTopN)
+    if (count >= kTopN)
       break;
     if (!url_formatter::top_domains::IsEditDistanceCandidate(line)) {
       continue;
@@ -111,7 +116,9 @@ int main(int argc, char* argv[]) {
     const std::string skeleton = GetSkeleton(line, spoof_checker.get());
     output += "\"" + skeleton + "\",\n";
   }
-  output += "};\n";
+  output += R"(};
+}  // namespace top500_domains
+)";
 
   base::FilePath output_path = base::FilePath::FromUTF8Unsafe(argv[2]);
   if (base::WriteFile(output_path, output.c_str(),

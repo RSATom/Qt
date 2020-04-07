@@ -5,10 +5,18 @@
  * found in the LICENSE file.
  */
 
-#include "gm.h"
-#include "SkPaint.h"
-#include "SkPath.h"
-#include "SkPictureRecorder.h"
+#include "gm/gm.h"
+#include "include/core/SkBlendMode.h"
+#include "include/core/SkCanvas.h"
+#include "include/core/SkMatrix.h"
+#include "include/core/SkPaint.h"
+#include "include/core/SkPath.h"
+#include "include/core/SkPicture.h"
+#include "include/core/SkPictureRecorder.h"
+#include "include/core/SkRect.h"
+#include "include/core/SkRefCnt.h"
+#include "include/core/SkSize.h"
+#include "include/core/SkString.h"
 
 static sk_sp<SkPicture> make_picture() {
     SkPictureRecorder rec;
@@ -71,7 +79,7 @@ protected:
         matrix.postTranslate(110, 0);
         canvas->drawPicture(fPicture, &matrix, &paint);
 
-        paint.setAlpha(0x80);
+        paint.setAlphaf(0.5f);
         matrix.postTranslate(110, 0);
         canvas->drawPicture(fPicture, &matrix, &paint);
     }

@@ -51,7 +51,6 @@
 #include "third_party/blink/renderer/core/frame/local_dom_window.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/frame/settings.h"
-#include "third_party/blink/renderer/core/frame/use_counter.h"
 #include "third_party/blink/renderer/core/inspector/console_message.h"
 #include "third_party/blink/renderer/core/inspector/console_message_storage.h"
 #include "third_party/blink/renderer/core/inspector/identifiers_factory.h"
@@ -64,6 +63,7 @@
 #include "third_party/blink/renderer/core/xml/xpath_evaluator.h"
 #include "third_party/blink/renderer/core/xml/xpath_result.h"
 #include "third_party/blink/renderer/platform/bindings/dom_wrapper_world.h"
+#include "third_party/blink/renderer/platform/instrumentation/use_counter.h"
 #include "third_party/blink/renderer/platform/wtf/text/string_builder.h"
 #include "third_party/blink/renderer/platform/wtf/threading_primitives.h"
 
@@ -103,11 +103,12 @@ MainThreadDebugger::~MainThreadDebugger() {
   instance_ = nullptr;
 }
 
-void MainThreadDebugger::ReportConsoleMessage(ExecutionContext* context,
-                                              MessageSource source,
-                                              MessageLevel level,
-                                              const String& message,
-                                              SourceLocation* location) {
+void MainThreadDebugger::ReportConsoleMessage(
+    ExecutionContext* context,
+    mojom::ConsoleMessageSource source,
+    mojom::ConsoleMessageLevel level,
+    const String& message,
+    SourceLocation* location) {
   if (LocalFrame* frame = ToFrame(context))
     frame->Console().ReportMessageToClient(source, level, message, location);
 }
@@ -188,9 +189,10 @@ void MainThreadDebugger::ExceptionThrown(ExecutionContext* context,
     NOTREACHED();
   }
 
-  frame->Console().ReportMessageToClient(kJSMessageSource, kErrorMessageLevel,
-                                         event->MessageForConsole(),
-                                         event->Location());
+  frame->Console().ReportMessageToClient(
+      mojom::ConsoleMessageSource::kJavaScript,
+      mojom::ConsoleMessageLevel::kError, event->MessageForConsole(),
+      event->Location());
 
   const String default_message = "Uncaught";
   if (script_state && script_state->ContextIsValid()) {
@@ -264,7 +266,7 @@ void MainThreadDebugger::muteMetrics(int context_group_id) {
   if (!frame)
     return;
   if (frame->GetDocument() && frame->GetDocument()->Loader())
-    frame->GetDocument()->Loader()->GetUseCounter().MuteForInspector();
+    frame->GetDocument()->Loader()->GetUseCounterHelper().MuteForInspector();
   if (frame->GetPage())
     frame->GetPage()->GetDeprecation().MuteForInspector();
 }
@@ -274,7 +276,7 @@ void MainThreadDebugger::unmuteMetrics(int context_group_id) {
   if (!frame)
     return;
   if (frame->GetDocument() && frame->GetDocument()->Loader())
-    frame->GetDocument()->Loader()->GetUseCounter().UnmuteForInspector();
+    frame->GetDocument()->Loader()->GetUseCounterHelper().UnmuteForInspector();
   if (frame->GetPage())
     frame->GetPage()->GetDeprecation().UnmuteForInspector();
 }
@@ -333,12 +335,13 @@ void MainThreadDebugger::consoleAPIMessage(
     return;
   // TODO(dgozman): we can save a copy of message and url here by making
   // FrameConsole work with StringView.
-  std::unique_ptr<SourceLocation> location =
-      SourceLocation::Create(ToCoreString(url), line_number, column_number,
-                             stack_trace ? stack_trace->clone() : nullptr, 0);
-  frame->Console().ReportMessageToClient(kConsoleAPIMessageSource,
-                                         V8MessageLevelToMessageLevel(level),
-                                         ToCoreString(message), location.get());
+  std::unique_ptr<SourceLocation> location = std::make_unique<SourceLocation>(
+      ToCoreString(url), line_number, column_number,
+      stack_trace ? stack_trace->clone() : nullptr, 0);
+  frame->Console().ReportMessageToClient(
+      mojom::ConsoleMessageSource::kConsoleApi,
+      V8MessageLevelToMessageLevel(level), ToCoreString(message),
+      location.get());
 }
 
 void MainThreadDebugger::consoleClear(int context_group_id) {
@@ -355,8 +358,9 @@ v8::MaybeLocal<v8::Value> MainThreadDebugger::memoryInfo(
   ExecutionContext* execution_context = ToExecutionContext(context);
   DCHECK(execution_context);
   DCHECK(execution_context->IsDocument());
-  return ToV8(MemoryInfo::Create(MemoryInfo::Precision::Bucketized),
-              context->Global(), isolate);
+  return ToV8(
+      MakeGarbageCollected<MemoryInfo>(MemoryInfo::Precision::Bucketized),
+      context->Global(), isolate);
 }
 
 void MainThreadDebugger::installAdditionalCommandLineAPI(
@@ -395,14 +399,14 @@ void MainThreadDebugger::QuerySelectorCallback(
   String selector = ToCoreStringWithUndefinedOrNullCheck(info[0]);
   if (selector.IsEmpty())
     return;
-  Node* node = SecondArgumentAsNode(info);
-  if (!node || !node->IsContainerNode())
+  auto* container_node = DynamicTo<ContainerNode>(SecondArgumentAsNode(info));
+  if (!container_node)
     return;
   ExceptionState exception_state(info.GetIsolate(),
                                  ExceptionState::kExecutionContext,
                                  "CommandLineAPI", "$");
-  Element* element = ToContainerNode(node)->QuerySelector(
-      AtomicString(selector), exception_state);
+  Element* element =
+      container_node->QuerySelector(AtomicString(selector), exception_state);
   if (exception_state.HadException())
     return;
   if (element)
@@ -418,16 +422,16 @@ void MainThreadDebugger::QuerySelectorAllCallback(
   String selector = ToCoreStringWithUndefinedOrNullCheck(info[0]);
   if (selector.IsEmpty())
     return;
-  Node* node = SecondArgumentAsNode(info);
-  if (!node || !node->IsContainerNode())
+  auto* container_node = DynamicTo<ContainerNode>(SecondArgumentAsNode(info));
+  if (!container_node)
     return;
   ExceptionState exception_state(info.GetIsolate(),
                                  ExceptionState::kExecutionContext,
                                  "CommandLineAPI", "$$");
   // ToV8(elementList) doesn't work here, since we need a proper Array instance,
   // not NodeList.
-  StaticElementList* element_list = ToContainerNode(node)->QuerySelectorAll(
-      AtomicString(selector), exception_state);
+  StaticElementList* element_list =
+      container_node->QuerySelectorAll(AtomicString(selector), exception_state);
   if (exception_state.HadException() || !element_list)
     return;
   v8::Isolate* isolate = info.GetIsolate();

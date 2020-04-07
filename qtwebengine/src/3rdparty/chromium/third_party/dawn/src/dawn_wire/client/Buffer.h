@@ -17,6 +17,7 @@
 
 #include <dawn/dawn.h>
 
+#include "dawn_wire/WireClient.h"
 #include "dawn_wire/client/ObjectBase.h"
 
 #include <map>
@@ -27,26 +28,29 @@ namespace dawn_wire { namespace client {
         using ObjectBase::ObjectBase;
 
         ~Buffer();
-        void ClearMapRequests(dawnBufferMapAsyncStatus status);
+        void ClearMapRequests(DawnBufferMapAsyncStatus status);
 
         // We want to defer all the validation to the server, which means we could have multiple
         // map request in flight at a single time and need to track them separately.
         // On well-behaved applications, only one request should exist at a single time.
         struct MapRequestData {
-            dawnBufferMapReadCallback readCallback = nullptr;
-            dawnBufferMapWriteCallback writeCallback = nullptr;
-            dawnCallbackUserdata userdata = 0;
-            uint32_t size = 0;
-            bool isWrite = false;
+            // TODO(enga): Use a tagged pointer to save space.
+            DawnBufferMapReadCallback readCallback = nullptr;
+            DawnBufferMapWriteCallback writeCallback = nullptr;
+            void* userdata = nullptr;
+            // TODO(enga): Use a tagged pointer to save space.
+            std::unique_ptr<MemoryTransferService::ReadHandle> readHandle = nullptr;
+            std::unique_ptr<MemoryTransferService::WriteHandle> writeHandle = nullptr;
         };
         std::map<uint32_t, MapRequestData> requests;
         uint32_t requestSerial = 0;
+        uint64_t size = 0;
 
         // Only one mapped pointer can be active at a time because Unmap clears all the in-flight
         // requests.
-        void* mappedData = nullptr;
-        size_t mappedDataSize = 0;
-        bool isWriteMapped = false;
+        // TODO(enga): Use a tagged pointer to save space.
+        std::unique_ptr<MemoryTransferService::ReadHandle> readHandle = nullptr;
+        std::unique_ptr<MemoryTransferService::WriteHandle> writeHandle = nullptr;
     };
 
 }}  // namespace dawn_wire::client

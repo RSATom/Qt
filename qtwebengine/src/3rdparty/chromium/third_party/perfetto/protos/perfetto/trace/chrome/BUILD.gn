@@ -15,7 +15,11 @@
 import("../../../../gn/perfetto.gni")
 import("../../../../gn/protozero_library.gni")
 
-chrome_proto_names = [ "chrome_trace_event.proto" ]
+chrome_proto_names = [
+  "chrome_trace_event.proto",
+  "chrome_benchmark_metadata.proto",
+  "chrome_metadata.proto",
+]
 minimal_chrome_proto_names = [ "chrome_trace_packet.proto" ]
 
 proto_library("lite") {
@@ -26,6 +30,10 @@ proto_library("lite") {
 }
 
 protozero_library("zero") {
+  deps = [
+    "../interned_data:zero",
+    "../track_event:zero",
+  ]
   sources = chrome_proto_names
   proto_in_dir = "$perfetto_root_path/protos"
   proto_out_dir = "$perfetto_root_path/protos"
@@ -37,7 +45,10 @@ proto_library("minimal_complete_lite") {
   deps = [
     ":lite",
     "../:minimal_lite",
+    "../../common:lite",
     "../../config:lite",
+    "../interned_data:lite",
+    "../track_event:lite",
   ]
   sources = minimal_chrome_proto_names
   proto_in_dir = "$perfetto_root_path/protos"

@@ -41,6 +41,8 @@
 #include <QtSerialBus/qcanbusframe.h>
 #include <QtSerialBus/qcanbusdeviceinfo.h>
 
+#include <functional>
+
 QT_BEGIN_NAMESPACE
 
 class QCanBusDevicePrivate;
@@ -58,7 +60,9 @@ public:
         WriteError,
         ConnectionError,
         ConfigurationError,
-        UnknownError
+        UnknownError,
+        OperationError,
+        TimeoutError
     };
     Q_ENUM(CanBusError)
 
@@ -70,6 +74,15 @@ public:
     };
     Q_ENUM(CanBusDeviceState)
 
+    enum class CanBusStatus {
+        Unknown,
+        Good,
+        Warning,
+        Error,
+        BusOff
+    };
+    Q_ENUM(CanBusStatus)
+
     enum ConfigurationKey {
         RawFilterKey = 0,
         ErrorFilterKey,
@@ -78,12 +91,24 @@ public:
         BitRateKey,
         CanFdKey,
         DataBitRateKey,
+        ProtocolKey,
         UserKey = 30
     };
     Q_ENUM(ConfigurationKey)
 
     struct Filter
     {
+        friend constexpr bool operator==(const Filter &a, const Filter &b) noexcept
+        {
+            return a.frameId == b.frameId && a.frameIdMask == b.frameIdMask
+                    && a.type == b.type && a.format == b.format;
+        }
+
+        friend constexpr bool operator!=(const Filter &a, const Filter &b) noexcept
+        {
+            return !operator==(a, b);
+        }
+
         enum FormatFilter {
             MatchBaseFormat = 0x0001,
             MatchExtendedFormat = 0x0002,
@@ -108,6 +133,10 @@ public:
     QVector<QCanBusFrame> readAllFrames();
     qint64 framesAvailable() const;
     qint64 framesToWrite() const;
+
+    void resetController();
+    bool hasBusStatus() const;
+    QCanBusDevice::CanBusStatus busStatus() const;
 
     enum Direction {
         Input = 1,
@@ -140,6 +169,7 @@ Q_SIGNALS:
 protected:
     void setState(QCanBusDevice::CanBusDeviceState newState);
     void setError(const QString &errorText, QCanBusDevice::CanBusError);
+    void clearError();
 
     void enqueueReceivedFrames(const QVector<QCanBusFrame> &newFrames);
 
@@ -151,6 +181,9 @@ protected:
     //      Can be folded into one call to connectDevice() & disconnectDevice()
     virtual bool open() = 0;
     virtual void close() = 0;
+
+    void setResetControllerFunction(std::function<void()> resetter);
+    void setCanBusStatusGetter(std::function<CanBusStatus()> busStatusGetter);
 
     static QCanBusDeviceInfo createDeviceInfo(const QString &name,
                                               bool isVirtual = false,

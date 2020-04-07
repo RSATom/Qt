@@ -88,79 +88,129 @@ network::mojom::CookieManager* ParseStoreCookieManager(
 
 }  // namespace
 
+CookiesEventRouter::CookieChangeListener::CookieChangeListener(
+    CookiesEventRouter* router,
+    bool otr)
+    : router_(router), otr_(otr) {}
+CookiesEventRouter::CookieChangeListener::~CookieChangeListener() = default;
+
+void CookiesEventRouter::CookieChangeListener::OnCookieChange(
+    const net::CanonicalCookie& canonical_cookie,
+    network::mojom::CookieChangeCause cause) {
+  router_->OnCookieChange(otr_, canonical_cookie, cause);
+}
+
 CookiesEventRouter::CookiesEventRouter(content::BrowserContext* context)
     : profile_(Profile::FromBrowserContext(context)) {
-  CHECK(registrar_.IsEmpty());
-  registrar_.Add(this,
-                 chrome::NOTIFICATION_COOKIE_CHANGED_FOR_EXTENSIONS,
-                 content::NotificationService::AllBrowserContextsAndSources());
+  MaybeStartListening();
+  BrowserList::AddObserver(this);
 }
 
 CookiesEventRouter::~CookiesEventRouter() {
+  BrowserList::RemoveObserver(this);
 }
 
-void CookiesEventRouter::Observe(
-    int type,
-    const content::NotificationSource& source,
-    const content::NotificationDetails& details) {
-  DCHECK_EQ(chrome::NOTIFICATION_COOKIE_CHANGED_FOR_EXTENSIONS, type);
+void CookiesEventRouter::OnCookieChange(
+    bool otr,
+    const net::CanonicalCookie& canonical_cookie,
+    network::mojom::CookieChangeCause cause) {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
 
-  Profile* profile = content::Source<Profile>(source).ptr();
-  if (!profile_->IsSameProfile(profile))
-    return;
-
-  CookieChanged(profile, content::Details<ChromeCookieDetails>(details).ptr());
-}
-
-void CookiesEventRouter::CookieChanged(
-    Profile* profile,
-    ChromeCookieDetails* details) {
   std::unique_ptr<base::ListValue> args(new base::ListValue());
   std::unique_ptr<base::DictionaryValue> dict(new base::DictionaryValue());
-  dict->SetBoolean(cookies_api_constants::kRemovedKey, details->removed);
+  dict->SetBoolean(cookies_api_constants::kRemovedKey,
+                   cause != network::mojom::CookieChangeCause::INSERTED);
 
+  Profile* profile =
+      otr ? profile_->GetOffTheRecordProfile() : profile_->GetOriginalProfile();
   api::cookies::Cookie cookie = cookies_helpers::CreateCookie(
-      *details->cookie, cookies_helpers::GetStoreIdFromProfile(profile));
+      canonical_cookie, cookies_helpers::GetStoreIdFromProfile(profile));
   dict->Set(cookies_api_constants::kCookieKey, cookie.ToValue());
 
   // Map the internal cause to an external string.
-  std::string cause;
-  switch (details->cause) {
+  std::string cause_dict_entry;
+  switch (cause) {
     // Report an inserted cookie as an "explicit" change cause. All other causes
     // only make sense for deletions.
     case network::mojom::CookieChangeCause::INSERTED:
     case network::mojom::CookieChangeCause::EXPLICIT:
-      cause = cookies_api_constants::kExplicitChangeCause;
+      cause_dict_entry = cookies_api_constants::kExplicitChangeCause;
       break;
 
     case network::mojom::CookieChangeCause::OVERWRITE:
-      cause = cookies_api_constants::kOverwriteChangeCause;
+      cause_dict_entry = cookies_api_constants::kOverwriteChangeCause;
       break;
 
     case network::mojom::CookieChangeCause::EXPIRED:
-      cause = cookies_api_constants::kExpiredChangeCause;
+      cause_dict_entry = cookies_api_constants::kExpiredChangeCause;
       break;
 
     case network::mojom::CookieChangeCause::EVICTED:
-      cause = cookies_api_constants::kEvictedChangeCause;
+      cause_dict_entry = cookies_api_constants::kEvictedChangeCause;
       break;
 
     case network::mojom::CookieChangeCause::EXPIRED_OVERWRITE:
-      cause = cookies_api_constants::kExpiredOverwriteChangeCause;
+      cause_dict_entry = cookies_api_constants::kExpiredOverwriteChangeCause;
       break;
 
     case network::mojom::CookieChangeCause::UNKNOWN_DELETION:
       NOTREACHED();
   }
-  dict->SetString(cookies_api_constants::kCauseKey, cause);
+  dict->SetString(cookies_api_constants::kCauseKey, cause_dict_entry);
 
   args->Append(std::move(dict));
 
-  GURL cookie_domain =
-      cookies_helpers::GetURLFromCanonicalCookie(*details->cookie);
   DispatchEvent(profile, events::COOKIES_ON_CHANGED,
                 api::cookies::OnChanged::kEventName, std::move(args),
-                cookie_domain);
+                cookies_helpers::GetURLFromCanonicalCookie(canonical_cookie));
+}
+
+void CookiesEventRouter::OnBrowserAdded(Browser* browser) {
+  // The new browser may be associated with a profile that is the OTR spinoff
+  // of |profile_|, in which case we need to start listening to cookie changes
+  // there. If this is any other kind of new browser, MaybeStartListening() will
+  // be a no op.
+  MaybeStartListening();
+}
+
+void CookiesEventRouter::MaybeStartListening() {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+  DCHECK(profile_);
+
+  Profile* original_profile = profile_->GetOriginalProfile();
+  Profile* otr_profile = original_profile->HasOffTheRecordProfile()
+                             ? original_profile->GetOffTheRecordProfile()
+                             : nullptr;
+
+  if (!binding_)
+    BindToCookieManager(&binding_, original_profile);
+  if (!otr_binding_.is_bound() && otr_profile)
+    BindToCookieManager(&otr_binding_, otr_profile);
+}
+
+void CookiesEventRouter::BindToCookieManager(
+    mojo::Binding<network::mojom::CookieChangeListener>* binding,
+    Profile* profile) {
+  network::mojom::CookieManager* cookie_manager =
+      content::BrowserContext::GetDefaultStoragePartition(profile)
+          ->GetCookieManagerForBrowserProcess();
+  if (!cookie_manager)
+    return;
+
+  network::mojom::CookieChangeListenerPtr listener_ptr;
+  binding->Bind(mojo::MakeRequest(&listener_ptr));
+  binding->set_connection_error_handler(base::BindOnce(
+      &CookiesEventRouter::OnConnectionError, base::Unretained(this), binding));
+
+  cookie_manager->AddGlobalChangeListener(std::move(listener_ptr));
+}
+
+void CookiesEventRouter::OnConnectionError(
+    mojo::Binding<network::mojom::CookieChangeListener>* binding) {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+
+  binding->Close();
+  MaybeStartListening();
 }
 
 void CookiesEventRouter::DispatchEvent(
@@ -168,7 +218,7 @@ void CookiesEventRouter::DispatchEvent(
     events::HistogramValue histogram_value,
     const std::string& event_name,
     std::unique_ptr<base::ListValue> event_args,
-    GURL& cookie_domain) {
+    const GURL& cookie_domain) {
   EventRouter* router = context ? EventRouter::Get(context) : NULL;
   if (!router)
     return;
@@ -178,11 +228,8 @@ void CookiesEventRouter::DispatchEvent(
   router->BroadcastEvent(std::move(event));
 }
 
-CookiesGetFunction::CookiesGetFunction() {
-}
-
-CookiesGetFunction::~CookiesGetFunction() {
-}
+CookiesGetFunction::CookiesGetFunction() = default;
+CookiesGetFunction::~CookiesGetFunction() = default;
 
 ExtensionFunction::ResponseAction CookiesGetFunction::Run() {
   parsed_args_ = api::cookies::Get::Params::Create(*args_);
@@ -212,7 +259,9 @@ ExtensionFunction::ResponseAction CookiesGetFunction::Run() {
   return RespondLater();
 }
 
-void CookiesGetFunction::GetCookieCallback(const net::CookieList& cookie_list) {
+void CookiesGetFunction::GetCookieCallback(
+    const net::CookieList& cookie_list,
+    const net::CookieStatusList& excluded_cookies) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   for (const net::CanonicalCookie& cookie : cookie_list) {
     // Return the first matching cookie. Relies on the fact that the
@@ -267,7 +316,8 @@ ExtensionFunction::ResponseAction CookiesGetAllFunction::Run() {
 }
 
 void CookiesGetAllFunction::GetAllCookiesCallback(
-    const net::CookieList& cookie_list) {
+    const net::CookieList& cookie_list,
+    const net::CookieStatusList& excluded_cookies) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   ResponseValue response;
   if (extension()) {
@@ -320,17 +370,23 @@ ExtensionFunction::ResponseAction CookiesSetFunction::Run() {
         base::Time::FromDoubleT(*parsed_args_->details.expiration_date);
   }
 
-  net::CookieSameSite same_site = net::CookieSameSite::DEFAULT_MODE;
+  net::CookieSameSite same_site = net::CookieSameSite::UNSPECIFIED;
   switch (parsed_args_->details.same_site) {
-    case api::cookies::SAME_SITE_STATUS_NONE:
     case api::cookies::SAME_SITE_STATUS_NO_RESTRICTION:
-      same_site = net::CookieSameSite::DEFAULT_MODE;
+      same_site = net::CookieSameSite::NO_RESTRICTION;
       break;
     case api::cookies::SAME_SITE_STATUS_LAX:
       same_site = net::CookieSameSite::LAX_MODE;
       break;
     case api::cookies::SAME_SITE_STATUS_STRICT:
       same_site = net::CookieSameSite::STRICT_MODE;
+      break;
+    // This is the case if the optional sameSite property is given as
+    // "unspecified":
+    case api::cookies::SAME_SITE_STATUS_UNSPECIFIED:
+    // This is the case if the optional sameSite property is left out:
+    case api::cookies::SAME_SITE_STATUS_NONE:
+      same_site = net::CookieSameSite::UNSPECIFIED;
       break;
   }
 
@@ -361,15 +417,19 @@ ExtensionFunction::ResponseAction CookiesSetFunction::Run() {
     // is generated.
     success_ = false;
     state_ = SET_COMPLETED;
-    GetCookieListCallback(net::CookieList());
+    GetCookieListCallback(net::CookieList(), net::CookieStatusList());
     return AlreadyResponded();
   }
 
   // Dispatch the setter, immediately followed by the getter.  This
   // plus FIFO ordering on the cookie_manager_ pipe means that no
   // other extension function will affect the get result.
+  net::CookieOptions options;
+  options.set_include_httponly();
+  options.set_same_site_cookie_context(
+      net::CookieOptions::SameSiteCookieContext::SAME_SITE_STRICT);
   cookie_manager->SetCanonicalCookie(
-      *cc, url_.SchemeIsCryptographic(), true /*modify_http_only*/,
+      *cc, url_.scheme(), options,
       base::BindOnce(&CookiesSetFunction::SetCanonicalCookieCallback, this));
   cookies_helpers::GetCookieListFromManager(
       cookie_manager, url_,
@@ -379,15 +439,18 @@ ExtensionFunction::ResponseAction CookiesSetFunction::Run() {
   return RespondLater();
 }
 
-void CookiesSetFunction::SetCanonicalCookieCallback(bool set_cookie_result) {
+void CookiesSetFunction::SetCanonicalCookieCallback(
+    net::CanonicalCookie::CookieInclusionStatus set_cookie_result) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   DCHECK_EQ(NO_RESPONSE, state_);
   state_ = SET_COMPLETED;
-  success_ = set_cookie_result;
+  success_ = (set_cookie_result ==
+              net::CanonicalCookie::CookieInclusionStatus::INCLUDE);
 }
 
 void CookiesSetFunction::GetCookieListCallback(
-    const net::CookieList& cookie_list) {
+    const net::CookieList& cookie_list,
+    const net::CookieStatusList& excluded_cookies) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   DCHECK_EQ(SET_COMPLETED, state_);
   state_ = GET_COMPLETED;
@@ -516,8 +579,7 @@ CookiesAPI::CookiesAPI(content::BrowserContext* context)
       ->RegisterObserver(this, api::cookies::OnChanged::kEventName);
 }
 
-CookiesAPI::~CookiesAPI() {
-}
+CookiesAPI::~CookiesAPI() = default;
 
 void CookiesAPI::Shutdown() {
   EventRouter::Get(browser_context_)->UnregisterObserver(this);

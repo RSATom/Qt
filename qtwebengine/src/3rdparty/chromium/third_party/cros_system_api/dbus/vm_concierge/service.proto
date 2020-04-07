@@ -107,6 +107,13 @@ message StartVmRequest {
 
   // Enable GPU in the started Vm.
   bool enable_gpu = 8;
+
+  // Provide a software-based virtual Trusted Platform Module to the VM. The TPM
+  // is backed by libtpm2's TPM simulator and does not interact with any
+  // physical TPM on the host device. TPM state does not persist across VM
+  // launches. In order for the VM to see the virtual TPM, the guest kernel must
+  // contain a virtio TPM driver.
+  bool software_tpm = 9;
 }
 
 // Information that must be included with every StartPluginVm request.
@@ -122,7 +129,7 @@ message StartPluginVmRequest {
   uint32 cpus = 3;
 
   // Parameters to pass to the plugin process.
-  string params = 4;
+  repeated string params = 4;
 
   // The IPv4 address to assign to the VM in network-byte order.  Must be in the
   // 100.115.92.128/28 subnet and must not be already assigned to another VM.
@@ -133,6 +140,24 @@ message StartPluginVmRequest {
   // Must have the locally administered bit (0x02) set and the multicast bit
   // (0x01) unset.
   bytes host_mac_address = 6;
+}
+
+// Information that must be included with every StartArcVm request.
+message StartArcVmRequest {
+  // The VM that should be started.
+  VirtualMachineSpec vm = 1;
+
+  // Any additional disks that should be mounted inside the VM.
+  repeated DiskImage disks = 2;
+
+  // An identifier for this VM.
+  string name = 3;
+
+  // The cryptohome id of the owner of this VM.
+  string owner_id = 4;
+
+  // Parameters to pass to the ARCVM's init process.
+  repeated string params = 5;
 }
 
 enum VmStatus {
@@ -212,13 +237,33 @@ message GetVmInfoResponse {
   VmInfo vm_info = 2;
 }
 
+// Request for information about the VM that is specific to
+// enterprise reporting.
+message GetVmEnterpriseReportingInfoRequest {
+  // The name of the VM.
+  string vm_name = 1;
+
+  // The owner of the VM (cryptohome id).
+  string owner_id = 2;
+}
+
+// Response sent back by vm_concierge after it receives a GetEnterpriseReportingInfo
+// call. Right now this only returns the kernel version of the Termina VM.
+// The VM must be running in order for the call to deliver the kernel version.
+message GetVmEnterpriseReportingInfoResponse {
+  bool success = 1;
+  string failure_reason = 2;
+
+  string vm_kernel_version = 3;
+}
+
 // The type of storage location for a disk image.
 enum StorageLocation {
   // Subdirectory under /home/root/<id>/crosvm.
   STORAGE_CRYPTOHOME_ROOT = 0;
 
-  // The user's Downloads directory, under /home/user/<id>/Downloads.
-  STORAGE_CRYPTOHOME_DOWNLOADS = 1;
+  // Subdirectory under /home/root/<id>/pvm.
+  STORAGE_CRYPTOHOME_PLUGINVM = 1;
 }
 
 enum DiskImageStatus {
@@ -239,6 +284,9 @@ enum DiskImageStatus {
 
   // The specified disk was destroyed.
   DISK_STATUS_DESTROYED = 5;
+
+  // The command is executing.
+  DISK_STATUS_IN_PROGRESS = 6;
 }
 
 // Request to concierge to create a disk image.
@@ -251,6 +299,7 @@ message CreateDiskImageRequest {
   string disk_path = 2;
 
   // The logical size of the new disk image, in bytes.
+  // If unspecified or 0, a size will be chosen automatically.
   uint64 disk_size = 3;
 
   // The type of disk image to be created.
@@ -258,6 +307,13 @@ message CreateDiskImageRequest {
 
   // The storage location for the disk image.
   StorageLocation storage_location = 5;
+
+  // Size of the source media associated with this image.
+  uint64 source_size = 6;
+
+  // Parameters to pass to Plugin VM helper to facilitate creating
+  // new image.
+  repeated string params = 7;
 }
 
 // Response to a CreateDiskImageRequest.
@@ -271,6 +327,9 @@ message CreateDiskImageResponse {
 
   // The failure reason if the disk image could not be created or doesn't exist.
   string failure_reason = 3;
+
+  // Command identifier if status is DISK_STATUS_IN_PROGRESS.
+  string command_uuid = 4;
 }
 
 // Request to concierge to destroy a disk image.
@@ -280,9 +339,6 @@ message DestroyDiskImageRequest {
 
   // The path to the disk image. This must be a relative path.
   string disk_path = 2;
-
-  // The storage location for the disk image.
-  StorageLocation storage_location = 3;
 }
 
 // Response to a DestroyDiskImageRequest.
@@ -313,6 +369,78 @@ message ExportDiskImageResponse {
 
   // The failure reason if the disk image could not be exported.
   string failure_reason = 2;
+
+  // Command identifier if status is DISK_STATUS_IN_PROGRESS.
+  string command_uuid = 3;
+}
+
+// Request to concierge to import a disk image.
+// Must be accompanied by an FD. The contents will be written at `disk_path`
+// location.
+message ImportDiskImageRequest {
+  // The cryptohome id for the user's encrypted storage.
+  string cryptohome_id = 1;
+
+  // The path to the resulting disk image. This must be a relative path.
+  string disk_path = 2;
+
+  // The storage location for the disk image.
+  StorageLocation storage_location = 3;
+
+  // Size of the source image (corresponding to the passed FD).
+  // Used to calculate progress of the import operation.
+  uint64 source_size = 4;
+}
+
+// Response to a ImportDiskImageRequest.
+message ImportDiskImageResponse {
+  // If DISK_STATUS_CREATED, the disk image has been successfully imported.
+  DiskImageStatus status = 1;
+
+  // The failure reason if the disk image could not be imported.
+  string failure_reason = 2;
+
+  // Command identifier if status is DISK_STATUS_IN_PROGRESS.
+  string command_uuid = 3;
+}
+
+// Request about status of image import or export command.
+message DiskImageStatusRequest {
+  // Command identifier.
+  string command_uuid = 1;
+}
+
+// Response to DiskImageStatusRequest. Also being sent as a signal.
+message DiskImageStatusResponse {
+  // Command identifier.
+  string command_uuid = 1;
+
+  // Status of the command.
+  DiskImageStatus status = 2;
+
+  // The failure reason if the command could not be completed.
+  string failure_reason = 3;
+
+  // Progress from 0 to 100.
+  uint32 progress = 4;
+}
+
+// Request to cancel image import or export command that is being
+// executed.
+message CancelDiskImageRequest {
+  // Command identifier.
+  string command_uuid = 1;
+}
+
+// Response to CancelDiskImageRequest.
+message CancelDiskImageResponse {
+  // If true, the request was successfully canceled. The request will
+  // fail if it is unknown, or if it has already completed (successfully
+  // or unsuccessfully).
+  bool success = 1;
+
+  // The failure reason if the command could not be completed.
+  string failure_reason = 2;
 }
 
 // Request to list all VM disk images in the given storage area.
@@ -322,6 +450,27 @@ message ListVmDisksRequest {
 
   // The storage location to check.
   StorageLocation storage_location = 2;
+
+  // Requester may set this field to 'true' to retrieve data about
+  // images in all known locations, in which case data in storage_location
+  // field will be ignored.
+  bool all_locations = 3;
+
+  // Tells concierge to only return data about specified VM with matching
+  // name. When empty, information about all VMs will be returned.
+  string vm_name = 4;
+}
+
+// Information about VM image.
+message VmDiskInfo {
+  // Name of the image.
+  string name = 1;
+
+  // Location of the image.
+  StorageLocation storage_location = 2;
+
+  // The size of the image in bytes.
+  uint64 size = 3;
 }
 
 // Response to ListVmDisks {
@@ -330,7 +479,7 @@ message ListVmDisksResponse {
   bool success = 1;
 
   // List of disk images.
-  repeated string images = 2;
+  repeated VmDiskInfo images = 2;
 
   // The failure reason if the disks could not be listed.
   string failure_reason = 3;
@@ -547,4 +696,14 @@ message ListUsbDeviceResponse {
 
   // List of USB device descriptors, one for each attached USB device.
   repeated UsbDeviceMessage usb_devices = 2;
+}
+
+// Response sent back by vm_concierge after it receives a GetDnsSettings call.
+// Also being broadcast via DnsSettingsChanged signal.
+message DnsSettings {
+  // List of DNS servers.
+  repeated string nameservers = 1;
+
+  // List of search domains.
+  repeated string search_domains = 2;
 }

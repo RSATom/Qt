@@ -8,6 +8,7 @@
 #include <stddef.h>
 
 #include <memory>
+#include <vector>
 
 #include "base/macros.h"
 #include "gpu/gpu_export.h"
@@ -29,7 +30,7 @@ class GPU_EXPORT GpuMemoryBufferImplNativePixmap : public GpuMemoryBufferImpl {
 
   static std::unique_ptr<GpuMemoryBufferImplNativePixmap> CreateFromHandle(
       gfx::ClientNativePixmapFactory* client_native_pixmap_factory,
-      const gfx::GpuMemoryBufferHandle& handle,
+      gfx::GpuMemoryBufferHandle handle,
       const gfx::Size& size,
       gfx::BufferFormat format,
       gfx::BufferUsage usage,
@@ -56,12 +57,10 @@ class GPU_EXPORT GpuMemoryBufferImplNativePixmap : public GpuMemoryBufferImpl {
       gfx::BufferFormat format,
       DestructionCallback callback,
       std::unique_ptr<gfx::ClientNativePixmap> native_pixmap,
-      const std::vector<gfx::NativePixmapPlane>& planes,
-      base::ScopedFD fd);
+      gfx::NativePixmapHandle handle);
 
-  std::unique_ptr<gfx::ClientNativePixmap> pixmap_;
-  std::vector<gfx::NativePixmapPlane> planes_;
-  base::ScopedFD fd_;
+  const std::unique_ptr<gfx::ClientNativePixmap> pixmap_;
+  gfx::NativePixmapHandle handle_;
 
   DISALLOW_COPY_AND_ASSIGN(GpuMemoryBufferImplNativePixmap);
 };

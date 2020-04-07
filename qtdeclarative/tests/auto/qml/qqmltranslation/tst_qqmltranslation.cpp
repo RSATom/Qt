@@ -32,6 +32,7 @@
 #include <QTranslator>
 #include <QQmlContext>
 #include <private/qqmlengine_p.h>
+#include <private/qqmltypedata_p.h>
 #include "../../shared/util.h"
 
 class tst_qqmltranslation : public QQmlDataTest
@@ -45,6 +46,7 @@ private slots:
     void translation();
     void idTranslation();
     void translationChange();
+    void preferJSContext();
 };
 
 void tst_qqmltranslation::translation_data()
@@ -85,7 +87,8 @@ void tst_qqmltranslation::translation()
                              << QStringLiteral("disambiguation")
                              << QStringLiteral("singular") << QStringLiteral("plural");
 
-        const QV4::CompiledData::Object *rootObject = compilationUnit->objectAt(/*root object*/0);
+        const QV4::CompiledData::Object *rootObject
+                = compilationUnit->qmlData->objectAt(/*root object*/0);
         const QV4::CompiledData::Binding *binding = rootObject->bindingTable();
         for (quint32 i = 0; i < rootObject->nBindings; ++i, ++binding) {
             const QString propertyName = compilationUnit->stringAt(binding->propertyNameIndex);
@@ -139,7 +142,8 @@ void tst_qqmltranslation::idTranslation()
         QV4::CompiledData::CompilationUnit *compilationUnit = typeData->compilationUnit();
         QVERIFY(compilationUnit);
 
-        const QV4::CompiledData::Object *rootObject = compilationUnit->objectAt(/*root object*/0);
+        const QV4::CompiledData::Object *rootObject
+                = compilationUnit->qmlData->objectAt(/*root object*/0);
         const QV4::CompiledData::Binding *binding = rootObject->bindingTable();
         for (quint32 i = 0; i < rootObject->nBindings; ++i, ++binding) {
             const QString propertyName = compilationUnit->stringAt(binding->propertyNameIndex);
@@ -172,6 +176,10 @@ class DummyTranslator : public QTranslator
         Q_UNUSED(n);
         if (!qstrcmp(sourceText, "translate me"))
             return QString::fromUtf8("xxx");
+        if (!qstrcmp(sourceText, "English in mylibrary") && !qstrcmp(context, "mylibrary"))
+            return QString::fromUtf8("Deutsch in mylibrary");
+        if (!qstrcmp(sourceText, "English in translation") && !qstrcmp(context, "nested_js_translation"))
+            return QString::fromUtf8("Deutsch in Setzung");
         return QString();
     }
 
@@ -206,6 +214,24 @@ void tst_qqmltranslation::translationChange()
     QCOMPARE(object->property("text2").toString(), QString::fromUtf8("xxx"));
     QCOMPARE(object->property("text3").toString(), QString::fromUtf8("xxx"));
     QCOMPARE(object->property("fromListModel").toString(), QString::fromUtf8("xxx"));
+
+    QCoreApplication::removeTranslator(&translator);
+}
+
+void tst_qqmltranslation::preferJSContext()
+{
+    DummyTranslator translator;
+    QCoreApplication::installTranslator(&translator);
+
+    QQmlEngine engine;
+    QQmlComponent component(&engine, testFileUrl("preferjs.qml"));
+    QScopedPointer<QObject> object(component.create());
+    QVERIFY(!object.isNull());
+
+    QCOMPARE(object->property("german1").toString(),
+             QStringLiteral("Deutsch in Setzung"));
+    QCOMPARE(object->property("german2").toString(),
+             QStringLiteral("Deutsch in mylibrary"));
 
     QCoreApplication::removeTranslator(&translator);
 }

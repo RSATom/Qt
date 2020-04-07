@@ -7,19 +7,21 @@
 #include "core/fpdfapi/page/cpdf_allstates.h"
 
 #include <algorithm>
+#include <utility>
+#include <vector>
 
 #include "core/fpdfapi/page/cpdf_pageobjectholder.h"
 #include "core/fpdfapi/page/cpdf_streamcontentparser.h"
 #include "core/fpdfapi/parser/cpdf_array.h"
 #include "core/fpdfapi/parser/cpdf_dictionary.h"
+#include "core/fpdfapi/parser/fpdf_parser_utility.h"
 #include "core/fxge/cfx_graphstatedata.h"
 #include "third_party/base/compiler_specific.h"
 #include "third_party/base/stl_util.h"
 
-CPDF_AllStates::CPDF_AllStates()
-    : m_TextLeading(0), m_TextRise(0), m_TextHorzScale(1.0f) {}
+CPDF_AllStates::CPDF_AllStates() = default;
 
-CPDF_AllStates::~CPDF_AllStates() {}
+CPDF_AllStates::~CPDF_AllStates() = default;
 
 void CPDF_AllStates::Copy(const CPDF_AllStates& src) {
   CopyStates(src);
@@ -33,8 +35,11 @@ void CPDF_AllStates::Copy(const CPDF_AllStates& src) {
   m_TextHorzScale = src.m_TextHorzScale;
 }
 
-void CPDF_AllStates::SetLineDash(CPDF_Array* pArray, float phase, float scale) {
-  m_GraphState.SetLineDash(pArray, phase, scale);
+void CPDF_AllStates::SetLineDash(const CPDF_Array* pArray,
+                                 float phase,
+                                 float scale) {
+  std::vector<float> dashes = ReadArrayElementsToVector(pArray, pArray->size());
+  m_GraphState.SetLineDash(std::move(dashes), phase, scale);
 }
 
 void CPDF_AllStates::ProcessExtGS(CPDF_Dictionary* pGS,
@@ -42,7 +47,7 @@ void CPDF_AllStates::ProcessExtGS(CPDF_Dictionary* pGS,
   CPDF_DictionaryLocker locker(pGS);
   for (const auto& it : locker) {
     const ByteString& key_str = it.first;
-    CPDF_Object* pElement = it.second.get();
+    CPDF_Object* pElement = it.second.Get();
     CPDF_Object* pObject = pElement ? pElement->GetDirect() : nullptr;
     if (!pObject)
       continue;

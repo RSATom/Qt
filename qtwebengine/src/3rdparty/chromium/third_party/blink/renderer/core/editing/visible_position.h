@@ -100,9 +100,9 @@ class VisiblePositionTemplate final {
   static VisiblePositionTemplate<Strategy> InParentBeforeNode(const Node&);
   static VisiblePositionTemplate<Strategy> LastPositionInNode(const Node&);
 
-  void Trace(blink::Visitor*);
+  void Trace(Visitor*);
 
-#ifndef NDEBUG
+#if DCHECK_IS_ON()
   void ShowTreeForThis() const;
 #endif
 
@@ -142,8 +142,8 @@ CORE_EXPORT std::ostream& operator<<(std::ostream&,
 
 }  // namespace blink
 
-#ifndef NDEBUG
-// Outside the WebCore namespace for ease of invocation from gdb.
+#if DCHECK_IS_ON()
+// Outside the blink namespace for ease of invocation from gdb.
 void showTree(const blink::VisiblePosition*);
 void showTree(const blink::VisiblePosition&);
 #endif

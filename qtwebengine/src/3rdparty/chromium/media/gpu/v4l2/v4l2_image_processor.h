@@ -18,6 +18,7 @@
 #include "base/files/scoped_file.h"
 #include "base/macros.h"
 #include "base/memory/scoped_refptr.h"
+#include "base/sequence_checker.h"
 #include "base/task/cancelable_task_tracker.h"
 #include "base/threading/thread.h"
 #include "base/threading/thread_checker.h"
@@ -75,40 +76,17 @@ class MEDIA_GPU_EXPORT V4L2ImageProcessor : public ImageProcessor {
       ErrorCB error_cb);
 
  private:
-  // Record for input buffers.
-  struct InputRecord {
-    InputRecord();
-    InputRecord(const V4L2ImageProcessor::InputRecord&);
-    ~InputRecord();
-    scoped_refptr<VideoFrame> frame;
-    bool at_device;
-  };
-
-  // Record for output buffers.
-  struct OutputRecord {
-    OutputRecord();
-    OutputRecord(OutputRecord&&);
-    ~OutputRecord();
-    bool at_device;
-    // The exported FDs of the frame will be stored here if
-    // |output_memory_type_| is V4L2_MEMORY_MMAP
-    std::vector<base::ScopedFD> dmabuf_fds;
-  };
-
-  // Job record. Jobs are processed in a FIFO order. This is separate from
-  // InputRecord, because an InputRecord may be returned before we dequeue
-  // the corresponding output buffer. The processed frame will be stored in
-  // |output_buffer_index| output buffer. If |output_memory_type_| is
-  // V4L2_MEMORY_DMABUF, the processed frame will be stored in
-  // |output_dmabuf_fds|.
+  // Job record. Jobs are processed in a FIFO order. |input_frame| will be
+  // processed and the result written into |output_frame|. Once processing is
+  // complete, |ready_cb| or |legacy_ready_cb| will be called depending on which
+  // Process() method has been used to create that JobRecord.
   struct JobRecord {
     JobRecord();
     ~JobRecord();
     scoped_refptr<VideoFrame> input_frame;
-    int output_buffer_index;
-    scoped_refptr<VideoFrame> output_frame;
-    std::vector<base::ScopedFD> output_dmabuf_fds;
     FrameReadyCB ready_cb;
+    LegacyFrameReadyCB legacy_ready_cb;
+    scoped_refptr<VideoFrame> output_frame;
   };
 
   V4L2ImageProcessor(scoped_refptr<V4L2Device> device,
@@ -125,29 +103,32 @@ class MEDIA_GPU_EXPORT V4L2ImageProcessor : public ImageProcessor {
                      ErrorCB error_cb);
 
   bool Initialize();
-  void EnqueueInput();
+  void EnqueueInput(const JobRecord* job_record);
   void EnqueueOutput(const JobRecord* job_record);
   void Dequeue();
-  bool EnqueueInputRecord();
+  bool EnqueueInputRecord(const JobRecord* job_record);
   bool EnqueueOutputRecord(const JobRecord* job_record);
   bool CreateInputBuffers();
   bool CreateOutputBuffers();
-  void DestroyInputBuffers();
-  void DestroyOutputBuffers();
+
+  void V4L2VFDestructionObserver(V4L2ReadableBufferRef buf);
 
   void NotifyError();
 
   // ImageProcessor implementation.
   bool ProcessInternal(scoped_refptr<VideoFrame> frame,
-                       int output_buffer_index,
-                       std::vector<base::ScopedFD> output_dmabuf_fds,
-                       FrameReadyCB cb) override;
+                       LegacyFrameReadyCB cb) override;
   bool ProcessInternal(scoped_refptr<VideoFrame> input_frame,
                        scoped_refptr<VideoFrame> output_frame,
                        FrameReadyCB cb) override;
 
   void ProcessTask(std::unique_ptr<JobRecord> job_record);
+  void ProcessJobsTask();
   void ServiceDeviceTask();
+
+  // Allocate/Destroy the input/output V4L2 buffers.
+  void AllocateBuffersTask(bool* result, base::WaitableEvent* done);
+  void DestroyBuffersTask();
 
   // Attempt to start/stop device_poll_thread_.
   void StartDevicePoll();
@@ -185,32 +166,25 @@ class MEDIA_GPU_EXPORT V4L2ImageProcessor : public ImageProcessor {
 
   // All the below members are to be accessed from device_thread_ only
   // (if it's running).
-  base::queue<std::unique_ptr<JobRecord>> input_queue_;
+  base::queue<std::unique_ptr<JobRecord>> input_job_queue_;
   base::queue<std::unique_ptr<JobRecord>> running_jobs_;
 
-  // Input queue state.
-  bool input_streamon_;
-  // Number of input buffers enqueued to the device.
-  int input_buffer_queued_count_;
-  // Input buffers ready to use; LIFO since we don't care about ordering.
-  std::vector<int> free_input_buffers_;
-  // Mapping of int index to an input buffer record.
-  std::vector<InputRecord> input_buffer_map_;
+  scoped_refptr<V4L2Queue> input_queue_;
+  scoped_refptr<V4L2Queue> output_queue_;
 
-  // Output queue state.
-  bool output_streamon_;
-  // Number of output buffers enqueued to the device.
-  int output_buffer_queued_count_;
-  // Mapping of int index to an output buffer record.
-  std::vector<OutputRecord> output_buffer_map_;
   // The number of input or output buffers.
   const size_t num_buffers_;
 
   // Error callback to the client.
   ErrorCB error_cb_;
 
-  // Checker for the thread that creates this V4L2ImageProcessor.
-  THREAD_CHECKER(client_thread_checker_);
+  // Checker for the sequence that creates this V4L2ImageProcessor.
+  SEQUENCE_CHECKER(client_sequence_checker_);
+  // Checker for the device thread owned by this V4L2ImageProcessor.
+  THREAD_CHECKER(device_thread_checker_);
+
+  // Keep at the end so it is destroyed first.
+  base::WeakPtrFactory<V4L2ImageProcessor> weak_this_factory_;
 
   DISALLOW_COPY_AND_ASSIGN(V4L2ImageProcessor);
 };

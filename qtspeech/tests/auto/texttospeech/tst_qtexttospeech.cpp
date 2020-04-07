@@ -38,8 +38,9 @@
 #include <QTest>
 #include <QTextToSpeech>
 #include <QSignalSpy>
+#include <qttexttospeech-config.h>
 
-#if defined(HAVE_SPEECHD)
+#if QT_CONFIG(speechd)
     #include <libspeechd.h>
     #if LIBSPEECHD_MAJOR_VERSION == 0 && LIBSPEECHD_MINOR_VERSION < 9
         #define HAVE_SPEECHD_BEFORE_090

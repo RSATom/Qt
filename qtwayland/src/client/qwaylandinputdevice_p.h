@@ -69,7 +69,8 @@
 #endif
 
 #include <QtCore/QDebug>
-#include <QPointer>
+#include <QtCore/QElapsedTimer>
+#include <QtCore/QPointer>
 
 #if QT_CONFIG(cursor)
 struct wl_cursor_image;
@@ -77,11 +78,17 @@ struct wl_cursor_image;
 
 QT_BEGIN_NAMESPACE
 
+namespace QtWayland {
+class zwp_primary_selection_device_v1;
+} //namespace QtWayland
+
 namespace QtWaylandClient {
 
-class QWaylandWindow;
-class QWaylandDisplay;
 class QWaylandDataDevice;
+class QWaylandDisplay;
+#if QT_CONFIG(wayland_client_primary_selection)
+class QWaylandPrimarySelectionDeviceV1;
+#endif
 class QWaylandTextInput;
 #if QT_CONFIG(cursor)
 class QWaylandCursorTheme;
@@ -115,6 +122,11 @@ public:
     QWaylandDataDevice *dataDevice() const;
 #endif
 
+#if QT_CONFIG(wayland_client_primary_selection)
+    void setPrimarySelectionDevice(QWaylandPrimarySelectionDeviceV1 *primarySelectionDevice);
+    QWaylandPrimarySelectionDeviceV1 *primarySelectionDevice() const;
+#endif
+
     void setTextInput(QWaylandTextInput *textInput);
     QWaylandTextInput *textInput() const;
 
@@ -136,6 +148,10 @@ public:
     virtual Pointer *createPointer(QWaylandInputDevice *device);
     virtual Touch *createTouch(QWaylandInputDevice *device);
 
+    Keyboard *keyboard() const;
+    Pointer *pointer() const;
+    Touch *touch() const;
+
 private:
     QWaylandDisplay *mQDisplay = nullptr;
     struct wl_display *mDisplay = nullptr;
@@ -150,11 +166,16 @@ private:
         Qt::CursorShape shape = Qt::ArrowCursor;
         int fallbackOutputScale = 1;
         QPoint hotspot;
+        QElapsedTimer animationTimer;
     } mCursor;
 #endif
 
 #if QT_CONFIG(wayland_datadevice)
     QWaylandDataDevice *mDataDevice = nullptr;
+#endif
+
+#if QT_CONFIG(wayland_client_primary_selection)
+    QScopedPointer<QWaylandPrimarySelectionDeviceV1> mPrimarySelectionDevice;
 #endif
 
     Keyboard *mKeyboard = nullptr;
@@ -231,6 +252,8 @@ public:
 
     Qt::KeyboardModifiers modifiers() const;
 
+    struct ::wl_keyboard *wl_keyboard() { return QtWayland::wl_keyboard::object(); }
+
 private slots:
     void handleFocusDestroyed();
     void handleFocusLost();
@@ -256,15 +279,20 @@ class Q_WAYLAND_CLIENT_EXPORT QWaylandInputDevice::Pointer : public QObject, pub
 public:
     explicit Pointer(QWaylandInputDevice *seat);
     ~Pointer() override;
+    QWaylandWindow *focusWindow() const;
 #if QT_CONFIG(cursor)
     QString cursorThemeName() const;
     int cursorSize() const; // in surface coordinates
     int idealCursorScale() const;
     void updateCursorTheme();
     void updateCursor();
+    void cursorTimerCallback();
+    void cursorFrameCallback();
     CursorSurface *getOrCreateCursorSurface();
 #endif
     QWaylandInputDevice *seat() const { return mParent; }
+
+    struct ::wl_pointer *wl_pointer() { return QtWayland::wl_pointer::object(); }
 
 protected:
     void pointer_enter(uint32_t serial, struct wl_surface *surface,
@@ -277,6 +305,10 @@ protected:
     void pointer_axis(uint32_t time,
                       uint32_t axis,
                       wl_fixed_t value) override;
+    void pointer_axis_source(uint32_t source) override;
+    void pointer_axis_stop(uint32_t time, uint32_t axis) override;
+    void pointer_axis_discrete(uint32_t axis, int32_t value) override;
+    void pointer_frame() override;
 
 private slots:
     void handleFocusDestroyed() { invalidateFocus(); }
@@ -288,13 +320,16 @@ public:
     void releaseButtons();
 
     QWaylandInputDevice *mParent = nullptr;
-    QPointer<QWaylandWindow> mFocus;
+    QPointer<QWaylandSurface> mFocus;
     uint32_t mEnterSerial = 0;
 #if QT_CONFIG(cursor)
     struct {
         QWaylandCursorTheme *theme = nullptr;
         int themeBufferScale = 0;
         QScopedPointer<CursorSurface> surface;
+        QTimer frameTimer;
+        bool gotFrameCallback = false;
+        bool gotTimerCallback = false;
     } mCursor;
 #endif
     QPointF mSurfacePos;
@@ -304,6 +339,30 @@ public:
     wl_buffer *mCursorBuffer = nullptr;
     Qt::CursorShape mCursorShape = Qt::BitmapCursor;
 #endif
+
+    struct FrameData {
+        QWaylandPointerEvent *event = nullptr;
+
+        QPointF delta;
+        QPoint discreteDelta;
+        axis_source axisSource = axis_source_wheel;
+
+        void resetScrollData();
+        bool hasPixelDelta() const;
+        QPoint pixelDeltaAndError(QPointF *accumulatedError) const;
+        QPoint pixelDelta() const { return hasPixelDelta() ? delta.toPoint() : QPoint(); }
+        QPoint angleDelta() const;
+        Qt::MouseEventSource wheelEventSource() const;
+    } mFrameData;
+
+    bool mScrollBeginSent = false;
+    QPointF mScrollDeltaRemainder;
+
+    void setFrameEvent(QWaylandPointerEvent *event);
+    void flushScrollEvent();
+    void flushFrameEvent();
+private: //TODO: should other methods be private as well?
+    bool isDefinitelyTerminated(axis_source source) const;
 };
 
 class Q_WAYLAND_CLIENT_EXPORT QWaylandInputDevice::Touch : public QtWayland::wl_touch
@@ -331,6 +390,8 @@ public:
     bool allTouchPointsReleased();
     void releasePoints();
 
+    struct ::wl_touch *wl_touch() { return QtWayland::wl_touch::object(); }
+
     QWaylandInputDevice *mParent = nullptr;
     QPointer<QWaylandWindow> mFocus;
     QList<QWindowSystemInterface::TouchPoint> mPendingTouchPoints;
@@ -338,38 +399,58 @@ public:
 
 class QWaylandPointerEvent
 {
+    Q_GADGET
 public:
     enum Type {
         Enter,
+        Leave,
         Motion,
+        Press,
+        Release,
         Wheel
     };
-    inline QWaylandPointerEvent(Type t, ulong ts, const QPointF &l, const QPointF &g, Qt::MouseButtons b, Qt::KeyboardModifiers m)
-        : type(t)
-        , timestamp(ts)
-        , local(l)
-        , global(g)
-        , buttons(b)
-        , modifiers(m)
+    Q_ENUM(Type)
+
+    inline QWaylandPointerEvent(Type type, Qt::ScrollPhase phase, QWaylandWindow *surface,
+                                ulong timestamp, const QPointF &localPos, const QPointF &globalPos,
+                                Qt::MouseButtons buttons, Qt::KeyboardModifiers modifiers)
+        : type(type)
+        , phase(phase)
+        , timestamp(timestamp)
+        , local(localPos)
+        , global(globalPos)
+        , buttons(buttons)
+        , modifiers(modifiers)
+        , surface(surface)
     {}
-    inline QWaylandPointerEvent(Type t, ulong ts, const QPointF &l, const QPointF &g, const QPoint &pd, const QPoint &ad, Qt::KeyboardModifiers m)
-        : type(t)
-        , timestamp(ts)
-        , local(l)
-        , global(g)
-        , modifiers(m)
-        , pixelDelta(pd)
-        , angleDelta(ad)
+    inline QWaylandPointerEvent(Type type, Qt::ScrollPhase phase, QWaylandWindow *surface,
+                                ulong timestamp, const QPointF &local, const QPointF &global,
+                                const QPoint &pixelDelta, const QPoint &angleDelta,
+                                Qt::MouseEventSource source,
+                                Qt::KeyboardModifiers modifiers)
+        : type(type)
+        , phase(phase)
+        , timestamp(timestamp)
+        , local(local)
+        , global(global)
+        , modifiers(modifiers)
+        , pixelDelta(pixelDelta)
+        , angleDelta(angleDelta)
+        , source(source)
+        , surface(surface)
     {}
 
     Type type;
-    ulong timestamp;
+    Qt::ScrollPhase phase = Qt::NoScrollPhase;
+    ulong timestamp = 0;
     QPointF local;
     QPointF global;
     Qt::MouseButtons buttons;
     Qt::KeyboardModifiers modifiers;
     QPoint pixelDelta;
     QPoint angleDelta;
+    Qt::MouseEventSource source = Qt::MouseEventNotSynthesized;
+    QPointer<QWaylandWindow> surface;
 };
 
 }

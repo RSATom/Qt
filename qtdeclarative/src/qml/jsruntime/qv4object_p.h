@@ -79,21 +79,21 @@ DECLARE_EXPORTED_HEAP_OBJECT(Object, Base) {
     }
 
     const Value *inlinePropertyDataWithOffset(uint indexWithOffset) const {
-        Q_ASSERT(indexWithOffset >= vtable()->inlinePropertyOffset && indexWithOffset < vtable()->inlinePropertyOffset + vtable()->nInlineProperties);
+        Q_ASSERT(indexWithOffset >= vtable()->inlinePropertyOffset && indexWithOffset < uint(vtable()->inlinePropertyOffset + vtable()->nInlineProperties));
         return reinterpret_cast<const Value *>(this) + indexWithOffset;
     }
     const Value *inlinePropertyData(uint index) const {
         Q_ASSERT(index < vtable()->nInlineProperties);
         return reinterpret_cast<const Value *>(this) + vtable()->inlinePropertyOffset + index;
     }
-    void setInlineProperty(ExecutionEngine *e, uint index, Value v) {
-        Q_ASSERT(index < vtable()->nInlineProperties);
-        Value *prop = reinterpret_cast<Value *>(this) + vtable()->inlinePropertyOffset + index;
+    void setInlinePropertyWithOffset(ExecutionEngine *e, uint indexWithOffset, Value v) {
+        Q_ASSERT(indexWithOffset >= vtable()->inlinePropertyOffset && indexWithOffset < uint(vtable()->inlinePropertyOffset + vtable()->nInlineProperties));
+        Value *prop = reinterpret_cast<Value *>(this) + indexWithOffset;
         WriteBarrier::write(e, this, prop->data_ptr(), v.asReturnedValue());
     }
-    void setInlineProperty(ExecutionEngine *e, uint index, Heap::Base *b) {
-        Q_ASSERT(index < vtable()->nInlineProperties);
-        Value *prop = reinterpret_cast<Value *>(this) + vtable()->inlinePropertyOffset + index;
+    void setInlinePropertyWithOffset(ExecutionEngine *e, uint indexWithOffset, Heap::Base *b) {
+        Q_ASSERT(indexWithOffset >= vtable()->inlinePropertyOffset && indexWithOffset < uint(vtable()->inlinePropertyOffset + vtable()->nInlineProperties));
+        Value *prop = reinterpret_cast<Value *>(this) + indexWithOffset;
         WriteBarrier::write(e, this, prop->data_ptr(), Value::fromHeapObject(b).asReturnedValue());
     }
 
@@ -115,7 +115,7 @@ DECLARE_EXPORTED_HEAP_OBJECT(Object, Base) {
     void setProperty(ExecutionEngine *e, uint index, Value v) {
         uint nInline = vtable()->nInlineProperties;
         if (index < nInline) {
-            setInlineProperty(e, index, v);
+            setInlinePropertyWithOffset(e, index + vtable()->inlinePropertyOffset, v);
             return;
         }
         index -= nInline;
@@ -124,7 +124,7 @@ DECLARE_EXPORTED_HEAP_OBJECT(Object, Base) {
     void setProperty(ExecutionEngine *e, uint index, Heap::Base *b) {
         uint nInline = vtable()->nInlineProperties;
         if (index < nInline) {
-            setInlineProperty(e, index, b);
+            setInlinePropertyWithOffset(e, index + vtable()->inlinePropertyOffset, b);
             return;
         }
         index -= nInline;
@@ -157,7 +157,7 @@ struct Q_QML_EXPORT Object: Managed {
     const Value *propertyData(uint index) const { return d()->propertyData(index); }
 
     Heap::ArrayData *arrayData() const { return d()->arrayData; }
-    void setArrayData(ArrayData *a) { d()->arrayData.set(engine(), a->d()); }
+    void setArrayData(ArrayData *a) { d()->arrayData.set(engine(), a ? a->d() : nullptr); }
 
     void getProperty(const InternalClassEntry &entry, Property *p) const;
     void setProperty(const InternalClassEntry &entry, const Property *p);
@@ -410,7 +410,7 @@ private:
     friend struct ObjectPrototype;
 };
 
-struct ObjectOwnPropertyKeyIterator : OwnPropertyKeyIterator
+struct Q_QML_PRIVATE_EXPORT ObjectOwnPropertyKeyIterator : OwnPropertyKeyIterator
 {
     uint arrayIndex = 0;
     uint memberIndex = 0;
@@ -543,13 +543,11 @@ inline const ArrayObject *Value::as() const {
     return isManaged() && m()->internalClass->vtable->type == Managed::Type_ArrayObject ? static_cast<const ArrayObject *>(this) : nullptr;
 }
 
-#ifndef V4_BOOTSTRAP
 template<>
 inline ReturnedValue value_convert<Object>(ExecutionEngine *e, const Value &v)
 {
     return v.toObject(e)->asReturnedValue();
 }
-#endif
 
 }
 

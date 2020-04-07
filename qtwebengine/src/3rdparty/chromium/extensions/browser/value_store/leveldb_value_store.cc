@@ -45,7 +45,8 @@ LeveldbValueStore::LeveldbValueStore(const std::string& uma_client_name,
 }
 
 LeveldbValueStore::~LeveldbValueStore() {
-  base::ScopedBlockingCall scoped_blocking_call(base::BlockingType::MAY_BLOCK);
+  base::ScopedBlockingCall scoped_blocking_call(FROM_HERE,
+                                                base::BlockingType::MAY_BLOCK);
   base::trace_event::MemoryDumpManager::GetInstance()->UnregisterDumpProvider(
       this);
 }
@@ -98,21 +99,20 @@ ValueStore::ReadResult LeveldbValueStore::Get() {
   if (!status.ok())
     return ReadResult(std::move(status));
 
-  base::JSONReader json_reader;
   std::unique_ptr<base::DictionaryValue> settings(new base::DictionaryValue());
 
   std::unique_ptr<leveldb::Iterator> it(db()->NewIterator(read_options()));
   for (it->SeekToFirst(); it->Valid(); it->Next()) {
     std::string key = it->key().ToString();
-    std::unique_ptr<base::Value> value =
-        json_reader.Read(StringPiece(it->value().data(), it->value().size()));
+    base::Optional<base::Value> value = base::JSONReader::Read(
+        StringPiece(it->value().data(), it->value().size()));
     if (!value) {
       return ReadResult(Status(CORRUPTION,
                                Delete(key).ok() ? VALUE_RESTORE_DELETE_SUCCESS
                                                 : VALUE_RESTORE_DELETE_FAILURE,
                                kInvalidJson));
     }
-    settings->SetWithoutPathExpansion(key, std::move(value));
+    settings->SetKey(key, std::move(*value));
   }
 
   if (!it->status().ok()) {

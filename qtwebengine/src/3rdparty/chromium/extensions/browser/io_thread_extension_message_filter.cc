@@ -23,8 +23,7 @@ IOThreadExtensionMessageFilter::IOThreadExtensionMessageFilter(
     : BrowserMessageFilter(ExtensionMsgStart),
       render_process_id_(render_process_id),
       browser_context_id_(context),
-      extension_info_map_(ExtensionSystem::Get(context)->info_map()),
-      weak_ptr_factory_(this) {
+      extension_info_map_(ExtensionSystem::Get(context)->info_map()) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
 }
 
@@ -46,6 +45,8 @@ bool IOThreadExtensionMessageFilter::OnMessageReceived(
                       OnExtensionGenerateUniqueID)
   IPC_MESSAGE_HANDLER(ExtensionHostMsg_RequestForIOThread,
                       OnExtensionRequestForIOThread)
+  IPC_MESSAGE_HANDLER(ExtensionHostMsg_RequestWorkerForIOThread,
+                      OnExtensionRequestWorkerForIOThread)
   IPC_MESSAGE_UNHANDLED(handled = false)
   IPC_END_MESSAGE_MAP()
   return handled;
@@ -64,6 +65,14 @@ void IOThreadExtensionMessageFilter::OnExtensionRequestForIOThread(
   ExtensionFunctionDispatcher::DispatchOnIOThread(
       extension_info_map_.get(), browser_context_id_, render_process_id_,
       weak_ptr_factory_.GetWeakPtr(), routing_id, params);
+}
+
+void IOThreadExtensionMessageFilter::OnExtensionRequestWorkerForIOThread(
+    const ExtensionHostMsg_Request_Params& params) {
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
+  ExtensionFunctionDispatcher::DispatchOnIOThreadForServiceWorker(
+      extension_info_map_.get(), browser_context_id_, render_process_id_,
+      weak_ptr_factory_.GetWeakPtr(), params);
 }
 
 }  // namespace extensions

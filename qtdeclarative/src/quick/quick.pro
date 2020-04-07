@@ -1,6 +1,6 @@
 TARGET = QtQuick
 
-QT = core-private gui-private qml-private
+QT = core-private gui-private qml-private qmlmodels-private
 qtConfig(qml-network): \
     QT_PRIVATE += network
 
@@ -18,13 +18,10 @@ exists("qqml_enable_gcov") {
 
 QMAKE_DOCS = $$PWD/doc/qtquick.qdocconf
 
-ANDROID_LIB_DEPENDENCIES = \
-    lib/libQt5QuickParticles.so
 MODULE_PLUGIN_TYPES += \
     scenegraph
 ANDROID_BUNDLED_FILES += \
-    qml \
-    lib/libQt5QuickParticles.so
+    qml
 
 include(util/util.pri)
 include(scenegraph/scenegraph.pri)

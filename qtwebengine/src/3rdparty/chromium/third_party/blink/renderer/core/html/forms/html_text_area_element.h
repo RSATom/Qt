@@ -36,8 +36,6 @@ class CORE_EXPORT HTMLTextAreaElement final : public TextControlElement {
   DEFINE_WRAPPERTYPEINFO();
 
  public:
-  static HTMLTextAreaElement* Create(Document&);
-
   explicit HTMLTextAreaElement(Document&);
 
   unsigned cols() const { return cols_; }
@@ -46,10 +44,11 @@ class CORE_EXPORT HTMLTextAreaElement final : public TextControlElement {
   bool ShouldWrapText() const { return wrap_ != kNoWrap; }
 
   String value() const override;
-  void setValue(const String&,
-                TextFieldEventBehavior = kDispatchNoEvent,
-                TextControlSetValueSelection =
-                    TextControlSetValueSelection::kSetSelectionToEnd) override;
+  void setValue(
+      const String&,
+      TextFieldEventBehavior = TextFieldEventBehavior::kDispatchNoEvent,
+      TextControlSetValueSelection =
+          TextControlSetValueSelection::kSetSelectionToEnd) override;
   String defaultValue() const;
   void setDefaultValue(const String&);
   int textLength() const { return value().length(); }
@@ -79,7 +78,7 @@ class CORE_EXPORT HTMLTextAreaElement final : public TextControlElement {
   void HandleBeforeTextInsertedEvent(BeforeTextInsertedEvent*) const;
   static String SanitizeUserInputValue(const String&, unsigned max_length);
   void UpdateValue();
-  void SetNonDirtyValue(const String&);
+  void SetNonDirtyValue(const String&, TextControlSetValueSelection);
   void SetValueCommon(const String&,
                       TextFieldEventBehavior,
                       TextControlSetValueSelection);
@@ -119,7 +118,7 @@ class CORE_EXPORT HTMLTextAreaElement final : public TextControlElement {
       const QualifiedName&,
       const AtomicString&,
       MutableCSSPropertyValueSet*) override;
-  LayoutObject* CreateLayoutObject(const ComputedStyle&) override;
+  LayoutObject* CreateLayoutObject(const ComputedStyle&, LegacyLayout) override;
   void AppendToFormData(FormData&) override;
   void ResetImpl() override;
   bool HasCustomFocusLogic() const override;

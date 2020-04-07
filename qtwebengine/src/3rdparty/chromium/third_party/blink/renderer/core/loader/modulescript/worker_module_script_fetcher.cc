@@ -4,11 +4,14 @@
 
 #include "third_party/blink/renderer/core/loader/modulescript/worker_module_script_fetcher.h"
 
-#include "services/network/public/mojom/referrer_policy.mojom-shared.h"
+#include "services/network/public/mojom/referrer_policy.mojom-blink.h"
 #include "third_party/blink/renderer/core/inspector/console_message.h"
+#include "third_party/blink/renderer/core/origin_trials/origin_trial_context.h"
 #include "third_party/blink/renderer/core/workers/worker_global_scope.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource_fetcher.h"
+#include "third_party/blink/renderer/platform/network/content_security_policy_response_headers.h"
 #include "third_party/blink/renderer/platform/network/http_names.h"
+#include "third_party/blink/renderer/platform/network/network_utils.h"
 #include "third_party/blink/renderer/platform/weborigin/security_policy.h"
 
 namespace blink {
@@ -17,24 +20,27 @@ WorkerModuleScriptFetcher::WorkerModuleScriptFetcher(
     WorkerGlobalScope* global_scope)
     : global_scope_(global_scope) {}
 
-// https://html.spec.whatwg.org/multipage/workers.html#worker-processing-model
+// <specdef href="https://html.spec.whatwg.org/C/#run-a-worker">
 void WorkerModuleScriptFetcher::Fetch(
     FetchParameters& fetch_params,
     ResourceFetcher* fetch_client_settings_object_fetcher,
+    const Modulator* modulator_for_built_in_modules,
     ModuleGraphLevel level,
     ModuleScriptFetcher::Client* client) {
   DCHECK(global_scope_->IsContextThread());
   client_ = client;
   level_ = level;
 
-  // Step 13. "In both cases, to perform the fetch given request, perform the
-  // following steps if the is top-level flag is set:" [spec text]
-  // Step 13.1. "Set request's reserved client to inside settings." [spec text]
+  // <spec step="12">In both cases, to perform the fetch given request, perform
+  // the following steps if the is top-level flag is set:</spec>
+  //
+  // <spec step="12.1">Set request's reserved client to inside settings.</spec>
+  //
   // This is implemented in the browser process.
 
-  // Step 13.2. "Fetch request, and asynchronously wait to run the remaining
-  // steps as part of fetch's process response for the response response." [spec
-  // text]
+  // <spec step="12.2">Fetch request, and asynchronously wait to run the
+  // remaining steps as part of fetch's process response for the response
+  // response.</spec>
   ScriptResource::Fetch(fetch_params, fetch_client_settings_object_fetcher,
                         this, ScriptResource::kNoStreaming);
 }
@@ -45,7 +51,7 @@ void WorkerModuleScriptFetcher::Trace(blink::Visitor* visitor) {
   visitor->Trace(global_scope_);
 }
 
-// https://html.spec.whatwg.org/multipage/workers.html#worker-processing-model
+// https://html.spec.whatwg.org/C/#worker-processing-model
 void WorkerModuleScriptFetcher::NotifyFinished(Resource* resource) {
   DCHECK(global_scope_->IsContextThread());
   ClearResource();
@@ -72,41 +78,62 @@ void WorkerModuleScriptFetcher::NotifyFinished(Resource* resource) {
         !global_scope_->GetSecurityOrigin()->IsSameSchemeHostPort(
             SecurityOrigin::Create(response_url).get())) {
       error_messages.push_back(ConsoleMessage::Create(
-          kSecurityMessageSource, kErrorMessageLevel,
+          mojom::ConsoleMessageSource::kSecurity,
+          mojom::ConsoleMessageLevel::kError,
           "Refused to cross-origin redirects of the top-level worker script."));
       client_->NotifyFetchFinished(base::nullopt, error_messages);
       return;
     }
 
-    // Step 13.3. "Set worker global scope's url to response's url." [spec text]
-    // Step 13.4. "Set worker global scope's HTTPS state to response's HTTPS
-    // state." [spec text]
-
-    // Step 13.5. "Set worker global scope's referrer policy to the result of
-    // parsing the `Referrer-Policy` header of response." [spec text]
-    const String referrer_policy_header =
+    auto response_referrer_policy = network::mojom::ReferrerPolicy::kDefault;
+    const String response_referrer_policy_header =
         resource->GetResponse().HttpHeaderField(http_names::kReferrerPolicy);
-    if (!referrer_policy_header.IsNull()) {
-      network::mojom::ReferrerPolicy referrer_policy =
-          network::mojom::ReferrerPolicy::kDefault;
+    if (!response_referrer_policy_header.IsNull()) {
       SecurityPolicy::ReferrerPolicyFromHeaderValue(
-          referrer_policy_header, kDoNotSupportReferrerPolicyLegacyKeywords,
-          &referrer_policy);
-      global_scope_->SetReferrerPolicy(referrer_policy);
+          response_referrer_policy_header,
+          kDoNotSupportReferrerPolicyLegacyKeywords, &response_referrer_policy);
     }
 
-    // Step 13.6. "Execute the Initialize a global object's CSP list algorithm
-    // on worker global scope and response. [CSP]" [spec text]
-    // This is done in the constructor of WorkerGlobalScope.
+    // Calculate an address space from worker script's response url according to
+    // the "CORS and RFC1918" spec:
+    // https://wicg.github.io/cors-rfc1918/#integration-html
+    //
+    // Currently this implementation is not fully consistent with the spec for
+    // historical reasons.
+    // TODO(https://crbug.com/955213): Make this consistent with the spec.
+    // TODO(https://crbug.com/955213): Move this function to a more appropriate
+    // place so that this is shareable out of worker code.
+    auto response_address_space = mojom::IPAddressSpace::kPublic;
+    if (network_utils::IsReservedIPAddress(
+            resource->GetResponse().RemoteIPAddress())) {
+      response_address_space = mojom::IPAddressSpace::kPrivate;
+    }
+    if (SecurityOrigin::Create(response_url)->IsLocalhost())
+      response_address_space = mojom::IPAddressSpace::kLocal;
+
+    auto* response_content_security_policy =
+        MakeGarbageCollected<ContentSecurityPolicy>();
+    response_content_security_policy->DidReceiveHeaders(
+        ContentSecurityPolicyResponseHeaders(resource->GetResponse()));
+
+    std::unique_ptr<Vector<String>> response_origin_trial_tokens =
+        OriginTrialContext::ParseHeaderValue(
+            resource->GetResponse().HttpHeaderField(http_names::kOriginTrial));
+
+    // Step 12.3-12.6 are implemented in Initialize().
+    global_scope_->Initialize(response_url, response_referrer_policy,
+                              response_address_space,
+                              response_content_security_policy->Headers(),
+                              response_origin_trial_tokens.get());
   }
 
   ModuleScriptCreationParams params(
       script_resource->GetResponse().CurrentRequestUrl(),
-      script_resource->SourceText(),
-      script_resource->GetResourceRequest().GetFetchCredentialsMode());
+      script_resource->SourceText(), script_resource->CacheHandler(),
+      script_resource->GetResourceRequest().GetCredentialsMode());
 
-  // Step 13.7. "Asynchronously complete the perform the fetch steps with
-  // response." [spec text]
+  // <spec step="12.7">Asynchronously complete the perform the fetch steps with
+  // response.</spec>
   client_->NotifyFetchFinished(params, error_messages);
 }
 

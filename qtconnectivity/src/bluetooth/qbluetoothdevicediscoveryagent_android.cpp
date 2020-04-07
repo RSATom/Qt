@@ -150,10 +150,8 @@ void QBluetoothDeviceDiscoveryAgentPrivate::start(QBluetoothDeviceDiscoveryAgent
     }
 
     // check Android v23+ permissions
-    // -> BTLE search requires android.permission.ACCESS_COARSE_LOCATION or android.permission.ACCESS_FINE_LOCATION
-    if (requestedMethods & QBluetoothDeviceDiscoveryAgent::LowEnergyMethod
-        && QtAndroid::androidSdkVersion() >= 23)
-    {
+    // -> any device search requires android.permission.ACCESS_COARSE_LOCATION or android.permission.ACCESS_FINE_LOCATION
+    if (QtAndroid::androidSdkVersion() >= 23) {
         const QString coarsePermission(QLatin1String("android.permission.ACCESS_COARSE_LOCATION"));
         const QString finePermission(QLatin1String("android.permission.ACCESS_FINE_LOCATION"));
 
@@ -187,6 +185,44 @@ void QBluetoothDeviceDiscoveryAgentPrivate::start(QBluetoothDeviceDiscoveryAgent
         qCWarning(QT_BT_ANDROID) << "ACCESS_COARSE|FINE_LOCATION permission available";
     }
 
+    // Double check Location service is turned on
+    bool locationTurnedOn = true; // backwards compatible behavior to previous Qt versions
+    const  QAndroidJniObject locString = QAndroidJniObject::getStaticObjectField(
+                "android/content/Context", "LOCATION_SERVICE", "Ljava/lang/String;");
+    const QAndroidJniObject locService = QtAndroid::androidContext().callObjectMethod(
+                "getSystemService",
+                "(Ljava/lang/String;)Ljava/lang/Object;",
+                locString.object<jstring>());
+
+    if (locService.isValid()) {
+        if (QtAndroid::androidSdkVersion() >= 28) {
+            locationTurnedOn = bool(locService.callMethod<jboolean>("isLocationEnabled"));
+        } else {
+            // try GPS and network provider
+            QAndroidJniObject provider = QAndroidJniObject::getStaticObjectField(
+                        "android/location/LocationManager", "GPS_PROVIDER", "Ljava/lang/String;");
+            bool gpsTurnedOn = bool(locService.callMethod<jboolean>("isProviderEnabled",
+                                      "(Ljava/lang/String;)Z", provider.object<jstring>()));
+
+            provider = QAndroidJniObject::getStaticObjectField(
+                       "android/location/LocationManager", "NETWORK_PROVIDER", "Ljava/lang/String;");
+            bool providerTurnedOn = bool(locService.callMethod<jboolean>("isProviderEnabled",
+                                          "(Ljava/lang/String;)Z", provider.object<jstring>()));
+
+            locationTurnedOn = gpsTurnedOn || providerTurnedOn;
+        }
+    }
+
+    if (!locationTurnedOn) {
+        qCWarning(QT_BT_ANDROID) << "Search not possible due to turned off Location service";
+        lastError = QBluetoothDeviceDiscoveryAgent::UnknownError;
+        errorString = QBluetoothDeviceDiscoveryAgent::tr("Location service turned off. Search is not possible.");
+        emit q->error(lastError);
+        return;
+    }
+
+    qCDebug(QT_BT_ANDROID) << "Location turned on";
+
     // install Java BroadcastReceiver
     if (!receiver) {
         // SDP based device discovery
@@ -203,17 +239,25 @@ void QBluetoothDeviceDiscoveryAgentPrivate::start(QBluetoothDeviceDiscoveryAgent
     if (requestedMethods & QBluetoothDeviceDiscoveryAgent::ClassicMethod) {
         const bool success = adapter.callMethod<jboolean>("startDiscovery");
         if (!success) {
-            lastError = QBluetoothDeviceDiscoveryAgent::InputOutputError;
-            errorString = QBluetoothDeviceDiscoveryAgent::tr("Classic Discovery cannot be started");
-            emit q->error(lastError);
+            qCDebug(QT_BT_ANDROID) << "Classic Discovery cannot be started";
+            if (requestedMethods == QBluetoothDeviceDiscoveryAgent::ClassicMethod) {
+                //only classic discovery requested -> error out
+                lastError = QBluetoothDeviceDiscoveryAgent::InputOutputError;
+                errorString = QBluetoothDeviceDiscoveryAgent::tr("Classic Discovery cannot be started");
+
+                emit q->error(lastError);
+                return;
+            } // else fall through to LE discovery
+        } else {
+            m_active = SDPScanActive;
+            qCDebug(QT_BT_ANDROID)
+                << "QBluetoothDeviceDiscoveryAgentPrivate::start() - Classic search successfully started.";
             return;
         }
+    }
 
-        m_active = SDPScanActive;
-        qCDebug(QT_BT_ANDROID)
-            << "QBluetoothDeviceDiscoveryAgentPrivate::start() - Classic search successfully started.";
-    } else {
-        // LE search only requested
+    if (requestedMethods & QBluetoothDeviceDiscoveryAgent::LowEnergyMethod) {
+        // LE search only requested or classic discovery failed but lets try LE scan anyway
         Q_ASSERT(requestedMethods & QBluetoothDeviceDiscoveryAgent::LowEnergyMethod);
 
         if (QtAndroidPrivate::androidSdkVersion() < 18) {
@@ -363,7 +407,8 @@ void QBluetoothDeviceDiscoveryAgentPrivate::processDiscoveredDevices(
 
     discoveredDevices.append(info);
     qCDebug(QT_BT_ANDROID) << "Device found: " << info.name() << info.address().toString()
-                           << "isLeScanResult:" << isLeResult;
+                           << "isLeScanResult:" << isLeResult
+                           << "Manufacturer data size:" << info.manufacturerData().size();
     emit q->deviceDiscovered(info);
 }
 

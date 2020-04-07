@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2019 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the documentation of the Qt Toolkit.
@@ -53,12 +53,12 @@ void wrapInFunction()
 {
 
 //! [0]
-QVERIFY(1 + 1 == 2);
+ QVERIFY(spy.isValid())
 //! [0]
 
 
 //! [1]
-QVERIFY2(1 + 1 == 2, "A breach in basic arithmetic occurred.");
+QVERIFY2(qIsNaN(0.0 / 0.0), "Ill-defined division produced unambiguous result.");
 //! [1]
 
 
@@ -296,3 +296,56 @@ QTest::keyClick(myWindow, Qt::Key_Escape, Qt::ShiftModifier, 200);
 
 }
 
+//! [30]
+void TestQLocale::initTestCase_data()
+{
+    QTest::addColumn<QLocale>("locale");
+    QTest::newRow("C") << QLocale::c();
+    QTest::newRow("UKish") << QLocale("en_GB");
+    QTest::newRow("USAish") << QLocale(QLocale::English);
+}
+
+void TestQLocale::roundTripInt_data()
+{
+    QTest::addColumn<int>("number");
+    QTest::newRow("one") << 1;
+    QTest::newRow("two") << 2;
+    QTest::newRow("ten") << 10;
+}
+//! [30]
+
+//! [31]
+void TestQLocale::roundTripInt()
+{
+    QFETCH_GLOBAL(QLocale, locale);
+    QFETCH(int, number);
+    bool ok;
+    QCOMPARE(locale.toInt(locale.toString(number), &ok), number);
+    QVERIFY(ok);
+}
+//! [31]
+
+
+//! [32]
+bool opened = file.open(QIODevice::WriteOnly);
+QVERIFY(opened);
+//! [32]
+
+
+//! [33]
+QVERIFY2(file.open(QIODevice::WriteOnly),
+         qPrintable(QString("open %1: %2").arg(file.fileName()).arg(file.errorString()));
+//! [33]
+
+//! [34]
+QT_BEGIN_NAMESPACE
+namespace QTest {
+    template <> char *toString<MyType>(const MyType &t)
+    {
+        char *repr = new char[t.reprSize()];
+        t.writeRepr(repr);
+        return repr;
+    }
+}
+QT_END_NAMESPACE
+//! [34]

@@ -8,12 +8,12 @@
 #ifndef GrAtlasTextOp_DEFINED
 #define GrAtlasTextOp_DEFINED
 
-#include "ops/GrMeshDrawOp.h"
-#include "text/GrTextBlob.h"
-#include "text/GrDistanceFieldAdjustTable.h"
+#include "src/gpu/ops/GrMeshDrawOp.h"
+#include "src/gpu/text/GrDistanceFieldAdjustTable.h"
+#include "src/gpu/text/GrTextBlob.h"
 
+class GrRecordingContext;
 class SkAtlasTextTarget;
-class GrContext;
 
 class GrAtlasTextOp final : public GrMeshDrawOp {
 public:
@@ -40,20 +40,20 @@ public:
         SkPMColor4f fColor;
     };
 
-    static std::unique_ptr<GrAtlasTextOp> MakeBitmap(GrContext* context,
-                                                     GrPaint&& paint,
-                                                     GrMaskFormat maskFormat,
+    static std::unique_ptr<GrAtlasTextOp> MakeBitmap(GrRecordingContext*,
+                                                     GrPaint&&,
+                                                     GrMaskFormat,
                                                      int glyphCount,
                                                      bool needsTransform);
 
     static std::unique_ptr<GrAtlasTextOp> MakeDistanceField(
-            GrContext* context,
-            GrPaint&& paint,
+            GrRecordingContext*,
+            GrPaint&&,
             int glyphCount,
-            const GrDistanceFieldAdjustTable* distanceAdjustTable,
+            const GrDistanceFieldAdjustTable*,
             bool useGammaCorrectDistanceTable,
             SkColor luminanceColor,
-            const SkSurfaceProps& props,
+            const SkSurfaceProps&,
             bool isAntiAliased,
             bool useLCD);
 
@@ -67,7 +67,7 @@ public:
 
     const char* name() const override { return "AtlasTextOp"; }
 
-    void visitProxies(const VisitProxyFunc& func, VisitorType) const override;
+    void visitProxies(const VisitProxyFunc& func) const override;
 
 #ifdef SK_DEBUG
     SkString dumpInfo() const override;
@@ -75,7 +75,8 @@ public:
 
     FixedFunctionFlags fixedFunctionFlags() const override;
 
-    GrProcessorSet::Analysis finalize(const GrCaps& caps, const GrAppliedClip* clip) override;
+    GrProcessorSet::Analysis finalize(const GrCaps&, const GrAppliedClip*,
+                                      bool hasMixedSampledCoverage, GrClampType) override;
 
     enum MaskType {
         kGrayscaleCoverageMask_MaskType,
@@ -107,13 +108,13 @@ private:
         sk_sp<const GrBuffer> fVertexBuffer;
         sk_sp<const GrBuffer> fIndexBuffer;
         sk_sp<GrGeometryProcessor> fGeometryProcessor;
-        const GrPipeline* fPipeline;
         GrPipeline::FixedDynamicState* fFixedDynamicState;
         int fGlyphsToFlush;
         int fVertexOffset;
     };
 
     void onPrepareDraws(Target*) override;
+    void onExecute(GrOpFlushState*, const SkRect& chainBounds) override;
 
     GrMaskFormat maskFormat() const {
         switch (fMaskType) {

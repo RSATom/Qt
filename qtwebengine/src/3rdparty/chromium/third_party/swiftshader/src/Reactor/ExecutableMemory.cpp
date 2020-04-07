@@ -57,14 +57,21 @@ void *allocateRaw(size_t bytes, size_t alignment)
 	ASSERT((alignment & (alignment - 1)) == 0);   // Power of 2 alignment.
 
 	#if defined(LINUX_ENABLE_NAMED_MMAP)
-		void *allocation;
-		int result = posix_memalign(&allocation, alignment, bytes);
-		if(result != 0)
+		if(alignment < sizeof(void*))
 		{
-			errno = result;
-			allocation = nullptr;
+			return malloc(bytes);
 		}
-		return allocation;
+		else
+		{
+			void *allocation;
+			int result = posix_memalign(&allocation, alignment, bytes);
+			if(result != 0)
+			{
+				errno = result;
+				allocation = nullptr;
+			}
+			return allocation;
+		}
 	#else
 		unsigned char *block = new unsigned char[bytes + sizeof(Allocation) + alignment];
 		unsigned char *aligned = nullptr;
@@ -211,12 +218,15 @@ void *allocateExecutable(size_t bytes)
 		}
 	#elif defined(__Fuchsia__)
 		zx_handle_t vmo;
-		if (zx_vmo_create(length, ZX_VMO_NON_RESIZABLE, &vmo) != ZX_OK) {
+		if (zx_vmo_create(length, 0, &vmo) != ZX_OK) {
+			return nullptr;
+		}
+		if (zx_vmo_replace_as_executable(vmo, ZX_HANDLE_INVALID, &vmo) != ZX_OK) {
 			return nullptr;
 		}
 		zx_vaddr_t reservation;
 		zx_status_t status = zx_vmar_map(
-			zx_vmar_root_self(), ZX_VM_FLAG_PERM_READ | ZX_VM_FLAG_PERM_WRITE,
+			zx_vmar_root_self(), ZX_VM_PERM_READ | ZX_VM_PERM_WRITE,
 			0, vmo, 0, length, &reservation);
 		zx_handle_close(vmo);
 		if (status != ZX_OK) {
@@ -256,7 +266,7 @@ void markExecutable(void *memory, size_t bytes)
 		VirtualProtect(memory, bytes, PAGE_EXECUTE_READ, &oldProtection);
 	#elif defined(__Fuchsia__)
 		zx_status_t status = zx_vmar_protect(
-			zx_vmar_root_self(), ZX_VM_FLAG_PERM_READ | ZX_VM_FLAG_PERM_EXECUTE,
+			zx_vmar_root_self(), ZX_VM_PERM_READ | ZX_VM_PERM_EXECUTE,
 			reinterpret_cast<zx_vaddr_t>(memory), bytes);
 	    ASSERT(status != ZX_OK);
 	#else

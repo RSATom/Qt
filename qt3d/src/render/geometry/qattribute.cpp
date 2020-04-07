@@ -41,8 +41,6 @@
 #include "qattribute_p.h"
 #include <Qt3DRender/qbuffer.h>
 
-#include <Qt3DCore/qpropertyupdatedchange.h>
-
 QT_BEGIN_NAMESPACE
 
 namespace Qt3DRender {
@@ -504,6 +502,19 @@ Qt3DCore::QNodeCreatedChangeBasePtr QAttribute::createNodeCreationChange() const
     data.attributeType = d->m_attributeType;
     return creationChange;
 }
+
+
+/*!
+\fn Qt3DRender::QAttribute::dataSizeChanged(uint vertexSize)
+
+The signal is emitted with \a vertexSize when the dataSize changes.
+*/
+/*!
+\fn Qt3DRender::QAttribute::dataTypeChanged(Qt3DRender::QAttribute::VertexBaseType vertexBaseType)
+
+The signal is emitted with \a vertexBaseType when the dataType changed.
+*/
+
 
 } // Qt3DRender
 

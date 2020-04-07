@@ -13,7 +13,7 @@ qtHaveModule(simulator) {
 QMAKE_DOCS = $$PWD/doc/qtsensors.qdocconf
 
 ANDROID_LIB_DEPENDENCIES = \
-    plugins/sensors/libqtsensors_android.so
+    plugins/sensors/libplugins_sensors_qtsensors_android.so
 
 PUBLIC_HEADERS += \
            qsensorbackend.h\

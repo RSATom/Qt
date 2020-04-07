@@ -41,6 +41,10 @@ class GLES2Interface;
 }
 }  // namespace gpu
 
+namespace gfx {
+class RRectF;
+}
+
 namespace viz {
 
 class DynamicGeometryBinding;
@@ -102,7 +106,8 @@ class VIZ_SERVICE_EXPORT GLRenderer : public DirectRenderer {
   bool FlippedRootFramebuffer() const;
   void EnsureScissorTestEnabled() override;
   void EnsureScissorTestDisabled() override;
-  void CopyDrawnRenderPass(std::unique_ptr<CopyOutputRequest> request) override;
+  void CopyDrawnRenderPass(const copy_output::RenderPassGeometry& geometry,
+                           std::unique_ptr<CopyOutputRequest> request) override;
   void SetEnableDCLayers(bool enable) override;
   void FinishDrawingQuadList() override;
   void GenerateMipmap() override;
@@ -190,22 +195,24 @@ class VIZ_SERVICE_EXPORT GLRenderer : public DirectRenderer {
   void ApplyBlendModeUsingBlendFunc(SkBlendMode blend_mode);
   void RestoreBlendFuncToDefault(SkBlendMode blend_mode);
 
+  // Returns the rect that should be sampled from the backdrop texture to be
+  // backdrop filtered. This rect lives in window pixel space. The
+  // |backdrop_filter_bounds| output lives in the space of the output rect
+  // returned by this function. It will be used to clip the sampled backdrop
+  // texture. The |unclipped_rect| output is the unclipped (full) rect that the
+  // backdrop_filter should be applied to, in window pixel space.
   gfx::Rect GetBackdropBoundingBoxForRenderPassQuad(
-      const RenderPassDrawQuad* quad,
-      const gfx::Transform& contents_device_transform,
-      const cc::FilterOperations* filters,
-      const cc::FilterOperations* backdrop_filters,
-      const gfx::QuadF* clip_region,
-      const gfx::RectF* backdrop_filter_bounds_input,
-      bool use_aa,
-      gfx::Rect* backdrop_filter_bounds,
-      gfx::Rect* unclipped_rect);
+      DrawRenderPassDrawQuadParams* params,
+      gfx::Transform* backdrop_filter_bounds_transform,
+      base::Optional<gfx::RRectF>* backdrop_filter_bounds,
+      gfx::Rect* unclipped_rect) const;
+
   // Allocates and returns a texture id that contains a copy of the contents
   // of the current RenderPass being drawn.
-  uint32_t GetBackdropTexture(const gfx::Rect& window_rect);
+  uint32_t GetBackdropTexture(const gfx::Rect& window_rect,
+                              GLenum* internal_format);
 
-  static bool ShouldApplyBackgroundFilters(
-      const RenderPassDrawQuad* quad,
+  static bool ShouldApplyBackdropFilters(
       const cc::FilterOperations* backdrop_filters);
   // Applies the backdrop filters to the backdrop that has been painted to this
   // point, and returns it as an SkImage. Any opacity and/or "regular"
@@ -215,15 +222,11 @@ class VIZ_SERVICE_EXPORT GLRenderer : public DirectRenderer {
   // stacking context, which would then be painted into its parent with opacity
   // and filters applied. This is an approximation, but it should be close
   // enough.
-  sk_sp<SkImage> ApplyBackgroundFilters(
-      const RenderPassDrawQuad* quad,
-      const cc::FilterOperations* backdrop_filters,
-      const cc::FilterOperations* regular_filters,
-      uint32_t background_texture,
-      const gfx::Rect& rect,
+  sk_sp<SkImage> ApplyBackdropFilters(
+      DrawRenderPassDrawQuadParams* params,
       const gfx::Rect& unclipped_rect,
-      const float backdrop_filter_quality,
-      const gfx::Rect& backdrop_filter_bounds);
+      const base::Optional<gfx::RRectF>& backdrop_filter_bounds,
+      const gfx::Transform& backdrop_filter_bounds_transform);
 
   const TileDrawQuad* CanPassBeDrawnDirectly(const RenderPass* pass) override;
 
@@ -256,6 +259,8 @@ class VIZ_SERVICE_EXPORT GLRenderer : public DirectRenderer {
   void SetShaderQuadF(const gfx::QuadF& quad);
   void SetShaderMatrix(const gfx::Transform& transform);
   void SetShaderColor(SkColor color, float opacity);
+  void SetShaderRoundedCorner(const gfx::RRectF& rounded_corner_bounds,
+                              const gfx::Transform& screen_transform);
   void DrawQuadGeometryClippedByQuadF(const gfx::Transform& draw_transform,
                                       const gfx::RectF& quad_rect,
                                       const gfx::QuadF& clipping_region_quad,
@@ -418,7 +423,7 @@ class VIZ_SERVICE_EXPORT GLRenderer : public DirectRenderer {
   // This may be null if the compositor is run on a thread without a
   // MessageLoop.
   scoped_refptr<base::SingleThreadTaskRunner> current_task_runner_;
-  base::WeakPtrFactory<GLRenderer> weak_ptr_factory_;
+  base::WeakPtrFactory<GLRenderer> weak_ptr_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(GLRenderer);
 };

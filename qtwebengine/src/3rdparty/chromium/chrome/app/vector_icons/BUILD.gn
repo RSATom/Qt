@@ -49,16 +49,14 @@ aggregate_vector_icons("chrome_vector_icons") {
     "file_download.icon",
     "file_download_shelf.icon",
     "fingerprint.icon",
-    "folder.icon",
-    "folder_supervised.icon",
     "forward_arrow_touch.icon",
     "generic_stop.icon",
     "globe.icon",
-    "google_g_logo.icon",
-    "google_pay_logo.icon",
+    "hardware_computer.icon",
+    "hardware_smartphone.icon",
     "horizontal_menu.icon",
     "incognito.icon",
-    "incognito_circle.icon",
+    "incognito_profile.icon",
     "input.icon",
     "key.icon",
     "laptop.icon",
@@ -77,14 +75,16 @@ aggregate_vector_icons("chrome_vector_icons") {
     "photo_camera.icon",
     "picture_in_picture_control_background.icon",
     "picture_in_picture_alt.icon",
+    "reader_mode.icon",
     "reload_touch.icon",
     "remove.icon",
     "remove_box.icon",
     "resize_handle.icon",
     "sad_tab.icon",
+    "save_original_file.icon",
     "security.icon",
+    "send_tab_to_self.icon",
     "sensors.icon",
-    "settings.icon",
     "signin_button_drop_down_arrow.icon",
     "sign_out.icon",
     "smartphone.icon",
@@ -121,6 +121,26 @@ aggregate_vector_icons("chrome_vector_icons") {
     "vr_headset.icon",
     "warning_badge.icon",
     "web.icon",
+    "webauthn/webauthn_ble.icon",
+    "webauthn/webauthn_ble_dark.icon",
+    "webauthn/webauthn_ble_name.icon",
+    "webauthn/webauthn_ble_name_dark.icon",
+    "webauthn/webauthn_ble_pin.icon",
+    "webauthn/webauthn_ble_pin_dark.icon",
+    "webauthn/webauthn_ble_tap.icon",
+    "webauthn/webauthn_ble_tap_dark.icon",
+    "webauthn/webauthn_error.icon",
+    "webauthn/webauthn_error_bluetooth.icon",
+    "webauthn/webauthn_error_bluetooth_dark.icon",
+    "webauthn/webauthn_error_dark.icon",
+    "webauthn/webauthn_permission.icon",
+    "webauthn/webauthn_permission_dark.icon",
+    "webauthn/webauthn_phone.icon",
+    "webauthn/webauthn_phone_dark.icon",
+    "webauthn/webauthn_usb.icon",
+    "webauthn/webauthn_usb_dark.icon",
+    "webauthn/webauthn_welcome.icon",
+    "webauthn/webauthn_welcome_dark.icon",
     "zoom_minus.icon",
     "zoom_plus.icon",
     "${branding_path_component}/product.icon",
@@ -143,12 +163,41 @@ aggregate_vector_icons("chrome_vector_icons") {
   }
 
   if (is_chromeos) {
-    icons += [ "warning_badge_circle.icon" ]
+    icons += [
+      "notification_captive_portal.icon",
+      "notification_battery.icon",
+      "notification_cellular_alert.icon",
+      "notification_download.icon",
+      "notification_end_of_support.icon",
+      "notification_family_link.icon",
+      "notification_google.icon",
+      "notification_image.icon",
+      "notification_installed.icon",
+      "notification_linux.icon",
+      "notification_messages.icon",
+      "notification_mobile_data.icon",
+      "notification_mobile_data_off.icon",
+      "notification_plugin_vm.icon",
+      "notification_printing.icon",
+      "notification_printing_done.icon",
+      "notification_printing_warning.icon",
+      "notification_storage_full.icon",
+      "notification_vpn.icon",
+      "notification_wifi_off.icon",
+      "warning_badge_circle.icon",
+    ]
   }
 
   if (enable_vr && !is_android) {
     # Used on desktop VR headsets and Linux unit tests.
     icons += [ "open_in_browser.icon" ]
+  }
+
+  if (is_chrome_branded) {
+    icons += [
+      "google_chrome/google_g_logo.icon",
+      "google_chrome/google_pay_logo.icon",
+    ]
   }
 }
 

@@ -12,9 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import("../../../gn/perfetto.gni")
-import("../../../gn/fuzzer.gni")
 import("//build_overrides/build.gni")
+import("../../../gn/fuzzer.gni")
+import("../../../gn/perfetto.gni")
 
 # For use_libfuzzer.
 if (!build_with_chromium) {
@@ -24,9 +24,11 @@ if (!build_with_chromium) {
 }
 
 source_set("wire_protocol") {
-  public_configs = [ "../../../buildtools:libunwindstack_config" ]
+  public_deps = [
+    "../../../gn:libunwindstack",
+  ]
   deps = [
-    "../../../buildtools:libunwindstack",
+    ":ring_buffer",
     "../../../gn:default_deps",
     "../../base",
     "../../base:unix_socket",
@@ -48,62 +50,102 @@ source_set("proc_utils") {
   ]
 }
 
+source_set("scoped_spinlock") {
+  deps = [
+    "../../../gn:default_deps",
+    "../../base",
+  ]
+  sources = [
+    "scoped_spinlock.cc",
+    "scoped_spinlock.h",
+  ]
+}
+
+source_set("ring_buffer") {
+  deps = [
+    ":scoped_spinlock",
+    "../../../gn:default_deps",
+    "../../base",
+  ]
+  sources = [
+    "shared_ring_buffer.cc",
+    "shared_ring_buffer.h",
+  ]
+}
+
+source_set("ring_buffer_unittests") {
+  testonly = true
+  deps = [
+    ":ring_buffer",
+    "../../../gn:default_deps",
+    "../../../gn:gtest_and_gmock",
+    "../../base",
+  ]
+  sources = [
+    "shared_ring_buffer_unittest.cc",
+  ]
+}
+
 source_set("daemon") {
-  public_configs = [ "../../../buildtools:libunwindstack_config" ]
   deps = [
     ":proc_utils",
+    ":ring_buffer",
+    ":scoped_spinlock",
     ":wire_protocol",
-    "../../../buildtools:libunwindstack",
     "../../../gn:default_deps",
+    "../../../protos/perfetto/config:lite",
     "../../base",
     "../../base:unix_socket",
     "../../tracing",
     "../../tracing:ipc",
   ]
   public_deps = [
+    "../../../gn:libunwindstack",
     "../../../protos/perfetto/trace:zero",
+    "../../../protos/perfetto/trace/interned_data:zero",
     "../../../protos/perfetto/trace/profiling:zero",
   ]
   sources = [
     "bookkeeping.cc",
     "bookkeeping.h",
+    "bookkeeping_dump.cc",
+    "bookkeeping_dump.h",
+    "heapprofd_config.cc",
+    "heapprofd_config.h",
     "heapprofd_producer.cc",
     "heapprofd_producer.h",
     "interner.h",
-    "process_matcher.cc",
-    "process_matcher.h",
-    "queue_messages.h",
-    "record_reader.cc",
-    "record_reader.h",
-    "socket_listener.cc",
-    "socket_listener.h",
+    "page_idle_checker.cc",
+    "page_idle_checker.h",
     "system_property.cc",
     "system_property.h",
     "unwinding.cc",
     "unwinding.h",
+    "unwound_messages.h",
+    "utils.cc",
+    "utils.h",
   ]
 }
 
 source_set("client") {
-  public_configs = [ "../../../buildtools:libunwindstack_config" ]
   deps = [
     ":proc_utils",
+    ":ring_buffer",
+    ":scoped_spinlock",
     ":wire_protocol",
-    "../../../buildtools:libunwindstack",
     "../../../gn:default_deps",
+    "../../../gn:libunwindstack",
     "../../base",
     "../../base:unix_socket",
   ]
   sources = [
     "client.cc",
     "client.h",
-    "sampler.cc",
     "sampler.h",
   ]
 }
 
 source_set("unittests") {
-  public_configs = [ "../../../buildtools:libunwindstack_config" ]
   testonly = true
   deps = [
     ":client",
@@ -111,21 +153,20 @@ source_set("unittests") {
     ":proc_utils",
     ":wire_protocol",
     "../../../gn:default_deps",
-    "../../../gn:gtest_deps",
+    "../../../gn:gtest_and_gmock",
+    "../../../gn:libunwindstack",
     "../../base",
     "../../base:test_support",
+    "../../tracing",
   ]
   sources = [
     "bookkeeping_unittest.cc",
-    "bounded_queue_unittest.cc",
     "client_unittest.cc",
-    "heapprofd_integrationtest.cc",
+    "heapprofd_producer_unittest.cc",
     "interner_unittest.cc",
+    "page_idle_checker_unittest.cc",
     "proc_utils_unittest.cc",
-    "process_matcher_unittest.cc",
-    "record_reader_unittest.cc",
     "sampler_unittest.cc",
-    "socket_listener_unittest.cc",
     "system_property_unittest.cc",
     "unwinding_unittest.cc",
     "wire_protocol_unittest.cc",
@@ -133,14 +174,16 @@ source_set("unittests") {
 }
 
 source_set("end_to_end_tests") {
-  public_configs = [ "../../../buildtools:libunwindstack_config" ]
   testonly = true
   deps = [
     ":client",
     ":daemon",
     ":wire_protocol",
     "../../../gn:default_deps",
-    "../../../gn:gtest_deps",
+    "../../../gn:gtest_and_gmock",
+    "../../../gn:libunwindstack",
+    "../../../include/perfetto/protozero",
+    "../../../protos/perfetto/config:zero",
     "../../../test:test_helper",
     "../../base",
     "../../base:test_support",
@@ -158,6 +201,7 @@ source_set("malloc_hooks") {
   deps = [
     ":client",
     ":proc_utils",
+    ":scoped_spinlock",
     ":wire_protocol",
     "../../../gn:default_deps",
     "../../base",
@@ -173,13 +217,40 @@ source_set("malloc_hooks") {
 }
 
 perfetto_fuzzer_test("unwinding_fuzzer") {
+  testonly = true
   sources = [
     "unwinding_fuzzer.cc",
   ]
   deps = [
     ":daemon",
+    ":ring_buffer",
     ":wire_protocol",
     "../../../gn:default_deps",
-    "../../../src/base",
+    "../../base",
+    "../../tracing",
+  ]
+}
+
+perfetto_fuzzer_test("shared_ring_buffer_fuzzer") {
+  testonly = true
+  sources = [
+    "shared_ring_buffer_fuzzer.cc",
+  ]
+  deps = [
+    ":ring_buffer",
+    "../../../gn:default_deps",
+    "../../base",
+  ]
+}
+
+perfetto_fuzzer_test("shared_ring_buffer_write_fuzzer") {
+  testonly = true
+  sources = [
+    "shared_ring_buffer_write_fuzzer.cc",
+  ]
+  deps = [
+    ":ring_buffer",
+    "../../../gn:default_deps",
+    "../../base",
   ]
 }

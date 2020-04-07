@@ -6,10 +6,12 @@
 #define THIRD_PARTY_BLINK_RENDERER_CORE_WORKERS_INSTALLED_SCRIPTS_MANAGER_H_
 
 #include "base/optional.h"
+#include "third_party/blink/public/mojom/net/ip_address_space.mojom-blink.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/platform/network/content_security_policy_response_headers.h"
 #include "third_party/blink/renderer/platform/network/http_header_map.h"
 #include "third_party/blink/renderer/platform/weborigin/kurl.h"
+#include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 #include "third_party/blink/renderer/platform/wtf/vector.h"
 
 namespace blink {
@@ -17,10 +19,14 @@ namespace blink {
 // InstalledScriptsManager provides the scripts of workers that have been
 // installed. Currently it is only used for installed service workers.
 class InstalledScriptsManager {
+  USING_FAST_MALLOC(InstalledScriptsManager);
+
  public:
   InstalledScriptsManager() = default;
 
   class CORE_EXPORT ScriptData {
+    USING_FAST_MALLOC(ScriptData);
+
    public:
     ScriptData() = default;
     ScriptData(const KURL& script_url,
@@ -38,6 +44,9 @@ class InstalledScriptsManager {
     ContentSecurityPolicyResponseHeaders
     GetContentSecurityPolicyResponseHeaders();
     String GetReferrerPolicy();
+    mojom::IPAddressSpace GetResponseAddressSpace() const {
+      return response_address_space_;
+    }
     std::unique_ptr<Vector<String>> CreateOriginTrialTokens();
 
    private:
@@ -45,6 +54,7 @@ class InstalledScriptsManager {
     String source_text_;
     std::unique_ptr<Vector<uint8_t>> meta_data_;
     HTTPHeaderMap headers_;
+    mojom::IPAddressSpace response_address_space_;
 
     DISALLOW_COPY_AND_ASSIGN(ScriptData);
   };

@@ -9,6 +9,7 @@
 #include <tuple>
 #include <utility>
 
+#include "base/bind.h"
 #include "base/location.h"
 #include "base/macros.h"
 #include "base/single_thread_task_runner.h"
@@ -23,7 +24,6 @@
 #include "content/browser/service_worker/service_worker_version.h"
 #include "content/browser/storage_partition_impl.h"
 #include "content/browser/web_contents/web_contents_impl.h"
-#include "content/common/service_worker/service_worker_types.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/content_browser_client.h"
@@ -36,8 +36,8 @@
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_contents_observer.h"
 #include "content/public/common/child_process_host.h"
-#include "services/network/public/mojom/request_context_frame_type.mojom.h"
-#include "ui/base/mojo/window_open_disposition.mojom.h"
+#include "third_party/blink/public/mojom/loader/request_context_frame_type.mojom.h"
+#include "ui/base/mojom/window_open_disposition.mojom.h"
 #include "url/gurl.h"
 #include "url/origin.h"
 
@@ -256,7 +256,7 @@ void OpenWindowOnUI(
 
   GetContentClient()->browser()->OverrideNavigationParams(
       site_instance, &params.transition, &params.is_renderer_initiated,
-      &params.referrer);
+      &params.referrer, &params.initiator_origin);
 
   // End of RequestOpenURL copy.
 
@@ -515,7 +515,7 @@ void DidGetExecutionReadyClient(
   base::PostTaskWithTraitsAndReplyWithResult(
       FROM_HERE, {BrowserThread::UI},
       base::BindOnce(&GetWindowClientInfoOnUI, provider_host->process_id(),
-                     provider_host->route_id(), provider_host->create_time(),
+                     provider_host->frame_id(), provider_host->create_time(),
                      provider_host->client_uuid()),
       base::BindOnce(std::move(callback), blink::ServiceWorkerStatusCode::kOk));
 }
@@ -574,6 +574,8 @@ void GetClient(const ServiceWorkerProviderHost* provider_host,
   blink::mojom::ServiceWorkerClientType client_type =
       provider_host->client_type();
   DCHECK(client_type == blink::mojom::ServiceWorkerClientType::kWindow ||
+         client_type ==
+             blink::mojom::ServiceWorkerClientType::kDedicatedWorker ||
          client_type == blink::mojom::ServiceWorkerClientType::kSharedWorker)
       << client_type;
 
@@ -581,7 +583,7 @@ void GetClient(const ServiceWorkerProviderHost* provider_host,
     base::PostTaskWithTraitsAndReplyWithResult(
         FROM_HERE, {BrowserThread::UI},
         base::BindOnce(&GetWindowClientInfoOnUI, provider_host->process_id(),
-                       provider_host->route_id(), provider_host->create_time(),
+                       provider_host->frame_id(), provider_host->create_time(),
                        provider_host->client_uuid()),
         std::move(callback));
     return;

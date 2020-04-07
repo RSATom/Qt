@@ -60,10 +60,10 @@ void PDFResource::SearchString(const unsigned short* input_string,
   if (locale_.empty())
     locale_ = GetLocale() + "@collation=search";
 
-  const UChar* string =
-      reinterpret_cast<const UChar*>(input_string);
-  const UChar* term =
-      reinterpret_cast<const UChar*>(input_term);
+  const base::char16* string =
+      reinterpret_cast<const base::char16*>(input_string);
+  const base::char16* term =
+      reinterpret_cast<const base::char16*>(input_term);
 
   UErrorCode status = U_ZERO_ERROR;
   UStringSearch* searcher =
@@ -238,6 +238,10 @@ void PDFResource::SelectionChanged(const PP_FloatPoint& left,
                                    int32_t right_height) {
   Post(RENDERER, PpapiHostMsg_PDF_SelectionChanged(left, left_height, right,
                                                    right_height));
+}
+
+void PDFResource::SetPluginCanSave(bool can_save) {
+  Post(RENDERER, PpapiHostMsg_PDF_SetPluginCanSave(can_save));
 }
 
 }  // namespace proxy

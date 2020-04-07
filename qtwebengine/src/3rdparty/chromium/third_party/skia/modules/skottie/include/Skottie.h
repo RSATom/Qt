@@ -8,11 +8,11 @@
 #ifndef Skottie_DEFINED
 #define Skottie_DEFINED
 
-#include "SkFontMgr.h"
-#include "SkRefCnt.h"
-#include "SkSize.h"
-#include "SkString.h"
-#include "SkTypes.h"
+#include "include/core/SkFontMgr.h"
+#include "include/core/SkRefCnt.h"
+#include "include/core/SkSize.h"
+#include "include/core/SkString.h"
+#include "include/core/SkTypes.h"
 
 #include <memory>
 
@@ -24,7 +24,12 @@ class SkStream;
 
 namespace skjson { class ObjectValue; }
 
-namespace sksg { class Scene;  }
+namespace sksg {
+
+class InvalidationController;
+class Scene;
+
+} // namespace sksg
 
 namespace skottie {
 
@@ -72,7 +77,8 @@ public:
      * ImageAsset proxy.
      */
     virtual sk_sp<ImageAsset> loadImageAsset(const char resource_path[],
-                                             const char resource_name[]) const;
+                                             const char resource_name[],
+                                             const char resource_id[]) const;
 
     /**
      * Load an external font and return as SkData.
@@ -190,21 +196,37 @@ public:
 
     ~Animation();
 
+    enum RenderFlag : uint32_t {
+        // When rendering into a known transparent buffer, clients can pass
+        // this flag to avoid some unnecessary compositing overhead for
+        // animations using layer blend modes.
+        kSkipTopLevelIsolation = 0x01,
+    };
+    using RenderFlags = uint32_t;
+
     /**
      * Draws the current animation frame.
      *
      * @param canvas   destination canvas
      * @param dst      optional destination rect
+     * @param flags    optional RenderFlags
      */
     void render(SkCanvas* canvas, const SkRect* dst = nullptr) const;
+    void render(SkCanvas* canvas, const SkRect* dst, RenderFlags) const;
 
     /**
      * Updates the animation state for |t|.
      *
      * @param t   normalized [0..1] frame selector (0 -> first frame, 1 -> final frame)
+     * @param ic  optional invalidation controller (dirty region tracking)
      *
      */
-    void seek(SkScalar t);
+    void seek(SkScalar t, sksg::InvalidationController* ic = nullptr);
+
+    /** Update the animation state to match t, specifed in frame time
+     *  i.e. relative to duration().
+     */
+    void seekFrameTime(double t, sksg::InvalidationController* = nullptr);
 
     /**
      * Returns the animation duration in seconds.
@@ -214,11 +236,13 @@ public:
     const SkString& version() const { return fVersion;   }
     const SkSize&      size() const { return fSize;      }
 
-    void setShowInval(bool show);
-
 private:
+    enum Flags : uint32_t {
+        kRequiresTopLevelIsolation = 1 << 0, // Needs to draw into a layer due to layer blending.
+    };
+
     Animation(std::unique_ptr<sksg::Scene>, SkString ver, const SkSize& size,
-              SkScalar inPoint, SkScalar outPoint, SkScalar duration);
+              SkScalar inPoint, SkScalar outPoint, SkScalar duration, uint32_t flags = 0);
 
     std::unique_ptr<sksg::Scene> fScene;
     const SkString               fVersion;
@@ -226,6 +250,7 @@ private:
     const SkScalar               fInPoint,
                                  fOutPoint,
                                  fDuration;
+    const uint32_t               fFlags;
 
     typedef SkNVRefCnt<Animation> INHERITED;
 };

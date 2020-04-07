@@ -187,7 +187,7 @@ bool ImportantFileWriter::WriteFileAtomically(const FilePath& path,
 
   if (bytes_written < data_length) {
     LogFailure(path, histogram_suffix, FAILED_WRITING,
-               "error writing, bytes_written=" + IntToString(bytes_written));
+               "error writing, bytes_written=" + NumberToString(bytes_written));
     DeleteTmpFile(tmp_file_path, histogram_suffix);
     return false;
   }
@@ -230,8 +230,7 @@ ImportantFileWriter::ImportantFileWriter(
       task_runner_(std::move(task_runner)),
       serializer_(nullptr),
       commit_interval_(interval),
-      histogram_suffix_(histogram_suffix ? histogram_suffix : ""),
-      weak_factory_(this) {
+      histogram_suffix_(histogram_suffix ? histogram_suffix : "") {
   DCHECK(task_runner_);
 }
 
@@ -255,7 +254,7 @@ void ImportantFileWriter::WriteNow(std::unique_ptr<std::string> data) {
     return;
   }
 
-  Closure task = AdaptCallbackForRepeating(
+  RepeatingClosure task = AdaptCallbackForRepeating(
       BindOnce(&WriteScopedStringToFileAtomically, path_, std::move(data),
                std::move(before_next_write_callback_),
                std::move(after_next_write_callback_), histogram_suffix_));
@@ -266,7 +265,7 @@ void ImportantFileWriter::WriteNow(std::unique_ptr<std::string> data) {
     // on the current thread.
     NOTREACHED();
 
-    task.Run();
+    std::move(task).Run();
   }
   ClearPendingWrite();
 }
@@ -280,7 +279,7 @@ void ImportantFileWriter::ScheduleWrite(DataSerializer* serializer) {
   if (!timer().IsRunning()) {
     timer().Start(
         FROM_HERE, commit_interval_,
-        Bind(&ImportantFileWriter::DoScheduledWrite, Unretained(this)));
+        BindOnce(&ImportantFileWriter::DoScheduledWrite, Unretained(this)));
   }
 }
 

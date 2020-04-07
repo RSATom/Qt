@@ -17,7 +17,6 @@
 #include "ui/gfx/buffer_format_util.h"
 #include "ui/gfx/mac/display_icc_profiles.h"
 #include "ui/gfx/mac/io_surface.h"
-#include "ui/gl/buildflags.h"
 #include "ui/gl/gl_bindings.h"
 #include "ui/gl/gl_context.h"
 #include "ui/gl/gl_enums.h"
@@ -25,10 +24,10 @@
 #include "ui/gl/scoped_binders.h"
 #include "ui/gl/yuv_to_rgb_converter.h"
 
-#if BUILDFLAG(USE_EGL_ON_MAC)
+#if defined(USE_EGL)
 #include "ui/gl/gl_image_io_surface_egl.h"
 #include "ui/gl/gl_implementation.h"
-#endif  // BUILDFLAG(USE_EGL_ON_MAC)
+#endif  // defined(USE_EGL)
 
 // Note that this must be included after gl_bindings.h to avoid conflicts.
 #include <OpenGL/CGLIOSurface.h>
@@ -83,7 +82,8 @@ GLenum TextureFormat(gfx::BufferFormat format) {
     case gfx::BufferFormat::RGBX_8888:
     case gfx::BufferFormat::RGBX_1010102:
     case gfx::BufferFormat::YVU_420:
-      NOTREACHED();
+    case gfx::BufferFormat::P010:
+      NOTREACHED() << gfx::BufferFormatToString(format);
       return 0;
   }
 
@@ -114,6 +114,7 @@ GLenum DataFormat(gfx::BufferFormat format) {
     case gfx::BufferFormat::RGBX_1010102:
     case gfx::BufferFormat::YVU_420:
     case gfx::BufferFormat::YUV_420_BIPLANAR:
+    case gfx::BufferFormat::P010:
       NOTREACHED() << gfx::BufferFormatToString(format);
       return 0;
   }
@@ -145,6 +146,7 @@ GLenum DataType(gfx::BufferFormat format) {
     case gfx::BufferFormat::RGBX_1010102:
     case gfx::BufferFormat::YVU_420:
     case gfx::BufferFormat::YUV_420_BIPLANAR:
+    case gfx::BufferFormat::P010:
       NOTREACHED() << gfx::BufferFormatToString(format);
       return 0;
   }
@@ -168,15 +170,16 @@ GLenum ConvertRequestedInternalFormat(GLenum internalformat) {
 // static
 GLImageIOSurface* GLImageIOSurface::Create(const gfx::Size& size,
                                            unsigned internalformat) {
-#if BUILDFLAG(USE_EGL_ON_MAC)
+#if defined(USE_EGL)
   switch (GetGLImplementation()) {
     case kGLImplementationEGLGLES2:
+    case kGLImplementationEGLANGLE:
     case kGLImplementationSwiftShaderGL:
       return new GLImageIOSurfaceEGL(size, internalformat);
     default:
       break;
   }
-#endif  // BUILDFLAG(USE_EGL_ON_MAC)
+#endif  // defined(USE_EGL)
 
   return new GLImageIOSurface(size, internalformat);
 }
@@ -244,6 +247,13 @@ unsigned GLImageIOSurface::GetInternalFormat() {
   return internalformat_;
 }
 
+GLImageIOSurface::BindOrCopy GLImageIOSurface::ShouldBindOrCopy() {
+  // YUV_420_BIPLANAR is not supported by BindTexImage.
+  // CopyTexImage is supported by this format as that performs conversion to RGB
+  // as part of the copy operation.
+  return format_ == gfx::BufferFormat::YUV_420_BIPLANAR ? COPY : BIND;
+}
+
 bool GLImageIOSurface::BindTexImage(unsigned target) {
   return BindTexImageWithInternalformat(target, 0);
 }
@@ -251,14 +261,9 @@ bool GLImageIOSurface::BindTexImage(unsigned target) {
 bool GLImageIOSurface::BindTexImageWithInternalformat(unsigned target,
                                                       unsigned internalformat) {
   DCHECK(thread_checker_.CalledOnValidThread());
+  DCHECK_EQ(BIND, ShouldBindOrCopy());
   TRACE_EVENT0("gpu", "GLImageIOSurface::BindTexImage");
   base::TimeTicks start_time = base::TimeTicks::Now();
-
-  // YUV_420_BIPLANAR is not supported by BindTexImage.
-  // CopyTexImage is supported by this format as that performs conversion to RGB
-  // as part of the copy operation.
-  if (format_ == gfx::BufferFormat::YUV_420_BIPLANAR)
-    return false;
 
   if (target != GL_TEXTURE_RECTANGLE_ARB) {
     // This might be supported in the future. For now, perform strict
@@ -299,9 +304,7 @@ bool GLImageIOSurface::BindTexImageImpl(unsigned internalformat) {
 
 bool GLImageIOSurface::CopyTexImage(unsigned target) {
   DCHECK(thread_checker_.CalledOnValidThread());
-
-  if (format_ != gfx::BufferFormat::YUV_420_BIPLANAR)
-    return false;
+  DCHECK_EQ(COPY, ShouldBindOrCopy());
 
   GLContext* gl_context = GLContext::GetCurrent();
   DCHECK(gl_context);
@@ -453,7 +456,7 @@ GLImage::Type GLImageIOSurface::GetType() const {
 void GLImageIOSurface::SetColorSpace(const gfx::ColorSpace& color_space) {
   if (color_space_ == color_space)
     return;
-  color_space_ = color_space;
+  GLImage::SetColorSpace(color_space);
 
   // Prefer to use data from DisplayICCProfiles, which will give a byte-for-byte
   // match for color spaces of the system displays. Note that DisplayICCProfiles
@@ -504,6 +507,7 @@ bool GLImageIOSurface::ValidFormat(gfx::BufferFormat format) {
     case gfx::BufferFormat::RGBX_8888:
     case gfx::BufferFormat::RGBX_1010102:
     case gfx::BufferFormat::YVU_420:
+    case gfx::BufferFormat::P010:
       return false;
   }
 

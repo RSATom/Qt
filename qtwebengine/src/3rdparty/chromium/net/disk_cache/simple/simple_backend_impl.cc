@@ -23,12 +23,12 @@
 #include "base/metrics/field_trial_params.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
-#include "base/single_thread_task_runner.h"
+#include "base/sequenced_task_runner.h"
 #include "base/system/sys_info.h"
 #include "base/task/post_task.h"
-#include "base/task/task_scheduler/task_scheduler.h"
+#include "base/task/thread_pool/thread_pool.h"
 #include "base/task_runner_util.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/threading/sequenced_task_runner_handle.h"
 #include "base/time/time.h"
 #include "base/trace_event/memory_usage_estimator.h"
 #include "base/trace_event/process_memory_dump.h"
@@ -61,48 +61,12 @@ namespace {
 // Maximum fraction of the cache that one entry can consume.
 const int kMaxFileRatio = 8;
 
+// Native code entries can be large. Rather than increasing the overall cache
+// size, allow an individual entry to occupy up to half of the cache.
+const int kMaxNativeCodeFileRatio = 2;
+
 // Overrides the above.
 const int64_t kMinFileSizeLimit = 5 * 1024 * 1024;
-
-bool g_fd_limit_histogram_has_been_populated = false;
-
-void MaybeHistogramFdLimit() {
-  if (g_fd_limit_histogram_has_been_populated)
-    return;
-
-  // Used in histograms; add new entries at end.
-  enum FdLimitStatus {
-    FD_LIMIT_STATUS_UNSUPPORTED = 0,
-    FD_LIMIT_STATUS_FAILED      = 1,
-    FD_LIMIT_STATUS_SUCCEEDED   = 2,
-    FD_LIMIT_STATUS_MAX         = 3
-  };
-  FdLimitStatus fd_limit_status = FD_LIMIT_STATUS_UNSUPPORTED;
-  int soft_fd_limit = 0;
-  int hard_fd_limit = 0;
-
-#if defined(OS_POSIX)
-  struct rlimit nofile;
-  if (!getrlimit(RLIMIT_NOFILE, &nofile)) {
-    soft_fd_limit = nofile.rlim_cur;
-    hard_fd_limit = nofile.rlim_max;
-    fd_limit_status = FD_LIMIT_STATUS_SUCCEEDED;
-  } else {
-    fd_limit_status = FD_LIMIT_STATUS_FAILED;
-  }
-#endif
-
-  UMA_HISTOGRAM_ENUMERATION("SimpleCache.FileDescriptorLimitStatus",
-                            fd_limit_status, FD_LIMIT_STATUS_MAX);
-  if (fd_limit_status == FD_LIMIT_STATUS_SUCCEEDED) {
-    base::UmaHistogramSparse("SimpleCache.FileDescriptorLimitSoft",
-                             soft_fd_limit);
-    base::UmaHistogramSparse("SimpleCache.FileDescriptorLimitHard",
-                             hard_fd_limit);
-  }
-
-  g_fd_limit_histogram_has_been_populated = true;
-}
 
 // Global context of all the files we have open --- this permits some to be
 // closed on demand if too many FDs are being used, to avoid running out.
@@ -237,17 +201,18 @@ SimpleBackendImpl::SimpleBackendImpl(
     int64_t max_bytes,
     net::CacheType cache_type,
     net::NetLog* net_log)
-    : cleanup_tracker_(std::move(cleanup_tracker)),
+    : Backend(cache_type),
+      cleanup_tracker_(std::move(cleanup_tracker)),
       file_tracker_(file_tracker ? file_tracker
                                  : g_simple_file_tracker.Pointer()),
       path_(path),
-      cache_type_(cache_type),
       cache_runner_(base::CreateSequencedTaskRunnerWithTraits(
           {base::MayBlock(), base::TaskPriority::USER_BLOCKING,
            base::TaskShutdownBehavior::BLOCK_SHUTDOWN})),
       orig_max_size_(max_bytes),
       entry_operations_mode_((cache_type == net::DISK_CACHE ||
-                              cache_type == net::GENERATED_CODE_CACHE)
+                              cache_type == net::GENERATED_BYTE_CODE_CACHE ||
+                              cache_type == net::GENERATED_NATIVE_CODE_CACHE)
                                  ? SimpleEntryImpl::OPTIMISTIC_OPERATIONS
                                  : SimpleEntryImpl::NON_OPTIMISTIC_OPERATIONS),
       net_log_(net_log) {
@@ -255,7 +220,6 @@ SimpleBackendImpl::SimpleBackendImpl(
   // backends, as default (if first call).
   if (orig_max_size_ < 0)
     orig_max_size_ = 0;
-  MaybeHistogramFdLimit();
 }
 
 SimpleBackendImpl::~SimpleBackendImpl() {
@@ -281,17 +245,17 @@ net::Error SimpleBackendImpl::Init(CompletionOnceCallback completion_callback) {
       base::MakeRefCounted<net::PrioritizedTaskRunner>(worker_pool);
 
   index_ = std::make_unique<SimpleIndex>(
-      base::ThreadTaskRunnerHandle::Get(), cleanup_tracker_.get(), this,
-      cache_type_,
+      base::SequencedTaskRunnerHandle::Get(), cleanup_tracker_.get(), this,
+      GetCacheType(),
       std::make_unique<SimpleIndexFile>(cache_runner_, worker_pool.get(),
-                                        cache_type_, path_));
+                                        GetCacheType(), path_));
   index_->ExecuteWhenReady(
-      base::BindOnce(&RecordIndexLoad, cache_type_, base::TimeTicks::Now()));
+      base::BindOnce(&RecordIndexLoad, GetCacheType(), base::TimeTicks::Now()));
 
   PostTaskAndReplyWithResult(
       cache_runner_.get(), FROM_HERE,
       base::BindOnce(&SimpleBackendImpl::InitCacheStructureOnDisk, path_,
-                     orig_max_size_, cache_type_),
+                     orig_max_size_, GetCacheType()),
       base::BindOnce(&SimpleBackendImpl::InitializeIndex, AsWeakPtr(),
                      std::move(completion_callback)));
   return net::ERR_IO_PENDING;
@@ -306,8 +270,11 @@ bool SimpleBackendImpl::SetMaxSize(int64_t max_bytes) {
 }
 
 int64_t SimpleBackendImpl::MaxFileSize() const {
+  uint64_t file_size_ratio = GetCacheType() == net::GENERATED_NATIVE_CODE_CACHE
+                                 ? kMaxNativeCodeFileRatio
+                                 : kMaxFileRatio;
   return std::max(
-      base::saturated_cast<int64_t>(index_->max_size() / kMaxFileRatio),
+      base::saturated_cast<int64_t>(index_->max_size() / file_size_ratio),
       kMinFileSizeLimit);
 }
 
@@ -324,11 +291,11 @@ void SimpleBackendImpl::OnDoomComplete(uint64_t entry_hash) {
   to_handle_waiters.swap(it->second);
   entries_pending_doom_.erase(it);
 
-  SIMPLE_CACHE_UMA(COUNTS_1000, "NumOpsBlockedByPendingDoom", cache_type_,
+  SIMPLE_CACHE_UMA(COUNTS_1000, "NumOpsBlockedByPendingDoom", GetCacheType(),
                    to_handle_waiters.size());
 
   for (PostDoomWaiter& post_doom : to_handle_waiters) {
-    SIMPLE_CACHE_UMA(TIMES, "QueueLatency.PendingDoom", cache_type_,
+    SIMPLE_CACHE_UMA(TIMES, "QueueLatency.PendingDoom", GetCacheType(),
                      (base::TimeTicks::Now() - post_doom.time_queued));
     std::move(post_doom.run_post_doom).Run();
   }
@@ -392,10 +359,6 @@ void SimpleBackendImpl::DoomEntries(std::vector<uint64_t>* entry_hashes,
                      mass_doom_entry_hashes_ptr, path_),
       base::BindOnce(&SimpleBackendImpl::DoomEntriesComplete, AsWeakPtr(),
                      base::Passed(&mass_doom_entry_hashes), barrier_callback));
-}
-
-net::CacheType SimpleBackendImpl::GetCacheType() const {
-  return net::DISK_CACHE;
 }
 
 int32_t SimpleBackendImpl::GetEntryCount() const {
@@ -516,7 +479,7 @@ SimpleBackendImpl::MaybeOptimisticCreateForPostDoom(
   if (post_doom->empty() &&
       entry_operations_mode_ == SimpleEntryImpl::OPTIMISTIC_OPERATIONS) {
     simple_entry = new SimpleEntryImpl(
-        cache_type_, path_, cleanup_tracker_.get(), entry_hash,
+        GetCacheType(), path_, cleanup_tracker_.get(), entry_hash,
         entry_operations_mode_, this, file_tracker_, net_log_,
         GetNewEntryPriority(request_priority));
     simple_entry->SetKey(key);
@@ -595,13 +558,13 @@ int64_t SimpleBackendImpl::CalculateSizeOfEntriesBetween(
 class SimpleBackendImpl::SimpleIterator final : public Iterator {
  public:
   explicit SimpleIterator(base::WeakPtr<SimpleBackendImpl> backend)
-      : backend_(backend),
-        weak_factory_(this) {
-  }
+      : backend_(backend) {}
 
   // From Backend::Iterator:
   net::Error OpenNextEntry(Entry** next_entry,
                            CompletionOnceCallback callback) override {
+    if (!backend_)
+      return net::ERR_FAILED;
     CompletionOnceCallback open_next_entry_impl = base::BindOnce(
         &SimpleIterator::OpenNextEntryImpl, weak_factory_.GetWeakPtr(),
         next_entry, std::move(callback));
@@ -629,7 +592,7 @@ class SimpleBackendImpl::SimpleIterator final : public Iterator {
       uint64_t entry_hash = hashes_to_enumerate_->back();
       hashes_to_enumerate_->pop_back();
       if (backend_->index()->Has(entry_hash)) {
-        *next_entry = NULL;
+        *next_entry = nullptr;
         CompletionOnceCallback continue_iteration = base::BindOnce(
             &SimpleIterator::CheckIterationReturnValue,
             weak_factory_.GetWeakPtr(), next_entry, copyable_callback);
@@ -659,7 +622,7 @@ class SimpleBackendImpl::SimpleIterator final : public Iterator {
  private:
   base::WeakPtr<SimpleBackendImpl> backend_;
   std::unique_ptr<std::vector<uint64_t>> hashes_to_enumerate_;
-  base::WeakPtrFactory<SimpleIterator> weak_factory_;
+  base::WeakPtrFactory<SimpleIterator> weak_factory_{this};
 };
 
 std::unique_ptr<Backend::Iterator> SimpleBackendImpl::CreateIterator() {
@@ -813,12 +776,19 @@ SimpleBackendImpl::DiskStatResult SimpleBackendImpl::InitCacheStructureOnDisk(
   } else {
     bool mtime_result =
         disk_cache::simple_util::GetMTime(path, &result.cache_dir_mtime);
-    DCHECK(mtime_result);
-    if (!result.max_size) {
+    if (!mtime_result) {
+      // Something deleted the directory between when we set it up and the
+      // mstat; this is not uncommon on some test fixtures which erase their
+      // tempdir while some worker threads may still be running.
+      LOG(ERROR) << "Simple Cache Backend: cache directory inaccessible right "
+                    "after creation; path: "
+                 << path.LossyDisplayName();
+      result.net_error = net::ERR_FAILED;
+    } else if (!result.max_size) {
       int64_t available = base::SysInfo::AmountOfFreeDiskSpace(path);
       result.max_size = disk_cache::PreferredCacheSize(available);
+      DCHECK(result.max_size);
     }
-    DCHECK(result.max_size);
   }
   return result;
 }
@@ -844,7 +814,7 @@ SimpleBackendImpl::CreateOrFindActiveOrDoomedEntry(
   const bool did_insert = insert_result.second;
   if (did_insert) {
     SimpleEntryImpl* entry = it->second = new SimpleEntryImpl(
-        cache_type_, path_, cleanup_tracker_.get(), entry_hash,
+        GetCacheType(), path_, cleanup_tracker_.get(), entry_hash,
         entry_operations_mode_, this, file_tracker_, net_log_,
         GetNewEntryPriority(request_priority));
     entry->SetKey(key);
@@ -887,7 +857,7 @@ net::Error SimpleBackendImpl::OpenEntryFromHash(
   }
 
   scoped_refptr<SimpleEntryImpl> simple_entry = new SimpleEntryImpl(
-      cache_type_, path_, cleanup_tracker_.get(), entry_hash,
+      GetCacheType(), path_, cleanup_tracker_.get(), entry_hash,
       entry_operations_mode_, this, file_tracker_, net_log_,
       GetNewEntryPriority(net::HIGHEST));
   CompletionOnceCallback backend_callback =
@@ -966,7 +936,7 @@ void SimpleBackendImpl::DoomEntriesComplete(
 // static
 void SimpleBackendImpl::FlushWorkerPoolForTesting() {
   // TODO(morlovich): Remove this, move everything over to disk_cache:: use.
-  base::TaskScheduler::GetInstance()->FlushForTesting();
+  base::ThreadPoolInstance::Get()->FlushForTesting();
 }
 
 uint32_t SimpleBackendImpl::GetNewEntryPriority(

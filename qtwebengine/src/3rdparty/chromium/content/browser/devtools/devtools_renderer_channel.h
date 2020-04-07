@@ -67,6 +67,7 @@ class CONTENT_EXPORT DevToolsRendererChannel
   void ChildWorkerCreated(blink::mojom::DevToolsAgentPtr worker_devtools_agent,
                           blink::mojom::DevToolsAgentHostRequest host_request,
                           const GURL& url,
+                          const std::string& name,
                           const base::UnguessableToken& devtools_worker_token,
                           bool waiting_for_debugger) override;
   void ChildWorkerDestroyed(DevToolsAgentHostImpl*);
@@ -88,7 +89,7 @@ class CONTENT_EXPORT DevToolsRendererChannel
   base::flat_set<protocol::TargetAutoAttacher*> wait_for_debugger_attachers_;
   base::flat_set<WorkerDevToolsAgentHost*> child_workers_;
   base::OnceClosure set_report_callback_;
-  base::WeakPtrFactory<DevToolsRendererChannel> weak_factory_;
+  base::WeakPtrFactory<DevToolsRendererChannel> weak_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(DevToolsRendererChannel);
 };

@@ -11,12 +11,13 @@
 #include <unordered_map>
 #include <vector>
 
+#include "base/compiler_specific.h"
 #include "base/gtest_prod_util.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "components/viz/common/surfaces/surface_id.h"
 #include "components/viz/host/hit_test/hit_test_query.h"
-#include "components/viz/service/surfaces/surface_hittest_delegate.h"
+#include "components/viz/host/hit_test/hit_test_region_observer.h"
 #include "content/browser/renderer_host/event_with_latency_info.h"
 #include "content/browser/renderer_host/input/touch_emulator_client.h"
 #include "content/browser/renderer_host/render_widget_host_view_base_observer.h"
@@ -25,8 +26,6 @@
 #include "content/public/common/input_event_ack_state.h"
 #include "ui/gfx/geometry/vector2d_conversions.h"
 #include "ui/gfx/transform.h"
-
-struct FrameHostMsg_HittestData_Params;
 
 namespace blink {
 class WebGestureEvent;
@@ -73,7 +72,8 @@ viz::HitTestQuery* GetHitTestQuery(
 class CONTENT_EXPORT RenderWidgetHostInputEventRouter
     : public RenderWidgetHostViewBaseObserver,
       public RenderWidgetTargeter::Delegate,
-      public TouchEmulatorClient {
+      public TouchEmulatorClient,
+      public viz::HitTestRegionObserver {
  public:
   RenderWidgetHostInputEventRouter();
   ~RenderWidgetHostInputEventRouter() final;
@@ -99,9 +99,13 @@ class CONTENT_EXPORT RenderWidgetHostInputEventRouter
                        const ui::LatencyInfo& latency);
 
   // |event| is in root coordinates.
-  void BubbleScrollEvent(RenderWidgetHostViewBase* target_view,
+  // Returns false if the router is unable to bubble the scroll event. The
+  // caller must not attempt to bubble the rest of the scroll sequence in this
+  // case. Otherwise, returns true.
+  bool BubbleScrollEvent(RenderWidgetHostViewBase* target_view,
                          RenderWidgetHostViewChildFrame* resending_view,
-                         const blink::WebGestureEvent& event);
+                         const blink::WebGestureEvent& event)
+      WARN_UNUSED_RESULT;
   void WillDetachChildView(
       const RenderWidgetHostViewChildFrame* detaching_view);
 
@@ -112,8 +116,6 @@ class CONTENT_EXPORT RenderWidgetHostInputEventRouter
   bool is_registered(const viz::FrameSinkId& id) const {
     return owner_map_.find(id) != owner_map_.end();
   }
-
-  void OnHittestData(const FrameHostMsg_HittestData_Params& params);
 
   TouchEmulator* GetTouchEmulator();
   // Since GetTouchEmulator will lazily create a touch emulator, the following
@@ -129,6 +131,17 @@ class CONTENT_EXPORT RenderWidgetHostInputEventRouter
       RenderWidgetHostViewBase* root_view,
       const gfx::PointF& point,
       gfx::PointF* transformed_point);
+
+  // Finds the RenderWidgetHostImpl inside the |root_view| at |point| where
+  // |point| is with respect to |root_view|'s coordinates. If a RWHI is found,
+  // it is passed along with the coordinate of the point with
+  // respect to the RWHI's coordinates to the callback function. If
+  // |root_view| is nullptr or RWHI is not found, the callback is called with
+  // nullptr and no location.
+  void GetRenderWidgetHostAtPointAsynchronously(
+      RenderWidgetHostViewBase* root_view,
+      const gfx::PointF& point,
+      RenderWidgetTargeter::RenderWidgetHostAtPointCallback callback);
 
   // RenderWidgetTargeter::Delegate:
   RenderWidgetHostViewBase* FindViewFromFrameSinkId(
@@ -161,45 +174,39 @@ class CONTENT_EXPORT RenderWidgetHostInputEventRouter
   void ShowContextMenuAtPoint(const gfx::Point& point,
                               const ui::MenuSourceType source_type) override;
 
+  // HitTestRegionObserver
+  void OnAggregatedHitTestRegionListUpdated(
+      const viz::FrameSinkId& frame_sink_id,
+      const std::vector<viz::AggregatedHitTestRegion>& hit_test_data) override;
+
+  bool HasEventsPendingDispatch() const;
+
   size_t TouchEventAckQueueLengthForTesting() const;
+  size_t RegisteredViewCountForTesting() const;
+
+  void set_route_to_root_for_devtools(bool route) {
+    route_to_root_for_devtools_ = route;
+  }
+
+  // Makes the appropriate RenderWidgetHosts ignore touch acks for events
+  // rooted at |root_view| that are pending acks. This is used when we replace
+  // the view of a RenderWidgetHost with a new view and should be called before
+  // destroying the old view.
+  void IgnoreUnackedTouchEvents(RenderWidgetHostViewBase* root_view);
 
  private:
   FRIEND_TEST_ALL_PREFIXES(BrowserSideFlingBrowserTest,
                            InertialGSUBubblingStopsWhenParentCannotScroll);
-  struct HittestData {
-    bool ignored_for_hittest;
-  };
-
-  class HittestDelegate : public viz::SurfaceHittestDelegate {
-   public:
-    HittestDelegate(const std::unordered_map<viz::SurfaceId,
-                                             HittestData,
-                                             viz::SurfaceIdHash>& hittest_data);
-    bool RejectHitTarget(const viz::SurfaceDrawQuad* surface_quad,
-                         const gfx::Point& point_in_quad_space) override;
-    bool AcceptHitTarget(const viz::SurfaceDrawQuad* surface_quad,
-                         const gfx::Point& point_in_quad_space) override;
-
-    const std::unordered_map<viz::SurfaceId, HittestData, viz::SurfaceIdHash>&
-        hittest_data_;
-  };
 
   using FrameSinkIdOwnerMap = std::unordered_map<viz::FrameSinkId,
                                                  RenderWidgetHostViewBase*,
                                                  viz::FrameSinkIdHash>;
-  struct TargetData {
-    RenderWidgetHostViewBase* target;
-    gfx::Transform transform;
-
-    TargetData() : target(nullptr) {}
-  };
-  using TargetMap = std::map<uint32_t, TargetData>;
+  using TargetMap = std::map<uint32_t, RenderWidgetHostViewBase*>;
 
   void ClearAllObserverRegistrations();
   RenderWidgetTargetResult FindViewAtLocation(
       RenderWidgetHostViewBase* root_view,
       const gfx::PointF& point,
-      const gfx::PointF& point_in_screen,
       viz::EventSource source,
       gfx::PointF* transformed_point) const;
 
@@ -292,20 +299,15 @@ class CONTENT_EXPORT RenderWidgetHostInputEventRouter
       const ui::LatencyInfo& latency,
       const base::Optional<gfx::PointF>& target_location);
 
-  // Transforms |point| from |root_view| coord space to |target| coord space.
-  // Result is stored in |transformed_point|. Returns true if the transform
-  // is successful, false otherwise.
-  bool TransformPointToTargetCoordSpace(RenderWidgetHostViewBase* root_view,
-                                        RenderWidgetHostViewBase* target,
-                                        const gfx::PointF& point,
-                                        gfx::PointF* transformed_point,
-                                        viz::EventSource source) const;
-
   // TODO(828422): Remove once this issue no longer occurs.
   void ReportBubblingScrollToSameView(const blink::WebGestureEvent& event,
                                       const RenderWidgetHostViewBase* view);
 
   // RenderWidgetTargeter::Delegate:
+  RenderWidgetTargetResult FindTargetSynchronouslyAtPoint(
+      RenderWidgetHostViewBase* root_view,
+      const gfx::PointF& location) override;
+
   RenderWidgetTargetResult FindTargetSynchronously(
       RenderWidgetHostViewBase* root_view,
       const blink::WebInputEvent& event) override;
@@ -323,20 +325,21 @@ class CONTENT_EXPORT RenderWidgetHostInputEventRouter
     return forced_last_fling_start_target_to_stop_flinging_for_test_;
   }
 
+  void SetTouchscreenGestureTarget(RenderWidgetHostViewBase* target,
+                                   bool moved_recently = false);
+
   FrameSinkIdOwnerMap owner_map_;
   TargetMap touchscreen_gesture_target_map_;
-  TargetData touch_target_;
-  TargetData touchscreen_gesture_target_;
-  // The following variable is temporary, for diagnosis of
-  // https://crbug.com/824774.
-  bool touchscreen_gesture_target_in_map_;
+  RenderWidgetHostViewBase* touch_target_ = nullptr;
+  RenderWidgetHostViewBase* touchscreen_gesture_target_ = nullptr;
+  bool touchscreen_gesture_target_moved_recently_ = false;
   RenderWidgetHostViewBase* touchpad_gesture_target_ = nullptr;
   RenderWidgetHostViewBase* bubbling_gesture_scroll_target_ = nullptr;
   RenderWidgetHostViewChildFrame* bubbling_gesture_scroll_origin_ = nullptr;
   // Used to target wheel events for the duration of a scroll.
   RenderWidgetHostViewBase* wheel_target_ = nullptr;
   // Maintains the same target between mouse down and mouse up.
-  TargetData mouse_capture_target_;
+  RenderWidgetHostViewBase* mouse_capture_target_ = nullptr;
 
   // Tracked for the purpose of generating MouseEnter and MouseLeave events.
   RenderWidgetHostViewBase* last_mouse_move_target_;
@@ -359,25 +362,72 @@ class CONTENT_EXPORT RenderWidgetHostInputEventRouter
   float last_device_scale_factor_;
 
   int active_touches_;
-  // Keep track of when we are between GesturePinchBegin and GesturePinchEnd
-  // inclusive, as we need to route these events (and anything in between) to
-  // the main frame.
-  bool in_touchscreen_gesture_pinch_;
-  bool gesture_pinch_did_send_scroll_begin_;
-  std::unordered_map<viz::SurfaceId, HittestData, viz::SurfaceIdHash>
-      hittest_data_;
+
+  // Route all input events into the root view while devtools is showing a full
+  // page overlay.
+  bool route_to_root_for_devtools_ = false;
+
+  // Touchscreen gesture pinch events must be routed to the main frame. This
+  // keeps track of ongoing scroll and pinch gestures so we know when to divert
+  // gesture events to the main frame and whether additional scroll begin/end
+  // events are needed to wrap the pinch.
+  class TouchscreenPinchState {
+   public:
+    TouchscreenPinchState();
+
+    bool IsInPinch() const;
+    bool NeedsWrappingScrollSequence() const;
+
+    void DidStartBubblingToRoot();
+    void DidStopBubblingToRoot();
+    void DidStartPinchInRoot();
+    void DidStartPinchInChild();
+    void DidStopPinch();
+
+   private:
+    enum class PinchState {
+      NONE,
+      // We have touchscreen scroll bubbling to the root before a gesture pinch
+      // starts.
+      EXISTING_BUBBLING_TO_ROOT,
+
+      // We are in a pinch gesture and the root is already the touchscreen
+      // gesture target.
+      PINCH_WITH_ROOT_GESTURE_TARGET,
+
+      // We are in a pinch gesture that is happening while we're also bubbling
+      // scroll to the root.
+      PINCH_WHILE_BUBBLING_TO_ROOT,
+
+      // We are in a pinch gesture that is happening while the child is the
+      // gesture target and it has not bubbled scroll to the root.
+      PINCH_DURING_CHILD_GESTURE
+    };
+    PinchState state_;
+  };
+  TouchscreenPinchState touchscreen_pinch_state_;
 
   std::unique_ptr<RenderWidgetTargeter> event_targeter_;
-  bool use_viz_hit_test_ = false;
   bool events_being_flushed_ = false;
 
   std::unique_ptr<TouchEmulator> touch_emulator_;
   std::unique_ptr<TouchEventAckQueue> touch_event_ack_queue_;
 
-  base::WeakPtrFactory<RenderWidgetHostInputEventRouter> weak_ptr_factory_;
+  // The coordinates that are determined by the renderer process on MouseDown
+  // are cached then used by the browser process on the following MouseUp. This
+  // is a temporary fix of https://crbug.com/934434 to eliminate the mismatch
+  // between the two coordinate transforms.
+  mutable gfx::PointF mouse_down_pre_transformed_coordinate_;
+  mutable gfx::PointF mouse_down_post_transformed_coordinate_;
+  RenderWidgetHostViewBase* last_mouse_down_target_ = nullptr;
+
+  base::WeakPtrFactory<RenderWidgetHostInputEventRouter> weak_ptr_factory_{
+      this};
 
   DISALLOW_COPY_AND_ASSIGN(RenderWidgetHostInputEventRouter);
   friend class RenderWidgetHostInputEventRouterTest;
+  FRIEND_TEST_ALL_PREFIXES(SitePerProcessHitTestBrowserTest,
+                           CacheCoordinateTransformUponMouseDown);
   FRIEND_TEST_ALL_PREFIXES(SitePerProcessHitTestBrowserTest,
                            HitTestStaleDataDeletedView);
   FRIEND_TEST_ALL_PREFIXES(SitePerProcessHitTestBrowserTest,

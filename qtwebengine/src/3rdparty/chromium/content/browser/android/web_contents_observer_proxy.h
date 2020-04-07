@@ -6,6 +6,7 @@
 #define CONTENT_BROWSER_ANDROID_WEB_CONTENTS_OBSERVER_PROXY_H_
 
 #include <jni.h>
+#include <memory>
 
 #include "base/android/jni_weak_ref.h"
 #include "base/macros.h"
@@ -53,14 +54,18 @@ class WebContentsObserverProxy : public WebContentsObserver {
   void NavigationEntryCommitted(
       const LoadCommittedDetails& load_details) override;
   void NavigationEntriesDeleted() override;
+  void NavigationEntryChanged(
+      const EntryChangedDetails& change_details) override;
   void WebContentsDestroyed() override;
   void DidAttachInterstitialPage() override;
   void DidDetachInterstitialPage() override;
-  void DidChangeThemeColor(SkColor color) override;
+  void DidChangeThemeColor(base::Optional<SkColor> color) override;
   void MediaEffectivelyFullscreenChanged(bool is_fullscreen) override;
   void SetToBaseURLForDataURLIfNeeded(std::string* url);
   void ViewportFitChanged(blink::mojom::ViewportFit value) override;
   void DidReloadLoFiImages() override;
+  void OnWebContentsFocused(RenderWidgetHost*) override;
+  void OnWebContentsLostFocus(RenderWidgetHost*) override;
 
   base::android::ScopedJavaGlobalRef<jobject> java_observer_;
   GURL base_url_of_last_started_data_url_;

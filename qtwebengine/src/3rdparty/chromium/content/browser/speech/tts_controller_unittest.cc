@@ -22,12 +22,13 @@ class MockTtsPlatformImpl : public TtsPlatform {
   MockTtsPlatformImpl() {}
   virtual ~MockTtsPlatformImpl() {}
   bool PlatformImplAvailable() override { return true; }
-  bool Speak(int utterance_id,
+  void Speak(int utterance_id,
              const std::string& utterance,
              const std::string& lang,
              const VoiceData& voice,
-             const UtteranceContinuousParameters& params) override {
-    return true;
+             const UtteranceContinuousParameters& params,
+             base::OnceCallback<void(bool)> on_speak_finished) override {
+    std::move(on_speak_finished).Run(true);
   }
   bool IsSpeaking() override { return false; }
   bool StopSpeaking() override { return true; }
@@ -37,7 +38,7 @@ class MockTtsPlatformImpl : public TtsPlatform {
   bool LoadBuiltInTtsEngine(BrowserContext* browser_context) override {
     return false;
   }
-  void WillSpeakUtteranceWithVoice(const TtsUtterance* utterance,
+  void WillSpeakUtteranceWithVoice(TtsUtterance* utterance,
                                    const VoiceData& voice_data) override {}
   void SetError(const std::string& error) override {}
   std::string GetError() override { return std::string(); }
@@ -49,7 +50,7 @@ class MockTtsControllerDelegate : public TtsControllerDelegate {
   MockTtsControllerDelegate() {}
   ~MockTtsControllerDelegate() override {}
 
-  int GetMatchingVoice(const content::TtsUtterance* utterance,
+  int GetMatchingVoice(content::TtsUtterance* utterance,
                        std::vector<content::VoiceData>& voices) override {
     // Below 0 implies a "native" voice.
     return -1;
@@ -58,9 +59,9 @@ class MockTtsControllerDelegate : public TtsControllerDelegate {
   void UpdateUtteranceDefaultsFromPrefs(content::TtsUtterance* utterance,
                                         double* rate,
                                         double* pitch,
-                                        double* volume) override{};
+                                        double* volume) override {}
 
-  void SetTtsEngineDelegate(content::TtsEngineDelegate* delegate) override{};
+  void SetTtsEngineDelegate(content::TtsEngineDelegate* delegate) override {}
 
   content::TtsEngineDelegate* GetTtsEngineDelegate() override {
     return nullptr;

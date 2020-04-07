@@ -39,8 +39,9 @@ using URLSecurityPolicy =
 // |cert_status| is ignored if error_code is not net::ERR_ABORTED.
 COMPONENTS_DOWNLOAD_EXPORT DownloadInterruptReason
 HandleRequestCompletionStatus(net::Error error_code,
-                              bool has_strong_validators,
+                              bool ignore_content_length_mismatch,
                               net::CertStatus cert_status,
+                              bool is_partial_request,
                               DownloadInterruptReason abort_reason);
 
 // Parse the HTTP server response code.
@@ -96,6 +97,20 @@ COMPONENTS_DOWNLOAD_EXPORT bool IsDownloadDone(
 
 COMPONENTS_DOWNLOAD_EXPORT bool DeleteDownloadedFile(
     const base::FilePath& path);
+
+// Rename downloaded file from |oldpath| to newname.
+COMPONENTS_DOWNLOAD_EXPORT download::DownloadItem::DownloadRenameResult
+RenameDownloadedFile(const base::FilePath& from_path,
+                     const base::FilePath& to_path);
+
+// Finch parameter key value for number of bytes used for content validation
+// during resumption.
+constexpr char kDownloadContentValidationLengthFinchKey[] =
+    "download_validation_length";
+
+// Get the number of bytes to validate from finch configuration.
+int64_t GetDownloadValidationLengthConfig();
+
 }  // namespace download
 
 #endif  // COMPONENTS_DOWNLOAD_PUBLIC_COMMON_DOWNLOAD_UTILS_H_

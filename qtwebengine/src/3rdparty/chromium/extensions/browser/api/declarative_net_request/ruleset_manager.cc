@@ -8,23 +8,26 @@
 #include <tuple>
 #include <utility>
 
+#include "base/bind.h"
 #include "base/logging.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/optional.h"
 #include "base/stl_util.h"
-#include "base/task/post_task.h"
 #include "components/web_cache/browser/web_cache_manager.h"
-#include "content/public/browser/browser_task_traits.h"
-#include "content/public/browser/browser_thread.h"
 #include "content/public/browser/resource_request_info.h"
-#include "extensions/browser/api/declarative_net_request/ruleset_matcher.h"
+#include "extensions/browser/api/declarative_net_request/composite_matcher.h"
+#include "extensions/browser/api/declarative_net_request/constants.h"
+#include "extensions/browser/api/declarative_net_request/utils.h"
 #include "extensions/browser/api/extensions_api_client.h"
+#include "extensions/browser/api/web_request/permission_helper.h"
 #include "extensions/browser/api/web_request/web_request_info.h"
 #include "extensions/browser/api/web_request/web_request_permissions.h"
-#include "extensions/browser/info_map.h"
+#include "extensions/browser/extension_prefs.h"
+#include "extensions/browser/extension_util.h"
+#include "extensions/common/api/declarative_net_request.h"
 #include "extensions/common/api/declarative_net_request/utils.h"
 #include "extensions/common/constants.h"
-#include "net/base/registry_controlled_domains/registry_controlled_domain.h"
+#include "net/http/http_request_headers.h"
 #include "url/origin.h"
 
 namespace extensions {
@@ -32,6 +35,7 @@ namespace declarative_net_request {
 namespace {
 
 namespace flat_rule = url_pattern_index::flat;
+namespace dnr_api = api::declarative_net_request;
 using PageAccess = PermissionsData::PageAccess;
 
 // Describes the different cases pertaining to initiator checks to find the main
@@ -47,78 +51,7 @@ enum class PageAllowingInitiatorCheck {
   kMaxValue = kBothCandidatesMatchInitiator,
 };
 
-// Maps content::ResourceType to flat_rule::ElementType.
-flat_rule::ElementType GetElementType(content::ResourceType type) {
-  switch (type) {
-    case content::RESOURCE_TYPE_LAST_TYPE:
-    case content::RESOURCE_TYPE_PREFETCH:
-    case content::RESOURCE_TYPE_SUB_RESOURCE:
-      return flat_rule::ElementType_OTHER;
-    case content::RESOURCE_TYPE_MAIN_FRAME:
-      return flat_rule::ElementType_MAIN_FRAME;
-    case content::RESOURCE_TYPE_CSP_REPORT:
-      return flat_rule::ElementType_CSP_REPORT;
-    case content::RESOURCE_TYPE_SCRIPT:
-    case content::RESOURCE_TYPE_WORKER:
-    case content::RESOURCE_TYPE_SHARED_WORKER:
-    case content::RESOURCE_TYPE_SERVICE_WORKER:
-      return flat_rule::ElementType_SCRIPT;
-    case content::RESOURCE_TYPE_IMAGE:
-    case content::RESOURCE_TYPE_FAVICON:
-      return flat_rule::ElementType_IMAGE;
-    case content::RESOURCE_TYPE_STYLESHEET:
-      return flat_rule::ElementType_STYLESHEET;
-    case content::RESOURCE_TYPE_OBJECT:
-    case content::RESOURCE_TYPE_PLUGIN_RESOURCE:
-      return flat_rule::ElementType_OBJECT;
-    case content::RESOURCE_TYPE_XHR:
-      return flat_rule::ElementType_XMLHTTPREQUEST;
-    case content::RESOURCE_TYPE_SUB_FRAME:
-      return flat_rule::ElementType_SUBDOCUMENT;
-    case content::RESOURCE_TYPE_PING:
-      return flat_rule::ElementType_PING;
-    case content::RESOURCE_TYPE_MEDIA:
-      return flat_rule::ElementType_MEDIA;
-    case content::RESOURCE_TYPE_FONT_RESOURCE:
-      return flat_rule::ElementType_FONT;
-  }
-  NOTREACHED();
-  return flat_rule::ElementType_OTHER;
-}
-
-// Returns the flat_rule::ElementType for the given |request|.
-flat_rule::ElementType GetElementType(const WebRequestInfo& request) {
-  if (request.url.SchemeIsWSOrWSS())
-    return flat_rule::ElementType_WEBSOCKET;
-
-  return request.type.has_value() ? GetElementType(request.type.value())
-                                  : flat_rule::ElementType_OTHER;
-}
-
-// Returns whether the request to |url| is third party to its |document_origin|.
-// TODO(crbug.com/696822): Look into caching this.
-bool IsThirdPartyRequest(const GURL& url, const url::Origin& document_origin) {
-  if (document_origin.opaque())
-    return true;
-
-  return !net::registry_controlled_domains::SameDomainOrHost(
-      url, document_origin,
-      net::registry_controlled_domains::INCLUDE_PRIVATE_REGISTRIES);
-}
-
-void ClearRendererCacheOnUI() {
-  web_cache::WebCacheManager::GetInstance()->ClearCacheOnNavigation();
-}
-
-// Helper to clear each renderer's in-memory cache the next time it navigates.
-void ClearRendererCacheOnNavigation() {
-  if (content::BrowserThread::CurrentlyOn(content::BrowserThread::UI)) {
-    ClearRendererCacheOnUI();
-  } else {
-    base::PostTaskWithTraits(FROM_HERE, {content::BrowserThread::UI},
-                             base::BindOnce(&ClearRendererCacheOnUI));
-  }
-}
+constexpr const char kSetCookieResponseHeader[] = "set-cookie";
 
 // Returns true if |request| came from a page from the set of
 // |allowed_pages|. This necessitates finding the main frame url
@@ -151,7 +84,7 @@ bool IsRequestPageAllowed(const WebRequestInfo& request,
     return false;
 
   // If this is a main frame request, |request.url| will be the main frame url.
-  if (request.type == content::RESOURCE_TYPE_MAIN_FRAME)
+  if (request.type == content::ResourceType::kMainFrame)
     return allowed_pages.MatchesURL(request.url);
 
   // This should happen for:
@@ -248,10 +181,56 @@ void NotifyRequestWithheld(const ExtensionId& extension_id,
       request.render_process_id, request.frame_id, extension_id);
 }
 
+// Populates the list of headers corresponding to |mask|.
+void PopulateHeadersFromMask(uint8_t mask,
+                             std::vector<const char*>* request_headers,
+                             std::vector<const char*>* response_headers) {
+  DCHECK(request_headers);
+  DCHECK(response_headers);
+
+  uint8_t bit = 0;
+  // Iterate over each RemoveHeaderType value.
+  for (int i = 0; mask && i <= dnr_api::REMOVE_HEADER_TYPE_LAST; ++i) {
+    switch (i) {
+      case dnr_api::REMOVE_HEADER_TYPE_NONE:
+        break;
+      case dnr_api::REMOVE_HEADER_TYPE_COOKIE:
+        bit = kRemoveHeadersMask_Cookie;
+        if (mask & bit) {
+          mask &= ~bit;
+          request_headers->push_back(net::HttpRequestHeaders::kCookie);
+        }
+        break;
+      case dnr_api::REMOVE_HEADER_TYPE_REFERER:
+        bit = kRemoveHeadersMask_Referer;
+        if (mask & bit) {
+          mask &= ~bit;
+          request_headers->push_back(net::HttpRequestHeaders::kReferer);
+        }
+        break;
+      case dnr_api::REMOVE_HEADER_TYPE_SETCOOKIE:
+        bit = kRemoveHeadersMask_SetCookie;
+        if (mask & bit) {
+          mask &= ~bit;
+          response_headers->push_back(kSetCookieResponseHeader);
+        }
+        break;
+    }
+  }
+}
+
 }  // namespace
 
-RulesetManager::RulesetManager(const InfoMap* info_map) : info_map_(info_map) {
-  DCHECK(info_map_);
+RulesetManager::Action::Action(Action::Type type) : type(type) {}
+RulesetManager::Action::~Action() = default;
+RulesetManager::Action::Action(Action&&) = default;
+RulesetManager::Action& RulesetManager::Action::operator=(Action&&) = default;
+
+RulesetManager::RulesetManager(content::BrowserContext* browser_context)
+    : browser_context_(browser_context),
+      prefs_(ExtensionPrefs::Get(browser_context)),
+      permission_helper_(PermissionHelper::Get(browser_context)) {
+  DCHECK(browser_context_);
 
   // RulesetManager can be created on any sequence.
   DETACH_FROM_SEQUENCE(sequence_checker_);
@@ -262,15 +241,15 @@ RulesetManager::~RulesetManager() {
 }
 
 void RulesetManager::AddRuleset(const ExtensionId& extension_id,
-                                std::unique_ptr<RulesetMatcher> ruleset_matcher,
+                                std::unique_ptr<CompositeMatcher> matcher,
                                 URLPatternSet allowed_pages) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DCHECK(IsAPIAvailable());
 
   bool inserted;
   std::tie(std::ignore, inserted) =
-      rulesets_.emplace(extension_id, info_map_->GetInstallTime(extension_id),
-                        std::move(ruleset_matcher), std::move(allowed_pages));
+      rulesets_.emplace(extension_id, prefs_->GetInstallTime(extension_id),
+                        std::move(matcher), std::move(allowed_pages));
   DCHECK(inserted) << "AddRuleset called twice in succession for "
                    << extension_id;
 
@@ -305,6 +284,28 @@ void RulesetManager::RemoveRuleset(const ExtensionId& extension_id) {
   ClearRendererCacheOnNavigation();
 }
 
+CompositeMatcher* RulesetManager::GetMatcherForExtension(
+    const ExtensionId& extension_id) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  DCHECK(IsAPIAvailable());
+
+  // This is O(n) but it's ok since the number of extensions will be small and
+  // we have to maintain the rulesets sorted in decreasing order of installation
+  // time.
+  auto iter =
+      std::find_if(rulesets_.begin(), rulesets_.end(),
+                   [&extension_id](const ExtensionRulesetData& ruleset) {
+                     return ruleset.extension_id == extension_id;
+                   });
+
+  // There must be ExtensionRulesetData corresponding to this |extension_id|.
+  if (iter == rulesets_.end())
+    return nullptr;
+
+  DCHECK(iter->matcher);
+  return iter->matcher.get();
+}
+
 void RulesetManager::UpdateAllowedPages(const ExtensionId& extension_id,
                                         URLPatternSet allowed_pages) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
@@ -329,111 +330,46 @@ void RulesetManager::UpdateAllowedPages(const ExtensionId& extension_id,
   ClearRendererCacheOnNavigation();
 }
 
-RulesetManager::Action RulesetManager::EvaluateRequest(
+const RulesetManager::Action& RulesetManager::EvaluateRequest(
     const WebRequestInfo& request,
-    bool is_incognito_context,
-    GURL* redirect_url) const {
+    bool is_incognito_context) const {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  DCHECK(redirect_url);
 
-  if (!ShouldEvaluateRequest(request))
-    return Action::NONE;
+  // Note: it's safe to cache the action on WebRequestInfo without worrying
+  // about |is_incognito_context| since a WebRequestInfo object will not be
+  // shared between different contexts. Hence the value of
+  // |is_incognito_context| will stay the same for a given |request|. This also
+  // assumes that the core state of the WebRequestInfo isn't changed between the
+  // different EvaluateRequest invocations.
+  if (!request.dnr_action)
+    request.dnr_action = EvaluateRequestInternal(request, is_incognito_context);
 
-  if (test_observer_)
-    test_observer_->OnEvaluateRequest(request, is_incognito_context);
+  return *request.dnr_action;
+}
 
-  if (rulesets_.empty())
-    return Action::NONE;
+bool RulesetManager::HasAnyExtraHeadersMatcher() const {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
-  SCOPED_UMA_HISTOGRAM_TIMER(
-      "Extensions.DeclarativeNetRequest.EvaluateRequestTime.AllExtensions2");
-
-  const GURL& url = request.url;
-  const url::Origin first_party_origin =
-      request.initiator.value_or(url::Origin());
-  const flat_rule::ElementType element_type = GetElementType(request);
-  const bool is_third_party = IsThirdPartyRequest(url, first_party_origin);
-  const int tab_id = request.frame_data ? request.frame_data->tab_id
-                                        : extension_misc::kUnknownTabId;
-
-  // |crosses_incognito| is used to ensure that a split mode extension process
-  // can't intercept requests from a cross browser context. Since declarative
-  // net request API doesn't use event listeners in a background process, it is
-  // irrelevant here.
-  const bool crosses_incognito = false;
-
-  std::vector<bool> should_evaluate_rulesets_for_request(rulesets_.size());
-
-  // We first check if any extension wants the request to be blocked.
-  {
-    size_t i = 0;
-    auto ruleset_data = rulesets_.begin();
-    for (; ruleset_data != rulesets_.end(); ++ruleset_data, ++i) {
-      // As a minor optimization, cache the value of
-      // |ShouldEvaluateRulesetForRequest|.
-      should_evaluate_rulesets_for_request[i] = ShouldEvaluateRulesetForRequest(
-          *ruleset_data, request, is_incognito_context);
-      if (!should_evaluate_rulesets_for_request[i])
-        continue;
-
-      // Now check if the extension has access to the request. Note: the
-      // extension does not require host permissions to block network requests.
-      PageAccess page_access = WebRequestPermissions::CanExtensionAccessURL(
-          info_map_, ruleset_data->extension_id, request.url, tab_id,
-          crosses_incognito, WebRequestPermissions::DO_NOT_CHECK_HOST,
-          request.initiator, request.type);
-      DCHECK_NE(PageAccess::kWithheld, page_access);
-      if (page_access != PageAccess::kAllowed)
-        continue;
-
-      if (ruleset_data->matcher->ShouldBlockRequest(
-              url, first_party_origin, element_type, is_third_party)) {
-        return ShouldCollapseResourceType(element_type) ? Action::COLLAPSE
-                                                        : Action::BLOCK;
-      }
-    }
+  for (const auto& ruleset : rulesets_) {
+    if (ruleset.matcher->HasAnyExtraHeadersMatcher())
+      return true;
   }
 
-  // The request shouldn't be blocked. Now check if any extension wants to
-  // redirect the request.
+  return false;
+}
 
-  // Redirecting WebSocket handshake request is prohibited.
-  if (element_type == flat_rule::ElementType_WEBSOCKET)
-    return Action::NONE;
+bool RulesetManager::HasExtraHeadersMatcherForRequest(
+    const WebRequestInfo& request,
+    bool is_incognito_context) const {
+  const Action& action = EvaluateRequest(request, is_incognito_context);
 
-  // This iterates in decreasing order of extension installation time. Hence
-  // more recently installed extensions get higher priority in choosing the
-  // redirect url.
-  {
-    size_t i = 0;
-    auto ruleset_data = rulesets_.begin();
-    for (; ruleset_data != rulesets_.end(); ++ruleset_data, ++i) {
-      if (!should_evaluate_rulesets_for_request[i])
-        continue;
+  // We only support removing a subset of extra headers currently. If that
+  // changes, the implementation here should change as well.
+  static_assert(flat::ActionIndex_count == 7,
+                "Modify this method to ensure HasExtraHeadersMatcherForRequest "
+                "is updated as new actions are added.");
 
-      // Redirecting a request requires host permissions to the request url and
-      // its initiator.
-      PageAccess page_access = WebRequestPermissions::CanExtensionAccessURL(
-          info_map_, ruleset_data->extension_id, request.url, tab_id,
-          crosses_incognito,
-          WebRequestPermissions::REQUIRE_HOST_PERMISSION_FOR_URL_AND_INITIATOR,
-          request.initiator, request.type);
-
-      if (page_access != PageAccess::kAllowed) {
-        if (page_access == PageAccess::kWithheld)
-          NotifyRequestWithheld(ruleset_data->extension_id, request);
-        continue;
-      }
-
-      if (ruleset_data->matcher->ShouldRedirectRequest(
-              url, first_party_origin, element_type, is_third_party,
-              redirect_url)) {
-        return Action::REDIRECT;
-      }
-    }
-  }
-
-  return Action::NONE;
+  return action.type == Action::Type::REMOVE_HEADERS;
 }
 
 void RulesetManager::SetObserverForTest(TestObserver* observer) {
@@ -444,7 +380,7 @@ void RulesetManager::SetObserverForTest(TestObserver* observer) {
 RulesetManager::ExtensionRulesetData::ExtensionRulesetData(
     const ExtensionId& extension_id,
     const base::Time& extension_install_time,
-    std::unique_ptr<RulesetMatcher> matcher,
+    std::unique_ptr<CompositeMatcher> matcher,
     URLPatternSet allowed_pages)
     : extension_id(extension_id),
       extension_install_time(extension_install_time),
@@ -458,11 +394,159 @@ operator=(ExtensionRulesetData&& other) = default;
 
 bool RulesetManager::ExtensionRulesetData::operator<(
     const ExtensionRulesetData& other) const {
-  // Sort based on descending installation time, using extension id to break
+  // Sort based on *descending* installation time, using extension id to break
   // ties.
-  return (extension_install_time != other.extension_install_time)
-             ? (extension_install_time > other.extension_install_time)
-             : (extension_id < other.extension_id);
+  return std::tie(extension_install_time, extension_id) >
+         std::tie(other.extension_install_time, other.extension_id);
+}
+
+base::Optional<RulesetManager::Action> RulesetManager::GetBlockOrCollapseAction(
+    const std::vector<const ExtensionRulesetData*>& rulesets,
+    const RequestParams& params) const {
+  for (const ExtensionRulesetData* ruleset : rulesets) {
+    if (ruleset->matcher->ShouldBlockRequest(params)) {
+      return ShouldCollapseResourceType(params.element_type)
+                 ? Action(Action::Type::COLLAPSE)
+                 : Action(Action::Type::BLOCK);
+    }
+  }
+  return base::nullopt;
+}
+
+base::Optional<RulesetManager::Action>
+RulesetManager::GetRedirectOrUpgradeAction(
+    const std::vector<const ExtensionRulesetData*>& rulesets,
+    const WebRequestInfo& request,
+    const int tab_id,
+    const bool crosses_incognito,
+    const RequestParams& params) const {
+  DCHECK(std::is_sorted(rulesets.begin(), rulesets.end(),
+                        [](const ExtensionRulesetData* a,
+                           const ExtensionRulesetData* b) { return *a < *b; }));
+
+  // Redirecting WebSocket handshake request is prohibited.
+  if (params.element_type == flat_rule::ElementType_WEBSOCKET)
+    return base::nullopt;
+
+  // This iterates in decreasing order of extension installation time. Hence
+  // more recently installed extensions get higher priority in choosing the
+  // redirect url.
+  for (const ExtensionRulesetData* ruleset : rulesets) {
+    PageAccess page_access = WebRequestPermissions::CanExtensionAccessURL(
+        permission_helper_, ruleset->extension_id, request.url, tab_id,
+        crosses_incognito,
+        WebRequestPermissions::REQUIRE_HOST_PERMISSION_FOR_URL_AND_INITIATOR,
+        request.initiator, request.type);
+
+    CompositeMatcher::RedirectAction redirect_action =
+        ruleset->matcher->ShouldRedirectRequest(params, page_access);
+
+    DCHECK(!(redirect_action.redirect_url &&
+             redirect_action.notify_request_withheld));
+    if (redirect_action.notify_request_withheld) {
+      NotifyRequestWithheld(ruleset->extension_id, request);
+      continue;
+    }
+
+    if (!redirect_action.redirect_url)
+      continue;
+
+    Action action(Action::Type::REDIRECT);
+    action.redirect_url = std::move(redirect_action.redirect_url);
+    return std::move(action);
+  }
+
+  return base::nullopt;
+}
+
+base::Optional<RulesetManager::Action> RulesetManager::GetRemoveHeadersAction(
+    const std::vector<const ExtensionRulesetData*>& rulesets,
+    const RequestParams& params) const {
+  uint8_t mask = 0;
+  for (const ExtensionRulesetData* ruleset : rulesets)
+    mask |= ruleset->matcher->GetRemoveHeadersMask(params, mask);
+
+  if (!mask)
+    return base::nullopt;
+
+  Action action(Action::Type::REMOVE_HEADERS);
+  PopulateHeadersFromMask(mask, &action.request_headers_to_remove,
+                          &action.response_headers_to_remove);
+  return std::move(action);
+}
+
+RulesetManager::Action RulesetManager::EvaluateRequestInternal(
+    const WebRequestInfo& request,
+    bool is_incognito_context) const {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  DCHECK(!request.dnr_action);
+
+  if (!ShouldEvaluateRequest(request))
+    return Action(Action::Type::NONE);
+
+  if (test_observer_)
+    test_observer_->OnEvaluateRequest(request, is_incognito_context);
+
+  if (rulesets_.empty())
+    return Action(Action::Type::NONE);
+
+  SCOPED_UMA_HISTOGRAM_TIMER(
+      "Extensions.DeclarativeNetRequest.EvaluateRequestTime.AllExtensions2");
+
+  const RequestParams params(request);
+  const int tab_id = request.frame_data ? request.frame_data->tab_id
+                                        : extension_misc::kUnknownTabId;
+
+  // |crosses_incognito| is used to ensure that a split mode extension process
+  // can't intercept requests from a cross browser context. Since declarative
+  // net request API doesn't use event listeners in a background process, it is
+  // irrelevant here.
+  const bool crosses_incognito = false;
+
+  // Filter the rulesets to evaluate.
+  std::vector<const ExtensionRulesetData*> rulesets_to_evaluate;
+  for (const ExtensionRulesetData& ruleset : rulesets_) {
+    if (!ShouldEvaluateRulesetForRequest(ruleset, request,
+                                         is_incognito_context)) {
+      continue;
+    }
+
+    // If the extension doesn't have permission to the request, then skip this
+    // ruleset. Note: we are not checking for host permissions here.
+    // DO_NOT_CHECK_HOST is strictly less restrictive than
+    // REQUIRE_HOST_PERMISSION_FOR_URL_AND_INITIATOR.
+    PageAccess page_access = WebRequestPermissions::CanExtensionAccessURL(
+        permission_helper_, ruleset.extension_id, request.url, tab_id,
+        crosses_incognito, WebRequestPermissions::DO_NOT_CHECK_HOST,
+        request.initiator, request.type);
+    DCHECK_NE(PageAccess::kWithheld, page_access);
+    if (page_access != PageAccess::kAllowed)
+      continue;
+
+    rulesets_to_evaluate.push_back(&ruleset);
+  }
+
+  // If the request is blocked, no further modifications can happen.
+  base::Optional<Action> action =
+      GetBlockOrCollapseAction(rulesets_to_evaluate, params);
+  if (action)
+    return std::move(*action);
+
+  // If the request is redirected, no further modifications can happen. A new
+  // request will be created and subsequently evaluated.
+  action = GetRedirectOrUpgradeAction(rulesets_to_evaluate, request, tab_id,
+                                      crosses_incognito, params);
+  if (action)
+    return std::move(*action);
+
+  // Removing headers doesn't require host permissions.
+  // Note: If we add other "non-destructive" actions (i.e., actions that don't
+  // end the request), we should combine them with the remove-headers action.
+  action = GetRemoveHeadersAction(rulesets_to_evaluate, params);
+  if (action)
+    return std::move(*action);
+
+  return Action(Action::Type::NONE);
 }
 
 bool RulesetManager::ShouldEvaluateRequest(
@@ -470,7 +554,7 @@ bool RulesetManager::ShouldEvaluateRequest(
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
   // Ensure clients filter out sensitive requests.
-  DCHECK(!WebRequestPermissions::HideRequest(info_map_, request));
+  DCHECK(!WebRequestPermissions::HideRequest(permission_helper_, request));
 
   if (!IsAPIAvailable()) {
     DCHECK(rulesets_.empty());
@@ -494,7 +578,7 @@ bool RulesetManager::ShouldEvaluateRulesetForRequest(
   // Only extensions enabled in incognito should have access to requests in an
   // incognito context.
   if (is_incognito_context &&
-      !info_map_->IsIncognitoEnabled(ruleset.extension_id)) {
+      !util::IsIncognitoEnabled(ruleset.extension_id, browser_context_)) {
     return false;
   }
 

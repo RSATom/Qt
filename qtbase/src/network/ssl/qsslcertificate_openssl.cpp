@@ -45,11 +45,18 @@
 #include "qsslcertificateextension_p.h"
 
 #include <QtCore/qendian.h>
+#include <QtCore/qmutex.h>
 
-#if QT_CONFIG(thread)
-#include <QtCore/private/qmutexpool_p.h>
-#endif
 QT_BEGIN_NAMESPACE
+
+Q_CONSTEXPR int MutexPoolSize = 17;
+static QBasicMutex mutexPool[MutexPoolSize];
+namespace QMutexPool {
+    static QBasicMutex *globalInstanceGet(const void *addr)
+    {
+        return mutexPool + (quintptr(addr) % MutexPoolSize);
+    }
+}
 
 // forward declaration
 static QMultiMap<QByteArray, QString> _q_mapFromX509Name(X509_NAME *name);
@@ -65,7 +72,7 @@ bool QSslCertificate::operator==(const QSslCertificate &other) const
     return false;
 }
 
-uint qHash(const QSslCertificate &key, uint seed) Q_DECL_NOTHROW
+uint qHash(const QSslCertificate &key, uint seed) noexcept
 {
     if (X509 * const x509 = key.d->x509) {
         const EVP_MD *sha1 = q_EVP_sha1();

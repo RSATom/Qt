@@ -43,7 +43,8 @@
 #include <QtCore/QCoreApplication>
 #include <QtQml/qqmlinfo.h>
 #include <QtQml/qqml.h>
-#include <qnmeapositioninfosource.h>
+#include <QtPositioning/qnmeapositioninfosource.h>
+#include <qdeclarativepluginparameter_p.h>
 #include <QFile>
 #include <QtNetwork/QTcpSocket>
 #include <QTimer>
@@ -109,7 +110,7 @@ QT_BEGIN_NAMESPACE
     a PositionSource in your application to retrieve local data for users
     from a REST web service.
 
-    \sa {QtPositioning::Position}, {QGeoPositionInfoSource}
+    \sa {QtPositioning::Position}, {QGeoPositionInfoSource}, {PluginParameter}
 
 */
 
@@ -164,7 +165,7 @@ QString QDeclarativePositionSource::name() const
     if (m_positionSource)
         return m_positionSource->sourceName();
     else
-        return QString();
+        return m_providerName;
 }
 
 void QDeclarativePositionSource::setName(const QString &newName)
@@ -172,15 +173,41 @@ void QDeclarativePositionSource::setName(const QString &newName)
     if (m_positionSource && m_positionSource->sourceName() == newName)
         return;
 
+    if (m_providerName == newName && m_providerName.isEmpty())
+        return; // previously attached to a default source, now requesting the same.
+
     const QString previousName = name();
+    m_providerName = newName;
+
+    if (!m_componentComplete || !m_parametersInitialized) {
+        if (previousName != name())
+            emit nameChanged();
+        return;
+    }
+
+    tryAttach(newName, false);
+}
+
+/*!
+    \internal
+*/
+void QDeclarativePositionSource::tryAttach(const QString &newName, bool useFallback)
+{
+    const QString previousName = name();
+    const bool sourceExisted = m_positionSource;
+    m_providerName = newName;
+
     int previousUpdateInterval = updateInterval();
     PositioningMethods previousPositioningMethods = supportedPositioningMethods();
     PositioningMethods previousPreferredPositioningMethods = preferredPositioningMethods();
 
-    if (newName.isEmpty())
-        setSource(QGeoPositionInfoSource::createDefaultSource(this));
-    else
-        setSource(QGeoPositionInfoSource::createSource(newName, this));
+    if (newName.isEmpty()) {
+        setSource(QGeoPositionInfoSource::createDefaultSource(parameterMap(), this));
+    } else {
+        setSource(QGeoPositionInfoSource::createSource(newName, parameterMap(), this));
+        if (!m_positionSource && useFallback)
+            setSource(QGeoPositionInfoSource::createDefaultSource(parameterMap(), this));
+    }
 
     if (m_positionSource) {
         connect(m_positionSource, SIGNAL(positionUpdated(QGeoPositionInfo)),
@@ -194,7 +221,12 @@ void QDeclarativePositionSource::setName(const QString &newName)
         m_positionSource->setPreferredPositioningMethods(
             static_cast<QGeoPositionInfoSource::PositioningMethods>(int(m_preferredPositioningMethods)));
 
-        setPosition(m_positionSource->lastKnownPosition());
+        const QGeoPositionInfo &lastKnown = m_positionSource->lastKnownPosition();
+        if (lastKnown.isValid())
+            setPosition(lastKnown);
+    } else if (m_active) {
+        m_active = false;
+        emit activeChanged();
     }
 
     if (previousUpdateInterval != updateInterval())
@@ -208,9 +240,13 @@ void QDeclarativePositionSource::setName(const QString &newName)
 
     emit validityChanged();
 
-    if (m_active) {
-        m_active = false;
-        emit activeChanged();
+    if (m_active) { // implies m_positionSource
+        if (!sourceExisted) {
+            QTimer::singleShot(0, this, SLOT(start())); // delay ensures all properties have been set
+        } else {
+            m_active = false;
+            emit activeChanged();
+        }
     }
 
     if (previousName != name())
@@ -232,9 +268,6 @@ bool QDeclarativePositionSource::isValid() const
     return (m_positionSource != 0);
 }
 
-/*!
-    \internal
-*/
 void QDeclarativePositionSource::setNmeaSource(const QUrl &nmeaSource)
 {
     if (nmeaSource.scheme() == QLatin1String("socket")) {
@@ -411,6 +444,24 @@ void QDeclarativePositionSource::updateTimeoutReceived()
     emit updateTimeout();
 }
 
+/*!
+    \internal
+*/
+void QDeclarativePositionSource::onParameterInitialized()
+{
+    m_parametersInitialized = true;
+    for (QDeclarativePluginParameter *p: qAsConst(m_parameters)) {
+        if (!p->isInitialized()) {
+            m_parametersInitialized = false;
+            break;
+        }
+    }
+
+    // If here, componentComplete has been called.
+    if (m_parametersInitialized)
+        tryAttach(m_providerName);
+}
+
 void QDeclarativePositionSource::setPosition(const QGeoPositionInfo &pi)
 {
     m_position.setPosition(pi);
@@ -429,6 +480,30 @@ void QDeclarativePositionSource::setSource(QGeoPositionInfoSource *source)
         connect(m_positionSource, &QGeoPositionInfoSource::supportedPositioningMethodsChanged,
                 this, &QDeclarativePositionSource::supportedPositioningMethodsChanged);
     }
+}
+
+bool QDeclarativePositionSource::parametersReady()
+{
+    for (const QDeclarativePluginParameter *p: qAsConst(m_parameters)) {
+        if (!p->isInitialized())
+            return false;
+    }
+    return true;
+}
+
+/*!
+    \internal
+*/
+QVariantMap QDeclarativePositionSource::parameterMap() const
+{
+    QVariantMap map;
+
+    for (int i = 0; i < m_parameters.size(); ++i) {
+        QDeclarativePluginParameter *parameter = m_parameters.at(i);
+        map.insert(parameter->name(), parameter->value());
+    }
+
+    return map;
 }
 
 /*!
@@ -717,47 +792,111 @@ QGeoPositionInfoSource *QDeclarativePositionSource::positionSource() const
     return m_positionSource;
 }
 
+/*!
+    \qmlproperty list<PluginParameter> PositionSource::parameters
+    \default
+
+    This property holds the list of plugin parameters.
+
+    \since QtPositioning 5.14
+*/
+QQmlListProperty<QDeclarativePluginParameter> QDeclarativePositionSource::parameters()
+{
+    return QQmlListProperty<QDeclarativePluginParameter>(this,
+            0,
+            parameter_append,
+            parameter_count,
+            parameter_at,
+            parameter_clear);
+}
+
+/*!
+    \internal
+*/
+void QDeclarativePositionSource::parameter_append(QQmlListProperty<QDeclarativePluginParameter> *prop, QDeclarativePluginParameter *parameter)
+{
+    QDeclarativePositionSource *p = static_cast<QDeclarativePositionSource *>(prop->object);
+    p->m_parameters.append(parameter);
+}
+
+/*!
+    \internal
+*/
+int QDeclarativePositionSource::parameter_count(QQmlListProperty<QDeclarativePluginParameter> *prop)
+{
+    return static_cast<QDeclarativePositionSource *>(prop->object)->m_parameters.count();
+}
+
+/*!
+    \internal
+*/
+QDeclarativePluginParameter *QDeclarativePositionSource::parameter_at(QQmlListProperty<QDeclarativePluginParameter> *prop, int index)
+{
+    return static_cast<QDeclarativePositionSource *>(prop->object)->m_parameters[index];
+}
+
+/*!
+    \internal
+*/
+void QDeclarativePositionSource::parameter_clear(QQmlListProperty<QDeclarativePluginParameter> *prop)
+{
+    QDeclarativePositionSource *p = static_cast<QDeclarativePositionSource *>(prop->object);
+    p->m_parameters.clear();
+}
+
+
 void QDeclarativePositionSource::componentComplete()
 {
-    if (!m_positionSource) {
-        int previousUpdateInterval = updateInterval();
-        PositioningMethods previousPositioningMethods = supportedPositioningMethods();
-        PositioningMethods previousPreferredPositioningMethods = preferredPositioningMethods();
-
-        setSource(QGeoPositionInfoSource::createDefaultSource(this));
-        if (m_positionSource) {
-            connect(m_positionSource, SIGNAL(positionUpdated(QGeoPositionInfo)),
-                    this, SLOT(positionUpdateReceived(QGeoPositionInfo)));
-            connect(m_positionSource, SIGNAL(error(QGeoPositionInfoSource::Error)),
-                    this, SLOT(sourceErrorReceived(QGeoPositionInfoSource::Error)));
-            connect(m_positionSource, SIGNAL(updateTimeout()),
-                    this, SLOT(updateTimeoutReceived()));
-
-            m_positionSource->setUpdateInterval(m_updateInterval);
-            m_positionSource->setPreferredPositioningMethods(
-                static_cast<QGeoPositionInfoSource::PositioningMethods>(int(m_preferredPositioningMethods)));
-
-            setPosition(m_positionSource->lastKnownPosition());
-
-            if (m_active)
-                QTimer::singleShot(0, this, SLOT(start())); // delay ensures all properties have been set
-        } else if (m_active) {
-            m_active = false;
-            emit activeChanged();
+    m_componentComplete = true;
+    m_parametersInitialized = true;
+    for (QDeclarativePluginParameter *p: qAsConst(m_parameters)) {
+        if (!p->isInitialized()) {
+            m_parametersInitialized = false;
+            connect(p, &QDeclarativePluginParameter::initialized,
+                    this, &QDeclarativePositionSource::onParameterInitialized);
         }
-
-        if (previousUpdateInterval != updateInterval())
-            emit updateIntervalChanged();
-
-        if (previousPreferredPositioningMethods != preferredPositioningMethods())
-            emit preferredPositioningMethodsChanged();
-
-        if (previousPositioningMethods != supportedPositioningMethods())
-            emit supportedPositioningMethodsChanged();
-
-        emit validityChanged();
-        emit nameChanged();
     }
+
+    if (m_parametersInitialized)
+        tryAttach(m_providerName);
+}
+
+/*!
+     \qmlmethod bool QtLocation::PositionSource::setBackendProperty(string name, Variant value)
+
+    Sets the backend-specific property named \a name to \a value.
+    Returns true on success, false otherwise, including if called on an uninitialized PositionSource.
+    Supported backend-specific properties are listed and described in
+    \l {Qt Positioning plugins#Default plugins}.
+
+    \since Qt Positioning 5.14
+
+    \sa backendProperty, QGeoPositionInfoSource::setBackendProperty
+*/
+bool QDeclarativePositionSource::setBackendProperty(const QString &name, const QVariant &value)
+{
+    if (m_positionSource)
+        return m_positionSource->setBackendProperty(name, value);
+    return false;
+}
+
+/*!
+     \qmlmethod Variant QtLocation::PositionSource::backendProperty(string name)
+
+    Returns the value of the backend-specific property named \a name, if present.
+    Otherwise, including if called on an uninitialized PositionSource, the return value will be invalid.
+    Supported backend-specific properties are listed and described in
+    \l {Qt Positioning plugins#Default plugins}.
+
+    \since Qt Positioning 5.14
+
+    \sa backendProperty, QGeoPositionInfoSource::setBackendProperty
+*/
+QVariant QDeclarativePositionSource::backendProperty(const QString &name) const
+{
+    if (m_positionSource)
+        return m_positionSource->backendProperty(name);
+    return QVariant();
 }
 
 /*!

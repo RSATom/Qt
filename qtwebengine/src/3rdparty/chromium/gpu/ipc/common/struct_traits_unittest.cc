@@ -5,7 +5,7 @@
 #include <algorithm>
 #include <string>
 
-#include "base/message_loop/message_loop.h"
+#include "base/test/scoped_task_environment.h"
 #include "build/build_config.h"
 #include "gpu/config/gpu_feature_type.h"
 #include "gpu/ipc/common/gpu_feature_info.mojom.h"
@@ -82,7 +82,7 @@ class StructTraitsTest : public testing::Test, public mojom::TraitsTestService {
     std::move(callback).Run(prefs);
   }
 
-  base::MessageLoop loop_;
+  base::test::ScopedTaskEnvironment scoped_task_environment_;
   mojo::BindingSet<TraitsTestService> traits_test_bindings_;
 
   DISALLOW_COPY_AND_ASSIGN(StructTraitsTest);
@@ -149,15 +149,15 @@ TEST_F(StructTraitsTest, GpuInfo) {
   const std::string gl_ws_extensions = "gl_ws_extensions";
   const uint32_t gl_reset_notification_strategy = 0xbeef;
   const bool software_rendering = true;
-  const bool direct_rendering = true;
+  const std::string direct_rendering_version = "DRI1";
   const bool sandboxed = true;
   const bool in_process_gpu = true;
   const bool passthrough_cmd_decoder = true;
 #if defined(OS_WIN)
   const bool direct_composition = true;
   const bool supports_overlays = true;
-  const gpu::OverlayCapabilities overlay_capabilities = {
-      {OverlayFormat::kBGRA, false}, {OverlayFormat::kNV12, true}};
+  const OverlaySupport yuy2_overlay_support = OverlaySupport::kScaling;
+  const OverlaySupport nv12_overlay_support = OverlaySupport::kNone;
   const DxDiagNode dx_diagnostics;
 #endif
   const gpu::VideoDecodeAcceleratorCapabilities
@@ -193,14 +193,15 @@ TEST_F(StructTraitsTest, GpuInfo) {
   input.gl_ws_extensions = gl_ws_extensions;
   input.gl_reset_notification_strategy = gl_reset_notification_strategy;
   input.software_rendering = software_rendering;
-  input.direct_rendering = direct_rendering;
+  input.direct_rendering_version = direct_rendering_version;
   input.sandboxed = sandboxed;
   input.in_process_gpu = in_process_gpu;
   input.passthrough_cmd_decoder = passthrough_cmd_decoder;
 #if defined(OS_WIN)
   input.direct_composition = direct_composition;
   input.supports_overlays = supports_overlays;
-  input.overlay_capabilities = overlay_capabilities;
+  input.yuy2_overlay_support = yuy2_overlay_support;
+  input.nv12_overlay_support = nv12_overlay_support;
   input.dx_diagnostics = dx_diagnostics;
 #endif
   input.video_decode_accelerator_capabilities =
@@ -252,14 +253,15 @@ TEST_F(StructTraitsTest, GpuInfo) {
   EXPECT_EQ(gl_reset_notification_strategy,
             output.gl_reset_notification_strategy);
   EXPECT_EQ(software_rendering, output.software_rendering);
-  EXPECT_EQ(direct_rendering, output.direct_rendering);
+  EXPECT_EQ(direct_rendering_version, output.direct_rendering_version);
   EXPECT_EQ(sandboxed, output.sandboxed);
   EXPECT_EQ(in_process_gpu, output.in_process_gpu);
   EXPECT_EQ(passthrough_cmd_decoder, output.passthrough_cmd_decoder);
 #if defined(OS_WIN)
   EXPECT_EQ(direct_composition, output.direct_composition);
   EXPECT_EQ(supports_overlays, output.supports_overlays);
-  EXPECT_EQ(overlay_capabilities, output.overlay_capabilities);
+  EXPECT_EQ(yuy2_overlay_support, output.yuy2_overlay_support);
+  EXPECT_EQ(nv12_overlay_support, output.nv12_overlay_support);
   EXPECT_EQ(dx_diagnostics.values, output.dx_diagnostics.values);
 #endif
   EXPECT_EQ(output.video_decode_accelerator_capabilities.flags,
@@ -418,24 +420,16 @@ TEST_F(StructTraitsTest, VideoEncodeAcceleratorSupportedProfile) {
 
 TEST_F(StructTraitsTest, GpuPreferences) {
   GpuPreferences prefs;
-  prefs.single_process = true;
-  prefs.in_process_gpu = true;
-#if defined(OS_WIN)
-  const GpuPreferences::VpxDecodeVendors vendor =
-      GpuPreferences::VPX_VENDOR_AMD;
-  prefs.enable_accelerated_vpx_decode = vendor;
-#endif
+  prefs.gpu_startup_dialog = true;
+  prefs.disable_gpu_watchdog = true;
   prefs.enable_gpu_driver_debug_logging = true;
 
   mojom::TraitsTestServicePtr proxy = GetTraitsTestProxy();
   GpuPreferences echo;
   proxy->EchoGpuPreferences(prefs, &echo);
-  EXPECT_TRUE(echo.single_process);
-  EXPECT_TRUE(echo.in_process_gpu);
+  EXPECT_TRUE(echo.gpu_startup_dialog);
+  EXPECT_TRUE(echo.disable_gpu_watchdog);
   EXPECT_TRUE(echo.enable_gpu_driver_debug_logging);
-#if defined(OS_WIN)
-  EXPECT_EQ(vendor, echo.enable_accelerated_vpx_decode);
-#endif
 }
 
 TEST_F(StructTraitsTest, GpuFeatureInfo) {

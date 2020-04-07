@@ -38,7 +38,7 @@
 ****************************************************************************/
 
 #include "osx/osxbtsocketlistener_p.h"
-#include "qbluetoothserver_osx_p.h"
+#include "qbluetoothserver_p.h"
 
 // The order is important: a workround for
 // a private header included by private header
@@ -58,7 +58,6 @@
 #include <QtCore/qglobal.h>
 #include <QtCore/qmutex.h>
 
-// Import, since Obj-C headers do not have inclusion guards.
 #include <Foundation/Foundation.h>
 
 #include <limits>
@@ -67,7 +66,9 @@ QT_BEGIN_NAMESPACE
 
 namespace {
 
-typedef QBluetoothServiceInfo QSInfo;
+using DarwinBluetooth::RetainPolicy;
+using ServiceInfo = QBluetoothServiceInfo;
+using ObjCListener = QT_MANGLE_NAMESPACE(OSXBTSocketListener);
 
 QMap<quint16, QBluetoothServerPrivate *> &busyPSMs()
 {
@@ -86,79 +87,89 @@ typedef QMap<quint16, QBluetoothServerPrivate *>::iterator ServerMapIterator;
 }
 
 
-QBluetoothServerPrivate::QBluetoothServerPrivate(QSInfo::Protocol type, QBluetoothServer *q)
-                            : serverType(type),
-                              q_ptr(q),
-                              lastError(QBluetoothServer::NoError),
-                              port(0),
-                              maxPendingConnections(1)
+QBluetoothServerPrivate::QBluetoothServerPrivate(ServiceInfo::Protocol type,
+                                                 QBluetoothServer *parent)
+                            : socket(nullptr),
+                              maxPendingConnections(1),
+                              securityFlags(QBluetooth::NoSecurity),
+                              serverType(type),
+                              q_ptr(parent),
+                              m_lastError(QBluetoothServer::NoError),
+                              port(0)
 {
-    Q_ASSERT_X(q_ptr, Q_FUNC_INFO, "invalid q_ptr (null)");
-    if (serverType == QSInfo::UnknownProtocol)
+    if (serverType == ServiceInfo::UnknownProtocol)
         qCWarning(QT_BT_OSX) << "unknown protocol";
 }
 
 QBluetoothServerPrivate::~QBluetoothServerPrivate()
 {
-    // Actually, not good, but lock must be acquired.
-    // TODO: test this.
     const QMutexLocker lock(&channelMapMutex());
     unregisterServer(this);
-}
-
-void QBluetoothServerPrivate::_q_newConnection()
-{
-    // Noop, we have openNotify for this.
 }
 
 bool QBluetoothServerPrivate::startListener(quint16 realPort)
 {
     Q_ASSERT_X(realPort, Q_FUNC_INFO, "invalid port");
 
-    if (serverType == QSInfo::UnknownProtocol) {
+    if (serverType == ServiceInfo::UnknownProtocol) {
         qCWarning(QT_BT_OSX) << "invalid protocol";
         return false;
     }
 
-    if (!listener)
-        listener.reset([[ObjCListener alloc] initWithListener:this]);
+    if (!listener) {
+        listener.reset([[ObjCListener alloc] initWithListener:this],
+                       RetainPolicy::noInitialRetain);
+    }
 
     bool result = false;
-    if (serverType == QSInfo::RfcommProtocol)
-        result = [listener listenRFCOMMConnectionsWithChannelID:realPort];
+    if (serverType == ServiceInfo::RfcommProtocol)
+        result = [listener.getAs<ObjCListener>() listenRFCOMMConnectionsWithChannelID:realPort];
     else
-        result = [listener listenL2CAPConnectionsWithPSM:realPort];
+        result = [listener.getAs<ObjCListener>() listenL2CAPConnectionsWithPSM:realPort];
 
     if (!result)
-        listener.reset(nil);
+        listener.reset();
 
     return result;
 }
 
-void QBluetoothServerPrivate::stopListener()
+bool QBluetoothServerPrivate::isListening() const
 {
-    listener.reset(nil);
+    if (serverType == ServiceInfo::UnknownProtocol)
+        return false;
+
+    const QMutexLocker lock(&QBluetoothServerPrivate::channelMapMutex());
+    return QBluetoothServerPrivate::registeredServer(q_ptr->serverPort(), serverType);
 }
 
-void QBluetoothServerPrivate::openNotify(IOBluetoothRFCOMMChannel *channel)
+void QBluetoothServerPrivate::stopListener()
 {
-    Q_ASSERT_X(listener.data(), Q_FUNC_INFO, "invalid listener (nil)");
+    listener.reset();
+}
+
+void QBluetoothServerPrivate::openNotifyRFCOMM(void *generic)
+{
+    auto channel = static_cast<IOBluetoothRFCOMMChannel *>(generic);
+
+    Q_ASSERT_X(listener, Q_FUNC_INFO, "invalid listener (nil)");
     Q_ASSERT_X(channel, Q_FUNC_INFO, "invalid channel (nil)");
     Q_ASSERT_X(q_ptr, Q_FUNC_INFO, "invalid q_ptr (null)");
 
-    PendingConnection newConnection(channel, true);
+    PendingConnection newConnection(channel, RetainPolicy::doInitialRetain);
     pendingConnections.append(newConnection);
 
     emit q_ptr->newConnection();
 }
 
-void QBluetoothServerPrivate::openNotify(IOBluetoothL2CAPChannel *channel)
+void QBluetoothServerPrivate::openNotifyL2CAP(void *generic)
 {
-    Q_ASSERT_X(listener.data(), Q_FUNC_INFO, "invalid listener (nil)");
+    auto channel = static_cast<IOBluetoothL2CAPChannel *>(generic);
+
+    Q_ASSERT_X(listener, Q_FUNC_INFO, "invalid listener (nil)");
     Q_ASSERT_X(channel, Q_FUNC_INFO, "invalid channel (nil)");
     Q_ASSERT_X(q_ptr, Q_FUNC_INFO, "invalid q_ptr (null)");
 
-    PendingConnection newConnection(channel, true);
+    PendingConnection newConnection(channel, RetainPolicy::doInitialRetain);
     pendingConnections.append(newConnection);
 
     emit q_ptr->newConnection();
@@ -209,11 +220,11 @@ void QBluetoothServerPrivate::registerServer(QBluetoothServerPrivate *server, qu
     // External lock is required + port must be free.
     Q_ASSERT_X(server, Q_FUNC_INFO, "invalid server (null)");
 
-    const QSInfo::Protocol type = server->serverType;
-    if (type == QSInfo::RfcommProtocol) {
+    const ServiceInfo::Protocol type = server->serverType;
+    if (type == ServiceInfo::RfcommProtocol) {
         Q_ASSERT_X(!channelIsBusy(port), Q_FUNC_INFO, "port is busy");
         busyChannels()[port] = server;
-    } else if (type == QSInfo::L2capProtocol) {
+    } else if (type == ServiceInfo::L2capProtocol) {
         Q_ASSERT_X(!psmIsBusy(port), Q_FUNC_INFO, "port is busy");
         busyPSMs()[port] = server;
     } else {
@@ -225,11 +236,11 @@ void QBluetoothServerPrivate::registerServer(QBluetoothServerPrivate *server, qu
 QBluetoothServerPrivate *QBluetoothServerPrivate::registeredServer(quint16 port, QBluetoothServiceInfo::Protocol protocol)
 {
     // Eternal lock is required.
-    if (protocol == QSInfo::RfcommProtocol) {
+    if (protocol == ServiceInfo::RfcommProtocol) {
         ServerMapIterator it = busyChannels().find(port);
         if (it != busyChannels().end())
             return it.value();
-    } else if (protocol == QSInfo::L2capProtocol) {
+    } else if (protocol == ServiceInfo::L2capProtocol) {
         ServerMapIterator it = busyPSMs().find(port);
         if (it != busyPSMs().end())
             return it.value();
@@ -243,17 +254,17 @@ QBluetoothServerPrivate *QBluetoothServerPrivate::registeredServer(quint16 port,
 void QBluetoothServerPrivate::unregisterServer(QBluetoothServerPrivate *server)
 {
     // External lock is required.
-    const QSInfo::Protocol type = server->serverType;
+    const ServiceInfo::Protocol type = server->serverType;
     const quint16 port = server->port;
 
-    if (type == QSInfo::RfcommProtocol) {
+    if (type == ServiceInfo::RfcommProtocol) {
         ServerMapIterator it = busyChannels().find(port);
         if (it != busyChannels().end()) {
             busyChannels().erase(it);
         } else {
             qCWarning(QT_BT_OSX) << "server is not registered";
         }
-    } else if (type == QSInfo::L2capProtocol) {
+    } else if (type == ServiceInfo::L2capProtocol) {
         ServerMapIterator it = busyPSMs().find(port);
         if (it != busyPSMs().end()) {
             busyPSMs().erase(it);
@@ -265,21 +276,9 @@ void QBluetoothServerPrivate::unregisterServer(QBluetoothServerPrivate *server)
     }
 }
 
-
-QBluetoothServer::QBluetoothServer(QSInfo::Protocol serverType, QObject *parent)
-                    : QObject(parent),
-                      d_ptr(new QBluetoothServerPrivate(serverType, this))
-{
-}
-
-QBluetoothServer::~QBluetoothServer()
-{
-    delete d_ptr;
-}
-
 void QBluetoothServer::close()
 {
-    d_ptr->listener.reset(nil);
+    d_ptr->listener.reset();
 
     // Needs a lock :(
     const QMutexLocker lock(&d_ptr->channelMapMutex());
@@ -289,11 +288,9 @@ void QBluetoothServer::close()
 
 bool QBluetoothServer::listen(const QBluetoothAddress &address, quint16 port)
 {
-    typedef QBluetoothServerPrivate::ObjCListener ObjCListener;
-
     OSXBluetooth::qt_test_iobluetooth_runloop();
 
-    if (d_ptr->listener.data()) {
+    if (d_ptr->listener) {
         qCWarning(QT_BT_OSX) << "already in listen mode, close server first";
         return false;
     }
@@ -303,7 +300,7 @@ bool QBluetoothServer::listen(const QBluetoothAddress &address, quint16 port)
         qCWarning(QT_BT_OSX) << "device does not support Bluetooth or"
                              << address.toString()
                              << "is not a valid local adapter";
-        d_ptr->lastError = UnknownError;
+        d_ptr->m_lastError = UnknownError;
         emit error(UnknownError);
         return false;
     }
@@ -311,53 +308,53 @@ bool QBluetoothServer::listen(const QBluetoothAddress &address, quint16 port)
     const QBluetoothLocalDevice::HostMode hostMode = device.hostMode();
     if (hostMode == QBluetoothLocalDevice::HostPoweredOff) {
         qCWarning(QT_BT_OSX) << "Bluetooth device is powered off";
-        d_ptr->lastError = PoweredOffError;
+        d_ptr->m_lastError = PoweredOffError;
         emit error(PoweredOffError);
         return false;
     }
 
-    const QSInfo::Protocol type = d_ptr->serverType;
+    const ServiceInfo::Protocol type = d_ptr->serverType;
 
-    if (type == QSInfo::UnknownProtocol) {
+    if (type == ServiceInfo::UnknownProtocol) {
         qCWarning(QT_BT_OSX) << "invalid protocol";
-        d_ptr->lastError = UnsupportedProtocolError;
-        emit error(d_ptr->lastError);
+        d_ptr->m_lastError = UnsupportedProtocolError;
+        emit error(d_ptr->m_lastError);
         return false;
     }
 
-    d_ptr->lastError = QBluetoothServer::NoError;
+    d_ptr->m_lastError = QBluetoothServer::NoError;
 
     // Now we have to register a (fake) port, doing a proper (?) lock.
     const QMutexLocker lock(&d_ptr->channelMapMutex());
 
     if (port) {
-        if (type == QSInfo::RfcommProtocol) {
+        if (type == ServiceInfo::RfcommProtocol) {
             if (d_ptr->channelIsBusy(port)) {
                 qCWarning(QT_BT_OSX) << "server port:" << port
                                      << "already registered";
-                d_ptr->lastError = ServiceAlreadyRegisteredError;
+                d_ptr->m_lastError = ServiceAlreadyRegisteredError;
             }
         } else {
             if (d_ptr->psmIsBusy(port)) {
                 qCWarning(QT_BT_OSX) << "server port:" << port
                                      << "already registered";
-                d_ptr->lastError = ServiceAlreadyRegisteredError;
+                d_ptr->m_lastError = ServiceAlreadyRegisteredError;
             }
         }
     } else {
-        type == QSInfo::RfcommProtocol ? port = d_ptr->findFreeChannel()
+        type == ServiceInfo::RfcommProtocol ? port = d_ptr->findFreeChannel()
                                        : port = d_ptr->findFreePSM();
     }
 
-    if (d_ptr->lastError != QBluetoothServer::NoError) {
-        emit error(d_ptr->lastError);
+    if (d_ptr->m_lastError != QBluetoothServer::NoError) {
+        emit error(d_ptr->m_lastError);
         return false;
     }
 
     if (!port) {
         qCWarning(QT_BT_OSX) << "all ports are busy";
-        d_ptr->lastError = ServiceAlreadyRegisteredError;
-        emit error(d_ptr->lastError);
+        d_ptr->m_lastError = ServiceAlreadyRegisteredError;
+        emit error(d_ptr->m_lastError);
         return false;
     }
 
@@ -365,80 +362,15 @@ bool QBluetoothServer::listen(const QBluetoothAddress &address, quint16 port)
     // (provided after a service was registered).
     d_ptr->port = port;
     d_ptr->registerServer(d_ptr, port);
-    d_ptr->listener.reset([[ObjCListener alloc] initWithListener:d_ptr]);
+    d_ptr->listener.reset([[ObjCListener alloc] initWithListener:d_ptr],
+                          RetainPolicy::noInitialRetain);
 
     return true;
 }
 
-QBluetoothServiceInfo QBluetoothServer::listen(const QBluetoothUuid &uuid, const QString &serviceName)
-{
-    if (!listen())
-        return QBluetoothServiceInfo();
-
-    QBluetoothServiceInfo serviceInfo;
-    serviceInfo.setAttribute(QSInfo::ServiceName, serviceName);
-    QBluetoothServiceInfo::Sequence publicBrowse;
-    publicBrowse << QVariant::fromValue(QBluetoothUuid(QBluetoothUuid::PublicBrowseGroup));
-    serviceInfo.setAttribute(QSInfo::BrowseGroupList, publicBrowse);
-
-    QSInfo::Sequence profileSequence;
-    QSInfo::Sequence classId;
-    classId << QVariant::fromValue(QBluetoothUuid(QBluetoothUuid::SerialPort));
-    classId << QVariant::fromValue(quint16(0x100));
-    profileSequence.append(QVariant::fromValue(classId));
-    serviceInfo.setAttribute(QSInfo::BluetoothProfileDescriptorList, profileSequence);
-
-    classId.clear();
-    classId << QVariant::fromValue(uuid);
-    classId << QVariant::fromValue(QBluetoothUuid(QBluetoothUuid::SerialPort));
-    serviceInfo.setAttribute(QSInfo::ServiceClassIds, classId);
-    serviceInfo.setServiceUuid(uuid);
-
-    QSInfo::Sequence protocolDescriptorList;
-    QSInfo::Sequence protocol;
-    protocol << QVariant::fromValue(QBluetoothUuid(QBluetoothUuid::L2cap));
-    if (d_ptr->serverType == QSInfo::L2capProtocol)
-        protocol << QVariant::fromValue(serverPort());
-    protocolDescriptorList.append(QVariant::fromValue(protocol));
-    protocol.clear();
-
-    if (d_ptr->serverType == QBluetoothServiceInfo::RfcommProtocol) {
-        protocol << QVariant::fromValue(QBluetoothUuid(QBluetoothUuid::Rfcomm))
-                 << QVariant::fromValue(quint8(serverPort()));
-        protocolDescriptorList.append(QVariant::fromValue(protocol));
-    }
-
-    serviceInfo.setAttribute(QSInfo::ProtocolDescriptorList,
-                             protocolDescriptorList);
-
-
-    // It's now up to a service info to acquire a real PSM/channel ID
-    // (provided by IOBluetooth) and start a listener.
-    if (!serviceInfo.registerService())
-        return QBluetoothServiceInfo();
-
-    return serviceInfo;
-}
-
-bool QBluetoothServer::isListening() const
-{
-    if (d_ptr->serverType == QSInfo::UnknownProtocol)
-        return false;
-
-    const QMutexLocker lock(&QBluetoothServerPrivate::channelMapMutex());
-    return QBluetoothServerPrivate::registeredServer(serverPort(), d_ptr->serverType);
-}
-
 void QBluetoothServer::setMaxPendingConnections(int numConnections)
 {
-    // That's a 'fake' limit, it affects nothing.
     d_ptr->maxPendingConnections = numConnections;
-}
-
-int QBluetoothServer::maxPendingConnections() const
-{
-    // That's a 'fake' limit, it affects nothing.
-    return d_ptr->maxPendingConnections;
 }
 
 bool QBluetoothServer::hasPendingConnections() const
@@ -457,11 +389,11 @@ QBluetoothSocket *QBluetoothServer::nextPendingConnection()
     // Remove it even if we have some errors below.
     d_ptr->pendingConnections.pop_front();
 
-    if (d_ptr->serverType == QSInfo::RfcommProtocol) {
-        if (!newSocket->d_ptr->setChannel(static_cast<IOBluetoothRFCOMMChannel *>(channel)))
+    if (d_ptr->serverType == ServiceInfo::RfcommProtocol) {
+        if (!static_cast<QBluetoothSocketPrivate *>(newSocket->d_ptr)->setRFCOMChannel(channel.getAs<IOBluetoothRFCOMMChannel>()))
             return nullptr;
     } else {
-        if (!newSocket->d_ptr->setChannel(static_cast<IOBluetoothL2CAPChannel *>(channel)))
+        if (!static_cast<QBluetoothSocketPrivate *>(newSocket->d_ptr)->setL2CAPChannel(channel.getAs<IOBluetoothL2CAPChannel>()))
             return nullptr;
     }
 
@@ -481,25 +413,13 @@ quint16 QBluetoothServer::serverPort() const
 void QBluetoothServer::setSecurityFlags(QBluetooth::SecurityFlags security)
 {
     Q_UNUSED(security)
-    // Not implemented (yet?)
+    Q_UNIMPLEMENTED();
 }
 
 QBluetooth::SecurityFlags QBluetoothServer::securityFlags() const
 {
-    // Not implemented (yet?)
+    Q_UNIMPLEMENTED();
     return QBluetooth::NoSecurity;
 }
-
-QSInfo::Protocol QBluetoothServer::serverType() const
-{
-    return d_ptr->serverType;
-}
-
-QBluetoothServer::Error QBluetoothServer::error() const
-{
-    return d_ptr->lastError;
-}
-
-#include "moc_qbluetoothserver.cpp"
 
 QT_END_NAMESPACE

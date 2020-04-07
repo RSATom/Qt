@@ -6,7 +6,8 @@
 
 #include "xfa/fxfa/parser/cxfa_pattern.h"
 
-#include "fxjs/xfa/cjx_pattern.h"
+#include "core/fxge/render_defines.h"
+#include "fxjs/xfa/cjx_node.h"
 #include "third_party/base/ptr_util.h"
 #include "xfa/fxfa/parser/cxfa_color.h"
 #include "xfa/fxgraphics/cxfa_gepattern.h"
@@ -16,7 +17,7 @@ namespace {
 const CXFA_Node::PropertyData kPatternPropertyData[] = {
     {XFA_Element::Color, 1, 0},
     {XFA_Element::Extras, 1, 0},
-    {XFA_Element::Unknown, 0, 0}};
+};
 
 const CXFA_Node::AttributeData kPatternAttributeData[] = {
     {XFA_Attribute::Id, XFA_AttributeType::CData, nullptr},
@@ -24,7 +25,7 @@ const CXFA_Node::AttributeData kPatternAttributeData[] = {
     {XFA_Attribute::Type, XFA_AttributeType::Enum,
      (void*)XFA_AttributeValue::CrossHatch},
     {XFA_Attribute::Usehref, XFA_AttributeType::CData, nullptr},
-    {XFA_Attribute::Unknown, XFA_AttributeType::Integer, nullptr}};
+};
 
 }  // namespace
 
@@ -36,7 +37,7 @@ CXFA_Pattern::CXFA_Pattern(CXFA_Document* doc, XFA_PacketType packet)
                 XFA_Element::Pattern,
                 kPatternPropertyData,
                 kPatternAttributeData,
-                pdfium::MakeUnique<CJX_Pattern>(this)) {}
+                pdfium::MakeUnique<CJX_Node>(this)) {}
 
 CXFA_Pattern::~CXFA_Pattern() = default;
 

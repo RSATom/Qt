@@ -10,13 +10,13 @@
 #ifndef SkDraw_DEFINED
 #define SkDraw_DEFINED
 
-#include "SkCanvas.h"
-#include "SkGlyphRunPainter.h"
-#include "SkMask.h"
-#include "SkPaint.h"
-#include "SkPixmap.h"
-#include "SkStrokeRec.h"
-#include "SkVertices.h"
+#include "include/core/SkCanvas.h"
+#include "include/core/SkPaint.h"
+#include "include/core/SkPixmap.h"
+#include "include/core/SkStrokeRec.h"
+#include "include/core/SkVertices.h"
+#include "src/core/SkGlyphRunPainter.h"
+#include "src/core/SkMask.h"
 
 class SkBitmap;
 class SkClipStack;
@@ -82,7 +82,7 @@ public:
         this->drawPath(src, paint, nullptr, false, !isHairline, customBlitter);
     }
 
-    void paintPaths(SkSpan<const SkGlyphRunListPainter::PathAndPos> pathsAndPositions,
+    void paintPaths(SkSpan<const SkPathPos> pathsAndPositions,
                     SkScalar scale,
                     const SkPaint& paint) const override;
 
@@ -122,10 +122,8 @@ public:
     static RectType ComputeRectType(const SkPaint&, const SkMatrix&,
                                     SkPoint* strokeSize);
 
-    static bool ShouldDrawTextAsPaths(const SkFont&, const SkPaint&, const SkMatrix&,
-                                      SkScalar sizeLimit = 1024);
-
     static SkScalar ComputeResScaleForStroking(const SkMatrix& );
+
 private:
     void drawBitmapAsMask(const SkBitmap&, const SkPaint&) const;
 

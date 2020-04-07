@@ -43,7 +43,6 @@
 #include <Qt3DAnimation/private/managers_p.h>
 #include <Qt3DAnimation/private/gltfimporter_p.h>
 #include <Qt3DRender/private/qurlhelper_p.h>
-#include <Qt3DCore/qpropertyupdatedchange.h>
 
 #include <QtCore/qbytearray.h>
 #include <QtCore/qfile.h>
@@ -69,30 +68,8 @@ AnimationClip::AnimationClip()
     , m_name()
     , m_channels()
     , m_duration(0.0f)
+    , m_channelComponentCount(0)
 {
-}
-
-void AnimationClip::initializeFromPeer(const Qt3DCore::QNodeCreatedChangeBasePtr &change)
-{
-    const auto loaderTypedChange = qSharedPointerDynamicCast<Qt3DCore::QNodeCreatedChange<QAnimationClipLoaderData>>(change);
-    if (loaderTypedChange) {
-        const auto &data = loaderTypedChange->data;
-        m_dataType = File;
-        m_source = data.source;
-        if (!m_source.isEmpty())
-            setDirty(Handler::AnimationClipDirty);
-        return;
-    }
-
-    const auto clipTypedChange = qSharedPointerDynamicCast<Qt3DCore::QNodeCreatedChange<QAnimationClipChangeData>>(change);
-    if (clipTypedChange) {
-        const auto &data = clipTypedChange->data;
-        m_dataType = Data;
-        m_clipData = data.clipData;
-        if (m_clipData.isValid())
-            setDirty(Handler::AnimationClipDirty);
-        return;
-    }
 }
 
 void AnimationClip::cleanup()
@@ -105,6 +82,7 @@ void AnimationClip::cleanup()
     m_dataType = Unknown;
     m_channels.clear();
     m_duration = 0.0f;
+    m_channelComponentCount = 0;
 
     clearData();
 }
@@ -113,36 +91,39 @@ void AnimationClip::setStatus(QAnimationClipLoader::Status status)
 {
     if (status != m_status) {
         m_status = status;
-        Qt3DCore::QPropertyUpdatedChangePtr e = Qt3DCore::QPropertyUpdatedChangePtr::create(peerId());
-        e->setDeliveryFlags(Qt3DCore::QSceneChange::DeliverToAll);
-        e->setPropertyName("status");
-        e->setValue(QVariant::fromValue(m_status));
-        notifyObservers(e);
     }
 }
 
-void AnimationClip::sceneChangeEvent(const Qt3DCore::QSceneChangePtr &e)
+void AnimationClip::syncFromFrontEnd(const Qt3DCore::QNode *frontEnd, bool firstTime)
 {
-    switch (e->type()) {
-    case Qt3DCore::PropertyUpdated: {
-        const auto change = qSharedPointerCast<Qt3DCore::QPropertyUpdatedChange>(e);
-        if (change->propertyName() == QByteArrayLiteral("source")) {
-            Q_ASSERT(m_dataType == File);
-            m_source = change->value().toUrl();
-            setDirty(Handler::AnimationClipDirty);
-        } else if (change->propertyName() == QByteArrayLiteral("clipData")) {
-            Q_ASSERT(m_dataType == Data);
-            m_clipData = change->value().value<Qt3DAnimation::QAnimationClipData>();
+    BackendNode::syncFromFrontEnd(frontEnd, firstTime);
+    const QAbstractAnimationClip *node = qobject_cast<const QAbstractAnimationClip *>(frontEnd);
+    if (!node)
+        return;
+
+    const QAnimationClip *clipNode = qobject_cast<const QAnimationClip *>(frontEnd);
+    if (clipNode) {
+        if (firstTime)
+            m_dataType = Data;
+        Q_ASSERT(m_dataType == Data);
+        if (m_clipData != clipNode->clipData()) {
+            m_clipData = clipNode->clipData();
             if (m_clipData.isValid())
                 setDirty(Handler::AnimationClipDirty);
         }
-        break;
     }
 
-    default:
-        break;
+    const QAnimationClipLoader *loaderNode = qobject_cast<const QAnimationClipLoader *>(frontEnd);
+    if (loaderNode) {
+        if (firstTime)
+            m_dataType = File;
+        Q_ASSERT(m_dataType == File);
+        if (m_source != loaderNode->source()) {
+            m_source = loaderNode->source();
+            if (!m_source.isEmpty())
+                setDirty(Handler::AnimationClipDirty);
+        }
     }
-    QBackendNode::sceneChangeEvent(e);
 }
 
 /*!
@@ -332,13 +313,6 @@ void AnimationClip::setDuration(float duration)
         return;
 
     m_duration = duration;
-
-    // Send a change to the frontend
-    auto e = Qt3DCore::QPropertyUpdatedChangePtr::create(peerId());
-    e->setDeliveryFlags(Qt3DCore::QSceneChange::DeliverToAll);
-    e->setPropertyName("duration");
-    e->setValue(m_duration);
-    notifyObservers(e);
 }
 
 int AnimationClip::channelIndex(const QString &channelName, int jointIndex) const

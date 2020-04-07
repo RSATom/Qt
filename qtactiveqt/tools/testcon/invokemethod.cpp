@@ -30,13 +30,18 @@
 
 #include <qt_windows.h>
 #include <ActiveQt/ActiveQt>
+#include <QtWidgets/QCompleter>
 
 QT_BEGIN_NAMESPACE
 
 InvokeMethod::InvokeMethod(QWidget *parent)
-: QDialog(parent), activex(0)
+: QDialog(parent), activex(nullptr)
 {
     setupUi(this);
+    auto completer = new QCompleter(comboMethods->model(), comboMethods);
+    completer->setCaseSensitivity(Qt::CaseInsensitive);
+    completer->setCompletionMode(QCompleter::InlineCompletion);
+    comboMethods->setCompleter(completer);
 
     listParameters->setColumnCount(3);
     listParameters->headerItem()->setText(0, tr("Parameter"));
@@ -136,8 +141,8 @@ void InvokeMethod::on_listParameters_currentItemChanged(QTreeWidgetItem *item)
 {
     if (!activex)
         return;
-    editValue->setEnabled(item != 0);
-    buttonSet->setEnabled(item != 0);
+    editValue->setEnabled(item != nullptr);
+    buttonSet->setEnabled(item != nullptr);
     if (!item)
         return;
     editValue->setText(item->text(2));

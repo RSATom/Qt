@@ -23,3 +23,10 @@ class ComplexType
     CLASS clock(SimpleClock)
     PROP(int after = 42)
 }
+
+class TypeWithReply
+{
+    SLOT(QString uppercase(const QString &input))
+    SLOT(QMap<QString, QString> complexReturnType())
+    SLOT(int slowFunction())
+};

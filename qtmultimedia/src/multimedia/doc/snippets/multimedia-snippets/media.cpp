@@ -56,6 +56,7 @@
 #include "qaudioprobe.h"
 #include "qaudiorecorder.h"
 #include "qvideoprobe.h"
+#include <QAbstractVideoSurface>
 
 class MediaExample : public QObject {
     Q_OBJECT
@@ -197,6 +198,36 @@ void MediaExample::MediaPlayer()
     player->play();
     //! [Pipeline]
 
+    //! [Pipeline Surface]
+    class Surface : public QAbstractVideoSurface
+    {
+    public:
+        Surface(QObject *p) : QAbstractVideoSurface(p) { }
+        QList<QVideoFrame::PixelFormat> supportedPixelFormats(QAbstractVideoBuffer::HandleType) const override
+        {
+            // Make sure that the driver supports this pixel format.
+            return QList<QVideoFrame::PixelFormat>() << QVideoFrame::Format_YUYV;
+        }
+
+        // Video frames are handled here.
+        bool present(const QVideoFrame &) override { return true; }
+    };
+
+    player = new QMediaPlayer;
+    player->setVideoOutput(new Surface(player));
+    player->setMedia(QUrl("gst-pipeline: videotestsrc ! qtvideosink"));
+    player->play();
+    //! [Pipeline Surface]
+
+    //! [Pipeline Widget]
+    player = new QMediaPlayer;
+    videoWidget = new QVideoWidget;
+    videoWidget->show();
+    player->setVideoOutput(videoWidget);
+    player->setMedia(QUrl("gst-pipeline: videotestsrc ! xvimagesink name=\"qtvideosink\""));
+    player->play();
+    //! [Pipeline Widget]
+
     //! [Pipeline appsrc]
     QImage img("images/qt-logo.png");
     img = img.convertToFormat(QImage::Format_ARGB32);
@@ -254,10 +285,10 @@ void MediaExample::AudioRecorder()
     //! [Audio recorder]
 
     //! [Audio recorder inputs]
-    QStringList inputs = audioRecorder->audioInputs();
+    const QStringList inputs = audioRecorder->audioInputs();
     QString selectedInput = audioRecorder->defaultAudioInput();
 
-    foreach (QString input, inputs) {
+    for (const QString &input : inputs) {
         QString description = audioRecorder->audioInputDescription(input);
         // show descriptions to user and allow selection
         selectedInput = input;

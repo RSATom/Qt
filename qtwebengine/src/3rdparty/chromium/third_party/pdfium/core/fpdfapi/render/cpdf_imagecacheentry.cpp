@@ -9,11 +9,12 @@
 #include <memory>
 #include <utility>
 
+#include "core/fpdfapi/page/cpdf_dibbase.h"
+#include "core/fpdfapi/page/cpdf_image.h"
 #include "core/fpdfapi/page/cpdf_page.h"
 #include "core/fpdfapi/parser/cpdf_dictionary.h"
 #include "core/fpdfapi/parser/cpdf_document.h"
 #include "core/fpdfapi/parser/cpdf_stream.h"
-#include "core/fpdfapi/render/cpdf_dibbase.h"
 #include "core/fpdfapi/render/cpdf_pagerendercache.h"
 #include "core/fpdfapi/render/cpdf_rendercontext.h"
 #include "core/fpdfapi/render/cpdf_renderstatus.h"
@@ -21,18 +22,12 @@
 
 CPDF_ImageCacheEntry::CPDF_ImageCacheEntry(CPDF_Document* pDoc,
                                            const RetainPtr<CPDF_Image>& pImage)
-    : m_dwTimeCount(0),
-      m_MatteColor(0),
-      m_pDocument(pDoc),
-      m_pImage(pImage),
-      m_dwCacheSize(0) {}
+    : m_pDocument(pDoc), m_pImage(pImage) {}
 
-CPDF_ImageCacheEntry::~CPDF_ImageCacheEntry() {}
+CPDF_ImageCacheEntry::~CPDF_ImageCacheEntry() = default;
 
-void CPDF_ImageCacheEntry::Reset(const RetainPtr<CFX_DIBitmap>& pBitmap) {
+void CPDF_ImageCacheEntry::Reset() {
   m_pCachedBitmap.Reset();
-  if (pBitmap)
-    m_pCachedBitmap = pBitmap->Clone(nullptr);
   CalcSize();
 }
 

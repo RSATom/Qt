@@ -8,10 +8,10 @@
 
 #include <utility>
 
-#include "fpdfsdk/cpdfsdk_common.h"
+#include "constants/form_flags.h"
+#include "core/fpdfdoc/cba_fontmap.h"
 #include "fpdfsdk/cpdfsdk_formfillenvironment.h"
 #include "fpdfsdk/cpdfsdk_widget.h"
-#include "fpdfsdk/formfiller/cba_fontmap.h"
 #include "public/fpdf_fwlevent.h"
 #include "third_party/base/ptr_util.h"
 
@@ -32,23 +32,23 @@ CFFL_TextField::~CFFL_TextField() {
 CPWL_Wnd::CreateParams CFFL_TextField::GetCreateParam() {
   CPWL_Wnd::CreateParams cp = CFFL_TextObject::GetCreateParam();
   int nFlags = m_pWidget->GetFieldFlags();
-  if (nFlags & FIELDFLAG_PASSWORD)
+  if (nFlags & pdfium::form_flags::kTextPassword)
     cp.dwFlags |= PES_PASSWORD;
 
-  if (nFlags & FIELDFLAG_MULTILINE) {
+  if (nFlags & pdfium::form_flags::kTextMultiline) {
     cp.dwFlags |= PES_MULTILINE | PES_AUTORETURN | PES_TOP;
-    if (!(nFlags & FIELDFLAG_DONOTSCROLL))
+    if (!(nFlags & pdfium::form_flags::kTextDoNotScroll))
       cp.dwFlags |= PWS_VSCROLL | PES_AUTOSCROLL;
   } else {
     cp.dwFlags |= PES_CENTER;
-    if (!(nFlags & FIELDFLAG_DONOTSCROLL))
+    if (!(nFlags & pdfium::form_flags::kTextDoNotScroll))
       cp.dwFlags |= PES_AUTOSCROLL;
   }
 
-  if (nFlags & FIELDFLAG_COMB)
+  if (nFlags & pdfium::form_flags::kTextComb)
     cp.dwFlags |= PES_CHARARRAY;
 
-  if (nFlags & FIELDFLAG_RICHTEXT)
+  if (nFlags & pdfium::form_flags::kTextRichText)
     cp.dwFlags |= PES_RICH;
 
   cp.dwFlags |= PES_UNDO;
@@ -97,7 +97,7 @@ bool CFFL_TextField::OnChar(CPDFSDK_Annot* pAnnot,
                             uint32_t nFlags) {
   switch (nChar) {
     case FWL_VKEY_Return: {
-      if (m_pWidget->GetFieldFlags() & FIELDFLAG_MULTILINE)
+      if (m_pWidget->GetFieldFlags() & pdfium::form_flags::kTextMultiline)
         break;
 
       CPDFSDK_PageView* pPageView = GetCurPageView(true);
@@ -141,8 +141,8 @@ void CFFL_TextField::SaveData(CPDFSDK_PageView* pPageView) {
 
   WideString sOldValue = m_pWidget->GetValue();
   WideString sNewValue = pWnd->GetText();
-  CPDFSDK_Widget::ObservedPtr observed_widget(m_pWidget.Get());
-  CFFL_TextField::ObservedPtr observed_this(this);
+  ObservedPtr<CPDFSDK_Widget> observed_widget(m_pWidget.Get());
+  ObservedPtr<CFFL_TextField> observed_this(this);
   m_pWidget->SetValue(sNewValue, NotificationOption::kDoNotNotify);
   if (!observed_widget)
     return;
@@ -196,7 +196,7 @@ void CFFL_TextField::SetActionData(CPDFSDK_PageView* pPageView,
       if (CPWL_Edit* pEdit = GetEdit(pPageView, false)) {
         pEdit->SetFocus();
         pEdit->SetSelection(fa.nSelStart, fa.nSelEnd);
-        pEdit->ReplaceSel(fa.sChange);
+        pEdit->ReplaceSelection(fa.sChange);
       }
       break;
     default:

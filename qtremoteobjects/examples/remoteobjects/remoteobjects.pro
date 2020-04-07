@@ -3,7 +3,8 @@ CONFIG += debug_and_release ordered
 SUBDIRS = \
     server \
     cppclient \
-    simpleswitch
+    simpleswitch \
+    websockets
 
 qtHaveModule(widgets) {
     SUBDIRS += \

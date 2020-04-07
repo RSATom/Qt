@@ -7,9 +7,11 @@
 #include <string>
 #include <utility>
 
+#include "base/bind.h"
 #include "base/compiler_specific.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
+#include "components/services/filesystem/public/mojom/directory.mojom.h"
 #include "third_party/zlib/google/zip.h"
 #include "third_party/zlib/google/zip_reader.h"
 
@@ -45,7 +47,7 @@ bool CreateDirectory(filesystem::mojom::DirectoryPtr* output_dir,
                      const base::FilePath& path) {
   base::File::Error err = base::File::Error::FILE_OK;
   return (*output_dir)
-             ->OpenDirectory(PathToMojoString(path), nullptr,
+             ->OpenDirectory(PathToMojoString(path), mojo::NullReceiver(),
                              filesystem::mojom::kFlagOpenAlways, &err) &&
          err == base::File::Error::FILE_OK;
 }

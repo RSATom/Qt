@@ -9,10 +9,13 @@
 #include <memory>
 #include <utility>
 
+#include "build/build_config.h"
+#include "core/fpdfapi/font/cpdf_font.h"
 #include "core/fxcrt/fx_codepage.h"
 #include "core/fxge/cfx_font.h"
 #include "core/fxge/cfx_substfont.h"
 #include "core/fxge/cfx_unicodeencodingex.h"
+#include "core/fxge/fx_font.h"
 #include "third_party/base/ptr_util.h"
 #include "xfa/fgas/font/fgas_fontutils.h"
 
@@ -21,24 +24,23 @@ RetainPtr<CFGAS_GEFont> CFGAS_GEFont::LoadFont(const wchar_t* pszFontFamily,
                                                uint32_t dwFontStyles,
                                                uint16_t wCodePage,
                                                CFGAS_FontMgr* pFontMgr) {
-#if _FX_PLATFORM_ != _FX_PLATFORM_WINDOWS_
-  if (!pFontMgr)
-    return nullptr;
-
-  return pFontMgr->GetFontByCodePage(wCodePage, dwFontStyles, pszFontFamily);
-#else
+#if defined(OS_WIN)
   auto pFont = pdfium::MakeRetain<CFGAS_GEFont>(pFontMgr);
   if (!pFont->LoadFontInternal(pszFontFamily, dwFontStyles, wCodePage))
     return nullptr;
   return pFont;
+#else
+  if (!pFontMgr)
+    return nullptr;
+  return pFontMgr->GetFontByCodePage(wCodePage, dwFontStyles, pszFontFamily);
 #endif
 }
 
 // static
-RetainPtr<CFGAS_GEFont> CFGAS_GEFont::LoadFont(CFX_Font* pExternalFont,
+RetainPtr<CFGAS_GEFont> CFGAS_GEFont::LoadFont(CPDF_Font* pPDFFont,
                                                CFGAS_FontMgr* pFontMgr) {
   auto pFont = pdfium::MakeRetain<CFGAS_GEFont>(pFontMgr);
-  if (!pFont->LoadFontInternal(pExternalFont))
+  if (!pFont->LoadFontInternal(pPDFFont->GetFont()))
     return nullptr;
   return pFont;
 }
@@ -57,7 +59,7 @@ CFGAS_GEFont::CFGAS_GEFont(CFGAS_FontMgr* pFontMgr) : m_pFontMgr(pFontMgr) {}
 
 CFGAS_GEFont::~CFGAS_GEFont() = default;
 
-#if _FX_PLATFORM_ == _FX_PLATFORM_WINDOWS_
+#if defined(OS_WIN)
 bool CFGAS_GEFont::LoadFontInternal(const wchar_t* pszFontFamily,
                                     uint32_t dwFontStyles,
                                     uint16_t wCodePage) {
@@ -79,9 +81,9 @@ bool CFGAS_GEFont::LoadFontInternal(const wchar_t* pszFontFamily,
 
   m_pFont->LoadSubst(csFontFamily, true, dwFontStyles, iWeight, 0, wCodePage,
                      false);
-  return m_pFont->GetFace() && InitFont();
+  return m_pFont->GetFaceRec() && InitFont();
 }
-#endif  // _FX_PLATFORM_ == _FX_PLATFORM_WINDOWS_
+#endif  // defined(OS_WIN)
 
 bool CFGAS_GEFont::LoadFontInternal(CFX_Font* pExternalFont) {
   if (m_pFont || !pExternalFont)
@@ -153,7 +155,7 @@ bool CFGAS_GEFont::GetCharWidth(wchar_t wUnicode, int32_t* pWidth) {
   int32_t iGlyph;
   std::tie(iGlyph, pFont) = GetGlyphIndexAndFont(wUnicode, true);
   if (iGlyph != 0xFFFF && pFont) {
-    if (pFont.Get() == this) {
+    if (pFont == this) {
       *pWidth = m_pFont->GetGlyphWidth(iGlyph);
       if (*pWidth < 0)
         *pWidth = -1;
@@ -209,7 +211,7 @@ std::pair<int32_t, RetainPtr<CFGAS_GEFont>> CFGAS_GEFont::GetGlyphIndexAndFont(
     bool bRecursive) {
   int32_t iGlyphIndex = m_pFontEncoding->GlyphFromCharCode(wUnicode);
   if (iGlyphIndex > 0)
-    return {iGlyphIndex, RetainPtr<CFGAS_GEFont>(this)};
+    return {iGlyphIndex, pdfium::WrapRetain(this)};
 
   const FGAS_FONTUSB* pFontUSB = FGAS_GetUnicodeBitField(wUnicode);
   if (!pFontUSB)
@@ -237,11 +239,11 @@ std::pair<int32_t, RetainPtr<CFGAS_GEFont>> CFGAS_GEFont::GetGlyphIndexAndFont(
   WideString wsFamily = GetFamilyName();
   RetainPtr<CFGAS_GEFont> pFont =
       m_pFontMgr->GetFontByUnicode(wUnicode, GetFontStyles(), wsFamily.c_str());
-#if _FX_PLATFORM_ != _FX_PLATFORM_WINDOWS_
+#if !defined(OS_WIN)
   if (!pFont)
     pFont = m_pFontMgr->GetFontByUnicode(wUnicode, GetFontStyles(), nullptr);
 #endif
-  if (!pFont || pFont.Get() == this)  // Avoids direct cycles below.
+  if (!pFont || pFont == this)  // Avoids direct cycles below.
     return {0xFFFF, nullptr};
 
   m_FontMapper[wUnicode] = pFont;
@@ -266,6 +268,6 @@ int32_t CFGAS_GEFont::GetDescent() const {
 RetainPtr<CFGAS_GEFont> CFGAS_GEFont::GetSubstFont(int32_t iGlyphIndex) {
   iGlyphIndex = static_cast<uint32_t>(iGlyphIndex) >> 24;
   if (iGlyphIndex == 0)
-    return RetainPtr<CFGAS_GEFont>(this);
+    return pdfium::WrapRetain(this);
   return m_SubstFonts[iGlyphIndex - 1];
 }

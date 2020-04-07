@@ -56,7 +56,7 @@ QT_BEGIN_NAMESPACE
 /*!
     \qmltype ApplicationWindow
     \inherits Window
-    \instantiates QQuickApplicationWindow
+//!     \instantiates QQuickApplicationWindow
     \inqmlmodule QtQuick.Controls
     \since 5.7
     \ingroup qtquickcontrols2-containers
@@ -684,6 +684,9 @@ void QQuickApplicationWindow::setFont(const QFont &font)
         return;
 
     QFont resolvedFont = font.resolve(QQuickTheme::font(QQuickTheme::System));
+    // See comment in QQuickControlPrivate::inheritFont
+    if (font.families().isEmpty())
+        resolvedFont.setFamilies(QStringList());
     d->setFont_helper(resolvedFont);
 }
 

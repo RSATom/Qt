@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2020 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the documentation of the Qt Toolkit.
@@ -105,6 +105,7 @@
     \li \l {HTML.footer-variable} {HTML.footer}
     \li \l {HTML.postheader-variable} {HTML.postheader}
     \li \l {HTML.style-variable} {HTML.style}
+    \li \l {ignorewords-variable} {ignorewords}
     \li \l {imagedirs-variable} {imagedirs}
     \li \l {images-variable} {images}
     \li \l {images.fileextensions-variable} {images.fileextensions}
@@ -594,6 +595,39 @@
     \warning The above assignment may not work as described.
 
     See also \l headerdirs.
+
+    \target ignorewords-variable
+    \section1 ignorewords
+
+    The \c ignorewords variable is used for specifying a list of strings
+    that QDoc will ignore when resolving hyperlink targets.
+
+    QDoc has an auto-linking feature, where linking is attempted for words
+    that resemble C++, QML, or JavaScript entities. Specifically, a string
+    qualifies for auto-linking if it is at least three characters in
+    length, has no whitespace, and it
+
+    \list
+      \li is a \e camelCase word, that is, it contains at least one
+          uppercase character at index greater than zero, or
+      \li contains the substring \c {()} or \c {::}, or
+      \li contains at least one special character, \c {@} or \c {_}.
+    \endlist
+
+    Adding a qualified word to \c ignorewords stops QDoc from linking
+    that word automatically. For example, if the word \e OpenGL is a
+    valid link target (a section, \l{page-command}{\\page}, or
+    \l {externalpage-command}{\\externalpage} title), a hyperlink for
+    each occurrence can be avoided with
+
+    \badcode
+    ignorewords += OpenGL
+    \endcode
+
+    Linking explicitly with \l {l-command}{\\l} continues to work for
+    ignored words.
+
+    The \c ignorewords variable was introduced in QDoc 5.14.
 
     \target imagedirs-variable
     \section1 imagedirs
@@ -1187,7 +1221,7 @@
     QT_VERSION_STR is defined in qglobal.h as follows
 
     \badcode
-        #define QT_VERSION_STR   "4.0.1"
+        #define QT_VERSION_STR   "5.14.1"
     \endcode
 
     When a version number is specified (using the \tt{\l version} or
@@ -1692,14 +1726,14 @@
     \badcode
     project     = Qt
     description = Qt Reference Documentation
-    url         = http://doc.qt.io/qt-4.8/
+    url         = https://doc.qt.io/qt/
 
          ...
     \endcode
 
     This makes sure that whenever \c qt.index is used to generate
     references to for example Qt classes, the base URL is \c
-    http://doc.qt.io/qt-4.8/.
+    https://doc.qt.io/qt/.
 
     See also \l indexes and \l {url.examples}.
 
@@ -1767,7 +1801,7 @@
     \badcode
         project     = Qt
         description = Qt Reference Documentation
-        url         = http://doc.qt.io/qt-4.8/
+        url         = http://doc.qt.io/qt/
 
         ...
     \endcode
@@ -1910,7 +1944,7 @@
     dita.metadata.default.author      = Qt Development Frameworks
     dita.metadata.default.permissions = all
     dita.metadata.default.publisher   = Qt Project
-    dita.metadata.default.copyryear = 2018
+    dita.metadata.default.copyryear = 2020
     dita.metadata.default.copyrholder = Qt Project
     dita.metadata.default.audience = programmer
     \endcode

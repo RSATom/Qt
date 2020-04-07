@@ -77,7 +77,6 @@ class CONTENT_EXPORT FrameSinkVideoCaptureDevice
   void OnFrameCaptured(
       base::ReadOnlySharedMemoryRegion data,
       media::mojom::VideoFrameInfoPtr info,
-      const gfx::Rect& update_rect,
       const gfx::Rect& content_rect,
       viz::mojom::FrameSinkVideoConsumerFrameCallbacksPtr callbacks) final;
   void OnStopped() final;
@@ -169,7 +168,7 @@ class CONTENT_EXPORT FrameSinkVideoCaptureDevice
   device::mojom::WakeLockPtr wake_lock_;
 
   // Creates WeakPtrs for use on the device thread.
-  base::WeakPtrFactory<FrameSinkVideoCaptureDevice> weak_factory_;
+  base::WeakPtrFactory<FrameSinkVideoCaptureDevice> weak_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(FrameSinkVideoCaptureDevice);
 };

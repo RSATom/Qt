@@ -179,14 +179,14 @@ bool LocalizeManifest(const extensions::MessageBundle& messages,
   // Initialize browser_action.default_title
   std::string key(keys::kBrowserAction);
   key.append(".");
-  key.append(keys::kPageActionDefaultTitle);
+  key.append(keys::kActionDefaultTitle);
   if (!LocalizeManifestValue(key, messages, manifest, error))
     return false;
 
   // Initialize page_action.default_title
   key.assign(keys::kPageAction);
   key.append(".");
-  key.append(keys::kPageActionDefaultTitle);
+  key.append(keys::kActionDefaultTitle);
   if (!LocalizeManifestValue(key, messages, manifest, error))
     return false;
 
@@ -203,8 +203,8 @@ bool LocalizeManifest(const extensions::MessageBundle& messages,
         *error = errors::kInvalidFileBrowserHandler;
         return false;
       }
-      if (!LocalizeManifestValue(
-              keys::kPageActionDefaultTitle, messages, handler, error))
+      if (!LocalizeManifestValue(keys::kActionDefaultTitle, messages, handler,
+                                 error))
         return false;
     }
   }
@@ -472,7 +472,7 @@ bool ShouldSkipValidation(const base::FilePath& locales_path,
   if (subdir.empty())
     return true;  // Non-ASCII.
 
-  if (base::ContainsValue(subdir, '.'))
+  if (base::Contains(subdir, '.'))
     return true;
 
   if (all_locales.find(subdir) == all_locales.end())
@@ -498,6 +498,10 @@ ScopedLocaleForTest::ScopedLocaleForTest(base::StringPiece process_locale,
 ScopedLocaleForTest::~ScopedLocaleForTest() {
   SetProcessLocale(process_locale_.as_string());
   SetPreferredLocale(preferred_locale_.as_string());
+}
+
+const std::string& GetPreferredLocaleForTest() {
+  return GetPreferredLocale();
 }
 
 }  // namespace extension_l10n_util

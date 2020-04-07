@@ -1,0 +1,6 @@
+#ifndef QT_QTMOCKPLUGINS3_MODULE_H
+#define QT_QTMOCKPLUGINS3_MODULE_H
+#include <QtMockPlugins3/QtMockPlugins3Depends>
+#include "qmockauxplugin.h"
+#include "qtmockplugins3version.h"
+#endif

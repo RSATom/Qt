@@ -8,10 +8,10 @@
 #include "third_party/blink/renderer/core/frame/local_frame_view.h"
 #include "third_party/blink/renderer/core/layout/layout_box_model_object.h"
 #include "third_party/blink/renderer/core/paint/paint_layer.h"
+#include "third_party/blink/renderer/core/scroll/scroll_types.h"
 #include "third_party/blink/renderer/core/scroll/scrollbar_theme.h"
 #include "third_party/blink/renderer/core/testing/core_unit_test_helper.h"
 #include "third_party/blink/renderer/platform/graphics/graphics_layer.h"
-#include "third_party/blink/renderer/platform/scroll/scroll_types.h"
 #include "third_party/blink/renderer/platform/testing/paint_test_configurations.h"
 
 using testing::_;
@@ -19,7 +19,7 @@ using testing::_;
 namespace blink {
 namespace {
 
-class ScrollableAreaMockChromeClient : public EmptyChromeClient {
+class ScrollableAreaMockChromeClient : public RenderingTestChromeClient {
  public:
   MOCK_METHOD3(MockSetToolTip, void(LocalFrame*, const String&, TextDirection));
   void SetToolTip(LocalFrame& frame,
@@ -29,12 +29,12 @@ class ScrollableAreaMockChromeClient : public EmptyChromeClient {
   }
 };
 
-}  // namespace {
+}  // namespace
 
 class PaintLayerScrollableAreaTestBase : public RenderingTest {
  public:
   PaintLayerScrollableAreaTestBase()
-      : RenderingTest(EmptyLocalFrameClient::Create()),
+      : RenderingTest(MakeGarbageCollected<EmptyLocalFrameClient>()),
         chrome_client_(MakeGarbageCollected<ScrollableAreaMockChromeClient>()) {
   }
 
@@ -53,8 +53,8 @@ class PaintLayerScrollableAreaTestBase : public RenderingTest {
 
  private:
   void SetUp() override {
-    RenderingTest::SetUp();
     EnableCompositing();
+    RenderingTest::SetUp();
   }
 
   Persistent<ScrollableAreaMockChromeClient> chrome_client_;
@@ -63,7 +63,7 @@ class PaintLayerScrollableAreaTestBase : public RenderingTest {
 class PaintLayerScrollableAreaTest : public PaintLayerScrollableAreaTestBase,
                                      public PaintTestConfigurations {};
 
-INSTANTIATE_PAINT_TEST_CASE_P(PaintLayerScrollableAreaTest);
+INSTANTIATE_PAINT_TEST_SUITE_P(PaintLayerScrollableAreaTest);
 using PaintLayerScrollableAreaTestSPv1 = PaintLayerScrollableAreaTestBase;
 
 TEST_P(PaintLayerScrollableAreaTest,
@@ -909,6 +909,10 @@ TEST_P(PaintLayerScrollableAreaTest,
 }
 
 TEST_P(PaintLayerScrollableAreaTest, ViewScrollWithFixedAttachmentBackground) {
+  // This test needs the |FastMobileScrolling| feature to be disabled
+  // although it is stable on Android.
+  ScopedFastMobileScrollingForTest fast_mobile_scrolling(false);
+
   SetBodyInnerHTML(R"HTML(
     <style>
       html, #fixed-background {
@@ -979,22 +983,22 @@ TEST_P(PaintLayerScrollableAreaTest, HitTestOverlayScrollbars) {
   scrollable_area->SetScrollbarsHiddenIfOverlay(true);
 
   HitTestRequest hit_request(HitTestRequest::kMove | HitTestRequest::kReadOnly);
-  HitTestLocation location(LayoutPoint(95, 5));
+  HitTestLocation location(PhysicalOffset(95, 5));
   HitTestResult hit_result(hit_request, location);
   GetDocument().GetLayoutView()->HitTest(location, hit_result);
   EXPECT_EQ(hit_result.GetScrollbar(), nullptr);
-  location = HitTestLocation(LayoutPoint(5, 95));
+  location = HitTestLocation(PhysicalOffset(5, 95));
   hit_result = HitTestResult(hit_request, location);
   GetDocument().GetLayoutView()->HitTest(location, hit_result);
   EXPECT_EQ(hit_result.GetScrollbar(), nullptr);
 
   scrollable_area->SetScrollbarsHiddenIfOverlay(false);
 
-  location = HitTestLocation(LayoutPoint(95, 5));
+  location = HitTestLocation(PhysicalOffset(95, 5));
   hit_result = HitTestResult(hit_request, location);
   GetDocument().GetLayoutView()->HitTest(location, hit_result);
   EXPECT_EQ(hit_result.GetScrollbar(), scrollable_area->VerticalScrollbar());
-  location = HitTestLocation(LayoutPoint(5, 95));
+  location = HitTestLocation(PhysicalOffset(5, 95));
   hit_result = HitTestResult(hit_request, location);
   GetDocument().GetLayoutView()->HitTest(location, hit_result);
   EXPECT_EQ(hit_result.GetScrollbar(), scrollable_area->HorizontalScrollbar());
@@ -1016,11 +1020,10 @@ TEST_P(PaintLayerScrollableAreaTest, CompositedStickyDescendant) {
     EXPECT_EQ(kPaintsIntoOwnBacking, scroller->Layer()->GetCompositingState());
   auto* sticky = ToLayoutBoxModelObject(GetLayoutObjectByElementId("sticky"));
 
-  EXPECT_EQ(FloatSize(0, 0), sticky->FirstFragment()
-                                 .LocalBorderBoxProperties()
-                                 .Transform()
-                                 ->Matrix()
-                                 .To2DTranslation());
+  EXPECT_TRUE(sticky->FirstFragment()
+                  .LocalBorderBoxProperties()
+                  .Transform()
+                  .IsIdentity());
 
   scrollable_area->SetScrollOffset(ScrollOffset(0, 50), kUserScroll);
   UpdateAllLifecyclePhasesForTest();
@@ -1028,8 +1031,7 @@ TEST_P(PaintLayerScrollableAreaTest, CompositedStickyDescendant) {
   EXPECT_EQ(FloatSize(0, 50), sticky->FirstFragment()
                                   .LocalBorderBoxProperties()
                                   .Transform()
-                                  ->Matrix()
-                                  .To2DTranslation());
+                                  .Translation2D());
 }
 
 // Delayed scroll offset clamping should not crash. https://crbug.com/842495
@@ -1044,7 +1046,8 @@ TEST_P(PaintLayerScrollableAreaTest, IgnoreDelayedScrollOnDestroyedLayer) {
     PaintLayerScrollableArea::DelayScrollOffsetClampScope scope;
     PaintLayerScrollableArea::DelayScrollOffsetClampScope::SetNeedsClamp(
         scroller->GetLayoutBox()->GetScrollableArea());
-    scroller->SetInlineStyleProperty(CSSPropertyDisplay, CSSValueNone);
+    scroller->SetInlineStyleProperty(CSSPropertyID::kDisplay,
+                                     CSSValueID::kNone);
     UpdateAllLifecyclePhasesForTest();
   }
 }
@@ -1103,7 +1106,7 @@ TEST_P(PaintLayerScrollableAreaTest, ScrollingBackgroundDisplayItemClient) {
     </div>
   )HTML");
 
-  EXPECT_EQ(LayoutRect(2, 3, 101, 200),
+  EXPECT_EQ(IntRect(2, 3, 101, 200),
             ToLayoutBox(GetLayoutObjectByElementId("scroller"))
                 ->GetScrollableArea()
                 ->GetScrollingBackgroundDisplayItemClient()
@@ -1147,7 +1150,7 @@ TEST_P(PaintLayerScrollableAreaTest, RtlScrollOriginSnapping) {
   EXPECT_EQ(scrollable_area->MaximumScrollOffsetInt(), IntSize(0, 100));
 
   Element* first_child = GetElementById("first-child");
-  first_child->RemoveInlineStyleProperty(CSSPropertyDisplay);
+  first_child->RemoveInlineStyleProperty(CSSPropertyID::kDisplay);
   UpdateAllLifecyclePhasesForTest();
   EXPECT_EQ(scrollable_area->MaximumScrollOffsetInt(), IntSize(0, 100));
 }

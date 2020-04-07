@@ -118,13 +118,15 @@ class QFormBuilderExtra;
 class QDESIGNER_UILIB_EXPORT QAbstractFormBuilder
 {
 public:
+    Q_DISABLE_COPY(QAbstractFormBuilder)
+
     QAbstractFormBuilder();
     virtual ~QAbstractFormBuilder();
 
     QDir workingDirectory() const;
     void setWorkingDirectory(const QDir &directory);
 
-    virtual QWidget *load(QIODevice *dev, QWidget *parentWidget = Q_NULLPTR);
+    virtual QWidget *load(QIODevice *dev, QWidget *parentWidget = nullptr);
     virtual void save(QIODevice *dev, QWidget *widget);
 
     QString errorString() const;
@@ -218,7 +220,7 @@ protected:
     QVariant toVariant(const QMetaObject *meta, DomProperty *property);
     static QString toString(const DomString *str);
 
-    typedef QHash<QString, DomProperty*> DomPropertyHash;
+    using DomPropertyHash = QHash<QString, DomProperty*>;
     static DomPropertyHash propertyMap(const QList<DomProperty*> &properties);
 
     void setupColorGroup(QPalette &palette, QPalette::ColorGroup colorGroup, DomColorGroup *group);
@@ -239,7 +241,7 @@ protected:
 //  Icon/pixmap stuff
 //
     // A Pair of icon path/qrc path.
-    typedef QPair<QString, QString> IconPaths;
+    using IconPaths = QPair<QString, QString>;
 
     IconPaths iconPaths(const QIcon &) const;
     IconPaths pixmapPaths(const QPixmap &) const;
@@ -258,9 +260,6 @@ private:
 //  utils
 //
     static Qt::ToolBarArea toolbarAreaFromDOMAttributes(const DomPropertyHash &attributeMap);
-
-    QAbstractFormBuilder(const QAbstractFormBuilder &other);
-    void operator = (const QAbstractFormBuilder &other);
 
     friend QDESIGNER_UILIB_EXPORT DomProperty *variantToDomProperty(QAbstractFormBuilder *abstractFormBuilder, const QMetaObject *meta, const QString &propertyName, const QVariant &value);
     friend QDESIGNER_UILIB_EXPORT QVariant domPropertyToVariant(QAbstractFormBuilder *abstractFormBuilder,const QMetaObject *meta, const DomProperty *property);

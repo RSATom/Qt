@@ -6,14 +6,14 @@
 
 #include "xfa/fxfa/parser/cxfa_breakafter.h"
 
-#include "fxjs/xfa/cjx_breakafter.h"
+#include "fxjs/xfa/cjx_node.h"
 #include "third_party/base/ptr_util.h"
 
 namespace {
 
 const CXFA_Node::PropertyData kBreakAfterPropertyData[] = {
     {XFA_Element::Script, 1, 0},
-    {XFA_Element::Unknown, 0, 0}};
+};
 
 const CXFA_Node::AttributeData kBreakAfterAttributeData[] = {
     {XFA_Attribute::Id, XFA_AttributeType::CData, nullptr},
@@ -25,7 +25,7 @@ const CXFA_Node::AttributeData kBreakAfterAttributeData[] = {
     {XFA_Attribute::Usehref, XFA_AttributeType::CData, nullptr},
     {XFA_Attribute::Target, XFA_AttributeType::CData, nullptr},
     {XFA_Attribute::Leader, XFA_AttributeType::CData, nullptr},
-    {XFA_Attribute::Unknown, XFA_AttributeType::Integer, nullptr}};
+};
 
 }  // namespace
 
@@ -37,6 +37,6 @@ CXFA_BreakAfter::CXFA_BreakAfter(CXFA_Document* doc, XFA_PacketType packet)
                 XFA_Element::BreakAfter,
                 kBreakAfterPropertyData,
                 kBreakAfterAttributeData,
-                pdfium::MakeUnique<CJX_BreakAfter>(this)) {}
+                pdfium::MakeUnique<CJX_Node>(this)) {}
 
 CXFA_BreakAfter::~CXFA_BreakAfter() = default;

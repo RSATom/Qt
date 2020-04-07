@@ -6,6 +6,7 @@
 #include <string>
 #include <utility>
 
+#include "base/bind.h"
 #include "base/command_line.h"
 #include "base/macros.h"
 #include "base/run_loop.h"
@@ -94,9 +95,8 @@ class DeviceSensorBrowserTest : public ContentBrowserTest {
             shell()->GetJavaScriptDialogManager(shell()->web_contents()));
 
     scoped_refptr<MessageLoopRunner> runner = new MessageLoopRunner();
-    dialog_manager->set_dialog_request_callback(
-        base::Bind(&DeviceSensorBrowserTest::DelayAndQuit,
-                   base::Unretained(this), delay));
+    dialog_manager->set_dialog_request_callback(base::BindOnce(
+        &DeviceSensorBrowserTest::DelayAndQuit, base::Unretained(this), delay));
     runner->Run();
   }
 

@@ -11,15 +11,14 @@ namespace blink {
 
 using namespace html_names;
 
-inline HTMLRTElement::HTMLRTElement(Document& document)
+HTMLRTElement::HTMLRTElement(Document& document)
     : HTMLElement(kRtTag, document) {}
 
-DEFINE_NODE_FACTORY(HTMLRTElement)
-
-LayoutObject* HTMLRTElement::CreateLayoutObject(const ComputedStyle& style) {
+LayoutObject* HTMLRTElement::CreateLayoutObject(const ComputedStyle& style,
+                                                LegacyLayout legacy) {
   if (style.Display() == EDisplay::kBlock)
     return new LayoutRubyText(this);
-  return LayoutObject::CreateObject(this, style);
+  return LayoutObject::CreateObject(this, style, legacy);
 }
 
 }  // namespace blink

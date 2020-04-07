@@ -17,7 +17,10 @@ namespace chromeos {
 class AutoEnrollmentCheckScreenHandler : public AutoEnrollmentCheckScreenView,
                                          public BaseScreenHandler {
  public:
-  AutoEnrollmentCheckScreenHandler();
+  using TView = AutoEnrollmentCheckScreenView;
+
+  explicit AutoEnrollmentCheckScreenHandler(
+      JSCallsContainer* js_calls_container);
   ~AutoEnrollmentCheckScreenHandler() override;
 
   // AutoEnrollmentCheckScreenActor implementation:

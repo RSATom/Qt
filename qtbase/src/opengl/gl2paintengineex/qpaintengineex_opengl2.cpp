@@ -1391,13 +1391,19 @@ void QGL2PaintEngineEx::renderHintsChanged()
     state()->renderHintsChanged = true;
 
 #if !defined(QT_OPENGL_ES_2)
+QT_WARNING_PUSH
+QT_WARNING_DISABLE_DEPRECATED
     if (!d->ctx->contextHandle()->isOpenGLES()) {
         if ((state()->renderHints & QPainter::Antialiasing)
-            || (state()->renderHints & QPainter::HighQualityAntialiasing))
+#if QT_DEPRECATED_SINCE(5, 14)
+            || (state()->renderHints & QPainter::HighQualityAntialiasing)
+#endif
+            )
             d->glEnable(GL_MULTISAMPLE);
         else
             d->glDisable(GL_MULTISAMPLE);
     }
+QT_WARNING_POP
 #endif
 
     d->lastTextureUsed = GLuint(-1);

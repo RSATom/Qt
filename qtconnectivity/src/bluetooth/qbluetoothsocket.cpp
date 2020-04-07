@@ -47,6 +47,10 @@
 #include "qbluetoothsocket_android_p.h"
 #elif defined(QT_WINRT_BLUETOOTH)
 #include "qbluetoothsocket_winrt_p.h"
+#elif defined(QT_WIN_BLUETOOTH)
+#include "qbluetoothsocket_win_p.h"
+#elif defined(QT_OSX_BLUETOOTH)
+#include "qbluetoothsocket_osx_p.h"
 #else
 #include "qbluetoothsocket_dummy_p.h"
 #endif
@@ -267,6 +271,10 @@ static QBluetoothSocketBasePrivate *createSocketPrivate()
     return new QBluetoothSocketPrivateAndroid();
 #elif defined(QT_WINRT_BLUETOOTH)
     return new QBluetoothSocketPrivateWinRT();
+#elif defined(QT_WIN_BLUETOOTH)
+    return new QBluetoothSocketPrivateWin();
+#elif defined(QT_OSX_BLUETOOTH)
+    return new QBluetoothSocketPrivate();
 #else
     return new QBluetoothSocketPrivateDummy();
 #endif
@@ -513,6 +521,9 @@ QString QBluetoothSocket::errorString() const
 */
 void QBluetoothSocket::setPreferredSecurityFlags(QBluetooth::SecurityFlags flags)
 {
+#ifdef QT_OSX_BLUETOOTH
+    return; // not supported on macOS.
+#endif
     Q_D(QBluetoothSocketBase);
     if (d->secFlags != flags)
         d->secFlags = flags;
@@ -534,8 +545,13 @@ void QBluetoothSocket::setPreferredSecurityFlags(QBluetooth::SecurityFlags flags
 */
 QBluetooth::SecurityFlags QBluetoothSocket::preferredSecurityFlags() const
 {
+#if QT_OSX_BLUETOOTH
+    // not supported on macOS - platform always uses encryption
+    return QBluetooth::Secure;
+#else
     Q_D(const QBluetoothSocketBase);
     return d->secFlags;
+#endif // QT_OSX_BLUETOOTH
 }
 
 /*!
@@ -559,6 +575,9 @@ void QBluetoothSocket::setSocketState(QBluetoothSocket::SocketState state)
         emit disconnected();
     }
     if(state == ListeningState){
+#ifdef QT_OSX_BLUETOOTH
+        qCWarning(QT_BT) << "listening socket is not supported by IOBluetooth";
+#endif
         // TODO: look at this, is this really correct?
         // if we're a listening socket we can't handle connects?
         if (d->readNotifier) {

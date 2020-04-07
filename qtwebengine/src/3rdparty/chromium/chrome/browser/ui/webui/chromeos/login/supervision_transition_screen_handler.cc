@@ -4,6 +4,8 @@
 
 #include "chrome/browser/ui/webui/chromeos/login/supervision_transition_screen_handler.h"
 
+#include "ash/public/cpp/login_screen.h"
+#include "base/bind.h"
 #include "base/logging.h"
 #include "base/metrics/histogram_macros.h"
 #include "chrome/browser/browser_process.h"
@@ -20,16 +22,17 @@
 
 namespace {
 
-constexpr char kJsScreenPath[] = "login.SupervisionTransitionScreen";
 constexpr base::TimeDelta kWaitingTimeout = base::TimeDelta::FromMinutes(2);
 
 }  // namespace
 
 namespace chromeos {
 
-SupervisionTransitionScreenHandler::SupervisionTransitionScreenHandler()
-    : BaseScreenHandler(kScreenId) {
-  set_call_js_prefix(kJsScreenPath);
+constexpr StaticOobeScreenId SupervisionTransitionScreenView::kScreenId;
+
+SupervisionTransitionScreenHandler::SupervisionTransitionScreenHandler(
+    JSCallsContainer* js_calls_container)
+    : BaseScreenHandler(kScreenId, js_calls_container) {
 }
 
 SupervisionTransitionScreenHandler::~SupervisionTransitionScreenHandler() {
@@ -97,9 +100,9 @@ void SupervisionTransitionScreenHandler::Show() {
   // Disable system tray, shutdown button and prevent login as guest when
   // supervision transition screen is shown.
   SystemTrayClient::Get()->SetPrimaryTrayEnabled(false);
-  LoginScreenClient::Get()->login_screen()->SetShutdownButtonEnabled(false);
-  LoginScreenClient::Get()->login_screen()->SetAllowLoginAsGuest(false);
-  LoginScreenClient::Get()->login_screen()->SetShowGuestButtonInOobe(false);
+  ash::LoginScreen::Get()->EnableShutdownButton(false);
+  ash::LoginScreen::Get()->SetAllowLoginAsGuest(false);
+  ash::LoginScreen::Get()->ShowGuestButtonInOobe(false);
 
   base::DictionaryValue data;
   data.SetBoolean("isRemovingSupervision",
@@ -109,6 +112,10 @@ void SupervisionTransitionScreenHandler::Show() {
 }
 
 void SupervisionTransitionScreenHandler::Hide() {}
+
+base::OneShotTimer* SupervisionTransitionScreenHandler::GetTimerForTesting() {
+  return &timer_;
+}
 
 void SupervisionTransitionScreenHandler::Initialize() {
   profile_ = ProfileManager::GetPrimaryUserProfile();

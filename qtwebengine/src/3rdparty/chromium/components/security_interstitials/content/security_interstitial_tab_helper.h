@@ -7,7 +7,7 @@
 
 #include <map>
 
-#include "components/security_interstitials/core/common/interfaces/interstitial_commands.mojom.h"
+#include "components/security_interstitials/core/common/mojom/interstitial_commands.mojom.h"
 #include "components/security_interstitials/core/controller_client.h"
 #include "content/public/browser/web_contents_binding_set.h"
 #include "content/public/browser/web_contents_observer.h"
@@ -42,6 +42,12 @@ class SecurityInterstitialTabHelper
       int64_t navigation_id,
       std::unique_ptr<security_interstitials::SecurityInterstitialPage>
           blocking_page);
+
+  // Determines whether a URL should be shown on the current navigation page.
+  bool ShouldDisplayURL() const;
+
+  // Whether this tab helper is tracking a currently-displaying interstitial.
+  bool IsDisplayingInterstitial() const;
 
   security_interstitials::SecurityInterstitialPage*
   GetBlockingPageForCurrentlyCommittedNavigationForTesting();

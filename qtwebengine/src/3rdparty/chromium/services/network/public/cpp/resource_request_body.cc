@@ -4,6 +4,9 @@
 
 #include "services/network/public/cpp/resource_request_body.h"
 
+#include "services/network/public/mojom/chunked_data_pipe_getter.mojom.h"
+#include "services/network/public/mojom/data_pipe_getter.mojom.h"
+
 namespace network {
 
 ResourceRequestBody::ResourceRequestBody()
@@ -18,7 +21,7 @@ scoped_refptr<ResourceRequestBody> ResourceRequestBody::CreateFromBytes(
   return result;
 }
 
-void ResourceRequestBody::AppendBytes(std::vector<char> bytes) {
+void ResourceRequestBody::AppendBytes(std::vector<uint8_t> bytes) {
   DCHECK(elements_.empty() ||
          elements_.front().type() != mojom::DataElementType::kChunkedDataPipe);
 
@@ -29,8 +32,9 @@ void ResourceRequestBody::AppendBytes(std::vector<char> bytes) {
 }
 
 void ResourceRequestBody::AppendBytes(const char* bytes, int bytes_len) {
-  std::vector<char> vec;
-  vec.assign(bytes, bytes + bytes_len);
+  std::vector<uint8_t> vec;
+  vec.assign(reinterpret_cast<const uint8_t*>(bytes),
+             reinterpret_cast<const uint8_t*>(bytes + bytes_len));
 
   AppendBytes(std::move(vec));
 }

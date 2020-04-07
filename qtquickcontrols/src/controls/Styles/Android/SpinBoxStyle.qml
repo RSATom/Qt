@@ -37,6 +37,7 @@
 **
 ****************************************************************************/
 
+import QtQml 2.14 as Qml
 import QtQuick 2.4
 import QtQuick.Window 2.2
 import QtQuick.Controls 1.2
@@ -72,10 +73,30 @@ Style {
             styleDef: panel.styleDef.View_background
         }
 
-        Binding { target: style; property: "padding.top"; value: bg.padding.top }
-        Binding { target: style; property: "padding.left"; value: bg.padding.left }
-        Binding { target: style; property: "padding.right"; value: bg.padding.right }
-        Binding { target: style; property: "padding.bottom"; value: bg.padding.bottom }
+        Qml.Binding {
+            target: style
+            property: "padding.top"
+            value: bg.padding.top
+            restoreMode: Binding.RestoreBinding
+        }
+        Qml.Binding {
+            target: style
+            property: "padding.left"
+            value: bg.padding.left
+            restoreMode: Binding.RestoreBinding
+        }
+        Qml.Binding {
+            target: style
+            property: "padding.right"
+            value: bg.padding.right
+            restoreMode: Binding.RestoreBinding
+        }
+        Qml.Binding {
+            target: style
+            property: "padding.bottom"
+            value: bg.padding.bottom
+            restoreMode: Binding.RestoreBinding
+        }
 
         readonly property alias font: label.font
         readonly property alias foregroundColor: label.color

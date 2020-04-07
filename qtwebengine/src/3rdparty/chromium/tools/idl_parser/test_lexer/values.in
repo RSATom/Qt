@@ -54,3 +54,7 @@ integer 0X1234567890aBcDeF
 
 identifier blah
 identifier include-hyphen
+identifier _leading_underscore
+identifier -leading_hyphen
+identifier Date
+identifier RegExp

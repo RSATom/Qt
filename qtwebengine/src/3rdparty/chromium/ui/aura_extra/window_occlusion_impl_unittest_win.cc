@@ -138,7 +138,7 @@ TEST_P(WindowOcclusionWinTest, SimpleOccluded) {
       ComputeOcclusion();
 
   EXPECT_EQ(result.size(), 1U);
-  ASSERT_TRUE(base::ContainsKey(result, window));
+  ASSERT_TRUE(base::Contains(result, window));
   EXPECT_EQ(result[window], aura::Window::OcclusionState::OCCLUDED);
 }
 
@@ -152,7 +152,7 @@ TEST_P(WindowOcclusionWinTest, SimpleVisible) {
       ComputeOcclusion();
 
   EXPECT_EQ(result.size(), 1U);
-  ASSERT_TRUE(base::ContainsKey(result, window));
+  ASSERT_TRUE(base::Contains(result, window));
   EXPECT_EQ(result[window], aura::Window::OcclusionState::VISIBLE);
   Clear();
 }
@@ -170,10 +170,10 @@ TEST_P(WindowOcclusionWinTest, OccludedByAuraWindow) {
 
   EXPECT_EQ(result.size(), 2U);
 
-  ASSERT_TRUE(base::ContainsKey(result, window1));
+  ASSERT_TRUE(base::Contains(result, window1));
   EXPECT_EQ(result[window1], aura::Window::OcclusionState::VISIBLE);
 
-  ASSERT_TRUE(base::ContainsKey(result, window2));
+  ASSERT_TRUE(base::Contains(result, window2));
   EXPECT_EQ(result[window2], aura::Window::OcclusionState::OCCLUDED);
 }
 
@@ -195,7 +195,7 @@ TEST_P(WindowOcclusionWinTest, OccludedByMultipleWindows) {
       ComputeOcclusion();
 
   EXPECT_EQ(result.size(), 1U);
-  ASSERT_TRUE(base::ContainsKey(result, window));
+  ASSERT_TRUE(base::Contains(result, window));
   EXPECT_EQ(result[window], aura::Window::OcclusionState::OCCLUDED);
 }
 
@@ -213,10 +213,10 @@ TEST_P(WindowOcclusionWinTest, PartiallyOverlappedAuraWindows) {
 
   EXPECT_EQ(result.size(), 2U);
 
-  ASSERT_TRUE(base::ContainsKey(result, window1));
+  ASSERT_TRUE(base::Contains(result, window1));
   EXPECT_EQ(result[window1], aura::Window::OcclusionState::VISIBLE);
 
-  ASSERT_TRUE(base::ContainsKey(result, window2));
+  ASSERT_TRUE(base::Contains(result, window2));
   EXPECT_EQ(result[window2], aura::Window::OcclusionState::VISIBLE);
 }
 
@@ -234,7 +234,7 @@ TEST_P(WindowOcclusionWinTest, PartiallyOverlappedWindows) {
 
   EXPECT_EQ(result.size(), 1U);
 
-  ASSERT_TRUE(base::ContainsKey(result, window));
+  ASSERT_TRUE(base::Contains(result, window));
   EXPECT_EQ(result[window], aura::Window::OcclusionState::VISIBLE);
 }
 
@@ -251,39 +251,43 @@ TEST_P(WindowOcclusionWinTest, EmptyWindowIsVisible) {
 
   EXPECT_EQ(result.size(), 1U);
 
-  ASSERT_TRUE(base::ContainsKey(result, window));
+  ASSERT_TRUE(base::Contains(result, window));
   EXPECT_EQ(result[window], aura::Window::OcclusionState::VISIBLE);
 }
 
-INSTANTIATE_TEST_CASE_P(/* no prefix */
-                        ,
-                        WindowOcclusionWinTest,
-                        ::testing::Values(
-                            OffsetAndBoundsPair(5, gfx::Rect(0, 0, 100, 100)),
-                            OffsetAndBoundsPair(10, gfx::Rect(0, 0, 100, 200)),
-                            OffsetAndBoundsPair(15, gfx::Rect(0, 0, 200, 100)),
-                            OffsetAndBoundsPair(20, gfx::Rect(0, 0, 200, 200)),
-                            OffsetAndBoundsPair(25, gfx::Rect(0, 50, 100, 100)),
-                            OffsetAndBoundsPair(50, gfx::Rect(0, 50, 100, 200)),
-                            OffsetAndBoundsPair(75, gfx::Rect(0, 50, 200, 100)),
-                            OffsetAndBoundsPair(100,
-                                                gfx::Rect(0, 50, 200, 200)),
-                            OffsetAndBoundsPair(125,
-                                                gfx::Rect(100, 0, 100, 100)),
-                            OffsetAndBoundsPair(150,
-                                                gfx::Rect(100, 0, 100, 200)),
-                            OffsetAndBoundsPair(200,
-                                                gfx::Rect(100, 0, 200, 100)),
-                            OffsetAndBoundsPair(250,
-                                                gfx::Rect(100, 0, 200, 200)),
-                            OffsetAndBoundsPair(300,
-                                                gfx::Rect(100, 50, 100, 100)),
-                            OffsetAndBoundsPair(400,
-                                                gfx::Rect(100, 50, 100, 200)),
-                            OffsetAndBoundsPair(500,
-                                                gfx::Rect(100, 50, 200, 100)),
-                            OffsetAndBoundsPair(750,
-                                                gfx::Rect(100, 50, 200, 200))));
+INSTANTIATE_TEST_SUITE_P(/* no prefix */
+                         ,
+                         WindowOcclusionWinTest,
+                         ::testing::Values(
+                             OffsetAndBoundsPair(5, gfx::Rect(0, 0, 100, 100)),
+                             OffsetAndBoundsPair(10, gfx::Rect(0, 0, 100, 200)),
+                             OffsetAndBoundsPair(15, gfx::Rect(0, 0, 200, 100)),
+                             OffsetAndBoundsPair(20, gfx::Rect(0, 0, 200, 200)),
+                             OffsetAndBoundsPair(25,
+                                                 gfx::Rect(0, 50, 100, 100)),
+                             OffsetAndBoundsPair(50,
+                                                 gfx::Rect(0, 50, 100, 200)),
+                             OffsetAndBoundsPair(75,
+                                                 gfx::Rect(0, 50, 200, 100)),
+                             OffsetAndBoundsPair(100,
+                                                 gfx::Rect(0, 50, 200, 200)),
+                             OffsetAndBoundsPair(125,
+                                                 gfx::Rect(100, 0, 100, 100)),
+                             OffsetAndBoundsPair(150,
+                                                 gfx::Rect(100, 0, 100, 200)),
+                             OffsetAndBoundsPair(200,
+                                                 gfx::Rect(100, 0, 200, 100)),
+                             OffsetAndBoundsPair(250,
+                                                 gfx::Rect(100, 0, 200, 200)),
+                             OffsetAndBoundsPair(300,
+                                                 gfx::Rect(100, 50, 100, 100)),
+                             OffsetAndBoundsPair(400,
+                                                 gfx::Rect(100, 50, 100, 200)),
+                             OffsetAndBoundsPair(500,
+                                                 gfx::Rect(100, 50, 200, 100)),
+                             OffsetAndBoundsPair(
+                                 750,
+                                 gfx::Rect(100, 50, 200, 200))));
 
 class WindowFitnessFunctionTest : public testing::Test {
  public:

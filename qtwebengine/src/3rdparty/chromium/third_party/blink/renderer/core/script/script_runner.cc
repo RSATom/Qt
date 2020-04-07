@@ -32,6 +32,7 @@
 #include "third_party/blink/renderer/core/script/script_loader.h"
 #include "third_party/blink/renderer/platform/heap/handle.h"
 #include "third_party/blink/renderer/platform/runtime_enabled_features.h"
+#include "third_party/blink/renderer/platform/scheduler/public/cooperative_scheduling_manager.h"
 #include "third_party/blink/renderer/platform/scheduler/public/thread.h"
 #include "third_party/blink/renderer/platform/scheduler/public/thread_scheduler.h"
 
@@ -46,12 +47,10 @@ ScriptRunner::ScriptRunner(Document* document)
 void ScriptRunner::QueueScriptForExecution(PendingScript* pending_script) {
   DCHECK(pending_script);
   document_->IncrementLoadEventDelayCount();
+  pending_script->StartStreamingIfPossible();
   switch (pending_script->GetSchedulingType()) {
     case ScriptSchedulingType::kAsync:
       pending_async_scripts_.insert(pending_script);
-      if (!is_suspended_) {
-        pending_script->StartStreamingIfPossible();
-      }
       break;
 
     case ScriptSchedulingType::kInOrder:
@@ -235,6 +234,12 @@ bool ScriptRunner::ExecuteAsyncTask() {
 }
 
 void ScriptRunner::ExecuteTask() {
+  // This method is triggered by ScriptRunner::PostTask, and runs directly from
+  // the scheduler. So, the call stack is safe to reenter.
+  scheduler::CooperativeSchedulingManager::AllowedStackScope
+      whitelisted_stack_scope(
+          scheduler::CooperativeSchedulingManager::Instance());
+
   if (is_suspended_)
     return;
 
@@ -251,7 +256,7 @@ void ScriptRunner::ExecuteTask() {
 #endif
 }
 
-void ScriptRunner::Trace(blink::Visitor* visitor) {
+void ScriptRunner::Trace(Visitor* visitor) {
   visitor->Trace(document_);
   visitor->Trace(pending_in_order_scripts_);
   visitor->Trace(pending_async_scripts_);

@@ -123,5 +123,7 @@ if (current_cpu == "arm" || v8_current_cpu == "arm") {
 } else if (current_cpu == "arm64" || v8_current_cpu == "arm64") {
   # arm64 supports only "hard".
   arm_float_abi = "hard"
+  declare_args() {
   arm_use_neon = true
+  }
 }

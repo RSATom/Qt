@@ -8,9 +8,8 @@
 #ifndef GrBuiltInPathRenderer_DEFINED
 #define GrBuiltInPathRenderer_DEFINED
 
-#include "GrPathRenderer.h"
+#include "src/gpu/GrPathRenderer.h"
 
-class GrContext;
 class GrGpu;
 class GrResourceProvider;
 

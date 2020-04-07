@@ -12,13 +12,16 @@
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/values.h"
+#include "chrome/browser/chromeos/login/quick_unlock/auth_token.h"
+#include "chrome/browser/chromeos/login/quick_unlock/quick_unlock_factory.h"
+#include "chrome/browser/chromeos/login/quick_unlock/quick_unlock_storage.h"
 #include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/grit/generated_resources.h"
 #include "components/prefs/pref_service.h"
 #include "components/session_manager/core/session_manager.h"
-#include "content/public/common/service_manager_connection.h"
+#include "content/public/browser/system_connector.h"
 #include "services/device/public/mojom/constants.mojom.h"
 #include "services/service_manager/public/cpp/connector.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -59,9 +62,8 @@ FingerprintHandler::FingerprintHandler(Profile* profile)
       binding_(this),
       session_observer_(this),
       weak_ptr_factory_(this) {
-  service_manager::Connector* connector =
-      content::ServiceManagerConnection::GetForProcess()->GetConnector();
-  connector->BindInterface(device::mojom::kServiceName, &fp_service_);
+  content::GetSystemConnector()->BindInterface(device::mojom::kServiceName,
+                                               &fp_service_);
   user_id_ = ProfileHelper::Get()->GetUserIdHashFromProfile(profile);
 }
 
@@ -228,12 +230,24 @@ void FingerprintHandler::HandleGetNumFingerprints(const base::ListValue* args) {
 void FingerprintHandler::HandleStartEnroll(const base::ListValue* args) {
   AllowJavascript();
 
+  std::string auth_token;
+  CHECK(args->GetString(0, &auth_token));
+
+  // Auth token expiration will trigger password prompt.
+  // Silently fail if auth token is incorrect.
+  quick_unlock::QuickUnlockStorage* quick_unlock_storage =
+      quick_unlock::QuickUnlockFactory::GetForProfile(profile_);
+  if (!quick_unlock_storage->GetAuthToken())
+    return;
+  if (auth_token != quick_unlock_storage->GetAuthToken()->Identifier())
+    return;
+
   // Determines what the newly added fingerprint's name should be.
   for (int i = 1; i <= kMaxAllowedFingerprints; ++i) {
     std::string fingerprint_name = l10n_util::GetStringFUTF8(
         IDS_SETTINGS_PEOPLE_LOCK_SCREEN_NEW_FINGERPRINT_DEFAULT_NAME,
-        base::IntToString16(i));
-    if (!base::ContainsValue(fingerprints_labels_, fingerprint_name)) {
+        base::NumberToString16(i));
+    if (!base::Contains(fingerprints_labels_, fingerprint_name)) {
       fp_service_->StartEnrollSession(user_id_, fingerprint_name);
       break;
     }

@@ -61,7 +61,7 @@ void QWebEngineViewPrivate::pageChanged(QWebEnginePage *oldPage, QWebEnginePage 
     Q_Q(QWebEngineView);
 
     if (oldPage) {
-        oldPage->d_ptr->wasHidden();
+        oldPage->setVisible(false);
         oldPage->disconnect(q);
     }
 
@@ -75,8 +75,7 @@ void QWebEngineViewPrivate::pageChanged(QWebEnginePage *oldPage, QWebEnginePage 
         QObject::connect(newPage, &QWebEnginePage::loadFinished, q, &QWebEngineView::loadFinished);
         QObject::connect(newPage, &QWebEnginePage::selectionChanged, q, &QWebEngineView::selectionChanged);
         QObject::connect(newPage, &QWebEnginePage::renderProcessTerminated, q, &QWebEngineView::renderProcessTerminated);
-        if (q->isVisible())
-            newPage->d_ptr->wasShown();
+        newPage->setVisible(q->isVisible());
     }
 
     auto oldUrl = oldPage ? oldPage->url() : QUrl();
@@ -108,9 +107,18 @@ void QWebEngineViewPrivate::widgetChanged(QtWebEngineCore::RenderWidgetHostViewQ
     if (oldWidget) {
         q->layout()->removeWidget(oldWidget);
         oldWidget->hide();
+#if QT_CONFIG(accessibility)
+        QAccessible::deleteAccessibleInterface(QAccessible::uniqueId(QAccessible::queryAccessibleInterface(oldWidget)));
+#endif
     }
 
     if (newWidget) {
+#if QT_CONFIG(accessibility)
+        // An earlier QAccessible::queryAccessibleInterface() call may have already registered a default
+        // QAccessibleInterface for newWidget: remove it first to avoid assert in QAccessibleCache::insert().
+        QAccessible::deleteAccessibleInterface(QAccessible::uniqueId(QAccessible::queryAccessibleInterface(newWidget)));
+        QAccessible::registerAccessibleInterface(new QtWebEngineCore::RenderWidgetHostViewQtDelegateWidgetAccessible(newWidget, q));
+#endif
         q->layout()->addWidget(newWidget);
         q->setFocusProxy(newWidget);
         newWidget->show();
@@ -381,7 +389,7 @@ void QWebEngineView::contextMenuEvent(QContextMenuEvent *event)
 void QWebEngineView::showEvent(QShowEvent *event)
 {
     QWidget::showEvent(event);
-    page()->d_ptr->wasShown();
+    page()->setVisible(true);
 }
 
 /*!
@@ -390,7 +398,17 @@ void QWebEngineView::showEvent(QShowEvent *event)
 void QWebEngineView::hideEvent(QHideEvent *event)
 {
     QWidget::hideEvent(event);
-    page()->d_ptr->wasHidden();
+    page()->setVisible(false);
+}
+
+/*!
+ * \reimp
+ */
+void QWebEngineView::closeEvent(QCloseEvent *event)
+{
+    QWidget::closeEvent(event);
+    page()->setVisible(false);
+    page()->setLifecycleState(QWebEnginePage::LifecycleState::Discarded);
 }
 
 #if QT_CONFIG(draganddrop)
@@ -453,23 +471,39 @@ void QWebEngineView::dropEvent(QDropEvent *e)
 #endif // QT_CONFIG(draganddrop)
 
 #ifndef QT_NO_ACCESSIBILITY
+bool QWebEngineViewAccessible::isValid() const
+{
+    if (!QAccessibleWidget::isValid())
+        return false;
+
+    if (!view() || !view()->d_func() || !view()->d_func()->page || !view()->d_func()->page->d_func())
+        return false;
+
+    return true;
+}
+
+QAccessibleInterface *QWebEngineViewAccessible::focusChild() const
+{
+    if (child(0) && child(0)->focusChild())
+        return child(0)->focusChild();
+    return const_cast<QWebEngineViewAccessible *>(this);
+}
+
 int QWebEngineViewAccessible::childCount() const
 {
-    if (view() && child(0))
-        return 1;
-    return 0;
+    return child(0) ? 1 : 0;
 }
 
 QAccessibleInterface *QWebEngineViewAccessible::child(int index) const
 {
-    if (index == 0 && view() && view()->page())
+    if (index == 0 && isValid())
         return view()->page()->d_func()->adapter->browserAccessible();
     return nullptr;
 }
 
 int QWebEngineViewAccessible::indexOfChild(const QAccessibleInterface *c) const
 {
-    if (c == child(0))
+    if (child(0) && c == child(0))
         return 0;
     return -1;
 }

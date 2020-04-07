@@ -5,10 +5,10 @@
  * found in the LICENSE file.
  */
 
-#include "SkImageInfoPriv.h"
-#include "SkSafeMath.h"
-#include "SkReadBuffer.h"
-#include "SkWriteBuffer.h"
+#include "include/private/SkImageInfoPriv.h"
+#include "src/core/SkReadBuffer.h"
+#include "src/core/SkSafeMath.h"
+#include "src/core/SkWriteBuffer.h"
 
 int SkColorTypeBytesPerPixel(SkColorType ct) {
     switch (ct) {
@@ -22,6 +22,7 @@ int SkColorTypeBytesPerPixel(SkColorType ct) {
         case kRGBA_1010102_SkColorType: return 4;
         case kRGB_101010x_SkColorType:  return 4;
         case kGray_8_SkColorType:       return 1;
+        case kRGBA_F16Norm_SkColorType: return 8;
         case kRGBA_F16_SkColorType:     return 8;
         case kRGBA_F32_SkColorType:     return 16;
     }
@@ -74,6 +75,7 @@ bool SkColorTypeValidateAlphaType(SkColorType colorType, SkAlphaType alphaType,
         case kRGBA_8888_SkColorType:
         case kBGRA_8888_SkColorType:
         case kRGBA_1010102_SkColorType:
+        case kRGBA_F16Norm_SkColorType:
         case kRGBA_F16_SkColorType:
         case kRGBA_F32_SkColorType:
             if (kUnknown_SkAlphaType == alphaType) {
@@ -97,7 +99,7 @@ bool SkColorTypeValidateAlphaType(SkColorType colorType, SkAlphaType alphaType,
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
-#include "SkReadPixelsRec.h"
+#include "src/image/SkReadPixelsRec.h"
 
 bool SkReadPixelsRec::trim(int srcWidth, int srcHeight) {
     if (nullptr == fPixels || fRowBytes < fInfo.minRowBytes()) {
@@ -134,7 +136,7 @@ bool SkReadPixelsRec::trim(int srcWidth, int srcHeight) {
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
-#include "SkWritePixelsRec.h"
+#include "src/core/SkWritePixelsRec.h"
 
 bool SkWritePixelsRec::trim(int dstWidth, int dstHeight) {
     if (nullptr == fPixels || fRowBytes < fInfo.minRowBytes()) {

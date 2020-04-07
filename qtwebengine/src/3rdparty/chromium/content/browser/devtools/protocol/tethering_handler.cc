@@ -6,6 +6,7 @@
 
 #include <map>
 
+#include "base/bind.h"
 #include "base/task/post_task.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
@@ -348,9 +349,7 @@ TetheringHandler::TetheringHandler(
     : DevToolsDomainHandler(Tethering::Metainfo::domainName),
       socket_callback_(socket_callback),
       task_runner_(task_runner),
-      is_active_(false),
-      weak_factory_(this) {
-}
+      is_active_(false) {}
 
 TetheringHandler::~TetheringHandler() {
   if (is_active_) {

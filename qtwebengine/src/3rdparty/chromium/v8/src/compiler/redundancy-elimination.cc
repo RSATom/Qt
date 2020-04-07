@@ -19,6 +19,7 @@ RedundancyElimination::~RedundancyElimination() = default;
 Reduction RedundancyElimination::Reduce(Node* node) {
   if (node_checks_.Get(node)) return NoChange();
   switch (node->opcode()) {
+    case IrOpcode::kCheckBigInt:
     case IrOpcode::kCheckBounds:
     case IrOpcode::kCheckEqualsInternalizedString:
     case IrOpcode::kCheckEqualsSymbol:
@@ -147,13 +148,19 @@ bool CheckSubsumes(Node const* a, Node const* b) {
         case IrOpcode::kCheckSmi:
         case IrOpcode::kCheckString:
         case IrOpcode::kCheckNumber:
+        case IrOpcode::kCheckBigInt:
           break;
+        case IrOpcode::kCheckedInt32ToCompressedSigned:
         case IrOpcode::kCheckedInt32ToTaggedSigned:
         case IrOpcode::kCheckedInt64ToInt32:
         case IrOpcode::kCheckedInt64ToTaggedSigned:
         case IrOpcode::kCheckedTaggedSignedToInt32:
         case IrOpcode::kCheckedTaggedToTaggedPointer:
         case IrOpcode::kCheckedTaggedToTaggedSigned:
+        case IrOpcode::kCheckedCompressedToTaggedPointer:
+        case IrOpcode::kCheckedCompressedToTaggedSigned:
+        case IrOpcode::kCheckedTaggedToCompressedPointer:
+        case IrOpcode::kCheckedTaggedToCompressedSigned:
         case IrOpcode::kCheckedUint32Bounds:
         case IrOpcode::kCheckedUint32ToInt32:
         case IrOpcode::kCheckedUint32ToTaggedSigned:
@@ -227,7 +234,7 @@ Node* RedundancyElimination::EffectPathChecks::LookupBoundsCheckFor(
     Node* node) const {
   for (Check const* check = head_; check != nullptr; check = check->next) {
     if (check->node->opcode() == IrOpcode::kCheckBounds &&
-        check->node->InputAt(0) == node) {
+        check->node->InputAt(0) == node && TypeSubsumes(node, check->node)) {
       return check->node;
     }
   }

@@ -11,6 +11,7 @@
 #include "pc/srtp_session.h"
 
 #include <string.h>
+
 #include <string>
 
 #include "media/base/fake_rtp.h"
@@ -18,14 +19,18 @@
 #include "rtc_base/byte_order.h"
 #include "rtc_base/ssl_stream_adapter.h"  // For rtc::SRTP_*
 #include "system_wrappers/include/metrics.h"
+#include "test/gmock.h"
 #include "test/gtest.h"
 #include "third_party/libsrtp/include/srtp.h"
+
+using ::testing::ElementsAre;
+using ::testing::Pair;
 
 namespace rtc {
 
 std::vector<int> kEncryptedHeaderExtensionIds;
 
-class SrtpSessionTest : public testing::Test {
+class SrtpSessionTest : public ::testing::Test {
  public:
   SrtpSessionTest() { webrtc::metrics::Reset(); }
 
@@ -148,17 +153,13 @@ TEST_F(SrtpSessionTest, TestTamperReject) {
   rtp_packet_[0] = 0x12;
   rtcp_packet_[1] = 0x34;
   EXPECT_FALSE(s2_.UnprotectRtp(rtp_packet_, rtp_len_, &out_len));
-  EXPECT_EQ(1, webrtc::metrics::NumSamples(
-                   "WebRTC.PeerConnection.SrtpUnprotectError"));
-  EXPECT_EQ(
-      1, webrtc::metrics::NumEvents("WebRTC.PeerConnection.SrtpUnprotectError",
-                                    srtp_err_status_bad_param));
+  EXPECT_THAT(
+      webrtc::metrics::Samples("WebRTC.PeerConnection.SrtpUnprotectError"),
+      ElementsAre(Pair(srtp_err_status_bad_param, 1)));
   EXPECT_FALSE(s2_.UnprotectRtcp(rtcp_packet_, rtcp_len_, &out_len));
-  EXPECT_EQ(1, webrtc::metrics::NumSamples(
-                   "WebRTC.PeerConnection.SrtcpUnprotectError"));
-  EXPECT_EQ(
-      1, webrtc::metrics::NumEvents("WebRTC.PeerConnection.SrtcpUnprotectError",
-                                    srtp_err_status_auth_fail));
+  EXPECT_THAT(
+      webrtc::metrics::Samples("WebRTC.PeerConnection.SrtcpUnprotectError"),
+      ElementsAre(Pair(srtp_err_status_auth_fail, 1)));
 }
 
 // Test that we fail to unprotect if the payloads are not authenticated.
@@ -169,17 +170,13 @@ TEST_F(SrtpSessionTest, TestUnencryptReject) {
   EXPECT_TRUE(s2_.SetRecv(SRTP_AES128_CM_SHA1_80, kTestKey1, kTestKeyLen,
                           kEncryptedHeaderExtensionIds));
   EXPECT_FALSE(s2_.UnprotectRtp(rtp_packet_, rtp_len_, &out_len));
-  EXPECT_EQ(1, webrtc::metrics::NumSamples(
-                   "WebRTC.PeerConnection.SrtpUnprotectError"));
-  EXPECT_EQ(
-      1, webrtc::metrics::NumEvents("WebRTC.PeerConnection.SrtpUnprotectError",
-                                    srtp_err_status_auth_fail));
+  EXPECT_THAT(
+      webrtc::metrics::Samples("WebRTC.PeerConnection.SrtpUnprotectError"),
+      ElementsAre(Pair(srtp_err_status_auth_fail, 1)));
   EXPECT_FALSE(s2_.UnprotectRtcp(rtcp_packet_, rtcp_len_, &out_len));
-  EXPECT_EQ(1, webrtc::metrics::NumSamples(
-                   "WebRTC.PeerConnection.SrtcpUnprotectError"));
-  EXPECT_EQ(
-      1, webrtc::metrics::NumEvents("WebRTC.PeerConnection.SrtcpUnprotectError",
-                                    srtp_err_status_cant_check));
+  EXPECT_THAT(
+      webrtc::metrics::Samples("WebRTC.PeerConnection.SrtcpUnprotectError"),
+      ElementsAre(Pair(srtp_err_status_cant_check, 1)));
 }
 
 // Test that we fail when using buffers that are too small.

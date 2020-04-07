@@ -70,6 +70,7 @@
 #include <QtQml/QQmlFileSelector>
 
 #include <private/qqmlcomponent_p.h>
+#include <private/qv4executablecompilationunit_p.h>
 
 #ifdef QT_QMLTEST_WITH_WIDGETS
 #include <QtWidgets/QApplication>
@@ -290,7 +291,8 @@ public:
         m_errors += component.errors();
 
         if (component.isReady()) {
-            QQmlRefPointer<CompilationUnit> rootCompilationUnit = QQmlComponentPrivate::get(&component)->compilationUnit;
+            QQmlRefPointer<QV4::ExecutableCompilationUnit> rootCompilationUnit
+                    = QQmlComponentPrivate::get(&component)->compilationUnit;
             TestCaseEnumerationResult result = enumerateTestCases(rootCompilationUnit.data());
             m_testCases = result.testCases + result.finalizedPartialTestCases();
             m_errors += result.errors;
@@ -330,12 +332,13 @@ private:
         }
     };
 
-    TestCaseEnumerationResult enumerateTestCases(CompilationUnit *compilationUnit, const Object *object = nullptr)
+    TestCaseEnumerationResult enumerateTestCases(QV4::ExecutableCompilationUnit *compilationUnit,
+                                                 const Object *object = nullptr)
     {
         QQmlType testCaseType;
         for (quint32 i = 0, count = compilationUnit->importCount(); i < count; ++i) {
             const Import *import = compilationUnit->importAt(i);
-            if (compilationUnit->stringAt(import->uriIndex) != QLatin1Literal("QtTest"))
+            if (compilationUnit->stringAt(import->uriIndex) != QLatin1String("QtTest"))
                 continue;
 
             QString testCaseTypeName(QStringLiteral("TestCase"));
@@ -353,7 +356,9 @@ private:
         if (!object) // Start at root of compilation unit if not enumerating a specific child
             object = compilationUnit->objectAt(0);
 
-        if (CompilationUnit *superTypeUnit = compilationUnit->resolvedTypes.value(object->inheritedTypeNameIndex)->compilationUnit.data()) {
+        if (QV4::ExecutableCompilationUnit *superTypeUnit
+            = compilationUnit->resolvedTypes.value(object->inheritedTypeNameIndex)
+                      ->compilationUnit.data()) {
             // We have a non-C++ super type, which could indicate we're a subtype of a TestCase
             if (testCaseType.isValid() && superTypeUnit->url() == testCaseType.sourceUrl())
                 result.isTestCase = true;
@@ -363,7 +368,7 @@ private:
             if (result.isTestCase) {
                 // Look for override of name in this type
                 for (auto binding = object->bindingsBegin(); binding != object->bindingsEnd(); ++binding) {
-                    if (compilationUnit->stringAt(binding->propertyNameIndex) == QLatin1Literal("name")) {
+                    if (compilationUnit->stringAt(binding->propertyNameIndex) == QLatin1String("name")) {
                         if (binding->type == QV4::CompiledData::Binding::Type_String) {
                             result.testCaseName = compilationUnit->stringAt(binding->stringIndex);
                         } else {
@@ -382,10 +387,10 @@ private:
                 auto functionsEnd = compilationUnit->objectFunctionsEnd(object);
                 for (auto function = compilationUnit->objectFunctionsBegin(object); function != functionsEnd; ++function) {
                     QString functionName = compilationUnit->stringAt(function->nameIndex);
-                    if (!(functionName.startsWith(QLatin1Literal("test_")) || functionName.startsWith(QLatin1Literal("benchmark_"))))
+                    if (!(functionName.startsWith(QLatin1String("test_")) || functionName.startsWith(QLatin1String("benchmark_"))))
                         continue;
 
-                    if (functionName.endsWith(QLatin1Literal("_data")))
+                    if (functionName.endsWith(QLatin1String("_data")))
                         continue;
 
                     result.testFunctions << functionName;
@@ -554,7 +559,7 @@ int quick_test_main_with_setup(int argc, char **argv, const char *name, const ch
     // Register the test object
     qmlRegisterSingletonType<QTestRootObject>("Qt.test.qtestroot", 1, 0, "QTestRootObject", testRootObject);
 
-    QSet<QString> commandLineTestFunctions = QTest::testFunctions.toSet();
+    QSet<QString> commandLineTestFunctions(QTest::testFunctions.cbegin(), QTest::testFunctions.cend());
     const bool filteringTestFunctions = !commandLineTestFunctions.isEmpty();
 
     // Scan through all of the "tst_*.qml" files and run each of them
@@ -596,7 +601,7 @@ int quick_test_main_with_setup(int argc, char **argv, const char *name, const ch
             continue;
         }
 
-        const QSet<QString> availableTestSet = availableTestFunctions.toSet();
+        const QSet<QString> availableTestSet(availableTestFunctions.cbegin(), availableTestFunctions.cend());
         if (filteringTestFunctions && !availableTestSet.intersects(commandLineTestFunctions))
             continue;
         commandLineTestFunctions.subtract(availableTestSet);

@@ -34,9 +34,6 @@
 #include <Qt3DRender/private/qeffect_p.h>
 #include <Qt3DRender/private/effect_p.h>
 #include <Qt3DRender/private/shaderparameterpack_p.h>
-#include <Qt3DCore/qpropertyupdatedchange.h>
-#include <Qt3DCore/qpropertynodeaddedchange.h>
-#include <Qt3DCore/qpropertynoderemovedchange.h>
 #include "qbackendnodetester.h"
 #include "testrenderer.h"
 
@@ -72,7 +69,7 @@ private Q_SLOTS:
             Qt3DRender::QParameter parameter;
             effect.addTechnique(&technique);
             effect.addParameter(&parameter);
-            simulateInitialization(&effect, &backendEffect);
+            simulateInitializationSync(&effect, &backendEffect);
         }
 
         backendEffect.cleanup();
@@ -95,7 +92,7 @@ private Q_SLOTS:
         {
             // WHEN
             Qt3DRender::Render::Effect backendEffect;
-            simulateInitialization(&effect, &backendEffect);
+            simulateInitializationSync(&effect, &backendEffect);
 
             // THEN
             QCOMPARE(backendEffect.isEnabled(), true);
@@ -109,7 +106,7 @@ private Q_SLOTS:
             // WHEN
             Qt3DRender::Render::Effect backendEffect;
             effect.setEnabled(false);
-            simulateInitialization(&effect, &backendEffect);
+            simulateInitializationSync(&effect, &backendEffect);
 
             // THEN
             QCOMPARE(backendEffect.peerId(), effect.id());
@@ -120,17 +117,17 @@ private Q_SLOTS:
     void checkSceneChangeEvents()
     {
         // GIVEN
+        Qt3DRender::QEffect effect;
         Qt3DRender::Render::Effect backendEffect;
         TestRenderer renderer;
         backendEffect.setRenderer(&renderer);
+        simulateInitializationSync(&effect, &backendEffect);
 
         {
             // WHEN
             const bool newValue = false;
-            const auto change = Qt3DCore::QPropertyUpdatedChangePtr::create(Qt3DCore::QNodeId());
-            change->setPropertyName("enabled");
-            change->setValue(newValue);
-            backendEffect.sceneChangeEvent(change);
+            effect.setEnabled(newValue);
+            backendEffect.syncFromFrontEnd(&effect, false);
 
             // THEN
             QCOMPARE(backendEffect.isEnabled(), newValue);
@@ -139,9 +136,8 @@ private Q_SLOTS:
             Qt3DRender::QTechnique technique;
             {
                 // WHEN
-                const auto change = Qt3DCore::QPropertyNodeAddedChangePtr::create(Qt3DCore::QNodeId(), &technique);
-                change->setPropertyName("technique");
-                backendEffect.sceneChangeEvent(change);
+                effect.addTechnique(&technique);
+                backendEffect.syncFromFrontEnd(&effect, false);
 
                 // THEN
                 QCOMPARE(backendEffect.techniques().size(), 1);
@@ -149,9 +145,8 @@ private Q_SLOTS:
             }
             {
                 // WHEN
-                const auto change = Qt3DCore::QPropertyNodeRemovedChangePtr::create(Qt3DCore::QNodeId(), &technique);
-                change->setPropertyName("technique");
-                backendEffect.sceneChangeEvent(change);
+                effect.removeTechnique(&technique);
+                backendEffect.syncFromFrontEnd(&effect, false);
 
                 // THEN
                 QCOMPARE(backendEffect.techniques().size(), 0);
@@ -162,9 +157,8 @@ private Q_SLOTS:
 
             {
                 // WHEN
-                const auto change = Qt3DCore::QPropertyNodeAddedChangePtr::create(Qt3DCore::QNodeId(), &parameter);
-                change->setPropertyName("parameter");
-                backendEffect.sceneChangeEvent(change);
+                effect.addParameter(&parameter);
+                backendEffect.syncFromFrontEnd(&effect, false);
 
                 // THEN
                 QCOMPARE(backendEffect.parameters().size(), 1);
@@ -172,9 +166,8 @@ private Q_SLOTS:
             }
             {
                 // WHEN
-                const auto change = Qt3DCore::QPropertyNodeRemovedChangePtr::create(Qt3DCore::QNodeId(), &parameter);
-                change->setPropertyName("parameter");
-                backendEffect.sceneChangeEvent(change);
+                effect.removeParameter(&parameter);
+                backendEffect.syncFromFrontEnd(&effect, false);
 
                 // THEN
                 QCOMPARE(backendEffect.parameters().size(), 0);

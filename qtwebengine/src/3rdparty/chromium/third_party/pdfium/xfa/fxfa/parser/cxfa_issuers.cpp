@@ -6,7 +6,7 @@
 
 #include "xfa/fxfa/parser/cxfa_issuers.h"
 
-#include "fxjs/xfa/cjx_issuers.h"
+#include "fxjs/xfa/cjx_node.h"
 #include "third_party/base/ptr_util.h"
 
 namespace {
@@ -17,7 +17,7 @@ const CXFA_Node::AttributeData kIssuersAttributeData[] = {
     {XFA_Attribute::Type, XFA_AttributeType::Enum,
      (void*)XFA_AttributeValue::Optional},
     {XFA_Attribute::Usehref, XFA_AttributeType::CData, nullptr},
-    {XFA_Attribute::Unknown, XFA_AttributeType::Integer, nullptr}};
+};
 
 }  // namespace
 
@@ -27,8 +27,8 @@ CXFA_Issuers::CXFA_Issuers(CXFA_Document* doc, XFA_PacketType packet)
                 (XFA_XDPPACKET_Template | XFA_XDPPACKET_Form),
                 XFA_ObjectType::Node,
                 XFA_Element::Issuers,
-                nullptr,
+                {},
                 kIssuersAttributeData,
-                pdfium::MakeUnique<CJX_Issuers>(this)) {}
+                pdfium::MakeUnique<CJX_Node>(this)) {}
 
 CXFA_Issuers::~CXFA_Issuers() = default;

@@ -8,10 +8,10 @@
 #ifndef GrRegionOp_DEFINED
 #define GrRegionOp_DEFINED
 
-#include "GrTypesPriv.h"
+#include "include/private/GrTypesPriv.h"
 
-class GrContext;
 class GrDrawOp;
+class GrRecordingContext;
 class SkMatrix;
 class SkRegion;
 class GrPaint;
@@ -19,7 +19,7 @@ struct GrUserStencilSettings;
 
 namespace GrRegionOp {
 /** GrAAType must be kNone or kMSAA. */
-std::unique_ptr<GrDrawOp> Make(GrContext*,
+std::unique_ptr<GrDrawOp> Make(GrRecordingContext*,
                                GrPaint&&,
                                const SkMatrix& viewMatrix,
                                const SkRegion&,

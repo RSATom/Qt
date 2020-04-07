@@ -46,6 +46,8 @@ unsigned InternalFormatForGpuMemoryBufferFormat(gfx::BufferFormat format) {
       return GL_RGB_YCBCR_420V_CHROMIUM;
     case gfx::BufferFormat::UYVY_422:
       return GL_RGB_YCBCR_422_CHROMIUM;
+    case gfx::BufferFormat::P010:
+      return GL_RGB_YCBCR_P010_CHROMIUM;
     default:
       NOTREACHED();
       return 0;
@@ -76,6 +78,7 @@ bool IsImageSizeValidForGpuMemoryBufferFormat(const gfx::Size& size,
       return true;
     case gfx::BufferFormat::YVU_420:
     case gfx::BufferFormat::YUV_420_BIPLANAR:
+    case gfx::BufferFormat::P010:
       // U and V planes are subsampled by a factor of 2.
       return size.width() % 2 == 0 && size.height() % 2 == 0;
     case gfx::BufferFormat::UYVY_422:
@@ -91,19 +94,43 @@ uint32_t GetPlatformSpecificTextureTarget() {
   return GL_TEXTURE_RECTANGLE_ARB;
 #elif defined(OS_ANDROID) || defined(OS_LINUX)
   return GL_TEXTURE_EXTERNAL_OES;
-#elif defined(OS_WIN)
+#elif defined(OS_WIN) || defined(OS_FUCHSIA)
   return GL_TEXTURE_2D;
-#else
+#elif defined(OS_NACL)
+  NOTREACHED();
   return 0;
+#else
+#error Unsupported OS
 #endif
 }
 
 GPU_EXPORT uint32_t GetBufferTextureTarget(gfx::BufferUsage usage,
                                            gfx::BufferFormat format,
                                            const Capabilities& capabilities) {
-  bool found = base::ContainsValue(capabilities.texture_target_exception_list,
-                                   gfx::BufferUsageAndFormat(usage, format));
+  bool found = base::Contains(capabilities.texture_target_exception_list,
+                              gfx::BufferUsageAndFormat(usage, format));
   return found ? gpu::GetPlatformSpecificTextureTarget() : GL_TEXTURE_2D;
+}
+
+GPU_EXPORT bool NativeBufferNeedsPlatformSpecificTextureTarget(
+    gfx::BufferFormat format) {
+#if defined(USE_OZONE)
+  // Always use GL_TEXTURE_2D as the target for RGB textures.
+  // https://crbug.com/916728
+  if (format == gfx::BufferFormat::R_8 || format == gfx::BufferFormat::RG_88 ||
+      format == gfx::BufferFormat::RGBA_8888 ||
+      format == gfx::BufferFormat::BGRA_8888 ||
+      format == gfx::BufferFormat::RGBX_8888 ||
+      format == gfx::BufferFormat::BGRX_8888) {
+    return false;
+  }
+#elif defined(OS_ANDROID)
+  if (format == gfx::BufferFormat::BGR_565 ||
+      format == gfx::BufferFormat::RGBA_8888) {
+    return false;
+  }
+#endif
+  return true;
 }
 
 }  // namespace gpu

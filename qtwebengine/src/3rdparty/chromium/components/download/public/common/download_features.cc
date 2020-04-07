@@ -9,10 +9,13 @@
 namespace download {
 namespace features {
 
+const base::Feature kUseDownloadOfflineContentProvider{
+    "UseDownloadOfflineContentProvider", base::FEATURE_DISABLED_BY_DEFAULT};
+
 const base::Feature kDownloadAutoResumptionNative {
   "DownloadsAutoResumptionNative",
 #if defined(OS_ANDROID)
-      base::FEATURE_ENABLED_BY_DEFAULT
+      base::FEATURE_DISABLED_BY_DEFAULT
 #else
       base::FEATURE_DISABLED_BY_DEFAULT
 #endif
@@ -28,7 +31,33 @@ const base::Feature kParallelDownloading {
 };
 
 const base::Feature kDownloadDBForNewDownloads{
-    "DownloadDBForNewDownloads", base::FEATURE_DISABLED_BY_DEFAULT};
+    "DownloadDBForNewDownloads", base::FEATURE_ENABLED_BY_DEFAULT};
 
+#if defined(OS_ANDROID)
+const base::Feature kRefreshExpirationDate{"RefreshExpirationDate",
+                                           base::FEATURE_ENABLED_BY_DEFAULT};
+#endif
+
+const base::Feature kPreventDownloadsWithSamePath{
+    "PreventDownloadsWithSamePath", base::FEATURE_DISABLED_BY_DEFAULT};
+
+const base::Feature kUseInProgressDownloadManagerForDownloadService{
+    "UseInProgressDownloadManagerForDownloadService",
+    base::FEATURE_DISABLED_BY_DEFAULT};
+
+const base::Feature kAllowDownloadResumptionWithoutStrongValidators{
+    "AllowDownloadResumptionWithoutStrongValidators",
+    base::FEATURE_DISABLED_BY_DEFAULT};
+
+const base::Feature kUseParallelRequestsForUnknwonRangeSupport{
+    "UseParallelRequestForUnknownRangeSupport",
+    base::FEATURE_DISABLED_BY_DEFAULT};
+
+const base::Feature kUseParallelRequestsForHTTP2{
+    "kUseParallelRequestsForHTTP2", base::FEATURE_DISABLED_BY_DEFAULT};
+
+const base::Feature kUseParallelRequestsForQUIC{
+    "kUseParallelRequestsForQUIC", base::FEATURE_DISABLED_BY_DEFAULT};
 }  // namespace features
+
 }  // namespace download

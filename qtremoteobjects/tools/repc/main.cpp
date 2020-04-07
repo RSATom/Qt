@@ -150,7 +150,7 @@ int main(int argc, char **argv)
         outputFile = files.last();
         if (!(mode & (OutRep | OutSource | OutReplica))) {
             // try to figure out the Out mode from file extension
-            if (outputFile.endsWith(QLatin1Literal(".rep")))
+            if (outputFile.endsWith(QLatin1String(".rep")))
                 mode |= OutRep;
         }
         Q_FALLTHROUGH();
@@ -158,7 +158,7 @@ int main(int argc, char **argv)
         inputFile = files.first();
         if (!(mode & (InRep | InSrc))) {
             // try to figure out the In mode from file extension
-            if (inputFile.endsWith(QLatin1Literal(".rep")))
+            if (inputFile.endsWith(QLatin1String(".rep")))
                 mode |= InRep;
             else
                 mode |= InSrc;
@@ -212,7 +212,8 @@ int main(int argc, char **argv)
         const QFileInfo includePath(QLatin1String(RO_INSTALL_HEADERS));
         pp.includes += Preprocessor::IncludePath(QFile::encodeName(includePath.canonicalFilePath()));
         pp.includes += Preprocessor::IncludePath(QFile::encodeName(includePath.canonicalPath()));
-        foreach (const QString &path, parser.values(includePathOption))
+        const auto paths = parser.values(includePathOption);
+        for (const QString &path : paths)
             pp.includes += Preprocessor::IncludePath(QFile::encodeName(path));
 
         pp.macros["Q_MOC_RUN"];

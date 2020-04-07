@@ -118,14 +118,10 @@ MainWindow::MainWindow()
     m_imageAction->setData(int(SvgView::Image));
 
     rendererMenu->addSeparator();
-    m_highQualityAntialiasingAction = rendererMenu->addAction(tr("&High Quality Antialiasing"));
-    m_highQualityAntialiasingAction->setEnabled(false);
-    m_highQualityAntialiasingAction->setCheckable(true);
-    m_highQualityAntialiasingAction->setChecked(false);
-    connect(m_highQualityAntialiasingAction, &QAction::toggled, m_view, &SvgView::setHighQualityAntialiasing);
-#ifdef QT_NO_OPENGL
-    m_highQualityAntialiasingAction->setVisible(false);
-#endif
+    m_antialiasingAction = rendererMenu->addAction(tr("&Antialiasing"));
+    m_antialiasingAction->setCheckable(true);
+    m_antialiasingAction->setChecked(false);
+    connect(m_antialiasingAction, &QAction::toggled, m_view, &SvgView::setAntialiasing);
 
     QActionGroup *rendererGroup = new QActionGroup(this);
     rendererGroup->addAction(m_nativeAction);
@@ -191,8 +187,6 @@ bool MainWindow::loadFile(const QString &fileName)
 
 void MainWindow::setRenderer(int renderMode)
 {
-
-    m_highQualityAntialiasingAction->setEnabled(renderMode == SvgView::OpenGL);
     m_view->setRenderer(static_cast<SvgView::RendererType>(renderMode));
 }
 

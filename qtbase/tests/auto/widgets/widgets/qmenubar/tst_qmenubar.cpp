@@ -34,7 +34,6 @@
 #include <qstyle.h>
 #include <qproxystyle.h>
 #include <qstylefactory.h>
-#include <qdesktopwidget.h>
 #include <qaction.h>
 #include <qstyleoption.h>
 #include <QVBoxLayout>
@@ -113,10 +112,7 @@ private slots:
 
     void check_escKey();
 #endif
-#ifndef Q_OS_WINCE
     void allowActiveAndDisabled();
-#endif
-
     void taskQTBUG56860_focus();
     void check_endKey();
     void check_homeKey();
@@ -1152,8 +1148,8 @@ void tst_QMenuBar::check_menuPosition()
 
     Menu menu;
     menu.setTitle("&menu");
-    QRect availRect = QApplication::desktop()->availableGeometry(&w);
-    QRect screenRect = QApplication::desktop()->screenGeometry(&w);
+    QRect availRect = w.screen()->availableGeometry();
+    QRect screenRect = w.screen()->geometry();
 
     while(menu.sizeHint().height() < (screenRect.height()*2/3)) {
         menu.addAction("item");

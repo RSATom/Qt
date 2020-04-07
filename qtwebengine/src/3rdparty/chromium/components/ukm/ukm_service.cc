@@ -20,7 +20,6 @@
 #include "components/metrics/metrics_service_client.h"
 #include "components/prefs/pref_registry_simple.h"
 #include "components/prefs/pref_service.h"
-#include "components/ukm/persisted_logs_metrics_impl.h"
 #include "components/ukm/ukm_pref_names.h"
 #include "components/ukm/ukm_rotation_scheduler.h"
 #include "services/metrics/public/cpp/delegating_ukm_recorder.h"
@@ -35,7 +34,7 @@ uint64_t GenerateAndStoreClientId(PrefService* pref_service) {
   uint64_t client_id = 0;
   while (!client_id)
     client_id = base::RandUint64();
-  pref_service->SetInt64(prefs::kUkmClientId, client_id);
+  pref_service->SetUint64(prefs::kUkmClientId, client_id);
 
   // Also reset the session id counter.
   pref_service->SetInteger(prefs::kUkmSessionId, 0);
@@ -43,10 +42,26 @@ uint64_t GenerateAndStoreClientId(PrefService* pref_service) {
 }
 
 uint64_t LoadOrGenerateAndStoreClientId(PrefService* pref_service) {
-  uint64_t client_id = pref_service->GetInt64(prefs::kUkmClientId);
-  if (!client_id)
-    client_id = GenerateAndStoreClientId(pref_service);
-  return client_id;
+  uint64_t client_id = pref_service->GetUint64(prefs::kUkmClientId);
+  // The pref is stored as a string and GetUint64() uses base::StringToUint64()
+  // to convert it. base::StringToUint64() will treat a negative value as
+  // underflow, which results in 0 (the minimum Uint64 value).
+  if (client_id) {
+    UMA_HISTOGRAM_BOOLEAN("UKM.MigratedClientIdInt64ToUInt64", false);
+    return client_id;
+  }
+
+  // Since client_id was 0, the pref value may have been negative. Attempt to
+  // get it as an Int64 to migrate it to Uint64.
+  client_id = pref_service->GetInt64(prefs::kUkmClientId);
+  if (client_id) {
+    pref_service->SetUint64(prefs::kUkmClientId, client_id);
+    UMA_HISTOGRAM_BOOLEAN("UKM.MigratedClientIdInt64ToUInt64", true);
+    return client_id;
+  }
+
+  // The client_id is still 0, so it wasn't set.
+  return GenerateAndStoreClientId(pref_service);
 }
 
 int32_t LoadAndIncrementSessionId(PrefService* pref_service) {
@@ -69,8 +84,7 @@ UkmService::UkmService(PrefService* pref_service,
       client_(client),
       reporting_service_(client, pref_service),
       initialize_started_(false),
-      initialize_complete_(false),
-      self_ptr_factory_(this) {
+      initialize_complete_(false) {
   DCHECK(pref_service_);
   DCHECK(client_);
   DVLOG(1) << "UkmService::Constructor";
@@ -198,7 +212,7 @@ void UkmService::RegisterMetricsProvider(
 
 // static
 void UkmService::RegisterPrefs(PrefRegistrySimple* registry) {
-  registry->RegisterInt64Pref(prefs::kUkmClientId, 0);
+  registry->RegisterUint64Pref(prefs::kUkmClientId, 0);
   registry->RegisterIntegerPref(prefs::kUkmSessionId, 0);
   UkmReportingService::RegisterPrefs(registry);
 }

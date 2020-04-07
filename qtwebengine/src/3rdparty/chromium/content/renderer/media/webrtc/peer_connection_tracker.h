@@ -169,11 +169,29 @@ class CONTENT_EXPORT PeerConnectionTracker
       RTCPeerConnectionHandler* pc_handler,
       webrtc::PeerConnectionInterface::SignalingState state);
 
-  // Sends an update when the Ice connection state
-  // of a PeerConnection has changed.
+  // Sends an update when the ICE connection state of a PeerConnection has
+  // changed. There's a legacy and non-legacy version. The non-legacy version
+  // reflects the blink::RTCPeerConnection::iceConnectionState.
+  //
+  // "Legacy" usage: In Unifed Plan, TrackLegacyIceConnectionStateChange() is
+  // used to report the webrtc::PeerConnection layer implementation of the
+  // state, which might not always be the same as the
+  // blink::RTCPeerConnection::iceConnectionState reported with
+  // TrackIceConnectionStateChange(). In Plan B, the webrtc::PeerConnection
+  // layer implementation is the only iceConnectionState version, and
+  // TrackLegacyIceConnectionStateChange() is not applicable.
+  virtual void TrackLegacyIceConnectionStateChange(
+      RTCPeerConnectionHandler* pc_handler,
+      webrtc::PeerConnectionInterface::IceConnectionState state);
   virtual void TrackIceConnectionStateChange(
       RTCPeerConnectionHandler* pc_handler,
       webrtc::PeerConnectionInterface::IceConnectionState state);
+
+  // Sends an update when the connection state
+  // of a PeerConnection has changed.
+  virtual void TrackConnectionStateChange(
+      RTCPeerConnectionHandler* pc_handler,
+      webrtc::PeerConnectionInterface::PeerConnectionState state);
 
   // Sends an update when the Ice gathering state
   // of a PeerConnection has changed.
@@ -186,6 +204,10 @@ class CONTENT_EXPORT PeerConnectionTracker
   virtual void TrackSessionDescriptionCallback(
       RTCPeerConnectionHandler* pc_handler, Action action,
       const std::string& type, const std::string& value);
+
+  // Sends an update when the session description's ID is set.
+  virtual void TrackSessionId(RTCPeerConnectionHandler* pc_handler,
+                              const std::string& session_id);
 
   // Sends an update when onRenegotiationNeeded is called.
   virtual void TrackOnRenegotiationNeeded(RTCPeerConnectionHandler* pc_handler);
@@ -217,16 +239,17 @@ class CONTENT_EXPORT PeerConnectionTracker
                         size_t transceiver_index);
 
   // IPC Message handler for getting all stats.
-  void OnGetAllStats();
+  void OnGetStandardStats();
+  void OnGetLegacyStats();
 
   // Called when the browser process reports a suspend event from the OS.
   void OnSuspend();
 
   // IPC Message handler for starting event log.
-  void OnStartEventLog(int peer_connection_id, int output_period_ms);
+  void OnStartEventLog(int peer_connection_local_id, int output_period_ms);
 
   // IPC Message handler for stopping event log.
-  void OnStopEventLog(int peer_connection_id);
+  void OnStopEventLog(int peer_connection_local_id);
 
   // Called to deliver an update to the host (PeerConnectionTrackerHost).
   // |local_id| - The id of the registered RTCPeerConnectionHandler.
@@ -248,8 +271,8 @@ class CONTENT_EXPORT PeerConnectionTracker
   GetPeerConnectionTrackerHost();
 
   // This map stores the local ID assigned to each RTCPeerConnectionHandler.
-  typedef std::map<RTCPeerConnectionHandler*, int> PeerConnectionIdMap;
-  PeerConnectionIdMap peer_connection_id_map_;
+  typedef std::map<RTCPeerConnectionHandler*, int> PeerConnectionLocalIdMap;
+  PeerConnectionLocalIdMap peer_connection_local_id_map_;
 
   // This keeps track of the next available local ID.
   int next_local_id_;

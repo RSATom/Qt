@@ -60,7 +60,7 @@ class GFX_EXPORT Font {
   Font(const Font& other);
   Font& operator=(const Font& other);
 
-#if defined(OS_WIN) || defined(OS_MACOSX) || defined(OS_IOS)
+#if defined(OS_MACOSX) || defined(OS_IOS)
   // Creates a font from the specified native font.
   explicit Font(NativeFont native_font);
 #endif
@@ -117,18 +117,18 @@ class GFX_EXPORT Font {
   // Returns an object describing how the font should be rendered.
   const FontRenderParams& GetFontRenderParams() const;
 
-#if defined(OS_WIN) || defined(OS_MACOSX) || defined(OS_IOS)
+#if defined(OS_MACOSX) || defined(OS_IOS)
   // Returns the native font handle.
   // Lifetime lore:
-  // Windows: This handle is owned by the Font object, and should not be
-  //          destroyed by the caller.
   // Mac:     The object is owned by the system and should not be released.
   NativeFont GetNativeFont() const;
 #endif
 
+#if defined(OS_WIN)
   // Raw access to the underlying platform font implementation. Can be
   // static_cast to a known implementation type if needed.
   PlatformFont* platform_font() const { return platform_font_.get(); }
+#endif
 
  private:
   // Wrapped platform font implementation.

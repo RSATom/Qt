@@ -7,10 +7,14 @@
 
 #include <memory>
 
+#include "base/bind.h"
 #include "base/callback.h"
 #include "base/component_export.h"
 #include "base/macros.h"
 #include "mojo/public/cpp/bindings/binding.h"
+#include "mojo/public/cpp/bindings/binding_set.h"
+#include "mojo/public/cpp/bindings/pending_receiver.h"
+#include "mojo/public/cpp/bindings/pending_remote.h"
 #include "services/service_manager/public/cpp/connector.h"
 #include "services/service_manager/public/mojom/connector.mojom.h"
 #include "services/service_manager/public/mojom/service.mojom.h"
@@ -161,6 +165,10 @@ class COMPONENT_EXPORT(SERVICE_MANAGER_CPP) ServiceBinding
                        const std::string& interface_name,
                        mojo::ScopedMessagePipeHandle interface_pipe,
                        OnBindInterfaceCallback callback) override;
+  void CreatePackagedServiceInstance(
+      const Identity& identity,
+      mojo::PendingReceiver<mojom::Service> receiver,
+      mojo::PendingRemote<mojom::ProcessMetadata> metadata) override;
 
   // The Service instance to which all incoming events from the Service Manager
   // should be directed. Typically this is the object which owns this

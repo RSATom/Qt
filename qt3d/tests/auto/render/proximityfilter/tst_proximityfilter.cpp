@@ -31,7 +31,6 @@
 #include <Qt3DRender/qproximityfilter.h>
 #include <Qt3DRender/private/qproximityfilter_p.h>
 #include <Qt3DRender/private/proximityfilter_p.h>
-#include <Qt3DCore/qpropertyupdatedchange.h>
 #include "qbackendnodetester.h"
 #include "testrenderer.h"
 
@@ -56,6 +55,7 @@ private Q_SLOTS:
     void checkInitializeFromPeer()
     {
         // GIVEN
+        TestRenderer renderer;
         Qt3DRender::QProximityFilter proximityFilter;
         Qt3DCore::QEntity entity;
         proximityFilter.setDistanceThreshold(1340.0f);
@@ -64,40 +64,45 @@ private Q_SLOTS:
         {
             // WHEN
             Qt3DRender::Render::ProximityFilter backendProximityFilter;
-            simulateInitialization(&proximityFilter, &backendProximityFilter);
+            backendProximityFilter.setRenderer(&renderer);
+            simulateInitializationSync(&proximityFilter, &backendProximityFilter);
 
             // THEN
             QCOMPARE(backendProximityFilter.isEnabled(), true);
             QCOMPARE(backendProximityFilter.peerId(), proximityFilter.id());
             QCOMPARE(backendProximityFilter.distanceThreshold(), 1340.f);
             QCOMPARE(backendProximityFilter.entityId(), entity.id());
+            QVERIFY(renderer.dirtyBits() & Qt3DRender::Render::AbstractRenderer::FrameGraphDirty);
         }
+        renderer.clearDirtyBits(Qt3DRender::Render::AbstractRenderer::AllDirty);
         {
             // WHEN
             Qt3DRender::Render::ProximityFilter backendProximityFilter;
+            backendProximityFilter.setRenderer(&renderer);
             proximityFilter.setEnabled(false);
-            simulateInitialization(&proximityFilter, &backendProximityFilter);
+            simulateInitializationSync(&proximityFilter, &backendProximityFilter);
 
             // THEN
             QCOMPARE(backendProximityFilter.peerId(), proximityFilter.id());
             QCOMPARE(backendProximityFilter.isEnabled(), false);
+            QVERIFY(renderer.dirtyBits() & Qt3DRender::Render::AbstractRenderer::FrameGraphDirty);
         }
     }
 
     void checkSceneChangeEvents()
     {
         // GIVEN
+        Qt3DRender::QProximityFilter proximityFilter;
         Qt3DRender::Render::ProximityFilter backendProximityFilter;
         TestRenderer renderer;
         backendProximityFilter.setRenderer(&renderer);
+        simulateInitializationSync(&proximityFilter, &backendProximityFilter);
 
         {
              // WHEN
              const bool newValue = false;
-             const auto change = Qt3DCore::QPropertyUpdatedChangePtr::create(Qt3DCore::QNodeId());
-             change->setPropertyName("enabled");
-             change->setValue(newValue);
-             backendProximityFilter.sceneChangeEvent(change);
+             proximityFilter.setEnabled(newValue);
+             backendProximityFilter.syncFromFrontEnd(&proximityFilter, false);
 
              // THEN
             QCOMPARE(backendProximityFilter.isEnabled(), newValue);
@@ -107,10 +112,9 @@ private Q_SLOTS:
         {
              // WHEN
              const float newValue = 383.0f;
-             const auto change = Qt3DCore::QPropertyUpdatedChangePtr::create(Qt3DCore::QNodeId());
-             change->setPropertyName("distanceThreshold");
-             change->setValue(QVariant::fromValue(newValue));
-             backendProximityFilter.sceneChangeEvent(change);
+             proximityFilter.setDistanceThreshold(newValue);
+             backendProximityFilter.syncFromFrontEnd(&proximityFilter, false);
+
 
              // THEN
             QCOMPARE(backendProximityFilter.distanceThreshold(), newValue);
@@ -119,14 +123,12 @@ private Q_SLOTS:
         }
         {
              // WHEN
-             const Qt3DCore::QNodeId newValue = Qt3DCore::QNodeId::createId();
-             const auto change = Qt3DCore::QPropertyUpdatedChangePtr::create(Qt3DCore::QNodeId());
-             change->setPropertyName("entity");
-             change->setValue(QVariant::fromValue(newValue));
-             backendProximityFilter.sceneChangeEvent(change);
+             Qt3DCore::QEntity e;
+             proximityFilter.setEntity(&e);
+             backendProximityFilter.syncFromFrontEnd(&proximityFilter, false);
 
              // THEN
-            QCOMPARE(backendProximityFilter.entityId(), newValue);
+            QCOMPARE(backendProximityFilter.entityId(), e.id());
             QVERIFY(renderer.dirtyBits() & Qt3DRender::Render::AbstractRenderer::FrameGraphDirty);
             renderer.clearDirtyBits(Qt3DRender::Render::AbstractRenderer::AllDirty);
         }

@@ -36,9 +36,8 @@
 
 #include "qchannelmapper.h"
 #include "qchannelmapper_p.h"
+#include <Qt3DCore/qscenechange.h>
 #include <Qt3DAnimation/qchannelmapping.h>
-#include <Qt3DCore/qpropertynodeaddedchange.h>
-#include <Qt3DCore/qpropertynoderemovedchange.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -50,7 +49,7 @@ QChannelMapperPrivate::QChannelMapperPrivate()
 }
 
 /*!
-    \class QChannelMapper
+    \class Qt3DAnimation::QChannelMapper
     \inmodule Qt3DAnimation
     \brief Allows to map the channels within the clip onto properties of
     objects in the application.
@@ -87,11 +86,7 @@ void QChannelMapper::addMapping(QAbstractChannelMapping *mapping)
         if (!mapping->parent())
             mapping->setParent(this);
 
-        if (d->m_changeArbiter != nullptr) {
-            const auto change = Qt3DCore::QPropertyNodeAddedChangePtr::create(id(), mapping);
-            change->setPropertyName("mappings");
-            d->notifyObservers(change);
-        }
+        d->updateNode(mapping, "mappings", Qt3DCore::PropertyValueAdded);
     }
 }
 
@@ -99,12 +94,9 @@ void QChannelMapper::removeMapping(QAbstractChannelMapping *mapping)
 {
     Q_ASSERT(mapping);
     Q_D(QChannelMapper);
-    if (d->m_changeArbiter != nullptr) {
-        const auto change = Qt3DCore::QPropertyNodeRemovedChangePtr::create(id(), mapping);
-        change->setPropertyName("mappings");
-        d->notifyObservers(change);
-    }
-    d->m_mappings.removeOne(mapping);
+    if (!d->m_mappings.removeOne(mapping))
+        return;
+    d->updateNode(mapping, "mappings", Qt3DCore::PropertyValueRemoved);
     // Remove bookkeeping connection
     d->unregisterDestructionHelper(mapping);
 }

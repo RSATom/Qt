@@ -38,10 +38,7 @@ QT_BEGIN_NAMESPACE
 
 using namespace qdesigner_internal;
 
-SignalSlotEditorPlugin::SignalSlotEditorPlugin()
-    : m_initialized(false), m_action(0)
-{
-}
+SignalSlotEditorPlugin::SignalSlotEditorPlugin() = default;
 
 SignalSlotEditorPlugin::~SignalSlotEditorPlugin() = default;
 
@@ -83,7 +80,7 @@ QDesignerFormEditorInterface *SignalSlotEditorPlugin::core() const
 
 void SignalSlotEditorPlugin::addFormWindow(QDesignerFormWindowInterface *formWindow)
 {
-    Q_ASSERT(formWindow != 0);
+    Q_ASSERT(formWindow != nullptr);
     Q_ASSERT(m_tools.contains(formWindow) == false);
 
     SignalSlotEditorTool *tool = new SignalSlotEditorTool(formWindow, this);
@@ -94,7 +91,7 @@ void SignalSlotEditorPlugin::addFormWindow(QDesignerFormWindowInterface *formWin
 
 void SignalSlotEditorPlugin::removeFormWindow(QDesignerFormWindowInterface *formWindow)
 {
-    Q_ASSERT(formWindow != 0);
+    Q_ASSERT(formWindow != nullptr);
     Q_ASSERT(m_tools.contains(formWindow) == true);
 
     SignalSlotEditorTool *tool = m_tools.value(formWindow);
@@ -112,7 +109,7 @@ QAction *SignalSlotEditorPlugin::action() const
 
 void SignalSlotEditorPlugin::activeFormWindowChanged(QDesignerFormWindowInterface *formWindow)
 {
-    m_action->setEnabled(formWindow != 0);
+    m_action->setEnabled(formWindow != nullptr);
 }
 
 QT_END_NAMESPACE

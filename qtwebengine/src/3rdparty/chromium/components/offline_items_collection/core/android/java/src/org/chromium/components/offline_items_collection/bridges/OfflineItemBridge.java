@@ -11,6 +11,7 @@ import org.chromium.components.offline_items_collection.OfflineItemFilter;
 import org.chromium.components.offline_items_collection.OfflineItemProgressUnit;
 import org.chromium.components.offline_items_collection.OfflineItemState;
 import org.chromium.components.offline_items_collection.PendingState;
+import org.chromium.components.offline_items_collection.UpdateDelta;
 
 import java.util.ArrayList;
 
@@ -45,13 +46,14 @@ public final class OfflineItemBridge {
     private static OfflineItem createOfflineItemAndMaybeAddToList(ArrayList<OfflineItem> list,
             String nameSpace, String id, String title, String description,
             @OfflineItemFilter int filter, boolean isTransient, boolean isSuggested,
-            boolean isAccelerated, boolean refreshVisuals, boolean promoteOrigin,
-            long totalSizeBytes, boolean externallyRemoved, long creationTimeMs,
-            long completionTimeMs, long lastAccessedTimeMs, boolean isOpenable, String filePath,
-            String mimeType, String pageUrl, String originalUrl, boolean isOffTheRecord,
-            @OfflineItemState int state, @PendingState int pendingState, boolean isResumable,
-            boolean allowMetered, long receivedBytes, long progressValue, long progressMax,
-            @OfflineItemProgressUnit int progressUnit, long timeRemainingMs, boolean isDangerous) {
+            boolean isAccelerated, boolean promoteOrigin, long totalSizeBytes,
+            boolean externallyRemoved, long creationTimeMs, long completionTimeMs,
+            long lastAccessedTimeMs, boolean isOpenable, String filePath, String mimeType,
+            String pageUrl, String originalUrl, boolean isOffTheRecord, @OfflineItemState int state,
+            @PendingState int pendingState, boolean isResumable, boolean allowMetered,
+            long receivedBytes, long progressValue, long progressMax,
+            @OfflineItemProgressUnit int progressUnit, long timeRemainingMs, boolean isDangerous,
+            boolean canRename) {
         OfflineItem item = new OfflineItem();
         item.id.namespace = nameSpace;
         item.id.id = id;
@@ -61,7 +63,6 @@ public final class OfflineItemBridge {
         item.isTransient = isTransient;
         item.isSuggested = isSuggested;
         item.isAccelerated = isAccelerated;
-        item.refreshVisuals = refreshVisuals;
         item.promoteOrigin = promoteOrigin;
         item.totalSizeBytes = totalSizeBytes;
         item.externallyRemoved = externallyRemoved;
@@ -83,8 +84,21 @@ public final class OfflineItemBridge {
                 progressValue, progressMax == -1 ? null : progressMax, progressUnit);
         item.timeRemainingMs = timeRemainingMs;
         item.isDangerous = isDangerous;
-
+        item.canRename = canRename;
         if (list != null) list.add(item);
         return item;
+    }
+
+    /**
+     * Creates an {@link UpdateDelta} from the passed in parameters.  See {@link UpdateDelta} for a
+     * list of the members that will be populated.
+     * @return The newly created {@link UpdateDelta} based on the passed in parameters.
+     */
+    @CalledByNative
+    private static UpdateDelta createUpdateDelta(boolean stateChanged, boolean visualsChanged) {
+        UpdateDelta updateDelta = new UpdateDelta();
+        updateDelta.stateChanged = stateChanged;
+        updateDelta.visualsChanged = visualsChanged;
+        return updateDelta;
     }
 }

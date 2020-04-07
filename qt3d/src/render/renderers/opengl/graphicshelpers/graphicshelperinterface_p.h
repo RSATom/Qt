@@ -83,7 +83,8 @@ public:
         BlitFramebuffer,
         IndirectDrawing,
         MapBuffer,
-        Fences
+        Fences,
+        ShaderImage
     };
 
     enum FBOBindMode {
@@ -100,6 +101,7 @@ public:
     virtual void    bindFrameBufferAttachment(QOpenGLTexture *texture, const Attachment &attachment) = 0;
     virtual void    bindFrameBufferAttachment(RenderBuffer *renderBuffer, const Attachment &attachment) = 0;
     virtual void    bindFrameBufferObject(GLuint frameBufferId, FBOBindMode mode) = 0;
+    virtual void    bindImageTexture(GLuint imageUnit, GLuint texture, GLint mipLevel, GLboolean layered, GLint layer, GLenum access, GLenum format) = 0;
     virtual void    bindShaderStorageBlock(GLuint programId, GLuint shaderStorageBlockIndex, GLuint shaderStorageBlockBinding) = 0;
     virtual void    bindUniformBlock(GLuint programId, GLuint uniformBlockIndex, GLuint uniformBlockBinding) = 0;
     virtual void    blendEquation(GLenum mode) = 0;
@@ -111,6 +113,7 @@ public:
     virtual bool    checkFrameBufferComplete() = 0;
     virtual void    clearBufferf(GLint drawbuffer, const QVector4D &values) = 0;
     virtual GLuint  createFrameBufferObject() = 0;
+    virtual void    depthRange(GLdouble nearValue, GLdouble farValue) = 0;
     virtual void    depthMask(GLenum mode) = 0;
     virtual void    depthTest(GLenum mode) = 0;
     virtual void    disableClipPlane(int clipPlane) = 0;
@@ -155,6 +158,7 @@ public:
     virtual void    vertexAttributePointer(GLenum shaderDataType, GLuint index, GLint size, GLenum type, GLboolean normalized, GLsizei stride, const GLvoid *pointer) = 0;
     virtual void    readBuffer(GLenum mode) = 0;
     virtual void    drawBuffer(GLenum mode) = 0;
+    virtual void    rasterMode(GLenum faceMode, GLenum rasterMode) = 0;
 
     virtual void    *fenceSync() = 0;
     virtual void    clientWaitSync(void *sync, GLuint64 nanoSecTimeout) = 0;

@@ -5,10 +5,10 @@
  * found in the LICENSE file.
  */
 
-#include "SkImage.h"
-#include "SkImageGenerator.h"
-#include "SkNextID.h"
-#include "SkYUVAIndex.h"
+#include "include/core/SkImage.h"
+#include "include/core/SkImageGenerator.h"
+#include "include/core/SkYUVAIndex.h"
+#include "src/core/SkNextID.h"
 
 SkImageGenerator::SkImageGenerator(const SkImageInfo& info, uint32_t uniqueID)
     : fInfo(info)
@@ -59,9 +59,10 @@ bool SkImageGenerator::getYUVA8Planes(const SkYUVASizeInfo& sizeInfo,
 }
 
 #if SK_SUPPORT_GPU
-#include "GrTextureProxy.h"
+#include "src/gpu/GrTextureProxy.h"
 
-sk_sp<GrTextureProxy> SkImageGenerator::generateTexture(GrContext* ctx, const SkImageInfo& info,
+sk_sp<GrTextureProxy> SkImageGenerator::generateTexture(GrRecordingContext* ctx,
+                                                        const SkImageInfo& info,
                                                         const SkIPoint& origin,
                                                         bool willNeedMipMaps) {
     SkIRect srcRect = SkIRect::MakeXYWH(origin.x(), origin.y(), info.width(), info.height());
@@ -71,7 +72,8 @@ sk_sp<GrTextureProxy> SkImageGenerator::generateTexture(GrContext* ctx, const Sk
     return this->onGenerateTexture(ctx, info, origin, willNeedMipMaps);
 }
 
-sk_sp<GrTextureProxy> SkImageGenerator::onGenerateTexture(GrContext*, const SkImageInfo&,
+sk_sp<GrTextureProxy> SkImageGenerator::onGenerateTexture(GrRecordingContext*,
+                                                          const SkImageInfo&,
                                                           const SkIPoint&,
                                                           bool willNeedMipMaps) {
     return nullptr;
@@ -80,10 +82,10 @@ sk_sp<GrTextureProxy> SkImageGenerator::onGenerateTexture(GrContext*, const SkIm
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
-#include "SkBitmap.h"
-#include "SkColorTable.h"
+#include "include/core/SkBitmap.h"
+#include "src/codec/SkColorTable.h"
 
-#include "SkGraphics.h"
+#include "include/core/SkGraphics.h"
 
 static SkGraphics::ImageGeneratorFromEncodedDataFactory gFactory;
 

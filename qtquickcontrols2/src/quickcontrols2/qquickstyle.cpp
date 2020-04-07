@@ -119,8 +119,14 @@ static QStringList defaultImportPathList()
 {
     QStringList importPaths;
     importPaths.reserve(3);
-#ifndef QT_STATIC
+#ifdef Q_OS_ANDROID
+    // androiddeployqt puts the QML files inside a resource file and they are not
+    // showing up in the Qml2ImportsPath as a result
+    importPaths += QStringLiteral(":/android_rcc_bundle/qml");
+#else
+# ifndef QT_STATIC
     importPaths += QLibraryInfo::location(QLibraryInfo::Qml2ImportsPath);
+# endif
 #endif
     importPaths += envPathList("QML2_IMPORT_PATH");
     importPaths += QStringLiteral(":/qt-project.org/imports");
@@ -379,7 +385,13 @@ void QQuickStylePrivate::init(const QUrl &baseUrl)
     spec->resolve(baseUrl);
 
     if (!spec->fallbackStyle.isEmpty()) {
-        QString fallbackStyle = spec->findStyle(QQmlFile::urlToLocalFileOrQrc(baseUrl), spec->fallbackStyle);
+        QString fallbackStyle;
+        const QStringList stylePaths = QQuickStylePrivate::stylePaths();
+        for (const QString &path : stylePaths) {
+            fallbackStyle = spec->findStyle(path, spec->fallbackStyle);
+            if (!fallbackStyle.isEmpty())
+                break;
+        }
         if (fallbackStyle.isEmpty()) {
             if (spec->fallbackStyle.compare(QStringLiteral("Default")) != 0) {
                 qWarning() << "ERROR: unable to locate fallback style" << spec->fallbackStyle;
@@ -495,7 +507,7 @@ static bool qt_is_dark_system_theme()
 {
     if (const QPlatformTheme *theme = QGuiApplicationPrivate::platformTheme()) {
         if (const QPalette *systemPalette = theme->palette(QPlatformTheme::SystemPalette)) {
-            const QColor textColor = systemPalette->color(QPalette::WindowText);
+            const QColor &textColor = systemPalette->color(QPalette::WindowText);
             return textColor.red() > 128 && textColor.blue() > 128 && textColor.green() > 128;
         }
     }

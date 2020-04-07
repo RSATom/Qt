@@ -9,6 +9,7 @@ include_rules = [
   "-call",
   "-common_audio",
   "-common_video",
+  "-crypto",
   "-data",
   "-examples",
   "-ios",
@@ -44,6 +45,7 @@ specific_include_rules = {
     "+rtc_base/checks.h",
     "+rtc_base/system/rtc_export.h",
     "+rtc_base/units/unit_base.h",
+    "+rtc_base/deprecation.h",
   ],
 
   "array_view\.h": [
@@ -66,11 +68,6 @@ specific_include_rules = {
     "+rtc_base/socket_address.h",
   ],
 
-  "create_peerconnection_factory\.h": [
-    "+rtc_base/deprecation.h",
-    "+rtc_base/scoped_ref_ptr.h",
-  ],
-
   "data_channel_interface\.h": [
     "+rtc_base/copy_on_write_buffer.h",
     "+rtc_base/ref_count.h",
@@ -78,6 +75,7 @@ specific_include_rules = {
 
   "dtls_transport_interface\.h": [
     "+rtc_base/ref_count.h",
+    "+rtc_base/ssl_certificate.h",
   ],
 
   "dtmf_sender_interface\.h": [
@@ -86,6 +84,10 @@ specific_include_rules = {
 
   "fec_controller\.h": [
     "+modules/include/module_fec_types.h",
+  ],
+
+  "ice_transport_interface\.h": [
+    "+rtc_base/ref_count.h",
   ],
 
   "jsep\.h": [
@@ -103,13 +105,11 @@ specific_include_rules = {
   "media_stream_interface\.h": [
     "+modules/audio_processing/include/audio_processing_statistics.h",
     "+rtc_base/ref_count.h",
-    "+rtc_base/scoped_ref_ptr.h",
   ],
 
   "media_transport_interface\.h": [
     "+rtc_base/copy_on_write_buffer.h",  # As used by datachannelinterface.h
     "+rtc_base/network_route.h",
-    "+rtc_base/deprecation.h",
   ],
 
   "peer_connection_factory_proxy\.h": [
@@ -117,14 +117,10 @@ specific_include_rules = {
   ],
 
   "peer_connection_interface\.h": [
-    "+logging/rtc_event_log/rtc_event_log_factory_interface.h",
     "+media/base/media_config.h",
-    "+media/base/video_capturer.h",
     "+media/base/media_engine.h",
     "+p2p/base/port_allocator.h",
-    "+rtc_base/bitrate_allocation_strategy.h",
     "+rtc_base/network.h",
-    "+rtc_base/platform_file.h",
     "+rtc_base/rtc_certificate.h",
     "+rtc_base/rtc_certificate_generator.h",
     "+rtc_base/socket_address.h",
@@ -137,7 +133,6 @@ specific_include_rules = {
     "+rtc_base/message_handler.h",  # Inherits from it.
     "+rtc_base/message_queue.h",    # Inherits from MessageData.
     "+rtc_base/ref_counted_object.h",
-    "+rtc_base/scoped_ref_ptr.h",
     "+rtc_base/thread.h",
   ],
 
@@ -150,20 +145,24 @@ specific_include_rules = {
   "rtc_error\.h": [
     "+rtc_base/logging.h",
   ],
-
+  "rtc_event_log_output_file.h": [
+    # For private member and constructor.
+    "+rtc_base/system/file_wrapper.h",
+  ],
   "rtp_receiver_interface\.h": [
     "+rtc_base/ref_count.h",
-    "+rtc_base/scoped_ref_ptr.h",
   ],
 
   "rtp_sender_interface\.h": [
     "+rtc_base/ref_count.h",
-    "+rtc_base/scoped_ref_ptr.h",
   ],
 
   "rtp_transceiver_interface\.h": [
     "+rtc_base/ref_count.h",
-    "+rtc_base/scoped_ref_ptr.h",
+  ],
+
+  "sctp_transport_interface\.h": [
+    "+rtc_base/ref_count.h",
   ],
 
   "set_remote_description_observer_interface\.h": [
@@ -173,7 +172,6 @@ specific_include_rules = {
   "stats_types\.h": [
     "+rtc_base/constructor_magic.h",
     "+rtc_base/ref_count.h",
-    "+rtc_base/scoped_ref_ptr.h",
     "+rtc_base/string_encode.h",
     "+rtc_base/thread_checker.h",
   ],
@@ -201,12 +199,10 @@ specific_include_rules = {
 
   "audio_decoder_factory_template\.h": [
     "+rtc_base/ref_counted_object.h",
-    "+rtc_base/scoped_ref_ptr.h",
   ],
 
   "audio_encoder\.h": [
     "+rtc_base/buffer.h",
-    "+rtc_base/deprecation.h",
   ],
 
   "audio_encoder_factory\.h": [
@@ -215,15 +211,6 @@ specific_include_rules = {
 
   "audio_encoder_factory_template\.h": [
     "+rtc_base/ref_counted_object.h",
-    "+rtc_base/scoped_ref_ptr.h",
-  ],
-
-  "builtin_audio_decoder_factory\.h": [
-    "+rtc_base/scoped_ref_ptr.h",
-  ],
-
-  "builtin_audio_encoder_factory\.h": [
-    "+rtc_base/scoped_ref_ptr.h",
   ],
 
   "frame_decryptor_interface\.h": [
@@ -236,13 +223,11 @@ specific_include_rules = {
 
   "rtc_stats_collector_callback\.h": [
     "+rtc_base/ref_count.h",
-    "+rtc_base/scoped_ref_ptr.h",
   ],
 
   "rtc_stats_report\.h": [
     "+rtc_base/ref_count.h",
     "+rtc_base/ref_counted_object.h",
-    "+rtc_base/scoped_ref_ptr.h",
   ],
 
   "audioproc_float\.h": [
@@ -275,13 +260,8 @@ specific_include_rules = {
     "+modules/video_coding/include/video_codec_interface.h"
   ],
 
-  "video_timing\.h": [
-    "+rtc_base/numerics/safe_conversions.h",
-  ],
-
   "video_encoder_config\.h": [
     "+rtc_base/ref_count.h",
-    "+rtc_base/scoped_ref_ptr.h",
   ],
 
   # .cc files in api/ should not be restricted in what they can #include,

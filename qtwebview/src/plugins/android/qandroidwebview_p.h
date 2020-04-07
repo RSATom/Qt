@@ -64,6 +64,8 @@ public:
     explicit QAndroidWebViewPrivate(QObject *p = 0);
     ~QAndroidWebViewPrivate() Q_DECL_OVERRIDE;
 
+    QString httpUserAgent() const Q_DECL_OVERRIDE;
+    void setHttpUserAgent(const QString &httpUserAgent) Q_DECL_OVERRIDE;
     QUrl url() const Q_DECL_OVERRIDE;
     void setUrl(const QUrl &url) Q_DECL_OVERRIDE;
     bool canGoBack() const Q_DECL_OVERRIDE;

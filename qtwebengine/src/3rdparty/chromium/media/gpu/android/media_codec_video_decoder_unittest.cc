@@ -8,6 +8,7 @@
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/run_loop.h"
+#include "base/test/gmock_callback_support.h"
 #include "base/test/mock_callback.h"
 #include "base/test/scoped_task_environment.h"
 #include "base/threading/thread_task_runner_handle.h"
@@ -16,7 +17,6 @@
 #include "media/base/android/mock_android_overlay.h"
 #include "media/base/android/mock_media_crypto_context.h"
 #include "media/base/decoder_buffer.h"
-#include "media/base/gmock_callback_support.h"
 #include "media/base/test_helpers.h"
 #include "media/base/video_frame.h"
 #include "media/gpu/android/android_video_surface_chooser_impl.h"
@@ -25,21 +25,24 @@
 #include "media/gpu/android/mock_device_info.h"
 #include "media/gpu/android/mock_texture_owner.h"
 #include "media/gpu/android/video_frame_factory.h"
+#include "media/video/supported_video_decoder_config.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
+using base::test::RunCallback;
+using testing::_;
 using testing::InvokeWithoutArgs;
 using testing::NiceMock;
 using testing::NotNull;
 using testing::Return;
+using testing::ReturnRef;
 using testing::SaveArg;
-using testing::_;
 
 namespace media {
 namespace {
 
 void OutputCb(scoped_refptr<VideoFrame>* output,
-              const scoped_refptr<VideoFrame>& frame) {
-  *output = frame;
+              scoped_refptr<VideoFrame> frame) {
+  *output = std::move(frame);
 }
 
 std::unique_ptr<AndroidOverlay> CreateAndroidOverlayCb(
@@ -58,11 +61,8 @@ struct DestructionObservableMCVD : public DestructionObservable,
 
 class MockVideoFrameFactory : public VideoFrameFactory {
  public:
-  MOCK_METHOD3(Initialize,
-               void(bool wants_promotion_hint,
-                    bool use_texture_owner_as_overlay,
-                    InitCb init_cb));
-  MOCK_METHOD1(MockSetSurfaceBundle, void(scoped_refptr<AVDASurfaceBundle>));
+  MOCK_METHOD2(Initialize, void(OverlayMode overlay_mode, InitCb init_cb));
+  MOCK_METHOD1(MockSetSurfaceBundle, void(scoped_refptr<CodecSurfaceBundle>));
   MOCK_METHOD5(
       MockCreateVideoFrame,
       void(CodecOutputBuffer* raw_output_buffer,
@@ -75,13 +75,13 @@ class MockVideoFrameFactory : public VideoFrameFactory {
   MOCK_METHOD0(CancelPendingCallbacks, void());
 
   void SetSurfaceBundle(
-      scoped_refptr<AVDASurfaceBundle> surface_bundle) override {
+      scoped_refptr<CodecSurfaceBundle> surface_bundle) override {
     MockSetSurfaceBundle(surface_bundle);
     if (!surface_bundle) {
       texture_owner_ = nullptr;
     } else {
       texture_owner_ =
-          surface_bundle->overlay ? nullptr : surface_bundle->texture_owner_;
+          surface_bundle->overlay() ? nullptr : surface_bundle->texture_owner();
     }
   }
 
@@ -143,10 +143,8 @@ class MediaCodecVideoDecoderTest : public testing::TestWithParam<VideoCodec> {
         std::make_unique<NiceMock<MockVideoFrameFactory>>();
     video_frame_factory_ = video_frame_factory.get();
     // Set up VFF to pass |texture_owner_| via its InitCb.
-    const bool want_promotion_hint =
-        device_info_->IsSetOutputSurfaceSupported();
-    ON_CALL(*video_frame_factory_, Initialize(want_promotion_hint, _, _))
-        .WillByDefault(RunCallback<2>(texture_owner));
+    ON_CALL(*video_frame_factory_, Initialize(ExpectedOverlayMode(), _))
+        .WillByDefault(RunCallback<1>(texture_owner));
 
     auto* observable_mcvd = new DestructionObservableMCVD(
         gpu_preferences_, gpu_feature_info_, device_info_.get(),
@@ -160,6 +158,14 @@ class MediaCodecVideoDecoderTest : public testing::TestWithParam<VideoCodec> {
     destruction_observer_ = observable_mcvd->CreateDestructionObserver();
     // Ensure MCVD doesn't leak by default.
     destruction_observer_->ExpectDestruction();
+  }
+
+  VideoFrameFactory::OverlayMode ExpectedOverlayMode() const {
+    const bool want_promotion_hint =
+        device_info_->IsSetOutputSurfaceSupported();
+    return want_promotion_hint
+               ? VideoFrameFactory::OverlayMode::kRequestPromotionHints
+               : VideoFrameFactory::OverlayMode::kDontRequestPromotionHints;
   }
 
   void CreateCdm(bool has_media_crypto_context,
@@ -181,19 +187,21 @@ class MediaCodecVideoDecoderTest : public testing::TestWithParam<VideoCodec> {
       CreateMcvd();
     bool result = false;
     auto init_cb = [](bool* result_out, bool result) { *result_out = result; };
-    mcvd_->Initialize(config, false, cdm_.get(), base::Bind(init_cb, &result),
-                      base::BindRepeating(&OutputCb, &most_recent_frame_),
-                      base::DoNothing());
+    mcvd_->Initialize(
+        config, false, cdm_.get(), base::BindOnce(init_cb, &result),
+        base::BindRepeating(&OutputCb, &most_recent_frame_), base::DoNothing());
     base::RunLoop().RunUntilIdle();
 
     // If there is a CDM available, then we expect that MCVD will be waiting
     // for the media crypto object.
     // TODO(liberato): why does CreateJavaObjectPtr() not link?
     if (cdm_ && cdm_->media_crypto_ready_cb) {
-      cdm_->media_crypto_ready_cb.Run(
-          std::make_unique<base::android::ScopedJavaGlobalRef<jobject>>(
-              media_crypto_),
-          require_secure_video_decoder_);
+      std::move(cdm_->media_crypto_ready_cb)
+          .Run(std::make_unique<base::android::ScopedJavaGlobalRef<jobject>>(
+                   media_crypto_),
+               require_secure_video_decoder_);
+      // The callback is consumed, mark that we ran it so tests can verify.
+      cdm_->ran_media_crypto_ready_cb = true;
       base::RunLoop().RunUntilIdle();
     }
 
@@ -211,6 +219,14 @@ class MediaCodecVideoDecoderTest : public testing::TestWithParam<VideoCodec> {
     provide_overlay_info_cb_.Run(info);
     auto overlay_ptr = std::make_unique<MockAndroidOverlay>();
     auto* overlay = overlay_ptr.get();
+
+    if (!java_surface_) {
+      java_surface_ = base::android::ScopedJavaGlobalRef<jobject>(
+          gl::SurfaceTexture::Create(0)->j_surface_texture());
+    }
+    EXPECT_CALL(*overlay, GetJavaSurface())
+        .WillRepeatedly(ReturnRef(java_surface_));
+
     surface_chooser_->ProvideOverlay(std::move(overlay_ptr));
     return overlay;
   }
@@ -263,6 +279,7 @@ class MediaCodecVideoDecoderTest : public testing::TestWithParam<VideoCodec> {
  protected:
   const VideoCodec codec_;
   base::test::ScopedTaskEnvironment scoped_task_environment_;
+  base::android::ScopedJavaGlobalRef<jobject> java_surface_;
   scoped_refptr<DecoderBuffer> fake_decoder_buffer_;
   std::unique_ptr<MockDeviceInfo> device_info_;
   std::unique_ptr<FakeCodecAllocator> codec_allocator_;
@@ -291,6 +308,7 @@ class MediaCodecVideoDecoderTest : public testing::TestWithParam<VideoCodec> {
 };
 
 // Tests which only work for a single codec.
+class MediaCodecVideoDecoderAV1Test : public MediaCodecVideoDecoderTest {};
 class MediaCodecVideoDecoderH264Test : public MediaCodecVideoDecoderTest {};
 class MediaCodecVideoDecoderVp8Test : public MediaCodecVideoDecoderTest {};
 class MediaCodecVideoDecoderVp9Test : public MediaCodecVideoDecoderTest {};
@@ -304,20 +322,29 @@ TEST_P(MediaCodecVideoDecoderH264Test, H264IsSupported) {
 }
 
 TEST_P(MediaCodecVideoDecoderVp8Test, SmallVp8IsRejected) {
-  ASSERT_FALSE(Initialize(TestVideoConfig::Normal()));
+  auto configs = MediaCodecVideoDecoder::GetSupportedConfigs();
+  auto small_vp8_config = TestVideoConfig::Normal();
+  for (const auto& c : configs)
+    ASSERT_FALSE(c.Matches(small_vp8_config));
+}
+
+TEST_P(MediaCodecVideoDecoderAV1Test, Av1IsSupported) {
+  EXPECT_CALL(*device_info_, IsAv1DecoderAvailable()).WillOnce(Return(true));
+  ASSERT_TRUE(Initialize(TestVideoConfig::Normal(kCodecAV1)));
 }
 
 TEST_P(MediaCodecVideoDecoderTest, InitializeDoesntInitSurfaceOrCodec) {
   CreateMcvd();
-  EXPECT_CALL(*video_frame_factory_, Initialize(_, _, _)).Times(0);
+  EXPECT_CALL(*video_frame_factory_, Initialize(ExpectedOverlayMode(), _))
+      .Times(0);
   EXPECT_CALL(*surface_chooser_, MockUpdateState()).Times(0);
-  EXPECT_CALL(*codec_allocator_, MockCreateMediaCodecAsync(_, _)).Times(0);
+  EXPECT_CALL(*codec_allocator_, MockCreateMediaCodecAsync()).Times(0);
   Initialize(TestVideoConfig::Large(codec_));
 }
 
 TEST_P(MediaCodecVideoDecoderTest, FirstDecodeTriggersFrameFactoryInit) {
   Initialize(TestVideoConfig::Large(codec_));
-  EXPECT_CALL(*video_frame_factory_, Initialize(_, _, _));
+  EXPECT_CALL(*video_frame_factory_, Initialize(ExpectedOverlayMode(), _));
   mcvd_->Decode(fake_decoder_buffer_, decode_cb_.Get());
 }
 
@@ -365,14 +392,14 @@ TEST_P(MediaCodecVideoDecoderTest, CodecIsCreatedAfterSurfaceChosen) {
   Initialize(TestVideoConfig::Large(codec_));
   mcvd_->Decode(fake_decoder_buffer_, decode_cb_.Get());
   provide_overlay_info_cb_.Run(OverlayInfo());
-  EXPECT_CALL(*codec_allocator_, MockCreateMediaCodecAsync(_, NotNull()));
+  EXPECT_CALL(*codec_allocator_, MockCreateMediaCodecAsync());
   surface_chooser_->ProvideTextureOwner();
 }
 
 TEST_P(MediaCodecVideoDecoderTest, FrameFactoryInitFailureIsAnError) {
   Initialize(TestVideoConfig::Large(codec_));
-  ON_CALL(*video_frame_factory_, Initialize(_, _, _))
-      .WillByDefault(RunCallback<2>(nullptr));
+  ON_CALL(*video_frame_factory_, Initialize(ExpectedOverlayMode(), _))
+      .WillByDefault(RunCallback<1>(nullptr));
   EXPECT_CALL(decode_cb_, Run(DecodeStatus::DECODE_ERROR)).Times(1);
   EXPECT_CALL(*surface_chooser_, MockUpdateState()).Times(0);
   mcvd_->Decode(fake_decoder_buffer_, decode_cb_.Get());
@@ -412,7 +439,7 @@ TEST_P(MediaCodecVideoDecoderTest, AfterInitCompletesTheCodecIsPolled) {
 TEST_P(MediaCodecVideoDecoderTest, CodecIsReleasedOnDestruction) {
   auto* codec =
       InitializeFully_OneDecodePending(TestVideoConfig::Large(codec_));
-  EXPECT_CALL(*codec_allocator_, MockReleaseMediaCodec(codec, _, _));
+  EXPECT_CALL(*codec_allocator_, MockReleaseMediaCodec(codec));
 }
 
 TEST_P(MediaCodecVideoDecoderTest, SurfaceChooserIsUpdatedOnOverlayChanges) {
@@ -451,12 +478,11 @@ TEST_P(MediaCodecVideoDecoderTest, DuplicateOverlayInfoUpdatesAreIgnored) {
 }
 
 TEST_P(MediaCodecVideoDecoderTest, CodecIsCreatedWithChosenOverlay) {
-  AndroidOverlay* overlay_passed_to_codec = nullptr;
-  EXPECT_CALL(*codec_allocator_, MockCreateMediaCodecAsync(_, _))
-      .WillOnce(SaveArg<0>(&overlay_passed_to_codec));
-  auto* overlay =
-      InitializeWithOverlay_OneDecodePending(TestVideoConfig::Large(codec_));
-  DCHECK_EQ(overlay, overlay_passed_to_codec);
+  EXPECT_CALL(*codec_allocator_, MockCreateMediaCodecAsync());
+  InitializeWithOverlay_OneDecodePending(TestVideoConfig::Large(codec_));
+  EXPECT_TRUE(base::android::AttachCurrentThread()->IsSameObject(
+      java_surface_.obj(),
+      codec_allocator_->most_recent_config->surface.obj()));
 }
 
 TEST_P(MediaCodecVideoDecoderTest,
@@ -467,10 +493,10 @@ TEST_P(MediaCodecVideoDecoderTest,
       InitializeWithOverlay_OneDecodePending(TestVideoConfig::Large(codec_));
   overlay->OnSurfaceDestroyed();
 
-  // MCVD should invalidate its CodecAllocatorClient WeakPtr so that it doesn't
-  // receive the codec after surface destroyed. FakeCodecAllocator returns
-  // nullptr if the client pointer was invalidated.
-  ASSERT_FALSE(codec_allocator_->ProvideMockCodecAsync());
+  // MCVD handles release of the MediaCodec after WeakPtr invalidation.
+  EXPECT_CALL(*codec_allocator_, MockReleaseMediaCodec(NotNull()));
+  auto* codec = codec_allocator_->ProvideMockCodecAsync();
+  ASSERT_TRUE(!!codec);
 }
 
 TEST_P(MediaCodecVideoDecoderTest, SurfaceChangedWhileCodecCreationPending) {
@@ -508,7 +534,7 @@ TEST_P(MediaCodecVideoDecoderTest,
 
   // MCVD must synchronously release the codec.
   EXPECT_CALL(*codec, SetSurface(_)).Times(0);
-  EXPECT_CALL(*codec_allocator_, MockReleaseMediaCodec(codec, NotNull(), _));
+  EXPECT_CALL(*codec_allocator_, MockReleaseMediaCodec(codec));
   overlay->OnSurfaceDestroyed();
   // Verify expectations before we delete the MCVD.
   testing::Mock::VerifyAndClearExpectations(codec_allocator_.get());
@@ -532,7 +558,7 @@ TEST_P(MediaCodecVideoDecoderTest,
   surface_chooser_->ProvideTextureOwner();
   EXPECT_CALL(*codec, SetSurface(_)).WillOnce(Return(false));
   EXPECT_CALL(decode_cb_, Run(DecodeStatus::DECODE_ERROR)).Times(2);
-  EXPECT_CALL(*codec_allocator_, MockReleaseMediaCodec(codec, NotNull(), _));
+  EXPECT_CALL(*codec_allocator_, MockReleaseMediaCodec(codec));
   mcvd_->Decode(fake_decoder_buffer_, decode_cb_.Get());
   // Verify expectations before we delete the MCVD.
   testing::Mock::VerifyAndClearExpectations(codec_allocator_.get());
@@ -777,8 +803,23 @@ TEST_P(MediaCodecVideoDecoderTest, TeardownInvalidatesCodecCreationWeakPtr) {
   mcvd_.reset();
   // DeleteSoon() is now pending. Ensure it's safe if the codec creation
   // completes before it runs.
-  ASSERT_FALSE(codec_allocator_->ProvideMockCodecAsync());
   destruction_observer_->ExpectDestruction();
+  EXPECT_CALL(*codec_allocator_, MockReleaseMediaCodec(NotNull()));
+  ASSERT_TRUE(codec_allocator_->ProvideMockCodecAsync());
+}
+
+TEST_P(MediaCodecVideoDecoderTest,
+       TeardownInvalidatesCodecCreationWeakPtrButDoesNotCallReleaseMediaCodec) {
+  InitializeWithTextureOwner_OneDecodePending(TestVideoConfig::Large(codec_));
+  destruction_observer_->DoNotAllowDestruction();
+  mcvd_.reset();
+  // DeleteSoon() is now pending. Ensure it's safe if the codec creation
+  // completes before it runs.
+  destruction_observer_->ExpectDestruction();
+
+  // A null codec should not be released via ReleaseMediaCodec().
+  EXPECT_CALL(*codec_allocator_, MockReleaseMediaCodec(_)).Times(0);
+  codec_allocator_->ProvideNullCodecAsync();
 }
 
 TEST_P(MediaCodecVideoDecoderTest, TeardownDoesNotDrainFlushedCodecs) {
@@ -834,12 +875,12 @@ TEST_P(MediaCodecVideoDecoderTest, CdmInitializationWorksForL3) {
       TestVideoConfig::NormalEncrypted(codec_));
   ASSERT_TRUE(!!cdm_->new_key_cb);
   ASSERT_TRUE(!!cdm_->cdm_unset_cb);
-  ASSERT_TRUE(!!cdm_->media_crypto_ready_cb);
+  ASSERT_TRUE(!!cdm_->ran_media_crypto_ready_cb);
   ASSERT_EQ(surface_chooser_->current_state_.is_secure, true);
   ASSERT_EQ(surface_chooser_->current_state_.is_required, false);
-  ASSERT_FALSE(codec_allocator_->most_recent_config->requires_secure_codec);
+  ASSERT_EQ(codec_allocator_->most_recent_config->codec_type, CodecType::kAny);
   // We can't check for equality safely, but verify that something was provided.
-  ASSERT_TRUE(codec_allocator_->most_recent_config->media_crypto->obj());
+  ASSERT_TRUE(codec_allocator_->most_recent_config->media_crypto);
 
   // When |mcvd_| is destroyed, expect that it will unregister itself.
   EXPECT_CALL(*cdm_, UnregisterPlayer(MockMediaCryptoContext::kRegistrationId));
@@ -853,11 +894,12 @@ TEST_P(MediaCodecVideoDecoderTest, CdmInitializationWorksForL1) {
       TestVideoConfig::NormalEncrypted(codec_));
   ASSERT_TRUE(!!cdm_->new_key_cb);
   ASSERT_TRUE(!!cdm_->cdm_unset_cb);
-  ASSERT_TRUE(!!cdm_->media_crypto_ready_cb);
+  ASSERT_TRUE(!!cdm_->ran_media_crypto_ready_cb);
   ASSERT_EQ(surface_chooser_->current_state_.is_secure, true);
   ASSERT_EQ(surface_chooser_->current_state_.is_required, true);
-  ASSERT_TRUE(codec_allocator_->most_recent_config->requires_secure_codec);
-  ASSERT_TRUE(codec_allocator_->most_recent_config->media_crypto->obj());
+  ASSERT_EQ(codec_allocator_->most_recent_config->codec_type,
+            CodecType::kSecure);
+  ASSERT_TRUE(codec_allocator_->most_recent_config->media_crypto);
 
   // When |mcvd_| is destroyed, expect that it will unregister itself.
   EXPECT_CALL(*cdm_, UnregisterPlayer(MockMediaCryptoContext::kRegistrationId));
@@ -872,12 +914,13 @@ TEST_P(MediaCodecVideoDecoderTest, CdmIsSetEvenForClearStream) {
   InitializeWithOverlay_OneDecodePending(TestVideoConfig::Large(codec_));
   ASSERT_TRUE(!!cdm_->new_key_cb);
   ASSERT_TRUE(!!cdm_->cdm_unset_cb);
-  ASSERT_TRUE(!!cdm_->media_crypto_ready_cb);
+  ASSERT_TRUE(!!cdm_->ran_media_crypto_ready_cb);
   ASSERT_EQ(surface_chooser_->current_state_.is_secure, true);
   ASSERT_EQ(surface_chooser_->current_state_.is_required, false);
-  ASSERT_FALSE(codec_allocator_->most_recent_config->requires_secure_codec);
+  ASSERT_NE(codec_allocator_->most_recent_config->codec_type,
+            CodecType::kSecure);
   // We can't check for equality safely, but verify that something was provided.
-  ASSERT_TRUE(codec_allocator_->most_recent_config->media_crypto->obj());
+  ASSERT_TRUE(codec_allocator_->most_recent_config->media_crypto);
 
   // When |mcvd_| is destroyed, expect that it will unregister itself.
   EXPECT_CALL(*cdm_, UnregisterPlayer(MockMediaCryptoContext::kRegistrationId));
@@ -891,9 +934,12 @@ TEST_P(MediaCodecVideoDecoderTest, NoMediaCryptoContext_ClearStream) {
   ASSERT_FALSE(!!cdm_->new_key_cb);
   ASSERT_FALSE(!!cdm_->cdm_unset_cb);
   ASSERT_FALSE(!!cdm_->media_crypto_ready_cb);
+  ASSERT_FALSE(!!cdm_->ran_media_crypto_ready_cb);
   ASSERT_EQ(surface_chooser_->current_state_.is_secure, false);
   ASSERT_EQ(surface_chooser_->current_state_.is_required, false);
-  ASSERT_FALSE(codec_allocator_->most_recent_config->requires_secure_codec);
+  ASSERT_NE(codec_allocator_->most_recent_config->codec_type,
+            CodecType::kSecure);
+  ASSERT_FALSE(codec_allocator_->most_recent_config->media_crypto);
 }
 
 TEST_P(MediaCodecVideoDecoderTest, NoMediaCryptoContext_EncryptedStream) {
@@ -1027,18 +1073,18 @@ static std::vector<VideoCodec> GetVp8IfAvailable() {
              : std::vector<VideoCodec>();
 }
 
-INSTANTIATE_TEST_CASE_P(MediaCodecVideoDecoderTest,
-                        MediaCodecVideoDecoderTest,
-                        testing::ValuesIn(GetTestList()));
+INSTANTIATE_TEST_SUITE_P(MediaCodecVideoDecoderTest,
+                         MediaCodecVideoDecoderTest,
+                         testing::ValuesIn(GetTestList()));
 
 #if BUILDFLAG(USE_PROPRIETARY_CODECS)
-INSTANTIATE_TEST_CASE_P(MediaCodecVideoDecoderH264Test,
-                        MediaCodecVideoDecoderH264Test,
-                        testing::ValuesIn(GetH264IfAvailable()));
+INSTANTIATE_TEST_SUITE_P(MediaCodecVideoDecoderH264Test,
+                         MediaCodecVideoDecoderH264Test,
+                         testing::ValuesIn(GetH264IfAvailable()));
 #endif
 
-INSTANTIATE_TEST_CASE_P(MediaCodecVideoDecoderVp8Test,
-                        MediaCodecVideoDecoderVp8Test,
-                        testing::ValuesIn(GetVp8IfAvailable()));
+INSTANTIATE_TEST_SUITE_P(MediaCodecVideoDecoderVp8Test,
+                         MediaCodecVideoDecoderVp8Test,
+                         testing::ValuesIn(GetVp8IfAvailable()));
 
 }  // namespace media

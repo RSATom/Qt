@@ -1009,6 +1009,10 @@ static const GLES2Util::EnumToString enum_to_string_table[] = {
         "GL_LATENCY_QUERY_CHROMIUM",
     },
     {
+        0x6009,
+        "GL_PROGRAM_COMPLETION_QUERY_CHROMIUM",
+    },
+    {
         0x78EC,
         "GL_PIXEL_UNPACK_TRANSFER_BUFFER_CHROMIUM",
     },
@@ -1035,6 +1039,10 @@ static const GLES2Util::EnumToString enum_to_string_table[] = {
     {
         0x78FC,
         "GL_RGB_YCBCR_420V_CHROMIUM",
+    },
+    {
+        0x78FD,
+        "GL_RGB_YCBCR_P010_CHROMIUM",
     },
     {
         0x8,
@@ -2694,10 +2702,14 @@ static const GLES2Util::EnumToString enum_to_string_table[] = {
     },
     {
         0x8AF5,
-        "GL_SHARED_IMAGE_ACCESS_MODE_READ_CHROMIUM",
+        "GL_COLOR_SPACE_HDR10_CHROMIUM",
     },
     {
         0x8AF6,
+        "GL_SHARED_IMAGE_ACCESS_MODE_READ_CHROMIUM",
+    },
+    {
+        0x8AF7,
         "GL_SHARED_IMAGE_ACCESS_MODE_READWRITE_CHROMIUM",
     },
     {
@@ -7042,14 +7054,9 @@ std::string GLES2Util::GetStringGLState(uint32_t value) {
       {GL_TRANSFORM_FEEDBACK_BUFFER_BINDING,
        "GL_TRANSFORM_FEEDBACK_BUFFER_BINDING"},
       {GL_TRANSFORM_FEEDBACK_PAUSED, "GL_TRANSFORM_FEEDBACK_PAUSED"},
-      {GL_TRANSFORM_FEEDBACK_BUFFER_SIZE, "GL_TRANSFORM_FEEDBACK_BUFFER_SIZE"},
-      {GL_TRANSFORM_FEEDBACK_BUFFER_START,
-       "GL_TRANSFORM_FEEDBACK_BUFFER_START"},
       {GL_UNIFORM_BUFFER_BINDING, "GL_UNIFORM_BUFFER_BINDING"},
       {GL_UNIFORM_BUFFER_OFFSET_ALIGNMENT,
        "GL_UNIFORM_BUFFER_OFFSET_ALIGNMENT"},
-      {GL_UNIFORM_BUFFER_SIZE, "GL_UNIFORM_BUFFER_SIZE"},
-      {GL_UNIFORM_BUFFER_START, "GL_UNIFORM_BUFFER_START"},
       {GL_UNPACK_IMAGE_HEIGHT, "GL_UNPACK_IMAGE_HEIGHT"},
       {GL_UNPACK_ROW_LENGTH, "GL_UNPACK_ROW_LENGTH"},
       {GL_UNPACK_SKIP_IMAGES, "GL_UNPACK_SKIP_IMAGES"},
@@ -7372,6 +7379,8 @@ std::string GLES2Util::GetStringQueryTarget(uint32_t value) {
       {GL_COMMANDS_COMPLETED_CHROMIUM, "GL_COMMANDS_COMPLETED_CHROMIUM"},
       {GL_READBACK_SHADOW_COPIES_UPDATED_CHROMIUM,
        "GL_READBACK_SHADOW_COPIES_UPDATED_CHROMIUM"},
+      {GL_PROGRAM_COMPLETION_QUERY_CHROMIUM,
+       "GL_PROGRAM_COMPLETION_QUERY_CHROMIUM"},
   };
   return GLES2Util::GetQualifiedEnumString(string_table,
                                            base::size(string_table), value);

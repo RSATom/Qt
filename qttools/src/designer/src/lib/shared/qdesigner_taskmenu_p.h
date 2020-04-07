@@ -97,7 +97,7 @@ private slots:
     void changeWhatsThis();
     void changeStyleSheet();
     void createMenuBar();
-    void addToolBar();
+    void addToolBar(Qt::ToolBarArea area);
     void createStatusBar();
     void removeStatusBar();
     void containerFakeMethods();
@@ -109,7 +109,7 @@ private:
     QDesignerTaskMenuPrivate *d;
 };
 
-typedef ExtensionFactory<QDesignerTaskMenuExtension, QWidget, QDesignerTaskMenu>  QDesignerTaskMenuFactory;
+using QDesignerTaskMenuFactory = ExtensionFactory<QDesignerTaskMenuExtension, QWidget, QDesignerTaskMenu>;
 
 } // namespace qdesigner_internal
 

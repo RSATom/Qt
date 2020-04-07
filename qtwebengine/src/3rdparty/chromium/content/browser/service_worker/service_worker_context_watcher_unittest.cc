@@ -4,6 +4,7 @@
 
 #include "content/browser/service_worker/service_worker_context_watcher.h"
 
+#include "base/bind.h"
 #include "base/memory/weak_ptr.h"
 #include "base/run_loop.h"
 #include "base/strings/utf_string_conversions.h"
@@ -34,7 +35,7 @@ void DidUnregisterServiceWorker(blink::ServiceWorkerStatusCode* status_out,
 
 class WatcherCallback {
  public:
-  WatcherCallback() : weak_factory_(this) {}
+  WatcherCallback() {}
 
   ~WatcherCallback() {}
 
@@ -43,12 +44,12 @@ class WatcherCallback {
     scoped_refptr<ServiceWorkerContextWatcher> watcher =
         base::MakeRefCounted<ServiceWorkerContextWatcher>(
             context,
-            base::Bind(&WatcherCallback::OnRegistrationUpdated,
-                       weak_factory_.GetWeakPtr()),
-            base::Bind(&WatcherCallback::OnVersionUpdated,
-                       weak_factory_.GetWeakPtr()),
-            base::Bind(&WatcherCallback::OnErrorReported,
-                       weak_factory_.GetWeakPtr()));
+            base::BindRepeating(&WatcherCallback::OnRegistrationUpdated,
+                                weak_factory_.GetWeakPtr()),
+            base::BindRepeating(&WatcherCallback::OnVersionUpdated,
+                                weak_factory_.GetWeakPtr()),
+            base::BindRepeating(&WatcherCallback::OnErrorReported,
+                                weak_factory_.GetWeakPtr()));
     watcher->Start();
     return watcher;
   }
@@ -70,7 +71,7 @@ class WatcherCallback {
     return errors_;
   }
 
-  int callback_count() const { return callback_count_; };
+  int callback_count() const { return callback_count_; }
 
  private:
   void OnRegistrationUpdated(
@@ -113,7 +114,7 @@ class WatcherCallback {
 
   int callback_count_ = 0;
 
-  base::WeakPtrFactory<WatcherCallback> weak_factory_;
+  base::WeakPtrFactory<WatcherCallback> weak_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(WatcherCallback);
 };

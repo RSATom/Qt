@@ -65,7 +65,7 @@ class QAxWidget1 : public QWidget
     Q_PROPERTY(QColor fillColor READ fillColor WRITE setFillColor)
 public:
     explicit QAxWidget1(QWidget *parent = nullptr)
-        : QWidget(parent), m_fillColor(Qt::red)
+        : QWidget(parent)
     {
     }
 
@@ -81,7 +81,7 @@ public:
     }
 
 protected:
-    void paintEvent(QPaintEvent *e)
+    void paintEvent(QPaintEvent *e) override
     {
         QPainter paint(this);
         QRect r = rect();
@@ -90,7 +90,7 @@ protected:
     }
 
 private:
-    QColor m_fillColor;
+    QColor m_fillColor = Qt::red;
 };
 //! [0]
 

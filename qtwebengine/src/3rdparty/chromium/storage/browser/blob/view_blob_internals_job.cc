@@ -6,6 +6,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <sstream>
 
 #include "base/bind.h"
 #include "base/compiler_specific.h"
@@ -22,7 +23,6 @@
 #include "base/threading/thread_task_runner_handle.h"
 #include "net/base/escape.h"
 #include "net/base/net_errors.h"
-#include "net/disk_cache/disk_cache.h"
 #include "net/url_request/url_request.h"
 #include "storage/browser/blob/blob_data_item.h"
 #include "storage/browser/blob/blob_entry.h"
@@ -225,11 +225,11 @@ void ViewBlobInternalsJob::GenerateHTMLForBlobData(
     const BlobEntry& blob_data,
     const std::string& content_type,
     const std::string& content_disposition,
-    int refcount,
+    size_t refcount,
     std::string* out) {
   StartHTMLList(out);
 
-  AddHTMLListItem(kRefcount, base::IntToString(refcount), out);
+  AddHTMLListItem(kRefcount, base::NumberToString(refcount), out);
   AddHTMLListItem(kStatus, StatusToString(blob_data.status()), out);
   if (!content_type.empty())
     AddHTMLListItem(kContentType, content_type, out);
@@ -273,13 +273,13 @@ void ViewBlobInternalsJob::GenerateHTMLForBlobData(
               out);
         }
         break;
-      case BlobDataItem::Type::kDiskCacheEntry:
-        AddHTMLListItem(kType, "disk cache entry", out);
-        if (item.disk_cache_entry())
-          AddHTMLListItem(kURL, item.disk_cache_entry()->GetKey(), out);
-        else
-          AddHTMLListItem(kURL, "Broken", out);
+      case BlobDataItem::Type::kReadableDataHandle: {
+        AddHTMLListItem(kType, "readable data handle", out);
+        std::stringstream ss;
+        item.data_handle()->PrintTo(&ss);
+        AddHTMLListItem(kURL, ss.str(), out);
         break;
+      }
       case BlobDataItem::Type::kBytesDescription:
         AddHTMLListItem(kType, "pending data", out);
         break;

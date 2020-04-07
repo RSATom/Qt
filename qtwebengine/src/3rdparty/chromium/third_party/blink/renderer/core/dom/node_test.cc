@@ -16,6 +16,7 @@
 #include "third_party/blink/renderer/core/dom/shadow_root_init.h"
 #include "third_party/blink/renderer/core/editing/testing/editing_test_base.h"
 #include "third_party/blink/renderer/core/html/html_div_element.h"
+#include "third_party/blink/renderer/platform/heap/heap.h"
 
 namespace blink {
 
@@ -36,13 +37,13 @@ class FakeMediaControls : public HTMLDivElement {
 class NodeTest : public EditingTestBase {
  protected:
   LayoutObject* ReattachLayoutTreeForNode(Node& node) {
-    node.LazyReattachIfAttached();
+    node.SetForceReattachLayoutTree();
     GetDocument().Lifecycle().AdvanceTo(DocumentLifecycle::kInStyleRecalc);
-    GetDocument().GetStyleEngine().RecalcStyle(kNoChange);
-    ReattachLegacyLayoutObjectList legacy_objects(GetDocument());
+    GetDocument().GetStyleEngine().RecalcStyle({});
     Node::AttachContext context;
+    context.parent = LayoutTreeBuilderTraversal::ParentLayoutObject(node);
+    GetDocument().GetStyleEngine().in_layout_tree_rebuild_ = true;
     node.ReattachLayoutTree(context);
-    legacy_objects.ForceLegacyLayoutIfNeeded();
     return context.previous_in_flow;
   }
 
@@ -60,7 +61,7 @@ class NodeTest : public EditingTestBase {
     first_shadow.AppendChild(test_node);
     ShadowRoot& second_shadow = test_node->CreateUserAgentShadowRoot();
 
-    HTMLDivElement* class_div = HTMLDivElement::Create(GetDocument());
+    auto* class_div = MakeGarbageCollected<HTMLDivElement>(GetDocument());
     class_div->setAttribute("class", "test");
     second_shadow.AppendChild(class_div);
     return class_div;
@@ -291,7 +292,7 @@ TEST_F(NodeTest, AttachContext_PreviousInFlow_V0Content) {
 }
 
 TEST_F(NodeTest, HasMediaControlAncestor_Fail) {
-  HTMLDivElement* node = HTMLDivElement::Create(GetDocument());
+  auto* node = MakeGarbageCollected<HTMLDivElement>(GetDocument());
   EXPECT_FALSE(node->HasMediaControlAncestor());
   EXPECT_FALSE(InitializeUserAgentShadowTree(node)->HasMediaControlAncestor());
 }
@@ -325,24 +326,6 @@ TEST_F(NodeTest, appendChildCommentNoStyleRecalc) {
   Comment* comment = Comment::Create(GetDocument(), "comment");
   GetDocument().body()->appendChild(comment, ASSERT_NO_EXCEPTION);
   EXPECT_FALSE(GetDocument().ChildNeedsStyleRecalc());
-}
-
-TEST_F(NodeTest, LazyReattachCommentAndPI) {
-  SetBodyContent("<!-- -->");
-  HTMLElement* body = GetDocument().body();
-  ProcessingInstruction* pi =
-      ProcessingInstruction::Create(GetDocument(), "A", "B");
-  body->appendChild(pi, ASSERT_NO_EXCEPTION);
-  UpdateAllLifecyclePhasesForTest();
-
-  Node* comment = body->firstChild();
-  EXPECT_EQ(Node::kCommentNode, comment->getNodeType());
-
-  comment->LazyReattachIfAttached();
-  EXPECT_FALSE(body->ChildNeedsStyleRecalc());
-
-  pi->LazyReattachIfAttached();
-  EXPECT_FALSE(body->ChildNeedsStyleRecalc());
 }
 
 }  // namespace blink

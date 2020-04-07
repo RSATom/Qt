@@ -10,9 +10,9 @@
 #include "base/strings/string16.h"
 #include "base/strings/utf_string_conversions.h"
 #include "components/autofill/core/browser/address_normalizer.h"
-#include "components/autofill/core/browser/autofill_profile.h"
 #include "components/autofill/core/browser/autofill_test_utils.h"
-#include "components/autofill/core/browser/credit_card.h"
+#include "components/autofill/core/browser/data_model/autofill_profile.h"
+#include "components/autofill/core/browser/data_model/credit_card.h"
 #include "components/autofill/core/browser/payments/full_card_request.h"
 #include "components/autofill/core/browser/payments/payments_client.h"
 #include "components/autofill/core/browser/personal_data_manager.h"
@@ -42,7 +42,7 @@ class FakePaymentInstrumentDelegate : public PaymentInstrument::Delegate {
     on_instrument_details_ready_called_ = true;
   }
 
-  void OnInstrumentDetailsError() override {
+  void OnInstrumentDetailsError(const std::string& error_message) override {
     on_instrument_details_error_called_ = true;
   }
 
@@ -69,7 +69,6 @@ class FakePaymentRequestDelegate : public PaymentRequestDelegate {
             base::MakeRefCounted<network::WeakWrapperSharedURLLoaderFactory>(
                 &test_url_loader_factory_)),
         payments_client_(test_shared_loader_factory_,
-                         /*pref_service=*/nullptr,
                          /*identity_manager=*/nullptr,
                          /*account_info_getter=*/nullptr),
         full_card_request_(&autofill_client_,
@@ -88,8 +87,6 @@ class FakePaymentRequestDelegate : public PaymentRequestDelegate {
   const std::string& GetApplicationLocale() const override { return locale_; }
 
   bool IsIncognito() const override { return false; }
-
-  bool IsSslCertificateValid() override { return true; }
 
   const GURL& GetLastCommittedURL() const override {
     return last_committed_url_;
@@ -144,7 +141,7 @@ class AutofillPaymentInstrumentTest : public testing::Test {
   }
 
   autofill::CreditCard& local_credit_card() { return local_card_; }
-  const std::vector<autofill::AutofillProfile*>& billing_profiles() {
+  std::vector<autofill::AutofillProfile*>& billing_profiles() {
     return billing_profiles_;
   }
 
@@ -226,6 +223,25 @@ TEST_F(AutofillPaymentInstrumentTest,
        IsCompleteForPayment_InvalidBillinbAddressId) {
   autofill::CreditCard& card = local_credit_card();
   card.set_billing_address_id("InvalidBillingAddressId");
+  base::string16 missing_info;
+  AutofillPaymentInstrument instrument(
+      "visa", card, /*matches_merchant_card_type_exactly=*/true,
+      billing_profiles(), "en-US", nullptr);
+  EXPECT_FALSE(instrument.IsCompleteForPayment());
+  EXPECT_EQ(
+      l10n_util::GetStringUTF16(IDS_PAYMENTS_CARD_BILLING_ADDRESS_REQUIRED),
+      instrument.GetMissingInfoLabel());
+}
+
+// A local card with an incomplete billing address is not a complete instrument
+// for payment.
+TEST_F(AutofillPaymentInstrumentTest,
+       IsCompleteForPayment_IncompleteBillinbAddress) {
+  autofill::AutofillProfile incomplete_profile =
+      autofill::test::GetIncompleteProfile2();
+  billing_profiles()[0] = &incomplete_profile;
+  autofill::CreditCard& card = local_credit_card();
+  card.set_billing_address_id(incomplete_profile.guid());
   base::string16 missing_info;
   AutofillPaymentInstrument instrument(
       "visa", card, /*matches_merchant_card_type_exactly=*/true,

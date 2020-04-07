@@ -4,6 +4,7 @@
 
 #include "components/web_resource/resource_request_allowed_notifier.h"
 
+#include "base/bind.h"
 #include "base/command_line.h"
 
 namespace web_resource {
@@ -18,8 +19,7 @@ ResourceRequestAllowedNotifier::ResourceRequestAllowedNotifier(
       waiting_for_user_to_accept_eula_(false),
       observer_(nullptr),
       network_connection_tracker_getter_(
-          std::move(network_connection_tracker_getter)),
-      weak_factory_(this) {}
+          std::move(network_connection_tracker_getter)) {}
 
 ResourceRequestAllowedNotifier::~ResourceRequestAllowedNotifier() {
   if (observer_)

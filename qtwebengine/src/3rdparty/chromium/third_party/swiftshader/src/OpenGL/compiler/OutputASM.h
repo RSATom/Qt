@@ -183,7 +183,7 @@ namespace glsl
 	{
 		friend class OutputASM;
 	public:
-		virtual ~Shader() {};
+		virtual ~Shader() {}
 		virtual sw::Shader *getShader() const = 0;
 		virtual sw::PixelShader *getPixelShader() const;
 		virtual sw::VertexShader *getVertexShader() const;
@@ -303,12 +303,14 @@ namespace glsl
 		int samplerRegister(TIntermTyped *sampler);
 		int samplerRegister(TIntermSymbol *sampler);
 		bool isSamplerRegister(TIntermTyped *operand);
+		bool arrayExceedsLimits(TIntermTyped *operand);
 
 		typedef std::vector<TIntermTyped*> VariableArray;
 
 		int lookup(VariableArray &list, TIntermTyped *variable);
 		int lookup(VariableArray &list, TInterfaceBlock *block);
 		int blockMemberLookup(const TType &type, const TString &name, int registerIndex);
+		// Returns -1 if it fails to allocate variable.
 		int allocate(VariableArray &list, TIntermTyped *variable, bool samplersOnly = false);
 		void free(VariableArray &list, TIntermTyped *variable);
 

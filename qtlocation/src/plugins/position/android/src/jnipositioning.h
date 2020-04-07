@@ -40,6 +40,7 @@
 #ifndef JNIPOSITIONING_H
 #define JNIPOSITIONING_H
 
+#include <jni.h>
 #include <QGeoPositionInfoSource>
 #include <QGeoSatelliteInfoSource>
 
@@ -58,6 +59,7 @@ namespace AndroidPositioning
     QGeoSatelliteInfoSource::Error startSatelliteUpdates(int androidClassKey,
                                                          bool isSingleRequest,
                                                          int updateRequestTimeout);
+    bool requestionPositioningPermissions(JNIEnv *env);
 }
 
 #endif // JNIPOSITIONING_H

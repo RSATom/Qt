@@ -4,6 +4,8 @@
 
 #include "ui/views/accessible_pane_view.h"
 
+#include <memory>
+
 #include "ui/accessibility/ax_node_data.h"
 #include "ui/views/focus/focus_search.h"
 #include "ui/views/view_tracker.h"
@@ -41,17 +43,8 @@ class AccessiblePaneViewFocusSearch : public FocusSearch {
 };
 
 AccessiblePaneView::AccessiblePaneView()
-    : pane_has_focus_(false),
-      allow_deactivate_on_esc_(false),
-      focus_manager_(nullptr),
-      home_key_(ui::VKEY_HOME, ui::EF_NONE),
-      end_key_(ui::VKEY_END, ui::EF_NONE),
-      escape_key_(ui::VKEY_ESCAPE, ui::EF_NONE),
-      left_key_(ui::VKEY_LEFT, ui::EF_NONE),
-      right_key_(ui::VKEY_RIGHT, ui::EF_NONE),
-      last_focused_view_tracker_(std::make_unique<ViewTracker>()),
-      method_factory_(this) {
-  focus_search_.reset(new AccessiblePaneViewFocusSearch(this));
+    : last_focused_view_tracker_(std::make_unique<ViewTracker>()) {
+  focus_search_ = std::make_unique<AccessiblePaneViewFocusSearch>(this);
 }
 
 AccessiblePaneView::~AccessiblePaneView() {
@@ -61,7 +54,7 @@ AccessiblePaneView::~AccessiblePaneView() {
 }
 
 bool AccessiblePaneView::SetPaneFocus(views::View* initial_focus) {
-  if (!visible())
+  if (!GetVisible())
     return false;
 
   if (!focus_manager_)
@@ -73,10 +66,8 @@ bool AccessiblePaneView::SetPaneFocus(views::View* initial_focus) {
 
   // Use the provided initial focus if it's visible and enabled, otherwise
   // use the first focusable child.
-  if (!initial_focus ||
-      !ContainsForFocusSearch(this, initial_focus) ||
-      !initial_focus->visible() ||
-      !initial_focus->enabled()) {
+  if (!initial_focus || !ContainsForFocusSearch(this, initial_focus) ||
+      !initial_focus->GetVisible() || !initial_focus->GetEnabled()) {
     initial_focus = GetFirstFocusableChild();
   }
 
@@ -205,7 +196,7 @@ bool AccessiblePaneView::AcceleratorPressed(
 }
 
 void AccessiblePaneView::SetVisible(bool flag) {
-  if (visible() && !flag && pane_has_focus_) {
+  if (GetVisible() && !flag && pane_has_focus_) {
     RemovePaneFocus();
     focus_manager_->RestoreFocusedView();
   }
@@ -263,5 +254,9 @@ views::View* AccessiblePaneView::GetFocusTraversableParentView() {
   DCHECK(pane_has_focus_);
   return nullptr;
 }
+
+BEGIN_METADATA(AccessiblePaneView)
+METADATA_PARENT_CLASS(View)
+END_METADATA()
 
 }  // namespace views

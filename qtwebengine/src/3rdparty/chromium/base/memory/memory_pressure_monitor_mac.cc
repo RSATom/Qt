@@ -20,10 +20,6 @@
 DISPATCH_EXPORT const struct dispatch_source_type_s
     _dispatch_source_type_memorypressure;
 
-namespace {
-static const int kUMATickSize = 5;
-}  // namespace
-
 namespace base {
 namespace mac {
 
@@ -56,7 +52,7 @@ MemoryPressureMonitor::MemoryPressureMonitor()
               DISPATCH_MEMORYPRESSURE_NORMAL,
           dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0))),
       dispatch_callback_(
-          base::Bind(&MemoryPressureListener::NotifyMemoryPressure)),
+          base::BindRepeating(&MemoryPressureListener::NotifyMemoryPressure)),
       last_statistic_report_time_(CFAbsoluteTimeGetCurrent()),
       last_pressure_level_(MemoryPressureListener::MEMORY_PRESSURE_LEVEL_NONE),
       subtick_seconds_(0) {
@@ -72,7 +68,8 @@ MemoryPressureMonitor::MemoryPressureMonitor()
   }
 
   // Create a CFRunLoopObserver to check the memory pressure at the end of
-  // every pass through the event loop (modulo kUMATickSize).
+  // every pass through the event loop (modulo
+  // MemoryPressureMonitor::kUMAMemoryPressureLevelPeriod).
   CFRunLoopObserverContext observer_context = {0, this, NULL, NULL, NULL};
 
   exit_observer_.reset(
@@ -122,9 +119,13 @@ void MemoryPressureMonitor::UpdatePressureLevel() {
   last_statistic_report_time_ = now;
 
   double accumulated_time = time_since_last_report + subtick_seconds_;
-  int ticks_to_report = static_cast<int>(accumulated_time / kUMATickSize);
+  int ticks_to_report = static_cast<int>(
+      accumulated_time /
+      base::MemoryPressureMonitor::kUMAMemoryPressureLevelPeriod.InSeconds());
   // Save for later the seconds that didn't make it into a full tick.
-  subtick_seconds_ = std::fmod(accumulated_time, kUMATickSize);
+  subtick_seconds_ = std::fmod(
+      accumulated_time,
+      base::MemoryPressureMonitor::kUMAMemoryPressureLevelPeriod.InSeconds());
 
   // Round the tick count up on a pressure level change to ensure we capture it.
   bool pressure_level_changed = (new_pressure_level != last_pressure_level_);
@@ -148,20 +149,23 @@ void MemoryPressureMonitor::UpdatePressureLevelOnRunLoopExit() {
   if (now >= next_run_loop_update_time_) {
     UpdatePressureLevel();
 
-    // Update again in kUMATickSize seconds. We can update at any frequency,
-    // but because we're only checking memory pressure levels for UMA there's
-    // no need to update more frequently than we're keeping statistics on.
-    next_run_loop_update_time_ = now + kUMATickSize - subtick_seconds_;
+    // Update again in MemoryPressureMonitor::kUMAMemoryPressureLevelPeriod
+    // seconds. We can update at any frequency, but because we're only checking
+    // memory pressure levels for UMA there's no need to update more frequently
+    // than we're keeping statistics on.
+    next_run_loop_update_time_ =
+        now + MemoryPressureMonitor::kUMAMemoryPressureLevelPeriod.InSeconds() -
+        subtick_seconds_;
   }
 }
 
 // Static.
 int MemoryPressureMonitor::GetSecondsPerUMATick() {
-  return kUMATickSize;
+  return base::MemoryPressureMonitor::kUMAMemoryPressureLevelPeriod.InSeconds();
 }
 
 MemoryPressureListener::MemoryPressureLevel
-MemoryPressureMonitor::GetCurrentPressureLevel() {
+MemoryPressureMonitor::GetCurrentPressureLevel() const {
   return last_pressure_level_;
 }
 

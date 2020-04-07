@@ -8,16 +8,17 @@
 #include <utility>
 #include <vector>
 
+#include "base/bind.h"
 #include "base/metrics/histogram_functions.h"
 #include "content/browser/background_fetch/background_fetch_data_manager.h"
 #include "content/browser/background_fetch/background_fetch_data_manager_observer.h"
 #include "content/browser/background_fetch/storage/database_helpers.h"
+#include "content/browser/cache_storage/cache_storage.h"
 #include "content/browser/service_worker/service_worker_context_wrapper.h"
 #include "content/public/browser/browser_thread.h"
 #include "storage/browser/quota/quota_manager_proxy.h"
 
 namespace content {
-
 namespace background_fetch {
 
 namespace {
@@ -39,8 +40,7 @@ DatabaseTaskHost::DatabaseTaskHost() = default;
 
 DatabaseTaskHost::~DatabaseTaskHost() = default;
 
-DatabaseTask::DatabaseTask(DatabaseTaskHost* host)
-    : host_(host), weak_ptr_factory_(this) {
+DatabaseTask::DatabaseTask(DatabaseTaskHost* host) : host_(host) {
   DCHECK(host_);
   // Hold a reference to the CacheStorageManager.
   cache_manager_ = data_manager()->cache_manager();
@@ -211,5 +211,4 @@ void DatabaseTask::ReleaseCacheStorage(const std::string& unique_id) {
 }
 
 }  // namespace background_fetch
-
 }  // namespace content

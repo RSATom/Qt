@@ -4,6 +4,9 @@
 
 #include "ui/gl/gl_surface_presentation_helper.h"
 
+#include <utility>
+
+#include "base/bind.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
 #include "ui/gfx/vsync_provider.h"
@@ -16,16 +19,16 @@ namespace gl {
 
 GLSurfacePresentationHelper::ScopedSwapBuffers::ScopedSwapBuffers(
     GLSurfacePresentationHelper* helper,
-    const GLSurface::PresentationCallback& callback)
-    : ScopedSwapBuffers(helper, callback, -1) {}
+    GLSurface::PresentationCallback callback)
+    : ScopedSwapBuffers(helper, std::move(callback), -1) {}
 
 GLSurfacePresentationHelper::ScopedSwapBuffers::ScopedSwapBuffers(
     GLSurfacePresentationHelper* helper,
-    const GLSurface::PresentationCallback& callback,
+    GLSurface::PresentationCallback callback,
     int frame_id)
     : helper_(helper) {
   if (helper_)
-    helper_->PreSwapBuffers(callback, frame_id);
+    helper_->PreSwapBuffers(std::move(callback), frame_id);
 }
 
 GLSurfacePresentationHelper::ScopedSwapBuffers::~ScopedSwapBuffers() {
@@ -37,22 +40,22 @@ GLSurfacePresentationHelper::Frame::Frame(Frame&& other) = default;
 
 GLSurfacePresentationHelper::Frame::Frame(
     int frame_id,
-    const GLSurface::PresentationCallback& callback)
-    : frame_id(frame_id), callback(callback) {}
+    GLSurface::PresentationCallback callback)
+    : frame_id(frame_id), callback(std::move(callback)) {}
 
 GLSurfacePresentationHelper::Frame::Frame(
     std::unique_ptr<GPUTimer>&& timer,
-    const GLSurface::PresentationCallback& callback)
-    : timer(std::move(timer)), callback(callback) {}
+    GLSurface::PresentationCallback callback)
+    : timer(std::move(timer)), callback(std::move(callback)) {}
 
 GLSurfacePresentationHelper::Frame::Frame(
     std::unique_ptr<GLFence>&& fence,
-    const GLSurface::PresentationCallback& callback)
-    : fence(std::move(fence)), callback(callback) {}
+    GLSurface::PresentationCallback callback)
+    : fence(std::move(fence)), callback(std::move(callback)) {}
 
 GLSurfacePresentationHelper::Frame::Frame(
-    const GLSurface::PresentationCallback& callback)
-    : callback(callback) {}
+    GLSurface::PresentationCallback callback)
+    : callback(std::move(callback)) {}
 
 GLSurfacePresentationHelper::Frame::~Frame() = default;
 
@@ -67,8 +70,24 @@ bool GLSurfacePresentationHelper::GetFrameTimestampInfoIfAvailable(
   DCHECK(frame.timer || frame.fence || egl_timestamp_client_);
 
   if (egl_timestamp_client_) {
-    return egl_timestamp_client_->GetFrameTimestampInfoIfAvailable(
+    bool result = egl_timestamp_client_->GetFrameTimestampInfoIfAvailable(
         timestamp, interval, flags, frame.frame_id);
+
+    // Workaround null timestamp by setting it to TimeTicks::Now() snapped to
+    // the next vsync interval. See
+    // https://bugs.chromium.org/p/chromium/issues/detail?id=966638 for more
+    // details.
+    if (result && timestamp->is_null()) {
+      *timestamp = base::TimeTicks::Now();
+      *interval = vsync_interval_;
+      *flags = 0;
+      if (!vsync_interval_.is_zero()) {
+        *timestamp =
+            timestamp->SnappedToNextTick(vsync_timebase_, vsync_interval_);
+        *flags = gfx::PresentationFeedback::kVSync;
+      }
+    }
+    return result;
   } else if (frame.timer) {
     if (!frame.timer->IsAvailable())
       return false;
@@ -131,20 +150,19 @@ void GLSurfacePresentationHelper::Frame::Destroy(bool has_context) {
     else
       fence->Invalidate();
   }
-  callback.Run(gfx::PresentationFeedback::Failure());
+  std::move(callback).Run(gfx::PresentationFeedback::Failure());
 }
 
 GLSurfacePresentationHelper::GLSurfacePresentationHelper(
     gfx::VSyncProvider* vsync_provider)
-    : vsync_provider_(vsync_provider), weak_ptr_factory_(this) {}
+    : vsync_provider_(vsync_provider) {}
 
 GLSurfacePresentationHelper::GLSurfacePresentationHelper(
     base::TimeTicks timebase,
     base::TimeDelta interval)
     : vsync_provider_(nullptr),
       vsync_timebase_(timebase),
-      vsync_interval_(interval),
-      weak_ptr_factory_(this) {}
+      vsync_interval_(interval) {}
 
 GLSurfacePresentationHelper::~GLSurfacePresentationHelper() {
   // Discard pending frames and run presentation callback with empty
@@ -201,20 +219,20 @@ void GLSurfacePresentationHelper::OnMakeCurrent(GLContext* context,
 }
 
 void GLSurfacePresentationHelper::PreSwapBuffers(
-    const GLSurface::PresentationCallback& callback,
+    GLSurface::PresentationCallback callback,
     int frame_id) {
   if (egl_timestamp_client_) {
-    pending_frames_.emplace_back(frame_id, callback);
+    pending_frames_.emplace_back(frame_id, std::move(callback));
   } else if (gpu_timing_client_) {
     std::unique_ptr<GPUTimer> timer;
     timer = gpu_timing_client_->CreateGPUTimer(false /* prefer_elapsed_time */);
     timer->QueryTimeStamp();
-    pending_frames_.push_back(Frame(std::move(timer), callback));
+    pending_frames_.push_back(Frame(std::move(timer), std::move(callback)));
   } else if (gl_fence_supported_) {
     auto fence = GLFence::Create();
-    pending_frames_.push_back(Frame(std::move(fence), callback));
+    pending_frames_.push_back(Frame(std::move(fence), std::move(callback)));
   } else {
-    pending_frames_.push_back(Frame(callback));
+    pending_frames_.push_back(Frame(std::move(callback)));
   }
 }
 
@@ -234,7 +252,13 @@ void GLSurfacePresentationHelper::CheckPendingFrames() {
                                                         &vsync_interval_)) {
       vsync_timebase_ = base::TimeTicks();
       vsync_interval_ = base::TimeDelta();
-      LOG(ERROR) << "GetVSyncParametersIfAvailable() failed!";
+      static unsigned int count = 0;
+      ++count;
+      // GetVSyncParametersIfAvailable() could be called and failed frequently,
+      // so we have to limit the LOG to avoid flooding the log.
+      LOG_IF(ERROR, count < 20 || !(count & 0xff))
+          << "GetVSyncParametersIfAvailable() failed for " << count
+          << " times!";
     }
   }
 
@@ -270,9 +294,9 @@ void GLSurfacePresentationHelper::CheckPendingFrames() {
       if (frame.timer)
         frame.timer->Destroy(true /* has_context */);
       if (frame.result == gfx::SwapResult::SWAP_ACK)
-        frame.callback.Run(feedback);
+        std::move(frame.callback).Run(feedback);
       else
-        frame.callback.Run(gfx::PresentationFeedback::Failure());
+        std::move(frame.callback).Run(gfx::PresentationFeedback::Failure());
     }
     pending_frames_.clear();
     // We want to update VSync, if we can not get VSync parameters
@@ -292,7 +316,7 @@ void GLSurfacePresentationHelper::CheckPendingFrames() {
         [this, &frame](const gfx::PresentationFeedback& feedback) {
           if (frame.timer)
             frame.timer->Destroy(true /* has_context */);
-          frame.callback.Run(feedback);
+          std::move(frame.callback).Run(feedback);
           pending_frames_.pop_front();
         };
 

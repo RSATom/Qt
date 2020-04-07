@@ -59,7 +59,7 @@ class JsonRequest {
   // A client can expect error_details only, if there was any error during the
   // fetching or parsing. In successful cases, it will be an empty string.
   using CompletedCallback =
-      base::OnceCallback<void(std::unique_ptr<base::Value> result,
+      base::OnceCallback<void(base::Value result,
                               FetchResult result_code,
                               const std::string& error_details)>;
 
@@ -90,6 +90,7 @@ class JsonRequest {
     Builder& SetUrlLoaderFactory(
         scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory);
     Builder& SetUserClassifier(const UserClassifier& user_classifier);
+    Builder& SetOptionalImagesCapability(bool supports_optional_images);
 
     // These preview methods allow to inspect the Request without exposing it
     // publicly.
@@ -127,6 +128,7 @@ class JsonRequest {
     // Optional properties.
     std::string obfuscated_gaia_id_;
     std::string user_class_;
+    std::string display_capability_;
     const language::UrlLanguageHistogram* language_histogram_;
 
     DISALLOW_COPY_AND_ASSIGN(Builder);
@@ -153,7 +155,7 @@ class JsonRequest {
   void OnSimpleLoaderComplete(std::unique_ptr<std::string> response_body);
 
   void ParseJsonResponse();
-  void OnJsonParsed(std::unique_ptr<base::Value> result);
+  void OnJsonParsed(base::Value result);
   void OnJsonError(const std::string& error);
 
   // The loader for downloading the snippets. Only non-null if a load is
@@ -182,7 +184,7 @@ class JsonRequest {
   // The last response string
   std::string last_response_string_;
 
-  base::WeakPtrFactory<JsonRequest> weak_ptr_factory_;
+  base::WeakPtrFactory<JsonRequest> weak_ptr_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(JsonRequest);
 };

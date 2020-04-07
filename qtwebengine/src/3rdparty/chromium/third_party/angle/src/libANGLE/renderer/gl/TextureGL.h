@@ -19,7 +19,6 @@ namespace rx
 class BlitGL;
 class FunctionsGL;
 class StateManagerGL;
-struct WorkaroundsGL;
 
 struct LUMAWorkaroundGL
 {
@@ -41,6 +40,8 @@ struct LevelInfoGL
     GLenum nativeInternalFormat;
 
     // If this mip level requires sampler-state re-writing so that only a red channel is exposed.
+    // In GLES 2.0, depth textures are treated as luminance, so we check the
+    // context's major version when applying the depth swizzle.
     bool depthStencilWorkaround;
 
     // Information about luminance alpha texture workarounds in the core profile.
@@ -147,6 +148,21 @@ class TextureGL : public TextureImpl
                                         const gl::Extents &size,
                                         bool fixedSampleLocations) override;
 
+    angle::Result setStorageExternalMemory(const gl::Context *context,
+                                           gl::TextureType type,
+                                           size_t levels,
+                                           GLenum internalFormat,
+                                           const gl::Extents &size,
+                                           gl::MemoryObject *memoryObject,
+                                           GLuint64 offset) override;
+
+    angle::Result setImageExternal(const gl::Context *context,
+                                   const gl::ImageIndex &index,
+                                   GLenum internalFormat,
+                                   const gl::Extents &size,
+                                   GLenum format,
+                                   GLenum type) override;
+
     angle::Result setImageExternal(const gl::Context *context,
                                    gl::TextureType type,
                                    egl::Stream *stream,
@@ -161,6 +177,8 @@ class TextureGL : public TextureImpl
                                     gl::TextureType type,
                                     egl::Image *image) override;
 
+    GLint getNativeID() const override;
+
     GLuint getTextureID() const { return mTextureID; }
 
     gl::TextureType getType() const;
@@ -170,6 +188,7 @@ class TextureGL : public TextureImpl
     bool hasAnyDirtyBit() const;
 
     angle::Result setBaseLevel(const gl::Context *context, GLuint baseLevel) override;
+    angle::Result setMaxLevel(const gl::Context *context, GLuint maxLevel);
 
     angle::Result initializeContents(const gl::Context *context,
                                      const gl::ImageIndex &imageIndex) override;
@@ -218,7 +237,8 @@ class TextureGL : public TextureImpl
                                                const gl::Buffer *unpackBuffer,
                                                const uint8_t *pixels);
 
-    void syncTextureStateSwizzle(const FunctionsGL *functions,
+    void syncTextureStateSwizzle(const gl::Context *context,
+                                 const FunctionsGL *functions,
                                  GLenum name,
                                  GLenum value,
                                  GLenum *outValue);

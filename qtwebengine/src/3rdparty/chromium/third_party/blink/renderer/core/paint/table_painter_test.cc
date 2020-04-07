@@ -16,7 +16,7 @@ using testing::ElementsAre;
 namespace blink {
 
 using TablePainterTest = PaintControllerPaintTest;
-INSTANTIATE_PAINT_TEST_CASE_P(TablePainterTest);
+INSTANTIATE_PAINT_TEST_SUITE_P(TablePainterTest);
 
 TEST_P(TablePainterTest, Background) {
   SetBodyInnerHTML(R"HTML(
@@ -189,6 +189,33 @@ TEST_P(TablePainterTest, CollapsedBorderAndOverflow) {
                   IsSameId(cell.Row(), DisplayItem::kTableCollapsedBorders),
                   IsSameId(&cell, DisplayItem::PaintPhaseToDrawingType(
                                       PaintPhase::kSelfOutlineOnly))));
+}
+
+TEST_P(TablePainterTest, DontPaintEmptyDecorationBackground) {
+  SetBodyInnerHTML(R"HTML(
+    <table id="table1" style="border: 1px solid yellow">
+      <tr>
+        <td style="width: 100px; height: 100px; border: 2px solid blue"></td>
+      </tr>
+    </tr>
+    <table id="table2"
+           style="border-collapse: collapse; border: 1px solid yellow">
+      <tr>
+        <td style="width: 100px; height: 100px; border: 2px solid blue"></td>
+      </tr>
+    </tr>
+  )HTML");
+
+  auto* table1 = ToLayoutTable(GetLayoutObjectByElementId("table1"));
+  auto* table2 = ToLayoutTable(GetLayoutObjectByElementId("table2"));
+  EXPECT_THAT(RootPaintController().GetDisplayItemList(),
+              ElementsAre(IsSameId(&ViewScrollingBackgroundClient(),
+                                   kDocumentBackgroundType),
+                          IsSameId(table1, kBackgroundType),
+                          IsSameId(table1->FirstBody()->FirstRow()->FirstCell(),
+                                   kBackgroundType),
+                          IsSameId(table2->FirstBody()->FirstRow(),
+                                   DisplayItem::kTableCollapsedBorders)));
 }
 
 }  // namespace blink

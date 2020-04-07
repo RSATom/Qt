@@ -13,8 +13,11 @@
 // limitations under the License.
 
 #include "Reactor.hpp"
+#include "Coroutine.hpp"
 
 #include "gtest/gtest.h"
+
+#include <tuple>
 
 using namespace rr;
 
@@ -59,7 +62,7 @@ TEST(ReactorUnitTests, Sample)
 			Return(sum);
 		}
 
-		routine = function(L"one");
+		routine = function("one");
 
 		if(routine)
 		{
@@ -97,13 +100,72 @@ TEST(ReactorUnitTests, Uninitialized)
 			Return(a + z + q + c);
 		}
 
-		routine = function(L"one");
+		routine = function("one");
 
 		if(routine)
 		{
 			int (*callable)() = (int(*)())routine->getEntry();
 			int result = callable();
 			EXPECT_EQ(result, result);   // Anything is fine, just don't crash
+		}
+	}
+
+	delete routine;
+}
+
+TEST(ReactorUnitTests, Unreachable)
+{
+	Routine *routine = nullptr;
+
+	{
+		Function<Int(Int)> function;
+		{
+			Int a = function.Arg<0>();
+			Int z = 4;
+
+			Return(a + z);
+
+			// Code beyond this point is unreachable but should not cause any
+			// compilation issues.
+
+			z += a;
+		}
+
+		routine = function("one");
+
+		if(routine)
+		{
+			int (*callable)(int) = (int(*)(int))routine->getEntry();
+			int result = callable(16);
+			EXPECT_EQ(result, 20);
+		}
+	}
+
+	delete routine;
+}
+
+TEST(ReactorUnitTests, VariableAddress)
+{
+	Routine *routine = nullptr;
+
+	{
+		Function<Int(Int)> function;
+		{
+			Int a = function.Arg<0>();
+			Int z = 0;
+			Pointer<Int> p = &z;
+			*p = 4;
+
+			Return(a + z);
+		}
+
+		routine = function("one");
+
+		if(routine)
+		{
+			int (*callable)(int) = (int(*)(int))routine->getEntry();
+			int result = callable(16);
+			EXPECT_EQ(result, 20);
 		}
 	}
 
@@ -129,7 +191,7 @@ TEST(ReactorUnitTests, SubVectorLoadStore)
 			Return(0);
 		}
 
-		routine = function(L"one");
+		routine = function("one");
 
 		if(routine)
 		{
@@ -187,7 +249,7 @@ TEST(ReactorUnitTests, VectorConstant)
 			Return(0);
 		}
 
-		routine = function(L"one");
+		routine = function("one");
 
 		if(routine)
 		{
@@ -234,7 +296,7 @@ TEST(ReactorUnitTests, Concatenate)
 			Return(0);
 		}
 
-		routine = function(L"one");
+		routine = function("one");
 
 		if(routine)
 		{
@@ -303,7 +365,7 @@ TEST(ReactorUnitTests, Swizzle)
 			Return(0);
 		}
 
-		routine = function(L"one");
+		routine = function("one");
 
 		if(routine)
 		{
@@ -440,7 +502,7 @@ TEST(ReactorUnitTests, Branching)
 			Return(x);
 		}
 
-		routine = function(L"one");
+		routine = function("one");
 
 		if(routine)
 		{
@@ -479,7 +541,7 @@ TEST(ReactorUnitTests, MinMax)
 			Return(0);
 		}
 
-		routine = function(L"one");
+		routine = function("one");
 
 		if(routine)
 		{
@@ -569,7 +631,7 @@ TEST(ReactorUnitTests, NotNeg)
 			Return(0);
 		}
 
-		routine = function(L"one");
+		routine = function("one");
 
 		if(routine)
 		{
@@ -650,7 +712,7 @@ TEST(ReactorUnitTests, VectorCompare)
 			Return(0);
 		}
 
-		routine = function(L"one");
+		routine = function("one");
 
 		if(routine)
 		{
@@ -747,7 +809,7 @@ TEST(ReactorUnitTests, SaturatedAddAndSubtract)
 			Return(0);
 		}
 
-		routine = function(L"one");
+		routine = function("one");
 
 		if(routine)
 		{
@@ -826,7 +888,7 @@ TEST(ReactorUnitTests, Unpack)
 			Return(0);
 		}
 
-		routine = function(L"one");
+		routine = function("one");
 
 		if(routine)
 		{
@@ -880,7 +942,7 @@ TEST(ReactorUnitTests, Pack)
 			Return(0);
 		}
 
-		routine = function(L"one");
+		routine = function("one");
 
 		if(routine)
 		{
@@ -923,22 +985,37 @@ TEST(ReactorUnitTests, MulHigh)
 		{
 			Pointer<Byte> out = function.Arg<0>();
 
-			*Pointer<Short4>(out + 8 * 0) =
-				MulHigh(Short4(0x1aa, 0x2dd, 0x3ee, 0xF422),
-					Short4(0x1bb, 0x2cc, 0x3ff, 0xF411));
-			*Pointer<UShort4>(out + 8 * 1) =
-				MulHigh(UShort4(0x1aa, 0x2dd, 0x3ee, 0xF422),
-					UShort4(0x1bb, 0x2cc, 0x3ff, 0xF411));
+			*Pointer<Short4>(out + 16 * 0) =
+				MulHigh(Short4(0x01AA, 0x02DD, 0x03EE, 0xF422),
+				        Short4(0x01BB, 0x02CC, 0x03FF, 0xF411));
+			*Pointer<UShort4>(out + 16 * 1) =
+				MulHigh(UShort4(0x01AA, 0x02DD, 0x03EE, 0xF422),
+				        UShort4(0x01BB, 0x02CC, 0x03FF, 0xF411));
 
-			// (U)Short8 variants are mentioned but unimplemented
+			*Pointer<Int4>(out + 16 * 2) =
+				MulHigh(Int4(0x000001AA, 0x000002DD, 0xC8000000, 0xF8000000),
+				        Int4(0x000001BB, 0x84000000, 0x000003EE, 0xD7000000));
+			*Pointer<UInt4>(out + 16 * 3) =
+				MulHigh(UInt4(0x000001AAu, 0x000002DDu, 0xC8000000u, 0xD8000000u),
+				        UInt4(0x000001BBu, 0x84000000u, 0x000003EEu, 0xD7000000u));
+
+			*Pointer<Int4>(out + 16 * 4) =
+				MulHigh(Int4(0x7FFFFFFF, 0x7FFFFFFF, 0x80008000, 0xFFFFFFFF),
+				        Int4(0x7FFFFFFF, 0x80000000, 0x80008000, 0xFFFFFFFF));
+			*Pointer<UInt4>(out + 16 * 5) =
+				MulHigh(UInt4(0x7FFFFFFFu, 0x7FFFFFFFu, 0x80008000u, 0xFFFFFFFFu),
+				        UInt4(0x7FFFFFFFu, 0x80000000u, 0x80008000u, 0xFFFFFFFFu));
+
+			// (U)Short8 variants currently unimplemented.
+
 			Return(0);
 		}
 
-		routine = function(L"one");
+		routine = function("one");
 
 		if(routine)
 		{
-			unsigned int out[2][2];
+			unsigned int out[6][4];
 
 			memset(&out, 0, sizeof(out));
 
@@ -946,10 +1023,30 @@ TEST(ReactorUnitTests, MulHigh)
 			callable(&out);
 
 			EXPECT_EQ(out[0][0], 0x00080002u);
-			EXPECT_EQ(out[0][1], 0x008D000fu);
+			EXPECT_EQ(out[0][1], 0x008D000Fu);
 
 			EXPECT_EQ(out[1][0], 0x00080002u);
-			EXPECT_EQ(out[1][1], 0xe8C0000Fu);
+			EXPECT_EQ(out[1][1], 0xE8C0000Fu);
+
+			EXPECT_EQ(out[2][0], 0x00000000u);
+			EXPECT_EQ(out[2][1], 0xFFFFFE9Cu);
+			EXPECT_EQ(out[2][2], 0xFFFFFF23u);
+			EXPECT_EQ(out[2][3], 0x01480000u);
+
+			EXPECT_EQ(out[3][0], 0x00000000u);
+			EXPECT_EQ(out[3][1], 0x00000179u);
+			EXPECT_EQ(out[3][2], 0x00000311u);
+			EXPECT_EQ(out[3][3], 0xB5680000u);
+
+			EXPECT_EQ(out[4][0], 0x3FFFFFFFu);
+			EXPECT_EQ(out[4][1], 0xC0000000u);
+			EXPECT_EQ(out[4][2], 0x3FFF8000u);
+			EXPECT_EQ(out[4][3], 0x00000000u);
+
+			EXPECT_EQ(out[5][0], 0x3FFFFFFFu);
+			EXPECT_EQ(out[5][1], 0x3FFFFFFFu);
+			EXPECT_EQ(out[5][2], 0x40008000u);
+			EXPECT_EQ(out[5][3], 0xFFFFFFFEu);
 		}
 	}
 
@@ -973,7 +1070,7 @@ TEST(ReactorUnitTests, MulAdd)
 			Return(0);
 		}
 
-		routine = function(L"one");
+		routine = function("one");
 
 		if(routine)
 		{
@@ -992,8 +1089,557 @@ TEST(ReactorUnitTests, MulAdd)
 	delete routine;
 }
 
+TEST(ReactorUnitTests, Call)
+{
+	if (!rr::Caps.CallSupported)
+	{
+		SUCCEED() << "rr::Call() not supported";
+		return;
+	}
+
+	Routine *routine = nullptr;
+
+	struct Class
+	{
+		static int Callback(uint8_t *p, int i, float f)
+		{
+			auto c = reinterpret_cast<Class*>(p);
+			c->i = i;
+			c->f = f;
+			return i + int(f);
+		}
+
+		int i = 0;
+		float f = 0.0f;
+	};
+
+	{
+		Function<Int(Pointer<Byte>)> function;
+		{
+			Pointer<Byte> c = function.Arg<0>();
+			auto res = Call(Class::Callback, c, 10, 20.0f);
+			Return(res);
+		}
+
+		routine = function("one");
+
+		if(routine)
+		{
+			int(*callable)(void*) = (int(*)(void*))routine->getEntry();
+
+			Class c;
+
+			int res = callable(&c);
+
+			EXPECT_EQ(res, 30);
+			EXPECT_EQ(c.i, 10);
+			EXPECT_EQ(c.f, 20.0f);
+		}
+	}
+
+	delete routine;
+}
+
+// Check that a complex generated function which utilizes all 8 or 16 XMM
+// registers computes the correct result.
+// (Note that due to MSC's lack of support for inline assembly in x64,
+// this test does not actually check that the register contents are
+// preserved, just that the generated function computes the correct value.
+// It's necessary to inspect the registers in a debugger to actually verify.)
+TEST(ReactorUnitTests, PreserveXMMRegisters)
+{
+    Routine *routine = nullptr;
+
+    {
+        Function<Void(Pointer<Byte>, Pointer<Byte>)> function;
+        {
+            Pointer<Byte> in = function.Arg<0>();
+            Pointer<Byte> out = function.Arg<1>();
+
+            Float4 a = *Pointer<Float4>(in + 16 * 0);
+            Float4 b = *Pointer<Float4>(in + 16 * 1);
+            Float4 c = *Pointer<Float4>(in + 16 * 2);
+            Float4 d = *Pointer<Float4>(in + 16 * 3);
+            Float4 e = *Pointer<Float4>(in + 16 * 4);
+            Float4 f = *Pointer<Float4>(in + 16 * 5);
+            Float4 g = *Pointer<Float4>(in + 16 * 6);
+            Float4 h = *Pointer<Float4>(in + 16 * 7);
+            Float4 i = *Pointer<Float4>(in + 16 * 8);
+            Float4 j = *Pointer<Float4>(in + 16 * 9);
+            Float4 k = *Pointer<Float4>(in + 16 * 10);
+            Float4 l = *Pointer<Float4>(in + 16 * 11);
+            Float4 m = *Pointer<Float4>(in + 16 * 12);
+            Float4 n = *Pointer<Float4>(in + 16 * 13);
+            Float4 o = *Pointer<Float4>(in + 16 * 14);
+            Float4 p = *Pointer<Float4>(in + 16 * 15);
+
+            Float4 ab = a + b;
+            Float4 cd = c + d;
+            Float4 ef = e + f;
+            Float4 gh = g + h;
+            Float4 ij = i + j;
+            Float4 kl = k + l;
+            Float4 mn = m + n;
+            Float4 op = o + p;
+
+            Float4 abcd = ab + cd;
+            Float4 efgh = ef + gh;
+            Float4 ijkl = ij + kl;
+            Float4 mnop = mn + op;
+
+            Float4 abcdefgh = abcd + efgh;
+            Float4 ijklmnop = ijkl + mnop;
+            Float4 sum = abcdefgh + ijklmnop;
+            *Pointer<Float4>(out) = sum;
+            Return();
+        }
+
+        routine = function("one");
+        assert(routine);
+
+        float input[64] = { 1.0f,  0.0f,   0.0f, 0.0f,
+                           -1.0f,  1.0f,  -1.0f, 0.0f,
+                            1.0f,  2.0f,  -2.0f, 0.0f,
+                           -1.0f,  3.0f,  -3.0f, 0.0f,
+                            1.0f,  4.0f,  -4.0f, 0.0f,
+                           -1.0f,  5.0f,  -5.0f, 0.0f,
+                            1.0f,  6.0f,  -6.0f, 0.0f,
+                           -1.0f,  7.0f,  -7.0f, 0.0f,
+                            1.0f,  8.0f,  -8.0f, 0.0f,
+                           -1.0f,  9.0f,  -9.0f, 0.0f,
+                            1.0f, 10.0f, -10.0f, 0.0f,
+                           -1.0f, 11.0f, -11.0f, 0.0f,
+                            1.0f, 12.0f, -12.0f, 0.0f,
+                           -1.0f, 13.0f, -13.0f, 0.0f,
+                            1.0f, 14.0f, -14.0f, 0.0f,
+                           -1.0f, 15.0f, -15.0f, 0.0f };
+
+        float result[4];
+        void (*callable)(float*, float*) = (void(*)(float*,float*))routine->getEntry();
+
+        callable(input, result);
+
+        EXPECT_EQ(result[0], 0.0f);
+        EXPECT_EQ(result[1], 120.0f);
+        EXPECT_EQ(result[2], -120.0f);
+        EXPECT_EQ(result[3], 0.0f);
+    }
+
+    delete routine;
+}
+
+template <typename T>
+class CToReactorCastTest : public ::testing::Test
+{
+public:
+	using CType = typename std::tuple_element<0, T>::type;
+	using ReactorType = typename std::tuple_element<1, T>::type;
+};
+
+using CToReactorCastTestTypes = ::testing::Types
+	< // Subset of types that can be used as arguments.
+	//	std::pair<bool,         Bool>,    FIXME(capn): Not supported as argument type by Subzero.
+	//	std::pair<uint8_t,      Byte>,    FIXME(capn): Not supported as argument type by Subzero.
+	//	std::pair<int8_t,       SByte>,   FIXME(capn): Not supported as argument type by Subzero.
+	//	std::pair<int16_t,      Short>,   FIXME(capn): Not supported as argument type by Subzero.
+	//	std::pair<uint16_t,     UShort>,  FIXME(capn): Not supported as argument type by Subzero.
+		std::pair<int,          Int>,
+		std::pair<unsigned int, UInt>,
+		std::pair<float,        Float>
+	>;
+
+TYPED_TEST_SUITE(CToReactorCastTest, CToReactorCastTestTypes);
+
+TYPED_TEST(CToReactorCastTest, Casts)
+{
+	using CType = typename TestFixture::CType;
+	using ReactorType = typename TestFixture::ReactorType;
+
+	Routine *routine = nullptr;
+
+	{
+		Function< Int(ReactorType) > function;
+		{
+			ReactorType a = function.template Arg<0>();
+			ReactorType b = CType{};
+			RValue<ReactorType> c = RValue<ReactorType>(CType{});
+			Bool same = (a == b) && (a == c);
+			Return(IfThenElse(same, Int(1), Int(0))); // TODO: Ability to use Bools as return values.
+		}
+
+		routine = function("one");
+
+		if(routine)
+		{
+			auto callable = (int(*)(CType))routine->getEntry();
+			CType in = {};
+			EXPECT_EQ(callable(in), 1);
+		}
+	}
+
+	delete routine;
+}
+
+template <typename T>
+class GEPTest : public ::testing::Test
+{
+public:
+	using CType = typename std::tuple_element<0, T>::type;
+	using ReactorType = typename std::tuple_element<1, T>::type;
+};
+
+using GEPTestTypes = ::testing::Types
+	<
+		std::pair<bool,        Bool>,
+		std::pair<int8_t,      Byte>,
+		std::pair<int8_t,      SByte>,
+		std::pair<int8_t[4],   Byte4>,
+		std::pair<int8_t[4],   SByte4>,
+		std::pair<int8_t[8],   Byte8>,
+		std::pair<int8_t[8],   SByte8>,
+		std::pair<int8_t[16],  Byte16>,
+		std::pair<int8_t[16],  SByte16>,
+		std::pair<int16_t,     Short>,
+		std::pair<int16_t,     UShort>,
+		std::pair<int16_t[2],  Short2>,
+		std::pair<int16_t[2],  UShort2>,
+		std::pair<int16_t[4],  Short4>,
+		std::pair<int16_t[4],  UShort4>,
+		std::pair<int16_t[8],  Short8>,
+		std::pair<int16_t[8],  UShort8>,
+		std::pair<int,         Int>,
+		std::pair<int,         UInt>,
+		std::pair<int[2],      Int2>,
+		std::pair<int[2],      UInt2>,
+		std::pair<int[4],      Int4>,
+		std::pair<int[4],      UInt4>,
+		std::pair<int64_t,     Long>,
+		std::pair<int16_t,     Half>,
+		std::pair<float,       Float>,
+		std::pair<float[2],    Float2>,
+		std::pair<float[4],    Float4>
+	>;
+
+TYPED_TEST_SUITE(GEPTest, GEPTestTypes);
+
+TYPED_TEST(GEPTest, PtrOffsets)
+{
+	using CType = typename TestFixture::CType;
+	using ReactorType = typename TestFixture::ReactorType;
+
+	Routine *routine = nullptr;
+
+	{
+		Function< Pointer<ReactorType>(Pointer<ReactorType>, Int) > function;
+		{
+			Pointer<ReactorType> pointer = function.template Arg<0>();
+			Int index = function.template Arg<1>();
+			Return(&pointer[index]);
+		}
+
+		routine = function("one");
+
+		if(routine)
+		{
+			auto callable = (CType*(*)(CType*, unsigned int))routine->getEntry();
+
+			union PtrInt {
+				CType* p;
+				size_t i;
+			};
+
+			PtrInt base;
+			base.i = 0x10000;
+
+			for (int i = 0; i < 5; i++)
+			{
+				PtrInt reference;
+				reference.p = &base.p[i];
+
+				PtrInt result;
+				result.p = callable(base.p, i);
+
+				auto expect = reference.i - base.i;
+				auto got = result.i - base.i;
+
+				EXPECT_EQ(got, expect) << "i:" << i;
+			}
+		}
+	}
+
+	delete routine;
+}
+
+TEST(ReactorUnitTests, Coroutines_Fibonacci)
+{
+	if (!rr::Caps.CoroutinesSupported)
+	{
+		SUCCEED() << "Coroutines not supported";
+		return;
+	}
+
+	Coroutine<int()> function;
+	{
+		Yield(Int(0));
+		Yield(Int(1));
+		Int current = 1;
+		Int next = 1;
+		While (true) {
+			Yield(next);
+			auto tmp = current + next;
+			current = next;
+			next = tmp;
+		}
+	}
+
+	auto coroutine = function();
+
+	int32_t expected[] =
+	{
+		0, 1, 1, 2, 3, 5, 8, 13, 21, 34, 55, 89, 144, 233, 377, 610, 987, 1597,
+		2584, 4181, 6765, 10946, 17711, 28657, 46368, 75025, 121393, 196418,
+		317811,
+	};
+
+	auto count = sizeof(expected) / sizeof(expected[0]);
+
+	for (size_t i = 0; i < count; i++)
+	{
+		int out = 0;
+		EXPECT_EQ(coroutine->await(out), true);
+		EXPECT_EQ(out, expected[i]);
+	}
+}
+
+TEST(ReactorUnitTests, Coroutines_Parameters)
+{
+	if (!rr::Caps.CoroutinesSupported)
+	{
+		SUCCEED() << "Coroutines not supported";
+		return;
+	}
+
+	Coroutine<uint8_t(uint8_t* data, int count)> function;
+	{
+		Pointer<Byte> data = function.Arg<0>();
+		Int count = function.Arg<1>();
+
+		For(Int i = 0, i < count, i++)
+		{
+			Yield(data[i]);
+		}
+	}
+
+	uint8_t data[] = {10, 20, 30};
+	auto coroutine = function(&data[0], 3);
+
+	uint8_t out = 0;
+	EXPECT_EQ(coroutine->await(out), true);
+	EXPECT_EQ(out, 10); out = 0;
+	EXPECT_EQ(coroutine->await(out), true);
+	EXPECT_EQ(out, 20); out = 0;
+	EXPECT_EQ(coroutine->await(out), true);
+	EXPECT_EQ(out, 30); out = 99;
+	EXPECT_EQ(coroutine->await(out), false);
+	EXPECT_EQ(out, 99);
+	EXPECT_EQ(coroutine->await(out), false);
+	EXPECT_EQ(out, 99);
+}
+
 int main(int argc, char **argv)
 {
 	::testing::InitGoogleTest(&argc, argv);
 	return RUN_ALL_TESTS();
 }
+
+////////////////////////////////
+// Trait compile time checks. //
+////////////////////////////////
+
+// Assert CToReactor resolves to expected types.
+static_assert(std::is_same<CToReactor<void>,     Void>::value, "");
+static_assert(std::is_same<CToReactor<bool>,     Bool>::value, "");
+static_assert(std::is_same<CToReactor<uint8_t>,  Byte>::value, "");
+static_assert(std::is_same<CToReactor<int8_t>,   SByte>::value, "");
+static_assert(std::is_same<CToReactor<int16_t>,  Short>::value, "");
+static_assert(std::is_same<CToReactor<uint16_t>, UShort>::value, "");
+static_assert(std::is_same<CToReactor<int32_t>,  Int>::value, "");
+static_assert(std::is_same<CToReactor<uint64_t>, Long>::value, "");
+static_assert(std::is_same<CToReactor<uint32_t>, UInt>::value, "");
+static_assert(std::is_same<CToReactor<float>,    Float>::value, "");
+
+// Assert CToReactor for known pointer types resolves to expected types.
+static_assert(std::is_same<CToReactor<void*>,     Pointer<Byte>>::value, "");
+static_assert(std::is_same<CToReactor<bool*>,     Pointer<Bool>>::value, "");
+static_assert(std::is_same<CToReactor<uint8_t*>,  Pointer<Byte>>::value, "");
+static_assert(std::is_same<CToReactor<int8_t*>,   Pointer<SByte>>::value, "");
+static_assert(std::is_same<CToReactor<int16_t*>,  Pointer<Short>>::value, "");
+static_assert(std::is_same<CToReactor<uint16_t*>, Pointer<UShort>>::value, "");
+static_assert(std::is_same<CToReactor<int32_t*>,  Pointer<Int>>::value, "");
+static_assert(std::is_same<CToReactor<uint64_t*>, Pointer<Long>>::value, "");
+static_assert(std::is_same<CToReactor<uint32_t*>, Pointer<UInt>>::value, "");
+static_assert(std::is_same<CToReactor<float*>,    Pointer<Float>>::value, "");
+static_assert(std::is_same<CToReactor<uint16_t**>, Pointer<Pointer<UShort>>>::value, "");
+static_assert(std::is_same<CToReactor<uint16_t***>, Pointer<Pointer<Pointer<UShort>>>>::value, "");
+
+// Assert CToReactor for unknown pointer types resolves to Pointer<Byte>.
+struct S{};
+static_assert(std::is_same<CToReactor<S*>, Pointer<Byte>>::value, "");
+static_assert(std::is_same<CToReactor<S**>, Pointer<Pointer<Byte>>>::value, "");
+static_assert(std::is_same<CToReactor<S***>, Pointer<Pointer<Pointer<Byte>>>>::value, "");
+
+// Assert IsRValue<> resolves true for RValue<> types.
+static_assert(IsRValue<RValue<Void>>::value, "");
+static_assert(IsRValue<RValue<Bool>>::value, "");
+static_assert(IsRValue<RValue<Byte>>::value, "");
+static_assert(IsRValue<RValue<SByte>>::value, "");
+static_assert(IsRValue<RValue<Short>>::value, "");
+static_assert(IsRValue<RValue<UShort>>::value, "");
+static_assert(IsRValue<RValue<Int>>::value, "");
+static_assert(IsRValue<RValue<Long>>::value, "");
+static_assert(IsRValue<RValue<UInt>>::value, "");
+static_assert(IsRValue<RValue<Float>>::value, "");
+
+// Assert IsLValue<> resolves true for LValue types.
+static_assert(IsLValue<Bool>::value, "");
+static_assert(IsLValue<Byte>::value, "");
+static_assert(IsLValue<SByte>::value, "");
+static_assert(IsLValue<Short>::value, "");
+static_assert(IsLValue<UShort>::value, "");
+static_assert(IsLValue<Int>::value, "");
+static_assert(IsLValue<Long>::value, "");
+static_assert(IsLValue<UInt>::value, "");
+static_assert(IsLValue<Float>::value, "");
+
+// Assert IsReference<> resolves true for Reference types.
+static_assert(IsReference<Reference<Bool>>::value, "");
+static_assert(IsReference<Reference<Byte>>::value, "");
+static_assert(IsReference<Reference<SByte>>::value, "");
+static_assert(IsReference<Reference<Short>>::value, "");
+static_assert(IsReference<Reference<UShort>>::value, "");
+static_assert(IsReference<Reference<Int>>::value, "");
+static_assert(IsReference<Reference<Long>>::value, "");
+static_assert(IsReference<Reference<UInt>>::value, "");
+static_assert(IsReference<Reference<Float>>::value, "");
+
+// Assert IsRValue<> resolves false for LValue types.
+static_assert(!IsRValue<Void>::value, "");
+static_assert(!IsRValue<Bool>::value, "");
+static_assert(!IsRValue<Byte>::value, "");
+static_assert(!IsRValue<SByte>::value, "");
+static_assert(!IsRValue<Short>::value, "");
+static_assert(!IsRValue<UShort>::value, "");
+static_assert(!IsRValue<Int>::value, "");
+static_assert(!IsRValue<Long>::value, "");
+static_assert(!IsRValue<UInt>::value, "");
+static_assert(!IsRValue<Float>::value, "");
+
+// Assert IsRValue<> resolves false for Reference types.
+static_assert(!IsRValue<Reference<Void>>::value, "");
+static_assert(!IsRValue<Reference<Bool>>::value, "");
+static_assert(!IsRValue<Reference<Byte>>::value, "");
+static_assert(!IsRValue<Reference<SByte>>::value, "");
+static_assert(!IsRValue<Reference<Short>>::value, "");
+static_assert(!IsRValue<Reference<UShort>>::value, "");
+static_assert(!IsRValue<Reference<Int>>::value, "");
+static_assert(!IsRValue<Reference<Long>>::value, "");
+static_assert(!IsRValue<Reference<UInt>>::value, "");
+static_assert(!IsRValue<Reference<Float>>::value, "");
+
+// Assert IsRValue<> resolves false for C types.
+static_assert(!IsRValue<void>::value, "");
+static_assert(!IsRValue<bool>::value, "");
+static_assert(!IsRValue<uint8_t>::value, "");
+static_assert(!IsRValue<int8_t>::value, "");
+static_assert(!IsRValue<int16_t>::value, "");
+static_assert(!IsRValue<uint16_t>::value, "");
+static_assert(!IsRValue<int32_t>::value, "");
+static_assert(!IsRValue<uint64_t>::value, "");
+static_assert(!IsRValue<uint32_t>::value, "");
+static_assert(!IsRValue<float>::value, "");
+
+// Assert IsLValue<> resolves false for RValue<> types.
+static_assert(!IsLValue<RValue<Void>>::value, "");
+static_assert(!IsLValue<RValue<Bool>>::value, "");
+static_assert(!IsLValue<RValue<Byte>>::value, "");
+static_assert(!IsLValue<RValue<SByte>>::value, "");
+static_assert(!IsLValue<RValue<Short>>::value, "");
+static_assert(!IsLValue<RValue<UShort>>::value, "");
+static_assert(!IsLValue<RValue<Int>>::value, "");
+static_assert(!IsLValue<RValue<Long>>::value, "");
+static_assert(!IsLValue<RValue<UInt>>::value, "");
+static_assert(!IsLValue<RValue<Float>>::value, "");
+
+// Assert IsLValue<> resolves false for Void type.
+static_assert(!IsLValue<Void>::value, "");
+
+// Assert IsLValue<> resolves false for Reference<> types.
+static_assert(!IsLValue<Reference<Void>>::value, "");
+static_assert(!IsLValue<Reference<Bool>>::value, "");
+static_assert(!IsLValue<Reference<Byte>>::value, "");
+static_assert(!IsLValue<Reference<SByte>>::value, "");
+static_assert(!IsLValue<Reference<Short>>::value, "");
+static_assert(!IsLValue<Reference<UShort>>::value, "");
+static_assert(!IsLValue<Reference<Int>>::value, "");
+static_assert(!IsLValue<Reference<Long>>::value, "");
+static_assert(!IsLValue<Reference<UInt>>::value, "");
+static_assert(!IsLValue<Reference<Float>>::value, "");
+
+// Assert IsLValue<> resolves false for C types.
+static_assert(!IsLValue<void>::value, "");
+static_assert(!IsLValue<bool>::value, "");
+static_assert(!IsLValue<uint8_t>::value, "");
+static_assert(!IsLValue<int8_t>::value, "");
+static_assert(!IsLValue<int16_t>::value, "");
+static_assert(!IsLValue<uint16_t>::value, "");
+static_assert(!IsLValue<int32_t>::value, "");
+static_assert(!IsLValue<uint64_t>::value, "");
+static_assert(!IsLValue<uint32_t>::value, "");
+static_assert(!IsLValue<float>::value, "");
+
+// Assert IsDefined<> resolves true for RValue<> types.
+static_assert(IsDefined<RValue<Void>>::value, "");
+static_assert(IsDefined<RValue<Bool>>::value, "");
+static_assert(IsDefined<RValue<Byte>>::value, "");
+static_assert(IsDefined<RValue<SByte>>::value, "");
+static_assert(IsDefined<RValue<Short>>::value, "");
+static_assert(IsDefined<RValue<UShort>>::value, "");
+static_assert(IsDefined<RValue<Int>>::value, "");
+static_assert(IsDefined<RValue<Long>>::value, "");
+static_assert(IsDefined<RValue<UInt>>::value, "");
+static_assert(IsDefined<RValue<Float>>::value, "");
+
+// Assert IsDefined<> resolves true for LValue types.
+static_assert(IsDefined<Void>::value, "");
+static_assert(IsDefined<Bool>::value, "");
+static_assert(IsDefined<Byte>::value, "");
+static_assert(IsDefined<SByte>::value, "");
+static_assert(IsDefined<Short>::value, "");
+static_assert(IsDefined<UShort>::value, "");
+static_assert(IsDefined<Int>::value, "");
+static_assert(IsDefined<Long>::value, "");
+static_assert(IsDefined<UInt>::value, "");
+static_assert(IsDefined<Float>::value, "");
+
+// Assert IsDefined<> resolves true for Reference<> types.
+static_assert(IsDefined<Reference<Bool>>::value, "");
+static_assert(IsDefined<Reference<Byte>>::value, "");
+static_assert(IsDefined<Reference<SByte>>::value, "");
+static_assert(IsDefined<Reference<Short>>::value, "");
+static_assert(IsDefined<Reference<UShort>>::value, "");
+static_assert(IsDefined<Reference<Int>>::value, "");
+static_assert(IsDefined<Reference<Long>>::value, "");
+static_assert(IsDefined<Reference<UInt>>::value, "");
+static_assert(IsDefined<Reference<Float>>::value, "");
+
+// Assert IsDefined<> resolves true for C types.
+static_assert(IsDefined<void>::value, "");
+static_assert(IsDefined<bool>::value, "");
+static_assert(IsDefined<uint8_t>::value, "");
+static_assert(IsDefined<int8_t>::value, "");
+static_assert(IsDefined<int16_t>::value, "");
+static_assert(IsDefined<uint16_t>::value, "");
+static_assert(IsDefined<int32_t>::value, "");
+static_assert(IsDefined<uint64_t>::value, "");
+static_assert(IsDefined<uint32_t>::value, "");
+static_assert(IsDefined<float>::value, "");

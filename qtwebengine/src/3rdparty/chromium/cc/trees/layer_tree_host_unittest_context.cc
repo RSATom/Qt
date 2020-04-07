@@ -5,6 +5,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "base/bind.h"
 #include "base/stl_util.h"
 #include "build/build_config.h"
 #include "cc/layers/heads_up_display_layer.h"
@@ -28,6 +29,7 @@
 #include "cc/test/fake_video_frame_provider.h"
 #include "cc/test/layer_tree_test.h"
 #include "cc/test/render_pass_test_utils.h"
+#include "cc/test/test_layer_tree_frame_sink.h"
 #include "cc/trees/layer_tree_host.h"
 #include "cc/trees/layer_tree_host_impl.h"
 #include "cc/trees/layer_tree_impl.h"
@@ -37,7 +39,6 @@
 #include "components/viz/test/fake_output_surface.h"
 #include "components/viz/test/test_context_provider.h"
 #include "components/viz/test/test_gles2_interface.h"
-#include "components/viz/test/test_layer_tree_frame_sink.h"
 #include "components/viz/test/test_shared_bitmap_manager.h"
 #include "gpu/GLES2/gl2extchromium.h"
 #include "gpu/command_buffer/client/raster_interface.h"
@@ -84,7 +85,7 @@ class LayerTreeHostContextTest : public LayerTreeTest {
     gl_ = nullptr;
   }
 
-  std::unique_ptr<viz::TestLayerTreeFrameSink> CreateLayerTreeFrameSink(
+  std::unique_ptr<TestLayerTreeFrameSink> CreateLayerTreeFrameSink(
       const viz::RendererSettings& renderer_settings,
       double refresh_rate,
       scoped_refptr<viz::ContextProvider> compositor_context_provider,
@@ -933,8 +934,10 @@ class LayerTreeHostContextTestDontUseLostResources
         TextureLayer::CreateForMailbox(nullptr);
     texture->SetBounds(gfx::Size(10, 10));
     texture->SetIsDrawable(true);
+    constexpr gfx::Size size(64, 64);
     auto resource = viz::TransferableResource::MakeGL(
-        mailbox, GL_LINEAR, GL_TEXTURE_2D, sync_token);
+        mailbox, GL_LINEAR, GL_TEXTURE_2D, sync_token, size,
+        false /* is_overlay_candidate */);
     texture->SetTransferableResource(
         resource, viz::SingleReleaseCallback::Create(base::BindOnce(
                       &LayerTreeHostContextTestDontUseLostResources::
@@ -1679,7 +1682,7 @@ SINGLE_AND_MULTI_THREAD_TEST_F(TileResourceFreedIfLostWhileExported);
 
 class SoftwareTileResourceFreedIfLostWhileExported : public LayerTreeTest {
  protected:
-  std::unique_ptr<viz::TestLayerTreeFrameSink> CreateLayerTreeFrameSink(
+  std::unique_ptr<TestLayerTreeFrameSink> CreateLayerTreeFrameSink(
       const viz::RendererSettings& renderer_settings,
       double refresh_rate,
       scoped_refptr<viz::ContextProvider> compositor_context_provider,

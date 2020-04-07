@@ -3,6 +3,7 @@ HEADERS += \
     $$PWD/qquickhandlerpoint_p.h \
     $$PWD/qquickhoverhandler_p.h \
     $$PWD/qquickmultipointhandler_p.h \
+    $$PWD/qquickmultipointhandler_p_p.h \
     $$PWD/qquickpinchhandler_p.h \
     $$PWD/qquickpointerdevicehandler_p.h \
     $$PWD/qquickpointerdevicehandler_p_p.h \
@@ -26,3 +27,9 @@ SOURCES += \
     $$PWD/qquicksinglepointhandler.cpp \
     $$PWD/qquicktaphandler.cpp \
     $$PWD/qquickdragaxis.cpp
+
+qtConfig(wheelevent) {
+    HEADERS += $$PWD/qquickwheelhandler_p.h $$PWD/qquickwheelhandler_p_p.h
+    SOURCES += $$PWD/qquickwheelhandler.cpp
+}
+

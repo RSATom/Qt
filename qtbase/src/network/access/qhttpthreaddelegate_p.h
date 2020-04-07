@@ -62,6 +62,7 @@
 #include <QNetworkReply>
 #include "qhttpnetworkrequest_p.h"
 #include "qhttpnetworkconnection_p.h"
+#include "qhttp2configuration.h"
 #include <QSharedPointer>
 #include <QScopedPointer>
 #include "private/qnoncontiguousbytedevice_p.h"
@@ -82,7 +83,7 @@ class QHttpThreadDelegate : public QObject
 {
     Q_OBJECT
 public:
-    explicit QHttpThreadDelegate(QObject *parent = 0);
+    explicit QHttpThreadDelegate(QObject *parent = nullptr);
 
     ~QHttpThreadDelegate();
 
@@ -116,7 +117,7 @@ public:
     qint64 removedContentLength;
     QNetworkReply::NetworkError incomingErrorCode;
     QString incomingErrorDetail;
-    Http2::ProtocolParameters http2Parameters;
+    QHttp2Configuration http2Parameters;
 #ifndef QT_NO_BEARERMANAGEMENT
     QSharedPointer<QNetworkSession> networkSession;
 #endif
@@ -207,7 +208,7 @@ public:
         : QNonContiguousByteDevice(),
           wantDataPending(false),
           m_amount(0),
-          m_data(0),
+          m_data(nullptr),
           m_atEnd(aE),
           m_size(s),
           m_pos(0)
@@ -240,12 +241,12 @@ public:
             // Do nothing, we already sent a wantData signal and wait for results
             len = 0;
         }
-        return 0;
+        return nullptr;
     }
 
     bool advanceReadPointer(qint64 a) override
     {
-        if (m_data == 0)
+        if (m_data == nullptr)
             return false;
 
         m_amount -= a;
@@ -269,7 +270,7 @@ public:
     bool reset() override
     {
         m_amount = 0;
-        m_data = 0;
+        m_data = nullptr;
         m_dataArray.clear();
 
         if (wantDataPending) {

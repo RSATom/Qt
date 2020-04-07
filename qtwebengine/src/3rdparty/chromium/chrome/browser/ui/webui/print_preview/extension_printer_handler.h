@@ -25,10 +25,6 @@ namespace cloud_devices {
 class CloudDeviceDescription;
 }
 
-namespace device {
-class UsbDevice;
-}
-
 namespace gfx {
 class Size;
 }
@@ -52,16 +48,13 @@ class ExtensionPrinterHandler : public PrinterHandler {
 
   // PrinterHandler implementation:
   void Reset() override;
-  void StartGetPrinters(const AddedPrintersCallback& added_printers_callback,
+  void StartGetPrinters(AddedPrintersCallback added_printers_callback,
                         GetPrintersDoneCallback done_callback) override;
   void StartGetCapability(const std::string& destination_id,
                           GetCapabilityCallback callback) override;
-  void StartPrint(const std::string& destination_id,
-                  const std::string& capability,
-                  const base::string16& job_title,
-                  const std::string& ticket_json,
-                  const gfx::Size& page_size,
-                  const scoped_refptr<base::RefCountedMemory>& print_data,
+  void StartPrint(const base::string16& job_title,
+                  base::Value settings,
+                  scoped_refptr<base::RefCountedMemory> print_data,
                   PrintCallback callback) override;
   void StartGrantPrinterAccess(const std::string& printer_id,
                                GetPrinterInfoCallback callback) override;
@@ -76,9 +69,8 @@ class ExtensionPrinterHandler : public PrinterHandler {
   // by |printer_description|.
   // |callback| is called with the converted data.
   void ConvertToPWGRaster(
-      const scoped_refptr<base::RefCountedMemory>& data,
+      scoped_refptr<base::RefCountedMemory> data,
       const cloud_devices::CloudDeviceDescription& printer_description,
-      const cloud_devices::CloudDeviceDescription& ticket,
       const gfx::Size& page_size,
       std::unique_ptr<extensions::PrinterProviderPrintJob> job,
       PrintJobCallback callback);
@@ -91,7 +83,7 @@ class ExtensionPrinterHandler : public PrinterHandler {
   // Methods used as wrappers to callbacks for extensions::PrinterProviderAPI
   // methods, primarily so the callbacks can be bound to this class' weak ptr.
   // They just propagate results to callbacks passed to them.
-  void WrapGetPrintersCallback(const AddedPrintersCallback& callback,
+  void WrapGetPrintersCallback(AddedPrintersCallback callback,
                                const base::ListValue& printers,
                                bool done);
   void WrapGetCapabilityCallback(GetCapabilityCallback callback,
@@ -101,8 +93,8 @@ class ExtensionPrinterHandler : public PrinterHandler {
                                   const base::DictionaryValue& printer_info);
 
   void OnUsbDevicesEnumerated(
-      const AddedPrintersCallback& callback,
-      const std::vector<scoped_refptr<device::UsbDevice>>& devices);
+      AddedPrintersCallback callback,
+      std::vector<device::mojom::UsbDeviceInfoPtr> devices);
 
   Profile* const profile_;
   GetPrintersDoneCallback done_callback_;
@@ -110,7 +102,7 @@ class ExtensionPrinterHandler : public PrinterHandler {
   std::unique_ptr<PwgRasterConverter> pwg_raster_converter_;
   int pending_enumeration_count_ = 0;
 
-  base::WeakPtrFactory<ExtensionPrinterHandler> weak_ptr_factory_;
+  base::WeakPtrFactory<ExtensionPrinterHandler> weak_ptr_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(ExtensionPrinterHandler);
 };

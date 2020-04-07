@@ -14,7 +14,6 @@
 #include <vector>
 
 #include "api/video/encoded_image.h"
-#include "common_types.h"  // NOLINT(build/include)
 #include "modules/include/module_common_types.h"
 #include "modules/video_coding/include/video_codec_interface.h"
 #include "modules/video_coding/include/video_coding_defines.h"
@@ -24,13 +23,9 @@ namespace webrtc {
 class VCMEncodedFrame : protected EncodedImage {
  public:
   VCMEncodedFrame();
-  VCMEncodedFrame(const VCMEncodedFrame&) = delete;
+  VCMEncodedFrame(const VCMEncodedFrame&);
 
   ~VCMEncodedFrame();
-  /**
-   *   Delete VideoFrame and resets members to zero
-   */
-  void Free();
   /**
    *   Set render time in milliseconds
    */
@@ -57,11 +52,19 @@ class VCMEncodedFrame : protected EncodedImage {
     return static_cast<const webrtc::EncodedImage&>(*this);
   }
 
+  using EncodedImage::ColorSpace;
   using EncodedImage::data;
+  using EncodedImage::PacketInfos;
   using EncodedImage::set_size;
+  using EncodedImage::SetColorSpace;
+  using EncodedImage::SetEncodedData;
+  using EncodedImage::SetPacketInfos;
   using EncodedImage::SetSpatialIndex;
+  using EncodedImage::SetSpatialLayerFrameSize;
   using EncodedImage::SetTimestamp;
   using EncodedImage::size;
+  using EncodedImage::SpatialIndex;
+  using EncodedImage::SpatialLayerFrameSize;
   using EncodedImage::Timestamp;
 
   /**
@@ -71,7 +74,7 @@ class VCMEncodedFrame : protected EncodedImage {
   /**
    *   Get frame type
    */
-  webrtc::FrameType FrameType() const { return _frameType; }
+  webrtc::VideoFrameType FrameType() const { return _frameType; }
   /**
    *   Get frame rotation
    */

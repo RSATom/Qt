@@ -43,30 +43,16 @@
 #include <QtCore/qloggingcategory.h>
 #include <QtCore/qdebug.h>
 
-QT_BEGIN_NAMESPACE
-
-namespace OSXBluetooth {
-
-DeviceInquiryDelegate::~DeviceInquiryDelegate()
-{
-}
-
-}
-
-
-QT_END_NAMESPACE
-
 QT_USE_NAMESPACE
-
 
 @implementation QT_MANGLE_NAMESPACE(OSXBTDeviceInquiry)
 {
     IOBluetoothDeviceInquiry *m_inquiry;
     bool m_active;
-    QT_PREPEND_NAMESPACE(OSXBluetooth::DeviceInquiryDelegate) *m_delegate;//C++ "delegate"
+    DarwinBluetooth::DeviceInquiryDelegate *m_delegate;//C++ "delegate"
 }
 
-- (id)initWithDelegate:(OSXBluetooth::DeviceInquiryDelegate *)delegate
+- (id)initWithDelegate:(DarwinBluetooth::DeviceInquiryDelegate *)delegate
 {
     if (self = [super init]) {
         Q_ASSERT_X(delegate, Q_FUNC_INFO, "invalid device inquiry delegate (null)");
@@ -158,9 +144,9 @@ QT_USE_NAMESPACE
         // QtBluetooth has not too many error codes, 'UnknownError' is not really
         // useful, report the actual error code here:
         qCWarning(QT_BT_OSX) << "IOKit error code: " << error;
-        m_delegate->error(sender, error);
+        m_delegate->error(error);
     } else {
-        m_delegate->inquiryFinished(sender);
+        m_delegate->inquiryFinished();
     }
 }
 
@@ -171,7 +157,7 @@ QT_USE_NAMESPACE
         return;
 
     Q_ASSERT_X(m_delegate, Q_FUNC_INFO, "invalid device inquiry delegate (null)");
-    m_delegate->deviceFound(sender, device);
+    m_delegate->classicDeviceFound(device);
 }
 
 - (void)deviceInquiryStarted:(IOBluetoothDeviceInquiry *)sender

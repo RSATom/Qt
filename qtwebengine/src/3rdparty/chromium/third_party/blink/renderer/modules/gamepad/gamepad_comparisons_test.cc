@@ -17,18 +17,57 @@ class GamepadComparisonsTest : public testing::Test {
   GamepadComparisonsTest() = default;
 
  protected:
-  GamepadList* CreateEmptyGamepadList() { return GamepadList::Create(); }
+  void InitGamepadQuaternion(device::GamepadQuaternion& q) {
+    q.not_null = true;
+    q.x = 0.f;
+    q.y = 0.f;
+    q.z = 0.f;
+    q.w = 0.f;
+  }
+
+  void InitGamepadVector(device::GamepadVector& v) {
+    v.not_null = true;
+    v.x = 0.f;
+    v.y = 0.f;
+    v.z = 0.f;
+  }
+
+  void InitGamepadPose(device::GamepadPose& p) {
+    p.not_null = true;
+    p.has_orientation = true;
+    p.has_position = true;
+    InitGamepadQuaternion(p.orientation);
+    InitGamepadVector(p.position);
+    InitGamepadVector(p.angular_velocity);
+    InitGamepadVector(p.linear_velocity);
+    InitGamepadVector(p.angular_acceleration);
+    InitGamepadVector(p.linear_acceleration);
+  }
+
+  Gamepad* CreateGamepad() {
+    base::TimeTicks dummy_time_origin =
+        base::TimeTicks() + base::TimeDelta::FromMicroseconds(1000);
+    base::TimeTicks dummy_time_floor =
+        base::TimeTicks() + base::TimeDelta::FromMicroseconds(2000);
+    return MakeGarbageCollected<Gamepad>(nullptr, 0, dummy_time_origin,
+                                         dummy_time_floor);
+  }
+
+  GamepadList* CreateEmptyGamepadList() {
+    return MakeGarbageCollected<GamepadList>();
+  }
 
   GamepadList* CreateGamepadListWithNeutralGamepad() {
     double axes[1] = {0.0};
     device::GamepadButton buttons[1] = {{false, false, 0.0}};
-    auto* list = GamepadList::Create();
-    auto* gamepad = Gamepad::Create(nullptr);
+    device::GamepadPose null_pose;
+    auto* list = MakeGarbageCollected<GamepadList>();
+    auto* gamepad = CreateGamepad();
     gamepad->SetId("gamepad");
-    gamepad->SetIndex(0);
     gamepad->SetAxes(1, axes);
     gamepad->SetButtons(1, buttons);
     gamepad->SetConnected(true);
+    gamepad->SetPose(null_pose);
     list->Set(0, gamepad);
     return list;
   }
@@ -37,10 +76,9 @@ class GamepadComparisonsTest : public testing::Test {
     double axes[1] = {0.95};
     device::GamepadButton buttons[1] = {{false, false, 0.0}};
 
-    auto* list = GamepadList::Create();
-    auto* gamepad = Gamepad::Create(nullptr);
+    auto* list = MakeGarbageCollected<GamepadList>();
+    auto* gamepad = CreateGamepad();
     gamepad->SetId("gamepad");
-    gamepad->SetIndex(0);
     gamepad->SetAxes(1, axes);
     gamepad->SetButtons(1, buttons);
     gamepad->SetConnected(true);
@@ -52,10 +90,9 @@ class GamepadComparisonsTest : public testing::Test {
     double axes[1] = {0.0};
     device::GamepadButton buttons[1] = {{true, true, 1.0}};
 
-    auto* list = GamepadList::Create();
-    auto* gamepad = Gamepad::Create(nullptr);
+    auto* list = MakeGarbageCollected<GamepadList>();
+    auto* gamepad = CreateGamepad();
     gamepad->SetId("gamepad");
-    gamepad->SetIndex(0);
     gamepad->SetAxes(1, axes);
     gamepad->SetButtons(1, buttons);
     gamepad->SetConnected(true);
@@ -72,10 +109,9 @@ class GamepadComparisonsTest : public testing::Test {
         device::GamepadButton::kDefaultButtonPressedThreshold - 0.01,
     }};
 
-    auto* list = GamepadList::Create();
-    auto* gamepad = Gamepad::Create(nullptr);
+    auto* list = MakeGarbageCollected<GamepadList>();
+    auto* gamepad = CreateGamepad();
     gamepad->SetId("gamepad");
-    gamepad->SetIndex(0);
     gamepad->SetAxes(1, axes);
     gamepad->SetButtons(1, buttons);
     gamepad->SetConnected(true);
@@ -92,13 +128,46 @@ class GamepadComparisonsTest : public testing::Test {
         device::GamepadButton::kDefaultButtonPressedThreshold + 0.01,
     }};
 
-    auto* list = GamepadList::Create();
-    auto* gamepad = Gamepad::Create(nullptr);
+    auto* list = MakeGarbageCollected<GamepadList>();
+    auto* gamepad = CreateGamepad();
     gamepad->SetId("gamepad");
-    gamepad->SetIndex(0);
     gamepad->SetAxes(1, axes);
     gamepad->SetButtons(1, buttons);
     gamepad->SetConnected(true);
+    list->Set(0, gamepad);
+    return list;
+  }
+
+  GamepadList* CreateGamepadListWithNeutralPose() {
+    double axes[1] = {0.0};
+    device::GamepadButton buttons[1] = {{false, false, 0.0}};
+    device::GamepadPose pose;
+    InitGamepadPose(pose);
+    auto* list = MakeGarbageCollected<GamepadList>();
+    auto* gamepad = CreateGamepad();
+    gamepad->SetId("gamepad");
+    gamepad->SetAxes(1, axes);
+    gamepad->SetButtons(1, buttons);
+    gamepad->SetConnected(true);
+    gamepad->SetPose(pose);
+    list->Set(0, gamepad);
+    return list;
+  }
+
+  GamepadList* CreateGamepadListWithAlteredPose() {
+    double axes[1] = {0.0};
+    device::GamepadButton buttons[1] = {{false, false, 0.0}};
+    device::GamepadPose pose;
+    InitGamepadPose(pose);
+    // Modify the linear velocity.
+    pose.linear_velocity.x = 100.f;
+    auto* list = MakeGarbageCollected<GamepadList>();
+    auto* gamepad = CreateGamepad();
+    gamepad->SetId("gamepad");
+    gamepad->SetAxes(1, axes);
+    gamepad->SetButtons(1, buttons);
+    gamepad->SetConnected(true);
+    gamepad->SetPose(pose);
     list->Set(0, gamepad);
     return list;
   }
@@ -357,6 +426,33 @@ TEST_F(GamepadComparisonsTest, CompareButtonTouchedWithNeutral) {
   EXPECT_TRUE(compareResult.IsButtonChanged(0, 0));
   EXPECT_FALSE(compareResult.IsButtonDown(0, 0));
   EXPECT_FALSE(compareResult.IsButtonUp(0, 0));
+}
+
+TEST_F(GamepadComparisonsTest, CompareNeutralPoseWithNeutralPose) {
+  auto* list1 = CreateGamepadListWithNeutralPose();
+  auto* list2 = CreateGamepadListWithNeutralPose();
+
+  auto compareResult = GamepadComparisons::Compare(
+      list1, list2, /*compare_all_axes=*/false, /*compare_all_buttons=*/false);
+  EXPECT_FALSE(compareResult.IsDifferent());
+}
+
+TEST_F(GamepadComparisonsTest, CompareNullPoseWithNeutralPose) {
+  auto* list1 = CreateGamepadListWithNeutralGamepad();
+  auto* list2 = CreateGamepadListWithNeutralPose();
+
+  auto compareResult = GamepadComparisons::Compare(
+      list1, list2, /*compare_all_axes=*/false, /*compare_all_buttons=*/false);
+  EXPECT_TRUE(compareResult.IsDifferent());
+}
+
+TEST_F(GamepadComparisonsTest, CompareNeutralPoseWithAlteredPose) {
+  auto* list1 = CreateGamepadListWithNeutralPose();
+  auto* list2 = CreateGamepadListWithAlteredPose();
+
+  auto compareResult = GamepadComparisons::Compare(
+      list1, list2, /*compare_all_axes=*/false, /*compare_all_buttons=*/false);
+  EXPECT_TRUE(compareResult.IsDifferent());
 }
 
 }  // namespace blink

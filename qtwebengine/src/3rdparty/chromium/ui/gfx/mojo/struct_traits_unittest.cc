@@ -4,7 +4,7 @@
 
 #include <utility>
 
-#include "base/message_loop/message_loop.h"
+#include "base/test/scoped_task_environment.h"
 #include "build/build_config.h"
 #include "mojo/public/cpp/bindings/binding_set.h"
 #include "mojo/public/cpp/test_support/test_utils.h"
@@ -64,7 +64,7 @@ class StructTraitsTest : public testing::Test, public mojom::TraitsTestService {
     std::move(callback).Run(r);
   }
 
-  base::MessageLoop loop_;
+  base::test::ScopedTaskEnvironment scoped_task_environment_;
   mojo::BindingSet<TraitsTestService> traits_test_bindings_;
 
   DISALLOW_COPY_AND_ASSIGN(StructTraitsTest);
@@ -169,7 +169,7 @@ TEST_F(StructTraitsTest, GpuMemoryBufferHandle) {
   base::UnsafeSharedMemoryRegion output_memory = std::move(output.region);
   EXPECT_TRUE(output_memory.Map().IsValid());
 
-#if defined(OS_LINUX)
+#if defined(OS_LINUX) || defined(USE_OZONE)
   gfx::GpuMemoryBufferHandle handle2;
   const uint64_t kSize = kOffset + kStride;
   const uint64_t kModifier = 2;
@@ -177,14 +177,23 @@ TEST_F(StructTraitsTest, GpuMemoryBufferHandle) {
   handle2.id = kId;
   handle2.offset = kOffset;
   handle2.stride = kStride;
+#if defined(OS_LINUX)
+  base::ScopedFD buffer_handle;
+#elif defined(OS_FUCHSIA)
+  zx::vmo buffer_handle;
+  handle2.native_pixmap_handle.buffer_collection_id =
+      gfx::SysmemBufferCollectionId::Create();
+  handle2.native_pixmap_handle.buffer_index = 0;
+#endif
+  handle2.native_pixmap_handle.modifier = kModifier;
   handle2.native_pixmap_handle.planes.emplace_back(kOffset, kStride, kSize,
-                                                   kModifier);
+                                                   std::move(buffer_handle));
   proxy->EchoGpuMemoryBufferHandle(std::move(handle2), &output);
   EXPECT_EQ(gfx::NATIVE_PIXMAP, output.type);
+  EXPECT_EQ(kModifier, output.native_pixmap_handle.modifier);
   EXPECT_EQ(kId, output.id);
   ASSERT_EQ(1u, output.native_pixmap_handle.planes.size());
   EXPECT_EQ(kSize, output.native_pixmap_handle.planes.back().size);
-  EXPECT_EQ(kModifier, output.native_pixmap_handle.planes.back().modifier);
 #endif
 }
 
@@ -262,6 +271,12 @@ TEST_F(StructTraitsTest, RRectF) {
   EXPECT_EQ(input, output);
   input = RRectF(40, 50, 60, 70, 30, 35);
   EXPECT_EQ(input.GetType(), RRectF::Type::kOval);
+  proxy->EchoRRectF(input, &output);
+  EXPECT_EQ(input, output);
+  input.SetCornerRadii(RRectF::Corner::kUpperLeft, 50, 50);
+  input.SetCornerRadii(RRectF::Corner::kUpperRight, 20, 20);
+  input.SetCornerRadii(RRectF::Corner::kLowerRight, 0, 0);
+  input.SetCornerRadii(RRectF::Corner::kLowerLeft, 0, 0);
   proxy->EchoRRectF(input, &output);
   EXPECT_EQ(input, output);
 }

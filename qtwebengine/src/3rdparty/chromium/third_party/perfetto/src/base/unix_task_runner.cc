@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-#include "perfetto/base/unix_task_runner.h"
+#include "perfetto/ext/base/unix_task_runner.h"
 
 #include "perfetto/base/build_config.h"
 
@@ -23,6 +23,8 @@
 #include <unistd.h>
 
 #include <limits>
+
+#include "perfetto/ext/base/watchdog.h"
 
 namespace perfetto {
 namespace base {
@@ -42,6 +44,7 @@ void UnixTaskRunner::WakeUp() {
 
 void UnixTaskRunner::Run() {
   PERFETTO_DCHECK_THREAD(thread_checker_);
+  created_thread_id_ = GetThreadId();
   quit_ = false;
   for (;;) {
     int poll_timeout_ms;
@@ -64,11 +67,14 @@ void UnixTaskRunner::Run() {
 }
 
 void UnixTaskRunner::Quit() {
-  {
-    std::lock_guard<std::mutex> lock(lock_);
-    quit_ = true;
-  }
+  std::lock_guard<std::mutex> lock(lock_);
+  quit_ = true;
   WakeUp();
+}
+
+bool UnixTaskRunner::QuitCalled() {
+  std::lock_guard<std::mutex> lock(lock_);
+  return quit_;
 }
 
 bool UnixTaskRunner::IsIdleForTesting() {
@@ -110,10 +116,10 @@ void UnixTaskRunner::RunImmediateAndDelayedTask() {
 
   errno = 0;
   if (immediate_task)
-    RunTask(immediate_task);
+    RunTaskWithWatchdogGuard(immediate_task);
   errno = 0;
   if (delayed_task)
-    RunTask(delayed_task);
+    RunTaskWithWatchdogGuard(delayed_task);
 }
 
 void UnixTaskRunner::PostFileDescriptorWatches() {
@@ -159,7 +165,7 @@ void UnixTaskRunner::RunFileDescriptorWatch(int fd) {
     task = it->second.callback;
   }
   errno = 0;
-  RunTask(task);
+  RunTaskWithWatchdogGuard(task);
 }
 
 int UnixTaskRunner::GetDelayMsToNextTaskLocked() const {
@@ -215,6 +221,10 @@ void UnixTaskRunner::RemoveFileDescriptorWatch(int fd) {
     watch_tasks_changed_ = true;
   }
   // No need to schedule a wake-up for this.
+}
+
+bool UnixTaskRunner::RunsTasksOnCurrentThread() const {
+  return GetThreadId() == created_thread_id_;
 }
 
 }  // namespace base

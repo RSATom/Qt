@@ -107,6 +107,7 @@ FieldTypeGroup GroupTypeOfServerFieldType(ServerFieldType field_type) {
     case FIELD_WITH_DEFAULT_VALUE:
     case MERCHANT_EMAIL_SIGNUP:
     case MERCHANT_PROMO_CODE:
+    case UPI_VPA:
       return NO_GROUP;
 
     case MAX_VALID_FIELD_TYPE:
@@ -116,6 +117,7 @@ FieldTypeGroup GroupTypeOfServerFieldType(ServerFieldType field_type) {
     case USERNAME:
       return USERNAME_FIELD;
 
+    case PRICE:
     case SEARCH_TERM:
       return UNFILLABLE;
 
@@ -418,13 +420,12 @@ ServerFieldType AutofillType::GetStorableType() const {
     case HTML_TYPE_CREDIT_CARD_EXP_4_DIGIT_YEAR:
       return CREDIT_CARD_EXP_4_DIGIT_YEAR;
 
+    case HTML_TYPE_UPI_VPA:
+      return UPI_VPA;
+
     // These types aren't stored; they're transient.
     case HTML_TYPE_TRANSACTION_AMOUNT:
     case HTML_TYPE_TRANSACTION_CURRENCY:
-      return UNKNOWN_TYPE;
-
-    // TODO(crbug/702223): Add autofill support for UPI-VPA.
-    case HTML_TYPE_UPI_VPA:
       return UNKNOWN_TYPE;
 
     case HTML_TYPE_UNRECOGNIZED:
@@ -774,10 +775,18 @@ std::string AutofillType::ServerFieldTypeToString(ServerFieldType type) {
       return "CONFIRMATION_PASSWORD";
     case SEARCH_TERM:
       return "SEARCH_TERM";
-
+    case PRICE:
+      return "PRICE";
+    case NOT_PASSWORD:
+      return "NOT_PASSWORD";
+    case SINGLE_USERNAME:
+      return "SINGLE_USERNAME";
+    case NOT_USERNAME:
+      return "NOT_USERNAME";
+    case UPI_VPA:
+      return "UPI_VPA";
     case AMBIGUOUS_TYPE:
       return "AMBIGUOUS_TYPE";
-
     case MAX_VALID_FIELD_TYPE:
       return std::string();
   }

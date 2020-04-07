@@ -4,6 +4,7 @@
 
 #include "content/browser/media/media_devices_permission_checker.h"
 
+#include "base/bind.h"
 #include "base/run_loop.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_process_host.h"
@@ -26,7 +27,7 @@ class TestWebContentsDelegate : public content::WebContentsDelegate {
 
   bool CheckMediaAccessPermission(RenderFrameHost* render_Frame_host,
                                   const GURL& security_origin,
-                                  blink::MediaStreamType type) override {
+                                  blink::mojom::MediaStreamType type) override {
     return true;
   }
 };

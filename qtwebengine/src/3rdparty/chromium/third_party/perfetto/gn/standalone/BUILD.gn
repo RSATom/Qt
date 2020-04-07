@@ -13,8 +13,8 @@
 # limitations under the License.
 
 import("//gn/standalone/android.gni")
-import("//gn/standalone/wasm.gni")
 import("//gn/standalone/sanitizers/sanitizers.gni")
+import("//gn/standalone/wasm.gni")
 
 config("extra_warnings") {
   cflags = [
@@ -35,6 +35,7 @@ config("extra_warnings") {
       "-Wno-gnu-zero-variadic-macro-arguments",
       "-Wno-padded",
       "-Wno-reserved-id-macro",
+      "-Wno-unknown-sanitizers",
     ]
   }
 }
@@ -78,10 +79,6 @@ config("default") {
     "-Werror",
   ]
 
-  if (!is_wasm && !is_lto) {
-    cflags += [ "-Wa,--noexecstack" ]
-  }
-
   if (is_clang) {
     cflags += [
       # Color compiler output, see https://github.com/ninja-build/ninja/wiki/FAQ
@@ -118,10 +115,6 @@ config("default") {
       "pthread",
       "rt",
     ]
-  }
-
-  if (is_android) {
-    libs += [ "log" ]
   }
 
   if (is_debug) {
@@ -203,7 +196,6 @@ config("release") {
     ldflags = [ "-dead_strip" ]
   } else {
     ldflags = [
-      "-fuse-ld=gold",
       "-Wl,--gc-sections",
       "-Wl,--icf=all",
       "-Wl,-O1",
@@ -240,4 +232,32 @@ config("executable") {
       "-Wl,-rpath-link=.",
     ]
   }
+}
+
+# This config is only added to certain leaf target types (see BUILDCONFIG.gn).
+# This allows us to remove the config (and thus the dependency) on a per-target
+# basis. If the config was applied to source_sets, then they would unavoidably
+# carry the dependency onto liblog to the final target.
+config("android_liblog") {
+  if (is_android) {
+    libs = [ "log" ]
+  }
+}
+
+config("gen_include_path") {
+  include_dirs = [ root_gen_dir ]
+}
+
+# This action generates a perfetto_version.gen.h which contains the git SHA1
+# of HEAD. The file can be included from C/C++ sources and exposes a
+# PERFETTO_GET_GIT_REVISION() macro that contains the git revision.
+action("gen_git_revision") {
+  script = "gen_git_revision.py"
+  generated_header = "${root_gen_dir}/perfetto_version.gen.h"
+  args = [ rebase_path(generated_header, root_build_dir) ]
+  inputs = []
+  outputs = [
+    generated_header,
+  ]
+  public_configs = [ ":gen_include_path" ]
 }

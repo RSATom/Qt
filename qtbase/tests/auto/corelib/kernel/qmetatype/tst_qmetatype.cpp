@@ -1499,7 +1499,7 @@ public:
 typedef MyObject* MyObjectPtr;
 Q_DECLARE_METATYPE(MyObjectPtr)
 
-#if defined(Q_COMPILER_VARIADIC_MACROS) && !defined(TST_QMETATYPE_BROKEN_COMPILER)
+#if !defined(TST_QMETATYPE_BROKEN_COMPILER)
 static QByteArray createTypeName(const char *begin, const char *va)
 {
     QByteArray tn(begin);
@@ -1697,7 +1697,7 @@ void tst_QMetaType::automaticTemplateRegistration()
     QVERIFY(qRegisterMetaType<UnregisteredTypeList>("UnregisteredTypeList") > 0);
   }
 
-#if defined(Q_COMPILER_VARIADIC_MACROS) && !defined(TST_QMETATYPE_BROKEN_COMPILER)
+#if !defined(TST_QMETATYPE_BROKEN_COMPILER)
 
     #define FOR_EACH_STATIC_PRIMITIVE_TYPE(F) \
         F(bool) \
@@ -1776,7 +1776,7 @@ void tst_QMetaType::automaticTemplateRegistration()
     CREATE_AND_VERIFY_CONTAINER(QHash, void*, void*)
     CREATE_AND_VERIFY_CONTAINER(QHash, const void*, const void*)
 
-#endif // Q_COMPILER_VARIADIC_MACROS
+#endif // !defined(TST_QMETATYPE_BROKEN_COMPILER)
 
 #define TEST_OWNING_SMARTPOINTER(SMARTPOINTER, ELEMENT_TYPE, FLAG_TEST, FROMVARIANTFUNCTION) \
     { \
@@ -1807,16 +1807,36 @@ void tst_QMetaType::automaticTemplateRegistration()
         QCOMPARE(extractedPtr.data()->objectName(), sp.data()->objectName()); \
     }
 
+#if QT_DEPRECATED_SINCE(5, 0)
     TEST_NONOWNING_SMARTPOINTER(QWeakPointer, QObject, WeakPointerToQObject, qWeakPointerFromVariant)
     TEST_NONOWNING_SMARTPOINTER(QWeakPointer, QFile, WeakPointerToQObject, qWeakPointerFromVariant)
     TEST_NONOWNING_SMARTPOINTER(QWeakPointer, QTemporaryFile, WeakPointerToQObject, qWeakPointerFromVariant)
     TEST_NONOWNING_SMARTPOINTER(QWeakPointer, MyObject, WeakPointerToQObject, qWeakPointerFromVariant)
+#endif
 
     TEST_NONOWNING_SMARTPOINTER(QPointer, QObject, TrackingPointerToQObject, qPointerFromVariant)
     TEST_NONOWNING_SMARTPOINTER(QPointer, QFile, TrackingPointerToQObject, qPointerFromVariant)
     TEST_NONOWNING_SMARTPOINTER(QPointer, QTemporaryFile, TrackingPointerToQObject, qPointerFromVariant)
     TEST_NONOWNING_SMARTPOINTER(QPointer, MyObject, TrackingPointerToQObject, qPointerFromVariant)
 #undef TEST_NONOWNING_SMARTPOINTER
+
+
+#define TEST_WEAK_SMARTPOINTER(ELEMENT_TYPE, FLAG_TEST) \
+    { \
+        ELEMENT_TYPE elem; \
+        QSharedPointer < ELEMENT_TYPE > shared(new ELEMENT_TYPE); \
+        QWeakPointer < ELEMENT_TYPE > sp(shared); \
+        sp.toStrongRef()->setObjectName("Test name"); \
+        QVariant v = QVariant::fromValue(sp); \
+        QCOMPARE(v.typeName(), "QWeakPointer<" #ELEMENT_TYPE ">"); \
+        QVERIFY(QMetaType::typeFlags(::qMetaTypeId<QWeakPointer < ELEMENT_TYPE > >()) & QMetaType::FLAG_TEST); \
+    }
+
+    TEST_WEAK_SMARTPOINTER(QObject, WeakPointerToQObject)
+    TEST_WEAK_SMARTPOINTER(QFile, WeakPointerToQObject)
+    TEST_WEAK_SMARTPOINTER(QTemporaryFile, WeakPointerToQObject)
+    TEST_WEAK_SMARTPOINTER(MyObject, WeakPointerToQObject)
+#undef TEST_WEAK_SMARTPOINTER
 }
 
 template <typename T>
@@ -2565,9 +2585,7 @@ Q_DECLARE_METATYPE(UndefinedFunction0);
 Q_DECLARE_METATYPE(UndefinedFunction1);
 Q_DECLARE_METATYPE(UndefinedFunction2);
 Q_DECLARE_METATYPE(UndefinedFunction3);
-#ifdef Q_COMPILER_VARIADIC_TEMPLATES
 Q_DECLARE_METATYPE(UndefinedFunction4);
-#endif
 
 QTEST_MAIN(tst_QMetaType)
 #include "tst_qmetatype.moc"

@@ -11,6 +11,7 @@
 #include "src/asmjs/asm-scanner.h"
 #include "src/asmjs/asm-types.h"
 #include "src/base/enum-set.h"
+#include "src/utils/vector.h"
 #include "src/wasm/wasm-module-builder.h"
 #include "src/zone/zone-containers.h"
 
@@ -106,8 +107,20 @@ class AsmJsParser {
     VarInfo* var_info;
   };
 
-  enum class BlockKind { kRegular, kLoop, kOther };
+  // Distinguish different kinds of blocks participating in {block_stack}. Each
+  // entry on that stack represents one block in the wasm code, and determines
+  // which block 'break' and 'continue' target in the current context:
+  //  - kRegular: The target of a 'break' (with & without identifier).
+  //              Pushed by an IterationStatement and a SwitchStatement.
+  //  - kLoop   : The target of a 'continue' (with & without identifier).
+  //              Pushed by an IterationStatement.
+  //  - kNamed  : The target of a 'break' with a specific identifier.
+  //              Pushed by a BlockStatement.
+  //  - kOther  : Only used for internal blocks, can never be targeted.
+  enum class BlockKind { kRegular, kLoop, kNamed, kOther };
 
+  // One entry in the {block_stack}, see {BlockKind} above for details. Blocks
+  // without a label have {kTokenNone} set as their label.
   struct BlockInfo {
     BlockKind kind;
     AsmJsScanner::token_t label;
@@ -141,9 +154,9 @@ class AsmJsParser {
   template <typename T>
   class CachedVector final : public ZoneVector<T> {
    public:
-    explicit CachedVector(CachedVectors<T>& cache)
-        : ZoneVector<T>(cache.zone()), cache_(&cache) {
-      cache.fill(this);
+    explicit CachedVector(CachedVectors<T>* cache)
+        : ZoneVector<T>(cache->zone()), cache_(cache) {
+      cache->fill(this);
     }
     ~CachedVector() { cache_->reuse(this); }
 
@@ -311,8 +324,7 @@ class AsmJsParser {
 
   // Use to set up block stack layers (including synthetic ones for if-else).
   // Begin/Loop/End below are implemented with these plus code generation.
-  void BareBegin(BlockKind kind = BlockKind::kOther,
-                 AsmJsScanner::token_t label = 0);
+  void BareBegin(BlockKind kind, AsmJsScanner::token_t label = 0);
   void BareEnd();
   int FindContinueLabelDepth(AsmJsScanner::token_t label);
   int FindBreakLabelDepth(AsmJsScanner::token_t label);

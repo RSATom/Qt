@@ -44,10 +44,8 @@ class NET_EXPORT_PRIVATE HttpAuthHandlerNegotiate : public HttpAuthHandler {
 
   class NET_EXPORT_PRIVATE Factory : public HttpAuthHandlerFactory {
    public:
-    Factory(NegotiateAuthSystemFactory negotiate_auth_system_factory);
+    explicit Factory(NegotiateAuthSystemFactory negotiate_auth_system_factory);
     ~Factory() override;
-
-    void set_host_resolver(HostResolver* host_resolver);
 
 #if !defined(OS_ANDROID)
     // Sets the system library to use, thereby assuming ownership of
@@ -58,13 +56,6 @@ class NET_EXPORT_PRIVATE HttpAuthHandlerNegotiate : public HttpAuthHandler {
 
 #if defined(OS_POSIX)
     const std::string& GetLibraryNameForTesting() const;
-
-    void set_allow_gssapi_library_load(bool allow_gssapi_library_load) {
-      allow_gssapi_library_load_ = allow_gssapi_library_load;
-    }
-    bool allow_gssapi_library_load_for_testing() const {
-      return allow_gssapi_library_load_;
-    }
 #endif  // defined(OS_POSIX)
 #endif  // !defined(OS_ANDROID)
 
@@ -76,20 +67,17 @@ class NET_EXPORT_PRIVATE HttpAuthHandlerNegotiate : public HttpAuthHandler {
                           CreateReason reason,
                           int digest_nonce_count,
                           const NetLogWithSource& net_log,
+                          HostResolver* host_resolver,
                           std::unique_ptr<HttpAuthHandler>* handler) override;
 
    private:
     NegotiateAuthSystemFactory negotiate_auth_system_factory_;
-    HostResolver* resolver_ = nullptr;
 #if defined(OS_WIN)
     ULONG max_token_length_ = 0;
 #endif
     bool is_unsupported_ = false;
 #if !defined(OS_ANDROID)
     std::unique_ptr<AuthLibrary> auth_library_;
-#if defined(OS_POSIX)
-    bool allow_gssapi_library_load_ = true;
-#endif  // defined(OS_POSIX)
 #endif  // !defined(OS_ANDROID)
   };
 
@@ -99,9 +87,7 @@ class NET_EXPORT_PRIVATE HttpAuthHandlerNegotiate : public HttpAuthHandler {
 
   ~HttpAuthHandlerNegotiate() override;
 
-  // HttpAuthHandler:
-  HttpAuth::AuthorizationResult HandleAnotherChallenge(
-      HttpAuthChallengeTokenizer* challenge) override;
+  // HttpAuthHandler
   bool NeedsIdentity() override;
   bool AllowsDefaultCredentials() override;
   bool AllowsExplicitCredentials() override;
@@ -109,13 +95,15 @@ class NET_EXPORT_PRIVATE HttpAuthHandlerNegotiate : public HttpAuthHandler {
   const std::string& spn_for_testing() const { return spn_; }
 
  protected:
+  // HttpAuthHandler
   bool Init(HttpAuthChallengeTokenizer* challenge,
             const SSLInfo& ssl_info) override;
-
   int GenerateAuthTokenImpl(const AuthCredentials* credentials,
                             const HttpRequestInfo* request,
                             CompletionOnceCallback callback,
                             std::string* auth_token) override;
+  HttpAuth::AuthorizationResult HandleAnotherChallengeImpl(
+      HttpAuthChallengeTokenizer* challenge) override;
 
  private:
   enum State {
@@ -136,7 +124,7 @@ class NET_EXPORT_PRIVATE HttpAuthHandlerNegotiate : public HttpAuthHandler {
   int DoResolveCanonicalNameComplete(int rv);
   int DoGenerateAuthToken();
   int DoGenerateAuthTokenComplete(int rv);
-  bool CanDelegate() const;
+  HttpAuth::DelegationType GetDelegationType() const;
 
   std::unique_ptr<HttpNegotiateAuthSystem> auth_system_;
   HostResolver* const resolver_;

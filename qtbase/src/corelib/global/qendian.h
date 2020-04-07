@@ -66,7 +66,7 @@ template <typename T> Q_ALWAYS_INLINE void qToUnaligned(const T src, void *dest)
     // Using sizeof(T) inside memcpy function produces internal compiler error with
     // MSVC2008/ARM in tst_endian -> use extra indirection to resolve size of T.
     const size_t size = sizeof(T);
-#if QT_HAS_BUILTIN(__builtin_memcpy)
+#if __has_builtin(__builtin_memcpy)
     __builtin_memcpy
 #else
     memcpy
@@ -78,7 +78,7 @@ template <typename T> Q_ALWAYS_INLINE T qFromUnaligned(const void *src)
 {
     T dest;
     const size_t size = sizeof(T);
-#if QT_HAS_BUILTIN(__builtin_memcpy)
+#if __has_builtin(__builtin_memcpy)
     __builtin_memcpy
 #else
     memcpy
@@ -327,9 +327,9 @@ public:
         return pre;
     }
 
-    static constexpr QSpecialInteger max()
+    static Q_DECL_CONSTEXPR QSpecialInteger max()
     { return QSpecialInteger(std::numeric_limits<T>::max()); }
-    static constexpr QSpecialInteger min()
+    static Q_DECL_CONSTEXPR QSpecialInteger min()
     { return QSpecialInteger(std::numeric_limits<T>::min()); }
 };
 
@@ -373,8 +373,8 @@ public:
     QLEInteger &operator ++(int);
     QLEInteger &operator --(int);
 
-    static constexpr QLEInteger max();
-    static constexpr QLEInteger min();
+    static Q_DECL_CONSTEXPR QLEInteger max();
+    static Q_DECL_CONSTEXPR QLEInteger min();
 };
 
 template<typename T>
@@ -400,8 +400,8 @@ public:
     QBEInteger &operator ++(int);
     QBEInteger &operator --(int);
 
-    static constexpr QBEInteger max();
-    static constexpr QBEInteger min();
+    static Q_DECL_CONSTEXPR QBEInteger max();
+    static Q_DECL_CONSTEXPR QBEInteger min();
 };
 #else
 

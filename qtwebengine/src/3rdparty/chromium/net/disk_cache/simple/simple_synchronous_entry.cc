@@ -12,13 +12,12 @@
 #include "base/compiler_specific.h"
 #include "base/containers/stack_container.h"
 #include "base/files/file_util.h"
-#include "base/hash.h"
+#include "base/hash/hash.h"
 #include "base/location.h"
 #include "base/memory/ptr_util.h"
 #include "base/metrics/field_trial_params.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/numerics/safe_conversions.h"
-#include "base/sha1.h"
 #include "base/strings/string_piece.h"
 #include "base/timer/elapsed_timer.h"
 #include "crypto/secure_hash.h"
@@ -39,21 +38,10 @@ namespace disk_cache {
 
 namespace {
 
-void RecordSyncOpenResult(net::CacheType cache_type,
-                          OpenEntryResult result,
-                          bool had_index) {
+void RecordSyncOpenResult(net::CacheType cache_type, OpenEntryResult result) {
   DCHECK_LT(result, OPEN_ENTRY_MAX);
   SIMPLE_CACHE_UMA(ENUMERATION,
                    "SyncOpenResult", cache_type, result, OPEN_ENTRY_MAX);
-  if (had_index) {
-    SIMPLE_CACHE_UMA(ENUMERATION,
-                     "SyncOpenResult_WithIndex", cache_type,
-                     result, OPEN_ENTRY_MAX);
-  } else {
-    SIMPLE_CACHE_UMA(ENUMERATION,
-                     "SyncOpenResult_WithoutIndex", cache_type,
-                     result, OPEN_ENTRY_MAX);
-  }
 }
 
 void RecordWriteResult(net::CacheType cache_type, SyncWriteResult result) {
@@ -300,7 +288,7 @@ SimpleStreamPrefetchData::~SimpleStreamPrefetchData() = default;
 
 SimpleEntryCreationResults::SimpleEntryCreationResults(
     SimpleEntryStat entry_stat)
-    : sync_entry(NULL),
+    : sync_entry(nullptr),
       entry_stat(entry_stat),
       result(net::OK),
       created(false) {}
@@ -350,7 +338,6 @@ void SimpleSynchronousEntry::OpenEntry(
     const FilePath& path,
     const std::string& key,
     const uint64_t entry_hash,
-    const bool had_index,
     const base::TimeTicks& time_enqueued,
     SimpleFileTracker* file_tracker,
     int32_t trailer_prefetch_size,
@@ -359,15 +346,14 @@ void SimpleSynchronousEntry::OpenEntry(
   SIMPLE_CACHE_UMA(TIMES, "QueueLatency.OpenEntry", cache_type,
                    (start_sync_open_entry - time_enqueued));
 
-  SimpleSynchronousEntry* sync_entry =
-      new SimpleSynchronousEntry(cache_type, path, key, entry_hash, had_index,
-                                 file_tracker, trailer_prefetch_size);
+  SimpleSynchronousEntry* sync_entry = new SimpleSynchronousEntry(
+      cache_type, path, key, entry_hash, file_tracker, trailer_prefetch_size);
   out_results->result = sync_entry->InitializeForOpen(
       &out_results->entry_stat, out_results->stream_prefetch_data);
   if (out_results->result != net::OK) {
     sync_entry->Doom();
     delete sync_entry;
-    out_results->sync_entry = NULL;
+    out_results->sync_entry = nullptr;
     out_results->stream_prefetch_data[0].data = nullptr;
     out_results->stream_prefetch_data[1].data = nullptr;
     return;
@@ -385,7 +371,6 @@ void SimpleSynchronousEntry::CreateEntry(
     const FilePath& path,
     const std::string& key,
     const uint64_t entry_hash,
-    const bool had_index,
     const base::TimeTicks& time_enqueued,
     SimpleFileTracker* file_tracker,
     SimpleEntryCreationResults* out_results) {
@@ -395,14 +380,14 @@ void SimpleSynchronousEntry::CreateEntry(
                    (start_sync_create_entry - time_enqueued));
 
   SimpleSynchronousEntry* sync_entry = new SimpleSynchronousEntry(
-      cache_type, path, key, entry_hash, had_index, file_tracker, -1);
+      cache_type, path, key, entry_hash, file_tracker, -1);
   out_results->result =
       sync_entry->InitializeForCreate(&out_results->entry_stat);
   if (out_results->result != net::OK) {
     if (out_results->result != net::ERR_FILE_EXISTS)
       sync_entry->Doom();
     delete sync_entry;
-    out_results->sync_entry = NULL;
+    out_results->sync_entry = nullptr;
     return;
   }
   out_results->sync_entry = sync_entry;
@@ -423,15 +408,13 @@ void SimpleSynchronousEntry::OpenOrCreateEntry(
     SimpleFileTracker* file_tracker,
     int32_t trailer_prefetch_size,
     SimpleEntryCreationResults* out_results) {
-  const bool had_index = (index_state != INDEX_NOEXIST);
-
   base::TimeTicks start = base::TimeTicks::Now();
   SIMPLE_CACHE_UMA(TIMES, "QueueLatency.OpenOrCreateEntry", cache_type,
                    (start - time_enqueued));
   if (index_state == INDEX_MISS) {
     // Try to just create.
     auto sync_entry = base::WrapUnique(
-        new SimpleSynchronousEntry(cache_type, path, key, entry_hash, had_index,
+        new SimpleSynchronousEntry(cache_type, path, key, entry_hash,
                                    file_tracker, trailer_prefetch_size));
 
     out_results->result =
@@ -448,8 +431,8 @@ void SimpleSynchronousEntry::OpenOrCreateEntry(
           // In this case, ::OpenOrCreateEntry already returned claiming it made
           // a new entry. Try extra-hard to make that the actual case.
           sync_entry->Doom();
-          CreateEntry(cache_type, path, key, entry_hash, had_index,
-                      time_enqueued, file_tracker, out_results);
+          CreateEntry(cache_type, path, key, entry_hash, time_enqueued,
+                      file_tracker, out_results);
           return;
         }
         // Otherwise can just try opening.
@@ -462,12 +445,12 @@ void SimpleSynchronousEntry::OpenOrCreateEntry(
   }
 
   // Try open, then if that fails create.
-  OpenEntry(cache_type, path, key, entry_hash, had_index, time_enqueued,
-            file_tracker, trailer_prefetch_size, out_results);
+  OpenEntry(cache_type, path, key, entry_hash, time_enqueued, file_tracker,
+            trailer_prefetch_size, out_results);
   if (out_results->sync_entry)
     return;
-  CreateEntry(cache_type, path, key, entry_hash, had_index, time_enqueued,
-              file_tracker, out_results);
+  CreateEntry(cache_type, path, key, entry_hash, time_enqueued, file_tracker,
+              out_results);
 }
 
 // static
@@ -1117,20 +1100,14 @@ SimpleSynchronousEntry::SimpleSynchronousEntry(net::CacheType cache_type,
                                                const FilePath& path,
                                                const std::string& key,
                                                const uint64_t entry_hash,
-                                               const bool had_index,
                                                SimpleFileTracker* file_tracker,
                                                int32_t trailer_prefetch_size)
     : cache_type_(cache_type),
       path_(path),
       entry_file_key_(entry_hash),
-      had_index_(had_index),
       key_(key),
-      have_open_files_(false),
-      initialized_(false),
       file_tracker_(file_tracker),
-      trailer_prefetch_size_(trailer_prefetch_size),
-      computed_trailer_prefetch_size_(-1),
-      sparse_file_open_(false) {
+      trailer_prefetch_size_(trailer_prefetch_size) {
   for (int i = 0; i < kSimpleEntryNormalFileCount; ++i)
     empty_file_omitted_[i] = false;
 }
@@ -1213,23 +1190,10 @@ bool SimpleSynchronousEntry::OpenFiles(SimpleEntryStat* out_entry_stat) {
       file_1_open_start = base::Time::Now();
 
     if (!MaybeOpenFile(i, &error)) {
-      // TODO(morlovich): Remove one each of these triplets of histograms. We
-      // can calculate the third as the sum or difference of the other two.
-      RecordSyncOpenResult(cache_type_, OPEN_ENTRY_PLATFORM_FILE_ERROR,
-                           had_index_);
+      RecordSyncOpenResult(cache_type_, OPEN_ENTRY_PLATFORM_FILE_ERROR);
       SIMPLE_CACHE_UMA(ENUMERATION,
                        "SyncOpenPlatformFileError", cache_type_,
                        -error, -base::File::FILE_ERROR_MAX);
-      if (had_index_) {
-        SIMPLE_CACHE_UMA(ENUMERATION,
-                         "SyncOpenPlatformFileError_WithIndex", cache_type_,
-                         -error, -base::File::FILE_ERROR_MAX);
-      } else {
-        SIMPLE_CACHE_UMA(ENUMERATION,
-                         "SyncOpenPlatformFileError_WithoutIndex",
-                         cache_type_,
-                         -error, -base::File::FILE_ERROR_MAX);
-      }
       while (--i >= 0)
         CloseFile(i);
       return false;
@@ -1276,8 +1240,7 @@ bool SimpleSynchronousEntry::OpenFiles(SimpleEntryStat* out_entry_stat) {
     // stream 1 and stream 0 is only determined after reading the EOF record
     // for stream 0 in ReadAndValidateStream0AndMaybe1.
     if (!base::IsValueInRangeForNumericType<int>(file_info.size)) {
-      RecordSyncOpenResult(cache_type_, OPEN_ENTRY_INVALID_FILE_LENGTH,
-                           had_index_);
+      RecordSyncOpenResult(cache_type_, OPEN_ENTRY_INVALID_FILE_LENGTH);
       return false;
     }
     out_entry_stat->set_data_size(i + 1, static_cast<int>(file_info.size));
@@ -1311,22 +1274,10 @@ bool SimpleSynchronousEntry::CreateFiles(SimpleEntryStat* out_entry_stat) {
   for (int i = 0; i < kSimpleEntryNormalFileCount; ++i) {
     base::File::Error error;
     if (!MaybeCreateFile(i, FILE_NOT_REQUIRED, &error)) {
-      // TODO(morlovich): Remove one each of these triplets of histograms. We
-      // can calculate the third as the sum or difference of the other two.
-      RecordSyncCreateResult(CREATE_ENTRY_PLATFORM_FILE_ERROR, had_index_);
+      RecordSyncCreateResult(CREATE_ENTRY_PLATFORM_FILE_ERROR);
       SIMPLE_CACHE_UMA(ENUMERATION,
                        "SyncCreatePlatformFileError", cache_type_,
                        -error, -base::File::FILE_ERROR_MAX);
-      if (had_index_) {
-        SIMPLE_CACHE_UMA(ENUMERATION,
-                         "SyncCreatePlatformFileError_WithIndex", cache_type_,
-                         -error, -base::File::FILE_ERROR_MAX);
-      } else {
-        SIMPLE_CACHE_UMA(ENUMERATION,
-                         "SyncCreatePlatformFileError_WithoutIndex",
-                         cache_type_,
-                         -error, -base::File::FILE_ERROR_MAX);
-      }
       while (--i >= 0)
         CloseFile(i);
       return false;
@@ -1377,7 +1328,7 @@ bool SimpleSynchronousEntry::CheckHeaderAndKey(base::File* file,
       reinterpret_cast<const SimpleFileHeader*>(header_data.data());
 
   if (bytes_read == -1 || static_cast<size_t>(bytes_read) < sizeof(*header)) {
-    RecordSyncOpenResult(cache_type_, OPEN_ENTRY_CANT_READ_HEADER, had_index_);
+    RecordSyncOpenResult(cache_type_, OPEN_ENTRY_CANT_READ_HEADER);
     return false;
   }
   // This resize will not invalidate iterators since it does not enlarge the
@@ -1386,12 +1337,12 @@ bool SimpleSynchronousEntry::CheckHeaderAndKey(base::File* file,
   header_data.resize(bytes_read);
 
   if (header->initial_magic_number != kSimpleInitialMagicNumber) {
-    RecordSyncOpenResult(cache_type_, OPEN_ENTRY_BAD_MAGIC_NUMBER, had_index_);
+    RecordSyncOpenResult(cache_type_, OPEN_ENTRY_BAD_MAGIC_NUMBER);
     return false;
   }
 
   if (header->version != kSimpleEntryVersionOnDisk) {
-    RecordSyncOpenResult(cache_type_, OPEN_ENTRY_BAD_VERSION, had_index_);
+    RecordSyncOpenResult(cache_type_, OPEN_ENTRY_BAD_VERSION);
     return false;
   }
 
@@ -1404,7 +1355,7 @@ bool SimpleSynchronousEntry::CheckHeaderAndKey(base::File* file,
     int bytes_read =
         file->Read(old_size, header_data.data() + old_size, bytes_to_read);
     if (bytes_read != bytes_to_read) {
-      RecordSyncOpenResult(cache_type_, OPEN_ENTRY_CANT_READ_KEY, had_index_);
+      RecordSyncOpenResult(cache_type_, OPEN_ENTRY_CANT_READ_KEY);
       return false;
     }
     header = reinterpret_cast<const SimpleFileHeader*>(header_data.data());
@@ -1412,7 +1363,7 @@ bool SimpleSynchronousEntry::CheckHeaderAndKey(base::File* file,
 
   char* key_data = header_data.data() + sizeof(*header);
   if (base::Hash(key_data, header->key_length) != header->key_hash) {
-    RecordSyncOpenResult(cache_type_, OPEN_ENTRY_KEY_HASH_MISMATCH, had_index_);
+    RecordSyncOpenResult(cache_type_, OPEN_ENTRY_KEY_HASH_MISMATCH);
     return false;
   }
 
@@ -1421,7 +1372,7 @@ bool SimpleSynchronousEntry::CheckHeaderAndKey(base::File* file,
     key_.swap(key_from_header);
   } else {
     if (key_ != key_from_header) {
-      RecordSyncOpenResult(cache_type_, OPEN_ENTRY_KEY_MISMATCH, had_index_);
+      RecordSyncOpenResult(cache_type_, OPEN_ENTRY_KEY_MISMATCH);
       return false;
     }
   }
@@ -1470,17 +1421,28 @@ int SimpleSynchronousEntry::InitializeForOpen(
       out_entry_stat->set_data_size(
           2,
           GetDataSizeFromFileSize(key_.size(), out_entry_stat->data_size(2)));
-      if (out_entry_stat->data_size(2) < 0) {
+      const int32_t data_size_2 = out_entry_stat->data_size(2);
+      if (data_size_2 < 0) {
         DLOG(WARNING) << "Stream 2 file is too small.";
         return net::ERR_FAILED;
+      } else if (data_size_2 > 0) {
+        // Validate non empty stream 2.
+        SimpleFileEOF eof_record;
+        SimpleFileTracker::FileHandle file =
+            file_tracker_->Acquire(this, SubFileForFileIndex(i));
+        int file_offset =
+            out_entry_stat->GetEOFOffsetInFile(key_.size(), 2 /*stream index*/);
+        int ret_value_stream_2 =
+            GetEOFRecordData(file.get(), nullptr, i, file_offset, &eof_record);
+        if (ret_value_stream_2 != net::OK)
+          return ret_value_stream_2;
       }
     }
   }
 
   int32_t sparse_data_size = 0;
   if (!OpenSparseFileIfExists(&sparse_data_size)) {
-    RecordSyncOpenResult(cache_type_, OPEN_ENTRY_SPARSE_OPEN_FAILED,
-                         had_index_);
+    RecordSyncOpenResult(cache_type_, OPEN_ENTRY_SPARSE_OPEN_FAILED);
     return net::ERR_FAILED;
   }
   out_entry_stat->set_sparse_data_size(sparse_data_size);
@@ -1501,7 +1463,7 @@ int SimpleSynchronousEntry::InitializeForOpen(
   SIMPLE_CACHE_UMA(BOOLEAN, "EntryOpenedAndStream2Removed", cache_type_,
                    removed_stream2);
 
-  RecordSyncOpenResult(cache_type_, OPEN_ENTRY_SUCCESS, had_index_);
+  RecordSyncOpenResult(cache_type_, OPEN_ENTRY_SUCCESS);
   initialized_ = true;
   return net::OK;
 }
@@ -1552,11 +1514,11 @@ int SimpleSynchronousEntry::InitializeForCreate(
 
     CreateEntryResult result;
     if (!InitializeCreatedFile(i, &result)) {
-      RecordSyncCreateResult(result, had_index_);
+      RecordSyncCreateResult(result);
       return net::ERR_FAILED;
     }
   }
-  RecordSyncCreateResult(CREATE_ENTRY_SUCCESS, had_index_);
+  RecordSyncCreateResult(CREATE_ENTRY_SUCCESS);
   initialized_ = true;
   return net::OK;
 }
@@ -1819,20 +1781,10 @@ bool SimpleSynchronousEntry::TruncateFilesForEntryHash(
   return result;
 }
 
-void SimpleSynchronousEntry::RecordSyncCreateResult(CreateEntryResult result,
-                                                    bool had_index) {
+void SimpleSynchronousEntry::RecordSyncCreateResult(CreateEntryResult result) {
   DCHECK_LT(result, CREATE_ENTRY_MAX);
   SIMPLE_CACHE_UMA(ENUMERATION,
                    "SyncCreateResult", cache_type_, result, CREATE_ENTRY_MAX);
-  if (had_index) {
-    SIMPLE_CACHE_UMA(ENUMERATION,
-                     "SyncCreateResult_WithIndex", cache_type_,
-                     result, CREATE_ENTRY_MAX);
-  } else {
-    SIMPLE_CACHE_UMA(ENUMERATION,
-                     "SyncCreateResult_WithoutIndex", cache_type_,
-                     result, CREATE_ENTRY_MAX);
-  }
 }
 
 FilePath SimpleSynchronousEntry::GetFilenameFromFileIndex(

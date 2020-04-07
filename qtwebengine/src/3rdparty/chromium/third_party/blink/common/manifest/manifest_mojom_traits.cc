@@ -4,6 +4,9 @@
 
 #include "third_party/blink/public/common/manifest/manifest_mojom_traits.h"
 
+#include <string>
+#include <utility>
+
 #include "mojo/public/cpp/base/string16_mojom_traits.h"
 #include "third_party/blink/public/common/manifest/web_display_mode_mojom_traits.h"
 #include "third_party/blink/public/common/screen_orientation/web_screen_orientation_mojom_traits.h"
@@ -67,6 +70,9 @@ bool StructTraits<blink::mojom::ManifestDataView, ::blink::Manifest>::Read(
   if (!data.ReadShareTarget(&out->share_target))
     return false;
 
+  if (!data.ReadFileHandler(&out->file_handler))
+    return false;
+
   if (!data.ReadRelatedApplications(&out->related_applications))
     return false;
 
@@ -77,9 +83,6 @@ bool StructTraits<blink::mojom::ManifestDataView, ::blink::Manifest>::Read(
 
   if (data.has_background_color())
     out->background_color = data.background_color();
-
-  if (!data.ReadSplashScreenUrl(&out->splash_screen_url))
-    return false;
 
   if (!data.ReadDisplay(&out->display))
     return false;
@@ -137,10 +140,10 @@ bool StructTraits<blink::mojom::ManifestRelatedApplicationDataView,
   return !(out->url.is_empty() && out->id.is_null());
 }
 
-bool StructTraits<blink::mojom::ManifestShareTargetFileDataView,
-                  ::blink::Manifest::ShareTargetFile>::
-    Read(blink::mojom::ManifestShareTargetFileDataView data,
-         ::blink::Manifest::ShareTargetFile* out) {
+bool StructTraits<blink::mojom::ManifestFileFilterDataView,
+                  ::blink::Manifest::FileFilter>::
+    Read(blink::mojom::ManifestFileFilterDataView data,
+         ::blink::Manifest::FileFilter* out) {
   TruncatedString16 name;
   if (!data.ReadName(&name))
     return false;
@@ -193,6 +196,16 @@ bool StructTraits<blink::mojom::ManifestShareTargetDataView,
     return false;
 
   return data.ReadParams(&out->params);
+}
+
+bool StructTraits<blink::mojom::ManifestFileHandlerDataView,
+                  ::blink::Manifest::FileHandler>::
+    Read(blink::mojom::ManifestFileHandlerDataView data,
+         ::blink::Manifest::FileHandler* out) {
+  if (!data.ReadAction(&out->action))
+    return false;
+
+  return data.ReadFiles(&out->files);
 }
 
 }  // namespace mojo

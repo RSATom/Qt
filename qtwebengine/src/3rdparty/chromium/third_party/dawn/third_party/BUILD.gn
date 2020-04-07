@@ -22,21 +22,6 @@ is_msvc = is_win && !is_clang
 # Third-party dependencies needed by libdawn_native
 ###############################################################################
 
-# Glad
-config("glad_public") {
-  include_dirs = [ "glad/include" ]
-}
-
-static_library("glad") {
-  sources = [
-    "glad/include/KHR/khrplatform.h",
-    "glad/include/glad/glad.h",
-    "glad/src/glad.c",
-  ]
-
-  public_configs = [ ":glad_public" ]
-}
-
 # SPIRV-Cross
 spirv_cross_dir = dawn_spirv_cross_dir
 
@@ -70,6 +55,10 @@ static_library("spirv_cross") {
     "${spirv_cross_dir}/spirv_common.hpp",
     "${spirv_cross_dir}/spirv_cross.cpp",
     "${spirv_cross_dir}/spirv_cross.hpp",
+    "${spirv_cross_dir}/spirv_cross_parsed_ir.cpp",
+    "${spirv_cross_dir}/spirv_cross_parsed_ir.hpp",
+    "${spirv_cross_dir}/spirv_parser.cpp",
+    "${spirv_cross_dir}/spirv_parser.hpp",
   ]
 
   need_glsl_cross = dawn_enable_opengl
@@ -110,28 +99,59 @@ static_library("spirv_cross_full_for_fuzzers") {
     "${spirv_cross_dir}/spirv_common.hpp",
     "${spirv_cross_dir}/spirv_cross.cpp",
     "${spirv_cross_dir}/spirv_cross.hpp",
+    "${spirv_cross_dir}/spirv_cross_parsed_ir.cpp",
+    "${spirv_cross_dir}/spirv_cross_parsed_ir.hpp",
     "${spirv_cross_dir}/spirv_glsl.cpp",
     "${spirv_cross_dir}/spirv_glsl.hpp",
     "${spirv_cross_dir}/spirv_hlsl.cpp",
     "${spirv_cross_dir}/spirv_hlsl.hpp",
     "${spirv_cross_dir}/spirv_msl.cpp",
     "${spirv_cross_dir}/spirv_msl.hpp",
+    "${spirv_cross_dir}/spirv_parser.cpp",
+    "${spirv_cross_dir}/spirv_parser.hpp",
   ]
 }
 
-# An empty Vulkan target to add the include dirs and list the sources
-# for the header inclusion check.
-config("vulkan_headers_public") {
-  include_dirs = [ "." ]
+# Empty targets to add the include dirs and list the sources of Khronos headers for header inclusion check.
+config("khronos_headers_public") {
+  include_dirs = [ "khronos" ]
+}
+
+config("vulkan_headers_config") {
+  include_dirs = [ "khronos" ]
+  if (is_win) {
+    defines = [ "VK_USE_PLATFORM_WIN32_KHR" ]
+  }
+  if (is_linux) {
+    defines = [ "VK_USE_PLATFORM_XCB_KHR" ]
+  }
+  if (is_android) {
+    defines = [ "VK_USE_PLATFORM_ANDROID_KHR" ]
+  }
+  if (is_fuchsia) {
+    defines = [ "VK_USE_PLATFORM_FUCHSIA" ]
+  }
 }
 
 source_set("vulkan_headers") {
   sources = [
-    "vulkan/vk_platform.h",
-    "vulkan/vulkan.h",
+    "khronos/vulkan/vk_icd.h",
+    "khronos/vulkan/vk_layer.h",
+    "khronos/vulkan/vk_platform.h",
+    "khronos/vulkan/vk_sdk_platform.h",
+    "khronos/vulkan/vulkan.h",
+    "khronos/vulkan/vulkan_core.h",
   ]
 
-  public_configs = [ ":vulkan_headers_public" ]
+  public_configs = [ ":vulkan_headers_config" ]
+}
+
+source_set("khronos_platform") {
+  sources = [
+    "khronos/KHR/khrplatform.h",
+  ]
+
+  public_configs = [ ":khronos_headers_public" ]
 }
 
 ###############################################################################
@@ -224,6 +244,9 @@ config("glfw_public") {
 
 static_library("glfw") {
   public_configs = [ ":glfw_public" ]
+
+  configs -= [ "//build/config/compiler:chromium_code" ]
+  configs += [ "//build/config/compiler:no_chromium_code" ]
 
   if (is_msvc) {
     # nonstandard extension, function/data pointer conversion in expression
@@ -335,48 +358,11 @@ if (dawn_standalone) {
     include_dirs = [ "glm" ]
   }
   source_set("glm") {
+    configs -= [ "//build/config/compiler:chromium_code" ]
+    configs += [ "//build/config/compiler:no_chromium_code" ]
+
     public_configs = [ ":glm_public_config" ]
+
     # GLM is header only but has too many files to list them.
-  }
-
-  # STB
-  config("stb_public_config") {
-    include_dirs = [ "stb" ]
-
-    if (!is_msvc) {
-      cflags_cc = [ "-Wno-implicit-fallthrough" ]
-    }
-  }
-  source_set("stb") {
-    public_configs = [ ":stb_public_config" ]
-    sources = [
-      "stb/stb_image.h",
-    ]
-  }
-
-  # PicoJSON
-  config("picojson_public_config") {
-    include_dirs = [ "." ]
-  }
-  source_set("picojson") {
-    public_configs = [ ":picojson_public_config" ]
-    sources = [
-      "picojson/picojson.h",
-    ]
-  }
-
-  # Tiny glTF Loader
-  config("tiny_gltf_loader_public_config") {
-    include_dirs = [ "." ]
-  }
-  source_set("tiny_gltf_loader") {
-    public_configs = [ ":tiny_gltf_loader_public_config" ]
-    public_deps = [
-      ":picojson",
-      ":stb",
-    ]
-    sources = [
-      "tinygltfloader/tiny_gltf_loader.h",
-    ]
   }
 }

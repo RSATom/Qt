@@ -49,6 +49,7 @@
 #include <qcameraimagecapture.h>
 #include <qvideorenderercontrol.h>
 #include <private/qmediaserviceprovider_p.h>
+#include <private/qvideoframe_p.h>
 
 QT_USE_NAMESPACE
 
@@ -68,8 +69,10 @@ public slots:
     void cleanupTestCase();
 
 private slots:
+#if QT_DEPRECATED_SINCE(5, 3)
     void testAvailableDevices();
     void testDeviceDescription();
+#endif
     void testCameraInfo();
     void testCtorWithDevice();
     void testCtorWithCameraInfo();
@@ -100,6 +103,7 @@ void tst_QCameraBackend::cleanupTestCase()
 {
 }
 
+#if QT_DEPRECATED_SINCE(5, 3)
 void tst_QCameraBackend::testAvailableDevices()
 {
     int deviceCount = QMediaServiceProvider::defaultServiceProvider()->devices(QByteArray(Q_MEDIASERVICE_CAMERA)).count();
@@ -113,22 +117,24 @@ void tst_QCameraBackend::testDeviceDescription()
     if (deviceCount == 0)
         QVERIFY(QCamera::deviceDescription(QByteArray("random")).isNull());
     else {
-        foreach (const QByteArray &device, QCamera::availableDevices())
+        const auto devices = QCamera::availableDevices();
+        for (const QByteArray &device : devices)
             QVERIFY(QCamera::deviceDescription(device).length() > 0);
     }
 }
+#endif
 
 void tst_QCameraBackend::testCameraInfo()
 {
     int deviceCount = QMediaServiceProvider::defaultServiceProvider()->devices(QByteArray(Q_MEDIASERVICE_CAMERA)).count();
-    QList<QCameraInfo> cameras = QCameraInfo::availableCameras();
+    const QList<QCameraInfo> cameras = QCameraInfo::availableCameras();
     QCOMPARE(cameras.count(), deviceCount);
     if (cameras.isEmpty()) {
         QVERIFY(QCameraInfo::defaultCamera().isNull());
         QSKIP("Camera selection is not supported");
     }
 
-    foreach (const QCameraInfo &info, cameras) {
+    for (const QCameraInfo &info : cameras) {
         QVERIFY(!info.deviceName().isEmpty());
         QVERIFY(!info.description().isEmpty());
         QVERIFY(info.orientation() % 90 == 0);
@@ -137,10 +143,11 @@ void tst_QCameraBackend::testCameraInfo()
 
 void tst_QCameraBackend::testCtorWithDevice()
 {
-    if (QCamera::availableDevices().isEmpty())
+    const auto availableCameras = QCameraInfo::availableCameras();
+    if (availableCameras.isEmpty())
         QSKIP("Camera selection not supported");
 
-    QCamera *camera = new QCamera(QCamera::availableDevices().first());
+    QCamera *camera = new QCamera(availableCameras.first().deviceName().toLatin1());
     QCOMPARE(camera->error(), QCamera::NoError);
     delete camera;
 
@@ -408,8 +415,6 @@ void tst_QCameraBackend::testCaptureToBuffer()
 
     QTRY_COMPARE(camera.status(), QCamera::LoadedStatus);
 
-    QCOMPARE(imageCapture.bufferFormat(), QVideoFrame::Format_Jpeg);
-
     QVERIFY(imageCapture.isCaptureDestinationSupported(QCameraImageCapture::CaptureToFile));
     QVERIFY(imageCapture.isCaptureDestinationSupported(QCameraImageCapture::CaptureToBuffer));
     QVERIFY(imageCapture.isCaptureDestinationSupported(
@@ -446,23 +451,9 @@ void tst_QCameraBackend::testCaptureToBuffer()
     QCOMPARE(imageAvailableSignal.first().first().toInt(), id);
 
     QVideoFrame frame = imageAvailableSignal.first().last().value<QVideoFrame>();
-    QVERIFY(frame.isValid());
-    QCOMPARE(frame.pixelFormat(), QVideoFrame::Format_Jpeg);
-    QVERIFY(!frame.size().isEmpty());
-    QVERIFY(frame.map(QAbstractVideoBuffer::ReadOnly));
-    QByteArray data((const char *)frame.bits(), frame.mappedBytes());
-    frame.unmap();
+    QVERIFY(!qt_imageFromVideoFrame(frame).isNull());
+
     frame = QVideoFrame();
-
-    QVERIFY(!data.isEmpty());
-    QBuffer buffer;
-    buffer.setData(data);
-    buffer.open(QIODevice::ReadOnly);
-    QImageReader reader(&buffer, "JPG");
-    reader.setScaledSize(QSize(640,480));
-    QImage img(reader.read());
-    QVERIFY(!img.isNull());
-
     capturedSignal.clear();
     imageAvailableSignal.clear();
     savedSignal.clear();
@@ -518,9 +509,7 @@ void tst_QCameraBackend::testCaptureToBuffer()
         QCOMPARE(imageAvailableSignal.first().first().toInt(), id);
 
         frame = imageAvailableSignal.first().last().value<QVideoFrame>();
-        QVERIFY(frame.isValid());
-        QCOMPARE(frame.pixelFormat(), QVideoFrame::Format_Jpeg);
-        QVERIFY(!frame.size().isEmpty());
+        QVERIFY(!qt_imageFromVideoFrame(frame).isNull());
 
         QString fileName = savedSignal.first().last().toString();
         QVERIFY(QFileInfo(fileName).exists());
@@ -624,11 +613,11 @@ void tst_QCameraBackend::testVideoRecording_data()
 {
     QTest::addColumn<QByteArray>("device");
 
-    QList<QByteArray> devices = QCamera::availableDevices();
+    const auto devices = QCameraInfo::availableCameras();
 
-    foreach (const QByteArray &device, devices) {
-        QTest::newRow(QCamera::deviceDescription(device).toUtf8())
-                << device;
+    for (const auto &device : devices) {
+        QTest::newRow(device.description().toUtf8())
+                << device.deviceName().toLatin1();
     }
 
     if (devices.isEmpty())

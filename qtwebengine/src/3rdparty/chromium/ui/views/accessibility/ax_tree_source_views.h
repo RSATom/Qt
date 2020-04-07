@@ -18,6 +18,7 @@ struct AXTreeData;
 
 namespace views {
 
+class AXAuraObjCache;
 class AXAuraObjWrapper;
 
 // This class exposes the views hierarchy as an accessibility tree permitting
@@ -29,7 +30,9 @@ class VIEWS_EXPORT AXTreeSourceViews
     : public ui::
           AXTreeSource<AXAuraObjWrapper*, ui::AXNodeData, ui::AXTreeData> {
  public:
-  AXTreeSourceViews(AXAuraObjWrapper* root, const ui::AXTreeID& tree_id);
+  AXTreeSourceViews(AXAuraObjWrapper* root,
+                    const ui::AXTreeID& tree_id,
+                    AXAuraObjCache* cache);
   ~AXTreeSourceViews() override;
 
   // Invokes an action on an Aura object.
@@ -43,6 +46,7 @@ class VIEWS_EXPORT AXTreeSourceViews
   void GetChildren(AXAuraObjWrapper* node,
                    std::vector<AXAuraObjWrapper*>* out_children) const override;
   AXAuraObjWrapper* GetParent(AXAuraObjWrapper* node) const override;
+  bool IsIgnored(AXAuraObjWrapper* node) const override;
   bool IsValid(AXAuraObjWrapper* node) const override;
   bool IsEqual(AXAuraObjWrapper* node1, AXAuraObjWrapper* node2) const override;
   AXAuraObjWrapper* GetNull() const override;
@@ -58,6 +62,8 @@ class VIEWS_EXPORT AXTreeSourceViews
 
   // ID to use for the AX tree.
   const ui::AXTreeID tree_id_;
+
+  views::AXAuraObjCache* cache_;
 
   DISALLOW_COPY_AND_ASSIGN(AXTreeSourceViews);
 };

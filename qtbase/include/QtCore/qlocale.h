@@ -1,1 +1,1 @@
-#include "../../src/corelib/tools/qlocale.h"
+#include "../../src/corelib/text/qlocale.h"

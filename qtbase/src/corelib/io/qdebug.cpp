@@ -147,7 +147,7 @@ using QtMiscUtils::fromHex;
 // Has been defined in the header / inlined before Qt 5.4
 QDebug::~QDebug()
 {
-    if (!--stream->ref) {
+    if (stream && !--stream->ref) {
         if (stream->space && stream->buffer.endsWith(QLatin1Char(' ')))
             stream->buffer.chop(1);
         if (stream->message_output) {
@@ -166,7 +166,7 @@ void QDebug::putUcs4(uint ucs4)
 {
     maybeQuote('\'');
     if (ucs4 < 0x20) {
-        stream->ts << "\\x" << hex << ucs4 << reset;
+        stream->ts << "\\x" << Qt::hex << ucs4 << Qt::reset;
     } else if (ucs4 < 0x80) {
         stream->ts << char(ucs4);
     } else {
@@ -174,7 +174,7 @@ void QDebug::putUcs4(uint ucs4)
             stream->ts << "\\u" << qSetFieldWidth(4);
         else
             stream->ts << "\\U" << qSetFieldWidth(8);
-        stream->ts << hex << qSetPadChar(QLatin1Char('0')) << ucs4 << reset;
+        stream->ts << Qt::hex << qSetPadChar(QLatin1Char('0')) << ucs4 << Qt::reset;
     }
     maybeQuote('\'');
 }
@@ -834,7 +834,7 @@ QDebug &QDebug::resetFormat()
     that QDebugStateSaver stores for the duration of the current block.
 
     The settings of the internal QTextStream are also saved and restored,
-    so that using << hex in a QDebug operator doesn't affect other QDebug
+    so that using << Qt::hex in a QDebug operator doesn't affect other QDebug
     operators.
 
     \since 5.1
@@ -843,36 +843,34 @@ QDebug &QDebug::resetFormat()
 class QDebugStateSaverPrivate
 {
 public:
-    QDebugStateSaverPrivate(QDebug &dbg)
-        : m_dbg(dbg),
-          m_spaces(dbg.autoInsertSpaces()),
-          m_flags(0),
-          m_streamParams(dbg.stream->ts.d_ptr->params)
+    QDebugStateSaverPrivate(QDebug::Stream *stream)
+        : m_stream(stream),
+          m_spaces(stream->space),
+          m_flags(stream->context.version > 1 ? stream->flags : 0),
+          m_streamParams(stream->ts.d_ptr->params)
     {
-        if (m_dbg.stream->context.version > 1)
-            m_flags = m_dbg.stream->flags;
     }
     void restoreState()
     {
-        const bool currentSpaces = m_dbg.autoInsertSpaces();
+        const bool currentSpaces = m_stream->space;
         if (currentSpaces && !m_spaces)
-            if (m_dbg.stream->buffer.endsWith(QLatin1Char(' ')))
-                m_dbg.stream->buffer.chop(1);
+            if (m_stream->buffer.endsWith(QLatin1Char(' ')))
+                m_stream->buffer.chop(1);
 
-        m_dbg.setAutoInsertSpaces(m_spaces);
-        m_dbg.stream->ts.d_ptr->params = m_streamParams;
-        if (m_dbg.stream->context.version > 1)
-            m_dbg.stream->flags = m_flags;
+        m_stream->space = m_spaces;
+        m_stream->ts.d_ptr->params = m_streamParams;
+        if (m_stream->context.version > 1)
+            m_stream->flags = m_flags;
 
         if (!currentSpaces && m_spaces)
-            m_dbg.stream->ts << ' ';
+            m_stream->ts << ' ';
     }
 
-    QDebug &m_dbg;
+    QDebug::Stream *m_stream;
 
     // QDebug state
     const bool m_spaces;
-    int m_flags;
+    const int m_flags;
 
     // QTextStream state
     const QTextStreamPrivate::Params m_streamParams;
@@ -886,7 +884,7 @@ public:
     \sa QDebug::setAutoInsertSpaces(), QDebug::autoInsertSpaces()
 */
 QDebugStateSaver::QDebugStateSaver(QDebug &dbg)
-    : d(new QDebugStateSaverPrivate(dbg))
+    : d(new QDebugStateSaverPrivate(dbg.stream))
 {
 }
 

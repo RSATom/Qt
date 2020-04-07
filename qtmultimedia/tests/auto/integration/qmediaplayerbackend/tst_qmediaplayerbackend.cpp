@@ -154,7 +154,7 @@ QMediaContent tst_QMediaPlayerBackend::selectVideoFile(const QStringList& mediaC
 
     QSignalSpy errorSpy(&player, SIGNAL(error(QMediaPlayer::Error)));
 
-    foreach (QString s, mediaCandidates) {
+    for (const QString &s : mediaCandidates) {
         QFileInfo videoFile(s);
         if (!videoFile.exists())
             continue;
@@ -1354,6 +1354,7 @@ void tst_QMediaPlayerBackend::surfaceTest_data()
 
     QList<QVideoFrame::PixelFormat> formatsYUV;
     formatsYUV << QVideoFrame::Format_YUV420P
+               << QVideoFrame::Format_YUV422P
                << QVideoFrame::Format_YV12
                << QVideoFrame::Format_UYVY
                << QVideoFrame::Format_YUYV

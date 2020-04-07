@@ -31,8 +31,7 @@ class GLSurfaceEglReadback : public gl::PbufferGLSurfaceEGL {
               ColorSpace color_space,
               bool has_alpha) override;
   bool IsOffscreen() override;
-  gfx::SwapResult SwapBuffers(const PresentationCallback& callback) override;
-  bool SupportsPresentationCallback() override;
+  gfx::SwapResult SwapBuffers(PresentationCallback callback) override;
   bool FlipsVertically() const override;
 
   // TODO(kylechar): Implement SupportsPostSubBuffer() and PostSubBuffer().

@@ -5,12 +5,15 @@
 #include "storage/browser/quota/quota_settings.h"
 
 #include <algorithm>
+#include <memory>
 
+#include "base/bind.h"
 #include "base/rand_util.h"
 #include "base/system/sys_info.h"
 #include "base/task/post_task.h"
 #include "base/threading/scoped_blocking_call.h"
 #include "build/build_config.h"
+#include "storage/browser/quota/quota_disk_info_helper.h"
 #include "storage/browser/quota/quota_features.h"
 #include "storage/browser/quota/quota_macros.h"
 
@@ -26,8 +29,10 @@ int64_t RandomizeByPercent(int64_t value, int percent) {
 
 base::Optional<storage::QuotaSettings> CalculateNominalDynamicSettings(
     const base::FilePath& partition_path,
-    bool is_incognito) {
-  base::ScopedBlockingCall scoped_blocking_call(base::BlockingType::MAY_BLOCK);
+    bool is_incognito,
+    QuotaDiskInfoHelper* disk_info_helper) {
+  base::ScopedBlockingCall scoped_blocking_call(FROM_HERE,
+                                                base::BlockingType::MAY_BLOCK);
   const int64_t kMBytes = 1024 * 1024;
   const int kRandomizedPercentage = 10;
 
@@ -54,7 +59,9 @@ base::Optional<storage::QuotaSettings> CalculateNominalDynamicSettings(
   // if experiment is enabled, otherwise fallback to ~66% for chromeOS and
   // ~33% otherwise.
   const double kTemporaryPoolSizeRatio =
-      features::kExperimentalPoolSizeRatio.Get();
+      base::FeatureList::IsEnabled(features::kQuotaUnlimitedPoolSize)
+          ? 1.0
+          : features::kExperimentalPoolSizeRatio.Get();
 
   // The amount of the device's storage the browser attempts to
   // keep free. If there is less than this amount of storage free
@@ -89,7 +96,10 @@ base::Optional<storage::QuotaSettings> CalculateNominalDynamicSettings(
 
   // Determines the portion of the temp pool that can be
   // utilized by a single host (ie. 5 for 20%).
-  const double kPerHostTemporaryRatio = features::kPerHostRatio.Get();
+  const double kPerHostTemporaryRatio =
+      base::FeatureList::IsEnabled(features::kQuotaUnlimitedPoolSize)
+          ? 1.0
+          : features::kPerHostRatio.Get();
 
   // SessionOnly (or ephemeral) origins are allotted a fraction of what
   // normal origins are provided, and the amount is capped to a hard limit.
@@ -98,7 +108,7 @@ base::Optional<storage::QuotaSettings> CalculateNominalDynamicSettings(
 
   storage::QuotaSettings settings;
 
-  int64_t total = base::SysInfo::AmountOfTotalDiskSpace(partition_path);
+  int64_t total = disk_info_helper->AmountOfTotalDiskSpace(partition_path);
   if (total == -1) {
     LOG(ERROR) << "Unable to compute QuotaSettings.";
     return base::nullopt;
@@ -126,14 +136,20 @@ base::Optional<storage::QuotaSettings> CalculateNominalDynamicSettings(
 
 void GetNominalDynamicSettings(const base::FilePath& partition_path,
                                bool is_incognito,
+                               QuotaDiskInfoHelper* disk_info_helper,
                                OptionalQuotaSettingsCallback callback) {
   base::PostTaskWithTraitsAndReplyWithResult(
       FROM_HERE,
-      {base::MayBlock(), base::TaskPriority::BEST_EFFORT,
+      {base::MayBlock(), base::TaskPriority::USER_VISIBLE,
        base::TaskShutdownBehavior::CONTINUE_ON_SHUTDOWN},
       base::BindOnce(&CalculateNominalDynamicSettings, partition_path,
-                     is_incognito),
+                     is_incognito, base::Unretained(disk_info_helper)),
       std::move(callback));
+}
+
+QuotaDiskInfoHelper* GetDefaultDiskInfoHelper() {
+  static base::NoDestructor<QuotaDiskInfoHelper> singleton;
+  return singleton.get();
 }
 
 }  // namespace storage

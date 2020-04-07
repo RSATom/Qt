@@ -43,7 +43,7 @@ static void subtract_block(const MACROBLOCKD *xd, int rows, int cols,
                            const uint8_t *src8, ptrdiff_t src_stride,
                            const uint8_t *pred8, ptrdiff_t pred_stride) {
   if (check_subtract_block_size(rows, cols)) {
-    if (xd->cur_buf->flags & YV12_FLAG_HIGHBITDEPTH) {
+    if (is_cur_buf_hbd(xd)) {
       aom_highbd_subtract_block_c(rows, cols, diff, diff_stride, src8,
                                   src_stride, pred8, pred_stride, xd->bd);
       return;
@@ -54,7 +54,7 @@ static void subtract_block(const MACROBLOCKD *xd, int rows, int cols,
     return;
   }
 
-  if (xd->cur_buf->flags & YV12_FLAG_HIGHBITDEPTH) {
+  if (is_cur_buf_hbd(xd)) {
     aom_highbd_subtract_block(rows, cols, diff, diff_stride, src8, src_stride,
                               pred8, pred_stride, xd->bd);
     return;
@@ -163,6 +163,7 @@ void av1_xform_quant(const AV1_COMMON *cm, MACROBLOCK *x, int plane, int block,
   qparam.tx_size = tx_size;
   qparam.qmatrix = qmatrix;
   qparam.iqmatrix = iqmatrix;
+  qparam.use_quant_b_adapt = cm->use_quant_b_adapt;
   TxfmParam txfm_param;
   txfm_param.tx_type = tx_type;
   txfm_param.tx_size = tx_size;
@@ -171,7 +172,7 @@ void av1_xform_quant(const AV1_COMMON *cm, MACROBLOCK *x, int plane, int block,
       txfm_param.tx_size, is_inter_block(mbmi), cm->reduced_tx_set_used);
 
   txfm_param.bd = xd->bd;
-  txfm_param.is_hbd = get_bitdepth_data_path_index(xd);
+  txfm_param.is_hbd = is_cur_buf_hbd(xd);
 
   av1_fwd_txfm(src_diff, coeff, diff_stride, &txfm_param);
 
@@ -431,7 +432,7 @@ static void encode_block_pass1(int plane, int block, int blk_row, int blk_col,
 
   if (p->eobs[block] > 0) {
     txfm_param.bd = xd->bd;
-    txfm_param.is_hbd = get_bitdepth_data_path_index(xd);
+    txfm_param.is_hbd = is_cur_buf_hbd(xd);
     txfm_param.tx_type = DCT_DCT;
     txfm_param.tx_size = tx_size;
     txfm_param.eob = p->eobs[block];

@@ -181,7 +181,7 @@ replacing the dash with camel case for technical reasons (i.e. \b line-cap will 
     \li A style data \l {https://www.mapbox.com/mapbox-gl-js/style-spec/#sources}{source}. When using a source
     of \b sourceType \l {https://www.mapbox.com/mapbox-gl-js/style-spec/#sources-geojson}{geojson}, the
     \b data property can be both inlined or sourced from qrc. Supported source types are: \b vector, \b raster,
-    \b raster-dem and \b geojson.
+    \b raster-dem, \b image and \b geojson.
 'geojson'.
 \row
     \li layer

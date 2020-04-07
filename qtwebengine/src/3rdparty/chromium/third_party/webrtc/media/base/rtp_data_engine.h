@@ -16,6 +16,7 @@
 #include <string>
 #include <vector>
 
+#include "media/base/codec.h"
 #include "media/base/media_channel.h"
 #include "media/base/media_constants.h"
 #include "media/base/media_engine.h"
@@ -25,8 +26,6 @@ class DataRateLimiter;
 }
 
 namespace cricket {
-
-struct DataCodec;
 
 class RtpDataEngine : public DataEngineInterface {
  public:
@@ -81,15 +80,14 @@ class RtpDataMediaChannel : public DataMediaChannel {
     receiving_ = receive;
     return true;
   }
-  virtual void OnPacketReceived(rtc::CopyOnWriteBuffer* packet,
+  virtual void OnPacketReceived(rtc::CopyOnWriteBuffer packet,
                                 int64_t packet_time_us);
-  virtual void OnRtcpReceived(rtc::CopyOnWriteBuffer* packet,
+  virtual void OnRtcpReceived(rtc::CopyOnWriteBuffer packet,
                               int64_t packet_time_us) {}
   virtual void OnReadyToSend(bool ready) {}
   virtual bool SendData(const SendDataParams& params,
                         const rtc::CopyOnWriteBuffer& payload,
                         SendDataResult* result);
-  virtual rtc::DiffServCodePoint PreferredDscp() const;
 
  private:
   void Construct();

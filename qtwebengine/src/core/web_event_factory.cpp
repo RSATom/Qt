@@ -92,24 +92,24 @@ static KeyboardDriver keyboardDriverImpl()
 {
     QString platformName = QGuiApplication::platformName();
 
-    if (platformName == QLatin1Literal("windows"))
+    if (platformName == QLatin1String("windows"))
         return KeyboardDriver::Windows;
 
-    if (platformName == QLatin1Literal("cocoa"))
+    if (platformName == QLatin1String("cocoa"))
         return KeyboardDriver::Cocoa;
 
-    if (platformName == QLatin1Literal("xcb") || platformName == QLatin1Literal("wayland"))
+    if (platformName == QLatin1String("xcb") || platformName == QLatin1String("wayland"))
         return KeyboardDriver::Xkb;
 
 #if QT_CONFIG(libinput)
     // Based on QEglFSIntegration::createInputHandlers and QLibInputKeyboard::processKey.
-    if (platformName == QLatin1Literal("eglfs") && !qEnvironmentVariableIntValue("QT_QPA_EGLFS_NO_LIBINPUT"))
+    if (platformName == QLatin1String("eglfs") && !qEnvironmentVariableIntValue("QT_QPA_EGLFS_NO_LIBINPUT"))
         return KeyboardDriver::Xkb;
 #endif
 
 #if QT_CONFIG(evdev)
     // Based on QEglFSIntegration::createInputHandlers.
-    if (platformName == QLatin1Literal("eglfs"))
+    if (platformName == QLatin1String("eglfs"))
         return KeyboardDriver::Evdev;
 #endif
 
@@ -157,8 +157,11 @@ static Qt::KeyboardModifiers qtModifiersForEvent(const QInputEvent *ev)
 //
 // On Linux, the Control modifier transformation is applied [1]. For example,
 // pressing Ctrl+@ generates the text "\u0000". We would like "@" instead.
+// Windows also translates some control key combinations into ASCII control
+// characters [2].
 //
 // [1]: https://www.x.org/releases/current/doc/kbproto/xkbproto.html#Interpreting_the_Control_Modifier
+// [2]: https://docs.microsoft.com/en-us/windows/win32/learnwin32/keyboard-input#character-messages
 //
 // On macOS, if the Control modifier is used, then no text is generated at all.
 // We need some text.
@@ -171,8 +174,10 @@ static QString qtTextForKeyEvent(const QKeyEvent *ev, int qtKey, Qt::KeyboardMod
 {
     QString text = ev->text();
 
-    if ((qtModifiers & Qt::ControlModifier) && keyboardDriver() == KeyboardDriver::Xkb)
+    if ((qtModifiers & Qt::ControlModifier) &&
+            (keyboardDriver() == KeyboardDriver::Xkb || keyboardDriver() == KeyboardDriver::Windows)) {
         text.clear();
+    }
 
     return text;
 }
@@ -1292,6 +1297,7 @@ static inline WebInputEvent::Modifiers modifiersForEvent(const QInputEvent* even
         if (keyEvent->isAutoRepeat())
             result |= WebInputEvent::kIsAutoRepeat;
         result |= modifierForKeyCode(qtKeyForKeyEvent(keyEvent));
+        break;
     }
     default:
         break;
@@ -1428,7 +1434,7 @@ WebGestureEvent WebEventFactory::toWebGestureEvent(QNativeGestureEvent *ev)
     webKitEvent.SetPositionInScreen(WebFloatPoint(ev->screenPos().x(),
                                                   ev->screenPos().y()));
 
-    webKitEvent.SetSourceDevice(blink::kWebGestureDeviceTouchpad);
+    webKitEvent.SetSourceDevice(blink::WebGestureDevice::kTouchpad);
 
     Qt::NativeGestureType gestureType = ev->gestureType();
     switch (gestureType) {
@@ -1490,8 +1496,15 @@ blink::WebMouseWheelEvent WebEventFactory::toWebWheelEvent(QWheelEvent *ev)
     webEvent.SetType(webEventTypeForEvent(ev));
     webEvent.SetModifiers(modifiersForEvent(ev));
     webEvent.SetTimeStamp(base::TimeTicks::Now());
+#if QT_VERSION < QT_VERSION_CHECK(5, 14, 0)
     webEvent.SetPositionInWidget(ev->x(), ev->y());
     webEvent.SetPositionInScreen(ev->globalX(), ev->globalY());
+#else
+    webEvent.SetPositionInWidget(static_cast<float>(ev->position().x()),
+                                 static_cast<float>(ev->position().y()));
+    webEvent.SetPositionInScreen(static_cast<float>(ev->globalPosition().x()),
+                                 static_cast<float>(ev->globalPosition().y()));
+#endif
 
     webEvent.wheel_ticks_x = static_cast<float>(ev->angleDelta().x()) / QWheelEvent::DefaultDeltasPerStep;
     webEvent.wheel_ticks_y = static_cast<float>(ev->angleDelta().y()) / QWheelEvent::DefaultDeltasPerStep;
@@ -1520,8 +1533,15 @@ bool WebEventFactory::coalesceWebWheelEvent(blink::WebMouseWheelEvent &webEvent,
 #endif
 
     webEvent.SetTimeStamp(base::TimeTicks::Now());
+#if QT_VERSION < QT_VERSION_CHECK(5, 14, 0)
     webEvent.SetPositionInWidget(ev->x(), ev->y());
     webEvent.SetPositionInScreen(ev->globalX(), ev->globalY());
+#else
+    webEvent.SetPositionInWidget(static_cast<float>(ev->position().x()),
+                                 static_cast<float>(ev->position().y()));
+    webEvent.SetPositionInScreen(static_cast<float>(ev->globalPosition().x()),
+                                 static_cast<float>(ev->globalPosition().y()));
+#endif
 
     webEvent.wheel_ticks_x += static_cast<float>(ev->angleDelta().x()) / QWheelEvent::DefaultDeltasPerStep;
     webEvent.wheel_ticks_y += static_cast<float>(ev->angleDelta().y()) / QWheelEvent::DefaultDeltasPerStep;

@@ -4,6 +4,7 @@
 
 #include "services/video_capture/device_media_to_mojo_adapter.h"
 
+#include "base/bind_helpers.h"
 #include "base/run_loop.h"
 #include "base/test/scoped_task_environment.h"
 #include "media/capture/video/mock_device.h"
@@ -26,10 +27,16 @@ class DeviceMediaToMojoAdapterTest : public ::testing::Test {
         std::make_unique<MockReceiver>(mojo::MakeRequest(&receiver_));
     auto mock_device = std::make_unique<media::MockDevice>();
     mock_device_ptr_ = mock_device.get();
+#if defined(OS_CHROMEOS)
     adapter_ = std::make_unique<DeviceMediaToMojoAdapter>(
         std::unique_ptr<service_manager::ServiceContextRef>(),
         std::move(mock_device), base::DoNothing(),
         base::ThreadTaskRunnerHandle::Get());
+#else
+    adapter_ = std::make_unique<DeviceMediaToMojoAdapter>(
+        std::unique_ptr<service_manager::ServiceContextRef>(),
+        std::move(mock_device));
+#endif  // defined(OS_CHROMEOS)
   }
 
   void TearDown() override {

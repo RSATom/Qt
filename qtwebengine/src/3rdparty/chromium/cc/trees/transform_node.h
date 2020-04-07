@@ -6,7 +6,7 @@
 #define CC_TREES_TRANSFORM_NODE_H_
 
 #include "cc/cc_export.h"
-#include "cc/trees/element_id.h"
+#include "cc/paint/element_id.h"
 #include "ui/gfx/geometry/point_f.h"
 #include "ui/gfx/geometry/scroll_offset.h"
 #include "ui/gfx/transform.h"
@@ -67,7 +67,8 @@ struct CC_EXPORT TransformNode {
   // context.
   int sorting_context_id;
 
-  // TODO(vollick): will be moved when accelerated effects are implemented.
+  // True if |TransformTree::UpdateLocalTransform| needs to be called which
+  // will update |to_parent| and |source_to_parent| (if possible).
   bool needs_local_transform_update : 1;
 
   // Whether this node or any ancestor has a potentially running
@@ -89,9 +90,6 @@ struct CC_EXPORT TransformNode {
   // (i.e., irrespective of exact timeline) transform
   // animation.
   bool to_screen_is_potentially_animated : 1;
-  // Whether all animations on this transform node are simple
-  // translations.
-  bool has_only_translation_animations : 1;
 
   // Flattening, when needed, is only applied to a node's inherited transform,
   // never to its local transform.
@@ -108,10 +106,12 @@ struct CC_EXPORT TransformNode {
 
   bool should_be_snapped : 1;
 
-  // These are used to position nodes wrt the right or bottom of the inner or
-  // outer viewport.
-  bool moved_by_inner_viewport_bounds_delta_x : 1;
-  bool moved_by_inner_viewport_bounds_delta_y : 1;
+  // These are used by the compositor to determine which layers need to be
+  // repositioned by the compositor as a result of browser controls
+  // expanding/contracting the outer viewport size before Blink repositions the
+  // fixed layers.
+  // TODO(bokan): Note: we never change bounds_delta in the x direction so we
+  // can remove this variable.
   bool moved_by_outer_viewport_bounds_delta_x : 1;
   bool moved_by_outer_viewport_bounds_delta_y : 1;
 
@@ -138,6 +138,11 @@ struct CC_EXPORT TransformNode {
   // TODO(vollick): will be moved when accelerated effects are implemented.
   gfx::Vector2dF source_offset;
   gfx::Vector2dF source_to_parent;
+
+  // See MutatorHost::GetAnimationScales() for their meanings. Updated by
+  // PropertyTrees::AnimationScalesChanged().
+  float maximum_animation_scale;
+  float starting_animation_scale;
 
   bool operator==(const TransformNode& other) const;
 

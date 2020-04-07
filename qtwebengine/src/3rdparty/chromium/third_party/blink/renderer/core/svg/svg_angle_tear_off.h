@@ -40,12 +40,6 @@ class SVGAngleTearOff final : public SVGPropertyTearOff<SVGAngle> {
   DEFINE_WRAPPERTYPEINFO();
 
  public:
-  static SVGAngleTearOff* Create(SVGAngle* target,
-                                 SVGAnimatedPropertyBase* binding,
-                                 PropertyIsAnimValType property_is_anim_val) {
-    return MakeGarbageCollected<SVGAngleTearOff>(target, binding,
-                                                 property_is_anim_val);
-  }
   static SVGAngleTearOff* CreateDetached();
 
   enum {
@@ -61,7 +55,7 @@ class SVGAngleTearOff final : public SVGPropertyTearOff<SVGAngle> {
                   PropertyIsAnimValType);
   ~SVGAngleTearOff() override;
 
-  unsigned short unitType() {
+  uint16_t unitType() {
     return HasExposedAngleUnit() ? Target()->UnitType()
                                  : SVGAngle::kSvgAngletypeUnknown;
   }
@@ -72,10 +66,10 @@ class SVGAngleTearOff final : public SVGPropertyTearOff<SVGAngle> {
   void setValueInSpecifiedUnits(float, ExceptionState&);
   float valueInSpecifiedUnits() { return Target()->ValueInSpecifiedUnits(); }
 
-  void newValueSpecifiedUnits(unsigned short unit_type,
+  void newValueSpecifiedUnits(uint16_t unit_type,
                               float value_in_specified_units,
                               ExceptionState&);
-  void convertToSpecifiedUnits(unsigned short unit_type, ExceptionState&);
+  void convertToSpecifiedUnits(uint16_t unit_type, ExceptionState&);
 
   String valueAsString() {
     return HasExposedAngleUnit() ? Target()->ValueAsString()

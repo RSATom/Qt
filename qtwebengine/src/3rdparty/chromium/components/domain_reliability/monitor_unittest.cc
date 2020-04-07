@@ -13,13 +13,13 @@
 #include <vector>
 
 #include "base/bind.h"
+#include "base/strings/string_piece.h"
 #include "base/test/test_simple_task_runner.h"
 #include "components/domain_reliability/baked_in_configs.h"
 #include "components/domain_reliability/beacon.h"
 #include "components/domain_reliability/config.h"
 #include "components/domain_reliability/google_configs.h"
 #include "components/domain_reliability/test_util.h"
-#include "net/base/host_port_pair.h"
 #include "net/base/load_flags.h"
 #include "net/http/http_response_headers.h"
 #include "net/http/http_util.h"
@@ -35,10 +35,9 @@ namespace {
 typedef std::vector<const DomainReliabilityBeacon*> BeaconVector;
 
 scoped_refptr<net::HttpResponseHeaders> MakeHttpResponseHeaders(
-    const std::string& headers) {
-  return scoped_refptr<net::HttpResponseHeaders>(
-      new net::HttpResponseHeaders(net::HttpUtil::AssembleRawHeaders(
-          headers.c_str(), headers.length())));
+    base::StringPiece headers) {
+  return base::MakeRefCounted<net::HttpResponseHeaders>(
+      net::HttpUtil::AssembleRawHeaders(headers));
 }
 
 size_t CountQueuedBeacons(DomainReliabilityContext* context) {
@@ -72,8 +71,8 @@ class DomainReliabilityMonitorTest : public testing::Test {
   static RequestInfo MakeRequestInfo() {
     RequestInfo request;
     request.status = net::URLRequestStatus();
-    request.response_info.socket_address =
-        net::HostPortPair::FromString("12.34.56.78:80");
+    request.response_info.remote_endpoint =
+        net::IPEndPoint(net::IPAddress(12, 34, 56, 78), 80);
     request.response_info.headers = MakeHttpResponseHeaders(
         "HTTP/1.1 200 OK\n\n");
     request.response_info.was_cached = false;
@@ -202,8 +201,8 @@ TEST_F(DomainReliabilityMonitorTest, WasFetchedViaProxy) {
   RequestInfo request = MakeRequestInfo();
   request.url = GURL("http://example/");
   request.status = net::URLRequestStatus::FromError(net::ERR_CONNECTION_RESET);
-  request.response_info.socket_address =
-      net::HostPortPair::FromString("127.0.0.1:3128");
+  request.response_info.remote_endpoint =
+      net::IPEndPoint(net::IPAddress(127, 0, 0, 1), 3128);
   request.response_info.was_fetched_via_proxy = true;
   OnRequestLegComplete(request);
 

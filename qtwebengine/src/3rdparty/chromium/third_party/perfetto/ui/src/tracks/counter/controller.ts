@@ -13,6 +13,8 @@
 // limitations under the License.
 
 import {fromNs} from '../../common/time';
+import {LIMIT} from '../../common/track_data';
+
 import {
   TrackController,
   trackControllerRegistry
@@ -51,13 +53,61 @@ class CounterTrackController extends TrackController<Config, Data> {
         and ref = ${this.config.ref}`);
       this.maximumValueSeen = +result.columns[0].doubleValues![0];
       this.minimumValueSeen = +result.columns[1].doubleValues![0];
+      await this.query(
+        `create virtual table ${this.tableName('window')} using window;`);
+
+      await this.query(`create view ${this.tableName('counter_view')} as
+        select ts,
+        lead(ts, 1, ts) over (partition by ref_type order by ts) - ts as dur,
+        value, name, ref
+        from counters
+        where name = '${this.config.name}' and ref = ${this.config.ref};`);
+
+      await this.query(`create virtual table ${this.tableName('span')} using
+        span_join(${this.tableName('counter_view')},
+        ${this.tableName('window')});`);
       this.setup = true;
     }
 
-    // TODO(hjd): Implement window clipping.
-    const query = `select ts, value from counters
-        where ${startNs} <= ts_end and ts <= ${endNs}
-        and name = '${this.config.name}' and ref = ${this.config.ref};`;
+    const isQuantized = this.shouldSummarize(resolution);
+    // |resolution| is in s/px we want # ns for 10px window:
+    const bucketSizeNs = Math.round(resolution * 10 * 1e9);
+    let windowStartNs = startNs;
+    if (isQuantized) {
+      windowStartNs = Math.floor(windowStartNs / bucketSizeNs) * bucketSizeNs;
+    }
+    const windowDurNs = Math.max(1, endNs - windowStartNs);
+
+    this.query(`update ${this.tableName('window')} set
+    window_start=${windowStartNs},
+    window_dur=${windowDurNs},
+    quantum=${isQuantized ? bucketSizeNs : 0}`);
+
+    let query = `select min(ts) as ts,
+      max(value) as value
+      from ${this.tableName('span')}
+      group by quantum_ts limit ${LIMIT};`;
+
+    if (!isQuantized) {
+      // Find the value just before the query range to ensure counters
+      // continue from the correct previous value.
+      // Union that with the query that finds all the counters within
+      // the current query range.
+      query = `
+      select * from (select ts, value from counters
+      where name = '${this.config.name}' and ref = ${this.config.ref} and
+      ts <= ${startNs} order by ts desc limit 1)
+      UNION
+      select * from (select ts, value
+        from (select
+          ts,
+          lead(ts, 1, ts) over (partition by ref_type order by ts) as ts_end,
+          value
+          from counters
+          where name = '${this.config.name}' and ref = ${this.config.ref})
+      where ts <= ${endNs} and ${startNs} <= ts_end limit ${LIMIT});`;
+    }
+
     const rawResult = await this.query(query);
 
     const numRows = +rawResult.numRecords;
@@ -65,6 +115,8 @@ class CounterTrackController extends TrackController<Config, Data> {
     const data: Data = {
       start,
       end,
+      length: numRows,
+      isQuantized,
       maximumValue: this.maximumValue(),
       minimumValue: this.minimumValue(),
       resolution,

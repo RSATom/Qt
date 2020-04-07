@@ -16,7 +16,7 @@ const CXFA_Node::AttributeData kExtrasAttributeData[] = {
     {XFA_Attribute::Name, XFA_AttributeType::CData, nullptr},
     {XFA_Attribute::Use, XFA_AttributeType::CData, nullptr},
     {XFA_Attribute::Usehref, XFA_AttributeType::CData, nullptr},
-    {XFA_Attribute::Unknown, XFA_AttributeType::Integer, nullptr}};
+};
 
 }  // namespace
 
@@ -27,7 +27,7 @@ CXFA_Extras::CXFA_Extras(CXFA_Document* doc, XFA_PacketType packet)
                  XFA_XDPPACKET_Form),
                 XFA_ObjectType::Node,
                 XFA_Element::Extras,
-                nullptr,
+                {},
                 kExtrasAttributeData,
                 pdfium::MakeUnique<CJX_Extras>(this)) {}
 

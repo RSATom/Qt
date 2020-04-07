@@ -41,7 +41,6 @@
 #include <QtQml/qqml.h>
 #include <private/qqmlengine_p.h>
 #include <QDebug>
-#include <private/qv8engine_p.h>
 #include <QtSql/qsqldatabase.h>
 #include <QtSql/qsqlquery.h>
 #include <QtSql/qsqlerror.h>
@@ -86,7 +85,7 @@ QT_BEGIN_NAMESPACE
 }
 
 
-class QQmlSqlDatabaseData : public QV8Engine::Deletable
+class QQmlSqlDatabaseData : public QV4::ExecutionEngine::Deletable
 {
 public:
     QQmlSqlDatabaseData(QV4::ExecutionEngine *engine);

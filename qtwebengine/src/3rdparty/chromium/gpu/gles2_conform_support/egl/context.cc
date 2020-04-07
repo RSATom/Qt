@@ -16,7 +16,6 @@
 #include "gpu/command_buffer/service/memory_tracking.h"
 #include "gpu/command_buffer/service/service_discardable_manager.h"
 #include "gpu/command_buffer/service/shared_image_manager.h"
-#include "gpu/command_buffer/service/transfer_buffer_manager.h"
 #include "gpu/gles2_conform_support/egl/config.h"
 #include "gpu/gles2_conform_support/egl/display.h"
 #include "gpu/gles2_conform_support/egl/surface.h"
@@ -237,6 +236,10 @@ bool Context::CanWaitUnverifiedSyncToken(const gpu::SyncToken& sync_token) {
   return false;
 }
 
+void Context::SetDisplayTransform(gfx::OverlayTransform transform) {
+  NOTREACHED();
+}
+
 void Context::ApplyCurrentContext(gl::GLSurface* current_surface) {
   DCHECK(HasService());
   // The current_surface will be the same as
@@ -267,10 +270,7 @@ bool Context::CreateService(gl::GLSurface* gl_surface) {
       nullptr /* progress_reporter */, gpu_feature_info, &discardable_manager_,
       &passthrough_discardable_manager_, &shared_image_manager_));
 
-  transfer_buffer_manager_ =
-      std::make_unique<gpu::TransferBufferManager>(nullptr);
-  std::unique_ptr<gpu::CommandBufferDirect> command_buffer(
-      new gpu::CommandBufferDirect(transfer_buffer_manager_.get()));
+  auto command_buffer = std::make_unique<gpu::CommandBufferDirect>();
 
   std::unique_ptr<gpu::gles2::GLES2Decoder> decoder(
       gpu::gles2::GLES2Decoder::Create(command_buffer.get(),
@@ -280,7 +280,7 @@ bool Context::CreateService(gl::GLSurface* gl_surface) {
   command_buffer->set_handler(decoder.get());
 
   gl::GLContextAttribs context_attribs;
-  context_attribs.gpu_preference = gl::PreferDiscreteGpu;
+  context_attribs.gpu_preference = gl::GpuPreference::kHighPerformance;
   scoped_refptr<gl::GLContext> gl_context(
       gl::init::CreateGLContext(nullptr, gl_surface, context_attribs));
   if (!gl_context)
@@ -355,10 +355,10 @@ void Context::DestroyService() {
 
   transfer_buffer_.reset();
   gles2_cmd_helper_.reset();
-  command_buffer_.reset();
   if (decoder_)
     decoder_->Destroy(have_context);
   decoder_.reset();
+  command_buffer_.reset();
 }
 
 bool Context::HasService() const {

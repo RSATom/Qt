@@ -13,6 +13,7 @@
 #include <set>
 #include <utility>
 
+#include "base/bind.h"
 #include "base/command_line.h"
 #include "base/json/json_reader.h"
 #include "base/json/json_writer.h"
@@ -145,10 +146,10 @@ class ExtensionDevToolsClientHost : public content::DevToolsAgentHostClient,
   void AgentHostClosed(DevToolsAgentHost* agent_host) override;
   void DispatchProtocolMessage(DevToolsAgentHost* agent_host,
                                const std::string& message) override;
-  bool MayAttachToRenderer(content::RenderFrameHost* render_frame_host,
-                           bool is_webui) override;
+  bool MayAttachToURL(const GURL& url, bool is_webui) override;
   bool MayAttachToBrowser() override;
-  bool MayAffectLocalFiles() override;
+  bool MayReadLocalFiles() override;
+  bool MayWriteLocalFiles() override;
 
  private:
   using PendingRequests =
@@ -319,8 +320,8 @@ void ExtensionDevToolsClientHost::DispatchProtocolMessage(
   if (!EventRouter::Get(profile_))
     return;
 
-  std::unique_ptr<base::Value> result =
-      base::JSONReader::Read(message, base::JSON_REPLACE_INVALID_CHARACTERS);
+  std::unique_ptr<base::Value> result = base::JSONReader::ReadDeprecated(
+      message, base::JSON_REPLACE_INVALID_CHARACTERS);
   if (!result || !result->is_dict()) {
     LOG(ERROR) << "Tried to send invalid message to extension: " << message;
     return;
@@ -356,36 +357,28 @@ void ExtensionDevToolsClientHost::DispatchProtocolMessage(
   }
 }
 
-bool ExtensionDevToolsClientHost::MayAttachToRenderer(
-    content::RenderFrameHost* render_frame_host,
-    bool is_webui) {
+bool ExtensionDevToolsClientHost::MayAttachToURL(const GURL& url,
+                                                 bool is_webui) {
   if (is_webui)
     return false;
 
-  if (!render_frame_host)
+  // Allow the extension to attach to about:blank.
+  if (url.is_empty() || url == "about:")
     return true;
 
   std::string error;
-  // We check the site instance URL here (instead of
-  // RenderFrameHost::GetLastCommittedURL()) because it's too early in the
-  // navigation for anything else.
-  const GURL& site_instance_url =
-      render_frame_host->GetSiteInstance()->GetSiteURL();
-
-  if (site_instance_url.is_empty() || site_instance_url == "about:") {
-    // Allow the extension to attach to about:blank.
-    return true;
-  }
-
-  return ExtensionCanAttachToURL(*extension_, site_instance_url, profile_,
-                                 &error);
+  return ExtensionCanAttachToURL(*extension_, url, profile_, &error);
 }
 
 bool ExtensionDevToolsClientHost::MayAttachToBrowser() {
   return false;
 }
 
-bool ExtensionDevToolsClientHost::MayAffectLocalFiles() {
+bool ExtensionDevToolsClientHost::MayReadLocalFiles() {
+  return util::AllowFileAccess(extension_->id(), profile_);
+}
+
+bool ExtensionDevToolsClientHost::MayWriteLocalFiles() {
   return false;
 }
 
@@ -402,7 +395,7 @@ void DebuggerFunction::FormatErrorMessage(const std::string& format) {
   if (debuggee_.tab_id)
     error_ = ErrorUtils::FormatErrorMessage(
         format, debugger_api_constants::kTabTargetType,
-        base::IntToString(*debuggee_.tab_id));
+        base::NumberToString(*debuggee_.tab_id));
   else if (debuggee_.extension_id)
     error_ = ErrorUtils::FormatErrorMessage(
         format, debugger_api_constants::kBackgroundPageTargetType,
@@ -524,7 +517,7 @@ bool DebuggerAttachFunction::RunAsync() {
       GetProfile(), agent_host_.get(), extension(), debuggee_);
 
   if (!host->Attach()) {
-    FormatErrorMessage(debugger_api_constants::kRestrictedError);
+    error_ = debugger_api_constants::kRestrictedError;
     return false;
   }
 

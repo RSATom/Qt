@@ -71,16 +71,16 @@ public:
 
     void cleanup();
 
-    void sceneChangeEvent(const Qt3DCore::QSceneChangePtr &e) override;
+    void syncFromFrontEnd(const Qt3DCore::QNode *frontEnd, bool firstTime) override;
 
     QString name() const;
     int nameId() const Q_DECL_NOTHROW { return m_nameId; }
     const UniformValue &uniformValue() const { return m_uniformValue; }
+    QVariant backendValue() const { return m_backendValue; }
 
 private:
-    void initializeFromPeer(const Qt3DCore::QNodeCreatedChangeBasePtr &change) final;
-
     QString m_name;
+    QVariant m_backendValue;
     UniformValue m_uniformValue;
     int m_nameId;
 };

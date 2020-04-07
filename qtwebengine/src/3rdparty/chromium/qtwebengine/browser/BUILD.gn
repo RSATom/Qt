@@ -1,8 +1,6 @@
 import("//chrome/common/features.gni")
 import("//components/spellcheck/spellcheck_build_features.gni")
 import("//tools/grit/grit_rule.gni")
-import("//services/catalog/public/tools/catalog.gni")
-import("//services/service_manager/public/service_manifest.gni")
 import ("//mojo/public/tools/bindings/mojom.gni")
 
 mojom("interfaces") {
@@ -29,8 +27,15 @@ source_set("qtwebengine_content_browser_overlay_manifest") {
 
   deps = [
     "//base",
+    "//extensions/buildflags",
     "//services/service_manager/public/cpp",
   ]
+  if (enable_extensions) {
+    deps += [
+      "//extensions/common:mojom",
+      "//extensions/common/api:mojom",
+    ]
+  }
 }
 
 source_set("qtwebengine_content_renderer_overlay_manifest") {
@@ -41,8 +46,12 @@ source_set("qtwebengine_content_renderer_overlay_manifest") {
 
   deps = [
     "//base",
+    "//extensions/buildflags",
     "//services/service_manager/public/cpp",
   ]
+  if (enable_extensions) {
+    deps += [ "//extensions/common:mojom" ]
+  }
 }
 
 source_set("qtwebengine_packaged_service_manifests") {
@@ -53,7 +62,7 @@ source_set("qtwebengine_packaged_service_manifests") {
 
   deps = [
     "//base",
-    "//services/proxy_resolver:proxy_resolver_manifest",
+    "//components/spellcheck:buildflags",
     "//services/service_manager/public/cpp",
   ]
   if (enable_spellcheck) {
@@ -69,6 +78,7 @@ source_set("qtwebengine_renderer_manifest") {
 
   deps = [
     "//base",
+    "//components/spellcheck:buildflags",
     "//services/service_manager/public/cpp",
   ]
   if (enable_spellcheck) {
@@ -88,6 +98,6 @@ source_set("service_manifests") {
 
 group("resources") {
   deps = [
-    ":qt_webengine_resources",    
+    ":qt_webengine_resources",
   ]
 }

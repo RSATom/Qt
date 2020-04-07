@@ -12,9 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+import {search, searchEq} from '../../base/binary_search';
 import {assertTrue} from '../../base/logging';
 import {Actions} from '../../common/actions';
+import {cropText, drawDoubleHeadedArrow} from '../../common/canvas_utils';
 import {TrackState} from '../../common/state';
+import {timeToString} from '../../common/time';
 import {checkerboardExcept} from '../../frontend/checkerboard';
 import {colorForThread, hueForCpu} from '../../frontend/colorizer';
 import {globals} from '../../frontend/globals';
@@ -33,28 +36,6 @@ import {
 const MARGIN_TOP = 5;
 const RECT_HEIGHT = 30;
 
-function cropText(str: string, charWidth: number, rectWidth: number) {
-  const maxTextWidth = rectWidth - 4;
-  let displayText = '';
-  const nameLength = str.length * charWidth;
-  if (nameLength < maxTextWidth) {
-    displayText = str;
-  } else {
-    // -3 for the 3 ellipsis.
-    const displayedChars = Math.floor(maxTextWidth / charWidth) - 3;
-    if (displayedChars > 3) {
-      displayText = str.substring(0, displayedChars) + '...';
-    }
-  }
-  return displayText;
-}
-
-function getCurResolution() {
-  // Truncate the resolution to the closest power of 10.
-  const resolution = globals.frontendLocalState.timeScale.deltaPxToDuration(1);
-  return Math.pow(10, Math.floor(Math.log10(resolution)));
-}
-
 class CpuSliceTrack extends Track<Config, Data> {
   static readonly kind = CPU_SLICE_TRACK_KIND;
   static create(trackState: TrackState): CpuSliceTrack {
@@ -62,7 +43,6 @@ class CpuSliceTrack extends Track<Config, Data> {
   }
 
   private mouseXpos?: number;
-  private reqPending = false;
   private hue: number;
   private utidHoveredInThisTrack = -1;
 
@@ -71,36 +51,14 @@ class CpuSliceTrack extends Track<Config, Data> {
     this.hue = hueForCpu(this.config.cpu);
   }
 
-  reqDataDeferred() {
-    const {visibleWindowTime} = globals.frontendLocalState;
-    const reqStart = visibleWindowTime.start - visibleWindowTime.duration;
-    const reqEnd = visibleWindowTime.end + visibleWindowTime.duration;
-    const reqRes = getCurResolution();
-    this.reqPending = false;
-    globals.dispatch(Actions.reqTrackData({
-      trackId: this.trackState.id,
-      start: reqStart,
-      end: reqEnd,
-      resolution: reqRes
-    }));
-  }
-
   renderCanvas(ctx: CanvasRenderingContext2D): void {
     // TODO: fonts and colors should come from the CSS and not hardcoded here.
     const {timeScale, visibleWindowTime} = globals.frontendLocalState;
     const data = this.data();
 
-    // If there aren't enough cached slices data in |data| request more to
-    // the controller.
-    const inRange = data !== undefined &&
-        (visibleWindowTime.start >= data.start &&
-         visibleWindowTime.end <= data.end);
-    if (!inRange || data === undefined ||
-        data.resolution !== getCurResolution()) {
-      if (!this.reqPending) {
-        this.reqPending = true;
-        setTimeout(() => this.reqDataDeferred(), 50);
-      }
+    if (this.shouldRequestData(
+            data, visibleWindowTime.start, visibleWindowTime.end)) {
+      globals.requestTrackData(this.trackState.id);
     }
     if (data === undefined) return;  // Can't possibly draw anything.
 
@@ -155,8 +113,6 @@ class CpuSliceTrack extends Track<Config, Data> {
     ctx.font = '12px Google Sans';
     const charWidth = ctx.measureText('dbpqaouk').width / 8;
 
-    const isHovering = globals.frontendLocalState.hoveredUtid !== -1;
-
     for (let i = 0; i < data.starts.length; i++) {
       const tStart = data.starts[i];
       const tEnd = data.ends[i];
@@ -167,7 +123,7 @@ class CpuSliceTrack extends Track<Config, Data> {
       const rectStart = timeScale.timeToPx(tStart);
       const rectEnd = timeScale.timeToPx(tEnd);
       const rectWidth = rectEnd - rectStart;
-      if (rectWidth < 0.1) continue;
+      if (rectWidth < 0.3) continue;
 
       const threadInfo = globals.threads.get(utid);
 
@@ -187,6 +143,7 @@ class CpuSliceTrack extends Track<Config, Data> {
         }
       }
 
+      const isHovering = globals.frontendLocalState.hoveredUtid !== -1;
       const isThreadHovered = globals.frontendLocalState.hoveredUtid === utid;
       const isProcessHovered = globals.frontendLocalState.hoveredPid === pid;
       const color = colorForThread(threadInfo);
@@ -217,6 +174,68 @@ class CpuSliceTrack extends Track<Config, Data> {
       ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
       ctx.font = '10px Google Sans';
       ctx.fillText(subTitle, rectXCenter, MARGIN_TOP + RECT_HEIGHT / 2 + 11);
+    }
+
+    const selection = globals.state.currentSelection;
+    const details = globals.sliceDetails;
+    if (selection !== null && selection.kind === 'SLICE') {
+      const [startIndex, endIndex] = searchEq(data.ids, selection.id);
+      if (startIndex !== endIndex) {
+        const tStart = data.starts[startIndex];
+        const tEnd = data.ends[startIndex];
+        const utid = data.utids[startIndex];
+        const color = colorForThread(globals.threads.get(utid));
+        const rectStart = timeScale.timeToPx(tStart);
+        const rectEnd = timeScale.timeToPx(tEnd);
+        // Draw a rectangle around the slice that is currently selected.
+        ctx.strokeStyle = `hsl(${color.h}, ${color.s}%, 30%)`;
+        ctx.beginPath();
+        ctx.lineWidth = 3;
+        ctx.strokeRect(
+            rectStart, MARGIN_TOP - 1.5, rectEnd - rectStart, RECT_HEIGHT + 3);
+        ctx.closePath();
+        // Draw arrow from wakeup time of current slice.
+        if (details.wakeupTs) {
+          const wakeupPos = timeScale.timeToPx(details.wakeupTs);
+          const latencyWidth = rectStart - wakeupPos;
+          drawDoubleHeadedArrow(
+              ctx,
+              wakeupPos,
+              MARGIN_TOP + RECT_HEIGHT,
+              latencyWidth,
+              latencyWidth >= 20);
+          // Latency time with a white semi-transparent background.
+          const displayText = timeToString(tStart - details.wakeupTs);
+          const measured = ctx.measureText(displayText);
+          if (latencyWidth >= measured.width + 2) {
+            ctx.fillStyle = 'rgba(255,255,255,0.7)';
+            ctx.fillRect(
+                wakeupPos + latencyWidth / 2 - measured.width / 2 - 1,
+                MARGIN_TOP + RECT_HEIGHT - 12,
+                measured.width + 2,
+                11);
+            ctx.textBaseline = 'bottom';
+            ctx.fillStyle = 'black';
+            ctx.fillText(
+                displayText,
+                wakeupPos + (latencyWidth) / 2,
+                MARGIN_TOP + RECT_HEIGHT - 1);
+          }
+        }
+      }
+
+      // Draw diamond if the track being drawn is the cpu of the waker.
+      if (this.config.cpu === details.wakerCpu && details.wakeupTs) {
+        const wakeupPos = timeScale.timeToPx(details.wakeupTs);
+        ctx.beginPath();
+        ctx.moveTo(wakeupPos, MARGIN_TOP + RECT_HEIGHT / 2 + 8);
+        ctx.fillStyle = 'black';
+        ctx.lineTo(wakeupPos + 6, MARGIN_TOP + RECT_HEIGHT / 2);
+        ctx.lineTo(wakeupPos, MARGIN_TOP + RECT_HEIGHT / 2 - 8);
+        ctx.lineTo(wakeupPos - 6, MARGIN_TOP + RECT_HEIGHT / 2);
+        ctx.fill();
+        ctx.closePath();
+      }
     }
 
     const hoveredThread = globals.threads.get(this.utidHoveredInThisTrack);
@@ -276,6 +295,21 @@ class CpuSliceTrack extends Track<Config, Data> {
     this.utidHoveredInThisTrack = -1;
     globals.frontendLocalState.setHoveredUtidAndPid(-1, -1);
     this.mouseXpos = 0;
+  }
+
+  onMouseClick({x}: {x: number}) {
+    const data = this.data();
+    if (data === undefined || data.kind === 'summary') return false;
+    const {timeScale} = globals.frontendLocalState;
+    const time = timeScale.pxToTime(x);
+    const index = search(data.starts, time);
+    const id = index === -1 ? undefined : data.ids[index];
+    if (id && this.utidHoveredInThisTrack !== -1) {
+      globals.dispatch(Actions.selectSlice(
+        {utid: this.utidHoveredInThisTrack, id}));
+      return true;
+    }
+    return false;
   }
 }
 

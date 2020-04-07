@@ -15,6 +15,7 @@
 #include "dawn_native/d3d12/ShaderModuleD3D12.h"
 
 #include "common/Assert.h"
+#include "common/BitSetIterator.h"
 #include "dawn_native/d3d12/BindGroupLayoutD3D12.h"
 #include "dawn_native/d3d12/DeviceD3D12.h"
 #include "dawn_native/d3d12/PipelineLayoutD3D12.h"
@@ -36,16 +37,22 @@ namespace dawn_native { namespace d3d12 {
         // If these options are changed, the values in DawnSPIRVCrossHLSLFastFuzzer.cpp need to be
         // updated.
         spirv_cross::CompilerGLSL::Options options_glsl;
-        options_glsl.vertex.fixup_clipspace = true;
         options_glsl.vertex.flip_vert_y = true;
         compiler.set_common_options(options_glsl);
 
         spirv_cross::CompilerHLSL::Options options_hlsl;
         options_hlsl.shader_model = 51;
+        // PointCoord and PointSize are not supported in HLSL
+        // TODO (hao.x.li@intel.com): The point_coord_compat and point_size_compat are
+        // required temporarily for https://bugs.chromium.org/p/dawn/issues/detail?id=146,
+        // but should be removed once WebGPU requires there is no gl_PointSize builtin.
+        // See https://github.com/gpuweb/gpuweb/issues/332
+        options_hlsl.point_coord_compat = true;
+        options_hlsl.point_size_compat = true;
         compiler.set_hlsl_options(options_hlsl);
 
         const ModuleBindingInfo& moduleBindingInfo = GetBindingInfo();
-        for (uint32_t group = 0; group < moduleBindingInfo.size(); ++group) {
+        for (uint32_t group : IterateBitSet(layout->GetBindGroupLayoutsMask())) {
             const auto& bindingOffsets =
                 ToBackend(layout->GetBindGroupLayout(group))->GetBindingOffsets();
             const auto& groupBindingInfo = moduleBindingInfo[group];

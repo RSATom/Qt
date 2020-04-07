@@ -8,14 +8,14 @@
 #ifndef SkLightingShader_DEFINED
 #define SkLightingShader_DEFINED
 
-#include "SkLights.h"
-#include "SkShader.h"
+#include "include/core/SkShader.h"
+#include "src/shaders/SkLights.h"
 
 class SkBitmap;
 class SkMatrix;
 class SkNormalSource;
 
-class SK_API SkLightingShader {
+class SkLightingShader {
 public:
     /** Returns a shader that lights the shape, colored by the diffuseShader, using the
         normals from normalSource, with the set of lights provided.

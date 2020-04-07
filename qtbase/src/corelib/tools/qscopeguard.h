@@ -50,14 +50,19 @@ template <typename F> class QScopeGuard;
 template <typename F> QScopeGuard<F> qScopeGuard(F f);
 
 template <typename F>
-class QScopeGuard
+class
+#if __has_cpp_attribute(nodiscard)
+// Q_REQUIRED_RESULT can be defined as __warn_unused_result__ or as [[nodiscard]]
+// but the 1st one has some limitations for example can be placed only on functions.
+Q_REQUIRED_RESULT
+#endif
+QScopeGuard
 {
 public:
-    QScopeGuard(QScopeGuard &&other) Q_DECL_NOEXCEPT
+    QScopeGuard(QScopeGuard &&other) noexcept
         : m_func(std::move(other.m_func))
-        , m_invoke(other.m_invoke)
+        , m_invoke(qExchange(other.m_invoke, false))
     {
-        other.dismiss();
     }
 
     ~QScopeGuard()
@@ -66,13 +71,13 @@ public:
             m_func();
     }
 
-    void dismiss() Q_DECL_NOEXCEPT
+    void dismiss() noexcept
     {
         m_invoke = false;
     }
 
 private:
-    explicit QScopeGuard(F f) Q_DECL_NOEXCEPT
+    explicit QScopeGuard(F &&f) noexcept
         : m_func(std::move(f))
     {
     }
@@ -86,6 +91,9 @@ private:
 
 
 template <typename F>
+#if __has_cpp_attribute(nodiscard)
+Q_REQUIRED_RESULT
+#endif
 QScopeGuard<F> qScopeGuard(F f)
 {
     return QScopeGuard<F>(std::move(f));

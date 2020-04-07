@@ -7,7 +7,6 @@
 #include "base/logging.h"
 #include "base/memory/ptr_util.h"
 #include "build/build_config.h"
-#include "third_party/skia/include/core/SkMetaData.h"
 #include "third_party/skia/include/core/SkTypes.h"
 
 namespace skia {
@@ -58,8 +57,7 @@ std::unique_ptr<SkCanvas> CreatePlatformCanvasWithPixels(
     bitmap.setPixels(data);
   } else {
       if (!bitmap.tryAllocPixels()) {
-        if (CRASH_ON_FAILURE == failureType)
-          SK_CRASH();
+        CHECK(failureType != CRASH_ON_FAILURE);
         return nullptr;
       }
 

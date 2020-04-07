@@ -14,7 +14,7 @@
 #include "base/sequenced_task_runner.h"
 #include "base/single_thread_task_runner.h"
 #include "base/task/post_task.h"
-#include "base/task/task_scheduler/task_scheduler.h"
+#include "base/task/thread_pool/thread_pool.h"
 #include "base/task_runner_util.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "chrome/common/url_constants.h"
@@ -62,7 +62,7 @@ VideoSource::VideoSource() : weak_factory_(this) {
 
 VideoSource::~VideoSource() {}
 
-std::string VideoSource::GetSource() const {
+std::string VideoSource::GetSource() {
   return chrome::kChromeOSAssetHost;
 }
 
@@ -85,7 +85,7 @@ void VideoSource::StartDataRequest(
                      got_data_callback));
 }
 
-std::string VideoSource::GetMimeType(const std::string& path) const {
+std::string VideoSource::GetMimeType(const std::string& path) {
   std::string mime_type;
   std::string ext = base::FilePath(path).Extension();
   if (!ext.empty())

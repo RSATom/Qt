@@ -19,10 +19,23 @@ class ListValue;
 
 namespace safe_browsing {
 // Features list
+// Controls whether we send RIND reports when a popup originating from a Google
+// Ad is blocked.
+extern const base::Feature kAdPopupTriggerFeature;
+
+// Controls whether we send RIND reports when a redirect caused by a Google Ad
+// is blocked.
+extern const base::Feature kAdRedirectTriggerFeature;
+
 extern const base::Feature kAdSamplerTriggerFeature;
 
-// Controls the billing interstitial UI.
-extern const base::Feature kBillingInterstitial;
+// Controls whether we sample inline JavaScript for ads in RIND
+// reports.
+extern const base::Feature kCaptureInlineJavascriptForGoogleAds;
+
+// Controls whether we try to get the SafetyNet ID of the device for use when
+// a SBER user downloads an APK file.
+extern const base::Feature kCaptureSafetyNetId;
 
 extern const base::Feature kCheckByURLLoaderThrottle;
 
@@ -30,16 +43,24 @@ extern const base::Feature kCheckByURLLoaderThrottle;
 // navigations instead of overlays.
 extern const base::Feature kCommittedSBInterstitials;
 
-// Forces the chrome://reset-password page to be shown for review or testing
-// purpose.
-extern const base::Feature kForceEnableResetPasswordWebUI;
+// Controls whether the user has forcibly enabled AP download protection. This
+// flag will enable AP downloads protections even for users not enrolled in
+// APP. See also |kUseAPDownloadProtection|.
+extern const base::Feature kForceUseAPDownloadProtection;
+
+// Enable GAIA password protection for signed-in users.
+extern const base::Feature kPasswordProtectionForSignedInUsers;
 
 // Controls the daily quota for the suspicious site trigger.
 extern const base::Feature kSuspiciousSiteTriggerQuotaFeature;
 
-// Controls whether we collect and send the referrer chain and other information
-// for APK downloads on Android.
-extern const base::Feature kTelemetryForApkDownloads;
+// Controls whether the real time URL lookup is enabled. Only works if
+// |kRealTimeUrlLookupFetchAllowlist| is also enabled.
+extern const base::Feature kRealTimeUrlLookupEnabled;
+
+// Controls whether the high confidence allowlist for real time URL lookup be
+// fetched.
+extern const base::Feature kRealTimeUrlLookupFetchAllowlist;
 
 // Specifies which non-resource HTML Elements to collect based on their tag and
 // attributes. It's a single param containing a comma-separated list of pairs.
@@ -59,17 +80,19 @@ extern const base::Feature kThreatDomDetailsTagAndAttributeFeature;
 // trials simultaneously.
 extern const base::Feature kTriggerThrottlerDailyQuotaFeature;
 
+// Controls whether we use AP download protection. This flag only has any effect
+// for users enrolled in APP. See also |kForceUseAPDownloadProtection|.
+extern const base::Feature kUseAPDownloadProtection;
+
 // Controls whether Chrome on Android uses locally cached blacklists.
 extern const base::Feature kUseLocalBlacklistsV2;
 
-// Controls whether we inspect the content of RAR files, or just report the
-// filenames contained in the archive.
-extern const base::Feature kInspectRarContentFeature;
-
-// Controls whether we use AP download protection.
-extern const base::Feature kUseAPDownloadProtection;
-
 base::ListValue GetFeatureStatusList();
+
+// Returns whether or not to stop filling in the SyncAccountType and
+// ReusedPasswordType enums. This is used in the
+// kPasswordProtectionForSignedInUsers experiment.
+bool GetShouldFillOldPhishGuardProto();
 
 }  // namespace safe_browsing
 #endif  // COMPONENTS_SAFE_BROWSING_FEATURES_H_

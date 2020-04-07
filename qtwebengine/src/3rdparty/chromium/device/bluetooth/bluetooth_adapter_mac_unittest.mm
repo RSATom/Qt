@@ -159,10 +159,6 @@ class BluetoothAdapterMacTest : public testing::Test {
   }
 
   CBPeripheral* CreateMockPeripheral(const char* identifier) {
-    if (!BluetoothAdapterMac::IsLowEnergyAvailable()) {
-      LOG(WARNING) << "Low Energy Bluetooth unavailable, skipping unit test.";
-      return nil;
-    }
     base::scoped_nsobject<MockCBPeripheral> mock_peripheral(
         [[MockCBPeripheral alloc] initWithUTF8StringIdentifier:identifier]);
     return [[mock_peripheral peripheral] retain];
@@ -189,10 +185,6 @@ class BluetoothAdapterMacTest : public testing::Test {
   }
 
   bool SetMockCentralManager(CBCentralManagerState desired_state) {
-    if (!BluetoothAdapterMac::IsLowEnergyAvailable()) {
-      LOG(WARNING) << "Low Energy Bluetooth unavailable, skipping unit test.";
-      return false;
-    }
     mock_central_manager_.reset([[MockCentralManager alloc] init]);
     [mock_central_manager_ setState:desired_state];
     CBCentralManager* centralManager =
@@ -201,23 +193,13 @@ class BluetoothAdapterMacTest : public testing::Test {
     return true;
   }
 
-  void AddDiscoverySession(BluetoothDiscoveryFilter* discovery_filter) {
-    adapter_mac_->AddDiscoverySession(
-        discovery_filter,
-        base::Bind(&BluetoothAdapterMacTest::Callback, base::Unretained(this)),
-        base::Bind(&BluetoothAdapterMacTest::DiscoveryErrorCallback,
-                   base::Unretained(this)));
+  void OnStartDiscoverySessionSuccess(
+      std::unique_ptr<device::BluetoothDiscoverySession> discovery_session) {
+    active_sessions_.push_back(std::move(discovery_session));
+    Callback();
   }
 
-  void RemoveDiscoverySession(BluetoothDiscoveryFilter* discovery_filter) {
-    adapter_mac_->RemoveDiscoverySession(
-        discovery_filter,
-        base::Bind(&BluetoothAdapterMacTest::Callback, base::Unretained(this)),
-        base::Bind(&BluetoothAdapterMacTest::DiscoveryErrorCallback,
-                   base::Unretained(this)));
-  }
-
-  int NumDiscoverySessions() { return adapter_mac_->num_discovery_sessions_; }
+  int NumDiscoverySessions() { return adapter_mac_->NumDiscoverySessions(); }
 
   void SetFakeLowEnergyDeviceWatcher() {
     adapter_mac_->SetLowEnergyDeviceWatcherForTesting(
@@ -239,6 +221,7 @@ class BluetoothAdapterMacTest : public testing::Test {
   scoped_refptr<FakeBluetoothLowEnergyDeviceWatcherMac>
       fake_low_energy_device_watcher_;
   TestBluetoothAdapterObserver observer_;
+  std::vector<std::unique_ptr<BluetoothDiscoverySession>> active_sessions_;
 
   // Owned by |adapter_mac_|.
   base::scoped_nsobject<MockCentralManager> mock_central_manager_;
@@ -294,7 +277,14 @@ TEST_F(BluetoothAdapterMacTest, AddDiscoverySessionWithLowEnergyFilter) {
 
   std::unique_ptr<BluetoothDiscoveryFilter> discovery_filter(
       new BluetoothDiscoveryFilter(BLUETOOTH_TRANSPORT_LE));
-  AddDiscoverySession(discovery_filter.get());
+
+  adapter_mac_->StartDiscoverySessionWithFilter(
+      std::move(discovery_filter),
+      base::BindRepeating(
+          &BluetoothAdapterMacTest::OnStartDiscoverySessionSuccess,
+          base::Unretained(this)),
+      base::BindRepeating(&BluetoothAdapterMacTest::ErrorCallback,
+                          base::Unretained(this)));
   EXPECT_TRUE(ui_task_runner_->HasPendingTask());
   ui_task_runner_->RunPendingTasks();
   EXPECT_EQ(1, callback_count_);
@@ -313,7 +303,15 @@ TEST_F(BluetoothAdapterMacTest, AddSecondDiscoverySessionWithLowEnergyFilter) {
     return;
   std::unique_ptr<BluetoothDiscoveryFilter> discovery_filter(
       new BluetoothDiscoveryFilter(BLUETOOTH_TRANSPORT_LE));
-  AddDiscoverySession(discovery_filter.get());
+  std::unique_ptr<BluetoothDiscoveryFilter> discovery_filter2(
+      new BluetoothDiscoveryFilter(BLUETOOTH_TRANSPORT_LE));
+  adapter_mac_->StartDiscoverySessionWithFilter(
+      std::move(discovery_filter),
+      base::BindRepeating(
+          &BluetoothAdapterMacTest::OnStartDiscoverySessionSuccess,
+          base::Unretained(this)),
+      base::BindRepeating(&BluetoothAdapterMacTest::ErrorCallback,
+                          base::Unretained(this)));
   EXPECT_TRUE(ui_task_runner_->HasPendingTask());
   ui_task_runner_->RunPendingTasks();
   EXPECT_EQ(1, callback_count_);
@@ -324,7 +322,13 @@ TEST_F(BluetoothAdapterMacTest, AddSecondDiscoverySessionWithLowEnergyFilter) {
   // |adapter_mac_| should remain in a discovering state indefinitely.
   EXPECT_TRUE(adapter_mac_->IsDiscovering());
 
-  AddDiscoverySession(discovery_filter.get());
+  adapter_mac_->StartDiscoverySessionWithFilter(
+      std::move(discovery_filter2),
+      base::BindRepeating(
+          &BluetoothAdapterMacTest::OnStartDiscoverySessionSuccess,
+          base::Unretained(this)),
+      base::BindRepeating(&BluetoothAdapterMacTest::ErrorCallback,
+                          base::Unretained(this)));
   EXPECT_TRUE(ui_task_runner_->HasPendingTask());
   ui_task_runner_->RunPendingTasks();
   EXPECT_EQ(2, [mock_central_manager_ scanForPeripheralsCallCount]);
@@ -340,7 +344,13 @@ TEST_F(BluetoothAdapterMacTest, RemoveDiscoverySessionWithLowEnergyFilter) {
 
   std::unique_ptr<BluetoothDiscoveryFilter> discovery_filter(
       new BluetoothDiscoveryFilter(BLUETOOTH_TRANSPORT_LE));
-  AddDiscoverySession(discovery_filter.get());
+  adapter_mac_->StartDiscoverySessionWithFilter(
+      std::move(discovery_filter),
+      base::BindRepeating(
+          &BluetoothAdapterMacTest::OnStartDiscoverySessionSuccess,
+          base::Unretained(this)),
+      base::BindRepeating(&BluetoothAdapterMacTest::ErrorCallback,
+                          base::Unretained(this)));
   EXPECT_TRUE(ui_task_runner_->HasPendingTask());
   ui_task_runner_->RunPendingTasks();
   EXPECT_EQ(1, callback_count_);
@@ -348,7 +358,11 @@ TEST_F(BluetoothAdapterMacTest, RemoveDiscoverySessionWithLowEnergyFilter) {
   EXPECT_EQ(1, NumDiscoverySessions());
 
   EXPECT_EQ(0, [mock_central_manager_ stopScanCallCount]);
-  RemoveDiscoverySession(discovery_filter.get());
+  active_sessions_[0]->Stop(
+      base::BindRepeating(&BluetoothAdapterMacTest::Callback,
+                          base::Unretained(this)),
+      base::BindRepeating(&BluetoothAdapterMacTest::ErrorCallback,
+                          base::Unretained(this)));
   EXPECT_EQ(2, callback_count_);
   EXPECT_EQ(0, error_callback_count_);
   EXPECT_EQ(0, NumDiscoverySessions());
@@ -356,24 +370,6 @@ TEST_F(BluetoothAdapterMacTest, RemoveDiscoverySessionWithLowEnergyFilter) {
   // Check that removing the discovery session resulted in stopScan being called
   // on the Central Manager.
   EXPECT_EQ(1, [mock_central_manager_ stopScanCallCount]);
-}
-
-TEST_F(BluetoothAdapterMacTest, RemoveDiscoverySessionWithLowEnergyFilterFail) {
-  if (!SetMockCentralManager(CBCentralManagerStatePoweredOn))
-    return;
-  EXPECT_EQ(0, [mock_central_manager_ scanForPeripheralsCallCount]);
-  EXPECT_EQ(0, [mock_central_manager_ stopScanCallCount]);
-  EXPECT_EQ(0, NumDiscoverySessions());
-
-  std::unique_ptr<BluetoothDiscoveryFilter> discovery_filter(
-      new BluetoothDiscoveryFilter(BLUETOOTH_TRANSPORT_LE));
-  RemoveDiscoverySession(discovery_filter.get());
-  EXPECT_EQ(0, callback_count_);
-  EXPECT_EQ(1, error_callback_count_);
-  EXPECT_EQ(0, NumDiscoverySessions());
-
-  // Check that stopScan was not called.
-  EXPECT_EQ(0, [mock_central_manager_ stopScanCallCount]);
 }
 
 TEST_F(BluetoothAdapterMacTest, CheckGetPeripheralHashAddress) {

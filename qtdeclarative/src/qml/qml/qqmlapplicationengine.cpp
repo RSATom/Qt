@@ -37,6 +37,7 @@
 **
 ****************************************************************************/
 
+#include <QtQml/qqmlfile.h>
 #include <QtCore/QCoreApplication>
 #include <QtCore/QTranslator>
 #include <QQmlComponent>
@@ -62,9 +63,6 @@ void QQmlApplicationEnginePrivate::cleanUp()
         obj->disconnect(q);
 
     qDeleteAll(objects);
-#if QT_CONFIG(translation)
-    qDeleteAll(translators);
-#endif
 }
 
 void QQmlApplicationEnginePrivate::init()
@@ -75,10 +73,11 @@ void QQmlApplicationEnginePrivate::init()
     q->connect(q, &QQmlApplicationEngine::exit, QCoreApplication::instance(),
                &QCoreApplication::exit, Qt::QueuedConnection);
 #if QT_CONFIG(translation)
-    QTranslator* qtTranslator = new QTranslator;
+    QTranslator* qtTranslator = new QTranslator(q);
     if (qtTranslator->load(QLocale(), QLatin1String("qt"), QLatin1String("_"), QLibraryInfo::location(QLibraryInfo::TranslationsPath), QLatin1String(".qm")))
         QCoreApplication::installTranslator(qtTranslator);
-    translators << qtTranslator;
+    else
+        delete qtTranslator;
 #endif
     new QQmlFileSelector(q,q);
     QCoreApplication::instance()->setProperty("__qml_using_qqmlapplicationengine", QVariant(true));
@@ -92,13 +91,12 @@ void QQmlApplicationEnginePrivate::loadTranslations(const QUrl &rootFile)
 
     QFileInfo fi(QQmlFile::urlToLocalFileOrQrc(rootFile));
 
-    QTranslator *translator = new QTranslator;
-    if (translator->load(QLocale(), QLatin1String("qml"), QLatin1String("_"), fi.path() + QLatin1String("/i18n"), QLatin1String(".qm"))) {
+    Q_Q(QQmlApplicationEngine);
+    QTranslator *translator = new QTranslator(q);
+    if (translator->load(QLocale(), QLatin1String("qml"), QLatin1String("_"), fi.path() + QLatin1String("/i18n"), QLatin1String(".qm")))
         QCoreApplication::installTranslator(translator);
-        translators << translator;
-    } else {
+    else
         delete translator;
-    }
 #else
     Q_UNUSED(rootFile)
 #endif
@@ -129,11 +127,11 @@ void QQmlApplicationEnginePrivate::finishLoad(QQmlComponent *c)
     switch (c->status()) {
     case QQmlComponent::Error:
         qWarning() << "QQmlApplicationEngine failed to load component";
-        qWarning() << qPrintable(c->errorString());
+        warning(c->errors());
         q->objectCreated(nullptr, c->url());
         break;
     case QQmlComponent::Ready: {
-        auto newObj = c->create();
+        auto newObj = initialProperties.empty() ? c->create() : c->createWithInitialProperties(initialProperties);
         objects << newObj;
         QObject::connect(newObj, &QObject::destroyed, q, [&](QObject *obj) { objects.removeAll(obj); });
         q->objectCreated(objects.constLast(), c->url());
@@ -278,6 +276,22 @@ void QQmlApplicationEngine::load(const QString &filePath)
 {
     Q_D(QQmlApplicationEngine);
     d->startLoad(QUrl::fromUserInput(filePath, QLatin1String("."), QUrl::AssumeLocalFile));
+}
+
+/*!
+   Sets the \a initialProperties with which the QML component gets initialized after
+   it gets loaded.
+
+
+   \sa QQmlComponent::setInitialProperties
+   \sa QQmlApplicationEngine::load
+   \sa QQmlApplicationEngine::loadData
+   \since 5.14
+*/
+void QQmlApplicationEngine::setInitialProperties(const QVariantMap &initialProperties)
+{
+    Q_D(QQmlApplicationEngine);
+    d->initialProperties = initialProperties;
 }
 
 /*!

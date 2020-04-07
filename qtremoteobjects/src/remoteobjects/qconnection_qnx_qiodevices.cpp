@@ -56,6 +56,7 @@ QQnxNativeIoPrivate::QQnxNativeIoPrivate()
     //This lets us set msgType before any MsgSend
     //and have the value sent as the header/type.
     SETIOV(tx_iov + 0, &msgType, sizeof(msgType));
+    SIGEV_NONE_INIT(&tx_pulse);
 }
 
 QQnxNativeIoPrivate::~QQnxNativeIoPrivate()
@@ -84,9 +85,15 @@ bool QQnxNativeIoPrivate::establishConnection()
     }
     connectionId = connection;
 
-    sigevent tx_pulse;
     SIGEV_PULSE_INIT(&tx_pulse, connection, SIGEV_PULSE_PRIO_INHERIT, SOURCE_TX_RQ, 0);
+    SIGEV_MAKE_UPDATEABLE(&tx_pulse);
     qCDebug(QT_REMOTEOBJECT) << "in establish" << tx_pulse.sigev_code << SOURCE_TX_RQ;
+
+    if (MsgRegisterEvent(&tx_pulse, connectionId) == -1) {
+        qCWarning(QT_REMOTEOBJECT) << "Unable to register event for server" << serverName;
+        teardownConnection();
+        return false;
+    }
 
     const int id = name_open(qPrintable(serverName), 0);
     if (id == -1) {
@@ -274,6 +281,11 @@ void QQnxNativeIoPrivate::thread_func()
     if (serverId >= 0) {
         WARN_ON_ERROR(name_close, serverId)
         serverId = -1;
+    }
+
+    if (tx_pulse.sigev_notify & SIGEV_FLAG_HANDLE) {
+        WARN_ON_ERROR(MsgUnregisterEvent, &tx_pulse);
+        SIGEV_NONE_INIT(&tx_pulse);
     }
 
     if (connectionId >= 0) {

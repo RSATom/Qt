@@ -27,15 +27,18 @@ ParallelDownloadJob::ParallelDownloadJob(
     const DownloadCreateInfo& create_info,
     scoped_refptr<download::DownloadURLLoaderFactoryGetter>
         url_loader_factory_getter,
-    net::URLRequestContextGetter* url_request_context_getter)
+    net::URLRequestContextGetter* url_request_context_getter,
+    service_manager::Connector* connector)
     : DownloadJobImpl(download_item, std::move(request_handle), true),
       initial_request_offset_(create_info.offset),
       initial_received_slices_(download_item->GetReceivedSlices()),
       content_length_(create_info.total_bytes),
       requests_sent_(false),
       is_canceled_(false),
+      range_support_(create_info.accept_range),
       url_loader_factory_getter_(std::move(url_loader_factory_getter)),
-      url_request_context_getter_(url_request_context_getter) {}
+      url_request_context_getter_(url_request_context_getter),
+      connector_(connector) {}
 
 ParallelDownloadJob::~ParallelDownloadJob() = default;
 
@@ -132,7 +135,9 @@ void ParallelDownloadJob::OnInputStreamReady(
     success = DownloadJob::AddInputStream(std::move(input_stream),
                                           worker->offset(), worker->length());
   }
-  RecordParallelDownloadAddStreamSuccess(success);
+
+  RecordParallelDownloadAddStreamSuccess(
+      success, range_support_ == RangeRequestSupportType::kSupport);
 
   // Destroy the request if the sink is gone.
   if (!success) {
@@ -182,10 +187,6 @@ void ParallelDownloadJob::BuildParallelRequests() {
     int64_t remaining_bytes =
         download_item_->GetTotalBytes() - download_item_->GetReceivedBytes();
 
-    int64_t remaining_time = remaining_bytes / current_bytes_per_second;
-    UMA_HISTOGRAM_CUSTOM_COUNTS(
-        "Download.ParallelDownload.RemainingTimeWhenBuildingRequests",
-        remaining_time, 0, base::TimeDelta::FromDays(1).InSeconds(), 50);
     if (remaining_bytes / current_bytes_per_second >
         GetMinRemainingTimeInSeconds()) {
       // Fork more requests to accelerate, only if one slice is left to download
@@ -293,12 +294,14 @@ void ParallelDownloadJob::CreateRequest(int64_t offset, int64_t length) {
   download_params->set_referrer_policy(net::URLRequest::NEVER_CLEAR_REFERRER);
 
   // TODO(xingliu): We should not support redirect at all for parallel requests.
-  // Currently the network service code path still can redirect.
-  download_params->set_follow_cross_origin_redirects(false);
+  // Currently the network service code path still can redirect as long as it's
+  // the same origin.
+  download_params->set_cross_origin_redirects(
+      network::mojom::RedirectMode::kError);
 
   // Send the request.
   worker->SendRequest(std::move(download_params), url_loader_factory_getter_,
-                      url_request_context_getter_);
+                      url_request_context_getter_, connector_);
   DCHECK(workers_.find(offset) == workers_.end());
   workers_[offset] = std::move(worker);
 }

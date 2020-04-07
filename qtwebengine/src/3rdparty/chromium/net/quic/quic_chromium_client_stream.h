@@ -22,8 +22,8 @@
 #include "net/http/http_response_info.h"
 #include "net/http/http_stream.h"
 #include "net/log/net_log_with_source.h"
-#include "net/third_party/quic/core/http/quic_spdy_stream.h"
-#include "net/third_party/quic/platform/api/quic_string_piece.h"
+#include "net/third_party/quiche/src/quic/core/http/quic_spdy_stream.h"
+#include "net/third_party/quiche/src/quic/platform/api/quic_string_piece.h"
 #include "net/traffic_annotation/network_traffic_annotation.h"
 
 namespace quic {
@@ -192,7 +192,7 @@ class NET_EXPORT_PRIVATE QuicChromiumClientStream
 
     NetLogWithSource net_log_;
 
-    base::WeakPtrFactory<Handle> weak_factory_;
+    base::WeakPtrFactory<Handle> weak_factory_{this};
 
     DISALLOW_COPY_AND_ASSIGN(Handle);
   };
@@ -204,7 +204,7 @@ class NET_EXPORT_PRIVATE QuicChromiumClientStream
       const NetLogWithSource& net_log,
       const NetworkTrafficAnnotationTag& traffic_annotation);
   QuicChromiumClientStream(
-      quic::PendingStream pending,
+      quic::PendingStream* pending,
       quic::QuicSpdyClientSessionBase* session,
       quic::StreamType type,
       const NetLogWithSource& net_log,
@@ -311,7 +311,7 @@ class NET_EXPORT_PRIVATE QuicChromiumClientStream
   // Length of the HEADERS frame containing trailing headers.
   size_t trailing_headers_frame_len_;
 
-  base::WeakPtrFactory<QuicChromiumClientStream> weak_factory_;
+  base::WeakPtrFactory<QuicChromiumClientStream> weak_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(QuicChromiumClientStream);
 };

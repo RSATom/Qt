@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <utility>
 
+#include "base/bind.h"
 #include "base/command_line.h"
 #include "base/logging.h"
 #include "base/stl_util.h"
@@ -68,8 +69,7 @@ PresentationServiceImpl::PresentationServiceImpl(
       // TODO(imcheng): Consider using RenderFrameHost* directly instead of IDs.
       render_process_id_(render_frame_host->GetProcess()->GetID()),
       render_frame_id_(render_frame_host->GetRoutingID()),
-      is_main_frame_(!render_frame_host->GetParent()),
-      weak_factory_(this) {
+      is_main_frame_(!render_frame_host->GetParent()) {
   DCHECK(render_frame_host_);
   DCHECK(web_contents);
   CHECK(render_frame_host_->IsRenderFrameLive());
@@ -208,18 +208,19 @@ void PresentationServiceImpl::StartPresentation(
     const std::vector<GURL>& presentation_urls,
     NewPresentationCallback callback) {
   DVLOG(2) << "StartPresentation";
-  if (!controller_delegate_) {
-    std::move(callback).Run(
-        /** PresentationConnectionResultPtr */ nullptr,
-        PresentationError::New(PresentationErrorType::NO_AVAILABLE_SCREENS,
-                               "No screens found."));
-    return;
-  }
 
   // There is a StartPresentation request in progress. To avoid queueing up
   // requests, the incoming request is rejected.
   if (start_presentation_request_id_ != kInvalidRequestId) {
     InvokeNewPresentationCallbackWithError(std::move(callback));
+    return;
+  }
+
+  if (!controller_delegate_) {
+    std::move(callback).Run(
+        /** PresentationConnectionResultPtr */ nullptr,
+        PresentationError::New(PresentationErrorType::NO_AVAILABLE_SCREENS,
+                               "No screens found."));
     return;
   }
 
@@ -512,7 +513,7 @@ PresentationServiceImpl::ScreenAvailabilityListenerImpl::
     ~ScreenAvailabilityListenerImpl() = default;
 
 GURL PresentationServiceImpl::ScreenAvailabilityListenerImpl::
-    GetAvailabilityUrl() const {
+    GetAvailabilityUrl() {
   return availability_url_;
 }
 

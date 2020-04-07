@@ -147,17 +147,13 @@ private slots:
 
     void animate(int frame) {
         qreal progress = static_cast<qreal>(frame) / 100;
-#if QT_VERSION >= 0x040500
         m_iconItem->setOpacity(progress);
-#endif
         qreal hw = width() / 2.0;
         m_statusItem->setPos(-hw + hw * progress, 0);
         for (int i = 0; i < m_forecastItems.count(); ++i) {
             qreal ofs = i * 0.5 / m_forecastItems.count();
             qreal alpha = qBound(qreal(0), 2 * (progress - ofs), qreal(1));
-#if QT_VERSION >= 0x040500
             m_conditionItems[i]->setOpacity(alpha);
-#endif
             QPointF pos = m_forecastItems[i]->pos();
             if (width() > height()) {
                 qreal fx = width() - width() * 0.4 * alpha;

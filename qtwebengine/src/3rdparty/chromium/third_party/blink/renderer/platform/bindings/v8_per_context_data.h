@@ -40,7 +40,7 @@
 #include "third_party/blink/renderer/platform/heap/handle.h"
 #include "third_party/blink/renderer/platform/heap/persistent.h"
 #include "third_party/blink/renderer/platform/platform_export.h"
-#include "third_party/blink/renderer/platform/wtf/allocator.h"
+#include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 #include "third_party/blink/renderer/platform/wtf/hash_map.h"
 #include "third_party/blink/renderer/platform/wtf/text/atomic_string.h"
 #include "third_party/blink/renderer/platform/wtf/text/atomic_string_hash.h"
@@ -58,10 +58,9 @@ struct WrapperTypeInfo;
 // has a 1:1 relationship with v8::Context.
 class PLATFORM_EXPORT V8PerContextData final {
   USING_FAST_MALLOC(V8PerContextData);
-  WTF_MAKE_NONCOPYABLE(V8PerContextData);
 
  public:
-  static std::unique_ptr<V8PerContextData> Create(v8::Local<v8::Context>);
+  explicit V8PerContextData(v8::Local<v8::Context>);
 
   static V8PerContextData* From(v8::Local<v8::Context>);
 
@@ -126,8 +125,6 @@ class PLATFORM_EXPORT V8PerContextData final {
   Data* GetData(const char* key);
 
  private:
-  V8PerContextData(v8::Local<v8::Context>);
-
   v8::Local<v8::Object> CreateWrapperFromCacheSlowCase(const WrapperTypeInfo*);
   v8::Local<v8::Function> ConstructorForTypeSlowCase(const WrapperTypeInfo*);
 
@@ -158,6 +155,8 @@ class PLATFORM_EXPORT V8PerContextData final {
 
   using DataMap = HeapHashMap<const char*, Member<Data>>;
   Persistent<DataMap> data_map_;
+
+  DISALLOW_COPY_AND_ASSIGN(V8PerContextData);
 };
 
 }  // namespace blink

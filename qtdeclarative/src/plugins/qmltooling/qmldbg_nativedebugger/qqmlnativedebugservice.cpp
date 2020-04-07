@@ -41,7 +41,6 @@
 
 #include <private/qqmldebugconnector_p.h>
 #include <private/qv4debugging_p.h>
-#include <private/qv8engine_p.h>
 #include <private/qv4engine_p.h>
 #include <private/qv4debugging_p.h>
 #include <private/qv4script_p.h>
@@ -378,7 +377,7 @@ void Collector::collect(QJsonArray *out, const QString &parentIName, const QStri
     dict.insert(QStringLiteral("iname"), iname);
     dict.insert(QStringLiteral("name"), nonEmptyName);
 
-    QV4::ScopedValue typeString(scope, QV4::Runtime::method_typeofValue(m_engine, value));
+    QV4::ScopedValue typeString(scope, QV4::Runtime::TypeofValue::call(m_engine, value));
     dict.insert(QStringLiteral("type"), typeString->toQStringNoThrow());
 
     switch (value.type()) {

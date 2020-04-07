@@ -5,18 +5,42 @@
  * found in the LICENSE file.
  */
 
-#include "GrContext.h"
-#include "SkAutoPixmapStorage.h"
-#include "SkCanvas.h"
-#include "SkColorPriv.h"
-#include "SkData.h"
-#include "SkRandom.h"
-#include "SkStream.h"
-#include "SkSurface.h"
-#include "gm.h"
-#include "sk_tool_utils.h"
+#include "gm/gm.h"
+#include "include/core/SkBitmap.h"
+#include "include/core/SkCanvas.h"
+#include "include/core/SkColor.h"
+#include "include/core/SkColorPriv.h"
+#include "include/core/SkColorSpace.h"
+#include "include/core/SkData.h"
+#include "include/core/SkEncodedImageFormat.h"
+#include "include/core/SkFilterQuality.h"
+#include "include/core/SkFont.h"
+#include "include/core/SkImage.h"
+#include "include/core/SkImageEncoder.h"
+#include "include/core/SkImageInfo.h"
+#include "include/core/SkPaint.h"
+#include "include/core/SkPicture.h"
+#include "include/core/SkPictureRecorder.h"
+#include "include/core/SkPixmap.h"
+#include "include/core/SkRect.h"
+#include "include/core/SkRefCnt.h"
+#include "include/core/SkScalar.h"
+#include "include/core/SkSize.h"
+#include "include/core/SkString.h"
+#include "include/core/SkSurface.h"
+#include "include/core/SkTypeface.h"
+#include "include/core/SkTypes.h"
+#include "include/private/SkMalloc.h"
+#include "src/core/SkAutoPixmapStorage.h"
+#include "src/core/SkReadBuffer.h"
+#include "src/core/SkWriteBuffer.h"
+#include "tools/ToolUtils.h"
 
 #include <functional>
+#include <utility>
+
+class GrContext;
+class GrRenderTargetContext;
 
 static void drawContents(SkSurface* surface, SkColor fillC) {
     SkSize size = SkSize::Make(SkIntToScalar(surface->width()),
@@ -113,7 +137,7 @@ protected:
     void onDraw(SkCanvas* canvas) override {
         canvas->scale(2, 2);
 
-        SkFont font(sk_tool_utils::create_portable_typeface(), 8);
+        SkFont font(ToolUtils::create_portable_typeface(), 8);
 
         canvas->drawString("Original Img",  10,  60, font, SkPaint());
         canvas->drawString("Modified Img",  10, 140, font, SkPaint());
@@ -153,8 +177,6 @@ private:
 DEF_GM( return new ImageGM; )
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
-
-#include "SkPictureRecorder.h"
 
 static void draw_pixmap(SkCanvas* canvas, const SkPixmap& pmap) {
     SkBitmap bitmap;
@@ -263,13 +285,7 @@ DEF_GM( return new ScalePixelsGM; )
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
-DEF_SIMPLE_GM(new_texture_image, canvas, 280, 60) {
-    GrContext* context = canvas->getGrContext();
-    if (!context) {
-        skiagm::GM::DrawGpuOnlyMessage(canvas);
-        return;
-    }
-
+DEF_SIMPLE_GPU_GM(new_texture_image, context, rtc, canvas, 280, 60) {
     auto render_image = [](SkCanvas* canvas) {
         canvas->clear(SK_ColorBLUE);
         SkPaint paint;
@@ -389,8 +405,6 @@ static sk_sp<SkImage> make_lazy_image(SkSurface* surf) {
     return SkImage::MakeFromEncoded(std::move(data));
 }
 
-#include "SkWriteBuffer.h"
-#include "SkReadBuffer.h"
 static sk_sp<SkImage> serial_deserial(SkImage* img) {
     SkBinaryWriteBuffer writer;
     writer.writeImage(img);
@@ -402,12 +416,13 @@ static sk_sp<SkImage> serial_deserial(SkImage* img) {
     return reader.readImage();
 }
 
-DEF_SIMPLE_GM(image_subset, canvas, 440, 220) {
+DEF_SIMPLE_GM_CAN_FAIL(image_subset, canvas, errorMsg, 440, 220) {
     SkImageInfo info = SkImageInfo::MakeN32Premul(200, 200, nullptr);
-    auto surf = sk_tool_utils::makeSurface(canvas, info, nullptr);
+    auto        surf = ToolUtils::makeSurface(canvas, info, nullptr);
     auto img = make_lazy_image(surf.get());
     if (!img) {
-        return;
+        *errorMsg = "Failed to make lazy image.";
+        return skiagm::DrawResult::kFail;
     }
 
     canvas->drawImage(img, 10, 10, nullptr);
@@ -415,4 +430,5 @@ DEF_SIMPLE_GM(image_subset, canvas, 440, 220) {
     canvas->drawImage(sub, 220, 10);
     sub = serial_deserial(sub.get());
     canvas->drawImage(sub, 220+110, 10);
+    return skiagm::DrawResult::kOk;
 }

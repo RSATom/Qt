@@ -8,22 +8,23 @@
 #include <string>
 
 #include "base/optional.h"
-#include "content/browser/web_package/origins_list.h"
 #include "content/browser/web_package/signed_exchange_consts.h"
 #include "content/browser/web_package/signed_exchange_error.h"
+#include "content/browser/web_package/signed_exchange_signature_verifier.h"
 #include "content/common/content_export.h"
+#include "net/url_request/redirect_util.h"
+#include "services/network/public/cpp/resource_response.h"
 #include "url/gurl.h"
 
-namespace url {
-class Origin;
-}  // namespace url
-
 namespace network {
+struct ResourceRequest;
 struct ResourceResponseHead;
 }  // namespace network
 
 namespace content {
 
+class BrowserContext;
+class ResourceContext;
 class SignedExchangeDevToolsProxy;
 
 namespace signed_exchange_utils {
@@ -46,23 +47,19 @@ void ReportErrorAndTraceEvent(
     base::Optional<SignedExchangeError::FieldIndexPair> error_field =
         base::nullopt);
 
-// Returns true when SignedHTTPExchange feature is NOT enabled and
-// SignedHTTPExchangeOriginTrial and SignedHTTPExchangeAcceptHeader features are
-// enabled.
-bool NeedToCheckRedirectedURLForAcceptHeader();
+// Returns true when SignedHTTPExchange feature is enabled. This must be called
+// on the IO thread.
+CONTENT_EXPORT bool IsSignedExchangeHandlingEnabledOnIO(
+    ResourceContext* context);
+// Same as above but called on UI thread.
+CONTENT_EXPORT bool IsSignedExchangeHandlingEnabled(BrowserContext* context);
 
-// Returns true if Accept headers should be sent with
-// "application/signed-exchange".
-CONTENT_EXPORT bool ShouldAdvertiseAcceptHeader(const url::Origin& origin);
-
-// Returns true when SignedHTTPExchange feature or SignedHTTPExchangeOriginTrial
-// feature is enabled.
-bool IsSignedExchangeHandlingEnabled();
+// Returns true when SignedExchangeReportingForDistributors feature is enabled.
+bool IsSignedExchangeReportingForDistributorsEnabled();
 
 // Returns true when the response should be handled as a signed exchange by
-// checking the mime type and the feature flags. When SignedHTTPExchange feature
-// is not enabled and SignedHTTPExchangeOriginTrial feature is enabled, this
-// method also checks the Origin Trial header.
+// checking the url and the response headers. Note that the caller should also
+// check IsSignedExchangeHandlingEnabled() before really enabling the feature.
 bool ShouldHandleAsSignedHTTPExchange(
     const GURL& request_url,
     const network::ResourceResponseHead& head);
@@ -74,6 +71,27 @@ bool ShouldHandleAsSignedHTTPExchange(
 // [1] https://wicg.github.io/webpackage/loading.html#signed-exchange-version
 CONTENT_EXPORT base::Optional<SignedExchangeVersion> GetSignedExchangeVersion(
     const std::string& content_type);
+
+// Returns the matching SignedExchangeLoadResult for the verifier's result.
+// There is a gap between the logic of SignedExchangeSignatureVerifier and the
+// spec of Loading Signed Exchanges [1]. This method is used to fill the gap
+// and send a correct signed exchange report.
+// [1] https://wicg.github.io/webpackage/loading.html
+SignedExchangeLoadResult GetLoadResultFromSignatureVerifierResult(
+    SignedExchangeSignatureVerifier::Result verify_result);
+
+// Creates a RedirectInfo of synthesized redirect for signed exchange loading.
+net::RedirectInfo CreateRedirectInfo(
+    const GURL& new_url,
+    const network::ResourceRequest& outer_request,
+    const network::ResourceResponseHead& outer_response,
+    bool is_fallback_redirect);
+
+// Creates a ResourceResponseHead of synthesized redirect for signed exchange
+// loading.
+network::ResourceResponseHead CreateRedirectResponseHead(
+    const network::ResourceResponseHead& outer_response,
+    bool is_fallback_redirect);
 
 }  // namespace signed_exchange_utils
 }  // namespace content

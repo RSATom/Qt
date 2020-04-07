@@ -4,7 +4,12 @@
 
 #include "ui/base/ime/dummy_text_input_client.h"
 
+#if defined(OS_WIN)
+#include <vector>
+#endif
+
 #include "base/strings/string_util.h"
+#include "build/build_config.h"
 #include "ui/events/event.h"
 #include "ui/gfx/geometry/rect.h"
 
@@ -139,5 +144,20 @@ ukm::SourceId DummyTextInputClient::GetClientSourceForMetrics() const {
 bool DummyTextInputClient::ShouldDoLearning() {
   return false;
 }
+
+#if defined(OS_WIN) || defined(OS_CHROMEOS)
+bool DummyTextInputClient::SetCompositionFromExistingText(
+    const gfx::Range& range,
+    const std::vector<ui::ImeTextSpan>& ui_ime_text_spans) {
+  return false;
+}
+#endif
+
+#if defined(OS_WIN)
+void DummyTextInputClient::SetActiveCompositionForAccessibility(
+    const gfx::Range& range,
+    const base::string16& active_composition_text,
+    bool is_composition_committed) {}
+#endif
 
 }  // namespace ui

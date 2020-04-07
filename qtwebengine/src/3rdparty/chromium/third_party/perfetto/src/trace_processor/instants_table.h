@@ -35,7 +35,6 @@ class InstantsTable : public StorageTable {
   int BestIndex(const QueryConstraints&, BestIndexInfo*) override;
 
  private:
-  std::deque<std::string> ref_types_;
   const TraceStorage* const storage_;
 };
 }  // namespace trace_processor

@@ -13,6 +13,7 @@
 
 #include "base/bind.h"
 #include "base/callback_helpers.h"
+#include "base/feature_list.h"
 #include "base/location.h"
 #include "base/logging.h"
 #include "base/macros.h"
@@ -42,9 +43,7 @@ static int GetVpxVideoDecoderThreadCount(const VideoDecoderConfig& config) {
   // maximum number of tiles possible for higher resolution streams.
   if (config.codec() == kCodecVP9) {
     const int width = config.coded_size().width();
-    if (width >= 8192)
-      desired_threads = 32;
-    else if (width >= 4096)
+    if (width >= 4096)
       desired_threads = 16;
     else if (width >= 2048)
       desired_threads = 8;
@@ -115,7 +114,7 @@ std::string VpxVideoDecoder::GetDisplayName() const {
 void VpxVideoDecoder::Initialize(const VideoDecoderConfig& config,
                                  bool /* low_delay */,
                                  CdmContext* /* cdm_context */,
-                                 const InitCB& init_cb,
+                                 InitCB init_cb,
                                  const OutputCB& output_cb,
                                  const WaitingCB& /* waiting_cb */) {
   DVLOG(1) << __func__ << ": " << config.AsHumanReadableString();
@@ -124,9 +123,10 @@ void VpxVideoDecoder::Initialize(const VideoDecoderConfig& config,
 
   CloseDecoder();
 
-  InitCB bound_init_cb = bind_callbacks_ ? BindToCurrentLoop(init_cb) : init_cb;
+  InitCB bound_init_cb = bind_callbacks_ ? BindToCurrentLoop(std::move(init_cb))
+                                         : std::move(init_cb);
   if (config.is_encrypted() || !ConfigureDecoder(config)) {
-    bound_init_cb.Run(false);
+    std::move(bound_init_cb).Run(false);
     return;
   }
 
@@ -134,11 +134,11 @@ void VpxVideoDecoder::Initialize(const VideoDecoderConfig& config,
   config_ = config;
   state_ = kNormal;
   output_cb_ = output_cb;
-  bound_init_cb.Run(true);
+  std::move(bound_init_cb).Run(true);
 }
 
 void VpxVideoDecoder::Decode(scoped_refptr<DecoderBuffer> buffer,
-                             const DecodeCB& decode_cb) {
+                             DecodeCB decode_cb) {
   DVLOG(3) << __func__ << ": " << buffer->AsHumanReadableString();
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DCHECK(buffer);
@@ -146,29 +146,30 @@ void VpxVideoDecoder::Decode(scoped_refptr<DecoderBuffer> buffer,
   DCHECK_NE(state_, kUninitialized)
       << "Called Decode() before successful Initialize()";
 
-  DecodeCB bound_decode_cb =
-      bind_callbacks_ ? BindToCurrentLoop(decode_cb) : decode_cb;
+  DecodeCB bound_decode_cb = bind_callbacks_
+                                 ? BindToCurrentLoop(std::move(decode_cb))
+                                 : std::move(decode_cb);
 
   if (state_ == kError) {
-    bound_decode_cb.Run(DecodeStatus::DECODE_ERROR);
+    std::move(bound_decode_cb).Run(DecodeStatus::DECODE_ERROR);
     return;
   }
 
   if (state_ == kDecodeFinished) {
-    bound_decode_cb.Run(DecodeStatus::OK);
+    std::move(bound_decode_cb).Run(DecodeStatus::OK);
     return;
   }
 
   if (state_ == kNormal && buffer->end_of_stream()) {
     state_ = kDecodeFinished;
-    bound_decode_cb.Run(DecodeStatus::OK);
+    std::move(bound_decode_cb).Run(DecodeStatus::OK);
     return;
   }
 
   scoped_refptr<VideoFrame> video_frame;
   if (!VpxDecode(buffer.get(), &video_frame)) {
     state_ = kError;
-    bound_decode_cb.Run(DecodeStatus::DECODE_ERROR);
+    std::move(bound_decode_cb).Run(DecodeStatus::DECODE_ERROR);
     return;
   }
 
@@ -177,23 +178,21 @@ void VpxVideoDecoder::Decode(scoped_refptr<DecoderBuffer> buffer,
   if (video_frame) {
     video_frame->metadata()->SetBoolean(VideoFrameMetadata::POWER_EFFICIENT,
                                         false);
-    // Safe to call |output_cb_| here even if we're on the offload thread since
-    // it is only set once during Initialize() and never changed.
     output_cb_.Run(video_frame);
   }
 
   // VideoDecoderShim expects |decode_cb| call after |output_cb_|.
-  bound_decode_cb.Run(DecodeStatus::OK);
+  std::move(bound_decode_cb).Run(DecodeStatus::OK);
 }
 
-void VpxVideoDecoder::Reset(const base::Closure& reset_cb) {
+void VpxVideoDecoder::Reset(base::OnceClosure reset_cb) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   state_ = kNormal;
 
   if (bind_callbacks_)
-    BindToCurrentLoop(reset_cb).Run();
+    BindToCurrentLoop(std::move(reset_cb)).Run();
   else
-    reset_cb.Run();
+    std::move(reset_cb).Run();
 
   // Allow Initialize() to be called on another thread now.
   DETACH_FROM_SEQUENCE(sequence_checker_);
@@ -204,19 +203,15 @@ bool VpxVideoDecoder::ConfigureDecoder(const VideoDecoderConfig& config) {
   if (config.codec() != kCodecVP8 && config.codec() != kCodecVP9)
     return false;
 
-  // These are the combinations of codec-pixel format supported in principle.
-  DCHECK(
-      (config.codec() == kCodecVP8 && config.format() == PIXEL_FORMAT_I420) ||
-      (config.codec() == kCodecVP8 && config.format() == PIXEL_FORMAT_I420A) ||
-      (config.codec() == kCodecVP9 && config.format() == PIXEL_FORMAT_I420) ||
-      (config.codec() == kCodecVP9 && config.format() == PIXEL_FORMAT_I420A) ||
-      (config.codec() == kCodecVP9 && config.format() == PIXEL_FORMAT_I444));
-
 #if BUILDFLAG(ENABLE_FFMPEG_VIDEO_DECODERS)
-  // When FFmpegVideoDecoder is available it handles VP8 that doesn't have
-  // alpha, and VpxVideoDecoder will handle VP8 with alpha.
-  if (config.codec() == kCodecVP8 && config.format() != PIXEL_FORMAT_I420A)
+  // When enabled, ffmpeg handles VP8 that doesn't have alpha, and
+  // VpxVideoDecoder will handle VP8 with alpha. FFvp8 is being deprecated.
+  // See http://crbug.com/992235.
+  if (base::FeatureList::IsEnabled(kFFmpegDecodeOpaqueVP8) &&
+      config.codec() == kCodecVP8 &&
+      config.alpha_mode() == VideoDecoderConfig::AlphaMode::kIsOpaque) {
     return false;
+  }
 #endif
 
   DCHECK(!vpx_codec_);
@@ -243,7 +238,7 @@ bool VpxVideoDecoder::ConfigureDecoder(const VideoDecoderConfig& config) {
     }
   }
 
-  if (config.format() != PIXEL_FORMAT_I420A)
+  if (config.alpha_mode() == VideoDecoderConfig::AlphaMode::kIsOpaque)
     return true;
 
   DCHECK(!vpx_codec_alpha_);
@@ -308,7 +303,7 @@ bool VpxVideoDecoder::VpxDecode(const DecoderBuffer* buffer,
   }
 
   const vpx_image_t* vpx_image_alpha = nullptr;
-  AlphaDecodeStatus alpha_decode_status =
+  const auto alpha_decode_status =
       DecodeAlphaPlane(vpx_image, &vpx_image_alpha, buffer);
   if (alpha_decode_status == kAlphaPlaneError) {
     return false;
@@ -316,9 +311,10 @@ bool VpxVideoDecoder::VpxDecode(const DecoderBuffer* buffer,
     *video_frame = nullptr;
     return true;
   }
-  if (!CopyVpxImageToVideoFrame(vpx_image, vpx_image_alpha, video_frame)) {
+
+  if (!CopyVpxImageToVideoFrame(vpx_image, vpx_image_alpha, video_frame))
     return false;
-  }
+
   if (vpx_image_alpha && config_.codec() == kCodecVP8) {
     libyuv::CopyPlane(vpx_image_alpha->planes[VPX_PLANE_Y],
                       vpx_image_alpha->stride[VPX_PLANE_Y],
@@ -330,71 +326,61 @@ bool VpxVideoDecoder::VpxDecode(const DecoderBuffer* buffer,
 
   (*video_frame)->set_timestamp(buffer->timestamp());
 
-  // Default to the color space from the config, but if the bistream specifies
-  // one, prefer that instead.
+  // Prefer the color space from the config if available. It generally comes
+  // from the color tag which is more expressive than the vp8 and vp9 bitstream.
   if (config_.color_space_info().IsSpecified()) {
     (*video_frame)
         ->set_color_space(config_.color_space_info().ToGfxColorSpace());
+    return true;
   }
 
-  if (config_.color_space_info().IsSpecified()) {
-    // config_.color_space_info() comes from the color tag which is
-    // more expressive than the bitstream, so prefer it over the
-    // bitstream data below.
-    (*video_frame)
-        ->set_color_space(config_.color_space_info().ToGfxColorSpace());
-  } else {
-    gfx::ColorSpace::PrimaryID primaries = gfx::ColorSpace::PrimaryID::INVALID;
-    gfx::ColorSpace::TransferID transfer = gfx::ColorSpace::TransferID::INVALID;
-    gfx::ColorSpace::MatrixID matrix = gfx::ColorSpace::MatrixID::INVALID;
-    gfx::ColorSpace::RangeID range = vpx_image->range == VPX_CR_FULL_RANGE
-                                         ? gfx::ColorSpace::RangeID::FULL
-                                         : gfx::ColorSpace::RangeID::LIMITED;
+  auto primaries = gfx::ColorSpace::PrimaryID::INVALID;
+  auto transfer = gfx::ColorSpace::TransferID::INVALID;
+  auto matrix = gfx::ColorSpace::MatrixID::INVALID;
+  auto range = vpx_image->range == VPX_CR_FULL_RANGE
+                   ? gfx::ColorSpace::RangeID::FULL
+                   : gfx::ColorSpace::RangeID::LIMITED;
 
-    switch (vpx_image->cs) {
-      case VPX_CS_BT_601:
-      case VPX_CS_SMPTE_170:
-        primaries = gfx::ColorSpace::PrimaryID::SMPTE170M;
-        transfer = gfx::ColorSpace::TransferID::SMPTE170M;
-        matrix = gfx::ColorSpace::MatrixID::SMPTE170M;
-        break;
-      case VPX_CS_SMPTE_240:
-        primaries = gfx::ColorSpace::PrimaryID::SMPTE240M;
-        transfer = gfx::ColorSpace::TransferID::SMPTE240M;
-        matrix = gfx::ColorSpace::MatrixID::SMPTE240M;
-        break;
-      case VPX_CS_BT_709:
-        primaries = gfx::ColorSpace::PrimaryID::BT709;
+  switch (vpx_image->cs) {
+    case VPX_CS_BT_601:
+    case VPX_CS_SMPTE_170:
+      primaries = gfx::ColorSpace::PrimaryID::SMPTE170M;
+      transfer = gfx::ColorSpace::TransferID::SMPTE170M;
+      matrix = gfx::ColorSpace::MatrixID::SMPTE170M;
+      break;
+    case VPX_CS_SMPTE_240:
+      primaries = gfx::ColorSpace::PrimaryID::SMPTE240M;
+      transfer = gfx::ColorSpace::TransferID::SMPTE240M;
+      matrix = gfx::ColorSpace::MatrixID::SMPTE240M;
+      break;
+    case VPX_CS_BT_709:
+      primaries = gfx::ColorSpace::PrimaryID::BT709;
+      transfer = gfx::ColorSpace::TransferID::BT709;
+      matrix = gfx::ColorSpace::MatrixID::BT709;
+      break;
+    case VPX_CS_BT_2020:
+      primaries = gfx::ColorSpace::PrimaryID::BT2020;
+      if (vpx_image->bit_depth >= 12)
+        transfer = gfx::ColorSpace::TransferID::BT2020_12;
+      else if (vpx_image->bit_depth >= 10)
+        transfer = gfx::ColorSpace::TransferID::BT2020_10;
+      else
         transfer = gfx::ColorSpace::TransferID::BT709;
-        matrix = gfx::ColorSpace::MatrixID::BT709;
-        break;
-      case VPX_CS_BT_2020:
-        primaries = gfx::ColorSpace::PrimaryID::BT2020;
-        if (vpx_image->bit_depth >= 12) {
-          transfer = gfx::ColorSpace::TransferID::BT2020_12;
-        } else if (vpx_image->bit_depth >= 10) {
-          transfer = gfx::ColorSpace::TransferID::BT2020_10;
-        } else {
-          transfer = gfx::ColorSpace::TransferID::BT709;
-        }
-        matrix = gfx::ColorSpace::MatrixID::BT2020_NCL;  // is this right?
-        break;
-      case VPX_CS_SRGB:
-        primaries = gfx::ColorSpace::PrimaryID::BT709;
-        transfer = gfx::ColorSpace::TransferID::IEC61966_2_1;
-        matrix = gfx::ColorSpace::MatrixID::BT709;
-        break;
+      matrix = gfx::ColorSpace::MatrixID::BT2020_NCL;  // is this right?
+      break;
+    case VPX_CS_SRGB:
+      primaries = gfx::ColorSpace::PrimaryID::BT709;
+      transfer = gfx::ColorSpace::TransferID::IEC61966_2_1;
+      matrix = gfx::ColorSpace::MatrixID::BT709;
+      break;
+    default:
+      break;
+  }
 
-      default:
-        break;
-    }
-
-    // TODO(ccameron): Set a color space even for unspecified values.
-    if (primaries != gfx::ColorSpace::PrimaryID::INVALID) {
-      (*video_frame)
-          ->set_color_space(
-              gfx::ColorSpace(primaries, transfer, matrix, range));
-    }
+  // TODO(ccameron): Set a color space even for unspecified values.
+  if (primaries != gfx::ColorSpace::PrimaryID::INVALID) {
+    (*video_frame)
+        ->set_color_space(gfx::ColorSpace(primaries, transfer, matrix, range));
   }
 
   return true;

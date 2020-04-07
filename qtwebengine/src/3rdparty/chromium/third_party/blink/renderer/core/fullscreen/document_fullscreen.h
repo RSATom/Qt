@@ -29,7 +29,7 @@
 #include "third_party/blink/renderer/bindings/core/v8/script_promise.h"
 #include "third_party/blink/renderer/core/dom/events/event_target.h"
 #include "third_party/blink/renderer/platform/bindings/script_state.h"
-#include "third_party/blink/renderer/platform/wtf/allocator.h"
+#include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 
 namespace blink {
 
@@ -45,13 +45,13 @@ class DocumentFullscreen {
   static ScriptPromise exitFullscreen(ScriptState*, Document&);
   static void webkitExitFullscreen(Document&);
 
-  DEFINE_STATIC_ATTRIBUTE_EVENT_LISTENER(fullscreenchange, kFullscreenchange);
-  DEFINE_STATIC_ATTRIBUTE_EVENT_LISTENER(fullscreenerror, kFullscreenerror);
+  DEFINE_STATIC_ATTRIBUTE_EVENT_LISTENER(fullscreenchange, kFullscreenchange)
+  DEFINE_STATIC_ATTRIBUTE_EVENT_LISTENER(fullscreenerror, kFullscreenerror)
 
   DEFINE_STATIC_ATTRIBUTE_EVENT_LISTENER(webkitfullscreenchange,
-                                         kWebkitfullscreenchange);
+                                         kWebkitfullscreenchange)
   DEFINE_STATIC_ATTRIBUTE_EVENT_LISTENER(webkitfullscreenerror,
-                                         kWebkitfullscreenerror);
+                                         kWebkitfullscreenerror)
 };
 
 }  // namespace blink

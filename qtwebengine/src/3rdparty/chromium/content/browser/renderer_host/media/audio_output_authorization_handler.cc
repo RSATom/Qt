@@ -90,10 +90,11 @@ class AudioOutputAuthorizationHandler::TraceScope {
     TRACE_EVENT_NESTABLE_ASYNC_INSTANT0("audio", event, this);
   }
 
-  void UsingSessionId(int session_id, const std::string& device_id) {
+  void UsingSessionId(const base::UnguessableToken& session_id,
+                      const std::string& device_id) {
     TRACE_EVENT_NESTABLE_ASYNC_INSTANT2("audio", "Using session id", this,
-                                        "session id", session_id, "device id",
-                                        device_id);
+                                        "session id", session_id.ToString(),
+                                        "device id", device_id);
   }
 
   void CheckAccessStart(const std::string& device_id) {
@@ -132,8 +133,7 @@ AudioOutputAuthorizationHandler::AudioOutputAuthorizationHandler(
     int render_process_id)
     : audio_system_(audio_system),
       media_stream_manager_(media_stream_manager),
-      render_process_id_(render_process_id),
-      weak_factory_(this) {
+      render_process_id_(render_process_id) {
   DCHECK(media_stream_manager_);
 }
 
@@ -145,7 +145,7 @@ AudioOutputAuthorizationHandler::~AudioOutputAuthorizationHandler() {
 
 void AudioOutputAuthorizationHandler::RequestDeviceAuthorization(
     int render_frame_id,
-    int session_id,
+    const base::UnguessableToken& session_id,
     const std::string& device_id,
     AuthorizationCompletedCallback cb) const {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);

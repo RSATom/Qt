@@ -352,7 +352,7 @@ public:
     QBrushData *brush;
     QNullBrushData() : brush(new QBrushData)
     {
-        brush->ref.store(1);
+        brush->ref.storeRelaxed(1);
         brush->style = Qt::BrushStyle(0);
         brush->color = Qt::black;
     }
@@ -411,7 +411,7 @@ void QBrush::init(const QColor &color, Qt::BrushStyle style)
         d.reset(new QBrushData);
         break;
     }
-    d->ref.store(1);
+    d->ref.storeRelaxed(1);
     d->style = style;
     d->color = color;
 }
@@ -585,7 +585,7 @@ static Q_DECL_CONSTEXPR inline bool use_same_brushdata(Qt::BrushStyle lhs, Qt::B
 
 void QBrush::detach(Qt::BrushStyle newStyle)
 {
-    if (use_same_brushdata(newStyle, d->style) && d->ref.load() == 1) {
+    if (use_same_brushdata(newStyle, d->style) && d->ref.loadRelaxed() == 1) {
         d->style = newStyle;
         return;
     }
@@ -625,7 +625,7 @@ void QBrush::detach(Qt::BrushStyle newStyle)
         x.reset(new QBrushData);
         break;
     }
-    x->ref.store(1); // must be first lest the QBrushDataPointerDeleter turns into a no-op
+    x->ref.storeRelaxed(1); // must be first lest the QBrushDataPointerDeleter turns into a no-op
     x->style = newStyle;
     x->color = d->color;
     x->transform = d->transform;
@@ -1140,11 +1140,11 @@ QDataStream &operator>>(QDataStream &s, QBrush &b)
         if (s.version() >= QDataStream::Qt_5_5) {
             QImage img;
             s >> img;
-            b.setTextureImage(qMove(img));
+            b.setTextureImage(std::move(img));
         } else {
             QPixmap pm;
             s >> pm;
-            b.setTexture(qMove(pm));
+            b.setTexture(std::move(pm));
         }
     } else if (style == Qt::LinearGradientPattern
                || style == Qt::RadialGradientPattern
@@ -1385,20 +1385,27 @@ QGradient::QGradient(Preset preset)
         setCoordinateMode(ObjectMode);
         setSpread(PadSpread);
 
-        const QJsonValue start = presetData[QLatin1Literal("start")];
-        const QJsonValue end = presetData[QLatin1Literal("end")];
-        m_data.linear.x1 = start[QLatin1Literal("x")].toDouble();
-        m_data.linear.y1 = start[QLatin1Literal("y")].toDouble();
-        m_data.linear.x2 = end[QLatin1Literal("x")].toDouble();
-        m_data.linear.y2 = end[QLatin1Literal("y")].toDouble();
+        const QJsonValue start = presetData[QLatin1String("start")];
+        const QJsonValue end = presetData[QLatin1String("end")];
+        m_data.linear.x1 = start[QLatin1String("x")].toDouble();
+        m_data.linear.y1 = start[QLatin1String("y")].toDouble();
+        m_data.linear.x2 = end[QLatin1String("x")].toDouble();
+        m_data.linear.y2 = end[QLatin1String("y")].toDouble();
 
         for (const QJsonValue &stop : presetData[QLatin1String("stops")].toArray()) {
-            setColorAt(stop[QLatin1Literal("position")].toDouble(),
-                QColor(QRgb(stop[QLatin1Literal("color")].toInt())));
+            setColorAt(stop[QLatin1String("position")].toDouble(),
+                QColor(QRgb(stop[QLatin1String("color")].toInt())));
         }
 
         cachedPresets.insert(preset, *this);
     }
+}
+
+/*!
+    \internal
+*/
+QGradient::~QGradient()
+{
 }
 
 QT_END_NAMESPACE
@@ -1785,6 +1792,12 @@ QLinearGradient::QLinearGradient(qreal xStart, qreal yStart, qreal xFinalStop, q
 {
 }
 
+/*!
+    \internal
+*/
+QLinearGradient::~QLinearGradient()
+{
+}
 
 /*!
     Returns the start point of this linear gradient in logical coordinates.
@@ -2056,6 +2069,13 @@ QRadialGradient::QRadialGradient(qreal cx, qreal cy, qreal centerRadius, qreal f
 }
 
 /*!
+  \internal
+*/
+QRadialGradient::~QRadialGradient()
+{
+}
+
+/*!
     Returns the center of this radial gradient in logical coordinates.
 
     \sa QGradient::stops()
@@ -2298,6 +2318,13 @@ QConicalGradient::QConicalGradient(const QPointF &center, qreal angle)
 
 QConicalGradient::QConicalGradient(qreal cx, qreal cy, qreal angle)
     : QConicalGradient(QPointF(cx, cy), angle)
+{
+}
+
+/*!
+    \internal
+*/
+QConicalGradient::~QConicalGradient()
 {
 }
 

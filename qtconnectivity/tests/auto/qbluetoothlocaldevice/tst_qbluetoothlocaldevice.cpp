@@ -110,6 +110,9 @@ void tst_QBluetoothLocalDevice::tst_powerOn()
 #ifdef Q_OS_OSX
     QSKIP("Not possible on OS X");
 #endif
+#ifdef Q_OS_WIN
+    QSKIP("Not possible on Windows");
+#endif
 
     QBluetoothLocalDevice localDevice;
 
@@ -134,6 +137,9 @@ void tst_QBluetoothLocalDevice::tst_powerOff()
 {
 #ifdef Q_OS_OSX
     QSKIP("Not possible on OS X");
+#endif
+#ifdef Q_OS_WIN
+    QSKIP("Not possible on Windows");
 #endif
 
     if (!QBluetoothLocalDevice::allDevices().count())
@@ -182,6 +188,9 @@ void tst_QBluetoothLocalDevice::tst_hostModes()
 {
 #ifdef Q_OS_OSX
     QSKIP("Not possible on OS X");
+#endif
+#ifdef Q_OS_WIN
+    QSKIP("Not possible on Windows");
 #endif
 
     QFETCH(QBluetoothLocalDevice::HostMode, hostModeExpected);
@@ -340,6 +349,10 @@ void tst_QBluetoothLocalDevice::tst_pairDevice_data()
 
 void tst_QBluetoothLocalDevice::tst_pairDevice()
 {
+#ifdef Q_OS_WIN
+    QSKIP("Programmatic pairing not supported on Windows");
+#endif
+
     QFETCH(QBluetoothAddress, deviceAddress);
     QFETCH(QBluetoothLocalDevice::Pairing, pairingExpected);
     QFETCH(int, pairingWaitTime);

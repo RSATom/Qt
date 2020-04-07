@@ -11,6 +11,7 @@
 #include <sstream>
 #include <vector>
 
+#include "base/bind.h"
 #include "base/location.h"
 #include "base/logging.h"
 #include "base/single_thread_task_runner.h"
@@ -100,7 +101,7 @@ bool GLContextCGL::Initialize(GLSurface* compatible_surface,
   // If using the discrete gpu, create a pixel format requiring it before we
   // create the context.
   if (!GLContext::SwitchableGPUsSupported() ||
-      gpu_preference == PreferDiscreteGpu) {
+      gpu_preference == GpuPreference::kHighPerformance) {
     std::vector<CGLPixelFormatAttribute> discrete_attribs;
     discrete_attribs.push_back((CGLPixelFormatAttribute) 0);
     GLint num_pixel_formats;
@@ -126,11 +127,11 @@ bool GLContextCGL::Initialize(GLSurface* compatible_surface,
   }
 
   gpu_preference_ = gpu_preference;
-  // Contexts that prefer integrated gpu are known to use only the subset of GL
+  // Contexts that prefer low power gpu are known to use only the subset of GL
   // that can be safely migrated between the iGPU and the dGPU. Mark those
   // contexts as safe to forcibly transition between the GPUs by default.
   // http://crbug.com/180876, http://crbug.com/227228
-  safe_to_force_gpu_switch_ = gpu_preference == PreferIntegratedGpu;
+  safe_to_force_gpu_switch_ = gpu_preference == GpuPreference::kLowPower;
   return true;
 }
 
@@ -158,7 +159,8 @@ void GLContextCGL::Destroy() {
       // Delay releasing the pixel format for 10 seconds to reduce the number of
       // unnecessary GPU switches.
       base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
-          FROM_HERE, base::Bind(&CGLReleasePixelFormat, discrete_pixelformat_),
+          FROM_HERE,
+          base::BindOnce(&CGLReleasePixelFormat, discrete_pixelformat_),
           base::TimeDelta::FromSeconds(10));
     } else {
       CGLReleasePixelFormat(discrete_pixelformat_);

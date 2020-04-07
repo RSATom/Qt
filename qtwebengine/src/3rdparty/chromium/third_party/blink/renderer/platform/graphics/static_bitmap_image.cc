@@ -17,6 +17,7 @@
 #include "third_party/skia/include/core/SkPaint.h"
 #include "third_party/skia/include/core/SkSurface.h"
 #include "third_party/skia/include/gpu/GrContext.h"
+#include "v8/include/v8.h"
 
 namespace blink {
 
@@ -88,34 +89,14 @@ scoped_refptr<StaticBitmapImage> StaticBitmapImage::ConvertToColorSpace(
   // If we don't need to change the color type, use SkImage::makeColorSpace()
   if (skia_image->colorType() == color_type) {
     skia_image = skia_image->makeColorSpace(color_space);
-    return StaticBitmapImage::Create(skia_image, skia_image->isTextureBacked()
-                                                     ? ContextProviderWrapper()
-                                                     : nullptr);
-  }
-
-  // Otherwise we need to create a surface and redraw the image as it is a
-  // different size in memory
-  SkImageInfo info =
-      SkImageInfo::Make(skia_image->width(), skia_image->height(), color_type,
-                        skia_image->alphaType(), color_space);
-  sk_sp<SkSurface> surface = nullptr;
-  if (skia_image->isTextureBacked()) {
-    GrContext* gr = ContextProviderWrapper()->ContextProvider()->GetGrContext();
-    surface = SkSurface::MakeRenderTarget(gr, SkBudgeted::kNo, info);
   } else {
-    surface = SkSurface::MakeRaster(info);
+    skia_image =
+        skia_image->makeColorTypeAndColorSpace(color_type, color_space);
   }
-  SkPaint paint;
-  surface->getCanvas()->drawImage(skia_image, 0, 0, &paint);
-  sk_sp<SkImage> converted_skia_image = surface->makeImageSnapshot();
 
-  DCHECK(converted_skia_image.get());
-  DCHECK(skia_image.get() != converted_skia_image.get());
-
-  return StaticBitmapImage::Create(converted_skia_image,
-                                   converted_skia_image->isTextureBacked()
-                                       ? ContextProviderWrapper()
-                                       : nullptr);
+  return StaticBitmapImage::Create(skia_image, skia_image->isTextureBacked()
+                                                   ? ContextProviderWrapper()
+                                                   : nullptr);
 }
 
 bool StaticBitmapImage::ConvertToArrayBufferContents(
@@ -166,6 +147,8 @@ bool StaticBitmapImage::ConvertToArrayBufferContents(
       rect.Width(), rect.Height(), color_type, kUnpremul_SkAlphaType,
       color_params.GetSkColorSpaceForSkSurfaces());
   sk_sp<SkImage> sk_image = src_image->PaintImageForCurrentFrame().GetSkImage();
+  if (!sk_image)
+    return false;
   bool read_pixels_successful = sk_image->readPixels(
       info, result.Data(), info.minRowBytes(), rect.X(), rect.Y());
   DCHECK(read_pixels_successful ||

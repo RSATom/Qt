@@ -28,7 +28,6 @@
 #include "components/autofill/core/common/autofill_util.h"
 #include "components/autofill/core/common/password_form.h"
 #include "components/autofill/core/common/password_form_field_prediction_map.h"
-#include "components/password_manager/core/common/password_manager_features.h"
 #include "google_apis/gaia/gaia_urls.h"
 #include "net/base/url_util.h"
 #include "third_party/blink/public/platform/web_string.h"
@@ -47,6 +46,8 @@ using blink::WebLocalFrame;
 using blink::WebString;
 
 namespace autofill {
+
+using mojom::PasswordFormFieldPredictionType;
 
 namespace {
 
@@ -235,19 +236,17 @@ void FindPredictedElements(
   // Matching only requires that action and name of the form match to allow
   // the username to be updated even if the form is changed after page load.
   // See https://crbug.com/476092 for more details.
-  const PasswordFormFieldPredictionMap* field_predictions = nullptr;
-  for (const auto& form_predictions_pair : form_predictions) {
-    if (form_predictions_pair.first.action == form_data.action &&
-        form_predictions_pair.first.name == form_data.name) {
-      field_predictions = &form_predictions_pair.second;
-      break;
-    }
-  }
+  auto field_predictions = std::find_if(
+      form_predictions.begin(), form_predictions.end(),
+      [&form_data](const auto& form_predictions_pair) {
+        return form_predictions_pair.first.action == form_data.action &&
+               form_predictions_pair.first.name == form_data.name;
+      });
 
-  if (!field_predictions)
+  if (field_predictions == form_predictions.end())
     return;
 
-  for (const auto& prediction : *field_predictions) {
+  for (const auto& prediction : field_predictions->second) {
     const FormFieldData& target_field = prediction.first;
     const PasswordFormFieldPredictionType& type = prediction.second;
     for (const FormFieldData& field : form_data.fields) {
@@ -429,7 +428,7 @@ bool GetPasswordForm(
     case PasswordContents::kOnlyDisabled:
       // The current parser gives up, but returns a fallback form so that the
       // newer parser can try parsing as well.
-      password_form->scheme = PasswordForm::SCHEME_HTML;
+      password_form->scheme = PasswordForm::Scheme::kHtml;
       password_form->origin = form_origin;
       password_form->signon_realm = GetSignOnRealm(password_form->origin);
       return true;
@@ -438,11 +437,8 @@ bool GetPasswordForm(
   }
 
   // Evaluate the context of the fields.
-  if (base::FeatureList::IsEnabled(
-          password_manager::features::kHtmlBasedUsernameDetector)) {
-    password_form->form_data.username_predictions = GetUsernamePredictions(
-        control_elements, form_data, username_detector_cache);
-  }
+  password_form->form_data.username_predictions = GetUsernamePredictions(
+      control_elements, form_data, username_detector_cache);
 
   // Narrow the scope to enabled text inputs.
   std::vector<const FormFieldData*> enabled_fields;
@@ -553,7 +549,7 @@ bool GetPasswordForm(
                           &predicted_fields);
 
     for (const auto& predicted_pair : predicted_fields) {
-      if (predicted_pair.second == PREDICTION_USERNAME) {
+      if (predicted_pair.second == PasswordFormFieldPredictionType::kUsername) {
         predicted_username_field = predicted_pair.first;
         break;
       }
@@ -574,7 +570,8 @@ bool GetPasswordForm(
     }
     auto possible_password_field_iterator = predicted_fields.find(input);
     return possible_password_field_iterator != predicted_fields.end() &&
-           possible_password_field_iterator->second == PREDICTION_NOT_PASSWORD;
+           possible_password_field_iterator->second ==
+               PasswordFormFieldPredictionType::kNotPassword;
   });
 
   // Derive the list of all plausible passwords, usernames and the non-password
@@ -614,14 +611,11 @@ bool GetPasswordForm(
 
   // Evaluate the context of the fields.
   const FormFieldData* username_field_by_context = nullptr;
-  if (base::FeatureList::IsEnabled(
-          password_manager::features::kHtmlBasedUsernameDetector)) {
-    // Use HTML based username detector only if neither server predictions nor
-    // autocomplete attributes were useful to detect the username.
-    if (!predicted_username_field && !username_by_attribute) {
-      username_field_by_context = FindUsernameInPredictions(
-          form_data.username_predictions, plausible_usernames);
-    }
+  // Use HTML based username detector only if neither server predictions nor
+  // autocomplete attributes were useful to detect the username.
+  if (!predicted_username_field && !username_by_attribute) {
+    username_field_by_context = FindUsernameInPredictions(
+        form_data.username_predictions, plausible_usernames);
   }
 
   // Populate all_possible_passwords and form_has_autofilled_value in
@@ -775,23 +769,23 @@ bool GetPasswordForm(
     }
   }
 
-  // Populate |other_possible_usernames| in |password_form|.
-  ValueElementVector other_possible_usernames;
+  // Populate |all_possible_usernames| in |password_form|.
+  ValueElementVector all_possible_usernames;
   for (const FormFieldData* plausible_username : plausible_usernames) {
     if (plausible_username == username_field)
       continue;
     auto pair = MakePossibleUsernamePair(plausible_username);
     if (!pair.first.empty())
-      other_possible_usernames.push_back(std::move(pair));
+      all_possible_usernames.push_back(std::move(pair));
   }
-  password_form->other_possible_usernames = std::move(other_possible_usernames);
+  password_form->all_possible_usernames = std::move(all_possible_usernames);
 
   password_form->origin = std::move(form_origin);
   password_form->signon_realm = GetSignOnRealm(password_form->origin);
-  password_form->scheme = PasswordForm::SCHEME_HTML;
+  password_form->scheme = PasswordForm::Scheme::kHtml;
   password_form->preferred = false;
   password_form->blacklisted_by_user = false;
-  password_form->type = PasswordForm::TYPE_MANUAL;
+  password_form->type = PasswordForm::Type::kManual;
 
   return true;
 }
@@ -878,7 +872,7 @@ std::unique_ptr<PasswordForm> CreatePasswordFormFromWebForm(
   password_form->action = form_util::GetCanonicalActionForForm(web_form);
   if (!password_form->action.is_valid())
     return nullptr;
-  password_form->is_gaia_with_skip_save_password_form =
+  password_form->form_data.is_gaia_with_skip_save_password_form =
       IsGaiaWithSkipSavePasswordForm(web_form) ||
       IsGaiaReauthenticationForm(web_form);
 

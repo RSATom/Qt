@@ -33,7 +33,6 @@
 #include <limits>
 #include <memory>
 #include <utility>
-#include <vector>
 
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/blink/public/platform/web_data.h"
@@ -51,7 +50,7 @@ static const size_t kLargeEnoughSize = 1000 * 1000;
 
 namespace {
 
-std::unique_ptr<ImageDecoder> CreateJPEGDecoder(size_t max_decoded_bytes) {
+std::unique_ptr<JPEGImageDecoder> CreateJPEGDecoder(size_t max_decoded_bytes) {
   return std::make_unique<JPEGImageDecoder>(
       ImageDecoder::kAlphaNotPremultiplied, ColorBehavior::TransformToSRGB(),
       max_decoded_bytes);
@@ -89,8 +88,10 @@ void ReadYUV(size_t max_decoded_bytes,
   scoped_refptr<SharedBuffer> data = ReadFile(image_file_path);
   ASSERT_TRUE(data);
 
-  std::unique_ptr<ImageDecoder> decoder = CreateJPEGDecoder(max_decoded_bytes);
+  std::unique_ptr<JPEGImageDecoder> decoder =
+      CreateJPEGDecoder(max_decoded_bytes);
   decoder->SetData(data.get(), true);
+  decoder->SetDecodeToYuvForTesting(true);
 
   // Setting a dummy ImagePlanes object signals to the decoder that we want to
   // do YUV decoding.
@@ -134,7 +135,8 @@ void ReadYUV(size_t max_decoded_bytes,
       std::make_unique<ImagePlanes>(planes, row_bytes);
   decoder->SetImagePlanes(std::move(image_planes));
 
-  ASSERT_TRUE(decoder->DecodeToYUV());
+  decoder->DecodeToYUV();
+  ASSERT_TRUE(!decoder->Failed());
 }
 
 // Tests failure on a too big image.
@@ -262,8 +264,9 @@ TEST(JPEGImageDecoderTest, yuv) {
   scoped_refptr<SharedBuffer> data = ReadFile(jpeg_file);
   ASSERT_TRUE(data);
 
-  std::unique_ptr<ImageDecoder> decoder = CreateJPEGDecoder(230 * 230 * 4);
+  std::unique_ptr<JPEGImageDecoder> decoder = CreateJPEGDecoder(230 * 230 * 4);
   decoder->SetData(data.get(), true);
+  decoder->SetDecodeToYuvForTesting(true);
 
   std::unique_ptr<ImagePlanes> image_planes = std::make_unique<ImagePlanes>();
   decoder->SetImagePlanes(std::move(image_planes));
@@ -323,7 +326,7 @@ TEST(JPEGImageDecoderTest, SupportedSizesSquare) {
   decoder->SetData(data.get(), true);
   // This will decode the size and needs to be called to avoid DCHECKs
   ASSERT_TRUE(decoder->IsSizeAvailable());
-  std::vector<SkISize> expected_sizes = {
+  Vector<SkISize> expected_sizes = {
       SkISize::Make(32, 32),   SkISize::Make(64, 64),   SkISize::Make(96, 96),
       SkISize::Make(128, 128), SkISize::Make(160, 160), SkISize::Make(192, 192),
       SkISize::Make(224, 224), SkISize::Make(256, 256)};
@@ -351,7 +354,7 @@ TEST(JPEGImageDecoderTest, SupportedSizesRectangle) {
   decoder->SetData(data.get(), true);
   // This will decode the size and needs to be called to avoid DCHECKs
   ASSERT_TRUE(decoder->IsSizeAvailable());
-  std::vector<SkISize> expected_sizes = {
+  Vector<SkISize> expected_sizes = {
       SkISize::Make(34, 25),   SkISize::Make(68, 50),   SkISize::Make(102, 75),
       SkISize::Make(136, 100), SkISize::Make(170, 125), SkISize::Make(204, 150),
       SkISize::Make(238, 175), SkISize::Make(272, 200)};
@@ -383,7 +386,7 @@ TEST(JPEGImageDecoderTest,
   decoder->SetData(data.get(), true);
   // This will decode the size and needs to be called to avoid DCHECKs
   ASSERT_TRUE(decoder->IsSizeAvailable());
-  std::vector<SkISize> expected_sizes = {
+  Vector<SkISize> expected_sizes = {
       SkISize::Make(35, 26),   SkISize::Make(69, 52),   SkISize::Make(104, 78),
       SkISize::Make(138, 104), SkISize::Make(172, 130), SkISize::Make(207, 156),
       SkISize::Make(241, 182)};
@@ -440,7 +443,7 @@ TEST(JPEGImageDecoderTest, SupportedSizesTruncatedIfMemoryBound) {
   decoder->SetData(data.get(), true);
   // This will decode the size and needs to be called to avoid DCHECKs
   ASSERT_TRUE(decoder->IsSizeAvailable());
-  std::vector<SkISize> expected_sizes = {
+  Vector<SkISize> expected_sizes = {
       SkISize::Make(32, 32), SkISize::Make(64, 64), SkISize::Make(96, 96),
       SkISize::Make(128, 128)};
   auto sizes = decoder->GetSupportedDecodeSizes();
@@ -535,8 +538,8 @@ const ColorSpaceUMATest::ParamType kColorSpaceUMATestParams[] = {
     // any samples.
     {"cs-uma-two-channels-jfif-marker.jpg", false}};
 
-INSTANTIATE_TEST_CASE_P(JPEGImageDecoderTest,
-                        ColorSpaceUMATest,
-                        ::testing::ValuesIn(kColorSpaceUMATestParams));
+INSTANTIATE_TEST_SUITE_P(JPEGImageDecoderTest,
+                         ColorSpaceUMATest,
+                         ::testing::ValuesIn(kColorSpaceUMATestParams));
 
 }  // namespace blink

@@ -17,9 +17,11 @@
  * Boston, MA 02110-1301, USA.
  */
 
-// https://html.spec.whatwg.org/#the-blockquote-element
-// https://html.spec.whatwg.org/#the-q-element
-[HTMLConstructor]
-interface HTMLQuoteElement : HTMLElement {
+// https://html.spec.whatwg.org/C/#the-blockquote-element
+// https://html.spec.whatwg.org/C/#the-q-element
+[
+    Exposed=Window,
+    HTMLConstructor
+] interface HTMLQuoteElement : HTMLElement {
     [CEReactions, Reflect, URL] attribute DOMString cite;
 };

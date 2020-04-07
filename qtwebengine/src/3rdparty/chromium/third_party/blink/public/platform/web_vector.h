@@ -144,8 +144,6 @@ class WebVector {
     data_.resize(new_size);
   }
   bool empty() const { return data_.empty(); }
-  // TODO(slangley): Remove all uses of IsEmpty.
-  bool IsEmpty() const { return empty(); }
 
   size_t capacity() const { return data_.capacity(); }
   void reserve(size_t new_capacity) { data_.reserve(new_capacity); }
@@ -175,6 +173,16 @@ class WebVector {
 
   void Swap(WebVector<T>& other) { data_.swap(other.data_); }
   void Clear() { data_.clear(); }
+
+  T& front() { return data_.front(); }
+  const T& front() const { return data_.front(); }
+  T& back() { return data_.back(); }
+  const T& back() const { return data_.back(); }
+
+  void EraseAt(size_t index) { data_.erase(begin() + index); }
+  void Insert(size_t index, const T& value) {
+    data_.insert(begin() + index, value);
+  }
 
  private:
   std::vector<T> data_;

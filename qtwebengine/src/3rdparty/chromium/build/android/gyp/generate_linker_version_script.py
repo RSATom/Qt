@@ -37,18 +37,23 @@ def main():
       help='Export Java_* JNI methods')
   parser.add_argument(
       '--export-symbol-whitelist-file',
-      help='Path to input file containing whitelist of extra '
-      'symbols to export. One symbol per line.')
+      action='append',
+      default=[],
+      dest='whitelists',
+      help='Path to an input file containing a whitelist of extra symbols to '
+      'export, one symbol per line. Multiple files may be specified.')
   options = parser.parse_args()
 
   # JNI_OnLoad is always exported.
-  symbol_list = ['JNI_OnLoad']
+  # CrashpadHandlerMain() is the entry point to the Crashpad handler, required
+  # for libcrashpad_handler_trampoline.so.
+  symbol_list = ['CrashpadHandlerMain', 'JNI_OnLoad']
 
   if options.export_java_symbols:
     symbol_list.append('Java_*')
 
-  if options.export_symbol_whitelist_file:
-    with open(options.export_symbol_whitelist_file, 'rt') as f:
+  for whitelist in options.whitelists:
+    with open(whitelist, 'rt') as f:
       for line in f:
         line = line.strip()
         if not line or line[0] == '#':

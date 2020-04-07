@@ -4,9 +4,9 @@
 import multiprocessing
 import sys
 
+from tracing.mre import gtest_progress_reporter
 from tracing.mre import map_single_trace
 from tracing.mre import threaded_work_queue
-from tracing.mre import gtest_progress_reporter
 
 AUTO_JOB_COUNT = -1
 
@@ -41,7 +41,7 @@ class MapRunner(object):
     self._map_results_file = None
 
     if jobs == AUTO_JOB_COUNT:
-      jobs = multiprocessing.cpu_count()
+      jobs = min(len(self._trace_handles), multiprocessing.cpu_count())
     self._wq = threaded_work_queue.ThreadedWorkQueue(num_threads=jobs)
 
   def _ProcessOneTrace(self, trace_handle):
@@ -97,7 +97,7 @@ class MapRunner(object):
 
   def Run(self):
     results_by_trace = self.RunMapper()
-    results = results_by_trace.values()
+    results = list(results_by_trace.values())
 
     for of in self._output_formatters:
       of.Format(results)

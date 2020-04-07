@@ -28,12 +28,7 @@ constexpr base::TimeDelta kDefaultTimeout = base::TimeDelta::FromSeconds(5);
 // Maximum cache expiry time. Even if a CORS-preflight response contains
 // Access-Control-Max-Age header that specifies a longer expiry time, this
 // maximum time is applied.
-//
-// Note: Should be short enough to minimize the risk of using a poisoned cache
-// after switching to a secure network.
-// TODO(toyoshim): Consider to invalidate all entries when network configuration
-// is changed. See also discussion at https://crbug.com/131368.
-constexpr base::TimeDelta kMaxTimeout = base::TimeDelta::FromSeconds(600);
+constexpr base::TimeDelta kMaxTimeout = base::TimeDelta::FromHours(2);
 
 // Holds TickClock instance to overwrite TimeTicks::Now() for testing.
 const base::TickClock* tick_clock_for_testing = nullptr;
@@ -89,7 +84,7 @@ void PreflightResult::SetTickClockForTesting(
 
 // static
 std::unique_ptr<PreflightResult> PreflightResult::Create(
-    const mojom::FetchCredentialsMode credentials_mode,
+    const mojom::CredentialsMode credentials_mode,
     const base::Optional<std::string>& allow_methods_header,
     const base::Optional<std::string>& allow_headers_header,
     const base::Optional<std::string>& max_age_header,
@@ -106,9 +101,8 @@ std::unique_ptr<PreflightResult> PreflightResult::Create(
   return result;
 }
 
-PreflightResult::PreflightResult(
-    const mojom::FetchCredentialsMode credentials_mode)
-    : credentials_(credentials_mode == mojom::FetchCredentialsMode::kInclude) {}
+PreflightResult::PreflightResult(const mojom::CredentialsMode credentials_mode)
+    : credentials_(credentials_mode == mojom::CredentialsMode::kInclude) {}
 
 PreflightResult::~PreflightResult() = default;
 
@@ -153,16 +147,16 @@ PreflightResult::EnsureAllowedCrossOriginHeaders(
   return base::nullopt;
 }
 
+bool PreflightResult::IsExpired() const {
+  return absolute_expiry_time_ <= Now();
+}
+
 bool PreflightResult::EnsureAllowedRequest(
-    mojom::FetchCredentialsMode credentials_mode,
+    mojom::CredentialsMode credentials_mode,
     const std::string& method,
     const net::HttpRequestHeaders& headers,
     bool is_revalidating) const {
-  if (absolute_expiry_time_ <= Now())
-    return false;
-
-  if (!credentials_ &&
-      credentials_mode == mojom::FetchCredentialsMode::kInclude) {
+  if (!credentials_ && credentials_mode == mojom::CredentialsMode::kInclude) {
     return false;
   }
 

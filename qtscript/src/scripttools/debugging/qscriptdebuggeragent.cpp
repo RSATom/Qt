@@ -559,7 +559,7 @@ void QScriptDebuggerAgent::positionChange(qint64 scriptId,
     if (engine()->processEventsInterval() == -1) {
         // see if it's time to call processEvents()
         if ((++d->statementCounter % 25000) == 0) {
-            if (!d->processEventsTimer.isNull()) {
+            if (d->processEventsTimer.isValid()) {
                 if (d->processEventsTimer.elapsed() > 30) {
                     QCoreApplication::processEvents();
                     d->processEventsTimer.restart();

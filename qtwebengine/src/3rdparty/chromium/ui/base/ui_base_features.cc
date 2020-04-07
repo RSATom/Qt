@@ -4,8 +4,6 @@
 
 #include "ui/base/ui_base_features.h"
 
-#include "ui/base/ui_base_switches_util.h"
-
 #if defined(OS_WIN)
 #include "base/win/windows_version.h"
 #endif
@@ -17,21 +15,6 @@ namespace features {
 const base::Feature kCalculateNativeWinOcclusion{
     "CalculateNativeWinOcclusion", base::FEATURE_DISABLED_BY_DEFAULT};
 #endif  // OW_WIN
-
-// Enables the full screen handwriting virtual keyboard behavior.
-const base::Feature kEnableFullscreenHandwritingVirtualKeyboard = {
-    "enable-fullscreen-handwriting-virtual-keyboard",
-    base::FEATURE_DISABLED_BY_DEFAULT};
-
-const base::Feature kEnableStylusVirtualKeyboard = {
-    "enable-stylus-virtual-keyboard", base::FEATURE_ENABLED_BY_DEFAULT};
-
-const base::Feature kEnableVirtualKeyboardUkm = {
-    "EnableVirtualKeyboardUkm", base::FEATURE_ENABLED_BY_DEFAULT};
-
-// Enables all upcoming UI features.
-const base::Feature kExperimentalUi{"ExperimentalUi",
-                                    base::FEATURE_DISABLED_BY_DEFAULT};
 
 #if defined(OS_CHROMEOS)
 // Integrate input method specific settings to Chrome OS settings page.
@@ -45,7 +28,11 @@ const base::Feature kSettingsShowsPerKeyboardSettings = {
 const base::Feature kInputMethodSettingsUiUpdate = {
     "InputMethodSettingsUiUpdate", base::FEATURE_DISABLED_BY_DEFAULT};
 
-// Allows system keyboard event capture when |features::kKeyboardLockApi| is on.
+// Allows system caption style for WebVTT Captions.
+const base::Feature kSystemCaptionStyle{"SystemCaptionStyle",
+                                        base::FEATURE_DISABLED_BY_DEFAULT};
+
+// Allows system keyboard event capture via the keyboard lock API.
 const base::Feature kSystemKeyboardLock{"SystemKeyboardLock",
                                         base::FEATURE_ENABLED_BY_DEFAULT};
 
@@ -58,7 +45,7 @@ bool IsNotificationIndicatorEnabled() {
 
 // Enables GPU rasterization for all UI drawing (where not blacklisted).
 const base::Feature kUiGpuRasterization = {"UiGpuRasterization",
-#if defined(OS_MACOSX) || defined(OS_CHROMEOS)
+#if defined(OS_MACOSX) || defined(OS_CHROMEOS) || defined(OS_FUCHSIA)
                                            base::FEATURE_ENABLED_BY_DEFAULT
 #else
                                            base::FEATURE_DISABLED_BY_DEFAULT
@@ -80,6 +67,11 @@ const base::Feature kUiCompositorScrollWithLayers = {
 #endif
 };
 
+// Enables compositor threaded scrollbar scrolling by mapping pointer events to
+// gesture events.
+const base::Feature kCompositorThreadedScrollbarScrolling = {
+    "CompositorThreadedScrollbarScrolling", base::FEATURE_DISABLED_BY_DEFAULT};
+
 #if defined(OS_WIN)
 // Enables InputPane API for controlling on screen keyboard.
 const base::Feature kInputPaneOnScreenKeyboard = {
@@ -90,16 +82,21 @@ const base::Feature kPointerEventsForTouch = {"PointerEventsForTouch",
                                               base::FEATURE_ENABLED_BY_DEFAULT};
 // Enables using TSF (over IMM32) for IME.
 const base::Feature kTSFImeSupport = {"TSFImeSupport",
-                                      base::FEATURE_DISABLED_BY_DEFAULT};
+                                      base::FEATURE_ENABLED_BY_DEFAULT};
 
 bool IsUsingWMPointerForTouch() {
-  return base::win::GetVersion() >= base::win::VERSION_WIN8 &&
+  return base::win::GetVersion() >= base::win::Version::WIN8 &&
          base::FeatureList::IsEnabled(kPointerEventsForTouch);
 }
 
 // Enables DirectManipulation API for processing Precision Touchpad events.
 const base::Feature kPrecisionTouchpad{"PrecisionTouchpad",
                                        base::FEATURE_ENABLED_BY_DEFAULT};
+
+// Enables Logging for DirectManipulation.
+const base::Feature kPrecisionTouchpadLogging{
+    "PrecisionTouchpadLogging", base::FEATURE_DISABLED_BY_DEFAULT};
+
 // Enables Swipe left/right to navigation back/forward API for processing
 // Precision Touchpad events.
 const base::Feature kPrecisionTouchpadScrollPhase{
@@ -123,29 +120,11 @@ const base::Feature kDirectManipulationStylus = {
 };
 #endif  // defined(OS_WIN) || defined(OS_MACOSX) || defined(OS_LINUX)
 
-const base::Feature kMash = {"Mash", base::FEATURE_DISABLED_BY_DEFAULT};
+const base::Feature kFormControlsRefresh = {"FormControlsRefresh",
+                                            base::FEATURE_DISABLED_BY_DEFAULT};
 
-const base::Feature kMashOopViz = {"MashOopViz",
-                                   base::FEATURE_DISABLED_BY_DEFAULT};
-
-const base::Feature kSingleProcessMash = {"SingleProcessMash",
-                                          base::FEATURE_DISABLED_BY_DEFAULT};
-
-bool IsUsingWindowService() {
-  return IsSingleProcessMash() || IsMultiProcessMash();
-}
-
-bool IsMultiProcessMash() {
-  return base::FeatureList::IsEnabled(features::kMash);
-}
-
-bool IsMashOopVizEnabled() {
-  return base::FeatureList::IsEnabled(features::kMashOopViz);
-}
-
-bool IsSingleProcessMash() {
-  return base::FeatureList::IsEnabled(features::kSingleProcessMash) &&
-         !base::FeatureList::IsEnabled(features::kMash);
+bool IsFormControlsRefreshEnabled() {
+  return base::FeatureList::IsEnabled(features::kFormControlsRefresh);
 }
 
 bool IsAutomaticUiAdjustmentsForTouchEnabled() {
@@ -172,15 +151,8 @@ const base::Feature kEnableOzoneDrmMojo = {"OzoneDrmMojo",
                                            base::FEATURE_DISABLED_BY_DEFAULT};
 
 bool IsOzoneDrmMojo() {
-  return base::FeatureList::IsEnabled(kEnableOzoneDrmMojo) ||
-         IsMultiProcessMash();
+  return base::FeatureList::IsEnabled(kEnableOzoneDrmMojo);
 }
-
-#if defined(OS_MACOSX)
-const base::Feature kDarkMode = {"DarkMode", base::FEATURE_ENABLED_BY_DEFAULT};
-#else
-const base::Feature kDarkMode = {"DarkMode", base::FEATURE_DISABLED_BY_DEFAULT};
-#endif
 
 #if defined(OS_CHROMEOS)
 const base::Feature kHandwritingGesture = {"HandwritingGesture",

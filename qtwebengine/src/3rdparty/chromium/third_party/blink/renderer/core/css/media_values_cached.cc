@@ -4,7 +4,8 @@
 
 #include "third_party/blink/renderer/core/css/media_values_cached.h"
 
-#include "third_party/blink/public/platform/web_color_scheme.h"
+#include "third_party/blink/public/common/css/forced_colors.h"
+#include "third_party/blink/public/common/css/preferred_color_scheme.h"
 #include "third_party/blink/renderer/core/css/css_primitive_value.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
@@ -32,8 +33,9 @@ MediaValuesCached::MediaValuesCachedData::MediaValuesCachedData()
       display_mode(kWebDisplayModeBrowser),
       display_shape(kDisplayShapeRect),
       color_gamut(ColorSpaceGamut::kUnknown),
-      preferred_color_scheme(WebColorScheme::kNoPreference),
-      prefers_reduced_motion(false) {}
+      preferred_color_scheme(PreferredColorScheme::kNoPreference),
+      prefers_reduced_motion(false),
+      forced_colors(ForcedColors::kNone) {}
 
 MediaValuesCached::MediaValuesCachedData::MediaValuesCachedData(
     Document& document)
@@ -74,16 +76,8 @@ MediaValuesCached::MediaValuesCachedData::MediaValuesCachedData(
     color_gamut = MediaValues::CalculateColorGamut(frame);
     preferred_color_scheme = MediaValues::CalculatePreferredColorScheme(frame);
     prefers_reduced_motion = MediaValues::CalculatePrefersReducedMotion(frame);
+    forced_colors = MediaValues::CalculateForcedColors(frame);
   }
-}
-
-MediaValuesCached* MediaValuesCached::Create() {
-  return MakeGarbageCollected<MediaValuesCached>();
-}
-
-MediaValuesCached* MediaValuesCached::Create(
-    const MediaValuesCachedData& data) {
-  return MakeGarbageCollected<MediaValuesCached>(data);
 }
 
 MediaValuesCached::MediaValuesCached() = default;
@@ -197,12 +191,16 @@ ColorSpaceGamut MediaValuesCached::ColorGamut() const {
   return data_.color_gamut;
 }
 
-WebColorScheme MediaValuesCached::PreferredColorScheme() const {
+PreferredColorScheme MediaValuesCached::GetPreferredColorScheme() const {
   return data_.preferred_color_scheme;
 }
 
 bool MediaValuesCached::PrefersReducedMotion() const {
   return data_.prefers_reduced_motion;
+}
+
+ForcedColors MediaValuesCached::GetForcedColors() const {
+  return data_.forced_colors;
 }
 
 }  // namespace blink

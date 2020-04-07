@@ -33,12 +33,13 @@ function isMouseNearTopToolbar(e) {
 /**
  * @param {MouseEvent} e Event to test.
  * @param {Window} window Window to test against.
+ * @param {boolean} reverse Whether the side toolbar is reversed.
  * @return {boolean} True if the mouse is close to the bottom-right of the
  * screen.
  */
-function isMouseNearSideToolbar(e, window) {
+function isMouseNearSideToolbar(e, window, reverse) {
   let atSide = e.x > window.innerWidth - SIDE_TOOLBAR_REVEAL_DISTANCE_RIGHT;
-  if (isRTL()) {
+  if (isRTL() !== reverse) {
     atSide = e.x < SIDE_TOOLBAR_REVEAL_DISTANCE_RIGHT;
   }
   const atBottom =
@@ -71,15 +72,24 @@ function ToolbarManager(window, toolbar, zoomToolbar) {
 
   this.lastMovementTimestamp = null;
 
+  this.reverseSideToolbar_ = false;
+
   this.window_.addEventListener('resize', this.resizeDropdowns_.bind(this));
   this.resizeDropdowns_();
+
+  if (zoomToolbar.isPrintPreview()) {
+    this.zoomToolbar_.addEventListener('keyboard-navigation-active', e => {
+      this.keyboardNavigationActive = e.detail;
+    });
+  }
 }
 
 ToolbarManager.prototype = {
 
   handleMouseMove: function(e) {
     this.isMouseNearTopToolbar_ = this.toolbar_ && isMouseNearTopToolbar(e);
-    this.isMouseNearSideToolbar_ = isMouseNearSideToolbar(e, this.window_);
+    this.isMouseNearSideToolbar_ =
+        isMouseNearSideToolbar(e, this.window_, this.reverseSideToolbar_);
 
     this.keyboardNavigationActive = false;
     const touchInteractionActive =
@@ -236,6 +246,14 @@ ToolbarManager.prototype = {
   },
 
   /**
+   * Clears the keyboard navigation state and hides the toolbars after a delay.
+   */
+  resetKeyboardNavigationAndHideToolbars: function() {
+    this.keyboardNavigationActive = false;
+    this.hideToolbarsAfterTimeout();
+  },
+
+  /**
    * Hide the top toolbar and keep it hidden until both:
    * - The mouse is moved away from the right side of the screen
    * - 1 second has passed.
@@ -252,6 +270,11 @@ ToolbarManager.prototype = {
     this.sideToolbarAllowedOnlyTimer_ = this.window_.setTimeout(() => {
       this.sideToolbarAllowedOnlyTimer_ = null;
     }, FORCE_HIDE_TIMEOUT);
+  },
+
+  /** Reverse the position of the side toolbar. */
+  reverseSideToolbar: function() {
+    this.reverseSideToolbar_ = true;
   },
 
   /**

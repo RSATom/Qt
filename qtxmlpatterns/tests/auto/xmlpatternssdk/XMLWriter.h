@@ -95,7 +95,7 @@ namespace QPatternistSDK
      * @author Frans Englich <frans.englich@nokia.com>
      * @ingroup PatternistSDK
      */
-    class Q_PATTERNISTSDK_EXPORT XMLWriter : public QXmlContentHandler
+    class XMLWriter : public QXmlContentHandler
                                            , public QXmlLexicalHandler
     {
     public:

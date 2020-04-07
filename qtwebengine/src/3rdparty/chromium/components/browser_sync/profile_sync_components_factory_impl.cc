@@ -6,12 +6,12 @@
 
 #include <utility>
 
+#include "base/bind.h"
 #include "base/feature_list.h"
 #include "base/memory/ref_counted.h"
-#include "base/single_thread_task_runner.h"
 #include "build/build_config.h"
-#include "components/autofill/core/browser/autofill_wallet_data_type_controller.h"
-#include "components/autofill/core/browser/autofill_wallet_model_type_controller.h"
+#include "components/autofill/core/browser/payments/autofill_wallet_data_type_controller.h"
+#include "components/autofill/core/browser/payments/autofill_wallet_model_type_controller.h"
 #include "components/autofill/core/browser/webdata/autocomplete_sync_bridge.h"
 #include "components/autofill/core/browser/webdata/autofill_profile_data_type_controller.h"
 #include "components/autofill/core/browser/webdata/autofill_profile_model_type_controller.h"
@@ -19,24 +19,20 @@
 #include "components/autofill/core/browser/webdata/autofill_wallet_metadata_sync_bridge.h"
 #include "components/autofill/core/browser/webdata/autofill_wallet_sync_bridge.h"
 #include "components/autofill/core/browser/webdata/autofill_webdata_service.h"
-#include "components/browser_sync/browser_sync_switches.h"
-#include "components/browser_sync/profile_sync_service.h"
-#include "components/history/core/browser/sync/history_delete_directives_data_type_controller.h"
+#include "components/browser_sync/browser_sync_client.h"
 #include "components/history/core/browser/sync/history_delete_directives_model_type_controller.h"
 #include "components/history/core/browser/sync/typed_url_model_type_controller.h"
 #include "components/password_manager/core/browser/password_store.h"
 #include "components/password_manager/core/browser/sync/password_data_type_controller.h"
 #include "components/password_manager/core/browser/sync/password_model_type_controller.h"
-#include "components/password_manager/core/browser/sync/password_syncable_service_based_model_type_controller.h"
 #include "components/prefs/pref_service.h"
 #include "components/reading_list/features/reading_list_switches.h"
+#include "components/send_tab_to_self/send_tab_to_self_model_type_controller.h"
+#include "components/send_tab_to_self/send_tab_to_self_sync_service.h"
 #include "components/sync/base/report_unrecoverable_error.h"
-#include "components/sync/device_info/device_info_sync_service.h"
-#include "components/sync/driver/async_directory_type_controller.h"
 #include "components/sync/driver/data_type_manager_impl.h"
-#include "components/sync/driver/glue/sync_backend_host_impl.h"
+#include "components/sync/driver/glue/sync_engine_impl.h"
 #include "components/sync/driver/model_type_controller.h"
-#include "components/sync/driver/sync_client.h"
 #include "components/sync/driver/sync_driver_switches.h"
 #include "components/sync/driver/syncable_service_based_model_type_controller.h"
 #include "components/sync/engine/sync_engine.h"
@@ -47,16 +43,17 @@
 #include "components/sync_bookmarks/bookmark_data_type_controller.h"
 #include "components/sync_bookmarks/bookmark_model_associator.h"
 #include "components/sync_bookmarks/bookmark_sync_service.h"
+#include "components/sync_device_info/device_info_sync_service.h"
 #include "components/sync_sessions/proxy_tabs_data_type_controller.h"
 #include "components/sync_sessions/session_model_type_controller.h"
 #include "components/sync_sessions/session_sync_service.h"
+#include "components/sync_user_events/user_event_model_type_controller.h"
 
 using base::FeatureList;
 using bookmarks::BookmarkModel;
 using sync_bookmarks::BookmarkChangeProcessor;
 using sync_bookmarks::BookmarkDataTypeController;
 using sync_bookmarks::BookmarkModelAssociator;
-using syncer::AsyncDirectoryTypeController;
 using syncer::DataTypeController;
 using syncer::DataTypeManager;
 using syncer::DataTypeManagerImpl;
@@ -106,11 +103,11 @@ AutofillWalletMetadataDelegateFromDataService(
 }  // namespace
 
 ProfileSyncComponentsFactoryImpl::ProfileSyncComponentsFactoryImpl(
-    syncer::SyncClient* sync_client,
+    browser_sync::BrowserSyncClient* sync_client,
     version_info::Channel channel,
     const char* history_disabled_pref,
-    const scoped_refptr<base::SingleThreadTaskRunner>& ui_thread,
-    const scoped_refptr<base::SingleThreadTaskRunner>& db_thread,
+    const scoped_refptr<base::SequencedTaskRunner>& ui_thread,
+    const scoped_refptr<base::SequencedTaskRunner>& db_thread,
     const scoped_refptr<autofill::AutofillWebDataService>&
         web_data_service_on_disk,
     const scoped_refptr<autofill::AutofillWebDataService>&
@@ -125,7 +122,9 @@ ProfileSyncComponentsFactoryImpl::ProfileSyncComponentsFactoryImpl(
       web_data_service_on_disk_(web_data_service_on_disk),
       web_data_service_in_memory_(web_data_service_in_memory),
       password_store_(password_store),
-      bookmark_sync_service_(bookmark_sync_service) {}
+      bookmark_sync_service_(bookmark_sync_service) {
+  DCHECK(sync_client_);
+}
 
 ProfileSyncComponentsFactoryImpl::~ProfileSyncComponentsFactoryImpl() {}
 
@@ -134,6 +133,7 @@ ProfileSyncComponentsFactoryImpl::CreateCommonDataTypeControllers(
     syncer::ModelTypeSet disabled_types,
     syncer::SyncService* sync_service) {
   syncer::DataTypeController::TypeVector controllers;
+
   const base::RepeatingClosure dump_stack =
       base::BindRepeating(&syncer::ReportUnrecoverableError, channel_);
 
@@ -166,44 +166,28 @@ ProfileSyncComponentsFactoryImpl::CreateCommonDataTypeControllers(
     // Autofill sync is enabled by default.  Register unless explicitly
     // disabled.
     if (!disabled_types.Has(syncer::AUTOFILL_PROFILE)) {
-      if (FeatureList::IsEnabled(switches::kSyncUSSAutofillProfile)) {
-        controllers.push_back(
-            std::make_unique<AutofillProfileModelTypeController>(
-                std::make_unique<syncer::ProxyModelTypeControllerDelegate>(
-                    db_thread_,
-                    base::BindRepeating(
-                        &AutofillProfileDelegateFromDataService,
-                        base::RetainedRef(web_data_service_on_disk_))),
-                sync_client_->GetPrefService(), sync_service));
-      } else {
-        controllers.push_back(
-            std::make_unique<AutofillProfileDataTypeController>(
-                db_thread_, dump_stack, sync_service, sync_client_,
-                web_data_service_on_disk_));
-      }
+      controllers.push_back(
+          std::make_unique<AutofillProfileModelTypeController>(
+              std::make_unique<syncer::ProxyModelTypeControllerDelegate>(
+                  db_thread_,
+                  base::BindRepeating(
+                      &AutofillProfileDelegateFromDataService,
+                      base::RetainedRef(web_data_service_on_disk_))),
+              sync_client_->GetPrefService(), sync_service));
     }
 
-    // Wallet data sync is enabled by default, but behind a syncer experiment
-    // enforced by the datatype controller. Register unless explicitly disabled.
-    bool wallet_disabled = disabled_types.Has(syncer::AUTOFILL_WALLET_DATA);
-    if (!wallet_disabled) {
-      if (base::FeatureList::IsEnabled(switches::kSyncUSSAutofillWalletData)) {
-        controllers.push_back(
-            CreateWalletModelTypeControllerWithInMemorySupport(
-                syncer::AUTOFILL_WALLET_DATA,
-                base::BindRepeating(&AutofillWalletDelegateFromDataService),
-                sync_service));
-      } else {
-        controllers.push_back(
-            std::make_unique<AutofillWalletDataTypeController>(
-                syncer::AUTOFILL_WALLET_DATA, db_thread_, dump_stack,
-                sync_service, sync_client_, web_data_service_on_disk_));
-      }
+    // Wallet data sync is enabled by default. Register unless explicitly
+    // disabled.
+    if (!disabled_types.Has(syncer::AUTOFILL_WALLET_DATA)) {
+      controllers.push_back(CreateWalletModelTypeControllerWithInMemorySupport(
+          syncer::AUTOFILL_WALLET_DATA,
+          base::BindRepeating(&AutofillWalletDelegateFromDataService),
+          sync_service));
     }
 
-    // Wallet metadata sync depends on Wallet data sync. Register if Wallet data
-    // is syncing and metadata sync is not explicitly disabled.
-    if (!wallet_disabled &&
+    // Wallet metadata sync depends on Wallet data sync. Register if neither
+    // Wallet data nor Wallet metadata sync is explicitly disabled.
+    if (!disabled_types.Has(syncer::AUTOFILL_WALLET_DATA) &&
         !disabled_types.Has(syncer::AUTOFILL_WALLET_METADATA)) {
       if (base::FeatureList::IsEnabled(
               switches::kSyncUSSAutofillWalletMetadata)) {
@@ -215,7 +199,10 @@ ProfileSyncComponentsFactoryImpl::CreateCommonDataTypeControllers(
         controllers.push_back(
             std::make_unique<AutofillWalletDataTypeController>(
                 syncer::AUTOFILL_WALLET_METADATA, db_thread_, dump_stack,
-                sync_service, sync_client_, web_data_service_on_disk_));
+                sync_service, sync_client_,
+                base::BindRepeating(&BrowserSyncClient::GetPersonalDataManager,
+                                    base::Unretained(sync_client_)),
+                web_data_service_on_disk_));
       }
     }
   }
@@ -234,7 +221,8 @@ ProfileSyncComponentsFactoryImpl::CreateCommonDataTypeControllers(
                                   sync_client_->GetFaviconService()))));
     } else {
       controllers.push_back(std::make_unique<BookmarkDataTypeController>(
-          dump_stack, sync_service, sync_client_));
+          dump_stack, sync_service, sync_client_->GetBookmarkModel(),
+          sync_client_->GetHistoryService(), this));
     }
   }
 
@@ -253,17 +241,10 @@ ProfileSyncComponentsFactoryImpl::CreateCommonDataTypeControllers(
 
     // Delete directive sync is enabled by default.
     if (!disabled_types.Has(syncer::HISTORY_DELETE_DIRECTIVES)) {
-      if (base::FeatureList::IsEnabled(
-              switches::kSyncPseudoUSSHistoryDeleteDirectives)) {
-        controllers.push_back(
-            std::make_unique<HistoryDeleteDirectivesModelTypeController>(
-                dump_stack, sync_service, sync_client_));
-
-      } else {
-        controllers.push_back(
-            std::make_unique<HistoryDeleteDirectivesDataTypeController>(
-                dump_stack, sync_service, sync_client_));
-      }
+      controllers.push_back(
+          std::make_unique<HistoryDeleteDirectivesModelTypeController>(
+              dump_stack, sync_service,
+              sync_client_->GetModelTypeStoreService(), sync_client_));
     }
 
     // Session sync is enabled by default.  This is disabled if history is
@@ -277,7 +258,7 @@ ProfileSyncComponentsFactoryImpl::CreateCommonDataTypeControllers(
                   base::Unretained(sync_client_->GetSessionSyncService()))));
       controllers.push_back(
           std::make_unique<sync_sessions::SessionModelTypeController>(
-              sync_client_->GetPrefService(),
+              sync_service, sync_client_->GetPrefService(),
               std::make_unique<syncer::ForwardingModelTypeControllerDelegate>(
                   sync_client_->GetSessionSyncService()
                       ->GetControllerDelegate()
@@ -288,31 +269,18 @@ ProfileSyncComponentsFactoryImpl::CreateCommonDataTypeControllers(
     // Favicon sync is enabled by default. Register unless explicitly disabled.
     if (!disabled_types.Has(syncer::FAVICON_IMAGES) &&
         !disabled_types.Has(syncer::FAVICON_TRACKING)) {
-      if (base::FeatureList::IsEnabled(switches::kSyncPseudoUSSFavicons)) {
-        controllers.push_back(
-            std::make_unique<SyncableServiceBasedModelTypeController>(
-                syncer::FAVICON_IMAGES,
-                sync_client_->GetModelTypeStoreService()->GetStoreFactory(),
-                base::BindOnce(&syncer::SyncClient::GetSyncableServiceForType,
-                               base::Unretained(sync_client_),
-                               syncer::FAVICON_IMAGES),
-                dump_stack));
-        controllers.push_back(
-            std::make_unique<SyncableServiceBasedModelTypeController>(
-                syncer::FAVICON_TRACKING,
-                sync_client_->GetModelTypeStoreService()->GetStoreFactory(),
-                base::BindOnce(&syncer::SyncClient::GetSyncableServiceForType,
-                               base::Unretained(sync_client_),
-                               syncer::FAVICON_TRACKING),
-                dump_stack));
-      } else {
-        controllers.push_back(std::make_unique<AsyncDirectoryTypeController>(
-            syncer::FAVICON_IMAGES, base::RepeatingClosure(), sync_service,
-            sync_client_, syncer::GROUP_UI, ui_thread_));
-        controllers.push_back(std::make_unique<AsyncDirectoryTypeController>(
-            syncer::FAVICON_TRACKING, base::RepeatingClosure(), sync_service,
-            sync_client_, syncer::GROUP_UI, ui_thread_));
-      }
+      controllers.push_back(
+          std::make_unique<SyncableServiceBasedModelTypeController>(
+              syncer::FAVICON_IMAGES,
+              sync_client_->GetModelTypeStoreService()->GetStoreFactory(),
+              sync_client_->GetSyncableServiceForType(syncer::FAVICON_IMAGES),
+              dump_stack));
+      controllers.push_back(
+          std::make_unique<SyncableServiceBasedModelTypeController>(
+              syncer::FAVICON_TRACKING,
+              sync_client_->GetModelTypeStoreService()->GetStoreFactory(),
+              sync_client_->GetSyncableServiceForType(syncer::FAVICON_TRACKING),
+              dump_stack));
     }
   }
 
@@ -320,17 +288,13 @@ ProfileSyncComponentsFactoryImpl::CreateCommonDataTypeControllers(
   // disabled.
   if (!disabled_types.Has(syncer::PASSWORDS)) {
     if (base::FeatureList::IsEnabled(switches::kSyncUSSPasswords)) {
-      controllers.push_back(
-          std::make_unique<password_manager::PasswordModelTypeController>(
-              password_store_->CreateSyncControllerDelegate(), sync_service,
-              sync_client_));
-    } else if (base::FeatureList::IsEnabled(
-                   switches::kSyncPseudoUSSPasswords)) {
-      controllers.push_back(
-          std::make_unique<password_manager::
-                               PasswordSyncableServiceBasedModelTypeController>(
-              sync_client_->GetModelTypeStoreService()->GetStoreFactory(),
-              dump_stack, password_store_, sync_service, sync_client_));
+      if (password_store_) {
+        // |password_store_| can be null in tests.
+        controllers.push_back(
+            std::make_unique<password_manager::PasswordModelTypeController>(
+                password_store_->CreateSyncControllerDelegate(), sync_service,
+                sync_client_->GetPasswordStateChangedCallback()));
+      }
     } else {
       controllers.push_back(std::make_unique<PasswordDataTypeController>(
           dump_stack, sync_service, sync_client_,
@@ -339,48 +303,38 @@ ProfileSyncComponentsFactoryImpl::CreateCommonDataTypeControllers(
   }
 
   if (!disabled_types.Has(syncer::PREFERENCES)) {
-    if (override_prefs_controller_to_uss_for_test_) {
-      controllers.push_back(CreateModelTypeControllerForModelRunningOnUIThread(
-          syncer::PREFERENCES));
-    } else if (base::FeatureList::IsEnabled(
-                   switches::kSyncPseudoUSSPreferences)) {
-      controllers.push_back(
-          std::make_unique<SyncableServiceBasedModelTypeController>(
-              syncer::PREFERENCES,
-              sync_client_->GetModelTypeStoreService()->GetStoreFactory(),
-              base::BindOnce(&syncer::SyncClient::GetSyncableServiceForType,
-                             base::Unretained(sync_client_),
-                             syncer::PREFERENCES),
-              dump_stack));
-    } else {
-      controllers.push_back(std::make_unique<AsyncDirectoryTypeController>(
-          syncer::PREFERENCES, dump_stack, sync_service, sync_client_,
-          syncer::GROUP_UI, ui_thread_));
-    }
+    controllers.push_back(
+        std::make_unique<SyncableServiceBasedModelTypeController>(
+            syncer::PREFERENCES,
+            sync_client_->GetModelTypeStoreService()->GetStoreFactory(),
+            sync_client_->GetSyncableServiceForType(syncer::PREFERENCES),
+            dump_stack));
   }
 
   if (!disabled_types.Has(syncer::PRIORITY_PREFERENCES)) {
-    if (base::FeatureList::IsEnabled(
-            switches::kSyncPseudoUSSPriorityPreferences)) {
-      controllers.push_back(
-          std::make_unique<SyncableServiceBasedModelTypeController>(
-              syncer::PRIORITY_PREFERENCES,
-              sync_client_->GetModelTypeStoreService()->GetStoreFactory(),
-              base::BindOnce(&syncer::SyncClient::GetSyncableServiceForType,
-                             base::Unretained(sync_client_),
-                             syncer::PRIORITY_PREFERENCES),
-              dump_stack));
-    } else {
-      controllers.push_back(std::make_unique<AsyncDirectoryTypeController>(
-          syncer::PRIORITY_PREFERENCES, dump_stack, sync_service, sync_client_,
-          syncer::GROUP_UI, ui_thread_));
-    }
+    controllers.push_back(
+        std::make_unique<SyncableServiceBasedModelTypeController>(
+            syncer::PRIORITY_PREFERENCES,
+            sync_client_->GetModelTypeStoreService()->GetStoreFactory(),
+            sync_client_->GetSyncableServiceForType(
+                syncer::PRIORITY_PREFERENCES),
+            dump_stack));
   }
 
 #if defined(OS_CHROMEOS)
   if (!disabled_types.Has(syncer::PRINTERS)) {
-    controllers.push_back(
-        CreateModelTypeControllerForModelRunningOnUIThread(syncer::PRINTERS));
+    // TODO(crbug.com/867801) This still uses a proxy delegate even though the
+    // model lives on the UI thread. Switching to forwarding delegate causes
+    // cryptic test failures on chromeos. Fix that and switch to the forwarding
+    // delegate.
+    controllers.push_back(std::make_unique<ModelTypeController>(
+        syncer::PRINTERS,
+        std::make_unique<syncer::ProxyModelTypeControllerDelegate>(
+            ui_thread_,
+            base::BindRepeating(&browser_sync::BrowserSyncClient::
+                                    GetControllerDelegateForModelType,
+                                base::Unretained(sync_client_),
+                                syncer::PRINTERS))));
   }
 #endif
 
@@ -392,31 +346,33 @@ ProfileSyncComponentsFactoryImpl::CreateCommonDataTypeControllers(
         syncer::READING_LIST));
   }
 
-  if (!disabled_types.Has(syncer::USER_EVENTS) &&
-      FeatureList::IsEnabled(switches::kSyncUserEvents)) {
-    controllers.push_back(CreateModelTypeControllerForModelRunningOnUIThread(
-        syncer::USER_EVENTS));
+  if (!disabled_types.Has(syncer::USER_EVENTS)) {
+    controllers.push_back(
+        std::make_unique<syncer::UserEventModelTypeController>(
+            sync_service,
+            CreateForwardingControllerDelegate(syncer::USER_EVENTS)));
+  }
+
+  if (!disabled_types.Has(syncer::SEND_TAB_TO_SELF) &&
+      base::FeatureList::IsEnabled(switches::kSyncSendTabToSelf)) {
+    controllers.push_back(
+        std::make_unique<send_tab_to_self::SendTabToSelfModelTypeController>(
+            sync_service,
+            std::make_unique<syncer::ForwardingModelTypeControllerDelegate>(
+                sync_client_->GetSendTabToSelfSyncService()
+                    ->GetControllerDelegate()
+                    .get())));
   }
 
   // Forward both on-disk and in-memory storage modes to the same delegate,
   // since behavior for USER_CONSENTS does not differ (they are always
   // persisted).
-  // TODO(crbug.com/867801): Replace the proxy delegates below with a simpler
-  // forwarding delegate that involves no posting of tasks.
   controllers.push_back(std::make_unique<ModelTypeController>(
       syncer::USER_CONSENTS,
       /*delegate_on_disk=*/
-      std::make_unique<syncer::ProxyModelTypeControllerDelegate>(
-          ui_thread_,
-          base::BindRepeating(
-              &syncer::SyncClient::GetControllerDelegateForModelType,
-              base::Unretained(sync_client_), syncer::USER_CONSENTS)),
+      CreateForwardingControllerDelegate(syncer::USER_CONSENTS),
       /*delegate_in_memory=*/
-      std::make_unique<syncer::ProxyModelTypeControllerDelegate>(
-          ui_thread_,
-          base::BindRepeating(
-              &syncer::SyncClient::GetControllerDelegateForModelType,
-              base::Unretained(sync_client_), syncer::USER_CONSENTS))));
+      CreateForwardingControllerDelegate(syncer::USER_CONSENTS)));
 
   return controllers;
 }
@@ -431,18 +387,18 @@ ProfileSyncComponentsFactoryImpl::CreateDataTypeManager(
     syncer::ModelTypeConfigurer* configurer,
     DataTypeManagerObserver* observer) {
   return std::make_unique<DataTypeManagerImpl>(
-      sync_client_, initial_types, debug_info_listener, controllers,
-      encryption_handler, configurer, observer);
+      initial_types, debug_info_listener, controllers, encryption_handler,
+      configurer, observer);
 }
 
 std::unique_ptr<syncer::SyncEngine>
 ProfileSyncComponentsFactoryImpl::CreateSyncEngine(
     const std::string& name,
     invalidation::InvalidationService* invalidator,
-    const base::WeakPtr<syncer::SyncPrefs>& sync_prefs,
-    const base::FilePath& sync_data_folder) {
-  return std::make_unique<syncer::SyncBackendHostImpl>(
-      name, sync_client_, invalidator, sync_prefs, sync_data_folder);
+    const base::WeakPtr<syncer::SyncPrefs>& sync_prefs) {
+  return std::make_unique<syncer::SyncEngineImpl>(
+      name, invalidator, sync_prefs,
+      sync_client_->GetModelTypeStoreService()->GetSyncDataPath());
 }
 
 syncer::SyncApiComponentFactory::SyncComponents
@@ -458,34 +414,28 @@ ProfileSyncComponentsFactoryImpl::CreateBookmarkSyncComponents(
 #endif
 
   auto model_associator = std::make_unique<BookmarkModelAssociator>(
-      bookmark_model, sync_client_, user_share, error_handler->Copy(),
+      bookmark_model, sync_client_->GetBookmarkUndoService(),
+      sync_client_->GetFaviconService(), user_share, error_handler->Copy(),
       kExpectMobileBookmarksFolder);
 
   SyncComponents components;
   components.change_processor = std::make_unique<BookmarkChangeProcessor>(
-      sync_client_, model_associator.get(), std::move(error_handler));
+      model_associator.get(), std::move(error_handler));
   components.model_associator = std::move(model_associator);
   return components;
 }
 
-// static
-void ProfileSyncComponentsFactoryImpl::OverridePrefsForUssTest(bool use_uss) {
-  override_prefs_controller_to_uss_for_test_ = use_uss;
+std::unique_ptr<syncer::ModelTypeControllerDelegate>
+ProfileSyncComponentsFactoryImpl::CreateForwardingControllerDelegate(
+    syncer::ModelType type) {
+  return std::make_unique<syncer::ForwardingModelTypeControllerDelegate>(
+      sync_client_->GetControllerDelegateForModelType(type).get());
 }
-
-bool ProfileSyncComponentsFactoryImpl::
-    override_prefs_controller_to_uss_for_test_ = false;
 
 std::unique_ptr<ModelTypeController> ProfileSyncComponentsFactoryImpl::
     CreateModelTypeControllerForModelRunningOnUIThread(syncer::ModelType type) {
-  // TODO(crbug.com/867801): Replace the proxy delegate below with a simpler
-  // forwarding delegate that involves no posting of tasks.
   return std::make_unique<ModelTypeController>(
-      type, std::make_unique<syncer::ProxyModelTypeControllerDelegate>(
-                ui_thread_,
-                base::BindRepeating(
-                    &syncer::SyncClient::GetControllerDelegateForModelType,
-                    base::Unretained(sync_client_), type)));
+      type, CreateForwardingControllerDelegate(type));
 }
 
 std::unique_ptr<ModelTypeController>

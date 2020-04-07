@@ -64,6 +64,8 @@ private slots:
     void tst_cached();
 
     void tst_flags();
+
+    void tst_manufacturerData();
 };
 
 tst_QBluetoothDeviceInfo::tst_QBluetoothDeviceInfo()
@@ -447,21 +449,15 @@ void tst_QBluetoothDeviceInfo::tst_serviceUuids()
     QBluetoothDeviceInfo deviceInfo;
     QBluetoothDeviceInfo copyInfo = deviceInfo;
 
-    QList<QBluetoothUuid> servicesList;
+    QVector<QBluetoothUuid> servicesList;
     servicesList.append(QBluetoothUuid::L2cap);
     servicesList.append(QBluetoothUuid::Rfcomm);
     QVERIFY(servicesList.count() > 0);
 
-    deviceInfo.setServiceUuids(servicesList.toVector());
+    deviceInfo.setServiceUuids(servicesList);
     QVERIFY(deviceInfo.serviceUuids().count() > 0);
     deviceInfo.setServiceUuids(QVector<QBluetoothUuid>());
     QCOMPARE(deviceInfo.serviceUuids().count(), 0);
-
-    deviceInfo.setServiceUuids(servicesList, QBluetoothDeviceInfo::DataComplete);
-    QVERIFY(deviceInfo.serviceUuids().count() > 0);
-    QVERIFY(deviceInfo != copyInfo);
-
-    QVERIFY(deviceInfo.serviceUuidsCompleteness() == QBluetoothDeviceInfo::DataComplete);
 }
 
 void tst_QBluetoothDeviceInfo::tst_cached()
@@ -518,6 +514,38 @@ void tst_QBluetoothDeviceInfo::tst_flags()
     serviceResult = QBluetoothDeviceInfo::CapturingService | serviceFlag1;
     QVERIFY(serviceResult.testFlag(QBluetoothDeviceInfo::AudioService));
     QVERIFY(serviceResult.testFlag(QBluetoothDeviceInfo::CapturingService));
+}
+
+void tst_QBluetoothDeviceInfo::tst_manufacturerData()
+{
+    const int manufacturerAVM = 0x1F;
+
+    QBluetoothDeviceInfo info;
+    QVERIFY(info.manufacturerIds().isEmpty());
+    QVERIFY(info.manufacturerData(manufacturerAVM).isNull());
+
+    QVERIFY(info.setManufacturerData(manufacturerAVM, QByteArray::fromHex("ABCD")));
+    QVERIFY(!info.setManufacturerData(manufacturerAVM, QByteArray::fromHex("ABCD")));
+    QCOMPARE(info.manufacturerData(manufacturerAVM), QByteArray::fromHex("ABCD"));
+    auto temp = info.manufacturerData();
+    QCOMPARE(temp.keys().count(), 1);
+    QCOMPARE(temp.values().count(), 1);
+    QCOMPARE(temp.values(), QList<QByteArray>() << QByteArray::fromHex("ABCD"));
+
+    QVERIFY(info.setManufacturerData(manufacturerAVM, QByteArray::fromHex("CDEF")));
+    QVERIFY(!info.setManufacturerData(manufacturerAVM, QByteArray::fromHex("ABCD")));
+    QVERIFY(!info.setManufacturerData(manufacturerAVM, QByteArray::fromHex("CDEF")));
+
+    temp = info.manufacturerData();
+    QCOMPARE(temp.keys().count(), 2);
+    QCOMPARE(temp.values().count(), 2);
+    auto list = temp.values();
+
+    QCOMPARE(QSet<QByteArray> (list.begin(), list.end()),
+             QSet<QByteArray>() << QByteArray::fromHex("ABCD") << QByteArray::fromHex("CDEF"));
+
+    // return latest entry
+    QCOMPARE(info.manufacturerData(manufacturerAVM), QByteArray::fromHex("CDEF"));
 }
 
 QTEST_MAIN(tst_QBluetoothDeviceInfo)

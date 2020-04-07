@@ -20,33 +20,52 @@ namespace {
 // Makes |texture_owner|'s context current if it isn't already.
 std::unique_ptr<ui::ScopedMakeCurrent> MakeCurrentIfNeeded(
     TextureOwner* texture_owner) {
+  gl::GLContext* context = texture_owner->GetContext();
   // Note: this works for virtual contexts too, because IsCurrent() returns true
   // if their shared platform context is current, regardless of which virtual
   // context is current.
-  return std::unique_ptr<ui::ScopedMakeCurrent>(
-      texture_owner->GetContext()->IsCurrent(nullptr)
-          ? nullptr
-          : new ui::ScopedMakeCurrent(texture_owner->GetContext(),
-                                      texture_owner->GetSurface()));
+  if (context->IsCurrent(nullptr))
+    return nullptr;
+
+  auto scoped_current = std::make_unique<ui::ScopedMakeCurrent>(
+      context, texture_owner->GetSurface());
+  // Log an error if ScopedMakeCurrent failed for debugging
+  // https://crbug.com/878042.
+  // TODO(ericrk): Remove this once debugging is completed.
+  if (!context->IsCurrent(nullptr)) {
+    LOG(ERROR) << "Failed to make context current in CodecImage. Subsequent "
+                  "UpdateTexImage may fail.";
+  }
+  return scoped_current;
 }
 
 }  // namespace
 
-CodecImage::CodecImage(
-    std::unique_ptr<CodecOutputBuffer> output_buffer,
-    scoped_refptr<TextureOwner> texture_owner,
-    PromotionHintAggregator::NotifyPromotionHintCB promotion_hint_cb)
-    : phase_(Phase::kInCodec),
-      output_buffer_(std::move(output_buffer)),
-      texture_owner_(std::move(texture_owner)),
-      promotion_hint_cb_(std::move(promotion_hint_cb)) {}
+CodecImage::CodecImage() = default;
 
 CodecImage::~CodecImage() {
+  if (now_unused_cb_)
+    std::move(now_unused_cb_).Run(this);
   if (destruction_cb_)
     std::move(destruction_cb_).Run(this);
 }
 
-void CodecImage::SetDestructionCb(DestructionCb destruction_cb) {
+void CodecImage::Initialize(
+    std::unique_ptr<CodecOutputBuffer> output_buffer,
+    scoped_refptr<TextureOwner> texture_owner,
+    PromotionHintAggregator::NotifyPromotionHintCB promotion_hint_cb) {
+  DCHECK(output_buffer);
+  phase_ = Phase::kInCodec;
+  output_buffer_ = std::move(output_buffer);
+  texture_owner_ = std::move(texture_owner);
+  promotion_hint_cb_ = std::move(promotion_hint_cb);
+}
+
+void CodecImage::SetNowUnusedCB(NowUnusedCB now_unused_cb) {
+  now_unused_cb_ = std::move(now_unused_cb);
+}
+
+void CodecImage::SetDestructionCB(DestructionCB destruction_cb) {
   destruction_cb_ = std::move(destruction_cb);
 }
 
@@ -61,18 +80,24 @@ unsigned CodecImage::GetInternalFormat() {
   return GL_RGBA;
 }
 
-bool CodecImage::BindTexImage(unsigned target) {
+CodecImage::BindOrCopy CodecImage::ShouldBindOrCopy() {
   // If we're using an overlay, then pretend it's bound.  That way, we'll get
-  // calls to ScheduleOverlayPlane.  Otherwise, fail so that we will be asked
-  // to CopyTexImage.  Note that we could just CopyTexImage here.
-  return !texture_owner_;
+  // calls to ScheduleOverlayPlane.  Otherwise, CopyTexImage needs to be called.
+  return !texture_owner_ ? BIND : COPY;
+}
+
+bool CodecImage::BindTexImage(unsigned target) {
+  DCHECK_EQ(BIND, ShouldBindOrCopy());
+  return true;
 }
 
 void CodecImage::ReleaseTexImage(unsigned target) {}
 
 bool CodecImage::CopyTexImage(unsigned target) {
   TRACE_EVENT0("media", "CodecImage::CopyTexImage");
-  if (!texture_owner_ || target != GL_TEXTURE_EXTERNAL_OES)
+  DCHECK_EQ(COPY, ShouldBindOrCopy());
+
+  if (target != GL_TEXTURE_EXTERNAL_OES)
     return false;
 
   GLint bound_service_id = 0;
@@ -81,7 +106,7 @@ bool CodecImage::CopyTexImage(unsigned target) {
   if (bound_service_id != static_cast<GLint>(texture_owner_->GetTextureId()))
     return false;
 
-  RenderToTextureOwnerFrontBuffer(BindingsMode::kDontRestore);
+  RenderToTextureOwnerFrontBuffer(BindingsMode::kEnsureTexImageBound);
   return true;
 }
 
@@ -140,7 +165,7 @@ void CodecImage::GetTextureMatrix(float matrix[16]) {
   // The matrix is available after we render to the front buffer. If that fails
   // we'll return the matrix from the previous frame, which is more likely to be
   // correct than the identity matrix anyway.
-  RenderToTextureOwnerFrontBuffer(BindingsMode::kDontRestore);
+  RenderToTextureOwnerFrontBuffer(BindingsMode::kDontRestoreIfBound);
   texture_owner_->GetTransformMatrix(matrix);
   YInvertMatrix(matrix);
 }
@@ -161,8 +186,10 @@ void CodecImage::NotifyPromotionHint(bool promotion_hint,
 }
 
 bool CodecImage::RenderToFrontBuffer() {
+  // This code is used to trigger early rendering of the image before it is used
+  // for compositing, there is no need to bind the image.
   return texture_owner_
-             ? RenderToTextureOwnerFrontBuffer(BindingsMode::kRestore)
+             ? RenderToTextureOwnerFrontBuffer(BindingsMode::kRestoreIfBound)
              : RenderToOverlay();
 }
 
@@ -189,8 +216,11 @@ bool CodecImage::RenderToTextureOwnerBackBuffer() {
 
 bool CodecImage::RenderToTextureOwnerFrontBuffer(BindingsMode bindings_mode) {
   DCHECK(texture_owner_);
-  if (phase_ == Phase::kInFrontBuffer)
+
+  if (phase_ == Phase::kInFrontBuffer) {
+    EnsureBoundIfNeeded(bindings_mode);
     return true;
+  }
   if (phase_ == Phase::kInvalidated)
     return false;
 
@@ -205,18 +235,33 @@ bool CodecImage::RenderToTextureOwnerFrontBuffer(BindingsMode bindings_mode) {
 
   std::unique_ptr<ui::ScopedMakeCurrent> scoped_make_current =
       MakeCurrentIfNeeded(texture_owner_.get());
-  // If we have to switch contexts, then we always want to restore the
-  // bindings.
+  // If updating the image will implicitly update the texture bindings then
+  // restore if requested or the update needed a context switch.
   bool should_restore_bindings =
-      bindings_mode == BindingsMode::kRestore || !!scoped_make_current;
+      texture_owner_->binds_texture_on_update() &&
+      (bindings_mode == BindingsMode::kRestoreIfBound || !!scoped_make_current);
 
   GLint bound_service_id = 0;
   if (should_restore_bindings)
     glGetIntegerv(GL_TEXTURE_BINDING_EXTERNAL_OES, &bound_service_id);
   texture_owner_->UpdateTexImage();
+  EnsureBoundIfNeeded(bindings_mode);
   if (should_restore_bindings)
     glBindTexture(GL_TEXTURE_EXTERNAL_OES, bound_service_id);
   return true;
+}
+
+void CodecImage::EnsureBoundIfNeeded(BindingsMode mode) {
+  DCHECK(texture_owner_);
+
+  if (texture_owner_->binds_texture_on_update()) {
+    was_tex_image_bound_ = true;
+    return;
+  }
+  if (mode != BindingsMode::kEnsureTexImageBound)
+    return;
+  texture_owner_->EnsureTexImageBound();
+  was_tex_image_bound_ = true;
 }
 
 bool CodecImage::RenderToOverlay() {
@@ -242,8 +287,17 @@ std::unique_ptr<base::android::ScopedHardwareBufferFenceSync>
 CodecImage::GetAHardwareBuffer() {
   DCHECK(texture_owner_);
 
-  RenderToTextureOwnerFrontBuffer(BindingsMode::kDontRestore);
+  RenderToTextureOwnerFrontBuffer(BindingsMode::kDontRestoreIfBound);
   return texture_owner_->GetAHardwareBuffer();
 }
+
+CodecImageHolder::CodecImageHolder(
+    scoped_refptr<base::SequencedTaskRunner> task_runner,
+    scoped_refptr<CodecImage> codec_image)
+    : base::RefCountedDeleteOnSequence<CodecImageHolder>(
+          std::move(task_runner)),
+      codec_image_(std::move(codec_image)) {}
+
+CodecImageHolder::~CodecImageHolder() = default;
 
 }  // namespace media

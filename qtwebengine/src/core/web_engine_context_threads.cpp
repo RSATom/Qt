@@ -57,6 +57,8 @@
 
 #include <memory>
 
+#include <QEventLoop>
+
 namespace QtWebEngineCore {
 
 struct GpuThreadControllerQt : content::GpuThreadController

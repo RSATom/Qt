@@ -87,7 +87,7 @@ QMediaService* DSServicePlugin::create(QString const& key)
         return new DirectShowPlayerService;
     }
 
-    return 0;
+    return nullptr;
 }
 
 void DSServicePlugin::release(QMediaService *service)

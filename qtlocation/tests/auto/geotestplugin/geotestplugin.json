@@ -14,6 +14,7 @@
         "OfflinePlacesFeature",
         "SavePlaceFeature",
         "SaveCategoryFeature",
-        "SearchSuggestionsFeature"
+        "SearchSuggestionsFeature",
+        "OfflineNavigationFeature"
     ]
 }

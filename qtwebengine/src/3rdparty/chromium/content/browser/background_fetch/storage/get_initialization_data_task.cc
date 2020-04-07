@@ -5,6 +5,8 @@
 #include "content/browser/background_fetch/storage/get_initialization_data_task.h"
 
 #include "base/barrier_closure.h"
+#include "base/bind.h"
+#include "base/bind_helpers.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/task/post_task.h"
 #include "base/task/task_traits.h"
@@ -15,13 +17,12 @@
 #include "content/browser/background_fetch/storage/image_helpers.h"
 #include "content/browser/background_fetch/storage/mark_registration_for_deletion_task.h"
 #include "content/browser/service_worker/service_worker_context_wrapper.h"
-#include "content/common/service_worker/service_worker_utils.h"
+#include "content/common/fetch/fetch_api_request_proto.h"
 #include "third_party/blink/public/common/manifest/manifest.h"
 #include "ui/gfx/image/image.h"
 #include "url/origin.h"
 
 namespace content {
-
 namespace background_fetch {
 
 namespace {
@@ -77,8 +78,7 @@ class GetUIOptionsTask : public InitializationSubTask {
   GetUIOptionsTask(DatabaseTaskHost* host,
                    const SubTaskInit& sub_task_init,
                    base::OnceClosure done_closure)
-      : InitializationSubTask(host, sub_task_init, std::move(done_closure)),
-        weak_factory_(this) {}
+      : InitializationSubTask(host, sub_task_init, std::move(done_closure)) {}
 
   ~GetUIOptionsTask() override = default;
 
@@ -131,7 +131,7 @@ class GetUIOptionsTask : public InitializationSubTask {
     FinishWithError(blink::mojom::BackgroundFetchError::NONE);
   }
 
-  base::WeakPtrFactory<GetUIOptionsTask> weak_factory_;  // Keep as last.
+  base::WeakPtrFactory<GetUIOptionsTask> weak_factory_{this};  // Keep as last.
 };
 
 // Gets the number of completed fetches, the number of active fetches,
@@ -145,8 +145,7 @@ class GetRequestsTask : public InitializationSubTask {
   GetRequestsTask(DatabaseTaskHost* host,
                   const SubTaskInit& sub_task_init,
                   base::OnceClosure done_closure)
-      : InitializationSubTask(host, sub_task_init, std::move(done_closure)),
-        weak_factory_(this) {}
+      : InitializationSubTask(host, sub_task_init, std::move(done_closure)) {}
 
   ~GetRequestsTask() override = default;
 
@@ -238,7 +237,7 @@ class GetRequestsTask : public InitializationSubTask {
 
       auto request_info = base::MakeRefCounted<BackgroundFetchRequestInfo>(
           active_request.request_index(),
-          ServiceWorkerUtils::DeserializeFetchRequestFromString(
+          DeserializeFetchRequestFromString(
               active_request.serialized_request()),
           active_request.request_body_size());
       request_info->SetDownloadGuid(active_request.download_guid());
@@ -275,7 +274,7 @@ class GetRequestsTask : public InitializationSubTask {
     FinishWithError(blink::mojom::BackgroundFetchError::NONE);
   }
 
-  base::WeakPtrFactory<GetRequestsTask> weak_factory_;  // Keep as last.
+  base::WeakPtrFactory<GetRequestsTask> weak_factory_{this};  // Keep as last.
 
   DISALLOW_COPY_AND_ASSIGN(GetRequestsTask);
 };
@@ -287,8 +286,7 @@ class FillFromMetadataTask : public InitializationSubTask {
   FillFromMetadataTask(DatabaseTaskHost* host,
                        const SubTaskInit& sub_task_init,
                        base::OnceClosure done_closure)
-      : InitializationSubTask(host, sub_task_init, std::move(done_closure)),
-        weak_factory_(this) {}
+      : InitializationSubTask(host, sub_task_init, std::move(done_closure)) {}
 
   ~FillFromMetadataTask() override = default;
 
@@ -336,9 +334,10 @@ class FillFromMetadataTask : public InitializationSubTask {
             metadata.registration().developer_id(),
             metadata.registration().unique_id());
 
-    // Fill BackgroundFetchRegistration.
-    auto& registration = sub_task_init().initialization_data->registration;
-    ToBackgroundFetchRegistration(metadata, registration.get());
+    // Fill BackgroundFetchRegistrationData.
+    auto& registration_data =
+        sub_task_init().initialization_data->registration_data;
+    ToBackgroundFetchRegistration(metadata, registration_data.get());
 
     // Total number of requests.
     sub_task_init().initialization_data->num_requests = metadata.num_fetches();
@@ -373,161 +372,10 @@ class FillFromMetadataTask : public InitializationSubTask {
     FinishWithError(blink::mojom::BackgroundFetchError::NONE);
   }
 
-  base::WeakPtrFactory<FillFromMetadataTask> weak_factory_;  // Keep as last.
+  base::WeakPtrFactory<FillFromMetadataTask> weak_factory_{
+      this};  // Keep as last.
 
   DISALLOW_COPY_AND_ASSIGN(FillFromMetadataTask);
-};
-
-// If the storage version was updated, this performs the necessary schema
-// updates on startup.
-class CacheStorageMigrationTask : public InitializationSubTask {
- public:
-  CacheStorageMigrationTask(DatabaseTaskHost* host,
-                            const SubTaskInit& sub_task_init,
-                            base::OnceClosure done_closure)
-      : InitializationSubTask(host, sub_task_init, std::move(done_closure)),
-        weak_factory_(this) {}
-
-  ~CacheStorageMigrationTask() override = default;
-
-  void Start() override {
-    GetStorageVersion(
-        sub_task_init().service_worker_registration_id,
-        sub_task_init().unique_id,
-        base::BindOnce(&CacheStorageMigrationTask::DidGetStorageVersion,
-                       weak_factory_.GetWeakPtr()));
-  }
-
- private:
-  void DidGetStorageVersion(
-      proto::BackgroundFetchStorageVersion storage_version) {
-    if (storage_version == proto::SV_ERROR) {
-      FinishWithError(blink::mojom::BackgroundFetchError::STORAGE_ERROR);
-      return;
-    }
-
-    if (storage_version == proto::SV_CURRENT) {
-      // Already on latest version, nothing to do here.
-      FinishWithError(blink::mojom::BackgroundFetchError::NONE);
-      return;
-    }
-
-    cache_storage_handle_ = GetOrOpenCacheStorage(
-        sub_task_init().initialization_data->registration_id);
-    cache_storage_handle_.value()->OpenCache(
-        /* cache_name= */ sub_task_init().unique_id,
-        base::BindOnce(&CacheStorageMigrationTask::DidOpenCache,
-                       weak_factory_.GetWeakPtr()));
-  }
-
-  void DidOpenCache(CacheStorageCacheHandle handle,
-                    blink::mojom::CacheStorageError error) {
-    if (error != blink::mojom::CacheStorageError::kSuccess) {
-      SetStorageErrorAndFinish(BackgroundFetchStorageError::kCacheStorageError);
-      return;
-    }
-
-    DCHECK(handle.value());
-    // Get all entries in the cache.
-    handle.value()->GetAllMatchedEntries(
-        /* request= */ nullptr, /* query_params= */ nullptr,
-        base::BindOnce(&CacheStorageMigrationTask::DidGetAllMatchedEntries,
-                       weak_factory_.GetWeakPtr(), handle.Clone()));
-  }
-
-  void DidGetAllMatchedEntries(
-      CacheStorageCacheHandle handle,
-      blink::mojom::CacheStorageError error,
-      std::vector<CacheStorageCache::CacheEntry> entries) {
-    if (error != blink::mojom::CacheStorageError::kSuccess) {
-      SetStorageErrorAndFinish(BackgroundFetchStorageError::kCacheStorageError);
-      return;
-    }
-
-    entries_ = std::move(entries);
-
-    // Delete Cache.
-    cache_storage_handle_.value()->DoomCache(
-        /* cache_name= */ sub_task_init().unique_id,
-        base::BindOnce(&CacheStorageMigrationTask::DidDoomCache,
-                       weak_factory_.GetWeakPtr()));
-  }
-
-  void DidDoomCache(blink::mojom::CacheStorageError error) {
-    if (error != blink::mojom::CacheStorageError::kSuccess) {
-      SetStorageErrorAndFinish(BackgroundFetchStorageError::kCacheStorageError);
-      return;
-    }
-
-    // Recreate the cache.
-    cache_storage_handle_.value()->OpenCache(
-        /* cache_name= */ sub_task_init().unique_id,
-        base::BindOnce(&CacheStorageMigrationTask::DidReopenCache,
-                       weak_factory_.GetWeakPtr()));
-  }
-
-  void DidReopenCache(CacheStorageCacheHandle handle,
-                      blink::mojom::CacheStorageError error) {
-    if (error != blink::mojom::CacheStorageError::kSuccess) {
-      SetStorageErrorAndFinish(BackgroundFetchStorageError::kCacheStorageError);
-      return;
-    }
-
-    std::vector<blink::mojom::BatchOperationPtr> operations;
-    operations.reserve(entries_.size());
-    for (size_t i = 0; i < entries_.size(); i++) {
-      auto& entry = entries_[i];
-      auto operation = blink::mojom::BatchOperation::New();
-      operation->operation_type = blink::mojom::OperationType::kPut;
-      entry.first->url =
-          MakeCacheUrlUnique(entry.first->url, sub_task_init().unique_id, i);
-      operation->request = std::move(entry.first);
-      operation->response = std::move(entry.second);
-      operations.push_back(std::move(operation));
-    }
-
-    DCHECK(handle.value());
-
-    // Rewrite the URLs with the new format.
-    handle.value()->BatchOperation(
-        std::move(operations), /* fail_on_duplicates= */ false,
-        base::BindOnce(&CacheStorageMigrationTask::DidStoreRequests,
-                       weak_factory_.GetWeakPtr(), handle.Clone()),
-        base::DoNothing());
-  }
-
-  void DidStoreRequests(CacheStorageCacheHandle handle,
-                        blink::mojom::CacheStorageVerboseErrorPtr error) {
-    if (error->value != blink::mojom::CacheStorageError::kSuccess) {
-      SetStorageErrorAndFinish(BackgroundFetchStorageError::kCacheStorageError);
-      return;
-    }
-
-    // Update the storage version.
-    service_worker_context()->StoreRegistrationUserData(
-        sub_task_init().service_worker_registration_id,
-        sub_task_init().initialization_data->registration_id.origin().GetURL(),
-        {{StorageVersionKey(sub_task_init().unique_id),
-          base::NumberToString(proto::SV_CURRENT)}},
-        base::BindOnce(&CacheStorageMigrationTask::DidUpdateStorageVersion,
-                       weak_factory_.GetWeakPtr()));
-  }
-
-  void DidUpdateStorageVersion(blink::ServiceWorkerStatusCode status) {
-    if (status == blink::ServiceWorkerStatusCode::kOk) {
-      FinishWithError(blink::mojom::BackgroundFetchError::NONE);
-      return;
-    }
-    SetStorageErrorAndFinish(
-        BackgroundFetchStorageError::kServiceWorkerStorageError);
-  }
-
-  CacheStorageHandle cache_storage_handle_;
-  std::vector<CacheStorageCache::CacheEntry> entries_;
-
-  base::WeakPtrFactory<CacheStorageMigrationTask> weak_factory_;
-
-  DISALLOW_COPY_AND_ASSIGN(CacheStorageMigrationTask);
 };
 
 // Asynchronously calls the SubTasks required to collect all the information for
@@ -537,8 +385,7 @@ class FillBackgroundFetchInitializationDataTask : public InitializationSubTask {
   FillBackgroundFetchInitializationDataTask(DatabaseTaskHost* host,
                                             const SubTaskInit& sub_task_init,
                                             base::OnceClosure done_closure)
-      : InitializationSubTask(host, sub_task_init, std::move(done_closure)),
-        weak_factory_(this) {}
+      : InitializationSubTask(host, sub_task_init, std::move(done_closure)) {}
 
   ~FillBackgroundFetchInitializationDataTask() override = default;
 
@@ -561,26 +408,12 @@ class FillBackgroundFetchInitializationDataTask : public InitializationSubTask {
   }
 
   void DidQueryInitializationData() {
-    if (sub_task_init().initialization_data->error !=
-        blink::mojom::BackgroundFetchError::NONE) {
-      FinishWithError(sub_task_init().initialization_data->error);
-      return;
-    }
-
-    AddSubTask(std::make_unique<CacheStorageMigrationTask>(
-        this, sub_task_init(),
-        base::BindOnce(&FillBackgroundFetchInitializationDataTask::
-                           DidMigrateCacheStorageTask,
-                       weak_factory_.GetWeakPtr())));
-  }
-
-  void DidMigrateCacheStorageTask() {
     FinishWithError(sub_task_init().initialization_data->error);
   }
 
  private:
-  base::WeakPtrFactory<FillBackgroundFetchInitializationDataTask>
-      weak_factory_;  // Keep as last.
+  base::WeakPtrFactory<FillBackgroundFetchInitializationDataTask> weak_factory_{
+      this};  // Keep as last.
 
   DISALLOW_COPY_AND_ASSIGN(FillBackgroundFetchInitializationDataTask);
 };
@@ -599,7 +432,7 @@ BackgroundFetchInitializationData::~BackgroundFetchInitializationData() =
 GetInitializationDataTask::GetInitializationDataTask(
     DatabaseTaskHost* host,
     GetInitializationDataCallback callback)
-    : DatabaseTask(host), callback_(std::move(callback)), weak_factory_(this) {}
+    : DatabaseTask(host), callback_(std::move(callback)) {}
 
 GetInitializationDataTask::~GetInitializationDataTask() = default;
 
@@ -688,5 +521,4 @@ std::string GetInitializationDataTask::HistogramName() const {
 }
 
 }  // namespace background_fetch
-
 }  // namespace content

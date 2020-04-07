@@ -18,8 +18,9 @@
 #include "content/common/input/synchronous_compositor.mojom.h"
 #include "content/public/browser/android/synchronous_compositor.h"
 #include "content/public/common/input_event_ack_state.h"
-#include "mojo/public/cpp/bindings/associated_binding.h"
-#include "mojo/public/cpp/bindings/binding.h"
+#include "mojo/public/cpp/bindings/associated_receiver.h"
+#include "mojo/public/cpp/bindings/associated_remote.h"
+#include "ui/android/view_android.h"
 #include "ui/gfx/geometry/scroll_offset.h"
 #include "ui/gfx/geometry/size_f.h"
 
@@ -53,6 +54,8 @@ class SynchronousCompositorHost : public SynchronousCompositor,
   void ReturnResources(
       uint32_t layer_tree_frame_sink_id,
       const std::vector<viz::ReturnedResource>& resources) override;
+  void DidPresentCompositorFrames(viz::FrameTimingDetailsMap timing_details,
+                                  uint32_t frame_token) override;
   void SetMemoryPolicy(size_t bytes_limit) override;
   void DidBecomeActive() override;
   void DidChangeRootLayerScrollOffset(
@@ -60,9 +63,11 @@ class SynchronousCompositorHost : public SynchronousCompositor,
   void SynchronouslyZoomBy(float zoom_delta, const gfx::Point& anchor) override;
   void OnComputeScroll(base::TimeTicks animation_time) override;
 
+  ui::ViewAndroid::CopyViewCallback GetCopyViewCallback();
   void DidOverscroll(const ui::DidOverscrollParams& over_scroll_params);
   void BeginFrame(ui::WindowAndroid* window_android,
-                  const viz::BeginFrameArgs& args);
+                  const viz::BeginFrameArgs& args,
+                  const viz::FrameTimingDetailsMap& timing_details);
   void SetBeginFramePaused(bool paused);
 
   // Called by SynchronousCompositorSyncCallBridge.
@@ -104,14 +109,16 @@ class SynchronousCompositorHost : public SynchronousCompositor,
   // handle blocking calls.
   bool IsReadyForSynchronousCall();
   void UpdateRootLayerStateOnClient();
+  void UpdatePresentedFrameToken(uint32_t frame_token);
 
   RenderWidgetHostViewAndroid* const rwhva_;
   SynchronousCompositorClient* const client_;
   const int process_id_;
   const int routing_id_;
   const bool use_in_process_zero_copy_software_draw_;
-  mojom::SynchronousCompositorAssociatedPtr sync_compositor_;
-  mojo::AssociatedBinding<mojom::SynchronousCompositorHost> host_binding_;
+  mojo::AssociatedRemote<mojom::SynchronousCompositor> sync_compositor_;
+  mojo::AssociatedReceiver<mojom::SynchronousCompositorHost> host_receiver_{
+      this};
 
   bool registered_with_filter_ = false;
 
@@ -153,6 +160,9 @@ class SynchronousCompositorHost : public SynchronousCompositor,
   float page_scale_factor_ = 0.f;
   float min_page_scale_factor_ = 0.f;
   float max_page_scale_factor_ = 0.f;
+
+  // From viz display.
+  uint32_t last_frame_token_ = 0u;
 
   scoped_refptr<SynchronousCompositorSyncCallBridge> bridge_;
 

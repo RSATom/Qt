@@ -4,6 +4,7 @@
 
 #include "services/video_capture/shared_memory_virtual_device_mojo_adapter.h"
 
+#include "base/bind.h"
 #include "base/logging.h"
 #include "media/base/bind_to_current_loop.h"
 #include "media/capture/video/scoped_buffer_pool_reservation.h"
@@ -84,7 +85,7 @@ void SharedMemoryVirtualDeviceMojoAdapter::RequestFrameBuffer(
     return;
   }
 
-  if (!base::ContainsValue(known_buffer_ids_, buffer_id)) {
+  if (!base::Contains(known_buffer_ids_, buffer_id)) {
     if (receiver_.is_bound()) {
       media::mojom::VideoBufferHandlePtr buffer_handle =
           media::mojom::VideoBufferHandle::New();
@@ -125,7 +126,7 @@ void SharedMemoryVirtualDeviceMojoAdapter::OnFrameReadyInBuffer(
     ::media::mojom::VideoFrameInfoPtr frame_info) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   // Unknown buffer ID.
-  if (!base::ContainsValue(known_buffer_ids_, buffer_id)) {
+  if (!base::Contains(known_buffer_ids_, buffer_id)) {
     return;
   }
 
@@ -168,16 +169,6 @@ void SharedMemoryVirtualDeviceMojoAdapter::Start(
   }
 }
 
-void SharedMemoryVirtualDeviceMojoAdapter::OnReceiverReportingUtilization(
-    int32_t frame_feedback_id,
-    double utilization) {
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-}
-
-void SharedMemoryVirtualDeviceMojoAdapter::RequestRefreshFrame() {
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-}
-
 void SharedMemoryVirtualDeviceMojoAdapter::MaybeSuspend() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 }
@@ -209,6 +200,10 @@ void SharedMemoryVirtualDeviceMojoAdapter::Stop() {
     return;
   // Unsubscribe from connection error callbacks.
   receiver_.set_connection_error_handler(base::OnceClosure());
+  // Send out OnBufferRetired events and OnStopped.
+  for (auto buffer_id : known_buffer_ids_)
+    receiver_->OnBufferRetired(buffer_id);
+  receiver_->OnStopped();
   receiver_.reset();
 }
 

@@ -20,14 +20,14 @@
 #include <string.h>
 
 #include "perfetto/base/task_runner.h"
-#include "perfetto/ipc/client.h"
-#include "perfetto/tracing/core/commit_data_request.h"
+#include "perfetto/ext/ipc/client.h"
+#include "perfetto/ext/tracing/core/commit_data_request.h"
+#include "perfetto/ext/tracing/core/producer.h"
+#include "perfetto/ext/tracing/core/shared_memory_arbiter.h"
+#include "perfetto/ext/tracing/core/trace_writer.h"
 #include "perfetto/tracing/core/data_source_config.h"
 #include "perfetto/tracing/core/data_source_descriptor.h"
-#include "perfetto/tracing/core/producer.h"
-#include "perfetto/tracing/core/shared_memory_arbiter.h"
 #include "perfetto/tracing/core/trace_config.h"
-#include "perfetto/tracing/core/trace_writer.h"
 #include "src/tracing/ipc/posix_shared_memory.h"
 
 // TODO(fmayer): think to what happens when ProducerIPCClientImpl gets destroyed
@@ -41,21 +41,33 @@ std::unique_ptr<TracingService::ProducerEndpoint> ProducerIPCClient::Connect(
     const char* service_sock_name,
     Producer* producer,
     const std::string& producer_name,
-    base::TaskRunner* task_runner) {
+    base::TaskRunner* task_runner,
+    TracingService::ProducerSMBScrapingMode smb_scraping_mode,
+    size_t shared_memory_size_hint_bytes,
+    size_t shared_memory_page_size_hint_bytes) {
   return std::unique_ptr<TracingService::ProducerEndpoint>(
       new ProducerIPCClientImpl(service_sock_name, producer, producer_name,
-                                task_runner));
+                                task_runner, smb_scraping_mode,
+                                shared_memory_size_hint_bytes,
+                                shared_memory_page_size_hint_bytes));
 }
 
-ProducerIPCClientImpl::ProducerIPCClientImpl(const char* service_sock_name,
-                                             Producer* producer,
-                                             const std::string& producer_name,
-                                             base::TaskRunner* task_runner)
+ProducerIPCClientImpl::ProducerIPCClientImpl(
+    const char* service_sock_name,
+    Producer* producer,
+    const std::string& producer_name,
+    base::TaskRunner* task_runner,
+    TracingService::ProducerSMBScrapingMode smb_scraping_mode,
+    size_t shared_memory_size_hint_bytes,
+    size_t shared_memory_page_size_hint_bytes)
     : producer_(producer),
       task_runner_(task_runner),
       ipc_channel_(ipc::Client::CreateInstance(service_sock_name, task_runner)),
       producer_port_(this /* event_listener */),
-      name_(producer_name) {
+      name_(producer_name),
+      shared_memory_page_size_hint_bytes_(shared_memory_page_size_hint_bytes),
+      shared_memory_size_hint_bytes_(shared_memory_size_hint_bytes),
+      smb_scraping_mode_(smb_scraping_mode) {
   ipc_channel_->BindService(producer_port_.GetWeakPtr());
   PERFETTO_DCHECK_THREAD(thread_checker_);
 }
@@ -77,6 +89,24 @@ void ProducerIPCClientImpl::OnConnect() {
       });
   protos::InitializeConnectionRequest req;
   req.set_producer_name(name_);
+  req.set_shared_memory_size_hint_bytes(
+      static_cast<uint32_t>(shared_memory_size_hint_bytes_));
+  req.set_shared_memory_page_size_hint_bytes(
+      static_cast<uint32_t>(shared_memory_page_size_hint_bytes_));
+  switch (smb_scraping_mode_) {
+    case TracingService::ProducerSMBScrapingMode::kDefault:
+      // No need to set the mode, it defaults to use the service default if
+      // unspecified.
+      break;
+    case TracingService::ProducerSMBScrapingMode::kEnabled:
+      req.set_smb_scraping_mode(
+          protos::InitializeConnectionRequest::SMB_SCRAPING_ENABLED);
+      break;
+    case TracingService::ProducerSMBScrapingMode::kDisabled:
+      req.set_smb_scraping_mode(
+          protos::InitializeConnectionRequest::SMB_SCRAPING_DISABLED);
+      break;
+  }
   producer_port_.InitializeConnection(req, std::move(on_init));
 
   // Create the back channel to receive commands from the Service.
@@ -164,11 +194,25 @@ void ProducerIPCClientImpl::OnServiceRequest(
     // uint64 and not stdint's uint64_t. On some 64 bit archs they differ on the
     // type (long vs long long) even though they have the same size.
     const auto* data_source_ids = cmd.flush().data_source_ids().data();
-    static_assert(sizeof(data_source_ids[0]) == sizeof(FlushRequestID),
+    static_assert(sizeof(data_source_ids[0]) == sizeof(DataSourceInstanceID),
                   "data_source_ids should be 64-bit");
-    producer_->Flush(cmd.flush().request_id(),
-                     reinterpret_cast<const FlushRequestID*>(data_source_ids),
-                     static_cast<size_t>(cmd.flush().data_source_ids().size()));
+    producer_->Flush(
+        cmd.flush().request_id(),
+        reinterpret_cast<const DataSourceInstanceID*>(data_source_ids),
+        static_cast<size_t>(cmd.flush().data_source_ids().size()));
+    return;
+  }
+
+  if (cmd.cmd_case() ==
+      protos::GetAsyncCommandResponse::kClearIncrementalState) {
+    const auto* data_source_ids =
+        cmd.clear_incremental_state().data_source_ids().data();
+    static_assert(sizeof(data_source_ids[0]) == sizeof(DataSourceInstanceID),
+                  "data_source_ids should be 64-bit");
+    producer_->ClearIncrementalState(
+        reinterpret_cast<const DataSourceInstanceID*>(data_source_ids),
+        static_cast<size_t>(
+            cmd.clear_incremental_state().data_source_ids().size()));
     return;
   }
 
@@ -260,6 +304,19 @@ void ProducerIPCClientImpl::CommitData(const CommitDataRequest& req,
   producer_port_.CommitData(proto_req, std::move(async_response));
 }
 
+void ProducerIPCClientImpl::NotifyDataSourceStarted(DataSourceInstanceID id) {
+  PERFETTO_DCHECK_THREAD(thread_checker_);
+  if (!connected_) {
+    PERFETTO_DLOG(
+        "Cannot NotifyDataSourceStarted(), not connected to tracing service");
+    return;
+  }
+  protos::NotifyDataSourceStartedRequest req;
+  req.set_data_source_id(id);
+  producer_port_.NotifyDataSourceStarted(
+      req, ipc::Deferred<protos::NotifyDataSourceStartedResponse>());
+}
+
 void ProducerIPCClientImpl::NotifyDataSourceStopped(DataSourceInstanceID id) {
   PERFETTO_DCHECK_THREAD(thread_checker_);
   if (!connected_) {
@@ -273,11 +330,32 @@ void ProducerIPCClientImpl::NotifyDataSourceStopped(DataSourceInstanceID id) {
       req, ipc::Deferred<protos::NotifyDataSourceStoppedResponse>());
 }
 
+void ProducerIPCClientImpl::ActivateTriggers(
+    const std::vector<std::string>& triggers) {
+  PERFETTO_DCHECK_THREAD(thread_checker_);
+  if (!connected_) {
+    PERFETTO_DLOG(
+        "Cannot ActivateTriggers(), not connected to tracing service");
+    return;
+  }
+  protos::ActivateTriggersRequest proto_req;
+  for (const auto& name : triggers) {
+    *proto_req.add_trigger_names() = name;
+  }
+  producer_port_.ActivateTriggers(
+      proto_req, ipc::Deferred<protos::ActivateTriggersResponse>());
+}
+
 std::unique_ptr<TraceWriter> ProducerIPCClientImpl::CreateTraceWriter(
     BufferID target_buffer) {
   // This method can be called by different threads. |shared_memory_arbiter_| is
   // thread-safe but be aware of accessing any other state in this function.
   return shared_memory_arbiter_->CreateTraceWriter(target_buffer);
+}
+
+SharedMemoryArbiter* ProducerIPCClientImpl::GetInProcessShmemArbiter() {
+  PERFETTO_DLOG("Cannot GetInProcessShmemArbiter() via the IPC layer.");
+  return nullptr;
 }
 
 void ProducerIPCClientImpl::NotifyFlushComplete(FlushRequestID req_id) {

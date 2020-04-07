@@ -8,8 +8,8 @@
 #ifndef SkMergeImageFilter_DEFINED
 #define SkMergeImageFilter_DEFINED
 
-#include "SkFlattenable.h"
-#include "SkImageFilter.h"
+#include "include/core/SkFlattenable.h"
+#include "include/core/SkImageFilter.h"
 
 class SK_API SkMergeImageFilter : public SkImageFilter {
 public:
@@ -29,7 +29,6 @@ protected:
     void flatten(SkWriteBuffer&) const override;
     sk_sp<SkSpecialImage> onFilterImage(SkSpecialImage* source, const Context&,
                                         SkIPoint* offset) const override;
-    sk_sp<SkImageFilter> onMakeColorSpace(SkColorSpaceXformer*) const override;
     bool onCanHandleComplexCTM() const override { return true; }
 
 private:

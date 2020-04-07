@@ -54,7 +54,7 @@ QT_BEGIN_NAMESPACE
 QVariant QQuickIconLoader::loadFromFile(const QUrl &url, QVariant::Type type)
 {
     const QString path = QQmlFile::urlToLocalFileOrQrc(url);
-    if (QFileInfo(path).exists()) {
+    if (QFileInfo::exists(path)) {
         switch (type) {
         case QMetaType::QIcon:
             return QVariant(QIcon(path));
@@ -79,7 +79,7 @@ QVariant QQuickIconLoader::loadFromImageProvider(const QUrl &url, const QQmlEngi
     const QString providerId = url.host();
     const QString imageId = url.toString(QUrl::RemoveScheme | QUrl::RemoveAuthority).mid(1);
     QQuickImageProvider::ImageType imageType = QQuickImageProvider::Invalid;
-    QQuickImageProvider *provider = static_cast<QQuickImageProvider *>(engine->imageProvider(providerId));
+    auto *provider = static_cast<QQuickImageProvider *>(engine->imageProvider(providerId));
     QSize size;
     if (!requestedSize.isValid())
         requestedSize = QSize(GetSystemMetrics(SM_CXICON), GetSystemMetrics(SM_CYICON));
@@ -122,7 +122,7 @@ QQuickIconLoaderNetworkReplyHandler::QQuickIconLoaderNetworkReplyHandler(QNetwor
 
 void QQuickIconLoaderNetworkReplyHandler::onRequestFinished()
 {
-    QNetworkReply *reply = qobject_cast<QNetworkReply *>(sender());
+    auto *reply = qobject_cast<QNetworkReply *>(sender());
     Q_ASSERT(reply);
     if (reply->error() != QNetworkReply::NoError) {
         qWarning() << Q_FUNC_INFO << reply->url() << "failed:" << reply->errorString();

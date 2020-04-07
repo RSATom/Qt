@@ -33,8 +33,8 @@
 
 #include <memory>
 #include "base/macros.h"
+#include "third_party/blink/public/mojom/devtools/console_message.mojom-blink.h"
 #include "third_party/blink/renderer/bindings/core/v8/source_location.h"
-#include "third_party/blink/renderer/core/inspector/console_types.h"
 #include "third_party/blink/renderer/modules/modules_export.h"
 #include "third_party/blink/renderer/platform/heap/handle.h"
 #include "third_party/blink/renderer/platform/wtf/forward.h"
@@ -70,27 +70,24 @@ class MODULES_EXPORT WebSocketChannel
   };
 
   virtual bool Connect(const KURL&, const String& protocol) = 0;
-  virtual void Send(const CString&) = 0;
+  virtual void Send(const std::string&) = 0;
   virtual void Send(const DOMArrayBuffer&,
                     unsigned byte_offset,
                     unsigned byte_length) = 0;
   virtual void Send(scoped_refptr<BlobDataHandle>) = 0;
-  virtual void SendTextAsCharVector(std::unique_ptr<Vector<char>>) = 0;
-  virtual void SendBinaryAsCharVector(std::unique_ptr<Vector<char>>) = 0;
 
   // Do not call |Send| after calling this method.
   virtual void Close(int code, const String& reason) = 0;
 
   // Log the reason text and close the connection. Will call DidClose().
-  // The MessageLevel parameter will be used for the level of the message
-  // shown at the devtools console.
-  // SourceLocation parameter may be shown with the reason text
-  // at the devtools console. Even if location is specified, it may be ignored
-  // and the "current" location in the sense of JavaScript execution
-  // may be shown if this method is called in a JS execution context.
-  // Location should not be null.
+  // The mojom::ConsoleMessageLevel parameter will be used for the level
+  // of the message shown at the devtools console. SourceLocation parameter may
+  // be shown with the reason text at the devtools console. Even if location is
+  // specified, it may be ignored and the "current" location in the sense of
+  // JavaScript execution may be shown if this method is called in a JS
+  // execution context. Location should not be null.
   virtual void Fail(const String& reason,
-                    MessageLevel,
+                    mojom::ConsoleMessageLevel,
                     std::unique_ptr<SourceLocation>) = 0;
 
   // Do not call any methods after calling this method.

@@ -160,15 +160,27 @@ std::string MediaLog::MediaEventToMessageString(const MediaLogEvent& event) {
   }
 }
 
-std::string MediaLog::BufferingStateToString(BufferingState state) {
-  switch (state) {
-    case BUFFERING_HAVE_NOTHING:
-      return "BUFFERING_HAVE_NOTHING";
-    case BUFFERING_HAVE_ENOUGH:
-      return "BUFFERING_HAVE_ENOUGH";
-  }
-  NOTREACHED();
-  return "";
+std::string MediaLog::BufferingStateToString(
+    BufferingState state,
+    BufferingStateChangeReason reason) {
+  DCHECK(state == BUFFERING_HAVE_NOTHING || state == BUFFERING_HAVE_ENOUGH);
+  DCHECK(reason == BUFFERING_CHANGE_REASON_UNKNOWN ||
+         reason == DEMUXER_UNDERFLOW || reason == DECODER_UNDERFLOW ||
+         reason == REMOTING_NETWORK_CONGESTION);
+
+  std::string state_string = state == BUFFERING_HAVE_NOTHING
+                                 ? "BUFFERING_HAVE_NOTHING"
+                                 : "BUFFERING_HAVE_ENOUGH";
+
+  std::vector<std::string> flag_strings;
+  if (reason == DEMUXER_UNDERFLOW)
+    state_string += " (DEMUXER_UNDERFLOW)";
+  else if (reason == DECODER_UNDERFLOW)
+    state_string += " (DECODER_UNDERFLOW)";
+  else if (reason == REMOTING_NETWORK_CONGESTION)
+    state_string += " (REMOTING_NETWORK_CONGESTION)";
+
+  return state_string;
 }
 
 MediaLog::MediaLog() : MediaLog(new ParentLogRecord(this)) {}
@@ -264,10 +276,16 @@ std::unique_ptr<MediaLogEvent> MediaLog::CreateTimeEvent(
     MediaLogEvent::Type type,
     const std::string& property,
     base::TimeDelta value) {
+  return CreateTimeEvent(type, property, value.InSecondsF());
+}
+
+std::unique_ptr<MediaLogEvent> MediaLog::CreateTimeEvent(
+    MediaLogEvent::Type type,
+    const std::string& property,
+    double value) {
   std::unique_ptr<MediaLogEvent> event(CreateEvent(type));
-  double value_in_seconds = value.InSecondsF();
-  if (std::isfinite(value_in_seconds))
-    event->params.SetDouble(property, value_in_seconds);
+  if (std::isfinite(value))
+    event->params.SetDouble(property, value);
   else
     event->params.SetString(property, "unknown");
   return event;
@@ -277,12 +295,6 @@ std::unique_ptr<MediaLogEvent> MediaLog::CreateLoadEvent(
     const std::string& url) {
   std::unique_ptr<MediaLogEvent> event(CreateEvent(MediaLogEvent::LOAD));
   event->params.SetString("url", TruncateUrlString(url));
-  return event;
-}
-
-std::unique_ptr<MediaLogEvent> MediaLog::CreateSeekEvent(double seconds) {
-  std::unique_ptr<MediaLogEvent> event(CreateEvent(MediaLogEvent::SEEK));
-  event->params.SetDouble("seek_target", seconds);
   return event;
 }
 
@@ -315,9 +327,10 @@ std::unique_ptr<MediaLogEvent> MediaLog::CreateVideoSizeSetEvent(
 
 std::unique_ptr<MediaLogEvent> MediaLog::CreateBufferingStateChangedEvent(
     const std::string& property,
-    BufferingState state) {
+    BufferingState state,
+    BufferingStateChangeReason reason) {
   return CreateStringEvent(MediaLogEvent::PROPERTY_CHANGE, property,
-                           BufferingStateToString(state));
+                           BufferingStateToString(state, reason));
 }
 
 void MediaLog::AddLogEvent(MediaLogLevel level, const std::string& message) {

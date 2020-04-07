@@ -11,7 +11,9 @@
 #include "base/memory/memory_pressure_listener.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
+#include "base/observer_list.h"
 #include "base/trace_event/memory_dump_provider.h"
+#include "build/build_config.h"
 #include "gpu/command_buffer/common/skia_utils.h"
 #include "gpu/command_buffer/service/gl_context_virtual_delegate.h"
 #include "gpu/gpu_gles2_export.h"
@@ -25,6 +27,7 @@ class GLSurface;
 }  // namespace gl
 
 namespace viz {
+class MetalContextProvider;
 class VulkanContextProvider;
 }  // namespace viz
 
@@ -52,18 +55,24 @@ class GPU_GLES2_EXPORT SharedContextState
       scoped_refptr<gl::GLContext> context,
       bool use_virtualized_gl_contexts,
       base::OnceClosure context_lost_callback,
-      viz::VulkanContextProvider* vulkan_context_provider = nullptr);
+      viz::VulkanContextProvider* vulkan_context_provider = nullptr,
+      viz::MetalContextProvider* metal_context_provider = nullptr);
 
   void InitializeGrContext(const GpuDriverBugWorkarounds& workarounds,
                            GrContextOptions::PersistentCache* cache,
                            GpuProcessActivityFlags* activity_flags = nullptr,
                            gl::ProgressReporter* progress_reporter = nullptr);
+  bool GrContextIsGL() const {
+    return !vk_context_provider_ && !metal_context_provider_;
+  }
+  bool GrContextIsVulkan() const { return vk_context_provider_; }
+  bool GrContextIsMetal() const { return metal_context_provider_; }
 
   bool InitializeGL(const GpuPreferences& gpu_preferences,
                     scoped_refptr<gles2::FeatureInfo> feature_info);
   bool IsGLInitialized() const { return !!feature_info_; }
 
-  bool MakeCurrent(gl::GLSurface* surface);
+  bool MakeCurrent(gl::GLSurface* surface, bool needs_gl = false);
   void MarkContextLost();
   bool IsCurrent(gl::GLSurface* surface);
 
@@ -79,6 +88,9 @@ class GPU_GLES2_EXPORT SharedContextState
   viz::VulkanContextProvider* vk_context_provider() {
     return vk_context_provider_;
   }
+  viz::MetalContextProvider* metal_context_provider() {
+    return metal_context_provider_;
+  }
   gl::ProgressReporter* progress_reporter() const { return progress_reporter_; }
   GrContext* gr_context() { return gr_context_; }
   gles2::FeatureInfo* feature_info() { return feature_info_.get(); }
@@ -92,17 +104,31 @@ class GPU_GLES2_EXPORT SharedContextState
   std::vector<uint8_t>* scratch_deserialization_buffer() {
     return &scratch_deserialization_buffer_;
   }
-  bool use_vulkan_gr_context() const { return use_vulkan_gr_context_; }
+  size_t max_resource_cache_bytes() const { return max_resource_cache_bytes_; }
   size_t glyph_cache_max_texture_bytes() const {
     return glyph_cache_max_texture_bytes_;
   }
   bool use_virtualized_gl_contexts() const {
     return use_virtualized_gl_contexts_;
   }
+  bool support_vulkan_external_object() const {
+    return support_vulkan_external_object_;
+  }
 
   // base::trace_event::MemoryDumpProvider implementation.
   bool OnMemoryDump(const base::trace_event::MemoryDumpArgs& args,
                     base::trace_event::ProcessMemoryDump* pmd) override;
+
+  // Observer class which is notified when the context is lost.
+  class ContextLostObserver {
+   public:
+    virtual void OnContextLost() = 0;
+
+   protected:
+    virtual ~ContextLostObserver() {}
+  };
+  void AddContextLostObserver(ContextLostObserver* obs);
+  void RemoveContextLostObserver(ContextLostObserver* obs);
 
  private:
   friend class base::RefCounted<SharedContextState>;
@@ -130,10 +156,11 @@ class GPU_GLES2_EXPORT SharedContextState
   QueryManager* GetQueryManager() override;
 
   bool use_virtualized_gl_contexts_ = false;
+  bool support_vulkan_external_object_ = false;
   base::OnceClosure context_lost_callback_;
-  viz::VulkanContextProvider* vk_context_provider_ = nullptr;
+  viz::VulkanContextProvider* const vk_context_provider_;
+  viz::MetalContextProvider* const metal_context_provider_;
   GrContext* gr_context_ = nullptr;
-  const bool use_vulkan_gr_context_;
 
   scoped_refptr<gl::GLShareGroup> share_group_;
   scoped_refptr<gl::GLContext> context_;
@@ -147,6 +174,7 @@ class GPU_GLES2_EXPORT SharedContextState
   gl::ProgressReporter* progress_reporter_ = nullptr;
   sk_sp<GrContext> owned_gr_context_;
   std::unique_ptr<ServiceTransferCache> transfer_cache_;
+  size_t max_resource_cache_bytes_ = 0u;
   size_t glyph_cache_max_texture_bytes_ = 0u;
   std::vector<uint8_t> scratch_deserialization_buffer_;
 
@@ -155,8 +183,9 @@ class GPU_GLES2_EXPORT SharedContextState
   bool need_context_state_reset_ = false;
 
   bool context_lost_ = false;
+  base::ObserverList<ContextLostObserver>::Unchecked context_lost_observers_;
 
-  base::WeakPtrFactory<SharedContextState> weak_ptr_factory_;
+  base::WeakPtrFactory<SharedContextState> weak_ptr_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(SharedContextState);
 };

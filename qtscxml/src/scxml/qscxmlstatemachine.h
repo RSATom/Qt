@@ -41,7 +41,6 @@
 #define QSCXMLSTATEMACHINE_H
 
 #include <QtScxml/qscxmldatamodel.h>
-#include <QtScxml/qscxmlexecutablecontent.h>
 #include <QtScxml/qscxmlerror.h>
 #include <QtScxml/qscxmlevent.h>
 #include <QtScxml/qscxmlcompiler.h>

@@ -5,10 +5,10 @@
  * found in the LICENSE file.
  */
 
-#include "SkBitmap.h"
-#include "SkTDArray.h"
+#include "include/core/SkBitmap.h"
+#include "include/private/SkTDArray.h"
 
-class SkDrawCommand;
+class DrawCommand;
 
 // This class encapsulates the both the in-memory representation of the draw ops
 // and the state of Skia/Ganesh's rendering. It should never have any Qt intrusions.
@@ -51,7 +51,7 @@ protected:
     void resetOpList();
 
 private:
-    SkTDArray<SkDrawCommand*> fOps;
+    SkTDArray<DrawCommand*>   fOps;
     int                       fCurOp;  // The current op the rendering state is at
     SkBitmap                  fBM;
 };

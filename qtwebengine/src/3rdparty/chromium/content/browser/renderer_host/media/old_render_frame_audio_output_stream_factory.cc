@@ -7,6 +7,7 @@
 #include <memory>
 #include <utility>
 
+#include "base/bind.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/task/post_task.h"
 #include "base/task_runner_util.h"
@@ -61,9 +62,7 @@ void RenderFrameAudioOutputStreamFactoryHandle::Init(
 OldRenderFrameAudioOutputStreamFactory::OldRenderFrameAudioOutputStreamFactory(
     int render_frame_id,
     RendererAudioOutputStreamFactoryContext* context)
-    : render_frame_id_(render_frame_id),
-      context_(context),
-      weak_ptr_factory_(this) {
+    : render_frame_id_(render_frame_id), context_(context) {
   DCHECK(context_);
 }
 
@@ -78,14 +77,15 @@ OldRenderFrameAudioOutputStreamFactory::
 
 void OldRenderFrameAudioOutputStreamFactory::RequestDeviceAuthorization(
     media::mojom::AudioOutputStreamProviderRequest stream_provider_request,
-    int32_t session_id,
+    const base::Optional<base::UnguessableToken>& session_id,
     const std::string& device_id,
     RequestDeviceAuthorizationCallback callback) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
   const base::TimeTicks auth_start_time = base::TimeTicks::Now();
 
   context_->RequestDeviceAuthorization(
-      render_frame_id_, session_id, device_id,
+      render_frame_id_, session_id.value_or(base::UnguessableToken()),
+      device_id,
       base::BindOnce(
           &OldRenderFrameAudioOutputStreamFactory::AuthorizationCompleted,
           weak_ptr_factory_.GetWeakPtr(), auth_start_time,

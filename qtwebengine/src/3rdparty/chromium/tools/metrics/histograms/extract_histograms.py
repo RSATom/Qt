@@ -53,6 +53,7 @@ XML below will generate the following five histograms:
 
 """
 
+import HTMLParser
 import bisect
 import copy
 import datetime
@@ -78,7 +79,8 @@ class Error(Exception):
 def _JoinChildNodes(tag):
   """Join child nodes into a single text.
 
-  Applicable to leafs like 'summary' and 'detail'.
+  Applicable to leafs like 'summary' and 'detail'. Removes any comment in the
+  node.
 
   Args:
     tag: parent node
@@ -86,13 +88,15 @@ def _JoinChildNodes(tag):
   Returns:
     a string with concatenated nodes' text representation.
   """
-  return ''.join(c.toxml() for c in tag.childNodes).strip()
+  return ''.join(c.toxml()
+                 for c in tag.childNodes
+                 if c.nodeType != xml.dom.minidom.Node.COMMENT_NODE).strip()
 
 
 def _NormalizeString(s):
-  """Replaces all whitespace sequences with a single space.
+  r"""Replaces all whitespace sequences with a single space.
 
-  The function properly handles multi-line strings.
+  The function properly handles multi-line strings and XML escaped characters.
 
   Args:
     s: The string to normalize, ('  \\n a  b c\\n d  ').
@@ -100,7 +104,11 @@ def _NormalizeString(s):
   Returns:
     The normalized string (a b c d).
   """
-  return ' '.join(s.split())
+  singleline_value = ' '.join(s.split())
+
+  # Unescape using default ASCII encoding. Unescapes any HTML escaped character
+  # like &quot; etc.
+  return HTMLParser.HTMLParser().unescape(singleline_value)
 
 
 def _NormalizeAllAttributeValues(node):
@@ -179,7 +187,7 @@ def _ExpandHistogramNameWithSuffixes(suffix_name, histogram_name,
   return cluster + suffix_name + separator + remainder
 
 
-def _ExtractEnumsFromXmlTree(tree):
+def ExtractEnumsFromXmlTree(tree):
   """Extract all <enum> nodes in the tree into a dictionary."""
 
   enums = {}
@@ -244,13 +252,26 @@ def _ExtractEnumsFromXmlTree(tree):
 
 
 def _ExtractOwners(xml_node):
-  """Extract all owners into a list from owner tag under |xml_node|."""
+  """Extract owners information from owner tag under |xml_node|.
+
+  Args:
+    xml_node: The histogram node in histograms.xml.
+
+  Returns:
+    A tuple of owners information where the first element is a list of owners
+    extract from |xml_node| excluding the owner placeholder string, and the
+    second element is whether the owner tag is presented in |xml_node|
+    including the owner placeholder string.
+  """
   owners = []
+  hasOwner = False
   for owner_node in xml_node.getElementsByTagName('owner'):
     owner_entry = _NormalizeString(_JoinChildNodes(owner_node))
+    hasOwner = True
     if OWNER_FIELD_PLACEHOLDER not in owner_entry:
       owners.append(owner_entry)
-  return owners
+  return owners, hasOwner
+
 
 
 def _ValidateDateString(date_str):
@@ -314,7 +335,7 @@ def _ExtractHistogramsFromXmlTree(tree, enums):
         have_errors = True
 
     # Find <owner> tag.
-    owners = _ExtractOwners(histogram)
+    owners, hasOwner = _ExtractOwners(histogram)
     if owners:
       histogram_entry['owners'] = owners
 
@@ -331,6 +352,16 @@ def _ExtractHistogramsFromXmlTree(tree, enums):
     if obsolete_nodes:
       reason = _JoinChildNodes(obsolete_nodes[0])
       histogram_entry['obsolete'] = reason
+
+    # Non-obsolete histograms should provide a <summary>.
+    if not obsolete_nodes and not summary_nodes:
+      logging.error('histogram %s should provide a <summary>', name)
+      have_errors = True
+
+    # Non-obsolete histograms should specify <owner>s.
+    if not obsolete_nodes and not hasOwner:
+      logging.error('histogram %s should specify <owner>s', name)
+      have_errors = True
 
     # Handle units.
     if histogram.hasAttribute('units'):
@@ -441,7 +472,7 @@ def _UpdateHistogramsWithSuffixes(tree, histograms):
     for suffix in suffix_nodes:
       suffix_labels[suffix.getAttribute('name')] = suffix.getAttribute('label')
     # Find owners list under current histogram_suffixes tag.
-    owners = _ExtractOwners(histogram_suffixes)
+    owners, _ = _ExtractOwners(histogram_suffixes)
 
     last_histogram_name = None
     for affected_histogram in affected_histograms:
@@ -532,7 +563,7 @@ def ExtractHistogramsFromDom(tree):
   """
   _NormalizeAllAttributeValues(tree)
 
-  enums, enum_errors = _ExtractEnumsFromXmlTree(tree)
+  enums, enum_errors = ExtractEnumsFromXmlTree(tree)
   histograms, histogram_errors = _ExtractHistogramsFromXmlTree(tree, enums)
   update_errors = _UpdateHistogramsWithSuffixes(tree, histograms)
 

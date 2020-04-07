@@ -298,7 +298,7 @@ class SimpleURLLoaderImpl : public SimpleURLLoader,
   void OnReceiveResponse(const ResourceResponseHead& response_head) override;
   void OnReceiveRedirect(const net::RedirectInfo& redirect_info,
                          const ResourceResponseHead& response_head) override;
-  void OnReceiveCachedMetadata(const std::vector<uint8_t>& data) override;
+  void OnReceiveCachedMetadata(mojo_base::BigBuffer data) override;
   void OnTransferSizeUpdated(int32_t transfer_size_diff) override;
   void OnUploadProgress(int64_t current_position,
                         int64_t total_size,
@@ -371,7 +371,7 @@ class SimpleURLLoaderImpl : public SimpleURLLoader,
 
   SEQUENCE_CHECKER(sequence_checker_);
 
-  base::WeakPtrFactory<SimpleURLLoaderImpl> weak_ptr_factory_;
+  base::WeakPtrFactory<SimpleURLLoaderImpl> weak_ptr_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(SimpleURLLoaderImpl);
 };
@@ -410,9 +410,7 @@ class BodyReader {
   };
 
   BodyReader(Delegate* delegate, int64_t max_body_size)
-      : delegate_(delegate),
-        max_body_size_(max_body_size),
-        weak_ptr_factory_(this) {
+      : delegate_(delegate), max_body_size_(max_body_size) {
     DCHECK_GE(max_body_size_, 0);
   }
 
@@ -557,7 +555,7 @@ class BodyReader {
   // Delegate only after Resume() is called.
   net::Error pending_error_ = net::OK;
 
-  base::WeakPtrFactory<BodyReader> weak_ptr_factory_;
+  base::WeakPtrFactory<BodyReader> weak_ptr_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(BodyReader);
 };
@@ -754,8 +752,7 @@ class SaveToFileBodyHandler : public BodyHandler {
                         base::TaskPriority task_priority)
       : BodyHandler(simple_url_loader, want_download_progress),
         download_to_file_complete_callback_(
-            std::move(download_to_file_complete_callback)),
-        weak_ptr_factory_(this) {
+            std::move(download_to_file_complete_callback)) {
     DCHECK(create_temp_file || !path.empty());
 
     // Can only do this after initializing the WeakPtrFactory.
@@ -1058,7 +1055,7 @@ class SaveToFileBodyHandler : public BodyHandler {
 
   SEQUENCE_CHECKER(sequence_checker_);
 
-  base::WeakPtrFactory<SaveToFileBodyHandler> weak_ptr_factory_;
+  base::WeakPtrFactory<SaveToFileBodyHandler> weak_ptr_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(SaveToFileBodyHandler);
 };
@@ -1071,8 +1068,7 @@ class DownloadAsStreamBodyHandler : public BodyHandler,
                               bool want_download_progress,
                               SimpleURLLoaderStreamConsumer* stream_consumer)
       : BodyHandler(simple_url_loader, want_download_progress),
-        stream_consumer_(stream_consumer),
-        weak_ptr_factory_(this) {}
+        stream_consumer_(stream_consumer) {}
 
   ~DownloadAsStreamBodyHandler() override {}
 
@@ -1140,7 +1136,7 @@ class DownloadAsStreamBodyHandler : public BodyHandler,
 
   bool in_recursive_call_ = false;
 
-  base::WeakPtrFactory<DownloadAsStreamBodyHandler> weak_ptr_factory_;
+  base::WeakPtrFactory<DownloadAsStreamBodyHandler> weak_ptr_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(DownloadAsStreamBodyHandler);
 };
@@ -1153,8 +1149,7 @@ SimpleURLLoaderImpl::SimpleURLLoaderImpl(
       client_binding_(this),
       request_state_(std::make_unique<RequestState>()),
       final_url_(resource_request_->url),
-      timeout_timer_(timeout_tick_clock_),
-      weak_ptr_factory_(this) {
+      timeout_timer_(timeout_tick_clock_) {
   // Allow creation and use on different threads.
   DETACH_FROM_SEQUENCE(sequence_checker_);
 #if DCHECK_IS_ON()
@@ -1163,9 +1158,9 @@ SimpleURLLoaderImpl::SimpleURLLoaderImpl(
          *resource_request_->request_body->elements()) {
       // Files should be attached with AttachFileForUpload, so that (Once
       // supported) they can be opened in the current process.
-      //
-      // TODO(mmenke): Add a similar method for bytes, to allow streaming of
-      // large byte buffers to the network process when uploading.
+
+      // Bytes should be attached with AttachStringForUpload to allow
+      // streaming of large byte buffers to the network process when uploading.
       DCHECK(element.type() != mojom::DataElementType::kFile &&
              element.type() != mojom::DataElementType::kBytes);
     }
@@ -1621,8 +1616,7 @@ void SimpleURLLoaderImpl::OnReceiveRedirect(
                               {} /* new_url */);
 }
 
-void SimpleURLLoaderImpl::OnReceiveCachedMetadata(
-    const std::vector<uint8_t>& data) {
+void SimpleURLLoaderImpl::OnReceiveCachedMetadata(mojo_base::BigBuffer data) {
   // Ignored.
 }
 

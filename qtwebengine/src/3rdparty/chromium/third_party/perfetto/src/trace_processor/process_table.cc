@@ -36,43 +36,45 @@ void ProcessTable::RegisterTable(sqlite3* db, const TraceStorage* storage) {
   Table::Register<ProcessTable>(db, storage, "process");
 }
 
-base::Optional<Table::Schema> ProcessTable::Init(int, const char* const*) {
-  return Schema(
+util::Status ProcessTable::Init(int, const char* const*, Schema* schema) {
+  *schema = Schema(
       {
           Table::Column(Column::kUpid, "upid", ColumnType::kInt),
           Table::Column(Column::kName, "name", ColumnType::kString),
           Table::Column(Column::kPid, "pid", ColumnType::kUint),
+          Table::Column(Column::kStartTs, "start_ts", ColumnType::kLong),
+          Table::Column(Column::kEndTs, "end_ts", ColumnType::kLong),
+          Table::Column(Column::kParentUpid, "parent_upid", ColumnType::kInt),
       },
       {Column::kUpid});
+  return util::OkStatus();
 }
 
-std::unique_ptr<Table::Cursor> ProcessTable::CreateCursor(
-    const QueryConstraints& qc,
-    sqlite3_value** argv) {
-  return std::unique_ptr<Table::Cursor>(new Cursor(storage_, qc, argv));
+std::unique_ptr<Table::Cursor> ProcessTable::CreateCursor() {
+  return std::unique_ptr<Table::Cursor>(new Cursor(this));
 }
 
 int ProcessTable::BestIndex(const QueryConstraints& qc, BestIndexInfo* info) {
-  info->estimated_cost = static_cast<uint32_t>(storage_->process_count());
-
   // If the query has a constraint on the |upid| field, return a reduced cost
   // because we can do that filter efficiently.
-  const auto& constraints = qc.constraints();
-  if (constraints.size() == 1 && constraints.front().iColumn == Column::kUpid) {
-    info->estimated_cost = IsOpEq(constraints.front().op) ? 1 : 10;
-  }
-
+  const auto& cs = qc.constraints();
+  auto fn = [](const QueryConstraints::Constraint& c) {
+    return c.iColumn == Column::kUpid && sqlite_utils::IsOpEq(c.op);
+  };
+  info->estimated_cost = std::find_if(cs.begin(), cs.end(), fn) != cs.end()
+                             ? 1
+                             : static_cast<uint32_t>(storage_->process_count());
   return SQLITE_OK;
 }
 
-ProcessTable::Cursor::Cursor(const TraceStorage* storage,
-                             const QueryConstraints& qc,
-                             sqlite3_value** argv)
-    : storage_(storage) {
+ProcessTable::Cursor::Cursor(ProcessTable* table)
+    : Table::Cursor(table), storage_(table->storage_) {}
+
+int ProcessTable::Cursor::Filter(const QueryConstraints& qc,
+                                 sqlite3_value** argv) {
   min = 0;
   max = static_cast<uint32_t>(storage_->process_count()) - 1;
   desc = false;
-  current = min;
 
   for (size_t j = 0; j < qc.constraints().size(); j++) {
     const auto& cs = qc.constraints()[j];
@@ -91,12 +93,15 @@ ProcessTable::Cursor::Cursor(const TraceStorage* storage,
       }
     }
   }
+
   for (const auto& ob : qc.order_by()) {
     if (ob.iColumn == Column::kUpid) {
       desc = ob.desc;
-      current = desc ? max : min;
     }
   }
+  current = desc ? max : min;
+
+  return SQLITE_OK;
 }
 
 int ProcessTable::Cursor::Column(sqlite3_context* context, int N) {
@@ -108,13 +113,39 @@ int ProcessTable::Cursor::Column(sqlite3_context* context, int N) {
     case Column::kName: {
       const auto& process = storage_->GetProcess(current);
       const auto& name = storage_->GetString(process.name_id);
-      sqlite3_result_text(context, name.c_str(),
-                          static_cast<int>(name.length()), kSqliteStatic);
+      sqlite3_result_text(context, name.c_str(), -1, kSqliteStatic);
       break;
     }
     case Column::kPid: {
       const auto& process = storage_->GetProcess(current);
       sqlite3_result_int64(context, process.pid);
+      break;
+    }
+    case Column::kStartTs: {
+      const auto& process = storage_->GetProcess(current);
+      if (process.start_ns != 0) {
+        sqlite3_result_int64(context, process.start_ns);
+      } else {
+        sqlite3_result_null(context);
+      }
+      break;
+    }
+    case Column::kEndTs: {
+      const auto& process = storage_->GetProcess(current);
+      if (process.end_ns != 0) {
+        sqlite3_result_int64(context, process.end_ns);
+      } else {
+        sqlite3_result_null(context);
+      }
+      break;
+    }
+    case Column::kParentUpid: {
+      const auto& process = storage_->GetProcess(current);
+      if (process.parent_upid.has_value()) {
+        sqlite3_result_int64(context, process.parent_upid.value());
+      } else {
+        sqlite3_result_null(context);
+      }
       break;
     }
     default:

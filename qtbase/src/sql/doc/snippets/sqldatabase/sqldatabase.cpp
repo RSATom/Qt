@@ -213,7 +213,7 @@ void QSqlQuery_snippets()
     while (i.hasNext()) {
         i.next();
         cout << i.key().toUtf8().data() << ": "
-             << i.value().toString().toUtf8().data() << endl;
+             << i.value().toString().toUtf8().data() << Qt::endl;
     }
 //! [14]
     }
@@ -223,7 +223,7 @@ void QSqlQuery_snippets()
 //! [15]
     QList<QVariant> list = query.boundValues().values();
     for (int i = 0; i < list.size(); ++i)
-        cout << i << ": " << list.at(i).toString().toUtf8().data() << endl;
+        cout << i << ": " << list.at(i).toString().toUtf8().data() << Qt::endl;
 //! [15]
     }
 }
@@ -249,16 +249,15 @@ void QSqlQueryModel_snippets()
     }
 
 //! [21]
-    QSqlTableModel model;
-    model.setTable("employee");
-    model.select();
+    QSqlQueryModel model;
+    model.setQuery("SELECT name, salary FROM employee");
     int salary = model.record(4).value("salary").toInt();
 //! [21]
     Q_UNUSED(salary);
 
     {
 //! [22]
-    int salary = model.data(model.index(4, 2)).toInt();
+    int salary = model.data(model.index(4, 1)).toInt();
 //! [22]
     Q_UNUSED(salary);
     }
@@ -308,7 +307,8 @@ void QSqlTableModel_snippets()
 //! [25]
     QSqlTableModel model;
     model.setTable("employee");
-    QString name = model.record(4).value("name").toString();
+    model.select();
+    int salary = model.record(4).value("salary").toInt();
 //! [25]
     }
 }

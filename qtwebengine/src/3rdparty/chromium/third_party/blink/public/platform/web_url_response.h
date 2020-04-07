@@ -33,6 +33,7 @@
 
 #include <memory>
 
+#include "base/optional.h"
 #include "base/time/time.h"
 #include "net/cert/ct_policy_status.h"
 #include "net/http/http_response_info.h"
@@ -175,48 +176,48 @@ class WebURLResponse {
   BLINK_PLATFORM_EXPORT void SetResponseTime(base::Time);
 
   BLINK_PLATFORM_EXPORT WebString MimeType() const;
-  BLINK_PLATFORM_EXPORT void SetMIMEType(const WebString&);
+  BLINK_PLATFORM_EXPORT void SetMimeType(const WebString&);
 
-  BLINK_PLATFORM_EXPORT long long ExpectedContentLength() const;
-  BLINK_PLATFORM_EXPORT void SetExpectedContentLength(long long);
+  BLINK_PLATFORM_EXPORT int64_t ExpectedContentLength() const;
+  BLINK_PLATFORM_EXPORT void SetExpectedContentLength(int64_t);
 
   BLINK_PLATFORM_EXPORT void SetTextEncodingName(const WebString&);
 
   BLINK_PLATFORM_EXPORT HTTPVersion HttpVersion() const;
-  BLINK_PLATFORM_EXPORT void SetHTTPVersion(HTTPVersion);
+  BLINK_PLATFORM_EXPORT void SetHttpVersion(HTTPVersion);
 
   BLINK_PLATFORM_EXPORT int RequestId() const;
   BLINK_PLATFORM_EXPORT void SetRequestId(int);
 
   BLINK_PLATFORM_EXPORT int HttpStatusCode() const;
-  BLINK_PLATFORM_EXPORT void SetHTTPStatusCode(int);
+  BLINK_PLATFORM_EXPORT void SetHttpStatusCode(int);
 
   BLINK_PLATFORM_EXPORT WebString HttpStatusText() const;
-  BLINK_PLATFORM_EXPORT void SetHTTPStatusText(const WebString&);
+  BLINK_PLATFORM_EXPORT void SetHttpStatusText(const WebString&);
 
   BLINK_PLATFORM_EXPORT WebString HttpHeaderField(const WebString& name) const;
-  BLINK_PLATFORM_EXPORT void SetHTTPHeaderField(const WebString& name,
+  BLINK_PLATFORM_EXPORT void SetHttpHeaderField(const WebString& name,
                                                 const WebString& value);
-  BLINK_PLATFORM_EXPORT void AddHTTPHeaderField(const WebString& name,
+  BLINK_PLATFORM_EXPORT void AddHttpHeaderField(const WebString& name,
                                                 const WebString& value);
-  BLINK_PLATFORM_EXPORT void ClearHTTPHeaderField(const WebString& name);
-  BLINK_PLATFORM_EXPORT void VisitHTTPHeaderFields(WebHTTPHeaderVisitor*) const;
+  BLINK_PLATFORM_EXPORT void ClearHttpHeaderField(const WebString& name);
+  BLINK_PLATFORM_EXPORT void VisitHttpHeaderFields(WebHTTPHeaderVisitor*) const;
 
-  BLINK_PLATFORM_EXPORT long long AppCacheID() const;
-  BLINK_PLATFORM_EXPORT void SetAppCacheID(long long);
+  BLINK_PLATFORM_EXPORT int64_t AppCacheID() const;
+  BLINK_PLATFORM_EXPORT void SetAppCacheID(int64_t);
 
   BLINK_PLATFORM_EXPORT WebURL AppCacheManifestURL() const;
   BLINK_PLATFORM_EXPORT void SetAppCacheManifestURL(const WebURL&);
 
   BLINK_PLATFORM_EXPORT void SetHasMajorCertificateErrors(bool);
   BLINK_PLATFORM_EXPORT void SetCTPolicyCompliance(net::ct::CTPolicyCompliance);
-  BLINK_PLATFORM_EXPORT void SetIsLegacySymantecCert(bool);
   BLINK_PLATFORM_EXPORT void SetIsLegacyTLSVersion(bool);
 
   BLINK_PLATFORM_EXPORT void SetSecurityStyle(WebSecurityStyle);
 
   BLINK_PLATFORM_EXPORT void SetSecurityDetails(const WebSecurityDetails&);
-  BLINK_PLATFORM_EXPORT WebSecurityDetails SecurityDetailsForTesting();
+  BLINK_PLATFORM_EXPORT base::Optional<WebSecurityDetails>
+  SecurityDetailsForTesting();
 
   BLINK_PLATFORM_EXPORT void SetAsyncRevalidationRequested(bool);
   BLINK_PLATFORM_EXPORT void SetNetworkAccessed(bool);
@@ -233,13 +234,11 @@ class WebURLResponse {
   BLINK_PLATFORM_EXPORT void SetWasFetchedViaSPDY(bool);
 
   // Flag whether this request was loaded via a ServiceWorker. See
-  // ServiceWorkerResponseInfo::was_fetched_via_service_worker() for details.
+  // network::ResourceResponseInfo::was_fetched_via_service_worker for details.
   BLINK_PLATFORM_EXPORT bool WasFetchedViaServiceWorker() const;
   BLINK_PLATFORM_EXPORT void SetWasFetchedViaServiceWorker(bool);
 
-  // Flag whether the fallback request with skip service worker flag was
-  // required. See ServiceWorkerResponseInfo::was_fallback_required() for
-  // details.
+  // See network::ResourceResponseInfo::was_fallback_required_by_service_worker.
   BLINK_PLATFORM_EXPORT void SetWasFallbackRequiredByServiceWorker(bool);
 
   // https://fetch.spec.whatwg.org/#concept-response-type
@@ -247,9 +246,9 @@ class WebURLResponse {
   BLINK_PLATFORM_EXPORT network::mojom::FetchResponseType GetType() const;
 
   // The URL list of the Response object the ServiceWorker passed to
-  // respondWith(). See ServiceWorkerResponseInfo::url_list_via_service_worker()
-  // for details.
-  BLINK_PLATFORM_EXPORT void SetURLListViaServiceWorker(
+  // respondWith(). See
+  // network::ResourceResponseInfo::url_list_via_service_worker for details.
+  BLINK_PLATFORM_EXPORT void SetUrlListViaServiceWorker(
       const WebVector<WebURL>&);
   // Returns true if the URL list is not empty.
   BLINK_PLATFORM_EXPORT bool HasUrlListViaServiceWorker() const;
@@ -265,8 +264,7 @@ class WebURLResponse {
       const WebVector<WebString>&);
 
   // Whether service worker navigation preload occurred.
-  // See ServiceWorkerResponseInfo::did_navigation_preload() for
-  // details.
+  // See network::ResourceResponseInfo::did_navigation_preload for details.
   BLINK_PLATFORM_EXPORT void SetDidServiceWorkerNavigationPreload(bool);
 
   // Remote IP address of the socket which fetched this resource.
@@ -274,8 +272,8 @@ class WebURLResponse {
   BLINK_PLATFORM_EXPORT void SetRemoteIPAddress(const WebString&);
 
   // Remote port number of the socket which fetched this resource.
-  BLINK_PLATFORM_EXPORT unsigned short RemotePort() const;
-  BLINK_PLATFORM_EXPORT void SetRemotePort(unsigned short);
+  BLINK_PLATFORM_EXPORT uint16_t RemotePort() const;
+  BLINK_PLATFORM_EXPORT void SetRemotePort(uint16_t);
 
   // ALPN negotiated protocol of the socket which fetched this resource.
   BLINK_PLATFORM_EXPORT WebString AlpnNegotiatedProtocol() const;
@@ -288,9 +286,17 @@ class WebURLResponse {
       net::HttpResponseInfo::ConnectionInfo);
 
   // Original size of the response before decompression.
-  BLINK_PLATFORM_EXPORT void SetEncodedDataLength(long long);
+  BLINK_PLATFORM_EXPORT void SetEncodedDataLength(int64_t);
+
+  // Original size of the response body before decompression.
+  BLINK_PLATFORM_EXPORT int64_t EncodedBodyLength() const;
+  BLINK_PLATFORM_EXPORT void SetEncodedBodyLength(int64_t);
 
   BLINK_PLATFORM_EXPORT void SetIsSignedExchangeInnerResponse(bool);
+  BLINK_PLATFORM_EXPORT void SetWasInPrefetchCache(bool);
+
+  // Whether this resource is from a MHTML archive.
+  BLINK_PLATFORM_EXPORT bool FromArchive() const;
 
 #if INSIDE_BLINK
  protected:

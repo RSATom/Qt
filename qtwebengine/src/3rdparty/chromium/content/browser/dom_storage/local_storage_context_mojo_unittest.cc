@@ -4,6 +4,8 @@
 
 #include "content/browser/dom_storage/local_storage_context_mojo.h"
 
+#include "base/bind.h"
+#include "base/bind_helpers.h"
 #include "base/files/file_enumerator.h"
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
@@ -12,12 +14,9 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/bind_test_util.h"
 #include "build/build_config.h"
-#include "components/services/filesystem/public/interfaces/file_system.mojom.h"
+#include "components/services/filesystem/public/mojom/file_system.mojom.h"
 #include "components/services/leveldb/public/cpp/util.h"
-#include "content/browser/dom_storage/dom_storage_area.h"
-#include "content/browser/dom_storage/dom_storage_context_impl.h"
 #include "content/browser/dom_storage/dom_storage_database.h"
-#include "content/browser/dom_storage/dom_storage_namespace.h"
 #include "content/browser/dom_storage/dom_storage_task_runner.h"
 #include "content/browser/dom_storage/test/fake_leveldb_database_error_on_write.h"
 #include "content/browser/dom_storage/test/fake_leveldb_service.h"
@@ -35,7 +34,6 @@
 #include "mojo/public/cpp/bindings/strong_associated_binding.h"
 #include "services/file/public/mojom/constants.mojom.h"
 #include "services/file/user_id_map.h"
-#include "services/service_manager/public/mojom/service_factory.mojom.h"
 #include "storage/browser/test/mock_special_storage_policy.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/leveldatabase/env_chromium.h"
@@ -49,9 +47,6 @@ namespace content {
 namespace {
 using test::FakeLevelDBService;
 using test::FakeLevelDBDatabaseErrorOnWrite;
-
-// An empty namespace is the local storage namespace.
-constexpr const char kLocalStorageNamespaceId[] = "";
 
 void GetStorageUsageCallback(const base::RepeatingClosure& callback,
                              std::vector<StorageUsageInfo>* out_result,
@@ -121,13 +116,9 @@ class LocalStorageContextMojoTest : public testing::Test {
             base::ThreadTaskRunnerHandle::Get().get())),
         mock_special_storage_policy_(new MockSpecialStoragePolicy()) {
     EXPECT_TRUE(temp_path_.CreateUniqueTempDir());
-    dom_storage_context_ =
-        new DOMStorageContextImpl(base::FilePath(), nullptr, task_runner_);
   }
 
   ~LocalStorageContextMojoTest() override {
-    if (dom_storage_context_)
-      dom_storage_context_->Shutdown();
     if (context_)
       ShutdownContext();
   }
@@ -151,10 +142,6 @@ class LocalStorageContextMojoTest : public testing::Test {
     context_->ShutdownAndDelete();
     context_ = nullptr;
     base::RunLoop().RunUntilIdle();
-  }
-
-  DOMStorageNamespace* local_storage_namespace() {
-    return dom_storage_context_->GetStorageNamespace(kLocalStorageNamespaceId);
   }
 
   MockSpecialStoragePolicy* special_storage_policy() {
@@ -205,7 +192,6 @@ class LocalStorageContextMojoTest : public testing::Test {
   mojo::AssociatedBinding<leveldb::mojom::LevelDBDatabase> db_binding_;
 
   scoped_refptr<MockDOMStorageTaskRunner> task_runner_;
-  scoped_refptr<DOMStorageContextImpl> dom_storage_context_;
 
   LocalStorageContextMojo* context_ = nullptr;
 
@@ -630,8 +616,8 @@ TEST_F(LocalStorageContextMojoTest, Migration) {
   key2.push_back(0xd83d);
   key2.push_back(0xde00);
 
-  base::FilePath old_db_path =
-      TempPath().Append(DOMStorageArea::DatabaseFileNameFromOrigin(origin1));
+  base::FilePath old_db_path = TempPath().Append(
+      LocalStorageContextMojo::LegacyDatabaseFileNameFromOrigin(origin1));
   {
     DOMStorageDatabase db(old_db_path);
     DOMStorageValuesMap data;
@@ -1035,8 +1021,7 @@ TEST_F(LocalStorageContextMojoTestWithService, CorruptionOnDisk) {
 
 TEST_F(LocalStorageContextMojoTestWithService, RecreateOnCommitFailure) {
   FakeLevelDBService mock_leveldb_service;
-  file_service()->GetBinderRegistryForTesting()->AddInterface(
-      leveldb::mojom::LevelDBService::Name_,
+  file_service()->GetBinderMapForTesting().Add(
       base::BindRepeating(&test::FakeLevelDBService::Bind,
                           base::Unretained(&mock_leveldb_service)));
 
@@ -1184,8 +1169,7 @@ TEST_F(LocalStorageContextMojoTestWithService, RecreateOnCommitFailure) {
 TEST_F(LocalStorageContextMojoTestWithService,
        DontRecreateOnRepeatedCommitFailure) {
   FakeLevelDBService mock_leveldb_service;
-  file_service()->GetBinderRegistryForTesting()->AddInterface(
-      leveldb::mojom::LevelDBService::Name_,
+  file_service()->GetBinderMapForTesting().Add(
       base::BindRepeating(&test::FakeLevelDBService::Bind,
                           base::Unretained(&mock_leveldb_service)));
 

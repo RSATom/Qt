@@ -22,17 +22,22 @@ class MockDeviceFactoryProvider
   void ConnectToVideoSourceProvider(
       video_capture::mojom::VideoSourceProviderRequest request) override;
 
+#if defined(OS_CHROMEOS)
   void InjectGpuDependencies(
       video_capture::mojom::AcceleratorFactoryPtr accelerator_factory) override;
 
   MOCK_METHOD1(
       DoInjectGpuDependencies,
       void(video_capture::mojom::AcceleratorFactoryPtr& accelerator_factory));
+#endif  // defined(OS_CHROMEOS
+
   MOCK_METHOD1(SetShutdownDelayInSeconds, void(float seconds));
   MOCK_METHOD1(DoConnectToDeviceFactory,
                void(video_capture::mojom::DeviceFactoryRequest& request));
   MOCK_METHOD1(DoConnectToVideoSourceProvider,
                void(video_capture::mojom::VideoSourceProviderRequest& request));
+  MOCK_METHOD0(ShutdownServiceAsap, void());
+  MOCK_METHOD1(SetRetryCount, void(int32_t));
 };
 
 }  // namespace video_capture

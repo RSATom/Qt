@@ -8,10 +8,11 @@
 #ifndef GrGLSLShaderBuilder_DEFINED
 #define GrGLSLShaderBuilder_DEFINED
 
-#include "GrAllocator.h"
-#include "GrShaderVar.h"
-#include "glsl/GrGLSLUniformHandler.h"
-#include "SkTDArray.h"
+#include "include/private/SkTDArray.h"
+#include "src/gpu/GrAllocator.h"
+#include "src/gpu/GrShaderVar.h"
+#include "src/gpu/glsl/GrGLSLUniformHandler.h"
+#include "src/sksl/SkSLString.h"
 
 #include <stdarg.h>
 
@@ -164,7 +165,8 @@ protected:
         kBlendFuncExtended_GLSLPrivateFeature,
         kFramebufferFetch_GLSLPrivateFeature,
         kNoPerspectiveInterpolation_GLSLPrivateFeature,
-        kLastGLSLPrivateFeature = kNoPerspectiveInterpolation_GLSLPrivateFeature
+        kSampleVariables_GLSLPrivateFeature,
+        kLastGLSLPrivateFeature = kSampleVariables_GLSLPrivateFeature
     };
 
     /*
@@ -193,12 +195,9 @@ protected:
 
     void nextStage() {
         fShaderStrings.push_back();
-        fCompilerStrings.push_back(this->code().c_str());
-        fCompilerStringLengths.push_back((int)this->code().size());
         fCodeIndex++;
     }
 
-    SkString& versionDecl() { return fShaderStrings[kVersionDecl]; }
     SkString& extensions() { return fShaderStrings[kExtensions]; }
     SkString& definitions() { return fShaderStrings[kDefinitions]; }
     SkString& precisionQualifier() { return fShaderStrings[kPrecisionQualifier]; }
@@ -213,7 +212,6 @@ protected:
     virtual void onFinalize() = 0;
 
     enum {
-        kVersionDecl,
         kExtensions,
         kDefinitions,
         kPrecisionQualifier,
@@ -224,12 +222,13 @@ protected:
         kFunctions,
         kMain,
         kCode,
+
+        kPrealloc = kCode + 6,  // 6 == Reasonable upper bound on number of processor stages
     };
 
     GrGLSLProgramBuilder* fProgramBuilder;
-    SkSTArray<kCode, const char*, true> fCompilerStrings;
-    SkSTArray<kCode, int, true> fCompilerStringLengths;
-    SkSTArray<kCode, SkString> fShaderStrings;
+    SkSL::String fCompilerString;
+    SkSTArray<kPrealloc, SkString> fShaderStrings;
     SkString fCode;
     SkString fFunctions;
     SkString fExtensions;

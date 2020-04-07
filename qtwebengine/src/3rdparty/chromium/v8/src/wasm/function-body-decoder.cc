@@ -4,10 +4,10 @@
 
 #include "src/wasm/function-body-decoder.h"
 
-#include "src/flags.h"
-#include "src/handles.h"
-#include "src/objects-inl.h"
-#include "src/ostreams.h"
+#include "src/flags/flags.h"
+#include "src/handles/handles.h"
+#include "src/objects/objects-inl.h"
+#include "src/utils/ostreams.h"
 #include "src/wasm/decoder.h"
 #include "src/wasm/function-body-decoder-impl.h"
 #include "src/wasm/wasm-limits.h"
@@ -45,7 +45,7 @@ BytecodeIterator::BytecodeIterator(const byte* start, const byte* end,
 DecodeResult VerifyWasmCode(AccountingAllocator* allocator,
                             const WasmFeatures& enabled,
                             const WasmModule* module, WasmFeatures* detected,
-                            FunctionBody& body) {
+                            const FunctionBody& body) {
   Zone zone(allocator, ZONE_NAME);
   WasmFullDecoder<Decoder::kValidate, EmptyInterface> decoder(
       &zone, module, enabled, detected, body);
@@ -151,7 +151,12 @@ bool PrintRawWasmCode(AccountingAllocator* allocator, const FunctionBody& body,
     unsigned length =
         WasmDecoder<Decoder::kNoValidate>::OpcodeLength(&decoder, i.pc());
 
+    unsigned offset = 1;
     WasmOpcode opcode = i.current();
+    if (WasmOpcodes::IsPrefixOpcode(opcode)) {
+      opcode = i.prefixed_opcode();
+      offset = 2;
+    }
     if (line_numbers) line_numbers->push_back(i.position());
     if (opcode == kExprElse || opcode == kExprCatch) {
       control_depth--;
@@ -188,7 +193,7 @@ bool PrintRawWasmCode(AccountingAllocator* allocator, const FunctionBody& body,
       }
 #undef CASE_LOCAL_TYPE
     } else {
-      for (unsigned j = 1; j < length; ++j) {
+      for (unsigned j = offset; j < length; ++j) {
         os << " 0x" << AsHex(i.pc()[j], 2) << ",";
       }
     }
@@ -234,7 +239,8 @@ bool PrintRawWasmCode(AccountingAllocator* allocator, const FunctionBody& body,
         break;
       }
       case kExprCallIndirect: {
-        CallIndirectImmediate<Decoder::kNoValidate> imm(&i, i.pc());
+        CallIndirectImmediate<Decoder::kNoValidate> imm(kAllWasmFeatures, &i,
+                                                        i.pc());
         os << "   // sig #" << imm.sig_index;
         if (decoder.Complete(i.pc(), imm)) {
           os << ": " << *imm.sig;

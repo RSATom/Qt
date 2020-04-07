@@ -26,6 +26,7 @@ class SpellCheckRequester;
   V(InColdModeInvocation)
 
 // Main class for the implementation of idle time spell checker.
+// See design doc for details: https://goo.gl/zONC3v
 class CORE_EXPORT IdleSpellCheckController final
     : public GarbageCollectedFinalized<IdleSpellCheckController>,
       public DocumentShutdownObserver {
@@ -63,7 +64,7 @@ class CORE_EXPORT IdleSpellCheckController final
   void SkipColdModeTimerForTesting();
   int IdleCallbackHandle() const { return idle_callback_handle_; }
 
-  void Trace(blink::Visitor*) override;
+  void Trace(Visitor*) override;
 
  private:
   class IdleCallback;

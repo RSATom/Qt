@@ -67,10 +67,7 @@ class QAxWidget2 : public QWidget
 
     Q_PROPERTY(int lineWidth READ lineWidth WRITE setLineWidth)
 public:
-    explicit QAxWidget2(QWidget *parent = nullptr)
-        : QWidget(parent), m_lineWidth(1)
-    {
-    }
+    using QWidget::QWidget;
 
     int lineWidth() const
     {
@@ -84,7 +81,7 @@ public:
     }
 
 protected:
-    void paintEvent(QPaintEvent *e)
+    void paintEvent(QPaintEvent *e) override
     {
         QPainter paint(this);
         QPen pen = paint.pen();
@@ -97,7 +94,7 @@ protected:
     }
 
 private:
-    int m_lineWidth;
+    int m_lineWidth = 1;
 };
 //! [0]
 

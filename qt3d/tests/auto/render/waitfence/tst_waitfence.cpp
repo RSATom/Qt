@@ -43,7 +43,6 @@
 #include <Qt3DRender/qwaitfence.h>
 #include <Qt3DRender/private/qwaitfence_p.h>
 #include <Qt3DRender/private/waitfence_p.h>
-#include <Qt3DCore/qpropertyupdatedchange.h>
 #include "qbackendnodetester.h"
 #include "testrenderer.h"
 
@@ -71,6 +70,7 @@ private Q_SLOTS:
     void checkInitializeFromPeer()
     {
         // GIVEN
+        TestRenderer renderer;
         Qt3DRender::QWaitFence waitFence;
         waitFence.setHandle(QVariant(883));
         waitFence.setWaitOnCPU(true);
@@ -80,7 +80,8 @@ private Q_SLOTS:
         {
             // WHEN
             Qt3DRender::Render::WaitFence backendWaitFence;
-            simulateInitialization(&waitFence, &backendWaitFence);
+            backendWaitFence.setRenderer(&renderer);
+            simulateInitializationSync(&waitFence, &backendWaitFence);
 
             // THEN
             QCOMPARE(backendWaitFence.isEnabled(), true);
@@ -89,12 +90,15 @@ private Q_SLOTS:
             QCOMPARE(backendWaitFence.data().handle, QVariant(883));
             QCOMPARE(backendWaitFence.data().waitOnCPU, true);
             QCOMPARE(backendWaitFence.data().timeout, quint64(8));
+            QVERIFY(renderer.dirtyBits() & Qt3DRender::Render::AbstractRenderer::FrameGraphDirty);
         }
+        renderer.clearDirtyBits(Qt3DRender::Render::AbstractRenderer::AllDirty);
         {
             // WHEN
             Qt3DRender::Render::WaitFence backendWaitFence;
             waitFence.setEnabled(false);
-            simulateInitialization(&waitFence, &backendWaitFence);
+            backendWaitFence.setRenderer(&renderer);
+            simulateInitializationSync(&waitFence, &backendWaitFence);
 
             // THEN
             QCOMPARE(backendWaitFence.peerId(), waitFence.id());
@@ -103,23 +107,24 @@ private Q_SLOTS:
             QCOMPARE(backendWaitFence.data().handle, QVariant(883));
             QCOMPARE(backendWaitFence.data().waitOnCPU, true);
             QCOMPARE(backendWaitFence.data().timeout, quint64(8));
+            QVERIFY(renderer.dirtyBits() & Qt3DRender::Render::AbstractRenderer::FrameGraphDirty);
         }
     }
 
     void checkSceneChangeEvents()
     {
         // GIVEN
+        Qt3DRender::QWaitFence waitFence;
         Qt3DRender::Render::WaitFence backendWaitFence;
         TestRenderer renderer;
         backendWaitFence.setRenderer(&renderer);
+        simulateInitializationSync(&waitFence, &backendWaitFence);
 
         {
             // WHEN
             const bool newValue = false;
-            const auto change = Qt3DCore::QPropertyUpdatedChangePtr::create(Qt3DCore::QNodeId());
-            change->setPropertyName("enabled");
-            change->setValue(newValue);
-            backendWaitFence.sceneChangeEvent(change);
+            waitFence.setEnabled(newValue);
+            backendWaitFence.syncFromFrontEnd(&waitFence, false);
 
             // THEN
             QCOMPARE(backendWaitFence.isEnabled(), newValue);
@@ -129,10 +134,8 @@ private Q_SLOTS:
         {
             // WHEN
             const QVariant newValue(984);
-            const auto change = Qt3DCore::QPropertyUpdatedChangePtr::create(Qt3DCore::QNodeId());
-            change->setPropertyName("handle");
-            change->setValue(QVariant::fromValue(newValue));
-            backendWaitFence.sceneChangeEvent(change);
+            waitFence.setHandle(newValue);
+            backendWaitFence.syncFromFrontEnd(&waitFence, false);
 
             // THEN
             QCOMPARE(backendWaitFence.data().handle, QVariant(984));
@@ -142,10 +145,8 @@ private Q_SLOTS:
         {
             // WHEN
             const Qt3DRender::QWaitFence::HandleType newValue = Qt3DRender::QWaitFence::OpenGLFenceId;
-            const auto change = Qt3DCore::QPropertyUpdatedChangePtr::create(Qt3DCore::QNodeId());
-            change->setPropertyName("handleType");
-            change->setValue(QVariant::fromValue(newValue));
-            backendWaitFence.sceneChangeEvent(change);
+            waitFence.setHandleType(newValue);
+            backendWaitFence.syncFromFrontEnd(&waitFence, false);
 
             // THEN
             QCOMPARE(backendWaitFence.data().handleType, Qt3DRender::QWaitFence::OpenGLFenceId);
@@ -155,10 +156,8 @@ private Q_SLOTS:
         {
             // WHEN
             const bool newValue = true;
-            const auto change = Qt3DCore::QPropertyUpdatedChangePtr::create(Qt3DCore::QNodeId());
-            change->setPropertyName("waitOnCPU");
-            change->setValue(QVariant::fromValue(newValue));
-            backendWaitFence.sceneChangeEvent(change);
+            waitFence.setWaitOnCPU(newValue);
+            backendWaitFence.syncFromFrontEnd(&waitFence, false);
 
             // THEN
             QCOMPARE(backendWaitFence.data().waitOnCPU, true);
@@ -168,10 +167,8 @@ private Q_SLOTS:
         {
             // WHEN
             const quint64 newValue = 984;
-            const auto change = Qt3DCore::QPropertyUpdatedChangePtr::create(Qt3DCore::QNodeId());
-            change->setPropertyName("timeout");
-            change->setValue(QVariant::fromValue(newValue));
-            backendWaitFence.sceneChangeEvent(change);
+            waitFence.setTimeout(newValue);
+            backendWaitFence.syncFromFrontEnd(&waitFence, false);
 
             // THEN
             QCOMPARE(backendWaitFence.data().timeout, quint64(984));

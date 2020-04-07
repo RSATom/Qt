@@ -9,6 +9,7 @@
 
 #include <vector>
 
+#include "base/unguessable_token.h"
 #include "build/build_config.h"
 #include "media/base/video_types.h"
 #include "media/capture/capture_export.h"
@@ -18,7 +19,7 @@ namespace media {
 
 // TODO(wjia): this type should be defined in a common place and
 // shared with device manager.
-typedef int VideoCaptureSessionId;
+using VideoCaptureSessionId = base::UnguessableToken;
 
 // Policies for capture devices that have source content that varies in size.
 // It is up to the implementation how the captured content will be transformed
@@ -57,7 +58,10 @@ enum class PowerLineFrequency {
 enum class VideoCaptureBufferType {
   kSharedMemory,
   kSharedMemoryViaRawFileDescriptor,
-  kMailboxHolder
+  kMailboxHolder,
+#if defined(OS_CHROMEOS)
+  kGpuMemoryBuffer
+#endif
 };
 
 // WARNING: Do not change the values assigned to the entries. They are used for
@@ -201,7 +205,17 @@ enum class VideoCaptureFrameDropReason {
   kWinMediaFoundationGetBufferByIndexReturnedNull = 14,
   kBufferPoolMaxBufferCountExceeded = 15,
   kBufferPoolBufferAllocationFailed = 16,
-  kMaxValue = 16
+  kVideoCaptureImplNotInStartedState = 17,
+  kVideoCaptureImplFailedToWrapDataAsMediaVideoFrame = 18,
+  kVideoTrackAdapterHasNoResolutionAdapters = 19,
+  kResolutionAdapterFrameIsNotValid = 20,
+  kResolutionAdapterWrappingFrameForCroppingFailed = 21,
+  kResolutionAdapterTimestampTooCloseToPrevious = 22,
+  kResolutionAdapterFrameRateIsHigherThanRequested = 23,
+  kResolutionAdapterHasNoCallbacks = 24,
+  kVideoTrackFrameDelivererNotEnabledReplacingWithBlackFrame = 25,
+  kRendererSinkFrameDelivererIsNotStarted = 26,
+  kMaxValue = 26
 };
 
 // Assert that the int:frequency mapping is correct.

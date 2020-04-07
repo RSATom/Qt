@@ -29,7 +29,14 @@ let showNoPlaybacks = false;
 function createRow(rowInfo) {
   const template = $('datarow');
   const td = template.content.querySelectorAll('td');
-  td[0].textContent = rowInfo.origin.url;
+
+  td[0].textContent = rowInfo.origin.scheme + '://' + rowInfo.origin.host;
+  if (rowInfo.origin.scheme == 'http' && rowInfo.origin.port != '80') {
+    td[0].textContent += ':' + rowInfo.origin.port;
+  } else if (rowInfo.origin.scheme == 'https' && rowInfo.origin.port != '443') {
+    td[0].textContent += ':' + rowInfo.origin.port;
+  }
+
   td[1].textContent = rowInfo.visits;
   td[2].textContent = rowInfo.mediaPlaybacks;
   td[3].textContent = rowInfo.audioContextPlaybacks;
@@ -66,8 +73,8 @@ function sortInfo() {
 /**
  * Compares two MediaEngagementScoreDetails objects based on |sortKey|.
  * @param {string} sortKey The name of the property to sort by.
- * @param {number|url.mojom.Url} The first object to compare.
- * @param {number|url.mojom.Url} The second object to compare.
+ * @param {number|url.mojom.Origin} The first object to compare.
+ * @param {number|url.mojom.Origin} The second object to compare.
  * @return {number} A negative number if |a| should be ordered before
  *     |b|, a positive number otherwise.
  */
@@ -77,7 +84,7 @@ function compareTableItem(sortKey, a, b) {
 
   // Compare the hosts of the origin ignoring schemes.
   if (sortKey == 'origin') {
-    return new URL(val1.url).host > new URL(val2.url).host ? 1 : -1;
+    return val1.host > val2.host ? 1 : -1;
   }
 
   if (sortKey == 'visits' || sortKey == 'mediaPlaybacks' ||
@@ -128,6 +135,8 @@ function renderConfigTable(config) {
       formatFeatureFlag(config.featureBypassAutoplay)));
   configTableBody.appendChild(createConfigRow(
       'Preload MEI data', formatFeatureFlag(config.featurePreloadData)));
+  configTableBody.appendChild(createConfigRow(
+      'MEI for HTTPS only', formatFeatureFlag(config.featureHttpsOnly)));
   configTableBody.appendChild(createConfigRow(
       'Autoplay disable settings',
       formatFeatureFlag(config.featureAutoplayDisableSettings)));
@@ -184,10 +193,7 @@ function updateEngagementTable() {
 }
 
 document.addEventListener('DOMContentLoaded', function() {
-  uiHandler = new media.mojom.MediaEngagementScoreDetailsProviderPtr;
-  Mojo.bindInterface(
-      media.mojom.MediaEngagementScoreDetailsProvider.name,
-      mojo.makeRequest(uiHandler).handle);
+  uiHandler = media.mojom.MediaEngagementScoreDetailsProvider.getProxy();
   updateEngagementTable();
 
   engagementTableBody = $('engagement-table-body');
@@ -236,6 +242,5 @@ document.addEventListener('DOMContentLoaded', function() {
     showNoPlaybacks = e.target.checked;
     renderTable();
   });
-
 });
 })();

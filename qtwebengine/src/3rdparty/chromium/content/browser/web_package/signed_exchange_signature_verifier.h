@@ -10,15 +10,14 @@
 #include "content/browser/web_package/signed_exchange_consts.h"
 #include "content/common/content_export.h"
 #include "net/cert/x509_certificate.h"
-#include "services/network/ignore_errors_cert_verifier.h"
 
 namespace base {
-class CommandLine;
 class Time;
 }  // namespace base
 
 namespace content {
 
+class SignedExchangeCertificateChain;
 class SignedExchangeEnvelope;
 class SignedExchangeDevToolsProxy;
 
@@ -37,41 +36,23 @@ class CONTENT_EXPORT SignedExchangeSignatureVerifier final {
   // This enum is used for recording histograms. Treat as append-only.
   enum class Result {
     kSuccess,
-    kErrNoCertificate,
-    kErrNoCertificateSHA256,
+    kErrNoCertificate_deprecated,
+    kErrNoCertificateSHA256_deprecated,
     kErrCertificateSHA256Mismatch,
-    kErrInvalidSignatureFormat,
+    kErrInvalidSignatureFormat_deprecated,
     kErrSignatureVerificationFailed,
-    kErrInvalidSignatureIntegrity,
-    kErrInvalidTimestamp,
+    kErrInvalidSignatureIntegrity_deprecated,
+    kErrInvalidTimestamp_deprecated,
     kErrUnsupportedCertType,
-    kMaxValue = kErrUnsupportedCertType
-  };
-
-  // An utility class which holds a set of certificates which errors should be
-  // ignored. It parses a comma-delimited list of base64-encoded SHA-256 SPKI
-  // fingerprints, and can query if a certificate is included in the set.
-  // CONTENT_EXPORT since it is used from the unit test.
-  class CONTENT_EXPORT IgnoreErrorsSPKIList {
-   public:
-    explicit IgnoreErrorsSPKIList(const base::CommandLine& command_line);
-    ~IgnoreErrorsSPKIList();
-    bool ShouldIgnoreError(scoped_refptr<net::X509Certificate> certificate);
-
-   private:
-    FRIEND_TEST_ALL_PREFIXES(SignedExchangeSignatureVerifierTest,
-                             IgnoreErrorsSPKIList);
-
-    explicit IgnoreErrorsSPKIList(const std::string& spki_list);
-    void Parse(const std::string& spki_list);
-
-    network::IgnoreErrorsCertVerifier::SPKIHashSet hash_set_;
-    DISALLOW_COPY_AND_ASSIGN(IgnoreErrorsSPKIList);
+    kErrValidityPeriodTooLong,
+    kErrFutureDate,
+    kErrExpired,
+    kMaxValue = kErrExpired
   };
 
   static Result Verify(SignedExchangeVersion version,
                        const SignedExchangeEnvelope& envelope,
-                       scoped_refptr<net::X509Certificate> certificate,
+                       const SignedExchangeCertificateChain* cert_chain,
                        const base::Time& verification_time,
                        SignedExchangeDevToolsProxy* devtools_proxy);
 };

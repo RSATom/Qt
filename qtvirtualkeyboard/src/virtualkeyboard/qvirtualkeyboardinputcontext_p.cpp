@@ -51,6 +51,8 @@ bool operator==(const QInputMethodEvent::Attribute &attribute1, const QInputMeth
 
 using namespace QtVirtualKeyboard;
 
+const bool QtVirtualKeyboard::QT_VIRTUALKEYBOARD_FORCE_EVENTS_WITHOUT_FOCUS = qEnvironmentVariableIsSet("QT_VIRTUALKEYBOARD_FORCE_EVENTS_WITHOUT_FOCUS");
+
 QVirtualKeyboardInputContextPrivate::QVirtualKeyboardInputContextPrivate(QVirtualKeyboardInputContext *q_ptr) :
     QObject(nullptr),
     q_ptr(q_ptr),
@@ -509,6 +511,15 @@ bool QVirtualKeyboardInputContextPrivate::filterEvent(const QEvent *event)
         if (!preeditText.isEmpty())
             commit();
     }
+#ifdef QT_VIRTUALKEYBOARD_ARROW_KEY_NAVIGATION
+    else if (type == QEvent::ShortcutOverride) {
+        const QKeyEvent *keyEvent = static_cast<const QKeyEvent *>(event);
+        int key = keyEvent->key();
+        if ((key >= Qt::Key_Left && key <= Qt::Key_Down) || key == Qt::Key_Return)
+            return true;
+    }
+#endif
+
     return false;
 }
 

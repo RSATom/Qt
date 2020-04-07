@@ -121,8 +121,12 @@ def ConvertCcPrebuiltLibrary(json):
   converted = ConvertCommonFields(json)
   converted['type'] = 'fuchsia_sdk_pkg'
   converted['sources'] = json['headers']
-  converted['libs'] = [json['name']]
   converted['include_dirs'] = [json['root'] + '/include']
+
+  if json['format'] == 'shared':
+    converted['shared_libs'] = [json['name']]
+  else:
+    converted['static_libs'] = [json['name']]
 
   return converted
 
@@ -166,11 +170,12 @@ _CONVERSION_FUNCTION_MAP = {
 
   # No need to build targets for these types yet.
   'dart_library': ConvertNoOp,
+  'device_profile': ConvertNoOp,
+  'documentation': ConvertNoOp,
   'host_tool': ConvertNoOp,
   'image': ConvertNoOp,
   'loadable_module': ConvertNoOp,
   'sysroot': ConvertNoOp,
-  'documentation': ConvertNoOp,
 }
 
 
@@ -183,15 +188,13 @@ def ConvertSdkManifests():
   with open(build_output_path, 'w') as buildfile:
     buildfile.write(_GENERATED_PREAMBLE)
 
-    for next_part in toplevel_meta['parts']:
-      parsed = json.load(open(os.path.join(sdk_base_dir, next_part)))
-      if 'type' not in parsed:
-        raise Exception("Couldn't find 'type' node in %s." % next_part)
+    for part in toplevel_meta['parts']:
+      parsed = json.load(open(os.path.join(sdk_base_dir, part['meta'])))
 
-      convert_function = _CONVERSION_FUNCTION_MAP.get(parsed['type'])
+      convert_function = _CONVERSION_FUNCTION_MAP.get(part['type'])
       if convert_function is None:
         raise Exception('Unexpected SDK artifact type %s in %s.' %
-                        (parsed['type'], next_part))
+                        (parsed['type'], part['meta']))
 
       converted = convert_function(parsed)
       if converted:

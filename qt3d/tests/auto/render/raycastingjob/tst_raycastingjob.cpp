@@ -34,6 +34,10 @@
 #include <Qt3DCore/qtransform.h>
 #include <Qt3DCore/private/qnodecreatedchangegenerator_p.h>
 #include <Qt3DCore/private/qaspectjobmanager_p.h>
+#include <Qt3DCore/private/qnodevisitor_p.h>
+#include <Qt3DCore/private/qaspectmanager_p.h>
+#include <Qt3DCore/private/qscene_p.h>
+#include <Qt3DCore/private/qaspectengine_p.h>
 #include <QtQuick/qquickwindow.h>
 
 #include <Qt3DRender/QCamera>
@@ -51,7 +55,6 @@
 #include <Qt3DRender/private/updateworldtransformjob_p.h>
 #include <Qt3DRender/private/expandboundingvolumejob_p.h>
 #include <Qt3DRender/private/calcboundingvolumejob_p.h>
-#include <Qt3DRender/private/updateentityhierarchyjob_p.h>
 #include <Qt3DRender/private/calcgeometrytrianglevolumes_p.h>
 #include <Qt3DRender/private/loadbufferjob_p.h>
 #include <Qt3DRender/private/buffermanager_p.h>
@@ -63,6 +66,47 @@ QT_BEGIN_NAMESPACE
 
 namespace Qt3DRender {
 
+QVector<Qt3DCore::QNode *> getNodesForCreation(Qt3DCore::QNode *root)
+{
+    using namespace Qt3DCore;
+
+    QVector<QNode *> nodes;
+    Qt3DCore::QNodeVisitor visitor;
+    visitor.traverse(root, [&nodes](QNode *node) {
+        nodes.append(node);
+
+        // Store the metaobject of the node in the QNode so that we have it available
+        // to us during destruction in the QNode destructor. This allows us to send
+        // the QNodeId and the metaobject as typeinfo to the backend aspects so they
+        // in turn can find the correct QBackendNodeMapper object to handle the destruction
+        // of the corresponding backend nodes.
+        QNodePrivate *d = QNodePrivate::get(node);
+        d->m_typeInfo = const_cast<QMetaObject*>(QNodePrivate::findStaticMetaObject(node->metaObject()));
+
+        // Mark this node as having been handled for creation so that it is picked up
+        d->m_hasBackendNode = true;
+    });
+
+    return nodes;
+}
+
+QVector<Qt3DCore::NodeTreeChange> nodeTreeChangesForNodes(const QVector<Qt3DCore::QNode *> nodes)
+{
+    QVector<Qt3DCore::NodeTreeChange> nodeTreeChanges;
+    nodeTreeChanges.reserve(nodes.size());
+
+    for (Qt3DCore::QNode *n : nodes) {
+        nodeTreeChanges.push_back({
+                                      n->id(),
+                                      Qt3DCore::QNodePrivate::get(n)->m_typeInfo,
+                                      Qt3DCore::NodeTreeChange::Added,
+                                      n
+                                  });
+    }
+
+    return nodeTreeChanges;
+}
+
 class TestAspect : public Qt3DRender::QRenderAspect
 {
 public:
@@ -70,12 +114,18 @@ public:
         : Qt3DRender::QRenderAspect(Qt3DRender::QRenderAspect::Synchronous)
         , m_sceneRoot(nullptr)
     {
-        QRenderAspect::onRegistered();
+        m_engine = new Qt3DCore::QAspectEngine(this);
+        m_engine->registerAspect(this);
+        Q_ASSERT(d_func()->m_aspectManager);
 
-        const Qt3DCore::QNodeCreatedChangeGenerator generator(root);
-        const QVector<Qt3DCore::QNodeCreatedChangeBasePtr> creationChanges = generator.creationChanges();
-
-        d_func()->setRootAndCreateNodes(qobject_cast<Qt3DCore::QEntity *>(root), creationChanges);
+        // do what QAspectEngine::setRootEntity does since we don't want to enter the simulation loop
+        Qt3DCore::QEntityPtr proot(qobject_cast<Qt3DCore::QEntity *>(root), [](Qt3DCore::QEntity *) { });
+        Qt3DCore::QAspectEnginePrivate *aed = Qt3DCore::QAspectEnginePrivate::get(m_engine);
+        aed->m_root = proot;
+        aed->initialize();
+        aed->initNodeTree(root);
+        const QVector<Qt3DCore::QNode *> nodes = getNodesForCreation(root);
+        aed->m_aspectManager->setRootEntity(proot.data(), nodes);
 
         Render::Entity *rootEntity = nodeManagers()->lookupResource<Render::Entity, Render::EntityManager>(rootEntityId());
         Q_ASSERT(rootEntity);
@@ -84,7 +134,17 @@ public:
 
     ~TestAspect()
     {
-        QRenderAspect::onUnregistered();
+        using namespace Qt3DCore;
+        QNodeVisitor visitor;
+        visitor.traverse(m_engine->rootEntity().data(), [](QNode *node) {
+            QNodePrivate *d = QNodePrivate::get(node);
+            d->m_scene = nullptr;
+            d->m_changeArbiter = nullptr;
+        });
+
+        m_engine->unregisterAspect(this);
+        delete m_engine;
+        m_engine = nullptr;
     }
 
     void onRegistered() { QRenderAspect::onRegistered(); }
@@ -94,8 +154,10 @@ public:
     Qt3DRender::Render::FrameGraphNode *frameGraphRoot() const { return d_func()->m_renderer->frameGraphRoot(); }
     Qt3DRender::Render::RenderSettings *renderSettings() const { return d_func()->m_renderer->settings(); }
     Qt3DRender::Render::Entity *sceneRoot() const { return m_sceneRoot; }
-
+    Qt3DCore::QAspectManager *aspectManager() const { return  d_func()->m_aspectManager; }
+    Qt3DCore::QChangeArbiter *arbiter() const { return d_func()->m_arbiter; }
 private:
+    Qt3DCore::QAspectEngine *m_engine;
     Render::Entity *m_sceneRoot;
 };
 
@@ -107,9 +169,9 @@ namespace {
 
 void runRequiredJobs(Qt3DRender::TestAspect *test)
 {
-    Qt3DRender::Render::UpdateEntityHierarchyJob updateEntitiesJob;
-    updateEntitiesJob.setManager(test->nodeManagers());
-    updateEntitiesJob.run();
+    QCoreApplication::processEvents();
+    const auto dn = test->arbiter()->takeDirtyFrontEndNodes();
+    Qt3DCore::QAbstractAspectPrivate::get(test)->syncDirtyFrontEndNodes(dn);
 
     Qt3DRender::Render::UpdateWorldTransformJob updateWorldTransform;
     updateWorldTransform.setRoot(test->sceneRoot());
@@ -198,6 +260,7 @@ private Q_SLOTS:
         QmlSceneReader sceneReader(source);
         QScopedPointer<Qt3DCore::QEntity> root(qobject_cast<Qt3DCore::QEntity *>(sceneReader.root()));
         QVERIFY(root);
+        QScopedPointer<Qt3DRender::TestAspect> test(new Qt3DRender::TestAspect(root.data()));
 
         Qt3DCore::QComponentVector rootComponents = root->components();
         Qt3DRender::QRayCaster *rayCaster = nullptr;
@@ -210,33 +273,31 @@ private Q_SLOTS:
 
         rayCaster->trigger(rayOrigin, rayDirection, rayLength);
 
-        QScopedPointer<Qt3DRender::TestAspect> test(new Qt3DRender::TestAspect(root.data()));
-        TestArbiter arbiter;
-
         // Runs Required jobs
         runRequiredJobs(test.data());
 
         Qt3DRender::Render::RayCaster *backendRayCaster = test->nodeManagers()->rayCasterManager()->lookupResource(rayCaster->id());
         QVERIFY(backendRayCaster);
-        Qt3DCore::QBackendNodePrivate::get(backendRayCaster)->setArbiter(&arbiter);
+        Qt3DCore::QBackendNodePrivate::get(backendRayCaster)->setArbiter(test->arbiter());
 
         // WHEN
         Qt3DRender::Render::RayCastingJob rayCastingJob;
         initializeJob(&rayCastingJob, test.data());
 
         bool earlyReturn = !rayCastingJob.runHelper();
+        Qt3DCore::QAspectJobPrivate::get(&rayCastingJob)->postFrame(test->aspectManager());
+        QCoreApplication::processEvents();
 
         // THEN
         QVERIFY(!earlyReturn);
         QVERIFY(!backendRayCaster->isEnabled());
-        QCOMPARE(arbiter.events.count(), 2); // hits & disable
-        Qt3DCore::QPropertyUpdatedChangePtr change = arbiter.events.first().staticCast<Qt3DCore::QPropertyUpdatedChange>();
-        QCOMPARE(change->propertyName(), "hits");
-        Qt3DRender::QRayCaster::Hits hits = change->value().value<Qt3DRender::QRayCaster::Hits>();
-        QCOMPARE(hits.size(), numIntersections);
+        QVERIFY(!rayCaster->isEnabled());
+        auto dirtyNodes = test->arbiter()->takeDirtyFrontEndNodes();
+        QCOMPARE(dirtyNodes.count(), 1); // hits & disable
+        QCOMPARE(rayCaster->hits().size(), numIntersections);
 
         if (numIntersections)
-            QVERIFY(hits.first().entityId());
+            QVERIFY(rayCaster->hits().first().entityId());
     }
 
     void screenSpaceRayCaster_data()
@@ -259,6 +320,7 @@ private Q_SLOTS:
         QmlSceneReader sceneReader(source);
         QScopedPointer<Qt3DCore::QEntity> root(qobject_cast<Qt3DCore::QEntity *>(sceneReader.root()));
         QVERIFY(root);
+        QScopedPointer<Qt3DRender::TestAspect> test(new Qt3DRender::TestAspect(root.data()));
 
         Qt3DCore::QComponentVector rootComponents = root->components();
         Qt3DRender::QScreenRayCaster *rayCaster = nullptr;
@@ -271,33 +333,31 @@ private Q_SLOTS:
 
         rayCaster->trigger(rayPosition);
 
-        QScopedPointer<Qt3DRender::TestAspect> test(new Qt3DRender::TestAspect(root.data()));
-        TestArbiter arbiter;
-
         // Runs Required jobs
         runRequiredJobs(test.data());
 
         Qt3DRender::Render::RayCaster *backendRayCaster = test->nodeManagers()->rayCasterManager()->lookupResource(rayCaster->id());
         QVERIFY(backendRayCaster);
-        Qt3DCore::QBackendNodePrivate::get(backendRayCaster)->setArbiter(&arbiter);
+        Qt3DCore::QBackendNodePrivate::get(backendRayCaster)->setArbiter(test->arbiter());
 
         // WHEN
         Qt3DRender::Render::RayCastingJob rayCastingJob;
         initializeJob(&rayCastingJob, test.data());
 
         bool earlyReturn = !rayCastingJob.runHelper();
+        Qt3DCore::QAspectJobPrivate::get(&rayCastingJob)->postFrame(test->aspectManager());
+        QCoreApplication::processEvents();
 
         // THEN
         QVERIFY(!earlyReturn);
         QVERIFY(!backendRayCaster->isEnabled());
-        QCOMPARE(arbiter.events.count(), 2); // hits & disable
-        Qt3DCore::QPropertyUpdatedChangePtr change = arbiter.events.first().staticCast<Qt3DCore::QPropertyUpdatedChange>();
-        QCOMPARE(change->propertyName(), "hits");
-        Qt3DRender::QScreenRayCaster::Hits hits = change->value().value<Qt3DRender::QScreenRayCaster::Hits>();
-        QCOMPARE(hits.size(), numIntersections);
+        QVERIFY(!rayCaster->isEnabled());
+        auto dirtyNodes = test->arbiter()->takeDirtyFrontEndNodes();
+        QCOMPARE(dirtyNodes.count(), 1); // hits & disable
+        QCOMPARE(rayCaster->hits().size(), numIntersections);
 
         if (numIntersections)
-            QVERIFY(hits.first().entityId());
+            QVERIFY(rayCaster->hits().first().entityId());
     }
 
 };

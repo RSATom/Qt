@@ -30,9 +30,7 @@
 
 #include <qeasingcurve.h>
 
-#ifdef Q_COMPILER_RVALUE_REFS // cpp11() slot
-# include <utility> // for std::move()
-#endif
+#include <utility> // for std::move()
 
 class tst_QEasingCurve : public QObject
 {
@@ -55,6 +53,8 @@ private slots:
     void testCbrtFloat();
     void cpp11();
     void quadraticEquation();
+    void streamInOut_data();
+    void streamInOut();
 };
 
 void tst_QEasingCurve::type()
@@ -404,6 +404,11 @@ void tst_QEasingCurve::valueForProgress()
         const qreal error = qAbs(ex - curve.valueForProgress(at.at(i)/qreal(100)));
         QVERIFY(error <= errorBound);
     }
+
+    if (type != QEasingCurve::SineCurve && type != QEasingCurve::CosineCurve) {
+        QVERIFY( !(curve.valueForProgress(0) > 0) );
+        QVERIFY( !(curve.valueForProgress(1) < 1) );
+    }
 #endif
 }
 
@@ -632,6 +637,9 @@ void tst_QEasingCurve::bezierSpline()
             QCOMPARE(value, ex);
         QVERIFY(error <= errorBound);
     }
+
+    QVERIFY( !(bezierEasingCurve.valueForProgress(0) > 0) );
+    QVERIFY( !(bezierEasingCurve.valueForProgress(1) < 1) );
 }
 
 void tst_QEasingCurve::tcbSpline_data()
@@ -691,6 +699,9 @@ void tst_QEasingCurve::tcbSpline()
             QCOMPARE(value, ex);
         QVERIFY(error <= errorBound);
     }
+
+    QVERIFY( !(tcbEasingCurve.valueForProgress(0) > 0) );
+    QVERIFY( !(tcbEasingCurve.valueForProgress(1) < 1) );
 }
 
 /*This is single precision code for a cubic root used inside the spline easing curve.
@@ -792,7 +803,6 @@ void tst_QEasingCurve::testCbrtFloat()
 
 void tst_QEasingCurve::cpp11()
 {
-#ifdef Q_COMPILER_RVALUE_REFS
     {
     QEasingCurve ec( QEasingCurve::InOutBack );
     QEasingCurve copy = std::move(ec); // move ctor
@@ -807,7 +817,6 @@ void tst_QEasingCurve::cpp11()
     QCOMPARE( copy.type(), QEasingCurve::InOutBack );
     QCOMPARE( ec.type(), type );
     }
-#endif
 }
 
 void tst_QEasingCurve::quadraticEquation() {
@@ -877,6 +886,37 @@ void tst_QEasingCurve::quadraticEquation() {
         test.addCubicBezierSegment(QPointF(p3, 1.0), QPointF(1.0, 1.0), QPointF(1.0, 1.0));
         QCOMPARE(test.valueForProgress(0.0), 0.0);
     }
+}
+
+void tst_QEasingCurve::streamInOut_data()
+{
+    QTest::addColumn<int>("version");
+    QTest::addColumn<bool>("equality");
+
+    QTest::newRow("5.11") << int(QDataStream::Qt_5_11) << false;
+    QTest::newRow("5.13") << int(QDataStream::Qt_5_13) << true;
+}
+
+void tst_QEasingCurve::streamInOut()
+{
+    QFETCH(int, version);
+    QFETCH(bool, equality);
+
+    QEasingCurve orig;
+    orig.addCubicBezierSegment(QPointF(0.43, 0.0025), QPointF(0.38, 0.51), QPointF(0.57, 0.99));
+
+    QEasingCurve copy;
+
+    QByteArray data;
+    QDataStream dsw(&data,QIODevice::WriteOnly);
+    QDataStream dsr(&data,QIODevice::ReadOnly);
+
+    dsw.setVersion(version);
+    dsr.setVersion(version);
+    dsw << orig;
+    dsr >> copy;
+
+    QCOMPARE(copy == orig, equality);
 }
 
 QTEST_MAIN(tst_QEasingCurve)

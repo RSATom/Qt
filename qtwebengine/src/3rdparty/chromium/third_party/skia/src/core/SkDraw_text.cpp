@@ -5,29 +5,13 @@
  * found in the LICENSE file.
  */
 
-#include "SkDraw.h"
-#include "SkFontPriv.h"
-#include "SkPaintPriv.h"
-#include "SkRasterClip.h"
-#include "SkScalerContext.h"
-#include "SkStrike.h"
-#include "SkTextToPathIter.h"
-#include "SkUtils.h"
-
-bool SkDraw::ShouldDrawTextAsPaths(const SkFont& font, const SkPaint& paint,
-                                   const SkMatrix& ctm, SkScalar sizeLimit) {
-    // hairline glyphs are fast enough so we don't need to cache them
-    if (SkPaint::kStroke_Style == paint.getStyle() && 0 == paint.getStrokeWidth()) {
-        return true;
-    }
-
-    // we don't cache perspective
-    if (ctm.hasPerspective()) {
-        return true;
-    }
-
-    return SkFontPriv::TooBigToUseCache(ctm, SkFontPriv::MakeTextMatrix(font), sizeLimit);
-}
+#include "src/core/SkDraw.h"
+#include "src/core/SkFontPriv.h"
+#include "src/core/SkPaintPriv.h"
+#include "src/core/SkRasterClip.h"
+#include "src/core/SkScalerContext.h"
+#include "src/core/SkStrike.h"
+#include "src/core/SkUtils.h"
 
 // disable warning : local variable used without having been initialized
 #if defined _WIN32
@@ -102,7 +86,7 @@ void SkDraw::paintMasks(SkSpan<const SkMask> masks, const SkPaint& paint) const 
     }
 }
 
-void SkDraw::paintPaths(SkSpan<const SkGlyphRunListPainter::PathAndPos> pathsAndPositions,
+void SkDraw::paintPaths(SkSpan<const SkPathPos> pathsAndPositions,
                         SkScalar scale,
                         const SkPaint& paint) const {
     for (const auto& pathAndPos : pathsAndPositions) {

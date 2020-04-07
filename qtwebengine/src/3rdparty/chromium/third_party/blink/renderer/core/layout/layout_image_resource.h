@@ -42,10 +42,6 @@ class CORE_EXPORT LayoutImageResource
   LayoutImageResource();
   virtual ~LayoutImageResource();
 
-  static LayoutImageResource* Create() {
-    return MakeGarbageCollected<LayoutImageResource>();
-  }
-
   virtual void Initialize(LayoutObject*);
   virtual void Shutdown();
 
@@ -66,7 +62,7 @@ class CORE_EXPORT LayoutImageResource
   // the "broken image".
   void UseBrokenImage();
 
-  virtual bool ImageHasRelativeSize() const;
+  virtual bool HasIntrinsicSize() const;
 
   virtual FloatSize ImageSize(float multiplier) const;
   // Default size is effective when this is LayoutImageResourceStyleImage.

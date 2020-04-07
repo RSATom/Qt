@@ -73,6 +73,8 @@ class CONTENT_EXPORT ThrottlingURLLoader
   // datapipe endpoints.
   network::mojom::URLLoaderClientEndpointsPtr Unbind();
 
+  void CancelWithError(int error_code, base::StringPiece custom_reason);
+
   // Sets the forwarding client to receive all subsequent notifications.
   void set_forwarding_client(network::mojom::URLLoaderClient* client) {
     forwarding_client_ = client;
@@ -122,7 +124,7 @@ class CONTENT_EXPORT ThrottlingURLLoader
   void OnUploadProgress(int64_t current_position,
                         int64_t total_size,
                         OnUploadProgressCallback ack_callback) override;
-  void OnReceiveCachedMetadata(const std::vector<uint8_t>& data) override;
+  void OnReceiveCachedMetadata(mojo_base::BigBuffer data) override;
   void OnTransferSizeUpdated(int32_t transfer_size_diff) override;
   void OnStartLoadingResponseBody(
       mojo::ScopedDataPipeConsumerHandle body) override;
@@ -130,9 +132,10 @@ class CONTENT_EXPORT ThrottlingURLLoader
 
   void OnClientConnectionError();
 
-  void CancelWithError(int error_code, base::StringPiece custom_reason);
   void Resume();
   void SetPriority(net::RequestPriority priority);
+  void UpdateDeferredRequestHeaders(
+      const net::HttpRequestHeaders& modified_request_headers);
   void UpdateDeferredResponseHead(
       const network::ResourceResponseHead& new_response_head);
   void PauseReadingBodyFromNet(URLLoaderThrottle* throttle);
@@ -261,7 +264,7 @@ class CONTENT_EXPORT ThrottlingURLLoader
   int pending_restart_flags_ = 0;
   bool has_pending_restart_ = false;
 
-  base::WeakPtrFactory<ThrottlingURLLoader> weak_factory_;
+  base::WeakPtrFactory<ThrottlingURLLoader> weak_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(ThrottlingURLLoader);
 };

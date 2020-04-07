@@ -10,10 +10,10 @@
 #include "ui/aura/client/focus_client.h"
 #include "ui/aura/window.h"
 #include "ui/views/accessibility/ax_aura_obj_wrapper.h"
-#include "ui/views/accessibility/ax_aura_window_utils.h"
 #include "ui/views/accessibility/ax_view_obj_wrapper.h"
 #include "ui/views/accessibility/ax_widget_obj_wrapper.h"
 #include "ui/views/accessibility/ax_window_obj_wrapper.h"
+#include "ui/views/accessibility/view_accessibility.h"
 #include "ui/views/view.h"
 #include "ui/views/widget/widget.h"
 #include "ui/views/widget/widget_delegate.h"
@@ -28,12 +28,6 @@ aura::client::FocusClient* GetFocusClient(aura::Window* root_window) {
 }
 
 }  // namespace
-
-// static
-AXAuraObjCache* AXAuraObjCache::GetInstance() {
-  static base::NoDestructor<AXAuraObjCache> instance;
-  return instance.get();
-}
 
 AXAuraObjWrapper* AXAuraObjCache::GetOrCreate(View* view) {
   // Avoid problems with transient focus events. https://crbug.com/729449
@@ -68,8 +62,8 @@ void AXAuraObjCache::Remove(View* view) {
 
 void AXAuraObjCache::RemoveViewSubtree(View* view) {
   Remove(view);
-  for (int i = 0; i < view->child_count(); ++i)
-    RemoveViewSubtree(view->child_at(i));
+  for (View* child : view->children())
+    RemoveViewSubtree(child);
 }
 
 void AXAuraObjCache::Remove(Widget* widget) {
@@ -103,8 +97,14 @@ void AXAuraObjCache::GetTopLevelWindows(
 
 AXAuraObjWrapper* AXAuraObjCache::GetFocus() {
   View* focused_view = GetFocusedView();
-  if (focused_view)
+  if (focused_view) {
+    const ViewAccessibility& view_accessibility =
+        focused_view->GetViewAccessibility();
+    if (view_accessibility.FocusedVirtualChild())
+      return view_accessibility.FocusedVirtualChild()->GetOrCreateWrapper(this);
+
     return GetOrCreate(focused_view);
+  }
   return nullptr;
 }
 
@@ -123,7 +123,10 @@ void AXAuraObjCache::FireEvent(AXAuraObjWrapper* aura_obj,
 AXAuraObjCache::AXAuraObjCache() = default;
 
 // Never runs because object is leaked.
-AXAuraObjCache::~AXAuraObjCache() = default;
+AXAuraObjCache::~AXAuraObjCache() {
+  if (!root_windows_.empty() && GetFocusClient(*root_windows_.begin()))
+    GetFocusClient(*root_windows_.begin())->RemoveObserver(this);
+}
 
 View* AXAuraObjCache::GetFocusedView() {
   Widget* focused_widget = focused_widget_for_testing_;
@@ -140,15 +143,13 @@ View* AXAuraObjCache::GetFocusedView() {
     if (!focused_window)
       return nullptr;
 
-    // SingleProcessMash may need to jump between ash and client windows.
-    AXAuraWindowUtils* window_utils = AXAuraWindowUtils::Get();
-    focused_widget = window_utils->GetWidgetForNativeView(focused_window);
+    focused_widget = Widget::GetWidgetForNativeView(focused_window);
     while (!focused_widget) {
       focused_window = focused_window->parent();
       if (!focused_window)
         break;
 
-      focused_widget = window_utils->GetWidgetForNativeView(focused_window);
+      focused_widget = Widget::GetWidgetForNativeView(focused_window);
     }
   }
 
@@ -169,13 +170,11 @@ View* AXAuraObjCache::GetFocusedView() {
     // If focused widget has non client view, falls back to first child view of
     // its client view. We don't expect that non client view gets keyboard
     // focus.
-    if (focused_widget->non_client_view() &&
-        focused_widget->non_client_view()->client_view() &&
-        focused_widget->non_client_view()->client_view()->has_children()) {
-      return focused_widget->non_client_view()->client_view()->child_at(0);
-    }
-
-    return focused_widget->GetRootView();
+    auto* non_client = focused_widget->non_client_view();
+    auto* client = non_client ? non_client->client_view() : nullptr;
+    return (client && !client->children().empty())
+               ? client->children().front()
+               : focused_widget->GetRootView();
   }
 
   return nullptr;

@@ -8,10 +8,10 @@
 #ifndef SkScalarContext_win_dw_DEFINED
 #define SkScalarContext_win_dw_DEFINED
 
-#include "SkScalar.h"
-#include "SkScalerContext.h"
-#include "SkTypeface_win_dw.h"
-#include "SkTypes.h"
+#include "include/core/SkScalar.h"
+#include "include/core/SkTypes.h"
+#include "src/core/SkScalerContext.h"
+#include "src/ports/SkTypeface_win_dw.h"
 
 #include <dwrite.h>
 #include <dwrite_2.h>
@@ -28,7 +28,6 @@ public:
 
 protected:
     unsigned generateGlyphCount() override;
-    uint16_t generateCharToGlyph(SkUnichar uni) override;
     bool generateAdvance(SkGlyph* glyph) override;
     void generateMetrics(SkGlyph* glyph) override;
     void generateImage(const SkGlyph& glyph) override;
@@ -36,6 +35,22 @@ protected:
     void generateFontMetrics(SkFontMetrics*) override;
 
 private:
+    static void BilevelToBW(const uint8_t* SK_RESTRICT src, const SkGlyph& glyph);
+
+    template<bool APPLY_PREBLEND>
+    static void GrayscaleToA8(const uint8_t* SK_RESTRICT src,
+                              const SkGlyph& glyph,
+                              const uint8_t* table8);
+
+    template<bool APPLY_PREBLEND>
+    static void RGBToA8(const uint8_t* SK_RESTRICT src,
+                        const SkGlyph& glyph,
+                        const uint8_t* table8);
+
+    template<bool APPLY_PREBLEND, bool RGB>
+    static void RGBToLcd16(const uint8_t* SK_RESTRICT src, const SkGlyph& glyph,
+                           const uint8_t* tableR, const uint8_t* tableG, const uint8_t* tableB);
+
     const void* drawDWMask(const SkGlyph& glyph,
                            DWRITE_RENDERING_MODE renderingMode,
                            DWRITE_TEXTURE_TYPE textureType);

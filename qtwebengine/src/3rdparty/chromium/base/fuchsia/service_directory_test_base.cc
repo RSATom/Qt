@@ -4,51 +4,60 @@
 
 #include "base/fuchsia/service_directory_test_base.h"
 
-#include <lib/fdio/util.h>
+#include <lib/fdio/directory.h>
+#include <utility>
+
+#include "base/bind.h"
+#include "base/fuchsia/fuchsia_logging.h"
+#include "base/test/test_timeouts.h"
 
 namespace base {
 namespace fuchsia {
 
-ServiceDirectoryTestBase::ServiceDirectoryTestBase() {
-  zx::channel service_directory_channel;
-  EXPECT_EQ(zx::channel::create(0, &service_directory_channel,
-                                &service_directory_client_channel_),
-            ZX_OK);
-
+ServiceDirectoryTestBase::ServiceDirectoryTestBase()
+    : run_timeout_(TestTimeouts::action_timeout(), BindRepeating([]() {
+                     ADD_FAILURE() << "Run() timed out.";
+                   })) {
   // Mount service dir and publish the service.
-  service_directory_ =
-      std::make_unique<ServiceDirectory>(std::move(service_directory_channel));
+  outgoing_directory_ = std::make_unique<sys::OutgoingDirectory>();
+  fidl::InterfaceHandle<::fuchsia::io::Directory> directory;
+  zx_status_t status =
+      outgoing_directory_->Serve(directory.NewRequest().TakeChannel());
+  ZX_CHECK(status == ZX_OK, status);
   service_binding_ =
       std::make_unique<ScopedServiceBinding<testfidl::TestInterface>>(
-          service_directory_.get(), &test_service_);
+          outgoing_directory_.get(), &test_service_);
 
-  ConnectClientContextToDirectory("public");
+  // Create the sys::ServiceDirectory, connected to the "svc" sub-directory.
+  fidl::InterfaceHandle<::fuchsia::io::Directory> svc_directory;
+  CHECK_EQ(fdio_service_connect_at(
+               directory.channel().get(), "svc",
+               svc_directory.NewRequest().TakeChannel().release()),
+           ZX_OK);
+  public_service_directory_ =
+      std::make_unique<sys::ServiceDirectory>(std::move(svc_directory));
+
+  // Create the sys::ServiceDirectory, connected to the "debug" sub-directory.
+  fidl::InterfaceHandle<::fuchsia::io::Directory> debug_directory;
+  CHECK_EQ(fdio_service_connect_at(
+               directory.channel().get(), "debug",
+               debug_directory.NewRequest().TakeChannel().release()),
+           ZX_OK);
+  debug_service_directory_ =
+      std::make_unique<sys::ServiceDirectory>(std::move(debug_directory));
+
+  // Create a sys::ServiceDirectory for the "private" part of the directory.
+  root_service_directory_ =
+      std::make_unique<sys::ServiceDirectory>(std::move(directory));
 }
 
 ServiceDirectoryTestBase::~ServiceDirectoryTestBase() = default;
-
-void ServiceDirectoryTestBase::ConnectClientContextToDirectory(
-    const char* path) {
-  // Open directory |path| from the service directory.
-  zx::channel public_directory_channel;
-  zx::channel public_directory_client_channel;
-  EXPECT_EQ(zx::channel::create(0, &public_directory_channel,
-                                &public_directory_client_channel),
-            ZX_OK);
-  EXPECT_EQ(fdio_open_at(service_directory_client_channel_.get(), path, 0,
-                         public_directory_channel.release()),
-            ZX_OK);
-
-  // Create ComponentContext and connect to the test service.
-  client_context_ = std::make_unique<ComponentContext>(
-      std::move(public_directory_client_channel));
-}
 
 void ServiceDirectoryTestBase::VerifyTestInterface(
     fidl::InterfacePtr<testfidl::TestInterface>* stub,
     zx_status_t expected_error) {
   // Call the service and wait for response.
-  base::RunLoop run_loop;
+  RunLoop run_loop;
   zx_status_t actual_error = ZX_OK;
 
   stub->set_error_handler([&run_loop, &actual_error](zx_status_t status) {

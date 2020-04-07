@@ -16,6 +16,7 @@
 #include <vector>
 
 #include "api/data_channel_interface.h"
+#include "api/function_view.h"
 #include "api/jsep.h"
 #include "api/media_stream_interface.h"
 #include "api/media_types.h"
@@ -23,10 +24,9 @@
 #include "api/rtc_error.h"
 #include "api/rtp_sender_interface.h"
 #include "api/rtp_transceiver_interface.h"
+#include "api/scoped_refptr.h"
 #include "api/stats/rtc_stats_report.h"
 #include "pc/test/mock_peer_connection_observers.h"
-#include "rtc_base/function_view.h"
-#include "rtc_base/scoped_ref_ptr.h"
 
 namespace webrtc {
 

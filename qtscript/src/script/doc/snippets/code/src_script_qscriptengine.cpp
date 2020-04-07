@@ -318,7 +318,7 @@ Q_DECLARE_METATYPE(QVector<int>)
 qScriptRegisterSequenceMetaType<QVector<int> >(engine);
 ...
 QVector<int> v = qscriptvalue_cast<QVector<int> >(engine->evaluate("[5, 1, 3, 2]"));
-qSort(v.begin(), v.end());
+std::sort(v.begin(), v.end());
 QScriptValue a = engine->toScriptValue(v);
 qDebug() << a.toString(); // outputs "[1, 2, 3, 5]"
 //! [26]

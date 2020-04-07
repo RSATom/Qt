@@ -5,24 +5,24 @@
  * found in the LICENSE file.
  */
 
-#include "GrTextContext.h"
+#include "src/gpu/text/GrTextContext.h"
 
-#include "GrCaps.h"
-#include "GrContext.h"
-#include "GrContextPriv.h"
-#include "GrSDFMaskFilter.h"
-#include "GrTextBlobCache.h"
-#include "SkDistanceFieldGen.h"
-#include "SkDraw.h"
-#include "SkDrawProcs.h"
-#include "SkGlyphRun.h"
-#include "SkGr.h"
-#include "SkGraphics.h"
-#include "SkMakeUnique.h"
-#include "SkMaskFilterBase.h"
-#include "SkPaintPriv.h"
-#include "SkTo.h"
-#include "ops/GrMeshDrawOp.h"
+#include "include/core/SkGraphics.h"
+#include "include/gpu/GrContext.h"
+#include "include/private/SkTo.h"
+#include "src/core/SkDistanceFieldGen.h"
+#include "src/core/SkDraw.h"
+#include "src/core/SkDrawProcs.h"
+#include "src/core/SkGlyphRun.h"
+#include "src/core/SkMakeUnique.h"
+#include "src/core/SkMaskFilterBase.h"
+#include "src/core/SkPaintPriv.h"
+#include "src/gpu/GrCaps.h"
+#include "src/gpu/GrRecordingContextPriv.h"
+#include "src/gpu/SkGr.h"
+#include "src/gpu/ops/GrMeshDrawOp.h"
+#include "src/gpu/text/GrSDFMaskFilter.h"
+#include "src/gpu/text/GrTextBlobCache.h"
 
 // DF sizes and thresholds for usage of the small and medium sizes. For example, above
 // kSmallDFFontLimit we will use the medium size. The large size is used up until the size at
@@ -50,7 +50,7 @@ std::unique_ptr<GrTextContext> GrTextContext::Make(const Options& options) {
 }
 
 SkColor GrTextContext::ComputeCanonicalColor(const SkPaint& paint, bool lcd) {
-    SkColor canonicalColor = paint.computeLuminanceColor();
+    SkColor canonicalColor = SkPaintPriv::ComputeLuminanceColor(paint);
     if (lcd) {
         // This is the correct computation, but there are tons of cases where LCD can be overridden.
         // For now we just regenerate if any run in a textblob has LCD.
@@ -129,14 +129,7 @@ bool GrTextContext::CanDrawAsDistanceFields(const SkPaint& paint, const SkFont& 
     return true;
 }
 
-void GrTextContext::InitDistanceFieldPaint(const SkScalar textSize,
-                                           const SkMatrix& viewMatrix,
-                                           const Options& options,
-                                           GrTextBlob* blob,
-                                           SkPaint* skPaint,
-                                           SkFont* skFont,
-                                           SkScalar* textRatio,
-                                           SkScalerContextFlags* flags) {
+SkScalar scaled_text_size(const SkScalar textSize, const SkMatrix& viewMatrix) {
     SkScalar scaledTextSize = textSize;
 
     if (viewMatrix.hasPerspective()) {
@@ -153,6 +146,45 @@ void GrTextContext::InitDistanceFieldPaint(const SkScalar textSize,
         }
     }
 
+    return scaledTextSize;
+}
+
+SkFont GrTextContext::InitDistanceFieldFont(const SkFont& font,
+                                            const SkMatrix& viewMatrix,
+                                            const Options& options,
+                                            SkScalar* textRatio) {
+    SkScalar textSize = font.getSize();
+    SkScalar scaledTextSize = scaled_text_size(textSize, viewMatrix);
+
+    SkFont dfFont{font};
+
+    if (scaledTextSize <= kSmallDFFontLimit) {
+        *textRatio = textSize / kSmallDFFontSize;
+        dfFont.setSize(SkIntToScalar(kSmallDFFontSize));
+    } else if (scaledTextSize <= kMediumDFFontLimit) {
+        *textRatio = textSize / kMediumDFFontSize;
+        dfFont.setSize(SkIntToScalar(kMediumDFFontSize));
+    } else {
+        *textRatio = textSize / kLargeDFFontSize;
+        dfFont.setSize(SkIntToScalar(kLargeDFFontSize));
+    }
+
+    dfFont.setEdging(SkFont::Edging::kAntiAlias);
+    dfFont.setForceAutoHinting(false);
+    dfFont.setHinting(SkFontHinting::kNormal);
+
+    // The sub-pixel position will always happen when transforming to the screen.
+    dfFont.setSubpixel(false);
+    return dfFont;
+}
+
+std::pair<SkScalar, SkScalar> GrTextContext::InitDistanceFieldMinMaxScale(
+        SkScalar textSize,
+        const SkMatrix& viewMatrix,
+        const GrTextContext::Options& options) {
+
+    SkScalar scaledTextSize = scaled_text_size(textSize, viewMatrix);
+
     // We have three sizes of distance field text, and within each size 'bucket' there is a floor
     // and ceiling.  A scale outside of this range would require regenerating the distance fields
     SkScalar dfMaskScaleFloor;
@@ -160,18 +192,12 @@ void GrTextContext::InitDistanceFieldPaint(const SkScalar textSize,
     if (scaledTextSize <= kSmallDFFontLimit) {
         dfMaskScaleFloor = options.fMinDistanceFieldFontSize;
         dfMaskScaleCeil = kSmallDFFontLimit;
-        *textRatio = textSize / kSmallDFFontSize;
-        skFont->setSize(SkIntToScalar(kSmallDFFontSize));
     } else if (scaledTextSize <= kMediumDFFontLimit) {
         dfMaskScaleFloor = kSmallDFFontLimit;
         dfMaskScaleCeil = kMediumDFFontLimit;
-        *textRatio = textSize / kMediumDFFontSize;
-        skFont->setSize(SkIntToScalar(kMediumDFFontSize));
     } else {
         dfMaskScaleFloor = kMediumDFFontLimit;
         dfMaskScaleCeil = options.fMaxDistanceFieldFontSize;
-        *textRatio = textSize / kLargeDFFontSize;
-        skFont->setSize(SkIntToScalar(kLargeDFFontSize));
     }
 
     // Because there can be multiple runs in the blob, we want the overall maxMinScale, and
@@ -182,45 +208,35 @@ void GrTextContext::InitDistanceFieldPaint(const SkScalar textSize,
     // against these values to decide if we can reuse or not(ie, will a given scale change our mip
     // level)
     SkASSERT(dfMaskScaleFloor <= scaledTextSize && scaledTextSize <= dfMaskScaleCeil);
-    if (blob) {
-        blob->setMinAndMaxScale(dfMaskScaleFloor / scaledTextSize,
-                                dfMaskScaleCeil / scaledTextSize);
-    }
 
-    skFont->setEdging(SkFont::Edging::kAntiAlias);
-    skFont->setForceAutoHinting(false);
-    skFont->setHinting(kNormal_SkFontHinting);
-    skFont->setSubpixel(true);
+    return std::make_pair(dfMaskScaleFloor / scaledTextSize, dfMaskScaleCeil / scaledTextSize);
+}
 
-    skPaint->setMaskFilter(GrSDFMaskFilter::Make());
-
-    // We apply the fake-gamma by altering the distance in the shader, so we ignore the
-    // passed-in scaler context flags. (It's only used when we fall-back to bitmap text).
-    *flags = SkScalerContextFlags::kNone;
+SkPaint GrTextContext::InitDistanceFieldPaint(const SkPaint& paint) {
+    SkPaint dfPaint{paint};
+    dfPaint.setMaskFilter(GrSDFMaskFilter::Make());
+    return dfPaint;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
 #if GR_TEST_UTILS
 
-#include "GrRenderTargetContext.h"
+#include "src/gpu/GrRenderTargetContext.h"
 
 GR_DRAW_OP_TEST_DEFINE(GrAtlasTextOp) {
     static uint32_t gContextID = SK_InvalidGenID;
     static std::unique_ptr<GrTextContext> gTextContext;
     static SkSurfaceProps gSurfaceProps(SkSurfaceProps::kLegacyFontHost_InitType);
 
-    if (context->uniqueID() != gContextID) {
-        gContextID = context->uniqueID();
+    if (context->priv().contextID() != gContextID) {
+        gContextID = context->priv().contextID();
         gTextContext = GrTextContext::Make(GrTextContext::Options());
     }
 
-    const GrBackendFormat format =
-            context->contextPriv().caps()->getBackendFormatFromColorType(kRGBA_8888_SkColorType);
-
     // Setup dummy SkPaint / GrPaint / GrRenderTargetContext
-    sk_sp<GrRenderTargetContext> rtc(context->contextPriv().makeDeferredRenderTargetContext(
-        format, SkBackingFit::kApprox, 1024, 1024, kRGBA_8888_GrPixelConfig, nullptr));
+    sk_sp<GrRenderTargetContext> rtc(context->priv().makeDeferredRenderTargetContext(
+            SkBackingFit::kApprox, 1024, 1024, GrColorType::kRGBA_8888, nullptr));
 
     SkMatrix viewMatrix = GrTest::TestMatrixInvertible(random);
 

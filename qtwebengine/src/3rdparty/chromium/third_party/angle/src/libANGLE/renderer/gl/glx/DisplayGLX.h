@@ -100,6 +100,10 @@ class DisplayGLX : public DisplayGL
 
     WorkerContext *createWorkerContext(std::string *infoLog);
 
+    void initializeFrontendFeatures(angle::FrontendFeatures *features) const override;
+
+    void populateFeatureList(angle::FeatureList *features) override;
+
   private:
     egl::Error initializeContext(glx::FBConfig config,
                                  const egl::AttributeMap &eglAttributes,

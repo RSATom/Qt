@@ -31,6 +31,8 @@
     \ingroup qmlmodules
     \brief Provides QML types for user interfaces.
 
+    \deprecationwarning
+
     The \l{Qt Quick Controls 1} module provides QML types for creating user
     interfaces. These QML types work in conjunction with \l{Qt Quick} and
     \l{Qt Quick Layouts}.

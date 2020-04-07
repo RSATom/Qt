@@ -47,25 +47,16 @@ void InstanceIDGetTokenRequestHandler::BuildRequestBody(std::string* body){
   BuildFormEncoding(kExtraScopeKey, scope_, body);
   for (auto iter = options_.begin(); iter != options_.end(); ++iter)
     BuildFormEncoding(kOptionKeyPrefix + iter->first, iter->second, body);
-  BuildFormEncoding(kGMSVersionKey, base::IntToString(gcm_version_), body);
+  BuildFormEncoding(kGMSVersionKey, base::NumberToString(gcm_version_), body);
   BuildFormEncoding(kInstanceIDKey, instance_id_, body);
   BuildFormEncoding(kAuthorizedEntityKey, authorized_entity_, body);
 }
 
 void InstanceIDGetTokenRequestHandler::ReportUMAs(
-    RegistrationRequest::Status status,
-    int retry_count,
-    base::TimeDelta complete_time) {
+    RegistrationRequest::Status status) {
   UMA_HISTOGRAM_ENUMERATION("InstanceID.GetToken.RequestStatus",
                             status,
                             RegistrationRequest::STATUS_COUNT);
-
-  // Other UMAs are only reported when the request succeeds.
-  if (status != RegistrationRequest::SUCCESS)
-    return;
-
-  UMA_HISTOGRAM_COUNTS_1M("InstanceID.GetToken.RetryCount", retry_count);
-  UMA_HISTOGRAM_TIMES("InstanceID.GetToken.CompleteTime", complete_time);
 }
 
 }  // namespace gcm

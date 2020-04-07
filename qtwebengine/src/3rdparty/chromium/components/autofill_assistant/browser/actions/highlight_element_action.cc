@@ -12,26 +12,32 @@
 
 namespace autofill_assistant {
 
-HighlightElementAction::HighlightElementAction(const ActionProto& proto)
-    : Action(proto), weak_ptr_factory_(this) {
+HighlightElementAction::HighlightElementAction(ActionDelegate* delegate,
+                                               const ActionProto& proto)
+    : Action(delegate, proto), weak_ptr_factory_(this) {
   DCHECK(proto_.has_highlight_element());
 }
 
 HighlightElementAction::~HighlightElementAction() {}
 
 void HighlightElementAction::InternalProcessAction(
-    ActionDelegate* delegate,
     ProcessActionCallback callback) {
-  DCHECK_GT(proto_.highlight_element().element().selectors_size(), 0);
-  delegate->ShortWaitForElementExist(
-      Selector(proto_.highlight_element().element()),
-      base::BindOnce(&HighlightElementAction::OnWaitForElement,
-                     weak_ptr_factory_.GetWeakPtr(), base::Unretained(delegate),
-                     std::move(callback)));
+  Selector selector =
+      Selector(proto_.highlight_element().element()).MustBeVisible();
+  if (selector.empty()) {
+    DVLOG(1) << __func__ << ": empty selector";
+    UpdateProcessedAction(INVALID_SELECTOR);
+    std::move(callback).Run(std::move(processed_action_proto_));
+    return;
+  }
+  delegate_->ShortWaitForElement(
+      selector, base::BindOnce(&HighlightElementAction::OnWaitForElement,
+                               weak_ptr_factory_.GetWeakPtr(),
+                               std::move(callback), selector));
 }
 
-void HighlightElementAction::OnWaitForElement(ActionDelegate* delegate,
-                                              ProcessActionCallback callback,
+void HighlightElementAction::OnWaitForElement(ProcessActionCallback callback,
+                                              const Selector& selector,
                                               bool element_found) {
   if (!element_found) {
     UpdateProcessedAction(ELEMENT_RESOLUTION_FAILED);
@@ -39,15 +45,15 @@ void HighlightElementAction::OnWaitForElement(ActionDelegate* delegate,
     return;
   }
 
-  delegate->HighlightElement(
-      Selector(proto_.highlight_element().element()),
+  delegate_->HighlightElement(
+      selector,
       base::BindOnce(&HighlightElementAction::OnHighlightElement,
                      weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
 }
 
 void HighlightElementAction::OnHighlightElement(ProcessActionCallback callback,
-                                                bool status) {
-  UpdateProcessedAction(status ? ACTION_APPLIED : OTHER_ACTION_STATUS);
+                                                const ClientStatus& status) {
+  UpdateProcessedAction(status);
   std::move(callback).Run(std::move(processed_action_proto_));
 }
 

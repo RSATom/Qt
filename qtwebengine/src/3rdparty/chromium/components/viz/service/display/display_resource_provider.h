@@ -20,6 +20,7 @@
 #include "components/viz/common/resources/return_callback.h"
 #include "components/viz/common/resources/shared_bitmap.h"
 #include "components/viz/common/resources/transferable_resource.h"
+#include "components/viz/service/display/external_use_client.h"
 #include "components/viz/service/display/overlay_candidate.h"
 #include "components/viz/service/display/resource_fence.h"
 #include "components/viz/service/display/resource_metadata.h"
@@ -43,9 +44,9 @@ typedef unsigned int     GLenum;
 typedef unsigned int     GLuint;
 
 namespace viz {
+
 class ContextProvider;
 class SharedBitmapManager;
-class SkiaOutputSurface;
 
 // This class provides abstractions for receiving and using resources from other
 // modules/threads/processes. It abstracts away GL textures vs GpuMemoryBuffers
@@ -66,9 +67,12 @@ class VIZ_SERVICE_EXPORT DisplayResourceProvider
     kGpu,
     kSoftware,
   };
+  // TODO(cblume, crbug.com/900973): |enable_shared_images| is a temporary
+  // solution that unblocks us until SharedImages are threadsafe in WebView.
   DisplayResourceProvider(Mode mode,
                           ContextProvider* compositor_context_provider,
-                          SharedBitmapManager* shared_bitmap_manager);
+                          SharedBitmapManager* shared_bitmap_manager,
+                          bool enable_shared_images = true);
   ~DisplayResourceProvider() override;
 
   bool IsSoftware() const { return mode_ == kSoftware; }
@@ -111,6 +115,8 @@ class VIZ_SERVICE_EXPORT DisplayResourceProvider
   GLenum GetResourceTextureTarget(ResourceId id);
   // Return the format of the underlying buffer that can be used for scanout.
   gfx::BufferFormat GetBufferFormat(ResourceId id);
+  ResourceFormat GetResourceFormat(ResourceId id);
+  const gfx::ColorSpace& GetColorSpace(ResourceId id);
   // Indicates if this resource may be used for a hardware overlay plane.
   bool IsOverlayCandidate(ResourceId id);
 
@@ -173,10 +179,13 @@ class VIZ_SERVICE_EXPORT DisplayResourceProvider
   class VIZ_SERVICE_EXPORT ScopedReadLockSkImage {
    public:
     ScopedReadLockSkImage(DisplayResourceProvider* resource_provider,
-                          ResourceId resource_id);
+                          ResourceId resource_id,
+                          SkAlphaType alpha_type = kPremul_SkAlphaType,
+                          GrSurfaceOrigin origin = kTopLeft_GrSurfaceOrigin);
     ~ScopedReadLockSkImage();
 
     const SkImage* sk_image() const { return sk_image_.get(); }
+    sk_sp<SkImage> TakeSkImage() { return std::move(sk_image_); }
 
     bool valid() const { return !!sk_image_; }
 
@@ -195,15 +204,11 @@ class VIZ_SERVICE_EXPORT DisplayResourceProvider
     // |resource_provider|. Both |resource_provider| and |client| outlive this
     // class.
     LockSetForExternalUse(DisplayResourceProvider* resource_provider,
-                          SkiaOutputSurface* client);
+                          ExternalUseClient* client);
     ~LockSetForExternalUse();
 
     // Lock a resource for external use.
     ResourceMetadata LockResource(ResourceId resource_id);
-
-    // Lock a resource and create a SkImage from it by using
-    // Client::CreateImage.
-    sk_sp<SkImage> LockResourceAndCreateSkImage(ResourceId resource_id);
 
     // Unlock all locked resources with a |sync_token|.
     // See UnlockForExternalUse for the detail. All resources must be unlocked
@@ -238,7 +243,6 @@ class VIZ_SERVICE_EXPORT DisplayResourceProvider
     // ResourceFence implementation.
     void Set() override;
     bool HasPassed() override;
-    void Wait() override;
 
     // Returns true if fence has been set but not yet synchornized.
     bool has_synchronized() const { return has_synchronized_; }
@@ -481,8 +485,8 @@ class VIZ_SERVICE_EXPORT DisplayResourceProvider
   ResourceMap resources_;
   ChildMap children_;
   base::flat_map<ResourceId, sk_sp<SkImage>> resource_sk_images_;
-  // If set, all |resource_sk_images_| were created with this client.
-  SkiaOutputSurface* external_use_client_ = nullptr;
+  // Used to release resources held by an external consumer.
+  ExternalUseClient* external_use_client_ = nullptr;
 
   base::flat_map<int, std::vector<ResourceId>> batched_returning_resources_;
   scoped_refptr<ResourceFence> current_read_lock_fence_;
@@ -505,6 +509,8 @@ class VIZ_SERVICE_EXPORT DisplayResourceProvider
   // Set of ResourceIds that would like to be notified about promotion hints.
   ResourceIdSet wants_promotion_hints_set_;
 #endif
+
+  bool enable_shared_images_;
 
   DISALLOW_COPY_AND_ASSIGN(DisplayResourceProvider);
 };

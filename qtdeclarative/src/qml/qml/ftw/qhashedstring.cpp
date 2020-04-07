@@ -39,82 +39,7 @@
 
 #include "qhashedstring_p.h"
 
-
-
-/*
-    A QHash has initially around pow(2, MinNumBits) buckets. For
-    example, if MinNumBits is 4, it has 17 buckets.
-*/
-const int MinNumBits = 4;
-
-/*
-    The prime_deltas array is a table of selected prime values, even
-    though it doesn't look like one. The primes we are using are 1,
-    2, 5, 11, 17, 37, 67, 131, 257, ..., i.e. primes in the immediate
-    surrounding of a power of two.
-
-    The primeForNumBits() function returns the prime associated to a
-    power of two. For example, primeForNumBits(8) returns 257.
-*/
-
-static const uchar prime_deltas[] = {
-    0,  0,  1,  3,  1,  5,  3,  3,  1,  9,  7,  5,  3,  9, 25,  3,
-    1, 21,  3, 21,  7, 15,  9,  5,  3, 29, 15,  0,  0,  0,  0,  0
-};
-
-static inline int primeForNumBits(int numBits)
-{
-    return (1 << numBits) + prime_deltas[numBits];
-}
-
-void QStringHashData::rehashToSize(int size)
-{
-    short bits = qMax(MinNumBits, (int)numBits);
-    while (primeForNumBits(bits) < size) bits++;
-
-    if (bits > numBits)
-        rehashToBits(bits);
-}
-
-void QStringHashData::rehashToBits(short bits)
-{
-    numBits = qMax(MinNumBits, (int)bits);
-
-    int nb = primeForNumBits(numBits);
-    if (nb == numBuckets && buckets)
-        return;
-
-#ifdef QSTRINGHASH_LINK_DEBUG
-    if (linkCount)
-        qFatal("QStringHash: Illegal attempt to rehash a linked hash.");
-#endif
-
-    QStringHashNode **newBuckets = new QStringHashNode *[nb];
-    ::memset(newBuckets, 0, sizeof(QStringHashNode *) * nb);
-
-    // Preserve the existing order within buckets so that items with the
-    // same key will retain the same find/findNext order
-    for (int i = 0; i < numBuckets; ++i) {
-        QStringHashNode *bucket = buckets[i];
-        if (bucket)
-            rehashNode(newBuckets, nb, bucket);
-    }
-
-    delete [] buckets;
-    buckets = newBuckets;
-    numBuckets = nb;
-}
-
-void QStringHashData::rehashNode(QStringHashNode **newBuckets, int nb, QStringHashNode *node)
-{
-    QStringHashNode *next = node->next.data();
-    if (next)
-        rehashNode(newBuckets, nb, next);
-
-    int bucket = node->hash % nb;
-    node->next = newBuckets[bucket];
-    newBuckets[bucket] = node;
-}
+QT_BEGIN_NAMESPACE
 
 // Copy of QString's qMemCompare
 bool QHashedString::compare(const QChar *lhs, const QChar *rhs, int length)
@@ -228,3 +153,4 @@ QString QHashedCStringRef::toUtf16() const
     return rv;
 }
 
+QT_END_NAMESPACE

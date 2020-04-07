@@ -4,20 +4,24 @@
 
 #include "chrome/browser/ui/webui/settings/chromeos/date_time_handler.h"
 
+#include "ash/public/cpp/login_screen.h"
+#include "ash/public/cpp/login_types.h"
 #include "base/bind.h"
 #include "base/command_line.h"
+#include "base/logging.h"
 #include "base/values.h"
 #include "chrome/browser/browser_process.h"
+#include "chrome/browser/chromeos/child_accounts/parent_access_code/parent_access_service.h"
 #include "chrome/browser/chromeos/set_time_dialog.h"
 #include "chrome/browser/chromeos/system/timezone_resolver_manager.h"
 #include "chrome/browser/chromeos/system/timezone_util.h"
 #include "chrome/common/pref_names.h"
 #include "chromeos/constants/chromeos_switches.h"
-#include "chromeos/dbus/dbus_thread_manager.h"
-#include "chromeos/dbus/system_clock_client.h"
+#include "chromeos/dbus/system_clock/system_clock_client.h"
 #include "chromeos/settings/timezone_settings.h"
 #include "components/policy/proto/chrome_device_policy.pb.h"
 #include "components/prefs/pref_service.h"
+#include "components/user_manager/user_manager.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_ui.h"
 #include "content/public/browser/web_ui_data_source.h"
@@ -27,19 +31,9 @@ namespace settings {
 
 namespace {
 
-// Returns whether the system time zone automatic detection policy is disabled
-// by a flag.
-bool IsSystemTimezoneAutomaticDetectionPolicyFlagDisabled() {
-  return base::CommandLine::ForCurrentProcess()->HasSwitch(
-      switches::kDisableSystemTimezoneAutomaticDetectionPolicy);
-}
-
 // Returns whether the system's automatic time zone detection setting is
 // managed, which may override the user's setting.
 bool IsSystemTimezoneAutomaticDetectionManaged() {
-  if (IsSystemTimezoneAutomaticDetectionPolicyFlagDisabled())
-    return false;
-
   return g_browser_process->local_state()->IsManagedPreference(
       prefs::kSystemTimezoneAutomaticDetectionPolicy);
 }
@@ -98,11 +92,14 @@ void DateTimeHandler::RegisterMessages() {
       "showSetDateTimeUI",
       base::BindRepeating(&DateTimeHandler::HandleShowSetDateTimeUI,
                           base::Unretained(this)));
+  web_ui()->RegisterMessageCallback(
+      "handleShowParentAccessForTimeZone",
+      base::BindRepeating(&DateTimeHandler::HandleShowParentAccessForTimeZone,
+                          base::Unretained(this)));
 }
 
 void DateTimeHandler::OnJavascriptAllowed() {
-  SystemClockClient* system_clock_client =
-      DBusThreadManager::Get()->GetSystemClockClient();
+  SystemClockClient* system_clock_client = SystemClockClient::Get();
   scoped_observer_.Add(system_clock_client);
   SystemClockCanSetTimeChanged(system_clock_client->CanSetTime());
 
@@ -113,9 +110,6 @@ void DateTimeHandler::OnJavascriptAllowed() {
           kSystemTimezonePolicy,
           base::Bind(&DateTimeHandler::NotifyTimezoneAutomaticDetectionPolicy,
                      weak_ptr_factory_.GetWeakPtr()));
-
-  if (IsSystemTimezoneAutomaticDetectionPolicyFlagDisabled())
-    return;
 
   // The auto-detection policy can force auto-detection on or off.
   local_state_pref_change_registrar_.Init(g_browser_process->local_state());
@@ -128,9 +122,7 @@ void DateTimeHandler::OnJavascriptAllowed() {
 void DateTimeHandler::OnJavascriptDisallowed() {
   scoped_observer_.RemoveAll();
   system_timezone_policy_subscription_.reset();
-
-  if (!IsSystemTimezoneAutomaticDetectionPolicyFlagDisabled())
-    local_state_pref_change_registrar_.RemoveAll();
+  local_state_pref_change_registrar_.RemoveAll();
 }
 
 void DateTimeHandler::HandleDateTimePageReady(const base::ListValue* args) {
@@ -152,10 +144,33 @@ void DateTimeHandler::HandleGetTimeZones(const base::ListValue* args) {
 
 void DateTimeHandler::HandleShowSetDateTimeUI(const base::ListValue* args) {
   // Make sure the clock status hasn't changed since the button was clicked.
-  if (!DBusThreadManager::Get()->GetSystemClockClient()->CanSetTime())
+  if (!SystemClockClient::Get()->CanSetTime())
     return;
   SetTimeDialog::ShowDialog(
       web_ui()->GetWebContents()->GetTopLevelNativeWindow());
+}
+
+void DateTimeHandler::HandleShowParentAccessForTimeZone(
+    const base::ListValue* args) {
+  DCHECK(user_manager::UserManager::Get()->GetActiveUser()->IsChild());
+
+  if (!parent_access::ParentAccessService::IsApprovalRequired(
+          parent_access::ParentAccessService::SupervisedAction::
+              kUpdateTimezone)) {
+    OnParentAccessValidation(true);
+    return;
+  }
+
+  ash::LoginScreen::Get()->ShowParentAccessWidget(
+      user_manager::UserManager::Get()->GetActiveUser()->GetAccountId(),
+      base::BindRepeating(&DateTimeHandler::OnParentAccessValidation,
+                          weak_ptr_factory_.GetWeakPtr()),
+      ash::ParentAccessRequestReason::kChangeTimezone);
+}
+
+void DateTimeHandler::OnParentAccessValidation(bool success) {
+  if (success)
+    FireWebUIListener("access-code-validation-complete");
 }
 
 void DateTimeHandler::NotifyTimezoneAutomaticDetectionPolicy() {

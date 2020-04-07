@@ -24,7 +24,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-// https://html.spec.whatwg.org/#the-window-object
+// https://html.spec.whatwg.org/C/#the-window-object
 
 // FIXME: explain all uses of [CrossOrigin]
 [
@@ -88,17 +88,19 @@
     [CrossOrigin, CallWith=Isolate, RaisesException] void postMessage(any message, optional WindowPostMessageOptions options);
 
     // WindowOrWorkerGlobalScope mixin
-    // https://html.spec.whatwg.org/#windoworworkerglobalscope-mixin
+    // https://html.spec.whatwg.org/C/#windoworworkerglobalscope-mixin
     [Replaceable] readonly attribute DOMString origin;
     void queueMicrotask(VoidFunction callback);
 
     // AnimationFrameProvider mixin
-    // https://html.spec.whatwg.org/multipage/imagebitmap-and-animations.html#animation-frames
+    // https://html.spec.whatwg.org/C/#animation-frames
     [MeasureAs=UnprefixedRequestAnimationFrame] long requestAnimationFrame(FrameRequestCallback callback);
     void cancelAnimationFrame(long handle);
+    [RuntimeEnabled=PostAnimationFrame] long requestPostAnimationFrame(FrameRequestCallback callback);
+    [RuntimeEnabled=PostAnimationFrame] void cancelPostAnimationFrame(long handle);
 
     // HTML obsolete features
-    // https://html.spec.whatwg.org/#Window-partial
+    // https://html.spec.whatwg.org/C/#Window-partial
     [MeasureAs=WindowCaptureEvents] void captureEvents();
     [MeasureAs=WindowReleaseEvents] void releaseEvents();
 
@@ -117,8 +119,6 @@
     // https://drafts.csswg.org/cssom-view/#extensions-to-the-window-interface
     [HighEntropy, Measure, NewObject] MediaQueryList matchMedia(DOMString query);
     [SameObject, Replaceable] readonly attribute Screen screen;
-
-    [RuntimeEnabled=WorkerTaskQueue, SameObject, Replaceable] readonly attribute ScriptedTaskQueueController TaskQueue;
 
     // browsing context
     void moveTo(long x, long y);
@@ -215,9 +215,9 @@
     attribute DOMMatrixConstructor WebKitCSSMatrix;
 
     // TrustedTypes API: http://github.com/wicg/trusted-types
-    [OriginTrialEnabled=TrustedDOMTypes, Unforgeable] readonly attribute TrustedTypePolicyFactory TrustedTypes;
+    [RuntimeEnabled=TrustedDOMTypes, Unforgeable] readonly attribute TrustedTypePolicyFactory TrustedTypes;
 };
 
-Window implements GlobalEventHandlers;
-Window implements WindowEventHandlers;
-Window implements WindowOrWorkerGlobalScope;
+Window includes GlobalEventHandlers;
+Window includes WindowEventHandlers;
+Window includes WindowOrWorkerGlobalScope;

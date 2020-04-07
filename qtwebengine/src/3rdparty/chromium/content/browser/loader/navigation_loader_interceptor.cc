@@ -4,7 +4,7 @@
 
 #include "content/browser/loader/navigation_loader_interceptor.h"
 
-#include "content/common/navigation_subresource_loader_params.h"
+#include "content/browser/navigation_subresource_loader_params.h"
 
 namespace content {
 
@@ -16,6 +16,7 @@ NavigationLoaderInterceptor::MaybeCreateSubresourceLoaderParams() {
 bool NavigationLoaderInterceptor::MaybeCreateLoaderForResponse(
     const network::ResourceRequest& request,
     const network::ResourceResponseHead& response,
+    mojo::ScopedDataPipeConsumerHandle* response_body,
     network::mojom::URLLoaderPtr* loader,
     network::mojom::URLLoaderClientRequest* client_request,
     ThrottlingURLLoader* url_loader,

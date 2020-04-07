@@ -8,13 +8,14 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
+#include "modules/audio_processing/gain_controller2.h"
+
 #include <algorithm>
 
 #include "absl/memory/memory.h"
 #include "api/array_view.h"
 #include "modules/audio_processing/agc2/agc2_testing_common.h"
 #include "modules/audio_processing/audio_buffer.h"
-#include "modules/audio_processing/gain_controller2.h"
 #include "modules/audio_processing/test/audio_buffer_tools.h"
 #include "modules/audio_processing/test/bitexactness_tools.h"
 #include "rtc_base/checks.h"
@@ -202,8 +203,8 @@ struct FixedDigitalTestParams {
 };
 
 class FixedDigitalTest
-    : public testing::Test,
-      public testing::WithParamInterface<FixedDigitalTestParams> {};
+    : public ::testing::Test,
+      public ::testing::WithParamInterface<FixedDigitalTestParams> {};
 
 TEST_P(FixedDigitalTest, CheckSaturationBehaviorWithLimiter) {
   const float kInputLevel = 32767.f;
@@ -227,7 +228,7 @@ TEST_P(FixedDigitalTest, CheckSaturationBehaviorWithLimiter) {
 }
 
 static_assert(test::kLimiterMaxInputLevelDbFs < 10, "");
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     GainController2,
     FixedDigitalTest,
     ::testing::Values(

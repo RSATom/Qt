@@ -36,7 +36,11 @@
 
 #include "loadanimationclipjob_p.h"
 
+#include <Qt3DCore/private/qaspectmanager_p.h>
+#include <Qt3DAnimation/qanimationcliploader.h>
+#include <Qt3DAnimation/private/qanimationcliploader_p.h>
 #include <Qt3DAnimation/private/animationclip_p.h>
+#include <Qt3DAnimation/private/qabstractanimationclip_p.h>
 #include <Qt3DAnimation/private/handler_p.h>
 #include <Qt3DAnimation/private/managers_p.h>
 #include <Qt3DAnimation/private/job_common_p.h>
@@ -46,16 +50,28 @@ QT_BEGIN_NAMESPACE
 namespace Qt3DAnimation {
 namespace Animation {
 
-LoadAnimationClipJob::LoadAnimationClipJob()
-    : Qt3DCore::QAspectJob()
-    , m_animationClipHandles()
+class LoadAnimationClipJobPrivate : public Qt3DCore::QAspectJobPrivate
 {
-    SET_JOB_RUN_STAT_TYPE(this, JobTypes::LoadAnimationClip, 0);
+public:
+    LoadAnimationClipJobPrivate() { }
+    ~LoadAnimationClipJobPrivate() override { }
+
+    void postFrame(Qt3DCore::QAspectManager *manager) override;
+
+    QVector<AnimationClip *> m_updatedNodes;
+};
+
+LoadAnimationClipJob::LoadAnimationClipJob()
+    : Qt3DCore::QAspectJob(*new LoadAnimationClipJobPrivate)
+    , m_animationClipHandles()
+    , m_handler(nullptr)
+{
+    SET_JOB_RUN_STAT_TYPE(this, JobTypes::LoadAnimationClip, 0)
 }
 
 void LoadAnimationClipJob::addDirtyAnimationClips(const QVector<HAnimationClip> &animationClipHandles)
 {
-    for (const auto handle : animationClipHandles) {
+    for (const auto &handle : animationClipHandles) {
         if (!m_animationClipHandles.contains(handle))
             m_animationClipHandles.push_back(handle);
     }
@@ -69,14 +85,38 @@ void LoadAnimationClipJob::clearDirtyAnimationClips()
 void LoadAnimationClipJob::run()
 {
     Q_ASSERT(m_handler);
+    Q_DJOB(LoadAnimationClipJob);
+
+    d->m_updatedNodes.reserve(m_animationClipHandles.size());
     AnimationClipLoaderManager *animationClipManager = m_handler->animationClipLoaderManager();
     for (const auto &animationClipHandle : qAsConst(m_animationClipHandles)) {
         AnimationClip *animationClip = animationClipManager->data(animationClipHandle);
         Q_ASSERT(animationClip);
         animationClip->loadAnimation();
+        d->m_updatedNodes.push_back(animationClip);
     }
 
     clearDirtyAnimationClips();
+}
+
+void LoadAnimationClipJobPrivate::postFrame(Qt3DCore::QAspectManager *manager)
+{
+    for (AnimationClip *clip: qAsConst(m_updatedNodes)) {
+        QAbstractAnimationClip *node = qobject_cast<QAbstractAnimationClip *>(manager->lookupNode(clip->peerId()));
+        if (!node)
+            continue;
+
+        QAbstractAnimationClipPrivate *dnode = static_cast<QAbstractAnimationClipPrivate *>(Qt3DCore::QNodePrivate::get(node));
+        dnode->setDuration(clip->duration());
+
+        QAnimationClipLoader *loader = qobject_cast<QAnimationClipLoader *>(node);
+        if (loader) {
+            QAnimationClipLoaderPrivate *dloader = static_cast<QAnimationClipLoaderPrivate *>(dnode);
+            dloader->setStatus(clip->status());
+        }
+    }
+
+    m_updatedNodes.clear();
 }
 
 } // namespace Animation

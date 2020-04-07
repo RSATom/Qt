@@ -10,8 +10,11 @@
 #include "build/build_config.h"
 #include "gpu/ipc/service/command_buffer_stub.h"
 #include "gpu/ipc/service/image_transport_surface_delegate.h"
+#include "ui/gfx/gpu_fence_handle.h"
 
+struct GpuCommandBufferMsg_CreateImage_Params;
 namespace gpu {
+struct Mailbox;
 
 class GPU_IPC_SERVICE_EXPORT GLES2CommandBufferStub
     : public CommandBufferStub,
@@ -34,6 +37,7 @@ class GPU_IPC_SERVICE_EXPORT GLES2CommandBufferStub
       CommandBufferStub* share_group,
       const GPUCreateCommandBufferConfig& init_params,
       base::UnsafeSharedMemoryRegion shared_state_shm) override;
+  MemoryTracker* GetMemoryTracker() const override;
 
 // ImageTransportSurfaceDelegate implementation:
 #if defined(OS_WIN)
@@ -45,14 +49,22 @@ class GPU_IPC_SERVICE_EXPORT GLES2CommandBufferStub
   const gles2::FeatureInfo* GetFeatureInfo() const override;
   const GpuPreferences& GetGpuPreferences() const override;
   void BufferPresented(const gfx::PresentationFeedback& feedback) override;
-
-  void AddFilter(IPC::MessageFilter* message_filter) override;
-  int32_t GetRouteID() const override;
+  viz::GpuVSyncCallback GetGpuVSyncCallback() override;
 
  private:
-  void OnTakeFrontBuffer(const Mailbox& mailbox) override;
-  void OnReturnFrontBuffer(const Mailbox& mailbox, bool is_lost) override;
+  bool HandleMessage(const IPC::Message& message) override;
+  void OnTakeFrontBuffer(const Mailbox& mailbox);
+  void OnReturnFrontBuffer(const Mailbox& mailbox, bool is_lost);
+  void OnCreateGpuFenceFromHandle(uint32_t gpu_fence_id,
+                                  const gfx::GpuFenceHandle& handle);
+  void OnGetGpuFenceHandle(uint32_t gpu_fence_id);
+  void OnCreateImage(GpuCommandBufferMsg_CreateImage_Params params);
+  void OnDestroyImage(int32_t id);
+
   void OnSwapBuffers(uint64_t swap_id, uint32_t flags) override;
+
+  // The group of contexts that share namespaces with this context.
+  scoped_refptr<gles2::ContextGroup> context_group_;
 
   // Keep a more specifically typed reference to the decoder to avoid
   // unnecessary casts. Owned by parent class.
@@ -67,7 +79,7 @@ class GPU_IPC_SERVICE_EXPORT GLES2CommandBufferStub
   base::circular_deque<SwapBufferParams> pending_presented_params_;
   base::circular_deque<SwapBufferParams> pending_swap_completed_params_;
 
-  base::WeakPtrFactory<GLES2CommandBufferStub> weak_ptr_factory_;
+  base::WeakPtrFactory<GLES2CommandBufferStub> weak_ptr_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(GLES2CommandBufferStub);
 };

@@ -54,7 +54,7 @@ static const uchar utf8bom[] = { 0xef, 0xbb, 0xbf };
 
 #if (defined(__SSE2__) && defined(QT_COMPILER_SUPPORTS_SSE2)) \
     || (defined(__ARM_NEON__) && defined(Q_PROCESSOR_ARM_64))
-static Q_ALWAYS_INLINE uint qBitScanReverse(unsigned v) Q_DECL_NOTHROW
+static Q_ALWAYS_INLINE uint qBitScanReverse(unsigned v) noexcept
 {
     uint result = qCountLeadingZeroBits(v);
     // Now Invert the result: clz will count *down* from the msb to the lsb, so the msb index is 31
@@ -504,7 +504,7 @@ QString QUtf8::convertToUnicode(const char *chars, int len)
     This function never throws.
 */
 
-QChar *QUtf8::convertToUnicode(QChar *buffer, const char *chars, int len) Q_DECL_NOTHROW
+QChar *QUtf8::convertToUnicode(QChar *buffer, const char *chars, int len) noexcept
 {
     ushort *dst = reinterpret_cast<ushort *>(buffer);
     const uchar *src = reinterpret_cast<const uchar *>(chars);
@@ -930,6 +930,7 @@ QString QUtf32::convertToUnicode(const char *chars, int len, QTextCodec::Convert
         tuple[num++] = *chars++;
         if (num == 4) {
             if (!headerdone) {
+                headerdone = true;
                 if (endian == DetectEndianness) {
                     if (tuple[0] == 0xff && tuple[1] == 0xfe && tuple[2] == 0 && tuple[3] == 0 && endian != BigEndianness) {
                         endian = LittleEndianness;
@@ -951,10 +952,10 @@ QString QUtf32::convertToUnicode(const char *chars, int len, QTextCodec::Convert
             }
             uint code = (endian == BigEndianness) ? qFromBigEndian<quint32>(tuple) : qFromLittleEndian<quint32>(tuple);
             if (QChar::requiresSurrogates(code)) {
-                *qch++ = QChar::highSurrogate(code);
-                *qch++ = QChar::lowSurrogate(code);
+                *qch++ = QChar(QChar::highSurrogate(code));
+                *qch++ = QChar(QChar::lowSurrogate(code));
             } else {
-                *qch++ = code;
+                *qch++ = QChar(code);
             }
             num = 0;
         }

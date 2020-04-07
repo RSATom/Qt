@@ -30,10 +30,10 @@
 #include "components/offline_pages/core/offline_page_metadata_store.h"
 #include "components/offline_pages/core/offline_page_metadata_store_test_util.h"
 #include "components/offline_pages/core/offline_page_model.h"
+#include "components/offline_pages/core/offline_page_test_archive_publisher.h"
 #include "components/offline_pages/core/offline_page_test_archiver.h"
 #include "components/offline_pages/core/offline_page_types.h"
 #include "components/offline_pages/core/offline_store_utils.h"
-#include "components/offline_pages/core/stub_system_download_manager.h"
 #include "components/offline_pages/core/test_scoped_offline_clock.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -97,11 +97,15 @@ class OfflinePageModelTaskifiedTest : public testing::Test,
   void OfflinePageModelLoaded(OfflinePageModel* model) override;
   void OfflinePageAdded(OfflinePageModel* model,
                         const OfflinePageItem& added_page) override;
-  void OfflinePageDeleted(
-      const OfflinePageModel::DeletedPageInfo& page_info) override;
-  MOCK_METHOD2(ThumbnailAdded,
+  void OfflinePageDeleted(const OfflinePageItem& item) override;
+  MOCK_METHOD3(ThumbnailAdded,
                void(OfflinePageModel* model,
-                    const OfflinePageThumbnail& added_thumbnail));
+                    int64_t offline_id,
+                    const std::string& thumbnail));
+  MOCK_METHOD3(FaviconAdded,
+               void(OfflinePageModel* model,
+                    int64_t offline_id,
+                    const std::string& favicon));
 
   // OfflinePageTestArchiver::Observer implementation.
   void SetLastPathCreatedByArchiver(const base::FilePath& file_path) override;
@@ -136,6 +140,12 @@ class OfflinePageModelTaskifiedTest : public testing::Test,
                                                          ArchiverResult result);
   void CheckTaskQueueIdle();
 
+  void SetTestArchivePublisher(
+      std::unique_ptr<OfflinePageTestArchivePublisher> publisher) {
+    publisher_ = publisher.get();
+    model()->archive_publisher_ = std::move(publisher);
+  }
+
   // Getters for private fields.
   base::TestMockTimeTaskRunner* task_runner() { return task_runner_.get(); }
   base::Clock* clock() { return task_runner_->GetMockClock(); }
@@ -145,9 +155,7 @@ class OfflinePageModelTaskifiedTest : public testing::Test,
     return &store_test_util_;
   }
 
-  StubSystemDownloadManager* download_manager_stub() {
-    return download_manager_stub_;
-  }
+  ArchiveManager* archive_manager() { return archive_manager_; }
   OfflinePageItemGenerator* page_generator() { return &generator_; }
   TaskQueue* task_queue() { return &model_->task_queue_; }
   base::HistogramTester* histogram_tester() { return histogram_tester_.get(); }
@@ -167,21 +175,21 @@ class OfflinePageModelTaskifiedTest : public testing::Test,
   bool observer_add_page_called() { return observer_add_page_called_; }
   const OfflinePageItem& last_added_page() { return last_added_page_; }
   bool observer_delete_page_called() { return observer_delete_page_called_; }
-  const OfflinePageModel::DeletedPageInfo& last_deleted_page_info() {
-    return last_deleted_page_info_;
-  }
+  const OfflinePageItem& last_deleted_page() { return last_deleted_page_; }
   base::Time last_maintenance_tasks_schedule_time() {
     return model_->last_maintenance_tasks_schedule_time_;
   }
+  OfflinePageTestArchivePublisher* publisher() { return publisher_; }
 
  private:
   scoped_refptr<base::TestMockTimeTaskRunner> task_runner_;
   base::ThreadTaskRunnerHandle task_runner_handle_;
   std::unique_ptr<OfflinePageModelTaskified> model_;
   OfflinePageMetadataStoreTestUtil store_test_util_;
-  StubSystemDownloadManager* download_manager_stub_;
+  ArchiveManager* archive_manager_;
   OfflinePageItemGenerator generator_;
   std::unique_ptr<base::HistogramTester> histogram_tester_;
+  OfflinePageTestArchivePublisher* publisher_;
   base::ScopedTempDir temporary_dir_;
   base::ScopedTempDir private_archive_dir_;
   base::ScopedTempDir public_archive_dir_;
@@ -192,7 +200,7 @@ class OfflinePageModelTaskifiedTest : public testing::Test,
   bool observer_add_page_called_;
   OfflinePageItem last_added_page_;
   bool observer_delete_page_called_;
-  OfflinePageModel::DeletedPageInfo last_deleted_page_info_;
+  OfflinePageItem last_deleted_page_;
 };
 
 OfflinePageModelTaskifiedTest::OfflinePageModelTaskifiedTest()
@@ -243,15 +251,18 @@ void OfflinePageModelTaskifiedTest::BuildStore() {
 void OfflinePageModelTaskifiedTest::BuildModel() {
   ASSERT_TRUE(store_test_util_.store());
   // Keep a copy of the system download manager stub to test against.
-  download_manager_stub_ = new StubSystemDownloadManager(kDownloadId, true);
   auto archive_manager = std::make_unique<ArchiveManager>(
       temporary_dir_path(), private_archive_dir_path(),
       public_archive_dir_path(), base::ThreadTaskRunnerHandle::Get());
-  std::unique_ptr<SystemDownloadManager> download_manager(
-      download_manager_stub_);
+  archive_manager_ = archive_manager.get();
+
+  auto publisher = std::make_unique<OfflinePageTestArchivePublisher>(
+      archive_manager.get(), kDownloadId);
+  publisher_ = publisher.get();
+
   model_ = std::make_unique<OfflinePageModelTaskified>(
       store_test_util()->ReleaseStore(), std::move(archive_manager),
-      std::move(download_manager), base::ThreadTaskRunnerHandle::Get());
+      std::move(publisher), base::ThreadTaskRunnerHandle::Get());
   model_->AddObserver(this);
   histogram_tester_ = std::make_unique<base::HistogramTester>();
   ResetResults();
@@ -279,9 +290,9 @@ void OfflinePageModelTaskifiedTest::OfflinePageAdded(
 }
 
 void OfflinePageModelTaskifiedTest::OfflinePageDeleted(
-    const OfflinePageModel::DeletedPageInfo& page_info) {
+    const OfflinePageItem& item) {
   observer_delete_page_called_ = true;
-  last_deleted_page_info_ = page_info;
+  last_deleted_page_ = item;
 }
 
 void OfflinePageModelTaskifiedTest::SetLastPathCreatedByArchiver(
@@ -302,6 +313,7 @@ void OfflinePageModelTaskifiedTest::SavePageWithCallback(
   save_page_params.original_url = original_url;
   save_page_params.request_origin = request_origin;
   save_page_params.is_background = false;
+
   model()->SavePage(save_page_params, std::move(archiver), nullptr,
                     std::move(callback));
   PumpLoop();
@@ -361,6 +373,7 @@ void OfflinePageModelTaskifiedTest::CheckTaskQueueIdle() {
 // Tests saving successfully a non-user-requested offline page.
 TEST_F(OfflinePageModelTaskifiedTest, SavePageSuccessful) {
   auto archiver = BuildArchiver(kTestUrl, ArchiverResult::SUCCESSFULLY_CREATED);
+
   int64_t offline_id = SavePageWithExpectedResult(
       kTestUrl, kTestClientId1, kTestUrl2, kEmptyRequestOrigin,
       std::move(archiver), SavePageResult::SUCCESS);
@@ -378,7 +391,7 @@ TEST_F(OfflinePageModelTaskifiedTest, SavePageSuccessful) {
   EXPECT_EQ(0, saved_page_ptr->access_count);
   EXPECT_EQ(0, saved_page_ptr->flags);
   EXPECT_EQ(kTestTitle, saved_page_ptr->title);
-  EXPECT_EQ(kTestUrl2, saved_page_ptr->original_url);
+  EXPECT_EQ(kTestUrl2, saved_page_ptr->original_url_if_different);
   EXPECT_EQ("", saved_page_ptr->request_origin);
   EXPECT_EQ(kTestDigest, saved_page_ptr->digest);
 
@@ -439,7 +452,7 @@ TEST_F(OfflinePageModelTaskifiedTest, SavePageSuccessfulWithSameOriginalUrl) {
 
   EXPECT_EQ(kTestUrl, saved_page_ptr->url);
   // The original URL should be empty.
-  EXPECT_TRUE(saved_page_ptr->original_url.is_empty());
+  EXPECT_TRUE(saved_page_ptr->original_url_if_different.is_empty());
 
   histogram_tester()->ExpectUniqueSample(
       "OfflinePages.SavePageCount",
@@ -462,6 +475,7 @@ TEST_F(OfflinePageModelTaskifiedTest, SavePageSuccessfulWithSameOriginalUrl) {
 
 TEST_F(OfflinePageModelTaskifiedTest, SavePageSuccessfulWithRequestOrigin) {
   auto archiver = BuildArchiver(kTestUrl, ArchiverResult::SUCCESSFULLY_CREATED);
+
   int64_t offline_id = SavePageWithExpectedResult(
       kTestUrl, kTestClientId1, kTestUrl2, kTestRequestOrigin,
       std::move(archiver), SavePageResult::SUCCESS);
@@ -479,7 +493,7 @@ TEST_F(OfflinePageModelTaskifiedTest, SavePageSuccessfulWithRequestOrigin) {
   EXPECT_EQ(0, saved_page_ptr->access_count);
   EXPECT_EQ(0, saved_page_ptr->flags);
   EXPECT_EQ(kTestTitle, saved_page_ptr->title);
-  EXPECT_EQ(kTestUrl2, saved_page_ptr->original_url);
+  EXPECT_EQ(kTestUrl2, saved_page_ptr->original_url_if_different);
   EXPECT_EQ(kTestRequestOrigin, saved_page_ptr->request_origin);
 
   histogram_tester()->ExpectUniqueSample(
@@ -843,7 +857,7 @@ TEST_F(OfflinePageModelTaskifiedTest, DISABLED_DeleteMultiplePages) {}
 // These newly added tests are testing the API instead of results, which
 // should be covered in DeletePagesTaskTest.
 
-TEST_F(OfflinePageModelTaskifiedTest, DeletePagesByOfflineId) {
+TEST_F(OfflinePageModelTaskifiedTest, DeletePagesWithCriteria) {
   page_generator()->SetArchiveDirectory(temporary_dir_path());
   page_generator()->SetNamespace(kDefaultNamespace);
   OfflinePageItem page1 = page_generator()->CreateItemWithTempFile();
@@ -858,16 +872,18 @@ TEST_F(OfflinePageModelTaskifiedTest, DeletePagesByOfflineId) {
   EXPECT_CALL(callback, Run(A<DeletePageResult>()));
   CheckTaskQueueIdle();
 
-  model()->DeletePagesByOfflineId({page1.offline_id}, callback.Get());
+  PageCriteria criteria;
+  criteria.offline_ids = std::vector<int64_t>{page1.offline_id};
+  model()->DeletePagesWithCriteria(criteria, callback.Get());
   EXPECT_TRUE(task_queue()->HasRunningTask());
 
   PumpLoop();
   EXPECT_TRUE(observer_delete_page_called());
-  EXPECT_EQ(last_deleted_page_info().offline_id, page1.offline_id);
+  EXPECT_EQ(last_deleted_page().offline_id, page1.offline_id);
   EXPECT_EQ(1UL, test_utils::GetFileCountInDirectory(temporary_dir_path()));
   EXPECT_EQ(1LL, store_test_util()->GetPageCount());
   EXPECT_EQ(page1.system_download_id,
-            download_manager_stub()->last_removed_id());
+            publisher()->last_removed_id().download_id);
   histogram_tester()->ExpectUniqueSample(
       "OfflinePages.DeletePageCount",
       static_cast<int>(
@@ -913,7 +929,7 @@ TEST_F(OfflinePageModelTaskifiedTest, DeletePagesByUrlPredicate) {
 
   PumpLoop();
   EXPECT_TRUE(observer_delete_page_called());
-  EXPECT_EQ(last_deleted_page_info().offline_id, page1.offline_id);
+  EXPECT_EQ(last_deleted_page().offline_id, page1.offline_id);
   EXPECT_EQ(1UL, test_utils::GetFileCountInDirectory(temporary_dir_path()));
   EXPECT_EQ(1LL, store_test_util()->GetPageCount());
   histogram_tester()->ExpectUniqueSample(
@@ -949,7 +965,7 @@ TEST_F(OfflinePageModelTaskifiedTest, GetPageByOfflineId) {
   PumpLoop();
 }
 
-TEST_F(OfflinePageModelTaskifiedTest, GetPagesByUrl_FinalUrl) {
+TEST_F(OfflinePageModelTaskifiedTest, GetPagesWithCriteria_FinalUrl) {
   page_generator()->SetUrl(kTestUrl);
   OfflinePageItem page1 = page_generator()->CreateItem();
   InsertPageIntoStore(page1);
@@ -960,18 +976,22 @@ TEST_F(OfflinePageModelTaskifiedTest, GetPagesByUrl_FinalUrl) {
   // Search by kTestUrl.
   base::MockCallback<MultipleOfflinePageItemCallback> callback;
   EXPECT_CALL(callback, Run(ElementsAre(page1)));
-  model()->GetPagesByURL(kTestUrl, callback.Get());
+  PageCriteria criteria;
+  criteria.url = kTestUrl;
+  model()->GetPagesWithCriteria(criteria, callback.Get());
   EXPECT_TRUE(task_queue()->HasRunningTask());
   PumpLoop();
 
   // Search by kTestUrl2.
   EXPECT_CALL(callback, Run(ElementsAre(page2)));
-  model()->GetPagesByURL(kTestUrl2, callback.Get());
+  criteria.url = kTestUrl2;
+  model()->GetPagesWithCriteria(criteria, callback.Get());
   PumpLoop();
 
   // Search by random url, which should return no pages.
   EXPECT_CALL(callback, Run(IsEmpty()));
-  model()->GetPagesByURL(kOtherUrl, callback.Get());
+  criteria.url = kOtherUrl;
+  model()->GetPagesWithCriteria(criteria, callback.Get());
   EXPECT_TRUE(task_queue()->HasRunningTask());
   PumpLoop();
 }
@@ -988,26 +1008,28 @@ TEST_F(OfflinePageModelTaskifiedTest,
   // Search by kTestUrlWithFragment.
   base::MockCallback<MultipleOfflinePageItemCallback> callback;
   EXPECT_CALL(callback, Run(ElementsAre(page1)));
-  model()->GetPagesByURL(kTestUrlWithFragment,
-                         callback.Get());
+  PageCriteria criteria;
+  criteria.url = kTestUrlWithFragment;
+  model()->GetPagesWithCriteria(criteria, callback.Get());
   EXPECT_TRUE(task_queue()->HasRunningTask());
   PumpLoop();
 
   // Search by kTestUrl2.
   EXPECT_CALL(callback, Run(ElementsAre(page2)));
-  model()->GetPagesByURL(kTestUrl2, callback.Get());
+  criteria.url = kTestUrl2;
+  model()->GetPagesWithCriteria(criteria, callback.Get());
   EXPECT_TRUE(task_queue()->HasRunningTask());
   PumpLoop();
 
   // Search by kTestUrl2WithFragment.
   EXPECT_CALL(callback, Run(ElementsAre(page2)));
-  model()->GetPagesByURL(kTestUrl2WithFragment,
-                         callback.Get());
+  criteria.url = kTestUrl2WithFragment;
+  model()->GetPagesWithCriteria(criteria, callback.Get());
   EXPECT_TRUE(task_queue()->HasRunningTask());
   PumpLoop();
 }
 
-TEST_F(OfflinePageModelTaskifiedTest, GetPagesByUrl_AllUrls) {
+TEST_F(OfflinePageModelTaskifiedTest, GetPagesWithCriteria_AllUrls) {
   page_generator()->SetUrl(kTestUrl);
   page_generator()->SetOriginalUrl(kTestUrl2);
   OfflinePageItem page1 = page_generator()->CreateItem();
@@ -1019,7 +1041,9 @@ TEST_F(OfflinePageModelTaskifiedTest, GetPagesByUrl_AllUrls) {
 
   base::MockCallback<MultipleOfflinePageItemCallback> callback;
   EXPECT_CALL(callback, Run(UnorderedElementsAre(page1, page2)));
-  model()->GetPagesByURL(kTestUrl2, callback.Get());
+  PageCriteria criteria;
+  criteria.url = kTestUrl2;
+  model()->GetPagesWithCriteria(criteria, callback.Get());
   PumpLoop();
 }
 
@@ -1046,164 +1070,6 @@ TEST_F(OfflinePageModelTaskifiedTest, GetOfflineIdsForClientId) {
               Run(UnorderedElementsAre(page1.offline_id, page2.offline_id)));
 
   model()->GetOfflineIdsForClientId(kTestClientId1, callback.Get());
-  EXPECT_TRUE(task_queue()->HasRunningTask());
-
-  PumpLoop();
-}
-
-TEST_F(OfflinePageModelTaskifiedTest, GetPagesByClientIds) {
-  page_generator()->SetNamespace(kTestClientId1.name_space);
-  page_generator()->SetId(kTestClientId1.id);
-  OfflinePageItem page1 = page_generator()->CreateItem();
-  OfflinePageItem page2 = page_generator()->CreateItem();
-  page_generator()->SetNamespace(kTestUserRequestedClientId.name_space);
-  OfflinePageItem page3 = page_generator()->CreateItem();
-  InsertPageIntoStore(page1);
-  InsertPageIntoStore(page2);
-  InsertPageIntoStore(page3);
-
-  base::MockCallback<MultipleOfflinePageItemCallback> callback;
-  EXPECT_CALL(callback, Run(UnorderedElementsAre(page1, page2)));
-
-  model()->GetPagesByClientIds({kTestClientId1}, callback.Get());
-  EXPECT_TRUE(task_queue()->HasRunningTask());
-
-  PumpLoop();
-}
-
-TEST_F(OfflinePageModelTaskifiedTest, GetPagesByRequestOrigin) {
-  page_generator()->SetRequestOrigin(kTestRequestOrigin);
-  OfflinePageItem page1 = page_generator()->CreateItem();
-  page_generator()->SetRequestOrigin(kEmptyRequestOrigin);
-  OfflinePageItem page2 = page_generator()->CreateItem();
-  InsertPageIntoStore(page1);
-  InsertPageIntoStore(page2);
-
-  base::MockCallback<MultipleOfflinePageItemCallback> callback;
-  EXPECT_CALL(callback, Run(ElementsAre(page1)));
-
-  model()->GetPagesByRequestOrigin(kTestRequestOrigin, callback.Get());
-  EXPECT_TRUE(task_queue()->HasRunningTask());
-
-  PumpLoop();
-}
-
-TEST_F(OfflinePageModelTaskifiedTest, GetPageBySizeAndDigest) {
-  static const int64_t kFileSize1 = 123LL;
-  static const int64_t kFileSize2 = 999999LL;
-  static const char kDigest1[] = "digest 1";
-  page_generator()->SetFileSize(kFileSize1);
-  page_generator()->SetDigest(kDigest1);
-  OfflinePageItem page1 = page_generator()->CreateItem();
-  page_generator()->SetFileSize(kFileSize2);
-  page_generator()->SetDigest(kDigest1);
-  OfflinePageItem page2 = page_generator()->CreateItem();
-  InsertPageIntoStore(page1);
-  InsertPageIntoStore(page2);
-
-  base::MockCallback<SingleOfflinePageItemCallback> callback;
-  EXPECT_CALL(callback, Run(Pointee(Eq(page2))));
-
-  model()->GetPageBySizeAndDigest(kFileSize2, kDigest1, callback.Get());
-  EXPECT_TRUE(task_queue()->HasRunningTask());
-
-  PumpLoop();
-}
-
-TEST_F(OfflinePageModelTaskifiedTest, DeletePagesByClientIds) {
-  page_generator()->SetArchiveDirectory(temporary_dir_path());
-  page_generator()->SetNamespace(kTestClientId1.name_space);
-  page_generator()->SetId(kTestClientId1.id);
-  OfflinePageItem page1 = page_generator()->CreateItemWithTempFile();
-  page_generator()->SetId(kTestClientId2.id);
-  OfflinePageItem page2 = page_generator()->CreateItemWithTempFile();
-  InsertPageIntoStore(page1);
-  InsertPageIntoStore(page2);
-  EXPECT_EQ(2UL, test_utils::GetFileCountInDirectory(temporary_dir_path()));
-  EXPECT_EQ(2LL, store_test_util()->GetPageCount());
-
-  base::MockCallback<DeletePageCallback> callback;
-  EXPECT_CALL(callback, Run(testing::A<DeletePageResult>()));
-  CheckTaskQueueIdle();
-
-  model()->DeletePagesByClientIds({page1.client_id}, callback.Get());
-  EXPECT_TRUE(task_queue()->HasRunningTask());
-
-  PumpLoop();
-  EXPECT_TRUE(observer_delete_page_called());
-  EXPECT_EQ(last_deleted_page_info().client_id, page1.client_id);
-  EXPECT_EQ(1UL, test_utils::GetFileCountInDirectory(temporary_dir_path()));
-  EXPECT_EQ(1LL, store_test_util()->GetPageCount());
-  histogram_tester()->ExpectUniqueSample(
-      "OfflinePages.DeletePageCount",
-      static_cast<int>(
-          model_utils::ToNamespaceEnum(page1.client_id.name_space)),
-      1);
-  histogram_tester()->ExpectUniqueSample(
-      "OfflinePages.DeletePageResult",
-      static_cast<int>(DeletePageResult::SUCCESS), 1);
-  histogram_tester()->ExpectTotalCount(
-      model_utils::AddHistogramSuffix(kTestClientId1.name_space,
-                                      "OfflinePages.PageLifetime"),
-      1);
-  histogram_tester()->ExpectTotalCount(
-      model_utils::AddHistogramSuffix(kTestClientId1.name_space,
-                                      "OfflinePages.AccessCount"),
-      1);
-}
-
-TEST_F(OfflinePageModelTaskifiedTest, GetPagesByNamespace) {
-  page_generator()->SetNamespace(kDefaultNamespace);
-  OfflinePageItem page1 = page_generator()->CreateItem();
-  OfflinePageItem page2 = page_generator()->CreateItem();
-  page_generator()->SetNamespace(kDownloadNamespace);
-  OfflinePageItem page3 = page_generator()->CreateItem();
-  InsertPageIntoStore(page1);
-  InsertPageIntoStore(page2);
-  InsertPageIntoStore(page3);
-
-  base::MockCallback<MultipleOfflinePageItemCallback> callback;
-  EXPECT_CALL(callback, Run(UnorderedElementsAre(page1, page2)));
-
-  model()->GetPagesByNamespace(kDefaultNamespace, callback.Get());
-  EXPECT_TRUE(task_queue()->HasRunningTask());
-
-  PumpLoop();
-}
-
-TEST_F(OfflinePageModelTaskifiedTest, GetPagesRemovedOnCacheReset) {
-  page_generator()->SetNamespace(kDefaultNamespace);
-  OfflinePageItem page1 = page_generator()->CreateItem();
-  OfflinePageItem page2 = page_generator()->CreateItem();
-  InsertPageIntoStore(page1);
-  InsertPageIntoStore(page2);
-  page_generator()->SetNamespace(kDownloadNamespace);
-  OfflinePageItem page3 = page_generator()->CreateItem();
-  InsertPageIntoStore(page3);
-
-  base::MockCallback<MultipleOfflinePageItemCallback> callback;
-  EXPECT_CALL(callback, Run(UnorderedElementsAre(page1, page2)));
-
-  model()->GetPagesRemovedOnCacheReset(callback.Get());
-  EXPECT_TRUE(task_queue()->HasRunningTask());
-
-  PumpLoop();
-}
-
-TEST_F(OfflinePageModelTaskifiedTest, GetPagesSupportedByDownloads) {
-  page_generator()->SetNamespace(kDownloadNamespace);
-  OfflinePageItem page1 = page_generator()->CreateItem();
-  OfflinePageItem page2 = page_generator()->CreateItem();
-  InsertPageIntoStore(page1);
-  InsertPageIntoStore(page2);
-  page_generator()->SetNamespace(kDefaultNamespace);
-  OfflinePageItem page3 = page_generator()->CreateItem();
-  InsertPageIntoStore(page3);
-
-  base::MockCallback<MultipleOfflinePageItemCallback> callback;
-  EXPECT_CALL(callback, Run(UnorderedElementsAre(page1, page2)));
-
-  model()->GetPagesSupportedByDownloads(callback.Get());
   EXPECT_TRUE(task_queue()->HasRunningTask());
 
   PumpLoop();
@@ -1297,7 +1163,14 @@ TEST_F(OfflinePageModelTaskifiedTest, MAYBE_PublishPageFailure) {
   // Save a persistent page that will report failure to be copied to a public
   // dir.
   auto archiver = BuildArchiver(kTestUrl, ArchiverResult::SUCCESSFULLY_CREATED);
-  archiver->set_archive_attempt_failure(true);
+
+  // Expect that PublishArchive is called and force returning FILE_MOVE_FAILED.
+  auto publisher = std::make_unique<OfflinePageTestArchivePublisher>(
+      archive_manager(), kDownloadId);
+  publisher->expect_publish_archive_called(true);
+  publisher->set_archive_attempt_failure(true);
+  SetTestArchivePublisher(std::move(publisher));
+
   SavePageWithFileMoveFailure(kTestUrl, kTestUserRequestedClientId, GURL(),
                               kEmptyRequestOrigin, std::move(archiver));
 
@@ -1331,52 +1204,12 @@ TEST_F(OfflinePageModelTaskifiedTest, MAYBE_CheckPublishInternalArchive) {
   // a public downloads directory.
   EXPECT_TRUE(public_archive_dir_path().IsParent(persistent_page->file_path));
 
-  // Make another archiver, since SavePageWithExpectedResult deleted the first
-  // one.
-  test_archiver =
-      BuildArchiver(kTestUrl2, ArchiverResult::SUCCESSFULLY_CREATED);
-
   // Publish the page from our internal store.
   base::MockCallback<PublishPageCallback> callback;
   EXPECT_CALL(callback, Run(A<const base::FilePath&>(), A<SavePageResult>()));
 
-  model()->PublishInternalArchive(*persistent_page, std::move(test_archiver),
-                                  callback.Get());
+  model()->PublishInternalArchive(*persistent_page, callback.Get());
   PumpLoop();
-}
-
-// This test is disabled since it's lacking the ability of mocking store failure
-// in store_test_utils. https://crbug.com/781023
-// TODO(romax): reenable the test once the above issue is resolved.
-TEST_F(OfflinePageModelTaskifiedTest,
-       DISABLED_ClearCachedPagesTriggeredWhenSaveFailed) {
-  // After a save failed, only PostClearCachedPagesTask will be triggered.
-  page_generator()->SetArchiveDirectory(temporary_dir_path());
-  page_generator()->SetNamespace(kDefaultNamespace);
-  page_generator()->SetUrl(kTestUrl);
-  OfflinePageItem page1 = page_generator()->CreateItemWithTempFile();
-  OfflinePageItem page2 = page_generator()->CreateItemWithTempFile();
-  InsertPageIntoStore(page1);
-  InsertPageIntoStore(page2);
-
-  ResetResults();
-
-  base::MockCallback<SavePageCallback> callback;
-  EXPECT_CALL(callback, Run(Eq(SavePageResult::ERROR_PAGE), A<int64_t>()));
-
-  std::unique_ptr<OfflinePageTestArchiver> archiver(
-      BuildArchiver(kTestUrl, ArchiverResult::SUCCESSFULLY_CREATED));
-  OfflinePageTestArchiver* archiver_ptr = archiver.get();
-
-  SavePageWithCallback(kTestUrl, kTestClientId1, kTestUrl2, kEmptyRequestOrigin,
-                       std::move(archiver), callback.Get());
-  // The archiver will not be erased before PumpLoop().
-  ASSERT_TRUE(archiver_ptr);
-  EXPECT_TRUE(archiver_ptr->create_archive_called());
-
-  PumpLoop();
-  EXPECT_FALSE(observer_add_page_called());
-  EXPECT_FALSE(observer_delete_page_called());
 }
 
 TEST_F(OfflinePageModelTaskifiedTest, ExtraActionTriggeredWhenSaveSuccess) {
@@ -1511,7 +1344,7 @@ TEST_F(OfflinePageModelTaskifiedTest, ClearStorage) {
   task_runner()->FastForwardBy(run_delay);
   PumpLoop();
   EXPECT_EQ(last_scheduling_time, last_maintenance_tasks_schedule_time());
-  // Check that CleanupThumbnailsTask ran.
+  // Check that CleanupVisualsTask ran.
   histogram_tester()->ExpectUniqueSample("OfflinePages.CleanupThumbnails.Count",
                                          0, 1);
 
@@ -1553,7 +1386,7 @@ TEST_F(OfflinePageModelTaskifiedTest, ClearStorage) {
       static_cast<int>(ClearStorageResult::UNNECESSARY), 2);
   histogram_tester()->ExpectTotalCount(
       "OfflinePages.ClearTemporaryPages.BatchSize", 0);
-  // Check that CleanupThumbnailsTask ran only once.
+  // Check that CleanupVisualsTask ran only once.
   histogram_tester()->ExpectTotalCount("OfflinePages.CleanupThumbnails.Count",
                                        1);
 }
@@ -1662,7 +1495,7 @@ TEST_F(OfflinePageModelTaskifiedTest, PersistentPageConsistencyCheckExecuted) {
             test_utils::GetFileCountInDirectory(public_archive_dir_path()));
   EXPECT_EQ(1LL, store_test_util()->GetPageCount());
   EXPECT_EQ(page.system_download_id,
-            download_manager_stub()->last_removed_id());
+            publisher()->last_removed_id().download_id);
   histogram_tester()->ExpectTotalCount(
       "OfflinePages.ConsistencyCheck.Persistent.Result", 3);
 }
@@ -1700,31 +1533,62 @@ TEST_F(OfflinePageModelTaskifiedTest, MaintenanceTasksAreDisabled) {
 
 TEST_F(OfflinePageModelTaskifiedTest, StoreAndCheckThumbnail) {
   // Store a thumbnail.
-  OfflinePageThumbnail thumb;
-  thumb.offline_id = 1;
-  thumb.expiration = clock()->Now();
-  thumb.thumbnail = "abc123";
-  model()->StoreThumbnail(thumb);
-  EXPECT_CALL(*this, ThumbnailAdded(_, thumb));
+  OfflinePageVisuals visuals;
+  visuals.offline_id = 1;
+  visuals.expiration = clock()->Now();
+  visuals.thumbnail = "abc123";
+  model()->StoreThumbnail(visuals.offline_id, visuals.thumbnail);
+  EXPECT_CALL(*this, ThumbnailAdded(_, visuals.offline_id, visuals.thumbnail));
   PumpLoop();
 
   // Check it exists
-  bool thumbnail_exists = false;
+  base::Optional<VisualsAvailability> availability;
   auto exists_callback = base::BindLambdaForTesting(
-      [&](bool exists) { thumbnail_exists = exists; });
-  model()->HasThumbnailForOfflineId(thumb.offline_id, exists_callback);
+      [&](VisualsAvailability value) { availability = value; });
+  model()->GetVisualsAvailability(visuals.offline_id, exists_callback);
   PumpLoop();
-  EXPECT_TRUE(thumbnail_exists);
+  EXPECT_TRUE(availability.value().has_thumbnail);
+  EXPECT_FALSE(availability.value().has_favicon);
 
   // Obtain its data.
-  std::unique_ptr<OfflinePageThumbnail> result_thumbnail;
+  std::unique_ptr<OfflinePageVisuals> result_visuals;
   auto data_callback = base::BindLambdaForTesting(
-      [&](std::unique_ptr<OfflinePageThumbnail> result) {
-        result_thumbnail = std::move(result);
+      [&](std::unique_ptr<OfflinePageVisuals> result) {
+        result_visuals = std::move(result);
       });
-  model()->GetThumbnailByOfflineId(thumb.offline_id, data_callback);
+  model()->GetVisualsByOfflineId(visuals.offline_id, data_callback);
   PumpLoop();
-  EXPECT_EQ(thumb, *result_thumbnail);
+  EXPECT_EQ(visuals.thumbnail, result_visuals->thumbnail);
+}
+
+TEST_F(OfflinePageModelTaskifiedTest, StoreAndCheckFavicon) {
+  // Store a thumbnail.
+  OfflinePageVisuals visuals;
+  visuals.offline_id = 1;
+  visuals.expiration = clock()->Now();
+  visuals.favicon = "abc123";
+  model()->StoreFavicon(visuals.offline_id, visuals.favicon);
+  EXPECT_CALL(*this, FaviconAdded(_, visuals.offline_id, visuals.favicon));
+  PumpLoop();
+
+  // Check if it exists.
+  base::Optional<VisualsAvailability> availability;
+  auto exists_callback = base::BindLambdaForTesting(
+      [&](VisualsAvailability value) { availability = value; });
+  model()->GetVisualsAvailability(visuals.offline_id, exists_callback);
+  PumpLoop();
+  EXPECT_FALSE(availability.value().has_thumbnail);
+  EXPECT_TRUE(availability.value().has_favicon);
+
+  // Obtain its data.
+  std::unique_ptr<OfflinePageVisuals> result_visuals;
+  auto data_callback = base::BindLambdaForTesting(
+      [&](std::unique_ptr<OfflinePageVisuals> result) {
+        result_visuals = std::move(result);
+      });
+  model()->GetVisualsByOfflineId(visuals.offline_id, data_callback);
+  PumpLoop();
+  EXPECT_EQ(visuals.favicon, result_visuals->favicon);
 }
 
 }  // namespace offline_pages

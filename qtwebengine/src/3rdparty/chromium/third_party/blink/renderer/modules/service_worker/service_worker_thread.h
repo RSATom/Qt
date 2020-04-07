@@ -32,7 +32,6 @@
 
 #include <memory>
 #include "third_party/blink/public/mojom/cache_storage/cache_storage.mojom-blink.h"
-#include "third_party/blink/renderer/core/frame/csp/content_security_policy.h"
 #include "third_party/blink/renderer/core/workers/worker_thread.h"
 #include "third_party/blink/renderer/modules/modules_export.h"
 
@@ -60,6 +59,13 @@ class MODULES_EXPORT ServiceWorkerThread final : public WorkerThread {
   InstalledScriptsManager* GetInstalledScriptsManager() override;
   void TerminateForTesting() override;
 
+  void RunInstalledClassicScript(const KURL& script_url,
+                                 const v8_inspector::V8StackTraceId& stack_id);
+  void RunInstalledModuleScript(
+      const KURL& module_url_record,
+      const FetchClientSettingsObjectSnapshot& outside_settings_object,
+      network::mojom::CredentialsMode);
+
  private:
   WorkerOrWorkletGlobalScope* CreateWorkerGlobalScope(
       std::unique_ptr<GlobalScopeCreationParams>) override;
@@ -67,6 +73,15 @@ class MODULES_EXPORT ServiceWorkerThread final : public WorkerThread {
   WebThreadType GetThreadType() const override {
     return WebThreadType::kServiceWorkerThread;
   }
+
+  void RunInstalledClassicScriptOnWorkerThread(
+      const KURL& script_url,
+      const v8_inspector::V8StackTraceId& stack_id);
+  void RunInstalledModuleScriptOnWorkerThread(
+      const KURL& module_url_record,
+      std::unique_ptr<CrossThreadFetchClientSettingsObjectData>
+          outside_settings_object,
+      network::mojom::CredentialsMode);
 
   Persistent<ServiceWorkerGlobalScopeProxy> global_scope_proxy_;
   std::unique_ptr<WorkerBackingThread> worker_backing_thread_;

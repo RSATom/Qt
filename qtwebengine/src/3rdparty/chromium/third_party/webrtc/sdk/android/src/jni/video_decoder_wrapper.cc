@@ -15,9 +15,10 @@
 #include "modules/video_coding/utility/vp8_header_parser.h"
 #include "modules/video_coding/utility/vp9_uncompressed_header_parser.h"
 #include "rtc_base/logging.h"
+#include "rtc_base/numerics/safe_conversions.h"
 #include "rtc_base/time_utils.h"
-#include "sdk/android/generated_video_jni/jni/VideoDecoderWrapper_jni.h"
-#include "sdk/android/generated_video_jni/jni/VideoDecoder_jni.h"
+#include "sdk/android/generated_video_jni/VideoDecoderWrapper_jni.h"
+#include "sdk/android/generated_video_jni/VideoDecoder_jni.h"
 #include "sdk/android/native_api/jni/java_types.h"
 #include "sdk/android/src/jni/encoded_image.h"
 #include "sdk/android/src/jni/video_codec_status.h"
@@ -48,7 +49,7 @@ VideoDecoderWrapper::VideoDecoderWrapper(JNIEnv* jni,
                                  // if the decoder provides frames.
 
 {
-  decoder_thread_checker_.DetachFromThread();
+  decoder_thread_checker_.Detach();
 }
 
 VideoDecoderWrapper::~VideoDecoderWrapper() = default;
@@ -87,7 +88,6 @@ int32_t VideoDecoderWrapper::InitDecodeInternal(JNIEnv* jni) {
 int32_t VideoDecoderWrapper::Decode(
     const EncodedImage& image_param,
     bool missing_frames,
-    const CodecSpecificInfo* codec_specific_info,
     int64_t render_time_ms) {
   RTC_DCHECK_RUN_ON(&decoder_thread_checker_);
   if (!initialized_) {
@@ -140,7 +140,7 @@ int32_t VideoDecoderWrapper::Release() {
   }
   initialized_ = false;
   // It is allowed to reinitialize the codec on a different thread.
-  decoder_thread_checker_.DetachFromThread();
+  decoder_thread_checker_.Detach();
   return status;
 }
 

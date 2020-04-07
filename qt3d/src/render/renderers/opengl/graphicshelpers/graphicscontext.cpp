@@ -92,6 +92,10 @@ QT_BEGIN_NAMESPACE
 #define GL_DRAW_FRAMEBUFFER 0x8CA9
 #endif
 
+#ifndef GL_MAX_IMAGE_UNITS
+#define GL_MAX_IMAGE_UNITS                0x8F38
+#endif
+
 namespace {
 
 QOpenGLShader::ShaderType shaderType(Qt3DRender::QShaderProgram::ShaderType type)
@@ -125,6 +129,7 @@ GraphicsContext::GraphicsContext()
     : m_initialized(false)
     , m_supportsVAO(false)
     , m_maxTextureUnits(0)
+    , m_maxImageUnits(0)
     , m_defaultFBO(0)
     , m_gl(nullptr)
     , m_glHelper(nullptr)
@@ -152,6 +157,8 @@ void GraphicsContext::initialize()
 
     m_gl->functions()->glGetIntegerv(GL_MAX_TEXTURE_IMAGE_UNITS, &m_maxTextureUnits);
     qCDebug(Backend) << "context supports" << m_maxTextureUnits << "texture units";
+    m_gl->functions()->glGetIntegerv(GL_MAX_IMAGE_UNITS, &m_maxImageUnits);
+    qCDebug(Backend) << "context supports" << m_maxImageUnits << "image units";
 
     if (m_gl->format().majorVersion() >= 3) {
         m_supportsVAO = true;
@@ -258,21 +265,19 @@ QOpenGLShaderProgram *GraphicsContext::createShaderProgram(Shader *shaderNode)
     return shaderProgram.take();
 }
 
-// Called by GL Command Thread (can't use global glHelpers)
 // That assumes that the shaderProgram in Shader stays the same
 void GraphicsContext::introspectShaderInterface(Shader *shader, QOpenGLShaderProgram *shaderProgram)
 {
-    QScopedPointer<GraphicsHelperInterface> glHelper(resolveHighestOpenGLFunctions());
-    shader->initializeUniforms(glHelper->programUniformsAndLocations(shaderProgram->programId()));
-    shader->initializeAttributes(glHelper->programAttributesAndLocations(shaderProgram->programId()));
+    shader->initializeUniforms(m_glHelper->programUniformsAndLocations(shaderProgram->programId()));
+    shader->initializeAttributes(m_glHelper->programAttributesAndLocations(shaderProgram->programId()));
     if (m_glHelper->supportsFeature(GraphicsHelperInterface::UniformBufferObject))
-        shader->initializeUniformBlocks(glHelper->programUniformBlocks(shaderProgram->programId()));
+        shader->initializeUniformBlocks(m_glHelper->programUniformBlocks(shaderProgram->programId()));
     if (m_glHelper->supportsFeature(GraphicsHelperInterface::ShaderStorageObject))
-        shader->initializeShaderStorageBlocks(glHelper->programShaderStorageBlocks(shaderProgram->programId()));
+        shader->initializeShaderStorageBlocks(m_glHelper->programShaderStorageBlocks(shaderProgram->programId()));
 }
 
 
-// Called by GL Command Thread
+// Called by Renderer::updateGLResources
 void GraphicsContext::loadShader(Shader *shader, ShaderManager *manager)
 {
     bool wasPresent = false;
@@ -310,7 +315,8 @@ void GraphicsContext::loadShader(Shader *shader, ShaderManager *manager)
 
         shader->setGraphicsContext(this);
         shader->setLoaded(true);
-        shader->markDirty(AbstractRenderer::AllDirty);
+        // Will force notifications to be sent to frontend at next frame
+        shader->markDirty(AbstractRenderer::ShadersDirty);
     }
 }
 
@@ -333,6 +339,11 @@ void GraphicsContext::activateDrawBuffers(const AttachmentPack &attachments)
     } else {
         qWarning() << "FBO incomplete";
     }
+}
+
+void GraphicsContext::rasterMode(GLenum faceMode, GLenum rasterMode)
+{
+    m_glHelper->rasterMode(faceMode, rasterMode);
 }
 
 /*!
@@ -555,6 +566,11 @@ void GraphicsContext::bindFramebuffer(GLuint fbo, GraphicsHelperInterface::FBOBi
     m_glHelper->bindFrameBufferObject(fbo, mode);
 }
 
+void GraphicsContext::depthRange(GLdouble nearValue, GLdouble farValue)
+{
+    m_glHelper->depthRange(nearValue, farValue);
+}
+
 void GraphicsContext::depthTest(GLenum mode)
 {
     m_glHelper->depthTest(mode);
@@ -575,6 +591,19 @@ void GraphicsContext::bindFragOutputs(GLuint shader, const QHash<QString, int> &
     if (m_glHelper->supportsFeature(GraphicsHelperInterface::MRT) &&
             m_glHelper->supportsFeature(GraphicsHelperInterface::BindableFragmentOutputs))
         m_glHelper->bindFragDataLocation(shader, outputs);
+}
+
+void GraphicsContext::bindImageTexture(GLuint imageUnit, GLuint texture,
+                                       GLint mipLevel, GLboolean layered,
+                                       GLint layer, GLenum access, GLenum format)
+{
+    m_glHelper->bindImageTexture(imageUnit,
+                                 texture,
+                                 mipLevel,
+                                 layered,
+                                 layer,
+                                 access,
+                                 format);
 }
 
 void GraphicsContext::bindUniformBlock(GLuint programId, GLuint uniformBlockIndex, GLuint uniformBlockBinding)
@@ -652,10 +681,16 @@ GLint GraphicsContext::maxClipPlaneCount()
     return m_glHelper->maxClipPlaneCount();
 }
 
-GLint GraphicsContext::maxTextureUnitsCount()
+GLint GraphicsContext::maxTextureUnitsCount() const
 {
     return m_maxTextureUnits;
 }
+
+GLint GraphicsContext::maxImageUnitsCount() const
+{
+    return m_maxImageUnits;
+}
+
 
 void GraphicsContext::enablePrimitiveRestart(int restartIndex)
 {
@@ -759,6 +794,7 @@ void GraphicsContext::applyUniform(const ShaderUniform &description, const Unifo
         break;
 
     case UniformType::Sampler:
+    case UniformType::Image:
     case UniformType::Int:
         applyUniformHelper<UniformType::Int>(description, v);
         break;

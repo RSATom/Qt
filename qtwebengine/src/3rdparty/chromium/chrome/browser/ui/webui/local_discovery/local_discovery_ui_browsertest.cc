@@ -7,6 +7,7 @@
 #include <memory>
 
 #include "base/bind.h"
+#include "base/bind_helpers.h"
 #include "base/callback.h"
 #include "base/command_line.h"
 #include "base/compiler_specific.h"
@@ -16,17 +17,17 @@
 #include "base/run_loop.h"
 #include "base/single_thread_task_runner.h"
 #include "base/test/bind_test_util.h"
+#include "base/test/scoped_feature_list.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
 #include "chrome/browser/local_discovery/test_service_discovery_client.h"
+#include "chrome/browser/media/router/media_router_feature.h"
 #include "chrome/browser/media/router/providers/cast/dual_media_sink_service.h"
 #include "chrome/browser/media/router/test/noop_dual_media_sink_service.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/signin/chrome_signin_client_factory.h"
 #include "chrome/browser/signin/identity_manager_factory.h"
-#include "chrome/browser/signin/profile_oauth2_token_service_factory.h"
-#include "chrome/browser/signin/signin_manager_factory.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/webui/local_discovery/local_discovery_ui_handler.h"
 #include "chrome/common/chrome_constants.h"
@@ -34,16 +35,20 @@
 #include "chrome/common/url_constants.h"
 #include "chrome/test/base/ui_test_utils.h"
 #include "chrome/test/base/web_ui_browser_test.h"
+#include "components/signin/public/identity_manager/identity_test_utils.h"
 #include "google_apis/gaia/gaia_urls.h"
 #include "net/http/http_status_code.h"
-#include "services/identity/public/cpp/identity_test_utils.h"
-#include "services/network/public/cpp/shared_url_loader_factory.h"
 #include "services/network/public/cpp/weak_wrapper_shared_url_loader_factory.h"
 #include "services/network/test/test_url_loader_factory.h"
 
 #if defined(OS_CHROMEOS)
+#include "chrome/browser/browser_process.h"
+#include "chrome/browser/chromeos/printing/cups_printers_manager_factory.h"
 #include "chrome/common/pref_names.h"
+#include "chromeos/components/account_manager/account_manager.h"
+#include "chromeos/components/account_manager/account_manager_factory.h"
 #include "chromeos/constants/chromeos_switches.h"
+#include "components/keyed_service/content/browser_context_keyed_service_factory.h"
 #include "components/prefs/pref_service.h"
 #endif
 
@@ -284,14 +289,27 @@ const char kURLRegisterComplete[] =
 
 const char kSampleUser[] = "user@consumer.example.com";
 
+void SetURLLoaderFactoryForTest(
+    Profile* profile,
+    scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory) {
+  ChromeSigninClient* signin_client = static_cast<ChromeSigninClient*>(
+      ChromeSigninClientFactory::GetForProfile(profile));
+  signin_client->SetURLLoaderFactoryForTest(url_loader_factory);
+
+#if defined(OS_CHROMEOS)
+  chromeos::AccountManagerFactory* factory =
+      g_browser_process->platform_part()->GetAccountManagerFactory();
+  chromeos::AccountManager* account_manager =
+      factory->GetAccountManager(profile->GetPath().value());
+  account_manager->SetUrlLoaderFactoryForTests(url_loader_factory);
+#endif  // defined(OS_CHROMEOS)
+}
+
 class TestMessageLoopCondition {
  public:
-  TestMessageLoopCondition() : signaled_(false),
-                               waiting_(false) {
-  }
+  TestMessageLoopCondition() : signaled_(false), waiting_(false) {}
 
-  ~TestMessageLoopCondition() {
-  }
+  ~TestMessageLoopCondition() {}
 
   // Signal a waiting method that it can continue executing.
   void Signal() {
@@ -321,12 +339,8 @@ class TestMessageLoopCondition {
 class LocalDiscoveryUITest : public WebUIBrowserTest {
  public:
   LocalDiscoveryUITest()
-      : test_shared_loader_factory_(
-            base::MakeRefCounted<network::WeakWrapperSharedURLLoaderFactory>(
-                &test_url_loader_factory_)),
-        set_url_loader_factory_(test_shared_loader_factory_) {}
-
-  ~LocalDiscoveryUITest() override { test_shared_loader_factory_->Detach(); }
+      : set_url_loader_factory_(test_url_loader_factory_.GetSafeWeakWrapper()) {
+  }
 
   void SetUp() override {
     // We need to stub out DualMediaSinkService here, because the profile setup
@@ -335,11 +349,22 @@ class LocalDiscoveryUITest : public WebUIBrowserTest {
     // a DCHECK during TestServiceDiscoveryClient construction.
     media_router::DualMediaSinkService::SetInstanceForTest(
         new media_router::NoopDualMediaSinkService());
+    feature_list_.InitAndDisableFeature(media_router::kDialMediaRouteProvider);
     WebUIBrowserTest::SetUp();
   }
 
   void SetUpOnMainThread() override {
     WebUIBrowserTest::SetUpOnMainThread();
+
+#if defined(OS_CHROMEOS)
+    // On Chrome OS, we need to stub out CupsPrintersManager, because the
+    // profile setup instatiates a ZeroConfPrinterDetector, which in turn sets
+    // |g_service_discovery_client| with a real instance. This causes a DCHECK
+    // during TestServiceDiscoveryClient construction.
+    chromeos::CupsPrintersManagerFactory::GetInstance()->SetTestingFactory(
+        ProfileManager::GetActiveUserProfile(),
+        BrowserContextKeyedServiceFactory::TestingFactory());
+#endif
 
     test_service_discovery_client_ = new TestServiceDiscoveryClient();
     test_service_discovery_client_->Start();
@@ -365,21 +390,19 @@ class LocalDiscoveryUITest : public WebUIBrowserTest {
     test_url_loader_factory_.AddResponse(kURLRegisterComplete,
                                          kResponseRegisterComplete);
 
-    identity::MakePrimaryAccountAvailable(
+    signin::MakePrimaryAccountAvailable(
         IdentityManagerFactory::GetForProfile(browser()->profile()),
         kSampleUser);
 
     AddLibrary(base::FilePath(FILE_PATH_LITERAL("local_discovery_ui_test.js")));
 
-    ChromeSigninClient* signin_client = static_cast<ChromeSigninClient*>(
-        ChromeSigninClientFactory::GetForProfile(
-            ProfileManager::GetActiveUserProfile()));
-    signin_client->SetURLLoaderFactoryForTest(test_shared_loader_factory_);
+    SetURLLoaderFactoryForTest(
+        ProfileManager::GetActiveUserProfile() /* profile */,
+        test_url_loader_factory_.GetSafeWeakWrapper());
   }
 
   void TearDownOnMainThread() override {
     test_service_discovery_client_ = nullptr;
-    test_shared_loader_factory_->Detach();
     WebUIBrowserTest::TearDownOnMainThread();
   }
 
@@ -422,35 +445,32 @@ class LocalDiscoveryUITest : public WebUIBrowserTest {
   scoped_refptr<TestServiceDiscoveryClient> test_service_discovery_client_;
   TestMessageLoopCondition condition_devices_listed_;
   network::TestURLLoaderFactory test_url_loader_factory_;
-  scoped_refptr<network::WeakWrapperSharedURLLoaderFactory>
-      test_shared_loader_factory_;
   local_discovery::LocalDiscoveryUIHandler::SetURLLoaderFactoryForTesting
       set_url_loader_factory_;
+  base::test::ScopedFeatureList feature_list_;
 
   DISALLOW_COPY_AND_ASSIGN(LocalDiscoveryUITest);
 };
 
 IN_PROC_BROWSER_TEST_F(LocalDiscoveryUITest, EmptyTest) {
-  ui_test_utils::NavigateToURL(browser(), GURL(
-      chrome::kChromeUIDevicesURL));
+  ui_test_utils::NavigateToURL(browser(), GURL(chrome::kChromeUIDevicesURL));
   condition_devices_listed().Wait();
   EXPECT_TRUE(WebUIBrowserTest::RunJavascriptTest("checkNoDevices"));
 }
 
 IN_PROC_BROWSER_TEST_F(LocalDiscoveryUITest, AddRowTest) {
-  ui_test_utils::NavigateToURL(browser(), GURL(
-      chrome::kChromeUIDevicesURL));
+  ui_test_utils::NavigateToURL(browser(), GURL(chrome::kChromeUIDevicesURL));
   condition_devices_listed().Wait();
 
-  test_service_discovery_client()->SimulateReceive(
-      kAnnouncePacket, sizeof(kAnnouncePacket));
+  test_service_discovery_client()->SimulateReceive(kAnnouncePacket,
+                                                   sizeof(kAnnouncePacket));
 
   base::RunLoop().RunUntilIdle();
 
   EXPECT_TRUE(WebUIBrowserTest::RunJavascriptTest("checkOneDevice"));
 
-  test_service_discovery_client()->SimulateReceive(
-      kGoodbyePacket, sizeof(kGoodbyePacket));
+  test_service_discovery_client()->SimulateReceive(kGoodbyePacket,
+                                                   sizeof(kGoodbyePacket));
 
   RunFor(base::TimeDelta::FromMilliseconds(1100));
 
@@ -461,8 +481,8 @@ IN_PROC_BROWSER_TEST_F(LocalDiscoveryUITest, RegisterTest) {
   ui_test_utils::NavigateToURL(browser(), GURL(chrome::kChromeUIDevicesURL));
   condition_devices_listed().Wait();
 
-  test_service_discovery_client()->SimulateReceive(
-      kAnnouncePacket, sizeof(kAnnouncePacket));
+  test_service_discovery_client()->SimulateReceive(kAnnouncePacket,
+                                                   sizeof(kAnnouncePacket));
 
   base::RunLoop().RunUntilIdle();
 
@@ -481,9 +501,9 @@ IN_PROC_BROWSER_TEST_F(LocalDiscoveryUITest, RegisterTest) {
         }));
     EXPECT_TRUE(WebUIBrowserTest::RunJavascriptTest("registerBegin"));
     run_loop.Run();
-    EXPECT_TRUE(base::ContainsKey(served_urls, GURL(kURLInfo)));
-    EXPECT_TRUE(base::ContainsKey(served_urls, GURL(kURLRegisterStart)));
-    EXPECT_TRUE(base::ContainsKey(served_urls, GURL(kURLRegisterClaimToken)));
+    EXPECT_TRUE(base::Contains(served_urls, GURL(kURLInfo)));
+    EXPECT_TRUE(base::Contains(served_urls, GURL(kURLRegisterStart)));
+    EXPECT_TRUE(base::Contains(served_urls, GURL(kURLRegisterClaimToken)));
     test_url_loader_factory()->SetInterceptor(base::NullCallback());
   }
 
@@ -503,10 +523,10 @@ IN_PROC_BROWSER_TEST_F(LocalDiscoveryUITest, RegisterTest) {
             run_loop.Quit();
         }));
     run_loop.Run();
-    EXPECT_TRUE(base::ContainsKey(served_urls, GURL(kURLRegisterClaimToken)));
-    EXPECT_TRUE(base::ContainsKey(served_urls, GURL(kURLCloudPrintConfirm)));
-    EXPECT_TRUE(base::ContainsKey(served_urls, GURL(kURLRegisterComplete)));
-    EXPECT_TRUE(base::ContainsKey(served_urls, GURL(kURLInfo)));
+    EXPECT_TRUE(base::Contains(served_urls, GURL(kURLRegisterClaimToken)));
+    EXPECT_TRUE(base::Contains(served_urls, GURL(kURLCloudPrintConfirm)));
+    EXPECT_TRUE(base::Contains(served_urls, GURL(kURLRegisterComplete)));
+    EXPECT_TRUE(base::Contains(served_urls, GURL(kURLInfo)));
     test_url_loader_factory()->SetInterceptor(base::NullCallback());
   }
 

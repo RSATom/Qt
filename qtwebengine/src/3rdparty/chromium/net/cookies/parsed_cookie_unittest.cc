@@ -181,7 +181,7 @@ TEST(ParsedCookieTest, MultipleEquals) {
   EXPECT_FALSE(pc.HasDomain());
   EXPECT_TRUE(pc.IsSecure());
   EXPECT_TRUE(pc.IsHttpOnly());
-  EXPECT_EQ(CookieSameSite::DEFAULT_MODE, pc.SameSite());
+  EXPECT_EQ(CookieSameSite::UNSPECIFIED, pc.SameSite());
   EXPECT_EQ(COOKIE_PRIORITY_DEFAULT, pc.Priority());
   EXPECT_EQ(4U, pc.NumberOfAttributes());
 }
@@ -411,7 +411,7 @@ TEST(ParsedCookieTest, SetAttributes) {
   EXPECT_FALSE(pc.HasMaxAge());
   EXPECT_FALSE(pc.IsSecure());
   EXPECT_FALSE(pc.IsHttpOnly());
-  EXPECT_EQ(CookieSameSite::NO_RESTRICTION, pc.SameSite());
+  EXPECT_EQ(CookieSameSite::UNSPECIFIED, pc.SameSite());
   EXPECT_EQ("name2=value2", pc.ToCookieLine());
 }
 
@@ -465,7 +465,7 @@ TEST(ParsedCookieTest, SetSameSite) {
   EXPECT_TRUE(pc.IsValid());
 
   EXPECT_EQ("name=value", pc.ToCookieLine());
-  EXPECT_EQ(CookieSameSite::DEFAULT_MODE, pc.SameSite());
+  EXPECT_EQ(CookieSameSite::UNSPECIFIED, pc.SameSite());
 
   // Test each samesite directive, expect case-insensitive compare.
   EXPECT_TRUE(pc.SetSameSite("strict"));
@@ -483,16 +483,107 @@ TEST(ParsedCookieTest, SetSameSite) {
   EXPECT_EQ(CookieSameSite::LAX_MODE, pc.SameSite());
   EXPECT_TRUE(pc.IsValid());
 
+  EXPECT_TRUE(pc.SetSameSite("None"));
+  EXPECT_EQ("name=value; samesite=None", pc.ToCookieLine());
+  EXPECT_EQ(CookieSameSite::NO_RESTRICTION, pc.SameSite());
+  EXPECT_TRUE(pc.IsValid());
+
+  EXPECT_TRUE(pc.SetSameSite("NONE"));
+  EXPECT_EQ("name=value; samesite=NONE", pc.ToCookieLine());
+  EXPECT_EQ(CookieSameSite::NO_RESTRICTION, pc.SameSite());
+  EXPECT_TRUE(pc.IsValid());
+
   // Remove the SameSite attribute.
   EXPECT_TRUE(pc.SetSameSite(""));
   EXPECT_EQ("name=value", pc.ToCookieLine());
-  EXPECT_EQ(CookieSameSite::DEFAULT_MODE, pc.SameSite());
+  EXPECT_EQ(CookieSameSite::UNSPECIFIED, pc.SameSite());
   EXPECT_TRUE(pc.IsValid());
 
   EXPECT_TRUE(pc.SetSameSite("Blah"));
   EXPECT_EQ("name=value; samesite=Blah", pc.ToCookieLine());
-  EXPECT_EQ(CookieSameSite::NO_RESTRICTION, pc.SameSite());
+  EXPECT_EQ(CookieSameSite::UNSPECIFIED, pc.SameSite());
   EXPECT_TRUE(pc.IsValid());
+}
+
+TEST(ParsedCookieTest, SettersInputValidation) {
+  ParsedCookie pc("name=foobar");
+  EXPECT_TRUE(pc.SetPath("baz"));
+  EXPECT_EQ(pc.ToCookieLine(), "name=foobar; path=baz");
+
+  EXPECT_TRUE(pc.SetPath("  baz "));
+  EXPECT_EQ(pc.ToCookieLine(), "name=foobar; path=baz");
+
+  EXPECT_TRUE(pc.SetPath("     "));
+  EXPECT_EQ(pc.ToCookieLine(), "name=foobar");
+
+  EXPECT_TRUE(pc.SetDomain("  baz "));
+  EXPECT_EQ(pc.ToCookieLine(), "name=foobar; domain=baz");
+
+  // Invalid characters
+  EXPECT_FALSE(pc.SetPath("  baz\n "));
+  EXPECT_FALSE(pc.SetPath("f;oo"));
+  EXPECT_FALSE(pc.SetPath("\r"));
+  EXPECT_FALSE(pc.SetPath("\a"));
+  EXPECT_FALSE(pc.SetPath("\t"));
+  EXPECT_FALSE(pc.SetSameSite("\r"));
+}
+
+TEST(ParsedCookieTest, ToCookieLineSpecialTokens) {
+  // Special tokens "secure" and "httponly" should be treated as any other name
+  // when they are in the first position.
+  {
+    ParsedCookie pc("");
+    pc.SetName("secure");
+    EXPECT_EQ(pc.ToCookieLine(), "secure=");
+  }
+  {
+    ParsedCookie pc("secure");
+    EXPECT_EQ(pc.ToCookieLine(), "=secure");
+  }
+  {
+    ParsedCookie pc("secure=foo");
+    EXPECT_EQ(pc.ToCookieLine(), "secure=foo");
+  }
+  {
+    ParsedCookie pc("foo=secure");
+    EXPECT_EQ(pc.ToCookieLine(), "foo=secure");
+  }
+  {
+    ParsedCookie pc("httponly=foo");
+    EXPECT_EQ(pc.ToCookieLine(), "httponly=foo");
+  }
+  {
+    ParsedCookie pc("foo");
+    pc.SetName("secure");
+    EXPECT_EQ(pc.ToCookieLine(), "secure=foo");
+  }
+  {
+    ParsedCookie pc("bar");
+    pc.SetName("httponly");
+    EXPECT_EQ(pc.ToCookieLine(), "httponly=bar");
+  }
+  {
+    ParsedCookie pc("foo=bar; baz=bob");
+    EXPECT_EQ(pc.ToCookieLine(), "foo=bar; baz=bob");
+  }
+  // Outside of the first position, the value associated with a special name
+  // should not be printed.
+  {
+    ParsedCookie pc("name=foo; secure");
+    EXPECT_EQ(pc.ToCookieLine(), "name=foo; secure");
+  }
+  {
+    ParsedCookie pc("name=foo; secure=bar");
+    EXPECT_EQ(pc.ToCookieLine(), "name=foo; secure");
+  }
+  {
+    ParsedCookie pc("name=foo; httponly=baz");
+    EXPECT_EQ(pc.ToCookieLine(), "name=foo; httponly");
+  }
+  {
+    ParsedCookie pc("name=foo; bar=secure");
+    EXPECT_EQ(pc.ToCookieLine(), "name=foo; bar=secure");
+  }
 }
 
 TEST(ParsedCookieTest, SameSiteValues) {
@@ -502,9 +593,10 @@ TEST(ParsedCookieTest, SameSiteValues) {
     CookieSameSite mode;
   } cases[]{{"n=v; samesite=strict", true, CookieSameSite::STRICT_MODE},
             {"n=v; samesite=lax", true, CookieSameSite::LAX_MODE},
-            {"n=v; samesite=boo", true, CookieSameSite::NO_RESTRICTION},
-            {"n=v; samesite", true, CookieSameSite::NO_RESTRICTION},
-            {"n=v", true, CookieSameSite::DEFAULT_MODE}};
+            {"n=v; samesite=none", true, CookieSameSite::NO_RESTRICTION},
+            {"n=v; samesite=boo", true, CookieSameSite::UNSPECIFIED},
+            {"n=v; samesite", true, CookieSameSite::UNSPECIFIED},
+            {"n=v", true, CookieSameSite::UNSPECIFIED}};
 
   for (const auto& test : cases) {
     SCOPED_TRACE(test.cookie);

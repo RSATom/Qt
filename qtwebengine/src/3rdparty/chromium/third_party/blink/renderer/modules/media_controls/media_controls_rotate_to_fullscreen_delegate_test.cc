@@ -4,7 +4,7 @@
 
 #include "third_party/blink/renderer/modules/media_controls/media_controls_rotate_to_fullscreen_delegate.h"
 
-#include "mojo/public/cpp/bindings/associated_interface_ptr.h"
+#include "mojo/public/cpp/bindings/associated_remote.h"
 #include "services/device/public/mojom/screen_orientation.mojom-blink.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -28,6 +28,7 @@
 #include "third_party/blink/renderer/modules/device_orientation/device_orientation_data.h"
 #include "third_party/blink/renderer/modules/media_controls/media_controls_impl.h"
 #include "third_party/blink/renderer/modules/screen_orientation/screen_orientation_controller_impl.h"
+#include "third_party/blink/renderer/platform/heap/heap.h"
 #include "third_party/blink/renderer/platform/testing/empty_web_media_player.h"
 #include "third_party/blink/renderer/platform/testing/runtime_enabled_features_test_helpers.h"
 #include "third_party/blink/renderer/platform/testing/unit_test_helpers.h"
@@ -56,10 +57,12 @@ class MockChromeClient : public EmptyChromeClient {
   void InstallSupplements(LocalFrame& frame) override {
     EmptyChromeClient::InstallSupplements(frame);
     ScreenOrientationControllerImpl::ProvideTo(frame);
-    device::mojom::blink::ScreenOrientationAssociatedPtr screen_orientation;
-    mojo::MakeRequestAssociatedWithDedicatedPipe(&screen_orientation);
+    mojo::AssociatedRemote<device::mojom::blink::ScreenOrientation>
+        screen_orientation;
+    ignore_result(
+        screen_orientation.BindNewEndpointAndPassDedicatedReceiverForTesting());
     ScreenOrientationControllerImpl::From(frame)
-        ->SetScreenOrientationAssociatedPtrForTests(
+        ->SetScreenOrientationAssociatedRemoteForTests(
             std::move(screen_orientation));
   }
   void EnterFullscreen(LocalFrame& frame, const FullscreenOptions*) override {
@@ -74,10 +77,6 @@ class MockChromeClient : public EmptyChromeClient {
 
 class StubLocalFrameClient : public EmptyLocalFrameClient {
  public:
-  static StubLocalFrameClient* Create() {
-    return MakeGarbageCollected<StubLocalFrameClient>();
-  }
-
   std::unique_ptr<WebMediaPlayer> CreateWebMediaPlayer(
       HTMLMediaElement&,
       const WebMediaPlayerSource&,
@@ -109,8 +108,9 @@ class MediaControlsRotateToFullscreenDelegateTest
     FillWithEmptyClients(clients);
     clients.chrome_client = chrome_client_.Get();
 
-    SetupPageWithClients(&clients, StubLocalFrameClient::Create());
-    video_ = HTMLVideoElement::Create(GetDocument());
+    SetupPageWithClients(&clients,
+                         MakeGarbageCollected<StubLocalFrameClient>());
+    video_ = MakeGarbageCollected<HTMLVideoElement>(GetDocument());
     GetVideo().setAttribute(kControlsAttr, g_empty_atom);
     // Most tests should call GetDocument().body()->AppendChild(&GetVideo());
     // This is not done automatically, so that tests control timing of `Attach`.
@@ -137,7 +137,7 @@ class MediaControlsRotateToFullscreenDelegateTest
 
   bool IsObservingVisibility() const {
     return GetMediaControls()
-        .rotate_to_fullscreen_delegate_->visibility_observer_;
+        .rotate_to_fullscreen_delegate_->intersection_observer_;
   }
 
   bool ObservedVisibility() const {
@@ -247,13 +247,13 @@ TEST_F(MediaControlsRotateToFullscreenDelegateTest, DelegateRequiresFlag) {
 
   // No delegate when flag is off.
   ScopedVideoRotateToFullscreenForTest video_rotate_to_fullscreen(false);
-  HTMLVideoElement* video = HTMLVideoElement::Create(GetDocument());
+  auto* video = MakeGarbageCollected<HTMLVideoElement>(GetDocument());
   GetDocument().body()->AppendChild(video);
   EXPECT_FALSE(HasDelegate(*video->GetMediaControls()));
 }
 
 TEST_F(MediaControlsRotateToFullscreenDelegateTest, DelegateRequiresVideo) {
-  HTMLAudioElement* audio = HTMLAudioElement::Create(GetDocument());
+  auto* audio = MakeGarbageCollected<HTMLAudioElement>(GetDocument());
   GetDocument().body()->AppendChild(audio);
   EXPECT_FALSE(HasDelegate(*audio->GetMediaControls()));
 }

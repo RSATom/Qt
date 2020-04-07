@@ -550,6 +550,10 @@ void tst_QFile::exists()
     QFile unc(uncPath);
     QVERIFY2(unc.exists(), msgFileDoesNotExist(uncPath).constData());
 #endif
+
+    QTest::ignoreMessage(QtWarningMsg, "Broken filename passed to function");
+    QVERIFY(!QFile::exists(QDir::currentPath() + QLatin1Char('/') +
+                           QChar(QChar::Null) + QLatin1String("x/y")));
 }
 
 void tst_QFile::open_data()
@@ -2099,7 +2103,7 @@ void tst_QFile::i18nFileName()
         QVERIFY2(file.open(QFile::WriteOnly | QFile::Text), msgOpenFailed(file).constData());
         QTextStream ts(&file);
         ts.setCodec("UTF-8");
-        ts << fileName << endl;
+        ts << fileName << Qt::endl;
      }
      {
         QFile file(fileName);
@@ -2149,7 +2153,7 @@ void tst_QFile::longFileName()
         QFile file(fileName);
         QVERIFY2(file.open(QFile::WriteOnly | QFile::Text), msgOpenFailed(file).constData());
         QTextStream ts(&file);
-        ts << fileName << endl;
+        ts << fileName << Qt::endl;
     }
     {
         QFile file(fileName);

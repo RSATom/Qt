@@ -315,8 +315,7 @@ BASE_EXPORT bool GetFileSize(const FilePath& file_path, int64_t* file_size);
 // On windows, make sure the path starts with a lettered drive.
 // |path| must reference a file.  Function will fail if |path| points to
 // a directory or to a nonexistent path.  On windows, this function will
-// fail if |path| is a junction or symlink that points to an empty file,
-// or if |real_path| would be longer than MAX_PATH characters.
+// fail if |real_path| would be longer than MAX_PATH characters.
 BASE_EXPORT bool NormalizeFilePath(const FilePath& path, FilePath* real_path);
 
 #if defined(OS_WIN)
@@ -327,12 +326,14 @@ BASE_EXPORT bool NormalizeFilePath(const FilePath& path, FilePath* real_path);
 BASE_EXPORT bool DevicePathToDriveLetterPath(const FilePath& device_path,
                                              FilePath* drive_letter_path);
 
-// Given an existing file in |path|, set |real_path| to the path
-// in native NT format, of the form "\Device\HarddiskVolumeXX\..".
-// Returns false if the path can not be found. Empty files cannot
-// be resolved with this function.
-BASE_EXPORT bool NormalizeToNativeFilePath(const FilePath& path,
-                                           FilePath* nt_path);
+// Method that wraps the win32 GetLongPathName API, normalizing the specified
+// path to its long form. An example where this is needed is when comparing
+// temp file paths. If a username isn't a valid 8.3 short file name (even just a
+// lengthy name like "user with long name"), Windows will set the TMP and TEMP
+// environment variables to be 8.3 paths. ::GetTempPath (called in
+// base::GetTempDir) just uses the value specified by TMP or TEMP, and so can
+// return a short path. Returns an empty path on error.
+BASE_EXPORT FilePath MakeLongFilePath(const FilePath& input);
 #endif
 
 // This function will return if the given file is a symlink or not.
@@ -375,6 +376,14 @@ BASE_EXPORT int WriteFile(const FilePath& filename, const char* data,
 // Appends |data| to |fd|. Does not close |fd| when done.  Returns true iff
 // |size| bytes of |data| were written to |fd|.
 BASE_EXPORT bool WriteFileDescriptor(const int fd, const char* data, int size);
+
+// Allocates disk space for the file referred to by |fd| for the byte range
+// starting at |offset| and continuing for |size| bytes. The file size will be
+// changed if |offset|+|len| is greater than the file size. Zeros will fill the
+// new space.
+// After a successful call, subsequent writes into the specified range are
+// guaranteed not to fail because of lack of disk space.
+BASE_EXPORT bool AllocateFileRegion(File* file, int64_t offset, size_t size);
 #endif
 
 // Appends |data| to |filename|.  Returns true iff |size| bytes of |data| were
@@ -396,12 +405,26 @@ BASE_EXPORT bool SetCurrentDirectory(const FilePath& path);
 BASE_EXPORT int GetUniquePathNumber(const FilePath& path,
                                     const FilePath::StringType& suffix);
 
+// If file at |path| already exists, modifies filename portion of |path| to
+// return unique path.
+BASE_EXPORT FilePath GetUniquePath(const FilePath& path);
+
 // Sets the given |fd| to non-blocking mode.
 // Returns true if it was able to set it in the non-blocking mode, otherwise
 // false.
 BASE_EXPORT bool SetNonBlocking(int fd);
 
 #if defined(OS_POSIX) || defined(OS_FUCHSIA)
+
+// Creates a pipe. Returns true on success, otherwise false.
+// On success, |read_fd| will be set to the fd of the read side, and
+// |write_fd| will be set to the one of write side. If |non_blocking|
+// is set the pipe will be created with O_NONBLOCK|O_CLOEXEC flags set
+// otherwise flag is set to zero (default).
+BASE_EXPORT bool CreatePipe(ScopedFD* read_fd,
+                            ScopedFD* write_fd,
+                            bool non_blocking = false);
+
 // Creates a non-blocking, close-on-exec pipe.
 // This creates a non-blocking pipe that is not intended to be shared with any
 // child process. This will be done atomically if the operating system supports

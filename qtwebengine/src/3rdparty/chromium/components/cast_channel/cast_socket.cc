@@ -113,8 +113,7 @@ CastSocketImpl::CastSocketImpl(NetworkContextGetter network_context_getter,
       connect_state_(ConnectionState::START_CONNECT),
       error_state_(ChannelError::NONE),
       ready_state_(ReadyState::NONE),
-      auth_delegate_(nullptr),
-      weak_factory_(this) {
+      auth_delegate_(nullptr) {
   DCHECK(open_params.ip_endpoint.address().IsValid());
 }
 
@@ -467,8 +466,7 @@ int CastSocketImpl::DoAuthChallengeSend() {
 
   CastMessage challenge_message;
   CreateAuthChallengeMessage(&challenge_message, auth_context_);
-  VLOG_WITH_CONNECTION(1) << "Sending challenge: "
-                          << CastMessageToString(challenge_message);
+  VLOG_WITH_CONNECTION(1) << "Sending challenge: " << challenge_message;
 
   ResetConnectLoopCallback();
 
@@ -599,11 +597,11 @@ void CastSocketImpl::DoConnectCallback() {
   connect_callbacks_.clear();
 }
 
-void CastSocketImpl::Close(const net::CompletionCallback& callback) {
+void CastSocketImpl::Close(net::CompletionOnceCallback callback) {
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
   CloseInternal();
   // Run this callback last.  It may delete the socket.
-  callback.Run(net::OK);
+  std::move(callback).Run(net::OK);
 }
 
 void CastSocketImpl::CloseInternal() {

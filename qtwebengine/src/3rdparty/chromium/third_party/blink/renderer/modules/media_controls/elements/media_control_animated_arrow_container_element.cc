@@ -7,6 +7,7 @@
 #include "third_party/blink/renderer/core/dom/shadow_root.h"
 #include "third_party/blink/renderer/core/html/html_style_element.h"
 #include "third_party/blink/renderer/modules/media_controls/media_controls_resource_loader.h"
+#include "third_party/blink/renderer/platform/heap/heap.h"
 
 namespace blink {
 
@@ -19,7 +20,8 @@ MediaControlAnimatedArrowContainerElement::AnimatedArrow::AnimatedArrow(
 
 void MediaControlAnimatedArrowContainerElement::AnimatedArrow::HideInternal() {
   DCHECK(!hidden_);
-  svg_container_->SetInlineStyleProperty(CSSPropertyDisplay, CSSValueNone);
+  svg_container_->SetInlineStyleProperty(CSSPropertyID::kDisplay,
+                                         CSSValueID::kNone);
   hidden_ = true;
 }
 
@@ -28,7 +30,7 @@ void MediaControlAnimatedArrowContainerElement::AnimatedArrow::ShowInternal() {
   hidden_ = false;
 
   if (svg_container_) {
-    svg_container_->RemoveInlineStyleProperty(CSSPropertyDisplay);
+    svg_container_->RemoveInlineStyleProperty(CSSPropertyID::kDisplay);
     return;
   }
 
@@ -72,7 +74,7 @@ void MediaControlAnimatedArrowContainerElement::AnimatedArrow::Trace(
 
 MediaControlAnimatedArrowContainerElement::
     MediaControlAnimatedArrowContainerElement(MediaControlsImpl& media_controls)
-    : MediaControlDivElement(media_controls, kMediaAnimatedArrowContainer),
+    : MediaControlDivElement(media_controls),
       left_jump_arrow_(nullptr),
       right_jump_arrow_(nullptr) {
   EnsureUserAgentShadowRoot();
@@ -90,19 +92,20 @@ void MediaControlAnimatedArrowContainerElement::ShowArrowAnimation(
     // This stylesheet element and will contain rules that are specific to the
     // jump arrows. The shadow DOM protects these rules from the parent DOM
     // from bleeding across the shadow DOM boundary.
-    auto* style = HTMLStyleElement::Create(GetDocument(), CreateElementFlags());
+    auto* style = MakeGarbageCollected<HTMLStyleElement>(GetDocument(),
+                                                         CreateElementFlags());
     style->setTextContent(
         MediaControlsResourceLoader::GetAnimatedArrowStyleSheet());
     shadow_root->ParserAppendChild(style);
 
-    left_jump_arrow_ =
-        new MediaControlAnimatedArrowContainerElement::AnimatedArrow(
-            "left-arrow", GetDocument());
+    left_jump_arrow_ = MakeGarbageCollected<
+        MediaControlAnimatedArrowContainerElement::AnimatedArrow>(
+        "left-arrow", GetDocument());
     shadow_root->ParserAppendChild(left_jump_arrow_);
 
-    right_jump_arrow_ =
-        new MediaControlAnimatedArrowContainerElement::AnimatedArrow(
-            "right-arrow", GetDocument());
+    right_jump_arrow_ = MakeGarbageCollected<
+        MediaControlAnimatedArrowContainerElement::AnimatedArrow>(
+        "right-arrow", GetDocument());
     shadow_root->ParserAppendChild(right_jump_arrow_);
   }
 

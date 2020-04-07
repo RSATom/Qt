@@ -10,6 +10,7 @@
 #include <memory>
 #include <vector>
 
+#include "build/build_config.h"
 #include "core/fxge/renderdevicedriver_iface.h"
 #include "third_party/agg23/agg_clip_liang_barsky.h"
 #include "third_party/agg23/agg_path_storage.h"
@@ -41,7 +42,8 @@ class CFX_AggDeviceDriver final : public RenderDeviceDriverIface {
   void InitPlatform();
   void DestroyPlatform();
 
-  // RenderDeviceDriverIface
+  // RenderDeviceDriverIface:
+  DeviceType GetDeviceType() const override;
   int GetDeviceCaps(int caps_id) const override;
   void SaveState() override;
   void RestoreState(bool bKeepSaved) override;
@@ -68,13 +70,13 @@ class CFX_AggDeviceDriver final : public RenderDeviceDriverIface {
                  int top) override;
   RetainPtr<CFX_DIBitmap> GetBackDrop() override;
   bool SetDIBits(const RetainPtr<CFX_DIBBase>& pBitmap,
-                 uint32_t color,
+                 uint32_t argb,
                  const FX_RECT& src_rect,
                  int left,
                  int top,
                  BlendMode blend_type) override;
-  bool StretchDIBits(const RetainPtr<CFX_DIBBase>& pBitmap,
-                     uint32_t color,
+  bool StretchDIBits(const RetainPtr<CFX_DIBBase>& pSource,
+                     uint32_t argb,
                      int dest_left,
                      int dest_top,
                      int dest_width,
@@ -82,9 +84,9 @@ class CFX_AggDeviceDriver final : public RenderDeviceDriverIface {
                      const FX_RECT* pClipRect,
                      const FXDIB_ResampleOptions& options,
                      BlendMode blend_type) override;
-  bool StartDIBits(const RetainPtr<CFX_DIBBase>& pBitmap,
+  bool StartDIBits(const RetainPtr<CFX_DIBBase>& pSource,
                    int bitmap_alpha,
-                   uint32_t color,
+                   uint32_t argb,
                    const CFX_Matrix& matrix,
                    const FXDIB_ResampleOptions& options,
                    std::unique_ptr<CFX_ImageRenderer>* handle,
@@ -92,9 +94,9 @@ class CFX_AggDeviceDriver final : public RenderDeviceDriverIface {
   bool ContinueDIBits(CFX_ImageRenderer* handle,
                       PauseIndicatorIface* pPause) override;
   bool DrawDeviceText(int nChars,
-                      const FXTEXT_CHARPOS* pCharPos,
+                      const TextCharPos* pCharPos,
                       CFX_Font* pFont,
-                      const CFX_Matrix* pObject2Device,
+                      const CFX_Matrix& mtObject2Device,
                       float font_size,
                       uint32_t color) override;
   int GetDriverType() const override;
@@ -112,13 +114,13 @@ class CFX_AggDeviceDriver final : public RenderDeviceDriverIface {
   RetainPtr<CFX_DIBitmap> m_pBitmap;
   std::unique_ptr<CFX_ClipRgn> m_pClipRgn;
   std::vector<std::unique_ptr<CFX_ClipRgn>> m_StateStack;
-#if _FX_PLATFORM_ == _FX_PLATFORM_APPLE_
-  void* m_pPlatformGraphics;
+#if defined(OS_MACOSX)
+  void* m_pPlatformGraphics = nullptr;
 #endif
-  int m_FillFlags;
+  int m_FillFlags = 0;
   const bool m_bRgbByteOrder;
-  RetainPtr<CFX_DIBitmap> m_pBackdropBitmap;
   const bool m_bGroupKnockout;
+  RetainPtr<CFX_DIBitmap> m_pBackdropBitmap;
 };
 
 #endif  // CORE_FXGE_AGG_FX_AGG_DRIVER_H_

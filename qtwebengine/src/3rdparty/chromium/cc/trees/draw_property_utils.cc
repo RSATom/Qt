@@ -49,7 +49,7 @@ static void PostConcatSurfaceContentsScale(const EffectNode* effect_node,
     // doesn't set effect ids on clip nodes.
     return;
   }
-  DCHECK(effect_node->has_render_surface);
+  DCHECK(effect_node->HasRenderSurface());
   transform->matrix().postScale(effect_node->surface_contents_scale.x(),
                                 effect_node->surface_contents_scale.y(), 1.f);
 }
@@ -457,20 +457,14 @@ static inline bool LayerShouldBeSkippedInternal(
     LayerType* layer,
     const TransformTree& transform_tree,
     const EffectTree& effect_tree) {
-  // TODO(enne): remove temporary CHECKs once http://crbug.com/898668 is fixed.
-  CHECK_NE(layer->transform_tree_index(), TransformTree::kInvalidNodeId);
-  const TransformNode* transform_node =
-      transform_tree.Node(layer->transform_tree_index());
-  CHECK(transform_node);
-  CHECK_NE(layer->effect_tree_index(), EffectTree::kInvalidNodeId);
   const EffectNode* effect_node = effect_tree.Node(layer->effect_tree_index());
-  CHECK(effect_node);
-
-  if (effect_node->has_render_surface && effect_node->subtree_has_copy_request)
+  if (effect_node->HasRenderSurface() && effect_node->subtree_has_copy_request)
     return false;
 
   // If the layer transform is not invertible, it should be skipped. In case the
   // transform is animating and singular, we should not skip it.
+  const TransformNode* transform_node =
+      transform_tree.Node(layer->transform_tree_index());
   return !transform_node->node_and_ancestors_are_animated_or_invertible ||
          effect_node->hidden_by_backface_visibility || !effect_node->is_drawn;
 }
@@ -515,7 +509,7 @@ static void SetSurfaceDrawOpacity(const EffectTree& tree,
   // (included) and its target surface (excluded).
   const EffectNode* node = tree.Node(render_surface->EffectTreeIndex());
   float draw_opacity = tree.EffectiveOpacity(node);
-  for (node = tree.parent(node); node && !node->has_render_surface;
+  for (node = tree.parent(node); node && !node->HasRenderSurface();
        node = tree.parent(node)) {
     draw_opacity *= tree.EffectiveOpacity(node);
   }
@@ -662,12 +656,64 @@ static ConditionalClip LayerClipRect(PropertyTrees* property_trees,
   const EffectTree* effect_tree = &property_trees->effect_tree;
   const EffectNode* effect_node = effect_tree->Node(layer->effect_tree_index());
   const EffectNode* target_node =
-      effect_node->has_render_surface
+      effect_node->HasRenderSurface()
           ? effect_node
           : effect_tree->Node(effect_node->target_id);
   bool include_expanding_clips = false;
   return ComputeAccumulatedClip(property_trees, include_expanding_clips,
                                 layer->clip_tree_index(), target_node->id);
+}
+
+static std::pair<gfx::RRectF, bool> GetRoundedCornerRRect(
+    const PropertyTrees* property_trees,
+    int effect_tree_index,
+    bool for_render_surface) {
+  static const std::pair<gfx::RRectF, bool> kEmptyRoundedCornerInfo(
+      gfx::RRectF(), false);
+  const EffectTree* effect_tree = &property_trees->effect_tree;
+  const EffectNode* effect_node = effect_tree->Node(effect_tree_index);
+  const int target_id = effect_node->target_id;
+
+  // Return empty rrect if this node has a render surface but the function call
+  // was made for a non render surface.
+  if (effect_node->HasRenderSurface() && !for_render_surface)
+    return kEmptyRoundedCornerInfo;
+
+  // Traverse the parent chain up to the render target to find a node which has
+  // a rounded corner bounds set.
+  const EffectNode* node = effect_node;
+  bool found_rounded_corner = false;
+  while (node) {
+    if (!node->rounded_corner_bounds.IsEmpty()) {
+      found_rounded_corner = true;
+      break;
+    }
+
+    // Simply break if we reached a node that has a render surface or is the
+    // render target.
+    if (node->HasRenderSurface() || node->id == target_id)
+      break;
+
+    node = effect_tree->parent(node);
+  }
+
+  // While traversing up the parent chain we did not find any node with a
+  // rounded corner.
+  if (!node || !found_rounded_corner)
+    return kEmptyRoundedCornerInfo;
+
+  gfx::Transform to_target;
+  if (!property_trees->GetToTarget(node->transform_id, target_id, &to_target))
+    return kEmptyRoundedCornerInfo;
+
+  DCHECK(to_target.Preserves2dAxisAlignment());
+
+  SkRRect result;
+  if (!SkRRect(node->rounded_corner_bounds)
+           .transform(to_target.matrix(), &result)) {
+    return kEmptyRoundedCornerInfo;
+  }
+  return std::make_pair(gfx::RRectF(result), node->is_fast_rounded_corner);
 }
 
 static void UpdateRenderTarget(EffectTree* effect_tree) {
@@ -677,7 +723,7 @@ static void UpdateRenderTarget(EffectTree* effect_tree) {
     if (i == EffectTree::kContentsRootNodeId) {
       // Render target of the node corresponding to root is itself.
       node->target_id = EffectTree::kContentsRootNodeId;
-    } else if (effect_tree->parent(node)->has_render_surface) {
+    } else if (effect_tree->parent(node)->HasRenderSurface()) {
       node->target_id = node->parent_id;
     } else {
       node->target_id = effect_tree->parent(node)->target_id;
@@ -721,7 +767,7 @@ static void ComputeClips(PropertyTrees* property_trees) {
 
 void ConcatInverseSurfaceContentsScale(const EffectNode* effect_node,
                                        gfx::Transform* transform) {
-  DCHECK(effect_node->has_render_surface);
+  DCHECK(effect_node->HasRenderSurface());
   if (effect_node->surface_contents_scale.x() != 0.0 &&
       effect_node->surface_contents_scale.y() != 0.0)
     transform->Scale(1.0 / effect_node->surface_contents_scale.x(),
@@ -732,9 +778,6 @@ bool LayerShouldBeSkippedForDrawPropertiesComputation(
     LayerImpl* layer,
     const TransformTree& transform_tree,
     const EffectTree& effect_tree) {
-  // TODO(enne): remove temporary CHECKs once http://crbug.com/898668 is fixed.
-  CHECK(layer);
-  CHECK(layer->layer_tree_impl());
   return LayerShouldBeSkippedInternal(layer, transform_tree, effect_tree);
 }
 
@@ -742,11 +785,6 @@ bool LayerShouldBeSkippedForDrawPropertiesComputation(
     Layer* layer,
     const TransformTree& transform_tree,
     const EffectTree& effect_tree) {
-  // TODO(enne): remove temporary CHECKs once http://crbug.com/898668 is fixed.
-  CHECK(layer);
-  CHECK(layer->layer_tree_host());
-  CHECK_EQ(layer->layer_tree_host()->property_trees()->sequence_number,
-           layer->property_tree_sequence_number());
   return LayerShouldBeSkippedInternal(layer, transform_tree, effect_tree);
 }
 
@@ -802,8 +840,17 @@ void FindLayersThatNeedUpdates(LayerTreeImpl* layer_tree_impl,
 }
 
 void ComputeTransforms(TransformTree* transform_tree) {
-  if (!transform_tree->needs_update())
+  if (!transform_tree->needs_update()) {
+#if DCHECK_IS_ON()
+    // If the transform tree does not need an update, no TransformNode should
+    // need a local transform update.
+    for (int i = TransformTree::kContentsRootNodeId;
+         i < static_cast<int>(transform_tree->size()); ++i) {
+      DCHECK(!transform_tree->Node(i)->needs_local_transform_update);
+    }
+#endif
     return;
+  }
   for (int i = TransformTree::kContentsRootNodeId;
        i < static_cast<int>(transform_tree->size()); ++i)
     transform_tree->UpdateTransforms(i);
@@ -836,21 +883,10 @@ void UpdatePropertyTrees(LayerTreeHost* layer_tree_host,
 }
 
 void UpdatePropertyTreesAndRenderSurfaces(LayerImpl* root_layer,
-                                          PropertyTrees* property_trees,
-                                          bool can_adjust_raster_scales) {
-  bool render_surfaces_need_update = false;
-  if (property_trees->can_adjust_raster_scales != can_adjust_raster_scales) {
-    property_trees->can_adjust_raster_scales = can_adjust_raster_scales;
-    property_trees->transform_tree.set_needs_update(true);
-    render_surfaces_need_update = true;
-  }
+                                          PropertyTrees* property_trees) {
   if (property_trees->transform_tree.needs_update()) {
     property_trees->clip_tree.set_needs_update(true);
     property_trees->effect_tree.set_needs_update(true);
-  }
-  if (render_surfaces_need_update) {
-    property_trees->effect_tree.UpdateRenderSurfaces(
-        root_layer->layer_tree_impl());
   }
   UpdateRenderTarget(&property_trees->effect_tree);
 
@@ -913,6 +949,12 @@ void ComputeDrawPropertiesOfVisibleLayers(const LayerImplList* layer_list,
         layer, property_trees->transform_tree, property_trees->effect_tree);
     layer->draw_properties().screen_space_transform_is_animating =
         transform_node->to_screen_is_potentially_animated;
+    auto rounded_corner_info =
+        GetRoundedCornerRRect(property_trees, layer->effect_tree_index(),
+                              /*from_render_surface*/ false);
+    layer->draw_properties().rounded_corner_bounds = rounded_corner_info.first;
+    layer->draw_properties().is_fast_rounded_corner =
+        rounded_corner_info.second;
   }
 
   // Compute effects and determine if render surfaces have contributing layers
@@ -983,6 +1025,11 @@ void ComputeSurfaceDrawProperties(PropertyTrees* property_trees,
   SetSurfaceIsClipped(property_trees->clip_tree, render_surface);
   SetSurfaceDrawOpacity(property_trees->effect_tree, render_surface);
   SetSurfaceDrawTransform(property_trees, render_surface);
+
+  render_surface->SetRoundedCornerRRect(
+      GetRoundedCornerRRect(property_trees, render_surface->EffectTreeIndex(),
+                            /*for_render_surface*/ true)
+          .first);
   render_surface->SetScreenSpaceTransform(
       property_trees->ToScreenSpaceTransformWithoutSurfaceContentsScale(
           render_surface->TransformTreeIndex(),

@@ -8,24 +8,26 @@
 #ifndef GrMtlBuffer_DEFINED
 #define GrMtlBuffer_DEFINED
 
-#include "GrBuffer.h"
+#include "src/gpu/GrGpuBuffer.h"
+#include "src/gpu/mtl/GrMtlUniformHandler.h"
 
-#import <metal/metal.h>
+#import <Metal/Metal.h>
 
 class GrMtlCaps;
 class GrMtlGpu;
 
-class GrMtlBuffer: public GrBuffer {
+class GrMtlBuffer: public GrGpuBuffer {
 public:
-    static GrMtlBuffer* Create(GrMtlGpu*, size_t size, GrBufferType intendedType, GrAccessPattern,
-                               const void* data = nullptr);
+    static sk_sp<GrMtlBuffer> Make(GrMtlGpu*, size_t size, GrGpuBufferType intendedType,
+                                   GrAccessPattern, const void* data = nullptr);
 
     ~GrMtlBuffer() override;
 
     id<MTLBuffer> mtlBuffer() const { return fMtlBuffer; }
+    size_t offset() const { return fOffset; }
 
 protected:
-    GrMtlBuffer(GrMtlGpu*, size_t size, GrBufferType intendedType, GrAccessPattern);
+    GrMtlBuffer(GrMtlGpu*, size_t size, GrGpuBufferType intendedType, GrAccessPattern);
 
     void onAbandon() override;
     void onRelease() override;
@@ -44,12 +46,12 @@ private:
     void validate() const;
 #endif
 
-    GrBufferType fIntendedType;
     bool fIsDynamic;
     id<MTLBuffer> fMtlBuffer;
-    id<MTLBuffer> fMappedBuffer;
+    size_t        fOffset;       // offset into shared buffer for dynamic buffers
+    id<MTLBuffer> fMappedBuffer; // buffer used by static buffers for uploads
 
-    typedef GrBuffer INHERITED;
+    typedef GrGpuBuffer INHERITED;
 };
 
 #endif

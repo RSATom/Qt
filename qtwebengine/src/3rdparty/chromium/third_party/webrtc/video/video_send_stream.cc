@@ -19,6 +19,7 @@
 #include "modules/rtp_rtcp/source/rtp_sender.h"
 #include "rtc_base/checks.h"
 #include "rtc_base/logging.h"
+#include "rtc_base/task_utils/to_queued_task.h"
 #include "system_wrappers/include/clock.h"
 #include "system_wrappers/include/field_trial.h"
 #include "video/video_send_stream_impl.h"
@@ -33,7 +34,7 @@ size_t CalculateMaxHeaderSize(const RtpConfig& config) {
   size_t header_size = kRtpHeaderSize;
   size_t extensions_size = 0;
   size_t fec_extensions_size = 0;
-  if (config.extensions.size() > 0) {
+  if (!config.extensions.empty()) {
     RtpHeaderExtensionMap extensions_map(config.extensions);
     extensions_size = RtpHeaderExtensionSize(RTPSender::VideoExtensionSizes(),
                                              extensions_map);
@@ -65,9 +66,10 @@ size_t CalculateMaxHeaderSize(const RtpConfig& config) {
 namespace internal {
 
 VideoSendStream::VideoSendStream(
+    Clock* clock,
     int num_cpu_cores,
     ProcessThread* module_process_thread,
-    rtc::TaskQueue* worker_queue,
+    TaskQueueFactory* task_queue_factory,
     CallStats* call_stats,
     RtpTransportControllerSendInterface* transport,
     BitrateAllocatorInterface* bitrate_allocator,
@@ -78,26 +80,25 @@ VideoSendStream::VideoSendStream(
     const std::map<uint32_t, RtpState>& suspended_ssrcs,
     const std::map<uint32_t, RtpPayloadState>& suspended_payload_states,
     std::unique_ptr<FecController> fec_controller)
-    : worker_queue_(worker_queue),
-      stats_proxy_(Clock::GetRealTimeClock(),
-                   config,
-                   encoder_config.content_type),
+    : worker_queue_(transport->GetWorkerQueue()),
+      stats_proxy_(clock, config, encoder_config.content_type),
       config_(std::move(config)),
       content_type_(encoder_config.content_type) {
   RTC_DCHECK(config_.encoder_settings.encoder_factory);
   RTC_DCHECK(config_.encoder_settings.bitrate_allocator_factory);
 
-  video_stream_encoder_ = CreateVideoStreamEncoder(num_cpu_cores, &stats_proxy_,
-                                                   config_.encoder_settings);
+  video_stream_encoder_ =
+      CreateVideoStreamEncoder(clock, task_queue_factory, num_cpu_cores,
+                               &stats_proxy_, config_.encoder_settings);
   // TODO(srte): Initialization should not be done posted on a task queue.
   // Note that the posted task must not outlive this scope since the closure
   // references local variables.
-  worker_queue_->PostTask(rtc::NewClosure(
-      [this, call_stats, transport, bitrate_allocator, send_delay_stats,
+  worker_queue_->PostTask(ToQueuedTask(
+      [this, clock, call_stats, transport, bitrate_allocator, send_delay_stats,
        event_log, &suspended_ssrcs, &encoder_config, &suspended_payload_states,
        &fec_controller]() {
         send_stream_.reset(new VideoSendStreamImpl(
-            &stats_proxy_, worker_queue_, call_stats, transport,
+            clock, &stats_proxy_, worker_queue_, call_stats, transport,
             bitrate_allocator, send_delay_stats, video_stream_encoder_.get(),
             event_log, &config_, encoder_config.max_bitrate_bps,
             encoder_config.bitrate_priority, suspended_ssrcs,
@@ -205,9 +206,9 @@ void VideoSendStream::StopPermanentlyAndGetRtpStates(
   thread_sync_event_.Wait(rtc::Event::kForever);
 }
 
-bool VideoSendStream::DeliverRtcp(const uint8_t* packet, size_t length) {
+void VideoSendStream::DeliverRtcp(const uint8_t* packet, size_t length) {
   // Called on a network thread.
-  return send_stream_->DeliverRtcp(packet, length);
+  send_stream_->DeliverRtcp(packet, length);
 }
 
 }  // namespace internal

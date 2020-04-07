@@ -22,8 +22,10 @@
 #include "media/audio/mock_audio_manager.h"
 #include "media/audio/test_audio_thread.h"
 #include "media/base/audio_parameters.h"
+#include "media/mojo/interfaces/audio_data_pipe.mojom.h"
 #include "mojo/public/cpp/bindings/binding.h"
 #include "mojo/public/cpp/system/platform_handle.h"
+#include "services/audio/public/mojom/audio_processing.mojom.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -34,7 +36,6 @@ namespace {
 using testing::Test;
 
 const size_t kShmemSize = 1234;
-const int kSessionId = 234;
 const bool kAGC = false;
 const uint32_t kSharedMemoryCount = 345;
 const int kSampleFrequency = 44100;
@@ -55,9 +56,9 @@ class FakeAudioInputDelegate : public media::AudioInputDelegate {
 
   ~FakeAudioInputDelegate() override {}
 
-  int GetStreamId() override { return 0; };
-  void OnRecordStream() override{};
-  void OnSetVolume(double volume) override{};
+  int GetStreamId() override { return 0; }
+  void OnRecordStream() override {}
+  void OnSetVolume(double volume) override {}
   void OnSetOutputDeviceForAec(const std::string& output_device_id) override {}
 
  private:
@@ -95,7 +96,7 @@ std::unique_ptr<media::AudioInputDelegate> CreateFakeDelegate(
     AudioInputDeviceManager::KeyboardMicRegistration keyboard_mic_registration,
     uint32_t shared_memory_count,
     int stream_id,
-    int session_id,
+    const base::UnguessableToken& session_id,
     bool automatic_gain_control,
     const media::AudioParameters& parameters,
     media::AudioInputDelegate::EventHandler* event_handler) {
@@ -153,6 +154,7 @@ class OldOldRenderFrameAudioInputStreamFactoryTest : public testing::Test {
 };
 
 TEST_F(OldOldRenderFrameAudioInputStreamFactoryTest, CreateStream) {
+  const base::UnguessableToken kSessionId = base::UnguessableToken::Create();
   factory_ptr_->CreateStream(std::move(client_ptr_), kSessionId,
                              GetTestAudioParameters(), kAGC, kSharedMemoryCount,
                              nullptr);

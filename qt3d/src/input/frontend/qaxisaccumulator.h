@@ -88,6 +88,7 @@ Q_SIGNALS:
     void scaleChanged(float scale);
 
 protected:
+    // TODO Unused remove in Qt6
     void sceneChangeEvent(const Qt3DCore::QSceneChangePtr &change) override;
 
 private:

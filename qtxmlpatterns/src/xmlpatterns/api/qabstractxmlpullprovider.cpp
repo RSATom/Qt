@@ -73,6 +73,8 @@ using namespace QPatternist;
 
 /*!
   \enum AbstractXmlPullProvider::Event
+  \internal
+
   \value StartOfInput The value AbstractXmlPullProvider::current() returns before the first call to next().
   \value AtomicValue an atomic value such as an \c xs:integer, \c xs:hexBinary, or \c xs:dateTime. Atomic values
          can only be top level items.
@@ -112,6 +114,7 @@ AbstractXmlPullProvider::~AbstractXmlPullProvider()
 }
 
 /*!
+  \internal
   \fn QPatternist::AbstractXmlPullProvider::Event QPatternist::AbstractXmlPullProvider::next() = 0
   Advances this AbstractXmlPullProvider, and returns the new event.
 
@@ -119,6 +122,7 @@ AbstractXmlPullProvider::~AbstractXmlPullProvider()
  */
 
 /*!
+  \internal
   \fn QPatternist::AbstractXmlPullProvider::Event QPatternist::AbstractXmlPullProvider::current() const = 0
   Returns the event that next() returned the last time it was called. It doesn't
   alter this AbstractXmlPullProvider.
@@ -130,6 +134,7 @@ AbstractXmlPullProvider::~AbstractXmlPullProvider()
  */
 
 /*!
+  \internal
   \fn QPatternist::AbstractXmlPullProvider::QName QPatternist::AbstractXmlPullProvider::name() const = 0
   If the current event is StartElement,
   EndElement, ProcessingInstruction, Attribute, or Namespace, the node's name is returned.
@@ -144,6 +149,7 @@ AbstractXmlPullProvider::~AbstractXmlPullProvider()
  */
 
 /*!
+  \internal
   \fn QVariant QPatternist::AbstractXmlPullProvider::atomicValue() const = 0
 
   If current() event is AtomicValue, the atomic value is returned as a QVariant.
@@ -151,7 +157,8 @@ AbstractXmlPullProvider::~AbstractXmlPullProvider()
  */
 
 /*!
- \fn QString QPatternist::AbstractXmlPullProvider::stringValue() const = 0
+  \internal
+  \fn QString QPatternist::AbstractXmlPullProvider::stringValue() const = 0
 
   If current() is Text, the text node's value is returned.
 
@@ -165,7 +172,8 @@ AbstractXmlPullProvider::~AbstractXmlPullProvider()
   */
 
 /*!
- \fn QHash<QXmlName, QString> QPatternist::AbstractXmlPullProvider::attributes() = 0
+  \internal
+  \fn QHash<QXmlName, QString> QPatternist::AbstractXmlPullProvider::attributes() = 0
 
   If the current() is Element, the attributes of the element are returned,
   an empty list of attributes otherwise.

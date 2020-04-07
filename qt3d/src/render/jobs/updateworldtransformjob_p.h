@@ -63,6 +63,7 @@ namespace Render {
 
 class Entity;
 class NodeManagers;
+class UpdateWorldTransformJobPrivate;
 
 class Q_3DRENDERSHARED_PRIVATE_EXPORT UpdateWorldTransformJob : public Qt3DCore::QAspectJob
 {

@@ -91,7 +91,7 @@
   {                                                                  \
     const std::string my_name =                                      \
         CACHE_UMA_BACKEND_IMPL_OBJ->HistogramName(name, experiment); \
-    switch (CACHE_UMA_BACKEND_IMPL_OBJ->cache_type()) {              \
+    switch (CACHE_UMA_BACKEND_IMPL_OBJ->GetCacheType()) {            \
       default:                                                       \
         NOTREACHED();                                                \
         FALLTHROUGH;                                                 \
@@ -102,7 +102,8 @@
       case net::PNACL_CACHE:                                         \
         CACHE_HISTOGRAM_##type(my_name.data(), sample);              \
         break;                                                       \
-      case net::GENERATED_CODE_CACHE:                                \
+      case net::GENERATED_BYTE_CODE_CACHE:                           \
+      case net::GENERATED_NATIVE_CODE_CACHE:                         \
         break;                                                       \
     }                                                                \
   }

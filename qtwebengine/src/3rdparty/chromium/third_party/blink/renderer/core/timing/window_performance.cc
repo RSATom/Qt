@@ -33,26 +33,25 @@
 
 #include "third_party/blink/public/platform/platform.h"
 #include "third_party/blink/public/platform/task_type.h"
-#include "third_party/blink/public/platform/web_layer_tree_view.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_value.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_object_builder.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/dom/qualified_name.h"
 #include "third_party/blink/renderer/core/frame/local_dom_window.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
-#include "third_party/blink/renderer/core/frame/use_counter.h"
 #include "third_party/blink/renderer/core/html/html_frame_owner_element.h"
 #include "third_party/blink/renderer/core/loader/document_loader.h"
-#include "third_party/blink/renderer/core/origin_trials/origin_trials.h"
 #include "third_party/blink/renderer/core/page/chrome_client.h"
+#include "third_party/blink/renderer/core/timing/largest_contentful_paint.h"
+#include "third_party/blink/renderer/core/timing/layout_shift.h"
 #include "third_party/blink/renderer/core/timing/performance_element_timing.h"
 #include "third_party/blink/renderer/core/timing/performance_event_timing.h"
-#include "third_party/blink/renderer/core/timing/performance_layout_jank.h"
 #include "third_party/blink/renderer/core/timing/performance_timing.h"
-#include "third_party/blink/renderer/platform/cross_thread_functional.h"
+#include "third_party/blink/renderer/platform/instrumentation/use_counter.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource_timing_info.h"
 #include "third_party/blink/renderer/platform/runtime_enabled_features.h"
 #include "third_party/blink/renderer/platform/scheduler/public/thread_scheduler.h"
+#include "third_party/blink/renderer/platform/wtf/cross_thread_functional.h"
 
 static constexpr base::TimeDelta kLongTaskObserverThreshold =
     base::TimeDelta::FromMilliseconds(50);
@@ -64,7 +63,7 @@ namespace {
 // Events taking longer than this threshold to finish being processed are
 // regarded as long-latency events by event-timing. Shorter-latency events are
 // ignored to reduce performance impact.
-constexpr int kEventTimingDurationThresholdInMs = 50;
+constexpr int kEventTimingDurationThresholdInMs = 104;
 
 String GetFrameAttribute(HTMLFrameOwnerElement* frame_owner,
                          const QualifiedName& attr_name,
@@ -121,14 +120,14 @@ bool IsSameOrigin(const AtomicString& key) {
 
 }  // namespace
 
-static TimeTicks ToTimeOrigin(LocalDOMWindow* window) {
+static base::TimeTicks ToTimeOrigin(LocalDOMWindow* window) {
   Document* document = window->document();
   if (!document)
-    return TimeTicks();
+    return base::TimeTicks();
 
   DocumentLoader* loader = document->Loader();
   if (!loader)
-    return TimeTicks();
+    return base::TimeTicks();
 
   return loader->GetTiming().ReferenceMonotonicTime();
 }
@@ -149,14 +148,14 @@ ExecutionContext* WindowPerformance::GetExecutionContext() const {
 
 PerformanceTiming* WindowPerformance::timing() const {
   if (!timing_)
-    timing_ = PerformanceTiming::Create(GetFrame());
+    timing_ = MakeGarbageCollected<PerformanceTiming>(GetFrame());
 
   return timing_.Get();
 }
 
 PerformanceNavigation* WindowPerformance::navigation() const {
   if (!navigation_)
-    navigation_ = PerformanceNavigation::Create(GetFrame());
+    navigation_ = MakeGarbageCollected<PerformanceNavigation>(GetFrame());
 
   return navigation_.Get();
 }
@@ -167,21 +166,17 @@ MemoryInfo* WindowPerformance::memory() const {
   // course over time about what changes would be implemented) can be found at
   // https://groups.google.com/a/chromium.org/forum/#!topic/blink-dev/no00RdMnGio,
   // and the relevant bug is https://crbug.com/807651.
-  return MemoryInfo::Create(Platform::Current()->IsLockedToSite()
-                                ? MemoryInfo::Precision::Precise
-                                : MemoryInfo::Precision::Bucketized);
-}
-
-bool WindowPerformance::shouldYield() const {
-  return ThreadScheduler::Current()->ShouldYieldForHighPriorityWork();
+  return MakeGarbageCollected<MemoryInfo>(
+      Platform::Current()->IsLockedToSite()
+          ? MemoryInfo::Precision::Precise
+          : MemoryInfo::Precision::Bucketized);
 }
 
 PerformanceNavigationTiming*
 WindowPerformance::CreateNavigationTimingInstance() {
   if (!GetFrame())
     return nullptr;
-  const DocumentLoader* document_loader =
-      GetFrame()->Loader().GetDocumentLoader();
+  DocumentLoader* document_loader = GetFrame()->Loader().GetDocumentLoader();
   if (!document_loader)
     return nullptr;
   ResourceTimingInfo* info = document_loader->GetNavigationTimingInfo();
@@ -190,7 +185,8 @@ WindowPerformance::CreateNavigationTimingInstance() {
   WebVector<WebServerTimingInfo> server_timing =
       PerformanceServerTiming::ParseServerTiming(*info);
   if (!server_timing.empty())
-    UseCounter::Count(GetFrame(), WebFeature::kPerformanceServerTiming);
+    document_loader->CountUse(WebFeature::kPerformanceServerTiming);
+
   return MakeGarbageCollected<PerformanceNavigationTiming>(
       GetFrame(), info, time_origin_, server_timing);
 }
@@ -200,8 +196,7 @@ void WindowPerformance::UpdateLongTaskInstrumentation() {
     return;
 
   if (HasObserverFor(PerformanceEntry::kLongTask)) {
-    UseCounter::Count(&GetFrame()->LocalFrameRoot(),
-                      WebFeature::kLongTaskObserver);
+    UseCounter::Count(GetFrame()->GetDocument(), WebFeature::kLongTaskObserver);
     GetFrame()->GetPerformanceMonitor()->Subscribe(
         PerformanceMonitor::kLongTask, kLongTaskObserverThreshold, this);
   } else {
@@ -327,19 +322,11 @@ void WindowPerformance::ReportLongTask(
   }
 }
 
-// We buffer Element Timing and Event Timing (long-latency events) entries until
-// onload, i.e., LoadEventStart is not reached yet.
-bool WindowPerformance::ShouldBufferEntries() {
-  return !timing() || !timing()->loadEventStart();
-}
-
 void WindowPerformance::RegisterEventTiming(const AtomicString& event_type,
-                                            TimeTicks start_time,
-                                            TimeTicks processing_start,
-                                            TimeTicks processing_end,
+                                            base::TimeTicks start_time,
+                                            base::TimeTicks processing_start,
+                                            base::TimeTicks processing_end,
                                             bool cancelable) {
-  DCHECK(origin_trials::EventTimingEnabled(GetExecutionContext()));
-
   // |start_time| could be null in some tests that inject input.
   DCHECK(!processing_start.is_null());
   DCHECK(!processing_end.is_null());
@@ -352,27 +339,25 @@ void WindowPerformance::RegisterEventTiming(const AtomicString& event_type,
       MonotonicTimeToDOMHighResTimeStamp(processing_start),
       MonotonicTimeToDOMHighResTimeStamp(processing_end), cancelable);
   event_timings_.push_back(entry);
-  WebLayerTreeView* layerTreeView =
-      GetFrame()->GetChromeClient().GetWebLayerTreeView(GetFrame());
   // Only queue a swap promise when |event_timings_| was empty. All of the
   // elements in |event_timings_| will be processed in a single call of
   // ReportEventTimings() when the promise suceeds or fails. This method also
   // clears the vector, so a promise has already been queued when the vector was
   // not previously empty.
-  if (event_timings_.size() == 1 && layerTreeView) {
-    layerTreeView->NotifySwapTime(ConvertToBaseCallback(
-        CrossThreadBind(&WindowPerformance::ReportEventTimings,
-                        WrapCrossThreadWeakPersistent(this))));
+  if (event_timings_.size() == 1) {
+    GetFrame()->GetChromeClient().NotifySwapTime(
+        *GetFrame(), CrossThreadBindOnce(&WindowPerformance::ReportEventTimings,
+                                         WrapCrossThreadWeakPersistent(this)));
   }
 }
 
-void WindowPerformance::ReportEventTimings(WebLayerTreeView::SwapResult result,
-                                           TimeTicks timestamp) {
-  DCHECK(origin_trials::EventTimingEnabled(GetExecutionContext()));
-
+void WindowPerformance::ReportEventTimings(WebWidgetClient::SwapResult result,
+                                           base::TimeTicks timestamp) {
   DOMHighResTimeStamp end_time = MonotonicTimeToDOMHighResTimeStamp(timestamp);
+  bool event_timing_enabled =
+      RuntimeEnabledFeatures::EventTimingEnabled(GetExecutionContext());
   for (const auto& entry : event_timings_) {
-    int duration_in_ms = std::ceil((end_time - entry->startTime()) / 8) * 8;
+    int duration_in_ms = std::round((end_time - entry->startTime()) / 8) * 8;
     entry->SetDuration(duration_in_ms);
     if (!first_input_timing_) {
       if (entry->name() == "pointerdown") {
@@ -386,45 +371,50 @@ void WindowPerformance::ReportEventTimings(WebLayerTreeView::SwapResult result,
             PerformanceEventTiming::CreateFirstInputTiming(entry));
       }
     }
-    if (duration_in_ms <= kEventTimingDurationThresholdInMs)
+    if (duration_in_ms < kEventTimingDurationThresholdInMs ||
+        !event_timing_enabled)
       continue;
 
     if (HasObserverFor(PerformanceEntry::kEvent)) {
-      UseCounter::Count(GetFrame(),
+      UseCounter::Count(GetExecutionContext(),
                         WebFeature::kEventTimingExplicitlyRequested);
       NotifyObserversOfEntry(*entry);
     }
 
-    if (ShouldBufferEntries() && !IsEventTimingBufferFull())
+    if (!IsEventTimingBufferFull())
       AddEventTimingBuffer(*entry);
   }
   event_timings_.clear();
 }
 
 void WindowPerformance::AddElementTiming(const AtomicString& name,
-                                         const IntRect& rect,
-                                         TimeTicks timestamp) {
-  DCHECK(origin_trials::ElementTimingEnabled(GetExecutionContext()));
+                                         const String& url,
+                                         const FloatRect& rect,
+                                         base::TimeTicks start_time,
+                                         base::TimeTicks load_time,
+                                         const AtomicString& identifier,
+                                         const IntSize& intrinsic_size,
+                                         const AtomicString& id,
+                                         Element* element) {
+  DCHECK(RuntimeEnabledFeatures::ElementTimingEnabled(GetExecutionContext()));
   PerformanceElementTiming* entry = PerformanceElementTiming::Create(
-      name, rect, MonotonicTimeToDOMHighResTimeStamp(timestamp));
-  if (HasObserverFor(PerformanceEntry::kElement)) {
-    UseCounter::Count(GetFrame(),
-                      WebFeature::kElementTimingExplicitlyRequested);
+      name, url, rect, MonotonicTimeToDOMHighResTimeStamp(start_time),
+      MonotonicTimeToDOMHighResTimeStamp(load_time), identifier,
+      intrinsic_size.Width(), intrinsic_size.Height(), id, element);
+  if (HasObserverFor(PerformanceEntry::kElement))
     NotifyObserversOfEntry(*entry);
-  }
-  if (ShouldBufferEntries() && !IsElementTimingBufferFull())
+  if (!IsElementTimingBufferFull())
     AddElementTimingBuffer(*entry);
 }
 
 void WindowPerformance::DispatchFirstInputTiming(
     PerformanceEventTiming* entry) {
-  DCHECK(origin_trials::EventTimingEnabled(GetExecutionContext()));
-
   if (!entry)
     return;
-  DCHECK_EQ("firstInput", entry->entryType());
+  DCHECK_EQ("first-input", entry->entryType());
   if (HasObserverFor(PerformanceEntry::kFirstInput)) {
-    UseCounter::Count(GetFrame(), WebFeature::kEventTimingExplicitlyRequested);
+    UseCounter::Count(GetExecutionContext(),
+                      WebFeature::kEventTimingExplicitlyRequested);
     NotifyObserversOfEntry(*entry);
   }
 
@@ -432,13 +422,37 @@ void WindowPerformance::DispatchFirstInputTiming(
   first_input_timing_ = entry;
 }
 
-void WindowPerformance::AddLayoutJankFraction(double jank_fraction) {
-  DCHECK(origin_trials::LayoutJankAPIEnabled(GetExecutionContext()));
-  PerformanceLayoutJank* entry = PerformanceLayoutJank::Create(jank_fraction);
-  if (HasObserverFor(PerformanceEntry::kLayoutJank))
+void WindowPerformance::AddLayoutJankFraction(double jank_fraction,
+                                              bool input_detected,
+                                              base::TimeTicks input_timestamp) {
+  DCHECK(RuntimeEnabledFeatures::LayoutInstabilityAPIEnabled(
+      GetExecutionContext()));
+  auto* entry = MakeGarbageCollected<LayoutShift>(
+      now(), jank_fraction, input_detected,
+      input_detected ? MonotonicTimeToDOMHighResTimeStamp(input_timestamp)
+                     : 0.0);
+  if (HasObserverFor(PerformanceEntry::kLayoutShift))
     NotifyObserversOfEntry(*entry);
-  if (ShouldBufferEntries())
-    AddLayoutJankBuffer(*entry);
+  AddLayoutJankBuffer(*entry);
+}
+
+void WindowPerformance::OnLargestContentfulPaintUpdated(
+    base::TimeTicks paint_time,
+    uint64_t paint_size,
+    base::TimeTicks load_time,
+    const AtomicString& id,
+    const String& url,
+    Element* element) {
+  double render_timestamp = MonotonicTimeToDOMHighResTimeStamp(paint_time);
+  double load_timestamp = MonotonicTimeToDOMHighResTimeStamp(load_time);
+  double start_timestamp =
+      render_timestamp != 0.0 ? render_timestamp : load_timestamp;
+  auto* entry = MakeGarbageCollected<LargestContentfulPaint>(
+      start_timestamp, render_timestamp, paint_size, load_timestamp, id, url,
+      element);
+  if (HasObserverFor(PerformanceEntry::kLargestContentfulPaint))
+    NotifyObserversOfEntry(*entry);
+  AddLargestContentfulPaint(entry);
 }
 
 }  // namespace blink

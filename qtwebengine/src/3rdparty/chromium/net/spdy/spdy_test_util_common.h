@@ -52,6 +52,8 @@ class CTVerifier;
 class CTPolicyEnforcer;
 class HashValue;
 class HostPortPair;
+class HostResolver;
+class HttpUserAgentSettings;
 class NetLogWithSource;
 class SpdySessionKey;
 class SpdyStream;
@@ -183,6 +185,11 @@ struct SpdySessionDependencies {
 
   ~SpdySessionDependencies();
 
+  HostResolver* GetHostResolver() {
+    return alternate_host_resolver ? alternate_host_resolver.get()
+                                   : host_resolver.get();
+  }
+
   static std::unique_ptr<HttpNetworkSession> SpdyCreateSession(
       SpdySessionDependencies* session_deps);
 
@@ -198,12 +205,14 @@ struct SpdySessionDependencies {
 
   // NOTE: host_resolver must be ordered before http_auth_handler_factory.
   std::unique_ptr<MockHostResolverBase> host_resolver;
+  // For using a HostResolver not derived from MockHostResolverBase.
+  std::unique_ptr<HostResolver> alternate_host_resolver;
   std::unique_ptr<CertVerifier> cert_verifier;
-  std::unique_ptr<ChannelIDService> channel_id_service;
   std::unique_ptr<TransportSecurityState> transport_security_state;
   std::unique_ptr<CTVerifier> cert_transparency_verifier;
   std::unique_ptr<CTPolicyEnforcer> ct_policy_enforcer;
   std::unique_ptr<ProxyResolutionService> proxy_resolution_service;
+  std::unique_ptr<HttpUserAgentSettings> http_user_agent_settings;
   std::unique_ptr<SSLConfigService> ssl_config_service;
   std::unique_ptr<MockClientSocketFactory> socket_factory;
   std::unique_ptr<HttpAuthHandlerFactory> http_auth_handler_factory;
@@ -226,6 +235,7 @@ struct SpdySessionDependencies {
   NetLog* net_log;
   bool http_09_on_non_default_ports_enabled;
   bool disable_idle_sockets_close_on_memory_pressure;
+  bool enable_early_data;
 };
 
 class SpdyURLRequestContext : public URLRequestContext {

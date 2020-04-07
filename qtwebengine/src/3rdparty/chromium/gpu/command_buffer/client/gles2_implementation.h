@@ -143,6 +143,15 @@ class GLES2_IMPL_EXPORT GLES2Implementation : public GLES2Interface,
       const std::vector<std::pair<uint32_t, uint32_t>>& entries) override;
   void DeleteTransferCacheEntry(uint32_t type, uint32_t id) override;
   unsigned int GetTransferBufferFreeSize() const override;
+  bool CanDecodeWithHardwareAcceleration(
+      base::span<const uint8_t> encoded_data) const override;
+
+  // InterfaceBase implementation.
+  void GenSyncTokenCHROMIUM(GLbyte* sync_token) override;
+  void GenUnverifiedSyncTokenCHROMIUM(GLbyte* sync_token) override;
+  void VerifySyncTokensCHROMIUM(GLbyte** sync_tokens, GLsizei count) override;
+  void WaitSyncTokenCHROMIUM(const GLbyte* sync_token) override;
+
   void GetProgramInfoCHROMIUMHelper(GLuint program,
                                     std::vector<int8_t>* result);
   GLint GetAttribLocationHelper(GLuint program, const char* name);
@@ -186,6 +195,19 @@ class GLES2_IMPL_EXPORT GLES2Implementation : public GLES2Interface,
       GLint* values);
   bool GetQueryObjectValueHelper(
       const char* function_name, GLuint id, GLenum pname, GLuint64* params);
+  bool GetProgramInterfaceivHelper(
+      GLuint program, GLenum program_interface, GLenum pname, GLint* params);
+  GLuint GetProgramResourceIndexHelper(
+      GLuint program, GLenum program_interface, const char* name);
+  bool GetProgramResourceNameHelper(
+      GLuint program, GLenum program_interface, GLuint index, GLsizei bufsize,
+      GLsizei* length, char* name);
+  bool GetProgramResourceivHelper(
+      GLuint program, GLenum program_interface, GLuint index,
+      GLsizei prop_count, const GLenum* props, GLsizei bufsize, GLsizei* length,
+      GLint* params);
+  GLint GetProgramResourceLocationHelper(
+      GLuint program, GLenum program_interface, const char* name);
 
   const scoped_refptr<ShareGroup>& share_group() const { return share_group_; }
 
@@ -377,6 +399,7 @@ class GLES2_IMPL_EXPORT GLES2Implementation : public GLES2Interface,
       const SwapBuffersCompleteParams& params) final;
   void OnSwapBufferPresented(uint64_t swap_id,
                              const gfx::PresentationFeedback& feedback) final;
+  void OnGpuControlReturnData(base::span<const uint8_t> data) final;
 
   void SendErrorMessage(std::string message, int32_t id);
   void CallDeferredErrorCallbacks();
@@ -727,6 +750,7 @@ class GLES2_IMPL_EXPORT GLES2Implementation : public GLES2Interface,
   GLuint bound_atomic_counter_buffer_;
   GLuint bound_copy_read_buffer_;
   GLuint bound_copy_write_buffer_;
+  GLuint bound_dispatch_indirect_buffer_;
   GLuint bound_pixel_pack_buffer_;
   GLuint bound_pixel_unpack_buffer_;
   GLuint bound_shader_storage_buffer_;
@@ -831,7 +855,7 @@ class GLES2_IMPL_EXPORT GLES2Implementation : public GLES2Interface,
 
   std::string last_active_url_;
 
-  base::WeakPtrFactory<GLES2Implementation> weak_ptr_factory_;
+  base::WeakPtrFactory<GLES2Implementation> weak_ptr_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(GLES2Implementation);
 };

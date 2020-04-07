@@ -4,7 +4,7 @@
  *
  *   Anti-aliasing renderer interface (body).
  *
- * Copyright 2000-2018 by
+ * Copyright (C) 2000-2019 by
  * David Turner, Robert Wilhelm, and Werner Lemberg.
  *
  * This file is part of the FreeType project, and may only be used,
@@ -243,7 +243,7 @@
       }
 
       if ( lcd_filter_func )
-        lcd_filter_func( bitmap, mode, lcd_weights );
+        lcd_filter_func( bitmap, lcd_weights );
     }
 
 #else /* !FT_CONFIG_OPTION_SUBPIXEL_RENDERING */

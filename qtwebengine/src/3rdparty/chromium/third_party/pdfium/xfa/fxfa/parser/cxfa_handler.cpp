@@ -17,7 +17,7 @@ const CXFA_Node::AttributeData kHandlerAttributeData[] = {
     {XFA_Attribute::Type, XFA_AttributeType::Enum,
      (void*)XFA_AttributeValue::Optional},
     {XFA_Attribute::Usehref, XFA_AttributeType::CData, nullptr},
-    {XFA_Attribute::Unknown, XFA_AttributeType::Integer, nullptr}};
+};
 
 }  // namespace
 
@@ -27,7 +27,7 @@ CXFA_Handler::CXFA_Handler(CXFA_Document* doc, XFA_PacketType packet)
                 (XFA_XDPPACKET_Template | XFA_XDPPACKET_Form),
                 XFA_ObjectType::TextNode,
                 XFA_Element::Handler,
-                nullptr,
+                {},
                 kHandlerAttributeData,
                 pdfium::MakeUnique<CJX_Handler>(this)) {}
 

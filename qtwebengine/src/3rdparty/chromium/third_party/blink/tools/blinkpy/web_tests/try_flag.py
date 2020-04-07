@@ -22,14 +22,14 @@ from blinkpy.web_tests.models.test_expectations import TestExpectationsModel
 
 # TODO(skobes): use blinkpy/config/builders.json instead of hardcoding these.
 BUILDER_CONFIGS = {
-    'linux_chromium_rel_ng': TestConfiguration('Linux', '', 'release'),
-    'mac_chromium_rel_ng': TestConfiguration('Mac', '', 'release'),
-    'win7_chromium_rel_ng': TestConfiguration('Win', '', 'release')
+    'linux-rel': TestConfiguration('Linux', '', 'release'),
+    'mac-rel': TestConfiguration('Mac', '', 'release'),
+    'win7-rel': TestConfiguration('Win', '', 'release')
 }
 BUILDER_BUCKETS = {
-    'linux_chromium_rel_ng': 'luci.chromium.try',
-    'mac_chromium_rel_ng': 'master.tryserver.chromium.mac',
-    'win7_chromium_rel_ng': 'master.tryserver.chromium.win'
+    'linux-rel': 'luci.chromium.try',
+    'mac-rel': 'luci.chromium.try',
+    'win7-rel': 'luci.chromium.try',
 }
 FLAG_FILE = 'additional-driver-flag.setting'
 
@@ -70,7 +70,8 @@ class TryFlag(object):
         result = set()
         path = self._flag_expectations_path()
         for line in self._filesystem.read_text_file(path).split('\n'):
-            expectation_line = TestExpectationLine.tokenize_line(path, line, 0)
+            expectation_line = TestExpectationLine.tokenize_line(
+                path, line, 0, self._host.port_factory.get())
             test_name = expectation_line.name
             if test_name:
                 result.add(test_name)

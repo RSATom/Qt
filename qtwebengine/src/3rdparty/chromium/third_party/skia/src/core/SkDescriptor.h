@@ -10,9 +10,9 @@
 
 #include <memory>
 
-#include "SkMacros.h"
-#include "SkNoncopyable.h"
-#include "SkScalerContext.h"
+#include "include/private/SkMacros.h"
+#include "include/private/SkNoncopyable.h"
+#include "src/core/SkScalerContext.h"
 
 class SkDescriptor : SkNoncopyable {
 public:
@@ -32,6 +32,9 @@ public:
     uint32_t getLength() const { return fLength; }
     void* addEntry(uint32_t tag, size_t length, const void* data = nullptr);
     void computeChecksum();
+
+    // Assumes that getLength <= capacity of this SkDescriptor.
+    bool isValid() const;
 
 #ifdef SK_DEBUG
     void assertChecksum() const {
@@ -62,6 +65,7 @@ public:
 private:
     // private so no one can create one except our factories
     SkDescriptor() = default;
+    friend class SkDescriptorTestHelper;
 
     static uint32_t ComputeChecksum(const SkDescriptor* desc);
 
@@ -70,13 +74,15 @@ private:
     uint32_t fCount;
 };
 
-class SkAutoDescriptor : SkNoncopyable {
+class SkAutoDescriptor {
 public:
     SkAutoDescriptor();
-    SkAutoDescriptor(size_t size);
-    SkAutoDescriptor(const SkDescriptor& desc);
+    explicit SkAutoDescriptor(size_t size);
+    explicit SkAutoDescriptor(const SkDescriptor& desc);
+    SkAutoDescriptor(const SkAutoDescriptor& ad);
+    SkAutoDescriptor& operator= (const SkAutoDescriptor& ad);
     SkAutoDescriptor(SkAutoDescriptor&&) = delete;
-    SkAutoDescriptor& operator =(SkAutoDescriptor&&) = delete;
+    SkAutoDescriptor& operator= (SkAutoDescriptor&&) = delete;
 
     ~SkAutoDescriptor();
 

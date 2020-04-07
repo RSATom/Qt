@@ -266,7 +266,7 @@ void Compositor::viewAnimationDone()
 
 View * Compositor::findView(const QWaylandSurface *s) const
 {
-    Q_FOREACH (View* view, m_views) {
+    for (View* view : m_views) {
         if (view->surface() == s)
             return view;
     }
@@ -545,6 +545,6 @@ void Compositor::raise(View *view)
         int source = endPos + 1 + i;
         int dest = startPos + i;
         for (int j = source; j > dest; j--)
-            m_views.swap(j, j-1);
+            m_views.swapItemsAt(j, j-1);
     }
 }

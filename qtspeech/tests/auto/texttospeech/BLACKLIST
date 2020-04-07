@@ -1,9 +1,15 @@
 [say_hello]
-*
+windows
+osx
+ubuntu
+qemu
+b2qt
+rhel
 [speech_rate]
 *
 [pitch]
-*
+qemu
+b2qt
 [set_voice]
 *
 [volume]

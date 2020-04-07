@@ -29,6 +29,7 @@ class AutofillProfileSyncDifferenceTracker;
 class AutofillTable;
 class AutofillWebDataBackend;
 class AutofillWebDataService;
+enum class AutofillProfileSyncChangeOrigin;
 
 // Sync bridge implementation for AUTOFILL_PROFILE model type. Takes care of
 // propagating local autofill profiles to other clients as well as incorporating

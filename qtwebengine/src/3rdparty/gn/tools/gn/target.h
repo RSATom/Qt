@@ -23,6 +23,7 @@
 #include "tools/gn/metadata.h"
 #include "tools/gn/ordered_set.h"
 #include "tools/gn/output_file.h"
+#include "tools/gn/rust_values.h"
 #include "tools/gn/source_file.h"
 #include "tools/gn/toolchain.h"
 #include "tools/gn/unique_vector.h"
@@ -47,6 +48,7 @@ class Target : public Item {
     BUNDLE_DATA,
     CREATE_BUNDLE,
     GENERATED_FILE,
+    RUST_LIBRARY,
   };
 
   enum DepsIterationType {
@@ -124,6 +126,11 @@ class Target : public Item {
 
   const FileList& sources() const { return sources_; }
   FileList& sources() { return sources_; }
+
+  const SourceFileTypeSet& source_types_used() const {
+    return source_types_used_;
+  }
+  SourceFileTypeSet& source_types_used() { return source_types_used_; }
 
   // Set to true when all sources are public. This is the default. In this case
   // the public headers list should be empty.
@@ -267,6 +274,9 @@ class Target : public Item {
   ActionValues& action_values() { return action_values_; }
   const ActionValues& action_values() const { return action_values_; }
 
+  RustValues& rust_values() { return rust_values_; }
+  const RustValues& rust_values() const { return rust_values_; }
+
   const OrderedSet<SourceDir>& all_lib_dirs() const { return all_lib_dirs_; }
   const OrderedSet<LibFile>& all_libs() const { return all_libs_; }
 
@@ -335,7 +345,7 @@ class Target : public Item {
   // are just passed to the output. The output will always be overwritten, not
   // appended to.
   bool GetOutputFilesForSource(const SourceFile& source,
-                               Toolchain::ToolType* computed_tool_type,
+                               const char** computed_tool_type,
                                std::vector<OutputFile>* outputs) const;
 
  private:
@@ -363,20 +373,21 @@ class Target : public Item {
   void CheckSourcesGenerated() const;
   void CheckSourceGenerated(const SourceFile& source) const;
 
-  OutputType output_type_;
+  OutputType output_type_ = UNKNOWN;
   std::string output_name_;
-  bool output_prefix_override_;
+  bool output_prefix_override_ = false;
   SourceDir output_dir_;
   std::string output_extension_;
-  bool output_extension_set_;
+  bool output_extension_set_ = false;
 
   FileList sources_;
-  bool all_headers_public_;
+  SourceFileTypeSet source_types_used_;
+  bool all_headers_public_ = true;
   FileList public_headers_;
-  bool check_includes_;
-  bool complete_static_lib_;
-  bool testonly_;
-  bool create_pri_file_;
+  bool check_includes_ = true;
+  bool complete_static_lib_ = false;
+  bool testonly_ = false;
+  bool create_pri_file_ = false;
   std::vector<std::string> data_;
   BundleData bundle_data_;
   OutputFile write_runtime_deps_output_;
@@ -416,8 +427,11 @@ class Target : public Item {
   // Used for action[_foreach] targets.
   ActionValues action_values_;
 
+  // Used for Rust targets.
+  RustValues rust_values_;
+
   // Toolchain used by this target. Null until target is resolved.
-  const Toolchain* toolchain_;
+  const Toolchain* toolchain_ = nullptr;
 
   // Output files. Empty until the target is resolved.
   std::vector<OutputFile> computed_outputs_;

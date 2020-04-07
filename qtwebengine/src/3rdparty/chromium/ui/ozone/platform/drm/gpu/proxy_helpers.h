@@ -5,6 +5,8 @@
 #ifndef UI_OZONE_PLATFORM_DRM_GPU_PROXY_HELPERS_H_
 #define UI_OZONE_PLATFORM_DRM_GPU_PROXY_HELPERS_H_
 
+#include <utility>
+
 #include "base/bind.h"
 #include "base/location.h"
 #include "base/memory/ref_counted.h"
@@ -16,14 +18,6 @@ namespace internal {
 
 template <typename... Args>
 void PostAsyncTask(
-    const scoped_refptr<base::SingleThreadTaskRunner>& task_runner,
-    const base::Callback<void(Args...)>& callback,
-    Args... args) {
-  task_runner->PostTask(FROM_HERE, base::BindOnce(callback, args...));
-}
-
-template <typename... Args>
-void PostAsyncTaskOnce(
     const scoped_refptr<base::SingleThreadTaskRunner>& task_runner,
     base::OnceCallback<void(Args...)> callback,
     Args... args) {
@@ -39,14 +33,16 @@ void PostSyncTask(
     const scoped_refptr<base::SingleThreadTaskRunner>& task_runner,
     base::OnceClosure callback);
 
-// Creates a callback that will run |callback| on the calling thread. Useful
-// when posting a task on a different thread and expecting a callback when the
-// task finished (and the callback needs to run on the original thread).
+// Creates a RepeatingCallback that will run |callback| on the calling thread.
+// Useful when posting a task on a different thread and expecting a callback
+// when the task finished (and the callback needs to run on the original
+// thread).
 template <typename... Args>
-base::Callback<void(Args...)> CreateSafeCallback(
-    const base::Callback<void(Args...)>& callback) {
-  return base::Bind(&internal::PostAsyncTask<Args...>,
-                    base::ThreadTaskRunnerHandle::Get(), callback);
+base::RepeatingCallback<void(Args...)> CreateSafeRepeatingCallback(
+    base::RepeatingCallback<void(Args...)> callback) {
+  return base::BindRepeating(&internal::PostAsyncTask<Args...>,
+                             base::ThreadTaskRunnerHandle::Get(),
+                             std::move(callback));
 }
 
 // Creates a OnceCallback that will run |callback| on the calling thread. Useful
@@ -55,7 +51,7 @@ base::Callback<void(Args...)> CreateSafeCallback(
 template <typename... Args>
 base::OnceCallback<void(Args...)> CreateSafeOnceCallback(
     base::OnceCallback<void(Args...)> callback) {
-  return base::BindOnce(&internal::PostAsyncTaskOnce<Args...>,
+  return base::BindOnce(&internal::PostAsyncTask<Args...>,
                         base::ThreadTaskRunnerHandle::Get(),
                         std::move(callback));
 }

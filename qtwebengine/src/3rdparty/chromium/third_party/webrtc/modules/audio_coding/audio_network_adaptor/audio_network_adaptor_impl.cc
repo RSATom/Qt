@@ -11,6 +11,7 @@
 #include "modules/audio_coding/audio_network_adaptor/audio_network_adaptor_impl.h"
 
 #include <stdint.h>
+
 #include <utility>
 #include <vector>
 
@@ -29,7 +30,7 @@ constexpr float kEventLogMinBitrateChangeFraction = 0.25;
 constexpr float kEventLogMinPacketLossChangeFraction = 0.5;
 }  // namespace
 
-AudioNetworkAdaptorImpl::Config::Config() : event_log(nullptr){};
+AudioNetworkAdaptorImpl::Config::Config() : event_log(nullptr) {}
 
 AudioNetworkAdaptorImpl::Config::~Config() = default;
 

@@ -3,6 +3,7 @@
 # found in the LICENSE file.
 
 import("//third_party/closure_compiler/compile_js.gni")
+import("../../../tools/js_modulizer.gni")
 
 group("closure_compile") {
   deps = [
@@ -14,9 +15,7 @@ group("closure_compile") {
 js_type_check("ui_resources") {
   deps = [
     ":array_data_model",
-    ":autocomplete_list",
     ":command",
-    ":context_menu_button",
     ":context_menu_handler",
     ":dialogs",
     ":drag_wrapper",
@@ -26,7 +25,6 @@ js_type_check("ui_resources") {
     ":focus_row",
     ":focus_row_behavior",
     ":focus_without_ink",
-    ":grid",
     ":list",
     ":list_item",
     ":list_selection_controller",
@@ -41,23 +39,19 @@ js_type_check("ui_resources") {
     ":splitter",
     ":store",
     ":store_client",
-    ":table",
+    ":tabs",
     ":tree",
   ]
+
+  if (is_chromeos) {
+    deps += [ ":grid" ]
+  }
 }
 
 js_library("array_data_model") {
   deps = [
     "..:event_target",
     "../..:cr",
-  ]
-}
-
-js_library("autocomplete_list") {
-  deps = [
-    ":list",
-    ":list_single_selection_model",
-    ":position_util",
   ]
 }
 
@@ -73,12 +67,6 @@ js_library("command") {
   deps = [
     "..:ui",
     "../..:cr",
-  ]
-}
-
-js_library("context_menu_button") {
-  deps = [
-    ":menu_button",
   ]
 }
 
@@ -130,6 +118,7 @@ js_library("focus_outline_manager") {
 js_library("focus_row_behavior") {
   deps = [
     ":focus_row",
+    ":focus_without_ink",
   ]
 }
 
@@ -260,13 +249,11 @@ js_library("store_client") {
   ]
 }
 
-js_library("table") {
+js_library("tabs") {
   deps = [
-    ":list",
-    ":list_single_selection_model",
-    "table:table_column_model",
-    "table:table_header",
-    "table:table_list",
+    ":focus_outline_manager",
+    "..:ui",
+    "../..:cr",
   ]
 }
 
@@ -276,4 +263,10 @@ js_library("tree") {
     "../..:cr",
     "../..:util",
   ]
+}
+
+if (!optimize_webui) {
+  js_modulizer("modulize") {
+    input_files = [ "focus_outline_manager.js" ]
+  }
 }

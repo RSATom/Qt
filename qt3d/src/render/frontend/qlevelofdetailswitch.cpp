@@ -41,7 +41,6 @@
 #include "qlevelofdetail_p.h"
 #include "qglobal.h"
 #include <Qt3DCore/QEntity>
-#include <Qt3DCore/qpropertyupdatedchange.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -101,32 +100,9 @@ QLevelOfDetailSwitch::QLevelOfDetailSwitch(QLevelOfDetailPrivate &dd, QNode *par
 {
 }
 
-/*! \internal */
-void QLevelOfDetailSwitch::sceneChangeEvent(const Qt3DCore::QSceneChangePtr &change)
+// TODO Unused remove in Qt6
+void QLevelOfDetailSwitch::sceneChangeEvent(const Qt3DCore::QSceneChangePtr &)
 {
-    Q_D(QLevelOfDetail);
-    Qt3DCore::QPropertyUpdatedChangePtr e = qSharedPointerCast<Qt3DCore::QPropertyUpdatedChange>(change);
-    if (e->type() == Qt3DCore::PropertyUpdated) {
-        if (e->propertyName() == QByteArrayLiteral("currentIndex")) {
-            int ndx = e->value().value<int>();
-            d->m_currentIndex = ndx;
-            emit currentIndexChanged(ndx);
-
-            int entityIndex = 0;
-            const auto entities = this->entities();
-            for (Qt3DCore::QEntity *entity : entities) {
-                const auto childNodes = entity->childNodes();
-                for (Qt3DCore::QNode *childNode : childNodes) {
-                    Qt3DCore::QEntity *childEntity = qobject_cast<Qt3DCore::QEntity *>(childNode);
-                    if (childEntity) {
-                        childEntity->setEnabled(entityIndex == ndx);
-                        entityIndex++;
-                    }
-                }
-                break; // only work on the first entity, LOD should not be shared
-            }
-        }
-    }
 }
 
 } // namespace Qt3DRender

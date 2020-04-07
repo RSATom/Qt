@@ -3,13 +3,13 @@
 <link rel="import" href="chrome://resources/cr_elements/policy/cr_policy_pref_behavior.html">
 <link rel="import" href="chrome://resources/html/assert.html">
 <link rel="import" href="chrome://resources/cr_elements/cr_slider/cr_slider.html">
+<link rel="import" href="../settings_vars_css.html">
 
 <dom-module id="settings-slider">
   <template>
     <style>
       :host {
         display: inline-flex;
-        margin-inline-end: -16px;
       }
 
       cr-policy-pref-indicator {
@@ -19,6 +19,12 @@
 
       #labels[disabled] {
         color: var(--paper-grey-400);
+      }
+
+      @media (prefers-color-scheme: dark) {
+        #labels[disabled] {
+          color: var(--google-grey-refresh-500);
+        }
       }
 
       div.outer {
@@ -45,7 +51,7 @@
       }
 
       #label-end {
-        -webkit-margin-begin: 4px;
+        margin-inline-start: 4px;
       }
     </style>
     <template is="dom-if" if="[[pref.controlledBy]]" restamp>
@@ -54,7 +60,8 @@
     <div class="outer">
       <cr-slider id="slider" disabled$="[[disableSlider_]]" ticks="[[ticks]]"
           on-cr-slider-value-changed="onSliderChanged_" max="[[max]]"
-          min="[[min]]" on-dragging-changed="onSliderChanged_"></cr-slider>
+          min="[[min]]" on-dragging-changed="onSliderChanged_"
+          on-updating-from-key="onSliderChanged_"></cr-slider>
       <div id="labels" disabled$="[[disableSlider_]]">
         <div id="label-begin">[[labelMin]]</div>
         <div id="label-end">[[labelMax]]</div>

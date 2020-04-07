@@ -14,13 +14,13 @@
  * limitations under the License.
  */
 
-#include "perfetto/base/watchdog.h"
+#include "perfetto/ext/base/watchdog.h"
 
-#include "gtest/gtest.h"
+#include <gtest/gtest.h>
 #include "perfetto/base/logging.h"
-#include "perfetto/base/paged_memory.h"
-#include "perfetto/base/scoped_file.h"
-#include "perfetto/base/thread_utils.h"
+#include "perfetto/ext/base/paged_memory.h"
+#include "perfetto/ext/base/scoped_file.h"
+#include "perfetto/ext/base/thread_utils.h"
 
 #include <signal.h>
 #include <time.h>
@@ -116,7 +116,7 @@ int RestoreSIGABRT(const struct sigaction* act) {
   return sigaction(SIGABRT, act, nullptr);
 }
 
-pid_t g_aborted_thread = 0;
+PlatformThreadID g_aborted_thread = 0;
 void SIGABRTHandler(int) {
   g_aborted_thread = GetThreadId();
 }
@@ -138,7 +138,7 @@ TEST(WatchdogTest, TimerCrashDeliveredToCallerThread) {
   std::condition_variable cv;
   bool quit = false;
   g_aborted_thread = 0;
-  pid_t expected_tid = 0;
+  PlatformThreadID expected_tid = 0;
 
   auto thread_fn = [&mutex, &cv, &quit, &expected_tid](size_t thread_num) {
     if (thread_num == kKillThreadNum) {

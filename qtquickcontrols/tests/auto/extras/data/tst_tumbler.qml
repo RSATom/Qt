@@ -58,8 +58,8 @@ import "TestUtils.js" as TestUtils
 
 Item {
     id: container
-    width: 200
-    height: 200
+    width: 400
+    height: 400
 
     TestCase {
         id: testCase
@@ -123,7 +123,7 @@ Item {
             waitForRendering(tumbler);
 
             var pos = Qt.point(columnXCenter(tumbler, 0), tumbler.height / 2);
-            mouseDrag(tumbler, pos.x, pos.y, 0, -tumbler.__style.__delegateHeight / 2, Qt.LeftButton, Qt.NoModifier, 200);
+            mouseDrag(tumbler, pos.x, pos.y, 0, -tumbler.__style.__delegateHeight, Qt.LeftButton, Qt.NoModifier, 200);
             compare(tumbler.currentIndexAt(0), 1);
             compare(column.currentIndex, 1);
         }

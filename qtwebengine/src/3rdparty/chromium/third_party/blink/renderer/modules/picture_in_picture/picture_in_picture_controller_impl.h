@@ -5,12 +5,20 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_MODULES_PICTURE_IN_PICTURE_PICTURE_IN_PICTURE_CONTROLLER_IMPL_H_
 #define THIRD_PARTY_BLINK_RENDERER_MODULES_PICTURE_IN_PICTURE_PICTURE_IN_PICTURE_CONTROLLER_IMPL_H_
 
+#include "base/macros.h"
+#include "mojo/public/cpp/bindings/pending_remote.h"
+#include "mojo/public/cpp/bindings/receiver.h"
+#include "mojo/public/cpp/bindings/remote.h"
+#include "third_party/blink/public/mojom/picture_in_picture/picture_in_picture.mojom-blink.h"
+#include "third_party/blink/renderer/core/dom/document_shutdown_observer.h"
 #include "third_party/blink/renderer/core/frame/picture_in_picture_controller.h"
 #include "third_party/blink/renderer/core/page/page_visibility_observer.h"
+#include "third_party/blink/renderer/modules/modules_export.h"
 
 namespace blink {
 
 class HTMLVideoElement;
+class PictureInPictureOptions;
 class PictureInPictureWindow;
 class TreeScope;
 struct WebSize;
@@ -23,14 +31,16 @@ struct WebSize;
 // PictureInPictureControllerImpl instance is associated to a Document. It is
 // supplement and therefore can be lazy-initiated. Callers should consider
 // whether they want to instantiate an object when they make a call.
-class PictureInPictureControllerImpl : public PictureInPictureController,
-                                       public PageVisibilityObserver {
+class MODULES_EXPORT PictureInPictureControllerImpl
+    : public PictureInPictureController,
+      public PageVisibilityObserver,
+      public DocumentShutdownObserver,
+      public blink::mojom::blink::PictureInPictureSessionObserver {
   USING_GARBAGE_COLLECTED_MIXIN(PictureInPictureControllerImpl);
-  WTF_MAKE_NONCOPYABLE(PictureInPictureControllerImpl);
 
  public:
   explicit PictureInPictureControllerImpl(Document&);
-  ~PictureInPictureControllerImpl() override;
+  ~PictureInPictureControllerImpl() override = default;
 
   // Meant to be called internally by PictureInPictureController::From()
   // through ModulesInitializer.
@@ -48,6 +58,11 @@ class PictureInPictureControllerImpl : public PictureInPictureController,
   // request Picture-in-Picture.
   Status IsDocumentAllowed() const;
 
+  // Returns whether the combination of element and options can be in
+  // Picture-in-Picture.
+  Status VerifyElementAndOptions(const HTMLElement&,
+                                 const PictureInPictureOptions*) const;
+
   // Returns element currently in Picture-in-Picture if any. Null otherwise.
   Element* PictureInPictureElement() const;
   Element* PictureInPictureElement(TreeScope&) const;
@@ -56,29 +71,54 @@ class PictureInPictureControllerImpl : public PictureInPictureController,
   // recently.
   HTMLVideoElement* AutoPictureInPictureElement() const;
 
+  // Returns whether entering Auto Picture-in-Picture is allowed.
+  bool IsEnterAutoPictureInPictureAllowed() const;
+
+  // Returns whether exiting Auto Picture-in-Picture is allowed.
+  bool IsExitAutoPictureInPictureAllowed() const;
+
   // Implementation of PictureInPictureController.
-  void EnterPictureInPicture(HTMLVideoElement*,
+  void EnterPictureInPicture(HTMLElement*,
+                             PictureInPictureOptions*,
                              ScriptPromiseResolver*) override;
   void ExitPictureInPicture(HTMLVideoElement*, ScriptPromiseResolver*) override;
   void AddToAutoPictureInPictureElementsList(HTMLVideoElement*) override;
   void RemoveFromAutoPictureInPictureElementsList(HTMLVideoElement*) override;
-  void SetPictureInPictureCustomControls(
-      HTMLVideoElement*,
-      const std::vector<PictureInPictureControlInfo>&) override;
-  Status IsElementAllowed(const HTMLVideoElement&) const override;
+  Status IsElementAllowed(const HTMLElement&) const override;
   bool IsPictureInPictureElement(const Element*) const override;
+  void OnPictureInPictureStateChange() override;
 
-  // PageVisibilityObserver implementation.
+  // Implementation of PictureInPictureSessionObserver.
+  void OnWindowSizeChanged(const blink::WebSize&) override;
+  void OnStopped() override;
+
+  // Implementation of PageVisibilityObserver.
   void PageVisibilityChanged() override;
+
+  // Implementation of DocumentShutdownObserver.
+  void ContextDestroyed(Document*) override;
 
   void Trace(blink::Visitor*) override;
 
+  bool IsSessionObserverReceiverBoundForTesting() {
+    return session_observer_receiver_.is_bound();
+  }
+
  private:
-  void OnEnteredPictureInPicture(HTMLVideoElement*,
-                                 ScriptPromiseResolver*,
-                                 const WebSize& picture_in_picture_window_size);
+  void OnEnteredPictureInPicture(
+      HTMLVideoElement*,
+      ScriptPromiseResolver*,
+      mojo::PendingRemote<mojom::blink::PictureInPictureSession>,
+      const WebSize&);
   void OnExitedPictureInPicture(ScriptPromiseResolver*) override;
-  void OnPictureInPictureControlClicked(const WebString& control_id) override;
+
+  // Makes sure the `picture_in_picture_service_` is set. Returns whether it was
+  // initialized successfully.
+  bool EnsureService();
+
+  // Returns true if video has an audio track and if MuteButton origin trial is
+  // enabled. Otherwise it returns false.
+  bool ShouldShowMuteButton(const HTMLVideoElement& element);
 
   // The Picture-in-Picture element for the associated document.
   Member<HTMLVideoElement> picture_in_picture_element_;
@@ -89,6 +129,20 @@ class PictureInPictureControllerImpl : public PictureInPictureController,
 
   // The Picture-in-Picture window for the associated document.
   Member<PictureInPictureWindow> picture_in_picture_window_;
+
+  // Mojo bindings for the session observer interface implemented by |this|.
+  mojo::Receiver<mojom::blink::PictureInPictureSessionObserver>
+      session_observer_receiver_;
+
+  // Picture-in-Picture service living in the browser process.
+  mojo::Remote<mojom::blink::PictureInPictureService>
+      picture_in_picture_service_;
+
+  // Instance of the Picture-in-Picture session sent back by the service.
+  mojo::Remote<mojom::blink::PictureInPictureSession>
+      picture_in_picture_session_;
+
+  DISALLOW_COPY_AND_ASSIGN(PictureInPictureControllerImpl);
 };
 
 }  // namespace blink

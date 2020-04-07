@@ -1178,7 +1178,6 @@ static void pack_inter_mode_mvs(AV1_COMP *cpi, const int mi_row,
         }
       }
     }
-
     write_mb_interp_filter(cpi, xd, w);
   }
 }
@@ -1230,13 +1229,14 @@ static void write_mb_modes_kf(AV1_COMP *cpi, MACROBLOCKD *xd,
 }
 
 #if CONFIG_RD_DEBUG
-static void dump_mode_info(MODE_INFO *mi) {
+static void dump_mode_info(MB_MODE_INFO *mi) {
   printf("\nmi->mi_row == %d\n", mi->mi_row);
   printf("&& mi->mi_col == %d\n", mi->mi_col);
   printf("&& mi->sb_type == %d\n", mi->sb_type);
   printf("&& mi->tx_size == %d\n", mi->tx_size);
   printf("&& mi->mode == %d\n", mi->mode);
 }
+
 static int rd_token_stats_mismatch(RD_STATS *rd_stats, TOKEN_STATS *token_stats,
                                    int plane) {
   if (rd_stats->txb_coeff_cost[plane] != token_stats->cost) {
@@ -1470,14 +1470,16 @@ static void write_tokens_b(AV1_COMP *cpi, const TileInfo *const tile,
                                   row, col, &block[plane], plane);
           }
         }
+      }
 #if CONFIG_RD_DEBUG
+      for (plane = 0; plane < num_planes && is_inter_block(mbmi); ++plane) {
         if (mbmi->sb_type >= BLOCK_8X8 &&
             rd_token_stats_mismatch(&mbmi->rd_stats, &token_stats, plane)) {
-          dump_mode_info(m);
+          dump_mode_info(mbmi);
           assert(0);
         }
-#endif  // CONFIG_RD_DEBUG
       }
+#endif  // CONFIG_RD_DEBUG
     }
   }
 }
@@ -2068,29 +2070,6 @@ static void write_frame_interp_filter(InterpFilter filter,
   aom_wb_write_bit(wb, filter == SWITCHABLE);
   if (filter != SWITCHABLE)
     aom_wb_write_literal(wb, filter, LOG_SWITCHABLE_FILTERS);
-}
-
-static void fix_interp_filter(AV1_COMMON *cm, FRAME_COUNTS *counts) {
-  if (cm->interp_filter == SWITCHABLE) {
-    // Check to see if only one of the filters is actually used
-    int count[SWITCHABLE_FILTERS];
-    int i, j, c = 0;
-    for (i = 0; i < SWITCHABLE_FILTERS; ++i) {
-      count[i] = 0;
-      for (j = 0; j < SWITCHABLE_FILTER_CONTEXTS; ++j)
-        count[i] += counts->switchable_interp[j][i];
-      c += (count[i] > 0);
-    }
-    if (c == 1) {
-      // Only one filter is used. So set the filter at frame level
-      for (i = 0; i < SWITCHABLE_FILTERS; ++i) {
-        if (count[i]) {
-          if (i == EIGHTTAP_REGULAR) cm->interp_filter = i;
-          break;
-        }
-      }
-    }
-  }
 }
 
 // Same function as write_uniform but writing to uncompresses header wb
@@ -3038,7 +3017,6 @@ static void write_uncompressed_header_obu(AV1_COMP *cpi,
 
       if (!cm->cur_frame_force_integer_mv)
         aom_wb_write_bit(wb, cm->allow_high_precision_mv);
-      fix_interp_filter(cm, cpi->td.counts);
       write_frame_interp_filter(cm->interp_filter, wb);
       aom_wb_write_bit(wb, cm->switchable_motion_mode);
       if (frame_might_allow_ref_frame_mvs(cm)) {
@@ -3425,7 +3403,8 @@ typedef struct {
 static uint32_t write_tiles_in_tg_obus(AV1_COMP *const cpi, uint8_t *const dst,
                                        struct aom_write_bit_buffer *saved_wb,
                                        uint8_t obu_extension_header,
-                                       const FrameHeaderInfo *fh_info) {
+                                       const FrameHeaderInfo *fh_info,
+                                       int *const largest_tile_id) {
   AV1_COMMON *const cm = &cpi->common;
   aom_writer mode_bc;
   int tile_row, tile_col;
@@ -3451,7 +3430,7 @@ static uint32_t write_tiles_in_tg_obus(AV1_COMP *const cpi, uint8_t *const dst,
   const int have_tiles = tile_cols * tile_rows > 1;
   int first_tg = 1;
 
-  cpi->largest_tile_id = 0;
+  *largest_tile_id = 0;
 
   if (cm->large_scale_tile) {
     // For large_scale_tile case, we always have only one tile group, so it can
@@ -3504,8 +3483,6 @@ static uint32_t write_tiles_in_tg_obus(AV1_COMP *const cpi, uint8_t *const dst,
         // Is CONFIG_EXT_TILE = 1, every tile in the row has a header,
         // even for the last one, unless no tiling is used at all.
         total_size += data_offset;
-        // Initialise tile context from the frame context
-        this_tile->tctx = *cm->fc;
         cpi->td.mb.e_mbd.tile_ctx = &this_tile->tctx;
         mode_bc.allow_update_cdf = !cm->large_scale_tile;
         mode_bc.allow_update_cdf =
@@ -3519,7 +3496,7 @@ static uint32_t write_tiles_in_tg_obus(AV1_COMP *const cpi, uint8_t *const dst,
         // Record the maximum tile size we see, so we can compact headers later.
         if (tile_size > max_tile_size) {
           max_tile_size = tile_size;
-          cpi->largest_tile_id = tile_cols * tile_row + tile_col;
+          *largest_tile_id = tile_cols * tile_row + tile_col;
         }
 
         if (have_tiles) {
@@ -3645,8 +3622,6 @@ static uint32_t write_tiles_in_tg_obus(AV1_COMP *const cpi, uint8_t *const dst,
       // The last tile of the tile group does not have a header.
       if (!is_last_tile_in_tg) total_size += 4;
 
-      // Initialise tile context from the frame context
-      this_tile->tctx = *cm->fc;
       cpi->td.mb.e_mbd.tile_ctx = &this_tile->tctx;
       mode_bc.allow_update_cdf = 1;
       mode_bc.allow_update_cdf =
@@ -3663,7 +3638,7 @@ static uint32_t write_tiles_in_tg_obus(AV1_COMP *const cpi, uint8_t *const dst,
       curr_tg_data_size += (tile_size + (is_last_tile_in_tg ? 0 : 4));
       buf->size = tile_size;
       if (tile_size > max_tile_size) {
-        cpi->largest_tile_id = tile_cols * tile_row + tile_col;
+        *largest_tile_id = tile_cols * tile_row + tile_col;
         max_tile_size = tile_size;
       }
 
@@ -3698,7 +3673,7 @@ static uint32_t write_tiles_in_tg_obus(AV1_COMP *const cpi, uint8_t *const dst,
           // Force context update tile to be the first tile in error
           // resiliant mode as the duplicate frame headers will have
           // context_update_tile_id set to 0
-          cpi->largest_tile_id = 0;
+          *largest_tile_id = 0;
 
           // Rewrite the OBU header to change the OBU type to Redundant Frame
           // Header.
@@ -3721,7 +3696,7 @@ static uint32_t write_tiles_in_tg_obus(AV1_COMP *const cpi, uint8_t *const dst,
     // Fill in context_update_tile_id indicating the tile to use for the
     // cdf update. The encoder currently sets it to the largest tile
     // (but is up to the encoder)
-    aom_wb_overwrite_literal(saved_wb, cpi->largest_tile_id,
+    aom_wb_overwrite_literal(saved_wb, *largest_tile_id,
                              cm->log2_tile_cols + cm->log2_tile_rows);
     // If more than one tile group. tile_size_bytes takes the default value 4
     // and does not need to be set. For a single tile group it is set in the
@@ -3767,7 +3742,8 @@ static uint32_t write_tiles_in_tg_obus(AV1_COMP *const cpi, uint8_t *const dst,
   return total_size;
 }
 
-int av1_pack_bitstream(AV1_COMP *const cpi, uint8_t *dst, size_t *size) {
+int av1_pack_bitstream(AV1_COMP *const cpi, uint8_t *dst, size_t *size,
+                       int *const largest_tile_id) {
   uint8_t *data = dst;
   uint32_t data_size;
   AV1_COMMON *const cm = &cpi->common;
@@ -3831,8 +3807,8 @@ int av1_pack_bitstream(AV1_COMP *const cpi, uint8_t *dst, size_t *size) {
   } else {
     //  Each tile group obu will be preceded by 4-byte size of the tile group
     //  obu
-    data_size = write_tiles_in_tg_obus(cpi, data, &saved_wb,
-                                       obu_extension_header, &fh_info);
+    data_size = write_tiles_in_tg_obus(
+        cpi, data, &saved_wb, obu_extension_header, &fh_info, largest_tile_id);
   }
   data += data_size;
   *size = data - dst;

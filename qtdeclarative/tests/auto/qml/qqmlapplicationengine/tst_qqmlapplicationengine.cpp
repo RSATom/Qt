@@ -30,6 +30,7 @@
 #include <QQmlApplicationEngine>
 #include <QScopedPointer>
 #include <QSignalSpy>
+#include <QRegularExpression>
 #if QT_CONFIG(process)
 #include <QProcess>
 #endif
@@ -52,6 +53,8 @@ private slots:
     void removeObjectsWhenDestroyed();
     void loadTranslation_data();
     void loadTranslation();
+    void setInitialProperties();
+    void failureToLoadTriggersWarningSignal();
 
 private:
     QString buildDir;
@@ -96,6 +99,9 @@ void tst_qqmlapplicationengine::basicLoading()
 // will break.
 void tst_qqmlapplicationengine::testNonResolvedPath()
 {
+#ifdef Q_OS_ANDROID
+    QSKIP("Android stores QML files in resources, and the path to a resource cannot be relative in this case");
+#endif
     {
         // NOTE NOTE NOTE! Missing testFileUrl is *WANTED* here! We want a
         // non-resolved URL.
@@ -117,6 +123,9 @@ void tst_qqmlapplicationengine::testNonResolvedPath()
 
 void tst_qqmlapplicationengine::application_data()
 {
+#ifdef Q_OS_ANDROID
+    QSKIP("Cannot launch external process on Android");
+#endif
     QTest::addColumn<QByteArray>("qmlFile");
     QTest::addColumn<QByteArray>("expectedStdErr");
 
@@ -267,6 +276,38 @@ void tst_qqmlapplicationengine::loadTranslation()
     QVERIFY(rootObject);
 
     QCOMPARE(rootObject->property("translation").toString(), translation);
+}
+
+void tst_qqmlapplicationengine::setInitialProperties()
+{
+    QQmlApplicationEngine test {};
+    {
+        test.setInitialProperties(QVariantMap{{"success", false}});
+        test.load(testFileUrl("basicTest.qml"));
+        QVERIFY(!test.rootObjects().empty());
+        QCOMPARE(test.rootObjects().first()->property("success").toBool(), false);
+    }
+    {
+        test.setInitialProperties({{"success", true}});
+        test.load(testFileUrl("basicTest.qml"));
+        QCOMPARE(test.rootObjects().size(), 2);
+        QCOMPARE(test.rootObjects().at(1)->property("success").toBool(), true);
+    }
+}
+
+Q_DECLARE_METATYPE(QList<QQmlError>) // for signalspy below
+
+void tst_qqmlapplicationengine::failureToLoadTriggersWarningSignal()
+{
+    auto url = testFileUrl("invalid.qml");
+    qRegisterMetaType<QList<QQmlError>>();
+    QTest::ignoreMessage(QtMsgType::QtWarningMsg, "QQmlApplicationEngine failed to load component");
+    QTest::ignoreMessage(QtMsgType::QtWarningMsg,
+                         QRegularExpression(QRegularExpression::escape(url.toString()) + QLatin1Char('*')));
+    QQmlApplicationEngine test;
+    QSignalSpy warningObserver(&test, &QQmlApplicationEngine::warnings);
+    test.load(url);
+    QTRY_COMPARE(warningObserver.count(), 1);
 }
 
 QTEST_MAIN(tst_qqmlapplicationengine)

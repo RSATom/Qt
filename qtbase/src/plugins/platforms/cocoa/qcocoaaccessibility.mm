@@ -133,7 +133,7 @@ static void populateRoleMap()
     roleMap[QAccessible::SpinBox] = NSAccessibilityIncrementorRole;
     roleMap[QAccessible::Slider] = NSAccessibilitySliderRole;
     roleMap[QAccessible::ProgressBar] = NSAccessibilityProgressIndicatorRole;
-    roleMap[QAccessible::ComboBox] = NSAccessibilityPopUpButtonRole;
+    roleMap[QAccessible::ComboBox] = NSAccessibilityComboBoxRole;
     roleMap[QAccessible::RadioButton] = NSAccessibilityRadioButtonRole;
     roleMap[QAccessible::CheckBox] = NSAccessibilityCheckBoxRole;
     roleMap[QAccessible::StaticText] = NSAccessibilityStaticTextRole;
@@ -177,7 +177,7 @@ NSString *macRole(QAccessibleInterface *interface)
     if (roleMap.isEmpty())
         populateRoleMap();
 
-    // MAC_ACCESSIBILTY_DEBUG() << "role for" << interface.object() << "interface role" << hex << qtRole;
+    // MAC_ACCESSIBILTY_DEBUG() << "role for" << interface.object() << "interface role" << Qt::hex << qtRole;
 
     if (roleMap.contains(qtRole)) {
        // MAC_ACCESSIBILTY_DEBUG() << "return" <<  roleMap[qtRole];

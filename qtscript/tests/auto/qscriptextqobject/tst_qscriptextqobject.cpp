@@ -271,7 +271,7 @@ public:
     Q_INVOKABLE QObject *myInvokableReturningQObjectStar()
         { m_qtFunctionInvoked = 13; return this; }
     Q_INVOKABLE QObjectList myInvokableWithQObjectListArg(const QObjectList &lst)
-        { m_qtFunctionInvoked = 14; m_actuals << qVariantFromValue(lst); return lst; }
+        { m_qtFunctionInvoked = 14; m_actuals << QVariant::fromValue(lst); return lst; }
     Q_INVOKABLE QVariant myInvokableWithVariantArg(const QVariant &v)
         { m_qtFunctionInvoked = 15; m_actuals << v; return v; }
     Q_INVOKABLE QVariantMap myInvokableWithVariantMapArg(const QVariantMap &vm)
@@ -279,37 +279,37 @@ public:
     Q_INVOKABLE QVariantList myInvokableWithVariantListArg(const QVariantList &lst)
         { m_qtFunctionInvoked = 62; m_actuals.append(QVariant(lst)); return lst; }
     Q_INVOKABLE QList<int> myInvokableWithListOfIntArg(const QList<int> &lst)
-        { m_qtFunctionInvoked = 17; m_actuals << qVariantFromValue(lst); return lst; }
+        { m_qtFunctionInvoked = 17; m_actuals << QVariant::fromValue(lst); return lst; }
     Q_INVOKABLE QObject* myInvokableWithQObjectStarArg(QObject *obj)
-        { m_qtFunctionInvoked = 18; m_actuals << qVariantFromValue(obj); return obj; }
+        { m_qtFunctionInvoked = 18; m_actuals << QVariant::fromValue(obj); return obj; }
     Q_INVOKABLE QBrush myInvokableWithQBrushArg(const QBrush &brush)
-        { m_qtFunctionInvoked = 19; m_actuals << qVariantFromValue(brush); return brush; }
+        { m_qtFunctionInvoked = 19; m_actuals << QVariant::fromValue(brush); return brush; }
     Q_INVOKABLE void myInvokableWithBrushStyleArg(Qt::BrushStyle style)
-        { m_qtFunctionInvoked = 43; m_actuals << qVariantFromValue(style); }
+        { m_qtFunctionInvoked = 43; m_actuals << QVariant::fromValue(style); }
     Q_INVOKABLE void myInvokableWithVoidStarArg(void *arg)
-        { m_qtFunctionInvoked = 44; m_actuals << qVariantFromValue(arg); }
+        { m_qtFunctionInvoked = 44; m_actuals << QVariant::fromValue(arg); }
     Q_INVOKABLE void myInvokableWithAmbiguousArg(int arg)
-        { m_qtFunctionInvoked = 45; m_actuals << qVariantFromValue(arg); }
+        { m_qtFunctionInvoked = 45; m_actuals << QVariant::fromValue(arg); }
     Q_INVOKABLE void myInvokableWithAmbiguousArg(uint arg)
-        { m_qtFunctionInvoked = 46; m_actuals << qVariantFromValue(arg); }
+        { m_qtFunctionInvoked = 46; m_actuals << QVariant::fromValue(arg); }
     Q_INVOKABLE void myInvokableWithDefaultArgs(int arg1, const QString &arg2 = "")
-        { m_qtFunctionInvoked = 47; m_actuals << qVariantFromValue(arg1) << qVariantFromValue(arg2); }
+        { m_qtFunctionInvoked = 47; m_actuals << QVariant::fromValue(arg1) << QVariant::fromValue(arg2); }
     Q_INVOKABLE QObject& myInvokableReturningRef()
         { m_qtFunctionInvoked = 48; return *this; }
     Q_INVOKABLE const QObject& myInvokableReturningConstRef() const
         { const_cast<MyQObject*>(this)->m_qtFunctionInvoked = 49; return *this; }
     Q_INVOKABLE void myInvokableWithPointArg(const QPoint &arg)
-        { const_cast<MyQObject*>(this)->m_qtFunctionInvoked = 50; m_actuals << qVariantFromValue(arg); }
+        { const_cast<MyQObject*>(this)->m_qtFunctionInvoked = 50; m_actuals << QVariant::fromValue(arg); }
     Q_INVOKABLE void myInvokableWithPointArg(const QPointF &arg)
-        { const_cast<MyQObject*>(this)->m_qtFunctionInvoked = 51; m_actuals << qVariantFromValue(arg); }
+        { const_cast<MyQObject*>(this)->m_qtFunctionInvoked = 51; m_actuals << QVariant::fromValue(arg); }
     Q_INVOKABLE void myInvokableWithMyQObjectArg(MyQObject *arg)
-        { m_qtFunctionInvoked = 52; m_actuals << qVariantFromValue((QObject*)arg); }
+        { m_qtFunctionInvoked = 52; m_actuals << QVariant::fromValue((QObject*)arg); }
     Q_INVOKABLE MyQObject* myInvokableReturningMyQObject()
         { m_qtFunctionInvoked = 53; return this; }
     Q_INVOKABLE void myInvokableWithConstMyQObjectArg(const MyQObject *arg)
-        { m_qtFunctionInvoked = 54; m_actuals << qVariantFromValue((QObject*)arg); }
+        { m_qtFunctionInvoked = 54; m_actuals << QVariant::fromValue((QObject*)arg); }
     Q_INVOKABLE void myInvokableWithQDirArg(const QDir &arg)
-        { m_qtFunctionInvoked = 55; m_actuals << qVariantFromValue(arg); }
+        { m_qtFunctionInvoked = 55; m_actuals << QVariant::fromValue(arg); }
     Q_INVOKABLE QScriptValue myInvokableWithScriptValueArg(const QScriptValue &arg)
         { m_qtFunctionInvoked = 56; return arg; }
     Q_INVOKABLE QObject* myInvokableReturningMyQObjectAsQObject()
@@ -319,21 +319,21 @@ public:
     Q_INVOKABLE MyQObject::Ability myInvokableWithQualifiedFlagsArg(MyQObject::Ability arg)
         { m_qtFunctionInvoked = 59; m_actuals << int(arg); return arg; }
     Q_INVOKABLE QWidget *myInvokableWithQWidgetStarArg(QWidget *arg)
-        { m_qtFunctionInvoked = 63; m_actuals << qVariantFromValue((QWidget*)arg); return arg; }
+        { m_qtFunctionInvoked = 63; m_actuals << QVariant::fromValue((QWidget*)arg); return arg; }
     Q_INVOKABLE short myInvokableWithShortArg(short arg)
-        { m_qtFunctionInvoked = 64; m_actuals << qVariantFromValue(arg); return arg; }
+        { m_qtFunctionInvoked = 64; m_actuals << QVariant::fromValue(arg); return arg; }
     Q_INVOKABLE unsigned short myInvokableWithUShortArg(unsigned short arg)
-        { m_qtFunctionInvoked = 65; m_actuals << qVariantFromValue(arg); return arg; }
+        { m_qtFunctionInvoked = 65; m_actuals << QVariant::fromValue(arg); return arg; }
     Q_INVOKABLE char myInvokableWithCharArg(char arg)
-        { m_qtFunctionInvoked = 66; m_actuals << qVariantFromValue(arg); return arg; }
+        { m_qtFunctionInvoked = 66; m_actuals << QVariant::fromValue(arg); return arg; }
     Q_INVOKABLE unsigned char myInvokableWithUCharArg(unsigned char arg)
-        { m_qtFunctionInvoked = 67; m_actuals << qVariantFromValue(arg); return arg; }
+        { m_qtFunctionInvoked = 67; m_actuals << QVariant::fromValue(arg); return arg; }
     Q_INVOKABLE qulonglong myInvokableWithULonglongArg(qulonglong arg)
-        { m_qtFunctionInvoked = 68; m_actuals << qVariantFromValue(arg); return arg; }
+        { m_qtFunctionInvoked = 68; m_actuals << QVariant::fromValue(arg); return arg; }
     Q_INVOKABLE long myInvokableWithLongArg(long arg)
-        { m_qtFunctionInvoked = 69; m_actuals << qVariantFromValue(arg); return arg; }
+        { m_qtFunctionInvoked = 69; m_actuals << QVariant::fromValue(arg); return arg; }
     Q_INVOKABLE unsigned long myInvokableWithULongArg(unsigned long arg)
-        { m_qtFunctionInvoked = 70; m_actuals << qVariantFromValue(arg); return arg; }
+        { m_qtFunctionInvoked = 70; m_actuals << QVariant::fromValue(arg); return arg; }
 
     Q_INVOKABLE QObjectList findObjects() const
     {  return findChildren<QObject *>();  }
@@ -378,7 +378,7 @@ public Q_SLOTS:
     void myOverloadedSlot()
         { m_qtFunctionInvoked = 24; }
     void myOverloadedSlot(QObject *arg)
-        { m_qtFunctionInvoked = 41; m_actuals << qVariantFromValue(arg); }
+        { m_qtFunctionInvoked = 41; m_actuals << QVariant::fromValue(arg); }
     void myOverloadedSlot(bool arg)
         { m_qtFunctionInvoked = 25; m_actuals << arg; }
     void myOverloadedSlot(const QStringList &arg)
@@ -723,7 +723,7 @@ void tst_QScriptExtQObject::getSetStaticProperty_changeInCpp()
     m_myObject->setVariantProperty(42);
     QCOMPARE(m_engine->evaluate("myObject.variantProperty")
              .toVariant(), QVariant(42));
-    m_myObject->setVariantProperty(qVariantFromValue(QBrush()));
+    m_myObject->setVariantProperty(QVariant::fromValue(QBrush()));
     QVERIFY(m_engine->evaluate("myObject.variantProperty").isVariant());
 
     m_myObject->setStringProperty(QLatin1String("baz"));
@@ -837,7 +837,7 @@ void tst_QScriptExtQObject::getSetStaticProperty_compatibleVariantTypes()
         QScriptValue mobj = m_engine->globalObject().property("myObject");
 
         QVERIFY(m_myObject->propWithCustomType().string.isEmpty());
-        mobj.setProperty("propWithCustomType", m_engine->newVariant(qVariantFromValue(t)));
+        mobj.setProperty("propWithCustomType", m_engine->newVariant(QVariant::fromValue(t)));
         QVERIFY(m_myObject->propWithCustomType().string == t.string);
     }
 }
@@ -965,7 +965,7 @@ void tst_QScriptExtQObject::getSetStaticProperty_pointerDeref()
     {
         QBrush b = QColor(0xCA, 0xFE, 0xBA, 0xBE);
         QBrush *bp = &b;
-        QScriptValue bpValue = m_engine->newVariant(qVariantFromValue(bp));
+        QScriptValue bpValue = m_engine->newVariant(QVariant::fromValue(bp));
         m_engine->globalObject().setProperty("brushPointer", bpValue);
         {
             QScriptValue ret = m_engine->evaluate("myObject.setBrushProperty(brushPointer)");
@@ -1413,7 +1413,7 @@ void tst_QScriptExtQObject::callQtInvokable3()
 
     m_myObject->resetQtFunctionInvoked();
     {
-        m_myObject->setVariantProperty(qVariantFromValue(QBrush()));
+        m_myObject->setVariantProperty(QVariant::fromValue(QBrush()));
         QScriptValue ret = m_engine->evaluate("myObject.myInvokableWithVariantArg(myObject.variantProperty)");
         QVERIFY(ret.isVariant());
         QCOMPARE(m_myObject->qtFunctionInvoked(), 15);

@@ -106,7 +106,7 @@ static inline QMutexData *dummyFutexValue()
 }
 
 template <bool IsTimed> static inline
-bool lockInternal_helper(QBasicAtomicPointer<QMutexData> &d_ptr, int timeout = -1, QElapsedTimer *elapsedTimer = 0) Q_DECL_NOTHROW
+bool lockInternal_helper(QBasicAtomicPointer<QMutexData> &d_ptr, int timeout = -1, QElapsedTimer *elapsedTimer = 0) noexcept
 {
     if (!IsTimed)
         timeout = -1;
@@ -149,17 +149,17 @@ bool lockInternal_helper(QBasicAtomicPointer<QMutexData> &d_ptr, int timeout = -
         }
     }
 
-    Q_ASSERT(d_ptr.load());
+    Q_ASSERT(d_ptr.loadRelaxed());
     return true;
 }
 
-void QBasicMutex::lockInternal() Q_DECL_NOTHROW
+void QBasicMutex::lockInternal() noexcept
 {
     Q_ASSERT(!isRecursive());
     lockInternal_helper<false>(d_ptr);
 }
 
-bool QBasicMutex::lockInternal(int timeout) Q_DECL_NOTHROW
+bool QBasicMutex::lockInternal(int timeout) noexcept
 {
     Q_ASSERT(!isRecursive());
     QElapsedTimer elapsedTimer;
@@ -167,9 +167,9 @@ bool QBasicMutex::lockInternal(int timeout) Q_DECL_NOTHROW
     return lockInternal_helper<true>(d_ptr, timeout, &elapsedTimer);
 }
 
-void QBasicMutex::unlockInternal() Q_DECL_NOTHROW
+void QBasicMutex::unlockInternal() noexcept
 {
-    QMutexData *d = d_ptr.load();
+    QMutexData *d = d_ptr.loadRelaxed();
     Q_ASSERT(d); //we must be locked
     Q_ASSERT(d != dummyLocked()); // testAndSetRelease(dummyLocked(), 0) failed
     Q_UNUSED(d);

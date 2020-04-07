@@ -23,6 +23,7 @@ qimagereader \
 qlayout \
 qlocale \
 qmimedatabase \
+qnetconmonitor \
 qnetworkaccessmanager/qget \
 qnetworkconfigurationmanager \
 qnetworkconfiguration \
@@ -34,6 +35,7 @@ qsslsocket \
 qsysinfo \
 qtabletevent \
 qtexteditlist \
+qtexttableborders \
 qtbug-8933 \
 qtbug-52641 \
 qtouchevent \
@@ -53,7 +55,8 @@ shortcuts \
 dialogs \
 windowtransparency \
 unc \
-qtabbar
+qtabbar \
+rhi
 
 !qtConfig(openssl): SUBDIRS -= qssloptions
 

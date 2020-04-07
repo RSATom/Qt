@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2019 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtWidgets module of the Qt Toolkit.
@@ -1254,6 +1254,7 @@ bool QTreeWidgetItem::isFirstColumnSpanned() const
     \sa font(), setText(), setForeground()
 */
 
+#if QT_DEPRECATED_SINCE(5, 13)
 /*!
     \fn QColor QTreeWidgetItem::backgroundColor(int column) const
     \obsolete
@@ -1267,6 +1268,7 @@ bool QTreeWidgetItem::isFirstColumnSpanned() const
 
     This function is deprecated. Use setBackground() instead.
 */
+#endif
 
 /*!
     \fn QBrush QTreeWidgetItem::background(int column) const
@@ -1284,9 +1286,13 @@ bool QTreeWidgetItem::isFirstColumnSpanned() const
     Sets the background brush of the label in the given \a column to the
     specified \a brush.
 
+    \note If \l{Qt Style Sheets} are used on the same widget as setBackground(),
+    style sheets will take precedence if the settings conflict.
+
     \sa setForeground()
 */
 
+#if QT_DEPRECATED_SINCE(5, 13)
 /*!
     \fn QColor QTreeWidgetItem::textColor(int column) const
     \obsolete
@@ -1300,6 +1306,7 @@ bool QTreeWidgetItem::isFirstColumnSpanned() const
 
     This function is deprecated. Use setForeground() instead.
 */
+#endif
 
 /*!
     \fn QBrush QTreeWidgetItem::foreground(int column) const

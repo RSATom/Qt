@@ -22,7 +22,7 @@ content::WebContents* GetWebContentsByFrameID(int render_process_id,
   return content::WebContents::FromRenderFrameHost(render_frame_host);
 }
 
-};  // namespace
+}  // namespace
 
 UnsafeResource::UnsafeResource()
     : is_subresource(false),
@@ -45,6 +45,9 @@ bool UnsafeResource::IsMainPageLoadBlocked() const {
     // frame load, since they happen after the page is finished loading.
     case safe_browsing::SB_THREAT_TYPE_URL_CLIENT_SIDE_PHISHING:
     case safe_browsing::SB_THREAT_TYPE_URL_CLIENT_SIDE_MALWARE:
+    // Malicious ad activity reporting happens in the background.
+    case safe_browsing::SB_THREAT_TYPE_BLOCKED_AD_POPUP:
+    case safe_browsing::SB_THREAT_TYPE_BLOCKED_AD_REDIRECT:
     // Ad sampling happens in the background.
     case safe_browsing::SB_THREAT_TYPE_AD_SAMPLE:
     // Sign-in password reuse warning happens after the page is finished

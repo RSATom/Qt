@@ -5,9 +5,9 @@
  * found in the LICENSE file.
  */
 
-#include "SkRectPriv.h"
-#include "SkSGNode.h"
-#include "SkSGInvalidationController.h"
+#include "modules/sksg/include/SkSGInvalidationController.h"
+#include "modules/sksg/include/SkSGNode.h"
+#include "src/core/SkRectPriv.h"
 
 #include <algorithm>
 
@@ -44,7 +44,8 @@ Node::Node(uint32_t invalTraits)
     : fInvalObserver(nullptr)
     , fBounds(SkRectPriv::MakeLargeS32())
     , fInvalTraits(invalTraits)
-    , fFlags(kInvalidated_Flag) {}
+    , fFlags(kInvalidated_Flag)
+    , fNodeFlags(0) {}
 
 Node::~Node() {
     if (fFlags & kObserverArray_Flag) {
@@ -135,16 +136,20 @@ const SkRect& Node::revalidate(InvalidationController* ic, const SkMatrix& ctm) 
         return fBounds;
     }
 
-    SkRect prevBounds;
-    if (fFlags & kDamage_Flag) {
-        prevBounds = fBounds;
-    }
+    const auto generate_damage =
+            ic && ((fFlags & kDamage_Flag) || (fInvalTraits & kOverrideDamage_Trait));
+    if (!generate_damage) {
+        // Trivial transitive revalidation.
+        fBounds = this->onRevalidate(ic, ctm);
+    } else {
+        // Revalidate and emit damage for old-bounds, new-bounds.
+        const auto prev_bounds = fBounds;
 
-    fBounds = this->onRevalidate(ic, ctm);
+        auto* ic_override = (fInvalTraits & kOverrideDamage_Trait) ? nullptr : ic;
+        fBounds = this->onRevalidate(ic_override, ctm);
 
-    if (fFlags & kDamage_Flag) {
-        ic->inval(prevBounds, ctm);
-        if (fBounds != prevBounds) {
+        ic->inval(prev_bounds, ctm);
+        if (fBounds != prev_bounds) {
             ic->inval(fBounds, ctm);
         }
     }

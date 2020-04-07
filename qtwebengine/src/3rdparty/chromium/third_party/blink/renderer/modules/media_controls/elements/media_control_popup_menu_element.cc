@@ -21,24 +21,6 @@
 
 namespace blink {
 
-namespace {
-
-// Focus the given item in the list if it is displayed. Returns whether it was
-// focused.
-bool FocusListItemIfDisplayed(Node* node) {
-  Element* element = ToElement(node);
-
-  if (!element->InlineStyle() ||
-      !element->InlineStyle()->HasProperty(CSSPropertyDisplay)) {
-    element->focus();
-    return true;
-  }
-
-  return false;
-}
-
-}  // anonymous namespace
-
 class MediaControlPopupMenuElement::EventListener final
     : public NativeEventListener {
  public:
@@ -101,7 +83,7 @@ class MediaControlPopupMenuElement::EventListener final
           break;
         case VKEY_RETURN:
         case VKEY_SPACE:
-          ToElement(event->target()->ToNode())->DispatchSimulatedClick(event);
+          To<Element>(event->target()->ToNode())->DispatchSimulatedClick(event);
           break;
         default:
           handled = false;
@@ -146,26 +128,34 @@ void MediaControlPopupMenuElement::OnItemSelected() {
 void MediaControlPopupMenuElement::DefaultEventHandler(Event& event) {
   if (event.type() == event_type_names::kPointermove &&
       event.target() != this) {
-    ToElement(event.target()->ToNode())->focus();
+    To<Element>(event.target()->ToNode())->focus();
+    last_focused_element_ = To<Element>(event.target()->ToNode());
   } else if (event.type() == event_type_names::kFocusout) {
     GetDocument()
         .GetTaskRunner(TaskType::kMediaElementEvent)
         ->PostTask(FROM_HERE,
                    WTF::Bind(&MediaControlPopupMenuElement::HideIfNotFocused,
                              WrapWeakPersistent(this)));
-  } else if (event.type() == event_type_names::kClick) {
+  } else if (event.type() == event_type_names::kClick &&
+             event.target() != this) {
+    // Since event.target() != this, we know that one of our children was
+    // clicked.
     OnItemSelected();
 
     event.stopPropagation();
     event.SetDefaultHandled();
+  } else if (event.type() == event_type_names::kFocus) {
+    // When popup menu gain focus from scrolling, switch focus
+    // back to the last focused item in the menu
+    DCHECK(last_focused_element_);
+    last_focused_element_->focus();
   }
 
   MediaControlDivElement::DefaultEventHandler(event);
 }
 
 bool MediaControlPopupMenuElement::KeepEventInNode(const Event& event) const {
-  return MediaControlsImpl::IsModern() &&
-         MediaControlElementsHelper::IsUserInteractionEvent(event);
+  return MediaControlElementsHelper::IsUserInteractionEvent(event);
 }
 
 void MediaControlPopupMenuElement::RemovedFrom(ContainerNode& container) {
@@ -179,12 +169,12 @@ void MediaControlPopupMenuElement::RemovedFrom(ContainerNode& container) {
 void MediaControlPopupMenuElement::Trace(blink::Visitor* visitor) {
   MediaControlDivElement::Trace(visitor);
   visitor->Trace(event_listener_);
+  visitor->Trace(last_focused_element_);
 }
 
 MediaControlPopupMenuElement::MediaControlPopupMenuElement(
-    MediaControlsImpl& media_controls,
-    MediaControlElementType type)
-    : MediaControlDivElement(media_controls, type) {
+    MediaControlsImpl& media_controls)
+    : MediaControlDivElement(media_controls) {
   SetIsWanted(false);
 }
 
@@ -194,8 +184,7 @@ void MediaControlPopupMenuElement::SetPosition() {
   static const char kImportant[] = "important";
   static const char kPx[] = "px";
 
-  DOMRect* bounding_client_rect =
-      EffectivePopupAnchor()->getBoundingClientRect();
+  DOMRect* bounding_client_rect = PopupAnchor()->getBoundingClientRect();
   LocalDOMWindow* dom_window = GetDocument().domWindow();
 
   DCHECK(bounding_client_rect);
@@ -203,13 +192,12 @@ void MediaControlPopupMenuElement::SetPosition() {
 
   WTF::String bottom_str_value =
       WTF::String::Number(dom_window->innerHeight() -
-                          bounding_client_rect->bottom() + kPopupMenuMarginPx);
+                          bounding_client_rect->bottom() + kPopupMenuMarginPx) +
+      kPx;
   WTF::String right_str_value =
       WTF::String::Number(dom_window->innerWidth() -
-                          bounding_client_rect->right() + kPopupMenuMarginPx);
-
-  bottom_str_value.append(kPx);
-  right_str_value.append(kPx);
+                          bounding_client_rect->right() + kPopupMenuMarginPx) +
+      kPx;
 
   style()->setProperty(&GetDocument(), "bottom", bottom_str_value, kImportant,
                        ASSERT_NO_EXCEPTION);
@@ -217,20 +205,40 @@ void MediaControlPopupMenuElement::SetPosition() {
                        ASSERT_NO_EXCEPTION);
 }
 
-Element* MediaControlPopupMenuElement::EffectivePopupAnchor() const {
-  return MediaControlsImpl::IsModern() ? &GetMediaControls().OverflowButton()
-                                       : PopupAnchor();
+Element* MediaControlPopupMenuElement::PopupAnchor() const {
+  return &GetMediaControls().OverflowButton();
 }
 
 void MediaControlPopupMenuElement::HideIfNotFocused() {
   if (!IsWanted())
     return;
 
-  if (!GetDocument().FocusedElement() ||
-      (GetDocument().FocusedElement()->parentElement() != this &&
-       GetDocument().FocusedElement() != this)) {
-    SetIsWanted(false);
+  // Cancel hiding if the focused element is a descendent of this element
+  auto* focused_element = GetDocument().FocusedElement();
+  while (focused_element) {
+    if (focused_element == this) {
+      return;
+    }
+
+    focused_element = focused_element->parentElement();
   }
+
+  SetIsWanted(false);
+}
+
+// Focus the given item in the list if it is displayed. Returns whether it was
+// focused.
+bool MediaControlPopupMenuElement::FocusListItemIfDisplayed(Node* node) {
+  auto* element = To<Element>(node);
+
+  if (!element->InlineStyle() ||
+      !element->InlineStyle()->HasProperty(CSSPropertyID::kDisplay)) {
+    element->focus();
+    last_focused_element_ = element;
+    return true;
+  }
+
+  return false;
 }
 
 void MediaControlPopupMenuElement::SelectFirstItem() {
@@ -266,7 +274,7 @@ void MediaControlPopupMenuElement::SelectPreviousitem() {
 
 void MediaControlPopupMenuElement::CloseFromKeyboard() {
   SetIsWanted(false);
-  EffectivePopupAnchor()->focus();
+  PopupAnchor()->focus();
 }
 
 }  // namespace blink

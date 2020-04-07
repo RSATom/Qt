@@ -19,7 +19,7 @@ CloudPrinterHandler::~CloudPrinterHandler() {}
 void CloudPrinterHandler::Reset() {}
 
 void CloudPrinterHandler::StartGetPrinters(
-    const AddedPrintersCallback& added_printers_callback,
+    AddedPrintersCallback added_printers_callback,
     GetPrintersDoneCallback done_callback) {
   // TODO(https://crbug.com/829414): Actually retrieve the printers
   std::move(done_callback).Run();
@@ -32,12 +32,9 @@ void CloudPrinterHandler::StartGetCapability(const std::string& destination_id,
 }
 
 void CloudPrinterHandler::StartPrint(
-    const std::string& destination_id,
-    const std::string& capability,
     const base::string16& job_title,
-    const std::string& ticket_json,
-    const gfx::Size& page_size,
-    const scoped_refptr<base::RefCountedMemory>& print_data,
+    base::Value settings,
+    scoped_refptr<base::RefCountedMemory> print_data,
     PrintCallback callback) {
   // TODO(https://crbug.com/829414): Print to cloud print
   NOTIMPLEMENTED();

@@ -1,1 +1,1 @@
-#include "../../src/corelib/tools/qcollator.h"
+#include "../../src/corelib/text/qcollator.h"

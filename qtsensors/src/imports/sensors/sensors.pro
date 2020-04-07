@@ -1,4 +1,4 @@
-QT += qml sensors sensors-private
+QT += core-private qml sensors sensors-private
 
 HEADERS += \
     qmlsensor.h \

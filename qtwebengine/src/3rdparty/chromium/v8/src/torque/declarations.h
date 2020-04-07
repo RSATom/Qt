@@ -15,8 +15,13 @@ namespace internal {
 namespace torque {
 
 static constexpr const char* const kFromConstexprMacroName = "FromConstexpr";
-static constexpr const char* kTrueLabelName = "_True";
-static constexpr const char* kFalseLabelName = "_False";
+static constexpr const char* kTrueLabelName = "__True";
+static constexpr const char* kFalseLabelName = "__False";
+static constexpr const char* kMacroEndLabelName = "__macro_end";
+static constexpr const char* kBreakLabelName = "__break";
+static constexpr const char* kContinueLabelName = "__continue";
+static constexpr const char* kCatchLabelName = "__catch";
+static constexpr const char* kNextCaseLabelName = "__NextCase";
 
 template <class T>
 std::vector<T*> FilterDeclarables(const std::vector<Declarable*> list) {
@@ -54,10 +59,10 @@ class Declarations {
 
   static std::vector<Declarable*> LookupGlobalScope(const std::string& name);
 
+  static const TypeAlias* LookupTypeAlias(const QualifiedName& name);
   static const Type* LookupType(const QualifiedName& name);
-  static const Type* LookupType(std::string name);
+  static const Type* LookupType(const Identifier* identifier);
   static const Type* LookupGlobalType(const std::string& name);
-  static const Type* GetType(TypeExpression* type_expression);
 
   static Builtin* FindSomeInternalBuiltinWithType(
       const BuiltinPointerType* type);
@@ -71,33 +76,31 @@ class Declarations {
   static std::vector<Generic*> LookupGeneric(const std::string& name);
   static Generic* LookupUniqueGeneric(const QualifiedName& name);
 
+  static GenericStructType* LookupUniqueGenericStructType(
+      const QualifiedName& name);
+
   static Namespace* DeclareNamespace(const std::string& name);
+  static TypeAlias* DeclareType(const Identifier* name, const Type* type);
 
-  static const AbstractType* DeclareAbstractType(
-      const std::string& name, bool transient, const std::string& generated,
-      base::Optional<const AbstractType*> non_constexpr_version,
-      const base::Optional<std::string>& parent = {});
-
-  static void DeclareType(const std::string& name, const Type* type,
-                          bool redeclaration);
-
-  static StructType* DeclareStruct(const std::string& name,
-                                   const std::vector<Field>& fields);
-
-  static ClassType* DeclareClass(const Type* super, const std::string& name,
-                                 bool transient, const std::string& generates,
-                                 std::vector<Field> fields, size_t size);
-
-  static Macro* CreateMacro(std::string external_name,
-                            std::string readable_name,
-                            base::Optional<std::string> external_assembler_name,
-                            Signature signature, bool transitioning,
-                            base::Optional<Statement*> body);
+  static const TypeAlias* PredeclareTypeAlias(const Identifier* name,
+                                              TypeDeclaration* type,
+                                              bool redeclaration);
+  static TorqueMacro* CreateTorqueMacro(std::string external_name,
+                                        std::string readable_name,
+                                        bool exported_to_csa,
+                                        Signature signature, bool transitioning,
+                                        base::Optional<Statement*> body,
+                                        bool is_user_defined);
+  static ExternMacro* CreateExternMacro(std::string name,
+                                        std::string external_assembler_name,
+                                        Signature signature,
+                                        bool transitioning);
   static Macro* DeclareMacro(
-      const std::string& name,
+      const std::string& name, bool accessible_from_csa,
       base::Optional<std::string> external_assembler_name,
       const Signature& signature, bool transitioning,
-      base::Optional<Statement*> body, base::Optional<std::string> op = {});
+      base::Optional<Statement*> body, base::Optional<std::string> op = {},
+      bool is_user_defined = true);
 
   static Method* CreateMethod(AggregateType* class_type,
                               const std::string& name, Signature signature,
@@ -121,14 +124,16 @@ class Declarations {
                                                  const Signature& signature,
                                                  bool transitioning);
 
-  static void DeclareExternConstant(const std::string& name, const Type* type,
+  static void DeclareExternConstant(Identifier* name, const Type* type,
                                     std::string value);
-  static NamespaceConstant* DeclareNamespaceConstant(const std::string& name,
+  static NamespaceConstant* DeclareNamespaceConstant(Identifier* name,
                                                      const Type* type,
                                                      Expression* body);
 
   static Generic* DeclareGeneric(const std::string& name,
                                  GenericDeclaration* generic);
+  static GenericStructType* DeclareGenericStructType(const std::string& name,
+                                                     StructDeclaration* decl);
 
   template <class T>
   static T* Declare(const std::string& name, T* d) {

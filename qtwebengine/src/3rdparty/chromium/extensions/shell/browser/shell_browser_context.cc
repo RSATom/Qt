@@ -6,6 +6,7 @@
 
 #include <utility>
 
+#include "base/bind.h"
 #include "base/command_line.h"
 #include "base/task/post_task.h"
 #include "components/guest_view/browser/guest_view_manager.h"
@@ -37,7 +38,6 @@ bool IgnoreCertificateErrors() {
 ShellBrowserContext::ShellBrowserContext(
     ShellBrowserMainParts* browser_main_parts)
     : content::ShellBrowserContext(false /* off_the_record */,
-                                   nullptr /* net_log */,
                                    true /* delay_services_creation */),
       storage_policy_(new ShellSpecialStoragePolicy),
       browser_main_parts_(browser_main_parts) {}
@@ -72,8 +72,8 @@ net::URLRequestContextGetter* ShellBrowserContext::CreateRequestContext(
       extension_info_map));
   base::PostTaskWithTraits(
       FROM_HERE, {content::BrowserThread::IO},
-      base::Bind(&ShellBrowserContext::InitURLRequestContextOnIOThread,
-                 base::Unretained(this)));
+      base::BindOnce(&ShellBrowserContext::InitURLRequestContextOnIOThread,
+                     base::Unretained(this)));
   return url_request_context_getter();
 }
 

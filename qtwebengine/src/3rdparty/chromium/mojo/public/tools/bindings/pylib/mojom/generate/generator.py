@@ -4,13 +4,15 @@
 
 """Code shared by the various language-specific code generators."""
 
+from __future__ import print_function
+
 from functools import partial
 import os.path
 import re
 
-import module as mojom
+import mojom.generate.module as mojom
 import mojom.fileutil as fileutil
-import pack
+import mojom.generate.pack as pack
 
 
 def ExpectedArraySize(kind):
@@ -109,6 +111,8 @@ def AddComputedData(module):
     for method in interface.methods:
       if method.ordinal is None:
         method.ordinal = next_ordinal
+      # this field is never scrambled
+      method.sequential_ordinal = next_ordinal
       next_ordinal = method.ordinal + 1
 
       if method.min_version is not None:
@@ -161,11 +165,13 @@ class Generator(object):
   # files to stdout.
   def __init__(self, module, output_dir=None, typemap=None, variant=None,
                bytecode_path=None, for_blink=False,
-               js_bindings_mode="new", export_attribute=None,
+               js_bindings_mode="new",
+               use_old_js_lite_bindings_names=False,
+               export_attribute=None,
                export_header=None, generate_non_variant_code=False,
                support_lazy_serialization=False, disallow_native_types=False,
                disallow_interfaces=False, generate_message_ids=False,
-               generate_fuzzing=False):
+               generate_fuzzing=False, enable_kythe_annotations=False):
     self.module = module
     self.output_dir = output_dir
     self.typemap = typemap or {}
@@ -173,6 +179,7 @@ class Generator(object):
     self.bytecode_path = bytecode_path
     self.for_blink = for_blink
     self.js_bindings_mode = js_bindings_mode
+    self.use_old_js_lite_bindings_names = use_old_js_lite_bindings_names
     self.export_attribute = export_attribute
     self.export_header = export_header
     self.generate_non_variant_code = generate_non_variant_code
@@ -181,10 +188,11 @@ class Generator(object):
     self.disallow_interfaces = disallow_interfaces
     self.generate_message_ids = generate_message_ids
     self.generate_fuzzing = generate_fuzzing
+    self.enable_kythe_annotations = enable_kythe_annotations
 
   def Write(self, contents, filename):
     if self.output_dir is None:
-      print contents
+      print(contents)
       return
     full_path = os.path.join(self.output_dir, filename)
     WriteFile(contents, full_path)

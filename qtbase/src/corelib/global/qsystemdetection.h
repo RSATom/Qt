@@ -1,6 +1,7 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2019 The Qt Company Ltd.
+** Copyright (C) 2019 Intel Corporation.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtCore module of the Qt Toolkit.
@@ -166,6 +167,8 @@
 #  define Q_OS_QNX
 #elif defined(__INTEGRITY)
 #  define Q_OS_INTEGRITY
+#elif defined(__rtems__)
+#  define Q_OS_RTEMS
 #elif defined(VXWORKS) /* there is no "real" VxWorks define - this has to be set in the mkspec! */
 #  define Q_OS_VXWORKS
 #elif defined(__HAIKU__)
@@ -178,6 +181,12 @@
 #if defined(Q_OS_WIN32) || defined(Q_OS_WIN64) || defined(Q_OS_WINRT)
 #  define Q_OS_WINDOWS
 #  define Q_OS_WIN
+#  if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+// On Windows, pointers to dllimport'ed variables are not constant expressions,
+// so to keep to certain initializations (like QMetaObject) constexpr, we need
+// to use functions instead.
+#    define QT_NO_DATA_RELOCATION
+#  endif
 #endif
 
 #if defined(Q_OS_WIN)

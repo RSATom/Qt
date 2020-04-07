@@ -9,12 +9,14 @@
 #include "third_party/blink/public/platform/web_url_error.h"
 #include "third_party/blink/public/platform/web_url_response.h"
 #include "third_party/blink/renderer/platform/weborigin/kurl.h"
+#include "third_party/blink/renderer/platform/wtf/hash_map.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
 #include "third_party/blink/renderer/platform/wtf/vector.h"
 
 namespace blink {
 
 class SimNetwork;
+class StaticDataNavigationBodyLoader;
 class WebURLLoaderClient;
 
 // Simulates a single request for a resource from the server. Requires a
@@ -23,6 +25,22 @@ class WebURLLoaderClient;
 // Note that all requests must be finished.
 class SimRequestBase {
  public:
+  // Additional params which can be passed to the SimRequest.
+  struct Params {
+    Params() : response_http_status(200) {}
+
+    // Redirect the request to |redirect_url|. Don't call Start() or Complete()
+    // if |redirect_url| is non-empty.
+    String redirect_url;
+
+    WTF::HashMap<String, String> response_http_headers;
+
+    // The HTTP status code of the response. |response_http_status| is ignored
+    // if |redirect_url| is non-empty, since a redirect implies a 302 status
+    // code.
+    int response_http_status;
+  };
+
   // Write a chunk of the response body.
   void Write(const String& data);
   void Write(const Vector<char>& data);
@@ -35,7 +53,10 @@ class SimRequestBase {
   void Complete(const Vector<char>& data);
 
  protected:
-  SimRequestBase(String url, String mime_type, bool start_immediately);
+  SimRequestBase(String url,
+                 String mime_type,
+                 bool start_immediately,
+                 Params params = Params());
   ~SimRequestBase();
 
   void StartInternal();
@@ -46,11 +67,16 @@ class SimRequestBase {
 
   void Reset();
 
+  // Internal function to write a chunk of the response body
+  void WriteInternal(base::span<const char>);
+
   // Used by SimNetwork.
   void DidReceiveResponse(WebURLLoaderClient*, const WebURLResponse&);
   void DidFail(const WebURLError&);
+  void UsedForNavigation(StaticDataNavigationBodyLoader*);
 
   KURL url_;
+  String redirect_url_;
   String mime_type_;
   bool start_immediately_;
   bool started_;
@@ -58,6 +84,9 @@ class SimRequestBase {
   base::Optional<WebURLError> error_;
   WebURLLoaderClient* client_;
   unsigned total_encoded_data_length_;
+  WTF::HashMap<String, String> response_http_headers_;
+  int response_http_status_;
+  StaticDataNavigationBodyLoader* navigation_body_loader_ = nullptr;
 };
 
 // This request can be used as a main resource request for navigation.
@@ -66,7 +95,7 @@ class SimRequestBase {
 // TODO(dgozman): rename this to SimNavigationRequest or something.
 class SimRequest final : public SimRequestBase {
  public:
-  SimRequest(String url, String mime_type);
+  SimRequest(String url, String mime_type, Params params = Params());
   ~SimRequest();
 };
 
@@ -74,7 +103,8 @@ class SimRequest final : public SimRequestBase {
 // delayed load of subresources.
 class SimSubresourceRequest final : public SimRequestBase {
  public:
-  SimSubresourceRequest(String url, String mime_type);
+  SimSubresourceRequest(String url, String mime_type, Params params = Params());
+
   ~SimSubresourceRequest();
 
   // Starts the response from the server, this is as if the headers and 200 OK

@@ -265,11 +265,11 @@ QString Utils::formatLabelSprintf(const QByteArray &format, Utils::ParamType par
 {
     switch (paramType) {
     case ParamTypeInt:
-        return QString().sprintf(format, (qint64)value);
+        return QString::asprintf(format.constData(), qint64(value));
     case ParamTypeUInt:
-        return QString().sprintf(format, (quint64)value);
+        return QString::asprintf(format.constData(), quint64(value));
     case ParamTypeReal:
-        return QString().sprintf(format, value);
+        return QString::asprintf(format.constData(), value);
     default:
         // Return format string to detect errors. Bars selection label logic also depends on this.
         return QString::fromUtf8(format);

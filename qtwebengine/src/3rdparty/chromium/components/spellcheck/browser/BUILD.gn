@@ -25,13 +25,16 @@ source_set("browser") {
     "spelling_service_client.h",
   ]
 
+  if (is_win) {
+    sources += [ "spellcheck_platform_win.cc" ]
+  }
+
   public_deps = [
     "//base",
     "//components/spellcheck:buildflags",
     "//components/spellcheck/common",
   ]
   deps = [
-    "//components/data_use_measurement/core",
     "//components/prefs",
     "//components/user_prefs",
     "//content/public/browser",
@@ -40,11 +43,6 @@ source_set("browser") {
     "//net",
     "//services/network/public/cpp",
   ]
-  if (use_qt) {
-    deps -= [
-      "//components/data_use_measurement/core",
-    ]
-  }
 
   if (is_android) {
     deps += [ "android:jni_headers" ]
@@ -56,6 +54,7 @@ source_set("unit_tests") {
   sources = [
     "spellcheck_host_metrics_unittest.cc",
     "spellcheck_platform_mac_unittest.cc",
+    "spellcheck_platform_win_unittest.cc",
   ]
 
   deps = [

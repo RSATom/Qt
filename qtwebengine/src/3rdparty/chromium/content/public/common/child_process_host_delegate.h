@@ -32,13 +32,13 @@ class ChildProcessHostDelegate : public IPC::Listener {
 
   // Returns a reference to the child process. This can be called only after
   // OnProcessLaunched is called or it will be invalid and may crash.
-  virtual const base::Process& GetProcess() const = 0;
+  virtual const base::Process& GetProcess() = 0;
 
   // Binds an interface in the child process.
   virtual void BindInterface(const std::string& interface_name,
                              mojo::ScopedMessagePipeHandle interface_pipe) {}
 };
 
-};  // namespace content
+}  // namespace content
 
 #endif  // CONTENT_PUBLIC_COMMON_CHILD_PROCESS_HOST_DELEGATE_H_

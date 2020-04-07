@@ -61,7 +61,7 @@ struct BLINK_COMMON_EXPORT Manifest {
     std::vector<Purpose> purpose;
   };
 
-  struct BLINK_COMMON_EXPORT ShareTargetFile {
+  struct BLINK_COMMON_EXPORT FileFilter {
     base::string16 name;
     std::vector<base::string16> accept;
   };
@@ -74,7 +74,7 @@ struct BLINK_COMMON_EXPORT Manifest {
     base::NullableString16 title;
     base::NullableString16 text;
     base::NullableString16 url;
-    std::vector<ShareTargetFile> files;
+    std::vector<FileFilter> files;
   };
 
   // Structure representing how a Web Share target handles an incoming share.
@@ -85,8 +85,8 @@ struct BLINK_COMMON_EXPORT Manifest {
     };
 
     enum class Enctype {
-      kApplication,
-      kMultipart,
+      kFormUrlEncoded,
+      kMultipartFormData,
     };
 
     ShareTarget();
@@ -103,6 +103,13 @@ struct BLINK_COMMON_EXPORT Manifest {
     Enctype enctype;
 
     ShareTargetParams params;
+  };
+
+  // Structure representing a File Handler.
+  struct BLINK_COMMON_EXPORT FileHandler {
+    // The URL which will be opened when the file handler is invoked.
+    GURL action;
+    std::vector<FileFilter> files;
   };
 
   // Structure representing a related application.
@@ -161,6 +168,12 @@ struct BLINK_COMMON_EXPORT Manifest {
   // As such, this field should not be exposed to web contents.
   base::Optional<ShareTarget> share_target;
 
+  // Null if parsing failed or the field was not present.
+  // TODO(harrisjay): This field is non-standard and part of a Chrome
+  // experiment. See:
+  // https://github.com/WICG/file-handling/blob/master/explainer.md
+  base::Optional<FileHandler> file_handler;
+
   // Empty if the parsing failed, the field was not present, empty or all the
   // applications inside the array were invalid. The order of the array
   // indicates the priority of the application to use.
@@ -177,16 +190,14 @@ struct BLINK_COMMON_EXPORT Manifest {
   // Null if field is not present or parsing failed.
   base::Optional<SkColor> background_color;
 
-  // A URL of the HTML splash screen.
-  // Empty if the parsing failed or the field was not present.
-  GURL splash_screen_url;
-
   // This is a proprietary extension of the web Manifest, double-check that it
   // is okay to use this entry.
   // Null if parsing failed or the field was not present.
   base::NullableString16 gcm_sender_id;
 
-  // Empty if the parsing failed or the field was not present.
+  // Empty if the parsing failed. Otherwise defaults to the start URL (or
+  // document URL if start URL isn't present) with filename, query, and fragment
+  // removed.
   GURL scope;
 };
 

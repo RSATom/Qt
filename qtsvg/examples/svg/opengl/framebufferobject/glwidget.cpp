@@ -253,7 +253,7 @@ void GLWidget::mouseMoveEvent(QMouseEvent *e)
 
 void GLWidget::wheelEvent(QWheelEvent *e)
 {
-    e->delta() > 0 ? scale += scale*0.1f : scale -= scale*0.1f;
+    e->angleDelta().y() > 0 ? scale += scale*0.1f : scale -= scale*0.1f;
     draw();
 }
 

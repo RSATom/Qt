@@ -6,6 +6,7 @@
 
 #include <utility>
 
+#include "base/bind.h"
 #include "base/callback_helpers.h"
 #include "base/command_line.h"
 #include "base/location.h"
@@ -21,7 +22,6 @@
 #include "content/browser/loader/resource_loader_delegate.h"
 #include "content/browser/loader/resource_request_info_impl.h"
 #include "content/browser/service_worker/service_worker_request_handler.h"
-#include "content/browser/service_worker/service_worker_response_info.h"
 #include "content/browser/ssl/ssl_client_auth_handler.h"
 #include "content/browser/ssl/ssl_manager.h"
 #include "content/public/browser/content_browser_client.h"
@@ -31,6 +31,7 @@
 #include "content/public/common/navigation_policy.h"
 #include "content/public/common/resource_type.h"
 #include "net/base/io_buffer.h"
+#include "net/base/ip_endpoint.h"
 #include "net/base/load_flags.h"
 #include "net/cert/symantec_certs.h"
 #include "net/http/http_response_headers.h"
@@ -84,11 +85,14 @@ void PopulateResourceResponse(
   response->head.alpn_negotiated_protocol =
       response_info.alpn_negotiated_protocol;
   response->head.connection_info = response_info.connection_info;
-  response->head.socket_address = response_info.socket_address;
+  response->head.remote_endpoint = response_info.remote_endpoint;
   response->head.proxy_server = request->proxy_server();
   response->head.network_accessed = response_info.network_accessed;
   response->head.async_revalidation_requested =
       response_info.async_revalidation_requested;
+  response->head.was_in_prefetch_cache =
+      !(request->load_flags() & net::LOAD_PREFETCH) &&
+      response_info.unused_since_prefetch;
   if (info->ShouldReportRawHeaders()) {
     response->head.raw_request_response_info =
         network::BuildRawRequestResponseInfo(*request, raw_request_headers,
@@ -98,7 +102,7 @@ void PopulateResourceResponse(
   response->head.effective_connection_type =
       net::EFFECTIVE_CONNECTION_TYPE_UNKNOWN;
 
-  if (info->GetResourceType() == RESOURCE_TYPE_MAIN_FRAME) {
+  if (info->GetResourceType() == ResourceType::kMainFrame) {
     DCHECK(info->IsMainFrame());
     net::NetworkQualityEstimator* estimator =
         request->context()->network_quality_estimator();
@@ -108,10 +112,6 @@ void PopulateResourceResponse(
     }
   }
 
-  const ServiceWorkerResponseInfo* service_worker_info =
-      ServiceWorkerResponseInfo::ForRequest(request);
-  if (service_worker_info)
-    service_worker_info->GetExtraResponseInfo(&response->head);
   response->head.appcache_id = blink::mojom::kAppCacheNoCacheId;
   AppCacheInterceptor::GetExtraResponseInfo(
       request, &response->head.appcache_id,
@@ -123,10 +123,6 @@ void PopulateResourceResponse(
     response->head.cert_status = request->ssl_info().cert_status;
     response->head.ct_policy_compliance =
         request->ssl_info().ct_policy_compliance;
-    response->head.is_legacy_symantec_cert =
-        (!net::IsCertStatusError(response->head.cert_status) ||
-         net::IsCertStatusMinorError(response->head.cert_status)) &&
-        net::IsLegacySymantecCert(request->ssl_info().public_key_hashes);
     net::SSLVersion ssl_version = net::SSLConnectionStatusToVersion(
         request->ssl_info().connection_status);
     response->head.is_legacy_tls_version =
@@ -142,6 +138,7 @@ void PopulateResourceResponse(
     DCHECK_EQ(request->ssl_info().peer_signature_algorithm, 0);
     DCHECK_EQ(request->ssl_info().connection_status, 0);
   }
+  response->head.auth_challenge_info = request->auth_challenge_info();
 }
 
 }  // namespace
@@ -149,7 +146,7 @@ void PopulateResourceResponse(
 class ResourceLoader::Controller : public ResourceController {
  public:
   explicit Controller(ResourceLoader* resource_loader)
-      : resource_loader_(resource_loader){};
+      : resource_loader_(resource_loader) {}
 
   ~Controller() override {}
 
@@ -249,8 +246,7 @@ ResourceLoader::ResourceLoader(
       started_request_(false),
       times_cancelled_after_request_start_(0),
       resource_context_(resource_context),
-      throttling_token_(std::move(throttling_token)),
-      weak_ptr_factory_(this) {
+      throttling_token_(std::move(throttling_token)) {
   request_->set_delegate(this);
   handler_->SetDelegate(this);
 }
@@ -275,8 +271,7 @@ ResourceLoader::~ResourceLoader() {
     }
   }
 
-  if (login_delegate_.get())
-    login_delegate_->OnRequestCancelled();
+  login_delegate_.reset();
   ssl_client_auth_handler_.reset();
 
   // Run ResourceHandler destructor before we tear-down the rest of our state
@@ -406,7 +401,7 @@ void ResourceLoader::OnReceivedRedirect(net::URLRequest* unused,
 }
 
 void ResourceLoader::OnAuthRequired(net::URLRequest* unused,
-                                    net::AuthChallengeInfo* auth_info) {
+                                    const net::AuthChallengeInfo& auth_info) {
   DCHECK_EQ(request_.get(), unused);
 
   ResourceRequestInfoImpl* info = GetRequestInfo();
@@ -418,10 +413,10 @@ void ResourceLoader::OnAuthRequired(net::URLRequest* unused,
   // Create a login dialog on the UI thread to get authentication data, or pull
   // from cache and continue on the IO thread.
 
-  DCHECK(!login_delegate_.get())
+  DCHECK(!login_delegate_)
       << "OnAuthRequired called with login_delegate pending";
   login_delegate_ = delegate_->CreateLoginDelegate(this, auth_info);
-  if (!login_delegate_.get())
+  if (!login_delegate_)
     request_->CancelAuth();
 }
 
@@ -450,13 +445,15 @@ void ResourceLoader::OnCertificateRequested(
 }
 
 void ResourceLoader::OnSSLCertificateError(net::URLRequest* request,
+                                           int net_error,
                                            const net::SSLInfo& ssl_info,
                                            bool fatal) {
   ResourceRequestInfoImpl* info = GetRequestInfo();
 
   SSLManager::OnSSLCertificateError(
-      weak_ptr_factory_.GetWeakPtr(), info->GetResourceType(), request_->url(),
-      info->GetWebContentsGetterForRequest(), ssl_info, fatal);
+      weak_ptr_factory_.GetWeakPtr(),
+      info->GetResourceType() == ResourceType::kMainFrame, request_->url(),
+      info->GetWebContentsGetterForRequest(), net_error, ssl_info, fatal);
 }
 
 void ResourceLoader::OnResponseStarted(net::URLRequest* unused, int net_error) {
@@ -659,10 +656,7 @@ void ResourceLoader::CancelRequestInternal(int error, bool from_renderer) {
   // IO_PENDING?
   bool was_pending = request_->is_pending();
 
-  if (login_delegate_.get()) {
-    login_delegate_->OnRequestCancelled();
-    login_delegate_ = nullptr;
-  }
+  login_delegate_.reset();
   ssl_client_auth_handler_.reset();
 
   if (!started_request_) {

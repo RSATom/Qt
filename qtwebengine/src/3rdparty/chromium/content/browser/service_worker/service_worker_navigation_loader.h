@@ -6,16 +6,15 @@
 #define CONTENT_BROWSER_SERVICE_WORKER_SERVICE_WORKER_NAVIGATION_LOADER_H_
 
 #include <memory>
+#include <string>
 #include <vector>
 
 #include "base/macros.h"
+#include "base/memory/scoped_refptr.h"
 #include "base/memory/weak_ptr.h"
 #include "content/browser/loader/navigation_loader_interceptor.h"
 #include "content/browser/service_worker/embedded_worker_status.h"
 #include "content/browser/service_worker/service_worker_fetch_dispatcher.h"
-#include "content/browser/service_worker/service_worker_metrics.h"
-#include "content/browser/service_worker/service_worker_response_type.h"
-#include "content/browser/service_worker/service_worker_url_job_wrapper.h"
 #include "content/browser/url_loader_factory_getter.h"
 #include "mojo/public/cpp/bindings/strong_binding.h"
 #include "mojo/public/cpp/system/data_pipe.h"
@@ -30,45 +29,32 @@ namespace content {
 class ServiceWorkerVersion;
 class ServiceWorkerProviderHost;
 
-// S13nServiceWorker:
 // ServiceWorkerNavigationLoader is the URLLoader used for main resource
-// requests (i.e., navigation and shared worker requests) that (potentially) go
-// through a service worker. This loader is only used for the main resource
-// request; once the response is delivered, the resulting client loads
-// subresources via ServiceWorkerSubresourceLoader.
+// requests (i.e., navigation and shared worker requests) that go through a
+// service worker. This loader is only used for the main resource request; once
+// the response is delivered, the resulting client loads subresources via
+// ServiceWorkerSubresourceLoader.
 //
-// This class works similarly to ServiceWorkerURLRequestJob but with
-// network::mojom::URLLoader instead of URLRequest.
-//
-// This class is owned by the job wrapper until it is bound to a URLLoader
-// request. After it is bound |this| is kept alive until the Mojo connection to
-// this URLLoader is dropped.
+// This class is owned by ServiceWorkerControlleeRequestHandler until it is
+// bound to a URLLoader request. After it is bound |this| is kept alive until
+// the Mojo connection to this URLLoader is dropped.
 class CONTENT_EXPORT ServiceWorkerNavigationLoader
     : public network::mojom::URLLoader {
  public:
-  using Delegate = ServiceWorkerURLJobWrapper::Delegate;
-  using ResponseType = ServiceWorkerResponseType;
-
-  // Created by ServiceWorkerControlleeRequestHandler::MaybeCreateLoader
-  // when starting to load a main resource.
+  // Created by ServiceWorkerControlleeRequestHandler
+  // after it determines the load should go through a service worker.
   //
   // For the navigation case, this job typically works in the following order:
-  // 1. One of the FallbackTo* or ForwardTo* methods are called via
-  //    URLJobWrapper by ServiceWorkerControlleeRequestHandler, which
-  //    determines how the request should be served (e.g. should fallback
-  //    to network or should be sent to the SW). If it decides to fallback
-  //    to the network this will call |loader_callback| with a null
-  //    RequestHandler, which will be then handled by NavigationURLLoaderImpl.
-  // 2. If it is decided that the request should be sent to the SW,
-  //    this job calls |loader_callback|, passing StartRequest as the
+  // 1. ServiceWorkerControlleeRequestHandler::MaybeCreateLoader() creates the
+  //    ServiceWorkerNavigationLoader, passing StartRequest() as the
   //    RequestHandler.
-  // 3. At this point, the NavigationURLLoaderImpl can throttle the request,
+  // 2. At this point, the NavigationURLLoaderImpl can throttle the request,
   //    and invoke the RequestHandler later with a possibly modified request.
-  // 4. StartRequest is invoked. This dispatches a FetchEvent.
-  // 5. DidDispatchFetchEvent() determines the request's final destination. If
+  // 3. StartRequest is invoked. This dispatches a FetchEvent.
+  // 4. DidDispatchFetchEvent() determines the request's final destination. If
   //    it turns out we need to fallback to network, it calls
   //    |fallback_callback|.
-  // 6. Otherwise if the SW returned a stream or blob as a response
+  // 5. Otherwise if the SW returned a stream or blob as a response
   //    this job passes the response to the network::mojom::URLLoaderClientPtr
   //    connected to NavigationURLLoaderImpl (for resource loading for
   //    navigation), that was given to StartRequest. This forwards the
@@ -77,20 +63,17 @@ class CONTENT_EXPORT ServiceWorkerNavigationLoader
   // Loads for shared workers work similarly, except SharedWorkerScriptLoader
   // is used instead of NavigationURLLoaderImpl.
   ServiceWorkerNavigationLoader(
-      NavigationLoaderInterceptor::LoaderCallback loader_callback,
       NavigationLoaderInterceptor::FallbackCallback fallback_callback,
-      Delegate* delegate,
-      const network::ResourceRequest& tentative_resource_request,
       base::WeakPtr<ServiceWorkerProviderHost> provider_host,
       scoped_refptr<URLLoaderFactoryGetter> url_loader_factory_getter);
 
   ~ServiceWorkerNavigationLoader() override;
 
-  // Called via URLJobWrapper.
-  void FallbackToNetwork();
-  void ForwardToServiceWorker();
-  bool ShouldFallbackToNetwork();
-  bool ShouldForwardToServiceWorker();
+  // Passed as the RequestHandler for
+  // NavigationLoaderInterceptor::MaybeCreateLoader.
+  void StartRequest(const network::ResourceRequest& resource_request,
+                    network::mojom::URLLoaderRequest request,
+                    network::mojom::URLLoaderClientPtr client);
 
   // The navigation request that was holding this job is
   // going away. Calling this internally calls |DeleteIfNeeded()|
@@ -118,10 +101,6 @@ class CONTENT_EXPORT ServiceWorkerNavigationLoader
     kCompleted,
   };
 
-  // For FORWARD_TO_SERVICE_WORKER case.
-  void StartRequest(const network::ResourceRequest& resource_request,
-                    network::mojom::URLLoaderRequest request,
-                    network::mojom::URLLoaderClientPtr client);
   void DidPrepareFetchEvent(scoped_refptr<ServiceWorkerVersion> version,
                             EmbeddedWorkerStatus initial_worker_status);
   void DidDispatchFetchEvent(
@@ -173,18 +152,7 @@ class CONTENT_EXPORT ServiceWorkerNavigationLoader
 
   void TransitionToStatus(Status new_status);
 
-  ResponseType response_type_ = ResponseType::NOT_DETERMINED;
-  NavigationLoaderInterceptor::LoaderCallback loader_callback_;
   NavigationLoaderInterceptor::FallbackCallback fallback_callback_;
-
-  // |delegate_| is non-null and owns |this| until DetachedFromRequest() is
-  // called. Once that is called, |delegate_| is reset to null and |this| owns
-  // itself, self-destructing when a connection error on |binding_| occurs.
-  //
-  // Note: A WeakPtr wouldn't be super safe here because the delegate can
-  // conceivably still be alive and used for another loader, after calling
-  // DetachedFromRequest() for this loader.
-  Delegate* delegate_ = nullptr;
 
   network::ResourceRequest resource_request_;
   base::WeakPtr<ServiceWorkerProviderHost> provider_host_;
@@ -208,10 +176,26 @@ class CONTENT_EXPORT ServiceWorkerNavigationLoader
   mojo::Binding<network::mojom::URLLoader> binding_;
 
   Status status_ = Status::kNotStarted;
+  bool is_detached_ = false;
 
-  base::WeakPtrFactory<ServiceWorkerNavigationLoader> weak_factory_;
+  base::WeakPtrFactory<ServiceWorkerNavigationLoader> weak_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(ServiceWorkerNavigationLoader);
+};
+
+// Owns a loader and calls DetachedFromRequest() to release it.
+class ServiceWorkerNavigationLoaderWrapper {
+ public:
+  explicit ServiceWorkerNavigationLoaderWrapper(
+      std::unique_ptr<ServiceWorkerNavigationLoader> loader);
+  ~ServiceWorkerNavigationLoaderWrapper();
+
+  ServiceWorkerNavigationLoader* get() { return loader_.get(); }
+
+ private:
+  std::unique_ptr<ServiceWorkerNavigationLoader> loader_;
+
+  DISALLOW_COPY_AND_ASSIGN(ServiceWorkerNavigationLoaderWrapper);
 };
 
 }  // namespace content

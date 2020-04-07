@@ -88,8 +88,8 @@ QT_BEGIN_NAMESPACE
 
 static QStringList unique(const QStringList &lst)
 {
-    const QSet<QString> s = QSet<QString>::fromList(lst);
-    return s.toList();
+    const QSet<QString> s(lst.cbegin(), lst.cend());
+    return s.values();
 }
 
 QStringList QDesignerPluginManager::defaultPluginPaths()
@@ -134,9 +134,9 @@ static inline QString getDesignerLanguage(QDesignerFormEditorInterface *core)
 class QDesignerCustomWidgetSharedData : public QSharedData {
 public:
     // Type of a string property
-    typedef QPair<qdesigner_internal::TextPropertyValidationMode, bool> StringPropertyType;
-    typedef QHash<QString, StringPropertyType> StringPropertyTypeMap;
-    typedef QHash<QString, QString> PropertyToolTipMap;
+    using StringPropertyType = QPair<qdesigner_internal::TextPropertyValidationMode, bool>;
+    using StringPropertyTypeMap = QHash<QString, StringPropertyType>;
+    using PropertyToolTipMap = QHash<QString, QString>;
 
     explicit QDesignerCustomWidgetSharedData(const QString &thePluginPath) : pluginPath(thePluginPath) {}
     void clearXML();
@@ -453,7 +453,7 @@ QDesignerCustomWidgetData::ParseResult
 
 class QDesignerPluginManagerPrivate {
     public:
-    typedef QPair<QString, QString> ClassNamePropertyNameKey;
+    using ClassNamePropertyNameKey = QPair<QString, QString>;
 
     QDesignerPluginManagerPrivate(QDesignerFormEditorInterface *core);
 
@@ -651,7 +651,7 @@ QStringList QDesignerPluginManager::pluginPaths() const
 QObject *QDesignerPluginManager::instance(const QString &plugin) const
 {
     if (m_d->m_disabledPlugins.contains(plugin))
-        return 0;
+        return nullptr;
 
     QPluginLoader loader(plugin);
     return loader.instance();

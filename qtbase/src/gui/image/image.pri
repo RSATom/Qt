@@ -79,10 +79,29 @@ qtConfig(png) {
     HEADERS += image/qpnghandler_p.h
     SOURCES += image/qpnghandler.cpp
     QMAKE_USE_PRIVATE += libpng
+
+    win32:mingw {
+      # https://gcc.gnu.org/bugzilla/show_bug.cgi?id=86048
+      GCC_VERSION = "$${QMAKE_GCC_MAJOR_VERSION}.$${QMAKE_GCC_MINOR_VERSION}.$${QMAKE_GCC_PATCH_VERSION}"
+      equals(GCC_VERSION, "8.1.0") {
+        QMAKE_CXXFLAGS += -fno-reorder-blocks-and-partition
+      }
+    }
 }
 
 # SIMD
-SSSE3_SOURCES += image/qimage_ssse3.cpp
-NEON_SOURCES += image/qimage_neon.cpp
-MIPS_DSPR2_SOURCES += image/qimage_mips_dspr2.cpp
-MIPS_DSPR2_ASM += image/qimage_mips_dspr2_asm.S
+!android {
+    SSSE3_SOURCES += image/qimage_ssse3.cpp
+    NEON_SOURCES += image/qimage_neon.cpp
+    MIPS_DSPR2_SOURCES += image/qimage_mips_dspr2.cpp
+    MIPS_DSPR2_ASM += image/qimage_mips_dspr2_asm.S
+} else {
+    # see https://developer.android.com/ndk/guides/abis
+    arm64-v8a | armeabi-v7a {
+        SOURCES += image/qimage_neon.cpp
+    }
+    x86 | x86_64 {
+        DEFINES += QT_COMPILER_SUPPORTS_SSE2 QT_COMPILER_SUPPORTS_SSE3 QT_COMPILER_SUPPORTS_SSSE3
+        SOURCES += image/qimage_ssse3.cpp
+    }
+}

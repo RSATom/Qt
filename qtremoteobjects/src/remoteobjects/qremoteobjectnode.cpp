@@ -233,11 +233,15 @@ QRemoteObjectSourceLocations QRemoteObjectRegistryHostPrivate::remoteObjectAddre
 void QRemoteObjectNode::timerEvent(QTimerEvent*)
 {
     Q_D(QRemoteObjectNode);
-    Q_FOREACH (ClientIoDevice *conn, d->pendingReconnect) {
-        if (conn->isOpen())
-            d->pendingReconnect.remove(conn);
-        else
+
+    for (auto it = d->pendingReconnect.begin(), end = d->pendingReconnect.end(); it != end; /*erasing*/) {
+        const auto &conn = *it;
+        if (conn->isOpen()) {
+            it = d->pendingReconnect.erase(it);
+        } else {
             conn->connectToServer();
+            ++it;
+        }
     }
 
     if (d->pendingReconnect.isEmpty())
@@ -417,7 +421,7 @@ bool QRemoteObjectHostBase::proxy(const QUrl &registryUrl, const QUrl &hostUrl, 
 
 /*!
     \since 5.11
-    \brief Forward Remote Objects to another network
+    \brief Forwards remote objects to another network.
 
     The reverseProxy() function allows the \l proxy() functionality to be
     extended, in effect mirroring the proxy functionality in the "reverse"
@@ -473,6 +477,8 @@ bool QRemoteObjectHostBase::proxy(const QUrl &registryUrl, const QUrl &hostUrl, 
     reverseProxy specific filter will receive notifications of new \l Source
     objects on proxyNode and acquire them on the internal node if they pass the
     reverseFilter.
+
+    Returns \c true on success, \c false otherwise.
 
     \sa proxy()
 */
@@ -746,6 +752,7 @@ static void registerEnum(const QByteArray &name, const QMetaObject *meta, int si
 //        break;
     default:
         qWarning() << "Invalid enum detected" << name << "with size" << size << ".  Defaulting to register as int.";
+        size = 4;
         id = QMetaType::registerType(name.constData(), nullptr, nullptr, &EnumDestructor<qint32>,
                                                  &EnumConstructor<qint32>, size, flags, meta);
     }
@@ -976,7 +983,7 @@ void QRemoteObjectMetaObjectManager::addFromMetaObject(const QMetaObject *metaOb
     QString className = QLatin1String(metaObject->className());
     if (!className.endsWith(QLatin1String("Replica")))
         return;
-    if (className == QStringLiteral("QRemoteObjectDynamicReplica") || staticTypes.contains(className))
+    if (className == QLatin1String("QRemoteObjectDynamicReplica") || staticTypes.contains(className))
         return;
     className.chop(7); //Remove 'Replica' from name
     staticTypes.insert(className, metaObject);
@@ -1110,9 +1117,8 @@ void QRemoteObjectNodePrivate::onRegistryInitialized()
 {
     qROPrivDebug() << "Registry Initialized" << remoteObjectAddresses();
 
-    QHashIterator<QString, QRemoteObjectSourceLocationInfo> i(remoteObjectAddresses());
-    while (i.hasNext()) {
-        i.next();
+    const auto remotes = remoteObjectAddresses();
+    for (auto i = remotes.cbegin(), end = remotes.cend(); i != end; ++i) {
         if (replicas.contains(i.key())) //We have a replica waiting on this remoteObject
         {
             QSharedPointer<QReplicaImplementationInterface> rep = replicas.value(i.key()).toStrongRef();
@@ -1130,7 +1136,8 @@ void QRemoteObjectNodePrivate::onShouldReconnect(ClientIoDevice *ioDevice)
 {
     Q_Q(QRemoteObjectNode);
 
-    Q_FOREACH (const QString &remoteObject, ioDevice->remoteObjects()) {
+    const auto remoteObjects = ioDevice->remoteObjects();
+    for (const QString &remoteObject : remoteObjects) {
         connectedSources.remove(remoteObject);
         ioDevice->removeSource(remoteObject);
         if (replicas.contains(remoteObject)) { //We have a replica waiting on this remoteObject
@@ -1265,17 +1272,17 @@ void QRemoteObjectNodePrivate::onClientRead(QObject *obj)
             // We need to make sure all of the source objects are in connectedSources before we add connections,
             // otherwise nested QObjects could fail (we want to acquire children before parents, and the object
             // list is unordered)
-            Q_FOREACH (const auto &remoteObject, rxObjects) {
+            for (const auto &remoteObject : qAsConst(rxObjects)) {
                 qROPrivDebug() << "  connectedSources.contains(" << remoteObject << ")" << connectedSources.contains(remoteObject.name) << replicas.contains(remoteObject.name);
                 if (!connectedSources.contains(remoteObject.name)) {
                     connectedSources[remoteObject.name] = SourceInfo{connection, remoteObject.typeName, remoteObject.signature};
                     connection->addSource(remoteObject.name);
                     // Make sure we handle Registry first if it is available
-                    if (remoteObject.name == QStringLiteral("Registry") && replicas.contains(remoteObject.name))
+                    if (remoteObject.name == QLatin1String("Registry") && replicas.contains(remoteObject.name))
                         handleReplicaConnection(remoteObject.name);
                 }
             }
-            Q_FOREACH (const auto &remoteObject, rxObjects) {
+            for (const auto &remoteObject : qAsConst(rxObjects)) {
                 if (replicas.contains(remoteObject.name)) //We have a replica waiting on this remoteObject
                     handleReplicaConnection(remoteObject.name);
             }
@@ -1811,7 +1818,7 @@ bool QRemoteObjectHostBase::setHostUrl(const QUrl &hostAddress, AllowedSchemas a
 
 /*!
     Returns the host address for the QRemoteObjectNode as a QUrl. If the Node
-    is not a Host node, it return an empty QUrl.
+    is not a Host node, returns an empty QUrl.
 
     \sa setHostUrl()
 */
@@ -2092,7 +2099,7 @@ void QRemoteObjectNode::addClientSideConnection(QIODevice *ioDevice)
 */
 
 /*!
-    \fn void remoteObjectRemoved(const QRemoteObjectSourceLocation &loc)
+    \fn void QRemoteObjectNode::remoteObjectRemoved(const QRemoteObjectSourceLocation &loc)
 
     This signal is emitted whenever there is a known \l {Source} object is
     removed from the Registry. The signal will not be emitted if there is no
@@ -2226,7 +2233,7 @@ bool QRemoteObjectHostBase::enableRemoting(QAbstractItemModel *model, const QStr
     QAbstractItemAdapterSourceAPI<QAbstractItemModel, QAbstractItemModelSourceAdapter> *api =
         new QAbstractItemAdapterSourceAPI<QAbstractItemModel, QAbstractItemModelSourceAdapter>(name);
     if (!this->objectName().isEmpty())
-        adapter->setObjectName(this->objectName().append(QStringLiteral("Adapter")));
+        adapter->setObjectName(this->objectName().append(QLatin1String("Adapter")));
     return enableRemoting(model, api, adapter);
 }
 
@@ -2330,8 +2337,8 @@ void QRemoteObjectHostBase::addHostSideConnection(QIODevice *ioDevice)
 /*!
  Returns a pointer to a Replica which is specifically derived from \l
  QAbstractItemModel. The \a name provided must match the name used with the
- matching \l {QRemoteObjectHostBase::enableRemoting} {enableRemoting} that put
- the Model on the network. The returned \c model will be empty until it is
+ matching \l {QRemoteObjectHostBase::}{enableRemoting} that put
+ the Model on the network. The returned model will be empty until it is
  initialized with the \l Source.
  */
 QAbstractItemModelReplica *QRemoteObjectNode::acquireModel(const QString &name, QtRemoteObjects::InitialAction action, const QVector<int> &rolesHint)

@@ -5,12 +5,20 @@
  * found in the LICENSE file.
  */
 
-#include "gm.h"
-#include "sk_tool_utils.h"
-#include "SkCanvas.h"
-#include "SkPaint.h"
-#include "SkPath.h"
-#include "SkRandom.h"
+#include "gm/gm.h"
+#include "include/core/SkCanvas.h"
+#include "include/core/SkColor.h"
+#include "include/core/SkFont.h"
+#include "include/core/SkPaint.h"
+#include "include/core/SkPath.h"
+#include "include/core/SkRect.h"
+#include "include/core/SkScalar.h"
+#include "include/core/SkSize.h"
+#include "include/core/SkString.h"
+#include "include/core/SkTypeface.h"
+#include "include/core/SkTypes.h"
+#include "include/utils/SkRandom.h"
+#include "tools/ToolUtils.h"
 
 namespace skiagm {
 
@@ -84,8 +92,8 @@ protected:
         path.fName = "moveTo-quad";
 
         SkPaint titlePaint;
-        SkFont font(sk_tool_utils::create_portable_typeface(), 15);
-        SkFont labelFont(sk_tool_utils::create_portable_typeface(), 10);
+        SkFont  font(ToolUtils::create_portable_typeface(), 15);
+        SkFont  labelFont(ToolUtils::create_portable_typeface(), 10);
 
         const char title[] = "Quad Drawn Into Rectangle Clips With "
                              "Indicated Style, Fill and Linecaps, with stroke width 10";
@@ -111,7 +119,7 @@ protected:
                         canvas->translate(rect.width() + 40 * SK_Scalar1, 0);
                     }
 
-                    SkColor color = sk_tool_utils::color_to_565(0xff007000);
+                    SkColor color = ToolUtils::color_to_565(0xff007000);
                     this->drawPath(path.fPath, canvas, color, rect,
                                     gCaps[cap].fCap, gCaps[cap].fJoin, gStyles[style].fStyle,
                                     gFills[fill].fFill, SK_Scalar1*10);
@@ -215,8 +223,8 @@ protected:
         path.fName = "moveTo-quad-close";
 
         SkPaint titlePaint;
-        SkFont font(sk_tool_utils::create_portable_typeface(), 15);
-        SkFont labelFont(sk_tool_utils::create_portable_typeface(), 10);
+        SkFont     font(ToolUtils::create_portable_typeface(), 15);
+        SkFont     labelFont(ToolUtils::create_portable_typeface(), 10);
         const char title[] = "Quad Closed Drawn Into Rectangle Clips With "
                              "Indicated Style, Fill and Linecaps, with stroke width 10";
         canvas->drawString(title, 20.0f, 20.0f, font, titlePaint);
@@ -241,7 +249,7 @@ protected:
                         canvas->translate(rect.width() + 40 * SK_Scalar1, 0);
                     }
 
-                    SkColor color = sk_tool_utils::color_to_565(0xff007000);
+                    SkColor color = ToolUtils::color_to_565(0xff007000);
                     this->drawPath(path.fPath, canvas, color, rect,
                                     gCaps[cap].fCap, gCaps[cap].fJoin, gStyles[style].fStyle,
                                     gFills[fill].fFill, SK_Scalar1*10);
@@ -276,10 +284,8 @@ private:
 
 //////////////////////////////////////////////////////////////////////////////
 
-static GM* QuadPathFactory(void*) { return new QuadPathGM; }
-static GMRegistry regQuadPath(QuadPathFactory);
+DEF_GM( return new QuadPathGM; )
 
-static GM* QuadClosePathFactory(void*) { return new QuadClosePathGM; }
-static GMRegistry regQuadClosePath(QuadClosePathFactory);
+DEF_GM( return new QuadClosePathGM; )
 
 }

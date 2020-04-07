@@ -48,26 +48,6 @@ DEFINE_NON_INTERPOLABLE_VALUE_TYPE_CASTS(FilterNonInterpolableValue);
 
 namespace {
 
-double DefaultParameter(FilterOperation::OperationType type) {
-  switch (type) {
-    case FilterOperation::BRIGHTNESS:
-    case FilterOperation::GRAYSCALE:
-    case FilterOperation::SATURATE:
-    case FilterOperation::SEPIA:
-      return 1;
-
-    case FilterOperation::CONTRAST:
-    case FilterOperation::HUE_ROTATE:
-    case FilterOperation::INVERT:
-    case FilterOperation::OPACITY:
-      return 0;
-
-    default:
-      NOTREACHED();
-      return 0;
-  }
-}
-
 double ClampParameter(double value, FilterOperation::OperationType type) {
   switch (type) {
     case FilterOperation::BRIGHTNESS:
@@ -97,7 +77,7 @@ InterpolationValue filter_interpolation_functions::MaybeConvertCSSFilter(
   if (value.IsURIValue())
     return nullptr;
 
-  const CSSFunctionValue& filter = ToCSSFunctionValue(value);
+  const auto& filter = To<CSSFunctionValue>(value);
   DCHECK_LE(filter.length(), 1u);
   FilterOperation::OperationType type =
       FilterOperationResolver::FilterOperationForType(filter.FunctionType());
@@ -110,26 +90,11 @@ InterpolationValue filter_interpolation_functions::MaybeConvertCSSFilter(
     case FilterOperation::INVERT:
     case FilterOperation::OPACITY:
     case FilterOperation::SATURATE:
-    case FilterOperation::SEPIA: {
-      double amount = DefaultParameter(type);
-      if (filter.length() == 1) {
-        const CSSPrimitiveValue& first_value =
-            ToCSSPrimitiveValue(filter.Item(0));
-        amount = first_value.GetDoubleValue();
-        if (first_value.IsPercentage())
-          amount /= 100;
-      }
-      result.interpolable_value = InterpolableNumber::Create(amount);
+    case FilterOperation::SEPIA:
+    case FilterOperation::HUE_ROTATE:
+      result.interpolable_value = std::make_unique<InterpolableNumber>(
+          FilterOperationResolver::ResolveNumericArgumentForFunction(filter));
       break;
-    }
-
-    case FilterOperation::HUE_ROTATE: {
-      double angle = DefaultParameter(type);
-      if (filter.length() == 1)
-        angle = ToCSSPrimitiveValue(filter.Item(0)).ComputeDegrees();
-      result.interpolable_value = InterpolableNumber::Create(angle);
-      break;
-    }
 
     case FilterOperation::BLUR: {
       if (filter.length() == 0)
@@ -170,26 +135,26 @@ InterpolationValue filter_interpolation_functions::MaybeConvertFilter(
     case FilterOperation::HUE_ROTATE:
     case FilterOperation::SATURATE:
     case FilterOperation::SEPIA:
-      result.interpolable_value = InterpolableNumber::Create(
-          ToBasicColorMatrixFilterOperation(filter).Amount());
+      result.interpolable_value = std::make_unique<InterpolableNumber>(
+          To<BasicColorMatrixFilterOperation>(filter).Amount());
       break;
 
     case FilterOperation::BRIGHTNESS:
     case FilterOperation::CONTRAST:
     case FilterOperation::INVERT:
     case FilterOperation::OPACITY:
-      result.interpolable_value = InterpolableNumber::Create(
-          ToBasicComponentTransferFilterOperation(filter).Amount());
+      result.interpolable_value = std::make_unique<InterpolableNumber>(
+          To<BasicComponentTransferFilterOperation>(filter).Amount());
       break;
 
     case FilterOperation::BLUR:
       result = LengthInterpolationFunctions::MaybeConvertLength(
-          ToBlurFilterOperation(filter).StdDeviation(), zoom);
+          To<BlurFilterOperation>(filter).StdDeviation(), zoom);
       break;
 
     case FilterOperation::DROP_SHADOW: {
       result = ShadowInterpolationFunctions::ConvertShadowData(
-          ToDropShadowFilterOperation(filter).Shadow(), zoom);
+          To<DropShadowFilterOperation>(filter).Shadow(), zoom);
       break;
     }
 
@@ -217,13 +182,13 @@ filter_interpolation_functions::CreateNoneValue(
     case FilterOperation::INVERT:
     case FilterOperation::SEPIA:
     case FilterOperation::HUE_ROTATE:
-      return InterpolableNumber::Create(0);
+      return std::make_unique<InterpolableNumber>(0);
 
     case FilterOperation::BRIGHTNESS:
     case FilterOperation::CONTRAST:
     case FilterOperation::OPACITY:
     case FilterOperation::SATURATE:
-      return InterpolableNumber::Create(1);
+      return std::make_unique<InterpolableNumber>(1);
 
     case FilterOperation::BLUR:
       return LengthInterpolationFunctions::CreateNeutralInterpolableValue();
@@ -260,7 +225,7 @@ FilterOperation* filter_interpolation_functions::CreateFilter(
     case FilterOperation::SEPIA: {
       double value = ClampParameter(
           ToInterpolableNumber(interpolable_value).Value(), type);
-      return BasicColorMatrixFilterOperation::Create(value, type);
+      return MakeGarbageCollected<BasicColorMatrixFilterOperation>(value, type);
     }
 
     case FilterOperation::BRIGHTNESS:
@@ -269,14 +234,15 @@ FilterOperation* filter_interpolation_functions::CreateFilter(
     case FilterOperation::OPACITY: {
       double value = ClampParameter(
           ToInterpolableNumber(interpolable_value).Value(), type);
-      return BasicComponentTransferFilterOperation::Create(value, type);
+      return MakeGarbageCollected<BasicComponentTransferFilterOperation>(value,
+                                                                         type);
     }
 
     case FilterOperation::BLUR: {
       Length std_deviation = LengthInterpolationFunctions::CreateLength(
           interpolable_value, non_interpolable_value.TypeNonInterpolableValue(),
           state.CssToLengthConversionData(), kValueRangeNonNegative);
-      return BlurFilterOperation::Create(std_deviation);
+      return MakeGarbageCollected<BlurFilterOperation>(std_deviation);
     }
 
     case FilterOperation::DROP_SHADOW: {

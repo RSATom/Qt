@@ -6,12 +6,12 @@
 
 #include <string>
 
+#include "base/bind.h"
 #include "base/location.h"
 #include "base/memory/ptr_util.h"
 #include "base/metrics/histogram.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "google_apis/gcm/engine/connection_handler_impl.h"
 #include "google_apis/gcm/monitoring/gcm_stats_recorder.h"
 #include "google_apis/gcm/protocol/mcs.pb.h"
@@ -24,6 +24,7 @@
 #include "net/socket/client_socket_pool_manager.h"
 #include "net/ssl/ssl_config_service.h"
 #include "net/traffic_annotation/network_traffic_annotation.h"
+#include "services/network/public/mojom/tcp_socket.mojom.h"
 
 namespace gcm {
 
@@ -52,6 +53,7 @@ ConnectionFactoryImpl::ConnectionFactoryImpl(
     const std::vector<GURL>& mcs_endpoints,
     const net::BackoffEntry::Policy& backoff_policy,
     GetProxyResolvingFactoryCallback get_socket_factory_callback,
+    scoped_refptr<base::SequencedTaskRunner> io_task_runner,
     GCMStatsRecorder* recorder,
     network::NetworkConnectionTracker* network_connection_tracker)
     : mcs_endpoints_(mcs_endpoints),
@@ -63,11 +65,13 @@ ConnectionFactoryImpl::ConnectionFactoryImpl(
       waiting_for_backoff_(false),
       waiting_for_network_online_(false),
       handshake_in_progress_(false),
+      io_task_runner_(std::move(io_task_runner)),
       recorder_(recorder),
       network_connection_tracker_(network_connection_tracker),
-      listener_(NULL),
+      listener_(nullptr),
       weak_ptr_factory_(this) {
   DCHECK_GE(mcs_endpoints_.size(), 1U);
+  DCHECK(io_task_runner_);
 }
 
 ConnectionFactoryImpl::~ConnectionFactoryImpl() {
@@ -126,6 +130,8 @@ ConnectionEventTracker* ConnectionFactoryImpl::GetEventTrackerForTesting() {
 }
 
 void ConnectionFactoryImpl::ConnectWithBackoff() {
+  DCHECK(io_task_runner_->RunsTasksInCurrentSequence());
+
   // If a canary managed to connect while a backoff expiration was pending,
   // just cleanup the internal state.
   if (connecting_ || handshake_in_progress_ || IsEndpointReachable()) {
@@ -140,10 +146,10 @@ void ConnectionFactoryImpl::ConnectWithBackoff() {
     waiting_for_backoff_ = true;
     recorder_->RecordConnectionDelayedDueToBackoff(
         backoff_entry_->GetTimeUntilRelease().InMilliseconds());
-    base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+    io_task_runner_->PostDelayedTask(
         FROM_HERE,
-        base::Bind(&ConnectionFactoryImpl::ConnectWithBackoff,
-                   weak_ptr_factory_.GetWeakPtr()),
+        base::BindOnce(&ConnectionFactoryImpl::ConnectWithBackoff,
+                       weak_ptr_factory_.GetWeakPtr()),
         backoff_entry_->GetTimeUntilRelease());
     return;
   }
@@ -385,8 +391,9 @@ ConnectionFactoryImpl::CreateConnectionHandler(
     const ConnectionHandler::ProtoReceivedCallback& read_callback,
     const ConnectionHandler::ProtoSentCallback& write_callback,
     const ConnectionHandler::ConnectionChangedCallback& connection_callback) {
-  return base::WrapUnique<ConnectionHandler>(new ConnectionHandlerImpl(
-      read_timeout, read_callback, write_callback, connection_callback));
+  return base::WrapUnique<ConnectionHandler>(
+      new ConnectionHandlerImpl(io_task_runner_, read_timeout, read_callback,
+                                write_callback, connection_callback));
 }
 
 base::TimeTicks ConnectionFactoryImpl::NowTicks() {

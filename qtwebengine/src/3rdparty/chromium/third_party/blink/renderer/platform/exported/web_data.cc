@@ -48,6 +48,13 @@ void WebData::Assign(const char* data, size_t size) {
   private_ = SharedBuffer::Create(data, size);
 }
 
+void WebData::Append(const char* data, size_t size) {
+  if (private_.IsNull())
+    private_ = SharedBuffer::Create(data, size);
+  else
+    private_->Append(data, size);
+}
+
 size_t WebData::size() const {
   if (private_.IsNull())
     return 0;
@@ -65,10 +72,10 @@ size_t WebData::GetSomeData(const char*& data, size_t position) const {
   return it->size();
 }
 
-WebVector<char> WebData::Copy() const {
+WebVector<uint8_t> WebData::Copy() const {
   return private_.IsNull()
-             ? WebVector<char>()
-             : WebVector<char>(private_->CopyAs<std::vector<char>>());
+             ? WebVector<uint8_t>()
+             : WebVector<uint8_t>(private_->CopyAs<std::vector<uint8_t>>());
 }
 
 WebData::WebData(scoped_refptr<SharedBuffer> buffer)

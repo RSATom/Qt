@@ -5,6 +5,8 @@
 #ifndef CHROME_BROWSER_EXTENSIONS_API_CERTIFICATE_PROVIDER_CERTIFICATE_PROVIDER_API_H_
 #define CHROME_BROWSER_EXTENSIONS_API_CERTIFICATE_PROVIDER_CERTIFICATE_PROVIDER_API_H_
 
+#include <string>
+
 #include "extensions/browser/extension_function.h"
 
 namespace chromeos {
@@ -28,6 +30,7 @@ struct CertificateInfo;
 class CertificateProviderInternalReportCertificatesFunction
     : public UIThreadExtensionFunction {
  private:
+  // UIThreadExtensionFunction:
   ~CertificateProviderInternalReportCertificatesFunction() override;
   ResponseAction Run() override;
 
@@ -36,41 +39,46 @@ class CertificateProviderInternalReportCertificatesFunction
       chromeos::certificate_provider::CertificateInfo* out_info);
 
   DECLARE_EXTENSION_FUNCTION("certificateProviderInternal.reportCertificates",
-                             CERTIFICATEPROVIDERINTERNAL_REPORTCERTIFICATES);
+                             CERTIFICATEPROVIDERINTERNAL_REPORTCERTIFICATES)
 };
 
 class CertificateProviderInternalReportSignatureFunction
     : public UIThreadExtensionFunction {
  private:
+  // UIThreadExtensionFunction:
   ~CertificateProviderInternalReportSignatureFunction() override;
   ResponseAction Run() override;
 
   DECLARE_EXTENSION_FUNCTION("certificateProviderInternal.reportSignature",
-                             CERTIFICATEPROVIDERINTERNAL_REPORTSIGNATURE);
+                             CERTIFICATEPROVIDERINTERNAL_REPORTSIGNATURE)
 };
 
 class CertificateProviderRequestPinFunction : public UIThreadExtensionFunction {
  private:
+  // UIThreadExtensionFunction:
   ~CertificateProviderRequestPinFunction() override;
   ResponseAction Run() override;
   bool ShouldSkipQuotaLimiting() const override;
   void GetQuotaLimitHeuristics(
       extensions::QuotaLimitHeuristics* heuristics) const override;
-  void OnInputReceived(const base::string16& value);
+
+  void OnInputReceived(const std::string& value);
 
   DECLARE_EXTENSION_FUNCTION("certificateProvider.requestPin",
-                             CERTIFICATEPROVIDER_REQUESTPIN);
+                             CERTIFICATEPROVIDER_REQUESTPIN)
 };
 
 class CertificateProviderStopPinRequestFunction
     : public UIThreadExtensionFunction {
  private:
+  // UIThreadExtensionFunction:
   ~CertificateProviderStopPinRequestFunction() override;
   ResponseAction Run() override;
-  void DialogClosed(const base::string16& value);
+
+  void OnPinRequestStopped();
 
   DECLARE_EXTENSION_FUNCTION("certificateProvider.stopPinRequest",
-                             CERTIFICATEPROVIDER_STOPPINREQUEST);
+                             CERTIFICATEPROVIDER_STOPPINREQUEST)
 };
 
 }  // namespace extensions

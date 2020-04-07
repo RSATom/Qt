@@ -38,7 +38,9 @@ const struct {
     {kGLImplementationAppleName, kGLImplementationAppleGL},
 #endif
     {kGLImplementationEGLName, kGLImplementationEGLGLES2},
+    {kGLImplementationANGLEName, kGLImplementationEGLANGLE},
     {kGLImplementationMockName, kGLImplementationMockGL},
+    {kGLImplementationStubName, kGLImplementationStubGL},
     {kGLImplementationDisabledName, kGLImplementationDisabled}};
 
 typedef std::vector<base::NativeLibrary> LibraryArray;
@@ -206,7 +208,7 @@ std::string FilterGLExtensionList(
       extensions, " ", base::TRIM_WHITESPACE, base::SPLIT_WANT_ALL);
 
   auto is_disabled = [&disabled_extensions](const base::StringPiece& ext) {
-    return base::ContainsValue(disabled_extensions, ext);
+    return base::Contains(disabled_extensions, ext);
   };
   base::EraseIf(extension_vec, is_disabled);
 
@@ -221,8 +223,8 @@ DisableNullDrawGLBindings::~DisableNullDrawGLBindings() {
   SetNullDrawGLBindingsEnabled(initial_enabled_);
 }
 
-GLWindowSystemBindingInfo::GLWindowSystemBindingInfo()
-    : direct_rendering(true) {}
+GLWindowSystemBindingInfo::GLWindowSystemBindingInfo() {}
+GLWindowSystemBindingInfo::~GLWindowSystemBindingInfo() {}
 
 std::string GetGLExtensionsFromCurrentContext() {
   return GetGLExtensionsFromCurrentContext(g_current_gl_context);

@@ -27,7 +27,7 @@
 #define THIRD_PARTY_BLINK_RENDERER_CORE_HTML_PARSER_HTML_PARSER_OPTIONS_H_
 
 #include "third_party/blink/renderer/core/core_export.h"
-#include "third_party/blink/renderer/platform/wtf/allocator.h"
+#include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 
 namespace blink {
 
@@ -38,7 +38,6 @@ class CORE_EXPORT HTMLParserOptions {
 
  public:
   bool script_enabled = false;
-  bool plugins_enabled = false;
 
   // TODO(domfarolino): Remove this when Priority Hints is no longer in an
   // Origin Trial. See https://crbug.com/821464.

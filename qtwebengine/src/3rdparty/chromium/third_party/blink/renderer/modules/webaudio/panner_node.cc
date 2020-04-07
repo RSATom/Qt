@@ -34,7 +34,7 @@
 #include "third_party/blink/renderer/platform/audio/hrtf_panner.h"
 #include "third_party/blink/renderer/platform/bindings/exception_messages.h"
 #include "third_party/blink/renderer/platform/bindings/exception_state.h"
-#include "third_party/blink/renderer/platform/histogram.h"
+#include "third_party/blink/renderer/platform/instrumentation/histogram.h"
 #include "third_party/blink/renderer/platform/wtf/math_extras.h"
 
 namespace blink {
@@ -99,6 +99,69 @@ PannerHandler::~PannerHandler() {
   Uninitialize();
 }
 
+// PannerNode needs a custom ProcessIfNecessary to get the process lock when
+// computing PropagatesSilence() to protect processing from changes happening to
+// the panning model.  This is very similar to AudioNode::ProcessIfNecessary.
+void PannerHandler::ProcessIfNecessary(uint32_t frames_to_process) {
+  DCHECK(Context()->IsAudioThread());
+
+  if (!IsInitialized())
+    return;
+
+  // Ensure that we only process once per rendering quantum.
+  // This handles the "fanout" problem where an output is connected to multiple
+  // inputs.  The first time we're called during this time slice we process, but
+  // after that we don't want to re-process, instead our output(s) will already
+  // have the results cached in their bus;
+  double current_time = Context()->currentTime();
+  if (last_processing_time_ != current_time) {
+    // important to first update this time because of feedback loops in the
+    // rendering graph.
+    last_processing_time_ = current_time;
+
+    PullInputs(frames_to_process);
+
+    bool silent_inputs = InputsAreSilent();
+
+    {
+      // Need to protect calls to PropagetesSilence (and Process) because the
+      // main threda may be changing the panning model that modifies the
+      // TailTime and LatencyTime methods called by PropagatesSilence.
+      MutexTryLocker try_locker(process_lock_);
+      if (try_locker.Locked()) {
+        if (silent_inputs && PropagatesSilence()) {
+          SilenceOutputs();
+          // AudioParams still need to be processed so that the value can be
+          // updated if there are automations or so that the upstream nodes get
+          // pulled if any are connected to the AudioParam.
+          ProcessOnlyAudioParams(frames_to_process);
+        } else {
+          // Unsilence the outputs first because the processing of the node may
+          // cause the outputs to go silent and we want to propagate that hint
+          // to the downstream nodes.  (For example, a Gain node with a gain of
+          // 0 will want to silence its output.)
+          UnsilenceOutputs();
+          Process(frames_to_process);
+        }
+      } else {
+        // We must be in the middle of changing the properties of the panner.
+        // Just output silence.
+        AudioBus* destination = Output(0).Bus();
+        destination->Zero();
+      }
+    }
+
+    if (!silent_inputs) {
+      // Update |last_non_silent_time| AFTER processing this block.
+      // Doing it before causes |PropagateSilence()| to be one render
+      // quantum longer than necessary.
+      last_non_silent_time_ =
+          (Context()->CurrentSampleFrame() + frames_to_process) /
+          static_cast<double>(Context()->sampleRate());
+    }
+  }
+}
+
 void PannerHandler::Process(uint32_t frames_to_process) {
   AudioBus* destination = Output(0).Bus();
 
@@ -114,10 +177,9 @@ void PannerHandler::Process(uint32_t frames_to_process) {
   }
 
   // The audio thread can't block on this lock, so we call tryLock() instead.
-  MutexTryLocker try_locker(process_lock_);
   MutexTryLocker try_listener_locker(Listener()->ListenerLock());
 
-  if (try_locker.Locked() && try_listener_locker.Locked()) {
+  if (try_listener_locker.Locked()) {
     if (!Context()->HasRealtimeConstraint() &&
         panning_model_ == Panner::kPanningModelHRTF) {
       // For an OfflineAudioContext, we need to make sure the HRTFDatabase
@@ -228,6 +290,13 @@ void PannerHandler::ProcessSampleAccurateValues(AudioBus* destination,
                                               listener_position);
   }
 
+  // Update cached values in case automations end.
+  if (frames_to_process > 0) {
+    cached_azimuth_ = azimuth[frames_to_process - 1];
+    cached_elevation_ = elevation[frames_to_process - 1];
+    cached_distance_cone_gain_ = total_gain[frames_to_process - 1];
+  }
+
   panner_->PanWithSampleAccurateValues(azimuth, elevation, source, destination,
                                        frames_to_process,
                                        InternalChannelInterpretation());
@@ -270,7 +339,11 @@ void PannerHandler::Uninitialize() {
     return;
 
   panner_.reset();
-  Listener()->RemovePanner(*this);
+  if (Listener()) {
+    // Listener may have gone in the same garbage collection cycle, which means
+    // that the panner does not need to be removed.
+    Listener()->RemovePanner(*this);
+  }
 
   AudioHandler::Uninitialize();
 }
@@ -317,6 +390,11 @@ bool PannerHandler::SetPanningModel(unsigned model) {
   }
 
   if (!panner_.get() || model != panning_model_) {
+    // We need the graph lock to secure the panner backend because
+    // BaseAudioContext::Handle{Pre,Post}RenderTasks() from the audio thread
+    // can touch it.
+    BaseAudioContext::GraphAutoLocker context_locker(Context());
+
     // This synchronizes with process().
     MutexLocker process_locker(process_lock_);
     panner_ = Panner::Create(model, Context()->sampleRate(),
@@ -495,8 +573,13 @@ void PannerHandler::CalculateAzimuthElevation(
   float up_projection = source_listener.Dot(up);
 
   FloatPoint3D projected_source = source_listener - up_projection * up;
+  projected_source.Normalize();
 
-  double azimuth = rad2deg(projected_source.AngleBetween(listener_right));
+  // Don't use AngleBetween here.  It produces the wrong value when one of the
+  // vectors has zero length.  We know here that |projected_source| and
+  // |listener_right| are "normalized", so the dot product is good enough.
+  double azimuth =
+      rad2deg(acos(clampTo(projected_source.Dot(listener_right), -1.0f, 1.0f)));
   FixNANs(azimuth);  // avoid illegal values
 
   // Source  in front or behind the listener
@@ -592,7 +675,7 @@ void PannerHandler::SetChannelCount(unsigned channel_count,
   } else {
     exception_state.ThrowDOMException(
         DOMExceptionCode::kNotSupportedError,
-        ExceptionMessages::IndexOutsideRange<unsigned long>(
+        ExceptionMessages::IndexOutsideRange<uint32_t>(
             "channelCount", channel_count, 1,
             ExceptionMessages::kInclusiveBound, 2,
             ExceptionMessages::kInclusiveBound));
@@ -665,40 +748,47 @@ PannerNode::PannerNode(BaseAudioContext& context)
     : AudioNode(context),
       position_x_(
           AudioParam::Create(context,
-                             kParamTypePannerPositionX,
+                             Uuid(),
+                             AudioParamHandler::kParamTypePannerPositionX,
                              0.0,
                              AudioParamHandler::AutomationRate::kAudio,
                              AudioParamHandler::AutomationRateMode::kVariable)),
       position_y_(
           AudioParam::Create(context,
-                             kParamTypePannerPositionY,
+                             Uuid(),
+                             AudioParamHandler::kParamTypePannerPositionY,
                              0.0,
                              AudioParamHandler::AutomationRate::kAudio,
                              AudioParamHandler::AutomationRateMode::kVariable)),
       position_z_(
           AudioParam::Create(context,
-                             kParamTypePannerPositionZ,
+                             Uuid(),
+                             AudioParamHandler::kParamTypePannerPositionZ,
                              0.0,
                              AudioParamHandler::AutomationRate::kAudio,
                              AudioParamHandler::AutomationRateMode::kVariable)),
       orientation_x_(
           AudioParam::Create(context,
-                             kParamTypePannerOrientationX,
+                             Uuid(),
+                             AudioParamHandler::kParamTypePannerOrientationX,
                              1.0,
                              AudioParamHandler::AutomationRate::kAudio,
                              AudioParamHandler::AutomationRateMode::kVariable)),
       orientation_y_(
           AudioParam::Create(context,
-                             kParamTypePannerOrientationY,
+                             Uuid(),
+                             AudioParamHandler::kParamTypePannerOrientationY,
                              0.0,
                              AudioParamHandler::AutomationRate::kAudio,
                              AudioParamHandler::AutomationRateMode::kVariable)),
-      orientation_z_(AudioParam::Create(
-          context,
-          kParamTypePannerOrientationZ,
-          0.0,
-          AudioParamHandler::AutomationRate::kAudio,
-          AudioParamHandler::AutomationRateMode::kVariable)) {
+      orientation_z_(
+          AudioParam::Create(context,
+                             Uuid(),
+                             AudioParamHandler::kParamTypePannerOrientationZ,
+                             0.0,
+                             AudioParamHandler::AutomationRate::kAudio,
+                             AudioParamHandler::AutomationRateMode::kVariable)),
+      listener_(context.listener()) {
   SetHandler(PannerHandler::Create(
       *this, context.sampleRate(), position_x_->Handler(),
       position_y_->Handler(), position_z_->Handler(), orientation_x_->Handler(),
@@ -708,11 +798,6 @@ PannerNode::PannerNode(BaseAudioContext& context)
 PannerNode* PannerNode::Create(BaseAudioContext& context,
                                ExceptionState& exception_state) {
   DCHECK(IsMainThread());
-
-  if (context.IsContextClosed()) {
-    context.ThrowExceptionForClosedState(exception_state);
-    return nullptr;
-  }
 
   return MakeGarbageCollected<PannerNode>(context);
 }
@@ -868,11 +953,10 @@ void PannerNode::Trace(blink::Visitor* visitor) {
   visitor->Trace(position_x_);
   visitor->Trace(position_y_);
   visitor->Trace(position_z_);
-
   visitor->Trace(orientation_x_);
   visitor->Trace(orientation_y_);
   visitor->Trace(orientation_z_);
-
+  visitor->Trace(listener_);
   AudioNode::Trace(visitor);
 }
 

@@ -15,8 +15,8 @@
 #include "base/test/mock_callback.h"
 #include "base/test/scoped_feature_list.h"
 #include "base/test/scoped_task_environment.h"
+#include "components/signin/public/identity_manager/identity_test_environment.h"
 #include "components/suggestions/blacklist_store.h"
-#include "components/suggestions/features.h"
 #include "components/suggestions/proto/suggestions.pb.h"
 #include "components/suggestions/suggestions_store.h"
 #include "components/sync/driver/sync_service.h"
@@ -27,8 +27,6 @@
 #include "net/url_request/test_url_fetcher_factory.h"
 #include "net/url_request/url_request_status.h"
 #include "net/url_request/url_request_test_util.h"
-#include "services/identity/public/cpp/identity_manager.h"
-#include "services/identity/public/cpp/identity_test_environment.h"
 #include "services/network/public/cpp/weak_wrapper_shared_url_loader_factory.h"
 #include "services/network/test/test_url_loader_factory.h"
 #include "services/network/test/test_utils.h"
@@ -187,7 +185,7 @@ class SuggestionsServiceTest : public testing::Test {
     return suggestions_service_.get();
   }
 
-  identity::IdentityTestEnvironment* identity_test_env() {
+  signin::IdentityTestEnvironment* identity_test_env() {
     return &identity_test_env_;
   }
 
@@ -196,10 +194,10 @@ class SuggestionsServiceTest : public testing::Test {
   }
 
   base::test::ScopedTaskEnvironment scoped_task_environment_{
-      base::test::ScopedTaskEnvironment::MainThreadType::MOCK_TIME};
+      base::test::ScopedTaskEnvironment::TimeSource::MOCK_TIME};
 
  private:
-  identity::IdentityTestEnvironment identity_test_env_;
+  signin::IdentityTestEnvironment identity_test_env_;
   syncer::TestSyncService test_sync_service_;
   network::TestURLLoaderFactory url_loader_factory_;
 
@@ -311,28 +309,6 @@ TEST_F(SuggestionsServiceTest, DoesNotFetchOnStartup) {
   // Wait for eventual (but unexpected) network requests.
   scoped_task_environment_.RunUntilIdle();
   EXPECT_FALSE(suggestions_service()->HasPendingRequestForTesting());
-}
-
-TEST_F(SuggestionsServiceTest, BuildUrlWithDefaultMinZeroParamForFewFeature) {
-  base::test::ScopedFeatureList scoped_feature_list;
-  scoped_feature_list.InitAndEnableFeature(kUseSuggestionsEvenIfFewFeature);
-
-  EXPECT_CALL(*blacklist_store(), FilterSuggestions(_));
-  EXPECT_CALL(*blacklist_store(), GetTimeUntilReadyForUpload(_))
-      .WillOnce(Return(false));
-
-  // Send the request. The data should be returned to the callback.
-  suggestions_service()->FetchSuggestionsData();
-
-  // Wait for the eventual network request.
-  scoped_task_environment_.RunUntilIdle();
-  ASSERT_TRUE(GetCurrentlyQueriedUrl().is_valid());
-  EXPECT_EQ(GetCurrentlyQueriedUrl().path(), kSuggestionsUrlPath);
-  std::string min_suggestions;
-  EXPECT_TRUE(net::GetValueForKeyInQuery(GetCurrentlyQueriedUrl(), "num",
-                                         &min_suggestions));
-  EXPECT_EQ(min_suggestions, "0");
-  ASSERT_TRUE(RespondToFetchWithProfile(CreateSuggestionsProfile()));
 }
 
 TEST_F(SuggestionsServiceTest, FetchSuggestionsDataSyncNotInitializedEnabled) {

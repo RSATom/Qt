@@ -205,6 +205,7 @@ private slots:
     void overshoot_reentrant();
     void synchronousDrag_data();
     void synchronousDrag();
+    void visibleAreaBinding();
 
 private:
     void flickWithTouch(QQuickWindow *window, const QPoint &from, const QPoint &to);
@@ -874,7 +875,8 @@ void tst_qquickflickable::wheel()
     // test a vertical flick
     {
         QPoint pos(200, 200);
-        QWheelEvent event(pos, window->mapToGlobal(pos), QPoint(), QPoint(0,-120), -120, Qt::Vertical, Qt::NoButton, Qt::NoModifier);
+        QWheelEvent event(pos, window->mapToGlobal(pos), QPoint(), QPoint(0,-120),
+                          Qt::NoButton, Qt::NoModifier, Qt::NoScrollPhase, false);
         event.setAccepted(false);
         QGuiApplication::sendEvent(window.data(), &event);
     }
@@ -897,7 +899,8 @@ void tst_qquickflickable::wheel()
     // test a horizontal flick
     {
         QPoint pos(200, 200);
-        QWheelEvent event(pos, window->mapToGlobal(pos), QPoint(), QPoint(-120,0), -120, Qt::Horizontal, Qt::NoButton, Qt::NoModifier);
+        QWheelEvent event(pos, window->mapToGlobal(pos), QPoint(), QPoint(-120,0),
+                          Qt::NoButton, Qt::NoModifier, Qt::NoScrollPhase, false);
 
         event.setAccepted(false);
         QGuiApplication::sendEvent(window.data(), &event);
@@ -926,7 +929,8 @@ void tst_qquickflickable::trackpad()
     QPoint pos(200, 200);
 
     {
-        QWheelEvent event(pos, window->mapToGlobal(pos), QPoint(0,-100), QPoint(0,-120), -120, Qt::Vertical, Qt::NoButton, Qt::NoModifier, Qt::ScrollBegin);
+        QWheelEvent event(pos, window->mapToGlobal(pos), QPoint(0,-100), QPoint(0,-120),
+                          Qt::NoButton, Qt::NoModifier, Qt::ScrollBegin, false);
         event.setAccepted(false);
         QGuiApplication::sendEvent(window.data(), &event);
     }
@@ -938,7 +942,8 @@ void tst_qquickflickable::trackpad()
     QCOMPARE(flick->contentY(), qreal(0));
 
     {
-        QWheelEvent event(pos, window->mapToGlobal(pos), QPoint(-100,0), QPoint(-120,0), -120, Qt::Horizontal, Qt::NoButton, Qt::NoModifier, Qt::ScrollUpdate);
+        QWheelEvent event(pos, window->mapToGlobal(pos), QPoint(-100,0), QPoint(-120,0),
+                          Qt::NoButton, Qt::NoModifier, Qt::ScrollUpdate, false);
         event.setAccepted(false);
         QGuiApplication::sendEvent(window.data(), &event);
     }
@@ -947,7 +952,8 @@ void tst_qquickflickable::trackpad()
     QCOMPARE(flick->contentY(), qreal(0));
 
     {
-        QWheelEvent event(pos, window->mapToGlobal(pos), QPoint(0,0), QPoint(0,0), 0, Qt::Horizontal, Qt::NoButton, Qt::NoModifier, Qt::ScrollEnd);
+        QWheelEvent event(pos, window->mapToGlobal(pos), QPoint(0,0), QPoint(0,0),
+                          Qt::NoButton, Qt::NoModifier, Qt::ScrollEnd, false);
         event.setAccepted(false);
         QGuiApplication::sendEvent(window.data(), &event);
     }
@@ -2534,6 +2540,16 @@ void tst_qquickflickable::synchronousDrag()
     if (!synchronousDrag)
         QVERIFY(flickable->contentY() < 50.0f);
     QTest::touchEvent(window, touchDevice).release(0, p5, window);
+}
+
+// QTBUG-81098: tests that a binding to visibleArea doesn't result
+// in a division-by-zero exception (when exceptions are enabled).
+void tst_qquickflickable::visibleAreaBinding()
+{
+    QScopedPointer<QQuickView> window(new QQuickView);
+    window->setSource(testFileUrl("visibleAreaBinding.qml"));
+    QTRY_COMPARE(window->status(), QQuickView::Ready);
+    // Shouldn't crash.
 }
 
 QTEST_MAIN(tst_qquickflickable)

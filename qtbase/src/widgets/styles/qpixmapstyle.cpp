@@ -122,9 +122,6 @@ QPixmapStyle::~QPixmapStyle()
 void QPixmapStyle::polish(QApplication *application)
 {
     QCommonStyle::polish(application);
-#if 0 // Used to be included in Qt4 for Q_WS_WIN
-    QApplication::setEffectEnabled(Qt::UI_AnimateCombo, false);
-#endif
 }
 
 /*!
@@ -188,11 +185,6 @@ void QPixmapStyle::polish(QWidget *widget)
             frame->setContentsMargins(pix.margins.left(), desc.margins.top(),
                                       pix.margins.right(), desc.margins.bottom());
             frame->setAttribute(Qt::WA_TranslucentBackground);
-#if 0 // Used to be included in Qt4 for Q_WS_WIN
-            // FramelessWindowHint is needed on windows to make
-            // WA_TranslucentBackground work properly
-            frame->setWindowFlags(widget->windowFlags() | Qt::FramelessWindowHint);
-#endif
         }
     }
 #endif // QT_CONFIG(combobox)
@@ -1011,13 +1003,13 @@ QSize QPixmapStyle::pushButtonSizeFromContents(const QStyleOption *option,
     return d->computeSize(desc, w, h);
 }
 
-QSize QPixmapStyle::lineEditSizeFromContents(const QStyleOption *,
+QSize QPixmapStyle::lineEditSizeFromContents(const QStyleOption *option,
                                              const QSize &contentsSize, const QWidget *) const
 {
     Q_D(const QPixmapStyle);
 
     const QPixmapStyleDescriptor &desc = d->descriptors.value(LE_Enabled);
-    const int border = 2 * proxy()->pixelMetric(PM_DefaultFrameWidth);
+    const int border = 2 * proxy()->pixelMetric(PM_DefaultFrameWidth, option);
 
     int w = contentsSize.width() + border + desc.margins.left() + desc.margins.right();
     int h = contentsSize.height() + border + desc.margins.top() + desc.margins.bottom();

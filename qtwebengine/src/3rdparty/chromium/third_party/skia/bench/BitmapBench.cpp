@@ -5,14 +5,14 @@
  * found in the LICENSE file.
  */
 
-#include "Benchmark.h"
-#include "SkBitmap.h"
-#include "SkCanvas.h"
-#include "SkColorPriv.h"
-#include "SkPaint.h"
-#include "SkRandom.h"
-#include "SkString.h"
-#include "sk_tool_utils.h"
+#include "bench/Benchmark.h"
+#include "include/core/SkBitmap.h"
+#include "include/core/SkCanvas.h"
+#include "include/core/SkColorPriv.h"
+#include "include/core/SkPaint.h"
+#include "include/core/SkString.h"
+#include "include/utils/SkRandom.h"
+#include "tools/ToolUtils.h"
 
 /*  Variants for bitmaps
 
@@ -48,7 +48,8 @@ public:
 protected:
     const char* onGetName() override {
         fName.set("bitmap");
-        fName.appendf("_%s%s", sk_tool_utils::colortype_name(fColorType),
+        fName.appendf("_%s%s",
+                      ToolUtils::colortype_name(fColorType),
                       kOpaque_SkAlphaType == fAlphaType ? "" : "_A");
         if (fDoScale) {
             fName.append("_scale");

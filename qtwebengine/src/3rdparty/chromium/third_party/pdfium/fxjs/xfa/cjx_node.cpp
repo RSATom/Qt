@@ -183,9 +183,8 @@ CJS_Result CJX_Node::clone(CFX_V8* runtime,
 
   CXFA_Node* pCloneNode = GetXFANode()->Clone(runtime->ToBoolean(params[0]));
   CFXJSE_Value* value =
-      GetDocument()->GetScriptContext()->GetJSValueFromMap(pCloneNode);
-  if (!value)
-    return CJS_Result::Success(runtime->NewNull());
+      GetDocument()->GetScriptContext()->GetOrCreateJSBindingFromMap(
+          pCloneNode);
 
   return CJS_Result::Success(
       value->DirectGetValue().Get(runtime->GetIsolate()));
@@ -210,15 +209,16 @@ CJS_Result CJX_Node::getElement(
 
   WideString expression = runtime->ToWideString(params[0]);
   int32_t iValue = params.size() >= 2 ? runtime->ToInt32(params[1]) : 0;
-  CXFA_Node* pNode = GetOrCreateProperty<CXFA_Node>(
-      iValue, XFA_GetElementByName(expression.AsStringView()));
+  XFA_Element eElement = XFA_GetElementByName(expression.AsStringView());
+  if (eElement == XFA_Element::Unknown)
+    return CJS_Result::Success(runtime->NewNull());
+
+  CXFA_Node* pNode = GetOrCreateProperty<CXFA_Node>(iValue, eElement);
   if (!pNode)
     return CJS_Result::Success(runtime->NewNull());
 
   CFXJSE_Value* value =
-      GetDocument()->GetScriptContext()->GetJSValueFromMap(pNode);
-  if (!value)
-    return CJS_Result::Success(runtime->NewNull());
+      GetDocument()->GetScriptContext()->GetOrCreateJSBindingFromMap(pNode);
 
   return CJS_Result::Success(
       value->DirectGetValue().Get(runtime->GetIsolate()));
@@ -236,9 +236,12 @@ CJS_Result CJX_Node::isPropertySpecified(
   if (attr.has_value() && HasAttribute(attr.value().attribute))
     return CJS_Result::Success(runtime->NewBoolean(true));
 
+  XFA_Element eType = XFA_GetElementByName(expression.AsStringView());
+  if (eType == XFA_Element::Unknown)
+    return CJS_Result::Success(runtime->NewBoolean(false));
+
   bool bParent = params.size() < 2 || runtime->ToBoolean(params[1]);
   int32_t iIndex = params.size() == 3 ? runtime->ToInt32(params[2]) : 0;
-  XFA_Element eType = XFA_GetElementByName(expression.AsStringView());
   bool bHas = !!GetOrCreateProperty<CXFA_Node>(iIndex, eType);
   if (!bHas && bParent && GetXFANode()->GetParent()) {
     // Also check on the parent.
@@ -276,7 +279,7 @@ CJS_Result CJX_Node::loadXML(CFX_V8* runtime,
   top_xml_doc->AppendNodesFrom(pParser->GetXMLDoc().get());
 
   if (bIgnoreRoot &&
-      (pXMLNode->GetType() != FX_XMLNODE_Element ||
+      (pXMLNode->GetType() != CFX_XMLNode::Type::kElement ||
        XFA_RecognizeRichText(static_cast<CFX_XMLElement*>(pXMLNode)))) {
     bIgnoreRoot = false;
   }
@@ -305,16 +308,13 @@ CJS_Result CJX_Node::loadXML(CFX_V8* runtime,
     CFX_XMLNode* pXMLChild = pXMLNode->GetFirstChild();
     while (pXMLChild) {
       CFX_XMLNode* pXMLSibling = pXMLChild->GetNextSibling();
-      pXMLNode->RemoveChildNode(pXMLChild);
-      pFakeXMLRoot->AppendChild(pXMLChild);
+      pXMLNode->RemoveChild(pXMLChild);
+      pFakeXMLRoot->AppendLastChild(pXMLChild);
       pXMLChild = pXMLSibling;
     }
   } else {
-    CFX_XMLNode* pXMLParent = pXMLNode->GetParent();
-    if (pXMLParent)
-      pXMLParent->RemoveChildNode(pXMLNode);
-
-    pFakeXMLRoot->AppendChild(pXMLNode);
+    pXMLNode->RemoveSelfIfParented();
+    pFakeXMLRoot->AppendLastChild(pXMLNode);
   }
 
   pParser->ConstructXFANode(pFakeRoot, pFakeXMLRoot);
@@ -328,16 +328,16 @@ CJS_Result CJX_Node::loadXML(CFX_V8* runtime,
     int32_t index = 0;
     while (pNewChild) {
       CXFA_Node* pItem = pNewChild->GetNextSibling();
-      pFakeRoot->RemoveChild(pNewChild, true);
-      GetXFANode()->InsertChild(index++, pNewChild);
+      pFakeRoot->RemoveChildAndNotify(pNewChild, true);
+      GetXFANode()->InsertChildAndNotify(index++, pNewChild);
       pNewChild->SetFlagAndNotify(XFA_NodeFlag_Initialized);
       pNewChild = pItem;
     }
 
     while (pChild) {
       CXFA_Node* pItem = pChild->GetNextSibling();
-      GetXFANode()->RemoveChild(pChild, true);
-      pFakeRoot->InsertChild(pChild, nullptr);
+      GetXFANode()->RemoveChildAndNotify(pChild, true);
+      pFakeRoot->InsertChildAndNotify(pChild, nullptr);
       pChild = pItem;
     }
 
@@ -356,8 +356,8 @@ CJS_Result CJX_Node::loadXML(CFX_V8* runtime,
     CXFA_Node* pChild = pFakeRoot->GetFirstChild();
     while (pChild) {
       CXFA_Node* pItem = pChild->GetNextSibling();
-      pFakeRoot->RemoveChild(pChild, true);
-      GetXFANode()->InsertChild(pChild, nullptr);
+      pFakeRoot->RemoveChildAndNotify(pChild, true);
+      GetXFANode()->InsertChildAndNotify(pChild, nullptr);
       pChild->SetFlagAndNotify(XFA_NodeFlag_Initialized);
       pChild = pItem;
     }
@@ -399,7 +399,7 @@ CJS_Result CJX_Node::saveXML(CFX_V8* runtime,
   CFX_XMLNode* pElement = nullptr;
   if (GetXFANode()->GetPacketType() == XFA_PacketType::Datasets) {
     pElement = GetXFANode()->GetXMLMappingNode();
-    if (!pElement || pElement->GetType() != FX_XMLNODE_Element) {
+    if (!pElement || pElement->GetType() != CFX_XMLNode::Type::kElement) {
       return CJS_Result::Success(
           runtime->NewString(bsXMLHeader.AsStringView()));
     }
@@ -426,8 +426,12 @@ CJS_Result CJX_Node::setAttribute(
   if (params.size() != 2)
     return CJS_Result::Failure(JSMessage::kParamError);
 
+  // Note: yes, arglist is spec'd absolutely backwards from what any sane
+  // person would do, namely value first, attribute second.
   WideString attributeValue = runtime->ToWideString(params[0]);
   WideString attribute = runtime->ToWideString(params[1]);
+
+  // Pass them to our method, however, in the more usual manner.
   SetAttribute(attribute.AsStringView(), attributeValue.AsStringView(), true);
   return CJS_Result::Success();
 }
@@ -460,7 +464,7 @@ void CJX_Node::model(CFXJSE_Value* pValue,
     ThrowInvalidPropertyException();
     return;
   }
-  pValue->Assign(GetDocument()->GetScriptContext()->GetJSValueFromMap(
+  pValue->Assign(GetDocument()->GetScriptContext()->GetOrCreateJSBindingFromMap(
       GetXFANode()->GetModelNode()));
 }
 
@@ -496,28 +500,29 @@ void CJX_Node::oneOfChild(CFXJSE_Value* pValue,
     return;
   }
 
-  std::vector<CXFA_Node*> properties = GetXFANode()->GetNodeList(
-      XFA_NODEFILTER_OneOfProperty, XFA_Element::Unknown);
+  std::vector<CXFA_Node*> properties =
+      GetXFANode()->GetNodeListWithFilter(XFA_NODEFILTER_OneOfProperty);
   if (!properties.empty()) {
-    pValue->Assign(GetDocument()->GetScriptContext()->GetJSValueFromMap(
-        properties.front()));
+    pValue->Assign(
+        GetDocument()->GetScriptContext()->GetOrCreateJSBindingFromMap(
+            properties.front()));
   }
 }
 
-int32_t CJX_Node::execSingleEventByName(WideStringView wsEventName,
-                                        XFA_Element eType) {
+XFA_EventError CJX_Node::execSingleEventByName(WideStringView wsEventName,
+                                               XFA_Element eType) {
   CXFA_FFNotify* pNotify = GetDocument()->GetNotify();
   if (!pNotify)
-    return XFA_EVENTERROR_NotExist;
+    return XFA_EventError::kNotExist;
 
   const XFA_ExecEventParaInfo* eventParaInfo =
       GetEventParaInfoByName(wsEventName);
   if (!eventParaInfo)
-    return XFA_EVENTERROR_NotExist;
+    return XFA_EventError::kNotExist;
 
   switch (eventParaInfo->m_validFlags) {
     case EventAppliesToo::kNone:
-      return XFA_EVENTERROR_NotExist;
+      return XFA_EventError::kNotExist;
     case EventAppliesToo::kAll:
     case EventAppliesToo::kAllNonRecursive:
       return pNotify->ExecEventByDeepFirst(
@@ -525,13 +530,13 @@ int32_t CJX_Node::execSingleEventByName(WideStringView wsEventName,
           eventParaInfo->m_validFlags == EventAppliesToo::kAll);
     case EventAppliesToo::kSubform:
       if (eType != XFA_Element::Subform)
-        return XFA_EVENTERROR_NotExist;
+        return XFA_EventError::kNotExist;
 
       return pNotify->ExecEventByDeepFirst(
           GetXFANode(), eventParaInfo->m_eventType, false, false);
     case EventAppliesToo::kFieldOrExclusion: {
       if (eType != XFA_Element::ExclGroup && eType != XFA_Element::Field)
-        return XFA_EVENTERROR_NotExist;
+        return XFA_EventError::kNotExist;
 
       CXFA_Node* pParentNode = GetXFANode()->GetParent();
       if (pParentNode &&
@@ -545,30 +550,30 @@ int32_t CJX_Node::execSingleEventByName(WideStringView wsEventName,
     }
     case EventAppliesToo::kField:
       if (eType != XFA_Element::Field)
-        return XFA_EVENTERROR_NotExist;
+        return XFA_EventError::kNotExist;
 
       return pNotify->ExecEventByDeepFirst(
           GetXFANode(), eventParaInfo->m_eventType, false, false);
     case EventAppliesToo::kSignature: {
       if (!GetXFANode()->IsWidgetReady())
-        return XFA_EVENTERROR_NotExist;
+        return XFA_EventError::kNotExist;
       if (GetXFANode()->GetUIChildNode()->GetElementType() !=
           XFA_Element::Signature) {
-        return XFA_EVENTERROR_NotExist;
+        return XFA_EventError::kNotExist;
       }
       return pNotify->ExecEventByDeepFirst(
           GetXFANode(), eventParaInfo->m_eventType, false, false);
     }
     case EventAppliesToo::kChoiceList: {
       if (!GetXFANode()->IsWidgetReady())
-        return XFA_EVENTERROR_NotExist;
+        return XFA_EventError::kNotExist;
       if (GetXFANode()->GetUIChildNode()->GetElementType() !=
           XFA_Element::ChoiceList) {
-        return XFA_EVENTERROR_NotExist;
+        return XFA_EventError::kNotExist;
       }
       return pNotify->ExecEventByDeepFirst(
           GetXFANode(), eventParaInfo->m_eventType, false, false);
     }
   }
-  return XFA_EVENTERROR_NotExist;
+  return XFA_EventError::kNotExist;
 }

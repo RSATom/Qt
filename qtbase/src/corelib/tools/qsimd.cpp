@@ -595,9 +595,9 @@ quint64 qDetectCpuFeatures()
                features_string + features_indices[qCountTrailingZeroBits(missing)]);
     }
 
-    qt_cpu_features[0].store(f | quint32(QSimdInitialized));
+    qt_cpu_features[0].storeRelaxed(f | quint32(QSimdInitialized));
 #ifndef Q_ATOMIC_INT64_IS_SUPPORTED
-    qt_cpu_features[1].store(f >> 32);
+    qt_cpu_features[1].storeRelaxed(f >> 32);
 #endif
     return f;
 }
@@ -630,7 +630,7 @@ void qDumpCPUFeatures()
 #    define _rdrandXX_step _rdrand32_step
 #  endif
 
-QT_FUNCTION_TARGET(RDRND) qsizetype qRandomCpu(void *buffer, qsizetype count) Q_DECL_NOTHROW
+QT_FUNCTION_TARGET(RDRND) qsizetype qRandomCpu(void *buffer, qsizetype count) noexcept
 {
     unsigned *ptr = reinterpret_cast<unsigned *>(buffer);
     unsigned *end = ptr + count;

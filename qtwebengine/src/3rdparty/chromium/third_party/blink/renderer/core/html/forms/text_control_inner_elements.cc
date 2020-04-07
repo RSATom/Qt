@@ -41,18 +41,13 @@ namespace blink {
 using namespace html_names;
 
 TextControlInnerContainer::TextControlInnerContainer(Document& document)
-    : HTMLDivElement(document) {}
-
-TextControlInnerContainer* TextControlInnerContainer::Create(
-    Document& document) {
-  TextControlInnerContainer* element =
-      MakeGarbageCollected<TextControlInnerContainer>(document);
-  element->setAttribute(kIdAttr, shadow_element_names::TextFieldContainer());
-  return element;
+    : HTMLDivElement(document) {
+  setAttribute(kIdAttr, shadow_element_names::TextFieldContainer());
 }
 
 LayoutObject* TextControlInnerContainer::CreateLayoutObject(
-    const ComputedStyle&) {
+    const ComputedStyle&,
+    LegacyLayout) {
   return new LayoutTextControlInnerContainer(this);
 }
 
@@ -61,13 +56,7 @@ LayoutObject* TextControlInnerContainer::CreateLayoutObject(
 EditingViewPortElement::EditingViewPortElement(Document& document)
     : HTMLDivElement(document) {
   SetHasCustomStyleCallbacks();
-}
-
-EditingViewPortElement* EditingViewPortElement::Create(Document& document) {
-  EditingViewPortElement* element =
-      MakeGarbageCollected<EditingViewPortElement>(document);
-  element->setAttribute(kIdAttr, shadow_element_names::EditingViewPort());
-  return element;
+  setAttribute(kIdAttr, shadow_element_names::EditingViewPort());
 }
 
 scoped_refptr<ComputedStyle>
@@ -78,7 +67,7 @@ EditingViewPortElement::CustomStyleForLayoutObject() {
   style->InheritFrom(OwnerShadowHost()->ComputedStyleRef());
 
   style->SetFlexGrow(1);
-  style->SetMinWidth(Length(0, kFixed));
+  style->SetMinWidth(Length::Fixed(0));
   style->SetDisplay(EDisplay::kBlock);
   style->SetDirection(TextDirection::kLtr);
 
@@ -91,15 +80,9 @@ EditingViewPortElement::CustomStyleForLayoutObject() {
 
 // ---------------------------
 
-inline TextControlInnerEditorElement::TextControlInnerEditorElement(
-    Document& document)
+TextControlInnerEditorElement::TextControlInnerEditorElement(Document& document)
     : HTMLDivElement(document) {
   SetHasCustomStyleCallbacks();
-}
-
-TextControlInnerEditorElement* TextControlInnerEditorElement::Create(
-    Document& document) {
-  return MakeGarbageCollected<TextControlInnerEditorElement>(document);
 }
 
 void TextControlInnerEditorElement::DefaultEventHandler(Event& event) {
@@ -132,7 +115,8 @@ void TextControlInnerEditorElement::SetVisibility(bool is_visible) {
 }
 
 LayoutObject* TextControlInnerEditorElement::CreateLayoutObject(
-    const ComputedStyle&) {
+    const ComputedStyle&,
+    LegacyLayout) {
   return new LayoutTextControlInnerEditor(this);
 }
 
@@ -161,7 +145,7 @@ TextControlInnerEditorElement::CreateInnerEditorStyle() const {
   text_block_style->SetUnicodeBidi(start_style.GetUnicodeBidi());
   text_block_style->SetUserSelect(EUserSelect::kText);
   text_block_style->SetUserModify(
-      ToHTMLFormControlElement(host)->IsDisabledOrReadOnly()
+      To<HTMLFormControlElement>(host)->IsDisabledOrReadOnly()
           ? EUserModify::kReadOnly
           : EUserModify::kReadWritePlaintextOnly);
   text_block_style->SetDisplay(EDisplay::kBlock);
@@ -212,17 +196,11 @@ TextControlInnerEditorElement::CreateInnerEditorStyle() const {
 
 // ----------------------------
 
-inline SearchFieldCancelButtonElement::SearchFieldCancelButtonElement(
+SearchFieldCancelButtonElement::SearchFieldCancelButtonElement(
     Document& document)
-    : HTMLDivElement(document) {}
-
-SearchFieldCancelButtonElement* SearchFieldCancelButtonElement::Create(
-    Document& document) {
-  SearchFieldCancelButtonElement* element =
-      MakeGarbageCollected<SearchFieldCancelButtonElement>(document);
-  element->SetShadowPseudoId(AtomicString("-webkit-search-cancel-button"));
-  element->setAttribute(kIdAttr, shadow_element_names::SearchClearButton());
-  return element;
+    : HTMLDivElement(document) {
+  SetShadowPseudoId(AtomicString("-webkit-search-cancel-button"));
+  setAttribute(kIdAttr, shadow_element_names::SearchClearButton());
 }
 
 void SearchFieldCancelButtonElement::DefaultEventHandler(Event& event) {
@@ -236,7 +214,7 @@ void SearchFieldCancelButtonElement::DefaultEventHandler(Event& event) {
 
   if (event.type() == event_type_names::kClick && event.IsMouseEvent() &&
       ToMouseEvent(event).button() ==
-          static_cast<short>(WebPointerProperties::Button::kLeft)) {
+          static_cast<int16_t>(WebPointerProperties::Button::kLeft)) {
     input->SetValueForUser("");
     input->SetAutofillState(WebAutofillState::kNotFilled);
     input->OnSearch();

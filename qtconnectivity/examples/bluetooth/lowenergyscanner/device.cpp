@@ -108,16 +108,18 @@ void Device::startDeviceDiscovery()
 //! [les-devicediscovery-3]
 void Device::addDevice(const QBluetoothDeviceInfo &info)
 {
-    if (info.coreConfigurations() & QBluetoothDeviceInfo::LowEnergyCoreConfiguration) {
-        auto d = new DeviceInfo(info);
-        devices.append(d);
-        setUpdate("Last device added: " + d->getName());
-    }
+    if (info.coreConfigurations() & QBluetoothDeviceInfo::LowEnergyCoreConfiguration)
+        setUpdate("Last device added: " + info.name());
 }
 //! [les-devicediscovery-3]
 
 void Device::deviceScanFinished()
 {
+    const QList<QBluetoothDeviceInfo> foundDevices = discoveryAgent->discoveredDevices();
+    for (auto nextDevice : foundDevices)
+        if (nextDevice.coreConfigurations() & QBluetoothDeviceInfo::LowEnergyCoreConfiguration)
+            devices.append(new DeviceInfo(nextDevice));
+
     emit devicesUpdated();
     m_deviceScanState = false;
     emit stateChanged();
@@ -152,12 +154,12 @@ void Device::scanServices(const QString &address)
     // We need the current device for service discovery.
 
     for (auto d: qAsConst(devices)) {
-        auto device = qobject_cast<DeviceInfo *>(d);
-        if (!device)
-            continue;
-
-        if (device->getAddress() == address )
-            currentDevice.setDevice(device->getDevice());
+        if (auto device = qobject_cast<DeviceInfo *>(d)) {
+            if (device->getAddress() == address ) {
+                currentDevice.setDevice(device->getDevice());
+                break;
+            }
+        }
     }
 
     if (!currentDevice.getDevice().isValid()) {

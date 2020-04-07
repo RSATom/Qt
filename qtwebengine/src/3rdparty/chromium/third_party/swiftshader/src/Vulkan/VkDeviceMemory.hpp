@@ -24,7 +24,6 @@ class DeviceMemory : public Object<DeviceMemory, VkDeviceMemory>
 {
 public:
 	DeviceMemory(const VkMemoryAllocateInfo* pCreateInfo, void* mem);
-	~DeviceMemory() = delete;
 
 	static size_t ComputeRequiredAllocationSize(const VkMemoryAllocateInfo* pCreateInfo);
 
@@ -32,7 +31,7 @@ public:
 	VkResult allocate();
 	VkResult map(VkDeviceSize offset, VkDeviceSize size, void** ppData);
 	VkDeviceSize getCommittedMemoryInBytes() const;
-	void* getOffsetPointer(VkDeviceSize pOffset);
+	void* getOffsetPointer(VkDeviceSize pOffset) const;
 	uint32_t getMemoryTypeIndex() const { return memoryTypeIndex; }
 
 private:
@@ -43,7 +42,7 @@ private:
 
 static inline DeviceMemory* Cast(VkDeviceMemory object)
 {
-	return reinterpret_cast<DeviceMemory*>(object);
+	return DeviceMemory::Cast(object);
 }
 
 

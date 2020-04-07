@@ -5,6 +5,7 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_CSS_PROPERTIES_COMPUTED_STYLE_UTILS_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_CSS_PROPERTIES_COMPUTED_STYLE_UTILS_H_
 
+#include "cc/input/scroll_snap_data.h"
 #include "third_party/blink/renderer/core/css/css_border_image_slice_value.h"
 #include "third_party/blink/renderer/core/css/css_identifier_value.h"
 #include "third_party/blink/renderer/core/css/css_value_list.h"
@@ -12,15 +13,17 @@
 #include "third_party/blink/renderer/core/css/zoom_adjusted_pixel_value.h"
 #include "third_party/blink/renderer/core/style/computed_style.h"
 #include "third_party/blink/renderer/core/style/computed_style_constants.h"
-#include "third_party/blink/renderer/platform/wtf/allocator.h"
+#include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 
 namespace blink {
 
 using namespace cssvalue;
 
 class ComputedStyle;
+class CSSStyleValue;
 class CSSValue;
 class StyleColor;
+class StylePropertyShorthand;
 
 class ComputedStyleUtils {
   STATIC_ONLY(ComputedStyleUtils);
@@ -30,7 +33,7 @@ class ComputedStyleUtils {
       const Length& length,
       const ComputedStyle& style) {
     if (length.IsAuto())
-      return CSSIdentifierValue::Create(CSSValueAuto);
+      return CSSIdentifierValue::Create(CSSValueID::kAuto);
     return ZoomAdjustedPixelValue(length.Value(), style);
   }
 
@@ -55,7 +58,7 @@ class ComputedStyleUtils {
   static const CSSValueList* ValuesForBackgroundShorthand(
       const ComputedStyle&,
       const LayoutObject*,
-      Node*,
+      const Node*,
       bool allow_visited_style);
   static const CSSValue* BackgroundRepeatOrWebkitMaskRepeat(const FillLayer*);
   static const CSSValue* BackgroundPositionOrWebkitMaskPosition(
@@ -82,9 +85,9 @@ class ComputedStyleUtils {
 
   static CSSValue* ValueForOffset(const ComputedStyle&,
                                   const LayoutObject*,
-                                  Node*,
+                                  const Node*,
                                   bool allow_visited_style);
-  static CSSValue* MinWidthOrMinHeightAuto(Node*, const ComputedStyle&);
+  static CSSValue* MinWidthOrMinHeightAuto(const Node*, const ComputedStyle&);
   static CSSValue* ValueForPositionOffset(const ComputedStyle&,
                                           const CSSProperty&,
                                           const LayoutObject*);
@@ -164,9 +167,9 @@ class ComputedStyleUtils {
                                       bool use_spread);
   static CSSValue* ValueForFilter(const ComputedStyle&,
                                   const FilterOperations&);
-  static CSSValue* ValueForScrollSnapType(const ScrollSnapType&,
+  static CSSValue* ValueForScrollSnapType(const cc::ScrollSnapType&,
                                           const ComputedStyle&);
-  static CSSValue* ValueForScrollSnapAlign(const ScrollSnapAlign&,
+  static CSSValue* ValueForScrollSnapAlign(const cc::ScrollSnapAlign&,
                                            const ComputedStyle&);
   static CSSValue* ValueForPageBreakBetween(EBreakBetween);
   static CSSValue* ValueForWebkitColumnBreakBetween(EBreakBetween);
@@ -176,31 +179,38 @@ class ComputedStyleUtils {
   static CSSValueList* ValuesForShorthandProperty(const StylePropertyShorthand&,
                                                   const ComputedStyle&,
                                                   const LayoutObject*,
-                                                  Node*,
+                                                  const Node*,
                                                   bool allow_visited_style);
   static CSSValueList* ValuesForGridShorthand(const StylePropertyShorthand&,
                                               const ComputedStyle&,
                                               const LayoutObject*,
-                                              Node*,
+                                              const Node*,
                                               bool allow_visited_style);
   static CSSValueList* ValuesForSidesShorthand(const StylePropertyShorthand&,
                                                const ComputedStyle&,
                                                const LayoutObject*,
-                                               Node*,
+                                               const Node*,
                                                bool allow_visited_style);
   static CSSValuePair* ValuesForInlineBlockShorthand(
       const StylePropertyShorthand&,
       const ComputedStyle&,
       const LayoutObject*,
-      Node*,
+      const Node*,
       bool allow_visited_style);
+  static CSSValuePair* ValuesForPlaceShorthand(const StylePropertyShorthand&,
+                                               const ComputedStyle&,
+                                               const LayoutObject*,
+                                               const Node*,
+                                               bool allow_visited_style);
   static CSSValue* ValuesForFontVariantProperty(const ComputedStyle&,
                                                 const LayoutObject*,
-                                                Node*,
+                                                const Node*,
                                                 bool allow_visited_style);
   static CSSValue* ScrollCustomizationFlagsToCSSValue(
       scroll_customization::ScrollDirection);
   static CSSValue* ValueForGapLength(const GapLength&, const ComputedStyle&);
+  static std::unique_ptr<CrossThreadStyleValue>
+  CrossThreadStyleValueFromCSSStyleValue(CSSStyleValue* style_value);
 };
 
 }  // namespace blink

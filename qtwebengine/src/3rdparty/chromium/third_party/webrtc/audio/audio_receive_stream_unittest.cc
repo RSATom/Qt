@@ -8,6 +8,8 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
+#include "audio/audio_receive_stream.h"
+
 #include <map>
 #include <string>
 #include <utility>
@@ -15,14 +17,12 @@
 
 #include "api/test/mock_audio_mixer.h"
 #include "api/test/mock_frame_decryptor.h"
-#include "audio/audio_receive_stream.h"
 #include "audio/conversion.h"
 #include "audio/mock_voe_channel_proxy.h"
 #include "call/rtp_stream_receiver_controller.h"
 #include "logging/rtc_event_log/mock/mock_rtc_event_log.h"
 #include "modules/audio_device/include/mock_audio_device.h"
 #include "modules/audio_processing/include/mock_audio_processing.h"
-#include "modules/bitrate_controller/include/mock/mock_bitrate_controller.h"
 #include "modules/pacing/packet_router.h"
 #include "modules/rtp_rtcp/source/byte_io.h"
 #include "rtc_base/time_utils.h"
@@ -34,10 +34,9 @@ namespace webrtc {
 namespace test {
 namespace {
 
-using testing::_;
-using testing::FloatEq;
-using testing::Return;
-using testing::ReturnRef;
+using ::testing::_;
+using ::testing::FloatEq;
+using ::testing::Return;
 
 AudioDecodingCallStats MakeAudioDecodeStatsForTest() {
   AudioDecodingCallStats audio_decode_stats;
@@ -63,13 +62,14 @@ const unsigned int kSpeechOutputLevel = 99;
 const double kTotalOutputEnergy = 0.25;
 const double kTotalOutputDuration = 0.5;
 
-const CallReceiveStatistics kCallStats = {345, 678, 901, 234,
-                                          -12, 567, 890, 123};
-const std::pair<int, SdpAudioFormat> kReceiveCodec =
-    {123, {"codec_name_recv", 96000, 0}};
+const CallReceiveStatistics kCallStats = {678, 901, 234, -12, 567, 890, 123};
+const std::pair<int, SdpAudioFormat> kReceiveCodec = {
+    123,
+    {"codec_name_recv", 96000, 0}};
 const NetworkStatistics kNetworkStats = {
-    123, 456, false, 789012, 3456, 123, 456, 789, 0,  {}, 789,
-    12,  345, 678,   901,    0,    -1,  -1,  -1,  -1, -1, 0};
+    123, 456, false, 789012, 3456, 123, 456, 789, 543, 432,
+    321, 123, 101,   0,      {},   789, 12,  345, 678, 901,
+    0,   -1,  -1,    -1,     -1,   -1,  0,   0,   0,   0};
 const AudioDecodingCallStats kAudioDecodeStats = MakeAudioDecodeStatsForTest();
 
 struct ConfigHelper {
@@ -77,7 +77,7 @@ struct ConfigHelper {
 
   explicit ConfigHelper(rtc::scoped_refptr<MockAudioMixer> audio_mixer)
       : audio_mixer_(audio_mixer) {
-    using testing::Invoke;
+    using ::testing::Invoke;
 
     AudioState::Config config;
     config.audio_mixer = audio_mixer_;
@@ -86,7 +86,7 @@ struct ConfigHelper {
         new rtc::RefCountedObject<testing::NiceMock<MockAudioDeviceModule>>();
     audio_state_ = AudioState::Create(config);
 
-    channel_receive_ = new testing::StrictMock<MockChannelReceive>();
+    channel_receive_ = new ::testing::StrictMock<MockChannelReceive>();
     EXPECT_CALL(*channel_receive_, SetLocalSSRC(kLocalSsrc)).Times(1);
     EXPECT_CALL(*channel_receive_, SetNACKStatus(true, 15)).Times(1);
     EXPECT_CALL(*channel_receive_,
@@ -97,7 +97,7 @@ struct ConfigHelper {
     EXPECT_CALL(*channel_receive_, SetAssociatedSendChannel(nullptr)).Times(1);
     EXPECT_CALL(*channel_receive_, SetReceiveCodecs(_))
         .WillRepeatedly(Invoke([](const std::map<int, SdpAudioFormat>& codecs) {
-          EXPECT_THAT(codecs, testing::IsEmpty());
+          EXPECT_THAT(codecs, ::testing::IsEmpty());
         }));
 
     stream_config_.rtp.local_ssrc = kLocalSsrc;
@@ -115,8 +115,8 @@ struct ConfigHelper {
   std::unique_ptr<internal::AudioReceiveStream> CreateAudioReceiveStream() {
     return std::unique_ptr<internal::AudioReceiveStream>(
         new internal::AudioReceiveStream(
-            &rtp_stream_receiver_controller_, &packet_router_, stream_config_,
-            audio_state_, &event_log_,
+            Clock::GetRealTimeClock(), &rtp_stream_receiver_controller_,
+            &packet_router_, stream_config_, audio_state_, &event_log_,
             std::unique_ptr<voe::ChannelReceiveInterface>(channel_receive_)));
   }
 
@@ -125,8 +125,8 @@ struct ConfigHelper {
   MockChannelReceive* channel_receive() { return channel_receive_; }
 
   void SetupMockForGetStats() {
-    using testing::DoAll;
-    using testing::SetArgPointee;
+    using ::testing::DoAll;
+    using ::testing::SetArgPointee;
 
     ASSERT_TRUE(channel_receive_);
     EXPECT_CALL(*channel_receive_, GetRTCPStatistics())
@@ -153,7 +153,7 @@ struct ConfigHelper {
   rtc::scoped_refptr<AudioState> audio_state_;
   rtc::scoped_refptr<MockAudioMixer> audio_mixer_;
   AudioReceiveStream::Config stream_config_;
-  testing::StrictMock<MockChannelReceive>* channel_receive_ = nullptr;
+  ::testing::StrictMock<MockChannelReceive>* channel_receive_ = nullptr;
   RtpStreamReceiverController rtp_stream_receiver_controller_;
   MockTransport rtcp_send_transport_;
 };
@@ -220,7 +220,8 @@ TEST(AudioReceiveStreamTest, ConfigToString) {
       "{rtp: {remote_ssrc: 1234, local_ssrc: 5678, transport_cc: off, nack: "
       "{rtp_history_ms: 0}, extensions: [{uri: "
       "urn:ietf:params:rtp-hdrext:ssrc-audio-level, id: 3}]}, "
-      "rtcp_send_transport: null, media_transport: null}",
+      "rtcp_send_transport: null, media_transport_config: {media_transport: "
+      "null}}",
       config.ToString());
 }
 
@@ -243,7 +244,7 @@ TEST(AudioReceiveStreamTest, ReceiveRtpPacket) {
   parsed_packet.set_arrival_time_ms((packet_time_us + 500) / 1000);
 
   EXPECT_CALL(*helper.channel_receive(),
-              OnRtpPacket(testing::Ref(parsed_packet)));
+              OnRtpPacket(::testing::Ref(parsed_packet)));
 
   recv_stream->OnRtpPacket(parsed_packet);
 }
@@ -255,8 +256,8 @@ TEST(AudioReceiveStreamTest, ReceiveRtcpPacket) {
   std::vector<uint8_t> rtcp_packet = CreateRtcpSenderReport();
   EXPECT_CALL(*helper.channel_receive(),
               ReceivedRTCPPacket(&rtcp_packet[0], rtcp_packet.size()))
-      .WillOnce(Return(true));
-  EXPECT_TRUE(recv_stream->DeliverRtcp(&rtcp_packet[0], rtcp_packet.size()));
+      .WillOnce(Return());
+  recv_stream->DeliverRtcp(&rtcp_packet[0], rtcp_packet.size());
 }
 
 TEST(AudioReceiveStreamTest, GetStats) {
@@ -269,7 +270,6 @@ TEST(AudioReceiveStreamTest, GetStats) {
   EXPECT_EQ(static_cast<uint32_t>(kCallStats.packetsReceived),
             stats.packets_rcvd);
   EXPECT_EQ(kCallStats.cumulativeLost, stats.packets_lost);
-  EXPECT_EQ(Q8ToFloat(kCallStats.fractionLost), stats.fraction_lost);
   EXPECT_EQ(kReceiveCodec.second.name, stats.codec_name);
   EXPECT_EQ(kCallStats.extendedMax, stats.ext_seqnum);
   EXPECT_EQ(

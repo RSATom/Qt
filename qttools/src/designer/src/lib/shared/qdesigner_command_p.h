@@ -179,7 +179,7 @@ private:
 // Helper to correctly unmanage a widget and its children for delete operations
 class  QDESIGNER_SHARED_EXPORT ManageWidgetCommandHelper {
 public:
-    typedef QVector<QWidget*> WidgetVector;
+    using WidgetVector = QVector<QWidget *>;
 
     ManageWidgetCommandHelper();
     void init(const QDesignerFormWindowInterface *fw, QWidget *widget);
@@ -190,7 +190,7 @@ public:
 
     const WidgetVector &managedChildren() const { return m_managedChildren; }
 private:
-    QWidget *m_widget;
+    QWidget *m_widget = nullptr;
     WidgetVector m_managedChildren;
 };
 
@@ -316,24 +316,24 @@ private:
 class QDESIGNER_SHARED_EXPORT PromoteToCustomWidgetCommand : public QDesignerFormWindowCommand
 {
 public:
-    typedef QList<QPointer<QWidget> > WidgetList;
+    using WidgetPointerList = QList<QPointer<QWidget> >;
 
     explicit PromoteToCustomWidgetCommand(QDesignerFormWindowInterface *formWindow);
 
-    void init(const WidgetList &widgets, const QString &customClassName);
+    void init(const WidgetPointerList &widgets, const QString &customClassName);
     void redo() override;
     void undo() override;
 
 private:
     void updateSelection();
-    WidgetList m_widgets;
+    WidgetPointerList m_widgets;
     QString m_customClassName;
 };
 
 class QDESIGNER_SHARED_EXPORT DemoteFromCustomWidgetCommand : public QDesignerFormWindowCommand
 {
 public:
-    typedef PromoteToCustomWidgetCommand::WidgetList WidgetList;
+    using WidgetList = PromoteToCustomWidgetCommand::WidgetPointerList;
 
     explicit DemoteFromCustomWidgetCommand(QDesignerFormWindowInterface *formWindow);
 
@@ -346,7 +346,7 @@ private:
 
 // Mixin class for storing the selection state
 class QDESIGNER_SHARED_EXPORT CursorSelectionState {
-    Q_DISABLE_COPY(CursorSelectionState)
+    Q_DISABLE_COPY_MOVE(CursorSelectionState)
 public:
     CursorSelectionState();
 
@@ -354,7 +354,7 @@ public:
     void restore(QDesignerFormWindowInterface *formWindow) const;
 
 private:
-    typedef QList<QPointer<QWidget> > WidgetPointerList;
+    using WidgetPointerList = QList<QPointer<QWidget> >;
     WidgetPointerList m_selection;
     QPointer<QWidget> m_current;
 };
@@ -369,7 +369,7 @@ public:
     inline QWidgetList widgets() const { return m_widgets; }
 
     void init(QWidget *parentWidget, const QWidgetList &widgets, LayoutInfo::Type layoutType,
-              QWidget *layoutBase = 0,
+              QWidget *layoutBase = nullptr,
               // Reparent/Hide instances of QLayoutWidget.
               bool reparentLayoutWidget = true);
 
@@ -424,7 +424,7 @@ public:
     bool init(QWidget *layoutBase);
 
     // Quick check
-    static bool canSimplify(QDesignerFormEditorInterface *core, const QWidget *w, int *layoutType = 0);
+    static bool canSimplify(QDesignerFormEditorInterface *core, const QWidget *w, int *layoutType = nullptr);
 
     void redo() override;
     void undo() override;
@@ -713,7 +713,7 @@ class AddToolBarCommand: public QDesignerFormWindowCommand
 public:
     explicit AddToolBarCommand(QDesignerFormWindowInterface *formWindow);
 
-    void init(QMainWindow *mainWindow);
+    void init(QMainWindow *mainWindow, Qt::ToolBarArea area);
 
     void undo() override;
     void redo() override;
@@ -841,7 +841,7 @@ protected:
 };
 
 struct QDESIGNER_SHARED_EXPORT ItemData {
-    ItemData() {}
+    ItemData() = default;
 
     ItemData(const QListWidgetItem *item, bool editor);
     ItemData(const QTableWidgetItem *item, bool editor);
@@ -858,7 +858,7 @@ struct QDESIGNER_SHARED_EXPORT ItemData {
 };
 
 struct QDESIGNER_SHARED_EXPORT ListContents {
-    ListContents() {}
+    ListContents() = default;
 
     ListContents(const QTreeWidgetItem *item);
     QTreeWidgetItem *createTreeItem(DesignerIconCache *iconCache) const;
@@ -878,8 +878,8 @@ struct QDESIGNER_SHARED_EXPORT ListContents {
 // methods to retrieve and apply for ChangeTableContentsCommand
 struct QDESIGNER_SHARED_EXPORT TableWidgetContents {
 
-    typedef QPair<int, int> CellRowColumnAddress;
-    typedef QMap<CellRowColumnAddress, ItemData> TableItemMap;
+    using CellRowColumnAddress = QPair<int, int>;
+    using TableItemMap = QMap<CellRowColumnAddress, ItemData>;
 
     TableWidgetContents();
     void clear();
@@ -894,8 +894,8 @@ struct QDESIGNER_SHARED_EXPORT TableWidgetContents {
     static QString defaultHeaderText(int i);
     static void insertHeaderItem(const QTableWidgetItem *item, int i, ListContents *header, bool editor);
 
-    int m_columnCount;
-    int m_rowCount;
+    int m_columnCount = 0;
+    int m_rowCount = 0;
     ListContents m_horizontalHeader;
     ListContents m_verticalHeader;
     TableItemMap m_items;
@@ -922,14 +922,14 @@ private:
 struct QDESIGNER_SHARED_EXPORT TreeWidgetContents {
 
     struct ItemContents : public ListContents {
-        ItemContents() : m_itemFlags(-1) {}
+        ItemContents() = default;
         ItemContents(const QTreeWidgetItem *item, bool editor);
         QTreeWidgetItem *createTreeItem(DesignerIconCache *iconCache, bool editor) const;
 
         bool operator==(const ItemContents &rhs) const;
         bool operator!=(const ItemContents &rhs) const { return !(*this == rhs); }
 
-        int m_itemFlags;
+        int m_itemFlags = -1;
         //bool m_firstColumnSpanned:1;
         //bool m_hidden:1;
         //bool m_expanded:1;
@@ -1011,12 +1011,12 @@ public:
     void undo() override;
 
     struct ActionDataItem {
-        ActionDataItem(QAction *_before = 0, QWidget *_widget = 0)
+        ActionDataItem(QAction *_before = nullptr, QWidget *_widget = nullptr)
             : before(_before), widget(_widget) {}
         QAction *before;
         QWidget *widget;
     };
-    typedef QList<ActionDataItem> ActionData;
+    using ActionData = QList<ActionDataItem>;
 
 private:
     QAction *m_action;
@@ -1031,7 +1031,7 @@ protected:
     ActionInsertionCommand(const QString &text, QDesignerFormWindowInterface *formWindow);
 
 public:
-    void init(QWidget *parentWidget, QAction *action, QAction *beforeAction = 0, bool update = true);
+    void init(QWidget *parentWidget, QAction *action, QAction *beforeAction = nullptr, bool update = true);
 
 protected:
     void insertAction();
@@ -1107,7 +1107,7 @@ class CreateSubmenuCommand : public QDesignerFormWindowCommand
 
 public:
     explicit CreateSubmenuCommand(QDesignerFormWindowInterface *formWindow);
-    void init(QDesignerMenu *menu, QAction *action, QObject *m_objectToSelect = 0);
+    void init(QDesignerMenu *menu, QAction *action, QObject *m_objectToSelect = nullptr);
     void redo() override;
     void undo() override;
 private:

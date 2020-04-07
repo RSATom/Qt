@@ -10,6 +10,7 @@
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/single_thread_task_runner.h"
+#include "base/time/tick_clock.h"
 #include "third_party/blink/renderer/platform/graphics/animation_worklet_mutator.h"
 #include "third_party/blink/renderer/platform/graphics/animation_worklet_mutator_dispatcher.h"
 #include "third_party/blink/renderer/platform/graphics/mutator_client.h"
@@ -51,8 +52,9 @@ class PLATFORM_EXPORT AnimationWorkletMutatorDispatcherImpl final
   void MutateSynchronously(
       std::unique_ptr<AnimationWorkletDispatcherInput>) override;
 
-  void MutateAsynchronously(
-      std::unique_ptr<AnimationWorkletDispatcherInput>) override;
+  bool MutateAsynchronously(std::unique_ptr<AnimationWorkletDispatcherInput>,
+                            MutateQueuingStrategy,
+                            AsyncMutationCompleteCallback) override;
 
   // TODO(majidvp): Remove when timeline inputs are known.
   bool HasMutators() override;
@@ -72,8 +74,21 @@ class PLATFORM_EXPORT AnimationWorkletMutatorDispatcherImpl final
 
   MutatorClient* client() { return client_; }
 
+  scoped_refptr<base::SingleThreadTaskRunner> GetTaskRunner() {
+    return host_queue_;
+  }
+
+  base::WeakPtr<AnimationWorkletMutatorDispatcherImpl> GetWeakPtr() {
+    return weak_factory_.GetWeakPtr();
+  }
+
+  void SetClockForTesting(std::unique_ptr<base::TickClock> tick_clock) {
+    tick_clock_.reset(tick_clock.release());
+  }
+
  private:
   class OutputVectorRef;
+  struct AsyncMutationRequest;
 
   using InputMap = HashMap<int, std::unique_ptr<AnimationWorkletInput>>;
 
@@ -83,22 +98,36 @@ class PLATFORM_EXPORT AnimationWorkletMutatorDispatcherImpl final
 
   InputMap CreateInputMap(AnimationWorkletDispatcherInput& mutator_input) const;
 
-  // Dispatches mutation update requests.  The callback is triggered once
-  // all mutation updates have been computed on the animation worklet thread
-  // associated with the last mutation to complete.
-  void RequestMutations(WTF::CrossThreadClosure done_callback);
+  // Dispatches mutation update requests. The callback is triggered once all
+  // mutation updates have been computed and it runs on the animation worklet
+  // thread associated with the last mutation to complete.
+  void RequestMutations(CrossThreadOnceClosure done_callback);
 
-  void AsyncMutationsDone(int async_mutation_id);
+  // Dispatches mutation update requests. The request time includes time
+  // in the queue. In the event that a queued request is replaced, the
+  // replacement uses the original request time.
+  // |done_callback| is called on the impl thread on completion of the mutation
+  // cycle.
+  void MutateAsynchronouslyInternal(
+      base::TimeTicks request_time,
+      AsyncMutationCompleteCallback done_callback);
 
-  void ApplyMutationsOnHostThread();
+  // Called when the asynchronous mutation cycle is complete. The mutation id
+  // is used for asynchronous task monitoring and request time is used for
+  // collecting UMA stats of the total time between mutation request and
+  // completion.
+  void AsyncMutationsDone(int async_mutation_id, base::TimeTicks request_time);
+
+  // Returns true if any updates were applied.
+  bool ApplyMutationsOnHostThread();
+
+  // Timing function used for UMA metrics. Uses a tick clock that may be
+  // overridden for testing purposes.
+  base::TimeTicks NowTicks() const;
 
   // The AnimationWorkletProxyClients are also owned by the WorkerClients
   // dictionary.
   AnimationWorkletMutatorToTaskRunnerMap mutator_map_;
-
-  scoped_refptr<base::SingleThreadTaskRunner> GetTaskRunner() {
-    return host_queue_;
-  }
 
   template <typename ClientType>
   static std::unique_ptr<ClientType> CreateClient(
@@ -127,7 +156,22 @@ class PLATFORM_EXPORT AnimationWorkletMutatorDispatcherImpl final
   // the mutation cycle.
   scoped_refptr<OutputVectorRef> outputs_;
 
-  base::WeakPtrFactory<AnimationWorkletMutatorDispatcherImpl> weak_factory_;
+  // Active callback for the completion of an async mutation cycle.
+  AsyncMutationCompleteCallback on_async_mutation_complete_;
+
+  // Queues for pending mutation requests. Each queue can hold a single request.
+  // On completion of a mutation cycle, a fresh mutation cycle is started if
+  // either queue contains a request. The priority queue takes precedence if
+  // both queues contain a request.  The request stored in the replaceable queue
+  // can be updated in a later async mutation call, whereas the priority queue
+  // entry cannot, as each priority request is required to run.
+  std::unique_ptr<AsyncMutationRequest> queued_priority_request;
+  std::unique_ptr<AsyncMutationRequest> queued_replaceable_request;
+
+  std::unique_ptr<base::TickClock> tick_clock_;
+
+  base::WeakPtrFactory<AnimationWorkletMutatorDispatcherImpl> weak_factory_{
+      this};
 
   DISALLOW_COPY_AND_ASSIGN(AnimationWorkletMutatorDispatcherImpl);
 };

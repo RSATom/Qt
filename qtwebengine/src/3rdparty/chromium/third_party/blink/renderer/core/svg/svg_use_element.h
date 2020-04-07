@@ -39,8 +39,6 @@ class SVGUseElement final : public SVGGraphicsElement,
   USING_PRE_FINALIZER(SVGUseElement, Dispose);
 
  public:
-  static SVGUseElement* Create(Document&);
-
   explicit SVGUseElement(Document&);
   ~SVGUseElement() override;
 
@@ -61,6 +59,10 @@ class SVGUseElement final : public SVGGraphicsElement,
   void DispatchPendingEvent();
   Path ToClipPath() const;
 
+  const AttrNameToTrustedType& GetCheckedAttributeTypes() const override {
+    return SVGURIReference::GetCheckedAttributeTypes();
+  }
+
   void Trace(blink::Visitor*) override;
 
  private:
@@ -80,7 +82,7 @@ class SVGUseElement final : public SVGGraphicsElement,
 
   void SvgAttributeChanged(const QualifiedName&) override;
 
-  LayoutObject* CreateLayoutObject(const ComputedStyle&) override;
+  LayoutObject* CreateLayoutObject(const ComputedStyle&, LegacyLayout) override;
 
   void ScheduleShadowTreeRecreation();
   void CancelShadowTreeRecreation();

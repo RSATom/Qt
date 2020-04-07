@@ -25,12 +25,14 @@ public class TaskInfo {
         private final long mWindowStartTimeMs;
         private final long mWindowEndTimeMs;
         private final boolean mHasWindowStartTimeConstraint;
+        private final boolean mExpiresAfterWindowEndTime;
 
         private OneOffInfo(long windowStartTimeMs, long windowEndTimeMs,
-                boolean hasWindowStartTimeConstraint) {
+                boolean hasWindowStartTimeConstraint, boolean expiresAfterWindowEndTime) {
             mWindowStartTimeMs = windowStartTimeMs;
             mWindowEndTimeMs = windowEndTimeMs;
             mHasWindowStartTimeConstraint = hasWindowStartTimeConstraint;
+            mExpiresAfterWindowEndTime = expiresAfterWindowEndTime;
         }
 
         /**
@@ -56,10 +58,19 @@ public class TaskInfo {
             return mHasWindowStartTimeConstraint;
         }
 
+        /**
+         * @return whether this one-off task expires after {@link #getWindowEndTimeMs()}
+         * False by default.
+         */
+        public boolean expiresAfterWindowEndTime() {
+            return mExpiresAfterWindowEndTime;
+        }
+
         @Override
         public String toString() {
-            return "{windowStartTimeMs: " + mWindowStartTimeMs + ", windowEndTimeMs: "
-                    + mWindowEndTimeMs + "}";
+            return "{windowStartTimeMs: " + mWindowStartTimeMs
+                    + ", windowEndTimeMs: " + mWindowEndTimeMs
+                    + "} - expires at window_end_time: " + mExpiresAfterWindowEndTime;
         }
     }
 
@@ -113,28 +124,28 @@ public class TaskInfo {
         }
     }
 
+    @IntDef({NetworkType.NONE, NetworkType.ANY, NetworkType.UNMETERED})
     @Retention(RetentionPolicy.SOURCE)
-    @IntDef({NETWORK_TYPE_NONE, NETWORK_TYPE_ANY, NETWORK_TYPE_UNMETERED})
-    public @interface NetworkType {}
-
-    /**
-     * This task has no requirements for network connectivity. Default.
-     *
-     * @see NetworkType
-     */
-    public static final int NETWORK_TYPE_NONE = 0;
-    /**
-     * This task requires network connectivity.
-     *
-     * @see NetworkType
-     */
-    public static final int NETWORK_TYPE_ANY = 1;
-    /**
-     * This task requires network connectivity that is unmetered.
-     *
-     * @see NetworkType
-     */
-    public static final int NETWORK_TYPE_UNMETERED = 2;
+    public @interface NetworkType {
+        /**
+         * This task has no requirements for network connectivity. Default.
+         *
+         * @see NetworkType
+         */
+        int NONE = 0;
+        /**
+         * This task requires network connectivity.
+         *
+         * @see NetworkType
+         */
+        int ANY = 1;
+        /**
+         * This task requires network connectivity that is unmetered.
+         *
+         * @see NetworkType
+         */
+        int UNMETERED = 2;
+    }
 
     /**
      * The task ID should be unique across all tasks. A list of such unique IDs exists in
@@ -205,7 +216,7 @@ public class TaskInfo {
                     new PeriodicInfo(builder.mIntervalMs, builder.mFlexMs, builder.mHasFlex);
         } else {
             mOneOffInfo = new OneOffInfo(builder.mWindowStartTimeMs, builder.mWindowEndTimeMs,
-                    builder.mHasWindowStartTimeConstraint);
+                    builder.mHasWindowStartTimeConstraint, builder.mExpiresAfterWindowEndTime);
             mPeriodicInfo = null;
         }
     }
@@ -319,7 +330,8 @@ public class TaskInfo {
      * @param backgroundTaskClass the {@link BackgroundTask} class that will be instantiated for
      * this task.
      * @param windowEndTimeMs the end of the window that the task can begin executing as a delta in
-     * milliseconds from now.
+     * milliseconds from now. Note that the task begins executing at this point even if the
+     * prerequisite conditions are not met.
      * @return the builder which can be used to continue configuration and {@link Builder#build()}.
      * @see TaskIds
      */
@@ -338,7 +350,8 @@ public class TaskInfo {
      * @param windowStartTimeMs the start of the window that the task can begin executing as a delta
      * in milliseconds from now.
      * @param windowEndTimeMs the end of the window that the task can begin executing as a delta in
-     * milliseconds from now.
+     * milliseconds from now. Note that the task begins executing at this point even if the
+     * prerequisite conditions are not met.
      * @return the builder which can be used to continue configuration and {@link Builder#build()}.
      * @see TaskIds
      */
@@ -418,6 +431,7 @@ public class TaskInfo {
         private long mWindowStartTimeMs;
         private long mWindowEndTimeMs;
         private boolean mHasWindowStartTimeConstraint;
+        private boolean mExpiresAfterWindowEndTime;
 
         // Data about periodic tasks.
         private long mIntervalMs;
@@ -441,6 +455,19 @@ public class TaskInfo {
         Builder setWindowEndTimeMs(long windowEndTimeMs) {
             assert !mIsPeriodic;
             mWindowEndTimeMs = windowEndTimeMs;
+            return this;
+        }
+
+        /**
+         * Set whether the task should expire if not scheduled until the window end time.
+         * This should be called only for One-Off tasks.
+         *
+         * @param expiresAfterWindowEndTime whether the task expires or not.
+         * @return this {@link Builder}.
+         */
+        Builder setExpiresAfterWindowEndTime(boolean expiresAfterWindowEndTime) {
+            assert !mIsPeriodic;
+            mExpiresAfterWindowEndTime = expiresAfterWindowEndTime;
             return this;
         }
 

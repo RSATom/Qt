@@ -19,9 +19,8 @@
 namespace ui {
 
 ui::IMEEngineHandlerInterface* InputMethodBase::GetEngine() {
-  if (ui::IMEBridge::Get())
-    return ui::IMEBridge::Get()->GetCurrentEngineHandler();
-  return nullptr;
+  auto* bridge = ui::IMEBridge::Get();
+  return bridge ? bridge->GetCurrentEngineHandler() : nullptr;
 }
 
 InputMethodBase::InputMethodBase(internal::InputMethodDelegate* delegate)
@@ -30,9 +29,7 @@ InputMethodBase::InputMethodBase(internal::InputMethodDelegate* delegate)
 InputMethodBase::InputMethodBase(
     internal::InputMethodDelegate* delegate,
     std::unique_ptr<InputMethodKeyboardController> keyboard_controller)
-    : sending_key_event_(false),
-      delegate_(delegate),
-      text_input_client_(nullptr),
+    : delegate_(delegate),
       keyboard_controller_(std::move(keyboard_controller)) {}
 
 InputMethodBase::~InputMethodBase() {
@@ -162,14 +159,9 @@ void InputMethodBase::OnInputMethodChanged() const {
 }
 
 ui::EventDispatchDetails InputMethodBase::DispatchKeyEventPostIME(
-    ui::KeyEvent* event,
-    base::OnceCallback<void(bool)> ack_callback) const {
-  if (delegate_)
-    return delegate_->DispatchKeyEventPostIME(event, std::move(ack_callback));
-
-  if (ack_callback)
-    std::move(ack_callback).Run(false);
-  return EventDispatchDetails();
+    ui::KeyEvent* event) const {
+  return delegate_ ? delegate_->DispatchKeyEventPostIME(event)
+                   : ui::EventDispatchDetails();
 }
 
 void InputMethodBase::NotifyTextInputStateChanged(
@@ -219,7 +211,7 @@ std::vector<gfx::Rect> InputMethodBase::GetCompositionBounds(
 bool InputMethodBase::SendFakeProcessKeyEvent(bool pressed) const {
   KeyEvent evt(pressed ? ET_KEY_PRESSED : ET_KEY_RELEASED,
                pressed ? VKEY_PROCESSKEY : VKEY_UNKNOWN, EF_IME_FABRICATED_KEY);
-  ignore_result(DispatchKeyEventPostIME(&evt, base::NullCallback()));
+  ignore_result(DispatchKeyEventPostIME(&evt));
   return evt.stopped_propagation();
 }
 
@@ -251,6 +243,15 @@ void InputMethodBase::UpdateCompositionText(const CompositionText& composition_,
   SendFakeProcessKeyEvent(false);
 }
 
+#if defined(OS_CHROMEOS)
+bool InputMethodBase::SetCompositionRange(
+    uint32_t before,
+    uint32_t after,
+    const std::vector<ui::ImeTextSpan>& text_spans) {
+  return false;
+}
+#endif
+
 void InputMethodBase::DeleteSurroundingText(int32_t offset, uint32_t length) {}
 
 SurroundingTextInfo InputMethodBase::GetSurroundingTextInfo() {
@@ -272,8 +273,7 @@ SurroundingTextInfo InputMethodBase::GetSurroundingTextInfo() {
 void InputMethodBase::SendKeyEvent(KeyEvent* event) {
   sending_key_event_ = true;
   if (track_key_events_for_testing_) {
-    key_events_for_testing_.push_back(
-        std::unique_ptr<ui::KeyEvent>(new KeyEvent(*event)));
+    key_events_for_testing_.push_back(std::make_unique<KeyEvent>(*event));
   }
   ui::EventDispatchDetails details = DispatchKeyEvent(event);
   DCHECK(!details.dispatcher_destroyed);
@@ -282,6 +282,12 @@ void InputMethodBase::SendKeyEvent(KeyEvent* event) {
 
 InputMethod* InputMethodBase::GetInputMethod() {
   return this;
+}
+
+void InputMethodBase::ConfirmCompositionText() {
+  TextInputClient* client = GetTextInputClient();
+  if (client && client->HasCompositionText())
+    client->ConfirmCompositionText();
 }
 
 const std::vector<std::unique_ptr<ui::KeyEvent>>&

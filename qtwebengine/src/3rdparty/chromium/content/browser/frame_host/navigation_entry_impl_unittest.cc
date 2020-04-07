@@ -58,12 +58,15 @@ class NavigationEntryTest : public testing::Test {
   void SetUp() override {
     entry1_.reset(new NavigationEntryImpl);
 
+    const url::Origin kInitiatorOrigin =
+        url::Origin::Create(GURL("https://initiator.example.com"));
+
     instance_ = SiteInstanceImpl::Create(&browser_context_);
     entry2_.reset(new NavigationEntryImpl(
         instance_, GURL("test:url"),
         Referrer(GURL("from"), network::mojom::ReferrerPolicy::kDefault),
-        ASCIIToUTF16("title"), ui::PAGE_TRANSITION_TYPED, false,
-        nullptr /* blob_url_loader_factory */));
+        kInitiatorOrigin, ASCIIToUTF16("title"), ui::PAGE_TRANSITION_TYPED,
+        false, nullptr /* blob_url_loader_factory */));
   }
 
   void TearDown() override {}
@@ -285,6 +288,14 @@ TEST_F(NavigationEntryTest, NavigationEntryAccessors) {
       network::ResourceRequestBody::CreateFromBytes(raw_data, length);
   entry2_->SetPostData(post_data);
   EXPECT_EQ(post_data, entry2_->GetPostData());
+
+  // Initiator origin.
+  EXPECT_FALSE(
+      entry1_->root_node()->frame_entry->initiator_origin().has_value());
+  EXPECT_TRUE(
+      entry2_->root_node()->frame_entry->initiator_origin().has_value());
+  EXPECT_EQ(url::Origin::Create(GURL("https://initiator.example.com")),
+            entry2_->root_node()->frame_entry->initiator_origin().value());
 }
 
 // Test basic Clone behavior.
@@ -295,8 +306,11 @@ TEST_F(NavigationEntryTest, NavigationEntryClone) {
 
   std::unique_ptr<NavigationEntryImpl> clone(entry2_->Clone());
 
-  // Value from FrameNavigationEntry.
+  // Values from FrameNavigationEntry.
   EXPECT_EQ(entry2_->site_instance(), clone->site_instance());
+  EXPECT_TRUE(clone->root_node()->frame_entry->initiator_origin().has_value());
+  EXPECT_EQ(entry2_->root_node()->frame_entry->initiator_origin(),
+            clone->root_node()->frame_entry->initiator_origin());
 
   // Value from constructor.
   EXPECT_EQ(entry2_->GetTitle(), clone->GetTitle());
@@ -315,27 +329,6 @@ TEST_F(NavigationEntryTest, NavigationEntryTimestamps) {
   const base::Time now = base::Time::Now();
   entry1_->SetTimestamp(now);
   EXPECT_EQ(now, entry1_->GetTimestamp());
-}
-
-// Test extra data stored in the navigation entry.
-TEST_F(NavigationEntryTest, NavigationEntryExtraData) {
-  base::string16 test_data = ASCIIToUTF16("my search terms");
-  base::string16 output;
-  entry1_->SetExtraData("search_terms", test_data);
-
-  EXPECT_FALSE(entry1_->GetExtraData("non_existent_key", &output));
-  EXPECT_EQ(ASCIIToUTF16(""), output);
-  EXPECT_TRUE(entry1_->GetExtraData("search_terms", &output));
-  EXPECT_EQ(test_data, output);
-  // Data is cleared.
-  entry1_->ClearExtraData("search_terms");
-  // Content in |output| is not modified if data is not present at the key.
-  EXPECT_FALSE(entry1_->GetExtraData("search_terms", &output));
-  EXPECT_EQ(test_data, output);
-  // Using an empty string shows that the data is not present in the map.
-  base::string16 output2;
-  EXPECT_FALSE(entry1_->GetExtraData("search_terms", &output2));
-  EXPECT_EQ(ASCIIToUTF16(""), output2);
 }
 
 #if defined(OS_ANDROID)

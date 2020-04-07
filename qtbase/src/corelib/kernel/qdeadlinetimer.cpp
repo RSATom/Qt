@@ -464,7 +464,7 @@ inline bool TimeReference::toNanoseconds(qint64 *result) const
 
     \sa hasExpired(), isForever(), remainingTime(), setRemainingTime()
 */
-QDeadlineTimer::QDeadlineTimer(qint64 msecs, Qt::TimerType type) Q_DECL_NOTHROW
+QDeadlineTimer::QDeadlineTimer(qint64 msecs, Qt::TimerType type) noexcept
     : t2(0)
 {
     setRemainingTime(msecs, type);
@@ -536,7 +536,7 @@ QDeadlineTimer::QDeadlineTimer(qint64 msecs, Qt::TimerType type) Q_DECL_NOTHROW
 
     \sa setPreciseRemainingTime(), hasExpired(), isForever(), remainingTime()
 */
-void QDeadlineTimer::setRemainingTime(qint64 msecs, Qt::TimerType timerType) Q_DECL_NOTHROW
+void QDeadlineTimer::setRemainingTime(qint64 msecs, Qt::TimerType timerType) noexcept
 {
     if (msecs == -1) {
         *this = QDeadlineTimer(Forever, timerType);
@@ -562,7 +562,7 @@ void QDeadlineTimer::setRemainingTime(qint64 msecs, Qt::TimerType timerType) Q_D
 
     \sa setRemainingTime(), hasExpired(), isForever(), remainingTime()
 */
-void QDeadlineTimer::setPreciseRemainingTime(qint64 secs, qint64 nsecs, Qt::TimerType timerType) Q_DECL_NOTHROW
+void QDeadlineTimer::setPreciseRemainingTime(qint64 secs, qint64 nsecs, Qt::TimerType timerType) noexcept
 {
     if (secs == -1) {
         *this = QDeadlineTimer(Forever, timerType);
@@ -619,7 +619,7 @@ void QDeadlineTimer::setPreciseRemainingTime(qint64 secs, qint64 nsecs, Qt::Time
 
     \sa isForever(), remainingTime()
 */
-bool QDeadlineTimer::hasExpired() const Q_DECL_NOTHROW
+bool QDeadlineTimer::hasExpired() const noexcept
 {
     if (isForever())
         return false;
@@ -666,7 +666,7 @@ void QDeadlineTimer::setTimerType(Qt::TimerType timerType)
 
     \sa remainingTimeNSecs(), isForever(), hasExpired()
 */
-qint64 QDeadlineTimer::remainingTime() const Q_DECL_NOTHROW
+qint64 QDeadlineTimer::remainingTime() const noexcept
 {
     if (isForever())
         return -1;
@@ -694,7 +694,7 @@ qint64 QDeadlineTimer::remainingTime() const Q_DECL_NOTHROW
 
     \sa remainingTime(), isForever(), hasExpired()
 */
-qint64 QDeadlineTimer::remainingTimeNSecs() const Q_DECL_NOTHROW
+qint64 QDeadlineTimer::remainingTimeNSecs() const noexcept
 {
     if (isForever())
         return -1;
@@ -708,7 +708,7 @@ qint64 QDeadlineTimer::remainingTimeNSecs() const Q_DECL_NOTHROW
     not deal with Forever. In case of underflow the result is saturated to
     the minimum possible value, on overflow  - the maximum possible value.
 */
-qint64 QDeadlineTimer::rawRemainingTimeNSecs() const Q_DECL_NOTHROW
+qint64 QDeadlineTimer::rawRemainingTimeNSecs() const noexcept
 {
     QDeadlineTimer now = current(timerType());
     TimeReference ref(t1, t2);
@@ -744,7 +744,7 @@ qint64 QDeadlineTimer::rawRemainingTimeNSecs() const Q_DECL_NOTHROW
 
     \sa remainingTime(), deadlineNSecs(), setDeadline()
 */
-qint64 QDeadlineTimer::deadline() const Q_DECL_NOTHROW
+qint64 QDeadlineTimer::deadline() const noexcept
 {
     if (isForever())
         return TimeReference::Max;
@@ -777,7 +777,7 @@ qint64 QDeadlineTimer::deadline() const Q_DECL_NOTHROW
 
     \sa remainingTime(), deadlineNSecs()
 */
-qint64 QDeadlineTimer::deadlineNSecs() const Q_DECL_NOTHROW
+qint64 QDeadlineTimer::deadlineNSecs() const noexcept
 {
     if (isForever())
         return TimeReference::Max;
@@ -802,7 +802,7 @@ qint64 QDeadlineTimer::deadlineNSecs() const Q_DECL_NOTHROW
 
     \sa setPreciseDeadline(), deadline(), deadlineNSecs(), setRemainingTime()
 */
-void QDeadlineTimer::setDeadline(qint64 msecs, Qt::TimerType timerType) Q_DECL_NOTHROW
+void QDeadlineTimer::setDeadline(qint64 msecs, Qt::TimerType timerType) noexcept
 {
     if (msecs == TimeReference::Max) {
         *this = QDeadlineTimer(Forever, timerType);
@@ -829,7 +829,7 @@ void QDeadlineTimer::setDeadline(qint64 msecs, Qt::TimerType timerType) Q_DECL_N
 
     \sa setDeadline(), deadline(), deadlineNSecs(), setRemainingTime()
 */
-void QDeadlineTimer::setPreciseDeadline(qint64 secs, qint64 nsecs, Qt::TimerType timerType) Q_DECL_NOTHROW
+void QDeadlineTimer::setPreciseDeadline(qint64 secs, qint64 nsecs, Qt::TimerType timerType) noexcept
 {
     type = timerType;
 
@@ -849,7 +849,7 @@ void QDeadlineTimer::setPreciseDeadline(qint64 secs, qint64 nsecs, Qt::TimerType
     \note if \a dt was created as expired, its deadline is indeterminate and
     adding an amount of time may or may not cause it to become unexpired.
 */
-QDeadlineTimer QDeadlineTimer::addNSecs(QDeadlineTimer dt, qint64 nsecs) Q_DECL_NOTHROW
+QDeadlineTimer QDeadlineTimer::addNSecs(QDeadlineTimer dt, qint64 nsecs) noexcept
 {
     if (dt.isForever())
         return dt;

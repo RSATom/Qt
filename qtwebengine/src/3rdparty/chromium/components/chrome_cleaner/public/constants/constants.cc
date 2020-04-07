@@ -11,6 +11,8 @@ const char kChromeChannelSwitch[] = "chrome-channel";
 const char kChromeExePathSwitch[] = "chrome-exe-path";
 const char kChromeMojoPipeTokenSwitch[] = "chrome-mojo-pipe-token";
 const char kChromePromptSwitch[] = "chrome-prompt";
+const char kChromeReadHandleSwitch[] = "chrome-read-handle";
+const char kChromeWriteHandleSwitch[] = "chrome-write-handle";
 const char kChromeSystemInstallSwitch[] = "chrome-system-install";
 const char kChromeVersionSwitch[] = "chrome-version";
 const char kWithScanningModeLogsSwitch[] = "with-scanning-mode-logs";
@@ -22,9 +24,7 @@ const char kExtendedSafeBrowsingEnabledSwitch[] =
 const char kRegistrySuffixSwitch[] = "registry-suffix";
 const char kSessionIdSwitch[] = "session-id";
 const char kSRTPromptFieldTrialGroupNameSwitch[] = "srt-field-trial-group-name";
-const char kRebootPromptMethodSwitch[] = "reboot-prompt-method";
 const char kUmaUserSwitch[] = "uma-user";
-const char kQuarantineSwitch[] = "quarantine";
 
 // Registry paths and subkeys.
 const wchar_t kSoftwareRemovalToolRegistryKey[] =

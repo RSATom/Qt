@@ -5,7 +5,7 @@
 #include "services/device/generic_sensor/platform_sensor_android.h"
 
 #include "base/bind.h"
-#include "jni/PlatformSensor_jni.h"
+#include "services/device/generic_sensor/jni_headers/PlatformSensor_jni.h"
 
 using base::android::AttachCurrentThread;
 using base::android::JavaRef;
@@ -71,7 +71,8 @@ void PlatformSensorAndroid::NotifyPlatformSensorError(
     JNIEnv*,
     const JavaRef<jobject>& caller) {
   task_runner_->PostTask(
-      FROM_HERE, base::Bind(&PlatformSensorAndroid::NotifySensorError, this));
+      FROM_HERE,
+      base::BindOnce(&PlatformSensorAndroid::NotifySensorError, this));
 }
 
 void PlatformSensorAndroid::UpdatePlatformSensorReading(

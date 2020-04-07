@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2020 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the Qt Designer of the Qt Toolkit.
@@ -43,26 +43,26 @@ class VersionLabel : public QLabel
 {
     Q_OBJECT
 public:
-    VersionLabel(QWidget *parent = 0);
+    VersionLabel(QWidget *parent = nullptr);
 
 signals:
     void triggered();
 
 protected:
-    void mousePressEvent(QMouseEvent *me);
-    void mouseMoveEvent(QMouseEvent *me);
-    void mouseReleaseEvent(QMouseEvent *me);
-    void paintEvent(QPaintEvent *pe);
+    void mousePressEvent(QMouseEvent *me) override;
+    void mouseMoveEvent(QMouseEvent *me) override;
+    void mouseReleaseEvent(QMouseEvent *me) override;
+    void paintEvent(QPaintEvent *pe) override;
 private:
     QVector<QPoint> hitPoints;
     QVector<QPoint> missPoints;
     QPainterPath m_path;
-    bool secondStage;
-    bool m_pushed;
+    bool secondStage = false;
+    bool m_pushed = false;
 };
 
 VersionLabel::VersionLabel(QWidget *parent)
-        : QLabel(parent), secondStage(false), m_pushed(false)
+        : QLabel(parent)
 {
     setPixmap(QPixmap(QStringLiteral(":/qt-project.org/designer/images/designer.png")));
     hitPoints.append(QPoint(56, 25));
@@ -160,7 +160,7 @@ VersionDialog::VersionDialog(QWidget *parent)
 
     lbl->setText(tr("%1"
                     "<br/>Copyright (C) %2 The Qt Company Ltd."
-                    ).arg(version, QStringLiteral("2019")));
+                    ).arg(version, QStringLiteral("2020")));
 
     lbl->setWordWrap(true);
     lbl->setOpenExternalLinks(true);

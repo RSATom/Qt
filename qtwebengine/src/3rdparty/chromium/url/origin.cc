@@ -10,6 +10,7 @@
 
 #include "base/logging.h"
 #include "base/stl_util.h"
+#include "base/strings/strcat.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "url/gurl.h"
@@ -43,7 +44,7 @@ Origin Origin::Create(const GURL& url) {
     // It's SchemeHostPort's responsibility to filter out unrecognized schemes;
     // sanity check that this is happening.
     DCHECK(tuple.IsInvalid() || url.IsStandard() || url.IsCustom() ||
-           base::ContainsValue(GetLocalSchemes(), url.scheme_piece()) ||
+           base::Contains(GetLocalSchemes(), url.scheme_piece()) ||
            AllowNonStandardSchemesForAndroidWebView());
   }
 
@@ -162,7 +163,7 @@ bool Origin::CanBeDerivedFrom(const GURL& url) const {
   // For "no access" schemes, blink's SecurityOrigin will always create an
   // opaque unique one. However, about: scheme is also registered as such but
   // does not behave this way, therefore exclude it from this check.
-  if (base::ContainsValue(url::GetNoAccessSchemes(), url.scheme()) &&
+  if (base::Contains(url::GetNoAccessSchemes(), url.scheme()) &&
       !url.SchemeIs(kAboutScheme)) {
     // If |this| is not opaque, definitely return false as the expectation
     // is for opaque origin.
@@ -240,6 +241,30 @@ Origin Origin::DeriveNewOpaqueOrigin() const {
   return Origin(Nonce(), tuple_);
 }
 
+std::string Origin::GetDebugString() const {
+  // Handle non-opaque origins first, as they are simpler.
+  if (!opaque()) {
+    std::string out = Serialize();
+    if (scheme() == kFileScheme)
+      base::StrAppend(&out, {" [internally: ", tuple_.Serialize(), "]"});
+    return out;
+  }
+
+  // For opaque origins, log the nonce and precursor as well. Without this,
+  // EXPECT_EQ failures between opaque origins are nearly impossible to
+  // understand.
+  std::string nonce = nonce_->raw_token().is_empty()
+                          ? std::string("nonce TBD")
+                          : nonce_->raw_token().ToString();
+
+  std::string out = base::StrCat({Serialize(), " [internally: (", nonce, ")"});
+  if (tuple_.IsInvalid())
+    base::StrAppend(&out, {" anonymous]"});
+  else
+    base::StrAppend(&out, {" derived from ", tuple_.Serialize(), "]"});
+  return out;
+}
+
 Origin::Origin(SchemeHostPort tuple) : tuple_(std::move(tuple)) {
   DCHECK(!opaque());
   DCHECK(!tuple_.IsInvalid());
@@ -256,21 +281,7 @@ Origin::Origin(const Nonce& nonce, SchemeHostPort precursor)
 }
 
 std::ostream& operator<<(std::ostream& out, const url::Origin& origin) {
-  out << origin.Serialize();
-
-  if (origin.opaque()) {
-    // For opaque origins, log the nonce and precursor as well. Without this,
-    // EXPECT_EQ failures between opaque origins are nearly impossible to
-    // understand.
-    out << " [internally: " << *origin.nonce_;
-    if (origin.tuple_.IsInvalid())
-      out << " anonymous";
-    else
-      out << " derived from " << origin.tuple_;
-    out << "]";
-  } else if (origin.scheme() == kFileScheme) {
-    out << " [internally: " << origin.tuple_ << "]";
-  }
+  out << origin.GetDebugString();
   return out;
 }
 

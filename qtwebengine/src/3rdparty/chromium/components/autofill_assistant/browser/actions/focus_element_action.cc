@@ -14,30 +14,53 @@
 
 namespace autofill_assistant {
 
-FocusElementAction::FocusElementAction(const ActionProto& proto)
-    : Action(proto), weak_ptr_factory_(this) {
+FocusElementAction::FocusElementAction(ActionDelegate* delegate,
+                                       const ActionProto& proto)
+    : Action(delegate, proto), weak_ptr_factory_(this) {
   DCHECK(proto_.has_focus_element());
 }
 
 FocusElementAction::~FocusElementAction() {}
 
-void FocusElementAction::InternalProcessAction(ActionDelegate* delegate,
-                                               ProcessActionCallback callback) {
+void FocusElementAction::InternalProcessAction(ProcessActionCallback callback) {
   const FocusElementProto& focus_element = proto_.focus_element();
-  DCHECK_GT(focus_element.element().selectors_size(), 0);
-
   if (!focus_element.title().empty()) {
-    delegate->SetStatusMessage(focus_element.title());
+    delegate_->SetStatusMessage(focus_element.title());
   }
-  delegate->ShortWaitForElementExist(
-      Selector(focus_element.element()),
-      base::BindOnce(&FocusElementAction::OnWaitForElement,
-                     weak_ptr_factory_.GetWeakPtr(), base::Unretained(delegate),
-                     std::move(callback)));
+  Selector selector = Selector(focus_element.element()).MustBeVisible();
+  if (selector.empty()) {
+    DVLOG(1) << __func__ << ": empty selector";
+    UpdateProcessedAction(INVALID_SELECTOR);
+    std::move(callback).Run(std::move(processed_action_proto_));
+    return;
+  }
+
+  // Default value of 25%. This value should always be overriden
+  // by backend.
+  TopPadding top_padding{0.25, TopPadding::Unit::RATIO};
+  switch (focus_element.top_padding().top_padding_case()) {
+    case FocusElementProto::TopPadding::kPixels:
+      top_padding = TopPadding(focus_element.top_padding().pixels(),
+                               TopPadding::Unit::PIXELS);
+      break;
+    case FocusElementProto::TopPadding::kRatio:
+      top_padding = TopPadding(focus_element.top_padding().ratio(),
+                               TopPadding::Unit::RATIO);
+      break;
+    case FocusElementProto::TopPadding::TOP_PADDING_NOT_SET:
+      // Default value set before switch.
+      break;
+  }
+
+  delegate_->ShortWaitForElement(
+      selector, base::BindOnce(&FocusElementAction::OnWaitForElement,
+                               weak_ptr_factory_.GetWeakPtr(),
+                               std::move(callback), selector, top_padding));
 }
 
-void FocusElementAction::OnWaitForElement(ActionDelegate* delegate,
-                                          ProcessActionCallback callback,
+void FocusElementAction::OnWaitForElement(ProcessActionCallback callback,
+                                          const Selector& selector,
+                                          const TopPadding& top_padding,
                                           bool element_found) {
   if (!element_found) {
     UpdateProcessedAction(ELEMENT_RESOLUTION_FAILED);
@@ -45,19 +68,17 @@ void FocusElementAction::OnWaitForElement(ActionDelegate* delegate,
     return;
   }
 
-  delegate->FocusElement(
-      Selector(proto_.focus_element().element()),
+  delegate_->FocusElement(
+      selector, top_padding,
       base::BindOnce(&FocusElementAction::OnFocusElement,
-                     weak_ptr_factory_.GetWeakPtr(), base::Unretained(delegate),
-                     std::move(callback)));
+                     weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
 }
 
-void FocusElementAction::OnFocusElement(ActionDelegate* delegate,
-                                        ProcessActionCallback callback,
-                                        bool status) {
-  delegate->SetTouchableElementArea(
+void FocusElementAction::OnFocusElement(ProcessActionCallback callback,
+                                        const ClientStatus& status) {
+  delegate_->SetTouchableElementArea(
       proto().focus_element().touchable_element_area());
-  UpdateProcessedAction(status ? ACTION_APPLIED : OTHER_ACTION_STATUS);
+  UpdateProcessedAction(status);
   std::move(callback).Run(std::move(processed_action_proto_));
 }
 

@@ -31,7 +31,6 @@
 #include "video/report_block_stats.h"
 #include "video/stats_counter.h"
 #include "video/video_quality_observer.h"
-#include "video/video_stream_decoder.h"
 
 namespace webrtc {
 
@@ -52,12 +51,12 @@ class ReceiveStatisticsProxy : public VCMReceiveStatisticsCallback,
 
   void OnDecodedFrame(const VideoFrame& frame,
                       absl::optional<uint8_t> qp,
+                      int32_t decode_time_ms,
                       VideoContentType content_type);
   void OnSyncOffsetUpdated(int64_t sync_offset_ms, double estimated_freq_khz);
   void OnRenderedFrame(const VideoFrame& frame);
   void OnIncomingPayloadType(int payload_type);
   void OnDecoderImplementationName(const char* implementation_name);
-  void OnIncomingRate(unsigned int framerate, unsigned int bitrate_bps);
 
   void OnPreDecode(VideoCodecType codec_type, int qp);
 
@@ -67,14 +66,10 @@ class ReceiveStatisticsProxy : public VCMReceiveStatisticsCallback,
   void OnStreamInactive();
 
   // Overrides VCMReceiveStatisticsCallback.
-  void OnReceiveRatesUpdated(uint32_t bitRate, uint32_t frameRate) override;
-  void OnFrameCountsUpdated(const FrameCounts& frame_counts) override;
-  void OnDiscardedPacketsUpdated(int discarded_packets) override;
   void OnCompleteFrame(bool is_keyframe,
                        size_t size_bytes,
                        VideoContentType content_type) override;
-  void OnFrameBufferTimingsUpdated(int decode_ms,
-                                   int max_decode_ms,
+  void OnFrameBufferTimingsUpdated(int max_decode_ms,
                                    int current_delay_ms,
                                    int target_delay_ms,
                                    int jitter_buffer_ms,

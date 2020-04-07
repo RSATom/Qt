@@ -133,8 +133,7 @@ MimeSniffingResourceHandler::MimeSniffingResourceHandler(
       intercepting_handler_(intercepting_handler),
       request_context_type_(request_context_type),
       in_state_loop_(false),
-      advance_state_(false),
-      weak_ptr_factory_(this) {
+      advance_state_(false) {
 }
 
 MimeSniffingResourceHandler::~MimeSniffingResourceHandler() {}
@@ -445,8 +444,9 @@ bool MimeSniffingResourceHandler::MaybeStartInterception() {
   const std::string& mime_type = response_->head.mime_type;
 
   // Allow requests for object/embed tags to be intercepted as streams.
-  if (info->GetResourceType() == content::RESOURCE_TYPE_OBJECT) {
-    DCHECK(!info->allow_download());
+  if (info->GetResourceType() == content::ResourceType::kObject) {
+    DCHECK(info->resource_intercept_policy() !=
+           ResourceInterceptPolicy::kAllowAll);
 
     bool handled_by_plugin;
     if (!CheckForPluginHandler(&handled_by_plugin))
@@ -455,20 +455,22 @@ bool MimeSniffingResourceHandler::MaybeStartInterception() {
       return true;
   }
 
-  if (!info->allow_download())
+  if (info->resource_intercept_policy() == ResourceInterceptPolicy::kAllowNone)
     return true;
 
-  // info->allow_download() == true implies
-  // info->GetResourceType() == RESOURCE_TYPE_MAIN_FRAME or
-  // info->GetResourceType() == RESOURCE_TYPE_SUB_FRAME.
-  DCHECK(info->GetResourceType() == RESOURCE_TYPE_MAIN_FRAME ||
-         info->GetResourceType() == RESOURCE_TYPE_SUB_FRAME);
+  // A policy unequal to ResourceInterceptPolicy::kAllowNone implies
+  // info->GetResourceType() == ResourceType::kMainFrame or
+  // info->GetResourceType() == ResourceType::kSubFrame.
+  DCHECK(info->GetResourceType() == ResourceType::kMainFrame ||
+         info->GetResourceType() == ResourceType::kSubFrame);
 
   bool must_download = MustDownload();
   if (!must_download) {
     if (blink::IsSupportedMimeType(mime_type))
       return true;
-    if (signed_exchange_utils::ShouldHandleAsSignedHTTPExchange(
+    if (signed_exchange_utils::IsSignedExchangeHandlingEnabledOnIO(
+            info->GetContext()) &&
+        signed_exchange_utils::ShouldHandleAsSignedHTTPExchange(
             request()->url(), response_->head)) {
       return true;
     }
@@ -477,6 +479,11 @@ bool MimeSniffingResourceHandler::MaybeStartInterception() {
       return false;
     if (handled_by_plugin)
       return true;
+  }
+
+  if (info->resource_intercept_policy() ==
+      ResourceInterceptPolicy::kAllowPluginOnly) {
+    return true;
   }
 
   // This request is a download.
@@ -581,8 +588,7 @@ bool MimeSniffingResourceHandler::MustDownload() {
              (response_->head.mime_type == "multipart/related" ||
               response_->head.mime_type == "message/rfc822")) {
     // It is OK to load the saved offline copy, in MHTML format.
-    const ResourceRequestInfo* info =
-        ResourceRequestInfo::ForRequest(request());
+    ResourceRequestInfo* info = ResourceRequestInfo::ForRequest(request());
     must_download_ =
         !GetContentClient()->browser()->AllowRenderingMhtmlOverHttp(
             info->GetNavigationUIData());

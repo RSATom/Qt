@@ -21,25 +21,27 @@
 
 #include <algorithm>
 #include <array>
+#include <bitset>
 #include <limits>
 #include <utility>
 
-#include "perfetto/base/file_utils.h"
-#include "perfetto/base/metatrace.h"
-#include "perfetto/base/scoped_file.h"
-#include "perfetto/base/string_splitter.h"
 #include "perfetto/base/task_runner.h"
-#include "perfetto/base/time.h"
-#include "perfetto/base/utils.h"
-#include "perfetto/traced/sys_stats_counters.h"
-#include "perfetto/tracing/core/sys_stats_config.h"
+#include "perfetto/ext/base/file_utils.h"
+#include "perfetto/ext/base/metatrace.h"
+#include "perfetto/ext/base/scoped_file.h"
+#include "perfetto/ext/base/string_splitter.h"
+#include "perfetto/ext/base/time.h"
+#include "perfetto/ext/base/utils.h"
+#include "perfetto/ext/traced/sys_stats_counters.h"
 
-#include "perfetto/common/sys_stats_counters.pb.h"
-#include "perfetto/config/sys_stats/sys_stats_config.pb.h"
+#include "perfetto/common/sys_stats_counters.pbzero.h"
+#include "perfetto/config/sys_stats/sys_stats_config.pbzero.h"
 #include "perfetto/trace/sys_stats/sys_stats.pbzero.h"
 #include "perfetto/trace/trace_packet.pbzero.h"
 
 namespace perfetto {
+
+using protos::pbzero::SysStatsConfig;
 
 namespace {
 constexpr size_t kReadBufSize = 1024 * 16;
@@ -75,8 +77,6 @@ SysStatsDataSource::SysStatsDataSource(base::TaskRunner* task_runner,
       task_runner_(task_runner),
       writer_(std::move(writer)),
       weak_factory_(this) {
-  const auto& config = ds_config.sys_stats_config();
-
   ns_per_user_hz_ = 1000000000ull / static_cast<uint64_t>(sysconf(_SC_CLK_TCK));
 
   open_fn = open_fn ? open_fn : OpenReadOnly;
@@ -89,33 +89,57 @@ SysStatsDataSource::SysStatsDataSource(base::TaskRunner* task_runner,
   // Build a lookup map that allows to quickly translate strings like "MemTotal"
   // into the corresponding enum value, only for the counters enabled in the
   // config.
-  for (const auto& counter_id : config.meminfo_counters()) {
-    for (size_t i = 0; i < base::ArraySize(kMeminfoKeys); i++) {
-      const auto& k = kMeminfoKeys[i];
-      if (static_cast<int>(k.id) == static_cast<int>(counter_id))
-        meminfo_counters_.emplace(k.str, k.id);
+
+  using protos::pbzero::SysStatsConfig;
+  SysStatsConfig::Decoder cfg(ds_config.sys_stats_config_raw());
+
+  constexpr size_t kMaxMeminfoEnum = protos::pbzero::MeminfoCounters_MAX;
+  std::bitset<kMaxMeminfoEnum + 1> meminfo_counters_enabled{};
+  if (!cfg.has_meminfo_counters())
+    meminfo_counters_enabled.set();
+  for (auto counter = cfg.meminfo_counters(); counter; ++counter) {
+    if (counter->as_uint32() > 0 && counter->as_uint32() <= kMaxMeminfoEnum) {
+      meminfo_counters_enabled.set(counter->as_uint32());
+    } else {
+      PERFETTO_DFATAL("Meminfo counter out of bounds %u", counter->as_uint32());
     }
   }
-
-  for (const auto& counter_id : config.vmstat_counters()) {
-    for (size_t i = 0; i < base::ArraySize(kVmstatKeys); i++) {
-      const auto& k = kVmstatKeys[i];
-      if (static_cast<int>(k.id) == static_cast<int>(counter_id))
-        vmstat_counters_.emplace(k.str, k.id);
-    }
+  for (size_t i = 0; i < base::ArraySize(kMeminfoKeys); i++) {
+    const auto& k = kMeminfoKeys[i];
+    if (meminfo_counters_enabled[static_cast<size_t>(k.id)])
+      meminfo_counters_.emplace(k.str, k.id);
   }
 
-  for (const auto& counter_id : config.stat_counters()) {
-    stat_enabled_fields_ |= 1 << counter_id;
+  constexpr size_t kMaxVmstatEnum = protos::pbzero::VmstatCounters_MAX;
+  std::bitset<kMaxVmstatEnum + 1> vmstat_counters_enabled{};
+  if (!cfg.has_vmstat_counters())
+    vmstat_counters_enabled.set();
+  for (auto counter = cfg.vmstat_counters(); counter; ++counter) {
+    if (counter->as_uint32() > 0 && counter->as_uint32() <= kMaxVmstatEnum) {
+      vmstat_counters_enabled.set(counter->as_uint32());
+    } else {
+      PERFETTO_DFATAL("Vmstat counter out of bounds %u", counter->as_uint32());
+    }
+  }
+  for (size_t i = 0; i < base::ArraySize(kVmstatKeys); i++) {
+    const auto& k = kVmstatKeys[i];
+    if (vmstat_counters_enabled[static_cast<size_t>(k.id)])
+      vmstat_counters_.emplace(k.str, k.id);
+  }
+
+  if (!cfg.has_stat_counters())
+    stat_enabled_fields_ = ~0u;
+  for (auto counter = cfg.stat_counters(); counter; ++counter) {
+    stat_enabled_fields_ |= 1ul << counter->as_uint32();
   }
 
   std::array<uint32_t, 3> periods_ms{};
   std::array<uint32_t, 3> ticks{};
   static_assert(periods_ms.size() == ticks.size(), "must have same size");
 
-  periods_ms[0] = ClampTo10Ms(config.meminfo_period_ms(), "meminfo_period_ms");
-  periods_ms[1] = ClampTo10Ms(config.vmstat_period_ms(), "vmstat_period_ms");
-  periods_ms[2] = ClampTo10Ms(config.stat_period_ms(), "stat_period_ms");
+  periods_ms[0] = ClampTo10Ms(cfg.meminfo_period_ms(), "meminfo_period_ms");
+  periods_ms[1] = ClampTo10Ms(cfg.vmstat_period_ms(), "vmstat_period_ms");
+  periods_ms[2] = ClampTo10Ms(cfg.stat_period_ms(), "stat_period_ms");
 
   tick_period_ms_ = 0;
   for (uint32_t ms : periods_ms) {
@@ -159,7 +183,7 @@ void SysStatsDataSource::Tick(base::WeakPtr<SysStatsDataSource> weak_this) {
 SysStatsDataSource::~SysStatsDataSource() = default;
 
 void SysStatsDataSource::ReadSysStats() {
-  PERFETTO_METATRACE("ReadSysStats", 0);
+  PERFETTO_METATRACE_SCOPED(TAG_PROC_POLLERS, READ_SYS_STATS);
   auto packet = writer_->NewTracePacket();
 
   packet->set_timestamp(static_cast<uint64_t>(base::GetBootTimeNs().count()));
@@ -173,6 +197,9 @@ void SysStatsDataSource::ReadSysStats() {
 
   if (stat_ticks_ && tick_ % stat_ticks_ == 0)
     ReadStat(sys_stats);
+
+  sys_stats->set_collection_end_timestamp(
+      static_cast<uint64_t>(base::GetBootTimeNs().count()));
 
   tick_++;
 }
@@ -259,7 +286,7 @@ void SysStatsDataSource::ReadStat(protos::pbzero::SysStats* sys_stats) {
         auto v = static_cast<uint64_t>(strtoll(words.cur_token(), nullptr, 10));
         if (i == 0) {
           sys_stats->set_num_irq_total(v);
-        } else {
+        } else if (v > 0) {
           auto* irq_stat = sys_stats->add_num_irq();
           irq_stat->set_irq(static_cast<int32_t>(i - 1));
           irq_stat->set_count(v);

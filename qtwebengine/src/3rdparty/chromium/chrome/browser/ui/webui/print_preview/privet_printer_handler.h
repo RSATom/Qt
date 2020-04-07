@@ -40,17 +40,13 @@ class PrivetPrinterHandler
 
   // PrinterHandler implementation:
   void Reset() override;
-  void StartGetPrinters(const AddedPrintersCallback& added_printers_callback,
+  void StartGetPrinters(AddedPrintersCallback added_printers_callback,
                         GetPrintersDoneCallback done_callback) override;
   void StartGetCapability(const std::string& destination_id,
                           GetCapabilityCallback calback) override;
-  // TODO(tbarzic): It might make sense to have the strings in a single struct.
-  void StartPrint(const std::string& destination_id,
-                  const std::string& capability,
-                  const base::string16& job_title,
-                  const std::string& ticket_json,
-                  const gfx::Size& page_size,
-                  const scoped_refptr<base::RefCountedMemory>& print_data,
+  void StartPrint(const base::string16& job_title,
+                  base::Value ticket,
+                  scoped_refptr<base::RefCountedMemory> print_data,
                   PrintCallback callback) override;
 
   // PrivetLocalPrinterLister::Delegate implementation.
@@ -70,23 +66,22 @@ class PrivetPrinterHandler
 
  private:
   void StartLister(
-      const scoped_refptr<local_discovery::ServiceDiscoverySharedClient>&
-          client);
+      scoped_refptr<local_discovery::ServiceDiscoverySharedClient> client);
   void StopLister();
   void CapabilitiesUpdateClient(
       std::unique_ptr<cloud_print::PrivetHTTPClient> http_client);
   void OnGotCapabilities(const base::DictionaryValue* capabilities);
   void PrintUpdateClient(
       const base::string16& job_title,
-      const scoped_refptr<base::RefCountedMemory>& print_data,
-      const std::string& print_ticket,
+      scoped_refptr<base::RefCountedMemory> print_data,
+      base::Value print_ticket,
       const std::string& capabilities,
       const gfx::Size& page_size,
       std::unique_ptr<cloud_print::PrivetHTTPClient> http_client);
   bool UpdateClient(std::unique_ptr<cloud_print::PrivetHTTPClient> http_client);
   void StartPrint(const base::string16& job_title,
-                  const scoped_refptr<base::RefCountedMemory>& print_data,
-                  const std::string& print_ticket,
+                  scoped_refptr<base::RefCountedMemory> print_data,
+                  base::Value print_ticket,
                   const std::string& capabilities,
                   const gfx::Size& page_size);
   void CreateHTTP(
@@ -111,7 +106,7 @@ class PrivetPrinterHandler
   PrintCallback print_callback_;
   GetCapabilityCallback capabilities_callback_;
 
-  base::WeakPtrFactory<PrivetPrinterHandler> weak_ptr_factory_;
+  base::WeakPtrFactory<PrivetPrinterHandler> weak_ptr_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(PrivetPrinterHandler);
 };

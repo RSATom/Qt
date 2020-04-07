@@ -16,15 +16,12 @@
 #include "third_party/base/ptr_util.h"
 #include "third_party/base/stl_util.h"
 
-CPWL_ListCtrl::Item::Item()
-    : m_pEdit(new CPWL_EditImpl),
-      m_bSelected(false),
-      m_rcListItem(0.0f, 0.0f, 0.0f, 0.0f) {
+CPWL_ListCtrl::Item::Item() : m_pEdit(pdfium::MakeUnique<CPWL_EditImpl>()) {
   m_pEdit->SetAlignmentV(1, true);
   m_pEdit->Initialize();
 }
 
-CPWL_ListCtrl::Item::~Item() {}
+CPWL_ListCtrl::Item::~Item() = default;
 
 void CPWL_ListCtrl::Item::SetFontMap(IPVT_FontMap* pFontMap) {
   m_pEdit->SetFontMap(pFontMap);
@@ -405,6 +402,16 @@ void CPWL_ListCtrl::Select(int32_t nItemIndex) {
   } else {
     SetSingleSelect(nItemIndex);
   }
+}
+
+void CPWL_ListCtrl::Deselect(int32_t nItemIndex) {
+  if (!IsItemSelected(nItemIndex))
+    return;
+
+  SetMultipleSelect(nItemIndex, false);
+
+  if (!IsMultipleSel())
+    m_nSelItem = -1;
 }
 
 bool CPWL_ListCtrl::IsItemVisible(int32_t nItemIndex) const {

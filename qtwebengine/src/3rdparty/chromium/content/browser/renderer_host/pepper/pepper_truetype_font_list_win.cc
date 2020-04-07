@@ -58,7 +58,7 @@ static int CALLBACK EnumFontsInFamilyProc(ENUMLOGFONTEXW* logical_font,
 }
 
 }  // namespace
-#if !defined(TOOLKIT_QT)
+
 void GetFontFamilies_SlowBlocking(FontFamilyList* font_families) {
   LOGFONTW logfont;
   memset(&logfont, 0, sizeof(logfont));
@@ -87,5 +87,5 @@ void GetFontsInFamily_SlowBlocking(const std::string& family,
                         (LPARAM)fonts_in_family,
                         0);
 }
-#endif
+
 }  // namespace content

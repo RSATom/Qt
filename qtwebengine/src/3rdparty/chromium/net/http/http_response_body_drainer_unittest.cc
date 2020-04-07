@@ -7,9 +7,9 @@
 #include <stdint.h>
 
 #include <cstring>
+#include <utility>
 
 #include "base/bind.h"
-#include "base/callback_helpers.h"
 #include "base/compiler_specific.h"
 #include "base/location.h"
 #include "base/macros.h"
@@ -85,8 +85,7 @@ class MockHttpStream : public HttpStream {
         is_sync_(false),
         is_last_chunk_zero_size_(false),
         is_complete_(false),
-        can_reuse_connection_(true),
-        weak_factory_(this) {}
+        can_reuse_connection_(true) {}
   ~MockHttpStream() override = default;
 
   // HttpStream implementation.
@@ -129,7 +128,7 @@ class MockHttpStream : public HttpStream {
     result_waiter_->set_result(not_reusable);
   }
 
-  HttpStream* RenewStreamForAuth() override { return NULL; }
+  HttpStream* RenewStreamForAuth() override { return nullptr; }
 
   bool IsResponseBodyComplete() const override { return is_complete_; }
 
@@ -177,7 +176,7 @@ class MockHttpStream : public HttpStream {
   bool is_complete_;
   bool can_reuse_connection_;
 
-  base::WeakPtrFactory<MockHttpStream> weak_factory_;
+  base::WeakPtrFactory<MockHttpStream> weak_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(MockHttpStream);
 };
@@ -225,8 +224,8 @@ int MockHttpStream::ReadResponseBodyImpl(IOBuffer* buf, int buf_len) {
 
 void MockHttpStream::CompleteRead() {
   int result = ReadResponseBodyImpl(user_buf_.get(), buf_len_);
-  user_buf_ = NULL;
-  base::ResetAndReturn(&callback_).Run(result);
+  user_buf_ = nullptr;
+  std::move(callback_).Run(result);
 }
 
 class HttpResponseBodyDrainerTest : public TestWithScopedTaskEnvironment {

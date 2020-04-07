@@ -8,6 +8,7 @@
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/layout/ng/inline/ng_inline_node.h"
 #include "third_party/blink/renderer/core/layout/ng/ng_break_token.h"
+#include "third_party/blink/renderer/platform/wtf/casting.h"
 
 namespace blink {
 
@@ -77,9 +78,9 @@ class CORE_EXPORT NGInlineBreakToken final : public NGBreakToken {
   void SetIgnoreFloats() { ignore_floats_ = true; }
   bool IgnoreFloats() const { return ignore_floats_; }
 
-#ifndef NDEBUG
+#if DCHECK_IS_ON()
   String ToString() const override;
-#endif  // NDEBUG
+#endif
 
  private:
   NGInlineBreakToken(NGInlineNode node,
@@ -95,11 +96,12 @@ class CORE_EXPORT NGInlineBreakToken final : public NGBreakToken {
   unsigned text_offset_;
 };
 
-DEFINE_TYPE_CASTS(NGInlineBreakToken,
-                  NGBreakToken,
-                  token,
-                  token->IsInlineType(),
-                  token.IsInlineType());
+template <>
+struct DowncastTraits<NGInlineBreakToken> {
+  static bool AllowFrom(const NGBreakToken& token) {
+    return token.IsInlineType();
+  }
+};
 
 }  // namespace blink
 

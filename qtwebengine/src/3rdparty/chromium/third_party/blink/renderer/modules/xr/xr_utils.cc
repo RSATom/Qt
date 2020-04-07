@@ -6,6 +6,9 @@
 
 #include <cmath>
 
+#include "third_party/blink/renderer/core/geometry/dom_point_read_only.h"
+#include "third_party/blink/renderer/platform/transforms/transformation_matrix.h"
+
 namespace blink {
 
 DOMFloat32Array* transformationMatrixToDOMFloat32Array(
@@ -23,12 +26,34 @@ DOMFloat32Array* transformationMatrixToDOMFloat32Array(
   return DOMFloat32Array::Create(array, 16);
 }
 
+TransformationMatrix DOMFloat32ArrayToTransformationMatrix(DOMFloat32Array* m) {
+  DCHECK_EQ(m->length(), 16u);
+
+  auto* data = m->Data();
+
+  return TransformationMatrix(
+      static_cast<double>(data[0]), static_cast<double>(data[1]),
+      static_cast<double>(data[2]), static_cast<double>(data[3]),
+      static_cast<double>(data[4]), static_cast<double>(data[5]),
+      static_cast<double>(data[6]), static_cast<double>(data[7]),
+      static_cast<double>(data[8]), static_cast<double>(data[9]),
+      static_cast<double>(data[10]), static_cast<double>(data[11]),
+      static_cast<double>(data[12]), static_cast<double>(data[13]),
+      static_cast<double>(data[14]), static_cast<double>(data[15]));
+}
+
+TransformationMatrix WTFFloatVectorToTransformationMatrix(
+    const WTF::Vector<float>& m) {
+  return TransformationMatrix(m[0], m[1], m[2], m[3], m[4], m[5], m[6], m[7],
+                              m[8], m[9], m[10], m[11], m[12], m[13], m[14],
+                              m[15]);
+}
+
 // Normalize to have length = 1.0
-DOMPointReadOnly* makeNormalizedQuaternion(DOMPointInit* q) {
-  double x = q->x();
-  double y = q->y();
-  double z = q->z();
-  double w = q->w();
+DOMPointReadOnly* makeNormalizedQuaternion(double x,
+                                           double y,
+                                           double z,
+                                           double w) {
   double length = std::sqrt((x * x) + (y * y) + (z * z) + (w * w));
   if (length == 0.0) {
     // Return a default value instead of crashing.

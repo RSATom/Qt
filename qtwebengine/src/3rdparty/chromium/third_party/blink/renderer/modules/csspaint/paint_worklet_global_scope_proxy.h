@@ -29,15 +29,15 @@ class MODULES_EXPORT PaintWorkletGlobalScopeProxy
 
   PaintWorkletGlobalScopeProxy(LocalFrame*,
                                WorkletModuleResponsesMap*,
-                               PaintWorkletPendingGeneratorRegistry*,
                                size_t global_scope_number);
   ~PaintWorkletGlobalScopeProxy() override = default;
 
   // Implements WorkletGlobalScopeProxy.
   void FetchAndInvokeScript(
       const KURL& module_url_record,
-      network::mojom::FetchCredentialsMode,
-      FetchClientSettingsObjectSnapshot* outside_settings_object,
+      network::mojom::CredentialsMode,
+      const FetchClientSettingsObjectSnapshot& outside_settings_object,
+      WorkerResourceTimingNotifier& outside_resource_timing_notifier,
       scoped_refptr<base::SingleThreadTaskRunner> outside_settings_task_runner,
       WorkletPendingTasks*) override;
   void WorkletObjectDestroyed() override;

@@ -123,9 +123,7 @@ QQuickTaskbarButton::QQuickTaskbarButton(QQuickItem *parent) : QQuickItem(parent
 {
 }
 
-QQuickTaskbarButton::~QQuickTaskbarButton()
-{
-}
+QQuickTaskbarButton::~QQuickTaskbarButton() = default;
 
 /*!
     \qmlpropertygroup ::TaskbarButton::progress

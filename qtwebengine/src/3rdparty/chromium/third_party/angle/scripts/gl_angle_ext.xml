@@ -798,24 +798,6 @@
                 <param><ptype>GLuint64 *</ptype> <name>params</name></param>
             </command>
             <command>
-            <proto>void <name>glFramebufferTextureMultiviewLayeredANGLE</name></proto>
-                <param><ptype>GLenum</ptype> <name>target</name></param>
-                <param><ptype>GLenum</ptype> <name>attachment</name></param>
-                <param><ptype>GLuint</ptype> <name>texture</name></param>
-                <param><ptype>GLint</ptype> <name>level</name></param>
-                <param><ptype>GLint</ptype> <name>baseViewIndex</name></param>
-                <param><ptype>GLsizei</ptype> <name>numViews</name></param>
-            </command>
-            <command>
-            <proto>void <name>glFramebufferTextureMultiviewSideBySideANGLE</name></proto>
-                <param><ptype>GLenum</ptype> <name>target</name></param>
-                <param><ptype>GLenum</ptype> <name>attachment</name></param>
-                <param><ptype>GLuint</ptype> <name>texture</name></param>
-                <param><ptype>GLint</ptype> <name>level</name></param>
-                <param><ptype>GLsizei</ptype> <name>numViews</name></param>
-                <param><ptype>const GLint *</ptype> <name>viewportOffsets</name></param>
-            </command>
-            <command>
             <proto>void <name>glCopyTexture3DANGLE</name></proto>
                 <param><ptype>GLuint</ptype> <name>sourceId</name></param>
                 <param><ptype>GLint</ptype> <name>sourceLevel</name></param>
@@ -917,6 +899,26 @@
             <command>
                 <proto>void <name>glProvokingVertexANGLE</name></proto>
                 <param group="VertexProvokingMode"><ptype>GLenum</ptype> <name>mode</name></param>
+            </command>
+            <command>
+                <proto>void <name>glLoseContextCHROMIUM</name></proto>
+                <param group="GraphicsResetStatus"><ptype>GLenum</ptype> <name>current</name></param>
+                <param group="GraphicsResetStatus"><ptype>GLenum</ptype> <name>other</name></param>
+            </command>
+            <command>
+                <proto>void <name>glTexImage2DExternalANGLE</name></proto>
+                <param group="TextureTarget"><ptype>GLenum</ptype> <name>target</name></param>
+                <param group="CheckedInt32"><ptype>GLint</ptype> <name>level</name></param>
+                <param group="InternalFormat"><ptype>GLint</ptype> <name>internalformat</name></param>
+                <param><ptype>GLsizei</ptype> <name>width</name></param>
+                <param><ptype>GLsizei</ptype> <name>height</name></param>
+                <param group="CheckedInt32"><ptype>GLint</ptype> <name>border</name></param>
+                <param group="PixelFormat"><ptype>GLenum</ptype> <name>format</name></param>
+                <param group="PixelType"><ptype>GLenum</ptype> <name>type</name></param>
+            </command>
+            <command>
+                <proto>void <name>glInvalidateTextureANGLE</name></proto>
+                <param group="TextureTarget"><ptype>GLenum</ptype> <name>target</name></param>
             </command>
     </commands>
     <!-- SECTION: ANGLE extension interface definitions -->
@@ -1044,12 +1046,6 @@
                 <command name="glGetQueryObjectui64vRobustANGLE"/>
             </require>
         </extension>
-        <extension name="GL_ANGLE_multiview" supported='gles2'>
-            <require>
-                <command name="glFramebufferTextureMultiviewSideBySideANGLE"/>
-                <command name="glFramebufferTextureMultiviewLayeredANGLE"/>
-            </require>
-        </extension>
         <extension name="GL_ANGLE_copy_texture_3d" supported='gles2'>
             <require>
                 <command name="glCopyTexture3DANGLE"/>
@@ -1079,6 +1075,20 @@
                 <enum name="GL_LAST_VERTEX_CONVENTION"/>
                 <enum name="GL_PROVOKING_VERTEX"/>
                 <command name="glProvokingVertexANGLE"/>
+            </require>
+        </extension>
+        <extension name="GL_CHROMIUM_lose_context" supported='gles2'>
+            <require>
+                <enum name="GL_GUILTY_CONTEXT_RESET"/>
+                <enum name="GL_INNOCENT_CONTEXT_RESET"/>
+                <enum name="GL_UNKNOWN_CONTEXT_RESET"/>
+                <command name="glLoseContextCHROMIUM"/>
+            </require>
+        </extension>
+        <extension name="GL_ANGLE_texture_external_update" supported='gl|gles2'>
+            <require>
+                <command name="glTexImage2DExternalANGLE"/>
+                <command name="glInvalidateTextureANGLE"/>
             </require>
         </extension>
     </extensions>

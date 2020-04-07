@@ -126,20 +126,20 @@ void tst_toolsupport::offsets_data()
 #ifdef Q_PROCESSOR_X86
         // x86 32-bit has weird alignment rules. Refer to QtPrivate::AlignOf in
         // qglobal.h for more details.
-        data << 168 << 248;
+        data << 152 << 224;
 #else
-        data << 172 << 248;
+        data << 156 << 224;
 #endif
     }
 #endif
 
     {
         QTest::newRow("QDateTimePrivate::m_msecs")
-            << pmm_to_offsetof(&QDateTimePrivate::m_msecs) << 0 << 0;
+            << pmm_to_offsetof(&QDateTimePrivate::m_msecs) << 8 << 8;
         QTest::newRow("QDateTimePrivate::m_status")
-            << pmm_to_offsetof(&QDateTimePrivate::m_status) << 8 << 8;
+            << pmm_to_offsetof(&QDateTimePrivate::m_status) << 4 << 4;
         QTest::newRow("QDateTimePrivate::m_offsetFromUtc")
-            << pmm_to_offsetof(&QDateTimePrivate::m_offsetFromUtc) << 12 << 12;
+            << pmm_to_offsetof(&QDateTimePrivate::m_offsetFromUtc) << 16 << 16;
         QTest::newRow("QDateTimePrivate::m_timeZone")
             << pmm_to_offsetof(&QDateTimePrivate::m_timeZone) << 20 << 24;
     }

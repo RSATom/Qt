@@ -87,7 +87,7 @@ class QVersionNumber
         };
 
         // set the InlineSegmentMarker and set length to zero
-        SegmentStorage() Q_DECL_NOTHROW : dummy(1) {}
+        SegmentStorage() noexcept : dummy(1) {}
 
         SegmentStorage(const QVector<int> &seg)
         {
@@ -119,14 +119,13 @@ class QVersionNumber
             return *this;
         }
 
-#ifdef Q_COMPILER_RVALUE_REFS
-        SegmentStorage(SegmentStorage &&other) Q_DECL_NOTHROW
+        SegmentStorage(SegmentStorage &&other) noexcept
             : dummy(other.dummy)
         {
             other.dummy = 1;
         }
 
-        SegmentStorage &operator=(SegmentStorage &&other) Q_DECL_NOTHROW
+        SegmentStorage &operator=(SegmentStorage &&other) noexcept
         {
             qSwap(dummy, other.dummy);
             return *this;
@@ -139,8 +138,6 @@ class QVersionNumber
             else
                 pointer_segments = new QVector<int>(std::move(seg));
         }
-#endif
-#ifdef Q_COMPILER_INITIALIZER_LISTS
         SegmentStorage(std::initializer_list<int> args)
         {
             if (dataFitsInline(args.begin(), int(args.size()))) {
@@ -149,14 +146,13 @@ class QVersionNumber
                 pointer_segments = new QVector<int>(args);
             }
         }
-#endif
 
         ~SegmentStorage() { if (isUsingPointer()) delete pointer_segments; }
 
-        bool isUsingPointer() const Q_DECL_NOTHROW
+        bool isUsingPointer() const noexcept
         { return (inline_segments[InlineSegmentMarker] & 1) == 0; }
 
-        int size() const Q_DECL_NOTHROW
+        int size() const noexcept
         { return isUsingPointer() ? pointer_segments->size() : (inline_segments[InlineSegmentMarker] >> 1); }
 
         void setInlineSize(int len)
@@ -218,7 +214,7 @@ class QVersionNumber
     } m_segments;
 
 public:
-    inline QVersionNumber() Q_DECL_NOTHROW
+    inline QVersionNumber() noexcept
         : m_segments()
     {}
     inline explicit QVersionNumber(const QVector<int> &seg)
@@ -227,17 +223,13 @@ public:
 
     // compiler-generated copy/move ctor/assignment operators and the destructor are ok
 
-#ifdef Q_COMPILER_RVALUE_REFS
     explicit QVersionNumber(QVector<int> &&seg)
         : m_segments(std::move(seg))
     {}
-#endif
 
-#ifdef Q_COMPILER_INITIALIZER_LISTS
     inline QVersionNumber(std::initializer_list<int> args)
         : m_segments(args)
     {}
-#endif
 
     inline explicit QVersionNumber(int maj)
     { m_segments.setSegments(1, maj); }
@@ -248,34 +240,34 @@ public:
     inline explicit QVersionNumber(int maj, int min, int mic)
     { m_segments.setSegments(3, maj, min, mic); }
 
-    Q_REQUIRED_RESULT inline bool isNull() const Q_DECL_NOTHROW
+    Q_REQUIRED_RESULT inline bool isNull() const noexcept
     { return segmentCount() == 0; }
 
-    Q_REQUIRED_RESULT inline bool isNormalized() const Q_DECL_NOTHROW
+    Q_REQUIRED_RESULT inline bool isNormalized() const noexcept
     { return isNull() || segmentAt(segmentCount() - 1) != 0; }
 
-    Q_REQUIRED_RESULT inline int majorVersion() const Q_DECL_NOTHROW
+    Q_REQUIRED_RESULT inline int majorVersion() const noexcept
     { return segmentAt(0); }
 
-    Q_REQUIRED_RESULT inline int minorVersion() const Q_DECL_NOTHROW
+    Q_REQUIRED_RESULT inline int minorVersion() const noexcept
     { return segmentAt(1); }
 
-    Q_REQUIRED_RESULT inline int microVersion() const Q_DECL_NOTHROW
+    Q_REQUIRED_RESULT inline int microVersion() const noexcept
     { return segmentAt(2); }
 
     Q_REQUIRED_RESULT Q_CORE_EXPORT QVersionNumber normalized() const;
 
     Q_REQUIRED_RESULT Q_CORE_EXPORT QVector<int> segments() const;
 
-    Q_REQUIRED_RESULT inline int segmentAt(int index) const Q_DECL_NOTHROW
+    Q_REQUIRED_RESULT inline int segmentAt(int index) const noexcept
     { return (m_segments.size() > index) ? m_segments.at(index) : 0; }
 
-    Q_REQUIRED_RESULT inline int segmentCount() const Q_DECL_NOTHROW
+    Q_REQUIRED_RESULT inline int segmentCount() const noexcept
     { return m_segments.size(); }
 
-    Q_REQUIRED_RESULT Q_CORE_EXPORT bool isPrefixOf(const QVersionNumber &other) const Q_DECL_NOTHROW;
+    Q_REQUIRED_RESULT Q_CORE_EXPORT bool isPrefixOf(const QVersionNumber &other) const noexcept;
 
-    Q_REQUIRED_RESULT Q_CORE_EXPORT static int compare(const QVersionNumber &v1, const QVersionNumber &v2) Q_DECL_NOTHROW;
+    Q_REQUIRED_RESULT Q_CORE_EXPORT static int compare(const QVersionNumber &v1, const QVersionNumber &v2) noexcept;
 
     Q_REQUIRED_RESULT Q_CORE_EXPORT static Q_DECL_PURE_FUNCTION QVersionNumber commonPrefix(const QVersionNumber &v1, const QVersionNumber &v2);
 
@@ -299,22 +291,22 @@ Q_DECLARE_TYPEINFO(QVersionNumber, Q_MOVABLE_TYPE);
 Q_CORE_EXPORT QDebug operator<<(QDebug, const QVersionNumber &version);
 #endif
 
-Q_REQUIRED_RESULT inline bool operator> (const QVersionNumber &lhs, const QVersionNumber &rhs) Q_DECL_NOTHROW
+Q_REQUIRED_RESULT inline bool operator> (const QVersionNumber &lhs, const QVersionNumber &rhs) noexcept
 { return QVersionNumber::compare(lhs, rhs) > 0; }
 
-Q_REQUIRED_RESULT inline bool operator>=(const QVersionNumber &lhs, const QVersionNumber &rhs) Q_DECL_NOTHROW
+Q_REQUIRED_RESULT inline bool operator>=(const QVersionNumber &lhs, const QVersionNumber &rhs) noexcept
 { return QVersionNumber::compare(lhs, rhs) >= 0; }
 
-Q_REQUIRED_RESULT inline bool operator< (const QVersionNumber &lhs, const QVersionNumber &rhs) Q_DECL_NOTHROW
+Q_REQUIRED_RESULT inline bool operator< (const QVersionNumber &lhs, const QVersionNumber &rhs) noexcept
 { return QVersionNumber::compare(lhs, rhs) < 0; }
 
-Q_REQUIRED_RESULT inline bool operator<=(const QVersionNumber &lhs, const QVersionNumber &rhs) Q_DECL_NOTHROW
+Q_REQUIRED_RESULT inline bool operator<=(const QVersionNumber &lhs, const QVersionNumber &rhs) noexcept
 { return QVersionNumber::compare(lhs, rhs) <= 0; }
 
-Q_REQUIRED_RESULT inline bool operator==(const QVersionNumber &lhs, const QVersionNumber &rhs) Q_DECL_NOTHROW
+Q_REQUIRED_RESULT inline bool operator==(const QVersionNumber &lhs, const QVersionNumber &rhs) noexcept
 { return QVersionNumber::compare(lhs, rhs) == 0; }
 
-Q_REQUIRED_RESULT inline bool operator!=(const QVersionNumber &lhs, const QVersionNumber &rhs) Q_DECL_NOTHROW
+Q_REQUIRED_RESULT inline bool operator!=(const QVersionNumber &lhs, const QVersionNumber &rhs) noexcept
 { return QVersionNumber::compare(lhs, rhs) != 0; }
 
 QT_END_NAMESPACE

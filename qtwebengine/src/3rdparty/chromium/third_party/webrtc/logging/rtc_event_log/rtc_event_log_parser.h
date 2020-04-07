@@ -39,6 +39,8 @@ RTC_POP_IGNORING_WUNDEF()
 
 namespace webrtc {
 
+enum PacketDirection { kIncomingPacket = 0, kOutgoingPacket };
+
 template <typename T>
 class PacketView;
 
@@ -388,6 +390,10 @@ class ParsedRtcEventLog {
     return ice_candidate_pair_events_;
   }
 
+  const std::vector<LoggedRouteChangeEvent>& route_change_events() const {
+    return route_change_events_;
+  }
+
   // RTP
   const std::vector<LoggedRtpStreamIncoming>& incoming_rtp_packets_by_ssrc()
       const {
@@ -434,6 +440,15 @@ class ParsedRtcEventLog {
     }
   }
 
+  const std::vector<LoggedRtcpPacketExtendedReports>& extended_reports(
+      PacketDirection direction) const {
+    if (direction == kIncomingPacket) {
+      return incoming_xr_;
+    } else {
+      return outgoing_xr_;
+    }
+  }
+
   const std::vector<LoggedRtcpPacketNack>& nacks(
       PacketDirection direction) const {
     if (direction == kIncomingPacket) {
@@ -452,6 +467,24 @@ class ParsedRtcEventLog {
     }
   }
 
+  const std::vector<LoggedRtcpPacketFir>& firs(
+      PacketDirection direction) const {
+    if (direction == kIncomingPacket) {
+      return incoming_fir_;
+    } else {
+      return outgoing_fir_;
+    }
+  }
+
+  const std::vector<LoggedRtcpPacketPli>& plis(
+      PacketDirection direction) const {
+    if (direction == kIncomingPacket) {
+      return incoming_pli_;
+    } else {
+      return outgoing_pli_;
+    }
+  }
+
   const std::vector<LoggedRtcpPacketTransportFeedback>& transport_feedbacks(
       PacketDirection direction) const {
     if (direction == kIncomingPacket) {
@@ -459,6 +492,27 @@ class ParsedRtcEventLog {
     } else {
       return outgoing_transport_feedback_;
     }
+  }
+
+  const std::vector<LoggedRtcpPacketLossNotification>& loss_notifications(
+      PacketDirection direction) {
+    if (direction == kIncomingPacket) {
+      return incoming_loss_notification_;
+    } else {
+      return outgoing_loss_notification_;
+    }
+  }
+
+  const std::vector<LoggedGenericPacketReceived>& generic_packets_received()
+      const {
+    return generic_packets_received_;
+  }
+  const std::vector<LoggedGenericPacketSent>& generic_packets_sent() const {
+    return generic_packets_sent_;
+  }
+
+  const std::vector<LoggedGenericAckReceived>& generic_acks_received() const {
+    return generic_acks_received_;
   }
 
   int64_t first_timestamp() const { return first_timestamp_; }
@@ -474,7 +528,7 @@ class ParsedRtcEventLog {
   std::vector<LoggedIceCandidatePairConfig> GetIceCandidates() const;
   std::vector<LoggedIceEvent> GetIceEvents() const;
 
-  std::vector<LoggedRouteChangeEvent> GetRouteChanges() const;
+  std::vector<InferredRouteChangeEvent> GetRouteChanges() const;
 
  private:
   bool ParseStreamInternal(
@@ -544,29 +598,34 @@ class ParsedRtcEventLog {
       const rtclog::Event& event) const;
 
   // Parsing functions for new format.
-  void StoreParsedNewFormatEvent(const rtclog2::EventStream& event);
-  void StoreIncomingRtpPackets(const rtclog2::IncomingRtpPackets& proto);
-  void StoreOutgoingRtpPackets(const rtclog2::OutgoingRtpPackets& proto);
-  void StoreIncomingRtcpPackets(const rtclog2::IncomingRtcpPackets& proto);
-  void StoreOutgoingRtcpPackets(const rtclog2::OutgoingRtcpPackets& proto);
-  void StoreStartEvent(const rtclog2::BeginLogEvent& proto);
-  void StoreStopEvent(const rtclog2::EndLogEvent& proto);
   void StoreAlrStateEvent(const rtclog2::AlrState& proto);
   void StoreAudioNetworkAdaptationEvent(
       const rtclog2::AudioNetworkAdaptations& proto);
   void StoreAudioPlayoutEvent(const rtclog2::AudioPlayoutEvents& proto);
-  void StoreBweLossBasedUpdate(const rtclog2::LossBasedBweUpdates& proto);
-  void StoreBweDelayBasedUpdate(const rtclog2::DelayBasedBweUpdates& proto);
-  void StoreBweProbeClusterCreated(const rtclog2::BweProbeCluster& proto);
-  void StoreBweProbeSuccessEvent(const rtclog2::BweProbeResultSuccess& proto);
-  void StoreBweProbeFailureEvent(const rtclog2::BweProbeResultFailure& proto);
-  void StoreDtlsTransportState(const rtclog2::DtlsTransportStateEvent& proto);
-  void StoreDtlsWritableState(const rtclog2::DtlsWritableState& proto);
-  void StoreIceCandidatePairConfig(
-      const rtclog2::IceCandidatePairConfig& proto);
-  void StoreIceCandidateEvent(const rtclog2::IceCandidatePairEvent& proto);
   void StoreAudioRecvConfig(const rtclog2::AudioRecvStreamConfig& proto);
   void StoreAudioSendConfig(const rtclog2::AudioSendStreamConfig& proto);
+  void StoreBweDelayBasedUpdate(const rtclog2::DelayBasedBweUpdates& proto);
+  void StoreBweLossBasedUpdate(const rtclog2::LossBasedBweUpdates& proto);
+  void StoreBweProbeClusterCreated(const rtclog2::BweProbeCluster& proto);
+  void StoreBweProbeFailureEvent(const rtclog2::BweProbeResultFailure& proto);
+  void StoreBweProbeSuccessEvent(const rtclog2::BweProbeResultSuccess& proto);
+  void StoreDtlsTransportState(const rtclog2::DtlsTransportStateEvent& proto);
+  void StoreDtlsWritableState(const rtclog2::DtlsWritableState& proto);
+  void StoreGenericAckReceivedEvent(const rtclog2::GenericAckReceived& proto);
+  void StoreGenericPacketReceivedEvent(
+      const rtclog2::GenericPacketReceived& proto);
+  void StoreGenericPacketSentEvent(const rtclog2::GenericPacketSent& proto);
+  void StoreIceCandidateEvent(const rtclog2::IceCandidatePairEvent& proto);
+  void StoreIceCandidatePairConfig(
+      const rtclog2::IceCandidatePairConfig& proto);
+  void StoreIncomingRtcpPackets(const rtclog2::IncomingRtcpPackets& proto);
+  void StoreIncomingRtpPackets(const rtclog2::IncomingRtpPackets& proto);
+  void StoreOutgoingRtcpPackets(const rtclog2::OutgoingRtcpPackets& proto);
+  void StoreOutgoingRtpPackets(const rtclog2::OutgoingRtpPackets& proto);
+  void StoreParsedNewFormatEvent(const rtclog2::EventStream& event);
+  void StoreRouteChangeEvent(const rtclog2::RouteChange& proto);
+  void StoreStartEvent(const rtclog2::BeginLogEvent& proto);
+  void StoreStopEvent(const rtclog2::EndLogEvent& proto);
   void StoreVideoRecvConfig(const rtclog2::VideoRecvStreamConfig& proto);
   void StoreVideoSendConfig(const rtclog2::VideoSendStreamConfig& proto);
   // End of new parsing functions.
@@ -629,12 +688,20 @@ class ParsedRtcEventLog {
   std::vector<LoggedRtcpPacketReceiverReport> outgoing_rr_;
   std::vector<LoggedRtcpPacketSenderReport> incoming_sr_;
   std::vector<LoggedRtcpPacketSenderReport> outgoing_sr_;
+  std::vector<LoggedRtcpPacketExtendedReports> incoming_xr_;
+  std::vector<LoggedRtcpPacketExtendedReports> outgoing_xr_;
   std::vector<LoggedRtcpPacketNack> incoming_nack_;
   std::vector<LoggedRtcpPacketNack> outgoing_nack_;
   std::vector<LoggedRtcpPacketRemb> incoming_remb_;
   std::vector<LoggedRtcpPacketRemb> outgoing_remb_;
+  std::vector<LoggedRtcpPacketFir> incoming_fir_;
+  std::vector<LoggedRtcpPacketFir> outgoing_fir_;
+  std::vector<LoggedRtcpPacketPli> incoming_pli_;
+  std::vector<LoggedRtcpPacketPli> outgoing_pli_;
   std::vector<LoggedRtcpPacketTransportFeedback> incoming_transport_feedback_;
   std::vector<LoggedRtcpPacketTransportFeedback> outgoing_transport_feedback_;
+  std::vector<LoggedRtcpPacketLossNotification> incoming_loss_notification_;
+  std::vector<LoggedRtcpPacketLossNotification> outgoing_loss_notification_;
 
   std::vector<LoggedStartEvent> start_log_events_;
   std::vector<LoggedStopEvent> stop_log_events_;
@@ -666,6 +733,12 @@ class ParsedRtcEventLog {
   std::vector<LoggedAudioSendConfig> audio_send_configs_;
   std::vector<LoggedVideoRecvConfig> video_recv_configs_;
   std::vector<LoggedVideoSendConfig> video_send_configs_;
+
+  std::vector<LoggedGenericPacketReceived> generic_packets_received_;
+  std::vector<LoggedGenericPacketSent> generic_packets_sent_;
+  std::vector<LoggedGenericAckReceived> generic_acks_received_;
+
+  std::vector<LoggedRouteChangeEvent> route_change_events_;
 
   uint8_t last_incoming_rtcp_packet_[IP_PACKET_SIZE];
   uint8_t last_incoming_rtcp_packet_length_;

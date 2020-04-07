@@ -41,9 +41,12 @@ Polymer({
 
     /**
      * Authentication token provided by lock-screen-password-prompt-dialog.
-     * @private
      */
-    authToken_: String,
+    authToken: {
+      type: String,
+      value: '',
+      notify: true,
+    },
 
     /**
      * writeUma_ is a function that handles writing uma stats. It may be
@@ -127,6 +130,19 @@ Polymer({
       readOnly: true,
     },
 
+    /**
+     * Whether the lock screen media keys preference is enabled by the
+     * feature flag.
+     * @private
+     */
+    lockScreenMediaKeysPreferenceEnabled_: {
+      type: Boolean,
+      value: function() {
+        return loadTimeData.getBoolean('lockScreenMediaKeysEnabled');
+      },
+      readOnly: true,
+    },
+
     /** @private */
     showPasswordPromptDialog_: Boolean,
 
@@ -181,12 +197,12 @@ Polymer({
    */
   onScreenLockChange_: function(event) {
     const target = /** @type {!SettingsToggleButtonElement} */ (event.target);
-    if (!this.authToken_) {
+    if (!this.authToken) {
       console.error('Screen lock changed with expired token.');
       target.checked = !target.checked;
       return;
     }
-    this.setLockScreenEnabled(this.authToken_, target.checked);
+    this.setLockScreenEnabled(this.authToken, target.checked);
   },
 
   /**

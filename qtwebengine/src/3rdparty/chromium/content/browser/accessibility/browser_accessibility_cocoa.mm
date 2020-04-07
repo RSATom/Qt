@@ -16,6 +16,8 @@
 #include "base/mac/availability.h"
 #include "base/mac/foundation_util.h"
 #include "base/mac/scoped_cftyperef.h"
+#include "base/optional.h"
+#include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
 #include "base/strings/sys_string_conversions.h"
 #include "base/strings/utf_string_conversions.h"
@@ -36,6 +38,8 @@
 
 using BrowserAccessibilityPositionInstance =
     content::BrowserAccessibilityPosition::AXPositionInstance;
+using SerializedPosition =
+    content::BrowserAccessibilityPosition::SerializedPosition;
 using AXPlatformRange =
     ui::AXRange<BrowserAccessibilityPositionInstance::element_type>;
 using AXTextMarkerRangeRef = CFTypeRef;
@@ -51,6 +55,10 @@ using content::ContentClient;
 using content::OneShotAccessibilityTreeSearch;
 using ui::AXNodeData;
 using ui::AXTreeIDRegistry;
+
+static_assert(
+    std::is_trivially_copyable<SerializedPosition>::value,
+    "SerializedPosition must be POD because it's used to back an AXTextMarker");
 
 namespace {
 
@@ -68,10 +76,13 @@ NSString* const NSAccessibilityARIASetSizeAttribute = @"AXARIASetSize";
 NSString* const NSAccessibilityAccessKeyAttribute = @"AXAccessKey";
 NSString* const NSAccessibilityAutocompleteValueAttribute =
     @"AXAutocompleteValue";
+NSString* const NSAccessibilityBlockQuoteLevelAttribute = @"AXBlockQuoteLevel";
+NSString* const NSAccessibilityDOMClassList = @"AXDOMClassList";
 NSString* const NSAccessibilityDOMIdentifierAttribute = @"AXDOMIdentifier";
 NSString* const NSAccessibilityDropEffectsAttribute = @"AXDropEffects";
 NSString* const NSAccessibilityEditableAncestorAttribute =
     @"AXEditableAncestor";
+NSString* const NSAccessibilityElementBusyAttribute = @"AXElementBusy";
 NSString* const NSAccessibilityFocusableAncestorAttribute =
     @"AXFocusableAncestor";
 NSString* const NSAccessibilityGrabbedAttribute = @"AXGrabbed";
@@ -114,8 +125,9 @@ NSString* const NSAccessibilitySelectTextWithCriteriaParameterizedAttribute =
     @"AXSelectTextWithCriteria";
 NSString* const NSAccessibilityBoundsForTextMarkerRangeParameterizedAttribute =
     @"AXBoundsForTextMarkerRange";
-NSString* const NSAccessibilityTextMarkerRangeForUnorderedTextMarkersParameterizedAttribute =
-    @"AXTextMarkerRangeForUnorderedTextMarkers";
+NSString* const
+    NSAccessibilityTextMarkerRangeForUnorderedTextMarkersParameterizedAttribute =
+        @"AXTextMarkerRangeForUnorderedTextMarkers";
 NSString* const NSAccessibilityIndexForChildUIElementParameterizedAttribute =
     @"AXIndexForChildUIElement";
 NSString* const NSAccessibilityValueAutofillAvailableAttribute =
@@ -166,47 +178,41 @@ AXTextMarkerRef AXTextMarkerRangeCopyEndMarker(
 
 // AXTextMarkerCreate copies from data buffer given to it.
 id CreateTextMarker(BrowserAccessibilityPositionInstance position) {
+  SerializedPosition serialized = position->Serialize();
   AXTextMarkerRef text_marker = AXTextMarkerCreate(
-      kCFAllocatorDefault, reinterpret_cast<const UInt8*>(position.get()),
-      sizeof(BrowserAccessibilityPosition));
-  return static_cast<id>(
-      base::mac::CFTypeRefToNSObjectAutorelease(text_marker));
+      kCFAllocatorDefault, reinterpret_cast<const UInt8*>(&serialized),
+      sizeof(SerializedPosition));
+  return [static_cast<id>(text_marker) autorelease];
 }
 
 // |range| is destructed at the end of this method. |anchor| and |focus| are
 // copied into the individual text markers.
 id CreateTextMarkerRange(const AXPlatformRange range) {
+  SerializedPosition serialized_anchor = range.anchor()->Serialize();
+  SerializedPosition serialized_focus = range.focus()->Serialize();
   base::ScopedCFTypeRef<AXTextMarkerRef> start_marker(AXTextMarkerCreate(
-      kCFAllocatorDefault, reinterpret_cast<const UInt8*>(range.anchor()),
-      sizeof(BrowserAccessibilityPosition)));
+      kCFAllocatorDefault, reinterpret_cast<const UInt8*>(&serialized_anchor),
+      sizeof(SerializedPosition)));
   base::ScopedCFTypeRef<AXTextMarkerRef> end_marker(AXTextMarkerCreate(
-      kCFAllocatorDefault, reinterpret_cast<const UInt8*>(range.focus()),
-      sizeof(BrowserAccessibilityPosition)));
+      kCFAllocatorDefault, reinterpret_cast<const UInt8*>(&serialized_focus),
+      sizeof(SerializedPosition)));
   AXTextMarkerRangeRef marker_range =
       AXTextMarkerRangeCreate(kCFAllocatorDefault, start_marker, end_marker);
-  return static_cast<id>(
-      base::mac::CFTypeRefToNSObjectAutorelease(marker_range));
+  return [static_cast<id>(marker_range) autorelease];
 }
 
 BrowserAccessibilityPositionInstance CreatePositionFromTextMarker(
     AXTextMarkerRef text_marker) {
   DCHECK(text_marker);
-  if (AXTextMarkerGetLength(text_marker) !=
-      sizeof(BrowserAccessibilityPosition))
+  if (AXTextMarkerGetLength(text_marker) != sizeof(SerializedPosition))
     return BrowserAccessibilityPosition::CreateNullPosition();
+
   const UInt8* source_buffer = AXTextMarkerGetBytePtr(text_marker);
   if (!source_buffer)
     return BrowserAccessibilityPosition::CreateNullPosition();
-  UInt8* destination_buffer = new UInt8[sizeof(BrowserAccessibilityPosition)];
-  std::memcpy(destination_buffer, source_buffer,
-              sizeof(BrowserAccessibilityPosition));
-  BrowserAccessibilityPosition::AXPositionInstance position(
-      reinterpret_cast<
-          BrowserAccessibilityPosition::AXPositionInstance::pointer>(
-          destination_buffer));
-  if (!position)
-    return BrowserAccessibilityPosition::CreateNullPosition();
-  return position;
+
+  return BrowserAccessibilityPosition::Unserialize(
+      *reinterpret_cast<const SerializedPosition*>(source_buffer));
 }
 
 AXPlatformRange CreateRangeFromTextMarkerRange(
@@ -227,10 +233,27 @@ AXPlatformRange CreateRangeFromTextMarkerRange(
   return AXPlatformRange(std::move(anchor), std::move(focus));
 }
 
+BrowserAccessibilityPositionInstance CreateTreePosition(
+    const BrowserAccessibility& object,
+    int offset) {
+  // A tree position is one for which the |offset| argument refers to a child
+  // index instead of a character offset inside a text object.
+  if (!object.instance_active())
+    return BrowserAccessibilityPosition::CreateNullPosition();
+
+  const BrowserAccessibilityManager* manager = object.manager();
+  DCHECK(manager);
+  return BrowserAccessibilityPosition::CreateTreePosition(
+      manager->ax_tree_id(), object.GetId(), offset);
+}
+
 BrowserAccessibilityPositionInstance CreateTextPosition(
     const BrowserAccessibility& object,
     int offset,
     ax::mojom::TextAffinity affinity) {
+  // A text position is one for which the |offset| argument refers to a
+  // character offset inside a text object. As such, text positions are only
+  // valid on platform leaf objects, e.g. static text nodes and text fields.
   if (!object.instance_active())
     return BrowserAccessibilityPosition::CreateNullPosition();
 
@@ -240,46 +263,59 @@ BrowserAccessibilityPositionInstance CreateTextPosition(
       manager->ax_tree_id(), object.GetId(), offset, affinity);
 }
 
-AXPlatformRange CreateTextRange(const BrowserAccessibility& start_object,
-                                int start_offset,
-                                ax::mojom::TextAffinity start_affinity,
-                                const BrowserAccessibility& end_object,
-                                int end_offset,
-                                ax::mojom::TextAffinity end_affinity) {
+AXPlatformRange CreateAXPlatformRange(const BrowserAccessibility& start_object,
+                                      int start_offset,
+                                      ax::mojom::TextAffinity start_affinity,
+                                      const BrowserAccessibility& end_object,
+                                      int end_offset,
+                                      ax::mojom::TextAffinity end_affinity) {
   BrowserAccessibilityPositionInstance anchor =
-      CreateTextPosition(start_object, start_offset, start_affinity);
+      start_object.IsTextOnlyObject()
+          ? CreateTextPosition(start_object, start_offset, start_affinity)
+          : CreateTreePosition(start_object, start_offset);
   BrowserAccessibilityPositionInstance focus =
-      CreateTextPosition(end_object, end_offset, end_affinity);
+      end_object.IsTextOnlyObject()
+          ? CreateTextPosition(end_object, end_offset, end_affinity)
+          : CreateTreePosition(end_object, end_offset);
   // |AXPlatformRange| takes ownership of its anchor and focus.
   return AXPlatformRange(std::move(anchor), std::move(focus));
 }
 
-void AddMisspelledTextAttributes(
-    const std::vector<const BrowserAccessibility*>& text_only_objects,
-    NSMutableAttributedString* attributed_string) {
+void AddMisspelledTextAttributes(const AXPlatformRange& ax_range,
+                                 NSMutableAttributedString* attributed_string) {
+  int anchor_start_offset = 0;
   [attributed_string beginEditing];
-  for (const BrowserAccessibility* text_object : text_only_objects) {
-    const std::vector<int32_t>& marker_types = text_object->GetIntListAttribute(
-        ax::mojom::IntListAttribute::kMarkerTypes);
-    const std::vector<int>& marker_starts = text_object->GetIntListAttribute(
-        ax::mojom::IntListAttribute::kMarkerStarts);
-    const std::vector<int>& marker_ends = text_object->GetIntListAttribute(
-        ax::mojom::IntListAttribute::kMarkerEnds);
+  for (const AXPlatformRange& leaf_text_range : ax_range) {
+    DCHECK(!leaf_text_range.IsNull());
+    DCHECK_EQ(leaf_text_range.anchor()->GetAnchor(),
+              leaf_text_range.focus()->GetAnchor())
+        << "An anchor range should only span a single object.";
+    const BrowserAccessibility* anchor = leaf_text_range.focus()->GetAnchor();
+    const std::vector<int32_t>& marker_types =
+        anchor->GetIntListAttribute(ax::mojom::IntListAttribute::kMarkerTypes);
+    const std::vector<int>& marker_starts =
+        anchor->GetIntListAttribute(ax::mojom::IntListAttribute::kMarkerStarts);
+    const std::vector<int>& marker_ends =
+        anchor->GetIntListAttribute(ax::mojom::IntListAttribute::kMarkerEnds);
     for (size_t i = 0; i < marker_types.size(); ++i) {
       if (!(marker_types[i] &
             static_cast<int32_t>(ax::mojom::MarkerType::kSpelling))) {
         continue;
       }
 
-      int misspelling_start = marker_starts[i];
-      int misspelling_end = marker_ends[i];
+      int misspelling_start = anchor_start_offset + marker_starts[i];
+      int misspelling_end = anchor_start_offset + marker_ends[i];
       int misspelling_length = misspelling_end - misspelling_start;
+      DCHECK_LE(static_cast<unsigned long>(misspelling_end),
+                [attributed_string length]);
       DCHECK_GT(misspelling_length, 0);
       [attributed_string
           addAttribute:NSAccessibilityMarkedMisspelledTextAttribute
                  value:@YES
                  range:NSMakeRange(misspelling_start, misspelling_length)];
     }
+
+    anchor_start_offset += leaf_text_range.GetText().length();
   }
   [attributed_string endEditing];
 }
@@ -293,59 +329,25 @@ NSString* GetTextForTextMarkerRange(AXTextMarkerRangeRef marker_range) {
 
 NSAttributedString* GetAttributedTextForTextMarkerRange(
     AXTextMarkerRangeRef marker_range) {
-  BrowserAccessibility* start_object;
-  BrowserAccessibility* end_object;
-  int start_offset, end_offset;
-  ax::mojom::TextAffinity start_affinity, end_affinity;
   AXPlatformRange ax_range = CreateRangeFromTextMarkerRange(marker_range);
   if (ax_range.IsNull())
     return nil;
-  start_object = ax_range.anchor()->GetAnchor();
-  end_object = ax_range.focus()->GetAnchor();
-  start_offset = ax_range.anchor()->text_offset();
-  end_offset = ax_range.focus()->text_offset();
-  start_affinity = ax_range.anchor()->affinity();
-  end_affinity = ax_range.focus()->affinity();
 
-  NSString* text = base::SysUTF16ToNSString(
-      BrowserAccessibilityManager::GetTextForRange(*start_object, *end_object));
+  NSString* text = base::SysUTF16ToNSString(ax_range.GetText());
   if ([text length] == 0)
     return nil;
 
-  // Be permissive with the start and end offsets.
-  if (start_object == end_object && end_offset < start_offset)
-    std::swap(start_offset, end_offset);
-
-  int trim_length = 0;
-  if ((end_object->IsPlainTextField() || end_object->IsTextOnlyObject()) &&
-      end_offset < static_cast<int>(end_object->GetText().length())) {
-    trim_length = static_cast<int>(end_object->GetText().length()) - end_offset;
-  }
-  int range_length = [text length] - start_offset - trim_length;
-
-  // http://crbug.com/651145
-  // This shouldn't happen, so this is a temporary workaround to prevent
-  // hard crashes.
-  if (range_length < 0)
-    return nil;
-
-  DCHECK_GE(range_length, 0);
-  NSRange range = NSMakeRange(start_offset, range_length);
-  DCHECK_LE(NSMaxRange(range), [text length]);
-
   NSMutableAttributedString* attributed_text =
       [[[NSMutableAttributedString alloc] initWithString:text] autorelease];
-  std::vector<const BrowserAccessibility*> text_only_objects =
-      BrowserAccessibilityManager::FindTextOnlyObjectsInRange(*start_object,
-                                                              *end_object);
-  AddMisspelledTextAttributes(text_only_objects, attributed_text);
-  return [attributed_text attributedSubstringFromRange:range];
+  // Currently, we only decorate the attributed string with misspelling
+  // information.
+  AddMisspelledTextAttributes(ax_range, attributed_text);
+  return attributed_text;
 }
 
 // Returns an autoreleased copy of the AXNodeData's attribute.
-NSString* NSStringForStringAttribute(
-    BrowserAccessibility* browserAccessibility,
-    StringAttribute attribute) {
+NSString* NSStringForStringAttribute(BrowserAccessibility* browserAccessibility,
+                                     StringAttribute attribute) {
   return base::SysUTF8ToNSString(
       browserAccessibility->GetStringAttribute(attribute));
 }
@@ -462,9 +464,8 @@ AccessibilityMatchPredicate PredicateForSearchKey(NSString* searchKey) {
 // Initialize a OneShotAccessibilityTreeSearch object given the parameters
 // passed to AXUIElementCountForSearchPredicate or
 // AXUIElementsForSearchPredicate. Return true on success.
-bool InitializeAccessibilityTreeSearch(
-    OneShotAccessibilityTreeSearch* search,
-    id parameter) {
+bool InitializeAccessibilityTreeSearch(OneShotAccessibilityTreeSearch* search,
+                                       id parameter) {
   if (![parameter isKindOfClass:[NSDictionary class]])
     return false;
   NSDictionary* dictionary = parameter;
@@ -477,13 +478,13 @@ bool InitializeAccessibilityTreeSearch(
   }
 
   bool immediateDescendantsOnly = false;
-  NSNumber *immediateDescendantsOnlyParameter =
+  NSNumber* immediateDescendantsOnlyParameter =
       [dictionary objectForKey:@"AXImmediateDescendantsOnly"];
   if ([immediateDescendantsOnlyParameter isKindOfClass:[NSNumber class]])
     immediateDescendantsOnly = [immediateDescendantsOnlyParameter boolValue];
 
   bool visibleOnly = false;
-  NSNumber *visibleOnlyParameter = [dictionary objectForKey:@"AXVisibleOnly"];
+  NSNumber* visibleOnlyParameter = [dictionary objectForKey:@"AXVisibleOnly"];
   if ([visibleOnlyParameter isKindOfClass:[NSNumber class]])
     visibleOnly = [visibleOnlyParameter boolValue];
 
@@ -540,6 +541,18 @@ bool InitializeAccessibilityTreeSearch(
   return true;
 }
 
+void AppendTextToString(const std::string& extra_text, std::string* string) {
+  if (extra_text.empty())
+    return;
+
+  if (string->empty()) {
+    *string = extra_text;
+    return;
+  }
+
+  *string += std::string(". ") + extra_text;
+}
+
 }  // namespace
 
 #if defined(MAC_OS_X_VERSION_10_12) && \
@@ -581,19 +594,22 @@ NSString* const NSAccessibilityRequiredAttributeChrome = @"AXRequired";
       {NSAccessibilityARIASetSizeAttribute, @"ariaSetSize"},
       {NSAccessibilityAccessKeyAttribute, @"accessKey"},
       {NSAccessibilityAutocompleteValueAttribute, @"autocompleteValue"},
+      {NSAccessibilityBlockQuoteLevelAttribute, @"blockQuoteLevel"},
       {NSAccessibilityChildrenAttribute, @"children"},
       {NSAccessibilityColumnsAttribute, @"columns"},
       {NSAccessibilityColumnHeaderUIElementsAttribute, @"columnHeaders"},
       {NSAccessibilityColumnIndexRangeAttribute, @"columnIndexRange"},
       {NSAccessibilityContentsAttribute, @"contents"},
-      {NSAccessibilityDescriptionAttribute, @"description"},
+      {NSAccessibilityDescriptionAttribute, @"descriptionForAccessibility"},
       {NSAccessibilityDisclosingAttribute, @"disclosing"},
       {NSAccessibilityDisclosedByRowAttribute, @"disclosedByRow"},
       {NSAccessibilityDisclosureLevelAttribute, @"disclosureLevel"},
       {NSAccessibilityDisclosedRowsAttribute, @"disclosedRows"},
       {NSAccessibilityDropEffectsAttribute, @"dropEffects"},
+      {NSAccessibilityDOMClassList, @"domClassList"},
       {NSAccessibilityDOMIdentifierAttribute, @"domIdentifier"},
       {NSAccessibilityEditableAncestorAttribute, @"editableAncestor"},
+      {NSAccessibilityElementBusyAttribute, @"elementBusy"},
       {NSAccessibilityEnabledAttribute, @"enabled"},
       {NSAccessibilityEndTextMarkerAttribute, @"endTextMarker"},
       {NSAccessibilityExpandedAttribute, @"expanded"},
@@ -711,17 +727,22 @@ NSString* const NSAccessibilityRequiredAttributeChrome = @"AXRequired";
 }
 
 - (NSNumber*)ariaColumnCount {
-  if (!ui::IsTableLike(owner_->GetRole()))
+  if (![self instanceActive])
     return nil;
-  DCHECK(owner_->node());
-  return [NSNumber numberWithInt:owner_->node()->GetTableAriaColCount()];
+  base::Optional<int> aria_col_count = owner_->node()->GetTableAriaColCount();
+  if (!aria_col_count)
+    return nil;
+  return [NSNumber numberWithInt:*aria_col_count];
 }
 
 - (NSNumber*)ariaColumnIndex {
-  if (!ui::IsCellOrTableHeader(owner_->GetRole()))
+  if (![self instanceActive])
     return nil;
-  DCHECK(owner_->node());
-  return [NSNumber numberWithInt:owner_->node()->GetTableCellAriaColIndex()];
+  base::Optional<int> aria_col_index =
+      owner_->node()->GetTableCellAriaColIndex();
+  if (!aria_col_index)
+    return nil;
+  return [NSNumber numberWithInt:*aria_col_index];
 }
 
 - (NSString*)ariaLive {
@@ -734,7 +755,10 @@ NSString* const NSAccessibilityRequiredAttributeChrome = @"AXRequired";
 - (NSNumber*)ariaPosInSet {
   if (![self instanceActive])
     return nil;
-  return [NSNumber numberWithInt:owner_->node()->GetPosInSet()];
+  base::Optional<int> pos_in_set = owner_->node()->GetPosInSet();
+  if (!pos_in_set)
+    return nil;
+  return [NSNumber numberWithInt:*pos_in_set];
 }
 
 - (NSString*)ariaRelevant {
@@ -745,23 +769,31 @@ NSString* const NSAccessibilityRequiredAttributeChrome = @"AXRequired";
 }
 
 - (NSNumber*)ariaRowCount {
-  if (!ui::IsTableLike(owner_->GetRole()))
+  if (![self instanceActive])
     return nil;
-  DCHECK(owner_->node());
-  return [NSNumber numberWithInt:owner_->node()->GetTableAriaRowCount()];
+  base::Optional<int> aria_row_count = owner_->node()->GetTableAriaRowCount();
+  if (!aria_row_count)
+    return nil;
+  return [NSNumber numberWithInt:*aria_row_count];
 }
 
 - (NSNumber*)ariaRowIndex {
-  if (!ui::IsCellOrTableHeader(owner_->GetRole()))
+  if (![self instanceActive])
     return nil;
-  DCHECK(owner_->node());
-  return [NSNumber numberWithInt:owner_->node()->GetTableCellAriaRowIndex()];
+  base::Optional<int> aria_row_index =
+      owner_->node()->GetTableCellAriaRowIndex();
+  if (!aria_row_index)
+    return nil;
+  return [NSNumber numberWithInt:*aria_row_index];
 }
 
 - (NSNumber*)ariaSetSize {
   if (![self instanceActive])
     return nil;
-  return [NSNumber numberWithInt:owner_->node()->GetSetSize()];
+  base::Optional<int> set_size = owner_->node()->GetSetSize();
+  if (!set_size)
+    return nil;
+  return [NSNumber numberWithInt:*set_size];
 }
 
 - (NSString*)autocompleteValue {
@@ -769,6 +801,22 @@ NSString* const NSAccessibilityRequiredAttributeChrome = @"AXRequired";
     return nil;
   return NSStringForStringAttribute(owner_,
                                     ax::mojom::StringAttribute::kAutoComplete);
+}
+
+- (id)blockQuoteLevel {
+  if (![self instanceActive])
+    return nil;
+  // TODO(accessibility) This is for the number of ancestors that are a
+  // <blockquote>, including self, useful for tracking replies to replies etc.
+  // in an email.
+  int level = 0;
+  BrowserAccessibility* ancestor = owner_;
+  while (ancestor) {
+    if (ancestor->GetRole() == ax::mojom::Role::kBlockquote)
+      ++level;
+    ancestor = ancestor->PlatformGetParent();
+  }
+  return [NSNumber numberWithInt:level];
 }
 
 // Returns an array of BrowserAccessibilityCocoa objects, representing the
@@ -781,9 +829,9 @@ NSString* const NSAccessibilityRequiredAttributeChrome = @"AXRequired";
   if (!children_) {
     uint32_t childCount = owner_->PlatformChildCount();
     children_.reset([[NSMutableArray alloc] initWithCapacity:childCount]);
-    for (uint32_t index = 0; index < childCount; ++index) {
-      BrowserAccessibilityCocoa* child =
-          ToBrowserAccessibilityCocoa(owner_->PlatformGetChild(index));
+    for (auto it = owner_->PlatformChildrenBegin();
+         it != owner_->PlatformChildrenEnd(); ++it) {
+      BrowserAccessibilityCocoa* child = ToBrowserAccessibilityCocoa(it.get());
       if ([child isIgnored])
         [children_ addObjectsFromArray:[child children]];
       else
@@ -834,11 +882,10 @@ NSString* const NSAccessibilityRequiredAttributeChrome = @"AXRequired";
     return nil;
 
   NSMutableArray* ret = [[[NSMutableArray alloc] init] autorelease];
-
   if (is_table_like) {
     // If this is a table, return all column headers.
     std::set<int32_t> headerIds;
-    for (int i = 0; i < table->GetTableColCount(); i++) {
+    for (int i = 0; i < *owner_->GetTableColCount(); i++) {
       std::vector<int32_t> colHeaderIds = table->GetColHeaderNodeIds(i);
       std::copy(colHeaderIds.begin(), colHeaderIds.end(),
                 std::inserter(headerIds, headerIds.end()));
@@ -850,9 +897,11 @@ NSString* const NSAccessibilityRequiredAttributeChrome = @"AXRequired";
     }
   } else {
     // Otherwise this is a cell, return the column headers for this cell.
-    int column = owner_->node()->GetTableCellColIndex();
+    base::Optional<int> column = owner_->GetTableCellColIndex();
+    if (!column)
+      return nil;
 
-    std::vector<int32_t> colHeaderIds = table->GetColHeaderNodeIds(column);
+    std::vector<int32_t> colHeaderIds = table->GetColHeaderNodeIds(*column);
     for (int32_t id : colHeaderIds) {
       BrowserAccessibility* cell = owner_->manager()->GetFromID(id);
       if (cell)
@@ -866,13 +915,11 @@ NSString* const NSAccessibilityRequiredAttributeChrome = @"AXRequired";
 - (NSValue*)columnIndexRange {
   if (![self instanceActive])
     return nil;
-  if (!ui::IsCellOrTableHeader(owner_->GetRole()))
-    return nil;
 
-  int column = owner_->node()->GetTableCellColIndex();
-  int colspan = owner_->node()->GetTableCellColSpan();
-  if (column >= 0 && colspan >= 1)
-    return [NSValue valueWithRange:NSMakeRange(column, colspan)];
+  base::Optional<int> column = owner_->node()->GetTableCellColIndex();
+  base::Optional<int> colspan = owner_->node()->GetTableCellColSpan();
+  if (column && colspan)
+    return [NSValue valueWithRange:NSMakeRange(*column, *colspan)];
   return nil;
 }
 
@@ -895,7 +942,7 @@ NSString* const NSAccessibilityRequiredAttributeChrome = @"AXRequired";
   return table;
 }
 
-- (NSString*)description {
+- (NSString*)descriptionForAccessibility {
   if (![self instanceActive])
     return nil;
 
@@ -912,6 +959,33 @@ NSString* const NSAccessibilityRequiredAttributeChrome = @"AXRequired";
       owner_->GetIntAttribute(ax::mojom::IntAttribute::kNameFrom));
   std::string name =
       owner_->GetStringAttribute(ax::mojom::StringAttribute::kName);
+
+  auto status = owner_->GetData().GetImageAnnotationStatus();
+  switch (status) {
+    case ax::mojom::ImageAnnotationStatus::kEligibleForAnnotation:
+    case ax::mojom::ImageAnnotationStatus::kAnnotationPending:
+    case ax::mojom::ImageAnnotationStatus::kAnnotationEmpty:
+    case ax::mojom::ImageAnnotationStatus::kAnnotationAdult:
+    case ax::mojom::ImageAnnotationStatus::kAnnotationProcessFailed: {
+      base::string16 status_string =
+          owner_->GetLocalizedStringForImageAnnotationStatus(status);
+      AppendTextToString(base::UTF16ToUTF8(status_string), &name);
+      break;
+    }
+
+    case ax::mojom::ImageAnnotationStatus::kAnnotationSucceeded:
+      AppendTextToString(owner_->GetStringAttribute(
+                             ax::mojom::StringAttribute::kImageAnnotation),
+                         &name);
+      break;
+
+    case ax::mojom::ImageAnnotationStatus::kNone:
+    case ax::mojom::ImageAnnotationStatus::kWillNotAnnotateDueToScheme:
+    case ax::mojom::ImageAnnotationStatus::kIneligibleForAnnotation:
+    case ax::mojom::ImageAnnotationStatus::kSilentlyEligibleForAnnotation:
+      break;
+  }
+
   if (!name.empty()) {
     // On Mac OS X, the accessible name of an object is exposed as its
     // title if it comes from visible text, and as its description
@@ -948,7 +1022,8 @@ NSString* const NSAccessibilityRequiredAttributeChrome = @"AXRequired";
   }
 
   // If it's focusable but didn't have any other name or value, compute a name
-  // from its descendants.
+  // from its descendants. Note that this is a workaround because VoiceOver
+  // does not always present focus changes if the new focus lacks a name.
   base::string16 value = owner_->GetValue();
   if (owner_->HasState(ax::mojom::State::kFocusable) &&
       !ui::IsControl(owner_->GetRole()) && value.empty() &&
@@ -1017,6 +1092,22 @@ NSString* const NSAccessibilityRequiredAttributeChrome = @"AXRequired";
   return nil;
 }
 
+- (NSArray*)domClassList {
+  if (![self instanceActive])
+    return nil;
+
+  NSMutableArray* ret = [[[NSMutableArray alloc] init] autorelease];
+
+  std::string classes;
+  if (owner_->GetHtmlAttribute("class", &classes)) {
+    std::vector<std::string> split_classes = base::SplitString(
+        classes, " ", base::TRIM_WHITESPACE, base::SPLIT_WANT_NONEMPTY);
+    for (const auto& className : split_classes)
+      [ret addObject:(base::SysUTF8ToNSString(className))];
+  }
+  return ret;
+}
+
 - (NSString*)domIdentifier {
   if (![self instanceActive])
     return nil;
@@ -1025,7 +1116,7 @@ NSString* const NSAccessibilityRequiredAttributeChrome = @"AXRequired";
   if (owner_->GetHtmlAttribute("id", &id))
     return base::SysUTF8ToNSString(id);
 
-  return nil;
+  return @"";
 }
 
 - (id)editableAncestor {
@@ -1043,6 +1134,13 @@ NSString* const NSAccessibilityRequiredAttributeChrome = @"AXRequired";
     editableRoot = parent;
   }
   return editableRoot;
+}
+
+- (NSNumber*)elementBusy {
+  if (![self instanceActive])
+    return nil;
+  return [NSNumber numberWithBool:owner_->GetData().GetBoolAttribute(
+                                      ax::mojom::BoolAttribute::kBusy)];
 }
 
 - (NSNumber*)enabled {
@@ -1145,8 +1243,7 @@ NSString* const NSAccessibilityRequiredAttributeChrome = @"AXRequired";
     // AXTableInfo and indirect_child_ids.
     uint32_t childCount = owner_->PlatformChildCount();
     if (childCount > 0) {
-      BrowserAccessibility* tableHeader =
-          owner_->PlatformGetChild(childCount - 1);
+      BrowserAccessibility* tableHeader = owner_->PlatformGetLastChild();
       if (tableHeader->GetRole() == ax::mojom::Role::kTableHeaderContainer)
         return ToBrowserAccessibilityCocoa(tableHeader);
     }
@@ -1199,10 +1296,10 @@ NSString* const NSAccessibilityRequiredAttributeChrome = @"AXRequired";
     return nil;
   if ([self internalRole] == ax::mojom::Role::kColumn) {
     DCHECK(owner_->node());
-    return @(owner_->node()->GetTableColColIndex());
+    return @(*owner_->node()->GetTableColColIndex());
   } else if ([self internalRole] == ax::mojom::Role::kRow) {
     DCHECK(owner_->node());
-    return @(owner_->node()->GetTableRowRowIndex());
+    return @(*owner_->node()->GetTableRowRowIndex());
   }
 
   return nil;
@@ -1254,10 +1351,6 @@ NSString* const NSAccessibilityRequiredAttributeChrome = @"AXRequired";
       return @"false";
     case ax::mojom::InvalidState::kTrue:
       return @"true";
-    case ax::mojom::InvalidState::kSpelling:
-      return @"spelling";
-    case ax::mojom::InvalidState::kGrammar:
-      return @"grammar";
     case ax::mojom::InvalidState::kOther: {
       std::string ariaInvalidValue;
       if (owner_->GetStringAttribute(
@@ -1266,8 +1359,8 @@ NSString* const NSAccessibilityRequiredAttributeChrome = @"AXRequired";
       // Return @"true" since we cannot be more specific about the value.
       return @"true";
     }
-  default:
-    NOTREACHED();
+    default:
+      NOTREACHED();
   }
 
   return @"false";
@@ -1288,14 +1381,6 @@ NSString* const NSAccessibilityRequiredAttributeChrome = @"AXRequired";
   if (nameFrom == ax::mojom::NameFrom::kPlaceholder) {
     return NSStringForStringAttribute(owner_,
                                       ax::mojom::StringAttribute::kName);
-  }
-
-  ax::mojom::DescriptionFrom descriptionFrom =
-      static_cast<ax::mojom::DescriptionFrom>(
-          owner_->GetIntAttribute(ax::mojom::IntAttribute::kDescriptionFrom));
-  if (descriptionFrom == ax::mojom::DescriptionFrom::kPlaceholder) {
-    return NSStringForStringAttribute(owner_,
-                                      ax::mojom::StringAttribute::kDescription);
   }
 
   return NSStringForStringAttribute(owner_,
@@ -1344,8 +1429,6 @@ NSString* const NSAccessibilityRequiredAttributeChrome = @"AXRequired";
   [self addLinkedUIElementsFromAttribute:ax::mojom::IntListAttribute::
                                              kRadioGroupIds
                                    addTo:ret];
-  if ([ret count] == 0)
-    return nil;
   return ret;
 }
 
@@ -1437,7 +1520,7 @@ NSString* const NSAccessibilityRequiredAttributeChrome = @"AXRequired";
 - (NSPoint)origin {
   if (![self instanceActive])
     return NSMakePoint(0, 0);
-  gfx::Rect bounds = owner_->GetPageBoundsRect();
+  gfx::Rect bounds = owner_->GetClippedRootFrameBoundsRect();
   return NSMakePoint(bounds.x(), bounds.y());
 }
 
@@ -1482,6 +1565,24 @@ NSString* const NSAccessibilityRequiredAttributeChrome = @"AXRequired";
 }
 
 - (BOOL)shouldExposeNameInDescription {
+  // Image annotations are not visible text, so they should be exposed
+  // as a description and not a title.
+  switch (owner_->GetData().GetImageAnnotationStatus()) {
+    case ax::mojom::ImageAnnotationStatus::kEligibleForAnnotation:
+    case ax::mojom::ImageAnnotationStatus::kAnnotationPending:
+    case ax::mojom::ImageAnnotationStatus::kAnnotationEmpty:
+    case ax::mojom::ImageAnnotationStatus::kAnnotationAdult:
+    case ax::mojom::ImageAnnotationStatus::kAnnotationProcessFailed:
+    case ax::mojom::ImageAnnotationStatus::kAnnotationSucceeded:
+      return true;
+
+    case ax::mojom::ImageAnnotationStatus::kNone:
+    case ax::mojom::ImageAnnotationStatus::kWillNotAnnotateDueToScheme:
+    case ax::mojom::ImageAnnotationStatus::kIneligibleForAnnotation:
+    case ax::mojom::ImageAnnotationStatus::kSilentlyEligibleForAnnotation:
+      break;
+  }
+
   // VoiceOver will not read the label of a fieldset or radiogroup unless it is
   // exposed in the description instead of the title.
   switch (owner_->GetRole()) {
@@ -1626,6 +1727,14 @@ NSString* const NSAccessibilityRequiredAttributeChrome = @"AXRequired";
   if (![self instanceActive])
     return nil;
 
+  if (owner_->GetData().GetImageAnnotationStatus() ==
+          ax::mojom::ImageAnnotationStatus::kEligibleForAnnotation ||
+      owner_->GetData().GetImageAnnotationStatus() ==
+          ax::mojom::ImageAnnotationStatus::kSilentlyEligibleForAnnotation) {
+    return base::SysUTF16ToNSString(
+        owner_->GetLocalizedRoleDescriptionForUnlabeledImage());
+  }
+
   if (owner_->HasStringAttribute(
           ax::mojom::StringAttribute::kRoleDescription)) {
     return NSStringForStringAttribute(
@@ -1638,18 +1747,18 @@ NSString* const NSAccessibilityRequiredAttributeChrome = @"AXRequired";
 
   // The following descriptions are specific to webkit.
   if ([role isEqualToString:@"AXWebArea"]) {
-    return base::SysUTF16ToNSString(content_client->GetLocalizedString(
-        IDS_AX_ROLE_WEB_AREA));
+    return base::SysUTF16ToNSString(
+        content_client->GetLocalizedString(IDS_AX_ROLE_WEB_AREA));
   }
 
   if ([role isEqualToString:@"NSAccessibilityLinkRole"]) {
-    return base::SysUTF16ToNSString(content_client->GetLocalizedString(
-        IDS_AX_ROLE_LINK));
+    return base::SysUTF16ToNSString(
+        content_client->GetLocalizedString(IDS_AX_ROLE_LINK));
   }
 
   if ([role isEqualToString:@"AXHeading"]) {
-    return base::SysUTF16ToNSString(content_client->GetLocalizedString(
-        IDS_AX_ROLE_HEADING));
+    return base::SysUTF16ToNSString(
+        content_client->GetLocalizedString(IDS_AX_ROLE_HEADING));
   }
 
   if (([role isEqualToString:NSAccessibilityGroupRole] ||
@@ -1670,7 +1779,7 @@ NSString* const NSAccessibilityRequiredAttributeChrome = @"AXRequired";
     }
   }
 
-  switch([self internalRole]) {
+  switch ([self internalRole]) {
     case ax::mojom::Role::kArticle:
       return base::SysUTF16ToNSString(
           content_client->GetLocalizedString(IDS_AX_ROLE_ARTICLE));
@@ -1765,7 +1874,7 @@ NSString* const NSAccessibilityRequiredAttributeChrome = @"AXRequired";
   if (is_table_like) {
     // If this is a table, return all row headers.
     std::set<int32_t> headerIds;
-    for (int i = 0; i < table->GetTableRowCount(); i++) {
+    for (int i = 0; i < *table->GetTableRowCount(); i++) {
       std::vector<int32_t> rowHeaderIds = table->GetRowHeaderNodeIds(i);
       for (int32_t id : rowHeaderIds)
         headerIds.insert(id);
@@ -1792,13 +1901,11 @@ NSString* const NSAccessibilityRequiredAttributeChrome = @"AXRequired";
 - (NSValue*)rowIndexRange {
   if (![self instanceActive])
     return nil;
-  if (!ui::IsCellOrTableHeader(owner_->GetRole()))
-    return nil;
 
-  int row = owner_->node()->GetTableCellRowIndex();
-  int rowspan = owner_->node()->GetTableCellRowSpan();
-  if (row >= 0 && rowspan >= 1)
-    return [NSValue valueWithRange:NSMakeRange(row, rowspan)];
+  base::Optional<int> row = owner_->node()->GetTableCellRowIndex();
+  base::Optional<int> rowspan = owner_->node()->GetTableCellRowSpan();
+  if (row && rowspan)
+    return [NSValue valueWithRange:NSMakeRange(*row, *rowspan)];
   return nil;
 }
 
@@ -1807,8 +1914,7 @@ NSString* const NSAccessibilityRequiredAttributeChrome = @"AXRequired";
     return nil;
   NSMutableArray* ret = [[[NSMutableArray alloc] init] autorelease];
 
-  if ([self internalRole] == ax::mojom::Role::kTable ||
-      [self internalRole] == ax::mojom::Role::kGrid) {
+  if (ui::IsTableLike(owner_->GetRole())) {
     for (BrowserAccessibilityCocoa* child in [self children]) {
       if ([[child role] isEqualToString:NSAccessibilityRowRole])
         [ret addObject:child];
@@ -1840,7 +1946,7 @@ NSString* const NSAccessibilityRequiredAttributeChrome = @"AXRequired";
   NSMutableArray* ret = [[[NSMutableArray alloc] init] autorelease];
   BrowserAccessibilityManager* manager = owner_->manager();
   BrowserAccessibility* focusedChild = manager->GetFocus();
-  if (!focusedChild->IsDescendantOf(owner_))
+  if (focusedChild && !focusedChild->IsDescendantOf(owner_))
     focusedChild = nullptr;
 
   // If it's not multiselectable, try to skip iterating over the
@@ -1868,9 +1974,9 @@ NSString* const NSAccessibilityRequiredAttributeChrome = @"AXRequired";
   // If it's multiselectable or if the previous attempts failed,
   // return any children with the "selected" state, which may
   // come from aria-selected.
-  uint32_t childCount = owner_->PlatformChildCount();
-  for (uint32_t index = 0; index < childCount; ++index) {
-    BrowserAccessibility* child = owner_->PlatformGetChild(index);
+  for (auto it = owner_->PlatformChildrenBegin();
+       it != owner_->PlatformChildrenEnd(); ++it) {
+    BrowserAccessibility* child = it.get();
     if (child->GetBoolAttribute(ax::mojom::BoolAttribute::kSelected))
       [ret addObject:ToBrowserAccessibilityCocoa(child)];
   }
@@ -1903,6 +2009,8 @@ NSString* const NSAccessibilityRequiredAttributeChrome = @"AXRequired";
   return base::SysUTF16ToNSString(value.substr(selStart, selLength));
 }
 
+// Example, caret at offset 5:
+// AXSelectedTextRange:  “pos=5 len=0”
 - (NSValue*)selectedTextRange {
   if (![self instanceActive])
     return nil;
@@ -1912,6 +2020,7 @@ NSString* const NSAccessibilityRequiredAttributeChrome = @"AXRequired";
   if (!owner_->GetIntAttribute(ax::mojom::IntAttribute::kTextSelStart,
                                &selStart) ||
       !owner_->GetIntAttribute(ax::mojom::IntAttribute::kTextSelEnd, &selEnd)) {
+    // TODO(accessibility) Incorrectly reaches this line in a rich text area.
     return nil;
   }
 
@@ -1930,36 +2039,39 @@ NSString* const NSAccessibilityRequiredAttributeChrome = @"AXRequired";
   if (!manager)
     return nil;
 
-  int32_t anchorId = manager->GetTreeData().sel_anchor_object_id;
+  ui::AXTree::Selection unignored_selection =
+      manager->ax_tree()->GetUnignoredSelection();
+  int32_t anchorId = unignored_selection.anchor_object_id;
   const BrowserAccessibility* anchorObject = manager->GetFromID(anchorId);
   if (!anchorObject)
     return nil;
 
-  int32_t focusId = manager->GetTreeData().sel_focus_object_id;
+  int32_t focusId = unignored_selection.focus_object_id;
   const BrowserAccessibility* focusObject = manager->GetFromID(focusId);
   if (!focusObject)
     return nil;
 
-  int anchorOffset = manager->GetTreeData().sel_anchor_offset;
-  int focusOffset = manager->GetTreeData().sel_focus_offset;
+  // |anchorOffset| and / or |focusOffset| refer to a character offset if
+  // |anchorObject| / |focusObject| are text-only objects. Otherwise, they
+  // should be treated as child indices.
+  int anchorOffset = unignored_selection.anchor_offset;
+  int focusOffset = unignored_selection.focus_offset;
   if (anchorOffset < 0 || focusOffset < 0)
     return nil;
 
-  ax::mojom::TextAffinity anchorAffinity =
-      manager->GetTreeData().sel_anchor_affinity;
-  ax::mojom::TextAffinity focusAffinity =
-      manager->GetTreeData().sel_focus_affinity;
+  ax::mojom::TextAffinity anchorAffinity = unignored_selection.anchor_affinity;
+  ax::mojom::TextAffinity focusAffinity = unignored_selection.focus_affinity;
 
-  return CreateTextMarkerRange(CreateTextRange(*anchorObject, anchorOffset,
-                                               anchorAffinity, *focusObject,
-                                               focusOffset, focusAffinity));
+  return CreateTextMarkerRange(
+      CreateAXPlatformRange(*anchorObject, anchorOffset, anchorAffinity,
+                            *focusObject, focusOffset, focusAffinity));
 }
 
 - (NSValue*)size {
   if (![self instanceActive])
     return nil;
-  gfx::Rect bounds = owner_->GetPageBoundsRect();
-  return  [NSValue valueWithSize:NSMakeSize(bounds.width(), bounds.height())];
+  gfx::Rect bounds = owner_->GetClippedRootFrameBoundsRect();
+  return [NSValue valueWithSize:NSMakeSize(bounds.width(), bounds.height())];
 }
 
 - (NSString*)sortDirection {
@@ -1998,7 +2110,7 @@ NSString* const NSAccessibilityRequiredAttributeChrome = @"AXRequired";
 }
 
 // Returns a subrole based upon the role.
-- (NSString*) subrole {
+- (NSString*)subrole {
   if (![self instanceActive])
     return nil;
 
@@ -2025,7 +2137,7 @@ NSString* const NSAccessibilityRequiredAttributeChrome = @"AXRequired";
   if ([self internalRole] == ax::mojom::Role::kTab)
     [tabSubtree addObject:self];
 
-  for (uint i=0; i < [[self children] count]; ++i) {
+  for (uint i = 0; i < [[self children] count]; ++i) {
     NSArray* tabChildren = [[[self children] objectAtIndex:i] tabs];
     if ([tabChildren count] > 0)
       [tabSubtree addObjectsFromArray:tabChildren];
@@ -2069,7 +2181,7 @@ NSString* const NSAccessibilityRequiredAttributeChrome = @"AXRequired";
                                       ax::mojom::StringAttribute::kName);
   }
 
-  return nil;
+  return @"";
 }
 
 - (id)titleUIElement {
@@ -2147,12 +2259,7 @@ NSString* const NSAccessibilityRequiredAttributeChrome = @"AXRequired";
         break;
     }
     return [NSNumber numberWithInt:value];
-  } else if ([role isEqualToString:NSAccessibilityProgressIndicatorRole] ||
-             [role isEqualToString:NSAccessibilitySliderRole] ||
-             [role isEqualToString:NSAccessibilityIncrementorRole] ||
-             [role isEqualToString:NSAccessibilityScrollBarRole] ||
-             ([role isEqualToString:NSAccessibilitySplitterRole] &&
-              owner_->HasState(ax::mojom::State::kFocusable))) {
+  } else if (IsRangeValueSupported(owner_->GetData())) {
     float floatValue;
     if (owner_->GetFloatAttribute(ax::mojom::FloatAttribute::kValueForRange,
                                   &floatValue)) {
@@ -2165,8 +2272,8 @@ NSString* const NSAccessibilityRequiredAttributeChrome = @"AXRequired";
     unsigned int green = SkColorGetG(color);
     unsigned int blue = SkColorGetB(color);
     // This string matches the one returned by a native Mac color well.
-    return [NSString stringWithFormat:@"rgb %7.5f %7.5f %7.5f 1",
-                red / 255., green / 255., blue / 255.];
+    return [NSString stringWithFormat:@"rgb %7.5f %7.5f %7.5f 1", red / 255.,
+                                      green / 255., blue / 255.];
   }
 
   return base::SysUTF16ToNSString(owner_->GetValue());
@@ -2287,6 +2394,9 @@ NSString* const NSAccessibilityRequiredAttributeChrome = @"AXRequired";
   return base::SysUTF16ToNSString(value.substr(range.location, range.length));
 }
 
+// Retrieves the text inside this object and decorates it with attributes
+// indicating specific ranges of interest within the text, e.g. the location of
+// misspellings.
 - (NSAttributedString*)attributedValueForRange:(NSRange)range {
   if (![self instanceActive])
     return nil;
@@ -2302,10 +2412,9 @@ NSString* const NSAccessibilityRequiredAttributeChrome = @"AXRequired";
       [[[NSMutableAttributedString alloc] initWithString:value] autorelease];
 
   if (!owner_->IsTextOnlyObject()) {
-    std::vector<const BrowserAccessibility*> textOnlyObjects =
-        BrowserAccessibilityManager::FindTextOnlyObjectsInRange(*owner_,
-                                                                *owner_);
-    AddMisspelledTextAttributes(textOnlyObjects, attributedValue);
+    AXPlatformRange ax_range(owner_->CreatePositionAt(0),
+                             owner_->CreatePositionAt(int{text.length()}));
+    AddMisspelledTextAttributes(ax_range, attributedValue);
   }
 
   return [attributedValue attributedSubstringFromRange:range];
@@ -2317,8 +2426,7 @@ NSString* const NSAccessibilityRequiredAttributeChrome = @"AXRequired";
   if (![self instanceActive])
     return nil;
 
-  SEL selector =
-      NSSelectorFromString([self methodNameForAttribute:attribute]);
+  SEL selector = NSSelectorFromString([self methodNameForAttribute:attribute]);
   if (selector)
     return [self performSelector:selector];
 
@@ -2337,7 +2445,7 @@ NSString* const NSAccessibilityRequiredAttributeChrome = @"AXRequired";
   int len = static_cast<int>(value.size());
 
   if ([attribute isEqualToString:
-      NSAccessibilityStringForRangeParameterizedAttribute]) {
+                     NSAccessibilityStringForRangeParameterizedAttribute]) {
     return [self valueForRange:[(NSValue*)parameter rangeValue]];
   }
 
@@ -2347,8 +2455,8 @@ NSString* const NSAccessibilityRequiredAttributeChrome = @"AXRequired";
     return [self attributedValueForRange:[(NSValue*)parameter rangeValue]];
   }
 
-  if ([attribute isEqualToString:
-      NSAccessibilityLineForIndexParameterizedAttribute]) {
+  if ([attribute
+          isEqualToString:NSAccessibilityLineForIndexParameterizedAttribute]) {
     int index = [(NSNumber*)parameter intValue];
     for (int i = 0; i < static_cast<int>(line_breaks.size()); ++i) {
       if (line_breaks[i] > index)
@@ -2357,24 +2465,22 @@ NSString* const NSAccessibilityRequiredAttributeChrome = @"AXRequired";
     return [NSNumber numberWithInt:static_cast<int>(line_breaks.size())];
   }
 
-  if ([attribute isEqualToString:
-      NSAccessibilityRangeForLineParameterizedAttribute]) {
+  if ([attribute
+          isEqualToString:NSAccessibilityRangeForLineParameterizedAttribute]) {
     int line_index = [(NSNumber*)parameter intValue];
     int line_count = static_cast<int>(line_breaks.size()) + 1;
     if (line_index < 0 || line_index >= line_count)
       return nil;
     int start = line_index > 0 ? line_breaks[line_index - 1] : 0;
     int end = line_index < line_count - 1 ? line_breaks[line_index] : len;
-    return [NSValue valueWithRange:
-        NSMakeRange(start, end - start)];
+    return [NSValue valueWithRange:NSMakeRange(start, end - start)];
   }
 
-  if ([attribute isEqualToString:
-      NSAccessibilityCellForColumnAndRowParameterizedAttribute]) {
-    if ([self internalRole] != ax::mojom::Role::kTable &&
-        [self internalRole] != ax::mojom::Role::kGrid) {
+  if ([attribute
+          isEqualToString:
+              NSAccessibilityCellForColumnAndRowParameterizedAttribute]) {
+    if (!ui::IsTableLike([self internalRole]))
       return nil;
-    }
     if (![parameter isKindOfClass:[NSArray class]])
       return nil;
     if (2 != [parameter count])
@@ -2571,12 +2677,12 @@ NSString* const NSAccessibilityRequiredAttributeChrome = @"AXRequired";
   }
 
   if ([attribute isEqualToString:
-      NSAccessibilityBoundsForRangeParameterizedAttribute]) {
+                     NSAccessibilityBoundsForRangeParameterizedAttribute]) {
     if ([self internalRole] != ax::mojom::Role::kStaticText)
       return nil;
     NSRange range = [(NSValue*)parameter rangeValue];
-    gfx::Rect rect =
-        owner_->GetScreenBoundsForRange(range.location, range.length);
+    gfx::Rect rect = owner_->GetUnclippedScreenInnerTextRangeBoundsRect(
+        range.location, range.location + range.length);
     NSRect nsrect = [self rectInScreen:rect];
     return [NSValue valueWithRect:nsrect];
   }
@@ -2602,8 +2708,9 @@ NSString* const NSAccessibilityRequiredAttributeChrome = @"AXRequired";
     return nil;
   }
 
-  if ([attribute isEqualToString:
-           NSAccessibilityLineTextMarkerRangeForTextMarkerParameterizedAttribute]) {
+  if ([attribute
+          isEqualToString:
+              NSAccessibilityLineTextMarkerRangeForTextMarkerParameterizedAttribute]) {
     BrowserAccessibilityPositionInstance position =
         CreatePositionFromTextMarker(parameter);
     if (position->IsNullPosition())
@@ -2616,8 +2723,9 @@ NSString* const NSAccessibilityRequiredAttributeChrome = @"AXRequired";
     return CreateTextMarkerRange(std::move(range));
   }
 
-  if ([attribute isEqualToString:
-           NSAccessibilityBoundsForTextMarkerRangeParameterizedAttribute]) {
+  if ([attribute
+          isEqualToString:
+              NSAccessibilityBoundsForTextMarkerRangeParameterizedAttribute]) {
     BrowserAccessibility* startObject;
     BrowserAccessibility* endObject;
     int startOffset, endOffset;
@@ -2633,14 +2741,16 @@ NSString* const NSAccessibilityRequiredAttributeChrome = @"AXRequired";
     DCHECK_GE(startOffset, 0);
     DCHECK_GE(endOffset, 0);
 
-    gfx::Rect rect = BrowserAccessibilityManager::GetPageBoundsForRange(
-        *startObject, startOffset, *endObject, endOffset);
+    gfx::Rect rect =
+        BrowserAccessibilityManager::GetRootFrameInnerTextRangeBoundsRect(
+            *startObject, startOffset, *endObject, endOffset);
     NSRect nsrect = [self rectInScreen:rect];
     return [NSValue valueWithRect:nsrect];
   }
 
-  if ([attribute isEqualToString:
-           NSAccessibilityTextMarkerRangeForUnorderedTextMarkersParameterizedAttribute]) {
+  if ([attribute
+          isEqualToString:
+              NSAccessibilityTextMarkerRangeForUnorderedTextMarkersParameterizedAttribute]) {
     if (![parameter isKindOfClass:[NSArray class]])
       return nil;
 
@@ -2661,8 +2771,9 @@ NSString* const NSAccessibilityRequiredAttributeChrome = @"AXRequired";
     }
   }
 
-  if ([attribute isEqualToString:
-           NSAccessibilityIndexForChildUIElementParameterizedAttribute]) {
+  if ([attribute
+          isEqualToString:
+              NSAccessibilityIndexForChildUIElementParameterizedAttribute]) {
     if (![parameter isKindOfClass:[BrowserAccessibilityCocoa class]])
       return nil;
 
@@ -2752,10 +2863,11 @@ NSString* const NSAccessibilityRequiredAttributeChrome = @"AXRequired";
 
   if ([self internalRole] == ax::mojom::Role::kRootWebArea ||
       [self internalRole] == ax::mojom::Role::kWebArea) {
-    [ret addObjectsFromArray: @[
-                 NSAccessibilityTextMarkerIsValidParameterizedAttribute,
-                     NSAccessibilityIndexForTextMarkerParameterizedAttribute,
-                     NSAccessibilityTextMarkerForIndexParameterizedAttribute]];
+    [ret addObjectsFromArray:@[
+      NSAccessibilityTextMarkerIsValidParameterizedAttribute,
+      NSAccessibilityIndexForTextMarkerParameterizedAttribute,
+      NSAccessibilityTextMarkerForIndexParameterizedAttribute
+    ]];
   }
 
   return ret;
@@ -2787,49 +2899,6 @@ NSString* const NSAccessibilityRequiredAttributeChrome = @"AXRequired";
   return actions;
 }
 
-// TODO(crbug.com/921109): Migrate from the NSObject accessibility interface to
-// the NSAccessibility one, then remove this suppression.
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wdeprecated-declarations"
-
-// Returns a sub-array of values for the given attribute value, starting at
-// index, with up to maxCount items.  If the given index is out of bounds,
-// or there are no values for the given attribute, it will return nil.
-// This method is used for querying subsets of values, without having to
-// return a large set of data, such as elements with a large number of
-// children.
-- (NSArray*)accessibilityArrayAttributeValues:(NSString*)attribute
-                                        index:(NSUInteger)index
-                                     maxCount:(NSUInteger)maxCount {
-  if (![self instanceActive])
-    return nil;
-
-  NSArray* fullArray = [self accessibilityAttributeValue:attribute];
-  if (!fullArray)
-    return nil;
-  NSUInteger arrayCount = [fullArray count];
-  if (index >= arrayCount)
-    return nil;
-  NSRange subRange;
-  if ((index + maxCount) > arrayCount) {
-    subRange = NSMakeRange(index, arrayCount - index);
-  } else {
-    subRange = NSMakeRange(index, maxCount);
-  }
-  return [fullArray subarrayWithRange:subRange];
-}
-
-// Returns the count of the specified accessibility array attribute.
-- (NSUInteger)accessibilityArrayAttributeCount:(NSString*)attribute {
-  if (![self instanceActive])
-    return 0;
-
-  NSArray* fullArray = [self accessibilityAttributeValue:attribute];
-  return [fullArray count];
-}
-
-#pragma clang diagnostic pop
-
 // Returns the list of accessibility attributes that this object supports.
 - (NSArray*)accessibilityAttributeNames {
   if (![self instanceActive])
@@ -2837,26 +2906,27 @@ NSString* const NSAccessibilityRequiredAttributeChrome = @"AXRequired";
 
   // General attributes.
   NSMutableArray* ret = [NSMutableArray
-      arrayWithObjects:NSAccessibilityAccessKeyAttribute,
+      arrayWithObjects:NSAccessibilityBlockQuoteLevelAttribute,
                        NSAccessibilityChildrenAttribute,
                        NSAccessibilityDescriptionAttribute,
+                       NSAccessibilityDOMClassList,
                        NSAccessibilityDOMIdentifierAttribute,
+                       NSAccessibilityElementBusyAttribute,
                        NSAccessibilityEnabledAttribute,
                        NSAccessibilityEndTextMarkerAttribute,
                        NSAccessibilityFocusedAttribute,
                        NSAccessibilityHelpAttribute,
-                       NSAccessibilityInvalidAttribute,
                        NSAccessibilityLinkedUIElementsAttribute,
                        NSAccessibilityParentAttribute,
                        NSAccessibilityPositionAttribute,
                        NSAccessibilityRoleAttribute,
                        NSAccessibilityRoleDescriptionAttribute,
+                       NSAccessibilitySelectedAttribute,
                        NSAccessibilitySelectedTextMarkerRangeAttribute,
                        NSAccessibilitySizeAttribute,
                        NSAccessibilityStartTextMarkerAttribute,
                        NSAccessibilitySubroleAttribute,
                        NSAccessibilityTitleAttribute,
-                       NSAccessibilityTitleUIElementAttribute,
                        NSAccessibilityTopLevelUIElementAttribute,
                        NSAccessibilityValueAttribute,
                        NSAccessibilityVisitedAttribute,
@@ -2868,9 +2938,12 @@ NSString* const NSAccessibilityRequiredAttributeChrome = @"AXRequired";
   if ([role isEqualToString:NSAccessibilityTableRole] ||
       [role isEqualToString:NSAccessibilityGridRole]) {
     [ret addObjectsFromArray:@[
-      NSAccessibilityColumnsAttribute, NSAccessibilityVisibleColumnsAttribute,
-      NSAccessibilityRowsAttribute, NSAccessibilityVisibleRowsAttribute,
-      NSAccessibilityVisibleCellsAttribute, NSAccessibilityHeaderAttribute,
+      NSAccessibilityColumnsAttribute,
+      NSAccessibilityVisibleColumnsAttribute,
+      NSAccessibilityRowsAttribute,
+      NSAccessibilityVisibleRowsAttribute,
+      NSAccessibilityVisibleCellsAttribute,
+      NSAccessibilityHeaderAttribute,
       NSAccessibilityColumnHeaderUIElementsAttribute,
       NSAccessibilityRowHeaderUIElementsAttribute,
       NSAccessibilityARIAColumnCountAttribute,
@@ -2905,12 +2978,7 @@ NSString* const NSAccessibilityRequiredAttributeChrome = @"AXRequired";
     ]];
   } else if ([role isEqualToString:NSAccessibilityTabGroupRole]) {
     [ret addObject:NSAccessibilityTabsAttribute];
-  } else if ([role isEqualToString:NSAccessibilityProgressIndicatorRole] ||
-             [role isEqualToString:NSAccessibilitySliderRole] ||
-             [role isEqualToString:NSAccessibilityIncrementorRole] ||
-             [role isEqualToString:NSAccessibilityScrollBarRole] ||
-             ([role isEqualToString:NSAccessibilitySplitterRole] &&
-              owner_->HasState(ax::mojom::State::kFocusable))) {
+  } else if (IsRangeValueSupported(owner_->GetData())) {
     [ret addObjectsFromArray:@[
       NSAccessibilityMaxValueAttribute, NSAccessibilityMinValueAttribute,
       NSAccessibilityValueDescriptionAttribute
@@ -2947,10 +3015,21 @@ NSString* const NSAccessibilityRequiredAttributeChrome = @"AXRequired";
 
   // Caret navigation and text selection attributes.
   if (owner_->HasState(ax::mojom::State::kEditable)) {
+    // Add ancestor attributes if not a web area.
+    if (![role isEqualToString:@"AXWebArea"]) {
+      [ret addObjectsFromArray:@[
+        NSAccessibilityEditableAncestorAttribute,
+        NSAccessibilityFocusableAncestorAttribute,
+        NSAccessibilityHighestEditableAncestorAttribute
+      ]];
+    }
+  }
+
+  if (owner_->GetBoolAttribute(ax::mojom::BoolAttribute::kEditableRoot)) {
     [ret addObjectsFromArray:@[
-      NSAccessibilityAutocompleteValueAttribute,
       NSAccessibilityInsertionPointLineNumberAttribute,
       NSAccessibilityNumberOfCharactersAttribute,
+      NSAccessibilityPlaceholderValueAttribute,
       NSAccessibilitySelectedTextAttribute,
       NSAccessibilitySelectedTextRangeAttribute,
       NSAccessibilityVisibleCharacterRangeAttribute,
@@ -2959,15 +3038,6 @@ NSString* const NSAccessibilityRequiredAttributeChrome = @"AXRequired";
       // NSAccessibilityValueAutofilledAttribute,
       // Not currently supported by Chrome:
       // NSAccessibilityValueAutofillTypeAttribute
-    ]];
-  }
-
-  // Add ancestor attributes if not a web area.
-  if (![role isEqualToString:@"AXWebArea"]) {
-    [ret addObjectsFromArray:@[
-      NSAccessibilityEditableAncestorAttribute,
-      NSAccessibilityFocusableAncestorAttribute,
-      NSAccessibilityHighestEditableAncestorAttribute
     ]];
   }
 
@@ -3029,15 +3099,25 @@ NSString* const NSAccessibilityRequiredAttributeChrome = @"AXRequired";
     [ret addObjectsFromArray:@[ NSAccessibilityOrientationAttribute ]];
   }
 
-  if (owner_->HasStringAttribute(ax::mojom::StringAttribute::kPlaceholder)) {
-    [ret addObjectsFromArray:@[ NSAccessibilityPlaceholderValueAttribute ]];
+  // Anything focusable or any control:
+  if (owner_->HasIntAttribute(ax::mojom::IntAttribute::kRestriction) ||
+      owner_->HasIntAttribute(ax::mojom::IntAttribute::kInvalidState) ||
+      owner_->HasState(ax::mojom::State::kFocusable)) {
+    [ret addObjectsFromArray:@[
+      NSAccessibilityAccessKeyAttribute,
+      NSAccessibilityInvalidAttribute,
+      @"AXRequired",
+    ]];
   }
 
-  if (GetState(owner_, ax::mojom::State::kRequired)) {
-    [ret addObjectsFromArray:@[ @"AXRequired" ]];
-  }
-
-  if (owner_->HasStringAttribute(ax::mojom::StringAttribute::kLanguage)) {
+  // TODO(accessibility) What nodes should language be exposed on given new
+  // auto detection features?
+  //
+  // Once lang attribute inheritance becomes stable most nodes will have a
+  // language, so it may make more sense to always expose this attribute.
+  //
+  // For now we expose the language attribute if we have any language set.
+  if (owner_->node() && !owner_->node()->GetLanguage().empty()) {
     [ret addObjectsFromArray:@[ NSAccessibilityLanguageAttribute ]];
   }
 
@@ -3054,6 +3134,13 @@ NSString* const NSAccessibilityRequiredAttributeChrome = @"AXRequired";
               .size() > 0) {
     [ret addObjectsFromArray:@[ NSAccessibilityTitleUIElementAttribute ]];
   }
+
+  if (owner_->HasStringAttribute(ax::mojom::StringAttribute::kAutoComplete))
+    [ret addObject:NSAccessibilityAutocompleteValueAttribute];
+
+  if ([self shouldExposeTitleUIElement])
+    [ret addObject:NSAccessibilityTitleUIElementAttribute];
+
   // TODO(aboxhall): expose NSAccessibilityServesAsTitleForUIElementsAttribute
   // for elements which are referred to by labelledby or are labels
 

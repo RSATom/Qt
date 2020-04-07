@@ -28,7 +28,9 @@
 #include "third_party/blink/renderer/core/typed_arrays/dom_array_buffer.h"
 #include "third_party/blink/renderer/modules/crypto/crypto_result_impl.h"
 #include "third_party/blink/renderer/modules/filesystem/dom_file_system.h"
+#include "third_party/blink/renderer/modules/imagecapture/point_2d.h"
 #include "third_party/blink/renderer/modules/peerconnection/rtc_certificate.h"
+#include "third_party/blink/renderer/modules/shapedetection/landmark.h"
 #include "third_party/blink/renderer/platform/bindings/exception_state.h"
 #include "third_party/blink/renderer/platform/testing/unit_test_helpers.h"
 
@@ -290,7 +292,7 @@ class WebCryptoResultAdapter : public ScriptFunction {
 template <typename T>
 WebCryptoResult ToWebCryptoResult(ScriptState* script_state,
                                   base::RepeatingCallback<void(T)> function) {
-  CryptoResultImpl* result = CryptoResultImpl::Create(script_state);
+  auto* result = MakeGarbageCollected<CryptoResultImpl>(script_state);
   result->Promise().Then(
       (MakeGarbageCollected<WebCryptoResultAdapter<T>>(script_state,
                                                        std::move(function)))
@@ -896,7 +898,7 @@ TEST(V8ScriptValueSerializerForModulesTest, DecodeCryptoKeyInvalid) {
 TEST(V8ScriptValueSerializerForModulesTest, RoundTripDOMFileSystem) {
   V8TestingScope scope;
 
-  DOMFileSystem* fs = DOMFileSystem::Create(
+  auto* fs = MakeGarbageCollected<DOMFileSystem>(
       scope.GetExecutionContext(), "http_example.com_0:Persistent",
       mojom::blink::FileSystemType::kPersistent,
       KURL("filesystem:http://example.com/persistent/"));
@@ -919,7 +921,7 @@ TEST(V8ScriptValueSerializerForModulesTest, RoundTripDOMFileSystemNotClonable) {
                                  ExceptionState::kExecutionContext, "Window",
                                  "postMessage");
 
-  DOMFileSystem* fs = DOMFileSystem::Create(
+  auto* fs = MakeGarbageCollected<DOMFileSystem>(
       scope.GetExecutionContext(), "http_example.com_0:Persistent",
       mojom::blink::FileSystemType::kPersistent,
       KURL("filesystem:http://example.com/persistent/0/"));

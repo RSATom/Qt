@@ -32,8 +32,6 @@
 #include <Qt3DRender/qgeometry.h>
 #include <Qt3DRender/qattribute.h>
 #include <Qt3DCore/qpropertyupdatedchange.h>
-#include <Qt3DCore/qpropertynodeaddedchange.h>
-#include <Qt3DCore/qpropertynoderemovedchange.h>
 #include <Qt3DCore/private/qbackendnode_p.h>
 #include "testrenderer.h"
 #include "testpostmanarbiter.h"
@@ -50,6 +48,7 @@ public:
 class tst_RenderGeometry : public Qt3DCore::QBackendNodeTester
 {
     Q_OBJECT
+
 private Q_SLOTS:
 
     void checkPeerPropertyMirroring()
@@ -72,7 +71,7 @@ private Q_SLOTS:
         renderGeometry.setRenderer(&renderer);
 
         // WHEN
-        simulateInitialization(&geometry, &renderGeometry);
+        simulateInitializationSync(&geometry, &renderGeometry);
 
         // THEN
         QCOMPARE(renderGeometry.peerId(), geometry.id());
@@ -80,8 +79,9 @@ private Q_SLOTS:
         QCOMPARE(renderGeometry.attributes().count(), 4);
         QCOMPARE(renderGeometry.boundingPositionAttribute(), attr1.id());
 
-        for (int i = 0; i < 4; ++i)
-            QCOMPARE(geometry.attributes().at(i)->id(), renderGeometry.attributes().at(i));
+        Qt3DCore::QNodeIdVector attribs = Qt3DCore::qIdsForNodes(geometry.attributes());
+        std::sort(std::begin(attribs), std::end(attribs));
+        QCOMPARE(attribs, renderGeometry.attributes());
     }
 
     void checkSetRendererDirtyOnInitialization()
@@ -97,7 +97,7 @@ private Q_SLOTS:
         QCOMPARE(renderer.dirtyBits(), 0);
 
         // WHEN
-        simulateInitialization(&geometry, &renderGeometry);
+        simulateInitializationSync(&geometry, &renderGeometry);
 
         // THEN
         QCOMPARE(renderer.dirtyBits(), Qt3DRender::Render::AbstractRenderer::GeometryDirty);
@@ -130,7 +130,7 @@ private Q_SLOTS:
         geometry.addAttribute(&attr4);
 
         // WHEN
-        simulateInitialization(&geometry, &renderGeometry);
+        simulateInitializationSync(&geometry, &renderGeometry);
         renderGeometry.cleanup();
 
         // THEN
@@ -145,13 +145,15 @@ private Q_SLOTS:
         TestRenderer renderer;
         Qt3DRender::Render::Geometry renderGeometry;
         renderGeometry.setRenderer(&renderer);
+        Qt3DRender::QGeometry geometry;
+
+        simulateInitializationSync(&geometry, &renderGeometry);
 
         DummyAttribute attribute;
 
         // WHEN
-        const auto nodeAddedChange = Qt3DCore::QPropertyNodeAddedChangePtr::create(Qt3DCore::QNodeId(), &attribute);
-        nodeAddedChange->setPropertyName("attribute");
-        renderGeometry.sceneChangeEvent(nodeAddedChange);
+        geometry.addAttribute(&attribute);
+        renderGeometry.syncFromFrontEnd(&geometry, false);
 
         // THEN
         QCOMPARE(renderGeometry.attributes().count(), 1);
@@ -163,9 +165,8 @@ private Q_SLOTS:
         QVERIFY(!renderGeometry.isDirty());
 
         // WHEN
-        const auto nodeRemovedChange = Qt3DCore::QPropertyNodeRemovedChangePtr::create(Qt3DCore::QNodeId(), &attribute);
-        nodeRemovedChange->setPropertyName("attribute");
-        renderGeometry.sceneChangeEvent(nodeRemovedChange);
+        geometry.removeAttribute(&attribute);
+        renderGeometry.syncFromFrontEnd(&geometry, false);
 
         // THEN
         QCOMPARE(renderGeometry.attributes().count(), 0);
@@ -177,14 +178,11 @@ private Q_SLOTS:
         QVERIFY(!renderGeometry.isDirty());
 
         // WHEN
-        const Qt3DCore::QNodeId boundingAttrId = Qt3DCore::QNodeId::createId();
-        Qt3DCore::QPropertyUpdatedChangePtr updateChange(new Qt3DCore::QPropertyUpdatedChange(Qt3DCore::QNodeId()));
-        updateChange->setValue(QVariant::fromValue(boundingAttrId));
-        updateChange->setPropertyName("boundingVolumePositionAttribute");
-        renderGeometry.sceneChangeEvent(updateChange);
+        geometry.setBoundingVolumePositionAttribute(&attribute);
+        renderGeometry.syncFromFrontEnd(&geometry, false);
 
         // THEN
-        QCOMPARE(renderGeometry.boundingPositionAttribute(), boundingAttrId);
+        QCOMPARE(renderGeometry.boundingPositionAttribute(), attribute.id());
         QVERIFY(!renderGeometry.isDirty());
         QVERIFY(renderer.dirtyBits() & Qt3DRender::Render::AbstractRenderer::GeometryDirty);
         renderer.clearDirtyBits(Qt3DRender::Render::AbstractRenderer::AllDirty);

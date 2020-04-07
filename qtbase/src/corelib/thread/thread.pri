@@ -28,7 +28,7 @@ qtConfig(thread) {
         thread/qbasicatomic.h \
         thread/qfutex_p.h \
         thread/qgenericatomic.h \
-        thread/qmutexpool_p.h \
+        thread/qlocking_p.h \
         thread/qmutex_p.h \
         thread/qorderedmutexlocker_p.h \
         thread/qreadwritelock_p.h \
@@ -40,7 +40,6 @@ qtConfig(thread) {
     SOURCES += \
        thread/qatomic.cpp \
        thread/qmutex.cpp \
-       thread/qmutexpool.cpp \
        thread/qreadwritelock.cpp \
        thread/qsemaphore.cpp \
        thread/qthreadpool.cpp \

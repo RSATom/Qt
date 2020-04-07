@@ -47,6 +47,9 @@ bool BreakIterator::Init() {
     case BREAK_WORD:
       break_type = UBRK_WORD;
       break;
+    case BREAK_SENTENCE:
+      break_type = UBRK_SENTENCE;
+      break;
     case BREAK_LINE:
     case BREAK_NEWLINE:
     case RULE_BASED: // (Keep compiler happy, break_type not used in this case)
@@ -57,9 +60,9 @@ bool BreakIterator::Init() {
       return false;
   }
   if (break_type_ == RULE_BASED) {
-    iter_ = ubrk_openRules(reinterpret_cast<const UChar*>(rules_.c_str()),
+    iter_ = ubrk_openRules(rules_.c_str(),
                            static_cast<int32_t>(rules_.length()),
-                           reinterpret_cast<const UChar*>(string_.data()),
+                           string_.data(),
                            static_cast<int32_t>(string_.size()),
                            &parse_error,
                            &status);
@@ -68,7 +71,7 @@ bool BreakIterator::Init() {
           << parse_error.line << ", offset " << parse_error.offset;
     }
   } else {
-    iter_ = ubrk_open(break_type, nullptr, reinterpret_cast<const UChar*>(string_.data()),
+    iter_ = ubrk_open(break_type, nullptr, string_.data(),
                       static_cast<int32_t>(string_.size()), &status);
     if (U_FAILURE(status)) {
       NOTREACHED() << "ubrk_open failed for type " << break_type
@@ -93,6 +96,7 @@ bool BreakIterator::Advance() {
     case BREAK_CHARACTER:
     case BREAK_WORD:
     case BREAK_LINE:
+    case BREAK_SENTENCE:
     case RULE_BASED:
       pos = ubrk_next(static_cast<UBreakIterator*>(iter_));
       if (pos == UBRK_DONE) {
@@ -123,7 +127,7 @@ bool BreakIterator::Advance() {
 bool BreakIterator::SetText(const base::char16* text, const size_t length) {
   UErrorCode status = U_ZERO_ERROR;
   ubrk_setText(static_cast<UBreakIterator*>(iter_),
-               reinterpret_cast<const UChar*>(text), length, &status);
+               text, length, &status);
   pos_ = 0;  // implicit when ubrk_setText is done
   prev_ = npos;
   if (U_FAILURE(status)) {
@@ -168,6 +172,14 @@ bool BreakIterator::IsStartOfWord(size_t position) const {
   ubrk_next(iter);
   int32_t next_status = ubrk_getRuleStatus(iter);
   return (!!boundary && next_status != UBRK_WORD_NONE);
+}
+
+bool BreakIterator::IsSentenceBoundary(size_t position) const {
+  if (break_type_ != BREAK_SENTENCE && break_type_ != RULE_BASED)
+    return false;
+
+  UBreakIterator* iter = static_cast<UBreakIterator*>(iter_);
+  return !!ubrk_isBoundary(iter, static_cast<int32_t>(position));
 }
 
 bool BreakIterator::IsGraphemeBoundary(size_t position) const {

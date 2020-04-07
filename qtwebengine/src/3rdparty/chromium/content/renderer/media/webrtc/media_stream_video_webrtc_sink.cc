@@ -8,6 +8,7 @@
 #include <memory>
 #include <string>
 
+#include "base/bind.h"
 #include "base/feature_list.h"
 #include "base/location.h"
 #include "base/numerics/safe_conversions.h"
@@ -16,12 +17,12 @@
 #include "base/synchronization/lock.h"
 #include "base/timer/timer.h"
 #include "content/public/common/content_features.h"
-#include "content/public/renderer/media_stream_utils.h"
-#include "content/renderer/media/stream/media_stream_constraints_util.h"
-#include "content/renderer/media/stream/media_stream_video_track.h"
 #include "content/renderer/media/webrtc/peer_connection_dependency_factory.h"
 #include "content/renderer/media/webrtc/webrtc_video_track_source.h"
 #include "media/base/limits.h"
+#include "third_party/blink/public/web/modules/mediastream/media_stream_constraints_util.h"
+#include "third_party/blink/public/web/modules/mediastream/media_stream_video_track.h"
+#include "third_party/blink/public/web/modules/mediastream/web_media_stream_utils.h"
 #include "third_party/webrtc/api/video_track_source_proxy.h"
 
 namespace content {
@@ -90,14 +91,13 @@ class MediaStreamVideoWebRtcSink::WebRtcVideoSourceAdapter
   // destroyed.
   void ReleaseSourceOnMainThread();
 
-  void OnVideoFrameOnIO(const scoped_refptr<media::VideoFrame>& frame,
+  void OnVideoFrameOnIO(scoped_refptr<media::VideoFrame> frame,
                         base::TimeTicks estimated_capture_time);
 
  private:
   friend class base::RefCountedThreadSafe<WebRtcVideoSourceAdapter>;
 
-  void OnVideoFrameOnWorkerThread(
-      const scoped_refptr<media::VideoFrame>& frame);
+  void OnVideoFrameOnWorkerThread(scoped_refptr<media::VideoFrame> frame);
 
   virtual ~WebRtcVideoSourceAdapter();
 
@@ -187,7 +187,7 @@ void MediaStreamVideoWebRtcSink::WebRtcVideoSourceAdapter::
 }
 
 void MediaStreamVideoWebRtcSink::WebRtcVideoSourceAdapter::OnVideoFrameOnIO(
-    const scoped_refptr<media::VideoFrame>& frame,
+    scoped_refptr<media::VideoFrame> frame,
     base::TimeTicks estimated_capture_time) {
   DCHECK(io_thread_checker_.CalledOnValidThread());
   render_task_runner_->PostTask(
@@ -197,24 +197,23 @@ void MediaStreamVideoWebRtcSink::WebRtcVideoSourceAdapter::OnVideoFrameOnIO(
   libjingle_worker_thread_->PostTask(
       FROM_HERE,
       base::BindOnce(&WebRtcVideoSourceAdapter::OnVideoFrameOnWorkerThread,
-                     this, frame));
+                     this, std::move(frame)));
 }
 
 void MediaStreamVideoWebRtcSink::WebRtcVideoSourceAdapter::
-    OnVideoFrameOnWorkerThread(const scoped_refptr<media::VideoFrame>& frame) {
+    OnVideoFrameOnWorkerThread(scoped_refptr<media::VideoFrame> frame) {
   DCHECK(libjingle_worker_thread_->BelongsToCurrentThread());
   base::AutoLock auto_lock(video_source_stop_lock_);
   if (video_source_)
-    video_source_->OnFrameCaptured(frame);
+    video_source_->OnFrameCaptured(std::move(frame));
 }
 
 MediaStreamVideoWebRtcSink::MediaStreamVideoWebRtcSink(
     const blink::WebMediaStreamTrack& track,
     PeerConnectionDependencyFactory* factory,
-    scoped_refptr<base::SingleThreadTaskRunner> task_runner)
-    : weak_factory_(this) {
-  MediaStreamVideoTrack* video_track =
-      MediaStreamVideoTrack::GetVideoTrack(track);
+    scoped_refptr<base::SingleThreadTaskRunner> task_runner) {
+  blink::MediaStreamVideoTrack* video_track =
+      blink::MediaStreamVideoTrack::GetVideoTrack(track);
   DCHECK(video_track);
 
   absl::optional<bool> needs_denoising =
@@ -276,7 +275,7 @@ MediaStreamVideoWebRtcSink::MediaStreamVideoWebRtcSink(
                  weak_factory_.GetWeakPtr()),
       std::move(task_runner));
 
-  MediaStreamVideoSink::ConnectToTrack(
+  blink::MediaStreamVideoSink::ConnectToTrack(
       track,
       base::Bind(&WebRtcVideoSourceAdapter::OnVideoFrameOnIO, source_adapter_),
       false);
@@ -289,7 +288,7 @@ MediaStreamVideoWebRtcSink::~MediaStreamVideoWebRtcSink() {
   DCHECK(thread_checker_.CalledOnValidThread());
   DVLOG(3) << "MediaStreamVideoWebRtcSink dtor().";
   weak_factory_.InvalidateWeakPtrs();
-  MediaStreamVideoSink::DisconnectFromTrack();
+  blink::MediaStreamVideoSink::DisconnectFromTrack();
   source_adapter_->ReleaseSourceOnMainThread();
 }
 
@@ -307,7 +306,7 @@ void MediaStreamVideoWebRtcSink::OnContentHintChanged(
 
 void MediaStreamVideoWebRtcSink::RequestRefreshFrame() {
   DCHECK(thread_checker_.CalledOnValidThread());
-  content::RequestRefreshFrameFromVideoTrack(connected_track());
+  blink::RequestRefreshFrameFromVideoTrack(connected_track());
 }
 
 absl::optional<bool>

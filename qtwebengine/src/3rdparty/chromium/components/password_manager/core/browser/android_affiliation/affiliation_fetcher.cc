@@ -11,6 +11,7 @@
 #include <string>
 #include <utility>
 
+#include "base/bind.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
 #include "components/password_manager/core/browser/android_affiliation/affiliation_api.pb.h"
@@ -111,9 +112,8 @@ void AffiliationFetcher::StartRequest() {
   auto resource_request = std::make_unique<network::ResourceRequest>();
   resource_request->url = BuildQueryURL();
   resource_request->load_flags =
-      net::LOAD_DO_NOT_SAVE_COOKIES | net::LOAD_DO_NOT_SEND_COOKIES |
-      net::LOAD_DO_NOT_SEND_AUTH_DATA | net::LOAD_BYPASS_CACHE |
-      net::LOAD_DISABLE_CACHE;
+      net::LOAD_BYPASS_CACHE | net::LOAD_DISABLE_CACHE;
+  resource_request->allow_credentials = false;
   resource_request->method = "POST";
   simple_url_loader_ = network::SimpleURLLoader::Create(
       std::move(resource_request), traffic_annotation);

@@ -30,14 +30,20 @@ namespace dawn_native { namespace metal {
 
         MTLIndexType GetMTLIndexType() const;
         MTLPrimitiveType GetMTLPrimitiveTopology() const;
+        MTLWinding GetMTLFrontFace() const;
+        MTLCullMode GetMTLCullMode() const;
 
         void Encode(id<MTLRenderCommandEncoder> encoder);
 
         id<MTLDepthStencilState> GetMTLDepthStencilState();
 
       private:
+        MTLVertexDescriptor* MakeVertexDesc();
+
         MTLIndexType mMtlIndexType;
         MTLPrimitiveType mMtlPrimitiveTopology;
+        MTLWinding mMtlFrontFace;
+        MTLCullMode mMtlCullMode;
         id<MTLRenderPipelineState> mMtlRenderPipelineState = nil;
         id<MTLDepthStencilState> mMtlDepthStencilState = nil;
     };

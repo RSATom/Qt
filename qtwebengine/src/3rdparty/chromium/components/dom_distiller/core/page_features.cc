@@ -152,7 +152,8 @@ std::vector<double> CalculateDerivedFeaturesFromJSON(
     return std::vector<double>();
   }
 
-  std::unique_ptr<base::Value> json = base::JSONReader::Read(stringified);
+  std::unique_ptr<base::Value> json =
+      base::JSONReader::ReadDeprecated(stringified);
   if (!json) {
     return std::vector<double>();
   }
@@ -187,15 +188,14 @@ std::vector<double> CalculateDerivedFeaturesFromJSON(
                                   innerHTML);
 }
 
-std::vector<double> CalculateDerivedFeatures(
-    bool openGraph,
-    const GURL& url,
-    unsigned elementCount,
-    unsigned anchorCount,
-    unsigned formCount,
-    double mozScore,
-    double mozScoreAllSqrt,
-    double mozScoreAllLinear) {
+std::vector<double> CalculateDerivedFeatures(bool openGraph,
+                                             const GURL& url,
+                                             unsigned elementCount,
+                                             unsigned anchorCount,
+                                             unsigned formCount,
+                                             double mozScore,
+                                             double mozScoreAllSqrt,
+                                             double mozScoreAllLinear) {
   const std::string& path = url.path();
   std::vector<double> features;
   // 'opengraph', opengraph,
@@ -235,8 +235,7 @@ std::vector<double> CalculateDerivedFeatures(
   // 'elementCount', numElements,
   features.push_back(elementCount);
   // 'anchorRatio', float(numAnchors) / max(1, numElements),
-  features.push_back(
-      double(anchorCount) / std::max<double>(1, elementCount));
+  features.push_back(double(anchorCount) / std::max<double>(1, elementCount));
   // 'mozScore'
   features.push_back(mozScore);
   // 'mozScoreAllSqrt'

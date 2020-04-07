@@ -123,18 +123,21 @@ integrity {
     QMAKE_CFLAGS += -c99
 }
 
-equals(QT_ARCH, arm)|equals(QT_ARCH, arm64) {
-    SOURCES_FOR_NEON += \
-        $$PWD/libwebp/src/dsp/alpha_processing_neon.c \
-        $$PWD/libwebp/src/dsp/dec_neon.c \
-        $$PWD/libwebp/src/dsp/enc_neon.c \
-        $$PWD/libwebp/src/dsp/filters_neon.c \
-        $$PWD/libwebp/src/dsp/lossless_enc_neon.c \
-        $$PWD/libwebp/src/dsp/lossless_neon.c \
-        $$PWD/libwebp/src/dsp/rescaler_neon.c \
-        $$PWD/libwebp/src/dsp/upsampling_neon.c \
-        $$PWD/libwebp/src/dsp/yuv_neon.c
+SOURCES_FOR_NEON += \
+    $$PWD/libwebp/src/dsp/alpha_processing_neon.c \
+    $$PWD/libwebp/src/dsp/dec_neon.c \
+    $$PWD/libwebp/src/dsp/enc_neon.c \
+    $$PWD/libwebp/src/dsp/filters_neon.c \
+    $$PWD/libwebp/src/dsp/lossless_enc_neon.c \
+    $$PWD/libwebp/src/dsp/lossless_neon.c \
+    $$PWD/libwebp/src/dsp/rescaler_neon.c \
+    $$PWD/libwebp/src/dsp/upsampling_neon.c \
+    $$PWD/libwebp/src/dsp/yuv_neon.c
 
+
+android {
+    arm64-v8a | armeabi-v7a: SOURCES += $$SOURCES_FOR_NEON
+} else: equals(QT_ARCH, arm)|equals(QT_ARCH, arm64) {
     contains(QT_CPU_FEATURES.$$QT_ARCH, neon) {
         # Default compiler settings include this feature, so just add to SOURCES
         SOURCES += $$SOURCES_FOR_NEON

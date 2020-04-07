@@ -5,8 +5,11 @@
 #include "third_party/blink/public/platform/scheduler/web_thread_scheduler.h"
 
 #include <utility>
+
+#include "base/feature_list.h"
 #include "base/trace_event/trace_event.h"
 #include "build/build_config.h"
+#include "third_party/blink/renderer/platform/scheduler/common/features.h"
 #include "third_party/blink/renderer/platform/scheduler/common/tracing_helper.h"
 #include "third_party/blink/renderer/platform/scheduler/main_thread/main_thread_scheduler_impl.h"
 
@@ -20,9 +23,15 @@ std::unique_ptr<WebThreadScheduler>
 WebThreadScheduler::CreateMainThreadScheduler(
     std::unique_ptr<base::MessagePump> message_pump,
     base::Optional<base::Time> initial_virtual_time) {
-  auto settings = base::sequence_manager::SequenceManager::Settings{
-      base::MessageLoop::TYPE_DEFAULT,
-      /* randomised_sampling_enabled */ true};
+  auto settings =
+      base::sequence_manager::SequenceManager::Settings::Builder()
+          .SetMessagePumpType(base::MessagePump::Type::DEFAULT)
+          .SetRandomisedSamplingEnabled(true)
+          .SetAddQueueTimeToTasks(true)
+          .SetAntiStarvationLogicForPrioritiesDisabled(
+              base::FeatureList::IsEnabled(
+                  kBlinkSchedulerDisableAntiStarvationForPriorities))
+          .Build();
   auto sequence_manager =
       message_pump
           ? base::sequence_manager::
@@ -81,6 +90,12 @@ WebThreadScheduler::CleanupTaskRunner() {
   return nullptr;
 }
 
+scoped_refptr<base::SingleThreadTaskRunner>
+WebThreadScheduler::DeprecatedDefaultTaskRunner() {
+  NOTREACHED();
+  return nullptr;
+}
+
 std::unique_ptr<Thread> WebThreadScheduler::CreateMainThread() {
   NOTREACHED();
   return nullptr;
@@ -111,6 +126,16 @@ void WebThreadScheduler::DidCommitFrameToCompositor() {
 void WebThreadScheduler::DidHandleInputEventOnCompositorThread(
     const WebInputEvent& web_input_event,
     InputEventState event_state) {
+  NOTREACHED();
+}
+
+void WebThreadScheduler::WillPostInputEventToMainThread(
+    WebInputEvent::Type web_input_event_type) {
+  NOTREACHED();
+}
+
+void WebThreadScheduler::WillHandleInputEventOnMainThread(
+    WebInputEvent::Type web_input_event_type) {
   NOTREACHED();
 }
 
@@ -159,10 +184,6 @@ bool WebThreadScheduler::IsHighPriorityWorkAnticipated() {
 
 void WebThreadScheduler::SetTopLevelBlameContext(
     base::trace_event::BlameContext* blame_context) {
-  NOTREACHED();
-}
-
-void WebThreadScheduler::AddRAILModeObserver(WebRAILModeObserver* observer) {
   NOTREACHED();
 }
 

@@ -5,13 +5,15 @@
 #ifndef V8_HEAP_SPACES_INL_H_
 #define V8_HEAP_SPACES_INL_H_
 
+#include "src/heap/spaces.h"
+
 #include "src/base/atomic-utils.h"
 #include "src/base/bounded-page-allocator.h"
 #include "src/base/v8-fallthrough.h"
+#include "src/heap/heap-inl.h"
 #include "src/heap/incremental-marking.h"
-#include "src/heap/spaces.h"
-#include "src/msan.h"
 #include "src/objects/code-inl.h"
+#include "src/sanitizer/msan.h"
 
 namespace v8 {
 namespace internal {
@@ -40,9 +42,9 @@ PageRange::PageRange(Address start, Address limit)
 }
 
 // -----------------------------------------------------------------------------
-// SemiSpaceIterator
+// SemiSpaceObjectIterator
 
-HeapObject SemiSpaceIterator::Next() {
+HeapObject SemiSpaceObjectIterator::Next() {
   while (current_ != limit_) {
     if (Page::IsAlignedToPageSize(current_)) {
       Page* page = Page::FromAllocationAreaAddress(current_);
@@ -52,8 +54,8 @@ HeapObject SemiSpaceIterator::Next() {
       if (current_ == limit_) return HeapObject();
     }
     HeapObject object = HeapObject::FromAddress(current_);
-    current_ += object->Size();
-    if (!object->IsFiller()) {
+    current_ += object.Size();
+    if (!object.IsFiller()) {
       return object;
     }
   }
@@ -61,9 +63,9 @@ HeapObject SemiSpaceIterator::Next() {
 }
 
 // -----------------------------------------------------------------------------
-// HeapObjectIterator
+// PagedSpaceObjectIterator
 
-HeapObject HeapObjectIterator::Next() {
+HeapObject PagedSpaceObjectIterator::Next() {
   do {
     HeapObject next_obj = FromCurrentPage();
     if (!next_obj.is_null()) return next_obj;
@@ -71,18 +73,18 @@ HeapObject HeapObjectIterator::Next() {
   return HeapObject();
 }
 
-HeapObject HeapObjectIterator::FromCurrentPage() {
+HeapObject PagedSpaceObjectIterator::FromCurrentPage() {
   while (cur_addr_ != cur_end_) {
     if (cur_addr_ == space_->top() && cur_addr_ != space_->limit()) {
       cur_addr_ = space_->limit();
       continue;
     }
     HeapObject obj = HeapObject::FromAddress(cur_addr_);
-    const int obj_size = obj->Size();
+    const int obj_size = obj.Size();
     cur_addr_ += obj_size;
     DCHECK_LE(cur_addr_, cur_end_);
-    if (!obj->IsFiller()) {
-      if (obj->IsCode()) {
+    if (!obj.IsFiller()) {
+      if (obj.IsCode()) {
         DCHECK_EQ(space_, space_->heap()->code_space());
         DCHECK_CODEOBJECT_SIZE(obj_size, space_);
       } else {
@@ -119,12 +121,14 @@ void Space::MoveExternalBackingStoreBytes(ExternalBackingStoreType type,
 // SemiSpace
 
 bool SemiSpace::Contains(HeapObject o) {
-  return id_ == kToSpace ? MemoryChunk::FromHeapObject(o)->InToSpace()
-                         : MemoryChunk::FromHeapObject(o)->InFromSpace();
+  MemoryChunk* memory_chunk = MemoryChunk::FromHeapObject(o);
+  if (memory_chunk->IsLargePage()) return false;
+  return id_ == kToSpace ? memory_chunk->IsToPage()
+                         : memory_chunk->IsFromPage();
 }
 
 bool SemiSpace::Contains(Object o) {
-  return o->IsHeapObject() && Contains(HeapObject::cast(o));
+  return o.IsHeapObject() && Contains(HeapObject::cast(o));
 }
 
 bool SemiSpace::ContainsSlow(Address a) {
@@ -138,7 +142,7 @@ bool SemiSpace::ContainsSlow(Address a) {
 // NewSpace
 
 bool NewSpace::Contains(Object o) {
-  return o->IsHeapObject() && Contains(HeapObject::cast(o));
+  return o.IsHeapObject() && Contains(HeapObject::cast(o));
 }
 
 bool NewSpace::Contains(HeapObject o) {
@@ -178,31 +182,26 @@ size_t PagedSpace::RelinkFreeListCategories(Page* page) {
   DCHECK_EQ(this, page->owner());
   size_t added = 0;
   page->ForAllFreeListCategories([this, &added](FreeListCategory* category) {
-    category->set_free_list(&free_list_);
+    category->set_free_list(free_list());
     added += category->available();
     category->Relink();
   });
-  DCHECK_EQ(page->AvailableInFreeList(),
-            page->AvailableInFreeListFromAllocatedBytes());
+
+  DCHECK_IMPLIES(!page->IsFlagSet(Page::NEVER_ALLOCATE_ON_PAGE),
+                 page->AvailableInFreeList() ==
+                     page->AvailableInFreeListFromAllocatedBytes());
   return added;
 }
 
 bool PagedSpace::TryFreeLast(HeapObject object, int object_size) {
   if (allocation_info_.top() != kNullAddress) {
-    const Address object_address = object->address();
+    const Address object_address = object.address();
     if ((allocation_info_.top() - object_size) == object_address) {
       allocation_info_.set_top(object_address);
       return true;
     }
   }
   return false;
-}
-
-bool MemoryChunk::HasHeaderSentinel(Address slot_addr) {
-  Address base = BaseAddress(slot_addr);
-  if (slot_addr < base + kHeaderSize) return false;
-  return HeapObject::FromAddress(base) ==
-         ObjectSlot(base + kHeaderSentinelOffset).Relaxed_Load();
 }
 
 MemoryChunk* MemoryChunk::FromAnyPointerAddress(Address addr) {
@@ -228,18 +227,21 @@ void MemoryChunk::MoveExternalBackingStoreBytes(ExternalBackingStoreType type,
                                                 MemoryChunk* from,
                                                 MemoryChunk* to,
                                                 size_t amount) {
+  DCHECK_NOT_NULL(from->owner());
+  DCHECK_NOT_NULL(to->owner());
   base::CheckedDecrement(&(from->external_backing_store_bytes_[type]), amount);
   base::CheckedIncrement(&(to->external_backing_store_bytes_[type]), amount);
   Space::MoveExternalBackingStoreBytes(type, from->owner(), to->owner(),
                                        amount);
 }
 
-bool MemoryChunk::IsInNewLargeObjectSpace() const {
-  return owner()->identity() == NEW_LO_SPACE;
+AllocationSpace MemoryChunk::owner_identity() const {
+  if (InReadOnlySpace()) return RO_SPACE;
+  return owner()->identity();
 }
 
 void Page::MarkNeverAllocateForTesting() {
-  DCHECK(this->owner()->identity() != NEW_SPACE);
+  DCHECK(this->owner_identity() != NEW_SPACE);
   DCHECK(!IsFlagSet(NEVER_ALLOCATE_ON_PAGE));
   SetFlag(NEVER_ALLOCATE_ON_PAGE);
   SetFlag(NEVER_EVACUATE);
@@ -313,10 +315,6 @@ MemoryChunk* OldGenerationMemoryChunkIterator::next() {
   UNREACHABLE();
 }
 
-Page* FreeList::GetPageForCategoryType(FreeListCategoryType type) {
-  return top(type) ? top(type)->page() : nullptr;
-}
-
 FreeList* FreeListCategory::owner() { return free_list_; }
 
 bool FreeListCategory::is_linked() {
@@ -373,26 +371,21 @@ HeapObject PagedSpace::TryAllocateLinearlyAligned(
   return HeapObject::FromAddress(current_top);
 }
 
-AllocationResult PagedSpace::AllocateRawUnaligned(
-    int size_in_bytes, UpdateSkipList update_skip_list) {
-  DCHECK_IMPLIES(identity() == RO_SPACE, heap()->CanAllocateInReadOnlySpace());
+AllocationResult PagedSpace::AllocateRawUnaligned(int size_in_bytes) {
+  DCHECK_IMPLIES(identity() == RO_SPACE, !IsDetached());
   if (!EnsureLinearAllocationArea(size_in_bytes)) {
     return AllocationResult::Retry(identity());
   }
   HeapObject object = AllocateLinearly(size_in_bytes);
   DCHECK(!object.is_null());
-  if (update_skip_list == UPDATE_SKIP_LIST && identity() == CODE_SPACE) {
-    SkipList::Update(object->address(), size_in_bytes);
-  }
-  MSAN_ALLOCATED_UNINITIALIZED_MEMORY(object->address(), size_in_bytes);
+  MSAN_ALLOCATED_UNINITIALIZED_MEMORY(object.address(), size_in_bytes);
   return object;
 }
-
 
 AllocationResult PagedSpace::AllocateRawAligned(int size_in_bytes,
                                                 AllocationAlignment alignment) {
   DCHECK(identity() == OLD_SPACE || identity() == RO_SPACE);
-  DCHECK_IMPLIES(identity() == RO_SPACE, heap()->CanAllocateInReadOnlySpace());
+  DCHECK_IMPLIES(identity() == RO_SPACE, !IsDetached());
   int allocation_size = size_in_bytes;
   HeapObject object = TryAllocateLinearlyAligned(&allocation_size, alignment);
   if (object.is_null()) {
@@ -407,7 +400,7 @@ AllocationResult PagedSpace::AllocateRawAligned(int size_in_bytes,
     object = TryAllocateLinearlyAligned(&allocation_size, alignment);
     DCHECK(!object.is_null());
   }
-  MSAN_ALLOCATED_UNINITIALIZED_MEMORY(object->address(), size_in_bytes);
+  MSAN_ALLOCATED_UNINITIALIZED_MEMORY(object.address(), size_in_bytes);
   return object;
 }
 
@@ -428,17 +421,16 @@ AllocationResult PagedSpace::AllocateRaw(int size_in_bytes,
 
   DCHECK_IMPLIES(!SupportsInlineAllocation(), bytes_since_last == 0);
 #ifdef V8_HOST_ARCH_32_BIT
-  AllocationResult result =
-      alignment == kDoubleAligned
-          ? AllocateRawAligned(size_in_bytes, kDoubleAligned)
-          : AllocateRawUnaligned(size_in_bytes);
+  AllocationResult result = alignment != kWordAligned
+                                ? AllocateRawAligned(size_in_bytes, alignment)
+                                : AllocateRawUnaligned(size_in_bytes);
 #else
   AllocationResult result = AllocateRawUnaligned(size_in_bytes);
 #endif
   HeapObject heap_obj;
   if (!result.IsRetry() && result.To(&heap_obj) && !is_local()) {
     AllocationStep(static_cast<int>(size_in_bytes + bytes_since_last),
-                   heap_obj->address(), size_in_bytes);
+                   heap_obj.address(), size_in_bytes);
     StartNextInlineAllocationStep();
     DCHECK_IMPLIES(
         heap()->incremental_marking()->black_allocation(),
@@ -478,7 +470,7 @@ AllocationResult NewSpace::AllocateRawAligned(int size_in_bytes,
     obj = heap()->PrecedeWithFiller(obj, filler_size);
   }
 
-  MSAN_ALLOCATED_UNINITIALIZED_MEMORY(obj->address(), size_in_bytes);
+  MSAN_ALLOCATED_UNINITIALIZED_MEMORY(obj.address(), size_in_bytes);
 
   return obj;
 }
@@ -499,7 +491,7 @@ AllocationResult NewSpace::AllocateRawUnaligned(int size_in_bytes) {
   allocation_info_.set_top(top + size_in_bytes);
   DCHECK_SEMISPACE_ALLOCATION_INFO(allocation_info_, to_space_);
 
-  MSAN_ALLOCATED_UNINITIALIZED_MEMORY(obj->address(), size_in_bytes);
+  MSAN_ALLOCATED_UNINITIALIZED_MEMORY(obj.address(), size_in_bytes);
 
   return obj;
 }
@@ -514,10 +506,16 @@ AllocationResult NewSpace::AllocateRaw(int size_in_bytes,
     top_on_previous_step_ = top();
   }
 #ifdef V8_HOST_ARCH_32_BIT
-  return alignment == kDoubleAligned
-             ? AllocateRawAligned(size_in_bytes, kDoubleAligned)
+  return alignment != kWordAligned
+             ? AllocateRawAligned(size_in_bytes, alignment)
              : AllocateRawUnaligned(size_in_bytes);
 #else
+#ifdef V8_COMPRESS_POINTERS
+  // TODO(ishell, v8:8875): Consider using aligned allocations once the
+  // allocation alignment inconsistency is fixed. For now we keep using
+  // unaligned access since both x64 and arm64 architectures (where pointer
+  // compression is supported) allow unaligned access to doubles and full words.
+#endif  // V8_COMPRESS_POINTERS
   return AllocateRawUnaligned(size_in_bytes);
 #endif
 }
@@ -536,7 +534,7 @@ LocalAllocationBuffer LocalAllocationBuffer::FromResult(Heap* heap,
   bool ok = result.To(&obj);
   USE(ok);
   DCHECK(ok);
-  Address top = HeapObject::cast(obj)->address();
+  Address top = HeapObject::cast(obj).address();
   return LocalAllocationBuffer(heap, LinearAllocationArea(top, top + size));
 }
 
@@ -552,7 +550,7 @@ bool LocalAllocationBuffer::TryMerge(LocalAllocationBuffer* other) {
 
 bool LocalAllocationBuffer::TryFreeLast(HeapObject object, int object_size) {
   if (IsValid()) {
-    const Address object_address = object->address();
+    const Address object_address = object.address();
     if ((allocation_info_.top() - object_size) == object_address) {
       allocation_info_.set_top(object_address);
       return true;

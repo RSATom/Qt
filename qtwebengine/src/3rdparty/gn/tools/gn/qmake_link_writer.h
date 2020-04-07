@@ -44,18 +44,18 @@
 #include "tools/gn/path_output.h"
 
 class Target;
-class NinjaBinaryTargetWriter;
+class NinjaCBinaryTargetWriter;
 
 class QMakeLinkWriter {
 
  public:
-  QMakeLinkWriter(const NinjaBinaryTargetWriter* writer,const Target* target, std::ostream& out);
+  QMakeLinkWriter(const NinjaCBinaryTargetWriter* writer,const Target* target, std::ostream& out);
   ~QMakeLinkWriter() ;
   void Run();
 
  private:
   const Target* target_;
-  const NinjaBinaryTargetWriter* nwriter_;
+  const NinjaCBinaryTargetWriter* nwriter_;
   std::ostream& out_;
   PathOutput path_output_;
 };

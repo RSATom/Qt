@@ -28,7 +28,6 @@
 #include <qtest.h>
 #include <QtQml/qqmlcomponent.h>
 #include <QtQml/qqmlengine.h>
-#include <QtQml/private/qhashedstring_p.h>
 #include <QtQml/private/qqmlmetatype_p.h>
 #include <QtCore/QDebug>
 #include <QtCore/QHash>
@@ -121,7 +120,7 @@ void tst_PropertyRequirements::constantOrNotifyableFull()
         }
 
         static const QString messagePattern("\nProperty %1 neither CONSTANT nor NOTIFYable. Affected types:\n\t%2");
-        QStringList occurrencesList = occurrences.toList();
+        QStringList occurrencesList = occurrences.values();
         occurrencesList.sort();
         messages.append(messagePattern.arg(it.key(), occurrencesList.join("\n\t")));
 
@@ -159,7 +158,8 @@ void tst_PropertyRequirements::testAllQmlTypes(TestDepth testDepth, FailuresByPr
                 testQmlType(testDepth, qmlType, failuresByProperty);
             }
         }
-        seenTypes.unite(QSet<QString>::fromList(QQmlMetaType::qmlTypeNames()));
+        const auto &typeNameList = QQmlMetaType::qmlTypeNames();
+        seenTypes.unite(QSet<QString>(typeNameList.cbegin(), typeNameList.cend()));
     }
 }
 

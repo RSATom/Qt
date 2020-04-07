@@ -52,25 +52,24 @@ wtf_size_t TotalLength(const Vector<String>& strings) {
 using namespace html_names;
 
 StyledMarkupAccumulator::StyledMarkupAccumulator(
-    EAbsoluteURLs should_resolve_urls,
     const TextOffset& start,
     const TextOffset& end,
     Document* document,
-    EAnnotateForInterchange should_annotate,
-    ConvertBlocksToInlines convert_blocks_to_inlines)
-    : formatter_(should_resolve_urls),
+    const CreateMarkupOptions& options)
+    : formatter_(options.ShouldResolveURLs(),
+                 document->IsHTMLDocument() ? SerializationType::kHTML
+                                            : SerializationType::kXML),
       start_(start),
       end_(end),
       document_(document),
-      should_annotate_(should_annotate),
-      convert_blocks_to_inlines_(convert_blocks_to_inlines) {}
+      options_(options) {}
 
 void StyledMarkupAccumulator::AppendEndTag(const Element& element) {
   AppendEndMarkup(result_, element);
 }
 
 void StyledMarkupAccumulator::AppendStartMarkup(Node& node) {
-  formatter_.AppendStartMarkup(result_, node, nullptr);
+  formatter_.AppendStartMarkup(result_, node);
 }
 
 void StyledMarkupAccumulator::AppendEndMarkup(StringBuilder& result,
@@ -102,9 +101,10 @@ void StyledMarkupAccumulator::AppendTextWithInlineStyle(
   if (inline_style) {
     // wrappingStyleForAnnotatedSerialization should have removed
     // -webkit-text-decorations-in-effect.
-    DCHECK(!ShouldAnnotate() || PropertyMissingOrEqualToNone(
-                                    inline_style->Style(),
-                                    CSSPropertyWebkitTextDecorationsInEffect));
+    DCHECK(!ShouldAnnotate() ||
+           PropertyMissingOrEqualToNone(
+               inline_style->Style(),
+               CSSPropertyID::kWebkitTextDecorationsInEffect));
     DCHECK(document_);
 
     result_.Append("<span style=\"");
@@ -122,7 +122,12 @@ void StyledMarkupAccumulator::AppendTextWithInlineStyle(
     StringBuilder buffer;
     MarkupFormatter::AppendCharactersReplacingEntities(
         buffer, content, 0, content.length(), kEntityMaskInPCDATA);
-    result_.Append(ConvertHTMLTextToInterchangeFormat(buffer.ToString(), text));
+    // Keep collapsible white spaces as is during markup sanitization.
+    const String text_to_append =
+        IsForMarkupSanitization()
+            ? buffer.ToString()
+            : ConvertHTMLTextToInterchangeFormat(buffer.ToString(), text);
+    result_.Append(text_to_append);
   }
   if (inline_style)
     result_.Append("</span>");
@@ -139,13 +144,13 @@ void StyledMarkupAccumulator::AppendElementWithInlineStyle(
     const Element& element,
     EditingStyle* style) {
   const bool document_is_html = element.GetDocument().IsHTMLDocument();
-  formatter_.AppendOpenTag(out, element, nullptr);
+  formatter_.AppendStartTagOpen(out, element);
   AttributeCollection attributes = element.Attributes();
   for (const auto& attribute : attributes) {
     // We'll handle the style attribute separately, below.
     if (attribute.GetName() == kStyleAttr)
       continue;
-    formatter_.AppendAttribute(out, element, attribute, nullptr);
+    AppendAttribute(out, element, attribute);
   }
   if (style && !style->IsEmpty()) {
     out.Append(" style=\"");
@@ -153,7 +158,7 @@ void StyledMarkupAccumulator::AppendElementWithInlineStyle(
                                           document_is_html);
     out.Append('\"');
   }
-  formatter_.AppendCloseTag(out, element);
+  formatter_.AppendStartTagClose(out, element);
 }
 
 void StyledMarkupAccumulator::AppendElement(const Element& element) {
@@ -162,18 +167,30 @@ void StyledMarkupAccumulator::AppendElement(const Element& element) {
 
 void StyledMarkupAccumulator::AppendElement(StringBuilder& out,
                                             const Element& element) {
-  formatter_.AppendOpenTag(out, element, nullptr);
+  formatter_.AppendStartTagOpen(out, element);
   AttributeCollection attributes = element.Attributes();
   for (const auto& attribute : attributes)
-    formatter_.AppendAttribute(out, element, attribute, nullptr);
-  formatter_.AppendCloseTag(out, element);
+    AppendAttribute(out, element, attribute);
+  formatter_.AppendStartTagClose(out, element);
+}
+
+void StyledMarkupAccumulator::AppendAttribute(StringBuilder& result,
+                                              const Element& element,
+                                              const Attribute& attribute) {
+  String value = formatter_.ResolveURLIfNeeded(element, attribute);
+  if (formatter_.SerializeAsHTML()) {
+    MarkupFormatter::AppendAttributeAsHTML(result, attribute, value);
+  } else {
+    MarkupFormatter::AppendAttributeAsXMLWithoutNamespace(result, attribute,
+                                                          value);
+  }
 }
 
 void StyledMarkupAccumulator::WrapWithStyleNode(CSSPropertyValueSet* style) {
   // wrappingStyleForSerialization should have removed
   // -webkit-text-decorations-in-effect.
   DCHECK(PropertyMissingOrEqualToNone(
-      style, CSSPropertyWebkitTextDecorationsInEffect));
+      style, CSSPropertyID::kWebkitTextDecorationsInEffect));
   DCHECK(document_);
 
   StringBuilder open_tag;
@@ -225,7 +242,7 @@ String StyledMarkupAccumulator::StringValueForRange(const Text& node) {
 }
 
 bool StyledMarkupAccumulator::ShouldAnnotate() const {
-  return should_annotate_ == kAnnotateForInterchange;
+  return options_.ShouldAnnotateForInterchange();
 }
 
 void StyledMarkupAccumulator::PushMarkup(const String& str) {

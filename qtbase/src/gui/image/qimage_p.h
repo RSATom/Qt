@@ -51,7 +51,9 @@
 // We mean it.
 //
 
+#include <QtGui/qcolorspace.h>
 #include <QtGui/private/qtguiglobal_p.h>
+#include <QtGui/qimage.h>
 #include <QtCore/private/qnumeric_p.h>
 
 #include <QMap>
@@ -65,7 +67,7 @@ struct Q_GUI_EXPORT QImageData {        // internal image data
     QImageData();
     ~QImageData();
     static QImageData *create(const QSize &size, QImage::Format format);
-    static QImageData *create(uchar *data, int w, int h,  int bpl, QImage::Format format, bool readOnly, QImageCleanupFunction cleanupFunction = 0, void *cleanupInfo = 0);
+    static QImageData *create(uchar *data, int w, int h,  int bpl, QImage::Format format, bool readOnly, QImageCleanupFunction cleanupFunction = nullptr, void *cleanupInfo = nullptr);
 
     QAtomicInt ref;
 
@@ -105,6 +107,8 @@ struct Q_GUI_EXPORT QImageData {        // internal image data
     bool doImageIO(const QImage *image, QImageWriter* io, int quality) const;
 
     QPaintEngine *paintEngine;
+
+    QColorSpace colorSpace;
 
     struct ImageSizeParameters {
         qsizetype bytesPerLine;
@@ -203,6 +207,7 @@ inline int qt_depthForFormat(QImage::Format format)
     case QImage::Format_ARGB8565_Premultiplied:
     case QImage::Format_ARGB8555_Premultiplied:
     case QImage::Format_RGB888:
+    case QImage::Format_BGR888:
         depth = 24;
         break;
     case QImage::Format_RGBX64:
@@ -270,6 +275,29 @@ inline QImage::Format qt_alphaVersion(QImage::Format format)
     }
     return QImage::Format_ARGB32_Premultiplied;
 }
+
+inline bool qt_highColorPrecision(QImage::Format format, bool opaque = false)
+{
+    // Formats with higher color precision than ARGB32_Premultiplied.
+    switch (format) {
+    case QImage::Format_ARGB32:
+    case QImage::Format_RGBA8888:
+        return !opaque;
+    case QImage::Format_BGR30:
+    case QImage::Format_RGB30:
+    case QImage::Format_A2BGR30_Premultiplied:
+    case QImage::Format_A2RGB30_Premultiplied:
+    case QImage::Format_RGBX64:
+    case QImage::Format_RGBA64:
+    case QImage::Format_RGBA64_Premultiplied:
+    case QImage::Format_Grayscale16:
+        return true;
+    default:
+        break;
+    }
+    return false;
+}
+
 
 inline QImage::Format qt_maybeAlphaVersionWithSameDepth(QImage::Format format)
 {

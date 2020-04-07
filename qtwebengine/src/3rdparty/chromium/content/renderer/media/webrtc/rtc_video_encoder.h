@@ -52,13 +52,12 @@ class CONTENT_EXPORT RTCVideoEncoder : public webrtc::VideoEncoder {
                      size_t max_payload_size) override;
   int32_t Encode(
       const webrtc::VideoFrame& input_image,
-      const webrtc::CodecSpecificInfo* codec_specific_info,
-      const std::vector<webrtc::FrameType>* frame_types) override;
+      const std::vector<webrtc::VideoFrameType>* frame_types) override;
   int32_t RegisterEncodeCompleteCallback(
       webrtc::EncodedImageCallback* callback) override;
   int32_t Release() override;
-  int32_t SetRateAllocation(const webrtc::VideoBitrateAllocation& allocation,
-                            uint32_t framerate) override;
+  void SetRates(
+      const webrtc::VideoEncoder::RateControlParameters& parameters) override;
   EncoderInfo GetEncoderInfo() const override;
 
  private:

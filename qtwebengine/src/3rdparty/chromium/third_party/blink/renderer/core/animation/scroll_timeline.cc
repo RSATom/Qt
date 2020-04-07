@@ -4,7 +4,6 @@
 
 #include "third_party/blink/renderer/core/animation/scroll_timeline.h"
 
-#include "third_party/blink/renderer/core/css/css_calculation_value.h"
 #include "third_party/blink/renderer/core/css/css_to_length_conversion_data.h"
 #include "third_party/blink/renderer/core/css/parser/css_tokenizer.h"
 #include "third_party/blink/renderer/core/css/properties/css_parsing_utils.h"
@@ -22,7 +21,7 @@ namespace {
 using ActiveScrollTimelineSet = HeapHashCountedSet<WeakMember<Node>>;
 ActiveScrollTimelineSet& GetActiveScrollTimelineSet() {
   DEFINE_STATIC_LOCAL(Persistent<ActiveScrollTimelineSet>, set,
-                      (new ActiveScrollTimelineSet));
+                      (MakeGarbageCollected<ActiveScrollTimelineSet>()));
   return *set;
 }
 
@@ -56,7 +55,7 @@ bool StringToScrollOffset(String scroll_offset, CSSPrimitiveValue** result) {
     return false;
 
   // We support 'auto', but for simplicity just store it as nullptr.
-  *result = value->IsIdentifierValue() ? nullptr : ToCSSPrimitiveValue(value);
+  *result = DynamicTo<CSSPrimitiveValue>(value);
   return true;
 }
 
@@ -109,35 +108,44 @@ ScrollTimeline* ScrollTimeline::Create(Document& document,
   }
 
   return MakeGarbageCollected<ScrollTimeline>(
-      scroll_source, orientation, start_scroll_offset, end_scroll_offset,
-      options->timeRange().GetAsDouble());
+      &document, scroll_source, orientation, start_scroll_offset,
+      end_scroll_offset, options->timeRange().GetAsDouble(),
+      Timing::StringToFillMode(options->fill()));
 }
 
-ScrollTimeline::ScrollTimeline(Element* scroll_source,
+ScrollTimeline::ScrollTimeline(Document* document,
+                               Element* scroll_source,
                                ScrollDirection orientation,
                                CSSPrimitiveValue* start_scroll_offset,
                                CSSPrimitiveValue* end_scroll_offset,
-                               double time_range)
-    : scroll_source_(scroll_source),
+                               double time_range,
+                               Timing::FillMode fill)
+    : document_(document),
+      scroll_source_(scroll_source),
       resolved_scroll_source_(ResolveScrollSource(scroll_source_)),
       orientation_(orientation),
       start_scroll_offset_(start_scroll_offset),
       end_scroll_offset_(end_scroll_offset),
-      time_range_(time_range) {
+      time_range_(time_range),
+      fill_(fill) {}
+
+bool ScrollTimeline::IsActive() const {
+  LayoutBox* layout_box = resolved_scroll_source_
+                              ? resolved_scroll_source_->GetLayoutBox()
+                              : nullptr;
+  return layout_box && layout_box->HasOverflowClip();
 }
 
 double ScrollTimeline::currentTime(bool& is_null) {
   is_null = true;
 
-  // 1. If scrollSource is null, does not currently have a CSS layout box, or if
-  // its layout box is not a scroll container, return an unresolved time value.
-  LayoutBox* layout_box = resolved_scroll_source_
-                              ? resolved_scroll_source_->GetLayoutBox()
-                              : nullptr;
-  if (!layout_box || !layout_box->HasOverflowClip()) {
+  // 1. If scroll timeline is inactive, return an unresolved time value.
+  // https://github.com/WICG/scroll-animations/issues/31
+  // https://wicg.github.io/scroll-animations/#current-time-algorithm
+  if (!IsActive()) {
     return std::numeric_limits<double>::quiet_NaN();
   }
-
+  LayoutBox* layout_box = resolved_scroll_source_->GetLayoutBox();
   // 2. Otherwise, let current scroll offset be the current scroll offset of
   // scrollSource in the direction specified by orientation.
 
@@ -150,30 +158,35 @@ double ScrollTimeline::currentTime(bool& is_null) {
   ResolveScrollStartAndEnd(layout_box, max_offset, resolved_start_scroll_offset,
                            resolved_end_scroll_offset);
 
-  // 3. If current scroll offset is less than startScrollOffset, return an
-  // unresolved time value if fill is none or forwards, or 0 otherwise.
-  // TODO(smcgruer): Implement |fill|.
+  // 3. If current scroll offset is less than startScrollOffset:
   if (current_offset < resolved_start_scroll_offset) {
-    return std::numeric_limits<double>::quiet_NaN();
+    // Return an unresolved time value if fill is none or forwards.
+    if (fill_ == Timing::FillMode::NONE || fill_ == Timing::FillMode::FORWARDS)
+      return std::numeric_limits<double>::quiet_NaN();
+
+    // Otherwise, return 0.
+    is_null = false;
+    return 0;
   }
 
-  // 4. If current scroll offset is greater than or equal to endScrollOffset,
-  // return an unresolved time value if fill is none or backwards, or the
-  // effective time range otherwise.
-  //
-  // TODO(smcgruer): Implement |fill|.
-  //
-  // Note we deliberately break the spec here by only returning if the current
-  // offset is strictly greater, as that is more in line with the web animation
-  // spec. See https://github.com/WICG/scroll-animations/issues/19
-  if (current_offset > resolved_end_scroll_offset) {
-    return std::numeric_limits<double>::quiet_NaN();
+  // 4. If current scroll offset is greater than or equal to endScrollOffset:
+  if (current_offset >= resolved_end_scroll_offset) {
+    // If endScrollOffset is less than the maximum scroll offset of scrollSource
+    // in orientation and fill is none or backwards, return an unresolved time
+    // value.
+    if (resolved_end_scroll_offset < max_offset &&
+        (fill_ == Timing::FillMode::NONE ||
+         fill_ == Timing::FillMode::BACKWARDS)) {
+      return std::numeric_limits<double>::quiet_NaN();
+    }
+
+    // Otherwise, return the effective time range.
+    is_null = false;
+    return time_range_;
   }
 
-  // This is not by the spec, but avoids both negative current time and a
-  // divsion by zero issue. See
-  // https://github.com/WICG/scroll-animations/issues/20 and
-  // https://github.com/WICG/scroll-animations/issues/21
+  // This is not by the spec, but avoids a negative current time.
+  // See https://github.com/WICG/scroll-animations/issues/20
   if (resolved_start_scroll_offset >= resolved_end_scroll_offset) {
     return std::numeric_limits<double>::quiet_NaN();
   }
@@ -219,6 +232,9 @@ void ScrollTimeline::timeRange(DoubleOrScrollTimelineAutoKeyword& result) {
   result.SetDouble(time_range_);
 }
 
+String ScrollTimeline::fill() {
+  return Timing::FillModeString(fill_);
+}
 
 void ScrollTimeline::GetCurrentAndMaxOffset(const LayoutBox* layout_box,
                                             double& current_offset,
@@ -294,13 +310,13 @@ void ScrollTimeline::ResolveScrollStartAndEnd(
   }
 }
 
-void ScrollTimeline::AttachAnimation() {
+void ScrollTimeline::AnimationAttached(Animation*) {
   if (!resolved_scroll_source_)
     return;
 
   GetActiveScrollTimelineSet().insert(resolved_scroll_source_);
-  if (resolved_scroll_source_->IsElementNode())
-    ToElement(resolved_scroll_source_)->SetNeedsCompositingUpdate();
+  if (auto* element = DynamicTo<Element>(resolved_scroll_source_.Get()))
+    element->SetNeedsCompositingUpdate();
   resolved_scroll_source_->GetDocument()
       .GetLayoutView()
       ->Compositor()
@@ -312,13 +328,13 @@ void ScrollTimeline::AttachAnimation() {
     object->SetNeedsPaintPropertyUpdate();
 }
 
-void ScrollTimeline::DetachAnimation() {
+void ScrollTimeline::AnimationDetached(Animation*) {
   if (!resolved_scroll_source_)
     return;
 
   GetActiveScrollTimelineSet().erase(resolved_scroll_source_);
-  if (resolved_scroll_source_->IsElementNode())
-    ToElement(resolved_scroll_source_)->SetNeedsCompositingUpdate();
+  if (auto* element = DynamicTo<Element>(resolved_scroll_source_.Get()))
+    element->SetNeedsCompositingUpdate();
   auto* layout_view = resolved_scroll_source_->GetDocument().GetLayoutView();
   if (layout_view && layout_view->Compositor()) {
     layout_view->Compositor()->SetNeedsCompositingUpdate(
@@ -333,6 +349,7 @@ void ScrollTimeline::DetachAnimation() {
 }
 
 void ScrollTimeline::Trace(blink::Visitor* visitor) {
+  visitor->Trace(document_);
   visitor->Trace(scroll_source_);
   visitor->Trace(resolved_scroll_source_);
   visitor->Trace(start_scroll_offset_);

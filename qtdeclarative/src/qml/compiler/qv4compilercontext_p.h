@@ -50,7 +50,6 @@
 // We mean it.
 //
 
-#include "private/qv4global_p.h"
 #include <private/qqmljsast_p.h>
 #include <private/qv4compileddata_p.h>
 #include <QtCore/QStringList>
@@ -62,8 +61,13 @@ QT_BEGIN_NAMESPACE
 
 namespace QV4 {
 
+namespace Moth {
+class BytecodeGenerator;
+}
+
 namespace Compiler {
 
+class Codegen;
 struct ControlFlow;
 
 enum class ContextType {
@@ -162,7 +166,6 @@ struct Context {
     int line = 0;
     int column = 0;
     int registerCountInFunction = 0;
-    uint nTraceInfos = 0;
     int functionIndex = -1;
     int blockIndex = -1;
 
@@ -190,7 +193,8 @@ struct Context {
     MemberMap members;
     QSet<QString> usedVariables;
     QQmlJS::AST::FormalParameterList *formals = nullptr;
-    QStringList arguments;
+    QQmlJS::AST::BoundNames arguments;
+    QString returnType;
     QStringList locals;
     QStringList moduleRequests;
     QVector<ImportEntry> importEntries;
@@ -289,7 +293,7 @@ struct Context {
     {
         // search backwards to handle duplicate argument names correctly
         for (int i = arguments.size() - 1; i >= 0; --i) {
-            if (arguments.at(i) == name)
+            if (arguments.at(i).id == name)
                 return i;
         }
         return -1;
@@ -363,8 +367,6 @@ struct Context {
             return parent->canHaveTailCalls();
         return false;
     }
-
-    bool canUseTracingJit() const;
 };
 
 

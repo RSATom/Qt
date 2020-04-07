@@ -21,7 +21,6 @@
 #include "base/threading/platform_thread.h"
 #include "base/trace_event/trace_event.h"
 #include "build/build_config.h"
-#include "components/metrics/legacy_call_stack_profile_builder.h"
 #include "components/prefs/pref_registry_simple.h"
 #include "components/prefs/pref_service.h"
 #include "components/startup_metric_utils/browser/pref_names.h"
@@ -293,7 +292,8 @@ std::string GetSameVersionStartupCountSuffix() {
   DCHECK_GE(g_startups_with_current_version, 1);
   if (g_startups_with_current_version > kMaxSameVersionCountRecorded)
     return ".Over";
-  return std::string(".") + base::IntToString(g_startups_with_current_version);
+  return std::string(".") +
+         base::NumberToString(g_startups_with_current_version);
 }
 
 // Returns the system uptime on process launch.
@@ -318,18 +318,6 @@ void RecordSystemUptimeHistogram() {
   UMA_HISTOGRAM_WITH_TEMPERATURE_AND_SAME_VERSION_COUNT(
       UMA_HISTOGRAM_LONG_TIMES_100, "Startup.SystemUptime",
       GetSystemUptimeOnProcessLaunch());
-}
-
-void RecordTimeOfDayGMTHistogram() {
-  base::Time::Exploded now_exploded;
-  base::Time::Now().UTCExplode(&now_exploded);
-
-  // We log the time as sparse histogram because we should only be recording a
-  // single value per Chrome lifetime. The format of the time is HHMM.
-  // Log the time in 10 minute intervals to make the histogram easier to read.
-  base::UmaHistogramSparse(
-      "Startup.TimeOfDayGMT",
-      100 * now_exploded.hour + 10 * (now_exploded.minute / 10));
 }
 
 // On Windows, records the number of hard-faults that have occurred in the
@@ -578,8 +566,6 @@ void RecordBrowserMainMessageLoopStart(base::TimeTicks ticks,
   RecordHardFaultHistogram();
 
   // Record timing of the browser message-loop start time.
-  metrics::LegacyCallStackProfileBuilder::SetProcessMilestone(
-      metrics::LegacyCallStackProfileBuilder::MAIN_LOOP_START);
   if (!is_first_run && !g_process_creation_ticks.is_null()) {
     UMA_HISTOGRAM_AND_TRACE_WITH_TEMPERATURE_AND_SAME_VERSION_COUNT(
         UMA_HISTOGRAM_LONG_TIMES_100, "Startup.BrowserMessageLoopStartTime",
@@ -603,7 +589,6 @@ void RecordBrowserMainMessageLoopStart(base::TimeTicks ticks,
   AddStartupEventsForTelemetry();
   RecordTimeSinceLastStartup(pref_service);
   RecordSystemUptimeHistogram();
-  RecordTimeOfDayGMTHistogram();
 
   // Record values stored prior to startup temperature evaluation.
   if (ShouldLogStartupHistogram()) {
@@ -701,8 +686,6 @@ void RecordFirstWebContentsNonEmptyPaint(
   if (!ShouldLogStartupHistogram())
     return;
 
-  metrics::LegacyCallStackProfileBuilder::SetProcessMilestone(
-      metrics::LegacyCallStackProfileBuilder::FIRST_NONEMPTY_PAINT);
   UMA_HISTOGRAM_AND_TRACE_WITH_TEMPERATURE_AND_SAME_VERSION_COUNT(
       UMA_HISTOGRAM_LONG_TIMES_100, "Startup.FirstWebContents.NonEmptyPaint2",
       g_process_creation_ticks, now);
@@ -726,8 +709,6 @@ void RecordFirstWebContentsMainNavigationStart(base::TimeTicks ticks,
   if (!ShouldLogStartupHistogram())
     return;
 
-  metrics::LegacyCallStackProfileBuilder::SetProcessMilestone(
-      metrics::LegacyCallStackProfileBuilder::MAIN_NAVIGATION_START);
   UMA_HISTOGRAM_AND_TRACE_WITH_TEMPERATURE_AND_SAME_VERSION_COUNT(
       UMA_HISTOGRAM_LONG_TIMES_100,
       "Startup.FirstWebContents.MainNavigationStart", g_process_creation_ticks,
@@ -757,8 +738,6 @@ void RecordFirstWebContentsMainNavigationFinished(base::TimeTicks ticks) {
   if (!ShouldLogStartupHistogram())
     return;
 
-  metrics::LegacyCallStackProfileBuilder::SetProcessMilestone(
-      metrics::LegacyCallStackProfileBuilder::MAIN_NAVIGATION_FINISHED);
   UMA_HISTOGRAM_AND_TRACE_WITH_TEMPERATURE_AND_SAME_VERSION_COUNT(
       UMA_HISTOGRAM_LONG_TIMES_100,
       "Startup.FirstWebContents.MainNavigationFinished",

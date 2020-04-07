@@ -4,7 +4,7 @@
  *
  *   High-level 'sfnt' driver interface (specification).
  *
- * Copyright 1996-2018 by
+ * Copyright (C) 1996-2019 by
  * David Turner, Robert Wilhelm, and Werner Lemberg.
  *
  * This file is part of the FreeType project, and may only be used,
@@ -23,6 +23,7 @@
 #include <ft2build.h>
 #include FT_INTERNAL_DRIVER_H
 #include FT_INTERNAL_TRUETYPE_TYPES_H
+#include FT_INTERNAL_WOFF_TYPES_H
 
 
 FT_BEGIN_HEADER
@@ -160,13 +161,13 @@ FT_BEGIN_HEADER
    *   length ::
    *     The address of the decision variable:
    *
-   *     If length == NULL: Loads the whole table.  Returns an error if
+   *     If `length == NULL`: Loads the whole table.  Returns an error if
    *     'offset' == 0!
    *
-   *     If *length == 0: Exits immediately; returning the length of the
+   *     If `*length == 0`: Exits immediately; returning the length of the
    *     given table or of the font file, depending on the value of 'tag'.
    *
-   *     If *length != 0: Loads the next 'length' bytes of table or font,
+   *     If `*length != 0`: Loads the next 'length' bytes of table or font,
    *     starting at offset 'offset' (in table or font too).
    *
    * @output:
@@ -382,7 +383,7 @@ FT_BEGIN_HEADER
    *     The glyph index.
    *
    *   PSname ::
-   *     The address of a string pointer.  Will be NULL in case of error,
+   *     The address of a string pointer.  Will be `NULL` in case of error,
    *     otherwise it is a pointer to the glyph name.
    *
    *     You must not modify the returned string!
@@ -498,8 +499,8 @@ FT_BEGIN_HEADER
    * @inout:
    *   iterator ::
    *     An @FT_LayerIterator object.  For the first call you should set
-   *     `iterator->p` to NULL.  For all following calls, simply use the same
-   *     object again.
+   *     `iterator->p` to `NULL`.  For all following calls, simply use the
+   *     same object again.
    *
    * @output:
    *   aglyph_index ::
@@ -579,7 +580,7 @@ FT_BEGIN_HEADER
    *
    * @inout:
    *   name ::
-   *     The address of an allocated string pointer.  NULL if no name is
+   *     The address of an allocated string pointer.  `NULL` if no name is
    *     present.
    *
    * @return:
@@ -677,9 +678,14 @@ FT_BEGIN_HEADER
    *    Return the horizontal kerning value between two glyphs.
    *
    * @input:
-   *    face :: A handle to the source face object.  left_glyph :: The left
-   *    glyph index.
-   *    right_glyph :: The right glyph index.
+   *    face ::
+   *      A handle to the source face object.
+   *
+   *    left_glyph ::
+   *      The left glyph index.
+   *
+   *    right_glyph ::
+   *      The right glyph index.
    *
    * @return:
    *    The kerning value in font units.

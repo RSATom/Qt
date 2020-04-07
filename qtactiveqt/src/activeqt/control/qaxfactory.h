@@ -74,7 +74,7 @@ class QSettings;
 
 class QAxFactory : public QObject
 {
-    Q_DISABLE_COPY(QAxFactory)
+    Q_DISABLE_COPY_MOVE(QAxFactory)
 public:
     QAxFactory(const QUuid &libId, const QUuid &appId);
     ~QAxFactory() override;

@@ -11,17 +11,19 @@
 
 #include "base/barrier_closure.h"
 #include "base/bind.h"
-#include "base/debug/stack_trace.h"
+#include "base/bind_helpers.h"
+#include "base/compiler_specific.h"
 #include "base/memory/ptr_util.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
+#include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/stringprintf.h"
 #include "base/system/sys_info.h"
 #include "base/trace_event/memory_dump_manager.h"
 #include "build/build_config.h"
 #include "components/services/leveldb/public/cpp/util.h"
-#include "components/services/leveldb/public/interfaces/leveldb.mojom.h"
+#include "components/services/leveldb/public/mojom/leveldb.mojom.h"
 #include "content/browser/dom_storage/session_storage_area_impl.h"
 #include "content/browser/dom_storage/session_storage_namespace_impl_mojo.h"
 #include "content/browser/dom_storage/storage_area_impl.h"
@@ -108,9 +110,7 @@ SessionStorageContextMojo::SessionStorageContextMojo(
       leveldb_name_(std::move(leveldb_name)),
       memory_dump_id_(base::StringPrintf("SessionStorage/0x%" PRIXPTR,
                                          reinterpret_cast<uintptr_t>(this))),
-      is_low_end_device_(base::SysInfo::IsLowEndDevice()),
-      weak_ptr_factory_(this) {
-  DCHECK(base::FeatureList::IsEnabled(blink::features::kOnionSoupDOMStorage));
+      is_low_end_device_(base::SysInfo::IsLowEndDevice()) {
   base::trace_event::MemoryDumpManager::GetInstance()
       ->RegisterDumpProviderWithSequencedTaskRunner(
           this, "SessionStorage", std::move(memory_dump_task_runner),
@@ -141,8 +141,8 @@ void SessionStorageContextMojo::OpenSessionStorage(
     return;
   }
 
-  if (!found->second->IsPopulated() &&
-      !found->second->waiting_on_clone_population()) {
+  if (found->second->state() ==
+      SessionStorageNamespaceImplMojo::State::kNotPopulated) {
     found->second->PopulateFromMetadata(
         database_.get(), metadata_.GetOrCreateNamespaceEntry(namespace_id));
   }
@@ -167,51 +167,95 @@ void SessionStorageContextMojo::CreateSessionNamespace(
 }
 
 void SessionStorageContextMojo::CloneSessionNamespace(
-    const std::string& namespace_id_to_clone,
-    const std::string& clone_namespace_id,
+    const std::string& clone_from_namespace_id,
+    const std::string& clone_to_namespace_id,
     CloneType clone_type) {
-  if (namespaces_.find(clone_namespace_id) != namespaces_.end()) {
-    // Non-immediate commits expect to be paired with a |Clone| from the mojo
+  if (namespaces_.find(clone_to_namespace_id) != namespaces_.end()) {
+    // Non-immediate clones expect to be paired with a |Clone| from the mojo
     // namespace object. If that clone has already happened, then we don't need
     // to do anything here.
-    // However, immediate commits happen without a |Clone| from the mojo
+    // However, immediate clones happen without a |Clone| from the mojo
     // namespace object, so there should never be a namespace already populated
     // for an immediate clone.
     DCHECK_NE(clone_type, CloneType::kImmediate);
     return;
   }
 
-  std::unique_ptr<SessionStorageNamespaceImplMojo> namespace_impl =
-      CreateSessionStorageNamespaceImplMojo(clone_namespace_id);
+  auto clone_from_ns = namespaces_.find(clone_from_namespace_id);
+  std::unique_ptr<SessionStorageNamespaceImplMojo> clone_to_namespace_impl =
+      CreateSessionStorageNamespaceImplMojo(clone_to_namespace_id);
   switch (clone_type) {
     case CloneType::kImmediate: {
-      auto clone_from_ns = namespaces_.find(namespace_id_to_clone);
       // If the namespace doesn't exist or it's not populated yet, just create
-      // an empty session storage.
+      // an empty session storage by not marking it as pending a clone.
       if (clone_from_ns == namespaces_.end() ||
           !clone_from_ns->second->IsPopulated()) {
         break;
       }
-      clone_from_ns->second->Clone(clone_namespace_id);
+      clone_from_ns->second->Clone(clone_to_namespace_id);
       return;
     }
     case CloneType::kWaitForCloneOnNamespace:
-      namespace_impl->SetWaitingForClonePopulation();
+      if (clone_from_ns != namespaces_.end()) {
+        // The namespace exists and is in-use, so wait until receiving a clone
+        // call on that mojo binding.
+        clone_to_namespace_impl->SetPendingPopulationFromParentNamespace(
+            clone_from_namespace_id);
+        clone_from_ns->second->AddChildNamespaceWaitingForClone(
+            clone_to_namespace_id);
+      } else if (base::Contains(metadata_.namespace_origin_map(),
+                                clone_from_namespace_id)) {
+        DCHECK_EQ(connection_state_, CONNECTION_FINISHED);
+        // The namespace exists on disk but is not in-use, so do the appropriate
+        // metadata operations to clone the namespace and set up the new object.
+        std::vector<leveldb::mojom::BatchedOperationPtr> save_operations;
+        auto source_namespace_entry =
+            metadata_.GetOrCreateNamespaceEntry(clone_from_namespace_id);
+        auto namespace_entry =
+            metadata_.GetOrCreateNamespaceEntry(clone_to_namespace_id);
+        metadata_.RegisterShallowClonedNamespace(
+            source_namespace_entry, namespace_entry, &save_operations);
+        if (database_) {
+          database_->Write(
+              std::move(save_operations),
+              base::BindOnce(&SessionStorageContextMojo::OnCommitResult,
+                             base::Unretained(this)));
+        }
+      }
+      // If there is no sign of a source namespace, just run with an empty
+      // namespace.
       break;
     default:
       NOTREACHED();
   }
-  namespaces_.emplace(std::piecewise_construct,
-                      std::forward_as_tuple(clone_namespace_id),
-                      std::forward_as_tuple(std::move(namespace_impl)));
+  namespaces_.emplace(
+      std::piecewise_construct, std::forward_as_tuple(clone_to_namespace_id),
+      std::forward_as_tuple(std::move(clone_to_namespace_impl)));
 }
 
 void SessionStorageContextMojo::DeleteSessionNamespace(
     const std::string& namespace_id,
     bool should_persist) {
-  // The object hierarchy uses iterators bound to the metadata object, so make
-  // sure to delete the object hierarchy first.
-  namespaces_.erase(namespace_id);
+  auto namespace_it = namespaces_.find(namespace_id);
+  // If the namespace has pending clones, do the clone now before destroying it.
+  if (namespace_it != namespaces_.end()) {
+    SessionStorageNamespaceImplMojo* namespace_ptr = namespace_it->second.get();
+    if (namespace_ptr->HasChildNamespacesWaitingForClone()) {
+      // Wait until we are connected, as it simplifies our choices.
+      if (connection_state_ != CONNECTION_FINISHED) {
+        RunWhenConnected(base::BindOnce(
+            &SessionStorageContextMojo::DeleteSessionNamespace,
+            weak_ptr_factory_.GetWeakPtr(), namespace_id, should_persist));
+        return;
+      }
+      namespace_ptr->CloneAllNamespacesWaitingForClone(database_.get(),
+                                                       &metadata_, namespaces_);
+    }
+
+    // The object hierarchy uses iterators bound to the metadata object, so
+    // make sure to delete the object hierarchy first.
+    namespaces_.erase(namespace_it);
+  }
 
   if (!has_scavenged_ && should_persist)
     protected_namespaces_from_scavenge_.insert(namespace_id);
@@ -268,8 +312,8 @@ void SessionStorageContextMojo::DeleteStorage(const url::Origin& origin,
   }
   auto found = namespaces_.find(namespace_id);
   if (found != namespaces_.end() &&
-      (found->second->IsPopulated() ||
-       found->second->waiting_on_clone_population())) {
+      found->second->state() !=
+          SessionStorageNamespaceImplMojo::State::kNotPopulated) {
     found->second->RemoveOriginData(origin, std::move(callback));
   } else {
     // If we don't have the namespace loaded, then we can delete it all
@@ -307,6 +351,12 @@ void SessionStorageContextMojo::PerformStorageCleanup(
 
 void SessionStorageContextMojo::ShutdownAndDelete() {
   DCHECK_NE(connection_state_, CONNECTION_SHUTDOWN);
+
+  // The namespaces will DCHECK if they are destructed with pending clones. It
+  // is valid to drop these on shutdown.
+  for (auto& namespace_pair : namespaces_) {
+    namespace_pair.second->ClearChildNamespacesWaitingForClone();
+  }
 
   // Nothing to do if no connection to the database was ever finished.
   if (connection_state_ != CONNECTION_FINISHED) {
@@ -578,6 +628,7 @@ void SessionStorageContextMojo::RegisterShallowClonedNamespace(
     }
   }
 
+  DCHECK_EQ(connection_state_, CONNECTION_FINISHED);
   auto namespace_entry = metadata_.GetOrCreateNamespaceEntry(new_namespace_id);
   metadata_.RegisterShallowClonedNamespace(source_namespace_entry,
                                            namespace_entry, &save_operations);
@@ -717,7 +768,6 @@ void SessionStorageContextMojo::OnDirectoryOpened(base::File::Error err) {
 
 void SessionStorageContextMojo::OnMojoConnectionDestroyed() {
   UMA_HISTOGRAM_BOOLEAN("SessionStorageContext.OnConnectionDestroyed", true);
-  LOG(ERROR) << "Lost connection to database";
   for (const auto& it : data_maps_)
     it.second->storage_area()->CancelAllPendingRequests();
 
@@ -977,7 +1027,6 @@ void SessionStorageContextMojo::GetStatistics(size_t* total_cache_size,
 
 void SessionStorageContextMojo::LogDatabaseOpenResult(OpenResult result) {
   if (result != OpenResult::kSuccess) {
-    LOG(ERROR) << "Got error when openning: " << static_cast<int>(result);
     UMA_HISTOGRAM_ENUMERATION("SessionStorageContext.OpenError", result);
   }
   if (open_result_histogram_) {

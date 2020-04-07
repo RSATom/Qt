@@ -45,14 +45,15 @@
 #include <QtCore/qrefcount.h>
 #include <QtCore/qarraydata.h>
 #include <QtCore/qhashfunctions.h>
+#include <QtCore/qcontainertools_impl.h>
 
 #include <iterator>
+#include <initializer_list>
+#if QT_VERSION < QT_VERSION_CHECK(6,0,0)
 #include <vector>
+#endif
 #include <stdlib.h>
 #include <string.h>
-#ifdef Q_COMPILER_INITIALIZER_LISTS
-#include <initializer_list>
-#endif
 
 #include <algorithm>
 
@@ -65,21 +66,22 @@ class QVector
     Data *d;
 
 public:
-    inline QVector() Q_DECL_NOTHROW : d(Data::sharedNull()) { }
+    inline QVector() noexcept : d(Data::sharedNull()) { }
     explicit QVector(int size);
     QVector(int size, const T &t);
     inline QVector(const QVector<T> &v);
     inline ~QVector() { if (!d->ref.deref()) freeData(d); }
     QVector<T> &operator=(const QVector<T> &v);
-#if defined(Q_COMPILER_RVALUE_REFS) || defined(Q_CLANG_QDOC)
-    QVector(QVector<T> &&other) Q_DECL_NOTHROW : d(other.d) { other.d = Data::sharedNull(); }
-    QVector<T> &operator=(QVector<T> &&other) Q_DECL_NOTHROW
+    QVector(QVector<T> &&other) noexcept : d(other.d) { other.d = Data::sharedNull(); }
+    QVector<T> &operator=(QVector<T> &&other) noexcept
     { QVector moved(std::move(other)); swap(moved); return *this; }
-#endif
-    void swap(QVector<T> &other) Q_DECL_NOTHROW { qSwap(d, other.d); }
-#ifdef Q_COMPILER_INITIALIZER_LISTS
+    void swap(QVector<T> &other) noexcept { qSwap(d, other.d); }
     inline QVector(std::initializer_list<T> args);
-#endif
+    QVector<T> &operator=(std::initializer_list<T> args);
+    template <typename InputIterator, QtPrivate::IfIsInputIterator<InputIterator> = true>
+    inline QVector(InputIterator first, InputIterator last);
+    explicit QVector(QArrayDataPointerRef<T> ref) noexcept : d(ref.ptr) {}
+
     bool operator==(const QVector<T> &v) const;
     inline bool operator!=(const QVector<T> &v) const { return !(*this == v); }
 
@@ -138,9 +140,7 @@ public:
     T &operator[](int i);
     const T &operator[](int i) const;
     void append(const T &t);
-#if defined(Q_COMPILER_RVALUE_REFS) || defined(Q_CLANG_QDOC)
     void append(T &&t);
-#endif
     inline void append(const QVector<T> &l) { *this += l; }
     void prepend(T &&t);
     void prepend(const T &t);
@@ -208,29 +208,29 @@ public:
     typedef std::reverse_iterator<const_iterator> const_reverse_iterator;
 #if !defined(QT_STRICT_ITERATORS) || defined(Q_CLANG_QDOC)
     inline iterator begin() { detach(); return d->begin(); }
-    inline const_iterator begin() const Q_DECL_NOTHROW { return d->constBegin(); }
-    inline const_iterator cbegin() const Q_DECL_NOTHROW { return d->constBegin(); }
-    inline const_iterator constBegin() const Q_DECL_NOTHROW { return d->constBegin(); }
+    inline const_iterator begin() const noexcept { return d->constBegin(); }
+    inline const_iterator cbegin() const noexcept { return d->constBegin(); }
+    inline const_iterator constBegin() const noexcept { return d->constBegin(); }
     inline iterator end() { detach(); return d->end(); }
-    inline const_iterator end() const Q_DECL_NOTHROW { return d->constEnd(); }
-    inline const_iterator cend() const Q_DECL_NOTHROW { return d->constEnd(); }
-    inline const_iterator constEnd() const Q_DECL_NOTHROW { return d->constEnd(); }
+    inline const_iterator end() const noexcept { return d->constEnd(); }
+    inline const_iterator cend() const noexcept { return d->constEnd(); }
+    inline const_iterator constEnd() const noexcept { return d->constEnd(); }
 #else
     inline iterator begin(iterator = iterator()) { detach(); return d->begin(); }
-    inline const_iterator begin(const_iterator = const_iterator()) const Q_DECL_NOTHROW { return d->constBegin(); }
-    inline const_iterator cbegin(const_iterator = const_iterator()) const Q_DECL_NOTHROW { return d->constBegin(); }
-    inline const_iterator constBegin(const_iterator = const_iterator()) const Q_DECL_NOTHROW { return d->constBegin(); }
+    inline const_iterator begin(const_iterator = const_iterator()) const noexcept { return d->constBegin(); }
+    inline const_iterator cbegin(const_iterator = const_iterator()) const noexcept { return d->constBegin(); }
+    inline const_iterator constBegin(const_iterator = const_iterator()) const noexcept { return d->constBegin(); }
     inline iterator end(iterator = iterator()) { detach(); return d->end(); }
-    inline const_iterator end(const_iterator = const_iterator()) const Q_DECL_NOTHROW { return d->constEnd(); }
-    inline const_iterator cend(const_iterator = const_iterator()) const Q_DECL_NOTHROW { return d->constEnd(); }
-    inline const_iterator constEnd(const_iterator = const_iterator()) const Q_DECL_NOTHROW { return d->constEnd(); }
+    inline const_iterator end(const_iterator = const_iterator()) const noexcept { return d->constEnd(); }
+    inline const_iterator cend(const_iterator = const_iterator()) const noexcept { return d->constEnd(); }
+    inline const_iterator constEnd(const_iterator = const_iterator()) const noexcept { return d->constEnd(); }
 #endif
     reverse_iterator rbegin() { return reverse_iterator(end()); }
     reverse_iterator rend() { return reverse_iterator(begin()); }
-    const_reverse_iterator rbegin() const Q_DECL_NOTHROW { return const_reverse_iterator(end()); }
-    const_reverse_iterator rend() const Q_DECL_NOTHROW { return const_reverse_iterator(begin()); }
-    const_reverse_iterator crbegin() const Q_DECL_NOTHROW { return const_reverse_iterator(end()); }
-    const_reverse_iterator crend() const Q_DECL_NOTHROW { return const_reverse_iterator(begin()); }
+    const_reverse_iterator rbegin() const noexcept { return const_reverse_iterator(end()); }
+    const_reverse_iterator rend() const noexcept { return const_reverse_iterator(begin()); }
+    const_reverse_iterator crbegin() const noexcept { return const_reverse_iterator(end()); }
+    const_reverse_iterator crend() const noexcept { return const_reverse_iterator(begin()); }
     iterator insert(iterator before, int n, const T &x);
     inline iterator insert(iterator before, const T &x) { return insert(before, 1, x); }
     inline iterator insert(iterator before, T &&x);
@@ -252,6 +252,13 @@ public:
     T value(int i) const;
     T value(int i, const T &defaultValue) const;
 
+    void swapItemsAt(int i, int j) {
+        Q_ASSERT_X(i >= 0 && i < size() && j >= 0 && j < size(),
+                    "QVector<T>::swap", "index out of range");
+        detach();
+        qSwap(d->begin()[i], d->begin()[j]);
+    }
+
     // STL compatibility
     typedef T value_type;
     typedef value_type* pointer;
@@ -263,10 +270,8 @@ public:
     typedef const_iterator ConstIterator;
     typedef int size_type;
     inline void push_back(const T &t) { append(t); }
-#if defined(Q_COMPILER_RVALUE_REFS) || defined(Q_CLANG_QDOC)
     void push_back(T &&t) { append(std::move(t)); }
     void push_front(T &&t) { prepend(std::move(t)); }
-#endif
     inline void push_front(const T &t) { prepend(t); }
     void pop_back() { removeLast(); }
     void pop_front() { removeFirst(); }
@@ -293,14 +298,17 @@ public:
     inline QVector<T> &operator<<(T &&t)
     { append(std::move(t)); return *this; }
 
+    static QVector<T> fromList(const QList<T> &list);
     QList<T> toList() const;
 
-    static QVector<T> fromList(const QList<T> &list);
-
+#if QT_DEPRECATED_SINCE(5, 14) && QT_VERSION < QT_VERSION_CHECK(6,0,0)
+    QT_DEPRECATED_X("Use QVector<T>(vector.begin(), vector.end()) instead.")
     static inline QVector<T> fromStdVector(const std::vector<T> &vector)
-    { QVector<T> tmp; tmp.reserve(int(vector.size())); std::copy(vector.begin(), vector.end(), std::back_inserter(tmp)); return tmp; }
+    { return QVector<T>(vector.begin(), vector.end()); }
+    QT_DEPRECATED_X("Use std::vector<T>(vector.begin(), vector.end()) instead.")
     inline std::vector<T> toStdVector() const
     { return std::vector<T>(d->begin(), d->end()); }
+#endif
 private:
     // ### Qt6: remove methods, they are unused
     void reallocData(const int size, const int alloc, QArrayData::AllocationOptions options = QArrayData::Default);
@@ -317,6 +325,13 @@ private:
     }
     class AlignmentDummy { Data header; T array[1]; };
 };
+
+#if defined(__cpp_deduction_guides) && __cpp_deduction_guides >= 201606
+template <typename InputIterator,
+          typename ValueType = typename std::iterator_traits<InputIterator>::value_type,
+          QtPrivate::IfIsInputIterator<InputIterator> = true>
+QVector(InputIterator, InputIterator) -> QVector<ValueType>;
+#endif
 
 #ifdef Q_CC_MSVC
 // behavior change: an object of POD type constructed with an initializer of the form ()
@@ -522,11 +537,10 @@ QVector<T>::QVector(int asize, const T &t)
     }
 }
 
-#ifdef Q_COMPILER_INITIALIZER_LISTS
-# if defined(Q_CC_MSVC)
+#if defined(Q_CC_MSVC)
 QT_WARNING_PUSH
 QT_WARNING_DISABLE_MSVC(4127) // conditional expression is constant
-# endif // Q_CC_MSVC
+#endif // Q_CC_MSVC
 
 template <typename T>
 QVector<T>::QVector(std::initializer_list<T> args)
@@ -542,10 +556,27 @@ QVector<T>::QVector(std::initializer_list<T> args)
         d = Data::sharedNull();
     }
 }
-# if defined(Q_CC_MSVC)
+
+template <typename T>
+QVector<T> &QVector<T>::operator=(std::initializer_list<T> args)
+{
+    QVector<T> tmp(args);
+    tmp.swap(*this);
+    return *this;
+}
+
+#if defined(Q_CC_MSVC)
 QT_WARNING_POP
-# endif // Q_CC_MSVC
-#endif // Q_COMPILER_INITALIZER_LISTS
+#endif // Q_CC_MSVC
+
+template <typename T>
+template <typename InputIterator, QtPrivate::IfIsInputIterator<InputIterator>>
+QVector<T>::QVector(InputIterator first, InputIterator last)
+    : QVector()
+{
+    QtPrivate::reserveIfForwardIterator(this, first, last);
+    std::copy(first, last, std::back_inserter(*this));
+}
 
 template <typename T>
 void QVector<T>::freeData(Data *x)
@@ -763,9 +794,9 @@ void QVector<T>::append(const T &t)
         realloc(isTooSmall ? d->size + 1 : d->alloc, opt);
 
         if (QTypeInfo<T>::isComplex)
-            new (d->end()) T(qMove(copy));
+            new (d->end()) T(std::move(copy));
         else
-            *d->end() = qMove(copy);
+            *d->end() = std::move(copy);
 
     } else {
         if (QTypeInfo<T>::isComplex)
@@ -776,7 +807,6 @@ void QVector<T>::append(const T &t)
     ++d->size;
 }
 
-#ifdef Q_COMPILER_RVALUE_REFS
 template <typename T>
 void QVector<T>::append(T &&t)
 {
@@ -790,7 +820,6 @@ void QVector<T>::append(T &&t)
 
     ++d->size;
 }
-#endif
 
 template <typename T>
 void QVector<T>::removeLast()
@@ -1052,14 +1081,14 @@ Q_DECLARE_MUTABLE_SEQUENTIAL_ITERATOR(Vector)
 
 template <typename T>
 uint qHash(const QVector<T> &key, uint seed = 0)
-    Q_DECL_NOEXCEPT_EXPR(noexcept(qHashRange(key.cbegin(), key.cend(), seed)))
+    noexcept(noexcept(qHashRange(key.cbegin(), key.cend(), seed)))
 {
     return qHashRange(key.cbegin(), key.cend(), seed);
 }
 
 template <typename T>
 bool operator<(const QVector<T> &lhs, const QVector<T> &rhs)
-    Q_DECL_NOEXCEPT_EXPR(noexcept(std::lexicographical_compare(lhs.begin(), lhs.end(),
+    noexcept(noexcept(std::lexicographical_compare(lhs.begin(), lhs.end(),
                                                                rhs.begin(), rhs.end())))
 {
     return std::lexicographical_compare(lhs.begin(), lhs.end(),
@@ -1068,21 +1097,21 @@ bool operator<(const QVector<T> &lhs, const QVector<T> &rhs)
 
 template <typename T>
 inline bool operator>(const QVector<T> &lhs, const QVector<T> &rhs)
-    Q_DECL_NOEXCEPT_EXPR(noexcept(lhs < rhs))
+    noexcept(noexcept(lhs < rhs))
 {
     return rhs < lhs;
 }
 
 template <typename T>
 inline bool operator<=(const QVector<T> &lhs, const QVector<T> &rhs)
-    Q_DECL_NOEXCEPT_EXPR(noexcept(lhs < rhs))
+    noexcept(noexcept(lhs < rhs))
 {
     return !(lhs > rhs);
 }
 
 template <typename T>
 inline bool operator>=(const QVector<T> &lhs, const QVector<T> &rhs)
-    Q_DECL_NOEXCEPT_EXPR(noexcept(lhs < rhs))
+    noexcept(noexcept(lhs < rhs))
 {
     return !(lhs < rhs);
 }
@@ -1103,6 +1132,24 @@ extern template class Q_CORE_EXPORT QVector<QPoint>;
 #endif
 
 QVector<uint> QStringView::toUcs4() const { return QtPrivate::convertToUcs4(*this); }
+
+QVector<QStringRef> QString::splitRef(const QString &sep, Qt::SplitBehavior behavior, Qt::CaseSensitivity cs) const
+{ return splitRef(sep, _sb(behavior), cs); }
+QVector<QStringRef> QString::splitRef(QChar sep, Qt::SplitBehavior behavior, Qt::CaseSensitivity cs) const
+{ return splitRef(sep, _sb(behavior), cs); }
+#ifndef QT_NO_REGEXP
+QVector<QStringRef> QString::splitRef(const QRegExp &sep, Qt::SplitBehavior behavior) const
+{ return splitRef(sep, _sb(behavior)); }
+#endif
+#if QT_CONFIG(regularexpression)
+QVector<QStringRef> QString::splitRef(const QRegularExpression &sep, Qt::SplitBehavior behavior) const
+{ return splitRef(sep, _sb(behavior)); }
+#endif
+QVector<QStringRef> QStringRef::split(const QString &sep, Qt::SplitBehavior behavior, Qt::CaseSensitivity cs) const
+{ return split(sep, QString::_sb(behavior), cs); }
+QVector<QStringRef> QStringRef::split(QChar sep, Qt::SplitBehavior behavior, Qt::CaseSensitivity cs) const
+{ return split(sep, QString::_sb(behavior), cs); }
+
 
 QT_END_NAMESPACE
 

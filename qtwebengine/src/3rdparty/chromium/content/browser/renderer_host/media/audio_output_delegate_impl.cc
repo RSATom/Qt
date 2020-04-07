@@ -139,8 +139,7 @@ AudioOutputDelegateImpl::AudioOutputDelegateImpl(
       reader_(std::move(reader)),
       foreign_socket_(std::move(foreign_socket)),
       stream_id_(stream_id),
-      observer_(std::move(observer)),
-      weak_factory_(this) {
+      observer_(std::move(observer)) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
   DCHECK(subscriber_);
   DCHECK(audio_manager);
@@ -195,6 +194,11 @@ void AudioOutputDelegateImpl::OnPauseStream() {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
   controller_->Pause();
   audio_log_->OnStopped();
+}
+
+void AudioOutputDelegateImpl::OnFlushStream() {
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
+  controller_->Flush();
 }
 
 void AudioOutputDelegateImpl::OnSetVolume(double volume) {

@@ -1,12 +1,12 @@
 TARGETPATH = QtQml
-AUX_QML_FILES += plugins.qmltypes
+CXX_MODULE = qml
+TARGET  = qmlplugin
+IMPORT_VERSION = 2.$$QT_MINOR_VERSION
 
-load(qml_module)
+SOURCES += \
+    plugin.cpp
 
-# qmltypes target
-!cross_compile:if(build_pass|!debug_and_release) {
-    qtPrepareTool(QMLPLUGINDUMP, qmlplugindump)
+# In Qt6 we won't need qmlmodels-private here
+QT = qml-private qmlmodels-private
 
-    qmltypes.commands = $$QMLPLUGINDUMP -nonrelocatable -noforceqtquick QtQml 2.$$QT_MINOR_VERSION > $$PWD/plugins.qmltypes
-    QMAKE_EXTRA_TARGETS += qmltypes
-}
+load(qml_plugin)

@@ -16,6 +16,10 @@
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "ui/gfx/geometry/rect_f.h"
 
+#if defined(MAC_OS_X_VERSION_10_13) && MAC_OS_X_VERSION_MIN_REQUIRED >= MAC_OS_X_VERSION_10_13
+#import <Vision/Vision.h>
+#endif
+
 namespace shape_detection {
 
 // Takes a ScopedSharedBufferHandle with dimensions and produces a new CIImage
@@ -38,8 +42,10 @@ class API_AVAILABLE(macos(10.13)) VisionAPIAsyncRequestMac {
 
   // Creates an VisionAPIAsyncRequestMac instance which sets |callback| to be
   // called when the asynchronous action completes.
-  static std::unique_ptr<VisionAPIAsyncRequestMac> Create(Class request_class,
-                                                          Callback callback);
+  static std::unique_ptr<VisionAPIAsyncRequestMac> Create(
+      Class request_class,
+      Callback callback,
+      NSSet<NSString*>* symbology_hints = nullptr);
 
   // Processes asynchronously an image analysis request and returns results with
   // |callback_| when the asynchronous request completes, the callers should
@@ -47,7 +53,9 @@ class API_AVAILABLE(macos(10.13)) VisionAPIAsyncRequestMac {
   bool PerformRequest(const SkBitmap& bitmap);
 
  private:
-  VisionAPIAsyncRequestMac(Callback callback, Class request_class);
+  VisionAPIAsyncRequestMac(Callback callback,
+                           Class request_class,
+                           NSSet<NSString*>* symbology_hints);
 
   base::scoped_nsobject<VNRequest> request_;
   const Callback callback_;

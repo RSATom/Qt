@@ -5,6 +5,7 @@
 #include <utility>
 #include <vector>
 
+#include "base/bind.h"
 #include "base/files/file_util.h"
 #include "base/threading/sequenced_task_runner_handle.h"
 #include "base/threading/thread_task_runner_handle.h"
@@ -90,9 +91,7 @@ void MockBackgroundFetchDelegate::DownloadUrl(
     const net::NetworkTrafficAnnotationTag& traffic_annotation,
     const net::HttpRequestHeaders& headers,
     bool has_request_body) {
-  // TODO(delphick): Currently we just disallow re-using GUIDs but later when we
-  // use the DownloadService, we should signal StartResult::UNEXPECTED_GUID.
-  DCHECK(seen_guids_.find(guid) == seen_guids_.end());
+  DCHECK(!seen_guids_.count(guid));
 
   download_guid_to_job_id_map_[guid] = job_unique_id;
 

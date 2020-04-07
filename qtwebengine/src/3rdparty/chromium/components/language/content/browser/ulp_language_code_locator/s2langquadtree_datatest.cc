@@ -38,9 +38,6 @@ const std::map<S2LatLng, std::string> GetData(int rank) {
   std::vector<std::string> lines = base::SplitString(
       data, "\n", base::TRIM_WHITESPACE, base::SPLIT_WANT_ALL);
   for (size_t i = 0; i < lines.size(); ++i) {
-    // TODO(frechette) Remove once we ensured no empty line in data file.
-    if (lines[i].empty())
-      continue;
     std::vector<std::string> fields = base::SplitString(
         lines[i], ",", base::TRIM_WHITESPACE, base::SPLIT_WANT_ALL);
     CHECK_EQ(3u, fields.size());
@@ -54,8 +51,15 @@ const std::map<S2LatLng, std::string> GetData(int rank) {
 
 void ExpectTreeContainsData(const S2LangQuadTreeNode& root,
                             const std::map<S2LatLng, std::string>& data) {
+  int face = -1;
   for (const auto& latlng_lang : data) {
     S2CellId cell(latlng_lang.first);
+
+    // All data is not on the same face, tree will fail.
+    if (face != -1)
+      EXPECT_EQ(face, cell.face());
+    face = cell.face();
+
     EXPECT_EQ(latlng_lang.second, root.Get(cell));
   }
 }

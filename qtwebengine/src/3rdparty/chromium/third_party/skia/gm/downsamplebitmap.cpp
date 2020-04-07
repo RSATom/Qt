@@ -5,9 +5,24 @@
  * found in the LICENSE file.
  */
 
-#include "Resources.h"
-#include "gm.h"
-#include "sk_tool_utils.h"
+#include "gm/gm.h"
+#include "include/core/SkBitmap.h"
+#include "include/core/SkCanvas.h"
+#include "include/core/SkColor.h"
+#include "include/core/SkFilterQuality.h"
+#include "include/core/SkFont.h"
+#include "include/core/SkFontStyle.h"
+#include "include/core/SkImageInfo.h"
+#include "include/core/SkMatrix.h"
+#include "include/core/SkPaint.h"
+#include "include/core/SkPixmap.h"
+#include "include/core/SkScalar.h"
+#include "include/core/SkSize.h"
+#include "include/core/SkString.h"
+#include "include/core/SkTypeface.h"
+#include "include/core/SkTypes.h"
+#include "tools/Resources.h"
+#include "tools/ToolUtils.h"
 
 static const char* kFilterQualityNames[] = { "none", "low", "medium", "high" };
 
@@ -87,13 +102,13 @@ static SkBitmap make_text(SkImageInfo info) {
     font.setSubpixel(true);
     font.setSize(textSize);
 
-    font.setTypeface(sk_tool_utils::create_portable_typeface("serif", SkFontStyle()));
+    font.setTypeface(ToolUtils::create_portable_typeface("serif", SkFontStyle()));
     canvas.drawString("Hamburgefons", textSize/2, 1.2f*textSize, font, paint);
-    font.setTypeface(sk_tool_utils::create_portable_typeface("serif", SkFontStyle::Bold()));
+    font.setTypeface(ToolUtils::create_portable_typeface("serif", SkFontStyle::Bold()));
     canvas.drawString("Hamburgefons", textSize/2, 2.4f*textSize, font, paint);
-    font.setTypeface(sk_tool_utils::create_portable_typeface("serif", SkFontStyle::Italic()));
+    font.setTypeface(ToolUtils::create_portable_typeface("serif", SkFontStyle::Italic()));
     canvas.drawString("Hamburgefons", textSize/2, 3.6f*textSize, font, paint);
-    font.setTypeface(sk_tool_utils::create_portable_typeface("serif", SkFontStyle::BoldItalic()));
+    font.setTypeface(ToolUtils::create_portable_typeface("serif", SkFontStyle::BoldItalic()));
     canvas.drawString("Hamburgefons", textSize/2, 4.8f*textSize, font, paint);
 
     return bm;

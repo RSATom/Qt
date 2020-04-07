@@ -15,7 +15,6 @@
 #include "base/strings/string_number_conversions.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "content/browser/service_worker/service_worker_database.pb.h"
-#include "content/common/service_worker/service_worker_types.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/blink/public/mojom/service_worker/service_worker_object.mojom.h"
@@ -79,6 +78,7 @@ void VerifyRegistrationData(const RegistrationData& expected,
   EXPECT_EQ(expected.used_features, actual.used_features);
   EXPECT_EQ(expected.resources_total_size_bytes,
             actual.resources_total_size_bytes);
+  EXPECT_EQ(expected.script_response_time, actual.script_response_time);
 }
 
 void VerifyResourceRecords(const std::vector<Resource>& expected,
@@ -180,7 +180,7 @@ TEST(ServiceWorkerDatabaseTest, DatabaseVersion_ObsoleteSchemaVersion) {
   // Emulate an obsolete schema version.
   int64_t old_db_version = 1;
   leveldb::WriteBatch batch;
-  batch.Put("INITDATA_DB_VERSION", base::Int64ToString(old_db_version));
+  batch.Put("INITDATA_DB_VERSION", base::NumberToString(old_db_version));
   ASSERT_EQ(ServiceWorkerDatabase::STATUS_OK, database->WriteBatch(&batch));
   db_version = -1;
   EXPECT_EQ(ServiceWorkerDatabase::STATUS_OK,
@@ -220,7 +220,7 @@ TEST(ServiceWorkerDatabaseTest, DatabaseVersion_CorruptedSchemaVersion) {
   // Emulate a corrupted schema version.
   int64_t corrupted_db_version = -10;
   leveldb::WriteBatch batch;
-  batch.Put("INITDATA_DB_VERSION", base::Int64ToString(corrupted_db_version));
+  batch.Put("INITDATA_DB_VERSION", base::NumberToString(corrupted_db_version));
   ASSERT_EQ(ServiceWorkerDatabase::STATUS_OK, database->WriteBatch(&batch));
   db_version = -1;
   EXPECT_EQ(ServiceWorkerDatabase::STATUS_ERROR_CORRUPTED,
@@ -400,9 +400,9 @@ TEST(ServiceWorkerDatabaseTest, GetOriginsWithRegistrations) {
   EXPECT_EQ(ServiceWorkerDatabase::STATUS_OK,
             database->GetOriginsWithRegistrations(&origins));
   EXPECT_EQ(3U, origins.size());
-  EXPECT_TRUE(base::ContainsKey(origins, origin1));
-  EXPECT_TRUE(base::ContainsKey(origins, origin2));
-  EXPECT_TRUE(base::ContainsKey(origins, origin3));
+  EXPECT_TRUE(base::Contains(origins, origin1));
+  EXPECT_TRUE(base::Contains(origins, origin2));
+  EXPECT_TRUE(base::Contains(origins, origin3));
 
   // |origin3| has another registration, so should not remove it from the
   // unique origin list.
@@ -417,9 +417,9 @@ TEST(ServiceWorkerDatabaseTest, GetOriginsWithRegistrations) {
   EXPECT_EQ(ServiceWorkerDatabase::STATUS_OK,
             database->GetOriginsWithRegistrations(&origins));
   EXPECT_EQ(3U, origins.size());
-  EXPECT_TRUE(base::ContainsKey(origins, origin1));
-  EXPECT_TRUE(base::ContainsKey(origins, origin2));
-  EXPECT_TRUE(base::ContainsKey(origins, origin3));
+  EXPECT_TRUE(base::Contains(origins, origin1));
+  EXPECT_TRUE(base::Contains(origins, origin2));
+  EXPECT_TRUE(base::Contains(origins, origin3));
 
   // |origin3| should be removed from the unique origin list.
   ASSERT_EQ(ServiceWorkerDatabase::STATUS_OK,
@@ -433,8 +433,8 @@ TEST(ServiceWorkerDatabaseTest, GetOriginsWithRegistrations) {
   EXPECT_EQ(ServiceWorkerDatabase::STATUS_OK,
             database->GetOriginsWithRegistrations(&origins));
   EXPECT_EQ(2U, origins.size());
-  EXPECT_TRUE(base::ContainsKey(origins, origin1));
-  EXPECT_TRUE(base::ContainsKey(origins, origin2));
+  EXPECT_TRUE(base::Contains(origins, origin1));
+  EXPECT_TRUE(base::Contains(origins, origin2));
 }
 
 TEST(ServiceWorkerDatabaseTest, GetRegistrationsForOrigin) {
@@ -461,6 +461,7 @@ TEST(ServiceWorkerDatabaseTest, GetRegistrationsForOrigin) {
   data1.script = URL(origin1, "/script1.js");
   data1.version_id = 1000;
   data1.resources_total_size_bytes = 100;
+  data1.script_response_time = base::Time::FromJsTime(0);
   std::vector<Resource> resources1;
   resources1.push_back(CreateResource(1, data1.script, 100));
   ASSERT_EQ(ServiceWorkerDatabase::STATUS_OK,
@@ -483,6 +484,7 @@ TEST(ServiceWorkerDatabaseTest, GetRegistrationsForOrigin) {
   data2.script = URL(origin2, "/script2.js");
   data2.version_id = 2000;
   data2.resources_total_size_bytes = 200;
+  data2.script_response_time = base::Time::FromJsTime(42);
   std::vector<Resource> resources2;
   resources2.push_back(CreateResource(2, data2.script, 200));
   ASSERT_EQ(ServiceWorkerDatabase::STATUS_OK,
@@ -505,6 +507,7 @@ TEST(ServiceWorkerDatabaseTest, GetRegistrationsForOrigin) {
   data3.script = URL(origin3, "/script3.js");
   data3.version_id = 3000;
   data3.resources_total_size_bytes = 300;
+  data3.script_response_time = base::Time::FromJsTime(420);
   std::vector<Resource> resources3;
   resources3.push_back(CreateResource(3, data3.script, 300));
   ASSERT_EQ(ServiceWorkerDatabase::STATUS_OK,
@@ -518,6 +521,7 @@ TEST(ServiceWorkerDatabaseTest, GetRegistrationsForOrigin) {
   data4.script = URL(origin3, "/script4.js");
   data4.version_id = 4000;
   data4.resources_total_size_bytes = 400;
+  data4.script_response_time = base::Time::FromJsTime(4200);
   std::vector<Resource> resources4;
   resources4.push_back(CreateResource(4, data4.script, 400));
   ASSERT_EQ(ServiceWorkerDatabase::STATUS_OK,
@@ -631,7 +635,9 @@ TEST(ServiceWorkerDatabaseTest, Registration_Basic) {
   data.script = URL(origin, "/resource1");
   data.version_id = 200;
   data.resources_total_size_bytes = 10939 + 200;
-  data.used_features = {124, 901, 1019};
+  data.used_features = {blink::mojom::WebFeature::kNavigatorVendor,
+                        blink::mojom::WebFeature::kLinkRelPreload,
+                        blink::mojom::WebFeature::kCSSFilterInvert};
 
   std::vector<Resource> resources;
   resources.push_back(CreateResource(1, URL(origin, "/resource1"), 10939));
@@ -705,8 +711,8 @@ TEST(ServiceWorkerDatabaseTest, Registration_Basic) {
   EXPECT_EQ(ServiceWorkerDatabase::STATUS_OK,
             database->GetPurgeableResourceIds(&purgeable_ids_out));
   EXPECT_EQ(2u, purgeable_ids_out.size());
-  EXPECT_TRUE(base::ContainsKey(purgeable_ids_out, resources[0].resource_id));
-  EXPECT_TRUE(base::ContainsKey(purgeable_ids_out, resources[1].resource_id));
+  EXPECT_TRUE(base::Contains(purgeable_ids_out, resources[0].resource_id));
+  EXPECT_TRUE(base::Contains(purgeable_ids_out, resources[1].resource_id));
 }
 
 TEST(ServiceWorkerDatabaseTest, DeleteNonExistentRegistration) {
@@ -771,7 +777,9 @@ TEST(ServiceWorkerDatabaseTest, Registration_Overwrite) {
   data.script = URL(origin, "/resource1");
   data.version_id = 200;
   data.resources_total_size_bytes = 10 + 11;
-  data.used_features = {124, 901, 1019};
+  data.used_features = {blink::mojom::WebFeature::kNavigatorVendor,
+                        blink::mojom::WebFeature::kLinkRelPreload,
+                        blink::mojom::WebFeature::kCSSFilterInvert};
 
   std::vector<Resource> resources1;
   resources1.push_back(CreateResource(1, URL(origin, "/resource1"), 10));
@@ -802,7 +810,10 @@ TEST(ServiceWorkerDatabaseTest, Registration_Overwrite) {
   updated_data.script = URL(origin, "/resource3");
   updated_data.version_id = data.version_id + 1;
   updated_data.resources_total_size_bytes = 12 + 13;
-  updated_data.used_features = {109, 421, 9101};
+  updated_data.used_features = {
+      blink::mojom::WebFeature::kFormElement,
+      blink::mojom::WebFeature::kDocumentExitPointerLock,
+      blink::mojom::WebFeature::kAdClick};
   updated_data.script_type = blink::mojom::ScriptType::kModule;
   updated_data.update_via_cache =
       blink::mojom::ServiceWorkerUpdateViaCache::kAll;
@@ -832,8 +843,8 @@ TEST(ServiceWorkerDatabaseTest, Registration_Overwrite) {
   EXPECT_EQ(ServiceWorkerDatabase::STATUS_OK,
             database->GetPurgeableResourceIds(&purgeable_ids_out));
   EXPECT_EQ(2u, purgeable_ids_out.size());
-  EXPECT_TRUE(base::ContainsKey(purgeable_ids_out, resources1[0].resource_id));
-  EXPECT_TRUE(base::ContainsKey(purgeable_ids_out, resources1[1].resource_id));
+  EXPECT_TRUE(base::Contains(purgeable_ids_out, resources1[0].resource_id));
+  EXPECT_TRUE(base::Contains(purgeable_ids_out, resources1[1].resource_id));
 }
 
 TEST(ServiceWorkerDatabaseTest, Registration_Multiple) {
@@ -926,8 +937,8 @@ TEST(ServiceWorkerDatabaseTest, Registration_Multiple) {
   EXPECT_EQ(ServiceWorkerDatabase::STATUS_OK,
             database->GetPurgeableResourceIds(&purgeable_ids_out));
   EXPECT_EQ(2u, purgeable_ids_out.size());
-  EXPECT_TRUE(base::ContainsKey(purgeable_ids_out, resources1[0].resource_id));
-  EXPECT_TRUE(base::ContainsKey(purgeable_ids_out, resources1[1].resource_id));
+  EXPECT_TRUE(base::Contains(purgeable_ids_out, resources1[0].resource_id));
+  EXPECT_TRUE(base::Contains(purgeable_ids_out, resources1[1].resource_id));
 
   // Make sure that registration2 is still alive.
   resources_out.clear();
@@ -1462,6 +1473,90 @@ TEST(ServiceWorkerDatabaseTest, UserData_DeleteUserDataByKeyPrefixes) {
   EXPECT_EQ("value_e2", user_data_list[2].second);
 }
 
+TEST(ServiceWorkerDatabaseTest,
+     UserData_DeleteUserDataForAllRegistrationsByKeyPrefix) {
+  std::unique_ptr<ServiceWorkerDatabase> database(CreateDatabaseInMemory());
+  const GURL kOrigin("https://example.com");
+
+  // Add registration 1.
+  RegistrationData data1;
+  data1.registration_id = 100;
+  data1.scope = URL(kOrigin, "/foo");
+  data1.script = URL(kOrigin, "/script1.js");
+  data1.version_id = 200;
+  data1.resources_total_size_bytes = 100;
+  std::vector<Resource> resources1;
+  resources1.push_back(CreateResource(1, data1.script, 100));
+
+  // Add registration 2.
+  RegistrationData data2;
+  data2.registration_id = 101;
+  data2.scope = URL(kOrigin, "/bar");
+  data2.script = URL(kOrigin, "/script2.js");
+  data2.version_id = 201;
+  data2.resources_total_size_bytes = 200;
+  std::vector<Resource> resources2;
+  resources2.push_back(CreateResource(2, data2.script, 200));
+
+  ServiceWorkerDatabase::RegistrationData deleted_version;
+  std::vector<int64_t> newly_purgeable_resources;
+  ASSERT_EQ(ServiceWorkerDatabase::STATUS_OK,
+            database->WriteRegistration(data1, resources1, &deleted_version,
+                                        &newly_purgeable_resources));
+  ASSERT_EQ(ServiceWorkerDatabase::STATUS_OK,
+            database->WriteRegistration(data2, resources2, &deleted_version,
+                                        &newly_purgeable_resources));
+
+  // Write user data associated with registration 1.
+  ASSERT_EQ(ServiceWorkerDatabase::STATUS_OK,
+            database->WriteUserData(data1.registration_id, kOrigin,
+                                    {{"key_prefix:key1", "value_a1"},
+                                     {"key_prefix:key2", "value_a2"},
+                                     {"key_prefix:key3", "value_a3"},
+                                     {"kept_key_prefix:key1", "value_b1"}}));
+
+  // Write user data associated with registration 2.
+  ASSERT_EQ(ServiceWorkerDatabase::STATUS_OK,
+            database->WriteUserData(data2.registration_id, kOrigin,
+                                    {{"key_prefix:key1", "value_c1"},
+                                     {"key_prefix:key2", "value_c2"},
+                                     {"kept_key_prefix:key1", "value_d1"},
+                                     {"kept_key_prefix:key2", "value_d2"}}));
+
+  // Deleting user data by key prefixes should return STATUS_OK (rather than
+  // STATUS_ERROR_NOT_FOUND) even if no keys match the prefixes and so nothing
+  // is deleted.
+  EXPECT_EQ(ServiceWorkerDatabase::STATUS_OK,
+            database->DeleteUserDataForAllRegistrationsByKeyPrefix(
+                "not_found_key_prefix:"));
+
+  // Actually delete user data by key prefixes.
+  ASSERT_EQ(
+      ServiceWorkerDatabase::STATUS_OK,
+      database->DeleteUserDataForAllRegistrationsByKeyPrefix("key_prefix:"));
+
+  // User data with deleted "key_prefix:" should be deleted.
+  std::vector<std::pair<int64_t, std::string>> user_data_list;
+  ASSERT_EQ(ServiceWorkerDatabase::STATUS_OK,
+            database->ReadUserDataForAllRegistrationsByKeyPrefix(
+                "key_prefix:", &user_data_list));
+  EXPECT_TRUE(user_data_list.empty());
+
+  // User data with "kept_key_prefix:" should remain on both registrations.
+  user_data_list.clear();
+  ASSERT_EQ(ServiceWorkerDatabase::STATUS_OK,
+            database->ReadUserDataForAllRegistrationsByKeyPrefix(
+                "kept_key_prefix:", &user_data_list));
+  ASSERT_EQ(3u, user_data_list.size());
+
+  EXPECT_EQ(data1.registration_id, user_data_list[0].first);
+  EXPECT_EQ("value_b1", user_data_list[0].second);
+  EXPECT_EQ(data2.registration_id, user_data_list[1].first);
+  EXPECT_EQ("value_d1", user_data_list[1].second);
+  EXPECT_EQ(data2.registration_id, user_data_list[2].first);
+  EXPECT_EQ("value_d2", user_data_list[2].second);
+}
+
 TEST(ServiceWorkerDatabaseTest, UserData_DataIsolation) {
   std::unique_ptr<ServiceWorkerDatabase> database(CreateDatabaseInMemory());
   const GURL kOrigin("https://example.com");
@@ -1934,7 +2029,7 @@ TEST(ServiceWorkerDatabaseTest, DeleteAllDataForOrigin) {
   EXPECT_EQ(ServiceWorkerDatabase::STATUS_OK,
             database->GetOriginsWithRegistrations(&unique_origins));
   EXPECT_EQ(1u, unique_origins.size());
-  EXPECT_TRUE(base::ContainsKey(unique_origins, origin2));
+  EXPECT_TRUE(base::Contains(unique_origins, origin2));
 
   // The registrations for |origin1| should be removed.
   std::vector<RegistrationData> registrations;
@@ -1964,10 +2059,10 @@ TEST(ServiceWorkerDatabaseTest, DeleteAllDataForOrigin) {
   EXPECT_EQ(ServiceWorkerDatabase::STATUS_OK,
             database->GetPurgeableResourceIds(&purgeable_ids_out));
   EXPECT_EQ(4u, purgeable_ids_out.size());
-  EXPECT_TRUE(base::ContainsKey(purgeable_ids_out, 1));
-  EXPECT_TRUE(base::ContainsKey(purgeable_ids_out, 2));
-  EXPECT_TRUE(base::ContainsKey(purgeable_ids_out, 3));
-  EXPECT_TRUE(base::ContainsKey(purgeable_ids_out, 4));
+  EXPECT_TRUE(base::Contains(purgeable_ids_out, 1));
+  EXPECT_TRUE(base::Contains(purgeable_ids_out, 2));
+  EXPECT_TRUE(base::Contains(purgeable_ids_out, 3));
+  EXPECT_TRUE(base::Contains(purgeable_ids_out, 4));
 
   // The user data associated with |origin1| should be removed.
   std::vector<std::string> user_data_out;
@@ -2100,6 +2195,51 @@ TEST(ServiceWorkerDatabaseTest, Corruption_GetRegistrationsForOrigin) {
   histogram_tester.ExpectBucketCount(
       "ServiceWorker.Database.ReadResult",
       ServiceWorkerDatabase::STATUS_ERROR_CORRUPTED, 1);
+}
+
+// Test that invalid WebFeatures on disk are ignored when reading a
+// registration. See https://crbug.com/965944.
+TEST(ServiceWorkerDatabaseTest, InvalidWebFeature) {
+  std::unique_ptr<ServiceWorkerDatabase> database(CreateDatabaseInMemory());
+
+  // Prepare a registration proto that has invalid features.
+  ServiceWorkerRegistrationData data;
+  data.set_registration_id(1);
+  data.set_scope_url("https://example.com");
+  data.set_script_url("https://example.com/sw");
+  data.set_version_id(1);
+  data.set_is_active(true);
+  data.set_has_fetch_handler(true);
+  data.set_last_update_check_time(base::Time::Now().ToInternalValue());
+
+  data.add_used_features(
+      static_cast<uint32_t>(blink::mojom::WebFeature::kFetch));
+  // Add a removed feature.
+  data.add_used_features(2067);
+  data.add_used_features(
+      static_cast<uint32_t>(blink::mojom::WebFeature::kBackgroundSync));
+  // Add an out of range feature.
+  data.add_used_features(
+      static_cast<uint32_t>(blink::mojom::WebFeature::kNumberOfFeatures) + 11);
+  data.add_used_features(
+      static_cast<uint32_t>(blink::mojom::WebFeature::kNetInfoType));
+
+  database->next_avail_registration_id_ = 2;
+  database->next_avail_version_id_ = 2;
+
+  // Write the serialization.
+  std::string value;
+  ASSERT_TRUE(data.SerializeToString(&value));
+
+  // Parse the serialized data. The invalid features should be ignored.
+  RegistrationData registration;
+  ASSERT_EQ(ServiceWorkerDatabase::STATUS_OK,
+            database->ParseRegistrationData(value, &registration));
+  std::set<blink::mojom::WebFeature> expect = {
+      blink::mojom::WebFeature::kFetch,
+      blink::mojom::WebFeature::kBackgroundSync,
+      blink::mojom::WebFeature::kNetInfoType};
+  EXPECT_EQ(expect, registration.used_features);
 }
 
 }  // namespace content

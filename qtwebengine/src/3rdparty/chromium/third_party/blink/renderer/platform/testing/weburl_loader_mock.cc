@@ -11,6 +11,7 @@
 #include "third_party/blink/public/platform/web_security_origin.h"
 #include "third_party/blink/public/platform/web_url_error.h"
 #include "third_party/blink/public/platform/web_url_loader_client.h"
+#include "third_party/blink/renderer/platform/scheduler/test/fake_task_runner.h"
 #include "third_party/blink/renderer/platform/shared_buffer.h"
 #include "third_party/blink/renderer/platform/testing/weburl_loader_mock_factory_impl.h"
 #include "third_party/blink/renderer/platform/wtf/time.h"
@@ -31,9 +32,7 @@ void AssertFallbackLoaderAvailability(const WebURL& url,
 
 WebURLLoaderMock::WebURLLoaderMock(WebURLLoaderMockFactoryImpl* factory,
                                    std::unique_ptr<WebURLLoader> default_loader)
-    : factory_(factory),
-      default_loader_(std::move(default_loader)),
-      weak_factory_(this) {}
+    : factory_(factory), default_loader_(std::move(default_loader)) {}
 
 WebURLLoaderMock::~WebURLLoaderMock() {
   Cancel();
@@ -81,8 +80,8 @@ void WebURLLoaderMock::ServeAsynchronousRequest(
   if (!self)
     return;
 
-  delegate->DidFinishLoading(client_, TimeTicks(), data.size(), data.size(),
-                             data.size());
+  delegate->DidFinishLoading(client_, base::TimeTicks(), data.size(),
+                             data.size(), data.size());
 }
 
 WebURL WebURLLoaderMock::ServeRedirect(
@@ -143,8 +142,8 @@ void WebURLLoaderMock::LoadAsynchronously(const WebURLRequest& request,
 }
 
 void WebURLLoaderMock::Cancel() {
-  if (using_default_loader_) {
-    default_loader_->Cancel();
+  if (using_default_loader_ && default_loader_) {
+    default_loader_.reset();
     return;
   }
   client_ = nullptr;
@@ -168,6 +167,10 @@ void WebURLLoaderMock::SetDefersLoading(bool deferred) {
 
 void WebURLLoaderMock::DidChangePriority(WebURLRequest::Priority new_priority,
                                          int intra_priority_value) {}
+
+scoped_refptr<base::SingleThreadTaskRunner> WebURLLoaderMock::GetTaskRunner() {
+  return base::MakeRefCounted<scheduler::FakeTaskRunner>();
+}
 
 base::WeakPtr<WebURLLoaderMock> WebURLLoaderMock::GetWeakPtr() {
   return weak_factory_.GetWeakPtr();

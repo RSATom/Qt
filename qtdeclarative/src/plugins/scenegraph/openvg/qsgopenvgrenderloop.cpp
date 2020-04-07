@@ -96,7 +96,7 @@ void QSGOpenVGRenderLoop::windowDestroyed(QQuickWindow *window)
         vg->doneCurrent();
     }
 
-    delete d->animationController;
+    d->animationController.reset();
 }
 
 void QSGOpenVGRenderLoop::exposureChanged(QQuickWindow *window)
@@ -176,7 +176,9 @@ void QSGOpenVGRenderLoop::renderWindow(QQuickWindow *window)
     if (vg == nullptr) {
         vg = new QOpenVGContext(window);
         vg->makeCurrent();
-        cd->context->initialize(vg);
+        QSGOpenVGRenderContext::InitParams params;
+        params.context = vg;
+        cd->context->initialize(&params);
     } else {
         vg->makeCurrent();
     }

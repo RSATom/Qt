@@ -51,6 +51,7 @@
 #include <private/qt3drender_global_p.h>
 
 #include <Qt3DCore/qbackendnode.h>
+#include <Qt3DCore/private/qabstractaspect_p.h>
 #include <Qt3DRender/qrenderaspect.h>
 
 #include <QtCore/qobject.h>
@@ -74,6 +75,10 @@ protected:
     void registerBackendType(QRenderAspect *aspect, const QMetaObject &obj, const Qt3DCore::QBackendNodeMapperPtr &functor)
     {
         aspect->registerBackendType(obj, functor);
+    }
+    void registerBackendType(QRenderAspect *aspect, const QMetaObject &obj, const Qt3DCore::QBackendNodeMapperPtr &functor, bool supportsSyncing)
+    {
+        Qt3DCore::QAbstractAspectPrivate::get(aspect)->registerBackendType(obj, functor, supportsSyncing);
     }
     void unregisterBackendType(QRenderAspect *aspect, const QMetaObject &obj)
     {

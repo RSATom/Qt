@@ -98,6 +98,19 @@
 
 namespace blink {
 
+namespace {
+
+// Generate the default base tag declaration.
+String GenerateBaseTagDeclaration(const String& base_target) {
+  // TODO(yosin) We should call |FrameSerializer::baseTagDeclarationOf()|.
+  if (base_target.IsEmpty())
+    return String("<base href=\".\">");
+  String base_string = "<base href=\".\" target=\"" + base_target + "\">";
+  return base_string;
+}
+
+}  // namespace
+
 // Maximum length of data buffer which is used to temporary save generated
 // html content data. This is a soft limit which might be passed if a very large
 // contegious string is found in the html document.
@@ -239,8 +252,7 @@ String WebFrameSerializerImpl::PostActionAfterSerializeEndTag(
   if (IsHTMLBaseElement(*element)) {
     result.Append("-->");
     // Append a new base tag declaration.
-    result.Append(WebFrameSerializer::GenerateBaseTagDeclaration(
-        param->document->BaseTarget()));
+    result.Append(GenerateBaseTagDeclaration(param->document->BaseTarget()));
   }
 
   return result.ToString();
@@ -265,12 +277,12 @@ void WebFrameSerializerImpl::EncodeAndFlushBuffer(
   String content = data_buffer_.ToString();
   data_buffer_.Clear();
 
-  CString encoded_content =
+  std::string encoded_content =
       param->text_encoding.Encode(content, WTF::kEntitiesForUnencodables);
 
   // Send result to the client.
   client_->DidSerializeDataForFrame(
-      WebVector<char>(encoded_content.data(), encoded_content.length()),
+      WebVector<char>(encoded_content.c_str(), encoded_content.length()),
       status);
 }
 
@@ -305,9 +317,8 @@ void WebFrameSerializerImpl::OpenTagToString(Element* element,
 
   // Find out if we need to do frame-specific link rewriting.
   WebFrame* frame = nullptr;
-  if (element->IsFrameOwnerElement()) {
-    frame =
-        WebFrame::FromFrame(ToHTMLFrameOwnerElement(element)->ContentFrame());
+  if (auto* frame_owner_element = DynamicTo<HTMLFrameOwnerElement>(element)) {
+    frame = WebFrame::FromFrame(frame_owner_element->ContentFrame());
   }
   WebString rewritten_frame_link;
   bool should_rewrite_frame_src =
@@ -386,8 +397,8 @@ void WebFrameSerializerImpl::EndTagToString(Element* element,
     if (param->is_html_document) {
       result.Append('>');
       // FIXME: This code is horribly wrong.  WebFrameSerializerImpl must die.
-      if (!element->IsHTMLElement() ||
-          ToHTMLElement(element)->ShouldSerializeEndTag()) {
+      auto* html_element = DynamicTo<HTMLElement>(element);
+      if (!html_element || html_element->ShouldSerializeEndTag()) {
         // We need to write end tag when it is required.
         result.Append("</");
         result.Append(element->nodeName().DeprecatedLower());
@@ -409,13 +420,13 @@ void WebFrameSerializerImpl::BuildContentForNode(Node* node,
   switch (node->getNodeType()) {
     case Node::kElementNode:
       // Process open tag of element.
-      OpenTagToString(ToElement(node), param);
+      OpenTagToString(To<Element>(node), param);
       // Walk through the children nodes and process it.
       for (Node* child = node->firstChild(); child;
            child = child->nextSibling())
         BuildContentForNode(child, param);
       // Process end tag of element.
-      EndTagToString(ToElement(node), param);
+      EndTagToString(To<Element>(node), param);
       break;
     case Node::kTextNode:
       SaveHTMLContentToBuffer(CreateMarkup(node), param);
@@ -440,14 +451,16 @@ void WebFrameSerializerImpl::BuildContentForNode(Node* node,
 WebFrameSerializerImpl::WebFrameSerializerImpl(
     WebLocalFrame* frame,
     WebFrameSerializerClient* client,
-    WebFrameSerializer::LinkRewritingDelegate* delegate)
+    WebFrameSerializer::LinkRewritingDelegate* delegate,
+    bool save_with_empty_url)
     : client_(client),
       delegate_(delegate),
+      save_with_empty_url_(save_with_empty_url),
       html_entities_(false),
       xml_entities_(true) {
   // Must specify available webframe.
   DCHECK(frame);
-  specified_web_local_frame_impl_ = ToWebLocalFrameImpl(frame);
+  specified_web_local_frame_impl_ = To<WebLocalFrameImpl>(frame);
   // Make sure we have non null client and delegate.
   DCHECK(client);
   DCHECK(delegate);
@@ -460,7 +473,8 @@ bool WebFrameSerializerImpl::Serialize() {
 
   Document* document =
       specified_web_local_frame_impl_->GetFrame()->GetDocument();
-  const KURL& url = document->Url();
+  const KURL& url =
+      save_with_empty_url_ ? KURL("about:internet") : document->Url();
 
   if (url.IsValid()) {
     did_serialization = true;

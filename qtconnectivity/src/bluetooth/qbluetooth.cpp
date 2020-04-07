@@ -1,6 +1,7 @@
 /****************************************************************************
 **
 ** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2014 Denis Shienkov <denis.shienkov@gmail.com>
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtBluetooth module of the Qt Toolkit.
@@ -101,6 +102,7 @@ namespace QBluetooth {
 Q_LOGGING_CATEGORY(QT_BT, "qt.bluetooth")
 Q_LOGGING_CATEGORY(QT_BT_ANDROID, "qt.bluetooth.android")
 Q_LOGGING_CATEGORY(QT_BT_BLUEZ, "qt.bluetooth.bluez")
+Q_LOGGING_CATEGORY(QT_BT_WINDOWS, "qt.bluetooth.windows")
 Q_LOGGING_CATEGORY(QT_BT_WINRT, "qt.bluetooth.winrt")
 Q_LOGGING_CATEGORY(QT_BT_WINRT_SERVICE_THREAD, "qt.bluetooth.winrt.service.thread")
 

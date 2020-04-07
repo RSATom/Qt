@@ -99,6 +99,37 @@ int createProject(const QString &outFileName)
     return 0;
 }
 
+// Escapes a path for use in a Depfile (Makefile syntax)
+QString makefileEscape(const QString &filepath)
+{
+    // Always use forward slashes
+    QString result = QDir::cleanPath(filepath);
+    // Spaces are escaped with a backslash
+    result.replace(QLatin1Char(' '), QLatin1String("\\ "));
+    // Pipes are escaped with a backslash
+    result.replace(QLatin1Char('|'), QLatin1String("\\|"));
+    // Dollars are escaped with a dollar
+    result.replace(QLatin1Char('$'), QLatin1String("$$"));
+
+    return result;
+}
+
+void writeDepFile(QIODevice &iodev, const QStringList &depsList, const QString &targetName)
+{
+    QTextStream out(&iodev);
+    out << qPrintable(makefileEscape(targetName));
+    out << QLatin1Char(':');
+
+    // Write depfile
+    for (int i = 0; i < depsList.size(); ++i) {
+        out << QLatin1Char(' ');
+
+        out << qPrintable(makefileEscape(depsList.at(i)));
+    }
+
+    out << QLatin1Char('\n');
+}
+
 int runRcc(int argc, char *argv[])
 {
     QCoreApplication app(argc, argv);
@@ -155,6 +186,11 @@ int runRcc(int argc, char *argv[])
     QCommandLineOption binaryOption(QStringLiteral("binary"), QStringLiteral("Output a binary file for use as a dynamic resource."));
     parser.addOption(binaryOption);
 
+    QCommandLineOption generatorOption(QStringList{QStringLiteral("g"), QStringLiteral("generator")});
+    generatorOption.setDescription(QStringLiteral("Select generator."));
+    generatorOption.setValueName(QStringLiteral("cpp|python|python2"));
+    parser.addOption(generatorOption);
+
     QCommandLineOption passOption(QStringLiteral("pass"), QStringLiteral("Pass number for big resources"), QStringLiteral("number"));
     parser.addOption(passOption);
 
@@ -170,6 +206,10 @@ int runRcc(int argc, char *argv[])
     QCommandLineOption mapOption(QStringLiteral("list-mapping"),
                                  QStringLiteral("Only output a mapping of resource paths to file system paths defined in the .qrc file, do not generate code."));
     parser.addOption(mapOption);
+
+    QCommandLineOption depFileOption(QStringList{QStringLiteral("d"), QStringLiteral("depfile")},
+                                     QStringLiteral("Write a depfile with the .qrc dependencies to <file>."), QStringLiteral("file"));
+    parser.addOption(depFileOption);
 
     QCommandLineOption projectOption(QStringLiteral("project"), QStringLiteral("Output a resource file containing all files from the current directory."));
     parser.addOption(projectOption);
@@ -220,6 +260,18 @@ int runRcc(int argc, char *argv[])
         library.setCompressThreshold(parser.value(thresholdOption).toInt());
     if (parser.isSet(binaryOption))
         library.setFormat(RCCResourceLibrary::Binary);
+    if (parser.isSet(generatorOption)) {
+        auto value = parser.value(generatorOption);
+        if (value == QLatin1String("cpp"))
+            library.setFormat(RCCResourceLibrary::C_Code);
+        else if (value == QLatin1String("python"))
+            library.setFormat(RCCResourceLibrary::Python3_Code);
+        else if (value == QLatin1String("python2"))
+            library.setFormat(RCCResourceLibrary::Python2_Code);
+        else
+            errorMsg = QLatin1String("Invalid generator: ") + value;
+    }
+
     if (parser.isSet(passOption)) {
         if (parser.value(passOption) == QLatin1String("1"))
             library.setFormat(RCCResourceLibrary::Pass1);
@@ -249,6 +301,7 @@ int runRcc(int argc, char *argv[])
 
     QString outFilename = parser.value(outputOption);
     QString tempFilename = parser.value(tempOption);
+    QString depFilename = parser.value(depFileOption);
 
     if (projectRequested) {
         return createProject(outFilename);
@@ -280,6 +333,8 @@ int runRcc(int argc, char *argv[])
     switch (library.format()) {
         case RCCResourceLibrary::C_Code:
         case RCCResourceLibrary::Pass1:
+        case RCCResourceLibrary::Python3_Code:
+        case RCCResourceLibrary::Python2_Code:
             mode = QIODevice::WriteOnly | QIODevice::Text;
             break;
         case RCCResourceLibrary::Pass2:
@@ -331,6 +386,28 @@ int runRcc(int argc, char *argv[])
             out.write("\n");
         }
         return 0;
+    }
+
+    // Write depfile
+    if (!depFilename.isEmpty()) {
+        QFile depout;
+        depout.setFileName(depFilename);
+
+        if (outFilename.isEmpty() || outFilename == QLatin1String("-")) {
+            const QString msg = QString::fromUtf8("Unable to write depfile when outputting to stdout!\n");
+            errorDevice.write(msg.toUtf8());
+            return 1;
+        }
+
+        if (!depout.open(QIODevice::WriteOnly | QIODevice::Text)) {
+            const QString msg = QString::fromUtf8("Unable to open depfile %1 for writing: %2\n")
+                    .arg(depout.fileName(), depout.errorString());
+            errorDevice.write(msg.toUtf8());
+            return 1;
+        }
+
+        writeDepFile(depout, library.dataFiles(), outFilename);
+        depout.close();
     }
 
     QFile temp;

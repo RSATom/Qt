@@ -34,9 +34,6 @@ class OpenVRRenderLoop : public XRCompositorCommon {
   // XRDeviceAbstraction:
   mojom::XRFrameDataPtr GetNextFrameData() override;
   mojom::XRGamepadDataPtr GetNextGamepadData() override;
-  void GetEnvironmentIntegrationProvider(
-      mojom::XREnvironmentIntegrationProviderAssociatedRequest
-          environment_provider) override;
   bool StartRuntime() override;
   void StopRuntime() override;
   void OnSessionStart() override;
@@ -54,6 +51,8 @@ class OpenVRRenderLoop : public XRCompositorCommon {
     bool primary_input_pressed;
     vr::ETrackedDeviceClass device_class;
     vr::ETrackedControllerRole controller_role;
+
+    void MarkAsInactive();
   };
 
   InputActiveState input_active_states_[vr::k_unMaxTrackedDeviceCount];

@@ -88,8 +88,15 @@ Polymer({
     if (!this.hasConnectionStatusText_(device)) {
       return '';
     }
-    return this.i18n(
-        device.connected ? 'bluetoothConnected' : 'bluetoothNotConnected');
+    if (device.connecting) {
+      return this.i18n('bluetoothConnecting');
+    }
+    if (!device.connected) {
+      return this.i18n('bluetoothNotConnected');
+    }
+    return device.batteryPercentage !== undefined ?
+        this.i18n('bluetoothConnectedWithBattery', device.batteryPercentage) :
+        this.i18n('bluetoothConnected');
   },
 
   /**
@@ -99,7 +106,7 @@ Polymer({
    * @private
    */
   hasConnectionStatusText_: function(device) {
-    return !!device.paired && !device.connecting;
+    return !!(device.paired || device.connecting);
   },
 
   /**
@@ -123,7 +130,7 @@ Polymer({
   getDeviceIcon_: function(device) {
     switch (device.type) {
       case 'computer':
-        return 'settings:computer';
+        return 'cr:computer';
       case 'phone':
         return 'settings:smartphone';
       case 'audio':

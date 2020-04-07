@@ -41,7 +41,6 @@
 #include "qkeyboardhandler_p.h"
 
 #include <Qt3DInput/qkeyboarddevice.h>
-#include <Qt3DCore/qpropertyupdatedchange.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -170,23 +169,6 @@ QKeyboardHandler::~QKeyboardHandler()
 {
 }
 
-/*! \internal */
-void QKeyboardHandler::sceneChangeEvent(const Qt3DCore::QSceneChangePtr &change)
-{
-    Q_D(QKeyboardHandler);
-    QPropertyUpdatedChangePtr e = qSharedPointerCast<QPropertyUpdatedChange>(change);
-    if (e->type() == PropertyUpdated) {
-        if (e->propertyName() == QByteArrayLiteral("focus")) {
-            bool block = blockNotifications(true);
-            setFocus(e->value().toBool());
-            blockNotifications(block);
-        } else if (e->propertyName() == QByteArrayLiteral("event")) {
-            QKeyEventPtr ev = e->value().value<QKeyEventPtr>();
-            d->keyEvent(ev.data());
-        }
-    }
-}
-
 /*!
     \qmlproperty KeyboardDevice Qt3D.Input::KeyboardHandler::sourceDevice
 */
@@ -253,6 +235,11 @@ void QKeyboardHandler::setFocus(bool focus)
         d->m_focus = focus;
         emit focusChanged(focus);
     }
+}
+
+// TODO Unused remove in Qt6
+void QKeyboardHandler::sceneChangeEvent(const QSceneChangePtr &)
+{
 }
 
 Qt3DCore::QNodeCreatedChangeBasePtr QKeyboardHandler::createNodeCreationChange() const

@@ -21,8 +21,8 @@
 #include <stdint.h>
 
 // This header declares proxy functions defined in
-// libperfetto_android_internal.so that allow traced_probes to access internal
-// android functions (e.g., hwbinder).
+// libperfetto_android_internal.so that access internal android functions (e.g.
+// hwbinder).
 // Do not add any include to either perfetto headers or android headers. See
 // README.md for more.
 
@@ -39,7 +39,7 @@ enum class BatteryCounter {
 
 extern "C" {
 
-// Thse functions are not thread safe unless specified otherwise.
+// These functions are not thread safe unless specified otherwise.
 
 bool __attribute__((visibility("default")))
 GetBatteryCounter(BatteryCounter, int64_t*);

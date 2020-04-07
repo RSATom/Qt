@@ -4,7 +4,9 @@
 
 #include "components/download/internal/background_service/debugging_client.h"
 
+#include "base/bind.h"
 #include "base/threading/sequenced_task_runner_handle.h"
+#include "components/download/public/background_service/download_metadata.h"
 #include "services/network/public/cpp/resource_request_body.h"
 
 namespace download {
@@ -15,12 +17,10 @@ void DebuggingClient::OnServiceInitialized(
 
 void DebuggingClient::OnServiceUnavailable() {}
 
-Client::ShouldDownload DebuggingClient::OnDownloadStarted(
+void DebuggingClient::OnDownloadStarted(
     const std::string& guid,
     const std::vector<GURL>& url_chain,
-    const scoped_refptr<const net::HttpResponseHeaders>& headers) {
-  return Client::ShouldDownload::CONTINUE;
-}
+    const scoped_refptr<const net::HttpResponseHeaders>& headers) {}
 
 void DebuggingClient::OnDownloadUpdated(const std::string& guid,
                                         uint64_t bytes_uploaded,

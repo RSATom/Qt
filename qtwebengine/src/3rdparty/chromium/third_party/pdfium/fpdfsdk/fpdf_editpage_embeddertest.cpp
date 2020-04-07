@@ -50,7 +50,7 @@ TEST_F(FPDFEditPageEmbedderTest, Rotation) {
     // Save a copy, open the copy, and render it.
     // Note that it renders the rotation.
     EXPECT_TRUE(FPDF_SaveAsCopy(document(), this, 0));
-    OpenSavedDocument(nullptr);
+    ASSERT_TRUE(OpenSavedDocument());
     FPDF_PAGE saved_page = LoadSavedPage(0);
     ASSERT_TRUE(saved_page);
 
@@ -65,4 +65,62 @@ TEST_F(FPDFEditPageEmbedderTest, Rotation) {
     CloseSavedPage(saved_page);
     CloseSavedDocument();
   }
+}
+
+TEST_F(FPDFEditPageEmbedderTest, HasTransparencyImage) {
+  constexpr int kExpectedObjectCount = 39;
+  ASSERT_TRUE(OpenDocument("embedded_images.pdf"));
+  FPDF_PAGE page = LoadPage(0);
+  ASSERT_TRUE(page);
+  ASSERT_EQ(kExpectedObjectCount, FPDFPage_CountObjects(page));
+
+  for (int i = 0; i < kExpectedObjectCount; ++i) {
+    FPDF_PAGEOBJECT obj = FPDFPage_GetObject(page, i);
+    EXPECT_FALSE(FPDFPageObj_HasTransparency(obj));
+
+    FPDFPageObj_SetFillColor(obj, 255, 0, 0, 127);
+    EXPECT_TRUE(FPDFPageObj_HasTransparency(obj));
+  }
+
+  UnloadPage(page);
+}
+
+TEST_F(FPDFEditPageEmbedderTest, HasTransparencyInvalid) {
+  EXPECT_FALSE(FPDFPageObj_HasTransparency(nullptr));
+}
+
+TEST_F(FPDFEditPageEmbedderTest, HasTransparencyPath) {
+  constexpr int kExpectedObjectCount = 8;
+  EXPECT_TRUE(OpenDocument("rectangles.pdf"));
+  FPDF_PAGE page = LoadPage(0);
+  ASSERT_TRUE(page);
+  ASSERT_EQ(kExpectedObjectCount, FPDFPage_CountObjects(page));
+
+  for (int i = 0; i < kExpectedObjectCount; ++i) {
+    FPDF_PAGEOBJECT obj = FPDFPage_GetObject(page, i);
+    EXPECT_FALSE(FPDFPageObj_HasTransparency(obj));
+
+    FPDFPageObj_SetStrokeColor(obj, 63, 63, 0, 127);
+    EXPECT_TRUE(FPDFPageObj_HasTransparency(obj));
+  }
+
+  UnloadPage(page);
+}
+
+TEST_F(FPDFEditPageEmbedderTest, HasTransparencyText) {
+  constexpr int kExpectedObjectCount = 2;
+  EXPECT_TRUE(OpenDocument("text_render_mode.pdf"));
+  FPDF_PAGE page = LoadPage(0);
+  ASSERT_TRUE(page);
+  ASSERT_EQ(kExpectedObjectCount, FPDFPage_CountObjects(page));
+
+  for (int i = 0; i < kExpectedObjectCount; ++i) {
+    FPDF_PAGEOBJECT obj = FPDFPage_GetObject(page, i);
+    EXPECT_FALSE(FPDFPageObj_HasTransparency(obj));
+
+    FPDFPageObj_SetBlendMode(obj, "Lighten");
+    EXPECT_TRUE(FPDFPageObj_HasTransparency(obj));
+  }
+
+  UnloadPage(page);
 }

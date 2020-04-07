@@ -5,8 +5,12 @@
 #ifndef CHROME_BROWSER_UI_WEBUI_SNIPPETS_INTERNALS_SNIPPETS_INTERNALS_PAGE_HANDLER_H_
 #define CHROME_BROWSER_UI_WEBUI_SNIPPETS_INTERNALS_SNIPPETS_INTERNALS_PAGE_HANDLER_H_
 
+#include <map>
+#include <vector>
+
 #include "base/macros.h"
 #include "base/scoped_observer.h"
+#include "base/timer/timer.h"
 #include "chrome/browser/ui/webui/snippets_internals/snippets_internals.mojom.h"
 #include "components/ntp_snippets/content_suggestions_service.h"
 #include "components/ntp_snippets/remote/remote_suggestions_provider.h"
@@ -33,20 +37,13 @@ class SnippetsInternalsPageHandler
   void GetCategoryRankerProperties(
       GetCategoryRankerPropertiesCallback) override;
   void ReloadSuggestions() override;
-  void GetDebugLog(GetDebugLogCallback) override;
   void ClearCachedSuggestions() override;
   void GetRemoteContentSuggestionsProperties(
       GetRemoteContentSuggestionsPropertiesCallback) override;
   void FetchSuggestionsInBackground(
       int64_t,
       FetchSuggestionsInBackgroundCallback) override;
-  void IsPushingDummySuggestionPossible(
-      IsPushingDummySuggestionPossibleCallback) override;
-  void PushDummySuggestionInBackground(
-      int64_t,
-      PushDummySuggestionInBackgroundCallback) override;
   void GetLastJson(GetLastJsonCallback) override;
-  void ResetNotificationState() override;
   void GetSuggestionsByCategory(GetSuggestionsByCategoryCallback) override;
   void ClearDismissedSuggestions(int64_t) override;
 
@@ -63,8 +60,6 @@ class SnippetsInternalsPageHandler
 
   void FetchSuggestionsInBackgroundImpl(FetchSuggestionsInBackgroundCallback);
   void GetSuggestionsByCategoryImpl(GetSuggestionsByCategoryCallback);
-  void PushDummySuggestionInBackgroundImpl(
-      PushDummySuggestionInBackgroundCallback);
 
   // Misc. methods.
   void CollectDismissedSuggestions(
@@ -93,7 +88,6 @@ class SnippetsInternalsPageHandler
 
   // Timers to delay actions.
   base::OneShotTimer suggestion_fetch_timer_;
-  base::OneShotTimer suggestion_push_timer_;
 
   // Handle back to the page by which we can update.
   snippets_internals::mojom::PagePtr page_;

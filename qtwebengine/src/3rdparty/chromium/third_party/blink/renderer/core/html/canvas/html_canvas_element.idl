@@ -24,9 +24,11 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-// https://html.spec.whatwg.org/multipage/canvas.html#the-canvas-element
-[HTMLConstructor]
-interface HTMLCanvasElement : HTMLElement
+// https://html.spec.whatwg.org/multipage/canvas.html#htmlcanvaselement
+[
+    Exposed=Window,
+    HTMLConstructor
+] interface HTMLCanvasElement : HTMLElement
 {
     // Note: Due to dependecies on modules, getContext is defined in a partial
     // interface in html_canvas_element_module.idl
@@ -44,5 +46,5 @@ interface HTMLCanvasElement : HTMLElement
     [HighEntropy, RuntimeEnabled=CanvasColorManagement, MeasureAs=CanvasConvertToBlob, RaisesException, CallWith=ScriptState] Promise<Blob> convertToBlob(optional ImageEncodeOptions options);
 };
 
-// https://html.spec.whatwg.org/multipage/canvas.html#blobcallback
+// https://html.spec.whatwg.org/C/#blobcallback
 callback BlobCallback = void (Blob? blob);

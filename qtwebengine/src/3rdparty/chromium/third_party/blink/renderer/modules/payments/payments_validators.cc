@@ -5,16 +5,23 @@
 #include "third_party/blink/renderer/modules/payments/payments_validators.h"
 
 #include "third_party/blink/renderer/bindings/core/v8/script_regexp.h"
+#include "third_party/blink/renderer/bindings/core/v8/script_value.h"
 #include "third_party/blink/renderer/modules/payments/address_errors.h"
 #include "third_party/blink/renderer/modules/payments/payer_errors.h"
 #include "third_party/blink/renderer/modules/payments/payment_validation_errors.h"
+#include "third_party/blink/renderer/platform/bindings/exception_state.h"
+#include "third_party/blink/renderer/platform/bindings/string_resource.h"
 #include "third_party/blink/renderer/platform/weborigin/kurl.h"
+#include "third_party/blink/renderer/platform/weborigin/security_origin.h"
+#include "third_party/blink/renderer/platform/weborigin/security_policy.h"
 #include "third_party/blink/renderer/platform/wtf/text/string_impl.h"
+#include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
 
 namespace blink {
 
-// We limit the maximum length of string to 2048 bytes for security reasons.
-static const int kMaxiumStringLength = 2048;
+// Passing a giant string through IPC to the browser can cause a crash due to
+// failure in memory allocation. This number here is chosen conservatively.
+static constexpr size_t kMaximumStringLength = 2 * 1024;
 
 bool PaymentsValidators::IsValidCurrencyCodeFormat(
     const String& code,
@@ -60,69 +67,22 @@ bool PaymentsValidators::IsValidCountryCodeFormat(
   return false;
 }
 
-bool PaymentsValidators::IsValidLanguageCodeFormat(
-    const String& code,
-    String* optional_error_message) {
-  if (ScriptRegexp("^([a-z]{2,3})?$", kTextCaseSensitive).Match(code) == 0)
-    return true;
-
-  if (optional_error_message)
-    *optional_error_message =
-        "'" + code +
-        "' is not a valid BCP-47 language code, should be "
-        "2-3 lower case letters [a-z]";
-
-  return false;
-}
-
-bool PaymentsValidators::IsValidScriptCodeFormat(
-    const String& code,
-    String* optional_error_message) {
-  if (ScriptRegexp("^([A-Z][a-z]{3})?$", kTextCaseSensitive).Match(code) == 0)
-    return true;
-
-  if (optional_error_message)
-    *optional_error_message =
-        "'" + code +
-        "' is not a valid ISO 15924 script code, should be "
-        "an upper case letter [A-Z] followed by 3 lower "
-        "case letters [a-z]";
-
-  return false;
-}
-
 bool PaymentsValidators::IsValidShippingAddress(
     const payments::mojom::blink::PaymentAddressPtr& address,
     String* optional_error_message) {
-  if (!IsValidCountryCodeFormat(address->country, optional_error_message))
-    return false;
-
-  if (!IsValidLanguageCodeFormat(address->language_code,
-                                 optional_error_message))
-    return false;
-
-  if (!IsValidScriptCodeFormat(address->script_code, optional_error_message))
-    return false;
-
-  if (address->language_code.IsEmpty() && !address->script_code.IsEmpty()) {
-    if (optional_error_message)
-      *optional_error_message =
-          "If language code is empty, then script code should also be empty";
-
-    return false;
-  }
-
-  return true;
+  return IsValidCountryCodeFormat(address->country, optional_error_message);
 }
 
 bool PaymentsValidators::IsValidErrorMsgFormat(const String& error,
                                                String* optional_error_message) {
-  if (error.length() <= kMaxiumStringLength)
+  if (error.length() <= kMaximumStringLength)
     return true;
 
-  if (optional_error_message)
+  if (optional_error_message) {
     *optional_error_message =
-        "Error message should be at most 2048 characters long";
+        String::Format("Error message should be at most %zu characters long",
+                       kMaximumStringLength);
+  }
 
   return false;
 }
@@ -141,9 +101,6 @@ bool PaymentsValidators::IsValidAddressErrorsFormat(
          (!errors->hasDependentLocality() ||
           IsValidErrorMsgFormat(errors->dependentLocality(),
                                 optional_error_message)) &&
-         (!errors->hasLanguageCode() ||
-          IsValidErrorMsgFormat(errors->languageCode(),
-                                optional_error_message)) &&
          (!errors->hasOrganization() ||
           IsValidErrorMsgFormat(errors->organization(),
                                 optional_error_message)) &&
@@ -156,9 +113,6 @@ bool PaymentsValidators::IsValidAddressErrorsFormat(
           IsValidErrorMsgFormat(errors->recipient(), optional_error_message)) &&
          (!errors->hasRegion() ||
           IsValidErrorMsgFormat(errors->region(), optional_error_message)) &&
-         (!errors->hasRegionCode() ||
-          IsValidErrorMsgFormat(errors->regionCode(),
-                                optional_error_message)) &&
          (!errors->hasSortingCode() ||
           IsValidErrorMsgFormat(errors->sortingCode(), optional_error_message));
 }
@@ -179,11 +133,72 @@ bool PaymentsValidators::IsValidPayerErrorsFormat(
 bool PaymentsValidators::IsValidPaymentValidationErrorsFormat(
     const PaymentValidationErrors* errors,
     String* optional_error_message) {
-  return (!errors->hasPayer() ||
+  return (!errors->hasError() ||
+          IsValidErrorMsgFormat(errors->error(), optional_error_message)) &&
+         (!errors->hasPayer() ||
           IsValidPayerErrorsFormat(errors->payer(), optional_error_message)) &&
          (!errors->hasShippingAddress() ||
           IsValidAddressErrorsFormat(errors->shippingAddress(),
                                      optional_error_message));
+}
+
+bool PaymentsValidators::IsValidMethodFormat(const String& identifier) {
+  KURL url(NullURL(), identifier);
+  if (!url.IsValid()) {
+    // Syntax for a valid standardized PMI:
+    // https://www.w3.org/TR/payment-method-id/#dfn-syntax-of-a-standardized-payment-method-identifier
+    return ScriptRegexp("^[a-z]+[0-9a-z]*(-[a-z]+[0-9a-z]*)*$",
+                        kTextCaseSensitive)
+               .Match(identifier) == 0;
+  }
+
+  // URL PMI validation rules:
+  // https://www.w3.org/TR/payment-method-id/#dfn-validate-a-url-based-payment-method-identifier
+  if (!url.User().IsEmpty() || !url.Pass().IsEmpty())
+    return false;
+
+  if (url.Protocol() == "https")
+    return true;
+
+  if (url.Protocol() != "http")
+    return false;
+
+  // Allow http://localhost for local development.
+  if (SecurityOrigin::Create(url)->IsLocalhost())
+    return true;
+
+  // Allow http:// origins from
+  // --unsafely-treat-insecure-origin-as-secure=<origin> for local development.
+  if (SecurityPolicy::IsUrlTrustworthySafelisted(url))
+    return true;
+
+  return false;
+}
+
+void PaymentsValidators::ValidateAndStringifyObject(
+    const String& input_name,
+    const ScriptValue& input,
+    String& output,
+    ExceptionState& exception_state) {
+  v8::Local<v8::String> value;
+  if (input.IsEmpty() || !input.V8Value()->IsObject() ||
+      !v8::JSON::Stringify(input.GetContext(), input.V8Value().As<v8::Object>())
+           .ToLocal(&value)) {
+    exception_state.ThrowTypeError(input_name +
+                                   " should be a JSON-serializable object");
+    return;
+  }
+
+  output = ToBlinkString<String>(value, kDoNotExternalize);
+
+  // Implementation defined constant controlling the allowed JSON length.
+  static constexpr size_t kMaxJSONStringLength = 1024 * 1024;
+
+  if (output.length() > kMaxJSONStringLength) {
+    exception_state.ThrowTypeError(String::Format(
+        "JSON serialization of %s should be no longer than %zu characters",
+        input_name.Characters8(), kMaxJSONStringLength));
+  }
 }
 
 }  // namespace blink

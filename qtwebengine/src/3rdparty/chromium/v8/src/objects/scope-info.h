@@ -5,10 +5,11 @@
 #ifndef V8_OBJECTS_SCOPE_INFO_H_
 #define V8_OBJECTS_SCOPE_INFO_H_
 
-#include "src/globals.h"
-#include "src/objects.h"
+#include "src/common/globals.h"
 #include "src/objects/fixed-array.h"
-#include "src/utils.h"
+#include "src/objects/function-kind.h"
+#include "src/objects/objects.h"
+#include "src/utils/utils.h"
 
 // Has to be the last include (doesn't have include guards):
 #include "src/objects/object-macros.h"
@@ -21,7 +22,7 @@ class Handle;
 class Isolate;
 template <typename T>
 class MaybeHandle;
-class ModuleInfo;
+class SourceTextModuleInfo;
 class Scope;
 class Zone;
 
@@ -46,6 +47,9 @@ class ScopeInfo : public FixedArray {
   // True if this scope is a (var) declaration scope.
   bool is_declaration_scope() const;
 
+  // True if this scope is a class scope.
+  bool is_class_scope() const;
+
   // Does this scope make a sloppy eval call?
   bool CallsSloppyEval() const;
 
@@ -65,16 +69,19 @@ class ScopeInfo : public FixedArray {
   // or context-allocated?
   bool HasAllocatedReceiver() const;
 
+  // Does this scope has class brand (for private methods)?
+  bool HasClassBrand() const;
+
   // Does this scope declare a "new.target" binding?
   bool HasNewTarget() const;
 
   // Is this scope the scope of a named function expression?
-  bool HasFunctionName() const;
+  V8_EXPORT_PRIVATE bool HasFunctionName() const;
 
   // See SharedFunctionInfo::HasSharedName.
-  bool HasSharedFunctionName() const;
+  V8_EXPORT_PRIVATE bool HasSharedFunctionName() const;
 
-  bool HasInferredFunctionName() const;
+  V8_EXPORT_PRIVATE bool HasInferredFunctionName() const;
 
   void SetFunctionName(Object name);
   void SetInferredFunctionName(String name);
@@ -91,7 +98,7 @@ class ScopeInfo : public FixedArray {
   inline bool HasSimpleParameters() const;
 
   // Return the function_name if present.
-  Object FunctionName() const;
+  V8_EXPORT_PRIVATE Object FunctionName() const;
 
   // The function's name if it is non-empty, otherwise the inferred name or an
   // empty string.
@@ -99,14 +106,14 @@ class ScopeInfo : public FixedArray {
 
   // Return the function's inferred name if present.
   // See SharedFunctionInfo::function_identifier.
-  Object InferredFunctionName() const;
+  V8_EXPORT_PRIVATE Object InferredFunctionName() const;
 
   // Position information accessors.
   int StartPosition() const;
   int EndPosition() const;
   void SetPositionInfo(int start, int end);
 
-  ModuleInfo ModuleDescriptorInfo() const;
+  SourceTextModuleInfo ModuleDescriptorInfo() const;
 
   // Return the name of the given context local.
   String ContextLocalName(int var) const;
@@ -123,6 +130,9 @@ class ScopeInfo : public FixedArray {
   // Return the initialization flag of the given context local.
   MaybeAssignedFlag ContextLocalMaybeAssignedFlag(int var) const;
 
+  // Return whether access to the variable requries a brand check.
+  RequiresBrandCheckFlag RequiresBrandCheck(int var) const;
+
   // Return true if this local was introduced by the compiler, and should not be
   // exposed to the user in a debugger.
   static bool VariableIsSynthetic(String name);
@@ -132,14 +142,15 @@ class ScopeInfo : public FixedArray {
   // returns a value < 0. The name must be an internalized string.
   // If the slot is present and mode != nullptr, sets *mode to the corresponding
   // mode for that variable.
-  static int ContextSlotIndex(Handle<ScopeInfo> scope_info, Handle<String> name,
+  static int ContextSlotIndex(ScopeInfo scope_info, String name,
                               VariableMode* mode, InitializationFlag* init_flag,
-                              MaybeAssignedFlag* maybe_assigned_flag);
+                              MaybeAssignedFlag* maybe_assigned_flag,
+                              RequiresBrandCheckFlag* requires_brand_check);
 
   // Lookup metadata of a MODULE-allocated variable.  Return 0 if there is no
   // module variable with the given name (the index value of a MODULE variable
   // is never 0).
-  int ModuleIndex(Handle<String> name, VariableMode* mode,
+  int ModuleIndex(String name, VariableMode* mode,
                   InitializationFlag* init_flag,
                   MaybeAssignedFlag* maybe_assigned_flag);
 
@@ -224,8 +235,10 @@ class ScopeInfo : public FixedArray {
   class ReceiverVariableField
       : public BitField<VariableAllocationInfo, DeclarationScopeField::kNext,
                         2> {};
-  class HasNewTargetField
+  class HasClassBrandField
       : public BitField<bool, ReceiverVariableField::kNext, 1> {};
+  class HasNewTargetField
+      : public BitField<bool, HasClassBrandField::kNext, 1> {};
   class FunctionVariableField
       : public BitField<VariableAllocationInfo, HasNewTargetField::kNext, 2> {};
   // TODO(cbruni): Combine with function variable field when only storing the
@@ -275,10 +288,10 @@ class ScopeInfo : public FixedArray {
   //    the scope belongs to a function or script.
   // 7. OuterScopeInfoIndex:
   //    The outer scope's ScopeInfo or the hole if there's none.
-  // 8. ModuleInfo, ModuleVariableCount, and ModuleVariables:
-  //    For a module scope, this part contains the ModuleInfo, the number of
-  //    MODULE-allocated variables, and the metadata of those variables.  For
-  //    non-module scopes it is empty.
+  // 8. SourceTextModuleInfo, ModuleVariableCount, and ModuleVariables:
+  //    For a module scope, this part contains the SourceTextModuleInfo, the
+  //    number of MODULE-allocated variables, and the metadata of those
+  //    variables.  For non-module scopes it is empty.
   int ContextLocalNamesIndex() const;
   int ContextLocalInfosIndex() const;
   int ReceiverInfoIndex() const;
@@ -313,14 +326,17 @@ class ScopeInfo : public FixedArray {
   class VariableModeField : public BitField<VariableMode, 0, 3> {};
   class InitFlagField : public BitField<InitializationFlag, 3, 1> {};
   class MaybeAssignedFlagField : public BitField<MaybeAssignedFlag, 4, 1> {};
+  class RequiresBrandCheckField
+      : public BitField<RequiresBrandCheckFlag, MaybeAssignedFlagField::kNext,
+                        1> {};
   class ParameterNumberField
-      : public BitField<uint32_t, MaybeAssignedFlagField::kNext, 16> {};
+      : public BitField<uint32_t, RequiresBrandCheckField::kNext, 16> {};
 
   friend class ScopeIterator;
   friend std::ostream& operator<<(std::ostream& os,
                                   ScopeInfo::VariableAllocationInfo var);
 
-  OBJECT_CONSTRUCTORS(ScopeInfo, FixedArray)
+  OBJECT_CONSTRUCTORS(ScopeInfo, FixedArray);
 };
 
 std::ostream& operator<<(std::ostream& os,

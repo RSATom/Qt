@@ -105,7 +105,7 @@ void TestWidget::updateJumpList()
     jumplist.recent()->setVisible(ui->cbShowRecent->isChecked());
     jumplist.frequent()->setVisible(ui->cbShowFrequent->isChecked());
     if (ui->cbRunFullscreen->isChecked()) {
-        QWinJumpListItem *item = new QWinJumpListItem(QWinJumpListItem::Link);
+        auto *item = new QWinJumpListItem(QWinJumpListItem::Link);
         item->setTitle(ui->cbRunFullscreen->text());
         item->setFilePath(applicationBinary);
         item->setArguments(QStringList("-fullscreen"));

@@ -351,13 +351,11 @@ private Q_SLOTS:
             QCoreApplication::processEvents();
 
             // THEN
-            QCOMPARE(arbiter.events.size(), 1);
-            auto change = arbiter.events.first().staticCast<Qt3DCore::QPropertyUpdatedChange>();
-            QCOMPARE(change->propertyName(), "shaderProgram");
-            QCOMPARE(change->value().value<Qt3DCore::QNodeId>(), builder.shaderProgram()->id());
-            QCOMPARE(change->type(), Qt3DCore::PropertyUpdated);
+            QCOMPARE(arbiter.events.size(), 0);
+            QCOMPARE(arbiter.dirtyNodes.size(), 1);
+            QCOMPARE(arbiter.dirtyNodes.front(), &builder);
 
-            arbiter.events.clear();
+            arbiter.dirtyNodes.clear();
         }
 
         {
@@ -367,6 +365,7 @@ private Q_SLOTS:
 
             // THEN
             QCOMPARE(arbiter.events.size(), 0);
+            QCOMPARE(arbiter.dirtyNodes.size(), 0);
         }
     }
 
@@ -384,13 +383,11 @@ private Q_SLOTS:
             QCoreApplication::processEvents();
 
             // THEN
-            QCOMPARE(arbiter.events.size(), 1);
-            auto change = arbiter.events.first().staticCast<Qt3DCore::QPropertyUpdatedChange>();
-            QCOMPARE(change->propertyName(), "enabledLayers");
-            QCOMPARE(change->value().toStringList(), layers);
-            QCOMPARE(change->type(), Qt3DCore::PropertyUpdated);
+            QCOMPARE(arbiter.events.size(), 0);
+            QCOMPARE(arbiter.dirtyNodes.size(), 1);
+            QCOMPARE(arbiter.dirtyNodes.front(), &builder);
 
-            arbiter.events.clear();
+            arbiter.dirtyNodes.clear();
         }
 
         {
@@ -400,6 +397,7 @@ private Q_SLOTS:
 
             // THEN
             QCOMPARE(arbiter.events.size(), 0);
+            QCOMPARE(arbiter.dirtyNodes.size(), 0);
         }
     }
 
@@ -416,13 +414,11 @@ private Q_SLOTS:
             QCoreApplication::processEvents();
 
             // THEN
-            QCOMPARE(arbiter.events.size(), 1);
-            auto change = arbiter.events.first().staticCast<Qt3DCore::QPropertyUpdatedChange>();
-            QCOMPARE(change->propertyName(), "vertexShaderGraph");
-            QCOMPARE(change->value().value<QUrl>(), builder.vertexShaderGraph());
-            QCOMPARE(change->type(), Qt3DCore::PropertyUpdated);
+            QCOMPARE(arbiter.events.size(), 0);
+            QCOMPARE(arbiter.dirtyNodes.size(), 1);
+            QCOMPARE(arbiter.dirtyNodes.front(), &builder);
 
-            arbiter.events.clear();
+            arbiter.dirtyNodes.clear();
         }
 
         {
@@ -432,6 +428,7 @@ private Q_SLOTS:
 
             // THEN
             QCOMPARE(arbiter.events.size(), 0);
+            QCOMPARE(arbiter.dirtyNodes.size(), 0);
         }
 
     }
@@ -449,13 +446,11 @@ private Q_SLOTS:
             QCoreApplication::processEvents();
 
             // THEN
-            QCOMPARE(arbiter.events.size(), 1);
-            auto change = arbiter.events.first().staticCast<Qt3DCore::QPropertyUpdatedChange>();
-            QCOMPARE(change->propertyName(), "tessellationControlShaderGraph");
-            QCOMPARE(change->value().value<QUrl>(), builder.tessellationControlShaderGraph());
-            QCOMPARE(change->type(), Qt3DCore::PropertyUpdated);
+            QCOMPARE(arbiter.events.size(), 0);
+            QCOMPARE(arbiter.dirtyNodes.size(), 1);
+            QCOMPARE(arbiter.dirtyNodes.front(), &builder);
 
-            arbiter.events.clear();
+            arbiter.dirtyNodes.clear();
         }
 
         {
@@ -465,6 +460,7 @@ private Q_SLOTS:
 
             // THEN
             QCOMPARE(arbiter.events.size(), 0);
+            QCOMPARE(arbiter.dirtyNodes.size(), 0);
         }
 
     }
@@ -482,13 +478,11 @@ private Q_SLOTS:
             QCoreApplication::processEvents();
 
             // THEN
-            QCOMPARE(arbiter.events.size(), 1);
-            auto change = arbiter.events.first().staticCast<Qt3DCore::QPropertyUpdatedChange>();
-            QCOMPARE(change->propertyName(), "tessellationEvaluationShaderGraph");
-            QCOMPARE(change->value().value<QUrl>(), builder.tessellationEvaluationShaderGraph());
-            QCOMPARE(change->type(), Qt3DCore::PropertyUpdated);
+            QCOMPARE(arbiter.events.size(), 0);
+            QCOMPARE(arbiter.dirtyNodes.size(), 1);
+            QCOMPARE(arbiter.dirtyNodes.front(), &builder);
 
-            arbiter.events.clear();
+            arbiter.dirtyNodes.clear();
         }
 
         {
@@ -498,6 +492,7 @@ private Q_SLOTS:
 
             // THEN
             QCOMPARE(arbiter.events.size(), 0);
+            QCOMPARE(arbiter.dirtyNodes.size(), 0);
         }
 
     }
@@ -515,13 +510,11 @@ private Q_SLOTS:
             QCoreApplication::processEvents();
 
             // THEN
-            QCOMPARE(arbiter.events.size(), 1);
-            auto change = arbiter.events.first().staticCast<Qt3DCore::QPropertyUpdatedChange>();
-            QCOMPARE(change->propertyName(), "geometryShaderGraph");
-            QCOMPARE(change->value().value<QUrl>(), builder.geometryShaderGraph());
-            QCOMPARE(change->type(), Qt3DCore::PropertyUpdated);
+            QCOMPARE(arbiter.events.size(), 0);
+            QCOMPARE(arbiter.dirtyNodes.size(), 1);
+            QCOMPARE(arbiter.dirtyNodes.front(), &builder);
 
-            arbiter.events.clear();
+            arbiter.dirtyNodes.clear();
         }
 
         {
@@ -531,6 +524,7 @@ private Q_SLOTS:
 
             // THEN
             QCOMPARE(arbiter.events.size(), 0);
+            QCOMPARE(arbiter.dirtyNodes.size(), 0);
         }
 
     }
@@ -548,13 +542,11 @@ private Q_SLOTS:
             QCoreApplication::processEvents();
 
             // THEN
-            QCOMPARE(arbiter.events.size(), 1);
-            auto change = arbiter.events.first().staticCast<Qt3DCore::QPropertyUpdatedChange>();
-            QCOMPARE(change->propertyName(), "fragmentShaderGraph");
-            QCOMPARE(change->value().value<QUrl>(), builder.fragmentShaderGraph());
-            QCOMPARE(change->type(), Qt3DCore::PropertyUpdated);
+            QCOMPARE(arbiter.events.size(), 0);
+            QCOMPARE(arbiter.dirtyNodes.size(), 1);
+            QCOMPARE(arbiter.dirtyNodes.front(), &builder);
 
-            arbiter.events.clear();
+            arbiter.dirtyNodes.clear();
         }
 
         {
@@ -564,6 +556,7 @@ private Q_SLOTS:
 
             // THEN
             QCOMPARE(arbiter.events.size(), 0);
+            QCOMPARE(arbiter.dirtyNodes.size(), 0);
         }
 
     }
@@ -581,13 +574,11 @@ private Q_SLOTS:
             QCoreApplication::processEvents();
 
             // THEN
-            QCOMPARE(arbiter.events.size(), 1);
-            auto change = arbiter.events.first().staticCast<Qt3DCore::QPropertyUpdatedChange>();
-            QCOMPARE(change->propertyName(), "computeShaderGraph");
-            QCOMPARE(change->value().value<QUrl>(), builder.computeShaderGraph());
-            QCOMPARE(change->type(), Qt3DCore::PropertyUpdated);
+            QCOMPARE(arbiter.events.size(), 0);
+            QCOMPARE(arbiter.dirtyNodes.size(), 1);
+            QCOMPARE(arbiter.dirtyNodes.front(), &builder);
 
-            arbiter.events.clear();
+            arbiter.dirtyNodes.clear();
         }
 
         {
@@ -597,18 +588,17 @@ private Q_SLOTS:
 
             // THEN
             QCOMPARE(arbiter.events.size(), 0);
+            QCOMPARE(arbiter.dirtyNodes.size(), 0);
         }
     }
 
     void checkGeneratedCodePropertyUpdates()
     {
+        Qt3DRender::QShaderProgramBuilderPrivate *dBuilder = static_cast<decltype(dBuilder)>(Qt3DCore::QNodePrivate::get(this));
         {
             // WHEN
             QSignalSpy spy(this, SIGNAL(vertexShaderCodeChanged(QByteArray)));
-            Qt3DCore::QPropertyUpdatedChangePtr valueChange(new Qt3DCore::QPropertyUpdatedChange(Qt3DCore::QNodeId()));
-            valueChange->setPropertyName("generatedShaderCode");
-            valueChange->setValue(QVariant::fromValue(QPair<int, QByteArray>(int(Qt3DRender::QShaderProgram::Vertex), QByteArrayLiteral("vertex"))));
-            sceneChangeEvent(valueChange);
+            dBuilder->setShaderCode(QByteArrayLiteral("vertex"), Qt3DRender::QShaderProgram::Vertex);
 
             // THEN
             QVERIFY(spy.isValid());
@@ -618,10 +608,7 @@ private Q_SLOTS:
         {
             // WHEN
             QSignalSpy spy(this, SIGNAL(fragmentShaderCodeChanged(QByteArray)));
-            Qt3DCore::QPropertyUpdatedChangePtr valueChange(new Qt3DCore::QPropertyUpdatedChange(Qt3DCore::QNodeId()));
-            valueChange->setPropertyName("generatedShaderCode");
-            valueChange->setValue(QVariant::fromValue(QPair<int, QByteArray>(int(Qt3DRender::QShaderProgram::Fragment), QByteArrayLiteral("fragment"))));
-            sceneChangeEvent(valueChange);
+            dBuilder->setShaderCode(QByteArrayLiteral("fragment"), Qt3DRender::QShaderProgram::Fragment);
 
             // THEN
             QVERIFY(spy.isValid());
@@ -631,10 +618,7 @@ private Q_SLOTS:
         {
             // WHEN
             QSignalSpy spy(this, SIGNAL(geometryShaderCodeChanged(QByteArray)));
-            Qt3DCore::QPropertyUpdatedChangePtr valueChange(new Qt3DCore::QPropertyUpdatedChange(Qt3DCore::QNodeId()));
-            valueChange->setPropertyName("generatedShaderCode");
-            valueChange->setValue(QVariant::fromValue(QPair<int, QByteArray>(int(Qt3DRender::QShaderProgram::Geometry), QByteArrayLiteral("geometry"))));
-            sceneChangeEvent(valueChange);
+            dBuilder->setShaderCode(QByteArrayLiteral("geometry"), Qt3DRender::QShaderProgram::Geometry);
 
             // THEN
             QVERIFY(spy.isValid());
@@ -644,10 +628,8 @@ private Q_SLOTS:
         {
             // WHEN
             QSignalSpy spy(this, SIGNAL(computeShaderCodeChanged(QByteArray)));
-            Qt3DCore::QPropertyUpdatedChangePtr valueChange(new Qt3DCore::QPropertyUpdatedChange(Qt3DCore::QNodeId()));
-            valueChange->setPropertyName("generatedShaderCode");
-            valueChange->setValue(QVariant::fromValue(QPair<int, QByteArray>(int(Qt3DRender::QShaderProgram::Compute), QByteArrayLiteral("compute"))));
-            sceneChangeEvent(valueChange);
+            dBuilder->setShaderCode(QByteArrayLiteral("compute"), Qt3DRender::QShaderProgram::Compute);
+
 
             // THEN
             QVERIFY(spy.isValid());
@@ -657,10 +639,7 @@ private Q_SLOTS:
         {
             // WHEN
             QSignalSpy spy(this, SIGNAL(tessellationControlShaderCodeChanged(QByteArray)));
-            Qt3DCore::QPropertyUpdatedChangePtr valueChange(new Qt3DCore::QPropertyUpdatedChange(Qt3DCore::QNodeId()));
-            valueChange->setPropertyName("generatedShaderCode");
-            valueChange->setValue(QVariant::fromValue(QPair<int, QByteArray>(int(Qt3DRender::QShaderProgram::TessellationControl), QByteArrayLiteral("control"))));
-            sceneChangeEvent(valueChange);
+            dBuilder->setShaderCode(QByteArrayLiteral("control"), Qt3DRender::QShaderProgram::TessellationControl);
 
             // THEN
             QVERIFY(spy.isValid());
@@ -670,10 +649,7 @@ private Q_SLOTS:
         {
             // WHEN
             QSignalSpy spy(this, SIGNAL(tessellationEvaluationShaderCodeChanged(QByteArray)));
-            Qt3DCore::QPropertyUpdatedChangePtr valueChange(new Qt3DCore::QPropertyUpdatedChange(Qt3DCore::QNodeId()));
-            valueChange->setPropertyName("generatedShaderCode");
-            valueChange->setValue(QVariant::fromValue(QPair<int, QByteArray>(int(Qt3DRender::QShaderProgram::TessellationEvaluation), QByteArrayLiteral("eval"))));
-            sceneChangeEvent(valueChange);
+            dBuilder->setShaderCode(QByteArrayLiteral("eval"), Qt3DRender::QShaderProgram::TessellationEvaluation);
 
             // THEN
             QVERIFY(spy.isValid());

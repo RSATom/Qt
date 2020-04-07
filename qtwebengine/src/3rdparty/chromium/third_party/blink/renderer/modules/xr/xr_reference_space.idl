@@ -5,15 +5,18 @@
 // https://immersive-web.github.io/webxr/#xrreferencespace-interface
 
 enum XRReferenceSpaceType {
-  "stationary",
-  "bounded",
-  "unbounded"
+  "bounded-floor",
+  "local",
+  "local-floor",
+  "unbounded",
+  "viewer",
 };
 
 [
     SecureContext,
     Exposed=Window,
-    OriginTrialEnabled=WebXR
+    RuntimeEnabled=WebXR
 ] interface XRReferenceSpace : XRSpace {
   attribute EventHandler onreset;
+  [Measure] XRReferenceSpace getOffsetReferenceSpace(XRRigidTransform originOffset);
 };

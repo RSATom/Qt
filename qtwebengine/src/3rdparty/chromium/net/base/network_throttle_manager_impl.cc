@@ -4,6 +4,7 @@
 
 #include "net/base/network_throttle_manager_impl.h"
 
+#include "base/bind.h"
 #include "base/logging.h"
 #include "base/stl_util.h"
 #include "base/threading/thread_task_runner_handle.h"
@@ -239,8 +240,8 @@ void NetworkThrottleManagerImpl::OnThrottleDestroyed(ThrottleImpl* throttle) {
       break;
   }
 
-  DCHECK(!base::ContainsValue(blocked_throttles_, throttle));
-  DCHECK(!base::ContainsValue(outstanding_throttles_, throttle));
+  DCHECK(!base::Contains(blocked_throttles_, throttle));
+  DCHECK(!base::Contains(outstanding_throttles_, throttle));
 
   // Unblock the throttles if there's some chance there's a throttle to
   // unblock.
@@ -249,8 +250,8 @@ void NetworkThrottleManagerImpl::OnThrottleDestroyed(ThrottleImpl* throttle) {
     // Via PostTask so there aren't upcalls from within destructors.
     base::ThreadTaskRunnerHandle::Get()->PostTask(
         FROM_HERE,
-        base::Bind(&NetworkThrottleManagerImpl::MaybeUnblockThrottles,
-                   weak_ptr_factory_.GetWeakPtr()));
+        base::BindOnce(&NetworkThrottleManagerImpl::MaybeUnblockThrottles,
+                       weak_ptr_factory_.GetWeakPtr()));
   }
 }
 

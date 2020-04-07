@@ -73,8 +73,7 @@ CourierRenderer::CourierRenderer(
       rpc_handle_(rpc_broker_->GetUniqueHandle()),
       remote_renderer_handle_(RpcBroker::kInvalidHandle),
       video_renderer_sink_(video_renderer_sink),
-      clock_(base::DefaultTickClock::GetInstance()),
-      weak_factory_(this) {
+      clock_(base::DefaultTickClock::GetInstance()) {
   VLOG(2) << __func__;
   // Note: The constructor is running on the main thread, but will be destroyed
   // on the media thread. Therefore, all weak pointers must be dereferenced on
@@ -144,7 +143,7 @@ void CourierRenderer::Initialize(MediaResource* media_resource,
       FROM_HERE,
       base::BindOnce(
           &RendererController::StartDataPipe, controller_,
-          base::Passed(&audio_data_pipe), base::Passed(&video_data_pipe),
+          std::move(audio_data_pipe), std::move(video_data_pipe),
           base::BindOnce(&CourierRenderer::OnDataPipeCreatedOnMainThread,
                          media_task_runner_, weak_factory_.GetWeakPtr(),
                          rpc_broker_)));
@@ -295,13 +294,13 @@ void CourierRenderer::OnDataPipeCreatedOnMainThread(
     mojo::ScopedDataPipeProducerHandle video_handle) {
   media_task_runner->PostTask(
       FROM_HERE,
-      base::Bind(&CourierRenderer::OnDataPipeCreated, self,
-                 base::Passed(&audio), base::Passed(&video),
-                 base::Passed(&audio_handle), base::Passed(&video_handle),
-                 rpc_broker ? rpc_broker->GetUniqueHandle()
-                            : RpcBroker::kInvalidHandle,
-                 rpc_broker ? rpc_broker->GetUniqueHandle()
-                            : RpcBroker::kInvalidHandle));
+      base::BindOnce(&CourierRenderer::OnDataPipeCreated, self,
+                     std::move(audio), std::move(video),
+                     std::move(audio_handle), std::move(video_handle),
+                     rpc_broker ? rpc_broker->GetUniqueHandle()
+                                : RpcBroker::kInvalidHandle,
+                     rpc_broker ? rpc_broker->GetUniqueHandle()
+                                : RpcBroker::kInvalidHandle));
 }
 
 void CourierRenderer::OnDataPipeCreated(
@@ -370,9 +369,9 @@ void CourierRenderer::OnMessageReceivedOnMainThread(
     scoped_refptr<base::SingleThreadTaskRunner> media_task_runner,
     base::WeakPtr<CourierRenderer> self,
     std::unique_ptr<pb::RpcMessage> message) {
-  media_task_runner->PostTask(FROM_HERE,
-                              base::Bind(&CourierRenderer::OnReceivedRpc, self,
-                                         base::Passed(&message)));
+  media_task_runner->PostTask(
+      FROM_HERE, base::BindOnce(&CourierRenderer::OnReceivedRpc, self,
+                                std::move(message)));
 }
 
 void CourierRenderer::OnReceivedRpc(std::unique_ptr<pb::RpcMessage> message) {
@@ -424,9 +423,6 @@ void CourierRenderer::OnReceivedRpc(std::unique_ptr<pb::RpcMessage> message) {
       VLOG(2) << __func__ << ": Received RPC_RC_ONWAITINGFORDECRYPTIONKEY.";
       client_->OnWaiting(WaitingReason::kNoDecryptionKey);
       break;
-    case pb::RpcMessage::RPC_RC_ONDURATIONCHANGE:
-      OnDurationChange(std::move(message));
-      break;
 
     default:
       VLOG(1) << "Unknown RPC: " << message->proc();
@@ -438,7 +434,7 @@ void CourierRenderer::SendRpcToRemote(std::unique_ptr<pb::RpcMessage> message) {
   DCHECK(main_task_runner_);
   main_task_runner_->PostTask(
       FROM_HERE, base::BindOnce(&RpcBroker::SendMessageToRemote, rpc_broker_,
-                                base::Passed(&message)));
+                                std::move(message)));
 }
 
 void CourierRenderer::AcquireRendererDone(
@@ -581,16 +577,20 @@ void CourierRenderer::OnBufferingStateChange(
           << message->rendererclient_onbufferingstatechange_rpc().state();
   base::Optional<BufferingState> state = ToMediaBufferingState(
       message->rendererclient_onbufferingstatechange_rpc().state());
+  BufferingStateChangeReason reason = BUFFERING_CHANGE_REASON_UNKNOWN;
   if (!state.has_value())
     return;
   if (state == BufferingState::BUFFERING_HAVE_NOTHING) {
     receiver_is_blocked_on_local_demuxers_ = IsWaitingForDataFromDemuxers();
+    reason = receiver_is_blocked_on_local_demuxers_
+                 ? DEMUXER_UNDERFLOW
+                 : REMOTING_NETWORK_CONGESTION;
   } else if (receiver_is_blocked_on_local_demuxers_) {
     receiver_is_blocked_on_local_demuxers_ = false;
     ResetMeasurements();
   }
 
-  client_->OnBufferingStateChange(state.value());
+  client_->OnBufferingStateChange(state.value(), reason);
 }
 
 void CourierRenderer::OnAudioConfigChange(
@@ -700,18 +700,6 @@ void CourierRenderer::OnStatisticsUpdate(
   }
   UpdateVideoStatsQueue(stats.video_frames_decoded, stats.video_frames_dropped);
   client_->OnStatisticsUpdate(stats);
-}
-
-void CourierRenderer::OnDurationChange(
-    std::unique_ptr<pb::RpcMessage> message) {
-  DCHECK(media_task_runner_->BelongsToCurrentThread());
-  DCHECK(message);
-  VLOG(2) << __func__ << ": Received RPC_RC_ONDURATIONCHANGE with usec="
-          << message->integer64_value();
-  if (message->integer64_value() < 0)
-    return;
-  client_->OnDurationChange(
-      base::TimeDelta::FromMicroseconds(message->integer64_value()));
 }
 
 void CourierRenderer::OnFatalError(StopTrigger stop_trigger) {

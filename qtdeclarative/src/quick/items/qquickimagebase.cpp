@@ -46,6 +46,8 @@
 
 #include <QtQml/qqmlinfo.h>
 #include <QtQml/qqmlfile.h>
+#include <QtQml/qqmlabstracturlinterceptor.h>
+
 
 QT_BEGIN_NAMESPACE
 
@@ -53,7 +55,7 @@ QT_BEGIN_NAMESPACE
 // if they're not happy with our implementation of it.
 bool QQuickImageBasePrivate::updateDevicePixelRatio(qreal targetDevicePixelRatio)
 {
-    // QQuickImageProvider and SVG can generate a high resolution image when
+    // QQuickImageProvider and SVG and PDF can generate a high resolution image when
     // sourceSize is set (this function is only called if it's set).
     // If sourceSize is not set then the provider default size will be used, as usual.
     bool setDevicePixelRatio = false;
@@ -62,7 +64,8 @@ bool QQuickImageBasePrivate::updateDevicePixelRatio(qreal targetDevicePixelRatio
     } else {
         QString stringUrl = url.path(QUrl::PrettyDecoded);
         if (stringUrl.endsWith(QLatin1String("svg")) ||
-            stringUrl.endsWith(QLatin1String("svgz"))) {
+            stringUrl.endsWith(QLatin1String("svgz")) ||
+            stringUrl.endsWith(QLatin1String("pdf"))) {
             setDevicePixelRatio = true;
         }
     }
@@ -208,6 +211,36 @@ bool QQuickImageBase::mirror() const
     return d->mirror;
 }
 
+void QQuickImageBase::setCurrentFrame(int frame)
+{
+    Q_D(QQuickImageBase);
+    if (frame == d->currentFrame || frame < 0 || (isComponentComplete() && frame >= d->pix.frameCount()))
+        return;
+
+    d->currentFrame = frame;
+
+    if (isComponentComplete()) {
+        if (frame > 0)
+            d->cache = false;
+        load();
+        update();
+    }
+
+    emit currentFrameChanged();
+}
+
+int QQuickImageBase::currentFrame() const
+{
+    Q_D(const QQuickImageBase);
+    return d->currentFrame;
+}
+
+int QQuickImageBase::frameCount() const
+{
+    Q_D(const QQuickImageBase);
+    return d->frameCount;
+}
+
 void QQuickImageBase::load()
 {
     Q_D(QQuickImageBase);
@@ -244,6 +277,9 @@ void QQuickImageBase::load()
         d->devicePixelRatio = 1.0;
 
         QUrl loadUrl = d->url;
+        QQmlEngine* engine = qmlEngine(this);
+        if (engine && engine->urlInterceptor())
+            loadUrl = engine->urlInterceptor()->intercept(loadUrl, QQmlAbstractUrlInterceptor::UrlString);
 
         bool updatedDevicePixelRatio = false;
         if (d->sourcesize.isValid())
@@ -255,7 +291,7 @@ void QQuickImageBase::load()
             resolve2xLocalFile(d->url, targetDevicePixelRatio, &loadUrl, &d->devicePixelRatio);
         }
 
-        d->pix.load(qmlEngine(this), loadUrl, d->sourcesize * d->devicePixelRatio, options, d->providerOptions);
+        d->pix.load(qmlEngine(this), loadUrl, d->sourcesize * d->devicePixelRatio, options, d->providerOptions, d->currentFrame, d->frameCount);
 
         if (d->pix.isLoading()) {
             if (d->progress != 0.0) {
@@ -314,6 +350,11 @@ void QQuickImageBase::requestFinished()
         d->oldAutoTransform = autoTransform();
         emitAutoTransformBaseChanged();
     }
+    if (d->frameCount != d->pix.frameCount()) {
+        d->frameCount = d->pix.frameCount();
+        emit frameCountChanged();
+    }
+
     update();
 }
 

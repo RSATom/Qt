@@ -23,7 +23,6 @@
 
 namespace views {
 
-const char Link::kViewClassName[] = "Link";
 constexpr int Link::kFocusBorderPadding;
 
 Link::Link(const base::string16& title, int text_context, int text_style)
@@ -33,8 +32,7 @@ Link::Link(const base::string16& title, int text_context, int text_style)
   Init();
 }
 
-Link::~Link() {
-}
+Link::~Link() = default;
 
 // static
 Link::FocusStyle Link::GetDefaultFocusStyle() {
@@ -61,19 +59,15 @@ void Link::PaintFocusRing(gfx::Canvas* canvas) const {
 gfx::Insets Link::GetInsets() const {
   gfx::Insets insets = Label::GetInsets();
   if (GetFocusStyle() == FocusStyle::RING &&
-      focus_behavior() != FocusBehavior::NEVER) {
-    DCHECK(!text().empty());
+      GetFocusBehavior() != FocusBehavior::NEVER) {
+    DCHECK(!GetText().empty());
     insets += gfx::Insets(kFocusBorderPadding);
   }
   return insets;
 }
 
-const char* Link::GetClassName() const {
-  return kViewClassName;
-}
-
 gfx::NativeCursor Link::GetCursor(const ui::MouseEvent& event) {
-  if (!enabled())
+  if (!GetEnabled())
     return gfx::kNullCursor;
   return GetNativeHandCursor();
 }
@@ -85,7 +79,7 @@ bool Link::CanProcessEventsWithinSubtree() const {
 }
 
 bool Link::OnMousePressed(const ui::MouseEvent& event) {
-  if (!enabled() ||
+  if (!GetEnabled() ||
       (!event.IsLeftMouseButton() && !event.IsMiddleMouseButton()))
     return false;
   SetPressed(true);
@@ -93,7 +87,7 @@ bool Link::OnMousePressed(const ui::MouseEvent& event) {
 }
 
 bool Link::OnMouseDragged(const ui::MouseEvent& event) {
-  SetPressed(enabled() &&
+  SetPressed(GetEnabled() &&
              (event.IsLeftMouseButton() || event.IsMiddleMouseButton()) &&
              HitTestPoint(event.location()));
   return true;
@@ -103,7 +97,7 @@ void Link::OnMouseReleased(const ui::MouseEvent& event) {
   // Change the highlight first just in case this instance is deleted
   // while calling the controller
   OnMouseCaptureLost();
-  if (enabled() &&
+  if (GetEnabled() &&
       (event.IsLeftMouseButton() || event.IsMiddleMouseButton()) &&
       HitTestPoint(event.location())) {
     // Focus the link on click.
@@ -138,7 +132,7 @@ bool Link::OnKeyPressed(const ui::KeyEvent& event) {
 }
 
 void Link::OnGestureEvent(ui::GestureEvent* event) {
-  if (!enabled())
+  if (!GetEnabled())
     return;
 
   if (event->type() == ui::ET_GESTURE_TAP_DOWN) {
@@ -167,11 +161,6 @@ void Link::GetAccessibleNodeData(ui::AXNodeData* node_data) {
   node_data->role = ax::mojom::Role::kLink;
 }
 
-void Link::OnEnabledChanged() {
-  RecalculateFont();
-  View::OnEnabledChanged();  // Jump over Label.
-}
-
 void Link::OnFocus() {
   Label::OnFocus();
   RecalculateFont();
@@ -196,8 +185,8 @@ void Link::SetText(const base::string16& text) {
   ConfigureFocus();
 }
 
-void Link::OnNativeThemeChanged(const ui::NativeTheme* theme) {
-  Label::OnNativeThemeChanged(theme);
+void Link::OnThemeChanged() {
+  Label::OnThemeChanged();
   Label::SetEnabledColor(GetColor());
 }
 
@@ -219,10 +208,13 @@ void Link::SetUnderline(bool underline) {
 }
 
 void Link::Init() {
-  listener_ = NULL;
+  listener_ = nullptr;
   pressed_ = false;
   underline_ = GetDefaultFocusStyle() != FocusStyle::UNDERLINE;
   RecalculateFont();
+
+  enabled_changed_subscription_ = AddEnabledChangedCallback(
+      base::BindRepeating(&Link::RecalculateFont, base::Unretained(this)));
 
   // Label::Init() calls SetText(), but if that's being called from Label(), our
   // SetText() override will not be reached (because the constructed class is
@@ -246,8 +238,9 @@ void Link::RecalculateFont() {
   const int style = font_list().GetFontStyle();
   const bool underline =
       underline_ || (HasFocus() && GetFocusStyle() == FocusStyle::UNDERLINE);
-  const int intended_style = (enabled() && underline) ?
-      (style | gfx::Font::UNDERLINE) : (style & ~gfx::Font::UNDERLINE);
+  const int intended_style = (GetEnabled() && underline)
+                                 ? (style | gfx::Font::UNDERLINE)
+                                 : (style & ~gfx::Font::UNDERLINE);
 
   if (style != intended_style)
     Label::SetFontList(font_list().DeriveWithStyle(intended_style));
@@ -255,7 +248,7 @@ void Link::RecalculateFont() {
 
 void Link::ConfigureFocus() {
   // Disable focusability for empty links.
-  if (text().empty()) {
+  if (GetText().empty()) {
     SetFocusBehavior(FocusBehavior::NEVER);
   } else {
 #if defined(OS_MACOSX)
@@ -270,7 +263,7 @@ SkColor Link::GetColor() {
   // TODO(tapted): Use style::GetColor().
   const ui::NativeTheme* theme = GetNativeTheme();
   DCHECK(theme);
-  if (!enabled())
+  if (!GetEnabled())
     return theme->GetSystemColor(ui::NativeTheme::kColorId_LinkDisabled);
 
   if (requested_enabled_color_set_)
@@ -280,5 +273,9 @@ SkColor Link::GetColor() {
       pressed_ ? ui::NativeTheme::kColorId_LinkPressed
                : ui::NativeTheme::kColorId_LinkEnabled);
 }
+
+BEGIN_METADATA(Link)
+METADATA_PARENT_CLASS(Label)
+END_METADATA()
 
 }  // namespace views

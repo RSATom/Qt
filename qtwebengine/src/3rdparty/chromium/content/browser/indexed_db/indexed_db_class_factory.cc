@@ -10,8 +10,8 @@
 #include "content/browser/indexed_db/indexed_db_factory.h"
 #include "content/browser/indexed_db/indexed_db_metadata_coding.h"
 #include "content/browser/indexed_db/indexed_db_transaction.h"
-#include "content/browser/indexed_db/leveldb/leveldb_iterator_impl.h"
-#include "content/browser/indexed_db/leveldb/leveldb_transaction.h"
+#include "content/browser/indexed_db/leveldb/transactional_leveldb_iterator_impl.h"
+#include "content/browser/indexed_db/leveldb/transactional_leveldb_transaction.h"
 
 namespace content {
 
@@ -30,40 +30,40 @@ IndexedDBClassFactory* IndexedDBClassFactory::Get() {
     return s_factory.Pointer();
 }
 
-scoped_refptr<IndexedDBDatabase> IndexedDBClassFactory::CreateIndexedDBDatabase(
+std::pair<std::unique_ptr<IndexedDBDatabase>, leveldb::Status>
+IndexedDBClassFactory::CreateIndexedDBDatabase(
     const base::string16& name,
-    scoped_refptr<IndexedDBBackingStore> backing_store,
-    scoped_refptr<IndexedDBFactory> factory,
+    IndexedDBBackingStore* backing_store,
+    IndexedDBFactory* factory,
+    IndexedDBDatabase::ErrorCallback error_callback,
+    base::OnceClosure destroy_me,
     std::unique_ptr<IndexedDBMetadataCoding> metadata_coding,
     const IndexedDBDatabase::Identifier& unique_identifier,
     ScopesLockManager* transaction_lock_manager) {
-  return new IndexedDBDatabase(name, backing_store, factory,
-                               std::move(metadata_coding), unique_identifier,
-                               transaction_lock_manager);
+  DCHECK(backing_store);
+  DCHECK(factory);
+  std::unique_ptr<IndexedDBDatabase> database =
+      base::WrapUnique(new IndexedDBDatabase(
+          name, backing_store, factory, this, std::move(error_callback),
+          std::move(destroy_me), std::move(metadata_coding), unique_identifier,
+          transaction_lock_manager));
+  leveldb::Status s = database->OpenInternal();
+  if (!s.ok())
+    database = nullptr;
+  return {std::move(database), s};
 }
 
 std::unique_ptr<IndexedDBTransaction>
 IndexedDBClassFactory::CreateIndexedDBTransaction(
     int64_t id,
     IndexedDBConnection* connection,
+    ErrorCallback error_callback,
     const std::set<int64_t>& scope,
     blink::mojom::IDBTransactionMode mode,
     IndexedDBBackingStore::Transaction* backing_store_transaction) {
-  return std::unique_ptr<IndexedDBTransaction>(new IndexedDBTransaction(
-      id, connection, scope, mode, backing_store_transaction));
-}
-
-scoped_refptr<LevelDBTransaction>
-IndexedDBClassFactory::CreateLevelDBTransaction(LevelDBDatabase* db) {
-  return new LevelDBTransaction(db);
-}
-
-std::unique_ptr<LevelDBIteratorImpl> IndexedDBClassFactory::CreateIteratorImpl(
-    std::unique_ptr<leveldb::Iterator> iterator,
-    LevelDBDatabase* db,
-    const leveldb::Snapshot* snapshot) {
   return base::WrapUnique(
-      new LevelDBIteratorImpl(std::move(iterator), db, snapshot));
+      new IndexedDBTransaction(id, connection, std::move(error_callback), scope,
+                               mode, backing_store_transaction));
 }
 
 }  // namespace content

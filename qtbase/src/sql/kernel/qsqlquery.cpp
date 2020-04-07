@@ -182,6 +182,9 @@ QSqlQueryPrivate::~QSqlQueryPrivate()
     You can retrieve the values of all the fields in a single variable
     (a map) using boundValues().
 
+    \note Not all SQL operations support binding values. Refer to your database
+    system's documentation to check their availability.
+
     \section1 Approaches to Binding Values
 
     Below we present the same example using each of the four
@@ -374,7 +377,7 @@ bool QSqlQuery::exec(const QString& query)
     QElapsedTimer t;
     t.start();
 #endif
-    if (d->ref.load() != 1) {
+    if (d->ref.loadRelaxed() != 1) {
         bool fo = isForwardOnly();
         *this = QSqlQuery(driver()->createResult());
         d->sqlResult->setNumericalPrecisionPolicy(d->sqlResult->numericalPrecisionPolicy());
@@ -960,7 +963,7 @@ void QSqlQuery::clear()
 */
 bool QSqlQuery::prepare(const QString& query)
 {
-    if (d->ref.load() != 1) {
+    if (d->ref.loadRelaxed() != 1) {
         bool fo = isForwardOnly();
         *this = QSqlQuery(driver()->createResult());
         setForwardOnly(fo);

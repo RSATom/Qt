@@ -300,7 +300,7 @@ bool DirectShowUtils::connectFilters(IGraphBuilder *graph,
     }
 
     IBaseFilter *nextFilter = nullptr;
-    while (S_OK == filters->Next(1, &nextFilter, 0)) {
+    while (S_OK == filters->Next(1, &nextFilter, nullptr)) {
         const ScopedSafeRelease<IBaseFilter> releaseNextFilter { &nextFilter };
         if (nextFilter && findAndConnect(nextFilter))
             return true;

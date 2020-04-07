@@ -61,7 +61,7 @@ QLowEnergyControllerPrivate::~QLowEnergyControllerPrivate()
 
 bool QLowEnergyControllerPrivate::isValidLocalAdapter()
 {
-#ifdef QT_WINRT_BLUETOOTH
+#if defined(QT_WINRT_BLUETOOTH) || defined(Q_OS_DARWIN)
     return true;
 #endif
     if (localAdapter.isNull())
@@ -105,6 +105,9 @@ void QLowEnergyControllerPrivate::setError(
         break;
     case QLowEnergyController::RemoteHostClosedError:
         errorString = QLowEnergyController::tr("Remote device closed the connection");
+        break;
+    case QLowEnergyController::AuthorizationError:
+        errorString = QLowEnergyController::tr("Failed to authorize on the remote device");
         break;
     case QLowEnergyController::NoError:
         return;

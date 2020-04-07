@@ -116,22 +116,6 @@ rtc_source_set("windowed_filter") {
   ]
 }
 if (rtc_include_tests) {
-  rtc_source_set("test_bbr_printer") {
-    testonly = true
-    sources = [
-      "test/bbr_printer.cc",
-      "test/bbr_printer.h",
-    ]
-    deps = [
-      ":bbr",
-      ":bbr_controller",
-      "..:test_controller_printer",
-      "../../../api/transport:network_control",
-      "../../../api/units:timestamp",
-      "../../../logging:rtc_event_log_api",
-      "../../../rtc_base:checks",
-    ]
-  }
   rtc_source_set("bbr_unittests") {
     testonly = true
     sources = [
@@ -160,9 +144,5 @@ if (rtc_include_tests) {
       "../../../test:test_support",
       "../../../test/scenario",
     ]
-    if (!build_with_chromium && is_clang) {
-      # Suppress warnings from the Chromium Clang plugin (bugs.webrtc.org/163).
-      suppressed_configs += [ "//build/config/clang:find_bad_constructs" ]
-    }
   }
 }

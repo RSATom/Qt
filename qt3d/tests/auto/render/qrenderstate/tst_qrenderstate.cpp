@@ -41,6 +41,7 @@
 #include <Qt3DRender/QBlendEquationArguments>
 #include <Qt3DRender/QColorMask>
 #include <Qt3DRender/QCullFace>
+#include <Qt3DRender/QDepthRange>
 #include <Qt3DRender/QDepthTest>
 #include <Qt3DRender/QDithering>
 #include <Qt3DRender/QFrontFace>
@@ -74,8 +75,8 @@ private:
     RenderStateNode* createBackendNode(QRenderState *frontend)
     {
         RenderStateNode *backend = m_renderStateManager.getOrCreateResource(frontend->id());
-        simulateInitialization(frontend, backend);
         backend->setRenderer(&m_renderer);
+        simulateInitializationSync(frontend, backend);
         return backend;
     }
 
@@ -169,6 +170,9 @@ private Q_SLOTS:
 
         addTestCase<QStencilMask>(StencilWriteStateMask, "frontOutputMask", &QStencilMask::setFrontOutputMask, 0x12, 0x34);
         addTestCase<QStencilMask>(StencilWriteStateMask, "backOutputMask", &QStencilMask::setBackOutputMask, 0x12, 0x34);
+
+        addTestCase<QDepthRange>(DepthRangeMask, "nearValue", &QDepthRange::setNearValue, 0.1, 0.2);
+        addTestCase<QDepthRange>(DepthRangeMask, "farValue", &QDepthRange::setFarValue, 0.5, 0.6);
     }
 
     void checkPropertyUpdates()
@@ -183,6 +187,7 @@ private Q_SLOTS:
         // THEN
         RenderStateNode *backend1 = createBackendNode(frontend1);
         RenderStateNode *backend2 = createBackendNode(frontend2);
+
         QVERIFY(backend1->type() == mask);
         QVERIFY(backend2->type() == mask);
         QVERIFY(backend1->impl() != backend2->impl());
@@ -196,18 +201,17 @@ private Q_SLOTS:
         QCoreApplication::processEvents();
 
         // THEN
-        QCOMPARE(arbiter.events.size(), 1);
-        QPropertyUpdatedChangePtr change = arbiter.events.first().staticCast<QPropertyUpdatedChange>();
-        QVERIFY(change->propertyName() == propertyName);
-        QCOMPARE(change->subjectId(), frontend1->id());
+        QCOMPARE(arbiter.events.size(), 0);
+        QCOMPARE(arbiter.dirtyNodes.size(), 1);
+        QCOMPARE(arbiter.dirtyNodes.front(), frontend1);
 
         // WHEN
-        backend1->sceneChangeEvent(change.staticCast<QSceneChange>());
+        backend1->syncFromFrontEnd(frontend1, false);
 
         // THEN
         QVERIFY(backend1->impl() == backend2->impl());
 
-        arbiter.events.clear();
+        arbiter.dirtyNodes.clear();
     }
 
     void checkStencilUpdates_data()
@@ -281,12 +285,12 @@ private Q_SLOTS:
         QCoreApplication::processEvents();
 
         // THEN
-        QCOMPARE(arbiter.events.size(), 1);
-        QPropertyUpdatedChangePtr change = arbiter.events.first().staticCast<QPropertyUpdatedChange>();
-        QCOMPARE(change->subjectId(), frontend1->id());
+        QCOMPARE(arbiter.events.size(), 0);
+        QCOMPARE(arbiter.dirtyNodes.size(), 1);
+        QCOMPARE(arbiter.dirtyNodes.front(), frontend1);
 
         // WHEN
-        backend1->sceneChangeEvent(change.staticCast<QSceneChange>());
+        backend1->syncFromFrontEnd(frontend1, false);
 
         // THEN
         QVERIFY(backend1->impl() == backend2->impl());

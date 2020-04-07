@@ -10,9 +10,10 @@ component("disks") {
   defines = [ "IS_CHROMEOS_DISKS_IMPL" ]
   deps = [
     "//base",
-    "//chromeos:chromeos_constants",
+    "//chromeos/constants",
     "//chromeos/dbus",
-    "//chromeos/dbus:power_manager_proto",
+    "//chromeos/dbus/power",
+    "//chromeos/dbus/power:power_manager_proto",
   ]
   sources = [
     "disk.cc",
@@ -32,8 +33,8 @@ source_set("test_support") {
   deps = [
     "//base",
     "//base/test:test_support",
-    "//chromeos/dbus:power_manager_proto",
     "//chromeos/dbus:test_support",
+    "//chromeos/dbus/power:power_manager_proto",
     "//testing/gmock",
     "//testing/gtest",
   ]
@@ -49,9 +50,10 @@ source_set("unit_tests") {
     ":disks",
     ":test_support",
     "//base/test:test_support",
-    "//chromeos:chromeos_constants",
-    "//chromeos/dbus:power_manager_proto",
+    "//chromeos/constants",
     "//chromeos/dbus:test_support",
+    "//chromeos/dbus/power",
+    "//chromeos/dbus/power:power_manager_proto",
     "//testing/gmock",
     "//testing/gtest",
   ]

@@ -139,7 +139,7 @@ private slots:
         QList<QByteArray> expected;
         expected << TestSensor::type << TestSensor2::type;
         QList<QByteArray> actual = QSensor::sensorTypes();
-        qSort(actual); // The actual list is not in a defined order
+        std::sort(actual.begin(), actual.end()); // The actual list is not in a defined order
         QCOMPARE(actual, expected);
     }
 
@@ -148,7 +148,7 @@ private slots:
         QList<QByteArray> expected;
         expected << "test sensor 2" << "test sensor 3" << testsensorimpl::id;
         QList<QByteArray> actual = QSensor::sensorsForType(TestSensor::type);
-        qSort(actual); // The actual list is not in a defined order
+        std::sort(actual.begin(), actual.end()); // The actual list is not in a defined order
         QCOMPARE(actual, expected);
     }
 
@@ -776,7 +776,7 @@ private slots:
         QList<QByteArray> expected;
         expected << TestSensor::type << TestSensor2::type;
         QList<QByteArray> actual = QSensor::sensorTypes();
-        qSort(actual); // The actual list is not in a defined order
+        std::sort(actual.begin(), actual.end()); // The actual list is not in a defined order
         QCOMPARE(actual, expected);
     }
 

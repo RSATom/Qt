@@ -20,11 +20,11 @@
 
 #include "perfetto/base/logging.h"
 #include "perfetto/base/task_runner.h"
-#include "perfetto/ipc/host.h"
-#include "perfetto/tracing/core/commit_data_request.h"
+#include "perfetto/ext/ipc/host.h"
+#include "perfetto/ext/tracing/core/commit_data_request.h"
+#include "perfetto/ext/tracing/core/tracing_service.h"
 #include "perfetto/tracing/core/data_source_config.h"
 #include "perfetto/tracing/core/data_source_descriptor.h"
-#include "perfetto/tracing/core/tracing_service.h"
 #include "src/tracing/ipc/posix_shared_memory.h"
 
 // The remote Producer(s) are not trusted. All the methods from the ProducerPort
@@ -65,10 +65,25 @@ void ProducerIPCService::InitializeConnection(
   // Create a new entry.
   std::unique_ptr<RemoteProducer> producer(new RemoteProducer());
 
+  TracingService::ProducerSMBScrapingMode smb_scraping_mode =
+      TracingService::ProducerSMBScrapingMode::kDefault;
+  switch (req.smb_scraping_mode()) {
+    case protos::InitializeConnectionRequest::SMB_SCRAPING_UNSPECIFIED:
+      break;
+    case protos::InitializeConnectionRequest::SMB_SCRAPING_DISABLED:
+      smb_scraping_mode = TracingService::ProducerSMBScrapingMode::kDisabled;
+      break;
+    case protos::InitializeConnectionRequest::SMB_SCRAPING_ENABLED:
+      smb_scraping_mode = TracingService::ProducerSMBScrapingMode::kEnabled;
+      break;
+  }
+
   // ConnectProducer will call OnConnect() on the next task.
   producer->service_endpoint = core_service_->ConnectProducer(
       producer.get(), client_info.uid(), req.producer_name(),
-      req.shared_memory_size_hint_bytes());
+      req.shared_memory_size_hint_bytes(),
+      /*in_process=*/false, smb_scraping_mode,
+      req.shared_memory_page_size_hint_bytes());
 
   // Could happen if the service has too many producers connected.
   if (!producer->service_endpoint)
@@ -212,6 +227,28 @@ void ProducerIPCService::CommitData(const protos::CommitDataRequest& proto_req,
   producer->service_endpoint->CommitData(req, callback);
 }
 
+void ProducerIPCService::NotifyDataSourceStarted(
+    const protos::NotifyDataSourceStartedRequest& request,
+    DeferredNotifyDataSourceStartedResponse response) {
+  RemoteProducer* producer = GetProducerForCurrentRequest();
+  if (!producer) {
+    PERFETTO_DLOG(
+        "Producer invoked NotifyDataSourceStarted() before "
+        "InitializeConnection()");
+    if (response.IsBound())
+      response.Reject();
+    return;
+  }
+  producer->service_endpoint->NotifyDataSourceStarted(request.data_source_id());
+
+  // NotifyDataSourceStopped shouldn't expect any meaningful response, avoid
+  // a useless IPC in that case.
+  if (response.IsBound()) {
+    response.Resolve(
+        ipc::AsyncResult<protos::NotifyDataSourceStartedResponse>::Create());
+  }
+}
+
 void ProducerIPCService::NotifyDataSourceStopped(
     const protos::NotifyDataSourceStoppedRequest& request,
     DeferredNotifyDataSourceStoppedResponse response) {
@@ -231,6 +268,29 @@ void ProducerIPCService::NotifyDataSourceStopped(
   if (response.IsBound()) {
     response.Resolve(
         ipc::AsyncResult<protos::NotifyDataSourceStoppedResponse>::Create());
+  }
+}
+
+void ProducerIPCService::ActivateTriggers(
+    const protos::ActivateTriggersRequest& proto_req,
+    DeferredActivateTriggersResponse resp) {
+  RemoteProducer* producer = GetProducerForCurrentRequest();
+  if (!producer) {
+    PERFETTO_DLOG(
+        "Producer invoked ActivateTriggers() before InitializeConnection()");
+    if (resp.IsBound())
+      resp.Reject();
+    return;
+  }
+  std::vector<std::string> triggers;
+  for (const auto& name : proto_req.trigger_names()) {
+    triggers.push_back(name);
+  }
+  producer->service_endpoint->ActivateTriggers(triggers);
+  // ActivateTriggers shouldn't expect any meaningful response, avoid
+  // a useless IPC in that case.
+  if (resp.IsBound()) {
+    resp.Resolve(ipc::AsyncResult<protos::ActivateTriggersResponse>::Create());
   }
 }
 
@@ -349,6 +409,23 @@ void ProducerIPCService::RemoteProducer::Flush(
   for (size_t i = 0; i < num_data_sources; i++)
     cmd->mutable_flush()->add_data_source_ids(data_source_ids[i]);
   cmd->mutable_flush()->set_request_id(flush_request_id);
+  async_producer_commands.Resolve(std::move(cmd));
+}
+
+void ProducerIPCService::RemoteProducer::ClearIncrementalState(
+    const DataSourceInstanceID* data_source_ids,
+    size_t num_data_sources) {
+  if (!async_producer_commands.IsBound()) {
+    PERFETTO_DLOG(
+        "The Service tried to request an incremental state invalidation, but "
+        "the remote Producer has not yet initialized the connection");
+    return;
+  }
+  auto cmd = ipc::AsyncResult<protos::GetAsyncCommandResponse>::Create();
+  cmd.set_has_more(true);
+  for (size_t i = 0; i < num_data_sources; i++)
+    cmd->mutable_clear_incremental_state()->add_data_source_ids(
+        data_source_ids[i]);
   async_producer_commands.Resolve(std::move(cmd));
 }
 

@@ -9,6 +9,8 @@ For details on the pak file format, see:
 https://dev.chromium.org/developers/design-documents/linuxresourcesandlocalizedstrings
 """
 
+from __future__ import print_function
+
 import argparse
 import hashlib
 import os
@@ -25,7 +27,7 @@ def _RepackMain(args):
 def _ExtractMain(args):
   pak = data_pack.ReadDataPack(args.pak_file)
 
-  for resource_id, payload in pak.resources.iteritems():
+  for resource_id, payload in pak.resources.items():
     path = os.path.join(args.output_dir, str(resource_id))
     with open(path, 'w') as f:
       f.write(payload)
@@ -136,13 +138,6 @@ def main():
       default=sys.stdout,
       help='The resource list path to write (default stdout)')
   sub_parser.set_defaults(func=_ListMain)
-
-  if len(sys.argv) == 1:
-    parser.print_help()
-    sys.exit(1)
-  elif len(sys.argv) == 2 and sys.argv[1] in actions:
-    parser.parse_args(sys.argv[1:] + ['-h'])
-    sys.exit(1)
 
   args = parser.parse_args()
   args.func(args)

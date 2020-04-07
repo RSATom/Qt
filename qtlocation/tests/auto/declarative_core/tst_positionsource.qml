@@ -28,7 +28,7 @@
 
 import QtQuick 2.0
 import QtTest 1.0
-import QtPositioning 5.2
+import QtPositioning 5.14
 
 TestCase {
     id: testCase
@@ -106,6 +106,26 @@ TestCase {
     SignalSpy { id: directionValidSpy; target: testingSource.position; signalName: "directionValidChanged" }
     SignalSpy { id: directionSpy; target: testingSource.position; signalName: "directionChanged" }
 
+    PositionSource {
+        id: testingSourceWParams
+        name: "test.source"
+        updateInterval: 1000
+        PluginParameter {
+            id: altitudeParameter
+            name: "test.source.altitude"
+            value: 42.42
+        }
+    }
+
+    SignalSpy { id: updateSpyWParams; target: testingSourceWParams; signalName: "positionChanged" }
+    SignalSpy { id: directionValidSpyWParams; target: testingSourceWParams.position; signalName: "directionValidChanged" }
+    SignalSpy { id: directionSpyWParams; target: testingSourceWParams.position; signalName: "directionChanged" }
+
+    PositionSource { id: testingSourceV1; name: "test.source.v1"; updateInterval: 1000 }
+    SignalSpy { id: updateSpyV1; target: testingSourceV1; signalName: "positionChanged" }
+    SignalSpy { id: directionValidSpyV1; target: testingSourceV1.position; signalName: "directionValidChanged" }
+    SignalSpy { id: directionSpyV1; target: testingSourceV1.position; signalName: "directionChanged" }
+
     function test_updateInterval() {
         testingSource.updateInterval = 1000;
         compare(testingSource.updateInterval, 1000);
@@ -125,40 +145,83 @@ TestCase {
     }
 
     function test_updates() {
-        updateSpy.clear();
+        updateSpyV1.clear();
 
-        compare(directionValidSpy.count, 0)
-        compare(directionSpy.count, 0)
+        compare(directionValidSpyV1.count, 0)
+        compare(directionSpyV1.count, 0)
 
-        testingSource.active = true;
+        testingSourceV1.active = true;
 
-        tryCompare(updateSpy, "count", 1, 1500);
-        compare(testingSource.position.coordinate.longitude, 0.1);
-        compare(testingSource.position.coordinate.latitude, 0.1);
-        compare(directionValidSpy.count, 1)
-        compare(directionSpy.count, 1)
-        fuzzyCompare(testingSource.position.direction, 45, 0.1)
-        verify(!testingSource.position.speedValid)
-        verify(isNaN(testingSource.position.speed))
+        tryCompare(updateSpyV1, "count", 1, 1500);
+        compare(testingSourceV1.position.coordinate.longitude, 0.1);
+        compare(testingSourceV1.position.coordinate.latitude, 0.1);
+        compare(directionValidSpyV1.count, 1)
+        compare(directionSpyV1.count, 1)
+        fuzzyCompare(testingSourceV1.position.direction, 45, 0.1)
+        verify(!testingSourceV1.position.speedValid)
+        verify(isNaN(testingSourceV1.position.speed))
 
-        tryCompare(updateSpy, "count", 2, 1500);
-        compare(testingSource.position.coordinate.longitude, 0.2);
-        compare(testingSource.position.coordinate.latitude, 0.2);
-        compare(directionValidSpy.count, 1)
-        compare(directionSpy.count, 2)
-        fuzzyCompare(testingSource.position.direction, 45, 0.1)
-        verify(testingSource.position.speedValid)
-        verify(testingSource.position.speed > 10000)
+        tryCompare(updateSpyV1, "count", 2, 1500);
+        compare(testingSourceV1.position.coordinate.longitude, 0.2);
+        compare(testingSourceV1.position.coordinate.latitude, 0.2);
+        compare(directionValidSpyV1.count, 1)
+        compare(directionSpyV1.count, 2)
+        fuzzyCompare(testingSourceV1.position.direction, 45, 0.1)
+        verify(testingSourceV1.position.speedValid)
+        verify(testingSourceV1.position.speed > 10000)
 
-        testingSource.active = false;
+        testingSourceV1.active = false;
         wait(2500);
-        compare(updateSpy.count, 2);
-        compare(testingSource.position.coordinate.longitude, 0.2);
-        compare(testingSource.position.coordinate.latitude, 0.2);
-        compare(directionValidSpy.count, 1)
-        compare(directionSpy.count, 2)
-        fuzzyCompare(testingSource.position.direction, 45, 0.1)
-        verify(testingSource.position.speedValid)
-        verify(testingSource.position.speed > 10000)
+        compare(updateSpyV1.count, 2);
+        compare(testingSourceV1.position.coordinate.longitude, 0.2);
+        compare(testingSourceV1.position.coordinate.latitude, 0.2);
+        compare(directionValidSpyV1.count, 1)
+        compare(directionSpyV1.count, 2)
+        fuzzyCompare(testingSourceV1.position.direction, 45, 0.1)
+        verify(testingSourceV1.position.speedValid)
+        verify(testingSourceV1.position.speed > 10000)
+    }
+
+    function test_updates_w_params() {
+        updateSpyWParams.clear();
+
+        compare(directionValidSpyWParams.count, 0)
+        compare(directionSpyWParams.count, 0)
+        compare(testingSourceWParams.backendProperty("altitude"), altitudeParameter.value)
+        testingSourceWParams.active = true;
+
+        tryCompare(updateSpyWParams, "count", 1, 1500);
+        compare(testingSourceWParams.position.coordinate.longitude, 0.1);
+        compare(testingSourceWParams.position.coordinate.latitude, 0.1);
+        compare(testingSourceWParams.position.coordinate.altitude, altitudeParameter.value);
+        compare(directionValidSpyWParams.count, 1)
+        compare(directionSpyWParams.count, 1)
+        fuzzyCompare(testingSourceWParams.position.direction, 45, 0.1)
+        verify(!testingSourceWParams.position.speedValid)
+        verify(isNaN(testingSourceWParams.position.speed))
+        testingSourceWParams.setBackendProperty("altitude", 24.24)
+
+        tryCompare(updateSpyWParams, "count", 2, 1500);
+        compare(testingSourceWParams.position.coordinate.longitude, 0.2);
+        compare(testingSourceWParams.position.coordinate.latitude, 0.2);
+        compare(testingSourceWParams.position.coordinate.altitude, 24.24);
+        compare(directionValidSpyWParams.count, 1)
+        compare(directionSpyWParams.count, 2)
+        fuzzyCompare(testingSourceWParams.position.direction, 45, 0.1)
+        verify(testingSourceWParams.position.speedValid)
+        verify(testingSourceWParams.position.speed > 10000)
+        compare(testingSourceWParams.backendProperty("altitude"), 24.24)
+
+        testingSourceWParams.active = false;
+        wait(2500);
+        compare(updateSpyWParams.count, 2);
+        compare(testingSourceWParams.position.coordinate.longitude, 0.2);
+        compare(testingSourceWParams.position.coordinate.latitude, 0.2);
+        compare(testingSourceWParams.position.coordinate.altitude, 24.24);
+        compare(directionValidSpyWParams.count, 1)
+        compare(directionSpyWParams.count, 2)
+        fuzzyCompare(testingSourceWParams.position.direction, 45, 0.1)
+        verify(testingSourceWParams.position.speedValid)
+        verify(testingSourceWParams.position.speed > 10000)
     }
 }

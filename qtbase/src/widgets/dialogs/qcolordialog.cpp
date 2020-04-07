@@ -57,6 +57,11 @@
 #include "qpainter.h"
 #include "qpixmap.h"
 #include "qpushbutton.h"
+#if QT_CONFIG(regularexpression)
+#include <qregularexpression.h>
+#else
+#include <qregexp.h>
+#endif
 #if QT_CONFIG(settings)
 #include "qsettings.h"
 #endif
@@ -341,7 +346,8 @@ void QWellArray::paintCell(QPainter* p, int row, int col, const QRect &rect)
 
     const QPalette & g = palette();
     QStyleOptionFrame opt;
-    int dfw = style()->pixelMetric(QStyle::PM_DefaultFrameWidth);
+    opt.initFrom(this);
+    int dfw = style()->pixelMetric(QStyle::PM_DefaultFrameWidth, &opt);
     opt.lineWidth = dfw;
     opt.midLineWidth = 1;
     opt.rect = rect.adjusted(b, b, -b, -b);
@@ -499,7 +505,7 @@ void QWellArray::keyPressEvent(QKeyEvent* e)
 // Event filter to be installed on the dialog while in color-picking mode.
 class QColorPickingEventFilter : public QObject {
 public:
-    explicit QColorPickingEventFilter(QColorDialogPrivate *dp, QObject *parent = 0) : QObject(parent), m_dp(dp) {}
+    explicit QColorPickingEventFilter(QColorDialogPrivate *dp, QObject *parent) : QObject(parent), m_dp(dp) {}
 
     bool eventFilter(QObject *, QEvent *event) override
     {
@@ -1606,7 +1612,7 @@ void QColorDialogPrivate::_q_pickScreenColor()
 {
     Q_Q(QColorDialog);
     if (!colorPickingEventFilter)
-        colorPickingEventFilter = new QColorPickingEventFilter(this);
+        colorPickingEventFilter = new QColorPickingEventFilter(this, q);
     q->installEventFilter(colorPickingEventFilter);
     // If user pushes Escape, the last color before picking will be restored.
     beforeScreenColorPicking = cs->currentColor();
@@ -1616,7 +1622,7 @@ void QColorDialogPrivate::_q_pickScreenColor()
     q->grabMouse();
 #endif
 
-#ifdef Q_OS_WIN32 // excludes WinCE and WinRT
+#ifdef Q_OS_WIN32 // excludes WinRT
     // On Windows mouse tracking doesn't work over other processes's windows
     updateTimer->start(30);
 

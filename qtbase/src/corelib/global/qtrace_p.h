@@ -122,6 +122,7 @@
 QT_BEGIN_NAMESPACE
 
 #if defined(Q_TRACEPOINT) && !defined(QT_BOOTSTRAPPED)
+#  define Q_HAS_TRACEPOINTS 1
 #  define Q_TRACE(x, ...) QtPrivate::trace_ ## x(__VA_ARGS__)
 #  define Q_TRACE_EXIT(x, ...) \
     const auto qTraceExit_ ## x ## __COUNTER__ = qScopeGuard([&]() { Q_TRACE(x, __VA_ARGS__); });
@@ -131,6 +132,7 @@ QT_BEGIN_NAMESPACE
 #  define Q_UNCONDITIONAL_TRACE(x, ...) QtPrivate::do_trace_ ## x(__VA_ARGS__)
 #  define Q_TRACE_ENABLED(x) QtPrivate::trace_ ## x ## _enabled()
 #else
+#  define Q_HAS_TRACEPOINTS 0
 #  define Q_TRACE(x, ...)
 #  define Q_TRACE_EXIT(x, ...)
 #  define Q_TRACE_SCOPE(x, ...)

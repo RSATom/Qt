@@ -16,6 +16,9 @@
 #include "build/build_config.h"
 
 #if defined(OS_POSIX)
+#if !defined(OS_NACL)
+#include <signal.h>
+#endif
 #include <unistd.h>
 #endif
 
@@ -38,9 +41,16 @@ namespace debug {
 // done in official builds because it has security implications).
 BASE_EXPORT bool EnableInProcessStackDumping();
 
-#if defined(OS_POSIX)
-BASE_EXPORT void SetStackDumpFirstChanceCallback(bool (*handler)(int,
-                                                                 void*,
+#if defined(OS_POSIX) && !defined(OS_NACL)
+// Sets a first-chance callback for the stack dump signal handler. This callback
+// is called at the beginning of the signal handler to handle special kinds of
+// signals, like out-of-bounds memory accesses in WebAssembly (WebAssembly Trap
+// Handler).
+// {SetStackDumpFirstChanceCallback} returns {true} if the callback
+// has been set correctly. It returns {false} if the stack dump signal handler
+// has not been registered with the OS, e.g. because of ASAN.
+BASE_EXPORT bool SetStackDumpFirstChanceCallback(bool (*handler)(int,
+                                                                 siginfo_t*,
                                                                  void*));
 #endif
 
@@ -108,15 +118,12 @@ class BASE_EXPORT StackTrace {
   void InitTrace(const _CONTEXT* context_record);
 #endif
 
-#if defined(OS_WIN) || defined(OS_ANDROID)
-  // From http://msdn.microsoft.com/en-us/library/bb204633.aspx,
-  // the sum of FramesToSkip and FramesToCapture must be less than 63,
-  // so set it to 62.
-  // Testing indicates that Android has issues with a larger value
-  // here, so leave Android at 62 also.
+#if defined(OS_ANDROID)
+  // TODO(https://crbug.com/925525): Testing indicates that Android has issues
+  // with a larger value here, so leave Android at 62.
   static constexpr int kMaxTraces = 62;
 #else
-  // For other architectures, use 250. This seems reasonable without
+  // For other platforms, use 250. This seems reasonable without
   // being huge.
   static constexpr int kMaxTraces = 250;
 #endif
@@ -126,6 +133,9 @@ class BASE_EXPORT StackTrace {
   // The number of valid frames in |trace_|.
   size_t count_;
 };
+
+// Forwards to StackTrace::OutputToStream().
+BASE_EXPORT std::ostream& operator<<(std::ostream& os, const StackTrace& s);
 
 // Record a stack trace with up to |count| frames into |trace|. Returns the
 // number of frames read.

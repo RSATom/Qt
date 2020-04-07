@@ -85,6 +85,7 @@ public:
 
 /*!
     \class QMediaServiceProviderHint
+    \obsolete
 
     \brief The QMediaServiceProviderHint class describes what is required of a QMediaService.
 
@@ -670,6 +671,7 @@ Q_GLOBAL_STATIC(QPluginServiceProvider, pluginProvider);
 
 /*!
     \class QMediaServiceProvider
+    \obsolete
     \ingroup multimedia
     \ingroup multimedia_control
     \ingroup multimedia_core
@@ -680,6 +682,7 @@ Q_GLOBAL_STATIC(QPluginServiceProvider, pluginProvider);
 */
 
 /*!
+    \internal
     \fn QMediaServiceProvider::requestService(const QByteArray &type, const QMediaServiceProviderHint &hint)
 
     Requests an instance of a \a type service which best matches the given \a
@@ -693,12 +696,14 @@ Q_GLOBAL_STATIC(QPluginServiceProvider, pluginProvider);
 */
 
 /*!
+    \internal
     \fn QMediaServiceProvider::releaseService(QMediaService *service)
 
     Releases a media \a service requested with requestService().
 */
 
 /*!
+    \internal
     \fn QMediaServiceProvider::supportedFeatures(const QMediaService *service) const
 
     Returns the features supported by a given \a service.
@@ -711,6 +716,7 @@ QMediaServiceProviderHint::Features QMediaServiceProvider::supportedFeatures(con
 }
 
 /*!
+    \internal
     Returns how confident a media service provider is that is can provide a \a
     serviceType service that is able to play media of a specific \a mimeType
     that is encoded using the listed \a codecs while adhering to constraints
@@ -730,6 +736,7 @@ QMultimedia::SupportEstimate QMediaServiceProvider::hasSupport(const QByteArray 
 }
 
 /*!
+    \internal
     \fn QStringList QMediaServiceProvider::supportedMimeTypes(const QByteArray &serviceType, int flags) const
 
     Returns a list of MIME types supported by the service provider for the
@@ -747,6 +754,7 @@ QStringList QMediaServiceProvider::supportedMimeTypes(const QByteArray &serviceT
 }
 
 /*!
+  \internal
   \since 5.3
 
   Returns the default device for a \a service type.
@@ -758,6 +766,7 @@ QByteArray QMediaServiceProvider::defaultDevice(const QByteArray &serviceType) c
 }
 
 /*!
+  \internal
   Returns the list of devices related to \a service type.
 */
 QList<QByteArray> QMediaServiceProvider::devices(const QByteArray &service) const
@@ -767,6 +776,7 @@ QList<QByteArray> QMediaServiceProvider::devices(const QByteArray &service) cons
 }
 
 /*!
+    \internal
     Returns the description of \a device related to \a serviceType, suitable for use by
     an application for display.
 */
@@ -778,6 +788,7 @@ QString QMediaServiceProvider::deviceDescription(const QByteArray &serviceType, 
 }
 
 /*!
+    \internal
     \since 5.3
 
     Returns the physical position of a camera \a device on the system hardware.
@@ -789,6 +800,7 @@ QCamera::Position QMediaServiceProvider::cameraPosition(const QByteArray &device
 }
 
 /*!
+    \internal
     \since 5.3
 
     Returns the physical orientation of the camera \a device. The value is the angle by which the
@@ -816,6 +828,7 @@ void QMediaServiceProvider::setDefaultServiceProvider(QMediaServiceProvider *pro
 
 
 /*!
+    \internal
     Returns a default provider of media services.
 */
 QMediaServiceProvider *QMediaServiceProvider::defaultServiceProvider()
@@ -827,6 +840,7 @@ QMediaServiceProvider *QMediaServiceProvider::defaultServiceProvider()
 
 /*!
     \class QMediaServiceProviderPlugin
+    \obsolete
     \inmodule QtMultimedia
     \brief The QMediaServiceProviderPlugin class interface provides an interface for QMediaService
     plug-ins.
@@ -854,6 +868,7 @@ QMediaServiceProvider *QMediaServiceProvider::defaultServiceProvider()
 
 /*!
     \class QMediaServiceSupportedFormatsInterface
+    \obsolete
     \inmodule QtMultimedia
     \brief The QMediaServiceSupportedFormatsInterface class interface
     identifies if a media service plug-in supports a media format.
@@ -882,6 +897,7 @@ QMediaServiceProvider *QMediaServiceProvider::defaultServiceProvider()
 
 /*!
     \class QMediaServiceSupportedDevicesInterface
+    \obsolete
     \inmodule QtMultimedia
     \brief The QMediaServiceSupportedDevicesInterface class interface
     identifies the devices supported by a media service plug-in.
@@ -909,6 +925,7 @@ QMediaServiceProvider *QMediaServiceProvider::defaultServiceProvider()
 
 /*!
     \class QMediaServiceDefaultDeviceInterface
+    \obsolete
     \inmodule QtMultimedia
     \brief The QMediaServiceDefaultDeviceInterface class interface
     identifies the default device used by a media service plug-in.
@@ -932,6 +949,7 @@ QMediaServiceProvider *QMediaServiceProvider::defaultServiceProvider()
 
 /*!
     \class QMediaServiceCameraInfoInterface
+    \obsolete
     \inmodule QtMultimedia
     \since 5.3
     \brief The QMediaServiceCameraInfoInterface class interface
@@ -961,6 +979,7 @@ QMediaServiceProvider *QMediaServiceProvider::defaultServiceProvider()
 
 /*!
     \class QMediaServiceFeaturesInterface
+    \obsolete
     \inmodule QtMultimedia
     \brief The QMediaServiceFeaturesInterface class interface identifies
     features supported by a media service plug-in.

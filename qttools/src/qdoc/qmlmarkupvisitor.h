@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2019 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the tools applications of the Qt Toolkit.
@@ -32,10 +32,11 @@
 #include "node.h"
 #include "tree.h"
 
-#include <qstring.h>
+#include <QtCore/qstring.h>
+
 #ifndef QT_NO_DECLARATIVE
-#include <private/qqmljsastvisitor_p.h>
-#include <private/qqmljsengine_p.h>
+#    include <private/qqmljsastvisitor_p.h>
+#    include <private/qqmljsengine_p.h>
 #endif
 
 QT_BEGIN_NAMESPACE
@@ -44,13 +45,9 @@ QT_BEGIN_NAMESPACE
 class QmlMarkupVisitor : public QQmlJS::AST::Visitor
 {
 public:
-    enum ExtraType{
-        Comment,
-        Pragma
-    };
+    enum ExtraType { Comment, Pragma };
 
-    QmlMarkupVisitor(const QString &code,
-                     const QList<QQmlJS::AST::SourceLocation> &pragmas,
+    QmlMarkupVisitor(const QString &code, const QVector<QQmlJS::AST::SourceLocation> &pragmas,
                      QQmlJS::Engine *engine);
     virtual ~QmlMarkupVisitor();
 
@@ -147,8 +144,7 @@ protected:
 private:
     typedef QHash<QString, QString> StringHash;
     void addExtra(quint32 start, quint32 finish);
-    void addMarkedUpToken(QQmlJS::AST::SourceLocation &location,
-                          const QString &text,
+    void addMarkedUpToken(QQmlJS::AST::SourceLocation &location, const QString &text,
                           const StringHash &attributes = StringHash());
     void addVerbatim(QQmlJS::AST::SourceLocation first,
                      QQmlJS::AST::SourceLocation last = QQmlJS::AST::SourceLocation());
@@ -157,7 +153,7 @@ private:
 
     QQmlJS::Engine *engine;
     QVector<ExtraType> extraTypes;
-    QList<QQmlJS::AST::SourceLocation> extraLocations;
+    QVector<QQmlJS::AST::SourceLocation> extraLocations;
     QString source;
     QString output;
     quint32 cursor;

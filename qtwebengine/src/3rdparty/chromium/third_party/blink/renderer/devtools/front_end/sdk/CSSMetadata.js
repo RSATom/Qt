@@ -73,8 +73,36 @@ SDK.CSSMetadata = class {
         }
       }
     }
-    this._values.sort();
+    this._values.sort(SDK.CSSMetadata._sortPrefixesToEnd);
     this._valuesSet = new Set(this._values);
+
+    /** @type {!Array<string>} */
+    this._nameValuePresets = [];
+    /** @type {!Array<string>} */
+    this._nameValuePresetsIncludingSVG = [];
+    for (const name of this._valuesSet) {
+      const values = this._specificPropertyValues(name)
+                         .filter(value => CSS.supports(name, value))
+                         .sort(SDK.CSSMetadata._sortPrefixesToEnd);
+      const presets = values.map(value => `${name}: ${value}`);
+      if (!this.isSVGProperty(name))
+        this._nameValuePresets.pushAll(presets);
+      this._nameValuePresetsIncludingSVG.pushAll(presets);
+    }
+  }
+
+  /**
+   * @param {string} a
+   * @param {string} b
+   */
+  static _sortPrefixesToEnd(a, b) {
+    const aIsPrefixed = a.startsWith('-webkit-');
+    const bIsPrefixed = b.startsWith('-webkit-');
+    if (aIsPrefixed && !bIsPrefixed)
+      return 1;
+    if (!aIsPrefixed && bIsPrefixed)
+      return -1;
+    return a < b ? -1 : (a > b ? 1 : 0);
   }
 
   /**
@@ -82,6 +110,14 @@ SDK.CSSMetadata = class {
    */
   allProperties() {
     return this._values;
+  }
+
+  /**
+   * @param {boolean=} includeSVG
+   * @return {!Array<string>}
+   */
+  nameValuePresets(includeSVG) {
+    return includeSVG ? this._nameValuePresetsIncludingSVG : this._nameValuePresets;
   }
 
   /**
@@ -116,6 +152,15 @@ SDK.CSSMetadata = class {
   isColorAwareProperty(propertyName) {
     return !!SDK.CSSMetadata._colorAwareProperties.has(propertyName.toLowerCase()) ||
         this.isCustomProperty(propertyName.toLowerCase());
+  }
+
+  /**
+   * @param {string} propertyName
+   * @return {boolean}
+   */
+  isGridAreaDefiningProperty(propertyName) {
+    propertyName = propertyName.toLowerCase();
+    return propertyName === 'grid' || propertyName === 'grid-template' || propertyName === 'grid-template-areas';
   }
 
   /**
@@ -188,24 +233,31 @@ SDK.CSSMetadata = class {
    * @param {string} propertyName
    * @return {!Array<string>}
    */
+  _specificPropertyValues(propertyName) {
+    const unprefixedName = propertyName.replace(/^-webkit-/, '');
+    const entry = SDK.CSSMetadata._propertyDataMap[propertyName] || SDK.CSSMetadata._propertyDataMap[unprefixedName];
+    const keywords = entry && entry.values ? entry.values.slice() : [];
+    for (const commonKeyword of ['auto', 'none']) {
+      if (CSS.supports(propertyName, commonKeyword))
+        keywords.push(commonKeyword);
+    }
+    return keywords;
+  }
+
+  /**
+   * @param {string} propertyName
+   * @return {!Array<string>}
+   */
   propertyValues(propertyName) {
     const acceptedKeywords = ['inherit', 'initial', 'unset'];
     propertyName = propertyName.toLowerCase();
-    const unprefixedName = propertyName.replace(/^-webkit-/, '');
-    const entry = SDK.CSSMetadata._propertyDataMap[propertyName] || SDK.CSSMetadata._propertyDataMap[unprefixedName];
-    if (entry && entry.values)
-      acceptedKeywords.pushAll(entry.values);
-    const commonKeywords = ['auto', 'none'];
-    for (const commonKeyword of commonKeywords) {
-      if (CSS.supports(propertyName, commonKeyword))
-        acceptedKeywords.push(commonKeyword);
-    }
+    acceptedKeywords.pushAll(this._specificPropertyValues(propertyName));
     if (this.isColorAwareProperty(propertyName)) {
       acceptedKeywords.push('currentColor');
       for (const color in Common.Color.Nicknames)
         acceptedKeywords.push(color);
     }
-    return acceptedKeywords.sort();
+    return acceptedKeywords.sort(SDK.CSSMetadata._sortPrefixesToEnd);
   }
 
   /**
@@ -215,10 +267,41 @@ SDK.CSSMetadata = class {
   propertyUsageWeight(property) {
     return SDK.CSSMetadata.Weight[property] || SDK.CSSMetadata.Weight[this.canonicalPropertyName(property)] || 0;
   }
+
+  /**
+   * @param {string} key
+   * @param {string} value
+   * @return {?{text: string, startColumn: number, endColumn: number}}
+   */
+  getValuePreset(key, value) {
+    const values = SDK.CSSMetadata._valuePresets.get(key);
+    let text = values ? values.get(value) : null;
+    if (!text)
+      return null;
+    let startColumn = text.length;
+    let endColumn = text.length;
+    if (text) {
+      startColumn = text.indexOf('|');
+      endColumn = text.lastIndexOf('|');
+      endColumn = startColumn === endColumn ? endColumn : endColumn - 1;
+      text = text.replace(/\|/g, '');
+    }
+    return {text, startColumn, endColumn};
+  }
 };
 
 SDK.CSSMetadata.VariableRegex = /(var\(--.*?\))/g;
 SDK.CSSMetadata.URLRegex = /url\(\s*('.+?'|".+?"|[^)]+)\s*\)/g;
+
+/**
+ * Matches an instance of a grid area 'row' definition.
+ * 'grid-template-areas', e.g.
+ *    "a a ."
+ *
+ * 'grid', 'grid-template', e.g.
+ *    [track-name] "a a ." minmax(50px, auto) [track-name]
+ */
+SDK.CSSMetadata.GridAreaRowRegex = /((?:\[[\w\- ]+\]\s*)*(?:"[^"]+"|'[^']+'))[^'"\[]*\[?[^'"\[]*/;
 
 /**
  * @return {!SDK.CSSMetadata}
@@ -228,6 +311,61 @@ SDK.cssMetadata = function() {
     SDK.CSSMetadata._instance = new SDK.CSSMetadata(SDK.CSSMetadata._generatedProperties || []);
   return SDK.CSSMetadata._instance;
 };
+
+/**
+ * The pipe character '|' indicates where text selection should be set.
+ */
+SDK.CSSMetadata._imageValuePresetMap = new Map([
+  ['linear-gradient', 'linear-gradient(|45deg, black, transparent|)'],
+  ['radial-gradient', 'radial-gradient(|black, transparent|)'],
+  ['repeating-linear-gradient', 'repeating-linear-gradient(|45deg, black, transparent 100px|)'],
+  ['repeating-radial-gradient', 'repeating-radial-gradient(|black, transparent 100px|)'],
+  ['url', 'url(||)'],
+]);
+
+SDK.CSSMetadata._valuePresets = new Map([
+  [
+    'filter', new Map([
+      ['blur', 'blur(|1px|)'],
+      ['brightness', 'brightness(|0.5|)'],
+      ['contrast', 'contrast(|0.5|)'],
+      ['drop-shadow', 'drop-shadow(|2px 4px 6px black|)'],
+      ['grayscale', 'grayscale(|1|)'],
+      ['hue-rotate', 'hue-rotate(|45deg|)'],
+      ['invert', 'invert(|1|)'],
+      ['opacity', 'opacity(|0.5|)'],
+      ['saturate', 'saturate(|0.5|)'],
+      ['sepia', 'sepia(|1|)'],
+      ['url', 'url(||)'],
+    ])
+  ],
+  ['background', SDK.CSSMetadata._imageValuePresetMap], ['background-image', SDK.CSSMetadata._imageValuePresetMap],
+  ['-webkit-mask-image', SDK.CSSMetadata._imageValuePresetMap],
+  [
+    'transform', new Map([
+      ['scale', 'scale(|1.5|)'],
+      ['scaleX', 'scaleX(|1.5|)'],
+      ['scaleY', 'scaleY(|1.5|)'],
+      ['scale3d', 'scale3d(|1.5, 1.5, 1.5|)'],
+      ['rotate', 'rotate(|45deg|)'],
+      ['rotateX', 'rotateX(|45deg|)'],
+      ['rotateY', 'rotateY(|45deg|)'],
+      ['rotateZ', 'rotateZ(|45deg|)'],
+      ['rotate3d', 'rotate3d(|1, 1, 1, 45deg|)'],
+      ['skew', 'skew(|10deg, 10deg|)'],
+      ['skewX', 'skewX(|10deg|)'],
+      ['skewY', 'skewY(|10deg|)'],
+      ['translate', 'translate(|10px, 10px|)'],
+      ['translateX', 'translateX(|10px|)'],
+      ['translateY', 'translateY(|10px|)'],
+      ['translateZ', 'translateZ(|10px|)'],
+      ['translate3d', 'translate3d(|10px, 10px, 10px|)'],
+      ['matrix', 'matrix(|1, 0, 0, 1, 0, 0|)'],
+      ['matrix3d', 'matrix3d(|1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1|)'],
+      ['perspective', 'perspective(|10px|)']
+    ])
+  ]
+]);
 
 SDK.CSSMetadata._distanceProperties = new Set([
   'background-position', 'border-spacing', 'bottom', 'font-size', 'height', 'left', 'letter-spacing', 'max-height',
@@ -301,7 +439,7 @@ SDK.CSSMetadata._propertyDataMap = {
   'background-repeat': {values: ['repeat', 'repeat-x', 'repeat-y', 'no-repeat', 'space', 'round']},
   'content': {values: ['normal', 'close-quote', 'no-close-quote', 'no-open-quote', 'open-quote']},
   'clear': {values: ['left', 'right', 'both']},
-  'overflow-x': {values: ['hidden', 'visible', 'overlay', 'scroll', '-webkit-paged-x', '-webkit-paged-y']},
+  'overflow-x': {values: ['hidden', 'visible', 'overlay', 'scroll']},
   'stroke-linejoin': {values: ['round', 'miter', 'bevel']},
   'baseline-shift': {values: ['baseline', 'sub', 'super']},
   'border-bottom-width': {values: ['medium', 'thick', 'thin']},
@@ -374,10 +512,10 @@ SDK.CSSMetadata._propertyDataMap = {
   'direction': {values: ['ltr', 'rtl']},
   'enable-background': {values: ['accumulate', 'new']},
   'float': {values: ['left', 'right']},
-  'overflow-y': {values: ['hidden', 'visible', 'overlay', 'scroll', '-webkit-paged-x', '-webkit-paged-y']},
+  'overflow-y': {values: ['hidden', 'visible', 'overlay', 'scroll']},
   'margin-bottom-collapse': {values: ['collapse', 'separate', 'discard']},
   'box-reflect': {values: ['left', 'right', 'above', 'below']},
-  'overflow': {values: ['hidden', 'visible', 'overlay', 'scroll', '-webkit-paged-x', '-webkit-paged-y']},
+  'overflow': {values: ['hidden', 'visible', 'overlay', 'scroll']},
   'overscroll-behavior': {values: ['contain']},
   'overscroll-behavior-x': {values: ['contain']},
   'overscroll-behavior-y': {values: ['contain']},
@@ -792,11 +930,33 @@ SDK.CSSMetadata._propertyDataMap = {
   'backface-visibility': {values: ['hidden', 'visible']},
   'background': {
     values: [
-      'repeat', 'repeat-x', 'repeat-y', 'no-repeat', 'top', 'bottom', 'left', 'right', 'center', 'fixed', 'local',
-      'scroll', 'space', 'round', 'border-box', 'content-box', 'padding-box'
+      'repeat',
+      'repeat-x',
+      'repeat-y',
+      'no-repeat',
+      'top',
+      'bottom',
+      'left',
+      'right',
+      'center',
+      'fixed',
+      'local',
+      'scroll',
+      'space',
+      'round',
+      'border-box',
+      'content-box',
+      'padding-box',
+      'linear-gradient',
+      'radial-gradient',
+      'repeating-linear-gradient',
+      'repeating-radial-gradient',
+      'url'
     ]
   },
   'background-attachment': {values: ['fixed', 'local', 'scroll']},
+  'background-image':
+      {values: ['linear-gradient', 'radial-gradient', 'repeating-linear-gradient', 'repeating-radial-gradient', 'url']},
   'background-position': {values: ['top', 'bottom', 'left', 'right', 'center']},
   'background-position-x': {values: ['left', 'right', 'center']},
   'background-position-y': {values: ['top', 'bottom', 'center']},
@@ -1038,6 +1198,8 @@ SDK.CSSMetadata._propertyDataMap = {
       'destination-out', 'destination-atop', 'xor', 'plus-lighter'
     ]
   },
+  '-webkit-mask-image':
+      {values: ['linear-gradient', 'radial-gradient', 'repeating-linear-gradient', 'repeating-radial-gradient', 'url']},
   '-webkit-mask-origin': {values: ['border', 'border-box', 'content', 'content-box', 'padding', 'padding-box']},
   '-webkit-mask-position': {values: ['top', 'bottom', 'left', 'right', 'center']},
   '-webkit-mask-position-x': {values: ['left', 'right', 'center']},

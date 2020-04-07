@@ -210,21 +210,31 @@ bool StructTraits<content::mojom::EventDataView, InputEventUniquePtr>::Read(
                 gesture_data->scroll_data->update_details->velocity_x;
             gesture_event->data.scroll_update.velocity_y =
                 gesture_data->scroll_data->update_details->velocity_y;
-            gesture_event->data.scroll_update
-                .previous_update_in_sequence_prevented =
-                gesture_data->scroll_data->update_details
-                    ->previous_update_in_sequence_prevented;
           }
           break;
       }
     }
 
-    gesture_event->SetNeedsWheelEvent(false);
+    if (gesture_data->pinch_begin_data &&
+        type == blink::WebInputEvent::Type::kGesturePinchBegin) {
+      gesture_event->data.pinch_begin.needs_wheel_event =
+          gesture_data->pinch_begin_data->needs_wheel_event;
+    }
 
-    if (gesture_data->pinch_data &&
+    if (gesture_data->pinch_update_data &&
         type == blink::WebInputEvent::Type::kGesturePinchUpdate) {
-      gesture_event->data.pinch_update.zoom_disabled = false;
-      gesture_event->data.pinch_update.scale = gesture_data->pinch_data->scale;
+      gesture_event->data.pinch_update.zoom_disabled =
+          gesture_data->pinch_update_data->zoom_disabled;
+      gesture_event->data.pinch_update.scale =
+          gesture_data->pinch_update_data->scale;
+      gesture_event->data.pinch_update.needs_wheel_event =
+          gesture_data->pinch_update_data->needs_wheel_event;
+    }
+
+    if (gesture_data->pinch_end_data &&
+        type == blink::WebInputEvent::Type::kGesturePinchEnd) {
+      gesture_event->data.pinch_end.needs_wheel_event =
+          gesture_data->pinch_end_data->needs_wheel_event;
     }
 
     if (gesture_data->tap_data) {
@@ -235,6 +245,8 @@ bool StructTraits<content::mojom::EventDataView, InputEventUniquePtr>::Read(
         case blink::WebInputEvent::Type::kGestureTapUnconfirmed:
         case blink::WebInputEvent::Type::kGestureDoubleTap:
           gesture_event->data.tap.tap_count = gesture_data->tap_data->tap_count;
+          gesture_event->data.tap.needs_wheel_event =
+              gesture_data->tap_data->needs_wheel_event;
           break;
       }
     }
@@ -429,8 +441,9 @@ StructTraits<content::mojom::EventDataView, InputEventUniquePtr>::gesture_data(
     case blink::WebInputEvent::Type::kGestureDoubleTap:
       gesture_data->contact_size = gfx::Size(gesture_event->data.tap.width,
                                              gesture_event->data.tap.height);
-      gesture_data->tap_data =
-          content::mojom::TapData::New(gesture_event->data.tap.tap_count);
+      gesture_data->tap_data = content::mojom::TapData::New(
+          gesture_event->data.tap.tap_count,
+          gesture_event->data.tap.needs_wheel_event);
       break;
     case blink::WebInputEvent::Type::kGestureLongPress:
     case blink::WebInputEvent::Type::kGestureLongTap:
@@ -468,9 +481,7 @@ StructTraits<content::mojom::EventDataView, InputEventUniquePtr>::gesture_data(
           gesture_event->data.scroll_update.inertial_phase, false, 0,
           content::mojom::ScrollUpdate::New(
               gesture_event->data.scroll_update.velocity_x,
-              gesture_event->data.scroll_update.velocity_y,
-              gesture_event->data.scroll_update
-                  .previous_update_in_sequence_prevented));
+              gesture_event->data.scroll_update.velocity_y));
       break;
     case blink::WebInputEvent::Type::kGestureFlingStart:
       gesture_data->fling_data = content::mojom::FlingData::New(
@@ -483,9 +494,19 @@ StructTraits<content::mojom::EventDataView, InputEventUniquePtr>::gesture_data(
           0, 0, gesture_event->data.fling_cancel.target_viewport,
           gesture_event->data.fling_cancel.prevent_boosting);
       break;
+    case blink::WebInputEvent::Type::kGesturePinchBegin:
+      gesture_data->pinch_begin_data = content::mojom::PinchBeginData::New(
+          gesture_event->data.pinch_begin.needs_wheel_event);
+      break;
     case blink::WebInputEvent::Type::kGesturePinchUpdate:
-      gesture_data->pinch_data = content::mojom::PinchData::New(
-          gesture_event->data.pinch_update.scale);
+      gesture_data->pinch_update_data = content::mojom::PinchUpdateData::New(
+          gesture_event->data.pinch_update.scale,
+          gesture_event->data.pinch_update.zoom_disabled,
+          gesture_event->data.pinch_update.needs_wheel_event);
+      break;
+    case blink::WebInputEvent::Type::kGesturePinchEnd:
+      gesture_data->pinch_end_data = content::mojom::PinchEndData::New(
+          gesture_event->data.pinch_end.needs_wheel_event);
       break;
   }
   return gesture_data;

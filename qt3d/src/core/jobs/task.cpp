@@ -57,6 +57,7 @@ RunnableInterface::~RunnableInterface()
 
 AspectTaskRunnable::AspectTaskRunnable()
     : m_pooler(nullptr)
+    , m_id(0)
     , m_reserved(false)
 {
 }
@@ -118,7 +119,7 @@ void SyncTaskRunnable::run()
     m_atomicCount->deref();
 
     // Wait for the other worker threads to be done
-    while (m_atomicCount->load() > 0)
+    while (m_atomicCount->loadRelaxed() > 0)
         QThread::currentThread()->yieldCurrentThread();
 
     if (m_pooler)

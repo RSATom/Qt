@@ -59,12 +59,12 @@ void PopulateBookmarkTreeNode(
     api::bookmarks::BookmarkTreeNode* out_bookmark_tree_node) {
   DCHECK(out_bookmark_tree_node);
 
-  out_bookmark_tree_node->id = base::Int64ToString(node->id());
+  out_bookmark_tree_node->id = base::NumberToString(node->id());
 
   const BookmarkNode* parent = node->parent();
   if (parent) {
     out_bookmark_tree_node->parent_id.reset(
-        new std::string(base::Int64ToString(parent->id())));
+        new std::string(base::NumberToString(parent->id())));
     out_bookmark_tree_node->index.reset(new int(parent->GetIndexOf(node)));
   }
 
@@ -93,11 +93,10 @@ void PopulateBookmarkTreeNode(
 
   if (recurse && node->is_folder()) {
     std::vector<BookmarkTreeNode> children;
-    for (int i = 0; i < node->child_count(); ++i) {
-      const BookmarkNode* child = node->GetChild(i);
+    for (const auto& child : node->children()) {
       if (child->IsVisible() && (!only_folders || child->is_folder())) {
         children.push_back(
-            GetBookmarkTreeNode(managed, child, true, only_folders));
+            GetBookmarkTreeNode(managed, child.get(), true, only_folders));
       }
     }
     out_bookmark_tree_node->children.reset(
@@ -137,7 +136,7 @@ bool RemoveNode(BookmarkModel* model,
     *error = bookmark_api_constants::kModifyManagedError;
     return false;
   }
-  if (node->is_folder() && !node->empty() && !recursive) {
+  if (node->is_folder() && !node->children().empty() && !recursive) {
     *error = bookmark_api_constants::kFolderNotEmptyError;
     return false;
   }
@@ -159,12 +158,11 @@ void GetMetaInfo(const BookmarkNode& node,
       value->SetKey(itr->first, base::Value(itr->second));
     }
   }
-  id_to_meta_info_map->Set(base::Int64ToString(node.id()), std::move(value));
+  id_to_meta_info_map->Set(base::NumberToString(node.id()), std::move(value));
 
   if (node.is_folder()) {
-    for (int i = 0; i < node.child_count(); ++i) {
-      GetMetaInfo(*(node.GetChild(i)), id_to_meta_info_map);
-    }
+    for (const auto& child : node.children())
+      GetMetaInfo(*child, id_to_meta_info_map);
   }
 }
 

@@ -27,9 +27,11 @@
 #define THIRD_PARTY_BLINK_RENDERER_MODULES_INDEXEDDB_IDB_OPEN_DB_REQUEST_H_
 
 #include <memory>
+
 #include "third_party/blink/renderer/modules/indexeddb/idb_request.h"
 #include "third_party/blink/renderer/modules/indexeddb/web_idb_database.h"
 #include "third_party/blink/renderer/modules/modules_export.h"
+#include "third_party/blink/renderer/platform/wtf/time.h"
 
 namespace blink {
 
@@ -39,14 +41,9 @@ class MODULES_EXPORT IDBOpenDBRequest final : public IDBRequest {
   DEFINE_WRAPPERTYPEINFO();
 
  public:
-  static IDBOpenDBRequest* Create(ScriptState*,
-                                  IDBDatabaseCallbacks*,
-                                  int64_t transaction_id,
-                                  int64_t version,
-                                  IDBRequest::AsyncTraceState metrics);
-
   IDBOpenDBRequest(ScriptState*,
                    IDBDatabaseCallbacks*,
+                   std::unique_ptr<WebIDBTransaction> transaction_backend,
                    int64_t transaction_id,
                    int64_t version,
                    IDBRequest::AsyncTraceState metrics);
@@ -63,14 +60,14 @@ class MODULES_EXPORT IDBOpenDBRequest final : public IDBRequest {
   void EnqueueResponse(std::unique_ptr<WebIDBDatabase>,
                        const IDBDatabaseMetadata&) override;
 
-  // PausableObject
+  // ContextLifecycleObserver
   void ContextDestroyed(ExecutionContext*) final;
 
   // EventTarget
   const AtomicString& InterfaceName() const override;
 
-  DEFINE_ATTRIBUTE_EVENT_LISTENER(blocked, kBlocked);
-  DEFINE_ATTRIBUTE_EVENT_LISTENER(upgradeneeded, kUpgradeneeded);
+  DEFINE_ATTRIBUTE_EVENT_LISTENER(blocked, kBlocked)
+  DEFINE_ATTRIBUTE_EVENT_LISTENER(upgradeneeded, kUpgradeneeded)
 
  protected:
   void EnqueueResponse(int64_t old_version) override;
@@ -82,8 +79,12 @@ class MODULES_EXPORT IDBOpenDBRequest final : public IDBRequest {
 
  private:
   Member<IDBDatabaseCallbacks> database_callbacks_;
+  std::unique_ptr<WebIDBTransaction> transaction_backend_;
   const int64_t transaction_id_;
   int64_t version_;
+
+  base::Time start_time_;
+  bool open_time_recorded_ = false;
 };
 
 }  // namespace blink

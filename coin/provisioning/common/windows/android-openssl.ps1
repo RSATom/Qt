@@ -1,6 +1,6 @@
 ############################################################################
 ##
-## Copyright (C) 2018 The Qt Company Ltd.
+## Copyright (C) 2019 The Qt Company Ltd.
 ## Contact: http://www.qt.io/licensing/
 ##
 ## This file is part of the provisioning scripts of the Qt Toolkit.
@@ -45,13 +45,13 @@ if (Is64BitWinHost) {
 # Msys need to be installed to target machine
 # More info and building instructions can be found from http://doc.qt.io/qt-5/opensslsupport.html
 
-$version = "1.1.1b"
+$version = "1.1.1d"
 $zip = Get-DownloadLocation ("openssl-$version.tar.gz")
-$sha1 = "e9710abf5e95c48ebf47991b10cbb48c09dae102"
+$sha1 = "056057782325134b76d1931c48f2c7e6595d7ef4"
 $destination = "C:\Utils\openssl-android-master"
 
 # msys unix style paths
-$ndkPath = "/c/Utils/Android/android-ndk-r19c"
+$ndkPath = "/c/Utils/Android/android-ndk-r20"
 $openssl_path = "/c/Utils/openssl-android-master"
 $cc_path = "$ndkPath/toolchains/llvm/prebuilt/windows-x86_64/bin"
 Download https://www.openssl.org/source/openssl-$version.tar.gz \\ci-files01-hki.intra.qt.io\provisioning\openssl\openssl-$version.tar.gz $zip
@@ -65,8 +65,25 @@ Remove-Item -Path $zip
 Write-Host "Configuring OpenSSL $version for Android..."
 Push-Location $destination
 # $ must be escaped in powershell...
-Start-Process -NoNewWindow -Wait -ErrorAction Stop -FilePath "$msys_bash" -ArgumentList ("-lc", "`"pushd $openssl_path; ANDROID_NDK_HOME=$ndkPath PATH=${cc_path}:`$PATH CC=clang $openssl_path/Configure shared android-arm`"")
-Start-Process -NoNewWindow -Wait -ErrorAction Stop -FilePath "$msys_bash" -ArgumentList ("-lc", "`"pushd $openssl_path; ANDROID_NDK_HOME=$ndkPath PATH=${cc_path}:`$PATH CC=clang make -f $openssl_path/Makefile build_generated`"")
+
+function CheckExitCode {
+
+    param (
+        $p
+    )
+
+    if ($p.ExitCode) {
+        Write-host "Process failed with exit code: $($p.ExitCode)"
+        exit 1
+    }
+}
+
+$configure = Start-Process -NoNewWindow -Wait -PassThru -ErrorAction Stop -FilePath "$msys_bash" -ArgumentList ("-lc", "`"pushd $openssl_path; ANDROID_NDK_HOME=$ndkPath PATH=${cc_path}:`$PATH CC=clang $openssl_path/Configure shared android-arm`"")
+CheckExitCode $configure
+
+$make = Start-Process -NoNewWindow -Wait -PassThru -ErrorAction Stop -FilePath "$msys_bash" -ArgumentList ("-lc", "`"pushd $openssl_path; ANDROID_NDK_HOME=$ndkPath PATH=${cc_path}:`$PATH CC=clang make -f $openssl_path/Makefile build_generated`"")
+CheckExitCode $make
+
 Pop-Location
 
 Set-EnvironmentVariable "OPENSSL_ANDROID_HOME" "$destination"

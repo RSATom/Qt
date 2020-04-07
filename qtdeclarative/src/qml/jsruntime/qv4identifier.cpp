@@ -39,29 +39,19 @@
 #include "qv4identifier_p.h"
 #include "qv4identifiertable_p.h"
 #include "qv4string_p.h"
+#include <private/qprimefornumbits_p.h>
 
 QT_BEGIN_NAMESPACE
 
 namespace QV4 {
-
-static const uchar prime_deltas[] = {
-    0,  0,  1,  3,  1,  5,  3,  3,  1,  9,  7,  5,  3,  9, 25,  3,
-    1, 21,  3, 21,  7, 15,  9,  5,  3, 29, 15,  0,  0,  0,  0,  0
-};
-
-static inline int primeForNumBits(int numBits)
-{
-    return (1 << numBits) + prime_deltas[numBits];
-}
-
 
 IdentifierHashData::IdentifierHashData(IdentifierTable *table, int numBits)
     : size(0)
     , numBits(numBits)
     , identifierTable(table)
 {
-    refCount.store(1);
-    alloc = primeForNumBits(numBits);
+    refCount.storeRelaxed(1);
+    alloc = qPrimeForNumBits(numBits);
     entries = (IdentifierHashEntry *)malloc(alloc*sizeof(IdentifierHashEntry));
     memset(entries, 0, alloc*sizeof(IdentifierHashEntry));
     identifierTable->addIdentifierHash(this);
@@ -72,7 +62,7 @@ IdentifierHashData::IdentifierHashData(IdentifierHashData *other)
     , numBits(other->numBits)
     , identifierTable(other->identifierTable)
 {
-    refCount.store(1);
+    refCount.storeRelaxed(1);
     alloc = other->alloc;
     entries = (IdentifierHashEntry *)malloc(alloc*sizeof(IdentifierHashEntry));
     memcpy(entries, other->entries, alloc*sizeof(IdentifierHashEntry));
@@ -92,7 +82,7 @@ IdentifierHash::IdentifierHash(ExecutionEngine *engine)
 
 void IdentifierHash::detach()
 {
-    if (!d || d->refCount == 1)
+    if (!d || d->refCount.loadAcquire() == 1)
         return;
     IdentifierHashData *newData = new IdentifierHashData(d);
     if (d && !d->refCount.deref())
@@ -110,7 +100,7 @@ IdentifierHashEntry *IdentifierHash::addEntry(PropertyKey identifier)
 
     if (grow) {
         ++d->numBits;
-        int newAlloc = primeForNumBits(d->numBits);
+        int newAlloc = qPrimeForNumBits(d->numBits);
         IdentifierHashEntry *newEntries = (IdentifierHashEntry *)malloc(newAlloc * sizeof(IdentifierHashEntry));
         memset(newEntries, 0, newAlloc*sizeof(IdentifierHashEntry));
         for (int i = 0; i < d->alloc; ++i) {

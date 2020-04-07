@@ -6,7 +6,7 @@
 
 #include "xfa/fxfa/parser/cxfa_binditems.h"
 
-#include "fxjs/xfa/cjx_binditems.h"
+#include "fxjs/xfa/cjx_node.h"
 #include "third_party/base/ptr_util.h"
 
 namespace {
@@ -16,7 +16,7 @@ const CXFA_Node::AttributeData kBindItemsAttributeData[] = {
     {XFA_Attribute::Connection, XFA_AttributeType::CData, nullptr},
     {XFA_Attribute::LabelRef, XFA_AttributeType::CData, nullptr},
     {XFA_Attribute::ValueRef, XFA_AttributeType::CData, nullptr},
-    {XFA_Attribute::Unknown, XFA_AttributeType::Integer, nullptr}};
+};
 
 }  // namespace
 
@@ -26,9 +26,9 @@ CXFA_BindItems::CXFA_BindItems(CXFA_Document* doc, XFA_PacketType packet)
                 (XFA_XDPPACKET_Template | XFA_XDPPACKET_Form),
                 XFA_ObjectType::Node,
                 XFA_Element::BindItems,
-                nullptr,
+                {},
                 kBindItemsAttributeData,
-                pdfium::MakeUnique<CJX_BindItems>(this)) {}
+                pdfium::MakeUnique<CJX_Node>(this)) {}
 
 CXFA_BindItems::~CXFA_BindItems() = default;
 

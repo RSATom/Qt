@@ -75,16 +75,20 @@
 # define QT_FEATURE_alloca_malloc_h -1
 #endif
 #define QT_CRYPTOGRAPHICHASH_ONLY_SHA1
-#define QT_FEATURE_cxx11_random (QT_HAS_INCLUDE(<random>) ? 1 : -1)
+#define QT_FEATURE_cxx11_random (__has_include(<random>) ? 1 : -1)
 #define QT_NO_DATASTREAM
 #define QT_FEATURE_datestring 1
 #define QT_FEATURE_datetimeparser -1
+#define QT_FEATURE_easingcurve -1
 #define QT_FEATURE_etw -1
-#define QT_FEATURE_getauxval (QT_HAS_INCLUDE(<sys/auxv.h>) ? 1 : -1)
+#define QT_FEATURE_getauxval (__has_include(<sys/auxv.h>) ? 1 : -1)
 #define QT_FEATURE_getentropy -1
 #define QT_NO_GEOM_VARIANT
+#define QT_FEATURE_hijricalendar -1
 #define QT_FEATURE_iconv -1
 #define QT_FEATURE_icu -1
+#define QT_FEATURE_islamiccivilcalendar -1
+#define QT_FEATURE_jalalicalendar -1
 #define QT_FEATURE_journald -1
 #define QT_FEATURE_futimens -1
 #define QT_FEATURE_futimes -1
@@ -105,6 +109,7 @@
 # define QT_FEATURE_renameat2 -1
 #endif
 #define QT_FEATURE_sharedmemory -1
+#define QT_FEATURE_signaling_nan -1
 #define QT_FEATURE_slog2 -1
 #ifdef __GLIBC_PREREQ
 # define QT_FEATURE_statx (__GLIBC_PREREQ(2, 28) ? 1 : -1)

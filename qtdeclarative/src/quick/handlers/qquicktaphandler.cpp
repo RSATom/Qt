@@ -78,8 +78,8 @@ int QQuickTapHandler::m_touchMultiTapDistanceSquared(-1);
     \l gesturePolicy to \c TapHandler.ReleaseWithinBounds.
 
     For multi-tap gestures (double-tap, triple-tap etc.), the distance moved
-    must not exceed QPlatformTheme::MouseDoubleClickDistance with mouse and
-    QPlatformTheme::TouchDoubleTapDistance with touch, and the time between
+    must not exceed QStyleHints::mouseDoubleClickDistance() with mouse and
+    QStyleHints::touchDoubleTapDistance() with touch, and the time between
     taps must not exceed QStyleHints::mouseDoubleClickInterval().
 
     \sa MouseArea
@@ -90,11 +90,9 @@ QQuickTapHandler::QQuickTapHandler(QQuickItem *parent)
 {
     if (m_mouseMultiClickDistanceSquared < 0) {
         m_multiTapInterval = qApp->styleHints()->mouseDoubleClickInterval() / 1000.0;
-        m_mouseMultiClickDistanceSquared = QGuiApplicationPrivate::platformTheme()->
-                    themeHint(QPlatformTheme::MouseDoubleClickDistance).toInt();
+        m_mouseMultiClickDistanceSquared = qApp->styleHints()->mouseDoubleClickDistance();
         m_mouseMultiClickDistanceSquared *= m_mouseMultiClickDistanceSquared;
-        m_touchMultiTapDistanceSquared = QGuiApplicationPrivate::platformTheme()->
-                    themeHint(QPlatformTheme::TouchDoubleTapDistance).toInt();
+        m_touchMultiTapDistanceSquared = qApp->styleHints()->touchDoubleTapDistance();
         m_touchMultiTapDistanceSquared *= m_touchMultiTapDistanceSquared;
     }
 }
@@ -141,17 +139,16 @@ bool QQuickTapHandler::wantsEventPoint(QQuickEventPoint *point)
         }
         break;
     case QQuickEventPoint::Stationary:
-        // Never react in any way when the point hasn't moved.
-        // In autotests, the point's position may not even be correct, because
-        // QTest::touchEvent(window, touchDevice).stationary(1)
-        // provides no opportunity to give a position, so it ends up being random.
+        // If the point hasn't moved since last time, the return value should be the same as last time.
+        // If we return false here, QQuickPointerHandler::handlePointerEvent() will call setActive(false).
+        ret = point->pointId() == this->point().id();
         break;
     }
     // If this is the grabber, returning false from this function will cancel the grab,
     // so onGrabChanged(this, CancelGrabExclusive, point) and setPressed(false) will be called.
     // But when m_gesturePolicy is DragThreshold, we don't get an exclusive grab, but
     // we still don't want to be pressed anymore.
-    if (!ret && point->pointId() == this->point().id() && point->state() != QQuickEventPoint::Stationary)
+    if (!ret && point->pointId() == this->point().id())
         setPressed(false, true, point);
     return ret;
 }
@@ -410,9 +407,9 @@ void QQuickTapHandler::updateTimeHeld()
     \since 5.11
 
     This signal is emitted when the \c parent Item is tapped twice within a
-    short span of time (QStyleHints::mouseDoubleClickInterval) and distance
-    (QPlatformTheme::MouseDoubleClickDistance or
-    QPlatformTheme::TouchDoubleTapDistance). This signal always occurs after
+    short span of time (QStyleHints::mouseDoubleClickInterval()) and distance
+    (QStyleHints::mouseDoubleClickDistance() or
+    QStyleHints::touchDoubleTapDistance()). This signal always occurs after
     \l singleTapped, \l tapped, and \l tapCountChanged. The \a eventPoint
     signal parameter contains information from the release event about the
     point that was tapped.

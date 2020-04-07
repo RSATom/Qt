@@ -108,13 +108,13 @@ TEST(WebRequestConditionAttributeTest, ResourceType) {
       GURL("http://www.example.com"), net::DEFAULT_PRIORITY, nullptr,
       TRAFFIC_ANNOTATION_FOR_TESTS));
   content::ResourceRequestInfo::AllocateForTesting(
-      url_request_ok.get(), content::RESOURCE_TYPE_SUB_FRAME,
+      url_request_ok.get(), content::ResourceType::kSubFrame,
       NULL,   // context
       -1,     // render_process_id
       -1,     // render_view_id
       -1,     // render_frame_id
       false,  // is_main_frame
-      true,   // allow_download
+      content::ResourceInterceptPolicy::kAllowAll,
       false,  // is_async
       content::PREVIEWS_OFF,
       nullptr);  // navigation_ui_data
@@ -126,13 +126,13 @@ TEST(WebRequestConditionAttributeTest, ResourceType) {
       GURL("http://www.example.com"), net::DEFAULT_PRIORITY, nullptr,
       TRAFFIC_ANNOTATION_FOR_TESTS));
   content::ResourceRequestInfo::AllocateForTesting(
-      url_request_fail.get(), content::RESOURCE_TYPE_MAIN_FRAME,
-      NULL,   // context
-      -1,     // render_process_id
-      -1,     // render_view_id
-      -1,     // render_frame_id
-      true,   // is_main_frame
-      true,   // allow_download
+      url_request_fail.get(), content::ResourceType::kMainFrame,
+      NULL,  // context
+      -1,    // render_process_id
+      -1,    // render_view_id
+      -1,    // render_frame_id
+      true,  // is_main_frame
+      content::ResourceInterceptPolicy::kAllowAll,
       false,  // is_async
       content::PREVIEWS_OFF,
       nullptr);  // navigation_ui_data

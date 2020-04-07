@@ -28,21 +28,24 @@ namespace dawn_native {
 
         // Helper functions to perform binding-type specific validation
 
-        MaybeError ValidateBufferBinding(const BindGroupBinding& binding,
+        MaybeError ValidateBufferBinding(const DeviceBase* device,
+                                         const BindGroupBinding& binding,
                                          dawn::BufferUsageBit requiredUsage) {
             if (binding.buffer == nullptr || binding.sampler != nullptr ||
                 binding.textureView != nullptr) {
                 return DAWN_VALIDATION_ERROR("expected buffer binding");
             }
+            DAWN_TRY(device->ValidateObject(binding.buffer));
 
-            uint32_t bufferSize = binding.buffer->GetSize();
-            if (binding.size > bufferSize) {
+            uint64_t bufferSize = binding.buffer->GetSize();
+            uint64_t bindingSize = (binding.size == dawn::kWholeSize) ? bufferSize : binding.size;
+            if (bindingSize > bufferSize) {
                 return DAWN_VALIDATION_ERROR("Buffer binding size larger than the buffer");
             }
 
             // Note that no overflow can happen because we already checked that
-            // bufferSize >= binding.size
-            if (binding.offset > bufferSize - binding.size) {
+            // bufferSize >= bindingSize
+            if (binding.offset > bufferSize - bindingSize) {
                 return DAWN_VALIDATION_ERROR("Buffer binding doesn't fit in the buffer");
             }
 
@@ -58,12 +61,14 @@ namespace dawn_native {
             return {};
         }
 
-        MaybeError ValidateTextureBinding(const BindGroupBinding& binding,
+        MaybeError ValidateTextureBinding(const DeviceBase* device,
+                                          const BindGroupBinding& binding,
                                           dawn::TextureUsageBit requiredUsage) {
             if (binding.textureView == nullptr || binding.sampler != nullptr ||
                 binding.buffer != nullptr) {
                 return DAWN_VALIDATION_ERROR("expected texture binding");
             }
+            DAWN_TRY(device->ValidateObject(binding.textureView));
 
             if (!(binding.textureView->GetTexture()->GetUsage() & requiredUsage)) {
                 return DAWN_VALIDATION_ERROR("texture binding usage mismatch");
@@ -72,34 +77,36 @@ namespace dawn_native {
             return {};
         }
 
-        MaybeError ValidateSamplerBinding(const BindGroupBinding& binding) {
+        MaybeError ValidateSamplerBinding(const DeviceBase* device,
+                                          const BindGroupBinding& binding) {
             if (binding.sampler == nullptr || binding.textureView != nullptr ||
                 binding.buffer != nullptr) {
                 return DAWN_VALIDATION_ERROR("expected sampler binding");
             }
+            DAWN_TRY(device->ValidateObject(binding.sampler));
+
             return {};
         }
 
     }  // anonymous namespace
 
-    MaybeError ValidateBindGroupDescriptor(DeviceBase*, const BindGroupDescriptor* descriptor) {
+    MaybeError ValidateBindGroupDescriptor(DeviceBase* device,
+                                           const BindGroupDescriptor* descriptor) {
         if (descriptor->nextInChain != nullptr) {
             return DAWN_VALIDATION_ERROR("nextInChain must be nullptr");
         }
 
-        if (descriptor->layout == nullptr) {
-            return DAWN_VALIDATION_ERROR("layout cannot be null");
-        }
+        DAWN_TRY(device->ValidateObject(descriptor->layout));
 
         const BindGroupLayoutBase::LayoutBindingInfo& layoutInfo =
             descriptor->layout->GetBindingInfo();
 
-        if (descriptor->numBindings != layoutInfo.mask.count()) {
+        if (descriptor->bindingCount != layoutInfo.mask.count()) {
             return DAWN_VALIDATION_ERROR("numBindings mismatch");
         }
 
         std::bitset<kMaxBindingsPerGroup> bindingsSet;
-        for (uint32_t i = 0; i < descriptor->numBindings; ++i) {
+        for (uint32_t i = 0; i < descriptor->bindingCount; ++i) {
             const BindGroupBinding& binding = descriptor->bindings[i];
             uint32_t bindingIndex = binding.binding;
 
@@ -120,16 +127,21 @@ namespace dawn_native {
             // Perform binding-type specific validation.
             switch (layoutInfo.types[bindingIndex]) {
                 case dawn::BindingType::UniformBuffer:
-                    DAWN_TRY(ValidateBufferBinding(binding, dawn::BufferUsageBit::Uniform));
+                    DAWN_TRY(ValidateBufferBinding(device, binding, dawn::BufferUsageBit::Uniform));
                     break;
                 case dawn::BindingType::StorageBuffer:
-                    DAWN_TRY(ValidateBufferBinding(binding, dawn::BufferUsageBit::Storage));
+                    DAWN_TRY(ValidateBufferBinding(device, binding, dawn::BufferUsageBit::Storage));
                     break;
                 case dawn::BindingType::SampledTexture:
-                    DAWN_TRY(ValidateTextureBinding(binding, dawn::TextureUsageBit::Sampled));
+                    DAWN_TRY(
+                        ValidateTextureBinding(device, binding, dawn::TextureUsageBit::Sampled));
                     break;
                 case dawn::BindingType::Sampler:
-                    DAWN_TRY(ValidateSamplerBinding(binding));
+                    DAWN_TRY(ValidateSamplerBinding(device, binding));
+                    break;
+                case dawn::BindingType::StorageTexture:
+                case dawn::BindingType::ReadonlyStorageBuffer:
+                    UNREACHABLE();
                     break;
             }
         }
@@ -148,7 +160,7 @@ namespace dawn_native {
 
     BindGroupBase::BindGroupBase(DeviceBase* device, const BindGroupDescriptor* descriptor)
         : ObjectBase(device), mLayout(descriptor->layout) {
-        for (uint32_t i = 0; i < descriptor->numBindings; ++i) {
+        for (uint32_t i = 0; i < descriptor->bindingCount; ++i) {
             const BindGroupBinding& binding = descriptor->bindings[i];
 
             uint32_t bindingIndex = binding.binding;
@@ -161,7 +173,9 @@ namespace dawn_native {
                 ASSERT(mBindings[bindingIndex].Get() == nullptr);
                 mBindings[bindingIndex] = binding.buffer;
                 mOffsets[bindingIndex] = binding.offset;
-                mSizes[bindingIndex] = binding.size;
+                uint64_t bufferSize =
+                    (binding.size == dawn::kWholeSize) ? binding.buffer->GetSize() : binding.size;
+                mSizes[bindingIndex] = bufferSize;
                 continue;
             }
 
@@ -179,30 +193,44 @@ namespace dawn_native {
         }
     }
 
+    BindGroupBase::BindGroupBase(DeviceBase* device, ObjectBase::ErrorTag tag)
+        : ObjectBase(device, tag) {
+    }
+
+    // static
+    BindGroupBase* BindGroupBase::MakeError(DeviceBase* device) {
+        return new BindGroupBase(device, ObjectBase::kError);
+    }
+
     const BindGroupLayoutBase* BindGroupBase::GetLayout() const {
+        ASSERT(!IsError());
         return mLayout.Get();
     }
 
     BufferBinding BindGroupBase::GetBindingAsBufferBinding(size_t binding) {
+        ASSERT(!IsError());
         ASSERT(binding < kMaxBindingsPerGroup);
         ASSERT(mLayout->GetBindingInfo().mask[binding]);
         ASSERT(mLayout->GetBindingInfo().types[binding] == dawn::BindingType::UniformBuffer ||
                mLayout->GetBindingInfo().types[binding] == dawn::BindingType::StorageBuffer);
-        BufferBase* buffer = reinterpret_cast<BufferBase*>(mBindings[binding].Get());
+        BufferBase* buffer = static_cast<BufferBase*>(mBindings[binding].Get());
         return {buffer, mOffsets[binding], mSizes[binding]};
     }
 
     SamplerBase* BindGroupBase::GetBindingAsSampler(size_t binding) {
+        ASSERT(!IsError());
         ASSERT(binding < kMaxBindingsPerGroup);
         ASSERT(mLayout->GetBindingInfo().mask[binding]);
         ASSERT(mLayout->GetBindingInfo().types[binding] == dawn::BindingType::Sampler);
-        return reinterpret_cast<SamplerBase*>(mBindings[binding].Get());
+        return static_cast<SamplerBase*>(mBindings[binding].Get());
     }
 
     TextureViewBase* BindGroupBase::GetBindingAsTextureView(size_t binding) {
+        ASSERT(!IsError());
         ASSERT(binding < kMaxBindingsPerGroup);
         ASSERT(mLayout->GetBindingInfo().mask[binding]);
         ASSERT(mLayout->GetBindingInfo().types[binding] == dawn::BindingType::SampledTexture);
-        return reinterpret_cast<TextureViewBase*>(mBindings[binding].Get());
+        return static_cast<TextureViewBase*>(mBindings[binding].Get());
     }
+
 }  // namespace dawn_native

@@ -34,6 +34,7 @@
 #include <stdint.h>
 #include "base/memory/scoped_refptr.h"
 #include "third_party/blink/renderer/platform/platform_export.h"
+#include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 #include "third_party/blink/renderer/platform/wtf/assertions.h"
 #include "third_party/blink/renderer/platform/wtf/ref_counted.h"
 #include "third_party/blink/renderer/platform/wtf/std_lib_extras.h"
@@ -51,6 +52,8 @@ constexpr size_t kCachedMetaDataStart = kCacheDataTypeStart + sizeof(uint32_t);
 // Serialized data is NOT portable across architectures. However, reading the
 // data type ID will reject data generated with a different byte-order.
 class PLATFORM_EXPORT CachedMetadata : public RefCounted<CachedMetadata> {
+  USING_FAST_MALLOC(CachedMetadata);
+
  public:
   static scoped_refptr<CachedMetadata> Create(uint32_t data_type_id,
                                               const uint8_t* data,
@@ -62,6 +65,8 @@ class PLATFORM_EXPORT CachedMetadata : public RefCounted<CachedMetadata> {
   static scoped_refptr<CachedMetadata> CreateFromSerializedData(
       const uint8_t* data,
       size_t);
+  static scoped_refptr<CachedMetadata> CreateFromSerializedData(
+      Vector<uint8_t> data);
 
   ~CachedMetadata() = default;
 
@@ -84,7 +89,7 @@ class PLATFORM_EXPORT CachedMetadata : public RefCounted<CachedMetadata> {
   }
 
  private:
-  CachedMetadata(const uint8_t* data, wtf_size_t);
+  explicit CachedMetadata(Vector<uint8_t> data);
   CachedMetadata(uint32_t data_type_id, const uint8_t* data, wtf_size_t);
 
   // Since the serialization format supports random access, storing it in

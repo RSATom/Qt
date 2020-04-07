@@ -126,8 +126,8 @@ int main(int argc, char* argv[])
     Qt3DRender::QGeometryRenderer *customMeshRenderer = new Qt3DRender::QGeometryRenderer;
     Qt3DRender::QGeometry *customGeometry = new Qt3DRender::QGeometry(customMeshRenderer);
 
-    vertexDataBuffer = new Qt3DRender::QBuffer(Qt3DRender::QBuffer::VertexBuffer, customGeometry);
-    Qt3DRender::QBuffer *indexDataBuffer = new Qt3DRender::QBuffer(Qt3DRender::QBuffer::IndexBuffer, customGeometry);
+    vertexDataBuffer = new Qt3DRender::QBuffer(customGeometry);
+    Qt3DRender::QBuffer *indexDataBuffer = new Qt3DRender::QBuffer(customGeometry);
 
     // vec3 for position
     // vec3 for colors
@@ -167,7 +167,7 @@ int main(int argc, char* argv[])
     QVector3D blue(0.0f, 0.0f, 1.0f);
     QVector3D white(1.0f, 1.0f, 1.0f);
 
-    QVector<QVector3D> vertices = QVector<QVector3D>()
+    const QVector<QVector3D> vertices = QVector<QVector3D>()
             << v0 << n0 << red
             << v1 << n1 << blue
             << v2 << n2 << green
@@ -176,7 +176,7 @@ int main(int argc, char* argv[])
     float *rawVertexArray = reinterpret_cast<float *>(vertexBufferData.data());
     int idx = 0;
 
-    Q_FOREACH (const QVector3D &v, vertices) {
+    for (const QVector3D &v : vertices) {
         rawVertexArray[idx++] = v.x();
         rawVertexArray[idx++] = v.y();
         rawVertexArray[idx++] = v.z();
@@ -211,8 +211,7 @@ int main(int argc, char* argv[])
     Qt3DRender::QAttribute *positionAttribute = new Qt3DRender::QAttribute();
     positionAttribute->setAttributeType(Qt3DRender::QAttribute::VertexAttribute);
     positionAttribute->setBuffer(vertexDataBuffer);
-    positionAttribute->setDataType(Qt3DRender::QAttribute::Float);
-    positionAttribute->setDataSize(3);
+    positionAttribute->setVertexSize(3);
     positionAttribute->setByteOffset(0);
     positionAttribute->setByteStride(9 * sizeof(float));
     positionAttribute->setCount(4);
@@ -221,8 +220,7 @@ int main(int argc, char* argv[])
     Qt3DRender::QAttribute *normalAttribute = new Qt3DRender::QAttribute();
     normalAttribute->setAttributeType(Qt3DRender::QAttribute::VertexAttribute);
     normalAttribute->setBuffer(vertexDataBuffer);
-    normalAttribute->setDataType(Qt3DRender::QAttribute::Float);
-    normalAttribute->setDataSize(3);
+    normalAttribute->setVertexSize(3);
     normalAttribute->setByteOffset(3 * sizeof(float));
     normalAttribute->setByteStride(9 * sizeof(float));
     normalAttribute->setCount(4);
@@ -231,8 +229,7 @@ int main(int argc, char* argv[])
     Qt3DRender::QAttribute *colorAttribute = new Qt3DRender::QAttribute();
     colorAttribute->setAttributeType(Qt3DRender::QAttribute::VertexAttribute);
     colorAttribute->setBuffer(vertexDataBuffer);
-    colorAttribute->setDataType(Qt3DRender::QAttribute::Float);
-    colorAttribute->setDataSize(3);
+    colorAttribute->setVertexSize(3);
     colorAttribute->setByteOffset(6 * sizeof(float));
     colorAttribute->setByteStride(9 * sizeof(float));
     colorAttribute->setCount(4);
@@ -241,8 +238,8 @@ int main(int argc, char* argv[])
     Qt3DRender::QAttribute *indexAttribute = new Qt3DRender::QAttribute();
     indexAttribute->setAttributeType(Qt3DRender::QAttribute::IndexAttribute);
     indexAttribute->setBuffer(indexDataBuffer);
-    indexAttribute->setDataType(Qt3DRender::QAttribute::UnsignedShort);
-    indexAttribute->setDataSize(1);
+    indexAttribute->setVertexBaseType(Qt3DRender::QAttribute::UnsignedShort);
+    indexAttribute->setVertexSize(1);
     indexAttribute->setByteOffset(0);
     indexAttribute->setByteStride(0);
     indexAttribute->setCount(12);
@@ -287,12 +284,12 @@ void TimerObject::timeout()
     QVector3D c2(qFabs(qSin(angle)), qFabs(qCos(angle + M_PI_4)), qFabs(qSin(angle + M_PI_4)));
     QVector3D c3(qFabs(qSin(angle + M_PI_4)), qFabs(qSin(angle)), qFabs(qCos(angle)));
 
-    QVector<QVector3D> colors = QVector<QVector3D>() << c1 << c2 << c3;
+    const QVector<QVector3D> colors = QVector<QVector3D>() << c1 << c2 << c3;
 
     float *rawVertexArray = reinterpret_cast<float *>(updateData.data());
 
     int pos = 6 * sizeof(float); //color offset
-    Q_FOREACH (const QVector3D &v, colors) {
+    for (const QVector3D &v : colors) {
         rawVertexArray[0] = v.x();
         rawVertexArray[1] = v.y();
         rawVertexArray[2] = v.z();

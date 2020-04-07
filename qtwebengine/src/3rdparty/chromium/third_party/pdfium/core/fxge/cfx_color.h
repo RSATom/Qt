@@ -7,15 +7,9 @@
 #ifndef CORE_FXGE_CFX_COLOR_H_
 #define CORE_FXGE_CFX_COLOR_H_
 
-#include "core/fxcrt/fx_string.h"
 #include "core/fxge/fx_dib.h"
 
-class CPDF_Array;
-
 struct CFX_Color {
-  static CFX_Color ParseColor(const CPDF_Array& array);
-  static CFX_Color ParseColor(const ByteString& str);
-
   // Ordered by increasing number of components.
   enum Type { kTransparent = 0, kGray, kRGB, kCMYK };
 
@@ -45,7 +39,7 @@ struct CFX_Color {
   CFX_Color operator/(float fColorDivide) const;
   CFX_Color operator-(float fColorSub) const;
 
-  CFX_Color ConvertColorType(int32_t other_nColorType) const;
+  CFX_Color ConvertColorType(int32_t nConvertColorType) const;
 
   FX_COLORREF ToFXColor(int32_t nTransparency) const;
 

@@ -72,17 +72,14 @@ class Q_AUTOTEST_EXPORT Scene : public BackendNode
 public:
     Scene();
 
-    void sceneChangeEvent(const Qt3DCore::QSceneChangePtr &e) override;
+    void syncFromFrontEnd(const Qt3DCore::QNode *frontEnd, bool firstTime) override;
     QUrl source() const;
-    void setSceneSubtree(Qt3DCore::QEntity *subTree);
     void setSceneManager(SceneManager *manager);
 
     void cleanup();
     void setStatus(QSceneLoader::Status status);
 
 private:
-    void initializeFromPeer(const Qt3DCore::QNodeCreatedChangeBasePtr &change) final;
-
     SceneManager *m_sceneManager;
     QUrl m_source;
 };

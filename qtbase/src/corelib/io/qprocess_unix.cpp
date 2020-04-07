@@ -89,6 +89,7 @@ QT_END_NAMESPACE
 #include "qprocess_p.h"
 #include "qstandardpaths.h"
 #include "private/qcore_unix_p.h"
+#include "private/qlocking_p.h"
 
 #ifdef Q_OS_MAC
 #include <private/qcore_mac_p.h>
@@ -202,8 +203,7 @@ static int qt_create_pipe(int *pipe)
         qt_safe_close(pipe[1]);
     int pipe_ret = qt_safe_pipe(pipe);
     if (pipe_ret != 0) {
-        qWarning("QProcessPrivate::createPipe: Cannot create pipe %p: %s",
-                 pipe, qPrintable(qt_error_string(errno)));
+        qErrnoWarning("QProcessPrivate::createPipe: Cannot create pipe %p", pipe);
     }
     return pipe_ret;
 }
@@ -405,7 +405,7 @@ void QProcessPrivate::startProcess()
             // CFBundle is not reentrant, since CFBundleCreate might return a reference
             // to a cached bundle object. Protect the bundle calls with a mutex lock.
             static QBasicMutex cfbundleMutex;
-            QMutexLocker lock(&cfbundleMutex);
+            const auto locker = qt_scoped_lock(cfbundleMutex);
             QCFType<CFBundleRef> bundle = CFBundleCreate(0, url);
             // 'executableURL' can be either relative or absolute ...
             QCFType<CFURLRef> executableURL = CFBundleCopyExecutableURL(bundle);
@@ -439,7 +439,6 @@ void QProcessPrivate::startProcess()
     int envc = 0;
     char **envp = 0;
     if (environment.d.constData()) {
-        QProcessEnvironmentPrivate::MutexLocker locker(environment.d);
         envp = _q_dupEnvironment(environment.d.constData()->vars, &envc);
     }
 
@@ -473,7 +472,7 @@ void QProcessPrivate::startProcess()
     if (forkfd == -1) {
         // Cleanup, report error and return
 #if defined (QPROCESS_DEBUG)
-        qDebug("fork failed: %s", qPrintable(qt_error_string(lastForkErrno)));
+        qDebug("fork failed: %ls", qUtf16Printable(qt_error_string(lastForkErrno)));
 #endif
         q->setProcessState(QProcess::NotRunning);
         setErrorAndEmit(QProcess::FailedToStart,
@@ -518,7 +517,7 @@ void QProcessPrivate::startProcess()
     if (stderrChannel.pipe[0] != -1)
         ::fcntl(stderrChannel.pipe[0], F_SETFL, ::fcntl(stderrChannel.pipe[0], F_GETFL) | O_NONBLOCK);
 
-    if (threadData->eventDispatcher) {
+    if (threadData->eventDispatcher.loadAcquire()) {
         deathNotifier = new QSocketNotifier(forkfd, QSocketNotifier::Read, q);
         QObject::connect(deathNotifier, SIGNAL(activated(int)),
                          q, SLOT(_q_processDied()));
@@ -652,7 +651,7 @@ bool QProcessPrivate::writeToStdin()
     qDebug("QProcessPrivate::writeToStdin(), write(%p \"%s\", %lld) == %lld",
            data, qt_prettyDebug(data, bytesToWrite, 16).constData(), bytesToWrite, written);
     if (written == -1)
-        qDebug("QProcessPrivate::writeToStdin(), failed to write (%s)", qPrintable(qt_error_string(errno)));
+        qDebug("QProcessPrivate::writeToStdin(), failed to write (%ls)", qUtf16Printable(qt_error_string(errno)));
 #endif
     if (written == -1) {
         // If the O_NONBLOCK flag is set and If some data can be written without blocking
@@ -971,7 +970,6 @@ bool QProcessPrivate::startDetached(qint64 *pid)
             int envc = 0;
             char **envp = nullptr;
             if (environment.d.constData()) {
-                QProcessEnvironmentPrivate::MutexLocker locker(environment.d);
                 envp = _q_dupEnvironment(environment.d.constData()->vars, &envc);
             }
 

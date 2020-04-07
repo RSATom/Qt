@@ -82,7 +82,8 @@ _FAILURE_NAME_TO_FAILURE_CONSTRUCTOR = {
 
 def MapSingleTrace(trace_handle,
                    job,
-                   extra_import_options=None):
+                   extra_import_options=None,
+                   timeout=None):
   assert (isinstance(extra_import_options, (type(None), dict))), (
       'extra_import_options should be a dict or None.')
   project = tracing_project.TracingProject()
@@ -107,11 +108,20 @@ def MapSingleTrace(trace_handle,
     else:
       v8_args = ['--max-old-space-size=8192']
 
-    res = vinn.RunFile(
-        _MAP_SINGLE_TRACE_CMDLINE_PATH,
-        source_paths=all_source_paths,
-        js_args=js_args,
-        v8_args=v8_args)
+    try:
+      res = vinn.RunFile(
+          _MAP_SINGLE_TRACE_CMDLINE_PATH,
+          source_paths=all_source_paths,
+          js_args=js_args,
+          v8_args=v8_args,
+          timeout=timeout)
+    except RuntimeError as e:
+      result.AddFailure(failure.Failure(
+          job,
+          trace_handle.canonical_url,
+          'Error', 'vinn runtime error while mapping trace.',
+          e.message, 'Unknown stack'))
+      return result
 
   stdout = res.stdout
   if not isinstance(stdout, str):

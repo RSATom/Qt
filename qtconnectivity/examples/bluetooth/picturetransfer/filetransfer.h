@@ -59,7 +59,7 @@ class FileTransfer : public QObject
     Q_OBJECT
     Q_PROPERTY(float progress READ getProgress NOTIFY progressChanged)
 public:
-    explicit FileTransfer(QObject *parent = 0);
+    explicit FileTransfer(QObject *parent = nullptr);
     float getProgress() { return m_progress;}
 
 signals:

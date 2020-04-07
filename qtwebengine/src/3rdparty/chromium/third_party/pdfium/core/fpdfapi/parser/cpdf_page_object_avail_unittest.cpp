@@ -15,8 +15,8 @@
 #include "core/fpdfapi/parser/cpdf_reference.h"
 #include "core/fpdfapi/parser/cpdf_string.h"
 #include "core/fxcrt/fx_stream.h"
-#include "testing/fx_string_testhelpers.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "testing/invalid_seekable_read_stream.h"
 #include "third_party/base/ptr_util.h"
 
 namespace {
@@ -30,9 +30,8 @@ class TestReadValidator final : public CPDF_ReadValidator {
 
  private:
   TestReadValidator()
-      : CPDF_ReadValidator(
-            pdfium::MakeRetain<CFX_InvalidSeekableReadStream>(100),
-            nullptr) {}
+      : CPDF_ReadValidator(pdfium::MakeRetain<InvalidSeekableReadStream>(100),
+                           nullptr) {}
   ~TestReadValidator() override {}
 };
 
@@ -56,13 +55,13 @@ class TestHolder final : public CPDF_IndirectObjectHolder {
       validator_->SimulateReadError();
       return nullptr;
     }
-    return obj_data.object.get();
+    return obj_data.object.Get();
   }
 
   RetainPtr<CPDF_ReadValidator> GetValidator() { return validator_; }
 
   void AddObject(uint32_t objnum,
-                 std::unique_ptr<CPDF_Object> object,
+                 RetainPtr<CPDF_Object> object,
                  ObjectState state) {
     ObjectData object_data;
     object_data.object = std::move(object);
@@ -82,12 +81,12 @@ class TestHolder final : public CPDF_IndirectObjectHolder {
     auto it = objects_data_.find(objnum);
     if (it == objects_data_.end())
       return nullptr;
-    return it->second.object.get();
+    return it->second.object.Get();
   }
 
  private:
   struct ObjectData {
-    std::unique_ptr<CPDF_Object> object;
+    RetainPtr<CPDF_Object> object;
     ObjectState state = ObjectState::Unavailable;
   };
   std::map<uint32_t, ObjectData> objects_data_;
@@ -98,26 +97,26 @@ class TestHolder final : public CPDF_IndirectObjectHolder {
 
 TEST(CPDF_PageObjectAvailTest, ExcludePages) {
   TestHolder holder;
-  holder.AddObject(1, pdfium::MakeUnique<CPDF_Dictionary>(),
+  holder.AddObject(1, pdfium::MakeRetain<CPDF_Dictionary>(),
                    TestHolder::ObjectState::Available);
   holder.GetTestObject(1)->GetDict()->SetNewFor<CPDF_Reference>("Kids", &holder,
                                                                 2);
-  holder.AddObject(2, pdfium::MakeUnique<CPDF_Array>(),
+  holder.AddObject(2, pdfium::MakeRetain<CPDF_Array>(),
                    TestHolder::ObjectState::Available);
   holder.GetTestObject(2)->AsArray()->AddNew<CPDF_Reference>(&holder, 3);
 
-  holder.AddObject(3, pdfium::MakeUnique<CPDF_Dictionary>(),
+  holder.AddObject(3, pdfium::MakeRetain<CPDF_Dictionary>(),
                    TestHolder::ObjectState::Available);
   holder.GetTestObject(3)->GetDict()->SetFor(
-      "Type", pdfium::MakeUnique<CPDF_String>(nullptr, "Page", false));
+      "Type", pdfium::MakeRetain<CPDF_String>(nullptr, "Page", false));
   holder.GetTestObject(3)->GetDict()->SetNewFor<CPDF_Reference>("OtherPageData",
                                                                 &holder, 4);
   // Add unavailable object related to other page.
   holder.AddObject(
-      4, pdfium::MakeUnique<CPDF_String>(nullptr, "Other page data", false),
+      4, pdfium::MakeRetain<CPDF_String>(nullptr, "Other page data", false),
       TestHolder::ObjectState::Unavailable);
 
-  CPDF_PageObjectAvail avail(holder.GetValidator().Get(), &holder, 1);
+  CPDF_PageObjectAvail avail(holder.GetValidator(), &holder, 1);
   // Now object should be available, although the object '4' is not available,
   // because it is in skipped other page.
   EXPECT_EQ(CPDF_DataAvail::DocAvailStatus::DataAvailable, avail.CheckAvail());

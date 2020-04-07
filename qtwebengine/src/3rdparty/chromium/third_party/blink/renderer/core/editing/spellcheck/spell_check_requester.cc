@@ -38,7 +38,7 @@
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/frame/settings.h"
 #include "third_party/blink/renderer/core/html/forms/text_control_element.h"
-#include "third_party/blink/renderer/platform/histogram.h"
+#include "third_party/blink/renderer/platform/instrumentation/histogram.h"
 
 namespace blink {
 
@@ -61,19 +61,18 @@ class WebTextCheckingCompletionImpl : public WebTextCheckingCompletion {
       const WebVector<WebTextCheckingResult>& results) override {
     if (request_)
       request_->DidSucceed(ToCoreResults(results));
-    delete this;
+    request_ = nullptr;
   }
 
   void DidCancelCheckingText() override {
     if (request_)
       request_->DidCancel();
-    // TODO(dgozman): use std::unique_ptr.
-    delete this;
+    request_ = nullptr;
   }
 
- private:
-  virtual ~WebTextCheckingCompletionImpl() = default;
+  ~WebTextCheckingCompletionImpl() override = default;
 
+ private:
   // As |WebTextCheckingCompletionImpl| is mananaged outside Blink, it should
   // only keep weak references to Blink objects to prevent memory leaks.
   WeakPersistent<SpellCheckRequest> request_;
@@ -96,7 +95,7 @@ SpellCheckRequest::SpellCheckRequest(Range* checking_range,
 
 SpellCheckRequest::~SpellCheckRequest() = default;
 
-void SpellCheckRequest::Trace(blink::Visitor* visitor) {
+void SpellCheckRequest::Trace(Visitor* visitor) {
   visitor->Trace(requester_);
   visitor->Trace(checking_range_);
   visitor->Trace(root_editable_element_);
@@ -199,8 +198,8 @@ bool SpellCheckRequester::RequestCheckingFor(const EphemeralRange& range,
   if (!request)
     return false;
 
-  const TimeTicks current_request_time = CurrentTimeTicks();
-  if (request_num == 0 && last_request_time_ > TimeTicks()) {
+  const base::TimeTicks current_request_time = base::TimeTicks::Now();
+  if (request_num == 0 && last_request_time_ > base::TimeTicks()) {
     UMA_HISTOGRAM_TIMES("WebCore.SpellChecker.RequestInterval",
                         current_request_time - last_request_time_);
   }
@@ -227,16 +226,14 @@ void SpellCheckRequester::CancelCheck() {
     processing_request_->DidCancel();
 }
 
-void SpellCheckRequester::PrepareForLeakDetection() {
+void SpellCheckRequester::Deactivate() {
   timer_to_process_queued_request_.Stop();
-  // Empty the queue of pending requests to prevent it being a leak source.
-  // Pending spell checker requests are cancellable requests not representing
-  // leaks, just async work items waiting to be processed.
-  //
-  // Rather than somehow wait for this async queue to drain before running
-  // the leak detector, they're all cancelled to prevent flaky leaks being
-  // reported.
+  // Empty all pending requests to prevent them from being a leak source, as the
+  // requests may hold reference to a closed document.
   request_queue_.clear();
+  // Must be called after clearing the queue. Otherwise, another request from
+  // the queue will be invoked.
+  CancelCheck();
 }
 
 void SpellCheckRequester::InvokeRequest(SpellCheckRequest* request) {
@@ -245,7 +242,7 @@ void SpellCheckRequester::InvokeRequest(SpellCheckRequest* request) {
   if (WebTextCheckClient* text_checker_client = GetTextCheckerClient()) {
     text_checker_client->RequestCheckingOfText(
         processing_request_->GetText(),
-        new WebTextCheckingCompletionImpl(request));
+        std::make_unique<WebTextCheckingCompletionImpl>(request));
   }
 }
 
@@ -300,7 +297,7 @@ void SpellCheckRequester::DidCheck(int sequence) {
 
   ClearProcessingRequest();
   if (!request_queue_.IsEmpty())
-    timer_to_process_queued_request_.StartOneShot(TimeDelta(), FROM_HERE);
+    timer_to_process_queued_request_.StartOneShot(base::TimeDelta(), FROM_HERE);
 }
 
 void SpellCheckRequester::DidCheckSucceed(
@@ -318,7 +315,7 @@ void SpellCheckRequester::DidCheckCancel(int sequence) {
   DidCheck(sequence);
 }
 
-void SpellCheckRequester::Trace(blink::Visitor* visitor) {
+void SpellCheckRequester::Trace(Visitor* visitor) {
   visitor->Trace(frame_);
   visitor->Trace(processing_request_);
   visitor->Trace(request_queue_);

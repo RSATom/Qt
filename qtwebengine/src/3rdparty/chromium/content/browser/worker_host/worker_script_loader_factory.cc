@@ -5,40 +5,48 @@
 #include "content/browser/worker_host/worker_script_loader_factory.h"
 
 #include <memory>
+
 #include "base/feature_list.h"
-#include "content/browser/service_worker/service_worker_context_core.h"
+#include "content/browser/service_worker/service_worker_navigation_handle.h"
+#include "content/browser/service_worker/service_worker_navigation_handle_core.h"
 #include "content/browser/service_worker/service_worker_provider_host.h"
 #include "content/browser/service_worker/service_worker_version.h"
+#include "content/browser/worker_host/worker_script_fetch_initiator.h"
 #include "content/browser/worker_host/worker_script_loader.h"
 #include "content/public/browser/browser_thread.h"
 #include "mojo/public/cpp/bindings/strong_binding.h"
 #include "services/network/public/cpp/features.h"
 #include "services/network/public/cpp/resource_response.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
-#include "third_party/blink/public/common/service_worker/service_worker_utils.h"
 #include "third_party/blink/public/mojom/service_worker/service_worker_provider_type.mojom.h"
 
 namespace content {
 
 WorkerScriptLoaderFactory::WorkerScriptLoaderFactory(
     int process_id,
-    base::WeakPtr<ServiceWorkerProviderHost> service_worker_provider_host,
+    ServiceWorkerNavigationHandle* service_worker_handle /* UI only */,
+    ServiceWorkerNavigationHandleCore* service_worker_handle_core /* IO only */,
     base::WeakPtr<AppCacheHost> appcache_host,
-    ResourceContext* resource_context,
+    const BrowserContextGetter& browser_context_getter,
+    const ResourceContextGetter& resource_context_getter,
     scoped_refptr<network::SharedURLLoaderFactory> loader_factory)
     : process_id_(process_id),
-      service_worker_provider_host_(std::move(service_worker_provider_host)),
       appcache_host_(std::move(appcache_host)),
-      resource_context_(resource_context),
+      browser_context_getter_(browser_context_getter),
+      resource_context_getter_(resource_context_getter),
       loader_factory_(std::move(loader_factory)) {
-  DCHECK_CURRENTLY_ON(BrowserThread::IO);
-  DCHECK(blink::ServiceWorkerUtils::IsServicificationEnabled());
-  DCHECK_EQ(service_worker_provider_host_->provider_type(),
-            blink::mojom::ServiceWorkerProviderType::kForSharedWorker);
+  DCHECK_CURRENTLY_ON(WorkerScriptFetchInitiator::GetLoaderThreadID());
+
+  if (service_worker_handle) {
+    service_worker_handle_ = service_worker_handle->AsWeakPtr();
+  }
+  if (service_worker_handle_core) {
+    service_worker_handle_core_ = service_worker_handle_core->AsWeakPtr();
+  }
 }
 
 WorkerScriptLoaderFactory::~WorkerScriptLoaderFactory() {
-  DCHECK_CURRENTLY_ON(BrowserThread::IO);
+  DCHECK_CURRENTLY_ON(WorkerScriptFetchInitiator::GetLoaderThreadID());
 }
 
 void WorkerScriptLoaderFactory::CreateLoaderAndStart(
@@ -49,15 +57,17 @@ void WorkerScriptLoaderFactory::CreateLoaderAndStart(
     const network::ResourceRequest& resource_request,
     network::mojom::URLLoaderClientPtr client,
     const net::MutableNetworkTrafficAnnotationTag& traffic_annotation) {
-  DCHECK_CURRENTLY_ON(BrowserThread::IO);
+  DCHECK_CURRENTLY_ON(WorkerScriptFetchInitiator::GetLoaderThreadID());
 
   // When NetworkService is not enabled, this function is called from the
   // renderer process, so use ReportBadMessage() instead of DCHECK().
   if (!base::FeatureList::IsEnabled(network::features::kNetworkService)) {
-    // Handle only the main script (RESOURCE_TYPE_SHARED_WORKER). Import scripts
+    // Handle only the main script. Import scripts (ResourceType::kScript)
     // should go to the network loader or controller.
-    // TODO(nhiroki): Support dedicated workers (https://crbug.com/906991).
-    if (resource_request.resource_type != RESOURCE_TYPE_SHARED_WORKER) {
+    if (resource_request.resource_type !=
+            static_cast<int>(ResourceType::kWorker) &&
+        resource_request.resource_type !=
+            static_cast<int>(ResourceType::kSharedWorker)) {
       mojo::ReportBadMessage(
           "WorkerScriptLoaderFactory should only get requests for worker "
           "scripts");
@@ -69,14 +79,20 @@ void WorkerScriptLoaderFactory::CreateLoaderAndStart(
       return;
     }
   }
-  DCHECK_EQ(RESOURCE_TYPE_SHARED_WORKER, resource_request.resource_type);
+
+  DCHECK(resource_request.resource_type ==
+             static_cast<int>(ResourceType::kWorker) ||
+         resource_request.resource_type ==
+             static_cast<int>(ResourceType::kSharedWorker))
+      << resource_request.resource_type;
   DCHECK(!script_loader_);
 
   // Create a WorkerScriptLoader to load the script.
   auto script_loader = std::make_unique<WorkerScriptLoader>(
       process_id_, routing_id, request_id, options, resource_request,
-      std::move(client), service_worker_provider_host_, appcache_host_,
-      resource_context_, loader_factory_, traffic_annotation);
+      std::move(client), service_worker_handle_, service_worker_handle_core_,
+      appcache_host_, browser_context_getter_, resource_context_getter_,
+      loader_factory_, traffic_annotation);
   script_loader_ = script_loader->GetWeakPtr();
   mojo::MakeStrongBinding(std::move(script_loader), std::move(request));
 }

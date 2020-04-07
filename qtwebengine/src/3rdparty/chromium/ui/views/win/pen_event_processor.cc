@@ -28,7 +28,7 @@ PenEventProcessor::PenEventProcessor(ui::SequentialIDGenerator* id_generator,
     : id_generator_(id_generator),
       direct_manipulation_enabled_(direct_manipulation_enabled) {}
 
-PenEventProcessor::~PenEventProcessor() {}
+PenEventProcessor::~PenEventProcessor() = default;
 
 std::unique_ptr<ui::Event> PenEventProcessor::GenerateEvent(
     UINT message,
@@ -199,7 +199,7 @@ std::unique_ptr<ui::Event> PenEventProcessor::GenerateTouchEvent(
       flags | ui::GetModifiersFromKeyState());
   event->set_hovering(event_type == ui::ET_TOUCH_RELEASED);
   event->latency()->AddLatencyNumberWithTimestamp(
-      ui::INPUT_EVENT_LATENCY_ORIGINAL_COMPONENT, event_time, 1);
+      ui::INPUT_EVENT_LATENCY_ORIGINAL_COMPONENT, event_time);
   return event;
 }
 

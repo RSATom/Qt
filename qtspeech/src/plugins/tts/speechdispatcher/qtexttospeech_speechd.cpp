@@ -364,7 +364,7 @@ QVector<QVoice> QTextToSpeechEngineSpeechd::availableVoices() const
 // (history functions are just stubs)
 void speech_finished_callback(size_t /*msg_id*/, size_t /*client_id*/, SPDNotificationType state)
 {
-    Q_FOREACH (QTextToSpeechEngineSpeechd *backend, *backends)
+    for (QTextToSpeechEngineSpeechd *backend : qAsConst(*backends))
         backend->spdStateChanged(state);
 }
 

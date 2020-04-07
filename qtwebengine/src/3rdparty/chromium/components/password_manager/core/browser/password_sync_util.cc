@@ -7,11 +7,11 @@
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
 #include "components/autofill/core/common/password_form.h"
-#include "components/sync/base/model_type.h"
+#include "components/signin/public/identity_manager/identity_manager.h"
+#include "components/sync/base/user_selectable_type.h"
 #include "components/sync/driver/sync_user_settings.h"
 #include "google_apis/gaia/gaia_auth_util.h"
 #include "google_apis/gaia/gaia_urls.h"
-#include "services/identity/public/cpp/identity_manager.h"
 #include "url/origin.h"
 
 #if defined(SYNC_PASSWORD_REUSE_DETECTION_ENABLED)
@@ -33,25 +33,23 @@ namespace sync_util {
 
 std::string GetSyncUsernameIfSyncingPasswords(
     const syncer::SyncService* sync_service,
-    const identity::IdentityManager* identity_manager) {
+    const signin::IdentityManager* identity_manager) {
   if (!identity_manager)
     return std::string();
 
   // Return early if the user has explicitly disabled password sync. Note that
   // this does not cover the case when sync as a whole is turned off.
-  if (sync_service &&
-      !sync_service->GetUserSettings()->GetChosenDataTypes().Has(
-          syncer::PASSWORDS)) {
+  if (sync_service && !sync_service->GetUserSettings()->GetSelectedTypes().Has(
+                          syncer::UserSelectableType::kPasswords)) {
     return std::string();
   }
 
   return identity_manager->GetPrimaryAccountInfo().email;
 }
 
-bool IsSyncAccountCredential(
-    const autofill::PasswordForm& form,
-    const syncer::SyncService* sync_service,
-    const identity::IdentityManager* identity_manager) {
+bool IsSyncAccountCredential(const autofill::PasswordForm& form,
+                             const syncer::SyncService* sync_service,
+                             const signin::IdentityManager* identity_manager) {
   if (!IsGaiaCredentialPage(form.signon_realm))
     return false;
 
@@ -67,7 +65,7 @@ bool IsSyncAccountCredential(
 }
 
 bool ShouldSavePasswordHash(const autofill::PasswordForm& form,
-                            const identity::IdentityManager* identity_manager,
+                            const signin::IdentityManager* identity_manager,
                             PrefService* prefs) {
 #if defined(SYNC_PASSWORD_REUSE_DETECTION_ENABLED)
   bool is_protected_credential_url =
@@ -99,7 +97,7 @@ bool ShouldSavePasswordHash(const autofill::PasswordForm& form,
 }
 
 bool IsSyncAccountEmail(const std::string& username,
-                        const identity::IdentityManager* identity_manager) {
+                        const signin::IdentityManager* identity_manager) {
   // |identity_manager| can be null if user is not signed in.
   if (!identity_manager)
     return false;

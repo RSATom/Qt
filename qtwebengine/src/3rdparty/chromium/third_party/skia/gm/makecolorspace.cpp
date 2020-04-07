@@ -5,12 +5,23 @@
  * found in the LICENSE file.
  */
 
-#include "gm.h"
-#include "Resources.h"
-#include "SkCodec.h"
-#include "SkColorSpace.h"
-#include "SkImage.h"
-#include "SkImagePriv.h"
+#include "gm/gm.h"
+#include "include/codec/SkCodec.h"
+#include "include/core/SkBitmap.h"
+#include "include/core/SkCanvas.h"
+#include "include/core/SkColor.h"
+#include "include/core/SkColorSpace.h"
+#include "include/core/SkData.h"
+#include "include/core/SkImage.h"
+#include "include/core/SkImageInfo.h"
+#include "include/core/SkRefCnt.h"
+#include "include/core/SkSize.h"
+#include "include/core/SkString.h"
+#include "src/core/SkImagePriv.h"
+#include "tools/Resources.h"
+
+#include <initializer_list>
+#include <memory>
 
 sk_sp<SkImage> make_raster_image(const char* path) {
     sk_sp<SkData> resourceData = GetResourceAsData(path);
@@ -48,7 +59,7 @@ protected:
         return SkISize::Make(128*3, 128*4);
     }
 
-    void onDraw(SkCanvas* canvas) override {
+    DrawResult onDraw(SkCanvas* canvas, SkString* errorMsg) override {
         sk_sp<SkColorSpace> wideGamut = SkColorSpace::MakeRGB(SkNamedTransferFn::kSRGB,
                                                               SkNamedGamut::kAdobeRGB);
         sk_sp<SkColorSpace> wideGamutLinear = wideGamut->makeLinearGamma();
@@ -57,7 +68,8 @@ protected:
         sk_sp<SkImage> opaqueImage = GetResourceAsImage("images/mandrill_128.png");
         sk_sp<SkImage> premulImage = GetResourceAsImage("images/color_wheel.png");
         if (!opaqueImage || !premulImage) {
-            return;
+            *errorMsg = "Failed to load images. Did you forget to set the resourcePath?";
+            return DrawResult::kFail;
         }
         canvas->drawImage(opaqueImage, 0.0f, 0.0f);
         canvas->drawImage(make_color_space(opaqueImage, wideGamut), 128.0f, 0.0f);
@@ -76,6 +88,7 @@ protected:
         canvas->drawImage(premulImage, 0.0f, 128.0f);
         canvas->drawImage(make_color_space(premulImage, wideGamut), 128.0f, 128.0f);
         canvas->drawImage(make_color_space(premulImage, wideGamutLinear), 256.0f, 128.0f);
+        return DrawResult::kOk;
     }
 
 private:

@@ -162,25 +162,19 @@ public:
         m_init = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
 
         QMutexLocker readyLocker(&m_readyMutex);
-        while (!m_cancelled.load()) {
-            if (!m_params && !m_cancelled.load()
+        while (!m_cancelled.loadRelaxed()) {
+            if (!m_params && !m_cancelled.loadRelaxed()
                 && !m_readyCondition.wait(&m_readyMutex, 1000))
                 continue;
 
             if (m_params) {
                 const QString fileName = m_params->fileName;
                 SHFILEINFO info;
-#ifndef Q_OS_WINCE
-                const UINT oldErrorMode = SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOOPENFILEERRORBOX);
-#endif
                 const bool result = SHGetFileInfo(reinterpret_cast<const wchar_t *>(fileName.utf16()),
                                                   m_params->attributes, &info, sizeof(SHFILEINFO),
                                                   m_params->flags);
-#ifndef Q_OS_WINCE
-                SetErrorMode(oldErrorMode);
-#endif
                 m_doneMutex.lock();
-                if (!m_cancelled.load()) {
+                if (!m_cancelled.loadRelaxed()) {
                     *m_params->result = result;
                     memcpy(m_params->info, &info, sizeof(SHFILEINFO));
                 }
@@ -210,7 +204,7 @@ public:
     void cancel()
     {
         QMutexLocker doneLocker(&m_doneMutex);
-        m_cancelled.store(1);
+        m_cancelled.storeRelaxed(1);
         m_readyCondition.wakeAll();
     }
 
@@ -472,6 +466,8 @@ QVariant QWindowsTheme::themeHint(ThemeHint hint) const
             result = int(scrollLines);
         return QVariant(result);
     }
+    case MouseDoubleClickDistance:
+        return GetSystemMetrics(SM_CXDOUBLECLK);
     default:
         break;
     }
@@ -589,7 +585,7 @@ Q_GUI_EXPORT QPixmap qt_pixmapFromWinHICON(HICON icon);
 static QPixmap loadIconFromShell32(int resourceId, QSizeF size)
 {
     if (const HMODULE hmod = QSystemLibrary::load(L"shell32")) {
-        HICON iconHandle =
+        auto iconHandle =
             static_cast<HICON>(LoadImage(hmod, MAKEINTRESOURCE(resourceId),
                                          IMAGE_ICON, int(size.width()), int(size.height()), 0));
         if (iconHandle) {

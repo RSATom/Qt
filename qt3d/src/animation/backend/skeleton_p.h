@@ -62,8 +62,9 @@ public:
     Skeleton();
 
     void cleanup();
-    void sceneChangeEvent(const Qt3DCore::QSceneChangePtr &e) Q_DECL_OVERRIDE;
+    void syncFromFrontEnd(const Qt3DCore::QNode *frontEnd, bool firstTime) override;
 
+    QVector<Qt3DCore::Sqt> joints() const { return  m_jointLocalPoses; }
     int jointCount() const { return m_jointLocalPoses.size(); }
     QString jointName(int jointIndex) const { return m_jointNames.at(jointIndex); }
 
@@ -97,8 +98,6 @@ public:
         return m_jointLocalPoses[jointIndex].translation;
     }
 
-    void sendLocalPoses();
-
 #if defined(QT_BUILD_INTERNAL)
     void setJointCount(int jointCount)
     {
@@ -112,8 +111,6 @@ public:
 #endif
 
 private:
-    void initializeFromPeer(const Qt3DCore::QNodeCreatedChangeBasePtr &change) Q_DECL_FINAL;
-
     QVector<QString> m_jointNames;
     QVector<Qt3DCore::Sqt> m_jointLocalPoses;
 };

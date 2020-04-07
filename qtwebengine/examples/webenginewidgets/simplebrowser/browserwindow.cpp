@@ -66,6 +66,9 @@
 #include <QStatusBar>
 #include <QToolBar>
 #include <QVBoxLayout>
+#if QT_VERSION >= QT_VERSION_CHECK(5, 14, 0)
+#include <QWebEngineFindTextResult>
+#endif
 #include <QWebEngineProfile>
 
 BrowserWindow::BrowserWindow(Browser *browser, QWebEngineProfile *profile, bool forDevTools)
@@ -99,7 +102,7 @@ BrowserWindow::BrowserWindow(Browser *browser, QWebEngineProfile *profile, bool 
     QWidget *centralWidget = new QWidget(this);
     QVBoxLayout *layout = new QVBoxLayout;
     layout->setSpacing(0);
-    layout->setMargin(0);
+    layout->setContentsMargins(0, 0, 0, 0);
     if (!forDevTools) {
         addToolBarBreak();
 
@@ -129,6 +132,9 @@ BrowserWindow::BrowserWindow(Browser *browser, QWebEngineProfile *profile, bool 
         connect(m_urlLineEdit, &QLineEdit::returnPressed, [this]() {
             m_tabWidget->setUrl(QUrl::fromUserInput(m_urlLineEdit->text()));
         });
+#if QT_VERSION >= QT_VERSION_CHECK(5, 14, 0)
+        connect(m_tabWidget, &TabWidget::findTextFinished, this, &BrowserWindow::handleFindTextFinished);
+#endif
 
         QAction *focusUrlLineEditAction = new QAction(this);
         addAction(focusUrlLineEditAction);
@@ -460,10 +466,14 @@ void BrowserWindow::handleFindActionTriggered()
                                            m_lastSearch, &ok);
     if (ok && !search.isEmpty()) {
         m_lastSearch = search;
+#if QT_VERSION >= QT_VERSION_CHECK(5, 14, 0)
+        currentTab()->findText(m_lastSearch);
+#else
         currentTab()->findText(m_lastSearch, 0, [this](bool found) {
             if (!found)
                 statusBar()->showMessage(tr("\"%1\" not found.").arg(m_lastSearch));
         });
+#endif
     }
 }
 
@@ -526,3 +536,16 @@ void BrowserWindow::handleDevToolsRequested(QWebEnginePage *source)
     source->setDevToolsPage(m_browser->createDevToolsWindow()->currentTab()->page());
     source->triggerAction(QWebEnginePage::InspectElement);
 }
+
+#if QT_VERSION >= QT_VERSION_CHECK(5, 14, 0)
+void BrowserWindow::handleFindTextFinished(const QWebEngineFindTextResult &result)
+{
+    if (result.numberOfMatches() == 0) {
+        statusBar()->showMessage(tr("\"%1\" not found.").arg(m_lastSearch));
+    } else {
+        statusBar()->showMessage(tr("\"%1\" found: %2/%3").arg(m_lastSearch,
+                                                               QString::number(result.activeMatch()),
+                                                               QString::number(result.numberOfMatches())));
+    }
+}
+#endif

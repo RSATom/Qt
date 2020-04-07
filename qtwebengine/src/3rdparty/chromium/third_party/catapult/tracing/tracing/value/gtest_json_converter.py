@@ -2,10 +2,16 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+from __future__ import absolute_import
+from __future__ import division
+from __future__ import print_function
+
 import json
 
+import six
 from tracing.value import histogram
 from tracing.value import histogram_set
+from tracing.value import legacy_unit_info
 from tracing.value.diagnostics import generic_set
 from tracing.value.diagnostics import reserved_infos
 
@@ -48,12 +54,12 @@ def ConvertGtestJson(gtest_json):
 
   hs = histogram_set.HistogramSet()
 
-  for metric, metric_data in gtest_json.iteritems():
+  for metric, metric_data in six.iteritems(gtest_json):
     # Maintain the same unit if we're able to find an exact match, converting
     # time units if possible. Otherwise use 'unitless'.
     unit, multiplier = _ConvertUnit(metric_data.get('units'))
 
-    for story, story_data in metric_data['traces'].iteritems():
+    for story, story_data in six.iteritems(metric_data['traces']):
       # We should only ever have the mean and standard deviation here.
       assert len(story_data) == 2
       h = histogram.Histogram(metric, unit)
@@ -97,16 +103,12 @@ def ConvertGtestJsonFile(filepath):
 
 
 def _ConvertUnit(unit):
-  # We assume that smaller is better since we don't have an actual way to
-  # determine what the improvement direction is and most or all metrics from
-  # gtest perf tests have a downward improvement direction.
+  # Try to convert the unit using the mapping from legacy_unit_info, falling
+  # back to checking the histogram units directly, and defaulting to unitless if
+  # the unit is unrecognized.
+  legacy_unit = legacy_unit_info.LEGACY_UNIT_INFO.get(unit)
+  if legacy_unit != None:
+    return legacy_unit.AsTuple()
   if unit in histogram.UNIT_NAMES:
-    return unit + '_smallerIsBetter', 1
-  # A number of existing gtest perf tests report time in units like
-  # microseconds, but histograms only support milliseconds. So, convert here if
-  # we can.
-  if unit == 'us':
-    return 'msBestFitFormat_smallerIsBetter', 0.001
-  if unit == 'ns':
-    return 'msBestFitFormat_smallerIsBetter', 0.000001
+    return unit, 1
   return 'unitless_smallerIsBetter', 1

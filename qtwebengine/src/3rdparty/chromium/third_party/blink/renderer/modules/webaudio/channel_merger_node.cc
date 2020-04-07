@@ -54,6 +54,13 @@ ChannelMergerHandler::ChannelMergerHandler(AudioNode& node,
   AddOutput(number_of_inputs);
 
   Initialize();
+
+  // Until something is connected, we're not actively processing, so disable
+  // outputs so that we produce a single channel of silence.  The graph lock is
+  // needed to be able to disable outputs.
+  BaseAudioContext::GraphAutoLocker context_locker(Context());
+
+  DisableOutputs();
 }
 
 scoped_refptr<ChannelMergerHandler> ChannelMergerHandler::Create(
@@ -142,11 +149,6 @@ ChannelMergerNode* ChannelMergerNode::Create(BaseAudioContext& context,
                                              unsigned number_of_inputs,
                                              ExceptionState& exception_state) {
   DCHECK(IsMainThread());
-
-  if (context.IsContextClosed()) {
-    context.ThrowExceptionForClosedState(exception_state);
-    return nullptr;
-  }
 
   if (!number_of_inputs ||
       number_of_inputs > BaseAudioContext::MaxNumberOfChannels()) {

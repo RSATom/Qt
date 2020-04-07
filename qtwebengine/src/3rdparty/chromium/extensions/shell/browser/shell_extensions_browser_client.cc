@@ -6,6 +6,7 @@
 
 #include <utility>
 
+#include "base/bind.h"
 #include "base/memory/ptr_util.h"
 #include "base/task/post_task.h"
 #include "build/build_config.h"
@@ -32,6 +33,7 @@
 #include "extensions/shell/browser/shell_extensions_api_client.h"
 #include "extensions/shell/browser/shell_extensions_browser_api_provider.h"
 #include "extensions/shell/browser/shell_navigation_ui_data.h"
+#include "services/network/public/mojom/url_loader.mojom.h"
 
 #if defined(OS_CHROMEOS)
 #include "chromeos/login/login_state/login_state.h"
@@ -175,8 +177,7 @@ PrefService* ShellExtensionsBrowserClient::GetPrefServiceForContext(
 
 void ShellExtensionsBrowserClient::GetEarlyExtensionPrefsObservers(
     content::BrowserContext* context,
-    std::vector<ExtensionPrefsObserver*>* observers) const {
-}
+    std::vector<EarlyExtensionPrefsObserver*>* observers) const {}
 
 ProcessManagerDelegate*
 ShellExtensionsBrowserClient::GetProcessManagerDelegate() const {
@@ -249,19 +250,15 @@ void ShellExtensionsBrowserClient::BroadcastEventToRenderers(
   if (!BrowserThread::CurrentlyOn(BrowserThread::UI)) {
     base::PostTaskWithTraits(
         FROM_HERE, {BrowserThread::UI},
-        base::Bind(&ShellExtensionsBrowserClient::BroadcastEventToRenderers,
-                   base::Unretained(this), histogram_value, event_name,
-                   base::Passed(&args)));
+        base::BindOnce(&ShellExtensionsBrowserClient::BroadcastEventToRenderers,
+                       base::Unretained(this), histogram_value, event_name,
+                       std::move(args)));
     return;
   }
 
   std::unique_ptr<Event> event(
       new Event(histogram_value, event_name, std::move(args)));
   EventRouter::Get(browser_context_)->BroadcastEvent(std::move(event));
-}
-
-net::NetLog* ShellExtensionsBrowserClient::GetNetLog() {
-  return NULL;
 }
 
 ExtensionCache* ShellExtensionsBrowserClient::GetExtensionCache() {
@@ -291,7 +288,7 @@ ShellExtensionsBrowserClient::GetExtensionWebContentsObserver(
 ExtensionNavigationUIData*
 ShellExtensionsBrowserClient::GetExtensionNavigationUIData(
     net::URLRequest* request) {
-  const content::ResourceRequestInfo* info =
+  content::ResourceRequestInfo* info =
       content::ResourceRequestInfo::ForRequest(request);
   if (!info)
     return nullptr;

@@ -7,7 +7,9 @@
 #include <string>
 
 #include "apps/browser_context_keyed_service_factories.h"
+#include "base/bind.h"
 #include "base/command_line.h"
+#include "base/memory/ref_counted.h"
 #include "base/task/post_task.h"
 #include "build/build_config.h"
 #include "components/keyed_service/content/browser_context_dependency_manager.h"
@@ -20,28 +22,26 @@
 #include "content/public/browser/child_process_security_policy.h"
 #include "content/public/browser/context_factory.h"
 #include "content/public/browser/devtools_agent_host.h"
+#include "content/public/browser/system_connector.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/common/result_codes.h"
-#include "content/public/common/service_manager_connection.h"
 #include "content/shell/browser/shell_devtools_manager_delegate.h"
 #include "extensions/browser/browser_context_keyed_service_factories.h"
 #include "extensions/browser/extension_system.h"
 #include "extensions/browser/updater/update_service.h"
 #include "extensions/common/constants.h"
+#include "extensions/shell/browser/desktop_controller.h"
 #include "extensions/shell/browser/shell_browser_context.h"
 #include "extensions/shell/browser/shell_browser_context_keyed_service_factories.h"
 #include "extensions/shell/browser/shell_browser_main_delegate.h"
-#include "extensions/shell/browser/shell_desktop_controller_aura.h"
-#include "extensions/shell/browser/shell_device_client.h"
 #include "extensions/shell/browser/shell_extension_system.h"
 #include "extensions/shell/browser/shell_extension_system_factory.h"
 #include "extensions/shell/browser/shell_extensions_browser_client.h"
-#include "extensions/shell/browser/shell_oauth2_token_service.h"
 #include "extensions/shell/browser/shell_prefs.h"
 #include "extensions/shell/browser/shell_update_query_params_delegate.h"
 #include "extensions/shell/common/shell_extensions_client.h"
 #include "extensions/shell/common/switches.h"
-#include "ui/base/ime/input_method_initializer.h"
+#include "ui/base/ime/init/input_method_initializer.h"
 #include "ui/base/resource/resource_bundle.h"
 
 #if defined(USE_AURA)
@@ -63,7 +63,9 @@
 #endif
 
 #if defined(OS_CHROMEOS)
+#include "chromeos/dbus/audio/cras_audio_client.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
+#include "chromeos/dbus/power/power_manager_client.h"
 #elif defined(OS_LINUX)
 #include "device/bluetooth/dbus/bluez_dbus_thread_manager.h"
 #endif
@@ -122,9 +124,18 @@ void ShellBrowserMainParts::PostMainMessageLoopStart() {
   // helper classes so those classes' tests can initialize stub versions of the
   // D-Bus objects.
   chromeos::DBusThreadManager::Initialize();
-  chromeos::disks::DiskMountManager::Initialize();
+  dbus::Bus* bus = chromeos::DBusThreadManager::Get()->GetSystemBus();
+  if (bus) {
+    bluez::BluezDBusManager::Initialize(bus);
+    chromeos::CrasAudioClient::Initialize(bus);
+    chromeos::PowerManagerClient::Initialize(bus);
+  } else {
+    bluez::BluezDBusManager::InitializeFake();
+    chromeos::CrasAudioClient::InitializeFake();
+    chromeos::PowerManagerClient::InitializeFake();
+  }
 
-  bluez::BluezDBusManager::Initialize();
+  chromeos::disks::DiskMountManager::Initialize();
 
   chromeos::NetworkHandler::Initialize();
   network_controller_.reset(new ShellNetworkController(
@@ -141,8 +152,7 @@ void ShellBrowserMainParts::PostMainMessageLoopStart() {
   // TODO(michaelpg): Verify this works for target environments.
   ui::InitializeInputMethodForTesting();
 
-  bluez::BluezDBusThreadManager::Initialize();
-  bluez::BluezDBusManager::Initialize();
+  bluez::BluezDBusManager::Initialize(nullptr /* system_bus */);
 #else
   ui::InitializeInputMethodForTesting();
 #endif
@@ -188,7 +198,9 @@ void ShellBrowserMainParts::PreMainMessageLoopRun() {
 
 #if defined(OS_CHROMEOS)
   chromeos::CrasAudioHandler::Initialize(
-      new chromeos::AudioDevicesPrefHandlerImpl(local_state_.get()));
+      content::GetSystemConnector(),
+      base::MakeRefCounted<chromeos::AudioDevicesPrefHandlerImpl>(
+          local_state_.get()));
   audio_controller_.reset(new ShellAudioController());
 #endif
 
@@ -204,28 +216,18 @@ void ShellBrowserMainParts::PreMainMessageLoopRun() {
 #endif
 
   storage_monitor::StorageMonitor::Create(
-      content::ServiceManagerConnection::GetForProcess()
-          ->GetConnector()
-          ->Clone());
+      content::GetSystemConnector()->Clone());
 
   desktop_controller_.reset(
       browser_main_delegate_->CreateDesktopController(browser_context_.get()));
 
   // TODO(jamescook): Initialize user_manager::UserManager.
 
-  device_client_.reset(new ShellDeviceClient);
-
   update_query_params_delegate_.reset(new ShellUpdateQueryParamsDelegate);
   update_client::UpdateQueryParams::SetDelegate(
       update_query_params_delegate_.get());
 
   InitExtensionSystem();
-
-  // Initialize OAuth2 support from command line.
-  base::CommandLine* cmd = base::CommandLine::ForCurrentProcess();
-  oauth2_token_service_.reset(new ShellOAuth2TokenService(
-      cmd->GetSwitchValueASCII(switches::kAppShellUser),
-      cmd->GetSwitchValueASCII(switches::kAppShellRefreshToken)));
 
 #if BUILDFLAG(ENABLE_NACL)
   nacl::NaClBrowser::SetDelegate(
@@ -240,7 +242,8 @@ void ShellBrowserMainParts::PreMainMessageLoopRun() {
   content::ShellDevToolsManagerDelegate::StartHttpHandler(
       browser_context_.get());
 
-  if (cmd->HasSwitch(::switches::kBrowserCrashTest))
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+          ::switches::kBrowserCrashTest))
     CrashForTest();
 
   if (parameters_.ui_task) {
@@ -273,7 +276,6 @@ void ShellBrowserMainParts::PostMainMessageLoopRun() {
   task_tracker_.TryCancelAll();
 #endif
 
-  oauth2_token_service_.reset();
   BrowserContextDependencyManager::GetInstance()->DestroyBrowserContextServices(
       browser_context_.get());
   extension_system_ = NULL;
@@ -307,6 +309,8 @@ void ShellBrowserMainParts::PostDestroyThreads() {
   chromeos::disks::DiskMountManager::Shutdown();
   device::BluetoothAdapterFactory::Shutdown();
   bluez::BluezDBusManager::Shutdown();
+  chromeos::PowerManagerClient::Shutdown();
+  chromeos::CrasAudioClient::Shutdown();
   chromeos::DBusThreadManager::Shutdown();
 #elif defined(OS_LINUX)
   device::BluetoothAdapterFactory::Shutdown();

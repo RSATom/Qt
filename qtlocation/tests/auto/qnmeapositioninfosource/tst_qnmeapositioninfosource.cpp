@@ -32,6 +32,8 @@
 
 #include "tst_qnmeapositioninfosource.h"
 
+#include <QtCore/QDateTime>
+#include <QtCore/QElapsedTimer>
 #include <QtCore/QtNumeric>
 
 #ifdef Q_OS_WIN
@@ -264,7 +266,7 @@ void tst_QNmeaPositionInfoSource::startUpdates_withTimeout()
         proxy->feedBytes(QLocationTestUtils::createRmcSentence(dt.addMSecs(2200)).toLatin1());
         proxy->feedBytes(QLocationTestUtils::createRmcSentence(dt.addSecs(9)).toLatin1());
 
-        QTime t;
+        QElapsedTimer t;
         t.start();
 
         for (int j = 1; j < 4; ++j) {

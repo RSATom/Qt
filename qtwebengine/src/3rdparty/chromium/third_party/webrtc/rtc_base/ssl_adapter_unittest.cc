@@ -53,7 +53,7 @@ class MockCertVerifier : public rtc::SSLCertificateVerifier {
   MOCK_METHOD1(Verify, bool(const rtc::SSLCertificate&));
 };
 
-// TODO(benwright) - Move to using INSTANTIATE_TEST_CASE_P instead of using
+// TODO(benwright) - Move to using INSTANTIATE_TEST_SUITE_P instead of using
 // duplicate test cases for simple parameter changes.
 class SSLAdapterTestDummyClient : public sigslot::has_slots<> {
  public:
@@ -293,7 +293,7 @@ class SSLAdapterTestDummyServer : public sigslot::has_slots<> {
   std::string data_;
 };
 
-class SSLAdapterTestBase : public testing::Test, public sigslot::has_slots<> {
+class SSLAdapterTestBase : public ::testing::Test, public sigslot::has_slots<> {
  public:
   explicit SSLAdapterTestBase(const rtc::SSLMode& ssl_mode,
                               const rtc::KeyParams& key_params)

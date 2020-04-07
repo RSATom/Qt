@@ -103,7 +103,7 @@ bool QQuickDragHandler::targetContainsCentroid()
 
 QPointF QQuickDragHandler::targetCentroidPosition()
 {
-    QPointF pos = m_centroid.position();
+    QPointF pos = centroid().position();
     if (target() != parentItem())
         pos = parentItem()->mapToItem(target(), pos);
     return pos;
@@ -114,13 +114,46 @@ void QQuickDragHandler::onGrabChanged(QQuickPointerHandler *grabber, QQuickEvent
     QQuickMultiPointHandler::onGrabChanged(grabber, transition, point);
     if (grabber == this && transition == QQuickEventPoint::GrabExclusive && target()) {
         // In case the grab got handed over from another grabber, we might not get the Press.
-        if (!m_pressedInsideTarget) {
-            if (target() != parentItem())
+
+        auto isDescendant = [](QQuickItem *parent, QQuickItem *target) {
+            return (target != parent) && !target->isAncestorOf(parent);
+        };
+        if (m_snapMode == SnapAlways
+            || (m_snapMode == SnapIfPressedOutsideTarget && !m_pressedInsideTarget)
+            || (m_snapMode == SnapAuto && !m_pressedInsideTarget && isDescendant(parentItem(), target()))
+            ) {
                 m_pressTargetPos = QPointF(target()->width(), target()->height()) / 2;
         } else if (m_pressTargetPos.isNull()) {
             m_pressTargetPos = targetCentroidPosition();
         }
     }
+}
+
+/*!
+    \qmlproperty enumeration QtQuick.DragHandler::snapMode
+
+    This property holds the snap mode.
+
+    The snap mode configures snapping of the \l target item's center to the event point.
+
+    Possible values:
+    \value DragHandler.SnapNever Never snap
+    \value DragHandler.SnapAuto The \l target snaps if the event point was pressed outside of the \l target
+                                item \e and the \l target is a descendant of \l parentItem (default)
+    \value DragHandler.SnapWhenPressedOutsideTarget The \l target snaps if the event point was pressed outside of the \l target
+    \value DragHandler.SnapAlways Always snap
+*/
+QQuickDragHandler::SnapMode QQuickDragHandler::snapMode() const
+{
+    return m_snapMode;
+}
+
+void QQuickDragHandler::setSnapMode(QQuickDragHandler::SnapMode mode)
+{
+    if (mode == m_snapMode)
+        return;
+    m_snapMode = mode;
+    emit snapModeChanged();
 }
 
 void QQuickDragHandler::onActiveChanged()
@@ -153,7 +186,7 @@ void QQuickDragHandler::handlePointerEventImpl(QQuickPointerEvent *event)
     if (active()) {
         // Calculate drag delta, taking into account the axis enabled constraint
         // i.e. if xAxis is not enabled, then ignore the horizontal component of the actual movement
-        QVector2D accumulatedDragDelta = QVector2D(m_centroid.scenePosition() - m_centroid.scenePressPosition());
+        QVector2D accumulatedDragDelta = QVector2D(centroid().scenePosition() - centroid().scenePressPosition());
         if (!m_xAxis.enabled())
             accumulatedDragDelta.setX(0);
         if (!m_yAxis.enabled())
@@ -169,9 +202,9 @@ void QQuickDragHandler::handlePointerEventImpl(QQuickPointerEvent *event)
         QVector <QQuickEventPoint *> chosenPoints;
 
         if (event->isPressEvent())
-            m_pressedInsideTarget = target() && m_currentPoints.count() > 0;
+            m_pressedInsideTarget = target() && currentPoints().count() > 0;
 
-        for (const QQuickHandlerPoint &p : m_currentPoints) {
+        for (const QQuickHandlerPoint &p : currentPoints()) {
             if (!allOverThreshold)
                 break;
             QQuickEventPoint *point = event->pointById(p.id());

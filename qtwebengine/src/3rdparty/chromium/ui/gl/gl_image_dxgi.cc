@@ -148,6 +148,10 @@ GLImageDXGI* GLImageDXGI::FromGLImage(GLImage* image) {
   return static_cast<GLImageDXGI*>(image);
 }
 
+GLImageDXGI::BindOrCopy GLImageDXGI::ShouldBindOrCopy() {
+  return BIND;
+}
+
 bool GLImageDXGI::BindTexImage(unsigned target) {
   if (!handle_.Get())
     return true;
@@ -180,6 +184,7 @@ bool GLImageDXGI::BindTexImage(unsigned target) {
 }
 
 bool GLImageDXGI::CopyTexImage(unsigned target) {
+  NOTREACHED();
   return false;
 }
 
@@ -217,11 +222,6 @@ void GLImageDXGI::ReleaseTexImage(unsigned target) {
   DCHECK(texture_);
   DCHECK(keyed_mutex_);
 
-  Microsoft::WRL::ComPtr<ID3D11Device> device =
-      QueryD3D11DeviceObjectFromANGLE();
-  Microsoft::WRL::ComPtr<ID3D11Device1> device1;
-  device.CopyTo(device1.GetAddressOf());
-
   keyed_mutex_->ReleaseSync(KEY_RELEASE);
 
   eglReleaseTexImage(gl::GLSurfaceEGL::GetHardwareDisplay(), surface_,
@@ -237,10 +237,6 @@ bool GLImageDXGI::ScheduleOverlayPlane(
     bool enable_blend,
     std::unique_ptr<gfx::GpuFence> gpu_fence) {
   return false;
-}
-
-void GLImageDXGI::SetColorSpace(const gfx::ColorSpace& color_space) {
-  color_space_ = color_space;
 }
 
 bool GLImageDXGI::InitializeHandle(base::win::ScopedHandle handle,

@@ -8,8 +8,8 @@
 
 #include "base/bind.h"
 #include "base/callback.h"
-#include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
+#include "base/test/scoped_task_environment.h"
 #include "base/values.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -22,11 +22,12 @@ class TestingJsonParserTest : public testing::Test {
  public:
   void Parse(const std::string& input) {
     base::RunLoop run_loop;
-    SafeJsonParser::Parse(/* connector=*/nullptr, input,
-                          base::Bind(&SuccessCallback, base::Unretained(this),
-                                     run_loop.QuitClosure()),
-                          base::Bind(&ErrorCallback, base::Unretained(this),
-                                     run_loop.QuitClosure()));
+    SafeJsonParser::Parse(
+        /* connector=*/nullptr, input,
+        base::BindOnce(&SuccessCallback, base::Unretained(this),
+                       run_loop.QuitClosure()),
+        base::BindOnce(&ErrorCallback, base::Unretained(this),
+                       run_loop.QuitClosure()));
     run_loop.Run();
   }
 
@@ -36,16 +37,14 @@ class TestingJsonParserTest : public testing::Test {
  private:
   static void SuccessCallback(TestingJsonParserTest* test,
                               base::Closure quit_closure,
-                              std::unique_ptr<base::Value> value) {
+                              base::Value value) {
     test->did_success_ = true;
     quit_closure.Run();
 
-    ASSERT_TRUE(value->is_dict());
-    base::DictionaryValue* dict;
-    ASSERT_TRUE(value->GetAsDictionary(&dict));
-    int key_value = 0;
-    EXPECT_TRUE(dict->GetInteger("key", &key_value));
-    EXPECT_EQ(2, key_value);
+    ASSERT_TRUE(value.is_dict());
+    base::Optional<int> key_value = value.FindIntKey("key");
+    ASSERT_TRUE(key_value.has_value());
+    EXPECT_EQ(2, *key_value);
   }
 
   static void ErrorCallback(TestingJsonParserTest* test,
@@ -57,7 +56,7 @@ class TestingJsonParserTest : public testing::Test {
     EXPECT_FALSE(error.empty());
   }
 
-  base::MessageLoop message_loop;
+  base::test::ScopedTaskEnvironment scoped_task_environment;
   TestingJsonParser::ScopedFactoryOverride factory_override_;
   bool did_success_ = false;
   bool did_error_ = false;

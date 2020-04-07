@@ -1305,32 +1305,19 @@ bool GlobalActivityTracker::CreateWithLocalMemory(size_t size,
 
 // static
 bool GlobalActivityTracker::CreateWithSharedMemory(
-    std::unique_ptr<SharedMemory> shm,
+    base::WritableSharedMemoryMapping mapping,
     uint64_t id,
     StringPiece name,
     int stack_depth) {
-  if (shm->mapped_size() == 0 ||
-      !SharedPersistentMemoryAllocator::IsSharedMemoryAcceptable(*shm)) {
+  if (!mapping.IsValid() ||
+      !WritableSharedPersistentMemoryAllocator::IsSharedMemoryAcceptable(
+          mapping)) {
     return false;
   }
-  CreateWithAllocator(std::make_unique<SharedPersistentMemoryAllocator>(
-                          std::move(shm), id, name, false),
+  CreateWithAllocator(std::make_unique<WritableSharedPersistentMemoryAllocator>(
+                          std::move(mapping), id, name),
                       stack_depth, 0);
   return true;
-}
-
-// static
-bool GlobalActivityTracker::CreateWithSharedMemoryHandle(
-    const SharedMemoryHandle& handle,
-    size_t size,
-    uint64_t id,
-    StringPiece name,
-    int stack_depth) {
-  std::unique_ptr<SharedMemory> shm(
-      new SharedMemory(handle, /*readonly=*/false));
-  if (!shm->Map(size))
-    return false;
-  return CreateWithSharedMemory(std::move(shm), id, name, stack_depth);
 }
 
 // static
@@ -1376,23 +1363,14 @@ ThreadActivityTracker* GlobalActivityTracker::CreateTrackerForCurrentThread() {
     // because the underlying allocator wasn't given enough memory to satisfy
     // to all possible requests.
     NOTREACHED();
-    // Report the thread-count at which the allocator was full so that the
-    // failure can be seen and underlying memory resized appropriately.
-    UMA_HISTOGRAM_COUNTS_1000(
-        "ActivityTracker.ThreadTrackers.MemLimitTrackerCount",
-        thread_tracker_count_.load(std::memory_order_relaxed));
+
     // Return null, just as if tracking wasn't enabled.
     return nullptr;
   }
 
   // Convert the memory block found above into an actual memory address.
   // Doing the conversion as a Header object enacts the 32/64-bit size
-  // consistency checks which would not otherwise be done. Unfortunately,
-  // some older compilers and MSVC don't have standard-conforming definitions
-  // of std::atomic which cause it not to be plain-old-data. Don't check on
-  // those platforms assuming that the checks on other platforms will be
-  // sufficient.
-  // TODO(bcwhite): Review this after major compiler releases.
+  // consistency checks which would not otherwise be done.
   DCHECK(mem_reference);
   void* mem_base;
   mem_base =
@@ -1408,10 +1386,7 @@ ThreadActivityTracker* GlobalActivityTracker::CreateTrackerForCurrentThread() {
   DCHECK(tracker->IsValid());
   auto* tracker_raw = tracker.get();
   this_thread_tracker_.Set(std::move(tracker));
-  int old_count = thread_tracker_count_.fetch_add(1, std::memory_order_relaxed);
-
-  UMA_HISTOGRAM_EXACT_LINEAR("ActivityTracker.ThreadTrackers.Count",
-                             old_count + 1, static_cast<int>(kMaxThreadCount));
+  thread_tracker_count_.fetch_add(1, std::memory_order_relaxed);
   return tracker_raw;
 }
 
@@ -1440,7 +1415,7 @@ void GlobalActivityTracker::RecordProcessLaunch(
   DCHECK_NE(0, pid);
 
   base::AutoLock lock(global_tracker_lock_);
-  if (base::ContainsKey(known_processes_, pid)) {
+  if (base::Contains(known_processes_, pid)) {
     // TODO(bcwhite): Measure this in UMA.
     NOTREACHED() << "Process #" << process_id
                  << " was previously recorded as \"launched\""

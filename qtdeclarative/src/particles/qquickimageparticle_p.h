@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2019 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtQuick module of the Qt Toolkit.
@@ -37,8 +37,8 @@
 **
 ****************************************************************************/
 
-#ifndef ULTRAPARTICLE_H
-#define ULTRAPARTICLE_H
+#ifndef QQUICKIMAGEPARTICLE_P_H
+#define QQUICKIMAGEPARTICLE_P_H
 
 //
 //  W A R N I N G
@@ -50,20 +50,24 @@
 //
 // We mean it.
 //
+
 #include "qquickparticlepainter_p.h"
 #include "qquickdirection_p.h"
 #include <private/qquickpixmapcache_p.h>
 #include <QQmlListProperty>
-#include <QtQuick/qsgsimplematerial.h>
 #include <QtGui/qcolor.h>
+#include <QtQuick/qsgmaterial.h>
 
 QT_BEGIN_NAMESPACE
 
 class ImageMaterialData;
 class QSGGeometryNode;
+class QSGMaterial;
 
 class QQuickSprite;
 class QQuickStochasticEngine;
+
+class QRhi;
 
 struct SimpleVertex {
     float x;
@@ -151,6 +155,12 @@ struct Vertices {
     Vertex v2;
     Vertex v3;
     Vertex v4;
+};
+
+class ImageMaterial : public QSGMaterial
+{
+public:
+    virtual ImageMaterialData *state() = 0;
 };
 
 class QQuickImageParticle : public QQuickParticlePainter
@@ -379,6 +389,7 @@ private:
     QColor m_color;
     qreal m_color_variation;
 
+    QSGNode *m_outgoingNode;
     QHash<int, QSGGeometryNode *> m_nodes;
     QHash<int, int> m_idxStarts;//TODO: Proper resizing will lead to needing a spriteEngine per particle - do this after sprite engine gains transparent sharing?
     QList<QPair<int, int> > m_startsIdx;//Same data, optimized for alternate retrieval
@@ -439,14 +450,17 @@ private:
         }
     }
 
-    template<class MaterialData>
-    static MaterialData* getState(QSGMaterial* m) {
-        return static_cast<QSGSimpleMaterial<MaterialData> *>(m)->state();
+    ImageMaterialData *getState(QSGMaterial *m) {
+        return static_cast<ImageMaterial *>(m)->state();
     }
+
     EntryEffect m_entryEffect;
     Status m_status;
     int m_startedImageLoading;
+    QRhi *m_rhi;
+    bool m_apiChecked;
 };
 
 QT_END_NAMESPACE
-#endif // ULTRAPARTICLE_H
+
+#endif // QQUICKIMAGEPARTICLE_P_H

@@ -8,13 +8,14 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
+#include "common_audio/resampler/push_sinc_resampler.h"
+
 #include <algorithm>
 #include <cmath>
 #include <cstring>
 #include <memory>
 
 #include "common_audio/include/audio_util.h"
-#include "common_audio/resampler/push_sinc_resampler.h"
 #include "common_audio/resampler/sinusoidal_linear_chirp_source.h"
 #include "rtc_base/time_utils.h"
 #include "test/gmock.h"
@@ -255,7 +256,7 @@ TEST_P(PushSincResamplerTest, ResampleFloat) {
 
 // Thresholds chosen arbitrarily based on what each resampling reported during
 // testing.  All thresholds are in dbFS, http://en.wikipedia.org/wiki/DBFS.
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     PushSincResamplerTest,
     PushSincResamplerTest,
     ::testing::Values(

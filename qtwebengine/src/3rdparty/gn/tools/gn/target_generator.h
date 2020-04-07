@@ -47,11 +47,12 @@ class TargetGenerator {
 
   const BuildSettings* GetBuildSettings() const;
 
-  bool FillSources();
+  virtual bool FillSources();
   bool FillPublic();
   bool FillConfigs();
   bool FillOutputs(bool allow_substitutions);
   bool FillCheckIncludes();
+  bool FillOutputExtension();
 
   // Rrturns true if the given pattern will expand to a file in the output
   // directory. If not, returns false and sets the error, blaming the given

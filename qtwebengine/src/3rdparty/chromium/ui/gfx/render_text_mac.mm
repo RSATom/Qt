@@ -43,17 +43,13 @@ base::ScopedCFTypeRef<CTFontRef> CopyFontWithSymbolicTraits(CTFontRef font,
   base::ScopedCFTypeRef<CFMutableDictionaryRef> attributes(
       CFDictionaryCreateMutableCopy(kCFAllocatorDefault, 0, orig_attributes));
 
-  base::ScopedCFTypeRef<CFMutableDictionaryRef> traits(
-      CFDictionaryCreateMutable(kCFAllocatorDefault, 0,
-                                &kCFTypeDictionaryKeyCallBacks,
-                                &kCFTypeDictionaryValueCallBacks));
-  base::ScopedCFTypeRef<CFNumberRef> n(
-      CFNumberCreate(kCFAllocatorDefault, kCFNumberIntType, &sym_traits));
-  CFDictionarySetValue(traits, kCTFontSymbolicTrait, n.release());
-  CFDictionarySetValue(attributes, kCTFontTraitsAttribute, traits.release());
+  NSDictionary* traits =
+      @{base::mac::CFToNSCast(kCTFontSymbolicTrait) : @(sym_traits)};
+  CFDictionarySetValue(attributes, kCTFontTraitsAttribute,
+                       base::mac::NSToCFCast(traits));
 
   base::ScopedCFTypeRef<CFStringRef> family_name(CTFontCopyFamilyName(font));
-  CFDictionarySetValue(attributes, kCTFontNameAttribute, family_name.release());
+  CFDictionarySetValue(attributes, kCTFontNameAttribute, family_name);
 
   base::ScopedCFTypeRef<CTFontDescriptorRef> desc(
       CTFontDescriptorCreateWithAttributes(attributes));
@@ -163,6 +159,10 @@ std::vector<RenderText::FontSpan> RenderTextMac::GetFontSpansForTesting() {
   return spans;
 }
 
+size_t RenderTextMac::GetLineContainingCaret(const SelectionModel& caret) {
+  return 0;
+}
+
 int RenderTextMac::GetDisplayTextBaseline() {
   EnsureLayout();
   return common_baseline_;
@@ -182,9 +182,15 @@ SelectionModel RenderTextMac::AdjacentWordSelectionModel(
   return SelectionModel();
 }
 
-Range RenderTextMac::GetCursorSpan(const Range& text_range) {
+SelectionModel RenderTextMac::AdjacentLineSelectionModel(
+    const SelectionModel& selection,
+    VisualCursorDirection direction) {
+  return SelectionModel();
+}
+
+RangeF RenderTextMac::GetCursorSpan(const Range& text_range) {
   // TODO(asvitkine): Implement this. http://crbug.com/131618
-  return Range();
+  return RangeF();
 }
 
 std::vector<Rect> RenderTextMac::GetSubstringBounds(const Range& range) {

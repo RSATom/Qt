@@ -10,10 +10,6 @@
 #include "base/process/process.h"
 #include "components/services/heap_profiling/public/mojom/heap_profiling_client.mojom.h"
 
-namespace content {
-class ServiceManagerConnection;
-}  // namespace content
-
 namespace service_manager {
 class Connector;
 }  // namespace service_manager
@@ -67,9 +63,8 @@ class Supervisor {
   //   * Relying on the assumption that in all other cases, the object is either
   //     fully initialized or not initialized. There are DCHECKs to enforce this
   //     assumption.
-  void Start(content::ServiceManagerConnection* connection,
-             base::OnceClosure callback);
-  void Start(content::ServiceManagerConnection* connection,
+  void Start(service_manager::Connector* connector, base::OnceClosure callback);
+  void Start(service_manager::Connector* connector,
              Mode mode,
              mojom::StackMode stack_mode,
              uint32_t sampling_rate,
@@ -79,10 +74,6 @@ class Supervisor {
 
   // Starts profiling the process with the given id.
   void StartManualProfiling(base::ProcessId pid);
-
-  // Public for testing. Controls whether the profiling service keeps small
-  // allocations in heap dumps.
-  void SetKeepSmallAllocations(bool keep_small_allocations);
 
   // Returns the pids of all profiled processes. The callback is posted on the
   // UI thread.
@@ -126,8 +117,6 @@ class Supervisor {
       base::WeakPtr<Controller> controller_weak_ptr);
 
   void GetProfiledPidsOnIOThread(GetProfiledPidsCallback callback);
-
-  void SetKeepSmallAllocationsOnIOThread(bool keep_small_allocations);
 
   // Bound to the IO thread.
   std::unique_ptr<Controller> controller_;

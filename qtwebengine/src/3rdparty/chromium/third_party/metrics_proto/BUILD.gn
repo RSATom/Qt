@@ -8,6 +8,7 @@ proto_library("metrics_proto") {
   sources = [
     "call_stack_profile.proto",
     "cast_logs.proto",
+    "chrome_os_app_list_launch_event.proto",
     "chrome_user_metrics_extension.proto",
     "execution_context.proto",
     "extension_install.proto",
@@ -21,12 +22,14 @@ proto_library("metrics_proto") {
     "reporting_info.proto",
     "sampled_profile.proto",
     "system_profile.proto",
+    "trace_log.proto",
     "translate_event.proto",
     "ukm/aggregate.proto",
     "ukm/entry.proto",
     "ukm/report.proto",
     "ukm/source.proto",
     "user_action_event.proto",
+    "user_demographics.proto",
   ]
   proto_in_dir = "."
 }

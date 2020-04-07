@@ -59,6 +59,10 @@
 #include <QMap>
 #include <QVariant>
 
+#ifdef Q_OS_MACOS
+#include "osx/btraii_p.h"
+#endif
+
 class OrgBluezServiceInterface;
 class OrgBluezProfileManager1Interface;
 
@@ -78,11 +82,15 @@ namespace ABI {
 }
 #endif
 
+#ifdef QT_WIN_BLUETOOTH
+#include <winsock2.h>
+#include <ws2bth.h>
+#endif
+
 QT_BEGIN_NAMESPACE
 
 class QBluetoothServiceInfo;
 
-#ifndef QT_OSX_BLUETOOTH
 
 class QBluetoothServiceInfoPrivate
     : public QObject
@@ -120,11 +128,28 @@ private:
     bool writeSdpAttributes();
 #endif
 
-    mutable bool registered;
-};
-
+#ifdef QT_WIN_BLUETOOTH
+    SOCKADDR_BTH sockaddr = {};
+    CSADDR_INFO addrinfo = {};
+    WSAQUERYSET regInfo = {};
+    QVector<WCHAR> serviceName;
+    QVector<WCHAR> serviceDescription;
 #endif
+
+#if QT_OSX_BLUETOOTH
+public:
+    bool registerService(const QBluetoothServiceInfo &info);
+
+private:
+
+    using SDPRecord = DarwinBluetooth::ScopedPointer;
+    SDPRecord serviceRecord;
+    quint32 serviceRecordHandle = 0;
+#endif // QT_OSX_BLUETOOTH
+
+    mutable bool registered = false;
+};
 
 QT_END_NAMESPACE
 
-#endif
+#endif // QBLUETOOTHSERVICEINFO_P_H

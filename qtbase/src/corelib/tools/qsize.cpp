@@ -163,7 +163,7 @@ QT_BEGIN_NAMESPACE
     \sa setWidth(), setHeight(), transposed()
 */
 
-void QSize::transpose() Q_DECL_NOTHROW
+void QSize::transpose() noexcept
 {
     qSwap(wd, ht);
 }
@@ -222,7 +222,7 @@ void QSize::transpose() Q_DECL_NOTHROW
     Return a size scaled to a rectangle with the given size \a s,
     according to the specified \a mode.
 */
-QSize QSize::scaled(const QSize &s, Qt::AspectRatioMode mode) const Q_DECL_NOTHROW
+QSize QSize::scaled(const QSize &s, Qt::AspectRatioMode mode) const noexcept
 {
     if (mode == Qt::IgnoreAspectRatio || wd == 0 || ht == 0) {
         return s;
@@ -390,7 +390,25 @@ QSize QSize::scaled(const QSize &s, Qt::AspectRatioMode mode) const Q_DECL_NOTHR
     \sa expandedTo(), scale()
 */
 
+/*!
+    \fn QSize QSize::grownBy(QMargins margins) const
+    \fn QSizeF QSizeF::grownBy(QMarginsF margins) const
+    \since 5.14
 
+    Returns the size that results from growing this size by \a margins.
+
+    \sa shrunkBy()
+*/
+
+/*!
+    \fn QSize QSize::shrunkBy(QMargins margins) const
+    \fn QSizeF QSizeF::shrunkBy(QMarginsF margins) const
+    \since 5.14
+
+    Returns the size that results from shrinking this size by \a margins.
+
+    \sa grownBy()
+*/
 
 /*****************************************************************************
   QSize stream functions
@@ -594,7 +612,7 @@ QDebug operator<<(QDebug dbg, const QSize &s)
     \sa setWidth(), setHeight(), transposed()
 */
 
-void QSizeF::transpose() Q_DECL_NOTHROW
+void QSizeF::transpose() noexcept
 {
     qSwap(wd, ht);
 }
@@ -653,7 +671,7 @@ void QSizeF::transpose() Q_DECL_NOTHROW
     Returns a size scaled to a rectangle with the given size \a s,
     according to the specified \a mode.
 */
-QSizeF QSizeF::scaled(const QSizeF &s, Qt::AspectRatioMode mode) const Q_DECL_NOTHROW
+QSizeF QSizeF::scaled(const QSizeF &s, Qt::AspectRatioMode mode) const noexcept
 {
     if (mode == Qt::IgnoreAspectRatio || qIsNull(wd) || qIsNull(ht)) {
         return s;

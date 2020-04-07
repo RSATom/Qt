@@ -9,6 +9,7 @@
 #include "base/macros.h"
 #include "media/cast/cast_config.h"
 #include "media/mojo/interfaces/remoting.mojom.h"
+#include "media/mojo/interfaces/remoting_common.mojom.h"
 #include "mojo/public/cpp/bindings/binding.h"
 
 namespace media {
@@ -139,7 +140,7 @@ class COMPONENT_EXPORT(MIRRORING_SERVICE) MediaRemoter final
     STOPPING_REMOTING,  // Stopping the remoting session.
   } state_;
 
-  base::WeakPtrFactory<MediaRemoter> weak_factory_;
+  base::WeakPtrFactory<MediaRemoter> weak_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(MediaRemoter);
 };

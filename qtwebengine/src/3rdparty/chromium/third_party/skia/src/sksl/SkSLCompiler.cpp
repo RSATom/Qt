@@ -5,27 +5,28 @@
  * found in the LICENSE file.
  */
 
-#include "SkSLCompiler.h"
+#include "src/sksl/SkSLCompiler.h"
 
-#include "SkSLCFGGenerator.h"
-#include "SkSLCPPCodeGenerator.h"
-#include "SkSLGLSLCodeGenerator.h"
-#include "SkSLHCodeGenerator.h"
-#include "SkSLIRGenerator.h"
-#include "SkSLMetalCodeGenerator.h"
-#include "SkSLPipelineStageCodeGenerator.h"
-#include "SkSLSPIRVCodeGenerator.h"
-#include "ir/SkSLEnum.h"
-#include "ir/SkSLExpression.h"
-#include "ir/SkSLExpressionStatement.h"
-#include "ir/SkSLFunctionCall.h"
-#include "ir/SkSLIntLiteral.h"
-#include "ir/SkSLModifiersDeclaration.h"
-#include "ir/SkSLNop.h"
-#include "ir/SkSLSymbolTable.h"
-#include "ir/SkSLTernaryExpression.h"
-#include "ir/SkSLUnresolvedFunction.h"
-#include "ir/SkSLVarDeclarations.h"
+#include "src/sksl/SkSLByteCodeGenerator.h"
+#include "src/sksl/SkSLCFGGenerator.h"
+#include "src/sksl/SkSLCPPCodeGenerator.h"
+#include "src/sksl/SkSLGLSLCodeGenerator.h"
+#include "src/sksl/SkSLHCodeGenerator.h"
+#include "src/sksl/SkSLIRGenerator.h"
+#include "src/sksl/SkSLMetalCodeGenerator.h"
+#include "src/sksl/SkSLPipelineStageCodeGenerator.h"
+#include "src/sksl/SkSLSPIRVCodeGenerator.h"
+#include "src/sksl/ir/SkSLEnum.h"
+#include "src/sksl/ir/SkSLExpression.h"
+#include "src/sksl/ir/SkSLExpressionStatement.h"
+#include "src/sksl/ir/SkSLFunctionCall.h"
+#include "src/sksl/ir/SkSLIntLiteral.h"
+#include "src/sksl/ir/SkSLModifiersDeclaration.h"
+#include "src/sksl/ir/SkSLNop.h"
+#include "src/sksl/ir/SkSLSymbolTable.h"
+#include "src/sksl/ir/SkSLTernaryExpression.h"
+#include "src/sksl/ir/SkSLUnresolvedFunction.h"
+#include "src/sksl/ir/SkSLVarDeclarations.h"
 
 #ifdef SK_ENABLE_SPIRV_VALIDATION
 #include "spirv-tools/libspirv.hpp"
@@ -35,8 +36,12 @@
 
 #define STRINGIFY(x) #x
 
-static const char* SKSL_INCLUDE =
-#include "sksl.inc"
+static const char* SKSL_GPU_INCLUDE =
+#include "sksl_gpu.inc"
+;
+
+static const char* SKSL_INTERP_INCLUDE =
+#include "sksl_interp.inc"
 ;
 
 static const char* SKSL_VERT_INCLUDE =
@@ -56,7 +61,7 @@ static const char* SKSL_FP_INCLUDE =
 #include "sksl_fp.inc"
 ;
 
-static const char* SKSL_PIPELINE_STAGE_INCLUDE =
+static const char* SKSL_PIPELINE_INCLUDE =
 #include "sksl_pipeline.inc"
 ;
 
@@ -218,36 +223,40 @@ Compiler::Compiler(Flags flags)
     fIRGenerator->fSymbolTable->add(skArgsName, std::unique_ptr<Symbol>(skArgs));
 
     std::vector<std::unique_ptr<ProgramElement>> ignored;
-    fIRGenerator->convertProgram(Program::kFragment_Kind, SKSL_INCLUDE, strlen(SKSL_INCLUDE),
-                                 *fTypes, &ignored);
-    fIRGenerator->fSymbolTable->markAllFunctionsBuiltin();
-    if (fErrorCount) {
-        printf("Unexpected errors: %s\n", fErrorText.c_str());
-    }
-    SkASSERT(!fErrorCount);
-
-    Program::Settings settings;
-    fIRGenerator->start(&settings, nullptr);
-    fIRGenerator->convertProgram(Program::kFragment_Kind, SKSL_VERT_INCLUDE,
-                                 strlen(SKSL_VERT_INCLUDE), *fTypes, &fVertexInclude);
-    fIRGenerator->fSymbolTable->markAllFunctionsBuiltin();
-    fVertexSymbolTable = fIRGenerator->fSymbolTable;
-
-    fIRGenerator->start(&settings, nullptr);
-    fIRGenerator->convertProgram(Program::kVertex_Kind, SKSL_FRAG_INCLUDE,
-                                 strlen(SKSL_FRAG_INCLUDE), *fTypes, &fFragmentInclude);
-    fIRGenerator->fSymbolTable->markAllFunctionsBuiltin();
-    fFragmentSymbolTable = fIRGenerator->fSymbolTable;
-
-    fIRGenerator->start(&settings, nullptr);
-    fIRGenerator->convertProgram(Program::kGeometry_Kind, SKSL_GEOM_INCLUDE,
-                                 strlen(SKSL_GEOM_INCLUDE), *fTypes, &fGeometryInclude);
-    fIRGenerator->fSymbolTable->markAllFunctionsBuiltin();
-    fGeometrySymbolTable = fIRGenerator->fSymbolTable;
+    this->processIncludeFile(Program::kFragment_Kind, SKSL_GPU_INCLUDE, strlen(SKSL_GPU_INCLUDE),
+                             symbols, &ignored, &fGpuSymbolTable);
+    this->processIncludeFile(Program::kVertex_Kind, SKSL_VERT_INCLUDE, strlen(SKSL_VERT_INCLUDE),
+                             fGpuSymbolTable, &fVertexInclude, &fVertexSymbolTable);
+    this->processIncludeFile(Program::kFragment_Kind, SKSL_FRAG_INCLUDE, strlen(SKSL_FRAG_INCLUDE),
+                             fGpuSymbolTable, &fFragmentInclude, &fFragmentSymbolTable);
+    this->processIncludeFile(Program::kGeometry_Kind, SKSL_GEOM_INCLUDE, strlen(SKSL_GEOM_INCLUDE),
+                             fGpuSymbolTable, &fGeometryInclude, &fGeometrySymbolTable);
+    this->processIncludeFile(Program::kPipelineStage_Kind, SKSL_PIPELINE_INCLUDE,
+                             strlen(SKSL_PIPELINE_INCLUDE), fGpuSymbolTable, &fPipelineInclude,
+                             &fPipelineSymbolTable);
+    this->processIncludeFile(Program::kGeneric_Kind, SKSL_INTERP_INCLUDE,
+                             strlen(SKSL_INTERP_INCLUDE), symbols, &fInterpreterInclude,
+                             &fInterpreterSymbolTable);
 }
 
 Compiler::~Compiler() {
     delete fIRGenerator;
+}
+
+void Compiler::processIncludeFile(Program::Kind kind, const char* src, size_t length,
+                                  std::shared_ptr<SymbolTable> base,
+                                  std::vector<std::unique_ptr<ProgramElement>>* outElements,
+                                  std::shared_ptr<SymbolTable>* outSymbolTable) {
+    fIRGenerator->fSymbolTable = std::move(base);
+    Program::Settings settings;
+    fIRGenerator->start(&settings, nullptr);
+    fIRGenerator->convertProgram(kind, src, length, *fTypes, outElements);
+    if (this->fErrorCount) {
+        printf("Unexpected errors: %s\n", this->fErrorText.c_str());
+    }
+    SkASSERT(!fErrorCount);
+    fIRGenerator->fSymbolTable->markAllFunctionsBuiltin();
+    *outSymbolTable = fIRGenerator->fSymbolTable;
 }
 
 // add the definition created by assigning to the lvalue to the definition set
@@ -294,6 +303,8 @@ void Compiler::addDefinition(const Expression* lvalue, std::unique_ptr<Expressio
             this->addDefinition(((TernaryExpression*) lvalue)->fIfFalse.get(),
                                 (std::unique_ptr<Expression>*) &fContext->fDefined_Expression,
                                 definitions);
+            break;
+        case Expression::kExternalValue_Kind:
             break;
         default:
             // not an lvalue, can't happen
@@ -463,6 +474,8 @@ static bool is_dead(const Expression& lvalue) {
             const TernaryExpression& t = (TernaryExpression&) lvalue;
             return !t.fTest->hasSideEffects() && is_dead(*t.fIfTrue) && is_dead(*t.fIfFalse);
         }
+        case Expression::kExternalValue_Kind:
+            return false;
         default:
             ABORT("invalid lvalue: %s\n", lvalue.description().c_str());
     }
@@ -522,9 +535,15 @@ bool is_constant(const Expression& expr, double value) {
             return ((FloatLiteral&) expr).fValue == value;
         case Expression::kConstructor_Kind: {
             Constructor& c = (Constructor&) expr;
+            bool isFloat = c.fType.columns() > 1 ? c.fType.componentType().isFloat()
+                                                 : c.fType.isFloat();
             if (c.fType.kind() == Type::kVector_Kind && c.isConstant()) {
                 for (int i = 0; i < c.fType.columns(); ++i) {
-                    if (!is_constant(c.getVecComponent(i), value)) {
+                    if (isFloat) {
+                        if (c.getFVecComponent(i) != value) {
+                            return false;
+                        }
+                    } else if (c.getIVecComponent(i) != value) {
                         return false;
                     }
                 }
@@ -1231,6 +1250,14 @@ void Compiler::scanCFG(FunctionDefinition& f) {
     }
 }
 
+void Compiler::registerExternalValue(ExternalValue* value) {
+    fIRGenerator->fRootSymbolTable->addWithoutOwnership(value->fName, value);
+}
+
+Symbol* Compiler::takeOwnership(std::unique_ptr<Symbol> symbol) {
+    return fIRGenerator->fRootSymbolTable->takeOwnership(std::move(symbol));
+}
+
 std::unique_ptr<Program> Compiler::convertProgram(Program::Kind kind, String text,
                                                   const Program::Settings& settings) {
     fErrorText = "";
@@ -1255,17 +1282,21 @@ std::unique_ptr<Program> Compiler::convertProgram(Program::Kind kind, String tex
             break;
         case Program::kFragmentProcessor_Kind:
             inherited = nullptr;
+            fIRGenerator->fSymbolTable = fGpuSymbolTable;
             fIRGenerator->start(&settings, nullptr);
             fIRGenerator->convertProgram(kind, SKSL_FP_INCLUDE, strlen(SKSL_FP_INCLUDE), *fTypes,
                                          &elements);
             fIRGenerator->fSymbolTable->markAllFunctionsBuiltin();
             break;
         case Program::kPipelineStage_Kind:
-            inherited = nullptr;
-            fIRGenerator->start(&settings, nullptr);
-            fIRGenerator->convertProgram(kind, SKSL_PIPELINE_STAGE_INCLUDE,
-                                         strlen(SKSL_PIPELINE_STAGE_INCLUDE), *fTypes, &elements);
-            fIRGenerator->fSymbolTable->markAllFunctionsBuiltin();
+            inherited = &fPipelineInclude;
+            fIRGenerator->fSymbolTable = fPipelineSymbolTable;
+            fIRGenerator->start(&settings, inherited);
+            break;
+        case Program::kGeneric_Kind:
+            inherited = &fInterpreterInclude;
+            fIRGenerator->fSymbolTable = fInterpreterSymbolTable;
+            fIRGenerator->start(&settings, inherited);
             break;
     }
     for (auto& element : elements) {
@@ -1301,7 +1332,26 @@ bool Compiler::optimize(Program& program) {
                 this->scanCFG((FunctionDefinition&) element);
             }
         }
-        fSource = nullptr;
+        if (program.fKind != Program::kFragmentProcessor_Kind) {
+            for (auto iter = program.fElements.begin(); iter != program.fElements.end();) {
+                if ((*iter)->fKind == ProgramElement::kVar_Kind) {
+                    VarDeclarations& vars = (VarDeclarations&) **iter;
+                    for (auto varIter = vars.fVars.begin(); varIter != vars.fVars.end();) {
+                        const Variable& var = *((VarDeclaration&) **varIter).fVar;
+                        if (var.dead()) {
+                            varIter = vars.fVars.erase(varIter);
+                        } else {
+                            ++varIter;
+                        }
+                    }
+                    if (vars.fVars.size() == 0) {
+                        iter = program.fElements.erase(iter);
+                        continue;
+                    }
+                }
+                ++iter;
+            }
+        }
     }
     return fErrorCount == 0;
 }
@@ -1328,6 +1378,8 @@ std::unique_ptr<Program> Compiler::specialize(
                                                 program.fInputs));
     return result;
 }
+
+#if defined(SKSL_STANDALONE) || SK_SUPPORT_GPU
 
 bool Compiler::toSPIRV(Program& program, OutputStream& out) {
     if (!this->optimize(program)) {
@@ -1445,6 +1497,24 @@ bool Compiler::toPipelineStage(const Program& program, String* out,
         *out = buffer.str();
     }
     return result;
+}
+
+#endif
+
+std::unique_ptr<ByteCode> Compiler::toByteCode(Program& program) {
+#if defined(SK_ENABLE_SKSL_INTERPRETER)
+    if (!this->optimize(program)) {
+        return nullptr;
+    }
+    std::unique_ptr<ByteCode> result(new ByteCode());
+    ByteCodeGenerator cg(fContext.get(), &program, this, result.get());
+    if (cg.generateCode()) {
+        return result;
+    }
+#else
+    ABORT("ByteCode interpreter not enabled");
+#endif
+    return nullptr;
 }
 
 const char* Compiler::OperatorName(Token::Kind kind) {

@@ -330,7 +330,7 @@ void tst_QSourceLocation::setUri() const
 void tst_QSourceLocation::withinQVariant() const
 {
     QSourceLocation val;
-    const QVariant variant(qVariantFromValue(val));
+    const auto variant = QVariant::fromValue(val);
     QSourceLocation val2(qvariant_cast<QSourceLocation>(variant));
 }
 

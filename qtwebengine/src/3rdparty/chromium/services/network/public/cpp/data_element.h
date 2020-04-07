@@ -20,11 +20,18 @@
 #include "base/gtest_prod_util.h"
 #include "base/logging.h"
 #include "base/time/time.h"
+#include "mojo/public/cpp/bindings/enum_traits.h"
 #include "mojo/public/cpp/system/data_pipe.h"
-#include "services/network/public/mojom/chunked_data_pipe_getter.mojom.h"
-#include "services/network/public/mojom/data_pipe_getter.mojom.h"
+#include "services/network/public/mojom/chunked_data_pipe_getter.mojom-forward.h"
+#include "services/network/public/mojom/data_pipe_getter.mojom-forward.h"
 #include "services/network/public/mojom/url_loader.mojom-shared.h"
 #include "url/gurl.h"
+
+namespace blink {
+namespace mojom {
+class FetchAPIDataElementDataView;
+}  // namespace mojom
+}  // namespace blink
 
 namespace network {
 
@@ -43,7 +50,10 @@ class COMPONENT_EXPORT(NETWORK_CPP_BASE) DataElement {
   DataElement& operator=(DataElement&& other);
 
   mojom::DataElementType type() const { return type_; }
-  const char* bytes() const { return bytes_ ? bytes_ : buf_.data(); }
+  const char* bytes() const {
+    return bytes_ ? reinterpret_cast<const char*>(bytes_)
+                  : reinterpret_cast<const char*>(buf_.data());
+  }
   const base::FilePath& path() const { return path_; }
   const base::File& file() const { return file_; }
   const std::string& blob_uuid() const { return blob_uuid_; }
@@ -55,18 +65,19 @@ class COMPONENT_EXPORT(NETWORK_CPP_BASE) DataElement {
 
   // For use with SetToAllocatedBytes. Should only be used after calling
   // SetToAllocatedBytes.
-  char* mutable_bytes() { return &buf_[0]; }
+  char* mutable_bytes() { return reinterpret_cast<char*>(&buf_[0]); }
 
   // Sets TYPE_BYTES data. This copies the given data into the element.
   void SetToBytes(const char* bytes, int bytes_len) {
     type_ = mojom::DataElementType::kBytes;
     bytes_ = nullptr;
-    buf_.assign(bytes, bytes + bytes_len);
+    buf_.assign(reinterpret_cast<const uint8_t*>(bytes),
+                reinterpret_cast<const uint8_t*>(bytes + bytes_len));
     length_ = buf_.size();
   }
 
   // Sets TYPE_BYTES data. This moves the given data vector into the element.
-  void SetToBytes(std::vector<char> bytes) {
+  void SetToBytes(std::vector<uint8_t> bytes) {
     type_ = mojom::DataElementType::kBytes;
     bytes_ = nullptr;
     buf_ = std::move(bytes);
@@ -88,7 +99,8 @@ class COMPONENT_EXPORT(NETWORK_CPP_BASE) DataElement {
     DCHECK_EQ(type_, mojom::DataElementType::kBytes);
     DCHECK_NE(length_, std::numeric_limits<uint64_t>::max());
     DCHECK(!bytes_);
-    buf_.insert(buf_.end(), bytes, bytes + bytes_len);
+    buf_.insert(buf_.end(), reinterpret_cast<const uint8_t*>(bytes),
+                reinterpret_cast<const uint8_t*>(bytes + bytes_len));
     length_ = buf_.size();
   }
 
@@ -97,7 +109,7 @@ class COMPONENT_EXPORT(NETWORK_CPP_BASE) DataElement {
   // You cannot use AppendBytes with this method.
   void SetToSharedBytes(const char* bytes, int bytes_len) {
     type_ = mojom::DataElementType::kBytes;
-    bytes_ = bytes;
+    bytes_ = reinterpret_cast<const uint8_t*>(bytes);
     length_ = bytes_len;
   }
 
@@ -171,11 +183,15 @@ class COMPONENT_EXPORT(NETWORK_CPP_BASE) DataElement {
  private:
   FRIEND_TEST_ALL_PREFIXES(BlobAsyncTransportStrategyTest, TestInvalidParams);
   friend void PrintTo(const DataElement& x, ::std::ostream* os);
+  friend struct mojo::StructTraits<network::mojom::DataElementDataView,
+                                   network::DataElement>;
+  friend struct mojo::StructTraits<blink::mojom::FetchAPIDataElementDataView,
+                                   network::DataElement>;
   mojom::DataElementType type_;
   // For TYPE_BYTES.
-  std::vector<char> buf_;
+  std::vector<uint8_t> buf_;
   // For TYPE_BYTES.
-  const char* bytes_;
+  const uint8_t* bytes_;
   // For TYPE_FILE and TYPE_RAW_FILE.
   base::FilePath path_;
   // For TYPE_RAW_FILE.

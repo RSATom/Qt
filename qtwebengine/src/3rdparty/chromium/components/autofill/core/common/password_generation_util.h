@@ -79,6 +79,13 @@ enum PasswordGenerationEvent {
   EVENT_ENUM_COUNT
 };
 
+enum class PasswordGenerationType {
+  // The user was automatically shown the possibility to generate a password.
+  kAutomatic,
+  // The user had to manually request password generation.
+  kManual
+};
+
 // Wrapper to store the user interactions with the password generation bubble.
 struct PasswordGenerationActions {
   // Whether the user has clicked on the learn more link.
@@ -101,9 +108,14 @@ struct PasswordGenerationUIData {
   PasswordGenerationUIData(const gfx::RectF& bounds,
                            int max_length,
                            const base::string16& generation_element,
+                           uint32_t generation_element_id,
                            base::i18n::TextDirection text_direction,
                            const autofill::PasswordForm& password_form);
   PasswordGenerationUIData();
+  PasswordGenerationUIData(const PasswordGenerationUIData& rhs);
+  PasswordGenerationUIData(PasswordGenerationUIData&& rhs);
+  PasswordGenerationUIData& operator=(const PasswordGenerationUIData& rhs);
+  PasswordGenerationUIData& operator=(PasswordGenerationUIData&& rhs);
   ~PasswordGenerationUIData();
 
   // Location at which to display a popup if needed. This location is specified
@@ -117,6 +129,9 @@ struct PasswordGenerationUIData {
   // Name of the password field to which the generation popup is attached.
   base::string16 generation_element;
 
+  // Renderer ID of the generation element.
+  uint32_t generation_element_id;
+
   // Direction of the text for |generation_element|.
   base::i18n::TextDirection text_direction;
 
@@ -124,32 +139,7 @@ struct PasswordGenerationUIData {
   autofill::PasswordForm password_form;
 };
 
-void LogUserActions(PasswordGenerationActions actions);
-
 void LogPasswordGenerationEvent(PasswordGenerationEvent event);
-
-// Enumerates user actions after password generation bubble is shown.
-// These are visible for testing purposes.
-enum UserAction {
-  // User closes the bubble without any meaningful actions (e.g. use backspace
-  // key, close the bubble, click outside the bubble, etc).
-  IGNORE_FEATURE,
-
-  // User navigates to the learn more page. Note that in the current
-  // implementation this will result in closing the bubble so this action
-  // doesn't overlap with the following two actions.
-  LEARN_MORE,
-
-  // User accepts the generated password without manually editing it (but
-  // including changing it through the regenerate button).
-  ACCEPT_ORIGINAL_PASSWORD,
-
-  // User accepts the gererated password after manually editing it.
-  ACCEPT_AFTER_EDITING,
-
-  // Number of enum entries, used for UMA histogram reporting macros.
-  ACTION_ENUM_COUNT
-};
 
 // Returns true if Password Generation is enabled according to the field
 // trial result and the flags.

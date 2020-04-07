@@ -53,6 +53,7 @@ class QContextMenuEvent;
 class QUrl;
 class QWebEnginePage;
 class QWebEngineSettings;
+class QWebEngineViewAccessible;
 class QWebEngineViewPrivate;
 
 class QWEBENGINEWIDGETS_EXPORT QWebEngineView : public QWidget {
@@ -126,6 +127,7 @@ protected:
     bool event(QEvent*) override;
     void showEvent(QShowEvent *) override;
     void hideEvent(QHideEvent *) override;
+    void closeEvent(QCloseEvent *) override;
 #if QT_CONFIG(draganddrop)
     void dragEnterEvent(QDragEnterEvent *e) override;
     void dragLeaveEvent(QDragLeaveEvent *e) override;
@@ -140,6 +142,9 @@ private:
 
     friend class QWebEnginePage;
     friend class QWebEnginePagePrivate;
+#if QT_CONFIG(accessibility)
+    friend class QWebEngineViewAccessible;
+#endif
 };
 
 QT_END_NAMESPACE

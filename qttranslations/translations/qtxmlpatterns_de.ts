@@ -858,8 +858,8 @@
         <translation>Die Varietät der Typen von %1 muss entweder atomar oder eine Vereinigung sein.</translation>
     </message>
     <message>
-        <source>Variety of member types of %1 must be atomic.</source>
-        <translation>Die Varietät der Typen von %1 muss atomar sein.</translation>
+        <source>Variety of member types of %1 must be atomic or union.</source>
+        <translation>Die Varietät der Typen von %1 muss atomar oder union sein.</translation>
     </message>
     <message>
         <source>%1 is not allowed to derive from %2 by list as the latter defines it as final.</source>

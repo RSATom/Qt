@@ -132,11 +132,8 @@ QJSValue SortFilterProxyModel::get(int idx) const
     QJSValue value = engine->newObject();
     if (idx >= 0 && idx < count()) {
         QHash<int, QByteArray> roles = roleNames();
-        QHashIterator<int, QByteArray> it(roles);
-        while (it.hasNext()) {
-            it.next();
+        for (auto it = roles.cbegin(), end = roles.cend(); it != end; ++it)
             value.setProperty(QString::fromUtf8(it.value()), data(index(idx, 0), it.key()).toString());
-        }
     }
     return value;
 }
@@ -156,14 +153,7 @@ void SortFilterProxyModel::componentComplete()
 
 int SortFilterProxyModel::roleKey(const QByteArray &role) const
 {
-    QHash<int, QByteArray> roles = roleNames();
-    QHashIterator<int, QByteArray> it(roles);
-    while (it.hasNext()) {
-        it.next();
-        if (it.value() == role)
-            return it.key();
-    }
-    return -1;
+    return roleNames().key(role, -1);
 }
 
 QHash<int, QByteArray> SortFilterProxyModel::roleNames() const
@@ -181,9 +171,7 @@ bool SortFilterProxyModel::filterAcceptsRow(int sourceRow, const QModelIndex &so
     QAbstractItemModel *model = sourceModel();
     if (filterRole().isEmpty()) {
         QHash<int, QByteArray> roles = roleNames();
-        QHashIterator<int, QByteArray> it(roles);
-        while (it.hasNext()) {
-            it.next();
+        for (auto it = roles.cbegin(), end = roles.cend(); it != end; ++it) {
             QModelIndex sourceIndex = model->index(sourceRow, 0, sourceParent);
             QString key = model->data(sourceIndex, it.key()).toString();
             if (key.contains(rx))

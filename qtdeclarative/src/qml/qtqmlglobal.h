@@ -53,7 +53,9 @@
 #else
 #  define QT_FEATURE_qml_debug -1
 #  define QT_FEATURE_qml_sequence_object 1
-#  define QT_FEATURE_qml_tracing -1
+#  define QT_FEATURE_qml_jit -1
+#  define QT_FEATURE_qml_worker_script -1
+#  define QT_FEATURE_qml_xml_http_request -1
 #endif
 
 QT_BEGIN_NAMESPACE

@@ -13,6 +13,7 @@
 #include "services/network/public/cpp/cors/cors_error_status.h"
 #include "services/network/public/cpp/cors/preflight_timing_info.h"
 #include "services/network/public/mojom/fetch_api.mojom.h"
+#include "services/network/public/mojom/url_loader.mojom.h"
 #include "services/network/public/mojom/url_loader_factory.mojom.h"
 #include "url/gurl.h"
 #include "url/origin.h"
@@ -34,9 +35,6 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) CorsURLLoader
  public:
   using DeleteCallback = base::OnceCallback<void(mojom::URLLoader* loader)>;
 
-  // Assumes network_loader_factory outlives this loader.
-  // TODO(yhirano): Remove |request_finalizer| when the network service is
-  // fully enabled.
   CorsURLLoader(
       mojom::URLLoaderRequest loader_request,
       int32_t routing_id,
@@ -47,8 +45,9 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) CorsURLLoader
       mojom::URLLoaderClientPtr client,
       const net::MutableNetworkTrafficAnnotationTag& traffic_annotation,
       mojom::URLLoaderFactory* network_loader_factory,
-      const base::RepeatingCallback<void(int)>& request_finalizer,
+      const base::Optional<url::Origin>& factory_bound_origin_,
       const OriginAccessList* origin_access_list,
+      const OriginAccessList* factory_bound_origin_access_list,
       PreflightController* preflight_controller);
 
   ~CorsURLLoader() override;
@@ -74,7 +73,7 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) CorsURLLoader
   void OnUploadProgress(int64_t current_position,
                         int64_t total_size,
                         base::OnceCallback<void()> callback) override;
-  void OnReceiveCachedMetadata(const std::vector<uint8_t>& data) override;
+  void OnReceiveCachedMetadata(mojo_base::BigBuffer data) override;
   void OnTransferSizeUpdated(int32_t transfer_size_diff) override;
   void OnStartLoadingResponseBody(
       mojo::ScopedDataPipeConsumerHandle body) override;
@@ -88,7 +87,7 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) CorsURLLoader
   // https://fetch.spec.whatwg.org/#main-fetch.
   static network::mojom::FetchResponseType CalculateResponseTainting(
       const GURL& url,
-      mojom::FetchRequestMode request_mode,
+      mojom::RequestMode request_mode,
       const base::Optional<url::Origin>& origin,
       bool cors_flag,
       bool tainted_origin,
@@ -162,22 +161,21 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) CorsURLLoader
   // https://fetch.spec.whatwg.org/#concept-request-redirect-count
   int redirect_count_ = 0;
 
-  // Used to finalize preflight / redirect requests.
-  // TODO(yhirano): Remove this once the network service is fully enabled.
-  base::RepeatingCallback<void(int)> request_finalizer_;
-
   // We need to save this for redirect.
   net::MutableNetworkTrafficAnnotationTag traffic_annotation_;
 
   // Holds timing info if a preflight was made.
   std::vector<PreflightTimingInfo> preflight_timing_info_;
 
+  const base::Optional<url::Origin> factory_bound_origin_;
+
   // Outlives |this|.
   const OriginAccessList* const origin_access_list_;
+  const OriginAccessList* const factory_bound_origin_access_list_;
   PreflightController* preflight_controller_;
 
   // Used to run asynchronous class instance bound callbacks safely.
-  base::WeakPtrFactory<CorsURLLoader> weak_factory_;
+  base::WeakPtrFactory<CorsURLLoader> weak_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(CorsURLLoader);
 };

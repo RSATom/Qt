@@ -39,7 +39,7 @@ class SlotScopedTraversalTest : public testing::Test {
 };
 
 void SlotScopedTraversalTest::SetUp() {
-  dummy_page_holder_ = DummyPageHolder::Create(IntSize(800, 600));
+  dummy_page_holder_ = std::make_unique<DummyPageHolder>(IntSize(800, 600));
   document_ = &dummy_page_holder_->GetDocument();
   DCHECK(document_);
 }
@@ -54,7 +54,7 @@ void SlotScopedTraversalTest::SetupSampleHTML(const char* main_html,
   Element* body = GetDocument().body();
   body->SetInnerHTMLFromString(String::FromUTF8(main_html));
   if (shadow_html) {
-    Element* shadow_host = ToElement(NodeTraversal::ChildAt(*body, index));
+    auto* shadow_host = To<Element>(NodeTraversal::ChildAt(*body, index));
     AttachOpenShadowRoot(*shadow_host, shadow_html);
   }
 }

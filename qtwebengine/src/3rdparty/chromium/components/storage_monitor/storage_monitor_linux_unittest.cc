@@ -14,13 +14,14 @@
 #include <memory>
 #include <string>
 
+#include "base/bind.h"
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
 #include "base/logging.h"
 #include "base/run_loop.h"
 #include "base/stl_util.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/task/task_scheduler/task_scheduler.h"
+#include "base/task/thread_pool/thread_pool.h"
 #include "base/test/scoped_task_environment.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "components/storage_monitor/mock_removable_storage_observer.h"
@@ -136,8 +137,8 @@ class TestStorageMonitorLinux : public StorageMonitorLinux {
     StorageMonitorLinux::UpdateMtab(new_mtab);
 
     // The UpdateMtab call performs the actual mounting by posting tasks
-    // to the task scheduler. This also needs to be flushed.
-    base::TaskScheduler::GetInstance()->FlushForTesting();
+    // to the thread pool. This also needs to be flushed.
+    base::ThreadPoolInstance::Get()->FlushForTesting();
 
     // Once the storage monitor picks up the changes to the fake mtab file,
     // exit the RunLoop that should be blocking the main test thread.

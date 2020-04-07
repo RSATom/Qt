@@ -4,14 +4,16 @@
 
 #include "third_party/blink/renderer/platform/scheduler/worker/worker_thread.h"
 
+#include "base/bind.h"
 #include "base/location.h"
 #include "base/macros.h"
 #include "base/synchronization/waitable_event.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
-#include "third_party/blink/renderer/platform/cross_thread_functional.h"
 #include "third_party/blink/renderer/platform/scheduler/public/post_cross_thread_task.h"
 #include "third_party/blink/renderer/platform/scheduler/worker/worker_thread_scheduler.h"
+#include "third_party/blink/renderer/platform/wtf/cross_thread_functional.h"
+#include "third_party/blink/renderer/platform/wtf/text/string_builder.h"
 
 using testing::_;
 using testing::AnyOf;
@@ -34,24 +36,24 @@ class MockIdleTask {
 
 class TestObserver : public Thread::TaskObserver {
  public:
-  explicit TestObserver(std::string* calls) : calls_(calls) {}
+  explicit TestObserver(StringBuilder* calls) : calls_(calls) {}
 
   ~TestObserver() override = default;
 
   void WillProcessTask(const base::PendingTask&) override {
-    calls_->append(" willProcessTask");
+    calls_->Append(" willProcessTask");
   }
 
   void DidProcessTask(const base::PendingTask&) override {
-    calls_->append(" didProcessTask");
+    calls_->Append(" didProcessTask");
   }
 
  private:
-  std::string* calls_;  // NOT OWNED
+  StringBuilder* calls_;  // NOT OWNED
 };
 
-void RunTestTask(std::string* calls) {
-  calls->append(" run");
+void RunTestTask(StringBuilder* calls) {
+  calls->Append(" run");
 }
 
 void AddTaskObserver(Thread* thread, TestObserver* observer) {
@@ -114,36 +116,19 @@ TEST_F(WorkerThreadTest, TestDefaultTask) {
 
   PostCrossThreadTask(
       *thread_->GetTaskRunner(), FROM_HERE,
-      CrossThreadBind(&MockTask::Run, WTF::CrossThreadUnretained(&task)));
+      CrossThreadBindOnce(&MockTask::Run, WTF::CrossThreadUnretained(&task)));
   completion.Wait();
 }
 
-TEST_F(WorkerThreadTest, TestTaskExecutedBeforeThreadDeletion) {
-  MockTask task;
-  base::WaitableEvent completion(
-      base::WaitableEvent::ResetPolicy::AUTOMATIC,
-      base::WaitableEvent::InitialState::NOT_SIGNALED);
-
-  EXPECT_CALL(task, Run());
-  ON_CALL(task, Run()).WillByDefault(Invoke([&completion]() {
-    completion.Signal();
-  }));
-
-  PostCrossThreadTask(
-      *thread_->GetTaskRunner(), FROM_HERE,
-      CrossThreadBind(&MockTask::Run, WTF::CrossThreadUnretained(&task)));
-  thread_.reset();
-}
-
 TEST_F(WorkerThreadTest, TestTaskObserver) {
-  std::string calls;
+  StringBuilder calls;
   TestObserver observer(&calls);
 
   RunOnWorkerThread(FROM_HERE,
                     base::BindOnce(&AddTaskObserver, thread_.get(), &observer));
   PostCrossThreadTask(
       *thread_->GetTaskRunner(), FROM_HERE,
-      CrossThreadBind(&RunTestTask, WTF::CrossThreadUnretained(&calls)));
+      CrossThreadBindOnce(&RunTestTask, WTF::CrossThreadUnretained(&calls)));
   RunOnWorkerThread(
       FROM_HERE, base::BindOnce(&RemoveTaskObserver, thread_.get(), &observer));
 
@@ -152,7 +137,8 @@ TEST_F(WorkerThreadTest, TestTaskObserver) {
   // Sometimes we get an internal scheduler task running before or after
   // TestTask as well. This is not a bug, and we need to make sure the test
   // doesn't fail when that happens.
-  EXPECT_THAT(calls, testing::HasSubstr("willProcessTask run didProcessTask"));
+  EXPECT_THAT(calls.ToString().Utf8(),
+              testing::HasSubstr("willProcessTask run didProcessTask"));
 }
 
 TEST_F(WorkerThreadTest, TestShutdown) {
@@ -166,12 +152,12 @@ TEST_F(WorkerThreadTest, TestShutdown) {
                     base::BindOnce(&ShutdownOnThread, thread_.get()));
   PostCrossThreadTask(
       *thread_->GetTaskRunner(), FROM_HERE,
-      CrossThreadBind(&MockTask::Run, WTF::CrossThreadUnretained(&task)));
+      CrossThreadBindOnce(&MockTask::Run, WTF::CrossThreadUnretained(&task)));
   PostDelayedCrossThreadTask(
       *thread_->GetTaskRunner(), FROM_HERE,
-      CrossThreadBind(&MockTask::Run,
-                      WTF::CrossThreadUnretained(&delayed_task)),
-      TimeDelta::FromMilliseconds(50));
+      CrossThreadBindOnce(&MockTask::Run,
+                          WTF::CrossThreadUnretained(&delayed_task)),
+      base::TimeDelta::FromMilliseconds(50));
   thread_.reset();
 }
 

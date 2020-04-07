@@ -48,10 +48,6 @@
 
 QT_BEGIN_NAMESPACE
 
-const QMap<QLatin1String, int> BMShape::m_shapeMap =
-        BMShape::setShapeMap();
-
-
 BMShape::BMShape(const BMShape &other)
     : BMBase(other)
 {
@@ -65,119 +61,111 @@ BMBase *BMShape::clone() const
     return new BMShape(*this);
 }
 
-QMap<QLatin1String, int> BMShape::setShapeMap()
-{
-    QMap<QLatin1String, int> shapeMap;
-    shapeMap.insert(QLatin1String(BM_SHAPE_ELLIPSE_STR), BM_SHAPE_ELLIPSE_IX);
-    shapeMap.insert(QLatin1String(BM_SHAPE_FILL_STR), BM_SHAPE_FILL_IX);
-    shapeMap.insert(QLatin1String(BM_SHAPE_GFILL_STR), BM_SHAPE_GFILL_IX);
-    shapeMap.insert(QLatin1String(BM_SHAPE_GSTROKE_STR), BM_SHAPE_GSTROKE_IX);
-    shapeMap.insert(QLatin1String(BM_SHAPE_GROUP_STR), BM_SHAPE_GROUP_IX);
-    shapeMap.insert(QLatin1String(BM_SHAPE_RECT_STR), BM_SHAPE_RECT_IX);
-    shapeMap.insert(QLatin1String(BM_SHAPE_ROUND_STR), BM_SHAPE_ROUND_IX);
-    shapeMap.insert(QLatin1String(BM_SHAPE_SHAPE_STR), BM_SHAPE_SHAPE_IX);
-    shapeMap.insert(QLatin1String(BM_SHAPE_STAR_STR), BM_SHAPE_STAR_IX);
-    shapeMap.insert(QLatin1String(BM_SHAPE_STROKE_STR), BM_SHAPE_STROKE_IX);
-    shapeMap.insert(QLatin1String(BM_SHAPE_TRIM_STR), BM_SHAPE_TRIM_IX);
-    shapeMap.insert(QLatin1String(BM_SHAPE_TRANSFORM_STR), BM_SHAPE_TRANS_IX);
-    shapeMap.insert(QLatin1String(BM_SHAPE_REPEATER_STR), BM_SHAPE_REPEATER_IX);
-    return shapeMap;
-}
-
-BMShape *BMShape::construct(QJsonObject definition, BMBase *parent, int constructAs)
+BMShape *BMShape::construct(QJsonObject definition, BMBase *parent)
 {
     qCDebug(lcLottieQtBodymovinParser) << "BMShape::construct()";
 
     BMShape *shape = nullptr;
-    QByteArray type = definition.value(QLatin1String("ty")).toVariant().toByteArray();
+    const QByteArray type = definition.value(QLatin1String("ty")).toString().toLatin1();
 
-    int typeToBuild = m_shapeMap.value(QLatin1String(type.data()), -1);
+    if (Q_UNLIKELY(type.size() != 2)) {
+        qCWarning(lcLottieQtBodymovinParser) << "Unsupported shape type:"
+                                             << type;
+        return shape;
+    }
 
-    if (constructAs != BM_SHAPE_ANY_TYPE_IX)
-        typeToBuild = constructAs;
+#define BM_SHAPE_TAG(c1, c2) int((quint32(c1)<<8) | quint32(c2))
+
+    int typeToBuild = BM_SHAPE_TAG(type[0], type[1]);
 
     switch (typeToBuild) {
-    case BM_SHAPE_GROUP_IX:
+    case BM_SHAPE_TAG('g', 'r'):
     {
         qCDebug(lcLottieQtBodymovinParser) << "Parse group";
         shape = new BMGroup(definition, parent);
         shape->setType(BM_SHAPE_GROUP_IX);
         break;
     }
-    case BM_SHAPE_RECT_IX:
+    case BM_SHAPE_TAG('r', 'c'):
     {
         qCDebug(lcLottieQtBodymovinParser) << "Parse m_rect";
         shape = new BMRect(definition, parent);
         shape->setType(BM_SHAPE_RECT_IX);
         break;
     }
-    case BM_SHAPE_FILL_IX:
+    case BM_SHAPE_TAG('f', 'l'):
     {
         qCDebug(lcLottieQtBodymovinParser) << "Parse fill";
         shape = new BMFill(definition, parent);
         shape->setType(BM_SHAPE_FILL_IX);
         break;
     }
-    case BM_SHAPE_GFILL_IX:
+    case BM_SHAPE_TAG('g', 'f'):
     {
         qCDebug(lcLottieQtBodymovinParser) << "Parse group fill";
         shape = new BMGFill(definition, parent);
         shape->setType(BM_SHAPE_GFILL_IX);
         break;
     }
-    case BM_SHAPE_STROKE_IX:
+    case BM_SHAPE_TAG('s', 't'):
     {
         qCDebug(lcLottieQtBodymovinParser) << "Parse stroke";
         shape = new BMStroke(definition, parent);
         shape->setType(BM_SHAPE_STROKE_IX);
         break;
     }
-    case BM_SHAPE_TRANS_IX:
+    case BM_SHAPE_TAG('t', 'r'):
     {
         qCDebug(lcLottieQtBodymovinParser) << "Parse shape transform";
         shape = new BMShapeTransform(definition, parent);
         shape->setType(BM_SHAPE_TRANS_IX);
         break;
     }
-    case BM_SHAPE_ELLIPSE_IX:
+    case BM_SHAPE_TAG('e', 'l'):
     {
         qCDebug(lcLottieQtBodymovinParser) << "Parse ellipse";
-        shape = new BMEllipse(definition);
+        shape = new BMEllipse(definition, parent);
         shape->setType(BM_SHAPE_ELLIPSE_IX);
         break;
     }
-    case BM_SHAPE_ROUND_IX:
+    case BM_SHAPE_TAG('r', 'd'):
     {
         qCDebug(lcLottieQtBodymovinParser) << "Parse round";
         shape = new BMRound(definition, parent);
-        shape->setType(BM_SHAPE_ELLIPSE_IX);
+        shape->setType(BM_SHAPE_ROUND_IX);
         break;
     }
-    case BM_SHAPE_SHAPE_IX:
+    case BM_SHAPE_TAG('s', 'h'):
     {
         qCDebug(lcLottieQtBodymovinParser) << "Parse shape";
         shape = new BMFreeFormShape(definition, parent);
         shape->setType(BM_SHAPE_SHAPE_IX);
         break;
     }
-    case BM_SHAPE_TRIM_IX:
+    case BM_SHAPE_TAG('t', 'm'):
     {
         qCDebug(lcLottieQtBodymovinParser) << "Parse trim path";
         shape = new BMTrimPath(definition, parent);
         shape->setType(BM_SHAPE_TRIM_IX);
         break;
     }
-    case BM_SHAPE_REPEATER_IX:
+    case BM_SHAPE_TAG('r', 'p'):
     {
         qCDebug(lcLottieQtBodymovinParser) << "Parse trim path";
         shape = new BMRepeater(definition, parent);
         shape->setType(BM_SHAPE_REPEATER_IX);
         break;
     }
+    case BM_SHAPE_TAG('g', 's'): // ### BM_SHAPE_GSTROKE_IX
+    case BM_SHAPE_TAG('s', 'r'): // ### BM_SHAPE_STAR_IX
+        // fall through
     default:
         qCWarning(lcLottieQtBodymovinParser) << "Unsupported shape type:"
                                              << type;
     }
+
+#undef BM_SHAPE_TAG
+
     return shape;
 }
 

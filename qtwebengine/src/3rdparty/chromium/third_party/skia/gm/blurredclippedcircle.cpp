@@ -5,12 +5,20 @@
  * found in the LICENSE file.
  */
 
-#include "gm.h"
-#include "SkClipOpPriv.h"
-#include "SkColorFilter.h"
-#include "SkMaskFilter.h"
-#include "SkPaint.h"
-#include "SkRRect.h"
+#include "gm/gm.h"
+#include "include/core/SkBlendMode.h"
+#include "include/core/SkBlurTypes.h"
+#include "include/core/SkCanvas.h"
+#include "include/core/SkColor.h"
+#include "include/core/SkColorFilter.h"
+#include "include/core/SkMaskFilter.h"
+#include "include/core/SkPaint.h"
+#include "include/core/SkRRect.h"
+#include "include/core/SkRect.h"
+#include "include/core/SkScalar.h"
+#include "include/core/SkSize.h"
+#include "include/core/SkString.h"
+#include "src/core/SkClipOpPriv.h"
 
 namespace skiagm {
 
@@ -67,9 +75,8 @@ protected:
                     paint.setMaskFilter(SkMaskFilter::MakeBlur(
                                             kNormal_SkBlurStyle,
                                             1.366025f));
-                    paint.setColorFilter(SkColorFilter::MakeModeFilter(
-                                             SK_ColorRED,
-                                             SkBlendMode::kSrcIn));
+                    paint.setColorFilter(SkColorFilters::Blend(SK_ColorRED,
+                                                                   SkBlendMode::kSrcIn));
                     paint.setAntiAlias(true);
 
                     canvas->drawRRect(rr, paint);

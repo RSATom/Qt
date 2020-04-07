@@ -5,62 +5,43 @@
  * found in the LICENSE file.
  */
 
-#include "DecodeFile.h"
-#include "Sample.h"
-#include "SkCanvas.h"
-#include "SkColorFilter.h"
-#include "SkColorPriv.h"
-#include "SkGradientShader.h"
-#include "SkGraphics.h"
-#include "SkPath.h"
-#include "SkRegion.h"
-#include "SkShader.h"
-#include "SkString.h"
-#include "SkTextUtils.h"
-#include "SkTime.h"
-#include "SkUTF.h"
+#include "include/core/SkCanvas.h"
+#include "include/core/SkFont.h"
+#include "include/core/SkString.h"
+#include "include/utils/SkTextUtils.h"
+#include "samplecode/DecodeFile.h"
+#include "samplecode/Sample.h"
+#include "tools/Resources.h"
+
+#include <vector>
 
 static const char* gNames[] = {
-    "/skimages/background_01.png"
+    "images/mandrill_512_q075.jpg",
+    "images/dog.jpg",
 };
 
-class Filter2View : public Sample {
-public:
-    SkBitmap*   fBitmaps;
-    int         fBitmapCount;
-    int         fCurrIndex;
+struct Filter2View : public Sample {
+    std::vector<SkBitmap> fBitmaps;
 
-    Filter2View() {
-        fBitmapCount = SK_ARRAY_COUNT(gNames)*2;
-        fBitmaps = new SkBitmap[fBitmapCount];
-
-        for (int i = 0; i < fBitmapCount/2; i++) {
-            decode_file(gNames[i], &fBitmaps[i]);
+    void onOnceBeforeDraw() override {
+        SkASSERT(fBitmaps.empty());
+        fBitmaps.reserve(SK_ARRAY_COUNT(gNames) * 2);
+        for (const char* name : gNames) {
+            SkBitmap bitmap;
+            (void)decode_file(GetResourceAsData(name), &bitmap);
+            fBitmaps.push_back(std::move(bitmap));
         }
-        for (int i = fBitmapCount/2; i < fBitmapCount; i++) {
-            decode_file(gNames[i-fBitmapCount/2], &fBitmaps[i], kRGB_565_SkColorType);
+        for (const char* name : gNames) {
+            SkBitmap bitmap;
+            (void)decode_file(GetResourceAsData(name), &bitmap, kRGB_565_SkColorType);
+            fBitmaps.push_back(std::move(bitmap));
         }
-        fCurrIndex = 0;
-
         this->setBGColor(SK_ColorGRAY);
     }
 
-    virtual ~Filter2View() {
-        delete[] fBitmaps;
-    }
+    SkString name() override { return SkString("Filter/Dither"); }
 
-protected:
-    virtual bool onQuery(Sample::Event* evt) {
-        if (Sample::TitleQ(*evt)) {
-            SkString str("Filter/Dither ");
-            str.append(gNames[fCurrIndex]);
-            Sample::TitleR(evt, str.c_str());
-            return true;
-        }
-        return this->INHERITED::onQuery(evt);
-    }
-
-    virtual void onDrawContent(SkCanvas* canvas) {
+    void onDrawContent(SkCanvas* canvas) override {
         canvas->translate(SkIntToScalar(10), SkIntToScalar(50));
 
         const SkScalar W = SkIntToScalar(fBitmaps[0].width() + 1);
@@ -74,8 +55,8 @@ protected:
             paint.setFilterQuality(k == 1 ? kLow_SkFilterQuality : kNone_SkFilterQuality);
             for (int j = 0; j < 2; j++) {
                 paint.setDither(j == 1);
-                for (int i = 0; i < fBitmapCount; i++) {
-                    SkScalar x = (k * fBitmapCount + j) * W;
+                for (int i = 0; i < (int)fBitmaps.size(); i++) {
+                    SkScalar x = (k * (int)fBitmaps.size() + j) * W;
                     SkScalar y = i * H;
                     x = SkScalarRoundToScalar(x);
                     y = SkScalarRoundToScalar(y);
@@ -100,11 +81,5 @@ protected:
             }
         }
     }
-
-private:
-    typedef Sample INHERITED;
 };
-
-//////////////////////////////////////////////////////////////////////////////
-
 DEF_SAMPLE( return new Filter2View(); )

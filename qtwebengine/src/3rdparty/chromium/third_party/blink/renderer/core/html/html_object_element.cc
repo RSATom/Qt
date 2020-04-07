@@ -25,6 +25,7 @@
 #include "third_party/blink/renderer/core/html/html_object_element.h"
 
 #include "third_party/blink/renderer/bindings/core/v8/script_event_listener.h"
+#include "third_party/blink/renderer/core/css/style_change_reason.h"
 #include "third_party/blink/renderer/core/dom/attribute.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/dom/element_traversal.h"
@@ -47,22 +48,17 @@ namespace blink {
 
 using namespace html_names;
 
-inline HTMLObjectElement::HTMLObjectElement(Document& document,
-                                            const CreateElementFlags flags)
+HTMLObjectElement::HTMLObjectElement(Document& document,
+                                     const CreateElementFlags flags)
     : HTMLPlugInElement(kObjectTag,
                         document,
                         flags,
                         kShouldNotPreferPlugInsForImages),
-      use_fallback_content_(false) {}
+      use_fallback_content_(false) {
+  EnsureUserAgentShadowRoot();
+}
 
 inline HTMLObjectElement::~HTMLObjectElement() = default;
-
-HTMLObjectElement* HTMLObjectElement::Create(Document& document,
-                                             const CreateElementFlags flags) {
-  auto* element = MakeGarbageCollected<HTMLObjectElement>(document, flags);
-  element->EnsureUserAgentShadowRoot();
-  return element;
-}
 
 void HTMLObjectElement::Trace(Visitor* visitor) {
   ListedElement::Trace(visitor);
@@ -119,7 +115,7 @@ void HTMLObjectElement::ParseAttribute(
     if (GetLayoutObject() && IsImageType()) {
       SetNeedsPluginUpdate(true);
       if (!image_loader_)
-        image_loader_ = HTMLImageLoader::Create(this);
+        image_loader_ = MakeGarbageCollected<HTMLImageLoader>(this);
       image_loader_->UpdateFromElement(ImageLoader::kUpdateIgnorePreviousError);
     } else {
       ReloadPluginOnAttributeChange(name);
@@ -196,8 +192,9 @@ bool HTMLObjectElement::HasFallbackContent() const {
   for (Node* child = firstChild(); child; child = child->nextSibling()) {
     // Ignore whitespace-only text, and <param> tags, any other content is
     // fallback content.
-    if (child->IsTextNode()) {
-      if (!ToText(child)->ContainsOnlyWhitespaceOrEmpty())
+    auto* child_text_node = DynamicTo<Text>(child);
+    if (child_text_node) {
+      if (!child_text_node->ContainsOnlyWhitespaceOrEmpty())
         return true;
     } else if (!IsHTMLParamElement(*child)) {
       return true;
@@ -238,7 +235,7 @@ void HTMLObjectElement::ReloadPluginOnAttributeChange(
   }
   SetNeedsPluginUpdate(true);
   if (needs_invalidation)
-    LazyReattachIfNeeded();
+    ReattachOnPluginChangeIfNeeded();
 }
 
 // TODO(schenney): crbug.com/572908 This should be unified with
@@ -311,7 +308,7 @@ void HTMLObjectElement::RemovedFrom(ContainerNode& insertion_point) {
 void HTMLObjectElement::ChildrenChanged(const ChildrenChange& change) {
   if (isConnected() && !UseFallbackContent()) {
     SetNeedsPluginUpdate(true);
-    LazyReattachIfNeeded();
+    ReattachOnPluginChangeIfNeeded();
   }
   HTMLPlugInElement::ChildrenChanged(change);
 }
@@ -337,8 +334,15 @@ const AtomicString HTMLObjectElement::ImageSourceURL() const {
 }
 
 void HTMLObjectElement::ReattachFallbackContent() {
-  if (!GetDocument().InStyleRecalc())
-    LazyReattachIfAttached();
+  if (!GetDocument().InStyleRecalc()) {
+    // TODO(futhark): Currently needs kSubtreeStyleChange because a style recalc
+    // for the object element does not detect the changed need for descendant
+    // style when we have a change in HTMLObjectElement::ChildrenCanHaveStyle().
+    SetNeedsStyleRecalc(
+        kSubtreeStyleChange,
+        StyleChangeReasonForTracing::Create(style_change_reason::kUseFallback));
+    SetForceReattachLayoutTree();
+  }
 }
 
 void HTMLObjectElement::RenderFallbackContent(Frame* frame) {
@@ -365,9 +369,6 @@ void HTMLObjectElement::RenderFallbackContent(Frame* frame) {
   }
 
   use_fallback_content_ = true;
-
-  // TODO(schenney): crbug.com/572908 Style gets recalculated which is
-  // suboptimal.
   ReattachFallbackContent();
 }
 

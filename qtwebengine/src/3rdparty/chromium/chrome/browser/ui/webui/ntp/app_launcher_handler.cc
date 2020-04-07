@@ -22,6 +22,7 @@
 #include "base/values.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chrome_notification_types.h"
+#include "chrome/browser/extensions/bookmark_app_extension_util.h"
 #include "chrome/browser/extensions/crx_installer.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/extensions/extension_ui_util.h"
@@ -181,8 +182,10 @@ void AppLauncherHandler::CreateAppInfo(const Extension* extension,
   value->SetString("icon_small", small_icon.spec());
   value->SetBoolean("icon_small_exists", has_non_default_small_icon);
 
-  value->SetInteger("launch_container",
-                    extensions::AppLaunchInfo::GetLaunchContainer(extension));
+  value->SetInteger(
+      "launch_container",
+      static_cast<int>(
+          extensions::AppLaunchInfo::GetLaunchContainer(extension)));
   ExtensionPrefs* prefs = ExtensionPrefs::Get(service->profile());
   value->SetInteger("launch_type", extensions::GetLaunchType(prefs, extension));
   value->SetBoolean("is_component",
@@ -252,6 +255,10 @@ void AppLauncherHandler::RegisterMessages() {
   web_ui()->RegisterMessageCallback(
       "createAppShortcut",
       base::BindRepeating(&AppLauncherHandler::HandleCreateAppShortcut,
+                          base::Unretained(this)));
+  web_ui()->RegisterMessageCallback(
+      "installAppLocally",
+      base::BindRepeating(&AppLauncherHandler::HandleInstallAppLocally,
                           base::Unretained(this)));
   web_ui()->RegisterMessageCallback(
       "showAppInfo", base::BindRepeating(&AppLauncherHandler::HandleShowAppInfo,
@@ -516,11 +523,12 @@ void AppLauncherHandler::HandleLaunchApp(const base::ListValue* args) {
       disposition == WindowOpenDisposition::NEW_BACKGROUND_TAB ||
       disposition == WindowOpenDisposition::NEW_WINDOW) {
     // TODO(jamescook): Proper support for background tabs.
-    AppLaunchParams params(profile, extension,
-                           disposition == WindowOpenDisposition::NEW_WINDOW
-                               ? extensions::LAUNCH_CONTAINER_WINDOW
-                               : extensions::LAUNCH_CONTAINER_TAB,
-                           disposition, extensions::SOURCE_NEW_TAB_PAGE);
+    AppLaunchParams params(
+        profile, extension_id,
+        disposition == WindowOpenDisposition::NEW_WINDOW
+            ? extensions::LaunchContainer::kLaunchContainerWindow
+            : extensions::LaunchContainer::kLaunchContainerTab,
+        disposition, extensions::AppLaunchSource::kSourceNewTabPage);
     params.override_url = override_url;
     OpenApplication(params);
   } else {
@@ -536,7 +544,7 @@ void AppLauncherHandler::HandleLaunchApp(const base::ListValue* args) {
         profile, extension,
         old_contents ? WindowOpenDisposition::CURRENT_TAB
                      : WindowOpenDisposition::NEW_FOREGROUND_TAB,
-        extensions::SOURCE_NEW_TAB_PAGE);
+        extensions::AppLaunchSource::kSourceNewTabPage);
     params.override_url = override_url;
     WebContents* new_contents = OpenApplication(params);
 
@@ -616,6 +624,29 @@ void AppLauncherHandler::HandleCreateAppShortcut(const base::ListValue* args) {
   chrome::ShowCreateChromeAppShortcutsDialog(
       browser->window()->GetNativeWindow(), browser->profile(), extension,
       base::Callback<void(bool)>());
+}
+
+void AppLauncherHandler::HandleInstallAppLocally(const base::ListValue* args) {
+  std::string extension_id;
+  CHECK(args->GetString(0, &extension_id));
+
+  const Extension* extension =
+      extension_service_->GetExtensionById(extension_id, true);
+  if (!extension)
+    return;
+
+  auto* profile = Profile::FromBrowserContext(
+      web_ui()->GetWebContents()->GetBrowserContext());
+  SetBookmarkAppIsLocallyInstalled(profile, extension, true);
+  if (extensions::CanBookmarkAppCreateOsShortcuts()) {
+    extensions::BookmarkAppCreateOsShortcuts(
+        profile, extension, true /* add_to_desktop */, base::DoNothing());
+  }
+
+  // Use the appAdded to update the app icon's color to no longer be greyscale.
+  std::unique_ptr<base::DictionaryValue> app_info(GetAppInfo(extension));
+  if (app_info)
+    web_ui()->CallJavascriptFunctionUnsafe("ntp.appAdded", *app_info);
 }
 
 void AppLauncherHandler::HandleShowAppInfo(const base::ListValue* args) {

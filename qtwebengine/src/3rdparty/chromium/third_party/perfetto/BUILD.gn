@@ -46,31 +46,46 @@ group("all") {
   testonly = true  # allow to build also test targets
   deps = [
     ":perfetto_unittests",
-    "src/protozero/protoc_plugin($host_toolchain)",
+    "src/protozero/protoc_plugin:protozero_plugin($host_toolchain)",
   ]
+  if (perfetto_build_standalone || perfetto_build_with_android ||
+      build_with_chromium) {
+    deps += [ ":trace_processor_shell" ]
+  }
   if (perfetto_build_standalone || perfetto_build_with_android) {
     deps += [
       ":perfetto",
       ":perfetto_integrationtests",
       ":traced",
       ":traced_probes",
+      ":trigger_perfetto",
       "protos/perfetto/config:merged_config",  # For syntax-checking the proto.
       "protos/perfetto/trace:merged_trace",  # For syntax-checking the proto.
       "src/ipc/protoc_plugin:ipc_plugin($host_toolchain)",
+      "src/tracing:client_api",
+      "test:client_api_example",
       "tools:protoc_helper",
     ]
     if (perfetto_build_standalone) {
       deps += [
         ":perfetto_benchmarks",
-        ":trace_processor",
+        "src/profiling/memory:ring_buffer",
         "src/tracing:consumer_api_test",
         "test/configs",
         "tools/ftrace_proto_gen:ftrace_proto_gen",
         "tools/proto_to_cpp",
+        "tools/protoprofile",
         "tools/trace_to_text",
         "tools/trace_to_text:trace_to_text_lite_host($host_toolchain)",
+
+        # The diff testing framework depends on these descriptors.
+        "protos/perfetto/metrics:descriptor",
+        "protos/perfetto/trace:descriptor",
       ]
       if (is_linux || is_android) {
+        deps += [ "tools/busy_threads" ]
+        deps += [ "tools/cpu_utilization" ]
+        deps += [ "tools/dump_ftrace_stats" ]
         deps += [ "tools/skippy" ]
       }
       if (is_fuzzer) {
@@ -90,18 +105,23 @@ group("default") {
   ]
 }
 
+# The trace processor shell executable. An interactive shell that allows to
+# make queries on the trace using the terminal.
+if (perfetto_build_standalone || perfetto_build_with_android ||
+    build_with_chromium) {
+  executable("trace_processor_shell") {
+    deps = [
+      "gn:default_deps",
+      "src/trace_processor:trace_processor_shell",
+    ]
+    testonly = true  # We need this for proto full.
+  }
+}
+
 if (perfetto_build_standalone) {
   group("ui") {
     deps = [
       "ui",
-    ]
-  }
-
-  # The trace processor shell executable. An interactive shell that allows to
-  # make queries on the trace using the terminal.
-  group("trace_processor") {
-    deps = [
-      "src/trace_processor:trace_processor_shell",
     ]
   }
 }
@@ -119,9 +139,11 @@ test("perfetto_unittests") {
     deps += [
       "src/ipc:unittests",
       "src/perfetto_cmd:unittests",
+      "src/profiling/memory:ring_buffer_unittests",
       "src/traced/probes:unittests",
       "src/traced/probes/filesystem:unittests",
       "src/traced/probes/ftrace:unittests",
+      "src/traced/service:unittests",
       "tools/ftrace_proto_gen:unittests",
       "tools/sanitizers_unittests",
     ]
@@ -132,7 +154,10 @@ test("perfetto_unittests") {
     deps += [ "src/profiling/memory:unittests" ]
   }
   if (perfetto_build_standalone && !is_android) {
-    deps += [ "src/trace_processor:unittests" ]
+    deps += [
+      "src/trace_processor:unittests",
+      "src/trace_processor/metrics:unittests",
+    ]
   }
 }
 
@@ -142,6 +167,7 @@ if (perfetto_build_standalone || perfetto_build_with_android) {
       "gn:default_deps",
       "gn:gtest_main",
       "src/traced/probes/ftrace:integrationtests",
+      "src/tracing:client_api_integrationtests",
       "test:end_to_end_integrationtests",
     ]
     if (perfetto_build_standalone && !is_android) {
@@ -149,7 +175,7 @@ if (perfetto_build_standalone || perfetto_build_with_android) {
     }
 
     # TODO(fmayer): Fix in process daemons.
-    if (should_build_heapprofd && is_android && !start_daemons_for_testing) {
+    if (should_build_heapprofd) {
       deps += [ "src/profiling/memory:end_to_end_tests" ]
     }
   }
@@ -165,7 +191,7 @@ if (perfetto_build_standalone || perfetto_build_with_android) {
       "gn:default_deps",
       "src/traced/probes",
       "src/traced/service",
-      "src/tracing:api",
+      "src/tracing:consumer_api_deprecated",
     ]
   }
 
@@ -176,7 +202,7 @@ if (perfetto_build_standalone || perfetto_build_with_android) {
     deps = [
       ":libperfetto",
       "gn:default_deps",
-      "include/perfetto/traced",
+      "include/perfetto/ext/traced",
     ]
     sources = [
       "src/traced/service/main.cc",
@@ -189,7 +215,7 @@ if (perfetto_build_standalone || perfetto_build_with_android) {
     deps = [
       ":libperfetto",
       "gn:default_deps",
-      "include/perfetto/traced",
+      "include/perfetto/ext/traced",
     ]
     sources = [
       "src/traced/probes/main.cc",
@@ -205,6 +231,39 @@ if (perfetto_build_standalone || perfetto_build_with_android) {
     ]
     sources = [
       "src/perfetto_cmd/main.cc",
+    ]
+  }
+
+  # Tool to finalize long running traces.
+  # This connects to traced as a producer and sends the triggers passed on the
+  # commandline. This is a subset of what the perfetto binary can do but we
+  # need a separate binary for programs that cannot (for good reason) use the
+  # additional functionality (for example starting traces via consumer socket)
+  # due to selinux rules.
+  executable("trigger_perfetto") {
+    deps = [
+      "gn:default_deps",
+      "src/perfetto_cmd:trigger_perfetto_cmd",
+    ]
+    sources = [
+      "src/perfetto_cmd/trigger_perfetto_main.cc",
+    ]
+  }
+
+  # Client library target for the Android tree.
+  # Still in experimental stage and not API stable yet.
+  # See "libperfetto_client_example" (in Android.bp.extras) for an example
+  # on how to use the Perfetto Client API from the android tree.
+  static_library("libperfetto_client_experimental") {
+    complete_static_lib = true
+    deps = [
+      "gn:default_deps",
+      "src/tracing",
+      "src/tracing:client_api",
+      "src/tracing:platform_posix",
+    ]
+    sources = [
+      "include/perfetto/tracing.h",
     ]
   }
 
@@ -249,9 +308,12 @@ if (perfetto_build_with_embedder) {
     configs -= [ "//build/config/compiler:chromium_code" ]
     configs += [ "//build/config/compiler:no_chromium_code" ]
     public_deps = [
-      "include/perfetto/tracing/core",
+      "include/perfetto/ext/tracing/core",
       "protos/perfetto/trace:zero",
       "protos/perfetto/trace/chrome:zero",
+      "protos/perfetto/trace/interned_data:zero",
+      "protos/perfetto/trace/profiling:zero",
+      "protos/perfetto/trace/track_event:zero",
     ]
   }
 }
@@ -262,7 +324,6 @@ if (perfetto_build_standalone) {
     deps = [
       "gn:default_deps",
       "src/traced/probes/ftrace:benchmarks",
-      "src/tracing:tracing_benchmarks",
       "test:benchmark_main",
       "test:end_to_end_benchmarks",
     ]
@@ -272,16 +333,36 @@ if (perfetto_build_standalone) {
     testonly = true
     deps = [
       "src/ipc:buffered_frame_deserializer_fuzzer",
+      "src/profiling/memory:shared_ring_buffer_fuzzer",
+      "src/profiling/memory:shared_ring_buffer_write_fuzzer",
       "src/profiling/memory:unwinding_fuzzer",
+      "src/protozero:protozero_decoder_fuzzer",
+      "src/trace_processor:trace_processor_fuzzer",
       "src/traced/probes/ftrace:cpu_reader_fuzzer",
       "test:end_to_end_shared_memory_fuzzer",
+      "test:producer_socket_fuzzer",
     ]
   }
 }
 
+# WARNING: this builds correctly only when using the generated Android.bp.
+#
+# This library gets loaded into (and executes in) arbitrary android processes.
+# Logging must be non-allocating. This is achieved by defining
+# PERFETTO_ANDROID_ASYNC_SAFE_LOG, which needs to be set for all perfetto code
+# being compiled for this library. When generating Android.bp, the |cflags|
+# entry on this target is sufficient (as all sources are flattened into a
+# single bp target). However this is not correctly reflected in the gn
+# structure (which is a tree of targets) as the dependencies would not pick
+# up the flag (and thus use the wrong logging macro).
+#
+# This is deemed acceptable as, at the time of writing, there is no interest in
+# building this library standalone.
 if (perfetto_build_with_android) {
   # TODO(fmayer): Investigate shared library for common pieces.
   shared_library("heapprofd_client") {
+    configs -= [ "//gn/standalone:android_liblog" ]
+    cflags = [ "-DPERFETTO_ANDROID_ASYNC_SAFE_LOG" ]
     deps = [
       "src/profiling/memory:malloc_hooks",
     ]
@@ -301,6 +382,14 @@ if (should_build_heapprofd) {
     ]
     sources = [
       "src/profiling/memory/main.cc",
+    ]
+  }
+}
+
+if (perfetto_build_standalone) {
+  executable("idle_alloc") {
+    sources = [
+      "tools/idle_alloc.cc",
     ]
   }
 }

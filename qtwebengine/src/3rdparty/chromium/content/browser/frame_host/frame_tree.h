@@ -201,26 +201,33 @@ class CONTENT_EXPORT FrameTree {
   void SetFrameRemoveListener(
       const base::Callback<void(RenderFrameHost*)>& on_frame_removed);
 
-  // Creates a RenderViewHost for a new RenderFrameHost in the given
-  // |site_instance|.  The RenderViewHost will have its Shutdown method called
-  // when all of the RenderFrameHosts using it are deleted.
-  RenderViewHostImpl* CreateRenderViewHost(SiteInstance* site_instance,
-                                           int32_t routing_id,
-                                           int32_t main_frame_routing_id,
-                                           int32_t widget_routing_id,
-                                           bool swapped_out,
-                                           bool hidden);
+  // Creates a RenderViewHostImpl for a given |site_instance| in the tree.
+  //
+  // The RenderFrameHostImpls and the RenderFrameProxyHosts will share ownership
+  // of this object.
+  scoped_refptr<RenderViewHostImpl> CreateRenderViewHost(
+      SiteInstance* site_instance,
+      int32_t routing_id,
+      int32_t main_frame_routing_id,
+      int32_t widget_routing_id,
+      bool swapped_out,
+      bool hidden);
 
   // Returns the existing RenderViewHost for a new RenderFrameHost.
   // There should always be such a RenderViewHost, because the main frame
   // RenderFrameHost for each SiteInstance should be created before subframes.
-  RenderViewHostImpl* GetRenderViewHost(SiteInstance* site_instance);
+  scoped_refptr<RenderViewHostImpl> GetRenderViewHost(
+      SiteInstance* site_instance);
 
-  // Keeps track of which RenderFrameHosts and RenderFrameProxyHosts are using
-  // each RenderViewHost.  When the number drops to zero, we call Shutdown on
-  // the RenderViewHost.
-  void AddRenderViewHostRef(RenderViewHostImpl* render_view_host);
-  void ReleaseRenderViewHostRef(RenderViewHostImpl* render_view_host);
+  // The FrameTree maintains a list of existing RenderViewHostImpl so that
+  // FrameTree::CreateRenderViewHost() can return them directly instead of
+  // creating a new one. Calling this function removes it from the list when the
+  // |render_view_host| is deleted.
+  void RenderViewHostDeleted(RenderViewHost* render_view_host);
+
+  // This is called when the frame is about to be removed and started to run
+  // unload handlers.
+  void FrameUnloading(FrameTreeNode* frame);
 
   // This is only meant to be called by FrameTreeNode. Triggers calling
   // the listener installed by SetFrameRemoveListener.
@@ -252,7 +259,6 @@ class CONTENT_EXPORT FrameTree {
  private:
   friend class FrameTreeTest;
   FRIEND_TEST_ALL_PREFIXES(RenderFrameHostImplBrowserTest, RemoveFocusedFrame);
-  typedef std::unordered_map<int, RenderViewHostImpl*> RenderViewHostMap;
 
   // Returns a range to iterate over all FrameTreeNodes in the frame tree in
   // breadth-first traversal order, skipping the subtree rooted at
@@ -266,15 +272,12 @@ class CONTENT_EXPORT FrameTree {
   RenderWidgetHostDelegate* render_widget_delegate_;
   RenderFrameHostManager::Delegate* manager_delegate_;
 
-  // Map of SiteInstance ID to a RenderViewHost.  This allows us to look up the
+  // Map of SiteInstance ID to RenderViewHost. This allows us to look up the
   // RenderViewHost for a given SiteInstance when creating RenderFrameHosts.
-  // Combined with the refcount on RenderViewHost, this allows us to call
-  // Shutdown on the RenderViewHost and remove it from the map when no more
-  // RenderFrameHosts are using it.
-  //
-  // Must be declared before |root_| so that it is deleted afterward.  Otherwise
-  // the map will be cleared before we delete the RenderFrameHosts in the tree.
-  RenderViewHostMap render_view_host_map_;
+  // Each RenderViewHost maintains a refcount and is deleted when there are no
+  // more RenderFrameHosts or RenderFrameProxyHosts using it.
+  std::unordered_map<int /* SiteInstance ID */, RenderViewHostImpl*>
+      render_view_host_map_;
 
   // This is an owned ptr to the root FrameTreeNode, which never changes over
   // the lifetime of the FrameTree. It is not a scoped_ptr because we need the

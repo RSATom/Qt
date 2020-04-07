@@ -9,7 +9,7 @@
 #include "third_party/blink/renderer/core/animation/animation.h"
 #include "third_party/blink/renderer/core/animation/interpolation.h"
 #include "third_party/blink/renderer/core/animation/keyframe_effect.h"
-#include "third_party/blink/renderer/platform/wtf/allocator.h"
+#include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 #include "third_party/blink/renderer/platform/wtf/vector.h"
 
 namespace blink {
@@ -18,11 +18,6 @@ namespace blink {
 // effect ordering and managing composited animations.
 class SampledEffect : public GarbageCollectedFinalized<SampledEffect> {
  public:
-  static SampledEffect* Create(KeyframeEffect* effect,
-                               unsigned sequence_number) {
-    return MakeGarbageCollected<SampledEffect>(effect, sequence_number);
-  }
-
   SampledEffect(KeyframeEffect*, unsigned sequence_number);
 
   void Clear();

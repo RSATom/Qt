@@ -40,6 +40,7 @@
 #include "qsql_ibase_p.h"
 #include <qcoreapplication.h>
 #include <qdatetime.h>
+#include <qdeadlinetimer.h>
 #include <qvariant.h>
 #include <qsqlerror.h>
 #include <qsqlfield.h>
@@ -249,7 +250,7 @@ static QDateTime fromTimeStamp(char *buffer)
     return QDateTime(d, t);
 }
 
-static ISC_TIME toTime(const QTime &t)
+static ISC_TIME toTime(QTime t)
 {
     static const QTime midnight(0, 0, 0, 0);
     return (ISC_TIME)midnight.msecsTo(t) * 10;
@@ -265,7 +266,7 @@ static QTime fromTime(char *buffer)
     return t;
 }
 
-static ISC_DATE toDate(const QDate &t)
+static ISC_DATE toDate(QDate t)
 {
     static const QDate basedate(1858, 11, 17);
     ISC_DATE date;
@@ -1570,10 +1571,9 @@ void QIBaseDriver::close()
             d->eventBuffers.clear();
 
 #if defined(FB_API_VER)
-            // Workaround for Firebird crash
-            QTime timer;
-            timer.start();
-            while (timer.elapsed() < 500)
+            // TODO check whether this workaround for Firebird crash is still needed
+            QDeadlineTimer timer(500);
+            while (!timer.hasExpired())
                 QCoreApplication::processEvents();
 #endif
         }

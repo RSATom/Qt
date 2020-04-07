@@ -347,7 +347,7 @@ cr.define('bookmarks', function() {
         }
         case Command.UNDO:
           chrome.bookmarkManagerPrivate.undo();
-          bookmarks.ToastManager.getInstance().hide();
+          cr.toastManager.getInstance().hide();
           break;
         case Command.REDO:
           chrome.bookmarkManagerPrivate.redo();
@@ -358,11 +358,7 @@ cr.define('bookmarks', function() {
           this.openUrls_(this.expandUrls_(itemIds), command);
           break;
         case Command.OPEN:
-          const isFolder = itemIds.size == 1 &&
-              this.containsMatchingNode_(itemIds, function(node) {
-                return !node.url;
-              });
-          if (isFolder) {
+          if (this.isFolder_(itemIds)) {
             const folderId = Array.from(itemIds)[0];
             this.dispatch(
                 bookmarks.actions.selectFolder(folderId, state.nodes));
@@ -391,7 +387,7 @@ cr.define('bookmarks', function() {
         case Command.SORT:
           chrome.bookmarkManagerPrivate.sortChildren(
               assert(state.selectedFolder));
-          bookmarks.ToastManager.getInstance().show(
+          cr.toastManager.getInstance().show(
               loadTimeData.getString('toastFolderSorted'), true);
           break;
         case Command.ADD_BOOKMARK:
@@ -414,9 +410,8 @@ cr.define('bookmarks', function() {
         default:
           assert(false);
       }
-
-      bookmarks.util.recordEnumHistogram(
-          'BookmarkManager.CommandExecuted', command, Command.MAX_VALUE);
+      this.recordCommandHistogram_(
+          itemIds, 'BookmarkManager.CommandExecuted', command);
     },
 
     /**
@@ -433,9 +428,8 @@ cr.define('bookmarks', function() {
         if (shortcut.matchesEvent(e) && this.canExecute(command, itemIds)) {
           this.handle(command, itemIds);
 
-          bookmarks.util.recordEnumHistogram(
-              'BookmarkManager.CommandExecutedFromKeyboard', command,
-              Command.MAX_VALUE);
+          this.recordCommandHistogram_(
+              itemIds, 'BookmarkManager.CommandExecutedFromKeyboard', command);
           e.stopPropagation();
           e.preventDefault();
           return true;
@@ -579,12 +573,23 @@ cr.define('bookmarks', function() {
      * @param {!Set<string>} itemIds
      * @return {boolean} True if |itemIds| is a single bookmark (non-folder)
      *     node.
+     * @private
      */
     isSingleBookmark_: function(itemIds) {
       return itemIds.size == 1 &&
           this.containsMatchingNode_(itemIds, function(node) {
             return !!node.url;
           });
+    },
+
+    /**
+     * @param {!Set<string>} itemIds
+     * @return {boolean}
+     * @private
+     */
+    isFolder_: function(itemIds) {
+      return itemIds.size == 1 &&
+          this.containsMatchingNode_(itemIds, node => !node.url);
     },
 
     /**
@@ -722,6 +727,7 @@ cr.define('bookmarks', function() {
 
     /**
      * @param {Command} command
+     * @param {!Set<string>} itemIds
      * @return {boolean}
      * @private
      */
@@ -731,6 +737,21 @@ cr.define('bookmarks', function() {
               this.menuSource_ == MenuSource.TOOLBAR) ||
           (command == Command.DELETE &&
            (this.globalCanEdit_ || this.isSingleBookmark_(itemIds)));
+    },
+
+    /**
+     * @param {!Set<string>} itemIds
+     * @param {string} histogram
+     * @param {number} command
+     * @private
+     */
+    recordCommandHistogram_: function(itemIds, histogram, command) {
+      if (command == Command.OPEN) {
+        command = this.isFolder_(itemIds) ? Command.OPEN_FOLDER :
+                                            Command.OPEN_BOOKMARK;
+      }
+
+      bookmarks.util.recordEnumHistogram(histogram, command, Command.MAX_VALUE);
     },
 
     /**
@@ -751,7 +772,7 @@ cr.define('bookmarks', function() {
                            return p;
                          });
 
-      bookmarks.ToastManager.getInstance().showForStringPieces(pieces, canUndo);
+      cr.toastManager.getInstance().showForStringPieces(pieces, canUndo);
     },
 
     ////////////////////////////////////////////////////////////////////////////
@@ -789,10 +810,14 @@ cr.define('bookmarks', function() {
      * @private
      */
     onKeydown_: function(e) {
-      const selection = this.getState().selection.items;
-      if (e.target == document.body &&
+      const path = e.composedPath();
+      if (path[0].tagName == 'INPUT') {
+        return;
+      }
+      if ((e.target == document.body ||
+           path.some(el => el.tagName == 'BOOKMARKS-TOOLBAR')) &&
           !bookmarks.DialogFocusManager.getInstance().hasOpenDialog()) {
-        this.handleKeyEvent(e, selection);
+        this.handleKeyEvent(e, this.getState().selection.items);
       }
     },
 

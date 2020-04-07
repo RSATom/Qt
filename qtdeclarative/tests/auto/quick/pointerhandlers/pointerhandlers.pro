@@ -3,6 +3,7 @@ TEMPLATE = subdirs
 qtConfig(private_tests) {
     SUBDIRS += \
         flickableinterop \
+        mousearea_interop \
         multipointtoucharea_interop \
         qquickdraghandler \
         qquickhoverhandler \
@@ -10,4 +11,5 @@ qtConfig(private_tests) {
         qquickpointerhandler \
         qquickpointhandler \
         qquicktaphandler \
+        qquickwheelhandler \
 }

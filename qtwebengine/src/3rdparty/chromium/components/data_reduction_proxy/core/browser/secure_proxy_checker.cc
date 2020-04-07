@@ -4,13 +4,11 @@
 
 #include "components/data_reduction_proxy/core/browser/secure_proxy_checker.h"
 
+#include "base/bind.h"
 #include "base/metrics/histogram_macros.h"
 #include "components/data_reduction_proxy/core/common/data_reduction_proxy_params.h"
-#include "components/data_use_measurement/core/data_use_user_data.h"
 #include "net/base/load_flags.h"
 #include "net/traffic_annotation/network_traffic_annotation.h"
-#include "net/url_request/url_fetcher.h"
-#include "net/url_request/url_request_context_getter.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
 #include "services/network/public/cpp/simple_url_loader.h"
 
@@ -26,7 +24,9 @@ namespace data_reduction_proxy {
 
 SecureProxyChecker::SecureProxyChecker(
     scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory)
-    : url_loader_factory_(std::move(url_loader_factory)) {}
+    : url_loader_factory_(std::move(url_loader_factory)) {
+  DCHECK(!params::IsIncludedInHoldbackFieldTrial());
+}
 
 void SecureProxyChecker::OnURLLoadComplete(
     std::unique_ptr<std::string> response_body) {
@@ -67,6 +67,8 @@ void SecureProxyChecker::OnURLLoaderRedirect(
 
 void SecureProxyChecker::CheckIfSecureProxyIsAllowed(
     SecureProxyCheckerCallback fetcher_callback) {
+  DCHECK(!params::IsIncludedInHoldbackFieldTrial());
+
   net::NetworkTrafficAnnotationTag traffic_annotation =
       net::DefineNetworkTrafficAnnotation(
           "data_reduction_proxy_secure_proxy_check", R"(
@@ -94,8 +96,8 @@ void SecureProxyChecker::CheckIfSecureProxyIsAllowed(
   auto resource_request = std::make_unique<network::ResourceRequest>();
   resource_request->url = params::GetSecureProxyCheckURL();
   resource_request->load_flags =
-      net::LOAD_DISABLE_CACHE | net::LOAD_BYPASS_PROXY |
-      net::LOAD_DO_NOT_SEND_COOKIES | net::LOAD_DO_NOT_SAVE_COOKIES;
+      net::LOAD_DISABLE_CACHE | net::LOAD_BYPASS_PROXY;
+  resource_request->allow_credentials = false;
   url_loader_ = network::SimpleURLLoader::Create(std::move(resource_request),
                                                  traffic_annotation);
 

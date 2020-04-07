@@ -6,13 +6,13 @@
 #define THIRD_PARTY_BLINK_RENDERER_PLATFORM_GRAPHICS_CANVAS_RESOURCE_DISPATCHER_H_
 
 #include <memory>
+#include "base/memory/read_only_shared_memory_region.h"
 #include "components/viz/common/frame_sinks/begin_frame_args.h"
 #include "components/viz/common/resources/resource_id.h"
 #include "components/viz/common/surfaces/parent_local_surface_id_allocator.h"
 #include "mojo/public/cpp/bindings/binding.h"
 #include "services/viz/public/interfaces/compositing/compositor_frame_sink.mojom-blink.h"
-#include "third_party/blink/public/platform/modules/frame_sinks/embedded_frame_sink.mojom-blink.h"
-#include "third_party/blink/renderer/platform/wtf/compiler.h"
+#include "third_party/blink/public/mojom/frame_sinks/embedded_frame_sink.mojom-blink.h"
 
 namespace blink {
 
@@ -66,13 +66,12 @@ class PLATFORM_EXPORT CanvasResourceDispatcher
       const WTF::Vector<viz::ReturnedResource>& resources) final;
   void OnBeginFrame(
       const viz::BeginFrameArgs&,
-      WTF::HashMap<uint32_t, ::gfx::mojom::blink::PresentationFeedbackPtr>)
-      final;
-  void OnBeginFramePausedChanged(bool paused) final{};
+      WTF::HashMap<uint32_t, ::viz::mojom::blink::FrameTimingDetailsPtr>) final;
+  void OnBeginFramePausedChanged(bool paused) final {}
   void ReclaimResources(
       const WTF::Vector<viz::ReturnedResource>& resources) final;
 
-  void DidAllocateSharedBitmap(mojo::ScopedSharedBufferHandle buffer,
+  void DidAllocateSharedBitmap(base::ReadOnlySharedMemoryRegion region,
                                ::gpu::mojom::blink::MailboxPtr id);
   void DidDeleteSharedBitmap(::gpu::mojom::blink::MailboxPtr id);
 
@@ -134,7 +133,7 @@ class PLATFORM_EXPORT CanvasResourceDispatcher
 
   const bool enable_surface_synchronization_;
 
-  base::WeakPtrFactory<CanvasResourceDispatcher> weak_ptr_factory_;
+  base::WeakPtrFactory<CanvasResourceDispatcher> weak_ptr_factory_{this};
 };
 
 }  // namespace blink

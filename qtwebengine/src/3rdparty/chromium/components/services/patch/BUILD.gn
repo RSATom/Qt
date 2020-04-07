@@ -2,8 +2,6 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-import("//services/service_manager/public/service_manifest.gni")
-
 source_set("lib") {
   sources = [
     "file_patcher_impl.cc",
@@ -14,18 +12,13 @@ source_set("lib") {
 
   deps = [
     "//base",
-    "//components/services/filesystem/public/interfaces",
+    "//components/services/filesystem/public/mojom",
     "//courgette:courgette_lib",
     "//mojo/public/cpp/bindings",
   ]
 
   public_deps = [
-    "//components/services/patch/public/interfaces",
+    "//components/services/patch/public/mojom",
     "//services/service_manager/public/cpp",
   ]
-}
-
-service_manifest("manifest") {
-  name = "patch_service"
-  source = "manifest.json"
 }

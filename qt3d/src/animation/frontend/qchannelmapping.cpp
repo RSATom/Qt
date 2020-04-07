@@ -38,7 +38,6 @@
 #include "qchannelmapping_p.h"
 
 #include <Qt3DAnimation/private/qchannelmappingcreatedchange_p.h>
-#include <Qt3DCore/qpropertyupdatedchange.h>
 
 #include <QtCore/qmetaobject.h>
 #include <QtCore/QMetaProperty>
@@ -147,39 +146,22 @@ void QChannelMappingPrivate::updatePropertyNameTypeAndComponentCount()
 
     if (m_type != type) {
         m_type = type;
-
-        // Send update to the backend
-        Q_Q(QChannelMapping);
-        auto e = Qt3DCore::QPropertyUpdatedChangePtr::create(q->id());
-        e->setPropertyName("type");
-        e->setValue(QVariant(m_type));
-        notifyObservers(e);
+        update();
     }
 
     if (m_componentCount != componentCount) {
         m_componentCount = componentCount;
-
-        // Send update to the backend
-        Q_Q(QChannelMapping);
-        auto e = Qt3DCore::QPropertyUpdatedChangePtr::create(q->id());
-        e->setPropertyName("componentCount");
-        e->setValue(QVariant(m_componentCount));
-        notifyObservers(e);
+        update();
     }
 
     if (qstrcmp(m_propertyName, propertyName) != 0) {
         m_propertyName = propertyName;
-
-        // Send update to the backend
-        Q_Q(QChannelMapping);
-        auto e = Qt3DCore::QPropertyUpdatedChangePtr::create(q->id());
-        e->setPropertyName("propertyName");
-        e->setValue(QVariant::fromValue(const_cast<void *>(static_cast<const void *>(m_propertyName))));
-        notifyObservers(e);
+        update();
     }
 }
+
 /*!
-    \class QChannelMapping
+    \class Qt3DAnimation::QChannelMapping
     \inherits Qt3DCore::QNode
     \inmodule Qt3DAnimation
     \brief Allows to map the channels within the clip onto properties of

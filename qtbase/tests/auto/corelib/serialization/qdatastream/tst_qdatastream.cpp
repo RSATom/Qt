@@ -113,6 +113,11 @@ private slots:
     void stream_QRegExp_data();
     void stream_QRegExp();
 
+#if QT_CONFIG(regularexpression)
+    void stream_QRegularExpression_data();
+    void stream_QRegularExpression();
+#endif
+
     void stream_Map_data();
     void stream_Map();
 
@@ -181,6 +186,8 @@ private slots:
 
     void streamRealDataTypes();
 
+    void enumTest();
+
     void floatingPointPrecision();
 
     void compatibility_Qt5();
@@ -219,6 +226,9 @@ private:
     void writeQSize(QDataStream *s);
     void writeQString(QDataStream* dev);
     void writeQRegExp(QDataStream* dev);
+#if QT_CONFIG(regularexpression)
+    void writeQRegularExpression(QDataStream *dev);
+#endif
     void writeMap(QDataStream* dev);
     void writeHash(QDataStream* dev);
     void writeqint64(QDataStream *s);
@@ -248,6 +258,9 @@ private:
     void readQSize(QDataStream *s);
     void readQString(QDataStream *s);
     void readQRegExp(QDataStream *s);
+#if QT_CONFIG(regularexpression)
+    void readQRegularExpression(QDataStream *s);
+#endif
     void readMap(QDataStream *s);
     void readHash(QDataStream *s);
     void readqint64(QDataStream *s);
@@ -556,6 +569,69 @@ void tst_QDataStream::readQRegExp(QDataStream *s)
     QCOMPARE(V.type(), QVariant::RegExp);
     QCOMPARE(V.toRegExp(), test);
 }
+
+// ************************************
+
+#if QT_CONFIG(regularexpression)
+static QRegularExpression QRegularExpressionData(int index)
+{
+    switch (index) {
+    case 0: return QRegularExpression();
+    case 1: return QRegularExpression("");
+    case 2: return QRegularExpression("A", QRegularExpression::CaseInsensitiveOption);
+    case 3: return QRegularExpression(QRegularExpression::wildcardToRegularExpression("ABCDE FGHI"));
+    case 4: return QRegularExpression(QRegularExpression::anchoredPattern("This is a long string"), QRegularExpression::CaseInsensitiveOption);
+    case 5: return QRegularExpression("And again a string with a \nCRLF", QRegularExpression::CaseInsensitiveOption);
+    case 6: return QRegularExpression("abcdefghijklmnopqrstuvwxyz ABCDEFGHIJKLMNOPQRESTUVWXYZ 1234567890 ~`!@#$%^&*()_-+={[}]|\\:;\"'<,>.?/", QRegularExpression::InvertedGreedinessOption);
+    }
+    return QRegularExpression("foo");
+}
+#define MAX_QREGULAREXPRESSION_DATA 7
+
+void tst_QDataStream::stream_QRegularExpression_data()
+{
+    stream_data(MAX_QREGULAREXPRESSION_DATA);
+}
+
+void tst_QDataStream::stream_QRegularExpression()
+{
+    STREAM_IMPL(QRegularExpression);
+}
+
+void tst_QDataStream::writeQRegularExpression(QDataStream* s)
+{
+    QRegularExpression test(QRegularExpressionData(dataIndex(QTest::currentDataTag())));
+    *s << test;
+    *s << QString("Her er det noe tekst");
+    *s << test;
+    *s << QString("nonempty");
+    *s << test;
+    *s << QVariant(test);
+}
+
+void tst_QDataStream::readQRegularExpression(QDataStream *s)
+{
+    QRegularExpression R;
+    QString S;
+    QVariant V;
+    QRegularExpression test(QRegularExpressionData(dataIndex(QTest::currentDataTag())));
+
+    *s >> R;
+
+    QCOMPARE(R, test);
+    *s >> S;
+    QCOMPARE(S, QString("Her er det noe tekst"));
+    *s >> R;
+    QCOMPARE(R, test);
+    *s >> S;
+    QCOMPARE(S, QString("nonempty"));
+    *s >> R;
+    QCOMPARE(R, test);
+    *s >> V;
+    QCOMPARE(V.type(), QVariant::RegularExpression);
+    QCOMPARE(V.toRegularExpression(), test);
+}
+#endif //QT_CONFIG(regularexpression)
 
 // ************************************
 
@@ -2315,10 +2391,10 @@ void tst_QDataStream::setVersion()
 
         if (vers == 1) {
             for (int grp = 0; grp < (int)QPalette::NColorGroups; ++grp) {
-                QVERIFY(pal1.color((QPalette::ColorGroup)grp, QPalette::Foreground)
-                        == inPal1.color((QPalette::ColorGroup)grp, QPalette::Foreground));
-                QVERIFY(pal1.color((QPalette::ColorGroup)grp, QPalette::Background)
-                        == inPal1.color((QPalette::ColorGroup)grp, QPalette::Background));
+                QVERIFY(pal1.color((QPalette::ColorGroup)grp, QPalette::WindowText)
+                        == inPal1.color((QPalette::ColorGroup)grp, QPalette::WindowText));
+                QVERIFY(pal1.color((QPalette::ColorGroup)grp, QPalette::Window)
+                        == inPal1.color((QPalette::ColorGroup)grp, QPalette::Window));
                 QVERIFY(pal1.color((QPalette::ColorGroup)grp, QPalette::Light)
                         == inPal1.color((QPalette::ColorGroup)grp, QPalette::Light));
                 QVERIFY(pal1.color((QPalette::ColorGroup)grp, QPalette::Dark)
@@ -3439,6 +3515,90 @@ void tst_QDataStream::floatingPointNaN()
         stream >> fr;
         QCOMPARE(fr, xs[1].f);
     }
+}
+
+void tst_QDataStream::enumTest()
+{
+    QByteArray ba;
+
+    enum class E1 : qint8
+    {
+        A,
+        B,
+        C
+    };
+    {
+        QDataStream stream(&ba, QIODevice::WriteOnly);
+        stream << E1::A;
+        QCOMPARE(ba.size(), int(sizeof(E1)));
+    }
+    {
+        QDataStream stream(ba);
+        E1 e;
+        stream >> e;
+        QCOMPARE(e, E1::A);
+    }
+    ba.clear();
+
+    enum class E2 : qint16
+    {
+        A,
+        B,
+        C
+    };
+    {
+        QDataStream stream(&ba, QIODevice::WriteOnly);
+        stream << E2::B;
+        QCOMPARE(ba.size(), int(sizeof(E2)));
+    }
+    {
+        QDataStream stream(ba);
+        E2 e;
+        stream >> e;
+        QCOMPARE(e, E2::B);
+    }
+    ba.clear();
+
+    enum class E4 : qint32
+    {
+        A,
+        B,
+        C
+    };
+    {
+        QDataStream stream(&ba, QIODevice::WriteOnly);
+        stream << E4::C;
+        QCOMPARE(ba.size(), int(sizeof(E4)));
+    }
+    {
+        QDataStream stream(ba);
+        E4 e;
+        stream >> e;
+        QCOMPARE(e, E4::C);
+    }
+    ba.clear();
+
+
+    enum E
+    {
+        A,
+        B,
+        C,
+        D
+    };
+    {
+        QDataStream stream(&ba, QIODevice::WriteOnly);
+        stream << E::D;
+        QCOMPARE(ba.size(), 4);
+    }
+    {
+        QDataStream stream(ba);
+        E e;
+        stream >> e;
+        QCOMPARE(e, E::D);
+    }
+    ba.clear();
+
 }
 
 void tst_QDataStream::floatingPointPrecision()

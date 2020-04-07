@@ -32,17 +32,15 @@
 #include "third_party/blink/renderer/core/dom/text.h"
 #include "third_party/blink/renderer/core/editing/editing_utilities.h"
 #include "third_party/blink/renderer/core/editing/local_caret_rect.h"
+#include "third_party/blink/renderer/core/editing/ng_flat_tree_shorthands.h"
 #include "third_party/blink/renderer/core/editing/text_affinity.h"
 #include "third_party/blink/renderer/core/editing/visible_units.h"
 #include "third_party/blink/renderer/core/html/html_element.h"
 #include "third_party/blink/renderer/core/html_names.h"
 #include "third_party/blink/renderer/core/layout/layout_object.h"
-#include "third_party/blink/renderer/core/layout/ng/inline/ng_caret_navigator.h"
-#include "third_party/blink/renderer/core/layout/ng/inline/ng_inline_node.h"
 #include "third_party/blink/renderer/core/layout/ng/inline/ng_offset_mapping.h"
 #include "third_party/blink/renderer/platform/bindings/exception_state.h"
 #include "third_party/blink/renderer/platform/geometry/float_quad.h"
-#include "third_party/blink/renderer/platform/wtf/text/cstring.h"
 
 namespace blink {
 
@@ -68,7 +66,7 @@ VisiblePositionTemplate<Strategy>::VisiblePositionTemplate(
 }
 
 template <typename Strategy>
-void VisiblePositionTemplate<Strategy>::Trace(blink::Visitor* visitor) {
+void VisiblePositionTemplate<Strategy>::Trace(Visitor* visitor) {
   visitor->Trace(position_with_affinity_);
 }
 
@@ -93,47 +91,17 @@ VisiblePositionTemplate<Strategy> VisiblePositionTemplate<Strategy>::Create(
   if (position_with_affinity.Affinity() == TextAffinity::kDownstream)
     return VisiblePositionTemplate<Strategy>(downstream_position);
 
-  if (RuntimeEnabledFeatures::BidiCaretAffinityEnabled()) {
+  if (RuntimeEnabledFeatures::BidiCaretAffinityEnabled() &&
+      NGInlineFormattingContextOf(deep_position)) {
     // When not at a line wrap or bidi boundary, make sure to end up with
     // |TextAffinity::Downstream| affinity.
     const PositionWithAffinityTemplate<Strategy> upstream_position(
         deep_position, TextAffinity::kUpstream);
 
-    if (!InSameLine(downstream_position, upstream_position))
+    if (AbsoluteCaretBoundsOf(downstream_position) !=
+        AbsoluteCaretBoundsOf(upstream_position)) {
       return VisiblePositionTemplate<Strategy>(upstream_position);
-
-    if (!NGOffsetMapping::AcceptsPosition(ToPositionInDOMTree(deep_position))) {
-      // editing/selection/mixed-editability-10.html reaches here.
-      // We can't check bidi in such case. Use downstream as the default.
-      // TODO(xiaochengh): Investigate why we reach here and how to work around.
-      return VisiblePositionTemplate<Strategy>(downstream_position);
     }
-
-    // Check if the position is at bidi boundary.
-    const LayoutObject* layout_object =
-        deep_position.AnchorNode()->GetLayoutObject();
-    DCHECK(layout_object) << position_with_affinity;
-    if (!layout_object->IsInline())
-      return VisiblePositionTemplate<Strategy>(downstream_position);
-    LayoutBlockFlow* const context =
-        NGOffsetMapping::GetInlineFormattingContextOf(*layout_object);
-    DCHECK(context);
-
-    // TODO(xiaochengh): The double pointer pattern below is confusing and
-    // cumbersome, but necessary for now. Make it easier.
-    std::unique_ptr<NGOffsetMapping> mapping_storage;
-    const NGOffsetMapping* mapping =
-        NGInlineNode::GetOffsetMapping(context, &mapping_storage);
-    DCHECK(mapping);
-
-    const base::Optional<unsigned> offset =
-        mapping->GetTextContentOffset(ToPositionInDOMTree(deep_position));
-    DCHECK(offset.has_value());
-
-    DCHECK(mapping->GetCaretNavigator());
-    const NGCaretNavigator& caret_navigator = *mapping->GetCaretNavigator();
-    if (caret_navigator.OffsetIsBidiBoundary(offset.value()))
-      return VisiblePositionTemplate<Strategy>(upstream_position);
     return VisiblePositionTemplate<Strategy>(downstream_position);
   }
 
@@ -210,7 +178,7 @@ VisiblePositionInFlatTree CreateVisiblePosition(
   return VisiblePositionInFlatTree::Create(position_with_affinity);
 }
 
-#ifndef NDEBUG
+#if DCHECK_IS_ON()
 
 template <typename Strategy>
 void VisiblePositionTemplate<Strategy>::ShowTreeForThis() const {
@@ -255,14 +223,14 @@ std::ostream& operator<<(std::ostream& ostream,
 
 }  // namespace blink
 
-#ifndef NDEBUG
+#if DCHECK_IS_ON()
 
 void showTree(const blink::VisiblePosition* vpos) {
   if (vpos) {
     vpos->ShowTreeForThis();
     return;
   }
-  DVLOG(0) << "Cannot showTree for (nil) VisiblePosition.";
+  DLOG(INFO) << "Cannot showTree for (nil) VisiblePosition.";
 }
 
 void showTree(const blink::VisiblePosition& vpos) {

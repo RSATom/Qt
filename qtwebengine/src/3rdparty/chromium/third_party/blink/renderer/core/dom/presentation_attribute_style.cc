@@ -38,11 +38,11 @@
 #include "third_party/blink/renderer/core/dom/attribute.h"
 #include "third_party/blink/renderer/core/dom/element.h"
 #include "third_party/blink/renderer/core/html/forms/html_input_element.h"
+#include "third_party/blink/renderer/platform/heap/heap.h"
 #include "third_party/blink/renderer/platform/scheduler/public/thread.h"
 #include "third_party/blink/renderer/platform/scheduler/public/thread_scheduler.h"
 #include "third_party/blink/renderer/platform/wtf/hash_functions.h"
 #include "third_party/blink/renderer/platform/wtf/hash_map.h"
-#include "third_party/blink/renderer/platform/wtf/text/cstring.h"
 
 namespace blink {
 
@@ -169,12 +169,12 @@ CSSPropertyValueSet* ComputePresentationAttributeStyle(Element& element) {
       GetPresentationAttributeCache().clear();
     }
   } else {
-    style = MutableCSSPropertyValueSet::Create(
+    style = MakeGarbageCollected<MutableCSSPropertyValueSet>(
         element.IsSVGElement() ? kSVGAttributeMode : kHTMLStandardMode);
     AttributeCollection attributes = element.AttributesWithoutUpdate();
     for (const Attribute& attr : attributes) {
       element.CollectStyleForPresentationAttribute(
-          attr.GetName(), attr.Value(), ToMutableCSSPropertyValueSet(style));
+          attr.GetName(), attr.Value(), To<MutableCSSPropertyValueSet>(style));
     }
   }
 

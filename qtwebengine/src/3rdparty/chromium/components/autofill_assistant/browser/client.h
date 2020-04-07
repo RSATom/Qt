@@ -7,12 +7,13 @@
 
 #include <string>
 
+#include "components/autofill_assistant/browser/metrics.h"
+
 namespace autofill {
 class PersonalDataManager;
 }  // namespace autofill
 
 namespace autofill_assistant {
-class UiController;
 class AccessTokenFetcher;
 
 // A client interface that needs to be supplied to the controller by the
@@ -20,6 +21,15 @@ class AccessTokenFetcher;
 class Client {
  public:
   virtual ~Client() = default;
+
+  // Attaches the controller to the UI.
+  //
+  // This method does whatever is necessary to guarantee that, at the end of the
+  // call, there is a Controller associated with a UI.
+  virtual void AttachUI() = 0;
+
+  // Destroys the UI immediately.
+  virtual void DestroyUI() = 0;
 
   // Returns the API key to be used for requests to the backend.
   virtual std::string GetApiKey() = 0;
@@ -37,9 +47,6 @@ class Client {
   // Returns the server URL to be used for requests to the backend.
   virtual std::string GetServerUrl() = 0;
 
-  // Returns a UiController.
-  virtual UiController* GetUiController() = 0;
-
   // Returns the locale.
   virtual std::string GetLocale() = 0;
 
@@ -48,7 +55,7 @@ class Client {
 
   // Stops autofill assistant for the current WebContents, both controller and
   // UI.
-  virtual void Stop() = 0;
+  virtual void Shutdown(Metrics::DropOutReason reason) = 0;
 
  protected:
   Client() = default;

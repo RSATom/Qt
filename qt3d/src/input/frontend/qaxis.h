@@ -67,6 +67,7 @@ Q_SIGNALS:
     void valueChanged(float value);
 
 protected:
+    // TODO Unused remove in Qt6
     void sceneChangeEvent(const Qt3DCore::QSceneChangePtr &change) override;
 
 private:

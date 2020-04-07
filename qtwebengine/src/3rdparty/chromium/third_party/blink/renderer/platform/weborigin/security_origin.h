@@ -33,8 +33,9 @@
 #include <memory>
 
 #include "base/gtest_prod_util.h"
+#include "base/macros.h"
 #include "third_party/blink/renderer/platform/platform_export.h"
-#include "third_party/blink/renderer/platform/wtf/noncopyable.h"
+#include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
 #include "third_party/blink/renderer/platform/wtf/thread_safe_ref_counted.h"
 #include "url/origin.h"
@@ -47,6 +48,7 @@ namespace blink {
 
 class KURL;
 class URLSecurityOriginMap;
+struct SecurityOriginHash;
 
 // An identifier which defines the source of content (e.g. a document) and
 // restricts what other objects it is permitted to access (based on their
@@ -54,9 +56,9 @@ class URLSecurityOriginMap;
 // tuple, such as the tuple origin (https, chromium.org, null, null). However,
 // there are also opaque origins which do not have a corresponding tuple.
 //
-// See also: https://html.spec.whatwg.org/multipage/origin.html#concept-origin
+// See also: https://html.spec.whatwg.org/C/#concept-origin
 class PLATFORM_EXPORT SecurityOrigin : public RefCounted<SecurityOrigin> {
-  WTF_MAKE_NONCOPYABLE(SecurityOrigin);
+  USING_FAST_MALLOC(SecurityOrigin);
 
  public:
   enum class AccessResultDomainDetail {
@@ -122,6 +124,11 @@ class PLATFORM_EXPORT SecurityOrigin : public RefCounted<SecurityOrigin> {
   String Host() const { return host_; }
   String Domain() const { return domain_; }
 
+  // Returns the registrable domain if available.
+  // For non-tuple origin, IP address URL, and public suffixes, this returns a
+  // null string. https://url.spec.whatwg.org/#host-registrable-domain
+  String RegistrableDomain() const;
+
   // Returns 0 if the effective port of this origin is the default for its
   // scheme.
   uint16_t Port() const { return port_; }
@@ -154,7 +161,7 @@ class PLATFORM_EXPORT SecurityOrigin : public RefCounted<SecurityOrigin> {
   // the given URL.
   // Note: This function may return false when |url| has data scheme, which
   // is not aligned with CORS. If you want a CORS-aligned check, just use
-  // CORS mode (e.g., network::mojom::FetchRequestMode::kSameOrigin), or
+  // CORS mode (e.g., network::mojom::RequestMode::kSameOrigin), or
   // use CanReadContent.
   // See
   // https://docs.google.com/document/d/1_BD15unoPJVwKyf5yOUDu5kie492TTaBxzhJ58j1rD4/edit.
@@ -299,14 +306,22 @@ class PLATFORM_EXPORT SecurityOrigin : public RefCounted<SecurityOrigin> {
   // its precursor).
   scoped_refptr<SecurityOrigin> DeriveNewOpaqueOrigin() const;
 
+  // If this is an opaque origin that was derived from a tuple origin, return
+  // the origin from which this was derived. Otherwise returns |this|. This
+  // method may be used for things like CSP 'self' computation which require
+  // the origin before sandbox flags are applied. It should NOT be used for
+  // any security checks (such as bindings).
+  const SecurityOrigin* GetOriginOrPrecursorOriginIfOpaque() const;
+
   // Only used for document.domain setting. The method should probably be moved
   // if we need it for something more general.
   static String CanonicalizeHost(const String& host, bool* success);
 
  private:
-  constexpr static const int kInvalidPort = 0;
+  constexpr static const uint16_t kInvalidPort = 0;
 
   friend struct mojo::UrlOriginAdapter;
+  friend struct blink::SecurityOriginHash;
 
   // Creates a new opaque SecurityOrigin using the supplied |precursor| origin
   // and |nonce|.
@@ -334,10 +349,6 @@ class PLATFORM_EXPORT SecurityOrigin : public RefCounted<SecurityOrigin> {
   // used only when trying to send an Origin across an IPC pipe.
   base::Optional<base::UnguessableToken> GetNonceForSerialization() const;
 
-  // If this is an opaque origin that was derived from a tuple origin, return
-  // the origin from which this was derived. Otherwise returns |this|.
-  const SecurityOrigin* GetOriginOrPrecursorOriginIfOpaque() const;
-
   const String protocol_ = g_empty_string;
   const String host_ = g_empty_string;
   String domain_ = g_empty_string;
@@ -353,6 +364,8 @@ class PLATFORM_EXPORT SecurityOrigin : public RefCounted<SecurityOrigin> {
   // For opaque origins, tracks the non-opaque origin from which the opaque
   // origin is derived.
   const scoped_refptr<const SecurityOrigin> precursor_origin_;
+
+  DISALLOW_COPY_AND_ASSIGN(SecurityOrigin);
 };
 
 }  // namespace blink

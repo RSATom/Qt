@@ -17,10 +17,11 @@
 #include "base/single_thread_task_runner.h"
 #include "base/synchronization/waitable_event.h"
 #include "base/task/post_task.h"
-#include "base/task/task_scheduler/task_scheduler.h"
+#include "base/task/thread_pool/thread_pool.h"
 #include "base/test/scoped_task_environment.h"
 #include "base/threading/platform_thread.h"
 #include "base/threading/thread_restrictions.h"
+#include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -74,13 +75,12 @@ class AddRemoveThread : public Foo {
  public:
   AddRemoveThread(ObserverListThreadSafe<Foo>* list, bool notify)
       : list_(list),
-        task_runner_(CreateSingleThreadTaskRunnerWithTraits(
-            TaskTraits(),
+        task_runner_(CreateSingleThreadTaskRunner(
+            TaskTraits(ThreadPool()),
             SingleThreadTaskRunnerThreadMode::DEDICATED)),
         in_list_(false),
         start_(Time::Now()),
-        do_notifies_(notify),
-        weak_factory_(this) {
+        do_notifies_(notify) {
     task_runner_->PostTask(
         FROM_HERE,
         base::BindOnce(&AddRemoveThread::AddTask, weak_factory_.GetWeakPtr()));
@@ -131,7 +131,7 @@ class AddRemoveThread : public Foo {
 
   bool do_notifies_;    // Whether these threads should do notifications.
 
-  base::WeakPtrFactory<AddRemoveThread> weak_factory_;
+  base::WeakPtrFactory<AddRemoveThread> weak_factory_{this};
 };
 
 }  // namespace
@@ -374,8 +374,8 @@ class SequenceVerificationObserver : public Foo {
 TEST(ObserverListThreadSafeTest, NotificationOnValidSequence) {
   test::ScopedTaskEnvironment scoped_task_environment;
 
-  auto task_runner_1 = CreateSequencedTaskRunnerWithTraits(TaskTraits());
-  auto task_runner_2 = CreateSequencedTaskRunnerWithTraits(TaskTraits());
+  auto task_runner_1 = CreateSequencedTaskRunner(TaskTraits(ThreadPool()));
+  auto task_runner_2 = CreateSequencedTaskRunner(TaskTraits(ThreadPool()));
 
   auto observer_list = MakeRefCounted<ObserverListThreadSafe<Foo>>();
 
@@ -389,11 +389,11 @@ TEST(ObserverListThreadSafeTest, NotificationOnValidSequence) {
                           BindOnce(&ObserverListThreadSafe<Foo>::AddObserver,
                                    observer_list, Unretained(&observer_2)));
 
-  TaskScheduler::GetInstance()->FlushForTesting();
+  ThreadPoolInstance::Get()->FlushForTesting();
 
   observer_list->Notify(FROM_HERE, &Foo::Observe, 1);
 
-  TaskScheduler::GetInstance()->FlushForTesting();
+  ThreadPoolInstance::Get()->FlushForTesting();
 
   EXPECT_TRUE(observer_1.called_on_valid_sequence());
   EXPECT_TRUE(observer_2.called_on_valid_sequence());
@@ -459,14 +459,14 @@ TEST(ObserverListThreadSafeTest, RemoveWhileNotificationIsRunning) {
                         WaitableEvent::InitialState::NOT_SIGNALED);
 
   // This must be after the declaration of |barrier| so that tasks posted to
-  // TaskScheduler can safely use |barrier|.
+  // ThreadPool can safely use |barrier|.
   test::ScopedTaskEnvironment scoped_task_environment;
 
-  CreateSequencedTaskRunnerWithTraits({MayBlock()})
+  CreateSequencedTaskRunner({ThreadPool(), MayBlock()})
       ->PostTask(FROM_HERE,
                  base::BindOnce(&ObserverListThreadSafe<Foo>::AddObserver,
                                 observer_list, Unretained(&observer)));
-  TaskScheduler::GetInstance()->FlushForTesting();
+  ThreadPoolInstance::Get()->FlushForTesting();
 
   observer_list->Notify(FROM_HERE, &Foo::Observe, 1);
   observer.WaitForNotificationRunning();

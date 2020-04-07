@@ -4,10 +4,12 @@
 
 #include "third_party/blink/renderer/modules/peerconnection/rtc_stats_report.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
-#include "third_party/blink/renderer/core/origin_trials/origin_trials.h"
+#include "third_party/blink/renderer/platform/runtime_enabled_features.h"
 
 #include "third_party/blink/renderer/bindings/core/v8/v8_object_builder.h"
 #include "third_party/blink/renderer/platform/wtf/std_lib_extras.h"
+
+#include "third_party/webrtc/api/stats/rtc_stats.h"
 
 namespace blink {
 
@@ -117,14 +119,21 @@ class RTCStatsReportIterationSource final
 
 }  // namespace
 
-RTCStatsFilter GetRTCStatsFilter(const ScriptState* script_state) {
+WebVector<webrtc::NonStandardGroupId> GetExposedGroupIds(
+    const ScriptState* script_state) {
   const ExecutionContext* context = ExecutionContext::From(script_state);
   DCHECK(context->IsContextThread());
-  // If this original trial is enabled then it exposes jitterBufferFlushes
-  // metric
-  return origin_trials::RtcAudioJitterBufferMaxPacketsEnabled(context)
-             ? RTCStatsFilter::kIncludeNonStandardMembers
-             : RTCStatsFilter::kIncludeOnlyStandardMembers;
+  WebVector<webrtc::NonStandardGroupId> enabled_origin_trials;
+  if (RuntimeEnabledFeatures::RtcAudioJitterBufferMaxPacketsEnabled(context)) {
+    enabled_origin_trials.emplace_back(
+        webrtc::NonStandardGroupId::kRtcAudioJitterBufferMaxPackets);
+  }
+  if (RuntimeEnabledFeatures::RTCStatsRelativePacketArrivalDelayEnabled(
+          context)) {
+    enabled_origin_trials.emplace_back(
+        webrtc::NonStandardGroupId::kRtcStatsRelativePacketArrivalDelay);
+  }
+  return enabled_origin_trials;
 }
 
 RTCStatsReport::RTCStatsReport(std::unique_ptr<WebRTCStatsReport> report)

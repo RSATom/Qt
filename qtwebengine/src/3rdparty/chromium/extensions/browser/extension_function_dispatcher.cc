@@ -79,6 +79,7 @@ base::LazyInstance<Static>::DestructorAtExit g_global_io_data =
 
 void CommonResponseCallback(IPC::Sender* ipc_sender,
                             int routing_id,
+                            int worker_thread_id,
                             int request_id,
                             ExtensionFunction::ResponseType type,
                             const base::ListValue& results,
@@ -90,24 +91,32 @@ void CommonResponseCallback(IPC::Sender* ipc_sender,
     return;
   }
 
-  ipc_sender->Send(new ExtensionMsg_Response(
-      routing_id, request_id, type == ExtensionFunction::SUCCEEDED, results,
-      error));
+  if (routing_id != MSG_ROUTING_NONE) {
+    DCHECK_EQ(kMainThreadId, worker_thread_id);
+    ipc_sender->Send(new ExtensionMsg_Response(
+        routing_id, request_id, type == ExtensionFunction::SUCCEEDED, results,
+        error));
+  } else {
+    DCHECK_NE(kMainThreadId, worker_thread_id);
+    ipc_sender->Send(new ExtensionMsg_ResponseWorker(
+        worker_thread_id, request_id, type == ExtensionFunction::SUCCEEDED,
+        results, error));
+  }
 }
 
 void IOThreadResponseCallback(
     const base::WeakPtr<IOThreadExtensionMessageFilter>& ipc_sender,
     int routing_id,
+    int worker_thread_id,
     int request_id,
     ExtensionFunction::ResponseType type,
     const base::ListValue& results,
-    const std::string& error,
-    functions::HistogramValue histogram_value) {
+    const std::string& error) {
   if (!ipc_sender.get())
     return;
 
-  CommonResponseCallback(ipc_sender.get(), routing_id, request_id, type,
-                         results, error);
+  CommonResponseCallback(ipc_sender.get(), routing_id, worker_thread_id,
+                         request_id, type, results, error);
 }
 
 }  // namespace
@@ -121,9 +130,7 @@ class ExtensionFunctionDispatcher::UIThreadResponseCallbackWrapper
       : content::WebContentsObserver(
             content::WebContents::FromRenderFrameHost(render_frame_host)),
         dispatcher_(dispatcher),
-        render_frame_host_(render_frame_host),
-        weak_ptr_factory_(this) {
-  }
+        render_frame_host_(render_frame_host) {}
 
   ~UIThreadResponseCallbackWrapper() override {}
 
@@ -151,16 +158,15 @@ class ExtensionFunctionDispatcher::UIThreadResponseCallbackWrapper
   void OnExtensionFunctionCompleted(int request_id,
                                     ExtensionFunction::ResponseType type,
                                     const base::ListValue& results,
-                                    const std::string& error,
-                                    functions::HistogramValue histogram_value) {
+                                    const std::string& error) {
     CommonResponseCallback(render_frame_host_,
-                           render_frame_host_->GetRoutingID(), request_id, type,
-                           results, error);
+                           render_frame_host_->GetRoutingID(), kMainThreadId,
+                           request_id, type, results, error);
   }
 
   base::WeakPtr<ExtensionFunctionDispatcher> dispatcher_;
   content::RenderFrameHost* render_frame_host_;
-  base::WeakPtrFactory<UIThreadResponseCallbackWrapper> weak_ptr_factory_;
+  base::WeakPtrFactory<UIThreadResponseCallbackWrapper> weak_ptr_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(UIThreadResponseCallbackWrapper);
 };
@@ -175,8 +181,7 @@ class ExtensionFunctionDispatcher::UIThreadWorkerResponseCallbackWrapper
       : dispatcher_(dispatcher),
         observer_(this),
         render_process_host_(render_process_host),
-        worker_thread_id_(worker_thread_id),
-        weak_ptr_factory_(this) {
+        worker_thread_id_(worker_thread_id) {
     observer_.Add(render_process_host_);
 
     DCHECK(ExtensionsClient::Get()
@@ -216,8 +221,7 @@ class ExtensionFunctionDispatcher::UIThreadWorkerResponseCallbackWrapper
   void OnExtensionFunctionCompleted(int request_id,
                                     ExtensionFunction::ResponseType type,
                                     const base::ListValue& results,
-                                    const std::string& error,
-                                    functions::HistogramValue histogram_value) {
+                                    const std::string& error) {
     if (type == ExtensionFunction::BAD_MESSAGE) {
       // The renderer will be shut down from ExtensionFunction::SetBadMessage().
       return;
@@ -233,7 +237,8 @@ class ExtensionFunctionDispatcher::UIThreadWorkerResponseCallbackWrapper
       observer_;
   content::RenderProcessHost* const render_process_host_;
   const int worker_thread_id_;
-  base::WeakPtrFactory<UIThreadWorkerResponseCallbackWrapper> weak_ptr_factory_;
+  base::WeakPtrFactory<UIThreadWorkerResponseCallbackWrapper> weak_ptr_factory_{
+      this};
 
   DISALLOW_COPY_AND_ASSIGN(UIThreadWorkerResponseCallbackWrapper);
 };
@@ -269,19 +274,15 @@ ExtensionFunctionDispatcher::Delegate::GetVisibleWebContents() const {
 }
 
 // static
-void ExtensionFunctionDispatcher::DispatchOnIOThread(
+void ExtensionFunctionDispatcher::DoDispatchOnIOThread(
     InfoMap* extension_info_map,
     void* profile_id,
     int render_process_id,
     base::WeakPtr<IOThreadExtensionMessageFilter> ipc_sender,
-    int routing_id,
-    const ExtensionHostMsg_Request_Params& params) {
+    const ExtensionHostMsg_Request_Params& params,
+    const ExtensionFunction::ResponseCallback& callback) {
   const Extension* extension =
       extension_info_map->extensions().GetByID(params.extension_id);
-
-  ExtensionFunction::ResponseCallback callback(
-      base::Bind(&IOThreadResponseCallback, ipc_sender, routing_id,
-                 params.request_id));
 
   scoped_refptr<ExtensionFunction> function(
       CreateExtensionFunction(params,
@@ -300,7 +301,9 @@ void ExtensionFunctionDispatcher::DispatchOnIOThread(
     NOTREACHED();
     return;
   }
-  function_io->set_ipc_sender(ipc_sender, routing_id);
+  function_io->set_ipc_sender(ipc_sender);
+  function_io->set_worker_thread_id(params.worker_thread_id);
+  function_io->set_service_worker_version_id(params.service_worker_version_id);
   function_io->set_extension_info_map(extension_info_map);
   if (extension) {
     function->set_include_incognito_information(
@@ -340,6 +343,37 @@ void ExtensionFunctionDispatcher::DispatchOnIOThread(
   } else {
     function->OnQuotaExceeded(violation_error);
   }
+}
+
+// static
+void ExtensionFunctionDispatcher::DispatchOnIOThread(
+    InfoMap* extension_info_map,
+    void* profile_id,
+    int render_process_id,
+    base::WeakPtr<IOThreadExtensionMessageFilter> ipc_sender,
+    int routing_id,
+    const ExtensionHostMsg_Request_Params& params) {
+  ExtensionFunction::ResponseCallback callback(
+      base::BindRepeating(&IOThreadResponseCallback, ipc_sender, routing_id,
+                          kMainThreadId, params.request_id));
+
+  DoDispatchOnIOThread(extension_info_map, profile_id, render_process_id,
+                       ipc_sender, params, callback);
+}
+
+// static
+void ExtensionFunctionDispatcher::DispatchOnIOThreadForServiceWorker(
+    InfoMap* extension_info_map,
+    void* profile_id,
+    int render_process_id,
+    base::WeakPtr<IOThreadExtensionMessageFilter> ipc_sender,
+    const ExtensionHostMsg_Request_Params& params) {
+  ExtensionFunction::ResponseCallback callback(base::BindRepeating(
+      &IOThreadResponseCallback, ipc_sender, MSG_ROUTING_NONE,
+      params.worker_thread_id, params.request_id));
+
+  DoDispatchOnIOThread(extension_info_map, profile_id, render_process_id,
+                       ipc_sender, params, callback);
 }
 
 ExtensionFunctionDispatcher::ExtensionFunctionDispatcher(
@@ -441,6 +475,7 @@ void ExtensionFunctionDispatcher::DispatchWithCallbackInternal(
     NOTREACHED();
     return;
   }
+  function_ui->set_worker_thread_id(params.worker_thread_id);
   if (IsRequestFromServiceWorker(params)) {
     function_ui->set_service_worker_version_id(
         params.service_worker_version_id);
@@ -459,7 +494,12 @@ void ExtensionFunctionDispatcher::DispatchWithCallbackInternal(
     return;
 
   if (!extension) {
-    // Skip all of the UMA, quota, event page, activity logging stuff if there
+    if (function->source_context_type() == Feature::WEBUI_CONTEXT) {
+      base::UmaHistogramSparse("Extensions.Functions.WebUICalls",
+                               function->histogram_value());
+    }
+
+    // Skip the quota, event page, activity logging stuff if there
     // isn't an extension, e.g. if the function call was from WebUI.
     function->RunWithValidation()->Execute();
     return;
@@ -480,8 +520,18 @@ void ExtensionFunctionDispatcher::DispatchWithCallbackInternal(
     ExtensionsBrowserClient::Get()->PermitExternalProtocolHandler();
     NotifyApiFunctionCalled(extension->id(), params.name, params.arguments,
                             browser_context_);
-    base::UmaHistogramSparse("Extensions.FunctionCalls",
-                             function->histogram_value());
+
+    // Note: Deliberately don't include external component extensions here -
+    // this lets us differentiate between "built-in" extension calls and
+    // external extension calls
+    if (extension->location() == Manifest::COMPONENT) {
+      base::UmaHistogramSparse("Extensions.Functions.ComponentExtensionCalls",
+                               function->histogram_value());
+    } else {
+      base::UmaHistogramSparse("Extensions.Functions.ExtensionCalls",
+                               function->histogram_value());
+    }
+
     base::ElapsedTimer timer;
     function->RunWithValidation()->Execute();
     // TODO(devlin): Once we have a baseline metric for how long functions take,
@@ -565,7 +615,7 @@ bool ExtensionFunctionDispatcher::CheckPermissions(
     const ExtensionFunction::ResponseCallback& callback) {
   if (!function->HasPermission()) {
     LOG(ERROR) << "Permission denied for " << params.name;
-    SendAccessDenied(callback, function->histogram_value());
+    SendAccessDenied(callback);
     return false;
   }
   return true;
@@ -584,11 +634,11 @@ ExtensionFunction* ExtensionFunctionDispatcher::CreateExtensionFunction(
       ExtensionFunctionRegistry::GetInstance().NewFunction(params.name);
   if (!function) {
     LOG(ERROR) << "Unknown Extension API - " << params.name;
-    SendAccessDenied(callback, extensions::functions::UNKNOWN);
+    SendAccessDenied(callback);
     return NULL;
   }
 
-  function->SetArgs(&params.arguments);
+  function->SetArgs(params.arguments.Clone());
   function->set_source_url(params.source_url);
   function->set_request_id(params.request_id);
   function->set_has_callback(params.has_callback);
@@ -605,11 +655,10 @@ ExtensionFunction* ExtensionFunctionDispatcher::CreateExtensionFunction(
 
 // static
 void ExtensionFunctionDispatcher::SendAccessDenied(
-    const ExtensionFunction::ResponseCallback& callback,
-    functions::HistogramValue histogram_value) {
+    const ExtensionFunction::ResponseCallback& callback) {
   base::ListValue empty_list;
   callback.Run(ExtensionFunction::FAILED, empty_list,
-               "Access to extension API denied.", histogram_value);
+               "Access to extension API denied.");
 }
 
 }  // namespace extensions

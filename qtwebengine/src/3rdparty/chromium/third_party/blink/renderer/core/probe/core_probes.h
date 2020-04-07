@@ -34,7 +34,7 @@
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
-#include "third_party/blink/renderer/platform/probe/platform_probes.h"
+#include "third_party/blink/renderer/platform/loader/fetch/resource.h"
 
 namespace network {
 namespace mojom {
@@ -51,6 +51,19 @@ class CoreProbeSink;
 class ThreadDebugger;
 
 namespace probe {
+
+class CORE_EXPORT ProbeBase {
+  STACK_ALLOCATED();
+
+ public:
+  base::TimeTicks CaptureStartTime() const;
+  base::TimeTicks CaptureEndTime() const;
+  base::TimeDelta Duration() const;
+
+ private:
+  mutable base::TimeTicks start_time_;
+  mutable base::TimeTicks end_time_;
+};
 
 class CORE_EXPORT AsyncTask {
   STACK_ALLOCATED();

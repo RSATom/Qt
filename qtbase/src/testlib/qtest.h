@@ -46,12 +46,15 @@
 #include <QtTest/qtestdata.h>
 #include <QtTest/qbenchmark.h>
 
+#include <QtCore/qbitarray.h>
 #include <QtCore/qbytearray.h>
 #include <QtCore/qstring.h>
 #include <QtCore/qstringlist.h>
 #include <QtCore/qcborcommon.h>
 #include <QtCore/qdatetime.h>
+#if QT_CONFIG(itemmodel)
 #include <QtCore/qabstractitemmodel.h>
+#endif
 #include <QtCore/qobject.h>
 #include <QtCore/qvariant.h>
 #include <QtCore/qurl.h>
@@ -89,25 +92,35 @@ template<> inline char *toString(const QByteArray &ba)
     return QTest::toPrettyCString(ba.constData(), ba.length());
 }
 
+template<> inline char *toString(const QBitArray &ba)
+{
+    qsizetype size = ba.size();
+    char *str = new char[size + 1];
+    for (qsizetype i = 0; i < size; ++i)
+        str[i] = "01"[ba.testBit(i)];
+    str[size] = '\0';
+    return str;
+}
+
 #if QT_CONFIG(datestring)
 template<> inline char *toString(const QTime &time)
 {
     return time.isValid()
-        ? qstrdup(qPrintable(time.toString(QStringViewLiteral("hh:mm:ss.zzz"))))
+        ? qstrdup(qPrintable(time.toString(u"hh:mm:ss.zzz")))
         : qstrdup("Invalid QTime");
 }
 
 template<> inline char *toString(const QDate &date)
 {
     return date.isValid()
-        ? qstrdup(qPrintable(date.toString(QStringViewLiteral("yyyy/MM/dd"))))
+        ? qstrdup(qPrintable(date.toString(u"yyyy/MM/dd")))
         : qstrdup("Invalid QDate");
 }
 
 template<> inline char *toString(const QDateTime &dateTime)
 {
     return dateTime.isValid()
-        ? qstrdup(qPrintable(dateTime.toString(QStringViewLiteral("yyyy/MM/dd hh:mm:ss.zzz[t]"))))
+        ? qstrdup(qPrintable(dateTime.toString(u"yyyy/MM/dd hh:mm:ss.zzz[t]")))
         : qstrdup("Invalid QDateTime");
 }
 #endif // datestring
@@ -129,12 +142,14 @@ template<> inline char *toString(const QChar &c)
     return qstrdup(qPrintable(QString::fromLatin1("QChar: '%1' (0x%2)").arg(c).arg(QString::number(static_cast<int>(c.unicode()), 16))));
 }
 
+#if QT_CONFIG(itemmodel)
 template<> inline char *toString(const QModelIndex &idx)
 {
     char msg[128];
     qsnprintf(msg, sizeof(msg), "QModelIndex(%d,%d,%p,%p)", idx.row(), idx.column(), idx.internalPointer(), idx.model());
     return qstrdup(msg);
 }
+#endif
 
 template<> inline char *toString(const QPoint &p)
 {
@@ -364,8 +379,36 @@ inline bool qCompare(quint32 const &t1, quint64 const &t2, const char *actual,
 {
     return qCompare(static_cast<quint64>(t1), t2, actual, expected, file, line);
 }
+namespace Internal {
 
+template <typename T>
+class HasInitMain // SFINAE test for the presence of initMain()
+{
+private:
+    using YesType = char[1];
+    using NoType = char[2];
+
+    template <typename C> static YesType& test( decltype(&C::initMain) ) ;
+    template <typename C> static NoType& test(...);
+
+public:
+    enum { value = sizeof(test<T>(nullptr)) == sizeof(YesType) };
+};
+
+template<typename T>
+typename std::enable_if<HasInitMain<T>::value, void>::type callInitMain()
+{
+    T::initMain();
 }
+
+template<typename T>
+typename std::enable_if<!HasInitMain<T>::value, void>::type callInitMain()
+{
+}
+
+} // namespace Internal
+
+} // namespace QTest
 QT_END_NAMESPACE
 
 #ifdef QT_TESTCASE_BUILDDIR
@@ -424,52 +467,53 @@ int main(int argc, char *argv[]) \
 #  define QTEST_DISABLE_KEYPAD_NAVIGATION
 #endif
 
-#define QTEST_MAIN(TestObject) \
-int main(int argc, char *argv[]) \
-{ \
+#define QTEST_MAIN_IMPL(TestObject) \
     TESTLIB_SELFCOVERAGE_START(#TestObject) \
+    QT_PREPEND_NAMESPACE(QTest::Internal::callInitMain)<TestObject>(); \
     QApplication app(argc, argv); \
     app.setAttribute(Qt::AA_Use96Dpi, true); \
     QTEST_DISABLE_KEYPAD_NAVIGATION \
     TestObject tc; \
     QTEST_SET_MAIN_SOURCE_PATH \
-    return QTest::qExec(&tc, argc, argv); \
-}
+    return QTest::qExec(&tc, argc, argv);
 
 #elif defined(QT_GUI_LIB)
 
 #include <QtTest/qtest_gui.h>
 
-#define QTEST_MAIN(TestObject) \
-int main(int argc, char *argv[]) \
-{ \
+#define QTEST_MAIN_IMPL(TestObject) \
     TESTLIB_SELFCOVERAGE_START(#TestObject) \
+    QT_PREPEND_NAMESPACE(QTest::Internal::callInitMain)<TestObject>(); \
     QGuiApplication app(argc, argv); \
     app.setAttribute(Qt::AA_Use96Dpi, true); \
     TestObject tc; \
     QTEST_SET_MAIN_SOURCE_PATH \
-    return QTest::qExec(&tc, argc, argv); \
-}
+    return QTest::qExec(&tc, argc, argv);
 
 #else
 
-#define QTEST_MAIN(TestObject) \
-int main(int argc, char *argv[]) \
-{ \
+#define QTEST_MAIN_IMPL(TestObject) \
     TESTLIB_SELFCOVERAGE_START(#TestObject) \
+    QT_PREPEND_NAMESPACE(QTest::Internal::callInitMain)<TestObject>(); \
     QCoreApplication app(argc, argv); \
     app.setAttribute(Qt::AA_Use96Dpi, true); \
     TestObject tc; \
     QTEST_SET_MAIN_SOURCE_PATH \
-    return QTest::qExec(&tc, argc, argv); \
-}
+    return QTest::qExec(&tc, argc, argv);
 
 #endif // QT_GUI_LIB
+
+#define QTEST_MAIN(TestObject) \
+int main(int argc, char *argv[]) \
+{ \
+    QTEST_MAIN_IMPL(TestObject) \
+}
 
 #define QTEST_GUILESS_MAIN(TestObject) \
 int main(int argc, char *argv[]) \
 { \
     TESTLIB_SELFCOVERAGE_START(#TestObject) \
+    QT_PREPEND_NAMESPACE(QTest::Internal::callInitMain)<TestObject>(); \
     QCoreApplication app(argc, argv); \
     app.setAttribute(Qt::AA_Use96Dpi, true); \
     TestObject tc; \

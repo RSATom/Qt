@@ -61,6 +61,8 @@ jumbo_source_set("internal") {
     "cloud/device_management_service.h",
     "cloud/dm_auth.cc",
     "cloud/dm_auth.h",
+    "cloud/dmserver_job_configurations.cc",
+    "cloud/dmserver_job_configurations.h",
     "cloud/enterprise_metrics.cc",
     "cloud/enterprise_metrics.h",
     "cloud/external_policy_data_fetcher.cc",
@@ -72,9 +74,9 @@ jumbo_source_set("internal") {
     "cloud/machine_level_user_cloud_policy_metrics.h",
     "cloud/machine_level_user_cloud_policy_store.cc",
     "cloud/machine_level_user_cloud_policy_store.h",
-    "cloud/policy_header_service.cc",
-    "cloud/policy_header_service.h",
     "cloud/policy_value_validator.h",
+    "cloud/realtime_reporting_job_configuration.cc",
+    "cloud/realtime_reporting_job_configuration.h",
     "cloud/resource_cache.cc",
     "cloud/resource_cache.h",
     "cloud/signing_service.h",
@@ -90,10 +92,13 @@ jumbo_source_set("internal") {
     "config_dir_policy_loader.h",
     "configuration_policy_provider.cc",
     "configuration_policy_provider.h",
+    "extension_policy_migrator.cc",
     "extension_policy_migrator.h",
     "external_data_fetcher.cc",
     "external_data_fetcher.h",
     "external_data_manager.h",
+    "features.cc",
+    "features.h",
     "json_schema_constants.cc",
     "json_schema_constants.h",
     "plist_writer.cc",
@@ -111,6 +116,8 @@ jumbo_source_set("internal") {
     "policy_loader_win.h",
     "policy_map.cc",
     "policy_map.h",
+    "policy_merger.cc",
+    "policy_merger.h",
     "policy_namespace.cc",
     "policy_namespace.h",
     "policy_proto_decoders.cc",
@@ -153,19 +160,24 @@ jumbo_source_set("internal") {
     "//base:i18n",
     "//base/third_party/dynamic_annotations",
     "//components/account_id",
-    "//components/crash/core/common:crash_key",  # Remove once https://crbug.com/685996 is fixed.
-    "//components/data_use_measurement/core",
     "//components/prefs",
+    "//components/signin/public/identity_manager",
+    "//components/strings",
     "//components/version_info",
     "//extensions/buildflags",
     "//google_apis",
     "//net",
-    "//services/identity/public/cpp",
     "//services/identity/public/cpp:cpp_types",
     "//services/network/public/cpp",
     "//third_party/libxml",
     "//third_party/re2",
     "//url",
+  ]
+
+  allow_circular_includes_from = [
+    # Generated files use policy_details.h and policy_map.h from this target.
+    # TODO(https://crbug.com/945868) - refactor so we don't have dep cycles.
+    "//components/policy:generated",
   ]
 
   if (is_win) {
@@ -294,6 +306,7 @@ jumbo_static_library("test_support") {
     "//components/account_id",
     "//components/policy:generated",
     "//components/policy/proto",
+    "//components/strings",
     "//crypto",
     "//net",
     "//services/network/public/cpp",
@@ -322,7 +335,6 @@ source_set("common_constants") {
 source_set("unit_tests") {
   testonly = true
   sources = [
-    "//extensions/buildflags",
     "cloud/cloud_policy_client_unittest.cc",
     "cloud/cloud_policy_core_unittest.cc",
     "cloud/cloud_policy_manager_unittest.cc",
@@ -330,7 +342,6 @@ source_set("unit_tests") {
     "cloud/cloud_policy_service_unittest.cc",
     "cloud/cloud_policy_validator_unittest.cc",
     "cloud/device_management_service_unittest.cc",
-    "cloud/policy_header_service_unittest.cc",
     "cloud/user_info_fetcher_unittest.cc",
     "generate_policy_source_unittest.cc",
     "plist_writer_unittest.cc",

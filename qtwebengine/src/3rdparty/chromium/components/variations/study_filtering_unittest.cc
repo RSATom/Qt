@@ -222,10 +222,10 @@ TEST(VariationsStudyFilteringTest, CheckStudyPlatform) {
   Study::Filter filter;
 
   // Check in the forwarded order. The loop cond is <= base::size(platforms)
-  // instead of < so that the result of adding the last channel gets checked.
+  // instead of < so that the result of adding the last platform gets checked.
   for (size_t i = 0; i <= base::size(platforms); ++i) {
     for (size_t j = 0; j < base::size(platforms); ++j) {
-      const bool expected = platform_added[j] || filter.platform_size() == 0;
+      const bool expected = platform_added[j];
       const bool result = internal::CheckStudyPlatform(filter, platforms[j]);
       EXPECT_EQ(expected, result) << "Case " << i << "," << j << " failed!";
     }
@@ -241,7 +241,7 @@ TEST(VariationsStudyFilteringTest, CheckStudyPlatform) {
   memset(&platform_added, 0, sizeof(platform_added));
   for (size_t i = 0; i <= base::size(platforms); ++i) {
     for (size_t j = 0; j < base::size(platforms); ++j) {
-      const bool expected = platform_added[j] || filter.platform_size() == 0;
+      const bool expected = platform_added[j];
       const bool result = internal::CheckStudyPlatform(filter, platforms[j]);
       EXPECT_EQ(expected, result) << "Case " << i << "," << j << " failed!";
     }
@@ -318,6 +318,104 @@ TEST(VariationsStudyFilteringTest, CheckStudyEndDate) {
     EXPECT_EQ(start_test_cases[i].expected_result, result) << "Case " << i
                                                            << " failed!";
   }
+}
+
+TEST(VariationsStudyFilteringTest, CheckStudyOSVersion) {
+  const struct {
+    const char* min_os_version;
+    const char* os_version;
+    bool expected_result;
+  } min_test_cases[] = {
+      {"1.2.2", "1.2.3", true},
+      {"1.2.3", "1.2.3", true},
+      {"1.2.4", "1.2.3", false},
+      {"1.3.2", "1.2.3", false},
+      {"2.1.2", "1.2.3", false},
+      {"0.3.4", "1.2.3", true},
+      // Wildcards.
+      {"1.*", "1.2.3", true},
+      {"1.2.*", "1.2.3", true},
+      {"1.2.3.*", "1.2.3", true},
+      {"1.2.4.*", "1.2.3", false},
+      {"2.*", "1.2.3", false},
+      {"0.3.*", "1.2.3", true},
+  };
+
+  const struct {
+    const char* max_os_version;
+    const char* os_version;
+    bool expected_result;
+  } max_test_cases[] = {
+      {"1.2.2", "1.2.3", false},
+      {"1.2.3", "1.2.3", true},
+      {"1.2.4", "1.2.3", true},
+      {"2.1.1", "1.2.3", true},
+      {"2.1.1", "2.3.4", false},
+      // Wildcards
+      {"2.1.*", "2.3.4", false},
+      {"2.*", "2.3.4", true},
+      {"2.3.*", "2.3.4", true},
+      {"2.3.4.*", "2.3.4", true},
+      {"2.3.4.0.*", "2.3.4", true},
+      {"2.4.*", "2.3.4", true},
+      {"1.3.*", "2.3.4", false},
+      {"1.*", "2.3.4", false},
+  };
+
+  Study::Filter filter;
+
+  // Min/max version not set should result in true.
+  EXPECT_TRUE(internal::CheckStudyOSVersion(filter, base::Version("1.2.3")));
+
+  for (size_t i = 0; i < base::size(min_test_cases); ++i) {
+    filter.set_min_os_version(min_test_cases[i].min_os_version);
+    const bool result = internal::CheckStudyOSVersion(
+        filter, base::Version(min_test_cases[i].os_version));
+    EXPECT_EQ(min_test_cases[i].expected_result, result)
+        << "Min OS version case " << i << " failed!";
+  }
+  filter.clear_min_os_version();
+
+  for (size_t i = 0; i < base::size(max_test_cases); ++i) {
+    filter.set_max_os_version(max_test_cases[i].max_os_version);
+    const bool result = internal::CheckStudyOSVersion(
+        filter, base::Version(max_test_cases[i].os_version));
+    EXPECT_EQ(max_test_cases[i].expected_result, result)
+        << "Max OS version case " << i << " failed!";
+  }
+
+  // Check intersection semantics.
+  for (size_t i = 0; i < base::size(min_test_cases); ++i) {
+    for (size_t j = 0; j < base::size(max_test_cases); ++j) {
+      filter.set_min_os_version(min_test_cases[i].min_os_version);
+      filter.set_max_os_version(max_test_cases[j].max_os_version);
+
+      if (!min_test_cases[i].expected_result) {
+        const bool result = internal::CheckStudyOSVersion(
+            filter, base::Version(min_test_cases[i].os_version));
+        EXPECT_FALSE(result) << "Case " << i << "," << j << " failed!";
+      }
+
+      if (!max_test_cases[j].expected_result) {
+        const bool result = internal::CheckStudyOSVersion(
+            filter, base::Version(max_test_cases[j].os_version));
+        EXPECT_FALSE(result) << "Case " << i << "," << j << " failed!";
+      }
+    }
+  }
+}
+
+TEST(VariationsStudyFilteringTest, CheckStudyMalformedOSVersion) {
+  Study::Filter filter;
+
+  filter.set_min_os_version("1.2.0");
+  EXPECT_FALSE(internal::CheckStudyOSVersion(filter, base::Version("1.2.a")));
+  EXPECT_TRUE(internal::CheckStudyOSVersion(filter, base::Version("1.2.3")));
+  filter.clear_min_os_version();
+
+  filter.set_max_os_version("1.2.3");
+  EXPECT_FALSE(internal::CheckStudyOSVersion(filter, base::Version("1.2.a")));
+  EXPECT_TRUE(internal::CheckStudyOSVersion(filter, base::Version("1.2.3")));
 }
 
 TEST(VariationsStudyFilteringTest, CheckStudyVersion) {
@@ -575,6 +673,7 @@ TEST(VariationsStudyFilteringTest, FilterAndValidateStudiesWithCountry) {
     study->set_default_experiment_name("Default");
     AddExperiment("Default", 100, study);
     study->set_consistency(test.consistency);
+    study->mutable_filter()->add_platform(Study::PLATFORM_ANDROID);
     if (test.filter_country)
       study->mutable_filter()->add_country(test.filter_country);
     if (test.filter_exclude_country)
@@ -585,7 +684,7 @@ TEST(VariationsStudyFilteringTest, FilterAndValidateStudiesWithCountry) {
     client_state.reference_date = base::Time::Now();
     client_state.version = base::Version("20.0.0.0");
     client_state.channel = Study::STABLE;
-    client_state.form_factor = Study::DESKTOP;
+    client_state.form_factor = Study::PHONE;
     client_state.platform = Study::PLATFORM_ANDROID;
     client_state.session_consistency_country = kSessionCountry;
     client_state.permanent_consistency_country = kPermanentCountry;

@@ -129,7 +129,7 @@ such as speed and direction. This provides the fundamental location information 
     \li \l {Qt Positioning C++ Classes}{for C++}
 \row
     \li Position plugins:
-    \li \l {Qt Positioning service plugins}
+    \li \l {Qt Positioning Plugins}
 \endtable
 
 \section2 Examples

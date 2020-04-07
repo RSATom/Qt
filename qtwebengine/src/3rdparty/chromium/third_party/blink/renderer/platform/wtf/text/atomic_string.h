@@ -25,9 +25,10 @@
 #include <iosfwd>
 
 #include "build/build_config.h"
-#include "third_party/blink/renderer/platform/wtf/allocator.h"
+#include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 #include "third_party/blink/renderer/platform/wtf/hash_table_deleted_value_type.h"
-#include "third_party/blink/renderer/platform/wtf/text/cstring.h"
+#include "third_party/blink/renderer/platform/wtf/ref_counted.h"
+#include "third_party/blink/renderer/platform/wtf/text/integer_to_string_conversion.h"
 #include "third_party/blink/renderer/platform/wtf/text/string_view.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
 #include "third_party/blink/renderer/platform/wtf/wtf_export.h"
@@ -73,10 +74,8 @@ class WTF_EXPORT AtomicString {
   AtomicString(const LChar* chars, unsigned length);
   AtomicString(const UChar* chars, unsigned length);
   AtomicString(const UChar* chars);
-#if (U_ICU_VERSION_MAJOR_NUM < 59) || !defined(USING_SYSTEM_ICU)
   AtomicString(const char16_t* chars)
       : AtomicString(reinterpret_cast<const UChar*>(chars)) {}
-#endif
 
   template <wtf_size_t inlineCapacity>
   explicit AtomicString(const Vector<UChar, inlineCapacity>& vector)
@@ -194,12 +193,11 @@ class WTF_EXPORT AtomicString {
   double ToDouble(bool* ok = nullptr) const { return string_.ToDouble(ok); }
   float ToFloat(bool* ok = nullptr) const { return string_.ToFloat(ok); }
 
-  static AtomicString Number(int);
-  static AtomicString Number(unsigned);
-  static AtomicString Number(long);
-  static AtomicString Number(unsigned long);
-  static AtomicString Number(long long);
-  static AtomicString Number(unsigned long long);
+  template <typename IntegerType>
+  static AtomicString Number(IntegerType number) {
+    IntegerToStringConverter<IntegerType> converter(number);
+    return AtomicString(converter.Characters8(), converter.length());
+  }
 
   static AtomicString Number(double, unsigned precision = 6);
 
@@ -216,9 +214,9 @@ class WTF_EXPORT AtomicString {
   static AtomicString FromUTF8(const char*, size_t length);
   static AtomicString FromUTF8(const char*);
 
-  CString Ascii() const { return string_.Ascii(); }
-  CString Latin1() const { return string_.Latin1(); }
-  CString Utf8(UTF8ConversionMode mode = kLenientUTF8Conversion) const {
+  std::string Ascii() const { return string_.Ascii(); }
+  std::string Latin1() const { return string_.Latin1(); }
+  std::string Utf8(UTF8ConversionMode mode = kLenientUTF8Conversion) const {
     return string_.Utf8(mode);
   }
 
@@ -318,7 +316,7 @@ inline StringView::StringView(const AtomicString& string)
 
 }  // namespace WTF
 
-WTF_ALLOW_MOVE_INIT_AND_COMPARE_WITH_MEM_FUNCTIONS(AtomicString);
+WTF_ALLOW_MOVE_INIT_AND_COMPARE_WITH_MEM_FUNCTIONS(AtomicString)
 
 using WTF::AtomicString;
 using WTF::g_null_atom;

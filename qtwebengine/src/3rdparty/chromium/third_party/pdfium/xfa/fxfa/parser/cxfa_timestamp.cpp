@@ -6,7 +6,8 @@
 
 #include "xfa/fxfa/parser/cxfa_timestamp.h"
 
-#include "fxjs/xfa/cjx_timestamp.h"
+#include "fxjs/xfa/cjx_node.h"
+#include "third_party/base/ptr_util.h"
 
 namespace {
 
@@ -17,7 +18,7 @@ const CXFA_Node::AttributeData kTimeStampAttributeData[] = {
      (void*)XFA_AttributeValue::Optional},
     {XFA_Attribute::Server, XFA_AttributeType::CData, nullptr},
     {XFA_Attribute::Usehref, XFA_AttributeType::CData, nullptr},
-    {XFA_Attribute::Unknown, XFA_AttributeType::Integer, nullptr}};
+};
 
 }  // namespace
 
@@ -27,7 +28,8 @@ CXFA_TimeStamp::CXFA_TimeStamp(CXFA_Document* doc, XFA_PacketType packet)
                 (XFA_XDPPACKET_Template | XFA_XDPPACKET_Form),
                 XFA_ObjectType::Node,
                 XFA_Element::TimeStamp,
-                nullptr,
-                kTimeStampAttributeData) {}
+                {},
+                kTimeStampAttributeData,
+                pdfium::MakeUnique<CJX_Node>(this)) {}
 
 CXFA_TimeStamp::~CXFA_TimeStamp() = default;

@@ -34,16 +34,15 @@
 #include "third_party/blink/renderer/core/style/style_path.h"
 #include "third_party/blink/renderer/platform/geometry/length.h"
 #include "third_party/blink/renderer/platform/graphics/color.h"
-#include "third_party/blink/renderer/platform/wtf/allocator.h"
+#include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 #include "third_party/blink/renderer/platform/wtf/ref_counted.h"
-#include "third_party/blink/renderer/platform/wtf/ref_vector.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
 
 namespace blink {
 
 class StyleSVGResource;
 
-typedef RefVector<Length> SVGDashArray;
+typedef base::RefCountedData<WTF::Vector<Length>> SVGDashArray;
 
 enum SVGPaintType {
   SVG_PAINTTYPE_RGBCOLOR,
@@ -163,6 +162,8 @@ struct SVGPaint {
 
 // Inherited/Non-Inherited Style Datastructures
 class StyleFillData : public RefCounted<StyleFillData> {
+  USING_FAST_MALLOC(StyleFillData);
+
  public:
   static scoped_refptr<StyleFillData> Create() {
     return base::AdoptRef(new StyleFillData);
@@ -207,6 +208,8 @@ class UnzoomedLength {
 };
 
 class CORE_EXPORT StyleStrokeData : public RefCounted<StyleStrokeData> {
+  USING_FAST_MALLOC(StyleStrokeData);
+
  public:
   static scoped_refptr<StyleStrokeData> Create() {
     return base::AdoptRef(new StyleStrokeData);
@@ -237,6 +240,8 @@ class CORE_EXPORT StyleStrokeData : public RefCounted<StyleStrokeData> {
 };
 
 class StyleStopData : public RefCounted<StyleStopData> {
+  USING_FAST_MALLOC(StyleStopData);
+
  public:
   static scoped_refptr<StyleStopData> Create() {
     return base::AdoptRef(new StyleStopData);
@@ -260,6 +265,8 @@ class StyleStopData : public RefCounted<StyleStopData> {
 
 // Note: the rule for this class is, *no inheritance* of these props
 class CORE_EXPORT StyleMiscData : public RefCounted<StyleMiscData> {
+  USING_FAST_MALLOC(StyleMiscData);
+
  public:
   static scoped_refptr<StyleMiscData> Create() {
     return base::AdoptRef(new StyleMiscData);
@@ -290,6 +297,8 @@ class CORE_EXPORT StyleMiscData : public RefCounted<StyleMiscData> {
 
 // Non-inherited resources
 class StyleResourceData : public RefCounted<StyleResourceData> {
+  USING_FAST_MALLOC(StyleResourceData);
+
  public:
   static scoped_refptr<StyleResourceData> Create() {
     return base::AdoptRef(new StyleResourceData);
@@ -314,6 +323,8 @@ class StyleResourceData : public RefCounted<StyleResourceData> {
 // Inherited resources
 class StyleInheritedResourceData
     : public RefCounted<StyleInheritedResourceData> {
+  USING_FAST_MALLOC(StyleInheritedResourceData);
+
  public:
   static scoped_refptr<StyleInheritedResourceData> Create() {
     return base::AdoptRef(new StyleInheritedResourceData);
@@ -339,6 +350,8 @@ class StyleInheritedResourceData
 
 // Geometry properties
 class StyleGeometryData : public RefCounted<StyleGeometryData> {
+  USING_FAST_MALLOC(StyleGeometryData);
+
  public:
   static scoped_refptr<StyleGeometryData> Create() {
     return base::AdoptRef(new StyleGeometryData);

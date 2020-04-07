@@ -4,6 +4,7 @@
 
 #include "components/offline_pages/core/background/pending_state_updater.h"
 
+#include "base/bind.h"
 #include "components/offline_items_collection/core/pending_state.h"
 #include "components/offline_pages/core/background/request_coordinator.h"
 
@@ -12,8 +13,7 @@ namespace offline_pages {
 PendingStateUpdater::PendingStateUpdater(
     RequestCoordinator* request_coordinator)
     : request_coordinator_(request_coordinator),
-      requests_pending_another_download_(false),
-      weak_ptr_factory_(this) {}
+      requests_pending_another_download_(false) {}
 
 PendingStateUpdater::~PendingStateUpdater() {}
 

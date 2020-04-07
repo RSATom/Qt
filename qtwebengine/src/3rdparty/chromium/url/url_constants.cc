@@ -7,6 +7,7 @@
 namespace url {
 
 const char kAboutBlankURL[] = "about:blank";
+const char kAboutSrcdocURL[] = "about:srcdoc";
 
 const char kAboutBlankPath[] = "blank";
 const char kAboutSrcdocPath[] = "srcdoc";
@@ -24,8 +25,11 @@ const char kHttpScheme[] = "http";
 const char kHttpsScheme[] = "https";
 const char kJavaScriptScheme[] = "javascript";
 const char kMailToScheme[] = "mailto";
+const char kTelScheme[] = "tel";
 const char kWsScheme[] = "ws";
 const char kWssScheme[] = "wss";
+
+const char kQrcScheme[] = "qrc";
 
 const char kStandardSchemeSeparator[] = "://";
 

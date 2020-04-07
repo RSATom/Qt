@@ -52,10 +52,22 @@ Q_LOGGING_CATEGORY(lcLottieQtBodymovinRenderThread, "qt.lottieqt.bodymovin.rende
 
 BatchRenderer *BatchRenderer::m_rendererInstance = nullptr;
 
+BatchRenderer::BatchRenderer()
+    : QThread()
+{
+    const QByteArray cacheStr = qgetenv("QLOTTIE_RENDER_CACHE_SIZE");
+    int cacheSize = cacheStr.toInt();
+    if (cacheSize > 0) {
+        qCDebug(lcLottieQtBodymovinRenderThread) << "Setting frame cache size to" << cacheSize;
+        m_cacheSize = cacheSize;
+    }
+}
+
 BatchRenderer::~BatchRenderer()
 {
+    QMutexLocker mlocker(&m_mutex);
+
     qDeleteAll(m_animData);
-    qDeleteAll(m_frameCache);
 }
 
 BatchRenderer *BatchRenderer::instance()
@@ -79,17 +91,16 @@ void BatchRenderer::registerAnimator(LottieAnimation *animator)
     qCDebug(lcLottieQtBodymovinRenderThread) << "Register Animator:"
                                        << static_cast<void*>(animator);
 
-    Entry *entry = new Entry;
+    Entry *&entry = m_animData[animator];
+    Q_ASSERT(entry == nullptr);
+    entry = new Entry;
     entry->animator = animator;
     entry->startFrame = animator->startFrame();
     entry->endFrame = animator->endFrame();
     entry->currentFrame = animator->startFrame();
-    if (animator->direction() == LottieAnimation::Reverse)
-        entry->animDir = -1;
-    // animDir == 1 by default
+    entry->animDir = animator->direction();
     entry->bmTreeBlueprint = new BMBase;
     parse(entry->bmTreeBlueprint, animator->jsonSource());
-    m_animData.insert(animator, entry);
     m_waitCondition.wakeAll();
 }
 
@@ -100,24 +111,25 @@ void BatchRenderer::deregisterAnimator(LottieAnimation *animator)
     qCDebug(lcLottieQtBodymovinRenderThread) << "Deregister Animator:"
                                        << static_cast<void*>(animator);
 
-    Entry *entry = m_animData.value(animator, nullptr);
+    Entry *entry = m_animData.take(animator);
     if (entry) {
         qDeleteAll(entry->frameCache);
         delete entry->bmTreeBlueprint;
         delete entry;
-        m_animData.remove(animator);
     }
 }
 
 bool BatchRenderer::gotoFrame(LottieAnimation *animator, int frame)
 {
+    QMutexLocker mlocker(&m_mutex);
+
     Entry *entry = m_animData.value(animator, nullptr);
     if (entry) {
-        QMutexLocker mlocker(&m_mutex);
         qCDebug(lcLottieQtBodymovinRenderThread) << "Animator:"
                                            << static_cast<void*>(animator)
                                            << "Goto frame:" << frame;
         entry->currentFrame = frame;
+        entry->animDir = animator->direction();
         pruneFrameCache(entry);
         m_waitCondition.wakeAll();
         return true;
@@ -128,11 +140,13 @@ bool BatchRenderer::gotoFrame(LottieAnimation *animator, int frame)
 void BatchRenderer::pruneFrameCache(Entry* e)
 {
     QHash<int, BMBase*>::iterator it = e->frameCache.begin();
-
     while (it != e->frameCache.end()) {
-        if (it.key() == e->currentFrame) {
+        int frame = it.key();
+        if ((frame - e->currentFrame) * e->animDir >= 0) { // same frame or same direction
             ++it;
         } else {
+            qCDebug(lcLottieQtBodymovinRenderThread) << "Animator:" << static_cast<void*>(e->animator)
+                                                     << "Remove frame from cache" << frame;
             delete it.value();
             it = e->frameCache.erase(it);
         }
@@ -150,47 +164,24 @@ BMBase *BatchRenderer::getFrame(LottieAnimation *animator, int frameNumber)
         return nullptr;
 }
 
-void BatchRenderer::setCacheSize(int size)
-{
-    if (size < 1 || isRunning())
-        return;
-
-    qCDebug(lcLottieQtBodymovinRenderThread) << "Setting frame cache size to" << size;
-    m_cacheSize = size;
-}
-
 void BatchRenderer::prerender(Entry *animEntry)
 {
-    LottieAnimation *animator = animEntry->animator;
-
-    if (animEntry->frameCache.count() == m_cacheSize) {
-        qCDebug(lcLottieQtBodymovinRenderThread) << "Animator:" << static_cast<void*>(animEntry->animator)
-                                                        << "Cache full, cannot render more";
-        return;
-    }
-
     while (animEntry->frameCache.count() < m_cacheSize) {
-        // It may be that the animator has deregistered itself while
-        // te mutex was locked. In that case we cannot render here anymore
-        if (!animEntry->bmTreeBlueprint)
-            break;
-
-        if (!animEntry->frameCache.contains(animEntry->currentFrame)) {
-            BMBase *bmTree = new BMBase(*animEntry->bmTreeBlueprint);
+        BMBase *&bmTree = animEntry->frameCache[animEntry->currentFrame];
+        if (bmTree == nullptr) {
+            bmTree = new BMBase(*animEntry->bmTreeBlueprint);
 
             for (BMBase *elem : bmTree->children()) {
                 if (elem->active(animEntry->currentFrame))
                     elem->updateProperties( animEntry->currentFrame);
             }
-
-            animEntry->frameCache.insert( animEntry->currentFrame, bmTree);
         }
 
         qCDebug(lcLottieQtBodymovinRenderThread) << "Animator:"
                                            << static_cast<void*>(animEntry->animator)
                                            << "Frame drawn to cache. FN:"
                                            << animEntry->currentFrame;
-        emit frameReady(animator,  animEntry->currentFrame);
+        emit frameReady(animEntry->animator,  animEntry->currentFrame);
 
         animEntry->currentFrame += animEntry->animDir;
 
@@ -202,42 +193,20 @@ void BatchRenderer::prerender(Entry *animEntry)
     }
 }
 
-void BatchRenderer::prerender()
-{
-    QMutexLocker mlocker(&m_mutex);
-    bool wait = true;
-
-    foreach (Entry *e, m_animData) {
-        if (e->frameCache.size() < m_cacheSize) {
-            wait = false;
-            break;
-        }
-    }
-
-    if (wait)
-        m_waitCondition.wait(&m_mutex);
-
-    QHash<LottieAnimation*, Entry*>::iterator it = m_animData.begin();
-    while (it != m_animData.end()) {
-        Entry *e = *it;
-        if (e && e->frameCache.size() < m_cacheSize)
-            prerender(e);
-        ++it;
-    }
-}
-
 void BatchRenderer::frameRendered(LottieAnimation *animator, int frameNumber)
 {
+    QMutexLocker mlocker(&m_mutex);
+
     Entry *entry = m_animData.value(animator, nullptr);
     if (entry) {
         qCDebug(lcLottieQtBodymovinRenderThread) << "Animator:" << static_cast<void*>(animator)
                                            << "Remove frame from cache" << frameNumber;
 
-        QMutexLocker mlocker(&m_mutex);
-        BMBase *root = entry->frameCache.value(frameNumber, nullptr);
-        delete root;
-        entry->frameCache.remove(frameNumber);
-        m_waitCondition.wakeAll();
+        BMBase *root = entry->frameCache.take(frameNumber);
+        if (root != nullptr) {
+            delete root;
+            m_waitCondition.wakeAll();
+        }
     }
 }
 
@@ -245,15 +214,17 @@ void BatchRenderer::run()
 {
     qCDebug(lcLottieQtBodymovinRenderThread) << "rendering thread" << QThread::currentThread();
 
-    while (-1) {
-        if (QThread::currentThread()->isInterruptionRequested())
-            return;
+    while (!isInterruptionRequested()) {
+        QMutexLocker mlocker(&m_mutex);
 
-        prerender();
+        for (Entry *e : qAsConst(m_animData))
+            prerender(e);
+
+        m_waitCondition.wait(&m_mutex);
     }
 }
 
-int BatchRenderer::parse(BMBase* rootElement, QByteArray jsonSource)
+int BatchRenderer::parse(BMBase *rootElement, const QByteArray &jsonSource) const
 {
     QJsonDocument doc = QJsonDocument::fromJson(jsonSource);
     QJsonObject rootObj = doc.object();
@@ -269,24 +240,13 @@ int BatchRenderer::parse(BMBase* rootElement, QByteArray jsonSource)
         BMLayer *layer = BMLayer::construct(jsonLayer);
         if (layer) {
             layer->setParent(rootElement);
-            rootElement->addChild(layer);
-        }
-    }
-
-    // Mask layers must be rendered before the layers they affect to
-    // although they appear before in layer hierarchy. For this reason
-    // move a mask after the affected layers, so it will be rendered first
-    QList<BMBase *> &layers = rootElement->children();
-    int moveTo = -1;
-    for (int i = 0; i < layers.count(); i++) {
-        BMLayer *layer = static_cast<BMLayer*>(layers.at(i));
-        if (layer->isClippedLayer())
-            moveTo = i;
-        if (layer->isMaskLayer()) {
-            qCDebug(lcLottieQtBodymovinParser()) << "Move mask layer"
-                                                 <<  layers.at(i)->name()
-                                                 << "before" << layers.at(moveTo)->name();
-            layers.move(i, moveTo);
+            // Mask layers must be rendered before the layers they affect to
+            // although they appear before in layer hierarchy. For this reason
+            // move a mask after the affected layers, so it will be rendered first
+            if (layer->isMaskLayer())
+                rootElement->prependChild(layer);
+            else
+                rootElement->appendChild(layer);
         }
     }
 

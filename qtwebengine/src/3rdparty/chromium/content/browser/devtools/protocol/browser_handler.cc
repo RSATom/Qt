@@ -14,6 +14,7 @@
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
 #include "content/browser/devtools/devtools_manager.h"
+#include "content/browser/gpu/gpu_process_host.h"
 #include "content/browser/permissions/permission_controller_impl.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/content_browser_client.h"
@@ -89,11 +90,11 @@ std::unique_ptr<Browser::Histogram> Convert(base::HistogramBase& in_histogram,
     base::HistogramBase::Sample low;
     int64_t high;
     bucket_it->Get(&low, &high, &count);
-    out_buckets->addItem(Browser::Bucket::Create()
-                             .SetLow(low)
-                             .SetHigh(high)
-                             .SetCount(count)
-                             .Build());
+    out_buckets->emplace_back(Browser::Bucket::Create()
+                                  .SetLow(low)
+                                  .SetHigh(high)
+                                  .SetCount(count)
+                                  .Build());
   }
 
   return Browser::Histogram::Create()
@@ -143,6 +144,13 @@ Response FromProtocolPermissionType(
     *out_type = PermissionType::BACKGROUND_FETCH;
   } else if (type == protocol::Browser::PermissionTypeEnum::IdleDetection) {
     *out_type = PermissionType::IDLE_DETECTION;
+  } else if (type ==
+             protocol::Browser::PermissionTypeEnum::PeriodicBackgroundSync) {
+    *out_type = PermissionType::PERIODIC_BACKGROUND_SYNC;
+  } else if (type == protocol::Browser::PermissionTypeEnum::WakeLockScreen) {
+    *out_type = PermissionType::WAKE_LOCK_SCREEN;
+  } else if (type == protocol::Browser::PermissionTypeEnum::WakeLockSystem) {
+    *out_type = PermissionType::WAKE_LOCK_SYSTEM;
   } else {
     return Response::InvalidParams("Unknown permission type: " + type);
   }
@@ -163,7 +171,7 @@ Response BrowserHandler::GetHistograms(
            base::StatisticsRecorder::GetHistograms(),
            in_query.fromMaybe("")))) {
     DCHECK(h);
-    (*out_histograms)->addItem(Convert(*h, in_delta.fromMaybe(false)));
+    (*out_histograms)->emplace_back(Convert(*h, in_delta.fromMaybe(false)));
   }
 
   return Response::OK();
@@ -204,10 +212,9 @@ Response BrowserHandler::GrantPermissions(
   if (!response.isSuccess())
     return response;
   PermissionControllerImpl::PermissionOverrides overrides;
-  for (size_t i = 0; i < permissions->length(); ++i) {
+  for (const protocol::Browser::PermissionType& t : *permissions) {
     PermissionType type;
-    Response type_response =
-        FromProtocolPermissionType(permissions->get(i), &type);
+    Response type_response = FromProtocolPermissionType(t, &type);
     if (!type_response.isSuccess())
       return type_response;
     overrides.insert(type);
@@ -254,16 +261,16 @@ Response BrowserHandler::GetHistogram(
 
 Response BrowserHandler::GetBrowserCommandLine(
     std::unique_ptr<protocol::Array<std::string>>* arguments) {
-  *arguments = protocol::Array<std::string>::create();
+  *arguments = std::make_unique<protocol::Array<std::string>>();
   base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
   // The commandline is potentially sensitive, only return it if it
   // contains kEnableAutomation.
   if (command_line->HasSwitch(switches::kEnableAutomation)) {
     for (const auto& arg : command_line->argv()) {
 #if defined(OS_WIN)
-      (*arguments)->addItem(base::UTF16ToUTF8(arg.c_str()));
+      (*arguments)->emplace_back(base::UTF16ToUTF8(arg));
 #else
-      (*arguments)->addItem(arg.c_str());
+      (*arguments)->emplace_back(arg);
 #endif
     }
     return Response::OK();
@@ -275,6 +282,15 @@ Response BrowserHandler::GetBrowserCommandLine(
 
 Response BrowserHandler::Crash() {
   CHECK(false);
+  return Response::OK();
+}
+
+Response BrowserHandler::CrashGpuProcess() {
+  GpuProcessHost::CallOnIO(GPU_PROCESS_KIND_SANDBOXED, false /* force_create */,
+                           base::BindOnce([](GpuProcessHost* host) {
+                             if (host)
+                               host->gpu_service()->Crash();
+                           }));
   return Response::OK();
 }
 

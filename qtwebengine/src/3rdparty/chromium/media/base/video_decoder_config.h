@@ -17,7 +17,7 @@
 #include "media/base/media_export.h"
 #include "media/base/video_codecs.h"
 #include "media/base/video_color_space.h"
-#include "media/base/video_rotation.h"
+#include "media/base/video_transformation.h"
 #include "media/base/video_types.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/size.h"
@@ -35,19 +35,20 @@ class MEDIA_EXPORT VideoDecoderConfig {
   // appropriate values before using.
   VideoDecoderConfig();
 
+  enum class AlphaMode { kHasAlpha, kIsOpaque };
+
   // Constructs an initialized object. It is acceptable to pass in NULL for
   // |extra_data|, otherwise the memory is copied.
   VideoDecoderConfig(VideoCodec codec,
                      VideoCodecProfile profile,
-                     VideoPixelFormat format,
+                     AlphaMode alpha_mode,
                      const VideoColorSpace& color_space,
-                     VideoRotation rotation,
+                     VideoTransformation transformation,
                      const gfx::Size& coded_size,
                      const gfx::Rect& visible_rect,
                      const gfx::Size& natural_size,
                      const std::vector<uint8_t>& extra_data,
                      const EncryptionScheme& encryption_scheme);
-
   VideoDecoderConfig(const VideoDecoderConfig& other);
 
   ~VideoDecoderConfig();
@@ -55,9 +56,9 @@ class MEDIA_EXPORT VideoDecoderConfig {
   // Resets the internal state of this object.
   void Initialize(VideoCodec codec,
                   VideoCodecProfile profile,
-                  VideoPixelFormat format,
+                  AlphaMode alpha_mode,
                   const VideoColorSpace& color_space,
-                  VideoRotation rotation,
+                  VideoTransformation transformation,
                   const gfx::Size& coded_size,
                   const gfx::Rect& visible_rect,
                   const gfx::Size& natural_size,
@@ -79,14 +80,9 @@ class MEDIA_EXPORT VideoDecoderConfig {
 
   static std::string GetHumanReadableProfile(VideoCodecProfile profile);
 
-  // Video codec and profile.
   VideoCodec codec() const { return codec_; }
   VideoCodecProfile profile() const { return profile_; }
-
-  // Encoded video pixel format. Lossy codecs rarely have actual pixel formats,
-  // this should usually be interpreted as a subsampling specification. (The
-  // decoder determines the actual pixel format.)
-  VideoPixelFormat format() const { return format_; }
+  AlphaMode alpha_mode() const { return alpha_mode_; }
 
   // Difference between encoded and display orientation.
   //
@@ -94,7 +90,7 @@ class MEDIA_EXPORT VideoDecoderConfig {
   // scaling to natural_size().
   //
   // TODO(sandersd): Which direction is orientation measured in?
-  VideoRotation video_rotation() const { return rotation_; }
+  VideoTransformation video_transformation() const { return transformation_; }
 
   // Deprecated. TODO(wolenetz): Remove. See https://crbug.com/665539.
   // Width and height of video frame immediately post-decode. Not all pixels
@@ -137,6 +133,7 @@ class MEDIA_EXPORT VideoDecoderConfig {
   }
 
   // Color space of the image data.
+  void set_color_space_info(const VideoColorSpace& color_space);
   const VideoColorSpace& color_space_info() const;
 
   // Dynamic range of the image data.
@@ -151,9 +148,9 @@ class MEDIA_EXPORT VideoDecoderConfig {
   VideoCodec codec_;
   VideoCodecProfile profile_;
 
-  VideoPixelFormat format_;
+  AlphaMode alpha_mode_;
 
-  VideoRotation rotation_;
+  VideoTransformation transformation_;
 
   // Deprecated. TODO(wolenetz): Remove. See https://crbug.com/665539.
   gfx::Size coded_size_;

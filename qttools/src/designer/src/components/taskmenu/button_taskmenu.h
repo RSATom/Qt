@@ -49,14 +49,14 @@ namespace qdesigner_internal {
 class ButtonGroupMenu : public QObject
 {
     Q_OBJECT
-    Q_DISABLE_COPY(ButtonGroupMenu)
+    Q_DISABLE_COPY_MOVE(ButtonGroupMenu)
 public:
-    ButtonGroupMenu(QObject *parent = 0);
+    ButtonGroupMenu(QObject *parent = nullptr);
 
     void initialize(QDesignerFormWindowInterface *formWindow,
-                    QButtonGroup *buttonGroup = 0,
+                    QButtonGroup *buttonGroup = nullptr,
                     /* Current button for selection in ButtonMode */
-                    QAbstractButton *currentButton = 0);
+                    QAbstractButton *currentButton = nullptr);
 
     QAction *selectGroupAction() const { return m_selectGroupAction; }
     QAction *breakGroupAction() const  { return m_breakGroupAction; }
@@ -69,19 +69,19 @@ private:
     QAction *m_selectGroupAction;
     QAction *m_breakGroupAction;
 
-    QDesignerFormWindowInterface *m_formWindow;
-    QButtonGroup *m_buttonGroup;
-    QAbstractButton *m_currentButton;
+    QDesignerFormWindowInterface *m_formWindow = nullptr;
+    QButtonGroup *m_buttonGroup = nullptr;
+    QAbstractButton *m_currentButton = nullptr;
 };
 
 // Task menu extension of a QButtonGroup
 class ButtonGroupTaskMenu : public QObject, public QDesignerTaskMenuExtension
 {
     Q_OBJECT
-    Q_DISABLE_COPY(ButtonGroupTaskMenu)
+    Q_DISABLE_COPY_MOVE(ButtonGroupTaskMenu)
     Q_INTERFACES(QDesignerTaskMenuExtension)
 public:
-    explicit ButtonGroupTaskMenu(QButtonGroup *buttonGroup, QObject *parent = 0);
+    explicit ButtonGroupTaskMenu(QButtonGroup *buttonGroup, QObject *parent = nullptr);
 
     QAction *preferredEditAction() const override;
     QList<QAction*> taskActions() const override;
@@ -96,9 +96,9 @@ private:
 class ButtonTaskMenu: public QDesignerTaskMenu
 {
     Q_OBJECT
-    Q_DISABLE_COPY(ButtonTaskMenu)
+    Q_DISABLE_COPY_MOVE(ButtonTaskMenu)
 public:
-    explicit ButtonTaskMenu(QAbstractButton *button, QObject *parent = 0);
+    explicit ButtonTaskMenu(QAbstractButton *button, QObject *parent = nullptr);
     ~ButtonTaskMenu() override;
 
     QAction *preferredEditAction() const override;
@@ -121,7 +121,7 @@ private:
         GroupedButtonSelection
     };
 
-    SelectionType selectionType(const QDesignerFormWindowCursorInterface *cursor, QButtonGroup ** ptrToGroup = 0) const;
+    SelectionType selectionType(const QDesignerFormWindowCursorInterface *cursor, QButtonGroup ** ptrToGroup = nullptr) const;
     bool refreshAssignMenu(const QDesignerFormWindowInterface *fw, int buttonCount, SelectionType st, QButtonGroup *currentGroup);
     QMenu *createGroupSelectionMenu(const QDesignerFormWindowInterface *fw);
 
@@ -142,14 +142,14 @@ private:
 class CommandLinkButtonTaskMenu: public ButtonTaskMenu
 {
     Q_OBJECT
-    Q_DISABLE_COPY(CommandLinkButtonTaskMenu)
+    Q_DISABLE_COPY_MOVE(CommandLinkButtonTaskMenu)
 public:
-    explicit CommandLinkButtonTaskMenu(QCommandLinkButton *button, QObject *parent = 0);
+    explicit CommandLinkButtonTaskMenu(QCommandLinkButton *button, QObject *parent = nullptr);
 };
 
-typedef ExtensionFactory<QDesignerTaskMenuExtension, QButtonGroup, ButtonGroupTaskMenu> ButtonGroupTaskMenuFactory;
-typedef ExtensionFactory<QDesignerTaskMenuExtension, QCommandLinkButton, CommandLinkButtonTaskMenu>  CommandLinkButtonTaskMenuFactory;
-typedef ExtensionFactory<QDesignerTaskMenuExtension, QAbstractButton, ButtonTaskMenu>  ButtonTaskMenuFactory;
+using ButtonGroupTaskMenuFactory = ExtensionFactory<QDesignerTaskMenuExtension, QButtonGroup, ButtonGroupTaskMenu>;
+using CommandLinkButtonTaskMenuFactory = ExtensionFactory<QDesignerTaskMenuExtension, QCommandLinkButton, CommandLinkButtonTaskMenu>;
+using ButtonTaskMenuFactory = ExtensionFactory<QDesignerTaskMenuExtension, QAbstractButton, ButtonTaskMenu>;
 }  // namespace qdesigner_internal
 
 QT_END_NAMESPACE

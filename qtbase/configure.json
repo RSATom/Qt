@@ -51,11 +51,11 @@
             "translationdir": "string",
 
             "android-arch": "string",
+            "android-abis": "string",
             "android-ndk": "string",
             "android-ndk-host": "string",
             "android-ndk-platform": "string",
             "android-sdk": "string",
-            "android-toolchain-version": "string",
 
             "android-style-assets": "boolean",
             "appstore-compliant": "boolean",
@@ -110,6 +110,7 @@
             "profile": "boolean",
             "qreal": "string",
             "qtlibinfix": { "type": "string", "name": "qt_libinfix" },
+            "qtlibinfix-plugins": { "type": "boolean", "name": "qt_libinfix_plugins" },
             "qtnamespace": { "type": "string", "name": "qt_namespace" },
             "reduce-exports": { "type": "boolean", "name": "reduce_exports" },
             "reduce-relocations": { "type": "boolean", "name": "reduce_relocations" },
@@ -220,6 +221,21 @@
             "sources": [
                 { "type": "pkgConfig", "args": "libudev" },
                 "-ludev"
+            ]
+        },
+        "libdl": {
+            "label": "dlopen()",
+            "test": {
+                "main": [
+                    "dlclose(dlopen(0, 0));",
+                    "dlsym(RTLD_DEFAULT, 0);",
+                    "dlerror();"
+                ]
+            },
+            "headers": "dlfcn.h",
+            "sources": [
+                "",
+                "-ldl"
             ]
         }
     },
@@ -468,6 +484,17 @@
                 ]
             }
         },
+        "signaling_nan": {
+            "label": "Signaling NaN for doubles",
+            "type": "compile",
+            "test": {
+                "head": [ "#include <limits>" ],
+                "main": [
+                    "using B = std::numeric_limits<double>;",
+                    "static_assert(B::has_signaling_NaN, \"System lacks signaling NaN\");"
+                ]
+            }
+        },
         "sse2": {
             "label": "SSE2 instructions",
             "type": "x86Simd"
@@ -640,7 +667,7 @@
         "shared": {
             "label": "Building shared libraries",
             "autoDetect": "!config.uikit",
-            "condition": "!config.integrity && !config.wasm",
+            "condition": "!config.integrity && !config.wasm && !config.rtems",
             "output": [
                 "shared",
                 "publicFeature",
@@ -693,7 +720,7 @@
             "autoDetect": "false",
             "enable" : "input.linker == 'gold' || features.use_gold_linker_alias" ,
             "disable" : "input.linker == 'bfd' || input.linker == 'lld'",
-            "condition": "!config.win32 && !config.integrity && !config.wasm && tests.use_gold_linker",
+            "condition": "!config.win32 && !config.integrity && !config.wasm && !config.rtems && tests.use_gold_linker",
             "output": [ "privateConfig", "useGoldLinker" ]
         },
         "use_lld_linker": {
@@ -745,11 +772,11 @@
         },
         "debug": {
             "label": "Build for debugging",
-            "autoDetect": "features.developer-build || config.win32 || config.darwin"
+            "autoDetect": "features.developer-build || (config.win32 && !config.gcc) || config.darwin"
         },
         "debug_and_release": {
             "label": "Compile libs in debug and release mode",
-            "autoDetect": "input.debug == ''",
+            "autoDetect": "input.debug == '' && !(config.win32 && config.gcc)",
             "condition": "config.darwin || config.win32",
             "output": [ "publicFeature", "publicQtConfig", "debugAndRelease" ]
         },
@@ -791,6 +818,7 @@
         "rpath": {
             "label": "Build with RPATH",
             "autoDetect": "var.QMAKE_LFLAGS_RPATH != '' && features.shared",
+            "condition": "!config.android",
             "output": [ "publicFeature", "publicQtConfig" ]
         },
         "rpath_dir": {
@@ -827,7 +855,7 @@
         },
         "largefile": {
             "label": "Large file support",
-            "condition": "!config.android && !config.integrity && !config.winrt",
+            "condition": "!config.android && !config.integrity && !config.winrt && !config.rtems",
             "output": [
                 "privateConfig",
                 { "type": "define", "name": "QT_LARGEFILE_SUPPORT", "value": 64 }
@@ -988,6 +1016,11 @@
                 "publicQtConfig",
                 { "type": "define", "name": "QT_REDUCE_RELOCATIONS" }
             ]
+        },
+        "signaling_nan": {
+            "label": "Signaling NaN",
+            "condition": "tests.signaling_nan",
+            "output": [ "publicFeature" ]
         },
         "sse2": {
             "label": "SSE2",
@@ -1304,6 +1337,12 @@
             "condition": "libs.libudev",
             "output": [ "privateFeature" ]
         },
+        "qt_libinfix_plugins": {
+            "label": "Use QT_LIBINFIX for Plugins",
+            "autoDetect": false,
+            "enable": "input.qt_libinfix != '' && input.qt_libinfix_plugins == 'yes'",
+            "output": [ "privateConfig" ]
+        },
         "compile_examples": {
             "label": "Compile examples",
             "autoDetect": "!config.wasm",
@@ -1333,6 +1372,18 @@
             "autoDetect": false,
             "condition": "!features.shared",
             "output": [ "publicConfig", "publicQtConfig" ]
+        },
+        "dlopen": {
+            "label": "dlopen()",
+            "condition": "config.unix && libs.libdl",
+            "output": [ "privateFeature" ]
+        },
+        "relocatable": {
+            "label": "Relocatable",
+            "purpose": "Enable the Qt installation to be relocated.",
+            "autoDetect": "features.shared",
+            "condition": "features.dlopen || config.win32 || !features.shared",
+            "output": [ "privateFeature" ]
         }
     },
 
@@ -1403,6 +1454,15 @@ Configure with '-qreal float' to create a build that is binary-compatible with 5
             "type": "error",
             "condition": "!features.stl",
             "message": "Qt requires a compliant STL library."
+        },
+        {
+            "type": "emccVersion",
+            "condition": "config.wasm"
+        },
+        {
+            "type": "error",
+            "condition": "config.ios && features.debug && !features.debug_and_release",
+            "message": "Debug build wihtout Release build is not currently supported on ios see QTBUG-71990. Use -debug-and-release."
         }
     ],
 
@@ -1459,6 +1519,7 @@ Configure with '-qreal float' to create a build that is binary-compatible with 5
                     "args": "enable_gdb_index",
                     "condition": "config.gcc && !config.clang && (features.debug || features.force_debug_info || features.debug_and_release)"
                 },
+                "relocatable",
                 "precompile_header",
                 "ltcg",
                 {

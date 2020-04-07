@@ -51,6 +51,8 @@
 #include <QtWidgets/QStyleOptionTitleBar>
 #include <QtWidgets/QGraphicsSceneMouseEvent>
 
+#include <private/qmemory_p.h>
+
 QT_BEGIN_NAMESPACE
 
 void QGraphicsWidgetPrivate::init(QGraphicsItem *parentItem, Qt::WindowFlags wFlags)
@@ -108,10 +110,6 @@ QGraphicsWidgetPrivate::QGraphicsWidgetPrivate()
 
 QGraphicsWidgetPrivate::~QGraphicsWidgetPrivate()
 {
-    // Remove any lazily allocated data
-    delete[] margins;
-    delete[] windowFrameMargins;
-    delete windowData;
 }
 
 /*!
@@ -122,11 +120,8 @@ QGraphicsWidgetPrivate::~QGraphicsWidgetPrivate()
 */
 void QGraphicsWidgetPrivate::ensureMargins() const
 {
-    if (!margins) {
-        margins = new qreal[4];
-        for (int i = 0; i < 4; ++i)
-            margins[i] = 0;
-    }
+    if (!margins)
+        margins = qt_make_unique<QMarginsF>();
 }
 
 /*!
@@ -137,11 +132,8 @@ void QGraphicsWidgetPrivate::ensureMargins() const
 */
 void QGraphicsWidgetPrivate::ensureWindowFrameMargins() const
 {
-    if (!windowFrameMargins) {
-        windowFrameMargins = new qreal[4];
-        for (int i = 0; i < 4; ++i)
-            windowFrameMargins[i] = 0;
-    }
+    if (!windowFrameMargins)
+        windowFrameMargins = qt_make_unique<QMarginsF>();
 }
 
 /*!
@@ -153,7 +145,7 @@ void QGraphicsWidgetPrivate::ensureWindowFrameMargins() const
 void QGraphicsWidgetPrivate::ensureWindowData()
 {
     if (!windowData)
-        windowData = new WindowData;
+        windowData = qt_make_unique<WindowData>();
 }
 
 void QGraphicsWidgetPrivate::setPalette_helper(const QPalette &palette)
@@ -196,7 +188,7 @@ void QGraphicsWidgetPrivate::updatePalette(const QPalette &palette)
 
     // Notify change.
     QEvent event(QEvent::PaletteChange);
-    QApplication::sendEvent(q, &event);
+    QCoreApplication::sendEvent(q, &event);
 }
 
 void QGraphicsWidgetPrivate::setLayoutDirection_helper(Qt::LayoutDirection direction)
@@ -218,7 +210,7 @@ void QGraphicsWidgetPrivate::setLayoutDirection_helper(Qt::LayoutDirection direc
 
     // Send the notification event to this widget item.
     QEvent e(QEvent::LayoutDirectionChange);
-    QApplication::sendEvent(q, &e);
+    QCoreApplication::sendEvent(q, &e);
 }
 
 void QGraphicsWidgetPrivate::resolveLayoutDirection()
@@ -232,9 +224,9 @@ void QGraphicsWidgetPrivate::resolveLayoutDirection()
     } else if (scene) {
         // ### shouldn't the scene have a layoutdirection really? how does
         // ### QGraphicsWidget get changes from QApplication::layoutDirection?
-        setLayoutDirection_helper(QApplication::layoutDirection());
+        setLayoutDirection_helper(QGuiApplication::layoutDirection());
     } else {
-        setLayoutDirection_helper(QApplication::layoutDirection());
+        setLayoutDirection_helper(QGuiApplication::layoutDirection());
     }
 }
 
@@ -296,7 +288,7 @@ void QGraphicsWidgetPrivate::updateFont(const QFont &font)
         return;
     // Notify change.
     QEvent event(QEvent::FontChange);
-    QApplication::sendEvent(q, &event);
+    QCoreApplication::sendEvent(q, &event);
 }
 
 QFont QGraphicsWidgetPrivate::naturalWidgetFont() const
@@ -372,8 +364,8 @@ void QGraphicsWidgetPrivate::windowFrameMouseReleaseEvent(QGraphicsSceneMouseEve
             bar.rect.setHeight(q->style()->pixelMetric(QStyle::PM_TitleBarHeight, &bar));
             QPointF pos = event->pos();
             if (windowFrameMargins) {
-                pos.rx() += windowFrameMargins[Left];
-                pos.ry() += windowFrameMargins[Top];
+                pos.rx() += windowFrameMargins->left();
+                pos.ry() += windowFrameMargins->top();
             }
             bar.subControls = QStyle::SC_TitleBarCloseButton;
             if (q->style()->subControlRect(QStyle::CC_TitleBar, &bar,
@@ -669,8 +661,8 @@ void QGraphicsWidgetPrivate::windowFrameHoverMoveEvent(QGraphicsSceneHoverEvent 
     QStyleOptionTitleBar bar;
     // make sure that the coordinates (rect and pos) we send to the style are positive.
     if (windowFrameMargins) {
-        pos.rx() += windowFrameMargins[Left];
-        pos.ry() += windowFrameMargins[Top];
+        pos.rx() += windowFrameMargins->left();
+        pos.ry() += windowFrameMargins->top();
     }
     initStyleOptionTitleBar(&bar);
     bar.rect = q->windowFrameRect().toRect();
@@ -699,13 +691,6 @@ void QGraphicsWidgetPrivate::windowFrameHoverMoveEvent(QGraphicsSceneHoverEvent 
         case Qt::TitleBarArea:
             windowData->buttonRect = q->style()->subControlRect(
                 QStyle::CC_TitleBar, &bar, QStyle::SC_TitleBarCloseButton, 0);
-#if 0 // Used to be included in Qt4 for Q_WS_MAC
-            // On mac we should hover if we are in the 'area' of the buttons
-            windowData->buttonRect |= q->style()->subControlRect(
-                QStyle::CC_TitleBar, &bar, QStyle::SC_TitleBarMinButton, 0);
-            windowData->buttonRect |= q->style()->subControlRect(
-                QStyle::CC_TitleBar, &bar, QStyle::SC_TitleBarMaxButton, 0);
-#endif
             if (windowData->buttonRect.contains(pos.toPoint()))
                 windowData->buttonMouseOver = true;
             event->ignore();

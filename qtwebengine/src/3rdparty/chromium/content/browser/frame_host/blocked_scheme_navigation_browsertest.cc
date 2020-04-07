@@ -100,7 +100,7 @@ class BlockedURLWarningConsoleObserverDelegate : public WebContentsDelegate {
 
   // WebContentsDelegate method:
   bool DidAddMessageToConsole(WebContents* source,
-                              int32_t level,
+                              blink::mojom::ConsoleMessageLevel log_level,
                               const base::string16& message,
                               int32_t line_no,
                               const base::string16& source_id) override {
@@ -579,10 +579,10 @@ class BlockedSchemeNavigationBrowserTest
   DISALLOW_COPY_AND_ASSIGN(BlockedSchemeNavigationBrowserTest);
 };
 
-INSTANTIATE_TEST_CASE_P(,
-                        BlockedSchemeNavigationBrowserTest,
-                        ::testing::Values(url::kDataScheme,
-                                          url::kFileSystemScheme));
+INSTANTIATE_TEST_SUITE_P(,
+                         BlockedSchemeNavigationBrowserTest,
+                         ::testing::Values(url::kDataScheme,
+                                           url::kFileSystemScheme));
 
 ////////////////////////////////////////////////////////////////////////////////
 // Blocked schemes with HTML mimetype

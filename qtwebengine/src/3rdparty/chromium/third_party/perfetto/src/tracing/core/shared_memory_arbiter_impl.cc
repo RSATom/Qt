@@ -18,10 +18,10 @@
 
 #include "perfetto/base/logging.h"
 #include "perfetto/base/task_runner.h"
-#include "perfetto/base/time.h"
-#include "perfetto/tracing/core/commit_data_request.h"
-#include "perfetto/tracing/core/shared_memory.h"
-#include "perfetto/tracing/core/startup_trace_writer_registry.h"
+#include "perfetto/ext/base/time.h"
+#include "perfetto/ext/tracing/core/commit_data_request.h"
+#include "perfetto/ext/tracing/core/shared_memory.h"
+#include "perfetto/ext/tracing/core/startup_trace_writer_registry.h"
 #include "src/tracing/core/null_trace_writer.h"
 #include "src/tracing/core/trace_writer_impl.h"
 
@@ -61,12 +61,15 @@ SharedMemoryArbiterImpl::SharedMemoryArbiterImpl(
 
 Chunk SharedMemoryArbiterImpl::GetNewChunk(
     const SharedMemoryABI::ChunkHeader& header,
+    BufferExhaustedPolicy buffer_exhausted_policy,
     size_t size_hint) {
   PERFETTO_DCHECK(size_hint == 0);  // Not implemented yet.
   int stall_count = 0;
   unsigned stall_interval_us = 0;
   static const unsigned kMaxStallIntervalUs = 100000;
   static const int kLogAfterNStalls = 3;
+  static const int kFlushCommitsAfterEveryNStalls = 2;
+  static const int kAssertAtNStalls = 100;
 
   for (;;) {
     // TODO(primiano): Probably this lock is not really required and this code
@@ -111,23 +114,48 @@ Chunk SharedMemoryArbiterImpl::GetNewChunk(
       }
     }  // std::lock_guard<std::mutex>
 
-    // All chunks are taken (either kBeingWritten by us or kBeingRead by the
-    // Service). TODO: at this point we should return a bankrupcy chunk, not
-    // crash the process.
-    if (stall_count++ == kLogAfterNStalls) {
-      PERFETTO_ELOG("Shared memory buffer overrun! Stalling");
+    if (buffer_exhausted_policy == BufferExhaustedPolicy::kDrop) {
+      PERFETTO_DLOG("Shared memory buffer exhaused, returning invalid Chunk!");
+      return Chunk();
+    }
 
+    // All chunks are taken (either kBeingWritten by us or kBeingRead by the
+    // Service).
+    if (stall_count++ == kLogAfterNStalls) {
+      PERFETTO_LOG("Shared memory buffer overrun! Stalling");
+    }
+
+    if (stall_count == kAssertAtNStalls) {
+      PERFETTO_FATAL(
+          "Shared memory buffer max stall count exceeded; possible deadlock");
+    }
+
+    // If the IPC thread itself is stalled because the current process has
+    // filled up the SMB, we need to make sure that the service can process and
+    // purge the chunks written by our process, by flushing any pending commit
+    // requests. Because other threads in our process can continue to
+    // concurrently grab, fill and commit any chunks purged by the service, it
+    // is possible that the SMB remains full and the IPC thread remains stalled,
+    // needing to flush the concurrently queued up commits again. This is
+    // particularly likely with in-process perfetto service where the IPC thread
+    // is the service thread. To avoid remaining stalled forever in such a
+    // situation, we attempt to flush periodically after every N stalls.
+    if (stall_count % kFlushCommitsAfterEveryNStalls == 0 &&
+        task_runner_->RunsTasksOnCurrentThread()) {
       // TODO(primiano): sending the IPC synchronously is a temporary workaround
       // until the backpressure logic in probes_producer is sorted out. Until
-      // then the risk is that we stall the message loop waiting for the
-      // tracing service to  consume the shared memory buffer (SMB) and, for
-      // this reason, never run the task that tells the service to purge the
-      // SMB.
+      // then the risk is that we stall the message loop waiting for the tracing
+      // service to consume the shared memory buffer (SMB) and, for this reason,
+      // never run the task that tells the service to purge the SMB. This must
+      // happen iff we are on the IPC thread, not doing this will cause
+      // deadlocks, doing this on the wrong thread causes out-of-order data
+      // commits (crbug.com/919187#c28).
       FlushPendingCommitDataRequests();
+    } else {
+      base::SleepMicroseconds(stall_interval_us);
+      stall_interval_us =
+          std::min(kMaxStallIntervalUs, (stall_interval_us + 1) * 8);
     }
-    base::SleepMicroseconds(stall_interval_us);
-    stall_interval_us =
-        std::min(kMaxStallIntervalUs, (stall_interval_us + 1) * 8);
   }
 }
 
@@ -183,7 +211,14 @@ void SharedMemoryArbiterImpl::UpdateCommitDataRequest(Chunk chunk,
       // which we haven't notified the service yet (i.e. they are still enqueued
       // in |commit_data_req_|), force a synchronous CommitDataRequest(), to
       // reduce the likeliness of stalling the writer.
-      if (bytes_pending_commit_ >= shmem_abi_.size() / 2) {
+      //
+      // We can only do this if we're writing on the same thread that we access
+      // the producer endpoint on, since we cannot notify the producer endpoint
+      // to commit synchronously on a different thread. Attempting to flush
+      // synchronously on another thread will lead to subtle bugs caused by
+      // out-of-order commit requests (crbug.com/919187#c28).
+      if (task_runner_->RunsTasksOnCurrentThread() &&
+          bytes_pending_commit_ >= shmem_abi_.size() / 2) {
         should_commit_synchronously = true;
         should_post_callback = false;
       }
@@ -219,7 +254,6 @@ void SharedMemoryArbiterImpl::UpdateCommitDataRequest(Chunk chunk,
   }  // scoped_lock(lock_)
 
   if (should_post_callback) {
-    PERFETTO_DCHECK(weak_this);
     task_runner_->PostTask([weak_this] {
       if (weak_this)
         weak_this->FlushPendingCommitDataRequests();
@@ -230,36 +264,50 @@ void SharedMemoryArbiterImpl::UpdateCommitDataRequest(Chunk chunk,
     FlushPendingCommitDataRequests();
 }
 
-// TODO(primiano): this is wrong w.r.t. threading because it will try to send
-// an IPC from a different thread than the IPC thread. Right now this works
-// because everything is single threaded. It will hit the thread checker
-// otherwise. What we really want to do here is doing this sync IPC only if
-// task_runner_.RunsTaskOnCurrentThread(), otherwise PostTask().
+// This function is quite subtle. When making changes keep in mind these two
+// challenges:
+// 1) If the producer stalls and we happen to be on the |task_runner_| IPC
+//    thread (or, for in-process cases, on the same thread where
+//    TracingServiceImpl lives), the CommitData() call must be synchronous and
+//    not posted, to avoid deadlocks.
+// 2) When different threads hit this function, we must guarantee that we don't
+//    accidentally make commits out of order. See commit 4e4fe8f56ef and
+//    crbug.com/919187 for more context.
 void SharedMemoryArbiterImpl::FlushPendingCommitDataRequests(
     std::function<void()> callback) {
-  PERFETTO_DCHECK_THREAD(thread_checker_);
+  // May be called by TraceWriterImpl on any thread.
+  if (!task_runner_->RunsTasksOnCurrentThread()) {
+    auto weak_this = weak_ptr_factory_.GetWeakPtr();
+    task_runner_->PostTask([weak_this, callback] {
+      if (weak_this)
+        weak_this->FlushPendingCommitDataRequests(std::move(callback));
+    });
+    return;
+  }
 
-  std::unique_ptr<CommitDataRequest> req;
+  std::shared_ptr<CommitDataRequest> req;
   {
     std::lock_guard<std::mutex> scoped_lock(lock_);
     req = std::move(commit_data_req_);
     bytes_pending_commit_ = 0;
   }
-  // |commit_data_req_| could become nullptr if the forced sync flush happens
-  // in GetNewChunk().
+
+  // |req| could be a nullptr if |commit_data_req_| became a nullptr. For
+  // example when a forced sync flush happens in GetNewChunk().
   if (req) {
     producer_endpoint_->CommitData(*req, callback);
   } else if (callback) {
-    // If |commit_data_req_| was nullptr, it means that an enqueued deferred
-    // commit was executed just before this. At this point send an empty commit
-    // request to the service, just to linearize with it and give the guarantee
-    // to the caller that the data has been flushed into the service.
-    producer_endpoint_->CommitData(CommitDataRequest(), callback);
+    // If |req| was nullptr, it means that an enqueued deferred commit was
+    // executed just before this. At this point send an empty commit request
+    // to the service, just to linearize with it and give the guarantee to the
+    // caller that the data has been flushed into the service.
+    producer_endpoint_->CommitData(CommitDataRequest(), std::move(callback));
   }
 }
 
 std::unique_ptr<TraceWriter> SharedMemoryArbiterImpl::CreateTraceWriter(
-    BufferID target_buffer) {
+    BufferID target_buffer,
+    BufferExhaustedPolicy buffer_exhausted_policy) {
   WriterID id;
   {
     std::lock_guard<std::mutex> scoped_lock(lock_);
@@ -273,12 +321,25 @@ std::unique_ptr<TraceWriter> SharedMemoryArbiterImpl::CreateTraceWriter(
       weak_this->producer_endpoint_->RegisterTraceWriter(id, target_buffer);
   });
   return std::unique_ptr<TraceWriter>(
-      new TraceWriterImpl(this, id, target_buffer));
+      new TraceWriterImpl(this, id, target_buffer, buffer_exhausted_policy));
 }
 
 void SharedMemoryArbiterImpl::BindStartupTraceWriterRegistry(
     std::unique_ptr<StartupTraceWriterRegistry> registry,
     BufferID target_buffer) {
+  if (!task_runner_->RunsTasksOnCurrentThread()) {
+    auto weak_this = weak_ptr_factory_.GetWeakPtr();
+    auto* raw_reg = registry.release();
+    task_runner_->PostTask([weak_this, raw_reg, target_buffer]() {
+      std::unique_ptr<StartupTraceWriterRegistry> owned_reg(raw_reg);
+      if (!weak_this)
+        return;
+      weak_this->BindStartupTraceWriterRegistry(std::move(owned_reg),
+                                                target_buffer);
+    });
+    return;
+  }
+
   // The registry will be owned by the arbiter, so it's safe to capture |this|
   // in the callback.
   auto on_bound_callback = [this](StartupTraceWriterRegistry* bound_registry) {

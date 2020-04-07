@@ -46,20 +46,9 @@
 
 namespace blink {
 
-IDBTransaction* IDBTransaction::CreateObserver(
-    ExecutionContext* execution_context,
-    int64_t id,
-    const HashSet<String>& scope,
-    IDBDatabase* db) {
-  DCHECK(!scope.IsEmpty()) << "Observer transactions must operate on a "
-                              "well-defined set of stores";
-  IDBTransaction* transaction =
-      MakeGarbageCollected<IDBTransaction>(execution_context, id, scope, db);
-  return transaction;
-}
-
 IDBTransaction* IDBTransaction::CreateNonVersionChange(
     ScriptState* script_state,
+    std::unique_ptr<WebIDBTransaction> transaction_backend,
     int64_t id,
     const HashSet<String>& scope,
     mojom::IDBTransactionMode mode,
@@ -67,50 +56,44 @@ IDBTransaction* IDBTransaction::CreateNonVersionChange(
   DCHECK_NE(mode, mojom::IDBTransactionMode::VersionChange);
   DCHECK(!scope.IsEmpty()) << "Non-version transactions should operate on a "
                               "well-defined set of stores";
-  return MakeGarbageCollected<IDBTransaction>(script_state, id, scope, mode,
-                                              db);
+  return MakeGarbageCollected<IDBTransaction>(
+      script_state, std::move(transaction_backend), id, scope, mode, db);
 }
 
 IDBTransaction* IDBTransaction::CreateVersionChange(
     ExecutionContext* execution_context,
+    std::unique_ptr<WebIDBTransaction> transaction_backend,
     int64_t id,
     IDBDatabase* db,
     IDBOpenDBRequest* open_db_request,
     const IDBDatabaseMetadata& old_metadata) {
-  return MakeGarbageCollected<IDBTransaction>(execution_context, id, db,
-                                              open_db_request, old_metadata);
+  return MakeGarbageCollected<IDBTransaction>(
+      execution_context, std::move(transaction_backend), id, db,
+      open_db_request, old_metadata);
 }
 
-IDBTransaction::IDBTransaction(ExecutionContext* execution_context,
-                               int64_t id,
-                               const HashSet<String>& scope,
-                               IDBDatabase* db)
-    : ContextLifecycleObserver(execution_context),
-      id_(id),
-      database_(db),
-      mode_(mojom::IDBTransactionMode::ReadOnly),
-      scope_(scope),
-      state_(kActive),
-      event_queue_(
-          EventQueue::Create(execution_context, TaskType::kInternalIndexedDB)) {
-  DCHECK(database_);
-  DCHECK(!scope_.IsEmpty()) << "Observer transactions must operate "
-                               "on a well-defined set of stores";
-  database_->TransactionCreated(this);
-}
-
-IDBTransaction::IDBTransaction(ScriptState* script_state,
-                               int64_t id,
-                               const HashSet<String>& scope,
-                               mojom::IDBTransactionMode mode,
-                               IDBDatabase* db)
+IDBTransaction::IDBTransaction(
+    ScriptState* script_state,
+    std::unique_ptr<WebIDBTransaction> transaction_backend,
+    int64_t id,
+    const HashSet<String>& scope,
+    mojom::IDBTransactionMode mode,
+    IDBDatabase* db)
     : ContextLifecycleObserver(ExecutionContext::From(script_state)),
+      transaction_backend_(std::move(transaction_backend)),
       id_(id),
       database_(db),
       mode_(mode),
       scope_(scope),
-      event_queue_(EventQueue::Create(ExecutionContext::From(script_state),
-                                      TaskType::kInternalIndexedDB)) {
+      event_queue_(
+          MakeGarbageCollected<EventQueue>(ExecutionContext::From(script_state),
+                                           TaskType::kDatabaseAccess)),
+      feature_handle_for_scheduler_(
+          ExecutionContext::From(script_state)
+              ->GetScheduler()
+              ->RegisterFeature(
+                  SchedulingPolicy::Feature::kOutstandingIndexedDBTransaction,
+                  {SchedulingPolicy::RecordMetricsForBackForwardCache()})) {
   DCHECK(database_);
   DCHECK(!scope_.IsEmpty()) << "Non-versionchange transactions must operate "
                                "on a well-defined set of stores";
@@ -126,12 +109,15 @@ IDBTransaction::IDBTransaction(ScriptState* script_state,
   database_->TransactionCreated(this);
 }
 
-IDBTransaction::IDBTransaction(ExecutionContext* execution_context,
-                               int64_t id,
-                               IDBDatabase* db,
-                               IDBOpenDBRequest* open_db_request,
-                               const IDBDatabaseMetadata& old_metadata)
+IDBTransaction::IDBTransaction(
+    ExecutionContext* execution_context,
+    std::unique_ptr<WebIDBTransaction> transaction_backend,
+    int64_t id,
+    IDBDatabase* db,
+    IDBOpenDBRequest* open_db_request,
+    const IDBDatabaseMetadata& old_metadata)
     : ContextLifecycleObserver(execution_context),
+      transaction_backend_(std::move(transaction_backend)),
       id_(id),
       database_(db),
       open_db_request_(open_db_request),
@@ -140,7 +126,8 @@ IDBTransaction::IDBTransaction(ExecutionContext* execution_context,
       old_database_metadata_(old_metadata),
       scope_(),
       event_queue_(
-          EventQueue::Create(execution_context, TaskType::kInternalIndexedDB)) {
+          MakeGarbageCollected<EventQueue>(execution_context,
+                                           TaskType::kDatabaseAccess)) {
   DCHECK(database_);
   DCHECK(open_db_request_);
   DCHECK(scope_.IsEmpty());
@@ -213,8 +200,8 @@ IDBObjectStore* IDBTransaction::objectStore(const String& name,
       database_->Metadata().object_stores.at(object_store_id);
   DCHECK(object_store_metadata.get());
 
-  IDBObjectStore* object_store =
-      IDBObjectStore::Create(std::move(object_store_metadata), this);
+  auto* object_store = MakeGarbageCollected<IDBObjectStore>(
+      std::move(object_store_metadata), this);
   DCHECK(!object_store_map_.Contains(name));
   object_store_map_.Set(name, object_store);
 
@@ -329,17 +316,30 @@ void IDBTransaction::IndexDeleted(IDBIndex* index) {
   deleted_indexes_.push_back(index);
 }
 
-void IDBTransaction::SetActive(bool active) {
-  DCHECK_NE(state_, kFinished) << "A finished transaction tried to SetActive("
-                               << (active ? "true" : "false") << ")";
+void IDBTransaction::SetActive(bool new_is_active) {
+  DCHECK_NE(state_, kFinished)
+      << "A finished transaction tried to SetActive(" << new_is_active << ")";
   if (state_ == kFinishing)
     return;
-  DCHECK_NE(active, (state_ == kActive));
-  state_ = active ? kActive : kInactive;
+  DCHECK_NE(new_is_active, (state_ == kActive));
+  state_ = new_is_active ? kActive : kInactive;
 
-  if (!active && request_list_.IsEmpty() && BackendDB())
-    BackendDB()->Commit(id_, num_errors_handled_);
+  if (!new_is_active && request_list_.IsEmpty() && transaction_backend())
+    transaction_backend()->Commit(num_errors_handled_);
 }
+
+void IDBTransaction::SetActiveDuringSerialization(bool new_is_active) {
+  if (new_is_active) {
+    DCHECK_EQ(state_, kInactive)
+        << "Incorrect state restore during Structured Serialization";
+    state_ = kActive;
+  } else {
+    DCHECK_EQ(state_, kActive)
+        << "Structured serialization attempted while transaction is inactive";
+    state_ = kInactive;
+  }
+}
+
 
 void IDBTransaction::abort(ExceptionState& exception_state) {
   if (state_ == kFinishing || state_ == kFinished) {
@@ -381,8 +381,8 @@ void IDBTransaction::commit(ExceptionState& exception_state) {
 
   state_ = kFinishing;
 
-  if (BackendDB())
-    BackendDB()->Commit(id_, num_errors_handled_);
+  if (transaction_backend())
+    transaction_backend()->Commit(num_errors_handled_);
 }
 
 void IDBTransaction::RegisterRequest(IDBRequest* request) {
@@ -513,7 +513,7 @@ DOMStringList* IDBTransaction::objectStoreNames() const {
   if (IsVersionChange())
     return database_->objectStoreNames();
 
-  DOMStringList* object_store_names = DOMStringList::Create();
+  auto* object_store_names = MakeGarbageCollected<DOMStringList>();
   for (const String& object_store_name : scope_)
     object_store_names->Append(object_store_name);
   object_store_names->Sort();
@@ -660,6 +660,8 @@ void IDBTransaction::Finished() {
 
   deleted_indexes_.clear();
   deleted_object_stores_.clear();
+
+  feature_handle_for_scheduler_.reset();
 }
 
 }  // namespace blink

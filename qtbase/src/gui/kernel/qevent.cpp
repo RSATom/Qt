@@ -535,13 +535,6 @@ Qt::MouseEventFlags QMouseEvent::flags() const
 */
 
 /*!
-    \fn QPointF QMouseEvent::posF() const
-    \obsolete
-
-    Use localPos() instead.
-*/
-
-/*!
     \class QHoverEvent
     \ingroup events
     \inmodule QtGui
@@ -674,9 +667,9 @@ QHoverEvent::~QHoverEvent()
     if that widget does not handle the event they are sent to the
     focus widget. Wheel events are generated for both mouse wheels
     and trackpad scroll gestures. There are two ways to read the
-    wheel event delta: angleDelta() returns the delta in wheel
-    degrees. This value is always provided. pixelDelta() returns
-    the delta in screen pixels and is available on platforms that
+    wheel event delta: angleDelta() returns the deltas in wheel
+    degrees. These values are always provided. pixelDelta() returns
+    the deltas in screen pixels, and is available on platforms that
     have high-resolution trackpads, such as \macos. If that is the
     case, source() will return Qt::MouseEventSynthesizedBySystem.
 
@@ -750,35 +743,21 @@ QHoverEvent::~QHoverEvent()
     \l inverted always returns false.
 */
 
+#if QT_DEPRECATED_SINCE(5, 15)
 /*!
     \fn Qt::Orientation QWheelEvent::orientation() const
     \obsolete
 
-    Returns the wheel's orientation.
-
     Use angleDelta() instead.
 */
+#endif
 
+#if QT_CONFIG(wheelevent)
+#if QT_DEPRECATED_SINCE(5, 15)
 /*!
     \obsolete
-    Constructs a wheel event object.
-
-    Use the constructor taking \e angleDelta and \e pixelDelta QPoints instead.
-
-    The position, \a pos, is the location of the mouse cursor within
-    the widget. The globalPos() is initialized to QCursor::pos()
-    which is usually, but not always, correct.
-    Use the other constructor if you need to specify the global
-    position explicitly.
-
-    The \a buttons describe the state of the mouse buttons at the time
-    of the event, \a delta contains the rotation distance,
-    \a modifiers holds the keyboard modifier flags at the time of the
-    event, and \a orient holds the wheel's orientation.
-
-    \sa pos(), pixelDelta(), angleDelta()
+    This constructor has been deprecated.
 */
-#if QT_CONFIG(wheelevent)
 QWheelEvent::QWheelEvent(const QPointF &pos, int delta,
                          Qt::MouseButtons buttons, Qt::KeyboardModifiers modifiers,
                          Qt::Orientation orient)
@@ -793,26 +772,8 @@ QWheelEvent::QWheelEvent(const QPointF &pos, int delta,
 }
 
 /*!
-  \internal
-*/
-QWheelEvent::~QWheelEvent()
-{
-}
-
-/*!
     \obsolete
-    Constructs a wheel event object.
-
-    Use the constructor taking \e angleDelta and \e pixelDelta QPoints instead.
-
-    The \a pos provides the location of the mouse cursor
-    within the widget. The position in global coordinates is specified
-    by \a globalPos. \a delta contains the rotation distance, \a modifiers
-    holds the keyboard modifier flags at the time of the event, and
-    \a orient holds the wheel's orientation.
-
-
-    \sa pos(), pixelDelta(), angleDelta()
+    This constructor has been deprecated.
 */
 QWheelEvent::QWheelEvent(const QPointF &pos, const QPointF& globalPos, int delta,
                          Qt::MouseButtons buttons, Qt::KeyboardModifiers modifiers,
@@ -827,133 +788,51 @@ QWheelEvent::QWheelEvent(const QPointF &pos, const QPointF& globalPos, int delta
 }
 
 /*!
-    Constructs a wheel event object.
-
-    The \a pos provides the location of the mouse cursor
-    within the window. The position in global coordinates is specified
-    by \a globalPos.
-
-    \a pixelDelta contains the scrolling distance in pixels on screen, while
-    \a angleDelta contains the wheel rotation distance. \a pixelDelta is
-    optional and can be null.
-
-    The mouse and keyboard states at the time of the event are specified by
-    \a buttons and \a modifiers.
-
-    For backwards compatibility, the event can also hold monodirectional wheel
-    event data: \a qt4Delta specifies the rotation, and \a qt4Orientation the
-    direction.
-
-    The phase() is initialized to Qt::ScrollUpdate. Use the other constructor
-    to specify the phase explicitly.
-
-    \sa posF(), globalPosF(), angleDelta(), pixelDelta()
+    \obsolete
+    This constructor has been deprecated.
 */
-
+QT_WARNING_PUSH
+QT_WARNING_DISABLE_DEPRECATED
 QWheelEvent::QWheelEvent(const QPointF &pos, const QPointF& globalPos,
             QPoint pixelDelta, QPoint angleDelta, int qt4Delta, Qt::Orientation qt4Orientation,
             Qt::MouseButtons buttons, Qt::KeyboardModifiers modifiers)
     : QWheelEvent(pos, globalPos, pixelDelta, angleDelta, qt4Delta, qt4Orientation,
                   buttons, modifiers, Qt::NoScrollPhase)
 {}
+QT_WARNING_POP
 
 /*!
-    Constructs a wheel event object.
-
-    The \a pos provides the location of the mouse cursor
-    within the window. The position in global coordinates is specified
-    by \a globalPos.
-
-    \a pixelDelta contains the scrolling distance in pixels on screen, while
-    \a angleDelta contains the wheel rotation distance. \a pixelDelta is
-    optional and can be null.
-
-    The mouse and keyboard states at the time of the event are specified by
-    \a buttons and \a modifiers.
-
-    For backwards compatibility, the event can also hold monodirectional wheel
-    event data: \a qt4Delta specifies the rotation, and \a qt4Orientation the
-    direction.
-
-    The scrolling phase of the event is specified by \a phase.
-
-    \sa posF(), globalPosF(), angleDelta(), pixelDelta(), phase()
+    \obsolete
+    This constructor has been deprecated.
 */
-
+QT_WARNING_PUSH
+QT_WARNING_DISABLE_DEPRECATED
 QWheelEvent::QWheelEvent(const QPointF &pos, const QPointF& globalPos,
             QPoint pixelDelta, QPoint angleDelta, int qt4Delta, Qt::Orientation qt4Orientation,
             Qt::MouseButtons buttons, Qt::KeyboardModifiers modifiers, Qt::ScrollPhase phase)
     : QWheelEvent(pos, globalPos, pixelDelta, angleDelta, qt4Delta, qt4Orientation,
                   buttons, modifiers, phase, Qt::MouseEventNotSynthesized)
 {}
+QT_WARNING_POP
 
 /*!
-    Constructs a wheel event object.
-
-    The \a pos provides the location of the mouse cursor within the window. The
-    position in global coordinates is specified by \a globalPos.
-
-    \a pixelDelta contains the scrolling distance in pixels on screen, while
-    \a angleDelta contains the wheel rotation distance. \a pixelDelta is
-    optional and can be null.
-
-    The mouse and keyboard states at the time of the event are specified by
-    \a buttons and \a modifiers.
-
-    For backwards compatibility, the event can also hold monodirectional wheel
-    event data: \a qt4Delta specifies the rotation, and \a qt4Orientation the
-    direction.
-
-    The scrolling phase of the event is specified by \a phase.
-
-    If the wheel event comes from a physical mouse wheel, \a source is set to
-    Qt::MouseEventNotSynthesized. If it comes from a gesture detected by the
-    operating system, or from a non-mouse hardware device, such that \a pixelDelta is
-    directly related to finger movement, \a source is set to Qt::MouseEventSynthesizedBySystem.
-    If it comes from Qt, source would be set to Qt::MouseEventSynthesizedByQt.
-
-    \sa posF(), globalPosF(), angleDelta(), pixelDelta(), phase()
+    \obsolete
+    This constructor has been deprecated.
 */
 
+QT_WARNING_PUSH
+QT_WARNING_DISABLE_DEPRECATED
 QWheelEvent::QWheelEvent(const QPointF &pos, const QPointF& globalPos,
             QPoint pixelDelta, QPoint angleDelta, int qt4Delta, Qt::Orientation qt4Orientation,
             Qt::MouseButtons buttons, Qt::KeyboardModifiers modifiers, Qt::ScrollPhase phase, Qt::MouseEventSource source)
     : QWheelEvent(pos, globalPos, pixelDelta, angleDelta, qt4Delta, qt4Orientation,
                   buttons, modifiers, phase, source, false)
 {}
+QT_WARNING_POP
 
 /*!
-    Constructs a wheel event object.
-
-    The \a pos provides the location of the mouse cursor
-    within the window. The position in global coordinates is specified
-    by \a globalPos.
-
-    \a pixelDelta contains the scrolling distance in pixels on screen, while
-    \a angleDelta contains the wheel rotation distance. \a pixelDelta is
-    optional and can be null.
-
-    The mouse and keyboard states at the time of the event are specified by
-    \a buttons and \a modifiers.
-
-    For backwards compatibility, the event can also hold monodirectional wheel
-    event data: \a qt4Delta specifies the rotation, and \a qt4Orientation the
-    direction.
-
-    The scrolling phase of the event is specified by \a phase.
-
-    If the wheel event comes from a physical mouse wheel, \a source is set to
-    Qt::MouseEventNotSynthesized. If it comes from a gesture detected by the
-    operating system, or from a non-mouse hardware device, such that \a
-    pixelDelta is directly related to finger movement, \a source is set to
-    Qt::MouseEventSynthesizedBySystem. If it comes from Qt, source would be set
-    to Qt::MouseEventSynthesizedByQt.
-
-    If the system is configured to invert the delta values delivered with the
-    event (such as natural scrolling of the touchpad on OS X), \a inverted
-    should be \c true. Otherwise, \a inverted is \c false
-
-    \sa posF(), globalPosF(), angleDelta(), pixelDelta(), phase()
+    \obsolete
+    This constructor has been deprecated.
 */
 QWheelEvent::QWheelEvent(const QPointF &pos, const QPointF& globalPos,
             QPoint pixelDelta, QPoint angleDelta, int qt4Delta, Qt::Orientation qt4Orientation,
@@ -962,16 +841,18 @@ QWheelEvent::QWheelEvent(const QPointF &pos, const QPointF& globalPos,
       angleD(angleDelta), qt4D(qt4Delta), qt4O(qt4Orientation), mouseState(buttons), src(source),
       invertedScrolling(inverted), ph(phase)
 {}
+#endif // QT_DEPRECATED_SINCE(5, 15)
 
 /*!
     Constructs a wheel event object.
 
+    \since 5.12
     The \a pos provides the location of the mouse cursor
     within the window. The position in global coordinates is specified
     by \a globalPos.
 
     \a pixelDelta contains the scrolling distance in pixels on screen, while
-    \a angleDelta contains the wheel rotation distance. \a pixelDelta is
+    \a angleDelta contains the wheel rotation angle. \a pixelDelta is
     optional and can be null.
 
     The mouse and keyboard states at the time of the event are specified by
@@ -990,7 +871,7 @@ QWheelEvent::QWheelEvent(const QPointF &pos, const QPointF& globalPos,
     event (such as natural scrolling of the touchpad on macOS), \a inverted
     should be \c true. Otherwise, \a inverted is \c false
 
-    \sa posF(), globalPosF(), angleDelta(), pixelDelta(), phase()
+    \sa position(), globalPosition(), angleDelta(), pixelDelta(), phase(), inverted(), source()
 */
 QWheelEvent::QWheelEvent(QPointF pos, QPointF globalPos, QPoint pixelDelta, QPoint angleDelta,
             Qt::MouseButtons buttons, Qt::KeyboardModifiers modifiers, Qt::ScrollPhase phase,
@@ -1002,6 +883,12 @@ QWheelEvent::QWheelEvent(QPointF pos, QPointF globalPos, QPoint pixelDelta, QPoi
     qt4D = (qt4O == Qt::Horizontal ? angleDelta.x() : angleDelta.y());
 }
 
+/*!
+  \internal
+*/
+QWheelEvent::~QWheelEvent()
+{
+}
 #endif // QT_CONFIG(wheelevent)
 
 /*!
@@ -1027,10 +914,16 @@ QWheelEvent::QWheelEvent(QPointF pos, QPointF globalPos, QPoint pixelDelta, QPoi
 /*!
     \fn QPoint QWheelEvent::angleDelta() const
 
-    Returns the distance that the wheel is rotated, in eighths of a
-    degree. A positive value indicates that the wheel was rotated
-    forwards away from the user; a negative value indicates that the
-    wheel was rotated backwards toward the user.
+    Returns the relative amount that the wheel was rotated, in eighths of a
+    degree. A positive value indicates that the wheel was rotated forwards away
+    from the user; a negative value indicates that the wheel was rotated
+    backwards toward the user. \c angleDelta().y() provides the angle through
+    which the common vertical mouse wheel was rotated since the previous event.
+    \c angleDelta().x() provides the angle through which the horizontal mouse
+    wheel was rotated, if the mouse has a horizontal wheel; otherwise it stays
+    at zero. Some mice allow the user to tilt the wheel to perform horizontal
+    scrolling, and some touchpads support a horizontal scrolling gesture; that
+    will also appear in \c angleDelta().x().
 
     Most mouse types work in steps of 15 degrees, in which case the
     delta value is a multiple of 120; i.e., 120 units * 1/8 = 15 degrees.
@@ -1039,7 +932,9 @@ QWheelEvent::QWheelEvent(QPointF pos, QPointF globalPos, QPoint pixelDelta, QPoi
     that are less than 120 units (less than 15 degrees). To support this
     possibility, you can either cumulatively add the delta values from events
     until the value of 120 is reached, then scroll the widget, or you can
-    partially scroll the widget in response to each wheel event.
+    partially scroll the widget in response to each wheel event.  But to
+    provide a more native feel, you should prefer \l pixelDelta() on platforms
+    where it's available.
 
     Example:
 
@@ -1050,8 +945,35 @@ QWheelEvent::QWheelEvent(QPointF pos, QPointF globalPos, QPoint pixelDelta, QPoi
     \li scrolling is about to begin, but the distance did not yet change (Qt::ScrollBegin),
     \li or scrolling has ended and the distance did not change anymore (Qt::ScrollEnd).
     \endlist
+
+    \see pixelDelta()
 */
 
+/*!
+    \fn QPoint QWheelEvent::position() const
+
+    Returns the position of the mouse cursor relative to the widget
+    that received the event.
+
+    If you move your widgets around in response to mouse events,
+    use globalPosition() instead of this function.
+
+    \sa globalPosition()
+*/
+
+/*!
+    \fn QPoint QWheelEvent::globalPosition() const
+
+    Returns the global position of the mouse pointer \e{at the time
+    of the event}. This is important on asynchronous window systems
+    such as X11; whenever you move your widgets around in response to
+    mouse events, globalPosition() can differ a lot from the current
+    cursor position returned by QCursor::pos().
+
+    \sa position()
+*/
+
+#if QT_DEPRECATED_SINCE(5, 15)
 /*!
     \fn int QWheelEvent::delta() const
     \obsolete
@@ -1061,88 +983,61 @@ QWheelEvent::QWheelEvent(QPointF pos, QPointF globalPos, QPoint pixelDelta, QPoi
 
 /*!
     \fn QPoint QWheelEvent::pos() const
+    \obsolete
 
-    Returns the position of the mouse cursor relative to the widget
-    that received the event.
-
-    If you move your widgets around in response to mouse events,
-    use globalPos() instead of this function.
-
-    \sa x(), y(), globalPos()
+    This function has been deprecated, use position() instead.
 */
 
 /*!
     \fn int QWheelEvent::x() const
+    \obsolete
 
-    Returns the x position of the mouse cursor, relative to the
-    widget that received the event.
-
-    \sa y(), pos()
+    This function has been deprecated, use position() instead.
 */
 
 /*!
     \fn int QWheelEvent::y() const
+    \obsolete
 
-    Returns the y position of the mouse cursor, relative to the
-    widget that received the event.
-
-    \sa x(), pos()
+    This function has been deprecated, use position() instead.
 */
 
 
 /*!
     \fn QPoint QWheelEvent::globalPos() const
+    \obsolete
 
-    Returns the global position of the mouse pointer \e{at the time
-    of the event}. This is important on asynchronous window systems
-    such as X11; whenever you move your widgets around in response to
-    mouse events, globalPos() can differ a lot from the current
-    cursor position returned by QCursor::pos().
-
-    \sa globalX(), globalY()
+    This function has been deprecated, use globalPosition() instead.
 */
 
 /*!
     \fn int QWheelEvent::globalX() const
+    \obsolete
 
-    Returns the global x position of the mouse cursor at the time of
-    the event.
-
-    \sa globalY(), globalPos()
+    This function has been deprecated, use globalPosition() instead.
 */
 
 /*!
     \fn int QWheelEvent::globalY() const
+    \obsolete
 
-    Returns the global y position of the mouse cursor at the time of
-    the event.
-
-    \sa globalX(), globalPos()
+    This function has been deprecated, use globalPosition() instead.
 */
 
 /*!
     \fn const QPointF &QWheelEvent::posF() const
+    \obsolete
 
-    Returns the position of the mouse cursor relative to the widget
-    that received the event.
-
-    If you move your widgets around in response to mouse events,
-    use globalPosF() instead of this function.
-
-    \sa globalPosF()
+    This function has been deprecated, use position() instead.
 */
 
 /*!
     \fn const QPointF &QWheelEvent::globalPosF() const
+    \obsolete
 
-    Returns the global position of the mouse pointer \e{at the time
-    of the event}. This is important on asynchronous window systems
-    such as X11; whenever you move your widgets around in response to
-    mouse events, globalPosF() can differ a lot from the current
-    cursor position returned by QCursor::pos().
-
-    \sa posF()
+    This function has been deprecated, use globalPosition() instead.
 */
+#endif
 
 /*!
     \fn Qt::ScrollPhase QWheelEvent::phase() const
@@ -1246,16 +1141,6 @@ QKeyEvent::~QKeyEvent()
 }
 
 /*!
-    \fn QKeyEvent *QKeyEvent::createExtendedKeyEvent(Type type, int key, Qt::KeyboardModifiers modifiers, quint32 nativeScanCode, quint32 nativeVirtualKey, quint32 nativeModifiers, const QString& text, bool autorep, ushort count)
-    \internal
-*/
-
-/*!
-    \fn bool QKeyEvent::hasExtendedInfo() const
-    \internal
-*/
-
-/*!
   \fn quint32 QKeyEvent::nativeScanCode() const
   \since 4.2
 
@@ -1265,8 +1150,8 @@ QKeyEvent::~QKeyEvent()
   Note: The native scan code may be 0, even if the key event contains
   extended information.
 
-  Note: On Mac OS/X, this function is not useful, because there is no
-  way to get the scan code from Carbon or Cocoa. The function always
+  Note: On \macos, this function is not useful, because there is no
+  way to get the scan code from the system APIs. The function always
   returns 1 (or 0 in the case explained above).
 */
 
@@ -2683,7 +2568,7 @@ Qt::MouseButtons QTabletEvent::buttons() const
     globalPos() can differ significantly from the current position
     QCursor::pos().
 
-    \sa globalX(), globalY(), hiResGlobalPos()
+    \sa globalX(), globalY()
 */
 
 /*!
@@ -2725,15 +2610,6 @@ Qt::MouseButtons QTabletEvent::buttons() const
     the eraser-end versus the pen-end of the stylus on some OS's.
 
     \sa pointerType()
-*/
-
-/*!
-    \fn const QPointF &QTabletEvent::hiResGlobalPos() const
-
-    The high precision coordinates delivered from the tablet expressed.
-    Sub pixeling information is in the fractional part of the QPointF.
-
-    \sa globalPos(), hiResGlobalX(), hiResGlobalY()
 */
 
 /*!
@@ -2818,10 +2694,10 @@ Qt::MouseButtons QTabletEvent::buttons() const
     \sa Qt::NativeGestureType, QGestureEvent
 */
 
+#if QT_DEPRECATED_SINCE(5, 10)
 /*!
     \deprecated The QTouchDevice parameter is now required
 */
-#if QT_DEPRECATED_SINCE(5, 10)
 QNativeGestureEvent::QNativeGestureEvent(Qt::NativeGestureType type, const QPointF &localPos, const QPointF &windowPos,
                                          const QPointF &screenPos, qreal realValue, ulong sequenceId, quint64 intValue)
     : QInputEvent(QEvent::NativeGesture), mGestureType(type),
@@ -3764,13 +3640,13 @@ static inline void formatTouchEvent(QDebug d, const QTouchEvent &t)
 
 static void formatUnicodeString(QDebug d, const QString &s)
 {
-    d << '"' << hex;
+    d << '"' << Qt::hex;
     for (int i = 0; i < s.size(); ++i) {
         if (i)
             d << ',';
         d << "U+" << s.at(i).unicode();
     }
-    d << dec << '"';
+    d << Qt::dec << '"';
 }
 
 static inline void formatInputMethodEvent(QDebug d, const QInputMethodEvent *e)
@@ -3807,8 +3683,8 @@ static inline void formatInputMethodQueryEvent(QDebug d, const QInputMethodQuery
     QDebugStateSaver saver(d);
     d.noquote();
     const Qt::InputMethodQueries queries = e->queries();
-    d << "QInputMethodQueryEvent(queries=" << showbase << hex << int(queries)
-      << noshowbase << dec << ", {";
+    d << "QInputMethodQueryEvent(queries=" << Qt::showbase << Qt::hex << int(queries)
+      << Qt::noshowbase << Qt::dec << ", {";
     for (unsigned mask = 1; mask <= Qt::ImInputItemClipRectangle; mask<<=1) {
         if (queries & mask) {
             const Qt::InputMethodQuery query = static_cast<Qt::InputMethodQuery>(mask);
@@ -4001,7 +3877,7 @@ QDebug operator<<(QDebug dbg, const QTouchEvent::TouchPoint &tp)
 {
     QDebugStateSaver saver(dbg);
     dbg.nospace();
-    dbg << "TouchPoint(" << hex << tp.id() << dec << " (";
+    dbg << "TouchPoint(" << Qt::hex << tp.id() << Qt::dec << " (";
     QtDebugUtils::formatQPoint(dbg, tp.pos());
     dbg << ") ";
     QtDebugUtils::formatQEnum(dbg, tp.state());
@@ -4072,10 +3948,15 @@ QDebug operator<<(QDebug dbg, const QEvent *e)
     case QEvent::Wheel: {
         const QWheelEvent *we = static_cast<const QWheelEvent *>(e);
         dbg << "QWheelEvent(" << we->phase();
+QT_WARNING_PUSH
+QT_WARNING_DISABLE_DEPRECATED // delta() and orientation()
         if (!we->pixelDelta().isNull() || !we->angleDelta().isNull())
             dbg << ", pixelDelta=" << we->pixelDelta() << ", angleDelta=" << we->angleDelta();
+#if QT_DEPRECATED_SINCE(5, 14)
         else if (int qt4Delta = we->delta())
             dbg << ", delta=" << qt4Delta << ", orientation=" << we->orientation();
+#endif
+QT_WARNING_POP
         dbg << ')';
     }
         break;
@@ -4432,18 +4313,6 @@ QWindowStateChangeEvent::~QWindowStateChangeEvent()
     QGraphicsItem::acceptTouchEvents()
 */
 
-/*! \enum QTouchEvent::DeviceType
-    \obsolete
-
-    This enum represents the type of device that generated a QTouchEvent.
-
-    This enum has been deprecated. Use QTouchDevice::DeviceType instead.
-    \omitvalue TouchPad
-    \omitvalue TouchScreen
-
-    \sa QTouchDevice::DeviceType, QTouchDevice::type(), QTouchEvent::device()
-*/
-
 /*!
     Constructs a QTouchEvent with the given \a eventType, \a device, and
     \a touchPoints. The \a touchPointStates and \a modifiers
@@ -4481,16 +4350,6 @@ QTouchEvent::~QTouchEvent()
 
     Returns the target object within the window on which the event occurred.
     This is typically a QWidget or a QQuickItem. May be 0 when no specific target is available.
-*/
-
-/*! \fn QTouchEvent::DeviceType QTouchEvent::deviceType() const
-    \obsolete
-
-    Returns the touch device Type, which is of type \l {QTouchEvent::DeviceType} {DeviceType}.
-
-    This function has been deprecated. Use QTouchDevice::type() instead.
-
-    \sa QTouchDevice::type(), QTouchEvent::device()
 */
 
 /*! \fn QTouchEvent::TouchPoint::TouchPoint(TouchPoint &&other)
@@ -4921,7 +4780,7 @@ QVector<QPointF> QTouchEvent::TouchPoint::rawScreenPositions() const
 /*! \internal */
 void QTouchEvent::TouchPoint::setId(int id)
 {
-    if (d->ref.load() != 1)
+    if (d->ref.loadRelaxed() != 1)
         d = d->detach();
     d->id = id;
 }
@@ -4929,7 +4788,7 @@ void QTouchEvent::TouchPoint::setId(int id)
 /*! \internal */
 void QTouchEvent::TouchPoint::setUniqueId(qint64 uid)
 {
-    if (d->ref.load() != 1)
+    if (d->ref.loadRelaxed() != 1)
         d = d->detach();
     d->uniqueId = QPointingDeviceUniqueId::fromNumericId(uid);
 }
@@ -4937,7 +4796,7 @@ void QTouchEvent::TouchPoint::setUniqueId(qint64 uid)
 /*! \internal */
 void QTouchEvent::TouchPoint::setState(Qt::TouchPointStates state)
 {
-    if (d->ref.load() != 1)
+    if (d->ref.loadRelaxed() != 1)
         d = d->detach();
     d->state = state;
 }
@@ -4945,7 +4804,7 @@ void QTouchEvent::TouchPoint::setState(Qt::TouchPointStates state)
 /*! \internal */
 void QTouchEvent::TouchPoint::setPos(const QPointF &pos)
 {
-    if (d->ref.load() != 1)
+    if (d->ref.loadRelaxed() != 1)
         d = d->detach();
     d->pos = pos;
 }
@@ -4953,7 +4812,7 @@ void QTouchEvent::TouchPoint::setPos(const QPointF &pos)
 /*! \internal */
 void QTouchEvent::TouchPoint::setScenePos(const QPointF &scenePos)
 {
-    if (d->ref.load() != 1)
+    if (d->ref.loadRelaxed() != 1)
         d = d->detach();
     d->scenePos = scenePos;
 }
@@ -4961,7 +4820,7 @@ void QTouchEvent::TouchPoint::setScenePos(const QPointF &scenePos)
 /*! \internal */
 void QTouchEvent::TouchPoint::setScreenPos(const QPointF &screenPos)
 {
-    if (d->ref.load() != 1)
+    if (d->ref.loadRelaxed() != 1)
         d = d->detach();
     d->screenPos = screenPos;
 }
@@ -4969,7 +4828,7 @@ void QTouchEvent::TouchPoint::setScreenPos(const QPointF &screenPos)
 /*! \internal */
 void QTouchEvent::TouchPoint::setNormalizedPos(const QPointF &normalizedPos)
 {
-    if (d->ref.load() != 1)
+    if (d->ref.loadRelaxed() != 1)
         d = d->detach();
     d->normalizedPos = normalizedPos;
 }
@@ -4977,7 +4836,7 @@ void QTouchEvent::TouchPoint::setNormalizedPos(const QPointF &normalizedPos)
 /*! \internal */
 void QTouchEvent::TouchPoint::setStartPos(const QPointF &startPos)
 {
-    if (d->ref.load() != 1)
+    if (d->ref.loadRelaxed() != 1)
         d = d->detach();
     d->startPos = startPos;
 }
@@ -4985,7 +4844,7 @@ void QTouchEvent::TouchPoint::setStartPos(const QPointF &startPos)
 /*! \internal */
 void QTouchEvent::TouchPoint::setStartScenePos(const QPointF &startScenePos)
 {
-    if (d->ref.load() != 1)
+    if (d->ref.loadRelaxed() != 1)
         d = d->detach();
     d->startScenePos = startScenePos;
 }
@@ -4993,7 +4852,7 @@ void QTouchEvent::TouchPoint::setStartScenePos(const QPointF &startScenePos)
 /*! \internal */
 void QTouchEvent::TouchPoint::setStartScreenPos(const QPointF &startScreenPos)
 {
-    if (d->ref.load() != 1)
+    if (d->ref.loadRelaxed() != 1)
         d = d->detach();
     d->startScreenPos = startScreenPos;
 }
@@ -5001,7 +4860,7 @@ void QTouchEvent::TouchPoint::setStartScreenPos(const QPointF &startScreenPos)
 /*! \internal */
 void QTouchEvent::TouchPoint::setStartNormalizedPos(const QPointF &startNormalizedPos)
 {
-    if (d->ref.load() != 1)
+    if (d->ref.loadRelaxed() != 1)
         d = d->detach();
     d->startNormalizedPos = startNormalizedPos;
 }
@@ -5009,7 +4868,7 @@ void QTouchEvent::TouchPoint::setStartNormalizedPos(const QPointF &startNormaliz
 /*! \internal */
 void QTouchEvent::TouchPoint::setLastPos(const QPointF &lastPos)
 {
-    if (d->ref.load() != 1)
+    if (d->ref.loadRelaxed() != 1)
         d = d->detach();
     d->lastPos = lastPos;
 }
@@ -5017,7 +4876,7 @@ void QTouchEvent::TouchPoint::setLastPos(const QPointF &lastPos)
 /*! \internal */
 void QTouchEvent::TouchPoint::setLastScenePos(const QPointF &lastScenePos)
 {
-    if (d->ref.load() != 1)
+    if (d->ref.loadRelaxed() != 1)
         d = d->detach();
     d->lastScenePos = lastScenePos;
 }
@@ -5025,7 +4884,7 @@ void QTouchEvent::TouchPoint::setLastScenePos(const QPointF &lastScenePos)
 /*! \internal */
 void QTouchEvent::TouchPoint::setLastScreenPos(const QPointF &lastScreenPos)
 {
-    if (d->ref.load() != 1)
+    if (d->ref.loadRelaxed() != 1)
         d = d->detach();
     d->lastScreenPos = lastScreenPos;
 }
@@ -5033,7 +4892,7 @@ void QTouchEvent::TouchPoint::setLastScreenPos(const QPointF &lastScreenPos)
 /*! \internal */
 void QTouchEvent::TouchPoint::setLastNormalizedPos(const QPointF &lastNormalizedPos)
 {
-    if (d->ref.load() != 1)
+    if (d->ref.loadRelaxed() != 1)
         d = d->detach();
     d->lastNormalizedPos = lastNormalizedPos;
 }
@@ -5044,7 +4903,7 @@ void QTouchEvent::TouchPoint::setLastNormalizedPos(const QPointF &lastNormalized
 */
 void QTouchEvent::TouchPoint::setRect(const QRectF &rect)
 {
-    if (d->ref.load() != 1)
+    if (d->ref.loadRelaxed() != 1)
         d = d->detach();
     d->pos = rect.center();
     d->ellipseDiameters = rect.size();
@@ -5055,7 +4914,7 @@ void QTouchEvent::TouchPoint::setRect(const QRectF &rect)
 */
 void QTouchEvent::TouchPoint::setSceneRect(const QRectF &sceneRect)
 {
-    if (d->ref.load() != 1)
+    if (d->ref.loadRelaxed() != 1)
         d = d->detach();
     d->scenePos = sceneRect.center();
     d->ellipseDiameters = sceneRect.size();
@@ -5066,7 +4925,7 @@ void QTouchEvent::TouchPoint::setSceneRect(const QRectF &sceneRect)
 */
 void QTouchEvent::TouchPoint::setScreenRect(const QRectF &screenRect)
 {
-    if (d->ref.load() != 1)
+    if (d->ref.loadRelaxed() != 1)
         d = d->detach();
     d->screenPos = screenRect.center();
     d->ellipseDiameters = screenRect.size();
@@ -5075,7 +4934,7 @@ void QTouchEvent::TouchPoint::setScreenRect(const QRectF &screenRect)
 /*! \internal */
 void QTouchEvent::TouchPoint::setPressure(qreal pressure)
 {
-    if (d->ref.load() != 1)
+    if (d->ref.loadRelaxed() != 1)
         d = d->detach();
     d->pressure = pressure;
 }
@@ -5083,7 +4942,7 @@ void QTouchEvent::TouchPoint::setPressure(qreal pressure)
 /*! \internal */
 void QTouchEvent::TouchPoint::setRotation(qreal angle)
 {
-    if (d->ref.load() != 1)
+    if (d->ref.loadRelaxed() != 1)
         d = d->detach();
     d->rotation = angle;
 }
@@ -5091,7 +4950,7 @@ void QTouchEvent::TouchPoint::setRotation(qreal angle)
 /*! \internal */
 void QTouchEvent::TouchPoint::setEllipseDiameters(const QSizeF &dia)
 {
-    if (d->ref.load() != 1)
+    if (d->ref.loadRelaxed() != 1)
         d = d->detach();
     d->ellipseDiameters = dia;
 }
@@ -5099,7 +4958,7 @@ void QTouchEvent::TouchPoint::setEllipseDiameters(const QSizeF &dia)
 /*! \internal */
 void QTouchEvent::TouchPoint::setVelocity(const QVector2D &v)
 {
-    if (d->ref.load() != 1)
+    if (d->ref.loadRelaxed() != 1)
         d = d->detach();
     d->velocity = v;
 }
@@ -5107,7 +4966,7 @@ void QTouchEvent::TouchPoint::setVelocity(const QVector2D &v)
 /*! \internal */
 void QTouchEvent::TouchPoint::setRawScreenPositions(const QVector<QPointF> &positions)
 {
-    if (d->ref.load() != 1)
+    if (d->ref.loadRelaxed() != 1)
         d = d->detach();
     d->rawScreenPositions = positions;
 }
@@ -5117,7 +4976,7 @@ void QTouchEvent::TouchPoint::setRawScreenPositions(const QVector<QPointF> &posi
 */
 void QTouchEvent::TouchPoint::setFlags(InfoFlags flags)
 {
-    if (d->ref.load() != 1)
+    if (d->ref.loadRelaxed() != 1)
         d = d->detach();
     d->flags = flags;
 }
@@ -5320,7 +5179,7 @@ QScrollEvent::ScrollState QScrollEvent::scrollState() const
 
 /*!
     Creates a new QScreenOrientationChangeEvent
-    \a orientation is the new orientation of the screen.
+    \a screenOrientation is the new orientation of the \a screen.
 */
 QScreenOrientationChangeEvent::QScreenOrientationChangeEvent(QScreen *screen, Qt::ScreenOrientation screenOrientation)
     : QEvent(QEvent::OrientationChange), m_screen(screen), m_orientation(screenOrientation)
@@ -5426,7 +5285,7 @@ QPointingDeviceUniqueId QPointingDeviceUniqueId::fromNumericId(qint64 id)
 
     \sa isValid()
 */
-qint64 QPointingDeviceUniqueId::numericId() const Q_DECL_NOTHROW
+qint64 QPointingDeviceUniqueId::numericId() const noexcept
 {
     return m_numericId;
 }
@@ -5438,7 +5297,7 @@ qint64 QPointingDeviceUniqueId::numericId() const Q_DECL_NOTHROW
     Returns whether the two unique pointer IDs \a lhs and \a rhs identify the same pointer
     (\c true) or not (\c false).
 */
-bool operator==(QPointingDeviceUniqueId lhs, QPointingDeviceUniqueId rhs) Q_DECL_NOTHROW
+bool operator==(QPointingDeviceUniqueId lhs, QPointingDeviceUniqueId rhs) noexcept
 {
     return lhs.numericId() == rhs.numericId();
 }
@@ -5458,7 +5317,7 @@ bool operator==(QPointingDeviceUniqueId lhs, QPointingDeviceUniqueId rhs) Q_DECL
 
     Returns the hash value for \a key, using \a seed to seed the calculation.
 */
-uint qHash(QPointingDeviceUniqueId key, uint seed) Q_DECL_NOTHROW
+uint qHash(QPointingDeviceUniqueId key, uint seed) noexcept
 {
     return qHash(key.numericId(), seed);
 }

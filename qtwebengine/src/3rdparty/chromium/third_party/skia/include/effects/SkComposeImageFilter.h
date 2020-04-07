@@ -8,8 +8,8 @@
 #ifndef SkComposeImageFilter_DEFINED
 #define SkComposeImageFilter_DEFINED
 
-#include "SkFlattenable.h"
-#include "SkImageFilter.h"
+#include "include/core/SkFlattenable.h"
+#include "include/core/SkImageFilter.h"
 
 class SK_API SkComposeImageFilter : public SkImageFilter {
 public:
@@ -24,7 +24,6 @@ protected:
     }
     sk_sp<SkSpecialImage> onFilterImage(SkSpecialImage* source, const Context&,
                                         SkIPoint* offset) const override;
-    sk_sp<SkImageFilter> onMakeColorSpace(SkColorSpaceXformer*) const override;
     SkIRect onFilterBounds(const SkIRect&, const SkMatrix& ctm,
                            MapDirection, const SkIRect* inputRect) const override;
     bool onCanHandleComplexCTM() const override { return true; }

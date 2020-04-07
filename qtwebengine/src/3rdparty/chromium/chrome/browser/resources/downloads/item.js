@@ -10,6 +10,9 @@ cr.define('downloads', function() {
       cr.ui.FocusRowBehavior,
     ],
 
+    /** Used by FocusRowBehavior. */
+    overrideCustomEquivalent: true,
+
     properties: {
       /** @type {!downloads.Data} */
       data: Object,
@@ -93,15 +96,34 @@ cr.define('downloads', function() {
       // and data.byExtName directly. Why?
       'observeControlledBy_(controlledBy_)',
       'observeIsDangerous_(isDangerous_, data)',
+      'restoreFocusAfterCancelIfNeeded_(data)',
     ],
 
-    /** @private {mdDownloads.mojom.PageHandlerInterface} */
+    /** @private {downloads.mojom.PageHandlerInterface} */
     mojoHandler_: null,
+
+    /** @private {boolean} */
+    restoreFocusAfterCancel_: false,
 
     /** @override */
     ready: function() {
       this.mojoHandler_ = downloads.BrowserProxy.getInstance().handler;
       this.content = this.$.content;
+    },
+
+    focusOnRemoveButton: function() {
+      cr.ui.focusWithoutInk(this.$.remove);
+    },
+
+    /** Overrides FocusRowBehavior. */
+    getCustomEquivalent: function(sampleElement) {
+      if (sampleElement.getAttribute('focus-type') == 'cancel') {
+        return this.$$('[focus-type="retry"]');
+      }
+      if (sampleElement.getAttribute('focus-type') == 'retry') {
+        return this.$$('[focus-type="pauseOrResume"]');
+      }
+      return null;
     },
 
     /** @return {!HTMLElement} */
@@ -155,7 +177,7 @@ cr.define('downloads', function() {
         return '';
       }
 
-      const url = `chrome://extensions#${this.data.byExtId}`;
+      const url = `chrome://extensions/?id=${this.data.byExtId}`;
       const name = this.data.byExtName;
       return loadTimeData.getStringF('controlledByUrl', url, HTMLEscape(name));
     },
@@ -221,6 +243,11 @@ cr.define('downloads', function() {
      * @private
      */
     computeIcon_: function() {
+      if (loadTimeData.getBoolean('requestsApVerdicts') &&
+          this.data &&
+          this.data.dangerType == downloads.DangerType.UNCOMMON_CONTENT) {
+        return 'cr:error';
+      }
       if (this.isDangerous_) {
         return 'cr:warning';
       }
@@ -285,14 +312,8 @@ cr.define('downloads', function() {
 
       // Wait for dom-if to switch to true, in case the text has just changed
       // from empty.
-      // TODO (rbpotter): Remove this conditional when Polymer 2 migration is
-      // complete.
-      if (Polymer.DomIf) {
-        Polymer.RenderStatus.beforeNextRender(
-            this, () => this.toggleButtonClass_());
-      } else {
-        this.async(() => this.toggleButtonClass_());
-      }
+      Polymer.RenderStatus.beforeNextRender(
+          this, () => this.toggleButtonClass_());
     },
 
     /**
@@ -372,6 +393,11 @@ cr.define('downloads', function() {
     /** @private */
     observeControlledBy_: function() {
       this.$['controlled-by'].innerHTML = this.controlledBy_;
+      if (this.controlledBy_) {
+        const link = this.$$('#controlled-by a');
+        link.setAttribute('focus-row-control', '');
+        link.setAttribute('focus-type', 'controlledBy');
+      }
     },
 
     /** @private */
@@ -398,6 +424,7 @@ cr.define('downloads', function() {
 
     /** @private */
     onCancelTap_: function() {
+      this.restoreFocusAfterCancel_ = true;
       this.mojoHandler_.cancel(this.data.id);
     },
 
@@ -425,6 +452,12 @@ cr.define('downloads', function() {
     },
 
     /** @private */
+    onUrlTap_: function() {
+      chrome.send('metricsHandler:recordAction',
+        ['Downloads_OpenUrlOfDownloadedItem']);
+    },
+
+    /** @private */
     onPauseOrResumeTap_: function() {
       if (this.isInProgress_) {
         this.mojoHandler_.pause(this.data.id);
@@ -435,6 +468,13 @@ cr.define('downloads', function() {
 
     /** @private */
     onRemoveTap_: function() {
+      const pieces = loadTimeData.getSubstitutedStringPieces(
+          loadTimeData.getString('toastRemovedFromList'), this.data.fileName);
+      pieces.forEach(p => {
+        // Make the file name collapsible.
+        p.collapsible = !!p.arg;
+      });
+      cr.toastManager.getInstance().showForStringPieces(pieces, true);
       this.mojoHandler_.remove(this.data.id);
     },
 
@@ -452,6 +492,20 @@ cr.define('downloads', function() {
     onShowTap_: function() {
       this.mojoHandler_.show(this.data.id);
     },
+
+    /** @private */
+    restoreFocusAfterCancelIfNeeded_: function() {
+      if (!this.restoreFocusAfterCancel_) {
+        return;
+      }
+      this.restoreFocusAfterCancel_ = false;
+      setTimeout(() => {
+        const element = this.getFocusRow().getFirstFocusable('retry');
+        if (element) {
+          element.focus();
+        }
+      });
+    }
   });
 
   return {Item: Item};

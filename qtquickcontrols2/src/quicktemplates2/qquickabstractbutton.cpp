@@ -54,7 +54,7 @@ QT_BEGIN_NAMESPACE
 /*!
     \qmltype AbstractButton
     \inherits Control
-    \instantiates QQuickAbstractButton
+//!     \instantiates QQuickAbstractButton
     \inqmlmodule QtQuick.Controls
     \since 5.7
     \ingroup qtquickcontrols2-buttons
@@ -176,7 +176,7 @@ void QQuickAbstractButtonPrivate::handleRelease(const QPointF &point)
 
     if (wasPressed) {
         emit q->released();
-        if (!wasHeld)
+        if (!wasHeld && !wasDoubleClick)
             trigger();
     } else {
         emit q->canceled();
@@ -186,6 +186,8 @@ void QQuickAbstractButtonPrivate::handleRelease(const QPointF &point)
         stopPressRepeat();
     else
         stopPressAndHold();
+
+    wasDoubleClick = false;
 }
 
 void QQuickAbstractButtonPrivate::handleUngrab()
@@ -199,6 +201,7 @@ void QQuickAbstractButtonPrivate::handleUngrab()
     q->setPressed(false);
     stopPressRepeat();
     stopPressAndHold();
+    wasDoubleClick = false;
     emit q->canceled();
 }
 
@@ -1078,8 +1081,10 @@ void QQuickAbstractButton::mousePressEvent(QMouseEvent *event)
 
 void QQuickAbstractButton::mouseDoubleClickEvent(QMouseEvent *event)
 {
+    Q_D(QQuickAbstractButton);
     QQuickControl::mouseDoubleClickEvent(event);
     emit doubleClicked();
+    d->wasDoubleClick = true;
 }
 
 void QQuickAbstractButton::timerEvent(QTimerEvent *event)
@@ -1126,7 +1131,7 @@ void QQuickAbstractButton::buttonChange(ButtonChange change)
         break;
     case ButtonTextChange: {
         const QString txt = text();
-        setAccessibleName(txt);
+        maybeSetAccessibleName(txt);
 #if QT_CONFIG(shortcut)
         setShortcut(QKeySequence::mnemonic(txt));
 #endif
@@ -1152,7 +1157,7 @@ void QQuickAbstractButton::accessibilityActiveChanged(bool active)
 
     Q_D(QQuickAbstractButton);
     if (active) {
-        setAccessibleName(text());
+        maybeSetAccessibleName(text());
         setAccessibleProperty("pressed", d->pressed);
         setAccessibleProperty("checked", d->checked);
         setAccessibleProperty("checkable", d->checkable);

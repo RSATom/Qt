@@ -95,7 +95,7 @@ QScriptErrorLogWidget::QScriptErrorLogWidget(QWidget *parent)
     Q_D(QScriptErrorLogWidget);
     d->outputEdit = new QScriptErrorLogWidgetOutputEdit();
     QVBoxLayout *vbox = new QVBoxLayout(this);
-    vbox->setMargin(0);
+    vbox->setContentsMargins(0, 0, 0, 0);
     vbox->setSpacing(0);
     vbox->addWidget(d->outputEdit);
 

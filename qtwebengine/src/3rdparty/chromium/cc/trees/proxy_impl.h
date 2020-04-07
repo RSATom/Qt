@@ -7,7 +7,6 @@
 
 #include <memory>
 
-#include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "cc/base/completion_event.h"
 #include "cc/base/delayed_unique_notifier.h"
@@ -31,7 +30,10 @@ class CC_EXPORT ProxyImpl : public LayerTreeHostImplClient,
   ProxyImpl(base::WeakPtr<ProxyMain> proxy_main_weak_ptr,
             LayerTreeHost* layer_tree_host,
             TaskRunnerProvider* task_runner_provider);
+  ProxyImpl(const ProxyImpl&) = delete;
   ~ProxyImpl() override;
+
+  ProxyImpl& operator=(const ProxyImpl&) = delete;
 
   void UpdateBrowserControlsStateOnImpl(BrowserControlsState constraints,
                                         BrowserControlsState current,
@@ -42,8 +44,7 @@ class CC_EXPORT ProxyImpl : public LayerTreeHostImplClient,
   void InitializeMutatorOnImpl(std::unique_ptr<LayerTreeMutator> mutator);
   void InitializePaintWorkletLayerPainterOnImpl(
       std::unique_ptr<PaintWorkletLayerPainter> painter);
-  void SetInputThrottledUntilCommitOnImpl(bool is_throttled);
-  void SetDeferMainFrameUpdateOnImpl(bool defer_main_frame_update) const;
+  void SetDeferBeginMainFrameOnImpl(bool defer_begin_main_frame) const;
   void SetNeedsRedrawOnImpl(const gfx::Rect& damage_rect);
   void SetNeedsCommitOnImpl();
   void BeginMainFrameAbortedOnImpl(
@@ -57,7 +58,7 @@ class CC_EXPORT ProxyImpl : public LayerTreeHostImplClient,
                                  LayerTreeHost* layer_tree_host,
                                  base::TimeTicks main_thread_start_time,
                                  bool hold_commit_for_activation);
-  void SetURLForUkm(const GURL& url);
+  void SetSourceURL(ukm::SourceId source_id, const GURL& url);
   void ClearHistory();
   void SetRenderFrameObserver(
       std::unique_ptr<RenderFrameMetadataObserver> observer);
@@ -93,6 +94,7 @@ class CC_EXPORT ProxyImpl : public LayerTreeHostImplClient,
   void PostAnimationEventsToMainThreadOnImplThread(
       std::unique_ptr<MutatorEvents> events) override;
   bool IsInsideDraw() override;
+  bool IsBeginMainFrameExpected() override;
   void RenewTreePriority() override;
   void PostDelayedAnimationTaskOnImplThread(base::OnceClosure task,
                                             base::TimeDelta delay) override;
@@ -108,8 +110,11 @@ class CC_EXPORT ProxyImpl : public LayerTreeHostImplClient,
       uint32_t frame_token,
       std::vector<LayerTreeHost::PresentationTimeCallback> callbacks,
       const gfx::PresentationFeedback& feedback) override;
-  void DidGenerateLocalSurfaceIdAllocationOnImplThread(
-      const viz::LocalSurfaceIdAllocation& allocation) override;
+  void NotifyAnimationWorkletStateChange(
+      AnimationWorkletMutationState state,
+      ElementListType element_list_type) override;
+  void NotifyPaintWorkletStateChange(
+      Scheduler::PaintWorkletState state) override;
 
   // SchedulerClient implementation
   bool WillBeginImplFrame(const viz::BeginFrameArgs& args) override;
@@ -159,15 +164,12 @@ class CC_EXPORT ProxyImpl : public LayerTreeHostImplClient,
   bool next_frame_is_newly_committed_frame_;
 
   bool inside_draw_;
-  bool input_throttled_until_commit_;
 
   bool send_compositor_frame_ack_;
 
   TaskRunnerProvider* task_runner_provider_;
 
   DelayedUniqueNotifier smoothness_priority_expiration_notifier_;
-
-  RenderingStatsInstrumentation* rendering_stats_instrumentation_;
 
   std::unique_ptr<LayerTreeHostImpl> host_impl_;
 
@@ -181,8 +183,6 @@ class CC_EXPORT ProxyImpl : public LayerTreeHostImplClient,
   // A weak pointer to ProxyMain that is invalidated when LayerTreeFrameSink is
   // released.
   base::WeakPtr<ProxyMain> proxy_main_frame_sink_bound_weak_ptr_;
-
-  DISALLOW_COPY_AND_ASSIGN(ProxyImpl);
 };
 
 }  // namespace cc

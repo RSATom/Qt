@@ -9,10 +9,10 @@
 #define THIRD_PARTY_BLINK_RENDERER_PLATFORM_BINDINGS_RUNTIME_CALL_STATS_H_
 
 #include "base/optional.h"
-#include "third_party/blink/renderer/platform/bindings/runtime_call_stats_count_everything_buildflags.h"
+#include "third_party/blink/renderer/platform/bindings/buildflags.h"
 #include "third_party/blink/renderer/platform/platform_export.h"
 #include "third_party/blink/renderer/platform/runtime_enabled_features.h"
-#include "third_party/blink/renderer/platform/wtf/allocator.h"
+#include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 #include "third_party/blink/renderer/platform/wtf/forward.h"
 #include "third_party/blink/renderer/platform/wtf/time.h"
 #include "v8/include/v8.h"
@@ -33,20 +33,22 @@ class TracedValue;
 // A simple counter used to track total execution count & time for a particular
 // function/scope.
 class PLATFORM_EXPORT RuntimeCallCounter {
+  USING_FAST_MALLOC(RuntimeCallCounter);
+
  public:
   explicit RuntimeCallCounter(const char* name) : count_(0), name_(name) {}
 
-  void IncrementAndAddTime(TimeDelta time) {
+  void IncrementAndAddTime(base::TimeDelta time) {
     count_++;
     time_ += time;
   }
 
   uint64_t GetCount() const { return count_; }
-  TimeDelta GetTime() const { return time_; }
+  base::TimeDelta GetTime() const { return time_; }
   const char* GetName() const { return name_; }
 
   void Reset() {
-    time_ = TimeDelta();
+    time_ = base::TimeDelta();
     count_ = 0;
   }
 
@@ -56,7 +58,7 @@ class PLATFORM_EXPORT RuntimeCallCounter {
   RuntimeCallCounter() = default;
 
   uint64_t count_;
-  TimeDelta time_;
+  base::TimeDelta time_;
   const char* name_;
 
   friend class RuntimeCallStats;
@@ -66,9 +68,11 @@ class PLATFORM_EXPORT RuntimeCallCounter {
 // NOTE: Do not use this class directly to track execution times, instead use it
 // with the macros below.
 class PLATFORM_EXPORT RuntimeCallTimer {
+  USING_FAST_MALLOC(RuntimeCallTimer);
+
  public:
   explicit RuntimeCallTimer(const base::TickClock* clock) : clock_(clock) {}
-  ~RuntimeCallTimer() { DCHECK(!IsRunning()); };
+  ~RuntimeCallTimer() { DCHECK(!IsRunning()); }
 
   // Starts recording time for <counter>, and pauses <parent> (if non-null).
   void Start(RuntimeCallCounter*, RuntimeCallTimer* parent);
@@ -80,28 +84,28 @@ class PLATFORM_EXPORT RuntimeCallTimer {
 
   // Resets the timer. Call this before reusing a timer.
   void Reset() {
-    start_ticks_ = TimeTicks();
-    elapsed_time_ = TimeDelta();
+    start_ticks_ = base::TimeTicks();
+    elapsed_time_ = base::TimeDelta();
   }
 
  private:
-  void Pause(TimeTicks now) {
+  void Pause(base::TimeTicks now) {
     DCHECK(IsRunning());
     elapsed_time_ += (now - start_ticks_);
-    start_ticks_ = TimeTicks();
+    start_ticks_ = base::TimeTicks();
   }
 
-  void Resume(TimeTicks now) {
+  void Resume(base::TimeTicks now) {
     DCHECK(!IsRunning());
     start_ticks_ = now;
   }
 
-  bool IsRunning() { return start_ticks_ != TimeTicks(); }
+  bool IsRunning() { return start_ticks_ != base::TimeTicks(); }
 
   RuntimeCallCounter* counter_;
   RuntimeCallTimer* parent_;
-  TimeTicks start_ticks_;
-  TimeDelta elapsed_time_;
+  base::TimeTicks start_ticks_;
+  base::TimeDelta elapsed_time_;
   const base::TickClock* clock_ = nullptr;
 };
 
@@ -166,6 +170,8 @@ class PLATFORM_EXPORT RuntimeCallTimer {
 // by pausing and resuming timers in the chain when entering and leaving a
 // scope.
 class PLATFORM_EXPORT RuntimeCallStats {
+  USING_FAST_MALLOC(RuntimeCallStats);
+
  public:
   explicit RuntimeCallStats(const base::TickClock*);
   // Get RuntimeCallStats object associated with the given isolate.
@@ -332,6 +338,8 @@ class PLATFORM_EXPORT RuntimeCallStats {
 // RuntimeCallStats to measure execution time of a C++ scope.
 // Do not use this class directly, use RUNTIME_CALL_TIMER_SCOPE instead.
 class PLATFORM_EXPORT RuntimeCallTimerScope {
+  STACK_ALLOCATED();
+
  public:
   RuntimeCallTimerScope(RuntimeCallStats* stats,
                         RuntimeCallStats::CounterId counter)
@@ -358,6 +366,8 @@ class PLATFORM_EXPORT RuntimeCallTimerScope {
 // NOTE: Nested scoped tracers will not send events of their own, the stats
 // collected in their scopes will be dumped by the root tracer scope.
 class PLATFORM_EXPORT RuntimeCallStatsScopedTracer {
+  STACK_ALLOCATED();
+
  public:
   explicit RuntimeCallStatsScopedTracer(v8::Isolate* isolate) {
     if (UNLIKELY(RuntimeEnabledFeatures::BlinkRuntimeCallStatsEnabled()))

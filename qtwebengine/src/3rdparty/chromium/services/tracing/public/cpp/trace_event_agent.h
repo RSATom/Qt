@@ -13,6 +13,7 @@
 #include "base/component_export.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/ref_counted_memory.h"
+#include "base/memory/weak_ptr.h"
 #include "base/threading/thread_checker.h"
 #include "base/values.h"
 #include "services/tracing/public/cpp/base_agent.h"
@@ -49,7 +50,8 @@ class COMPONENT_EXPORT(TRACING_CPP) TraceEventAgent : public BaseAgent {
 
   // mojom::Agent
   void StartTracing(const std::string& config,
-                    base::TimeTicks coordinator_time) override;
+                    base::TimeTicks coordinator_time,
+                    StartTracingCallback callback) override;
   void StopAndFlush(mojom::RecorderPtr recorder) override;
 
   void RequestBufferStatus(RequestBufferStatusCallback callback) override;
@@ -62,7 +64,7 @@ class COMPONENT_EXPORT(TRACING_CPP) TraceEventAgent : public BaseAgent {
   std::vector<MetadataGeneratorFunction> metadata_generator_functions_;
 
   THREAD_CHECKER(thread_checker_);
-
+  base::WeakPtrFactory<TraceEventAgent> weak_ptr_factory_;
   DISALLOW_COPY_AND_ASSIGN(TraceEventAgent);
 };
 

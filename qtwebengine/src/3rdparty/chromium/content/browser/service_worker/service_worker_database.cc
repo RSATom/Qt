@@ -6,10 +6,10 @@
 
 #include "base/command_line.h"
 #include "base/files/file_util.h"
-#include "base/lazy_instance.h"
 #include "base/location.h"
 #include "base/logging.h"
 #include "base/metrics/histogram_macros.h"
+#include "base/no_destructor.h"
 #include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_split.h"
@@ -31,7 +31,7 @@
 // =======================
 //
 // NOTE
-// - int64_t value is serialized as a string by base::Int64ToString().
+// - int64_t value is serialized as a string by base::NumberToString().
 // - GURL value is serialized as a string by GURL::spec().
 //
 // Version 1 (in sorted order)
@@ -126,10 +126,13 @@ constexpr size_t kWriteBufferSize = 512 * 1024;
 class ServiceWorkerEnv : public leveldb_env::ChromiumEnv {
  public:
   ServiceWorkerEnv() : ChromiumEnv("LevelDBEnv.ServiceWorker") {}
-};
 
-base::LazyInstance<ServiceWorkerEnv>::Leaky g_service_worker_env =
-    LAZY_INSTANCE_INITIALIZER;
+  // Returns a shared instance of ServiceWorkerEnv. This is thread-safe.
+  static ServiceWorkerEnv* GetInstance() {
+    static base::NoDestructor<ServiceWorkerEnv> instance;
+    return instance.get();
+  }
+};
 
 bool RemovePrefix(const std::string& str,
                   const std::string& prefix,
@@ -148,19 +151,19 @@ std::string CreateRegistrationKeyPrefix(const GURL& origin) {
 }
 
 std::string CreateRegistrationKey(int64_t registration_id, const GURL& origin) {
-  return CreateRegistrationKeyPrefix(origin)
-      .append(base::Int64ToString(registration_id));
+  return CreateRegistrationKeyPrefix(origin).append(
+      base::NumberToString(registration_id));
 }
 
 std::string CreateResourceRecordKeyPrefix(int64_t version_id) {
   return base::StringPrintf("%s%s%c", service_worker_internals::kResKeyPrefix,
-                            base::Int64ToString(version_id).c_str(),
+                            base::NumberToString(version_id).c_str(),
                             service_worker_internals::kKeySeparator);
 }
 
 std::string CreateResourceRecordKey(int64_t version_id, int64_t resource_id) {
-  return CreateResourceRecordKeyPrefix(version_id).append(
-      base::Int64ToString(resource_id));
+  return CreateResourceRecordKeyPrefix(version_id)
+      .append(base::NumberToString(resource_id));
 }
 
 std::string CreateUniqueOriginKey(const GURL& origin) {
@@ -169,14 +172,14 @@ std::string CreateUniqueOriginKey(const GURL& origin) {
 }
 
 std::string CreateResourceIdKey(const char* key_prefix, int64_t resource_id) {
-  return base::StringPrintf(
-      "%s%s", key_prefix, base::Int64ToString(resource_id).c_str());
+  return base::StringPrintf("%s%s", key_prefix,
+                            base::NumberToString(resource_id).c_str());
 }
 
 std::string CreateUserDataKeyPrefix(int64_t registration_id) {
   return base::StringPrintf("%s%s%c",
                             service_worker_internals::kRegUserDataKeyPrefix,
-                            base::Int64ToString(registration_id).c_str(),
+                            base::NumberToString(registration_id).c_str(),
                             service_worker_internals::kKeySeparator);
 }
 
@@ -194,13 +197,13 @@ std::string CreateHasUserDataKeyPrefix(const std::string& user_data_name) {
 std::string CreateHasUserDataKey(int64_t registration_id,
                                  const std::string& user_data_name) {
   return CreateHasUserDataKeyPrefix(user_data_name)
-      .append(base::Int64ToString(registration_id));
+      .append(base::NumberToString(registration_id));
 }
 
 std::string CreateRegistrationIdToOriginKey(int64_t registration_id) {
   return base::StringPrintf("%s%s",
                             service_worker_internals::kRegIdToOriginKeyPrefix,
-                            base::Int64ToString(registration_id).c_str());
+                            base::NumberToString(registration_id).c_str());
 }
 
 void PutUniqueOriginToBatch(const GURL& origin,
@@ -1038,7 +1041,7 @@ ServiceWorkerDatabase::Status ServiceWorkerDatabase::RewriteDB() {
 
   leveldb_env::Options options;
   options.create_if_missing = true;
-  options.env = g_service_worker_env.Pointer();
+  options.env = ServiceWorkerEnv::GetInstance();
   options.write_buffer_size = kWriteBufferSize;
 
   status = LevelDBStatusToServiceWorkerDBStatus(
@@ -1136,7 +1139,7 @@ ServiceWorkerDatabase::ReadUserDataForAllRegistrationsByKeyPrefix(
 
       std::vector<std::string> parts = base::SplitString(
           user_data_name_with_id,
-          base::StringPrintf("%c", service_worker_internals::kKeySeparator),
+          std::string(1, service_worker_internals::kKeySeparator),
           base::KEEP_WHITESPACE, base::SPLIT_WANT_ALL);
       if (parts.size() != 2) {
         status = STATUS_ERROR_CORRUPTED;
@@ -1165,6 +1168,59 @@ ServiceWorkerDatabase::ReadUserDataForAllRegistrationsByKeyPrefix(
 
   HandleReadResult(FROM_HERE, status);
   return status;
+}
+
+ServiceWorkerDatabase::Status
+ServiceWorkerDatabase::DeleteUserDataForAllRegistrationsByKeyPrefix(
+    const std::string& user_data_name_prefix) {
+  DCHECK(sequence_checker_.CalledOnValidSequence());
+
+  Status status = LazyOpen(false);
+  if (IsNewOrNonexistentDatabase(status))
+    return STATUS_OK;
+  if (status != STATUS_OK)
+    return status;
+
+  leveldb::WriteBatch batch;
+  std::string key_prefix = service_worker_internals::kRegHasUserDataKeyPrefix +
+                           user_data_name_prefix;
+
+  std::unique_ptr<leveldb::Iterator> itr(
+      db_->NewIterator(leveldb::ReadOptions()));
+  for (itr->Seek(key_prefix); itr->Valid(); itr->Next()) {
+    status = LevelDBStatusToServiceWorkerDBStatus(itr->status());
+    if (status != STATUS_OK)
+      return status;
+
+    if (!itr->key().starts_with(key_prefix)) {
+      // |itr| reached the end of the range of keys prefixed by |key_prefix|.
+      break;
+    }
+
+    std::string user_data_name_with_id;
+    bool did_remove_prefix =
+        RemovePrefix(itr->key().ToString(),
+                     service_worker_internals::kRegHasUserDataKeyPrefix,
+                     &user_data_name_with_id);
+    DCHECK(did_remove_prefix);
+
+    std::vector<std::string> parts = base::SplitString(
+        user_data_name_with_id,
+        std::string(1, service_worker_internals::kKeySeparator),
+        base::KEEP_WHITESPACE, base::SPLIT_WANT_ALL);
+    if (parts.size() != 2)
+      return STATUS_ERROR_CORRUPTED;
+
+    int64_t registration_id;
+    status = ParseId(parts[1], &registration_id);
+    if (status != STATUS_OK)
+      return status;
+
+    batch.Delete(itr->key());
+    batch.Delete(CreateUserDataKey(registration_id, parts[0]));
+  }
+
+  return WriteBatch(&batch);
 }
 
 ServiceWorkerDatabase::Status ServiceWorkerDatabase::GetUncommittedResourceIds(
@@ -1303,7 +1359,7 @@ ServiceWorkerDatabase::Status ServiceWorkerDatabase::LazyOpen(
     env_ = leveldb_chrome::NewMemEnv("service-worker");
     options.env = env_.get();
   } else {
-    options.env = g_service_worker_env.Pointer();
+    options.env = ServiceWorkerEnv::GetInstance();
   }
   options.write_buffer_size = kWriteBufferSize;
 
@@ -1453,8 +1509,15 @@ ServiceWorkerDatabase::Status ServiceWorkerDatabase::ParseRegistrationData(
       out->navigation_preload_state.header = state.header();
   }
 
-  for (uint32_t feature : data.used_features())
-    out->used_features.insert(feature);
+  for (uint32_t feature : data.used_features()) {
+    // Add features that are valid WebFeature values. Invalid values can
+    // legitimately exist on disk when a version of Chrome had the feature and
+    // wrote the data but the value was removed from the WebFeature enum in a
+    // later version of Chrome.
+    auto web_feature = static_cast<blink::mojom::WebFeature>(feature);
+    if (IsKnownEnumValue(web_feature))
+      out->used_features.insert(web_feature);
+  }
 
   if (data.has_script_type()) {
     auto value = data.script_type();
@@ -1463,6 +1526,11 @@ ServiceWorkerDatabase::Status ServiceWorkerDatabase::ParseRegistrationData(
       return ServiceWorkerDatabase::STATUS_ERROR_CORRUPTED;
     }
     out->script_type = static_cast<blink::mojom::ScriptType>(value);
+  }
+
+  if (data.has_script_response_time()) {
+    out->script_response_time = base::Time::FromDeltaSinceWindowsEpoch(
+        base::TimeDelta::FromMicroseconds(data.script_response_time()));
   }
 
   if (data.has_update_via_cache()) {
@@ -1498,6 +1566,9 @@ void ServiceWorkerDatabase::WriteRegistrationDataInBatch(
   data.set_has_fetch_handler(registration.has_fetch_handler);
   data.set_last_update_check_time(
       registration.last_update_check.ToInternalValue());
+  data.set_script_response_time(
+      registration.script_response_time.ToDeltaSinceWindowsEpoch()
+          .InMicroseconds());
   data.set_resources_total_size_bytes(registration.resources_total_size_bytes);
   if (registration.origin_trial_tokens) {
     ServiceWorkerOriginTrialInfo* info = data.mutable_origin_trial_tokens();
@@ -1513,8 +1584,8 @@ void ServiceWorkerDatabase::WriteRegistrationDataInBatch(
   state->set_enabled(registration.navigation_preload_state.enabled);
   state->set_header(registration.navigation_preload_state.header);
 
-  for (uint32_t feature : registration.used_features)
-    data.add_used_features(feature);
+  for (blink::mojom::WebFeature web_feature : registration.used_features)
+    data.add_used_features(static_cast<uint32_t>(web_feature));
 
   data.set_script_type(
       static_cast<ServiceWorkerRegistrationData_ServiceWorkerScriptType>(
@@ -1825,7 +1896,7 @@ ServiceWorkerDatabase::Status ServiceWorkerDatabase::WriteBatch(
     // Write database default values.
     batch->Put(
         service_worker_internals::kDatabaseVersionKey,
-        base::Int64ToString(service_worker_internals::kCurrentSchemaVersion));
+        base::NumberToString(service_worker_internals::kCurrentSchemaVersion));
     state_ = DATABASE_STATE_INITIALIZED;
   }
 
@@ -1842,7 +1913,7 @@ void ServiceWorkerDatabase::BumpNextRegistrationIdIfNeeded(
   if (next_avail_registration_id_ <= used_id) {
     next_avail_registration_id_ = used_id + 1;
     batch->Put(service_worker_internals::kNextRegIdKey,
-               base::Int64ToString(next_avail_registration_id_));
+               base::NumberToString(next_avail_registration_id_));
   }
 }
 
@@ -1853,7 +1924,7 @@ void ServiceWorkerDatabase::BumpNextResourceIdIfNeeded(
   if (next_avail_resource_id_ <= used_id) {
     next_avail_resource_id_ = used_id + 1;
     batch->Put(service_worker_internals::kNextResIdKey,
-               base::Int64ToString(next_avail_resource_id_));
+               base::NumberToString(next_avail_resource_id_));
   }
 }
 
@@ -1864,7 +1935,7 @@ void ServiceWorkerDatabase::BumpNextVersionIdIfNeeded(
   if (next_avail_version_id_ <= used_id) {
     next_avail_version_id_ = used_id + 1;
     batch->Put(service_worker_internals::kNextVerIdKey,
-               base::Int64ToString(next_avail_version_id_));
+               base::NumberToString(next_avail_version_id_));
   }
 }
 

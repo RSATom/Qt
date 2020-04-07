@@ -4,6 +4,7 @@
 
 #include "content/browser/appcache/appcache_host.h"
 
+#include <utility>
 #include <vector>
 
 #include "base/logging.h"
@@ -12,12 +13,12 @@
 #include "base/strings/stringprintf.h"
 #include "content/browser/appcache/appcache.h"
 #include "content/browser/appcache/appcache_backend_impl.h"
-#include "content/browser/appcache/appcache_frontend.h"
 #include "content/browser/appcache/appcache_policy.h"
 #include "content/browser/appcache/appcache_request.h"
 #include "content/browser/appcache/appcache_request_handler.h"
 #include "content/browser/appcache/appcache_subresource_url_factory.h"
 #include "content/browser/child_process_security_policy_impl.h"
+#include "content/browser/web_contents/web_contents_impl.h"
 #include "content/common/appcache_interfaces.h"
 #include "content/public/common/content_features.h"
 #include "content/public/common/url_constants.h"
@@ -32,28 +33,29 @@ namespace content {
 
 namespace {
 
-blink::mojom::AppCacheInfo CreateCacheInfo(
+blink::mojom::AppCacheInfoPtr CreateCacheInfo(
     const AppCache* cache,
     const GURL& manifest_url,
     blink::mojom::AppCacheStatus status) {
-  blink::mojom::AppCacheInfo info;
-  info.manifest_url = manifest_url;
-  info.status = status;
+  auto info = blink::mojom::AppCacheInfo::New();
+  info->manifest_url = manifest_url;
+  info->status = status;
 
   if (!cache)
     return info;
 
-  info.cache_id = cache->cache_id();
+  info->cache_id = cache->cache_id();
 
   if (!cache->is_complete())
     return info;
 
   DCHECK(cache->owning_group());
-  info.is_complete = true;
-  info.group_id = cache->owning_group()->group_id();
-  info.last_update_time = cache->update_time();
-  info.creation_time = cache->owning_group()->creation_time();
-  info.size = cache->cache_size();
+  info->is_complete = true;
+  info->group_id = cache->owning_group()->group_id();
+  info->last_update_time = cache->update_time();
+  info->creation_time = cache->owning_group()->creation_time();
+  info->response_sizes = cache->cache_size();
+  info->padding_sizes = cache->padding_size();
   return info;
 }
 
@@ -61,37 +63,36 @@ bool CanAccessDocumentURL(int process_id, const GURL& document_url) {
   DCHECK_NE(process_id, ChildProcessHost::kInvalidUniqueID);
   auto* security_policy = ChildProcessSecurityPolicyImpl::GetInstance();
   return document_url.is_empty() ||       // window.open("javascript:''") case.
-         document_url == kAboutSrcDocURL ||  // <iframe srcdoc= ...> case.
+         document_url.IsAboutSrcdoc() ||  // <iframe srcdoc= ...> case.
          document_url.IsAboutBlank() ||   // <iframe src="javascript:''"> case.
          document_url == GURL("data:,") ||  // CSP blocked_urls.
          security_policy->CanAccessDataForOrigin(process_id,
                                                  document_url) ||
-         !security_policy->HasSecurityState(process_id);  // process shutdown
+         !security_policy->HasSecurityState(process_id);  // process shutdown.
 }
 
 }  // namespace
 
-AppCacheHost::AppCacheHost(int host_id,
-                           int process_id,
-                           AppCacheFrontend* frontend,
-                           AppCacheServiceImpl* service)
+AppCacheHost::AppCacheHost(
+    const base::UnguessableToken& host_id,
+    int process_id,
+    int render_frame_id,
+    mojo::PendingRemote<blink::mojom::AppCacheFrontend> frontend_remote,
+    AppCacheServiceImpl* service)
     : host_id_(host_id),
       process_id_(process_id),
-      spawning_host_id_(blink::mojom::kAppCacheNoHostId),
-      spawning_process_id_(0),
-      parent_host_id_(blink::mojom::kAppCacheNoHostId),
-      parent_process_id_(0),
       pending_main_resource_cache_id_(blink::mojom::kAppCacheNoCacheId),
       pending_selected_cache_id_(blink::mojom::kAppCacheNoCacheId),
       was_select_cache_called_(false),
       is_cache_selection_enabled_(true),
-      frontend_(frontend),
+      frontend_remote_(std::move(frontend_remote)),
+      frontend_(frontend_remote_.is_bound() ? frontend_remote_.get() : nullptr),
+      render_frame_id_(render_frame_id),
       service_(service),
       storage_(service->storage()),
       main_resource_was_namespace_entry_(false),
       main_resource_blocked_(false),
-      associated_cache_info_pending_(false),
-      weak_factory_(this) {
+      associated_cache_info_pending_(false) {
   service_->AddObserver(this);
 }
 
@@ -106,6 +107,25 @@ AppCacheHost::~AppCacheHost() {
   storage()->CancelDelegateCallbacks(this);
   if (service()->quota_manager_proxy() && !origin_in_use_.opaque())
     service()->quota_manager_proxy()->NotifyOriginNoLongerInUse(origin_in_use_);
+
+  // Run pending callbacks in case we get destroyed with pending callbacks while
+  // the mojo connection is still open.
+  if (pending_get_status_callback_) {
+    std::move(pending_get_status_callback_)
+        .Run(blink::mojom::AppCacheStatus::APPCACHE_STATUS_UNCACHED);
+  }
+  if (pending_swap_cache_callback_)
+    std::move(pending_swap_cache_callback_).Run(false);
+  if (pending_start_update_callback_)
+    std::move(pending_start_update_callback_).Run(false);
+}
+
+void AppCacheHost::BindReceiver(
+    mojo::PendingReceiver<blink::mojom::AppCacheHost> receiver) {
+  receiver_.Bind(std::move(receiver));
+  // Unretained is safe because |this| will outlive |receiver_|.
+  receiver_.set_disconnect_handler(
+      base::BindOnce(&AppCacheHost::Unregister, base::Unretained(this)));
 }
 
 void AppCacheHost::AddObserver(Observer* observer) {
@@ -116,33 +136,40 @@ void AppCacheHost::RemoveObserver(Observer* observer) {
   observers_.RemoveObserver(observer);
 }
 
-bool AppCacheHost::SelectCache(const GURL& document_url,
+void AppCacheHost::Unregister() {
+  service_->EraseHost(host_id_);
+}
+
+void AppCacheHost::SelectCache(const GURL& document_url,
                                const int64_t cache_document_was_loaded_from,
                                const GURL& manifest_url) {
-  if (was_select_cache_called_)
-    return false;
+  if (was_select_cache_called_) {
+    mojo::ReportBadMessage("ACH_SELECT_CACHE");
+    return;
+  }
 
   DCHECK_NE(process_id_, ChildProcessHost::kInvalidUniqueID);
   if (!CanAccessDocumentURL(process_id_, document_url)) {
-    return false;
+    mojo::ReportBadMessage("ACH_SELECT_CACHE_DOCUMENT_URL_ACCESS_NOT_ALLOWED");
+    return;
   }
 
   auto* security_policy = ChildProcessSecurityPolicyImpl::GetInstance();
   if (!manifest_url.is_empty() &&
       !security_policy->CanAccessDataForOrigin(process_id_, manifest_url) &&
       security_policy->HasSecurityState(process_id_)) {
-    return false;
+    mojo::ReportBadMessage("ACH_SELECT_CACHE_MANIFEST_URL_ACCESS_NOT_ALLOWED");
+    return;
   }
 
   DCHECK(pending_start_update_callback_.is_null() &&
          pending_swap_cache_callback_.is_null() &&
-         pending_get_status_callback_.is_null() &&
-         !is_selection_pending());
+         pending_get_status_callback_.is_null() && !is_selection_pending());
 
   was_select_cache_called_ = true;
   if (!is_cache_selection_enabled_) {
-    FinishCacheSelection(nullptr, nullptr);
-    return true;
+    FinishCacheSelection(nullptr, nullptr, mojo::ReportBadMessageCallback());
+    return;
   }
 
   origin_in_use_ = url::Origin::Create(document_url);
@@ -150,19 +177,18 @@ bool AppCacheHost::SelectCache(const GURL& document_url,
     service()->quota_manager_proxy()->NotifyOriginInUse(origin_in_use_);
 
   if (main_resource_blocked_)
-    frontend_->OnContentBlocked(host_id_,
-                                blocked_manifest_url_);
+    OnContentBlocked(blocked_manifest_url_);
 
   // 6.9.6 The application cache selection algorithm.
   // The algorithm is started here and continues in FinishCacheSelection,
   // after cache or group loading is complete.
   // Note: Foreign entries are detected on the client side and
   // MarkAsForeignEntry is called in that case, so that detection
-  // step is skipped here. See WebApplicationCacheHostImpl.cc
+  // step is skipped here.
 
   if (cache_document_was_loaded_from != blink::mojom::kAppCacheNoCacheId) {
     LoadSelectedCache(cache_document_was_loaded_from);
-    return true;
+    return;
   }
 
   if (!manifest_url.is_empty() &&
@@ -178,61 +204,60 @@ bool AppCacheHost::SelectCache(const GURL& document_url,
     // continue whether it was set or not.
 
     AppCachePolicy* policy = service()->appcache_policy();
-    if (policy &&
-        !policy->CanCreateAppCache(manifest_url, first_party_url_)) {
-      FinishCacheSelection(nullptr, nullptr);
-      std::vector<int> host_ids(1, host_id_);
-      frontend_->OnEventRaised(
-          host_ids, blink::mojom::AppCacheEventID::APPCACHE_CHECKING_EVENT);
-      frontend_->OnErrorEventRaised(
-          host_ids,
-          blink::mojom::AppCacheErrorDetails(
-              "Cache creation was blocked by the content policy",
-              blink::mojom::AppCacheErrorReason::APPCACHE_POLICY_ERROR, GURL(),
-              0, false /*is_cross_origin*/));
-      frontend_->OnContentBlocked(host_id_, manifest_url);
-      return true;
+    if (policy && !policy->CanCreateAppCache(manifest_url, first_party_url_)) {
+      FinishCacheSelection(nullptr, nullptr, mojo::ReportBadMessageCallback());
+      frontend()->EventRaised(
+          blink::mojom::AppCacheEventID::APPCACHE_CHECKING_EVENT);
+      frontend()->ErrorEventRaised(blink::mojom::AppCacheErrorDetails::New(
+          "Cache creation was blocked by the content policy",
+          blink::mojom::AppCacheErrorReason::APPCACHE_POLICY_ERROR, GURL(), 0,
+          false /*is_cross_origin*/));
+      OnContentBlocked(manifest_url);
+      return;
     }
     // Note: The client detects if the document was not loaded using HTTP GET
     // and invokes SelectCache without a manifest url, so that detection step
-    // is also skipped here. See WebApplicationCacheHostImpl.cc
+    // is also skipped here.
     set_preferred_manifest_url(manifest_url);
     new_master_entry_url_ = document_url;
     LoadOrCreateGroup(manifest_url);
-    return true;
+    return;
   }
   // TODO(michaeln): If there was a manifest URL, the user agent may report
   // to the user that it was ignored, to aid in application development.
-  FinishCacheSelection(nullptr, nullptr);
-  return true;
+  FinishCacheSelection(nullptr, nullptr, mojo::ReportBadMessageCallback());
 }
 
-bool AppCacheHost::SelectCacheForSharedWorker(int64_t appcache_id) {
-  if (was_select_cache_called_)
-    return false;
+void AppCacheHost::SelectCacheForSharedWorker(int64_t appcache_id) {
+  if (was_select_cache_called_) {
+    mojo::ReportBadMessage("ACH_SELECT_CACHE_FOR_SHARED_WORKER");
+    return;
+  }
 
   DCHECK(pending_start_update_callback_.is_null() &&
          pending_swap_cache_callback_.is_null() &&
-         pending_get_status_callback_.is_null() &&
-         !is_selection_pending());
+         pending_get_status_callback_.is_null() && !is_selection_pending());
 
   was_select_cache_called_ = true;
   if (appcache_id != blink::mojom::kAppCacheNoCacheId) {
     LoadSelectedCache(appcache_id);
-    return true;
+    return;
   }
-  FinishCacheSelection(nullptr, nullptr);
-  return true;
+  FinishCacheSelection(nullptr, nullptr, mojo::ReportBadMessageCallback());
 }
 
 // TODO(michaeln): change method name to MarkEntryAsForeign for consistency
-bool AppCacheHost::MarkAsForeignEntry(const GURL& document_url,
+void AppCacheHost::MarkAsForeignEntry(const GURL& document_url,
                                       int64_t cache_document_was_loaded_from) {
-  if (was_select_cache_called_)
-    return false;
+  if (was_select_cache_called_) {
+    mojo::ReportBadMessage("ACH_MARK_AS_FOREIGN_ENTRY");
+    return;
+  }
 
   if (!CanAccessDocumentURL(process_id_, document_url)) {
-    return false;
+    mojo::ReportBadMessage(
+        "ACH_MARK_AS_FOREIGN_ENTRY_DOCUMENT_URL_ACCESS_NOT_ALLOWED");
+    return;
   }
 
   // The document url is not the resource url in the fallback case.
@@ -240,46 +265,45 @@ bool AppCacheHost::MarkAsForeignEntry(const GURL& document_url,
       main_resource_was_namespace_entry_ ? namespace_entry_url_ : document_url,
       cache_document_was_loaded_from);
   SelectCache(document_url, blink::mojom::kAppCacheNoCacheId, GURL());
-  return true;
 }
 
-bool AppCacheHost::GetStatusWithCallback(GetStatusCallback callback) {
+void AppCacheHost::GetStatus(GetStatusCallback callback) {
   if (!pending_start_update_callback_.is_null() ||
       !pending_swap_cache_callback_.is_null() ||
       !pending_get_status_callback_.is_null()) {
+    mojo::ReportBadMessage("ACH_GET_STATUS");
     std::move(callback).Run(
         blink::mojom::AppCacheStatus::APPCACHE_STATUS_UNCACHED);
-    return false;
+    return;
   }
 
   pending_get_status_callback_ = std::move(callback);
   if (is_selection_pending())
-    return true;
+    return;
 
   DoPendingGetStatus();
-  return true;
 }
 
 void AppCacheHost::DoPendingGetStatus() {
   DCHECK_EQ(false, pending_get_status_callback_.is_null());
 
-  std::move(pending_get_status_callback_).Run(GetStatus());
+  std::move(pending_get_status_callback_).Run(GetStatusSync());
 }
 
-bool AppCacheHost::StartUpdateWithCallback(StartUpdateCallback callback) {
+void AppCacheHost::StartUpdate(StartUpdateCallback callback) {
   if (!pending_start_update_callback_.is_null() ||
       !pending_swap_cache_callback_.is_null() ||
       !pending_get_status_callback_.is_null()) {
+    mojo::ReportBadMessage("ACH_START_UPDATE");
     std::move(callback).Run(false);
-    return false;
+    return;
   }
 
   pending_start_update_callback_ = std::move(callback);
   if (is_selection_pending())
-    return true;
+    return;
 
   DoPendingStartUpdate();
-  return true;
 }
 
 void AppCacheHost::DoPendingStartUpdate() {
@@ -298,21 +322,21 @@ void AppCacheHost::DoPendingStartUpdate() {
   std::move(pending_start_update_callback_).Run(success);
 }
 
-bool AppCacheHost::SwapCacheWithCallback(SwapCacheCallback callback) {
+void AppCacheHost::SwapCache(SwapCacheCallback callback) {
   if (!pending_start_update_callback_.is_null() ||
       !pending_swap_cache_callback_.is_null() ||
       !pending_get_status_callback_.is_null()) {
+    mojo::ReportBadMessage("ACH_SWAP_CACHE");
     std::move(callback).Run(false);
-    return false;
+    return;
   }
 
   pending_swap_cache_callback_ = std::move(callback);
 
   if (is_selection_pending())
-    return true;
+    return;
 
   DoPendingSwapCache();
-  return true;
 }
 
 void AppCacheHost::DoPendingSwapCache() {
@@ -336,34 +360,32 @@ void AppCacheHost::DoPendingSwapCache() {
 }
 
 void AppCacheHost::SetSpawningHostId(
-    int spawning_process_id, int spawning_host_id) {
-  spawning_process_id_ = spawning_process_id;
+    const base::UnguessableToken& spawning_host_id) {
   spawning_host_id_ = spawning_host_id;
 }
 
 const AppCacheHost* AppCacheHost::GetSpawningHost() const {
-  AppCacheBackendImpl* backend = service_->GetBackend(spawning_process_id_);
-  return backend ? backend->GetHost(spawning_host_id_) : nullptr;
+  return service_->GetHost(spawning_host_id_);
 }
 
-AppCacheHost* AppCacheHost::GetParentAppCacheHost() const {
-  DCHECK(is_for_dedicated_worker());
-  AppCacheBackendImpl* backend = service_->GetBackend(parent_process_id_);
-  return backend ? backend->GetHost(parent_host_id_) : nullptr;
+void AppCacheHost::GetResourceList(GetResourceListCallback callback) {
+  std::vector<blink::mojom::AppCacheResourceInfo> params;
+  std::vector<blink::mojom::AppCacheResourceInfoPtr> out;
+
+  GetResourceListSync(&params);
+
+  // Box up params for output.
+  out.reserve(params.size());
+  for (auto& p : params) {
+    out.emplace_back(base::in_place, std::move(p));
+  }
+  std::move(callback).Run(std::move(out));
 }
 
 std::unique_ptr<AppCacheRequestHandler> AppCacheHost::CreateRequestHandler(
     std::unique_ptr<AppCacheRequest> request,
     ResourceType resource_type,
     bool should_reset_appcache) {
-  if (is_for_dedicated_worker()) {
-    AppCacheHost* parent_host = GetParentAppCacheHost();
-    if (parent_host)
-      return parent_host->CreateRequestHandler(
-          std::move(request), resource_type, should_reset_appcache);
-    return nullptr;
-  }
-
   if (AppCacheRequestHandler::IsMainResourceType(resource_type)) {
     // Store the first party origin so that it can be used later in SelectCache
     // for checking whether the creation of the appcache is allowed.
@@ -381,13 +403,13 @@ std::unique_ptr<AppCacheRequestHandler> AppCacheHost::CreateRequestHandler(
   return nullptr;
 }
 
-void AppCacheHost::GetResourceList(
+void AppCacheHost::GetResourceListSync(
     std::vector<blink::mojom::AppCacheResourceInfo>* resource_infos) {
   if (associated_cache_.get() && associated_cache_->is_complete())
     associated_cache_->ToResourceInfoVector(resource_infos);
 }
 
-blink::mojom::AppCacheStatus AppCacheHost::GetStatus() {
+blink::mojom::AppCacheStatus AppCacheHost::GetStatusSync() {
   // 6.9.8 Application cache API
   AppCache* cache = associated_cache();
   if (!cache)
@@ -419,12 +441,13 @@ void AppCacheHost::OnGroupLoaded(AppCacheGroup* group,
                                  const GURL& manifest_url) {
   DCHECK(manifest_url == pending_selected_manifest_url_);
   pending_selected_manifest_url_ = GURL();
-  FinishCacheSelection(nullptr, group);
+  FinishCacheSelection(nullptr, group, mojo::ReportBadMessageCallback());
 }
 
 void AppCacheHost::LoadSelectedCache(int64_t cache_id) {
   DCHECK(cache_id != blink::mojom::kAppCacheNoCacheId);
   pending_selected_cache_id_ = cache_id;
+  pending_selected_cache_bad_message_callback_ = mojo::GetBadMessageCallback();
   storage()->LoadCache(cache_id, this);
 }
 
@@ -434,12 +457,16 @@ void AppCacheHost::OnCacheLoaded(AppCache* cache, int64_t cache_id) {
     main_resource_cache_ = cache;
   } else if (cache_id == pending_selected_cache_id_) {
     pending_selected_cache_id_ = blink::mojom::kAppCacheNoCacheId;
-    FinishCacheSelection(cache, nullptr);
+    FinishCacheSelection(
+        cache, nullptr,
+        std::move(pending_selected_cache_bad_message_callback_));
   }
 }
 
 void AppCacheHost::FinishCacheSelection(
-    AppCache *cache, AppCacheGroup* group) {
+    AppCache* cache,
+    AppCacheGroup* group,
+    mojo::ReportBadMessageCallback bad_message_callback) {
   DCHECK(!associated_cache());
 
   // 6.9.6 The application cache selection algorithm
@@ -448,14 +475,21 @@ void AppCacheHost::FinishCacheSelection(
     // with the application cache from which it was loaded. Invoke the
     // application cache update process for that cache and with the browsing
     // context being navigated.
-    DCHECK(cache->owning_group());
     DCHECK(new_master_entry_url_.is_empty());
-    DCHECK_EQ(cache->owning_group()->manifest_url(), preferred_manifest_url_);
+    DCHECK(bad_message_callback);
+    if (!cache->owning_group()) {
+      std::move(bad_message_callback).Run("ACH_SELECT_CACHE_ID_NOT_OWNED");
+      return;
+    }
+    if (cache->owning_group()->manifest_url() != preferred_manifest_url_) {
+      std::move(bad_message_callback).Run("ACH_SELECT_CACHE_BAD_MANIFEST_URL");
+      return;
+    }
     AppCacheGroup* owning_group = cache->owning_group();
     const char* kFormatString =
         "Document was loaded from Application Cache with manifest %s";
-    frontend_->OnLogMessage(
-        host_id_, APPCACHE_LOG_INFO,
+    frontend()->LogMessage(
+        blink::mojom::ConsoleMessageLevel::kInfo,
         base::StringPrintf(kFormatString,
                            owning_group->manifest_url().spec().c_str()));
     AssociateCompleteCache(cache);
@@ -472,11 +506,12 @@ void AppCacheHost::FinishCacheSelection(
     DCHECK(!group->is_obsolete());
     DCHECK(new_master_entry_url_.is_valid());
     DCHECK_EQ(group->manifest_url(), preferred_manifest_url_);
-    const char* kFormatString = group->HasCache() ?
-        "Adding master entry to Application Cache with manifest %s" :
-        "Creating Application Cache with manifest %s";
-    frontend_->OnLogMessage(
-        host_id_, APPCACHE_LOG_INFO,
+    const char* kFormatString =
+        group->HasCache()
+            ? "Adding master entry to Application Cache with manifest %s"
+            : "Creating Application Cache with manifest %s";
+    frontend()->LogMessage(
+        blink::mojom::ConsoleMessageLevel::kInfo,
         base::StringPrintf(kFormatString,
                            group->manifest_url().spec().c_str()));
     // The UpdateJob may produce one for us later.
@@ -528,14 +563,15 @@ void AppCacheHost::OnUpdateComplete(AppCacheGroup* group) {
 
   if (associated_cache_info_pending_ && associated_cache_.get() &&
       associated_cache_->is_complete()) {
-    blink::mojom::AppCacheInfo info = CreateCacheInfo(
-        associated_cache_.get(), preferred_manifest_url_, GetStatus());
+    blink::mojom::AppCacheInfoPtr info = CreateCacheInfo(
+        associated_cache_.get(), preferred_manifest_url_, GetStatusSync());
     associated_cache_info_pending_ = false;
     // In the network service world, we need to pass the URLLoaderFactory
     // instance to the renderer which it can use to request subresources.
     // This ensures that they can be served out of the AppCache.
     MaybePassSubresourceFactory();
-    frontend_->OnCacheSelected(host_id_, info);
+    OnAppCacheAccessed(info->manifest_url, false);
+    frontend()->CacheSelected(std::move(info));
   }
 }
 
@@ -597,7 +633,9 @@ void AppCacheHost::MaybePassSubresourceFactory() {
   AppCacheSubresourceURLFactory::CreateURLLoaderFactory(GetWeakPtr(),
                                                         &factory_ptr);
 
-  frontend_->OnSetSubresourceFactory(host_id(), std::move(factory_ptr));
+  // We may not have bound |factory_ptr| if the storage partition has shut down.
+  if (factory_ptr)
+    frontend()->SetSubresourceFactory(std::move(factory_ptr));
 }
 
 void AppCacheHost::SetAppCacheSubresourceFactory(
@@ -634,15 +672,45 @@ void AppCacheHost::AssociateCacheHelper(AppCache* cache,
   if (cache)
     cache->AssociateHost(this);
 
-  blink::mojom::AppCacheInfo info =
-      CreateCacheInfo(cache, manifest_url, GetStatus());
+  blink::mojom::AppCacheInfoPtr info =
+      CreateCacheInfo(cache, manifest_url, GetStatusSync());
   // In the network service world, we need to pass the URLLoaderFactory
   // instance to the renderer which it can use to request subresources.
   // This ensures that they can be served out of the AppCache.
   if (cache && cache->is_complete())
     MaybePassSubresourceFactory();
 
-  frontend_->OnCacheSelected(host_id_, info);
+  OnAppCacheAccessed(info->manifest_url, false);
+  frontend()->CacheSelected(std::move(info));
+}
+
+void AppCacheHost::OnContentBlocked(const GURL& manifest_url) {
+  OnAppCacheAccessed(manifest_url, /*blocked=*/true);
+}
+
+void AppCacheHost::OnAppCacheAccessed(const GURL& manifest_url, bool blocked) {
+  if (!blocked && manifest_url.is_empty())
+    return;
+
+  // Unit tests might not have a UI thread, if that's the case just don't bother
+  // informing WebContents about this access.
+  if (render_frame_id_ != MSG_ROUTING_NONE &&
+      BrowserThread::IsThreadInitialized(BrowserThread::UI)) {
+    base::PostTaskWithTraits(
+        FROM_HERE, {BrowserThread::UI},
+        base::BindOnce(
+            [](int process_id, int render_frame_id, const GURL& manifest_url,
+               bool blocked) {
+              WebContents* web_contents =
+                  WebContentsImpl::FromRenderFrameHostID(process_id,
+                                                         render_frame_id);
+              if (web_contents) {
+                static_cast<WebContentsImpl*>(web_contents)
+                    ->OnAppCacheAccessed(manifest_url, blocked);
+              }
+            },
+            process_id_, render_frame_id_, manifest_url, blocked));
+  }
 }
 
 }  // namespace content

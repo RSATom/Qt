@@ -160,7 +160,7 @@ IN_PROC_BROWSER_TEST_P(StoragePartititionImplBrowsertest,
 
   base::ScopedAllowBlockingForTesting allow_blocking;
   std::unique_ptr<ShellBrowserContext> browser_context =
-      std::make_unique<ShellBrowserContext>(true, nullptr);
+      std::make_unique<ShellBrowserContext>(true);
   auto* partition =
       BrowserContext::GetDefaultStoragePartition(browser_context.get());
   auto shared_url_loader_factory_info =
@@ -184,7 +184,7 @@ IN_PROC_BROWSER_TEST_P(StoragePartititionImplBrowsertest,
 
   base::ScopedAllowBlockingForTesting allow_blocking;
   std::unique_ptr<ShellBrowserContext> browser_context =
-      std::make_unique<ShellBrowserContext>(true, nullptr);
+      std::make_unique<ShellBrowserContext>(true);
   auto* partition =
       BrowserContext::GetDefaultStoragePartition(browser_context.get());
   auto factory_owner = IOThreadSharedURLLoaderFactoryOwner::Create(
@@ -207,7 +207,7 @@ IN_PROC_BROWSER_TEST_P(StoragePartititionImplBrowsertest,
 
   base::ScopedAllowBlockingForTesting allow_blocking;
   std::unique_ptr<ShellBrowserContext> browser_context =
-      std::make_unique<ShellBrowserContext>(true, nullptr);
+      std::make_unique<ShellBrowserContext>(true);
   auto* partition =
       BrowserContext::GetDefaultStoragePartition(browser_context.get());
 
@@ -249,12 +249,12 @@ IN_PROC_BROWSER_TEST_P(StoragePartititionImplBrowsertest,
 // NetworkServiceState::kEnabled currently DCHECKs on Android, as Android isn't
 // expected to create extra processes.
 #if defined(OS_ANDROID)
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     /* No test prefix */,
     StoragePartititionImplBrowsertest,
     ::testing::Values(NetworkServiceState::kDisabled));
 #else  // !defined(OS_ANDROID)
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     /* No test prefix */,
     StoragePartititionImplBrowsertest,
     ::testing::Values(NetworkServiceState::kDisabled,

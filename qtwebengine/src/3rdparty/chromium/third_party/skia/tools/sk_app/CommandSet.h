@@ -8,8 +8,8 @@
 #ifndef CommandSet_DEFINED
 #define CommandSet_DEFINED
 
-#include "SkString.h"
-#include "Window.h"
+#include "include/core/SkString.h"
+#include "tools/sk_app/Window.h"
 
 #include <functional>
 #include <vector>
@@ -41,8 +41,8 @@ public:
     CommandSet();
 
     void attach(Window* window);
-    bool onKey(sk_app::Window::Key key, sk_app::Window::InputState state, uint32_t modifiers);
-    bool onChar(SkUnichar, uint32_t modifiers);
+    bool onKey(sk_app::Window::Key key, InputState state, ModifierKey modifiers);
+    bool onChar(SkUnichar, ModifierKey modifiers);
     bool onSoftkey(const SkString& softkey);
 
     void addCommand(SkUnichar c, const char* group, const char* description,

@@ -126,7 +126,7 @@ private:
         QDateTime timestamp;
     };
 
-    mutable QMutex m_mutex;
+    mutable QRecursiveMutex m_mutex;
     bool m_isReady;
     QAndroidJniObject m_javaObject;
     QHash<QString, QInAppProduct::ProductType> m_productTypeForPendingId;

@@ -16,7 +16,6 @@
 #include "base/task/cancelable_task_tracker.h"
 #include "base/test/scoped_task_environment.h"
 #include "build/build_config.h"
-#include "components/history/core/browser/default_top_sites_provider.h"
 #include "components/history/core/browser/history_client.h"
 #include "components/history/core/browser/history_constants.h"
 #include "components/history/core/browser/history_database_params.h"
@@ -57,8 +56,7 @@ bool MockCanAddURLToHistory(const GURL& url) {
 // TopSites is queried before it finishes loading.
 class TopSitesQuerier {
  public:
-  TopSitesQuerier()
-      : number_of_callbacks_(0), waiting_(false), weak_ptr_factory_(this) {}
+  TopSitesQuerier() : number_of_callbacks_(0), waiting_(false) {}
 
   // Queries top sites. If |wait| is true a nested run loop is run until the
   // callback is notified.
@@ -96,7 +94,7 @@ class TopSitesQuerier {
   MostVisitedURLList urls_;
   int number_of_callbacks_;
   bool waiting_;
-  base::WeakPtrFactory<TopSitesQuerier> weak_ptr_factory_;
+  base::WeakPtrFactory<TopSitesQuerier> weak_ptr_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(TopSitesQuerier);
 };
@@ -240,7 +238,6 @@ class TopSitesImplTest : public HistoryUnitTestBase {
         PrepopulatedPage(GURL(kPrepopulatedPageURL), base::string16(), -1, 0));
     top_sites_impl_ = new TopSitesImpl(
         pref_service_.get(), history_service_.get(),
-        std::make_unique<DefaultTopSitesProvider>(history_service_.get()),
         prepopulated_pages, base::Bind(MockCanAddURLToHistory));
     top_sites_impl_->Init(scoped_temp_dir_.GetPath().Append(kTopSitesFilename));
   }

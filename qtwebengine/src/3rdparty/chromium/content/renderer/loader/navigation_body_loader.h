@@ -23,6 +23,10 @@
 #include "services/network/public/mojom/url_loader.mojom.h"
 #include "third_party/blink/public/platform/web_navigation_body_loader.h"
 
+namespace blink {
+struct WebNavigationParams;
+}  // namespace blink
+
 namespace network {
 struct URLLoaderCompletionStatus;
 }  // namespace network
@@ -42,15 +46,19 @@ class CONTENT_EXPORT NavigationBodyLoader
     : public blink::WebNavigationBodyLoader,
       public network::mojom::URLLoaderClient {
  public:
-  NavigationBodyLoader(
+  // This method fills navigation params related to the navigation request,
+  // redirects and response, and also creates a body loader if needed.
+  static void FillNavigationParamsResponseAndBodyLoader(
       const CommonNavigationParams& common_params,
       const CommitNavigationParams& commit_params,
       int request_id,
-      const network::ResourceResponseHead& head,
+      const network::ResourceResponseHead& response_head,
+      mojo::ScopedDataPipeConsumerHandle response_body,
       network::mojom::URLLoaderClientEndpointsPtr url_loader_client_endpoints,
       scoped_refptr<base::SingleThreadTaskRunner> task_runner,
       int render_frame_id,
-      bool is_main_frame);
+      bool is_main_frame,
+      blink::WebNavigationParams* navigation_params);
   ~NavigationBodyLoader() override;
 
  private:
@@ -76,26 +84,43 @@ class CONTENT_EXPORT NavigationBodyLoader
   // NotifyCompletionIfAppropriate
   //   notify client about completion
 
+  // The maximal number of bytes consumed in a task. When there are more bytes
+  // in the data pipe, they will be consumed in following tasks. Setting a too
+  // small number will generate ton of tasks but setting a too large number will
+  // lead to thread janks. Also, some clients cannot handle too large chunks
+  // (512k for example).
+  static constexpr uint32_t kMaxNumConsumedBytesInTask = 64 * 1024;
+
+  NavigationBodyLoader(
+      const network::ResourceResponseHead& response_head,
+      mojo::ScopedDataPipeConsumerHandle response_body,
+      network::mojom::URLLoaderClientEndpointsPtr url_loader_client_endpoints,
+      scoped_refptr<base::SingleThreadTaskRunner> task_runner,
+      int render_frame_id,
+      mojom::ResourceLoadInfoPtr resource_load_info);
+
   // blink::WebNavigationBodyLoader
   void SetDefersLoading(bool defers) override;
   void StartLoadingBody(WebNavigationBodyLoader::Client* client,
                         bool use_isolated_code_cache) override;
 
   // network::mojom::URLLoaderClient
-  void OnReceiveResponse(const network::ResourceResponseHead& head) override;
-  void OnReceiveRedirect(const net::RedirectInfo& redirect_info,
-                         const network::ResourceResponseHead& head) override;
+  void OnReceiveResponse(
+      const network::ResourceResponseHead& response_head) override;
+  void OnReceiveRedirect(
+      const net::RedirectInfo& redirect_info,
+      const network::ResourceResponseHead& response_head) override;
   void OnUploadProgress(int64_t current_position,
                         int64_t total_size,
                         OnUploadProgressCallback callback) override;
-  void OnReceiveCachedMetadata(const std::vector<uint8_t>& data) override;
+  void OnReceiveCachedMetadata(mojo_base::BigBuffer data) override;
   void OnTransferSizeUpdated(int32_t transfer_size_diff) override;
   void OnStartLoadingResponseBody(
       mojo::ScopedDataPipeConsumerHandle handle) override;
   void OnComplete(const network::URLLoaderCompletionStatus& status) override;
 
-  void CodeCacheReceived(const base::Time& response_time,
-                         const std::vector<uint8_t>& data);
+  void CodeCacheReceived(base::Time response_time,
+                         base::span<const uint8_t> data);
   void BindURLLoaderAndContinue();
   void OnConnectionClosed();
   void OnReadable(MojoResult unused);
@@ -103,10 +128,12 @@ class CONTENT_EXPORT NavigationBodyLoader
   // BodyDataReceived synchronously.
   void ReadFromDataPipe();
   void NotifyCompletionIfAppropriate();
+  void BindURLLoaderAndStartLoadingResponseBodyIfPossible();
 
   // Navigation parameters.
   const int render_frame_id_;
-  const network::ResourceResponseHead head_;
+  const network::ResourceResponseHead response_head_;
+  mojo::ScopedDataPipeConsumerHandle response_body_;
   network::mojom::URLLoaderClientEndpointsPtr endpoints_;
   scoped_refptr<base::SingleThreadTaskRunner> task_runner_;
 
@@ -144,7 +171,7 @@ class CONTENT_EXPORT NavigationBodyLoader
   // from iniside BodyDataReceived client notification.
   bool is_in_on_readable_ = false;
 
-  base::WeakPtrFactory<NavigationBodyLoader> weak_factory_;
+  base::WeakPtrFactory<NavigationBodyLoader> weak_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(NavigationBodyLoader);
 };

@@ -19,6 +19,11 @@
 #include <cstdarg>
 #include <cstdint>
 #include <vector>
+#include <atomic>
+
+#ifdef None
+#undef None  // b/127920555
+#endif
 
 namespace rr
 {
@@ -28,23 +33,87 @@ namespace rr
 	class BasicBlock;
 	class Routine;
 
-	enum Optimization
+	// Optimization holds the optimization settings for code generation.
+	class Optimization
 	{
-		Disabled             = 0,
-		InstructionCombining = 1,
-		CFGSimplification    = 2,
-		LICM                 = 3,
-		AggressiveDCE        = 4,
-		GVN                  = 5,
-		Reassociate          = 6,
-		DeadStoreElimination = 7,
-		SCCP                 = 8,
-		ScalarReplAggregates = 9,
+	public:
+		enum class Level
+		{
+			None,
+			Less,
+			Default,
+			Aggressive,
+		};
 
-		OptimizationCount
+		enum class Pass
+		{
+			Disabled,
+			InstructionCombining,
+			CFGSimplification,
+			LICM,
+			AggressiveDCE,
+			GVN,
+			Reassociate,
+			DeadStoreElimination,
+			SCCP,
+			ScalarReplAggregates,
+			EarlyCSEPass,
+
+			Count,
+		};
+
+		using Passes = std::vector<Pass>;
+
+		Optimization() = default;
+		Optimization(Level level, const Passes & passes) : level(level), passes(passes) {}
+
+		Level getLevel() const { return level; }
+		const Passes & getPasses() const { return passes; }
+
+	private:
+		Level level = Level::Default;
+		Passes passes;
 	};
 
-	extern Optimization optimization[10];
+	// Config holds the Reactor configuration settings.
+	class Config
+	{
+	public:
+		// Edit holds a number of modifications to a config, that can be applied
+		// on an existing Config to produce a new Config with the specified
+		// changes.
+		class Edit
+		{
+		public:
+			static const Edit None;
+
+			Edit & set(Optimization::Level level) { optLevel = level; optLevelChanged = true; return *this; }
+			Edit & add(Optimization::Pass pass) { optPassEdits.push_back({ListEdit::Add, pass}); return *this; }
+			Edit & remove(Optimization::Pass pass) { optPassEdits.push_back({ListEdit::Remove, pass}); return *this; }
+			Edit & clearOptimizationPasses() { optPassEdits.push_back({ListEdit::Clear, Optimization::Pass::Disabled}); return *this; }
+
+			Config apply(const Config &cfg) const;
+
+		private:
+			enum class ListEdit { Add, Remove, Clear };
+			using OptPassesEdit = std::pair<ListEdit, Optimization::Pass>;
+
+			template <typename T>
+			void apply(const std::vector<std::pair<ListEdit, T>> & edits, std::vector<T>& list) const;
+
+			Optimization::Level optLevel;
+			bool optLevelChanged = false;
+			std::vector<OptPassesEdit> optPassEdits;
+		};
+
+		Config() = default;
+		Config(const Optimization & optimization) : optimization(optimization) {}
+
+		const Optimization & getOptimization() const { return optimization; }
+
+	private:
+		Optimization optimization;
+	};
 
 	class Nucleus
 	{
@@ -53,7 +122,13 @@ namespace rr
 
 		virtual ~Nucleus();
 
-		Routine *acquireRoutine(const wchar_t *name, bool runOptimizations = true);
+		// Default configuration to use when no other configuration is specified.
+		// The new configuration will be applied to subsequent reactor calls.
+		static void setDefaultConfig(const Config &cfg);
+		static void adjustDefaultConfig(const Config::Edit &cfgEdit);
+		static Config getDefaultConfig();
+
+		Routine *acquireRoutine(const char *name, const Config::Edit &cfgEdit = Config::Edit::None);
 
 		static Value *allocateStackVariable(Type *type, int arraySize = 0);
 		static BasicBlock *createBasicBlock();
@@ -62,6 +137,26 @@ namespace rr
 
 		static void createFunction(Type *ReturnType, std::vector<Type*> &Params);
 		static Value *getArgument(unsigned int index);
+
+		// Coroutines
+		using CoroutineHandle = void*;
+
+		template <typename... ARGS>
+		using CoroutineBegin = CoroutineHandle(ARGS...);
+		using CoroutineAwait = bool(CoroutineHandle, void* yieldValue);
+		using CoroutineDestroy = void(CoroutineHandle);
+
+		enum CoroutineEntries
+		{
+			CoroutineEntryBegin = 0,
+			CoroutineEntryAwait,
+			CoroutineEntryDestroy,
+			CoroutineEntryCount
+		};
+
+		static void createCoroutine(Type *ReturnType, std::vector<Type*> &Params);
+		Routine *acquireCoroutine(const char *name, const Config::Edit &cfg = Config::Edit::None);
+		static void yield(Value*);
 
 		// Terminators
 		static void createRetVoid();
@@ -95,12 +190,33 @@ namespace rr
 		static Value *createNot(Value *V);
 
 		// Memory instructions
-		static Value *createLoad(Value *ptr, Type *type, bool isVolatile = false, unsigned int align = 0);
-		static Value *createStore(Value *value, Value *ptr, Type *type, bool isVolatile = false, unsigned int align = 0);
+		static Value *createLoad(Value *ptr, Type *type, bool isVolatile = false, unsigned int alignment = 0, bool atomic = false , std::memory_order memoryOrder = std::memory_order_relaxed);
+		static Value *createStore(Value *value, Value *ptr, Type *type, bool isVolatile = false, unsigned int aligment = 0, bool atomic = false, std::memory_order memoryOrder = std::memory_order_relaxed);
 		static Value *createGEP(Value *ptr, Type *type, Value *index, bool unsignedIndex);
 
+		// Masked Load / Store instructions
+		static Value *createMaskedLoad(Value *base, Type *elementType, Value *mask, unsigned int alignment, bool zeroMaskedLanes);
+		static void createMaskedStore(Value *base, Value *value, Value *mask, unsigned int alignment);
+
+		// Scatter / Gather instructions
+		static Value *createGather(Value *base, Type *elementType, Value *offsets, Value *mask, unsigned int alignment, bool zeroMaskedLanes);
+		static void createScatter(Value *base, Value *value, Value *offsets, Value *mask, unsigned int alignment);
+
+		// Barrier instructions
+		static void createFence(std::memory_order memoryOrder);
+
 		// Atomic instructions
-		static Value *createAtomicAdd(Value *ptr, Value *value);
+		static Value *createAtomicAdd(Value *ptr, Value *value, std::memory_order memoryOrder = std::memory_order_relaxed);
+		static Value *createAtomicSub(Value *ptr, Value *value, std::memory_order memoryOrder = std::memory_order_relaxed);
+		static Value *createAtomicAnd(Value *ptr, Value *value, std::memory_order memoryOrder = std::memory_order_relaxed);
+		static Value *createAtomicOr(Value *ptr, Value *value, std::memory_order memoryOrder = std::memory_order_relaxed);
+		static Value *createAtomicXor(Value *ptr, Value *value, std::memory_order memoryOrder = std::memory_order_relaxed);
+		static Value *createAtomicMin(Value *ptr, Value *value, std::memory_order memoryOrder = std::memory_order_relaxed);
+		static Value *createAtomicMax(Value *ptr, Value *value, std::memory_order memoryOrder = std::memory_order_relaxed);
+		static Value *createAtomicUMin(Value *ptr, Value *value, std::memory_order memoryOrder = std::memory_order_relaxed);
+		static Value *createAtomicUMax(Value *ptr, Value *value, std::memory_order memoryOrder = std::memory_order_relaxed);
+		static Value *createAtomicExchange(Value *ptr, Value *value, std::memory_order memoryOrder = std::memory_order_relaxed);
+		static Value *createAtomicCompareExchange(Value *ptr, Value *value, Value *compare, std::memory_order memoryOrderEqual, std::memory_order memoryOrderUnequal);
 
 		// Cast/Conversion Operators
 		static Value *createTrunc(Value *V, Type *destType);
@@ -165,9 +281,6 @@ namespace rr
 		static Value *createConstantVector(const double *constants, Type *type);
 
 		static Type *getPointerType(Type *elementType);
-
-	private:
-		void optimize();
 	};
 }
 

@@ -5,13 +5,14 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_PLATFORM_LOADER_FETCH_SCRIPT_FETCH_OPTIONS_H_
 #define THIRD_PARTY_BLINK_RENDERER_PLATFORM_LOADER_FETCH_SCRIPT_FETCH_OPTIONS_H_
 
-#include "services/network/public/mojom/referrer_policy.mojom-shared.h"
+#include "services/network/public/mojom/referrer_policy.mojom-blink.h"
 #include "third_party/blink/public/platform/web_url_request.h"
-#include "third_party/blink/renderer/platform/cross_origin_attribute_value.h"
+#include "third_party/blink/renderer/platform/loader/fetch/cross_origin_attribute_value.h"
 #include "third_party/blink/renderer/platform/loader/fetch/fetch_parameters.h"
 #include "third_party/blink/renderer/platform/loader/fetch/integrity_metadata.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource_loader_options.h"
 #include "third_party/blink/renderer/platform/platform_export.h"
+#include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 #include "third_party/blink/renderer/platform/wtf/text/text_encoding.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
 
@@ -21,10 +22,12 @@ class KURL;
 class SecurityOrigin;
 
 // ScriptFetchOptions corresponds to the spec concept "script fetch options".
-// https://html.spec.whatwg.org/multipage/webappapis.html#script-fetch-options
+// https://html.spec.whatwg.org/C/#script-fetch-options
 class PLATFORM_EXPORT ScriptFetchOptions final {
+  DISALLOW_NEW();
+
  public:
-  // https://html.spec.whatwg.org/multipage/webappapis.html#default-classic-script-fetch-options
+  // https://html.spec.whatwg.org/C/#default-classic-script-fetch-options
   // "The default classic script fetch options are a script fetch options whose
   // cryptographic nonce is the empty string, integrity metadata is the empty
   // string, parser metadata is "not-parser-inserted", and credentials mode
@@ -37,7 +40,7 @@ class PLATFORM_EXPORT ScriptFetchOptions final {
         integrity_metadata_(),
         integrity_attribute_(),
         parser_state_(ParserDisposition::kNotParserInserted),
-        credentials_mode_(network::mojom::FetchCredentialsMode::kOmit),
+        credentials_mode_(network::mojom::CredentialsMode::kOmit),
         referrer_policy_(network::mojom::ReferrerPolicy::kDefault),
         importance_(mojom::FetchImportanceMode::kImportanceAuto) {}
 
@@ -45,10 +48,9 @@ class PLATFORM_EXPORT ScriptFetchOptions final {
                      const IntegrityMetadataSet& integrity_metadata,
                      const String& integrity_attribute,
                      ParserDisposition parser_state,
-                     network::mojom::FetchCredentialsMode credentials_mode,
+                     network::mojom::CredentialsMode credentials_mode,
                      network::mojom::ReferrerPolicy referrer_policy,
-                     mojom::FetchImportanceMode importance =
-                         mojom::FetchImportanceMode::kImportanceAuto)
+                     mojom::FetchImportanceMode importance)
       : nonce_(nonce),
         integrity_metadata_(integrity_metadata),
         integrity_attribute_(integrity_attribute),
@@ -66,7 +68,7 @@ class PLATFORM_EXPORT ScriptFetchOptions final {
     return integrity_attribute_;
   }
   const ParserDisposition& ParserState() const { return parser_state_; }
-  network::mojom::FetchCredentialsMode CredentialsMode() const {
+  network::mojom::CredentialsMode CredentialsMode() const {
     return credentials_mode_;
   }
   network::mojom::ReferrerPolicy GetReferrerPolicy() const {
@@ -74,7 +76,7 @@ class PLATFORM_EXPORT ScriptFetchOptions final {
   }
   mojom::FetchImportanceMode Importance() const { return importance_; }
 
-  // https://html.spec.whatwg.org/multipage/webappapis.html#fetch-a-classic-script
+  // https://html.spec.whatwg.org/C/#fetch-a-classic-script
   // Steps 1 and 3.
   FetchParameters CreateFetchParameters(const KURL&,
                                         const SecurityOrigin*,
@@ -83,24 +85,26 @@ class PLATFORM_EXPORT ScriptFetchOptions final {
                                         FetchParameters::DeferOption) const;
 
  private:
-  // https://html.spec.whatwg.org/multipage/webappapis.html#concept-script-fetch-options-nonce
+  // https://html.spec.whatwg.org/C/#concept-script-fetch-options-nonce
   const String nonce_;
 
-  // https://html.spec.whatwg.org/multipage/webappapis.html#concept-script-fetch-options-integrity
+  // https://html.spec.whatwg.org/C/#concept-script-fetch-options-integrity
   const IntegrityMetadataSet integrity_metadata_;
   const String integrity_attribute_;
 
-  // https://html.spec.whatwg.org/multipage/webappapis.html#concept-script-fetch-options-parser
+  // https://html.spec.whatwg.org/C/#concept-script-fetch-options-parser
   const ParserDisposition parser_state_;
 
-  // https://html.spec.whatwg.org/multipage/webappapis.html#concept-script-fetch-options-credentials
-  const network::mojom::FetchCredentialsMode credentials_mode_;
+  // https://html.spec.whatwg.org/C/#concept-script-fetch-options-credentials
+  const network::mojom::CredentialsMode credentials_mode_;
 
-  // https://html.spec.whatwg.org/multipage/webappapis.html#concept-script-fetch-options-referrer-policy
+  // https://html.spec.whatwg.org/C/#concept-script-fetch-options-referrer-policy
   const network::mojom::ReferrerPolicy referrer_policy_;
 
   // Priority Hints and a request's "importance" mode are currently
-  // non-standard. See https://crbug.com/821464.
+  // non-standard. See https://crbug.com/821464, and the HTML Standard issue
+  // https://github.com/whatwg/html/issues/3670 for some discussion on adding an
+  // "importance" member to the script fetch options struct.
   const mojom::FetchImportanceMode importance_;
 };
 

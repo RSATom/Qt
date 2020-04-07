@@ -37,7 +37,7 @@ namespace views {
 // these take care of repainting it when the state changes.
 class VIEWS_EXPORT FocusRing : public View, public ViewObserver {
  public:
-  static const char kViewClassName[];
+  METADATA_HEADER(FocusRing);
 
   using ViewPredicate = std::function<bool(View* view)>;
 
@@ -77,8 +77,9 @@ class VIEWS_EXPORT FocusRing : public View, public ViewObserver {
   void SetColor(base::Optional<SkColor> color);
 
   // View:
-  const char* GetClassName() const override;
   void Layout() override;
+  void ViewHierarchyChanged(
+      const ViewHierarchyChangedDetails& details) override;
   void OnPaint(gfx::Canvas* canvas) override;
 
   // ViewObserver:
@@ -86,7 +87,7 @@ class VIEWS_EXPORT FocusRing : public View, public ViewObserver {
   void OnViewBlurred(View* view) override;
 
  private:
-  explicit FocusRing(View* parent);
+  FocusRing();
 
   // Translates the provided SkRect or SkRRect, which is in the parent's
   // coordinate system, into this view's coordinate system, then insets it
@@ -95,9 +96,6 @@ class VIEWS_EXPORT FocusRing : public View, public ViewObserver {
   // well.
   SkRRect RingRectFromPathRect(const SkRect& rect) const;
   SkRRect RingRectFromPathRect(const SkRRect& rect) const;
-
-  // The View this focus ring is installed on.
-  View* view_ = nullptr;
 
   // The path to draw this focus ring around. IsPathUseable(path_) is always
   // true.
@@ -118,6 +116,6 @@ class VIEWS_EXPORT FocusRing : public View, public ViewObserver {
 
 VIEWS_EXPORT SkPath GetHighlightPath(const View* view);
 
-}  // views
+}  // namespace views
 
 #endif  // UI_VIEWS_CONTROLS_FOCUS_RING_H_

@@ -30,6 +30,7 @@
 #include <QtCore/qtimer.h>
 #include <QtCore/qdir.h>
 #include <QtCore/qfileinfo.h>
+#include <QtCore/qregularexpression.h>
 #include <QtQml/qjsengine.h>
 
 #include <QtQml/qqmlcomponent.h>
@@ -58,6 +59,7 @@ private slots:
     void script_function();
     void script_var();
     void stressDispose();
+    void xmlHttpRequest();
 
 private:
     void waitForEchoMessage(QQuickWorkerScript *worker) {
@@ -91,14 +93,14 @@ void tst_QQuickWorkerScript::source()
     QCOMPARE(worker->source(), source);
     QVERIFY(QMetaObject::invokeMethod(worker.data(), "testSend", Q_ARG(QVariant, value)));
     waitForEchoMessage(worker.data());
-    QCOMPARE(mo->property(mo->indexOfProperty("response")).read(worker.data()).value<QVariant>(), qVariantFromValue(QString("Hello_World")));
+    QCOMPARE(mo->property(mo->indexOfProperty("response")).read(worker.data()).value<QVariant>(), QVariant::fromValue(QString("Hello_World")));
 
     source = testFileUrl("script_module.mjs");
     worker->setSource(source);
     QCOMPARE(worker->source(), source);
     QVERIFY(QMetaObject::invokeMethod(worker.data(), "testSend", Q_ARG(QVariant, value)));
     waitForEchoMessage(worker.data());
-    QCOMPARE(mo->property(mo->indexOfProperty("response")).read(worker.data()).value<QVariant>(), qVariantFromValue(QString("Hello from the module")));
+    QCOMPARE(mo->property(mo->indexOfProperty("response")).read(worker.data()).value<QVariant>(), QVariant::fromValue(QString("Hello from the module")));
 
     qApp->processEvents();
 }
@@ -118,7 +120,18 @@ void tst_QQuickWorkerScript::messaging()
     QVariant response = mo->property(mo->indexOfProperty("response")).read(worker).value<QVariant>();
     if (response.userType() == qMetaTypeId<QJSValue>())
         response = response.value<QJSValue>().toVariant();
-    QCOMPARE(response, value);
+
+    if (value.type() == QMetaType::QRegExp && response.type() == QMetaType::QRegularExpression) {
+        // toVariant() doesn't know if we want QRegExp or QRegularExpression. It always creates
+        // a QRegularExpression from a JavaScript regular expression.
+        const QRegularExpression responseRegExp = response.toRegularExpression();
+        const QRegExp valueRegExp = value.toRegExp();
+        QCOMPARE(responseRegExp.pattern(), valueRegExp.pattern());
+        QCOMPARE(bool(responseRegExp.patternOptions() & QRegularExpression::CaseInsensitiveOption),
+                 bool(valueRegExp.caseSensitivity() == Qt::CaseInsensitive));
+    } else {
+        QCOMPARE(response, value);
+    }
 
     qApp->processEvents();
     delete worker;
@@ -129,16 +142,16 @@ void tst_QQuickWorkerScript::messaging_data()
     QTest::addColumn<QVariant>("value");
 
     QTest::newRow("invalid") << QVariant();
-    QTest::newRow("bool") << qVariantFromValue(true);
-    QTest::newRow("int") << qVariantFromValue(1001);
-    QTest::newRow("real") << qVariantFromValue(10334.375);
-    QTest::newRow("string") << qVariantFromValue(QString("More cheeeese, Gromit!"));
-    QTest::newRow("variant list") << qVariantFromValue((QVariantList() << "a" << "b" << "c"));
-    QTest::newRow("date time") << qVariantFromValue(QDateTime::currentDateTime());
-#ifndef QT_NO_REGEXP
-    // Qt Script's QScriptValue -> QRegExp uses RegExp2 pattern syntax
-    QTest::newRow("regexp") << qVariantFromValue(QRegExp("^\\d\\d?$", Qt::CaseInsensitive, QRegExp::RegExp2));
-#endif
+    QTest::newRow("bool") << QVariant::fromValue(true);
+    QTest::newRow("int") << QVariant::fromValue(1001);
+    QTest::newRow("real") << QVariant::fromValue(10334.375);
+    QTest::newRow("string") << QVariant::fromValue(QString("More cheeeese, Gromit!"));
+    QTest::newRow("variant list") << QVariant::fromValue((QVariantList() << "a" << "b" << "c"));
+    QTest::newRow("date time") << QVariant::fromValue(QDateTime::currentDateTime());
+    QTest::newRow("regexp") << QVariant::fromValue(QRegExp("^\\d\\d?$", Qt::CaseInsensitive,
+                                                         QRegExp::RegExp2));
+    QTest::newRow("regularexpression") << QVariant::fromValue(QRegularExpression(
+            "^\\d\\d?$", QRegularExpression::CaseInsensitiveOption));
 }
 
 void tst_QQuickWorkerScript::messaging_sendQObjectList()
@@ -153,9 +166,9 @@ void tst_QQuickWorkerScript::messaging_sendQObjectList()
 
     QVariantList objects;
     for (int i=0; i<3; i++)
-        objects << qVariantFromValue(new QObject(this));
+        objects << QVariant::fromValue(new QObject(this));
 
-    QVERIFY(QMetaObject::invokeMethod(worker, "testSend", Q_ARG(QVariant, qVariantFromValue(objects))));
+    QVERIFY(QMetaObject::invokeMethod(worker, "testSend", Q_ARG(QVariant, QVariant::fromValue(objects))));
     waitForEchoMessage(worker);
 
     const QMetaObject *mo = worker->metaObject();
@@ -181,10 +194,10 @@ void tst_QQuickWorkerScript::messaging_sendJsObject()
     map.insert("name", "zyz");
     map.insert("spell power", 3101);
 
-    QVERIFY(QMetaObject::invokeMethod(worker, "testSend", Q_ARG(QVariant, qVariantFromValue(map))));
+    QVERIFY(QMetaObject::invokeMethod(worker, "testSend", Q_ARG(QVariant, QVariant::fromValue(map))));
     waitForEchoMessage(worker);
 
-    QVariant result = qVariantFromValue(false);
+    QVariant result = QVariant::fromValue(false);
     QVERIFY(QMetaObject::invokeMethod(worker, "compareLiteralResponse", Qt::DirectConnection,
             Q_RETURN_ARG(QVariant, result), Q_ARG(QVariant, jsObject)));
     QVERIFY(result.toBool());
@@ -327,6 +340,13 @@ void tst_QQuickWorkerScript::stressDispose()
         QVERIFY(o);
         delete o;
     }
+}
+
+void tst_QQuickWorkerScript::xmlHttpRequest()
+{
+    QQmlComponent component(&m_engine, testFileUrl("xmlHttpRequest.qml"));
+    QScopedPointer<QObject> root{component.create()}; // should not crash
+    QVERIFY(root);
 }
 
 QTEST_MAIN(tst_QQuickWorkerScript)

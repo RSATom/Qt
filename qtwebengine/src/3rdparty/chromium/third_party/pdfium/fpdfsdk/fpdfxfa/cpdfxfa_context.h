@@ -12,10 +12,9 @@
 
 #include "core/fpdfapi/parser/cpdf_document.h"
 #include "core/fxcrt/fx_system.h"
-#include "core/fxcrt/observable.h"
+#include "core/fxcrt/observed_ptr.h"
 #include "core/fxcrt/unowned_ptr.h"
 #include "fpdfsdk/cpdfsdk_formfillenvironment.h"
-#include "fpdfsdk/cpdfsdk_helpers.h"
 #include "fpdfsdk/fpdfxfa/cpdfxfa_docenvironment.h"
 #include "fpdfsdk/fpdfxfa/cpdfxfa_page.h"
 #include "xfa/fxfa/cxfa_ffdoc.h"
@@ -47,7 +46,6 @@ class CPDFXFA_Context final : public CPDF_Document::Extension,
     return m_FormType == FormType::kXFAFull ||
            m_FormType == FormType::kXFAForeground;
   }
-  CXFA_FFApp* GetXFAApp() { return m_pXFAApp.get(); }
 
   CPDFSDK_FormFillEnvironment* GetFormFillEnv() const {
     return m_pFormFillEnv.Get();
@@ -113,9 +111,9 @@ class CPDFXFA_Context final : public CPDF_Document::Extension,
   FormType m_FormType = FormType::kNone;
   UnownedPtr<CPDF_Document> const m_pPDFDoc;
   std::unique_ptr<CXFA_FFDoc> m_pXFADoc;
-  Observable<CPDFSDK_FormFillEnvironment>::ObservedPtr m_pFormFillEnv;
+  ObservedPtr<CPDFSDK_FormFillEnvironment> m_pFormFillEnv;
   UnownedPtr<CXFA_FFDocView> m_pXFADocView;
-  std::unique_ptr<CXFA_FFApp> m_pXFAApp;
+  std::unique_ptr<CXFA_FFApp> const m_pXFAApp;
   std::unique_ptr<CJS_Runtime> m_pRuntime;
   std::vector<RetainPtr<CPDFXFA_Page>> m_XFAPageList;
   LoadStatus m_nLoadStatus = FXFA_LOADSTATUS_PRELOAD;

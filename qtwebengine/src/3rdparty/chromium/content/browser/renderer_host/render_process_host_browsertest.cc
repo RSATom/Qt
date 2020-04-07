@@ -3,6 +3,7 @@
 // found in the LICENSE file.
 
 #include "base/bind.h"
+#include "base/bind_helpers.h"
 #include "base/command_line.h"
 #include "base/run_loop.h"
 #include "base/synchronization/waitable_event.h"
@@ -26,6 +27,7 @@
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/content_browser_test.h"
 #include "content/public/test/content_browser_test_utils.h"
+#include "content/public/test/no_renderer_crashes_assertion.h"
 #include "content/public/test/test_service.mojom.h"
 #include "content/public/test/test_utils.h"
 #include "content/shell/browser/shell.h"
@@ -37,9 +39,11 @@
 #include "media/base/media_switches.h"
 #include "media/base/test_data_util.h"
 #include "media/mojo/buildflags.h"
+#include "net/dns/mock_host_resolver.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
 #include "net/test/embedded_test_server/http_request.h"
 #include "net/test/embedded_test_server/http_response.h"
+#include "services/network/public/cpp/features.h"
 
 #if defined(OS_WIN)
 #include "base/win/windows_version.h"
@@ -71,6 +75,11 @@ class RenderProcessHostTest : public ContentBrowserTest,
     command_line->AppendSwitchASCII(
         switches::kAutoplayPolicy,
         switches::autoplay::kNoUserGestureRequiredPolicy);
+  }
+
+  void SetUpOnMainThread() override {
+    // Support multiple sites on the test server.
+    host_resolver()->AddRule("*", "127.0.0.1");
   }
 
  protected:
@@ -237,8 +246,11 @@ IN_PROC_BROWSER_TEST_F(RenderProcessHostTest, SpareRenderProcessHostKilled) {
   spare_renderer->AddObserver(this);  // For process_exit_callback.
 
   // Should reply with a bad message and cause process death.
-  service->DoSomething(base::DoNothing());
-  run_loop.Run();
+  {
+    ScopedAllowRendererCrashes scoped_allow_renderer_crashes(spare_renderer);
+    service->DoSomething(base::DoNothing());
+    run_loop.Run();
+  }
 
   // The spare RenderProcessHost should disappear when its process dies.
   EXPECT_EQ(nullptr,
@@ -409,13 +421,18 @@ class CustomStoragePartitionForSomeSites : public TestContentBrowserClient {
 // for StoragePartition differences when handing out the spare process.
 IN_PROC_BROWSER_TEST_F(RenderProcessHostTest,
                        SpareProcessVsCustomStoragePartition) {
+  if (!base::FeatureList::IsEnabled(network::features::kNetworkService))
+    return;
+
   ASSERT_TRUE(embedded_test_server()->Start());
 
   // Provide custom storage partition for test sites.
   GURL test_url = embedded_test_server()->GetURL("/simple_page.html");
   BrowserContext* browser_context =
       ShellContentBrowserClient::Get()->browser_context();
-  GURL test_site = SiteInstance::GetSiteForURL(browser_context, test_url);
+  scoped_refptr<SiteInstance> test_site_instance =
+      SiteInstance::Create(browser_context)->GetRelatedSiteInstance(test_url);
+  GURL test_site = test_site_instance->GetSiteURL();
   CustomStoragePartitionForSomeSites modified_client(test_site);
   ContentBrowserClient* old_client =
       SetBrowserClientForTesting(&modified_client);
@@ -630,6 +647,7 @@ IN_PROC_BROWSER_TEST_F(RenderProcessHostTest,
   // This will crash the render process, and start all the callbacks.
   // We can't use NavigateToURL here since it accesses the shell() after
   // navigating, which the shell_closer deletes.
+  ScopedAllowRendererCrashes scoped_allow_renderer_crashes(shell());
   NavigateToURLBlockUntilNavigationsComplete(
       shell(), GURL(kChromeUICrashURL), 1);
 
@@ -667,9 +685,11 @@ IN_PROC_BROWSER_TEST_F(RenderProcessHostTest, KillProcessOnBadMojoMessage) {
   set_process_exit_callback(run_loop.QuitClosure());
 
   // Should reply with a bad message and cause process death.
-  service->DoSomething(base::DoNothing());
-
-  run_loop.Run();
+  {
+    ScopedAllowRendererCrashes scoped_allow_renderer_crashes(rph);
+    service->DoSomething(base::DoNothing());
+    run_loop.Run();
+  }
 
   EXPECT_EQ(1, process_exits_);
   EXPECT_EQ(0, host_destructions_);
@@ -745,6 +765,7 @@ IN_PROC_BROWSER_TEST_F(RenderProcessHostTest, KillProcessZerosAudioStreams) {
     // Note: We post task the QuitClosure since RenderProcessExited() is called
     // before destroying BrowserMessageFilters; and the next portion of the test
     // must run after these notifications have been delivered.
+    ScopedAllowRendererCrashes scoped_allow_renderer_crashes(rph);
     base::RunLoop run_loop;
     set_process_exit_callback(media::BindToCurrentLoop(run_loop.QuitClosure()));
     service->DoSomething(base::DoNothing());
@@ -857,6 +878,7 @@ IN_PROC_BROWSER_TEST_F(CaptureStreamRenderProcessHostTest,
 
   {
     // Force a bad message event to occur which will terminate the renderer.
+    ScopedAllowRendererCrashes scoped_allow_renderer_crashes(rph);
     base::RunLoop run_loop;
     set_process_exit_callback(media::BindToCurrentLoop(run_loop.QuitClosure()));
     service->DoSomething(base::DoNothing());
@@ -922,6 +944,7 @@ IN_PROC_BROWSER_TEST_F(CaptureStreamRenderProcessHostTest,
 
   {
     // Force a bad message event to occur which will terminate the renderer.
+    ScopedAllowRendererCrashes scoped_allow_renderer_crashes(rph);
     base::RunLoop run_loop;
     set_process_exit_callback(media::BindToCurrentLoop(run_loop.QuitClosure()));
     service->DoSomething(base::DoNothing());
@@ -949,6 +972,13 @@ IN_PROC_BROWSER_TEST_F(RenderProcessHostTest, KeepAliveRendererProcess) {
       base::BindRepeating(HandleBeacon));
   ASSERT_TRUE(embedded_test_server()->Start());
 
+  if (AreDefaultSiteInstancesEnabled()) {
+    // Isolate "foo.com" so we are guaranteed that navigations to this site
+    // will be in a different process.
+    IsolateOriginsForTesting(embedded_test_server(), shell()->web_contents(),
+                             {"foo.com"});
+  }
+
   NavigateToURL(shell(), embedded_test_server()->GetURL("/send-beacon.html"));
 
   RenderFrameHostImpl* rfh = static_cast<RenderFrameHostImpl*>(
@@ -961,8 +991,10 @@ IN_PROC_BROWSER_TEST_F(RenderProcessHostTest, KeepAliveRendererProcess) {
   rph->AddObserver(this);
   rfh->SetKeepAliveTimeoutForTesting(base::TimeDelta::FromSeconds(30));
 
+  // Navigate to a site that will be in a different process.
   base::TimeTicks start = base::TimeTicks::Now();
-  NavigateToURL(shell(), GURL("data:text/html,<p>hello</p>"));
+  NavigateToURL(shell(),
+                embedded_test_server()->GetURL("foo.com", "/title1.html"));
 
   WaitUntilProcessExits(1);
 

@@ -64,12 +64,13 @@ namespace Qt3DCore {
 
 class QJoint;
 
-class QSkeletonLoaderPrivate : public QAbstractSkeletonPrivate
+class Q_3DCORE_PRIVATE_EXPORT QSkeletonLoaderPrivate : public QAbstractSkeletonPrivate
 {
 public:
     QSkeletonLoaderPrivate();
 
     void setStatus(QSkeletonLoader::Status status);
+    void setRootJoint(QJoint *rootJoint);
 
     Q_DECLARE_PUBLIC(QSkeletonLoader)
 

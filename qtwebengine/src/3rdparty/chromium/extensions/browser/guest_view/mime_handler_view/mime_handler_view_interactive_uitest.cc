@@ -66,10 +66,10 @@ class MimeHandlerViewTest : public ExtensionApiTest,
     bool use_cross_process_frames_for_guests = GetParam();
     if (use_cross_process_frames_for_guests) {
       scoped_feature_list_.InitAndEnableFeature(
-          features::kGuestViewCrossProcessFrames);
+          features::kMimeHandlerViewInCrossProcessFrame);
     } else {
       scoped_feature_list_.InitAndDisableFeature(
-          features::kGuestViewCrossProcessFrames);
+          features::kMimeHandlerViewInCrossProcessFrame);
     }
   }
 
@@ -129,9 +129,9 @@ class MimeHandlerViewTest : public ExtensionApiTest,
   base::test::ScopedFeatureList scoped_feature_list_;
 };
 
-INSTANTIATE_TEST_CASE_P(MimeHandlerViewTests,
-                        MimeHandlerViewTest,
-                        testing::Bool());
+INSTANTIATE_TEST_SUITE_P(MimeHandlerViewTests,
+                         MimeHandlerViewTest,
+                         testing::Bool());
 
 // Test is flaky on Linux.  https://crbug.com/877627
 #if defined(OS_LINUX)

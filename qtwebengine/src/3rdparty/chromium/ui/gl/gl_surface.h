@@ -6,6 +6,7 @@
 #define UI_GL_GL_SURFACE_H_
 
 #include <string>
+#include <vector>
 
 #include "base/callback.h"
 #include "base/macros.h"
@@ -72,14 +73,18 @@ class GL_EXPORT GLSurface : public base::RefCounted<GLSurface> {
     SRGB,
     DISPLAY_P3,
     SCRGB_LINEAR,
+    HDR10,
   };
 
+  // Resizes the surface, returning success. If failed, it is possible that the
+  // context is no longer current.
   virtual bool Resize(const gfx::Size& size,
                       float scale_factor,
                       ColorSpace color_space,
                       bool has_alpha);
 
-  // Recreate the surface without changing the size.
+  // Recreate the surface without changing the size, returning success. If
+  // failed, it is possible that the context is no longer current.
   virtual bool Recreate();
 
   // Unschedule the CommandExecutor and return true to abort the processing of
@@ -91,29 +96,21 @@ class GL_EXPORT GLSurface : public base::RefCounted<GLSurface> {
   virtual bool IsOffscreen() = 0;
 
   // The callback is for receiving presentation feedback from |SwapBuffers|,
-  // |PostSubBuffer|, |CommitOverlayPlanes|, etc. If
-  // |SupportsPresentationCallback()| returns true, it is guarantee that the
-  // |PresentationCallback| will be called.
+  // |PostSubBuffer|, |CommitOverlayPlanes|, etc.
   // See |PresentationFeedback| for detail.
   using PresentationCallback =
-      base::Callback<void(const gfx::PresentationFeedback& feedback)>;
+      base::OnceCallback<void(const gfx::PresentationFeedback& feedback)>;
 
   // Swaps front and back buffers. This has no effect for off-screen
-  // contexts.
-  virtual gfx::SwapResult SwapBuffers(const PresentationCallback& callback) = 0;
+  // contexts. If it returns SWAP_FAILED, it is possible that the context is no
+  // longer current.
+  virtual gfx::SwapResult SwapBuffers(PresentationCallback callback) = 0;
 
   // Get the size of the surface.
   virtual gfx::Size GetSize() = 0;
 
   // Get the underlying platform specific surface "handle".
   virtual void* GetHandle() = 0;
-
-  // Returns whether or not the surface supports the |PresentationCallback|
-  // of |SwapBuffers|, |SwapBuffersAsync|, |SwapBuffersWithBounds|,
-  // |PostSubBuffer|, |PostSubBufferAsync|, |CommitOverlayPlanes|,
-  // |CommitOverlayPlanesAsync|, etc. If returns false, the
-  // |PresentationCallback| will never be called.
-  virtual bool SupportsPresentationCallback();
 
   // Returns whether or not the surface supports SwapBuffersWithBounds
   virtual bool SupportsSwapBuffersWithBounds();
@@ -139,46 +136,46 @@ class GL_EXPORT GLSurface : public base::RefCounted<GLSurface> {
   // progress when this callback is invoked, and the signaling of the gpu fence
   // will mark the completion of the swap operation.
   using SwapCompletionCallback =
-      base::Callback<void(gfx::SwapResult, std::unique_ptr<gfx::GpuFence>)>;
+      base::OnceCallback<void(gfx::SwapResult, std::unique_ptr<gfx::GpuFence>)>;
   // Swaps front and back buffers. This has no effect for off-screen
   // contexts. On some platforms, we want to send SwapBufferAck only after the
   // surface is displayed on screen. The callback can be used to delay sending
   // SwapBufferAck till that data is available. The callback should be run on
   // the calling thread (i.e. same thread SwapBuffersAsync is called)
-  virtual void SwapBuffersAsync(
-      const SwapCompletionCallback& completion_callback,
-      const PresentationCallback& presentation_callback);
+  virtual void SwapBuffersAsync(SwapCompletionCallback completion_callback,
+                                PresentationCallback presentation_callback);
 
-  // Swap buffers with content bounds.
+  // Swap buffers with content bounds. If it returns SWAP_FAILED, it is possible
+  // that the context is no longer current.
   virtual gfx::SwapResult SwapBuffersWithBounds(
       const std::vector<gfx::Rect>& rects,
-      const PresentationCallback& callback);
+      PresentationCallback callback);
 
-  // Copy part of the backbuffer to the frontbuffer.
+  // Copy part of the backbuffer to the frontbuffer. If it returns SWAP_FAILED,
+  // it is possible that the context is no longer current.
   virtual gfx::SwapResult PostSubBuffer(int x,
                                         int y,
                                         int width,
                                         int height,
-                                        const PresentationCallback& callback);
+                                        PresentationCallback callback);
 
   // Copy part of the backbuffer to the frontbuffer. On some platforms, we want
   // to send SwapBufferAck only after the surface is displayed on screen. The
   // callback can be used to delay sending SwapBufferAck till that data is
   // available. The callback should be run on the calling thread (i.e. same
   // thread PostSubBufferAsync is called)
-  virtual void PostSubBufferAsync(
-      int x,
-      int y,
-      int width,
-      int height,
-      const SwapCompletionCallback& completion_callback,
-      const PresentationCallback& presentation_callback);
+  virtual void PostSubBufferAsync(int x,
+                                  int y,
+                                  int width,
+                                  int height,
+                                  SwapCompletionCallback completion_callback,
+                                  PresentationCallback presentation_callback);
 
   // Show overlay planes but don't swap the front and back buffers. This acts
   // like SwapBuffers from the point of view of the client, but is cheaper when
-  // overlays account for all the damage.
-  virtual gfx::SwapResult CommitOverlayPlanes(
-      const PresentationCallback& callback);
+  // overlays account for all the damage. If it returns SWAP_FAILED,
+  // it is possible that the context is no longer current.
+  virtual gfx::SwapResult CommitOverlayPlanes(PresentationCallback callback);
 
   // Show overlay planes but don't swap the front and back buffers. On some
   // platforms, we want to send SwapBufferAck only after the overlays are
@@ -186,8 +183,8 @@ class GL_EXPORT GLSurface : public base::RefCounted<GLSurface> {
   // SwapBufferAck till that data is available. The callback should be run on
   // the calling thread (i.e. same thread CommitOverlayPlanesAsync is called).
   virtual void CommitOverlayPlanesAsync(
-      const SwapCompletionCallback& completion_callback,
-      const PresentationCallback& presentation_callback);
+      SwapCompletionCallback completion_callback,
+      PresentationCallback presentation_callback);
 
   // Called after a context is made current with this surface. Returns false
   // on error.
@@ -262,6 +259,8 @@ class GL_EXPORT GLSurface : public base::RefCounted<GLSurface> {
 
   virtual bool ScheduleDCLayer(const ui::DCRendererLayerParams& params);
 
+  // Enables or disables DC layers, returning success. If failed, it is possible
+  // that the context is no longer current.
   virtual bool SetEnableDCLayers(bool enable);
 
   virtual bool IsSurfaceless() const;
@@ -278,7 +277,8 @@ class GL_EXPORT GLSurface : public base::RefCounted<GLSurface> {
 
   virtual bool SupportsProtectedVideo() const;
 
-  // Set the rectangle that will be drawn into on the surface.
+  // Set the rectangle that will be drawn into on the surface, returning
+  // success. If failed, it is possible that the context is no longer current.
   virtual bool SetDrawRectangle(const gfx::Rect& rect);
 
   // This is the amount by which the scissor and viewport rectangles should be
@@ -287,6 +287,9 @@ class GL_EXPORT GLSurface : public base::RefCounted<GLSurface> {
 
   // Tells the surface to rely on implicit sync when swapping buffers.
   virtual void SetRelyOnImplicitSync();
+
+  // Tells the surface to perform a glFlush() before swapping buffers.
+  virtual void SetForceGlFlushOnSwapBuffers();
 
   // Support for eglGetFrameTimestamps.
   virtual bool SupportsSwapTimestamps() const;
@@ -301,6 +304,12 @@ class GL_EXPORT GLSurface : public base::RefCounted<GLSurface> {
 
   // Return the interface used for querying EGL timestamps.
   virtual EGLTimestampClient* GetEGLTimestampClient();
+
+  virtual bool SupportsGpuVSync() const;
+
+  virtual void SetGpuVSyncEnabled(bool enabled);
+
+  virtual void SetDisplayTransform(gfx::OverlayTransform transform) {}
 
   static GLSurface* GetCurrent();
 
@@ -325,6 +334,7 @@ class GL_EXPORT GLSurfaceAdapter : public GLSurface {
   explicit GLSurfaceAdapter(GLSurface* surface);
 
   bool Initialize(GLSurfaceFormat format) override;
+  void PrepareToDestroy(bool have_context) override;
   void Destroy() override;
   bool Resize(const gfx::Size& size,
               float scale_factor,
@@ -333,31 +343,26 @@ class GL_EXPORT GLSurfaceAdapter : public GLSurface {
   bool Recreate() override;
   bool DeferDraws() override;
   bool IsOffscreen() override;
-  gfx::SwapResult SwapBuffers(const PresentationCallback& callback) override;
-  void SwapBuffersAsync(
-      const SwapCompletionCallback& completion_callback,
-      const PresentationCallback& presentation_callback) override;
-  gfx::SwapResult SwapBuffersWithBounds(
-      const std::vector<gfx::Rect>& rects,
-      const PresentationCallback& callback) override;
+  gfx::SwapResult SwapBuffers(PresentationCallback callback) override;
+  void SwapBuffersAsync(SwapCompletionCallback completion_callback,
+                        PresentationCallback presentation_callback) override;
+  gfx::SwapResult SwapBuffersWithBounds(const std::vector<gfx::Rect>& rects,
+                                        PresentationCallback callback) override;
   gfx::SwapResult PostSubBuffer(int x,
                                 int y,
                                 int width,
                                 int height,
-                                const PresentationCallback& callback) override;
-  void PostSubBufferAsync(
-      int x,
-      int y,
-      int width,
-      int height,
-      const SwapCompletionCallback& completion_callback,
-      const PresentationCallback& presentation_callback) override;
-  gfx::SwapResult CommitOverlayPlanes(
-      const PresentationCallback& callback) override;
+                                PresentationCallback callback) override;
+  void PostSubBufferAsync(int x,
+                          int y,
+                          int width,
+                          int height,
+                          SwapCompletionCallback completion_callback,
+                          PresentationCallback presentation_callback) override;
+  gfx::SwapResult CommitOverlayPlanes(PresentationCallback callback) override;
   void CommitOverlayPlanesAsync(
-      const SwapCompletionCallback& completion_callback,
-      const PresentationCallback& presentation_callback) override;
-  bool SupportsPresentationCallback() override;
+      SwapCompletionCallback completion_callback,
+      PresentationCallback presentation_callback) override;
   bool SupportsSwapBuffersWithBounds() override;
   bool SupportsPostSubBuffer() override;
   bool SupportsCommitOverlayPlanes() override;
@@ -393,10 +398,14 @@ class GL_EXPORT GLSurfaceAdapter : public GLSurface {
   bool SetDrawRectangle(const gfx::Rect& rect) override;
   gfx::Vector2d GetDrawOffset() const override;
   void SetRelyOnImplicitSync() override;
+  void SetForceGlFlushOnSwapBuffers() override;
   bool SupportsSwapTimestamps() const override;
   void SetEnableSwapTimestamps() override;
   bool SupportsPlaneGpuFences() const override;
   int GetBufferCount() const override;
+  bool SupportsGpuVSync() const override;
+  void SetGpuVSyncEnabled(bool enabled) override;
+  void SetDisplayTransform(gfx::OverlayTransform transform) override;
 
   GLSurface* surface() const { return surface_.get(); }
 

@@ -6,9 +6,9 @@
  * found in the LICENSE file.
  */
 
-#include "../GLWindowContext.h"
-#include "WindowContextFactory_unix.h"
-#include "gl/GrGLInterface.h"
+#include "include/gpu/gl/GrGLInterface.h"
+#include "tools/sk_app/GLWindowContext.h"
+#include "tools/sk_app/unix/WindowContextFactory_unix.h"
 
 #include <GL/gl.h>
 
@@ -67,6 +67,7 @@ sk_sp<const GrGLInterface> GLWindowContext_xlib::onInitializeContext() {
     SkASSERT(!fGLContext);
     sk_sp<const GrGLInterface> interface;
     bool current = false;
+
     // We attempt to use glXCreateContextAttribsARB as RenderDoc requires that the context be
     // created with this rather than glXCreateContext.
     CreateContextAttribsFn* createContextAttribs = (CreateContextAttribsFn*)glXGetProcAddressARB(
@@ -126,6 +127,17 @@ sk_sp<const GrGLInterface> GLWindowContext_xlib::onInitializeContext() {
     if (!current && !glXMakeCurrent(fDisplay, fWindow, fGLContext)) {
         return nullptr;
     }
+
+    const char* glxExtensions = glXQueryExtensionsString(fDisplay, DefaultScreen(fDisplay));
+    if (glxExtensions) {
+        if (strstr(glxExtensions, "GLX_EXT_swap_control")) {
+            PFNGLXSWAPINTERVALEXTPROC glXSwapIntervalEXT =
+                    (PFNGLXSWAPINTERVALEXTPROC)glXGetProcAddressARB(
+                            (const GLubyte*)"glXSwapIntervalEXT");
+            glXSwapIntervalEXT(fDisplay, fWindow, fDisplayParams.fDisableVsync ? 0 : 1);
+        }
+    }
+
     glClearStencil(0);
     glClearColor(0, 0, 0, 0);
     glStencilMask(0xffffffff);

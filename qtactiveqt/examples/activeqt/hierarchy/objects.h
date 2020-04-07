@@ -68,7 +68,7 @@ class QParentWidget : public QWidget
 public:
     explicit QParentWidget(QWidget *parent = nullptr);
 
-    QSize sizeHint() const;
+    QSize sizeHint() const override;
 
 public slots:
     void createSubWidget(const QString &name);
@@ -96,10 +96,10 @@ public:
     void setLabel(const QString &text);
     QString label() const;
 
-    QSize sizeHint() const;
+    QSize sizeHint() const override;
 
 protected:
-    void paintEvent(QPaintEvent *e);
+    void paintEvent(QPaintEvent *e) override;
 
 private:
     QString m_label;

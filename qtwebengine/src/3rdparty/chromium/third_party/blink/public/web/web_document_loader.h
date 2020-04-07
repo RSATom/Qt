@@ -44,9 +44,9 @@
 namespace blink {
 
 class WebDocumentSubresourceFilter;
+struct WebLoadingHintsProvider;
 class WebServiceWorkerNetworkProvider;
 class WebURL;
-class WebURLRequest;
 class WebURLResponse;
 template <typename T>
 class WebVector;
@@ -80,20 +80,11 @@ class BLINK_EXPORT WebDocumentLoader {
   // Returns the http method of the request corresponding to this load.
   virtual WebString HttpMethod() const = 0;
 
-  // Returns the cache mode of the request corresponding to this load.
-  virtual mojom::FetchCacheMode GetCacheMode() const = 0;
-
   // Returns the http referrer of the request corresponding to this load.
   virtual WebString Referrer() const = 0;
 
   // Returns the referrer policy of the request corresponding to this load.
   virtual network::mojom::ReferrerPolicy GetReferrerPolicy() const = 0;
-
-  // Returns the request corresponding to this datasource.  It may
-  // include additional request headers added by WebKit that were not
-  // present in the original request.  This request may also correspond
-  // to a location specified by a redirect that was followed.
-  virtual const WebURLRequest& GetRequest() const = 0;
 
   // Returns the response associated with this datasource.
   virtual const WebURLResponse& GetResponse() const = 0;
@@ -103,9 +94,8 @@ class BLINK_EXPORT WebDocumentLoader {
   virtual bool HasUnreachableURL() const = 0;
   virtual WebURL UnreachableURL() const = 0;
 
-  // Allows the embedder to append redirects to the chain as a navigation
-  // is starting, in case it is being transferred from another process.
-  virtual void AppendRedirect(const WebURL&) = 0;
+  // The error code for loading an error page.
+  virtual int ErrorCode() const = 0;
 
   // Returns all redirects that occurred (both client and server) before
   // at last committing the current page.  This will contain one entry
@@ -137,6 +127,13 @@ class BLINK_EXPORT WebDocumentLoader {
   // datasource is destroyed or when a new filter is set.
   virtual void SetSubresourceFilter(WebDocumentSubresourceFilter*) = 0;
 
+  // Allows the embedder to inject a loading hints provider that will be
+  // consulted to determine which subresources to load. The passed-in
+  // object is deleted when the datasource is destroyed or when a new filter
+  // is set.
+  virtual void SetLoadingHintsProvider(
+      std::unique_ptr<blink::WebLoadingHintsProvider>) = 0;
+
   // Allows the embedder to set and return the service worker provider
   // associated with the data source. The provider may provide the service
   // worker that controls the resource loading from this data source.
@@ -151,10 +148,13 @@ class BLINK_EXPORT WebDocumentLoader {
   virtual void BlockParser() = 0;
   virtual void ResumeParser() = 0;
 
-  // Returns info about whether the document is an MHTML archive.
-  virtual bool IsArchive() const = 0;
-  // Returns archive info for the archive.  Should never be called if
-  // IsArchive returns false.
+  // Returns true if the document is an MHTML archive. When true,
+  // GetArchiveInfo() may be called to find the result of loading and, if
+  // loading was successful, more information about the archive. Note that this
+  // can return true even if archive loading ended up failing.
+  virtual bool HasBeenLoadedAsWebArchive() const = 0;
+
+  // Returns archive info for the archive.
   virtual WebArchiveInfo GetArchiveInfo() const = 0;
 
   // Whether this load was started with a user gesture.

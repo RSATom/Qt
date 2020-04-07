@@ -5,6 +5,7 @@
 #include "gpu/ipc/common/gpu_info_struct_traits.h"
 #include "build/build_config.h"
 
+#include "base/logging.h"
 #include "mojo/public/cpp/base/time_mojom_traits.h"
 
 namespace mojo {
@@ -78,6 +79,10 @@ EnumTraits<gpu::mojom::VideoCodecProfile, gpu::VideoCodecProfile>::ToMojom(
       return gpu::mojom::VideoCodecProfile::DOLBYVISION_PROFILE5;
     case gpu::VideoCodecProfile::DOLBYVISION_PROFILE7:
       return gpu::mojom::VideoCodecProfile::DOLBYVISION_PROFILE7;
+    case gpu::VideoCodecProfile::DOLBYVISION_PROFILE8:
+      return gpu::mojom::VideoCodecProfile::DOLBYVISION_PROFILE8;
+    case gpu::VideoCodecProfile::DOLBYVISION_PROFILE9:
+      return gpu::mojom::VideoCodecProfile::DOLBYVISION_PROFILE9;
     case gpu::VideoCodecProfile::THEORAPROFILE_ANY:
       return gpu::mojom::VideoCodecProfile::THEORAPROFILE_ANY;
     case gpu::VideoCodecProfile::AV1PROFILE_PROFILE_MAIN:
@@ -168,6 +173,12 @@ bool EnumTraits<gpu::mojom::VideoCodecProfile, gpu::VideoCodecProfile>::
     case gpu::mojom::VideoCodecProfile::DOLBYVISION_PROFILE7:
       *out = gpu::VideoCodecProfile::DOLBYVISION_PROFILE7;
       return true;
+    case gpu::mojom::VideoCodecProfile::DOLBYVISION_PROFILE8:
+      *out = gpu::VideoCodecProfile::DOLBYVISION_PROFILE8;
+      return true;
+    case gpu::mojom::VideoCodecProfile::DOLBYVISION_PROFILE9:
+      *out = gpu::VideoCodecProfile::DOLBYVISION_PROFILE9;
+      return true;
     case gpu::mojom::VideoCodecProfile::THEORAPROFILE_ANY:
       *out = gpu::VideoCodecProfile::THEORAPROFILE_ANY;
       return true;
@@ -218,45 +229,117 @@ bool StructTraits<gpu::mojom::VideoEncodeAcceleratorSupportedProfileDataView,
          data.ReadMaxResolution(&out->max_resolution);
 }
 
-#if defined(OS_WIN)
 // static
-gpu::mojom::OverlayFormat
-EnumTraits<gpu::mojom::OverlayFormat, gpu::OverlayFormat>::ToMojom(
-    gpu::OverlayFormat format) {
-  switch (format) {
-    case gpu::OverlayFormat::kBGRA:
-      return gpu::mojom::OverlayFormat::BGRA;
-    case gpu::OverlayFormat::kYUY2:
-      return gpu::mojom::OverlayFormat::YUY2;
-    case gpu::OverlayFormat::kNV12:
-      return gpu::mojom::OverlayFormat::NV12;
+gpu::mojom::ImageDecodeAcceleratorType EnumTraits<
+    gpu::mojom::ImageDecodeAcceleratorType,
+    gpu::ImageDecodeAcceleratorType>::ToMojom(gpu::ImageDecodeAcceleratorType
+                                                  image_type) {
+  switch (image_type) {
+    case gpu::ImageDecodeAcceleratorType::kJpeg:
+      return gpu::mojom::ImageDecodeAcceleratorType::kJpeg;
+    case gpu::ImageDecodeAcceleratorType::kWebP:
+      return gpu::mojom::ImageDecodeAcceleratorType::kWebP;
+    case gpu::ImageDecodeAcceleratorType::kUnknown:
+      return gpu::mojom::ImageDecodeAcceleratorType::kUnknown;
   }
 }
 
-bool EnumTraits<gpu::mojom::OverlayFormat, gpu::OverlayFormat>::FromMojom(
-    gpu::mojom::OverlayFormat input,
-    gpu::OverlayFormat* out) {
+// static
+bool EnumTraits<gpu::mojom::ImageDecodeAcceleratorType,
+                gpu::ImageDecodeAcceleratorType>::
+    FromMojom(gpu::mojom::ImageDecodeAcceleratorType input,
+              gpu::ImageDecodeAcceleratorType* out) {
   switch (input) {
-    case gpu::mojom::OverlayFormat::BGRA:
-      *out = gpu::OverlayFormat::kBGRA;
+    case gpu::mojom::ImageDecodeAcceleratorType::kJpeg:
+      *out = gpu::ImageDecodeAcceleratorType::kJpeg;
+      return true;
+    case gpu::mojom::ImageDecodeAcceleratorType::kWebP:
+      *out = gpu::ImageDecodeAcceleratorType::kWebP;
+      return true;
+    case gpu::mojom::ImageDecodeAcceleratorType::kUnknown:
+      *out = gpu::ImageDecodeAcceleratorType::kUnknown;
+      return true;
+  }
+  NOTREACHED() << "Invalid ImageDecodeAcceleratorType: " << input;
+  return false;
+}
+
+// static
+gpu::mojom::ImageDecodeAcceleratorSubsampling
+EnumTraits<gpu::mojom::ImageDecodeAcceleratorSubsampling,
+           gpu::ImageDecodeAcceleratorSubsampling>::
+    ToMojom(gpu::ImageDecodeAcceleratorSubsampling subsampling) {
+  switch (subsampling) {
+    case gpu::ImageDecodeAcceleratorSubsampling::k420:
+      return gpu::mojom::ImageDecodeAcceleratorSubsampling::k420;
+    case gpu::ImageDecodeAcceleratorSubsampling::k422:
+      return gpu::mojom::ImageDecodeAcceleratorSubsampling::k422;
+    case gpu::ImageDecodeAcceleratorSubsampling::k444:
+      return gpu::mojom::ImageDecodeAcceleratorSubsampling::k444;
+  }
+}
+
+// static
+bool EnumTraits<gpu::mojom::ImageDecodeAcceleratorSubsampling,
+                gpu::ImageDecodeAcceleratorSubsampling>::
+    FromMojom(gpu::mojom::ImageDecodeAcceleratorSubsampling input,
+              gpu::ImageDecodeAcceleratorSubsampling* out) {
+  switch (input) {
+    case gpu::mojom::ImageDecodeAcceleratorSubsampling::k420:
+      *out = gpu::ImageDecodeAcceleratorSubsampling::k420;
+      return true;
+    case gpu::mojom::ImageDecodeAcceleratorSubsampling::k422:
+      *out = gpu::ImageDecodeAcceleratorSubsampling::k422;
+      return true;
+    case gpu::mojom::ImageDecodeAcceleratorSubsampling::k444:
+      *out = gpu::ImageDecodeAcceleratorSubsampling::k444;
+      return true;
+  }
+  NOTREACHED() << "Invalid ImageDecodeAcceleratorSubsampling: " << input;
+  return false;
+}
+
+// static
+bool StructTraits<gpu::mojom::ImageDecodeAcceleratorSupportedProfileDataView,
+                  gpu::ImageDecodeAcceleratorSupportedProfile>::
+    Read(gpu::mojom::ImageDecodeAcceleratorSupportedProfileDataView data,
+         gpu::ImageDecodeAcceleratorSupportedProfile* out) {
+  return data.ReadImageType(&out->image_type) &&
+         data.ReadMinEncodedDimensions(&out->min_encoded_dimensions) &&
+         data.ReadMaxEncodedDimensions(&out->max_encoded_dimensions) &&
+         data.ReadSubsamplings(&out->subsamplings);
+}
+
+#if defined(OS_WIN)
+// static
+gpu::mojom::OverlaySupport
+EnumTraits<gpu::mojom::OverlaySupport, gpu::OverlaySupport>::ToMojom(
+    gpu::OverlaySupport support) {
+  switch (support) {
+    case gpu::OverlaySupport::kNone:
+      return gpu::mojom::OverlaySupport::NONE;
+    case gpu::OverlaySupport::kDirect:
+      return gpu::mojom::OverlaySupport::DIRECT;
+    case gpu::OverlaySupport::kScaling:
+      return gpu::mojom::OverlaySupport::SCALING;
+  }
+}
+
+bool EnumTraits<gpu::mojom::OverlaySupport, gpu::OverlaySupport>::FromMojom(
+    gpu::mojom::OverlaySupport input,
+    gpu::OverlaySupport* out) {
+  switch (input) {
+    case gpu::mojom::OverlaySupport::NONE:
+      *out = gpu::OverlaySupport::kNone;
       break;
-    case gpu::mojom::OverlayFormat::YUY2:
-      *out = gpu::OverlayFormat::kYUY2;
+    case gpu::mojom::OverlaySupport::DIRECT:
+      *out = gpu::OverlaySupport::kDirect;
       break;
-    case gpu::mojom::OverlayFormat::NV12:
-      *out = gpu::OverlayFormat::kNV12;
+    case gpu::mojom::OverlaySupport::SCALING:
+      *out = gpu::OverlaySupport::kScaling;
       break;
   }
   return true;
-}
-
-// static
-bool StructTraits<
-    gpu::mojom::OverlayCapabilityDataView,
-    gpu::OverlayCapability>::Read(gpu::mojom::OverlayCapabilityDataView data,
-                                  gpu::OverlayCapability* out) {
-  out->is_scaling_supported = data.is_scaling_supported();
-  return data.ReadFormat(&out->format);
 }
 
 // static
@@ -279,7 +362,6 @@ bool StructTraits<gpu::mojom::GpuInfoDataView, gpu::GPUInfo>::Read(
   out->amd_switchable = data.amd_switchable();
   out->gl_reset_notification_strategy = data.gl_reset_notification_strategy();
   out->software_rendering = data.software_rendering();
-  out->direct_rendering = data.direct_rendering();
   out->sandboxed = data.sandboxed();
   out->in_process_gpu = data.in_process_gpu();
   out->passthrough_cmd_decoder = data.passthrough_cmd_decoder();
@@ -314,15 +396,19 @@ bool StructTraits<gpu::mojom::GpuInfoDataView, gpu::GPUInfo>::Read(
          data.ReadGlWsVendor(&out->gl_ws_vendor) &&
          data.ReadGlWsVersion(&out->gl_ws_version) &&
          data.ReadGlWsExtensions(&out->gl_ws_extensions) &&
+         data.ReadDirectRenderingVersion(&out->direct_rendering_version) &&
 #if defined(OS_WIN)
-         data.ReadOverlayCapabilities(&out->overlay_capabilities) &&
+         data.ReadYuy2OverlaySupport(&out->yuy2_overlay_support) &&
+         data.ReadNv12OverlaySupport(&out->nv12_overlay_support) &&
          data.ReadDxDiagnostics(&out->dx_diagnostics) &&
          data.ReadDx12VulkanVersionInfo(&out->dx12_vulkan_version_info) &&
 #endif
          data.ReadVideoDecodeAcceleratorCapabilities(
              &out->video_decode_accelerator_capabilities) &&
          data.ReadVideoEncodeAcceleratorSupportedProfiles(
-             &out->video_encode_accelerator_supported_profiles);
+             &out->video_encode_accelerator_supported_profiles) &&
+         data.ReadImageDecodeAcceleratorSupportedProfiles(
+             &out->image_decode_accelerator_supported_profiles);
 }
 
 }  // namespace mojo

@@ -4,7 +4,7 @@
 
 #include "third_party/blink/renderer/core/exported/worker_shadow_page.h"
 
-#include "services/network/public/mojom/referrer_policy.mojom-shared.h"
+#include "services/network/public/mojom/referrer_policy.mojom-blink.h"
 #include "third_party/blink/public/mojom/frame/document_interface_broker.mojom-blink.h"
 #include "third_party/blink/public/platform/platform.h"
 #include "third_party/blink/renderer/core/exported/web_view_impl.h"
@@ -27,7 +27,8 @@ mojo::ScopedMessagePipeHandle CreateStubDocumentInterfaceBrokerHandle() {
 WorkerShadowPage::WorkerShadowPage(
     Client* client,
     scoped_refptr<network::SharedURLLoaderFactory> loader_factory,
-    PrivacyPreferences preferences)
+    PrivacyPreferences preferences,
+    const base::UnguessableToken& appcache_host_id)
     : client_(client),
       web_view_(WebViewImpl::Create(nullptr,
                                     /*is_hidden=*/false,
@@ -40,8 +41,10 @@ WorkerShadowPage::WorkerShadowPage(
           CreateStubDocumentInterfaceBrokerHandle(),
           nullptr /* opener */,
           g_empty_atom,
-          WebSandboxFlags::kNone)),
+          WebSandboxFlags::kNone,
+          FeaturePolicy::FeatureState())),
       loader_factory_(std::move(loader_factory)),
+      appcache_host_id_(appcache_host_id),
       preferences_(std::move(preferences)) {
   DCHECK(IsMainThread());
 
@@ -63,24 +66,19 @@ void WorkerShadowPage::Initialize(const KURL& script_url) {
 
   // Construct substitute data source. We only need it to have same origin as
   // the worker so the loading checks work correctly.
-  CString content("");
-  main_frame_->GetFrame()->Loader().CommitNavigation(
+  std::string content("");
+  std::unique_ptr<WebNavigationParams> params =
       WebNavigationParams::CreateWithHTMLBuffer(
-          SharedBuffer::Create(content.data(), content.length()), script_url),
-      nullptr /* extra_data */);
+          SharedBuffer::Create(content.c_str(), content.length()), script_url);
+  params->appcache_host_id = appcache_host_id_;
+  main_frame_->GetFrame()->Loader().CommitNavigation(std::move(params),
+                                                     nullptr /* extra_data */);
 }
 
 void WorkerShadowPage::DidFinishDocumentLoad() {
   DCHECK(IsMainThread());
   AdvanceState(State::kInitialized);
   client_->OnShadowPageInitialized();
-}
-
-std::unique_ptr<WebApplicationCacheHost>
-WorkerShadowPage::CreateApplicationCacheHost(
-    WebApplicationCacheHostClient* appcache_host_client) {
-  DCHECK(IsMainThread());
-  return client_->CreateApplicationCacheHost(appcache_host_client);
 }
 
 std::unique_ptr<blink::WebURLLoaderFactory>
@@ -100,10 +98,10 @@ base::UnguessableToken WorkerShadowPage::GetDevToolsFrameToken() {
 
 void WorkerShadowPage::WillSendRequest(WebURLRequest& request) {
   if (preferences_.enable_do_not_track) {
-    request.SetHTTPHeaderField(WebString::FromUTF8(kDoNotTrackHeader), "1");
+    request.SetHttpHeaderField(WebString::FromUTF8(kDoNotTrackHeader), "1");
   }
   if (!preferences_.enable_referrers) {
-    request.SetHTTPReferrer(WebString(),
+    request.SetHttpReferrer(WebString(),
                             network::mojom::ReferrerPolicy::kDefault);
   }
 }

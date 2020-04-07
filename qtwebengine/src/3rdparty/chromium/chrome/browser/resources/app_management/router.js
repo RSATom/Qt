@@ -28,6 +28,12 @@ Polymer({
       observer: 'onUrlQueryChanged_',
     },
 
+    /** @private */
+    searchTerm_: {
+      type: String,
+      value: '',
+    },
+
     /** @private {PageType} */
     currentPageType_: {
       type: Number,
@@ -39,17 +45,22 @@ Polymer({
     },
   },
 
+  urlParsed_: false,
+
   observers: [
     'onUrlChanged_(path_, queryParams_)',
-    'onStateChanged_(currentPageType_, selectedAppId_)',
+    'onStateChanged_(currentPageType_, selectedAppId_, searchTerm_)',
   ],
 
   attached: function() {
-    this.watch('currentPageType_', function(state) {
+    this.watch('currentPageType_', (state) => {
       return state.currentPage.pageType;
     });
-    this.watch('selectedAppId_', function(state) {
+    this.watch('selectedAppId_', (state) => {
       return state.currentPage.selectedAppId;
+    });
+    this.watch('searchTerm_', (state) => {
+      return state.search.term;
     });
     this.updateFromStore();
   },
@@ -72,25 +83,38 @@ Polymer({
 
   /** @private */
   onStateChanged_: function() {
+    if (!this.urlParsed_) {
+      return;
+    }
     this.debounce('publishUrl', this.publishUrl_);
   },
 
   /** @private */
   publishUrl_: function() {
+    // Disable pushing urls into the history stack, so that we only push one
+    // state.
+    this.$['iron-location'].dwellTime = Infinity;
     this.publishQueryParams_();
+    // Re-enable pushing urls into the history stack.
+    this.$['iron-location'].dwellTime = 0;
     this.publishPath_();
   },
 
   /** @private */
   publishQueryParams_: function() {
-    const newId = this.selectedAppId_;
+    const newQueryParams = Object.assign({}, this.queryParams_);
 
-    this.queryParams_.id = newId;
-    if (!newId) {
-      delete this.queryParams_.id;
+    newQueryParams.q = this.searchTerm_ || undefined;
+    newQueryParams.id = this.selectedAppId_ || undefined;
+
+    // Can't update |this.queryParams_| every time since assigning a new object
+    // to it triggers a state change which causes the URL to change, which
+    // recurses into a loop. JSON.stringify is used here to compare objects as
+    // it is always going to be a key value (string) pair and will serialize
+    // correctly.
+    if (JSON.stringify(newQueryParams) !== JSON.stringify(this.queryParams_)) {
+      this.queryParams_ = newQueryParams;
     }
-
-    this.queryParams_ = Object.assign({}, this.queryParams_);
   },
 
   /** @private */
@@ -101,7 +125,6 @@ Polymer({
     } else if (this.currentPageType_ === PageType.NOTIFICATIONS) {
       path = 'notifications';
     }
-
     this.path_ = '/' + path;
   },
 
@@ -113,6 +136,7 @@ Polymer({
   /** @private */
   parseUrl_: function() {
     const newId = this.queryParams_.id;
+    const searchTerm = this.queryParams_.q;
 
     const pageFromUrl = this.path_.substr(1).split('/')[0];
     let newPage = PageType.MAIN;
@@ -129,5 +153,10 @@ Polymer({
     } else {
       this.dispatch(app_management.actions.changePage(newPage));
     }
+
+    if (searchTerm) {
+      this.dispatch(app_management.actions.setSearchTerm(searchTerm));
+    }
+    this.urlParsed_ = true;
   },
 });

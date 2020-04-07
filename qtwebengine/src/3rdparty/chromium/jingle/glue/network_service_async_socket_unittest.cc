@@ -10,15 +10,16 @@
 #include <string>
 #include <utility>
 
+#include "base/bind.h"
 #include "base/containers/circular_deque.h"
 #include "base/logging.h"
 #include "base/memory/ptr_util.h"
-#include "base/message_loop/message_loop.h"
 #include "base/message_loop/message_pump_default.h"
 #include "base/run_loop.h"
 #include "base/stl_util.h"
 #include "base/strings/strcat.h"
 #include "base/strings/string_number_conversions.h"
+#include "base/test/scoped_task_environment.h"
 #include "mojo/public/cpp/bindings/binding.h"
 #include "mojo/public/cpp/system/data_pipe_utils.h"
 #include "net/base/address_list.h"
@@ -389,9 +390,10 @@ class NetworkServiceAsyncSocketTest : public testing::Test,
     }
 
     std::string ToString() const {
-      return base::StrCat(
-          {"(", base::IntToString(signal), ",", base::IntToString(state), ",",
-           base::IntToString(error), ",", base::IntToString(net_error), ")"});
+      return base::StrCat({"(", base::NumberToString(signal), ",",
+                           base::NumberToString(state), ",",
+                           base::NumberToString(error), ",",
+                           base::NumberToString(net_error), ")"});
     }
 
     Signal signal;
@@ -551,7 +553,7 @@ class NetworkServiceAsyncSocketTest : public testing::Test,
   }
 
   // Need a message loop for both the socket and Mojo.
-  base::MessageLoop message_loop_;
+  base::test::ScopedTaskEnvironment scoped_task_environment_;
 
   AsyncSocketDataProvider async_socket_data_provider_;
   net::SSLSocketDataProvider ssl_socket_data_provider_;

@@ -6,6 +6,7 @@
 
 #include <cmath>
 
+#include "base/bind.h"
 #include "base/location.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/single_thread_task_runner.h"
@@ -40,6 +41,9 @@ bool ShouldDiscardRequest(const URLRequest& request) {
 namespace nqe {
 
 namespace internal {
+// The default content size of a HTML response body. It is set to the median
+// HTML response content size, i.e. 1.8kB.
+constexpr int64_t kDefaultContentSizeBytes = 1800;
 
 ThroughputAnalyzer::ThroughputAnalyzer(
     const NetworkQualityEstimator* network_quality_estimator,
@@ -56,6 +60,7 @@ ThroughputAnalyzer::ThroughputAnalyzer(
       last_connection_change_(tick_clock_->NowTicks()),
       window_start_time_(base::TimeTicks()),
       bits_received_at_window_start_(0),
+      total_response_content_size_(0),
       disable_throughput_measurements_(false),
       use_localhost_requests_for_tests_(false),
       net_log_(net_log) {
@@ -125,8 +130,24 @@ void ThroughputAnalyzer::SetTickClockForTesting(
   DCHECK(tick_clock_);
 }
 
+void ThroughputAnalyzer::UpdateResponseContentSize(const URLRequest* request,
+                                                   int64_t response_size) {
+  DCHECK_LE(0, response_size);
+  // Updates the map and the counter. Subtracts the previous stored response
+  // content size if an old record exists in the map.
+  if (response_content_sizes_.find(request) != response_content_sizes_.end()) {
+    total_response_content_size_ +=
+        response_size - response_content_sizes_[request];
+  } else {
+    total_response_content_size_ += response_size;
+  }
+  response_content_sizes_[request] = response_size;
+}
+
 void ThroughputAnalyzer::NotifyStartTransaction(const URLRequest& request) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+
+  UpdateResponseContentSize(&request, kDefaultContentSizeBytes);
 
   if (disable_throughput_measurements_)
     return;
@@ -172,6 +193,12 @@ void ThroughputAnalyzer::NotifyBytesRead(const URLRequest& request) {
 void ThroughputAnalyzer::NotifyRequestCompleted(const URLRequest& request) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
+  // Remove the request from the inflight requests if it presents in the map.
+  if (response_content_sizes_.find(&request) != response_content_sizes_.end()) {
+    total_response_content_size_ -= response_content_sizes_[&request];
+    response_content_sizes_.erase(&request);
+  }
+
   if (disable_throughput_measurements_)
     return;
 
@@ -190,15 +217,22 @@ void ThroughputAnalyzer::NotifyRequestCompleted(const URLRequest& request) {
     // Notify the provided callback.
     task_runner_->PostTask(
         FROM_HERE,
-        base::Bind(throughput_observation_callback_, downstream_kbps));
+        base::BindOnce(throughput_observation_callback_, downstream_kbps));
   }
 
   // Try to remove the request from either |accuracy_degrading_requests_| or
   // |requests_|, since it is no longer active.
   if (accuracy_degrading_requests_.erase(&request) == 1u) {
-    // |request| cannot be in both |accuracy_degrading_requests_| and
-    // |requests_| at the same time.
-    DCHECK(requests_.end() == requests_.find(&request));
+    // Generally, |request| cannot be in both |accuracy_degrading_requests_|
+    // and |requests_| at the same time. However, in some cases, the same
+    // request may appear in both vectors. See https://crbug.com/849604 for
+    // more details.
+    // It's safe to delete |request| from |requests_| since (i)
+    // The observation window is currently not recording throughput, and (ii)
+    // |requests_| is a best effort guess of requests that are currently
+    // in-flight.
+    DCHECK(!IsCurrentlyTrackingThroughput());
+    requests_.erase(&request);
 
     // If a request that degraded the accuracy of throughput computation has
     // completed, then it may be possible to start the tracking window.
@@ -214,6 +248,16 @@ void ThroughputAnalyzer::NotifyRequestCompleted(const URLRequest& request) {
     return;
   }
   MaybeStartThroughputObservationWindow();
+}
+
+void ThroughputAnalyzer::NotifyExpectedResponseContentSize(
+    const URLRequest& request,
+    int64_t expected_content_size) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  // Updates when the value is valid.
+  if (expected_content_size >= 0) {
+    UpdateResponseContentSize(&request, expected_content_size);
+  }
 }
 
 bool ThroughputAnalyzer::IsHangingWindow(int64_t bits_received,
@@ -341,9 +385,20 @@ int64_t ThroughputAnalyzer::GetBitsReceived() const {
   return NetworkActivityMonitor::GetInstance()->GetBytesReceived() * 8;
 }
 
-size_t ThroughputAnalyzer::CountInFlightRequests() const {
+size_t ThroughputAnalyzer::CountActiveInFlightRequests() const {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   return requests_.size();
+}
+
+size_t ThroughputAnalyzer::CountTotalInFlightRequests() const {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  return response_content_sizes_.size();
+}
+
+int64_t ThroughputAnalyzer::CountTotalContentSizeBytes() const {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+
+  return total_response_content_size_;
 }
 
 bool ThroughputAnalyzer::DegradesAccuracy(const URLRequest& request) const {
@@ -429,11 +484,6 @@ void ThroughputAnalyzer::EraseHangingRequests(const URLRequest& request) {
       }
     }
   }
-
-  UMA_HISTOGRAM_COUNTS_100("NQE.ThroughputAnalyzer.HangingRequests.Erased",
-                           count_request_erased);
-  UMA_HISTOGRAM_COUNTS_100("NQE.ThroughputAnalyzer.HangingRequests.NotErased",
-                           requests_.size());
 
   if (count_request_erased > 0) {
     // End the observation window since there is at least one hanging GET in

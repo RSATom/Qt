@@ -7,8 +7,8 @@
 
 #include "src/objects/property-cell.h"
 
-#include "src/heap/heap-inl.h"
-#include "src/objects/code.h"
+#include "src/heap/heap-write-barrier-inl.h"
+#include "src/objects/code-inl.h"
 
 // Has to be the last include (doesn't have include guards):
 #include "src/objects/object-macros.h"
@@ -22,7 +22,7 @@ CAST_ACCESSOR(PropertyCell)
 ACCESSORS(PropertyCell, dependent_code, DependentCode, kDependentCodeOffset)
 ACCESSORS(PropertyCell, name, Name, kNameOffset)
 ACCESSORS(PropertyCell, value, Object, kValueOffset)
-ACCESSORS(PropertyCell, property_details_raw, Object, kDetailsOffset)
+ACCESSORS(PropertyCell, property_details_raw, Smi, kPropertyDetailsRawOffset)
 
 PropertyDetails PropertyCell::property_details() const {
   return PropertyDetails(Smi::cast(property_details_raw()));

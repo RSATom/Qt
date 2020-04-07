@@ -28,17 +28,17 @@
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/frame/local_frame_client.h"
-#include "third_party/blink/renderer/core/frame/use_counter.h"
 #include "third_party/blink/renderer/core/inspector/console_message.h"
 #include "third_party/blink/renderer/core/loader/document_loader.h"
 #include "third_party/blink/renderer/core/loader/frame_loader.h"
-#include "third_party/blink/renderer/core/loader/navigation_scheduler.h"
 #include "third_party/blink/renderer/core/loader/ping_loader.h"
+#include "third_party/blink/renderer/platform/instrumentation/use_counter.h"
 #include "third_party/blink/renderer/platform/json/json_values.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource_error.h"
 #include "third_party/blink/renderer/platform/network/encoded_form_data.h"
 #include "third_party/blink/renderer/platform/weborigin/security_origin.h"
 #include "third_party/blink/renderer/platform/wtf/text/string_builder.h"
+#include "third_party/blink/renderer/platform/wtf/text/string_utf8_adaptor.h"
 
 namespace blink {
 
@@ -88,14 +88,15 @@ scoped_refptr<EncodedFormData> XSSAuditorDelegate::GenerateViolationReport(
       http_body = form_data->FlattenToString();
   }
 
-  std::unique_ptr<JSONObject> report_details = JSONObject::Create();
+  auto report_details = std::make_unique<JSONObject>();
   report_details->SetString("request-url", xss_info.original_url_);
   report_details->SetString("request-body", http_body);
 
-  std::unique_ptr<JSONObject> report_object = JSONObject::Create();
+  auto report_object = std::make_unique<JSONObject>();
   report_object->SetObject("xss-report", std::move(report_details));
 
-  return EncodedFormData::Create(report_object->ToJSONString().Utf8().data());
+  return EncodedFormData::Create(
+      StringUTF8Adaptor(report_object->ToJSONString()));
 }
 
 void XSSAuditorDelegate::DidBlockScript(const XSSInfo& xss_info) {
@@ -106,7 +107,8 @@ void XSSAuditorDelegate::DidBlockScript(const XSSInfo& xss_info) {
                                    : WebFeature::kXSSAuditorBlockedScript);
 
   document_->AddConsoleMessage(ConsoleMessage::Create(
-      kJSMessageSource, kErrorMessageLevel, xss_info.BuildConsoleError()));
+      mojom::ConsoleMessageSource::kJavaScript,
+      mojom::ConsoleMessageLevel::kError, xss_info.BuildConsoleError()));
 
   LocalFrame* local_frame = document_->GetFrame();
   FrameLoader& frame_loader = local_frame->Loader();
@@ -123,8 +125,8 @@ void XSSAuditorDelegate::DidBlockScript(const XSSInfo& xss_info) {
   }
 
   if (xss_info.did_block_entire_page_) {
-    local_frame->GetNavigationScheduler().SchedulePageBlock(
-        document_, ResourceError::BlockedByXSSAuditorErrorCode());
+    local_frame->Client()->LoadErrorPage(
+        ResourceError::BlockedByXSSAuditorErrorCode());
   }
 }
 

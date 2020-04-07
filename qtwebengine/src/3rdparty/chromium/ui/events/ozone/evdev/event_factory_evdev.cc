@@ -133,10 +133,18 @@ class ProxyDeviceEventDispatcher : public DeviceEventDispatcherEvdev {
   }
 
   void DispatchGamepadDevicesUpdated(
-      const std::vector<InputDevice>& devices) override {
+      const std::vector<GamepadDevice>& devices) override {
     ui_thread_runner_->PostTask(
         FROM_HERE,
         base::BindOnce(&EventFactoryEvdev::DispatchGamepadDevicesUpdated,
+                       event_factory_evdev_, devices));
+  }
+
+  void DispatchUncategorizedDevicesUpdated(
+      const std::vector<InputDevice>& devices) override {
+    ui_thread_runner_->PostTask(
+        FROM_HERE,
+        base::BindOnce(&EventFactoryEvdev::DispatchUncategorizedDevicesUpdated,
                        event_factory_evdev_, devices));
   }
 
@@ -407,10 +415,18 @@ void EventFactoryEvdev::DispatchStylusStateChanged(StylusState stylus_state) {
   TRACE_EVENT0("evdev", "EventFactoryEvdev::DispatchStylusStateChanged");
   DeviceHotplugEventObserver* observer = DeviceDataManager::GetInstance();
   observer->OnStylusStateChanged(stylus_state);
-};
+}
+
+void EventFactoryEvdev::DispatchUncategorizedDevicesUpdated(
+    const std::vector<InputDevice>& devices) {
+  TRACE_EVENT0("evdev",
+               "EventFactoryEvdev::DispatchUncategorizedDevicesUpdated");
+  DeviceHotplugEventObserver* observer = DeviceDataManager::GetInstance();
+  observer->OnUncategorizedDevicesUpdated(devices);
+}
 
 void EventFactoryEvdev::DispatchGamepadDevicesUpdated(
-    const std::vector<InputDevice>& devices) {
+    const std::vector<GamepadDevice>& devices) {
   TRACE_EVENT0("evdev", "EventFactoryEvdev::DispatchGamepadDevicesUpdated");
   gamepad_provider_->DispatchGamepadDevicesUpdated(devices);
 }

@@ -56,6 +56,7 @@ public_deps = [
   "//third_party/blink/public/common",
   "//ui/accessibility",
   "//ui/base/ime:text_input_types",
+  "//ui/events/blink",
   "//ui/gfx/ipc",
   "//ui/gfx/ipc/color",
   "//ui/gfx/ipc/skia",
@@ -78,7 +79,6 @@ type_mappings = [
   "content.mojom.DidOverscrollParams=ui::DidOverscrollParams",
   "content.mojom.PointerType=blink::WebPointerProperties::PointerType",
   "content.mojom.VisualProperties=content::VisualProperties",
-  "content.mojom.ScrollUnits=blink::WebGestureEvent::ScrollUnits",
   "content.mojom.SyntheticSmoothDrag=content::SyntheticSmoothDragGestureParams",
   "content.mojom.SyntheticSmoothScroll=content::SyntheticSmoothScrollGestureParams",
   "content.mojom.SyntheticPinch=content::SyntheticPinchGestureParams",
@@ -90,4 +90,5 @@ type_mappings = [
   "content.mojom.WebCursor=content::WebCursor",
   "content.mojom.WebPopupType=blink::WebPopupType",
   "content.mojom.WebPreferences=content::WebPreferences",
+  "content.mojom.ScrollGranularity=ui::input_types::ScrollGranularity",
 ]

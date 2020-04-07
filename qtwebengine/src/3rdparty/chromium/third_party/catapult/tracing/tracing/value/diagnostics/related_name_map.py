@@ -2,15 +2,19 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+from __future__ import absolute_import
+from __future__ import division
+from __future__ import print_function
+from six.moves import zip  # pylint: disable=redefined-builtin
 from tracing.value.diagnostics import diagnostic
 
 
 class RelatedNameMap(diagnostic.Diagnostic):
   __slots__ = '_map',
 
-  def __init__(self):
+  def __init__(self, entries=None):
     super(RelatedNameMap, self).__init__()
-    self._map = {}
+    self._map = entries or {}
 
   def __len__(self):
     return len(self._map)
@@ -51,10 +55,25 @@ class RelatedNameMap(diagnostic.Diagnostic):
       yield key, name
 
   def Values(self):
-    return self._map.values()
+    return list(self._map.values())
+
+  def Serialize(self, serializer):
+    keys = list(self._map.keys())
+    keys.sort()
+    names = [serializer.GetOrAllocateId(self.Get(k)) for k in keys]
+    keys_id = serializer.GetOrAllocateId([
+        serializer.GetOrAllocateId(k) for k in keys])
+    return [keys_id] + names
 
   def _AsDictInto(self, dct):
     dct['names'] = dict(self._map)
+
+  @staticmethod
+  def Deserialize(data, deserializer):
+    names = RelatedNameMap()
+    for key, name in zip(deserializer.GetObject(data[0]), data[1:]):
+      names.Set(deserializer.GetObject(key), deserializer.GetObject(name))
+    return names
 
   @staticmethod
   def FromDict(dct):

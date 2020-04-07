@@ -88,9 +88,10 @@ class RenderFrameAudioOutputStreamFactoryTest
     RenderViewHostTestHarness::TearDown();
   }
 
-  void BindFactory(mojo::ScopedMessagePipeHandle factory_request) {
-    audio_service_stream_factory_.binding_.Bind(
-        audio::mojom::StreamFactoryRequest(std::move(factory_request)));
+  void BindFactory(mojo::ScopedMessagePipeHandle factory_receiver) {
+    audio_service_stream_factory_.receiver_.Bind(
+        mojo::PendingReceiver<audio::mojom::StreamFactory>(
+            std::move(factory_receiver)));
   }
 
   class MockStreamFactory : public audio::FakeStreamFactory {
@@ -99,9 +100,10 @@ class RenderFrameAudioOutputStreamFactoryTest
     ~MockStreamFactory() override {}
 
     void CreateOutputStream(
-        media::mojom::AudioOutputStreamRequest stream_request,
-        media::mojom::AudioOutputStreamObserverAssociatedPtrInfo observer_info,
-        media::mojom::AudioLogPtr log,
+        mojo::PendingReceiver<media::mojom::AudioOutputStream> stream_receiver,
+        mojo::PendingAssociatedRemote<media::mojom::AudioOutputStreamObserver>
+            observer,
+        mojo::PendingRemote<media::mojom::AudioLog> log,
         const std::string& output_device_id,
         const media::AudioParameters& params,
         const base::UnguessableToken& group_id,
@@ -123,7 +125,6 @@ class RenderFrameAudioOutputStreamFactoryTest
       "111122223333444455556666777788889999aaaabbbbccccddddeeeeffff";
   const media::AudioParameters kParams =
       media::AudioParameters::UnavailableDeviceParams();
-  const int kNoSessionId = 0;
   MockStreamFactory audio_service_stream_factory_;
   std::unique_ptr<TestServiceManagerContext> test_service_manager_context_;
   media::FakeAudioLogFactory log_factory_;
@@ -149,7 +150,7 @@ TEST_F(RenderFrameAudioOutputStreamFactoryTest,
   media::mojom::AudioOutputStreamProviderPtr provider_ptr;
   MockAuthorizationCallback mock_callback;
   factory_ptr->RequestDeviceAuthorization(mojo::MakeRequest(&provider_ptr),
-                                          kNoSessionId, kDefaultDeviceId,
+                                          base::nullopt, kDefaultDeviceId,
                                           mock_callback.Get());
 
   EXPECT_CALL(mock_callback,
@@ -171,7 +172,7 @@ TEST_F(
   media::mojom::AudioOutputStreamProviderPtr provider_ptr;
   MockAuthorizationCallback mock_callback;
   factory_ptr->RequestDeviceAuthorization(mojo::MakeRequest(&provider_ptr),
-                                          kNoSessionId, kDefaultDeviceId,
+                                          base::nullopt, kDefaultDeviceId,
                                           mock_callback.Get());
   provider_ptr.reset();
 
@@ -194,7 +195,7 @@ TEST_F(
   media::mojom::AudioOutputStreamProviderPtr provider_ptr;
   MockAuthorizationCallback mock_callback;
   factory_ptr->RequestDeviceAuthorization(mojo::MakeRequest(&provider_ptr),
-                                          kNoSessionId, kDeviceId,
+                                          base::nullopt, kDeviceId,
                                           mock_callback.Get());
 
   EXPECT_CALL(mock_callback,
@@ -215,7 +216,7 @@ TEST_F(RenderFrameAudioOutputStreamFactoryTest,
   media::mojom::AudioOutputStreamProviderPtr provider_ptr;
   MockAuthorizationCallback mock_callback;
   factory_ptr->RequestDeviceAuthorization(mojo::MakeRequest(&provider_ptr),
-                                          kNoSessionId, kDefaultDeviceId,
+                                          base::nullopt, kDefaultDeviceId,
                                           mock_callback.Get());
   {
     media::mojom::AudioOutputStreamProviderClientPtr client;
@@ -245,7 +246,7 @@ TEST_F(RenderFrameAudioOutputStreamFactoryTest,
         mojo::MakeRequest(&factory_ptr));
 
     factory_ptr->RequestDeviceAuthorization(mojo::MakeRequest(&provider_ptr),
-                                            kNoSessionId, kDefaultDeviceId,
+                                            base::nullopt, kDefaultDeviceId,
                                             mock_callback.Get());
 
     audio::mojom::StreamFactory::CreateOutputStreamCallback created_callback;

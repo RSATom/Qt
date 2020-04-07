@@ -31,7 +31,7 @@ constexpr int kMaxJsonDepth = 5;
 class ReportingServiceImpl : public ReportingService {
  public:
   ReportingServiceImpl(std::unique_ptr<ReportingContext> context)
-      : context_(std::move(context)) {}
+      : context_(std::move(context)), shut_down_(false) {}
 
   // ReportingService implementation:
 
@@ -43,6 +43,9 @@ class ReportingServiceImpl : public ReportingService {
                    const std::string& type,
                    std::unique_ptr<const base::Value> body,
                    int depth) override {
+    if (shut_down_)
+      return;
+
     DCHECK(context_);
     DCHECK(context_->delegate());
 
@@ -56,18 +59,22 @@ class ReportingServiceImpl : public ReportingService {
 
     context_->cache()->AddReport(sanitized_url, user_agent, group, type,
                                  std::move(body), depth,
-                                 context_->tick_clock()->NowTicks(), 0);
+                                 context_->tick_clock().NowTicks(), 0);
   }
 
   void ProcessHeader(const GURL& url,
                      const std::string& header_string) override {
+    if (shut_down_)
+      return;
+
     if (header_string.size() > kMaxJsonSize) {
       ReportingHeaderParser::RecordHeaderDiscardedForJsonTooBig();
       return;
     }
 
-    std::unique_ptr<base::Value> header_value = base::JSONReader::Read(
-        "[" + header_string + "]", base::JSON_PARSE_RFC, kMaxJsonDepth);
+    std::unique_ptr<base::Value> header_value =
+        base::JSONReader::ReadDeprecated("[" + header_string + "]",
+                                         base::JSON_PARSE_RFC, kMaxJsonDepth);
     if (!header_value) {
       ReportingHeaderParser::RecordHeaderDiscardedForJsonInvalid();
       return;
@@ -90,6 +97,11 @@ class ReportingServiceImpl : public ReportingService {
                                                         data_type_mask);
   }
 
+  void OnShutdown() override {
+    shut_down_ = true;
+    context_->OnShutdown();
+  }
+
   const ReportingPolicy& GetPolicy() const override {
     return context_->policy();
   }
@@ -102,8 +114,13 @@ class ReportingServiceImpl : public ReportingService {
     return dict;
   }
 
+  ReportingContext* GetContextForTesting() const override {
+    return context_.get();
+  }
+
  private:
   std::unique_ptr<ReportingContext> context_;
+  bool shut_down_;
 
   DISALLOW_COPY_AND_ASSIGN(ReportingServiceImpl);
 };
@@ -115,9 +132,10 @@ ReportingService::~ReportingService() = default;
 // static
 std::unique_ptr<ReportingService> ReportingService::Create(
     const ReportingPolicy& policy,
-    URLRequestContext* request_context) {
+    URLRequestContext* request_context,
+    ReportingCache::PersistentReportingStore* store) {
   return std::make_unique<ReportingServiceImpl>(
-      ReportingContext::Create(policy, request_context));
+      ReportingContext::Create(policy, request_context, store));
 }
 
 // static

@@ -14,8 +14,8 @@
 #include "public/fpdf_transformpage.h"
 #include "public/fpdfview.h"
 #include "testing/embedder_test.h"
+#include "testing/fx_string_testhelpers.h"
 #include "testing/gtest/include/gtest/gtest.h"
-#include "testing/test_support.h"
 
 namespace {
 
@@ -200,103 +200,193 @@ TEST_F(FPDFTextEmbedderTest, TextSearch) {
   FPDF_TEXTPAGE textpage = FPDFText_LoadPage(page);
   ASSERT_TRUE(textpage);
 
-  std::unique_ptr<unsigned short, pdfium::FreeDeleter> nope =
-      GetFPDFWideString(L"nope");
-  std::unique_ptr<unsigned short, pdfium::FreeDeleter> world =
-      GetFPDFWideString(L"world");
-  std::unique_ptr<unsigned short, pdfium::FreeDeleter> world_caps =
-      GetFPDFWideString(L"WORLD");
-  std::unique_ptr<unsigned short, pdfium::FreeDeleter> world_substr =
-      GetFPDFWideString(L"orld");
+  ScopedFPDFWideString nope = GetFPDFWideString(L"nope");
+  ScopedFPDFWideString world = GetFPDFWideString(L"world");
+  ScopedFPDFWideString world_caps = GetFPDFWideString(L"WORLD");
+  ScopedFPDFWideString world_substr = GetFPDFWideString(L"orld");
 
-  // No occurences of "nope" in test page.
-  FPDF_SCHHANDLE search = FPDFText_FindStart(textpage, nope.get(), 0, 0);
-  EXPECT_TRUE(search);
-  EXPECT_EQ(0, FPDFText_GetSchResultIndex(search));
-  EXPECT_EQ(0, FPDFText_GetSchCount(search));
+  {
+    // No occurrences of "nope" in test page.
+    ScopedFPDFTextFind search(FPDFText_FindStart(textpage, nope.get(), 0, 0));
+    EXPECT_TRUE(search);
+    EXPECT_EQ(0, FPDFText_GetSchResultIndex(search.get()));
+    EXPECT_EQ(0, FPDFText_GetSchCount(search.get()));
 
-  // Advancing finds nothing.
-  EXPECT_FALSE(FPDFText_FindNext(search));
-  EXPECT_EQ(0, FPDFText_GetSchResultIndex(search));
-  EXPECT_EQ(0, FPDFText_GetSchCount(search));
+    // Advancing finds nothing.
+    EXPECT_FALSE(FPDFText_FindNext(search.get()));
+    EXPECT_EQ(0, FPDFText_GetSchResultIndex(search.get()));
+    EXPECT_EQ(0, FPDFText_GetSchCount(search.get()));
 
-  // Retreating finds nothing.
-  EXPECT_FALSE(FPDFText_FindPrev(search));
-  EXPECT_EQ(0, FPDFText_GetSchResultIndex(search));
-  EXPECT_EQ(0, FPDFText_GetSchCount(search));
-  FPDFText_FindClose(search);
+    // Retreating finds nothing.
+    EXPECT_FALSE(FPDFText_FindPrev(search.get()));
+    EXPECT_EQ(0, FPDFText_GetSchResultIndex(search.get()));
+    EXPECT_EQ(0, FPDFText_GetSchCount(search.get()));
+  }
 
-  // Two occurences of "world" in test page.
-  search = FPDFText_FindStart(textpage, world.get(), 0, 2);
-  EXPECT_TRUE(search);
+  {
+    // Two occurrences of "world" in test page.
+    ScopedFPDFTextFind search(FPDFText_FindStart(textpage, world.get(), 0, 2));
+    EXPECT_TRUE(search);
 
-  // Remains not found until advanced.
-  EXPECT_EQ(0, FPDFText_GetSchResultIndex(search));
-  EXPECT_EQ(0, FPDFText_GetSchCount(search));
+    // Remains not found until advanced.
+    EXPECT_EQ(0, FPDFText_GetSchResultIndex(search.get()));
+    EXPECT_EQ(0, FPDFText_GetSchCount(search.get()));
 
-  // First occurence of "world" in this test page.
-  EXPECT_TRUE(FPDFText_FindNext(search));
-  EXPECT_EQ(7, FPDFText_GetSchResultIndex(search));
-  EXPECT_EQ(5, FPDFText_GetSchCount(search));
+    // First occurrence of "world" in this test page.
+    EXPECT_TRUE(FPDFText_FindNext(search.get()));
+    EXPECT_EQ(7, FPDFText_GetSchResultIndex(search.get()));
+    EXPECT_EQ(5, FPDFText_GetSchCount(search.get()));
 
-  // Last occurence of "world" in this test page.
-  EXPECT_TRUE(FPDFText_FindNext(search));
-  EXPECT_EQ(24, FPDFText_GetSchResultIndex(search));
-  EXPECT_EQ(5, FPDFText_GetSchCount(search));
+    // Last occurrence of "world" in this test page.
+    EXPECT_TRUE(FPDFText_FindNext(search.get()));
+    EXPECT_EQ(24, FPDFText_GetSchResultIndex(search.get()));
+    EXPECT_EQ(5, FPDFText_GetSchCount(search.get()));
 
-  // Found position unchanged when fails to advance.
-  EXPECT_FALSE(FPDFText_FindNext(search));
-  EXPECT_EQ(24, FPDFText_GetSchResultIndex(search));
-  EXPECT_EQ(5, FPDFText_GetSchCount(search));
+    // Found position unchanged when fails to advance.
+    EXPECT_FALSE(FPDFText_FindNext(search.get()));
+    EXPECT_EQ(24, FPDFText_GetSchResultIndex(search.get()));
+    EXPECT_EQ(5, FPDFText_GetSchCount(search.get()));
 
-  // Back to first occurence.
-  EXPECT_TRUE(FPDFText_FindPrev(search));
-  EXPECT_EQ(7, FPDFText_GetSchResultIndex(search));
-  EXPECT_EQ(5, FPDFText_GetSchCount(search));
+    // Back to first occurrence.
+    EXPECT_TRUE(FPDFText_FindPrev(search.get()));
+    EXPECT_EQ(7, FPDFText_GetSchResultIndex(search.get()));
+    EXPECT_EQ(5, FPDFText_GetSchCount(search.get()));
 
-  // Found position unchanged when fails to retreat.
-  EXPECT_FALSE(FPDFText_FindPrev(search));
-  EXPECT_EQ(7, FPDFText_GetSchResultIndex(search));
-  EXPECT_EQ(5, FPDFText_GetSchCount(search));
-  FPDFText_FindClose(search);
+    // Found position unchanged when fails to retreat.
+    EXPECT_FALSE(FPDFText_FindPrev(search.get()));
+    EXPECT_EQ(7, FPDFText_GetSchResultIndex(search.get()));
+    EXPECT_EQ(5, FPDFText_GetSchCount(search.get()));
+  }
 
-  // Exact search unaffected by case sensitiity and whole word flags.
-  search = FPDFText_FindStart(textpage, world.get(),
-                              FPDF_MATCHCASE | FPDF_MATCHWHOLEWORD, 0);
-  EXPECT_TRUE(search);
-  EXPECT_TRUE(FPDFText_FindNext(search));
-  EXPECT_EQ(7, FPDFText_GetSchResultIndex(search));
-  EXPECT_EQ(5, FPDFText_GetSchCount(search));
-  FPDFText_FindClose(search);
+  {
+    // Exact search unaffected by case sensitiity and whole word flags.
+    ScopedFPDFTextFind search(FPDFText_FindStart(
+        textpage, world.get(), FPDF_MATCHCASE | FPDF_MATCHWHOLEWORD, 0));
+    EXPECT_TRUE(search);
+    EXPECT_TRUE(FPDFText_FindNext(search.get()));
+    EXPECT_EQ(7, FPDFText_GetSchResultIndex(search.get()));
+    EXPECT_EQ(5, FPDFText_GetSchCount(search.get()));
+  }
 
-  // Default is case-insensitive, so matching agaist caps works.
-  search = FPDFText_FindStart(textpage, world_caps.get(), 0, 0);
-  EXPECT_TRUE(search);
-  EXPECT_TRUE(FPDFText_FindNext(search));
-  EXPECT_EQ(7, FPDFText_GetSchResultIndex(search));
-  EXPECT_EQ(5, FPDFText_GetSchCount(search));
-  FPDFText_FindClose(search);
+  {
+    // Default is case-insensitive, so matching agaist caps works.
+    ScopedFPDFTextFind search(
+        FPDFText_FindStart(textpage, world_caps.get(), 0, 0));
+    EXPECT_TRUE(search);
+    EXPECT_TRUE(FPDFText_FindNext(search.get()));
+    EXPECT_EQ(7, FPDFText_GetSchResultIndex(search.get()));
+    EXPECT_EQ(5, FPDFText_GetSchCount(search.get()));
+  }
 
-  // But can be made case sensitive, in which case this fails.
-  search = FPDFText_FindStart(textpage, world_caps.get(), FPDF_MATCHCASE, 0);
-  EXPECT_FALSE(FPDFText_FindNext(search));
-  EXPECT_EQ(0, FPDFText_GetSchResultIndex(search));
-  EXPECT_EQ(0, FPDFText_GetSchCount(search));
-  FPDFText_FindClose(search);
+  {
+    // But can be made case sensitive, in which case this fails.
+    ScopedFPDFTextFind search(
+        FPDFText_FindStart(textpage, world_caps.get(), FPDF_MATCHCASE, 0));
+    EXPECT_FALSE(FPDFText_FindNext(search.get()));
+    EXPECT_EQ(0, FPDFText_GetSchResultIndex(search.get()));
+    EXPECT_EQ(0, FPDFText_GetSchCount(search.get()));
+  }
 
-  // Default is match anywhere within word, so matching substirng works.
-  search = FPDFText_FindStart(textpage, world_substr.get(), 0, 0);
-  EXPECT_TRUE(FPDFText_FindNext(search));
-  EXPECT_EQ(8, FPDFText_GetSchResultIndex(search));
-  EXPECT_EQ(4, FPDFText_GetSchCount(search));
-  FPDFText_FindClose(search);
+  {
+    // Default is match anywhere within word, so matching substring works.
+    ScopedFPDFTextFind search(
+        FPDFText_FindStart(textpage, world_substr.get(), 0, 0));
+    EXPECT_TRUE(FPDFText_FindNext(search.get()));
+    EXPECT_EQ(8, FPDFText_GetSchResultIndex(search.get()));
+    EXPECT_EQ(4, FPDFText_GetSchCount(search.get()));
+  }
 
-  // But can be made to mach word boundaries, in which case this fails.
-  search =
-      FPDFText_FindStart(textpage, world_substr.get(), FPDF_MATCHWHOLEWORD, 0);
-  EXPECT_FALSE(FPDFText_FindNext(search));
-  // TODO(tsepez): investigate strange index/count values in this state.
-  FPDFText_FindClose(search);
+  {
+    // But can be made to mach word boundaries, in which case this fails.
+    ScopedFPDFTextFind search(FPDFText_FindStart(textpage, world_substr.get(),
+                                                 FPDF_MATCHWHOLEWORD, 0));
+    EXPECT_FALSE(FPDFText_FindNext(search.get()));
+    // TODO(tsepez): investigate strange index/count values in this state.
+  }
+
+  FPDFText_ClosePage(textpage);
+  UnloadPage(page);
+}
+
+TEST_F(FPDFTextEmbedderTest, TextSearchConsecutive) {
+  ASSERT_TRUE(OpenDocument("find_text_consecutive.pdf"));
+  FPDF_PAGE page = LoadPage(0);
+  ASSERT_TRUE(page);
+
+  FPDF_TEXTPAGE textpage = FPDFText_LoadPage(page);
+  ASSERT_TRUE(textpage);
+
+  ScopedFPDFWideString aaaa = GetFPDFWideString(L"aaaa");
+
+  {
+    // Search for "aaaa" yields 2 results in "aaaaaaaaaa".
+    ScopedFPDFTextFind search(FPDFText_FindStart(textpage, aaaa.get(), 0, 0));
+    EXPECT_TRUE(search);
+
+    // Remains not found until advanced.
+    EXPECT_EQ(0, FPDFText_GetSchResultIndex(search.get()));
+    EXPECT_EQ(0, FPDFText_GetSchCount(search.get()));
+
+    // First occurrence of "aaaa" in this test page.
+    EXPECT_TRUE(FPDFText_FindNext(search.get()));
+    EXPECT_EQ(0, FPDFText_GetSchResultIndex(search.get()));
+    EXPECT_EQ(4, FPDFText_GetSchCount(search.get()));
+
+    // Last occurrence of "aaaa" in this test page.
+    EXPECT_TRUE(FPDFText_FindNext(search.get()));
+    EXPECT_EQ(4, FPDFText_GetSchResultIndex(search.get()));
+    EXPECT_EQ(4, FPDFText_GetSchCount(search.get()));
+
+    // Found position unchanged when fails to advance.
+    EXPECT_FALSE(FPDFText_FindNext(search.get()));
+    EXPECT_EQ(4, FPDFText_GetSchResultIndex(search.get()));
+    EXPECT_EQ(4, FPDFText_GetSchCount(search.get()));
+
+    // Back to first occurrence.
+    EXPECT_TRUE(FPDFText_FindPrev(search.get()));
+    EXPECT_EQ(0, FPDFText_GetSchResultIndex(search.get()));
+    EXPECT_EQ(4, FPDFText_GetSchCount(search.get()));
+
+    // Found position unchanged when fails to retreat.
+    EXPECT_FALSE(FPDFText_FindPrev(search.get()));
+    EXPECT_EQ(0, FPDFText_GetSchResultIndex(search.get()));
+    EXPECT_EQ(4, FPDFText_GetSchCount(search.get()));
+  }
+
+  {
+    // Search for "aaaa" yields 7 results in "aaaaaaaaaa", when searching with
+    // FPDF_CONSECUTIVE.
+    ScopedFPDFTextFind search(
+        FPDFText_FindStart(textpage, aaaa.get(), FPDF_CONSECUTIVE, 0));
+    EXPECT_TRUE(search);
+
+    // Remains not found until advanced.
+    EXPECT_EQ(0, FPDFText_GetSchResultIndex(search.get()));
+    EXPECT_EQ(0, FPDFText_GetSchCount(search.get()));
+
+    // Find consecutive occurrences of "aaaa" in this test page:
+    for (int i = 0; i < 7; ++i) {
+      EXPECT_TRUE(FPDFText_FindNext(search.get()));
+      EXPECT_EQ(i, FPDFText_GetSchResultIndex(search.get()));
+      EXPECT_EQ(4, FPDFText_GetSchCount(search.get()));
+    }
+
+    // Found position unchanged when fails to advance.
+    EXPECT_FALSE(FPDFText_FindNext(search.get()));
+    EXPECT_EQ(6, FPDFText_GetSchResultIndex(search.get()));
+    EXPECT_EQ(4, FPDFText_GetSchCount(search.get()));
+
+    for (int i = 5; i >= 0; --i) {
+      EXPECT_TRUE(FPDFText_FindPrev(search.get()));
+      EXPECT_EQ(i, FPDFText_GetSchResultIndex(search.get()));
+      EXPECT_EQ(4, FPDFText_GetSchCount(search.get()));
+    }
+
+    // Found position unchanged when fails to retreat.
+    EXPECT_FALSE(FPDFText_FindPrev(search.get()));
+    EXPECT_EQ(0, FPDFText_GetSchResultIndex(search.get()));
+    EXPECT_EQ(4, FPDFText_GetSchCount(search.get()));
+  }
 
   FPDFText_ClosePage(textpage);
   UnloadPage(page);
@@ -443,7 +533,8 @@ TEST_F(FPDFTextEmbedderTest, WebLinksAcrossLines) {
       "http://example.com/test-foo",  // from "http://example.com/test-\r\nfoo"
       "http://abc.com/test-foo",      // from "http://abc.com/test-\r\n\r\nfoo"
       // Next two links from "http://www.example.com/\r\nhttp://www.abc.com/"
-      "http://example.com/", "http://www.abc.com",
+      "http://example.com/",
+      "http://www.abc.com",
   };
   static const int kNumLinks = static_cast<int>(FX_ArraySize(kExpectedUrls));
 
@@ -489,6 +580,119 @@ TEST_F(FPDFTextEmbedderTest, WebLinksAcrossLinesBug) {
 
   FPDFLink_CloseWebLinks(pagelink);
   FPDFText_ClosePage(textpage);
+  UnloadPage(page);
+}
+
+TEST_F(FPDFTextEmbedderTest, WebLinksCharRanges) {
+  ASSERT_TRUE(OpenDocument("weblinks.pdf"));
+  FPDF_PAGE page = LoadPage(0);
+  ASSERT_TRUE(page);
+
+  FPDF_TEXTPAGE text_page = FPDFText_LoadPage(page);
+  ASSERT_TRUE(text_page);
+
+  FPDF_PAGELINK page_link = FPDFLink_LoadWebLinks(text_page);
+  EXPECT_TRUE(page_link);
+
+  // Test for char indices of a valid link
+  int start_char_index;
+  int char_count;
+  ASSERT_TRUE(
+      FPDFLink_GetTextRange(page_link, 0, &start_char_index, &char_count));
+  EXPECT_EQ(35, start_char_index);
+  EXPECT_EQ(24, char_count);
+
+  // Test for char indices of an invalid link
+  start_char_index = -10;
+  char_count = -8;
+  ASSERT_FALSE(
+      FPDFLink_GetTextRange(page_link, 6, &start_char_index, &char_count));
+  EXPECT_EQ(start_char_index, -10);
+  EXPECT_EQ(char_count, -8);
+
+  // Test for pagelink = nullptr
+  start_char_index = -10;
+  char_count = -8;
+  ASSERT_FALSE(
+      FPDFLink_GetTextRange(nullptr, 0, &start_char_index, &char_count));
+  EXPECT_EQ(start_char_index, -10);
+  EXPECT_EQ(char_count, -8);
+
+  // Test for link_index < 0
+  start_char_index = -10;
+  char_count = -8;
+  ASSERT_FALSE(
+      FPDFLink_GetTextRange(page_link, -4, &start_char_index, &char_count));
+  EXPECT_EQ(start_char_index, -10);
+  EXPECT_EQ(char_count, -8);
+
+  FPDFLink_CloseWebLinks(page_link);
+  FPDFText_ClosePage(text_page);
+  UnloadPage(page);
+}
+
+TEST_F(FPDFTextEmbedderTest, AnnotLinks) {
+  ASSERT_TRUE(OpenDocument("link_annots.pdf"));
+  FPDF_PAGE page = LoadPage(0);
+  ASSERT_TRUE(page);
+
+  // Get link count via checking annotation subtype
+  int annot_count = FPDFPage_GetAnnotCount(page);
+  ASSERT_EQ(8, annot_count);
+  int annot_subtype_link_count = 0;
+  for (int i = 0; i < annot_count; ++i) {
+    ScopedFPDFAnnotation annot(FPDFPage_GetAnnot(page, i));
+    if (FPDFAnnot_GetSubtype(annot.get()) == FPDF_ANNOT_LINK) {
+      ++annot_subtype_link_count;
+    }
+  }
+  EXPECT_EQ(4, annot_subtype_link_count);
+
+  // Validate that FPDFLink_Enumerate() returns same number of links
+  int start_pos = 0;
+  FPDF_LINK link_annot;
+  int link_count = 0;
+  while (FPDFLink_Enumerate(page, &start_pos, &link_annot)) {
+    ASSERT_TRUE(link_annot);
+    if (start_pos == 1 || start_pos == 2) {
+      // First two links point to first and second page within the document
+      // respectively
+      FPDF_DEST link_dest = FPDFLink_GetDest(document(), link_annot);
+      EXPECT_TRUE(link_dest);
+      EXPECT_EQ(start_pos - 1,
+                FPDFDest_GetDestPageIndex(document(), link_dest));
+    } else if (start_pos == 3) {  // points to PDF Spec URL
+      FS_RECTF link_rect;
+      EXPECT_TRUE(FPDFLink_GetAnnotRect(link_annot, &link_rect));
+      EXPECT_NEAR(66.0, link_rect.left, 0.001);
+      EXPECT_NEAR(544.0, link_rect.top, 0.001);
+      EXPECT_NEAR(196.0, link_rect.right, 0.001);
+      EXPECT_NEAR(529.0, link_rect.bottom, 0.001);
+    } else if (start_pos == 4) {  // this link has quad points
+      int quad_point_count = FPDFLink_CountQuadPoints(link_annot);
+      EXPECT_EQ(1, quad_point_count);
+      FS_QUADPOINTSF quad_points;
+      EXPECT_TRUE(FPDFLink_GetQuadPoints(link_annot, 0, &quad_points));
+      EXPECT_NEAR(83.0, quad_points.x1, 0.001);
+      EXPECT_NEAR(453.0, quad_points.y1, 0.001);
+      EXPECT_NEAR(178.0, quad_points.x2, 0.001);
+      EXPECT_NEAR(453.0, quad_points.y2, 0.001);
+      EXPECT_NEAR(83.0, quad_points.x3, 0.001);
+      EXPECT_NEAR(440.0, quad_points.y3, 0.001);
+      EXPECT_NEAR(178.0, quad_points.x4, 0.001);
+      EXPECT_NEAR(440.0, quad_points.y4, 0.001);
+      // AnnotRect is same as quad points for this link
+      FS_RECTF link_rect;
+      EXPECT_TRUE(FPDFLink_GetAnnotRect(link_annot, &link_rect));
+      EXPECT_NEAR(link_rect.left, quad_points.x1, 0.001);
+      EXPECT_NEAR(link_rect.top, quad_points.y1, 0.001);
+      EXPECT_NEAR(link_rect.right, quad_points.x4, 0.001);
+      EXPECT_NEAR(link_rect.bottom, quad_points.y4, 0.001);
+    }
+    ++link_count;
+  }
+  EXPECT_EQ(annot_subtype_link_count, link_count);
+
   UnloadPage(page);
 }
 
@@ -899,7 +1103,9 @@ TEST_F(FPDFTextEmbedderTest, CroppedText) {
       {60.0f, 150.0f, 150.0f, 60.0f},
   };
   static constexpr const char* kExpectedText[kPageCount] = {
-      " world!\r\ndbye, world!", " world!\r\ndbye, world!", "bye, world!",
+      " world!\r\ndbye, world!",
+      " world!\r\ndbye, world!",
+      "bye, world!",
       "bye, world!",
   };
 

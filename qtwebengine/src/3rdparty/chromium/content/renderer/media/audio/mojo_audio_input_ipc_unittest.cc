@@ -9,12 +9,14 @@
 #include <string>
 #include <utility>
 
+#include "base/bind.h"
 #include "base/optional.h"
 #include "base/run_loop.h"
 #include "base/test/gtest_util.h"
 #include "base/test/scoped_task_environment.h"
 #include "media/audio/audio_device_description.h"
 #include "media/base/audio_parameters.h"
+#include "media/mojo/interfaces/audio_data_pipe.mojom.h"
 #include "mojo/public/cpp/bindings/binding.h"
 #include "mojo/public/cpp/system/buffer.h"
 #include "mojo/public/cpp/system/platform_handle.h"
@@ -42,7 +44,8 @@ media::AudioParameters Params() {
 }
 
 media::AudioSourceParameters SourceParams() {
-  return media::AudioSourceParameters(1234);
+  return media::AudioSourceParameters(
+      base::UnguessableToken::Deserialize(1234, 5678));
 }
 
 class MockStream : public media::mojom::AudioInputStream {

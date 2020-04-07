@@ -6,12 +6,15 @@
 
 #include "xfa/fxfa/parser/cxfa_incrementalload.h"
 
+#include "fxjs/xfa/cjx_node.h"
+#include "third_party/base/ptr_util.h"
+
 namespace {
 
 const CXFA_Node::AttributeData kIncrementalLoadAttributeData[] = {
     {XFA_Attribute::Desc, XFA_AttributeType::CData, nullptr},
     {XFA_Attribute::Lock, XFA_AttributeType::Integer, (void*)0},
-    {XFA_Attribute::Unknown, XFA_AttributeType::Integer, nullptr}};
+};
 
 }  // namespace
 
@@ -22,7 +25,8 @@ CXFA_IncrementalLoad::CXFA_IncrementalLoad(CXFA_Document* doc,
                 XFA_XDPPACKET_Config,
                 XFA_ObjectType::NodeV,
                 XFA_Element::IncrementalLoad,
-                nullptr,
-                kIncrementalLoadAttributeData) {}
+                {},
+                kIncrementalLoadAttributeData,
+                pdfium::MakeUnique<CJX_Node>(this)) {}
 
 CXFA_IncrementalLoad::~CXFA_IncrementalLoad() = default;

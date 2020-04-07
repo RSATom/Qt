@@ -47,6 +47,7 @@ T.ScrollBar {
                              implicitContentHeight + topPadding + bottomPadding)
 
     visible: control.policy !== T.ScrollBar.AlwaysOff
+    minimumSize: orientation == Qt.Horizontal ? height / width : width / height
 
     // TODO: arrows
 
@@ -78,14 +79,14 @@ T.ScrollBar {
     transitions: [
         Transition {
             to: "active"
-            NumberAnimation { targets: [contentItem, background]; property: "opacity"; to: 1.0 }
+            NumberAnimation { targets: [control.contentItem, control.background]; property: "opacity"; to: 1.0 }
         },
         Transition {
             from: "active"
             SequentialAnimation {
-                PropertyAction{ targets: [contentItem, background]; property: "opacity"; value: 1.0 }
+                PropertyAction{ targets: [control.contentItem, control.background]; property: "opacity"; value: 1.0 }
                 PauseAnimation { duration: 3000 }
-                NumberAnimation { targets: [contentItem, background]; property: "opacity"; to: 0.0 }
+                NumberAnimation { targets: [control.contentItem, control.background]; property: "opacity"; to: 0.0 }
             }
         }
     ]

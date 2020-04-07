@@ -29,10 +29,10 @@
 #include "third_party/blink/renderer/modules/webaudio/audio_node.h"
 #include "third_party/blink/renderer/modules/webaudio/audio_node_output.h"
 #include "third_party/blink/renderer/modules/webaudio/offline_audio_context.h"
-#include "third_party/blink/renderer/platform/cross_thread_functional.h"
 #include "third_party/blink/renderer/platform/scheduler/public/post_cancellable_task.h"
 #include "third_party/blink/renderer/platform/scheduler/public/post_cross_thread_task.h"
 #include "third_party/blink/renderer/platform/scheduler/public/thread.h"
+#include "third_party/blink/renderer/platform/wtf/cross_thread_functional.h"
 
 namespace blink {
 
@@ -69,18 +69,22 @@ void DeferredTaskHandler::OfflineLock() {
   context_graph_mutex_.lock();
 }
 
-void DeferredTaskHandler::AddDeferredBreakConnection(AudioHandler& node) {
-  DCHECK(IsAudioThread());
-  deferred_break_connection_list_.push_back(&node);
-}
-
 void DeferredTaskHandler::BreakConnections() {
   DCHECK(IsAudioThread());
   AssertGraphOwner();
 
-  for (unsigned i = 0; i < deferred_break_connection_list_.size(); ++i)
-    deferred_break_connection_list_[i]->BreakConnectionWithLock();
-  deferred_break_connection_list_.clear();
+  // Remove any finished handlers from the active handlers list and break the
+  // connection.
+  wtf_size_t size = finished_source_handlers_.size();
+  if (size > 0) {
+    for (auto finished : finished_source_handlers_) {
+      // Break connection first and then remove from the list because that can
+      // cause the handler to be deleted.
+      finished->BreakConnectionWithLock();
+      active_source_handlers_.erase(finished);
+    }
+    finished_source_handlers_.clear();
+  }
 }
 
 void DeferredTaskHandler::MarkSummingJunctionDirty(
@@ -321,14 +325,22 @@ void DeferredTaskHandler::AddRenderingOrphanHandler(
 void DeferredTaskHandler::RequestToDeleteHandlersOnMainThread() {
   DCHECK(IsAudioThread());
   AssertGraphOwner();
-  if (rendering_orphan_handlers_.IsEmpty())
+
+  // Quick exit if there are no handlers that need to be deleted so that we
+  // don't unecessarily post a task.  Be consistent with
+  // |DeleteHandlersOnMainThread()| so we don't accidentally return early when
+  // there are handlers that could be deleted.
+  if (rendering_orphan_handlers_.IsEmpty() &&
+      finished_tail_processing_handlers_.size() == 0) {
     return;
+  }
+
   deletable_orphan_handlers_.AppendVector(rendering_orphan_handlers_);
   rendering_orphan_handlers_.clear();
   PostCrossThreadTask(
       *task_runner_, FROM_HERE,
-      CrossThreadBind(&DeferredTaskHandler::DeleteHandlersOnMainThread,
-                      scoped_refptr<DeferredTaskHandler>(this)));
+      CrossThreadBindOnce(&DeferredTaskHandler::DeleteHandlersOnMainThread,
+                          scoped_refptr<DeferredTaskHandler>(this)));
 }
 
 void DeferredTaskHandler::DeleteHandlersOnMainThread() {
@@ -346,6 +358,8 @@ void DeferredTaskHandler::ClearHandlersToBeDeleted() {
   deletable_orphan_handlers_.clear();
   automatic_pull_handlers_.clear();
   rendering_automatic_pull_handlers_.clear();
+  finished_source_handlers_.clear();
+  active_source_handlers_.clear();
 }
 
 void DeferredTaskHandler::SetAudioThreadToCurrentThread() {

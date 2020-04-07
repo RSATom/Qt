@@ -7,7 +7,7 @@
 #include <string>
 #include <utility>
 
-#include "base/json/json_reader.h"
+#include "base/bind.h"
 #include "base/logging.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/ref_counted_memory.h"
@@ -28,8 +28,23 @@ namespace printing {
 
 namespace {
 
+scoped_refptr<base::TaskRunner> CreatePrinterHandlerTaskRunner() {
+  // USER_VISIBLE because the result is displayed in the print preview dialog.
+  static constexpr base::TaskTraits kTraits = {
+      base::MayBlock(), base::TaskPriority::USER_VISIBLE};
+
+#if defined(OS_WIN)
+  // Windows drivers are likely not thread-safe.
+  return base::CreateSingleThreadTaskRunnerWithTraits(kTraits);
+#elif defined(USE_CUPS)
+  // CUPS is thread safe.
+  return base::CreateTaskRunnerWithTraits(kTraits);
+#endif
+}
+
 PrinterList EnumeratePrintersAsync() {
-  base::ScopedBlockingCall scoped_blocking_call(base::BlockingType::MAY_BLOCK);
+  base::ScopedBlockingCall scoped_blocking_call(FROM_HERE,
+                                                base::BlockingType::MAY_BLOCK);
   scoped_refptr<PrintBackend> print_backend(
       PrintBackend::CreateInstance(nullptr));
 
@@ -45,7 +60,8 @@ base::Value FetchCapabilitiesAsync(const std::string& device_name) {
     additional_papers = GetMacCustomPaperSizes();
 #endif
 
-  base::ScopedBlockingCall scoped_blocking_call(base::BlockingType::MAY_BLOCK);
+  base::ScopedBlockingCall scoped_blocking_call(FROM_HERE,
+                                                base::BlockingType::MAY_BLOCK);
   scoped_refptr<PrintBackend> print_backend(
       PrintBackend::CreateInstance(nullptr));
 
@@ -61,11 +77,13 @@ base::Value FetchCapabilitiesAsync(const std::string& device_name) {
     return base::Value();
 
   return GetSettingsOnBlockingPool(device_name, basic_info, additional_papers,
+                                   /* has_secure_protocol */ false,
                                    print_backend);
 }
 
 std::string GetDefaultPrinterAsync() {
-  base::ScopedBlockingCall scoped_blocking_call(base::BlockingType::MAY_BLOCK);
+  base::ScopedBlockingCall scoped_blocking_call(FROM_HERE,
+                                                base::BlockingType::MAY_BLOCK);
   scoped_refptr<PrintBackend> print_backend(
       PrintBackend::CreateInstance(nullptr));
 
@@ -78,7 +96,8 @@ std::string GetDefaultPrinterAsync() {
 
 LocalPrinterHandlerDefault::LocalPrinterHandlerDefault(
     content::WebContents* preview_web_contents)
-    : preview_web_contents_(preview_web_contents) {}
+    : preview_web_contents_(preview_web_contents),
+      task_runner_(CreatePrinterHandlerTaskRunner()) {}
 
 LocalPrinterHandlerDefault::~LocalPrinterHandlerDefault() {}
 
@@ -87,23 +106,20 @@ void LocalPrinterHandlerDefault::Reset() {}
 void LocalPrinterHandlerDefault::GetDefaultPrinter(DefaultPrinterCallback cb) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
 
-  // USER_VISIBLE because the result is displayed in the print preview dialog.
-  base::PostTaskWithTraitsAndReplyWithResult(
-      FROM_HERE, {base::MayBlock(), base::TaskPriority::USER_VISIBLE},
-      base::BindOnce(&GetDefaultPrinterAsync), std::move(cb));
+  base::PostTaskAndReplyWithResult(task_runner_.get(), FROM_HERE,
+                                   base::BindOnce(&GetDefaultPrinterAsync),
+                                   std::move(cb));
 }
 
 void LocalPrinterHandlerDefault::StartGetPrinters(
-    const AddedPrintersCallback& callback,
+    AddedPrintersCallback callback,
     GetPrintersDoneCallback done_callback) {
   VLOG(1) << "Enumerate printers start";
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
 
-  // USER_VISIBLE because the result is displayed in the print preview dialog.
-  base::PostTaskWithTraitsAndReplyWithResult(
-      FROM_HERE, {base::MayBlock(), base::TaskPriority::USER_VISIBLE},
-      base::BindOnce(&EnumeratePrintersAsync),
-      base::BindOnce(&ConvertPrinterListForCallback, callback,
+  base::PostTaskAndReplyWithResult(
+      task_runner_.get(), FROM_HERE, base::BindOnce(&EnumeratePrintersAsync),
+      base::BindOnce(&ConvertPrinterListForCallback, std::move(callback),
                      std::move(done_callback)));
 }
 
@@ -112,24 +128,18 @@ void LocalPrinterHandlerDefault::StartGetCapability(
     GetCapabilityCallback cb) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
 
-  // USER_VISIBLE because the result is displayed in the print preview dialog.
-  base::PostTaskWithTraitsAndReplyWithResult(
-      FROM_HERE, {base::MayBlock(), base::TaskPriority::USER_VISIBLE},
+  base::PostTaskAndReplyWithResult(
+      task_runner_.get(), FROM_HERE,
       base::BindOnce(&FetchCapabilitiesAsync, device_name), std::move(cb));
 }
 
 void LocalPrinterHandlerDefault::StartPrint(
-    const std::string& destination_id,
-    const std::string& capability,
     const base::string16& job_title,
-    const std::string& ticket_json,
-    const gfx::Size& page_size,
-    const scoped_refptr<base::RefCountedMemory>& print_data,
+    base::Value settings,
+    scoped_refptr<base::RefCountedMemory> print_data,
     PrintCallback callback) {
-  std::unique_ptr<base::Value> job_settings =
-      base::JSONReader::Read(ticket_json);
-  StartLocalPrint(base::Value::FromUniquePtrValue(std::move(job_settings)),
-                  print_data, preview_web_contents_, std::move(callback));
+  StartLocalPrint(std::move(settings), std::move(print_data),
+                  preview_web_contents_, std::move(callback));
 }
 
 }  // namespace printing

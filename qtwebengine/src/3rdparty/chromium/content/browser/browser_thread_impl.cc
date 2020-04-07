@@ -21,12 +21,9 @@
 #include "base/threading/platform_thread.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
+#include "content/browser/scheduler/browser_task_executor.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/content_browser_client.h"
-
-#if defined(OS_ANDROID)
-#include "base/android/task_scheduler/post_task_android.h"
-#endif
 
 namespace content {
 
@@ -107,12 +104,7 @@ BrowserThreadImpl::BrowserThreadImpl(
   DCHECK(!globals.task_runners[identifier_]);
   globals.task_runners[identifier_] = std::move(task_runner);
 
-  // TODO(alexclarke): Move this to the BrowserUIThreadScheduler.
   if (identifier_ == BrowserThread::ID::UI) {
-#if defined(OS_ANDROID)
-    base::PostTaskAndroid::SignalNativeSchedulerReady();
-#endif
-
 #if defined(OS_POSIX)
     // Allow usage of the FileDescriptorWatcher API on the UI thread, using the
     // IO thread to watch the file descriptors.
@@ -131,12 +123,6 @@ BrowserThreadImpl::BrowserThreadImpl(
 BrowserThreadImpl::~BrowserThreadImpl() {
   BrowserThreadGlobals& globals = GetBrowserThreadGlobals();
   DCHECK_CALLED_ON_VALID_THREAD(globals.main_thread_checker_);
-
-#if defined(OS_ANDROID)
-  // TODO(alexclarke): Move this to the BrowserUIThreadScheduler.
-  if (identifier_ == BrowserThread::ID::UI)
-    base::PostTaskAndroid::SignalNativeSchedulerShutdown();
-#endif
 
   DCHECK_EQ(base::subtle::NoBarrier_Load(&globals.states[identifier_]),
             BrowserThreadState::RUNNING);
@@ -174,15 +160,6 @@ const char* BrowserThreadImpl::GetThreadName(BrowserThread::ID thread) {
   if (thread == BrowserThread::UI)
     return "Chrome_UIThread";
   return "Unknown Thread";
-}
-
-// static
-void BrowserThread::PostAfterStartupTask(
-    const base::Location& from_here,
-    const scoped_refptr<base::TaskRunner>& task_runner,
-    base::OnceClosure task) {
-  GetContentClient()->browser()->PostAfterStartupTask(from_here, task_runner,
-                                                      std::move(task));
 }
 
 // static
@@ -267,6 +244,22 @@ BrowserThread::GetTaskRunnerForThread(ID identifier) {
   DCHECK(globals.task_runners[identifier]);
 
   return globals.task_runners[identifier];
+}
+
+// static
+void BrowserThread::RunAllPendingTasksOnThreadForTesting(ID identifier) {
+  BrowserTaskExecutor::RunAllPendingTasksOnThreadForTesting(identifier);
+}
+
+// static
+void BrowserThread::PostBestEffortTask(
+    const base::Location& from_here,
+    scoped_refptr<base::TaskRunner> task_runner,
+    base::OnceClosure task) {
+  base::PostTaskWithTraits(
+      FROM_HERE, {content::BrowserThread::IO, base::TaskPriority::BEST_EFFORT},
+      base::BindOnce(base::IgnoreResult(&base::TaskRunner::PostTask),
+                     std::move(task_runner), from_here, std::move(task)));
 }
 
 }  // namespace content

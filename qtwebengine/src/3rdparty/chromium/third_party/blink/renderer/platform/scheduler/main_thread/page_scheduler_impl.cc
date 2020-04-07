@@ -4,12 +4,12 @@
 
 #include "third_party/blink/renderer/platform/scheduler/main_thread/page_scheduler_impl.h"
 
+#include "base/bind.h"
 #include "base/logging.h"
 #include "base/metrics/field_trial_params.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/optional.h"
 #include "base/strings/string_number_conversions.h"
-#include "base/strings/stringprintf.h"
 #include "third_party/blink/public/common/features.h"
 #include "third_party/blink/public/platform/platform.h"
 #include "third_party/blink/renderer/platform/runtime_enabled_features.h"
@@ -44,8 +44,16 @@ constexpr base::TimeDelta kThrottlingDelayAfterBackgrounding =
 // The amount of time to wait before suspending shared timers, and loading
 // etc. after the renderer has been backgrounded. This is used only if
 // background suspension is enabled.
-constexpr base::TimeDelta kDelayForBackgroundTabFreezing =
+constexpr base::TimeDelta kDefaultDelayForBackgroundTabFreezing =
     base::TimeDelta::FromMinutes(5);
+
+// The amount of time to wait before checking network idleness
+// after the page has been backgrounded. If network is idle,
+// suspend shared timers, and loading etc. This is used only if
+// freeze-background-tab-on-network-idle feature is enabled.
+// This value should be smaller than kDefaultDelayForBackgroundTabFreezing.
+constexpr base::TimeDelta kDefaultDelayForBackgroundAndNetworkIdleTabFreezing =
+    base::TimeDelta::FromMinutes(1);
 
 // Values coming from the field trial config are interpreted as follows:
 //   -1 is "not set". Scheduler should use a reasonable default.
@@ -59,10 +67,9 @@ struct BackgroundThrottlingSettings {
   base::Optional<base::TimeDelta> initial_budget;
 };
 
-double GetDoubleParameterFromMap(
-    const std::map<std::string, std::string>& settings,
-    const std::string& setting_name,
-    double default_value) {
+double GetDoubleParameterFromMap(const base::FieldTrialParams& settings,
+                                 const std::string& setting_name,
+                                 double default_value) {
   const auto& find_it = settings.find(setting_name);
   if (find_it == settings.end())
     return default_value;
@@ -81,7 +88,7 @@ base::Optional<base::TimeDelta> DoubleToOptionalTime(double value) {
 }
 
 BackgroundThrottlingSettings GetBackgroundThrottlingSettings() {
-  std::map<std::string, std::string> background_throttling_settings;
+  base::FieldTrialParams background_throttling_settings;
   base::GetFieldTrialParams("ExpensiveBackgroundTimerThrottling",
                             &background_throttling_settings);
 
@@ -106,6 +113,25 @@ BackgroundThrottlingSettings GetBackgroundThrottlingSettings() {
   return settings;
 }
 
+base::TimeDelta GetDelayForBackgroundTabFreezing() {
+  static const base::FeatureParam<int> kDelayForBackgroundTabFreezingMillis{
+      &features::kStopInBackground, "DelayForBackgroundTabFreezingMills",
+      static_cast<int>(kDefaultDelayForBackgroundTabFreezing.InMilliseconds())};
+  return base::TimeDelta::FromMilliseconds(
+      kDelayForBackgroundTabFreezingMillis.Get());
+}
+
+base::TimeDelta GetDelayForBackgroundAndNetworkIdleTabFreezing() {
+  static const base::FeatureParam<int>
+      kDelayForBackgroundAndNetworkIdleTabFreezingMillis{
+          &features::kFreezeBackgroundTabOnNetworkIdle,
+          "DelayForBackgroundAndNetworkIdleTabFreezingMills",
+          static_cast<int>(kDefaultDelayForBackgroundAndNetworkIdleTabFreezing
+                               .InMilliseconds())};
+  return base::TimeDelta::FromMilliseconds(
+      kDelayForBackgroundAndNetworkIdleTabFreezingMillis.Get());
+}
+
 }  // namespace
 
 PageSchedulerImpl::PageSchedulerImpl(
@@ -113,17 +139,27 @@ PageSchedulerImpl::PageSchedulerImpl(
     MainThreadSchedulerImpl* main_thread_scheduler)
     : main_thread_scheduler_(main_thread_scheduler),
       page_visibility_(kDefaultPageVisibility),
+      page_visibility_changed_time_(
+          main_thread_scheduler->GetTickClock()->NowTicks()),
       audio_state_(AudioState::kSilent),
       is_frozen_(false),
       reported_background_throttling_since_navigation_(false),
-      has_active_connection_(false),
+      opted_out_from_aggressive_throttling_(false),
       nested_runloop_(false),
       is_main_frame_local_(false),
       is_throttled_(false),
       keep_active_(main_thread_scheduler->SchedulerKeepActive()),
       background_time_budget_pool_(nullptr),
       delegate_(delegate),
-      weak_factory_(this) {
+      delay_for_background_tab_freezing_(GetDelayForBackgroundTabFreezing()),
+      freeze_on_network_idle_enabled_(base::FeatureList::IsEnabled(
+          blink::features::kFreezeBackgroundTabOnNetworkIdle)),
+      delay_for_background_and_network_idle_tab_freezing_(
+          GetDelayForBackgroundAndNetworkIdleTabFreezing()) {
+  page_lifecycle_state_tracker_.reset(new PageLifecycleStateTracker(
+      this, kDefaultPageVisibility == PageVisibilityState::kVisible
+                ? PageLifecycleState::kActive
+                : PageLifecycleState::kHiddenBackgrounded));
   main_thread_scheduler->AddPageScheduler(this);
   do_throttle_page_callback_.Reset(base::BindRepeating(
       &PageSchedulerImpl::DoThrottlePage, base::Unretained(this)));
@@ -131,21 +167,6 @@ PageSchedulerImpl::PageSchedulerImpl(
       &PageSchedulerImpl::OnAudioSilent, base::Unretained(this)));
   do_freeze_page_callback_.Reset(base::BindRepeating(
       &PageSchedulerImpl::DoFreezePage, base::Unretained(this)));
-
-  int32_t delay_for_background_tab_freezing_millis;
-  if (base::StringToInt(
-          base::GetFieldTrialParamValue("BackgroundTabFreezing",
-                                        "DelayForBackgroundTabFreezingMills"),
-          &delay_for_background_tab_freezing_millis)) {
-    delay_for_background_tab_freezing_ = base::TimeDelta::FromMilliseconds(
-        delay_for_background_tab_freezing_millis);
-  } else {
-    delay_for_background_tab_freezing_ = kDelayForBackgroundTabFreezing;
-  }
-  page_lifecycle_state_tracker_.reset(new PageLifecycleStateTracker(
-      this, kDefaultPageVisibility == PageVisibilityState::kVisible
-                ? PageLifecycleState::kActive
-                : PageLifecycleState::kHiddenBackgrounded));
 }
 
 PageSchedulerImpl::~PageSchedulerImpl() {
@@ -173,6 +194,8 @@ void PageSchedulerImpl::SetPageVisible(bool page_visible) {
   if (page_visibility_ == page_visibility)
     return;
   page_visibility_ = page_visibility;
+  page_visibility_changed_time_ =
+      main_thread_scheduler_->GetTickClock()->NowTicks();
 
   switch (page_visibility_) {
     case PageVisibilityState::kVisible:
@@ -191,7 +214,9 @@ void PageSchedulerImpl::SetPageVisible(bool page_visible) {
   if (ShouldFreezePage()) {
     main_thread_scheduler_->ControlTaskRunner()->PostDelayedTask(
         FROM_HERE, do_freeze_page_callback_.GetCallback(),
-        delay_for_background_tab_freezing_);
+        freeze_on_network_idle_enabled_
+            ? delay_for_background_and_network_idle_tab_freezing_
+            : delay_for_background_tab_freezing_);
   }
 
   for (FrameSchedulerImpl* frame_scheduler : frame_schedulers_)
@@ -225,19 +250,24 @@ void PageSchedulerImpl::SetPageFrozen(bool frozen) {
 void PageSchedulerImpl::SetPageFrozenImpl(
     bool frozen,
     PageSchedulerImpl::NotificationPolicy notification_policy) {
+  // Only pages owned by web views can be frozen.
+  DCHECK(IsOrdinary());
+
   do_freeze_page_callback_.Cancel();
   if (is_frozen_ == frozen)
     return;
   is_frozen_ = frozen;
-  for (FrameSchedulerImpl* frame_scheduler : frame_schedulers_)
+  for (FrameSchedulerImpl* frame_scheduler : frame_schedulers_) {
     frame_scheduler->SetPageFrozenForTracing(frozen);
+    frame_scheduler->SetShouldReportPostedTasksWhenDisabled(frozen);
+  }
   if (notification_policy ==
       PageSchedulerImpl::NotificationPolicy::kNotifyFrames)
     NotifyFrames();
   if (frozen) {
     page_lifecycle_state_tracker_->SetPageLifecycleState(
         PageLifecycleState::kFrozen);
-    Platform::Current()->RequestPurgeMemory();
+    main_thread_scheduler_->OnPageFrozen();
   } else {
     // The new state may have already been set if unfreezing through the
     // renderer, but that's okay - duplicate state changes won't be recorded.
@@ -251,8 +281,8 @@ void PageSchedulerImpl::SetPageFrozenImpl(
       page_lifecycle_state_tracker_->SetPageLifecycleState(
           PageLifecycleState::kHiddenForegrounded);
     }
+    main_thread_scheduler_->OnPageResumed();
   }
-  Platform::Current()->SetMemoryPressureNotificationsSuppressed(frozen);
 }
 
 void PageSchedulerImpl::SetKeepActive(bool keep_active) {
@@ -276,6 +306,12 @@ bool PageSchedulerImpl::IsMainFrameLocal() const {
 
 bool PageSchedulerImpl::IsLoading() const {
   return main_thread_scheduler_->current_use_case() == UseCase::kLoading;
+}
+
+bool PageSchedulerImpl::IsOrdinary() const {
+  if (!delegate_)
+    return true;
+  return delegate_->IsOrdinary();
 }
 
 void PageSchedulerImpl::SetIsMainFrameLocal(bool is_local) {
@@ -305,8 +341,8 @@ void PageSchedulerImpl::OnNavigation() {
   reported_background_throttling_since_navigation_ = false;
 }
 
-void PageSchedulerImpl::ReportIntervention(const std::string& message) {
-  delegate_->ReportIntervention(String::FromUTF8(message.c_str()));
+void PageSchedulerImpl::ReportIntervention(const String& message) {
+  delegate_->ReportIntervention(message);
 }
 
 base::TimeTicks PageSchedulerImpl::EnableVirtualTime() {
@@ -342,15 +378,6 @@ void PageSchedulerImpl::GrantVirtualTimeBudget(
   // so it's important this is called second.
   main_thread_scheduler_->GetVirtualTimeDomain()->SetVirtualTimeFence(
       main_thread_scheduler_->GetVirtualTimeDomain()->Now() + budget);
-}
-
-void PageSchedulerImpl::AddVirtualTimeObserver(VirtualTimeObserver* observer) {
-  main_thread_scheduler_->AddVirtualTimeObserver(observer);
-}
-
-void PageSchedulerImpl::RemoveVirtualTimeObserver(
-    VirtualTimeObserver* observer) {
-  main_thread_scheduler_->RemoveVirtualTimeObserver(observer);
 }
 
 void PageSchedulerImpl::AudioStateChanged(bool is_audio_playing) {
@@ -391,20 +418,22 @@ void PageSchedulerImpl::OnAudioSilent() {
   if (ShouldFreezePage()) {
     main_thread_scheduler_->ControlTaskRunner()->PostDelayedTask(
         FROM_HERE, do_freeze_page_callback_.GetCallback(),
-        delay_for_background_tab_freezing_);
+        freeze_on_network_idle_enabled_
+            ? delay_for_background_and_network_idle_tab_freezing_
+            : delay_for_background_tab_freezing_);
   }
 }
 
 bool PageSchedulerImpl::IsExemptFromBudgetBasedThrottling() const {
-  return has_active_connection_;
+  return opted_out_from_aggressive_throttling_;
 }
 
-bool PageSchedulerImpl::HasActiveConnectionForTest() const {
-  return HasActiveConnection();
+bool PageSchedulerImpl::OptedOutFromAggressiveThrottlingForTest() const {
+  return OptedOutFromAggressiveThrottling();
 }
 
-bool PageSchedulerImpl::HasActiveConnection() const {
-  return has_active_connection_;
+bool PageSchedulerImpl::OptedOutFromAggressiveThrottling() const {
+  return opted_out_from_aggressive_throttling_;
 }
 
 bool PageSchedulerImpl::RequestBeginMainFrameNotExpected(bool new_state) {
@@ -430,14 +459,17 @@ bool PageSchedulerImpl::IsThrottled() const {
   return is_throttled_;
 }
 
-void PageSchedulerImpl::OnConnectionUpdated() {
-  bool has_active_connection = false;
+void PageSchedulerImpl::OnAggressiveThrottlingStatusUpdated() {
+  bool opted_out_from_aggressive_throttling = false;
   for (FrameSchedulerImpl* frame_scheduler : frame_schedulers_) {
-    has_active_connection |= frame_scheduler->has_active_connection();
+    opted_out_from_aggressive_throttling |=
+        frame_scheduler->opted_out_from_aggressive_throttling();
   }
 
-  if (has_active_connection_ != has_active_connection) {
-    has_active_connection_ = has_active_connection;
+  if (opted_out_from_aggressive_throttling_ !=
+      opted_out_from_aggressive_throttling) {
+    opted_out_from_aggressive_throttling_ =
+        opted_out_from_aggressive_throttling;
     UpdateBackgroundBudgetPoolSchedulingLifecycleState();
   }
 }
@@ -513,7 +545,7 @@ void PageSchedulerImpl::OnThrottlingReported(
     return;
   reported_background_throttling_since_navigation_ = true;
 
-  std::string message = base::StringPrintf(
+  String message = String::Format(
       "Timer tasks have taken too much time while the page was in the "
       "background. "
       "As a result, they have been deferred for %.3f seconds. "
@@ -521,7 +553,7 @@ void PageSchedulerImpl::OnThrottlingReported(
       "for more details",
       throttling_duration.InSecondsF());
 
-  delegate_->ReportIntervention(String::FromUTF8(message.c_str()));
+  delegate_->ReportIntervention(message);
 }
 
 void PageSchedulerImpl::UpdateBackgroundSchedulingLifecycleState(
@@ -553,7 +585,7 @@ void PageSchedulerImpl::UpdateBackgroundBudgetPoolSchedulingLifecycleState() {
 
   base::sequence_manager::LazyNow lazy_now(
       main_thread_scheduler_->tick_clock());
-  if (is_throttled_ && !has_active_connection_) {
+  if (is_throttled_ && !opted_out_from_aggressive_throttling_) {
     background_time_budget_pool_->EnableThrottling(&lazy_now);
   } else {
     background_time_budget_pool_->DisableThrottling(&lazy_now);
@@ -590,9 +622,52 @@ bool PageSchedulerImpl::ShouldFreezePage() const {
   return IsBackgrounded();
 }
 
+void PageSchedulerImpl::OnLocalMainFrameNetworkAlmostIdle() {
+  if (!freeze_on_network_idle_enabled_)
+    return;
+
+  if (!ShouldFreezePage())
+    return;
+
+  if (IsFrozen())
+    return;
+
+  // If delay_for_background_and_network_idle_tab_freezing_ passes after
+  // the page is not visible, we should freeze the page.
+  base::TimeDelta passed = main_thread_scheduler_->GetTickClock()->NowTicks() -
+                           page_visibility_changed_time_;
+  if (passed < delay_for_background_and_network_idle_tab_freezing_)
+    return;
+
+  SetPageFrozenImpl(true, NotificationPolicy::kNotifyFrames);
+}
+
 void PageSchedulerImpl::DoFreezePage() {
   DCHECK(ShouldFreezePage());
+
+  if (freeze_on_network_idle_enabled_) {
+    DCHECK(delegate_);
+    base::TimeDelta passed =
+        main_thread_scheduler_->GetTickClock()->NowTicks() -
+        page_visibility_changed_time_;
+    // The page will be frozen if:
+    // (1) the main frame is remote, or,
+    // (2) the local main frame's network is almost idle, or,
+    // (3) delay_for_background_tab passes after the page is not visible.
+    if (!delegate_->LocalMainFrameNetworkIsAlmostIdle() &&
+        passed < delay_for_background_tab_freezing_) {
+      main_thread_scheduler_->ControlTaskRunner()->PostDelayedTask(
+          FROM_HERE, do_freeze_page_callback_.GetCallback(),
+          delay_for_background_tab_freezing_ - passed);
+      return;
+    }
+  }
+
   SetPageFrozenImpl(true, NotificationPolicy::kNotifyFrames);
+}
+
+PageLifecycleState PageSchedulerImpl::GetPageLifecycleState() const {
+  return page_lifecycle_state_tracker_->GetPageLifecycleState();
 }
 
 PageSchedulerImpl::PageLifecycleStateTracker::PageLifecycleStateTracker(
@@ -620,6 +695,11 @@ void PageSchedulerImpl::PageLifecycleStateTracker::SetPageLifecycleState(
   if (page_scheduler_impl_->delegate_)
     page_scheduler_impl_->delegate_->SetLifecycleState(new_state);
   current_state_ = new_state;
+}
+
+PageLifecycleState
+PageSchedulerImpl::PageLifecycleStateTracker::GetPageLifecycleState() const {
+  return current_state_;
 }
 
 // static

@@ -12,15 +12,18 @@
 #include "base/threading/scoped_blocking_call.h"
 #include "base/trace_event/trace_event.h"
 #include "build/build_config.h"
+#include "components/viz/common/features.h"
 #include "gpu/command_buffer/service/gpu_switches.h"
 #include "gpu/command_buffer/service/service_utils.h"
 #include "gpu/config/gpu_driver_bug_list.h"
 #include "gpu/config/gpu_driver_bug_workaround_type.h"
+#include "gpu/config/gpu_finch_features.h"
 #include "gpu/config/gpu_info_collector.h"
 #include "gpu/config/gpu_switches.h"
 #include "gpu/config/gpu_switching.h"
 #include "gpu/config/gpu_util.h"
 #include "gpu/ipc/service/gpu_watchdog_thread.h"
+#include "gpu/ipc/service/gpu_watchdog_thread_v2.h"
 #include "ui/base/ui_base_features.h"
 #include "ui/gfx/switches.h"
 #include "ui/gl/buildflags.h"
@@ -32,15 +35,17 @@
 
 #if defined(USE_OZONE)
 #include "ui/ozone/public/ozone_platform.h"
+#include "ui/ozone/public/surface_factory_ozone.h"
 #endif
 
 #if defined(OS_WIN) && !defined(TOOLKIT_QT)
-#include "gpu/ipc/service/direct_composition_surface_win.h"
+#include "ui/gl/direct_composition_surface_win.h"
 #include "ui/gl/gl_surface_egl.h"
 #endif
 
 #if defined(OS_ANDROID)
 #include "base/android/android_image_reader_compat.h"
+#include "ui/gl/android/android_surface_control_compat.h"
 #endif
 
 #if BUILDFLAG(ENABLE_VULKAN)
@@ -56,7 +61,7 @@ bool CollectGraphicsInfo(GPUInfo* gpu_info,
   DCHECK(gpu_info);
   TRACE_EVENT0("gpu,startup", "Collect Graphics Info");
   base::TimeTicks before_collect_context_graphics_info = base::TimeTicks::Now();
-  bool success = CollectContextGraphicsInfo(gpu_info, gpu_preferences);
+  bool success = CollectContextGraphicsInfo(gpu_info);
   if (!success)
     LOG(ERROR) << "gpu::CollectGraphicsInfo failed.";
 
@@ -69,28 +74,46 @@ bool CollectGraphicsInfo(GPUInfo* gpu_info,
 }
 
 #if defined(OS_WIN) && !defined(TOOLKIT_QT)
-// This has to be called after a context is created, active GPU is identified,
-// and GPU driver bug workarounds are computed again. Otherwise the workaround
-// |disable_direct_composition| may not be correctly applied.
-// Also, this has to be called after falling back to SwiftShader decision is
-// finalized because this function depends on GL is ANGLE's GLES or not.
-void InitializeDirectCompositionOverlaySupport(GPUInfo* gpu_info) {
-  if (gl::GetGLImplementation() == gl::kGLImplementationEGLGLES2) {
+OverlaySupport FlagsToOverlaySupport(UINT flags) {
+  if (flags & DXGI_OVERLAY_SUPPORT_FLAG_SCALING)
+    return OverlaySupport::kScaling;
+  if (flags & DXGI_OVERLAY_SUPPORT_FLAG_DIRECT)
+    return OverlaySupport::kDirect;
+  return OverlaySupport::kNone;
+}
+#endif  // OS_WIN
+
+void InitializePlatformOverlaySettings(GPUInfo* gpu_info) {
+#if defined(OS_WIN) && !defined(TOOLKIT_QT)
+  // This has to be called after a context is created, active GPU is identified,
+  // and GPU driver bug workarounds are computed again. Otherwise the workaround
+  // |disable_direct_composition| may not be correctly applied.
+  // Also, this has to be called after falling back to SwiftShader decision is
+  // finalized because this function depends on GL is ANGLE's GLES or not.
+  if (gl::GetGLImplementation() == gl::kGLImplementationEGLANGLE) {
     DCHECK(gpu_info);
     gpu_info->direct_composition =
-        DirectCompositionSurfaceWin::IsDirectCompositionSupported();
+        gl::DirectCompositionSurfaceWin::IsDirectCompositionSupported();
     gpu_info->supports_overlays =
-        DirectCompositionSurfaceWin::AreOverlaysSupported();
-    gpu_info->overlay_capabilities =
-        DirectCompositionSurfaceWin::GetOverlayCapabilities();
+        gl::DirectCompositionSurfaceWin::AreOverlaysSupported();
+    gpu_info->nv12_overlay_support = FlagsToOverlaySupport(
+        gl::DirectCompositionSurfaceWin::GetOverlaySupportFlags(
+            DXGI_FORMAT_NV12));
+    gpu_info->yuy2_overlay_support = FlagsToOverlaySupport(
+        gl::DirectCompositionSurfaceWin::GetOverlaySupportFlags(
+            DXGI_FORMAT_YUY2));
   }
+#elif defined(OS_ANDROID)
+  if (gpu_info->gpu.vendor_string == "Qualcomm")
+    gl::SurfaceControl::EnableQualcommUBWC();
+#endif
 }
-#endif  // defined(OS_WIN)
 
 #if defined(OS_LINUX) && !defined(OS_CHROMEOS) && !defined(IS_CHROMECAST)
 bool CanAccessNvidiaDeviceFile() {
   bool res = true;
-  base::ScopedBlockingCall scoped_blocking_call(base::BlockingType::WILL_BLOCK);
+  base::ScopedBlockingCall scoped_blocking_call(FROM_HERE,
+                                                base::BlockingType::WILL_BLOCK);
   if (access("/dev/nvidiactl", R_OK) != 0) {
     DVLOG(1) << "NVIDIA device file /dev/nvidiactl access denied";
     res = false;
@@ -179,8 +202,14 @@ bool GpuInit::InitializeAndStartSandbox(base::CommandLine* command_line,
   // Start the GPU watchdog only after anything that is expected to be time
   // consuming has completed, otherwise the process is liable to be aborted.
   if (enable_watchdog && !delayed_watchdog_enable) {
-    watchdog_thread_ = gpu::GpuWatchdogThread::Create(
-        gpu_preferences_.watchdog_starts_backgrounded);
+    if (base::FeatureList::IsEnabled(features::kGpuWatchdogV2)) {
+      watchdog_thread_ = gpu::GpuWatchdogThreadImplV2::Create(
+          gpu_preferences_.watchdog_starts_backgrounded);
+    } else {
+      watchdog_thread_ = gpu::GpuWatchdogThreadImplV1::Create(
+          gpu_preferences_.watchdog_starts_backgrounded);
+    }
+
 #if defined(OS_WIN)
     // This is a workaround for an occasional deadlock between watchdog and
     // current thread. Watchdog hangs at thread initialization in
@@ -221,21 +250,31 @@ bool GpuInit::InitializeAndStartSandbox(base::CommandLine* command_line,
       features::IsOzoneDrmMojo() || ui::OzonePlatform::EnsureInstance()
                                         ->GetPlatformProperties()
                                         .requires_mojo;
+  params.viz_display_compositor = features::IsVizDisplayCompositorEnabled();
   ui::OzonePlatform::InitializeForGPU(params);
+  const std::vector<gfx::BufferFormat> supported_buffer_formats_for_texturing =
+      ui::OzonePlatform::GetInstance()
+          ->GetSurfaceFactoryOzone()
+          ->GetSupportedFormatsForTexturing();
 #endif
 
 #if BUILDFLAG(ENABLE_VULKAN)
-  if (gpu_preferences_.enable_vulkan) {
-    vulkan_implementation_ = gpu::CreateVulkanImplementation();
+  if (gpu_preferences_.use_vulkan != gpu::VulkanImplementationName::kNone) {
+    bool use_swiftshader = gpu_preferences_.use_vulkan ==
+                           gpu::VulkanImplementationName::kSwiftshader;
+    vulkan_implementation_ = gpu::CreateVulkanImplementation(use_swiftshader);
     if (!vulkan_implementation_ ||
-        !vulkan_implementation_->InitializeVulkanInstance()) {
-      DLOG(WARNING) << "Failed to create and initialize Vulkan implementation.";
+        !vulkan_implementation_->InitializeVulkanInstance(
+            !gpu_preferences_.disable_vulkan_surface)) {
+      DLOG(ERROR) << "Failed to create and initialize Vulkan implementation.";
       vulkan_implementation_ = nullptr;
+      CHECK(!gpu_preferences_.disable_vulkan_fallback_to_gl_for_testing);
     }
-    gpu_preferences_.enable_vulkan = !!vulkan_implementation_;
+    if (!vulkan_implementation_)
+      gpu_preferences_.use_vulkan = gpu::VulkanImplementationName::kNone;
   }
 #else
-  gpu_preferences_.enable_vulkan = false;
+  gpu_preferences_.use_vulkan = gpu::VulkanImplementationName::kNone;
 #endif
 
   if (!use_swiftshader) {
@@ -245,8 +284,14 @@ bool GpuInit::InitializeAndStartSandbox(base::CommandLine* command_line,
   }
   if (gl_initialized && use_swiftshader &&
       gl::GetGLImplementation() != gl::kGLImplementationSwiftShaderGL) {
+#if defined(OS_LINUX)
+    VLOG(1) << "Quit GPU process launch to fallback to SwiftShader cleanly "
+            << "on Linux";
+    return false;
+#else
     gl::init::ShutdownGL(true);
     gl_initialized = false;
+#endif  // OS_LINUX
   }
   if (!gl_initialized)
     gl_initialized = gl::init::InitializeGLNoExtensionsOneOff();
@@ -255,6 +300,11 @@ bool GpuInit::InitializeAndStartSandbox(base::CommandLine* command_line,
     return false;
   }
   bool gl_disabled = gl::GetGLImplementation() == gl::kGLImplementationDisabled;
+
+  // Compute passthrough decoder status before ComputeGpuFeatureInfo below.
+  gpu_info_.passthrough_cmd_decoder =
+      gles2::UsePassthroughCommandDecoder(command_line) &&
+      gles2::PassthroughCommandDecoderSupported();
 
   // We need to collect GL strings (VENDOR, RENDERER) for blacklisting purposes.
   if (!gl_disabled && !use_swiftshader) {
@@ -267,13 +317,25 @@ bool GpuInit::InitializeAndStartSandbox(base::CommandLine* command_line,
         command_line, gpu_feature_info_,
         gpu_preferences_.disable_software_rasterizer, false);
     if (use_swiftshader) {
+#if defined(OS_LINUX)
+      VLOG(1) << "Quit GPU process launch to fallback to SwiftShader cleanly "
+              << "on Linux";
+      return false;
+#else
       gl::init::ShutdownGL(true);
       if (!gl::init::InitializeGLNoExtensionsOneOff()) {
         VLOG(1) << "gl::init::InitializeGLNoExtensionsOneOff with SwiftShader "
                 << "failed";
         return false;
       }
+#endif  // OS_LINUX
     }
+  }
+
+  // Collect GPU process info
+  if (!gl_disabled) {
+    if (!CollectGpuExtraInfo(&gpu_extra_info_))
+      return false;
   }
 
   if (!gl_disabled) {
@@ -293,9 +355,7 @@ bool GpuInit::InitializeAndStartSandbox(base::CommandLine* command_line,
     }
   }
 
-#if defined(OS_WIN) && !defined(TOOLKIT_QT)
-  InitializeDirectCompositionOverlaySupport(&gpu_info_);
-#endif
+  InitializePlatformOverlaySettings(&gpu_info_);
 
 #if defined(OS_LINUX)
   // Driver may create a compatibility profile context when collect graphics
@@ -311,12 +371,9 @@ bool GpuInit::InitializeAndStartSandbox(base::CommandLine* command_line,
         command_line, gpu_feature_info_,
         gpu_preferences_.disable_software_rasterizer, false);
     if (use_swiftshader) {
-      gl::init::ShutdownGL(true);
-      if (!gl::init::InitializeGLNoExtensionsOneOff()) {
-        VLOG(1) << "gl::init::InitializeGLNoExtensionsOneOff with SwiftShader "
-                << "failed";
-        return false;
-      }
+      VLOG(1) << "Quit GPU process launch to fallback to SwiftShader cleanly "
+              << "on Linux";
+      return false;
     }
   }
 #endif  // defined(OS_LINUX)
@@ -353,8 +410,13 @@ bool GpuInit::InitializeAndStartSandbox(base::CommandLine* command_line,
       watchdog_thread_->Stop();
     watchdog_thread_ = nullptr;
   } else if (enable_watchdog && delayed_watchdog_enable) {
-    watchdog_thread_ = gpu::GpuWatchdogThread::Create(
-        gpu_preferences_.watchdog_starts_backgrounded);
+    if (base::FeatureList::IsEnabled(features::kGpuWatchdogV2)) {
+      watchdog_thread_ = gpu::GpuWatchdogThreadImplV2::Create(
+          gpu_preferences_.watchdog_starts_backgrounded);
+    } else {
+      watchdog_thread_ = gpu::GpuWatchdogThreadImplV1::Create(
+          gpu_preferences_.watchdog_starts_backgrounded);
+    }
   }
 
   UMA_HISTOGRAM_ENUMERATION("GPU.GLImplementation", gl::GetGLImplementation());
@@ -366,9 +428,10 @@ bool GpuInit::InitializeAndStartSandbox(base::CommandLine* command_line,
   UMA_HISTOGRAM_BOOLEAN("GPU.Sandbox.InitializedSuccessfully",
                         gpu_info_.sandboxed);
 
-  gpu_info_.passthrough_cmd_decoder =
-      gles2::UsePassthroughCommandDecoder(command_line) &&
-      gles2::PassthroughCommandDecoderSupported();
+  // Notify the gpu watchdog that the gpu init has completed So the watchdog
+  // can be disarmed.
+  if (watchdog_thread_)
+    watchdog_thread_->OnInitComplete();
 
   init_successful_ = true;
 #if defined(USE_OZONE)
@@ -380,6 +443,10 @@ bool GpuInit::InitializeAndStartSandbox(base::CommandLine* command_line,
   if (gpu_feature_info_.IsWorkaroundEnabled(DISABLE_AIMAGEREADER)) {
     base::android::AndroidImageReader::DisableSupport();
   }
+#endif
+#if defined(USE_OZONE)
+  gpu_feature_info_.supported_buffer_formats_for_allocation_and_texturing =
+      std::move(supported_buffer_formats_for_texturing);
 #endif
 
   return true;
@@ -418,7 +485,12 @@ void GpuInit::InitializeInProcess(base::CommandLine* command_line,
       features::IsOzoneDrmMojo() || ui::OzonePlatform::EnsureInstance()
                                         ->GetPlatformProperties()
                                         .requires_mojo;
+  params.viz_display_compositor = features::IsVizDisplayCompositorEnabled();
   ui::OzonePlatform::InitializeForGPU(params);
+  const std::vector<gfx::BufferFormat> supported_buffer_formats_for_texturing =
+      ui::OzonePlatform::GetInstance()
+          ->GetSurfaceFactoryOzone()
+          ->GetSupportedFormatsForTexturing();
   ui::OzonePlatform::GetInstance()->AfterSandboxEntry();
 #endif
   bool needs_more_info = true;
@@ -447,7 +519,7 @@ void GpuInit::InitializeInProcess(base::CommandLine* command_line,
   bool gl_disabled = gl::GetGLImplementation() == gl::kGLImplementationDisabled;
 
   if (!gl_disabled && !use_swiftshader) {
-    CollectContextGraphicsInfo(&gpu_info_, gpu_preferences_);
+    CollectContextGraphicsInfo(&gpu_info_);
     gpu_feature_info_ = ComputeGpuFeatureInfo(gpu_info_, gpu_preferences_,
                                               command_line, nullptr);
     use_swiftshader = EnableSwiftShaderIfNeeded(
@@ -478,16 +550,14 @@ void GpuInit::InitializeInProcess(base::CommandLine* command_line,
     }
   }
 
-#if defined(OS_WIN) && !defined(TOOLKIT_QT)
-  InitializeDirectCompositionOverlaySupport(&gpu_info_);
-#endif
+  InitializePlatformOverlaySettings(&gpu_info_);
 
 #if defined(OS_LINUX)
   // Driver may create a compatibility profile context when collect graphics
   // information on Linux platform. Try to collect graphics information
   // based on core profile context after disabling platform extensions.
   if (!gl_disabled && !use_swiftshader) {
-    CollectContextGraphicsInfo(&gpu_info_, gpu_preferences_);
+    CollectContextGraphicsInfo(&gpu_info_);
     gpu_feature_info_ = ComputeGpuFeatureInfo(gpu_info_, gpu_preferences_,
                                               command_line, nullptr);
     use_swiftshader = EnableSwiftShaderIfNeeded(
@@ -508,15 +578,21 @@ void GpuInit::InitializeInProcess(base::CommandLine* command_line,
     AdjustInfoToSwiftShader();
   }
 
+#if defined(USE_OZONE)
+  gpu_feature_info_.supported_buffer_formats_for_allocation_and_texturing =
+      std::move(supported_buffer_formats_for_texturing);
+#endif
+
   UMA_HISTOGRAM_ENUMERATION("GPU.GLImplementation", gl::GetGLImplementation());
 }
 #endif  // OS_ANDROID
 
 void GpuInit::AdjustInfoToSwiftShader() {
   gpu_info_for_hardware_gpu_ = gpu_info_;
+  gpu_info_.passthrough_cmd_decoder = false;
   gpu_feature_info_for_hardware_gpu_ = gpu_feature_info_;
   gpu_feature_info_ = ComputeGpuFeatureInfoForSwiftShader();
-  CollectContextGraphicsInfo(&gpu_info_, gpu_preferences_);
+  CollectContextGraphicsInfo(&gpu_info_);
 }
 
 scoped_refptr<gl::GLSurface> GpuInit::TakeDefaultOffscreenSurface() {

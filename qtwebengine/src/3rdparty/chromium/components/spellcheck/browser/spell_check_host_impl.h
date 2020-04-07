@@ -36,22 +36,26 @@ class SpellCheckHostImpl : public spellcheck::mojom::SpellCheckHost {
   void RequestDictionary() override;
   void NotifyChecked(const base::string16& word, bool misspelled) override;
 
-#if !BUILDFLAG(USE_BROWSER_SPELLCHECKER)
+#if BUILDFLAG(USE_RENDERER_SPELLCHECKER)
   void CallSpellingService(const base::string16& text,
                            CallSpellingServiceCallback callback) override;
-#endif  // !BUILDFLAG(USE_BROWSER_SPELLCHECKER)
+#endif  // BUILDFLAG(USE_RENDERER_SPELLCHECKER)
 
 #if BUILDFLAG(USE_BROWSER_SPELLCHECKER)
   void RequestTextCheck(const base::string16& text,
                         int route_id,
                         RequestTextCheckCallback callback) override;
-  void ToggleSpellCheck(bool enabled, bool checked) override;
   void CheckSpelling(const base::string16& word,
                      int route_id,
                      CheckSpellingCallback callback) override;
   void FillSuggestionList(const base::string16& word,
                           FillSuggestionListCallback callback) override;
 #endif  // BUILDFLAG(USE_BROWSER_SPELLCHECKER)
+
+#if defined(OS_ANDROID)
+  // spellcheck::mojom::SpellCheckHost:
+  void DisconnectSessionBridge() override;
+#endif
 
  private:
 #if defined(OS_ANDROID)

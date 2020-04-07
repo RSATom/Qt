@@ -53,11 +53,11 @@ struct DPI_Entry;
 
 /* Let the user choose a DPI settings */
 class DPI_Chooser : public QWidget {
-    Q_DISABLE_COPY(DPI_Chooser)
+    Q_DISABLE_COPY_MOVE(DPI_Chooser)
     Q_OBJECT
 
 public:
-    explicit DPI_Chooser(QWidget *parent = 0);
+    explicit DPI_Chooser(QWidget *parent = nullptr);
     ~DPI_Chooser();
 
     void getDPI(int *dpiX, int *dpiY) const;

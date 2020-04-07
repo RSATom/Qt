@@ -4,9 +4,12 @@
 
 #include "components/heap_profiling/client_connection_manager.h"
 
+#include "base/bind.h"
+#include "base/no_destructor.h"
 #include "base/rand_util.h"
 #include "base/task/post_task.h"
 #include "components/services/heap_profiling/public/cpp/controller.h"
+#include "components/services/heap_profiling/public/cpp/profiling_client.h"
 #include "components/services/heap_profiling/public/cpp/settings.h"
 #include "components/services/heap_profiling/public/mojom/heap_profiling_client.mojom.h"
 #include "components/services/heap_profiling/public/mojom/heap_profiling_service.mojom.h"
@@ -43,13 +46,6 @@ class ProfilingClientBinder {
       : ProfilingClientBinder() {
     DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
     content::BindInterface(host, std::move(request_));
-  }
-
-  // Binds to the local connector to get the browser process' ProfilingClient.
-  explicit ProfilingClientBinder(service_manager::Connector* connector)
-      : ProfilingClientBinder() {
-    connector->BindInterface(content::mojom::kBrowserServiceName,
-                             std::move(request_));
   }
 
   mojom::ProfilingClientPtr take() { return std::move(memlog_client_); }
@@ -152,10 +148,11 @@ void StartProfilingBrowserProcessOnIOThread(
   if (!controller)
     return;
 
-  ProfilingClientBinder client(controller->GetConnector());
-  StartProfilingClientOnIOThread(controller, std::move(client),
-                                 base::GetCurrentProcId(),
-                                 mojom::ProcessType::BROWSER);
+  static base::NoDestructor<ProfilingClient> client;
+  mojom::ProfilingClientPtr proxy;
+  client->BindToInterface(mojo::MakeRequest(&proxy));
+  controller->StartProfilingClient(std::move(proxy), base::GetCurrentProcId(),
+                                   mojom::ProcessType::BROWSER);
 }
 
 void StartProfilingPidOnIOThread(base::WeakPtr<Controller> controller,
@@ -167,9 +164,7 @@ void StartProfilingPidOnIOThread(base::WeakPtr<Controller> controller,
 
   // Check if the request is for the current process.
   if (pid == base::GetCurrentProcId()) {
-    ProfilingClientBinder client(controller->GetConnector());
-    StartProfilingClientOnIOThread(controller, std::move(client), pid,
-                                   mojom::ProcessType::BROWSER);
+    StartProfilingBrowserProcessOnIOThread(std::move(controller));
     return;
   }
 

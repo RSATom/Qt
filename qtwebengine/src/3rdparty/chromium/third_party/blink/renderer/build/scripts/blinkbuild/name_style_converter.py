@@ -11,7 +11,6 @@ SPECIAL_TOKENS = [
     # This list should be sorted by length.
     'WebSocket',
     'String16',
-    'CString',
     'Float32',
     'Float64',
     'Base64',
@@ -47,6 +46,7 @@ SPECIAL_TOKENS = [
     'SPv2',
     'UTF8',
     'sRGB',
+    'URLs',
     'API',
     'CSS',
     'DNS',

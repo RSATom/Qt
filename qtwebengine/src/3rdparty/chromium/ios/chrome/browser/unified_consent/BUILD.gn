@@ -5,8 +5,6 @@
 source_set("unified_consent") {
   configs += [ "//build/config/compiler:enable_arc" ]
   sources = [
-    "unified_consent_service_client_impl.cc",
-    "unified_consent_service_client_impl.h",
     "unified_consent_service_factory.cc",
     "unified_consent_service_factory.h",
   ]
@@ -14,8 +12,8 @@ source_set("unified_consent") {
     "//components/browser_sync",
     "//components/keyed_service/ios",
     "//components/metrics",
-    "//components/signin/core/browser",
     "//components/sync",
+    "//components/sync_preferences",
     "//components/unified_consent",
     "//ios/chrome/browser",
     "//ios/chrome/browser/browser_state",

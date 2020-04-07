@@ -24,7 +24,6 @@ namespace blink {
 class ExceptionState;
 class ResponseInit;
 class ScriptState;
-class WebServiceWorkerResponse;
 
 class CORE_EXPORT Response final : public Body {
   DEFINE_WRAPPERTYPEINFO();
@@ -52,7 +51,7 @@ class CORE_EXPORT Response final : public Body {
   static Response* error(ScriptState*);
   static Response* redirect(ScriptState*,
                             const String& url,
-                            unsigned short status,
+                            uint16_t status,
                             ExceptionState&);
 
   explicit Response(ExecutionContext*);
@@ -65,7 +64,7 @@ class CORE_EXPORT Response final : public Body {
   String type() const;
   String url() const;
   bool redirected() const;
-  unsigned short status() const;
+  uint16_t status() const;
   bool ok() const;
   String statusText() const;
   Headers* headers() const;
@@ -77,9 +76,7 @@ class CORE_EXPORT Response final : public Body {
   // ScriptWrappable
   bool HasPendingActivity() const final;
 
-  // Does not call response.setBlobDataHandle().
-  void PopulateWebServiceWorkerResponse(
-      WebServiceWorkerResponse& /* response */);
+  // Does not contain the blob response body.
   mojom::blink::FetchAPIResponsePtr PopulateFetchAPIResponse();
 
   bool HasBody() const;
@@ -112,7 +109,7 @@ class CORE_EXPORT Response final : public Body {
   bool IsBodyUsedForDCheck(ExceptionState&) override;
 
  private:
-  const TraceWrapperMember<FetchResponseData> response_;
+  const Member<FetchResponseData> response_;
   const Member<Headers> headers_;
   DISALLOW_COPY_AND_ASSIGN(Response);
 };

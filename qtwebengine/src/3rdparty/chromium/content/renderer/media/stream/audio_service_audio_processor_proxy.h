@@ -12,9 +12,10 @@
 #include "base/memory/ref_counted.h"
 #include "base/synchronization/lock.h"
 #include "base/threading/thread_checker.h"
+#include "base/timer/timer.h"
 #include "content/common/content_export.h"
-#include "content/renderer/media/stream/aec_dump_message_filter.h"
-#include "media/audio/audio_processing.h"
+#include "content/renderer/media/stream/aec_dump_agent_impl.h"
+#include "media/base/audio_processing.h"
 #include "media/webrtc/audio_processor_controls.h"
 #include "third_party/webrtc/api/media_stream_interface.h"
 #include "third_party/webrtc/modules/audio_processing/include/audio_processing.h"
@@ -30,7 +31,7 @@ namespace content {
 // calculation code should be encapsulated in a class.
 class CONTENT_EXPORT AudioServiceAudioProcessorProxy
     : public webrtc::AudioProcessorInterface,
-      public AecDumpMessageFilter::AecDumpDelegate {
+      public AecDumpAgentImpl::Delegate {
  public:
   // All methods (including constructor and destructor) must be called on the
   // main thread except for GetStats.
@@ -44,11 +45,10 @@ class CONTENT_EXPORT AudioServiceAudioProcessorProxy
   // This method is called on the libjingle thread.
   AudioProcessorStatistics GetStats(bool has_remote_tracks) override;
 
-  // AecDumpMessageFilter::AecDumpDelegate implementation.
+  // AecDumpAgentImpl::Delegate implementation.
   // Called on the main render thread.
-  void OnAecDumpFile(const IPC::PlatformFileForTransit& file_handle) override;
-  void OnDisableAecDump() override;
-  void OnIpcClosing() override;
+  void OnStartDump(base::File file) override;
+  void OnStopDump() override;
 
   // Set the AudioProcessorControls which to proxy to. Must only be called once
   // and |controls| cannot be nullptr.
@@ -77,9 +77,9 @@ class CONTENT_EXPORT AudioServiceAudioProcessorProxy
   AudioProcessorStatistics latest_stats_ = {};
 
   // Communication with browser for AEC dump.
-  scoped_refptr<AecDumpMessageFilter> aec_dump_message_filter_;
+  std::unique_ptr<AecDumpAgentImpl> aec_dump_agent_impl_;
 
-  base::WeakPtrFactory<AudioServiceAudioProcessorProxy> weak_ptr_factory_;
+  base::WeakPtrFactory<AudioServiceAudioProcessorProxy> weak_ptr_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(AudioServiceAudioProcessorProxy);
 };

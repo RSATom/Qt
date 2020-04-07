@@ -1,43 +1,25 @@
+[positioning]
+opensuse-leap
 [positioning:default]
 linux
-osx-10.12 ci
+macos ci
 winrt
 [positioning:fake]
-osx-10.12 ci
+macos ci
 [modalWithChildWindow]
-ubuntu-16.04
 # QTBUG-66851
-opensuse
-opensuse-leap
 # QTBUG-69160
-android
+opensuse-leap
 [setVisible]
 # QTBUG-69154
 android
 [modalWindowEnterEventOnHide_QTBUG35109]
-ubuntu-16.04
-osx ci
+osx
 [spuriousMouseMove]
-windows ci
 # QTBUG-69162
-android
-[modalDialogClosingOneOfTwoModal]
-osx
-[modalWindowModallity]
-osx
-# QTBUG-69163
-android
-[visibility]
-osx-10.12 ci
-
+windows-10
 [testInputEvents]
 rhel-7.4
-[isActive]
-# QTBUG-67768
-ubuntu
-# QTBUG-69157
-android
-
 [exposeEventOnShrink_QTBUG54040]
 # QTBUG-69155
 android

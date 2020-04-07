@@ -327,7 +327,7 @@ bool QTemporaryFileEngine::isReallyOpen() const
 {
     Q_D(const QFSFileEngine);
 
-    if (!((0 == d->fh) && (-1 == d->fd)
+    if (!((nullptr == d->fh) && (-1 == d->fd)
 #if defined Q_OS_WIN
                 && (INVALID_HANDLE_VALUE == d->fileHandle)
 #endif
@@ -544,10 +544,10 @@ QTemporaryFilePrivate::~QTemporaryFilePrivate()
 QAbstractFileEngine *QTemporaryFilePrivate::engine() const
 {
     if (!fileEngine) {
-        fileEngine = new QTemporaryFileEngine(&templateName);
+        fileEngine.reset(new QTemporaryFileEngine(&templateName));
         resetFileEngine();
     }
-    return fileEngine;
+    return fileEngine.get();
 }
 
 void QTemporaryFilePrivate::resetFileEngine() const
@@ -555,7 +555,7 @@ void QTemporaryFilePrivate::resetFileEngine() const
     if (!fileEngine)
         return;
 
-    QTemporaryFileEngine *tef = static_cast<QTemporaryFileEngine *>(fileEngine);
+    QTemporaryFileEngine *tef = static_cast<QTemporaryFileEngine *>(fileEngine.get());
     if (fileName.isEmpty())
         tef->initialize(templateName, 0600);
     else
@@ -568,7 +568,7 @@ void QTemporaryFilePrivate::materializeUnnamedFile()
     if (!fileName.isEmpty() || !fileEngine)
         return;
 
-    auto *tef = static_cast<QTemporaryFileEngine *>(fileEngine);
+    auto *tef = static_cast<QTemporaryFileEngine *>(fileEngine.get());
     fileName = tef->fileName(QAbstractFileEngine::DefaultName);
 #endif
 }
@@ -630,6 +630,12 @@ QString QTemporaryFilePrivate::defaultTemplateName()
     auto-generated portion of the filename. Note that the template is
     case sensitive. If the template is not present in the filename,
     QTemporaryFile appends the generated part to the filename given.
+
+    \note On Linux, QTemporaryFile will attempt to create unnamed temporary
+    files. If that succeeds, open() will return true but exists() will be
+    false. If you call fileName() or any function that calls it,
+    QTemporaryFile will give the file a name, so most applications will
+    not see a difference.
 
     \sa QDir::tempPath(), QFile
 */
@@ -792,7 +798,7 @@ void QTemporaryFile::setAutoRemove(bool b)
 QString QTemporaryFile::fileName() const
 {
     Q_D(const QTemporaryFile);
-    auto tef = static_cast<QTemporaryFileEngine *>(d->fileEngine);
+    auto tef = static_cast<QTemporaryFileEngine *>(d->fileEngine.get());
     if (tef && tef->isReallyOpen())
         const_cast<QTemporaryFilePrivate *>(d)->materializeUnnamedFile();
 
@@ -841,7 +847,7 @@ void QTemporaryFile::setFileTemplate(const QString &name)
 bool QTemporaryFile::rename(const QString &newName)
 {
     Q_D(QTemporaryFile);
-    auto tef = static_cast<QTemporaryFileEngine *>(d->fileEngine);
+    auto tef = static_cast<QTemporaryFileEngine *>(d->fileEngine.get());
     if (!tef || !tef->isReallyOpen() || !tef->filePathWasTemplate)
         return QFile::rename(newName);
 
@@ -902,7 +908,7 @@ QTemporaryFile *QTemporaryFile::createNativeFile(QFile &file)
 {
     if (QAbstractFileEngine *engine = file.d_func()->engine()) {
         if(engine->fileFlags(QAbstractFileEngine::FlagsMask) & QAbstractFileEngine::LocalDiskFlag)
-            return 0; //native already
+            return nullptr; // native already
         //cache
         bool wasOpen = file.isOpen();
         qint64 old_off = 0;
@@ -934,7 +940,7 @@ QTemporaryFile *QTemporaryFile::createNativeFile(QFile &file)
         //done
         return ret;
     }
-    return 0;
+    return nullptr;
 }
 
 /*!
@@ -947,7 +953,7 @@ QTemporaryFile *QTemporaryFile::createNativeFile(QFile &file)
 bool QTemporaryFile::open(OpenMode flags)
 {
     Q_D(QTemporaryFile);
-    auto tef = static_cast<QTemporaryFileEngine *>(d->fileEngine);
+    auto tef = static_cast<QTemporaryFileEngine *>(d->fileEngine.get());
     if (tef && tef->isReallyOpen()) {
         setOpenMode(flags);
         return true;
@@ -961,7 +967,7 @@ bool QTemporaryFile::open(OpenMode flags)
     d->resetFileEngine();
 
     if (QFile::open(flags)) {
-        tef = static_cast<QTemporaryFileEngine *>(d->fileEngine);
+        tef = static_cast<QTemporaryFileEngine *>(d->fileEngine.get());
         if (tef->isUnnamedFile())
             d->fileName.clear();
         else

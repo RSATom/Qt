@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-#include "perfetto/base/unix_socket.h"
+#include "perfetto/ext/base/unix_socket.h"
 
 #include <signal.h>
 #include <sys/mman.h>
@@ -24,14 +24,14 @@
 #include <list>
 #include <thread>
 
-#include "gmock/gmock.h"
-#include "gtest/gtest.h"
+#include <gmock/gmock.h>
+#include <gtest/gtest.h>
 #include "perfetto/base/build_config.h"
-#include "perfetto/base/file_utils.h"
 #include "perfetto/base/logging.h"
-#include "perfetto/base/pipe.h"
-#include "perfetto/base/temp_file.h"
-#include "perfetto/base/utils.h"
+#include "perfetto/ext/base/file_utils.h"
+#include "perfetto/ext/base/pipe.h"
+#include "perfetto/ext/base/temp_file.h"
+#include "perfetto/ext/base/utils.h"
 #include "src/base/test/test_task_runner.h"
 #include "src/ipc/test/test_socket.h"
 
@@ -715,6 +715,36 @@ TEST_F(UnixSocketTest, PartialSendMsgAll) {
   // Make sure the re-entry logic was actually triggered.
   ASSERT_EQ(hdr.msg_iov, nullptr);
   ASSERT_EQ(memcmp(send_buf, recv_buf, sizeof(send_buf)), 0);
+}
+
+TEST_F(UnixSocketTest, ReleaseSocket) {
+  auto srv = UnixSocket::Listen(kSocketName, &event_listener_, &task_runner_);
+  ASSERT_TRUE(srv->is_listening());
+  auto connected = task_runner_.CreateCheckpoint("connected");
+  UnixSocket* peer = nullptr;
+  EXPECT_CALL(event_listener_, OnNewIncomingConnection(srv.get(), _))
+      .WillOnce(Invoke([connected, &peer](UnixSocket*, UnixSocket* new_conn) {
+        peer = new_conn;
+        connected();
+      }));
+
+  auto cli = UnixSocket::Connect(kSocketName, &event_listener_, &task_runner_);
+  EXPECT_CALL(event_listener_, OnConnect(cli.get(), true));
+  task_runner_.RunUntilCheckpoint("connected");
+  srv->Shutdown(true);
+
+  cli->Send("test", UnixSocket::BlockingMode::kBlocking);
+
+  ASSERT_NE(peer, nullptr);
+  auto raw_sock = peer->ReleaseSocket();
+
+  EXPECT_CALL(event_listener_, OnDataAvailable(_)).Times(0);
+  task_runner_.RunUntilIdle();
+
+  char buf[sizeof("test")];
+  ASSERT_TRUE(raw_sock);
+  ASSERT_EQ(raw_sock.Receive(buf, sizeof(buf)), sizeof(buf));
+  ASSERT_STREQ(buf, "test");
 }
 
 // TODO(primiano): add a test to check that in the case of a peer sending a fd

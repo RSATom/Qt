@@ -71,7 +71,7 @@ ToAuthenticatorMakeCredentialResponse(
       AttestationObject(
           std::move(*authenticator_data),
           std::make_unique<OpaqueAttestationStatement>(
-              base::UTF16ToUTF8(credential_attestation.pwszFormatType),
+              base::WideToUTF8(credential_attestation.pwszFormatType),
               std::move(*cbor_attestation_statement))));
 }
 
@@ -158,11 +158,7 @@ static uint32_t ToWinTransportsMask(
 }
 
 std::vector<WEBAUTHN_CREDENTIAL> ToWinCredentialVector(
-    const base::Optional<std::vector<PublicKeyCredentialDescriptor>>&
-        credentials) {
-  if (!credentials) {
-    return {};
-  }
+    const std::vector<PublicKeyCredentialDescriptor>* credentials) {
   std::vector<WEBAUTHN_CREDENTIAL> result;
   for (const auto& credential : *credentials) {
     if (credential.credential_type() != CredentialType::kPublicKey) {
@@ -170,7 +166,7 @@ std::vector<WEBAUTHN_CREDENTIAL> ToWinCredentialVector(
     }
     result.push_back(WEBAUTHN_CREDENTIAL{
         WEBAUTHN_CREDENTIAL_CURRENT_VERSION,
-        credential.id().size(),
+        DWORD(credential.id().size()),
         const_cast<unsigned char*>(credential.id().data()),
         WEBAUTHN_CREDENTIAL_TYPE_PUBLIC_KEY,
     });
@@ -179,18 +175,14 @@ std::vector<WEBAUTHN_CREDENTIAL> ToWinCredentialVector(
 }
 
 std::vector<WEBAUTHN_CREDENTIAL_EX> ToWinCredentialExVector(
-    const base::Optional<std::vector<PublicKeyCredentialDescriptor>>&
-        credentials) {
-  if (!credentials) {
-    return {};
-  }
+    const std::vector<PublicKeyCredentialDescriptor>* credentials) {
   std::vector<WEBAUTHN_CREDENTIAL_EX> result;
   for (const auto& credential : *credentials) {
     if (credential.credential_type() != CredentialType::kPublicKey) {
       continue;
     }
     result.push_back(WEBAUTHN_CREDENTIAL_EX{
-        WEBAUTHN_CREDENTIAL_EX_CURRENT_VERSION, credential.id().size(),
+        WEBAUTHN_CREDENTIAL_EX_CURRENT_VERSION, DWORD(credential.id().size()),
         const_cast<unsigned char*>(credential.id().data()),
         WEBAUTHN_CREDENTIAL_TYPE_PUBLIC_KEY,
         ToWinTransportsMask(credential.transports())});
@@ -208,20 +200,21 @@ CtapDeviceResponseCode WinErrorNameToCtapDeviceResponseCode(
   // See WebAuthNGetErrorName in <webauthn.h> for these string values.
   static base::flat_map<base::string16, CtapDeviceResponseCode>
       kResponseCodeMap({
-          {L"Success", CtapDeviceResponseCode::kSuccess},
+          {STRING16_LITERAL("Success"), CtapDeviceResponseCode::kSuccess},
           // This should be something else for GetAssertion but that currently
           // doesn't make a difference.
-          {L"InvalidStateError",
+          {STRING16_LITERAL("InvalidStateError"),
            CtapDeviceResponseCode::kCtap2ErrCredentialExcluded},
-          {L"ConstraintError",
+          {STRING16_LITERAL("ConstraintError"),
            CtapDeviceResponseCode::kCtap2ErrUnsupportedOption},
-          {L"NotSupportedError",
-           CtapDeviceResponseCode::kCtap2ErrUnsupportedAlgorithms},
-          {L"NotAllowedError",
+          {STRING16_LITERAL("NotSupportedError"),
+           CtapDeviceResponseCode::kCtap2ErrUnsupportedAlgorithm},
+          {STRING16_LITERAL("NotAllowedError"),
            CtapDeviceResponseCode::kCtap2ErrOperationDenied},
-          {L"UnknownError", CtapDeviceResponseCode::kCtap2ErrOther},
+          {STRING16_LITERAL("UnknownError"),
+           CtapDeviceResponseCode::kCtap2ErrOther},
       });
-  return base::ContainsKey(kResponseCodeMap, error_name)
+  return base::Contains(kResponseCodeMap, error_name)
              ? kResponseCodeMap[error_name]
              : CtapDeviceResponseCode::kCtap2ErrOther;
 }
@@ -229,13 +222,13 @@ CtapDeviceResponseCode WinErrorNameToCtapDeviceResponseCode(
 uint32_t ToWinAttestationConveyancePreference(
     const AttestationConveyancePreference& value) {
   switch (value) {
-    case AttestationConveyancePreference::NONE:
+    case AttestationConveyancePreference::kNone:
       return WEBAUTHN_ATTESTATION_CONVEYANCE_PREFERENCE_NONE;
-    case AttestationConveyancePreference::INDIRECT:
+    case AttestationConveyancePreference::kIndirect:
       return WEBAUTHN_ATTESTATION_CONVEYANCE_PREFERENCE_DIRECT;
-    case AttestationConveyancePreference::DIRECT:
+    case AttestationConveyancePreference::kDirect:
       return WEBAUTHN_ATTESTATION_CONVEYANCE_PREFERENCE_DIRECT;
-    case AttestationConveyancePreference::ENTERPRISE:
+    case AttestationConveyancePreference::kEnterprise:
       // Windows does not support enterprise attestation.
       return WEBAUTHN_ATTESTATION_CONVEYANCE_PREFERENCE_DIRECT;
   }

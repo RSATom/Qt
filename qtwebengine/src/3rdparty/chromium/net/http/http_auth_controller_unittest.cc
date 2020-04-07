@@ -4,19 +4,24 @@
 
 #include "net/http/http_auth_controller.h"
 
+#include <algorithm>
 #include <utility>
 
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/scoped_task_environment.h"
 #include "net/base/net_errors.h"
 #include "net/base/test_completion_callback.h"
+#include "net/dns/mock_host_resolver.h"
 #include "net/http/http_auth_cache.h"
 #include "net/http/http_auth_challenge_tokenizer.h"
 #include "net/http/http_auth_handler_mock.h"
 #include "net/http/http_request_info.h"
 #include "net/http/http_response_headers.h"
 #include "net/http/http_util.h"
+#include "net/log/net_log_event_type.h"
 #include "net/log/net_log_with_source.h"
+#include "net/log/test_net_log.h"
+#include "net/log/test_net_log_util.h"
 #include "net/ssl/ssl_info.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -35,12 +40,8 @@ enum SchemeState {
 };
 
 scoped_refptr<HttpResponseHeaders> HeadersFromString(const char* string) {
-  std::string raw_string(string);
-  std::string headers_string = HttpUtil::AssembleRawHeaders(
-      raw_string.c_str(), raw_string.length());
-  scoped_refptr<HttpResponseHeaders> headers(
-      new HttpResponseHeaders(headers_string));
-  return headers;
+  return base::MakeRefCounted<HttpResponseHeaders>(
+      HttpUtil::AssembleRawHeaders(string));
 }
 
 // Runs an HttpAuthController with a single round mock auth handler
@@ -49,11 +50,12 @@ scoped_refptr<HttpResponseHeaders> HeadersFromString(const char* string) {
 // return value of the controller is tested against
 // |expected_controller_rv|.  |scheme_state| indicates whether the
 // auth scheme used should be disabled after this run.
-void RunSingleRoundAuthTest(HandlerRunMode run_mode,
-                            int handler_rv,
-                            int expected_controller_rv,
-                            SchemeState scheme_state) {
-  NetLogWithSource dummy_log;
+void RunSingleRoundAuthTest(
+    HandlerRunMode run_mode,
+    int handler_rv,
+    int expected_controller_rv,
+    SchemeState scheme_state,
+    const NetLogWithSource& net_log = NetLogWithSource()) {
   HttpAuthCache dummy_auth_cache;
 
   HttpRequestInfo request;
@@ -71,23 +73,23 @@ void RunSingleRoundAuthTest(HandlerRunMode run_mode,
                                        handler_rv);
   auth_handler_factory.AddMockHandler(auth_handler, HttpAuth::AUTH_PROXY);
   auth_handler_factory.set_do_init_from_challenge(true);
+  auto host_resolver = std::make_unique<MockHostResolver>();
 
-  scoped_refptr<HttpAuthController> controller(
-      new HttpAuthController(HttpAuth::AUTH_PROXY,
-                             GURL("http://example.com"),
-                             &dummy_auth_cache, &auth_handler_factory));
+  scoped_refptr<HttpAuthController> controller(new HttpAuthController(
+      HttpAuth::AUTH_PROXY, GURL("http://example.com"), &dummy_auth_cache,
+      &auth_handler_factory, host_resolver.get()));
   SSLInfo null_ssl_info;
   ASSERT_EQ(OK, controller->HandleAuthChallenge(headers, null_ssl_info, false,
-                                                false, dummy_log));
+                                                false, net_log));
   ASSERT_TRUE(controller->HaveAuthHandler());
   controller->ResetAuth(AuthCredentials());
   EXPECT_TRUE(controller->HaveAuth());
 
   TestCompletionCallback callback;
-  EXPECT_EQ((run_mode == RUN_HANDLER_ASYNC)? ERR_IO_PENDING:
-            expected_controller_rv,
-            controller->MaybeGenerateAuthToken(&request, callback.callback(),
-                                               dummy_log));
+  EXPECT_EQ(
+      (run_mode == RUN_HANDLER_ASYNC) ? ERR_IO_PENDING : expected_controller_rv,
+      controller->MaybeGenerateAuthToken(&request, callback.callback(),
+                                         net_log));
   if (run_mode == RUN_HANDLER_ASYNC)
     EXPECT_EQ(expected_controller_rv, callback.WaitForResult());
   EXPECT_EQ((scheme_state == SCHEME_IS_DISABLED),
@@ -106,8 +108,8 @@ TEST(HttpAuthControllerTest, PermanentErrors) {
   // ERR_UNEXPECTED_SECURITY_LIBRARY_STATUS.  We expect a return value
   // of OK from the controller so we can retry the request.
   RunSingleRoundAuthTest(RUN_HANDLER_SYNC,
-                         ERR_UNEXPECTED_SECURITY_LIBRARY_STATUS,
-                         OK, SCHEME_IS_DISABLED);
+                         ERR_UNEXPECTED_SECURITY_LIBRARY_STATUS, OK,
+                         SCHEME_IS_DISABLED);
 
   // Now try an async handler that returns
   // ERR_MISSING_AUTH_CREDENTIALS.  Async and sync handlers invoke
@@ -127,6 +129,42 @@ TEST(HttpAuthControllerTest, PermanentErrors) {
   // of credentials.
   RunSingleRoundAuthTest(RUN_HANDLER_ASYNC, ERR_INVALID_AUTH_CREDENTIALS, OK,
                          SCHEME_IS_ENABLED);
+}
+
+// Verify that the controller logs appropriate lifetime events.
+TEST(HttpAuthControllerTest, Logging) {
+  base::test::ScopedTaskEnvironment scoped_task_environment;
+  BoundTestNetLog net_log;
+
+  RunSingleRoundAuthTest(RUN_HANDLER_SYNC, OK, OK, SCHEME_IS_ENABLED,
+                         net_log.bound());
+  auto entries = net_log.GetEntries();
+
+  // There should be at least two events.
+  ASSERT_GE(entries.size(), 2u);
+
+  auto begin = std::find_if(
+      entries.begin(), entries.end(), [](const NetLogEntry& e) -> bool {
+        if (e.type != NetLogEventType::AUTH_CONTROLLER ||
+            e.phase != NetLogEventPhase::BEGIN)
+          return false;
+
+        auto target = GetOptionalStringValueFromParams(e, "target");
+        auto url = GetOptionalStringValueFromParams(e, "url");
+        if (!target || !url)
+          return false;
+
+        EXPECT_EQ("proxy", *target);
+        EXPECT_EQ("http://example.com/", *url);
+        return true;
+      });
+  EXPECT_TRUE(begin != entries.end());
+  auto end = std::find_if(++begin, entries.end(),
+                          [](const NetLogEntry& e) -> bool {
+                            return e.type == NetLogEventType::AUTH_CONTROLLER &&
+                                   e.phase == NetLogEventPhase::END;
+                          });
+  EXPECT_TRUE(end != entries.end());
 }
 
 // If an HttpAuthHandler indicates that it doesn't allow explicit
@@ -217,10 +255,11 @@ TEST(HttpAuthControllerTest, NoExplicitCredentialsAllowed) {
       HttpAuth::AUTH_SERVER);
   auth_handler_factory.set_do_init_from_challenge(true);
 
-  scoped_refptr<HttpAuthController> controller(
-      new HttpAuthController(HttpAuth::AUTH_SERVER,
-                             GURL("http://example.com"),
-                             &dummy_auth_cache, &auth_handler_factory));
+  auto host_resolver = std::make_unique<MockHostResolver>();
+
+  scoped_refptr<HttpAuthController> controller(new HttpAuthController(
+      HttpAuth::AUTH_SERVER, GURL("http://example.com"), &dummy_auth_cache,
+      &auth_handler_factory, host_resolver.get()));
   SSLInfo null_ssl_info;
   ASSERT_EQ(OK, controller->HandleAuthChallenge(headers, null_ssl_info, false,
                                                 false, dummy_log));

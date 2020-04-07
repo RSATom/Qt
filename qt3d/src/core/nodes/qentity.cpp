@@ -41,10 +41,7 @@
 #include "qentity_p.h"
 
 #include <Qt3DCore/qcomponent.h>
-#include <Qt3DCore/qcomponentaddedchange.h>
-#include <Qt3DCore/qcomponentremovedchange.h>
 #include <Qt3DCore/qnodecreatedchange.h>
-#include <Qt3DCore/qpropertyupdatedchange.h>
 #include <QtCore/QMetaObject>
 #include <QtCore/QMetaProperty>
 
@@ -78,7 +75,7 @@ namespace Qt3DCore {
  */
 
 /*!
-    \fn template<typename T> QVector<T *> QEntity::componentsOfType() const
+    \fn template<typename T> QVector<T *> Qt3DCore::QEntity::componentsOfType() const
 
     Returns all the components added to this entity that can be cast to
     type T or an empty vector if there are no such components.
@@ -102,13 +99,8 @@ void QEntityPrivate::removeDestroyedComponent(QComponent *comp)
 
     Q_CHECK_PTR(comp);
     qCDebug(Nodes) << Q_FUNC_INFO << comp;
-    Q_Q(QEntity);
 
-    if (m_changeArbiter) {
-        const auto componentRemovedChange = QComponentRemovedChangePtr::create(q, comp);
-        notifyObservers(componentRemovedChange);
-    }
-
+    updateNode(comp, nullptr, ComponentRemoved);
     m_components.removeOne(comp);
 
     // Remove bookkeeping connection
@@ -125,6 +117,7 @@ QEntity::QEntity(QNode *parent)
 QEntity::QEntity(QEntityPrivate &dd, QNode *parent)
     : QNode(dd, parent)
 {
+    connect(this, &QNode::parentChanged, this, &QEntity::onParentChanged);
 }
 
 QEntity::~QEntity()
@@ -186,10 +179,7 @@ void QEntity::addComponent(QComponent *comp)
     // Ensures proper bookkeeping
     d->registerPrivateDestructionHelper(comp, &QEntityPrivate::removeDestroyedComponent);
 
-    if (d->m_changeArbiter) {
-        const auto componentAddedChange = QComponentAddedChangePtr::create(this, comp);
-        d->notifyObservers(componentAddedChange);
-    }
+    d->updateNode(comp, nullptr, ComponentAdded);
     static_cast<QComponentPrivate *>(QComponentPrivate::get(comp))->addEntity(this);
 }
 
@@ -204,10 +194,7 @@ void QEntity::removeComponent(QComponent *comp)
 
     static_cast<QComponentPrivate *>(QComponentPrivate::get(comp))->removeEntity(this);
 
-    if (d->m_changeArbiter) {
-        const auto componentRemovedChange = QComponentRemovedChangePtr::create(this, comp);
-        d->notifyObservers(componentRemovedChange);
-    }
+    d->updateNode(comp, nullptr, ComponentRemoved);
 
     d->m_components.removeOne(comp);
 
@@ -259,10 +246,6 @@ QNodeId QEntityPrivate::parentEntityId() const
 
 QNodeCreatedChangeBasePtr QEntity::createNodeCreationChange() const
 {
-    // connect to the parentChanged signal here rather than constructor because
-    // until now there's no backend node to notify when parent changes
-    connect(this, &QNode::parentChanged, this, &QEntity::onParentChanged);
-
     auto creationChange = QNodeCreatedChangePtr<QEntityData>::create(this);
     auto &data = creationChange->data;
 
@@ -294,13 +277,11 @@ QNodeCreatedChangeBasePtr QEntity::createNodeCreationChange() const
 
 void QEntity::onParentChanged(QObject *)
 {
-    const auto parentID = parentEntity() ? parentEntity()->id() : Qt3DCore::QNodeId();
-    auto parentChange = Qt3DCore::QPropertyUpdatedChangePtr::create(id());
-    parentChange->setPropertyName("parentEntityUpdated");
-    parentChange->setValue(QVariant::fromValue(parentID));
-    const bool blocked = blockNotifications(false);
-    notifyObservers(parentChange);
-    blockNotifications(blocked);
+    Q_D(QEntity);
+    if (!d->m_hasBackendNode)
+        return;
+
+    d->update();
 }
 
 } // namespace Qt3DCore

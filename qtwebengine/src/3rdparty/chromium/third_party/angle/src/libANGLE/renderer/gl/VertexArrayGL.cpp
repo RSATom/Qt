@@ -30,8 +30,7 @@ namespace
 {
 bool SameVertexAttribFormat(const VertexAttribute &a, const VertexAttribute &b)
 {
-    return a.size == b.size && a.type == b.type && a.normalized == b.normalized &&
-           a.pureInteger == b.pureInteger && a.relativeOffset == b.relativeOffset;
+    return a.format == b.format && a.relativeOffset == b.relativeOffset;
 }
 
 bool SameVertexBuffer(const VertexBinding &a, const VertexBinding &b)
@@ -98,7 +97,7 @@ void VertexArrayGL::destroy(const gl::Context *context)
     mAppliedElementArrayBuffer.set(context, nullptr);
     for (auto &binding : mAppliedBindings)
     {
-        binding.setBuffer(context, nullptr, false);
+        binding.setBuffer(context, nullptr);
     }
 }
 
@@ -435,7 +434,7 @@ void VertexArrayGL::updateAttribPointer(const gl::Context *context, size_t attri
     {
         // Mark the applied binding isn't using a buffer by setting its buffer to nullptr so that if
         // it starts to use a buffer later, there is no chance that the caching will skip it.
-        mAppliedBindings[attribIndex].setBuffer(context, nullptr, false);
+        mAppliedBindings[attribIndex].setBuffer(context, nullptr);
         return;
     }
 
@@ -460,10 +459,7 @@ void VertexArrayGL::updateAttribPointer(const gl::Context *context, size_t attri
     callVertexAttribPointer(static_cast<GLuint>(attribIndex), attrib, binding.getStride(),
                             binding.getOffset());
 
-    mAppliedAttributes[attribIndex].size        = attrib.size;
-    mAppliedAttributes[attribIndex].type        = attrib.type;
-    mAppliedAttributes[attribIndex].normalized  = attrib.normalized;
-    mAppliedAttributes[attribIndex].pureInteger = attrib.pureInteger;
+    mAppliedAttributes[attribIndex].format = attrib.format;
 
     // After VertexAttribPointer, attrib.relativeOffset is set to 0 and attrib.bindingIndex is set
     // to attribIndex in driver. If attrib.relativeOffset != 0 or attrib.bindingIndex !=
@@ -474,7 +470,7 @@ void VertexArrayGL::updateAttribPointer(const gl::Context *context, size_t attri
 
     mAppliedBindings[attribIndex].setStride(binding.getStride());
     mAppliedBindings[attribIndex].setOffset(binding.getOffset());
-    mAppliedBindings[attribIndex].setBuffer(context, binding.getBuffer().get(), false);
+    mAppliedBindings[attribIndex].setBuffer(context, binding.getBuffer().get());
 }
 
 void VertexArrayGL::callVertexAttribPointer(GLuint attribIndex,
@@ -482,17 +478,19 @@ void VertexArrayGL::callVertexAttribPointer(GLuint attribIndex,
                                             GLsizei stride,
                                             GLintptr offset) const
 {
-    const GLvoid *pointer = reinterpret_cast<const GLvoid *>(offset);
-    if (attrib.pureInteger)
+    const GLvoid *pointer       = reinterpret_cast<const GLvoid *>(offset);
+    const angle::Format &format = *attrib.format;
+    if (format.isPureInt())
     {
-        ASSERT(!attrib.normalized);
-        mFunctions->vertexAttribIPointer(attribIndex, attrib.size, gl::ToGLenum(attrib.type),
-                                         stride, pointer);
+        ASSERT(!format.isNorm());
+        mFunctions->vertexAttribIPointer(attribIndex, format.channelCount,
+                                         gl::ToGLenum(format.vertexAttribType), stride, pointer);
     }
     else
     {
-        mFunctions->vertexAttribPointer(attribIndex, attrib.size, gl::ToGLenum(attrib.type),
-                                        attrib.normalized, stride, pointer);
+        mFunctions->vertexAttribPointer(attribIndex, format.channelCount,
+                                        gl::ToGLenum(format.vertexAttribType), format.isNorm(),
+                                        stride, pointer);
     }
 }
 
@@ -512,23 +510,22 @@ void VertexArrayGL::updateAttribFormat(size_t attribIndex)
         return;
     }
 
-    if (attrib.pureInteger)
+    const angle::Format &format = *attrib.format;
+    if (format.isPureInt())
     {
-        ASSERT(!attrib.normalized);
-        mFunctions->vertexAttribIFormat(static_cast<GLuint>(attribIndex), attrib.size,
-                                        gl::ToGLenum(attrib.type), attrib.relativeOffset);
+        ASSERT(!format.isNorm());
+        mFunctions->vertexAttribIFormat(static_cast<GLuint>(attribIndex), format.channelCount,
+                                        gl::ToGLenum(format.vertexAttribType),
+                                        attrib.relativeOffset);
     }
     else
     {
-        mFunctions->vertexAttribFormat(static_cast<GLuint>(attribIndex), attrib.size,
-                                       gl::ToGLenum(attrib.type), attrib.normalized,
+        mFunctions->vertexAttribFormat(static_cast<GLuint>(attribIndex), format.channelCount,
+                                       gl::ToGLenum(format.vertexAttribType), format.isNorm(),
                                        attrib.relativeOffset);
     }
 
-    mAppliedAttributes[attribIndex].size           = attrib.size;
-    mAppliedAttributes[attribIndex].type           = attrib.type;
-    mAppliedAttributes[attribIndex].normalized     = attrib.normalized;
-    mAppliedAttributes[attribIndex].pureInteger    = attrib.pureInteger;
+    mAppliedAttributes[attribIndex].format         = attrib.format;
     mAppliedAttributes[attribIndex].relativeOffset = attrib.relativeOffset;
 }
 
@@ -569,7 +566,7 @@ void VertexArrayGL::updateBindingBuffer(const gl::Context *context, size_t bindi
 
     mAppliedBindings[bindingIndex].setStride(binding.getStride());
     mAppliedBindings[bindingIndex].setOffset(binding.getOffset());
-    mAppliedBindings[bindingIndex].setBuffer(context, binding.getBuffer().get(), false);
+    mAppliedBindings[bindingIndex].setBuffer(context, binding.getBuffer().get());
 }
 
 void VertexArrayGL::updateBindingDivisor(size_t bindingIndex)
@@ -609,6 +606,7 @@ void VertexArrayGL::syncDirtyAttrib(const gl::Context *context,
                 updateAttribEnabled(attribIndex);
                 break;
 
+            case VertexArray::DIRTY_ATTRIB_POINTER_BUFFER:
             case VertexArray::DIRTY_ATTRIB_POINTER:
                 updateAttribPointer(context, attribIndex);
                 break;
@@ -690,9 +688,9 @@ angle::Result VertexArrayGL::syncState(const gl::Context *context,
             case VertexArray::DIRTY_BIT_ELEMENT_ARRAY_BUFFER_DATA:
                 break;
 
-                ANGLE_VERTEX_INDEX_CASES(ANGLE_DIRTY_ATTRIB_FUNC);
-                ANGLE_VERTEX_INDEX_CASES(ANGLE_DIRTY_BINDING_FUNC);
-                ANGLE_VERTEX_INDEX_CASES(ANGLE_DIRTY_BUFFER_DATA_FUNC);
+                ANGLE_VERTEX_INDEX_CASES(ANGLE_DIRTY_ATTRIB_FUNC)
+                ANGLE_VERTEX_INDEX_CASES(ANGLE_DIRTY_BINDING_FUNC)
+                ANGLE_VERTEX_INDEX_CASES(ANGLE_DIRTY_BUFFER_DATA_FUNC)
 
             default:
                 UNREACHABLE();

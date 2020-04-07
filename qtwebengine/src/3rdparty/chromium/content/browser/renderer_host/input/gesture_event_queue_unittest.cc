@@ -113,7 +113,7 @@ class GestureEventQueueTest : public testing::Test,
 
   void SimulateGestureEvent(const WebGestureEvent& gesture) {
     GestureEventWithLatencyInfo gesture_event(gesture);
-    if (!queue()->FlingControllerFilterEvent(gesture_event)) {
+    if (!queue()->PassToFlingController(gesture_event)) {
       queue()->DebounceOrForwardEvent(gesture_event);
     }
   }
@@ -133,7 +133,7 @@ class GestureEventQueueTest : public testing::Test,
 
   void SimulateGestureScrollUpdateEvent(float dX, float dY, int modifiers) {
     SimulateGestureEvent(SyntheticWebGestureEventBuilder::BuildScrollUpdate(
-        dX, dY, modifiers, blink::kWebGestureDeviceTouchscreen));
+        dX, dY, modifiers, blink::WebGestureDevice::kTouchscreen));
   }
 
   void SimulateGesturePinchUpdateEvent(float scale,
@@ -142,7 +142,7 @@ class GestureEventQueueTest : public testing::Test,
                                        int modifiers) {
     SimulateGestureEvent(SyntheticWebGestureEventBuilder::BuildPinchUpdate(
         scale, anchorX, anchorY, modifiers,
-        blink::kWebGestureDeviceTouchscreen));
+        blink::WebGestureDevice::kTouchscreen));
   }
 
   void SimulateGestureFlingStartEvent(float velocityX,
@@ -215,9 +215,6 @@ class GestureEventQueueTest : public testing::Test,
   }
 
   bool FlingInProgress() { return queue()->FlingInProgressForTest(); }
-  bool FlingCancellationIsDeferred() {
-    return queue()->FlingCancellationIsDeferred();
-  }
 
   GestureEventQueue* queue() const {
     return queue_.get();
@@ -246,7 +243,7 @@ class GestureEventQueueWithCompositorEventQueueTest
 TEST_F(GestureEventQueueTest, SimpleSyncAck) {
   set_synchronous_ack(INPUT_EVENT_ACK_STATE_CONSUMED);
   SimulateGestureEvent(WebInputEvent::kGestureTapDown,
-                       blink::kWebGestureDeviceTouchscreen);
+                       blink::WebGestureDevice::kTouchscreen);
   EXPECT_EQ(1U, GetAndResetSentGestureEventCount());
   EXPECT_EQ(0U, GestureEventQueueSize());
   EXPECT_EQ(1U, GetAndResetAckedGestureEventCount());
@@ -257,10 +254,10 @@ TEST_F(GestureEventQueueTest, SyncAckQueuesEvent) {
   std::unique_ptr<WebGestureEvent> queued_event;
   set_synchronous_ack(INPUT_EVENT_ACK_STATE_CONSUMED);
   set_sync_followup_event(WebInputEvent::kGestureShowPress,
-                          blink::kWebGestureDeviceTouchscreen);
+                          blink::WebGestureDevice::kTouchscreen);
   // This event enqueues the show press event.
   SimulateGestureEvent(WebInputEvent::kGestureTapDown,
-                       blink::kWebGestureDeviceTouchscreen);
+                       blink::WebGestureDevice::kTouchscreen);
   EXPECT_EQ(2U, GetAndResetSentGestureEventCount());
   EXPECT_EQ(1U, GestureEventQueueSize());
   EXPECT_EQ(1U, GetAndResetAckedGestureEventCount());
@@ -272,10 +269,10 @@ TEST_F(GestureEventQueueTest, SyncAckQueuesEvent) {
   EXPECT_EQ(1U, GetAndResetAckedGestureEventCount());
 }
 
-INSTANTIATE_TEST_CASE_P(AllSources,
-                        GestureEventQueueWithSourceTest,
-                        testing::Values(blink::kWebGestureDeviceTouchscreen,
-                                        blink::kWebGestureDeviceTouchpad));
+INSTANTIATE_TEST_SUITE_P(AllSources,
+                         GestureEventQueueWithSourceTest,
+                         testing::Values(blink::WebGestureDevice::kTouchscreen,
+                                         blink::WebGestureDevice::kTouchpad));
 
 // Test that a GestureScrollEnd is deferred during the debounce interval,
 // that Scrolls are not and that the deferred events are sent after that
@@ -284,27 +281,27 @@ TEST_F(GestureEventQueueTest, DebounceDefersFollowingGestureEvents) {
   SetUpForDebounce(3);
 
   SimulateGestureEvent(WebInputEvent::kGestureScrollUpdate,
-                       blink::kWebGestureDeviceTouchscreen);
+                       blink::WebGestureDevice::kTouchscreen);
   EXPECT_EQ(1U, GetAndResetSentGestureEventCount());
   EXPECT_EQ(1U, GestureEventQueueSize());
   EXPECT_EQ(0U, GestureEventDebouncingQueueSize());
   EXPECT_TRUE(ScrollingInProgress());
 
   SimulateGestureEvent(WebInputEvent::kGestureScrollUpdate,
-                       blink::kWebGestureDeviceTouchscreen);
+                       blink::WebGestureDevice::kTouchscreen);
   EXPECT_EQ(1U, GetAndResetSentGestureEventCount());
   EXPECT_EQ(2U, GestureEventQueueSize());
   EXPECT_EQ(0U, GestureEventDebouncingQueueSize());
   EXPECT_TRUE(ScrollingInProgress());
 
   SimulateGestureEvent(WebInputEvent::kGestureScrollEnd,
-                       blink::kWebGestureDeviceTouchscreen);
+                       blink::WebGestureDevice::kTouchscreen);
   EXPECT_EQ(0U, GetAndResetSentGestureEventCount());
   EXPECT_EQ(2U, GestureEventQueueSize());
   EXPECT_EQ(1U, GestureEventDebouncingQueueSize());
 
   SimulateGestureEvent(WebInputEvent::kGestureTapDown,
-                       blink::kWebGestureDeviceTouchscreen);
+                       blink::WebGestureDevice::kTouchscreen);
   EXPECT_EQ(0U, GetAndResetSentGestureEventCount());
   EXPECT_EQ(2U, GestureEventQueueSize());
   EXPECT_EQ(2U, GestureEventDebouncingQueueSize());
@@ -340,20 +337,20 @@ TEST_F(GestureEventQueueTest,
   SetUpForDebounce(3);
 
   SimulateGestureEvent(WebInputEvent::kGestureScrollUpdate,
-                       blink::kWebGestureDeviceTouchscreen);
+                       blink::WebGestureDevice::kTouchscreen);
   EXPECT_EQ(1U, GetAndResetSentGestureEventCount());
   EXPECT_EQ(1U, GestureEventQueueSize());
   EXPECT_EQ(0U, GestureEventDebouncingQueueSize());
   EXPECT_TRUE(ScrollingInProgress());
 
-  SimulateGSEGeneratedByFlingController(blink::kWebGestureDeviceTouchscreen);
+  SimulateGSEGeneratedByFlingController(blink::WebGestureDevice::kTouchscreen);
   EXPECT_EQ(1U, GetAndResetSentGestureEventCount());
   EXPECT_EQ(2U, GestureEventQueueSize());
   EXPECT_EQ(0U, GestureEventDebouncingQueueSize());
   EXPECT_FALSE(ScrollingInProgress());
 
   SimulateGestureEvent(WebInputEvent::kGestureScrollBegin,
-                       blink::kWebGestureDeviceTouchscreen);
+                       blink::WebGestureDevice::kTouchscreen);
   EXPECT_EQ(1U, GetAndResetSentGestureEventCount());
   EXPECT_EQ(3U, GestureEventQueueSize());
   EXPECT_EQ(0U, GestureEventDebouncingQueueSize());
@@ -373,21 +370,21 @@ TEST_F(GestureEventQueueTest,
 TEST_F(GestureEventQueueTest, DebounceDefersGSBIfPreviousGSEDeferred) {
   SetUpForDebounce(3);
   SimulateGestureEvent(WebInputEvent::kGestureScrollUpdate,
-                       blink::kWebGestureDeviceTouchscreen);
+                       blink::WebGestureDevice::kTouchscreen);
   EXPECT_EQ(1U, GetAndResetSentGestureEventCount());
   EXPECT_EQ(1U, GestureEventQueueSize());
   EXPECT_EQ(0U, GestureEventDebouncingQueueSize());
   EXPECT_TRUE(ScrollingInProgress());
 
   SimulateGestureEvent(WebInputEvent::kGestureScrollEnd,
-                       blink::kWebGestureDeviceTouchscreen);
+                       blink::WebGestureDevice::kTouchscreen);
   EXPECT_EQ(0U, GetAndResetSentGestureEventCount());
   EXPECT_EQ(1U, GestureEventQueueSize());
   EXPECT_EQ(1U, GestureEventDebouncingQueueSize());
   EXPECT_TRUE(ScrollingInProgress());
 
   SimulateGestureEvent(WebInputEvent::kGestureScrollBegin,
-                       blink::kWebGestureDeviceTouchscreen);
+                       blink::WebGestureDevice::kTouchscreen);
   EXPECT_EQ(0U, GetAndResetSentGestureEventCount());
   EXPECT_EQ(1U, GestureEventQueueSize());
   EXPECT_EQ(2U, GestureEventDebouncingQueueSize());
@@ -397,27 +394,27 @@ TEST_F(GestureEventQueueTest, DebounceDefersGSBIfPreviousGSEDeferred) {
 TEST_F(GestureEventQueueTest, DebounceDefersGSBIfPreviousGSEDropped) {
   SetUpForDebounce(3);
   SimulateGestureEvent(WebInputEvent::kGestureScrollUpdate,
-                       blink::kWebGestureDeviceTouchscreen);
+                       blink::WebGestureDevice::kTouchscreen);
   EXPECT_EQ(1U, GetAndResetSentGestureEventCount());
   EXPECT_EQ(1U, GestureEventQueueSize());
   EXPECT_EQ(0U, GestureEventDebouncingQueueSize());
   EXPECT_TRUE(ScrollingInProgress());
 
   SimulateGestureEvent(WebInputEvent::kGestureScrollEnd,
-                       blink::kWebGestureDeviceTouchscreen);
+                       blink::WebGestureDevice::kTouchscreen);
   EXPECT_EQ(0U, GetAndResetSentGestureEventCount());
   EXPECT_EQ(1U, GestureEventQueueSize());
   EXPECT_EQ(1U, GestureEventDebouncingQueueSize());
 
   SimulateGestureEvent(WebInputEvent::kGestureScrollUpdate,
-                       blink::kWebGestureDeviceTouchscreen);
+                       blink::WebGestureDevice::kTouchscreen);
   EXPECT_EQ(1U, GetAndResetSentGestureEventCount());
   EXPECT_EQ(2U, GestureEventQueueSize());
   EXPECT_EQ(0U, GestureEventDebouncingQueueSize());
   EXPECT_TRUE(ScrollingInProgress());
 
   SimulateGestureEvent(WebInputEvent::kGestureScrollBegin,
-                       blink::kWebGestureDeviceTouchscreen);
+                       blink::WebGestureDevice::kTouchscreen);
   EXPECT_EQ(0U, GetAndResetSentGestureEventCount());
   EXPECT_EQ(2U, GestureEventQueueSize());
   EXPECT_EQ(1U, GestureEventDebouncingQueueSize());
@@ -443,7 +440,7 @@ TEST_F(GestureEventQueueTest, DebounceDropsDeferredEvents) {
   EXPECT_FALSE(ScrollingInProgress());
 
   SimulateGestureEvent(WebInputEvent::kGestureScrollUpdate,
-                       blink::kWebGestureDeviceTouchscreen);
+                       blink::WebGestureDevice::kTouchscreen);
   EXPECT_EQ(1U, GetAndResetSentGestureEventCount());
   EXPECT_EQ(1U, GestureEventQueueSize());
   EXPECT_EQ(0U, GestureEventDebouncingQueueSize());
@@ -451,13 +448,13 @@ TEST_F(GestureEventQueueTest, DebounceDropsDeferredEvents) {
 
   // This event should get discarded.
   SimulateGestureEvent(WebInputEvent::kGestureScrollEnd,
-                       blink::kWebGestureDeviceTouchscreen);
+                       blink::WebGestureDevice::kTouchscreen);
   EXPECT_EQ(0U, GetAndResetSentGestureEventCount());
   EXPECT_EQ(1U, GestureEventQueueSize());
   EXPECT_EQ(1U, GestureEventDebouncingQueueSize());
 
   SimulateGestureEvent(WebInputEvent::kGestureScrollUpdate,
-                       blink::kWebGestureDeviceTouchscreen);
+                       blink::WebGestureDevice::kTouchscreen);
   EXPECT_EQ(1U, GetAndResetSentGestureEventCount());
   EXPECT_EQ(2U, GestureEventQueueSize());
   EXPECT_EQ(0U, GestureEventDebouncingQueueSize());
@@ -476,11 +473,12 @@ TEST_F(GestureEventQueueTest, DebounceDropsDeferredEvents) {
 
 // Test that the fling cancelling tap down event and its following tap get
 // suppressed when tap suppression is enabled.
-TEST_F(GestureEventQueueTest, TapGetsSuppressedAfterTapDownCancellsFling) {
+TEST_F(GestureEventQueueTest, TapGetsSuppressedAfterTapDownCancelsFling) {
   SetUpForTapSuppression(400);
   // The velocity of the event must be large enough to make sure that the fling
   // is still active when the tap down happens.
-  SimulateGestureFlingStartEvent(0, -1000, blink::kWebGestureDeviceTouchscreen);
+  SimulateGestureFlingStartEvent(0, -1000,
+                                 blink::WebGestureDevice::kTouchscreen);
   EXPECT_TRUE(FlingInProgress());
   // The fling start event is not sent to the renderer.
   EXPECT_EQ(0U, GetAndResetSentGestureEventCount());
@@ -490,8 +488,7 @@ TEST_F(GestureEventQueueTest, TapGetsSuppressedAfterTapDownCancellsFling) {
   // Simulate a fling cancel event before sending a gesture tap down event. The
   // fling cancel event is not sent to the renderer.
   SimulateGestureEvent(WebInputEvent::kGestureFlingCancel,
-                       blink::kWebGestureDeviceTouchscreen);
-  EXPECT_TRUE(FlingCancellationIsDeferred());
+                       blink::WebGestureDevice::kTouchscreen);
   EXPECT_EQ(0U, GetAndResetSentGestureEventCount());
   EXPECT_EQ(0U, GestureEventQueueSize());
   RunUntilIdle();
@@ -499,13 +496,13 @@ TEST_F(GestureEventQueueTest, TapGetsSuppressedAfterTapDownCancellsFling) {
   // Simulate a fling cancelling tap down. The tap down must get suppressed
   // since the fling cancel event is processed by the fling controller.
   SimulateGestureEvent(WebInputEvent::kGestureTapDown,
-                       blink::kWebGestureDeviceTouchscreen);
+                       blink::WebGestureDevice::kTouchscreen);
   EXPECT_EQ(0U, GestureEventQueueSize());
 
   // The tap event must get suppressed since its corresponding tap down event
   // is suppressed.
   SimulateGestureEvent(WebInputEvent::kGestureTap,
-                       blink::kWebGestureDeviceTouchscreen);
+                       blink::WebGestureDevice::kTouchscreen);
   EXPECT_EQ(0U, GestureEventQueueSize());
 }
 
@@ -513,10 +510,10 @@ TEST_F(GestureEventQueueWithCompositorEventQueueTest,
        PreserveOrderWithOutOfOrderAck) {
   // Simulate a scroll sequence, events should be ACKed in original order.
   SimulateGestureEvent(WebInputEvent::kGestureScrollBegin,
-                       blink::kWebGestureDeviceTouchscreen);
+                       blink::WebGestureDevice::kTouchscreen);
   SimulateGestureScrollUpdateEvent(8, -4, 1);
   SimulateGestureEvent(WebInputEvent::kGestureScrollEnd,
-                       blink::kWebGestureDeviceTouchscreen);
+                       blink::WebGestureDevice::kTouchscreen);
 
   // All events should have been sent.
   EXPECT_EQ(3U, GetAndResetSentGestureEventCount());
@@ -546,10 +543,10 @@ TEST_F(GestureEventQueueWithCompositorEventQueueTest,
        MultipleGesturesInFlight) {
   // Simulate a pinch sequence, events should be forwarded immediately.
   SimulateGestureEvent(WebInputEvent::kGestureScrollBegin,
-                       blink::kWebGestureDeviceTouchscreen);
+                       blink::WebGestureDevice::kTouchscreen);
   EXPECT_EQ(1U, GetAndResetSentGestureEventCount());
   SimulateGestureEvent(WebInputEvent::kGesturePinchBegin,
-                       blink::kWebGestureDeviceTouchscreen);
+                       blink::WebGestureDevice::kTouchscreen);
   EXPECT_EQ(1U, GetAndResetSentGestureEventCount());
 
   SimulateGestureScrollUpdateEvent(8, -4, 1);

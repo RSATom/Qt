@@ -16,7 +16,8 @@
 #define DAWNNATIVE_COMMANDBUFFERSTATETRACKER_H
 
 #include "common/Constants.h"
-#include "dawn_native/CommandBuffer.h"
+#include "dawn_native/Error.h"
+#include "dawn_native/Forward.h"
 
 #include <array>
 #include <bitset>
@@ -52,7 +53,7 @@ namespace dawn_native {
         ValidationAspects mAspects;
 
         std::array<BindGroupBase*, kMaxBindGroups> mBindgroups = {};
-        std::bitset<kMaxVertexInputs> mInputsSet;
+        std::bitset<kMaxVertexBuffers> mInputsSet;
 
         PipelineLayoutBase* mLastPipelineLayout = nullptr;
         RenderPipelineBase* mLastRenderPipeline = nullptr;

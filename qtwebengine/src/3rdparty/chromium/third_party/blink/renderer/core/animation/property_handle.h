@@ -10,7 +10,7 @@
 #include "third_party/blink/renderer/core/css/css_property_names.h"
 #include "third_party/blink/renderer/core/css/properties/css_property.h"
 #include "third_party/blink/renderer/core/dom/qualified_name.h"
-#include "third_party/blink/renderer/platform/wtf/allocator.h"
+#include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 
 namespace blink {
 
@@ -24,7 +24,7 @@ class CORE_EXPORT PropertyHandle {
       : handle_type_(is_presentation_attribute ? kHandlePresentationAttribute
                                                : kHandleCSSProperty),
         css_property_(&property) {
-    DCHECK_NE(CSSPropertyVariable, property.PropertyID());
+    DCHECK_NE(CSSPropertyID::kVariable, property.PropertyID());
   }
 
   explicit PropertyHandle(const AtomicString& property_name)

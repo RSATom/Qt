@@ -10,6 +10,8 @@
 #include "core/fpdfapi/page/cpdf_function.h"
 #include "core/fpdfapi/parser/cpdf_array.h"
 #include "core/fpdfapi/parser/cpdf_dictionary.h"
+#include "core/fpdfapi/parser/cpdf_stream.h"
+#include "core/fpdfapi/parser/cpdf_stream_acc.h"
 #include "third_party/base/ptr_util.h"
 #include "third_party/base/span.h"
 
@@ -96,7 +98,7 @@ CPDF_MeshStream::CPDF_MeshStream(
     ShadingType type,
     const std::vector<std::unique_ptr<CPDF_Function>>& funcs,
     const CPDF_Stream* pShadingStream,
-    const CPDF_ColorSpace* pCS)
+    const RetainPtr<CPDF_ColorSpace>& pCS)
     : m_type(type),
       m_funcs(funcs),
       m_pShadingStream(pShadingStream),

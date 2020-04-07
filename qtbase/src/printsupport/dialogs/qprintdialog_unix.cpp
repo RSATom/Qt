@@ -398,12 +398,12 @@ static const char *ppdOriginallySelectedChoiceProperty = "_q_ppd_originally_sele
 // Used to store the warning label pointer for each QComboBox that represents an advanced option
 static const char *warningLabelProperty = "_q_warning_label";
 
-static bool isBlacklistedGroup(const ppd_group_t *group) Q_DECL_NOTHROW
+static bool isBlacklistedGroup(const ppd_group_t *group) noexcept
 {
     return qstrcmp(group->name, "InstallableOptions") == 0;
 };
 
-static bool isBlacklistedOption(const char *keyword) Q_DECL_NOTHROW
+static bool isBlacklistedOption(const char *keyword) noexcept
 {
     // We already let the user set these options elsewhere
     const char *cupsOptionBlacklist[] = {
@@ -637,8 +637,10 @@ void QPrintDialogPrivate::init()
     options.pageSetCombo->addItem(tr("Odd Pages"), QVariant::fromValue(QCUPSSupport::OddPages));
     options.pageSetCombo->addItem(tr("Even Pages"), QVariant::fromValue(QCUPSSupport::EvenPages));
 #else
-    for (int i = options.pagesLayout->count() - 1; i >= 0; --i)
-        delete options.pagesLayout->itemAt(i)->widget();
+    delete options.pagesRadioButton;
+    delete options.pagesLineEdit;
+    options.pagesRadioButton = nullptr;
+    options.pagesLineEdit = nullptr;
 #endif
 
     top->d->setOptionsPane(this);
@@ -727,19 +729,19 @@ void QPrintDialogPrivate::selectPrinter(const QPrinter::OutputFormat outputForma
         else
             options.pageSetCombo->setEnabled(true);
 
+#if QT_CONFIG(cups)
         // Disable complex page ranges widget when printing to pdf
         // It doesn't work since it relies on cups to do the heavy lifting and cups
         // is not used when printing to PDF
         options.pagesRadioButton->setEnabled(outputFormat != QPrinter::PdfFormat);
 
-#if QT_CONFIG(cups)
         // Disable color options on main dialog if not printing to file, it will be handled by CUPS advanced dialog
         options.colorMode->setVisible(outputFormat == QPrinter::PdfFormat);
 #endif
 }
 
 #if QT_CONFIG(cups)
-static std::vector<std::pair<int, int>> pageRangesFromString(const QString &pagesString) Q_DECL_NOTHROW
+static std::vector<std::pair<int, int>> pageRangesFromString(const QString &pagesString) noexcept
 {
     std::vector<std::pair<int, int>> result;
     const QStringList items = pagesString.split(',');
@@ -793,7 +795,7 @@ static std::vector<std::pair<int, int>> pageRangesFromString(const QString &page
     return result;
 }
 
-static QString stringFromPageRanges(const std::vector<std::pair<int, int>> &pageRanges) Q_DECL_NOTHROW
+static QString stringFromPageRanges(const std::vector<std::pair<int, int>> &pageRanges) noexcept
 {
     QString result;
 
@@ -810,7 +812,7 @@ static QString stringFromPageRanges(const std::vector<std::pair<int, int>> &page
     return result;
 }
 
-static bool isValidPagesString(const QString &pagesString) Q_DECL_NOTHROW
+static bool isValidPagesString(const QString &pagesString) noexcept
 {
     if (pagesString.isEmpty())
         return false;
@@ -1087,7 +1089,7 @@ void QPrintDialog::setVisible(bool visible)
 
 int QPrintDialog::exec()
 {
-    return QDialog::exec();
+    return QAbstractPrintDialog::exec();
 }
 
 void QPrintDialog::accept()

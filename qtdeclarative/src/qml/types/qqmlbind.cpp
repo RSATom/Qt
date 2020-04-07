@@ -43,6 +43,8 @@
 #include <private/qqmlproperty_p.h>
 #include <private/qqmlbinding_p.h>
 #include <private/qqmlmetatype_p.h>
+#include <private/qqmlvmemetaobject_p.h>
+#include <private/qv4persistent_p.h>
 
 #include <qqmlengine.h>
 #include <qqmlcontext.h>
@@ -52,28 +54,50 @@
 #include <QtCore/qfile.h>
 #include <QtCore/qdebug.h>
 #include <QtCore/qtimer.h>
+#include <QtCore/qloggingcategory.h>
 
 #include <private/qobject_p.h>
 
 QT_BEGIN_NAMESPACE
 
+Q_DECLARE_LOGGING_CATEGORY(lcBindingRemoval)
+
 class QQmlBindPrivate : public QObjectPrivate
 {
 public:
-    QQmlBindPrivate() : obj(nullptr), componentComplete(true), delayed(false), pendingEval(false) {}
+    QQmlBindPrivate()
+        : obj(nullptr)
+        , prevBind(QQmlAbstractBinding::Ptr())
+        , prevIsVariant(false)
+        , componentComplete(true)
+        , delayed(false)
+        , pendingEval(false)
+        , restoreBinding(true)
+        , restoreValue(false)
+        , restoreModeExplicit(false)
+        , writingProperty(false)
+    {}
     ~QQmlBindPrivate() { }
 
     QQmlNullableValue<bool> when;
     QPointer<QObject> obj;
     QString propName;
-    QQmlNullableValue<QVariant> value;
+    QQmlNullableValue<QJSValue> value;
     QQmlProperty prop;
     QQmlAbstractBinding::Ptr prevBind;
+    QV4::PersistentValue v4Value;
+    QVariant prevValue;
+    bool prevIsVariant:1;
     bool componentComplete:1;
     bool delayed:1;
     bool pendingEval:1;
+    bool restoreBinding:1;
+    bool restoreValue:1;
+    bool restoreModeExplicit:1;
+    bool writingProperty: 1;
 
     void validate(QObject *binding) const;
+    void clearPrev();
 };
 
 void QQmlBindPrivate::validate(QObject *binding) const
@@ -175,9 +199,12 @@ QQmlBind::~QQmlBind()
     When the binding becomes inactive again, any direct bindings that were previously
     set on the property will be restored.
 
-    \note A previously set literal value is not restored when the Binding becomes inactive. Rather,
-    the last value set by the now inactive Binding is retained. This behavior will change in future
-    versions of Qt.
+    \note By default, a previously set literal value is not restored when the Binding becomes
+    inactive. Rather, the last value set by the now inactive Binding is retained. You can customize
+    the restoration behavior for literal values as well as bindings using the \l restoreMode
+    property. The default will change in Qt 6.0.
+
+    \sa restoreMode
 */
 bool QQmlBind::when() const
 {
@@ -220,7 +247,7 @@ void QQmlBind::setObject(QObject *obj)
     }
     d->obj = obj;
     if (d->componentComplete) {
-        d->prop = QQmlProperty(d->obj, d->propName);
+        setTarget(QQmlProperty(d->obj, d->propName, qmlContext(this)));
         d->validate(this);
     }
     eval();
@@ -266,7 +293,7 @@ void QQmlBind::setProperty(const QString &p)
     }
     d->propName = p;
     if (d->componentComplete) {
-        d->prop = QQmlProperty(d->obj, d->propName);
+        setTarget(QQmlProperty(d->obj, d->propName, qmlContext(this)));
         d->validate(this);
     }
     eval();
@@ -278,13 +305,13 @@ void QQmlBind::setProperty(const QString &p)
     The value to be set on the target object and property.  This can be a
     constant (which isn't very useful), or a bound expression.
 */
-QVariant QQmlBind::value() const
+QJSValue QQmlBind::value() const
 {
     Q_D(const QQmlBind);
     return d->value.value;
 }
 
-void QQmlBind::setValue(const QVariant &v)
+void QQmlBind::setValue(const QJSValue &v)
 {
     Q_D(QQmlBind);
     d->value = v;
@@ -327,9 +354,71 @@ void QQmlBind::setDelayed(bool delayed)
         eval();
 }
 
+/*!
+    \qmlproperty enumeration QtQml::Binding::restoreMode
+    \since 5.14
+
+    This property can be used to describe if and how the original value should
+    be restored when the binding is disabled.
+
+    The possible values are:
+    \list
+    \li Binding.RestoreNone The original value is not restored at all
+    \li Binding.RestoreBinding The original value is restored if it was another
+        binding. In that case the old binding is in effect again.
+    \li Binding.RestoreValue The original value is restored if it was a plain
+        value rather than a binding.
+    \li Binding.RestoreBindingOrValue The original value is always restored.
+    \endlist
+
+    \warning The default value is Binding.RestoreBinding. This will change in
+    Qt 6.0 to Binding.RestoreBindingOrValue.
+
+    If you rely on any specific behavior regarding the restoration of plain
+    values when bindings get disabled you should migrate to explicitly set the
+    restoreMode.
+
+    Reliance on a restoreMode that doesn't restore the previous binding or value
+    for a specific property results in a run-time warning.
+*/
+QQmlBind::RestorationMode QQmlBind::restoreMode() const
+{
+    Q_D(const QQmlBind);
+    unsigned result = RestoreNone;
+    if (d->restoreValue)
+        result |= RestoreValue;
+    if (d->restoreBinding)
+        result |= RestoreBinding;
+    return RestorationMode(result);
+}
+
+void QQmlBind::setRestoreMode(RestorationMode newMode)
+{
+    Q_D(QQmlBind);
+    d->restoreModeExplicit = true;
+    if (newMode != restoreMode()) {
+        d->restoreValue = (newMode & RestoreValue);
+        d->restoreBinding = (newMode & RestoreBinding);
+        emit restoreModeChanged();
+    }
+}
+
 void QQmlBind::setTarget(const QQmlProperty &p)
 {
     Q_D(QQmlBind);
+
+    if (Q_UNLIKELY(lcBindingRemoval().isInfoEnabled())) {
+        if (QObject *oldObject = d->prop.object()) {
+            QMetaProperty prop = oldObject->metaObject()->property(d->prop.index());
+            if (prop.hasNotifySignal()) {
+                QByteArray signal('2' + prop.notifySignal().methodSignature());
+                QObject::disconnect(oldObject, signal.constData(),
+                                    this, SLOT(targetValueChanged()));
+            }
+        }
+        p.connectNotifySignal(this, SLOT(targetValueChanged()));
+    }
+
     d->prop = p;
 }
 
@@ -344,7 +433,7 @@ void QQmlBind::componentComplete()
     Q_D(QQmlBind);
     d->componentComplete = true;
     if (!d->prop.isValid()) {
-        d->prop = QQmlProperty(d->obj, d->propName);
+        setTarget(QQmlProperty(d->obj, d->propName, qmlContext(this)));
         d->validate(this);
     }
     eval();
@@ -362,6 +451,14 @@ void QQmlBind::prepareEval()
     }
 }
 
+void QQmlBindPrivate::clearPrev()
+{
+    prevBind = nullptr;
+    v4Value.clear();
+    prevValue.clear();
+    prevIsVariant = false;
+}
+
 void QQmlBind::eval()
 {
     Q_D(QQmlBind);
@@ -373,20 +470,95 @@ void QQmlBind::eval()
         if (!d->when) {
             //restore any previous binding
             if (d->prevBind) {
-                QQmlAbstractBinding::Ptr p = d->prevBind;
-                d->prevBind = nullptr;
-                QQmlPropertyPrivate::setBinding(p.data());
+                if (d->restoreBinding) {
+                    QQmlAbstractBinding::Ptr p = d->prevBind;
+                    d->clearPrev(); // Do that before setBinding(), as setBinding() may recurse.
+                    QQmlPropertyPrivate::setBinding(p.data());
+                }
+            } else if (!d->v4Value.isEmpty()) {
+                if (d->restoreValue) {
+                    auto propPriv = QQmlPropertyPrivate::get(d->prop);
+                    QQmlVMEMetaObject *vmemo = QQmlVMEMetaObject::get(propPriv->object);
+                    Q_ASSERT(vmemo);
+                    vmemo->setVMEProperty(propPriv->core.coreIndex(), *d->v4Value.valueRef());
+                    d->clearPrev();
+                } else if (!d->restoreModeExplicit) {
+                    qmlWarning(this)
+                            << "Not restoring previous value because restoreMode has not been set.\n"
+                            << "This behavior is deprecated.\n"
+                            << "You have to import QtQml 2.14 after any QtQuick imports and set\n"
+                            << "the restoreMode of the binding to fix this warning.\n"
+                            << "In Qt < 6.0 the default is Binding.RestoreBinding.\n"
+                            << "In Qt >= 6.0 the default is Binding.RestoreBindingOrValue.";
+                }
+            } else if (d->prevIsVariant) {
+                if (d->restoreValue) {
+                    d->prop.write(d->prevValue);
+                    d->clearPrev();
+                } else if (!d->restoreModeExplicit) {
+                    qmlWarning(this)
+                            << "Not restoring previous value because restoreMode has not been set.\n"
+                            << "This behavior is deprecated.\n"
+                            << "You have to import QtQml 2.14 after any QtQuick imports and set\n"
+                            << "the restoreMode of the binding to fix this warning.\n"
+                            << "In Qt < 6.0 the default is Binding.RestoreBinding.\n"
+                            << "In Qt >= 6.0 the default is Binding.RestoreBindingOrValue.\n";
+                }
             }
             return;
         }
 
         //save any set binding for restoration
-        if (!d->prevBind)
+        if (!d->prevBind && d->v4Value.isEmpty() && !d->prevIsVariant) {
+            // try binding first
             d->prevBind = QQmlPropertyPrivate::binding(d->prop);
+
+            if (!d->prevBind) { // nope, try a V4 value next
+                auto propPriv = QQmlPropertyPrivate::get(d->prop);
+                auto propData = propPriv->core;
+                if (!propPriv->valueTypeData.isValid() && propData.isVarProperty()) {
+                    QQmlVMEMetaObject *vmemo = QQmlVMEMetaObject::get(propPriv->object);
+                    Q_ASSERT(vmemo);
+                    auto retVal = vmemo->vmeProperty(propData.coreIndex());
+                    d->v4Value = QV4::PersistentValue(vmemo->engine, retVal);
+                } else { // nope, use the meta object to get a QVariant
+                    d->prevValue = d->prop.read();
+                    d->prevIsVariant = true;
+                }
+            }
+        }
+
         QQmlPropertyPrivate::removeBinding(d->prop);
     }
 
-    d->prop.write(d->value.value);
+    d->writingProperty = true;
+    d->prop.write(d->value.value.toVariant());
+    d->writingProperty = false;
+}
+
+void QQmlBind::targetValueChanged()
+{
+    Q_D(QQmlBind);
+    if (d->writingProperty)
+        return;
+
+    if (d->when.isValid() && !d->when)
+        return;
+
+    QUrl url;
+    quint16 line = 0;
+
+    const QQmlData *ddata = QQmlData::get(this, false);
+    if (ddata && ddata->outerContext) {
+        url = ddata->outerContext->url();
+        line = ddata->lineNumber;
+    }
+
+    qCInfo(lcBindingRemoval,
+           "The target property of the Binding element created at %s:%d was changed from "
+           "elsewhere. This does not overwrite the binding. The target property will still be "
+           "updated when the value of the Binding element changes.",
+           qPrintable(url.toString()), line);
 }
 
 QT_END_NAMESPACE

@@ -4,6 +4,8 @@
 
 #include "components/page_image_annotation/core/page_annotator.h"
 
+#include "base/bind.h"
+
 namespace page_image_annotation {
 
 namespace ia_mojom = image_annotation::mojom;
@@ -56,8 +58,11 @@ void PageAnnotator::AnnotateImage(Observer* const observer,
   if (lookup == images_.end())
     return;
 
+  // TODO(crbug.com/916363): get a user's preferred language and pass it here.
   annotator_ptr_->AnnotateImage(
-      lookup->second.first.source_id, lookup->second.second.GetPtr(),
+      lookup->second.first.source_id,
+      std::string() /* description_language_tag */,
+      lookup->second.second.GetPtr(),
       base::BindOnce(&PageAnnotator::NotifyObserver, base::Unretained(this),
                      observer, node_id));
 }

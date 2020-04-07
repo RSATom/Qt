@@ -24,26 +24,21 @@ rtc_source_set("control_handler") {
   ]
 
   deps = [
-    "../:congestion_controller",
     "../../../api/transport:network_control",
     "../../../api/units:data_rate",
     "../../../api/units:data_size",
     "../../../api/units:time_delta",
     "../../../rtc_base:checks",
-    "../../../rtc_base:rate_limiter",
     "../../../rtc_base:safe_minmax",
-    "../../../rtc_base:sequenced_task_checker",
-    "../../../system_wrappers",
+    "../../../rtc_base/synchronization:sequence_checker",
     "../../../system_wrappers:field_trial",
     "../../pacing",
-    "../../remote_bitrate_estimator",
-    "../../rtp_rtcp:rtp_rtcp_format",
     "//third_party/abseil-cpp/absl/memory",
     "//third_party/abseil-cpp/absl/types:optional",
   ]
 
   if (!build_with_mozilla) {
-    deps += [ "../../../rtc_base:rtc_base" ]
+    deps += [ "../../../rtc_base" ]
   }
 }
 rtc_static_library("transport_feedback") {
@@ -64,6 +59,7 @@ rtc_static_library("transport_feedback") {
     "../../../rtc_base:rtc_base_approved",
     "../../../rtc_base/network:sent_packet",
     "../../../system_wrappers",
+    "../../../system_wrappers:field_trial",
     "../../rtp_rtcp:rtp_rtcp_format",
   ]
 }
@@ -81,26 +77,20 @@ if (rtc_include_tests) {
     deps = [
       ":transport_feedback",
       "../:congestion_controller",
-      "../:mock_congestion_controller",
       "../../../api/transport:network_control",
       "../../../logging:mocks",
+      "../../../rtc_base",
       "../../../rtc_base:checks",
-      "../../../rtc_base:rtc_base",
       "../../../rtc_base:rtc_base_approved",
       "../../../rtc_base/network:sent_packet",
       "../../../system_wrappers",
       "../../../test:field_trial",
       "../../../test:test_support",
-      "../../bitrate_controller:mocks",
+      "../../pacing",
       "../../pacing:mock_paced_sender",
-      "../../pacing:pacing",
-      "../../remote_bitrate_estimator:remote_bitrate_estimator",
+      "../../remote_bitrate_estimator",
       "../../rtp_rtcp:rtp_rtcp_format",
       "//testing/gmock",
     ]
-    if (!build_with_chromium && is_clang) {
-      # Suppress warnings from the Chromium Clang plugin (bugs.webrtc.org/163).
-      suppressed_configs += [ "//build/config/clang:find_bad_constructs" ]
-    }
   }
 }

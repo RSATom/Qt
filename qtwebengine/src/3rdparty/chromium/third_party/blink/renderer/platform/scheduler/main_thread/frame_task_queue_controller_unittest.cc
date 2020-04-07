@@ -7,7 +7,6 @@
 #include <memory>
 #include <tuple>
 #include <utility>
-#include <vector>
 
 #include "base/bind.h"
 #include "base/memory/scoped_refptr.h"
@@ -36,8 +35,8 @@ class FrameTaskQueueControllerTest : public testing::Test,
  public:
   FrameTaskQueueControllerTest()
       : task_environment_(
-            base::test::ScopedTaskEnvironment::MainThreadType::MOCK_TIME,
-            base::test::ScopedTaskEnvironment::ExecutionMode::QUEUED),
+            base::test::ScopedTaskEnvironment::TimeSource::MOCK_TIME,
+            base::test::ScopedTaskEnvironment::ThreadPoolExecutionMode::QUEUED),
         task_queue_created_count_(0) {}
 
   ~FrameTaskQueueControllerTest() override = default;
@@ -124,23 +123,29 @@ TEST_F(FrameTaskQueueControllerTest, CreateAllTaskQueues) {
                                        .SetCanBeThrottled(true)
                                        .SetCanBeDeferred(true)
                                        .SetCanBeFrozen(true)
-                                       .SetCanBePaused(true));
+                                       .SetCanBePaused(true)
+                                       .SetShouldUseVirtualTime(true));
   EXPECT_FALSE(all_task_queues.Contains(task_queue));
   all_task_queues.insert(task_queue.get(), QueueCheckResult::kDidNotSeeQueue);
   EXPECT_EQ(all_task_queues.size(), task_queue_created_count());
 
-  task_queue = NonLoadingTaskQueue(
-      QueueTraits().SetCanBeDeferred(true).SetCanBePaused(true));
+  task_queue = NonLoadingTaskQueue(QueueTraits()
+                                        .SetCanBeDeferred(true)
+                                        .SetCanBePaused(true)
+                                        .SetShouldUseVirtualTime(true));
   EXPECT_FALSE(all_task_queues.Contains(task_queue));
   all_task_queues.insert(task_queue.get(), QueueCheckResult::kDidNotSeeQueue);
   EXPECT_EQ(all_task_queues.size(), task_queue_created_count());
 
-  task_queue = NonLoadingTaskQueue(QueueTraits().SetCanBePaused(true));
+  task_queue = NonLoadingTaskQueue(QueueTraits()
+                                        .SetCanBePaused(true)
+                                        .SetShouldUseVirtualTime(true));
   EXPECT_FALSE(all_task_queues.Contains(task_queue));
   all_task_queues.insert(task_queue.get(), QueueCheckResult::kDidNotSeeQueue);
   EXPECT_EQ(all_task_queues.size(), task_queue_created_count());
 
-  task_queue = NonLoadingTaskQueue(QueueTraits());
+  task_queue = NonLoadingTaskQueue(QueueTraits()
+                                        .SetShouldUseVirtualTime(true));
   EXPECT_FALSE(all_task_queues.Contains(task_queue));
   all_task_queues.insert(task_queue.get(), QueueCheckResult::kDidNotSeeQueue);
   EXPECT_EQ(all_task_queues.size(), task_queue_created_count());
@@ -156,28 +161,34 @@ TEST_F(FrameTaskQueueControllerTest, CreateAllTaskQueues) {
   all_task_queues.insert(task_queue.get(), QueueCheckResult::kDidNotSeeQueue);
   EXPECT_EQ(all_task_queues.size(), task_queue_created_count());
 
+  // Add best effort task queue.
+  task_queue = frame_task_queue_controller_->BestEffortTaskQueue();
+  EXPECT_FALSE(all_task_queues.Contains(task_queue));
+  all_task_queues.insert(task_queue.get(), QueueCheckResult::kDidNotSeeQueue);
+  EXPECT_EQ(all_task_queues.size(), task_queue_created_count());
+
   // Verify that we get all of the queues that we added, and only those queues.
   EXPECT_EQ(all_task_queues.size(),
             frame_task_queue_controller_->GetAllTaskQueuesAndVoters().size());
   for (const auto& task_queue_and_voter :
        frame_task_queue_controller_->GetAllTaskQueuesAndVoters()) {
-    MainThreadTaskQueue* task_queue;
+    MainThreadTaskQueue* task_queue_ptr;
     TaskQueue::QueueEnabledVoter* voter;
-    std::tie(task_queue, voter) = task_queue_and_voter;
+    std::tie(task_queue_ptr, voter) = task_queue_and_voter;
 
-    EXPECT_NE(task_queue, nullptr);
-    EXPECT_TRUE(all_task_queues.find(task_queue) != all_task_queues.end());
+    EXPECT_NE(task_queue_ptr, nullptr);
+    EXPECT_TRUE(all_task_queues.find(task_queue_ptr) != all_task_queues.end());
     // Make sure we don't get the same queue twice.
-    auto it = all_task_queues.find(task_queue);
+    auto it = all_task_queues.find(task_queue_ptr);
     EXPECT_FALSE(it == all_task_queues.end());
     EXPECT_EQ(it->value, QueueCheckResult::kDidNotSeeQueue);
-    all_task_queues.Set(task_queue, QueueCheckResult::kDidSeeQueue);
-    if (task_queue->queue_type() ==
+    all_task_queues.Set(task_queue_ptr, QueueCheckResult::kDidSeeQueue);
+    if (task_queue_ptr->queue_type() ==
             MainThreadTaskQueue::QueueType::kFrameLoading ||
-        task_queue->queue_type() ==
+        task_queue_ptr->queue_type() ==
             MainThreadTaskQueue::QueueType::kFrameLoadingControl) {
       EXPECT_NE(voter, nullptr);
-    } else if (task_queue->GetQueueTraits().can_be_paused) {
+    } else if (task_queue_ptr->GetQueueTraits().can_be_paused) {
       EXPECT_NE(voter, nullptr);
     } else {
       EXPECT_EQ(voter, nullptr);

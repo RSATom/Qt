@@ -30,6 +30,9 @@
 
 #include "third_party/blink/renderer/platform/fonts/shaping/harfbuzz_face.h"
 
+#include <hb-ot.h>
+#include <hb.h>
+
 #include <memory>
 
 #include "build/build_config.h"
@@ -37,25 +40,22 @@
 #include "third_party/blink/renderer/platform/fonts/font_global_context.h"
 #include "third_party/blink/renderer/platform/fonts/font_platform_data.h"
 #include "third_party/blink/renderer/platform/fonts/shaping/harfbuzz_font_cache.h"
+#include "third_party/blink/renderer/platform/fonts/shaping/harfbuzz_font_data.h"
 #include "third_party/blink/renderer/platform/fonts/shaping/harfbuzz_shaper.h"
 #include "third_party/blink/renderer/platform/fonts/simple_font_data.h"
 #include "third_party/blink/renderer/platform/fonts/skia/skia_text_metrics.h"
 #include "third_party/blink/renderer/platform/fonts/unicode_range_set.h"
-#include "third_party/blink/renderer/platform/histogram.h"
+#include "third_party/blink/renderer/platform/instrumentation/histogram.h"
 #include "third_party/blink/renderer/platform/resolution_units.h"
 #include "third_party/blink/renderer/platform/wtf/hash_map.h"
 #include "third_party/blink/renderer/platform/wtf/math_extras.h"
 #include "third_party/blink/renderer/platform/wtf/std_lib_extras.h"
-
-#include <hb-ot.h>
-#include <hb.h>
-
-#include <SkPaint.h>
-#include <SkPath.h>
-#include <SkPoint.h>
-#include <SkRect.h>
-#include <SkStream.h>
-#include <SkTypeface.h>
+#include "third_party/skia/include/core/SkPaint.h"
+#include "third_party/skia/include/core/SkPath.h"
+#include "third_party/skia/include/core/SkPoint.h"
+#include "third_party/skia/include/core/SkRect.h"
+#include "third_party/skia/include/core/SkStream.h"
+#include "third_party/skia/include/core/SkTypeface.h"
 
 namespace blink {
 
@@ -356,13 +356,14 @@ hb_face_t* HarfBuzzFace::CreateFace() {
   // tables on Mac. See the implementation of SkTypeface_Mac::onOpenStream.
 #if !defined(OS_MACOSX)
   int ttc_index = 0;
-  SkStreamAsset* typeface_stream = typeface->openStream(&ttc_index);
-  if (typeface_stream && typeface_stream->getMemoryBase()) {
+  std::unique_ptr<SkStreamAsset> tf_stream(typeface->openStream(&ttc_index));
+  if (tf_stream && tf_stream->getMemoryBase()) {
+    const void* tf_memory = tf_stream->getMemoryBase();
+    size_t tf_size = tf_stream->getLength();
     std::unique_ptr<hb_blob_t, void (*)(hb_blob_t*)> face_blob(
-        hb_blob_create(
-            reinterpret_cast<const char*>(typeface_stream->getMemoryBase()),
-            SafeCast<unsigned int>(typeface_stream->getLength()),
-            HB_MEMORY_MODE_READONLY, typeface_stream, DeleteTypefaceStream),
+        hb_blob_create(reinterpret_cast<const char*>(tf_memory),
+                       SafeCast<unsigned int>(tf_size), HB_MEMORY_MODE_READONLY,
+                       tf_stream.release(), DeleteTypefaceStream),
         hb_blob_destroy);
     face = hb_face_create(face_blob.get(), ttc_index);
   }

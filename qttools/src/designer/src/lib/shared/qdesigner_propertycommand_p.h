@@ -72,7 +72,7 @@ class QDESIGNER_SHARED_EXPORT PropertyHelper {
     Q_DISABLE_COPY(PropertyHelper)
 public:
     // A pair of Value and changed flag
-    typedef QPair<QVariant, bool> Value;
+    using Value = QPair<QVariant, bool>;
 
     enum ObjectType {OT_Object, OT_FreeAction, OT_AssociatedAction, OT_Widget};
 
@@ -80,7 +80,7 @@ public:
                    SpecialProperty specialProperty,
                    QDesignerPropertySheetExtension *sheet,
                    int index);
-    virtual ~PropertyHelper() {}
+    virtual ~PropertyHelper() = default;
 
     QObject *object() const { return m_object; }
     SpecialProperty specialProperty() const { return m_specialProperty; }
@@ -135,9 +135,7 @@ private:
 
 class QDESIGNER_SHARED_EXPORT PropertyListCommand : public QDesignerFormWindowCommand {
 public:
-    typedef QList<QObject *> ObjectList;
-
-    explicit PropertyListCommand(QDesignerFormWindowInterface *formWindow, QUndoCommand *parent = 0);
+    explicit PropertyListCommand(QDesignerFormWindowInterface *formWindow, QUndoCommand *parent = nullptr);
 
     QObject* object(int index = 0) const;
 
@@ -146,20 +144,20 @@ public:
     void setOldValue(const QVariant &oldValue, int index = 0);
 
     // Calls restoreDefaultValue() and update()
-    virtual void undo();
+    void undo() override;
 
 protected:
-    typedef QSharedPointer<PropertyHelper> PropertyHelperPtr;
-    typedef QList<PropertyHelperPtr> PropertyHelperList;
+    using PropertyHelperPtr = QSharedPointer<PropertyHelper>;
+    using PropertyHelperList = QList<PropertyHelperPtr>;
 
     // add an object
     bool add(QObject *object, const QString &propertyName);
 
     // Init from a list and make sure referenceObject is added first to obtain the right property group
-    bool initList(const ObjectList &list, const QString &apropertyName, QObject *referenceObject = 0);
+    bool initList(const QObjectList &list, const QString &apropertyName, QObject *referenceObject = nullptr);
 
     // set a new value, return update mask
-    unsigned setValue(QVariant value, bool changed, unsigned subPropertyMask);
+    unsigned setValue(const QVariant &value, bool changed, unsigned subPropertyMask);
 
     // restore old value,  return update mask
     unsigned  restoreOldValue();
@@ -182,15 +180,15 @@ protected:
     // properties of different widgets are equivalent
     struct PropertyDescription {
     public:
-        PropertyDescription();
+        PropertyDescription() = default;
         PropertyDescription(const QString &propertyName, QDesignerPropertySheetExtension *propertySheet, int index);
         bool equals(const PropertyDescription &p) const;
         void debug() const;
 
         QString m_propertyName;
         QString m_propertyGroup;
-        QVariant::Type m_propertyType;
-        SpecialProperty m_specialProperty;
+        QVariant::Type m_propertyType = QVariant::Invalid;
+        SpecialProperty m_specialProperty = SP_None;
     };
     const PropertyDescription &propertyDescription() const { return  m_propertyDescription; }
 
@@ -207,13 +205,11 @@ class QDESIGNER_SHARED_EXPORT SetPropertyCommand: public PropertyListCommand
 {
 
 public:
-    typedef QList<QObject *> ObjectList;
-
-    explicit SetPropertyCommand(QDesignerFormWindowInterface *formWindow, QUndoCommand *parent = 0);
+    explicit SetPropertyCommand(QDesignerFormWindowInterface *formWindow, QUndoCommand *parent = nullptr);
 
     bool init(QObject *object, const QString &propertyName, const QVariant &newValue);
-    bool init(const ObjectList &list, const QString &propertyName, const QVariant &newValue,
-              QObject *referenceObject = 0, bool enableSubPropertyHandling = true);
+    bool init(const QObjectList &list, const QString &propertyName, const QVariant &newValue,
+              QObject *referenceObject = nullptr, bool enableSubPropertyHandling = true);
 
 
     inline QVariant newValue() const
@@ -222,10 +218,10 @@ public:
     inline void setNewValue(const QVariant &newValue)
     { m_newValue = newValue; }
 
-    int id() const;
-    bool mergeWith(const QUndoCommand *other);
+    int id() const override;
+    bool mergeWith(const QUndoCommand *other) override;
 
-    virtual void redo();
+    void redo() override;
 
 protected:
     virtual QVariant mergeValue(const QVariant &newValue);
@@ -241,12 +237,10 @@ class QDESIGNER_SHARED_EXPORT ResetPropertyCommand: public PropertyListCommand
 {
 
 public:
-    typedef QList<QObject *> ObjectList;
-
     explicit ResetPropertyCommand(QDesignerFormWindowInterface *formWindow);
 
     bool init(QObject *object, const QString &propertyName);
-    bool init(const ObjectList &list, const QString &propertyName, QObject *referenceObject = 0);
+    bool init(const QObjectList &list, const QString &propertyName, QObject *referenceObject = nullptr);
 
     virtual void redo();
 

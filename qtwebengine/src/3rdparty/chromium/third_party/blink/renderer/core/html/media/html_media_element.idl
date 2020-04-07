@@ -23,10 +23,12 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-// https://html.spec.whatwg.org/#media-elements
+// https://html.spec.whatwg.org/C/#media-elements
 
 enum CanPlayTypeResult { "" /* empty string */, "maybe", "probably" };
+
 [
+    Exposed=Window,
     ActiveScriptWrappable
 ] interface HTMLMediaElement : HTMLElement {
 

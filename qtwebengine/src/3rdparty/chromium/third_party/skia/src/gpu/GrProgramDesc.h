@@ -8,12 +8,12 @@
 #ifndef GrProgramDesc_DEFINED
 #define GrProgramDesc_DEFINED
 
-#include "GrColor.h"
-#include "GrTypesPriv.h"
-#include "SkOpts.h"
-#include "SkTArray.h"
-#include "SkTo.h"
-#include "glsl/GrGLSLFragmentShaderBuilder.h"
+#include "include/private/GrTypesPriv.h"
+#include "include/private/SkTArray.h"
+#include "include/private/SkTo.h"
+#include "src/core/SkOpts.h"
+#include "src/gpu/GrColor.h"
+#include "src/gpu/glsl/GrGLSLFragmentShaderBuilder.h"
 
 class GrShaderCaps;
 class GrPipeline;
@@ -39,11 +39,8 @@ public:
     * @param GrGpu          Ptr to the GrGpu object the program will be used with.
     * @param GrProgramDesc  The built and finalized descriptor
     **/
-    static bool Build(GrProgramDesc*,
-                      const GrPrimitiveProcessor&,
-                      bool hasPointSize,
-                      const GrPipeline&,
-                      GrGpu*);
+    static bool Build(GrProgramDesc*, const GrRenderTarget*, const GrPrimitiveProcessor&,
+                      bool hasPointSize, const GrPipeline&, GrGpu*);
 
     // Returns this as a uint32_t array to be used as a key in the program cache.
     const uint32_t* asKey() const {
@@ -90,17 +87,26 @@ public:
     }
 
     struct KeyHeader {
+        bool hasSurfaceOriginKey() const {
+            return SkToBool(fSurfaceOriginKey);
+        }
+        GrProcessor::CustomFeatures processorFeatures() const {
+            return (GrProcessor::CustomFeatures)fProcessorFeatures;
+        }
+
         // Set to uniquely idenitify any swizzling of the shader's output color(s).
-        uint8_t fOutputSwizzle;
+        uint16_t fOutputSwizzle;
         uint8_t fColorFragmentProcessorCnt; // Can be packed into 4 bits if required.
         uint8_t fCoverageFragmentProcessorCnt;
         // Set to uniquely identify the rt's origin, or 0 if the shader does not require this info.
         uint8_t fSurfaceOriginKey : 2;
+        uint8_t fProcessorFeatures : 1;
         bool fSnapVerticesToPixelCenters : 1;
         bool fHasPointSize : 1;
-        uint8_t fPad : 4;
+        bool fClampBlendInput : 1;
+        uint8_t fPad : 2;
     };
-    GR_STATIC_ASSERT(sizeof(KeyHeader) == 4);
+    GR_STATIC_ASSERT(sizeof(KeyHeader) == 6);
 
     // This should really only be used internally, base classes should return their own headers
     const KeyHeader& header() const { return *this->atOffset<KeyHeader, kHeaderOffset>(); }

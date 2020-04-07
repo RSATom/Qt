@@ -40,7 +40,7 @@
     </message>
     <message>
         <source>%1 contains octets which are disallowed in the requested encoding %2.</source>
-        <translation>%1 conté octets que estan no estan permesos en la codificació %2 requerida.</translation>
+        <translation>%1 conté octets que no estan permesos a la codificació %2 requerida.</translation>
     </message>
     <message>
         <source>The codepoint %1, occurring in %2 using encoding %3, is an invalid XML character.</source>
@@ -80,7 +80,7 @@
     </message>
     <message>
         <source>Time 24:%1:%2.%3 is invalid. Hour is 24, but minutes, seconds, and milliseconds are not all 0; </source>
-        <translation>L&apos;hora 24:%1:%2.%3 no és vàlida. L&apos;hora és 24, però els minuts, segons, i els mil·lisegons no són tots 0; </translation>
+        <translation>L&apos;hora 24:%1:%2.%3 no és vàlida. L&apos;hora és 24, però els minuts, segons i els mil·lisegons no són tots 0; </translation>
     </message>
     <message>
         <source>Time %1:%2:%3.%4 is invalid.</source>
@@ -116,7 +116,7 @@
     </message>
     <message>
         <source>When casting to %1 from %2, the source value cannot be %3.</source>
-        <translation>Quan es converteix a %1 des de %2, el valor font no pot ser %3.</translation>
+        <translation>Quan es converteix a %1 des de %2, el valor d&apos;origen no pot ser %3.</translation>
     </message>
     <message>
         <source>Integer division (%1) by zero (%2) is undefined.</source>
@@ -168,7 +168,7 @@
     </message>
     <message>
         <source>Ambiguous rule match.</source>
-        <translation>Coincidència de regla ambigua.</translation>
+        <translation>Coincidència ambigua de la regla.</translation>
     </message>
     <message>
         <source>Operator %1 cannot be used on type %2.</source>
@@ -184,7 +184,7 @@
     </message>
     <message>
         <source>The name for a computed attribute cannot have the namespace URI %1 with the local name %2.</source>
-        <translation>El nom per un tribut calculat no pot tenir l&apos;URI de l&apos;espai de noms %1 amb el nom local %2.</translation>
+        <translation>El nom per a un tribut calculat no pot tenir l&apos;URI de l&apos;espai de noms %1 amb el nom local %2.</translation>
     </message>
     <message>
         <source>Type error in cast, expected %1, received %2.</source>
@@ -192,7 +192,7 @@
     </message>
     <message>
         <source>When casting to %1 or types derived from it, the source value must be of the same type, or it must be a string literal. Type %2 is not allowed.</source>
-        <translation>En convertir a %1 o als seus tipus derivats, el valor origen ha de ser del mateix tipus, o ha de ser un literal de text. No es permet el tipus %2.</translation>
+        <translation>En convertir a %1 o als seus tipus derivats, el valor d&apos;origen ha de ser del mateix tipus, o haurà de ser un literal de text. No es permet el tipus %2.</translation>
     </message>
     <message>
         <source>No casting is possible with %1 as the target type.</source>
@@ -228,7 +228,7 @@
     </message>
     <message>
         <source>Operator %1 is not available between atomic values of type %2 and %3.</source>
-        <translation>L&apos;operador %1 no és disponible entre valors atòmics del tipus %2 i %3.</translation>
+        <translation>L&apos;operador %1 no està disponible entre valors atòmics del tipus %2 i %3.</translation>
     </message>
     <message>
         <source>In a namespace constructor, the value for a namespace cannot be an empty string.</source>
@@ -244,7 +244,7 @@
     </message>
     <message>
         <source>Only the prefix %1 can be bound to %2 and vice versa.</source>
-        <translation>El prefix %1 només es pot vincular a %2 i viceversa.</translation>
+        <translation>El prefix %1 només es pot vincular amb %2 i viceversa.</translation>
     </message>
     <message>
         <source>An attribute node cannot be a child of a document node. Therefore, the attribute %1 is out of place.</source>
@@ -276,11 +276,11 @@
     </message>
     <message>
         <source>%1 is not a valid target name in a processing instruction. It must be a %2 value, e.g. %3.</source>
-        <translation>%1 no és un nom de destinació vàlid en una instrucció de processament. Ha de ser un valor de %2, p. ex. %3.</translation>
+        <translation>%1 no és un nom de destinació vàlid en una instrucció de processament. Haurà de ser un valor de %2, p. ex. %3.</translation>
     </message>
     <message>
         <source>The last step in a path must contain either nodes or atomic values. It cannot be a mixture between the two.</source>
-        <translation>El darrer pas d&apos;un camí ha de contenir nodes o valors atòmics. No pot tenir una barreja entre els dos.</translation>
+        <translation>El darrer pas d&apos;un camí ha de contenir nodes o valors atòmics. No pot ser una barreja.</translation>
     </message>
     <message>
         <source>The data of a processing instruction cannot contain the string %1</source>
@@ -322,15 +322,15 @@
     </message>
     <message>
         <source>The first argument to %1 cannot be of type %2. It must be a numeric type, xs:yearMonthDuration or xs:dayTimeDuration.</source>
-        <translation>El primer argument a %1 no pot ser del tipus %2. Ha de ser un tipus numèric, «xs:yearMonthDuration» o «xs:dayTimeDuration».</translation>
+        <translation>El primer argument a %1 no pot ser del tipus %2. Haurà de ser un tipus numèric, «xs:yearMonthDuration» o «xs:dayTimeDuration».</translation>
     </message>
     <message>
         <source>The first argument to %1 cannot be of type %2. It must be of type %3, %4, or %5.</source>
-        <translation>El primer argument a %1 no pot ser del tipus %2. Ha de ser del tipus %3, %4, o %5.</translation>
+        <translation>El primer argument a %1 no pot ser del tipus %2. Haurà de ser del tipus %3, %4 o %5.</translation>
     </message>
     <message>
         <source>The second argument to %1 cannot be of type %2. It must be of type %3, %4, or %5.</source>
-        <translation>El segon argument a %1 no pot ser del tipus %2. Ha de ser del tipus %3, %4, o %5.</translation>
+        <translation>El segon argument a %1 no pot ser del tipus %2. Haurà de ser del tipus %3, %4 o %5.</translation>
     </message>
     <message>
         <source>%1 is not a valid XML 1.0 character.</source>
@@ -342,11 +342,11 @@
     </message>
     <message>
         <source>The root node of the second argument to function %1 must be a document node. %2 is not a document node.</source>
-        <translation>El node arrel del segon argument a la funció %1 ha de ser un node de document. %2 no és un node de document.</translation>
+        <translation>El node arrel del segon argument a la funció %1 haurà de ser un node de document. %2 no és un node de document.</translation>
     </message>
     <message>
         <source>If both values have zone offsets, they must have the same zone offset. %1 and %2 are not the same.</source>
-        <translation>Si ambdós valors tenen desplaçament de zona, han de tenir el mateix desplaçament de zona. %1 i %2 no són el mateix.</translation>
+        <translation>Si ambdós valors tenen desplaçament de zona, hauran de tenir el mateix desplaçament de zona. %1 i %2 no són el mateix.</translation>
     </message>
     <message>
         <source>%1 was called.</source>
@@ -406,7 +406,7 @@
     </message>
     <message>
         <source>The normalization form %1 is unsupported. The supported forms are %2, %3, %4, and %5, and none, i.e. the empty string (no normalization).</source>
-        <translation>La forma de normalització %1 no està implementada. Les formes implementades són %2, %3, %4, i %5, i cap, p. ex. la cadena buida (sense normalització).</translation>
+        <translation>La forma de normalització %1 no està implementada. Les formes implementades són %2, %3, %4 i %5, i cap, p. ex. la cadena buida (sense normalització).</translation>
     </message>
     <message>
         <source>A zone offset must be in the range %1..%2 inclusive. %3 is out of range.</source>
@@ -434,15 +434,15 @@
     </message>
     <message>
         <source>Attribute %1 cannot appear on the element %2. Only %3 is allowed, and the standard attributes.</source>
-        <translation>L&apos;atribut %1 no pot aparèixer en l&apos;element %2. Només es permet %3, i els atributs estàndard.</translation>
+        <translation>L&apos;atribut %1 no pot aparèixer en l&apos;element %2. Només es permet %3 i els atributs estàndard.</translation>
     </message>
     <message>
         <source>Attribute %1 cannot appear on the element %2. Allowed is %3, %4, and the standard attributes.</source>
-        <translation>L&apos;atribut %1 no pot aparèixer en l&apos;element %2. Es permet %3, %4, i els atributs estàndard.</translation>
+        <translation>L&apos;atribut %1 no pot aparèixer en l&apos;element %2. Es permet %3, %4 i els atributs estàndard.</translation>
     </message>
     <message>
         <source>Attribute %1 cannot appear on the element %2. Allowed is %3, and the standard attributes.</source>
-        <translation>L&apos;atribut %1 no pot aparèixer en l&apos;element %2. Es permet %3, i els atributs estàndard.</translation>
+        <translation>L&apos;atribut %1 no pot aparèixer en l&apos;element %2. Es permet %3 i els atributs estàndard.</translation>
     </message>
     <message>
         <source>XSL-T attributes on XSL-T elements must be in the null namespace, not in the XSL-T namespace which %1 is.</source>
@@ -510,7 +510,7 @@
     </message>
     <message>
         <source>A default namespace declaration must occur before function, variable, and option declarations.</source>
-        <translation>Cal una declaració d&apos;espai de noms per defecte abans de les declaracions de funció, variable i opció.</translation>
+        <translation>Cal una declaració d&apos;espai de noms predeterminada abans de les declaracions de funció, variable i opció.</translation>
     </message>
     <message>
         <source>Namespace declarations must occur before function, variable, and option declarations.</source>
@@ -534,7 +534,7 @@
     </message>
     <message>
         <source>The prefix %1 can not be bound. By default, it is already bound to the namespace %2.</source>
-        <translation>No es pot vincular el prefix %1. Per defecte, ja està vinculat a l&apos;espai de noms %2.</translation>
+        <translation>No es pot vincular el prefix %1. De manera predeterminada, ja està vinculat a l&apos;espai de noms %2.</translation>
     </message>
     <message>
         <source>Prefix %1 is already declared in the prolog.</source>
@@ -546,7 +546,7 @@
     </message>
     <message>
         <source>The Schema Import feature is not supported, and therefore %1 declarations cannot occur.</source>
-        <translation>La funcionalitat d&apos;importació d&apos;esquemes no està implementada, i pet tant, no poden haver-hi declaracions %1.</translation>
+        <translation>La característica d&apos;importació d&apos;esquemes no està implementada, i pet tant, no poden haver-hi declaracions %1.</translation>
     </message>
     <message>
         <source>The target namespace of a %1 cannot be empty.</source>
@@ -554,7 +554,7 @@
     </message>
     <message>
         <source>The module import feature is not supported</source>
-        <translation>La funcionalitat d&apos;importació de mòduls no està implementada</translation>
+        <translation>La característica d&apos;importació de mòduls no està implementada</translation>
     </message>
     <message>
         <source>A variable with name %1 has already been declared.</source>
@@ -574,7 +574,7 @@
     </message>
     <message>
         <source>The namespace %1 is reserved; therefore user defined functions may not use it. Try the predefined prefix %2, which exists for these cases.</source>
-        <translation>L&apos;espai de noms %1 està reservat; per tant, les funcions definides per l&apos;usuari no poden usar-lo. Proveu el prefix predefinit %2, el qual existeix per aquests casos.</translation>
+        <translation>L&apos;espai de noms %1 està reservat; per tant, les funcions definides per l&apos;usuari no poden usar-lo. Proveu el prefix predefinit %2, el qual existeix per a casos com aquest.</translation>
     </message>
     <message>
         <source>The namespace of a user defined function in a library module must be equivalent to the module namespace. In other words, it should be %1 instead of %2</source>
@@ -626,7 +626,7 @@
     </message>
     <message>
         <source>The Schema Validation Feature is not supported. Hence, %1-expressions may not be used.</source>
-        <translation>La funcionalitat de validació d&apos;esquema no està implementada. Aquí, les expressions %1 no poden usar-se.</translation>
+        <translation>La característica de validació d&apos;esquema no està implementada. Aquí, les expressions %1 no es poden usar.</translation>
     </message>
     <message>
         <source>None of the pragma expressions are supported. Therefore, a fallback expression must be present</source>
@@ -646,7 +646,7 @@
     </message>
     <message>
         <source>The namespace URI cannot be the empty string when binding to a prefix, %1.</source>
-        <translation>L&apos;URI de l&apos;espai de noms no pot ser cap cadena buida quan es vincula a un prefix, %1.</translation>
+        <translation>L&apos;URI de l&apos;espai de noms no pot ser cap cadena buida quan es vincula amb un prefix, %1.</translation>
     </message>
     <message>
         <source>%1 is an invalid namespace URI.</source>
@@ -654,15 +654,15 @@
     </message>
     <message>
         <source>It is not possible to bind to the prefix %1</source>
-        <translation>No és possible vincular al prefix %1</translation>
+        <translation>No és possible vincular amb el prefix %1</translation>
     </message>
     <message>
         <source>Namespace %1 can only be bound to %2 (and it is, in either case, pre-declared).</source>
-        <translation>L&apos;espai de noms %1 només es pot vincular a %2 (i és declarat prèviament, en qualsevol cas).</translation>
+        <translation>L&apos;espai de noms %1 només es pot vincular amb %2 (i, en qualsevol cas, es declara prèviament).</translation>
     </message>
     <message>
         <source>Prefix %1 can only be bound to %2 (and it is, in either case, pre-declared).</source>
-        <translation>El prefix %1 només es pot vincular a %2 (i és declarat prèviament, en qualsevol cas).</translation>
+        <translation>El prefix %1 només es pot vincular amb %2 (i, en qualsevol cas, es declara prèviament).</translation>
     </message>
     <message>
         <source>Two namespace declaration attributes have the same name: %1.</source>
@@ -682,11 +682,11 @@
     </message>
     <message>
         <source>The name %1 does not refer to any schema type.</source>
-        <translation>El nom %1 no referencia cap tipus d&apos;esquema.</translation>
+        <translation>El nom %1 no fa referència a cap tipus d&apos;esquema.</translation>
     </message>
     <message>
         <source>%1 is an complex type. Casting to complex types is not possible. However, casting to atomic types such as %2 works.</source>
-        <translation>%1 és un tipus complex. No és possible la conversió a tipus complexos. Malgrat això, la conversió a tipus atòmics com %2 funciona.</translation>
+        <translation>%1 és un tipus complex. No és possible la conversió a tipus complexos. Malgrat això, la conversió a tipus atòmics com %2, funciona.</translation>
     </message>
     <message>
         <source>%1 is not an atomic type. Casting is only possible to atomic types.</source>
@@ -738,7 +738,7 @@
     </message>
     <message>
         <source>If element %1 has no attribute %2, it cannot have attribute %3 or %4.</source>
-        <translation>Si l&apos;element %1 no té l&apos;atribut %2, no pot tenir l&apos;atribut %3 ni %4.</translation>
+        <translation>Si l&apos;element %1 no té l&apos;atribut %2, no podrà tenir l&apos;atribut %3 ni %4.</translation>
     </message>
     <message>
         <source>Element %1 must have at least one of the attributes %2 or %3.</source>
@@ -762,7 +762,7 @@
     </message>
     <message>
         <source>At least one %1-element must occur inside %2.</source>
-        <translation>Com a mínim ha d&apos;estar present un element %1 dins de %2.</translation>
+        <translation>Com a mínim hi ha d&apos;haver present un element %1 dins de %2.</translation>
     </message>
     <message>
         <source>When attribute %1 is present on %2, a sequence constructor cannot be used.</source>
@@ -774,7 +774,7 @@
     </message>
     <message>
         <source>When a parameter is required, a default value cannot be supplied through a %1-attribute or a sequence constructor.</source>
-        <translation>Quan es requereix un paràmetre, no es pot proporcionar cap valor per defecte a través d&apos;un atribut %1 o un constructor de seqüència.</translation>
+        <translation>Quan es requereix un paràmetre, no es pot proporcionar cap valor predeterminat a través d&apos;un atribut %1 o un constructor de seqüència.</translation>
     </message>
     <message>
         <source>Element %1 cannot have children.</source>
@@ -798,7 +798,7 @@
     </message>
     <message>
         <source>Top level stylesheet elements must be in a non-null namespace, which %1 isn&apos;t.</source>
-        <translation>Els elements del nivell superior del full d&apos;estil han d&apos;estar en un espai de noms no nul, i que %1 no ho compleix.</translation>
+        <translation>Els elements del nivell superior del full d&apos;estil han d&apos;estar en un espai de noms no nul, el qual %1 no compleix.</translation>
     </message>
     <message>
         <source>The value for attribute %1 on element %2 must either be %3 or %4, not %5.</source>
@@ -854,23 +854,23 @@
     </message>
     <message>
         <source>Element %1 is missing in derived particle.</source>
-        <translation>No s&apos;ha trobat l&apos;element %1 en la partícula derivada.</translation>
+        <translation>No s&apos;ha trobat l&apos;element %1 a la partícula derivada.</translation>
     </message>
     <message>
         <source>Element %1 does not match namespace constraint of wildcard in base particle.</source>
-        <translation>L&apos;element %1 no concorda amb la restricció de l&apos;espai de noms del comodí en la partícula base.</translation>
+        <translation>L&apos;element %1 no concorda amb la restricció de l&apos;espai de noms del comodí a la partícula base.</translation>
     </message>
     <message>
         <source>Wildcard in derived particle is not a valid subset of wildcard in base particle.</source>
-        <translation>El comodí en la partícula base no és un subconjunt vàlid del comodí en la partícula base.</translation>
+        <translation>El comodí a la partícula derivada no és un subconjunt vàlid del comodí a la partícula base.</translation>
     </message>
     <message>
         <source>processContent of wildcard in derived particle is weaker than wildcard in base particle.</source>
-        <translation>El «processContent» del comodí en la partícula derivada és més feble que el comodí en la partícula base.</translation>
+        <translation>El «processContent» del comodí a la partícula derivada és més feble que el comodí a la partícula base.</translation>
     </message>
     <message>
         <source>Derived particle allows content that is not allowed in the base particle.</source>
-        <translation>La partícula derivada permet contingut que no es permet en la partícula base.</translation>
+        <translation>La partícula derivada permet contingut que no es permet a la partícula base.</translation>
     </message>
     <message>
         <source>%1 has inheritance loop in its base type %2.</source>
@@ -922,7 +922,7 @@
     </message>
     <message>
         <source>%1 is not allowed to derive from %2 by list as the latter defines it as final.</source>
-        <translation>No es permet que %1 derivi des de %2 per llista, ja que el darrer es defineix com a final.</translation>
+        <translation>No es permet que %1 derivi des de %2 per llista, ja que el darrer es definirà com a final.</translation>
     </message>
     <message>
         <source>Simple type %1 is only allowed to have %2 facet.</source>
@@ -938,7 +938,7 @@
     </message>
     <message>
         <source>Item type of base type does not match item type of %1.</source>
-        <translation>El tipus d&apos;element del tipus base no concorden amb el tipus d&apos;element de %1.</translation>
+        <translation>El tipus del tipus base no concorda amb el tipus d&apos;element de %1.</translation>
     </message>
     <message>
         <source>Simple type %1 contains not allowed facet type %2.</source>
@@ -1038,7 +1038,7 @@
     </message>
     <message>
         <source>Unknown notation %1 used in %2 facet.</source>
-        <translation>Notació desconeguda %1 emprada en la faceta %2.</translation>
+        <translation>Notació desconeguda %1 emprada a la faceta %2.</translation>
     </message>
     <message>
         <source>%1 facet contains invalid value %2: %3.</source>
@@ -1386,7 +1386,7 @@
     </message>
     <message>
         <source>%1 has a different number of fields from the identity constraint %2 that it references.</source>
-        <translation>%1 té un nombre diferent de camps a la restricció d&apos;identitat %2 que la referència.</translation>
+        <translation>%1 té un nombre diferent de camps a la restricció d&apos;identitat %2 a la qual fa referència.</translation>
     </message>
     <message>
         <source>Base type %1 of %2 element cannot be resolved.</source>
@@ -1410,11 +1410,11 @@
     </message>
     <message>
         <source>%1 cannot have complex base type that has a %2.</source>
-        <translation>%1 no pot tenir un tipus de base complex que tingui un %2.</translation>
+        <translation>%1 no pot tenir un tipus de base complexa que tingui un %2.</translation>
     </message>
     <message>
         <source>Content model of complex type %1 contains %2 element so it cannot be derived by extension from a non-empty type.</source>
-        <translation>El model de contingut del tipus complex %1 conté l&apos;element %2, que no es pot derivar per extensió des d&apos;un tipus no buit.</translation>
+        <translation>El model de contingut del tipus complex %1 conté l&apos;element %2, el qual no es pot derivar per extensió des d&apos;un tipus no buit.</translation>
     </message>
     <message>
         <source>Complex type %1 cannot be derived by extension from %2 as the latter contains %3 element in its content model.</source>
@@ -1442,7 +1442,7 @@
     </message>
     <message>
         <source>Circular group reference for %1.</source>
-        <translation>Referència de grup circular per %1.</translation>
+        <translation>Referència de grup circular per a %1.</translation>
     </message>
     <message>
         <source>%1 element is not allowed in this scope</source>
@@ -1738,7 +1738,7 @@
     </message>
     <message>
         <source>xsi:schemaLocation namespace %1 has already appeared earlier in the instance document.</source>
-        <translation>L&apos;espai de noms «xsi:schemaLocation» %1 ja ha aparegut anteriorment en la instància del document.</translation>
+        <translation>L&apos;espai de noms «xsi:schemaLocation» %1 ja ha aparegut anteriorment a la instància del document.</translation>
     </message>
     <message>
         <source>xsi:noNamespaceSchemaLocation cannot appear after the first no-namespace element or attribute.</source>

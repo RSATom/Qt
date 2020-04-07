@@ -8,8 +8,9 @@
 #ifndef GrVkSecondaryCBDrawContext_DEFINED
 #define GrVkSecondaryCBDrawContext_DEFINED
 
-#include "SkTypes.h"
-#include "SkRefCnt.h"
+#include "include/core/SkRefCnt.h"
+#include "include/core/SkSurfaceProps.h"
+#include "include/core/SkTypes.h"
 
 class GrBackendSemaphore;
 class GrContext;
@@ -91,15 +92,20 @@ public:
     // are still in use by the GPU.
     void releaseResources();
 
+    const SkSurfaceProps& props() const { return fProps; }
+
     // TODO: Fill out these calls to support DDL
     bool characterize(SkSurfaceCharacterization* characterization) const;
     bool draw(SkDeferredDisplayList* deferredDisplayList);
 
 private:
-    explicit GrVkSecondaryCBDrawContext(sk_sp<SkGpuDevice>);
+    explicit GrVkSecondaryCBDrawContext(sk_sp<SkGpuDevice>, const SkSurfaceProps*);
+
+    bool isCompatible(const SkSurfaceCharacterization& characterization) const;
 
     sk_sp<SkGpuDevice>        fDevice;
     std::unique_ptr<SkCanvas> fCachedCanvas;
+    const SkSurfaceProps      fProps;
 
     typedef SkRefCnt INHERITED;
 };

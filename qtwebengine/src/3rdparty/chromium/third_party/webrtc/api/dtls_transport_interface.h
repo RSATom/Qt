@@ -11,8 +11,15 @@
 #ifndef API_DTLS_TRANSPORT_INTERFACE_H_
 #define API_DTLS_TRANSPORT_INTERFACE_H_
 
+#include <memory>
+#include <utility>
+
+#include "absl/types/optional.h"
+#include "api/ice_transport_interface.h"
 #include "api/rtc_error.h"
+#include "api/scoped_refptr.h"
 #include "rtc_base/ref_count.h"
+#include "rtc_base/ssl_certificate.h"
 
 namespace webrtc {
 
@@ -32,11 +39,31 @@ enum class DtlsTransportState {
 // DTLSTransport.
 class DtlsTransportInformation {
  public:
-  explicit DtlsTransportInformation(DtlsTransportState state) : state_(state) {}
+  DtlsTransportInformation();
+  explicit DtlsTransportInformation(DtlsTransportState state);
+  DtlsTransportInformation(
+      DtlsTransportState state,
+      absl::optional<int> ssl_cipher_suite,
+      std::unique_ptr<rtc::SSLCertChain> remote_ssl_certificates);
+  // Copy and assign
+  DtlsTransportInformation(const DtlsTransportInformation& c);
+  DtlsTransportInformation& operator=(const DtlsTransportInformation& c);
+  // Move
+  DtlsTransportInformation(DtlsTransportInformation&& other) = default;
+  DtlsTransportInformation& operator=(DtlsTransportInformation&& other) =
+      default;
+
   DtlsTransportState state() const { return state_; }
-  // TODO(hta): Add remote certificate access
+  absl::optional<int> ssl_cipher_suite() const { return ssl_cipher_suite_; }
+  // The accessor returns a temporary pointer, it does not release ownership.
+  const rtc::SSLCertChain* remote_ssl_certificates() const {
+    return remote_ssl_certificates_.get();
+  }
+
  private:
   DtlsTransportState state_;
+  absl::optional<int> ssl_cipher_suite_;
+  std::unique_ptr<rtc::SSLCertChain> remote_ssl_certificates_;
 };
 
 class DtlsTransportObserverInterface {
@@ -53,13 +80,16 @@ class DtlsTransportObserverInterface {
 };
 
 // A DTLS transport, as represented to the outside world.
-// This object is created on the signaling thread, and can only be
-// accessed on that thread.
+// This object is created on the network thread, and can only be
+// accessed on that thread, except for functions explicitly marked otherwise.
 // References can be held by other threads, and destruction can therefore
 // be initiated by other threads.
 class DtlsTransportInterface : public rtc::RefCountInterface {
  public:
-  // These functions can only be called from the signalling thread.
+  // Returns a pointer to the ICE transport that is owned by the DTLS transport.
+  virtual rtc::scoped_refptr<IceTransportInterface> ice_transport() = 0;
+  // Returns information on the state of the DtlsTransport.
+  // This function can be called from other threads.
   virtual DtlsTransportInformation Information() = 0;
   // Observer management.
   virtual void RegisterObserver(DtlsTransportObserverInterface* observer) = 0;

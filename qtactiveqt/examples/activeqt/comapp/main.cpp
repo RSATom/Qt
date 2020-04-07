@@ -153,9 +153,7 @@ Document::Document(DocumentList *list)
     m_page->show();
 }
 
-Document::~Document()
-{
-}
+Document::~Document() = default;
 
 Application *Document::application() const
 {

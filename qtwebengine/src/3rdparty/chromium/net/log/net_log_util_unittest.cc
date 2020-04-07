@@ -17,7 +17,6 @@
 #include "net/log/net_log_source.h"
 #include "net/log/net_log_with_source.h"
 #include "net/log/test_net_log.h"
-#include "net/log/test_net_log_entry.h"
 #include "net/traffic_annotation/network_traffic_annotation_test_helper.h"
 #include "net/url_request/url_request_test_util.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -47,7 +46,7 @@ TEST(NetLogUtil, GetNetInfo) {
   EXPECT_GT(net_info_without_cache->size(), 0u);
 
   // Fore creation of a cache backend, and get NetInfo again.
-  disk_cache::Backend* backend = NULL;
+  disk_cache::Backend* backend = nullptr;
   EXPECT_EQ(OK, context.http_transaction_factory()->GetCache()->GetBackend(
                     &backend, TestCompletionCallback().callback()));
   EXPECT_TRUE(http_cache->GetCurrentBackend());
@@ -81,8 +80,7 @@ TEST(NetLogUtil, CreateNetLogEntriesForActiveObjectsOneContext) {
     contexts.insert(&context);
     TestNetLog test_net_log;
     CreateNetLogEntriesForActiveObjects(contexts, test_net_log.GetObserver());
-    TestNetLogEntry::List entry_list;
-    test_net_log.GetEntries(&entry_list);
+    auto entry_list = test_net_log.GetEntries();
     ASSERT_EQ(num_requests, entry_list.size());
 
     for (size_t i = 0; i < num_requests; ++i) {
@@ -114,8 +112,7 @@ TEST(NetLogUtil, CreateNetLogEntriesForActiveObjectsMultipleContexts) {
     TestNetLog test_net_log;
     CreateNetLogEntriesForActiveObjects(context_set,
                                         test_net_log.GetObserver());
-    TestNetLogEntry::List entry_list;
-    test_net_log.GetEntries(&entry_list);
+    auto entry_list = test_net_log.GetEntries();
     ASSERT_EQ(num_requests, entry_list.size());
 
     for (size_t i = 0; i < num_requests; ++i) {

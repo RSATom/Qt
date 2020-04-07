@@ -170,7 +170,7 @@ public:
 
 Q_GLOBAL_STATIC(QList<QFactoryLoader *>, qt_factory_loaders)
 
-Q_GLOBAL_STATIC_WITH_ARGS(QMutex, qt_factoryloader_mutex, (QMutex::Recursive))
+Q_GLOBAL_STATIC(QRecursiveMutex, qt_factoryloader_mutex)
 
 QFactoryLoaderPrivate::~QFactoryLoaderPrivate()
 {
@@ -193,7 +193,11 @@ void QFactoryLoader::update()
             continue;
         d->loadedPaths << pluginDir;
 
+#ifdef Q_OS_ANDROID
+        QString path = pluginDir;
+#else
         QString path = pluginDir + d->suffix;
+#endif
 
         if (qt_debug_component())
             qDebug() << "QFactoryLoader::QFactoryLoader() checking directory path" << path << "...";
@@ -202,8 +206,10 @@ void QFactoryLoader::update()
             continue;
 
         QStringList plugins = QDir(path).entryList(
-#ifdef Q_OS_WIN
+#if defined(Q_OS_WIN)
                     QStringList(QStringLiteral("*.dll")),
+#elif defined(Q_OS_ANDROID)
+                    QStringList(QLatin1String("libplugins_%1_*.so").arg(d->suffix)),
 #endif
                     QDir::Files);
         QLibraryPrivate *library = 0;
@@ -239,7 +245,7 @@ void QFactoryLoader::update()
             library = QLibraryPrivate::findOrCreate(QFileInfo(fileName).canonicalFilePath());
             if (!library->isPlugin()) {
                 if (qt_debug_component()) {
-                    qDebug() << library->errorString << endl
+                    qDebug() << library->errorString << Qt::endl
                              << "         not a plugin";
                 }
                 library->release();
@@ -339,6 +345,10 @@ QFactoryLoader::QFactoryLoader(const char *iid,
 #if QT_CONFIG(library)
     d->cs = cs;
     d->suffix = suffix;
+# ifdef Q_OS_ANDROID
+    if (!d->suffix.isEmpty() && d->suffix.at(0) == QLatin1Char('/'))
+        d->suffix.remove(0, 1);
+# endif
 
     QMutexLocker locker(qt_factoryloader_mutex());
     update();
@@ -379,17 +389,12 @@ QObject *QFactoryLoader::instance(int index) const
     QMutexLocker lock(&d->mutex);
     if (index < d->libraryList.size()) {
         QLibraryPrivate *library = d->libraryList.at(index);
-        if (library->instance || library->loadPlugin()) {
-            if (!library->inst)
-                library->inst = library->instance();
-            QObject *obj = library->inst.data();
-            if (obj) {
-                if (!obj->parent())
-                    obj->moveToThread(QCoreApplicationPrivate::mainThread());
-                return obj;
-            }
+        if (QObject *obj = library->pluginInstance()) {
+            if (!obj->parent())
+                obj->moveToThread(QCoreApplicationPrivate::mainThread());
+            return obj;
         }
-        return 0;
+        return nullptr;
     }
     index -= d->libraryList.size();
     lock.unlock();

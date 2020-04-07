@@ -23,12 +23,12 @@
 #include "chrome/browser/supervised_user/supervised_user_settings_service_factory.h"
 #include "chrome/browser/supervised_user/supervised_user_url_filter.h"
 #include "chrome/common/channel_info.h"
+#include "components/signin/public/identity_manager/identity_manager.h"
 #include "components/supervised_user_error_page/supervised_user_error_page.h"
 #include "components/url_formatter/url_fixer.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/storage_partition.h"
 #include "content/public/browser/web_ui.h"
-#include "services/identity/public/cpp/identity_manager.h"
 
 using content::BrowserThread;
 
@@ -118,7 +118,7 @@ std::string FilteringBehaviorReasonToString(
 }  // namespace
 
 SupervisedUserInternalsMessageHandler::SupervisedUserInternalsMessageHandler()
-    : scoped_observer_(this), weak_factory_(this) {}
+    : scoped_observer_(this) {}
 
 SupervisedUserInternalsMessageHandler::
     ~SupervisedUserInternalsMessageHandler() {
@@ -216,12 +216,13 @@ void SupervisedUserInternalsMessageHandler::SendBasicInfo() {
                   FilteringBehaviorToString(
                       filter->GetDefaultFilteringBehavior()));
 
-  identity::IdentityManager* identity_manager =
+  signin::IdentityManager* identity_manager =
       IdentityManagerFactory::GetForProfile(profile);
   // |identity_manager| is null in incognito and guest profiles.
   if (identity_manager) {
     for (const auto& account :
-         identity_manager->GetAccountsWithRefreshTokens()) {
+         identity_manager
+             ->GetExtendedAccountInfoForAccountsWithRefreshToken()) {
       base::ListValue* section_user = AddSection(section_list.get(),
           "User Information for " + account.full_name);
       AddSectionEntry(section_user, "Account id", account.account_id);
@@ -242,10 +243,11 @@ void SupervisedUserInternalsMessageHandler::SendBasicInfo() {
 
   // Trigger retrieval of the user settings
   SupervisedUserSettingsService* settings_service =
-      SupervisedUserSettingsServiceFactory::GetForProfile(profile);
-  user_settings_subscription_ = settings_service->Subscribe(base::Bind(
-        &SupervisedUserInternalsMessageHandler::SendSupervisedUserSettings,
-        weak_factory_.GetWeakPtr()));
+      SupervisedUserSettingsServiceFactory::GetForKey(profile->GetProfileKey());
+  user_settings_subscription_ =
+      settings_service->SubscribeForSettingsChange(base::Bind(
+          &SupervisedUserInternalsMessageHandler::SendSupervisedUserSettings,
+          weak_factory_.GetWeakPtr()));
 }
 
 void SupervisedUserInternalsMessageHandler::SendSupervisedUserSettings(

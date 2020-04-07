@@ -31,7 +31,6 @@
 #include <Qt3DCore/private/qnode_p.h>
 #include <Qt3DCore/private/qscene_p.h>
 #include <Qt3DCore/private/qnodecreatedchangegenerator_p.h>
-#include <Qt3DCore/QPropertyUpdatedChange>
 #include <Qt3DCore/qtransform.h>
 
 #include <Qt3DRender/qsceneloader.h>
@@ -130,64 +129,11 @@ private Q_SLOTS:
         QCoreApplication::processEvents();
 
         // THEN
-        QCOMPARE(arbiter.events.size(), 1);
-        Qt3DCore::QPropertyUpdatedChangePtr change = arbiter.events.first().staticCast<Qt3DCore::QPropertyUpdatedChange>();
-        QCOMPARE(change->propertyName(), "source");
-        QCOMPARE(change->value().value<QUrl>(), sourceUrl);
+        QCOMPARE(arbiter.events.size(), 0);
+        QCOMPARE(arbiter.dirtyNodes.size(), 1);
+        QCOMPARE(arbiter.dirtyNodes.front(), sceneLoader.data());
 
-        arbiter.events.clear();
-    }
-
-    void checkStatusPropertyUpdate()
-    {
-        // GIVEN
-        qRegisterMetaType<Qt3DRender::QSceneLoader::Status>("Status");
-        TestArbiter arbiter;
-        QScopedPointer<Qt3DRender::QSceneLoader> sceneLoader(new Qt3DRender::QSceneLoader());
-        arbiter.setArbiterOnNode(sceneLoader.data());
-        QSignalSpy spy(sceneLoader.data(), SIGNAL(statusChanged(Status)));
-
-
-        // WHEN
-        const Qt3DRender::QSceneLoader::Status newStatus = Qt3DRender::QSceneLoader::Ready;
-        sceneLoader->setStatus(newStatus);
-
-        // THEN
-        QVERIFY(arbiter.events.empty());
-        QCOMPARE(spy.count(), 1);
-
-        spy.clear();
-    }
-
-    void checkPropertyChanges()
-    {
-        // GIVEN
-        Qt3DCore::QScene scene;
-        Qt3DCore::QEntity rootEntity;
-        QScopedPointer<Qt3DRender::QSceneLoader> sceneLoader(new Qt3DRender::QSceneLoader());
-        Qt3DCore::QNodePrivate::get(&rootEntity)->setScene(&scene);
-        Qt3DCore::QNodePrivate::get(sceneLoader.data())->setScene(&scene);
-        rootEntity.addComponent(sceneLoader.data());
-
-        // WHEN
-        Qt3DCore::QEntity backendCreatedSubtree;
-        Qt3DCore::QPropertyUpdatedChangePtr valueChange(new Qt3DCore::QPropertyUpdatedChange(Qt3DCore::QNodeId()));
-        valueChange->setPropertyName("scene");
-        valueChange->setValue(QVariant::fromValue(&backendCreatedSubtree));
-        sceneLoader->sceneChangeEvent(valueChange);
-
-        // THEN
-        QCOMPARE(static_cast<Qt3DRender::QSceneLoaderPrivate *>(Qt3DCore::QNodePrivate::get(sceneLoader.data()))->m_subTreeRoot, &backendCreatedSubtree);
-
-        // WHEN
-        const Qt3DRender::QSceneLoader::Status newStatus = Qt3DRender::QSceneLoader::Ready;
-        valueChange = QSharedPointer<Qt3DCore::QPropertyUpdatedChange>::create(Qt3DCore::QNodeId());
-        valueChange->setPropertyName("status");
-        valueChange->setValue(QVariant::fromValue(newStatus));
-        sceneLoader->sceneChangeEvent(valueChange);
-
-        // THEN
-        QCOMPARE(sceneLoader->status(), newStatus);
+        arbiter.dirtyNodes.clear();
     }
 
     void checkEntities()

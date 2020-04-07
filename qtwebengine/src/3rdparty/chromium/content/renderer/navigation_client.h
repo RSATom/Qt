@@ -19,16 +19,19 @@ class NavigationClient : mojom::NavigationClient {
 
   // mojom::NavigationClient implementation:
   void CommitNavigation(
-      const network::ResourceResponseHead& head,
       const CommonNavigationParams& common_params,
       const CommitNavigationParams& commit_params,
+      const network::ResourceResponseHead& response_head,
+      mojo::ScopedDataPipeConsumerHandle response_body,
       network::mojom::URLLoaderClientEndpointsPtr url_loader_client_endpoints,
       std::unique_ptr<blink::URLLoaderFactoryBundleInfo> subresource_loaders,
       base::Optional<std::vector<::content::mojom::TransferrableURLLoaderPtr>>
           subresource_overrides,
       blink::mojom::ControllerServiceWorkerInfoPtr
           controller_service_worker_info,
-      network::mojom::URLLoaderFactoryPtr prefetch_loader_factory,
+      blink::mojom::ServiceWorkerProviderInfoForClientPtr provider_info,
+      mojo::PendingRemote<network::mojom::URLLoaderFactory>
+          prefetch_loader_factory,
       const base::UnguessableToken& devtools_navigation_token,
       CommitNavigationCallback callback) override;
   void CommitFailedNavigation(
@@ -42,6 +45,12 @@ class NavigationClient : mojom::NavigationClient {
 
   void Bind(mojom::NavigationClientAssociatedRequest request);
 
+  // See NavigationState::was_initiated_in_this_frame for details.
+  void MarkWasInitiatedInThisFrame();
+  bool was_initiated_in_this_frame() const {
+    return was_initiated_in_this_frame_;
+  }
+
  private:
   // OnDroppedNavigation is bound from BeginNavigation till CommitNavigation.
   // During this period, it is called when the interface pipe is closed from the
@@ -52,6 +61,7 @@ class NavigationClient : mojom::NavigationClient {
 
   mojo::AssociatedBinding<mojom::NavigationClient> navigation_client_binding_;
   RenderFrameImpl* render_frame_;
+  bool was_initiated_in_this_frame_ = false;
 };
 
 }  // namespace content

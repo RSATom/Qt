@@ -850,7 +850,7 @@ QVariant QScriptDebuggerLocalsModel::data(const QModelIndex &index, int role) co
     else if (role == Qt::BackgroundRole) {
         if (d->isTopLevelNode(node))
             return QBrush(Qt::darkGray);
-    } else if (role == Qt::TextColorRole) {
+    } else if (role == Qt::ForegroundRole) {
         if (d->isTopLevelNode(node))
             return QColor(Qt::white);
     } else if (role == Qt::FontRole) {

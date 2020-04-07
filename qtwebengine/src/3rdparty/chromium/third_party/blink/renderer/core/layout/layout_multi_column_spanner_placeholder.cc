@@ -103,11 +103,24 @@ void LayoutMultiColumnSpannerPlaceholder::RecalcVisualOverflow() {
 
 LayoutUnit LayoutMultiColumnSpannerPlaceholder::MinPreferredLogicalWidth()
     const {
+  // There should be no contribution from a spanner if the multicol container is
+  // size-contained. Normally we'd stop at the object that has contain:size
+  // applied, but for multicol, we descend into the children, in order to get
+  // the flow thread to calculate the correct preferred width (to honor
+  // column-count, column-width and column-gap). Since spanner placeholders are
+  // siblings of the flow thread, we need this check.
+  // TODO(crbug.com/953919): What should we return for display-locked content?
+  if (MultiColumnBlockFlow()->ShouldApplySizeContainment())
+    return LayoutUnit();
   return layout_object_in_flow_thread_->MinPreferredLogicalWidth();
 }
 
 LayoutUnit LayoutMultiColumnSpannerPlaceholder::MaxPreferredLogicalWidth()
     const {
+  // See above.
+  // TODO(crbug.com/953919): What should we return for display-locked content?
+  if (MultiColumnBlockFlow()->ShouldApplySizeContainment())
+    return LayoutUnit();
   return layout_object_in_flow_thread_->MaxPreferredLogicalWidth();
 }
 
@@ -154,12 +167,12 @@ void LayoutMultiColumnSpannerPlaceholder::Paint(
 
 bool LayoutMultiColumnSpannerPlaceholder::NodeAtPoint(
     HitTestResult& result,
-    const HitTestLocation& location_in_container,
-    const LayoutPoint& accumulated_offset,
+    const HitTestLocation& hit_test_location,
+    const PhysicalOffset& accumulated_offset,
     HitTestAction action) {
   return !layout_object_in_flow_thread_->HasSelfPaintingLayer() &&
-         layout_object_in_flow_thread_->NodeAtPoint(
-             result, location_in_container, accumulated_offset, action);
+         layout_object_in_flow_thread_->NodeAtPoint(result, hit_test_location,
+                                                    accumulated_offset, action);
 }
 
 }  // namespace blink

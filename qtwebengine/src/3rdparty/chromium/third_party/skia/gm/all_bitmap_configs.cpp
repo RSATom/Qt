@@ -5,14 +5,28 @@
  * found in the LICENSE file.
  */
 
-#include "SkSurface.h"
-#include "Resources.h"
-#include "gm.h"
-#include "sk_tool_utils.h"
+#include "gm/gm.h"
+#include "include/core/SkBitmap.h"
+#include "include/core/SkCanvas.h"
+#include "include/core/SkColor.h"
+#include "include/core/SkColorSpace.h"
+#include "include/core/SkFont.h"
+#include "include/core/SkFontStyle.h"
+#include "include/core/SkFontTypes.h"
+#include "include/core/SkImage.h"
+#include "include/core/SkImageInfo.h"
+#include "include/core/SkPaint.h"
+#include "include/core/SkPixmap.h"
+#include "include/core/SkRect.h"
+#include "include/core/SkRefCnt.h"
+#include "include/core/SkScalar.h"
+#include "include/core/SkTypeface.h"
+#include "include/core/SkTypes.h"
+#include "tools/Resources.h"
+#include "tools/ToolUtils.h"
 
-#include "SkColorPriv.h"
-#include "SkFont.h"
-#include "SkMath.h"
+#include <string.h>
+#include <initializer_list>
 
 static SkBitmap copy_bitmap(const SkBitmap& src, SkColorType colorType) {
     const SkBitmap* srcPtr = &src;
@@ -23,7 +37,7 @@ static SkBitmap copy_bitmap(const SkBitmap& src, SkColorType colorType) {
     }
 
     SkBitmap copy;
-    sk_tool_utils::copy_to(&copy, colorType, *srcPtr);
+    ToolUtils::copy_to(&copy, colorType, *srcPtr);
     copy.setImmutable();
     return copy;
 }
@@ -59,21 +73,17 @@ static SkBitmap make_bitmap(SkColorType ct) {
 
 static void draw_center_letter(char c, const SkFont& font, SkColor color,
                                SkScalar x, SkScalar y, SkCanvas* canvas) {
-    SkPaint paint;
-    paint.setColor(color);
     SkRect bounds;
-    font.measureText(&c, 1, kUTF8_SkTextEncoding, &bounds);
-    canvas->drawSimpleText(&c, 1, kUTF8_SkTextEncoding,
+    font.measureText(&c, 1, SkTextEncoding::kUTF8, &bounds);
+    canvas->drawSimpleText(&c, 1, SkTextEncoding::kUTF8,
                            x - bounds.centerX(), y - bounds.centerY(),
-                           font, paint);
+                           font, SkPaint(SkColor4f::FromColor(color)));
 }
 
 static void color_wheel_native(SkCanvas* canvas) {
     SkAutoCanvasRestore autoCanvasRestore(canvas, true);
     canvas->translate(0.5f * SCALE, 0.5f * SCALE);
-    SkPaint p;
-    p.setColor(SK_ColorWHITE);
-    canvas->drawCircle(0.0f, 0.0f, SCALE * 0.5f, p);
+    canvas->drawCircle(0.0f, 0.0f, SCALE * 0.5f, SkPaint(SkColors::kWhite));
 
     const double sqrt_3_over_2 = 0.8660254037844387;
     const SkScalar Z = 0.0f;
@@ -83,7 +93,7 @@ static void color_wheel_native(SkCanvas* canvas) {
 
     SkFont font;
     font.setEdging(SkFont::Edging::kAlias);
-    font.setTypeface(sk_tool_utils::create_portable_typeface(nullptr, SkFontStyle::Bold()));
+    font.setTypeface(ToolUtils::create_portable_typeface(nullptr, SkFontStyle::Bold()));
     font.setSize(0.28125f * SCALE);
     draw_center_letter('K', font, SK_ColorBLACK, Z, Z, canvas);
     draw_center_letter('R', font, SK_ColorRED, Z, D, canvas);
@@ -112,18 +122,17 @@ static void draw(SkCanvas* canvas,
                  const char text[]) {
     SkASSERT(src.colorType() == colorType);
     canvas->drawBitmap(src, 0.0f, 0.0f);
-    canvas->drawSimpleText(text, strlen(text), kUTF8_SkTextEncoding, 0.0f, 12.0f, font, p);
+    canvas->drawSimpleText(text, strlen(text), SkTextEncoding::kUTF8, 0.0f, 12.0f, font, p);
 }
 
 DEF_SIMPLE_GM(all_bitmap_configs, canvas, SCALE, 6 * SCALE) {
     SkAutoCanvasRestore autoCanvasRestore(canvas, true);
-    SkPaint p;
-    p.setColor(SK_ColorBLACK);
+    SkPaint p(SkColors::kBlack);
     p.setAntiAlias(true);
 
-    SkFont font(sk_tool_utils::create_portable_typeface());
+    SkFont font(ToolUtils::create_portable_typeface());
 
-    sk_tool_utils::draw_checkerboard(canvas, SK_ColorLTGRAY, SK_ColorWHITE, 8);
+    ToolUtils::draw_checkerboard(canvas, SK_ColorLTGRAY, SK_ColorWHITE, 8);
 
     SkBitmap bitmap;
     if (GetResourceAsBitmap("images/color_wheel.png", &bitmap)) {
@@ -164,14 +173,13 @@ sk_sp<SkImage> make_not_native32_color_wheel() {
     n32bitmap.eraseColor(SK_ColorTRANSPARENT);
     SkCanvas n32canvas(n32bitmap);
     color_wheel_native(&n32canvas);
-    n32canvas.flush();
     #if SK_PMCOLOR_BYTE_ORDER(B,G,R,A)
         const SkColorType ct = kRGBA_8888_SkColorType;
     #elif SK_PMCOLOR_BYTE_ORDER(R,G,B,A)
         const SkColorType ct = kBGRA_8888_SkColorType;
     #endif
     static_assert(ct != kN32_SkColorType, "BRGA!=RGBA");
-    SkAssertResult(sk_tool_utils::copy_to(&notN32bitmap, ct, n32bitmap));
+    SkAssertResult(ToolUtils::copy_to(&notN32bitmap, ct, n32bitmap));
     SkASSERT(notN32bitmap.colorType() == ct);
     return SkImage::MakeFromBitmap(notN32bitmap);
 }
@@ -179,7 +187,7 @@ sk_sp<SkImage> make_not_native32_color_wheel() {
 DEF_SIMPLE_GM(not_native32_bitmap_config, canvas, SCALE, SCALE) {
     sk_sp<SkImage> notN32image(make_not_native32_color_wheel());
     SkASSERT(notN32image);
-    sk_tool_utils::draw_checkerboard(canvas, SK_ColorLTGRAY, SK_ColorWHITE, 8);
+    ToolUtils::draw_checkerboard(canvas, SK_ColorLTGRAY, SK_ColorWHITE, 8);
     canvas->drawImage(notN32image.get(), 0.0f, 0.0f);
 }
 
@@ -229,7 +237,7 @@ static void make_color_test_bitmap_variant(
 }
 
 DEF_SIMPLE_GM(all_variants_8888, canvas, 4 * SCALE + 30, 2 * SCALE + 10) {
-    sk_tool_utils::draw_checkerboard(canvas, SK_ColorLTGRAY, SK_ColorWHITE, 8);
+    ToolUtils::draw_checkerboard(canvas, SK_ColorLTGRAY, SK_ColorWHITE, 8);
 
     sk_sp<SkColorSpace> colorSpaces[] {
         SkColorSpace::MakeSRGB(),

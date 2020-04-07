@@ -24,7 +24,6 @@ struct RedirectInfo;
 
 namespace network {
 struct ResourceResponseHead;
-class SharedURLLoaderFactory;
 class SimpleURLLoader;
 }  // namespace network
 
@@ -50,11 +49,11 @@ class WarmupURLFetcher {
           const std::vector<DataReductionProxyServer>&)>;
 
   WarmupURLFetcher(
-      scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
       CreateCustomProxyConfigCallback create_custom_proxy_config_callback,
       WarmupURLFetcherCallback callback,
       GetHttpRttCallback get_http_rtt_callback,
-      scoped_refptr<base::SingleThreadTaskRunner> ui_task_runner);
+      scoped_refptr<base::SingleThreadTaskRunner> ui_task_runner,
+      const std::string& user_agent);
 
   virtual ~WarmupURLFetcher();
 
@@ -123,15 +122,13 @@ class WarmupURLFetcher {
 
   // Gets a URLLoaderFactory which will only attempt to use |proxy_server| as a
   // proxy.
-  network::mojom::URLLoaderFactory* GetNetworkServiceURLLoaderFactory(
+  virtual network::mojom::URLLoaderFactory* GetNetworkServiceURLLoaderFactory(
       const DataReductionProxyServer& proxy_server);
 
   // Count of fetch attempts that have been made to the proxy which is being
   // probed.
   size_t previous_attempt_counts_;
 
-  scoped_refptr<network::SharedURLLoaderFactory>
-      non_network_service_url_loader_factory_;
   CreateCustomProxyConfigCallback create_custom_proxy_config_callback_;
   network::mojom::URLLoaderFactoryPtr url_loader_factory_;
   network::mojom::NetworkContextPtr context_;
@@ -142,6 +139,8 @@ class WarmupURLFetcher {
 
   // Callback to obtain the current HTTP RTT estimate.
   GetHttpRttCallback get_http_rtt_callback_;
+
+  const std::string user_agent_;
 
   scoped_refptr<base::SingleThreadTaskRunner> ui_task_runner_;
 

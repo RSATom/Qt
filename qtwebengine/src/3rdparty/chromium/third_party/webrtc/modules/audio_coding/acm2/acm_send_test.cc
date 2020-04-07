@@ -44,7 +44,7 @@ AcmSendTestOldApi::AcmSendTestOldApi(InputAudioFile* audio_source,
           static_cast<size_t>(source_rate_hz_ * kBlockSizeMs / 1000)),
       codec_registered_(false),
       test_duration_ms_(test_duration_ms),
-      frame_type_(kAudioFrameSpeech),
+      frame_type_(AudioFrameType::kAudioFrameSpeech),
       payload_type_(0),
       timestamp_(0),
       sequence_number_(0) {
@@ -106,13 +106,9 @@ std::unique_ptr<Packet> AcmSendTestOldApi::NextPacket() {
   // Insert audio and process until one packet is produced.
   while (clock_.TimeInMilliseconds() < test_duration_ms_) {
     clock_.AdvanceTimeMilliseconds(kBlockSizeMs);
-    RTC_CHECK(audio_source_->Read(input_block_size_samples_,
-                                  input_frame_.mutable_data()));
-    if (input_frame_.num_channels_ > 1) {
-      InputAudioFile::DuplicateInterleaved(
-          input_frame_.data(), input_block_size_samples_,
-          input_frame_.num_channels_, input_frame_.mutable_data());
-    }
+    RTC_CHECK(audio_source_->Read(
+        input_block_size_samples_ * input_frame_.num_channels_,
+        input_frame_.mutable_data()));
     data_to_send_ = false;
     RTC_CHECK_GE(acm_->Add10MsData(input_frame_), 0);
     input_frame_.timestamp_ += static_cast<uint32_t>(input_block_size_samples_);
@@ -126,13 +122,11 @@ std::unique_ptr<Packet> AcmSendTestOldApi::NextPacket() {
 }
 
 // This method receives the callback from ACM when a new packet is produced.
-int32_t AcmSendTestOldApi::SendData(
-    FrameType frame_type,
-    uint8_t payload_type,
-    uint32_t timestamp,
-    const uint8_t* payload_data,
-    size_t payload_len_bytes,
-    const RTPFragmentationHeader* fragmentation) {
+int32_t AcmSendTestOldApi::SendData(AudioFrameType frame_type,
+                                    uint8_t payload_type,
+                                    uint32_t timestamp,
+                                    const uint8_t* payload_data,
+                                    size_t payload_len_bytes) {
   // Store the packet locally.
   frame_type_ = frame_type;
   payload_type_ = payload_type;

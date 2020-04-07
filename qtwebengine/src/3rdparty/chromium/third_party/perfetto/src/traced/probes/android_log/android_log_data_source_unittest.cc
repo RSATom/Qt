@@ -16,18 +16,21 @@
 
 #include "src/traced/probes/android_log/android_log_data_source.h"
 
+#include "perfetto/protozero/scattered_heap_buffer.h"
 #include "perfetto/tracing/core/data_source_config.h"
 #include "src/base/test/test_task_runner.h"
 #include "src/tracing/core/trace_writer_for_testing.h"
 
-#include "gmock/gmock.h"
-#include "gtest/gtest.h"
+#include <gmock/gmock.h>
+#include <gtest/gtest.h>
 
-#include "perfetto/trace/trace_packet.pb.h"
-#include "perfetto/trace/trace_packet.pbzero.h"
+#include "perfetto/common/android_log_constants.pbzero.h"
+#include "perfetto/config/android/android_log_config.pbzero.h"
 
 using ::testing::Invoke;
 using ::testing::Return;
+using ::perfetto::protos::pbzero::AndroidLogConfig;
+using ::perfetto::protos::pbzero::AndroidLogId;
 
 namespace perfetto {
 namespace {
@@ -210,14 +213,16 @@ TEST_F(AndroidLogDataSourceTest, TextEvents) {
   EXPECT_CALL(*data_source_, ReadEventLogDefinitions()).WillOnce(Return(""));
   StartAndSimulateLogd(kValidTextEvents);
 
-  // Read back the data that would have been written into the trace.
+  // Read back the data that would have been written into the trace. One packet
+  // with the events, one with stats.
+  auto packets = writer_raw_->GetAllTracePackets();
+  ASSERT_TRUE(packets.size() == 2);
+  auto event_packet = packets[0];
+  auto stats_packet = packets[1];
+  EXPECT_TRUE(stats_packet.android_log().has_stats());
 
-  auto packet = writer_raw_->ParseProto();
-  ASSERT_TRUE(packet);
-  ASSERT_TRUE(packet->has_android_log());
-  EXPECT_EQ(packet->android_log().events_size(), 3);
-
-  const auto& decoded = packet->android_log().events();
+  EXPECT_EQ(event_packet.android_log().events_size(), 3);
+  const auto& decoded = event_packet.android_log().events();
 
   EXPECT_EQ(decoded.Get(0).log_id(), protos::AndroidLogId::LID_SYSTEM);
   EXPECT_EQ(decoded.Get(0).pid(), 7546);
@@ -252,40 +257,47 @@ TEST_F(AndroidLogDataSourceTest, TextEvents) {
 
 TEST_F(AndroidLogDataSourceTest, TextEventsWithTagFiltering) {
   DataSourceConfig cfg;
-  *cfg.mutable_android_log_config()->add_filter_tags() = "Zygote";
-  *cfg.mutable_android_log_config()->add_filter_tags() = "ActivityManager";
-  *cfg.mutable_android_log_config()->add_filter_tags() = "Unmatched";
-  *cfg.mutable_android_log_config()->add_filter_tags() = "libprocessgroupZZ";
+  protozero::HeapBuffered<AndroidLogConfig> acfg;
+  acfg->add_filter_tags("Zygote");
+  acfg->add_filter_tags("ActivityManager");
+  acfg->add_filter_tags("Unmatched");
+  acfg->add_filter_tags("libprocessgroupZZ");
+  cfg.set_android_log_config_raw(acfg.SerializeAsString());
 
   CreateInstance(cfg);
   EXPECT_CALL(*data_source_, ReadEventLogDefinitions()).WillOnce(Return(""));
   StartAndSimulateLogd(kValidTextEvents);
 
-  auto packet = writer_raw_->ParseProto();
-  ASSERT_TRUE(packet);
-  ASSERT_TRUE(packet->has_android_log());
-  EXPECT_EQ(packet->android_log().events_size(), 2);
+  auto packets = writer_raw_->GetAllTracePackets();
+  ASSERT_TRUE(packets.size() == 2);
+  auto event_packet = packets[0];
+  auto stats_packet = packets[1];
+  EXPECT_TRUE(stats_packet.android_log().has_stats());
 
-  const auto& decoded = packet->android_log().events();
+  EXPECT_EQ(event_packet.android_log().events_size(), 2);
+  const auto& decoded = event_packet.android_log().events();
   EXPECT_EQ(decoded.Get(0).tag(), "ActivityManager");
   EXPECT_EQ(decoded.Get(1).tag(), "Zygote");
 }
 
 TEST_F(AndroidLogDataSourceTest, TextEventsWithPrioFiltering) {
   DataSourceConfig cfg;
-  cfg.mutable_android_log_config()->set_min_prio(
-      AndroidLogConfig::AndroidLogPriority::PRIO_WARN);
+  protozero::HeapBuffered<AndroidLogConfig> acfg;
+  acfg->set_min_prio(protos::pbzero::AndroidLogPriority::PRIO_WARN);
+  cfg.set_android_log_config_raw(acfg.SerializeAsString());
 
   CreateInstance(cfg);
   EXPECT_CALL(*data_source_, ReadEventLogDefinitions()).WillOnce(Return(""));
   StartAndSimulateLogd(kValidTextEvents);
 
-  auto packet = writer_raw_->ParseProto();
-  ASSERT_TRUE(packet);
-  ASSERT_TRUE(packet->has_android_log());
-  EXPECT_EQ(packet->android_log().events_size(), 1);
+  auto packets = writer_raw_->GetAllTracePackets();
+  ASSERT_TRUE(packets.size() == 2);
+  auto event_packet = packets[0];
+  auto stats_packet = packets[1];
+  EXPECT_TRUE(stats_packet.android_log().has_stats());
 
-  const auto& decoded = packet->android_log().events();
+  EXPECT_EQ(event_packet.android_log().events_size(), 1);
+  const auto& decoded = event_packet.android_log().events();
   EXPECT_EQ(decoded.Get(0).tag(), "libprocessgroup");
 }
 
@@ -300,14 +312,16 @@ TEST_F(AndroidLogDataSourceTest, BinaryEvents) {
   EXPECT_CALL(*data_source_, ReadEventLogDefinitions()).WillOnce(Return(kDefs));
   StartAndSimulateLogd(kValidBinaryEvents);
 
-  // Read back the data that would have been written into the trace.
+  // Read back the data that would have been written into the trace. One packet
+  // with the events, one with stats.
+  auto packets = writer_raw_->GetAllTracePackets();
+  ASSERT_TRUE(packets.size() == 2);
+  auto event_packet = packets[0];
+  auto stats_packet = packets[1];
+  EXPECT_TRUE(stats_packet.android_log().has_stats());
 
-  auto packet = writer_raw_->ParseProto();
-  ASSERT_TRUE(packet);
-  ASSERT_TRUE(packet->has_android_log());
-  EXPECT_EQ(packet->android_log().events_size(), 3);
-
-  const auto& decoded = packet->android_log().events();
+  EXPECT_EQ(event_packet.android_log().events_size(), 3);
+  const auto& decoded = event_packet.android_log().events();
 
   EXPECT_EQ(decoded.Get(0).log_id(), protos::AndroidLogId::LID_EVENTS);
   EXPECT_EQ(decoded.Get(0).pid(), 29981);
@@ -369,8 +383,10 @@ TEST_F(AndroidLogDataSourceTest, BinaryEvents) {
 
 TEST_F(AndroidLogDataSourceTest, BinaryEventsWithTagFiltering) {
   DataSourceConfig cfg;
-  *cfg.mutable_android_log_config()->add_filter_tags() = "not mached";
-  *cfg.mutable_android_log_config()->add_filter_tags() = "am_uid_stopped";
+  protozero::HeapBuffered<AndroidLogConfig> acfg;
+  acfg->add_filter_tags("not mached");
+  acfg->add_filter_tags("am_uid_stopped");
+  cfg.set_android_log_config_raw(acfg.SerializeAsString());
   CreateInstance(cfg);
   static const char kDefs[] = R"(
 30023 am_kill (User|1|5),(PID|1|5),(Process Name|3),(OomAdj|1|5),(Reason|3)
@@ -380,14 +396,16 @@ TEST_F(AndroidLogDataSourceTest, BinaryEventsWithTagFiltering) {
   EXPECT_CALL(*data_source_, ReadEventLogDefinitions()).WillOnce(Return(kDefs));
   StartAndSimulateLogd(kValidBinaryEvents);
 
-  // Read back the data that would have been written into the trace.
+  // Read back the data that would have been written into the trace. One packet
+  // with the events, one with stats.
+  auto packets = writer_raw_->GetAllTracePackets();
+  ASSERT_TRUE(packets.size() == 2);
+  auto event_packet = packets[0];
+  auto stats_packet = packets[1];
+  EXPECT_TRUE(stats_packet.android_log().has_stats());
 
-  auto packet = writer_raw_->ParseProto();
-  ASSERT_TRUE(packet);
-  ASSERT_TRUE(packet->has_android_log());
-  EXPECT_EQ(packet->android_log().events_size(), 1);
-
-  const auto& decoded = packet->android_log().events();
+  EXPECT_EQ(event_packet.android_log().events_size(), 1);
+  const auto& decoded = event_packet.android_log().events();
   EXPECT_EQ(decoded.Get(0).timestamp(), 1546165328946231844LL);
   EXPECT_EQ(decoded.Get(0).tag(), "am_uid_stopped");
 }

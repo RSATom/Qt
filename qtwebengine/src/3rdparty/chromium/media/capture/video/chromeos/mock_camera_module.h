@@ -57,9 +57,21 @@ class MockCameraModule : public cros::mojom::CameraModule {
                     bool enabled,
                     SetTorchModeCallback& callback));
 
+  void GetVendorTagOps(cros::mojom::VendorTagOpsRequest vendor_tag_ops_request,
+                       GetVendorTagOpsCallback callback) override;
+  MOCK_METHOD2(DoGetVendorTagOps,
+               void(cros::mojom::VendorTagOpsRequest& vendor_tag_ops_request,
+                    GetVendorTagOpsCallback& callback));
+
+  void NotifyCameraDeviceChange(int camera_id,
+                                cros::mojom::CameraDeviceStatus status);
+
   cros::mojom::CameraModulePtrInfo GetInterfacePtrInfo();
 
  private:
+  void NotifyCameraDeviceChangeOnThread(int camera_id,
+                                        cros::mojom::CameraDeviceStatus status);
+
   void CloseBindingOnThread();
 
   void BindOnThread(base::WaitableEvent* done,

@@ -46,10 +46,10 @@ BMBase::BMBase(const BMBase &other)
     m_hidden = other.m_hidden;
     m_name = other.m_name;
     m_autoOrient = other.m_autoOrient;
-    for (BMBase *child : qAsConst(other.m_children)) {
+    for (BMBase *child : other.m_children) {
         BMBase *clone = child->clone();
         clone->setParent(this);
-        addChild(clone);
+        appendChild(clone);
     }
 }
 
@@ -93,17 +93,14 @@ void BMBase::setType(int type)
     m_type = type;
 }
 
-void BMBase::addChild(BMBase *child, bool priority)
+void BMBase::prependChild(BMBase *child)
 {
-    if (priority)
-        m_children.push_front(child);
-    else
-        m_children.push_back(child);
+    m_children.push_front(child);
 }
 
-QList<BMBase *> &BMBase::children()
+void BMBase::appendChild(BMBase *child)
 {
-    return m_children;
+    m_children.push_back(child);
 }
 
 BMBase *BMBase::findChild(const QString &childName)
@@ -192,11 +189,6 @@ bool BMBase::hidden() const
     return m_hidden;
 }
 
-BMBase *BMBase::parent() const
-{
-    return m_parent;
-}
-
 void BMBase::setParent(BMBase *parent)
 {
     m_parent = parent;
@@ -234,6 +226,8 @@ const QJsonObject BMBase::resolveExpression(const QJsonObject &definition)
                                                 "to a group that has"
                                                 "many children. The"
                                                 "first is be picked";
+    } else {
+        qCWarning(lcLottieQtBodymovinParser) << "Failed to find specified effect" << effect;
     }
 
     // Let users of the json know that it is originated from expression,

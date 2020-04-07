@@ -13,7 +13,9 @@
 #include "content/browser/child_process_security_policy_impl.h"
 #include "content/browser/fileapi/browser_file_system_helper.h"
 #include "content/public/common/drop_data.h"
+#include "content/public/test/test_browser_context.h"
 #include "content/public/test/test_browser_thread_bundle.h"
+#include "content/public/test/test_utils.h"
 #include "net/base/filename_util.h"
 #include "storage/browser/fileapi/external_mount_points.h"
 #include "storage/browser/fileapi/file_system_options.h"
@@ -35,14 +37,15 @@ TEST(BrowserFileSystemHelperTest,
   ASSERT_TRUE(temp_dir.CreateUniqueTempDir());
 
   TestBrowserThreadBundle thread_bundle;
+  TestBrowserContext browser_context;
   ChildProcessSecurityPolicyImpl* p =
       ChildProcessSecurityPolicyImpl::GetInstance();
-  p->Add(kRendererID);
+  p->Add(kRendererID, &browser_context);
 
   // Prepare |original_file| FileSystemURL that comes from a |sensitive_origin|.
   // This attempts to simulate for unit testing the drive URL from
   // https://crbug.com/705295#c23.
-  const GURL kSensitiveOrigin("chrome://hhaomjibdihmijegdhdafkllkbggdgoj/");
+  const GURL kSensitiveOrigin(GetWebUIURL("hhaomjibdihmijegdhdafkllkbggdgoj"));
   const char kMountName[] = "drive-testuser%40gmail.com-hash";
   const base::FilePath kTestPath(FILE_PATH_LITERAL("root/dir/testfile.jpg"));
   base::FilePath mount_path = temp_dir.GetPath().AppendASCII(kMountName);
@@ -55,7 +58,7 @@ TEST(BrowserFileSystemHelperTest,
       external_mount_points->CreateExternalFileSystemURL(kSensitiveOrigin,
                                                          kMountName, kTestPath);
   EXPECT_TRUE(original_file.is_valid());
-  EXPECT_EQ(kSensitiveOrigin, original_file.origin());
+  EXPECT_EQ(kSensitiveOrigin, original_file.origin().GetURL());
 
   // Prepare fake FileSystemContext to use in the test.
   scoped_refptr<base::SingleThreadTaskRunner> io_task_runner(
@@ -139,9 +142,10 @@ TEST(BrowserFileSystemHelperTest, PrepareDropDataForChildProcess_LocalFiles) {
   ASSERT_TRUE(temp_dir.CreateUniqueTempDir());
 
   TestBrowserThreadBundle thread_bundle;
+  TestBrowserContext browser_context;
   ChildProcessSecurityPolicyImpl* p =
       ChildProcessSecurityPolicyImpl::GetInstance();
-  p->Add(kRendererID);
+  p->Add(kRendererID, &browser_context);
 
   // Prepare content::DropData containing some local files.
   const base::FilePath kDraggedFile =

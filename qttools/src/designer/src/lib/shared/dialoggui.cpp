@@ -49,7 +49,7 @@ namespace qdesigner_internal {
 
 // Icon provider that reads out the known image formats
 class IconProvider : public QFileIconProvider {
-    Q_DISABLE_COPY(IconProvider)
+    Q_DISABLE_COPY_MOVE(IconProvider)
 
 public:
     IconProvider();
@@ -111,10 +111,7 @@ QIcon IconProvider::icon (const QFileInfo &info) const
 }
 
 // ---------------- DialogGui
-DialogGui::DialogGui() :
-    m_iconProvider(0)
-{
-}
+DialogGui::DialogGui() = default;
 
 DialogGui::~DialogGui()
 {

@@ -23,18 +23,16 @@
 #include "ui/native_theme/native_theme.h"
 #include "ui/resources/grit/ui_resources.h"
 #include "ui/strings/grit/ui_strings.h"
-#include "ui/views/bubble/bubble_border.h"
 #include "ui/views/bubble/bubble_dialog_delegate_view.h"
 #include "ui/views/bubble/footnote_container_view.h"
 #include "ui/views/controls/button/image_button.h"
 #include "ui/views/controls/button/image_button_factory.h"
 #include "ui/views/controls/image_view.h"
-#include "ui/views/event_utils.h"
 #include "ui/views/layout/box_layout.h"
 #include "ui/views/layout/layout_provider.h"
 #include "ui/views/paint_info.h"
 #include "ui/views/resources/grit/views_resources.h"
-#include "ui/views/view_properties.h"
+#include "ui/views/view_class_properties.h"
 #include "ui/views/widget/widget.h"
 #include "ui/views/widget/widget_delegate.h"
 #include "ui/views/window/client_view.h"
@@ -46,9 +44,9 @@ namespace {
 
 // Get the |vertical| or horizontal amount that |available_bounds| overflows
 // |window_bounds|.
-int GetOffScreenLength(const gfx::Rect& available_bounds,
-                       const gfx::Rect& window_bounds,
-                       bool vertical) {
+int GetOverflowLength(const gfx::Rect& available_bounds,
+                      const gfx::Rect& window_bounds,
+                      bool vertical) {
   if (available_bounds.IsEmpty() || available_bounds.Contains(window_bounds))
     return 0;
 
@@ -81,42 +79,42 @@ BubbleFrameView::BubbleFrameView(const gfx::Insets& title_margins,
       title_icon_(new views::ImageView()),
       default_title_(CreateDefaultTitleLabel(base::string16()).release()),
       custom_title_(nullptr),
-      close_(nullptr),
       footnote_container_(nullptr) {
   AddChildView(title_icon_);
 
   default_title_->SetVisible(false);
   AddChildView(default_title_);
 
-  close_ = CreateCloseButton(this, GetNativeTheme()->SystemDarkModeEnabled());
-  close_->SetVisible(false);
+  auto close =
+      CreateCloseButton(this, GetNativeTheme()->SystemDarkModeEnabled());
+  close->SetVisible(false);
 #if defined(OS_WIN)
   // Windows will automatically create a tooltip for the close button based on
   // the HTCLOSE result from NonClientHitTest().
-  close_->SetTooltipText(base::string16());
+  close->SetTooltipText(base::string16());
 #endif
-  AddChildView(close_);
+  close_ = AddChildView(std::move(close));
 }
 
-BubbleFrameView::~BubbleFrameView() {}
+BubbleFrameView::~BubbleFrameView() = default;
 
 // static
 std::unique_ptr<Label> BubbleFrameView::CreateDefaultTitleLabel(
     const base::string16& title_text) {
   auto title = std::make_unique<Label>(title_text, style::CONTEXT_DIALOG_TITLE);
   title->SetHorizontalAlignment(gfx::ALIGN_LEFT);
-  title->set_collapse_when_hidden(true);
+  title->SetCollapseWhenHidden(true);
   title->SetMultiLine(true);
   return title;
 }
 
 // static
-Button* BubbleFrameView::CreateCloseButton(ButtonListener* listener,
-                                           bool is_dark_mode) {
-  ImageButton* close_button = nullptr;
-  close_button = CreateVectorImageButton(listener);
+std::unique_ptr<Button> BubbleFrameView::CreateCloseButton(
+    ButtonListener* listener,
+    bool is_dark_mode) {
+  auto close_button = CreateVectorImageButton(listener);
   SetImageFromVectorIconWithColor(
-      close_button, vector_icons::kCloseRoundedIcon,
+      close_button.get(), vector_icons::kCloseRoundedIcon,
       is_dark_mode ? SkColorSetA(SK_ColorWHITE, 0xDD) : gfx::kGoogleGrey700);
   close_button->SetTooltipText(l10n_util::GetStringUTF16(IDS_APP_CLOSE));
   close_button->SizeToPreferredSize();
@@ -141,7 +139,7 @@ gfx::Rect BubbleFrameView::GetBoundsForClientView() const {
   client_bounds.Inset(GetClientInsetsForFrameWidth(client_bounds.width()));
   // Only account for footnote_container_'s height if it's visible, because
   // content_margins_ adds extra padding even if all child views are invisible.
-  if (footnote_container_ && footnote_container_->visible()) {
+  if (footnote_container_ && footnote_container_->GetVisible()) {
     client_bounds.set_height(client_bounds.height() -
                              footnote_container_->height());
   }
@@ -160,7 +158,7 @@ bool BubbleFrameView::GetClientMask(const gfx::Size& size, SkPath* path) const {
   DCHECK(GetBoundsForClientView().size() == size);
   DCHECK(GetWidget()->client_view()->size() == size);
 
-  const int radius = bubble_border_->GetBorderCornerRadius();
+  const int radius = bubble_border_->corner_radius();
   const gfx::Insets insets =
       GetClientInsetsForFrameWidth(GetContentsBounds().width());
 
@@ -178,20 +176,26 @@ bool BubbleFrameView::GetClientMask(const gfx::Size& size, SkPath* path) const {
 int BubbleFrameView::NonClientHitTest(const gfx::Point& point) {
   if (!bounds().Contains(point))
     return HTNOWHERE;
-  if (close_->visible() && close_->GetMirroredBounds().Contains(point))
+  if (hit_test_transparent_)
+    return HTTRANSPARENT;
+  if (close_->GetVisible() && close_->GetMirroredBounds().Contains(point))
     return HTCLOSE;
 
-  // Allow dialogs to show the system menu and be dragged.
-  if (GetWidget()->widget_delegate()->AsDialogDelegate() &&
-      !GetWidget()->widget_delegate()->AsBubbleDialogDelegate()) {
-    gfx::Rect bounds(GetContentsBounds());
-    bounds.Inset(title_margins_);
-    gfx::Rect sys_rect(0, 0, bounds.x(), bounds.y());
-    sys_rect.set_origin(gfx::Point(GetMirroredXForRect(sys_rect), 0));
-    if (sys_rect.Contains(point))
-      return HTSYSMENU;
-    if (point.y() < title()->bounds().bottom())
+  // Convert to RRectF to accurately represent the rounded corners of the
+  // dialog and allow events to pass through the shadows.
+  gfx::RRectF round_contents_bounds(gfx::RectF(GetContentsBounds()),
+                                    bubble_border_->corner_radius());
+  if (bubble_border_->shadow() != BubbleBorder::NO_ASSETS)
+    round_contents_bounds.Outset(BubbleBorder::kBorderThicknessDip);
+  gfx::RectF rectf_point(point.x(), point.y(), 1, 1);
+  if (!round_contents_bounds.Contains(rectf_point))
+    return HTTRANSPARENT;
+
+  if (point.y() < title()->bounds().bottom()) {
+    auto* dialog_delegate = GetWidget()->widget_delegate()->AsDialogDelegate();
+    if (dialog_delegate && dialog_delegate->IsDialogDraggable()) {
       return HTCAPTION;
+    }
   }
 
   return GetWidget()->client_view()->NonClientHitTest(point);
@@ -214,8 +218,7 @@ void BubbleFrameView::GetWindowMask(const gfx::Size& size,
   // Use a window mask roughly matching the border in the image assets.
   const int kBorderStrokeSize =
       bubble_border_->shadow() == BubbleBorder::NO_ASSETS ? 0 : 1;
-  const SkScalar kCornerRadius =
-      SkIntToScalar(bubble_border_->GetBorderCornerRadius());
+  const SkScalar kCornerRadius = SkIntToScalar(bubble_border_->corner_radius());
   const gfx::Insets border_insets = bubble_border_->GetInsets();
   SkRect rect = {
       SkIntToScalar(border_insets.left() - kBorderStrokeSize),
@@ -252,7 +255,7 @@ void BubbleFrameView::UpdateWindowTitle() {
                                !delegate->GetWindowTitle().empty());
     default_title_->SetText(delegate->GetWindowTitle());
   }  // custom_title_'s updates are handled by its creator.
-  Layout();
+  InvalidateLayout();
 }
 
 void BubbleFrameView::SizeConstraintsChanged() {}
@@ -312,7 +315,7 @@ void BubbleFrameView::Layout() {
   // The title margins may not be set, but make sure that's only the case when
   // there's no title.
   DCHECK(!title_margins_.IsEmpty() ||
-         (!custom_title_ && !default_title_->visible()));
+         (!custom_title_ && !default_title_->GetVisible()));
 
   const gfx::Rect contents_bounds = GetContentsBounds();
   gfx::Rect bounds = contents_bounds;
@@ -321,7 +324,7 @@ void BubbleFrameView::Layout() {
     return;
 
   int title_label_right = bounds.right();
-  if (close_->visible()) {
+  if (close_->GetVisible()) {
     // The close button is positioned somewhat closer to the edge of the bubble.
     const int close_margin =
         LayoutProvider::Get()->GetDistanceMetric(DISTANCE_CLOSE_BUTTON_MARGIN);
@@ -362,7 +365,7 @@ void BubbleFrameView::Layout() {
 
   // Only account for footnote_container_'s height if it's visible, because
   // content_margins_ adds extra padding even if all child views are invisible.
-  if (footnote_container_ && footnote_container_->visible()) {
+  if (footnote_container_ && footnote_container_->GetVisible()) {
     const int width = contents_bounds.width();
     const int height = footnote_container_->GetHeightForWidth(width);
     footnote_container_->SetBounds(
@@ -374,12 +377,10 @@ void BubbleFrameView::OnThemeChanged() {
   UpdateWindowTitle();
   ResetWindowControls();
   UpdateWindowIcon();
-}
 
-void BubbleFrameView::OnNativeThemeChanged(const ui::NativeTheme* theme) {
   if (bubble_border_ && bubble_border_->use_theme_background_color()) {
-    bubble_border_->set_background_color(GetNativeTheme()->
-        GetSystemColor(ui::NativeTheme::kColorId_DialogBackground));
+    bubble_border_->set_background_color(GetNativeTheme()->GetSystemColor(
+        ui::NativeTheme::kColorId_DialogBackground));
     SchedulePaint();
   }
 }
@@ -390,8 +391,8 @@ void BubbleFrameView::ViewHierarchyChanged(
     OnThemeChanged();
 
   if (!details.is_add && details.parent == footnote_container_ &&
-      footnote_container_->child_count() == 1 &&
-      details.child == footnote_container_->child_at(0)) {
+      footnote_container_->children().size() == 1 &&
+      details.child == footnote_container_->children().front()) {
     // Setting the footnote_container_ to be hidden and null it. This will
     // remove update the bubble to have no placeholder for the footnote and
     // enable the destructor to delete the footnote_container_ later.
@@ -402,9 +403,7 @@ void BubbleFrameView::ViewHierarchyChanged(
 
 void BubbleFrameView::VisibilityChanged(View* starting_from, bool is_visible) {
   NonClientFrameView::VisibilityChanged(starting_from, is_visible);
-
-  if (is_visible)
-    view_shown_time_stamp_ = base::TimeTicks::Now();
+  input_protector_.VisibilityChanged(is_visible);
 }
 
 void BubbleFrameView::OnPaint(gfx::Canvas* canvas) {
@@ -424,7 +423,7 @@ void BubbleFrameView::PaintChildren(const PaintInfo& paint_info) {
 }
 
 void BubbleFrameView::ButtonPressed(Button* sender, const ui::Event& event) {
-  if (IsPossiblyUnintendedInteraction(view_shown_time_stamp_, event))
+  if (input_protector_.IsPossiblyUnintendedInteraction(event))
     return;
 
   if (sender == close_) {
@@ -436,7 +435,7 @@ void BubbleFrameView::SetBubbleBorder(std::unique_ptr<BubbleBorder> border) {
   bubble_border_ = border.get();
 
   if (footnote_container_)
-    footnote_container_->SetCornerRadius(border->GetBorderCornerRadius());
+    footnote_container_->SetCornerRadius(border->corner_radius());
 
   SetBorder(std::move(border));
 
@@ -444,32 +443,66 @@ void BubbleFrameView::SetBubbleBorder(std::unique_ptr<BubbleBorder> border) {
   SetBackground(std::make_unique<views::BubbleBackground>(bubble_border_));
 }
 
-void BubbleFrameView::SetFootnoteView(View* view) {
-  if (!view)
+void BubbleFrameView::SetFootnoteView(std::unique_ptr<View> view) {
+  if (!view) {
+    delete footnote_container_;
+    footnote_container_ = nullptr;
     return;
+  }
 
   DCHECK(!footnote_container_);
-  int radius = bubble_border_ ? bubble_border_->GetBorderCornerRadius() : 0;
-  footnote_container_ =
-      new FootnoteContainerView(footnote_margins_, view, radius);
-  AddChildView(footnote_container_);
+  int radius = bubble_border_ ? bubble_border_->corner_radius() : 0;
+  footnote_container_ = AddChildView(std::make_unique<FootnoteContainerView>(
+      footnote_margins_, std::move(view), radius));
 }
 
-gfx::Rect BubbleFrameView::GetUpdatedWindowBounds(const gfx::Rect& anchor_rect,
-                                                  const gfx::Size& client_size,
-                                                  bool adjust_if_offscreen) {
+void BubbleFrameView::SetCornerRadius(int radius) {
+  bubble_border_->SetCornerRadius(radius);
+}
+
+void BubbleFrameView::SetArrow(BubbleBorder::Arrow arrow) {
+  bubble_border_->set_arrow(arrow);
+}
+
+void BubbleFrameView::SetBackgroundColor(SkColor color) {
+  bubble_border_->set_background_color(color);
+}
+
+gfx::Rect BubbleFrameView::GetUpdatedWindowBounds(
+    const gfx::Rect& anchor_rect,
+    const BubbleBorder::Arrow delegate_arrow,
+    const gfx::Size& client_size,
+    bool adjust_to_fit_available_bounds) {
   gfx::Size size(GetFrameSizeForClientSize(client_size));
 
-  const BubbleBorder::Arrow arrow = bubble_border_->arrow();
-  if (adjust_if_offscreen && BubbleBorder::has_arrow(arrow)) {
-    // Try to mirror the anchoring if the bubble does not fit on the screen.
-    if (!bubble_border_->is_arrow_at_center(arrow)) {
-      MirrorArrowIfOffScreen(true, anchor_rect, size);
-      MirrorArrowIfOffScreen(false, anchor_rect, size);
+  if (adjust_to_fit_available_bounds &&
+      BubbleBorder::has_arrow(delegate_arrow)) {
+    // Get the desired bubble bounds without adjustment.
+    bubble_border_->set_arrow_offset(0);
+    bubble_border_->set_arrow(delegate_arrow);
+    // Try to mirror the anchoring if the bubble does not fit in the available
+    // bounds.
+    if (bubble_border_->is_arrow_at_center(delegate_arrow) ||
+        preferred_arrow_adjustment_ == PreferredArrowAdjustment::kOffset) {
+      const bool mirror_vertical =
+          BubbleBorder::is_arrow_on_horizontal(delegate_arrow);
+      MirrorArrowIfOutOfBounds(mirror_vertical, anchor_rect, size,
+                               GetAvailableAnchorWindowBounds());
+      MirrorArrowIfOutOfBounds(mirror_vertical, anchor_rect, size,
+                               GetAvailableScreenBounds(anchor_rect));
+      OffsetArrowIfOutOfBounds(anchor_rect, size,
+                               GetAvailableAnchorWindowBounds());
+      OffsetArrowIfOutOfBounds(anchor_rect, size,
+                               GetAvailableScreenBounds(anchor_rect));
     } else {
-      const bool mirror_vertical = BubbleBorder::is_arrow_on_horizontal(arrow);
-      MirrorArrowIfOffScreen(mirror_vertical, anchor_rect, size);
-      OffsetArrowIfOffScreen(anchor_rect, size);
+      MirrorArrowIfOutOfBounds(true, anchor_rect, size,
+                               GetAvailableAnchorWindowBounds());
+      MirrorArrowIfOutOfBounds(true, anchor_rect, size,
+                               GetAvailableScreenBounds(anchor_rect));
+      MirrorArrowIfOutOfBounds(false, anchor_rect, size,
+                               GetAvailableAnchorWindowBounds());
+      MirrorArrowIfOutOfBounds(false, anchor_rect, size,
+                               GetAvailableScreenBounds(anchor_rect));
     }
   }
 
@@ -478,7 +511,7 @@ gfx::Rect BubbleFrameView::GetUpdatedWindowBounds(const gfx::Rect& anchor_rect,
 }
 
 void BubbleFrameView::ResetViewShownTimeStampForTesting() {
-  view_shown_time_stamp_ = base::TimeTicks();
+  input_protector_.ResetForTesting();
 }
 
 gfx::Rect BubbleFrameView::GetAvailableScreenBounds(
@@ -489,27 +522,40 @@ gfx::Rect BubbleFrameView::GetAvailableScreenBounds(
       .work_area();
 }
 
+gfx::Rect BubbleFrameView::GetAvailableAnchorWindowBounds() const {
+  views::BubbleDialogDelegateView* bubble_delegate_view =
+      GetWidget()->widget_delegate()->AsBubbleDialogDelegate();
+  if (bubble_delegate_view) {
+    views::View* const anchor_view = bubble_delegate_view->GetAnchorView();
+    if (anchor_view && anchor_view->GetWidget())
+      return anchor_view->GetWidget()->GetWindowBoundsInScreen();
+  }
+  return gfx::Rect();
+}
+
 bool BubbleFrameView::ExtendClientIntoTitle() const {
   return false;
 }
 
 bool BubbleFrameView::IsCloseButtonVisible() const {
-  return close_->visible();
+  return close_->GetVisible();
 }
 
 gfx::Rect BubbleFrameView::GetCloseButtonMirroredBounds() const {
   return close_->GetMirroredBounds();
 }
 
-void BubbleFrameView::MirrorArrowIfOffScreen(
+void BubbleFrameView::MirrorArrowIfOutOfBounds(
     bool vertical,
     const gfx::Rect& anchor_rect,
-    const gfx::Size& client_size) {
-  // Check if the bounds don't fit on screen.
-  gfx::Rect available_bounds(GetAvailableScreenBounds(anchor_rect));
+    const gfx::Size& client_size,
+    const gfx::Rect& available_bounds) {
+  if (available_bounds.IsEmpty())
+    return;
+  // Check if the bounds don't fit in the available bounds.
   gfx::Rect window_bounds(bubble_border_->GetBounds(anchor_rect, client_size));
-  if (GetOffScreenLength(available_bounds, window_bounds, vertical) > 0) {
-    BubbleBorder::Arrow arrow = bubble_border()->arrow();
+  if (GetOverflowLength(available_bounds, window_bounds, vertical) > 0) {
+    BubbleBorder::Arrow arrow = bubble_border_->arrow();
     // Mirror the arrow and get the new bounds.
     bubble_border_->set_arrow(
         vertical ? BubbleBorder::vertical_mirror(arrow) :
@@ -519,27 +565,25 @@ void BubbleFrameView::MirrorArrowIfOffScreen(
     // Restore the original arrow if mirroring doesn't show more of the bubble.
     // Otherwise it should invoke parent's Layout() to layout the content based
     // on the new bubble border.
-    if (GetOffScreenLength(available_bounds, mirror_bounds, vertical) >=
-        GetOffScreenLength(available_bounds, window_bounds, vertical)) {
+    if (GetOverflowLength(available_bounds, mirror_bounds, vertical) >=
+        GetOverflowLength(available_bounds, window_bounds, vertical)) {
       bubble_border_->set_arrow(arrow);
     } else {
-      if (parent())
-        parent()->Layout();
+      InvalidateLayout();
       SchedulePaint();
     }
   }
 }
 
-void BubbleFrameView::OffsetArrowIfOffScreen(const gfx::Rect& anchor_rect,
-                                             const gfx::Size& client_size) {
-  BubbleBorder::Arrow arrow = bubble_border()->arrow();
-  DCHECK(BubbleBorder::is_arrow_at_center(arrow));
+void BubbleFrameView::OffsetArrowIfOutOfBounds(
+    const gfx::Rect& anchor_rect,
+    const gfx::Size& client_size,
+    const gfx::Rect& available_bounds) {
+  BubbleBorder::Arrow arrow = bubble_border_->arrow();
+  DCHECK(BubbleBorder::is_arrow_at_center(arrow) ||
+         preferred_arrow_adjustment_ == PreferredArrowAdjustment::kOffset);
 
-  // Get the desired bubble bounds without adjustment.
-  bubble_border_->set_arrow_offset(0);
   gfx::Rect window_bounds(bubble_border_->GetBounds(anchor_rect, client_size));
-
-  gfx::Rect available_bounds(GetAvailableScreenBounds(anchor_rect));
   if (available_bounds.IsEmpty() || available_bounds.Contains(window_bounds))
     return;
 
@@ -547,22 +591,38 @@ void BubbleFrameView::OffsetArrowIfOffScreen(const gfx::Rect& anchor_rect,
   const bool is_horizontal = BubbleBorder::is_arrow_on_horizontal(arrow);
   int offscreen_adjust = 0;
   if (is_horizontal) {
-    if (window_bounds.x() < available_bounds.x())
+    // If the window bounds are larger than the available bounds then we want to
+    // offset the window to fit as much of it in the available bounds as
+    // possible without exiting the other side of the available bounds.
+    if (window_bounds.width() > available_bounds.width()) {
+      if (window_bounds.x() < available_bounds.x())
+        offscreen_adjust = available_bounds.right() - window_bounds.right();
+      else
+        offscreen_adjust = available_bounds.x() - window_bounds.x();
+    } else if (window_bounds.x() < available_bounds.x()) {
       offscreen_adjust = available_bounds.x() - window_bounds.x();
-    else if (window_bounds.right() > available_bounds.right())
+    } else if (window_bounds.right() > available_bounds.right()) {
       offscreen_adjust = available_bounds.right() - window_bounds.right();
+    }
   } else {
-    if (window_bounds.y() < available_bounds.y())
+    if (window_bounds.height() > available_bounds.height()) {
+      if (window_bounds.y() < available_bounds.y())
+        offscreen_adjust = available_bounds.bottom() - window_bounds.bottom();
+      else
+        offscreen_adjust = available_bounds.y() - window_bounds.y();
+    } else if (window_bounds.y() < available_bounds.y()) {
       offscreen_adjust = available_bounds.y() - window_bounds.y();
-    else if (window_bounds.bottom() > available_bounds.bottom())
+    } else if (window_bounds.bottom() > available_bounds.bottom()) {
       offscreen_adjust = available_bounds.bottom() - window_bounds.bottom();
+    }
   }
 
   // For center arrows, arrows are moved in the opposite direction of
   // |offscreen_adjust|, e.g. positive |offscreen_adjust| means bubble
   // window needs to be moved to the right and that means we need to move arrow
   // to the left, and that means negative offset.
-  bubble_border_->set_arrow_offset(-offscreen_adjust);
+  bubble_border_->set_arrow_offset(bubble_border_->arrow_offset() -
+                                   offscreen_adjust);
   if (offscreen_adjust)
     SchedulePaint();
 }
@@ -589,7 +649,7 @@ gfx::Size BubbleFrameView::GetFrameSizeForClientSize(
 
   // Only account for footnote_container_'s height if it's visible, because
   // content_margins_ adds extra padding even if all child views are invisible.
-  if (footnote_container_ && footnote_container_->visible())
+  if (footnote_container_ && footnote_container_->GetVisible())
     size.Enlarge(0, footnote_container_->GetHeightForWidth(size.width()));
 
   return size;

@@ -128,7 +128,7 @@ public:
     int animationDuration() const;
 
 #ifndef QT_NO_CSSPARSER
-    void parseCSStoXMLAttrs(QString css, QVector<QSvgCssAttribute> *attributes);
+    void parseCSStoXMLAttrs(const QString &css, QVector<QSvgCssAttribute> *attributes);
 #endif
 
     inline QPen defaultPen() const

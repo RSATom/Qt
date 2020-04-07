@@ -5,7 +5,7 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_PLATFORM_FONTS_FONT_VARIANT_EAST_ASIAN_H_
 #define THIRD_PARTY_BLINK_RENDERER_PLATFORM_FONTS_FONT_VARIANT_EAST_ASIAN_H_
 
-#include "third_party/blink/renderer/platform/wtf/allocator.h"
+#include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 #include "third_party/blink/renderer/platform/wtf/forward.h"
 
 namespace blink {
@@ -48,9 +48,9 @@ class FontVariantEastAsian {
   }
   bool Ruby() const { return fields_.ruby_; }
 
-  void SetForm(EastAsianForm form) { fields_.form_ = form; };
-  void SetWidth(EastAsianWidth width) { fields_.width_ = width; };
-  void SetRuby(bool ruby) { fields_.ruby_ = ruby; };
+  void SetForm(EastAsianForm form) { fields_.form_ = form; }
+  void SetWidth(EastAsianWidth width) { fields_.width_ = width; }
+  void SetRuby(bool ruby) { fields_.ruby_ = ruby; }
 
   bool IsAllNormal() const { return !fields_as_unsigned_; }
 

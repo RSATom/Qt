@@ -99,7 +99,6 @@ class MODULES_EXPORT OffscreenCanvasRenderingContext2D final
 
   cc::PaintCanvas* DrawingCanvas() const final;
   cc::PaintCanvas* ExistingDrawingCanvas() const final;
-  void DisableDeferral(DisableDeferralReason) final;
 
   void DidDraw() final;
   void DidDraw(const SkIRect& dirty_rect) final;
@@ -142,7 +141,7 @@ class MODULES_EXPORT OffscreenCanvasRenderingContext2D final
                         double* max_width = nullptr);
   const Font& AccessFont();
 
-  scoped_refptr<CanvasResource> ProduceFrame();
+  scoped_refptr<CanvasResource> ProduceCanvasResource();
 
   String ColorSpaceAsString() const override;
   CanvasPixelFormat PixelFormat() const override;

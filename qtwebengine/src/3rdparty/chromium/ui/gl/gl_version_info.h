@@ -62,11 +62,14 @@ struct GL_EXPORT GLVersionInfo {
   std::string driver_vendor;
   std::string driver_version;
 
+  static void DisableES3ForTesting();
+
  private:
   void Initialize(const char* version_str,
                   const char* renderer_str,
                   const gfx::ExtensionSet& extensions);
   void ParseVersionString(const char* version_str);
+  void ExtractDriverVendorANGLE(const char* renderer_str);
   bool IsES3Capable(const gfx::ExtensionSet& extensions) const;
 
   DISALLOW_COPY_AND_ASSIGN(GLVersionInfo);

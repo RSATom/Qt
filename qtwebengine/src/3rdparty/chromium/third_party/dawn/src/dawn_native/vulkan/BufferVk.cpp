@@ -14,7 +14,6 @@
 
 #include "dawn_native/vulkan/BufferVk.h"
 
-#include "dawn_native/vulkan/BufferUploader.h"
 #include "dawn_native/vulkan/DeviceVk.h"
 #include "dawn_native/vulkan/FencedDeleter.h"
 
@@ -27,10 +26,10 @@ namespace dawn_native { namespace vulkan {
         VkBufferUsageFlags VulkanBufferUsage(dawn::BufferUsageBit usage) {
             VkBufferUsageFlags flags = 0;
 
-            if (usage & dawn::BufferUsageBit::TransferSrc) {
+            if (usage & dawn::BufferUsageBit::CopySrc) {
                 flags |= VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
             }
-            if (usage & dawn::BufferUsageBit::TransferDst) {
+            if (usage & dawn::BufferUsageBit::CopyDst) {
                 flags |= VK_BUFFER_USAGE_TRANSFER_DST_BIT;
             }
             if (usage & dawn::BufferUsageBit::Index) {
@@ -45,6 +44,9 @@ namespace dawn_native { namespace vulkan {
             if (usage & dawn::BufferUsageBit::Storage) {
                 flags |= VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
             }
+            if (usage & dawn::BufferUsageBit::Indirect) {
+                flags |= VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT;
+            }
 
             return flags;
         }
@@ -55,7 +57,7 @@ namespace dawn_native { namespace vulkan {
             if (usage & (dawn::BufferUsageBit::MapRead | dawn::BufferUsageBit::MapWrite)) {
                 flags |= VK_PIPELINE_STAGE_HOST_BIT;
             }
-            if (usage & (dawn::BufferUsageBit::TransferSrc | dawn::BufferUsageBit::TransferDst)) {
+            if (usage & (dawn::BufferUsageBit::CopySrc | dawn::BufferUsageBit::CopyDst)) {
                 flags |= VK_PIPELINE_STAGE_TRANSFER_BIT;
             }
             if (usage & (dawn::BufferUsageBit::Index | dawn::BufferUsageBit::Vertex)) {
@@ -65,6 +67,9 @@ namespace dawn_native { namespace vulkan {
                 flags |= VK_PIPELINE_STAGE_VERTEX_SHADER_BIT |
                          VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT |
                          VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
+            }
+            if (usage & dawn::BufferUsageBit::Indirect) {
+                flags |= VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT;
             }
 
             return flags;
@@ -79,10 +84,10 @@ namespace dawn_native { namespace vulkan {
             if (usage & dawn::BufferUsageBit::MapWrite) {
                 flags |= VK_ACCESS_HOST_WRITE_BIT;
             }
-            if (usage & dawn::BufferUsageBit::TransferSrc) {
+            if (usage & dawn::BufferUsageBit::CopySrc) {
                 flags |= VK_ACCESS_TRANSFER_READ_BIT;
             }
-            if (usage & dawn::BufferUsageBit::TransferDst) {
+            if (usage & dawn::BufferUsageBit::CopyDst) {
                 flags |= VK_ACCESS_TRANSFER_WRITE_BIT;
             }
             if (usage & dawn::BufferUsageBit::Index) {
@@ -97,6 +102,9 @@ namespace dawn_native { namespace vulkan {
             if (usage & dawn::BufferUsageBit::Storage) {
                 flags |= VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
             }
+            if (usage & dawn::BufferUsageBit::Indirect) {
+                flags |= VK_ACCESS_INDIRECT_COMMAND_READ_BIT;
+            }
 
             return flags;
         }
@@ -110,7 +118,9 @@ namespace dawn_native { namespace vulkan {
         createInfo.pNext = nullptr;
         createInfo.flags = 0;
         createInfo.size = GetSize();
-        createInfo.usage = VulkanBufferUsage(GetUsage());
+        // Add CopyDst for non-mappable buffer initialization in CreateBufferMapped
+        // and robust resource initialization.
+        createInfo.usage = VulkanBufferUsage(GetUsage() | dawn::BufferUsageBit::CopyDst);
         createInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
         createInfo.queueFamilyIndexCount = 0;
         createInfo.pQueueFamilyIndices = 0;
@@ -138,22 +148,15 @@ namespace dawn_native { namespace vulkan {
     }
 
     Buffer::~Buffer() {
-        Device* device = ToBackend(GetDevice());
-
-        device->GetMemoryAllocator()->Free(&mMemoryAllocation);
-
-        if (mHandle != VK_NULL_HANDLE) {
-            device->GetFencedDeleter()->DeleteWhenUnused(mHandle);
-            mHandle = VK_NULL_HANDLE;
-        }
+        DestroyInternal();
     }
 
     void Buffer::OnMapReadCommandSerialFinished(uint32_t mapSerial, const void* data) {
-        CallMapReadCallback(mapSerial, DAWN_BUFFER_MAP_ASYNC_STATUS_SUCCESS, data);
+        CallMapReadCallback(mapSerial, DAWN_BUFFER_MAP_ASYNC_STATUS_SUCCESS, data, GetSize());
     }
 
     void Buffer::OnMapWriteCommandSerialFinished(uint32_t mapSerial, void* data) {
-        CallMapWriteCallback(mapSerial, DAWN_BUFFER_MAP_ASYNC_STATUS_SUCCESS, data);
+        CallMapWriteCallback(mapSerial, DAWN_BUFFER_MAP_ASYNC_STATUS_SUCCESS, data, GetSize());
     }
 
     VkBuffer Buffer::GetHandle() const {
@@ -196,17 +199,17 @@ namespace dawn_native { namespace vulkan {
         mLastUsage = usage;
     }
 
-    void Buffer::SetSubDataImpl(uint32_t start, uint32_t count, const uint8_t* data) {
-        Device* device = ToBackend(GetDevice());
-
-        VkCommandBuffer commands = device->GetPendingCommandBuffer();
-        TransitionUsageNow(commands, dawn::BufferUsageBit::TransferDst);
-
-        BufferUploader* uploader = device->GetBufferUploader();
-        uploader->BufferSubData(mHandle, start, count, data);
+    bool Buffer::IsMapWritable() const {
+        // TODO(enga): Handle CPU-visible memory on UMA
+        return mMemoryAllocation.GetMappedPointer() != nullptr;
     }
 
-    void Buffer::MapReadAsyncImpl(uint32_t serial, uint32_t start, uint32_t /*count*/) {
+    MaybeError Buffer::MapAtCreationImpl(uint8_t** mappedPointer) {
+        *mappedPointer = mMemoryAllocation.GetMappedPointer();
+        return {};
+    }
+
+    MaybeError Buffer::MapReadAsyncImpl(uint32_t serial) {
         Device* device = ToBackend(GetDevice());
 
         VkCommandBuffer commands = device->GetPendingCommandBuffer();
@@ -216,10 +219,11 @@ namespace dawn_native { namespace vulkan {
         ASSERT(memory != nullptr);
 
         MapRequestTracker* tracker = device->GetMapRequestTracker();
-        tracker->Track(this, serial, memory + start, false);
+        tracker->Track(this, serial, memory, false);
+        return {};
     }
 
-    void Buffer::MapWriteAsyncImpl(uint32_t serial, uint32_t start, uint32_t /*count*/) {
+    MaybeError Buffer::MapWriteAsyncImpl(uint32_t serial) {
         Device* device = ToBackend(GetDevice());
 
         VkCommandBuffer commands = device->GetPendingCommandBuffer();
@@ -229,11 +233,21 @@ namespace dawn_native { namespace vulkan {
         ASSERT(memory != nullptr);
 
         MapRequestTracker* tracker = device->GetMapRequestTracker();
-        tracker->Track(this, serial, memory + start, true);
+        tracker->Track(this, serial, memory, true);
+        return {};
     }
 
     void Buffer::UnmapImpl() {
         // No need to do anything, we keep CPU-visible memory mapped at all time.
+    }
+
+    void Buffer::DestroyImpl() {
+        ToBackend(GetDevice())->GetMemoryAllocator()->Free(&mMemoryAllocation);
+
+        if (mHandle != VK_NULL_HANDLE) {
+            ToBackend(GetDevice())->GetFencedDeleter()->DeleteWhenUnused(mHandle);
+            mHandle = VK_NULL_HANDLE;
+        }
     }
 
     // MapRequestTracker

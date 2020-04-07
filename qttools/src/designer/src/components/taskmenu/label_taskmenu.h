@@ -45,7 +45,7 @@ class LabelTaskMenu: public QDesignerTaskMenu
 {
     Q_OBJECT
 public:
-    explicit LabelTaskMenu(QLabel *button, QObject *parent = 0);
+    explicit LabelTaskMenu(QLabel *button, QObject *parent = nullptr);
 
     QAction *preferredEditAction() const override;
     QList<QAction*> taskActions() const override;
@@ -60,7 +60,7 @@ private:
     QAction *m_editPlainTextAction;
 };
 
-typedef ExtensionFactory<QDesignerTaskMenuExtension, QLabel, LabelTaskMenu>  LabelTaskMenuFactory;
+using LabelTaskMenuFactory = ExtensionFactory<QDesignerTaskMenuExtension, QLabel, LabelTaskMenu>;
 }  // namespace qdesigner_internal
 
 QT_END_NAMESPACE

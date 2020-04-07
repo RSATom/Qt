@@ -23,6 +23,7 @@
 #include "base/memory/weak_ptr.h"
 #include "content/browser/service_worker/service_worker_database.h"
 #include "content/browser/service_worker/service_worker_metrics.h"
+#include "content/browser/service_worker/service_worker_registration.h"
 #include "content/browser/service_worker/service_worker_version.h"
 #include "content/common/content_export.h"
 #include "third_party/blink/public/common/service_worker/service_worker_status_code.h"
@@ -41,15 +42,10 @@ namespace content {
 
 class ServiceWorkerContextCore;
 class ServiceWorkerDiskCache;
-class ServiceWorkerRegistration;
 class ServiceWorkerResponseMetadataWriter;
 class ServiceWorkerResponseReader;
 class ServiceWorkerResponseWriter;
 struct ServiceWorkerRegistrationInfo;
-
-namespace service_worker_write_to_cache_job_unittest {
-class ServiceWorkerWriteToCacheJobTest;
-}  // namespace service_worker_write_to_cache_job_unittest
 
 namespace service_worker_storage_unittest {
 class ServiceWorkerStorageTest;
@@ -170,10 +166,16 @@ class CONTENT_EXPORT ServiceWorkerStorage
                                      const std::string& value,
                                      StatusCallback callback);
 
-  // Deletes the registration data for |registration_id|. If the registration's
-  // version is live, its script resources will remain available.
-  // PurgeResources should be called when it's OK to delete them.
-  void DeleteRegistration(int64_t registration_id,
+  // Deletes the registration data for |registration|. The live registration is
+  // still findable via GetUninstallingRegistration(), and versions are usable
+  // because their script resources have not been deleted. After calling this,
+  // the caller should later:
+  // - Call NotifyDoneUninstallingRegistration() to let storage know the
+  //   uninstalling operation is done.
+  // - If it no longer wants versions to be usable, call PurgeResources() to
+  //   delete their script resources.
+  // If these aren't called, on the next profile session the cleanup occurs.
+  void DeleteRegistration(scoped_refptr<ServiceWorkerRegistration> registration,
                           const GURL& origin,
                           StatusCallback callback);
 
@@ -242,6 +244,11 @@ class CONTENT_EXPORT ServiceWorkerStorage
   void GetUserDataForAllRegistrationsByKeyPrefix(
       const std::string& key_prefix,
       GetUserDataForAllRegistrationsCallback callback);
+  // Responds OK if all are successfully deleted or not found in the database.
+  // |key_prefix| cannot be empty.
+  void ClearUserDataForAllRegistrationsByKeyPrefix(
+      const std::string& key_prefix,
+      StatusCallback callback);
 
   // Deletes the storage and starts over.
   void DeleteAndStartOver(StatusCallback callback);
@@ -256,7 +263,8 @@ class CONTENT_EXPORT ServiceWorkerStorage
   int64_t NewVersionId();
 
   // Returns a new resource id which is guaranteed to be unique in the storage.
-  // Returns kInvalidServiceWorkerResourceId if the storage is disabled.
+  // Returns ServiceWorkerConsts::kInvalidServiceWorkerResourceId if the storage
+  // is disabled.
   int64_t NewResourceId();
 
   // Intended for use only by ServiceWorkerRegisterJob and
@@ -266,23 +274,25 @@ class CONTENT_EXPORT ServiceWorkerStorage
   void NotifyDoneInstallingRegistration(ServiceWorkerRegistration* registration,
                                         ServiceWorkerVersion* version,
                                         blink::ServiceWorkerStatusCode status);
-  void NotifyUninstallingRegistration(ServiceWorkerRegistration* registration);
   void NotifyDoneUninstallingRegistration(
-      ServiceWorkerRegistration* registration);
+      ServiceWorkerRegistration* registration,
+      ServiceWorkerRegistration::Status new_status);
 
   void Disable();
 
-  // |resources| must already be on the purgeable list.
+  // Schedules deleting |resources| from the disk cache and removing their keys
+  // as purgeable resources from the service worker database. It's OK to call
+  // this for resources that don't have purgeable resource keys, like
+  // uncommitted resources, as long as the caller does its own cleanup to remove
+  // the uncommitted resource keys.
   void PurgeResources(const ResourceList& resources);
 
-  bool LazyInitializeForTest(base::OnceClosure callback);
+  void LazyInitializeForTest(base::OnceClosure callback);
 
  private:
   friend class service_worker_storage_unittest::ServiceWorkerStorageTest;
   friend class service_worker_storage_unittest::
       ServiceWorkerResourceStorageTest;
-  friend class service_worker_write_to_cache_job_unittest::
-      ServiceWorkerWriteToCacheJobTest;
   FRIEND_TEST_ALL_PREFIXES(
       service_worker_storage_unittest::ServiceWorkerResourceStorageDiskTest,
       CleanupOnRestart);
@@ -604,9 +614,8 @@ class CONTENT_EXPORT ServiceWorkerStorage
   base::circular_deque<int64_t> purgeable_resource_ids_;
   bool is_purge_pending_;
   bool has_checked_for_stale_resources_;
-  std::set<int64_t> pending_deletions_;
 
-  base::WeakPtrFactory<ServiceWorkerStorage> weak_factory_;
+  base::WeakPtrFactory<ServiceWorkerStorage> weak_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(ServiceWorkerStorage);
 };

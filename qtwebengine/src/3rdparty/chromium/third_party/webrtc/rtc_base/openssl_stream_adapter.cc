@@ -25,6 +25,7 @@
 #include <utility>
 #include <vector>
 
+#include "absl/memory/memory.h"
 #include "rtc_base/checks.h"
 #include "rtc_base/logging.h"
 #include "rtc_base/numerics/safe_conversions.h"
@@ -37,15 +38,18 @@
 #include "rtc_base/thread.h"
 #include "rtc_base/time_utils.h"
 
-namespace {
-bool g_use_time_callback_for_testing = false;
-}
-
-namespace rtc {
-
 #if (OPENSSL_VERSION_NUMBER < 0x10100000L)
 #error "webrtc requires at least OpenSSL version 1.1.0, to support DTLS-SRTP"
 #endif
+
+// Defines for the TLS Cipher Suite Map.
+#define DEFINE_CIPHER_ENTRY_SSL3(name) \
+  { SSL3_CK_##name, "TLS_" #name }
+#define DEFINE_CIPHER_ENTRY_TLS1(name) \
+  { TLS1_CK_##name, "TLS_" #name }
+
+namespace rtc {
+namespace {
 
 // SRTP cipher suite table. |internal_name| is used to construct a
 // colon-separated profile strings which is needed by
@@ -55,37 +59,23 @@ struct SrtpCipherMapEntry {
   const int id;
 };
 
-// This isn't elegant, but it's better than an external reference
-static SrtpCipherMapEntry SrtpCipherMap[] = {
-    {"SRTP_AES128_CM_SHA1_80", SRTP_AES128_CM_SHA1_80},
-    {"SRTP_AES128_CM_SHA1_32", SRTP_AES128_CM_SHA1_32},
-    {"SRTP_AEAD_AES_128_GCM", SRTP_AEAD_AES_128_GCM},
-    {"SRTP_AEAD_AES_256_GCM", SRTP_AEAD_AES_256_GCM},
-    {nullptr, 0}};
-
-#ifdef OPENSSL_IS_BORINGSSL
-// Not used in production code. Actual time should be relative to Jan 1, 1970.
-static void TimeCallbackForTesting(const SSL* ssl, struct timeval* out_clock) {
-  int64_t time = TimeNanos();
-  out_clock->tv_sec = time / kNumNanosecsPerSec;
-  out_clock->tv_usec = (time % kNumNanosecsPerSec) / kNumNanosecsPerMicrosec;
-}
-#else  // #ifdef OPENSSL_IS_BORINGSSL
-
 // Cipher name table. Maps internal OpenSSL cipher ids to the RFC name.
 struct SslCipherMapEntry {
   uint32_t openssl_id;
   const char* rfc_name;
 };
 
-#define DEFINE_CIPHER_ENTRY_SSL3(name) \
-  { SSL3_CK_##name, "TLS_" #name }
-#define DEFINE_CIPHER_ENTRY_TLS1(name) \
-  { TLS1_CK_##name, "TLS_" #name }
+// This isn't elegant, but it's better than an external reference
+constexpr SrtpCipherMapEntry kSrtpCipherMap[] = {
+    {"SRTP_AES128_CM_SHA1_80", SRTP_AES128_CM_SHA1_80},
+    {"SRTP_AES128_CM_SHA1_32", SRTP_AES128_CM_SHA1_32},
+    {"SRTP_AEAD_AES_128_GCM", SRTP_AEAD_AES_128_GCM},
+    {"SRTP_AEAD_AES_256_GCM", SRTP_AEAD_AES_256_GCM}};
 
+#ifndef OPENSSL_IS_BORINGSSL
 // The "SSL_CIPHER_standard_name" function is only available in OpenSSL when
 // compiled with tracing, so we need to define the mapping manually here.
-static const SslCipherMapEntry kSslCipherMap[] = {
+constexpr SslCipherMapEntry kSslCipherMap[] = {
     // TLS v1.0 ciphersuites from RFC2246.
     DEFINE_CIPHER_ENTRY_SSL3(RSA_RC4_128_SHA),
     {SSL3_CK_RSA_DES_192_CBC3_SHA, "TLS_RSA_WITH_3DES_EDE_CBC_SHA"},
@@ -144,15 +134,19 @@ static const SslCipherMapEntry kSslCipherMap[] = {
     {0, nullptr}};
 #endif  // #ifndef OPENSSL_IS_BORINGSSL
 
-#if defined(_MSC_VER)
-#pragma warning(push)
-#pragma warning(disable : 4309)
-#pragma warning(disable : 4310)
-#endif  // defined(_MSC_VER)
+#ifdef OPENSSL_IS_BORINGSSL
+// Enabled by EnableTimeCallbackForTesting. Should never be set in production
+// code.
+bool g_use_time_callback_for_testing = false;
+// Not used in production code. Actual time should be relative to Jan 1, 1970.
+void TimeCallbackForTesting(const SSL* ssl, struct timeval* out_clock) {
+  int64_t time = TimeNanos();
+  out_clock->tv_sec = time / kNumNanosecsPerSec;
+  out_clock->tv_usec = (time % kNumNanosecsPerSec) / kNumNanosecsPerMicrosec;
+}
+#endif
 
-#if defined(_MSC_VER)
-#pragma warning(pop)
-#endif  // defined(_MSC_VER)
+}  // namespace
 
 //////////////////////////////////////////////////////////////////////
 // StreamBIO
@@ -381,8 +375,9 @@ bool OpenSSLStreamAdapter::GetSslCipherSuite(int* cipher_suite) {
 }
 
 int OpenSSLStreamAdapter::GetSslVersion() const {
-  if (state_ != SSL_CONNECTED)
+  if (state_ != SSL_CONNECTED) {
     return -1;
+  }
 
   int ssl_version = SSL_version(ssl_);
   if (ssl_mode_ == SSL_MODE_DTLS) {
@@ -421,29 +416,26 @@ bool OpenSSLStreamAdapter::ExportKeyingMaterial(const std::string& label,
 
 bool OpenSSLStreamAdapter::SetDtlsSrtpCryptoSuites(
     const std::vector<int>& ciphers) {
-  std::string internal_ciphers;
-
   if (state_ != SSL_NONE) {
     return false;
   }
 
-  for (std::vector<int>::const_iterator cipher = ciphers.begin();
-       cipher != ciphers.end(); ++cipher) {
+  std::string internal_ciphers;
+  for (const int cipher : ciphers) {
     bool found = false;
-    for (SrtpCipherMapEntry* entry = SrtpCipherMap; entry->internal_name;
-         ++entry) {
-      if (*cipher == entry->id) {
+    for (const auto& entry : kSrtpCipherMap) {
+      if (cipher == entry.id) {
         found = true;
         if (!internal_ciphers.empty()) {
           internal_ciphers += ":";
         }
-        internal_ciphers += entry->internal_name;
+        internal_ciphers += entry.internal_name;
         break;
       }
     }
 
     if (!found) {
-      RTC_LOG(LS_ERROR) << "Could not find cipher: " << *cipher;
+      RTC_LOG(LS_ERROR) << "Could not find cipher: " << cipher;
       return false;
     }
   }
@@ -623,8 +615,9 @@ StreamResult OpenSSLStreamAdapter::Read(void* data,
 
   ssl_read_needs_write_ = false;
 
-  int code = SSL_read(ssl_, data, checked_cast<int>(data_len));
-  int ssl_error = SSL_get_error(ssl_, code);
+  const int code = SSL_read(ssl_, data, checked_cast<int>(data_len));
+  const int ssl_error = SSL_get_error(ssl_, code);
+
   switch (ssl_error) {
     case SSL_ERROR_NONE:
       RTC_LOG(LS_VERBOSE) << " -- success";
@@ -675,10 +668,10 @@ void OpenSSLStreamAdapter::FlushInput(unsigned int left) {
 
   while (left) {
     // This should always succeed
-    int toread = (sizeof(buf) < left) ? sizeof(buf) : left;
-    int code = SSL_read(ssl_, buf, toread);
+    const int toread = (sizeof(buf) < left) ? sizeof(buf) : left;
+    const int code = SSL_read(ssl_, buf, toread);
 
-    int ssl_error = SSL_get_error(ssl_, code);
+    const int ssl_error = SSL_get_error(ssl_, code);
     RTC_DCHECK(ssl_error == SSL_ERROR_NONE);
 
     if (ssl_error != SSL_ERROR_NONE) {
@@ -819,20 +812,6 @@ int OpenSSLStreamAdapter::BeginSSL() {
   SSL_set_mode(ssl_, SSL_MODE_ENABLE_PARTIAL_WRITE |
                          SSL_MODE_ACCEPT_MOVING_WRITE_BUFFER);
 
-#if !defined(OPENSSL_IS_BORINGSSL)
-  // Specify an ECDH group for ECDHE ciphers, otherwise OpenSSL cannot
-  // negotiate them when acting as the server. Use NIST's P-256 which is
-  // commonly supported. BoringSSL doesn't need explicit configuration and has
-  // a reasonable default set.
-  EC_KEY* ecdh = EC_KEY_new_by_curve_name(NID_X9_62_prime256v1);
-  if (ecdh == nullptr) {
-    return -1;
-  }
-  SSL_set_options(ssl_, SSL_OP_SINGLE_ECDH_USE);
-  SSL_set_tmp_ecdh(ssl_, ecdh);
-  EC_KEY_free(ecdh);
-#endif
-
   // Do the connect
   return ContinueSSL();
 }
@@ -844,9 +823,10 @@ int OpenSSLStreamAdapter::ContinueSSL() {
   // Clear the DTLS timer
   Thread::Current()->Clear(this, MSG_TIMEOUT);
 
-  int code = (role_ == SSL_CLIENT) ? SSL_connect(ssl_) : SSL_accept(ssl_);
-  int ssl_error;
-  switch (ssl_error = SSL_get_error(ssl_, code)) {
+  const int code = (role_ == SSL_CLIENT) ? SSL_connect(ssl_) : SSL_accept(ssl_);
+  const int ssl_error = SSL_get_error(ssl_, code);
+
+  switch (ssl_error) {
     case SSL_ERROR_NONE:
       RTC_LOG(LS_VERBOSE) << " -- success";
       // By this point, OpenSSL should have given us a certificate, or errored
@@ -966,57 +946,14 @@ void OpenSSLStreamAdapter::OnMessage(Message* msg) {
 }
 
 SSL_CTX* OpenSSLStreamAdapter::SetupSSLContext() {
-  SSL_CTX* ctx = nullptr;
-
-#ifdef OPENSSL_IS_BORINGSSL
-  ctx = SSL_CTX_new(ssl_mode_ == SSL_MODE_DTLS ? DTLS_method() : TLS_method());
-// Version limiting for BoringSSL will be done below.
-#else
-  const SSL_METHOD* method;
-  switch (ssl_max_version_) {
-    case SSL_PROTOCOL_TLS_10:
-    case SSL_PROTOCOL_TLS_11:
-      // OpenSSL doesn't support setting min/max versions, so we always use
-      // (D)TLS 1.0 if a max. version below the max. available is requested.
-      if (ssl_mode_ == SSL_MODE_DTLS) {
-        if (role_ == SSL_CLIENT) {
-          method = DTLSv1_client_method();
-        } else {
-          method = DTLSv1_server_method();
-        }
-      } else {
-        if (role_ == SSL_CLIENT) {
-          method = TLSv1_client_method();
-        } else {
-          method = TLSv1_server_method();
-        }
-      }
-      break;
-    case SSL_PROTOCOL_TLS_12:
-    default:
-      if (ssl_mode_ == SSL_MODE_DTLS) {
-        if (role_ == SSL_CLIENT) {
-          method = DTLS_client_method();
-        } else {
-          method = DTLS_server_method();
-        }
-      } else {
-        if (role_ == SSL_CLIENT) {
-          method = TLS_client_method();
-        } else {
-          method = TLS_server_method();
-        }
-      }
-      break;
-  }
-  ctx = SSL_CTX_new(method);
-#endif  // OPENSSL_IS_BORINGSSL
-
+  SSL_CTX* ctx =
+      SSL_CTX_new(ssl_mode_ == SSL_MODE_DTLS ? DTLS_method() : TLS_method());
   if (ctx == nullptr) {
     return nullptr;
   }
 
-#ifdef OPENSSL_IS_BORINGSSL
+  // TODO(https://bugs.webrtc.org/10261): Evaluate and drop (D)TLS 1.0 and 1.1
+  // support by default.
   SSL_CTX_set_min_proto_version(
       ctx, ssl_mode_ == SSL_MODE_DTLS ? DTLS1_VERSION : TLS1_VERSION);
   switch (ssl_max_version_) {
@@ -1034,6 +971,8 @@ SSL_CTX* OpenSSLStreamAdapter::SetupSSLContext() {
           ctx, ssl_mode_ == SSL_MODE_DTLS ? DTLS1_2_VERSION : TLS1_2_VERSION);
       break;
   }
+#ifdef OPENSSL_IS_BORINGSSL
+  // SSL_CTX_set_current_time_cb is only supported in BoringSSL.
   if (g_use_time_callback_for_testing) {
     SSL_CTX_set_current_time_cb(ctx, &TimeCallbackForTesting);
   }
@@ -1136,7 +1075,7 @@ int OpenSSLStreamAdapter::SSLVerifyCallback(X509_STORE_CTX* store, void* arg) {
   // Record the peer's certificate.
   X509* cert = X509_STORE_CTX_get0_cert(store);
   stream->peer_cert_chain_.reset(
-      new SSLCertChain(new OpenSSLCertificate(cert)));
+      new SSLCertChain(absl::make_unique<OpenSSLCertificate>(cert)));
 #endif
 
   // If the peer certificate digest isn't known yet, we'll wait to verify
@@ -1238,7 +1177,9 @@ bool OpenSSLStreamAdapter::IsAcceptableCipher(const std::string& cipher,
 }
 
 void OpenSSLStreamAdapter::EnableTimeCallbackForTesting() {
+#ifdef OPENSSL_IS_BORINGSSL
   g_use_time_callback_for_testing = true;
+#endif
 }
 
 }  // namespace rtc

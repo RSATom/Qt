@@ -103,7 +103,8 @@ void RTCDTMFSender::insertDTMF(const String& tones,
     return;
   }
   // Spec: Throw on illegal characters
-  if (strspn(tones.Ascii().data(), "0123456789abcdABCD#*,") != tones.length()) {
+  if (strspn(tones.Ascii().c_str(), "0123456789abcdABCD#*,") !=
+      tones.length()) {
     exception_state.ThrowDOMException(
         DOMExceptionCode::kInvalidCharacterError,
         "Illegal characters in InsertDTMF tone argument");
@@ -137,7 +138,7 @@ void RTCDTMFSender::PlayoutTask() {
   // TODO(crbug.com/891638): Add check on transceiver's "stopped"
   // and "currentDirection" attributes as per spec.
   if (tone_buffer_.IsEmpty()) {
-    Member<Event> event = RTCDTMFToneChangeEvent::Create("");
+    Member<Event> event = MakeGarbageCollected<RTCDTMFToneChangeEvent>("");
     DispatchEvent(*event.Release());
     return;
   }
@@ -151,7 +152,7 @@ void RTCDTMFSender::PlayoutTask() {
     return;
   }
   playout_task_is_scheduled_ = true;
-  Member<Event> event = RTCDTMFToneChangeEvent::Create(this_tone);
+  Member<Event> event = MakeGarbageCollected<RTCDTMFToneChangeEvent>(this_tone);
   DispatchEvent(*event.Release());
 }
 

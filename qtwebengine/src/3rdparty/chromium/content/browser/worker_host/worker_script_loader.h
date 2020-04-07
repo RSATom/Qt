@@ -5,9 +5,15 @@
 #ifndef CONTENT_BROWSER_WORKER_HOST_WORKER_SCRIPT_LOADER_H_
 #define CONTENT_BROWSER_WORKER_HOST_WORKER_SCRIPT_LOADER_H_
 
+#include <memory>
+#include <string>
+#include <utility>
+#include <vector>
+
 #include "base/macros.h"
-#include "content/common/navigation_subresource_loader_params.h"
-#include "content/common/single_request_url_loader_factory.h"
+#include "base/optional.h"
+#include "content/browser/loader/single_request_url_loader_factory.h"
+#include "content/browser/navigation_subresource_loader_params.h"
 #include "mojo/public/cpp/bindings/binding.h"
 #include "net/traffic_annotation/network_traffic_annotation.h"
 #include "services/network/public/cpp/resource_request.h"
@@ -20,10 +26,12 @@ class SharedURLLoaderFactory;
 namespace content {
 
 class AppCacheHost;
+class BrowserContext;
 class ThrottlingURLLoader;
 class NavigationLoaderInterceptor;
 class ResourceContext;
-class ServiceWorkerProviderHost;
+class ServiceWorkerNavigationHandle;
+class ServiceWorkerNavigationHandleCore;
 
 // The URLLoader for loading a shared worker script. Only used for the main
 // script request.
@@ -35,10 +43,19 @@ class ServiceWorkerProviderHost;
 // client. On redirects, it starts over with the new request URL, possibly
 // starting a new loader and becoming the client of that.
 //
-// Lives on the IO thread.
+// Lives on the UI thread when NavigationLoaderOnUI is enabled, and the IO
+// thread otherwise.
 class WorkerScriptLoader : public network::mojom::URLLoader,
                            public network::mojom::URLLoaderClient {
  public:
+  // Returns the resource context, or nullptr during shutdown. Must be called on
+  // the IO thread.
+  using ResourceContextGetter = base::RepeatingCallback<ResourceContext*(void)>;
+
+  // Returns the browser context, or nullptr during shutdown. Must be called on
+  // the UI thread.
+  using BrowserContextGetter = base::RepeatingCallback<BrowserContext*(void)>;
+
   // |default_loader_factory| is used to load the script if the load is not
   // intercepted by a feature like service worker. Typically it will load the
   // script from the NetworkService. However, it may internally contain
@@ -51,9 +68,13 @@ class WorkerScriptLoader : public network::mojom::URLLoader,
       uint32_t options,
       const network::ResourceRequest& resource_request,
       network::mojom::URLLoaderClientPtr client,
-      base::WeakPtr<ServiceWorkerProviderHost> service_worker_provider_host,
+      base::WeakPtr<ServiceWorkerNavigationHandle>
+          service_worker_handle /* UI */,
+      base::WeakPtr<ServiceWorkerNavigationHandleCore>
+          service_worker_handle_core /* IO */,
       base::WeakPtr<AppCacheHost> appcache_host,
-      ResourceContext* resource_context,
+      const BrowserContextGetter& browser_context_getter,
+      const ResourceContextGetter& resource_context_getter,
       scoped_refptr<network::SharedURLLoaderFactory> default_loader_factory,
       const net::MutableNetworkTrafficAnnotationTag& traffic_annotation);
   ~WorkerScriptLoader() override;
@@ -77,7 +98,7 @@ class WorkerScriptLoader : public network::mojom::URLLoader,
   void OnUploadProgress(int64_t current_position,
                         int64_t total_size,
                         OnUploadProgressCallback ack_callback) override;
-  void OnReceiveCachedMetadata(const std::vector<uint8_t>& data) override;
+  void OnReceiveCachedMetadata(mojo_base::BigBuffer data) override;
   void OnTransferSizeUpdated(int32_t transfer_size_diff) override;
   void OnStartLoadingResponseBody(
       mojo::ScopedDataPipeConsumerHandle body) override;
@@ -87,7 +108,8 @@ class WorkerScriptLoader : public network::mojom::URLLoader,
   // response, i.e. return a different response. For e.g. AppCache may have
   // fallback content.
   bool MaybeCreateLoaderForResponse(
-      const network::ResourceResponseHead& response,
+      const network::ResourceResponseHead& response_head,
+      mojo::ScopedDataPipeConsumerHandle* response_body,
       network::mojom::URLLoaderPtr* response_url_loader,
       network::mojom::URLLoaderClientRequest* response_client_request,
       ThrottlingURLLoader* url_loader);
@@ -103,11 +125,13 @@ class WorkerScriptLoader : public network::mojom::URLLoader,
   bool default_loader_used_ = false;
 
  private:
+  void Abort();
   void Start();
   void MaybeStartLoader(
       NavigationLoaderInterceptor* interceptor,
       SingleRequestURLLoaderFactory::RequestHandler single_request_handler);
   void LoadFromNetwork(bool reset_subresource_loader_params);
+  void CommitCompleted(const network::URLLoaderCompletionStatus& status);
 
   // The order of the interceptors is important. The former interceptor can
   // preferentially get a chance to intercept a network request.
@@ -122,8 +146,10 @@ class WorkerScriptLoader : public network::mojom::URLLoader,
   const uint32_t options_;
   network::ResourceRequest resource_request_;
   network::mojom::URLLoaderClientPtr client_;
-  base::WeakPtr<ServiceWorkerProviderHost> service_worker_provider_host_;
-  ResourceContext* resource_context_;
+  base::WeakPtr<ServiceWorkerNavigationHandle> service_worker_handle_;
+  base::WeakPtr<ServiceWorkerNavigationHandleCore> service_worker_handle_core_;
+  BrowserContextGetter browser_context_getter_;
+  ResourceContextGetter resource_context_getter_;
   scoped_refptr<network::SharedURLLoaderFactory> default_loader_factory_;
   net::MutableNetworkTrafficAnnotationTag traffic_annotation_;
 
@@ -137,10 +163,13 @@ class WorkerScriptLoader : public network::mojom::URLLoader,
   // elect to handle the request.
   scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory_;
 
-  base::WeakPtrFactory<WorkerScriptLoader> weak_factory_;
+  bool completed_ = false;
+
+  base::WeakPtrFactory<WorkerScriptLoader> weak_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(WorkerScriptLoader);
 };
 
 }  // namespace content
+
 #endif  // CONTENT_BROWSER_WORKER_HOST_WORKER_SCRIPT_LOADER_H_

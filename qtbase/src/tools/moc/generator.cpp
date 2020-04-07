@@ -518,10 +518,15 @@ void Generator::generateCode()
         }
     }
 
+//
+// Generate meta object link to parent meta objects
+//
+
     if (!extraList.isEmpty()) {
-        fprintf(out, "static const QMetaObject * const qt_meta_extradata_%s[] = {\n    ", qualifiedClassNameIdentifier.constData());
+        fprintf(out, "static const QMetaObject::SuperData qt_meta_extradata_%s[] = {\n",
+                qualifiedClassNameIdentifier.constData());
         for (int i = 0; i < extraList.count(); ++i) {
-            fprintf(out, "    &%s::staticMetaObject,\n", extraList.at(i).constData());
+            fprintf(out, "    QMetaObject::SuperData::link<%s::staticMetaObject>(),\n", extraList.at(i).constData());
         }
         fprintf(out, "    nullptr\n};\n\n");
     }
@@ -537,7 +542,7 @@ void Generator::generateCode()
     if (isQObject)
         fprintf(out, "    nullptr,\n");
     else if (cdef->superclassList.size() && (!cdef->hasQGadget || knownGadgets.contains(purestSuperClass)))
-        fprintf(out, "    &%s::staticMetaObject,\n", purestSuperClass.constData());
+        fprintf(out, "    QMetaObject::SuperData::link<%s::staticMetaObject>(),\n", purestSuperClass.constData());
     else
         fprintf(out, "    nullptr,\n");
     fprintf(out, "    qt_meta_stringdata_%s.data,\n"
@@ -1650,6 +1655,12 @@ void Generator::generatePluginMetaData()
         dev.nextItem("\"MetaData\"");
         cbor_encode_int(&map, int(QtPluginMetaDataKeys::MetaData));
         jsonObjectToCbor(&map, o);
+    }
+
+    if (!cdef->pluginData.uri.isEmpty()) {
+        dev.nextItem("\"URI\"");
+        cbor_encode_int(&map, int(QtPluginMetaDataKeys::URI));
+        cbor_encode_text_string(&map, cdef->pluginData.uri.constData(), cdef->pluginData.uri.size());
     }
 
     // Add -M args from the command line:

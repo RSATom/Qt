@@ -5,11 +5,11 @@
  * found in the LICENSE file.
  */
 
-#include "SkSGGeometryTransform.h"
+#include "modules/sksg/include/SkSGGeometryTransform.h"
 
-#include "SkCanvas.h"
-#include "SkSGTransform.h"
-#include "SkSGTransformPriv.h"
+#include "include/core/SkCanvas.h"
+#include "modules/sksg/include/SkSGTransform.h"
+#include "modules/sksg/src/SkSGTransformPriv.h"
 
 namespace sksg {
 
@@ -31,6 +31,10 @@ void GeometryTransform::onClip(SkCanvas* canvas, bool antiAlias) const {
 
 void GeometryTransform::onDraw(SkCanvas* canvas, const SkPaint& paint) const {
     canvas->drawPath(fTransformedPath, paint);
+}
+
+bool GeometryTransform::onContains(const SkPoint& p) const {
+    return fTransformedPath.contains(p.x(), p.y());
 }
 
 SkRect GeometryTransform::onRevalidate(InvalidationController* ic, const SkMatrix& ctm) {

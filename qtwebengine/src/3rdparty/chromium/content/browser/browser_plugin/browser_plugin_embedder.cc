@@ -4,6 +4,7 @@
 
 #include "content/browser/browser_plugin/browser_plugin_embedder.h"
 
+#include "base/bind.h"
 #include "content/browser/bad_message.h"
 #include "content/browser/browser_plugin/browser_plugin_guest.h"
 #include "content/browser/renderer_host/render_view_host_impl.h"
@@ -19,10 +20,7 @@
 namespace content {
 
 BrowserPluginEmbedder::BrowserPluginEmbedder(WebContentsImpl* web_contents)
-    : WebContentsObserver(web_contents),
-      guest_drag_ending_(false),
-      weak_ptr_factory_(this) {
-}
+    : WebContentsObserver(web_contents), guest_drag_ending_(false) {}
 
 BrowserPluginEmbedder::~BrowserPluginEmbedder() {
 }

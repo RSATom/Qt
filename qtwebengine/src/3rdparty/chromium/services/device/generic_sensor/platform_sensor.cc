@@ -6,6 +6,7 @@
 
 #include <utility>
 
+#include "base/bind.h"
 #include "base/logging.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "services/device/generic_sensor/platform_sensor_provider.h"
@@ -20,8 +21,7 @@ PlatformSensor::PlatformSensor(mojom::SensorType type,
     : task_runner_(base::ThreadTaskRunnerHandle::Get()),
       reading_buffer_(reading_buffer),
       type_(type),
-      provider_(provider),
-      weak_factory_(this) {}
+      provider_(provider) {}
 
 PlatformSensor::~PlatformSensor() {
   if (provider_)
@@ -101,20 +101,15 @@ void PlatformSensor::RemoveClient(Client* client) {
 }
 
 bool PlatformSensor::GetLatestReading(SensorReading* result) {
-  if (!shared_buffer_reader_) {
-    shared_buffer_reader_ =
-        std::make_unique<SensorReadingSharedBufferReader>(reading_buffer_);
-  }
-
-  return shared_buffer_reader_->GetReading(result);
+  return SensorReadingSharedBufferReader::GetReading(reading_buffer_, result);
 }
 
 void PlatformSensor::UpdateSharedBufferAndNotifyClients(
     const SensorReading& reading) {
   UpdateSharedBuffer(reading);
-  task_runner_->PostTask(FROM_HERE,
-                         base::Bind(&PlatformSensor::NotifySensorReadingChanged,
-                                    weak_factory_.GetWeakPtr()));
+  task_runner_->PostTask(
+      FROM_HERE, base::BindOnce(&PlatformSensor::NotifySensorReadingChanged,
+                                weak_factory_.GetWeakPtr()));
 }
 
 void PlatformSensor::UpdateSharedBuffer(const SensorReading& reading) {

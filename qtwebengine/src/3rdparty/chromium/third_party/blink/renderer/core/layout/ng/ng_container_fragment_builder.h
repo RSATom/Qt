@@ -7,32 +7,42 @@
 
 #include "base/memory/scoped_refptr.h"
 #include "third_party/blink/renderer/core/core_export.h"
+#include "third_party/blink/renderer/core/layout/geometry/logical_size.h"
 #include "third_party/blink/renderer/core/layout/ng/exclusions/ng_exclusion_space.h"
 #include "third_party/blink/renderer/core/layout/ng/geometry/ng_bfc_offset.h"
-#include "third_party/blink/renderer/core/layout/ng/geometry/ng_logical_size.h"
 #include "third_party/blink/renderer/core/layout/ng/geometry/ng_margin_strut.h"
+#include "third_party/blink/renderer/core/layout/ng/inline/ng_physical_text_fragment.h"
 #include "third_party/blink/renderer/core/layout/ng/list/ng_unpositioned_list_marker.h"
 #include "third_party/blink/renderer/core/layout/ng/ng_floats_utils.h"
 #include "third_party/blink/renderer/core/layout/ng/ng_fragment_builder.h"
 #include "third_party/blink/renderer/core/layout/ng/ng_link.h"
-#include "third_party/blink/renderer/core/layout/ng/ng_out_of_flow_positioned_descendant.h"
+#include "third_party/blink/renderer/core/layout/ng/ng_out_of_flow_positioned_node.h"
 #include "third_party/blink/renderer/core/style/computed_style.h"
 #include "third_party/blink/renderer/platform/text/text_direction.h"
 #include "third_party/blink/renderer/platform/text/writing_mode.h"
-#include "third_party/blink/renderer/platform/wtf/allocator.h"
+#include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 
 namespace blink {
 
 class NGExclusionSpace;
-class NGLayoutResult;
 class NGPhysicalFragment;
 
 class CORE_EXPORT NGContainerFragmentBuilder : public NGFragmentBuilder {
   STACK_ALLOCATED();
 
  public:
-  typedef Vector<scoped_refptr<const NGPhysicalFragment>, 16> ChildrenVector;
-  typedef Vector<NGLogicalOffset, 16> OffsetVector;
+  struct ChildWithOffset {
+    DISALLOW_NEW();
+    ChildWithOffset(LogicalOffset offset,
+                    scoped_refptr<const NGPhysicalFragment> fragment)
+        : offset(offset), fragment(std::move(fragment)) {}
+
+    // We store logical offsets (instead of the final physical), as we can't
+    // convert into the physical coordinate space until we know our final size.
+    LogicalOffset offset;
+    scoped_refptr<const NGPhysicalFragment> fragment;
+  };
+  typedef Vector<ChildWithOffset, 4> ChildrenVector;
 
   LayoutUnit BfcLineOffset() const { return bfc_line_offset_; }
   NGContainerFragmentBuilder& SetBfcLineOffset(LayoutUnit bfc_line_offset) {
@@ -40,8 +50,8 @@ class CORE_EXPORT NGContainerFragmentBuilder : public NGFragmentBuilder {
     return *this;
   }
 
-  // The NGBfcOffset is where this fragment was positioned within the BFC. If
-  // it is not set, this fragment may be placed anywhere within the BFC.
+  // The BFC block-offset is where this fragment was positioned within the BFC.
+  // If it is not set, this fragment may be placed anywhere within the BFC.
   const base::Optional<LayoutUnit>& BfcBlockOffset() const {
     return bfc_block_offset_;
   }
@@ -76,25 +86,26 @@ class CORE_EXPORT NGContainerFragmentBuilder : public NGFragmentBuilder {
     return *this;
   }
 
-  NGContainerFragmentBuilder& AddChild(const NGLayoutResult&,
-                                       const NGLogicalOffset&);
+  NGContainerFragmentBuilder& AddChild(
+      const NGPhysicalContainerFragment&,
+      const LogicalOffset&,
+      const LayoutInline* inline_container = nullptr);
 
-  // This version of AddChild will not propagate floats/out_of_flow.
-  // Use the AddChild(NGLayoutResult) variant if NGLayoutResult is available.
-  NGContainerFragmentBuilder& AddChild(scoped_refptr<const NGPhysicalFragment>,
-                                       const NGLogicalOffset&);
+  NGContainerFragmentBuilder& AddChild(
+      scoped_refptr<const NGPhysicalTextFragment> child,
+      const LogicalOffset& offset) {
+    AddChildInternal(child, offset);
+    return *this;
+  }
 
   const ChildrenVector& Children() const { return children_; }
 
   // Returns offset for given child. DCHECK if child not found.
   // Warning: Do not call unless necessary.
-  NGLogicalOffset GetChildOffset(const LayoutObject* child);
+  LogicalOffset GetChildOffset(const LayoutObject* child) const;
 
-  // Builder has non-trivial out-of-flow descendant methods.
-  // These methods are building blocks for implementation of
-  // out-of-flow descendants by layout algorithms.
-  //
-  // They are intended to be used by layout algorithm like this:
+  // Builder has non-trivial OOF-positioned methods.
+  // They are intended to be used by a layout algorithm like this:
   //
   // Part 1: layout algorithm positions in-flow children.
   //   out-of-flow children, and out-of-flow descendants of fragments
@@ -110,7 +121,7 @@ class CORE_EXPORT NGContainerFragmentBuilder : public NGFragmentBuilder {
   //
   // builder->SetSize
   //
-  // Part 2: Out-of-flow layout part positions out-of-flow descendants.
+  // Part 2: Out-of-flow layout part positions OOF-positioned nodes.
   //
   // NGOutOfFlowLayoutPart(container_style, builder).Run();
   //
@@ -120,28 +131,35 @@ class CORE_EXPORT NGContainerFragmentBuilder : public NGFragmentBuilder {
   // Pass in direction if candidates direction does not match.
   NGContainerFragmentBuilder& AddOutOfFlowChildCandidate(
       NGBlockNode,
-      const NGLogicalOffset& child_offset,
+      const LogicalOffset& child_offset,
       base::Optional<TextDirection> container_direction = base::nullopt);
 
   NGContainerFragmentBuilder& AddOutOfFlowDescendant(
-      NGOutOfFlowPositionedDescendant descendant);
+      const NGLogicalOutOfFlowPositionedNode& descendant);
 
-  void GetAndClearOutOfFlowDescendantCandidates(
-      Vector<NGOutOfFlowPositionedDescendant>* descendant_candidates,
-      const LayoutObject* container);
+  void SwapOutOfFlowPositionedCandidates(
+      Vector<NGLogicalOutOfFlowPositionedNode>* candidates,
+      const LayoutObject* current_container);
 
-  bool HasOutOfFlowDescendantCandidates() const {
+  bool HasOutOfFlowPositionedCandidates() const {
     return !oof_positioned_candidates_.IsEmpty();
   }
 
   // This method should only be used within the inline layout algorithm. It is
-  // used to convert all OOF descendant candidates to descendants.
+  // used to convert all OOF-positioned candidates to descendants.
   //
   // During the inline layout algorithm, we don't have enough information to
   // position OOF candidates yet, (as a containing box may be split over
   // multiple lines), instead we bubble all the descendants up to the parent
   // block layout algorithm, to perform the final OOF layout and positioning.
-  void MoveOutOfFlowDescendantCandidatesToDescendants();
+  void MoveOutOfFlowDescendantCandidatesToDescendants() {
+    SwapOutOfFlowPositionedCandidates(&oof_positioned_descendants_, nullptr);
+  }
+
+  NGContainerFragmentBuilder& SetIsSelfCollapsing() {
+    is_self_collapsing_ = true;
+    return *this;
+  }
 
   NGContainerFragmentBuilder& SetIsPushedByFloats() {
     is_pushed_by_floats_ = true;
@@ -149,17 +167,32 @@ class CORE_EXPORT NGContainerFragmentBuilder : public NGFragmentBuilder {
   }
   bool IsPushedByFloats() const { return is_pushed_by_floats_; }
 
-  NGContainerFragmentBuilder& ResetAdjoiningFloatTypes() {
-    adjoining_floats_ = kFloatTypeNone;
+  NGContainerFragmentBuilder& ResetAdjoiningObjectTypes() {
+    adjoining_object_types_ = kAdjoiningNone;
     return *this;
   }
-  NGContainerFragmentBuilder& AddAdjoiningFloatTypes(NGFloatTypes floats) {
-    adjoining_floats_ |= floats;
+  NGContainerFragmentBuilder& AddAdjoiningObjectTypes(
+      NGAdjoiningObjectTypes adjoining_object_types) {
+    adjoining_object_types_ |= adjoining_object_types;
     return *this;
   }
-  NGFloatTypes AdjoiningFloatTypes() const { return adjoining_floats_; }
+  NGContainerFragmentBuilder& SetAdjoiningObjectTypes(
+      NGAdjoiningObjectTypes adjoining_object_types) {
+    adjoining_object_types_ = adjoining_object_types;
+    return *this;
+  }
+  NGAdjoiningObjectTypes AdjoiningObjectTypes() const {
+    return adjoining_object_types_;
+  }
 
-#ifndef NDEBUG
+  NGContainerFragmentBuilder& SetHasBlockFragmentation() {
+    has_block_fragmentation_ = true;
+    return *this;
+  }
+
+  const NGConstraintSpace* ConstraintSpace() const { return space_; }
+
+#if DCHECK_IS_ON()
   String ToString() const;
 #endif
 
@@ -167,71 +200,57 @@ class CORE_EXPORT NGContainerFragmentBuilder : public NGFragmentBuilder {
   friend class NGPhysicalContainerFragment;
   friend class NGLayoutResult;
 
-  // An out-of-flow positioned-candidate is a temporary data structure used
-  // within the NGBoxFragmentBuilder.
-  //
-  // A positioned-candidate can be:
-  // 1. A direct out-of-flow positioned child. The child_offset is (0,0).
-  // 2. A fragment containing an out-of-flow positioned-descendant. The
-  //    child_offset in this case is the containing fragment's offset.
-  //
-  // The child_offset is stored as a NGLogicalOffset as the physical offset
-  // cannot be computed until we know the current fragment's size.
-  //
-  // When returning the positioned-candidates (from
-  // GetAndClearOutOfFlowDescendantCandidates), the NGBoxFragmentBuilder will
-  // convert the positioned-candidate to a positioned-descendant using the
-  // physical size the fragment builder.
-  struct NGOutOfFlowPositionedCandidate {
-    NGOutOfFlowPositionedDescendant descendant;
-    NGLogicalOffset child_offset;  // Logical offset of child's top left vertex.
-
-    NGOutOfFlowPositionedCandidate(NGOutOfFlowPositionedDescendant descendant,
-                                   NGLogicalOffset child_offset)
-        : descendant(descendant), child_offset(child_offset) {}
-  };
-
   NGContainerFragmentBuilder(NGLayoutInputNode node,
                              scoped_refptr<const ComputedStyle> style,
+                             const NGConstraintSpace* space,
                              WritingMode writing_mode,
                              TextDirection direction)
       : NGFragmentBuilder(std::move(style), writing_mode, direction),
-        node_(node) {}
+        node_(node),
+        space_(space) {
+    layout_object_ = node.GetLayoutBox();
+  }
+
+  void AddChildInternal(scoped_refptr<const NGPhysicalFragment>,
+                        const LogicalOffset&);
 
   NGLayoutInputNode node_;
+  const NGConstraintSpace* space_;
 
   LayoutUnit bfc_line_offset_;
   base::Optional<LayoutUnit> bfc_block_offset_;
   NGMarginStrut end_margin_strut_;
   NGExclusionSpace exclusion_space_;
 
-  Vector<NGOutOfFlowPositionedCandidate> oof_positioned_candidates_;
-  Vector<NGOutOfFlowPositionedDescendant> oof_positioned_descendants_;
+  Vector<NGLogicalOutOfFlowPositionedNode> oof_positioned_candidates_;
+  Vector<NGLogicalOutOfFlowPositionedNode> oof_positioned_descendants_;
 
   NGUnpositionedListMarker unpositioned_list_marker_;
 
   ChildrenVector children_;
-
-  // Logical offsets for the children. Stored as logical offsets as we can't
-  // convert to physical offsets until layout of all children has been
-  // determined.
-  OffsetVector offsets_;
 
   // Only used by the NGBoxFragmentBuilder subclass, but defined here to avoid
   // a virtual function call.
   NGBreakTokenVector child_break_tokens_;
   NGBreakTokenVector inline_break_tokens_;
 
-  NGFloatTypes adjoining_floats_ = kFloatTypeNone;
+  NGAdjoiningObjectTypes adjoining_object_types_ = kAdjoiningNone;
+
+  bool is_self_collapsing_ = false;
+  bool is_pushed_by_floats_ = false;
+  bool is_legacy_layout_root_ = false;
 
   bool has_last_resort_break_ = false;
-
-  bool is_pushed_by_floats_ = false;
-
+  bool has_floating_descendants_ = false;
   bool has_orthogonal_flow_roots_ = false;
-  bool has_depends_on_percentage_block_size_child_ = false;
+  bool has_descendant_that_depends_on_percentage_block_size_ = false;
+  bool has_block_fragmentation_ = false;
+  bool may_have_descendant_above_block_start_ = false;
 };
 
 }  // namespace blink
+
+WTF_ALLOW_MOVE_INIT_AND_COMPARE_WITH_MEM_FUNCTIONS(
+    blink::NGContainerFragmentBuilder::ChildWithOffset)
 
 #endif  // NGContainerFragmentBuilder

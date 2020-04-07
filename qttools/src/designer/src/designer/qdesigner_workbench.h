@@ -162,8 +162,8 @@ private:
     };
     TopLevelData m_topLevelData;
 
-    UIMode m_mode;
-    DockedMainWindow *m_dockedMainWindow;
+    UIMode m_mode = NeutralMode;
+    DockedMainWindow *m_dockedMainWindow = nullptr;
 
     QVector<QDesignerToolWindow *> m_toolWindows;
     QVector<QDesignerFormWindow *> m_formWindows;
@@ -189,12 +189,12 @@ private:
         // main window in MDI mode)
         QPoint m_position;
     };
-    typedef  QHash<QWidget*, Position> PositionMap;
+    using PositionMap = QHash<QWidget*, Position>;
     PositionMap m_Positions;
 
     enum State { StateInitializing, StateUp, StateClosing };
-    State m_state;
-    bool m_uiSettingsChanged; // UI mode changed in preference dialog, trigger delayed slot.
+    State m_state = StateInitializing;
+    bool m_uiSettingsChanged = false; // UI mode changed in preference dialog, trigger delayed slot.
 };
 
 QT_END_NAMESPACE

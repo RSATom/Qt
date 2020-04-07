@@ -364,7 +364,7 @@ namespace sandbox {
 // This test validates that setting the MITIGATION_EXTENSION_POINT_DISABLE
 // mitigation enables the setting on a process.
 TEST(ProcessMitigationsTest, CheckWin8ExtensionPointPolicySuccess) {
-  if (base::win::GetVersion() < base::win::VERSION_WIN8)
+  if (base::win::GetVersion() < base::win::Version::WIN8)
     return;
 
   base::string16 test_command = L"CheckPolicy ";
@@ -399,19 +399,13 @@ TEST(ProcessMitigationsTest, CheckWin8ExtensionPointPolicySuccess) {
 // MANUAL testing only.
 TEST(ProcessMitigationsTest,
      DISABLED_CheckWin8ExtensionPoint_GlobalHook_Success) {
-  if (base::win::GetVersion() < base::win::VERSION_WIN8)
+  if (base::win::GetVersion() < base::win::Version::WIN8)
     return;
 
-  HANDLE mutex = ::CreateMutexW(nullptr, false, g_extension_point_test_mutex);
-  EXPECT_TRUE(mutex);
-  EXPECT_EQ(WAIT_OBJECT_0,
-            ::WaitForSingleObject(mutex, SboxTestEventTimeout()));
+  ScopedTestMutex mutex(g_extension_point_test_mutex);
 
-  // (is_success_test, global_hook)
-  TestWin8ExtensionPointHookWrapper(true, true);
-
-  EXPECT_TRUE(::ReleaseMutex(mutex));
-  EXPECT_TRUE(::CloseHandle(mutex));
+  TestWin8ExtensionPointHookWrapper(true /* is_success_test */,
+                                    true /* global hook */);
 }
 
 // This test validates that setting the MITIGATION_EXTENSION_POINT_DISABLE
@@ -420,19 +414,13 @@ TEST(ProcessMitigationsTest,
 // MANUAL testing only.
 TEST(ProcessMitigationsTest,
      DISABLED_CheckWin8ExtensionPoint_GlobalHook_Failure) {
-  if (base::win::GetVersion() < base::win::VERSION_WIN8)
+  if (base::win::GetVersion() < base::win::Version::WIN8)
     return;
 
-  HANDLE mutex = ::CreateMutexW(nullptr, false, g_extension_point_test_mutex);
-  EXPECT_TRUE(mutex);
-  EXPECT_EQ(WAIT_OBJECT_0,
-            ::WaitForSingleObject(mutex, SboxTestEventTimeout()));
+  ScopedTestMutex mutex(g_extension_point_test_mutex);
 
-  // (is_success_test, global_hook)
-  TestWin8ExtensionPointHookWrapper(false, true);
-
-  EXPECT_TRUE(::ReleaseMutex(mutex));
-  EXPECT_TRUE(::CloseHandle(mutex));
+  TestWin8ExtensionPointHookWrapper(false /* is_success_test */,
+                                    true /* global hook */);
 }
 
 // This test validates that a "legitimate" hook CAN be set on the sandboxed
@@ -440,19 +428,13 @@ TEST(ProcessMitigationsTest,
 //
 // MANUAL testing only.
 TEST(ProcessMitigationsTest, DISABLED_CheckWin8ExtensionPoint_Hook_Success) {
-  if (base::win::GetVersion() < base::win::VERSION_WIN8)
+  if (base::win::GetVersion() < base::win::Version::WIN8)
     return;
 
-  HANDLE mutex = ::CreateMutexW(nullptr, false, g_extension_point_test_mutex);
-  EXPECT_TRUE(mutex);
-  EXPECT_EQ(WAIT_OBJECT_0,
-            ::WaitForSingleObject(mutex, SboxTestEventTimeout()));
+  ScopedTestMutex mutex(g_extension_point_test_mutex);
 
-  // (is_success_test, global_hook)
-  TestWin8ExtensionPointHookWrapper(true, false);
-
-  EXPECT_TRUE(::ReleaseMutex(mutex));
-  EXPECT_TRUE(::CloseHandle(mutex));
+  TestWin8ExtensionPointHookWrapper(true /* is_success_test */,
+                                    false /* global hook */);
 }
 
 // *** Important: MITIGATION_EXTENSION_POINT_DISABLE does NOT prevent
@@ -463,19 +445,13 @@ TEST(ProcessMitigationsTest, DISABLED_CheckWin8ExtensionPoint_Hook_Success) {
 //
 // MANUAL testing only.
 TEST(ProcessMitigationsTest, DISABLED_CheckWin8ExtensionPoint_Hook_Failure) {
-  if (base::win::GetVersion() < base::win::VERSION_WIN8)
+  if (base::win::GetVersion() < base::win::Version::WIN8)
     return;
 
-  HANDLE mutex = ::CreateMutexW(nullptr, false, g_extension_point_test_mutex);
-  EXPECT_TRUE(mutex);
-  EXPECT_EQ(WAIT_OBJECT_0,
-            ::WaitForSingleObject(mutex, SboxTestEventTimeout()));
+  ScopedTestMutex mutex(g_extension_point_test_mutex);
 
-  // (is_success_test, global_hook)
-  TestWin8ExtensionPointHookWrapper(false, false);
-
-  EXPECT_TRUE(::ReleaseMutex(mutex));
-  EXPECT_TRUE(::CloseHandle(mutex));
+  TestWin8ExtensionPointHookWrapper(false /* is_success_test */,
+                                    false /* global hook */);
 }
 
 // This test validates that an AppInit Dll CAN be added to a target
@@ -484,18 +460,12 @@ TEST(ProcessMitigationsTest, DISABLED_CheckWin8ExtensionPoint_Hook_Failure) {
 // MANUAL testing only.
 // Must run this test as admin/elevated.
 TEST(ProcessMitigationsTest, DISABLED_CheckWin8ExtensionPoint_AppInit_Success) {
-  if (base::win::GetVersion() < base::win::VERSION_WIN8)
+  if (base::win::GetVersion() < base::win::Version::WIN8)
     return;
 
-  HANDLE mutex = ::CreateMutexW(nullptr, false, g_extension_point_test_mutex);
-  EXPECT_TRUE(mutex);
-  EXPECT_EQ(WAIT_OBJECT_0,
-            ::WaitForSingleObject(mutex, SboxTestEventTimeout()));
+  ScopedTestMutex mutex(g_extension_point_test_mutex);
 
-  TestWin8ExtensionPointAppInitWrapper(true);
-
-  EXPECT_TRUE(::ReleaseMutex(mutex));
-  EXPECT_TRUE(::CloseHandle(mutex));
+  TestWin8ExtensionPointAppInitWrapper(true /* is_success_test */);
 }
 
 // This test validates that setting the MITIGATION_EXTENSION_POINT_DISABLE
@@ -504,18 +474,12 @@ TEST(ProcessMitigationsTest, DISABLED_CheckWin8ExtensionPoint_AppInit_Success) {
 // MANUAL testing only.
 // Must run this test as admin/elevated.
 TEST(ProcessMitigationsTest, DISABLED_CheckWin8ExtensionPoint_AppInit_Failure) {
-  if (base::win::GetVersion() < base::win::VERSION_WIN8)
+  if (base::win::GetVersion() < base::win::Version::WIN8)
     return;
 
-  HANDLE mutex = ::CreateMutexW(nullptr, false, g_extension_point_test_mutex);
-  EXPECT_TRUE(mutex);
-  EXPECT_EQ(WAIT_OBJECT_0,
-            ::WaitForSingleObject(mutex, SboxTestEventTimeout()));
+  ScopedTestMutex mutex(g_extension_point_test_mutex);
 
-  TestWin8ExtensionPointAppInitWrapper(false);
-
-  EXPECT_TRUE(::ReleaseMutex(mutex));
-  EXPECT_TRUE(::CloseHandle(mutex));
+  TestWin8ExtensionPointAppInitWrapper(false /* is_success_test */);
 }
 
 }  // namespace sandbox

@@ -5,6 +5,7 @@
 #include "content/browser/loader/intercepting_resource_handler.h"
 
 #include "base/auto_reset.h"
+#include "base/bind.h"
 #include "base/location.h"
 #include "base/logging.h"
 #include "base/strings/string_util.h"
@@ -67,9 +68,7 @@ class InterceptingResourceHandler::Controller : public ResourceController {
 InterceptingResourceHandler::InterceptingResourceHandler(
     std::unique_ptr<ResourceHandler> next_handler,
     net::URLRequest* request)
-    : LayeredResourceHandler(request, std::move(next_handler)),
-      weak_ptr_factory_(this) {
-}
+    : LayeredResourceHandler(request, std::move(next_handler)) {}
 
 InterceptingResourceHandler::~InterceptingResourceHandler() {}
 

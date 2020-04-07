@@ -46,10 +46,17 @@ Common.ParsedURL = class {
     this.folderPathComponents = '';
     this.lastPathComponent = '';
 
-    const match = url.match(Common.ParsedURL._urlRegex());
+    const isBlobUrl = this.url.startsWith('blob:');
+    const urlToMatch = isBlobUrl ? url.substring(5) : url;
+    const match = urlToMatch.match(Common.ParsedURL._urlRegex());
     if (match) {
       this.isValid = true;
-      this.scheme = match[2].toLowerCase();
+      if (isBlobUrl) {
+        this._blobInnerScheme = match[2].toLowerCase();
+        this.scheme = 'blob';
+      } else {
+        this.scheme = match[2].toLowerCase();
+      }
       this.user = match[3];
       this.host = match[4];
       this.port = match[5];
@@ -59,6 +66,10 @@ Common.ParsedURL = class {
     } else {
       if (this.url.startsWith('data:')) {
         this.scheme = 'data';
+        return;
+      }
+      if (this.url.startsWith('blob:')) {
+        this.scheme = 'blob';
         return;
       }
       if (this.url === 'about:blank') {
@@ -204,7 +215,8 @@ Common.ParsedURL = class {
   static completeURL(baseURL, href) {
     // Return special URLs as-is.
     const trimmedHref = href.trim();
-    if (trimmedHref.startsWith('data:') || trimmedHref.startsWith('blob:') || trimmedHref.startsWith('javascript:'))
+    if (trimmedHref.startsWith('data:') || trimmedHref.startsWith('blob:') || trimmedHref.startsWith('javascript:') ||
+        trimmedHref.startsWith('mailto:'))
       return href;
 
     // Return absolute URLs as-is.
@@ -296,6 +308,8 @@ Common.ParsedURL = class {
 
     if (this.isDataURL())
       return this.dataURLDisplayName();
+    if (this.isBlobURL())
+      return this.url;
     if (this.isAboutBlank())
       return this.url;
 
@@ -334,6 +348,13 @@ Common.ParsedURL = class {
   }
 
   /**
+   * @return {boolean}
+   */
+  isBlobURL() {
+    return this.url.startsWith('blob:');
+  }
+
+  /**
    * @return {string}
    */
   lastPathComponentWithFragment() {
@@ -355,7 +376,8 @@ Common.ParsedURL = class {
   securityOrigin() {
     if (this.isDataURL())
       return 'data:';
-    return this.scheme + '://' + this.domain();
+    const scheme = this.isBlobURL() ? this._blobInnerScheme : this.scheme;
+    return scheme + '://' + this.domain();
   }
 
   /**

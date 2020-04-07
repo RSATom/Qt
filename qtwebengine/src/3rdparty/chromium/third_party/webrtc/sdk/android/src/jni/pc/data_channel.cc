@@ -15,7 +15,7 @@
 #include "absl/memory/memory.h"
 #include "api/data_channel_interface.h"
 #include "rtc_base/logging.h"
-#include "sdk/android/generated_peerconnection_jni/jni/DataChannel_jni.h"
+#include "sdk/android/generated_peerconnection_jni/DataChannel_jni.h"
 #include "sdk/android/native_api/jni/java_types.h"
 #include "sdk/android/src/jni/jni_helpers.h"
 #include "sdk/android/src/jni/pc/data_channel.h"
@@ -146,10 +146,9 @@ static jboolean JNI_DataChannel_Send(JNIEnv* jni,
                                      const JavaParamRef<jobject>& j_dc,
                                      const JavaParamRef<jbyteArray>& data,
                                      jboolean binary) {
-  jbyte* bytes = jni->GetByteArrayElements(data.obj(), nullptr);
-  bool ret = ExtractNativeDC(jni, j_dc)->Send(DataBuffer(
-      rtc::CopyOnWriteBuffer(bytes, jni->GetArrayLength(data.obj())), binary));
-  jni->ReleaseByteArrayElements(data.obj(), bytes, JNI_ABORT);
+  std::vector<int8_t> buffer = JavaToNativeByteArray(jni, data);
+  bool ret = ExtractNativeDC(jni, j_dc)->Send(
+      DataBuffer(rtc::CopyOnWriteBuffer(buffer.data(), buffer.size()), binary));
   return ret;
 }
 

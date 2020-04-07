@@ -53,17 +53,16 @@
 #include <private/qqmlimport_p.h>
 #include <private/qqmltypenamecache_p.h>
 #include <private/qv4compileddata_p.h>
-#include <private/qqmltypecompiler_p.h>
 #include <private/qfinitestack_p.h>
 #include <private/qrecursionwatcher_p.h>
 #include <private/qqmlprofiler_p.h>
+#include <private/qv4qmlcontext_p.h>
 
 #include <qpointer.h>
 
 QT_BEGIN_NAMESPACE
 
 class QQmlAbstractBinding;
-struct QQmlTypeCompiler;
 class QQmlInstantiationInterrupt;
 class QQmlIncubatorPrivate;
 
@@ -85,7 +84,7 @@ class Q_QML_PRIVATE_EXPORT QQmlObjectCreator
 {
     Q_DECLARE_TR_FUNCTIONS(QQmlObjectCreator)
 public:
-    QQmlObjectCreator(QQmlContextData *parentContext, const QQmlRefPointer<QV4::CompiledData::CompilationUnit> &compilationUnit, QQmlContextData *creationContext, QQmlIncubatorPrivate  *incubator = nullptr);
+    QQmlObjectCreator(QQmlContextData *parentContext, const QQmlRefPointer<QV4::ExecutableCompilationUnit> &compilationUnit, QQmlContextData *creationContext, QQmlIncubatorPrivate  *incubator = nullptr);
     ~QQmlObjectCreator();
 
     QObject *create(int subComponentIndex = -1, QObject *parent = nullptr, QQmlInstantiationInterrupt *interrupt = nullptr);
@@ -94,17 +93,17 @@ public:
     QQmlContextData *finalize(QQmlInstantiationInterrupt &interrupt);
     void clear();
 
-    QQmlComponentAttached **componentAttachment() const { return &sharedState->componentAttached; }
+    QQmlComponentAttached **componentAttachment() { return &sharedState->componentAttached; }
 
-    QList<QQmlEnginePrivate::FinalizeCallback> *finalizeCallbacks() const { return &sharedState->finalizeCallbacks; }
+    QList<QQmlEnginePrivate::FinalizeCallback> *finalizeCallbacks() { return &sharedState->finalizeCallbacks; }
 
     QList<QQmlError> errors;
 
     QQmlContextData *parentContextData() const { return parentContext.contextData(); }
-    QFiniteStack<QPointer<QObject> > &allCreatedObjects() const { return sharedState->allCreatedObjects; }
+    QFiniteStack<QPointer<QObject> > &allCreatedObjects() { return sharedState->allCreatedObjects; }
 
 private:
-    QQmlObjectCreator(QQmlContextData *contextData, const QQmlRefPointer<QV4::CompiledData::CompilationUnit> &compilationUnit, QQmlObjectCreatorSharedState *inheritedSharedState);
+    QQmlObjectCreator(QQmlContextData *contextData, const QQmlRefPointer<QV4::ExecutableCompilationUnit> &compilationUnit, QQmlObjectCreatorSharedState *inheritedSharedState);
 
     void init(QQmlContextData *parentContext);
 
@@ -125,7 +124,7 @@ private:
 
     inline QV4::QmlContext *currentQmlContext();
     Q_NEVER_INLINE void createQmlContext();
-    QV4::CompiledData::ResolvedTypeReference *resolvedType(int id) const
+    QV4::ResolvedTypeReference *resolvedType(int id) const
     {
         return compilationUnit->resolvedType(id);
     }
@@ -141,7 +140,7 @@ private:
 
     QQmlEngine *engine;
     QV4::ExecutionEngine *v4;
-    QQmlRefPointer<QV4::CompiledData::CompilationUnit> compilationUnit;
+    QQmlRefPointer<QV4::ExecutableCompilationUnit> compilationUnit;
     const QV4::CompiledData::Unit *qmlUnit;
     QQmlGuardedContextData parentContext;
     QQmlContextData *context;

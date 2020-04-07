@@ -18,9 +18,9 @@
 #include "services/network/public/mojom/tls_socket.mojom.h"
 
 namespace net {
-class ClientSocketHandle;
 class ClientSocketFactory;
 class SSLConfigService;
+class StreamSocket;
 }  // namespace net
 
 namespace network {
@@ -69,21 +69,21 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) TLSSocketFactory {
       const net::HostPortPair& host_port_pair,
       mojom::TLSClientSocketOptionsPtr socket_options,
       mojom::TLSClientSocketRequest request,
-      std::unique_ptr<net::ClientSocketHandle> socket,
+      std::unique_ptr<net::StreamSocket> underlying_socket,
       mojom::SocketObserverPtr observer,
       const net::NetworkTrafficAnnotationTag& traffic_annotation,
       mojom::TCPConnectedSocket::UpgradeToTLSCallback callback);
 
   // The following are used when |unsafely_skip_cert_verification| is specified
   // in upgrade options.
-  net::SSLClientSocketContext no_verification_ssl_client_socket_context_;
+  std::unique_ptr<net::SSLClientContext> no_verification_ssl_client_context_;
   std::unique_ptr<net::CertVerifier> no_verification_cert_verifier_;
   std::unique_ptr<net::TransportSecurityState>
       no_verification_transport_security_state_;
   std::unique_ptr<net::CTVerifier> no_verification_cert_transparency_verifier_;
   std::unique_ptr<net::CTPolicyEnforcer> no_verification_ct_policy_enforcer_;
 
-  net::SSLClientSocketContext ssl_client_socket_context_;
+  net::SSLClientContext ssl_client_context_;
   net::ClientSocketFactory* client_socket_factory_;
   net::SSLConfigService* const ssl_config_service_;
   mojo::StrongBindingSet<mojom::TLSClientSocket> tls_socket_bindings_;

@@ -45,14 +45,15 @@ bool StructTraits<blink::mojom::IDBDatabaseMetadataDataView,
     DCHECK(!out->object_stores.Contains(key));
     out->object_stores.insert(key, object_store);
   }
+  out->was_cold_open = data.was_cold_open();
   return true;
 }
 
 // static
 bool StructTraits<blink::mojom::IDBIndexKeysDataView, blink::IDBIndexKeys>::
     Read(blink::mojom::IDBIndexKeysDataView data, blink::IDBIndexKeys* out) {
-  out->first = data.index_id();
-  if (!data.ReadIndexKeys(&out->second))
+  out->id = data.index_id();
+  if (!data.ReadIndexKeys(&out->keys))
     return false;
   return true;
 }
@@ -227,8 +228,8 @@ bool StructTraits<blink::mojom::IDBValueDataView,
     return false;
 
   if (value_bits.IsEmpty()) {
-    *out = blink::IDBValue::Create(scoped_refptr<blink::SharedBuffer>(),
-                                   Vector<blink::WebBlobInfo>());
+    *out = std::make_unique<blink::IDBValue>(
+        scoped_refptr<blink::SharedBuffer>(), Vector<blink::WebBlobInfo>());
     return true;
   }
 
@@ -254,8 +255,8 @@ bool StructTraits<blink::mojom::IDBValueDataView,
     }
   }
 
-  *out = blink::IDBValue::Create(std::move(value_buffer),
-                                 std::move(value_blob_info));
+  *out = std::make_unique<blink::IDBValue>(std::move(value_buffer),
+                                           std::move(value_blob_info));
   return true;
 }
 

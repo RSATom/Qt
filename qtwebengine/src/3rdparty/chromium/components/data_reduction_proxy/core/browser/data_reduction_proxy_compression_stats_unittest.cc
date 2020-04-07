@@ -10,6 +10,7 @@
 #include <string>
 #include <utility>
 
+#include "base/bind.h"
 #include "base/memory/ptr_util.h"
 #include "base/memory/ref_counted.h"
 #include "base/run_loop.h"
@@ -175,7 +176,7 @@ class DataReductionProxyCompressionStatsTest : public testing::Test {
     base::ListValue* update = compression_stats_->GetList(pref);
     update->Clear();
     for (size_t i = 0; i < kNumDaysInHistory; ++i) {
-      update->Insert(0, std::make_unique<base::Value>(base::Int64ToString(0)));
+      update->Insert(0, std::make_unique<base::Value>(base::NumberToString(0)));
     }
   }
 
@@ -491,10 +492,10 @@ class DataReductionProxyCompressionStatsTest : public testing::Test {
                             int expected_value) const {
     const base::DictionaryValue* dict =
         compression_stats_->pref_service_->GetDictionary(pref);
-    EXPECT_EQ(expected_value != 0, dict->HasKey(base::IntToString(key)));
+    EXPECT_EQ(expected_value != 0, dict->HasKey(base::NumberToString(key)));
     if (expected_value) {
       EXPECT_EQ(expected_value,
-                dict->FindKey(base::IntToString(key))->GetInt());
+                dict->FindKey(base::NumberToString(key))->GetInt());
     }
   }
 
@@ -536,7 +537,7 @@ TEST_F(DataReductionProxyCompressionStatsTest, WritePrefsDelayed) {
 TEST_F(DataReductionProxyCompressionStatsTest, StatsRestoredOnOnRestart) {
   base::ListValue list_value;
   list_value.Insert(0,
-                    std::make_unique<base::Value>(base::Int64ToString(1234)));
+                    std::make_unique<base::Value>(base::NumberToString(1234)));
   pref_service()->Set(prefs::kDailyHttpOriginalContentLength, list_value);
 
   ResetCompressionStatsWithDelay(
@@ -1105,7 +1106,7 @@ TEST_F(DataReductionProxyCompressionStatsTest,
   base::RunLoop().RunUntilIdle();
 
   base::Time now = base::Time::Now();
-  base::Time fifteen_mins_ago = now - TimeDelta::FromMinutes(15);
+  base::Time fifteen_mins_ago = now - base::TimeDelta::FromMinutes(15);
 
   RecordDataUsage("https://www.foo.com", 1000, 1250, fifteen_mins_ago);
 
@@ -1145,7 +1146,7 @@ TEST_F(DataReductionProxyCompressionStatsTest,
   base::RunLoop().RunUntilIdle();
 
   base::Time now = base::Time::Now();
-  base::Time fifteen_mins_ago = now - TimeDelta::FromMinutes(15);
+  base::Time fifteen_mins_ago = now - base::TimeDelta::FromMinutes(15);
 
   RecordDataUsage("https://www.foo.com", 1000, 1250, fifteen_mins_ago);
 
@@ -1173,7 +1174,7 @@ TEST_F(DataReductionProxyCompressionStatsTest, DeleteHistoricalDataUsage) {
   base::RunLoop().RunUntilIdle();
 
   base::Time now = base::Time::Now();
-  base::Time fifteen_mins_ago = now - TimeDelta::FromMinutes(15);
+  base::Time fifteen_mins_ago = now - base::TimeDelta::FromMinutes(15);
   // Fake record to be from 15 minutes ago so that it is flushed to storage.
   RecordDataUsage("https://www.bar.com", 900, 1100, fifteen_mins_ago);
 
@@ -1198,7 +1199,7 @@ TEST_F(DataReductionProxyCompressionStatsTest, DeleteBrowsingHistory) {
   base::RunLoop().RunUntilIdle();
 
   base::Time now = base::Time::Now();
-  base::Time fifteen_mins_ago = now - TimeDelta::FromMinutes(15);
+  base::Time fifteen_mins_ago = now - base::TimeDelta::FromMinutes(15);
 
   // Fake record to be from 15 minutes ago so that it is flushed to storage.
   RecordDataUsage("https://www.bar.com", 900, 1100, fifteen_mins_ago);
@@ -1246,7 +1247,7 @@ TEST_F(DataReductionProxyCompressionStatsTest, ClearDataSavingStatistics) {
   base::RunLoop().RunUntilIdle();
 
   base::Time now = base::Time::Now();
-  base::Time fifteen_mins_ago = now - TimeDelta::FromMinutes(15);
+  base::Time fifteen_mins_ago = now - base::TimeDelta::FromMinutes(15);
   // Fake record to be from 15 minutes ago so that it is flushed to storage.
   RecordDataUsage("https://www.bar.com", 900, 1100, fifteen_mins_ago);
 

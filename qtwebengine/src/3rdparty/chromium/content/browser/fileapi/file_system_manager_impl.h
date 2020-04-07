@@ -19,7 +19,7 @@
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/shared_memory.h"
-#include "components/services/filesystem/public/interfaces/types.mojom.h"
+#include "components/services/filesystem/public/mojom/types.mojom.h"
 #include "content/browser/streams/stream.h"
 #include "content/browser/streams/stream_context.h"
 #include "content/common/content_export.h"
@@ -62,7 +62,6 @@ class CONTENT_EXPORT FileSystemManagerImpl
   // and pepper (via the render process host).
   FileSystemManagerImpl(
       int process_id,
-      int frame_id,
       scoped_refptr<storage::FileSystemContext> file_system_context,
       scoped_refptr<ChromeBlobStorageContext> blob_storage_context);
   ~FileSystemManagerImpl() override;
@@ -123,13 +122,6 @@ class CONTENT_EXPORT FileSystemManagerImpl
                           CreateSnapshotFileCallback callback) override;
   void GetPlatformPath(const GURL& file_path,
                        GetPlatformPathCallback callback) override;
-  void CreateWriter(const GURL& file_path,
-                    CreateWriterCallback callback) override;
-  void ChooseEntry(
-      blink::mojom::ChooseFileSystemEntryType type,
-      std::vector<blink::mojom::ChooseFileSystemEntryAcceptsOptionPtr> accepts,
-      bool include_accepts_all,
-      ChooseEntryCallback callback) override;
 
  private:
   class FileSystemCancellableOperationImpl;
@@ -212,7 +204,6 @@ class CONTENT_EXPORT FileSystemManagerImpl
   void OnConnectionErrorForOpListeners(OperationListenerID listener_id);
 
   const int process_id_;
-  const int frame_id_;
   const scoped_refptr<storage::FileSystemContext> context_;
   ChildProcessSecurityPolicyImpl* const security_policy_;
   const scoped_refptr<ChromeBlobStorageContext> blob_storage_context_;
@@ -234,7 +225,7 @@ class CONTENT_EXPORT FileSystemManagerImpl
   base::IDMap<scoped_refptr<storage::ShareableFileReference>>
       in_transit_snapshot_files_;
 
-  base::WeakPtrFactory<FileSystemManagerImpl> weak_factory_;
+  base::WeakPtrFactory<FileSystemManagerImpl> weak_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(FileSystemManagerImpl);
 };

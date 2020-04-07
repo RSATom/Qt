@@ -57,6 +57,10 @@
 
 QT_BEGIN_NAMESPACE
 
+// Note: this legacy ShaderEffect implementation is used only when running
+// directly with OpenGL. This is going to go away in the future (Qt 6?), since
+// the RHI path uses QQuickGenericShaderEffect always.
+
 namespace {
 
     enum VariableQualifier {
@@ -185,8 +189,8 @@ class MappedSlotObject: public QtPrivate::QSlotObjectBase
 public:
     typedef std::function<void()> PropChangedFunc;
 
-    explicit MappedSlotObject(PropChangedFunc func)
-        : QSlotObjectBase(&impl), _signalIndex(-1), func(func)
+    explicit MappedSlotObject(PropChangedFunc f)
+        : QSlotObjectBase(&impl), _signalIndex(-1), func(std::move(f))
     { ref(); }
 
     void setSignalIndex(int idx) { _signalIndex = idx; }
@@ -710,8 +714,8 @@ void QQuickOpenGLShaderEffect::setBlending(bool enable)
 
 QVariant QQuickOpenGLShaderEffect::mesh() const
 {
-    return m_mesh ? qVariantFromValue(static_cast<QObject *>(m_mesh))
-                  : qVariantFromValue(m_meshResolution);
+    return m_mesh ? QVariant::fromValue(static_cast<QObject *>(m_mesh))
+                  : QVariant::fromValue(m_meshResolution);
 }
 
 void QQuickOpenGLShaderEffect::setMesh(const QVariant &mesh)

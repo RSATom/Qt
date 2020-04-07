@@ -1,8 +1,11 @@
 [udpTest]
 *
 [passwordAuth]
-*
-[serverTest]
-windows
+ubuntu-18.04
+# QTBUG-74162
+[passwordAuth2]
+ubuntu
 [downloadBigFile]
-windows
+windows-10 msvc-2015
+windows-7sp1
+

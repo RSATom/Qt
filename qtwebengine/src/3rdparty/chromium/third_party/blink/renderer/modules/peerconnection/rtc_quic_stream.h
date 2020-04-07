@@ -5,7 +5,7 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_MODULES_PEERCONNECTION_RTC_QUIC_STREAM_H_
 #define THIRD_PARTY_BLINK_RENDERER_MODULES_PEERCONNECTION_RTC_QUIC_STREAM_H_
 
-#include "third_party/blink/renderer/core/dom/context_lifecycle_observer.h"
+#include "third_party/blink/renderer/core/execution_context/context_lifecycle_observer.h"
 #include "third_party/blink/renderer/core/typed_arrays/array_buffer_view_helpers.h"
 #include "third_party/blink/renderer/core/typed_arrays/dom_typed_array.h"
 #include "third_party/blink/renderer/modules/event_target_modules.h"
@@ -21,35 +21,6 @@ namespace blink {
 class ScriptPromise;
 
 enum class RTCQuicStreamState { kNew, kOpening, kOpen, kClosing, kClosed };
-
-// This enum is used to track how the readInto() API is used in
-// the origin trial. This tracks what the result type is when reading.
-// These values are persisted to logs. Entries should not be renumbered and
-// numeric values should never be reused.
-enum class ReadIntoResult {
-  // Reading data with the FIN bit (finish).
-  kSomeDataWithFin = 0,
-  // Reading data without a FIN bit (finish).
-  kSomeDataNoFin = 1,
-  // Reading just the FIN bit (finished reading).
-  kNoDataWithFin = 2,
-  // Nothing read.
-  kNoDataNoFin = 3,
-  kMaxValue = kNoDataNoFin,
-};
-
-// This enum is used to track how the write() API is used in the origin trial.
-// These values are persisted to logs. Entries should not be renumbered and
-// numeric values should never be reused.
-enum class WriteUsage {
-  // Writing data with the FIN bit (finish).
-  kSomeDataWithFin = 0,
-  // Writing data without the FIN bit (finish).
-  kSomeDataNoFin = 1,
-  // Writing only the FIN bit (finished writing).
-  kNoDataWithFin = 2,
-  kMaxValue = kNoDataWithFin,
-};
 
 // The RTCQuicStream does not need to be ActiveScriptWrappable since the
 // RTCQuicTransport that it is associated with holds a strong reference to it
@@ -105,7 +76,7 @@ class MODULES_EXPORT RTCQuicStream final : public EventTargetWithInlineData,
   ScriptPromise waitForReadable(ScriptState* script_state,
                                 uint32_t amount,
                                 ExceptionState& exception_state);
-  DEFINE_ATTRIBUTE_EVENT_LISTENER(statechange, kStatechange);
+  DEFINE_ATTRIBUTE_EVENT_LISTENER(statechange, kStatechange)
 
   // EventTarget overrides.
   const AtomicString& InterfaceName() const override;

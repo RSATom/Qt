@@ -7,18 +7,20 @@
 #include <string>
 
 #include "base/android/jni_string.h"
+#include "base/bind.h"
 #include "base/memory/singleton.h"
 #include "base/strings/utf_string_conversions.h"
 #include "content/common/buildflags.h"
+#include "content/public/android/content_jni_headers/TtsPlatformImpl_jni.h"
 #include "content/public/browser/tts_controller.h"
-#include "jni/TtsPlatformImpl_jni.h"
 
 using base::android::AttachCurrentThread;
 using base::android::JavaParamRef;
 
 namespace content {
 
-TtsPlatformImplAndroid::TtsPlatformImplAndroid() : utterance_id_(0) {
+TtsPlatformImplAndroid::TtsPlatformImplAndroid()
+    : utterance_id_(0), weak_factory_(this) {
   JNIEnv* env = AttachCurrentThread();
   java_ref_.Reset(
       Java_TtsPlatformImpl_create(env, reinterpret_cast<intptr_t>(this)));
@@ -33,24 +35,41 @@ bool TtsPlatformImplAndroid::PlatformImplAvailable() {
   return true;
 }
 
-bool TtsPlatformImplAndroid::Speak(
+void TtsPlatformImplAndroid::Speak(
     int utterance_id,
     const std::string& utterance,
     const std::string& lang,
     const VoiceData& voice,
-    const UtteranceContinuousParameters& params) {
+    const UtteranceContinuousParameters& params,
+    base::OnceCallback<void(bool)> on_speak_finished) {
+  // Parse SSML and process speech.
+  TtsController::GetInstance()->StripSSML(
+      utterance, base::BindOnce(&TtsPlatformImplAndroid::ProcessSpeech,
+                                weak_factory_.GetWeakPtr(), utterance_id, lang,
+                                voice, params, std::move(on_speak_finished)));
+}
+
+void TtsPlatformImplAndroid::ProcessSpeech(
+    int utterance_id,
+    const std::string& lang,
+    const VoiceData& voice,
+    const UtteranceContinuousParameters& params,
+    base::OnceCallback<void(bool)> on_speak_finished,
+    const std::string& parsed_utterance) {
   JNIEnv* env = AttachCurrentThread();
   jboolean success = Java_TtsPlatformImpl_speak(
       env, java_ref_, utterance_id,
-      base::android::ConvertUTF8ToJavaString(env, utterance),
+      base::android::ConvertUTF8ToJavaString(env, parsed_utterance),
       base::android::ConvertUTF8ToJavaString(env, lang), params.rate,
       params.pitch, params.volume);
-  if (!success)
-    return false;
+  if (!success) {
+    std::move(on_speak_finished).Run(false);
+    return;
+  }
 
-  utterance_ = utterance;
+  utterance_ = parsed_utterance;
   utterance_id_ = utterance_id;
-  return true;
+  std::move(on_speak_finished).Run(true);
 }
 
 bool TtsPlatformImplAndroid::StopSpeaking() {
@@ -116,7 +135,7 @@ void TtsPlatformImplAndroid::OnStartEvent(JNIEnv* env,
     return;
 
   TtsController::GetInstance()->OnTtsEvent(utterance_id_, TTS_EVENT_START, 0,
-                                           std::string());
+                                           utterance_.size(), std::string());
 }
 
 void TtsPlatformImplAndroid::SendFinalTtsEvent(int utterance_id,
@@ -126,7 +145,7 @@ void TtsPlatformImplAndroid::SendFinalTtsEvent(int utterance_id,
     return;
 
   TtsController::GetInstance()->OnTtsEvent(utterance_id_, event_type,
-                                           char_index, std::string());
+                                           char_index, -1, std::string());
   utterance_id_ = 0;
   utterance_.clear();
 }

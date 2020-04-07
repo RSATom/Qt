@@ -110,7 +110,6 @@ if (is_android) {
     sources = [
       "android/java/src/org/chromium/url/IDNStringUtil.java",
     ]
-    jni_package = "url"
   }
 }
 
@@ -132,6 +131,7 @@ test("url_unittests") {
     ":url",
     "//base",
     "//base/test:test_support",
+    "//testing/gmock",
     "//testing/gtest",
   ]
 

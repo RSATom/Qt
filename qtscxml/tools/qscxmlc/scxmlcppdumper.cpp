@@ -676,11 +676,11 @@ QString CppDumper::mangleIdentifier(const QString &str)
     }
 
     for (int ei = str.length(); i != ei; ++i) {
-        auto c = str.at(i).unicode();
+        auto c = str.at(i);
         if ((c >= QLatin1Char('0') && c <= QLatin1Char('9')) || isNonDigit(c)) {
             mangled += c;
         } else {
-            mangled += QLatin1String("_0x") + QString::number(c, 16) + QLatin1Char('_');
+            mangled += QLatin1String("_0x") + QString::number(c.unicode(), 16) + QLatin1Char('_');
         }
     }
 

@@ -18,6 +18,7 @@
 #include "content/public/common/drop_data.h"
 #include "services/metrics/public/cpp/ukm_recorder.h"
 #include "third_party/blink/public/common/manifest/web_display_mode.h"
+#include "third_party/blink/public/mojom/frame/lifecycle.mojom.h"
 #include "third_party/blink/public/platform/web_drag_operation.h"
 #include "third_party/blink/public/platform/web_input_event.h"
 #include "ui/gfx/native_widget_types.h"
@@ -40,6 +41,7 @@ class Sample;
 namespace content {
 
 class BrowserAccessibilityManager;
+class RenderFrameHostImpl;
 class RenderWidgetHostImpl;
 class RenderWidgetHostInputEventRouter;
 class RenderViewHostDelegateView;
@@ -61,8 +63,6 @@ class CONTENT_EXPORT RenderWidgetHostDelegate {
   virtual void SetTopControlsShownRatio(
       RenderWidgetHostImpl* render_widget_host,
       float ratio) {}
-  virtual bool DoBrowserControlsShrinkRendererSize() const;
-  virtual int GetTopControlsHeight() const;
   virtual void SetTopControlsGestureScrollInProgress(bool in_progress) {}
 
   // The RenderWidgetHost has just been created.
@@ -189,6 +189,12 @@ class CONTENT_EXPORT RenderWidgetHostDelegate {
   // warning shown to the user.
   virtual void RendererResponsive(RenderWidgetHostImpl* render_widget_host) {}
 
+  // Notification that a cross-process subframe on this page has crashed, and a
+  // sad frame is shown if the subframe was visible.  |frame_visibility|
+  // specifies whether the subframe is visible, scrolled out of view, or hidden
+  // (e.g., with "display: none").
+  virtual void SubframeCrashed(blink::mojom::FrameVisibility visibility) {}
+
   // Requests to lock the mouse. Once the request is approved or rejected,
   // GotResponseToLockMouseRequest() will be called on the requesting render
   // widget host. |privileged| means that the request is always granted, used
@@ -239,7 +245,8 @@ class CONTENT_EXPORT RenderWidgetHostDelegate {
   // WebContents changes. This method is only called on an inner WebContents and
   // will eventually notify all the RenderWidgetHostViews belonging to that
   // WebContents.
-  virtual void OnRenderFrameProxyVisibilityChanged(bool visible) {}
+  virtual void OnRenderFrameProxyVisibilityChanged(
+      blink::mojom::FrameVisibility visibility) {}
 
   // Update the renderer's cache of the screen rect of the view and window.
   virtual void SendScreenRects() {}
@@ -251,6 +258,7 @@ class CONTENT_EXPORT RenderWidgetHostDelegate {
   // the RenderWidgetHost to ask the delegate if it can be shown in the event of
   // something other than the WebContents attempting to enable visibility of
   // this RenderWidgetHost.
+  // TODO(nasko): Move this to RenderViewHostDelegate.
   virtual bool IsHidden();
 
   // Returns the associated RenderViewHostDelegateView*, if possible.
@@ -316,6 +324,14 @@ class CONTENT_EXPORT RenderWidgetHostDelegate {
   // Returns an object that will override handling of Text Input and Mouse
   // Lock events from the renderer.
   virtual InputEventShim* GetInputEventShim() const;
+
+  // Notifies all renderers in a page about changes to the size of the visible
+  // viewport.
+  virtual void NotifyVisibleViewportSizeChanged(
+      const gfx::Size& visible_viewport_size) {}
+
+  // Returns the focused frame across all delegates, or nullptr if none.
+  virtual RenderFrameHostImpl* GetFocusedFrameFromFocusedDelegate();
 
  protected:
   virtual ~RenderWidgetHostDelegate() {}

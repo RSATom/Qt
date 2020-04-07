@@ -36,6 +36,10 @@
 
 #include "socketcanbackend.h"
 
+#include "libsocketcan.h"
+
+#include <QtSerialBus/qcanbusdevice.h>
+
 #include <QtCore/qdatastream.h>
 #include <QtCore/qdebug.h>
 #include <QtCore/qdiriterator.h>
@@ -182,7 +186,25 @@ QList<QCanBusDeviceInfo> SocketCanBackend::interfaces()
 SocketCanBackend::SocketCanBackend(const QString &name) :
     canSocketName(name)
 {
+    QString errorString;
+    libSocketCan.reset(new LibSocketCan(&errorString));
+    if (Q_UNLIKELY(!errorString.isEmpty())) {
+        qCInfo(QT_CANBUS_PLUGINS_SOCKETCAN,
+               "Cannot load library libsocketcan, some functionality will not be available.\n%ls",
+               qUtf16Printable(errorString));
+    }
+
     resetConfigurations();
+
+    std::function<void()> f = std::bind(&SocketCanBackend::resetController, this);
+    setResetControllerFunction(f);
+
+    if (hasBusStatus()) {
+        // Only register busStatus when libsocketcan is available
+        // QCanBusDevice::hasBusStatus() will return false otherwise
+        std::function<CanBusStatus()> g = std::bind(&SocketCanBackend::busStatus, this);
+        setCanBusStatusGetter(g);
+    }
 }
 
 SocketCanBackend::~SocketCanBackend()
@@ -201,6 +223,8 @@ void SocketCanBackend::resetConfigurations()
                 QVariant::fromValue(QCanBusFrame::FrameErrors(QCanBusFrame::AnyError)));
     QCanBusDevice::setConfigurationParameter(
                 QCanBusDevice::CanFdKey, false);
+    QCanBusDevice::setConfigurationParameter(
+                QCanBusDevice::BitRateKey, 500000);
 }
 
 bool SocketCanBackend::open()
@@ -346,6 +370,12 @@ bool SocketCanBackend::applyConfigurationParameter(int key, const QVariant &valu
         success = true;
         break;
     }
+    case QCanBusDevice::BitRateKey:
+    {
+        const quint32 bitRate = value.toUInt();
+        libSocketCan->setBitrate(canSocketName, bitRate);
+        break;
+    }
     default:
         setError(tr("SocketCanBackend: No such configuration as %1 in SocketCanBackend").arg(key),
                  QCanBusDevice::CanBusError::ConfigurationError);
@@ -359,7 +389,7 @@ bool SocketCanBackend::connectSocket()
 {
     struct ifreq interface;
 
-    if (Q_UNLIKELY((canSocket = socket(PF_CAN, SOCK_RAW | SOCK_NONBLOCK, CAN_RAW)) < 0)) {
+    if (Q_UNLIKELY((canSocket = socket(PF_CAN, SOCK_RAW | SOCK_NONBLOCK, protocol)) < 0)) {
         setError(qt_error_string(errno),
                  QCanBusDevice::CanBusError::ConnectionError);
         return false;
@@ -434,6 +464,16 @@ void SocketCanBackend::setConfigurationParameter(int key, const QVariant &value)
                 return;
             }
         }
+    } else if (key == QCanBusDevice::ProtocolKey) {
+        bool ok = false;
+        const int newProtocol = value.toInt(&ok);
+        if (Q_UNLIKELY(!ok || (newProtocol < 0))) {
+            const QString errorString = tr("Cannot set protocol to value %1.").arg(value.toString());
+            setError(errorString, QCanBusDevice::ConfigurationError);
+            qCWarning(QT_CANBUS_PLUGINS_SOCKETCAN, "%ls", qUtf16Printable(errorString));
+            return;
+        }
+        protocol = newProtocol;
     }
     // connected & params not applyable/invalid
     if (canSocket != -1 && !applyConfigurationParameter(key, value))
@@ -729,6 +769,21 @@ void SocketCanBackend::readSocket()
     }
 
     enqueueReceivedFrames(newFrames);
+}
+
+void SocketCanBackend::resetController()
+{
+    libSocketCan->restart(canSocketName);
+}
+
+bool SocketCanBackend::hasBusStatus() const
+{
+    return libSocketCan->hasBusStatus();
+}
+
+QCanBusDevice::CanBusStatus SocketCanBackend::busStatus() const
+{
+    return libSocketCan->busStatus(canSocketName);
 }
 
 QT_END_NAMESPACE

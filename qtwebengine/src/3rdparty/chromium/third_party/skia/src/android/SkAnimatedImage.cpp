@@ -5,16 +5,17 @@
  * found in the LICENSE file.
  */
 
-#include "SkAndroidCodec.h"
-#include "SkAnimatedImage.h"
-#include "SkCanvas.h"
-#include "SkCodec.h"
-#include "SkCodecPriv.h"
-#include "SkImagePriv.h"
-#include "SkPicture.h"
-#include "SkPictureRecorder.h"
-#include "SkPixelRef.h"
+#include "include/android/SkAnimatedImage.h"
+#include "include/codec/SkAndroidCodec.h"
+#include "include/codec/SkCodec.h"
+#include "include/core/SkCanvas.h"
+#include "include/core/SkPicture.h"
+#include "include/core/SkPictureRecorder.h"
+#include "include/core/SkPixelRef.h"
+#include "src/codec/SkCodecPriv.h"
+#include "src/core/SkImagePriv.h"
 
+#include <limits.h>
 #include <utility>
 
 sk_sp<SkAnimatedImage> SkAnimatedImage::Make(std::unique_ptr<SkAndroidCodec> codec,
@@ -22,14 +23,24 @@ sk_sp<SkAnimatedImage> SkAnimatedImage::Make(std::unique_ptr<SkAndroidCodec> cod
     if (!codec) {
         return nullptr;
     }
+    auto info = codec->getInfo().makeWH(scaledSize.width(), scaledSize.height());
+    return Make(std::move(codec), info, cropRect, std::move(postProcess));
+}
 
-    SkISize decodeSize = scaledSize;
-    auto decodeInfo = codec->getInfo();
-    if (codec->getEncodedFormat() == SkEncodedImageFormat::kWEBP
-            && scaledSize.width()  < decodeInfo.width()
-            && scaledSize.height() < decodeInfo.height()) {
-        // libwebp can decode to arbitrary smaller sizes.
-        decodeInfo = decodeInfo.makeWH(decodeSize.width(), decodeSize.height());
+sk_sp<SkAnimatedImage> SkAnimatedImage::Make(std::unique_ptr<SkAndroidCodec> codec,
+        const SkImageInfo& requestedInfo, SkIRect cropRect, sk_sp<SkPicture> postProcess) {
+    if (!codec) {
+        return nullptr;
+    }
+
+    auto scaledSize = requestedInfo.dimensions();
+    auto decodeInfo = requestedInfo;
+    if (codec->getEncodedFormat() != SkEncodedImageFormat::kWEBP
+            || scaledSize.width()  >= decodeInfo.width()
+            || scaledSize.height() >= decodeInfo.height()) {
+        // Only libwebp can decode to arbitrary smaller sizes.
+        auto dims = codec->getInfo().dimensions();
+        decodeInfo = decodeInfo.makeWH(dims.width(), dims.height());
     }
 
     auto image = sk_sp<SkAnimatedImage>(new SkAnimatedImage(std::move(codec), scaledSize,

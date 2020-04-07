@@ -9,10 +9,12 @@ import "mojo/public/mojom/base/file_path.mojom";
 import "mojo/public/mojom/base/memory_pressure_level.mojom";
 import "mojo/public/mojom/base/read_only_buffer.mojom";
 import "mojo/public/mojom/base/string16.mojom";
+import "mojo/public/mojom/base/time.mojom";
 import "mojo/public/mojom/base/unguessable_token.mojom";
 import "mojo/public/mojom/base/values.mojom";
 import "services/network/public/mojom/cookie_manager.mojom";
 import "services/network/public/mojom/host_resolver.mojom";
+import "services/network/public/mojom/http_raw_headers.mojom";
 import "services/network/public/mojom/net_log.mojom";
 import "services/network/public/mojom/network_change_manager.mojom";
 import "services/network/public/mojom/network_context.mojom";
@@ -23,9 +25,6 @@ import "services/network/public/mojom/url_loader.mojom";
 import "services/network/public/mojom/url_loader_factory.mojom";
 import "url/mojom/origin.mojom";
 import "url/mojom/url.mojom";
-
-[EnableIf=is_ct_supported]
-import "services/network/public/mojom/signed_tree_head.mojom";
 
 [EnableIf=is_android]
 import "mojo/public/mojom/base/application_state.mojom";
@@ -52,6 +51,37 @@ interface AuthChallengeResponder {
    OnAuthCredentials(AuthCredentials? credentials);
 };
 
+// This interface enables the UI to send client certificate selections back to
+// the network service.
+//
+// Defining an interface for this purpose, rather than using a union in the
+// response of OnCertificateRequested, enables the NetworkServiceClient to learn
+// of the URLLoader destruction via the connection error handler.
+interface ClientCertificateResponder {
+  // Use the selected certificate and continue the URLRequest.
+  //
+  // - |provider_name| corresponds to the return value of
+  //   net::SSLPrivateKey::GetProviderName().
+  // - |algorithm_preferences| corresponds to the return value of
+  //   net::SSLPrivateKey::GetAlgorithmPreferences().
+  ContinueWithCertificate(network.mojom.X509Certificate x509_certificate,
+                          string provider_name,
+                          array<uint16> algorithm_preferences,
+                          SSLPrivateKey ssl_private_key);
+
+  // Affirmatively select no certificate (this is cached and can affect future
+  // URLRequests). Does not cancel the URLRequest.
+  //
+  // The connection is continued with no client cert.
+  // net::URLRequest::ContinueWithCertificate(nullptr, nullptr) needs to be
+  // called.
+  ContinueWithoutCertificate();
+
+  // Cancel the URLRequest. The request is aborted.
+  // net::URLRequest::CancelWithError() needs to be called.
+  CancelRequest();
+};
+
 struct LoadInfo {
   uint32 process_id;
   uint32 routing_id;
@@ -68,52 +98,42 @@ interface NetworkServiceClient {
   // The |auth_challenge_responder| will respond to auth challenge with
   // credentials. |head| can provide response headers for the response
   // which has elicited this auth request, if applicable.
-  OnAuthRequired(uint32 process_id,
-                 uint32 routing_id,
-                 uint32 request_id,
-                 url.mojom.Url url,
-                 url.mojom.Url site_for_cookies,
-                 bool first_auth_attempt,
-                 AuthChallengeInfo auth_info,
-                 int32 resource_type,
-                 URLResponseHead? head,
-                 AuthChallengeResponder auth_challenge_responder);
-  // Called when an SSL certificate requested message is received for client
-  // authentication.
-  // The |provider_name| parameter corresponses to the return value of
-  // net::SSLPrivateKey::GetProviderName().
-  // The |algorithm_preferences| parameter corresponds to the return value
-  // of net::SSLPrivateKey::GetAlgorithmPreferences().
-  // The |cancel_certificate_selection| parameter is used to distinguish
-  // between the following two cases because the |x509_certificate| will be
-  // nullptr in both cases:
-  // 1. The connection is continued with no client cert,
-  // net::URLRequest::ContinueWithCertificate(nullptr, nullptr) needs to be
-  // called.
-  // 2. The request is aborted, net::URLRequest::CancelWithError() needs to be
-  // called.
   //
   // |window_id| or else |process_id| and |routing_id| indicates
   // the frame making the request, see
   // network::ResourceRequest::fetch_window_id.
+  OnAuthRequired(mojo_base.mojom.UnguessableToken? window_id,
+                 uint32 process_id,
+                 uint32 routing_id,
+                 uint32 request_id,
+                 url.mojom.Url url,
+                 bool first_auth_attempt,
+                 AuthChallengeInfo auth_info,
+                 URLResponseHead? head,
+                 AuthChallengeResponder auth_challenge_responder);
+
+  // Called when an SSL certificate requested message is received for client
+  // authentication.
+  //
+  // Rather than using one response for multiple purposes, the caller expects
+  // exactly one response (or disconnect) to be sent back via |cert_responder|.
+  //
+  // |window_id| or else |process_id| and |routing_id| indicates the frame
+  // making the request, see network::ResourceRequest::fetch_window_id.
   OnCertificateRequested(mojo_base.mojom.UnguessableToken? window_id,
                          uint32 process_id,
                          uint32 routing_id,
                          uint32 request_id,
-                         network.mojom.SSLCertRequestInfo cert_info) => (
-                             network.mojom.X509Certificate x509_certificate,
-                             string provider_name,
-                             array<uint16> algorithm_preferences,
-                             SSLPrivateKey ssl_private_key,
-                             bool cancel_certificate_selection);
+                         network.mojom.SSLCertRequestInfo cert_info,
+                         ClientCertificateResponder cert_responder);
+
   // Called when an SSL certificate is encountered.
   // The callback argument is a net::ERROR value. If it's net::OK, then the
   // request is resumed. Otherwise it's cancelled with the given error.
   OnSSLCertificateError(uint32 process_id,
                         uint32 routing_id,
-                        uint32 request_id,
-                        int32 resource_type,
                         url.mojom.Url url,
+                        int32 net_error,
                         SSLInfo ssl_info,
                         bool fatal) => (int32 net_error);
 
@@ -135,32 +155,10 @@ interface NetworkServiceClient {
                         array<mojo_base.mojom.FilePath> file_paths) =>
                         (int32 net_error, array<mojo_base.mojom.File> files);
 
-  // Called when an attempt has been made to set |cookie|.
-  OnCookieChange(
-      int32 process_id, int32 routing_id, url.mojom.Url url,
-      url.mojom.Url frame_url, CanonicalCookie cookie, bool blocked_by_policy);
-
-  // Called when an attempt has been made to read the cookies in |cookie_list|.
-  OnCookiesRead(
-      int32 process_id, int32 routing_id, url.mojom.Url url,
-      url.mojom.Url frame_url, array<CanonicalCookie> cookie_list,
-      bool blocked_by_policy);
-
   // Called periodically to update the client about progress of the current
   // loads. To avoid flooding the client, it has to ack the update before it can
   // receive the next update.
   OnLoadingStateUpdate(array<LoadInfo> infos) => ();
-
-  // Called when the Clear-Site-Data header has been received. The callback
-  // should be run after the data is deleted.
-  // https://www.w3.org/TR/clear-site-data/
-  // TODO(crbug.com/876931): We might want to move header parsing work to
-  // Network Service for security concerns (e.g. |header_value| => booleans).
-  OnClearSiteData(int32 process_id,
-                  int32 routing_id,
-                  url.mojom.Url url,
-                  string header_value,
-                  int32 load_flags) => ();
 
   // Called on every request completion to update the network traffic annotation
   // ID, and the total bytes received and sent.
@@ -175,6 +173,27 @@ interface NetworkServiceClient {
                                    string auth_negotiate_android_account_type,
                                    string spn) =>
                                    (int32 result, string auth_token);
+
+  // Called to send raw header information and information about excluded
+  // cookies. Only called when |devtool_request_id| is available to the
+  // URLLoader.
+  OnRawRequest(
+    int32 process_id,
+    int32 routing_id,
+    string devtool_request_id,
+    array<CookieWithStatus> cookies_with_status,
+    array<HttpRawHeaderPair> headers);
+
+  // Called to send information about the cookies blocked from storage from a
+  // received response. Only called when |devtool_request_id| is available to
+  // the URLLoader.
+  OnRawResponse(
+    int32 process_id,
+    int32 routing_id,
+    string devtool_request_id,
+    array<CookieAndLineWithStatus> cookies_with_status,
+    array<HttpRawHeaderPair> headers,
+    string? raw_response_headers);
 };
 
 // Values for configuring HTTP authentication that can only be set once.
@@ -184,13 +203,11 @@ struct HttpAuthStaticParams {
   // behavior of NetworkService when no HttpAuthStaticParams is specified.
   array<string> supported_schemes;
 
-  // File name the GSSAPI library to load. Only supported on
-  // (OS_POSIX && !OS_ANDROID && !OS_CHROMEOS && OS_IOS) platforms.
+  // File name the GSSAPI library to load. Only supported on platforms where an
+  // external GSSAPI library is necessary for Kerberos/SPNEGO support. See the
+  // |use_external_gssapi| variable definition in //net/BUILD.gn for details on
+  // platforms where this setting is applicable.
   string gssapi_library_name;
-
-  // Indicates whether the GSSAPI library should be loaded. Only supported on
-  // ChromeOS.
-  bool allow_gssapi_library_load = true;
 };
 
 // Values for configurating HTTP authentication that can be changed as needed.
@@ -203,6 +220,10 @@ struct HttpAuthDynamicParams {
   // Comma / semi-colon delimited whitelist of server origins for which Kerberos
   // delegation is allowed for NTLM or Negotiate authentication.
   string delegate_whitelist;
+
+  // True if OK-AS-DELEGATE flag from KDC should be used to allow delegation for
+  // Negotiate authentication along with delegate_whitelist;
+  bool delegate_by_kdc_policy = false;
 
   // True if canonical hostnames should be resolved when using Negotiate.
   bool negotiate_disable_cname_lookup = false;
@@ -217,6 +238,10 @@ struct HttpAuthDynamicParams {
   // The AccountManager AccountManagerget.AccountsByTypeAndFeatures on Android
   // when using Negotiate authentication.
   string android_negotiate_account_type;
+
+  // Indicates whether the GSSAPI library should be loaded. Only supported on
+  // Chrome OS.
+  bool allow_gssapi_library_load = true;
 };
 
 // Values for configuring OSCrypt.
@@ -251,12 +276,26 @@ struct NetworkServiceParams {
   array<EnvironmentVariable> environment;
 };
 
+// Information about how logging should be configured.
+// Corresponds to logging::LoggingSettings.
+[EnableIf=is_chromeos]
+struct LoggingSettings {
+  uint32 logging_dest;
+  mojo_base.mojom.FilePath log_file;
+};
+
 // Browser interface to the network service.
 interface NetworkService {
   // Sets client used by all |NetworkContext|s creating by |NetworkService|.
   // Pending requests may hang if the |client| pipe is closed before they
   // complete.
   SetClient(NetworkServiceClient client, NetworkServiceParams params);
+
+  // Reinitializes the Network Service's logging with the given settings. This
+  // is needed on Chrome OS, which switches to a log file in the user's home
+  // directory once they log in.
+  [EnableIf=is_chromeos]
+  ReinitializeLogging(LoggingSettings settings);
 
   // Starts observing the NetLog event stream and writing entries to |file|.
   // |constants| is a legend used for decoding constant values in the log; it
@@ -329,6 +368,12 @@ interface NetworkService {
   // (e.g. DevTools attached).
   SetRawHeadersAccess(uint32 process_id, array<url.mojom.Origin> origins);
 
+  // Sets the maximum number of connections for a proxy server.
+  //   * Negative values will set the default proxy connection limit (32)
+  //   * Values larger than 99 will saturate to 99.
+  //   * Values smaller than 6 will saturate to 6.
+  SetMaxConnectionsPerProxy(int32 max_connections);
+
   // Gets the NetworkChangeManager.
   GetNetworkChangeManager(
       NetworkChangeManager& network_change_manager);
@@ -347,12 +392,6 @@ interface NetworkService {
   // The |policy| parameter is a flag that specifies whether to include/exclude
   // network interfaces. Corresponds to enum net::HostAddressSelectionPolicy.
   GetNetworkList(uint32 policy) => (array<NetworkInterface>? networks);
-
-  // Updates Signed Tree Heads (STH) used in the handling of Certificate
-  // Transparency. Broadcast to each NetworkContext using the NetworkService.
-  // NetworkContextes ignore STHs from unrecognized logs.
-  [EnableIf=is_ct_supported]
-  UpdateSignedTreeHead(SignedTreeHead signed_tree_head);
 
   // Updates the CRLSet used in the verification of certificates. CRLSets that
   // cannot be parsed using net::CRLSet::Parse will be ignored, as will older
@@ -375,7 +414,7 @@ interface NetworkService {
 
   // Notifies CORB (Cross-Origin Read Blocking) that |process_id| is proxying
   // requests on behalf of a universal-access plugin and therefore CORB should
-  // stop blocking requests marked as RESOURCE_TYPE_PLUGIN_RESOURCE.
+  // stop blocking requests marked as ResourceType::kPluginResource.
   //
   // TODO(lukasza, laforge): https://crbug.com/702995: Remove the ...ForPlugin
   // methods once Flash support is removed from Chromium (probably around 2020
@@ -385,8 +424,19 @@ interface NetworkService {
   // Reverts AddCorbExceptionForPlugin.
   RemoveCorbExceptionForPlugin(uint32 process_id);
 
+  // Registers additional MIME types that can be protected by CORB (without any
+  // confirmation sniffing).
+  //
+  // TODO(lukasza): https://crbug.com/944162: Remove the method below once
+  // kMimeHandlerViewInCrossProcessFrame feature ships.
+  AddExtraMimeTypesForCorb(array<string> mime_types);
+
   // Called when the system is low on memory.
   OnMemoryPressure(mojo_base.mojom.MemoryPressureLevel memory_pressure_level);
+
+  // Called when there is a change in the current count of peer to peer
+  // connections that may require low latency.
+  OnPeerToPeerConnectionsCountChange(uint32 count);
 
   // Called on state changes of the Android application.
   [EnableIf=is_android]
@@ -396,4 +446,10 @@ interface NetworkService {
   // This method won't modify variables that aren't present in the
   // |environment| array.
   SetEnvironment(array<EnvironmentVariable> environment);
+
+  // Calls base::debug::DumpWithoutCrashing for the network process.
+  // TODO(http://crbug.com/934317): Remove this once done debugging renderer
+  // hangs.
+  [EnableIf=is_android]
+  DumpWithoutCrashing(mojo_base.mojom.Time dump_request_time);
 };

@@ -29,39 +29,22 @@ using syncer::SyncDataList;
 using syncer::SyncError;
 using syncer::SyncMergeResult;
 
-namespace {
-// Statistics are logged to UMA with this string as part of histogram name. They
-// can all be found under LevelDB.*.DomDistillerStore. Changing this needs to
-// synchronize with histograms.xml, AND will also become incompatible with older
-// browsers still reporting the previous values.
-const char kDatabaseUMAClientName[] = "DomDistillerStore";
-}
-
 namespace dom_distiller {
 
 DomDistillerStore::DomDistillerStore(
-    std::unique_ptr<ProtoDatabase<ArticleEntry>> database,
-    const base::FilePath& database_dir)
-    : database_(std::move(database)),
-      database_loaded_(false),
-      weak_ptr_factory_(this) {
-  database_->Init(kDatabaseUMAClientName, database_dir,
-                  leveldb_proto::CreateSimpleOptions(),
-                  base::BindOnce(&DomDistillerStore::OnDatabaseInit,
+    std::unique_ptr<ProtoDatabase<ArticleEntry>> database)
+    : database_(std::move(database)), database_loaded_(false) {
+  database_->Init(base::BindOnce(&DomDistillerStore::OnDatabaseInit,
                                  weak_ptr_factory_.GetWeakPtr()));
 }
 
 DomDistillerStore::DomDistillerStore(
     std::unique_ptr<ProtoDatabase<ArticleEntry>> database,
-    const std::vector<ArticleEntry>& initial_data,
-    const base::FilePath& database_dir)
+    const std::vector<ArticleEntry>& initial_data)
     : database_(std::move(database)),
       database_loaded_(false),
-      model_(initial_data),
-      weak_ptr_factory_(this) {
-  database_->Init(kDatabaseUMAClientName, database_dir,
-                  leveldb_proto::CreateSimpleOptions(),
-                  base::BindOnce(&DomDistillerStore::OnDatabaseInit,
+      model_(initial_data) {
+  database_->Init(base::BindOnce(&DomDistillerStore::OnDatabaseInit,
                                  weak_ptr_factory_.GetWeakPtr()));
 }
 
@@ -176,8 +159,9 @@ void DomDistillerStore::ApplyChangesToModel(const SyncChangeList& changes,
   NotifyObservers(*changes_applied);
 }
 
-void DomDistillerStore::OnDatabaseInit(bool success) {
-  if (!success) {
+void DomDistillerStore::OnDatabaseInit(
+    leveldb_proto::Enums::InitStatus status) {
+  if (status != leveldb_proto::Enums::InitStatus::kOK) {
     DVLOG(1) << "DOM Distiller database init failed.";
     database_.reset();
     return;
@@ -244,7 +228,8 @@ bool DomDistillerStore::ApplyChangesToDatabase(
 }
 
 SyncMergeResult DomDistillerStore::MergeDataWithModel(
-    const SyncDataList& data, SyncChangeList* changes_applied,
+    const SyncDataList& data,
+    SyncChangeList* changes_applied,
     SyncChangeList* changes_missing) {
   // TODO(cjhopman): This naive merge algorithm could cause flip-flopping
   // between database/sync of multiple clients.

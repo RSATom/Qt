@@ -52,7 +52,7 @@ class QAbstractTexturePrivate;
 class QTextureWrapMode;
 class QAbstractTextureImage;
 class QTextureGenerator;
-
+class QTextureDataUpdate;
 typedef QSharedPointer<QTextureGenerator> QTextureGeneratorPtr;
 
 class Q_3DRENDERSHARED_EXPORT QAbstractTexture : public Qt3DCore::QNode
@@ -178,7 +178,8 @@ public:
         R5G6B5                 = 0x8D62,    // GL_RGB565
         RGB5A1                 = 0x8057,    // GL_RGB5_A1
         RGBA4                  = 0x8056,    // GL_RGBA4
-        RGB10A2                = 0x906F,    // GL_RGB10_A2UI
+        RGB10A2                = 0x8059,    // GL_RGB10_A2
+        RGB10A2U               = 0x906F,    // GL_RGB10_A2UI
 
         // Depth formats
         D16                    = 0x81A5,    // GL_DEPTH_COMPONENT16
@@ -309,6 +310,9 @@ public:
     HandleType handleType() const;
     QVariant handle() const;
 
+    Q_INVOKABLE void updateData(const QTextureDataUpdate &update);
+
+
 public Q_SLOTS:
     void setFormat(TextureFormat format);
     void setGenerateMipMaps(bool gen);
@@ -346,6 +350,7 @@ protected:
     explicit QAbstractTexture(QAbstractTexturePrivate &dd, Qt3DCore::QNode *parent = nullptr);
     void sceneChangeEvent(const Qt3DCore::QSceneChangePtr &change) override;
 
+    // TO DO Qt6, should be on private class
     void setStatus(Status status);
     void setHandle(const QVariant &handle);
     void setHandleType(HandleType type);

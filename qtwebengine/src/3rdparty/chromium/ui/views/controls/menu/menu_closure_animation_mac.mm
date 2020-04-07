@@ -6,6 +6,7 @@
 
 #import <Cocoa/Cocoa.h>
 
+#include "base/bind.h"
 #include "base/logging.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "ui/gfx/animation/linear_animation.h"
@@ -27,7 +28,7 @@ MenuClosureAnimationMac::MenuClosureAnimationMac(MenuItemView* item,
       menu_(menu),
       step_(AnimationStep::kStart) {}
 
-MenuClosureAnimationMac::~MenuClosureAnimationMac() {}
+MenuClosureAnimationMac::~MenuClosureAnimationMac() = default;
 
 void MenuClosureAnimationMac::Start() {
   DCHECK_EQ(step_, AnimationStep::kStart);
@@ -38,7 +39,7 @@ void MenuClosureAnimationMac::Start() {
     step_ = AnimationStep::kFading;
     base::ThreadTaskRunnerHandle::Get()->PostTask(
         FROM_HERE, base::BindOnce(&MenuClosureAnimationMac::AdvanceAnimation,
-                                  base::Unretained(this)));
+                                  AsWeakPtr()));
     return;
   }
   AdvanceAnimation();

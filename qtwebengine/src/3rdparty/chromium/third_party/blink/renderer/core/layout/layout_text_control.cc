@@ -53,7 +53,7 @@ void LayoutTextControl::StyleDidChange(StyleDifference diff,
   if (!inner_editor)
     return;
   LayoutBlock* inner_editor_layout_object =
-      ToLayoutBlock(inner_editor->GetLayoutObject());
+      To<LayoutBlock>(inner_editor->GetLayoutObject());
   if (inner_editor_layout_object) {
     inner_editor->SetNeedsStyleRecalc(
         kSubtreeStyleChange,
@@ -126,19 +126,16 @@ void LayoutTextControl::ComputeLogicalHeight(
 
 void LayoutTextControl::HitInnerEditorElement(
     HitTestResult& result,
-    const LayoutPoint& point_in_container,
-    const LayoutPoint& accumulated_offset) {
+    const HitTestLocation& hit_test_location,
+    const PhysicalOffset& accumulated_offset) {
   HTMLElement* inner_editor = InnerEditorElement();
   if (!inner_editor->GetLayoutObject())
     return;
 
-  LayoutPoint adjusted_location = accumulated_offset + Location();
-  LayoutPoint local_point =
-      point_in_container -
-      ToLayoutSize(adjusted_location +
-                   inner_editor->GetLayoutBox()->Location());
+  PhysicalOffset local_point = hit_test_location.Point() - accumulated_offset -
+                               inner_editor->GetLayoutBox()->PhysicalLocation();
   if (HasOverflowClip())
-    local_point += ScrolledContentOffset();
+    local_point += PhysicalOffset(ScrolledContentOffset());
   result.SetNodeAndPosition(inner_editor, local_point);
 }
 
@@ -300,10 +297,10 @@ void LayoutTextControl::ComputePreferredLogicalWidths() {
   ClearPreferredLogicalWidthsDirty();
 }
 
-void LayoutTextControl::AddOutlineRects(Vector<LayoutRect>& rects,
-                                        const LayoutPoint& additional_offset,
+void LayoutTextControl::AddOutlineRects(Vector<PhysicalRect>& rects,
+                                        const PhysicalOffset& additional_offset,
                                         NGOutlineType) const {
-  rects.push_back(LayoutRect(additional_offset, Size()));
+  rects.emplace_back(additional_offset, Size());
 }
 
 LayoutObject* LayoutTextControl::LayoutSpecialExcludedChild(
@@ -334,7 +331,7 @@ LayoutUnit LayoutTextControl::FirstLineBoxBaseline() const {
     return LayoutUnit(-1);
 
   LayoutBlock* inner_editor_layout_object =
-      ToLayoutBlock(inner_editor->GetLayoutObject());
+      To<LayoutBlock>(inner_editor->GetLayoutObject());
   const SimpleFontData* font_data =
       inner_editor_layout_object->Style(true)->GetFont().PrimaryFont();
   DCHECK(font_data);

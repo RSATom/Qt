@@ -13,13 +13,27 @@ TEST(NinjaToolchainWriter, WriteToolRule) {
 
   std::ostringstream stream;
   NinjaToolchainWriter writer(setup.settings(), setup.toolchain(), stream);
-  writer.WriteToolRule(Toolchain::TYPE_CC,
-                       setup.toolchain()->GetTool(Toolchain::TYPE_CC),
+  writer.WriteToolRule(setup.toolchain()->GetTool(CTool::kCToolCc),
                        std::string("prefix_"));
 
   EXPECT_EQ(
       "rule prefix_cc\n"
       "  command = cc ${in} ${cflags} ${cflags_c} ${defines} ${include_dirs} "
+      "-o ${out}\n",
+      stream.str());
+}
+
+TEST(NinjaToolchainWriter, WriteToolRuleWithLauncher) {
+  TestWithScope setup;
+
+  std::ostringstream stream;
+  NinjaToolchainWriter writer(setup.settings(), setup.toolchain(), stream);
+  writer.WriteToolRule(setup.toolchain()->GetTool(CTool::kCToolCxx),
+                       std::string("prefix_"));
+
+  EXPECT_EQ(
+      "rule prefix_cxx\n"
+      "  command = launcher c++ ${in} ${cflags} ${cflags_cc} ${defines} ${include_dirs} "
       "-o ${out}\n",
       stream.str());
 }

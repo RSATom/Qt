@@ -50,7 +50,6 @@
 #include <private/qqmldebugconnector_p.h>
 #include <private/qquickprofiler_p.h>
 #include <private/qqmldebugserviceinterfaces_p.h>
-#include <private/qqmlmemoryprofiler_p.h>
 
 #include <QtQml/qqmlengine.h>
 #include <private/qqmlengine_p.h>
@@ -129,7 +128,7 @@ void QQuickWidgetPrivate::init(QQmlEngine* e)
     if (!engine.isNull() && !engine.data()->incubationController())
         engine.data()->setIncubationController(offscreenWindow->incubationController());
 
-#if QT_CONFIG(draganddrop)
+#if QT_CONFIG(quick_draganddrop)
     q->setAcceptDrops(true);
 #endif
 
@@ -252,7 +251,6 @@ void QQuickWidgetPrivate::execute()
         component = nullptr;
     }
     if (!source.isEmpty()) {
-        QML_MEMORY_SCOPE_URL(engine.data()->baseUrl().resolved(source));
         component = new QQmlComponent(engine.data(), source, q);
         if (!component->isLoading()) {
             q->continueExecute();
@@ -285,7 +283,16 @@ void QQuickWidgetPrivate::render(bool needsSync)
 
         Q_ASSERT(context);
 
-        if (!context->makeCurrent(offscreenSurface)) {
+        bool current = context->makeCurrent(offscreenSurface);
+
+        if (!current && !context->isValid()) {
+            renderControl->invalidate();
+            current = context->create() && context->makeCurrent(offscreenSurface);
+            if (current)
+                renderControl->initialize(context);
+        }
+
+        if (!current) {
             qWarning("QQuickWidget: Cannot render due to failing makeCurrent()");
             return;
         }
@@ -1123,6 +1130,13 @@ GLuint QQuickWidgetPrivate::textureId() const
     return resolvedFbo ? resolvedFbo->texture()
         : (fbo ? fbo->texture() : 0);
 }
+
+QPlatformTextureList::Flags QQuickWidgetPrivate::textureListFlags()
+{
+    QPlatformTextureList::Flags flags = QWidgetPrivate::textureListFlags();
+    flags |= QPlatformTextureList::NeedsPremultipliedAlphaBlending;
+    return flags;
+}
 #endif
 
 /*!
@@ -1537,7 +1551,7 @@ bool QQuickWidget::event(QEvent *e)
     return QWidget::event(e);
 }
 
-#if QT_CONFIG(draganddrop)
+#if QT_CONFIG(quick_draganddrop)
 
 /*! \reimp */
 void QQuickWidget::dragEnterEvent(QDragEnterEvent *e)
@@ -1572,7 +1586,7 @@ void QQuickWidget::dropEvent(QDropEvent *e)
     d->offscreenWindow->event(e);
 }
 
-#endif // draganddrop
+#endif // quick_draganddrop
 
 // TODO: try to separate the two cases of
 // 1. render() unconditionally without sync

@@ -4,6 +4,7 @@
 
 #include "extensions/renderer/extension_js_runner.h"
 
+#include "base/bind.h"
 #include "content/public/renderer/worker_thread.h"
 #include "extensions/renderer/script_context.h"
 #include "extensions/renderer/script_injection_callback.h"
@@ -12,7 +13,7 @@
 namespace extensions {
 
 ExtensionJSRunner::ExtensionJSRunner(ScriptContext* script_context)
-    : script_context_(script_context), weak_factory_(this) {}
+    : script_context_(script_context) {}
 ExtensionJSRunner::~ExtensionJSRunner() {}
 
 void ExtensionJSRunner::RunJSFunction(v8::Local<v8::Function> function,

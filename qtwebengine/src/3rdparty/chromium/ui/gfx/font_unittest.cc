@@ -13,17 +13,47 @@
 #include "ui/gfx/font_names_testing.h"
 
 #if defined(OS_WIN)
-#include "ui/gfx/platform_font_win.h"
+#include "ui/gfx/system_fonts_win.h"
 #endif
 
 namespace gfx {
 namespace {
 
-using FontTest = testing::Test;
+class FontTest : public testing::Test {
+ public:
+  FontTest() = default;
+
+ protected:
+  void SetUp() override {
+#if defined(OS_WIN)
+    // System fonts is keeping a cache of loaded system fonts. These fonts are
+    // scaled based on global callbacks configured on startup. The tests in this
+    // file are testing these callbacks and need to be sure we cleared the
+    // global state to avoid flaky tests.
+    win::ResetSystemFontsForTesting();
+#endif
+  }
+
+ private:
+  DISALLOW_COPY_AND_ASSIGN(FontTest);
+};
+
+TEST_F(FontTest, DefaultFont) {
+  Font cf;
+  EXPECT_EQ(cf.GetStyle(), Font::NORMAL);
+  EXPECT_EQ(cf.GetWeight(), Font::Weight::NORMAL);
+  // Ensures that font metrics are generated. Some fonts backends do not provide
+  // some metrics (e.g. DWrite do not produce average character width).
+  EXPECT_GT(cf.GetFontSize(), 0);
+  EXPECT_GT(cf.GetHeight(), 0);
+  EXPECT_GT(cf.GetBaseline(), 0);
+  EXPECT_GT(cf.GetCapHeight(), 0);
+  EXPECT_GT(cf.GetExpectedTextWidth(1), 0);
+}
 
 TEST_F(FontTest, LoadArial) {
   Font cf(kTestFontName, 16);
-#if defined(OS_WIN) || defined(OS_MACOSX) || defined(OS_IOS)
+#if defined(OS_MACOSX) || defined(OS_IOS)
   EXPECT_TRUE(cf.GetNativeFont());
 #endif
   EXPECT_EQ(cf.GetStyle(), Font::NORMAL);
@@ -36,7 +66,7 @@ TEST_F(FontTest, LoadArial) {
 TEST_F(FontTest, LoadArialBold) {
   Font cf(kTestFontName, 16);
   Font bold(cf.Derive(0, Font::NORMAL, Font::Weight::BOLD));
-#if defined(OS_WIN) || defined(OS_MACOSX) || defined(OS_IOS)
+#if defined(OS_MACOSX) || defined(OS_IOS)
   EXPECT_TRUE(bold.GetNativeFont());
 #endif
   EXPECT_EQ(bold.GetStyle(), Font::NORMAL);
@@ -116,7 +146,7 @@ TEST_F(FontTest, DeriveFont) {
 #if defined(OS_WIN)
 TEST_F(FontTest, DeriveResizesIfSizeTooSmall) {
   Font cf(kTestFontName, 8);
-  PlatformFontWin::SetGetMinimumFontSizeCallback([] { return 5; });
+  gfx::win::SetGetMinimumFontSizeCallback([] { return 5; });
 
   Font derived_font = cf.Derive(-4, cf.GetStyle(), cf.GetWeight());
   EXPECT_EQ(5, derived_font.GetFontSize());
@@ -124,7 +154,7 @@ TEST_F(FontTest, DeriveResizesIfSizeTooSmall) {
 
 TEST_F(FontTest, DeriveKeepsOriginalSizeIfHeightOk) {
   Font cf(kTestFontName, 8);
-  PlatformFontWin::SetGetMinimumFontSizeCallback([] { return 5; });
+  gfx::win::SetGetMinimumFontSizeCallback([] { return 5; });
 
   Font derived_font = cf.Derive(-2, cf.GetStyle(), cf.GetWeight());
   EXPECT_EQ(6, derived_font.GetFontSize());

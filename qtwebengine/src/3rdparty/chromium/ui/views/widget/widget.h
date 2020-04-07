@@ -5,13 +5,13 @@
 #ifndef UI_VIEWS_WIDGET_WIDGET_H_
 #define UI_VIEWS_WIDGET_WIDGET_H_
 
-#include <map>
 #include <memory>
 #include <set>
 #include <string>
 #include <vector>
 
 #include "base/macros.h"
+#include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
 #include "base/optional.h"
 #include "base/scoped_observer.h"
@@ -20,6 +20,7 @@
 #include "ui/events/event_source.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/native_widget_types.h"
+#include "ui/native_theme/native_theme.h"
 #include "ui/native_theme/native_theme_observer.h"
 #include "ui/views/focus/focus_manager.h"
 #include "ui/views/widget/native_widget_delegate.h"
@@ -42,7 +43,6 @@ class DefaultThemeProvider;
 class GestureRecognizer;
 class InputMethod;
 class Layer;
-class NativeTheme;
 class OSExchangeData;
 class ThemeProvider;
 }  // namespace ui
@@ -217,6 +217,10 @@ class VIEWS_EXPORT Widget : public internal::NativeWidgetDelegate,
     // case where |activatable| is |ACTIVATABLE_DEFAULT|.
     bool CanActivate() const;
 
+    // Returns the z-order level, based on the overriding |z_order| but also
+    // taking into account special levels due to |type|.
+    ui::ZOrderLevel EffectiveZOrderLevel() const;
+
     Type type;
     // If null, a default implementation will be constructed. The default
     // implementation deletes itself when the Widget closes.
@@ -234,7 +238,7 @@ class VIEWS_EXPORT Widget : public internal::NativeWidgetDelegate,
     WindowOpacity opacity;
     bool accept_events;
     Activatable activatable;
-    bool keep_on_top;
+    base::Optional<ui::ZOrderLevel> z_order;
     bool visible_on_all_workspaces;
     // See Widget class comment above.
     Ownership ownership;
@@ -294,15 +298,25 @@ class VIEWS_EXPORT Widget : public internal::NativeWidgetDelegate,
     std::string wm_class_class;
 
     // If true then the widget uses software compositing. Defaults to false.
-    // Only used on Windows.
     bool force_software_compositing;
 
     // Used if widget is not activatable to do determine if mouse events should
     // be sent to the widget.
     bool wants_mouse_events_when_inactive = false;
+  };
 
-    // A map of properties applied to windows when running in mus.
-    std::map<std::string, std::vector<uint8_t>> mus_properties;
+  // Represents a lock held on the widget's ShouldPaintAsActive() state. As
+  // long as at least one lock is held, the widget will paint as active.
+  // Multiple locks can exist for the same widget, and a lock can outlive its
+  // associated widget. See Widget::LockPaintAsActive().
+  class PaintAsActiveLock {
+   public:
+    virtual ~PaintAsActiveLock();
+
+   protected:
+    PaintAsActiveLock();
+
+    DISALLOW_COPY_AND_ASSIGN(PaintAsActiveLock);
   };
 
   Widget();
@@ -396,7 +410,7 @@ class VIEWS_EXPORT Widget : public internal::NativeWidgetDelegate,
   virtual bool GetAccelerator(int cmd_id, ui::Accelerator* accelerator) const;
 
   // Forwarded from the RootView so that the widget can do any cleanup.
-  void ViewHierarchyChanged(const View::ViewHierarchyChangedDetails& details);
+  void ViewHierarchyChanged(const ViewHierarchyChangedDetails& details);
 
   // Called right before changing the widget's parent NativeView to do any
   // cleanup.
@@ -526,12 +540,11 @@ class VIEWS_EXPORT Widget : public internal::NativeWidgetDelegate,
   // Returns whether the Widget is the currently active window.
   virtual bool IsActive() const;
 
-  // Sets the widget to be on top of all other widgets in the windowing system.
-  void SetAlwaysOnTop(bool on_top);
+  // Sets the z-order of the widget. This only applies to top-level widgets.
+  void SetZOrderLevel(ui::ZOrderLevel order);
 
-  // Returns whether the widget has been set to be on top of most other widgets
-  // in the windowing system.
-  bool IsAlwaysOnTop() const;
+  // Gets the z-order of the widget. This only applies to top-level widgets.
+  ui::ZOrderLevel GetZOrderLevel() const;
 
   // Sets the widget to be visible on all work spaces.
   void SetVisibleOnAllWorkspaces(bool always_visible);
@@ -554,6 +567,10 @@ class VIEWS_EXPORT Widget : public internal::NativeWidgetDelegate,
   // Accessors for fullscreen state.
   void SetFullscreen(bool fullscreen);
   bool IsFullscreen() const;
+
+  // macOS: Sets whether the window can share fullscreen windows' spaces.
+  void SetCanAppearInExistingFullscreenSpaces(
+      bool can_appear_in_existing_fullscreen_spaces);
 
   // Sets the opacity of the widget. This may allow widgets behind the widget
   // in the Z-order to become visible, depending on the capabilities of the
@@ -612,7 +629,7 @@ class VIEWS_EXPORT Widget : public internal::NativeWidgetDelegate,
   // OnDragDone() is called on it. |location| is in the widget's coordinate
   // system.
   void RunShellDrag(View* view,
-                    const ui::OSExchangeData& data,
+                    std::unique_ptr<ui::OSExchangeData> data,
                     const gfx::Point& location,
                     int operation,
                     ui::DragDropTypes::DragEventSource source);
@@ -627,6 +644,10 @@ class VIEWS_EXPORT Widget : public internal::NativeWidgetDelegate,
   // Adds the specified |rect| in client area coordinates to the rectangle to be
   // redrawn.
   virtual void SchedulePaintInRect(const gfx::Rect& rect);
+
+  // Schedule a layout to occur. This is called by RootView, client code should
+  // not need to call this.
+  void ScheduleLayout();
 
   // Sets the currently visible cursor. If |cursor| is NULL, the cursor used
   // before the current is restored.
@@ -705,7 +726,7 @@ class VIEWS_EXPORT Widget : public internal::NativeWidgetDelegate,
   }
   const ClientView* client_view() const {
     // non_client_view_ may be NULL, especially during creation.
-    return non_client_view_ ? non_client_view_->client_view() : NULL;
+    return non_client_view_ ? non_client_view_->client_view() : nullptr;
   }
 
   ui::Compositor* GetCompositor() {
@@ -804,13 +825,17 @@ class VIEWS_EXPORT Widget : public internal::NativeWidgetDelegate,
   // Returns the internal name for this Widget and NativeWidget.
   std::string GetName() const;
 
+  // Prevents the widget from being rendered as inactive during the lifetime of
+  // the returned lock. Multiple locks can exist with disjoint lifetimes. The
+  // returned lock can safely outlive the associated widget.
+  std::unique_ptr<PaintAsActiveLock> LockPaintAsActive();
+
   // Overridden from NativeWidgetDelegate:
   bool IsModal() const override;
   bool IsDialogBox() const override;
   bool CanActivate() const override;
+  bool ShouldPaintAsActive() const override;
   bool IsNativeWidgetInitialized() const override;
-  bool IsAlwaysRenderAsActive() const override;
-  void SetAlwaysRenderAsActive(bool always_render_as_active) override;
   bool OnNativeWidgetActivationChanged(bool active) override;
   void OnNativeFocus() override;
   void OnNativeBlur() override;
@@ -846,6 +871,7 @@ class VIEWS_EXPORT Widget : public internal::NativeWidgetDelegate,
       gfx::NativeView child,
       ui::Layer* child_layer,
       const gfx::Point& location) override;
+  void LayoutRootViewIfNecessary() override;
 
   // Overridden from ui::EventSource:
   ui::EventSink* GetEventSink() override;
@@ -859,6 +885,10 @@ class VIEWS_EXPORT Widget : public internal::NativeWidgetDelegate,
   void OnNativeThemeUpdated(ui::NativeTheme* observed_theme) override;
 
  protected:
+  // Call this to propagate native theme changes to the root view. Subclasses
+  // may override this to customize how native theme updates are propagated.
+  virtual void PropagateNativeThemeChanged();
+
   // Creates the RootView to be used within this Widget. Subclasses may override
   // to create custom RootViews that do specialized event processing.
   // TODO(beng): Investigate whether or not this is needed.
@@ -876,8 +906,11 @@ class VIEWS_EXPORT Widget : public internal::NativeWidgetDelegate,
   virtual void OnDragComplete();
 
  private:
-  friend class ComboboxTest;
+  class PaintAsActiveLockImpl;
+
   friend class ButtonTest;
+  friend class ComboboxTest;
+  friend class PaintAsActiveLockImpl;
   friend class TextfieldTest;
   friend class ViewAuraTest;
   friend void DisableActivationChangeHandlingForTests();
@@ -906,9 +939,15 @@ class VIEWS_EXPORT Widget : public internal::NativeWidgetDelegate,
   // layer.
   const View::Views& GetViewsWithLayers();
 
+  // Undoes LockPaintAsActive(). Called by PaintAsActiveLock destructor.
+  void UnlockPaintAsActive();
+
+  // Notifies the window frame that the active rendering state has changed.
+  void UpdatePaintAsActiveState(bool paint_as_active);
+
   static bool g_disable_activation_change_handling_;
 
-  internal::NativeWidgetPrivate* native_widget_;
+  internal::NativeWidgetPrivate* native_widget_ = nullptr;
 
   base::ObserverList<WidgetObserver> observers_;
 
@@ -916,7 +955,7 @@ class VIEWS_EXPORT Widget : public internal::NativeWidgetDelegate,
 
   // Non-owned pointer to the Widget's delegate. If a NULL delegate is supplied
   // to Init() a default WidgetDelegate is created.
-  WidgetDelegate* widget_delegate_;
+  WidgetDelegate* widget_delegate_ = nullptr;
 
   // The root of the View hierarchy attached to this window.
   // WARNING: see warning in tooltip_manager_ for ordering dependencies with
@@ -927,7 +966,7 @@ class VIEWS_EXPORT Widget : public internal::NativeWidgetDelegate,
   // window controls, sizing borders etc). To use an implementation other than
   // the default, this class must be sub-classed and this value set to the
   // desired implementation before calling |InitWindow()|.
-  NonClientView* non_client_view_;
+  NonClientView* non_client_view_ = nullptr;
 
   // The focus manager keeping track of focus for this Widget and any of its
   // children.  NULL for non top-level widgets.
@@ -940,21 +979,23 @@ class VIEWS_EXPORT Widget : public internal::NativeWidgetDelegate,
 
   // Valid for the lifetime of RunShellDrag(), indicates the view the drag
   // started from.
-  View* dragged_view_;
+  View* dragged_view_ = nullptr;
 
   // See class documentation for Widget above for a note about ownership.
-  InitParams::Ownership ownership_;
+  InitParams::Ownership ownership_ = InitParams::NATIVE_WIDGET_OWNS_WIDGET;
 
   // See set_is_secondary_widget().
-  bool is_secondary_widget_;
+  bool is_secondary_widget_ = true;
 
   // The current frame type in use by this window. Defaults to
   // FRAME_TYPE_DEFAULT.
-  FrameType frame_type_;
+  FrameType frame_type_ = FRAME_TYPE_DEFAULT;
 
-  // True when the window should be rendered as active, regardless of whether
-  // or not it actually is.
-  bool always_render_as_active_;
+  // Tracks whether the native widget is active.
+  bool native_widget_active_ = false;
+
+  // Tracks locks on the paint-as-active behavior. See LockPaintAsActive().
+  size_t paint_as_active_refcount_ = 0;
 
   // Set to true if the widget is in the process of closing.
   bool widget_closed_ = false;
@@ -966,7 +1007,7 @@ class VIEWS_EXPORT Widget : public internal::NativeWidgetDelegate,
 
   // The saved "show" state for this window. See note in SetInitialBounds
   // that explains why we save this.
-  ui::WindowShowState saved_show_state_;
+  ui::WindowShowState saved_show_state_ = ui::SHOW_STATE_DEFAULT;
 
   // The restored bounds used for the initial show. This is only used if
   // |saved_show_state_| is maximized.
@@ -975,46 +1016,49 @@ class VIEWS_EXPORT Widget : public internal::NativeWidgetDelegate,
   // Focus is automatically set to the view provided by the delegate
   // when the widget is shown. Set this value to false to override
   // initial focus for the widget.
-  bool focus_on_creation_;
+  bool focus_on_creation_ = true;
 
   // See |is_top_level()| accessor.
-  bool is_top_level_;
+  bool is_top_level_ = false;
 
   // Tracks whether native widget has been initialized.
-  bool native_widget_initialized_;
+  bool native_widget_initialized_ = false;
 
   // Whether native widget has been destroyed.
-  bool native_widget_destroyed_;
+  bool native_widget_destroyed_ = false;
 
   // TODO(beng): Remove NativeWidgetGtk's dependence on these:
   // If true, the mouse is currently down.
-  bool is_mouse_button_pressed_;
+  bool is_mouse_button_pressed_ = false;
 
   // True if capture losses should be ignored.
-  bool ignore_capture_loss_;
+  bool ignore_capture_loss_ = false;
 
   // TODO(beng): Remove NativeWidgetGtk's dependence on these:
   // The following are used to detect duplicate mouse move events and not
   // deliver them. Displaying a window may result in the system generating
   // duplicate move events even though the mouse hasn't moved.
-  bool last_mouse_event_was_move_;
+  bool last_mouse_event_was_move_ = false;
   gfx::Point last_mouse_event_position_;
 
   // True if event capture should be released on a mouse up event. Default is
   // true.
-  bool auto_release_capture_;
+  bool auto_release_capture_ = true;
 
   // See description in GetViewsWithLayers().
   View::Views views_with_layers_;
 
   // Does |views_with_layers_| need updating?
-  bool views_with_layers_dirty_;
+  bool views_with_layers_dirty_ = false;
 
   // True when window movement via mouse interaction with the frame should be
   // disabled.
-  bool movement_disabled_;
+  bool movement_disabled_ = false;
 
-  ScopedObserver<ui::NativeTheme, ui::NativeThemeObserver> observer_manager_;
+  ScopedObserver<ui::NativeTheme, ui::NativeThemeObserver> observer_manager_{
+      this};
+
+  base::WeakPtrFactory<Widget> weak_ptr_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(Widget);
 };

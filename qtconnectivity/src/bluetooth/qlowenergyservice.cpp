@@ -47,6 +47,10 @@
 #include "qlowenergycontrollerbase_p.h"
 #include "qlowenergyserviceprivate_p.h"
 
+#ifdef Q_OS_DARWIN
+#include "qlowenergycontroller_darwin_p.h"
+#endif // Q_OS_DARWIN
+
 QT_BEGIN_NAMESPACE
 
 /*!
@@ -809,6 +813,21 @@ void QLowEnergyService::writeDescriptor(const QLowEnergyDescriptor &descriptor,
         d->setError(QLowEnergyService::OperationError);
         return;
     }
+#ifdef Q_OS_DARWIN
+    if (descriptor.uuid() == QBluetoothUuid::ClientCharacteristicConfiguration) {
+        // We have to identify a special case - ClientCharacteristicConfiguration
+        // since with CoreBluetooth:
+        //
+        // "You cannot use this method to write the value of a client configuration descriptor
+        // (represented by the CBUUIDClientCharacteristicConfigurationString constant),
+        // which describes how notification or indications are configured for a
+        // characteristic’s value with respect to a client. If you want to manage
+        // notifications or indications for a characteristic’s value, you must
+        // use the setNotifyValue:forCharacteristic: method instead."
+        auto controller = static_cast<QLowEnergyControllerPrivateDarwin *>(d->controller.data());
+        return controller->setNotifyValue(descriptor.d_ptr, descriptor.characteristicHandle(), newValue);
+    }
+#endif // Q_OS_DARWIN
 
     d->controller->writeDescriptor(descriptor.d_ptr,
                                    descriptor.characteristicHandle(),

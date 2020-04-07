@@ -250,7 +250,7 @@ class ExtensionsActivityLogTest : public ExtensionSettingsUIBrowserTest {
   // Enable command line flags for test.
   void SetUpCommandLine(base::CommandLine* command_line) override {
     command_line->AppendSwitch(switches::kEnableExtensionActivityLogging);
-  };
+  }
 };
 
 IN_PROC_BROWSER_TEST_F(ExtensionsActivityLogTest, TestActivityLogVisible) {
@@ -276,7 +276,7 @@ IN_PROC_BROWSER_TEST_F(ExtensionsActivityLogTest, TestActivityLogVisible) {
   // The querySelectors and shadowRoots are used here in order to penetrate
   // multiple nested shadow DOMs created by Polymer components
   // in the chrome://extensions page.
-  // See chrome/browser/resources/md_extensions for the Polymer code.
+  // See chrome/browser/resources/extensions for the Polymer code.
   // This test only serves as an end to end test, and most of the functionality
   // is covered in the JS unit tests.
   bool has_api_call = false;
@@ -285,10 +285,12 @@ IN_PROC_BROWSER_TEST_F(ExtensionsActivityLogTest, TestActivityLogVisible) {
       R"(let manager = document.querySelector('extensions-manager');
          let activityLog =
              manager.shadowRoot.querySelector('extensions-activity-log');
-         activityLog.onDataFetched.promise.then(() => {
+         let activityLogHistory =
+             activityLog.shadowRoot.querySelector('activity-log-history');
+         activityLogHistory.whenDataFetched().then(() => {
              Polymer.dom.flush();
-             let item = activityLog.shadowRoot.querySelector(
-                 'activity-log-item');
+             let item = activityLogHistory.shadowRoot.querySelector(
+                 'activity-log-history-item');
              let activityKey = item.shadowRoot.getElementById('activity-key');
              window.domAutomationController.send(
                  activityKey.innerText === 'test.sendMessage');

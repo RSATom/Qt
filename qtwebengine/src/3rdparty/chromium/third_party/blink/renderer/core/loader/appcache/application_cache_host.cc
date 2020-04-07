@@ -30,15 +30,13 @@
 
 #include "third_party/blink/renderer/core/loader/appcache/application_cache_host.h"
 
-#include "services/network/public/mojom/request_context_frame_type.mojom-blink.h"
+#include <utility>
+
+#include "mojo/public/cpp/bindings/pending_remote.h"
 #include "third_party/blink/public/mojom/appcache/appcache.mojom-blink.h"
 #include "third_party/blink/public/mojom/appcache/appcache_info.mojom-blink.h"
-#include "third_party/blink/public/platform/web_application_cache_host.h"
-#include "third_party/blink/public/platform/web_url.h"
-#include "third_party/blink/public/platform/web_url_error.h"
-#include "third_party/blink/public/platform/web_url_request.h"
-#include "third_party/blink/public/platform/web_url_response.h"
-#include "third_party/blink/public/platform/web_vector.h"
+#include "third_party/blink/public/platform/interface_provider.h"
+#include "third_party/blink/public/platform/platform.h"
 #include "third_party/blink/renderer/core/events/application_cache_error_event.h"
 #include "third_party/blink/renderer/core/events/progress_event.h"
 #include "third_party/blink/renderer/core/frame/deprecation.h"
@@ -46,139 +44,91 @@
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/frame/local_frame_client.h"
 #include "third_party/blink/renderer/core/frame/settings.h"
-#include "third_party/blink/renderer/core/frame/use_counter.h"
 #include "third_party/blink/renderer/core/inspector/inspector_application_cache_agent.h"
 #include "third_party/blink/renderer/core/loader/appcache/application_cache.h"
+#include "third_party/blink/renderer/core/loader/appcache/application_cache_host_for_frame.h"
+#include "third_party/blink/renderer/core/loader/appcache/application_cache_host_for_shared_worker.h"
 #include "third_party/blink/renderer/core/loader/document_loader.h"
+#include "third_party/blink/renderer/core/loader/frame_load_request.h"
 #include "third_party/blink/renderer/core/loader/frame_loader.h"
 #include "third_party/blink/renderer/core/page/frame_tree.h"
-#include "third_party/blink/renderer/core/page/page.h"
 #include "third_party/blink/renderer/core/probe/core_probes.h"
 #include "third_party/blink/renderer/platform/bindings/exception_state.h"
-#include "third_party/blink/renderer/platform/exported/wrapped_resource_request.h"
-#include "third_party/blink/renderer/platform/exported/wrapped_resource_response.h"
-#include "third_party/blink/renderer/platform/weborigin/security_origin.h"
 #include "third_party/blink/renderer/platform/wtf/assertions.h"
 
 namespace blink {
+
+namespace {
+
+// Note: the order of the elements in this array must match those
+// of the EventID enum in appcache_interfaces.h.
+const char* const kEventNames[] = {"Checking",    "Error",    "NoUpdate",
+                                   "Downloading", "Progress", "UpdateReady",
+                                   "Cached",      "Obsolete"};
+
+mojom::blink::DocumentInterfaceBroker* GetDocumentInterfaceBroker(
+    LocalFrame* local_frame) {
+  return local_frame->Client()->GetDocumentInterfaceBroker();
+}
+
+}  // namespace
+
+ApplicationCacheHost* ApplicationCacheHost::Create(
+    DocumentLoader* document_loader) {
+  DCHECK(document_loader);
+  DCHECK(document_loader->GetFrame());
+  LocalFrame* local_frame = document_loader->GetFrame();
+
+  DCHECK(local_frame->Client());
+  WebLocalFrameClient::AppCacheType type =
+      local_frame->Client()->GetAppCacheType();
+  switch (type) {
+    case WebLocalFrameClient::AppCacheType::kAppCacheForFrame:
+      return MakeGarbageCollected<ApplicationCacheHostForFrame>(
+          document_loader, GetDocumentInterfaceBroker(local_frame),
+          local_frame->GetTaskRunner(TaskType::kNetworking));
+    case WebLocalFrameClient::AppCacheType::kAppCacheForSharedWorker:
+      return MakeGarbageCollected<ApplicationCacheHostForSharedWorker>(
+          document_loader, Thread::Current()->GetTaskRunner());
+    default:
+      return MakeGarbageCollected<ApplicationCacheHost>(document_loader,
+                                                        nullptr, nullptr);
+  }
+  return nullptr;
+}
 
 // We provide a custom implementation of this class that calls out to the
 // embedding application instead of using WebCore's built in appcache system.
 // This file replaces webcore/appcache/ApplicationCacheHost.cpp in our build.
 
-ApplicationCacheHost::ApplicationCacheHost(DocumentLoader* document_loader)
-    : dom_application_cache_(nullptr),
-      document_loader_(document_loader),
-      defers_events_(true) {
-  DCHECK(document_loader_);
-}
+ApplicationCacheHost::ApplicationCacheHost(
+    DocumentLoader* document_loader,
+    mojom::blink::DocumentInterfaceBroker* interface_broker,
+    scoped_refptr<base::SingleThreadTaskRunner> task_runner)
+    : document_loader_(document_loader),
+      task_runner_(std::move(task_runner)),
+      interface_broker_(interface_broker) {}
 
-ApplicationCacheHost::~ApplicationCacheHost() {
-  // Verify that detachFromDocumentLoader() has been performed already.
-  DCHECK(!host_);
-}
+ApplicationCacheHost::~ApplicationCacheHost() = default;
 
 void ApplicationCacheHost::WillStartLoading(ResourceRequest& request) {
-  if (!IsApplicationCacheEnabled())
+  if (!IsApplicationCacheEnabled() || !backend_host_.is_bound())
     return;
-
-  if (request.GetFrameType() ==
-          network::mojom::RequestContextFrameType::kTopLevel ||
-      request.GetFrameType() ==
-          network::mojom::RequestContextFrameType::kNested)
-    WillStartLoadingMainResource(request.Url(), request.HttpMethod());
-
-  if (!host_)
-    return;
-
-  int host_id = host_->GetHostID();
-  if (host_id != mojom::blink::kAppCacheNoHostId)
+  const base::UnguessableToken& host_id = GetHostID();
+  if (!host_id.is_empty())
     request.SetAppCacheHostID(host_id);
 }
 
-void ApplicationCacheHost::WillStartLoadingMainResource(const KURL& url,
+void ApplicationCacheHost::WillStartLoadingMainResource(DocumentLoader* loader,
+                                                        const KURL& url,
                                                         const String& method) {
-  // We defer creating the outer host object to avoid spurious
-  // creation/destruction around creating empty documents. At this point, we're
-  // initiating a main resource load for the document, so its for real.
-
-  DCHECK(IsApplicationCacheEnabled());
-
-  DCHECK(document_loader_->GetFrame());
-  LocalFrame& frame = *document_loader_->GetFrame();
-  host_ = frame.Client()->CreateApplicationCacheHost(this);
-  if (!host_)
+  if (!IsApplicationCacheEnabled())
     return;
 
-  const WebApplicationCacheHost* spawning_host = nullptr;
-  Frame* spawning_frame = frame.Tree().Parent();
-  if (!spawning_frame || !spawning_frame->IsLocalFrame())
-    spawning_frame = frame.Loader().Opener();
-  if (!spawning_frame || !spawning_frame->IsLocalFrame())
-    spawning_frame = &frame;
-  if (DocumentLoader* spawning_doc_loader =
-          ToLocalFrame(spawning_frame)->Loader().GetDocumentLoader()) {
-    spawning_host =
-        spawning_doc_loader->GetApplicationCacheHost()
-            ? spawning_doc_loader->GetApplicationCacheHost()->host_.get()
-            : nullptr;
-  }
-
-  host_->WillStartMainResourceRequest(url, method, spawning_host);
-
-  // NOTE: The semantics of this method, and others in this interface, are
-  // subtly different than the method names would suggest. For example, in this
-  // method never returns an appcached response in the SubstituteData out
-  // argument, instead we return the appcached response thru the usual resource
-  // loading pipeline.
-}
-
-void ApplicationCacheHost::SelectCacheWithoutManifest() {
-  if (host_)
-    host_->SelectCacheWithoutManifest();
-}
-
-void ApplicationCacheHost::SelectCacheWithManifest(const KURL& manifest_url) {
-  DCHECK(document_loader_);
-
-  LocalFrame* frame = document_loader_->GetFrame();
-  Document* document = frame->GetDocument();
-  if (document->IsSandboxed(kSandboxOrigin)) {
-    // Prevent sandboxes from establishing application caches.
-    SelectCacheWithoutManifest();
-    return;
-  }
-  if (document->IsSecureContext()) {
-    UseCounter::Count(document,
-                      WebFeature::kApplicationCacheManifestSelectSecureOrigin);
-    UseCounter::CountCrossOriginIframe(
-        *document, WebFeature::kApplicationCacheManifestSelectSecureOrigin);
-  } else {
-    Deprecation::CountDeprecation(
-        document, WebFeature::kApplicationCacheManifestSelectInsecureOrigin);
-    Deprecation::CountDeprecationCrossOriginIframe(
-        *document, WebFeature::kApplicationCacheManifestSelectInsecureOrigin);
-    HostsUsingFeatures::CountAnyWorld(
-        *document, HostsUsingFeatures::Feature::
-                       kApplicationCacheManifestSelectInsecureHost);
-  }
-  if (host_ && !host_->SelectCacheWithManifest(manifest_url)) {
-    // It's a foreign entry, restart the current navigation from the top of the
-    // navigation algorithm. The navigation will not result in the same resource
-    // being loaded, because "foreign" entries are never picked during
-    // navigation. see ApplicationCacheGroup::selectCache()
-    frame->ScheduleNavigation(*document, document->Url(),
-                              WebFrameLoadType::kReplaceCurrentItem,
-                              UserGestureStatus::kNone);
-  }
-}
-
-void ApplicationCacheHost::DidReceiveResponseForMainResource(
-    const ResourceResponse& response) {
-  if (host_) {
-    WrappedResourceResponse wrapped(response);
-    host_->DidReceiveResponseForMainResource(wrapped);
-  }
+  // We defer binding to backend to avoid unnecessary binding around creating
+  // empty documents. At this point, we're initiating a main resource load for
+  // the document, so its for real.
+  BindBackend();
 }
 
 void ApplicationCacheHost::SetApplicationCache(
@@ -188,10 +138,10 @@ void ApplicationCacheHost::SetApplicationCache(
 }
 
 void ApplicationCacheHost::DetachFromDocumentLoader() {
-  // Detach from the owning DocumentLoader and let go of
-  // WebApplicationCacheHost.
+  // Detach from the owning DocumentLoader and close mojo pipes.
   SetApplicationCache(nullptr);
-  host_.reset();
+  receiver_.reset();
+  backend_host_.reset();
   document_loader_ = nullptr;
 }
 
@@ -204,7 +154,7 @@ void ApplicationCacheHost::NotifyApplicationCache(
     int error_status,
     const String& error_message) {
   if (id != mojom::AppCacheEventID::APPCACHE_PROGRESS_EVENT) {
-    probe::updateApplicationCacheStatus(document_loader_->GetFrame());
+    probe::UpdateApplicationCacheStatus(document_loader_->GetFrame());
   }
 
   if (defers_events_) {
@@ -219,34 +169,43 @@ void ApplicationCacheHost::NotifyApplicationCache(
 }
 
 ApplicationCacheHost::CacheInfo ApplicationCacheHost::ApplicationCacheInfo() {
-  if (!host_)
-    return CacheInfo(NullURL(), 0, 0, 0);
+  if (!backend_host_.is_bound())
+    return CacheInfo();
 
-  WebApplicationCacheHost::CacheInfo web_info;
-  host_->GetAssociatedCacheInfo(&web_info);
-  return CacheInfo(web_info.manifest_url, web_info.creation_time,
-                   web_info.update_time, web_info.total_size);
+  ApplicationCacheHost::CacheInfo cache_info;
+  GetAssociatedCacheInfo(&cache_info);
+  return cache_info;
 }
 
-int ApplicationCacheHost::GetHostID() const {
-  if (!host_)
-    return mojom::blink::kAppCacheNoHostId;
-  return host_->GetHostID();
+const base::UnguessableToken& ApplicationCacheHost::GetHostID() const {
+  if (!backend_host_.is_bound())
+    return base::UnguessableToken::Null();
+  return host_id_;
 }
 
-void ApplicationCacheHost::FillResourceList(ResourceInfoList* resources) {
-  if (!host_)
+void ApplicationCacheHost::SelectCacheForSharedWorker(
+    int64_t app_cache_id,
+    base::OnceClosure completion_callback) {
+  if (!backend_host_.is_bound())
     return;
 
-  WebVector<WebApplicationCacheHost::ResourceInfo> web_resources;
-  host_->GetResourceList(&web_resources);
-  for (size_t i = 0; i < web_resources.size(); ++i) {
-    resources->push_back(
-        ResourceInfo(web_resources[i].url, web_resources[i].is_master,
-                     web_resources[i].is_manifest, web_resources[i].is_fallback,
-                     web_resources[i].is_foreign, web_resources[i].is_explicit,
-                     web_resources[i].size));
-  }
+  select_cache_for_shared_worker_completion_callback_ =
+      std::move(completion_callback);
+  backend_host_->SelectCacheForSharedWorker(app_cache_id);
+}
+
+void ApplicationCacheHost::FillResourceList(
+    Vector<mojom::blink::AppCacheResourceInfo>* resources) {
+  DCHECK(resources);
+  if (!backend_host_.is_bound())
+    return;
+
+  if (!cache_info_.is_complete)
+    return;
+  Vector<mojom::blink::AppCacheResourceInfoPtr> boxed_infos;
+  backend_host_->GetResourceList(&boxed_infos);
+  for (auto& b : boxed_infos)
+    resources->emplace_back(std::move(*b));
 }
 
 void ApplicationCacheHost::StopDeferringEvents() {
@@ -281,8 +240,8 @@ void ApplicationCacheHost::DispatchDOMEvent(
     event =
         ProgressEvent::Create(event_type, true, progress_done, progress_total);
   } else if (id == mojom::AppCacheEventID::APPCACHE_ERROR_EVENT) {
-    event = ApplicationCacheErrorEvent::Create(error_reason, error_url,
-                                               error_status, error_message);
+    event = MakeGarbageCollected<ApplicationCacheErrorEvent>(
+        error_reason, error_url, error_status, error_message);
   } else {
     event = Event::Create(event_type);
   }
@@ -290,25 +249,13 @@ void ApplicationCacheHost::DispatchDOMEvent(
 }
 
 mojom::AppCacheStatus ApplicationCacheHost::GetStatus() const {
-  return host_ ? host_->GetStatus()
-               : mojom::AppCacheStatus::APPCACHE_STATUS_UNCACHED;
-}
-
-bool ApplicationCacheHost::Update() {
-  return host_ ? host_->StartUpdate() : false;
-}
-
-bool ApplicationCacheHost::SwapCache() {
-  bool success = host_ ? host_->SwapCache() : false;
-  if (success) {
-    probe::updateApplicationCacheStatus(document_loader_->GetFrame());
-  }
-  return success;
+  if (!backend_host_.is_bound())
+    return mojom::AppCacheStatus::APPCACHE_STATUS_UNCACHED;
+  return status_;
 }
 
 void ApplicationCacheHost::Abort() {
-  if (host_)
-    host_->Abort();
+  // This is not implemented intentionally. See https://crbug.com/175063
 }
 
 bool ApplicationCacheHost::IsApplicationCacheEnabled() {
@@ -319,34 +266,160 @@ bool ApplicationCacheHost::IsApplicationCacheEnabled() {
              ->GetOfflineWebApplicationCacheEnabled();
 }
 
-void ApplicationCacheHost::DidChangeCacheAssociation() {
+void ApplicationCacheHost::CacheSelected(mojom::blink::AppCacheInfoPtr info) {
+  if (!backend_host_.is_bound())
+    return;
+
+  cache_info_ = *info;
   // FIXME: Prod the inspector to update its notion of what cache the page is
   // using.
+  if (select_cache_for_shared_worker_completion_callback_)
+    std::move(select_cache_for_shared_worker_completion_callback_).Run();
 }
 
-void ApplicationCacheHost::NotifyEventListener(
-    mojom::AppCacheEventID event_id) {
+void ApplicationCacheHost::EventRaised(mojom::blink::AppCacheEventID event_id) {
+  if (!backend_host_.is_bound())
+    return;
+
+  DCHECK_NE(event_id,
+            mojom::blink::AppCacheEventID::
+                APPCACHE_PROGRESS_EVENT);  // See OnProgressEventRaised.
+  DCHECK_NE(event_id,
+            mojom::blink::AppCacheEventID::
+                APPCACHE_ERROR_EVENT);  // See OnErrorEventRaised.
+
+  // Emit logging output prior to calling out to script as we can get
+  // deleted within the script event handler.
+  const char kFormatString[] = "Application Cache %s event";
+  String message =
+      String::Format(kFormatString, kEventNames[static_cast<int>(event_id)]);
+  LogMessage(mojom::blink::ConsoleMessageLevel::kInfo, message);
+
+  switch (event_id) {
+    case mojom::blink::AppCacheEventID::APPCACHE_CHECKING_EVENT:
+      status_ = mojom::blink::AppCacheStatus::APPCACHE_STATUS_CHECKING;
+      break;
+    case mojom::blink::AppCacheEventID::APPCACHE_DOWNLOADING_EVENT:
+      status_ = mojom::blink::AppCacheStatus::APPCACHE_STATUS_DOWNLOADING;
+      break;
+    case mojom::blink::AppCacheEventID::APPCACHE_UPDATE_READY_EVENT:
+      status_ = mojom::blink::AppCacheStatus::APPCACHE_STATUS_UPDATE_READY;
+      break;
+    case mojom::blink::AppCacheEventID::APPCACHE_CACHED_EVENT:
+    case mojom::blink::AppCacheEventID::APPCACHE_NO_UPDATE_EVENT:
+      status_ = mojom::blink::AppCacheStatus::APPCACHE_STATUS_IDLE;
+      break;
+    case mojom::blink::AppCacheEventID::APPCACHE_OBSOLETE_EVENT:
+      status_ = mojom::blink::AppCacheStatus::APPCACHE_STATUS_OBSOLETE;
+      break;
+    default:
+      NOTREACHED();
+      break;
+  }
+
   NotifyApplicationCache(event_id, 0, 0,
                          mojom::AppCacheErrorReason::APPCACHE_UNKNOWN_ERROR,
                          String(), 0, String());
 }
 
-void ApplicationCacheHost::NotifyProgressEventListener(const WebURL&,
-                                                       int progress_total,
-                                                       int progress_done) {
+void ApplicationCacheHost::ProgressEventRaised(const KURL& url,
+                                               int num_total,
+                                               int num_complete) {
+  if (!backend_host_.is_bound())
+    return;
+
+  // Emit logging output prior to calling out to script as we can get
+  // deleted within the script event handler.
+  const char kFormatString[] = "Application Cache Progress event (%d of %d) %s";
+  String message = String::Format(kFormatString, num_complete, num_total,
+                                  url.GetString().Utf8().c_str());
+  LogMessage(mojom::blink::ConsoleMessageLevel::kInfo, message);
+  status_ = mojom::blink::AppCacheStatus::APPCACHE_STATUS_DOWNLOADING;
   NotifyApplicationCache(mojom::AppCacheEventID::APPCACHE_PROGRESS_EVENT,
-                         progress_total, progress_done,
+                         num_total, num_complete,
                          mojom::AppCacheErrorReason::APPCACHE_UNKNOWN_ERROR,
                          String(), 0, String());
 }
 
-void ApplicationCacheHost::NotifyErrorEventListener(
-    mojom::AppCacheErrorReason reason,
-    const WebURL& url,
-    int status,
-    const WebString& message) {
-  NotifyApplicationCache(mojom::AppCacheEventID::APPCACHE_ERROR_EVENT, 0, 0,
-                         reason, url.GetString(), status, message);
+void ApplicationCacheHost::ErrorEventRaised(
+    mojom::blink::AppCacheErrorDetailsPtr details) {
+  if (!backend_host_.is_bound())
+    return;
+
+  // Emit logging output prior to calling out to script as we can get
+  // deleted within the script event handler.
+  const char kFormatString[] = "Application Cache Error event: %s";
+  String full_message =
+      String::Format(kFormatString, details->message.Utf8().c_str());
+  LogMessage(mojom::blink::ConsoleMessageLevel::kError, full_message);
+
+  status_ = cache_info_.is_complete
+                ? mojom::blink::AppCacheStatus::APPCACHE_STATUS_IDLE
+                : mojom::blink::AppCacheStatus::APPCACHE_STATUS_UNCACHED;
+  if (details->is_cross_origin) {
+    // Don't leak detailed information to script for cross-origin resources.
+    DCHECK_EQ(mojom::blink::AppCacheErrorReason::APPCACHE_RESOURCE_ERROR,
+              details->reason);
+    NotifyApplicationCache(mojom::AppCacheEventID::APPCACHE_ERROR_EVENT, 0, 0,
+                           details->reason, details->url.GetString(), 0,
+                           String());
+  } else {
+    NotifyApplicationCache(mojom::AppCacheEventID::APPCACHE_ERROR_EVENT, 0, 0,
+                           details->reason, details->url.GetString(),
+                           details->status, details->message);
+  }
+}
+
+void ApplicationCacheHost::GetAssociatedCacheInfo(
+    ApplicationCacheHost::CacheInfo* info) {
+  if (!backend_host_.is_bound())
+    return;
+
+  info->manifest_ = cache_info_.manifest_url;
+  if (!cache_info_.is_complete)
+    return;
+  info->creation_time_ = cache_info_.creation_time.ToDoubleT();
+  info->update_time_ = cache_info_.last_update_time.ToDoubleT();
+  info->response_sizes_ = cache_info_.response_sizes;
+  info->padding_sizes_ = cache_info_.padding_sizes;
+}
+
+bool ApplicationCacheHost::BindBackend() {
+  if (!task_runner_)
+    return false;
+
+  // PlzNavigate: The browser passes the ID to be used.
+  if (!document_loader_->AppcacheHostId().is_empty())
+    host_id_ = document_loader_->AppcacheHostId();
+  else
+    host_id_ = base::UnguessableToken::Create();
+
+  mojo::PendingRemote<mojom::blink::AppCacheFrontend> frontend_remote;
+  receiver_.Bind(frontend_remote.InitWithNewPipeAndPassReceiver(),
+                 task_runner_);
+
+  if (interface_broker_) {
+    interface_broker_->RegisterAppCacheHost(
+        backend_host_.BindNewPipeAndPassReceiver(std::move(task_runner_)),
+        std::move(frontend_remote), host_id_);
+    return true;
+  }
+
+  DEFINE_STATIC_LOCAL(
+      const mojo::Remote<mojom::blink::AppCacheBackend>, backend_remote, ([] {
+        mojo::Remote<mojom::blink::AppCacheBackend> result;
+        Platform::Current()->GetInterfaceProvider()->GetInterface(
+            result.BindNewPipeAndPassReceiver());
+        return result;
+      }()));
+
+  // Once we have 'WebContextInterfaceBroker', we can call this function through
+  // it like render frame.
+  // Refer to the design document, 'https://bit.ly/2GT0rZv'.
+  backend_remote->RegisterHost(
+      backend_host_.BindNewPipeAndPassReceiver(std::move(task_runner_)),
+      std::move(frontend_remote), host_id_);
+  return true;
 }
 
 void ApplicationCacheHost::Trace(blink::Visitor* visitor) {

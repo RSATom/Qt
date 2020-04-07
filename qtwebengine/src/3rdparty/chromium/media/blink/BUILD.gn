@@ -49,8 +49,6 @@ component("blink") {
     "watch_time_component.h",
     "watch_time_reporter.cc",
     "watch_time_reporter.h",
-    "webaudiosourceprovider_impl.cc",
-    "webaudiosourceprovider_impl.h",
     "webcontentdecryptionmodule_impl.cc",
     "webcontentdecryptionmodule_impl.h",
     "webcontentdecryptionmoduleaccess_impl.cc",
@@ -61,13 +59,8 @@ component("blink") {
     "webencryptedmediaclient_impl.h",
     "webinbandtexttrack_impl.cc",
     "webinbandtexttrack_impl.h",
-    "webmediacapabilitiesclient_impl.cc",
-    "webmediacapabilitiesclient_impl.h",
-    "webmediaplayer_delegate.h",
     "webmediaplayer_params.cc",
     "webmediaplayer_params.h",
-    "webmediaplayer_util.cc",
-    "webmediaplayer_util.h",
     "webmediasource_impl.cc",
     "webmediasource_impl.h",
     "websourcebuffer_impl.cc",
@@ -79,6 +72,7 @@ component("blink") {
   deps = [
     "//base",
     "//cc",
+    "//components/viz/common",
     "//gpu",
     "//media",
     "//media:shared_memory_support",
@@ -86,7 +80,6 @@ component("blink") {
     "//net",
     "//services/network/public/cpp:cpp",
     "//services/service_manager/public/cpp:cpp",
-    "//skia",
     "//third_party/blink/public:blink",
     "//ui/gfx",
     "//ui/gfx/geometry",
@@ -98,13 +91,6 @@ component("blink") {
       "webmediaplayer_impl.cc",
       "webmediaplayer_impl.h",
     ]
-    if (is_android) {
-      sources += [
-        "webmediaplayer_cast_android.cc",
-        "webmediaplayer_cast_android.h",
-      ]
-      deps += [ "//gpu/command_buffer/client:gles2_interface" ]
-    }
   }
 }
 
@@ -161,10 +147,7 @@ test("media_blink_unittests") {
     "video_frame_compositor_unittest.cc",
     "watch_time_component_unittest.cc",
     "watch_time_reporter_unittest.cc",
-    "webaudiosourceprovider_impl_unittest.cc",
-    "webmediacapabilitiesclient_impl_unittest.cc",
     "webmediaplayer_impl_unittest.cc",
-    "webmediaplayer_util_unittest.cc",
   ]
 
   if (is_android) {

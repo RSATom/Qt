@@ -39,8 +39,6 @@ class SVGDiscardElement final : public SVGSMILElement {
   DEFINE_WRAPPERTYPEINFO();
 
  public:
-  DECLARE_NODE_FACTORY(SVGDiscardElement);
-
   explicit SVGDiscardElement(Document&);
 
   bool IsSVGDiscardElement() const override { return true; }
@@ -50,6 +48,8 @@ class SVGDiscardElement final : public SVGSMILElement {
   void ClearAnimatedType() override {}
   void ApplyResultsToTarget() override {}
   void AnimationAttributeChanged() override {}
+
+  bool OverwritesUnderlyingAnimationValue() override { return false; }
 
   void StartedActiveInterval() override {}
   void UpdateAnimation(float percent,

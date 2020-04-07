@@ -8,15 +8,15 @@
 #ifndef PromiseImageHelper_DEFINED
 #define PromiseImageHelper_DEFINED
 
-#include "GrBackendSurface.h"
-#include "SkBitmap.h"
-#include "SkCachedData.h"
-#include "SkDeferredDisplayListRecorder.h"
-#include "SkPromiseImageTexture.h"
-#include "SkTArray.h"
-#include "SkTLazy.h"
-#include "SkYUVAIndex.h"
-#include "SkYUVASizeInfo.h"
+#include "include/core/SkBitmap.h"
+#include "include/core/SkDeferredDisplayListRecorder.h"
+#include "include/core/SkPromiseImageTexture.h"
+#include "include/core/SkYUVAIndex.h"
+#include "include/core/SkYUVASizeInfo.h"
+#include "include/gpu/GrBackendSurface.h"
+#include "include/private/SkTArray.h"
+#include "src/core/SkCachedData.h"
+#include "src/core/SkTLazy.h"
 
 class GrContext;
 class SkImage;
@@ -47,17 +47,13 @@ struct SkYUVAIndex;
 // all the replaying is complete. This will pin the GrBackendTextures in VRAM.
 class DDLPromiseImageHelper {
 public:
-    DDLPromiseImageHelper() { }
-    ~DDLPromiseImageHelper();
+    DDLPromiseImageHelper() = default;
+    ~DDLPromiseImageHelper() = default;
 
     // Convert the SkPicture into SkData replacing all the SkImages with an index.
     sk_sp<SkData> deflateSKP(const SkPicture* inputPicture);
 
     void uploadAllToGPU(GrContext* context);
-
-    // Change the backing store texture for half the images. (Must ensure all fulfilled images are
-    // released before calling this.).
-    void replaceEveryOtherPromiseTexture(GrContext*);
 
     // reinflate a deflated SKP, replacing all the indices with promise images.
     sk_sp<SkPicture> reinflateSKP(SkDeferredDisplayListRecorder*,

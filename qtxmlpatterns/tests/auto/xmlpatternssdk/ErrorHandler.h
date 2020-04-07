@@ -50,7 +50,7 @@ namespace QPatternistSDK
      * @ingroup PatternistSDK
      * @author Frans Englich <frans.englich@nokia.com>
      */
-    class Q_PATTERNISTSDK_EXPORT ErrorHandler : public QAbstractMessageHandler
+    class ErrorHandler : public QAbstractMessageHandler
     {
     public:
         class Message

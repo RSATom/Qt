@@ -28,7 +28,6 @@
 
 #include <QTest>
 
-#include <QtAlgorithms>
 #include <QFile>
 #include <QFileInfo>
 #include <QRandomGenerator>
@@ -36,6 +35,7 @@
 
 #include <QDebug>
 
+#include <algorithm>
 #include <cstdlib>
 #include <cstdio>
 
@@ -489,13 +489,13 @@ void tst_LargeFile::mapFile()
     // Keep full block mapped to facilitate OS and/or internal reuse by Qt.
     uchar *baseAddress = largeFile.map(position, blockSize);
     QVERIFY( baseAddress );
-    QVERIFY( qEqual(block.begin(), block.end(), reinterpret_cast<char*>(baseAddress)) );
+    QVERIFY( std::equal(block.begin(), block.end(), reinterpret_cast<char*>(baseAddress)) );
 
     for (int offset = 1; offset <  blockSize; ++offset) {
         uchar *address = largeFile.map(position + offset, blockSize - offset);
 
         QVERIFY( address );
-        if ( !qEqual(block.begin() + offset, block.end(), reinterpret_cast<char*>(address)) ) {
+        if ( !std::equal(block.begin() + offset, block.end(), reinterpret_cast<char*>(address)) ) {
             qDebug() << "Expected:" << block.toHex();
             qDebug() << "Actual  :" << QByteArray(reinterpret_cast<char*>(address), blockSize).toHex();
             QVERIFY(false);

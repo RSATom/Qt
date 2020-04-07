@@ -8,13 +8,13 @@
 #ifndef GrResourceAllocator_DEFINED
 #define GrResourceAllocator_DEFINED
 
-#include "GrGpuResourcePriv.h"
-#include "GrSurface.h"
-#include "GrSurfaceProxy.h"
+#include "include/gpu/GrSurface.h"
+#include "src/gpu/GrGpuResourcePriv.h"
+#include "src/gpu/GrSurfaceProxy.h"
 
-#include "SkArenaAlloc.h"
-#include "SkTDynamicHash.h"
-#include "SkTMultiMap.h"
+#include "src/core/SkArenaAlloc.h"
+#include "src/core/SkTDynamicHash.h"
+#include "src/core/SkTMultiMap.h"
 
 class GrDeinstantiateProxyTracker;
 class GrResourceProvider;
@@ -39,29 +39,62 @@ class GrResourceProvider;
  *
  * Note: the op indices (used in the usage intervals) come from the order of the ops in
  * their opLists after the opList DAG has been linearized.
+ *
+ *************************************************************************************************
+ * How does instantiation failure handling work when explicitly allocating?
+ *
+ * In the gather usage intervals pass all the GrSurfaceProxies used in the flush should be
+ * gathered (i.e., in GrOpList::gatherProxyIntervals).
+ *
+ * The allocator will churn through this list but could fail anywhere.
+ *
+ * Allocation failure handling occurs at two levels:
+ *
+ * 1) If the GrSurface backing an opList fails to allocate then the entire opList is dropped.
+ *
+ * 2) If an individual GrSurfaceProxy fails to allocate then any ops that use it are dropped
+ * (via GrOpList::purgeOpsWithUninstantiatedProxies)
+ *
+ * The pass to determine which ops to drop is a bit laborious so we only check the opLists and
+ * individual ops when something goes wrong in allocation (i.e., when the return code from
+ * GrResourceAllocator::assign is bad)
+ *
+ * All together this means we should never attempt to draw an op which is missing some
+ * required GrSurface.
+ *
+ * One wrinkle in this plan is that promise images are fulfilled during the gather interval pass.
+ * If any of the promise images fail at this stage then the allocator is set into an error
+ * state and all allocations are then scanned for failures during the main allocation pass.
  */
 class GrResourceAllocator {
 public:
-    GrResourceAllocator(GrResourceProvider* resourceProvider, GrDeinstantiateProxyTracker* tracker)
-            : fResourceProvider(resourceProvider), fDeinstantiateTracker(tracker) {}
+    GrResourceAllocator(GrResourceProvider* resourceProvider,
+                        GrDeinstantiateProxyTracker* tracker
+                        SkDEBUGCODE(, int numOpLists))
+            : fResourceProvider(resourceProvider)
+            , fDeinstantiateTracker(tracker)
+            SkDEBUGCODE(, fNumOpLists(numOpLists)) {
+    }
 
     ~GrResourceAllocator();
 
     unsigned int curOp() const { return fNumOps; }
     void incOps() { fNumOps++; }
-    unsigned int numOps() const { return fNumOps; }
+
+    /** Indicates whether a given call to addInterval represents an actual usage of the
+     *  provided proxy. This is mainly here to accomodate deferred proxies attached to opLists.
+     *  In that case we need to create an extra long interval for them (due to the upload) but
+     *  don't want to count that usage/reference towards the proxy's recyclability.
+     */
+    enum class ActualUse : bool {
+        kNo  = false,
+        kYes = true
+    };
 
     // Add a usage interval from 'start' to 'end' inclusive. This is usually used for renderTargets.
     // If an existing interval already exists it will be expanded to include the new range.
-    void addInterval(GrSurfaceProxy*, unsigned int start, unsigned int end
+    void addInterval(GrSurfaceProxy*, unsigned int start, unsigned int end, ActualUse actualUse
                      SkDEBUGCODE(, bool isDirectDstRead = false));
-
-    // Add an interval that spans just the current op. Usually this is for texture uses.
-    // If an existing interval already exists it will be expanded to include the new operation.
-    void addInterval(GrSurfaceProxy* proxy
-                     SkDEBUGCODE(, bool isDirectDstRead = false)) {
-        this->addInterval(proxy, fNumOps, fNumOps SkDEBUGCODE(, isDirectDstRead));
-    }
 
     enum class AssignError {
         kNoError,
@@ -76,6 +109,7 @@ public:
     // amount of GPU resources required.
     bool assign(int* startIndex, int* stopIndex, AssignError* outError);
 
+    void determineRecyclability();
     void markEndOfOpList(int opListIndex);
 
 #if GR_ALLOCATION_SPEW
@@ -88,9 +122,12 @@ private:
     // Remove dead intervals from the active list
     void expire(unsigned int curIndex);
 
+    bool onOpListBoundary() const;
+    void forceIntermediateFlush(int* stopIndex);
+
     // These two methods wrap the interactions with the free pool
     void recycleSurface(sk_sp<GrSurface> surface);
-    sk_sp<GrSurface> findSurfaceFor(const GrSurfaceProxy* proxy, bool needsStencil);
+    sk_sp<GrSurface> findSurfaceFor(const GrSurfaceProxy* proxy, int minStencilSampleCount);
 
     struct FreePoolTraits {
         static const GrScratchKey& GetKey(const GrSurface& s) {
@@ -120,10 +157,12 @@ private:
 #endif
         }
 
+        // Used when recycling an interval
         void resetTo(GrSurfaceProxy* proxy, unsigned int start, unsigned int end) {
             SkASSERT(proxy);
-            SkASSERT(!fNext);
+            SkASSERT(!fProxy && !fNext);
 
+            fUses = 0;
             fProxy = proxy;
             fProxyID = proxy->uniqueID().asUInt();
             fStart = start;
@@ -142,12 +181,19 @@ private:
 
         const GrSurfaceProxy* proxy() const { return fProxy; }
         GrSurfaceProxy* proxy() { return fProxy; }
+
         unsigned int start() const { return fStart; }
         unsigned int end() const { return fEnd; }
+
+        void setNext(Interval* next) { fNext = next; }
         const Interval* next() const { return fNext; }
         Interval* next() { return fNext; }
 
-        void setNext(Interval* next) { fNext = next; }
+        void markAsRecyclable() { fIsRecyclable = true;}
+        bool isRecyclable() const { return fIsRecyclable; }
+
+        void addUse() { fUses++; }
+        int uses() { return fUses; }
 
         void extendEnd(unsigned int newEnd) {
             if (newEnd > fEnd) {
@@ -175,6 +221,8 @@ private:
         unsigned int     fStart;
         unsigned int     fEnd;
         Interval*        fNext;
+        unsigned int     fUses = 0;
+        bool             fIsRecyclable = false;
 
 #if GR_TRACK_INTERVAL_CREATION
         uint32_t        fUniqueID;
@@ -196,6 +244,7 @@ private:
             return !SkToBool(fHead);
         }
         const Interval* peekHead() const { return fHead; }
+        Interval* peekHead() { return fHead; }
         Interval* popHead();
         void insertByIncreasingStart(Interval*);
         void insertByIncreasingEnd(Interval*);
@@ -218,17 +267,18 @@ private:
 
     IntervalList                 fIntvlList;         // All the intervals sorted by increasing start
     IntervalList                 fActiveIntvls;      // List of live intervals during assignment
-                                               // (sorted by increasing end)
-    unsigned int                 fNumOps = 1;        // op # 0 is reserved for uploads at the start
-                                               // of a flush
+                                                     // (sorted by increasing end)
+    unsigned int                 fNumOps = 0;
     SkTArray<unsigned int>       fEndOfOpListOpIndices;
     int                          fCurOpListIndex = 0;
+    SkDEBUGCODE(const int        fNumOpLists = -1;)
 
     SkDEBUGCODE(bool             fAssigned = false;)
 
     char                         fStorage[kInitialArenaSize];
     SkArenaAlloc                 fIntervalAllocator{fStorage, kInitialArenaSize, kInitialArenaSize};
     Interval*                    fFreeIntervalList = nullptr;
+    bool                         fLazyInstantiationError = false;
 };
 
 #endif // GrResourceAllocator_DEFINED

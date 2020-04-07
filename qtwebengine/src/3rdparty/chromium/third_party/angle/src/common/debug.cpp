@@ -13,6 +13,7 @@
 #include <array>
 #include <cstdio>
 #include <fstream>
+#include <mutex>
 #include <ostream>
 #include <vector>
 
@@ -22,6 +23,7 @@
 
 #include "common/Optional.h"
 #include "common/angleutils.h"
+#include "common/system_utils.h"
 
 namespace gl
 {
@@ -31,8 +33,10 @@ namespace
 
 DebugAnnotator *g_debugAnnotator = nullptr;
 
+std::mutex *g_debugMutex = nullptr;
+
 constexpr std::array<const char *, LOG_NUM_SEVERITIES> g_logSeverityNames = {
-    {"EVENT", "WARN", "ERR"}};
+    {"EVENT", "INFO", "WARN", "ERR", "FATAL"}};
 
 constexpr const char *LogSeverityName(int severity)
 {
@@ -96,6 +100,14 @@ void UninitializeDebugAnnotations()
     g_debugAnnotator = nullptr;
 }
 
+void InitializeDebugMutexIfNeeded()
+{
+    if (g_debugMutex == nullptr)
+    {
+        g_debugMutex = new std::mutex();
+    }
+}
+
 ScopedPerfEventHelper::ScopedPerfEventHelper(const char *format, ...) : mFunctionName(nullptr)
 {
     bool dbgTrace = DebugAnnotationsActive();
@@ -140,13 +152,31 @@ LogMessage::LogMessage(const char *function, int line, LogSeverity severity)
 
 LogMessage::~LogMessage()
 {
-    if (DebugAnnotationsInitialized() && (mSeverity == LOG_ERR || mSeverity == LOG_WARN))
+    std::unique_lock<std::mutex> lock;
+    if (g_debugMutex != nullptr)
+    {
+        lock = std::unique_lock<std::mutex>(*g_debugMutex);
+    }
+
+    if (DebugAnnotationsInitialized() && (mSeverity >= LOG_INFO))
     {
         g_debugAnnotator->logMessage(*this);
     }
     else
     {
         Trace(getSeverity(), getMessage().c_str());
+    }
+
+    if (mSeverity == LOG_FATAL)
+    {
+        if (angle::IsDebuggerAttached())
+        {
+            angle::BreakDebugger();
+        }
+        else
+        {
+            ANGLE_CRASH();
+        }
     }
 }
 
@@ -173,14 +203,33 @@ void Trace(LogSeverity severity, const char *message)
         }
     }
 
-    if (severity == LOG_ERR || severity == LOG_WARN)
+    if (severity == LOG_FATAL || severity == LOG_ERR || severity == LOG_WARN ||
+        severity == LOG_INFO)
     {
 #if defined(ANGLE_PLATFORM_ANDROID)
-        __android_log_print((severity == LOG_ERR) ? ANDROID_LOG_ERROR : ANDROID_LOG_WARN, "ANGLE",
-                            "%s: %s\n", LogSeverityName(severity), str.c_str());
+        android_LogPriority android_priority = ANDROID_LOG_ERROR;
+        switch (severity)
+        {
+            case LOG_INFO:
+                android_priority = ANDROID_LOG_INFO;
+                break;
+            case LOG_WARN:
+                android_priority = ANDROID_LOG_WARN;
+                break;
+            case LOG_ERR:
+                android_priority = ANDROID_LOG_ERROR;
+                break;
+            case LOG_FATAL:
+                android_priority = ANDROID_LOG_FATAL;
+                break;
+            default:
+                UNREACHABLE();
+        }
+        __android_log_print(android_priority, "ANGLE", "%s: %s\n", LogSeverityName(severity),
+                            str.c_str());
 #else
         // Note: we use fprintf because <iostream> includes static initializers.
-        fprintf((severity == LOG_ERR) ? stderr : stdout, "%s: %s\n", LogSeverityName(severity),
+        fprintf((severity >= LOG_ERR) ? stderr : stdout, "%s: %s\n", LogSeverityName(severity),
                 str.c_str());
 #endif
     }
@@ -188,7 +237,7 @@ void Trace(LogSeverity severity, const char *message)
 #if defined(ANGLE_PLATFORM_WINDOWS) && \
     (defined(ANGLE_ENABLE_DEBUG_TRACE_TO_DEBUGGER) || !defined(NDEBUG))
 #    if !defined(ANGLE_ENABLE_DEBUG_TRACE_TO_DEBUGGER)
-    if (severity == LOG_ERR)
+    if (severity >= LOG_ERR)
 #    endif  // !defined(ANGLE_ENABLE_DEBUG_TRACE_TO_DEBUGGER)
     {
         OutputDebugStringA(str.c_str());
@@ -197,7 +246,7 @@ void Trace(LogSeverity severity, const char *message)
 
 #if defined(ANGLE_ENABLE_DEBUG_TRACE)
 #    if defined(NDEBUG)
-    if (severity == LOG_EVENT || severity == LOG_WARN)
+    if (severity == LOG_EVENT || severity == LOG_WARN || severity == LOG_INFO)
     {
         return;
     }

@@ -161,9 +161,7 @@ class MenuScrollViewContainer::MenuScrollView : public View {
   }
 
   // Returns the contents, which is the SubmenuView.
-  View* GetContents() {
-    return child_at(0);
-  }
+  View* GetContents() { return children().front(); }
 
  private:
   DISALLOW_COPY_AND_ASSIGN(MenuScrollView);
@@ -191,11 +189,6 @@ bool MenuScrollViewContainer::HasBubbleBorder() const {
   return arrow_ != BubbleBorder::NONE;
 }
 
-void MenuScrollViewContainer::SetBubbleArrowOffset(int offset) {
-  DCHECK(HasBubbleBorder());
-  bubble_border_->set_arrow_offset(offset);
-}
-
 MenuItemView* MenuScrollViewContainer::GetFootnote() const {
   MenuItemView* footnote = content_view_->GetLastItem();
   if (!footnote || footnote->GetType() != MenuItemView::HIGHLIGHTED)
@@ -221,7 +214,7 @@ void MenuScrollViewContainer::Layout() {
   int width = View::width() - insets.width();
   int content_height = height() - insets.height();
   MenuItemView* footnote = GetFootnote();
-  if (!scroll_up_button_->visible()) {
+  if (!scroll_up_button_->GetVisible()) {
     if (footnote)
       footnote->SetCornerRadius(corner_radius_);
     scroll_view_->SetBounds(x, y, width, content_height);
@@ -250,8 +243,7 @@ void MenuScrollViewContainer::Layout() {
   scroll_view_->Layout();
 }
 
-void MenuScrollViewContainer::OnNativeThemeChanged(
-    const ui::NativeTheme* theme) {
+void MenuScrollViewContainer::OnThemeChanged() {
   if (!HasBubbleBorder())
     CreateDefaultBorder();
 }
@@ -282,7 +274,7 @@ void MenuScrollViewContainer::OnBoundsChanged(
   gfx::Size content_pref = scroll_view_->GetContents()->GetPreferredSize();
   scroll_up_button_->SetVisible(content_pref.height() > height());
   scroll_down_button_->SetVisible(content_pref.height() > height());
-  Layout();
+  InvalidateLayout();
 }
 
 void MenuScrollViewContainer::CreateBorder() {
@@ -348,7 +340,7 @@ void MenuScrollViewContainer::CreateBubbleBorder() {
     scroll_view_->GetContents()->SetBorder(CreateEmptyBorder(insets));
   }
 
-  corner_radius_ = bubble_border_->GetBorderCornerRadius();
+  corner_radius_ = bubble_border_->corner_radius();
 
   SetBorder(std::unique_ptr<Border>(bubble_border_));
   SetBackground(std::make_unique<BubbleBackground>(bubble_border_));
@@ -357,21 +349,17 @@ void MenuScrollViewContainer::CreateBubbleBorder() {
 BubbleBorder::Arrow MenuScrollViewContainer::BubbleBorderTypeFromAnchor(
     MenuAnchorPosition anchor) {
   switch (anchor) {
-    case MENU_ANCHOR_BUBBLE_LEFT:
-      return BubbleBorder::RIGHT_CENTER;
-    case MENU_ANCHOR_BUBBLE_RIGHT:
-      return BubbleBorder::LEFT_CENTER;
-    case MENU_ANCHOR_BUBBLE_ABOVE:
-      return BubbleBorder::BOTTOM_CENTER;
-    case MENU_ANCHOR_BUBBLE_BELOW:
-      return BubbleBorder::TOP_CENTER;
-    case MENU_ANCHOR_BUBBLE_TOUCHABLE_ABOVE:
-    case MENU_ANCHOR_BUBBLE_TOUCHABLE_LEFT:
-    case MENU_ANCHOR_BUBBLE_TOUCHABLE_RIGHT:
+    case MenuAnchorPosition::kBubbleAbove:
+    case MenuAnchorPosition::kBubbleLeft:
+    case MenuAnchorPosition::kBubbleRight:
       return BubbleBorder::FLOAT;
     default:
       return BubbleBorder::NONE;
   }
 }
+
+BEGIN_METADATA(MenuScrollViewContainer)
+METADATA_PARENT_CLASS(View)
+END_METADATA()
 
 }  // namespace views

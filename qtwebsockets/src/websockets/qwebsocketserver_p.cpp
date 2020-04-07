@@ -49,6 +49,7 @@
 #include "qwebsocket_p.h"
 #include "qwebsocketcorsauthenticator.h"
 
+#include <QtCore/QTimer>
 #include <QtNetwork/QTcpServer>
 #include <QtNetwork/QTcpSocket>
 #include <QtNetwork/QNetworkProxy>
@@ -73,7 +74,8 @@ QWebSocketServerPrivate::QWebSocketServerPrivate(const QString &serverName,
     m_pendingConnections(),
     m_error(QWebSocketProtocol::CloseCodeNormal),
     m_errorString(),
-    m_maxPendingConnections(30)
+    m_maxPendingConnections(30),
+    m_handshakeTimeout(10000)
 {}
 
 /*!
@@ -97,6 +99,8 @@ void QWebSocketServerPrivate::init()
             QObjectPrivate::connect(pSslServer, &QSslServer::newEncryptedConnection,
                                     this, &QWebSocketServerPrivate::onNewConnection,
                                     Qt::QueuedConnection);
+            QObjectPrivate::connect(pSslServer, &QSslServer::startedEncryptionHandshake,
+                                    this, &QWebSocketServerPrivate::startHandshakeTimeout);
             QObject::connect(pSslServer, &QSslServer::peerVerifyError,
                              q, &QWebSocketServer::peerVerifyError);
             QObject::connect(pSslServer, &QSslServer::sslErrors,
@@ -381,8 +385,12 @@ void QWebSocketServerPrivate::setError(QWebSocketProtocol::CloseCode code, const
  */
 void QWebSocketServerPrivate::onNewConnection()
 {
-    while (m_pTcpServer->hasPendingConnections())
-        handleConnection(m_pTcpServer->nextPendingConnection());
+    while (m_pTcpServer->hasPendingConnections()) {
+        QTcpSocket *pTcpSocket = m_pTcpServer->nextPendingConnection();
+        if (Q_LIKELY(pTcpSocket) && m_secureMode == NonSecureMode)
+            startHandshakeTimeout(pTcpSocket);
+        handleConnection(pTcpSocket);
+    }
 }
 
 /*!
@@ -390,8 +398,10 @@ void QWebSocketServerPrivate::onNewConnection()
  */
 void QWebSocketServerPrivate::onSocketDisconnected()
 {
-    if (Q_LIKELY(currentSender)) {
-        QTcpSocket *pTcpSocket = qobject_cast<QTcpSocket*>(currentSender->sender);
+    Q_Q(QWebSocketServer);
+    QObject *sender = q->sender();
+    if (Q_LIKELY(sender)) {
+        QTcpSocket *pTcpSocket = qobject_cast<QTcpSocket*>(sender);
         if (Q_LIKELY(pTcpSocket))
             pTcpSocket->deleteLater();
     }
@@ -402,10 +412,12 @@ void QWebSocketServerPrivate::onSocketDisconnected()
  */
 void QWebSocketServerPrivate::handshakeReceived()
 {
-    if (Q_UNLIKELY(!currentSender)) {
+    Q_Q(QWebSocketServer);
+    QObject *sender = q->sender();
+    if (Q_UNLIKELY(!sender)) {
         return;
     }
-    QTcpSocket *pTcpSocket = qobject_cast<QTcpSocket*>(currentSender->sender);
+    QTcpSocket *pTcpSocket = qobject_cast<QTcpSocket*>(sender);
     if (Q_UNLIKELY(!pTcpSocket)) {
         return;
     }
@@ -423,13 +435,11 @@ void QWebSocketServerPrivate::handshakeReceived()
     }
     disconnect(pTcpSocket, &QTcpSocket::readyRead,
                this, &QWebSocketServerPrivate::handshakeReceived);
-    Q_Q(QWebSocketServer);
     bool success = false;
     bool isSecure = (m_secureMode == SecureMode);
 
     if (m_pendingConnections.length() >= maxPendingConnections()) {
         pTcpSocket->close();
-        pTcpSocket->deleteLater();
         setError(QWebSocketProtocol::CloseCodeAbnormalDisconnection,
                  QWebSocketServer::tr("Too many pending connections."));
         return;
@@ -460,6 +470,7 @@ void QWebSocketServerPrivate::handshakeReceived()
                                                                         request,
                                                                         response);
                 if (pWebSocket) {
+                    finishHandshakeTimeout(pTcpSocket);
                     addPendingConnection(pWebSocket);
                     Q_EMIT q->newConnection();
                     success = true;
@@ -496,6 +507,28 @@ void QWebSocketServerPrivate::handleConnection(QTcpSocket *pTcpSocket) const
         }
         QObjectPrivate::connect(pTcpSocket, &QTcpSocket::disconnected,
                                 this, &QWebSocketServerPrivate::onSocketDisconnected);
+    }
+}
+
+void QWebSocketServerPrivate::startHandshakeTimeout(QTcpSocket *pTcpSocket)
+{
+    if (m_handshakeTimeout < 0)
+        return;
+
+    QTimer *handshakeTimer = new QTimer(pTcpSocket);
+    handshakeTimer->setSingleShot(true);
+    handshakeTimer->setObjectName(QStringLiteral("handshakeTimer"));
+    QObject::connect(handshakeTimer, &QTimer::timeout, [=]() {
+        pTcpSocket->close();
+    });
+    handshakeTimer->start(m_handshakeTimeout);
+}
+
+void QWebSocketServerPrivate::finishHandshakeTimeout(QTcpSocket *pTcpSocket)
+{
+    if (QTimer *handshakeTimer = pTcpSocket->findChild<QTimer *>(QStringLiteral("handshakeTimer"))) {
+        handshakeTimer->stop();
+        delete handshakeTimer;
     }
 }
 

@@ -54,6 +54,8 @@
 #include <private/qqmltypenamecache_p.h>
 #include <private/qqmlengine_p.h>
 #include <private/qfieldlist_p.h>
+#include <private/qqmltypemodule_p.h>
+#include <private/qqmltypeloaderqmldircontent_p.h>
 #include <QtCore/qjsonobject.h>
 #include <QtCore/qjsonarray.h>
 
@@ -131,85 +133,6 @@ bool isPathAbsolute(const QString &path)
 #endif
 }
 
-/*
-    \internal
-
-    Fetches the QQmlType instance registered for \a urlString, creating a
-    registration for it if it is not already registered, using the associated
-    \a typeName, \a isCompositeSingleton, \a majorVersion and \a minorVersion
-    details.
-
-    Errors (if there are any) are placed into \a errors, if it is nonzero. Note
-    that errors are treated as fatal if \a errors is not set.
-*/
-QQmlType fetchOrCreateTypeForUrl(const QString &urlString, const QHashedStringRef& typeName,
-                        bool isCompositeSingleton, QList<QQmlError> *errors,
-                        int majorVersion=-1, int minorVersion=-1)
-{
-    QUrl url(urlString); // ### unfortunate (costly) conversion
-    QQmlType ret = QQmlMetaType::qmlType(url);
-    if (ret.isValid())
-        return ret;
-
-    int dot = typeName.indexOf(QLatin1Char('.'));
-    QHashedStringRef unqualifiedtype = dot < 0 ? typeName : QHashedStringRef(typeName.constData() + dot + 1, typeName.length() - dot - 1);
-
-    // We need a pointer, but we were passed a string. Take a copy so we
-    // can guarentee it will live long enough to reach qmlregister.
-    QByteArray buf(unqualifiedtype.toString().toUtf8());
-
-    QQmlMetaTypeRegistrationFailureRecorder failureRecorder;
-
-    // Register the type. Note that the URI parameters here are empty; for
-    // file type imports, we do not place them in a URI as we don't
-    // necessarily have a good and unique one (picture a library import,
-    // which may be found in multiple plugin locations on disk), but there
-    // are other reasons for this too.
-    //
-    // By not putting them in a URI, we prevent the types from being
-    // registered on a QQmlTypeModule; this is important, as once types are
-    // placed on there, they cannot be easily removed, meaning if the
-    // developer subsequently loads a different import (meaning different
-    // types) with the same URI (using, say, a different plugin path), it is
-    // very undesirable that we continue to associate the types from the
-    // "old" URI with that new module.
-    //
-    // Not having URIs also means that the types cannot be found by name
-    // etc, the only way to look them up is through QQmlImports -- for
-    // better or worse.
-    if (isCompositeSingleton) {
-        QQmlPrivate::RegisterCompositeSingletonType reg = {
-            url,
-            "", // uri
-            majorVersion,
-            minorVersion,
-            buf.constData()
-        };
-        ret = QQmlMetaType::registerCompositeSingletonType(reg);
-    } else {
-        QQmlPrivate::RegisterCompositeType reg = {
-            url,
-            "", // uri
-            majorVersion,
-            minorVersion,
-            buf.constData()
-        };
-        ret = QQmlMetaType::registerCompositeType(reg);
-    }
-
-    // This means that the type couldn't be found by URL, but could not be
-    // registered either, meaning we most likely were passed some kind of bad
-    // data.
-    if (!ret.isValid()) {
-        if (!errors) // Cannot list errors properly, just quit
-            qFatal("%s", failureRecorder.failures().join('\n').toLatin1().constData());
-        QQmlError error;
-        error.setDescription(failureRecorder.failures().join('\n'));
-        errors->prepend(error);
-    }
-    return ret;
-}
-
 } // namespace
 
 struct RegisteredPlugin {
@@ -219,6 +142,13 @@ struct RegisteredPlugin {
 
 struct StringRegisteredPluginMap : public QMap<QString, RegisteredPlugin> {
     QMutex mutex;
+
+    ~StringRegisteredPluginMap()
+    {
+        QMutexLocker lock(&mutex);
+        for (const RegisteredPlugin &plugin : qAsConst(*this))
+            delete plugin.loader;
+    }
 };
 
 Q_GLOBAL_STATIC(StringRegisteredPluginMap, qmlEnginePluginsWithRegisteredTypes); // stores the uri and the PluginLoaders
@@ -831,9 +761,9 @@ bool QQmlImportInstance::resolveType(QQmlTypeLoader *typeLoader, const QHashedSt
         if (candidate != end) {
             if (!base) // ensure we have a componentUrl
                 componentUrl = resolveLocalUrl(QString(url + candidate->typeName + dotqml_string), candidate->fileName);
-            QQmlType returnType = fetchOrCreateTypeForUrl(componentUrl, type, isCompositeSingleton,
-                                                          nullptr, candidate->majorVersion,
-                                                          candidate->minorVersion);
+            QQmlType returnType = QQmlMetaType::typeForUrl(componentUrl, type, isCompositeSingleton,
+                                                           nullptr, candidate->majorVersion,
+                                                           candidate->minorVersion);
             if (vmajor)
                 *vmajor = candidate->majorVersion;
             if (vminor)
@@ -850,12 +780,12 @@ bool QQmlImportInstance::resolveType(QQmlTypeLoader *typeLoader, const QHashedSt
             typeStr + dotqml_string, // Type -> Type.qml
             typeStr + dotuidotqml_string // Type -> Type.ui.qml
         };
-        for (uint i = 0; i < sizeof(urlsToTry) / sizeof(urlsToTry[0]); ++i) {
-            exists = typeLoader->fileExists(localDirectoryPath, urlsToTry[i]);
+        for (const QString &urlToTry : urlsToTry) {
+            exists = typeLoader->fileExists(localDirectoryPath, urlToTry);
             if (exists) {
 #if defined(Q_OS_MACOS) || defined(Q_OS_WIN)
                 // don't let function.qml confuse the use of "new Function(...)" for example.
-                if (!QQml_isFileCaseCorrect(localDirectoryPath + urlsToTry[i])) {
+                if (!QQml_isFileCaseCorrect(localDirectoryPath + urlToTry)) {
                     exists = false;
                     if (errors) {
                         QQmlError caseError;
@@ -867,7 +797,7 @@ bool QQmlImportInstance::resolveType(QQmlTypeLoader *typeLoader, const QHashedSt
 #else
                 Q_UNUSED(errors);
 #endif
-                qmlUrl = url + urlsToTry[i];
+                qmlUrl = url + urlToTry;
                 break;
             }
         }
@@ -877,8 +807,8 @@ bool QQmlImportInstance::resolveType(QQmlTypeLoader *typeLoader, const QHashedSt
                 if (typeRecursionDetected)
                     *typeRecursionDetected = true;
             } else {
-                QQmlType returnType = fetchOrCreateTypeForUrl(
-                            qmlUrl, type, registrationType == QQmlType::CompositeSingletonType, errors);
+                QQmlType returnType = QQmlMetaType::typeForUrl(
+                        qmlUrl, type, registrationType == QQmlType::CompositeSingletonType, errors);
                 if (type_return)
                     *type_return = returnType;
                 return returnType.isValid();
@@ -926,7 +856,10 @@ bool QQmlImportsPrivate::resolveType(const QHashedStringRef& type, int *vmajor, 
             return true;
         if (s->imports.count() == 1 && !s->imports.at(0)->isLibrary && type_return && s != &unqualifiedset) {
             // qualified, and only 1 url
-            *type_return = fetchOrCreateTypeForUrl(resolveLocalUrl(s->imports.at(0)->url, unqualifiedtype.toString() + QLatin1String(".qml")), type, false, errors);
+            *type_return = QQmlMetaType::typeForUrl(
+                    resolveLocalUrl(s->imports.at(0)->url,
+                                    unqualifiedtype.toString() + QLatin1String(".qml")),
+                    type, false, errors);
             return type_return->isValid();
         }
     }
@@ -1099,13 +1032,6 @@ bool QQmlImportsPrivate::populatePluginPairVector(QVector<StaticPluginPair> &res
     return true;
 }
 
-#if defined(QT_SHARED) || !QT_CONFIG(library)
-static inline QString msgCannotLoadPlugin(const QString &uri, const QString &why)
-{
-    return QQmlImportDatabase::tr("plugin cannot be loaded for module \"%1\": %2").arg(uri, why);
-}
-#endif
-
 /*
 Import an extension defined by a qmldir file.
 
@@ -1154,7 +1080,7 @@ bool QQmlImportsPrivate::importExtension(const QString &qmldirFilePath,
         int dynamicPluginsFound = 0;
         int staticPluginsFound = 0;
 
-#if defined(QT_SHARED)
+#if QT_CONFIG(library)
         const auto qmldirPlugins = qmldir.plugins();
         for (const QQmlDirParser::Plugin &plugin : qmldirPlugins) {
             QString resolvedFilePath = database->resolvePlugin(typeLoader, qmldirPath, plugin.path, plugin.name);
@@ -1165,9 +1091,11 @@ bool QQmlImportsPrivate::importExtension(const QString &qmldirFilePath,
                         // XXX TODO: should we leave the import plugin error alone?
                         // Here, we pop it off the top and coalesce it into this error's message.
                         // The reason is that the lower level may add url and line/column numbering information.
-                        QQmlError poppedError = errors->takeFirst();
                         QQmlError error;
-                        error.setDescription(msgCannotLoadPlugin(uri, poppedError.description()));
+                        error.setDescription(
+                                QQmlImportDatabase::tr(
+                                        "plugin cannot be loaded for module \"%1\": %2")
+                                        .arg(uri, errors->takeFirst().description()));
                         error.setUrl(QUrl::fromLocalFile(qmldirFilePath));
                         errors->prepend(error);
                     }
@@ -1175,7 +1103,7 @@ bool QQmlImportsPrivate::importExtension(const QString &qmldirFilePath,
                 }
             }
         }
-#endif // QT_SHARED
+#endif // QT_CONFIG(library)
 
         if (dynamicPluginsFound < qmldirPluginCount) {
             // Check if the missing plugins can be resolved statically. We do this by looking at
@@ -1823,6 +1751,16 @@ QQmlImportDatabase::QQmlImportDatabase(QQmlEngine *e)
 
     addImportPath(QStringLiteral("qrc:/qt-project.org/imports"));
     addImportPath(QCoreApplication::applicationDirPath());
+#if defined(Q_OS_ANDROID)
+    addImportPath(QStringLiteral("qrc:/android_rcc_bundle/qml"));
+    if (Q_UNLIKELY(!qEnvironmentVariableIsEmpty("QT_BUNDLED_LIBS_PATH"))) {
+        const QString envImportPath = qEnvironmentVariable("QT_BUNDLED_LIBS_PATH");
+        QLatin1Char pathSep(':');
+        QStringList paths = envImportPath.split(pathSep, QString::SkipEmptyParts);
+        for (int ii = paths.count() - 1; ii >= 0; --ii)
+            addPluginPath(paths.at(ii));
+    }
+#endif
 }
 
 QQmlImportDatabase::~QQmlImportDatabase()
@@ -1870,6 +1808,19 @@ QString QQmlImportDatabase::resolvePlugin(QQmlTypeLoader *typeLoader,
         if (!resolvedPath.endsWith(Slash))
             resolvedPath += Slash;
 
+#if defined(Q_OS_ANDROID)
+        if (qmldirPath.size() > 25 && qmldirPath.at(0) == QLatin1Char(':') && qmldirPath.at(1) == QLatin1Char('/') &&
+           qmldirPath.startsWith(QStringLiteral(":/android_rcc_bundle/qml/"), Qt::CaseInsensitive)) {
+            QString pluginName = qmldirPath.mid(21) + Slash + baseName;
+            pluginName.replace(QLatin1Char('/'), QLatin1Char('_'));
+            QString bundledPath = resolvedPath + QLatin1String("lib") + pluginName;
+            for (const QString &suffix : suffixes) {
+                const QString absolutePath = typeLoader->absoluteFilePath(bundledPath + suffix);
+                if (!absolutePath.isEmpty())
+                    return absolutePath;
+            }
+        }
+#endif
         resolvedPath += prefix + baseName;
         for (const QString &suffix : suffixes) {
             const QString absolutePath = typeLoader->absoluteFilePath(resolvedPath + suffix);
@@ -1908,8 +1859,11 @@ QString QQmlImportDatabase::resolvePlugin(QQmlTypeLoader *typeLoader,
     static const QStringList suffixes = {
 # ifdef QT_DEBUG
         QLatin1String("d.dll"), // try a qmake-style debug build first
-# endif
         QLatin1String(".dll")
+#else
+        QLatin1String(".dll"),
+        QLatin1String("d.dll") // try a qmake-style debug build after
+# endif
     };
 #elif defined(Q_OS_DARWIN)
     static const QString prefix = QLatin1String("lib");
@@ -1924,9 +1878,15 @@ QString QQmlImportDatabase::resolvePlugin(QQmlTypeLoader *typeLoader,
         QLatin1String(".so"),
         QLatin1String(".bundle")
     };
-# else  // Unix
+#else  // Unix
     static const QString prefix = QLatin1String("lib");
-    static const QStringList suffixes = { QLatin1String(".so") };
+    static const QStringList suffixes = {
+# if defined(Q_OS_ANDROID)
+        QStringLiteral(LIBS_SUFFIX),
+# endif
+        QLatin1String(".so")
+
+    };
 #endif
 
     return resolvePlugin(typeLoader, qmldirPath, qmldirPluginPath, baseName, suffixes, prefix);
@@ -2030,7 +1990,9 @@ void QQmlImportDatabase::setImportPathList(const QStringList &paths)
     if (qmlImportTrace())
         qDebug().nospace() << "QQmlImportDatabase::setImportPathList: " << paths;
 
-    fileImportPath = paths;
+    fileImportPath.clear();
+    for (auto it = paths.crbegin(); it != paths.crend(); ++it)
+        addImportPath(*it);
 
     // Our existing cached paths may have been invalidated
     clearDirCache();
@@ -2044,77 +2006,7 @@ bool QQmlImportDatabase::registerPluginTypes(QObject *instance, const QString &b
 {
     if (qmlImportTrace())
         qDebug().nospace() << "QQmlImportDatabase::registerPluginTypes: " << uri << " from " << basePath;
-
-    QQmlTypesExtensionInterface *iface = qobject_cast<QQmlTypesExtensionInterface *>(instance);
-    if (!iface) {
-        if (errors) {
-            QQmlError error;
-            error.setDescription(tr("Module loaded for URI '%1' does not implement QQmlTypesExtensionInterface").arg(typeNamespace));
-            errors->prepend(error);
-        }
-        return false;
-    }
-
-    const QByteArray bytes = uri.toUtf8();
-    const char *moduleId = bytes.constData();
-
-    QQmlMetaTypeRegistrationFailureRecorder failureRecorder;
-    {
-        // Create a scope for QWriteLocker to keep it as narrow as possible, and
-        // to ensure that we release it before the call to initalizeEngine below
-        QMutexLocker lock(QQmlMetaType::typeRegistrationLock());
-
-        if (!typeNamespace.isEmpty()) {
-            // This is an 'identified' module
-            if (typeNamespace != uri) {
-                // The namespace for type registrations must match the URI for locating the module
-                if (errors) {
-                    QQmlError error;
-                    error.setDescription(tr("Module namespace '%1' does not match import URI '%2'").arg(typeNamespace).arg(uri));
-                    errors->prepend(error);
-                }
-                return false;
-            }
-
-            if (QQmlMetaType::namespaceContainsRegistrations(typeNamespace, vmaj)) {
-                // Other modules have already installed to this namespace
-                if (errors) {
-                    QQmlError error;
-                    error.setDescription(tr("Namespace '%1' has already been used for type registration").arg(typeNamespace));
-                    errors->prepend(error);
-                }
-                return false;
-            } else {
-                QQmlMetaType::protectNamespace(typeNamespace);
-            }
-        } else {
-            // This is not an identified module - provide a warning
-            qWarning().nospace() << qPrintable(tr("Module '%1' does not contain a module identifier directive - it cannot be protected from external registrations.").arg(uri));
-        }
-
-        QQmlMetaType::setTypeRegistrationNamespace(typeNamespace);
-
-        if (QQmlExtensionPlugin *plugin = qobject_cast<QQmlExtensionPlugin *>(instance)) {
-            // basepath should point to the directory of the module, not the plugin file itself:
-            QQmlExtensionPluginPrivate::get(plugin)->baseUrl = QQmlImports::urlFromLocalFileOrQrcOrUrl(basePath);
-        }
-
-        iface->registerTypes(moduleId);
-        QQmlMetaType::setTypeRegistrationNamespace(QString());
-    } // QWriteLocker lock(QQmlMetaType::typeRegistrationLock())
-
-    if (!failureRecorder.failures().isEmpty()) {
-        if (errors) {
-            for (const QString &failure : failureRecorder.failures()) {
-                QQmlError error;
-                error.setDescription(failure);
-                errors->prepend(error);
-            }
-        }
-        return false;
-    }
-
-    return true;
+    return QQmlMetaType::registerPluginTypes(instance, basePath, uri, typeNamespace, vmaj, errors);
 }
 
 /*!
@@ -2169,13 +2061,13 @@ bool QQmlImportDatabase::importStaticPlugin(QObject *instance, const QString &ba
     return true;
 }
 
+#if QT_CONFIG(library)
 /*!
     \internal
 */
 bool QQmlImportDatabase::importDynamicPlugin(const QString &filePath, const QString &uri,
                                              const QString &typeNamespace, int vmaj, QList<QQmlError> *errors)
 {
-#if QT_CONFIG(library)
     QFileInfo fileInfo(filePath);
     const QString absoluteFilePath = fileInfo.absoluteFilePath();
 
@@ -2253,20 +2145,14 @@ bool QQmlImportDatabase::importDynamicPlugin(const QString &filePath, const QStr
     }
 
     return true;
-#else
-    Q_UNUSED(filePath);
-    Q_UNUSED(uri);
-    Q_UNUSED(typeNamespace);
-    Q_UNUSED(vmaj);
-    Q_UNUSED(errors);
-    return false;
-#endif
 }
+
+#endif // QT_CONFIG(library)
 
 void QQmlImportDatabase::clearDirCache()
 {
-    QStringHash<QmldirCache *>::ConstIterator itr = qmldirCache.begin();
-    while (itr != qmldirCache.end()) {
+    QStringHash<QmldirCache *>::ConstIterator itr = qmldirCache.constBegin();
+    while (itr != qmldirCache.constEnd()) {
         QmldirCache *cache = *itr;
         do {
             QmldirCache *nextCache = cache->next;

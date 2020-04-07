@@ -6,13 +6,13 @@
 
 #include "third_party/blink/public/platform/web_point.h"
 #include "third_party/blink/public/platform/web_rect.h"
+#include "third_party/blink/renderer/core/scroll/scroll_types.h"
 #include "third_party/blink/renderer/core/scroll/scrollable_area.h"
 #include "third_party/blink/renderer/core/scroll/scrollbar.h"
 #include "third_party/blink/renderer/core/scroll/scrollbar_theme.h"
 #include "third_party/blink/renderer/platform/graphics/graphics_context.h"
 #include "third_party/blink/renderer/platform/graphics/paint/paint_canvas.h"
 #include "third_party/blink/renderer/platform/graphics/paint/paint_record_builder.h"
-#include "third_party/blink/renderer/platform/scroll/scroll_types.h"
 #include "ui/gfx/skia_util.h"
 
 namespace blink {
@@ -81,7 +81,23 @@ int ScrollbarLayerDelegate::ThumbLength() const {
 }
 
 gfx::Rect ScrollbarLayerDelegate::TrackRect() const {
-  return theme_.TrackRect(*scrollbar_);
+  IntRect track_rect = theme_.TrackRect(*scrollbar_);
+  track_rect.MoveBy(-scrollbar_->Location());
+  return track_rect;
+}
+
+gfx::Rect ScrollbarLayerDelegate::BackButtonRect() const {
+  IntRect back_button_rect =
+      theme_.BackButtonRect(*scrollbar_, blink::kBackButtonStartPart);
+  back_button_rect.MoveBy(-scrollbar_->Location());
+  return back_button_rect;
+}
+
+gfx::Rect ScrollbarLayerDelegate::ForwardButtonRect() const {
+  IntRect forward_button_rect =
+      theme_.ForwardButtonRect(*scrollbar_, blink::kForwardButtonEndPart);
+  forward_button_rect.MoveBy(-scrollbar_->Location());
+  return forward_button_rect;
 }
 
 float ScrollbarLayerDelegate::ThumbOpacity() const {

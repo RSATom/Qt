@@ -26,26 +26,17 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_HTML_PARSER_HTML_PARSER_SCHEDULER_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_HTML_PARSER_HTML_PARSER_SCHEDULER_H_
 
-#include <memory>
-
 #include "base/macros.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/single_thread_task_runner.h"
+#include "base/timer/elapsed_timer.h"
 #include "third_party/blink/renderer/core/html/parser/nesting_level_incrementer.h"
 #include "third_party/blink/renderer/platform/scheduler/public/post_cancellable_task.h"
-#include "third_party/blink/renderer/platform/wtf/allocator.h"
+#include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 
 namespace blink {
 
 class HTMLDocumentParser;
-
-class PumpSession : public NestingLevelIncrementer {
-  STACK_ALLOCATED();
-
- public:
-  PumpSession(unsigned& nesting_level);
-  ~PumpSession();
-};
 
 class SpeculationsPumpSession : public NestingLevelIncrementer {
   STACK_ALLOCATED();
@@ -54,25 +45,18 @@ class SpeculationsPumpSession : public NestingLevelIncrementer {
   SpeculationsPumpSession(unsigned& nesting_level);
   ~SpeculationsPumpSession();
 
-  double ElapsedTime() const;
+  base::TimeDelta ElapsedTime() const;
   void AddedElementTokens(size_t count);
   size_t ProcessedElementTokens() const { return processed_element_tokens_; }
 
  private:
-  double start_time_;
+  base::ElapsedTimer start_time_;
   size_t processed_element_tokens_;
 };
 
 class HTMLParserScheduler final
     : public GarbageCollectedFinalized<HTMLParserScheduler> {
  public:
-  static HTMLParserScheduler* Create(
-      HTMLDocumentParser* parser,
-      scoped_refptr<base::SingleThreadTaskRunner> loading_task_runner) {
-    return MakeGarbageCollected<HTMLParserScheduler>(
-        parser, std::move(loading_task_runner));
-  }
-
   HTMLParserScheduler(HTMLDocumentParser*,
                       scoped_refptr<base::SingleThreadTaskRunner>);
   ~HTMLParserScheduler();

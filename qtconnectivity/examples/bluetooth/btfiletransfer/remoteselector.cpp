@@ -171,18 +171,17 @@ void RemoteSelector::serviceDiscovered(const QBluetoothServiceInfo &serviceInfo)
 //        new QListWidgetItem(QString::fromLatin1("%1\t%2\t%3").arg(serviceInfo.device().address().toString(),
 //                                                             serviceInfo.device().name(), serviceInfo.serviceName()));
 
-    QMutableMapIterator<int, QBluetoothServiceInfo> i(m_discoveredServices);
-    while (i.hasNext()){
-        i.next();
-        if (serviceInfo.device().address() == i.value().device().address()){
-            i.setValue(serviceInfo);
+    const QBluetoothAddress address = serviceInfo.device().address();
+    for (QBluetoothServiceInfo &info : m_discoveredServices) {
+        if (info.device().address() == address){
+            info = serviceInfo;
             return;
         }
     }
 
     int row = ui->remoteDevices->rowCount();
     ui->remoteDevices->insertRow(row);
-    QTableWidgetItem *item = new QTableWidgetItem(serviceInfo.device().address().toString());
+    QTableWidgetItem *item = new QTableWidgetItem(address.toString());
     ui->remoteDevices->setItem(row, 0, item);
     item = new QTableWidgetItem(serviceInfo.device().name());
     ui->remoteDevices->setItem(row, 1, item);
@@ -190,9 +189,7 @@ void RemoteSelector::serviceDiscovered(const QBluetoothServiceInfo &serviceInfo)
 
     ui->remoteDevices->setItem(row, 2, item);
 
-    QBluetoothLocalDevice::Pairing p;
-
-    p = m_localDevice->pairingStatus(serviceInfo.device().address());
+    QBluetoothLocalDevice::Pairing p = m_localDevice->pairingStatus(address);
 
     ui->remoteDevices->blockSignals(true);
 
@@ -275,13 +272,11 @@ void RemoteSelector::on_stopButton_clicked()
     m_discoveryAgent->stop();
 }
 
-QString RemoteSelector::addressToName(const QBluetoothAddress &address)
+QString RemoteSelector::addressToName(const QBluetoothAddress &address) const
 {
-    QMapIterator<int, QBluetoothServiceInfo> i(m_discoveredServices);
-    while (i.hasNext()){
-        i.next();
-        if (i.value().device().address() == address)
-            return i.value().device().name();
+    for (const QBluetoothServiceInfo &info : m_discoveredServices) {
+        if (info.device().address() == address)
+            return info.device().name();
     }
     return address.toString();
 }

@@ -8,7 +8,11 @@
 #include "src/objects/ordered-hash-table.h"
 
 #include "src/heap/heap.h"
+#include "src/objects/compressed-slots.h"
 #include "src/objects/fixed-array-inl.h"
+#include "src/objects/js-collection-iterator.h"
+#include "src/objects/objects-inl.h"
+#include "src/objects/slots.h"
 
 // Has to be the last include (doesn't have include guards):
 #include "src/objects/object-macros.h"
@@ -45,6 +49,22 @@ OrderedNameDictionary::OrderedNameDictionary(Address ptr)
 template <class Derived>
 SmallOrderedHashTable<Derived>::SmallOrderedHashTable(Address ptr)
     : HeapObject(ptr) {}
+
+template <class Derived>
+Object SmallOrderedHashTable<Derived>::KeyAt(int entry) const {
+  DCHECK_LT(entry, Capacity());
+  Offset entry_offset = GetDataEntryOffset(entry, Derived::kKeyIndex);
+  return TaggedField<Object>::load(*this, entry_offset);
+}
+
+template <class Derived>
+Object SmallOrderedHashTable<Derived>::GetDataEntry(int entry,
+                                                    int relative_index) {
+  DCHECK_LT(entry, Capacity());
+  DCHECK_LE(static_cast<unsigned>(relative_index), Derived::kEntrySize);
+  Offset entry_offset = GetDataEntryOffset(entry, relative_index);
+  return TaggedField<Object>::load(*this, entry_offset);
+}
 
 OBJECT_CONSTRUCTORS_IMPL(SmallOrderedHashSet,
                          SmallOrderedHashTable<SmallOrderedHashSet>)
@@ -165,18 +185,18 @@ template <class Derived, class TableType>
 Object OrderedHashTableIterator<Derived, TableType>::CurrentKey() {
   TableType table = TableType::cast(this->table());
   int index = Smi::ToInt(this->index());
-  Object key = table->KeyAt(index);
-  DCHECK(!key->IsTheHole());
+  Object key = table.KeyAt(index);
+  DCHECK(!key.IsTheHole());
   return key;
 }
 
 inline void SmallOrderedNameDictionary::SetHash(int hash) {
   DCHECK(PropertyArray::HashField::is_valid(hash));
-  WRITE_INT_FIELD(*this, PrefixOffset(), hash);
+  WriteField<int>(PrefixOffset(), hash);
 }
 
 inline int SmallOrderedNameDictionary::Hash() {
-  int hash = READ_INT_FIELD(*this, PrefixOffset());
+  int hash = ReadField<int>(PrefixOffset());
   DCHECK(PropertyArray::HashField::is_valid(hash));
   return hash;
 }

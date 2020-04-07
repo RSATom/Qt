@@ -273,17 +273,6 @@
       initial: false,
     },
 
-    // Limited use by features which behave differently depending on the input
-    // devices available.  For example, the pointer and hover media queries.
-    // Note that we need to be careful when basing behavior or UI on this -
-    // just because a device is present doesn't mean the user cares about it
-    // or uses it (i.e. Chromebook Pixel users generally don't want to give up
-    // screen real estate just because they happen to have a touchscreen).
-    {
-      name: "deviceSupportsTouch",
-      initial: false,
-    },
-
     // This value indicates the number of simultaneous multi-touch points supported
     // by the currently connected screen/digitizer that supports the most points.
     // From Pointer Events spec:
@@ -348,6 +337,7 @@
     {
       name: "spatialNavigationEnabled",
       initial: false,
+      invalidate: "SpatialNavigation",
     },
 
     // This setting adds a means to enable/disable touch initiated drag & drop. If
@@ -494,6 +484,12 @@
       initial: false,
     },
 
+    // The current state of caret browsing mode.
+    {
+      name: "caretBrowsingEnabled",
+      initial: false,
+    },
+
     // Font scale factor for accessibility, applied as part of text autosizing.
     {
       name: "accessibilityFontScaleFactor",
@@ -585,6 +581,7 @@
     {
       name: "forceAndroidOverlayScrollbar",
       initial: false,
+      invalidate: "ScrollbarLayout",
     },
 
     // Set the timeout seconds of the network-quiet timers in IdlenessDetector.
@@ -780,6 +777,18 @@
       name: "textTrackTextSize",
       type: "String",
     },
+    {
+      name: "textTrackWindowColor",
+      type: "String",
+    },
+    {
+      name: "textTrackWindowPadding",
+      type: "String",
+    },
+    {
+      name: "textTrackWindowRadius",
+      type: "String",
+    },
 
     // Margin for title-safe placement of cues with overscan, gives top and bottom margin size as
     // percentage of video element height (for horizontal text) into which cues will not be placed.
@@ -787,11 +796,6 @@
       name: "textTrackMarginPercentage",
       initial: 0,
       type: "double",
-    },
-
-    {
-      name: "historyEntryRequiresUserGesture",
-      initial: false,
     },
 
     // Do we want to try to save screen real estate in the media player by hiding
@@ -847,13 +851,6 @@
       type: "PassiveListenerDefault",
     },
 
-    // Some platforms have media subsystems which are too buggy to allow preloading
-    // of content by default. See http://crbug.com/612909 for details.
-    {
-      name: "forcePreloadNoneForMediaElements",
-      initial: false,
-    },
-
     {
       name: "hideScrollbars",
       initial: false,
@@ -902,30 +899,54 @@
     },
 
     //
-    // High contrast mode
+    // Dark mode
     //
     {
-      name: "highContrastMode",
-      initial: "HighContrastMode::kOff",
-      type: "HighContrastMode",
+      name: "darkMode",
+      initial: "DarkMode::kOff",
+      type: "DarkMode",
+      invalidate: "Paint",
     },
     {
-      name: "highContrastGrayscale",
+      name: "darkModeGrayscale",
       initial: false,
+      invalidate: "Paint",
     },
     {
-      name: "highContrastContrast",
+      name: "darkModeContrast",
       initial: 0,
       type: "double",
+      invalidate: "Paint",
     },
     {
-      name: "highContrastImagePolicy",
-      initial: "HighContrastImagePolicy::kFilterAll",
-      type: "HighContrastImagePolicy",
+      name: "darkModeImagePolicy",
+      initial: "DarkModeImagePolicy::kFilterNone",
+      type: "DarkModeImagePolicy",
+      invalidate: "Paint",
     },
     {
-      name: "mediaDownloadInProductHelpEnabled",
-      initial: false,
+      name: "darkModePagePolicy",
+      initial: "DarkModePagePolicy::kFilterByBackground",
+      type: "DarkModePagePolicy",
+      invalidate: "Paint",
+    },
+    {
+      name: "darkModeTextBrightnessThreshold",
+      initial: "256",
+      type: "int",
+      invalidate: "Paint",
+    },
+    {
+      name: "darkModeBackgroundBrightnessThreshold",
+      initial: "0",
+      type: "int",
+      invalidate: "Paint",
+    },
+    {
+      name: "darkModeImageGrayscale",
+      initial: "0.0",
+      type: "float",
+      invalidate: "Paint",
     },
     {
       name: "navigatorPlatformOverride",
@@ -950,32 +971,32 @@
     //
     {
       name: "lazyFrameLoadingDistanceThresholdPxUnknown",
-      initial: 800,
+      initial: 4000,
       type: "int",
     },
     {
       name: "lazyFrameLoadingDistanceThresholdPxOffline",
-      initial: 800,
+      initial: 8000,
       type: "int",
     },
     {
       name: "lazyFrameLoadingDistanceThresholdPxSlow2G",
-      initial: 800,
+      initial: 8000,
       type: "int",
     },
     {
       name: "lazyFrameLoadingDistanceThresholdPx2G",
-      initial: 800,
+      initial: 6000,
       type: "int",
     },
     {
       name: "lazyFrameLoadingDistanceThresholdPx3G",
-      initial: 800,
+      initial: 5000,
       type: "int",
     },
     {
       name: "lazyFrameLoadingDistanceThresholdPx4G",
-      initial: 800,
+      initial: 4000,
       type: "int",
     },
 
@@ -984,32 +1005,32 @@
     //
     {
       name: "lazyImageLoadingDistanceThresholdPxUnknown",
-      initial: 800,
+      initial: 3000,
       type: "int",
     },
     {
       name: "lazyImageLoadingDistanceThresholdPxOffline",
-      initial: 800,
+      initial: 8000,
       type: "int",
     },
     {
       name: "lazyImageLoadingDistanceThresholdPxSlow2G",
-      initial: 800,
+      initial: 8000,
       type: "int",
     },
     {
       name: "lazyImageLoadingDistanceThresholdPx2G",
-      initial: 800,
+      initial: 6000,
       type: "int",
     },
     {
       name: "lazyImageLoadingDistanceThresholdPx3G",
-      initial: 800,
+      initial: 4000,
       type: "int",
     },
     {
       name: "lazyImageLoadingDistanceThresholdPx4G",
-      initial: 800,
+      initial: 3000,
       type: "int",
     },
 
@@ -1017,9 +1038,9 @@
     // evaluating the prefers-color-scheme media query.
     {
       name: "preferredColorScheme",
-      initial: "WebColorScheme::kNoPreference",
-      invalidate: "MediaQuery",
-      type: "WebColorScheme",
+      initial: "PreferredColorScheme::kNoPreference",
+      invalidate: "ColorScheme",
+      type: "PreferredColorScheme",
     },
 
     // Preferred motion-reduction setting from the OS/application passed to the
@@ -1028,6 +1049,18 @@
       name: "prefersReducedMotion",
       initial: false,
       invalidate: "MediaQuery",
+    },
+    {
+      name: "DontSendKeyEventsToJavascript",
+      initial: false,
+    },
+    // Forced colors from the OS/application passed to the renderer for
+    // evaluating the forced-colors media query.
+    {
+      name: "forcedColors",
+      initial: "ForcedColors::kNone",
+      invalidate: "ColorScheme",
+      type: "ForcedColors",
     },
   ],
 }

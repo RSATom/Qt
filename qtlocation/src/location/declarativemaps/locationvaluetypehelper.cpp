@@ -38,6 +38,8 @@
 #include <QVariantMap>
 #include <QtQml/QQmlInfo>
 #include <private/qqmlengine_p.h>
+#include <private/qv4scopedvalue_p.h>
+#include <private/qv4arrayobject_p.h>
 
 
 QGeoCoordinate parseCoordinate(const QJSValue &value, bool *ok)

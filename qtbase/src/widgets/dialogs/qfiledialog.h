@@ -92,7 +92,9 @@ public:
         ShowDirsOnly                = 0x00000001,
         DontResolveSymlinks         = 0x00000002,
         DontConfirmOverwrite        = 0x00000004,
-        DontUseSheet                = 0x00000008,
+#if QT_DEPRECATED_SINCE(5, 14)
+        DontUseSheet Q_DECL_ENUMERATOR_DEPRECATED = 0x00000008,
+#endif
         DontUseNativeDialog         = 0x00000010,
         ReadOnly                    = 0x00000020,
         HideNameFilterDetails       = 0x00000040,
@@ -282,6 +284,7 @@ public:
 
     static void getOpenFileContent(const QString &nameFilter,
                                    const std::function<void(const QString &, const QByteArray &)> &fileContentsReady);
+    static void saveFileContent(const QByteArray &fileContent, const QString &fileNameHint = QString());
 
 protected:
     QFileDialog(const QFileDialogArgs &args);

@@ -158,6 +158,11 @@ QString QHttpNetworkReply::errorString() const
     return d_func()->errorString;
 }
 
+QNetworkReply::NetworkError QHttpNetworkReply::errorCode() const
+{
+    return d_func()->httpErrorCode;
+}
+
 QString QHttpNetworkReply::reasonPhrase() const
 {
     return d_func()->reasonPhrase;
@@ -444,6 +449,9 @@ QAuthenticatorPrivate::Method QHttpNetworkReplyPrivate::authenticationMethod(boo
         } else if (method < QAuthenticatorPrivate::DigestMd5
             && line.startsWith("digest")) {
             method = QAuthenticatorPrivate::DigestMd5;
+        } else if (method < QAuthenticatorPrivate::Negotiate
+            && line.startsWith("negotiate")) {
+            method = QAuthenticatorPrivate::Negotiate;
         }
     }
     return method;

@@ -40,8 +40,8 @@ class CONTENT_EXPORT RtcDtmfSenderHandler
   blink::WebString CurrentToneBuffer() override;
   bool CanInsertDTMF() override;
   bool InsertDTMF(const blink::WebString& tones,
-                  long duration,
-                  long interToneGap) override;
+                  int duration,
+                  int interToneGap) override;
 
   void OnToneChange(const std::string& tone);
 
@@ -54,7 +54,7 @@ class CONTENT_EXPORT RtcDtmfSenderHandler
   SEQUENCE_CHECKER(sequence_checker_);
 
   // |weak_factory_| must be the last member.
-  base::WeakPtrFactory<RtcDtmfSenderHandler> weak_factory_;
+  base::WeakPtrFactory<RtcDtmfSenderHandler> weak_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(RtcDtmfSenderHandler);
 };

@@ -66,11 +66,6 @@ class CONTENT_EXPORT ContentMainDelegate {
   virtual bool ProcessRegistersWithSystemProcess(
       const std::string& process_type);
 
-  // Used to determine if we should send the mach port to the parent process or
-  // not. The embedder usually sends it for all child processes, use this to
-  // override this behavior.
-  virtual bool ShouldSendMachPort(const std::string& process_type);
-
   // Allows the embedder to override initializing the sandbox. This is needed
   // because some processes might not want to enable it right away or might not
   // want it at all.
@@ -87,6 +82,20 @@ class CONTENT_EXPORT ContentMainDelegate {
   // Called every time the zygote process forks.
   virtual void ZygoteForked() {}
 #endif  // defined(OS_LINUX)
+
+  // Allows the embedder to prevent locking the scheme registry. The scheme
+  // registry is the list of URL schemes we recognize, with some additional
+  // information about each scheme such as whether it expects a host. The
+  // scheme registry is not thread-safe, so by default it is locked before any
+  // threads are created to ensure single-threaded access. An embedder can
+  // override this to prevent the scheme registry from being locked during
+  // startup, but if they do so then they are responsible for making sure that
+  // the registry is only accessed in a thread-safe way, and for calling
+  // url::LockSchemeRegistries() when initialization is complete. If possible,
+  // prefer registering additional schemes through
+  // ContentClient::AddAdditionalSchemes over preventing the scheme registry
+  // from being locked.
+  virtual bool ShouldLockSchemeRegistry();
 
   // Fatal errors during initialization are reported by this function, so that
   // the embedder can implement graceful exit by displaying some message and
@@ -123,7 +132,7 @@ class CONTENT_EXPORT ContentMainDelegate {
   virtual bool ShouldCreateFeatureList();
 
   // Allows the embedder to perform its own initialization after content
-  // performed its own and already brought up MessageLoop, TaskScheduler, field
+  // performed its own and already brought up MessageLoop, ThreadPool, field
   // trials and FeatureList (by default).
   // |is_running_tests| indicates whether it is running in tests.
   virtual void PostEarlyInitialization(bool is_running_tests) {}
@@ -134,8 +143,13 @@ class CONTENT_EXPORT ContentMainDelegate {
   // list initialization is complete.
   virtual void PostFieldTrialInitialization() {}
 
+  // Allows the embedder to perform its own initialization after the
+  // TaskScheduler is started.
+  virtual void PostTaskSchedulerStart() {}
+
  protected:
   friend class ContentClientInitializer;
+  friend class BrowserTestBase;
 
   // Called once per relevant process type to allow the embedder to customize
   // content. If an embedder wants the default (empty) implementation, don't

@@ -4,11 +4,14 @@
 
 #include "net/socket/websocket_transport_connect_job.h"
 
+#include "base/bind.h"
 #include "base/location.h"
 #include "base/logging.h"
+#include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
 #include "base/trace_event/trace_event.h"
 #include "base/values.h"
+#include "net/base/address_list.h"
 #include "net/base/net_errors.h"
 #include "net/base/trace_constants.h"
 #include "net/log/net_log_event_type.h"
@@ -21,22 +24,25 @@ namespace net {
 
 WebSocketTransportConnectJob::WebSocketTransportConnectJob(
     RequestPriority priority,
-    const CommonConnectJobParams& common_connect_job_params,
+    const SocketTag& socket_tag,
+    const CommonConnectJobParams* common_connect_job_params,
     const scoped_refptr<TransportSocketParams>& params,
-    Delegate* delegate)
+    Delegate* delegate,
+    const NetLogWithSource* net_log)
     : ConnectJob(priority,
+                 socket_tag,
                  TransportConnectJob::ConnectionTimeout(),
                  common_connect_job_params,
                  delegate,
-                 NetLogWithSource::Make(
-                     common_connect_job_params.net_log,
-                     NetLogSourceType::WEB_SOCKET_TRANSPORT_CONNECT_JOB)),
+                 net_log,
+                 NetLogSourceType::WEB_SOCKET_TRANSPORT_CONNECT_JOB,
+                 NetLogEventType::WEB_SOCKET_TRANSPORT_CONNECT_JOB_CONNECT),
       params_(params),
       next_state_(STATE_NONE),
       race_result_(TransportConnectJob::RACE_UNKNOWN),
       had_ipv4_(false),
       had_ipv6_(false) {
-  DCHECK(common_connect_job_params.websocket_endpoint_lock_manager);
+  DCHECK(common_connect_job_params->websocket_endpoint_lock_manager);
 }
 
 WebSocketTransportConnectJob::~WebSocketTransportConnectJob() = default;
@@ -51,6 +57,12 @@ LoadState WebSocketTransportConnectJob::GetLoadState() const {
   if (ipv4_job_ && load_state != LOAD_STATE_CONNECTING)
     load_state = ipv4_job_->GetLoadState();
   return load_state;
+}
+
+bool WebSocketTransportConnectJob::HasEstablishedConnection() const {
+  // No need to ever return true, since NotifyComplete() is called as soon as a
+  // connection is established.
+  return false;
 }
 
 void WebSocketTransportConnectJob::OnIOComplete(int result) {
@@ -95,11 +107,13 @@ int WebSocketTransportConnectJob::DoResolveHost() {
   next_state_ = STATE_RESOLVE_HOST_COMPLETE;
   connect_timing_.dns_start = base::TimeTicks::Now();
 
-  return host_resolver()->Resolve(
-      params_->destination(), priority(), &addresses_,
-      base::Bind(&WebSocketTransportConnectJob::OnIOComplete,
-                 base::Unretained(this)),
-      &request_, net_log());
+  HostResolver::ResolveHostParameters parameters;
+  parameters.initial_priority = priority();
+  request_ = host_resolver()->CreateRequest(params_->destination(), net_log(),
+                                            parameters);
+
+  return request_->Start(base::BindOnce(
+      &WebSocketTransportConnectJob::OnIOComplete, base::Unretained(this)));
 }
 
 int WebSocketTransportConnectJob::DoResolveHostComplete(int result) {
@@ -112,26 +126,38 @@ int WebSocketTransportConnectJob::DoResolveHostComplete(int result) {
 
   if (result != OK)
     return result;
-
-  // Invoke callback, and abort if it fails.
-  if (!params_->host_resolution_callback().is_null()) {
-    result = params_->host_resolution_callback().Run(addresses_, net_log());
-    if (result != OK)
-      return result;
-  }
+  DCHECK(request_->GetAddressResults());
 
   next_state_ = STATE_TRANSPORT_CONNECT;
+
+  // Invoke callback.  If it indicates |this| may be slated for deletion, then
+  // only continue after a PostTask.
+  if (!params_->host_resolution_callback().is_null()) {
+    OnHostResolutionCallbackResult callback_result =
+        params_->host_resolution_callback().Run(
+            params_->destination(), request_->GetAddressResults().value());
+    if (callback_result == OnHostResolutionCallbackResult::kMayBeDeletedAsync) {
+      base::ThreadTaskRunnerHandle::Get()->PostTask(
+          FROM_HERE, base::BindOnce(&WebSocketTransportConnectJob::OnIOComplete,
+                                    weak_ptr_factory_.GetWeakPtr(), OK));
+      return ERR_IO_PENDING;
+    }
+  }
+
   return result;
 }
 
 int WebSocketTransportConnectJob::DoTransportConnect() {
+  DCHECK(request_->GetAddressResults());
+
   AddressList ipv4_addresses;
   AddressList ipv6_addresses;
   int result = ERR_UNEXPECTED;
   next_state_ = STATE_TRANSPORT_CONNECT_COMPLETE;
 
-  for (AddressList::const_iterator it = addresses_.begin();
-       it != addresses_.end(); ++it) {
+  for (AddressList::const_iterator it =
+           request_->GetAddressResults().value().begin();
+       it != request_->GetAddressResults().value().end(); ++it) {
     switch (it->GetFamily()) {
       case ADDRESS_FAMILY_IPV4:
         ipv4_addresses.push_back(*it);

@@ -188,6 +188,7 @@ static enum ssl_hs_wait_t do_read_hello_retry_request(SSL_HANDSHAKE *hs) {
   hs->tls13_state = state_send_second_client_hello;
   // 0-RTT is rejected if we receive a HelloRetryRequest.
   if (hs->in_early_data) {
+    ssl->s3->early_data_reason = ssl_early_data_hello_retry_request;
     return ssl_hs_early_data_rejected;
   }
   return ssl_hs_ok;
@@ -294,16 +295,14 @@ static enum ssl_hs_wait_t do_read_server_hello(SSL_HANDSHAKE *hs) {
     return ssl_hs_error;
   }
 
-  if (ssl_is_draft28(ssl->version)) {
-    // Recheck supported_versions, in case this is the second ServerHello.
-    uint16_t version;
-    if (!have_supported_versions ||
-        !CBS_get_u16(&supported_versions, &version) ||
-        version != ssl->version) {
-      OPENSSL_PUT_ERROR(SSL, SSL_R_SECOND_SERVERHELLO_VERSION_MISMATCH);
-      ssl_send_alert(ssl, SSL3_AL_FATAL, SSL_AD_ILLEGAL_PARAMETER);
-      return ssl_hs_error;
-    }
+  // Recheck supported_versions, in case this is the second ServerHello.
+  uint16_t version;
+  if (!have_supported_versions ||
+      !CBS_get_u16(&supported_versions, &version) ||
+      version != ssl->version) {
+    OPENSSL_PUT_ERROR(SSL, SSL_R_SECOND_SERVERHELLO_VERSION_MISMATCH);
+    ssl_send_alert(ssl, SSL3_AL_FATAL, SSL_AD_ILLEGAL_PARAMETER);
+    return ssl_hs_error;
   }
 
   alert = SSL_AD_DECODE_ERROR;
@@ -685,7 +684,7 @@ static enum ssl_hs_wait_t do_send_client_certificate(SSL_HANDSHAKE *hs) {
 
 static enum ssl_hs_wait_t do_send_client_certificate_verify(SSL_HANDSHAKE *hs) {
   // Don't send CertificateVerify if there is no certificate.
-  if (!ssl_has_certificate(hs->config)) {
+  if (!ssl_has_certificate(hs)) {
     hs->tls13_state = state_complete_second_flight;
     return ssl_hs_ok;
   }
@@ -902,7 +901,7 @@ bool tls13_process_new_session_ticket(SSL *ssl, const SSLMessage &msg) {
     return false;
   }
 
-  if (have_early_data_info && ssl->enable_early_data) {
+  if (have_early_data_info) {
     if (!CBS_get_u32(&early_data_info, &session->ticket_max_early_data) ||
         CBS_len(&early_data_info) != 0) {
       ssl_send_alert(ssl, SSL3_AL_FATAL, SSL_AD_DECODE_ERROR);

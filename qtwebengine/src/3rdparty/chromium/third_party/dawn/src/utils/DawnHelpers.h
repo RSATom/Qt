@@ -17,20 +17,25 @@
 
 #include <dawn/dawncpp.h>
 
+#include <array>
 #include <initializer_list>
+
+#include "common/Constants.h"
 
 namespace utils {
 
     enum Expectation { Success, Failure };
 
+    enum class ShaderStage { Vertex, Fragment, Compute };
+
     dawn::ShaderModule CreateShaderModule(const dawn::Device& device,
-                                          dawn::ShaderStage stage,
+                                          ShaderStage stage,
                                           const char* source);
     dawn::ShaderModule CreateShaderModuleFromASM(const dawn::Device& device, const char* source);
 
     dawn::Buffer CreateBufferFromData(const dawn::Device& device,
                                       const void* data,
-                                      uint32_t size,
+                                      uint64_t size,
                                       dawn::BufferUsageBit usage);
 
     template <typename T>
@@ -41,7 +46,7 @@ namespace utils {
     }
 
     dawn::BufferCopyView CreateBufferCopyView(dawn::Buffer buffer,
-                                              uint32_t offset,
+                                              uint64_t offset,
                                               uint32_t rowPitch,
                                               uint32_t imageHeight);
     dawn::TextureCopyView CreateTextureCopyView(dawn::Texture texture,
@@ -49,12 +54,36 @@ namespace utils {
                                                 uint32_t slice,
                                                 dawn::Origin3D origin);
 
+    struct ComboRenderPassDescriptor : public dawn::RenderPassDescriptor {
+      public:
+        ComboRenderPassDescriptor(std::initializer_list<dawn::TextureView> colorAttachmentInfo,
+                                  dawn::TextureView depthStencil = dawn::TextureView());
+        const ComboRenderPassDescriptor& operator=(
+            const ComboRenderPassDescriptor& otherRenderPass);
+
+        dawn::RenderPassColorAttachmentDescriptor* cColorAttachmentsInfoPtr[kMaxColorAttachments];
+        dawn::RenderPassDepthStencilAttachmentDescriptor cDepthStencilAttachmentInfo;
+
+      private:
+        std::array<dawn::RenderPassColorAttachmentDescriptor, kMaxColorAttachments>
+            mColorAttachmentsInfo;
+    };
+
     struct BasicRenderPass {
+      public:
+        BasicRenderPass();
+        BasicRenderPass(uint32_t width,
+                        uint32_t height,
+                        dawn::Texture color,
+                        dawn::TextureFormat texture = kDefaultColorFormat);
+
+        static constexpr dawn::TextureFormat kDefaultColorFormat = dawn::TextureFormat::RGBA8Unorm;
+
         uint32_t width;
         uint32_t height;
         dawn::Texture color;
         dawn::TextureFormat colorFormat;
-        dawn::RenderPassDescriptor renderPassInfo;
+        utils::ComboRenderPassDescriptor renderPassInfo;
     };
     BasicRenderPass CreateBasicRenderPass(const dawn::Device& device,
                                           uint32_t width,
@@ -72,7 +101,7 @@ namespace utils {
     //   utils::MakeBindGroup(device, layout, {
     //       {0, mySampler},
     //       {1, myBuffer, offset, size},
-    //       {3, myTexture}
+    //       {3, myTextureView}
     //   });
 
     // Structure with one constructor per-type of bindings, so that the initializer_list accepts
@@ -82,8 +111,8 @@ namespace utils {
         BindingInitializationHelper(uint32_t binding, const dawn::TextureView& textureView);
         BindingInitializationHelper(uint32_t binding,
                                     const dawn::Buffer& buffer,
-                                    uint32_t offset,
-                                    uint32_t size);
+                                    uint64_t offset,
+                                    uint64_t size);
 
         dawn::BindGroupBinding GetAsBinding() const;
 
@@ -91,8 +120,8 @@ namespace utils {
         dawn::Sampler sampler;
         dawn::TextureView textureView;
         dawn::Buffer buffer;
-        uint32_t offset = 0;
-        uint32_t size = 0;
+        uint64_t offset = 0;
+        uint64_t size = 0;
     };
 
     dawn::BindGroup MakeBindGroup(

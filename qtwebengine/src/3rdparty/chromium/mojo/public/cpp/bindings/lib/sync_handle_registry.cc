@@ -6,36 +6,29 @@
 
 #include <algorithm>
 
-#include "base/lazy_instance.h"
 #include "base/logging.h"
+#include "base/no_destructor.h"
 #include "base/stl_util.h"
 #include "base/threading/sequence_local_storage_slot.h"
 #include "base/threading/sequenced_task_runner_handle.h"
 #include "mojo/public/c/system/core.h"
 
 namespace mojo {
-namespace {
-
-base::LazyInstance<
-    base::SequenceLocalStorageSlot<scoped_refptr<SyncHandleRegistry>>>::Leaky
-    g_current_sync_handle_watcher = LAZY_INSTANCE_INITIALIZER;
-
-}  // namespace
 
 // static
 scoped_refptr<SyncHandleRegistry> SyncHandleRegistry::current() {
+  static base::NoDestructor<
+      base::SequenceLocalStorageSlot<scoped_refptr<SyncHandleRegistry>>>
+      g_current_sync_handle_watcher;
+
   // SyncMessageFilter can be used on threads without sequence-local storage
   // being available. Those receive a unique, standalone SyncHandleRegistry.
   if (!base::SequencedTaskRunnerHandle::IsSet())
     return new SyncHandleRegistry();
 
-  scoped_refptr<SyncHandleRegistry> result =
-      g_current_sync_handle_watcher.Get().Get();
-  if (!result) {
-    result = new SyncHandleRegistry();
-    g_current_sync_handle_watcher.Get().Set(result);
-  }
-  return result;
+  if (!*g_current_sync_handle_watcher)
+    g_current_sync_handle_watcher->emplace(new SyncHandleRegistry());
+  return *g_current_sync_handle_watcher->GetValuePointer();
 }
 
 bool SyncHandleRegistry::RegisterHandle(const Handle& handle,
@@ -43,7 +36,7 @@ bool SyncHandleRegistry::RegisterHandle(const Handle& handle,
                                         const HandleCallback& callback) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
-  if (base::ContainsKey(handles_, handle))
+  if (base::Contains(handles_, handle))
     return false;
 
   MojoResult result = wait_set_.AddHandle(handle, handle_signals);
@@ -56,7 +49,7 @@ bool SyncHandleRegistry::RegisterHandle(const Handle& handle,
 
 void SyncHandleRegistry::UnregisterHandle(const Handle& handle) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  if (!base::ContainsKey(handles_, handle))
+  if (!base::Contains(handles_, handle))
     return;
 
   MojoResult result = wait_set_.RemoveHandle(handle);
@@ -92,17 +85,14 @@ void SyncHandleRegistry::UnregisterEvent(base::WaitableEvent* event,
     // Not safe to remove any elements from |callbacks| here since an outer
     // stack frame is currently iterating over it in Wait().
     for (auto& cb : callbacks) {
-      if (cb.Equals(callback))
+      if (cb == callback)
         cb.Reset();
       else if (cb)
         has_valid_callbacks = true;
     }
     remove_invalid_event_callbacks_after_dispatch_ = true;
   } else {
-    callbacks.erase(std::remove_if(callbacks.begin(), callbacks.end(),
-                                   [&callback](const base::Closure& cb) {
-                                     return cb.Equals(callback);
-                                   }),
+    callbacks.erase(std::remove(callbacks.begin(), callbacks.end(), callback),
                     callbacks.end());
     if (callbacks.empty())
       events_.erase(it);

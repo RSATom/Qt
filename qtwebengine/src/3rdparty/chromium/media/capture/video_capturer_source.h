@@ -42,11 +42,11 @@ class CAPTURE_EXPORT VideoCapturerSource {
   // Because a source can start generating frames before a subscriber is added,
   // the first video frame delivered may not have timestamp equal to 0.
   using VideoCaptureDeliverFrameCB =
-      base::Callback<void(const scoped_refptr<media::VideoFrame>& video_frame,
-                          base::TimeTicks estimated_capture_time)>;
+      base::RepeatingCallback<void(scoped_refptr<media::VideoFrame> video_frame,
+                                   base::TimeTicks estimated_capture_time)>;
 
   using VideoCaptureDeviceFormatsCB =
-      base::Callback<void(const media::VideoCaptureFormats&)>;
+      base::OnceCallback<void(const media::VideoCaptureFormats&)>;
 
   using RunningCallback = base::Callback<void(bool)>;
 
@@ -107,6 +107,12 @@ class CAPTURE_EXPORT VideoCapturerSource {
   // may still occur after this call, so the caller must take care to
   // use refcounted or weak references in |new_frame_callback|.
   virtual void StopCapture() = 0;
+
+  // Indicates to the source that a frame has been dropped.
+  virtual void OnFrameDropped(media::VideoCaptureFrameDropReason reason) {}
+
+  // Sends a log message to the source.
+  virtual void OnLog(const std::string& message) {}
 };
 
 }  // namespace media

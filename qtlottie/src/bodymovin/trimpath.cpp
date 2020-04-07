@@ -44,8 +44,8 @@ QPainterPath TrimPath::trimmed(qreal f1, qreal f2, qreal offset) const
     if (mPath.isEmpty() || !mPath.elementAt(0).isMoveTo())
         return res;
 
-    f1 = qBound(0.0, f1, 1.0);
-    f2 = qBound(0.0, f2, 1.0);
+    f1 = qBound(qreal(0.0), f1, qreal(1.0));
+    f2 = qBound(qreal(0.0), f2, qreal(1.0));
     if (qFuzzyCompare(f1, f2))
         return res;
     if (f1 > f2)
@@ -54,7 +54,7 @@ QPainterPath TrimPath::trimmed(qreal f1, qreal f2, qreal offset) const
         return mPath;
 
     qreal dummy;
-    offset = modf(offset, &dummy);    // Use only the fractional part of offset, range <-1, 1>
+    offset = std::modf(offset, &dummy);    // Use only the fractional part of offset, range <-1, 1>
 
     qreal of1 = f1 + offset;
     qreal of2 = f2 + offset;

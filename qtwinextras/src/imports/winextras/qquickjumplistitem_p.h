@@ -61,16 +61,15 @@ class QQuickJumpListItem : public QObject
 {
     Q_OBJECT
     Q_PROPERTY(int __jumpListItemType READ type WRITE setType)
-    Q_ENUMS(JumpListItemType)
-
 public:
     enum JumpListItemType {
         ItemTypeLink = 1,
         ItemTypeDestination = 2,
         ItemTypeSeparator = 3
     };
+    Q_ENUM(JumpListItemType)
 
-    explicit QQuickJumpListItem(QObject *p = 0);
+    explicit QQuickJumpListItem(QObject *p = nullptr);
     ~QQuickJumpListItem();
 
     int type() const;

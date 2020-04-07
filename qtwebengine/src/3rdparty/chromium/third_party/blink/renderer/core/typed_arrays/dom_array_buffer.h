@@ -5,9 +5,11 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_TYPED_ARRAYS_DOM_ARRAY_BUFFER_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_TYPED_ARRAYS_DOM_ARRAY_BUFFER_H_
 
+#include "base/containers/span.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/typed_arrays/dom_array_buffer_base.h"
 #include "third_party/blink/renderer/platform/wtf/typed_arrays/array_buffer.h"
+#include "third_party/blink/renderer/platform/wtf/vector.h"
 
 namespace blink {
 
@@ -31,6 +33,7 @@ class CORE_EXPORT DOMArrayBuffer final : public DOMArrayBufferBase {
     return Create(WTF::ArrayBuffer::Create(contents));
   }
   static DOMArrayBuffer* Create(scoped_refptr<SharedBuffer>);
+  static DOMArrayBuffer* Create(const Vector<base::span<const char>>&);
 
   // Only for use by XMLHttpRequest::responseArrayBuffer and
   // Internals::serializeObject.
@@ -52,6 +55,13 @@ class CORE_EXPORT DOMArrayBuffer final : public DOMArrayBufferBase {
   // Transfer the ArrayBuffer if it is neuterable, otherwise make a copy and
   // transfer that.
   bool Transfer(v8::Isolate*, WTF::ArrayBufferContents& result);
+
+  // Share the ArrayBuffer, even if it is non-shared. Such sharing is necessary
+  // for e.g. WebAudio which uses a separate thread for processing the
+  // ArrayBuffer while at the same time exposing a NonShared Float32Array.
+  bool ShareNonSharedForInternalUse(WTF::ArrayBufferContents& result) {
+    return Buffer()->ShareNonSharedForInternalUse(result);
+  }
 
   v8::Local<v8::Object> Wrap(v8::Isolate*,
                              v8::Local<v8::Object> creation_context) override;

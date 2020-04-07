@@ -8,13 +8,9 @@
 #ifndef SkPaintPriv_DEFINED
 #define SkPaintPriv_DEFINED
 
-#include "SkImageInfo.h"
-#include "SkMatrix.h"
-#include "SkPaint.h"
-#include "SkTypeface.h"
+#include "include/core/SkPaint.h"
 
-class SkBitmap;
-class SkImage;
+class SkFont;
 class SkReadBuffer;
 class SkWriteBuffer;
 
@@ -40,27 +36,14 @@ public:
      */
     static bool Overwrites(const SkPaint* paint, ShaderOverrideOpacity);
 
-    static bool Overwrites(const SkPaint& paint) {
-        return Overwrites(&paint, kNone_ShaderOverrideOpacity);
-    }
-
-    /**
-     *  Returns true if drawing this bitmap with this paint (or nullptr) will ovewrite all affected
-     *  pixels.
-     */
-    static bool Overwrites(const SkBitmap&, const SkPaint* paint);
-
-    /**
-     *  Returns true if drawing this image with this paint (or nullptr) will ovewrite all affected
-     *  pixels.
-     */
-    static bool Overwrites(const SkImage*, const SkPaint* paint);
-
     static bool ShouldDither(const SkPaint&, SkColorType);
 
-    static SkTextEncoding GetEncoding(const SkPaint& paint) {
-        return paint.private_internal_getTextEncoding();
-    }
+    /*
+     * The luminance color is used to determine which Gamma Canonical color to map to.  This is
+     * really only used by backends which want to cache glyph masks, and need some way to know if
+     * they need to generate new masks based off a given color.
+     */
+    static SkColor ComputeLuminanceColor(const SkPaint&);
 
     /** Serializes SkPaint into a buffer. A companion unflatten() call
     can reconstitute the paint at a later time.

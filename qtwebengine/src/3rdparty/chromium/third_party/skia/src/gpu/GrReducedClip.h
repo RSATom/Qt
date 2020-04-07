@@ -8,13 +8,13 @@
 #ifndef GrReducedClip_DEFINED
 #define GrReducedClip_DEFINED
 
-#include "GrFragmentProcessor.h"
-#include "GrWindowRectangles.h"
-#include "SkClipStack.h"
-#include "SkTLList.h"
+#include "src/core/SkClipStack.h"
+#include "src/core/SkTLList.h"
+#include "src/gpu/GrFragmentProcessor.h"
+#include "src/gpu/GrWindowRectangles.h"
 
-class GrContext;
 class GrCoverageCountingPathRenderer;
+class GrRecordingContext;
 class GrRenderTargetContext;
 
 /**
@@ -83,7 +83,7 @@ public:
     bool maskRequiresAA() const { SkASSERT(!fMaskElements.isEmpty()); return fMaskRequiresAA; }
 
     bool drawAlphaClipMask(GrRenderTargetContext*) const;
-    bool drawStencilClipMask(GrContext*, GrRenderTargetContext*) const;
+    bool drawStencilClipMask(GrRecordingContext*, GrRenderTargetContext*) const;
 
     int numAnalyticFPs() const { return fAnalyticFPs.count() + fCCPRClipPaths.count(); }
 
@@ -96,9 +96,8 @@ public:
      * the render target context, surface allocations, and even switching render targets (pre MDB)
      * may cause flushes or otherwise change which opList the actual draw is going into.
      */
-    std::unique_ptr<GrFragmentProcessor> finishAndDetachAnalyticFPs(GrCoverageCountingPathRenderer*,
-                                                                    uint32_t opListID, int rtWidth,
-                                                                    int rtHeight);
+    std::unique_ptr<GrFragmentProcessor> finishAndDetachAnalyticFPs(
+            GrCoverageCountingPathRenderer*, uint32_t opListID);
 
 private:
     void walkStack(const SkClipStack&, const SkRect& queryBounds);

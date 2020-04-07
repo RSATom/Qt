@@ -42,6 +42,8 @@
 #include "qdbuspendingcall_p.h"
 #include "qdbusmetatype.h"
 
+#include <QtCore/private/qlocking_p.h>
+
 #ifndef QT_NO_DBUS
 
 /*!
@@ -89,8 +91,7 @@
     QDBusPendingCallWatcher objects, which emit signals when the reply
     arrives.
 
-    \sa QDBusPendingCallWatcher, QDBusReply,
-        QDBusAbstractInterface::asyncCall()
+    \sa QDBusPendingCallWatcher, QDBusReply
 */
 
 /*!
@@ -277,7 +278,7 @@ QVariant QDBusPendingReplyData::argumentAt(int index) const
 void QDBusPendingReplyData::setMetaTypes(int count, const int *types)
 {
     Q_ASSERT(d);
-    QMutexLocker locker(&d->mutex);
+    const auto locker = qt_scoped_lock(d->mutex);
     d->setMetaTypes(count, types);
     d->checkReceivedSignature();
 }

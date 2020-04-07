@@ -12,7 +12,6 @@
 #include "base/memory/scoped_refptr.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_piece.h"
-#include "base/test/fuzzed_data_provider.h"
 #include "net/base/io_buffer.h"
 #include "net/base/net_errors.h"
 #include "net/websockets/websocket_deflate_parameters.h"
@@ -22,6 +21,7 @@
 #include "net/websockets/websocket_extension.h"
 #include "net/websockets/websocket_frame.h"
 #include "net/websockets/websocket_stream.h"
+#include "third_party/libFuzzer/src/utils/FuzzedDataProvider.h"
 
 namespace net {
 
@@ -43,7 +43,7 @@ constexpr size_t MIN_USEFUL_SIZE =
 
 class WebSocketFuzzedStream final : public WebSocketStream {
  public:
-  explicit WebSocketFuzzedStream(base::FuzzedDataProvider* fuzzed_data_provider)
+  explicit WebSocketFuzzedStream(FuzzedDataProvider* fuzzed_data_provider)
       : fuzzed_data_provider_(fuzzed_data_provider) {}
 
   int ReadFrames(std::vector<std::unique_ptr<WebSocketFrame>>* frames,
@@ -90,11 +90,11 @@ class WebSocketFuzzedStream final : public WebSocketStream {
     return frame;
   }
 
-  base::FuzzedDataProvider* fuzzed_data_provider_;
+  FuzzedDataProvider* fuzzed_data_provider_;
 };
 
 void WebSocketDeflateStreamFuzz(const uint8_t* data, size_t size) {
-  base::FuzzedDataProvider fuzzed_data_provider(data, size);
+  FuzzedDataProvider fuzzed_data_provider(data, size);
   uint8_t flags = fuzzed_data_provider.ConsumeIntegral<uint8_t>();
   bool server_no_context_takeover = flags & 0x1;
   bool client_no_context_takeover = (flags >> 1) & 0x1;
@@ -109,9 +109,9 @@ void WebSocketDeflateStreamFuzz(const uint8_t* data, size_t size) {
   if (client_no_context_takeover)
     params.Add(WebSocketExtension::Parameter("client_no_context_takeover"));
   params.Add(WebSocketExtension::Parameter(
-      "server_max_window_bits", base::IntToString(server_max_window_bits)));
+      "server_max_window_bits", base::NumberToString(server_max_window_bits)));
   params.Add(WebSocketExtension::Parameter(
-      "client_max_window_bits", base::IntToString(client_max_window_bits)));
+      "client_max_window_bits", base::NumberToString(client_max_window_bits)));
   std::string failure_message;
   WebSocketDeflateParameters parameters;
   DCHECK(parameters.Initialize(params, &failure_message)) << failure_message;

@@ -7,6 +7,7 @@
 
 #include "third_party/blink/public/mojom/clipboard/clipboard.mojom-blink.h"
 #include "third_party/blink/renderer/core/core_export.h"
+#include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 #include "third_party/blink/renderer/platform/wtf/forward.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
 
@@ -18,7 +19,10 @@ class KURL;
 
 // This singleton provides read/write access to the system clipboard,
 // mediating between core classes and mojom::ClipboardHost.
+// All calls to write functions must be followed by a call to CommitWrite().
 class CORE_EXPORT SystemClipboard {
+  USING_FAST_MALLOC(SystemClipboard);
+
  public:
   static SystemClipboard& GetInstance();
 
@@ -50,6 +54,7 @@ class CORE_EXPORT SystemClipboard {
   String ReadRTF();
 
   SkBitmap ReadImage(mojom::ClipboardBuffer);
+
   // Write the image and its associated tag (bookmark/HTML types).
   void WriteImageWithTag(Image*, const KURL&, const String& title);
   // Write the image only.
@@ -58,11 +63,17 @@ class CORE_EXPORT SystemClipboard {
   String ReadCustomData(const String& type);
   void WriteDataObject(DataObject*);
 
+  // Clipboard write functions must use CommitWrite for changes to reach
+  // the OS clipboard.
+  void CommitWrite();
+
  private:
   SystemClipboard();
   bool IsValidBufferType(mojom::ClipboardBuffer);
 
   mojom::blink::ClipboardHostPtr clipboard_;
+  // In X11, |buffer_| may equal ClipboardBuffer::kStandard or kSelection.
+  // Outside X11, |buffer_| always equals ClipboardBuffer::kStandard.
   mojom::ClipboardBuffer buffer_ = mojom::ClipboardBuffer::kStandard;
 
   DISALLOW_COPY_AND_ASSIGN(SystemClipboard);

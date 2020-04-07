@@ -2,6 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "base/bind.h"
 #include "base/callback.h"
 #include "base/macros.h"
 #include "content/browser/web_contents/web_contents_impl.h"
@@ -24,9 +25,7 @@ class AXTreeSnapshotWaiter {
  public:
   AXTreeSnapshotWaiter() : loop_runner_(new MessageLoopRunner()) {}
 
-  void Wait() {
-    loop_runner_->Run();
-  }
+  void Wait() { loop_runner_->Run(); }
 
   const ui::AXTreeUpdate& snapshot() const { return snapshot_; }
 
@@ -53,8 +52,8 @@ void DumpRolesAndNamesAsText(const ui::AXNode* node,
             node->data().GetStringAttribute(ax::mojom::StringAttribute::kName) +
             "'";
   *dst += "\n";
-  for (int i = 0; i < node->child_count(); ++i)
-    DumpRolesAndNamesAsText(node->children()[i], indent + 1, dst);
+  for (size_t i = 0; i < node->GetUnignoredChildCount(); ++i)
+    DumpRolesAndNamesAsText(node->GetUnignoredChildAtIndex(i), indent + 1, dst);
 }
 
 }  // namespace
@@ -88,9 +87,9 @@ IN_PROC_BROWSER_TEST_F(SnapshotAXTreeBrowserTest,
   ui::AXNode* root = tree.root();
   ASSERT_NE(nullptr, root);
   ASSERT_EQ(ax::mojom::Role::kRootWebArea, root->data().role);
-  ui::AXNode* group = root->ChildAtIndex(0);
+  ui::AXNode* group = root->GetUnignoredChildAtIndex(0);
   ASSERT_EQ(ax::mojom::Role::kGenericContainer, group->data().role);
-  ui::AXNode* button = group->ChildAtIndex(0);
+  ui::AXNode* button = group->GetUnignoredChildAtIndex(0);
   ASSERT_EQ(ax::mojom::Role::kButton, button->data().role);
 }
 
@@ -107,8 +106,9 @@ IN_PROC_BROWSER_TEST_F(SnapshotAXTreeBrowserTest,
   FrameTreeNode* root_frame = web_contents->GetFrameTree()->root();
 
   NavigateFrameToURL(root_frame->child_at(0), GURL("data:text/plain,Alpha"));
-  NavigateFrameToURL(root_frame->child_at(1), embedded_test_server()->GetURL(
-      "/accessibility/snapshot/inner.html"));
+  NavigateFrameToURL(
+      root_frame->child_at(1),
+      embedded_test_server()->GetURL("/accessibility/snapshot/inner.html"));
 
   AXTreeSnapshotWaiter waiter;
   web_contents->RequestAXTreeSnapshot(

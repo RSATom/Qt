@@ -63,7 +63,7 @@ private:
 };
 
 tst_QLowEnergyDescriptor::tst_QLowEnergyDescriptor() :
-    globalControl(0), globalService(0)
+    globalControl(nullptr), globalService(nullptr)
 {
     QLoggingCategory::setFilterRules(QStringLiteral("qt.bluetooth* = true"));
 }
@@ -104,13 +104,13 @@ void tst_QLowEnergyDescriptor::initTestCase()
     QTRY_VERIFY_WITH_TIMEOUT(spy.count() > 0, 50000);
 
     // find first service with descriptor
-    QLowEnergyController *controller = 0;
+    QLowEnergyController *controller = nullptr;
     for (const QBluetoothDeviceInfo& remoteDeviceInfo : qAsConst(remoteLeDeviceInfos)) {
         controller = QLowEnergyController::createCentral(remoteDeviceInfo, this);
         qDebug() << "Connecting to" << remoteDeviceInfo.address();
         controller->connectToDevice();
         QTRY_IMPL(controller->state() != QLowEnergyController::ConnectingState,
-                  20000);
+                  20000)
         if (controller->state() != QLowEnergyController::ConnectedState) {
             // any error and we skip
             delete controller;
@@ -140,13 +140,18 @@ void tst_QLowEnergyDescriptor::initTestCase()
 
             const QList<QLowEnergyCharacteristic> chars = leService->characteristics();
             for (const QLowEnergyCharacteristic &ch : chars) {
-                if (!ch.descriptors().isEmpty()) {
-                    globalService = leService;
-                    globalControl = controller;
-                    qWarning() << "Found service with descriptor" << remoteDeviceInfo.address()
-                               << globalService->serviceName() << globalService->serviceUuid();
-                    break;
+                const QList<QLowEnergyDescriptor> descriptors = ch.descriptors();
+                for (const QLowEnergyDescriptor &d : descriptors) {
+                    if (!d.value().isEmpty()) {
+                        globalService = leService;
+                        globalControl = controller;
+                        qWarning() << "Found service with descriptor" << remoteDeviceInfo.address()
+                                   << globalService->serviceName() << globalService->serviceUuid();
+                        break;
+                    }
                 }
+                if (globalControl)
+                    break;
             }
 
             if (globalControl)
@@ -238,11 +243,19 @@ void tst_QLowEnergyDescriptor::tst_assignCompare()
     QCOMPARE(target.uuid(), QBluetoothUuid());
     QCOMPARE(target.value(), QByteArray());
 
+    int index = -1;
     QList<QLowEnergyDescriptor> targets;
     const QList<QLowEnergyCharacteristic> chars = globalService->characteristics();
     for (const QLowEnergyCharacteristic &ch : chars) {
         if (!ch.descriptors().isEmpty()) {
            targets = ch.descriptors();
+           for (int i = 0; i < targets.size(); ++i) {
+               // try to get a descriptor we can read
+               if (targets[i].type() == QBluetoothUuid::CharacteristicUserDescription) {
+                   index = i;
+                   break;
+               }
+           }
            break;
         }
     }
@@ -250,8 +263,10 @@ void tst_QLowEnergyDescriptor::tst_assignCompare()
     if (targets.isEmpty())
         QSKIP("No descriptor found despite prior indication.");
 
+    QVERIFY(index != -1);
+
     // test assignment operator
-    target = targets.first();
+    target = targets[index];
     QVERIFY(target.isValid());
     QVERIFY(target.type() != QBluetoothUuid::UnknownDescriptorType);
     QVERIFY(!target.name().isEmpty());
@@ -259,26 +274,26 @@ void tst_QLowEnergyDescriptor::tst_assignCompare()
     QVERIFY(!target.uuid().isNull());
     QVERIFY(!target.value().isEmpty());
 
-    QVERIFY(target == targets.first());
-    QVERIFY(targets.first() == target);
-    QVERIFY(!(target != targets.first()));
-    QVERIFY(!(targets.first() != target));
+    QVERIFY(target == targets[index]);
+    QVERIFY(targets[index] == target);
+    QVERIFY(!(target != targets[index]));
+    QVERIFY(!(targets[index] != target));
 
-    QCOMPARE(target.isValid(), targets.first().isValid());
-    QCOMPARE(target.type(), targets.first().type());
-    QCOMPARE(target.name(), targets.first().name());
-    QCOMPARE(target.handle(), targets.first().handle());
-    QCOMPARE(target.uuid(), targets.first().uuid());
-    QCOMPARE(target.value(), targets.first().value());
+    QCOMPARE(target.isValid(), targets[index].isValid());
+    QCOMPARE(target.type(), targets[index].type());
+    QCOMPARE(target.name(), targets[index].name());
+    QCOMPARE(target.handle(), targets[index].handle());
+    QCOMPARE(target.uuid(), targets[index].uuid());
+    QCOMPARE(target.value(), targets[index].value());
 
     // test copy constructor
     QLowEnergyDescriptor copyConstructed(target);
-    QCOMPARE(copyConstructed.isValid(), targets.first().isValid());
-    QCOMPARE(copyConstructed.type(), targets.first().type());
-    QCOMPARE(copyConstructed.name(), targets.first().name());
-    QCOMPARE(copyConstructed.handle(), targets.first().handle());
-    QCOMPARE(copyConstructed.uuid(), targets.first().uuid());
-    QCOMPARE(copyConstructed.value(), targets.first().value());
+    QCOMPARE(copyConstructed.isValid(), targets[index].isValid());
+    QCOMPARE(copyConstructed.type(), targets[index].type());
+    QCOMPARE(copyConstructed.name(), targets[index].name());
+    QCOMPARE(copyConstructed.handle(), targets[index].handle());
+    QCOMPARE(copyConstructed.uuid(), targets[index].uuid());
+    QCOMPARE(copyConstructed.value(), targets[index].value());
 
     QVERIFY(copyConstructed == target);
     QVERIFY(target == copyConstructed);
@@ -300,18 +315,18 @@ void tst_QLowEnergyDescriptor::tst_assignCompare()
     QVERIFY(!(invalid != target));
     QVERIFY(!(target != invalid));
 
-    QVERIFY(!(targets.first() == target));
-    QVERIFY(!(target == targets.first()));
-    QVERIFY(targets.first() != target);
-    QVERIFY(target != targets.first());
+    QVERIFY(!(targets[index] == target));
+    QVERIFY(!(target == targets[index]));
+    QVERIFY(targets[index] != target);
+    QVERIFY(target != targets[index]);
 
     if (targets.count() >= 2) {
-        QLowEnergyDescriptor second = targets[1];
+        QLowEnergyDescriptor second = targets[(index+1)%2];
         // at least two descriptors
-        QVERIFY(!(targets.first() == second));
-        QVERIFY(!(second == targets.first()));
-        QVERIFY(targets.first() != second);
-        QVERIFY(second != targets.first());
+        QVERIFY(!(targets[index] == second));
+        QVERIFY(!(second == targets[index]));
+        QVERIFY(targets[index] != second);
+        QVERIFY(second != targets[index]);
     }
 }
 

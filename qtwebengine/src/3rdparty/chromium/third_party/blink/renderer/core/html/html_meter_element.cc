@@ -22,13 +22,14 @@
 
 #include "third_party/blink/renderer/core/dom/node_computed_style.h"
 #include "third_party/blink/renderer/core/dom/shadow_root.h"
-#include "third_party/blink/renderer/core/frame/use_counter.h"
 #include "third_party/blink/renderer/core/html/html_div_element.h"
 #include "third_party/blink/renderer/core/html/html_slot_element.h"
 #include "third_party/blink/renderer/core/html/parser/html_parser_idioms.h"
 #include "third_party/blink/renderer/core/html_names.h"
 #include "third_party/blink/renderer/core/style/computed_style.h"
 #include "third_party/blink/renderer/platform/bindings/exception_state.h"
+#include "third_party/blink/renderer/platform/heap/heap.h"
+#include "third_party/blink/renderer/platform/instrumentation/use_counter.h"
 
 namespace blink {
 
@@ -37,17 +38,13 @@ using namespace html_names;
 HTMLMeterElement::HTMLMeterElement(Document& document)
     : HTMLElement(kMeterTag, document) {
   UseCounter::Count(document, WebFeature::kMeterElement);
+  EnsureUserAgentShadowRoot();
 }
 
 HTMLMeterElement::~HTMLMeterElement() = default;
 
-HTMLMeterElement* HTMLMeterElement::Create(Document& document) {
-  HTMLMeterElement* meter = MakeGarbageCollected<HTMLMeterElement>(document);
-  meter->EnsureUserAgentShadowRoot();
-  return meter;
-}
-
-LayoutObject* HTMLMeterElement::CreateLayoutObject(const ComputedStyle& style) {
+LayoutObject* HTMLMeterElement::CreateLayoutObject(const ComputedStyle& style,
+                                                   LegacyLayout legacy) {
   switch (style.Appearance()) {
     case kMeterPart:
       UseCounter::Count(GetDocument(),
@@ -60,7 +57,7 @@ LayoutObject* HTMLMeterElement::CreateLayoutObject(const ComputedStyle& style) {
     default:
       break;
   }
-  return HTMLElement::CreateLayoutObject(style);
+  return HTMLElement::CreateLayoutObject(style, legacy);
 }
 
 void HTMLMeterElement::ParseAttribute(
@@ -175,20 +172,20 @@ void HTMLMeterElement::DidElementStateChange() {
 void HTMLMeterElement::DidAddUserAgentShadowRoot(ShadowRoot& root) {
   DCHECK(!value_);
 
-  HTMLDivElement* inner = HTMLDivElement::Create(GetDocument());
+  auto* inner = MakeGarbageCollected<HTMLDivElement>(GetDocument());
   inner->SetShadowPseudoId(AtomicString("-webkit-meter-inner-element"));
   root.AppendChild(inner);
 
-  HTMLDivElement* bar = HTMLDivElement::Create(GetDocument());
+  auto* bar = MakeGarbageCollected<HTMLDivElement>(GetDocument());
   bar->SetShadowPseudoId(AtomicString("-webkit-meter-bar"));
 
-  value_ = HTMLDivElement::Create(GetDocument());
+  value_ = MakeGarbageCollected<HTMLDivElement>(GetDocument());
   UpdateValueAppearance(0);
   bar->AppendChild(value_);
 
   inner->AppendChild(bar);
 
-  HTMLDivElement* fallback = HTMLDivElement::Create(GetDocument());
+  auto* fallback = MakeGarbageCollected<HTMLDivElement>(GetDocument());
   fallback->AppendChild(
       HTMLSlotElement::CreateUserAgentDefaultSlot(GetDocument()));
   fallback->SetShadowPseudoId(AtomicString("-internal-fallback"));
@@ -203,7 +200,7 @@ void HTMLMeterElement::UpdateValueAppearance(double percentage) {
   DEFINE_STATIC_LOCAL(AtomicString, even_less_good_pseudo_id,
                       ("-webkit-meter-even-less-good-value"));
 
-  value_->SetInlineStyleProperty(CSSPropertyWidth, percentage,
+  value_->SetInlineStyleProperty(CSSPropertyID::kWidth, percentage,
                                  CSSPrimitiveValue::UnitType::kPercentage);
   switch (GetGaugeRegion()) {
     case kGaugeRegionOptimum:

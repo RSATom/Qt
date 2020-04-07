@@ -11,7 +11,7 @@
 #include "base/memory/ref_counted.h"
 #include "base/synchronization/lock.h"
 #include "components/services/font/public/cpp/mapped_font_file.h"
-#include "components/services/font/public/interfaces/font_service.mojom.h"
+#include "components/services/font/public/mojom/font_service.mojom.h"
 #include "third_party/skia/include/core/SkStream.h"
 #include "third_party/skia/include/core/SkTypeface.h"
 #include "third_party/skia/include/ports/SkFontConfigInterface.h"
@@ -37,9 +37,6 @@ class FontLoader : public SkFontConfigInterface,
   explicit FontLoader(service_manager::Connector* connector);
   ~FontLoader() override;
 
-  // Shuts down the background thread.
-  void Shutdown();
-
   // SkFontConfigInterface:
   bool matchFamilyName(const char family_name[],
                        SkFontStyle requested,
@@ -47,6 +44,7 @@ class FontLoader : public SkFontConfigInterface,
                        SkString* out_family_name,
                        SkFontStyle* out_style) override;
   SkStreamAsset* openStream(const FontIdentity& identity) override;
+  sk_sp<SkTypeface> makeTypeface(const FontIdentity& identity) override;
 
   // Additional cross-thread accessible methods below.
 

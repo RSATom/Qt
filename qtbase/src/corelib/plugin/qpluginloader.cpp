@@ -196,9 +196,7 @@ QObject *QPluginLoader::instance()
 {
     if (!isLoaded() && !load())
         return 0;
-    if (!d->inst && d->instance)
-        d->inst = d->instance();
-    return d->inst.data();
+    return d->pluginInstance();
 }
 
 /*!
@@ -233,7 +231,7 @@ bool QPluginLoader::load()
     if (!d || d->fileName.isEmpty())
         return false;
     if (did_load)
-        return d->pHnd && d->instance;
+        return d->pHnd && d->instanceFactory.loadAcquire();
     if (!d->isPlugin())
         return false;
     did_load = true;
@@ -275,7 +273,7 @@ bool QPluginLoader::unload()
  */
 bool QPluginLoader::isLoaded() const
 {
-    return d && d->pHnd && d->instance;
+    return d && d->pHnd && d->instanceFactory.loadRelaxed();
 }
 
 #if defined(QT_SHARED)
@@ -305,12 +303,21 @@ static QString locatePlugin(const QString& fileName)
         paths.append(fileName.left(slash)); // don't include the '/'
     } else {
         paths = QCoreApplication::libraryPaths();
-        paths.prepend(QStringLiteral(".")); // search in current dir first
     }
 
     for (const QString &path : qAsConst(paths)) {
         for (const QString &prefix : qAsConst(prefixes)) {
             for (const QString &suffix : qAsConst(suffixes)) {
+#ifdef Q_OS_ANDROID
+                {
+                    QString pluginPath = basePath + prefix + baseName + suffix;
+                    const QString fn = path + QLatin1String("/lib") + pluginPath.replace(QLatin1Char('/'), QLatin1Char('_'));
+                    if (debug)
+                        qDebug() << "Trying..." << fn;
+                    if (QFileInfo(fn).isFile())
+                        return fn;
+                }
+#endif
                 const QString fn = path + QLatin1Char('/') + basePath + prefix + baseName + suffix;
                 if (debug)
                     qDebug() << "Trying..." << fn;
@@ -333,7 +340,7 @@ static QString locatePlugin(const QString& fileName)
     QPluginLoader will automatically look for the file with the appropriate
     suffix (see QLibrary::isLibrary()).
 
-    When loading the plugin, QPluginLoader searches in the current directory and
+    When loading the plugin, QPluginLoader searches
     in all plugin locations specified by QCoreApplication::libraryPaths(),
     unless the file name has an absolute path. After loading the plugin
     successfully, fileName() returns the fully-qualified file name of

@@ -105,7 +105,7 @@ ReturnedValue Object::getValueAccessor(const Value *thisObject, const Value &v, 
     JSCallData jsCallData(scope);
     if (thisObject)
         *jsCallData->thisObject = *thisObject;
-    return f->call(jsCallData);
+    return checkedResult(scope.engine, f->call(jsCallData));
 }
 
 bool Object::putValue(uint memberIndex, PropertyAttributes attrs, const Value &value)
@@ -407,8 +407,8 @@ ReturnedValue Object::internalGet(PropertyKey id, const Value *receiver, bool *h
 {
     Heap::Object *o = d();
 
-    uint index = id.asArrayIndex();
-    if (index != UINT_MAX) {
+    if (id.isArrayIndex()) {
+        const uint index = id.asArrayIndex();
         Scope scope(this);
         PropertyAttributes attrs;
         ScopedProperty pd(scope);
@@ -432,8 +432,6 @@ ReturnedValue Object::internalGet(PropertyKey id, const Value *receiver, bool *h
                 break;
         }
     } else {
-        Q_ASSERT(!id.isArrayIndex());
-
         while (1) {
             auto idx = o->internalClass->findValueOrGetter(id);
             if (idx.isValid()) {
@@ -471,14 +469,13 @@ bool Object::internalPut(PropertyKey id, const Value &value, Value *receiver)
         if (d()->internalClass->vtable->getOwnProperty == Object::virtualGetOwnProperty) {
             // This object standard methods in the vtable, so we can take a shortcut
             // and avoid the calls to getOwnProperty and defineOwnProperty
-            uint index = id.asArrayIndex();
 
             PropertyAttributes attrs;
             PropertyIndex propertyIndex{nullptr, nullptr};
 
-            if (index != UINT_MAX) {
+            if (id.isArrayIndex()) {
                 if (arrayData())
-                    propertyIndex = arrayData()->getValueOrSetter(index, &attrs);
+                    propertyIndex = arrayData()->getValueOrSetter(id.asArrayIndex(), &attrs);
             } else {
                 auto member = internalClass()->findValueOrSetter(id);
                 if (member.isValid()) {
@@ -547,12 +544,11 @@ bool Object::internalPut(PropertyKey id, const Value &value, Value *receiver)
 
     if (r->internalClass()->vtable->defineOwnProperty == virtualDefineOwnProperty) {
         // standard object, we can avoid some more checks
-        uint index = id.asArrayIndex();
-        if (index == UINT_MAX) {
+        if (id.isArrayIndex()) {
+            r->arraySet(id.asArrayIndex(), value);
+        } else {
             ScopedStringOrSymbol s(scope, id.asStringOrSymbol());
             r->insertMember(s, value);
-        } else {
-            r->arraySet(index, value);
         }
         return true;
     }
@@ -787,8 +783,15 @@ bool Object::virtualResolveLookupSetter(Object *object, ExecutionEngine *engine,
             return lookup->setter(lookup, engine, *object, value);
         } else if (idx.attrs.isData() && idx.attrs.isWritable()) {
             lookup->objectLookup.ic = object->internalClass();
-            lookup->objectLookup.offset = idx.index;
-            lookup->setter = idx.index < object->d()->vtable()->nInlineProperties ? Lookup::setter0Inline : Lookup::setter0;
+            lookup->objectLookup.index = idx.index;
+            const auto nInline = object->d()->vtable()->nInlineProperties;
+            if (idx.index < nInline) {
+                lookup->setter = Lookup::setter0Inline;
+                lookup->objectLookup.offset = idx.index + object->d()->vtable()->inlinePropertyOffset;
+            } else {
+                lookup->setter = Lookup::setter0MemberData;
+                lookup->objectLookup.offset = idx.index - nInline;
+            }
             return lookup->setter(lookup, engine, *object, value);
         } else {
             // ### handle setter

@@ -194,7 +194,7 @@ public:
     static void handleExposeEvent(QWindow *window, const QRegion &region);
 
     template<typename Delivery = QWindowSystemInterface::DefaultDelivery>
-    static void handleCloseEvent(QWindow *window, bool *accepted = nullptr);
+    static bool handleCloseEvent(QWindow *window);
 
     template<typename Delivery = QWindowSystemInterface::DefaultDelivery>
     static void handleEnterEvent(QWindow *window, const QPointF &local = QPointF(), const QPointF& global = QPointF());
@@ -215,6 +215,9 @@ public:
     template<typename Delivery = QWindowSystemInterface::DefaultDelivery>
     static void handleApplicationStateChanged(Qt::ApplicationState newState, bool forcePropagate = false);
 
+    template<typename Delivery = QWindowSystemInterface::DefaultDelivery>
+    static bool handleApplicationTermination();
+
 #if QT_CONFIG(draganddrop)
 #if QT_DEPRECATED_SINCE(5, 11)
     QT_DEPRECATED static QPlatformDragQtResponse handleDrag(QWindow *window, const QMimeData *dropData,
@@ -230,7 +233,11 @@ public:
                                               Qt::MouseButtons buttons, Qt::KeyboardModifiers modifiers);
 #endif // QT_CONFIG(draganddrop)
 
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+    static bool handleNativeEvent(QWindow *window, const QByteArray &eventType, void *message, qintptr *result);
+#else
     static bool handleNativeEvent(QWindow *window, const QByteArray &eventType, void *message, long *result);
+#endif
 
     // Changes to the screen
     static void handleScreenAdded(QPlatformScreen *screen, bool isPrimary = false);
@@ -242,6 +249,7 @@ public:
     static void handleScreenLogicalDotsPerInchChange(QScreen *screen, qreal newDpiX, qreal newDpiY);
     static void handleScreenRefreshRateChange(QScreen *screen, qreal newRefreshRate);
 
+    template<typename Delivery = QWindowSystemInterface::DefaultDelivery>
     static void handleThemeChange(QWindow *window);
 
     static void handleFileOpenEvent(const QString& fileName);

@@ -5,11 +5,12 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_MODULES_STORAGE_CACHED_STORAGE_AREA_H_
 #define THIRD_PARTY_BLINK_RENDERER_MODULES_STORAGE_CACHED_STORAGE_AREA_H_
 
+#include "base/trace_event/memory_dump_provider.h"
 #include "mojo/public/cpp/bindings/associated_binding.h"
 #include "mojo/public/cpp/bindings/associated_interface_ptr.h"
 #include "mojo/public/cpp/bindings/interface_ptr.h"
 #include "third_party/blink/public/mojom/dom_storage/storage_area.mojom-blink.h"
-#include "third_party/blink/public/platform/web_scoped_virtual_time_pauser.h"
+#include "third_party/blink/public/platform/scheduler/web_scoped_virtual_time_pauser.h"
 #include "third_party/blink/renderer/modules/modules_export.h"
 #include "third_party/blink/renderer/modules/storage/storage_area_map.h"
 #include "third_party/blink/renderer/platform/heap/heap_allocator.h"
@@ -29,7 +30,8 @@ namespace blink {
 // objects.
 class MODULES_EXPORT CachedStorageArea
     : public mojom::blink::StorageAreaObserver,
-      public RefCounted<CachedStorageArea> {
+      public RefCounted<CachedStorageArea>,
+      public base::trace_event::MemoryDumpProvider {
  public:
   // Instances of this class are used to identify the "source" of any changes
   // made to this storage area, as well as to dispatch any incoming change
@@ -84,7 +86,8 @@ class MODULES_EXPORT CachedStorageArea
   // Returns the (unique) id allocated for this source for testing purposes.
   String RegisterSource(Source* source);
 
-  size_t memory_used() const { return map_ ? map_->quota_used() : 0; }
+  size_t quota_used() const { return map_ ? map_->quota_used() : 0; }
+  size_t memory_used() const { return map_ ? map_->memory_used() : 0; }
 
   // Only public to allow tests to parametrize on this type.
   enum class FormatOption {
@@ -123,6 +126,10 @@ class MODULES_EXPORT CachedStorageArea
                   const String& source) override;
   void AllDeleted(const String& source) override;
   void ShouldSendOldValueOnMutations(bool value) override;
+
+  // base::trace_event::MemoryDumpProvider:
+  bool OnMemoryDump(const base::trace_event::MemoryDumpArgs& args,
+                    base::trace_event::ProcessMemoryDump* pmd) override;
 
   // Common helper for KeyAdded() and KeyChanged()
   void KeyAddedOrChanged(const Vector<uint8_t>& key,
@@ -182,7 +189,7 @@ class MODULES_EXPORT CachedStorageArea
 
   Persistent<HeapHashMap<WeakMember<Source>, String>> areas_;
 
-  base::WeakPtrFactory<CachedStorageArea> weak_factory_;
+  base::WeakPtrFactory<CachedStorageArea> weak_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(CachedStorageArea);
 };

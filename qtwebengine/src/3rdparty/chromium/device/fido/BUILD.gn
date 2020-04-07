@@ -27,6 +27,10 @@ component("fido") {
     "authenticator_selection_criteria.h",
     "authenticator_supported_options.cc",
     "authenticator_supported_options.h",
+    "bio/enrollment.cc",
+    "bio/enrollment.h",
+    "bio/enrollment_handler.cc",
+    "bio/enrollment_handler.h",
     "ble/fido_ble_connection.cc",
     "ble/fido_ble_connection.h",
     "ble/fido_ble_device.cc",
@@ -52,6 +56,10 @@ component("fido") {
     "cable/fido_cable_discovery.h",
     "cable/fido_cable_handshake_handler.cc",
     "cable/fido_cable_handshake_handler.h",
+    "credential_management.cc",
+    "credential_management.h",
+    "credential_management_handler.cc",
+    "credential_management_handler.h",
     "ctap2_device_operation.h",
     "ctap_empty_authenticator_request.cc",
     "ctap_empty_authenticator_request.h",
@@ -66,6 +74,7 @@ component("fido") {
     "ec_public_key.h",
     "features.cc",
     "features.h",
+    "fido_authenticator.cc",
     "fido_authenticator.h",
     "fido_constants.cc",
     "fido_constants.h",
@@ -88,6 +97,7 @@ component("fido") {
     "fido_task.h",
     "fido_transport_protocol.cc",
     "fido_transport_protocol.h",
+    "fido_types.h",
     "get_assertion_request_handler.cc",
     "get_assertion_request_handler.h",
     "get_assertion_task.cc",
@@ -104,6 +114,8 @@ component("fido") {
     "opaque_attestation_statement.h",
     "opaque_public_key.cc",
     "opaque_public_key.h",
+    "pin.cc",
+    "pin.h",
     "platform_credential_store.h",
     "public_key.cc",
     "public_key.h",
@@ -115,8 +127,12 @@ component("fido") {
     "public_key_credential_rp_entity.h",
     "public_key_credential_user_entity.cc",
     "public_key_credential_user_entity.h",
+    "reset_request_handler.cc",
+    "reset_request_handler.h",
     "response_data.cc",
     "response_data.h",
+    "set_pin_request_handler.cc",
+    "set_pin_request_handler.h",
     "u2f_command_constructor.cc",
     "u2f_command_constructor.h",
     "u2f_register_operation.cc",
@@ -136,6 +152,7 @@ component("fido") {
   deps = [
     "//components/apdu",
     "//components/cbor",
+    "//components/device_event_log",
     "//crypto",
     "//device/base",
     "//device/fido/strings",
@@ -149,6 +166,7 @@ component("fido") {
   public_deps = [
     "//base",
     "//device/bluetooth",
+    "//device/bluetooth/public/cpp",
     "//services/device/public/mojom",
   ]
 
@@ -178,6 +196,8 @@ component("fido") {
       "mac/credential_metadata.h",
       "mac/credential_store.h",
       "mac/credential_store.mm",
+      "mac/discovery.cc",
+      "mac/discovery.h",
       "mac/get_assertion_operation.h",
       "mac/get_assertion_operation.mm",
       "mac/keychain.h",
@@ -229,6 +249,7 @@ source_set("mocks") {
     ":fido",
     "//base",
     "//components/apdu",
+    "//components/cbor",
     "//testing/gmock",
   ]
 }
@@ -262,6 +283,8 @@ fuzzer_test("ctap_response_fuzzer") {
     ":fido",
     "//base",
     "//base:i18n",
+    "//components/cbor",
+    "//components/device_event_log",
   ]
   seed_corpus = "response_data_fuzzer_corpus/"
   libfuzzer_options = [ "max_len=65537" ]
@@ -274,6 +297,7 @@ fuzzer_test("fido_cable_handshake_handler_fuzzer") {
   deps = [
     ":fido",
     "//base",
+    "//base/test:test_support",
     "//device/bluetooth:mocks",
     "//testing/gmock",
     "//testing/gtest",
@@ -288,9 +312,9 @@ source_set("test_support") {
   sources = [
     "fake_fido_discovery.cc",
     "fake_fido_discovery.h",
-    "scoped_virtual_fido_device.cc",
-    "scoped_virtual_fido_device.h",
     "test_callback_receiver.h",
+    "virtual_fido_device_factory.cc",
+    "virtual_fido_device_factory.h",
   ]
   deps = [
     "//base",

@@ -27,12 +27,12 @@
 #include "content/public/browser/screen_orientation_delegate.h"
 #include "content/public/browser/site_instance.h"
 #include "content/public/browser/visibility.h"
-#include "content/public/browser/web_contents_observer.h"
 #include "content/public/browser/web_ui.h"
 #include "content/public/common/stop_find_action.h"
+#include "services/metrics/public/cpp/ukm_source_id.h"
 #include "third_party/blink/public/common/frame/sandbox_flags.h"
-#include "third_party/blink/public/mojom/frame/find_in_page.mojom.h"
-#include "third_party/blink/public/mojom/loader/pause_subresource_loading_handle.mojom.h"
+#include "third_party/blink/public/mojom/frame/find_in_page.mojom-forward.h"
+#include "third_party/blink/public/mojom/loader/pause_subresource_loading_handle.mojom-forward.h"
 #include "third_party/skia/include/core/SkColor.h"
 #include "ui/accessibility/ax_mode.h"
 #include "ui/accessibility/ax_tree_update.h"
@@ -45,8 +45,11 @@
 #endif
 
 namespace blink {
-struct Manifest;
+namespace mojom {
+class RendererPreferences;
 }
+struct Manifest;
+}  // namespace blink
 
 namespace base {
 class TimeTicks;
@@ -80,7 +83,6 @@ struct CustomContextMenuContext;
 struct DropData;
 struct MHTMLGenerationParams;
 struct PageImportanceSignals;
-struct RendererPreferences;
 
 // WebContents is the core class in content/. A WebContents renders web content
 // (usually HTML) in a rectangular area.
@@ -90,8 +92,8 @@ struct RendererPreferences;
 //       content::WebContents::Create(
 //           content::WebContents::CreateParams(browser_context)));
 //   gfx::NativeView view = web_contents->GetNativeView();
-//   // |view| is an HWND, NSView*, GtkWidget*, etc.; insert it into the view
-//   // hierarchy wherever it needs to go.
+//   // |view| is an HWND, NSView*, etc.; insert it into the view hierarchy
+//   // wherever it needs to go.
 //
 // That's it; go to your kitchen, grab a scone, and chill. WebContents will do
 // all the multi-process stuff behind the scenes. More details are at
@@ -360,8 +362,8 @@ class WebContents : public PageNavigator,
   virtual RenderWidgetHostView* GetFullscreenRenderWidgetHostView() = 0;
 
   // Returns the theme color for the underlying content as set by the
-  // theme-color meta tag.
-  virtual SkColor GetThemeColor() = 0;
+  // theme-color meta tag if any.
+  virtual base::Optional<SkColor> GetThemeColor() = 0;
 
   // Returns the committed WebUI if one exists, otherwise the pending one.
   virtual WebUI* GetWebUI() = 0;
@@ -473,6 +475,22 @@ class WebContents : public PageNavigator,
   // Device.
   virtual bool IsConnectedToBluetoothDevice() = 0;
 
+  // Indicates whether any frame in the WebContents is connected to a serial
+  // port.
+  virtual bool IsConnectedToSerialPort() = 0;
+
+  // Indicates whether any frame in the WebContents has native file system
+  // directory handles.
+  virtual bool HasNativeFileSystemDirectoryHandles() = 0;
+
+  // Returns the paths of all the native file system directory handles frames in
+  // this WebContents have access to.
+  virtual std::vector<base::FilePath> GetNativeFileSystemDirectoryHandles() = 0;
+
+  // Indicates whether any frame in the WebContents has writable native file
+  // system handles.
+  virtual bool HasWritableNativeFileSystemHandles() = 0;
+
   // Indicates whether a video is in Picture-in-Picture for |this|.
   virtual bool HasPictureInPictureVideo() = 0;
 
@@ -528,23 +546,17 @@ class WebContents : public PageNavigator,
   // potential discard without causing the dialog to appear.
   virtual void DispatchBeforeUnload(bool auto_cancel) = 0;
 
-  // Returns true if it is safe for this WebContents to attach to the outer
-  // WebContents associated with |render_frame_host| using the method
-  // AttachToOuterWebContentsFrame. If a frame belongs to |this| WebContents or
-  // is in loading state or not in the same SiteInstance as its parent frame it
-  // should not be used for attaching.
-  virtual bool CanAttachToOuterContentsFrame(
-      RenderFrameHost* outer_contents_frame) = 0;
-
-  // Attaches |current_web_contents|, which should be the same as |this|
-  // WebContents, to its container frame |outer_contents_frame|, which should be
-  // in the outer WebContents. The |current_web_contents| is pointer is needed
-  // for passing ownership of the inner WebContents to the otuer WebContents.
-  // TODO(lfg): This API should be moved so that it is called on the outer
-  // WebContents.
-  virtual void AttachToOuterWebContentsFrame(
-      std::unique_ptr<WebContents> current_web_contents,
-      RenderFrameHost* outer_contents_frame) = 0;
+  // Attaches |inner_web_contents| to the container frame |render_frame_host|,
+  // which should be in this WebContents' FrameTree. This outer WebContents
+  // takes ownership of |inner_web_contents|.
+  // Note: |render_frame_host| will be swapped out and destroyed during the
+  // process. Generally a frame same-process with its parent is the right choice
+  // but ideally it should be "about:blank" to avoid problems with beforeunload.
+  // To ensure sane usage of this API users first should call the async API
+  // RenderFrameHost::PrepareForInnerWebContentsAttach first.
+  virtual void AttachInnerWebContents(
+      std::unique_ptr<WebContents> inner_web_contents,
+      RenderFrameHost* render_frame_host) = 0;
 
   // Returns the outer WebContents frame, the same frame that this WebContents
   // was attached in AttachToOuterWebContentsFrame().
@@ -567,6 +579,19 @@ class WebContents : public PageNavigator,
   // Notify this WebContents that the preferences have changed. This will send
   // an IPC to all the renderer processes associated with this WebContents.
   virtual void NotifyPreferencesChanged() = 0;
+
+  // Notifies WebContents that an attempt has been made to read the cookies in
+  // |cookie_list|.
+  virtual void OnCookiesRead(const GURL& url,
+                             const GURL& first_party_url,
+                             const net::CookieList& cookie_list,
+                             bool blocked_by_policy) = 0;
+
+  // Notifies WebContents that an attempt has been made to set |cookie|.
+  virtual void OnCookieChange(const GURL& url,
+                              const GURL& first_party_url,
+                              const net::CanonicalCookie& cookie,
+                              bool blocked_by_policy) = 0;
 
   // Commands ------------------------------------------------------------------
 
@@ -733,7 +758,7 @@ class WebContents : public PageNavigator,
   virtual bool WillNotifyDisconnection() = 0;
 
   // Returns the settings which get passed to the renderer.
-  virtual content::RendererPreferences* GetMutableRendererPrefs() = 0;
+  virtual blink::mojom::RendererPreferences* GetMutableRendererPrefs() = 0;
 
   // Tells the tab to close now. The tab will take care not to close until it's
   // out of nested run loops.
@@ -866,6 +891,11 @@ class WebContents : public PageNavigator,
   virtual void ExitFullscreen(bool will_cause_resize) = 0;
   virtual void NotifyFullscreenChanged(bool will_cause_resize) = 0;
 
+  // The WebContents is trying to take some action that would cause user
+  // confusion if taken while in fullscreen. If this WebContents or any outer
+  // WebContents is in fullscreen, drop it.
+  virtual void ForSecurityDropFullscreen() = 0;
+
   // Unblocks requests from renderer for a newly created window. This is
   // used in showCreatedWindow() or sometimes later in cases where
   // delegate->ShouldResumeRequestsForCreatedWindow() indicated the requests
@@ -878,9 +908,6 @@ class WebContents : public PageNavigator,
 
   virtual int GetCurrentlyPlayingVideoCount() = 0;
 
-  // Returns a map containing the sizes of all currently playing videos.
-  using VideoSizeMap =
-      base::flat_map<WebContentsObserver::MediaPlayerId, gfx::Size>;
   virtual base::Optional<gfx::Size> GetFullscreenVideoSize() = 0;
   virtual bool IsFullscreen() = 0;
 
@@ -895,20 +922,6 @@ class WebContents : public PageNavigator,
 
   // Tells the WebContents whether the context menu is showing.
   virtual void SetShowingContextMenu(bool showing) = 0;
-
-  // Pause and unpause scheduled tasks in the page of blink. This function will
-  // suspend page loadings and all background processing like active javascript,
-  // and timers through |blink::Page::SetPaused|. If you want to resume the
-  // paused state, you have to call this function with |false| argument again.
-  // The function with |false| should be called after calling it with |true|. If
-  // not, assertion will happen.
-  //
-  // WARNING: This only pauses the activities in the particular page in the
-  // renderer process, but may indirectly block or break other pages when they
-  // wait for the common backend (e.g. storage) in the browser process.
-  // TODO(gyuyoung): https://crbug.com/822564 - Make this feature safer and fix
-  // bugs.
-  virtual void PausePageScheduledTasks(bool paused) = 0;
 
 #if defined(OS_ANDROID)
   CONTENT_EXPORT static WebContents* FromJavaWebContents(
@@ -953,6 +966,9 @@ class WebContents : public PageNavigator,
   // WebContents. This can be used to determine if a AudioOutputStream was
   // created from a renderer that originated from this WebContents.
   virtual base::UnguessableToken GetAudioGroupId() = 0;
+
+  // The source ID of the last committed navigation.
+  virtual ukm::SourceId GetLastCommittedSourceId() = 0;
 
  private:
   // This interface should only be implemented inside content.

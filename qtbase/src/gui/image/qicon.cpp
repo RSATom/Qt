@@ -165,6 +165,11 @@ QIconPrivate::QIconPrivate(QIconEngine *e)
 qreal QIconPrivate::pixmapDevicePixelRatio(qreal displayDevicePixelRatio, const QSize &requestedSize, const QSize &actualSize)
 {
     QSize targetSize = requestedSize * displayDevicePixelRatio;
+    if ((actualSize.width() == targetSize.width() && actualSize.height() <= targetSize.height()) ||
+        (actualSize.width() <= targetSize.width() && actualSize.height() == targetSize.height())) {
+        // Correctly scaled for dpr, just having different aspect ratio
+        return displayDevicePixelRatio;
+    }
     qreal scale = 0.5 * (qreal(actualSize.width()) / qreal(targetSize.width()) +
                          qreal(actualSize.height() / qreal(targetSize.height())));
     return qMax(qreal(1.0), displayDevicePixelRatio *scale);
@@ -185,7 +190,12 @@ QPixmapIconEngine::~QPixmapIconEngine()
 
 void QPixmapIconEngine::paint(QPainter *painter, const QRect &rect, QIcon::Mode mode, QIcon::State state)
 {
-    QSize pixmapSize = rect.size() * qt_effective_device_pixel_ratio(0);
+    qreal dpr = 1.0;
+    if (QCoreApplication::testAttribute(Qt::AA_UseHighDpiPixmaps)) {
+      auto paintDevice = painter->device();
+      dpr = paintDevice ? paintDevice->devicePixelRatioF() : qApp->devicePixelRatio();
+    }
+    const QSize pixmapSize = rect.size() * dpr;
     QPixmap px = pixmap(pixmapSize, mode, state);
     painter->drawPixmap(rect, px);
 }
@@ -663,7 +673,7 @@ QFactoryLoader *qt_iconEngineFactoryLoader()
 /*!
   Constructs a null icon.
 */
-QIcon::QIcon() Q_DECL_NOEXCEPT
+QIcon::QIcon() noexcept
     : d(0)
 {
 }
@@ -987,7 +997,7 @@ bool QIcon::isNull() const
  */
 bool QIcon::isDetached() const
 {
-    return !d || d->ref.load() == 1;
+    return !d || d->ref.loadRelaxed() == 1;
 }
 
 /*! \internal
@@ -1000,7 +1010,7 @@ void QIcon::detach()
                 delete d;
             d = 0;
             return;
-        } else if (d->ref.load() != 1) {
+        } else if (d->ref.loadRelaxed() != 1) {
             QIconPrivate *x = new QIconPrivate(d->engine->clone());
             if (!d->ref.deref())
                 delete d;
@@ -1496,7 +1506,7 @@ QDebug operator<<(QDebug dbg, const QIcon &i)
         if (!i.name().isEmpty())
             dbg << i.name() << ',';
         dbg << "availableSizes[normal,Off]=" << i.availableSizes()
-            << ",cacheKey=" << showbase << hex << i.cacheKey() << dec << noshowbase;
+            << ",cacheKey=" << Qt::showbase << Qt::hex << i.cacheKey() << Qt::dec << Qt::noshowbase;
     }
     dbg << ')';
     return dbg;
@@ -1517,7 +1527,7 @@ QDebug operator<<(QDebug dbg, const QIcon &i)
     \internal
     \since 5.6
     Attempts to find a suitable @Nx file for the given \a targetDevicePixelRatio
-    Returns the the \a baseFileName if no such file was found.
+    Returns the \a baseFileName if no such file was found.
 
     Given base foo.png and a target dpr of 2.5, this function will look for
     foo@3x.png, then foo@2x, then fall back to foo.png if not found.

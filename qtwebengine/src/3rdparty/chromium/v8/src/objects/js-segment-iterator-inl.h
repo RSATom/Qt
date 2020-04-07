@@ -9,8 +9,8 @@
 #ifndef V8_OBJECTS_JS_SEGMENT_ITERATOR_INL_H_
 #define V8_OBJECTS_JS_SEGMENT_ITERATOR_INL_H_
 
-#include "src/objects-inl.h"
 #include "src/objects/js-segment-iterator.h"
+#include "src/objects/objects-inl.h"
 
 // Has to be the last include (doesn't have include guards):
 #include "src/objects/object-macros.h"
@@ -22,7 +22,7 @@ OBJECT_CONSTRUCTORS_IMPL(JSSegmentIterator, JSObject)
 
 // Base segment iterator accessors.
 ACCESSORS(JSSegmentIterator, icu_break_iterator, Managed<icu::BreakIterator>,
-          kICUBreakIteratorOffset)
+          kIcuBreakIteratorOffset)
 ACCESSORS(JSSegmentIterator, unicode_string, Managed<icu::UnicodeString>,
           kUnicodeStringOffset)
 
@@ -31,11 +31,11 @@ BIT_FIELD_ACCESSORS(JSSegmentIterator, flags, is_break_type_set,
 
 SMI_ACCESSORS(JSSegmentIterator, flags, kFlagsOffset)
 
-CAST_ACCESSOR(JSSegmentIterator);
+CAST_ACCESSOR(JSSegmentIterator)
 
 inline void JSSegmentIterator::set_granularity(
     JSSegmenter::Granularity granularity) {
-  DCHECK_GT(JSSegmenter::Granularity::COUNT, granularity);
+  DCHECK_GE(GranularityBits::kMax, granularity);
   int hints = flags();
   hints = GranularityBits::update(hints, granularity);
   set_flags(hints);

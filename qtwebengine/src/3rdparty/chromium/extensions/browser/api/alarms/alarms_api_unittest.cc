@@ -6,6 +6,7 @@
 
 #include <stddef.h>
 
+#include "base/bind.h"
 #include "base/json/json_reader.h"
 #include "base/run_loop.h"
 #include "base/stl_util.h"
@@ -314,8 +315,8 @@ TEST_F(ExtensionAlarmsTest, CreateDelayBelowMinimum) {
   std::string message;
   ASSERT_TRUE(iter.ReadString(&message));
 
-  EXPECT_EQ(content::CONSOLE_MESSAGE_LEVEL_WARNING,
-            static_cast<content::ConsoleMessageLevel>(level));
+  EXPECT_EQ(blink::mojom::ConsoleMessageLevel::kWarning,
+            static_cast<blink::mojom::ConsoleMessageLevel>(level));
   EXPECT_THAT(message, testing::HasSubstr("delay is less than minimum of 1"));
 }
 
@@ -691,7 +692,7 @@ TEST_F(ExtensionAlarmsSchedulingTest, PollFrequencyFromStoredAlarm) {
         "[{\"name\": \"hello\", \"scheduledTime\": 10000, "
         "\"periodInMinutes\": 0.0001}]";
     std::unique_ptr<base::ListValue> value =
-        base::ListValue::From(base::JSONReader::Read(alarm_args));
+        base::ListValue::From(base::JSONReader::ReadDeprecated(alarm_args));
     alarm_manager_->ReadFromStorage(extension()->id(), test_data[i].is_unpacked,
                                     std::move(value));
 

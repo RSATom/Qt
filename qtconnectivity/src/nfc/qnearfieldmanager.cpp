@@ -150,7 +150,7 @@ QT_BEGIN_NAMESPACE
 
     \since 5.12
 
-    This signal is emitted whenever the state of the NFC adapter changed.
+    This signal is emitted whenever the \a state of the NFC adapter changed.
 
     \note Currently, this signal is only emitted on Android.
 */

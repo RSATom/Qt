@@ -172,19 +172,6 @@ void ObjectPaintInvalidator::
   Helper::Traverse(object_);
 }
 
-namespace {
-bool IsClientNGPaintFragmentForObject(const DisplayItemClient& client,
-                                      const LayoutObject& object) {
-  if (!RuntimeEnabledFeatures::LayoutNGEnabled())
-    return false;
-  // TODO(crbug.com/880519): This hack only makes current invalidation tracking
-  // web tests pass with LayoutNG. More work is needed if we want to launch
-  // the invalidation tracking feature.
-  return object.IsLayoutBlockFlow() &&
-         &client == ToLayoutBlockFlow(object).PaintFragment();
-}
-}  // namespace
-
 void ObjectPaintInvalidator::InvalidateDisplayItemClient(
     const DisplayItemClient& client,
     PaintInvalidationReason reason) {
@@ -193,14 +180,6 @@ void ObjectPaintInvalidator::InvalidateDisplayItemClient(
   // can use various ways (e.g. PaintInvalidatinContext::painting_layer) to
   // reduce the cost.
   DCHECK(!object_.PaintingLayer() || object_.PaintingLayer()->NeedsRepaint());
-
-  if (&client == &object_ ||
-      IsClientNGPaintFragmentForObject(client, object_)) {
-    TRACE_EVENT_INSTANT1(
-        TRACE_DISABLED_BY_DEFAULT("devtools.timeline.invalidationTracking"),
-        "PaintInvalidationTracking", TRACE_EVENT_SCOPE_THREAD, "data",
-        inspector_paint_invalidation_tracking_event::Data(object_));
-  }
 
   client.Invalidate(reason);
 
@@ -218,21 +197,12 @@ PaintInvalidationReason
 ObjectPaintInvalidatorWithContext::ComputePaintInvalidationReason() {
   // This is before any early return to ensure the background obscuration status
   // is saved.
-  bool background_obscuration_changed = false;
-  bool background_obscured = object_.BackgroundIsKnownToBeObscured();
-  if (background_obscured != object_.PreviousBackgroundObscured()) {
-    object_.GetMutableForPainting().SetPreviousBackgroundObscured(
-        background_obscured);
-    background_obscuration_changed = true;
-  }
-
   if (!object_.ShouldCheckForPaintInvalidation() &&
       (!context_.subtree_flags ||
        context_.subtree_flags ==
            PaintInvalidatorContext::kSubtreeVisualRectUpdate)) {
     // No paint invalidation flag, or just kSubtreeVisualRectUpdate (which has
     // been handled in PaintInvalidator). No paint invalidation is needed.
-    DCHECK(!background_obscuration_changed);
     return PaintInvalidationReason::kNone;
   }
 
@@ -248,9 +218,6 @@ ObjectPaintInvalidatorWithContext::ComputePaintInvalidationReason() {
       context_.old_visual_rect.IsEmpty() &&
       context_.fragment_data->VisualRect().IsEmpty())
     return PaintInvalidationReason::kNone;
-
-  if (background_obscuration_changed)
-    return PaintInvalidationReason::kBackground;
 
   if (object_.PaintedOutputOfObjectHasNoEffectRegardlessOfSize())
     return PaintInvalidationReason::kNone;
@@ -302,15 +269,6 @@ ObjectPaintInvalidatorWithContext::ComputePaintInvalidationReason() {
 DISABLE_CFI_PERF
 PaintInvalidationReason ObjectPaintInvalidatorWithContext::InvalidateSelection(
     PaintInvalidationReason reason) {
-  // In LayoutNG, if NGPaintFragment paints the selection, we invalidate for
-  // selection change in PaintInvalidator.
-  if (RuntimeEnabledFeatures::LayoutNGEnabled() && object_.IsInline() &&
-      // LayoutReplaced still paints selection tint by itself.
-      !object_.IsLayoutReplaced() &&
-      NGPaintFragment::InlineFragmentsFor(&object_)
-          .IsInLayoutNGInlineFormattingContext())
-    return reason;
-
   // Update selection rect when we are doing full invalidation with geometry
   // change (in case that the object is moved, composite status changed, etc.)
   // or shouldInvalidationSelection is set (in case that the selection itself
@@ -319,15 +277,15 @@ PaintInvalidationReason ObjectPaintInvalidatorWithContext::InvalidateSelection(
   if (!full_invalidation && !object_.ShouldInvalidateSelection())
     return reason;
 
-  LayoutRect old_selection_rect = object_.SelectionVisualRect();
-  LayoutRect new_selection_rect;
+  IntRect old_selection_rect = object_.SelectionVisualRect();
+  IntRect new_selection_rect;
 #if DCHECK_IS_ON()
   FindVisualRectNeedingUpdateScope finder(object_, context_, old_selection_rect,
                                           new_selection_rect);
 #endif
   if (context_.NeedsVisualRectUpdate(object_)) {
-    new_selection_rect = object_.LocalSelectionRect();
-    context_.MapLocalRectToVisualRect(object_, new_selection_rect);
+    new_selection_rect = context_.MapLocalRectToVisualRect(
+        object_, object_.LocalSelectionVisualRect());
   } else {
     new_selection_rect = old_selection_rect;
   }
@@ -340,8 +298,7 @@ PaintInvalidationReason ObjectPaintInvalidatorWithContext::InvalidateSelection(
   // See layout_selection.cc SetShouldInvalidateIfNeeded for more detail.
   if (object_.IsSVGText())
     return PaintInvalidationReason::kSelection;
-  const LayoutRect invalidation_rect =
-      UnionRect(new_selection_rect, old_selection_rect);
+  auto invalidation_rect = UnionRect(new_selection_rect, old_selection_rect);
   if (invalidation_rect.IsEmpty())
     return reason;
 
@@ -357,16 +314,16 @@ ObjectPaintInvalidatorWithContext::InvalidatePartialRect(
   if (IsFullPaintInvalidationReason(reason))
     return reason;
 
-  auto rect = object_.PartialInvalidationLocalRect();
-  if (rect.IsEmpty())
+  PhysicalRect local_rect = object_.PartialInvalidationLocalRect();
+  if (local_rect.IsEmpty())
     return reason;
 
-  context_.MapLocalRectToVisualRect(object_, rect);
-  if (rect.IsEmpty())
+  auto visual_rect = context_.MapLocalRectToVisualRect(object_, local_rect);
+  if (visual_rect.IsEmpty())
     return reason;
 
   object_.GetMutableForPainting().SetPartialInvalidationVisualRect(
-      UnionRect(object_.PartialInvalidationVisualRect(), rect));
+      UnionRect(object_.PartialInvalidationVisualRect(), visual_rect));
 
   return PaintInvalidationReason::kRectangle;
 }

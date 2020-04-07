@@ -41,8 +41,10 @@
 #include "qobjectpicker_p.h"
 #include <Qt3DCore/qentity.h>
 #include <Qt3DCore/private/qcomponent_p.h>
-#include <Qt3DCore/qpropertyupdatedchange.h>
+#include <Qt3DCore/private/qscene_p.h>
 #include <Qt3DRender/qpickevent.h>
+#include <Qt3DRender/QViewport>
+#include <Qt3DRender/private/qpickevent_p.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -75,7 +77,7 @@ namespace Qt3DRender {
     For generalised ray casting queries, see Qt3DRender::QRayCaster and Qt3DRender::QScreenRayCaster.
 
     \sa Qt3DRender::QPickingSettings, Qt3DRender::QGeometry, Qt3DRender::QAttribute,
-        Qt3DRender::QPickEvent, Qt3DRender::QPickTriangleEvent
+        Qt3DRender::QPickEvent, Qt3DRender::QPickTriangleEvent, Qt3DRender::QNoPicking
 
     \note Instances of this component shouldn't be shared, not respecting that
     condition will most likely result in undefined behavior.
@@ -110,7 +112,7 @@ namespace Qt3DRender {
     If drag is enabled, queries also happen on each mouse move while any button is pressed.
     If hover is enabled, queries happen on every mouse move even if no button is pressed.
 
-    \sa PickingSettings, Geometry, Attribute, PickEvent, PickTriangleEvent
+    \sa PickingSettings, Geometry, Attribute, PickEvent, PickTriangleEvent, NoPicking
 
     \note To receive hover events in QtQuick, the hoverEnabled property of Scene3D must also be set.
 
@@ -150,7 +152,7 @@ namespace Qt3DRender {
 
     This signal is emitted when the bounding volume defined by the
     pickAttribute property intersects with a ray on a mouse click. Intersection
-    information are accessible through the pick \a parameter.
+    information are accessible through the \a pick parameter.
 */
 
 /*!
@@ -290,6 +292,11 @@ void QObjectPicker::setPriority(int priority)
     }
 }
 
+// TODO Unused remove in Qt6
+void QObjectPicker::sceneChangeEvent(const Qt3DCore::QSceneChangePtr &)
+{
+}
+
 /*!
     \qmlproperty bool Qt3D.Render::ObjectPicker::dragEnabled
 */
@@ -354,37 +361,6 @@ int QObjectPicker::priority() const
 {
     Q_D(const QObjectPicker);
     return d->m_priority;
-}
-
-/*! \internal */
-void QObjectPicker::sceneChangeEvent(const Qt3DCore::QSceneChangePtr &change)
-{
-    Q_D(QObjectPicker);
-    Qt3DCore::QPropertyUpdatedChangePtr e = qSharedPointerCast<Qt3DCore::QPropertyUpdatedChange>(change);
-    if (e->type() == Qt3DCore::PropertyUpdated) {
-        // TO DO: Complete this part
-        // to emit the correct signals
-        const QByteArray propertyName = e->propertyName();
-        if (propertyName == QByteArrayLiteral("pressed")) {
-            QPickEventPtr ev = e->value().value<QPickEventPtr>();
-            d->pressedEvent(ev.data());
-        } else if (propertyName == QByteArrayLiteral("released")) {
-            QPickEventPtr ev = e->value().value<QPickEventPtr>();
-            d->releasedEvent(ev.data());
-        } else if (propertyName == QByteArrayLiteral("clicked")) {
-            QPickEventPtr ev = e->value().value<QPickEventPtr>();
-            d->clickedEvent(ev.data());
-        } else if (propertyName == QByteArrayLiteral("moved")) {
-            QPickEventPtr ev = e->value().value<QPickEventPtr>();
-            d->movedEvent(ev.data());
-        } else if (propertyName == QByteArrayLiteral("entered")) {
-            emit entered();
-            d->setContainsMouse(true);
-        } else if (propertyName == QByteArrayLiteral("exited")) {
-            d->setContainsMouse(false);
-            emit exited();
-        }
-    }
 }
 
 /*!

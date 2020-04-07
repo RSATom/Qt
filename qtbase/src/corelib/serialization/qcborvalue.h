@@ -59,7 +59,7 @@
 #  undef False
 #endif
 
-#if 0 && QT_HAS_INCLUDE(<compare>)
+#if 0 && __has_include(<compare>)
 #  include <compare>
 #endif
 
@@ -143,7 +143,10 @@ public:
     QCborValue(QCborSimpleType st) : t(type_helper(st)) {}
 
     QCborValue(const QByteArray &ba);
+#if QT_STRINGVIEW_LEVEL < 2
     QCborValue(const QString &s);
+#endif
+    QCborValue(QStringView s);
     QCborValue(QLatin1String s);
 #ifndef QT_NO_CAST_FROM_ASCII
     QT_ASCII_CAST_WARN QCborValue(const char *s) : QCborValue(QString::fromUtf8(s)) {}
@@ -258,7 +261,7 @@ public:
     QCborValueRef operator[](const QString & key);
 
     int compare(const QCborValue &other) const;
-#if 0 && QT_HAS_INCLUDE(<compare>)
+#if 0 && __has_include(<compare>)
     std::strong_ordering operator<=>(const QCborValue &other) const
     {
         int c = compare(other);
@@ -317,9 +320,9 @@ private:
         return Type(quint8(st) | SimpleType);
     }
 
-    Q_DECL_CONSTEXPR static bool isTag_helper(Type t)
+    Q_DECL_CONSTEXPR static bool isTag_helper(Type tt)
     {
-        return t == Tag || t >= 0x10000;
+        return tt == Tag || tt >= 0x10000;
     }
 };
 Q_DECLARE_SHARED(QCborValue)
@@ -408,7 +411,7 @@ public:
 
     int compare(const QCborValue &other) const
     { return concrete().compare(other); }
-#if 0 && QT_HAS_INCLUDE(<compare>)
+#if 0 && __has_include(<compare>)
     std::strong_ordering operator<=>(const QCborValue &other) const
     {
         int c = compare(other);

@@ -94,9 +94,12 @@ qint64 NullDevice::writeData(const char *data, qint64 len)
 // (otherwise we assert in QVariant::operator<< when actually saving it)
 static bool isSaveable(const QVariant &value)
 {
+    const int valType = static_cast<int>(value.type());
+    if (valType >= QMetaType::User)
+        return false;
     NullDevice nullDevice;
     QDataStream fakeStream(&nullDevice);
-    return QMetaType::save(fakeStream, static_cast<int>(value.type()), value.constData());
+    return QMetaType::save(fakeStream, valType, value.constData());
 }
 
 QQmlEngineDebugServiceImpl::QQmlEngineDebugServiceImpl(QObject *parent) :
@@ -191,21 +194,17 @@ QQmlEngineDebugServiceImpl::propertyData(QObject *obj, int propIdx)
     if (binding)
         rv.binding = binding->expression();
 
-    if (QQmlValueTypeFactory::isValueType(prop.userType())) {
-        rv.type = QQmlObjectProperty::Basic;
-    } else if (QQmlMetaType::isQObject(prop.userType()))  {
+    rv.value = valueContents(prop.read(obj));
+
+    if (QQmlMetaType::isQObject(prop.userType()))  {
         rv.type = QQmlObjectProperty::Object;
     } else if (QQmlMetaType::isList(prop.userType())) {
         rv.type = QQmlObjectProperty::List;
     } else if (prop.userType() == QMetaType::QVariant) {
         rv.type = QQmlObjectProperty::Variant;
+    } else if (rv.value.isValid()) {
+        rv.type = QQmlObjectProperty::Basic;
     }
-
-    QVariant value;
-    if (rv.type != QQmlObjectProperty::Unknown && prop.userType() != 0) {
-        value = prop.read(obj);
-    }
-    rv.value = valueContents(value);
 
     return rv;
 }
@@ -233,11 +232,9 @@ QVariant QQmlEngineDebugServiceImpl::valueContents(QVariant value) const
 
     if (value.type() == QVariant::Map) {
         QVariantMap contents;
-        QMapIterator<QString, QVariant> i(value.toMap());
-         while (i.hasNext()) {
-             i.next();
+        const auto map = value.toMap();
+        for (auto i = map.cbegin(), end = map.cend(); i != end; ++i)
              contents.insert(i.key(), valueContents(i.value()));
-         }
         return contents;
     }
 
@@ -271,10 +268,10 @@ QVariant QQmlEngineDebugServiceImpl::valueContents(QVariant value) const
                         return s;
                 }
             }
-
-            if (isSaveable(value))
-                return value;
         }
+
+        if (isSaveable(value))
+            return value;
     }
 
     if (QQmlMetaType::isQObject(userType)) {
@@ -496,7 +493,7 @@ void QQmlEngineDebugServiceImpl::processMessage(const QByteArray &message)
     QQmlDebugPacket ds(message);
 
     QByteArray type;
-    int queryId;
+    qint32 queryId;
     ds >> type >> queryId;
 
     QQmlDebugPacket rs;
@@ -509,13 +506,13 @@ void QQmlEngineDebugServiceImpl::processMessage(const QByteArray &message)
             QJSEngine *engine = m_engines.at(ii);
 
             QString engineName = engine->objectName();
-            int engineId = QQmlDebugService::idForObject(engine);
+            qint32 engineId = QQmlDebugService::idForObject(engine);
 
             rs << engineName << engineId;
         }
 
     } else if (type == "LIST_OBJECTS") {
-        int engineId = -1;
+        qint32 engineId = -1;
         ds >> engineId;
 
         QQmlEngine *engine =
@@ -538,7 +535,7 @@ void QQmlEngineDebugServiceImpl::processMessage(const QByteArray &message)
         }
 
     } else if (type == "FETCH_OBJECT") {
-        int objectId;
+        qint32 objectId;
         bool recurse;
         bool dumpProperties = true;
 
@@ -556,8 +553,8 @@ void QQmlEngineDebugServiceImpl::processMessage(const QByteArray &message)
 
     } else if (type == "FETCH_OBJECTS_FOR_LOCATION") {
         QString file;
-        int lineNumber;
-        int columnNumber;
+        qint32 lineNumber;
+        qint32 columnNumber;
         bool recurse;
         bool dumpProperties = true;
 
@@ -575,7 +572,7 @@ void QQmlEngineDebugServiceImpl::processMessage(const QByteArray &message)
         }
 
     } else if (type == "WATCH_OBJECT") {
-        int objectId;
+        qint32 objectId;
 
         ds >> objectId;
         bool ok = m_watch->addWatch(queryId, objectId);
@@ -583,7 +580,7 @@ void QQmlEngineDebugServiceImpl::processMessage(const QByteArray &message)
         rs << QByteArray("WATCH_OBJECT_R") << queryId << ok;
 
     } else if (type == "WATCH_PROPERTY") {
-        int objectId;
+        qint32 objectId;
         QByteArray property;
 
         ds >> objectId >> property;
@@ -592,7 +589,7 @@ void QQmlEngineDebugServiceImpl::processMessage(const QByteArray &message)
         rs << QByteArray("WATCH_PROPERTY_R") << queryId << ok;
 
     } else if (type == "WATCH_EXPR_OBJECT") {
-        int debugId;
+        qint32 debugId;
         QString expr;
 
         ds >> debugId >> expr;
@@ -606,11 +603,11 @@ void QQmlEngineDebugServiceImpl::processMessage(const QByteArray &message)
         rs << QByteArray("NO_WATCH_R") << queryId << ok;
 
     } else if (type == "EVAL_EXPRESSION") {
-        int objectId;
+        qint32 objectId;
         QString expr;
 
         ds >> objectId >> expr;
-        int engineId = -1;
+        qint32 engineId = -1;
         if (!ds.atEnd())
             ds >> engineId;
 
@@ -638,12 +635,12 @@ void QQmlEngineDebugServiceImpl::processMessage(const QByteArray &message)
         rs << QByteArray("EVAL_EXPRESSION_R") << queryId << result;
 
     } else if (type == "SET_BINDING") {
-        int objectId;
+        qint32 objectId;
         QString propertyName;
         QVariant expr;
         bool isLiteralValue;
         QString filename;
-        int line;
+        qint32 line;
         ds >> objectId >> propertyName >> expr >> isLiteralValue >>
               filename >> line;
         bool ok = setBinding(objectId, propertyName, expr, isLiteralValue,
@@ -652,7 +649,7 @@ void QQmlEngineDebugServiceImpl::processMessage(const QByteArray &message)
         rs << QByteArray("SET_BINDING_R") << queryId << ok;
 
     } else if (type == "RESET_BINDING") {
-        int objectId;
+        qint32 objectId;
         QString propertyName;
         ds >> objectId >> propertyName;
         bool ok = resetBinding(objectId, propertyName);
@@ -660,7 +657,7 @@ void QQmlEngineDebugServiceImpl::processMessage(const QByteArray &message)
         rs << QByteArray("RESET_BINDING_R") << queryId << ok;
 
     } else if (type == "SET_METHOD_BODY") {
-        int objectId;
+        qint32 objectId;
         QString methodName;
         QString methodBody;
         ds >> objectId >> methodName >> methodBody;
@@ -823,7 +820,8 @@ bool QQmlEngineDebugServiceImpl::setMethodBody(int objectId, const QString &meth
     return true;
 }
 
-void QQmlEngineDebugServiceImpl::propertyChanged(int id, int objectId, const QMetaProperty &property, const QVariant &value)
+void QQmlEngineDebugServiceImpl::propertyChanged(
+        qint32 id, qint32 objectId, const QMetaProperty &property, const QVariant &value)
 {
     QQmlDebugPacket rs;
     rs << QByteArray("UPDATE_WATCH") << id << objectId << QByteArray(property.name()) << valueContents(value);
@@ -854,14 +852,14 @@ void QQmlEngineDebugServiceImpl::objectCreated(QJSEngine *engine, QObject *objec
     if (!m_engines.contains(engine))
         return;
 
-    int engineId = QQmlDebugService::idForObject(engine);
-    int objectId = QQmlDebugService::idForObject(object);
-    int parentId = QQmlDebugService::idForObject(object->parent());
+    qint32 engineId = QQmlDebugService::idForObject(engine);
+    qint32 objectId = QQmlDebugService::idForObject(object);
+    qint32 parentId = QQmlDebugService::idForObject(object->parent());
 
     QQmlDebugPacket rs;
 
     //unique queryId -1
-    rs << QByteArray("OBJECT_CREATED") << -1 << engineId << objectId << parentId;
+    rs << QByteArray("OBJECT_CREATED") << qint32(-1) << engineId << objectId << parentId;
     emit messageToClient(name(), rs.data());
 }
 

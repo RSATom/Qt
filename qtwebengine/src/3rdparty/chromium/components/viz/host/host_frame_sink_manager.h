@@ -137,10 +137,7 @@ class VIZ_HOST_EXPORT HostFrameSinkManager
   // the child. If |parent_frame_sink_id| is registered then it will be added as
   // a parent of |child_frame_sink_id| and the function will return true. If
   // |parent_frame_sink_id| is not registered then the function will return
-  // false.
-  //
-  // |child_frame_sink_id| must be registered before calling. A frame sink
-  // can have multiple parents.
+  // false. A frame sink can have multiple parents.
   bool RegisterFrameSinkHierarchy(const FrameSinkId& parent_frame_sink_id,
                                   const FrameSinkId& child_frame_sink_id);
 
@@ -201,6 +198,12 @@ class VIZ_HOST_EXPORT HostFrameSinkManager
   void SetHitTestAsyncQueriedDebugRegions(
       const FrameSinkId& root_frame_sink_id,
       const std::vector<FrameSinkId>& hit_test_async_queried_debug_queue);
+
+  // Preserves the back buffer associated with the |root_sink_id|, even after
+  // the associated Display has been torn down, and returns an id for this cache
+  // entry.
+  uint32_t CacheBackBufferForRootSink(const FrameSinkId& root_sink_id);
+  void EvictCachedBackBuffer(uint32_t cache_id);
 
  private:
   friend class HostFrameSinkManagerTestApi;
@@ -297,7 +300,10 @@ class VIZ_HOST_EXPORT HostFrameSinkManager
   // class.
   base::ObserverList<HitTestRegionObserver>::Unchecked observers_;
 
-  base::WeakPtrFactory<HostFrameSinkManager> weak_ptr_factory_;
+  uint32_t next_cache_back_buffer_id_ = 1;
+  uint32_t min_valid_cache_back_buffer_id_ = 1;
+
+  base::WeakPtrFactory<HostFrameSinkManager> weak_ptr_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(HostFrameSinkManager);
 };

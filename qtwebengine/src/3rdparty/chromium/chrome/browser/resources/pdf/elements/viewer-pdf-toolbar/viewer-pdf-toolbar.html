@@ -1,5 +1,7 @@
 <link rel="import" href="chrome://resources/html/polymer.html">
-<link rel="import" href="chrome://resources/polymer/v1_0/paper-icon-button/paper-icon-button.html">
+
+<link rel="import" href="chrome://resources/cr_elements/cr_icon_button/cr_icon_button.html">
+<link rel="import" href="chrome://resources/cr_elements/hidden_style_css.html">
 <link rel="import" href="chrome://resources/polymer/v1_0/paper-progress/paper-progress.html">
 <link rel="import" href="chrome://resources/cr_elements/icons.html">
 <link rel="import" href="../icons.html">
@@ -12,7 +14,7 @@
 
 <dom-module id="viewer-pdf-toolbar">
   <template>
-    <style>
+    <style include="cr-hidden-style">
       :host ::selection {
         background: rgba(255, 255, 255, 0.3);
       }
@@ -49,12 +51,14 @@
         user-select: none;
       }
 
-      paper-icon-button {
-        margin-inline-end: 12px;
+      cr-icon-button {
+        --cr-icon-button-color: rgb(241, 241, 241);
+        margin: 6px;
       }
 
-      viewer-toolbar-dropdown {
-        margin-inline-end: 4px;
+      cr-icon-button:hover {
+        background: rgba(255, 255, 255, 0.08);
+        border-radius: 50%;
       }
 
       paper-progress {
@@ -100,25 +104,45 @@
         --dropdown-width: 346px;
       }
 
-      #eraser:not([selected]),
-      #pen:not([selected]),
-      #highlighter:not([selected]) {
-        filter: contrast(30%);
-      }
-
       #pen,
       #highlighter {
         --dropdown-open-background: rgb(50, 54, 57);
       }
 
-      #eraser[selected] {
-        background-color: rgb(50, 54, 57);
-        border-radius: 4px;
+      #eraser {
+        opacity: 0.38;
+      }
+
+      #eraser[selected],
+      #eraser:focus,
+      #eraser:hover {
+        opacity: 1;
+      }
+
+      #annotation-separator {
+        background: white;
+        height: 30px;
+        margin-inline-end: 12px;
+        margin-inline-start: 12px;
+        opacity: 0.38;
+        width: 1px;
       }
 
       :host([annotation-mode]) #annotate {
-        background-color: rgb(25, 27, 29);
-        border-radius: 4px;
+        background-color: rgba(255, 255, 255, 0.24);
+        border-radius: 50%;
+      }
+
+      #bookmarks {
+        margin-inline-start: 8px;
+      }
+
+      #pen {
+        margin-inline-end: 10px;
+      }
+
+      #highlighter {
+        margin-inline-end: 6px;
       }
 
       .invisible {
@@ -164,57 +188,46 @@
 
         <div id="buttons" class="invisible">
           <template is="dom-if" if="[[pdfAnnotationsEnabled]]">
-            <paper-icon-button id="annotate" icon="pdf:create"
-                on-click="toggleAnnotation"
+            <cr-icon-button id="annotate" iron-icon="pdf:create"
+                disabled="[[!annotationAvailable]]" on-click="toggleAnnotation"
                 aria-label$="{{strings.tooltipAnnotate}}"
-                title$="{{strings.tooltipAnnotate}}">
-            </paper-icon-button>
+                title$="{{strings.tooltipAnnotate}}"></cr-icon-button>
           </template>
 
-          <paper-icon-button id="rotate-right" icon="pdf:rotate-right"
-              on-click="rotateRight"
+          <cr-icon-button id="rotate-right" iron-icon="pdf:rotate-right"
+              disabled="[[annotationMode]]" on-click="rotateRight"
               aria-label$="{{strings.tooltipRotateCW}}"
-              title$="{{strings.tooltipRotateCW}}">
-          </paper-icon-button>
+              title$="{{strings.tooltipRotateCW}}"></cr-icon-button>
 
 <!-- to do (mibrunin): Check if we can enable these buttons for Qt WebEngine
-          <paper-icon-button id="download" icon="cr:file-download"
-              on-click="download"
-              aria-label$="{{strings.tooltipDownload}}"
-              title$="{{strings.tooltipDownload}}">
-          </paper-icon-button>
+          <cr-icon-button id="download" iron-icon="cr:file-download"
+              on-click="download" aria-label$="{{strings.tooltipDownload}}"
+              title$="{{strings.tooltipDownload}}"></cr-icon-button>
 
-          <paper-icon-button id="print" icon="cr:print"
-              on-click="print"
-              aria-label$="{{strings.tooltipPrint}}"
-              title$="{{strings.tooltipPrint}}">
-          </paper-icon-button>
+          <cr-icon-button id="print" iron-icon="cr:print" on-click="print"
+              hidden="[[!printingEnabled]]" title$="{{strings.tooltipPrint}}"
+              aria-label$="{{strings.tooltipPrint}}"></cr-icon-button>
 -->
           <viewer-toolbar-dropdown id="bookmarks"
+                                   selected
                                    metrics-id="bookmarks"
                                    hidden$="[[!bookmarks.length]]"
                                    open-icon="pdf:bookmark"
                                    closed-icon="pdf:bookmark-border"
                                    header="{{strings.bookmarks}}">
-              <viewer-bookmarks-content bookmarks="{{bookmarks}}">
-              </viewer-bookmarks-content>
+            <viewer-bookmarks-content bookmarks="{{bookmarks}}">
+            </viewer-bookmarks-content>
           </viewer-toolbar-dropdown>
         </div>
       </div>
       <div id="progress-container">
-        <paper-progress id="progress" value="[[loadProgress]]"></paper-progress>
+        <paper-progress id="progress"
+            value="[[loadProgress]]"
+            indeterminate="[[annotationMode]]"></paper-progress>
       </div>
     </div>
 
-    <div id="annotations-bar" class="invisible">
-      <paper-icon-button id="eraser"
-          selected$="[[equal_('eraser', annotationTool.tool)]]"
-          on-click="annotationToolClicked_"
-          icon="pdf:eraser"
-          aria-label$="{{strings.annotationEraser}}"
-          title$="{{strings.annotationEraser}}">
-      </paper-icon-button>
-
+    <div id="annotations-bar" hidden>
       <viewer-toolbar-dropdown id="pen"
           selected$="[[equal_('pen', annotationTool.tool)]]"
           open-after-select
@@ -252,6 +265,24 @@
           on-selected-color-changed="annotationToolOptionChanged_">
         </viewer-pen-options>
       </viewer-toolbar-dropdown>
+
+      <cr-icon-button id="eraser"
+          selected$="[[equal_('eraser', annotationTool.tool)]]"
+          on-click="annotationToolClicked_" iron-icon="pdf:eraser"
+          aria-label$="{{strings.annotationEraser}}"
+          title$="{{strings.annotationEraser}}"></cr-icon-button>
+
+      <div id="annotation-separator"></div>
+
+      <cr-icon-button id="undo" disabled="[[!canUndoAnnotation]]"
+          iron-icon="pdf:undo" on-click="undo"
+          aria-label$="{{strings.annotationUndo}}"
+          title$="{{strings.annotationUndo}}"></cr-icon-button>
+
+      <cr-icon-button id="redo" disabled="[[!canRedoAnnotation]]"
+          iron-icon="pdf:redo" on-click="redo"
+          aria-label$="{{strings.annotationRedo}}"
+          title$="{{strings.annotationRedo}}"></cr-icon-button>
     </div>
   </template>
   <script src="viewer-pdf-toolbar.js"></script>

@@ -32,7 +32,6 @@
 #include <Qt3DCore/qskeleton.h>
 #include <Qt3DCore/private/qnode_p.h>
 #include <Qt3DCore/private/qscene_p.h>
-#include <Qt3DCore/qpropertyupdatedchange.h>
 #include <Qt3DCore/private/qbackendnode_p.h>
 #include <qbackendnodetester.h>
 #include <testpostmanarbiter.h>
@@ -56,7 +55,7 @@ private Q_SLOTS:
         armature.setSkeleton(skeleton);
 
         // WHEN
-        simulateInitialization(&armature, &backendArmature);
+        simulateInitializationSync(&armature, &backendArmature);
 
         // THEN
         QCOMPARE(backendArmature.peerId(), armature.id());
@@ -80,7 +79,7 @@ private Q_SLOTS:
         armature.setSkeleton(skeleton);
 
         // WHEN
-        simulateInitialization(&armature, &backendArmature);
+        simulateInitializationSync(&armature, &backendArmature);
         backendArmature.cleanup();
 
         // THEN
@@ -91,24 +90,21 @@ private Q_SLOTS:
     void checkPropertyChanges()
     {
         // GIVEN
+        QArmature armature;
         Armature backendArmature;
-        Qt3DCore::QPropertyUpdatedChangePtr updateChange;
+        simulateInitializationSync(&armature, &backendArmature);
 
         // WHEN
-        updateChange.reset(new Qt3DCore::QPropertyUpdatedChange(Qt3DCore::QNodeId()));
-        updateChange->setPropertyName("enabled");
-        updateChange->setValue(true);
-        backendArmature.sceneChangeEvent(updateChange);
+        armature.setEnabled(false);
+        backendArmature.syncFromFrontEnd(&armature, false);
 
         // THEN
-        QCOMPARE(backendArmature.isEnabled(), true);
+        QCOMPARE(backendArmature.isEnabled(), false);
 
         // WHEN
         auto newSkeleton = new QSkeleton();
-        updateChange.reset(new Qt3DCore::QPropertyUpdatedChange(Qt3DCore::QNodeId()));
-        updateChange->setPropertyName("skeleton");
-        updateChange->setValue(QVariant::fromValue(newSkeleton->id()));
-        backendArmature.sceneChangeEvent(updateChange);
+        armature.setSkeleton(newSkeleton);
+        backendArmature.syncFromFrontEnd(&armature, false);
 
         // THEN
         QCOMPARE(backendArmature.skeletonId(), newSkeleton->id());

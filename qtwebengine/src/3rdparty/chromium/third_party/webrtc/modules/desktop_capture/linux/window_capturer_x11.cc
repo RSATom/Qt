@@ -14,10 +14,12 @@
 #include <X11/extensions/Xcomposite.h>
 #include <X11/extensions/composite.h>
 #include <string.h>
+
 #include <memory>
 #include <string>
 #include <utility>
 
+#include "api/scoped_refptr.h"
 #include "modules/desktop_capture/desktop_capture_types.h"
 #include "modules/desktop_capture/desktop_frame.h"
 #include "modules/desktop_capture/desktop_region.h"
@@ -26,7 +28,6 @@
 #include "modules/desktop_capture/linux/window_list_utils.h"
 #include "rtc_base/checks.h"
 #include "rtc_base/logging.h"
-#include "rtc_base/scoped_ref_ptr.h"
 #include "rtc_base/trace_event.h"
 
 namespace webrtc {
@@ -64,7 +65,7 @@ bool WindowCapturerX11::GetSourceList(SourceList* sources) {
 }
 
 bool WindowCapturerX11::SelectSource(SourceId id) {
-  if (!x_server_pixel_buffer_.Init(display(), id))
+  if (!x_server_pixel_buffer_.Init(&atom_cache_, id))
     return false;
 
   // Tell the X server to send us window resizing events.
@@ -194,7 +195,7 @@ bool WindowCapturerX11::HandleXEvent(const XEvent& event) {
     if (xce.window == selected_window_) {
       if (!DesktopRectFromXAttributes(xce).equals(
               x_server_pixel_buffer_.window_rect())) {
-        if (!x_server_pixel_buffer_.Init(display(), selected_window_)) {
+        if (!x_server_pixel_buffer_.Init(&atom_cache_, selected_window_)) {
           RTC_LOG(LS_ERROR)
               << "Failed to initialize pixel buffer after resizing.";
         }

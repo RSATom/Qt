@@ -9,10 +9,12 @@ include_rules = [
   "+components/viz/service/display/output_surface_frame.h",
   "+components/viz/service/display/output_surface.h",
   "+components/viz/service/display/overlay_candidate_validator.h",
+  "+components/viz/service/display/renderer_utils.h",
   "+components/viz/service/display/resource_metadata.h",
   "+components/viz/service/display/shared_bitmap_manager.h",
   "+components/viz/service/display/skia_output_surface.h",
   "+components/viz/service/display/software_output_device.h",
+  "+components/viz/common",
   "+gpu/config/gpu_feature_info.h",
   "+components/viz/service/gl/gpu_service_impl.h",
   "+gpu/GLES2",
@@ -36,22 +38,19 @@ include_rules = [
   "+ui/ozone/public",
 
   # TODO(danakj): Double check the layering for these dependencies.
+  "+components/viz/service/display/gl_renderer_copier.h",
   "+components/viz/service/display/overlay_processor.h",
   "+components/viz/service/display/overlay_strategy_fullscreen.h",
   "+components/viz/service/display/overlay_strategy_single_on_top.h",
   "+components/viz/service/display/overlay_strategy_underlay_cast.h",
   "+components/viz/service/display/overlay_strategy_underlay.h",
+  "+components/viz/service/display/texture_deleter.h",
 ]
 
 specific_include_rules = {
   ".*_unittest\.cc": [
     "+cc/test",
     "+third_party/khronos/GLES2",
-  ],
-  # TODO(kylechar): Break these dependencies.
-  "gpu_display_provider.cc": [
-    "+components/viz/service/display/display.h",
-    "+components/viz/service/display/display_scheduler.h",
   ],
   "software_output_device_ozone_unittest.cc": [
     "+ui/compositor",

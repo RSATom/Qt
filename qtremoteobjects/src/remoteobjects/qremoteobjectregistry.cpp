@@ -204,23 +204,23 @@ void QRemoteObjectRegistry::pushToRegistryIfNeeded()
     if (state() != QRemoteObjectReplica::State::Valid)
         return;
 
-    const QSet<QString> myLocs = QSet<QString>::fromList(d->hostedSources.keys());
-    if (myLocs.empty())
+    if (d->hostedSources.isEmpty())
         return;
 
-    const QSet<QString> registryLocs = QSet<QString>::fromList(sourceLocations().keys());
-    foreach (const QString &loc, myLocs & registryLocs) {
-        qCWarning(QT_REMOTEOBJECT) << "Node warning: Ignoring Source" << loc << "as another source ("
-                                   << sourceLocations().value(loc) << ") has already registered that name.";
-        d->hostedSources.remove(loc);
-        return;
-    }
-    //Sources that need to be pushed to the registry...
-    foreach (const QString &loc, myLocs - registryLocs) {
-        static int index = QRemoteObjectRegistry::staticMetaObject.indexOfMethod("addSource(QRemoteObjectSourceLocation)");
-        QVariantList args;
-        args << QVariant::fromValue(QRemoteObjectSourceLocation(loc, d->hostedSources[loc]));
-        send(QMetaObject::InvokeMetaMethod, index, args);
+    const auto &sourceLocs = sourceLocations();
+    for (auto it = d->hostedSources.begin(); it != d->hostedSources.end(); ) {
+        const QString &loc = it.key();
+        const auto sourceLocsIt = sourceLocs.constFind(loc);
+        if (sourceLocsIt != sourceLocs.cend()) {
+            qCWarning(QT_REMOTEOBJECT) << "Node warning: Ignoring Source" << loc << "as another source ("
+                                       << sourceLocsIt.value() << ") has already registered that name.";
+            it = d->hostedSources.erase(it);
+        } else {
+            static const int index = QRemoteObjectRegistry::staticMetaObject.indexOfMethod("addSource(QRemoteObjectSourceLocation)");
+            QVariantList args{QVariant::fromValue(QRemoteObjectSourceLocation(loc, it.value()))};
+            send(QMetaObject::InvokeMetaMethod, index, args);
+            ++it;
+        }
     }
 }
 

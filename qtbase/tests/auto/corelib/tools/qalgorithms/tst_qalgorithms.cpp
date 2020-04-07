@@ -48,6 +48,11 @@ class tst_QAlgorithms : public QObject
 {
     Q_OBJECT
 private slots:
+    void swap();
+    void swap2();
+    void convenienceAPI();
+
+#if QT_DEPRECATED_SINCE(5, 2)
     void test_qLowerBound_data();
     void test_qLowerBound();
     void test_qUpperBound_data();
@@ -55,18 +60,22 @@ private slots:
     void test_qBinaryFind_data();
     void test_qBinaryFind();
     void qBinaryFindOneEntry();
-    void swap();
-    void swap2();
     void sortEmptyList();
     void sortedList();
     void sortAPItest();
     void stableSortTest();
     void stableSortCorrectnessTest_data();
     void stableSortCorrectnessTest();
-    void convenienceAPI();
+    void convenienceAPI_deprecated();
     void qCountIterators() const;
     void qCountContainer() const;
     void binaryFindOnLargeContainer() const;
+
+#if Q_TEST_PERFORMANCE
+    void performance();
+#endif
+
+#endif // QT_DEPRECATED_SINCE(5, 2)
 
     void popCount08_data() { popCount_data_impl(sizeof(quint8 )); }
     void popCount16_data() { popCount_data_impl(sizeof(quint16)); }
@@ -96,9 +105,6 @@ private slots:
     void countLeading64()      { countLeading_impl<quint64>(); }
 
 private:
-#if Q_TEST_PERFORMANCE
-    void performance();
-#endif
     void popCount_data_impl(size_t sizeof_T_Int);
     template <typename T_Int>
     void popCount_impl();
@@ -111,6 +117,8 @@ private:
     template <typename T_Int>
     void countLeading_impl();
 };
+
+#if QT_DEPRECATED_SINCE(5, 2)
 
 class TestInt
 {
@@ -172,7 +180,7 @@ ResultSet testRun(ContainerType &container, Algorithm &algorithm, int millisecs)
 {
     TestInt::lessThanRefCount = 0;
     int count = 0;
-    QTime t;
+    QElapsedTimer t;
     t.start();
     while(t.elapsed() < millisecs) {
         ++count;
@@ -208,7 +216,7 @@ void printHeader(QStringList &headers)
     for (int h = 0; h < headers.count(); ++h) {
         cout << setw(20) << setiosflags(ios_base::left) << headers.at(h).toLatin1().constData();
     }
-    cout << endl;
+    cout << Qt::endl;
 }
 
 template <typename ContainerType>
@@ -220,7 +228,7 @@ void print(ContainerType testContainer)
         cout << value << " ";
     }
 
-    cout << endl;
+    cout << Qt::endl;
 }
 
 template <typename Algorithm, typename DataType>
@@ -252,10 +260,12 @@ void testAlgorithm(Algorithm algorithm, QStringList &dataSetTypes)
             lessThan << setiosflags(ios_base::left) << setw(10) << result.lessThanRefCount / result.numSorts;
             cout << numSorts.str() << lessThan.str();
         }
-        cout << endl;
+        cout << Qt::endl;
     }
 }
 #endif
+
+#endif // QT_DEPRECATED_SINCE(5, 2)
 
 void tst_QAlgorithms::swap()
 {
@@ -390,6 +400,17 @@ void tst_QAlgorithms::swap2()
 #endif
     }
 }
+
+void tst_QAlgorithms::convenienceAPI()
+{
+    // Compile-test for QAlgorithm convenience functions.
+
+    QList<int *> pointerList;
+    qDeleteAll(pointerList);
+    qDeleteAll(pointerList.begin(), pointerList.end());
+}
+
+#if QT_DEPRECATED_SINCE(5, 2)
 
 void tst_QAlgorithms::sortEmptyList()
 {
@@ -676,7 +697,7 @@ void tst_QAlgorithms::stableSortCorrectnessTest()
     QVERIFY(isSorted(sorted));
 }
 
-void tst_QAlgorithms::convenienceAPI()
+void tst_QAlgorithms::convenienceAPI_deprecated()
 {
     // Compile-test for QAlgorithm convenience functions.
     QList<int> list, list2;
@@ -716,10 +737,6 @@ void tst_QAlgorithms::convenienceAPI()
     qBinaryFind(list, 1);
     qBinaryFind(list.begin(), list.end(),  1);
     qBinaryFind(list.begin(), list.end(), 1, qLess<int>());
-
-    QList<int *> pointerList;
-    qDeleteAll(pointerList);
-    qDeleteAll(pointerList.begin(), pointerList.end());
 }
 
 template <typename DataType>
@@ -765,21 +782,21 @@ public:
 #if Q_TEST_PERFORMANCE
 void tst_QAlgorithms::performance()
 {
-    cout << endl << "Quick sort" << endl;
+    cout << Qt::endl << "Quick sort" << Qt::endl;
     testAlgorithm<QuickSortHelper<TestInt>, TestInt>(QuickSortHelper<TestInt>(), dataSetTypes);
-    cout << endl << "stable sort" << endl;
+    cout << Qt::endl << "stable sort" << Qt::endl;
     testAlgorithm<StableSortHelper<TestInt>, TestInt>(StableSortHelper<TestInt>(), dataSetTypes);
-    cout << endl << "std::sort" << endl;
+    cout << Qt::endl << "std::sort" << Qt::endl;
     testAlgorithm<StlSortHelper<TestInt>, TestInt>(StlSortHelper<TestInt>(), dataSetTypes);
-    cout << endl << "std::stable_sort" << endl;
+    cout << Qt::endl << "std::stable_sort" << Qt::endl;
     testAlgorithm<StlStableSortHelper<TestInt>, TestInt>(StlStableSortHelper<TestInt>(), dataSetTypes);
 /*
-    cout << endl << "Sorting lists of ints" << endl;
-    cout << endl << "Quick sort" << endl;
+    cout << Qt::endl << "Sorting lists of ints" << Qt::endl;
+    cout << Qt::endl << "Quick sort" << Qt::endl;
     testAlgorithm<QuickSortHelper<int>, int>(QuickSortHelper<int>(), dataSetTypes);
-    cout << endl << "std::sort" << endl;
+    cout << Qt::endl << "std::sort" << Qt::endl;
     testAlgorithm<StlSortHelper<int>, int>(StlSortHelper<int>(), dataSetTypes);
-    cout << endl << "std::stable_sort" << endl;
+    cout << Qt::endl << "std::stable_sort" << Qt::endl;
     testAlgorithm<StlStableSortHelper<int>, int>(StlStableSortHelper<int>(), dataSetTypes);
 */
 }
@@ -1040,6 +1057,8 @@ void tst_QAlgorithms::binaryFindOnLargeContainer() const
   RAI foundIt = qBinaryFind(rai.begin(), rai.end(), 5);
   QCOMPARE(foundIt.pos(), 1073987655);
 }
+
+#endif // QT_DEPRECATED_SINCE(5, 2)
 
 // alternative implementation of qPopulationCount for comparison:
 static Q_DECL_CONSTEXPR const uint bitsSetInNibble[] = {

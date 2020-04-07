@@ -8,6 +8,7 @@
 #include <utility>
 #include <vector>
 
+#include "base/bind.h"
 #include "base/macros.h"
 #include "base/trace_event/heap_profiler.h"
 #include "base/trace_event/trace_event_impl.h"
@@ -302,7 +303,7 @@ void TraceBufferChunk::EstimateTraceMemoryOverhead(
 
 TraceResultBuffer::OutputCallback
 TraceResultBuffer::SimpleOutput::GetCallback() {
-  return Bind(&SimpleOutput::Append, Unretained(this));
+  return BindRepeating(&SimpleOutput::Append, Unretained(this));
 }
 
 void TraceResultBuffer::SimpleOutput::Append(
@@ -314,9 +315,8 @@ TraceResultBuffer::TraceResultBuffer() : append_comma_(false) {}
 
 TraceResultBuffer::~TraceResultBuffer() = default;
 
-void TraceResultBuffer::SetOutputCallback(
-    const OutputCallback& json_chunk_callback) {
-  output_callback_ = json_chunk_callback;
+void TraceResultBuffer::SetOutputCallback(OutputCallback json_chunk_callback) {
+  output_callback_ = std::move(json_chunk_callback);
 }
 
 void TraceResultBuffer::Start() {

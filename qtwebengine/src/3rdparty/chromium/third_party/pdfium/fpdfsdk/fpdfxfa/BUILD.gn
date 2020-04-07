@@ -4,6 +4,7 @@
 
 import("//build/config/jumbo.gni")
 import("../../pdfium.gni")
+import("../../testing/test.gni")
 
 assert(pdf_enable_xfa)
 
@@ -22,6 +23,7 @@ jumbo_source_set("fpdfxfa") {
     "../../:pdfium_public_headers",
     "../../core/fpdfapi/page",
     "../../core/fpdfapi/parser",
+    "../../core/fpdfapi/render",
     "../../core/fxcrt",
     "../../fxjs",
     "../../xfa/fgas",
@@ -29,7 +31,17 @@ jumbo_source_set("fpdfxfa") {
     "../../xfa/fxfa",
     "../../xfa/fxfa/parser",
   ]
-  allow_circular_includes_from = [ "../../fxjs" ]
   configs += [ "../../:pdfium_core_config" ]
   visibility = [ "../../*" ]
+}
+
+pdfium_embeddertest_source_set("embeddertests") {
+  sources = [
+    "cpdfxfa_docenvironment_embeddertest.cpp",
+  ]
+  configs = [ "//v8:external_startup_data" ]
+  deps = [
+    "../../fxjs",
+  ]
+  pdfium_root_dir = "../../"
 }

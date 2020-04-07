@@ -8,8 +8,8 @@
 #include "third_party/blink/renderer/core/script/module_script.h"
 #include "third_party/blink/renderer/core/workers/worker_reporting_proxy.h"
 #include "third_party/blink/renderer/core/workers/worklet_global_scope.h"
-#include "third_party/blink/renderer/platform/cross_thread_functional.h"
 #include "third_party/blink/renderer/platform/scheduler/public/post_cross_thread_task.h"
+#include "third_party/blink/renderer/platform/wtf/cross_thread_functional.h"
 
 namespace blink {
 
@@ -26,14 +26,17 @@ WorkletModuleTreeClient::WorkletModuleTreeClient(
 // https://drafts.css-houdini.org/worklets/#fetch-and-invoke-a-worklet-script
 void WorkletModuleTreeClient::NotifyModuleTreeLoadFinished(
     ModuleScript* module_script) {
+  // TODO(nhiroki): Call reporting proxy functions appropriately (e.g.,
+  // DidFailToFetchModuleScript(), WillEvaluateModuleScript()).
+
   if (!module_script) {
     // Step 3: "If script is null, then queue a task on outsideSettings's
     // responsible event loop to run these steps:"
     // The steps are implemented in WorkletPendingTasks::Abort().
     PostCrossThreadTask(
         *outside_settings_task_runner_, FROM_HERE,
-        CrossThreadBind(&WorkletPendingTasks::Abort,
-                        WrapCrossThreadPersistent(pending_tasks_.Get())));
+        CrossThreadBindOnce(&WorkletPendingTasks::Abort,
+                            WrapCrossThreadPersistent(pending_tasks_.Get())));
     return;
   }
 
@@ -50,8 +53,8 @@ void WorkletModuleTreeClient::NotifyModuleTreeLoadFinished(
   if (module_script->HasErrorToRethrow()) {
     PostCrossThreadTask(
         *outside_settings_task_runner_, FROM_HERE,
-        CrossThreadBind(&WorkletPendingTasks::Abort,
-                        WrapCrossThreadPersistent(pending_tasks_.Get())));
+        CrossThreadBindOnce(&WorkletPendingTasks::Abort,
+                            WrapCrossThreadPersistent(pending_tasks_.Get())));
     return;
   }
 
@@ -69,9 +72,9 @@ void WorkletModuleTreeClient::NotifyModuleTreeLoadFinished(
   // The steps are implemented in WorkletPendingTasks::DecrementCounter().
   PostCrossThreadTask(
       *outside_settings_task_runner_, FROM_HERE,
-      CrossThreadBind(&WorkletPendingTasks::DecrementCounter,
-                      WrapCrossThreadPersistent(pending_tasks_.Get())));
-};
+      CrossThreadBindOnce(&WorkletPendingTasks::DecrementCounter,
+                          WrapCrossThreadPersistent(pending_tasks_.Get())));
+}
 
 void WorkletModuleTreeClient::Trace(blink::Visitor* visitor) {
   visitor->Trace(modulator_);

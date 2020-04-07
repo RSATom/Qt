@@ -27,14 +27,14 @@ namespace {
 constexpr float kInkDropVisibleOpacity = 0.06f;
 
 // The duration of the crossfade animation when swapping the button's images.
-const int kSwapImagesAnimationDurationMs = 200;
+constexpr int kSwapImagesAnimationDurationMs = 200;
 
 // The duration of the fade out animation of the old icon during a crossfade
 // animation as a ratio of |kSwapImagesAnimationDurationMs|.
-const float kFadeOutRatio = 0.5f;
+constexpr float kFadeOutRatio = 0.5f;
 
 // The ratio applied to the button's alpha when the button is disabled.
-const float kDisabledButtonAlphaRatio = 0.5f;
+constexpr float kDisabledButtonAlphaRatio = 0.5f;
 
 }  // namespace
 
@@ -75,16 +75,17 @@ SkColor FrameCaptionButton::GetButtonColor(SkColor background_color) {
   // colors) can change between light/dark targets at the same time.  It looks
   // bad when the title and caption buttons disagree about whether to be light
   // or dark.
-  const SkColor source = color_utils::IsDark(background_color)
-                             ? gfx::kGoogleGrey200
-                             : gfx::kGoogleGrey700;
-  const SkColor target = color_utils::GetColorWithMaxContrast(background_color);
+  const SkColor default_foreground = color_utils::IsDark(background_color)
+                                         ? gfx::kGoogleGrey200
+                                         : gfx::kGoogleGrey700;
+  const SkColor high_contrast_foreground =
+      color_utils::GetColorWithMaxContrast(background_color);
   // Guarantee the caption buttons reach at least contrast ratio 3; this ratio
   // matches that used for focus indicators, large text, and other "have to see
   // it but perhaps don't have to read fine detail" cases.
-  const SkAlpha alpha = color_utils::GetBlendValueWithMinimumContrast(
-      source, target, background_color, 3.0f);
-  return color_utils::AlphaBlend(target, source, alpha);
+  return color_utils::BlendForMinContrast(default_foreground, background_color,
+                                          high_contrast_foreground, 3.0f)
+      .color;
 }
 
 // static
@@ -253,7 +254,7 @@ void FrameCaptionButton::PaintButtonContents(gfx::Canvas* canvas) {
 }
 
 int FrameCaptionButton::GetAlphaForIcon(int base_alpha) const {
-  if (!enabled())
+  if (!GetEnabled())
     return base_alpha * kDisabledButtonAlphaRatio;
 
   if (paint_as_active_)

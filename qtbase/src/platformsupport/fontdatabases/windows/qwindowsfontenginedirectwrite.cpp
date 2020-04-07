@@ -47,6 +47,7 @@
 #include <QtCore/QFile>
 #include <private/qstringiterator_p.h>
 #include <QtCore/private/qsystemlibrary_p.h>
+#include <QtCore/private/qwinregistry_p.h>
 #include <QtGui/private/qguiapplication_p.h>
 #include <qpa/qplatformintegration.h>
 #include <QtGui/private/qhighdpiscaling_p.h>
@@ -60,6 +61,9 @@
 #include <d2d1.h>
 
 QT_BEGIN_NAMESPACE
+
+// Clang does not consider __declspec(nothrow) as nothrow
+QT_WARNING_DISABLE_CLANG("-Wmicrosoft-exception-spec")
 
 // Convert from design units to logical pixels
 #define DESIGN_TO_LOGICAL(DESIGN_UNIT_VALUE) \
@@ -945,10 +949,10 @@ void QWindowsFontEngineDirectWrite::initFontInfo(const QFontDef &request,
 
 QString QWindowsFontEngineDirectWrite::fontNameSubstitute(const QString &familyName)
 {
-    const wchar_t key[] = L"Software\\Microsoft\\Windows NT\\CurrentVersion\\FontSubstitutes";
     const QString substitute =
-        QWindowsFontDatabase::readRegistryString(HKEY_LOCAL_MACHINE, key,
-                                                 reinterpret_cast<const wchar_t *>(familyName.utf16()));
+        QWinRegistryKey(HKEY_LOCAL_MACHINE,
+                        LR"(Software\Microsoft\Windows NT\CurrentVersion\FontSubstitutes)")
+        .stringValue(familyName);
     return substitute.isEmpty() ? familyName : substitute;
 }
 

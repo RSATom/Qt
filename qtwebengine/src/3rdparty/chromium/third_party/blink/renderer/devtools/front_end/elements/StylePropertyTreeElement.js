@@ -32,9 +32,11 @@ Elements.StylePropertyTreeElement = class extends UI.TreeElement {
     this.nameElement = null;
     this._expandElement = null;
     this._originalPropertyText = '';
+    this._hasBeenEditedIncrementally = false;
     this._prompt = null;
-    this._propertyHasBeenEditedIncrementally = false;
     this._lastComputedValue = null;
+    /** @type {(!Elements.StylePropertyTreeElement.Context|undefined)} */
+    this._contextForTest;
   }
 
   /**
@@ -230,6 +232,26 @@ Elements.StylePropertyTreeElement = class extends UI.TreeElement {
     return container;
   }
 
+  /**
+   * @param {string} propertyValue
+   * @param {string} propertyName
+   * @return {!Node}
+   */
+  _processGrid(propertyValue, propertyName) {
+    const splitResult = TextUtils.TextUtils.splitStringByRegexes(propertyValue, [SDK.CSSMetadata.GridAreaRowRegex]);
+    if (splitResult.length <= 1)
+      return createTextNode(propertyValue);
+
+    const indent = Common.moduleSetting('textEditorIndent').get();
+    const container = createDocumentFragment();
+    for (const result of splitResult) {
+      const value = result.value.trim();
+      const content = UI.html`<br /><span class='styles-clipboard-only'>${indent.repeat(2)}</span>${value}`;
+      container.appendChild(content);
+    }
+    return container;
+  }
+
   _updateState() {
     if (!this.listItemElement)
       return;
@@ -319,8 +341,9 @@ Elements.StylePropertyTreeElement = class extends UI.TreeElement {
 
   /**
    * @override
+   * @returns {!Promise}
    */
-  onpopulate() {
+  async onpopulate() {
     // Only populate once and if this property is a shorthand.
     if (this.childCount() || !this.isShorthand)
       return;
@@ -411,6 +434,7 @@ Elements.StylePropertyTreeElement = class extends UI.TreeElement {
       propertyRenderer.setColorHandler(this._processColor.bind(this));
       propertyRenderer.setBezierHandler(this._processBezier.bind(this));
       propertyRenderer.setShadowHandler(this._processShadow.bind(this));
+      propertyRenderer.setGridHandler(this._processGrid.bind(this));
     }
 
     this.listItemElement.removeChildren();
@@ -425,7 +449,9 @@ Elements.StylePropertyTreeElement = class extends UI.TreeElement {
     this.listItemElement.createChild('span', 'styles-clipboard-only')
         .createTextChild(indent + (this.property.disabled ? '/* ' : ''));
     this.listItemElement.appendChild(this.nameElement);
-    this.listItemElement.createTextChild(': ');
+    const lineBreakValue = this.valueElement.firstElementChild && this.valueElement.firstElementChild.tagName === 'BR';
+    const separator = lineBreakValue ? ':' : ': ';
+    this.listItemElement.createChild('span', 'styles-name-value-separator').textContent = separator;
     if (this._expandElement)
       this.listItemElement.appendChild(this._expandElement);
     this.listItemElement.appendChild(this.valueElement);
@@ -521,8 +547,19 @@ Elements.StylePropertyTreeElement = class extends UI.TreeElement {
       return;
 
     const isEditingName = selectElement === this.nameElement;
-    if (!isEditingName)
+    if (!isEditingName) {
+      if (SDK.cssMetadata().isGridAreaDefiningProperty(this.name))
+        this.valueElement.textContent = restoreGridIndents(this.value);
       this.valueElement.textContent = restoreURLs(this.valueElement.textContent, this.value);
+    }
+
+    /**
+     * @param {string} value
+     */
+    function restoreGridIndents(value) {
+      const splitResult = TextUtils.TextUtils.splitStringByRegexes(value, [SDK.CSSMetadata.GridAreaRowRegex]);
+      return splitResult.map(result => result.value.trim()).join('\n');
+    }
 
     /**
      * @param {string} fieldValue
@@ -548,8 +585,10 @@ Elements.StylePropertyTreeElement = class extends UI.TreeElement {
       expanded: this.expanded,
       hasChildren: this.isExpandable(),
       isEditingName: isEditingName,
+      originalProperty: this.property,
       previousContent: selectElement.textContent
     };
+    this._contextForTest = context;
 
     // Lie about our children to prevent expanding on double click and to collapse shorthands.
     this.setExpandable(false);
@@ -609,12 +648,9 @@ Elements.StylePropertyTreeElement = class extends UI.TreeElement {
 
     this._prompt = new Elements.StylesSidebarPane.CSSPropertyPrompt(this, isEditingName);
     this._prompt.setAutocompletionTimeout(0);
-    if (section)
-      section.startEditing();
 
-    // Do not live-edit "content" property of pseudo elements. crbug.com/433889
-    if (!isEditingName && (!this._parentPane.node().pseudoType() || this.name !== 'content'))
-      this._prompt.addEventListener(UI.TextPrompt.Events.TextChanged, this._applyFreeFlowStyleTextEdit.bind(this));
+    this._prompt.addEventListener(
+        UI.TextPrompt.Events.TextChanged, this._applyFreeFlowStyleTextEdit.bind(this, context));
 
     const proxyElement = this._prompt.attachAndStartEditing(selectElement, blurListener.bind(this, context));
     this._navigateToSource(selectElement, true);
@@ -637,7 +673,7 @@ Elements.StylePropertyTreeElement = class extends UI.TreeElement {
 
     let result;
 
-    if (isEnterKey(event)) {
+    if (isEnterKey(event) && !event.shiftKey) {
       result = 'forward';
     } else if (event.keyCode === UI.KeyboardShortcut.Keys.Esc.code || event.key === 'Escape') {
       result = 'cancel';
@@ -709,19 +745,48 @@ Elements.StylePropertyTreeElement = class extends UI.TreeElement {
   }
 
   /**
+   * @param {!Elements.StylePropertyTreeElement.Context} context
    * @return {!Promise}
    */
-  async _applyFreeFlowStyleTextEdit() {
+  async _applyFreeFlowStyleTextEdit(context) {
+    if (!this._prompt || !this._parentPane.node())
+      return;
+
+    const enteredText = this._prompt.text();
+    if (context.isEditingName && enteredText.includes(':')) {
+      this._editingCommitted(enteredText, context, 'forward');
+      return;
+    }
+
     const valueText = this._prompt.textWithCurrentSuggestion();
-    if (valueText.indexOf(';') === -1)
-      await this.applyStyleText(this.nameElement.textContent + ': ' + valueText, false);
+    if (valueText.includes(';'))
+      return;
+    // Prevent destructive side-effects during live-edit. crbug.com/433889
+    const isPseudo = !!this._parentPane.node().pseudoType();
+    if (isPseudo) {
+      if (this.name.toLowerCase() === 'content')
+        return;
+      const lowerValueText = valueText.trim().toLowerCase();
+      if (lowerValueText.startsWith('content:') || lowerValueText === 'display: none')
+        return;
+    }
+
+    if (context.isEditingName) {
+      if (valueText.includes(':'))
+        await this.applyStyleText(valueText, false);
+      else if (this._hasBeenEditedIncrementally)
+        await this._applyOriginalStyle(context);
+    } else {
+      await this.applyStyleText(`${this.nameElement.textContent}: ${valueText}`, false);
+    }
   }
 
   /**
    * @return {!Promise}
    */
   kickFreeFlowStyleEditForTest() {
-    return this._applyFreeFlowStyleTextEdit();
+    const context = this._contextForTest;
+    return this._applyFreeFlowStyleTextEdit(/** @type {!Elements.StylePropertyTreeElement.Context} */ (context));
   }
 
   /**
@@ -745,20 +810,22 @@ Elements.StylePropertyTreeElement = class extends UI.TreeElement {
    */
   editingCancelled(element, context) {
     this._removePrompt();
-    this._revertStyleUponEditingCanceled();
+
+    if (this._hasBeenEditedIncrementally)
+      this._applyOriginalStyle(context);
+    else if (this._newProperty)
+      this.treeOutline.removeChild(this);
+    this.updateTitle();
+
     // This should happen last, as it clears the info necessary to restore the property value after [Page]Up/Down changes.
     this.editingEnded(context);
   }
 
-  _revertStyleUponEditingCanceled() {
-    if (this._propertyHasBeenEditedIncrementally) {
-      this.applyStyleText(this._originalPropertyText, false);
-      this._originalPropertyText = '';
-    } else if (this._newProperty) {
-      this.treeOutline.removeChild(this);
-    } else {
-      this.updateTitle();
-    }
+  /**
+   * @param {!Elements.StylePropertyTreeElement.Context} context
+   */
+  async _applyOriginalStyle(context) {
+    await this.applyStyleText(this._originalPropertyText, false, context.originalProperty);
   }
 
   /**
@@ -780,10 +847,10 @@ Elements.StylePropertyTreeElement = class extends UI.TreeElement {
    * @param {string} moveDirection
    */
   async _editingCommitted(userInput, context, moveDirection) {
-    const hadFocus = this._parentPane.element.hasFocus();
     this._removePrompt();
     this.editingEnded(context);
     const isEditingName = context.isEditingName;
+    const nameValueEntered = isEditingName && this.nameElement.textContent.includes(':');
 
     // Determine where to move to before making changes
     let createNewProperty, moveToSelector;
@@ -811,13 +878,14 @@ Elements.StylePropertyTreeElement = class extends UI.TreeElement {
     let moveToIndex = moveTo && this.treeOutline ? this.treeOutline.rootElement().indexOfChild(moveTo) : -1;
     const blankInput = userInput.isWhitespace();
     const shouldCommitNewProperty = this._newProperty &&
-        (isPropertySplitPaste || moveToOther || (!moveDirection && !isEditingName) || (isEditingName && blankInput));
+        (isPropertySplitPaste || moveToOther || (!moveDirection && !isEditingName) || (isEditingName && blankInput) ||
+         nameValueEntered);
     const section = /** @type {!Elements.StylePropertiesSection} */ (this.section());
     if (((userInput !== context.previousContent || isDirtyViaPaste) && !this._newProperty) || shouldCommitNewProperty) {
-      if (hadFocus)
-        this._parentPane.element.focus();
       let propertyText;
-      if (blankInput || (this._newProperty && this.valueElement.textContent.isWhitespace())) {
+      if (nameValueEntered) {
+        propertyText = this.nameElement.textContent;
+      } else if (blankInput || (this._newProperty && this.valueElement.textContent.isWhitespace())) {
         propertyText = '';
       } else {
         if (isEditingName)
@@ -913,9 +981,6 @@ Elements.StylePropertyTreeElement = class extends UI.TreeElement {
       this._prompt.detach();
       this._prompt = null;
     }
-    const section = this.section();
-    if (section)
-      section.stopEditing();
   }
 
   styleTextAppliedForTest() {
@@ -924,18 +989,20 @@ Elements.StylePropertyTreeElement = class extends UI.TreeElement {
   /**
    * @param {string} styleText
    * @param {boolean} majorChange
+   * @param {?SDK.CSSProperty=} property
    * @return {!Promise}
    */
-  applyStyleText(styleText, majorChange) {
-    return this._applyStyleThrottler.schedule(this._innerApplyStyleText.bind(this, styleText, majorChange));
+  applyStyleText(styleText, majorChange, property) {
+    return this._applyStyleThrottler.schedule(this._innerApplyStyleText.bind(this, styleText, majorChange, property));
   }
 
   /**
    * @param {string} styleText
    * @param {boolean} majorChange
+   * @param {?SDK.CSSProperty=} property
    * @return {!Promise}
    */
-  async _innerApplyStyleText(styleText, majorChange) {
+  async _innerApplyStyleText(styleText, majorChange, property) {
     if (!this.treeOutline)
       return;
 
@@ -943,8 +1010,9 @@ Elements.StylePropertyTreeElement = class extends UI.TreeElement {
     if (!oldStyleRange)
       return;
 
-    styleText = styleText.replace(/\s/g, ' ').trim();  // Replace &nbsp; with whitespace.
-    if (!styleText.length && majorChange && this._newProperty && !this._propertyHasBeenEditedIncrementally) {
+    const hasBeenEditedIncrementally = this._hasBeenEditedIncrementally;
+    styleText = styleText.replace(/[\u00a0\t]/g, ' ').trim();  // Replace &nbsp; with whitespace.
+    if (!styleText.length && majorChange && this._newProperty && !hasBeenEditedIncrementally) {
       // The user deleted everything and never applied a new property value via Up/Down scrolling/live editing, so remove the tree element and update.
       this.parent.removeChild(this);
       return;
@@ -957,10 +1025,10 @@ Elements.StylePropertyTreeElement = class extends UI.TreeElement {
     // FIXME: this does not handle trailing comments.
     if (styleText.length && !/;\s*$/.test(styleText))
       styleText += ';';
-    const overwriteProperty = !this._newProperty || this._propertyHasBeenEditedIncrementally;
+    const overwriteProperty = !this._newProperty || hasBeenEditedIncrementally;
     let success = await this.property.setText(styleText, majorChange, overwriteProperty);
     // Revert to the original text if applying the new text failed
-    if (this._propertyHasBeenEditedIncrementally && majorChange && !success) {
+    if (hasBeenEditedIncrementally && majorChange && !success) {
       majorChange = false;
       success = await this.property.setText(this._originalPropertyText, majorChange, overwriteProperty);
     }
@@ -979,8 +1047,8 @@ Elements.StylePropertyTreeElement = class extends UI.TreeElement {
     }
 
     this._matchedStyles.resetActiveProperties();
-    this._propertyHasBeenEditedIncrementally = true;
-    this.property = this._style.propertyAt(this.property.index);
+    this._hasBeenEditedIncrementally = true;
+    this.property = property || this._style.propertyAt(this.property.index);
 
     if (currentNode === this.node())
       this._updatePane();
@@ -1006,6 +1074,15 @@ Elements.StylePropertyTreeElement = class extends UI.TreeElement {
   }
 };
 
-/** @typedef {{expanded: boolean, hasChildren: boolean, isEditingName: boolean, previousContent: string}} */
+/** @typedef {{
+ *    expanded: boolean,
+ *    hasChildren: boolean,
+ *    isEditingName: boolean,
+ *    originalProperty: (!SDK.CSSProperty|undefined),
+ *    originalName: (string|undefined),
+ *    originalValue: (string|undefined),
+ *    previousContent: string
+ *  }}
+ */
 Elements.StylePropertyTreeElement.Context;
 Elements.StylePropertyTreeElement.ActiveSymbol = Symbol('ActiveSymbol');

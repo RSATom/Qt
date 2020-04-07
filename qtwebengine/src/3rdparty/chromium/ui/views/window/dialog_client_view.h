@@ -10,6 +10,7 @@
 #include "base/time/time.h"
 #include "ui/base/ui_base_types.h"
 #include "ui/views/controls/button/button.h"
+#include "ui/views/input_event_activation_protector.h"
 #include "ui/views/window/client_view.h"
 #include "ui/views/window/dialog_observer.h"
 
@@ -33,6 +34,8 @@ class VIEWS_EXPORT DialogClientView : public ClientView,
                                       public ButtonListener,
                                       public DialogObserver {
  public:
+  METADATA_HEADER(DialogClientView);
+
   DialogClientView(Widget* widget, View* contents_view);
   ~DialogClientView() override;
 
@@ -61,7 +64,7 @@ class VIEWS_EXPORT DialogClientView : public ClientView,
   bool AcceleratorPressed(const ui::Accelerator& accelerator) override;
   void ViewHierarchyChanged(
       const ViewHierarchyChangedDetails& details) override;
-  void OnNativeThemeChanged(const ui::NativeTheme* theme) override;
+  void OnThemeChanged() override;
 
   // ButtonListener implementation:
   void ButtonPressed(Button* sender, const ui::Event& event) override;
@@ -84,7 +87,6 @@ class VIEWS_EXPORT DialogClientView : public ClientView,
   DialogDelegate* GetDialogDelegate() const;
 
   // View implementation.
-  void ChildPreferredSizeChanged(View* child) override;
   void ChildVisibilityChanged(View* child) override;
 
   // DialogObserver:
@@ -141,8 +143,7 @@ class VIEWS_EXPORT DialogClientView : public ClientView,
   // SetupLayout(). Everything will be manually updated afterwards.
   bool adding_or_removing_views_ = false;
 
-  // Time when view has been shown.
-  base::TimeTicks view_shown_time_stamp_;
+  InputEventActivationProtector input_protector_;
 
   DISALLOW_COPY_AND_ASSIGN(DialogClientView);
 };

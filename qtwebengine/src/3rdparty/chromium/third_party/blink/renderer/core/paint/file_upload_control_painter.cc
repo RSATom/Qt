@@ -9,13 +9,14 @@
 #include "third_party/blink/renderer/core/layout/layout_file_upload_control.h"
 #include "third_party/blink/renderer/core/layout/text_run_constructor.h"
 #include "third_party/blink/renderer/core/paint/paint_info.h"
+#include "third_party/blink/renderer/core/paint/paint_timing_detector.h"
 #include "third_party/blink/renderer/platform/fonts/text_run_paint_info.h"
 #include "third_party/blink/renderer/platform/graphics/paint/drawing_recorder.h"
 
 namespace blink {
 
 void FileUploadControlPainter::PaintObject(const PaintInfo& paint_info,
-                                           const LayoutPoint& paint_offset) {
+                                           const PhysicalOffset& paint_offset) {
   if (layout_file_upload_control_.StyleRef().Visibility() !=
       EVisibility::kVisible)
     return;
@@ -32,7 +33,7 @@ void FileUploadControlPainter::PaintObject(const PaintInfo& paint_info,
     text_run.SetExpansionBehavior(TextRun::kAllowTrailingExpansion);
 
     // Determine where the filename should be placed
-    LayoutUnit content_left = paint_offset.X() +
+    LayoutUnit content_left = paint_offset.left +
                               layout_file_upload_control_.BorderLeft() +
                               layout_file_upload_control_.PaddingLeft();
     Node* button = layout_file_upload_control_.UploadButton();
@@ -58,7 +59,7 @@ void FileUploadControlPainter::PaintObject(const PaintInfo& paint_info,
     // FIXME: Make this work with transforms.
     if (LayoutButton* button_layout_object =
             ToLayoutButton(button->GetLayoutObject()))
-      text_y = paint_offset.Y() + layout_file_upload_control_.BorderTop() +
+      text_y = paint_offset.top + layout_file_upload_control_.BorderTop() +
                layout_file_upload_control_.PaddingTop() +
                button_layout_object->BaselinePosition(
                    kAlphabeticBaseline, true, kHorizontalLine,
@@ -69,16 +70,6 @@ void FileUploadControlPainter::PaintObject(const PaintInfo& paint_info,
           kPositionOnContainingLine));
     TextRunPaintInfo text_run_paint_info(text_run);
 
-    const SimpleFontData* font_data =
-        layout_file_upload_control_.StyleRef().GetFont().PrimaryFont();
-    if (!font_data)
-      return;
-    // FIXME: Shouldn't these offsets be rounded? crbug.com/350474
-    text_run_paint_info.bounds =
-        FloatRect(text_x.ToFloat(),
-                  text_y.ToFloat() - font_data->GetFontMetrics().Ascent(),
-                  text_width, font_data->GetFontMetrics().Height());
-
     // Draw the filename.
     DrawingRecorder recorder(paint_info.context, layout_file_upload_control_,
                              paint_info.phase);
@@ -87,6 +78,19 @@ void FileUploadControlPainter::PaintObject(const PaintInfo& paint_info,
     paint_info.context.DrawBidiText(
         font, text_run_paint_info,
         FloatPoint(RoundToInt(text_x), RoundToInt(text_y)));
+    if ((RuntimeEnabledFeatures::FirstContentfulPaintPlusPlusEnabled() ||
+         RuntimeEnabledFeatures::ElementTimingEnabled(
+             &layout_file_upload_control_.GetDocument()))) {
+      if (!font.ShouldSkipDrawing()) {
+        ScopedPaintTimingDetectorBlockPaintHook
+            scoped_paint_timing_detector_block_paint_hook;
+        scoped_paint_timing_detector_block_paint_hook.EmplaceIfNeeded(
+            layout_file_upload_control_, paint_info.context.GetPaintController()
+                                             .CurrentPaintChunkProperties());
+        PaintTimingDetector::NotifyTextPaint(
+            layout_file_upload_control_.FragmentsVisualRectBoundingBox());
+      }
+    }
   }
 
   // Paint the children.

@@ -16,7 +16,7 @@
 #include "content/public/browser/reload_type.h"
 #include "content/public/browser/visibility.h"
 #include "content/public/common/frame_navigate_params.h"
-#include "content/public/common/resource_load_info.mojom.h"
+#include "content/public/common/resource_load_info.mojom-forward.h"
 #include "content/public/common/resource_type.h"
 #include "ipc/ipc_listener.h"
 #include "mojo/public/cpp/system/message_pipe.h"
@@ -51,6 +51,7 @@ struct AXLocationChangeNotificationDetails;
 struct EntryChangedDetails;
 struct FaviconURL;
 struct LoadCommittedDetails;
+struct MediaPlayerId;
 struct PrunedDetails;
 struct Referrer;
 
@@ -270,6 +271,22 @@ class CONTENT_EXPORT WebContentsObserver : public IPC::Listener {
       const GlobalRequestID& request_id,
       const mojom::ResourceLoadInfo& resource_load_info) {}
 
+  // This method is invoked when a document or resource reads a cookie. Note
+  // that this isn't tied to any particular navigation (e.g., it may be called
+  // after a subsequent navigation commits).
+  virtual void OnCookiesRead(const GURL& url,
+                             const GURL& first_party_url,
+                             const net::CookieList& cookie_list,
+                             bool blocked_by_policy) {}
+
+  // This method is invoked when an attempt has been made to set |cookie|. Note
+  // that this isn't tied to any particular navigation (e.g., it may be called
+  // after a subsequent navigation commits).
+  virtual void OnCookieChange(const GURL& url,
+                              const GURL& first_party_url,
+                              const net::CanonicalCookie& cookie,
+                              bool blocked_by_policy) {}
+
   // This method is invoked when a new non-pending navigation entry is created.
   // This corresponds to one NavigationController entry being created
   // (in the case of new navigations) or renavigated to (for back/forward
@@ -360,6 +377,14 @@ class CONTENT_EXPORT WebContentsObserver : public IPC::Listener {
   virtual void FrameReceivedFirstUserActivation(
       RenderFrameHost* render_frame_host) {}
 
+  // Invoked when the display state of the frame changes.
+  virtual void FrameDisplayStateChanged(RenderFrameHost* render_frame_host,
+                                        bool is_display_none) {}
+
+  // Invoked when a frame changes size.
+  virtual void FrameSizeChanged(RenderFrameHost* render_frame_host,
+                                const gfx::Size& frame_size) {}
+
   // This method is invoked when the title of the WebContents is set. Note that
   // |entry| may be null if the web page whose title changed has not yet had a
   // NavigationEntry assigned to it.
@@ -394,6 +419,11 @@ class CONTENT_EXPORT WebContentsObserver : public IPC::Listener {
   virtual void PluginHungStatusChanged(int plugin_child_id,
                                        const base::FilePath& plugin_path,
                                        bool is_hung) {}
+
+  // Notifies that an inner WebContents instance has been created with the
+  // observed WebContents as its container. |inner_web_contents| has not been
+  // added to the WebContents tree at this point, but can be observed safely.
+  virtual void InnerWebContentsCreated(WebContents* inner_web_contents) {}
 
   // Invoked when WebContents::Clone() was used to clone a WebContents.
   virtual void DidCloneToNewWebContents(WebContents* old_web_contents,
@@ -459,7 +489,7 @@ class CONTENT_EXPORT WebContentsObserver : public IPC::Listener {
       const std::vector<AXLocationChangeNotificationDetails>& details) {}
 
   // Invoked when theme color is changed to |theme_color|.
-  virtual void DidChangeThemeColor(SkColor theme_color) {}
+  virtual void DidChangeThemeColor(base::Optional<SkColor> theme_color) {}
 
   // Invoked when media is playing or paused.  |id| is unique per player and per
   // RenderFrameHost.  There may be multiple players within a RenderFrameHost
@@ -474,23 +504,6 @@ class CONTENT_EXPORT WebContentsObserver : public IPC::Listener {
         : has_video(has_video), has_audio(has_audio) {}
     bool has_video;
     bool has_audio;
-  };
-
-  struct CONTENT_EXPORT MediaPlayerId {
-   public:
-    static MediaPlayerId createMediaPlayerIdForTests();
-
-    MediaPlayerId(RenderFrameHost* render_frame_host, int delegate_id);
-
-    bool operator==(const MediaPlayerId& other) const;
-    bool operator!=(const MediaPlayerId& other) const;
-    bool operator<(const MediaPlayerId& other) const;
-
-    RenderFrameHost* render_frame_host = nullptr;
-    int delegate_id = 0;
-
-   private:
-    MediaPlayerId() = default;
   };
 
   virtual void MediaStartedPlaying(const MediaPlayerInfo& video_type,
@@ -517,6 +530,9 @@ class CONTENT_EXPORT WebContentsObserver : public IPC::Listener {
 
   // Invoked when the renderer process changes the page scale factor.
   virtual void OnPageScaleFactorChanged(float page_scale_factor) {}
+
+  // Invoked when a paste event occurs.
+  virtual void OnPaste() {}
 
   // Invoked if an IPC message is coming from a specific RenderFrameHost.
   virtual bool OnMessageReceived(const IPC::Message& message,

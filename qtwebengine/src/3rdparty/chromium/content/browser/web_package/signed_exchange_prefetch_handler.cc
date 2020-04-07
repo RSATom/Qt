@@ -9,6 +9,7 @@
 #include "content/browser/web_package/signed_exchange_devtools_proxy.h"
 #include "content/browser/web_package/signed_exchange_loader.h"
 #include "content/browser/web_package/signed_exchange_prefetch_metric_recorder.h"
+#include "content/browser/web_package/signed_exchange_reporter.h"
 #include "content/browser/web_package/signed_exchange_url_loader_factory_for_non_network_service.h"
 #include "content/public/common/content_features.h"
 #include "mojo/public/cpp/bindings/strong_binding.h"
@@ -22,7 +23,8 @@ namespace content {
 SignedExchangePrefetchHandler::SignedExchangePrefetchHandler(
     base::RepeatingCallback<int(void)> frame_tree_node_id_getter,
     const network::ResourceRequest& resource_request,
-    const network::ResourceResponseHead& response,
+    const network::ResourceResponseHead& response_head,
+    mojo::ScopedDataPipeConsumerHandle response_body,
     network::mojom::URLLoaderPtr network_loader,
     network::mojom::URLLoaderClientRequest network_client_request,
     scoped_refptr<network::SharedURLLoaderFactory> network_loader_factory,
@@ -30,7 +32,8 @@ SignedExchangePrefetchHandler::SignedExchangePrefetchHandler(
     ResourceContext* resource_context,
     scoped_refptr<net::URLRequestContextGetter> request_context_getter,
     network::mojom::URLLoaderClient* forwarding_client,
-    scoped_refptr<SignedExchangePrefetchMetricRecorder> metric_recorder)
+    scoped_refptr<SignedExchangePrefetchMetricRecorder> metric_recorder,
+    const std::string& accept_langs)
     : loader_client_binding_(this), forwarding_client_(forwarding_client) {
   network::mojom::URLLoaderClientEndpointsPtr endpoints =
       network::mojom::URLLoaderClientEndpoints::New(
@@ -47,15 +50,19 @@ SignedExchangePrefetchHandler::SignedExchangePrefetchHandler(
     url_loader_factory = std::move(network_loader_factory);
   }
   signed_exchange_loader_ = std::make_unique<SignedExchangeLoader>(
-      resource_request, response, std::move(client), std::move(endpoints),
+      resource_request, response_head, std::move(response_body),
+      std::move(client), std::move(endpoints),
       network::mojom::kURLLoadOptionNone,
       false /* should_redirect_to_fallback */,
       std::make_unique<SignedExchangeDevToolsProxy>(
-          resource_request.url, response, frame_tree_node_id_getter,
+          resource_request.url, response_head, frame_tree_node_id_getter,
           base::nullopt /* devtools_navigation_token */,
           resource_request.report_raw_headers),
+      SignedExchangeReporter::MaybeCreate(
+          resource_request.url, resource_request.referrer.spec(), response_head,
+          frame_tree_node_id_getter),
       std::move(url_loader_factory), loader_throttles_getter,
-      frame_tree_node_id_getter, std::move(metric_recorder));
+      frame_tree_node_id_getter, std::move(metric_recorder), accept_langs);
 }
 
 SignedExchangePrefetchHandler::~SignedExchangePrefetchHandler() = default;
@@ -70,6 +77,19 @@ SignedExchangePrefetchHandler::FollowRedirect(
   mojo::MakeStrongBinding(std::move(signed_exchange_loader_),
                           std::move(loader_request));
   return pending_request;
+}
+
+base::Optional<net::SHA256HashValue>
+SignedExchangePrefetchHandler::ComputeHeaderIntegrity() const {
+  if (!signed_exchange_loader_)
+    return base::nullopt;
+  return signed_exchange_loader_->ComputeHeaderIntegrity();
+}
+
+base::Time SignedExchangePrefetchHandler::GetSignatureExpireTime() const {
+  if (!signed_exchange_loader_)
+    return base::Time();
+  return signed_exchange_loader_->GetSignatureExpireTime();
 }
 
 void SignedExchangePrefetchHandler::OnReceiveResponse(
@@ -91,7 +111,7 @@ void SignedExchangePrefetchHandler::OnUploadProgress(
 }
 
 void SignedExchangePrefetchHandler::OnReceiveCachedMetadata(
-    const std::vector<uint8_t>& data) {
+    mojo_base::BigBuffer data) {
   NOTREACHED();
 }
 

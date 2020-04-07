@@ -8,6 +8,7 @@
 
 #include "base/metrics/histogram_macros.h"
 #include "third_party/blink/public/platform/web_effective_connection_type.h"
+#include "third_party/blink/public/web/web_local_frame_client.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/dom/node_computed_style.h"
 #include "third_party/blink/renderer/core/frame/frame.h"
@@ -24,6 +25,7 @@
 #include "third_party/blink/renderer/platform/geometry/length.h"
 #include "third_party/blink/renderer/platform/heap/visitor.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource_request.h"
+#include "third_party/blink/renderer/platform/network/network_state_notifier.h"
 #include "third_party/blink/renderer/platform/weborigin/security_origin.h"
 #include "third_party/blink/renderer/platform/wtf/assertions.h"
 #include "third_party/blink/renderer/platform/wtf/vector.h"
@@ -38,17 +40,17 @@ namespace {
 // could break their functionality, so these heuristics are used to recognize
 // likely hidden frames and immediately load them so that they can function
 // properly.
-bool IsFrameProbablyHidden(const DOMRectReadOnly& bounding_client_rect,
+bool IsFrameProbablyHidden(const PhysicalRect& bounding_client_rect,
                            const Element& element) {
   // Tiny frames that are 4x4 or smaller are likely not intended to be seen by
   // the user. Note that this condition includes frames marked as
   // "display:none", since those frames would have dimensions of 0x0.
-  if (bounding_client_rect.width() < 4.1 || bounding_client_rect.height() < 4.1)
+  if (bounding_client_rect.Width() < 4.1 || bounding_client_rect.Height() < 4.1)
     return true;
 
   // Frames that are positioned completely off the page above or to the left are
   // likely never intended to be visible to the user.
-  if (bounding_client_rect.right() < 0.0 || bounding_client_rect.bottom() < 0.0)
+  if (bounding_client_rect.Right() < 0.0 || bounding_client_rect.Bottom() < 0.0)
     return true;
 
   const ComputedStyle* style = element.GetComputedStyle();
@@ -70,8 +72,7 @@ int GetLazyFrameLoadingViewportDistanceThresholdPx(const Document& document) {
   if (!settings)
     return 0;
 
-  DCHECK(document.GetFrame() && document.GetFrame()->Client());
-  switch (document.GetFrame()->Client()->GetEffectiveConnectionType()) {
+  switch (GetNetworkStateNotifier().EffectiveType()) {
     case WebEffectiveConnectionType::kTypeUnknown:
       return settings->GetLazyFrameLoadingDistanceThresholdPxUnknown();
     case WebEffectiveConnectionType::kTypeOffline:
@@ -116,9 +117,8 @@ void LazyLoadFrameObserver::DeferLoadUntilNearViewport(
   was_recorded_as_deferred_ = false;
 
   lazy_load_intersection_observer_ = IntersectionObserver::Create(
-      {Length(GetLazyFrameLoadingViewportDistanceThresholdPx(
-                  element_->GetDocument()),
-              kFixed)},
+      {Length::Fixed(GetLazyFrameLoadingViewportDistanceThresholdPx(
+          element_->GetDocument()))},
       {std::numeric_limits<float>::min()}, &element_->GetDocument(),
       WTF::BindRepeating(&LazyLoadFrameObserver::LoadIfHiddenOrNearViewport,
                          WrapWeakPersistent(this)));
@@ -143,7 +143,7 @@ void LazyLoadFrameObserver::LoadIfHiddenOrNearViewport(
   if (entries.back()->isIntersecting()) {
     RecordInitialDeferralAction(
         FrameInitialDeferralAction::kLoadedNearOrInViewport);
-  } else if (IsFrameProbablyHidden(*entries.back()->boundingClientRect(),
+  } else if (IsFrameProbablyHidden(entries.back()->GetGeometry().TargetRect(),
                                    *element_)) {
     RecordInitialDeferralAction(FrameInitialDeferralAction::kLoadedHidden);
   } else {
@@ -164,10 +164,9 @@ void LazyLoadFrameObserver::LoadImmediately() {
 
     UMA_HISTOGRAM_ENUMERATION(
         "Blink.LazyLoad.CrossOriginFrames.LoadStartedAfterBeingDeferred",
-        element_->GetDocument()
-            .GetFrame()
-            ->Client()
-            ->GetEffectiveConnectionType());
+        GetNetworkStateNotifier().EffectiveType());
+    element_->GetDocument().GetFrame()->Client()->DidObserveLazyLoadBehavior(
+        WebLocalFrameClient::LazyLoadBehavior::kLazyLoadedFrame);
   }
 
   std::unique_ptr<LazyLoadRequestInfo> scoped_request_info =
@@ -180,7 +179,7 @@ void LazyLoadFrameObserver::LoadImmediately() {
 
   // Note that calling FrameLoader::StartNavigation() causes the
   // |lazy_load_intersection_observer_| to be disconnected.
-  ToLocalFrame(element_->ContentFrame())
+  To<LocalFrame>(element_->ContentFrame())
       ->Loader()
       .StartNavigation(FrameLoadRequest(&element_->GetDocument(),
                                         scoped_request_info->resource_request),
@@ -207,7 +206,8 @@ void LazyLoadFrameObserver::RecordMetricsOnVisibilityChanged(
   DCHECK(!entries.IsEmpty());
   DCHECK_EQ(element_, entries.back()->target());
 
-  if (IsFrameProbablyHidden(*entries.back()->boundingClientRect(), *element_)) {
+  if (IsFrameProbablyHidden(entries.back()->GetGeometry().TargetRect(),
+                            *element_)) {
     visibility_metrics_observer_->disconnect();
     visibility_metrics_observer_.Clear();
     return;
@@ -222,7 +222,7 @@ void LazyLoadFrameObserver::RecordMetricsOnVisibilityChanged(
     return;
 
   DCHECK(time_when_first_visible_.is_null());
-  time_when_first_visible_ = CurrentTimeTicks();
+  time_when_first_visible_ = base::TimeTicks::Now();
   RecordVisibilityMetricsIfLoadedAndVisible();
 
   visibility_metrics_observer_->disconnect();
@@ -233,8 +233,6 @@ void LazyLoadFrameObserver::RecordMetricsOnVisibilityChanged(
   // effective connection type from.
   if (!element_->GetDocument().GetFrame())
     return;
-
-  DCHECK(element_->GetDocument().GetFrame()->Client());
 
   // On slow networks, iframes might not finish loading by the time the user
   // leaves the page, so the visible load time metrics samples won't represent
@@ -250,26 +248,20 @@ void LazyLoadFrameObserver::RecordMetricsOnVisibilityChanged(
     // WebEffectiveConnectionType.
     UMA_HISTOGRAM_ENUMERATION(
         "Blink.VisibleBeforeLoaded.LazyLoadEligibleFrames.BelowTheFold",
-        element_->GetDocument()
-            .GetFrame()
-            ->Client()
-            ->GetEffectiveConnectionType());
+        GetNetworkStateNotifier().EffectiveType());
   }
 
   if (was_recorded_as_deferred_) {
     UMA_HISTOGRAM_ENUMERATION(
         "Blink.LazyLoad.CrossOriginFrames.VisibleAfterBeingDeferred",
-        element_->GetDocument()
-            .GetFrame()
-            ->Client()
-            ->GetEffectiveConnectionType());
+        GetNetworkStateNotifier().EffectiveType());
   }
 }
 
 void LazyLoadFrameObserver::RecordMetricsOnLoadFinished() {
   if (!time_when_first_load_finished_.is_null())
     return;
-  time_when_first_load_finished_ = CurrentTimeTicks();
+  time_when_first_load_finished_ = base::TimeTicks::Now();
   RecordVisibilityMetricsIfLoadedAndVisible();
 }
 
@@ -282,15 +274,12 @@ void LazyLoadFrameObserver::RecordVisibilityMetricsIfLoadedAndVisible() {
 
   DCHECK(has_above_the_fold_been_set_);
 
-  TimeDelta visible_load_delay =
+  base::TimeDelta visible_load_delay =
       time_when_first_load_finished_ - time_when_first_visible_;
-  if (visible_load_delay < TimeDelta())
-    visible_load_delay = TimeDelta();
+  if (visible_load_delay < base::TimeDelta())
+    visible_load_delay = base::TimeDelta();
 
-  switch (element_->GetDocument()
-              .GetFrame()
-              ->Client()
-              ->GetEffectiveConnectionType()) {
+  switch (GetNetworkStateNotifier().EffectiveType()) {
     case WebEffectiveConnectionType::kTypeSlow2G:
       if (is_initially_above_the_fold_) {
         UMA_HISTOGRAM_MEDIUM_TIMES(
@@ -355,10 +344,7 @@ void LazyLoadFrameObserver::RecordInitialDeferralAction(
   DCHECK(element_->GetDocument().GetFrame());
   DCHECK(element_->GetDocument().GetFrame()->Client());
 
-  switch (element_->GetDocument()
-              .GetFrame()
-              ->Client()
-              ->GetEffectiveConnectionType()) {
+  switch (GetNetworkStateNotifier().EffectiveType()) {
     case WebEffectiveConnectionType::kTypeUnknown:
       UMA_HISTOGRAM_ENUMERATION(
           "Blink.LazyLoad.CrossOriginFrames.InitialDeferralAction.Unknown",
@@ -388,8 +374,11 @@ void LazyLoadFrameObserver::RecordInitialDeferralAction(
       break;
   }
 
-  if (action == FrameInitialDeferralAction::kDeferred)
+  if (action == FrameInitialDeferralAction::kDeferred) {
+    element_->GetDocument().GetFrame()->Client()->DidObserveLazyLoadBehavior(
+        WebLocalFrameClient::LazyLoadBehavior::kDeferredFrame);
     was_recorded_as_deferred_ = true;
+  }
 }
 
 void LazyLoadFrameObserver::Trace(Visitor* visitor) {

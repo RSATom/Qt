@@ -18,6 +18,7 @@
 #include "base/memory/aligned_memory.h"
 #include "base/optional.h"
 #include "cc/base/math_util.h"
+#include "cc/paint/node_id.h"
 #include "cc/paint/paint_canvas.h"
 #include "cc/paint/paint_export.h"
 #include "cc/paint/paint_flags.h"
@@ -41,7 +42,6 @@ namespace cc {
 class ClientPaintCache;
 class ImageProvider;
 class ServicePaintCache;
-class PaintWorkletImageProvider;
 
 class CC_PAINT_EXPORT ThreadsafeMatrix : public SkMatrix {
  public:
@@ -66,7 +66,7 @@ class CC_PAINT_EXPORT ThreadsafePath : public SkPath {
                           const SerializeOptions& options);                  \
   static PaintOp* Deserialize(const volatile void* input, size_t input_size, \
                               void* output, size_t output_size,              \
-                              const DeserializeOptions& options);
+                              const DeserializeOptions& options)
 
 enum class PaintOpType : uint8_t {
   Annotate,
@@ -108,9 +108,7 @@ struct CC_PAINT_EXPORT PlaybackParams {
       base::RepeatingCallback<void(SkCanvas* canvas, uint32_t id)>;
   using DidDrawOpCallback = base::RepeatingCallback<void()>;
 
-  explicit PlaybackParams(
-      ImageProvider* image_provider,
-      PaintWorkletImageProvider* paint_worklet_image_provider = nullptr);
+  explicit PlaybackParams(ImageProvider* image_provider);
   PlaybackParams(
       ImageProvider* image_provider,
       const SkMatrix& original_ctm,
@@ -122,7 +120,6 @@ struct CC_PAINT_EXPORT PlaybackParams {
   PlaybackParams& operator=(const PlaybackParams& other);
 
   ImageProvider* image_provider;
-  PaintWorkletImageProvider* paint_worklet_image_provider;
   SkMatrix original_ctm;
   CustomDataRasterCallback custom_callback;
   DidDrawOpCallback did_draw_op_callback;
@@ -154,7 +151,7 @@ class CC_PAINT_EXPORT PaintOp {
                      ClientPaintCache* paint_cache,
                      SkCanvas* canvas,
                      SkStrikeServer* strike_server,
-                     SkColorSpace* color_space,
+                     sk_sp<SkColorSpace> color_space,
                      bool can_use_lcd_text,
                      bool context_supports_distance_field_text,
                      int max_texture_size,
@@ -162,6 +159,7 @@ class CC_PAINT_EXPORT PaintOp {
                      const SkMatrix& original_ctm);
     SerializeOptions(const SerializeOptions&);
     SerializeOptions& operator=(const SerializeOptions&);
+    ~SerializeOptions();
 
     // Required.
     ImageProvider* image_provider = nullptr;
@@ -169,7 +167,7 @@ class CC_PAINT_EXPORT PaintOp {
     ClientPaintCache* paint_cache = nullptr;
     SkCanvas* canvas = nullptr;
     SkStrikeServer* strike_server = nullptr;
-    SkColorSpace* color_space = nullptr;
+    sk_sp<SkColorSpace> color_space = nullptr;
     bool can_use_lcd_text = false;
     bool context_supports_distance_field_text = true;
     int max_texture_size = 0;
@@ -190,7 +188,6 @@ class CC_PAINT_EXPORT PaintOp {
     TransferCacheDeserializeHelper* transfer_cache = nullptr;
     ServicePaintCache* paint_cache = nullptr;
     SkStrikeClient* strike_client = nullptr;
-    uint32_t raster_color_space_id = gfx::ColorSpace::kInvalidId;
     // Do a DumpWithoutCrashing when serialization fails.
     bool crash_dump_on_failure = false;
     // Used to memcpy Skia flattenables into to avoid TOCTOU issues.
@@ -248,6 +245,8 @@ class CC_PAINT_EXPORT PaintOp {
 
   bool HasDiscardableImages() const { return false; }
   bool HasDiscardableImagesFromFlags() const { return false; }
+
+  bool HasText() const { return false; }
 
   // Returns the number of bytes used by this op in referenced sub records
   // and display lists.  This doesn't count other objects like paths or blobs.
@@ -665,6 +664,7 @@ class CC_PAINT_EXPORT DrawRecordOp final : public PaintOp {
   bool HasDiscardableImages() const;
   int CountSlowPaths() const;
   bool HasNonAAPaint() const;
+  bool HasText() const;
   HAS_SERIALIZATION_FUNCTIONS();
 
   sk_sp<const PaintRecord> record;
@@ -741,6 +741,11 @@ class CC_PAINT_EXPORT DrawTextBlobOp final : public PaintOpWithFlags {
                  SkScalar x,
                  SkScalar y,
                  const PaintFlags& flags);
+  DrawTextBlobOp(sk_sp<SkTextBlob> blob,
+                 SkScalar x,
+                 SkScalar y,
+                 NodeId node_id,
+                 const PaintFlags& flags);
   ~DrawTextBlobOp();
   static void RasterWithFlags(const DrawTextBlobOp* op,
                               const PaintFlags* flags,
@@ -748,11 +753,14 @@ class CC_PAINT_EXPORT DrawTextBlobOp final : public PaintOpWithFlags {
                               const PlaybackParams& params);
   bool IsValid() const { return flags.IsValid(); }
   static bool AreEqual(const PaintOp* left, const PaintOp* right);
+  bool HasText() const { return true; }
   HAS_SERIALIZATION_FUNCTIONS();
 
   sk_sp<SkTextBlob> blob;
   SkScalar x;
   SkScalar y;
+  // This field isn't serialized.
+  NodeId node_id = kInvalidNodeId;
 
  private:
   DrawTextBlobOp();
@@ -916,10 +924,12 @@ class CC_PAINT_EXPORT PaintOpBuffer : public SkRefCnt {
   }
 
   PaintOpBuffer();
+  PaintOpBuffer(const PaintOpBuffer&) = delete;
   PaintOpBuffer(PaintOpBuffer&& other);
   ~PaintOpBuffer() override;
 
-  void operator=(PaintOpBuffer&& other);
+  PaintOpBuffer& operator=(const PaintOpBuffer&) = delete;
+  PaintOpBuffer& operator=(PaintOpBuffer&& other);
 
   void Reset();
 
@@ -946,6 +956,7 @@ class CC_PAINT_EXPORT PaintOpBuffer : public SkRefCnt {
   int numSlowPaths() const { return num_slow_paths_; }
   bool HasNonAAPaint() const { return has_non_aa_paint_; }
   bool HasDiscardableImages() const { return has_discardable_images_; }
+  bool HasText() const { return has_text_; }
 
   bool operator==(const PaintOpBuffer& other) const;
   bool operator!=(const PaintOpBuffer& other) const {
@@ -1006,6 +1017,8 @@ class CC_PAINT_EXPORT PaintOpBuffer : public SkRefCnt {
     has_discardable_images_ |= op->HasDiscardableImages();
     has_discardable_images_ |= op->HasDiscardableImagesFromFlags();
 
+    has_text_ |= (op->HasText());
+
     subrecord_bytes_used_ += op->AdditionalBytesUsed();
     subrecord_op_count_ += op->AdditionalOpCount();
   }
@@ -1018,6 +1031,13 @@ class CC_PAINT_EXPORT PaintOpBuffer : public SkRefCnt {
         return static_cast<const T*>(*it);
     }
     return nullptr;
+  }
+
+  size_t GetOpOffsetForTracing(const PaintOp* op) const {
+    DCHECK_GE(reinterpret_cast<const char*>(op), data_.get());
+    size_t result = reinterpret_cast<const char*>(op) - data_.get();
+    DCHECK_LT(result, used_);
+    return result;
   }
 
   class CC_PAINT_EXPORT Iterator {
@@ -1226,8 +1246,7 @@ class CC_PAINT_EXPORT PaintOpBuffer : public SkRefCnt {
 
   bool has_non_aa_paint_ : 1;
   bool has_discardable_images_ : 1;
-
-  DISALLOW_COPY_AND_ASSIGN(PaintOpBuffer);
+  bool has_text_ : 1;
 };
 
 }  // namespace cc

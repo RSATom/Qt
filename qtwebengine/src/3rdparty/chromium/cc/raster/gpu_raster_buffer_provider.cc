@@ -7,8 +7,8 @@
 #include <stdint.h>
 
 #include <algorithm>
+#include <utility>
 
-#include "base/macros.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/rand_util.h"
 #include "base/strings/stringprintf.h"
@@ -45,6 +45,7 @@ class ScopedSkSurfaceForUnpremultiplyAndDither {
  public:
   ScopedSkSurfaceForUnpremultiplyAndDither(
       viz::RasterContextProvider* context_provider,
+      sk_sp<SkColorSpace> color_space,
       const gfx::Rect& playback_rect,
       const gfx::Rect& raster_full_rect,
       const gfx::Size& max_tile_size,
@@ -72,8 +73,9 @@ class ScopedSkSurfaceForUnpremultiplyAndDither {
 
     // Allocate a 32-bit surface for raster. We will copy from that into our
     // actual surface in destruction.
-    SkImageInfo n32Info = SkImageInfo::MakeN32Premul(
-        intermediate_size.width(), intermediate_size.height());
+    SkImageInfo n32Info = SkImageInfo::MakeN32Premul(intermediate_size.width(),
+                                                     intermediate_size.height(),
+                                                     std::move(color_space));
     SkSurfaceProps surface_props =
         viz::ClientResourceProvider::ScopedSkSurface::ComputeSurfaceProps(
             can_use_lcd_text);
@@ -132,7 +134,8 @@ static void RasterizeSourceOOP(
   if (mailbox->IsZero()) {
     DCHECK(!sync_token.HasData());
     auto* sii = context_provider->SharedImageInterface();
-    uint32_t flags = gpu::SHARED_IMAGE_USAGE_RASTER |
+    uint32_t flags = gpu::SHARED_IMAGE_USAGE_DISPLAY |
+                     gpu::SHARED_IMAGE_USAGE_RASTER |
                      gpu::SHARED_IMAGE_USAGE_OOP_RASTERIZATION;
     if (texture_is_overlay_candidate)
       flags |= gpu::SHARED_IMAGE_USAGE_SCANOUT;
@@ -143,11 +146,9 @@ static void RasterizeSourceOOP(
     ri->WaitSyncTokenCHROMIUM(sync_token.GetConstData());
   }
 
-  // TODO(enne): Use the |texture_target|? GpuMemoryBuffer backed textures don't
-  // use GL_TEXTURE_2D.
   ri->BeginRasterCHROMIUM(raster_source->background_color(), msaa_sample_count,
-                          playback_settings.use_lcd_text,
-                          playback_settings.raster_color_space, mailbox->name);
+                          playback_settings.use_lcd_text, color_space,
+                          mailbox->name);
   float recording_to_raster_scale =
       transform.scale() / raster_source->recording_scale_factor();
   gfx::Size content_size = raster_source->GetContentSize(transform.scale());
@@ -155,11 +156,12 @@ static void RasterizeSourceOOP(
   // TODO(enne): could skip the clear on new textures, as the service side has
   // to do that anyway.  resource_has_previous_content implies that the texture
   // is not new, but the reverse does not hold, so more plumbing is needed.
-  ri->RasterCHROMIUM(raster_source->GetDisplayItemList().get(),
-                     playback_settings.image_provider, content_size,
-                     raster_full_rect, playback_rect, transform.translation(),
-                     recording_to_raster_scale,
-                     raster_source->requires_clear());
+  ri->RasterCHROMIUM(
+      raster_source->GetDisplayItemList().get(),
+      playback_settings.image_provider, content_size, raster_full_rect,
+      playback_rect, transform.translation(), recording_to_raster_scale,
+      raster_source->requires_clear(),
+      const_cast<RasterSource*>(raster_source)->max_op_size_hint());
   ri->EndRasterCHROMIUM();
 
   // TODO(ericrk): Handle unpremultiply+dither for 4444 cases.
@@ -187,7 +189,8 @@ static void RasterizeSource(
   gpu::raster::RasterInterface* ri = context_provider->RasterInterface();
   if (mailbox->IsZero()) {
     auto* sii = context_provider->SharedImageInterface();
-    uint32_t flags = gpu::SHARED_IMAGE_USAGE_GLES2 |
+    uint32_t flags = gpu::SHARED_IMAGE_USAGE_DISPLAY |
+                     gpu::SHARED_IMAGE_USAGE_GLES2 |
                      gpu::SHARED_IMAGE_USAGE_GLES2_FRAMEBUFFER_HINT;
     if (texture_is_overlay_candidate)
       flags |= gpu::SHARED_IMAGE_USAGE_SCANOUT;
@@ -207,16 +210,18 @@ static void RasterizeSource(
     base::Optional<ScopedSkSurfaceForUnpremultiplyAndDither>
         scoped_dither_surface;
     SkSurface* surface;
+    sk_sp<SkColorSpace> sk_color_space = color_space.ToSkColorSpace();
     if (!unpremultiply_and_dither) {
-      scoped_surface.emplace(context_provider->GrContext(), texture_id,
-                             texture_target, resource_size, resource_format,
-                             playback_settings.use_lcd_text, msaa_sample_count);
+      scoped_surface.emplace(context_provider->GrContext(), sk_color_space,
+                             texture_id, texture_target, resource_size,
+                             resource_format, playback_settings.use_lcd_text,
+                             msaa_sample_count);
       surface = scoped_surface->surface();
     } else {
       scoped_dither_surface.emplace(
-          context_provider, playback_rect, raster_full_rect, max_tile_size,
-          texture_id, resource_size, playback_settings.use_lcd_text,
-          msaa_sample_count);
+          context_provider, sk_color_space, playback_rect, raster_full_rect,
+          max_tile_size, texture_id, resource_size,
+          playback_settings.use_lcd_text, msaa_sample_count);
       surface = scoped_dither_surface->surface();
     }
 
@@ -234,8 +239,8 @@ static void RasterizeSource(
       canvas->discard();
 
     gfx::Size content_size = raster_source->GetContentSize(transform.scale());
-    raster_source->PlaybackToCanvas(canvas, color_space, content_size,
-                                    raster_full_rect, playback_rect, transform,
+    raster_source->PlaybackToCanvas(canvas, content_size, raster_full_rect,
+                                    playback_rect, transform,
                                     playback_settings);
   }
 
@@ -333,7 +338,7 @@ GpuRasterBufferProvider::GpuRasterBufferProvider(
     const gfx::Size& max_tile_size,
     bool unpremultiply_and_dither_low_bit_depth_tiles,
     bool enable_oop_rasterization,
-    int raster_metric_frequency)
+    float raster_metric_probability)
     : compositor_context_provider_(compositor_context_provider),
       worker_context_provider_(worker_context_provider),
       use_gpu_memory_buffer_resources_(use_gpu_memory_buffer_resources),
@@ -343,9 +348,8 @@ GpuRasterBufferProvider::GpuRasterBufferProvider(
       unpremultiply_and_dither_low_bit_depth_tiles_(
           unpremultiply_and_dither_low_bit_depth_tiles),
       enable_oop_rasterization_(enable_oop_rasterization),
-      raster_metric_frequency_(raster_metric_frequency),
-      random_generator_(base::RandUint64()),
-      uniform_distribution_(1, raster_metric_frequency) {
+      random_generator_((uint32_t)base::RandUint64()),
+      bernoulli_distribution_(raster_metric_probability) {
   DCHECK(compositor_context_provider);
   DCHECK(worker_context_provider);
 }
@@ -379,11 +383,6 @@ void GpuRasterBufferProvider::Flush() {
 
 viz::ResourceFormat GpuRasterBufferProvider::GetResourceFormat() const {
   return tile_format_;
-}
-
-bool GpuRasterBufferProvider::IsResourceSwizzleRequired() const {
-  // This doesn't require a swizzle because we rasterize to the correct format.
-  return false;
 }
 
 bool GpuRasterBufferProvider::IsResourcePremultiplied() const {
@@ -497,8 +496,7 @@ gpu::SyncToken GpuRasterBufferProvider::PlaybackOnWorkerThreadInternal(
   gpu::raster::RasterInterface* ri = scoped_context.RasterInterface();
   DCHECK(ri);
 
-  const bool measure_raster_metric =
-      uniform_distribution_(random_generator_) == raster_metric_frequency_;
+  const bool measure_raster_metric = bernoulli_distribution_(random_generator_);
 
   gfx::Rect playback_rect = raster_full_rect;
   if (resource_has_previous_content) {

@@ -15,8 +15,8 @@
 #include "public/fpdf_edit.h"
 #include "public/fpdfview.h"
 #include "testing/embedder_test.h"
+#include "testing/fx_string_testhelpers.h"
 #include "testing/gtest/include/gtest/gtest.h"
-#include "testing/test_support.h"
 
 class FPDFDocEmbedderTest : public EmbedderTest {};
 
@@ -396,8 +396,7 @@ TEST_F(FPDFDocEmbedderTest, FindBookmarks) {
   EXPECT_TRUE(OpenDocument("bookmarks.pdf"));
 
   // Find the first one, based on its known title.
-  std::unique_ptr<unsigned short, pdfium::FreeDeleter> title =
-      GetFPDFWideString(L"A Good Beginning");
+  ScopedFPDFWideString title = GetFPDFWideString(L"A Good Beginning");
   FPDF_BOOKMARK child = FPDFBookmark_Find(document(), title.get());
   EXPECT_TRUE(child);
 
@@ -410,8 +409,7 @@ TEST_F(FPDFDocEmbedderTest, FindBookmarks) {
   EXPECT_EQ(child, FPDFBookmark_GetFirstChild(document(), nullptr));
 
   // Try to find one using a non-existent title.
-  std::unique_ptr<unsigned short, pdfium::FreeDeleter> bad_title =
-      GetFPDFWideString(L"A BAD Beginning");
+  ScopedFPDFWideString bad_title = GetFPDFWideString(L"A BAD Beginning");
   EXPECT_EQ(nullptr, FPDFBookmark_Find(document(), bad_title.get()));
 }
 
@@ -421,14 +419,22 @@ TEST_F(FPDFDocEmbedderTest, FindBookmarks_bug420) {
   EXPECT_TRUE(OpenDocument("bookmarks_circular.pdf"));
 
   // Try to find a title.
-  std::unique_ptr<unsigned short, pdfium::FreeDeleter> title =
-      GetFPDFWideString(L"anything");
+  ScopedFPDFWideString title = GetFPDFWideString(L"anything");
   EXPECT_EQ(nullptr, FPDFBookmark_Find(document(), title.get()));
 }
 
 TEST_F(FPDFDocEmbedderTest, DeletePage) {
   EXPECT_TRUE(OpenDocument("hello_world.pdf"));
   EXPECT_EQ(1, FPDF_GetPageCount(document()));
+
+  FPDFPage_Delete(nullptr, 0);
+  EXPECT_EQ(1, FPDF_GetPageCount(document()));
+
+  FPDFPage_Delete(document(), -1);
+  EXPECT_EQ(1, FPDF_GetPageCount(document()));
+  FPDFPage_Delete(document(), 1);
+  EXPECT_EQ(1, FPDF_GetPageCount(document()));
+
   FPDFPage_Delete(document(), 0);
   EXPECT_EQ(0, FPDF_GetPageCount(document()));
 }

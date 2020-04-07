@@ -41,15 +41,14 @@ class ObjCVideoEncoder : public VideoEncoder {
   ObjCVideoEncoder(id<RTCVideoEncoder> encoder)
       : encoder_(encoder), implementation_name_([encoder implementationName].stdString) {}
 
-  int32_t InitEncode(const VideoCodec *codec_settings,
-                     int32_t number_of_cores,
-                     size_t max_payload_size) {
+  int32_t InitEncode(const VideoCodec *codec_settings, const Settings &encoder_settings) override {
     RTCVideoEncoderSettings *settings =
         [[RTCVideoEncoderSettings alloc] initWithNativeVideoCodec:codec_settings];
-    return [encoder_ startEncodeWithSettings:settings numberOfCores:number_of_cores];
+    return [encoder_ startEncodeWithSettings:settings
+                               numberOfCores:encoder_settings.number_of_cores];
   }
 
-  int32_t RegisterEncodeCompleteCallback(EncodedImageCallback *callback) {
+  int32_t RegisterEncodeCompleteCallback(EncodedImageCallback *callback) override {
     [encoder_ setCallback:^BOOL(RTCEncodedImage *_Nonnull frame,
                                 id<RTCCodecSpecificInfo> _Nonnull info,
                                 RTCRtpFragmentationHeader *_Nonnull header) {
@@ -71,11 +70,10 @@ class ObjCVideoEncoder : public VideoEncoder {
     return WEBRTC_VIDEO_CODEC_OK;
   }
 
-  int32_t Release() { return [encoder_ releaseEncoder]; }
+  int32_t Release() override { return [encoder_ releaseEncoder]; }
 
   int32_t Encode(const VideoFrame &frame,
-                 const CodecSpecificInfo *codec_specific_info,
-                 const std::vector<FrameType> *frame_types) {
+                 const std::vector<VideoFrameType> *frame_types) override {
     NSMutableArray<NSNumber *> *rtcFrameTypes = [NSMutableArray array];
     for (size_t i = 0; i < frame_types->size(); ++i) {
       [rtcFrameTypes addObject:@(RTCFrameType(frame_types->at(i)))];
@@ -86,11 +84,13 @@ class ObjCVideoEncoder : public VideoEncoder {
                  frameTypes:rtcFrameTypes];
   }
 
-  int32_t SetRates(uint32_t bitrate, uint32_t framerate) {
-    return [encoder_ setBitrate:bitrate framerate:framerate];
+  void SetRates(const RateControlParameters &parameters) override {
+    const uint32_t bitrate = parameters.bitrate.get_sum_kbps();
+    const uint32_t framerate = static_cast<uint32_t>(parameters.framerate_fps + 0.5);
+    [encoder_ setBitrate:bitrate framerate:framerate];
   }
 
-  VideoEncoder::EncoderInfo GetEncoderInfo() const {
+  VideoEncoder::EncoderInfo GetEncoderInfo() const override {
     EncoderInfo info;
     info.supports_native_handle = true;
     info.implementation_name = implementation_name_;

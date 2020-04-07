@@ -44,7 +44,6 @@
 #include "third_party/blink/renderer/core/dom/shadow_root.h"
 #include "third_party/blink/renderer/core/frame/csp/content_security_policy.h"
 #include "third_party/blink/renderer/core/frame/settings.h"
-#include "third_party/blink/renderer/core/frame/use_counter.h"
 #include "third_party/blink/renderer/core/html/html_element.h"
 #include "third_party/blink/renderer/core/html_names.h"
 #include "third_party/blink/renderer/core/inspector/console_message.h"
@@ -59,6 +58,8 @@
 #include "third_party/blink/renderer/core/svg/svg_use_element.h"
 #include "third_party/blink/renderer/core/svg_names.h"
 #include "third_party/blink/renderer/core/xml_names.h"
+#include "third_party/blink/renderer/platform/heap/heap.h"
+#include "third_party/blink/renderer/platform/instrumentation/use_counter.h"
 #include "third_party/blink/renderer/platform/wtf/threading.h"
 
 namespace blink {
@@ -71,7 +72,9 @@ SVGElement::SVGElement(const QualifiedName& tag_name,
                        ConstructionType construction_type)
     : Element(tag_name, &document, construction_type),
       svg_rare_data_(nullptr),
-      class_name_(SVGAnimatedString::Create(this, html_names::kClassAttr)) {
+      class_name_(
+          MakeGarbageCollected<SVGAnimatedString>(this,
+                                                  html_names::kClassAttr)) {
   AddToPropertyMap(class_name_);
   SetHasCustomStyleCallbacks();
 }
@@ -80,8 +83,8 @@ SVGElement::~SVGElement() {
   DCHECK(isConnected() || !HasRelativeLengths());
 }
 
-void SVGElement::DetachLayoutTree(const AttachContext& context) {
-  Element::DetachLayoutTree(context);
+void SVGElement::DetachLayoutTree(bool performing_reattach) {
+  Element::DetachLayoutTree(performing_reattach);
   if (SVGElement* element = CorrespondingElement())
     element->RemoveInstanceMapping(this);
   // To avoid a noncollectable Blink GC reference cycle, we must clear the
@@ -109,13 +112,13 @@ int SVGElement::tabIndex() const {
   return -1;
 }
 
-void SVGElement::WillRecalcStyle(StyleRecalcChange change) {
+void SVGElement::WillRecalcStyle(const StyleRecalcChange change) {
   if (!HasSVGRareData())
     return;
   // If the style changes because of a regular property change (not induced by
   // SMIL animations themselves) reset the "computed style without SMIL style
   // properties", so the base value change gets reflected.
-  if (change > kNoChange || NeedsStyleRecalc())
+  if (change.ShouldRecalcStyleFor(*this))
     SvgRareData()->SetNeedsOverrideComputedStyleUpdate();
 }
 
@@ -160,7 +163,8 @@ void SVGElement::ReportAttributeParsingError(SVGParsingError error,
   if (value.IsNull())
     return;
   GetDocument().AddConsoleMessage(
-      ConsoleMessage::Create(kRenderingMessageSource, kErrorMessageLevel,
+      ConsoleMessage::Create(mojom::ConsoleMessageSource::kRendering,
+                             mojom::ConsoleMessageLevel::kError,
                              "Error: " + error.Format(tagName(), name, value)));
 }
 
@@ -324,7 +328,7 @@ FloatRect ComputeSVGTransformReferenceBox(const LayoutObject& layout_object) {
   } else {
     DCHECK_EQ(style.TransformBox(), ETransformBox::kViewBox);
     SVGLengthContext length_context(
-        ToSVGElementOrNull(layout_object.GetNode()));
+        DynamicTo<SVGElement>(layout_object.GetNode()));
     FloatSize viewport_size;
     length_context.DetermineViewport(viewport_size);
     reference_box.SetSize(viewport_size);
@@ -397,24 +401,24 @@ Node::InsertionNotificationRequest SVGElement::InsertedInto(
 
 void SVGElement::RemovedFrom(ContainerNode& root_parent) {
   bool was_in_document = root_parent.isConnected();
-
+  auto* root_parent_svg_element = DynamicTo<SVGElement>(root_parent);
   if (was_in_document && HasRelativeLengths()) {
     // The root of the subtree being removed should take itself out from its
     // parent's relative length set. For the other nodes in the subtree we don't
     // need to do anything: they will get their own removedFrom() notification
     // and just clear their sets.
-    if (root_parent.IsSVGElement() && !parentNode()) {
-      DCHECK(ToSVGElement(root_parent)
-                 .elements_with_relative_lengths_.Contains(this));
-      ToSVGElement(root_parent).UpdateRelativeLengthsInformation(false, this);
+    if (root_parent_svg_element && !parentNode()) {
+      DCHECK(root_parent_svg_element->elements_with_relative_lengths_.Contains(
+          this));
+      root_parent_svg_element->UpdateRelativeLengthsInformation(false, this);
     }
 
     elements_with_relative_lengths_.clear();
   }
 
-  SECURITY_DCHECK(!root_parent.IsSVGElement() ||
-                  !ToSVGElement(root_parent)
-                       .elements_with_relative_lengths_.Contains(this));
+  SECURITY_DCHECK(
+      !root_parent_svg_element ||
+      !root_parent_svg_element->elements_with_relative_lengths_.Contains(this));
 
   Element::RemovedFrom(root_parent);
 
@@ -436,7 +440,7 @@ void SVGElement::ChildrenChanged(const ChildrenChange& change) {
 CSSPropertyID SVGElement::CssPropertyIdForSVGAttributeName(
     const QualifiedName& attr_name) {
   if (!attr_name.NamespaceURI().IsNull())
-    return CSSPropertyInvalid;
+    return CSSPropertyID::kInvalid;
 
   static HashMap<StringImpl*, CSSPropertyID>* property_name_to_id_map = nullptr;
   if (!property_name_to_id_map) {
@@ -505,7 +509,7 @@ CSSPropertyID SVGElement::CssPropertyIdForSVGAttributeName(
     };
     for (size_t i = 0; i < base::size(attr_names); i++) {
       CSSPropertyID property_id = cssPropertyID(attr_names[i]->LocalName());
-      DCHECK_GT(property_id, 0);
+      DCHECK_GT(property_id, CSSPropertyID::kInvalid);
       property_name_to_id_map->Set(attr_names[i]->LocalName().Impl(),
                                    property_id);
     }
@@ -536,25 +540,25 @@ void SVGElement::UpdateRelativeLengthsInformation(
   // relative length map.  Register the parent in the grandparents map, etc.
   // Repeat procedure until the root of the SVG tree.
   for (Node& current_node : NodeTraversal::InclusiveAncestorsOf(*this)) {
-    if (!current_node.IsSVGElement())
+    auto* current_element = DynamicTo<SVGElement>(current_node);
+    if (!current_element)
       break;
-    SVGElement& current_element = ToSVGElement(current_node);
 #if DCHECK_IS_ON()
-    DCHECK(!current_element.in_relative_length_clients_invalidation_);
+    DCHECK(!current_element->in_relative_length_clients_invalidation_);
 #endif
 
-    bool had_relative_lengths = current_element.HasRelativeLengths();
+    bool had_relative_lengths = current_element->HasRelativeLengths();
     if (client_has_relative_lengths)
-      current_element.elements_with_relative_lengths_.insert(client_element);
+      current_element->elements_with_relative_lengths_.insert(client_element);
     else
-      current_element.elements_with_relative_lengths_.erase(client_element);
+      current_element->elements_with_relative_lengths_.erase(client_element);
 
     // If the relative length state hasn't changed, we can stop propagating the
     // notification.
-    if (had_relative_lengths == current_element.HasRelativeLengths())
+    if (had_relative_lengths == current_element->HasRelativeLengths())
       return;
 
-    client_element = &current_element;
+    client_element = current_element;
     client_has_relative_lengths = client_element->HasRelativeLengths();
   }
 
@@ -579,7 +583,7 @@ void SVGElement::InvalidateRelativeLengthClients(
       &in_relative_length_clients_invalidation_, true);
 #endif
 
-  if (LayoutObject* layout_object = this->GetLayoutObject()) {
+  if (LayoutObject* layout_object = GetLayoutObject()) {
     if (HasRelativeLengths() && layout_object->IsSVGResourceContainer()) {
       ToLayoutSVGResourceContainer(layout_object)
           ->InvalidateCacheAndMarkForLayout(
@@ -616,7 +620,7 @@ SVGElement* SVGElement::viewportElement() const {
   ContainerNode* n = ParentOrShadowHostNode();
   while (n) {
     if (IsSVGSVGElement(*n) || IsSVGImageElement(*n) || IsSVGSymbolElement(*n))
-      return ToSVGElement(n);
+      return To<SVGElement>(n);
 
     n = n->ParentOrShadowHostNode();
   }
@@ -815,7 +819,7 @@ bool SVGElement::IsAnimatableCSSProperty(const QualifiedName& attr_name) {
 bool SVGElement::IsPresentationAttribute(const QualifiedName& name) const {
   if (const SVGAnimatedPropertyBase* property = PropertyFromAttribute(name))
     return property->HasPresentationAttributeMapping();
-  return CssPropertyIdForSVGAttributeName(name) > 0;
+  return CssPropertyIdForSVGAttributeName(name) > CSSPropertyID::kInvalid;
 }
 
 bool SVGElement::IsPresentationAttributeWithSVGDOM(
@@ -829,7 +833,7 @@ void SVGElement::CollectStyleForPresentationAttribute(
     const AtomicString& value,
     MutableCSSPropertyValueSet* style) {
   CSSPropertyID property_id = CssPropertyIdForSVGAttributeName(name);
-  if (property_id > 0)
+  if (property_id > CSSPropertyID::kInvalid)
     AddPropertyToPresentationAttributeStyle(style, property_id, value);
 }
 
@@ -935,10 +939,11 @@ void SVGElement::SendSVGLoadEventToSelfAndAncestorChainIfPossible() {
   if (GetDocument().LoadEventFinished())
     return;
 
-  if (!parent || !parent->IsSVGElement())
+  auto* svg_element = DynamicTo<SVGElement>(parent);
+  if (!svg_element)
     return;
 
-  ToSVGElement(parent)->SendSVGLoadEventToSelfAndAncestorChainIfPossible();
+  svg_element->SendSVGLoadEventToSelfAndAncestorChainIfPossible();
 }
 
 void SVGElement::AttributeChanged(const AttributeModificationParams& params) {
@@ -962,7 +967,7 @@ void SVGElement::AttributeChanged(const AttributeModificationParams& params) {
 void SVGElement::SvgAttributeChanged(const QualifiedName& attr_name) {
   CSSPropertyID prop_id =
       SVGElement::CssPropertyIdForSVGAttributeName(attr_name);
-  if (prop_id > 0) {
+  if (prop_id > CSSPropertyID::kInvalid) {
     InvalidateInstances();
     return;
   }
@@ -1027,7 +1032,8 @@ void SVGElement::SynchronizeAnimatedSVGAttribute(
 }
 
 scoped_refptr<ComputedStyle> SVGElement::CustomStyleForLayoutObject() {
-  if (!CorrespondingElement())
+  // TODO(http://crbug.com/953263): Eliminate isConnected check.
+  if (!CorrespondingElement() || !CorrespondingElement()->isConnected())
     return GetDocument().EnsureStyleResolver().StyleForElement(this);
 
   const ComputedStyle* style = nullptr;
@@ -1320,6 +1326,11 @@ void SVGElement::Trace(blink::Visitor* visitor) {
   visitor->Trace(svg_rare_data_);
   visitor->Trace(class_name_);
   Element::Trace(visitor);
+}
+
+void SVGElement::AccessKeyAction(bool send_mouse_events) {
+  DispatchSimulatedClick(
+      nullptr, send_mouse_events ? kSendMouseUpDownEvents : kSendNoEvents);
 }
 
 }  // namespace blink

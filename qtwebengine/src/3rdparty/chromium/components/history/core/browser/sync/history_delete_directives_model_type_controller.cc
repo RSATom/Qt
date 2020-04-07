@@ -18,13 +18,13 @@ HistoryDeleteDirectivesModelTypeController::
     HistoryDeleteDirectivesModelTypeController(
         const base::RepeatingClosure& dump_stack,
         syncer::SyncService* sync_service,
+        syncer::ModelTypeStoreService* model_type_store_service,
         syncer::SyncClient* sync_client)
     : SyncableServiceBasedModelTypeController(
           syncer::HISTORY_DELETE_DIRECTIVES,
-          sync_client->GetModelTypeStoreService()->GetStoreFactory(),
-          base::BindOnce(&syncer::SyncClient::GetSyncableServiceForType,
-                         base::Unretained(sync_client),
-                         syncer::HISTORY_DELETE_DIRECTIVES),
+          model_type_store_service->GetStoreFactory(),
+          sync_client->GetSyncableServiceForType(
+              syncer::HISTORY_DELETE_DIRECTIVES),
           dump_stack),
       sync_service_(sync_service) {}
 
@@ -41,10 +41,6 @@ void HistoryDeleteDirectivesModelTypeController::LoadModels(
     const ModelLoadCallback& model_load_callback) {
   DCHECK(CalledOnValidThread());
   DCHECK_EQ(NOT_RUNNING, state());
-
-  if (DisableTypeIfNecessary()) {
-    return;
-  }
 
   sync_service_->AddObserver(this);
   SyncableServiceBasedModelTypeController::LoadModels(configure_context,
@@ -65,27 +61,8 @@ void HistoryDeleteDirectivesModelTypeController::Stop(
 void HistoryDeleteDirectivesModelTypeController::OnStateChanged(
     syncer::SyncService* sync) {
   DCHECK(CalledOnValidThread());
-  DisableTypeIfNecessary();
-}
-
-bool HistoryDeleteDirectivesModelTypeController::DisableTypeIfNecessary() {
-  DCHECK(CalledOnValidThread());
-
-  if (!sync_service_->IsSyncFeatureActive()) {
-    return false;
-  }
-
-  if (ReadyForStart()) {
-    return false;
-  }
-
-  sync_service_->RemoveObserver(this);
-
-  ReportModelError(
-      syncer::SyncError::DATATYPE_POLICY_ERROR,
-      syncer::ModelError(FROM_HERE,
-                         "Delete directives not supported with encryption."));
-  return true;
+  // Most of these calls will be no-ops but SyncService handles that just fine.
+  sync_service_->ReadyForStartChanged(type());
 }
 
 }  // namespace browser_sync

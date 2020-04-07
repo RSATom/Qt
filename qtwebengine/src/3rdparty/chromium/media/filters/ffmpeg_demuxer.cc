@@ -33,7 +33,9 @@
 #include "media/base/limits.h"
 #include "media/base/media_log.h"
 #include "media/base/media_tracks.h"
+#include "media/base/media_types.h"
 #include "media/base/sample_rates.h"
+#include "media/base/supported_types.h"
 #include "media/base/timestamp_constants.h"
 #include "media/base/video_codecs.h"
 #include "media/base/webvtt_util.h"
@@ -131,33 +133,10 @@ static void UmaHistogramAspectRatio(const char* name, const T& size) {
       base::CustomHistogram::ArrayToCustomEnumRanges(kCommonAspectRatios100));
 }
 
-// Record detected track counts by type corresponding to a src= playback.
-// Counts are split into 50 buckets, capped into [0,100] range.
-static void RecordDetectedTrackTypeStats(int audio_count,
-                                         int video_count,
-                                         int text_count) {
-  UMA_HISTOGRAM_COUNTS_100("Media.DetectedTrackCount.Audio", audio_count);
-  UMA_HISTOGRAM_COUNTS_100("Media.DetectedTrackCount.Video", video_count);
-  UMA_HISTOGRAM_COUNTS_100("Media.DetectedTrackCount.Text", text_count);
-}
-
 // Record audio decoder config UMA stats corresponding to a src= playback.
 static void RecordAudioCodecStats(const AudioDecoderConfig& audio_config) {
   UMA_HISTOGRAM_ENUMERATION("Media.AudioCodec", audio_config.codec(),
                             kAudioCodecMax + 1);
-  UMA_HISTOGRAM_ENUMERATION("Media.AudioSampleFormat",
-                            audio_config.sample_format(), kSampleFormatMax + 1);
-  UMA_HISTOGRAM_ENUMERATION("Media.AudioChannelLayout",
-                            audio_config.channel_layout(),
-                            CHANNEL_LAYOUT_MAX + 1);
-  AudioSampleRate asr;
-  if (ToAudioSampleRate(audio_config.samples_per_second(), &asr)) {
-    UMA_HISTOGRAM_ENUMERATION("Media.AudioSamplesPerSecond", asr,
-                              kAudioSampleRateMax + 1);
-  } else {
-    UMA_HISTOGRAM_COUNTS_1M("Media.AudioSamplesPerSecondUnexpected",
-                            audio_config.samples_per_second());
-  }
 }
 
 // Record video decoder config UMA stats corresponding to a src= playback.
@@ -189,8 +168,6 @@ static void RecordVideoCodecStats(container_names::MediaContainerName container,
                              video_config.visible_rect().width());
   UmaHistogramAspectRatio("Media.VideoVisibleAspectRatio",
                           video_config.visible_rect());
-  UMA_HISTOGRAM_ENUMERATION("Media.VideoPixelFormatUnion",
-                            video_config.format(), PIXEL_FORMAT_MAX + 1);
 
   // TODO(hubbe): make better color space statistics
 
@@ -252,16 +229,15 @@ std::unique_ptr<FFmpegDemuxerStream> FFmpegDemuxerStream::Create(
   if (stream->codecpar->codec_type == AVMEDIA_TYPE_AUDIO) {
     audio_config.reset(new AudioDecoderConfig());
 
-    // IsValidConfig() checks that the codec is supported and that the channel
-    // layout and sample format are valid.
-    //
     // TODO(chcunningham): Change AVStreamToAudioDecoderConfig to check
     // IsValidConfig internally and return a null scoped_ptr if not valid.
     if (!AVStreamToAudioDecoderConfig(stream, audio_config.get()) ||
-        !audio_config->IsValidConfig()) {
+        !audio_config->IsValidConfig() ||
+        !IsSupportedAudioType(AudioType::FromDecoderConfig(*audio_config))) {
       MEDIA_LOG(DEBUG, media_log) << "Warning, FFmpegDemuxer failed to create "
-                                     "a valid audio decoder configuration from "
-                                     "muxed stream";
+                                     "a valid/supported audio decoder "
+                                     "configuration from muxed stream, config:"
+                                  << audio_config->AsHumanReadableString();
       return nullptr;
     }
 
@@ -270,16 +246,15 @@ std::unique_ptr<FFmpegDemuxerStream> FFmpegDemuxerStream::Create(
   } else if (stream->codecpar->codec_type == AVMEDIA_TYPE_VIDEO) {
     video_config.reset(new VideoDecoderConfig());
 
-    // IsValidConfig() checks that the codec is supported and that the channel
-    // layout and sample format are valid.
-    //
     // TODO(chcunningham): Change AVStreamToVideoDecoderConfig to check
     // IsValidConfig internally and return a null scoped_ptr if not valid.
     if (!AVStreamToVideoDecoderConfig(stream, video_config.get()) ||
-        !video_config->IsValidConfig()) {
+        !video_config->IsValidConfig() ||
+        !IsSupportedVideoType(VideoType::FromDecoderConfig(*video_config))) {
       MEDIA_LOG(DEBUG, media_log) << "Warning, FFmpegDemuxer failed to create "
-                                     "a valid video decoder configuration from "
-                                     "muxed stream";
+                                     "a valid/supported video decoder "
+                                     "configuration from muxed stream, config:"
+                                  << video_config->AsHumanReadableString();
       return nullptr;
     }
 
@@ -570,7 +545,8 @@ void FFmpegDemuxerStream::EnqueuePacket(ScopedAVPacket packet) {
   const base::TimeDelta stream_timestamp =
       ConvertStreamTimestamp(stream_->time_base, packet->pts);
 
-  if (stream_timestamp == kNoTimestamp) {
+  if (stream_timestamp == kNoTimestamp ||
+      stream_timestamp == kInfiniteDuration) {
     MEDIA_LOG(ERROR, media_log_) << "FFmpegDemuxer: PTS is not defined";
     demuxer_->NotifyDemuxerError(DEMUXER_ERROR_COULD_NOT_PARSE);
     return;
@@ -600,14 +576,12 @@ void FFmpegDemuxerStream::EnqueuePacket(ScopedAVPacket packet) {
       buffer->discard_padding() == DecoderBuffer::DiscardPadding()) {
     buffer->set_discard_padding(
         std::make_pair(kInfiniteDuration, base::TimeDelta()));
-    if (buffer->timestamp() < base::TimeDelta()) {
-      // These timestamps should never be used, but to ensure they are dropped
-      // correctly give them unique timestamps.
-      buffer->set_timestamp(last_packet_timestamp_ == kNoTimestamp
-                                ? base::TimeDelta()
-                                : last_packet_timestamp_ +
-                                      base::TimeDelta::FromMicroseconds(1));
-    }
+    // These timestamps should never be used, but to ensure they are dropped
+    // correctly give them unique timestamps.
+    buffer->set_timestamp(last_packet_timestamp_ == kNoTimestamp
+                              ? base::TimeDelta()
+                              : last_packet_timestamp_ +
+                                    base::TimeDelta::FromMicroseconds(1));
   }
 
   // Only allow negative timestamps past if we know they'll be fixed up by the
@@ -774,6 +748,10 @@ void FFmpegDemuxerStream::Read(const ReadCB& read_cb) {
   }
 
   SatisfyPendingRead();
+}
+
+bool FFmpegDemuxerStream::IsReadPending() const {
+  return !read_cb_.is_null();
 }
 
 void FFmpegDemuxerStream::EnableBitstreamConverter() {
@@ -946,9 +924,7 @@ FFmpegDemuxer::FFmpegDemuxer(
       duration_known_(false),
       encrypted_media_init_data_cb_(encrypted_media_init_data_cb),
       media_tracks_updated_cb_(media_tracks_updated_cb),
-      is_local_file_(is_local_file),
-      cancel_pending_seek_factory_(this),
-      weak_factory_(this) {
+      is_local_file_(is_local_file) {
   DCHECK(task_runner_.get());
   DCHECK(data_source_);
   DCHECK(media_tracks_updated_cb_);
@@ -1032,7 +1008,7 @@ void FFmpegDemuxer::AbortPendingReads() {
   // Aborting the read may cause EOF to be marked, undo this.
   blocking_task_runner_->PostTask(
       FROM_HERE,
-      base::Bind(&UnmarkEndOfStreamAndClearError, glue_->format_context()));
+      base::BindOnce(&UnmarkEndOfStreamAndClearError, glue_->format_context()));
   pending_read_ = false;
 
   // TODO(dalecurtis): We probably should report PIPELINE_ERROR_ABORT here
@@ -1314,9 +1290,6 @@ void FFmpegDemuxer::OnFindStreamInfoDone(int result) {
   start_time_ = kInfiniteDuration;
 
   base::TimeDelta max_duration;
-  int detected_audio_track_count = 0;
-  int detected_video_track_count = 0;
-  int detected_text_track_count = 0;
   int supported_audio_track_count = 0;
   int supported_video_track_count = 0;
   bool has_opus_or_vorbis_audio = false;
@@ -1341,8 +1314,6 @@ void FFmpegDemuxer::OnFindStreamInfoDone(int result) {
         base::UmaHistogramSparse("Media.DetectedAudioCodecHash.Local",
                                  codec_hash);
       }
-
-      detected_audio_track_count++;
     } else if (codec_type == AVMEDIA_TYPE_VIDEO) {
       // Log the codec detected, whether it is supported or not, and whether or
       // not we have already detected a supported codec in another stream.
@@ -1352,7 +1323,6 @@ void FFmpegDemuxer::OnFindStreamInfoDone(int result) {
         base::UmaHistogramSparse("Media.DetectedVideoCodecHash.Local",
                                  codec_hash);
       }
-      detected_video_track_count++;
 
 #if BUILDFLAG(ENABLE_HEVC_DEMUXING)
       if (codec_id == AV_CODEC_ID_HEVC) {
@@ -1369,7 +1339,6 @@ void FFmpegDemuxer::OnFindStreamInfoDone(int result) {
       }
 #endif
     } else if (codec_type == AVMEDIA_TYPE_SUBTITLE) {
-      detected_text_track_count++;
       stream->discard = AVDISCARD_ALL;
       continue;
     } else {
@@ -1401,12 +1370,14 @@ void FFmpegDemuxer::OnFindStreamInfoDone(int result) {
 
     StreamParser::TrackId track_id =
         static_cast<StreamParser::TrackId>(media_tracks->tracks().size() + 1);
-    std::string track_label = streams_[i]->GetMetadata("handler_name");
-    std::string track_language = streams_[i]->GetMetadata("language");
+    auto track_label =
+        MediaTrack::Label(streams_[i]->GetMetadata("handler_name"));
+    auto track_language =
+        MediaTrack::Language(streams_[i]->GetMetadata("language"));
 
     // Some metadata is named differently in FFmpeg for webm files.
     if (glue_->container() == container_names::CONTAINER_WEBM)
-      track_label = streams_[i]->GetMetadata("title");
+      track_label = MediaTrack::Label(streams_[i]->GetMetadata("title"));
 
     if (codec_type == AVMEDIA_TYPE_AUDIO) {
       ++supported_audio_track_count;
@@ -1418,6 +1389,9 @@ void FFmpegDemuxer::OnFindStreamInfoDone(int result) {
                               base::TimeDelta());
     }
 
+    // TODO(chcunningham): Remove the IsValidConfig() checks below. If the
+    // config isn't valid we shouldn't have created a demuxer stream nor
+    // an entry in |media_tracks|, so the check should always be true.
     if ((codec_type == AVMEDIA_TYPE_AUDIO &&
          media_tracks->getAudioConfig(track_id).IsValidConfig()) ||
         (codec_type == AVMEDIA_TYPE_VIDEO &&
@@ -1435,9 +1409,10 @@ void FFmpegDemuxer::OnFindStreamInfoDone(int result) {
       AudioDecoderConfig audio_config = streams_[i]->audio_decoder_config();
       RecordAudioCodecStats(audio_config);
 
-      media_track = media_tracks->AddAudioTrack(audio_config, track_id, "main",
+      media_track = media_tracks->AddAudioTrack(audio_config, track_id,
+                                                MediaTrack::Kind("main"),
                                                 track_label, track_language);
-      media_track->set_id(base::UintToString(track_id));
+      media_track->set_id(MediaTrack::Id(base::NumberToString(track_id)));
       DCHECK(track_id_to_demux_stream_map_.find(media_track->id()) ==
              track_id_to_demux_stream_map_.end());
       track_id_to_demux_stream_map_[media_track->id()] = streams_[i].get();
@@ -1447,9 +1422,10 @@ void FFmpegDemuxer::OnFindStreamInfoDone(int result) {
       RecordVideoCodecStats(glue_->container(), video_config,
                             stream->codecpar->color_range, media_log_);
 
-      media_track = media_tracks->AddVideoTrack(video_config, track_id, "main",
+      media_track = media_tracks->AddVideoTrack(video_config, track_id,
+                                                MediaTrack::Kind("main"),
                                                 track_label, track_language);
-      media_track->set_id(base::UintToString(track_id));
+      media_track->set_id(MediaTrack::Id(base::NumberToString(track_id)));
       DCHECK(track_id_to_demux_stream_map_.find(media_track->id()) ==
              track_id_to_demux_stream_map_.end());
       track_id_to_demux_stream_map_[media_track->id()] = streams_[i].get();
@@ -1480,10 +1456,6 @@ void FFmpegDemuxer::OnFindStreamInfoDone(int result) {
 
     streams_[i]->set_start_time(start_time);
   }
-
-  RecordDetectedTrackTypeStats(detected_audio_track_count,
-                               detected_video_track_count,
-                               detected_text_track_count);
 
   if (media_tracks->tracks().empty()) {
     MEDIA_LOG(ERROR, media_log_) << GetDisplayName()
@@ -1602,7 +1574,7 @@ void FFmpegDemuxer::LogMetadata(AVFormatContext* avctx,
       ++audio_track_count;
       std::string suffix = "";
       if (audio_track_count > 1)
-        suffix = "_track" + base::IntToString(audio_track_count);
+        suffix = "_track" + base::NumberToString(audio_track_count);
       const AVCodecParameters* audio_parameters = avctx->streams[i]->codecpar;
       const AudioDecoderConfig& audio_config = stream->audio_decoder_config();
       params.SetString("audio_codec_name" + suffix,
@@ -1617,7 +1589,7 @@ void FFmpegDemuxer::LogMetadata(AVFormatContext* avctx,
       ++video_track_count;
       std::string suffix = "";
       if (video_track_count > 1)
-        suffix = "_track" + base::IntToString(video_track_count);
+        suffix = "_track" + base::NumberToString(video_track_count);
       const AVStream* video_av_stream = avctx->streams[i];
       const AVCodecParameters* video_parameters = video_av_stream->codecpar;
       const VideoDecoderConfig& video_config = stream->video_decoder_config();
@@ -1633,8 +1605,6 @@ void FFmpegDemuxer::LogMetadata(AVFormatContext* avctx,
           base::StringPrintf("%d/%d", video_av_stream->time_base.num,
                              video_av_stream->time_base.den));
 
-      params.SetString("video_format" + suffix,
-                       VideoPixelFormatToString(video_config.format()));
       params.SetBoolean("video_is_encrypted" + suffix,
                         video_config.is_encrypted());
     }

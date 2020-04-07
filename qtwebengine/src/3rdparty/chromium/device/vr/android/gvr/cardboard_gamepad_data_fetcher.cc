@@ -11,19 +11,6 @@
 
 namespace device {
 
-namespace {
-
-void CopyToUString(UChar* dest, size_t dest_length, base::string16 src) {
-  static_assert(sizeof(base::string16::value_type) == sizeof(UChar),
-                "Mismatched string16/WebUChar size.");
-
-  const size_t str_to_copy = std::min(src.size(), dest_length - 1);
-  memcpy(dest, src.data(), str_to_copy * sizeof(base::string16::value_type));
-  dest[str_to_copy] = 0;
-}
-
-}  // namespace
-
 CardboardGamepadDataFetcher::Factory::Factory(
     CardboardGamepadDataProvider* data_provider,
     device::mojom::XRDeviceId display_id)
@@ -86,10 +73,8 @@ void CardboardGamepadDataFetcher::GetGamepadData(bool devices_changed_hint) {
     // initialization
     pad.connected = true;
     pad.is_xr = true;
-    CopyToUString(pad.id, Gamepad::kIdLengthCap,
-                  base::UTF8ToUTF16("Cardboard Button"));
-    CopyToUString(pad.mapping, Gamepad::kMappingLengthCap,
-                  base::UTF8ToUTF16(""));
+    pad.mapping = GamepadMapping::kNone;
+    pad.SetID(base::UTF8ToUTF16("Cardboard Button"));
     pad.buttons_length = 1;
     pad.axes_length = 0;
 

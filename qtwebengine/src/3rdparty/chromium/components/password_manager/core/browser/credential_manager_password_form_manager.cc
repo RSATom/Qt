@@ -7,6 +7,7 @@
 #include <memory>
 #include <utility>
 
+#include "base/bind.h"
 #include "base/callback.h"
 #include "base/macros.h"
 #include "base/threading/sequenced_task_runner_handle.h"
@@ -21,45 +22,29 @@ namespace password_manager {
 
 CredentialManagerPasswordFormManager::CredentialManagerPasswordFormManager(
     PasswordManagerClient* client,
-    const PasswordForm& observed_form,
-    std::unique_ptr<autofill::PasswordForm> saved_form,
+    std::unique_ptr<PasswordForm> saved_form,
     CredentialManagerPasswordFormManagerDelegate* delegate,
     std::unique_ptr<FormSaver> form_saver,
     std::unique_ptr<FormFetcher> form_fetcher)
-    : PasswordFormManager(client->GetPasswordManager(),
-                          client,
-                          nullptr,
-                          observed_form,
-                          (form_saver ? std::move(form_saver)
-                                      : std::make_unique<FormSaverImpl>(
-                                            client->GetPasswordStore())),
-                          form_fetcher.get()),
-      delegate_(delegate),
-      saved_form_(std::move(saved_form)),
-      weak_factory_(this) {
-  DCHECK(saved_form_);
-  // This condition is only false on iOS.
-  if (form_fetcher)
-    form_fetcher->Fetch();
-  GrabFetcher(std::move(form_fetcher));
-}
+    : NewPasswordFormManager(client,
+                             std::move(saved_form),
+                             std::move(form_fetcher),
+                             (form_saver ? std::move(form_saver)
+                                         : std::make_unique<FormSaverImpl>(
+                                               client->GetPasswordStore()))),
+      delegate_(delegate) {}
 
-CredentialManagerPasswordFormManager::~CredentialManagerPasswordFormManager() {
-}
+CredentialManagerPasswordFormManager::~CredentialManagerPasswordFormManager() =
+    default;
 
-void CredentialManagerPasswordFormManager::ProcessMatches(
-    const std::vector<const PasswordForm*>& non_federated,
-    size_t filtered_count) {
-  PasswordFormManager::ProcessMatches(non_federated, filtered_count);
+void CredentialManagerPasswordFormManager::OnFetchCompleted() {
+  NewPasswordFormManager::OnFetchCompleted();
 
-  // Mark the form as "preferred", as we've been told by the API that this is
-  // indeed the credential set that the user used to sign into the site.
-  saved_form_->preferred = true;
-  ProvisionallySave(*saved_form_);
+  CreatePendingCredentials();
 
   // Notify the delegate. This might result in deleting |this|, while
-  // ProcessMatches is being called from FormFetcherImpl, owned by |this|. If
-  // done directly, once ProcessMatches returns, the FormFetcherImpl will be
+  // OnFetchCompleted is being called from FormFetcherImpl, owned by |this|. If
+  // done directly, once OnFetchCompleted returns, the FormFetcherImpl will be
   // used after free. Therefore the call is posted to a separate task.
   base::SequencedTaskRunnerHandle::Get()->PostTask(
       FROM_HERE,

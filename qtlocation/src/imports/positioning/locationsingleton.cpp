@@ -363,7 +363,7 @@ QGeoPolygon LocationSingleton::shapeToPolygon(const QGeoShape &shape) const
 /*!
     \qmlmethod coordinate QtPositioning::mercatorToCoord(point mercator) const
 
-    Converts a mercator coordinate into a latitude-longitude coordinate.
+    Converts a \a mercator coordinate into a latitude-longitude coordinate.
 
     \sa {coordToMercator}
     \since 5.12

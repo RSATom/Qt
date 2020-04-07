@@ -233,6 +233,7 @@
 
 /*!
   \fn QPatternist::ListIteratorPlatform::ListIteratorPlatform(const ListType &list)
+  \internal
 
   Constructs a ListIteratorPlatform that walks the given \a list.
  */

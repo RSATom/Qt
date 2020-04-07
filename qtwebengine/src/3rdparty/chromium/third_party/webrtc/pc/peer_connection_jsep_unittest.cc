@@ -8,12 +8,9 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#include "api/audio_codecs/builtin_audio_decoder_factory.h"
-#include "api/audio_codecs/builtin_audio_encoder_factory.h"
-#include "api/video_codecs/builtin_video_decoder_factory.h"
-#include "api/video_codecs/builtin_video_encoder_factory.h"
+#include "api/task_queue/default_task_queue_factory.h"
 #include "media/engine/webrtc_media_engine.h"
-#include "modules/audio_processing/include/audio_processing.h"
+#include "media/engine/webrtc_media_engine_defaults.h"
 #include "pc/media_session.h"
 #include "pc/peer_connection_factory.h"
 #include "pc/peer_connection_wrapper.h"
@@ -38,28 +35,29 @@ namespace webrtc {
 
 using cricket::MediaContentDescription;
 using RTCConfiguration = PeerConnectionInterface::RTCConfiguration;
-using ::testing::Values;
 using ::testing::Combine;
 using ::testing::ElementsAre;
 using ::testing::UnorderedElementsAre;
+using ::testing::Values;
 
 class PeerConnectionFactoryForJsepTest : public PeerConnectionFactory {
  public:
   PeerConnectionFactoryForJsepTest()
-      : PeerConnectionFactory(rtc::Thread::Current(),
-                              rtc::Thread::Current(),
-                              rtc::Thread::Current(),
-                              cricket::WebRtcMediaEngineFactory::Create(
-                                  rtc::scoped_refptr<AudioDeviceModule>(
-                                      FakeAudioCaptureModule::Create()),
-                                  CreateBuiltinAudioEncoderFactory(),
-                                  CreateBuiltinAudioDecoderFactory(),
-                                  CreateBuiltinVideoEncoderFactory(),
-                                  CreateBuiltinVideoDecoderFactory(),
-                                  nullptr,
-                                  AudioProcessingBuilder().Create()),
-                              CreateCallFactory(),
-                              nullptr) {}
+      : PeerConnectionFactory([] {
+          PeerConnectionFactoryDependencies dependencies;
+          dependencies.worker_thread = rtc::Thread::Current();
+          dependencies.network_thread = rtc::Thread::Current();
+          dependencies.signaling_thread = rtc::Thread::Current();
+          dependencies.task_queue_factory = CreateDefaultTaskQueueFactory();
+          cricket::MediaEngineDependencies media_deps;
+          media_deps.task_queue_factory = dependencies.task_queue_factory.get();
+          media_deps.adm = FakeAudioCaptureModule::Create();
+          SetMediaEngineDefaults(&media_deps);
+          dependencies.media_engine =
+              cricket::CreateMediaEngine(std::move(media_deps));
+          dependencies.call_factory = CreateCallFactory();
+          return dependencies;
+        }()) {}
 
   std::unique_ptr<cricket::SctpTransportInternalFactory>
   CreateSctpTransportInternalFactory() {
@@ -708,7 +706,7 @@ TEST_F(PeerConnectionJsepTest, CreateOfferRecyclesWhenOfferingTwice) {
 // - The new transceiver is associated with the new MID value.
 class RecycleMediaSectionTest
     : public PeerConnectionJsepTest,
-      public testing::WithParamInterface<
+      public ::testing::WithParamInterface<
           std::tuple<cricket::MediaType, cricket::MediaType>> {
  protected:
   RecycleMediaSectionTest() {
@@ -1065,7 +1063,7 @@ TEST_P(RecycleMediaSectionTest, PendingRemoteRejectedAndNotRejectedLocal) {
 // for the media section. This is needed for full test coverage because
 // MediaSession has separate functions for processing audio and video media
 // sections.
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     PeerConnectionJsepTest,
     RecycleMediaSectionTest,
     Combine(Values(cricket::MEDIA_TYPE_AUDIO, cricket::MEDIA_TYPE_VIDEO),
@@ -1692,6 +1690,24 @@ TEST_F(PeerConnectionJsepTest, LegacyNoMidAudioVideoAnswer) {
   ClearMids(answer.get());
 
   ASSERT_TRUE(caller->SetRemoteDescription(std::move(answer)));
+}
+
+// Test that negotiation works with legacy endpoints which do not support a=mid
+// when setting two remote descriptions without setting a local description in
+// between.
+TEST_F(PeerConnectionJsepTest, LegacyNoMidTwoRemoteOffers) {
+  auto caller = CreatePeerConnection();
+  caller->AddAudioTrack("audio");
+  auto callee = CreatePeerConnection();
+  callee->AddAudioTrack("audio");
+
+  auto offer = caller->CreateOffer();
+  ClearMids(offer.get());
+
+  ASSERT_TRUE(
+      callee->SetRemoteDescription(CloneSessionDescription(offer.get())));
+  ASSERT_TRUE(callee->SetRemoteDescription(std::move(offer)));
+  EXPECT_TRUE(callee->SetLocalDescription(callee->CreateAnswer()));
 }
 
 // Test that SetLocalDescription fails if a=mid lines are missing.

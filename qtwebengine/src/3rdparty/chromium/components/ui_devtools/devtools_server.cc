@@ -26,7 +26,7 @@ namespace ui_devtools {
 
 namespace {
 const char kChromeDeveloperToolsPrefix[] =
-    "chrome-devtools://devtools/bundled/devtools_app.html?ws=";
+    "devtools://devtools/bundled/devtools_app.html?ws=";
 }  // namespace
 
 UiDevToolsServer* UiDevToolsServer::devtools_server_ = nullptr;
@@ -75,7 +75,7 @@ const net::NetworkTrafficAnnotationTag UiDevToolsServer::kVizDevtoolsServerTag =
 
 UiDevToolsServer::UiDevToolsServer(int port,
                                    net::NetworkTrafficAnnotationTag tag)
-    : port_(port), tag_(tag), weak_ptr_factory_(this) {
+    : port_(port), tag_(tag) {
   DCHECK(!devtools_server_);
   devtools_server_ = this;
 }
@@ -168,7 +168,7 @@ void UiDevToolsServer::AttachClient(std::unique_ptr<UiDevToolsClient> client) {
 }
 
 void UiDevToolsServer::SendOverWebSocket(int connection_id,
-                                         const String& message) {
+                                         base::StringPiece message) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(devtools_server_sequence_);
   server_->SendOverWebSocket(connection_id, message, tag_);
 }
@@ -214,8 +214,7 @@ void UiDevToolsServer::OnWebSocketRequest(
   server_->AcceptWebSocket(connection_id, info, tag_);
 }
 
-void UiDevToolsServer::OnWebSocketMessage(int connection_id,
-                                          const std::string& data) {
+void UiDevToolsServer::OnWebSocketMessage(int connection_id, std::string data) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(devtools_server_sequence_);
   auto it = connections_.find(connection_id);
   DCHECK(it != connections_.end());

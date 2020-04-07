@@ -8,6 +8,7 @@
 #include <string>
 #include <utility>
 
+#include "base/bind.h"
 #include "base/location.h"
 #include "base/logging.h"
 #include "base/macros.h"
@@ -193,8 +194,7 @@ class MockTriggerableClientSocket : public TransportClientSocket {
       : should_connect_(should_connect),
         is_connected_(false),
         addrlist_(addrlist),
-        net_log_(NetLogWithSource::Make(net_log, NetLogSourceType::SOCKET)),
-        weak_factory_(this) {}
+        net_log_(NetLogWithSource::Make(net_log, NetLogSourceType::SOCKET)) {}
 
   // Call this method to get a closure which will trigger the connect callback
   // when called. The closure can be called even after the socket is deleted; it
@@ -321,7 +321,7 @@ class MockTriggerableClientSocket : public TransportClientSocket {
   CompletionOnceCallback callback_;
   ConnectionAttempts connection_attempts_;
 
-  base::WeakPtrFactory<MockTriggerableClientSocket> weak_factory_;
+  base::WeakPtrFactory<MockTriggerableClientSocket> weak_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(MockTriggerableClientSocket);
 };
@@ -370,7 +370,7 @@ MockTransportClientSocketFactory::MockTransportClientSocketFactory(
     : net_log_(net_log),
       allocation_count_(0),
       client_socket_type_(MOCK_CLIENT_SOCKET),
-      client_socket_types_(NULL),
+      client_socket_types_(nullptr),
       client_socket_index_(0),
       client_socket_index_max_(0),
       delay_(base::TimeDelta::FromMilliseconds(
@@ -443,17 +443,17 @@ MockTransportClientSocketFactory::CreateTransportClientSocket(
 
 std::unique_ptr<SSLClientSocket>
 MockTransportClientSocketFactory::CreateSSLClientSocket(
-    std::unique_ptr<ClientSocketHandle> transport_socket,
+    SSLClientContext* context,
+    std::unique_ptr<StreamSocket> stream_socket,
     const HostPortPair& host_and_port,
-    const SSLConfig& ssl_config,
-    const SSLClientSocketContext& context) {
+    const SSLConfig& ssl_config) {
   NOTIMPLEMENTED();
-  return std::unique_ptr<SSLClientSocket>();
+  return nullptr;
 }
 
 std::unique_ptr<ProxyClientSocket>
 MockTransportClientSocketFactory::CreateProxyClientSocket(
-    std::unique_ptr<ClientSocketHandle> transport_socket,
+    std::unique_ptr<StreamSocket> stream_socket,
     const std::string& user_agent,
     const HostPortPair& endpoint,
     const ProxyServer& proxy_server,
@@ -462,14 +462,9 @@ MockTransportClientSocketFactory::CreateProxyClientSocket(
     bool using_spdy,
     NextProto negotiated_protocol,
     ProxyDelegate* proxy_delegate,
-    bool is_https_proxy,
     const NetworkTrafficAnnotationTag& traffic_annotation) {
   NOTIMPLEMENTED();
   return nullptr;
-}
-
-void MockTransportClientSocketFactory::ClearSSLSessionCache() {
-  NOTIMPLEMENTED();
 }
 
 void MockTransportClientSocketFactory::set_client_socket_types(

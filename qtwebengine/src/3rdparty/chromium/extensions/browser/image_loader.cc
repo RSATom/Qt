@@ -10,6 +10,7 @@
 #include <utility>
 #include <vector>
 
+#include "base/bind.h"
 #include "base/callback.h"
 #include "base/compiler_specific.h"
 #include "base/files/file_util.h"
@@ -110,13 +111,15 @@ std::vector<SkBitmap> LoadResourceBitmaps(
     DCHECK(it->resource.relative_path().empty() ||
            extension->path() == it->resource.extension_root());
 
-    int resource_id;
+    int resource_id = 0;
     if (extension->location() == Manifest::COMPONENT) {
       const extensions::ComponentExtensionResourceManager* manager =
           extensions::ExtensionsBrowserClient::Get()
               ->GetComponentExtensionResourceManager();
-      if (manager && manager->IsComponentExtensionResource(
+      if (manager &&
+          manager->IsComponentExtensionResource(
               extension->path(), it->resource.relative_path(), &resource_id)) {
+        DCHECK(!ui::ResourceBundle::GetSharedInstance().IsGzipped(resource_id));
         LoadResourceOnUIThread(resource_id, &bitmaps[i]);
       }
     }
@@ -208,9 +211,7 @@ std::vector<ImageLoader::LoadResult> LoadImagesBlocking(
 ////////////////////////////////////////////////////////////////////////////////
 // ImageLoader
 
-ImageLoader::ImageLoader()
-    : weak_ptr_factory_(this) {
-}
+ImageLoader::ImageLoader() {}
 
 ImageLoader::~ImageLoader() {
 }

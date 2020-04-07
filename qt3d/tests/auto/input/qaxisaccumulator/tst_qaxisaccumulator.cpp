@@ -35,10 +35,6 @@
 #include <Qt3DInput/qaxisaccumulator.h>
 #include <Qt3DInput/private/qaxisaccumulator_p.h>
 
-#include <Qt3DCore/QPropertyUpdatedChange>
-#include <Qt3DCore/QPropertyNodeAddedChange>
-#include <Qt3DCore/QPropertyNodeRemovedChange>
-
 #include "testpostmanarbiter.h"
 
 class tst_QAxisAccumulator: public Qt3DInput::QAxisAccumulator
@@ -131,69 +127,31 @@ private Q_SLOTS:
 
         // WHEN
         accumulator->setSourceAxis(axis);
-        QCoreApplication::processEvents();
 
         // THEN
-        QCOMPARE(arbiter.events.size(), 1);
-        Qt3DCore::QPropertyUpdatedChangePtr change = arbiter.events.first().staticCast<Qt3DCore::QPropertyUpdatedChange>();
-        QCOMPARE(change->propertyName(), "sourceAxis");
-        QCOMPARE(change->value().value<Qt3DCore::QNodeId>(), axis->id());
-        QCOMPARE(change->type(), Qt3DCore::PropertyUpdated);
+        QCOMPARE(arbiter.dirtyNodes.size(), 1);
+        QCOMPARE(arbiter.dirtyNodes.front(), accumulator.data());
 
-        arbiter.events.clear();
+        arbiter.dirtyNodes.clear();
+
 
         // WHEN
         accumulator->setScale(2.0f);
-        QCoreApplication::processEvents();
 
         // THEN
-        QCOMPARE(arbiter.events.size(), 1);
-        change = arbiter.events.first().staticCast<Qt3DCore::QPropertyUpdatedChange>();
-        QCOMPARE(change->propertyName(), "scale");
-        QCOMPARE(change->value().toFloat(), 2.0f);
-        QCOMPARE(change->type(), Qt3DCore::PropertyUpdated);
+        QCOMPARE(arbiter.dirtyNodes.size(), 1);
+        QCOMPARE(arbiter.dirtyNodes.front(), accumulator.data());
 
-        arbiter.events.clear();
+        arbiter.dirtyNodes.clear();
 
         // WHEN
         accumulator->setSourceAxisType(Qt3DInput::QAxisAccumulator::Acceleration);
-        QCoreApplication::processEvents();
 
         // THEN
-        QCOMPARE(arbiter.events.size(), 1);
-        change = arbiter.events.first().staticCast<Qt3DCore::QPropertyUpdatedChange>();
-        QCOMPARE(change->propertyName(), "sourceAxisType");
-        QCOMPARE(change->value().value<Qt3DInput::QAxisAccumulator::SourceAxisType>(), Qt3DInput::QAxisAccumulator::Acceleration);
-        QCOMPARE(change->type(), Qt3DCore::PropertyUpdated);
+        QCOMPARE(arbiter.dirtyNodes.size(), 1);
+        QCOMPARE(arbiter.dirtyNodes.front(), accumulator.data());
 
-        arbiter.events.clear();
-    }
-
-    void checkValuePropertyChanged()
-    {
-        // GIVEN
-        QCOMPARE(value(), 0.0f);
-
-        // Note: simulate backend change to frontend
-        // WHEN
-        Qt3DCore::QPropertyUpdatedChangePtr valueChange(new Qt3DCore::QPropertyUpdatedChange(Qt3DCore::QNodeId()));
-        valueChange->setPropertyName("value");
-        valueChange->setValue(383.0f);
-        sceneChangeEvent(valueChange);
-
-        // THEN
-        QCOMPARE(value(), 383.0f);
-        QCOMPARE(velocity(), 0.0f);
-
-        // WHEN
-        valueChange = QSharedPointer<Qt3DCore::QPropertyUpdatedChange>::create(Qt3DCore::QNodeId());
-        valueChange->setPropertyName("velocity");
-        valueChange->setValue(123.0f);
-        sceneChangeEvent(valueChange);
-
-        // THEN
-        QCOMPARE(value(), 383.0f);
-        QCOMPARE(velocity(), 123.0f);
+        arbiter.dirtyNodes.clear();
     }
 
     void checkAxisInputBookkeeping()

@@ -5,17 +5,13 @@
 source_set("main") {
   configs += [ "//build/config/compiler:enable_arc" ]
   sources = [
-    "browser_coordinator.h",
-    "browser_coordinator.mm",
     "browser_interface_provider.h",
     "browser_view_wrangler.h",
     "browser_view_wrangler.mm",
     "bvc_container_view_controller.h",
     "bvc_container_view_controller.mm",
-    "view_controller_swapping.h",
   ]
   deps = [
-    ":tab_switcher",
     "//base",
     "//components/translate/core/browser",
     "//ios/chrome/app/resources:launchscreen_xib",
@@ -29,6 +25,7 @@ source_set("main") {
     "//ios/chrome/browser/download",
     "//ios/chrome/browser/download:features",
     "//ios/chrome/browser/main",
+    "//ios/chrome/browser/reading_list",
     "//ios/chrome/browser/sessions",
     "//ios/chrome/browser/sessions:serialisation",
     "//ios/chrome/browser/store_kit",
@@ -38,6 +35,7 @@ source_set("main") {
     "//ios/chrome/browser/ui/app_launcher",
     "//ios/chrome/browser/ui/autofill",
     "//ios/chrome/browser/ui/browser_container",
+    "//ios/chrome/browser/ui/browser_view",
     "//ios/chrome/browser/ui/commands",
     "//ios/chrome/browser/ui/coordinators:chrome_coordinators",
     "//ios/chrome/browser/ui/download",
@@ -48,6 +46,7 @@ source_set("main") {
     "//ios/chrome/browser/ui/recent_tabs",
     "//ios/chrome/browser/ui/snackbar",
     "//ios/chrome/browser/ui/translate",
+    "//ios/chrome/browser/url_loading",
     "//ios/chrome/browser/web",
     "//ios/chrome/browser/web:tab_helper_delegates",
     "//ios/chrome/browser/web:web_internal",
@@ -55,24 +54,7 @@ source_set("main") {
     "//ios/public/provider/chrome/browser",
     "//net",
   ]
-  public_deps = [
-    "//ios/chrome/browser/ui:ui_internal",
-  ]
   libs = [ "UIKit.framework" ]
-}
-
-source_set("tab_switcher") {
-  configs += [ "//build/config/compiler:enable_arc" ]
-  sources = [
-    "tab_switcher.h",
-  ]
-  deps = [
-    "//base",
-    "//ios/chrome/browser/ui",
-    "//ios/chrome/browser/ui/commands",
-    "//ui/base",
-    "//url",
-  ]
 }
 
 source_set("unit_tests") {
@@ -83,14 +65,13 @@ source_set("unit_tests") {
   ]
   deps = [
     ":main",
-    ":tab_switcher",
     "//base",
     "//base/test:test_support",
     "//components/bookmarks/test",
     "//ios/chrome/browser/bookmarks",
     "//ios/chrome/browser/browser_state:test_support",
     "//ios/chrome/browser/tabs",
-    "//ios/chrome/browser/ui:ui_internal",
+    "//ios/chrome/browser/ui/browser_view",
     "//ios/chrome/test:block_cleanup_test",
     "//ios/web/public/test",
     "//testing/gtest",

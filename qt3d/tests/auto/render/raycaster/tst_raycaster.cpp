@@ -32,7 +32,6 @@
 #include <Qt3DRender/qpickevent.h>
 #include <Qt3DRender/qraycaster.h>
 #include <Qt3DCore/private/qbackendnode_p.h>
-#include <Qt3DCore/qpropertyupdatedchange.h>
 #include "testpostmanarbiter.h"
 #include "testrenderer.h"
 
@@ -44,6 +43,7 @@ private Q_SLOTS:
     void checkPeerPropertyMirroring()
     {
         // GIVEN
+        TestRenderer renderer;
         Qt3DRender::Render::RayCaster rayCaster;
         Qt3DRender::QRayCaster caster;
         caster.setRunMode(Qt3DRender::QRayCaster::Continuous);
@@ -52,7 +52,8 @@ private Q_SLOTS:
         caster.setLength(42.f);
 
         // WHEN
-        simulateInitialization(&caster, &rayCaster);
+        rayCaster.setRenderer(&renderer);
+        simulateInitializationSync(&caster, &rayCaster);
 
         // THEN
         QVERIFY(!rayCaster.peerId().isNull());
@@ -65,6 +66,7 @@ private Q_SLOTS:
     void checkInitialAndCleanedUpState()
     {
         // GIVEN
+        TestRenderer renderer;
         Qt3DRender::Render::RayCaster rayCaster;
 
         // THEN
@@ -76,7 +78,8 @@ private Q_SLOTS:
         caster.setRunMode(Qt3DRender::QRayCaster::Continuous);
 
         // WHEN
-        simulateInitialization(&caster, &rayCaster);
+        rayCaster.setRenderer(&renderer);
+        simulateInitializationSync(&caster, &rayCaster);
         rayCaster.cleanup();
 
         // THEN
@@ -88,39 +91,19 @@ private Q_SLOTS:
         // GIVEN
         TestRenderer renderer;
         {
+            Qt3DRender::QRayCaster caster;
             Qt3DRender::Render::RayCaster rayCaster;
             rayCaster.setRenderer(&renderer);
+            simulateInitializationSync(&caster, &rayCaster);
 
             // WHEN
-            Qt3DCore::QPropertyUpdatedChangePtr updateChange(new Qt3DCore::QPropertyUpdatedChange(Qt3DCore::QNodeId()));
-            updateChange->setValue(Qt3DRender::QRayCaster::Continuous);
-            updateChange->setPropertyName("runMode");
-            rayCaster.sceneChangeEvent(updateChange);
+            caster.setRunMode(Qt3DRender::QRayCaster::Continuous);
+            rayCaster.syncFromFrontEnd(&caster, false);
 
             // THEN
             QCOMPARE(rayCaster.runMode(), Qt3DRender::QRayCaster::Continuous);
             QVERIFY(renderer.dirtyBits() != 0);
         }
-    }
-
-    void checkBackendPropertyNotifications()
-    {
-        // GIVEN
-        TestArbiter arbiter;
-        Qt3DRender::Render::RayCaster rayCaster;
-        Qt3DCore::QBackendNodePrivate::get(&rayCaster)->setArbiter(&arbiter);
-        Qt3DRender::QAbstractRayCaster::Hits hits;
-
-        // WHEN
-        rayCaster.dispatchHits(hits);
-
-        // THEN
-        QCOMPARE(arbiter.events.count(), 2);
-        Qt3DCore::QPropertyUpdatedChangePtr change = arbiter.events.first().staticCast<Qt3DCore::QPropertyUpdatedChange>();
-        QCOMPARE(change->propertyName(), "hits");
-        QVERIFY(!rayCaster.isEnabled());
-
-        arbiter.events.clear();
     }
 };
 

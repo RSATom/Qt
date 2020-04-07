@@ -30,7 +30,6 @@
 #include <Qt3DAnimation/qskeletonmapping.h>
 #include <Qt3DAnimation/private/qskeletonmapping_p.h>
 #include <Qt3DCore/qskeleton.h>
-#include <Qt3DCore/qpropertyupdatedchange.h>
 #include <Qt3DCore/qentity.h>
 #include <Qt3DCore/qnodecreatedchange.h>
 #include <Qt3DCore/private/qnodecreatedchangegenerator_p.h>
@@ -149,23 +148,18 @@ private Q_SLOTS:
             // WHEN
             auto target = new Qt3DCore::QSkeleton();
             mapping.setSkeleton(target);
-            QCoreApplication::processEvents();
 
             // THEN
-            QCOMPARE(arbiter.events.size(), 1);
-            auto change = arbiter.events.first().staticCast<Qt3DCore::QPropertyUpdatedChange>();
-            QCOMPARE(change->propertyName(), "skeleton");
-            QCOMPARE(change->type(), Qt3DCore::PropertyUpdated);
-            QCOMPARE(change->value().value<Qt3DCore::QNodeId>(), mapping.skeleton()->id());
+            QCOMPARE(arbiter.dirtyNodes.size(), 1);
+            QCOMPARE(arbiter.dirtyNodes.front(), &mapping);
 
-            arbiter.events.clear();
+            arbiter.dirtyNodes.clear();
 
             // WHEN
             mapping.setSkeleton(target);
-            QCoreApplication::processEvents();
 
             // THEN
-            QCOMPARE(arbiter.events.size(), 0);
+            QCOMPARE(arbiter.dirtyNodes.size(), 0);
         }
     }
 };

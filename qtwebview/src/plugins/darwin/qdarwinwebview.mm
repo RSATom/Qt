@@ -467,4 +467,17 @@ void QDarwinWebViewPrivate::runJavaScriptPrivate(const QString &script, int call
     }];
 }
 
+QString QDarwinWebViewPrivate::httpUserAgent() const
+{
+    return QString::fromNSString(wkWebView.customUserAgent);
+}
+
+void QDarwinWebViewPrivate::setHttpUserAgent(const QString &userAgent)
+{
+    if (!userAgent.isEmpty()) {
+        wkWebView.customUserAgent = userAgent.toNSString();
+    }
+    Q_EMIT httpUserAgentChanged(userAgent);
+}
+
 QT_END_NAMESPACE

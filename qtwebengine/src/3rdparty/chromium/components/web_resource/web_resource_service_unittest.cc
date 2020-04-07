@@ -87,7 +87,7 @@ class TestWebResourceService : public WebResourceService {
                                [](network::NetworkConnectionTracker* tracker) {
                                  return tracker;
                                },
-                               network_connection_tracker)){};
+                               network_connection_tracker)) {}
 
   void Unpack(const base::DictionaryValue& parsed_json) override {}
 };
@@ -129,13 +129,12 @@ class WebResourceServiceTest : public testing::Test {
   }
 
   static void Parse(const std::string& unsafe_json,
-                    const WebResourceService::SuccessCallback& success_callback,
-                    const WebResourceService::ErrorCallback& error_callback) {
-    std::unique_ptr<base::Value> value;
+                    WebResourceService::SuccessCallback success_callback,
+                    WebResourceService::ErrorCallback error_callback) {
     if (!error_message_.empty())
-      error_callback.Run(error_message_);
+      std::move(error_callback).Run(error_message_);
     else
-      success_callback.Run(std::move(value));
+      std::move(success_callback).Run(base::Value());
   }
 
   WebResourceService* web_resource_service() {

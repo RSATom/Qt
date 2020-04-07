@@ -45,6 +45,7 @@
 #include "third_party/blink/renderer/core/typed_arrays/dom_array_piece.h"
 #include "third_party/blink/renderer/core/typed_arrays/dom_typed_array.h"
 #include "third_party/blink/renderer/modules/crypto/crypto_utilities.h"
+#include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 #include "third_party/blink/renderer/platform/wtf/math_extras.h"
 #include "third_party/blink/renderer/platform/wtf/text/string_builder.h"
 #include "third_party/blink/renderer/platform/wtf/vector.h"
@@ -220,6 +221,8 @@ void SetNotSupportedError(const String& message, AlgorithmError* error) {
 // parsing of the algorithm dictionary can be recursive and it is difficult to
 // tell what went wrong from a failure alone.
 class ErrorContext {
+  STACK_ALLOCATED();
+
  public:
   void Add(const char* message) { messages_.push_back(message); }
 
@@ -346,7 +349,7 @@ bool GetBigInteger(const Dictionary& raw,
   if (!GetUint8Array(raw, property_name, bytes, context, error))
     return false;
 
-  if (bytes.IsEmpty()) {
+  if (bytes.empty()) {
     // Empty BigIntegers represent 0 according to the spec
     bytes = WebVector<uint8_t>(static_cast<size_t>(1u));
     DCHECK_EQ(0u, bytes[0]);

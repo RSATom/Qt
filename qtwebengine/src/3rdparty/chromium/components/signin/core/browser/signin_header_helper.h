@@ -10,8 +10,8 @@
 #include <vector>
 
 #include "components/prefs/pref_member.h"
-#include "components/signin/core/browser/account_consistency_method.h"
-#include "components/signin/core/browser/signin_buildflags.h"
+#include "components/signin/public/base/account_consistency_method.h"
+#include "components/signin/public/base/signin_buildflags.h"
 #include "url/gurl.h"
 
 namespace content_settings {
@@ -40,12 +40,13 @@ extern const char kDiceResponseHeader[];
 // The ServiceType specified by Gaia in the response header accompanying the 204
 // response. This indicates the action Chrome is supposed to lead the user to
 // perform.
-enum GAIAServiceType {
+// A Java counterpart will be generated for this enum.
+// GENERATED_JAVA_ENUM_PACKAGE: org.chromium.components.signin
+enum GAIAServiceType : int {
   GAIA_SERVICE_TYPE_NONE = 0,    // No Gaia response header.
   GAIA_SERVICE_TYPE_SIGNOUT,     // Logout all existing sessions.
   GAIA_SERVICE_TYPE_INCOGNITO,   // Open an incognito tab.
   GAIA_SERVICE_TYPE_ADDSESSION,  // Add a secondary account.
-  GAIA_SERVICE_TYPE_REAUTH,      // Re-authenticate an account.
   GAIA_SERVICE_TYPE_SIGNUP,      // Create a new account.
   GAIA_SERVICE_TYPE_DEFAULT,     // All other cases.
 };
@@ -180,7 +181,7 @@ class SigninHeaderHelper {
       const content_settings::CookieSettings* cookie_settings) = 0;
 
  protected:
-  explicit SigninHeaderHelper(const std::string& histogram_suffix);
+  SigninHeaderHelper();
   virtual ~SigninHeaderHelper();
 
   // Dictionary of fields in a account consistency response header.
@@ -194,13 +195,6 @@ class SigninHeaderHelper {
  private:
   // Returns whether the url is eligible for the request header.
   virtual bool IsUrlEligibleForRequestHeader(const GURL& url) = 0;
-
-  // Returns a string that can be used as a histogram name. Its value ios
-  // "|histogram_name|.|histogram_suffix_|".
-  std::string GetSuffixedHistogramName(const std::string& histogram_name);
-
-  // Suffix to be used by the histograms recodered by this SigninHeaderHelper.
-  std::string histogram_suffix_;
 
   DISALLOW_COPY_AND_ASSIGN(SigninHeaderHelper);
 };
@@ -235,7 +229,6 @@ bool AppendOrRemoveDiceRequestHeader(
     const GURL& redirect_url,
     const std::string& account_id,
     bool sync_enabled,
-    bool sync_has_auth_error,
     AccountConsistencyMethod account_consistency,
     const content_settings::CookieSettings* cookie_settings,
     const std::string& device_id);

@@ -34,7 +34,7 @@ AuditorResult::AuditorResult(Type type,
          type == AuditorResult::Type::ERROR_INVALID_OS);
   if (!message.empty())
     details_.push_back(message);
-};
+}
 
 AuditorResult::AuditorResult(Type type, const std::string& message)
     : AuditorResult::AuditorResult(type,
@@ -49,7 +49,6 @@ AuditorResult::AuditorResult(Type type)
                                    kNoCodeLineSpecified) {}
 
 AuditorResult::AuditorResult(const AuditorResult& other) = default;
-;
 
 AuditorResult::~AuditorResult() = default;
 
@@ -180,6 +179,12 @@ std::string AuditorResult::ToText() const {
           "Annotation '%s' has a deprecation date and at least one active OS "
           "at %s.",
           details_[0].c_str(), file_path_.c_str());
+
+    case AuditorResult::Type::ERROR_MUTABLE_TAG:
+      return base::StringPrintf(
+          "Calling CreateMutableNetworkTrafficAnnotationTag() is not "
+          "whitelisted at '%s:%i'",
+          file_path_.c_str(), line_);
 
     default:
       return std::string();

@@ -24,7 +24,8 @@ interface AppService {
       string app_id,
       IconKey icon_key,
       IconCompression icon_compression,
-      int32 size_hint_in_dip) => (IconValue icon_value);
+      int32 size_hint_in_dip,
+      bool allow_placeholder_icon) => (IconValue icon_value);
 
   // App Runner methods.
   Launch(
@@ -57,7 +58,8 @@ interface Publisher {
       string app_id,
       IconKey icon_key,
       IconCompression icon_compression,
-      int32 size_hint_in_dip) => (IconValue icon_value);
+      int32 size_hint_in_dip,
+      bool allow_placeholder_icon) => (IconValue icon_value);
 
   // App Runner methods.
   Launch(

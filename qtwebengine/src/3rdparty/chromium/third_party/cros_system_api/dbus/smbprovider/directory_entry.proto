@@ -58,8 +58,15 @@ message DirectoryEntryListProto { repeated DirectoryEntryProto entries = 1; }
 
 // Used for passing inputs into SmbProvider.Mount().
 message MountOptionsProto {
-  // Path of the share to be mounted. (e.g. "smb://qnap/testshare")
+  // Path of the share to be mounted (e.g. "smb://qnap/testshare"). Must be of
+  // the form "smb://hostname/sharename", and may have the hostname resolved to
+  // an IP address (e.g. "smb://192.168.3.142/testshare").
   optional string path = 1;
+  // Original path of the share to be mounted. Must be of the form
+  // "smb://hostname/sharename", and must have the hostname as entered by the
+  // user and not resolved to an IP address (unless the user entered an IP
+  // address as the hostname).
+  optional string original_path = 6;
 
   // Authentication parameters.
   optional string workgroup = 2;
@@ -67,6 +74,19 @@ message MountOptionsProto {
 
   // Mount options set by the client.
   optional MountConfigProto mount_config = 4;
+
+  // Skip attempting to connect to the share, and instead just register the
+  // mount.
+  optional bool skip_connect = 5;
+
+  // Username hash of the mounting profile.
+  optional string account_hash = 7;
+
+  // Save the password on successful mount. Requires |skip_connect| = false.
+  optional bool save_password = 8;
+
+  // Use a saved password.
+  optional bool restore_password = 9;
 }
 
 message MountConfigProto {
@@ -79,6 +99,9 @@ message MountConfigProto {
 message UnmountOptionsProto {
   // ID of the mount returned from Mount().
   optional int32 mount_id = 1;
+
+  // Remove any saved password for the mount.
+  optional bool remove_password = 2;
 }
 
 // Used for passing inputs into SmbProvider.ReadDirectory().
@@ -226,21 +249,6 @@ message GetSharesOptionsProto {
   optional string server_url = 1;
 }
 
-// Used for passing inputs into SmbProvider.Remount().
-message RemountOptionsProto {
-  // Path of the share to be remounted. (e.g. "smb://192.168.0.1/testshare")
-  optional string path = 1;
-  // ID to assign to the mount.
-  optional int32 mount_id = 2;
-
-  // Authentication parameters.
-  optional string workgroup = 3;
-  optional string username = 4;
-
-  // Mount options set by the client.
-  optional MountConfigProto mount_config = 5;
-}
-
 // Used for returning a list of hostnames from a parsed NetBios response packet.
 message HostnamesProto {
   repeated string hostnames = 1;
@@ -256,11 +264,11 @@ message UpdateMountCredentialsOptionsProto {
   optional string username = 3;
 }
 
-// Used for passing inputs into Smbprovider.Premount().
-message PremountOptionsProto {
-  // Share path URL of the mount.
-  optional string path = 1;
+// Used for passing inputs into Smbprovider.UpdateSharePath().
+message UpdateSharePathOptionsProto {
+  // Mount ID of the mount to be updated.
+  optional int32 mount_id = 1;
 
-  // Mount options set by the client.
-  optional MountConfigProto mount_config = 2;
+  // Share path of the mount to be updated.
+  optional string path = 2;
 }

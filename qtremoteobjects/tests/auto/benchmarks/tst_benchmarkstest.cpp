@@ -262,7 +262,7 @@ void BenchmarksTest::benchModelLinearAccess()
                     QThread::usleep(10);
                     continue;
                 }
-                foreach (int role, roles) {
+                for (int role : roles) {
                     QVariant data = model->data(model->index(row, 0), role);
                     switch (role) {
                     case Qt::DisplayRole:
@@ -334,7 +334,7 @@ void BenchmarksTest::benchModelRandomAccess()
                     QThread::yieldCurrentThread(); // instead to wait
                     continue;
                 }
-                foreach (int role, roles) {
+                for (int role : roles) {
                     QVariant data = model->data(model->index(row, 0), role);
                     switch (role) {
                     case Qt::DisplayRole:

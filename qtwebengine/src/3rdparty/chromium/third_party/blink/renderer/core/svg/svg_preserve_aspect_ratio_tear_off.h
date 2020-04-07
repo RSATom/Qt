@@ -73,22 +73,14 @@ class SVGPreserveAspectRatioTearOff final
     kSvgMeetorsliceSlice = SVGPreserveAspectRatio::kSvgMeetorsliceSlice
   };
 
-  static SVGPreserveAspectRatioTearOff* Create(
-      SVGPreserveAspectRatio* target,
-      SVGAnimatedPropertyBase* binding,
-      PropertyIsAnimValType property_is_anim_val) {
-    return MakeGarbageCollected<SVGPreserveAspectRatioTearOff>(
-        target, binding, property_is_anim_val);
-  }
-
   SVGPreserveAspectRatioTearOff(SVGPreserveAspectRatio*,
                                 SVGAnimatedPropertyBase* binding,
                                 PropertyIsAnimValType);
 
-  void setAlign(unsigned short, ExceptionState&);
-  unsigned short align() { return Target()->Align(); }
-  void setMeetOrSlice(unsigned short, ExceptionState&);
-  unsigned short meetOrSlice() { return Target()->MeetOrSlice(); }
+  void setAlign(uint16_t, ExceptionState&);
+  uint16_t align() { return Target()->Align(); }
+  void setMeetOrSlice(uint16_t, ExceptionState&);
+  uint16_t meetOrSlice() { return Target()->MeetOrSlice(); }
 };
 
 }  // namespace blink

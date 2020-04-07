@@ -94,6 +94,7 @@ class PPB_Graphics3D_Impl : public ppapi::PPB_Graphics3D_Shared,
       const gpu::SwapBuffersCompleteParams& params) final;
   void OnSwapBufferPresented(uint64_t swap_id,
                              const gfx::PresentationFeedback& feedback) final {}
+  void OnGpuControlReturnData(base::span<const uint8_t> data) final;
 
   // Other notifications from the GPU process.
   void OnSwapBuffers();
@@ -123,7 +124,7 @@ class PPB_Graphics3D_Impl : public ppapi::PPB_Graphics3D_Shared,
   const bool use_image_chromium_;
   std::unique_ptr<gpu::CommandBufferProxyImpl> command_buffer_;
 
-  base::WeakPtrFactory<PPB_Graphics3D_Impl> weak_ptr_factory_;
+  base::WeakPtrFactory<PPB_Graphics3D_Impl> weak_ptr_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(PPB_Graphics3D_Impl);
 };

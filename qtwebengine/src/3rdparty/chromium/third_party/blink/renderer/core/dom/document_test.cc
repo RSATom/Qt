@@ -34,31 +34,36 @@
 
 #include "base/strings/stringprintf.h"
 #include "build/build_config.h"
-#include "services/network/public/mojom/referrer_policy.mojom-shared.h"
+#include "services/network/public/mojom/referrer_policy.mojom-blink.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
-#include "third_party/blink/public/platform/web_application_cache_host.h"
 #include "third_party/blink/renderer/bindings/core/v8/isolated_world_csp.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_binding_for_core.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_binding_for_testing.h"
+#include "third_party/blink/renderer/core/css/media_query_list_listener.h"
+#include "third_party/blink/renderer/core/css/media_query_matcher.h"
 #include "third_party/blink/renderer/core/dom/document_fragment.h"
 #include "third_party/blink/renderer/core/dom/node_with_index.h"
 #include "third_party/blink/renderer/core/dom/range.h"
 #include "third_party/blink/renderer/core/dom/synchronous_mutation_observer.h"
 #include "third_party/blink/renderer/core/dom/text.h"
+#include "third_party/blink/renderer/core/frame/csp/content_security_policy.h"
 #include "third_party/blink/renderer/core/frame/local_frame_view.h"
 #include "third_party/blink/renderer/core/frame/settings.h"
 #include "third_party/blink/renderer/core/frame/viewport_data.h"
 #include "third_party/blink/renderer/core/html/forms/html_input_element.h"
 #include "third_party/blink/renderer/core/html/html_head_element.h"
 #include "third_party/blink/renderer/core/html/html_link_element.h"
-#include "third_party/blink/renderer/core/loader/appcache/application_cache_host.h"
+#include "third_party/blink/renderer/core/loader/appcache/application_cache_host_for_frame.h"
 #include "third_party/blink/renderer/core/loader/document_loader.h"
 #include "third_party/blink/renderer/core/page/page.h"
 #include "third_party/blink/renderer/core/page/validation_message_client.h"
 #include "third_party/blink/renderer/core/testing/page_test_base.h"
 #include "third_party/blink/renderer/platform/heap/handle.h"
+#include "third_party/blink/renderer/platform/heap/heap.h"
+#include "third_party/blink/renderer/platform/mojo/interface_invalidator.h"
 #include "third_party/blink/renderer/platform/testing/runtime_enabled_features_test_helpers.h"
+#include "third_party/blink/renderer/platform/testing/unit_test_helpers.h"
 #include "third_party/blink/renderer/platform/weborigin/scheme_registry.h"
 #include "third_party/blink/renderer/platform/weborigin/security_origin.h"
 #include "third_party/blink/renderer/platform/wtf/text/string_builder.h"
@@ -67,7 +72,10 @@ namespace blink {
 
 class DocumentTest : public PageTestBase {
  protected:
-  void TearDown() override { ThreadState::Current()->CollectAllGarbage(); }
+  void TearDown() override {
+    ThreadState::Current()->CollectAllGarbageForTesting();
+    PageTestBase::TearDown();
+  }
 
   void SetHtmlInnerHTML(const char*);
 };
@@ -315,27 +323,35 @@ class MockDocumentValidationMessageClient
   void DocumentDetached(const Document&) override {
     document_detached_was_called = true;
   }
+  void DidChangeFocusTo(const Element*) override {}
   void WillBeDestroyed() override {}
 
   // virtual void Trace(Visitor* visitor) {
   // ValidationMessageClient::trace(visitor); }
 };
 
-class MockWebApplicationCacheHost : public blink::WebApplicationCacheHost {
+class MockApplicationCacheHost final : public ApplicationCacheHostForFrame {
  public:
-  MockWebApplicationCacheHost() = default;
-  ~MockWebApplicationCacheHost() override = default;
+  MockApplicationCacheHost(DocumentLoader* loader)
+      : ApplicationCacheHostForFrame(loader,
+                                     /*interface_broker=*/nullptr,
+                                     /*task_runner=*/nullptr) {}
+  ~MockApplicationCacheHost() override = default;
 
   void SelectCacheWithoutManifest() override {
     without_manifest_was_called_ = true;
   }
-  bool SelectCacheWithManifest(const blink::WebURL& manifestURL) override {
-    with_manifest_was_called_ = true;
-    return true;
-  }
 
-  bool with_manifest_was_called_ = false;
   bool without_manifest_was_called_ = false;
+};
+
+class PrefersColorSchemeTestListener final : public MediaQueryListListener {
+ public:
+  void NotifyMediaQueryChanged() override { notified_ = true; }
+  bool IsNotified() const { return notified_; }
+
+ private:
+  bool notified_ = false;
 };
 
 }  // anonymous namespace
@@ -420,13 +436,15 @@ TEST_F(DocumentTest, LinkManifest) {
   EXPECT_EQ(nullptr, GetDocument().LinkManifest());
 
   // Check that we use the first manifest with <link rel=manifest>
-  auto* link = HTMLLinkElement::Create(GetDocument(), CreateElementFlags());
+  auto* link = MakeGarbageCollected<HTMLLinkElement>(GetDocument(),
+                                                     CreateElementFlags());
   link->setAttribute(blink::html_names::kRelAttr, "manifest");
   link->setAttribute(blink::html_names::kHrefAttr, "foo.json");
   GetDocument().head()->AppendChild(link);
   EXPECT_EQ(link, GetDocument().LinkManifest());
 
-  auto* link2 = HTMLLinkElement::Create(GetDocument(), CreateElementFlags());
+  auto* link2 = MakeGarbageCollected<HTMLLinkElement>(GetDocument(),
+                                                      CreateElementFlags());
   link2->setAttribute(blink::html_names::kRelAttr, "manifest");
   link2->setAttribute(blink::html_names::kHrefAttr, "bar.json");
   GetDocument().head()->InsertBefore(link2, link);
@@ -547,15 +565,14 @@ TEST_F(DocumentTest, referrerPolicyParsing) {
 }
 
 TEST_F(DocumentTest, OutgoingReferrer) {
-  GetDocument().SetURL(KURL("https://www.example.com/hoge#fuga?piyo"));
-  GetDocument().SetSecurityOrigin(
-      SecurityOrigin::Create(KURL("https://www.example.com/")));
+  NavigateTo(KURL("https://www.example.com/hoge#fuga?piyo"));
   EXPECT_EQ("https://www.example.com/hoge", GetDocument().OutgoingReferrer());
 }
 
 TEST_F(DocumentTest, OutgoingReferrerWithUniqueOrigin) {
-  GetDocument().SetURL(KURL("https://www.example.com/hoge#fuga?piyo"));
-  GetDocument().SetSecurityOrigin(SecurityOrigin::CreateUniqueOpaque());
+  NavigateTo(KURL("https://www.example.com/hoge#fuga?piyo"), "",
+             "sandbox allow-scripts");
+  EXPECT_TRUE(GetDocument().GetSecurityOrigin()->IsOpaque());
   EXPECT_EQ(String(), GetDocument().OutgoingReferrer());
 }
 
@@ -589,16 +606,11 @@ TEST_F(DocumentTest, StyleVersion) {
 }
 
 TEST_F(DocumentTest, EnforceSandboxFlags) {
-  scoped_refptr<SecurityOrigin> origin =
-      SecurityOrigin::CreateFromString("http://example.test");
-  GetDocument().SetSecurityOrigin(origin);
-  SandboxFlags mask = kSandboxNavigation;
-  GetDocument().EnforceSandboxFlags(mask);
-  EXPECT_EQ(origin, GetDocument().GetSecurityOrigin());
+  NavigateTo(KURL("http://example.test/"), "", "sandbox allow-same-origin");
+  EXPECT_FALSE(GetDocument().GetSecurityOrigin()->IsOpaque());
   EXPECT_FALSE(GetDocument().GetSecurityOrigin()->IsPotentiallyTrustworthy());
 
-  mask |= kSandboxOrigin;
-  GetDocument().EnforceSandboxFlags(mask);
+  NavigateTo(KURL("http://example.test/"), "", "sandbox");
   EXPECT_TRUE(GetDocument().GetSecurityOrigin()->IsOpaque());
   EXPECT_FALSE(GetDocument().GetSecurityOrigin()->IsPotentiallyTrustworthy());
 
@@ -608,22 +620,16 @@ TEST_F(DocumentTest, EnforceSandboxFlags) {
                          url::SchemeType::SCHEME_WITH_HOST);
   SchemeRegistry::RegisterURLSchemeBypassingSecureContextCheck(
       "very-special-scheme");
-  origin =
-      SecurityOrigin::CreateFromString("very-special-scheme://example.test");
-  GetDocument().SetSecurityOrigin(origin);
-  GetDocument().EnforceSandboxFlags(mask);
+  NavigateTo(KURL("very-special-scheme://example.test"), "", "sandbox");
   EXPECT_TRUE(GetDocument().GetSecurityOrigin()->IsOpaque());
   EXPECT_FALSE(GetDocument().GetSecurityOrigin()->IsPotentiallyTrustworthy());
 
   SchemeRegistry::RegisterURLSchemeAsSecure("very-special-scheme");
-  GetDocument().SetSecurityOrigin(origin);
-  GetDocument().EnforceSandboxFlags(mask);
+  NavigateTo(KURL("very-special-scheme://example.test"), "", "sandbox");
   EXPECT_TRUE(GetDocument().GetSecurityOrigin()->IsOpaque());
   EXPECT_TRUE(GetDocument().GetSecurityOrigin()->IsPotentiallyTrustworthy());
 
-  origin = SecurityOrigin::CreateFromString("https://example.test");
-  GetDocument().SetSecurityOrigin(origin);
-  GetDocument().EnforceSandboxFlags(mask);
+  NavigateTo(KURL("https://example.test"), "", "sandbox");
   EXPECT_TRUE(GetDocument().GetSecurityOrigin()->IsOpaque());
   EXPECT_TRUE(GetDocument().GetSecurityOrigin()->IsPotentiallyTrustworthy());
 }
@@ -710,7 +716,7 @@ TEST_F(DocumentTest, SynchronousMutationNotifierMoveTreeToNewDocument) {
   move_sample->appendChild(GetDocument().createTextNode("b456"));
   GetDocument().body()->AppendChild(move_sample);
 
-  Document& another_document = *Document::CreateForTest();
+  Document& another_document = *MakeGarbageCollected<Document>();
   another_document.AppendChild(move_sample);
 
   EXPECT_EQ(1u, observer.MoveTreeToNewDocumentNodes().size());
@@ -862,8 +868,8 @@ TEST_F(DocumentTest, ValidationMessageCleanup) {
   EXPECT_TRUE(mock_client->show_validation_message_was_called);
   mock_client->Reset();
 
-  // prepareForCommit() unloads the document, and shutdown.
-  GetDocument().GetFrame()->PrepareForCommit();
+  // DetachDocument() unloads the document, and shutdowns.
+  GetDocument().GetFrame()->DetachDocument();
   EXPECT_TRUE(mock_client->document_detached_was_called);
   // Unload handler tried to show a validation message, but it should fail.
   EXPECT_FALSE(mock_client->show_validation_message_was_called);
@@ -872,22 +878,16 @@ TEST_F(DocumentTest, ValidationMessageCleanup) {
 }
 
 TEST_F(DocumentTest, SandboxDisablesAppCache) {
-  scoped_refptr<SecurityOrigin> origin =
-      SecurityOrigin::CreateFromString("https://test.com");
-  GetDocument().SetSecurityOrigin(origin);
-  SandboxFlags mask = kSandboxOrigin;
-  GetDocument().EnforceSandboxFlags(mask);
-  GetDocument().SetURL(KURL("https://test.com/foobar/document"));
+  NavigateTo(KURL("https://test.com/foobar/document"), "", "sandbox");
 
+  GetDocument().Loader()->SetApplicationCacheHostForTesting(
+      MakeGarbageCollected<MockApplicationCacheHost>(GetDocument().Loader()));
   ApplicationCacheHost* appcache_host =
       GetDocument().Loader()->GetApplicationCacheHost();
-  appcache_host->host_ = std::make_unique<MockWebApplicationCacheHost>();
   appcache_host->SelectCacheWithManifest(
       KURL("https://test.com/foobar/manifest"));
-  MockWebApplicationCacheHost* mock_web_host =
-      static_cast<MockWebApplicationCacheHost*>(appcache_host->host_.get());
-  EXPECT_FALSE(mock_web_host->with_manifest_was_called_);
-  EXPECT_TRUE(mock_web_host->without_manifest_was_called_);
+  auto* mock_host = static_cast<MockApplicationCacheHost*>(appcache_host);
+  EXPECT_TRUE(mock_host->without_manifest_was_called_);
 }
 
 // Verifies that calling EnsurePaintLocationDataValidForNode cleans compositor
@@ -982,11 +982,10 @@ TEST_F(DocumentTest, InterfaceInvalidatorDestruction) {
 // Test fixture parameterized on whether the "IsolatedWorldCSP" feature is
 // enabled.
 class IsolatedWorldCSPTest : public DocumentTest,
-                             public testing::WithParamInterface<bool> {
+                             public testing::WithParamInterface<bool>,
+                             private ScopedIsolatedWorldCSPForTest {
  public:
-  IsolatedWorldCSPTest() {
-    RuntimeEnabledFeatures::SetIsolatedWorldCSPEnabled(GetParam());
-  }
+  IsolatedWorldCSPTest() : ScopedIsolatedWorldCSPForTest(GetParam()) {}
 
  private:
   DISALLOW_COPY_AND_ASSIGN(IsolatedWorldCSPTest);
@@ -1070,11 +1069,10 @@ TEST_P(IsolatedWorldCSPTest, CSPForWorld) {
   }
 }
 
-INSTANTIATE_TEST_CASE_P(, IsolatedWorldCSPTest, testing::Values(true, false));
+INSTANTIATE_TEST_SUITE_P(, IsolatedWorldCSPTest, testing::Values(true, false));
 
 TEST_F(DocumentTest, CanExecuteScriptsWithSandboxAndIsolatedWorld) {
-  constexpr SandboxFlags kSandboxMask = kSandboxScripts;
-  GetDocument().EnforceSandboxFlags(kSandboxMask);
+  NavigateTo(KURL("https://www.example.com/"), "", "sandbox");
 
   LocalFrame* frame = GetDocument().GetFrame();
   frame->GetSettings()->SetScriptEnabled(true);
@@ -1179,16 +1177,35 @@ TEST_F(DocumentTest, ElementFromPointWithPageZoom) {
   EXPECT_EQ(GetDocument().ElementFromPoint(1, 12), GetDocument().body());
 }
 
+TEST_F(DocumentTest, PrefersColorSchemeChanged) {
+  UpdateAllLifecyclePhasesForTest();
+
+  auto* list = GetDocument().GetMediaQueryMatcher().MatchMedia(
+      "(prefers-color-scheme: dark)");
+  auto* listener = MakeGarbageCollected<PrefersColorSchemeTestListener>();
+  list->AddListener(listener);
+
+  EXPECT_FALSE(listener->IsNotified());
+
+  GetDocument().GetSettings()->SetPreferredColorScheme(
+      PreferredColorScheme::kDark);
+
+  UpdateAllLifecyclePhasesForTest();
+  GetDocument().ServiceScriptedAnimations(base::TimeTicks());
+
+  EXPECT_TRUE(listener->IsNotified());
+}
+
 /**
  * Tests for viewport-fit propagation.
  */
 
-class ViewportFitDocumentTest : public DocumentTest {
+class ViewportFitDocumentTest : public DocumentTest,
+                                private ScopedDisplayCutoutAPIForTest {
  public:
+  ViewportFitDocumentTest() : ScopedDisplayCutoutAPIForTest(true) {}
   void SetUp() override {
     DocumentTest::SetUp();
-
-    RuntimeEnabledFeatures::SetDisplayCutoutAPIEnabled(true);
     GetDocument().GetSettings()->SetViewportMetaEnabled(true);
   }
 
@@ -1274,7 +1291,7 @@ TEST_P(ParameterizedViewportFitDocumentTest, EffectiveViewportFit) {
   EXPECT_EQ(std::get<2>(GetParam()), GetViewportFit());
 }
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     All,
     ParameterizedViewportFitDocumentTest,
     testing::Values(

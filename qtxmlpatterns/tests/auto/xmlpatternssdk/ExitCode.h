@@ -41,7 +41,7 @@ namespace QPatternistSDK
      * @ingroup PatternistSDK
      * @author Frans Englich <frans.englich@nokia.com>
      */
-    class Q_PATTERNISTSDK_EXPORT ExitCode
+    class ExitCode
     {
     public:
         /**

@@ -53,6 +53,7 @@ QT_BEGIN_NAMESPACE
 class QSslErrorPrivate;
 class Q_NETWORK_EXPORT QSslError
 {
+    Q_GADGET
 public:
     enum SslError {
         NoError,
@@ -94,6 +95,7 @@ public:
         OcspStatusUnknown,
         UnspecifiedError = -1
     };
+    Q_ENUM(SslError)
 
     // RVCT compiler in debug build does not like about default values in const-
     // So as an workaround we define all constructor overloads here explicitly
@@ -103,13 +105,11 @@ public:
 
     QSslError(const QSslError &other);
 
-    void swap(QSslError &other) Q_DECL_NOTHROW
+    void swap(QSslError &other) noexcept
     { qSwap(d, other.d); }
 
     ~QSslError();
-#ifdef Q_COMPILER_RVALUE_REFS
-    QSslError &operator=(QSslError &&other) Q_DECL_NOTHROW { swap(other); return *this; }
-#endif
+    QSslError &operator=(QSslError &&other) noexcept { swap(other); return *this; }
     QSslError &operator=(const QSslError &other);
     bool operator==(const QSslError &other) const;
     inline bool operator!=(const QSslError &other) const
@@ -124,7 +124,7 @@ private:
 };
 Q_DECLARE_SHARED(QSslError)
 
-Q_NETWORK_EXPORT uint qHash(const QSslError &key, uint seed = 0) Q_DECL_NOTHROW;
+Q_NETWORK_EXPORT uint qHash(const QSslError &key, uint seed = 0) noexcept;
 
 #ifndef QT_NO_DEBUG_STREAM
 class QDebug;

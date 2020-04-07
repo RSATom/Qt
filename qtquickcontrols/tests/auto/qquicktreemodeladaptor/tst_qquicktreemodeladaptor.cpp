@@ -40,6 +40,7 @@ public:
     void compareModels(QQuickTreeModelAdaptor1 &tma, TestModel &model);
     void expandAndTest(const QModelIndex &idx, QQuickTreeModelAdaptor1 &tma, bool expandable, int expectedRowCountDifference);
     void collapseAndTest(const QModelIndex &idx, QQuickTreeModelAdaptor1 &tma, bool expandable, int expectedRowCountDifference);
+    bool rowRoleWasChanged(const QSignalSpy &captured, int row, int role);
 
 private slots:
     void initTestCase();
@@ -73,7 +74,10 @@ private slots:
 
     void moveRows_data();
     void moveRows();
+    void moveRowsDataChanged_data();
+    void moveRowsDataChanged();
     void reparentOnSameRow();
+    void moveAllChildren();
 
     void selectionForRowRange();
 
@@ -170,7 +174,7 @@ void tst_QQuickTreeModelAdaptor::collapseAndTest(const QModelIndex &idx, QQuickT
         QCOMPARE(rowsRemovedArgs.at(2).toInt(), tma.itemIndex(idx) + expectedRowCountDifference);
 
         // Data changed for the parent's ExpandedRole (value checked above)
-        QCOMPARE(dataChangedSpy.count(), 1);
+        QVERIFY(dataChangedSpy.count() >= 1);
         const QVariantList &dataChangedArgs = dataChangedSpy.first();
         QCOMPARE(dataChangedArgs.at(0).toModelIndex(), tmaIdx);
         QCOMPARE(dataChangedArgs.at(1).toModelIndex(), tmaIdx);
@@ -180,6 +184,20 @@ void tst_QQuickTreeModelAdaptor::collapseAndTest(const QModelIndex &idx, QQuickT
         QCOMPARE(rowsAboutToBeRemovedSpy.count(), 0);
         QCOMPARE(rowsRemovedSpy.count(), 0);
     }
+}
+
+bool tst_QQuickTreeModelAdaptor::rowRoleWasChanged(const QSignalSpy &captured, int row, int role)
+{
+    for (const QVariantList &args : captured) {
+        const int startRow = args.at(0).toModelIndex().row();
+        const int endRow = args.at(1).toModelIndex().row();
+        if (row >= startRow && row <= endRow) {
+            const QVector<int> roles = args.at(2).value<QVector<int>>();
+            if (roles.contains(role))
+                return true;
+        }
+    }
+    return false;
 }
 
 void tst_QQuickTreeModelAdaptor::compareModels(QQuickTreeModelAdaptor1 &tma, TestModel &model)
@@ -1153,6 +1171,143 @@ void tst_QQuickTreeModelAdaptor::moveRows()
     compareModels(tma, model);
 }
 
+void tst_QQuickTreeModelAdaptor::moveRowsDataChanged_data()
+{
+    /* This is the list of rows in the *list* model which are expanded. */
+    QTest::addColumn<QVector<int>>("expandedRows");
+
+    /* Here's the row to be moved (always just one) and the destination
+     * position. We use a QVector<int> to identify a single row of the tree
+     * model: the array value at index n represents the row number at the depth
+     * n.
+     */
+    QTest::addColumn<QVector<int>>("sourcePath");
+    QTest::addColumn<QVector<int>>("destPath");
+
+    /* This is the list of expected changed rows in the *list* model. */
+    QTest::addColumn<QSet<int>>("expectedRowChanges");
+
+    QTest::newRow("From and to top-level parent")
+            << QVector<int> {}
+            << QVector<int> { 4 }
+            << QVector<int> { 3 }
+            << QSet<int> { 3, 4 };
+
+    QTest::newRow("From and to top-level parent, expanded")
+            << QVector<int> { 3, 5 }
+            << QVector<int> { 4 }
+            << QVector<int> { 3 }
+            << QSet<int> { 3, 4, 5, 6, 7, 8, 9 };
+
+    QTest::newRow("From and to top-level parent, expanded, down")
+            << QVector<int> { 3, 5 }
+            << QVector<int> { 3 }
+            << QVector<int> { 5 }
+            << QSet<int> { 3, 4, 5, 6, 7, 8, 9 };
+
+    /* Expected visible result:
+     * A      A
+     * D      D
+     * `-E    |-E
+     * F      `-H
+     * G   -> F
+     * |-H    G
+     * |-I    |-I
+     * `-L    `-L
+     * M      M
+     */
+    QTest::newRow("Visible move, different parents")
+            << QVector<int> { 3, 1 }
+            << QVector<int> { 3, 0 }
+            << QVector<int> { 1, 1 }
+            << QSet<int> { 3, 4, 5, 6, 7 };
+
+    QTest::newRow("Move to non expanded parent")
+            << QVector<int> {}
+            << QVector<int> { 3 }
+            << QVector<int> { 1, 0 }
+            << QSet<int> { 3 };
+}
+
+void tst_QQuickTreeModelAdaptor::moveRowsDataChanged()
+{
+    QFETCH(QVector<int>, expandedRows);
+    QFETCH(QVector<int>, sourcePath);
+    QFETCH(QVector<int>, destPath);
+    QFETCH(QSet<int>, expectedRowChanges);
+
+    TestModel model(0, 1);
+    model.alternateChildlessRows = false;
+    model.fetchMore(QModelIndex());
+    QQuickTreeModelAdaptor1 tma;
+    tma.setModel(&model);
+
+    /* Build this model:
+     *   A
+     *   |-B
+     *   `-C
+     *   D
+     *   `-E
+     *   F
+     *   G
+     *   |-H
+     *   |-I
+     *   | |-J
+     *   | `-K
+     *   `-L
+     *   M
+     */
+    model.insertRows(0, 5, QModelIndex());
+    QModelIndex index = model.index(0, 0);
+    model.insertRows(0, 2, index);
+    index = model.index(1, 0);
+    model.insertRows(0, 1, index);
+    index = model.index(3, 0);
+    model.insertRows(0, 3, index);
+    index = model.index(1, 0, index);
+    model.insertRows(0, 2, index);
+
+    for (int row : expandedRows) {
+        tma.expandRow(row);
+    }
+
+    /* Find the source index */
+    int sourceRow = sourcePath.takeLast();
+    QModelIndex sourceIndex;
+    for (int row : sourcePath) {
+        sourceIndex = model.index(row, 0, sourceIndex);
+    }
+
+    /* Find the destination index */
+    int destRow = destPath.takeLast();
+    QModelIndex destIndex;
+    for (int row : destPath) {
+        destIndex = model.index(row, 0, destIndex);
+    }
+
+    QSignalSpy dataChangedSpy(&tma, SIGNAL(dataChanged(QModelIndex,QModelIndex,QVector<int>)));
+    QVERIFY(dataChangedSpy.isValid());
+
+    QVERIFY(model.moveRows(sourceIndex, sourceRow, 1, destIndex, destRow));
+
+    QSet<int> emittedChanges;
+    for (int i = 0; i < dataChangedSpy.count(); i++) {
+        QVariantList args = dataChangedSpy.at(i);
+        QVector<int> roles = args.at(2).value<QVector<int>>();
+        if (!roles.isEmpty() &&
+            !roles.contains(QQuickTreeModelAdaptor1::ModelIndexRole))
+            continue;
+
+        const QModelIndex topLeft = args.at(0).value<QModelIndex>();
+        const QModelIndex bottomRight = args.at(1).value<QModelIndex>();
+        for (int row = topLeft.row(); row <= bottomRight.row(); row++) {
+            emittedChanges.insert(row);
+        }
+    }
+
+    QCOMPARE(emittedChanges, expectedRowChanges);
+}
+
 void tst_QQuickTreeModelAdaptor::reparentOnSameRow()
 {
     TestModel model(2, 1);
@@ -1181,8 +1336,8 @@ void tst_QQuickTreeModelAdaptor::reparentOnSameRow()
     // at least DepthRole and ModeIndexRole changes should have happened for the affected row
     bool depthChanged = false;
     bool modelIndexChanged = false;
-    QList<QList<QVariant> > &changes = dataChangedSpy;
-    foreach (QList<QVariant> change, changes) {
+    const QList<QList<QVariant> > &changes = dataChangedSpy;
+    for (const QList<QVariant> &change : changes) {
         if (change.at(0) == movedIndex) {
             if (change.at(2).value<QVector<int> >().contains(QQuickTreeModelAdaptor1::DepthRole))
                 depthChanged = true;
@@ -1201,6 +1356,54 @@ void tst_QQuickTreeModelAdaptor::reparentOnSameRow()
     QCOMPARE(rowsMovedSpy.count(), 0);
     QVERIFY(tma.testConsistency());
     compareModels(tma, model);
+}
+
+void tst_QQuickTreeModelAdaptor::moveAllChildren()
+{
+    TestModel model(0, 1);
+    model.alternateChildlessRows = false;
+    model.fetchMore(QModelIndex());
+    QQuickTreeModelAdaptor1 tma;
+    tma.setModel(&model);
+
+    /* Build this model:
+     *   A
+     *   B
+     *   `-C
+     */
+    model.insertRows(0, 2, QModelIndex());
+    QPersistentModelIndex aIndex(model.index(0, 0));
+    QPersistentModelIndex bIndex(model.index(1, 0));
+    model.insertRows(0, 1, bIndex);
+
+    QCOMPARE(model.rowCount(QModelIndex()), 2);
+    /* Expand B, then move C under A */
+    tma.expandRow(1);
+
+
+    QSignalSpy dataChangedSpy(&tma, SIGNAL(dataChanged(QModelIndex,QModelIndex,QVector<int>)));
+    QVERIFY(dataChangedSpy.isValid());
+
+    QVERIFY(model.moveRows(bIndex, 0, 1, aIndex, 0));
+
+    /* Check the outcome */
+    QCOMPARE(tma.data(aIndex, QQuickTreeModelAdaptor1::HasChildrenRole).toBool(), true);
+    QCOMPARE(tma.data(bIndex, QQuickTreeModelAdaptor1::HasChildrenRole).toBool(), false);
+    QVERIFY(rowRoleWasChanged(dataChangedSpy, 0, QQuickTreeModelAdaptor1::HasChildrenRole));
+    QVERIFY(rowRoleWasChanged(dataChangedSpy, 1, QQuickTreeModelAdaptor1::HasChildrenRole));
+    dataChangedSpy.clear();
+
+    /* Move C back into under B */
+    QVERIFY(model.moveRows(aIndex, 0, 1, bIndex, 0));
+
+    QCOMPARE(tma.data(aIndex, QQuickTreeModelAdaptor1::HasChildrenRole).toBool(), false);
+    QCOMPARE(tma.data(bIndex, QQuickTreeModelAdaptor1::HasChildrenRole).toBool(), true);
+    QVERIFY(rowRoleWasChanged(dataChangedSpy, 0, QQuickTreeModelAdaptor1::HasChildrenRole));
+    QVERIFY(rowRoleWasChanged(dataChangedSpy, 1, QQuickTreeModelAdaptor1::HasChildrenRole));
+    /* B must not be in expanded state, since it previously lost all its children */
+    QCOMPARE(tma.data(bIndex, QQuickTreeModelAdaptor1::ExpandedRole).toBool(), false);
+
+    dataChangedSpy.clear();
 }
 
 void tst_QQuickTreeModelAdaptor::selectionForRowRange()
@@ -1258,7 +1461,7 @@ void tst_QQuickTreeModelAdaptor::selectionForRowRange()
         QCOMPARE(sel.count(), 2);
         // We don't know in which order the selection ranges are
         // being added, so we iterate and try to find what we expect.
-        foreach (const QItemSelectionRange &range, sel) {
+        for (const QItemSelectionRange &range : sel) {
             if (range.topLeft() ==  model.index(0, 0))
                 QCOMPARE(QModelIndex(range.bottomRight()), model.index(0, 0));
             else if (range.topLeft() ==  model.index(0, 0, parent))
@@ -1275,7 +1478,7 @@ void tst_QQuickTreeModelAdaptor::selectionForRowRange()
         QCOMPARE(sel.count(), 2);
         // We don't know in which order the selection ranges are
         // being added, so we iterate and try to find what we expect.
-        foreach (const QItemSelectionRange &range, sel) {
+        for (const QItemSelectionRange &range : sel) {
             if (range.topLeft() ==  model.index(0, 0))
                 QCOMPARE(QModelIndex(range.bottomRight()), model.index(4, 0));
             else if (range.topLeft() ==  model.index(0, 0, parent))
@@ -1296,7 +1499,7 @@ void tst_QQuickTreeModelAdaptor::selectionForRowRange()
         QCOMPARE(sel.count(), 3);
         // We don't know in which order the selection ranges are
         // being added, so we iterate and try to find what we expect.
-        foreach (const QItemSelectionRange &range, sel) {
+        for (const QItemSelectionRange &range : sel) {
             if (range.topLeft() ==  model.index(0, 0))
                 QCOMPARE(QModelIndex(range.bottomRight()), model.index(4, 0));
             else if (range.topLeft() ==  model.index(0, 0, parent))
@@ -1319,7 +1522,7 @@ void tst_QQuickTreeModelAdaptor::selectionForRowRange()
         QCOMPARE(sel.count(), 3);
         // We don't know in which order the selection ranges are
         // being added, so we iterate and try to find what we expect.
-        foreach (const QItemSelectionRange &range, sel) {
+        for (const QItemSelectionRange &range : sel) {
             if (range.topLeft() ==  model.index(0, 0))
                 QCOMPARE(QModelIndex(range.bottomRight()), model.index(0, 0));
             else if (range.topLeft() ==  model.index(0, 0, parent))
@@ -1338,7 +1541,7 @@ void tst_QQuickTreeModelAdaptor::selectionForRowRange()
         QCOMPARE(sel.count(), 4);
         // We don't know in which order the selection ranges are
         // being added, so we iterate and try to find what we expect.
-        foreach (const QItemSelectionRange &range, sel) {
+        for (const QItemSelectionRange &range : sel) {
             if (range.topLeft() ==  model.index(0, 0))
                 QCOMPARE(QModelIndex(range.bottomRight()), model.index(ModelRowCount - 1, 0));
             else if (range.topLeft() ==  model.index(0, 0, parent))
@@ -1359,7 +1562,7 @@ void tst_QQuickTreeModelAdaptor::selectionForRowRange()
         QCOMPARE(sel.count(), 4);
         // We don't know in which order the selection ranges are
         // being added, so we iterate and try to find what we expect.
-        foreach (const QItemSelectionRange &range, sel) {
+        for (const QItemSelectionRange &range : sel) {
             if (range.topLeft() ==  model.index(1, 0))
                 QCOMPARE(QModelIndex(range.bottomRight()), model.index(1, 0));
             else if (range.topLeft() ==  model.index(1, 0, parent))

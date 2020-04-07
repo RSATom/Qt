@@ -40,7 +40,7 @@ ANDROID_BUNDLED_JAR_DEPENDENCIES = \
 ANDROID_PERMISSIONS = \
     android.permission.ACCESS_FINE_LOCATION
 ANDROID_LIB_DEPENDENCIES = \
-    plugins/webview/libqtwebview_android.so
+    plugins/webview/libplugins_webview_qtwebview_android.so
 
 HEADERS += $$PUBLIC_HEADERS $$PRIVATE_HEADERS
 

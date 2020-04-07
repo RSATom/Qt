@@ -29,7 +29,8 @@ class Clock;
 
 namespace previews {
 
-// Must remain synchronized with PreviewsEligibilityReason in enums.xml.
+// Must remain synchronized with |PreviewsEligibilityReason| in
+// //tools/metrics/histograms/enums.xml.
 enum class PreviewsEligibilityReason {
   // The preview navigation was allowed.
   ALLOWED = 0,
@@ -71,6 +72,11 @@ enum class PreviewsEligibilityReason {
   DEVICE_OFFLINE = 15,
   // URL contained Basic Authentication, i.e.: a username or password.
   URL_HAS_BASIC_AUTH = 16,
+  // Optimization hints needed to be checked for this preview type, but were not
+  // available. Common on first navigations.
+  OPTIMIZATION_HINTS_NOT_AVAILABLE = 17,
+  // The navigation URL has a media suffix which is excluded from previews.
+  EXCLUDED_BY_MEDIA_SUFFIX = 18,
   LAST,
 };
 

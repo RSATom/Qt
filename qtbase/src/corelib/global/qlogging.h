@@ -63,20 +63,19 @@ class QMessageLogContext
 {
     Q_DISABLE_COPY(QMessageLogContext)
 public:
-    Q_DECL_CONSTEXPR QMessageLogContext()
-        : version(2), line(0), file(nullptr), function(nullptr), category(nullptr) {}
-    Q_DECL_CONSTEXPR QMessageLogContext(const char *fileName, int lineNumber, const char *functionName, const char *categoryName)
-        : version(2), line(lineNumber), file(fileName), function(functionName), category(categoryName) {}
+    Q_DECL_CONSTEXPR QMessageLogContext() noexcept = default;
+    Q_DECL_CONSTEXPR QMessageLogContext(const char *fileName, int lineNumber, const char *functionName, const char *categoryName) noexcept
+        : line(lineNumber), file(fileName), function(functionName), category(categoryName) {}
 
-    void copy(const QMessageLogContext &logContext);
-
-    int version;
-    int line;
-    const char *file;
-    const char *function;
-    const char *category;
+    int version = 2;
+    int line = 0;
+    const char *file = nullptr;
+    const char *function = nullptr;
+    const char *category = nullptr;
 
 private:
+    QMessageLogContext &copyContextFrom(const QMessageLogContext &logContext) noexcept;
+
     friend class QMessageLogger;
     friend class QDebug;
 };
@@ -121,7 +120,7 @@ public:
     Q_NORETURN
 #endif
     Q_DECL_COLD_FUNCTION
-    void fatal(const char *msg, ...) const Q_DECL_NOTHROW Q_ATTRIBUTE_FORMAT_PRINTF(2, 3);
+    void fatal(const char *msg, ...) const noexcept Q_ATTRIBUTE_FORMAT_PRINTF(2, 3);
 
 #ifndef QT_NO_DEBUG_STREAM
     QDebug debug() const;
@@ -137,7 +136,7 @@ public:
     QDebug critical(const QLoggingCategory &cat) const;
     QDebug critical(CategoryFunction catFunc) const;
 
-    QNoDebug noDebug() const Q_DECL_NOTHROW;
+    QNoDebug noDebug() const noexcept;
 #endif // QT_NO_DEBUG_STREAM
 
 private:

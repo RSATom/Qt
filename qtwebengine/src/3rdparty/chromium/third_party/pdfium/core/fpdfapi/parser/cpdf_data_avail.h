@@ -49,7 +49,7 @@ enum PDF_PAGENODE_TYPE {
   PDF_PAGENODE_ARRAY,
 };
 
-class CPDF_DataAvail final : public CPDF_Document::Observer {
+class CPDF_DataAvail final : public Observable::ObserverIface {
  public:
   // Must match PDF_DATA_* definitions in public/fpdf_dataavail.h, but cannot
   // #include that header. fpdfsdk/fpdf_dataavail.cpp has static_asserts
@@ -108,6 +108,8 @@ class CPDF_DataAvail final : public CPDF_Document::Observer {
   RetainPtr<CPDF_ReadValidator> GetValidator() const;
 
   std::pair<CPDF_Parser::Error, std::unique_ptr<CPDF_Document>> ParseDocument(
+      std::unique_ptr<CPDF_Document::RenderDataIface> pRenderData,
+      std::unique_ptr<CPDF_Document::PageDataIface> pPageData,
       const char* password);
 
   const CPDF_HintTables* GetHintTables() const { return m_pHintTables.get(); }
@@ -133,17 +135,16 @@ class CPDF_DataAvail final : public CPDF_Document::Observer {
   bool CheckInfo();
   bool CheckPages();
   bool CheckPage();
-  DocAvailStatus CheckResources(const CPDF_Dictionary* page);
+  DocAvailStatus CheckResources(CPDF_Dictionary* page);
   DocFormStatus CheckAcroForm();
   bool CheckPageStatus();
 
   DocAvailStatus CheckHeaderAndLinearized();
-  std::unique_ptr<CPDF_Object> ParseIndirectObjectAt(
+  RetainPtr<CPDF_Object> ParseIndirectObjectAt(
       FX_FILESIZE pos,
       uint32_t objnum,
       CPDF_IndirectObjectHolder* pObjList) const;
-  std::unique_ptr<CPDF_Object> GetObject(uint32_t objnum,
-                                         bool* pExistInFile);
+  RetainPtr<CPDF_Object> GetObject(uint32_t objnum, bool* pExistInFile);
   bool GetPageKids(CPDF_Object* pPages);
   bool PreparePageItem();
   bool LoadPages();
@@ -168,7 +169,7 @@ class CPDF_DataAvail final : public CPDF_Document::Observer {
 
   RetainPtr<CPDF_ReadValidator> m_pFileRead;
   CPDF_Parser m_parser;
-  std::unique_ptr<CPDF_Dictionary> m_pRoot;
+  RetainPtr<CPDF_Dictionary> m_pRoot;
   std::unique_ptr<CPDF_LinearizedHeader> m_pLinearized;
   bool m_bDocAvail = false;
   std::unique_ptr<CPDF_CrossRefAvail> m_pCrossRefAvail;
@@ -183,7 +184,7 @@ class CPDF_DataAvail final : public CPDF_Document::Observer {
   bool m_bPagesTreeLoad = false;
   bool m_bPagesLoad = false;
   std::unique_ptr<CPDF_PageObjectAvail> m_pFormAvail;
-  std::vector<std::unique_ptr<CPDF_Object>> m_PagesArray;
+  std::vector<RetainPtr<CPDF_Object>> m_PagesArray;
   bool m_bTotalLoadPageTree = false;
   bool m_bCurPageDictLoadOK = false;
   PageNode m_PageNode;

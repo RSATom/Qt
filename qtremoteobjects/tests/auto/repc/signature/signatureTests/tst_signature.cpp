@@ -63,25 +63,26 @@ private slots:
         // wait for server start
         QTest::qWait(200);
 
-        QStringList tests;
-        tests << _("differentGlobalEnum")
-              << _("differentClassEnum")
-              << _("differentPropertyCount")
-              << _("differentPropertyType")
-              << _("scrambledProperties")
-              << _("differentSlotCount")
-              << _("differentSlotType")
-              << _("differentSlotParamCount")
-              << _("differentSlotParamType")
-              << _("scrambledSlots")
-              << _("differentSignalCount")
-              << _("differentSignalParamCount")
-              << _("differentSignalParamType")
-              << _("scrambledSignals")
-              << _("state")
-              << _("matchAndQuit"); // matchAndQuit should be the last one
+        const QLatin1String tests[] = {
+            _("differentGlobalEnum"),
+            _("differentClassEnum"),
+            _("differentPropertyCount"),
+            _("differentPropertyType"),
+            _("scrambledProperties"),
+            _("differentSlotCount"),
+            _("differentSlotType"),
+            _("differentSlotParamCount"),
+            _("differentSlotParamType"),
+            _("scrambledSlots"),
+            _("differentSignalCount"),
+            _("differentSignalParamCount"),
+            _("differentSignalParamType"),
+            _("scrambledSignals"),
+            _("state"),
+            _("matchAndQuit"), // matchAndQuit should be the last one
+        };
 
-        foreach (auto test, tests) {
+        for (const auto &test : tests) {
             qDebug() << "Starting" << test << "process";
             QProcess testProc;
             testProc.setProcessChannelMode(QProcess::ForwardedChannels);

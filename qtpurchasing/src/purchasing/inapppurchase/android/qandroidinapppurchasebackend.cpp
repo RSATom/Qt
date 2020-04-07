@@ -45,7 +45,6 @@ QT_BEGIN_NAMESPACE
 
 QAndroidInAppPurchaseBackend::QAndroidInAppPurchaseBackend(QObject *parent)
     : QInAppPurchaseBackend(parent)
-    , m_mutex(QMutex::Recursive)
     , m_isReady(false)
 {
 #if defined(QANDROIDINAPPPURCHASEBACKEND_DEBUG)

@@ -8,15 +8,13 @@
 
 #include "ui/aura/client/screen_position_client.h"
 #include "ui/aura/window.h"
-#include "ui/gfx/x/x11.h"
 #include "ui/views/widget/desktop_aura/desktop_window_tree_host_x11.h"
 
 namespace views {
 
-X11TopmostWindowFinder::X11TopmostWindowFinder() : toplevel_(x11::None) {}
+X11TopmostWindowFinder::X11TopmostWindowFinder() = default;
 
-X11TopmostWindowFinder::~X11TopmostWindowFinder() {
-}
+X11TopmostWindowFinder::~X11TopmostWindowFinder() = default;
 
 aura::Window* X11TopmostWindowFinder::FindLocalProcessWindowAt(
     const gfx::Point& screen_loc_in_pixels,
@@ -26,15 +24,11 @@ aura::Window* X11TopmostWindowFinder::FindLocalProcessWindowAt(
 
   std::vector<aura::Window*> local_process_windows =
       DesktopWindowTreeHostX11::GetAllOpenWindows();
-  bool found_local_process_window = false;
-  for (size_t i = 0; i < local_process_windows.size(); ++i) {
-    if (ShouldStopIteratingAtLocalProcessWindow(local_process_windows[i])) {
-      found_local_process_window = true;
-      break;
-    }
-  }
-  if (!found_local_process_window)
-    return NULL;
+  if (std::none_of(local_process_windows.cbegin(), local_process_windows.cend(),
+                   [this](auto* window) {
+                     return ShouldStopIteratingAtLocalProcessWindow(window);
+                   }))
+    return nullptr;
 
   ui::EnumerateTopLevelWindows(this);
   return DesktopWindowTreeHostX11::GetContentWindowForXID(toplevel_);

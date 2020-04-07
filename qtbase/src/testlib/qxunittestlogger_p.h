@@ -71,22 +71,22 @@ class QXunitTestLogger : public QAbstractTestLogger
         void leaveTestFunction() override;
 
         void addIncident(IncidentTypes type, const char *description,
-                     const char *file = 0, int line = 0) override;
+                     const char *file = nullptr, int line = 0) override;
         void addBenchmarkResult(const QBenchmarkResult &result) override;
         void addTag(QTestElement* element);
 
         void addMessage(MessageTypes type, const QString &message,
-                    const char *file = 0, int line = 0) override;
+                    const char *file = nullptr, int line = 0) override;
 
     private:
-        QTestElement *listOfTestcases;
-        QTestElement *currentLogElement;
-        QTestElement *errorLogElement;
-        QTestXunitStreamer *logFormatter;
+        QTestElement *listOfTestcases = nullptr;
+        QTestElement *currentLogElement = nullptr;
+        QTestElement *errorLogElement = nullptr;
+        QTestXunitStreamer *logFormatter = nullptr;
 
-        int testCounter;
-        int failureCounter;
-        int errorCounter;
+        int testCounter = 0;
+        int failureCounter = 0;
+        int errorCounter = 0;
 };
 
 QT_END_NAMESPACE

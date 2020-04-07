@@ -46,17 +46,21 @@
 #include <qstylefactory.h>
 #include <qdesktopwidget.h>
 #include <private/qwidget_p.h>
+#include <private/qwidgetrepaintmanager_p.h>
 #include <private/qapplication_p.h>
 #include <private/qhighdpiscaling_p.h>
 #include <qcalendarwidget.h>
 #include <qmainwindow.h>
 #include <qdockwidget.h>
 #include <qrandom.h>
+#include <qstylehints.h>
 #include <qtoolbar.h>
 #include <qtoolbutton.h>
+#include <QtCore/qoperatingsystemversion.h>
 #include <QtGui/qpaintengine.h>
 #include <QtGui/qbackingstore.h>
 #include <QtGui/qguiapplication.h>
+#include <QtGui/qpa/qplatformwindow.h>
 #include <QtGui/qscreen.h>
 #include <qmenubar.h>
 #include <qcompleter.h>
@@ -68,6 +72,7 @@
 #include <QtWidgets/QGraphicsProxyWidget>
 #include <QtGui/qwindow.h>
 #include <qtimer.h>
+#include <QtWidgets/QDoubleSpinBox>
 
 #if defined(Q_OS_OSX)
 #include "tst_qwidget_mac_helpers.h"  // Abstract the ObjC stuff out so not everyone must run an ObjC++ compile.
@@ -183,6 +188,7 @@ private slots:
     void tabOrderNoChange2();
     void appFocusWidgetWithFocusProxyLater();
     void appFocusWidgetWhenLosingFocusProxy();
+    void explicitTabOrderWithComplexWidget();
 #if defined(Q_OS_WIN) && !defined(Q_OS_WINRT)
     void activation();
 #endif
@@ -196,6 +202,7 @@ private slots:
     void hideWhenFocusWidgetIsChild();
     void normalGeometry();
     void setGeometry();
+    void setGeometryHidden();
     void windowOpacity();
     void raise();
     void lower();
@@ -223,6 +230,7 @@ private slots:
     void setFixedSize();
 
     void ensureCreated();
+    void createAndDestroy();
     void winIdChangeEvent();
     void persistentWinId();
     void showNativeChild();
@@ -399,6 +407,9 @@ private slots:
     void tabletTracking();
 
     void closeEvent();
+    void closeWithChildWindow();
+
+    void winIdAfterClose();
 
 private:
     bool ensureScreenSize(int width, int height);
@@ -1137,6 +1148,7 @@ void tst_QWidget::visible()
     QVERIFY( !childWidget->isVisible() );
 
     testWidget->show();
+    QVERIFY(testWidget->screen());
     QVERIFY( testWidget->isVisible() );
     QVERIFY( childWidget->isVisible() );
 
@@ -2078,6 +2090,32 @@ void tst_QWidget::appFocusWidgetWhenLosingFocusProxy()
     QCOMPARE(QApplication::focusWidget(), lineEdit);
 }
 
+void tst_QWidget::explicitTabOrderWithComplexWidget()
+{
+    // Check that handling tab/backtab with a widget comprimised of other widgets
+    // handles tabbing correctly
+    Container window;
+    auto lineEditOne = new QLineEdit;
+    window.box->addWidget(lineEditOne);
+    auto lineEditTwo = new QLineEdit;
+    window.box->addWidget(lineEditTwo);
+    QWidget::setTabOrder(lineEditOne, lineEditTwo);
+    lineEditOne->setFocus();
+    window.show();
+    QApplication::setActiveWindow(&window);
+    QVERIFY(QTest::qWaitForWindowActive(&window));
+    QTRY_COMPARE(QApplication::focusWidget(), lineEditOne);
+
+    window.tab();
+    QTRY_COMPARE(QApplication::focusWidget(), lineEditTwo);
+    window.tab();
+    QTRY_COMPARE(QApplication::focusWidget(), lineEditOne);
+    window.backTab();
+    QTRY_COMPARE(QApplication::focusWidget(), lineEditTwo);
+    window.backTab();
+    QTRY_COMPARE(QApplication::focusWidget(), lineEditOne);
+}
+
 #if defined(Q_OS_WIN) && !defined(Q_OS_WINRT)
 void tst_QWidget::activation()
 {
@@ -2527,8 +2565,8 @@ void tst_QWidget::showMinimizedKeepsFocus()
 {
     if (m_platform == QStringLiteral("xcb"))
         QSKIP("QTBUG-26424");
-    if (m_platform == QStringLiteral("wayland"))
-        QSKIP("Wayland: This fails. Figure out why.");
+    if (!QGuiApplicationPrivate::platformIntegration()->hasCapability(QPlatformIntegration::WindowActivation))
+        QSKIP("Window activation is not supported.");
     if (m_platform == QStringLiteral("offscreen"))
         QSKIP("Platform offscreen does not support showMinimized()");
 
@@ -2739,8 +2777,8 @@ void tst_QWidget::icon()
 
 void tst_QWidget::hideWhenFocusWidgetIsChild()
 {
-    if (m_platform == QStringLiteral("wayland"))
-        QSKIP("Wayland: This fails. Figure out why.");
+    if (!QGuiApplicationPrivate::platformIntegration()->hasCapability(QPlatformIntegration::WindowActivation))
+        QSKIP("Window activation is not supported.");
 
     QScopedPointer<QWidget> testWidget(new QWidget);
     testWidget->setWindowTitle(__FUNCTION__);
@@ -2916,6 +2954,38 @@ void tst_QWidget::setGeometry()
     if (m_platform == QStringLiteral("xcb"))
         QSKIP("QTBUG-26424");
     QCOMPARE(tlw.geometry(), tr);
+}
+
+void tst_QWidget::setGeometryHidden()
+{
+    if (QGuiApplication::styleHints()->showIsMaximized())
+        QSKIP("Platform does not support QWidget::setGeometry() - skipping");
+
+    QWidget tlw;
+    tlw.setWindowTitle(QLatin1String(QTest::currentTestFunction()));
+    QWidget child(&tlw);
+
+    const QRect tr(m_availableTopLeft + QPoint(100, 100), 2 * m_testWidgetSize);
+    const QRect cr(QPoint(50, 50), m_testWidgetSize);
+    tlw.setGeometry(tr);
+    child.setGeometry(cr);
+    tlw.showNormal();
+
+    tlw.hide();
+    QTRY_VERIFY(tlw.isHidden());
+    tlw.setGeometry(cr);
+    QVERIFY(tlw.testAttribute(Qt::WA_PendingMoveEvent));
+    QVERIFY(tlw.testAttribute(Qt::WA_PendingResizeEvent));
+    QImage img(tlw.size(), QImage::Format_ARGB32);  // just needed to call QWidget::render()
+    tlw.render(&img);
+    QVERIFY(!tlw.testAttribute(Qt::WA_PendingMoveEvent));
+    QVERIFY(!tlw.testAttribute(Qt::WA_PendingResizeEvent));
+    tlw.setGeometry(cr);
+    QVERIFY(!tlw.testAttribute(Qt::WA_PendingMoveEvent));
+    QVERIFY(!tlw.testAttribute(Qt::WA_PendingResizeEvent));
+    tlw.resize(cr.size());
+    QVERIFY(!tlw.testAttribute(Qt::WA_PendingMoveEvent));
+    QVERIFY(!tlw.testAttribute(Qt::WA_PendingResizeEvent));
 }
 
 void tst_QWidget::windowOpacity()
@@ -4182,6 +4252,58 @@ public:
     int winIdChangeEventCount() const { return m_winIdList.count(); }
 };
 
+class CreateDestroyWidget : public WinIdChangeWidget
+{
+public:
+    void create() { QWidget::create(); }
+    void destroy() { QWidget::destroy(); }
+};
+
+void tst_QWidget::createAndDestroy()
+{
+    CreateDestroyWidget widget;
+
+    // Create and destroy via QWidget
+    widget.create();
+    QVERIFY(widget.testAttribute(Qt::WA_WState_Created));
+    QCOMPARE(widget.winIdChangeEventCount(), 1);
+    QVERIFY(widget.internalWinId());
+
+    widget.destroy();
+    QVERIFY(!widget.testAttribute(Qt::WA_WState_Created));
+    QCOMPARE(widget.winIdChangeEventCount(), 2);
+    QVERIFY(!widget.internalWinId());
+
+    // Create via QWidget, destroy via QWindow
+    widget.create();
+    QVERIFY(widget.testAttribute(Qt::WA_WState_Created));
+    QCOMPARE(widget.winIdChangeEventCount(), 3);
+    QVERIFY(widget.internalWinId());
+
+    widget.windowHandle()->destroy();
+    QVERIFY(!widget.testAttribute(Qt::WA_WState_Created));
+    QCOMPARE(widget.winIdChangeEventCount(), 4);
+    QVERIFY(!widget.internalWinId());
+
+    // Create via QWidget again
+    widget.create();
+    QVERIFY(widget.testAttribute(Qt::WA_WState_Created));
+    QCOMPARE(widget.winIdChangeEventCount(), 5);
+    QVERIFY(widget.internalWinId());
+
+    // Destroy via QWindow, create via QWindow
+    widget.windowHandle()->destroy();
+    QVERIFY(widget.windowHandle());
+    QVERIFY(!widget.testAttribute(Qt::WA_WState_Created));
+    QCOMPARE(widget.winIdChangeEventCount(), 6);
+    QVERIFY(!widget.internalWinId());
+
+    widget.windowHandle()->create();
+    QVERIFY(widget.testAttribute(Qt::WA_WState_Created));
+    QCOMPARE(widget.winIdChangeEventCount(), 7);
+    QVERIFY(widget.internalWinId());
+}
+
 void tst_QWidget::winIdChangeEvent()
 {
     {
@@ -5380,7 +5502,7 @@ void tst_QWidget::moveChild()
     parent.setStyle(style.data());
     ColorWidget child(&parent, Qt::Widget, Qt::blue);
 
-    parent.setGeometry(QRect(QPoint(QApplication::desktop()->availableGeometry(&parent).topLeft()) + QPoint(50, 50),
+    parent.setGeometry(QRect(parent.screen()->availableGeometry().topLeft() + QPoint(50, 50),
                              QSize(200, 200)));
     child.setGeometry(25, 25, 50, 50);
 #ifndef QT_NO_CURSOR // Try to make sure the cursor is not in a taskbar area to prevent tooltips or window highlighting
@@ -5427,8 +5549,7 @@ void tst_QWidget::showAndMoveChild()
     const QScopedPointer<QStyle> style(QStyleFactory::create(QLatin1String("Windows")));
     parent.setStyle(style.data());
 
-    QDesktopWidget desktop;
-    QRect desktopDimensions = desktop.availableGeometry(&parent);
+    QRect desktopDimensions = parent.screen()->availableGeometry();
     desktopDimensions = desktopDimensions.adjusted(64, 64, -64, -64);
 
 #ifndef QT_NO_CURSOR // Try to make sure the cursor is not in a taskbar area to prevent tooltips or window highlighting
@@ -5541,8 +5662,8 @@ void tst_QWidget::multipleToplevelFocusCheck()
     QSKIP("QTBUG-52974");
 #endif
 
-    if (m_platform == QStringLiteral("wayland"))
-        QSKIP("Wayland: This fails. Figure out why.");
+    if (!QGuiApplicationPrivate::platformIntegration()->hasCapability(QPlatformIntegration::WindowActivation))
+        QSKIP("Window activation is not supported");
     else if (m_platform == QStringLiteral("winrt"))
         QSKIP("Winrt: Sometimes crashes in QTextLayout. - QTBUG-68297");
     TopLevelFocusCheck w1;
@@ -6256,7 +6377,11 @@ public:
         return false;
     }
 
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+    bool nativeEvent(const QByteArray &eventType, void *message, qintptr *) override
+#else
     bool nativeEvent(const QByteArray &eventType, void *message, long *) override
+#endif
     {
         if (isMapNotify(eventType, message))
             gotExpectedMapNotify = true;
@@ -6264,7 +6389,11 @@ public:
     }
 
     // QAbstractNativeEventFilter interface
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+    bool nativeEventFilter(const QByteArray &eventType, void *message, qintptr *) override
+#else
     bool nativeEventFilter(const QByteArray &eventType, void *message, long *) override
+#endif
     {
         if (isMapNotify(eventType, message))
             gotExpectedGlobalEvent = true;
@@ -7095,7 +7224,7 @@ void tst_QWidget::renderWithPainter()
 
     // Make sure QWidget::render does not modify the render hints set on the painter.
     painter.setRenderHints(QPainter::Antialiasing | QPainter::SmoothPixmapTransform
-                           | QPainter::NonCosmeticDefaultPen | QPainter::TextAntialiasing);
+                           | QPainter::TextAntialiasing);
     QPainter::RenderHints oldRenderHints = painter.renderHints();
     widget.render(&painter);
     QCOMPARE(painter.renderHints(), oldRenderHints);
@@ -7693,13 +7822,11 @@ void tst_QWidget::moveWindowInShowEvent()
 void tst_QWidget::repaintWhenChildDeleted()
 {
 #ifdef Q_OS_WIN
-    if (QSysInfo::WindowsVersion & QSysInfo::WV_VISTA) {
-        QTest::qWait(1000);
-    }
+    QTest::qWait(1000);
 #endif
     ColorWidget w(nullptr, Qt::FramelessWindowHint, Qt::red);
     w.setWindowTitle(QLatin1String(QTest::currentTestFunction()));
-    QPoint startPoint = QApplication::desktop()->availableGeometry(&w).topLeft();
+    QPoint startPoint = w.screen()->availableGeometry().topLeft();
     startPoint.rx() += 50;
     startPoint.ry() += 50;
     w.setGeometry(QRect(startPoint, QSize(100, 100)));
@@ -7724,7 +7851,7 @@ void tst_QWidget::hideOpaqueChildWhileHidden()
 {
     ColorWidget w(nullptr, Qt::FramelessWindowHint, Qt::red);
     w.setWindowTitle(QLatin1String(QTest::currentTestFunction()));
-    QPoint startPoint = QApplication::desktop()->availableGeometry(&w).topLeft();
+    QPoint startPoint = w.screen()->availableGeometry().topLeft();
     startPoint.rx() += 50;
     startPoint.ry() += 50;
     w.setGeometry(QRect(startPoint, QSize(100, 100)));
@@ -7787,7 +7914,17 @@ void tst_QWidget::updateWhileMinimized()
     QTest::qWait(10);
     if (m_platform == QStringLiteral("winrt"))
         QEXPECT_FAIL("", "WinRT: This fails. QTBUG-68297.", Abort);
-    QCOMPARE(widget.numPaintEvents, 0);
+    int count = 0;
+    // mutter/GNOME Shell doesn't unmap when minimizing window.
+    // More details at https://gitlab.gnome.org/GNOME/mutter/issues/185
+    if (m_platform == QStringLiteral("xcb")) {
+        const QString desktop = qgetenv("XDG_CURRENT_DESKTOP");
+        qDebug() << "xcb: XDG_CURRENT_DESKTOP=" << desktop;
+        if (desktop == QStringLiteral("ubuntu:GNOME")
+            || desktop == QStringLiteral("GNOME-Classic:GNOME"))
+            count = 1;
+    }
+    QCOMPARE(widget.numPaintEvents, count);
 
     // Restore window.
     widget.showNormal();
@@ -8064,7 +8201,7 @@ public:
             sp.setHeightForWidth(hfwLayout);
 
             QVBoxLayout *vbox = new QVBoxLayout;
-            vbox->setMargin(0);
+            vbox->setContentsMargins(0, 0, 0, 0);
             vbox->addWidget(new ASWidget(sizeHint + QSize(30, 20), sp, false, false));
             setLayout(vbox);
         }
@@ -8892,13 +9029,13 @@ void tst_QWidget::translucentWidget()
 
 #ifdef Q_OS_WIN
     QWidget *desktopWidget = QApplication::desktop()->screen(0);
-    if (QSysInfo::windowsVersion() >= QSysInfo::WV_VISTA)
-        widgetSnapshot = grabWindow(desktopWidget->windowHandle(), labelPos.x(), labelPos.y(), label.width(), label.height());
-    else
+    widgetSnapshot = grabWindow(desktopWidget->windowHandle(), labelPos.x(), labelPos.y(), label.width(), label.height());
+#else
+    widgetSnapshot = label.grab(QRect(QPoint(0, 0), label.size()));
 #endif
-        widgetSnapshot = label.grab(QRect(QPoint(0, 0), label.size()));
     const QImage actual = widgetSnapshot.toImage().convertToFormat(QImage::Format_RGB32);
-    const QImage expected = pm.toImage().scaled(label.devicePixelRatioF() * pm.size());
+    QImage expected = pm.toImage().scaled(label.devicePixelRatioF() * pm.size());
+    expected.setDevicePixelRatio(label.devicePixelRatioF());
     if (m_platform == QStringLiteral("winrt"))
         QEXPECT_FAIL("", "WinRT: This fails. QTBUG-68297.", Abort);
     QCOMPARE(actual.size(),expected.size());
@@ -9555,7 +9692,7 @@ void tst_QWidget::destroyBackingStore()
     QTRY_VERIFY(w.numPaintEvents > 0);
     w.reset();
     w.update();
-    qt_widget_private(&w)->topData()->backingStoreTracker.create(&w);
+    qt_widget_private(&w)->topData()->repaintManager.reset(new QWidgetRepaintManager(&w));
 
     w.update();
     QApplication::processEvents();
@@ -9570,14 +9707,14 @@ void tst_QWidget::destroyBackingStore()
 #endif // QT_BUILD_INTERNAL
 
 // Helper function
-QWidgetBackingStore* backingStore(QWidget &widget)
+QWidgetRepaintManager* repaintManager(QWidget &widget)
 {
-    QWidgetBackingStore *backingStore = nullptr;
+    QWidgetRepaintManager *repaintManager = nullptr;
 #ifdef QT_BUILD_INTERNAL
     if (QTLWExtra *topExtra = qt_widget_private(&widget)->maybeTopData())
-        backingStore = topExtra->backingStoreTracker.data();
+        repaintManager = topExtra->repaintManager.get();
 #endif
-    return backingStore;
+    return repaintManager;
 }
 
 // Tables of 5000 elements do not make sense on Windows Mobile.
@@ -9592,8 +9729,7 @@ void tst_QWidget::rectOutsideCoordinatesLimit_task144779()
     palette.setColor(QPalette::Window, Qt::red);
     main.setPalette(palette);
 
-    QDesktopWidget desktop;
-    QRect desktopDimensions = desktop.availableGeometry(&main);
+    QRect desktopDimensions = main.screen()->availableGeometry();
     QSize mainSize(400, 400);
     mainSize = mainSize.boundedTo(desktopDimensions.size());
     main.resize(mainSize);
@@ -9674,8 +9810,8 @@ void tst_QWidget::setGraphicsEffect()
 
 void tst_QWidget::activateWindow()
 {
-    if (m_platform == QStringLiteral("wayland"))
-        QSKIP("Wayland: This fails. Figure out why.");
+    if (!QGuiApplicationPrivate::platformIntegration()->hasCapability(QPlatformIntegration::WindowActivation))
+        QSKIP("Window activation is not supported.");
 
     // Test case for QTBUG-26711
 
@@ -9743,8 +9879,8 @@ void tst_QWidget::openModal_taskQTBUG_5804()
 
 void tst_QWidget::focusProxyAndInputMethods()
 {
-    if (m_platform == QStringLiteral("wayland"))
-        QSKIP("Wayland: This fails. Figure out why.");
+    if (!QGuiApplicationPrivate::platformIntegration()->hasCapability(QPlatformIntegration::WindowActivation))
+        QSKIP("Window activation is not supported.");
     QScopedPointer<QWidget> toplevel(new QWidget(nullptr, Qt::X11BypassWindowManagerHint));
     toplevel->setWindowTitle(QLatin1String(QTest::currentTestFunction()));
     toplevel->resize(200, 200);
@@ -9775,12 +9911,12 @@ class scrollWidgetWBS : public QWidget
 public:
     void deleteBackingStore()
     {
-        static_cast<QWidgetPrivate*>(d_ptr.data())->topData()->backingStoreTracker.destroy();
+        static_cast<QWidgetPrivate*>(d_ptr.data())->topData()->repaintManager.reset(nullptr);
     }
     void enableBackingStore()
     {
-        if (!static_cast<QWidgetPrivate*>(d_ptr.data())->maybeBackingStore()) {
-            static_cast<QWidgetPrivate*>(d_ptr.data())->topData()->backingStoreTracker.create(this);
+        if (!static_cast<QWidgetPrivate*>(d_ptr.data())->maybeRepaintManager()) {
+            static_cast<QWidgetPrivate*>(d_ptr.data())->topData()->repaintManager.reset(new QWidgetRepaintManager(this));
             static_cast<QWidgetPrivate*>(d_ptr.data())->invalidateBackingStore(this->rect());
             repaint();
         }
@@ -10111,7 +10247,7 @@ void tst_QWidget::grabMouse()
     w.setObjectName(QLatin1String("tst_qwidget_grabMouse"));
     w.setWindowTitle(w.objectName());
     QLayout *layout = new QVBoxLayout(&w);
-    layout->setMargin(50);
+    layout->setContentsMargins(50, 50, 50, 50);
     GrabLoggerWidget *grabber = new GrabLoggerWidget(&log, &w);
     const QString grabberObjectName = QLatin1String("tst_qwidget_grabMouse_grabber");
     grabber->setObjectName(grabberObjectName);
@@ -11113,6 +11249,77 @@ void tst_QWidget::closeEvent()
     widget.windowHandle()->close();
     widget.windowHandle()->close();
     QCOMPARE(widget.closeCount, 1);
+}
+
+void tst_QWidget::closeWithChildWindow()
+{
+    QWidget widget;
+    auto childWidget = new QWidget(&widget);
+    childWidget->setAttribute(Qt::WA_NativeWindow);
+    childWidget->windowHandle()->create();
+    widget.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&widget));
+    widget.windowHandle()->close();
+    widget.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&widget));
+    // Check that the child window inside the window is now visible
+    QVERIFY(childWidget->isVisible());
+
+    // Now explicitly hide the childWidget
+    childWidget->hide();
+    widget.windowHandle()->close();
+    widget.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&widget));
+    QVERIFY(!childWidget->isVisible());
+}
+
+class WinIdChangeSpy : public QObject
+{
+    Q_OBJECT
+public:
+    QWidget *widget = nullptr;
+    WId winId = 0;
+    explicit WinIdChangeSpy(QWidget *w, QObject *parent = nullptr)
+        : QObject(parent)
+        , widget(w)
+        , winId(widget->winId())
+    {
+    }
+
+public slots:
+    bool eventFilter(QObject *obj, QEvent *event) override
+    {
+        if (obj == widget) {
+            if (event->type() == QEvent::WinIdChange) {
+                winId = widget->winId();
+                return true;
+            }
+        }
+        return false;
+    }
+};
+
+void tst_QWidget::winIdAfterClose()
+{
+    auto widget = new QWidget;
+    auto notifier = new QObject(widget);
+    auto deleteWidget = new QWidget(new QWidget(widget));
+    auto spy = new WinIdChangeSpy(deleteWidget);
+    deleteWidget->installEventFilter(spy);
+    connect(notifier, &QObject::destroyed, [&] { delete deleteWidget; });
+
+    widget->setAttribute(Qt::WA_NativeWindow);
+    widget->windowHandle()->create();
+    widget->show();
+
+    QVERIFY(QTest::qWaitForWindowExposed(widget));
+    QVERIFY(spy->winId);
+
+    widget->windowHandle()->close();
+    delete widget;
+
+    QCOMPARE(spy->winId, WId(0));
+    delete spy;
 }
 
 QTEST_MAIN(tst_QWidget)

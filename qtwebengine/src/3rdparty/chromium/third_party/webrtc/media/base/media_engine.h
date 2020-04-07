@@ -23,11 +23,12 @@
 #include "api/audio_codecs/audio_encoder_factory.h"
 #include "api/crypto/crypto_options.h"
 #include "api/rtp_parameters.h"
+#include "api/video/video_bitrate_allocator_factory.h"
 #include "call/audio_state.h"
 #include "media/base/codec.h"
 #include "media/base/media_channel.h"
 #include "media/base/video_common.h"
-#include "rtc_base/platform_file.h"
+#include "rtc_base/system/file_wrapper.h"
 
 namespace webrtc {
 class AudioDeviceModule;
@@ -38,7 +39,10 @@ class Call;
 
 namespace cricket {
 
-webrtc::RTCError ValidateRtpParameters(
+webrtc::RTCError CheckRtpParametersValues(
+    const webrtc::RtpParameters& new_parameters);
+
+webrtc::RTCError CheckRtpParametersInvalidModificationAndValues(
     const webrtc::RtpParameters& old_parameters,
     const webrtc::RtpParameters& new_parameters);
 
@@ -76,7 +80,8 @@ class VoiceEngineInterface {
   // Starts AEC dump using existing file, a maximum file size in bytes can be
   // specified. Logging is stopped just before the size limit is exceeded.
   // If max_size_bytes is set to a value <= 0, no limit will be used.
-  virtual bool StartAecDump(rtc::PlatformFile file, int64_t max_size_bytes) = 0;
+  virtual bool StartAecDump(webrtc::FileWrapper file,
+                            int64_t max_size_bytes) = 0;
 
   // Stops recording AEC dump.
   virtual void StopAecDump() = 0;
@@ -94,7 +99,9 @@ class VideoEngineInterface {
       webrtc::Call* call,
       const MediaConfig& config,
       const VideoOptions& options,
-      const webrtc::CryptoOptions& crypto_options) = 0;
+      const webrtc::CryptoOptions& crypto_options,
+      webrtc::VideoBitrateAllocatorFactory*
+          video_bitrate_allocator_factory) = 0;
 
   virtual std::vector<VideoCodec> codecs() const = 0;
   virtual RtpCapabilities GetCapabilities() const = 0;

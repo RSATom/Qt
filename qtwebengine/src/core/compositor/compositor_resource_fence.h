@@ -52,7 +52,7 @@ public:
     REQUIRE_ADOPTION_FOR_REFCOUNTED_TYPE();
 
     CompositorResourceFence() {}
-    CompositorResourceFence(const gl::TransferableFence &sync) : m_sync(sync) {};
+    CompositorResourceFence(const gl::TransferableFence &sync) : m_sync(sync) {}
     ~CompositorResourceFence() { release(); }
 
     // May be used only by Qt Quick render thread.
@@ -60,7 +60,7 @@ public:
     void release();
 
     // May be used only by GPU thread.
-    static scoped_refptr<CompositorResourceFence> create();
+    static scoped_refptr<CompositorResourceFence> create(std::unique_ptr<gl::GLFence> glFence = nullptr);
 
 private:
     gl::TransferableFence m_sync;

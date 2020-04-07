@@ -285,19 +285,32 @@ QT_DEFINE_QPA_EVENT_HANDLER(void, handleApplicationStateChanged, Qt::Application
     QWindowSystemInterfacePrivate::handleWindowSystemEvent<Delivery>(e);
 }
 
+QT_DEFINE_QPA_EVENT_HANDLER(bool, handleApplicationTermination)
+{
+    auto *e = new QWindowSystemInterfacePrivate::WindowSystemEvent(QWindowSystemInterfacePrivate::ApplicationTermination);
+    return QWindowSystemInterfacePrivate::handleWindowSystemEvent<Delivery>(e);
+}
+
 QWindowSystemInterfacePrivate::GeometryChangeEvent::GeometryChangeEvent(QWindow *window, const QRect &newGeometry)
     : WindowSystemEvent(GeometryChange)
     , window(window)
     , newGeometry(newGeometry)
 {
-    if (const QPlatformWindow *pw = window->handle())
-        requestedGeometry = QHighDpi::fromNativePixels(pw->QPlatformWindow::geometry(), window);
+    if (const QPlatformWindow *pw = window->handle()) {
+        const auto nativeGeometry = pw->QPlatformWindow::geometry();
+        requestedGeometry = window->isTopLevel()
+            ? QHighDpi::fromNativePixels(nativeGeometry, window)
+            : QHighDpi::fromNativeLocalPosition(nativeGeometry, window);
+    }
 }
 
 QT_DEFINE_QPA_EVENT_HANDLER(void, handleGeometryChange, QWindow *window, const QRect &newRect)
 {
     Q_ASSERT(window);
-    QWindowSystemInterfacePrivate::GeometryChangeEvent *e = new QWindowSystemInterfacePrivate::GeometryChangeEvent(window, QHighDpi::fromNativePixels(newRect, window));
+    const auto newRectDi = window->isTopLevel()
+        ? QHighDpi::fromNativePixels(newRect, window)
+        : QHighDpi::fromNativeLocalPosition(newRect, window);
+    auto e = new QWindowSystemInterfacePrivate::GeometryChangeEvent(window, newRectDi);
     if (window->handle()) {
         // Persist the new geometry so that QWindow::geometry() can be queried in the resize event
         window->handle()->QPlatformWindow::setGeometry(newRect);
@@ -340,13 +353,11 @@ QT_DEFINE_QPA_EVENT_HANDLER(void, handleExposeEvent, QWindow *window, const QReg
     QWindowSystemInterfacePrivate::handleWindowSystemEvent<Delivery>(e);
 }
 
-QT_DEFINE_QPA_EVENT_HANDLER(void, handleCloseEvent, QWindow *window, bool *accepted)
+QT_DEFINE_QPA_EVENT_HANDLER(bool, handleCloseEvent, QWindow *window)
 {
-    if (window) {
-        QWindowSystemInterfacePrivate::CloseEvent *e =
-                new QWindowSystemInterfacePrivate::CloseEvent(window, accepted);
-        QWindowSystemInterfacePrivate::handleWindowSystemEvent<Delivery>(e);
-    }
+    Q_ASSERT(window);
+    auto *event = new QWindowSystemInterfacePrivate::CloseEvent(window);
+    return QWindowSystemInterfacePrivate::handleWindowSystemEvent<Delivery>(event);
 }
 
 /*!
@@ -619,6 +630,7 @@ bool QWindowSystemInterface::isTouchDeviceRegistered(const QTouchDevice *device)
 static int g_nextPointId = 1;
 
 // map from device-independent point id (arbitrary) to "Qt point" ids
+QMutex QWindowSystemInterfacePrivate::pointIdMapMutex;
 typedef QMap<quint64, int> PointIdMap;
 Q_GLOBAL_STATIC(PointIdMap, g_pointIdMap)
 
@@ -636,6 +648,8 @@ Q_GLOBAL_STATIC(PointIdMap, g_pointIdMap)
 */
 static int acquireCombinedPointId(quint8 deviceId, int pointId)
 {
+    QMutexLocker locker(&QWindowSystemInterfacePrivate::pointIdMapMutex);
+
     quint64 combinedId64 = (quint64(deviceId) << 32) + pointId;
     auto it = g_pointIdMap->constFind(combinedId64);
     int uid;
@@ -695,6 +709,8 @@ QList<QTouchEvent::TouchPoint>
     }
 
     if (states == Qt::TouchPointReleased) {
+        QMutexLocker locker(&QWindowSystemInterfacePrivate::pointIdMapMutex);
+
         // All points on deviceId have been released.
         // Remove all points associated with that device from g_pointIdMap.
         // (On other devices, some touchpoints might still be pressed.
@@ -714,6 +730,7 @@ QList<QTouchEvent::TouchPoint>
 
 void QWindowSystemInterfacePrivate::clearPointIdMap()
 {
+    QMutexLocker locker(&QWindowSystemInterfacePrivate::pointIdMapMutex);
     g_pointIdMap->clear();
     g_nextPointId = 1;
 }
@@ -818,7 +835,8 @@ void QWindowSystemInterface::handleScreenAdded(QPlatformScreen *ps, bool isPrima
 */
 void QWindowSystemInterface::handleScreenRemoved(QPlatformScreen *platformScreen)
 {
-    // Important to keep this order since the QSceen doesn't own the platform screen
+    // Important to keep this order since the QSceen doesn't own the platform screen.
+    // The QScreen destructor will take care changing the primary screen, so no need here.
     delete platformScreen->screen();
     delete platformScreen;
 }
@@ -857,8 +875,8 @@ void QWindowSystemInterface::handleScreenGeometryChange(QScreen *screen, const Q
 
 void QWindowSystemInterface::handleScreenLogicalDotsPerInchChange(QScreen *screen, qreal dpiX, qreal dpiY)
 {
-    QWindowSystemInterfacePrivate::ScreenLogicalDotsPerInchEvent *e =
-            new QWindowSystemInterfacePrivate::ScreenLogicalDotsPerInchEvent(screen, dpiX, dpiY); // ### tja
+    const QDpi effectiveDpi = QPlatformScreen::overrideDpi(QDpi{dpiX, dpiY});
+    auto e = new QWindowSystemInterfacePrivate::ScreenLogicalDotsPerInchEvent(screen, effectiveDpi.first, effectiveDpi.second);
     QWindowSystemInterfacePrivate::handleWindowSystemEvent(e);
 }
 
@@ -869,10 +887,10 @@ void QWindowSystemInterface::handleScreenRefreshRateChange(QScreen *screen, qrea
     QWindowSystemInterfacePrivate::handleWindowSystemEvent(e);
 }
 
-void QWindowSystemInterface::handleThemeChange(QWindow *window)
+QT_DEFINE_QPA_EVENT_HANDLER(void, handleThemeChange, QWindow *window)
 {
     QWindowSystemInterfacePrivate::ThemeChangeEvent *e = new QWindowSystemInterfacePrivate::ThemeChangeEvent(window);
-    QWindowSystemInterfacePrivate::handleWindowSystemEvent(e);
+    QWindowSystemInterfacePrivate::handleWindowSystemEvent<Delivery>(e);
 }
 
 #if QT_CONFIG(draganddrop)
@@ -924,7 +942,11 @@ QPlatformDropQtResponse QWindowSystemInterface::handleDrop(QWindow *window, cons
     \note This function can only be called from the GUI thread.
 */
 
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+bool QWindowSystemInterface::handleNativeEvent(QWindow *window, const QByteArray &eventType, void *message, qintptr *result)
+#else
 bool QWindowSystemInterface::handleNativeEvent(QWindow *window, const QByteArray &eventType, void *message, long *result)
+#endif
 {
     return QGuiApplicationPrivate::processNativeEvent(window, eventType, message, result);
 }
@@ -1111,7 +1133,7 @@ bool QWindowSystemInterface::flushWindowSystemEvents(QEventLoop::ProcessEventsFl
     } else {
         sendWindowSystemEvents(flags);
     }
-    return QWindowSystemInterfacePrivate::eventAccepted.load() > 0;
+    return QWindowSystemInterfacePrivate::eventAccepted.loadRelaxed() > 0;
 }
 
 void QWindowSystemInterface::deferredFlushWindowSystemEvents(QEventLoop::ProcessEventsFlags flags)
@@ -1152,7 +1174,7 @@ bool QWindowSystemInterface::sendWindowSystemEvents(QEventLoop::ProcessEventsFla
         // (excluding flush events). This state can then be
         // returned by flushWindowSystemEvents().
         if (event->type != QWindowSystemInterfacePrivate::FlushEvents)
-            QWindowSystemInterfacePrivate::eventAccepted.store(event->eventAccepted);
+            QWindowSystemInterfacePrivate::eventAccepted.storeRelaxed(event->eventAccepted);
 
         delete event;
     }

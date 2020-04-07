@@ -11,10 +11,12 @@
 #include "media/base/media_engine.h"
 
 #include <stddef.h>
+
 #include <cstdint>
 #include <string>
 #include <utility>
 
+#include "absl/algorithm/container.h"
 #include "api/video/video_bitrate_allocation.h"
 #include "rtc_base/checks.h"
 #include "rtc_base/string_encode.h"
@@ -40,45 +42,36 @@ webrtc::RtpParameters CreateRtpParametersWithEncodings(StreamParams sp) {
   for (size_t i = 0; i < encodings.size(); ++i) {
     encodings[i].ssrc = primary_ssrcs[i];
   }
+
+  const std::vector<RidDescription>& rids = sp.rids();
+  RTC_DCHECK(rids.size() == 0 || rids.size() == encoding_count);
+  for (size_t i = 0; i < rids.size(); ++i) {
+    encodings[i].rid = rids[i].rid;
+  }
+
   webrtc::RtpParameters parameters;
   parameters.encodings = encodings;
   parameters.rtcp.cname = sp.cname;
   return parameters;
 }
 
-webrtc::RTCError ValidateRtpParameters(
-    const webrtc::RtpParameters& old_rtp_parameters,
+webrtc::RTCError CheckRtpParametersValues(
     const webrtc::RtpParameters& rtp_parameters) {
   using webrtc::RTCErrorType;
-  if (rtp_parameters.encodings.size() != old_rtp_parameters.encodings.size()) {
-    LOG_AND_RETURN_ERROR(
-        RTCErrorType::INVALID_MODIFICATION,
-        "Attempted to set RtpParameters with different encoding count");
-  }
-  if (rtp_parameters.rtcp != old_rtp_parameters.rtcp) {
-    LOG_AND_RETURN_ERROR(
-        RTCErrorType::INVALID_MODIFICATION,
-        "Attempted to set RtpParameters with modified RTCP parameters");
-  }
-  if (rtp_parameters.header_extensions !=
-      old_rtp_parameters.header_extensions) {
-    LOG_AND_RETURN_ERROR(
-        RTCErrorType::INVALID_MODIFICATION,
-        "Attempted to set RtpParameters with modified header extensions");
-  }
 
   for (size_t i = 0; i < rtp_parameters.encodings.size(); ++i) {
-    if (rtp_parameters.encodings[i].ssrc !=
-        old_rtp_parameters.encodings[i].ssrc) {
-      LOG_AND_RETURN_ERROR(RTCErrorType::INVALID_MODIFICATION,
-                           "Attempted to set RtpParameters with modified SSRC");
-    }
     if (rtp_parameters.encodings[i].bitrate_priority <= 0) {
       LOG_AND_RETURN_ERROR(RTCErrorType::INVALID_RANGE,
                            "Attempted to set RtpParameters bitrate_priority to "
                            "an invalid number. bitrate_priority must be > 0.");
     }
-
+    if (rtp_parameters.encodings[i].scale_resolution_down_by &&
+        *rtp_parameters.encodings[i].scale_resolution_down_by < 1.0) {
+      LOG_AND_RETURN_ERROR(
+          RTCErrorType::INVALID_RANGE,
+          "Attempted to set RtpParameters scale_resolution_down_by to an "
+          "invalid number. scale_resolution_down_by must be >= 1.0");
+    }
     if (rtp_parameters.encodings[i].min_bitrate_bps &&
         rtp_parameters.encodings[i].max_bitrate_bps) {
       if (*rtp_parameters.encodings[i].max_bitrate_bps <
@@ -107,7 +100,48 @@ webrtc::RTCError ValidateRtpParameters(
               " to a different value than other encoding layers.");
     }
   }
+
   return webrtc::RTCError::OK();
+}
+
+webrtc::RTCError CheckRtpParametersInvalidModificationAndValues(
+    const webrtc::RtpParameters& old_rtp_parameters,
+    const webrtc::RtpParameters& rtp_parameters) {
+  using webrtc::RTCErrorType;
+  if (rtp_parameters.encodings.size() != old_rtp_parameters.encodings.size()) {
+    LOG_AND_RETURN_ERROR(
+        RTCErrorType::INVALID_MODIFICATION,
+        "Attempted to set RtpParameters with different encoding count");
+  }
+  if (rtp_parameters.rtcp != old_rtp_parameters.rtcp) {
+    LOG_AND_RETURN_ERROR(
+        RTCErrorType::INVALID_MODIFICATION,
+        "Attempted to set RtpParameters with modified RTCP parameters");
+  }
+  if (rtp_parameters.header_extensions !=
+      old_rtp_parameters.header_extensions) {
+    LOG_AND_RETURN_ERROR(
+        RTCErrorType::INVALID_MODIFICATION,
+        "Attempted to set RtpParameters with modified header extensions");
+  }
+  if (!absl::c_equal(old_rtp_parameters.encodings, rtp_parameters.encodings,
+                     [](const webrtc::RtpEncodingParameters& encoding1,
+                        const webrtc::RtpEncodingParameters& encoding2) {
+                       return encoding1.rid == encoding2.rid;
+                     })) {
+    LOG_AND_RETURN_ERROR(RTCErrorType::INVALID_MODIFICATION,
+                         "Attempted to change RID values in the encodings.");
+  }
+  if (!absl::c_equal(old_rtp_parameters.encodings, rtp_parameters.encodings,
+                     [](const webrtc::RtpEncodingParameters& encoding1,
+                        const webrtc::RtpEncodingParameters& encoding2) {
+                       return encoding1.ssrc == encoding2.ssrc;
+                     })) {
+    LOG_AND_RETURN_ERROR(RTCErrorType::INVALID_MODIFICATION,
+                         "Attempted to set RtpParameters with modified SSRC");
+  }
+
+  return CheckRtpParametersValues(rtp_parameters);
 }
 
 CompositeMediaEngine::CompositeMediaEngine(
@@ -139,4 +173,4 @@ const VideoEngineInterface& CompositeMediaEngine::video() const {
   return *video_engine_.get();
 }
 
-};  // namespace cricket
+}  // namespace cricket

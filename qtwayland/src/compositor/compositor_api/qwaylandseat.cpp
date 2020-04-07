@@ -5,7 +5,7 @@
 **
 ** This file is part of the QtWaylandCompositor module of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL$
+** $QT_BEGIN_LICENSE:GPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
@@ -14,24 +14,14 @@
 ** and conditions see https://www.qt.io/terms-conditions. For further
 ** information use the contact form at https://www.qt.io/contact-us.
 **
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 3 as published by the Free Software
-** Foundation and appearing in the file LICENSE.LGPL3 included in the
-** packaging of this file. Please review the following information to
-** ensure the GNU Lesser General Public License version 3 requirements
-** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
-**
 ** GNU General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU
-** General Public License version 2.0 or (at your option) the GNU General
-** Public license version 3 or any later version approved by the KDE Free
-** Qt Foundation. The licenses are as published by the Free Software
-** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** General Public License version 3 or (at your option) any later version
+** approved by the KDE Free Qt Foundation. The licenses are as published by
+** the Free Software Foundation and appearing in the file LICENSE.GPL3
 ** included in the packaging of this file. Please review the following
 ** information to ensure the GNU General Public License requirements will
-** be met: https://www.gnu.org/licenses/gpl-2.0.html and
-** https://www.gnu.org/licenses/gpl-3.0.html.
+** be met: https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -289,6 +279,10 @@ void QWaylandSeat::sendKeyReleaseEvent(uint code)
  * Sends a touch point event to the \a surface on a touch device with the given
  * \a id, \a point and \a state.
  *
+ * \warning This API should not be used in combination with forwarding of touch
+ * events using \l QWaylandQuickItem::touchEventsEnabled or \l sendFullTouchEvent,
+ * as it might lead to conflicting touch ids.
+ *
  * Returns the serial for the touch up or touch down event.
  */
 uint QWaylandSeat::sendTouchPointEvent(QWaylandSurface *surface, int id, const QPointF &point, Qt::TouchPointState state)
@@ -310,6 +304,10 @@ uint QWaylandSeat::sendTouchPointEvent(QWaylandSurface *surface, int id, const Q
  * \note You need to send a touch frame event when you are done sending touch
  * events.
  *
+ * \warning This API should not be used in combination with forwarding of touch
+ * events using \l WaylandQuickItem::touchEventsEnabled, as it might lead to
+ * conflicting touch ids.
+ *
  * Returns the serial for the touch down event.
  */
 
@@ -319,6 +317,10 @@ uint QWaylandSeat::sendTouchPointEvent(QWaylandSurface *surface, int id, const Q
  *
  * \note You need to send a touch frame event when you are done sending touch
  * events.
+ *
+ * \warning This API should not be used in combination with forwarding of touch
+ * events using \l QWaylandQuickItem::touchEventsEnabled or \l sendFullTouchEvent,
+ * as it might lead to conflicting touch ids.
  *
  * Returns the serial for the touch down event.
  */
@@ -336,6 +338,10 @@ uint QWaylandSeat::sendTouchPointPressed(QWaylandSurface *surface, int id, const
  * \note You need to send a touch frame event when you are done sending touch
  * events.
  *
+ * \warning This API should not be used in combination with forwarding of touch
+ * events using \l WaylandQuickItem::touchEventsEnabled, as it might lead to
+ * conflicting touch ids.
+ *
  * Returns the serial for the touch up event.
  */
 
@@ -345,6 +351,10 @@ uint QWaylandSeat::sendTouchPointPressed(QWaylandSurface *surface, int id, const
  *
  * \note You need to send a touch frame event when you are done sending touch
  * events.
+ *
+ * \warning This API should not be used in combination with forwarding of touch
+ * events using \l QWaylandQuickItem::touchEventsEnabled or \l sendFullTouchEvent,
+ * as it might lead to conflicting touch ids.
  *
  * Returns the serial for the touch up event.
  */
@@ -362,6 +372,10 @@ uint QWaylandSeat::sendTouchPointReleased(QWaylandSurface *surface, int id, cons
  * \note You need to send a touch frame event when you are done sending touch
  * events.
  *
+ * \warning This API should not be used in combination with forwarding of touch
+ * events using \l WaylandQuickItem::touchEventsEnabled, as it might lead to
+ * conflicting touch ids.
+ *
  * Returns the serial for the touch motion event.
  */
 
@@ -371,6 +385,10 @@ uint QWaylandSeat::sendTouchPointReleased(QWaylandSurface *surface, int id, cons
  *
  * \note You need to send a touch frame event when you are done sending touch
  * events.
+ *
+ * \warning This API should not be used in combination with forwarding of touch
+ * events using \l QWaylandQuickItem::touchEventsEnabled or \l sendFullTouchEvent,
+ * as it might lead to conflicting touch ids.
  *
  * Returns the serial for the touch motion event.
  */
@@ -415,6 +433,11 @@ void QWaylandSeat::sendTouchCancelEvent(QWaylandClient *client)
 
 /*!
  * Sends the \a event to the specified \a surface on the touch device.
+ *
+ * \warning This API will automatically map \l QTouchEvent::TouchPoint::id to a
+ * sequential id before sending it to the client. It should therefore not be
+ * used in combination with the other API using explicit ids, as collisions
+ * might occur.
  */
 void QWaylandSeat::sendFullTouchEvent(QWaylandSurface *surface, QTouchEvent *event)
 {
@@ -475,11 +498,13 @@ void QWaylandSeat::sendFullKeyEvent(QKeyEvent *event)
  * \qmlmethod void QtWaylandCompositor::WaylandSeat::sendKeyEvent(int qtKey, bool pressed)
  * \since 5.12
  *
- * Sends a key press or release to the keyboard device.
+ * Sends a key press (if \a pressed is \c true) or release (if \a pressed is \c false)
+ * event of a key \a qtKey to the keyboard device.
  */
 
 /*!
- * Sends a key press or release to the keyboard device.
+ * Sends a key press (if \a pressed is \c true) or release (if \a pressed is \c false)
+ * event of a key \a qtKey to the keyboard device.
  *
  * \since 5.12
  */
@@ -711,6 +736,10 @@ void QWaylandSeat::handleMouseFocusDestroyed()
  * This signal is emitted when the client has requested for a specific \a surface to be the mouse
  * cursor. For example, when the user hovers over a particular surface, and you want the cursor
  * to change into a resize arrow.
+ *
+ * Both \a hotspotX and \a hotspotY are offsets from the top-left of a pointer surface, where a
+ * click should happen. For example, if the requested cursor surface is an arrow, the parameters
+ * indicate where the arrow's tip is, on that surface.
  */
 
 /*!

@@ -13,6 +13,7 @@
 #include "base/callback.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
+#include "base/memory/weak_ptr.h"
 #include "url/gurl.h"
 
 namespace net {
@@ -49,7 +50,9 @@ class ErrorLogger;
 // In the case of a web app manifest download, can also also fail when:
 //  - There's a redirect.
 using PaymentManifestDownloadCallback =
-    base::OnceCallback<void(const GURL& url, const std::string& contents)>;
+    base::OnceCallback<void(const GURL& url,
+                            const std::string& contents,
+                            const std::string& error_message)>;
 
 // Downloader of the payment method manifest and web-app manifest based on the
 // payment method name that is a URL with HTTPS scheme, e.g.,
@@ -58,6 +61,11 @@ using PaymentManifestDownloadCallback =
 // The downloader follows up to three redirects for the HEAD request only (used
 // for payment method manifests). Three is enough for known legitimate use cases
 // and seems like a good upper bound.
+//
+// The command line must be initialized to use this class in tests, because it
+// checks for --unsafely-treat-insecure-origin-as-secure=<origin> flag. For
+// example:
+//  base::CommandLine::Init(0, nullptr);
 class PaymentManifestDownloader {
  public:
   PaymentManifestDownloader(
@@ -95,6 +103,10 @@ class PaymentManifestDownloader {
   // |url| should be a valid URL with HTTPS scheme.
   void DownloadWebAppManifest(const GURL& url,
                               PaymentManifestDownloadCallback callback);
+
+  // Overridden in TestDownloader to convert |url| to a test server URL. The
+  // default implementation here simply returns |url|.
+  virtual GURL FindTestServerURL(const GURL& url) const;
 
  private:
   friend class PaymentMethodManifestDownloaderTest;
@@ -152,6 +164,8 @@ class PaymentManifestDownloader {
   // collision between HEAD and GET requests.
   std::map<const network::SimpleURLLoader*, std::unique_ptr<Download>>
       downloads_;
+
+  base::WeakPtrFactory<PaymentManifestDownloader> weak_ptr_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(PaymentManifestDownloader);
 };

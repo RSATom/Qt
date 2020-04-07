@@ -29,7 +29,7 @@
 namespace {
 
 // Limit of memory segment size. It has to fit in an unsigned 32-bit number
-// and should be a power of 2 in order to accomodate almost any page size.
+// and should be a power of 2 in order to accommodate almost any page size.
 const uint32_t kSegmentMaxSize = 1 << 30;  // 1 GiB
 
 // A constant (random) value placed in the shared metadata to identify
@@ -350,13 +350,11 @@ PersistentMemoryAllocator::PersistentMemoryAllocator(Memory memory,
   // Ensure that memory segment is of acceptable size.
   CHECK(IsMemoryAcceptable(memory.base, size, page_size, readonly));
 
-  // These atomics operate inter-process and so must be lock-free. The local
-  // casts are to make sure it can be evaluated at compile time to a constant.
 #ifndef TOOLKIT_QT
-  // These can not be inlined by clang-libstdc++ and some embedded GCC versions
-  CHECK(((SharedMetadata*)nullptr)->freeptr.is_lock_free());
-  CHECK(((SharedMetadata*)nullptr)->flags.is_lock_free());
-  CHECK(((BlockHeader*)nullptr)->next.is_lock_free());
+  // These atomics operate inter-process and so must be lock-free.
+  DCHECK(SharedMetadata().freeptr.is_lock_free());
+  DCHECK(SharedMetadata().flags.is_lock_free());
+  DCHECK(BlockHeader().next.is_lock_free());
   CHECK(corrupt_.is_lock_free());
 #endif
 
@@ -1016,31 +1014,54 @@ void LocalPersistentMemoryAllocator::DeallocateLocalMemory(void* memory,
 #endif
 }
 
+//----- WritableSharedPersistentMemoryAllocator --------------------------------
 
-//----- SharedPersistentMemoryAllocator ----------------------------------------
+WritableSharedPersistentMemoryAllocator::
+    WritableSharedPersistentMemoryAllocator(
+        base::WritableSharedMemoryMapping memory,
+        uint64_t id,
+        base::StringPiece name)
+    : PersistentMemoryAllocator(Memory(memory.memory(), MEM_SHARED),
+                                memory.size(),
+                                0,
+                                id,
+                                name,
+                                false),
+      shared_memory_(std::move(memory)) {}
 
-SharedPersistentMemoryAllocator::SharedPersistentMemoryAllocator(
-    std::unique_ptr<SharedMemory> memory,
-    uint64_t id,
-    base::StringPiece name,
-    bool read_only)
+WritableSharedPersistentMemoryAllocator::
+    ~WritableSharedPersistentMemoryAllocator() = default;
+
+// static
+bool WritableSharedPersistentMemoryAllocator::IsSharedMemoryAcceptable(
+    const base::WritableSharedMemoryMapping& memory) {
+  return IsMemoryAcceptable(memory.memory(), memory.size(), 0, false);
+}
+
+//----- ReadOnlySharedPersistentMemoryAllocator --------------------------------
+
+ReadOnlySharedPersistentMemoryAllocator::
+    ReadOnlySharedPersistentMemoryAllocator(
+        base::ReadOnlySharedMemoryMapping memory,
+        uint64_t id,
+        base::StringPiece name)
     : PersistentMemoryAllocator(
-          Memory(static_cast<uint8_t*>(memory->memory()), MEM_SHARED),
-          memory->mapped_size(),
+          Memory(const_cast<void*>(memory.memory()), MEM_SHARED),
+          memory.size(),
           0,
           id,
           name,
-          read_only),
+          true),
       shared_memory_(std::move(memory)) {}
 
-SharedPersistentMemoryAllocator::~SharedPersistentMemoryAllocator() = default;
+ReadOnlySharedPersistentMemoryAllocator::
+    ~ReadOnlySharedPersistentMemoryAllocator() = default;
 
 // static
-bool SharedPersistentMemoryAllocator::IsSharedMemoryAcceptable(
-    const SharedMemory& memory) {
-  return IsMemoryAcceptable(memory.memory(), memory.mapped_size(), 0, false);
+bool ReadOnlySharedPersistentMemoryAllocator::IsSharedMemoryAcceptable(
+    const base::ReadOnlySharedMemoryMapping& memory) {
+  return IsMemoryAcceptable(memory.memory(), memory.size(), 0, true);
 }
-
 
 #if !defined(OS_NACL)
 //----- FilePersistentMemoryAllocator ------------------------------------------
@@ -1072,7 +1093,8 @@ bool FilePersistentMemoryAllocator::IsFileAcceptable(
 void FilePersistentMemoryAllocator::Cache() {
   // Since this method is expected to load data from permanent storage
   // into memory, blocking I/O may occur.
-  base::ScopedBlockingCall scoped_blocking_call(base::BlockingType::MAY_BLOCK);
+  base::ScopedBlockingCall scoped_blocking_call(FROM_HERE,
+                                                base::BlockingType::MAY_BLOCK);
 
   // Calculate begin/end addresses so that the first byte of every page
   // in that range can be read. Keep within the used space. The |volatile|
@@ -1101,11 +1123,11 @@ void FilePersistentMemoryAllocator::FlushPartial(size_t length, bool sync) {
 
   base::Optional<base::ScopedBlockingCall> scoped_blocking_call;
   if (sync)
-    scoped_blocking_call.emplace(base::BlockingType::MAY_BLOCK);
+    scoped_blocking_call.emplace(FROM_HERE, base::BlockingType::MAY_BLOCK);
 
 #if defined(OS_WIN)
   // Windows doesn't support asynchronous flush.
-  scoped_blocking_call.emplace(base::BlockingType::MAY_BLOCK);
+  scoped_blocking_call.emplace(FROM_HERE, base::BlockingType::MAY_BLOCK);
   BOOL success = ::FlushViewOfFile(data(), length);
   DPCHECK(success);
 #elif defined(OS_MACOSX)

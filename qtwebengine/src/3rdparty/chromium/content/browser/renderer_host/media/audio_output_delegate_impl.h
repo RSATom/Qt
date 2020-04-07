@@ -10,6 +10,7 @@
 
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
+#include "base/timer/timer.h"
 #include "content/common/content_export.h"
 #include "media/audio/audio_output_delegate.h"
 #include "media/mojo/interfaces/audio_logging.mojom.h"
@@ -65,6 +66,7 @@ class CONTENT_EXPORT AudioOutputDelegateImpl
   int GetStreamId() override;
   void OnPlayStream() override;
   void OnPauseStream() override;
+  void OnFlushStream() override;
   void OnSetVolume(double volume) override;
 
  private:
@@ -100,7 +102,7 @@ class CONTENT_EXPORT AudioOutputDelegateImpl
   // |observer_| is notified about changes in the audible state of the stream.
   media::mojom::AudioOutputStreamObserverPtr observer_;
 
-  base::WeakPtrFactory<AudioOutputDelegateImpl> weak_factory_;
+  base::WeakPtrFactory<AudioOutputDelegateImpl> weak_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(AudioOutputDelegateImpl);
 };

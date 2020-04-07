@@ -8,9 +8,9 @@
 #ifndef GrRenderTargetContextPriv_DEFINED
 #define GrRenderTargetContextPriv_DEFINED
 
-#include "GrRenderTargetContext.h"
-#include "GrRenderTargetOpList.h"
-#include "GrPathRendering.h"
+#include "src/gpu/GrPathRendering.h"
+#include "src/gpu/GrRenderTargetContext.h"
+#include "src/gpu/GrRenderTargetOpList.h"
 
 class GrFixedClip;
 class GrHardClip;
@@ -62,25 +62,23 @@ public:
      */
     void absClear(const SkIRect* rect, const SkPMColor4f& color);
 
-    void stencilRect(const GrHardClip&,
-                     const GrUserStencilSettings* ss,
-                     GrAAType,
-                     const SkMatrix& viewMatrix,
-                     const SkRect& rect);
+    // While this can take a general clip, since GrReducedClip relies on this function, it must take
+    // care to only provide hard clips or we could get stuck in a loop. The general clip is needed
+    // so that path renderers can use this function.
+    void stencilRect(
+            const GrClip& clip, const GrUserStencilSettings* ss, GrPaint&& paint,
+            GrAA doStencilMSAA, const SkMatrix& viewMatrix, const SkRect& rect,
+            const SkMatrix* localMatrix = nullptr) {
+        // Since this provides stencil settings to drawFilledQuad, it performs a different AA type
+        // resolution compared to regular rect draws, which is the main reason it remains separate.
+        GrQuad localQuad = localMatrix ? GrQuad::MakeFromRect(rect, *localMatrix) : GrQuad(rect);
+        fRenderTargetContext->drawFilledQuad(
+                clip, std::move(paint), doStencilMSAA, GrQuadAAFlags::kNone,
+                GrQuad::MakeFromRect(rect, viewMatrix), localQuad, ss);
+    }
 
-    void stencilPath(const GrHardClip&, GrAAType, const SkMatrix& viewMatrix, const GrPath*);
-
-    /**
-     * Draws a rect, either AA or not, and touches the stencil buffer with the user stencil settings
-     * for each color sample written.
-     */
-    bool drawAndStencilRect(const GrHardClip&,
-                            const GrUserStencilSettings*,
-                            SkRegion::Op op,
-                            bool invert,
-                            GrAA,
-                            const SkMatrix& viewMatrix,
-                            const SkRect&);
+    void stencilPath(
+            const GrHardClip&, GrAA doStencilMSAA, const SkMatrix& viewMatrix, const GrPath*);
 
     /**
      * Draws a path, either AA or not, and touches the stencil buffer with the user stencil settings
@@ -90,7 +88,7 @@ public:
                             const GrUserStencilSettings*,
                             SkRegion::Op op,
                             bool invert,
-                            GrAA,
+                            GrAA doStencilMSAA,
                             const SkMatrix& viewMatrix,
                             const SkPath&);
 

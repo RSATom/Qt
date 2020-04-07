@@ -6,7 +6,9 @@
 
 #include <memory>
 
+#include "base/macros.h"
 #include "base/memory/ptr_util.h"
+#include "media/base/eme_constants.h"
 #include "third_party/blink/public/platform/web_content_decryption_module.h"
 #include "third_party/blink/public/platform/web_encrypted_media_types.h"
 #include "third_party/blink/public/platform/web_media_key_system_configuration.h"
@@ -32,8 +34,6 @@ namespace {
 // All other complete methods are not expected to be called, and will
 // reject the promise.
 class NewCdmResultPromise : public ContentDecryptionModuleResultPromise {
-  WTF_MAKE_NONCOPYABLE(NewCdmResultPromise);
-
  public:
   NewCdmResultPromise(
       ScriptState* script_state,
@@ -56,7 +56,7 @@ class NewCdmResultPromise : public ContentDecryptionModuleResultPromise {
       return;
 
     // 2.9. Let media keys be a new MediaKeys object.
-    MediaKeys* media_keys = MediaKeys::Create(
+    auto* media_keys = MakeGarbageCollected<MediaKeys>(
         GetExecutionContext(), supported_session_types_, base::WrapUnique(cdm));
 
     // 2.10. Resolve promise with media keys.
@@ -65,12 +65,14 @@ class NewCdmResultPromise : public ContentDecryptionModuleResultPromise {
 
  private:
   WebVector<WebEncryptedMediaSessionType> supported_session_types_;
+
+  DISALLOW_COPY_AND_ASSIGN(NewCdmResultPromise);
 };
 
 // These methods are the inverses of those with the same names in
 // NavigatorRequestMediaKeySystemAccess.
 static Vector<String> ConvertInitDataTypes(
-    const WebVector<WebEncryptedMediaInitDataType>& init_data_types) {
+    const WebVector<media::EmeInitDataType>& init_data_types) {
   Vector<String> result(SafeCast<wtf_size_t>(init_data_types.size()));
   for (wtf_size_t i = 0; i < result.size(); i++)
     result[i] =
@@ -126,13 +128,13 @@ MediaKeySystemConfiguration* MediaKeySystemAccess::getConfiguration() const {
   MediaKeySystemConfiguration* result = MediaKeySystemConfiguration::Create();
   // |initDataTypes|, |audioCapabilities|, and |videoCapabilities| can only be
   // empty if they were not present in the requested configuration.
-  if (!configuration.init_data_types.IsEmpty())
+  if (!configuration.init_data_types.empty())
     result->setInitDataTypes(
         ConvertInitDataTypes(configuration.init_data_types));
-  if (!configuration.audio_capabilities.IsEmpty())
+  if (!configuration.audio_capabilities.empty())
     result->setAudioCapabilities(
         ConvertCapabilities(configuration.audio_capabilities));
-  if (!configuration.video_capabilities.IsEmpty())
+  if (!configuration.video_capabilities.empty())
     result->setVideoCapabilities(
         ConvertCapabilities(configuration.video_capabilities));
 

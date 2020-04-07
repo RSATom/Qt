@@ -421,10 +421,7 @@ void Window::checkOpenGL()
 
     bool antialias = m_antialiasCheckBox->isChecked();
 
-    if (opengl)
-        m_view->setRenderHint(QPainter::HighQualityAntialiasing, antialias);
-    else
-        m_view->setRenderHint(QPainter::Antialiasing, antialias);
+    m_view->setRenderHint(QPainter::Antialiasing, antialias);
 }
 
 void Window::checkAnimationOptions()
@@ -574,7 +571,7 @@ QMenu *Window::createMenu()
 
             foreach (Chart *chart, subCategoryMap.values(subCategory)) {
                 createMenuAction(subMenu, QIcon(), chart->name(),
-                                 qVariantFromValue((void *) chart));
+                                 QVariant::fromValue(static_cast<void *>(chart)));
             }
         }
     }

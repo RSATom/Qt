@@ -17,7 +17,9 @@
  * Boston, MA 02110-1301, USA.
  */
 
-// https://html.spec.whatwg.org/#the-head-element
-[HTMLConstructor]
-interface HTMLHeadElement : HTMLElement {
+// https://html.spec.whatwg.org/C/#the-head-element
+[
+    Exposed=Window,
+    HTMLConstructor
+] interface HTMLHeadElement : HTMLElement {
 };

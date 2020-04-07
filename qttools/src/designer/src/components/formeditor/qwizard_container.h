@@ -50,7 +50,7 @@ class QWizardContainer: public QObject, public QDesignerContainerExtension
     Q_OBJECT
     Q_INTERFACES(QDesignerContainerExtension)
 public:
-    explicit QWizardContainer(QWizard *widget, QObject *parent = 0);
+    explicit QWizardContainer(QWizard *widget, QObject *parent = nullptr);
 
     int count() const override;
     QWidget *widget(int index) const override;
@@ -73,7 +73,7 @@ class QWizardPagePropertySheet: public QDesignerPropertySheet
 {
     Q_OBJECT
 public:
-    explicit QWizardPagePropertySheet(QWizardPage *object, QObject *parent = 0);
+    explicit QWizardPagePropertySheet(QWizardPage *object, QObject *parent = nullptr);
 
     bool reset(int index) override;
 
@@ -91,7 +91,7 @@ class QWizardPropertySheet: public QDesignerPropertySheet
 {
     Q_OBJECT
 public:
-    explicit QWizardPropertySheet(QWizard *object, QObject *parent = 0);
+    explicit QWizardPropertySheet(QWizard *object, QObject *parent = nullptr);
     bool isVisible(int index) const override;
 
 private:
@@ -99,9 +99,9 @@ private:
 };
 
 // Factories
-typedef QDesignerPropertySheetFactory<QWizard, QWizardPropertySheet>  QWizardPropertySheetFactory;
-typedef QDesignerPropertySheetFactory<QWizardPage, QWizardPagePropertySheet>  QWizardPagePropertySheetFactory;
-typedef ExtensionFactory<QDesignerContainerExtension,  QWizard,  QWizardContainer> QWizardContainerFactory;
+using QWizardPropertySheetFactory = QDesignerPropertySheetFactory<QWizard, QWizardPropertySheet>;
+using QWizardPagePropertySheetFactory = QDesignerPropertySheetFactory<QWizardPage, QWizardPagePropertySheet>;
+using QWizardContainerFactory = ExtensionFactory<QDesignerContainerExtension,  QWizard,  QWizardContainer>;
 }  // namespace qdesigner_internal
 
 QT_END_NAMESPACE

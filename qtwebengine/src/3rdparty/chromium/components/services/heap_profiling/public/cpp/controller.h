@@ -56,7 +56,6 @@ class Controller {
   using GetProfiledPidsCallback =
       base::OnceCallback<void(const std::vector<base::ProcessId>&)>;
   void GetProfiledPids(GetProfiledPidsCallback callback);
-  void SetKeepSmallAllocations(bool keep_small_allocations);
 
   // Careful! WeakPtrs are also sequence-affine.
   // This method must be called from the same sequence the instance is bound to.
@@ -73,7 +72,7 @@ class Controller {
   const mojom::StackMode stack_mode_;
 
   SEQUENCE_CHECKER(sequence_checker_);
-  base::WeakPtrFactory<Controller> weak_factory_;
+  base::WeakPtrFactory<Controller> weak_factory_{this};
   DISALLOW_COPY_AND_ASSIGN(Controller);
 };
 

@@ -34,6 +34,7 @@
 #include "qbytearraylist.h"
 #include "qbytearraymatcher.h"
 #include "qcache.h"
+#include "qcalendar.h"
 #include "qcborarray.h"
 #include "qcborcommon.h"
 #include "qcbormap.h"
@@ -48,7 +49,9 @@
 #include "qcommandlineparser.h"
 #endif
 #include "qcompilerdetection.h"
+#if QT_CONFIG(concatenatetablesproxymodel)
 #include "qconcatenatetablesproxymodel.h"
+#endif
 #include "qcontainerfwd.h"
 #include "qcontiguouscache.h"
 #include "qcoreapplication.h"
@@ -60,7 +63,9 @@
 #include "qdebug.h"
 #include "qdir.h"
 #include "qdiriterator.h"
+#if QT_CONFIG(easingcurve)
 #include "qeasingcurve.h"
+#endif
 #include "qelapsedtimer.h"
 #include "qendian.h"
 #include "qeventloop.h"
@@ -236,13 +241,17 @@
 #include "qthreadpool.h"
 #endif
 #include "qthreadstorage.h"
+#if QT_CONFIG(easingcurve)
 #include "qtimeline.h"
+#endif
 #include "qtimer.h"
 #if QT_CONFIG(timezone)
 #include "qtimezone.h"
 #endif
 #include "qtranslator.h"
+#if QT_CONFIG(transposeproxymodel)
 #include "qtransposeproxymodel.h"
+#endif
 #include "qtypeinfo.h"
 #include "qtypetraits.h"
 #include "qurl.h"

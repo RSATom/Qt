@@ -6,16 +6,17 @@
 
 namespace features {
 
+// When the audio service in a separate process, kill it when a hang is
+// detected. It will be restarted when needed.
+const base::Feature kAudioServiceOutOfProcessKillAtHang{
+    "AudioServiceOutOfProcessKillAtHang", base::FEATURE_DISABLED_BY_DEFAULT};
+
 // If enabled, base::DumpWithoutCrashing is called whenever an audio service
 // hang is detected.
 const base::Feature kDumpOnAudioServiceHang{"DumpOnAudioServiceHang",
                                             base::FEATURE_DISABLED_BY_DEFAULT};
 
 #if defined(OS_CHROMEOS)
-// Allows experimentally enables mediaDevices.enumerateDevices() on ChromeOS.
-// Default disabled (crbug.com/554168).
-const base::Feature kEnumerateAudioDevices{"EnumerateAudioDevices",
-                                           base::FEATURE_ENABLED_BY_DEFAULT};
 const base::Feature kCrOSSystemAEC{"CrOSSystemAEC",
                                    base::FEATURE_ENABLED_BY_DEFAULT};
 const base::Feature kCrOSSystemAECDeactivatedGroups{
@@ -27,4 +28,8 @@ const base::Feature kForceEnableSystemAec{"ForceEnableSystemAec",
                                           base::FEATURE_DISABLED_BY_DEFAULT};
 #endif
 
+#if defined(OS_WIN)
+const base::Feature kAllowIAudioClient3{"AllowIAudioClient3",
+                                        base::FEATURE_ENABLED_BY_DEFAULT};
+#endif
 }  // namespace features

@@ -88,7 +88,8 @@ QPickEventPrivate *QPickEventPrivate::get(QPickEvent *object)
   Constructs a new QPickEvent with the given parameters: \a position, \a intersection, \a localIntersection and \a distance
  */
 // NOTE: remove in Qt6
-QPickEvent::QPickEvent(const QPointF &position, const QVector3D &worldIntersection, const QVector3D &localIntersection, float distance)
+QPickEvent::QPickEvent(const QPointF &position, const QVector3D &worldIntersection, const QVector3D &localIntersection,
+                       float distance)
     : QObject(*new QPickEventPrivate())
 {
     Q_D(QPickEvent);
@@ -101,7 +102,8 @@ QPickEvent::QPickEvent(const QPointF &position, const QVector3D &worldIntersecti
 /*!
   Constructs a new QPickEvent with the given parameters: \a position, \a worldIntersection, \a localIntersection, \a distance, \a button, \a buttons and \a modifiers
  */
-QPickEvent::QPickEvent(const QPointF &position, const QVector3D &worldIntersection, const QVector3D &localIntersection, float distance, QPickEvent::Buttons button, int buttons, int modifiers)
+QPickEvent::QPickEvent(const QPointF &position, const QVector3D &worldIntersection, const QVector3D &localIntersection,
+                       float distance, QPickEvent::Buttons button, int buttons, int modifiers)
     : QObject(*new QPickEventPrivate())
 {
     Q_D(QPickEvent);
@@ -300,6 +302,51 @@ int QPickEvent::modifiers() const
 {
     Q_D(const QPickEvent);
     return d->m_modifiers;
+}
+
+/*!
+ * \qmlproperty Viewport Qt3D.Render::PickEvent::viewport
+ * The viewport in which this event originated. A null value means the event originated from a frame graph branch without a Viewport.
+ * If a frame graph branch has a Viewport inside a Viewport the property will contain the leaf viewport.
+ *
+ * \since 5.14
+ */
+/*!
+ * \property Qt3DRender::QPickEvent::viewport
+ * The viewport in which this event originated. A null value means the event originated from a frame graph branch without a QViewport.
+ * If a frame graph branch has a Viewport inside a Viewport the property will contain the leaf viewport.
+ *
+ * \since 5.14
+ */
+QViewport *QPickEvent::viewport() const
+{
+    Q_D(const QPickEvent);
+    return d->m_viewport;
+}
+
+
+/*!
+ * \qmlproperty Entity Qt3D.Render::PickEvent::entity
+ * The entity that the picked geometry belongs to.
+ *
+ * If the object picker is not attached to a leaf node in the scene graph,
+ * this is useful to find which child entity was actually picked.
+ *
+ * \since 5.14
+ */
+/*!
+ * \property Qt3DRender::QPickEvent::entity
+ * The entity that the picked geometry belongs to.
+ *
+ * If the object picker is not attached to a leaf node in the scene graph,
+ * this is useful to find which child entity was actually picked.
+ *
+ * \since 5.14
+ */
+Qt3DCore::QEntity *QPickEvent::entity() const
+{
+    Q_D(const QPickEvent);
+    return d->m_entityPtr;
 }
 
 } // Qt3DRender

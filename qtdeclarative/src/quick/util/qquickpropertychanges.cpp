@@ -51,6 +51,7 @@
 #include <private/qqmlcontext_p.h>
 #include <private/qquickstate_p_p.h>
 #include <private/qqmlboundsignal_p.h>
+#include <private/qv4qmlcontext_p.h>
 
 #include <QtCore/qdebug.h>
 
@@ -201,14 +202,14 @@ public:
 
     QPointer<QObject> object;
     QList<const QV4::CompiledData::Binding *> bindings;
-    QQmlRefPointer<QV4::CompiledData::CompilationUnit> compilationUnit;
+    QQmlRefPointer<QV4::ExecutableCompilationUnit> compilationUnit;
 
     bool decoded : 1;
     bool restore : 1;
     bool isExplicit : 1;
 
     void decode();
-    void decodeBinding(const QString &propertyPrefix, const QQmlRefPointer<QV4::CompiledData::CompilationUnit> &qmlUnit, const QV4::CompiledData::Binding *binding);
+    void decodeBinding(const QString &propertyPrefix, const QQmlRefPointer<QV4::ExecutableCompilationUnit> &qmlUnit, const QV4::CompiledData::Binding *binding);
 
     class ExpressionChange {
     public:
@@ -236,7 +237,7 @@ public:
     QQmlProperty property(const QString &);
 };
 
-void QQuickPropertyChangesParser::verifyList(const QQmlRefPointer<QV4::CompiledData::CompilationUnit> &compilationUnit, const QV4::CompiledData::Binding *binding)
+void QQuickPropertyChangesParser::verifyList(const QQmlRefPointer<QV4::ExecutableCompilationUnit> &compilationUnit, const QV4::CompiledData::Binding *binding)
 {
     if (binding->type == QV4::CompiledData::Binding::Type_Object) {
         error(compilationUnit->objectAt(binding->value.objectIndex), QQuickPropertyChanges::tr("PropertyChanges does not support creating state-specific objects."));
@@ -266,7 +267,7 @@ void QQuickPropertyChangesPrivate::decode()
     decoded = true;
 }
 
-void QQuickPropertyChangesPrivate::decodeBinding(const QString &propertyPrefix, const QQmlRefPointer<QV4::CompiledData::CompilationUnit> &compilationUnit, const QV4::CompiledData::Binding *binding)
+void QQuickPropertyChangesPrivate::decodeBinding(const QString &propertyPrefix, const QQmlRefPointer<QV4::ExecutableCompilationUnit> &compilationUnit, const QV4::CompiledData::Binding *binding)
 {
     Q_Q(QQuickPropertyChanges);
 
@@ -314,7 +315,7 @@ void QQuickPropertyChangesPrivate::decodeBinding(const QString &propertyPrefix, 
         QQmlBinding::Identifier id = QQmlBinding::Invalid;
 
         if (!binding->isTranslationBinding()) {
-            expression = binding->valueAsString(compilationUnit.data());
+            expression = compilationUnit->bindingValueAsString(binding);
             id = binding->value.compiledScriptIndex;
         }
         expressions << ExpressionChange(propertyName, binding, id, expression, url, line, column);
@@ -328,10 +329,10 @@ void QQuickPropertyChangesPrivate::decodeBinding(const QString &propertyPrefix, 
     case QV4::CompiledData::Binding::Type_TranslationById:
         Q_UNREACHABLE();
     case QV4::CompiledData::Binding::Type_String:
-        var = binding->valueAsString(compilationUnit.data());
+        var = compilationUnit->bindingValueAsString(binding);
         break;
     case QV4::CompiledData::Binding::Type_Number:
-        var = binding->valueAsNumber(compilationUnit->constants);
+        var = compilationUnit->bindingValueAsNumber(binding);
         break;
     case QV4::CompiledData::Binding::Type_Boolean:
         var = binding->valueAsBoolean();
@@ -346,13 +347,13 @@ void QQuickPropertyChangesPrivate::decodeBinding(const QString &propertyPrefix, 
     properties << qMakePair(propertyName, var);
 }
 
-void QQuickPropertyChangesParser::verifyBindings(const QQmlRefPointer<QV4::CompiledData::CompilationUnit> &compilationUnit, const QList<const QV4::CompiledData::Binding *> &props)
+void QQuickPropertyChangesParser::verifyBindings(const QQmlRefPointer<QV4::ExecutableCompilationUnit> &compilationUnit, const QList<const QV4::CompiledData::Binding *> &props)
 {
     for (int ii = 0; ii < props.count(); ++ii)
         verifyList(compilationUnit, props.at(ii));
 }
 
-void QQuickPropertyChangesParser::applyBindings(QObject *obj, const QQmlRefPointer<QV4::CompiledData::CompilationUnit> &compilationUnit, const QList<const QV4::CompiledData::Binding *> &bindings)
+void QQuickPropertyChangesParser::applyBindings(QObject *obj, const QQmlRefPointer<QV4::ExecutableCompilationUnit> &compilationUnit, const QList<const QV4::CompiledData::Binding *> &bindings)
 {
     QQuickPropertyChangesPrivate *p =
         static_cast<QQuickPropertyChangesPrivate *>(QObjectPrivate::get(obj));
@@ -539,9 +540,7 @@ bool QQuickPropertyChanges::containsValue(const QString &name) const
     Q_D(const QQuickPropertyChanges);
     typedef QPair<QString, QVariant> PropertyEntry;
 
-    QListIterator<PropertyEntry> propertyIterator(d->properties);
-    while (propertyIterator.hasNext()) {
-        const PropertyEntry &entry = propertyIterator.next();
+    for (const PropertyEntry &entry : d->properties) {
         if (entry.first == name) {
             return true;
         }
@@ -555,9 +554,7 @@ bool QQuickPropertyChanges::containsExpression(const QString &name) const
     Q_D(const QQuickPropertyChanges);
     typedef QQuickPropertyChangesPrivate::ExpressionChange ExpressionEntry;
 
-    QListIterator<ExpressionEntry> expressionIterator(d->expressions);
-    while (expressionIterator.hasNext()) {
-        const ExpressionEntry &entry = expressionIterator.next();
+    for (const ExpressionEntry &entry : d->expressions) {
         if (entry.name == name) {
             return true;
         }
@@ -575,13 +572,10 @@ void QQuickPropertyChanges::changeValue(const QString &name, const QVariant &val
 {
     Q_D(QQuickPropertyChanges);
     typedef QPair<QString, QVariant> PropertyEntry;
-    typedef QQuickPropertyChangesPrivate::ExpressionChange ExpressionEntry;
 
-    QMutableListIterator<ExpressionEntry> expressionIterator(d->expressions);
-    while (expressionIterator.hasNext()) {
-        const ExpressionEntry &entry = expressionIterator.next();
-        if (entry.name == name) {
-            expressionIterator.remove();
+    for (auto it = d->expressions.begin(), end = d->expressions.end(); it != end; ++it) {
+        if (it->name == name) {
+            d->expressions.erase(it);
             if (state() && state()->isStateActive()) {
                 QQmlPropertyPrivate::removeBinding(d->property(name));
                 d->property(name).write(value);
@@ -592,11 +586,9 @@ void QQuickPropertyChanges::changeValue(const QString &name, const QVariant &val
         }
     }
 
-    QMutableListIterator<PropertyEntry> propertyIterator(d->properties);
-    while (propertyIterator.hasNext()) {
-        PropertyEntry &entry = propertyIterator.next();
-        if (entry.first == name) {
-            entry.second = value;
+    for (auto it = d->properties.begin(), end = d->properties.end(); it != end; ++it) {
+        if (it->first == name) {
+            it->second = value;
             if (state() && state()->isStateActive())
                 d->property(name).write(value);
             return;
@@ -611,7 +603,7 @@ void QQuickPropertyChanges::changeValue(const QString &name, const QVariant &val
     action.specifiedProperty = name;
     action.toValue = value;
 
-    propertyIterator.insert(PropertyEntry(name, value));
+    d->properties.append(PropertyEntry(name, value));
     if (state() && state()->isStateActive()) {
         state()->addEntryToRevertList(action);
         QQmlAbstractBinding *oldBinding = QQmlPropertyPrivate::binding(action.property);
@@ -624,26 +616,21 @@ void QQuickPropertyChanges::changeValue(const QString &name, const QVariant &val
 void QQuickPropertyChanges::changeExpression(const QString &name, const QString &expression)
 {
     Q_D(QQuickPropertyChanges);
-    typedef QPair<QString, QVariant> PropertyEntry;
     typedef QQuickPropertyChangesPrivate::ExpressionChange ExpressionEntry;
 
     bool hadValue = false;
 
-    QMutableListIterator<PropertyEntry> propertyIterator(d->properties);
-    while (propertyIterator.hasNext()) {
-        PropertyEntry &entry = propertyIterator.next();
-        if (entry.first == name) {
-            propertyIterator.remove();
+    for (auto it = d->properties.begin(), end = d->properties.end(); it != end; ++it) {
+        if (it->first == name) {
+            d->properties.erase(it);
             hadValue = true;
             break;
         }
     }
 
-    QMutableListIterator<ExpressionEntry> expressionIterator(d->expressions);
-    while (expressionIterator.hasNext()) {
-        ExpressionEntry &entry = expressionIterator.next();
-        if (entry.name == name) {
-            entry.expression = expression;
+    for (auto it = d->expressions.begin(), end = d->expressions.end(); it != end; ++it) {
+        if (it->name == name) {
+            it->expression = expression;
             if (state() && state()->isStateActive()) {
                 auto prop = d->property(name);
                 QQmlBinding *newBinding = QQmlBinding::create(
@@ -657,7 +644,7 @@ void QQuickPropertyChanges::changeExpression(const QString &name, const QString 
     }
 
     // adding a new expression.
-    expressionIterator.insert(ExpressionEntry(name, nullptr, QQmlBinding::Invalid, expression, QUrl(), -1, -1));
+    d->expressions.append(ExpressionEntry(name, nullptr, QQmlBinding::Invalid, expression, QUrl(), -1, -1));
 
     if (state() && state()->isStateActive()) {
         if (hadValue) {
@@ -713,17 +700,13 @@ QVariant QQuickPropertyChanges::property(const QString &name) const
     typedef QPair<QString, QVariant> PropertyEntry;
     typedef QQuickPropertyChangesPrivate::ExpressionChange ExpressionEntry;
 
-    QListIterator<PropertyEntry> propertyIterator(d->properties);
-    while (propertyIterator.hasNext()) {
-        const PropertyEntry &entry = propertyIterator.next();
+    for (const PropertyEntry &entry : d->properties) {
         if (entry.first == name) {
             return entry.second;
         }
     }
 
-    QListIterator<ExpressionEntry> expressionIterator(d->expressions);
-    while (expressionIterator.hasNext()) {
-        const ExpressionEntry &entry = expressionIterator.next();
+    for (const ExpressionEntry &entry : d->expressions) {
         if (entry.name == name) {
             return QVariant(entry.expression);
         }
@@ -735,24 +718,18 @@ QVariant QQuickPropertyChanges::property(const QString &name) const
 void QQuickPropertyChanges::removeProperty(const QString &name)
 {
     Q_D(QQuickPropertyChanges);
-    typedef QPair<QString, QVariant> PropertyEntry;
-    typedef QQuickPropertyChangesPrivate::ExpressionChange ExpressionEntry;
 
-    QMutableListIterator<ExpressionEntry> expressionIterator(d->expressions);
-    while (expressionIterator.hasNext()) {
-        const ExpressionEntry &entry = expressionIterator.next();
-        if (entry.name == name) {
-            expressionIterator.remove();
+    for (auto it = d->expressions.begin(), end = d->expressions.end(); it != end; ++it) {
+        if (it->name == name) {
+            d->expressions.erase(it);
             state()->removeEntryFromRevertList(object(), name);
             return;
         }
     }
 
-    QMutableListIterator<PropertyEntry> propertyIterator(d->properties);
-    while (propertyIterator.hasNext()) {
-        const PropertyEntry &entry = propertyIterator.next();
-        if (entry.first == name) {
-            propertyIterator.remove();
+    for (auto it = d->properties.begin(), end = d->properties.end(); it != end; ++it) {
+        if (it->first == name) {
+            d->properties.erase(it);
             state()->removeEntryFromRevertList(object(), name);
             return;
         }
@@ -764,9 +741,7 @@ QVariant QQuickPropertyChanges::value(const QString &name) const
     Q_D(const QQuickPropertyChanges);
     typedef QPair<QString, QVariant> PropertyEntry;
 
-    QListIterator<PropertyEntry> propertyIterator(d->properties);
-    while (propertyIterator.hasNext()) {
-        const PropertyEntry &entry = propertyIterator.next();
+    for (const PropertyEntry &entry : d->properties) {
         if (entry.first == name) {
             return entry.second;
         }
@@ -780,9 +755,7 @@ QString QQuickPropertyChanges::expression(const QString &name) const
     Q_D(const QQuickPropertyChanges);
     typedef QQuickPropertyChangesPrivate::ExpressionChange ExpressionEntry;
 
-    QListIterator<ExpressionEntry> expressionIterator(d->expressions);
-    while (expressionIterator.hasNext()) {
-        const ExpressionEntry &entry = expressionIterator.next();
+    for (const ExpressionEntry &entry : d->expressions) {
         if (entry.name == name) {
             return entry.expression;
         }

@@ -87,11 +87,11 @@ DECLARE_HEAP_OBJECT(FunctionObject, Object) {
     }
 
     Q_QML_PRIVATE_EXPORT void init(QV4::ExecutionContext *scope, QV4::String *name, VTable::Call call);
-    void init(QV4::ExecutionContext *scope, QV4::String *name = nullptr);
-    void init(QV4::ExecutionContext *scope, QV4::Function *function, QV4::String *n = nullptr);
-    void init(QV4::ExecutionContext *scope, const QString &name);
-    void init();
-    void destroy();
+    Q_QML_PRIVATE_EXPORT void init(QV4::ExecutionContext *scope, QV4::String *name = nullptr);
+    Q_QML_PRIVATE_EXPORT void init(QV4::ExecutionContext *scope, QV4::Function *function, QV4::String *n = nullptr);
+    Q_QML_PRIVATE_EXPORT void init(QV4::ExecutionContext *scope, const QString &name);
+    Q_QML_PRIVATE_EXPORT void init();
+    Q_QML_PRIVATE_EXPORT void destroy();
 
     void setFunction(Function *f);
 
@@ -244,7 +244,7 @@ protected:
         Type_Function,
         Type_Generator
     };
-    static QQmlRefPointer<CompiledData::CompilationUnit> parse(ExecutionEngine *engine, const Value *argv, int argc, Type t = Type_Function);
+    static QQmlRefPointer<ExecutableCompilationUnit> parse(ExecutionEngine *engine, const Value *argv, int argc, Type t = Type_Function);
 };
 
 struct FunctionPrototype: FunctionObject
@@ -260,7 +260,7 @@ struct FunctionPrototype: FunctionObject
     static ReturnedValue method_hasInstance(const FunctionObject *, const Value *thisObject, const Value *argv, int argc);
 };
 
-struct IndexedBuiltinFunction : FunctionObject
+struct Q_QML_PRIVATE_EXPORT IndexedBuiltinFunction : FunctionObject
 {
     V4_OBJECT2(IndexedBuiltinFunction, FunctionObject)
 };
@@ -328,6 +328,10 @@ inline bool FunctionObject::isBoundFunction() const
     return d()->vtable() == BoundFunction::staticVTable();
 }
 
+inline ReturnedValue checkedResult(QV4::ExecutionEngine *v4, ReturnedValue result)
+{
+    return v4->hasException ? QV4::Encode::undefined() : result;
+}
 
 }
 

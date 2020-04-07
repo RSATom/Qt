@@ -50,6 +50,7 @@
 #endif
 #include <qstack.h>
 #include <qbuffer.h>
+#include <qscopeguard.h>
 #ifndef QT_BOOTSTRAPPED
 #include <qcoreapplication.h>
 #else
@@ -58,9 +59,9 @@
 // case for most bootstrapped applications.
 #define Q_DECLARE_TR_FUNCTIONS(context) \
 public: \
-    static inline QString tr(const char *sourceText, const char *comment = 0) \
+    static inline QString tr(const char *sourceText, const char *comment = nullptr) \
         { Q_UNUSED(comment); return QString::fromLatin1(sourceText); } \
-    static inline QString trUtf8(const char *sourceText, const char *comment = 0) \
+    static inline QString trUtf8(const char *sourceText, const char *comment = nullptr) \
         { Q_UNUSED(comment); return QString::fromLatin1(sourceText); } \
     static inline QString tr(const char *sourceText, const char*, int) \
         { return QString::fromLatin1(sourceText); } \
@@ -68,6 +69,8 @@ public: \
         { return QString::fromLatin1(sourceText); } \
 private:
 #endif
+#include <private/qmemory_p.h>
+
 QT_BEGIN_NAMESPACE
 
 #include "qxmlstream_p.h"
@@ -548,7 +551,7 @@ void QXmlStreamReader::clear()
     if (d->device) {
         if (d->deleteDevice)
             delete d->device;
-        d->device = 0;
+        d->device = nullptr;
     }
 }
 
@@ -782,8 +785,8 @@ QXmlStreamPrivateTagStack::QXmlStreamPrivateTagStack()
     tagStackStringStorage.reserve(32);
     tagStackStringStorageSize = 0;
     NamespaceDeclaration &namespaceDeclaration = namespaceDeclarations.push();
-    namespaceDeclaration.prefix = addToStringStorage(QStringViewLiteral("xml"));
-    namespaceDeclaration.namespaceUri = addToStringStorage(QStringViewLiteral("http://www.w3.org/XML/1998/namespace"));
+    namespaceDeclaration.prefix = addToStringStorage(u"xml");
+    namespaceDeclaration.namespaceUri = addToStringStorage(u"http://www.w3.org/XML/1998/namespace");
     initialTagStackStringStorageSize = tagStackStringStorageSize;
 }
 
@@ -792,16 +795,16 @@ QXmlStreamPrivateTagStack::QXmlStreamPrivateTagStack()
 QXmlStreamReaderPrivate::QXmlStreamReaderPrivate(QXmlStreamReader *q)
     :q_ptr(q)
 {
-    device = 0;
+    device = nullptr;
     deleteDevice = false;
 #if QT_CONFIG(textcodec)
-    decoder = 0;
+    decoder = nullptr;
 #endif
     stack_size = 64;
-    sym_stack = 0;
-    state_stack = 0;
+    sym_stack = nullptr;
+    state_stack = nullptr;
     reallocateStack();
-    entityResolver = 0;
+    entityResolver = nullptr;
     init();
 #define ADD_PREDEFINED(n, v) \
     do { \
@@ -843,11 +846,11 @@ void QXmlStreamReaderPrivate::init()
 #if QT_CONFIG(textcodec)
     codec = QTextCodec::codecForMib(106); // utf8
     delete decoder;
-    decoder = 0;
+    decoder = nullptr;
 #endif
     attributeStack.clear();
     attributeStack.reserve(16);
-    entityParser = 0;
+    entityParser.reset();
     hasCheckedStartDocument = false;
     normalizeLiterals = false;
     hasSeenTag = false;
@@ -880,7 +883,7 @@ void QXmlStreamReaderPrivate::parseEntity(const QString &value)
 
 
     if (!entityParser)
-        entityParser = new QXmlStreamReaderPrivate(q);
+        entityParser = qt_make_unique<QXmlStreamReaderPrivate>(q);
     else
         entityParser->init();
     entityParser->inParseEntity = true;
@@ -910,7 +913,6 @@ QXmlStreamReaderPrivate::~QXmlStreamReaderPrivate()
 #endif
     free(sym_stack);
     free(state_stack);
-    delete entityParser;
 }
 
 
@@ -1423,7 +1425,7 @@ inline int QXmlStreamReaderPrivate::fastScanNMTOKEN()
     int n = 0;
     uint c;
     while ((c = getChar()) != StreamEOF) {
-        if (fastDetermineNameChar(c) == NotName) {
+        if (fastDetermineNameChar(QChar(c)) == NotName) {
             putChar(c);
             return n;
         } else {
@@ -1582,6 +1584,7 @@ QStringRef QXmlStreamReaderPrivate::namespaceForPrefix(const QStringRef &prefix)
  */
 void QXmlStreamReaderPrivate::resolveTag()
 {
+    const auto attributeStackCleaner = qScopeGuard([this](){ attributeStack.clear(); });
     int n = attributeStack.size();
 
     if (namespaceProcessing) {
@@ -1649,7 +1652,10 @@ void QXmlStreamReaderPrivate::resolveTag()
             if (attributes[j].name() == attribute.name()
                 && attributes[j].namespaceUri() == attribute.namespaceUri()
                 && (namespaceProcessing || attributes[j].qualifiedName() == attribute.qualifiedName()))
+            {
                 raiseWellFormedError(QXmlStream::tr("Attribute '%1' redefined.").arg(attribute.qualifiedName()));
+                return;
+            }
         }
     }
 
@@ -1680,8 +1686,6 @@ void QXmlStreamReaderPrivate::resolveTag()
         attribute.m_isDefault = true;
         attributes.append(attribute);
     }
-
-    attributeStack.clear();
 }
 
 void QXmlStreamReaderPrivate::resolvePublicNamespaces()
@@ -2285,12 +2289,14 @@ QXmlStreamAttribute::QXmlStreamAttribute()
     m_isDefault = false;
 }
 
+#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
 /*!
   Destructs an attribute.
  */
 QXmlStreamAttribute::~QXmlStreamAttribute()
 {
 }
+#endif
 
 /*!  Constructs an attribute in the namespace described with \a
   namespaceUri with \a name and value \a value.
@@ -2366,6 +2372,7 @@ QXmlStreamAttribute::QXmlStreamAttribute(const QString &qualifiedName, const QSt
  */
 
 
+#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
 /*!
   Creates a copy of \a other.
  */
@@ -2386,7 +2393,7 @@ QXmlStreamAttribute& QXmlStreamAttribute::operator=(const QXmlStreamAttribute &o
     m_isDefault = other.m_isDefault;
     return *this;
 }
-
+#endif
 
 /*!
     \class QXmlStreamAttributes
@@ -2442,6 +2449,8 @@ QXmlStreamAttribute& QXmlStreamAttribute::operator=(const QXmlStreamAttribute &o
 QXmlStreamNotationDeclaration::QXmlStreamNotationDeclaration()
 {
 }
+
+#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
 /*!
   Creates a copy of \a other.
  */
@@ -2467,6 +2476,7 @@ Destructs this notation declaration.
 QXmlStreamNotationDeclaration::~QXmlStreamNotationDeclaration()
 {
 }
+#endif
 
 /*! \fn QStringRef QXmlStreamNotationDeclaration::name() const
 
@@ -2539,6 +2549,7 @@ QXmlStreamNamespaceDeclaration::QXmlStreamNamespaceDeclaration(const QString &pr
     m_namespaceUri = namespaceUri;
 }
 
+#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
 /*!
   Creates a copy of \a other.
  */
@@ -2562,6 +2573,7 @@ Destructs this namespace declaration.
 QXmlStreamNamespaceDeclaration::~QXmlStreamNamespaceDeclaration()
 {
 }
+#endif
 
 /*! \fn QStringRef QXmlStreamNamespaceDeclaration::prefix() const
 
@@ -2609,6 +2621,7 @@ QXmlStreamEntityDeclaration::QXmlStreamEntityDeclaration()
 {
 }
 
+#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
 /*!
   Creates a copy of \a other.
  */
@@ -2636,6 +2649,7 @@ QXmlStreamEntityDeclaration& QXmlStreamEntityDeclaration::operator=(const QXmlSt
 QXmlStreamEntityDeclaration::~QXmlStreamEntityDeclaration()
 {
 }
+#endif
 
 /*! \fn QXmlStreamStringRef::swap(QXmlStreamStringRef &other)
     \since 5.6
@@ -3014,8 +3028,8 @@ QXmlStreamWriterPrivate::QXmlStreamWriterPrivate(QXmlStreamWriter *q)
     :autoFormattingIndent(4, ' ')
 {
     q_ptr = q;
-    device = 0;
-    stringDevice = 0;
+    device = nullptr;
+    stringDevice = nullptr;
     deleteDevice = false;
 #if QT_CONFIG(textcodec)
     codec = QTextCodec::codecForMib(106); // utf8
@@ -3305,7 +3319,7 @@ void QXmlStreamWriter::setDevice(QIODevice *device)
     Q_D(QXmlStreamWriter);
     if (device == d->device)
         return;
-    d->stringDevice = 0;
+    d->stringDevice = nullptr;
     if (d->deleteDevice) {
         delete d->device;
         d->deleteDevice = false;

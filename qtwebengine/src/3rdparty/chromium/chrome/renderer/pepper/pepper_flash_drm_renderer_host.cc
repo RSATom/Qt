@@ -4,6 +4,7 @@
 
 #include "chrome/renderer/pepper/pepper_flash_drm_renderer_host.h"
 
+#include "base/bind.h"
 #include "base/files/file_path.h"
 #include "content/public/renderer/pepper_plugin_instance.h"
 #include "content/public/renderer/renderer_ppapi_host.h"
@@ -24,8 +25,7 @@ PepperFlashDRMRendererHost::PepperFlashDRMRendererHost(
     PP_Instance instance,
     PP_Resource resource)
     : ResourceHost(host->GetPpapiHost(), instance, resource),
-      renderer_ppapi_host_(host),
-      weak_factory_(this) {}
+      renderer_ppapi_host_(host) {}
 
 PepperFlashDRMRendererHost::~PepperFlashDRMRendererHost() {}
 

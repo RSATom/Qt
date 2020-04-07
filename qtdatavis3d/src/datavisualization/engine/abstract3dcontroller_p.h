@@ -48,7 +48,7 @@
 #include "q3dscene_p.h"
 #include "qcustom3ditem.h"
 #include <QtGui/QLinearGradient>
-#include <QtCore/QTime>
+#include <QtCore/QElapsedTimer>
 #include <QtCore/QLocale>
 #include <QtCore/QMutex>
 
@@ -211,7 +211,7 @@ protected:
     QList<QAbstract3DSeries *> m_seriesList;
 
     bool m_measureFps;
-    QTime m_frameTimer;
+    QElapsedTimer m_frameTimer;
     int m_numFrames;
     qreal m_currentFps;
 

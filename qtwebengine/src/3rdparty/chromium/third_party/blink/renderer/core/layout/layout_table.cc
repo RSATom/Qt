@@ -85,6 +85,9 @@ void LayoutTable::StyleDidChange(StyleDifference diff,
                                  const ComputedStyle* old_style) {
   LayoutBlock::StyleDidChange(diff, old_style);
 
+  if (ShouldCollapseBorders())
+    SetHasNonCollapsedBorderDecoration(false);
+
   bool old_fixed_table_layout =
       old_style ? old_style->IsFixedTableLayout() : false;
 
@@ -326,15 +329,23 @@ void LayoutTable::UpdateLogicalWidth() {
         MinimumValueForLength(StyleRef().MarginEnd(), available_logical_width);
     LayoutUnit margin_total = margin_start + margin_end;
 
-    // Subtract out our margins to get the available content width.
-    LayoutUnit available_content_logical_width =
-        (container_width_in_inline_direction - margin_total)
-            .ClampNegativeToZero();
-    if (ShrinkToAvoidFloats() && cb->IsLayoutBlockFlow() &&
-        ToLayoutBlockFlow(cb)->ContainsFloats() &&
-        !has_perpendicular_containing_block)
-      available_content_logical_width = ShrinkLogicalWidthToAvoidFloats(
-          margin_start, margin_end, ToLayoutBlockFlow(cb));
+    LayoutUnit available_content_logical_width;
+    if (HasOverrideAvailableInlineSize()) {
+      available_content_logical_width =
+          (OverrideAvailableInlineSize() - margin_total).ClampNegativeToZero();
+    } else {
+      // Subtract out our margins to get the available content width.
+      available_content_logical_width =
+          (container_width_in_inline_direction - margin_total)
+              .ClampNegativeToZero();
+      auto* containing_block_flow = DynamicTo<LayoutBlockFlow>(cb);
+      if (ShrinkToAvoidFloats() && containing_block_flow &&
+          containing_block_flow->ContainsFloats() &&
+          !has_perpendicular_containing_block) {
+        available_content_logical_width = ShrinkLogicalWidthToAvoidFloats(
+            margin_start, margin_end, containing_block_flow);
+      }
+    }
 
     // Ensure we aren't bigger than our available width.
     LayoutUnit max_width = MaxPreferredLogicalWidth();
@@ -521,16 +532,24 @@ LayoutUnit LayoutTable::LogicalHeightFromStyle() const {
   }
 
   const Length& logical_max_height_length = StyleRef().LogicalMaxHeight();
-  if (logical_max_height_length.IsIntrinsic() ||
+  if (logical_max_height_length.IsFillAvailable() ||
       (logical_max_height_length.IsSpecified() &&
-       !logical_max_height_length.IsNegative())) {
+       !logical_max_height_length.IsNegative() &&
+       !logical_max_height_length.IsMinContent() &&
+       !logical_max_height_length.IsMaxContent() &&
+       !logical_max_height_length.IsFitContent())) {
     LayoutUnit computed_max_logical_height =
         ConvertStyleLogicalHeightToComputedHeight(logical_max_height_length);
     computed_logical_height =
         std::min(computed_logical_height, computed_max_logical_height);
   }
 
-  const Length& logical_min_height_length = StyleRef().LogicalMinHeight();
+  Length logical_min_height_length = StyleRef().LogicalMinHeight();
+  if (logical_min_height_length.IsMinContent() ||
+      logical_min_height_length.IsMaxContent() ||
+      logical_min_height_length.IsFitContent())
+    logical_min_height_length = Length::Auto();
+
   if (logical_min_height_length.IsIntrinsic() ||
       (logical_min_height_length.IsSpecified() &&
        !logical_min_height_length.IsNegative())) {
@@ -917,6 +936,8 @@ void LayoutTable::InvalidateCollapsedBordersForAllCellsIfNeeded() {
            cell = cell->NextCell()) {
         DCHECK_EQ(cell->Table(), this);
         cell->InvalidateCollapsedBorderValues();
+        cell->SetHasNonCollapsedBorderDecoration(
+            !ShouldCollapseBorders() && cell->StyleRef().HasBorderDecoration());
       }
     }
   }
@@ -999,11 +1020,11 @@ void LayoutTable::AddLayoutOverflowFromChildren() {
 }
 
 void LayoutTable::PaintObject(const PaintInfo& paint_info,
-                              const LayoutPoint& paint_offset) const {
+                              const PhysicalOffset& paint_offset) const {
   TablePainter(*this).PaintObject(paint_info, paint_offset);
 }
 
-void LayoutTable::SubtractCaptionRect(LayoutRect& rect) const {
+void LayoutTable::SubtractCaptionRect(PhysicalRect& rect) const {
   for (unsigned i = 0; i < captions_.size(); i++) {
     LayoutUnit caption_logical_height = captions_[i]->LogicalHeight() +
                                         captions_[i]->MarginBefore() +
@@ -1012,13 +1033,13 @@ void LayoutTable::SubtractCaptionRect(LayoutRect& rect) const {
         (captions_[i]->StyleRef().CaptionSide() != ECaptionSide::kBottom) ^
         StyleRef().IsFlippedBlocksWritingMode();
     if (StyleRef().IsHorizontalWritingMode()) {
-      rect.SetHeight(rect.Height() - caption_logical_height);
+      rect.size.height -= caption_logical_height;
       if (caption_is_before)
-        rect.Move(LayoutUnit(), caption_logical_height);
+        rect.offset.top += caption_logical_height;
     } else {
-      rect.SetWidth(rect.Width() - caption_logical_height);
+      rect.size.width -= caption_logical_height;
       if (caption_is_before)
-        rect.Move(caption_logical_height, LayoutUnit());
+        rect.offset.left += caption_logical_height;
     }
   }
 }
@@ -1036,12 +1057,12 @@ void LayoutTable::MarkAllCellsWidthsDirtyAndOrNeedsLayout(
 
 void LayoutTable::PaintBoxDecorationBackground(
     const PaintInfo& paint_info,
-    const LayoutPoint& paint_offset) const {
+    const PhysicalOffset& paint_offset) const {
   TablePainter(*this).PaintBoxDecorationBackground(paint_info, paint_offset);
 }
 
 void LayoutTable::PaintMask(const PaintInfo& paint_info,
-                            const LayoutPoint& paint_offset) const {
+                            const PhysicalOffset& paint_offset) const {
   TablePainter(*this).PaintMask(paint_info, paint_offset);
 }
 
@@ -1558,18 +1579,18 @@ LayoutUnit LayoutTable::FirstLineBoxBaseline() const {
   return LayoutUnit(-1);
 }
 
-LayoutRect LayoutTable::OverflowClipRect(
-    const LayoutPoint& location,
+PhysicalRect LayoutTable::OverflowClipRect(
+    const PhysicalOffset& location,
     OverlayScrollbarClipBehavior overlay_scrollbar_clip_behavior) const {
   if (ShouldCollapseBorders()) {
     // Though the outer halves of the collapsed borders are considered as the
     // the border area of the table by means of the box model, they are actually
     // contents of the table and should not be clipped off. The overflow clip
     // rect is BorderBoxRect() + location.
-    return LayoutRect(location, Size());
+    return PhysicalRect(location, Size());
   }
 
-  LayoutRect rect =
+  PhysicalRect rect =
       LayoutBlock::OverflowClipRect(location, overlay_scrollbar_clip_behavior);
 
   // If we have a caption, expand the clip to include the caption.
@@ -1581,11 +1602,11 @@ LayoutRect LayoutTable::OverflowClipRect(
   // (depending on what order we do these bug fixes in).
   if (!captions_.IsEmpty()) {
     if (StyleRef().IsHorizontalWritingMode()) {
-      rect.SetHeight(Size().Height());
-      rect.SetY(location.Y());
+      rect.size.height = Size().Height();
+      rect.offset.top = location.top;
     } else {
-      rect.SetWidth(Size().Width());
-      rect.SetX(location.X());
+      rect.size.width = Size().Width();
+      rect.offset.left = location.left;
     }
   }
 
@@ -1593,27 +1614,24 @@ LayoutRect LayoutTable::OverflowClipRect(
 }
 
 bool LayoutTable::NodeAtPoint(HitTestResult& result,
-                              const HitTestLocation& location_in_container,
-                              const LayoutPoint& accumulated_offset,
+                              const HitTestLocation& hit_test_location,
+                              const PhysicalOffset& accumulated_offset,
                               HitTestAction action) {
-  LayoutPoint adjusted_location = accumulated_offset + Location();
-
   // Check kids first.
   bool skip_children = (result.GetHitTestRequest().GetStopNode() == this);
   if (!skip_children &&
       (!HasOverflowClip() ||
-       location_in_container.Intersects(OverflowClipRect(adjusted_location)))) {
+       hit_test_location.Intersects(OverflowClipRect(accumulated_offset)))) {
     for (LayoutObject* child = LastChild(); child;
          child = child->PreviousSibling()) {
       if (child->IsBox() && !ToLayoutBox(child)->HasSelfPaintingLayer() &&
           (child->IsTableSection() || child->IsTableCaption())) {
-        LayoutPoint child_point =
-            FlipForWritingModeForChild(ToLayoutBox(child), adjusted_location);
-        if (child->NodeAtPoint(result, location_in_container, child_point,
-                               action)) {
-          UpdateHitTestResult(
-              result,
-              ToLayoutPoint(location_in_container.Point() - child_point));
+        PhysicalOffset child_accumulated_offset =
+            accumulated_offset + ToLayoutBox(child)->PhysicalLocation(this);
+        if (child->NodeAtPoint(result, hit_test_location,
+                               child_accumulated_offset, action)) {
+          UpdateHitTestResult(result,
+                              hit_test_location.Point() - accumulated_offset);
           return true;
         }
       }
@@ -1621,15 +1639,13 @@ bool LayoutTable::NodeAtPoint(HitTestResult& result,
   }
 
   // Check our bounds next.
-  LayoutRect bounds_rect(adjusted_location, Size());
+  PhysicalRect bounds_rect(accumulated_offset, Size());
   if (VisibleToHitTestRequest(result.GetHitTestRequest()) &&
       (action == kHitTestBlockBackground ||
        action == kHitTestChildBlockBackground) &&
-      location_in_container.Intersects(bounds_rect)) {
-    UpdateHitTestResult(result,
-                        FlipForWritingMode(location_in_container.Point() -
-                                           ToLayoutSize(adjusted_location)));
-    if (result.AddNodeToListBasedTestResult(GetNode(), location_in_container,
+      hit_test_location.Intersects(bounds_rect)) {
+    UpdateHitTestResult(result, hit_test_location.Point() - accumulated_offset);
+    if (result.AddNodeToListBasedTestResult(GetNode(), hit_test_location,
                                             bounds_rect) == kStopHitTesting)
       return true;
   }

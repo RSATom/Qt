@@ -8,6 +8,7 @@
 #include <string>
 #include <vector>
 
+#include "base/bind.h"
 #include "base/callback.h"
 #include "base/feature_list.h"
 #include "base/logging.h"
@@ -56,13 +57,14 @@ class WebSocketManager::Delegate final : public network::WebSocket::Delegate {
       const GURL& url,
       int child_id,
       int frame_id,
+      int net_error,
       const net::SSLInfo& ssl_info,
       bool fatal) override {
     ssl_error_handler_delegate_ =
         std::make_unique<SSLErrorHandlerDelegate>(std::move(callbacks));
     SSLManager::OnSSLCertificateSubresourceError(
         ssl_error_handler_delegate_->GetWeakPtr(), url, child_id, frame_id,
-        ssl_info, fatal);
+        net_error, ssl_info, fatal);
   }
 
   void ReportBadMessage(BadMessageReason reason,
@@ -101,7 +103,7 @@ class WebSocketManager::Delegate final : public network::WebSocket::Delegate {
     explicit SSLErrorHandlerDelegate(
         std::unique_ptr<net::WebSocketEventInterface::SSLErrorCallbacks>
             callbacks)
-        : callbacks_(std::move(callbacks)), weak_ptr_factory_(this) {}
+        : callbacks_(std::move(callbacks)) {}
     ~SSLErrorHandlerDelegate() override {}
 
     base::WeakPtr<SSLErrorHandler::Delegate> GetWeakPtr() {
@@ -125,7 +127,7 @@ class WebSocketManager::Delegate final : public network::WebSocket::Delegate {
    private:
     std::unique_ptr<net::WebSocketEventInterface::SSLErrorCallbacks> callbacks_;
 
-    base::WeakPtrFactory<SSLErrorHandlerDelegate> weak_ptr_factory_;
+    base::WeakPtrFactory<SSLErrorHandlerDelegate> weak_ptr_factory_{this};
 
     DISALLOW_COPY_AND_ASSIGN(SSLErrorHandlerDelegate);
   };
@@ -162,47 +164,39 @@ class WebSocketManager::Handle : public base::SupportsUserData::Data,
 
 // static
 void WebSocketManager::CreateWebSocket(
-    int process_id,
-    int frame_id,
-    url::Origin origin,
-    network::mojom::AuthenticationHandlerPtr auth_handler,
-    network::mojom::WebSocketRequest request) {
+    const GURL& url,
+    const std::vector<std::string>& requested_protocols,
+    const GURL& site_for_cookies,
+    const base::Optional<std::string>& user_agent,
+    RenderProcessHost* process,
+    int32_t frame_id,
+    const url::Origin& origin,
+    uint32_t options,
+    network::mojom::WebSocketHandshakeClientPtr handshake_client,
+    network::mojom::WebSocketClientPtr websocket_client) {
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  StoragePartition* storage_partition = process->GetStoragePartition();
+  const int process_id = process->GetID();
 
-  RenderProcessHost* host = RenderProcessHost::FromID(process_id);
-  DCHECK(host);
-
-  if (base::FeatureList::IsEnabled(network::features::kNetworkService)) {
-    StoragePartition* storage_partition = host->GetStoragePartition();
-    network::mojom::NetworkContext* network_context =
-        storage_partition->GetNetworkContext();
-    network_context->CreateWebSocket(std::move(request), process_id, frame_id,
-                                     origin, std::move(auth_handler));
-    return;
-  }
-  // |auth_handler| is provided only for the network service path.
-  DCHECK(!auth_handler);
-
-  // Maintain a WebSocketManager per RenderProcessHost. While the instance of
-  // WebSocketManager is allocated on the UI thread, it must only be used and
-  // deleted from the IO thread.
-
+  // Maintain a WebSocketManager per RenderProcessHost. While the instance
+  // of WebSocketManager is allocated on the UI thread, it must only be used
+  // and deleted from the IO thread.
   Handle* handle =
-      static_cast<Handle*>(host->GetUserData(kWebSocketManagerKeyName));
+      static_cast<Handle*>(process->GetUserData(kWebSocketManagerKeyName));
   if (!handle) {
-    handle = new Handle(
-        new WebSocketManager(process_id, host->GetStoragePartition()));
-    host->SetUserData(kWebSocketManagerKeyName, base::WrapUnique(handle));
-    host->AddObserver(handle);
-  } else {
-    DCHECK(handle->manager());
+    handle = new Handle(new WebSocketManager(process_id, storage_partition));
+    process->SetUserData(kWebSocketManagerKeyName, base::WrapUnique(handle));
+    process->AddObserver(handle);
   }
+  DCHECK(handle->manager());
 
   base::PostTaskWithTraits(
       FROM_HERE, {BrowserThread::IO},
-      base::BindOnce(&WebSocketManager::DoCreateWebSocket,
-                     base::Unretained(handle->manager()), frame_id,
-                     std::move(origin), std::move(request)));
+      base::BindOnce(
+          &WebSocketManager::DoCreateWebSocket,
+          base::Unretained(handle->manager()), url, requested_protocols,
+          site_for_cookies, user_agent, frame_id, origin, options,
+          handshake_client.PassInterface(), websocket_client.PassInterface()));
 }
 
 WebSocketManager::WebSocketManager(int process_id,
@@ -233,33 +227,41 @@ WebSocketManager::~WebSocketManager() {
 }
 
 void WebSocketManager::DoCreateWebSocket(
-    int frame_id,
-    url::Origin origin,
-    network::mojom::WebSocketRequest request) {
+    const GURL& url,
+    const std::vector<std::string>& requested_protocols,
+    const GURL& site_for_cookies,
+    const base::Optional<std::string>& user_agent,
+    int32_t frame_id,
+    const url::Origin& origin,
+    uint32_t options,
+    network::mojom::WebSocketHandshakeClientPtrInfo handshake_client_info,
+    network::mojom::WebSocketClientPtrInfo websocket_client_info) {
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
+
+  auto handshake_client = mojo::MakeProxy(std::move(handshake_client_info));
+  auto websocket_client = mojo::MakeProxy(std::move(websocket_client_info));
 
   if (throttler_.HasTooManyPendingConnections()) {
     // Too many websockets!
-    request.ResetWithReason(
+    handshake_client.ResetWithReason(
         network::mojom::WebSocket::kInsufficientResources,
         "Error in connection establishment: net::ERR_INSUFFICIENT_RESOURCES");
     return;
   }
 
   if (context_destroyed_) {
-    request.ResetWithReason(
+    handshake_client.ResetWithReason(
         network::mojom::WebSocket::kInsufficientResources,
         "Error in connection establishment: net::ERR_UNEXPECTED");
     return;
   }
-
   // Keep all network::WebSockets alive until either the client drops its
   // connection (see OnLostConnectionToClient) or we need to shutdown.
-
   impls_.insert(DoCreateWebSocketInternal(
-      std::make_unique<Delegate>(this), std::move(request),
-      throttler_.IssuePendingConnectionTracker(), process_id_, frame_id,
-      std::move(origin), throttler_.CalculateDelay()));
+      std::make_unique<Delegate>(this), url, requested_protocols,
+      site_for_cookies, user_agent, frame_id, origin, options,
+      std::move(handshake_client), std::move(websocket_client),
+      throttler_.IssuePendingConnectionTracker(), throttler_.CalculateDelay()));
 
   if (!throttling_period_timer_.IsRunning()) {
     throttling_period_timer_.Start(
@@ -278,16 +280,27 @@ void WebSocketManager::ThrottlingPeriodTimerCallback() {
 
 std::unique_ptr<network::WebSocket> WebSocketManager::DoCreateWebSocketInternal(
     std::unique_ptr<network::WebSocket::Delegate> delegate,
-    network::mojom::WebSocketRequest request,
+    const GURL& url,
+    const std::vector<std::string>& requested_protocols,
+    const GURL& site_for_cookies,
+    const base::Optional<std::string>& user_agent,
+    int32_t frame_id,
+    const url::Origin& origin,
+    uint32_t options,
+    network::mojom::WebSocketHandshakeClientPtr handshake_client,
+    network::mojom::WebSocketClientPtr websocket_client,
     network::WebSocketThrottler::PendingConnection pending_connection_tracker,
-    int child_id,
-    int frame_id,
-    url::Origin origin,
     base::TimeDelta delay) {
+  std::vector<network::mojom::HttpHeaderPtr> headers;
+  if (user_agent) {
+    headers.push_back(network::mojom::HttpHeader::New(
+        net::HttpRequestHeaders::kUserAgent, *user_agent));
+  }
   return std::make_unique<network::WebSocket>(
-      std::move(delegate), std::move(request), nullptr,
-      std::move(pending_connection_tracker), child_id, frame_id,
-      std::move(origin), delay);
+      std::move(delegate), url, requested_protocols, site_for_cookies,
+      std::move(headers), process_id_, frame_id, origin, options,
+      std::move(handshake_client), std::move(websocket_client), nullptr,
+      nullptr, std::move(pending_connection_tracker), delay);
 }
 
 net::URLRequestContext* WebSocketManager::GetURLRequestContext() {

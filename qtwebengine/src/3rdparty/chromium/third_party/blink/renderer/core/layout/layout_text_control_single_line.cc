@@ -58,7 +58,7 @@ inline Element* LayoutTextControlSingleLine::EditingViewPortElement() const {
 
 inline HTMLElement* LayoutTextControlSingleLine::InnerSpinButtonElement()
     const {
-  return ToHTMLElement(InputElement()->UserAgentShadowRoot()->getElementById(
+  return To<HTMLElement>(InputElement()->UserAgentShadowRoot()->getElementById(
       shadow_element_names::SpinButton()));
 }
 
@@ -138,12 +138,16 @@ void LayoutTextControlSingleLine::UpdateLayout() {
 
 bool LayoutTextControlSingleLine::NodeAtPoint(
     HitTestResult& result,
-    const HitTestLocation& location_in_container,
-    const LayoutPoint& accumulated_offset,
+    const HitTestLocation& hit_test_location,
+    const PhysicalOffset& accumulated_offset,
     HitTestAction hit_test_action) {
-  if (!LayoutTextControl::NodeAtPoint(result, location_in_container,
+  if (!LayoutTextControl::NodeAtPoint(result, hit_test_location,
                                       accumulated_offset, hit_test_action))
     return false;
+
+  const LayoutObject* stop_node = result.GetHitTestRequest().GetStopNode();
+  if (stop_node && stop_node->NodeForHitTest() == result.InnerNode())
+    return true;
 
   // Say that we hit the inner text element if
   //  - we hit a node inside the inner text element,
@@ -153,15 +157,18 @@ bool LayoutTextControlSingleLine::NodeAtPoint(
   if (result.InnerNode()->IsDescendantOf(InnerEditorElement()) ||
       result.InnerNode() == GetNode() ||
       (container && container == result.InnerNode())) {
-    LayoutPoint point_in_parent = location_in_container.Point();
+    PhysicalOffset inner_editor_accumulated_offset = accumulated_offset;
     if (container && EditingViewPortElement()) {
-      if (EditingViewPortElement()->GetLayoutBox())
-        point_in_parent -=
-            ToLayoutSize(EditingViewPortElement()->GetLayoutBox()->Location());
-      if (container->GetLayoutBox())
-        point_in_parent -= ToLayoutSize(container->GetLayoutBox()->Location());
+      if (EditingViewPortElement()->GetLayoutBox()) {
+        inner_editor_accumulated_offset +=
+            EditingViewPortElement()->GetLayoutBox()->PhysicalLocation();
+      }
+      if (container->GetLayoutBox()) {
+        inner_editor_accumulated_offset +=
+            container->GetLayoutBox()->PhysicalLocation();
+      }
     }
-    HitInnerEditorElement(result, point_in_parent, accumulated_offset);
+    HitInnerEditorElement(result, hit_test_location, accumulated_offset);
   }
   return true;
 }
@@ -194,10 +201,10 @@ bool LayoutTextControlSingleLine::HasControlClip() const {
   return true;
 }
 
-LayoutRect LayoutTextControlSingleLine::ControlClipRect(
-    const LayoutPoint& additional_offset) const {
-  LayoutRect clip_rect = PhysicalPaddingBoxRect();
-  clip_rect.MoveBy(additional_offset);
+PhysicalRect LayoutTextControlSingleLine::ControlClipRect(
+    const PhysicalOffset& additional_offset) const {
+  PhysicalRect clip_rect = PhysicalPaddingBoxRect();
+  clip_rect.offset += additional_offset;
   return clip_rect;
 }
 
@@ -260,7 +267,7 @@ LayoutUnit LayoutTextControlSingleLine::ComputeControlLogicalHeight(
   return line_height + non_content_height;
 }
 
-void LayoutTextControlSingleLine::Autoscroll(const IntPoint& position) {
+void LayoutTextControlSingleLine::Autoscroll(const PhysicalOffset& position) {
   LayoutBox* layout_object = InnerEditorElement()->GetLayoutBox();
   if (!layout_object)
     return;
@@ -269,6 +276,11 @@ void LayoutTextControlSingleLine::Autoscroll(const IntPoint& position) {
 }
 
 LayoutUnit LayoutTextControlSingleLine::ScrollWidth() const {
+  // If in preview state, fake the scroll width to prevent that any information
+  // about the suggested content can be derived from the size.
+  if (!GetTextControlElement()->SuggestedValue().IsEmpty())
+    return ClientWidth();
+
   if (LayoutBox* inner = InnerEditorElement()
                              ? InnerEditorElement()->GetLayoutBox()
                              : nullptr) {
@@ -281,6 +293,11 @@ LayoutUnit LayoutTextControlSingleLine::ScrollWidth() const {
 }
 
 LayoutUnit LayoutTextControlSingleLine::ScrollHeight() const {
+  // If in preview state, fake the scroll height to prevent that any information
+  // about the suggested content can be derived from the size.
+  if (!GetTextControlElement()->SuggestedValue().IsEmpty())
+    return ClientHeight();
+
   if (LayoutBox* inner = InnerEditorElement()
                              ? InnerEditorElement()->GetLayoutBox()
                              : nullptr) {

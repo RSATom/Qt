@@ -49,7 +49,7 @@ class RTCChildStats : public RTCStats {
   RTCStatsMember<int32_t> child_int;
 };
 
-WEBRTC_RTCSTATS_IMPL(RTCChildStats, RTCStats, "child-stats", &child_int);
+WEBRTC_RTCSTATS_IMPL(RTCChildStats, RTCStats, "child-stats", &child_int)
 
 class RTCGrandChildStats : public RTCChildStats {
  public:
@@ -64,7 +64,7 @@ class RTCGrandChildStats : public RTCChildStats {
 WEBRTC_RTCSTATS_IMPL(RTCGrandChildStats,
                      RTCChildStats,
                      "grandchild-stats",
-                     &grandchild_int);
+                     &grandchild_int)
 
 TEST(RTCStatsTest, RTCStatsAndMembers) {
   RTCTestStats stats("testId", 42);
@@ -337,6 +337,16 @@ TEST(RTCStatsTest, IsStandardized) {
   RTCNonStandardStatsMember<int32_t> unstandardized("unstandardized");
   EXPECT_TRUE(standardized.is_standardized());
   EXPECT_FALSE(unstandardized.is_standardized());
+}
+
+TEST(RTCStatsTest, NonStandardGroupId) {
+  auto group_id = NonStandardGroupId::kGroupIdForTesting;
+  RTCNonStandardStatsMember<int32_t> with_group_id("stat", {group_id});
+  std::vector<NonStandardGroupId> expected_ids({group_id});
+  EXPECT_EQ(expected_ids, with_group_id.group_ids());
+
+  RTCNonStandardStatsMember<int32_t> without_group_id("stat");
+  EXPECT_TRUE(without_group_id.group_ids().empty());
 }
 
 // Death tests.

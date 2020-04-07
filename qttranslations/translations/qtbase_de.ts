@@ -377,8 +377,12 @@ Drücken Sie ESC, um abzubrechen</translation>
         <translation>Zeigt Versionsinformation an.</translation>
     </message>
     <message>
-        <source>Displays this help.</source>
-        <translation>Zeigt diese Hilfe an.</translation>
+        <source>Displays help on commandline options.</source>
+        <translation>Zeigt Hilfe zu den Kommandozeilenoptionen an.</translation>
+    </message>
+    <message>
+        <source>Displays help including Qt specific options.</source>
+        <translation>Zeigt Hilfe einschließlich Qt-spezifischer Optionen an.</translation>
     </message>
     <message>
         <source>Unknown option &apos;%1&apos;.</source>
@@ -1650,6 +1654,74 @@ Möchten Sie die Datei trotzdem löschen?</translation>
         <comment>Translate this string to the string &apos;LTR&apos; in left-to-right languages or to &apos;RTL&apos; in right-to-left languages (such as Hebrew and Arabic) to get proper widget layout.</comment>
         <translation>LTR</translation>
     </message>
+    <message>
+        <source>QPA plugin. See QGuiApplication documentation for available options for each plugin.</source>
+        <translation>QPA-Plugin. Siehe auch Dokumentation zu QGuiApplication zu den verfügbaren Optionen der einzelnen Plugins.</translation>
+    </message>
+    <message>
+        <source>Path to the platform plugins.</source>
+        <translation>Pfad zu den Plattform-Plugins.</translation>
+    </message>
+    <message>
+        <source>Platform theme.</source>
+        <translation>Plattform-Theme.</translation>
+    </message>
+    <message>
+        <source>Additional plugins to load, can be specified multiple times.</source>
+        <translation>Zu ladende zusätzliche Plugins, kann mehrfach angegeben werden.</translation>
+    </message>
+    <message>
+        <source>Window geometry for the main window, using the X11-syntax, like 100x100+50+50.</source>
+        <translation>Fenstergeometrie für das Hauptfenster in X11-Syntax, wie zum Beispiel 100x100+50+50.</translation>
+    </message>
+    <message>
+        <source>Default window icon.</source>
+        <translation>Vorgabe-Window-Icon.</translation>
+    </message>
+    <message>
+        <source>Title of the first window.</source>
+        <translation>Titel des ersten Fensters.</translation>
+    </message>
+    <message>
+        <source>Sets the application&apos;s layout direction to Qt::RightToLeft (debugging helper).</source>
+        <translation>Setzt die Layout-Richtung der Anwendung zu Qt::RightToLeft (Debug-Hilfe).</translation>
+    </message>
+    <message>
+        <source>Restores the application from an earlier session.</source>
+        <translation>Stellt eine vorangegangene Sitzung wieder her.</translation>
+    </message>
+    <message>
+        <source>Display name, overrides $DISPLAY.</source>
+        <translation>Name des Displays, überschreibt $DISPLAY.</translation>
+    </message>
+    <message>
+        <source>Instance name according to ICCCM 4.1.2.5.</source>
+        <translation>Name der Instanz nach ICCCM 4.1.2.5.</translation>
+    </message>
+    <message>
+        <source>Disable mouse grabbing (useful in debuggers).</source>
+        <translation>Deaktiviere Mouse-Grabbing (Debug-Hilfe).</translation>
+    </message>
+    <message>
+        <source>Force mouse grabbing (even when running in a debugger).</source>
+        <translation>Erzwinge Mouse-Grabbing (auch bei Ausführung im Debugger).</translation>
+    </message>
+    <message>
+        <source>ID of the X11 Visual to use.</source>
+        <translation>ID des X11-Visuals.</translation>
+    </message>
+    <message>
+        <source>Alias for --windowgeometry.</source>
+        <translation>Alias für --windowgeometry.</translation>
+    </message>
+    <message>
+        <source>Alias for --windowicon.</source>
+        <translation>Alias für --windowicon.</translation>
+    </message>
+    <message>
+        <source>Alias for --windowtitle.</source>
+        <translation>Alias für --windowtitle.</translation>
+    </message>
 </context>
 <context>
     <name>QHostInfo</name>
@@ -1679,10 +1751,6 @@ Möchten Sie die Datei trotzdem löschen?</translation>
     <message>
         <source>Host not found</source>
         <translation>Host konnte nicht gefunden werden</translation>
-    </message>
-    <message>
-        <source>Unknown error (%1)</source>
-        <translation>Unbekannter Fehler (%1)</translation>
     </message>
 </context>
 <context>
@@ -4802,8 +4870,8 @@ Bitte deaktivieren Sie eine der beiden.</translation>
         <translation>Dateiname bezeichnet ein Verzeichnis</translation>
     </message>
     <message>
-        <source>QSaveFile cannot open &apos;%1&apos; without direct write fallback enabled: path contains an Alternate Data Stream specifier</source>
-        <translation>QSaveFile kann &apos;%1&apos; ohne den Direct-Write-Fallback nicht öffnen; der Pfad enthält eine Alternate-Data-Stream-Angabe</translation>
+        <source>QSaveFile cannot open &apos;%1&apos; without direct write fallback enabled.</source>
+        <translation>QSaveFile kann &apos;%1&apos; ohne den Direct-Write-Fallback nicht öffnen.</translation>
     </message>
     <message>
         <source>Writing canceled by application</source>
@@ -6363,6 +6431,21 @@ Role of an accessible object</extracomment>
         <translation>Ergänzender Inhalt</translation>
     </message>
     <message>
+        <source>terminal</source>
+        <extracomment>Role of an accessible object</extracomment>
+        <translation>Terminal</translation>
+    </message>
+    <message>
+        <source>desktop</source>
+        <extracomment>Role of an accessible object</extracomment>
+        <translation>Desktop</translation>
+    </message>
+    <message>
+        <source>notification</source>
+        <extracomment>Role of an accessible object</extracomment>
+        <translation>Benachrichtigung</translation>
+    </message>
+    <message>
         <source>unknown</source>
         <extracomment>Role of an accessible object</extracomment>
         <translation>unbekannt</translation>
@@ -6890,6 +6973,10 @@ Role of an accessible object</extracomment>
     <message>
         <source>No common ancestor for targets and source of transition from state &apos;%1&apos;</source>
         <translation>Die Ziele und die Quelle des Übergangs vom Zustand &apos;%1&apos; haben keinen gemeinsamen Ursprung</translation>
+    </message>
+    <message>
+        <source>Child mode of state machine &apos;%1&apos; is not &apos;ExclusiveStates&apos;!</source>
+        <translation>Der Child-Modus der Zustandsmaschine &apos;%1&apos; ist nicht &apos;ExclusiveStates&apos;!</translation>
     </message>
     <message>
         <source>Unknown error</source>

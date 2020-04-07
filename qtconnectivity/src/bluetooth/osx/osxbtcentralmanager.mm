@@ -39,6 +39,7 @@
 
 #include "qlowenergyserviceprivate_p.h"
 #include "qlowenergycharacteristic.h"
+#include "qlowenergycontroller.h"
 #include "osxbtcentralmanager_p.h"
 #include "osxbtnotifier_p.h"
 
@@ -132,6 +133,7 @@ QT_USE_NAMESPACE
 - (CBDescriptor *)descriptor:(const QBluetoothUuid &)dUuid
                   forCharacteristic:(CBCharacteristic *)ch;
 - (bool)cacheWriteValue:(const QByteArray &)value for:(NSObject *)obj;
+- (void)handleReadWriteError:(NSError *)error;
 - (void)reset;
 
 @end
@@ -1202,6 +1204,21 @@ QT_USE_NAMESPACE
     // TODO: also serviceToVisit/VisitNext and visitedServices ?
 }
 
+- (void)handleReadWriteError:(NSError *)error
+{
+    Q_ASSERT(notifier);
+
+    switch (error.code) {
+    case 0x05: // GATT_INSUFFICIENT_AUTHORIZATION
+    case 0x0F: // GATT_INSUFFICIENT_ENCRYPTION
+        emit notifier->CBManagerError(QLowEnergyController::AuthorizationError);
+        [self detach];
+        break;
+    default:
+        break;
+    }
+}
+
 // CBCentralManagerDelegate (the real one).
 
 - (void)centralManagerDidUpdateState:(CBCentralManager *)central
@@ -1540,6 +1557,7 @@ QT_USE_NAMESPACE
                 currentReadHandle = 0;
                 requestPending = false;
                 emit notifier->CBManagerError(qtUuid, QLowEnergyService::CharacteristicReadError);
+                [self handleReadWriteError:error];
                 [self performNextRequest];
             }
             return;
@@ -1658,6 +1676,7 @@ QT_USE_NAMESPACE
                 currentReadHandle = 0;
                 requestPending = false;
                 emit notifier->CBManagerError(qtUuid, QLowEnergyService::DescriptorReadError);
+                [self handleReadWriteError:error];
                 [self performNextRequest];
             }
             return;
@@ -1747,6 +1766,7 @@ QT_USE_NAMESPACE
         NSLog(@"%s failed with error %@", Q_FUNC_INFO, error);
         emit notifier->CBManagerError(qt_uuid(characteristic.service.UUID),
                                              QLowEnergyService::CharacteristicWriteError);
+        [self handleReadWriteError:error];
     } else {
         const QLowEnergyHandle cHandle = charMap.key(characteristic);
         emit notifier->characteristicWritten(cHandle, valueToReport);
@@ -1781,6 +1801,7 @@ QT_USE_NAMESPACE
         NSLog(@"%s failed with error %@", Q_FUNC_INFO, error);
         emit notifier->CBManagerError(qt_uuid(descriptor.characteristic.service.UUID),
                        QLowEnergyService::DescriptorWriteError);
+        [self handleReadWriteError:error];
     } else {
         const QLowEnergyHandle dHandle = descMap.key(descriptor);
         Q_ASSERT_X(dHandle, Q_FUNC_INFO, "descriptor not found in the descriptors map");

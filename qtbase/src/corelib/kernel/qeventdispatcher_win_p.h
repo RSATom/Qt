@@ -73,8 +73,6 @@ class Q_CORE_EXPORT QEventDispatcherWin32 : public QAbstractEventDispatcher
 
 protected:
     void createInternalHwnd();
-    void installMessageHook();
-    void uninstallMessageHook();
 
 public:
     explicit QEventDispatcherWin32(QObject *parent = 0);
@@ -172,9 +170,6 @@ public:
     HHOOK getMessageHook;
 
     // for controlling when to send posted events
-    QAtomicInt serialNumber;
-    int lastSerialNumber;
-    UINT_PTR sendPostedEventsWindowsTimerId;
     QAtomicInt wakeUps;
 
     // timers

@@ -5,181 +5,25 @@
  * found in the LICENSE file.
  */
 
-#include "gm.h"
-#include "sk_tool_utils.h"
-#include "Resources.h"
-#include "SkFontMetrics.h"
-#include "SkPath.h"
-#include "SkTextUtils.h"
-#include "SkTypeface.h"
+#include "gm/gm.h"
+#include "include/core/SkCanvas.h"
+#include "include/core/SkColor.h"
+#include "include/core/SkFont.h"
+#include "include/core/SkFontMetrics.h"
+#include "include/core/SkFontTypes.h"
+#include "include/core/SkMatrix.h"
+#include "include/core/SkPaint.h"
+#include "include/core/SkPoint.h"
+#include "include/core/SkRect.h"
+#include "include/core/SkRefCnt.h"
+#include "include/core/SkScalar.h"
+#include "include/core/SkSize.h"
+#include "include/core/SkString.h"
+#include "include/core/SkTypeface.h"
+#include "include/utils/SkTextUtils.h"
+#include "tools/Resources.h"
 
-class SkJSCanvas {
-public:
-    SkJSCanvas(SkCanvas* target);
-    ~SkJSCanvas();
-
-    void save();
-    void restore();
-
-    double lineWidth;
-    void setLineWidth(double);
-
-    void beginPath();
-    void moveTo(double x, double y);
-    void lineTo(double x, double y);
-    void closePath();
-
-    void fill();
-    void stroke();
-
-    void fillText(const char text[], double x, double y);
-
-private:
-    SkCanvas*   fTarget;
-    SkPaint     fFillPaint;
-    SkPaint     fStrokePaint;
-    SkPath      fPath;
-    SkFont      fFont;
-};
-
-SkJSCanvas::SkJSCanvas(SkCanvas* target)
-        : fTarget(target)
-        , fFont(sk_tool_utils::create_portable_typeface(), 12) {
-    fFillPaint.setAntiAlias(true);
-    fStrokePaint.setAntiAlias(true);
-    fStrokePaint.setStyle(SkPaint::kStroke_Style);
-    fStrokePaint.setStrokeWidth(SK_Scalar1);
-}
-
-SkJSCanvas::~SkJSCanvas() {}
-
-void SkJSCanvas::save() { fTarget->save(); }
-void SkJSCanvas::restore() { fTarget->restore(); }
-
-void SkJSCanvas::beginPath() { fPath.reset(); }
-void SkJSCanvas::moveTo(double x, double y) {
-    fPath.moveTo(SkDoubleToScalar(x), SkDoubleToScalar(y));
-}
-
-void SkJSCanvas::lineTo(double x, double y) {
-    fPath.lineTo(SkDoubleToScalar(x), SkDoubleToScalar(y));
-}
-
-void SkJSCanvas::closePath() { fPath.close(); }
-
-void SkJSCanvas::fill() {
-    fTarget->drawPath(fPath, fFillPaint);
-}
-
-void SkJSCanvas::stroke() {
-    fStrokePaint.setStrokeWidth(SkDoubleToScalar(lineWidth));
-    fTarget->drawPath(fPath, fStrokePaint);
-}
-
-void SkJSCanvas::fillText(const char text[], double x, double y) {
-    fTarget->drawString(text, SkDoubleToScalar(x), SkDoubleToScalar(y), fFont, fFillPaint);
-}
-
-///////////////////////////////////////////////////////////////////////////////
-
-static void dump(const SkPath& path) {
-    const SkRect& r = path.getBounds();
-    SkDebugf("isEmpty %d, bounds [%g %g %g %g]\n", path.isEmpty(),
-             r.fLeft, r.fTop, r.fRight, r.fBottom);
-}
-
-static void test_stroke(SkCanvas* canvas) {
-    if (true) {
-        SkPath path;
-        dump(path);
-        path.reset(); path.moveTo(0, 0);
-        dump(path);
-        path.reset(); path.moveTo(100, 100);
-        dump(path);
-        path.reset(); path.moveTo(0, 0); path.moveTo(100, 100);
-        dump(path);
-        path.reset(); path.moveTo(0, 0); path.lineTo(100, 100);
-        dump(path);
-        path.reset(); path.moveTo(0, 0); path.lineTo(100, 100); path.moveTo(200, 200);
-        dump(path);
-    }
-
-#if 0
-    // TEST 1 - The rectangle as it's expected to look
-    var canvas = document.createElement('canvas');
-    document.body.appendChild(canvas);
-    var ctx = canvas.getContext("2d");
-#else
-    SkJSCanvas ctx(canvas);
-#endif
-
-    ctx.save();
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(10, 100);
-    ctx.lineTo(150, 100);
-    ctx.lineTo(150, 15);
-    ctx.lineTo(10, 15);
-    ctx.closePath();
-
-    // no extra moveTo here
-    // ctx.moveTo(175, 125);
-
-    ctx.stroke();
-    ctx.restore();
-
-    ctx.fillText("As Expected", 10, 10);
-
-#if 0
-    // TEST 2 - Includes an extra moveTo call before stroke; the rectangle appears larger
-    canvas = document.createElement('canvas');
-    document.body.appendChild(canvas);
-    ctx = canvas.getContext("2d");
-#else
-    canvas->translate(200, 0);
-#endif
-
-    ctx.save();
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(10, 100);
-    ctx.lineTo(150, 100);
-    ctx.lineTo(150, 15);
-    ctx.lineTo(10, 15);
-    ctx.closePath();
-
-    ctx.moveTo(175, 125);
-
-    ctx.stroke();
-    ctx.restore();
-
-    ctx.fillText("Larger Rectangle", 10, 10);
-
-#if 0
-    // TEST 3 - Identical to test 2 except the line width is 1
-    canvas = document.createElement('canvas');
-    document.body.appendChild(canvas);
-    ctx = canvas.getContext("2d");
-#else
-    canvas->translate(200, 0);
-#endif
-
-    ctx.save();
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(10, 100);
-    ctx.lineTo(150, 100);
-    ctx.lineTo(150, 15);
-    ctx.lineTo(10, 15);
-    ctx.closePath();
-
-    ctx.moveTo(175, 125);
-
-    ctx.stroke();
-    ctx.restore();
-
-    ctx.fillText("As Expected - line width 1", 10, 10);
-}
+#include <stdint.h>
 
 class Poly2PolyGM : public skiagm::GM {
 public:
@@ -223,7 +67,7 @@ protected:
         SkScalar x = D/2;
         SkScalar y = D/2 - (fm.fAscent + fm.fDescent)/2;
         uint16_t glyphID = 3; // X
-        SkTextUtils::Draw(canvas, &glyphID, sizeof(glyphID), kGlyphID_SkTextEncoding, x, y,
+        SkTextUtils::Draw(canvas, &glyphID, sizeof(glyphID), SkTextEncoding::kGlyphID, x, y,
                           font, *paint, SkTextUtils::kCenter_Align);
         canvas->restore();
     }
@@ -233,8 +77,6 @@ protected:
     }
 
     void onDraw(SkCanvas* canvas) override {
-        if (false) { test_stroke(canvas); return; }
-
         SkPaint paint;
         paint.setAntiAlias(true);
         paint.setStrokeWidth(SkIntToScalar(4));

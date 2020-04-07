@@ -15,6 +15,9 @@ jumbo_component("service") {
   sources = [
     "command_buffer_stub.cc",
     "command_buffer_stub.h",
+    "context_url.cc",
+    "context_url.h",
+    "display_context.h",
     "gles2_command_buffer_stub.cc",
     "gles2_command_buffer_stub.h",
     "gpu_channel.cc",
@@ -29,6 +32,8 @@ jumbo_component("service") {
     "gpu_memory_buffer_factory.h",
     "gpu_watchdog_thread.cc",
     "gpu_watchdog_thread.h",
+    "gpu_watchdog_thread_v2.cc",
+    "gpu_watchdog_thread_v2.h",
     "image_decode_accelerator_stub.cc",
     "image_decode_accelerator_stub.h",
     "image_decode_accelerator_worker.h",
@@ -79,30 +84,15 @@ jumbo_component("service") {
   ldflags = []
   if (is_win) {
     sources += [
-      "child_window_win.cc",
-      "child_window_win.h",
-      "direct_composition_child_surface_win.cc",
-      "direct_composition_child_surface_win.h",
-      "direct_composition_surface_win.cc",
-      "direct_composition_surface_win.h",
       "gpu_memory_buffer_factory_dxgi.cc",
       "gpu_memory_buffer_factory_dxgi.h",
       "image_transport_surface_win.cc",
     ]
     if (use_qt) {
       sources -= [
-        "direct_composition_child_surface_win.cc",
-        "direct_composition_child_surface_win.h",
-        "direct_composition_surface_win.cc",
-        "direct_composition_surface_win.h",
         "image_transport_surface_win.cc",
       ]
     }
-    libs += [
-      "dxgi.lib",
-      "dwmapi.lib",
-    ]
-    ldflags += [ "/DELAYLOAD:dxgi.dll" ]
   }
   if (is_mac) {
     sources += [
@@ -132,10 +122,12 @@ jumbo_component("service") {
     libs += [ "android" ]
   }
   if (is_linux) {
+    sources += [ "image_transport_surface_linux.cc" ]
+  }
+  if (is_linux || use_ozone) {
     sources += [
       "gpu_memory_buffer_factory_native_pixmap.cc",
       "gpu_memory_buffer_factory_native_pixmap.h",
-      "image_transport_surface_linux.cc",
     ]
   }
   if (use_x11) {

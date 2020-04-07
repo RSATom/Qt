@@ -150,8 +150,7 @@ class ServerWrapper : net::HttpServer::Delegate {
                      const net::HttpServerRequestInfo& info) override;
   void OnWebSocketRequest(int connection_id,
                           const net::HttpServerRequestInfo& info) override;
-  void OnWebSocketMessage(int connection_id,
-                          const std::string& data) override;
+  void OnWebSocketMessage(int connection_id, std::string data) override;
   void OnClose(int connection_id) override;
 
   base::WeakPtr<DevToolsHttpHandler> handler_;
@@ -485,12 +484,11 @@ void ServerWrapper::OnWebSocketRequest(
                      connection_id, request));
 }
 
-void ServerWrapper::OnWebSocketMessage(int connection_id,
-                                       const std::string& data) {
+void ServerWrapper::OnWebSocketMessage(int connection_id, std::string data) {
   base::PostTaskWithTraits(
       FROM_HERE, {BrowserThread::UI},
       base::BindOnce(&DevToolsHttpHandler::OnWebSocketMessage, handler_,
-                     connection_id, data));
+                     connection_id, std::move(data)));
 }
 
 void ServerWrapper::OnClose(int connection_id) {
@@ -610,9 +608,7 @@ void DevToolsHttpHandler::OnJsonRequest(
   }
 
   if (command == "new") {
-    GURL url(net::UnescapeURLComponent(
-        query, net::UnescapeRule::URL_SPECIAL_CHARS_EXCEPT_PATH_SEPARATORS |
-                   net::UnescapeRule::PATH_SEPARATORS));
+    GURL url(net::UnescapeBinaryURLComponent(query));
     if (!url.is_valid())
       url = GURL(url::kAboutBlankURL);
     scoped_refptr<DevToolsAgentHost> agent_host = nullptr;
@@ -792,7 +788,7 @@ DevToolsHttpHandler::DevToolsHttpHandler(
     std::unique_ptr<DevToolsSocketFactory> socket_factory,
     const base::FilePath& output_directory,
     const base::FilePath& debug_frontend_dir)
-    : delegate_(delegate), weak_factory_(this) {
+    : delegate_(delegate) {
   browser_guid_ = delegate_->IsBrowserTargetDiscoverable()
                       ? kBrowserUrlPrefix
                       : base::StringPrintf("%s/%s", kBrowserUrlPrefix,

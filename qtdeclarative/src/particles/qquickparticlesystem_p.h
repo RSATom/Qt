@@ -59,8 +59,9 @@
 #include <private/qquicksprite_p.h>
 #include <QAbstractAnimation>
 #include <QtQml/qqml.h>
-#include <private/qv8engine_p.h> //For QQmlV4Handle
 #include <private/qv4util_p.h>
+#include <private/qv4global_p.h>
+#include <private/qv4staticvalue_p.h>
 #include "qtquickparticlesglobal_p.h"
 
 QT_BEGIN_NAMESPACE
@@ -226,6 +227,8 @@ public:
 private:
     int m_size;
     QQuickParticleSystem* m_system;
+    // Only used in recycle() for tracking of alive particles after latest recycling round
+    QVector<QQuickParticleData*> m_latestAliveParticles;
 };
 
 struct Color4ub {
@@ -333,7 +336,7 @@ public:
 
     float curSize(QQuickParticleSystem *particleSystem) const;
     void clone(const QQuickParticleData& other);//Not =, leaves meta-data like index
-    QQmlV4Handle v4Value(QQuickParticleSystem *particleSystem);
+    QV4::ReturnedValue v4Value(QQuickParticleSystem *particleSystem);
     void extendLife(float time, QQuickParticleSystem *particleSystem);
 
     static inline Q_DECL_CONSTEXPR float EPSILON() Q_DECL_NOTHROW { return 0.001f; }

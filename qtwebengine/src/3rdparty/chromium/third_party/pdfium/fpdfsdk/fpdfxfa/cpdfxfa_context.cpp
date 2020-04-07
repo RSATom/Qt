@@ -77,7 +77,6 @@ void CPDFXFA_Context::CloseXFADoc() {
     return;
 
   m_pXFADocView = nullptr;
-  m_pXFADoc->CloseDoc();
   m_pXFADoc.reset();
 }
 
@@ -103,13 +102,9 @@ void CPDFXFA_Context::SetFormFillEnv(
 bool CPDFXFA_Context::LoadXFADoc() {
   m_nLoadStatus = FXFA_LOADSTATUS_LOADING;
   m_XFAPageList.clear();
-
-  CXFA_FFApp* pApp = GetXFAApp();
-  if (!pApp)
-    return false;
-
-  m_pXFADoc = pdfium::MakeUnique<CXFA_FFDoc>(pApp, &m_DocEnv);
-  if (!m_pXFADoc->OpenDoc(m_pPDFDoc.Get())) {
+  m_pXFADoc =
+      CXFA_FFDoc::CreateAndOpen(m_pXFAApp.get(), &m_DocEnv, m_pPDFDoc.Get());
+  if (!m_pXFADoc) {
     SetLastError(FPDF_ERR_XFALOAD);
     return false;
   }

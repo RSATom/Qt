@@ -10,7 +10,8 @@
 #include "net/der/input.h"
 #include "third_party/boringssl/src/include/openssl/pool.h"
 
-// TODO(mattm): these require CRL support:
+// These require CRL support, which is not implemented at the
+// VerifyCertificateChain level.
 #define Section7InvalidkeyUsageCriticalcRLSignFalseTest4 \
   DISABLED_Section7InvalidkeyUsageCriticalcRLSignFalseTest4
 #define Section7InvalidkeyUsageNotCriticalcRLSignFalseTest5 \
@@ -82,44 +83,46 @@ class VerifyCertificateChainPkitsTestDelegate {
 
 }  // namespace
 
-INSTANTIATE_TYPED_TEST_CASE_P(VerifyCertificateChain,
-                              PkitsTest01SignatureVerification,
-                              VerifyCertificateChainPkitsTestDelegate);
-INSTANTIATE_TYPED_TEST_CASE_P(VerifyCertificateChain,
-                              PkitsTest02ValidityPeriods,
-                              VerifyCertificateChainPkitsTestDelegate);
-INSTANTIATE_TYPED_TEST_CASE_P(VerifyCertificateChain,
-                              PkitsTest03VerifyingNameChaining,
-                              VerifyCertificateChainPkitsTestDelegate);
-INSTANTIATE_TYPED_TEST_CASE_P(VerifyCertificateChain,
-                              PkitsTest06VerifyingBasicConstraints,
-                              VerifyCertificateChainPkitsTestDelegate);
-INSTANTIATE_TYPED_TEST_CASE_P(VerifyCertificateChain,
-                              PkitsTest07KeyUsage,
-                              VerifyCertificateChainPkitsTestDelegate);
-INSTANTIATE_TYPED_TEST_CASE_P(VerifyCertificateChain,
-                              PkitsTest08CertificatePolicies,
-                              VerifyCertificateChainPkitsTestDelegate);
-INSTANTIATE_TYPED_TEST_CASE_P(VerifyCertificateChain,
-                              PkitsTest09RequireExplicitPolicy,
-                              VerifyCertificateChainPkitsTestDelegate);
-INSTANTIATE_TYPED_TEST_CASE_P(VerifyCertificateChain,
-                              PkitsTest10PolicyMappings,
-                              VerifyCertificateChainPkitsTestDelegate);
-INSTANTIATE_TYPED_TEST_CASE_P(VerifyCertificateChain,
-                              PkitsTest11InhibitPolicyMapping,
-                              VerifyCertificateChainPkitsTestDelegate);
-INSTANTIATE_TYPED_TEST_CASE_P(VerifyCertificateChain,
-                              PkitsTest12InhibitAnyPolicy,
-                              VerifyCertificateChainPkitsTestDelegate);
-INSTANTIATE_TYPED_TEST_CASE_P(VerifyCertificateChain,
-                              PkitsTest13NameConstraints,
-                              VerifyCertificateChainPkitsTestDelegate);
-INSTANTIATE_TYPED_TEST_CASE_P(VerifyCertificateChain,
-                              PkitsTest16PrivateCertificateExtensions,
-                              VerifyCertificateChainPkitsTestDelegate);
+INSTANTIATE_TYPED_TEST_SUITE_P(VerifyCertificateChain,
+                               PkitsTest01SignatureVerification,
+                               VerifyCertificateChainPkitsTestDelegate);
+INSTANTIATE_TYPED_TEST_SUITE_P(VerifyCertificateChain,
+                               PkitsTest02ValidityPeriods,
+                               VerifyCertificateChainPkitsTestDelegate);
+INSTANTIATE_TYPED_TEST_SUITE_P(VerifyCertificateChain,
+                               PkitsTest03VerifyingNameChaining,
+                               VerifyCertificateChainPkitsTestDelegate);
+INSTANTIATE_TYPED_TEST_SUITE_P(VerifyCertificateChain,
+                               PkitsTest06VerifyingBasicConstraints,
+                               VerifyCertificateChainPkitsTestDelegate);
+INSTANTIATE_TYPED_TEST_SUITE_P(VerifyCertificateChain,
+                               PkitsTest07KeyUsage,
+                               VerifyCertificateChainPkitsTestDelegate);
+INSTANTIATE_TYPED_TEST_SUITE_P(VerifyCertificateChain,
+                               PkitsTest08CertificatePolicies,
+                               VerifyCertificateChainPkitsTestDelegate);
+INSTANTIATE_TYPED_TEST_SUITE_P(VerifyCertificateChain,
+                               PkitsTest09RequireExplicitPolicy,
+                               VerifyCertificateChainPkitsTestDelegate);
+INSTANTIATE_TYPED_TEST_SUITE_P(VerifyCertificateChain,
+                               PkitsTest10PolicyMappings,
+                               VerifyCertificateChainPkitsTestDelegate);
+INSTANTIATE_TYPED_TEST_SUITE_P(VerifyCertificateChain,
+                               PkitsTest11InhibitPolicyMapping,
+                               VerifyCertificateChainPkitsTestDelegate);
+INSTANTIATE_TYPED_TEST_SUITE_P(VerifyCertificateChain,
+                               PkitsTest12InhibitAnyPolicy,
+                               VerifyCertificateChainPkitsTestDelegate);
+INSTANTIATE_TYPED_TEST_SUITE_P(VerifyCertificateChain,
+                               PkitsTest13NameConstraints,
+                               VerifyCertificateChainPkitsTestDelegate);
+INSTANTIATE_TYPED_TEST_SUITE_P(VerifyCertificateChain,
+                               PkitsTest16PrivateCertificateExtensions,
+                               VerifyCertificateChainPkitsTestDelegate);
 
-// TODO(mattm): CRL support: PkitsTest04BasicCertificateRevocationTests,
+// These require CRL support, which is not implemented at the
+// VerifyCertificateChain level:
+// PkitsTest04BasicCertificateRevocationTests,
 // PkitsTest05VerifyingPathswithSelfIssuedCertificates,
 // PkitsTest14DistributionPoints, PkitsTest15DeltaCRLs
 

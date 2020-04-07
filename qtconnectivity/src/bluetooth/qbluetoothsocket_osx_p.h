@@ -53,12 +53,11 @@
 
 #ifdef QT_OSX_BLUETOOTH
 
-#include "osx/osxbtchanneldelegate_p.h"
-#include "osx/osxbtrfcommchannel_p.h"
-#include "osx/osxbtl2capchannel_p.h"
+#include "qbluetoothsocketbase_p.h"
 #include "qbluetoothserviceinfo.h"
-#include "osx/osxbtutility_p.h"
+#include "osx/btdelegates_p.h"
 #include "qbluetoothsocket.h"
+#include "osx/btraii_p.h"
 
 #ifndef QPRIVATELINEARBUFFER_BUFFERSIZE
 #define QPRIVATELINEARBUFFER_BUFFERSIZE Q_INT64_C(16384)
@@ -74,14 +73,11 @@
 #include <QtCore/qstring.h>
 #include <QtCore/qvector.h>
 
-@class IOBluetoothRFCOMMChannel;
-@class IOBluetoothL2CAPChannel;
-
 QT_BEGIN_NAMESPACE
 
 class QBluetoothAddress;
 
-class QBluetoothSocketPrivate : public QBluetoothSocketBasePrivate, public OSXBluetooth::ChannelDelegate
+class QBluetoothSocketPrivate : public QBluetoothSocketBasePrivate, public DarwinBluetooth::ChannelDelegate
 {
     friend class QBluetoothSocket;
     friend class QBluetoothServer;
@@ -90,25 +86,47 @@ public:
     QBluetoothSocketPrivate();
     ~QBluetoothSocketPrivate();
 
+    //
+    bool ensureNativeSocket(QBluetoothServiceInfo::Protocol type) override;
+
+    QString localName() const override;
+    QBluetoothAddress localAddress() const override;
+    quint16 localPort() const override;
+
+    QString peerName() const override;
+    QBluetoothAddress peerAddress() const override;
+    quint16 peerPort() const override;
+
+    void abort() override;
+    void close() override;
+
+    qint64 writeData(const char *data, qint64 maxSize) override;
+    qint64 readData(char *data, qint64 maxSize) override;
+
+    qint64 bytesAvailable() const override;
+    bool canReadLine() const override;
+    qint64 bytesToWrite() const override;
+
+    bool setSocketDescriptor(int socketDescriptor, QBluetoothServiceInfo::Protocol socketType,
+                             QBluetoothSocket::SocketState socketState,
+                             QBluetoothSocket::OpenMode openMode) override;
+
+    void connectToServiceHelper(const QBluetoothAddress &address, quint16 port,
+                                QIODevice::OpenMode openMode) override;
+    void connectToService(const QBluetoothServiceInfo &service,
+                          QIODevice::OpenMode openMode) override;
+    void connectToService(const QBluetoothAddress &address, const QBluetoothUuid &uuid,
+                          QIODevice::OpenMode openMode) override;
+
     void connectToService(const QBluetoothAddress &address, quint16 port,
-                          QIODevice::OpenMode openMode);
+                          QIODevice::OpenMode openMode) override;
 
-    void close();
-    void abort();
-
-    quint64 bytesAvailable() const;
-
-    QString peerName() const;
-    QBluetoothAddress peerAddress() const;
-    quint16 peerPort() const;
-
-    void _q_readNotify();
-    void _q_writeNotify() override;
+    void _q_writeNotify();
 
 private:
     // Create a socket from an external source (without connectToService).
-    bool setChannel(IOBluetoothRFCOMMChannel *channel);
-    bool setChannel(IOBluetoothL2CAPChannel *channel);
+    bool setRFCOMChannel(void *channel);
+    bool setL2CAPChannel(void *channel);
 
     // L2CAP and RFCOMM delegate
     void setChannelError(IOReturn errorCode) override;
@@ -117,33 +135,15 @@ private:
     void readChannelData(void *data, std::size_t size) override;
     void writeComplete() override;
 
-    qint64 writeData(const char *data, qint64 maxSize);
-    qint64 readData(char *data, qint64 maxSize);
-
-    QScopedPointer<QBluetoothServiceDiscoveryAgent> discoveryAgent;
-
-    QPrivateLinearBuffer buffer;
-    QPrivateLinearBuffer txBuffer;
     QVector<char> writeChunk;
 
-    // Probably, not needed.
-    QIODevice::OpenMode openMode;
-
-    QBluetoothSocket::SocketState state;
-    QBluetoothServiceInfo::Protocol socketType;
-
-    QBluetoothSocket::SocketError socketError;
-    QString errorString;
-
-    typedef QT_MANGLE_NAMESPACE(OSXBTL2CAPChannel) ObjCL2CAPChannel;
-    typedef OSXBluetooth::ObjCScopedPointer<ObjCL2CAPChannel> L2CAPChannel;
+    using L2CAPChannel = DarwinBluetooth::ScopedPointer;
     L2CAPChannel l2capChannel;
 
-    typedef QT_MANGLE_NAMESPACE(OSXBTRFCOMMChannel) ObjCRFCOMMChannel;
-    typedef OSXBluetooth::ObjCScopedPointer<ObjCRFCOMMChannel> RFCOMMChannel;
+    using  RFCOMMChannel = L2CAPChannel;
     RFCOMMChannel rfcommChannel;
     // A trick to deal with channel open too fast (synchronously).
-    bool isConnecting;
+    bool isConnecting = false;
 };
 
 QT_END_NAMESPACE

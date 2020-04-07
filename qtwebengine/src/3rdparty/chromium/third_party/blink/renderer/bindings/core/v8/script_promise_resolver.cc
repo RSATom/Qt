@@ -7,9 +7,11 @@
 #include "third_party/blink/public/platform/task_type.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
 #include "third_party/blink/renderer/core/probe/core_probes.h"
+#include "third_party/blink/renderer/platform/wtf/functional.h"
 
 #if DCHECK_IS_ON()
 #include "base/debug/alias.h"
+#include "components/crash/core/common/crash_key.h"
 #endif
 
 namespace blink {
@@ -18,30 +20,42 @@ ScriptPromiseResolver::ScriptPromiseResolver(ScriptState* script_state)
     : ContextLifecycleObserver(ExecutionContext::From(script_state)),
       state_(kPending),
       script_state_(script_state),
-      resolver_(script_state) {
+      resolver_(script_state),
+      keep_alive_(PERSISTENT_FROM_HERE) {
   if (GetExecutionContext()->IsContextDestroyed()) {
     state_ = kDetached;
     resolver_.Clear();
   }
 }
 
-ScriptPromiseResolver::~ScriptPromiseResolver() {
-#if DCHECK_IS_ON()
-  // This is here temporarily to make it easier to track down which promise
-  // resolvers are being abandoned.
-  // TODO(crbug.com/873980): Remove this.
-  base::debug::StackTrace create_stack_trace(create_stack_trace_);
-  base::debug::Alias(&create_stack_trace);
+ScriptPromiseResolver::~ScriptPromiseResolver() = default;
 
+void ScriptPromiseResolver::Dispose() {
+#if DCHECK_IS_ON()
   // This assertion fails if:
   //  - promise() is called at least once and
   //  - this resolver is destructed before it is resolved, rejected,
   //    detached, the V8 isolate is terminated or the associated
   //    ExecutionContext is stopped.
-  DCHECK(state_ == kDetached || !is_promise_called_ ||
-         !GetScriptState()->ContextIsValid() || !GetExecutionContext() ||
-         GetExecutionContext()->IsContextDestroyed());
+  const bool is_properly_detached =
+      state_ == kDetached || !is_promise_called_ ||
+      !GetScriptState()->ContextIsValid() || !GetExecutionContext() ||
+      GetExecutionContext()->IsContextDestroyed();
+  if (!is_properly_detached) {
+    // This is here to make it easier to track down which promise resolvers are
+    // being abandoned. See https://crbug.com/873980.
+    static crash_reporter::CrashKeyString<1024> trace_key(
+        "scriptpromiseresolver-trace");
+    crash_reporter::SetCrashKeyStringToStackTrace(&trace_key,
+                                                  create_stack_trace_);
+    DCHECK(false)
+        << "ScriptPromiseResolver was not properly detached; created at\n"
+        << create_stack_trace_.ToString();
+  }
 #endif
+  deferred_resolve_task_.Cancel();
+  resolver_.Clear();
+  value_.Clear();
 }
 
 void ScriptPromiseResolver::Reject(ExceptionState& exception_state) {

@@ -34,12 +34,12 @@
 #include "third_party/blink/public/common/blob/blob_utils.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
 #include "third_party/blink/renderer/core/fileapi/public_url_manager.h"
-#include "third_party/blink/renderer/core/frame/use_counter.h"
 #include "third_party/blink/renderer/core/messaging/message_channel.h"
 #include "third_party/blink/renderer/core/messaging/message_port.h"
 #include "third_party/blink/renderer/core/probe/core_probes.h"
 #include "third_party/blink/renderer/core/workers/shared_worker_client_holder.h"
 #include "third_party/blink/renderer/platform/bindings/exception_state.h"
+#include "third_party/blink/renderer/platform/instrumentation/use_counter.h"
 #include "third_party/blink/renderer/platform/weborigin/kurl.h"
 #include "third_party/blink/renderer/platform/weborigin/security_origin.h"
 
@@ -57,8 +57,9 @@ SharedWorker* SharedWorker::Create(ExecutionContext* context,
   UseCounter::Count(context, WebFeature::kSharedWorkerStart);
 
   SharedWorker* worker = MakeGarbageCollected<SharedWorker>(context);
+  worker->UpdateStateIfNeeded();
 
-  MessageChannel* channel = MessageChannel::Create(context);
+  auto* channel = MakeGarbageCollected<MessageChannel>(context);
   worker->port_ = channel->port1();
   MessagePortChannel remote_port = channel->port2()->Disentangle();
 
@@ -110,6 +111,9 @@ const AtomicString& SharedWorker::InterfaceName() const {
 bool SharedWorker::HasPendingActivity() const {
   return is_being_connected_;
 }
+
+void SharedWorker::ContextLifecycleStateChanged(
+    mojom::FrameLifecycleState state) {}
 
 void SharedWorker::Trace(blink::Visitor* visitor) {
   visitor->Trace(port_);

@@ -120,19 +120,21 @@ void ScopedSVGPaintState::ApplyPaintPropertyState() {
   auto& paint_controller = GetPaintInfo().context.GetPaintController();
   PropertyTreeState state = paint_controller.CurrentPaintChunkProperties();
   if (const auto* effect = properties->Effect())
-    state.SetEffect(effect);
+    state.SetEffect(*effect);
   if (const auto* mask_clip = properties->MaskClip())
-    state.SetClip(mask_clip);
+    state.SetClip(*mask_clip);
   else if (const auto* clip_path_clip = properties->ClipPathClip())
-    state.SetClip(clip_path_clip);
+    state.SetClip(*clip_path_clip);
   scoped_paint_chunk_properties_.emplace(
       paint_controller, state, object_,
       DisplayItem::PaintPhaseToSVGEffectType(GetPaintInfo().phase));
 }
 
 void ScopedSVGPaintState::ApplyClipIfNecessary() {
-  if (object_.StyleRef().ClipPath())
-    clip_path_clipper_.emplace(GetPaintInfo().context, object_, LayoutPoint());
+  if (object_.StyleRef().ClipPath()) {
+    clip_path_clipper_.emplace(GetPaintInfo().context, object_,
+                               PhysicalOffset());
+  }
 }
 
 bool ScopedSVGPaintState::ApplyMaskIfNecessary(SVGResources* resources) {

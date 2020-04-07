@@ -17,11 +17,13 @@
 #include "base/files/scoped_temp_dir.h"
 #include "base/run_loop.h"
 #include "base/test/bind_test_util.h"
+#include "base/test/metrics/histogram_tester.h"
 #include "base/test/scoped_task_environment.h"
 #include "base/time/time.h"
-#include "components/autofill/core/browser/autofill_profile.h"
-#include "components/autofill/core/browser/country_names.h"
-#include "components/autofill/core/browser/credit_card.h"
+#include "components/autofill/core/browser/data_model/autofill_metadata.h"
+#include "components/autofill/core/browser/data_model/autofill_profile.h"
+#include "components/autofill/core/browser/data_model/credit_card.h"
+#include "components/autofill/core/browser/geo/country_names.h"
 #include "components/autofill/core/browser/test_autofill_clock.h"
 #include "components/autofill/core/browser/webdata/autofill_sync_bridge_test_util.h"
 #include "components/autofill/core/browser/webdata/autofill_sync_bridge_util.h"
@@ -44,7 +46,6 @@ using base::ScopedTempDir;
 using sync_pb::WalletMetadataSpecifics;
 using syncer::DataBatch;
 using syncer::EntityData;
-using syncer::EntityDataPtr;
 using syncer::KeyAndData;
 using syncer::MockModelTypeChangeProcessor;
 using syncer::ModelType;
@@ -81,13 +82,17 @@ const std::string kCard1StorageKey =
 const char kAddr1SyncTag[] = "address-YWRkcjHvv74=";
 const char kCard1SyncTag[] = "card-Y2FyZDHvv74=";
 
+const char kLocalAddr1ServerId[] = "e171e3ed-858a-4dd5-9bf3-8517f14ba5fc";
+const char kLocalAddr2ServerId[] = "fa232b9a-f248-4e5a-8d76-d46f821c0c5f";
+
 const char kLocaleString[] = "en-US";
-const base::Time kJune2017 = base::Time::FromDoubleT(1497552271);
 
 base::Time UseDateFromProtoValue(int64_t use_date_proto_value) {
   return base::Time::FromDeltaSinceWindowsEpoch(
       base::TimeDelta::FromMicroseconds(use_date_proto_value));
 }
+
+const base::Time kDefaultTime = UseDateFromProtoValue(100);
 
 int64_t UseDateToProtoValue(base::Time use_date) {
   return use_date.ToDeltaSinceWindowsEpoch().InMicroseconds();
@@ -103,17 +108,18 @@ std::string GetCardStorageKey(const std::string& specifics_id) {
       WalletMetadataSpecifics::CARD, specifics_id);
 }
 
-WalletMetadataSpecifics CreateWalletMetadataSpecificsForAddressWithUseStats(
+WalletMetadataSpecifics CreateWalletMetadataSpecificsForAddressWithDetails(
     const std::string& specifics_id,
     size_t use_count,
-    int64_t use_date) {
+    int64_t use_date,
+    bool has_converted = false) {
   WalletMetadataSpecifics specifics;
   specifics.set_id(specifics_id);
   specifics.set_type(WalletMetadataSpecifics::ADDRESS);
   specifics.set_use_count(use_count);
   specifics.set_use_date(use_date);
-  // Set the default value according to the constructor of AutofillProfile.
-  specifics.set_address_has_converted(false);
+  // False is the default value according to the constructor of AutofillProfile.
+  specifics.set_address_has_converted(has_converted);
   return specifics;
 }
 
@@ -121,22 +127,24 @@ WalletMetadataSpecifics CreateWalletMetadataSpecificsForAddress(
     const std::string& specifics_id) {
   // Set default values according to the constructor of AutofillProfile (the
   // clock value is overrided by TestAutofillClock in the test fixture).
-  return CreateWalletMetadataSpecificsForAddressWithUseStats(
+  return CreateWalletMetadataSpecificsForAddressWithDetails(
       specifics_id, /*use_count=*/1,
-      /*use_date=*/UseDateToProtoValue(kJune2017));
+      /*use_date=*/UseDateToProtoValue(kDefaultTime));
 }
 
-WalletMetadataSpecifics CreateWalletMetadataSpecificsForCardWithUseStats(
+WalletMetadataSpecifics CreateWalletMetadataSpecificsForCardWithDetails(
     const std::string& specifics_id,
     size_t use_count,
-    int64_t use_date) {
+    int64_t use_date,
+    const std::string& billing_address_id = "") {
   WalletMetadataSpecifics specifics;
   specifics.set_id(specifics_id);
   specifics.set_type(WalletMetadataSpecifics::CARD);
   specifics.set_use_count(use_count);
   specifics.set_use_date(use_date);
-  // Set the default value according to the constructor of AutofillProfile.
-  specifics.set_card_billing_address_id("");
+  // "" is the default value according to the constructor of AutofillProfile;
+  // this field is Base64 encoded in the protobuf.
+  specifics.set_card_billing_address_id(GetBase64EncodedId(billing_address_id));
   return specifics;
 }
 
@@ -144,27 +152,47 @@ WalletMetadataSpecifics CreateWalletMetadataSpecificsForCard(
     const std::string& specifics_id) {
   // Set default values according to the constructor of AutofillProfile (the
   // clock value is overrided by TestAutofillClock in the test fixture).
-  return CreateWalletMetadataSpecificsForCardWithUseStats(
+  return CreateWalletMetadataSpecificsForCardWithDetails(
       specifics_id, /*use_count=*/1,
-      /*use_date=*/UseDateToProtoValue(kJune2017));
+      /*use_date=*/UseDateToProtoValue(kDefaultTime));
 }
 
-AutofillProfile CreateServerProfileWithUseStats(const std::string& server_id,
-                                                size_t use_count,
-                                                int64_t use_date) {
+AutofillProfile CreateServerProfileWithDetails(const std::string& server_id,
+                                               size_t use_count,
+                                               int64_t use_date,
+                                               bool has_converted = false) {
   AutofillProfile profile = CreateServerProfile(server_id);
   profile.set_use_count(use_count);
   profile.set_use_date(UseDateFromProtoValue(use_date));
+  profile.set_has_converted(has_converted);
   return profile;
 }
 
-CreditCard CreateServerCreditCardWithUseStats(const std::string& server_id,
-                                              size_t use_count,
-                                              int64_t use_date) {
+CreditCard CreateServerCreditCardWithDetails(
+    const std::string& server_id,
+    size_t use_count,
+    int64_t use_date,
+    const std::string& billing_address_id = "") {
   CreditCard card = CreateServerCreditCard(server_id);
   card.set_use_count(use_count);
   card.set_use_date(UseDateFromProtoValue(use_date));
+  card.set_billing_address_id(billing_address_id);
   return card;
+}
+
+AutofillProfile CreateServerProfileFromSpecifics(
+    const WalletMetadataSpecifics& specifics) {
+  return CreateServerProfileWithDetails(
+      GetBase64DecodedId(specifics.id()), specifics.use_count(),
+      specifics.use_date(), specifics.address_has_converted());
+}
+
+CreditCard CreateServerCreditCardFromSpecifics(
+    const WalletMetadataSpecifics& specifics) {
+  return CreateServerCreditCardWithDetails(
+      GetBase64DecodedId(specifics.id()), specifics.use_count(),
+      specifics.use_date(),
+      GetBase64DecodedId(specifics.card_billing_address_id()));
 }
 
 void ExtractWalletMetadataSpecificsFromDataBatch(
@@ -182,7 +210,7 @@ std::string WalletMetadataSpecificsAsDebugString(
   output << "[id: " << specifics.id()
          << ", type: " << static_cast<int>(specifics.type())
          << ", use_count: " << specifics.use_count()
-         << ", use_date: " << UseDateFromProtoValue(specifics.use_date())
+         << ", use_date: " << specifics.use_date()
          << ", card_billing_address_id: "
          << (specifics.has_card_billing_address_id()
                  ? specifics.card_billing_address_id()
@@ -239,7 +267,7 @@ class AutofillWalletMetadataSyncBridgeTest : public testing::Test {
 
   void SetUp() override {
     // Fix a time for implicitly constructed use_dates in AutofillProfile.
-    test_clock_.SetNow(kJune2017);
+    test_clock_.SetNow(kDefaultTime);
     CountryNames::SetLocaleString(kLocaleString);
     ASSERT_TRUE(temp_dir_.CreateUniqueTempDir());
     db_.AddTable(&table_);
@@ -256,16 +284,93 @@ class AutofillWalletMetadataSyncBridgeTest : public testing::Test {
     mock_processor_.DelegateCallsByDefaultTo(real_processor_.get());
   }
 
-  void ResetBridge() {
+  void ResetBridge(bool initial_sync_done = true) {
+    sync_pb::ModelTypeState model_type_state;
+    model_type_state.set_initial_sync_done(initial_sync_done);
+    model_type_state.mutable_progress_marker()->set_data_type_id(
+        GetSpecificsFieldNumberFromModelType(syncer::AUTOFILL_WALLET_METADATA));
+    EXPECT_TRUE(table()->UpdateModelTypeState(syncer::AUTOFILL_WALLET_METADATA,
+                                              model_type_state));
     bridge_.reset(new AutofillWalletMetadataSyncBridge(
         mock_processor_.CreateForwardingProcessor(), &backend_));
   }
 
-  EntityData SpecificsToEntity(const WalletMetadataSpecifics& specifics) {
-    EntityData data;
-    *data.specifics.mutable_wallet_metadata() = specifics;
-    data.client_tag_hash = syncer::GenerateSyncableHash(
-        syncer::AUTOFILL_WALLET_METADATA, bridge()->GetClientTag(data));
+  void StopSyncing() {
+    real_processor_->OnSyncStopping(syncer::CLEAR_METADATA);
+  }
+
+  void Shutdown() { real_processor_->OnSyncStopping(syncer::KEEP_METADATA); }
+
+  void StartSyncing(
+      const std::vector<WalletMetadataSpecifics>& remote_data = {}) {
+    base::RunLoop loop;
+    syncer::DataTypeActivationRequest request;
+    request.error_handler = base::DoNothing();
+    real_processor_->OnSyncStarting(
+        request,
+        base::BindLambdaForTesting(
+            [&loop](std::unique_ptr<syncer::DataTypeActivationResponse>) {
+              loop.Quit();
+            }));
+    loop.Run();
+
+    ReceiveUpdates(remote_data);
+  }
+
+  void ReceiveUpdates(const std::vector<WalletMetadataSpecifics>& remote_data) {
+    // Make sure each update has an updated response version so that it does not
+    // get filtered out as reflection by the processor.
+    ++response_version;
+    // After this update initial sync is for sure done.
+    sync_pb::ModelTypeState state;
+    state.set_initial_sync_done(true);
+
+    syncer::UpdateResponseDataList updates;
+    for (const WalletMetadataSpecifics& specifics : remote_data) {
+      updates.push_back(SpecificsToUpdateResponse(specifics));
+    }
+    real_processor_->OnUpdateReceived(state, std::move(updates));
+  }
+
+  void ReceiveTombstones(
+      const std::vector<WalletMetadataSpecifics>& remote_tombstones) {
+    // Make sure each update has an updated response version so that it does not
+    // get filtered out as reflection by the processor.
+    ++response_version;
+    // After this update initial sync is for sure done.
+    sync_pb::ModelTypeState state;
+    state.set_initial_sync_done(true);
+
+    syncer::UpdateResponseDataList updates;
+    for (const WalletMetadataSpecifics& specifics : remote_tombstones) {
+      updates.push_back(
+          SpecificsToUpdateResponse(specifics, /*is_deleted=*/true));
+    }
+    real_processor_->OnUpdateReceived(state, std::move(updates));
+  }
+
+  std::unique_ptr<EntityData> SpecificsToEntity(
+      const WalletMetadataSpecifics& specifics,
+      bool is_deleted = false) {
+    auto data = std::make_unique<EntityData>();
+    *data->specifics.mutable_wallet_metadata() = specifics;
+    data->client_tag_hash = syncer::GenerateSyncableHash(
+        syncer::AUTOFILL_WALLET_METADATA, bridge()->GetClientTag(*data));
+    if (is_deleted) {
+      // Specifics had to be set in order to generate the client tag. Since
+      // deleted entity is defined by specifics being empty, we need to clear
+      // them now.
+      data->specifics = sync_pb::EntitySpecifics();
+    }
+    return data;
+  }
+
+  std::unique_ptr<syncer::UpdateResponseData> SpecificsToUpdateResponse(
+      const WalletMetadataSpecifics& specifics,
+      bool is_deleted = false) {
+    auto data = std::make_unique<syncer::UpdateResponseData>();
+    data->entity = SpecificsToEntity(specifics, is_deleted);
+    data->response_version = response_version;
     return data;
   }
 
@@ -310,10 +415,33 @@ class AutofillWalletMetadataSyncBridgeTest : public testing::Test {
     return data;
   }
 
+  std::vector<std::string> GetLocalSyncMetadataStorageKeys() {
+    std::vector<std::string> storage_keys;
+
+    AutofillTable* table = AutofillTable::FromWebDatabase(&db_);
+    syncer::MetadataBatch batch;
+    if (table->GetAllSyncMetadata(syncer::AUTOFILL_WALLET_METADATA, &batch)) {
+      for (const std::pair<const std::string,
+                           std::unique_ptr<sync_pb::EntityMetadata>>& entry :
+           batch.GetAllMetadata()) {
+        storage_keys.push_back(entry.first);
+      }
+    }
+    return storage_keys;
+  }
+
+  void AdvanceTestClockByTwoYears() {
+    test_clock_.Advance(base::TimeDelta::FromDays(365 * 2));
+  }
+
   AutofillWalletMetadataSyncBridge* bridge() { return bridge_.get(); }
 
   syncer::MockModelTypeChangeProcessor& mock_processor() {
     return mock_processor_;
+  }
+
+  syncer::ClientTagBasedModelTypeProcessor* real_processor() {
+    return real_processor_.get();
   }
 
   AutofillTable* table() { return &table_; }
@@ -321,6 +449,7 @@ class AutofillWalletMetadataSyncBridgeTest : public testing::Test {
   MockAutofillWebDataBackend* backend() { return &backend_; }
 
  private:
+  int response_version = 0;
   autofill::TestAutofillClock test_clock_;
   ScopedTempDir temp_dir_;
   base::test::ScopedTaskEnvironment scoped_task_environment_;
@@ -339,7 +468,7 @@ TEST_F(AutofillWalletMetadataSyncBridgeTest, GetClientTagForAddress) {
   ResetBridge();
   WalletMetadataSpecifics specifics =
       CreateWalletMetadataSpecificsForAddress(kAddr1SpecificsId);
-  EXPECT_EQ(bridge()->GetClientTag(SpecificsToEntity(specifics)),
+  EXPECT_EQ(bridge()->GetClientTag(*SpecificsToEntity(specifics)),
             kAddr1SyncTag);
 }
 
@@ -347,7 +476,7 @@ TEST_F(AutofillWalletMetadataSyncBridgeTest, GetClientTagForCard) {
   ResetBridge();
   WalletMetadataSpecifics specifics =
       CreateWalletMetadataSpecificsForCard(kCard1SpecificsId);
-  EXPECT_EQ(bridge()->GetClientTag(SpecificsToEntity(specifics)),
+  EXPECT_EQ(bridge()->GetClientTag(*SpecificsToEntity(specifics)),
             kCard1SyncTag);
 }
 
@@ -356,7 +485,7 @@ TEST_F(AutofillWalletMetadataSyncBridgeTest, GetStorageKeyForAddress) {
   ResetBridge();
   WalletMetadataSpecifics specifics =
       CreateWalletMetadataSpecificsForAddress(kAddr1SpecificsId);
-  EXPECT_EQ(bridge()->GetStorageKey(SpecificsToEntity(specifics)),
+  EXPECT_EQ(bridge()->GetStorageKey(*SpecificsToEntity(specifics)),
             GetAddressStorageKey(kAddr1SpecificsId));
 }
 
@@ -364,7 +493,7 @@ TEST_F(AutofillWalletMetadataSyncBridgeTest, GetStorageKeyForCard) {
   ResetBridge();
   WalletMetadataSpecifics specifics =
       CreateWalletMetadataSpecificsForCard(kCard1SpecificsId);
-  EXPECT_EQ(bridge()->GetStorageKey(SpecificsToEntity(specifics)),
+  EXPECT_EQ(bridge()->GetStorageKey(*SpecificsToEntity(specifics)),
             GetCardStorageKey(kCard1SpecificsId));
 }
 
@@ -445,22 +574,69 @@ TEST_F(AutofillWalletMetadataSyncBridgeTest, GetData_ShouldReturnCompleteData) {
                                    EqualsSpecifics(card_specifics)));
 }
 
+TEST_F(AutofillWalletMetadataSyncBridgeTest,
+       ApplyStopSyncChanges_ShouldWipeLocalDataWhenSyncStopped) {
+  // Perform initial sync to create sync data & metadata.
+  ResetBridge(/*initial_sync_done=*/false);
+  WalletMetadataSpecifics profile =
+      CreateWalletMetadataSpecificsForAddressWithDetails(
+          kAddr1SpecificsId, /*use_count=*/10, /*use_date=*/20);
+  WalletMetadataSpecifics card =
+      CreateWalletMetadataSpecificsForCardWithDetails(
+          kCard1SpecificsId, /*use_count=*/30, /*use_date=*/40);
+  StartSyncing({profile, card});
+
+  // Now stop sync. This should wipe the data but not notify the backend (as the
+  // data bridge will do that).
+  EXPECT_CALL(*backend(), CommitChanges());
+  EXPECT_CALL(*backend(), NotifyOfMultipleAutofillChanges()).Times(0);
+  StopSyncing();
+
+  EXPECT_THAT(GetAllLocalDataInclRestart(), IsEmpty());
+}
+
+TEST_F(AutofillWalletMetadataSyncBridgeTest,
+       ApplyStopSyncChanges_ShouldKeepLocalDataOnShutdown) {
+  // Perform initial sync to create sync data & metadata.
+  ResetBridge(/*initial_sync_done=*/false);
+  WalletMetadataSpecifics profile =
+      CreateWalletMetadataSpecificsForAddressWithDetails(
+          kAddr1SpecificsId, /*use_count=*/10, /*use_date=*/20);
+  WalletMetadataSpecifics card =
+      CreateWalletMetadataSpecificsForCardWithDetails(
+          kCard1SpecificsId, /*use_count=*/30, /*use_date=*/40);
+  StartSyncing({profile, card});
+
+  // Now simulate shutting down the browser. This should not touch any of the
+  // data and thus also not notify the backend.
+  EXPECT_CALL(*backend(), CommitChanges()).Times(0);
+  EXPECT_CALL(*backend(), NotifyOfMultipleAutofillChanges()).Times(0);
+  Shutdown();
+
+  EXPECT_THAT(
+      GetAllLocalDataInclRestart(),
+      UnorderedElementsAre(EqualsSpecifics(profile), EqualsSpecifics(card)));
+}
+
 // Verify that lower values of metadata are not sent to the sync server when
 // local metadata is updated.
 TEST_F(AutofillWalletMetadataSyncBridgeTest,
        DontSendLowerValueToServerOnUpdate) {
-  table()->SetServerProfiles({CreateServerProfileWithUseStats(
+  table()->SetServerProfiles({CreateServerProfileWithDetails(
       kAddr1ServerId, /*use_count=*/2, /*use_date=*/5)});
-  table()->SetServerCreditCards({CreateServerCreditCardWithUseStats(
+  table()->SetServerCreditCards({CreateServerCreditCardWithDetails(
       kCard1ServerId, /*use_count=*/3, /*use_date=*/6)});
   ResetBridge();
 
-  AutofillProfile updated_profile = CreateServerProfileWithUseStats(
+  AutofillProfile updated_profile = CreateServerProfileWithDetails(
       kAddr1ServerId, /*use_count=*/1, /*use_date=*/4);
-  CreditCard updated_card = CreateServerCreditCardWithUseStats(
+  CreditCard updated_card = CreateServerCreditCardWithDetails(
       kCard1ServerId, /*use_count=*/2, /*use_date=*/5);
 
   EXPECT_CALL(mock_processor(), Put(_, _, _)).Times(0);
+  // Local changes should not cause local DB writes.
+  EXPECT_CALL(*backend(), CommitChanges()).Times(0);
+  EXPECT_CALL(*backend(), NotifyOfMultipleAutofillChanges()).Times(0);
 
   bridge()->AutofillProfileChanged(
       AutofillProfileChange(AutofillProfileChange::UPDATE,
@@ -472,9 +648,47 @@ TEST_F(AutofillWalletMetadataSyncBridgeTest,
   EXPECT_THAT(
       GetAllLocalDataInclRestart(),
       UnorderedElementsAre(
-          EqualsSpecifics(CreateWalletMetadataSpecificsForAddressWithUseStats(
+          EqualsSpecifics(CreateWalletMetadataSpecificsForAddressWithDetails(
               kAddr1SpecificsId, /*use_count=*/2, /*use_date=*/5)),
-          EqualsSpecifics(CreateWalletMetadataSpecificsForCardWithUseStats(
+          EqualsSpecifics(CreateWalletMetadataSpecificsForCardWithDetails(
+              kCard1SpecificsId, /*use_count=*/3, /*use_date=*/6))));
+}
+
+// Verify that lower values of metadata are not sent to the sync server when
+// local metadata is created (tests the case when metadata with higher use
+// counts arrive before the data, the data bridge later notifies about creation
+// for data that is already there).
+TEST_F(AutofillWalletMetadataSyncBridgeTest,
+       DontSendLowerValueToServerOnCreation) {
+  table()->SetServerProfiles({CreateServerProfileWithDetails(
+      kAddr1ServerId, /*use_count=*/2, /*use_date=*/5)});
+  table()->SetServerCreditCards({CreateServerCreditCardWithDetails(
+      kCard1ServerId, /*use_count=*/3, /*use_date=*/6)});
+  ResetBridge();
+
+  AutofillProfile updated_profile = CreateServerProfileWithDetails(
+      kAddr1ServerId, /*use_count=*/1, /*use_date=*/4);
+  CreditCard updated_card = CreateServerCreditCardWithDetails(
+      kCard1ServerId, /*use_count=*/2, /*use_date=*/5);
+
+  EXPECT_CALL(mock_processor(), Put(_, _, _)).Times(0);
+  // Local changes should not cause local DB writes.
+  EXPECT_CALL(*backend(), CommitChanges()).Times(0);
+  EXPECT_CALL(*backend(), NotifyOfMultipleAutofillChanges()).Times(0);
+
+  bridge()->AutofillProfileChanged(
+      AutofillProfileChange(AutofillProfileChange::ADD,
+                            updated_profile.server_id(), &updated_profile));
+  bridge()->CreditCardChanged(CreditCardChange(
+      CreditCardChange::ADD, updated_card.server_id(), &updated_card));
+
+  // Check that also the local metadata did not get updated.
+  EXPECT_THAT(
+      GetAllLocalDataInclRestart(),
+      UnorderedElementsAre(
+          EqualsSpecifics(CreateWalletMetadataSpecificsForAddressWithDetails(
+              kAddr1SpecificsId, /*use_count=*/2, /*use_date=*/5)),
+          EqualsSpecifics(CreateWalletMetadataSpecificsForCardWithDetails(
               kCard1SpecificsId, /*use_count=*/3, /*use_date=*/6))));
 }
 
@@ -482,22 +696,22 @@ TEST_F(AutofillWalletMetadataSyncBridgeTest,
 // metadata is updated.
 TEST_F(AutofillWalletMetadataSyncBridgeTest,
        SendHigherValuesToServerOnLocalUpdate) {
-  table()->SetServerProfiles({CreateServerProfileWithUseStats(
+  table()->SetServerProfiles({CreateServerProfileWithDetails(
       kAddr1ServerId, /*use_count=*/1, /*use_date=*/2)});
-  table()->SetServerCreditCards({CreateServerCreditCardWithUseStats(
+  table()->SetServerCreditCards({CreateServerCreditCardWithDetails(
       kCard1ServerId, /*use_count=*/3, /*use_date=*/4)});
   ResetBridge();
 
-  AutofillProfile updated_profile = CreateServerProfileWithUseStats(
+  AutofillProfile updated_profile = CreateServerProfileWithDetails(
       kAddr1ServerId, /*use_count=*/10, /*use_date=*/20);
-  CreditCard updated_card = CreateServerCreditCardWithUseStats(
+  CreditCard updated_card = CreateServerCreditCardWithDetails(
       kCard1ServerId, /*use_count=*/30, /*use_date=*/40);
 
   WalletMetadataSpecifics expected_profile_specifics =
-      CreateWalletMetadataSpecificsForAddressWithUseStats(
+      CreateWalletMetadataSpecificsForAddressWithDetails(
           kAddr1SpecificsId, /*use_count=*/10, /*use_date=*/20);
   WalletMetadataSpecifics expected_card_specifics =
-      CreateWalletMetadataSpecificsForCardWithUseStats(
+      CreateWalletMetadataSpecificsForCardWithDetails(
           kCard1SpecificsId, /*use_count=*/30, /*use_date=*/40);
 
   EXPECT_CALL(
@@ -505,6 +719,9 @@ TEST_F(AutofillWalletMetadataSyncBridgeTest,
       Put(kAddr1StorageKey, HasSpecifics(expected_profile_specifics), _));
   EXPECT_CALL(mock_processor(),
               Put(kCard1StorageKey, HasSpecifics(expected_card_specifics), _));
+  // Local changes should not cause local DB writes.
+  EXPECT_CALL(*backend(), CommitChanges()).Times(0);
+  EXPECT_CALL(*backend(), NotifyOfMultipleAutofillChanges()).Times(0);
 
   bridge()->AutofillProfileChanged(
       AutofillProfileChange(AutofillProfileChange::UPDATE,
@@ -522,16 +739,16 @@ TEST_F(AutofillWalletMetadataSyncBridgeTest,
 TEST_F(AutofillWalletMetadataSyncBridgeTest,
        SendNewDataToServerOnLocalAddition) {
   ResetBridge();
-  AutofillProfile new_profile = CreateServerProfileWithUseStats(
+  AutofillProfile new_profile = CreateServerProfileWithDetails(
       kAddr1ServerId, /*use_count=*/10, /*use_date=*/20);
-  CreditCard new_card = CreateServerCreditCardWithUseStats(
+  CreditCard new_card = CreateServerCreditCardWithDetails(
       kCard1ServerId, /*use_count=*/30, /*use_date=*/40);
 
   WalletMetadataSpecifics expected_profile_specifics =
-      CreateWalletMetadataSpecificsForAddressWithUseStats(
+      CreateWalletMetadataSpecificsForAddressWithDetails(
           kAddr1SpecificsId, /*use_count=*/10, /*use_date=*/20);
   WalletMetadataSpecifics expected_card_specifics =
-      CreateWalletMetadataSpecificsForCardWithUseStats(
+      CreateWalletMetadataSpecificsForCardWithDetails(
           kCard1SpecificsId, /*use_count=*/30, /*use_date=*/40);
 
   EXPECT_CALL(
@@ -539,6 +756,9 @@ TEST_F(AutofillWalletMetadataSyncBridgeTest,
       Put(kAddr1StorageKey, HasSpecifics(expected_profile_specifics), _));
   EXPECT_CALL(mock_processor(),
               Put(kCard1StorageKey, HasSpecifics(expected_card_specifics), _));
+  // Local changes should not cause local DB writes.
+  EXPECT_CALL(*backend(), CommitChanges()).Times(0);
+  EXPECT_CALL(*backend(), NotifyOfMultipleAutofillChanges()).Times(0);
 
   bridge()->AutofillProfileChanged(AutofillProfileChange(
       AutofillProfileChange::ADD, new_profile.server_id(), &new_profile));
@@ -556,16 +776,16 @@ TEST_F(AutofillWalletMetadataSyncBridgeTest,
 // recreates metadata that may get deleted in the mean-time).
 TEST_F(AutofillWalletMetadataSyncBridgeTest, SendNewDataToServerOnLocalUpdate) {
   ResetBridge();
-  AutofillProfile new_profile = CreateServerProfileWithUseStats(
+  AutofillProfile new_profile = CreateServerProfileWithDetails(
       kAddr1ServerId, /*use_count=*/10, /*use_date=*/20);
-  CreditCard new_card = CreateServerCreditCardWithUseStats(
+  CreditCard new_card = CreateServerCreditCardWithDetails(
       kCard1ServerId, /*use_count=*/30, /*use_date=*/40);
 
   WalletMetadataSpecifics expected_profile_specifics =
-      CreateWalletMetadataSpecificsForAddressWithUseStats(
+      CreateWalletMetadataSpecificsForAddressWithDetails(
           kAddr1SpecificsId, /*use_count=*/10, /*use_date=*/20);
   WalletMetadataSpecifics expected_card_specifics =
-      CreateWalletMetadataSpecificsForCardWithUseStats(
+      CreateWalletMetadataSpecificsForCardWithDetails(
           kCard1SpecificsId, /*use_count=*/30, /*use_date=*/40);
 
   EXPECT_CALL(
@@ -573,6 +793,9 @@ TEST_F(AutofillWalletMetadataSyncBridgeTest, SendNewDataToServerOnLocalUpdate) {
       Put(kAddr1StorageKey, HasSpecifics(expected_profile_specifics), _));
   EXPECT_CALL(mock_processor(),
               Put(kCard1StorageKey, HasSpecifics(expected_card_specifics), _));
+  // Local changes should not cause local DB writes.
+  EXPECT_CALL(*backend(), CommitChanges()).Times(0);
+  EXPECT_CALL(*backend(), NotifyOfMultipleAutofillChanges()).Times(0);
 
   bridge()->AutofillProfileChanged(AutofillProfileChange(
       AutofillProfileChange::UPDATE, new_profile.server_id(), &new_profile));
@@ -588,9 +811,9 @@ TEST_F(AutofillWalletMetadataSyncBridgeTest, SendNewDataToServerOnLocalUpdate) {
 // Verify that one-off deletion of existing metadata is sent to the sync server.
 TEST_F(AutofillWalletMetadataSyncBridgeTest,
        DeleteExistingDataFromServerOnLocalDeletion) {
-  AutofillProfile existing_profile = CreateServerProfileWithUseStats(
+  AutofillProfile existing_profile = CreateServerProfileWithDetails(
       kAddr1ServerId, /*use_count=*/10, /*use_date=*/20);
-  CreditCard existing_card = CreateServerCreditCardWithUseStats(
+  CreditCard existing_card = CreateServerCreditCardWithDetails(
       kCard1ServerId, /*use_count=*/30, /*use_date=*/40);
   table()->SetServerProfiles({existing_profile});
   table()->SetServerCreditCards({existing_card});
@@ -598,11 +821,15 @@ TEST_F(AutofillWalletMetadataSyncBridgeTest,
 
   EXPECT_CALL(mock_processor(), Delete(kAddr1StorageKey, _));
   EXPECT_CALL(mock_processor(), Delete(kCard1StorageKey, _));
+  // Local changes should not cause local DB writes.
+  EXPECT_CALL(*backend(), CommitChanges()).Times(0);
+  EXPECT_CALL(*backend(), NotifyOfMultipleAutofillChanges()).Times(0);
 
-  bridge()->AutofillProfileChanged(AutofillProfileChange(
-      AutofillProfileChange::REMOVE, existing_profile.server_id(), nullptr));
+  bridge()->AutofillProfileChanged(
+      AutofillProfileChange(AutofillProfileChange::REMOVE,
+                            existing_profile.server_id(), &existing_profile));
   bridge()->CreditCardChanged(CreditCardChange(
-      CreditCardChange::REMOVE, existing_card.server_id(), nullptr));
+      CreditCardChange::REMOVE, existing_card.server_id(), &existing_card));
 
   // Check that there is no metadata anymore.
   EXPECT_THAT(GetAllLocalDataInclRestart(), IsEmpty());
@@ -611,9 +838,9 @@ TEST_F(AutofillWalletMetadataSyncBridgeTest,
 // Verify that deletion of non-existing metadata is not sent to the sync server.
 TEST_F(AutofillWalletMetadataSyncBridgeTest,
        DoNotDeleteNonExistingDataFromServerOnLocalDeletion) {
-  AutofillProfile existing_profile = CreateServerProfileWithUseStats(
+  AutofillProfile existing_profile = CreateServerProfileWithDetails(
       kAddr1ServerId, /*use_count=*/10, /*use_date=*/20);
-  CreditCard existing_card = CreateServerCreditCardWithUseStats(
+  CreditCard existing_card = CreateServerCreditCardWithDetails(
       kCard1ServerId, /*use_count=*/30, /*use_date=*/40);
   // Save only data and not metadata.
   table()->SetServerAddressesData({existing_profile});
@@ -624,15 +851,917 @@ TEST_F(AutofillWalletMetadataSyncBridgeTest,
   ASSERT_THAT(GetAllLocalDataInclRestart(), IsEmpty());
 
   EXPECT_CALL(mock_processor(), Delete(_, _)).Times(0);
-  EXPECT_CALL(mock_processor(), Delete(_, _)).Times(0);
+  // Local changes should not cause local DB writes.
+  EXPECT_CALL(*backend(), CommitChanges()).Times(0);
+  EXPECT_CALL(*backend(), NotifyOfMultipleAutofillChanges()).Times(0);
 
-  bridge()->AutofillProfileChanged(AutofillProfileChange(
-      AutofillProfileChange::REMOVE, existing_profile.server_id(), nullptr));
+  bridge()->AutofillProfileChanged(
+      AutofillProfileChange(AutofillProfileChange::REMOVE,
+                            existing_profile.server_id(), &existing_profile));
   bridge()->CreditCardChanged(CreditCardChange(
-      CreditCardChange::REMOVE, existing_card.server_id(), nullptr));
+      CreditCardChange::REMOVE, existing_card.server_id(), &existing_card));
 
   // Check that there is also no metadata at the end.
   EXPECT_THAT(GetAllLocalDataInclRestart(), IsEmpty());
 }
 
+// Verify that old orphan metadata gets deleted on startup.
+TEST_F(AutofillWalletMetadataSyncBridgeTest, DeleteOldOrphanMetadataOnStartup) {
+  base::HistogramTester histogram_tester;
+  WalletMetadataSpecifics profile =
+      CreateWalletMetadataSpecificsForAddressWithDetails(
+          kAddr1SpecificsId, /*use_count=*/10, /*use_date=*/20);
+  WalletMetadataSpecifics card =
+      CreateWalletMetadataSpecificsForCardWithDetails(
+          kCard1SpecificsId, /*use_count=*/30, /*use_date=*/40);
+
+  // Save only metadata and not data - simulate an orphan.
+  table()->AddServerAddressMetadata(
+      CreateServerProfileFromSpecifics(profile).GetMetadata());
+  table()->AddServerCardMetadata(
+      CreateServerCreditCardFromSpecifics(card).GetMetadata());
+
+  // Make the orphans old by advancing time.
+  AdvanceTestClockByTwoYears();
+
+  EXPECT_CALL(mock_processor(), Delete(kAddr1StorageKey, _));
+  EXPECT_CALL(mock_processor(), Delete(kCard1StorageKey, _));
+  EXPECT_CALL(*backend(), CommitChanges());
+
+  ResetBridge();
+  histogram_tester.ExpectBucketCount("Sync.WalletMetadata.DeletedOldOrphans",
+                                     /*bucket=*/2, /*count=*/1);
+
+  ASSERT_THAT(GetAllLocalDataInclRestart(), IsEmpty());
+}
+
+// Verify that recent orphan metadata does not get deleted on startup.
+TEST_F(AutofillWalletMetadataSyncBridgeTest,
+       DoNotDeleteOldNonOrphanMetadataOnStartup) {
+  base::HistogramTester histogram_tester;
+  WalletMetadataSpecifics profile =
+      CreateWalletMetadataSpecificsForAddressWithDetails(
+          kAddr1SpecificsId, /*use_count=*/10, /*use_date=*/20);
+  WalletMetadataSpecifics card =
+      CreateWalletMetadataSpecificsForCardWithDetails(
+          kCard1SpecificsId, /*use_count=*/30, /*use_date=*/40);
+
+  // Save both data and metadata - these are not orphans.
+  table()->SetServerProfiles({CreateServerProfileFromSpecifics(profile)});
+  table()->SetServerCreditCards({CreateServerCreditCardFromSpecifics(card)});
+
+  // Make the entities old by advancing time.
+  AdvanceTestClockByTwoYears();
+
+  // Since the entities are non-oprhans, they should not get deleted.
+  EXPECT_CALL(mock_processor(), Delete(_, _)).Times(0);
+  EXPECT_CALL(*backend(), CommitChanges()).Times(0);
+
+  ResetBridge();
+  histogram_tester.ExpectTotalCount("Sync.WalletMetadata.DeletedOldOrphans",
+                                    /*count=*/0);
+
+  EXPECT_THAT(
+      GetAllLocalDataInclRestart(),
+      UnorderedElementsAre(EqualsSpecifics(profile), EqualsSpecifics(card)));
+}
+
+// Verify that recent orphan metadata does not get deleted on startup.
+TEST_F(AutofillWalletMetadataSyncBridgeTest,
+       DoNotDeleteRecentOrphanMetadataOnStartup) {
+  base::HistogramTester histogram_tester;
+  WalletMetadataSpecifics profile =
+      CreateWalletMetadataSpecificsForAddressWithDetails(
+          kAddr1SpecificsId, /*use_count=*/10, /*use_date=*/20);
+  WalletMetadataSpecifics card =
+      CreateWalletMetadataSpecificsForCardWithDetails(
+          kCard1SpecificsId, /*use_count=*/30, /*use_date=*/40);
+
+  // Save only metadata and not data - simulate an orphan.
+  table()->AddServerAddressMetadata(
+      CreateServerProfileFromSpecifics(profile).GetMetadata());
+  table()->AddServerCardMetadata(
+      CreateServerCreditCardFromSpecifics(card).GetMetadata());
+
+  // We do not advance time so the orphans are recent, should not get deleted.
+  EXPECT_CALL(mock_processor(), Delete(_, _)).Times(0);
+  EXPECT_CALL(*backend(), CommitChanges()).Times(0);
+
+  ResetBridge();
+  histogram_tester.ExpectTotalCount("Sync.WalletMetadata.DeletedOldOrphans",
+                                    /*count=*/0);
+
+  EXPECT_THAT(
+      GetAllLocalDataInclRestart(),
+      UnorderedElementsAre(EqualsSpecifics(profile), EqualsSpecifics(card)));
+}
+
+// Test that both local cards and local profiles that are not in the remote data
+// set are uploaded during initial sync. This should rarely happen in practice
+// because we wipe local data when disabling sync. Still there are corner cases
+// such as when PDM manages to change metadata before the metadata bridge
+// performs initial sync.
+TEST_F(AutofillWalletMetadataSyncBridgeTest,
+       InitialSync_UploadUniqueLocalData) {
+  WalletMetadataSpecifics preexisting_profile =
+      CreateWalletMetadataSpecificsForAddressWithDetails(
+          kAddr1SpecificsId, /*use_count=*/10, /*use_date=*/20);
+  WalletMetadataSpecifics preexisting_card =
+      CreateWalletMetadataSpecificsForCardWithDetails(
+          kCard1SpecificsId, /*use_count=*/30, /*use_date=*/40);
+
+  table()->SetServerProfiles(
+      {CreateServerProfileFromSpecifics(preexisting_profile)});
+  table()->SetServerCreditCards(
+      {CreateServerCreditCardFromSpecifics(preexisting_card)});
+
+  // Have different entities on the server.
+  WalletMetadataSpecifics remote_profile =
+      CreateWalletMetadataSpecificsForAddressWithDetails(
+          kAddr2SpecificsId, /*use_count=*/10, /*use_date=*/20);
+  WalletMetadataSpecifics remote_card =
+      CreateWalletMetadataSpecificsForCardWithDetails(
+          kCard2SpecificsId, /*use_count=*/30, /*use_date=*/40);
+
+  // The bridge should upload the unique local entities and store the remote
+  // ones locally.
+  EXPECT_CALL(mock_processor(),
+              Put(kAddr1StorageKey, HasSpecifics(preexisting_profile), _));
+  EXPECT_CALL(mock_processor(),
+              Put(kCard1StorageKey, HasSpecifics(preexisting_card), _));
+  EXPECT_CALL(mock_processor(), Delete(_, _)).Times(0);
+  EXPECT_CALL(*backend(), CommitChanges());
+  EXPECT_CALL(*backend(), NotifyOfMultipleAutofillChanges());
+
+  ResetBridge(/*initial_sync_done=*/false);
+  StartSyncing({remote_profile, remote_card});
+
+  EXPECT_THAT(GetAllLocalDataInclRestart(),
+              UnorderedElementsAre(EqualsSpecifics(preexisting_profile),
+                                   EqualsSpecifics(preexisting_card),
+                                   EqualsSpecifics(remote_profile),
+                                   EqualsSpecifics(remote_card)));
+}
+
+// Test that the initial sync correctly distinguishes data that is unique in the
+// local data set from data that is both in the local data and in the remote
+// data. We should only upload the local data. This should rarely happen in
+// practice because we wipe local data when disabling sync. Still there are
+// corner cases such as when PDM manages to change metadata before the metadata
+// bridge performs initial sync.
+TEST_F(AutofillWalletMetadataSyncBridgeTest,
+       InitialSync_UploadOnlyUniqueLocalData) {
+  WalletMetadataSpecifics preexisting_profile =
+      CreateWalletMetadataSpecificsForAddressWithDetails(
+          kAddr1SpecificsId, /*use_count=*/10, /*use_date=*/20);
+  WalletMetadataSpecifics preexisting_card =
+      CreateWalletMetadataSpecificsForCardWithDetails(
+          kCard1SpecificsId, /*use_count=*/30, /*use_date=*/40);
+
+  table()->SetServerProfiles(
+      {CreateServerProfileFromSpecifics(preexisting_profile)});
+  table()->SetServerCreditCards(
+      {CreateServerCreditCardFromSpecifics(preexisting_card)});
+
+  // The remote profile has the same id as local profile, only is newer.
+  WalletMetadataSpecifics remote_profile =
+      CreateWalletMetadataSpecificsForAddressWithDetails(
+          kAddr1SpecificsId, /*use_count=*/15, /*use_date=*/25);
+  WalletMetadataSpecifics remote_card =
+      CreateWalletMetadataSpecificsForCardWithDetails(
+          kCard2SpecificsId, /*use_count=*/30, /*use_date=*/40);
+
+  // Upload _only_ the unique local data, only the card.
+  EXPECT_CALL(mock_processor(),
+              Put(kCard1StorageKey, HasSpecifics(preexisting_card), _));
+  EXPECT_CALL(mock_processor(), Delete(_, _)).Times(0);
+  EXPECT_CALL(*backend(), CommitChanges());
+  EXPECT_CALL(*backend(), NotifyOfMultipleAutofillChanges());
+
+  ResetBridge(/*initial_sync_done=*/false);
+  StartSyncing({remote_profile, remote_card});
+
+  EXPECT_THAT(GetAllLocalDataInclRestart(),
+              UnorderedElementsAre(EqualsSpecifics(preexisting_card),
+                                   EqualsSpecifics(remote_profile),
+                                   EqualsSpecifics(remote_card)));
+}
+
+// Test that remote deletions are ignored.
+TEST_F(AutofillWalletMetadataSyncBridgeTest,
+       RemoteDeletion_ShouldNotDeleteExistingLocalData) {
+  // Perform initial sync to create sync data & metadata.
+  ResetBridge(/*initial_sync_done=*/false);
+  WalletMetadataSpecifics profile =
+      CreateWalletMetadataSpecificsForAddressWithDetails(
+          kAddr1SpecificsId, /*use_count=*/10, /*use_date=*/20);
+  WalletMetadataSpecifics card =
+      CreateWalletMetadataSpecificsForCardWithDetails(
+          kCard1SpecificsId, /*use_count=*/30, /*use_date=*/40);
+  StartSyncing({profile, card});
+
+  // Verify that both the processor and the local DB contain sync metadata.
+  ASSERT_TRUE(real_processor()->IsTrackingEntityForTest(kAddr1StorageKey));
+  ASSERT_TRUE(real_processor()->IsTrackingEntityForTest(kCard1StorageKey));
+  ASSERT_THAT(GetLocalSyncMetadataStorageKeys(),
+              UnorderedElementsAre(kAddr1StorageKey, kCard1StorageKey));
+
+  // Now delete the profile.
+  // We still need to commit the updated progress marker and sync metadata.
+  EXPECT_CALL(*backend(), CommitChanges());
+  // Changes should _not_ happen in the local autofill database.
+  EXPECT_CALL(*backend(), NotifyOfMultipleAutofillChanges()).Times(0);
+  ReceiveTombstones({profile, card});
+
+  // Verify that even though the processor does not track these entities any
+  // more and the sync metadata is gone, the actual data entities still exist in
+  // the local DB.
+  EXPECT_FALSE(real_processor()->IsTrackingEntityForTest(kAddr1StorageKey));
+  EXPECT_FALSE(real_processor()->IsTrackingEntityForTest(kCard1StorageKey));
+  EXPECT_THAT(GetLocalSyncMetadataStorageKeys(), IsEmpty());
+  EXPECT_THAT(
+      GetAllLocalDataInclRestart(),
+      UnorderedElementsAre(EqualsSpecifics(profile), EqualsSpecifics(card)));
+}
+
+enum RemoteChangesMode {
+  INITIAL_SYNC_ADD,  // Initial sync -> ADD changes.
+  LATER_SYNC_ADD,    // Later sync; the client receives the data for the first
+                     // time -> ADD changes.
+  LATER_SYNC_UPDATE  // Later sync; the client has received the data before ->
+                     // UPDATE changes.
+};
+
+// Parametrized fixture for tests that apply in the same way for all
+// RemoteChangesModes.
+class AutofillWalletMetadataSyncBridgeRemoteChangesTest
+    : public testing::WithParamInterface<RemoteChangesMode>,
+      public AutofillWalletMetadataSyncBridgeTest {
+ public:
+  AutofillWalletMetadataSyncBridgeRemoteChangesTest() {}
+  ~AutofillWalletMetadataSyncBridgeRemoteChangesTest() override {}
+
+  void ResetBridgeWithPotentialInitialSync(
+      const std::vector<WalletMetadataSpecifics>& remote_data) {
+    ResetBridge(/*initial_sync_done=*/GetParam() != INITIAL_SYNC_ADD);
+
+    if (GetParam() == LATER_SYNC_UPDATE) {
+      StartSyncing(remote_data);
+    }
+  }
+
+  void ReceivePotentiallyInitialUpdates(
+      const std::vector<WalletMetadataSpecifics>& remote_data) {
+    if (GetParam() != LATER_SYNC_UPDATE) {
+      StartSyncing(remote_data);
+    } else {
+      ReceiveUpdates(remote_data);
+    }
+  }
+
+ private:
+  DISALLOW_COPY_AND_ASSIGN(AutofillWalletMetadataSyncBridgeRemoteChangesTest);
+};
+
+// No upstream communication or local DB change happens if the server sends an
+// empty update.
+TEST_P(AutofillWalletMetadataSyncBridgeRemoteChangesTest, EmptyUpdateIgnored) {
+  ResetBridgeWithPotentialInitialSync({});
+
+  EXPECT_CALL(mock_processor(), Delete(_, _)).Times(0);
+  EXPECT_CALL(mock_processor(), Put(_, _, _)).Times(0);
+  EXPECT_CALL(*backend(), NotifyOfMultipleAutofillChanges()).Times(0);
+  // We still need to commit the updated progress marker.
+  EXPECT_CALL(*backend(), CommitChanges());
+
+  ReceivePotentiallyInitialUpdates({});
+
+  EXPECT_THAT(GetAllLocalDataInclRestart(), IsEmpty());
+}
+
+// No upstream communication or local DB change happens if the server sends the
+// same data as we have locally.
+TEST_P(AutofillWalletMetadataSyncBridgeRemoteChangesTest, SameDataIgnored) {
+  WalletMetadataSpecifics profile =
+      CreateWalletMetadataSpecificsForAddressWithDetails(
+          kAddr1SpecificsId, /*use_count=*/2, /*use_date=*/5);
+  WalletMetadataSpecifics card =
+      CreateWalletMetadataSpecificsForCardWithDetails(
+          kCard1SpecificsId, /*use_count=*/3, /*use_date=*/6);
+
+  table()->SetServerProfiles({CreateServerProfileFromSpecifics(profile)});
+  table()->SetServerCreditCards({CreateServerCreditCardFromSpecifics(card)});
+  ResetBridgeWithPotentialInitialSync({profile, card});
+
+  EXPECT_CALL(mock_processor(), Delete(_, _)).Times(0);
+  EXPECT_CALL(mock_processor(), Put(_, _, _)).Times(0);
+  EXPECT_CALL(*backend(), NotifyOfMultipleAutofillChanges()).Times(0);
+  // We still need to commit the updated progress marker.
+  EXPECT_CALL(*backend(), CommitChanges());
+
+  ReceivePotentiallyInitialUpdates({profile, card});
+
+  EXPECT_THAT(
+      GetAllLocalDataInclRestart(),
+      UnorderedElementsAre(EqualsSpecifics(profile), EqualsSpecifics(card)));
+}
+
+// Tests that if the remote use stats are higher / newer, they should win over
+// local stats.
+TEST_P(AutofillWalletMetadataSyncBridgeRemoteChangesTest,
+       Conflict_PreferHigherValues_RemoteWins) {
+  WalletMetadataSpecifics profile =
+      CreateWalletMetadataSpecificsForAddressWithDetails(
+          kAddr1SpecificsId, /*use_count=*/2, /*use_date=*/5);
+  WalletMetadataSpecifics card =
+      CreateWalletMetadataSpecificsForCardWithDetails(
+          kCard1SpecificsId, /*use_count=*/3, /*use_date=*/6);
+
+  table()->SetServerProfiles({CreateServerProfileFromSpecifics(profile)});
+  table()->SetServerCreditCards({CreateServerCreditCardFromSpecifics(card)});
+  ResetBridgeWithPotentialInitialSync({profile, card});
+
+  WalletMetadataSpecifics updated_remote_profile =
+      CreateWalletMetadataSpecificsForAddressWithDetails(
+          kAddr1SpecificsId, /*use_count=*/20, /*use_date=*/50);
+  WalletMetadataSpecifics updated_remote_card =
+      CreateWalletMetadataSpecificsForCardWithDetails(
+          kCard1SpecificsId, /*use_count=*/30, /*use_date=*/60);
+
+  EXPECT_CALL(mock_processor(), Delete(_, _)).Times(0);
+  EXPECT_CALL(mock_processor(), Put(_, _, _)).Times(0);
+  EXPECT_CALL(*backend(), CommitChanges());
+  EXPECT_CALL(*backend(), NotifyOfMultipleAutofillChanges());
+
+  ReceivePotentiallyInitialUpdates(
+      {updated_remote_profile, updated_remote_card});
+
+  EXPECT_THAT(GetAllLocalDataInclRestart(),
+              UnorderedElementsAre(EqualsSpecifics(updated_remote_profile),
+                                   EqualsSpecifics(updated_remote_card)));
+}
+
+// Tests that if the local use stats are higher / newer, they should win over
+// remote stats.
+TEST_P(AutofillWalletMetadataSyncBridgeRemoteChangesTest,
+       Conflict_PreferHigherValues_LocalWins) {
+  WalletMetadataSpecifics profile =
+      CreateWalletMetadataSpecificsForAddressWithDetails(
+          kAddr1SpecificsId, /*use_count=*/20, /*use_date=*/50);
+  WalletMetadataSpecifics card =
+      CreateWalletMetadataSpecificsForCardWithDetails(
+          kCard1SpecificsId, /*use_count=*/30, /*use_date=*/60);
+
+  table()->SetServerProfiles({CreateServerProfileFromSpecifics(profile)});
+  table()->SetServerCreditCards({CreateServerCreditCardFromSpecifics(card)});
+  ResetBridgeWithPotentialInitialSync({profile, card});
+
+  WalletMetadataSpecifics updated_remote_profile =
+      CreateWalletMetadataSpecificsForAddressWithDetails(
+          kAddr1SpecificsId, /*use_count=*/2, /*use_date=*/5);
+  WalletMetadataSpecifics updated_remote_card =
+      CreateWalletMetadataSpecificsForCardWithDetails(
+          kCard1SpecificsId, /*use_count=*/3, /*use_date=*/6);
+
+  EXPECT_CALL(mock_processor(), Delete(_, _)).Times(0);
+  EXPECT_CALL(mock_processor(),
+              Put(kAddr1StorageKey, HasSpecifics(profile), _));
+  EXPECT_CALL(mock_processor(), Put(kCard1StorageKey, HasSpecifics(card), _));
+  EXPECT_CALL(*backend(), NotifyOfMultipleAutofillChanges()).Times(0);
+  // We still need to commit the updated progress marker.
+  EXPECT_CALL(*backend(), CommitChanges());
+
+  ReceivePotentiallyInitialUpdates(
+      {updated_remote_profile, updated_remote_card});
+
+  EXPECT_THAT(
+      GetAllLocalDataInclRestart(),
+      UnorderedElementsAre(EqualsSpecifics(profile), EqualsSpecifics(card)));
+}
+
+// Tests that the conflicts are resolved component-wise (a higher use_count is
+// taken from local data, a newer use_data is taken from remote data).
+TEST_P(AutofillWalletMetadataSyncBridgeRemoteChangesTest,
+       Conflict_PreferHigherValues_BothWin1) {
+  WalletMetadataSpecifics profile =
+      CreateWalletMetadataSpecificsForAddressWithDetails(
+          kAddr1SpecificsId, /*use_count=*/20, /*use_date=*/5);
+  WalletMetadataSpecifics card =
+      CreateWalletMetadataSpecificsForCardWithDetails(
+          kCard1SpecificsId, /*use_count=*/30, /*use_date=*/6);
+
+  table()->SetServerProfiles({CreateServerProfileFromSpecifics(profile)});
+  table()->SetServerCreditCards({CreateServerCreditCardFromSpecifics(card)});
+  ResetBridgeWithPotentialInitialSync({profile, card});
+
+  WalletMetadataSpecifics updated_remote_profile =
+      CreateWalletMetadataSpecificsForAddressWithDetails(
+          kAddr1SpecificsId, /*use_count=*/2, /*use_date=*/50);
+  WalletMetadataSpecifics updated_remote_card =
+      CreateWalletMetadataSpecificsForCardWithDetails(
+          kCard1SpecificsId, /*use_count=*/3, /*use_date=*/60);
+
+  WalletMetadataSpecifics merged_profile =
+      CreateWalletMetadataSpecificsForAddressWithDetails(
+          kAddr1SpecificsId, /*use_count=*/20, /*use_date=*/50);
+  WalletMetadataSpecifics merged_card =
+      CreateWalletMetadataSpecificsForCardWithDetails(
+          kCard1SpecificsId, /*use_count=*/30, /*use_date=*/60);
+
+  EXPECT_CALL(mock_processor(), Delete(_, _)).Times(0);
+  EXPECT_CALL(mock_processor(),
+              Put(kAddr1StorageKey, HasSpecifics(merged_profile), _));
+  EXPECT_CALL(mock_processor(),
+              Put(kCard1StorageKey, HasSpecifics(merged_card), _));
+  EXPECT_CALL(*backend(), CommitChanges());
+  EXPECT_CALL(*backend(), NotifyOfMultipleAutofillChanges());
+
+  ReceivePotentiallyInitialUpdates(
+      {updated_remote_profile, updated_remote_card});
+
+  EXPECT_THAT(GetAllLocalDataInclRestart(),
+              UnorderedElementsAre(EqualsSpecifics(merged_profile),
+                                   EqualsSpecifics(merged_card)));
+}
+
+// Tests that the conflicts are resolved component-wise, like the previous test,
+// only the other way around (a higher use_count is taken from remote data, a
+// newer use_data is taken from local data).
+TEST_P(AutofillWalletMetadataSyncBridgeRemoteChangesTest,
+       Conflict_PreferHigherValues_BothWin2) {
+  WalletMetadataSpecifics profile =
+      CreateWalletMetadataSpecificsForAddressWithDetails(
+          kAddr1SpecificsId, /*use_count=*/2, /*use_date=*/50);
+  WalletMetadataSpecifics card =
+      CreateWalletMetadataSpecificsForCardWithDetails(
+          kCard1SpecificsId, /*use_count=*/3, /*use_date=*/60);
+
+  table()->SetServerProfiles({CreateServerProfileFromSpecifics(profile)});
+  table()->SetServerCreditCards({CreateServerCreditCardFromSpecifics(card)});
+  ResetBridgeWithPotentialInitialSync({profile, card});
+
+  WalletMetadataSpecifics updated_remote_profile =
+      CreateWalletMetadataSpecificsForAddressWithDetails(
+          kAddr1SpecificsId, /*use_count=*/20, /*use_date=*/5);
+  WalletMetadataSpecifics updated_remote_card =
+      CreateWalletMetadataSpecificsForCardWithDetails(
+          kCard1SpecificsId, /*use_count=*/30, /*use_date=*/6);
+
+  WalletMetadataSpecifics merged_profile =
+      CreateWalletMetadataSpecificsForAddressWithDetails(
+          kAddr1SpecificsId, /*use_count=*/20, /*use_date=*/50);
+  WalletMetadataSpecifics merged_card =
+      CreateWalletMetadataSpecificsForCardWithDetails(
+          kCard1SpecificsId, /*use_count=*/30, /*use_date=*/60);
+
+  EXPECT_CALL(mock_processor(), Delete(_, _)).Times(0);
+  EXPECT_CALL(mock_processor(),
+              Put(kAddr1StorageKey, HasSpecifics(merged_profile), _));
+  EXPECT_CALL(mock_processor(),
+              Put(kCard1StorageKey, HasSpecifics(merged_card), _));
+  EXPECT_CALL(*backend(), CommitChanges());
+  EXPECT_CALL(*backend(), NotifyOfMultipleAutofillChanges());
+
+  ReceivePotentiallyInitialUpdates(
+      {updated_remote_profile, updated_remote_card});
+
+  EXPECT_THAT(GetAllLocalDataInclRestart(),
+              UnorderedElementsAre(EqualsSpecifics(merged_profile),
+                                   EqualsSpecifics(merged_card)));
+}
+
+// No merge logic is applied if local data has initial use_count (=1). In this
+// situation, we just take over the remote entity completely.
+TEST_P(AutofillWalletMetadataSyncBridgeRemoteChangesTest,
+       Conflict_PreferRemoteIfLocalHasInitialUseCount) {
+  WalletMetadataSpecifics profile =
+      CreateWalletMetadataSpecificsForAddressWithDetails(
+          kAddr1SpecificsId, /*use_count=*/1, /*use_date=*/50);
+  WalletMetadataSpecifics card =
+      CreateWalletMetadataSpecificsForCardWithDetails(
+          kCard1SpecificsId, /*use_count=*/1, /*use_date=*/60);
+
+  table()->SetServerProfiles({CreateServerProfileFromSpecifics(profile)});
+  table()->SetServerCreditCards({CreateServerCreditCardFromSpecifics(card)});
+  ResetBridgeWithPotentialInitialSync({profile, card});
+
+  WalletMetadataSpecifics updated_remote_profile =
+      CreateWalletMetadataSpecificsForAddressWithDetails(
+          kAddr1SpecificsId, /*use_count=*/20, /*use_date=*/5);
+  WalletMetadataSpecifics updated_remote_card =
+      CreateWalletMetadataSpecificsForCardWithDetails(
+          kCard1SpecificsId, /*use_count=*/30, /*use_date=*/6);
+
+  EXPECT_CALL(mock_processor(), Delete(_, _)).Times(0);
+  EXPECT_CALL(mock_processor(), Put(_, _, _)).Times(0);
+  EXPECT_CALL(*backend(), CommitChanges());
+  EXPECT_CALL(*backend(), NotifyOfMultipleAutofillChanges());
+
+  ReceivePotentiallyInitialUpdates(
+      {updated_remote_profile, updated_remote_card});
+
+  EXPECT_THAT(GetAllLocalDataInclRestart(),
+              UnorderedElementsAre(EqualsSpecifics(updated_remote_profile),
+                                   EqualsSpecifics(updated_remote_card)));
+}
+
+// Tests that with a conflict in billing_address_id, we prefer an ID of a local
+// profile over an ID of a server profile. In this test, the preferred ID is in
+// the remote update that we need to store locally.
+TEST_P(AutofillWalletMetadataSyncBridgeRemoteChangesTest,
+       Conflict_Card_PreferLocalBillingAddressId_RemoteWins) {
+  WalletMetadataSpecifics card =
+      CreateWalletMetadataSpecificsForCardWithDetails(
+          kCard1SpecificsId, /*use_count=*/3, /*use_date=*/6,
+          /*billing_address_id=*/kAddr1ServerId);
+
+  table()->SetServerCreditCards({CreateServerCreditCardFromSpecifics(card)});
+  ResetBridgeWithPotentialInitialSync({card});
+
+  WalletMetadataSpecifics updated_remote_card =
+      CreateWalletMetadataSpecificsForCardWithDetails(
+          kCard1SpecificsId, /*use_count=*/3, /*use_date=*/6,
+          /*billing_address_id=*/kLocalAddr1ServerId);
+
+  EXPECT_CALL(mock_processor(), Delete(_, _)).Times(0);
+  EXPECT_CALL(mock_processor(), Put(_, _, _)).Times(0);
+  EXPECT_CALL(*backend(), CommitChanges());
+  EXPECT_CALL(*backend(), NotifyOfMultipleAutofillChanges());
+
+  ReceivePotentiallyInitialUpdates({updated_remote_card});
+
+  EXPECT_THAT(GetAllLocalDataInclRestart(),
+              UnorderedElementsAre(EqualsSpecifics(updated_remote_card)));
+}
+
+// Tests that with a conflict in billing_address_id, we prefer an ID of a local
+// profile over an ID of a server profile. In this test, the preferred ID is in
+// the local data that we need to upstream.
+TEST_P(AutofillWalletMetadataSyncBridgeRemoteChangesTest,
+       Conflict_Card_PreferLocalBillingAddressId_LocalWins) {
+  WalletMetadataSpecifics card =
+      CreateWalletMetadataSpecificsForCardWithDetails(
+          kCard1SpecificsId, /*use_count=*/3, /*use_date=*/6,
+          /*billing_address_id=*/kLocalAddr1ServerId);
+
+  table()->SetServerCreditCards({CreateServerCreditCardFromSpecifics(card)});
+  ResetBridgeWithPotentialInitialSync({card});
+
+  WalletMetadataSpecifics updated_remote_card =
+      CreateWalletMetadataSpecificsForCardWithDetails(
+          kCard1SpecificsId, /*use_count=*/3, /*use_date=*/6,
+          /*billing_address_id=*/kAddr1ServerId);
+
+  EXPECT_CALL(mock_processor(), Delete(_, _)).Times(0);
+  EXPECT_CALL(mock_processor(), Put(kCard1StorageKey, HasSpecifics(card), _));
+  EXPECT_CALL(*backend(), NotifyOfMultipleAutofillChanges()).Times(0);
+  // We still need to commit the updated progress marker.
+  EXPECT_CALL(*backend(), CommitChanges());
+
+  ReceivePotentiallyInitialUpdates({updated_remote_card});
+
+  EXPECT_THAT(GetAllLocalDataInclRestart(),
+              UnorderedElementsAre(EqualsSpecifics(card)));
+}
+
+// Tests that if both addresses have billing address ids of local profiles, we
+// prefer the one from the most recently used entity. In this test, it is the
+// remote entity.
+TEST_P(AutofillWalletMetadataSyncBridgeRemoteChangesTest,
+       Conflict_Card_PreferNewerBillingAddressOutOfLocalIds_RemoteWins) {
+  WalletMetadataSpecifics card =
+      CreateWalletMetadataSpecificsForCardWithDetails(
+          kCard1SpecificsId, /*use_count=*/3, /*use_date=*/6,
+          /*billing_address_id=*/kLocalAddr1ServerId);
+
+  table()->SetServerCreditCards({CreateServerCreditCardFromSpecifics(card)});
+  ResetBridgeWithPotentialInitialSync({card});
+
+  WalletMetadataSpecifics updated_remote_card =
+      CreateWalletMetadataSpecificsForCardWithDetails(
+          kCard1SpecificsId, /*use_count=*/3, /*use_date=*/60,
+          /*billing_address_id=*/kLocalAddr2ServerId);
+
+  EXPECT_CALL(mock_processor(), Delete(_, _)).Times(0);
+  EXPECT_CALL(mock_processor(), Put(_, _, _)).Times(0);
+  EXPECT_CALL(*backend(), CommitChanges());
+  EXPECT_CALL(*backend(), NotifyOfMultipleAutofillChanges());
+
+  ReceivePotentiallyInitialUpdates({updated_remote_card});
+
+  EXPECT_THAT(GetAllLocalDataInclRestart(),
+              UnorderedElementsAre(EqualsSpecifics(updated_remote_card)));
+}
+
+// Tests that if both addresses have billing address ids of local profiles, we
+// prefer the one from the most recently used entity. In this test, it is the
+// local entity.
+TEST_P(AutofillWalletMetadataSyncBridgeRemoteChangesTest,
+       Conflict_Card_PreferNewerBillingAddressOutOfLocalIds_LocalWins) {
+  WalletMetadataSpecifics card =
+      CreateWalletMetadataSpecificsForCardWithDetails(
+          kCard1SpecificsId, /*use_count=*/3, /*use_date=*/60,
+          /*billing_address_id=*/kLocalAddr1ServerId);
+
+  table()->SetServerCreditCards({CreateServerCreditCardFromSpecifics(card)});
+  ResetBridgeWithPotentialInitialSync({card});
+
+  WalletMetadataSpecifics updated_remote_card =
+      CreateWalletMetadataSpecificsForCardWithDetails(
+          kCard1SpecificsId, /*use_count=*/3, /*use_date=*/6,
+          /*billing_address_id=*/kLocalAddr2ServerId);
+
+  EXPECT_CALL(mock_processor(), Delete(_, _)).Times(0);
+  EXPECT_CALL(mock_processor(), Put(kCard1StorageKey, HasSpecifics(card), _));
+  EXPECT_CALL(*backend(), NotifyOfMultipleAutofillChanges()).Times(0);
+  // We still need to commit the updated progress marker.
+  EXPECT_CALL(*backend(), CommitChanges());
+
+  ReceivePotentiallyInitialUpdates({updated_remote_card});
+
+  EXPECT_THAT(GetAllLocalDataInclRestart(),
+              UnorderedElementsAre(EqualsSpecifics(card)));
+}
+
+// Tests that if both addresses have billing address ids of server profiles, we
+// prefer the one from the most recently used entity. In this test, it is the
+// remote entity.
+TEST_P(AutofillWalletMetadataSyncBridgeRemoteChangesTest,
+       Conflict_Card_PreferNewerBillingAddressOutOfServerIds_RemoteWins) {
+  WalletMetadataSpecifics card =
+      CreateWalletMetadataSpecificsForCardWithDetails(
+          kCard1SpecificsId, /*use_count=*/3, /*use_date=*/6,
+          /*billing_address_id=*/kAddr1ServerId);
+
+  table()->SetServerCreditCards({CreateServerCreditCardFromSpecifics(card)});
+  ResetBridgeWithPotentialInitialSync({card});
+
+  WalletMetadataSpecifics updated_remote_card =
+      CreateWalletMetadataSpecificsForCardWithDetails(
+          kCard1SpecificsId, /*use_count=*/3, /*use_date=*/60,
+          /*billing_address_id=*/kAddr2ServerId);
+
+  EXPECT_CALL(mock_processor(), Delete(_, _)).Times(0);
+  EXPECT_CALL(mock_processor(), Put(_, _, _)).Times(0);
+  EXPECT_CALL(*backend(), CommitChanges());
+  EXPECT_CALL(*backend(), NotifyOfMultipleAutofillChanges());
+
+  ReceivePotentiallyInitialUpdates({updated_remote_card});
+
+  EXPECT_THAT(GetAllLocalDataInclRestart(),
+              UnorderedElementsAre(EqualsSpecifics(updated_remote_card)));
+}
+
+// Tests that if both addresses have billing address ids of server profiles, we
+// prefer the one from the most recently used entity. In this test, it is the
+// local entity.
+TEST_P(AutofillWalletMetadataSyncBridgeRemoteChangesTest,
+       Conflict_Card_PreferNewerBillingAddressOutOfServerIds_LocalWins) {
+  WalletMetadataSpecifics card =
+      CreateWalletMetadataSpecificsForCardWithDetails(
+          kCard1SpecificsId, /*use_count=*/3, /*use_date=*/60,
+          /*billing_address_id=*/kAddr1ServerId);
+
+  table()->SetServerCreditCards({CreateServerCreditCardFromSpecifics(card)});
+  ResetBridgeWithPotentialInitialSync({card});
+
+  WalletMetadataSpecifics updated_remote_card =
+      CreateWalletMetadataSpecificsForCardWithDetails(
+          kCard1SpecificsId, /*use_count=*/3, /*use_date=*/6,
+          /*billing_address_id=*/kAddr2ServerId);
+
+  EXPECT_CALL(mock_processor(), Delete(_, _)).Times(0);
+  EXPECT_CALL(mock_processor(), Put(kCard1StorageKey, HasSpecifics(card), _));
+  EXPECT_CALL(*backend(), NotifyOfMultipleAutofillChanges()).Times(0);
+  // We still need to commit the updated progress marker.
+  EXPECT_CALL(*backend(), CommitChanges());
+
+  ReceivePotentiallyInitialUpdates({updated_remote_card});
+
+  EXPECT_THAT(GetAllLocalDataInclRestart(),
+              UnorderedElementsAre(EqualsSpecifics(card)));
+}
+
+// Tests that the conflict resolution happens component-wise. To avoid
+// combinatorial explosion, this only tests when both have billing address ids
+// of server profiles, one entity is more recently used but the other entity has
+// a higher use_count. We should pick the billing_address_id of the newer one
+// but have the use_count updated to the maximum as well. In this test, the
+// remote entity is the more recently used.
+TEST_P(AutofillWalletMetadataSyncBridgeRemoteChangesTest,
+       Conflict_Card_PreferNewerBillingAddressOutOfServerIds_BothWin1) {
+  WalletMetadataSpecifics card =
+      CreateWalletMetadataSpecificsForCardWithDetails(
+          kCard1SpecificsId, /*use_count=*/30, /*use_date=*/6,
+          /*billing_address_id=*/kAddr1ServerId);
+
+  table()->SetServerCreditCards({CreateServerCreditCardFromSpecifics(card)});
+  ResetBridgeWithPotentialInitialSync({card});
+
+  WalletMetadataSpecifics updated_remote_card =
+      CreateWalletMetadataSpecificsForCardWithDetails(
+          kCard1SpecificsId, /*use_count=*/3, /*use_date=*/60,
+          /*billing_address_id=*/kAddr2ServerId);
+
+  WalletMetadataSpecifics merged_card =
+      CreateWalletMetadataSpecificsForCardWithDetails(
+          kCard1SpecificsId, /*use_count=*/30, /*use_date=*/60,
+          /*billing_address_id=*/kAddr2ServerId);
+
+  EXPECT_CALL(mock_processor(), Delete(_, _)).Times(0);
+  EXPECT_CALL(mock_processor(),
+              Put(kCard1StorageKey, HasSpecifics(merged_card), _));
+  EXPECT_CALL(*backend(), CommitChanges());
+  EXPECT_CALL(*backend(), NotifyOfMultipleAutofillChanges());
+
+  ReceivePotentiallyInitialUpdates({updated_remote_card});
+
+  EXPECT_THAT(GetAllLocalDataInclRestart(),
+              UnorderedElementsAre(EqualsSpecifics(merged_card)));
+}
+
+// Tests that the conflict resolution happens component-wise. To avoid
+// combinatorial explosion, this only tests when both have billing address ids
+// of server profiles, one entity is more recently used but the other entity has
+// a higher use_count. We should pick the billing_address_id of the newer one
+// but have the use_count updated to the maximum as well. In this test, the
+// local entity is the more recently used.
+TEST_P(AutofillWalletMetadataSyncBridgeRemoteChangesTest,
+       Conflict_Card_PreferNewerBillingAddressOutOfServerIds_BothWin2) {
+  WalletMetadataSpecifics card =
+      CreateWalletMetadataSpecificsForCardWithDetails(
+          kCard1SpecificsId, /*use_count=*/3, /*use_date=*/60,
+          /*billing_address_id=*/kAddr1ServerId);
+
+  table()->SetServerCreditCards({CreateServerCreditCardFromSpecifics(card)});
+  ResetBridgeWithPotentialInitialSync({card});
+
+  WalletMetadataSpecifics updated_remote_card =
+      CreateWalletMetadataSpecificsForCardWithDetails(
+          kCard1SpecificsId, /*use_count=*/30, /*use_date=*/6,
+          /*billing_address_id=*/kAddr2ServerId);
+
+  WalletMetadataSpecifics merged_card =
+      CreateWalletMetadataSpecificsForCardWithDetails(
+          kCard1SpecificsId, /*use_count=*/30, /*use_date=*/60,
+          /*billing_address_id=*/kAddr1ServerId);
+
+  EXPECT_CALL(mock_processor(), Delete(_, _)).Times(0);
+  EXPECT_CALL(mock_processor(),
+              Put(kCard1StorageKey, HasSpecifics(merged_card), _));
+  EXPECT_CALL(*backend(), CommitChanges());
+  EXPECT_CALL(*backend(), NotifyOfMultipleAutofillChanges());
+
+  ReceivePotentiallyInitialUpdates({updated_remote_card});
+
+  EXPECT_THAT(GetAllLocalDataInclRestart(),
+              UnorderedElementsAre(EqualsSpecifics(merged_card)));
+}
+
+// Tests that if the has_converted bit differs, we always end up with the true
+// value. This test has the remote entity converted which should get updated in
+// the local DB.
+TEST_P(AutofillWalletMetadataSyncBridgeRemoteChangesTest,
+       Conflict_Address_HasConverted_RemoteWins) {
+  WalletMetadataSpecifics profile =
+      CreateWalletMetadataSpecificsForAddressWithDetails(
+          kAddr1SpecificsId, /*use_count=*/1, /*use_date=*/50,
+          /*has_converted=*/false);
+
+  table()->SetServerProfiles({CreateServerProfileFromSpecifics(profile)});
+  ResetBridgeWithPotentialInitialSync({profile});
+
+  WalletMetadataSpecifics updated_remote_profile =
+      CreateWalletMetadataSpecificsForAddressWithDetails(
+          kAddr1SpecificsId, /*use_count=*/1, /*use_date=*/50,
+          /*has_converted=*/true);
+
+  EXPECT_CALL(mock_processor(), Delete(_, _)).Times(0);
+  EXPECT_CALL(mock_processor(), Put(_, _, _)).Times(0);
+  EXPECT_CALL(*backend(), CommitChanges());
+  EXPECT_CALL(*backend(), NotifyOfMultipleAutofillChanges());
+
+  ReceivePotentiallyInitialUpdates({updated_remote_profile});
+
+  EXPECT_THAT(GetAllLocalDataInclRestart(),
+              UnorderedElementsAre(EqualsSpecifics(updated_remote_profile)));
+}
+
+// Tests that if the has_converted bit differs, we always end up with the true
+// value. This test has the local entity converted which should get upstreamed.
+TEST_P(AutofillWalletMetadataSyncBridgeRemoteChangesTest,
+       Conflict_Address_HasConverted_LocalWins) {
+  WalletMetadataSpecifics profile =
+      CreateWalletMetadataSpecificsForAddressWithDetails(
+          kAddr1SpecificsId, /*use_count=*/1, /*use_date=*/50,
+          /*has_converted=*/true);
+
+  table()->SetServerProfiles({CreateServerProfileFromSpecifics(profile)});
+  ResetBridgeWithPotentialInitialSync({profile});
+
+  WalletMetadataSpecifics updated_remote_profile =
+      CreateWalletMetadataSpecificsForAddressWithDetails(
+          kAddr1SpecificsId, /*use_count=*/1, /*use_date=*/50,
+          /*has_converted=*/false);
+
+  EXPECT_CALL(mock_processor(), Delete(_, _)).Times(0);
+  EXPECT_CALL(mock_processor(),
+              Put(kAddr1StorageKey, HasSpecifics(profile), _));
+  EXPECT_CALL(*backend(), NotifyOfMultipleAutofillChanges()).Times(0);
+  // We still need to commit the updated progress marker.
+  EXPECT_CALL(*backend(), CommitChanges());
+
+  ReceivePotentiallyInitialUpdates({updated_remote_profile});
+
+  EXPECT_THAT(GetAllLocalDataInclRestart(),
+              UnorderedElementsAre(EqualsSpecifics(profile)));
+}
+
+// Tests that the conflict resolution happens component-wise. If one entity
+// has_converted but the other entity has higher use_count, we should end up
+// with an entity that has_converted and has the higher use_count. This test has
+// the remote entity converted.
+TEST_P(AutofillWalletMetadataSyncBridgeRemoteChangesTest,
+       Conflict_Address_HasConverted_BothWin1) {
+  WalletMetadataSpecifics profile =
+      CreateWalletMetadataSpecificsForAddressWithDetails(
+          kAddr1SpecificsId, /*use_count=*/10, /*use_date=*/50,
+          /*has_converted=*/false);
+
+  table()->SetServerProfiles({CreateServerProfileFromSpecifics(profile)});
+  ResetBridgeWithPotentialInitialSync({profile});
+
+  WalletMetadataSpecifics updated_remote_profile =
+      CreateWalletMetadataSpecificsForAddressWithDetails(
+          kAddr1SpecificsId, /*use_count=*/1, /*use_date=*/50,
+          /*has_converted=*/true);
+
+  WalletMetadataSpecifics merged_profile =
+      CreateWalletMetadataSpecificsForAddressWithDetails(
+          kAddr1SpecificsId, /*use_count=*/10, /*use_date=*/50,
+          /*has_converted=*/true);
+
+  EXPECT_CALL(mock_processor(), Delete(_, _)).Times(0);
+  EXPECT_CALL(mock_processor(),
+              Put(kAddr1StorageKey, HasSpecifics(merged_profile), _));
+  EXPECT_CALL(*backend(), CommitChanges());
+  EXPECT_CALL(*backend(), NotifyOfMultipleAutofillChanges());
+
+  ReceivePotentiallyInitialUpdates({updated_remote_profile});
+
+  EXPECT_THAT(GetAllLocalDataInclRestart(),
+              UnorderedElementsAre(EqualsSpecifics(merged_profile)));
+}
+
+// Tests that the conflict resolution happens component-wise. If one entity
+// has_converted but the other entity has higher use_count, we should end up
+// with an entity that has_converted and has the higher use_count. This test has
+// the local entity converted.
+TEST_P(AutofillWalletMetadataSyncBridgeRemoteChangesTest,
+       Conflict_Address_HasConverted_BothWin2) {
+  WalletMetadataSpecifics profile =
+      CreateWalletMetadataSpecificsForAddressWithDetails(
+          kAddr1SpecificsId, /*use_count=*/1, /*use_date=*/50,
+          /*has_converted=*/true);
+
+  table()->SetServerProfiles({CreateServerProfileFromSpecifics(profile)});
+  ResetBridgeWithPotentialInitialSync({profile});
+
+  WalletMetadataSpecifics updated_remote_profile =
+      CreateWalletMetadataSpecificsForAddressWithDetails(
+          kAddr1SpecificsId, /*use_count=*/10, /*use_date=*/50,
+          /*has_converted=*/false);
+
+  WalletMetadataSpecifics merged_profile =
+      CreateWalletMetadataSpecificsForAddressWithDetails(
+          kAddr1SpecificsId, /*use_count=*/10, /*use_date=*/50,
+          /*has_converted=*/true);
+
+  EXPECT_CALL(mock_processor(), Delete(_, _)).Times(0);
+  EXPECT_CALL(mock_processor(),
+              Put(kAddr1StorageKey, HasSpecifics(merged_profile), _));
+  EXPECT_CALL(*backend(), CommitChanges());
+  EXPECT_CALL(*backend(), NotifyOfMultipleAutofillChanges());
+
+  ReceivePotentiallyInitialUpdates({updated_remote_profile});
+
+  EXPECT_THAT(GetAllLocalDataInclRestart(),
+              UnorderedElementsAre(EqualsSpecifics(merged_profile)));
+}
+
+INSTANTIATE_TEST_SUITE_P(,
+                         AutofillWalletMetadataSyncBridgeRemoteChangesTest,
+                         ::testing::Values(INITIAL_SYNC_ADD,
+                                           LATER_SYNC_ADD,
+                                           LATER_SYNC_UPDATE));
+
 }  // namespace autofill
+
+namespace sync_pb {
+
+// Makes the GMock matchers print out a readable version of the protobuf.
+void PrintTo(const WalletMetadataSpecifics& specifics, std::ostream* os) {
+  *os << autofill::WalletMetadataSpecificsAsDebugString(specifics);
+}
+
+}  // namespace sync_pb

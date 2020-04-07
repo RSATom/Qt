@@ -6,9 +6,11 @@
 
 #include <utility>
 
+#include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/metrics/histogram_macros.h"
 #include "media/audio/audio_device_description.h"
+#include "media/mojo/interfaces/audio_data_pipe.mojom.h"
 #include "mojo/public/cpp/system/platform_handle.h"
 
 namespace content {
@@ -21,8 +23,7 @@ MojoAudioInputIPC::MojoAudioInputIPC(
       stream_creator_(std::move(stream_creator)),
       stream_associator_(std::move(stream_associator)),
       stream_client_binding_(this),
-      factory_client_binding_(this),
-      weak_factory_(this) {
+      factory_client_binding_(this) {
   DETACH_FROM_SEQUENCE(sequence_checker_);
   DCHECK(stream_creator_);
   DCHECK(stream_associator_);

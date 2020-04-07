@@ -5,15 +5,19 @@
 #include <stdint.h>
 
 #include "base/bind_helpers.h"
-#include "base/message_loop/message_loop.h"
 #include "base/no_destructor.h"
 #include "base/run_loop.h"
+#include "base/task/single_thread_task_executor.h"
 #include "build/build_config.h"
 #include "mojo/core/channel.h"
 #include "mojo/core/connection_params.h"
 #include "mojo/core/entrypoints.h"
 #include "mojo/core/node_channel.h"  // nogncheck
 #include "mojo/public/cpp/platform/platform_channel.h"
+
+#if defined(OS_WIN)
+#include <windows.h>
+#endif
 
 using namespace mojo::core;
 
@@ -53,7 +57,7 @@ class FakeNodeChannelDelegate : public NodeChannel::Delegate {
                    mojo::PlatformHandle channel_handle) override {}
   void OnBroadcast(const ports::NodeName& from_node,
                    Channel::MessagePtr message) override {}
-#if defined(OS_WIN) || (defined(OS_MACOSX) && !defined(OS_IOS))
+#if defined(OS_WIN)
   void OnRelayEventMessage(const ports::NodeName& from_node,
                            base::ProcessHandle from_process,
                            const ports::NodeName& destination,
@@ -87,9 +91,11 @@ class FakeChannelDelegate : public Channel::Delegate {
 // Message deserialization may register handles in the global handle table. We
 // need to initialize Core for that to be OK.
 struct Environment {
-  Environment() : message_loop(base::MessageLoop::TYPE_IO) { InitializeCore(); }
+  Environment() : main_thread_task_executor(base::MessagePump::Type::IO) {
+    InitializeCore();
+  }
 
-  base::MessageLoop message_loop;
+  base::SingleThreadTaskExecutor main_thread_task_executor;
 };
 
 extern "C" int LLVMFuzzerTestOneInput(const unsigned char* data, size_t size) {
@@ -103,7 +109,24 @@ extern "C" int LLVMFuzzerTestOneInput(const unsigned char* data, size_t size) {
   auto receiver = NodeChannel::Create(
       &receiver_delegate, ConnectionParams(channel.TakeLocalEndpoint()),
       Channel::HandlePolicy::kRejectHandles,
-      environment->message_loop.task_runner(), base::DoNothing());
+      environment->main_thread_task_executor.task_runner(), base::DoNothing());
+
+#if defined(OS_WIN)
+  // On Windows, it's important that the receiver behaves like a broker process
+  // receiving messages from a non-broker process. This is because that case can
+  // safely handle invalid HANDLE attachments without crashing. The same is not
+  // true for messages going in the reverse direction (where the non-broker
+  // receiver has to assume that the broker has already duplicated the HANDLE
+  // into the non-broker's process), but fuzzing that direction is not
+  // interesting since a compromised broker process has much bigger problems.
+  //
+  // Note that in order for this hack to work properly, the remote process
+  // handle needs to be a "real" process handle rather than the pseudo-handle
+  // returned by GetCurrentProcessHandle(). Hence the use of OpenProcess().
+  receiver->SetRemoteProcessHandle(mojo::core::ScopedProcessHandle(
+      ::OpenProcess(PROCESS_ALL_ACCESS, FALSE, ::GetCurrentProcessId())));
+#endif
+
   receiver->Start();
 
   // We only use a Channel for the sender side, since it allows us to easily
@@ -112,10 +135,10 @@ extern "C" int LLVMFuzzerTestOneInput(const unsigned char* data, size_t size) {
   // fuzz. Such messages will always reach the receiving NodeChannel to be
   // parsed further.
   FakeChannelDelegate sender_delegate;
-  auto sender = Channel::Create(&sender_delegate,
-                                ConnectionParams(channel.TakeRemoteEndpoint()),
-                                Channel::HandlePolicy::kRejectHandles,
-                                environment->message_loop.task_runner());
+  auto sender = Channel::Create(
+      &sender_delegate, ConnectionParams(channel.TakeRemoteEndpoint()),
+      Channel::HandlePolicy::kRejectHandles,
+      environment->main_thread_task_executor.task_runner());
   sender->Start();
   auto message = std::make_unique<Channel::Message>(size, 0 /* num_handles */);
   std::copy(data, data + size,

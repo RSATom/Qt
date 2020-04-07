@@ -28,9 +28,9 @@
 #include "content/public/browser/navigation_throttle.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/web_contents.h"
-#include "content/public/common/console_message_level.h"
 #include "net/base/net_errors.h"
 #include "third_party/blink/public/common/associated_interfaces/associated_interface_provider.h"
+#include "third_party/blink/public/mojom/devtools/console_message.mojom.h"
 
 namespace subresource_filter {
 
@@ -43,8 +43,7 @@ ContentSubresourceFilterThrottleManager::
       binding_(web_contents, this),
       scoped_observer_(this),
       dealer_handle_(dealer_handle),
-      client_(client),
-      weak_ptr_factory_(this) {
+      client_(client) {
   SubresourceFilterObserverManager::CreateForWebContents(web_contents);
   scoped_observer_.Add(
       SubresourceFilterObserverManager::FromWebContents(web_contents));
@@ -121,10 +120,10 @@ void ContentSubresourceFilterThrottleManager::ReadyToCommitNavigation(
       navigation_handle->GetRenderFrameHost();
 
   bool is_ad_subframe =
-      transferred_ad_frame || base::ContainsKey(ad_frames_, frame_host);
+      transferred_ad_frame || base::Contains(ad_frames_, frame_host);
   DCHECK(!is_ad_subframe || !navigation_handle->IsInMainFrame());
 
-  bool parent_is_ad = base::ContainsKey(ad_frames_, frame_host->GetParent());
+  bool parent_is_ad = base::Contains(ad_frames_, frame_host->GetParent());
 
   blink::mojom::AdFrameType ad_frame_type = blink::mojom::AdFrameType::kNonAd;
   if (is_ad_subframe)
@@ -168,7 +167,7 @@ void ContentSubresourceFilterThrottleManager::DidFinishNavigation(
         DCHECK(filter->activation_state().activation_level !=
                mojom::ActivationLevel::kDisabled);
         NavigationConsoleLogger::LogMessageOnCommit(
-            navigation_handle, content::CONSOLE_MESSAGE_LEVEL_WARNING,
+            navigation_handle, blink::mojom::ConsoleMessageLevel::kWarning,
             kActivationConsoleMessage);
       }
     }
@@ -255,7 +254,7 @@ void ContentSubresourceFilterThrottleManager::MaybeAppendNavigationThrottles(
     throttles->push_back(std::move(filtering_throttle));
   }
 
-  DCHECK(!base::ContainsKey(ongoing_activation_throttles_, navigation_handle));
+  DCHECK(!base::Contains(ongoing_activation_throttles_, navigation_handle));
   if (auto activation_throttle =
           MaybeCreateActivationStateComputingThrottle(navigation_handle)) {
     ongoing_activation_throttles_[navigation_handle] =
@@ -272,13 +271,13 @@ bool ContentSubresourceFilterThrottleManager::CalculateIsAdSubframe(
   DCHECK(parent_frame);
 
   return load_policy != LoadPolicy::ALLOW ||
-         base::ContainsKey(ad_frames_, frame_host) ||
-         base::ContainsKey(ad_frames_, parent_frame);
+         base::Contains(ad_frames_, frame_host) ||
+         base::Contains(ad_frames_, parent_frame);
 }
 
-bool ContentSubresourceFilterThrottleManager::IsFrameTaggedAsAdForTesting(
-    content::RenderFrameHost* frame_host) const {
-  return base::ContainsKey(ad_frames_, frame_host);
+bool ContentSubresourceFilterThrottleManager::IsFrameTaggedAsAd(
+    const content::RenderFrameHost* frame_host) const {
+  return base::Contains(ad_frames_, frame_host);
 }
 
 std::unique_ptr<SubframeNavigationFilteringThrottle>
@@ -419,7 +418,7 @@ void ContentSubresourceFilterThrottleManager::MaybeActivateSubframeSpecialUrls(
 
   content::RenderFrameHost* parent = navigation_handle->GetParentFrame();
   DCHECK(parent);
-  if (base::ContainsKey(activated_frame_hosts_, parent))
+  if (base::Contains(activated_frame_hosts_, parent))
     activated_frame_hosts_[frame_host] = nullptr;
 }
 

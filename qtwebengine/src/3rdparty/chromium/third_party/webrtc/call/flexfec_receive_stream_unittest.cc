@@ -8,6 +8,8 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
+#include "call/flexfec_receive_stream.h"
+
 #include <cstdint>
 #include <memory>
 #include <vector>
@@ -17,7 +19,6 @@
 #include "api/call/transport.h"
 #include "api/rtp_headers.h"
 #include "api/rtp_parameters.h"
-#include "call/flexfec_receive_stream.h"
 #include "call/flexfec_receive_stream_impl.h"
 #include "call/rtp_stream_receiver_controller.h"
 #include "modules/rtp_rtcp/include/rtp_rtcp_defines.h"
@@ -89,8 +90,8 @@ class FlexfecReceiveStreamTest : public ::testing::Test {
       : config_(CreateDefaultConfig(&rtcp_send_transport_)) {
     EXPECT_CALL(process_thread_, RegisterModule(_, _)).Times(1);
     receive_stream_ = absl::make_unique<FlexfecReceiveStreamImpl>(
-        &rtp_stream_receiver_controller_, config_, &recovered_packet_receiver_,
-        &rtt_stats_, &process_thread_);
+        Clock::GetRealTimeClock(), &rtp_stream_receiver_controller_, config_,
+        &recovered_packet_receiver_, &rtt_stats_, &process_thread_);
   }
 
   ~FlexfecReceiveStreamTest() {
@@ -143,11 +144,11 @@ TEST_F(FlexfecReceiveStreamTest, RecoversPacket) {
       kPayloadBits,    kPayloadBits,    kPayloadBits,       kPayloadBits};
   // clang-format on
 
-  testing::StrictMock<MockRecoveredPacketReceiver> recovered_packet_receiver;
+  ::testing::StrictMock<MockRecoveredPacketReceiver> recovered_packet_receiver;
   EXPECT_CALL(process_thread_, RegisterModule(_, _)).Times(1);
-  FlexfecReceiveStreamImpl receive_stream(&rtp_stream_receiver_controller_,
-                                          config_, &recovered_packet_receiver,
-                                          &rtt_stats_, &process_thread_);
+  FlexfecReceiveStreamImpl receive_stream(
+      Clock::GetRealTimeClock(), &rtp_stream_receiver_controller_, config_,
+      &recovered_packet_receiver, &rtt_stats_, &process_thread_);
 
   EXPECT_CALL(recovered_packet_receiver,
               OnRecoveredPacket(_, kRtpHeaderSize + kPayloadLength[1]));

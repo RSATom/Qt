@@ -54,7 +54,7 @@ void IdentityMintRequestQueue::RequestComplete(
   RequestQueue& request_queue = GetRequestQueueMap(type)[key];
   CHECK_EQ(request_queue.front(), request);
   request_queue.pop_front();
-  if (request_queue.size() > 0)
+  if (!request_queue.empty())
     RunRequest(type, request_queue);
 }
 
@@ -73,7 +73,7 @@ void IdentityMintRequestQueue::RequestCancel(
 bool IdentityMintRequestQueue::empty(IdentityMintRequestQueue::MintType type,
                                      const ExtensionTokenKey& key) {
   RequestQueueMap& request_queue_map = GetRequestQueueMap(type);
-  return !base::ContainsKey(request_queue_map, key) ||
+  return !base::Contains(request_queue_map, key) ||
          (request_queue_map.find(key))->second.empty();
 }
 

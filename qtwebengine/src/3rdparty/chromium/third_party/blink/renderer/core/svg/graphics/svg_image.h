@@ -33,7 +33,7 @@
 #include "third_party/blink/renderer/platform/graphics/paint/paint_record.h"
 #include "third_party/blink/renderer/platform/heap/handle.h"
 #include "third_party/blink/renderer/platform/weborigin/kurl.h"
-#include "third_party/blink/renderer/platform/wtf/allocator.h"
+#include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 #include "third_party/skia/include/core/SkRefCnt.h"
 
 namespace blink {
@@ -126,7 +126,7 @@ class CORE_EXPORT SVGImage final : public Image {
 
  protected:
   // Whether or not size is available yet.
-  bool IsSizeAvailable() override { return !!page_; }
+  bool IsSizeAvailable() override;
 
  private:
   // Accesses m_page.
@@ -141,7 +141,6 @@ class CORE_EXPORT SVGImage final : public Image {
   String FilenameExtension() const override;
 
   IntSize ContainerSize() const;
-  bool UsesContainerSize() const override { return true; }
 
   SizeAvailability DataChanged(bool all_data_received) override;
 
@@ -213,6 +212,12 @@ class CORE_EXPORT SVGImage final : public Image {
   void LoadCompleted();
   void NotifyAsyncLoadCompleted();
 
+  // TODO(v.paturi): Implement an SVG classifier which can decide if a
+  // filter should be applied based on the image's content and it's
+  // visibility on a dark background.
+  DarkModeClassification ClassifyImageForDarkMode(
+      const FloatRect& src_rect) override;
+
   class SVGImageLocalFrameClient;
 
   Persistent<SVGImageChromeClient> chrome_client_;
@@ -237,9 +242,12 @@ class CORE_EXPORT SVGImage final : public Image {
   LoadState load_state_ = kDataChangedNotStarted;
 
   Persistent<SVGImageLocalFrameClient> frame_client_;
+  FRIEND_TEST_ALL_PREFIXES(ElementFragmentAnchorTest,
+                           SVGDocumentDoesntCreateFragment);
   FRIEND_TEST_ALL_PREFIXES(SVGImageTest, SupportsSubsequenceCaching);
-  FRIEND_TEST_ALL_PREFIXES(SVGImageTest, JankTrackerDisabled);
+  FRIEND_TEST_ALL_PREFIXES(SVGImageTest, LayoutShiftTrackerDisabled);
   FRIEND_TEST_ALL_PREFIXES(SVGImageTest, SetSizeOnVisualViewport);
+  FRIEND_TEST_ALL_PREFIXES(SVGImageTest, IsSizeAvailable);
 };
 
 DEFINE_IMAGE_TYPE_CASTS(SVGImage);

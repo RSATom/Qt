@@ -414,16 +414,16 @@ Reason:
 <context>
     <name>FilterNameDialogClass</name>
     <message>
-        <source>Add Filter Name</source>
-        <translation>新增過濾器名稱</translation>
+        <source>Add Filter</source>
+        <translation>新增過濾器</translation>
     </message>
     <message>
         <source>Filter Name:</source>
         <translation>過濾器名稱：</translation>
     </message>
     <message>
-        <source>Add Filter</source>
-        <translation>新增過濾器</translation>
+        <source>Add Filter Name</source>
+        <translation>新增過濾器名稱</translation>
     </message>
 </context>
 <context>
@@ -509,13 +509,6 @@ Reason:
     <message>
         <source>&amp;Find</source>
         <translation>尋找(&amp;F)</translation>
-    </message>
-</context>
-<context>
-    <name>HelpEngineWrapper</name>
-    <message>
-        <source>Unfiltered</source>
-        <translation>未過濾</translation>
     </message>
 </context>
 <context>
@@ -791,16 +784,16 @@ Reason:
         <translation>關於 %1</translation>
     </message>
     <message>
+        <source>Unfiltered</source>
+        <translation>未經篩選</translation>
+    </message>
+    <message>
         <source>Updating search index</source>
         <translation>更新搜尋索引</translation>
     </message>
     <message>
         <source>Could not register file &apos;%1&apos;: %2</source>
         <translation>無法註冊檔案「%1」：%2</translation>
-    </message>
-    <message>
-        <source>Unfiltered</source>
-        <translation>未經篩選</translation>
     </message>
 </context>
 <context>
@@ -815,42 +808,33 @@ Reason:
     </message>
 </context>
 <context>
+    <name>OptionsWidget</name>
+    <message>
+        <source>No Option</source>
+        <translation>無選項</translation>
+    </message>
+    <message>
+        <source>Invalid Option</source>
+        <translation>選項無效</translation>
+    </message>
+</context>
+<context>
     <name>PreferencesDialog</name>
     <message>
-        <source>Add Documentation</source>
-        <translation>新增文件</translation>
+        <source>No Component</source>
+        <translation>沒有元件</translation>
     </message>
     <message>
-        <source>Qt Compressed Help Files (*.qch)</source>
-        <translation>Qt 壓縮說明檔(*.qch)</translation>
+        <source>Invalid Component</source>
+        <translation>無效元件</translation>
     </message>
     <message>
-        <source>The namespace %1 is already registered!</source>
-        <translation>命名空間 %1 已註冊！</translation>
+        <source>No Version</source>
+        <translation>沒有版本</translation>
     </message>
     <message>
-        <source>The specified file is not a valid Qt Help File!</source>
-        <translation>指定的檔案不是合法的 Qt 說明檔！</translation>
-    </message>
-    <message>
-        <source>Remove Documentation</source>
-        <translation>移除文件</translation>
-    </message>
-    <message>
-        <source>Some documents currently opened in Assistant reference the documentation you are attempting to remove. Removing the documentation will close those documents.</source>
-        <translation>部份有參考您嘗試移除文件的文件目前已在 Assistant 中開啟。移除此文件也將關閉那些文件。</translation>
-    </message>
-    <message>
-        <source>Cancel</source>
-        <translation>取消</translation>
-    </message>
-    <message>
-        <source>OK</source>
-        <translation>確定</translation>
-    </message>
-    <message>
-        <source>Use custom settings</source>
-        <translation>使用自訂設定</translation>
+        <source>Invalid Version</source>
+        <translation>無效版本</translation>
     </message>
     <message>
         <source>No Component</source>
@@ -896,6 +880,42 @@ Reason:
         <source>Are you sure you want to remove the &quot;%1&quot; filter?</source>
         <translation>確定移除「%1」篩選器？</translation>
     </message>
+    <message>
+        <source>Add Documentation</source>
+        <translation>新增文件</translation>
+    </message>
+    <message>
+        <source>Qt Compressed Help Files (*.qch)</source>
+        <translation>Qt 壓縮說明檔(*.qch)</translation>
+    </message>
+    <message>
+        <source>Use custom settings</source>
+        <translation>使用自訂設定</translation>
+    </message>
+    <message>
+        <source>The namespace %1 is already registered!</source>
+        <translation>命名空間 %1 已註冊！</translation>
+    </message>
+    <message>
+        <source>The specified file is not a valid Qt Help File!</source>
+        <translation>指定的檔案不是合法的 Qt 說明檔！</translation>
+    </message>
+    <message>
+        <source>Remove Documentation</source>
+        <translation>移除文件</translation>
+    </message>
+    <message>
+        <source>Some documents currently opened in Assistant reference the documentation you are attempting to remove. Removing the documentation will close those documents.</source>
+        <translation>部份有參考您嘗試移除文件的文件目前已在 Assistant 中開啟。移除此文件也將關閉那些文件。</translation>
+    </message>
+    <message>
+        <source>Cancel</source>
+        <translation>取消</translation>
+    </message>
+    <message>
+        <source>OK</source>
+        <translation>確定</translation>
+    </message>
 </context>
 <context>
     <name>PreferencesDialogClass</name>
@@ -924,24 +944,28 @@ Reason:
         <translation>過濾器</translation>
     </message>
     <message>
-        <source>Filter:</source>
-        <translation>過濾：</translation>
+        <source>Components:</source>
+        <translation>元件：</translation>
     </message>
     <message>
-        <source>Attributes:</source>
-        <translation>屬性：</translation>
+        <source>Versions:</source>
+        <translation>版本：</translation>
     </message>
     <message>
-        <source>1</source>
-        <translation>1</translation>
+        <source>Add...</source>
+        <translation>新增...</translation>
     </message>
     <message>
-        <source>Add</source>
-        <translation>新增</translation>
+        <source>Rename...</source>
+        <translation>重命名…</translation>
     </message>
     <message>
         <source>Remove</source>
         <translation>移除</translation>
+    </message>
+    <message>
+        <source>Filter:</source>
+        <translation>過濾：</translation>
     </message>
     <message>
         <source>Documentation</source>
@@ -954,10 +978,6 @@ Reason:
     <message>
         <source>&lt;Filter&gt;</source>
         <translation>&lt;過濾器&gt;</translation>
-    </message>
-    <message>
-        <source>Add...</source>
-        <translation>新增...</translation>
     </message>
     <message>
         <source>Options</source>
@@ -1004,16 +1024,20 @@ Reason:
         <translation>顯示每個個別頁面的分頁</translation>
     </message>
     <message>
-        <source>Components:</source>
-        <translation>元件：</translation>
+        <source>Attributes:</source>
+        <translation>屬性：</translation>
     </message>
     <message>
         <source>Versions:</source>
         <translation>版本：</translation>
     </message>
     <message>
-        <source>Rename...</source>
-        <translation>重命名…</translation>
+        <source>1</source>
+        <translation>1</translation>
+    </message>
+    <message>
+        <source>Add</source>
+        <translation>新增</translation>
     </message>
 </context>
 <context>
@@ -1097,14 +1121,10 @@ Reason:
     </message>
 </context>
 <context>
-    <name>OptionsWidget</name>
+    <name>HelpEngineWrapper</name>
     <message>
-        <source>No Option</source>
-        <translation>無選項</translation>
-    </message>
-    <message>
-        <source>Invalid Option</source>
-        <translation>選項無效</translation>
+        <source>Unfiltered</source>
+        <translation>未過濾</translation>
     </message>
 </context>
 </TS>

@@ -40,6 +40,20 @@
     </message>
 </context>
 <context>
+    <name>Print Device Input Slot</name>
+    <message>
+        <source>Automatic</source>
+        <translation>Автоматически</translation>
+    </message>
+</context>
+<context>
+    <name>Print Device Output Bin</name>
+    <message>
+        <source>Automatic</source>
+        <translation>Автоматически</translation>
+    </message>
+</context>
+<context>
     <name>QAbstractSocket</name>
     <message>
         <source>Socket operation timed out</source>
@@ -366,6 +380,14 @@ Press ESC to cancel</source>
     <message>
         <source>Displays this help.</source>
         <translation>Показать эту справку.</translation>
+    </message>
+    <message>
+        <source>Displays help on commandline options.</source>
+        <translation>Вывод справки по параметрам командной строки.</translation>
+    </message>
+    <message>
+        <source>Displays help including Qt specific options.</source>
+        <translation>Вывод справки с особыми параметрами Qt.</translation>
     </message>
     <message>
         <source>Unknown option &apos;%1&apos;.</source>
@@ -984,8 +1006,8 @@ Press ESC to cancel</source>
         <translation>Невозможно открыть %1 для ввода</translation>
     </message>
     <message>
-        <source>Cannot open for output</source>
-        <translation>Невозможно открыть для вывода</translation>
+        <source>Cannot open for output: %1</source>
+        <translation>Не удалось открыть для вывода: %1</translation>
     </message>
     <message>
         <source>Failure to write block</source>
@@ -1640,6 +1662,74 @@ Do you want to delete it anyway?</source>
         <source>QT_LAYOUT_DIRECTION</source>
         <comment>Translate this string to the string &apos;LTR&apos; in left-to-right languages or to &apos;RTL&apos; in right-to-left languages (such as Hebrew and Arabic) to get proper widget layout.</comment>
         <translation>LTR</translation>
+    </message>
+    <message>
+        <source>QPA plugin. See QGuiApplication documentation for available options for each plugin.</source>
+        <translation>Модуль QPA. Доступные каждому модулю параметры описаны в документации QGuiApplication.</translation>
+    </message>
+    <message>
+        <source>Path to the platform plugins.</source>
+        <translation>Путь к платформным модулям.</translation>
+    </message>
+    <message>
+        <source>Platform theme.</source>
+        <translation>Тема платформы.</translation>
+    </message>
+    <message>
+        <source>Additional plugins to load, can be specified multiple times.</source>
+        <translation>Дополнительные загружаемые модули, может быть указано несколько раз.</translation>
+    </message>
+    <message>
+        <source>Window geometry for the main window, using the X11-syntax, like 100x100+50+50.</source>
+        <translation>Геометрия основного окна, задаётся в стиле X11, например: 100x100+50+50.</translation>
+    </message>
+    <message>
+        <source>Default window icon.</source>
+        <translation>Значок окна по умолчанию.</translation>
+    </message>
+    <message>
+        <source>Title of the first window.</source>
+        <translation>Заголовок первого окна.</translation>
+    </message>
+    <message>
+        <source>Sets the application&apos;s layout direction to Qt::RightToLeft (debugging helper).</source>
+        <translation>Задёт направление выравнивания Qt::RightToLeft (помощь в отладке).</translation>
+    </message>
+    <message>
+        <source>Restores the application from an earlier session.</source>
+        <translation>Восстанавливает приложение из предыдущей сессии.</translation>
+    </message>
+    <message>
+        <source>Display name, overrides $DISPLAY.</source>
+        <translation>Имя экрана, заменяет $DISPLAY.</translation>
+    </message>
+    <message>
+        <source>Instance name according to ICCCM 4.1.2.5.</source>
+        <translation>Имя экземпляра согласно ICCCM 4.1.2.5.</translation>
+    </message>
+    <message>
+        <source>Disable mouse grabbing (useful in debuggers).</source>
+        <translation>Запрет захвата мыши (полезно при отладке).</translation>
+    </message>
+    <message>
+        <source>Force mouse grabbing (even when running in a debugger).</source>
+        <translation>Принудительный захват мыши (даже под отладчиком).</translation>
+    </message>
+    <message>
+        <source>ID of the X11 Visual to use.</source>
+        <translation>ID используемого X11 Visual.</translation>
+    </message>
+    <message>
+        <source>Alias for --windowgeometry.</source>
+        <translation>То же, что и --windowgeometry.</translation>
+    </message>
+    <message>
+        <source>Alias for --windowicon.</source>
+        <translation>То же, что и --windowicon.</translation>
+    </message>
+    <message>
+        <source>Alias for --windowtitle.</source>
+        <translation>То же, что и --windowtitle.</translation>
     </message>
 </context>
 <context>
@@ -3730,11 +3820,6 @@ Please turn one of those options off.</source>
         <source>OK</source>
         <translation>OK</translation>
     </message>
-    <message>
-        <source>Automatic</source>
-        <translatorcomment>источник бумаги</translatorcomment>
-        <translation>Автоматически</translation>
-    </message>
 </context>
 <context>
     <name>QPrintPreviewDialog</name>
@@ -4801,6 +4886,10 @@ Please turn one of those options off.</source>
         <translation>Имя файла ссылается на каталог</translation>
     </message>
     <message>
+        <source>QSaveFile cannot open &apos;%1&apos; without direct write fallback enabled.</source>
+        <translation>QSaveFile не может открыть «%1» без включения прямой записи.</translation>
+    </message>
+    <message>
         <source>QSaveFile cannot open &apos;%1&apos; without direct write fallback enabled: path contains an Alternate Data Stream specifier</source>
         <translation>QSaveFile не может открыть «%1» без включения прямой записи: путь содержит спецификатор альтернативного потока данных</translation>
     </message>
@@ -5224,6 +5313,14 @@ Please turn one of those options off.</source>
         <translation>Запустить (F)</translation>
     </message>
     <message>
+        <source>Launch (G)</source>
+        <translation>Запустить (G)</translation>
+    </message>
+    <message>
+        <source>Launch (H)</source>
+        <translation>Запустить (H)</translation>
+    </message>
+    <message>
         <source>Monitor Brightness Up</source>
         <translation>Увеличить яркость монитора</translation>
     </message>
@@ -5324,6 +5421,10 @@ Please turn one of those options off.</source>
         <translation>Калькулятор</translation>
     </message>
     <message>
+        <source>Calendar</source>
+        <translation>Календарь</translation>
+    </message>
+    <message>
         <source>Clear</source>
         <translation>Очистить</translation>
     </message>
@@ -5334,6 +5435,10 @@ Please turn one of those options off.</source>
     <message>
         <source>Close</source>
         <translation>Закрыть</translation>
+    </message>
+    <message>
+        <source>Adjust contrast</source>
+        <translation>Подстройка контраста</translation>
     </message>
     <message>
         <source>Copy</source>
@@ -5386,6 +5491,10 @@ Please turn one of those options off.</source>
     <message>
         <source>Meeting</source>
         <translation>Встреча</translation>
+    </message>
+    <message>
+        <source>Memo</source>
+        <translation>Заметки</translation>
     </message>
     <message>
         <source>Keyboard Menu</source>
@@ -5466,6 +5575,10 @@ Please turn one of those options off.</source>
     <message>
         <source>Terminal</source>
         <translation>Терминал</translation>
+    </message>
+    <message>
+        <source>To-do list</source>
+        <translation>Список дел</translation>
     </message>
     <message>
         <source>Tools</source>
@@ -5940,6 +6053,7 @@ Please turn one of those options off.</source>
     </message>
     <message>
         <source>+</source>
+        <extracomment>Key separator in shortcut string</extracomment>
         <translation>+</translation>
     </message>
     <message>
@@ -6361,6 +6475,21 @@ Role of an accessible object</extracomment>
         <translation>дополнительная информация</translation>
     </message>
     <message>
+        <source>terminal</source>
+        <extracomment>Role of an accessible object</extracomment>
+        <translation>терминал</translation>
+    </message>
+    <message>
+        <source>desktop</source>
+        <extracomment>Role of an accessible object</extracomment>
+        <translation>рабочий стол</translation>
+    </message>
+    <message>
+        <source>notification</source>
+        <extracomment>Role of an accessible object</extracomment>
+        <translation>уведомление</translation>
+    </message>
+    <message>
         <source>unknown</source>
         <extracomment>Role of an accessible object</extracomment>
         <translation>неизвестная</translation>
@@ -6476,6 +6605,50 @@ Role of an accessible object</extracomment>
         <translation>Сертификат узла в чёрном списке</translation>
     </message>
     <message>
+        <source>No OCSP status response found</source>
+        <translation>Не найден ответ с состоянием OCSP</translation>
+    </message>
+    <message>
+        <source>The OCSP status request had invalid syntax</source>
+        <translation>Запрос состояния OCSP синтаксически неверен</translation>
+    </message>
+    <message>
+        <source>OCSP response contains an unexpected number of SingleResponse structures</source>
+        <translation>Ответ OCSP содержит неожиданное число структур SingleResponse</translation>
+    </message>
+    <message>
+        <source>OCSP responder reached an inconsistent internal state</source>
+        <translation>Ответчик OCSP вошёл в неверное внутреннее состояние</translation>
+    </message>
+    <message>
+        <source>OCSP responder was unable to return a status for the requested certificate</source>
+        <translation>Ответчик OCSP не может вернуть состояние запрошенного сертификата</translation>
+    </message>
+    <message>
+        <source>The server requires the client to sign the OCSP request in order to construct a response</source>
+        <translation>Для подготовки ответа сервер требует от клиента подписать запрос OCSP</translation>
+    </message>
+    <message>
+        <source>The client is not authorized to request OCSP status from this server</source>
+        <translation>Клиент не авторизован для запроса состояния OCSP с этого сервера</translation>
+    </message>
+    <message>
+        <source>OCSP responder&apos;s identity cannot be verified</source>
+        <translation>Невозможно проверить подлинность ответчика OCSP</translation>
+    </message>
+    <message>
+        <source>The identity of a certificate in an OCSP response cannot be established</source>
+        <translation>Невозможно установить подлинность сертификата в ответе OCSP</translation>
+    </message>
+    <message>
+        <source>The certificate status response has expired</source>
+        <translation>Ответ о состоянии сертификата просрочен</translation>
+    </message>
+    <message>
+        <source>The certificate&apos;s status is unknown</source>
+        <translation>Состояние сертификата неизвестно</translation>
+    </message>
+    <message>
         <source>Unknown error</source>
         <translation>Неизвестная ошибка</translation>
     </message>
@@ -6568,6 +6741,18 @@ Role of an accessible object</extracomment>
         <translation>Ошибка создания сессии SSL: %1</translation>
     </message>
     <message>
+        <source>Server-side QSslSocket does not support OCSP stapling</source>
+        <translation>Серверный QSslSocket не поддерживает сшивку OCSP</translation>
+    </message>
+    <message>
+        <source>Failed to enable OCSP stapling</source>
+        <translation>Не удалось включить сшивку OCSP</translation>
+    </message>
+    <message>
+        <source>Client-side sockets do not send OCSP responses</source>
+        <translation>Клиентские сокеты не отправляют ответы OCSP</translation>
+    </message>
+    <message>
         <source>Unable to init SSL Context: %1</source>
         <translation>Не удалось инициализировать контекст SSL: %1</translation>
     </message>
@@ -6578,6 +6763,26 @@ Role of an accessible object</extracomment>
     <message>
         <source>Unable to decrypt data: %1</source>
         <translation>Не удалось расшифровать данные: %1</translation>
+    </message>
+    <message>
+        <source>Failed to decode OCSP response</source>
+        <translation>Не удалось разобрать ответ OCSP</translation>
+    </message>
+    <message>
+        <source>Failed to extract basic OCSP response</source>
+        <translation>Не удалось извлечь базовый ответ OCSP</translation>
+    </message>
+    <message>
+        <source>No certificate verification store, cannot verify OCSP response</source>
+        <translation>Невозможно проверить ответ OCSP, так как отсутствует хранилище проверок сертификатов</translation>
+    </message>
+    <message>
+        <source>Failed to decode a SingleResponse from OCSP status response</source>
+        <translation>Не удалось разобрать SingleResponse из ответа с состоянием OCSP</translation>
+    </message>
+    <message>
+        <source>Failed to extract &apos;this update time&apos; from the SingleResponse</source>
+        <translation>Не удалось извлечь «время этого обновления» из SingleResponse</translation>
     </message>
     <message>
         <source>The TLS/SSL connection has been closed</source>
@@ -6598,6 +6803,130 @@ Role of an accessible object</extracomment>
     <message>
         <source>TLS initialization failed</source>
         <translation>Не удалось инициализировать TLS</translation>
+    </message>
+    <message>
+        <source>Attempted to use an unsupported protocol.</source>
+        <translation>Попытка использовать неподдерживаемый протокол.</translation>
+    </message>
+    <message>
+        <source>Insufficient memory</source>
+        <translation>Недостаточно памяти</translation>
+    </message>
+    <message>
+        <source>Internal error</source>
+        <translation>Внутренняя ошибка</translation>
+    </message>
+    <message>
+        <source>An internal handle was invalid</source>
+        <translation>Неверен внутренний указатель</translation>
+    </message>
+    <message>
+        <source>An internal token was invalid</source>
+        <translation>Неверен внутренний токен</translation>
+    </message>
+    <message>
+        <source>Access denied</source>
+        <translation>Доступ запрещён</translation>
+    </message>
+    <message>
+        <source>No authority could be contacted for authorization</source>
+        <translation>Отсутствует удалённый сервис авторизации</translation>
+    </message>
+    <message>
+        <source>No credentials</source>
+        <translation>Отсутствуют учётные данные</translation>
+    </message>
+    <message>
+        <source>The target is unknown or unreachable</source>
+        <translation>Цель неизвестна или недоступна</translation>
+    </message>
+    <message>
+        <source>An unsupported function was requested</source>
+        <translation>Запрошена неподдерживаемая функция</translation>
+    </message>
+    <message>
+        <source>The hostname provided does not match the one received from the peer</source>
+        <translation>Предоставленное имя узла не совпадает с полученным от пира</translation>
+    </message>
+    <message>
+        <source>No common protocol exists between the client and the server</source>
+        <translation>У клиента и сервера нет общих протоколов</translation>
+    </message>
+    <message>
+        <source>Unexpected or badly-formatted message received</source>
+        <translation>Получено неожиданное или неверно сформированное сообщение</translation>
+    </message>
+    <message>
+        <source>The data could not be encrypted</source>
+        <translation>Невозможно зашифровать данные</translation>
+    </message>
+    <message>
+        <source>No cipher suites in common</source>
+        <translation>Нет общих наборов шифров</translation>
+    </message>
+    <message>
+        <source>The credentials were not recognized / Invalid argument</source>
+        <translation>Учётные данные не распознаны / Неверный параметр</translation>
+    </message>
+    <message>
+        <source>The message was tampered with, damaged or out of sequence.</source>
+        <translation>Сообщение подделано, повреждено или вне последовательности.</translation>
+    </message>
+    <message>
+        <source>A message was received out of sequence.</source>
+        <translation>Сообщение получено вне последовательности.</translation>
+    </message>
+    <message>
+        <source>Unknown error occurred: %1</source>
+        <translation>Возникла неизвестная ошибка: %1</translation>
+    </message>
+    <message>
+        <source>Invalid protocol chosen</source>
+        <translation>Выбран неверный протокол</translation>
+    </message>
+    <message>
+        <source>The certificate provided cannot be used for a client.</source>
+        <translation>Невозможно использовать предоставленный сертификат для клиента.</translation>
+    </message>
+    <message>
+        <source>The certificate provided cannot be used for a server.</source>
+        <translation>Невозможно использовать предоставленный сертификат для сервера.</translation>
+    </message>
+    <message>
+        <source>Server did not accept any certificate we could present.</source>
+        <translation>Сервер не принимает предоставляемые нами сертификаты.</translation>
+    </message>
+    <message>
+        <source>Algorithm mismatch</source>
+        <translation>Не совпадают алгоритмы</translation>
+    </message>
+    <message>
+        <source>Handshake failed: %1</source>
+        <translation>Не удалось выполнить квитирование: %1</translation>
+    </message>
+    <message>
+        <source>Failed to query the TLS context: %1</source>
+        <translation>Не удалось запросить контекст TLS: %1</translation>
+    </message>
+    <message>
+        <source>Did not get the required attributes for the connection.</source>
+        <translation>Не удалось получить необходимые для подключения атрибуты.</translation>
+    </message>
+    <message>
+        <source>Unwanted protocol was negotiated</source>
+        <translation>Был согласован нежелательный протокол</translation>
+    </message>
+    <message>
+        <source>Renegotiation was unsuccessful: %1</source>
+        <translation>Не удалось выполнить пересогласование: %1</translation>
+    </message>
+    <message>
+        <source>Schannel failed to encrypt data: %1</source>
+        <translation>Schannel не удалось зашифровать данные: %1</translation>
+    </message>
+    <message>
+        <source>Cannot provide a certificate with no key</source>
+        <translation>Невозможно предоставить сертификат без ключа</translation>
     </message>
 </context>
 <context>
@@ -6688,6 +7017,10 @@ Role of an accessible object</extracomment>
     <message>
         <source>No common ancestor for targets and source of transition from state &apos;%1&apos;</source>
         <translation>Нет общего предка у источника и цели перехода из состояния «%1»</translation>
+    </message>
+    <message>
+        <source>Child mode of state machine &apos;%1&apos; is not &apos;ExclusiveStates&apos;.</source>
+        <translation>Дочернее состояние конечного автомата «%1» не «ExclusiveStates».</translation>
     </message>
     <message>
         <source>Unknown error</source>

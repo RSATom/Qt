@@ -31,17 +31,17 @@
 #include "third_party/blink/renderer/core/events/mouse_event.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/frame/local_frame_client.h"
-#include "third_party/blink/renderer/core/frame/use_counter.h"
 #include "third_party/blink/renderer/core/html/html_collection.h"
 #include "third_party/blink/renderer/core/html/html_frame_element.h"
 #include "third_party/blink/renderer/core/html_names.h"
 #include "third_party/blink/renderer/core/layout/layout_frame_set.h"
+#include "third_party/blink/renderer/platform/instrumentation/use_counter.h"
 
 namespace blink {
 
 using namespace html_names;
 
-inline HTMLFrameSetElement::HTMLFrameSetElement(Document& document)
+HTMLFrameSetElement::HTMLFrameSetElement(Document& document)
     : HTMLElement(kFramesetTag, document),
       border_(6),
       border_set_(false),
@@ -51,8 +51,6 @@ inline HTMLFrameSetElement::HTMLFrameSetElement(Document& document)
       noresize_(false) {
   SetHasCustomStyleCallbacks();
 }
-
-DEFINE_NODE_FACTORY(HTMLFrameSetElement)
 
 bool HTMLFrameSetElement::IsPresentationAttribute(
     const QualifiedName& name) const {
@@ -66,7 +64,7 @@ void HTMLFrameSetElement::CollectStyleForPresentationAttribute(
     const AtomicString& value,
     MutableCSSPropertyValueSet* style) {
   if (name == kBordercolorAttr)
-    AddHTMLColorToStyle(style, CSSPropertyBorderColor, value);
+    AddHTMLColorToStyle(style, CSSPropertyID::kBorderColor, value);
   else
     HTMLElement::CollectStyleForPresentationAttribute(name, value, style);
 }
@@ -222,9 +220,10 @@ bool HTMLFrameSetElement::LayoutObjectIsNeeded(
 }
 
 LayoutObject* HTMLFrameSetElement::CreateLayoutObject(
-    const ComputedStyle& style) {
+    const ComputedStyle& style,
+    LegacyLayout legacy) {
   if (style.HasContent())
-    return LayoutObject::CreateObject(this, style);
+    return LayoutObject::CreateObject(this, style, legacy);
   return new LayoutFrameSet(this);
 }
 
@@ -268,8 +267,7 @@ Node::InsertionNotificationRequest HTMLFrameSetElement::InsertedInto(
   }
   return HTMLElement::InsertedInto(insertion_point);
 }
-
-void HTMLFrameSetElement::WillRecalcStyle(StyleRecalcChange) {
+void HTMLFrameSetElement::WillRecalcStyle(const StyleRecalcChange) {
   if (NeedsStyleRecalc() && GetLayoutObject()) {
     GetLayoutObject()->SetNeedsLayoutAndFullPaintInvalidation(
         layout_invalidation_reason::kStyleChange);

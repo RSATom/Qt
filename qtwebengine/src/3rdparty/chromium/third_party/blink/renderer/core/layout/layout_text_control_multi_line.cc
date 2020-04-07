@@ -38,17 +38,20 @@ LayoutTextControlMultiLine::~LayoutTextControlMultiLine() = default;
 
 bool LayoutTextControlMultiLine::NodeAtPoint(
     HitTestResult& result,
-    const HitTestLocation& location_in_container,
-    const LayoutPoint& accumulated_offset,
+    const HitTestLocation& hit_test_location,
+    const PhysicalOffset& accumulated_offset,
     HitTestAction hit_test_action) {
-  if (!LayoutTextControl::NodeAtPoint(result, location_in_container,
+  if (!LayoutTextControl::NodeAtPoint(result, hit_test_location,
                                       accumulated_offset, hit_test_action))
     return false;
 
+  const LayoutObject* stop_node = result.GetHitTestRequest().GetStopNode();
+  if (stop_node && stop_node->NodeForHitTest() == result.InnerNode())
+    return true;
+
   if (result.InnerNode() == GetNode() ||
       result.InnerNode() == InnerEditorElement())
-    HitInnerEditorElement(result, location_in_container.Point(),
-                          accumulated_offset);
+    HitInnerEditorElement(result, hit_test_location, accumulated_offset);
 
   return true;
 }
@@ -103,6 +106,22 @@ LayoutObject* LayoutTextControlMultiLine::LayoutSpecialExcludedChild(
   placeholder_box->SetX(BorderLeft() + PaddingLeft());
   placeholder_box->SetY(BorderTop() + PaddingTop());
   return placeholder_layout_object;
+}
+
+LayoutUnit LayoutTextControlMultiLine::ScrollWidth() const {
+  // If in preview state, fake the scroll width to prevent that any information
+  // about the suggested content can be derived from the size.
+  if (!GetTextControlElement()->SuggestedValue().IsEmpty())
+    return ClientWidth();
+  return LayoutTextControl::ScrollWidth();
+}
+
+LayoutUnit LayoutTextControlMultiLine::ScrollHeight() const {
+  // If in preview state, fake the scroll height to prevent that any information
+  // about the suggested content can be derived from the size.
+  if (!GetTextControlElement()->SuggestedValue().IsEmpty())
+    return ClientHeight();
+  return LayoutTextControl::ScrollHeight();
 }
 
 }  // namespace blink

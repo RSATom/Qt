@@ -71,10 +71,9 @@ class GraphicsLayerTest : public testing::Test, public PaintTestConfigurations {
   ViewportLayersSetup layers_;
 };
 
-INSTANTIATE_TEST_CASE_P(All,
-                        GraphicsLayerTest,
-                        testing::Values(0,
-                                        kBlinkGenPropertyTrees));
+INSTANTIATE_TEST_SUITE_P(All,
+                         GraphicsLayerTest,
+                         testing::Values(0, kBlinkGenPropertyTrees));
 
 TEST_P(GraphicsLayerTest, Paint) {
   IntRect interest_rect(1, 2, 3, 4);
@@ -108,38 +107,40 @@ TEST_P(GraphicsLayerTest, PaintRecursively) {
   auto transform2 =
       CreateTransform(*transform1, TransformationMatrix().Scale(2));
 
-  layers_.graphics_layer_client().SetPainter([&](const GraphicsLayer* layer,
-                                                 GraphicsContext& context,
-                                                 GraphicsLayerPaintingPhase,
-                                                 const IntRect&) {
-    {
-      ScopedPaintChunkProperties properties(context.GetPaintController(),
-                                            transform1.get(), *layer,
-                                            kBackgroundType);
-      PaintControllerTestBase::DrawRect(context, *layer, kBackgroundType,
-                                        interest_rect);
-    }
-    {
-      ScopedPaintChunkProperties properties(context.GetPaintController(),
-                                            transform2.get(), *layer,
-                                            kForegroundType);
-      PaintControllerTestBase::DrawRect(context, *layer, kForegroundType,
-                                        interest_rect);
-    }
-  });
+  layers_.graphics_layer_client().SetPainter(
+      [&](const GraphicsLayer* layer, GraphicsContext& context,
+          GraphicsLayerPaintingPhase, const IntRect&) {
+        {
+          ScopedPaintChunkProperties properties(context.GetPaintController(),
+                                                *transform1, *layer,
+                                                kBackgroundType);
+          PaintControllerTestBase::DrawRect(context, *layer, kBackgroundType,
+                                            interest_rect);
+        }
+        {
+          ScopedPaintChunkProperties properties(context.GetPaintController(),
+                                                *transform2, *layer,
+                                                kForegroundType);
+          PaintControllerTestBase::DrawRect(context, *layer, kForegroundType,
+                                            interest_rect);
+        }
+      });
 
   transform1->Update(transform_root,
-                     TransformPaintPropertyNode::State{
-                         TransformationMatrix().Translate(20, 30)});
-  EXPECT_TRUE(transform1->Changed(transform_root));
-  EXPECT_TRUE(transform2->Changed(transform_root));
+                     TransformPaintPropertyNode::State{FloatSize(20, 30)});
+  EXPECT_TRUE(transform1->Changed(PaintPropertyChangeType::kChangedOnlyValues,
+                                  transform_root));
+  EXPECT_TRUE(transform2->Changed(PaintPropertyChangeType::kChangedOnlyValues,
+                                  transform_root));
   layers_.graphics_layer_client().SetNeedsRepaint(true);
   layers_.graphics_layer().PaintRecursively();
 
   // With BlinkGenPropertyTrees, these are not cleared until after paint.
   if (!RuntimeEnabledFeatures::BlinkGenPropertyTreesEnabled()) {
-    EXPECT_FALSE(transform1->Changed(transform_root));
-    EXPECT_FALSE(transform2->Changed(transform_root));
+    EXPECT_FALSE(transform1->Changed(
+        PaintPropertyChangeType::kChangedOnlyCompositedValues, transform_root));
+    EXPECT_FALSE(transform2->Changed(
+        PaintPropertyChangeType::kChangedOnlyCompositedValues, transform_root));
   }
 }
 
@@ -170,6 +171,18 @@ TEST_P(GraphicsLayerTest, CcLayerClient) {
   EXPECT_FALSE(cc_layer->client());
   EXPECT_FALSE(cc_layer->GetLayerClientForTesting());
   EXPECT_FALSE(cc_layer->GetPicture());
+}
+
+TEST_P(GraphicsLayerTest, ContentsLayer) {
+  auto& graphics_layer = layers_.graphics_layer();
+  auto contents_layer = cc::Layer::Create();
+  GraphicsLayer::RegisterContentsLayer(contents_layer.get());
+  graphics_layer.SetContentsToCcLayer(contents_layer.get(), true);
+  EXPECT_TRUE(graphics_layer.HasContentsLayer());
+  EXPECT_EQ(contents_layer.get(), graphics_layer.ContentsLayer());
+  GraphicsLayer::UnregisterContentsLayer(contents_layer.get());
+  EXPECT_FALSE(graphics_layer.HasContentsLayer());
+  EXPECT_EQ(nullptr, graphics_layer.ContentsLayer());
 }
 
 }  // namespace blink

@@ -43,8 +43,8 @@
 
 QT_BEGIN_NAMESPACE
 
-typedef QList<QAction*> ActionList;
-typedef QList<QGraphicsItem *> GraphicsItemList;
+using ActionList = QList<QAction *>;
+using GraphicsItemList = QList<QGraphicsItem *>;
 
 enum { debugZoomWidget = 0 };
 
@@ -120,11 +120,7 @@ QVector<int> ZoomMenu::zoomValues()
 // --------- ZoomView
 ZoomView::ZoomView(QWidget *parent) :
     QGraphicsView(parent),
-    m_scene(new QGraphicsScene(this)),
-    m_zoom(100),
-    m_zoomFactor(1.0),
-    m_zoomContextMenuEnabled(false),
-    m_zoomMenu(0)
+    m_scene(new QGraphicsScene(this))
 {
     setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
@@ -259,7 +255,7 @@ QVariant ZoomProxyWidget::itemChange(GraphicsItemChange change, const QVariant &
 static const char *zoomedEventFilterRedirectorNameC = "__qt_ZoomedEventFilterRedirector";
 
 class ZoomedEventFilterRedirector : public QObject {
-    Q_DISABLE_COPY(ZoomedEventFilterRedirector)
+    Q_DISABLE_COPY_MOVE(ZoomedEventFilterRedirector)
 
 public:
     explicit ZoomedEventFilterRedirector(ZoomWidget *zw, QObject *parent);
@@ -285,11 +281,7 @@ bool ZoomedEventFilterRedirector::eventFilter(QObject *watched, QEvent *event)
 // --------- ZoomWidget
 
 ZoomWidget::ZoomWidget(QWidget *parent) :
-    ZoomView(parent),
-    m_proxy(0),
-    m_viewResizeBlocked(false),
-    m_widgetResizeBlocked(false),
-    m_widgetZoomContextMenuEnabled(false)
+    ZoomView(parent)
 {
     setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
@@ -310,7 +302,7 @@ void ZoomWidget::setWidget(QWidget *w, Qt::WindowFlags wFlags)
         m_proxy->deleteLater();
     }
     // Set window flags on the outer proxy for them to take effect
-    m_proxy = createProxyWidget(0, Qt::Window);
+    m_proxy = createProxyWidget(nullptr, Qt::Window);
     m_proxy->setWidget(w);
 
     m_proxy->setWindowFlags(wFlags);

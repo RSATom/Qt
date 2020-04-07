@@ -6,12 +6,12 @@
 
 #include <sstream>
 
-#include "src/assembler-inl.h"
 #include "src/base/optional.h"
+#include "src/codegen/assembler-inl.h"
+#include "src/codegen/macro-assembler-inl.h"
 #include "src/compiler/linkage.h"
 #include "src/compiler/wasm-compiler.h"
-#include "src/macro-assembler-inl.h"
-#include "src/ostreams.h"
+#include "src/utils/ostreams.h"
 #include "src/wasm/function-body-decoder-impl.h"
 #include "src/wasm/wasm-linkage.h"
 #include "src/wasm/wasm-opcodes.h"
@@ -103,7 +103,7 @@ class StackTransferRecipe {
           case VarState::kRegister:
             asm_->Spill(dst_index, src.reg(), src.type());
             break;
-          case VarState::KIntConst:
+          case VarState::kIntConst:
             asm_->Spill(dst_index, src.constant());
             break;
         }
@@ -111,7 +111,7 @@ class StackTransferRecipe {
       case VarState::kRegister:
         LoadIntoRegister(dst.reg(), src, src_index);
         break;
-      case VarState::KIntConst:
+      case VarState::kIntConst:
         DCHECK_EQ(dst, src);
         break;
     }
@@ -128,7 +128,7 @@ class StackTransferRecipe {
         DCHECK_EQ(dst.reg_class(), src.reg_class());
         if (dst != src.reg()) MoveRegister(dst, src.reg(), src.type());
         break;
-      case VarState::KIntConst:
+      case VarState::kIntConst:
         LoadConstant(dst, src.constant());
         break;
     }
@@ -151,7 +151,7 @@ class StackTransferRecipe {
         if (dst != src_half) MoveRegister(dst, src_half, kWasmI32);
         break;
       }
-      case VarState::KIntConst:
+      case VarState::kIntConst:
         int32_t value = src.i32_const();
         // The high word is the sign extension of the low word.
         if (half == kHighWord) value = value >> 31;
@@ -512,7 +512,7 @@ LiftoffRegister LiftoffAssembler::PopToRegister(LiftoffRegList pinned) {
     case VarState::kRegister:
       cache_state_.dec_used(slot.reg());
       return slot.reg();
-    case VarState::KIntConst: {
+    case VarState::kIntConst: {
       RegClass rc =
           kNeedI64RegPair && slot.type() == kWasmI64 ? kGpRegPair : kGpReg;
       LiftoffRegister reg = GetUnusedRegister(rc, pinned);
@@ -566,7 +566,7 @@ void LiftoffAssembler::Spill(uint32_t index) {
       Spill(index, slot.reg(), slot.type());
       cache_state_.dec_used(slot.reg());
       break;
-    case VarState::KIntConst:
+    case VarState::kIntConst:
       Spill(index, slot.constant());
       break;
   }
@@ -853,7 +853,7 @@ std::ostream& operator<<(std::ostream& os, VarState slot) {
       return os << "s";
     case VarState::kRegister:
       return os << slot.reg();
-    case VarState::KIntConst:
+    case VarState::kIntConst:
       return os << "c" << slot.i32_const();
   }
   UNREACHABLE();

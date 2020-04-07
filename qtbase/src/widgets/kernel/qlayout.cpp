@@ -1040,7 +1040,7 @@ void QLayout::update()
         if (layout->d_func()->topLevel) {
             Q_ASSERT(layout->parent()->isWidgetType());
             QWidget *mw = static_cast<QWidget*>(layout->parent());
-            QApplication::postEvent(mw, new QEvent(QEvent::LayoutRequest));
+            QCoreApplication::postEvent(mw, new QEvent(QEvent::LayoutRequest));
             break;
         }
         layout = static_cast<QLayout*>(layout->parent());
@@ -1156,6 +1156,8 @@ QLayoutItem *QLayout::replaceWidget(QWidget *from, QWidget *to, Qt::FindChildOpt
     Q_D(QLayout);
     if (!from || !to)
         return 0;
+    if (from == to)     // Do not return a QLayoutItem for \a from, since ownership still
+        return nullptr; // belongs to the layout (since nothing was changed)
 
     int index = -1;
     QLayoutItem *item = 0;
@@ -1364,7 +1366,7 @@ QRect QLayout::alignmentRect(const QRect &r) const
         y += (r.height() - s.height()) / 2;
 
     QWidget *parent = parentWidget();
-    a = QStyle::visualAlignment(parent ? parent->layoutDirection() : QApplication::layoutDirection(), a);
+    a = QStyle::visualAlignment(parent ? parent->layoutDirection() : QGuiApplication::layoutDirection(), a);
     if (a & Qt::AlignRight)
         x += (r.width() - s.width());
     else if (!(a & Qt::AlignLeft))

@@ -3,10 +3,10 @@
 # found in the LICENSE file.
 
 import("//build/config/features.gni")
-import("//chrome/common/features.gni")
-import("//testing/test.gni")
-import("//chrome/test/base/js2gtest.gni")
 import("//chrome/browser/resources/chromeos/chromevox/run_jsbundler.gni")
+import("//chrome/common/features.gni")
+import("//chrome/test/base/js2gtest.gni")
+import("//testing/test.gni")
 import("//third_party/closure_compiler/compile_js.gni")
 
 assert(is_chromeos)
@@ -58,7 +58,7 @@ run_jsbundler("select_to_speak_copied_files") {
   ]
 }
 
-# TODO: refactor this into another file like generate_manifest.gni
+# TODO(crbug/978200): refactor this into another file like generate_manifest.gni
 # to share with other extensions.
 template("manifest") {
   version_file = "//chrome/VERSION"
@@ -149,10 +149,10 @@ js2gtest("select_to_speak_extjs_tests") {
   # The test base classes generate C++ code with these deps.
   deps = [
     "//ash",
+    "//ash/keyboard/ui",
     "//base",
     "//chrome/browser/chromeos",
     "//chrome/common",
-    "//ui/keyboard",
   ]
   defines = [ "HAS_OUT_OF_PROC_TEST_RUNNER" ]
 }
@@ -194,6 +194,7 @@ js_library("select_to_speak") {
     "$externs_path/chrome_extensions.js",
     "$externs_path/clipboard.js",
     "$externs_path/command_line_private.js",
+    "$externs_path/pending.js",
   ]
 }
 

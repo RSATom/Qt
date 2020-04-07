@@ -33,6 +33,7 @@
 #include "content/app/resources/grit/content_resources.h"
 #include "content/app/strings/grit/content_strings.h"
 #include "content/child/child_thread_impl.h"
+#include "content/common/appcache_interfaces.h"
 #include "content/common/service_worker/service_worker_utils.h"
 #include "content/public/common/content_client.h"
 #include "content/public/common/content_features.h"
@@ -50,8 +51,18 @@
 #include "third_party/blink/public/resources/grit/blink_resources.h"
 #include "third_party/zlib/google/compression_utils.h"
 #include "ui/base/layout.h"
+#include "ui/base/ui_base_features.h"
 #include "ui/events/gestures/blink/web_gesture_curve_impl.h"
-#include "ui/events/keycodes/dom/keycode_converter.h"
+
+#if defined(OS_ANDROID)
+#include "content/child/webthemeengine_impl_android.h"
+#else
+#include "content/child/webthemeengine_impl_default.h"
+#endif
+
+#if defined(OS_MACOSX)
+#include "content/child/webthemeengine_impl_mac.h"
+#endif
 
 using blink::WebData;
 using blink::WebLocalizedString;
@@ -62,7 +73,21 @@ using blink::WebURLError;
 
 namespace content {
 
-static int ToMessageID(WebLocalizedString::Name name) {
+namespace {
+
+std::unique_ptr<blink::WebThemeEngine> GetWebThemeEngine() {
+#if defined(OS_ANDROID)
+  return std::make_unique<WebThemeEngineAndroid>();
+#elif defined(OS_MACOSX)
+  if (features::IsFormControlsRefreshEnabled())
+    return std::make_unique<WebThemeEngineDefault>();
+  return std::make_unique<WebThemeEngineMac>();
+#else
+  return std::make_unique<WebThemeEngineDefault>();
+#endif
+}
+
+int ToMessageID(WebLocalizedString::Name name) {
   switch (name) {
     case WebLocalizedString::kAXAMPMFieldText:
       return IDS_AX_AM_PM_FIELD_TEXT;
@@ -112,6 +137,8 @@ static int ToMessageID(WebLocalizedString::Name name) {
       return IDS_AX_MEDIA_SHOW_CLOSED_CAPTIONS_MENU_BUTTON;
     case WebLocalizedString::kAXMediaHideClosedCaptionsMenuButton:
       return IDS_AX_MEDIA_HIDE_CLOSED_CAPTIONS_MENU_BUTTON;
+    case WebLocalizedString::kAXMediaLoadingPanel:
+      return IDS_AX_MEDIA_LOADING_PANEL;
     case WebLocalizedString::kAXMediaCastOffButton:
       return IDS_AX_MEDIA_CAST_OFF_BUTTON;
     case WebLocalizedString::kAXMediaCastOnButton:
@@ -136,6 +163,12 @@ static int ToMessageID(WebLocalizedString::Name name) {
       return IDS_AX_MEDIA_TIME_REMAINING_DISPLAY_HELP;
     case WebLocalizedString::kAXMediaOverflowButtonHelp:
       return IDS_AX_MEDIA_OVERFLOW_BUTTON_HELP;
+    case WebLocalizedString::kAXMediaTouchLessPlayPauseAction:
+      return IDS_AX_MEDIA_TOUCHLESS_PLAY_PAUSE_ACTION;
+    case WebLocalizedString::kAXMediaTouchLessSeekAction:
+      return IDS_AX_MEDIA_TOUCHLESS_SEEK_ACTION;
+    case WebLocalizedString::kAXMediaTouchLessVolumeAction:
+      return IDS_AX_MEDIA_TOUCHLESS_VOLUME_ACTION;
     case WebLocalizedString::kAXMillisecondFieldText:
       return IDS_AX_MILLISECOND_FIELD_TEXT;
     case WebLocalizedString::kAXMinuteFieldText:
@@ -164,6 +197,8 @@ static int ToMessageID(WebLocalizedString::Name name) {
       return IDS_FORM_INPUT_ALT;
     case WebLocalizedString::kMissingPluginText:
       return IDS_PLUGIN_INITIALIZATION_ERROR;
+    case WebLocalizedString::kAXMediaPlaybackError:
+      return IDS_MEDIA_PLAYBACK_ERROR;
     case WebLocalizedString::kMediaRemotingCastText:
       return IDS_MEDIA_REMOTING_CAST_TEXT;
     case WebLocalizedString::kMediaRemotingCastToUnknownDeviceText:
@@ -316,30 +351,6 @@ static int ToMessageID(WebLocalizedString::Name name) {
   return -1;
 }
 
-// TODO(skyostil): Ensure that we always have an active task runner when
-// constructing the platform.
-BlinkPlatformImpl::BlinkPlatformImpl()
-    : BlinkPlatformImpl(base::ThreadTaskRunnerHandle::IsSet()
-                            ? base::ThreadTaskRunnerHandle::Get()
-                            : nullptr,
-                        nullptr) {}
-
-BlinkPlatformImpl::BlinkPlatformImpl(
-    scoped_refptr<base::SingleThreadTaskRunner> main_thread_task_runner,
-    scoped_refptr<base::SingleThreadTaskRunner> io_thread_task_runner)
-    : main_thread_task_runner_(std::move(main_thread_task_runner)),
-      io_thread_task_runner_(std::move(io_thread_task_runner)) {}
-
-BlinkPlatformImpl::~BlinkPlatformImpl() {
-}
-
-void BlinkPlatformImpl::RecordAction(const blink::UserMetricsAction& name) {
-  if (ChildThread* child_thread = ChildThread::Get())
-    child_thread->RecordComputedAction(name.Action());
-}
-
-namespace {
-
 WebData loadAudioSpatializationResource(const char* name) {
 #ifdef IDR_AUDIO_SPATIALIZATION_COMPOSITE
   if (!strcmp(name, "Composite")) {
@@ -427,15 +438,19 @@ const DataResource kDataResources[] = {
     {"fullscreenAndroid.css", IDR_UASTYLE_FULLSCREEN_ANDROID_CSS,
      ui::SCALE_FACTOR_NONE, true},
     // Not limited to Linux since it's used for mobile layouts in inspector.
-    {"linux.css", IDR_UASTYLE_THEME_CHROMIUM_LINUX_CSS,
+    {"linux.css", IDR_UASTYLE_THEME_CHROMIUM_LINUX_CSS, ui::SCALE_FACTOR_NONE,
+     true},
+    {"input_multiple_fields.css", IDR_UASTYLE_THEME_INPUT_MULTIPLE_FIELDS_CSS,
      ui::SCALE_FACTOR_NONE, true},
-    {"input_multiple_fields.css",
-     IDR_UASTYLE_THEME_INPUT_MULTIPLE_FIELDS_CSS, ui::SCALE_FACTOR_NONE, true},
 #if defined(OS_MACOSX)
     {"mac.css", IDR_UASTYLE_THEME_MAC_CSS, ui::SCALE_FACTOR_NONE, true},
 #endif
     {"win.css", IDR_UASTYLE_THEME_WIN_CSS, ui::SCALE_FACTOR_NONE, true},
-    {"win_quirks.css", IDR_UASTYLE_THEME_WIN_QUIRKS_CSS,
+    {"win_quirks.css", IDR_UASTYLE_THEME_WIN_QUIRKS_CSS, ui::SCALE_FACTOR_NONE,
+     true},
+    {"controls_refresh.css", IDR_UASTYLE_THEME_CONTROLS_REFRESH_CSS,
+     ui::SCALE_FACTOR_NONE, true},
+    {"forced_colors.css", IDR_UASTYLE_THEME_FORCED_COLORS_CSS,
      ui::SCALE_FACTOR_NONE, true},
     {"svg.css", IDR_UASTYLE_SVG_CSS, ui::SCALE_FACTOR_NONE, true},
     {"mathml.css", IDR_UASTYLE_MATHML_CSS, ui::SCALE_FACTOR_NONE, true},
@@ -443,9 +458,25 @@ const DataResource kDataResources[] = {
     {"xhtmlmp.css", IDR_UASTYLE_XHTMLMP_CSS, ui::SCALE_FACTOR_NONE, true},
     {"viewportAndroid.css", IDR_UASTYLE_VIEWPORT_ANDROID_CSS,
      ui::SCALE_FACTOR_NONE, true},
+#if defined(ENABLE_TOUCHLESS_UASTYLE_THEME)
+    {"touchless.css", IDR_UASTYLE_THEME_TOUCHLESS_CSS, ui::SCALE_FACTOR_NONE,
+     true},
+#endif
     {"viewportTelevision.css", IDR_UASTYLE_VIEWPORT_TELEVISION_CSS,
      ui::SCALE_FACTOR_NONE, true},
-    {"InspectorOverlayPage.html", IDR_INSPECTOR_OVERLAY_PAGE_HTML,
+    {"inspect_tool_common.css", IDR_INSPECT_TOOL_COMMON_CSS,
+     ui::SCALE_FACTOR_NONE, true},
+    {"inspect_tool_common.js", IDR_INSPECT_TOOL_COMMON_JS,
+     ui::SCALE_FACTOR_NONE, true},
+    {"inspect_tool_distances.html", IDR_INSPECT_TOOL_DISTANCES_HTML,
+     ui::SCALE_FACTOR_NONE, true},
+    {"inspect_tool_highlight.html", IDR_INSPECT_TOOL_HIGHLIGHT_HTML,
+     ui::SCALE_FACTOR_NONE, true},
+    {"inspect_tool_paused.html", IDR_INSPECT_TOOL_PAUSED_HTML,
+     ui::SCALE_FACTOR_NONE, true},
+    {"inspect_tool_screenshot.html", IDR_INSPECT_TOOL_SCREENSHOT_HTML,
+     ui::SCALE_FACTOR_NONE, true},
+    {"inspect_tool_viewport_size.html", IDR_INSPECT_TOOL_VIEWPORT_SIZE_HTML,
      ui::SCALE_FACTOR_NONE, true},
     {"DocumentXMLTreeViewer.css", IDR_DOCUMENTXMLTREEVIEWER_CSS,
      ui::SCALE_FACTOR_NONE, true},
@@ -464,10 +495,14 @@ const DataResource kDataResources[] = {
      true},
     {"suggestionPicker.css", IDR_SUGGESTION_PICKER_CSS, ui::SCALE_FACTOR_NONE,
      true},
+    {"color_picker_common.js", IDR_COLOR_PICKER_COMMON_JS,
+     ui::SCALE_FACTOR_NONE, true},
     {"colorSuggestionPicker.js", IDR_COLOR_SUGGESTION_PICKER_JS,
      ui::SCALE_FACTOR_NONE, true},
     {"colorSuggestionPicker.css", IDR_COLOR_SUGGESTION_PICKER_CSS,
      ui::SCALE_FACTOR_NONE, true},
+    {"color_picker.js", IDR_COLOR_PICKER_JS, ui::SCALE_FACTOR_NONE, true},
+    {"color_picker.css", IDR_COLOR_PICKER_CSS, ui::SCALE_FACTOR_NONE, true},
 #endif
     {"input_alert.svg", IDR_VALIDATION_BUBBLE_ICON, ui::SCALE_FACTOR_NONE,
      true},
@@ -509,6 +544,28 @@ class NestedMessageLoopRunnerImpl
 };
 
 }  // namespace
+
+// TODO(skyostil): Ensure that we always have an active task runner when
+// constructing the platform.
+BlinkPlatformImpl::BlinkPlatformImpl()
+    : BlinkPlatformImpl(base::ThreadTaskRunnerHandle::IsSet()
+                            ? base::ThreadTaskRunnerHandle::Get()
+                            : nullptr,
+                        nullptr) {}
+
+BlinkPlatformImpl::BlinkPlatformImpl(
+    scoped_refptr<base::SingleThreadTaskRunner> main_thread_task_runner,
+    scoped_refptr<base::SingleThreadTaskRunner> io_thread_task_runner)
+    : main_thread_task_runner_(std::move(main_thread_task_runner)),
+      io_thread_task_runner_(std::move(io_thread_task_runner)),
+      native_theme_engine_(GetWebThemeEngine()) {}
+
+BlinkPlatformImpl::~BlinkPlatformImpl() {}
+
+void BlinkPlatformImpl::RecordAction(const blink::UserMetricsAction& name) {
+  if (ChildThread* child_thread = ChildThread::Get())
+    child_thread->RecordComputedAction(name.Action());
+}
 
 WebData BlinkPlatformImpl::GetDataResource(const char* name) {
   // Some clients will call into this method with an empty |name| when they have
@@ -588,8 +645,9 @@ WebString BlinkPlatformImpl::QueryLocalizedString(WebLocalizedString::Name name,
 }
 
 bool BlinkPlatformImpl::AllowScriptExtensionForServiceWorker(
-    const blink::WebURL& scriptUrl) {
-  return GetContentClient()->AllowScriptExtensionForServiceWorker(scriptUrl);
+    const blink::WebSecurityOrigin& script_origin) {
+  return GetContentClient()->AllowScriptExtensionForServiceWorker(
+      script_origin);
 }
 
 blink::WebCrypto* BlinkPlatformImpl::Crypto() {
@@ -600,49 +658,12 @@ const char* BlinkPlatformImpl::GetBrowserServiceName() const {
   return mojom::kBrowserServiceName;
 }
 
-blink::WebMediaCapabilitiesClient*
-BlinkPlatformImpl::MediaCapabilitiesClient() {
-  return &media_capabilities_client_;
-}
-
 WebThemeEngine* BlinkPlatformImpl::ThemeEngine() {
-  return &native_theme_engine_;
+  return native_theme_engine_.get();
 }
 
-blink::Platform::FileHandle BlinkPlatformImpl::DatabaseOpenFile(
-    const blink::WebString& vfs_file_name,
-    int desired_flags) {
-#if defined(OS_WIN)
-  return INVALID_HANDLE_VALUE;
-#elif defined(OS_POSIX) || defined(OS_FUCHSIA)
-  return -1;
-#endif
-}
-
-int BlinkPlatformImpl::DatabaseDeleteFile(const blink::WebString& vfs_file_name,
-                                          bool sync_dir) {
-  return -1;
-}
-
-long BlinkPlatformImpl::DatabaseGetFileAttributes(
-    const blink::WebString& vfs_file_name) {
-  return 0;
-}
-
-long long BlinkPlatformImpl::DatabaseGetFileSize(
-    const blink::WebString& vfs_file_name) {
-  return 0;
-}
-
-long long BlinkPlatformImpl::DatabaseGetSpaceAvailableForOrigin(
-    const blink::WebSecurityOrigin& origin) {
-  return 0;
-}
-
-bool BlinkPlatformImpl::DatabaseSetFileSize(
-    const blink::WebString& vfs_file_name,
-    long long size) {
-  return false;
+bool BlinkPlatformImpl::IsURLSupportedForAppCache(const blink::WebURL& url) {
+  return IsSchemeSupportedForAppCache(url);
 }
 
 size_t BlinkPlatformImpl::MaxDecodedImageBytes() {
@@ -678,31 +699,6 @@ size_t BlinkPlatformImpl::MaxDecodedImageBytes() {
 
 bool BlinkPlatformImpl::IsLowEndDevice() {
   return base::SysInfo::IsLowEndDevice();
-}
-
-WebString BlinkPlatformImpl::DomCodeStringFromEnum(int dom_code) {
-  return WebString::FromUTF8(ui::KeycodeConverter::DomCodeToCodeString(
-      static_cast<ui::DomCode>(dom_code)));
-}
-
-int BlinkPlatformImpl::DomEnumFromCodeString(const WebString& code) {
-  return static_cast<int>(
-      ui::KeycodeConverter::CodeStringToDomCode(code.Utf8()));
-}
-
-WebString BlinkPlatformImpl::DomKeyStringFromEnum(int dom_key) {
-  return WebString::FromUTF8(ui::KeycodeConverter::DomKeyToKeyString(
-      static_cast<ui::DomKey>(dom_key)));
-}
-
-int BlinkPlatformImpl::DomKeyEnumFromString(const WebString& key_string) {
-  return static_cast<int>(
-      ui::KeycodeConverter::KeyStringToDomKey(key_string.Utf8()));
-}
-
-bool BlinkPlatformImpl::IsDomKeyForModifier(int dom_key) {
-  return ui::KeycodeConverter::IsDomKeyForModifier(
-      static_cast<ui::DomKey>(dom_key));
 }
 
 scoped_refptr<base::SingleThreadTaskRunner> BlinkPlatformImpl::GetIOTaskRunner()

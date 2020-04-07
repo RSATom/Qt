@@ -56,8 +56,8 @@ class CORE_EXPORT ScrollbarThemeOverlay : public ScrollbarTheme {
   int ScrollbarThickness(ScrollbarControlSize) override;
   int ScrollbarMargin() const override;
   bool UsesOverlayScrollbars() const override;
-  TimeDelta OverlayScrollbarFadeOutDelay() const override;
-  TimeDelta OverlayScrollbarFadeOutDuration() const override;
+  base::TimeDelta OverlayScrollbarFadeOutDelay() const override;
+  base::TimeDelta OverlayScrollbarFadeOutDuration() const override;
 
   int ThumbLength(const Scrollbar&) override;
 
@@ -84,6 +84,8 @@ class CORE_EXPORT ScrollbarThemeOverlay : public ScrollbarTheme {
   int MinimumThumbLength(const Scrollbar&) override;
 
   bool IsMobileTheme() const;
+
+  bool AllowsHitTest() const override;
 
   static ScrollbarThemeOverlay& MobileTheme();
 

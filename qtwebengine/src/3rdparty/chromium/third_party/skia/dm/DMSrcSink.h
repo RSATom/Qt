@@ -8,16 +8,17 @@
 #ifndef DMSrcSink_DEFINED
 #define DMSrcSink_DEFINED
 
-#include "SkBBHFactory.h"
-#include "SkBBoxHierarchy.h"
-#include "SkBitmap.h"
-#include "SkBitmapRegionDecoder.h"
-#include "SkCanvas.h"
-#include "SkCommonFlagsConfig.h"
-#include "SkData.h"
-#include "SkMultiPictureDocument.h"
-#include "SkPicture.h"
-#include "gm.h"
+#include "gm/gm.h"
+#include "include/android/SkBitmapRegionDecoder.h"
+#include "include/core/SkBBHFactory.h"
+#include "include/core/SkBitmap.h"
+#include "include/core/SkCanvas.h"
+#include "include/core/SkData.h"
+#include "include/core/SkPicture.h"
+#include "src/core/SkBBoxHierarchy.h"
+#include "src/utils/SkMultiPictureDocument.h"
+#include "tools/flags/CommonFlagsConfig.h"
+#include "tools/gpu/MemoryCache.h"
 
 //#define TEST_VIA_SVG
 
@@ -212,29 +213,15 @@ private:
 
 class ColorCodecSrc : public Src {
 public:
-    enum Mode {
-        // Mimic legacy behavior and apply no color correction.
-        kBaseline_Mode,
-
-        // Color correct images into a specific dst color space.  If you happen to have this
-        // monitor, you're in luck!  The unmarked outputs of this test should display
-        // correctly on this monitor in the Chrome browser.  If not, it's useful to know
-        // that this monitor has a profile that is fairly similar to Adobe RGB.
-        kDst_HPZR30w_Mode,
-
-        kDst_sRGB_Mode,
-    };
-
-    ColorCodecSrc(Path, Mode, SkColorType);
+    ColorCodecSrc(Path, bool decode_to_dst);
 
     Error draw(SkCanvas*) const override;
     SkISize size() const override;
     Name name() const override;
     bool veto(SinkFlags) const override;
 private:
-    Path                    fPath;
-    Mode                    fMode;
-    SkColorType             fColorType;
+    Path fPath;
+    bool fDecodeToDst;
 };
 
 class SKPSrc : public Src {
@@ -377,6 +364,7 @@ private:
     sk_sp<SkColorSpace>                               fColorSpace;
     bool                                              fThreaded;
     GrContextOptions                                  fBaseContextOptions;
+    sk_gpu_test::MemoryCache                          fMemoryCache;
 };
 
 class GPUThreadTestingSink : public GPUSink {
@@ -408,7 +396,8 @@ public:
                                   SkCommandLineConfigGpu::SurfType surfType, int samples,
                                   bool diText, SkColorType colorType, SkAlphaType alphaType,
                                   sk_sp<SkColorSpace> colorSpace, bool threaded,
-                                  const GrContextOptions& grCtxOptions);
+                                  const GrContextOptions& grCtxOptions,
+                                  int cacheType);
 
     Error draw(const Src&, SkBitmap*, SkWStream*, SkString*) const override;
 
@@ -418,6 +407,8 @@ public:
     }
 
 private:
+    int fCacheType;
+
     typedef GPUSink INHERITED;
 };
 
@@ -554,21 +545,6 @@ class ViaSVG : public Via {
 public:
     explicit ViaSVG(Sink* sink) : Via(sink) {}
     Error draw(const Src&, SkBitmap*, SkWStream*, SkString*) const override;
-};
-
-class ViaLite : public Via {
-public:
-    explicit ViaLite(Sink* sink) : Via(sink) {}
-    Error draw(const Src&, SkBitmap*, SkWStream*, SkString*) const override;
-};
-
-class ViaCSXform : public Via {
-public:
-    explicit ViaCSXform(Sink*, sk_sp<SkColorSpace>, bool colorSpin);
-    Error draw(const Src&, SkBitmap*, SkWStream*, SkString*) const override;
-private:
-    sk_sp<SkColorSpace> fCS;
-    bool                fColorSpin;
 };
 
 }  // namespace DM

@@ -40,14 +40,16 @@ enum class TriggerType {
   GAIA_PASSWORD_REUSE = 3,
   SUSPICIOUS_SITE = 4,
   APK_DOWNLOAD = 5,
+  AD_POPUP = 6,
+  AD_REDIRECT = 7,
   kMinTriggerType = SECURITY_INTERSTITIAL,
-  kMaxTriggerType = APK_DOWNLOAD,
+  kMaxTriggerType = AD_REDIRECT,
 };
 
 struct TriggerTypeHash {
   std::size_t operator()(TriggerType trigger_type) const {
     return static_cast<std::size_t>(trigger_type);
-  };
+  }
 };
 
 // A map for storing a list of event timestamps for different trigger types.

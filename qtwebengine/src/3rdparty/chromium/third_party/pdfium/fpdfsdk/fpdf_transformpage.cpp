@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "constants/page_object.h"
+#include "core/fpdfapi/edit/cpdf_contentstream_write_utils.h"
 #include "core/fpdfapi/page/cpdf_clippath.h"
 #include "core/fpdfapi/page/cpdf_page.h"
 #include "core/fpdfapi/page/cpdf_pageobject.h"
@@ -22,6 +23,7 @@
 #include "core/fpdfapi/parser/cpdf_reference.h"
 #include "core/fpdfapi/parser/cpdf_stream.h"
 #include "core/fxge/cfx_pathdata.h"
+#include "core/fxge/render_defines.h"
 #include "fpdfsdk/cpdfsdk_helpers.h"
 #include "third_party/base/ptr_util.h"
 
@@ -50,10 +52,10 @@ bool GetBoundingBox(CPDF_Page* page,
   if (!pArray)
     return false;
 
-  *left = pArray->GetFloatAt(0);
-  *bottom = pArray->GetFloatAt(1);
-  *right = pArray->GetFloatAt(2);
-  *top = pArray->GetFloatAt(3);
+  *left = pArray->GetNumberAt(0);
+  *bottom = pArray->GetNumberAt(1);
+  *right = pArray->GetNumberAt(2);
+  *top = pArray->GetNumberAt(3);
   return true;
 }
 
@@ -170,21 +172,6 @@ FPDFPage_TransFormWithClip(FPDF_PAGE page,
   if (!pPage)
     return false;
 
-  std::ostringstream textBuf;
-  textBuf << "q ";
-
-  if (clipRect) {
-    CFX_FloatRect rect = CFXFloatRectFromFSRECTF(*clipRect);
-    rect.Normalize();
-
-    textBuf << ByteString::Format("%f %f %f %f re W* n ", rect.left,
-                                  rect.bottom, rect.Width(), rect.Height());
-  }
-  if (matrix) {
-    textBuf << ByteString::Format("%f %f %f %f %f %f cm ", matrix->a, matrix->b,
-                                  matrix->c, matrix->d, matrix->e, matrix->f);
-  }
-
   CPDF_Dictionary* pPageDict = pPage->GetDict();
   CPDF_Object* pContentObj = GetPageContent(pPageDict);
   if (!pContentObj)
@@ -194,24 +181,41 @@ FPDFPage_TransFormWithClip(FPDF_PAGE page,
   if (!pDoc)
     return false;
 
+  std::ostringstream text_buf;
+  text_buf << "q ";
+
+  if (clipRect) {
+    CFX_FloatRect rect = CFXFloatRectFromFSRECTF(*clipRect);
+    rect.Normalize();
+
+    WriteFloat(text_buf, rect.left) << " ";
+    WriteFloat(text_buf, rect.bottom) << " ";
+    WriteFloat(text_buf, rect.Width()) << " ";
+    WriteFloat(text_buf, rect.Height()) << " re W* n ";
+  }
+  if (matrix) {
+    CFX_Matrix m = CFXMatrixFromFSMatrix(*matrix);
+    text_buf << m << " cm ";
+  }
+
   CPDF_Stream* pStream =
       pDoc->NewIndirect<CPDF_Stream>(nullptr, 0, pDoc->New<CPDF_Dictionary>());
-  pStream->SetDataFromStringstream(&textBuf);
+  pStream->SetDataFromStringstream(&text_buf);
 
   CPDF_Stream* pEndStream =
       pDoc->NewIndirect<CPDF_Stream>(nullptr, 0, pDoc->New<CPDF_Dictionary>());
-  pEndStream->SetData(ByteStringView(" Q").span());
+  pEndStream->SetData(ByteStringView(" Q").raw_span());
 
   if (CPDF_Array* pContentArray = ToArray(pContentObj)) {
-    pContentArray->InsertAt(0, pStream->MakeReference(pDoc));
-    pContentArray->Add(pEndStream->MakeReference(pDoc));
+    pContentArray->InsertNewAt<CPDF_Reference>(0, pDoc, pStream->GetObjNum());
+    pContentArray->AddNew<CPDF_Reference>(pDoc, pEndStream->GetObjNum());
   } else if (pContentObj->IsStream() && !pContentObj->IsInline()) {
     pContentArray = pDoc->NewIndirect<CPDF_Array>();
-    pContentArray->Add(pStream->MakeReference(pDoc));
-    pContentArray->Add(pContentObj->MakeReference(pDoc));
-    pContentArray->Add(pEndStream->MakeReference(pDoc));
-    pPageDict->SetFor(pdfium::page_object::kContents,
-                      pContentArray->MakeReference(pDoc));
+    pContentArray->AddNew<CPDF_Reference>(pDoc, pStream->GetObjNum());
+    pContentArray->AddNew<CPDF_Reference>(pDoc, pContentObj->GetObjNum());
+    pContentArray->AddNew<CPDF_Reference>(pDoc, pEndStream->GetObjNum());
+    pPageDict->SetNewFor<CPDF_Reference>(pdfium::page_object::kContents, pDoc,
+                                         pContentArray->GetObjNum());
   }
 
   // Need to transform the patterns as well.
@@ -226,7 +230,7 @@ FPDFPage_TransFormWithClip(FPDF_PAGE page,
 
   CPDF_DictionaryLocker locker(pPatternDict);
   for (const auto& it : locker) {
-    CPDF_Object* pObj = it.second.get();
+    CPDF_Object* pObj = it.second.Get();
     if (pObj->IsReference())
       pObj = pObj->GetDirect();
 
@@ -359,12 +363,12 @@ FPDF_EXPORT void FPDF_CALLCONV FPDFPage_InsertClipPath(FPDF_PAGE page,
   pStream->SetDataFromStringstream(&strClip);
 
   if (CPDF_Array* pArray = ToArray(pContentObj)) {
-    pArray->InsertAt(0, pStream->MakeReference(pDoc));
+    pArray->InsertNewAt<CPDF_Reference>(0, pDoc, pStream->GetObjNum());
   } else if (pContentObj->IsStream() && !pContentObj->IsInline()) {
     CPDF_Array* pContentArray = pDoc->NewIndirect<CPDF_Array>();
-    pContentArray->Add(pStream->MakeReference(pDoc));
-    pContentArray->Add(pContentObj->MakeReference(pDoc));
-    pPageDict->SetFor(pdfium::page_object::kContents,
-                      pContentArray->MakeReference(pDoc));
+    pContentArray->AddNew<CPDF_Reference>(pDoc, pStream->GetObjNum());
+    pContentArray->AddNew<CPDF_Reference>(pDoc, pContentObj->GetObjNum());
+    pPageDict->SetNewFor<CPDF_Reference>(pdfium::page_object::kContents, pDoc,
+                                         pContentArray->GetObjNum());
   }
 }

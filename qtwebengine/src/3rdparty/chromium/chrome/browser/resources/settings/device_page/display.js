@@ -136,18 +136,10 @@ Polymer({
     },
 
     /** @private */
-    multiMirroringAvailable_: {
+    listAllDisplayModes_: {
       type: Boolean,
       value: function() {
-        return loadTimeData.getBoolean('multiMirroringAvailable');
-      }
-    },
-
-    /** @private */
-    nightLightFeatureEnabled_: {
-      type: Boolean,
-      value: function() {
-        return loadTimeData.getBoolean('nightLightFeatureEnabled');
+        return loadTimeData.getBoolean('listAllDisplayModes');
       }
     },
 
@@ -190,6 +182,12 @@ Polymer({
 
     /** @private */
     logicalResolutionText_: String,
+
+    /** @private {!Array<string>} */
+    displayTabNames_: Array,
+
+    /** @private */
+    selectedTab_: Number,
   },
 
   observers: [
@@ -283,6 +281,7 @@ Polymer({
   displayLayoutFetched_: function(displays, layouts) {
     this.layouts = layouts;
     this.displays = displays;
+    this.displayTabNames_ = displays.map(({name}) => name);
     this.updateDisplayInfo_();
   },
 
@@ -375,12 +374,20 @@ Polymer({
    */
   getDisplayModeOptionList_: function(selectedDisplay) {
     const optionList = [];
+
+    const listAllModes = this.listAllDisplayModes_;
+
     for (let i = 0; i < selectedDisplay.modes.length; ++i) {
+      const mode = selectedDisplay.modes[i];
+
+      const id = listAllModes && mode.isInterlaced ?
+          'displayResolutionInterlacedMenuItem' :
+          'displayResolutionMenuItem';
+      const refreshRate = Math.round(mode.refreshRate * 100) / 100;
       const option = this.i18n(
-          'displayResolutionMenuItem',
-          selectedDisplay.modes[i].width.toString(),
-          selectedDisplay.modes[i].height.toString(),
-          Math.round(selectedDisplay.modes[i].refreshRate).toString());
+          id, mode.width.toString(), mode.height.toString(),
+          refreshRate.toString());
+
       optionList.push({
         name: option,
         value: i,
@@ -458,6 +465,7 @@ Polymer({
     // Set |selectedDisplay| first since only the resolution slider depends
     // on |selectedModePref_|.
     this.selectedDisplay = selectedDisplay;
+    this.selectedTab_ = this.displays.indexOf(this.selectedDisplay);
 
     // Now that everything is in sync, set the selected mode to its correct
     // value right before updating the pref.
@@ -521,7 +529,11 @@ Polymer({
    * @private
    */
   showDisplaySelectMenu_: function(displays, selectedDisplay) {
-    return displays.length > 1 && !selectedDisplay.isPrimary;
+    if (selectedDisplay) {
+      return displays.length > 1 && !selectedDisplay.isPrimary;
+    }
+
+    return false;
   },
 
   /**
@@ -558,6 +570,10 @@ Polymer({
    */
   showUnifiedDesktop_: function(
       unifiedDesktopAvailable, unifiedDesktopMode, displays) {
+    if (displays === undefined) {
+      return false;
+    }
+
     return unifiedDesktopMode ||
         (unifiedDesktopAvailable && displays.length > 1 &&
          !this.isMirrored_(displays));
@@ -584,9 +600,7 @@ Polymer({
     }
 
     return this.isMirrored_(displays) ||
-        (!unifiedDesktopMode &&
-         ((this.multiMirroringAvailable_ && displays.length > 1) ||
-          displays.length == 2));
+        (!unifiedDesktopMode && displays.length > 1);
   },
 
   /**
@@ -709,14 +723,17 @@ Polymer({
   /**
    * Handles the event where the display size slider is being dragged, i.e. the
    * mouse or tap has not been released.
-   * @param {!Event} e
    * @private
    */
-  onDisplaySizeSliderDrag_: function(e) {
+  onDisplaySizeSliderDrag_: function() {
     if (!this.selectedDisplay) {
       return;
     }
-    this.updateLogicalResolutionText_(/** @type {number} */ (e.detail.value));
+
+    const sliderValue = this.$.displaySizeSlider.$$('#slider').value;
+    const zoomFactor = this.$.displaySizeSlider.ticks[sliderValue].value;
+    this.updateLogicalResolutionText_(
+        /** @type {number} */ (zoomFactor));
   },
 
   /**
@@ -737,14 +754,12 @@ Polymer({
     }
   },
 
-  /**
-   * Handles event when a display tab is selected.
-   * @param {!CustomEvent<!{item: !{displayId: string}}>} e
-   * @private
-   */
-  onSelectDisplayTab_: function(e) {
-    this.onSelectDisplay_(
-        new CustomEvent('select-display', {detail: e.detail.item.displayId}));
+  /** @private */
+  onSelectDisplayTab_: function() {
+    const {selected} = this.$$('cr-tabs');
+    if (this.selectedTab_ != selected) {
+      this.setSelectedDisplay_(this.displays[selected]);
+    }
   },
 
   /**
@@ -894,7 +909,7 @@ Polymer({
 
   /** @private */
   onCloseOverscanDialog_: function() {
-    cr.ui.focusWithoutInk(assert(this.$$('#overscan button')));
+    cr.ui.focusWithoutInk(assert(this.$$('#overscan')));
   },
 
   /** @private */

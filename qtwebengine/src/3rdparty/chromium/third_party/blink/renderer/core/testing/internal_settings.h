@@ -34,7 +34,7 @@
 #include "third_party/blink/renderer/platform/geometry/int_size.h"
 #include "third_party/blink/renderer/platform/graphics/image_animation_policy.h"
 #include "third_party/blink/renderer/platform/heap/handle.h"
-#include "third_party/blink/renderer/platform/wtf/allocator.h"
+#include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
 
 namespace blink {
@@ -50,6 +50,8 @@ class InternalSettings final : public InternalSettingsGenerated,
 
  public:
   static const char kSupplementName[];
+
+  static void PrepareForLeakDetection();
 
   class Backup {
     DISALLOW_NEW();
@@ -75,9 +77,6 @@ class InternalSettings final : public InternalSettingsGenerated,
     bool original_scroll_top_left_interop_enabled_;
   };
 
-  static InternalSettings* Create(Page& page) {
-    return MakeGarbageCollected<InternalSettings>(page);
-  }
   static InternalSettings* From(Page&);
 
   explicit InternalSettings(Page&);

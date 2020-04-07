@@ -7,6 +7,8 @@
 
 #include <memory>
 #include <string>
+// TODO(crbug.com/904390): Remove when the investigation is over.
+#include <vector>
 
 namespace syncer {
 struct EntityData;

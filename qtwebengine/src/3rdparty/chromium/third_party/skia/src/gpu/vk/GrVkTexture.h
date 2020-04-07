@@ -8,9 +8,9 @@
 #ifndef GrVkTexture_DEFINED
 #define GrVkTexture_DEFINED
 
-#include "GrTexture.h"
-#include "GrVkImage.h"
-#include "vk/GrVkTypes.h"
+#include "include/gpu/GrTexture.h"
+#include "include/gpu/vk/GrVkTypes.h"
+#include "src/gpu/vk/GrVkImage.h"
 
 class GrVkGpu;
 class GrVkImageView;
@@ -25,8 +25,8 @@ public:
                                              GrMipMapsStatus);
 
     static sk_sp<GrVkTexture> MakeWrappedTexture(GrVkGpu*, const GrSurfaceDesc&, GrWrapOwnership,
-                                                 GrIOType, bool purgeImmediately,
-                                                 const GrVkImageInfo&, sk_sp<GrVkImageLayout>);
+                                                 GrWrapCacheable, GrIOType, const GrVkImageInfo&,
+                                                 sk_sp<GrVkImageLayout>);
 
     ~GrVkTexture() override;
 
@@ -38,15 +38,8 @@ public:
 
     const GrVkImageView* textureView();
 
-    // In Vulkan we call the release proc after we are finished with the underlying
-    // GrVkImage::Resource object (which occurs after the GPU has finsihed all work on it).
-    void setRelease(sk_sp<GrReleaseProcHelper> releaseHelper) override {
-        // Forward the release proc on to GrVkImage
-        this->setResourceRelease(std::move(releaseHelper));
-    }
-
-    void setIdleProc(IdleProc, void* context) override;
-    void* idleContext() const override { return fIdleProcContext; }
+    void addIdleProc(sk_sp<GrRefCntedCallback>, IdleState) override;
+    void callIdleProcsOnBehalfOfResource();
 
 protected:
     GrVkTexture(GrVkGpu*, const GrSurfaceDesc&, const GrVkImageInfo&, sk_sp<GrVkImageLayout>,
@@ -61,20 +54,26 @@ protected:
         return false;
     }
 
+    void willRemoveLastRefOrPendingIO() override;
+
 private:
-    enum Wrapped { kWrapped };
     GrVkTexture(GrVkGpu*, SkBudgeted, const GrSurfaceDesc&, const GrVkImageInfo&,
                 sk_sp<GrVkImageLayout> layout, const GrVkImageView* imageView,
                 GrMipMapsStatus);
-    GrVkTexture(GrVkGpu*, Wrapped, const GrSurfaceDesc&, const GrVkImageInfo&,
-                sk_sp<GrVkImageLayout> layout, const GrVkImageView* imageView, GrMipMapsStatus,
-                GrBackendObjectOwnership, GrIOType ioType, bool purgeImmediately);
+    GrVkTexture(GrVkGpu*, const GrSurfaceDesc&, const GrVkImageInfo&, sk_sp<GrVkImageLayout>,
+                const GrVkImageView*, GrMipMapsStatus, GrBackendObjectOwnership, GrWrapCacheable,
+                GrIOType);
 
-    void becamePurgeable() override;
+    // In Vulkan we call the release proc after we are finished with the underlying
+    // GrVkImage::Resource object (which occurs after the GPU has finished all work on it).
+    void onSetRelease(sk_sp<GrRefCntedCallback> releaseHelper) override {
+        // Forward the release proc on to GrVkImage
+        this->setResourceRelease(std::move(releaseHelper));
+    }
+
+    void removeFinishIdleProcs();
 
     const GrVkImageView* fTextureView;
-    GrTexture::IdleProc* fIdleProc = nullptr;
-    void* fIdleProcContext = nullptr;
 
     typedef GrTexture INHERITED;
 };

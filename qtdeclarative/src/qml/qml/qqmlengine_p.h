@@ -62,11 +62,11 @@
 #include "qqmlcontext_p.h"
 #include "qqmlexpression.h"
 #include "qqmlproperty_p.h"
-#include "qqmlpropertycache_p.h"
 #include "qqmlmetatype_p.h"
 #include <private/qintrusivelist_p.h>
 #include <private/qrecyclepool_p.h>
 #include <private/qfieldlist_p.h>
+#include <private/qv4engine_p.h>
 
 #include <QtCore/qlist.h>
 #include <QtCore/qpair.h>
@@ -77,7 +77,6 @@
 
 #include <private/qobject_p.h>
 
-#include <private/qv8engine_p.h>
 #include <private/qjsengine_p.h>
 #include <private/qqmldirparser_p.h>
 
@@ -95,12 +94,12 @@ class QQmlTypeNameCache;
 class QQmlComponentAttached;
 class QQmlCleanup;
 class QQmlDelayedError;
-class QQuickWorkerScriptEngine;
 class QQmlObjectCreator;
 class QDir;
 class QQmlIncubator;
 class QQmlProfiler;
 class QQmlPropertyCapture;
+class QQmlMetaObject;
 
 // This needs to be declared here so that the pool for it can live in QQmlEnginePrivate.
 // The inline method definitions are in qqmljavascriptexpression_p.h
@@ -150,12 +149,10 @@ public:
     QQmlDelayedError *erroredBindings;
     int inProgressCreations;
 
-    QV8Engine *v8engine() const { return q_func()->handle()->v8Engine; }
     QV4::ExecutionEngine *v4engine() const { return q_func()->handle(); }
 
 #if QT_CONFIG(qml_worker_script)
-    QQuickWorkerScriptEngine *getWorkerScriptEngine();
-    QQuickWorkerScriptEngine *workerScriptEngine;
+    QThread *workerScriptEngine;
 #endif
 
     QUrl baseUrl;
@@ -171,6 +168,8 @@ public:
     mutable QQmlNetworkAccessManagerFactory *networkAccessManagerFactory;
 #endif
     QHash<QString,QSharedPointer<QQmlImageProviderBase> > imageProviders;
+    QSharedPointer<QQmlImageProviderBase> imageProvider(const QString &providerId) const;
+
 
     QQmlAbstractUrlInterceptor* urlInterceptor;
 
@@ -223,11 +222,15 @@ public:
     QQmlMetaObject metaObjectForType(int) const;
     QQmlPropertyCache *propertyCacheForType(int);
     QQmlPropertyCache *rawPropertyCacheForType(int, int minorVersion = -1);
-    void registerInternalCompositeType(QV4::CompiledData::CompilationUnit *compilationUnit);
-    void unregisterInternalCompositeType(QV4::CompiledData::CompilationUnit *compilationUnit);
+    void registerInternalCompositeType(QV4::ExecutableCompilationUnit *compilationUnit);
+    void unregisterInternalCompositeType(QV4::ExecutableCompilationUnit *compilationUnit);
 
     bool isTypeLoaded(const QUrl &url) const;
     bool isScriptLoaded(const QUrl &url) const;
+
+    template <typename T>
+    T singletonInstance(const QQmlType &type);
+    void destroySingletonInstance(const QQmlType &type);
 
     void sendQuit();
     void sendExit(int retCode = 0);
@@ -238,7 +241,6 @@ public:
     static void warning(QQmlEnginePrivate *, const QQmlError &);
     static void warning(QQmlEnginePrivate *, const QList<QQmlError> &);
 
-    inline static QV8Engine *getV8Engine(QQmlEngine *e);
     inline static QV4::ExecutionEngine *getV4Engine(QQmlEngine *e);
     inline static QQmlEnginePrivate *get(QQmlEngine *e);
     inline static const QQmlEnginePrivate *get(const QQmlEngine *e);
@@ -249,9 +251,10 @@ public:
 
     static QList<QQmlError> qmlErrorFromDiagnostics(const QString &fileName, const QList<QQmlJS::DiagnosticMessage> &diagnosticMessages);
 
-    static void registerBaseTypes(const char *uri, int versionMajor, int versionMinor);
-    static void registerQtQuick2Types(const char *uri, int versionMajor, int versionMinor);
-    static void defineQtQuick2Module();
+    static void defineModule();
+#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
+    static void registerQuickTypes();
+#endif
 
     static bool designerMode();
     static void activateDesignerMode();
@@ -260,10 +263,28 @@ public:
 
     mutable QMutex networkAccessManagerMutex;
 
+    QQmlGadgetPtrWrapper *valueTypeInstance(int typeIndex)
+    {
+        auto it = cachedValueTypeInstances.find(typeIndex);
+        if (it != cachedValueTypeInstances.end())
+            return *it;
+
+        if (QQmlValueType *valueType = QQmlValueTypeFactory::valueType(typeIndex)) {
+            QQmlGadgetPtrWrapper *instance = new QQmlGadgetPtrWrapper(valueType, q_func());
+            cachedValueTypeInstances.insert(typeIndex, instance);
+            return instance;
+        }
+
+        return nullptr;
+    }
+
 private:
+    QHash<QQmlType, QJSValue> singletonInstances;
+    QHash<int, QQmlGadgetPtrWrapper *> cachedValueTypeInstances;
+
     // These members must be protected by a QQmlEnginePrivate::Locker as they are required by
     // the threaded loader.  Only access them through their respective accessor methods.
-    QHash<int, QV4::CompiledData::CompilationUnit *> m_compositeTypes;
+    QHash<int, QV4::ExecutableCompilationUnit *> m_compositeTypes;
     static bool s_designerMode;
 
     // These members is protected by the full QQmlEnginePrivate::mutex mutex
@@ -381,13 +402,6 @@ QQmlPropertyCache *QQmlEnginePrivate::cache(const QQmlType &type, int minorVersi
     return QQmlMetaType::propertyCache(type, minorVersion);
 }
 
-QV8Engine *QQmlEnginePrivate::getV8Engine(QQmlEngine *e)
-{
-    Q_ASSERT(e);
-
-    return e->handle()->v8Engine;
-}
-
 QV4::ExecutionEngine *QQmlEnginePrivate::getV4Engine(QQmlEngine *e)
 {
     Q_ASSERT(e);
@@ -432,6 +446,14 @@ QQmlEnginePrivate *QQmlEnginePrivate::get(QV4::ExecutionEngine *e)
     if (!qmlEngine)
         return nullptr;
     return get(qmlEngine);
+}
+
+template<>
+Q_QML_PRIVATE_EXPORT QJSValue QQmlEnginePrivate::singletonInstance<QJSValue>(const QQmlType &type);
+
+template<typename T>
+T QQmlEnginePrivate::singletonInstance(const QQmlType &type) {
+    return qobject_cast<T>(singletonInstance<QJSValue>(type).toQObject());
 }
 
 QT_END_NAMESPACE

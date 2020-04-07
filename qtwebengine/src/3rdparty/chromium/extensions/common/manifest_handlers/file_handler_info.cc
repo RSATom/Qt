@@ -49,6 +49,9 @@ FileHandlerInfo::FileHandlerInfo()
 FileHandlerInfo::FileHandlerInfo(const FileHandlerInfo& other) = default;
 FileHandlerInfo::~FileHandlerInfo() {}
 
+FileHandlerMatch::FileHandlerMatch() = default;
+FileHandlerMatch::~FileHandlerMatch() = default;
+
 FileHandlers::FileHandlers() {}
 FileHandlers::~FileHandlers() {}
 
@@ -98,8 +101,7 @@ bool LoadFileHandler(const std::string& handler_id,
     if (include_directories->is_bool()) {
       handler.include_directories = include_directories->GetBool();
     } else {
-      *error = ErrorUtils::FormatErrorMessageUTF16(
-          errors::kInvalidFileHandlerIncludeDirectories, handler_id);
+      *error = base::UTF8ToUTF16(errors::kInvalidFileHandlerIncludeDirectories);
       return false;
     }
   }
@@ -171,6 +173,17 @@ bool LoadFileHandler(const std::string& handler_id,
 }
 
 bool FileHandlersParser::Parse(Extension* extension, base::string16* error) {
+  // Don't load file handlers for hosted_apps unless they're also bookmark apps.
+  // This check can be removed when bookmark apps are migrated off hosted apps,
+  // and hosted_apps should be removed from the list of valid extension types
+  // for "file_handling" in extensions/common/api/_manifest_features.json.
+  if (extension->is_hosted_app() && !extension->from_bookmark()) {
+    extension->AddInstallWarning(
+        InstallWarning(errors::kInvalidFileHandlersHostedAppsNotSupported,
+                       keys::kFileHandlers));
+    return true;
+  }
+
   std::unique_ptr<FileHandlers> info(new FileHandlers);
   const base::Value* all_handlers = nullptr;
   if (!extension->manifest()->GetDictionary(keys::kFileHandlers,

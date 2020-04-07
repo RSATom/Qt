@@ -15,8 +15,6 @@ SOURCES += \
 QT += quick-private qml gui-private core-private waylandclient waylandclient-private
 CONFIG += wayland-scanner
 
-requires(qtConfig(wayland-client-texture-sharing-experimental))
-
 WAYLANDCLIENTSOURCES += ../../extensions/qt-texture-sharing-unstable-v1.xml
 
 

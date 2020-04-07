@@ -6,6 +6,9 @@
 
 #include "xfa/fxfa/parser/cxfa_present.h"
 
+#include "fxjs/xfa/cjx_node.h"
+#include "third_party/base/ptr_util.h"
+
 namespace {
 
 const CXFA_Node::PropertyData kPresentPropertyData[] = {
@@ -23,12 +26,12 @@ const CXFA_Node::PropertyData kPresentPropertyData[] = {
     {XFA_Element::PaginationOverride, 1, 0},
     {XFA_Element::Destination, 1, 0},
     {XFA_Element::IncrementalMerge, 1, 0},
-    {XFA_Element::Unknown, 0, 0}};
+};
 
 const CXFA_Node::AttributeData kPresentAttributeData[] = {
     {XFA_Attribute::Desc, XFA_AttributeType::CData, nullptr},
     {XFA_Attribute::Lock, XFA_AttributeType::Integer, (void*)0},
-    {XFA_Attribute::Unknown, XFA_AttributeType::Integer, nullptr}};
+};
 
 }  // namespace
 
@@ -39,6 +42,7 @@ CXFA_Present::CXFA_Present(CXFA_Document* doc, XFA_PacketType packet)
                 XFA_ObjectType::Node,
                 XFA_Element::Present,
                 kPresentPropertyData,
-                kPresentAttributeData) {}
+                kPresentAttributeData,
+                pdfium::MakeUnique<CJX_Node>(this)) {}
 
 CXFA_Present::~CXFA_Present() = default;

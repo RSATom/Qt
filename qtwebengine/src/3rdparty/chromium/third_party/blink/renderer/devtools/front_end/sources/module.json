@@ -24,6 +24,7 @@
             "category": "Debugger",
             "actionId": "debugger.toggle-pause",
             "iconClass": "largeicon-pause",
+            "toggleable": true,
             "toggledIconClass": "largeicon-resume",
             "className": "Sources.SourcesPanel.RevealingActionDelegate",
             "contextTypes": [
@@ -155,6 +156,7 @@
             "category": "Debugger",
             "actionId": "debugger.toggle-breakpoints-active",
             "iconClass": "largeicon-deactivate-breakpoints",
+            "toggleable": true,
             "toggledIconClass": "largeicon-activate-breakpoints",
             "className": "Sources.SourcesPanel.DebuggingActionDelegate",
             "contextTypes": [
@@ -427,6 +429,24 @@
         {
             "type": "setting",
             "category": "Sources",
+            "title": "Enable tab moves focus",
+            "settingName": "textEditorTabMovesFocus",
+            "settingType": "boolean",
+            "defaultValue": false,
+            "options": [
+                {
+                    "value": true,
+                    "title": "Enable tab moves focus"
+                },
+                {
+                    "value": false,
+                    "title": "Disable tab moves focus"
+                }
+            ]
+        },
+        {
+            "type": "setting",
+            "category": "Sources",
             "title": "Detect indentation",
             "settingName": "textEditorAutoDetectIndent",
             "settingType": "boolean",
@@ -668,6 +688,20 @@
                 {
                     "platform":"mac",
                     "shortcut": "Meta+Shift+b"
+                }
+            ]
+        },
+        {
+            "type": "action",
+            "actionId": "debugger.breakpoint-input-window",
+            "bindings": [
+                {
+                    "platform":"windows,linux",
+                    "shortcut": "Ctrl+Alt+b"
+                },
+                {
+                    "platform":"mac",
+                    "shortcut": "Meta+Alt+b"
                 }
             ]
         },
@@ -915,9 +949,7 @@
         "javaScriptBreakpointsSidebarPane.css",
         "navigatorTree.css",
         "navigatorView.css",
-        "revisionHistory.css",
         "scopeChainSidebarPane.css",
-        "serviceWorkersSidebar.css",
         "sourcesPanel.css",
         "sourcesView.css",
         "threadsSidebarPane.css",

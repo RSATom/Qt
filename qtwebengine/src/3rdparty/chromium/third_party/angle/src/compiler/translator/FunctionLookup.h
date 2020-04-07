@@ -19,7 +19,7 @@ namespace sh
 class TFunctionLookup : angle::NonCopyable
 {
   public:
-    POOL_ALLOCATOR_NEW_DELETE();
+    POOL_ALLOCATOR_NEW_DELETE
 
     static TFunctionLookup *CreateConstructor(const TType *type);
     static TFunctionLookup *CreateFunctionCall(const ImmutableString &name, const TSymbol *symbol);
@@ -28,6 +28,7 @@ class TFunctionLookup : angle::NonCopyable
     ImmutableString getMangledName() const;
     static ImmutableString GetMangledName(const char *functionName,
                                           const TIntermSequence &arguments);
+    std::vector<ImmutableString> getMangledNamesForImplicitConversions() const;
 
     bool isConstructor() const;
     const TType &constructorType() const;

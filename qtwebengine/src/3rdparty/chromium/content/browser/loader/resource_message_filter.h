@@ -34,8 +34,6 @@ class ChromeBlobStorageContext;
 class PrefetchURLLoaderService;
 class ResourceContext;
 class ResourceRequesterInfo;
-class ServiceWorkerContextWrapper;
-class SharedCorsOriginAccessList;
 
 // This class filters out incoming IPC messages for network requests and
 // processes them on the IPC thread.  As a result, network requests are not
@@ -51,8 +49,8 @@ class CONTENT_EXPORT ResourceMessageFilter
                               ResourceContext**,
                               net::URLRequestContext**)> GetContextsCallback;
 
-  // |appcache_service|, |blob_storage_context|, |file_system_context|,
-  // |service_worker_context| may be nullptr in unittests.
+  // |appcache_service|, |blob_storage_context|, and |file_system_context| may
+  // be nullptr in unittests.
   // InitializeForTest() needs to be manually called for unittests where
   // OnFilterAdded() would not otherwise be called.
   ResourceMessageFilter(
@@ -60,9 +58,7 @@ class CONTENT_EXPORT ResourceMessageFilter
       ChromeAppCacheService* appcache_service,
       ChromeBlobStorageContext* blob_storage_context,
       storage::FileSystemContext* file_system_context,
-      ServiceWorkerContextWrapper* service_worker_context,
       PrefetchURLLoaderService* prefetch_url_loader_service,
-      const SharedCorsOriginAccessList* shared_cors_origin_access_list,
       const GetContextsCallback& get_contexts_callback,
       const scoped_refptr<base::SingleThreadTaskRunner>& io_thread_runner);
 
@@ -122,14 +118,11 @@ class CONTENT_EXPORT ResourceMessageFilter
 
   scoped_refptr<PrefetchURLLoaderService> prefetch_url_loader_service_;
 
-  scoped_refptr<const SharedCorsOriginAccessList>
-      shared_cors_origin_access_list_;
-
   // Task runner for the IO thead.
   scoped_refptr<base::SingleThreadTaskRunner> io_thread_task_runner_;
 
   // This must come last to make sure weak pointers are invalidated first.
-  base::WeakPtrFactory<ResourceMessageFilter> weak_ptr_factory_;
+  base::WeakPtrFactory<ResourceMessageFilter> weak_ptr_factory_{this};
 
   DISALLOW_IMPLICIT_CONSTRUCTORS(ResourceMessageFilter);
 };

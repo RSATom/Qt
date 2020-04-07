@@ -32,6 +32,7 @@
 #include "content/public/browser/download_manager.h"
 #include "content/public/browser/download_manager_delegate.h"
 #include "content/public/browser/ssl_status.h"
+#include "mojo/public/cpp/system/data_pipe.h"
 #include "services/metrics/public/cpp/ukm_source_id.h"
 #include "services/network/public/mojom/url_loader.mojom.h"
 #include "url/origin.h"
@@ -76,20 +77,23 @@ class CONTENT_EXPORT DownloadManagerImpl
 
   // DownloadManager functions.
   void SetDelegate(DownloadManagerDelegate* delegate) override;
-  DownloadManagerDelegate* GetDelegate() const override;
+  DownloadManagerDelegate* GetDelegate() override;
   void Shutdown() override;
-  void GetAllDownloads(DownloadVector* result) override;
+  void GetAllDownloads(
+      download::SimpleDownloadManager::DownloadVector* result) override;
+  void GetUninitializedActiveDownloadsIfAny(
+      download::SimpleDownloadManager::DownloadVector* result) override;
   void StartDownload(std::unique_ptr<download::DownloadCreateInfo> info,
                      std::unique_ptr<download::InputStream> stream,
                      scoped_refptr<download::DownloadURLLoaderFactoryGetter>
                          url_loader_factory_getter,
                      const download::DownloadUrlParameters::OnStartedCallback&
                          on_started) override;
-
   int RemoveDownloadsByURLAndTime(
       const base::Callback<bool(const GURL&)>& url_filter,
       base::Time remove_begin,
       base::Time remove_end) override;
+  bool CanDownload(download::DownloadUrlParameters* parameters) override;
   void DownloadUrl(
       std::unique_ptr<download::DownloadUrlParameters> parameters) override;
   void DownloadUrl(std::unique_ptr<download::DownloadUrlParameters> params,
@@ -127,10 +131,10 @@ class CONTENT_EXPORT DownloadManagerImpl
       const std::vector<download::DownloadItem::ReceivedSlice>& received_slices)
       override;
   void PostInitialization(DownloadInitializationDependency dependency) override;
-  bool IsManagerInitialized() const override;
-  int InProgressCount() const override;
-  int NonMaliciousInProgressCount() const override;
-  BrowserContext* GetBrowserContext() const override;
+  bool IsManagerInitialized() override;
+  int InProgressCount() override;
+  int NonMaliciousInProgressCount() override;
+  BrowserContext* GetBrowserContext() override;
   void CheckForHistoryFilesRemoval() override;
   void OnHistoryQueryComplete(
       base::OnceClosure load_history_downloads_cb) override;
@@ -173,7 +177,8 @@ class CONTENT_EXPORT DownloadManagerImpl
   void InterceptNavigation(
       std::unique_ptr<network::ResourceRequest> resource_request,
       std::vector<GURL> url_chain,
-      scoped_refptr<network::ResourceResponse> response,
+      scoped_refptr<network::ResourceResponse> response_head,
+      mojo::ScopedDataPipeConsumerHandle response_body,
       network::mojom::URLLoaderClientEndpointsPtr url_loader_client_endpoints,
       net::CertStatus cert_status,
       int frame_tree_node_id);
@@ -199,6 +204,7 @@ class CONTENT_EXPORT DownloadManagerImpl
       uint32_t id);
 
   // InProgressDownloadManager::Delegate implementations.
+  void OnDownloadsInitialized() override;
   bool InterceptDownload(const download::DownloadCreateInfo& info) override;
   base::FilePath GetDefaultDownloadDirectory() override;
   void StartDownloadItem(
@@ -208,9 +214,6 @@ class CONTENT_EXPORT DownloadManagerImpl
       override;
   net::URLRequestContextGetter* GetURLRequestContextGetter(
       const download::DownloadCreateInfo& info) override;
-
-  // Called when InProgressDownloadManager is initialzed.
-  void OnInProgressDownloadManagerInitialized();
 
   // Creates a new download item and call |callback|.
   void CreateNewDownloadItemToStart(
@@ -261,6 +264,7 @@ class CONTENT_EXPORT DownloadManagerImpl
       download::DownloadItemImpl* download) override;
   bool IsOffTheRecord() const override;
   void ReportBytesWasted(download::DownloadItemImpl* download) override;
+  service_manager::Connector* GetServiceManagerConnector() override;
 
   // Drops a download before it is created.
   void DropDownload();
@@ -277,8 +281,9 @@ class CONTENT_EXPORT DownloadManagerImpl
       ResourceRequestInfo::WebContentsGetter web_contents_getter,
       std::unique_ptr<network::ResourceRequest> resource_request,
       std::vector<GURL> url_chain,
-      scoped_refptr<network::ResourceResponse> response,
       net::CertStatus cert_status,
+      scoped_refptr<network::ResourceResponse> response_head,
+      mojo::ScopedDataPipeConsumerHandle response_body,
       network::mojom::URLLoaderClientEndpointsPtr url_loader_client_endpoints,
       bool is_download_allowed);
   void BeginResourceDownloadOnChecksComplete(
@@ -297,6 +302,13 @@ class CONTENT_EXPORT DownloadManagerImpl
   // Retrieves a download from |in_progress_downloads_|.
   std::unique_ptr<download::DownloadItemImpl> RetrieveInProgressDownload(
       uint32_t id);
+
+  // Import downloads from |in_progress_downloads_| into |downloads_|, resolve
+  // missing download IDs.
+  void ImportInProgressDownloads(uint32_t next_id);
+
+  // Called when this object is considered initialized.
+  void OnDownloadManagerInitialized();
 
 #if defined(OS_ANDROID)
   // Check whether a download should be cleared from history. On Android,
@@ -327,9 +339,6 @@ class CONTENT_EXPORT DownloadManagerImpl
 
   // True if the download manager has been initialized and requires a shutdown.
   bool shutdown_needed_;
-
-  // True if the download manager has been initialized and loaded all the data.
-  bool initialized_;
 
   // Whether the history db and/or in progress cache are initialized.
   bool history_db_initialized_;
@@ -375,15 +384,17 @@ class CONTENT_EXPORT DownloadManagerImpl
   int interrupted_download_cleared_from_history_;
 
   // In progress downloads returned by |in_progress_manager_| that are not yet
-  // added to |downloads_|.
-  std::unordered_map<uint32_t, std::unique_ptr<download::DownloadItemImpl>>
+  // added to |downloads_|. If a download was started without launching full
+  // browser process, its ID will be invalid. DownloadManager will assign new
+  // ID to it when importing all downloads.
+  std::vector<std::unique_ptr<download::DownloadItemImpl>>
       in_progress_downloads_;
 
   // Callbacks to run once download ID is determined.
   using IdCallbackVector = std::vector<std::unique_ptr<GetNextIdCallback>>;
   IdCallbackVector id_callbacks_;
 
-  base::WeakPtrFactory<DownloadManagerImpl> weak_factory_;
+  base::WeakPtrFactory<DownloadManagerImpl> weak_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(DownloadManagerImpl);
 };

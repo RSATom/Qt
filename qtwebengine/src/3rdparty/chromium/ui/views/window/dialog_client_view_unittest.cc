@@ -5,6 +5,7 @@
 #include "ui/views/window/dialog_client_view.h"
 
 #include <map>
+#include <memory>
 
 #include "base/macros.h"
 #include "base/strings/utf_string_conversions.h"
@@ -32,7 +33,7 @@ namespace views {
 class DialogClientViewTest : public test::WidgetTest,
                              public DialogDelegateView {
  public:
-  DialogClientViewTest() {}
+  DialogClientViewTest() = default;
 
   // testing::Test:
   void SetUp() override {
@@ -67,7 +68,9 @@ class DialogClientViewTest : public test::WidgetTest,
     // DialogDelegateView would delete this, but |this| is owned by the test.
   }
 
-  View* CreateExtraView() override { return next_extra_view_.release(); }
+  std::unique_ptr<View> CreateExtraView() override {
+    return std::move(next_extra_view_);
+  }
 
   bool GetExtraViewPadding(int* padding) override {
     if (extra_view_padding_)
@@ -123,7 +126,7 @@ class DialogClientViewTest : public test::WidgetTest,
   // Sets the extra view padding.
   void SetExtraViewPadding(int padding) {
     DCHECK(!extra_view_padding_);
-    extra_view_padding_.reset(new int(padding));
+    extra_view_padding_ = std::make_unique<int>(padding);
     DialogModelChanged();
   }
 
@@ -183,33 +186,33 @@ class DialogClientViewTest : public test::WidgetTest,
 TEST_F(DialogClientViewTest, UpdateButtons) {
   // This dialog should start with no buttons.
   EXPECT_EQ(GetDialogButtons(), ui::DIALOG_BUTTON_NONE);
-  EXPECT_EQ(NULL, client_view()->ok_button());
-  EXPECT_EQ(NULL, client_view()->cancel_button());
+  EXPECT_EQ(nullptr, client_view()->ok_button());
+  EXPECT_EQ(nullptr, client_view()->cancel_button());
   const int height_without_buttons = GetUpdatedClientBounds().height();
 
   // Update to use both buttons.
   SetDialogButtons(ui::DIALOG_BUTTON_OK | ui::DIALOG_BUTTON_CANCEL);
-  EXPECT_TRUE(client_view()->ok_button()->is_default());
-  EXPECT_FALSE(client_view()->cancel_button()->is_default());
+  EXPECT_TRUE(client_view()->ok_button()->GetIsDefault());
+  EXPECT_FALSE(client_view()->cancel_button()->GetIsDefault());
   const int height_with_buttons = GetUpdatedClientBounds().height();
   EXPECT_GT(height_with_buttons, height_without_buttons);
 
   // Remove the dialog buttons.
   SetDialogButtons(ui::DIALOG_BUTTON_NONE);
-  EXPECT_EQ(NULL, client_view()->ok_button());
-  EXPECT_EQ(NULL, client_view()->cancel_button());
+  EXPECT_EQ(nullptr, client_view()->ok_button());
+  EXPECT_EQ(nullptr, client_view()->cancel_button());
   EXPECT_EQ(GetUpdatedClientBounds().height(), height_without_buttons);
 
   // Reset with just an ok button.
   SetDialogButtons(ui::DIALOG_BUTTON_OK);
-  EXPECT_TRUE(client_view()->ok_button()->is_default());
-  EXPECT_EQ(NULL, client_view()->cancel_button());
+  EXPECT_TRUE(client_view()->ok_button()->GetIsDefault());
+  EXPECT_EQ(nullptr, client_view()->cancel_button());
   EXPECT_EQ(GetUpdatedClientBounds().height(), height_with_buttons);
 
   // Reset with just a cancel button.
   SetDialogButtons(ui::DIALOG_BUTTON_CANCEL);
-  EXPECT_EQ(NULL, client_view()->ok_button());
-  EXPECT_EQ(client_view()->cancel_button()->is_default(),
+  EXPECT_EQ(nullptr, client_view()->ok_button());
+  EXPECT_EQ(client_view()->cancel_button()->GetIsDefault(),
             PlatformStyle::kDialogDefaultButtonCanBeCancel);
   EXPECT_EQ(GetUpdatedClientBounds().height(), height_with_buttons);
 }
@@ -218,14 +221,14 @@ TEST_F(DialogClientViewTest, RemoveAndUpdateButtons) {
   // Removing buttons from another context should clear the local pointer.
   SetDialogButtons(ui::DIALOG_BUTTON_OK | ui::DIALOG_BUTTON_CANCEL);
   delete client_view()->ok_button();
-  EXPECT_EQ(NULL, client_view()->ok_button());
+  EXPECT_EQ(nullptr, client_view()->ok_button());
   delete client_view()->cancel_button();
-  EXPECT_EQ(NULL, client_view()->cancel_button());
+  EXPECT_EQ(nullptr, client_view()->cancel_button());
 
   // Updating should restore the requested buttons properly.
   SetDialogButtons(ui::DIALOG_BUTTON_OK | ui::DIALOG_BUTTON_CANCEL);
-  EXPECT_TRUE(client_view()->ok_button()->is_default());
-  EXPECT_FALSE(client_view()->cancel_button()->is_default());
+  EXPECT_TRUE(client_view()->ok_button()->GetIsDefault());
+  EXPECT_FALSE(client_view()->cancel_button()->GetIsDefault());
 }
 
 // Test that views inside the dialog client view have the correct focus order.
@@ -511,10 +514,11 @@ TEST_F(DialogClientViewTest, FocusChangingButtons) {
 }
 
 // Ensures that clicks are ignored for short time after view has been shown.
-TEST_F(DialogClientViewTest, IgnorePossiblyUnintendedClicks) {
+TEST_F(DialogClientViewTest, IgnorePossiblyUnintendedClicks_ClickAfterShown) {
   widget()->Show();
   SetDialogButtons(ui::DIALOG_BUTTON_CANCEL | ui::DIALOG_BUTTON_OK);
 
+  // Should ignore clicks right after the dialog is shown.
   ui::MouseEvent mouse_event(ui::ET_MOUSE_PRESSED, gfx::Point(), gfx::Point(),
                              ui::EventTimeForNow(), ui::EF_NONE, ui::EF_NONE);
   client_view()->ButtonPressed(client_view()->ok_button(), mouse_event);
@@ -527,6 +531,47 @@ TEST_F(DialogClientViewTest, IgnorePossiblyUnintendedClicks) {
                      ui::EventTimeForNow() + base::TimeDelta::FromMilliseconds(
                                                  GetDoubleClickInterval()),
                      ui::EF_NONE, ui::EF_NONE));
+  EXPECT_TRUE(widget()->IsClosed());
+}
+
+// Ensures that repeated clicks with short intervals after view has been shown
+// are also ignored.
+TEST_F(DialogClientViewTest, IgnorePossiblyUnintendedClicks_RepeatedClicks) {
+  widget()->Show();
+  SetDialogButtons(ui::DIALOG_BUTTON_CANCEL | ui::DIALOG_BUTTON_OK);
+
+  const base::TimeTicks kNow = ui::EventTimeForNow();
+  const base::TimeDelta kShortClickInterval =
+      base::TimeDelta::FromMilliseconds(GetDoubleClickInterval());
+
+  // Should ignore clicks right after the dialog is shown.
+  ui::MouseEvent mouse_event(ui::ET_MOUSE_PRESSED, gfx::Point(), gfx::Point(),
+                             kNow, ui::EF_NONE, ui::EF_NONE);
+  client_view()->ButtonPressed(client_view()->ok_button(), mouse_event);
+  client_view()->ButtonPressed(client_view()->cancel_button(), mouse_event);
+  EXPECT_FALSE(widget()->IsClosed());
+
+  // Should ignore repeated clicks with short intervals, even though enough time
+  // has passed since the dialog was shown.
+  const base::TimeDelta kRepeatedClickInterval = kShortClickInterval / 2;
+  const size_t kNumClicks = 4;
+  ASSERT_TRUE(kNumClicks * kRepeatedClickInterval > kShortClickInterval);
+  base::TimeTicks event_time = kNow;
+  for (size_t i = 0; i < kNumClicks; i++) {
+    client_view()->ButtonPressed(
+        client_view()->cancel_button(),
+        ui::MouseEvent(ui::ET_MOUSE_PRESSED, gfx::Point(), gfx::Point(),
+                       event_time, ui::EF_NONE, ui::EF_NONE));
+    EXPECT_FALSE(widget()->IsClosed());
+    event_time += kRepeatedClickInterval;
+  }
+
+  // Sufficient time passed, events are now allowed.
+  event_time += kShortClickInterval;
+  client_view()->ButtonPressed(
+      client_view()->cancel_button(),
+      ui::MouseEvent(ui::ET_MOUSE_PRESSED, gfx::Point(), gfx::Point(),
+                     event_time, ui::EF_NONE, ui::EF_NONE));
   EXPECT_TRUE(widget()->IsClosed());
 }
 

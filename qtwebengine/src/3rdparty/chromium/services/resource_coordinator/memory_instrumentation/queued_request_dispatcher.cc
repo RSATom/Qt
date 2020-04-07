@@ -5,16 +5,21 @@
 #include "services/resource_coordinator/memory_instrumentation/queued_request_dispatcher.h"
 
 #include <inttypes.h>
+#include <utility>
 
+#include "base/bind.h"
 #include "base/command_line.h"
+#include "base/format_macros.h"
 #include "base/logging.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/strings/pattern.h"
 #include "base/strings/stringprintf.h"
 #include "base/trace_event/trace_event.h"
 #include "build/build_config.h"
+#include "services/resource_coordinator/memory_instrumentation/aggregate_metrics_processor.h"
 #include "services/resource_coordinator/memory_instrumentation/graph_processor.h"
 #include "services/resource_coordinator/memory_instrumentation/switches.h"
+#include "services/resource_coordinator/public/cpp/memory_instrumentation/global_memory_dump.h"
 
 #if defined(OS_MACOSX) && !defined(OS_IOS)
 #include "base/mac/mac_util.h"
@@ -73,6 +78,8 @@ memory_instrumentation::mojom::OSMemDumpPtr CreatePublicOSDump(
   mojom::OSMemDumpPtr os_dump = mojom::OSMemDump::New();
 
   os_dump->resident_set_kb = internal_os_dump.resident_set_kb;
+  os_dump->peak_resident_set_kb = internal_os_dump.peak_resident_set_kb;
+  os_dump->is_peak_rss_resettable = internal_os_dump.is_peak_rss_resettable;
   os_dump->private_footprint_kb =
       CalculatePrivateFootprintKb(internal_os_dump, shared_resident_kb);
 #if defined(OS_LINUX) || defined(OS_ANDROID)
@@ -216,6 +223,7 @@ void QueuedRequestDispatcher::SetUpAndDispatch(
 
     request->responses[client].process_id = client_info.pid;
     request->responses[client].process_type = client_info.process_type;
+    request->responses[client].service_names = client_info.service_names;
 
     // Don't request a chrome memory dump at all if the client only wants the
     // a memory footprint.
@@ -380,12 +388,19 @@ void QueuedRequestDispatcher::Finalize(QueuedRequest* request,
   // All the pointers in the maps will continue to be owned by |request|
   // which outlives these containers.
   std::map<base::ProcessId, mojom::ProcessType> pid_to_process_type;
+  std::map<base::ProcessId, std::vector<std::string>> pid_to_service_names;
   std::map<base::ProcessId, const base::trace_event::ProcessMemoryDump*>
       pid_to_pmd;
   std::map<base::ProcessId, mojom::RawOSMemDump*> pid_to_os_dump;
   for (auto& response : request->responses) {
     const base::ProcessId& original_pid = response.second.process_id;
     pid_to_process_type[original_pid] = response.second.process_type;
+
+    std::vector<std::string>& service_names_for_pid =
+        pid_to_service_names[original_pid];
+    service_names_for_pid.insert(service_names_for_pid.begin(),
+                                 response.second.service_names.begin(),
+                                 response.second.service_names.end());
 
     // |chrome_dump| can be nullptr if this was a OS-counters only response.
     pid_to_pmd[original_pid] = response.second.chrome_dump.get();
@@ -519,6 +534,7 @@ void QueuedRequestDispatcher::Finalize(QueuedRequest* request,
     mojom::ProcessMemoryDumpPtr pmd = mojom::ProcessMemoryDump::New();
     pmd->pid = pid;
     pmd->process_type = pid_to_process_type[pid];
+    pmd->service_names = pid_to_service_names[pid];
     pmd->os_dump = std::move(os_dump);
 
     // If we have to return a summary, add all entries for the requested
@@ -544,6 +560,8 @@ void QueuedRequestDispatcher::Finalize(QueuedRequest* request,
 
     global_dump->process_dumps.push_back(std::move(pmd));
   }
+  global_dump->aggregated_metrics =
+      ComputeGlobalNativeCodeResidentMemoryKb(pid_to_os_dump);
 
   const bool global_success = request->failed_memory_dump_count == 0;
 
@@ -601,10 +619,16 @@ bool QueuedRequestDispatcher::AddChromeMemoryDumpToTrace(
   return true;
 }
 
-QueuedRequestDispatcher::ClientInfo::ClientInfo(mojom::ClientProcess* client,
-                                                base::ProcessId pid,
-                                                mojom::ProcessType process_type)
-    : client(client), pid(pid), process_type(process_type) {}
+QueuedRequestDispatcher::ClientInfo::ClientInfo(
+    mojom::ClientProcess* client,
+    base::ProcessId pid,
+    mojom::ProcessType process_type,
+    std::vector<std::string> service_names)
+    : client(client),
+      pid(pid),
+      process_type(process_type),
+      service_names(std::move(service_names)) {}
+QueuedRequestDispatcher::ClientInfo::ClientInfo(ClientInfo&& other) = default;
 QueuedRequestDispatcher::ClientInfo::~ClientInfo() {}
 
 }  // namespace memory_instrumentation

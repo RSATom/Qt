@@ -15,11 +15,13 @@ class MockVideoCaptureDeviceClient : public VideoCaptureDevice::Client {
   MockVideoCaptureDeviceClient();
   ~MockVideoCaptureDeviceClient() override;
 
-  MOCK_METHOD7(OnIncomingCapturedData,
+  MOCK_METHOD9(OnIncomingCapturedData,
                void(const uint8_t* data,
                     int length,
                     const media::VideoCaptureFormat& frame_format,
+                    const gfx::ColorSpace& color_space,
                     int rotation,
+                    bool flip_y,
                     base::TimeTicks reference_time,
                     base::TimeDelta timestamp,
                     int frame_feedback_id));
@@ -47,6 +49,7 @@ class MockVideoCaptureDeviceClient : public VideoCaptureDevice::Client {
   void OnIncomingCapturedBufferExt(
       Buffer buffer,
       const media::VideoCaptureFormat& format,
+      const gfx::ColorSpace& color_space,
       base::TimeTicks reference_time,
       base::TimeDelta timestamp,
       gfx::Rect visible_rect,
@@ -57,14 +60,18 @@ class MockVideoCaptureDeviceClient : public VideoCaptureDevice::Client {
                     const media::VideoCaptureFormat&,
                     base::TimeTicks,
                     base::TimeDelta));
-  MOCK_METHOD6(DoOnIncomingCapturedBufferExt,
+  MOCK_METHOD7(DoOnIncomingCapturedBufferExt,
                void(Buffer& buffer,
                     const media::VideoCaptureFormat& format,
+                    const gfx::ColorSpace& color_space,
                     base::TimeTicks reference_time,
                     base::TimeDelta timestamp,
                     gfx::Rect visible_rect,
                     const media::VideoFrameMetadata& additional_metadata));
 };
+
+using NiceMockVideoCaptureDeviceClient =
+    ::testing::NiceMock<MockVideoCaptureDeviceClient>;
 
 }  // namespace media
 

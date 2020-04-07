@@ -38,6 +38,7 @@
 #include <qhostaddress.h>
 #include <qtcpsocket.h>
 #include <qdebug.h>
+#include <qelapsedtimer.h>
 #include <qtcpserver.h>
 
 #include "../../../network-settings.h"
@@ -122,7 +123,15 @@ public slots:
 
 void tst_QHttpSocketEngine::initTestCase()
 {
-    QVERIFY(QtNetworkSettings::verifyTestNetworkSettings());
+#ifdef QT_TEST_SERVER
+    QVERIFY(QtNetworkSettings::verifyConnection(QtNetworkSettings::httpProxyServerName(), 3128));
+    QVERIFY(QtNetworkSettings::verifyConnection(QtNetworkSettings::socksProxyServerName(), 1080));
+    QVERIFY(QtNetworkSettings::verifyConnection(QtNetworkSettings::httpServerName(), 80));
+    QVERIFY(QtNetworkSettings::verifyConnection(QtNetworkSettings::imapServerName(), 143));
+#else
+    if (!QtNetworkSettings::verifyTestNetworkSettings())
+        QSKIP("No network test server available");
+#endif
 }
 
 void tst_QHttpSocketEngine::init()
@@ -171,7 +180,7 @@ void tst_QHttpSocketEngine::errorTest_data()
     QTest::newRow("proxy-host-not-found") << "this-host-does-not-exist." << 1080 << QString()
                                           << QString()
                                           << int(QAbstractSocket::ProxyNotFoundError);
-    QTest::newRow("proxy-connection-refused") << QtNetworkSettings::serverName() << 2 << QString()
+    QTest::newRow("proxy-connection-refused") << QtNetworkSettings::socksProxyServerName() << 2 << QString()
                                               << QString()
                                               << int(QAbstractSocket::ProxyConnectionRefusedError);
 
@@ -278,13 +287,12 @@ void tst_QHttpSocketEngine::simpleConnectToIMAP()
     QVERIFY(socketDevice.initialize(QAbstractSocket::TcpSocket, QAbstractSocket::IPv4Protocol));
     QCOMPARE(socketDevice.state(), QAbstractSocket::UnconnectedState);
 
-    socketDevice.setProxy(QNetworkProxy(QNetworkProxy::HttpProxy, QtNetworkSettings::serverName(), 3128));
-
-    QVERIFY(!socketDevice.connectToHost(QtNetworkSettings::serverIP(), 143));
+    socketDevice.setProxy(QNetworkProxy(QNetworkProxy::HttpProxy, QtNetworkSettings::httpProxyServerName(), 3128));
+    QVERIFY(!socketDevice.connectToHost(QtNetworkSettings::imapServerIp(), 143));
     QCOMPARE(socketDevice.state(), QAbstractSocket::ConnectingState);
     QVERIFY(socketDevice.waitForWrite());
     QCOMPARE(socketDevice.state(), QAbstractSocket::ConnectedState);
-    QCOMPARE(socketDevice.peerAddress(), QtNetworkSettings::serverIP());
+    QCOMPARE(socketDevice.peerAddress(), QtNetworkSettings::imapServerIp());
     QVERIFY(!socketDevice.localAddress().isNull());
     QVERIFY(socketDevice.localPort() > 0);
 
@@ -292,10 +300,10 @@ void tst_QHttpSocketEngine::simpleConnectToIMAP()
     QVERIFY(socketDevice.waitForRead());
 
     // Read the greeting
-    qint64 available = socketDevice.bytesAvailable();
+    qint64 available = int(socketDevice.bytesAvailable());
     QVERIFY(available > 0);
     QByteArray array;
-    array.resize(available);
+    array.resize(int(available));
     QVERIFY(socketDevice.read(array.data(), array.size()) == available);
 
     // Check that the greeting is what we expect it to be
@@ -310,9 +318,9 @@ void tst_QHttpSocketEngine::simpleConnectToIMAP()
     // Wait for the response
     QVERIFY(socketDevice.waitForRead());
 
-    available = socketDevice.bytesAvailable();
+    available = int(socketDevice.bytesAvailable());
     QVERIFY(available > 0);
-    array.resize(available);
+    array.resize(int(available));
     QVERIFY(socketDevice.read(array.data(), array.size()) == available);
 
     // Check that the greeting is what we expect it to be
@@ -321,7 +329,7 @@ void tst_QHttpSocketEngine::simpleConnectToIMAP()
     // Wait for the response
     QVERIFY(socketDevice.waitForRead());
     char c;
-    QCOMPARE(socketDevice.read(&c, sizeof(c)), (qint64) -1);
+    QCOMPARE(socketDevice.read(&c, sizeof(c)), qint64(-1));
     QCOMPARE(socketDevice.error(), QAbstractSocket::RemoteHostClosedError);
     QCOMPARE(socketDevice.state(), QAbstractSocket::UnconnectedState);
 }
@@ -335,10 +343,10 @@ void tst_QHttpSocketEngine::simpleErrorsAndStates()
         // Initialize device
         QVERIFY(socketDevice.initialize(QAbstractSocket::TcpSocket, QAbstractSocket::IPv4Protocol));
 
-        socketDevice.setProxy(QNetworkProxy(QNetworkProxy::HttpProxy, QtNetworkSettings::serverName(), 3128));
+        socketDevice.setProxy(QNetworkProxy(QNetworkProxy::HttpProxy, QtNetworkSettings::httpProxyServerName(), 3128));
 
         QCOMPARE(socketDevice.state(), QAbstractSocket::UnconnectedState);
-        QVERIFY(!socketDevice.connectToHost(QHostAddress(QtNetworkSettings::serverName()), 8088));
+        QVERIFY(!socketDevice.connectToHost(QHostAddress(QtNetworkSettings::socksProxyServerName()), 8088));
         QCOMPARE(socketDevice.state(), QAbstractSocket::ConnectingState);
         if (socketDevice.waitForWrite(30000)) {
             QVERIFY(socketDevice.state() == QAbstractSocket::ConnectedState ||
@@ -391,7 +399,7 @@ void tst_QHttpSocketEngine::tcpLoopbackPerformance()
     QByteArray message1(messageSize, '@');
     QByteArray answer(messageSize, '@');
 
-    QTime timer;
+    QElapsedTimer timer;
     timer.start();
     qlonglong readBytes = 0;
     while (timer.elapsed() < 30000) {
@@ -422,7 +430,7 @@ void tst_QHttpSocketEngine::tcpSocketBlockingTest()
     QTcpSocket socket;
 
     // Connect
-    socket.connectToHost(QtNetworkSettings::serverName(), 143);
+    socket.connectToHost(QtNetworkSettings::imapServerName(), 143);
     QVERIFY(socket.waitForConnected());
     QCOMPARE(socket.state(), QTcpSocket::ConnectedState);
 
@@ -479,7 +487,7 @@ void tst_QHttpSocketEngine::tcpSocketNonBlockingTest()
     tcpSocketNonBlocking_socket = &socket;
 
     // Connect
-    socket.connectToHost(QtNetworkSettings::serverName(), 143);
+    socket.connectToHost(QtNetworkSettings::imapServerName(), 143);
     QVERIFY(socket.state() == QTcpSocket::HostLookupState ||
             socket.state() == QTcpSocket::ConnectingState);
 
@@ -607,13 +615,13 @@ void tst_QHttpSocketEngine::downloadBigFile()
     connect(tmpSocket, SIGNAL(connected()), SLOT(exitLoopSlot()));
     connect(tmpSocket, SIGNAL(readyRead()), SLOT(downloadBigFileSlot()));
 
-    tmpSocket->connectToHost(QtNetworkSettings::serverName(), 80);
+    tmpSocket->connectToHost(QtNetworkSettings::httpServerName(), 80);
 
     QTestEventLoop::instance().enterLoop(30);
     if (QTestEventLoop::instance().timeout())
         QFAIL("Network operation timed out");
 
-    QByteArray hostName = QtNetworkSettings::serverName().toLatin1();
+    QByteArray hostName = QtNetworkSettings::httpServerName().toLatin1();
     QCOMPARE(tmpSocket->state(), QAbstractSocket::ConnectedState);
     QVERIFY(tmpSocket->write("GET /qtest/mediumfile HTTP/1.0\r\n") > 0);
     QVERIFY(tmpSocket->write("Host: ") > 0);
@@ -623,7 +631,7 @@ void tst_QHttpSocketEngine::downloadBigFile()
 
     bytesAvailable = 0;
 
-    QTime stopWatch;
+    QElapsedTimer stopWatch;
     stopWatch.start();
 
     QTestEventLoop::instance().enterLoop(60);
@@ -664,13 +672,13 @@ void tst_QHttpSocketEngine::passwordAuth()
     QVERIFY(socketDevice.initialize(QAbstractSocket::TcpSocket, QAbstractSocket::IPv4Protocol));
     QCOMPARE(socketDevice.state(), QAbstractSocket::UnconnectedState);
 
-    socketDevice.setProxy(QNetworkProxy(QNetworkProxy::HttpProxy, QtNetworkSettings::serverName(), 3128, "qsockstest", "password"));
+    socketDevice.setProxy(QNetworkProxy(QNetworkProxy::HttpProxy, QtNetworkSettings::httpProxyServerName(), 3128, "qsockstest", "password"));
 
-    QVERIFY(!socketDevice.connectToHost(QtNetworkSettings::serverIP(), 143));
+    QVERIFY(!socketDevice.connectToHost(QtNetworkSettings::imapServerIp(), 143));
     QCOMPARE(socketDevice.state(), QAbstractSocket::ConnectingState);
     QVERIFY(socketDevice.waitForWrite());
     QCOMPARE(socketDevice.state(), QAbstractSocket::ConnectedState);
-    QCOMPARE(socketDevice.peerAddress(), QtNetworkSettings::serverIP());
+    QCOMPARE(socketDevice.peerAddress(), QtNetworkSettings::imapServerIp());
 
     // Wait for the greeting
     QVERIFY(socketDevice.waitForRead());

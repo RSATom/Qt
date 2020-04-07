@@ -8,7 +8,9 @@
 #ifndef SkRasterPipeline_opts_DEFINED
 #define SkRasterPipeline_opts_DEFINED
 
-#include "SkTypes.h"
+#include "include/core/SkTypes.h"
+#include "src/core/SkUtils.h"  // unaligned_{load,store}
+#include "src/sksl/SkSLByteCode.h"
 
 // Every function in this file should be marked static and inline using SI.
 #if defined(__clang__)
@@ -17,23 +19,10 @@
     #define SI static inline
 #endif
 
-
-template <typename T, typename P>
-SI T unaligned_load(const P* p) {  // const void* would work too, but const P* helps ARMv7 codegen.
-    T v;
-    memcpy(&v, p, sizeof(v));
-    return v;
-}
-
-template <typename T, typename P>
-SI void unaligned_store(P* p, T v) {
-    memcpy(p, &v, sizeof(v));
-}
-
 template <typename Dst, typename Src>
 SI Dst bit_cast(const Src& src) {
     static_assert(sizeof(Dst) == sizeof(Src), "");
-    return unaligned_load<Dst>(&src);
+    return sk_unaligned_load<Dst>(&src);
 }
 
 template <typename Dst, typename Src>
@@ -147,6 +136,14 @@ namespace SK_OPTS_NS {
     template <typename T>
     SI T gather(const T* p, U32 ix) { return p[ix]; }
 
+    SI void load2(const uint16_t* ptr, size_t tail, U16* r, U16* g) {
+        *r = ptr[0];
+        *g = ptr[1];
+    }
+    SI void store2(uint16_t* ptr, size_t tail, U16 r, U16 g) {
+        ptr[0] = r;
+        ptr[1] = g;
+    }
     SI void load3(const uint16_t* ptr, size_t tail, U16* r, U16* g, U16* b) {
         *r = ptr[0];
         *g = ptr[1];
@@ -165,6 +162,14 @@ namespace SK_OPTS_NS {
         ptr[3] = a;
     }
 
+    SI void load2(const float* ptr, size_t tail, F* r, F* g) {
+        *r = ptr[0];
+        *g = ptr[1];
+    }
+    SI void store2(float* ptr, size_t tail, F r, F g) {
+        ptr[0] = r;
+        ptr[1] = g;
+    }
     SI void load4(const float* ptr, size_t tail, F* r, F* g, F* b, F* a) {
         *r = ptr[0];
         *g = ptr[1];
@@ -228,7 +233,27 @@ namespace SK_OPTS_NS {
     SI V<T> gather(const T* p, U32 ix) {
         return {p[ix[0]], p[ix[1]], p[ix[2]], p[ix[3]]};
     }
-
+    SI void load2(const uint16_t* ptr, size_t tail, U16* r, U16* g) {
+        uint16x4x2_t rg;
+        if (__builtin_expect(tail,0)) {
+            if (  true  ) { rg = vld2_lane_u16(ptr + 0, rg, 0); }
+            if (tail > 1) { rg = vld2_lane_u16(ptr + 2, rg, 1); }
+            if (tail > 2) { rg = vld2_lane_u16(ptr + 4, rg, 2); }
+        } else {
+            rg = vld2_u16(ptr);
+        }
+        *r = rg.val[0];
+        *g = rg.val[1];
+    }
+    SI void store2(uint16_t* ptr, size_t tail, U16 r, U16 g) {
+        if (__builtin_expect(tail,0)) {
+            if (  true  ) { vst2_lane_u16(ptr + 0, (uint16x4x2_t{{r,g}}), 0); }
+            if (tail > 1) { vst2_lane_u16(ptr + 2, (uint16x4x2_t{{r,g}}), 1); }
+            if (tail > 2) { vst2_lane_u16(ptr + 4, (uint16x4x2_t{{r,g}}), 2); }
+        } else {
+            vst2_u16(ptr, (uint16x4x2_t{{r,g}}));
+        }
+    }
     SI void load3(const uint16_t* ptr, size_t tail, U16* r, U16* g, U16* b) {
         uint16x4x3_t rgb;
         if (__builtin_expect(tail,0)) {
@@ -256,6 +281,7 @@ namespace SK_OPTS_NS {
         *b = rgba.val[2];
         *a = rgba.val[3];
     }
+
     SI void store4(uint16_t* ptr, size_t tail, U16 r, U16 g, U16 b, U16 a) {
         if (__builtin_expect(tail,0)) {
             if (  true  ) { vst4_lane_u16(ptr + 0, (uint16x4x4_t{{r,g,b,a}}), 0); }
@@ -263,6 +289,27 @@ namespace SK_OPTS_NS {
             if (tail > 2) { vst4_lane_u16(ptr + 8, (uint16x4x4_t{{r,g,b,a}}), 2); }
         } else {
             vst4_u16(ptr, (uint16x4x4_t{{r,g,b,a}}));
+        }
+    }
+    SI void load2(const float* ptr, size_t tail, F* r, F* g) {
+        float32x4x2_t rg;
+        if (__builtin_expect(tail,0)) {
+            if (  true  ) { rg = vld2q_lane_f32(ptr + 0, rg, 0); }
+            if (tail > 1) { rg = vld2q_lane_f32(ptr + 2, rg, 1); }
+            if (tail > 2) { rg = vld2q_lane_f32(ptr + 4, rg, 2); }
+        } else {
+            rg = vld2q_f32(ptr);
+        }
+        *r = rg.val[0];
+        *g = rg.val[1];
+    }
+    SI void store2(float* ptr, size_t tail, F r, F g) {
+        if (__builtin_expect(tail,0)) {
+            if (  true  ) { vst2q_lane_f32(ptr + 0, (float32x4x2_t{{r,g}}), 0); }
+            if (tail > 1) { vst2q_lane_f32(ptr + 2, (float32x4x2_t{{r,g}}), 1); }
+            if (tail > 2) { vst2q_lane_f32(ptr + 4, (float32x4x2_t{{r,g}}), 2); }
+        } else {
+            vst2q_f32(ptr, (float32x4x2_t{{r,g}}));
         }
     }
     SI void load4(const float* ptr, size_t tail, F* r, F* g, F* b, F* a) {
@@ -322,7 +369,7 @@ namespace SK_OPTS_NS {
     }
     SI U8 pack(U16 v) {
         auto r = _mm_packus_epi16(v,v);
-        return unaligned_load<U8>(&r);
+        return sk_unaligned_load<U8>(&r);
     }
 
     SI F if_then_else(I32 c, F t, F e) { return _mm256_blendv_ps(e,t,c); }
@@ -343,6 +390,68 @@ namespace SK_OPTS_NS {
             return bit_cast<U64>(parts);
         }
     #endif
+
+    SI void load2(const uint16_t* ptr, size_t tail, U16* r, U16* g) {
+        U16 _0123, _4567;
+        if (__builtin_expect(tail,0)) {
+            _0123 = _4567 = _mm_setzero_si128();
+            auto* d = &_0123;
+            if (tail > 3) {
+                *d = _mm_loadu_si128(((__m128i*)ptr) + 0);
+                tail -= 4;
+                ptr += 8;
+                d = &_4567;
+            }
+            bool high = false;
+            if (tail > 1) {
+                *d = _mm_loadu_si64(ptr);
+                tail -= 2;
+                ptr += 4;
+                high = true;
+            }
+            if (tail > 0) {
+                (*d)[high ? 4 : 0] = *(ptr + 0);
+                (*d)[high ? 5 : 1] = *(ptr + 1);
+            }
+        } else {
+            _0123 = _mm_loadu_si128(((__m128i*)ptr) + 0);
+            _4567 = _mm_loadu_si128(((__m128i*)ptr) + 1);
+        }
+        *r = _mm_packs_epi32(_mm_srai_epi32(_mm_slli_epi32(_0123, 16), 16),
+                             _mm_srai_epi32(_mm_slli_epi32(_4567, 16), 16));
+        *g = _mm_packs_epi32(_mm_srai_epi32(_0123, 16),
+                             _mm_srai_epi32(_4567, 16));
+    }
+    SI void store2(uint16_t* ptr, size_t tail, U16 r, U16 g) {
+        auto _0123 = _mm_unpacklo_epi16(r, g),
+             _4567 = _mm_unpackhi_epi16(r, g);
+        if (__builtin_expect(tail,0)) {
+            const auto* s = &_0123;
+            if (tail > 3) {
+                _mm_storeu_si128((__m128i*)ptr, *s);
+                s = &_4567;
+                tail -= 4;
+                ptr += 8;
+            }
+            bool high = false;
+            if (tail > 1) {
+                _mm_storel_epi64((__m128i*)ptr, *s);
+                ptr += 4;
+                tail -= 2;
+                high = true;
+            }
+            if (tail > 0) {
+                if (high) {
+                    *(int32_t*)ptr = _mm_extract_epi32(*s, 2);
+                } else {
+                    *(int32_t*)ptr = _mm_cvtsi128_si32(*s);
+                }
+            }
+        } else {
+            _mm_storeu_si128((__m128i*)ptr + 0, _0123);
+            _mm_storeu_si128((__m128i*)ptr + 1, _4567);
+        }
+    }
 
     SI void load3(const uint16_t* ptr, size_t tail, U16* r, U16* g, U16* b) {
         __m128i _0,_1,_2,_3,_4,_5,_6,_7;
@@ -447,6 +556,70 @@ namespace SK_OPTS_NS {
         }
     }
 
+    SI void load2(const float* ptr, size_t tail, F* r, F* g) {
+        F _0123, _4567;
+        if (__builtin_expect(tail, 0)) {
+            _0123 = _4567 = _mm256_setzero_ps();
+            F* d = &_0123;
+            if (tail > 3) {
+                *d = _mm256_loadu_ps(ptr);
+                ptr += 8;
+                tail -= 4;
+                d = &_4567;
+            }
+            bool high = false;
+            if (tail > 1) {
+                *d = _mm256_castps128_ps256(_mm_loadu_ps(ptr));
+                ptr += 4;
+                tail -= 2;
+                high = true;
+            }
+            if (tail > 0) {
+                *d = high ? _mm256_insertf128_ps(*d, _mm_loadu_si64(ptr), 1)
+                          : _mm256_insertf128_ps(*d, _mm_loadu_si64(ptr), 0);
+            }
+        } else {
+            _0123 = _mm256_loadu_ps(ptr + 0);
+            _4567 = _mm256_loadu_ps(ptr + 8);
+        }
+
+        F _0145 = _mm256_permute2f128_pd(_0123, _4567, 0x20),
+          _2367 = _mm256_permute2f128_pd(_0123, _4567, 0x31);
+
+        *r = _mm256_shuffle_ps(_0145, _2367, 0x88);
+        *g = _mm256_shuffle_ps(_0145, _2367, 0xDD);
+    }
+    SI void store2(float* ptr, size_t tail, F r, F g) {
+        F _0145 = _mm256_unpacklo_ps(r, g),
+          _2367 = _mm256_unpackhi_ps(r, g);
+        F _0123 = _mm256_permute2f128_pd(_0145, _2367, 0x20),
+          _4567 = _mm256_permute2f128_pd(_0145, _2367, 0x31);
+
+        if (__builtin_expect(tail, 0)) {
+            const __m256* s = &_0123;
+            if (tail > 3) {
+                _mm256_storeu_ps(ptr, *s);
+                s = &_4567;
+                tail -= 4;
+                ptr += 8;
+            }
+            bool high = false;
+            if (tail > 1) {
+                _mm_storeu_ps(ptr, _mm256_extractf128_ps(*s, 0));
+                ptr += 4;
+                tail -= 2;
+                high = true;
+            }
+            if (tail > 0) {
+                *(ptr + 0) = (*s)[ high ? 4 : 0];
+                *(ptr + 1) = (*s)[ high ? 5 : 1];
+            }
+        } else {
+            _mm256_storeu_ps(ptr + 0, _0123);
+            _mm256_storeu_ps(ptr + 8, _4567);
+        }
+    }
+
     SI void load4(const float* ptr, size_t tail, F* r, F* g, F* b, F* a) {
         F _04, _15, _26, _37;
         _04 = _15 = _26 = _37 = 0;
@@ -528,12 +701,12 @@ namespace SK_OPTS_NS {
         auto p = _mm_srai_epi32(_mm_slli_epi32(v, 16), 16);
         p = _mm_packs_epi32(p,p);
     #endif
-        return unaligned_load<U16>(&p);  // We have two copies.  Return (the lower) one.
+        return sk_unaligned_load<U16>(&p);  // We have two copies.  Return (the lower) one.
     }
     SI U8 pack(U16 v) {
         auto r = widen_cast<__m128i>(v);
         r = _mm_packus_epi16(r,r);
-        return unaligned_load<U8>(&r);
+        return sk_unaligned_load<U8>(&r);
     }
 
     SI F if_then_else(I32 c, F t, F e) {
@@ -552,6 +725,47 @@ namespace SK_OPTS_NS {
     template <typename T>
     SI V<T> gather(const T* p, U32 ix) {
         return {p[ix[0]], p[ix[1]], p[ix[2]], p[ix[3]]};
+    }
+
+    SI void load2(const uint16_t* ptr, size_t tail, U16* r, U16* g) {
+        __m128i _01;
+        if (__builtin_expect(tail,0)) {
+            _01 = _mm_setzero_si128();
+            if (tail > 1) {
+                _01 = _mm_loadl_pd(_01, (const double*)ptr);            // r0 g0 r1 g1 00 00 00 00
+                if (tail > 2) {
+                    _01 = _mm_loadh_pi(_01, (__m64 const* )(ptr + 4));  // r0 g0 r1 g1 r2 g2 00 00
+                }
+            } else {
+                _01 = _mm_loadl_pi(_01, (__m64 const*)ptr + 0);         // r0 g0 00 00 00 00 00 00
+            }
+        } else {
+            _01 = _mm_loadu_si128(((__m128i*)ptr) + 0);  // r0 g0 r1 g1 r2 g2 r3 g3
+        }
+        auto rg01_23 = _mm_shufflelo_epi16(_01, 0xD8);      // r0 r1 g0 g1 r2 g2 r3 g3
+        auto rg      = _mm_shufflehi_epi16(rg01_23, 0xD8);  // r0 r1 g0 g1 r2 r3 g2 g3
+
+        auto R = _mm_shuffle_epi32(rg, 0x88);  // r0 r1 r2 r3 r0 r1 r2 r3
+        auto G = _mm_shuffle_epi32(rg, 0xDD);  // g0 g1 g2 g3 g0 g1 g2 g3
+        *r = sk_unaligned_load<U16>(&R);
+        *g = sk_unaligned_load<U16>(&G);
+    }
+    SI void store2(uint16_t* ptr, size_t tail, U16 r, U16 g) {
+        U32 rg = _mm_unpacklo_epi16(widen_cast<__m128i>(r), widen_cast<__m128i>(g));
+        if (__builtin_expect(tail, 0)) {
+            if (tail > 1) {
+                _mm_storel_epi64((__m128i*)ptr, rg);
+                if (tail > 2) {
+                    int32_t rgpair = rg[2];
+                    memcpy(ptr + 4, &rgpair, sizeof(rgpair));
+                }
+            } else {
+                int32_t rgpair = rg[0];
+                memcpy(ptr, &rgpair, sizeof(rgpair));
+            }
+        } else {
+            _mm_storeu_si128((__m128i*)ptr + 0, rg);
+        }
     }
 
     SI void load3(const uint16_t* ptr, size_t tail, U16* r, U16* g, U16* b) {
@@ -585,9 +799,9 @@ namespace SK_OPTS_NS {
              G = _mm_srli_si128(R, 8),
              B = _mm_unpackhi_epi16(_02, _13);  // b0 b1 b2 b3 xx xx xx xx
 
-        *r = unaligned_load<U16>(&R);
-        *g = unaligned_load<U16>(&G);
-        *b = unaligned_load<U16>(&B);
+        *r = sk_unaligned_load<U16>(&R);
+        *g = sk_unaligned_load<U16>(&G);
+        *b = sk_unaligned_load<U16>(&B);
     }
 
     SI void load4(const uint16_t* ptr, size_t tail, U16* r, U16* g, U16* b, U16* a) {
@@ -609,10 +823,10 @@ namespace SK_OPTS_NS {
         auto rg = _mm_unpacklo_epi16(_02, _13),  // r0 r1 r2 r3 g0 g1 g2 g3
              ba = _mm_unpackhi_epi16(_02, _13);  // b0 b1 b2 b3 a0 a1 a2 a3
 
-        *r = unaligned_load<U16>((uint16_t*)&rg + 0);
-        *g = unaligned_load<U16>((uint16_t*)&rg + 4);
-        *b = unaligned_load<U16>((uint16_t*)&ba + 0);
-        *a = unaligned_load<U16>((uint16_t*)&ba + 4);
+        *r = sk_unaligned_load<U16>((uint16_t*)&rg + 0);
+        *g = sk_unaligned_load<U16>((uint16_t*)&rg + 4);
+        *b = sk_unaligned_load<U16>((uint16_t*)&ba + 0);
+        *a = sk_unaligned_load<U16>((uint16_t*)&ba + 4);
     }
 
     SI void store4(uint16_t* ptr, size_t tail, U16 r, U16 g, U16 b, U16 a) {
@@ -627,6 +841,33 @@ namespace SK_OPTS_NS {
         } else {
             _mm_storeu_si128((__m128i*)ptr + 0, _mm_unpacklo_epi32(rg, ba));
             _mm_storeu_si128((__m128i*)ptr + 1, _mm_unpackhi_epi32(rg, ba));
+        }
+    }
+
+    SI void load2(const float* ptr, size_t tail, F* r, F* g) {
+        F _01, _23;
+        if (__builtin_expect(tail, 0)) {
+            _01 = _23 = _mm_setzero_si128();
+            if (  true  ) { _01 = _mm_loadl_pi(_01, (__m64 const*)(ptr + 0)); }
+            if (tail > 1) { _01 = _mm_loadh_pi(_01, (__m64 const*)(ptr + 2)); }
+            if (tail > 2) { _23 = _mm_loadl_pi(_23, (__m64 const*)(ptr + 4)); }
+        } else {
+            _01 = _mm_loadu_ps(ptr + 0);
+            _23 = _mm_loadu_ps(ptr + 4);
+        }
+        *r = _mm_shuffle_ps(_01, _23, 0x88);
+        *g = _mm_shuffle_ps(_01, _23, 0xDD);
+    }
+    SI void store2(float* ptr, size_t tail, F r, F g) {
+        F _01 = _mm_unpacklo_ps(r, g),
+          _23 = _mm_unpackhi_ps(r, g);
+        if (__builtin_expect(tail, 0)) {
+            if (  true  ) { _mm_storel_pi((__m64*)(ptr + 0), _01); }
+            if (tail > 1) { _mm_storeh_pi((__m64*)(ptr + 2), _01); }
+            if (tail > 2) { _mm_storel_pi((__m64*)(ptr + 4), _23); }
+        } else {
+            _mm_storeu_ps(ptr + 0, _01);
+            _mm_storeu_ps(ptr + 4, _23);
         }
     }
 
@@ -670,11 +911,13 @@ namespace SK_OPTS_NS {
 // These named casts and bit_cast() are always what they seem to be.
 #if defined(JUMPER_IS_SCALAR)
     SI F   cast  (U32 v) { return   (F)v; }
+    SI F   cast64(U64 v) { return   (F)v; }
     SI U32 trunc_(F   v) { return (U32)v; }
     SI U32 expand(U16 v) { return (U32)v; }
     SI U32 expand(U8  v) { return (U32)v; }
 #else
     SI F   cast  (U32 v) { return      __builtin_convertvector((I32)v,   F); }
+    SI F   cast64(U64 v) { return      __builtin_convertvector(     v,   F); }
     SI U32 trunc_(F   v) { return (U32)__builtin_convertvector(     v, I32); }
     SI U32 expand(U16 v) { return      __builtin_convertvector(     v, U32); }
     SI U32 expand(U8  v) { return      __builtin_convertvector(     v, U32); }
@@ -691,7 +934,7 @@ SI U16 bswap(U16 x) {
     // when generating code for SSE2 and SSE4.1.  We'll do it manually...
     auto v = widen_cast<__m128i>(x);
     v = _mm_slli_epi16(v,8) | _mm_srli_epi16(v,8);
-    return unaligned_load<U16>(&v);
+    return sk_unaligned_load<U16>(&v);
 #else
     return (x<<8) | (x>>8);
 #endif
@@ -729,7 +972,8 @@ SI F approx_powf(F x, F y) {
 }
 
 SI F from_half(U16 h) {
-#if defined(SK_CPU_ARM64) && !defined(SK_BUILD_FOR_GOOGLE3)  // Temporary workaround for some Google3 builds.
+#if defined(JUMPER_IS_NEON) && defined(SK_CPU_ARM64) \
+    && !defined(SK_BUILD_FOR_GOOGLE3)  // Temporary workaround for some Google3 builds.
     __fp16 fp16;
     memcpy(&fp16, &h, sizeof(U16));
     return float(fp16);
@@ -751,7 +995,8 @@ SI F from_half(U16 h) {
 }
 
 SI U16 to_half(F f) {
-#if defined(SK_CPU_ARM64) && !defined(SK_BUILD_FOR_GOOGLE3)  // Temporary workaround for some Google3 builds.
+#if defined(JUMPER_IS_NEON) && defined(SK_CPU_ARM64) \
+    && !defined(SK_BUILD_FOR_GOOGLE3)  // Temporary workaround for some Google3 builds.
     __fp16 fp16 = __fp16(f);
     U16 u16;
     memcpy(&u16, &fp16, sizeof(U16));
@@ -908,7 +1153,7 @@ SI V load(const T* src, size_t tail) {
         return v;
     }
 #endif
-    return unaligned_load<V>(src);
+    return sk_unaligned_load<V>(src);
 }
 
 template <typename V, typename T>
@@ -928,11 +1173,14 @@ SI void store(T* dst, V v, size_t tail) {
         return;
     }
 #endif
-    unaligned_store(dst, v);
+    sk_unaligned_store(dst, v);
 }
 
 SI F from_byte(U8 b) {
     return cast(expand(b)) * (1/255.0f);
+}
+SI F from_short(U16 s) {
+    return cast(expand(s)) * (1/65535.0f);
 }
 SI void from_565(U16 _565, F* r, F* g, F* b) {
     U32 wide = expand(_565);
@@ -953,11 +1201,26 @@ SI void from_8888(U32 _8888, F* r, F* g, F* b, F* a) {
     *b = cast((_8888 >> 16) & 0xff) * (1/255.0f);
     *a = cast((_8888 >> 24)       ) * (1/255.0f);
 }
+SI void from_88(U16 _88, F* r, F* g) {
+    U32 wide = expand(_88);
+    *r = cast((wide      ) & 0xff) * (1/255.0f);
+    *g = cast((wide >>  8) & 0xff) * (1/255.0f);
+}
 SI void from_1010102(U32 rgba, F* r, F* g, F* b, F* a) {
     *r = cast((rgba      ) & 0x3ff) * (1/1023.0f);
     *g = cast((rgba >> 10) & 0x3ff) * (1/1023.0f);
     *b = cast((rgba >> 20) & 0x3ff) * (1/1023.0f);
     *a = cast((rgba >> 30)        ) * (1/   3.0f);
+}
+SI void from_1616(U32 _1616, F* r, F* g) {
+    *r = cast((_1616      ) & 0xffff) * (1/65535.0f);
+    *g = cast((_1616 >> 16) & 0xffff) * (1/65535.0f);
+}
+SI void from_16161616(U64 _16161616, F* r, F* g, F* b, F* a) {
+    *r = cast64((_16161616      ) & 0xffff) * (1/65535.0f);
+    *g = cast64((_16161616 >> 16) & 0xffff) * (1/65535.0f);
+    *b = cast64((_16161616 >> 32) & 0xffff) * (1/65535.0f);
+    *a = cast64((_16161616 >> 48) & 0xffff) * (1/65535.0f);
 }
 
 // Used by load_ and store_ stages to get to the right (dx,dy) starting point of contiguous memory.
@@ -1007,7 +1270,7 @@ STAGE(seed_shader, Ctx::None) {
     // It's important for speed to explicitly cast(dx) and cast(dy),
     // which has the effect of splatting them to vectors before converting to floats.
     // On Intel this breaks a data dependency on previous loop iterations' registers.
-    r = cast(dx) + unaligned_load<F>(iota);
+    r = cast(dx) + sk_unaligned_load<F>(iota);
     g = cast(dy) + 0.5f;
     b = 1.0f;
     a = 0;
@@ -1017,7 +1280,7 @@ STAGE(seed_shader, Ctx::None) {
 STAGE(dither, const float* rate) {
     // Get [(dx,dy), (dx+1,dy), (dx+2,dy), ...] loaded up in integer vectors.
     uint32_t iota[] = {0,1,2,3,4,5,6,7};
-    U32 X = dx + unaligned_load<U32>(iota),
+    U32 X = dx + sk_unaligned_load<U32>(iota),
         Y = dy;
 
     // We're doing 8x8 ordered dithering, see https://en.wikipedia.org/wiki/Ordered_dithering.
@@ -1071,19 +1334,35 @@ STAGE(white_color, Ctx::None) {
 }
 
 // load registers r,g,b,a from context (mirrors store_rgba)
-STAGE(load_rgba, const float* ptr) {
-    r = unaligned_load<F>(ptr + 0*N);
-    g = unaligned_load<F>(ptr + 1*N);
-    b = unaligned_load<F>(ptr + 2*N);
-    a = unaligned_load<F>(ptr + 3*N);
+STAGE(load_src, const float* ptr) {
+    r = sk_unaligned_load<F>(ptr + 0*N);
+    g = sk_unaligned_load<F>(ptr + 1*N);
+    b = sk_unaligned_load<F>(ptr + 2*N);
+    a = sk_unaligned_load<F>(ptr + 3*N);
 }
 
 // store registers r,g,b,a into context (mirrors load_rgba)
-STAGE(store_rgba, float* ptr) {
-    unaligned_store(ptr + 0*N, r);
-    unaligned_store(ptr + 1*N, g);
-    unaligned_store(ptr + 2*N, b);
-    unaligned_store(ptr + 3*N, a);
+STAGE(store_src, float* ptr) {
+    sk_unaligned_store(ptr + 0*N, r);
+    sk_unaligned_store(ptr + 1*N, g);
+    sk_unaligned_store(ptr + 2*N, b);
+    sk_unaligned_store(ptr + 3*N, a);
+}
+
+// load registers dr,dg,db,da from context (mirrors store_dst)
+STAGE(load_dst, const float* ptr) {
+    dr = sk_unaligned_load<F>(ptr + 0*N);
+    dg = sk_unaligned_load<F>(ptr + 1*N);
+    db = sk_unaligned_load<F>(ptr + 2*N);
+    da = sk_unaligned_load<F>(ptr + 3*N);
+}
+
+// store registers dr,dg,db,da into context (mirrors load_dst)
+STAGE(store_dst, float* ptr) {
+    sk_unaligned_store(ptr + 0*N, dr);
+    sk_unaligned_store(ptr + 1*N, dg);
+    sk_unaligned_store(ptr + 2*N, db);
+    sk_unaligned_store(ptr + 3*N, da);
 }
 
 // Most blend modes apply the same logic to each channel.
@@ -1320,13 +1599,6 @@ STAGE(clamp_a, Ctx::None) {
     b = min(b, a);
 }
 
-STAGE(clamp_a_dst, Ctx::None) {
-    da = min(da, 1.0f);
-    dr = min(dr, da);
-    dg = min(dg, da);
-    db = min(db, da);
-}
-
 STAGE(clamp_gamut, Ctx::None) {
     // If you're using this stage, a should already be in [0,1].
     r = min(max(r, 0), a);
@@ -1480,6 +1752,13 @@ STAGE(lerp_1_float, const float* c) {
     b = lerp(db, b, *c);
     a = lerp(da, a, *c);
 }
+STAGE(lerp_native, const float scales[]) {
+    auto c = sk_unaligned_load<F>(scales);
+    r = lerp(dr, r, c);
+    g = lerp(dg, g, c);
+    b = lerp(db, b, c);
+    a = lerp(da, a, c);
+}
 STAGE(lerp_u8, const SkRasterPipeline_MemoryCtx* ctx) {
     auto ptr = ptr_at_xy<const uint8_t>(ctx, dx,dy);
 
@@ -1537,13 +1816,13 @@ SI F apply_sign(F x, U32 sign) {
     return bit_cast<F>(sign | bit_cast<U32>(x));
 }
 
-STAGE(parametric, const SkRasterPipeline_ParametricTransferFunction* ctx) {
+STAGE(parametric, const skcms_TransferFunction* ctx) {
     auto fn = [&](F v) {
         U32 sign;
         v = strip_sign(v, &sign);
 
-        F r = if_then_else(v <= ctx->D, mad(ctx->C, v, ctx->F)
-                                      , approx_powf(mad(ctx->A, v, ctx->B), ctx->G) + ctx->E);
+        F r = if_then_else(v <= ctx->d, mad(ctx->c, v, ctx->f)
+                                      , approx_powf(mad(ctx->a, v, ctx->b), ctx->g) + ctx->e);
         return apply_sign(r, sign);
     };
     r = fn(r);
@@ -1551,7 +1830,7 @@ STAGE(parametric, const SkRasterPipeline_ParametricTransferFunction* ctx) {
     b = fn(b);
 }
 
-STAGE(gamma, const float* G) {
+STAGE(gamma_, const float* G) {
     auto fn = [&](F v) {
         U32 sign;
         v = strip_sign(v, &sign);
@@ -1701,6 +1980,59 @@ STAGE(store_8888, const SkRasterPipeline_MemoryCtx* ctx) {
     store(ptr, px, tail);
 }
 
+STAGE(load_rg88, const SkRasterPipeline_MemoryCtx* ctx) {
+    auto ptr = ptr_at_xy<const uint16_t>(ctx, dx,dy);
+    b = 0;
+    a = 1;
+    from_88(load<U16>(ptr, tail), &r,&g);
+}
+STAGE(store_rg88, const SkRasterPipeline_MemoryCtx* ctx) {
+    auto ptr = ptr_at_xy<uint16_t>(ctx, dx,dy);
+
+    U16 px = pack( to_unorm(r, 255)
+                 | to_unorm(g, 255) <<  8);
+    store(ptr, px, tail);
+}
+
+STAGE(load_a16, const SkRasterPipeline_MemoryCtx* ctx) {
+    auto ptr = ptr_at_xy<const uint16_t>(ctx, dx,dy);
+    r = g = b = 0;
+    a = from_short(load<U16>(ptr, tail));
+}
+STAGE(store_a16, const SkRasterPipeline_MemoryCtx* ctx) {
+    auto ptr = ptr_at_xy<uint16_t>(ctx, dx,dy);
+
+    U16 px = pack(to_unorm(a, 65535));
+    store(ptr, px, tail);
+}
+STAGE(load_rg1616, const SkRasterPipeline_MemoryCtx* ctx) {
+    auto ptr = ptr_at_xy<const uint32_t>(ctx, dx,dy);
+    b = 0; a = 1;
+    from_1616(load<U32>(ptr, tail), &r,&g);
+}
+STAGE(store_rg1616, const SkRasterPipeline_MemoryCtx* ctx) {
+    auto ptr = ptr_at_xy<uint32_t>(ctx, dx,dy);
+
+    U32 px = to_unorm(r, 65535)
+           | to_unorm(g, 65535) <<  16;
+    store(ptr, px, tail);
+}
+STAGE(load_16161616, const SkRasterPipeline_MemoryCtx* ctx) {
+    auto ptr = ptr_at_xy<const uint64_t>(ctx, dx,dy);
+    from_16161616(load<U64>(ptr, tail), &r,&g, &b, &a);
+}
+STAGE(store_16161616, const SkRasterPipeline_MemoryCtx* ctx) {
+    auto ptr = ptr_at_xy<uint16_t>(ctx, 4*dx,4*dy);
+
+    U16 R = pack(to_unorm(r, 65535)),
+        G = pack(to_unorm(g, 65535)),
+        B = pack(to_unorm(b, 65535)),
+        A = pack(to_unorm(a, 65535));
+
+    store4(ptr,tail, R,G,B,A);
+}
+
+
 STAGE(load_1010102, const SkRasterPipeline_MemoryCtx* ctx) {
     auto ptr = ptr_at_xy<const uint32_t>(ctx, dx,dy);
     from_1010102(load<U32>(ptr, tail), &r,&g,&b,&a);
@@ -1775,6 +2107,36 @@ STAGE(store_u16_be, const SkRasterPipeline_MemoryCtx* ctx) {
     store4(ptr,tail, R,G,B,A);
 }
 
+STAGE(load_af16, const SkRasterPipeline_MemoryCtx* ctx) {
+    auto ptr = ptr_at_xy<const uint16_t>(ctx, dx,dy);
+
+    U16 A = load<U16>((const uint16_t*)ptr, tail);
+    r = 0;
+    g = 0;
+    b = 0;
+    a = from_half(A);
+}
+STAGE(store_af16, const SkRasterPipeline_MemoryCtx* ctx) {
+    auto ptr = ptr_at_xy<uint16_t>(ctx, dx,dy);
+    store(ptr, to_half(a), tail);
+}
+
+STAGE(load_rgf16, const SkRasterPipeline_MemoryCtx* ctx) {
+    auto ptr = ptr_at_xy<const uint32_t>(ctx, dx,dy);
+
+    U16 R,G;
+    load2((const uint16_t*)ptr,tail, &R,&G);
+    r = from_half(R);
+    g = from_half(G);
+    b = 0;
+    a = from_half(0x3C00); // one
+}
+STAGE(store_rgf16, const SkRasterPipeline_MemoryCtx* ctx) {
+    auto ptr = ptr_at_xy<uint32_t>(ctx, dx,dy);
+    store2((uint16_t*)ptr, tail, to_half(r)
+                               , to_half(g));
+}
+
 STAGE(load_f32, const SkRasterPipeline_MemoryCtx* ctx) {
     auto ptr = ptr_at_xy<const float>(ctx, 4*dx,4*dy);
     load4(ptr,tail, &r,&g,&b,&a);
@@ -1794,6 +2156,17 @@ STAGE(gather_f32, const SkRasterPipeline_GatherCtx* ctx) {
 STAGE(store_f32, const SkRasterPipeline_MemoryCtx* ctx) {
     auto ptr = ptr_at_xy<float>(ctx, 4*dx,4*dy);
     store4(ptr,tail, r,g,b,a);
+}
+
+STAGE(load_rgf32, const SkRasterPipeline_MemoryCtx* ctx) {
+    auto ptr = ptr_at_xy<const float>(ctx, 2*dx,2*dy);
+    load2(ptr, tail, &r, &g);
+    b = 0;
+    a = 1;
+}
+STAGE(store_rgf32, const SkRasterPipeline_MemoryCtx* ctx) {
+    auto ptr = ptr_at_xy<float>(ctx, 2*dx,2*dy);
+    store2(ptr, tail, r, g);
 }
 
 SI F exclusive_repeat(F v, const SkRasterPipeline_TileCtx* ctx) {
@@ -1828,20 +2201,20 @@ STAGE(mirror_x_1, Ctx::None) { r = clamp_01(abs_( (r-1.0f) - two(floor_((r-1.0f)
 
 STAGE(decal_x, SkRasterPipeline_DecalTileCtx* ctx) {
     auto w = ctx->limit_x;
-    unaligned_store(ctx->mask, cond_to_mask((0 <= r) & (r < w)));
+    sk_unaligned_store(ctx->mask, cond_to_mask((0 <= r) & (r < w)));
 }
 STAGE(decal_y, SkRasterPipeline_DecalTileCtx* ctx) {
     auto h = ctx->limit_y;
-    unaligned_store(ctx->mask, cond_to_mask((0 <= g) & (g < h)));
+    sk_unaligned_store(ctx->mask, cond_to_mask((0 <= g) & (g < h)));
 }
 STAGE(decal_x_and_y, SkRasterPipeline_DecalTileCtx* ctx) {
     auto w = ctx->limit_x;
     auto h = ctx->limit_y;
-    unaligned_store(ctx->mask,
+    sk_unaligned_store(ctx->mask,
                     cond_to_mask((0 <= r) & (r < w) & (0 <= g) & (g < h)));
 }
 STAGE(check_decal_mask, SkRasterPipeline_DecalTileCtx* ctx) {
-    auto mask = unaligned_load<U32>(ctx->mask);
+    auto mask = sk_unaligned_load<U32>(ctx->mask);
     r = bit_cast<F>( bit_cast<U32>(r) & mask );
     g = bit_cast<F>( bit_cast<U32>(g) & mask );
     b = bit_cast<F>( bit_cast<U32>(b) & mask );
@@ -1856,7 +2229,7 @@ STAGE(alpha_to_gray_dst, Ctx::None) {
     dr = dg = db = da;
     da = 1;
 }
-STAGE(luminance_to_alpha, Ctx::None) {
+STAGE(bt709_luminance_or_luma_to_alpha, Ctx::None) {
     a = r*0.2126f + g*0.7152f + b*0.0722f;
     r = g = b = 0;
 }
@@ -1892,10 +2265,10 @@ STAGE(matrix_3x4, const float* m) {
     b = B;
 }
 STAGE(matrix_4x5, const float* m) {
-    auto R = mad(r,m[0], mad(g,m[4], mad(b,m[ 8], mad(a,m[12], m[16])))),
-         G = mad(r,m[1], mad(g,m[5], mad(b,m[ 9], mad(a,m[13], m[17])))),
-         B = mad(r,m[2], mad(g,m[6], mad(b,m[10], mad(a,m[14], m[18])))),
-         A = mad(r,m[3], mad(g,m[7], mad(b,m[11], mad(a,m[15], m[19]))));
+    auto R = mad(r,m[ 0], mad(g,m[ 1], mad(b,m[ 2], mad(a,m[ 3], m[ 4])))),
+         G = mad(r,m[ 5], mad(g,m[ 6], mad(b,m[ 7], mad(a,m[ 8], m[ 9])))),
+         B = mad(r,m[10], mad(g,m[11], mad(b,m[12], mad(a,m[13], m[14])))),
+         A = mad(r,m[15], mad(g,m[16], mad(b,m[17], mad(a,m[18], m[19]))));
     r = R;
     g = G;
     b = B;
@@ -2056,18 +2429,18 @@ STAGE(mask_2pt_conical_nan, SkRasterPipeline_2PtConicalCtx* c) {
     F& t = r;
     auto is_degenerate = (t != t); // NaN
     t = if_then_else(is_degenerate, F(0), t);
-    unaligned_store(&c->fMask, cond_to_mask(!is_degenerate));
+    sk_unaligned_store(&c->fMask, cond_to_mask(!is_degenerate));
 }
 
 STAGE(mask_2pt_conical_degenerates, SkRasterPipeline_2PtConicalCtx* c) {
     F& t = r;
     auto is_degenerate = (t <= 0) | (t != t);
     t = if_then_else(is_degenerate, F(0), t);
-    unaligned_store(&c->fMask, cond_to_mask(!is_degenerate));
+    sk_unaligned_store(&c->fMask, cond_to_mask(!is_degenerate));
 }
 
 STAGE(apply_vector_mask, const uint32_t* ctx) {
-    const U32 mask = unaligned_load<U32>(ctx);
+    const U32 mask = sk_unaligned_load<U32>(ctx);
     r = bit_cast<F>(bit_cast<U32>(r) & mask);
     g = bit_cast<F>(bit_cast<U32>(g) & mask);
     b = bit_cast<F>(bit_cast<U32>(b) & mask);
@@ -2082,17 +2455,17 @@ STAGE(save_xy, SkRasterPipeline_SamplerCtx* c) {
       fy = fract(g + 0.5f);
 
     // Samplers will need to load x and fx, or y and fy.
-    unaligned_store(c->x,  r);
-    unaligned_store(c->y,  g);
-    unaligned_store(c->fx, fx);
-    unaligned_store(c->fy, fy);
+    sk_unaligned_store(c->x,  r);
+    sk_unaligned_store(c->y,  g);
+    sk_unaligned_store(c->fx, fx);
+    sk_unaligned_store(c->fy, fy);
 }
 
 STAGE(accumulate, const SkRasterPipeline_SamplerCtx* c) {
     // Bilinear and bicubic filters are both separable, so we produce independent contributions
     // from x and y, multiplying them together here to get each pixel's total scale factor.
-    auto scale = unaligned_load<F>(c->scalex)
-               * unaligned_load<F>(c->scaley);
+    auto scale = sk_unaligned_load<F>(c->scalex)
+               * sk_unaligned_load<F>(c->scaley);
     dr = mad(scale, r, dr);
     dg = mad(scale, g, dg);
     db = mad(scale, b, db);
@@ -2106,23 +2479,23 @@ STAGE(accumulate, const SkRasterPipeline_SamplerCtx* c) {
 
 template <int kScale>
 SI void bilinear_x(SkRasterPipeline_SamplerCtx* ctx, F* x) {
-    *x = unaligned_load<F>(ctx->x) + (kScale * 0.5f);
-    F fx = unaligned_load<F>(ctx->fx);
+    *x = sk_unaligned_load<F>(ctx->x) + (kScale * 0.5f);
+    F fx = sk_unaligned_load<F>(ctx->fx);
 
     F scalex;
     if (kScale == -1) { scalex = 1.0f - fx; }
     if (kScale == +1) { scalex =        fx; }
-    unaligned_store(ctx->scalex, scalex);
+    sk_unaligned_store(ctx->scalex, scalex);
 }
 template <int kScale>
 SI void bilinear_y(SkRasterPipeline_SamplerCtx* ctx, F* y) {
-    *y = unaligned_load<F>(ctx->y) + (kScale * 0.5f);
-    F fy = unaligned_load<F>(ctx->fy);
+    *y = sk_unaligned_load<F>(ctx->y) + (kScale * 0.5f);
+    F fy = sk_unaligned_load<F>(ctx->fy);
 
     F scaley;
     if (kScale == -1) { scaley = 1.0f - fy; }
     if (kScale == +1) { scaley =        fy; }
-    unaligned_store(ctx->scaley, scaley);
+    sk_unaligned_store(ctx->scaley, scaley);
 }
 
 STAGE(bilinear_nx, SkRasterPipeline_SamplerCtx* ctx) { bilinear_x<-1>(ctx, &r); }
@@ -2148,27 +2521,27 @@ SI F bicubic_far(F t) {
 
 template <int kScale>
 SI void bicubic_x(SkRasterPipeline_SamplerCtx* ctx, F* x) {
-    *x = unaligned_load<F>(ctx->x) + (kScale * 0.5f);
-    F fx = unaligned_load<F>(ctx->fx);
+    *x = sk_unaligned_load<F>(ctx->x) + (kScale * 0.5f);
+    F fx = sk_unaligned_load<F>(ctx->fx);
 
     F scalex;
     if (kScale == -3) { scalex = bicubic_far (1.0f - fx); }
     if (kScale == -1) { scalex = bicubic_near(1.0f - fx); }
     if (kScale == +1) { scalex = bicubic_near(       fx); }
     if (kScale == +3) { scalex = bicubic_far (       fx); }
-    unaligned_store(ctx->scalex, scalex);
+    sk_unaligned_store(ctx->scalex, scalex);
 }
 template <int kScale>
 SI void bicubic_y(SkRasterPipeline_SamplerCtx* ctx, F* y) {
-    *y = unaligned_load<F>(ctx->y) + (kScale * 0.5f);
-    F fy = unaligned_load<F>(ctx->fy);
+    *y = sk_unaligned_load<F>(ctx->y) + (kScale * 0.5f);
+    F fy = sk_unaligned_load<F>(ctx->fy);
 
     F scaley;
     if (kScale == -3) { scaley = bicubic_far (1.0f - fy); }
     if (kScale == -1) { scaley = bicubic_near(1.0f - fy); }
     if (kScale == +1) { scaley = bicubic_near(       fy); }
     if (kScale == +3) { scaley = bicubic_far (       fy); }
-    unaligned_store(ctx->scaley, scaley);
+    sk_unaligned_store(ctx->scaley, scaley);
 }
 
 STAGE(bicubic_n3x, SkRasterPipeline_SamplerCtx* ctx) { bicubic_x<-3>(ctx, &r); }
@@ -2185,6 +2558,44 @@ STAGE(callback, SkRasterPipeline_CallbackCtx* c) {
     store4(c->rgba,0, r,g,b,a);
     c->fn(c, tail ? tail : N);
     load4(c->read_from,0, &r,&g,&b,&a);
+}
+
+// shader:      void main(float x, float y, inout half4 color)
+// colorfilter: void main(inout half4 color)
+STAGE(interpreter, SkRasterPipeline_InterpreterCtx* c) {
+    // If N is less than the interpreter's VecWidth, then we are doing more work than necessary in
+    // the interpreter. This is a known issue, and will be addressed at some point.
+    float xx[N], yy[N],
+          rr[N], gg[N], bb[N], aa[N];
+
+    float*  args[]  = { xx, yy, rr, gg, bb, aa };
+    float** in_args = args;
+    int     in_count = 6;
+
+    if (c->shaderConvention) {
+        // our caller must have called seed_shader to set these
+        sk_unaligned_store(xx, r);
+        sk_unaligned_store(yy, g);
+        sk_unaligned_store(rr, F(c->paintColor.fR));
+        sk_unaligned_store(gg, F(c->paintColor.fG));
+        sk_unaligned_store(bb, F(c->paintColor.fB));
+        sk_unaligned_store(aa, F(c->paintColor.fA));
+    } else {
+        in_args += 2;   // skip x,y
+        in_count = 4;
+        sk_unaligned_store(rr, r);
+        sk_unaligned_store(gg, g);
+        sk_unaligned_store(bb, b);
+        sk_unaligned_store(aa, a);
+    }
+
+    SkAssertResult(c->byteCode->runStriped(c->fn, in_args, in_count, tail ? tail : N,
+                                           (const float*)c->inputs, c->ninputs, nullptr, 0));
+
+    r = sk_unaligned_load<F>(rr);
+    g = sk_unaligned_load<F>(gg);
+    b = sk_unaligned_load<F>(bb);
+    a = sk_unaligned_load<F>(aa);
 }
 
 STAGE(gauss_a_to_rgba, Ctx::None) {
@@ -2242,6 +2653,27 @@ STAGE(bilerp_clamp_8888, const SkRasterPipeline_GatherCtx* ctx) {
         g += sg * area;
         b += sb * area;
         a += sa * area;
+    }
+}
+
+// ~~~~~~ GrSwizzle stage ~~~~~~ //
+
+STAGE(swizzle, void* ctx) {
+    auto ir = r, ig = g, ib = b, ia = a;
+    F* o[] = {&r, &g, &b, &a};
+    char swiz[4];
+    memcpy(swiz, &ctx, sizeof(swiz));
+
+    for (int i = 0; i < 4; ++i) {
+        switch (swiz[i]) {
+            case 'r': *o[i] = ir;   break;
+            case 'g': *o[i] = ig;   break;
+            case 'b': *o[i] = ib;   break;
+            case 'a': *o[i] = ia;   break;
+            case '0': *o[i] = F(0); break;
+            case '1': *o[i] = F(1); break;
+            default:                break;
+        }
     }
 }
 
@@ -2336,21 +2768,17 @@ static void start_pipeline(const size_t x0,     const size_t y0,
 
 #if JUMPER_NARROW_STAGES
     #define STAGE_GG(name, ...)                                                                \
-        SI void name##_k(__VA_ARGS__, size_t dx, size_t dy, size_t tail, F& x, F& y,           \
-                         U16    , U16    , U16    , U16    ,                                   \
-                         U16    , U16    , U16    , U16    );                                  \
+        SI void name##_k(__VA_ARGS__, size_t dx, size_t dy, size_t tail, F& x, F& y);          \
         static void ABI name(Params* params, void** program, U16 r, U16 g, U16 b, U16 a) {     \
             auto x = join<F>(r,g),                                                             \
                  y = join<F>(b,a);                                                             \
-            name##_k(Ctx{program}, params->dx,params->dy,params->tail, x,y, 0,0,0,0, 0,0,0,0); \
+            name##_k(Ctx{program}, params->dx,params->dy,params->tail, x,y);                   \
             split(x, &r,&g);                                                                   \
             split(y, &b,&a);                                                                   \
             auto next = (Stage)load_and_inc(program);                                          \
             next(params,program, r,g,b,a);                                                     \
         }                                                                                      \
-        SI void name##_k(__VA_ARGS__, size_t dx, size_t dy, size_t tail, F& x, F& y,           \
-                         U16    , U16    , U16    , U16    ,                                   \
-                         U16    , U16    , U16    , U16    )
+        SI void name##_k(__VA_ARGS__, size_t dx, size_t dy, size_t tail, F& x, F& y)
 
     #define STAGE_GP(name, ...)                                                            \
         SI void name##_k(__VA_ARGS__, size_t dx, size_t dy, size_t tail, F x, F y,         \
@@ -2369,37 +2797,33 @@ static void start_pipeline(const size_t x0,     const size_t y0,
                          U16& dr, U16& dg, U16& db, U16& da)
 
     #define STAGE_PP(name, ...)                                                            \
-        SI void name##_k(__VA_ARGS__, size_t dx, size_t dy, size_t tail, F  , F  ,         \
+        SI void name##_k(__VA_ARGS__, size_t dx, size_t dy, size_t tail,                   \
                          U16&  r, U16&  g, U16&  b, U16&  a,                               \
                          U16& dr, U16& dg, U16& db, U16& da);                              \
         static void ABI name(Params* params, void** program, U16 r, U16 g, U16 b, U16 a) { \
-            name##_k(Ctx{program}, params->dx,params->dy,params->tail, 0,0, r,g,b,a,       \
+            name##_k(Ctx{program}, params->dx,params->dy,params->tail, r,g,b,a,            \
                      params->dr,params->dg,params->db,params->da);                         \
             auto next = (Stage)load_and_inc(program);                                      \
             next(params,program, r,g,b,a);                                                 \
         }                                                                                  \
-        SI void name##_k(__VA_ARGS__, size_t dx, size_t dy, size_t tail, F  , F  ,         \
+        SI void name##_k(__VA_ARGS__, size_t dx, size_t dy, size_t tail,                   \
                          U16&  r, U16&  g, U16&  b, U16&  a,                               \
                          U16& dr, U16& dg, U16& db, U16& da)
 #else
     #define STAGE_GG(name, ...)                                                            \
-        SI void name##_k(__VA_ARGS__, size_t dx, size_t dy, size_t tail, F& x, F& y,       \
-                         U16    , U16    , U16    , U16    ,                               \
-                         U16    , U16    , U16    , U16    );                              \
+        SI void name##_k(__VA_ARGS__, size_t dx, size_t dy, size_t tail, F& x, F& y);      \
         static void ABI name(size_t tail, void** program, size_t dx, size_t dy,            \
                              U16  r, U16  g, U16  b, U16  a,                               \
                              U16 dr, U16 dg, U16 db, U16 da) {                             \
             auto x = join<F>(r,g),                                                         \
                  y = join<F>(b,a);                                                         \
-            name##_k(Ctx{program}, dx,dy,tail, x,y, 0,0,0,0, 0,0,0,0);                     \
+            name##_k(Ctx{program}, dx,dy,tail, x,y);                                       \
             split(x, &r,&g);                                                               \
             split(y, &b,&a);                                                               \
             auto next = (Stage)load_and_inc(program);                                      \
             next(tail,program,dx,dy, r,g,b,a, dr,dg,db,da);                                \
         }                                                                                  \
-        SI void name##_k(__VA_ARGS__, size_t dx, size_t dy, size_t tail, F& x, F& y,       \
-                         U16    , U16    , U16    , U16    ,                               \
-                         U16    , U16    , U16    , U16    )
+        SI void name##_k(__VA_ARGS__, size_t dx, size_t dy, size_t tail, F& x, F& y)
 
     #define STAGE_GP(name, ...)                                                            \
         SI void name##_k(__VA_ARGS__, size_t dx, size_t dy, size_t tail, F x, F y,         \
@@ -2419,17 +2843,17 @@ static void start_pipeline(const size_t x0,     const size_t y0,
                          U16& dr, U16& dg, U16& db, U16& da)
 
     #define STAGE_PP(name, ...)                                                            \
-        SI void name##_k(__VA_ARGS__, size_t dx, size_t dy, size_t tail, F  , F  ,         \
+        SI void name##_k(__VA_ARGS__, size_t dx, size_t dy, size_t tail,                   \
                          U16&  r, U16&  g, U16&  b, U16&  a,                               \
                          U16& dr, U16& dg, U16& db, U16& da);                              \
         static void ABI name(size_t tail, void** program, size_t dx, size_t dy,            \
                              U16  r, U16  g, U16  b, U16  a,                               \
                              U16 dr, U16 dg, U16 db, U16 da) {                             \
-            name##_k(Ctx{program}, dx,dy,tail, 0,0, r,g,b,a, dr,dg,db,da);                 \
+            name##_k(Ctx{program}, dx,dy,tail, r,g,b,a, dr,dg,db,da);                      \
             auto next = (Stage)load_and_inc(program);                                      \
             next(tail,program,dx,dy, r,g,b,a, dr,dg,db,da);                                \
         }                                                                                  \
-        SI void name##_k(__VA_ARGS__, size_t dx, size_t dy, size_t tail, F  , F  ,         \
+        SI void name##_k(__VA_ARGS__, size_t dx, size_t dy, size_t tail,                   \
                          U16&  r, U16&  g, U16&  b, U16&  a,                               \
                          U16& dr, U16& dg, U16& db, U16& da)
 #endif
@@ -2572,7 +2996,7 @@ STAGE_GG(seed_shader, Ctx::None) {
         0.5f, 1.5f, 2.5f, 3.5f, 4.5f, 5.5f, 6.5f, 7.5f,
         8.5f, 9.5f,10.5f,11.5f,12.5f,13.5f,14.5f,15.5f,
     };
-    x = cast<F>(I32(dx)) + unaligned_load<F>(iota);
+    x = cast<F>(I32(dx)) + sk_unaligned_load<F>(iota);
     y = cast<F>(I32(dy)) + 0.5f;
 }
 
@@ -2621,11 +3045,6 @@ STAGE_PP(clamp_a, Ctx::None) {
     r = min(r, a);
     g = min(g, a);
     b = min(b, a);
-}
-STAGE_PP(clamp_a_dst, Ctx::None) {
-    dr = min(dr, da);
-    dg = min(dg, da);
-    db = min(db, da);
 }
 
 STAGE_PP(clamp_gamut, Ctx::None) {
@@ -2935,10 +3354,12 @@ SI void load_565_(const uint16_t* ptr, size_t tail, U16* r, U16* g, U16* b) {
     from_565(load<U16>(ptr, tail), r,g,b);
 }
 SI void store_565_(uint16_t* ptr, size_t tail, U16 r, U16 g, U16 b) {
-    // Select the top 5,6,5 bits.
-    U16 R = r >> 3,
-        G = g >> 2,
-        B = b >> 3;
+    // Round from [0,255] to [0,31] or [0,63], as if x * (31/255.0f) + 0.5f.
+    // (Don't feel like you need to find some fundamental truth in these...
+    // they were brute-force searched.)
+    U16 R = (r *  9 + 36) / 74,   //  9/74 ≈ 31/255, plus 36/74, about half.
+        G = (g * 21 + 42) / 85,   // 21/85 = 63/255 exactly.
+        B = (b *  9 + 36) / 74;
     // Pack them back into 15|rrrrr gggggg bbbbb|0.
     store(ptr, tail, R << 11
                    | G <<  5
@@ -2980,11 +3401,11 @@ SI void load_4444_(const uint16_t* ptr, size_t tail, U16* r, U16* g, U16* b, U16
     from_4444(load<U16>(ptr, tail), r,g,b,a);
 }
 SI void store_4444_(uint16_t* ptr, size_t tail, U16 r, U16 g, U16 b, U16 a) {
-    // Select the top 4 bits of each.
-    U16 R = r >> 4,
-        G = g >> 4,
-        B = b >> 4,
-        A = a >> 4;
+    // Round from [0,255] to [0,15], producing the same value as (x*(15/255.0f) + 0.5f).
+    U16 R = (r + 8) / 17,
+        G = (g + 8) / 17,
+        B = (b + 8) / 17,
+        A = (a + 8) / 17;
     // Pack them back into 15|rrrr gggg bbbb aaaa|0.
     store(ptr, tail, R << 12
                    | G <<  8
@@ -3005,6 +3426,61 @@ STAGE_GP(gather_4444, const SkRasterPipeline_GatherCtx* ctx) {
     const uint16_t* ptr;
     U32 ix = ix_and_ptr(&ptr, ctx, x,y);
     from_4444(gather<U16>(ptr, ix), &r,&g,&b,&a);
+}
+
+SI void from_88(U16 rg, U16* r, U16* g) {
+    *r = (rg & 0xFF);
+    *g = (rg >> 8);
+}
+
+SI void load_88_(const uint16_t* ptr, size_t tail, U16* r, U16* g) {
+#if 1 && defined(JUMPER_IS_NEON)
+    uint8x8x2_t rg;
+    switch (tail & (N-1)) {
+        case 0: rg = vld2_u8     ((const uint8_t*)(ptr+0)         ); break;
+        case 7: rg = vld2_lane_u8((const uint8_t*)(ptr+6), rg, 6);
+        case 6: rg = vld2_lane_u8((const uint8_t*)(ptr+5), rg, 5);
+        case 5: rg = vld2_lane_u8((const uint8_t*)(ptr+4), rg, 4);
+        case 4: rg = vld2_lane_u8((const uint8_t*)(ptr+3), rg, 3);
+        case 3: rg = vld2_lane_u8((const uint8_t*)(ptr+2), rg, 2);
+        case 2: rg = vld2_lane_u8((const uint8_t*)(ptr+1), rg, 1);
+        case 1: rg = vld2_lane_u8((const uint8_t*)(ptr+0), rg, 0);
+    }
+    *r = cast<U16>(rg.val[0]);
+    *g = cast<U16>(rg.val[1]);
+#else
+    from_88(load<U16>(ptr, tail), r,g);
+#endif
+}
+
+SI void store_88_(uint16_t* ptr, size_t tail, U16 r, U16 g) {
+#if 1 && defined(JUMPER_IS_NEON)
+    uint8x8x2_t rg = {{
+        cast<U8>(r),
+        cast<U8>(g),
+    }};
+    switch (tail & (N-1)) {
+        case 0: vst2_u8     ((uint8_t*)(ptr+0), rg   ); break;
+        case 7: vst2_lane_u8((uint8_t*)(ptr+6), rg, 6);
+        case 6: vst2_lane_u8((uint8_t*)(ptr+5), rg, 5);
+        case 5: vst2_lane_u8((uint8_t*)(ptr+4), rg, 4);
+        case 4: vst2_lane_u8((uint8_t*)(ptr+3), rg, 3);
+        case 3: vst2_lane_u8((uint8_t*)(ptr+2), rg, 2);
+        case 2: vst2_lane_u8((uint8_t*)(ptr+1), rg, 1);
+        case 1: vst2_lane_u8((uint8_t*)(ptr+0), rg, 0);
+    }
+#else
+    store(ptr, tail, cast<U16>(r | (g<<8)) <<  0);
+#endif
+}
+
+STAGE_PP(load_rg88, const SkRasterPipeline_MemoryCtx* ctx) {
+    b = 0;
+    a = 255;
+    load_88_(ptr_at_xy<const uint16_t>(ctx, dx,dy), tail, &r,&g);
+}
+STAGE_PP(store_rg88, const SkRasterPipeline_MemoryCtx* ctx) {
+    store_88_(ptr_at_xy<uint16_t>(ctx, dx, dy), tail, r, g);
 }
 
 // ~~~~~~ 8-bit memory loads and stores ~~~~~~ //
@@ -3042,9 +3518,36 @@ STAGE_PP(alpha_to_gray_dst, Ctx::None) {
     dr = dg = db = da;
     da = 255;
 }
-STAGE_PP(luminance_to_alpha, Ctx::None) {
+STAGE_PP(bt709_luminance_or_luma_to_alpha, Ctx::None) {
     a = (r*54 + g*183 + b*19)/256;  // 0.2126, 0.7152, 0.0722 with 256 denominator.
     r = g = b = 0;
+}
+
+// ~~~~~~ Coverage scales / lerps ~~~~~~ //
+
+STAGE_PP(load_src, const uint16_t* ptr) {
+    r = sk_unaligned_load<U16>(ptr + 0*N);
+    g = sk_unaligned_load<U16>(ptr + 1*N);
+    b = sk_unaligned_load<U16>(ptr + 2*N);
+    a = sk_unaligned_load<U16>(ptr + 3*N);
+}
+STAGE_PP(store_src, uint16_t* ptr) {
+    sk_unaligned_store(ptr + 0*N, r);
+    sk_unaligned_store(ptr + 1*N, g);
+    sk_unaligned_store(ptr + 2*N, b);
+    sk_unaligned_store(ptr + 3*N, a);
+}
+STAGE_PP(load_dst, const uint16_t* ptr) {
+    dr = sk_unaligned_load<U16>(ptr + 0*N);
+    dg = sk_unaligned_load<U16>(ptr + 1*N);
+    db = sk_unaligned_load<U16>(ptr + 2*N);
+    da = sk_unaligned_load<U16>(ptr + 3*N);
+}
+STAGE_PP(store_dst, uint16_t* ptr) {
+    sk_unaligned_store(ptr + 0*N, dr);
+    sk_unaligned_store(ptr + 1*N, dg);
+    sk_unaligned_store(ptr + 2*N, db);
+    sk_unaligned_store(ptr + 3*N, da);
 }
 
 // ~~~~~~ Coverage scales / lerps ~~~~~~ //
@@ -3058,6 +3561,13 @@ STAGE_PP(scale_1_float, const float* f) {
 }
 STAGE_PP(lerp_1_float, const float* f) {
     U16 c = from_float(*f);
+    r = lerp(dr, r, c);
+    g = lerp(dg, g, c);
+    b = lerp(db, b, c);
+    a = lerp(da, a, c);
+}
+STAGE_PP(lerp_native, const uint16_t scales[]) {
+    auto c = sk_unaligned_load<U16>(scales);
     r = lerp(dr, r, c);
     g = lerp(dg, g, c);
     b = lerp(db, b, c);
@@ -3132,19 +3642,19 @@ SI I16 cond_to_mask_16(I32 cond) { return cast<I16>(cond); }
 
 STAGE_GG(decal_x, SkRasterPipeline_DecalTileCtx* ctx) {
     auto w = ctx->limit_x;
-    unaligned_store(ctx->mask, cond_to_mask_16((0 <= x) & (x < w)));
+    sk_unaligned_store(ctx->mask, cond_to_mask_16((0 <= x) & (x < w)));
 }
 STAGE_GG(decal_y, SkRasterPipeline_DecalTileCtx* ctx) {
     auto h = ctx->limit_y;
-    unaligned_store(ctx->mask, cond_to_mask_16((0 <= y) & (y < h)));
+    sk_unaligned_store(ctx->mask, cond_to_mask_16((0 <= y) & (y < h)));
 }
 STAGE_GG(decal_x_and_y, SkRasterPipeline_DecalTileCtx* ctx) {
     auto w = ctx->limit_x;
     auto h = ctx->limit_y;
-    unaligned_store(ctx->mask, cond_to_mask_16((0 <= x) & (x < w) & (0 <= y) & (y < h)));
+    sk_unaligned_store(ctx->mask, cond_to_mask_16((0 <= x) & (x < w) & (0 <= y) & (y < h)));
 }
 STAGE_PP(check_decal_mask, SkRasterPipeline_DecalTileCtx* ctx) {
-    auto mask = unaligned_load<U16>(ctx->mask);
+    auto mask = sk_unaligned_load<U16>(ctx->mask);
     r = r & mask;
     g = g & mask;
     b = b & mask;
@@ -3276,32 +3786,131 @@ STAGE_PP(srcover_rgba_8888, const SkRasterPipeline_MemoryCtx* ctx) {
     store_8888_(ptr, tail, r,g,b,a);
 }
 
+#if defined(SK_DISABLE_LOWP_BILERP_CLAMP_CLAMP_STAGE)
+    static void(*bilerp_clamp_8888)(void) = nullptr;
+#else
+STAGE_GP(bilerp_clamp_8888, const SkRasterPipeline_GatherCtx* ctx) {
+    // (cx,cy) are the center of our sample.
+    F cx = x,
+      cy = y;
+
+    // All sample points are at the same fractional offset (fx,fy).
+    // They're the 4 corners of a logical 1x1 pixel surrounding (x,y) at (0.5,0.5) offsets.
+    F fx = fract(cx + 0.5f),
+      fy = fract(cy + 0.5f);
+
+    // We'll accumulate the color of all four samples into {r,g,b,a} directly.
+    r = g = b = a = 0;
+
+    // The first three sample points will calculate their area using math
+    // just like in the float code above, but the fourth will take up all the rest.
+    //
+    // Logically this is the same as doing the math for the fourth pixel too,
+    // but rounding error makes this a better strategy, keeping opaque opaque, etc.
+    //
+    // We can keep up to 8 bits of fractional precision without overflowing 16-bit,
+    // so our "1.0" area is 256.
+    const uint16_t bias = 256;
+    U16 remaining = bias;
+
+    for (float dy = -0.5f; dy <= +0.5f; dy += 1.0f)
+    for (float dx = -0.5f; dx <= +0.5f; dx += 1.0f) {
+        // (x,y) are the coordinates of this sample point.
+        F x = cx + dx,
+          y = cy + dy;
+
+        // ix_and_ptr() will clamp to the image's bounds for us.
+        const uint32_t* ptr;
+        U32 ix = ix_and_ptr(&ptr, ctx, x,y);
+
+        U16 sr,sg,sb,sa;
+        from_8888(gather<U32>(ptr, ix), &sr,&sg,&sb,&sa);
+
+        // In bilinear interpolation, the 4 pixels at +/- 0.5 offsets from the sample pixel center
+        // are combined in direct proportion to their area overlapping that logical query pixel.
+        // At positive offsets, the x-axis contribution to that rectangle is fx,
+        // or (1-fx) at negative x.  Same deal for y.
+        F sx = (dx > 0) ? fx : 1.0f - fx,
+          sy = (dy > 0) ? fy : 1.0f - fy;
+
+        U16 area = (dy == 0.5f && dx == 0.5f) ? remaining
+                                              : cast<U16>(sx * sy * bias);
+        for (size_t i = 0; i < N; i++) {
+            SkASSERT(remaining[i] >= area[i]);
+        }
+        remaining -= area;
+
+        r += sr * area;
+        g += sg * area;
+        b += sb * area;
+        a += sa * area;
+    }
+
+    r = (r + bias/2) / bias;
+    g = (g + bias/2) / bias;
+    b = (b + bias/2) / bias;
+    a = (a + bias/2) / bias;
+}
+#endif
+
+// ~~~~~~ GrSwizzle stage ~~~~~~ //
+
+STAGE_PP(swizzle, void* ctx) {
+    auto ir = r, ig = g, ib = b, ia = a;
+    U16* o[] = {&r, &g, &b, &a};
+    char swiz[4];
+    memcpy(swiz, &ctx, sizeof(swiz));
+
+    for (int i = 0; i < 4; ++i) {
+        switch (swiz[i]) {
+            case 'r': *o[i] = ir;       break;
+            case 'g': *o[i] = ig;       break;
+            case 'b': *o[i] = ib;       break;
+            case 'a': *o[i] = ia;       break;
+            case '0': *o[i] = U16(0);   break;
+            case '1': *o[i] = U16(255); break;
+            default:                    break;
+        }
+    }
+}
+
 // Now we'll add null stand-ins for stages we haven't implemented in lowp.
 // If a pipeline uses these stages, it'll boot it out of lowp into highp.
 #define NOT_IMPLEMENTED(st) static void (*st)(void) = nullptr;
     NOT_IMPLEMENTED(callback)
-    NOT_IMPLEMENTED(load_rgba)
-    NOT_IMPLEMENTED(store_rgba)
+    NOT_IMPLEMENTED(interpreter)
     NOT_IMPLEMENTED(unbounded_set_rgb)
     NOT_IMPLEMENTED(unbounded_uniform_color)
     NOT_IMPLEMENTED(unpremul)
-    NOT_IMPLEMENTED(dither)
+    NOT_IMPLEMENTED(dither)  // TODO
     NOT_IMPLEMENTED(from_srgb)
     NOT_IMPLEMENTED(to_srgb)
+    NOT_IMPLEMENTED(load_16161616)
+    NOT_IMPLEMENTED(store_16161616)
+    NOT_IMPLEMENTED(load_a16)
+    NOT_IMPLEMENTED(store_a16)
+    NOT_IMPLEMENTED(load_rg1616)
+    NOT_IMPLEMENTED(store_rg1616)
     NOT_IMPLEMENTED(load_f16)
     NOT_IMPLEMENTED(load_f16_dst)
     NOT_IMPLEMENTED(store_f16)
     NOT_IMPLEMENTED(gather_f16)
+    NOT_IMPLEMENTED(load_af16)
+    NOT_IMPLEMENTED(store_af16)
+    NOT_IMPLEMENTED(load_rgf16)
+    NOT_IMPLEMENTED(store_rgf16)
     NOT_IMPLEMENTED(load_f32)
     NOT_IMPLEMENTED(load_f32_dst)
     NOT_IMPLEMENTED(store_f32)
     NOT_IMPLEMENTED(gather_f32)
+    NOT_IMPLEMENTED(load_rgf32)
+    NOT_IMPLEMENTED(store_rgf32)
     NOT_IMPLEMENTED(load_1010102)
     NOT_IMPLEMENTED(load_1010102_dst)
     NOT_IMPLEMENTED(store_1010102)
     NOT_IMPLEMENTED(gather_1010102)
     NOT_IMPLEMENTED(store_u16_be)
-    NOT_IMPLEMENTED(byte_tables)
+    NOT_IMPLEMENTED(byte_tables)  // TODO
     NOT_IMPLEMENTED(colorburn)
     NOT_IMPLEMENTED(colordodge)
     NOT_IMPLEMENTED(softlight)
@@ -3311,33 +3920,32 @@ STAGE_PP(srcover_rgba_8888, const SkRasterPipeline_MemoryCtx* ctx) {
     NOT_IMPLEMENTED(luminosity)
     NOT_IMPLEMENTED(matrix_3x3)
     NOT_IMPLEMENTED(matrix_3x4)
-    NOT_IMPLEMENTED(matrix_4x5)
-    NOT_IMPLEMENTED(matrix_4x3)
+    NOT_IMPLEMENTED(matrix_4x5)  // TODO
+    NOT_IMPLEMENTED(matrix_4x3)  // TODO
     NOT_IMPLEMENTED(parametric)
-    NOT_IMPLEMENTED(gamma)
+    NOT_IMPLEMENTED(gamma_)
     NOT_IMPLEMENTED(rgb_to_hsl)
     NOT_IMPLEMENTED(hsl_to_rgb)
-    NOT_IMPLEMENTED(gauss_a_to_rgba)
-    NOT_IMPLEMENTED(mirror_x)
-    NOT_IMPLEMENTED(repeat_x)
-    NOT_IMPLEMENTED(mirror_y)
-    NOT_IMPLEMENTED(repeat_y)
+    NOT_IMPLEMENTED(gauss_a_to_rgba)  // TODO
+    NOT_IMPLEMENTED(mirror_x)         // TODO
+    NOT_IMPLEMENTED(repeat_x)         // TODO
+    NOT_IMPLEMENTED(mirror_y)         // TODO
+    NOT_IMPLEMENTED(repeat_y)         // TODO
     NOT_IMPLEMENTED(negate_x)
-    NOT_IMPLEMENTED(bilerp_clamp_8888)
-    NOT_IMPLEMENTED(bilinear_nx)
-    NOT_IMPLEMENTED(bilinear_ny)
-    NOT_IMPLEMENTED(bilinear_px)
-    NOT_IMPLEMENTED(bilinear_py)
-    NOT_IMPLEMENTED(bicubic_n3x)
-    NOT_IMPLEMENTED(bicubic_n1x)
-    NOT_IMPLEMENTED(bicubic_p1x)
-    NOT_IMPLEMENTED(bicubic_p3x)
-    NOT_IMPLEMENTED(bicubic_n3y)
-    NOT_IMPLEMENTED(bicubic_n1y)
-    NOT_IMPLEMENTED(bicubic_p1y)
-    NOT_IMPLEMENTED(bicubic_p3y)
-    NOT_IMPLEMENTED(save_xy)
-    NOT_IMPLEMENTED(accumulate)
+    NOT_IMPLEMENTED(bilinear_nx)      // TODO
+    NOT_IMPLEMENTED(bilinear_ny)      // TODO
+    NOT_IMPLEMENTED(bilinear_px)      // TODO
+    NOT_IMPLEMENTED(bilinear_py)      // TODO
+    NOT_IMPLEMENTED(bicubic_n3x)      // TODO
+    NOT_IMPLEMENTED(bicubic_n1x)      // TODO
+    NOT_IMPLEMENTED(bicubic_p1x)      // TODO
+    NOT_IMPLEMENTED(bicubic_p3x)      // TODO
+    NOT_IMPLEMENTED(bicubic_n3y)      // TODO
+    NOT_IMPLEMENTED(bicubic_n1y)      // TODO
+    NOT_IMPLEMENTED(bicubic_p1y)      // TODO
+    NOT_IMPLEMENTED(bicubic_p3y)      // TODO
+    NOT_IMPLEMENTED(save_xy)          // TODO
+    NOT_IMPLEMENTED(accumulate)       // TODO
     NOT_IMPLEMENTED(xy_to_2pt_conical_well_behaved)
     NOT_IMPLEMENTED(xy_to_2pt_conical_strip)
     NOT_IMPLEMENTED(xy_to_2pt_conical_focal_on_circle)

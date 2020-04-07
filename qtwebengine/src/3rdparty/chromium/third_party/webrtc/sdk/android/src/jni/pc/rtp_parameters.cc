@@ -10,7 +10,7 @@
 
 #include "sdk/android/src/jni/pc/rtp_parameters.h"
 
-#include "sdk/android/generated_peerconnection_jni/jni/RtpParameters_jni.h"
+#include "sdk/android/generated_peerconnection_jni/RtpParameters_jni.h"
 #include "sdk/android/native_api/jni/java_types.h"
 #include "sdk/android/src/jni/jni_helpers.h"
 #include "sdk/android/src/jni/pc/media_stream_track.h"
@@ -24,10 +24,12 @@ ScopedJavaLocalRef<jobject> NativeToJavaRtpEncodingParameter(
     JNIEnv* env,
     const RtpEncodingParameters& encoding) {
   return Java_Encoding_Constructor(
-      env, encoding.active, NativeToJavaInteger(env, encoding.max_bitrate_bps),
+      env, NativeToJavaString(env, encoding.rid), encoding.active,
+      NativeToJavaInteger(env, encoding.max_bitrate_bps),
       NativeToJavaInteger(env, encoding.min_bitrate_bps),
       NativeToJavaInteger(env, encoding.max_framerate),
       NativeToJavaInteger(env, encoding.num_temporal_layers),
+      NativeToJavaDouble(env, encoding.scale_resolution_down_by),
       encoding.ssrc ? NativeToJavaLong(env, *encoding.ssrc) : nullptr);
 }
 
@@ -63,6 +65,11 @@ RtpEncodingParameters JavaToNativeRtpEncodingParameters(
     JNIEnv* jni,
     const JavaRef<jobject>& j_encoding_parameters) {
   RtpEncodingParameters encoding;
+  ScopedJavaLocalRef<jstring> j_rid =
+      Java_Encoding_getRid(jni, j_encoding_parameters);
+  if (!IsNull(jni, j_rid)) {
+    encoding.rid = JavaToNativeString(jni, j_rid);
+  }
   encoding.active = Java_Encoding_getActive(jni, j_encoding_parameters);
   ScopedJavaLocalRef<jobject> j_max_bitrate =
       Java_Encoding_getMaxBitrateBps(jni, j_encoding_parameters);
@@ -77,6 +84,10 @@ RtpEncodingParameters JavaToNativeRtpEncodingParameters(
       Java_Encoding_getNumTemporalLayers(jni, j_encoding_parameters);
   encoding.num_temporal_layers =
       JavaToNativeOptionalInt(jni, j_num_temporal_layers);
+  ScopedJavaLocalRef<jobject> j_scale_resolution_down_by =
+      Java_Encoding_getScaleResolutionDownBy(jni, j_encoding_parameters);
+  encoding.scale_resolution_down_by =
+      JavaToNativeOptionalDouble(jni, j_scale_resolution_down_by);
   ScopedJavaLocalRef<jobject> j_ssrc =
       Java_Encoding_getSsrc(jni, j_encoding_parameters);
   if (!IsNull(jni, j_ssrc))

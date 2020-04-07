@@ -31,22 +31,22 @@ class CORE_EXPORT PrepopulatedComputedStylePropertyMap
   PrepopulatedComputedStylePropertyMap(
       const Document&,
       const ComputedStyle&,
-      Node* styled_node,
+      const Node* styled_node,
       const Vector<CSSPropertyID>& native_properties,
       const Vector<AtomicString>& custom_properties);
 
   // Updates the values of the properties based on the new computed style.
   void UpdateStyle(const Document&, const ComputedStyle&);
 
-  unsigned size() override;
+  unsigned size() const override;
   void Trace(blink::Visitor*) override;
 
  protected:
-  const CSSValue* GetProperty(CSSPropertyID) override;
-  const CSSValue* GetCustomProperty(AtomicString) override;
+  const CSSValue* GetProperty(CSSPropertyID) const override;
+  const CSSValue* GetCustomProperty(AtomicString) const override;
   void ForEachProperty(const IterationCallback&) override;
 
-  String SerializationForShorthand(const CSSProperty&) override;
+  String SerializationForShorthand(const CSSProperty&) const override;
 
  private:
   void UpdateNativeProperty(const ComputedStyle&, CSSPropertyID);
@@ -54,7 +54,7 @@ class CORE_EXPORT PrepopulatedComputedStylePropertyMap
                             const ComputedStyle&,
                             const AtomicString& property_name);
 
-  Member<Node> styled_node_;
+  Member<const Node> styled_node_;
   HeapHashMap<CSSPropertyID, Member<const CSSValue>> native_values_;
   HeapHashMap<AtomicString, Member<const CSSValue>> custom_values_;
 

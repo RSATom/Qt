@@ -61,6 +61,7 @@ class URLPattern {
     SCHEME_WS = 1 << 7,
     SCHEME_WSS = 1 << 8,
     SCHEME_DATA = 1 << 9,
+    SCHEME_QRC = 1 << 10,
 
     // IMPORTANT!
     // SCHEME_ALL will match every scheme, including chrome://, chrome-
@@ -108,7 +109,11 @@ class URLPattern {
 
   URLPattern();
   URLPattern(const URLPattern& other);
+  URLPattern(URLPattern&& other);
   ~URLPattern();
+
+  URLPattern& operator=(const URLPattern& other);
+  URLPattern& operator=(URLPattern&& other);
 
   bool operator<(const URLPattern& other) const;
   bool operator>(const URLPattern& other) const;

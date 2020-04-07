@@ -26,9 +26,23 @@ extern const base::Feature kThrottleDelayable;
 COMPONENT_EXPORT(NETWORK_CPP)
 extern const base::Feature kDelayRequestsOnMultiplexedConnections;
 COMPONENT_EXPORT(NETWORK_CPP)
-extern const base::Feature kUnthrottleRequestsAfterLongQueuingDelay;
+extern const base::Feature kFetchMetadata;
 COMPONENT_EXPORT(NETWORK_CPP)
-extern const base::Feature kEnforceRequestInitiatorLockForCorb;
+extern const base::Feature kFetchMetadataDestination;
+COMPONENT_EXPORT(NETWORK_CPP)
+extern const base::Feature kRequestInitiatorSiteLock;
+COMPONENT_EXPORT(NETWORK_CPP)
+extern const base::Feature kPauseBrowserInitiatedHeavyTrafficForP2P;
+COMPONENT_EXPORT(NETWORK_CPP)
+extern const base::Feature kCORBProtectionSniffing;
+COMPONENT_EXPORT(NETWORK_CPP)
+extern const base::Feature kProactivelyThrottleLowPriorityRequests;
+COMPONENT_EXPORT(NETWORK_CPP)
+extern const base::Feature kCrossOriginEmbedderPolicy;
+COMPONENT_EXPORT(NETWORK_CPP)
+extern const base::Feature kMdnsResponderGeneratedNameListing;
+
+COMPONENT_EXPORT(NETWORK_CPP) bool ShouldEnableOutOfBlinkCors();
 
 }  // namespace features
 }  // namespace network

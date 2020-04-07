@@ -32,7 +32,7 @@
 #include "third_party/blink/renderer/core/dom/container_node.h"
 #include "third_party/blink/renderer/core/dom/node.h"
 #include "third_party/blink/renderer/core/dom/traversal_range.h"
-#include "third_party/blink/renderer/platform/wtf/allocator.h"
+#include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 
 namespace blink {
 
@@ -179,12 +179,12 @@ NodeTraversal::InclusiveDescendantsOf(const Node& root) {
 inline TraversalNextRange<NodeTraversal> NodeTraversal::StartsAt(
     const Node& start) {
   return TraversalNextRange<NodeTraversal>(&start);
-};
+}
 
 inline TraversalNextRange<NodeTraversal> NodeTraversal::StartsAfter(
     const Node& start) {
   return TraversalNextRange<NodeTraversal>(NodeTraversal::Next(start));
-};
+}
 
 template <class NodeType>
 inline Node* NodeTraversal::TraverseNextTemplate(NodeType& current) {

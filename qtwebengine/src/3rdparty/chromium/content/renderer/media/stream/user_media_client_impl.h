@@ -62,7 +62,8 @@ class CONTENT_EXPORT UserMediaClientImpl : public RenderFrameObserver,
   bool IsCapturing() override;
 
   // RenderFrameObserver override
-  void WillCommitProvisionalLoad() override;
+  void ReadyToCommitNavigation(
+      blink::WebDocumentLoader* document_loader) override;
 
   void SetMediaDevicesDispatcherForTesting(
       blink::mojom::MediaDevicesDispatcherHostPtr media_devices_dispatcher);
@@ -130,7 +131,7 @@ class CONTENT_EXPORT UserMediaClientImpl : public RenderFrameObserver,
 
   // Note: This member must be the last to ensure all outstanding weak pointers
   // are invalidated first.
-  base::WeakPtrFactory<UserMediaClientImpl> weak_factory_;
+  base::WeakPtrFactory<UserMediaClientImpl> weak_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(UserMediaClientImpl);
 };

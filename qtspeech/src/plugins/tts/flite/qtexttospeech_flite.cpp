@@ -122,7 +122,7 @@ QLocale QTextToSpeechEngineFlite::locale() const
 bool QTextToSpeechEngineFlite::setLocale(const QLocale &locale)
 {
     bool localeFound = false;
-    foreach (const QLocale &l, m_locales) {
+    for (const QLocale &l : qAsConst(m_locales)) {
         if (l.name() == locale.name()) {
             localeFound = true;
             break;
@@ -154,7 +154,8 @@ QVoice QTextToSpeechEngineFlite::voice() const
 
 bool QTextToSpeechEngineFlite::setVoice(const QVoice &voice)
 {
-    foreach (const QVoice &availableVoice, availableVoices()) {
+    const auto voices = availableVoices();
+    for (const QVoice &availableVoice : voices) {
         if (QTextToSpeechEngine::voiceData(availableVoice) == QTextToSpeechEngine::voiceData(voice)) {
             m_currentVoice = voice;
             return true;
@@ -172,7 +173,7 @@ bool QTextToSpeechEngineFlite::init(QString *errorString)
 {
     int i = 0;
     const QVector<QTextToSpeechProcessor::VoiceInfo> &voices = m_processor->voices();
-    foreach (const QTextToSpeechProcessor::VoiceInfo &voiceInfo, voices) {
+    for (const QTextToSpeechProcessor::VoiceInfo &voiceInfo : voices) {
         QString name = voiceInfo.name;
         QLocale locale(voiceInfo.locale);
         QVoice voice = QTextToSpeechEngine::createVoice(name, voiceInfo.gender, voiceInfo.age,

@@ -24,7 +24,6 @@ jumbo_source_set("filters") {
     "audio_timestamp_validator.h",
     "chunk_demuxer.cc",
     "chunk_demuxer.h",
-    "context_3d.h",
     "decoder_selector.cc",
     "decoder_selector.h",
     "decoder_stream.cc",
@@ -45,10 +44,6 @@ jumbo_source_set("filters") {
     "frame_buffer_pool.h",
     "frame_processor.cc",
     "frame_processor.h",
-    "gpu_video_decoder.cc",
-    "gpu_video_decoder.h",
-    "jpeg_parser.cc",
-    "jpeg_parser.h",
     "memory_data_source.cc",
     "memory_data_source.h",
     "offloading_video_decoder.cc",
@@ -58,10 +53,6 @@ jumbo_source_set("filters") {
     "source_buffer_parse_warnings.h",
     "source_buffer_range.cc",
     "source_buffer_range.h",
-    "source_buffer_range_by_dts.cc",
-    "source_buffer_range_by_dts.h",
-    "source_buffer_range_by_pts.cc",
-    "source_buffer_range_by_pts.h",
     "source_buffer_state.cc",
     "source_buffer_state.h",
     "source_buffer_stream.cc",
@@ -72,10 +63,6 @@ jumbo_source_set("filters") {
     "video_cadence_estimator.h",
     "video_renderer_algorithm.cc",
     "video_renderer_algorithm.h",
-    "vp8_bool_decoder.cc",
-    "vp8_bool_decoder.h",
-    "vp8_parser.cc",
-    "vp8_parser.h",
     "vp9_bool_decoder.cc",
     "vp9_bool_decoder.h",
     "vp9_compressed_header_parser.cc",
@@ -98,14 +85,13 @@ jumbo_source_set("filters") {
 
   deps = [
     "//cc/base",  # For MathUtil.
-    "//gpu/command_buffer/common",
+    "//media:media_buildflags",
     "//media/base",
     "//media/cdm",
     "//media/formats",
     "//media/video",
-    "//skia",
-    "//third_party/libaom:av1_buildflags",
     "//third_party/libyuv",
+    "//ui/gfx/geometry:geometry",
   ]
 
   libs = []
@@ -153,12 +139,20 @@ jumbo_source_set("filters") {
     deps += [ "//third_party/libvpx" ]
   }
 
-  if (enable_av1_decoder) {
+  if (enable_libaom_decoder) {
     sources += [
       "aom_video_decoder.cc",
       "aom_video_decoder.h",
     ]
     deps += [ "//third_party/libaom" ]
+  }
+
+  if (enable_dav1d_decoder) {
+    sources += [
+      "dav1d_video_decoder.cc",
+      "dav1d_video_decoder.h",
+    ]
+    deps += [ "//third_party/dav1d" ]
   }
 
   if (media_use_ffmpeg) {
@@ -214,7 +208,10 @@ jumbo_source_set("filters") {
       "fuchsia/fuchsia_video_decoder.cc",
       "fuchsia/fuchsia_video_decoder.h",
     ]
-    deps += [ "//third_party/fuchsia-sdk/sdk:mediacodec" ]
+    deps += [
+      "//third_party/fuchsia-sdk/sdk:media",
+      "//third_party/fuchsia-sdk/sdk:mediacodec",
+    ]
   }
 }
 
@@ -277,7 +274,6 @@ source_set("unit_tests") {
     "frame_buffer_pool_unittest.cc",
     "frame_processor_unittest.cc",
     "ivf_parser_unittest.cc",
-    "jpeg_parser_unittest.cc",
     "memory_data_source_unittest.cc",
     "offloading_video_decoder_unittest.cc",
     "pipeline_controller_unittest.cc",
@@ -286,8 +282,6 @@ source_set("unit_tests") {
     "video_cadence_estimator_unittest.cc",
     "video_decoder_stream_unittest.cc",
     "video_renderer_algorithm_unittest.cc",
-    "vp8_bool_decoder_unittest.cc",
-    "vp8_parser_unittest.cc",
     "vp9_parser_unittest.cc",
     "vp9_raw_bits_reader_unittest.cc",
   ]
@@ -358,8 +352,12 @@ source_set("unit_tests") {
     sources += [ "vpx_video_decoder_unittest.cc" ]
   }
 
-  if (enable_av1_decoder) {
+  if (enable_libaom_decoder) {
     sources += [ "aom_video_decoder_unittest.cc" ]
+  }
+
+  if (enable_dav1d_decoder) {
+    sources += [ "dav1d_video_decoder_unittest.cc" ]
   }
 
   if (current_cpu != "arm" && is_linux) {

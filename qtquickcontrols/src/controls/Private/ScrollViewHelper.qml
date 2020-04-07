@@ -37,6 +37,7 @@
 **
 ****************************************************************************/
 
+import QtQml 2.14 as Qml
 import QtQuick 2.2
 import QtQuick.Controls 1.2
 import QtQuick.Controls.Private 1.0
@@ -143,21 +144,23 @@ Item {
             }
         }
         onValueChanged: {
-            if (!blockUpdates) {
+            if (flickableItem && !blockUpdates) {
                 flickableItem.contentX = value + flickableItem.originX
             }
         }
-        Binding {
+        Qml.Binding {
             target: hscrollbar.__panel
             property: "raised"
             value: vscrollbar.active || scrollHelper.active
             when: hscrollbar.isTransient
+            restoreMode: Binding.RestoreBinding
         }
-        Binding {
+        Qml.Binding {
             target: hscrollbar.__panel
             property: "visible"
             value: true
             when: !hscrollbar.isTransient || scrollHelper.active
+            restoreMode: Binding.RestoreBinding
         }
         function flash() {
             if (hscrollbar.isTransient) {
@@ -201,17 +204,19 @@ Item {
                 flickableItem.contentY = value + flickableItem.originY
             }
         }
-        Binding {
+        Qml.Binding {
             target: vscrollbar.__panel
             property: "raised"
             value: hscrollbar.active || scrollHelper.active
             when: vscrollbar.isTransient
+            restoreMode: Binding.RestoreBinding
         }
-        Binding {
+        Qml.Binding {
             target: vscrollbar.__panel
             property: "visible"
             value: true
             when: !vscrollbar.isTransient || scrollHelper.active
+            restoreMode: Binding.RestoreBinding
         }
         function flash() {
             if (vscrollbar.isTransient) {

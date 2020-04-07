@@ -4,6 +4,8 @@
 
 #include "third_party/blink/renderer/modules/bluetooth/bluetooth_remote_gatt_characteristic.h"
 
+#include <utility>
+
 #include "mojo/public/cpp/bindings/associated_interface_ptr.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise_resolver.h"
@@ -18,10 +20,8 @@
 #include "third_party/blink/renderer/modules/bluetooth/bluetooth_remote_gatt_service.h"
 #include "third_party/blink/renderer/modules/bluetooth/bluetooth_remote_gatt_utils.h"
 #include "third_party/blink/renderer/modules/bluetooth/bluetooth_uuid.h"
+#include "third_party/blink/renderer/platform/heap/heap.h"
 #include "third_party/blink/renderer/platform/wtf/functional.h"
-
-#include <memory>
-#include <utility>
 
 namespace blink {
 
@@ -34,17 +34,8 @@ BluetoothRemoteGATTCharacteristic::BluetoothRemoteGATTCharacteristic(
       characteristic_(std::move(characteristic)),
       service_(service),
       device_(device) {
-  properties_ =
-      BluetoothCharacteristicProperties::Create(characteristic_->properties);
-}
-
-BluetoothRemoteGATTCharacteristic* BluetoothRemoteGATTCharacteristic::Create(
-    ExecutionContext* context,
-    mojom::blink::WebBluetoothRemoteGATTCharacteristicPtr characteristic,
-    BluetoothRemoteGATTService* service,
-    BluetoothDevice* device) {
-  return MakeGarbageCollected<BluetoothRemoteGATTCharacteristic>(
-      context, std::move(characteristic), service, device);
+  properties_ = MakeGarbageCollected<BluetoothCharacteristicProperties>(
+      characteristic_->properties);
 }
 
 void BluetoothRemoteGATTCharacteristic::SetValue(DOMDataView* dom_data_view) {
@@ -133,7 +124,7 @@ ScriptPromise BluetoothRemoteGATTCharacteristic::readValue(
         script_state, CreateInvalidCharacteristicError());
   }
 
-  ScriptPromiseResolver* resolver = ScriptPromiseResolver::Create(script_state);
+  auto* resolver = MakeGarbageCollected<ScriptPromiseResolver>(script_state);
   ScriptPromise promise = resolver->Promise();
   GetGatt()->AddToActiveAlgorithms(resolver);
 
@@ -185,6 +176,13 @@ ScriptPromise BluetoothRemoteGATTCharacteristic::writeValue(
         script_state, CreateInvalidCharacteristicError());
   }
 
+  if (value.IsNeutered()) {
+    return ScriptPromise::RejectWithDOMException(
+        script_state,
+        MakeGarbageCollected<DOMException>(DOMExceptionCode::kInvalidStateError,
+                                           "Value buffer has been detached."));
+  }
+
   // Partial implementation of writeValue algorithm:
   // https://webbluetoothcg.github.io/web-bluetooth/#dom-bluetoothremotegattcharacteristic-writevalue
 
@@ -193,16 +191,16 @@ ScriptPromise BluetoothRemoteGATTCharacteristic::writeValue(
   // InvalidModificationError and abort.
   if (value.ByteLength() > 512) {
     return ScriptPromise::RejectWithDOMException(
-        script_state,
-        DOMException::Create(DOMExceptionCode::kInvalidModificationError,
-                             "Value can't exceed 512 bytes."));
+        script_state, MakeGarbageCollected<DOMException>(
+                          DOMExceptionCode::kInvalidModificationError,
+                          "Value can't exceed 512 bytes."));
   }
 
   // Let valueVector be a copy of the bytes held by value.
   Vector<uint8_t> value_vector;
   value_vector.Append(value.Bytes(), value.ByteLength());
 
-  ScriptPromiseResolver* resolver = ScriptPromiseResolver::Create(script_state);
+  auto* resolver = MakeGarbageCollected<ScriptPromiseResolver>(script_state);
   ScriptPromise promise = resolver->Promise();
   GetGatt()->AddToActiveAlgorithms(resolver);
 
@@ -251,7 +249,7 @@ ScriptPromise BluetoothRemoteGATTCharacteristic::startNotifications(
         script_state, CreateInvalidCharacteristicError());
   }
 
-  ScriptPromiseResolver* resolver = ScriptPromiseResolver::Create(script_state);
+  auto* resolver = MakeGarbageCollected<ScriptPromiseResolver>(script_state);
   ScriptPromise promise = resolver->Promise();
   GetGatt()->AddToActiveAlgorithms(resolver);
 
@@ -286,7 +284,7 @@ ScriptPromise BluetoothRemoteGATTCharacteristic::stopNotifications(
         script_state, CreateInvalidCharacteristicError());
   }
 
-  ScriptPromiseResolver* resolver = ScriptPromiseResolver::Create(script_state);
+  auto* resolver = MakeGarbageCollected<ScriptPromiseResolver>(script_state);
   ScriptPromise promise = resolver->Promise();
   GetGatt()->AddToActiveAlgorithms(resolver);
 
@@ -351,7 +349,7 @@ ScriptPromise BluetoothRemoteGATTCharacteristic::GetDescriptorsImpl(
         script_state, CreateInvalidCharacteristicError());
   }
 
-  ScriptPromiseResolver* resolver = ScriptPromiseResolver::Create(script_state);
+  auto* resolver = MakeGarbageCollected<ScriptPromiseResolver>(script_state);
   ScriptPromise promise = resolver->Promise();
   GetGatt()->AddToActiveAlgorithms(resolver);
 

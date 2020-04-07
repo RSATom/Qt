@@ -15,6 +15,7 @@
 #define PC_STATS_COLLECTOR_H_
 
 #include <stdint.h>
+
 #include <map>
 #include <memory>
 #include <string>
@@ -79,6 +80,7 @@ class StatsCollector {
   // in the ExtractStatsFromList template.
   StatsReport* PrepareReport(bool local,
                              uint32_t ssrc,
+                             const std::string& track_id,
                              const StatsReport::Id& transport_id,
                              StatsReport::Direction direction);
 
@@ -129,11 +131,6 @@ class StatsCollector {
   void UpdateReportFromAudioTrack(AudioTrackInterface* track,
                                   StatsReport* report,
                                   bool has_remote_tracks);
-
-  // Helper method to get the id for the track identified by ssrc.
-  // |direction| tells if the track is for sending or receiving.
-  absl::string_view GetTrackIdBySsrc(uint32_t ssrc,
-                                     StatsReport::Direction direction);
 
   // Helper method to update the timestamp of track records.
   void UpdateTrackReports();

@@ -10,10 +10,10 @@
 #include "base/android/jni_array.h"
 #include "base/android/jni_string.h"
 #include "base/metrics/histogram_macros.h"
+#include "components/spellcheck/browser/android/jni_headers/SpellCheckerSessionBridge_jni.h"
 #include "components/spellcheck/common/spellcheck_result.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/render_process_host.h"
-#include "jni/SpellCheckerSessionBridge_jni.h"
 
 using base::android::JavaParamRef;
 
@@ -55,10 +55,10 @@ void SpellCheckerSessionBridge::RequestTextCheck(
   }
 
   // RequestTextCheck API call arrives at the SpellCheckHost before
-  // ToggleSpellCheck when the user focuses an input field that already
+  // DisconnectSessionBridge when the user focuses an input field that already
   // contains completed text.  We need to initialize the spellchecker here
-  // rather than in response to ToggleSpellCheck so that the existing text
-  // will be spellchecked immediately.
+  // rather than in response to DisconnectSessionBridge so that the existing
+  // text will be spellchecked immediately.
   if (java_object_.is_null()) {
     java_object_.Reset(Java_SpellCheckerSessionBridge_create(
         base::android::AttachCurrentThread(),

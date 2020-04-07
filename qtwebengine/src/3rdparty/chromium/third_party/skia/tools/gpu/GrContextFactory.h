@@ -8,11 +8,11 @@
 #ifndef GrContextFactory_DEFINED
 #define GrContextFactory_DEFINED
 
-#include "GrContext.h"
-#include "GrContextOptions.h"
+#include "include/gpu/GrContext.h"
+#include "include/gpu/GrContextOptions.h"
 
-#include "gl/GLTestContext.h"
-#include "SkTArray.h"
+#include "include/private/SkTArray.h"
+#include "tools/gpu/gl/GLTestContext.h"
 
 struct GrVkBackendContext;
 
@@ -39,9 +39,9 @@ public:
         kANGLE_GL_ES2_ContextType,   //! ANGLE on OpenGL OpenGL ES 2 context.
         kANGLE_GL_ES3_ContextType,   //! ANGLE on OpenGL OpenGL ES 3 context.
         kCommandBuffer_ContextType,  //! Chromium command buffer OpenGL ES context.
-        kNullGL_ContextType,         //! Non-rendering OpenGL mock context.
         kVulkan_ContextType,         //! Vulkan
         kMetal_ContextType,          //! Metal
+        kDawn_ContextType,           //! Dawn
         kMock_ContextType,           //! Mock context that does not draw.
         kLastContextType = kMock_ContextType
     };
@@ -54,15 +54,11 @@ public:
      */
     enum class ContextOverrides {
         kNone                          = 0x0,
-        kDisableNVPR                   = 0x1,
-        kAvoidStencilBuffers           = 0x2,
-
-        kRequireNVPRSupport            = 0x4,
+        kAvoidStencilBuffers           = 0x1,
     };
 
     static bool IsRenderingContext(ContextType type) {
         switch (type) {
-            case kNullGL_ContextType:
             case kMock_ContextType:
                 return false;
             default:
@@ -76,6 +72,8 @@ public:
                 return GrBackendApi::kVulkan;
             case kMetal_ContextType:
                 return GrBackendApi::kMetal;
+            case kDawn_ContextType:
+                return GrBackendApi::kDawn;
             case kMock_ContextType:
                 return GrBackendApi::kMock;
             default:
@@ -101,12 +99,12 @@ public:
                 return "ANGLE GL ES3";
             case kCommandBuffer_ContextType:
                 return "Command Buffer";
-            case kNullGL_ContextType:
-                return "Null GL";
             case kVulkan_ContextType:
                 return "Vulkan";
             case kMetal_ContextType:
                 return "Metal";
+            case kDawn_ContextType:
+                return "Dawn";
             case kMock_ContextType:
                 return "Mock";
         }
@@ -126,8 +124,7 @@ public:
     /**
      * Get a context initialized with a type of GL context. It also makes the GL context current.
      */
-    ContextInfo getContextInfo(ContextType type,
-                               ContextOverrides overrides = ContextOverrides::kNone);
+    ContextInfo getContextInfo(ContextType type, ContextOverrides = ContextOverrides::kNone);
 
     /**
      * Get a context in the same share group as the passed in GrContext, with the same type and
@@ -150,13 +147,13 @@ private:
         ContextType       fType;
         ContextOverrides  fOverrides;
         GrContextOptions  fOptions;
-        GrBackendApi         fBackend;
+        GrBackendApi      fBackend;
         TestContext*      fTestContext;
         GrContext*        fGrContext;
         GrContext*        fShareContext;
         uint32_t          fShareIndex;
 
-        bool            fAbandoned;
+        bool              fAbandoned;
     };
     SkTArray<Context, true>         fContexts;
     std::unique_ptr<GLTestContext>  fSentinelGLContext;

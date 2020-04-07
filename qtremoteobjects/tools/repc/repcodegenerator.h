@@ -63,6 +63,7 @@ public:
 private:
     void generateHeader(Mode mode, QTextStream &out, const AST &ast);
     QString generateMetaTypeRegistration(const QSet<QString> &metaTypes);
+    QString generateMetaTypeRegistrationForPending(const QSet<QString> &metaTypes);
     QString generateMetaTypeRegistrationForEnums(const QVector<QString> &enums);
     void generateStreamOperatorsForEnums(QTextStream &out, const QVector<QString> &enums);
 

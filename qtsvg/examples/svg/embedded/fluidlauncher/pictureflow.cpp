@@ -85,7 +85,7 @@
 #include <QTimer>
 #include <QVector>
 #include <QWidget>
-#include <QTime>
+#include <QElapsedTimer>
 
 #include <QDebug>
 
@@ -376,7 +376,7 @@ public:
   int    singlePressThreshold;
   QPoint firstPress;
   QPoint previousPos;
-  QTime  previousPosTimestamp;
+  QElapsedTimer previousPosTimestamp;
   int    pixelDistanceMoved;
   int    pixelsToMovePerSlide;
 
@@ -1397,7 +1397,7 @@ void PictureFlow::timerEvent(QTimerEvent* event)
 {
   if(event->timerId() == d->animateTimer.timerId())
   {
-//    QTime now = QTime::currentTime();
+//    QElapsedTimer now; now.start();
     d->updateAnimation();
 //    d->animateTimer.start(qMax(0, 30-now.elapsed() ), this);
   }

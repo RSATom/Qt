@@ -16,12 +16,12 @@
 #include <string>
 #include <vector>
 
-#include "SkCanvas.h"
-#include "SkPDFDocument.h"
-#include "SkShaper.h"
-#include "SkStream.h"
-#include "SkTextBlob.h"
-#include "SkTypeface.h"
+#include "include/core/SkCanvas.h"
+#include "include/core/SkStream.h"
+#include "include/core/SkTextBlob.h"
+#include "include/core/SkTypeface.h"
+#include "include/docs/SkPDFDocument.h"
+#include "modules/skshaper/include/SkShaper.h"
 
 // Options /////////////////////////////////////////////////////////////////////
 
@@ -139,10 +139,10 @@ public:
     }
 
     void WriteLine(const SkShaper& shaper, const char *text, size_t textBytes) {
-        SkTextBlobBuilderRunHandler textBlobBuilder;
-        SkPoint endPoint = shaper.shape(&textBlobBuilder, font, text, textBytes, true,
-                                        SkPoint{0, 0},
-                                        config->page_width.value - 2*config->left_margin.value);
+        SkTextBlobBuilderRunHandler textBlobBuilder(text, {0, 0});
+        shaper.shape(text, textBytes, font, true,
+                     config->page_width.value - 2*config->left_margin.value, &textBlobBuilder);
+        SkPoint endPoint = textBlobBuilder.endPoint();
         sk_sp<const SkTextBlob> blob = textBlobBuilder.makeBlob();
         // If we don't have a page, or if we're not at the start of the page and the blob won't fit
         if (!pageCanvas ||
@@ -208,12 +208,12 @@ int main(int argc, char **argv) {
     if (font_file.size() > 0) {
         typeface = SkTypeface::MakeFromFile(font_file.c_str(), 0 /* index */);
     }
-    SkShaper shaper(typeface);
-    assert(shaper.good());
+    std::unique_ptr<SkShaper> shaper = SkShaper::Make();
+    assert(shaper);
     //SkString line("This is هذا هو الخط a line.");
     //SkString line("⁧This is a line هذا هو الخط.⁩");
     for (std::string line; std::getline(std::cin, line);) {
-        placement.WriteLine(shaper, line.c_str(), line.size());
+        placement.WriteLine(*shaper, line.c_str(), line.size());
     }
 
     doc->close();

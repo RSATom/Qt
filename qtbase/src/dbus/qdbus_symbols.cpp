@@ -41,6 +41,7 @@
 #include <QtCore/qglobal.h>
 #if QT_CONFIG(library)
 #include <QtCore/qlibrary.h>
+#include <QtCore/private/qlocking_p.h>
 #endif
 #include <QtCore/qmutex.h>
 
@@ -80,7 +81,7 @@ bool qdbus_loadLibDBus()
 
     static bool triedToLoadLibrary = false;
     static QBasicMutex mutex;
-    QMutexLocker locker(&mutex);
+    const auto locker = qt_scoped_lock(mutex);
 
     QLibrary *&lib = qdbus_libdbus;
     if (triedToLoadLibrary)
@@ -99,15 +100,15 @@ bool qdbus_loadLibDBus()
     };
 
     lib->unload();
-    for (uint i = 0; i < sizeof(majorversions) / sizeof(majorversions[0]); ++i) {
-        for (uint j = 0; j < sizeof(baseNames) / sizeof(baseNames[0]); ++j) {
+    for (const int majorversion : majorversions) {
+        for (const QString &baseName : baseNames) {
 #ifdef Q_OS_WIN
             QString suffix;
-            if (majorversions[i] != -1)
-                suffix = QString::number(- majorversions[i]); // negative so it prepends the dash
-            lib->setFileName(baseNames[j] + suffix);
+            if (majorversion != -1)
+                suffix = QString::number(- majorversion); // negative so it prepends the dash
+            lib->setFileName(baseName + suffix);
 #else
-            lib->setFileNameAndVersion(baseNames[j], majorversions[i]);
+            lib->setFileNameAndVersion(baseName, majorversion);
 #endif
             if (lib->load() && lib->resolve("dbus_connection_open_private"))
                 return true;

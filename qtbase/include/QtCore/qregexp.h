@@ -1,1 +1,1 @@
-#include "../../src/corelib/tools/qregexp.h"
+#include "../../src/corelib/text/qregexp.h"

@@ -12,6 +12,7 @@
 #include <utility>
 #include <vector>
 
+#include "base/bind.h"
 #include "base/callback.h"
 #include "base/containers/queue.h"
 #include "base/logging.h"
@@ -27,7 +28,7 @@
 #include "chrome/services/printing/public/mojom/pdf_to_emf_converter.mojom.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/child_process_data.h"
-#include "content/public/common/service_manager_connection.h"
+#include "content/public/browser/system_connector.h"
 #include "mojo/public/cpp/bindings/binding.h"
 #include "printing/emf_win.h"
 #include "printing/pdf_render_settings.h"
@@ -114,7 +115,7 @@ class PostScriptMetaFile : public Emf {
 //   2. Utility converts the page, and sends back the data in a memory region.
 class PdfConverterImpl : public PdfConverter {
  public:
-  PdfConverterImpl(const scoped_refptr<base::RefCountedMemory>& data,
+  PdfConverterImpl(scoped_refptr<base::RefCountedMemory> data,
                    const PdfRenderSettings& conversion_settings,
                    StartCallback start_callback);
   ~PdfConverterImpl() override;
@@ -145,7 +146,7 @@ class PdfConverterImpl : public PdfConverter {
 
     int page_number() const { return page_number_; }
 
-    const PdfConverter::GetPageCallback& callback() const { return callback_; }
+    PdfConverter::GetPageCallback callback() const { return callback_; }
 
    private:
     int page_number_;
@@ -155,10 +156,10 @@ class PdfConverterImpl : public PdfConverter {
     DISALLOW_COPY_AND_ASSIGN(GetPageCallbackData);
   };
 
-  void Initialize(const scoped_refptr<base::RefCountedMemory>& data);
+  void Initialize(scoped_refptr<base::RefCountedMemory> data);
 
   void GetPage(int page_number,
-               const PdfConverter::GetPageCallback& get_page_callback) override;
+               PdfConverter::GetPageCallback get_page_callback) override;
 
   void Stop();
 
@@ -238,10 +239,9 @@ bool PostScriptMetaFile::SafePlayback(HDC hdc) const {
   return true;
 }
 
-PdfConverterImpl::PdfConverterImpl(
-    const scoped_refptr<base::RefCountedMemory>& data,
-    const PdfRenderSettings& settings,
-    StartCallback start_callback)
+PdfConverterImpl::PdfConverterImpl(scoped_refptr<base::RefCountedMemory> data,
+                                   const PdfRenderSettings& settings,
+                                   StartCallback start_callback)
     : settings_(settings),
       start_callback_(std::move(start_callback)),
       weak_ptr_factory_(this) {
@@ -257,8 +257,7 @@ PdfConverterImpl::~PdfConverterImpl() {
   RecordConversionMetrics();
 }
 
-void PdfConverterImpl::Initialize(
-    const scoped_refptr<base::RefCountedMemory>& data) {
+void PdfConverterImpl::Initialize(scoped_refptr<base::RefCountedMemory> data) {
   if (simulate_failure_initializing_conversion_) {
     OnFailed(std::string("Failed to create PDF data mapping."));
     return;
@@ -273,10 +272,9 @@ void PdfConverterImpl::Initialize(
 
   memcpy(memory.mapping.memory(), data->front(), data->size());
 
-  content::ServiceManagerConnection::GetForProcess()
-      ->GetConnector()
-      ->BindInterface(printing::mojom::kChromePrintingServiceName,
-                      &pdf_to_emf_converter_factory_);
+  content::GetSystemConnector()->BindInterface(
+      printing::mojom::kChromePrintingServiceName,
+      &pdf_to_emf_converter_factory_);
   pdf_to_emf_converter_factory_.set_connection_error_handler(base::BindOnce(
       &PdfConverterImpl::OnFailed, weak_ptr_factory_.GetWeakPtr(),
       std::string("Connection to PdfToEmfConverterFactory error.")));
@@ -307,7 +305,7 @@ void PdfConverterImpl::OnPageCount(mojom::PdfToEmfConverterPtr converter,
 
 void PdfConverterImpl::GetPage(
     int page_number,
-    const PdfConverter::GetPageCallback& get_page_callback) {
+    PdfConverter::GetPageCallback get_page_callback) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   DCHECK(pdf_to_emf_converter_.is_bound());
 
@@ -421,7 +419,7 @@ PdfConverter::~PdfConverter() = default;
 
 // static
 std::unique_ptr<PdfConverter> PdfConverter::StartPdfConverter(
-    const scoped_refptr<base::RefCountedMemory>& data,
+    scoped_refptr<base::RefCountedMemory> data,
     const PdfRenderSettings& conversion_settings,
     StartCallback start_callback) {
   return std::make_unique<PdfConverterImpl>(data, conversion_settings,

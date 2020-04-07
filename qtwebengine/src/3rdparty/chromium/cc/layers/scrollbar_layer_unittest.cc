@@ -31,6 +31,7 @@
 #include "cc/test/test_task_graph_runner.h"
 #include "cc/trees/effect_node.h"
 #include "cc/trees/layer_tree_host.h"
+#include "cc/trees/layer_tree_host_common.h"
 #include "cc/trees/layer_tree_impl.h"
 #include "cc/trees/occlusion_tracker.h"
 #include "cc/trees/scroll_node.h"
@@ -414,10 +415,13 @@ TEST_F(ScrollbarLayerTest, UpdatePropertiesOfScrollBarWhenThumbRemoved) {
   root_layer->SetScrollOffset(gfx::ScrollOffset(0, 0));
   scrollbar_layer->SetBounds(gfx::Size(70, 10));
   scrollbar_layer->SetScrollElementId(root_layer->element_id());
+
+  // The track_rect should be relative to the scrollbar's origin.
   scrollbar_layer->fake_scrollbar()->set_location(gfx::Point(20, 10));
-  scrollbar_layer->fake_scrollbar()->set_track_rect(gfx::Rect(30, 10, 50, 10));
+  scrollbar_layer->fake_scrollbar()->set_track_rect(gfx::Rect(10, 10, 50, 10));
   scrollbar_layer->fake_scrollbar()->set_thumb_thickness(10);
   scrollbar_layer->fake_scrollbar()->set_thumb_length(4);
+
   LayerImpl* root_layer_impl = nullptr;
   PaintedScrollbarLayerImpl* scrollbar_layer_impl = nullptr;
 
@@ -452,10 +456,13 @@ TEST_F(ScrollbarLayerTest, ThumbRect) {
   root_layer->SetScrollOffset(gfx::ScrollOffset(0, 0));
   scrollbar_layer->SetBounds(gfx::Size(70, 10));
   scrollbar_layer->SetScrollElementId(root_layer->element_id());
+
+  // The track_rect should be relative to the scrollbar's origin.
   scrollbar_layer->fake_scrollbar()->set_location(gfx::Point(20, 10));
-  scrollbar_layer->fake_scrollbar()->set_track_rect(gfx::Rect(30, 10, 50, 10));
+  scrollbar_layer->fake_scrollbar()->set_track_rect(gfx::Rect(10, 10, 50, 10));
   scrollbar_layer->fake_scrollbar()->set_thumb_thickness(10);
   scrollbar_layer->fake_scrollbar()->set_thumb_length(4);
+
   layer_tree_host_->UpdateLayers();
   LayerImpl* root_layer_impl = nullptr;
   PaintedScrollbarLayerImpl* scrollbar_layer_impl = nullptr;
@@ -493,7 +500,7 @@ TEST_F(ScrollbarLayerTest, ThumbRect) {
   // Shrink the scrollbar layer to cover only the track.
   scrollbar_layer->SetBounds(gfx::Size(50, 10));
   scrollbar_layer->fake_scrollbar()->set_location(gfx::Point(30, 10));
-  scrollbar_layer->fake_scrollbar()->set_track_rect(gfx::Rect(30, 10, 50, 10));
+  scrollbar_layer->fake_scrollbar()->set_track_rect(gfx::Rect(0, 10, 50, 10));
 
   UPDATE_AND_EXTRACT_LAYER_POINTERS();
   EXPECT_EQ(gfx::Rect(44, 0, 6, 4).ToString(),
@@ -502,7 +509,7 @@ TEST_F(ScrollbarLayerTest, ThumbRect) {
   // Shrink the track in the non-scrolling dimension so that it only covers the
   // middle third of the scrollbar layer (this does not affect the thumb
   // position).
-  scrollbar_layer->fake_scrollbar()->set_track_rect(gfx::Rect(30, 12, 50, 6));
+  scrollbar_layer->fake_scrollbar()->set_track_rect(gfx::Rect(0, 12, 50, 6));
 
   UPDATE_AND_EXTRACT_LAYER_POINTERS();
   EXPECT_EQ(gfx::Rect(44, 0, 6, 4).ToString(),
@@ -582,7 +589,7 @@ TEST_F(ScrollbarLayerTest, SolidColorDrawQuads) {
 
     const auto& quads = render_pass->quad_list;
     ASSERT_EQ(1u, quads.size());
-    EXPECT_EQ(viz::DrawQuad::SOLID_COLOR, quads.front()->material);
+    EXPECT_EQ(viz::DrawQuad::Material::kSolidColor, quads.front()->material);
     EXPECT_EQ(gfx::Rect(6, 0, 39, 3), quads.front()->rect);
   }
 
@@ -597,7 +604,7 @@ TEST_F(ScrollbarLayerTest, SolidColorDrawQuads) {
 
     const auto& quads = render_pass->quad_list;
     ASSERT_EQ(1u, quads.size());
-    EXPECT_EQ(viz::DrawQuad::SOLID_COLOR, quads.front()->material);
+    EXPECT_EQ(viz::DrawQuad::Material::kSolidColor, quads.front()->material);
     EXPECT_EQ(gfx::Rect(8, 0, 19, 3), quads.front()->rect);
   }
 
@@ -612,7 +619,7 @@ TEST_F(ScrollbarLayerTest, SolidColorDrawQuads) {
 
     const auto& quads = render_pass->quad_list;
     ASSERT_EQ(1u, quads.size());
-    EXPECT_EQ(viz::DrawQuad::SOLID_COLOR, quads.front()->material);
+    EXPECT_EQ(viz::DrawQuad::Material::kSolidColor, quads.front()->material);
     EXPECT_EQ(gfx::Rect(1, 0, 98, 3), quads.front()->rect);
   }
 }
@@ -669,7 +676,7 @@ TEST_F(ScrollbarLayerTest, LayerDrivenSolidColorDrawQuads) {
 
     const auto& quads = render_pass->quad_list;
     ASSERT_EQ(1u, quads.size());
-    EXPECT_EQ(viz::DrawQuad::SOLID_COLOR, quads.front()->material);
+    EXPECT_EQ(viz::DrawQuad::Material::kSolidColor, quads.front()->material);
     EXPECT_EQ(gfx::Rect(3, 0, 3, 3), quads.front()->rect);
   }
 }
@@ -1070,6 +1077,10 @@ class ScrollbarLayerTestResourceCreationAndRelease : public ScrollbarLayerTest {
 
     layer_tree_host_->SetRootLayer(layer_tree_root);
 
+    LayerTreeHostCommon::CalcDrawPropsMainInputsForTesting inputs(
+        layer_tree_root.get(), layer_tree_host_->device_viewport_size());
+    LayerTreeHostCommon::CalculateDrawPropertiesForTesting(&inputs);
+
     scrollbar_layer->SetIsDrawable(true);
     scrollbar_layer->SetBounds(gfx::Size(100, 100));
     layer_tree_root->SetScrollable(gfx::Size(100, 200));
@@ -1127,6 +1138,10 @@ TEST_F(ScrollbarLayerTestResourceCreationAndRelease, TestResourceUpdate) {
   layer_tree_root->AddChild(scrollbar_layer);
 
   layer_tree_host_->SetRootLayer(layer_tree_root);
+
+  LayerTreeHostCommon::CalcDrawPropsMainInputsForTesting inputs(
+      layer_tree_root.get(), layer_tree_host_->device_viewport_size());
+  LayerTreeHostCommon::CalculateDrawPropertiesForTesting(&inputs);
 
   scrollbar_layer->SetIsDrawable(true);
   scrollbar_layer->SetBounds(gfx::Size(100, 15));
@@ -1297,6 +1312,11 @@ class ScaledScrollbarLayerTestResourceCreation : public ScrollbarLayerTest {
 
     EXPECT_EQ(scrollbar_layer->layer_tree_host(), layer_tree_host_.get());
 
+    LayerTreeHostCommon::CalcDrawPropsMainInputsForTesting inputs(
+        layer_tree_root.get(), layer_tree_host_->device_viewport_size());
+    inputs.device_scale_factor = test_scale;
+    LayerTreeHostCommon::CalculateDrawPropertiesForTesting(&inputs);
+
     layer_tree_host_->SetViewportSizeAndScale(
         layer_tree_host_->device_viewport_size(), test_scale,
         layer_tree_host_->local_surface_id_allocation_from_parent());
@@ -1362,6 +1382,10 @@ class ScaledScrollbarLayerTestScaledRasterization : public ScrollbarLayerTest {
     scrollbar_layer->fake_scrollbar()->set_location(scrollbar_rect.origin());
     scrollbar_layer->fake_scrollbar()->set_track_rect(scrollbar_rect);
 
+    LayerTreeHostCommon::CalcDrawPropsMainInputsForTesting inputs(
+        layer_tree_root.get(), layer_tree_host_->device_viewport_size());
+    inputs.device_scale_factor = test_scale;
+    LayerTreeHostCommon::CalculateDrawPropertiesForTesting(&inputs);
     layer_tree_host_->SetViewportSizeAndScale(
         layer_tree_host_->device_viewport_size(), test_scale,
         layer_tree_host_->local_surface_id_allocation_from_parent());

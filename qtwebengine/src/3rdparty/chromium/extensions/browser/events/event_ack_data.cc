@@ -4,6 +4,7 @@
 
 #include "extensions/browser/events/event_ack_data.h"
 
+#include "base/bind.h"
 #include "base/callback.h"
 #include "base/guid.h"
 #include "base/task/post_task.h"
@@ -89,8 +90,7 @@ void EventAckData::FinishExternalRequestOnIO(
 }
 
 EventAckData::EventAckData()
-    : unacked_events_(base::MakeRefCounted<IOEventInfo>()),
-      weak_factory_(this) {}
+    : unacked_events_(base::MakeRefCounted<IOEventInfo>()) {}
 EventAckData::~EventAckData() = default;
 
 void EventAckData::IncrementInflightEvent(

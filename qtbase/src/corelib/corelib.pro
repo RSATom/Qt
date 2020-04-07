@@ -12,6 +12,7 @@ CONFIG += qt_tracepoints
 
 CONFIG += $$MODULE_CONFIG
 DEFINES += $$MODULE_DEFINES
+android: DEFINES += LIBS_SUFFIX='\\"_$${QT_ARCH}.so\\"'
 DEFINES += QT_NO_USING_NAMESPACE QT_NO_FOREACH
 msvc:equals(QT_ARCH, i386): QMAKE_LFLAGS += /BASE:0x67000000
 
@@ -20,7 +21,7 @@ CONFIG += simd optimize_full
 QMAKE_DOCS = $$PWD/doc/qtcore.qdocconf
 
 ANDROID_LIB_DEPENDENCIES = \
-    plugins/platforms/android/libqtforandroid.so
+    plugins/platforms/libplugins_platforms_qtforandroid.so
 ANDROID_BUNDLED_JAR_DEPENDENCIES = \
     jar/QtAndroid.jar
 ANDROID_PERMISSIONS = \
@@ -36,6 +37,8 @@ qtConfig(animation): include(animation/animation.pri)
 include(global/global.pri)
 include(thread/thread.pri)
 include(tools/tools.pri)
+include(text/text.pri)
+include(time/time.pri)
 include(io/io.pri)
 include(itemmodels/itemmodels.pri)
 include(plugin/plugin.pri)
@@ -47,10 +50,8 @@ include(mimetypes/mimetypes.pri)
 include(platform/platform.pri)
 
 win32 {
-    LIBS_PRIVATE += -lws2_32
-    !winrt {
-        LIBS_PRIVATE += -lkernel32 -luser32 -lshell32 -luuid -lole32 -ladvapi32 -lwinmm
-    }
+    QMAKE_USE_PRIVATE += ws2_32
+    !winrt: QMAKE_USE_PRIVATE += advapi32 kernel32 ole32 shell32 uuid user32 winmm
 }
 
 darwin {
@@ -67,8 +68,6 @@ integrity {
 }
 
 QMAKE_DYNAMIC_LIST_FILE = $$PWD/QtCore.dynlist
-
-contains(DEFINES,QT_EVAL):include(eval.pri)
 
 HOST_BINS = $$[QT_HOST_BINS]
 host_bins.name = host_bins
@@ -99,6 +98,12 @@ cmake_umbrella_config_module_location_for_install.output = $$DESTDIR/cmake/insta
 
 cmake_umbrella_config_version_file.input = $$PWD/../../mkspecs/features/data/cmake/Qt5ConfigVersion.cmake.in
 cmake_umbrella_config_version_file.output = $$DESTDIR/cmake/Qt5/Qt5ConfigVersion.cmake
+
+android {
+    cmake_android_support.input = $$PWD/Qt5AndroidSupport.cmake
+    cmake_android_support.output = $$DESTDIR/cmake/Qt5Core/Qt5AndroidSupport.cmake
+    cmake_android_support.CONFIG = verbatim
+}
 
 load(cmake_functions)
 
@@ -144,6 +149,11 @@ QMAKE_SUBSTITUTES += \
     cmake_umbrella_config_version_file \
     cmake_extras_mkspec_dir \
     cmake_extras_mkspec_dir_for_install
+
+android {
+    QMAKE_SUBSTITUTES += cmake_android_support
+    ctest_qt5_module_files.files += $$cmake_android_support.output
+}
 
 ctest_qt5_module_files.files += $$ctest_macros_file.output $$cmake_extras_mkspec_dir_for_install.output
 

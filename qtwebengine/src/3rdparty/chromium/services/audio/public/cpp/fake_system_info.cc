@@ -4,6 +4,7 @@
 
 #include "services/audio/public/cpp/fake_system_info.h"
 
+#include "base/bind.h"
 #include "services/audio/public/mojom/constants.mojom.h"
 #include "services/service_manager/public/cpp/service_binding.h"
 
@@ -70,7 +71,7 @@ void FakeSystemInfo::GetInputDeviceInfo(const std::string& input_device_id,
 }
 
 void FakeSystemInfo::Bind(mojom::SystemInfoRequest request) {
-  bindings_.AddBinding(this, std::move(request));
+  receivers_.Add(this, std::move(request));
 }
 
 }  // namespace audio

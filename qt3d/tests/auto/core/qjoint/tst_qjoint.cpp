@@ -29,7 +29,6 @@
 #include <QtTest/QTest>
 #include <Qt3DCore/qjoint.h>
 #include <Qt3DCore/private/qjoint_p.h>
-#include <Qt3DCore/qpropertyupdatedchange.h>
 #include <Qt3DCore/qnodecreatedchange.h>
 #include <Qt3DCore/private/qnodecreatedchangegenerator_p.h>
 #include <QObject>
@@ -317,69 +316,54 @@ private Q_SLOTS:
         {
             // WHEN
             joint.setScale(QVector3D(2.0f, 1.0f, 3.0f));
-            QCoreApplication::processEvents();
 
             // THEN
-            QCOMPARE(arbiter.events.size(), 1);
-            auto change = arbiter.events.first().staticCast<Qt3DCore::QPropertyUpdatedChange>();
-            QCOMPARE(change->propertyName(), "scale");
-            QCOMPARE(change->type(), Qt3DCore::PropertyUpdated);
-            QCOMPARE(change->value().value<QVector3D>(), joint.scale());
+            QCOMPARE(arbiter.dirtyNodes.size(), 1);
+            QCOMPARE(arbiter.dirtyNodes.front(), &joint);
 
-            arbiter.events.clear();
+            arbiter.dirtyNodes.clear();
 
             // WHEN
             joint.setScale(QVector3D(2.0f, 1.0f, 3.0f));
-            QCoreApplication::processEvents();
 
             // THEN
-            QCOMPARE(arbiter.events.size(), 0);
+            QCOMPARE(arbiter.dirtyNodes.size(), 0);
         }
 
         {
             // WHEN
             const auto newValue = QQuaternion::fromAxisAndAngle(1.0f, 1.0f, 1.0f, 45.0f);
             joint.setRotation(newValue);
-            QCoreApplication::processEvents();
 
             // THEN
-            QCOMPARE(arbiter.events.size(), 1);
-            auto change = arbiter.events.first().staticCast<Qt3DCore::QPropertyUpdatedChange>();
-            QCOMPARE(change->propertyName(), "rotation");
-            QCOMPARE(change->type(), Qt3DCore::PropertyUpdated);
-            QCOMPARE(change->value().value<QQuaternion>(), newValue);
+            QCOMPARE(arbiter.dirtyNodes.size(), 1);
+            QCOMPARE(arbiter.dirtyNodes.front(), &joint);
 
-            arbiter.events.clear();
+            arbiter.dirtyNodes.clear();
 
             // WHEN
             joint.setRotation(newValue);
-            QCoreApplication::processEvents();
 
             // THEN
-            QCOMPARE(arbiter.events.size(), 0);
+            QCOMPARE(arbiter.dirtyNodes.size(), 0);
         }
 
         {
             // WHEN
             const QVector3D newValue(1.0f, 2.0f, 3.0f);
             joint.setTranslation(newValue);
-            QCoreApplication::processEvents();
 
             // THEN
-            QCOMPARE(arbiter.events.size(), 1);
-            auto change = arbiter.events.first().staticCast<Qt3DCore::QPropertyUpdatedChange>();
-            QCOMPARE(change->propertyName(), "translation");
-            QCOMPARE(change->type(), Qt3DCore::PropertyUpdated);
-            QCOMPARE(change->value().value<QVector3D>(), newValue);
+            QCOMPARE(arbiter.dirtyNodes.size(), 1);
+            QCOMPARE(arbiter.dirtyNodes.front(), &joint);
 
-            arbiter.events.clear();
+            arbiter.dirtyNodes.clear();
 
             // WHEN
             joint.setTranslation(newValue);
-            QCoreApplication::processEvents();
 
             // THEN
-            QCOMPARE(arbiter.events.size(), 0);
+            QCOMPARE(arbiter.dirtyNodes.size(), 0);
         }
 
         {
@@ -387,23 +371,18 @@ private Q_SLOTS:
             QMatrix4x4 newValue;
             newValue.rotate(90.0f, 1.0f, 0.0f, 0.0f);
             joint.setInverseBindMatrix(newValue);
-            QCoreApplication::processEvents();
 
             // THEN
-            QCOMPARE(arbiter.events.size(), 1);
-            auto change = arbiter.events.first().staticCast<Qt3DCore::QPropertyUpdatedChange>();
-            QCOMPARE(change->propertyName(), "inverseBindMatrix");
-            QCOMPARE(change->type(), Qt3DCore::PropertyUpdated);
-            QCOMPARE(change->value().value<QMatrix4x4>(), newValue);
+            QCOMPARE(arbiter.dirtyNodes.size(), 1);
+            QCOMPARE(arbiter.dirtyNodes.front(), &joint);
 
-            arbiter.events.clear();
+            arbiter.dirtyNodes.clear();
 
             // WHEN
             joint.setInverseBindMatrix(newValue);
-            QCoreApplication::processEvents();
 
             // THEN
-            QCOMPARE(arbiter.events.size(), 0);
+            QCOMPARE(arbiter.dirtyNodes.size(), 0);
         }
     }
 };

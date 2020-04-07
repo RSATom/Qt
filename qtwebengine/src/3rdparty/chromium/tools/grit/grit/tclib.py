@@ -5,6 +5,7 @@
 '''Adaptation of the extern.tclib classes for our needs.
 '''
 
+from __future__ import print_function
 
 import re
 import types
@@ -66,7 +67,7 @@ class BaseMessage(object):
 
         for chunk in chunked_text:
           if chunk: # ignore empty chunk
-            if tag_map.has_key(chunk):
+            if chunk in tag_map:
               self.AppendPlaceholder(tag_map[chunk][0])
               tag_map[chunk][1] += 1 # increase placeholder use count
             else:
@@ -141,10 +142,8 @@ class BaseMessage(object):
     return self.id
 
   def GenerateId(self):
-    # Must use a UTF-8 encoded version of the presentable content, along with
-    # the meaning attribute, to match the TC.
-    return grit.extern.tclib.GenerateMessageId(
-      self.GetPresentableContent().encode('utf-8'), self.meaning)
+    return grit.extern.tclib.GenerateMessageId(self.GetPresentableContent(),
+                                               self.meaning)
 
   def GetPlaceholders(self):
     return self.placeholders

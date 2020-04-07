@@ -6,6 +6,7 @@
 
 #include <mstcpip.h>
 
+#include "base/bind.h"
 #include "base/callback.h"
 #include "base/lazy_instance.h"
 #include "base/logging.h"
@@ -258,8 +259,7 @@ UDPSocketWin::UDPSocketWin(DatagramSocket::BindType bind_type,
       net_log_(NetLogWithSource::Make(net_log, NetLogSourceType::UDP_SOCKET)),
       event_pending_(this) {
   EnsureWinsockInit();
-  net_log_.BeginEvent(NetLogEventType::SOCKET_ALIVE,
-                      source.ToEventParametersCallback());
+  net_log_.BeginEventReferencingSource(NetLogEventType::SOCKET_ALIVE, source);
 }
 
 UDPSocketWin::~UDPSocketWin() {
@@ -360,10 +360,10 @@ int UDPSocketWin::GetLocalAddress(IPEndPoint* address) const {
     if (!local_address->FromSockAddr(storage.addr, storage.addr_len))
       return ERR_ADDRESS_INVALID;
     local_address_ = std::move(local_address);
-    net_log_.AddEvent(NetLogEventType::UDP_LOCAL_ADDRESS,
-                      CreateNetLogUDPConnectCallback(
-                          local_address_.get(),
-                          NetworkChangeNotifier::kInvalidNetworkHandle));
+    net_log_.AddEvent(NetLogEventType::UDP_LOCAL_ADDRESS, [&] {
+      return CreateNetLogUDPConnectParams(
+          *local_address_, NetworkChangeNotifier::kInvalidNetworkHandle);
+    });
   }
 
   *address = *local_address_;
@@ -444,10 +444,10 @@ int UDPSocketWin::SendToOrWrite(IOBuffer* buf,
 
 int UDPSocketWin::Connect(const IPEndPoint& address) {
   DCHECK_NE(socket_, INVALID_SOCKET);
-  net_log_.BeginEvent(
-      NetLogEventType::UDP_CONNECT,
-      CreateNetLogUDPConnectCallback(
-          &address, NetworkChangeNotifier::kInvalidNetworkHandle));
+  net_log_.BeginEvent(NetLogEventType::UDP_CONNECT, [&] {
+    return CreateNetLogUDPConnectParams(
+        address, NetworkChangeNotifier::kInvalidNetworkHandle);
+  });
   int rv = SetMulticastOptions();
   if (rv != OK)
     return rv;
@@ -742,9 +742,8 @@ void UDPSocketWin::LogRead(int result,
   }
 
   if (net_log_.IsCapturing()) {
-    net_log_.AddEvent(
-        NetLogEventType::UDP_BYTES_RECEIVED,
-        CreateNetLogUDPDataTranferCallback(result, bytes, address));
+    NetLogUDPDataTransfer(net_log_, NetLogEventType::UDP_BYTES_RECEIVED, result,
+                          bytes, address);
   }
 
   NetworkActivityMonitor::GetInstance()->IncrementBytesReceived(result);
@@ -759,9 +758,8 @@ void UDPSocketWin::LogWrite(int result,
   }
 
   if (net_log_.IsCapturing()) {
-    net_log_.AddEvent(
-        NetLogEventType::UDP_BYTES_SENT,
-        CreateNetLogUDPDataTranferCallback(result, bytes, address));
+    NetLogUDPDataTransfer(net_log_, NetLogEventType::UDP_BYTES_SENT, result,
+                          bytes, address);
   }
 
   NetworkActivityMonitor::GetInstance()->IncrementBytesSent(result);
@@ -1332,7 +1330,7 @@ void DscpManager::RequestHandle() {
 
   if (qos_handle_) {
     api_->CloseHandle(qos_handle_);
-    qos_handle_ = NULL;
+    qos_handle_ = nullptr;
   }
 
   handle_is_initializing_ = true;
@@ -1348,7 +1346,7 @@ HANDLE DscpManager::DoCreateHandle(QwaveApi* api) {
   version.MajorVersion = 1;
   version.MinorVersion = 0;
 
-  HANDLE handle = NULL;
+  HANDLE handle = nullptr;
 
   // No access to net_log_ so swallow any errors here.
   api->CreateHandle(&version, &handle);

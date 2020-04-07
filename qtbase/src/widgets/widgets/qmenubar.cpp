@@ -404,7 +404,7 @@ void QMenuBarPrivate::setCurrentAction(QAction *action, bool popup, bool activat
     }  else if (previousAction) {
         QString empty;
         QStatusTipEvent tip(empty);
-        QApplication::sendEvent(q, &tip);
+        QCoreApplication::sendEvent(q, &tip);
 #endif
     }
     if (fw)
@@ -701,7 +701,7 @@ void QMenuBarPrivate::init()
     q->setSizePolicy(QSizePolicy::MinimumExpanding, QSizePolicy::Minimum);
     q->setAttribute(Qt::WA_CustomWhatsThis);
 
-    if (!QApplication::instance()->testAttribute(Qt::AA_DontUseNativeMenuBar))
+    if (!QCoreApplication::testAttribute(Qt::AA_DontUseNativeMenuBar))
         platformMenuBar = QGuiApplicationPrivate::platformTheme()->createPlatformMenuBar();
 
     if (platformMenuBar)
@@ -851,7 +851,8 @@ QMenu *QMenuBar::addMenu(const QIcon &icon, const QString &title)
 }
 
 /*!
-    Appends \a menu to the menu bar. Returns the menu's menuAction().
+    Appends \a menu to the menu bar. Returns the menu's menuAction(). The menu bar
+    does not take ownership of the menu.
 
     \note The returned QAction object can be used to hide the corresponding
     menu.
@@ -1018,7 +1019,7 @@ void QMenuBar::paintEvent(QPaintEvent *e)
         frame.rect = rect();
         frame.palette = palette();
         frame.state = QStyle::State_None;
-        frame.lineWidth = style()->pixelMetric(QStyle::PM_MenuBarPanelWidth);
+        frame.lineWidth = style()->pixelMetric(QStyle::PM_MenuBarPanelWidth, &frame);
         frame.midLineWidth = 0;
         style()->drawPrimitive(QStyle::PE_PanelMenuBar, &frame, &p, this);
     }

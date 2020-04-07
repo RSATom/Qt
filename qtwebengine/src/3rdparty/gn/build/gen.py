@@ -41,10 +41,12 @@ class Platform(object):
       self._platform = 'fuchsia'
     elif self._platform.startswith('freebsd'):
       self._platform = 'freebsd'
+    elif self._platform.startswith('openbsd'):
+      self._platform = 'openbsd'
 
   @staticmethod
   def known_platforms():
-    return ['linux', 'darwin', 'msvc', 'aix', 'fuchsia']
+    return ['linux', 'darwin', 'msvc', 'aix', 'fuchsia', 'freebsd', 'openbsd']
 
   def platform(self):
     return self._platform
@@ -68,7 +70,7 @@ class Platform(object):
     return self._platform == 'aix'
 
   def is_posix(self):
-    return self._platform in ['linux', 'freebsd', 'darwin', 'aix']
+    return self._platform in ['linux', 'freebsd', 'darwin', 'aix', 'openbsd']
 
 
 def main(argv):
@@ -93,6 +95,9 @@ def main(argv):
                     help='The path to generate the build files in.')
   parser.add_option('--no-strip', action='store_true',
                     help='Don\'t strip release build. Useful for profiling.')
+  parser.add_option('--no-static-libstdc++', action='store_true',
+                    default=False, dest='no_static_libstdcpp',
+                    help='Don\'t link libstdc++ statically')
   parser.add_option('--cc',
                     help='The path to cc compiler.')
   parser.add_option('--cxx',
@@ -183,6 +188,7 @@ def WriteGenericNinja(path, static_libraries, executables,
       'linux': 'build_linux.ninja.template',
       'freebsd': 'build_linux.ninja.template',
       'aix': 'build_aix.ninja.template',
+      'openbsd': 'build_openbsd.ninja.template',
   }[platform.platform()])
 
   with open(template_filename) as f:
@@ -212,7 +218,9 @@ def WriteGenericNinja(path, static_libraries, executables,
         'build %s: %s %s' % (src_to_obj(src_file),
                              settings['tool'],
                              escape_path_ninja(
-                                 os.path.join(REPO_ROOT, src_file))),
+                                 os.path.relpath(
+                                     os.path.join(REPO_ROOT, src_file),
+                                     os.path.dirname(path)))),
         '  includes = %s' % ' '.join(
             ['-I' + escape_path_ninja(dirname) for dirname in
              include_dirs + settings.get('include_dirs', [])]),
@@ -261,7 +269,6 @@ def WriteGenericNinja(path, static_libraries, executables,
 
 
 def WriteGNNinja(path, platform, host, options):
-
   # QTBUG-64759
   #if platform.is_msvc():
   #  cc = os.environ.get('CC', 'cl.exe')
@@ -274,15 +281,15 @@ def WriteGNNinja(path, platform, host, options):
   #  ld = os.environ.get('LD', 'g++')
   #  ar = os.environ.get('AR', 'ar -X64')
   #else:
-  #  cc = os.environ.get('CC', 'cc')
-  #  cxx = os.environ.get('CXX', 'c++')
+  #  cc = os.environ.get('CC', 'clang')
+  #  cxx = os.environ.get('CXX', 'clang++')
   #  ld = cxx
   #  ar = os.environ.get('AR', 'ar')
-
-  # cflags = os.environ.get('CFLAGS', '').split()
-  # cflags_cc = os.environ.get('CXXFLAGS', '').split()
-  # ldflags = os.environ.get('LDFLAGS', '').split()
-  # libflags = os.environ.get('LIBFLAGS', '').split()
+  #
+  #cflags = os.environ.get('CFLAGS', '').split()
+  #cflags_cc = os.environ.get('CXXFLAGS', '').split()
+  #ldflags = os.environ.get('LDFLAGS', '').split()
+  #libflags = os.environ.get('LIBFLAGS', '').split()
 
   cc = options.cc
   cxx = options.cxx
@@ -299,7 +306,8 @@ def WriteGNNinja(path, platform, host, options):
   cflags_cc = []
   ldflags = []
   libflags = []
-  include_dirs = [REPO_ROOT, os.path.dirname(path)]
+
+  include_dirs = [os.path.relpath(REPO_ROOT, os.path.dirname(path)), '.']
   libs = []
 
   if not platform.is_msvc():
@@ -349,10 +357,11 @@ def WriteGNNinja(path, platform, host, options):
     cflags_cc.extend(['-std=c++14', '-Wno-c++11-narrowing'])
 
     if platform.is_linux():
-      ldflags.extend([
-          '-static-libstdc++',
-          '-Wl,--as-needed',
-      ])
+      ldflags.append('-Wl,--as-needed')
+
+      if not options.no_static_libstdcpp:
+        ldflags.append('-static-libstdc++')
+
       # This is needed by libc++.
       libs.append('-ldl')
     elif platform.is_darwin():
@@ -459,6 +468,8 @@ def WriteGNNinja(path, platform, host, options):
         'tools/gn/bundle_data_target_generator.cc',
         'tools/gn/bundle_file_rule.cc',
         'tools/gn/c_include_iterator.cc',
+        'tools/gn/c_substitution_type.cc',
+        'tools/gn/c_tool.cc',
         'tools/gn/command_analyze.cc',
         'tools/gn/command_args.cc',
         'tools/gn/command_check.cc',
@@ -502,6 +513,7 @@ def WriteGNNinja(path, platform, host, options):
         'tools/gn/function_template.cc',
         'tools/gn/function_toolchain.cc',
         'tools/gn/function_write_file.cc',
+        'tools/gn/general_tool.cc',
         'tools/gn/generated_file_target_generator.cc',
         'tools/gn/group_target_generator.cc',
         'tools/gn/header_checker.cc',
@@ -523,10 +535,12 @@ def WriteGNNinja(path, platform, host, options):
         'tools/gn/ninja_binary_target_writer.cc',
         'tools/gn/ninja_build_writer.cc',
         'tools/gn/ninja_bundle_data_target_writer.cc',
+        'tools/gn/ninja_c_binary_target_writer.cc',
         'tools/gn/ninja_copy_target_writer.cc',
         'tools/gn/ninja_create_bundle_target_writer.cc',
         'tools/gn/ninja_generated_file_target_writer.cc',
         'tools/gn/ninja_group_target_writer.cc',
+        'tools/gn/ninja_rust_binary_target_writer.cc',
         'tools/gn/ninja_target_command_util.cc',
         'tools/gn/ninja_target_writer.cc',
         'tools/gn/ninja_toolchain_writer.cc',
@@ -544,6 +558,11 @@ def WriteGNNinja(path, platform, host, options):
         'tools/gn/qmake_link_writer.cc',
         'tools/gn/qt_creator_writer.cc',
         'tools/gn/runtime_deps.cc',
+        'tools/gn/rust_substitution_type.cc',
+        'tools/gn/rust_values_generator.cc',
+        'tools/gn/rust_tool.cc',
+        'tools/gn/rust_values.cc',
+        'tools/gn/rust_variables.cc',
         'tools/gn/scheduler.cc',
         'tools/gn/scope.cc',
         'tools/gn/scope_per_file_provider.cc',
@@ -551,7 +570,6 @@ def WriteGNNinja(path, platform, host, options):
         'tools/gn/setup.cc',
         'tools/gn/source_dir.cc',
         'tools/gn/source_file.cc',
-        'tools/gn/source_file_type.cc',
         'tools/gn/standard_out.cc',
         'tools/gn/string_utils.cc',
         'tools/gn/substitution_list.cc',
@@ -613,10 +631,12 @@ def WriteGNNinja(path, platform, host, options):
         'tools/gn/function_toolchain_unittest.cc',
         'tools/gn/function_write_file_unittest.cc',
         'tools/gn/functions_target_unittest.cc',
+        'tools/gn/functions_target_rust_unittest.cc',
         'tools/gn/functions_unittest.cc',
         'tools/gn/header_checker_unittest.cc',
         'tools/gn/inherited_libraries_unittest.cc',
         'tools/gn/input_conversion_unittest.cc',
+        'tools/gn/json_project_writer_unittest.cc',
         'tools/gn/label_pattern_unittest.cc',
         'tools/gn/label_unittest.cc',
         'tools/gn/loader_unittest.cc',
@@ -624,10 +644,12 @@ def WriteGNNinja(path, platform, host, options):
         'tools/gn/metadata_walk_unittest.cc',
         'tools/gn/ninja_action_target_writer_unittest.cc',
         'tools/gn/ninja_binary_target_writer_unittest.cc',
+        'tools/gn/ninja_c_binary_target_writer_unittest.cc',
         'tools/gn/ninja_build_writer_unittest.cc',
         'tools/gn/ninja_bundle_data_target_writer_unittest.cc',
         'tools/gn/ninja_copy_target_writer_unittest.cc',
         'tools/gn/ninja_create_bundle_target_writer_unittest.cc',
+        'tools/gn/ninja_rust_binary_target_writer_unittest.cc',
         'tools/gn/ninja_generated_file_target_writer_unittest.cc',
         'tools/gn/ninja_group_target_writer_unittest.cc',
         'tools/gn/ninja_target_writer_unittest.cc',

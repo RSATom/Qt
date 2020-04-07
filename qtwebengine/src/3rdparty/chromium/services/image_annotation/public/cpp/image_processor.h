@@ -28,6 +28,8 @@ class ImageProcessor : public mojom::ImageProcessor {
   //                         access entails a full image redownload.
   explicit ImageProcessor(base::RepeatingCallback<SkBitmap()> get_pixels);
   ~ImageProcessor() override;
+  ImageProcessor(ImageProcessor&&) = default;
+  ImageProcessor& operator=(ImageProcessor&&) = default;
 
   // Reencodes the image data for transmission to the service. Will be called by
   // the service if pixel data is needed.

@@ -33,7 +33,6 @@
 #include "third_party/blink/renderer/platform/loader/testing/web_url_loader_factory_with_mock.h"
 #include "third_party/blink/renderer/platform/testing/unit_test_helpers.h"
 #include "third_party/blink/renderer/platform/testing/url_test_helpers.h"
-#include "third_party/blink/renderer/platform/waitable_event.h"
 #include "third_party/blink/renderer/platform/weborigin/kurl.h"
 #include "third_party/blink/renderer/platform/weborigin/security_origin.h"
 #include "third_party/blink/renderer/platform/wtf/assertions.h"
@@ -60,24 +59,15 @@ class MockThreadableLoaderClient final
 
  public:
   MockThreadableLoaderClient() = default;
-  MOCK_METHOD2(DidSendData, void(unsigned long long, unsigned long long));
-  MOCK_METHOD3(DidReceiveResponseMock,
-               void(unsigned long,
-                    const ResourceResponse&,
-                    WebDataConsumerHandle*));
-  void DidReceiveResponse(
-      unsigned long identifier,
-      const ResourceResponse& response,
-      std::unique_ptr<WebDataConsumerHandle> handle) override {
-    DidReceiveResponseMock(identifier, response, handle.get());
-  }
+  MOCK_METHOD2(DidSendData, void(uint64_t, uint64_t));
+  MOCK_METHOD2(DidReceiveResponse, void(uint64_t, const ResourceResponse&));
   MOCK_METHOD2(DidReceiveData, void(const char*, unsigned));
   MOCK_METHOD2(DidReceiveCachedMetadata, void(const char*, int));
-  MOCK_METHOD1(DidFinishLoading, void(unsigned long));
+  MOCK_METHOD1(DidFinishLoading, void(uint64_t));
   MOCK_METHOD1(DidFail, void(const ResourceError&));
   MOCK_METHOD0(DidFailRedirectCheck, void());
   MOCK_METHOD1(DidReceiveResourceTiming, void(const ResourceTimingInfo&));
-  MOCK_METHOD1(DidDownloadData, void(unsigned long long));
+  MOCK_METHOD1(DidDownloadData, void(uint64_t));
 };
 
 bool IsCancellation(const ResourceError& error) {
@@ -128,10 +118,10 @@ void SetUpRedirectURL() {
 
   WebURLResponse response;
   response.SetCurrentRequestUrl(url);
-  response.SetHTTPStatusCode(301);
+  response.SetHttpStatusCode(301);
   response.SetLoadTiming(timing);
-  response.AddHTTPHeaderField("Location", SuccessURL().GetString());
-  response.AddHTTPHeaderField("Access-Control-Allow-Origin", "http://fake.url");
+  response.AddHttpHeaderField("Location", SuccessURL().GetString());
+  response.AddHttpHeaderField("Access-Control-Allow-Origin", "http://fake.url");
 
   url_test_helpers::RegisterMockedURLLoadWithCustomResponse(
       url, test::CoreTestDataPath(kFileName), response);
@@ -145,10 +135,10 @@ void SetUpRedirectLoopURL() {
 
   WebURLResponse response;
   response.SetCurrentRequestUrl(url);
-  response.SetHTTPStatusCode(301);
+  response.SetHttpStatusCode(301);
   response.SetLoadTiming(timing);
-  response.AddHTTPHeaderField("Location", RedirectLoopURL().GetString());
-  response.AddHTTPHeaderField("Access-Control-Allow-Origin", "http://fake.url");
+  response.AddHttpHeaderField("Location", RedirectLoopURL().GetString());
+  response.AddHttpHeaderField("Access-Control-Allow-Origin", "http://fake.url");
 
   url_test_helpers::RegisterMockedURLLoadWithCustomResponse(
       url, test::CoreTestDataPath(kFileName), response);
@@ -169,10 +159,12 @@ enum ThreadableLoaderToTest {
 class ThreadableLoaderTestHelper final {
  public:
   ThreadableLoaderTestHelper()
-      : dummy_page_holder_(DummyPageHolder::Create(IntSize(1, 1))) {
-    GetDocument().SetURL(KURL("http://fake.url/"));
-    GetDocument().SetSecurityOrigin(
-        SecurityOrigin::Create(KURL("http://fake.url/")));
+      : dummy_page_holder_(std::make_unique<DummyPageHolder>(IntSize(1, 1))) {
+    KURL url("http://fake.url/");
+    dummy_page_holder_->GetFrame().Loader().CommitNavigation(
+        WebNavigationParams::CreateWithHTMLBuffer(SharedBuffer::Create(), url),
+        nullptr /* extra_data */);
+    blink::test::RunPendingTasks();
   }
 
   void CreateLoader(ThreadableLoaderClient* client) {
@@ -218,13 +210,12 @@ class ThreadableLoaderTest : public testing::Test {
       : helper_(std::make_unique<ThreadableLoaderTestHelper>()) {}
 
   void StartLoader(const KURL& url,
-                   network::mojom::FetchRequestMode fetch_request_mode =
-                       network::mojom::FetchRequestMode::kNoCors) {
+                   network::mojom::RequestMode request_mode =
+                       network::mojom::RequestMode::kNoCors) {
     ResourceRequest request(url);
     request.SetRequestContext(mojom::RequestContextType::OBJECT);
-    request.SetFetchRequestMode(fetch_request_mode);
-    request.SetFetchCredentialsMode(
-        network::mojom::FetchCredentialsMode::kOmit);
+    request.SetMode(request_mode);
+    request.SetCredentialsMode(network::mojom::CredentialsMode::kOmit);
     helper_->StartLoader(request);
   }
 
@@ -252,7 +243,7 @@ class ThreadableLoaderTest : public testing::Test {
     helper_->OnTearDown();
     client_ = nullptr;
     // We need GC here to avoid gmock flakiness.
-    ThreadState::Current()->CollectAllGarbage();
+    ThreadState::Current()->CollectAllGarbageForTesting();
   }
   Persistent<MockThreadableLoaderClient> client_;
   std::unique_ptr<ThreadableLoaderTestHelper> helper_;
@@ -302,7 +293,7 @@ TEST_F(ThreadableLoaderTest, CancelInDidReceiveResponse) {
   CallCheckpoint(1);
 
   EXPECT_CALL(GetCheckpoint(), Call(2));
-  EXPECT_CALL(*Client(), DidReceiveResponseMock(_, _, _))
+  EXPECT_CALL(*Client(), DidReceiveResponse(_, _))
       .WillOnce(InvokeWithoutArgs(this, &ThreadableLoaderTest::CancelLoader));
   EXPECT_CALL(*Client(), DidFail(Truly(IsCancellation)));
 
@@ -318,7 +309,7 @@ TEST_F(ThreadableLoaderTest, CancelAndClearInDidReceiveResponse) {
   CallCheckpoint(1);
 
   EXPECT_CALL(GetCheckpoint(), Call(2));
-  EXPECT_CALL(*Client(), DidReceiveResponseMock(_, _, _))
+  EXPECT_CALL(*Client(), DidReceiveResponse(_, _))
       .WillOnce(
           InvokeWithoutArgs(this, &ThreadableLoaderTest::CancelAndClearLoader));
   EXPECT_CALL(*Client(), DidFail(Truly(IsCancellation)));
@@ -335,7 +326,7 @@ TEST_F(ThreadableLoaderTest, CancelInDidReceiveData) {
   CallCheckpoint(1);
 
   EXPECT_CALL(GetCheckpoint(), Call(2));
-  EXPECT_CALL(*Client(), DidReceiveResponseMock(_, _, _));
+  EXPECT_CALL(*Client(), DidReceiveResponse(_, _));
   EXPECT_CALL(*Client(), DidReceiveData(_, _))
       .WillOnce(InvokeWithoutArgs(this, &ThreadableLoaderTest::CancelLoader));
   EXPECT_CALL(*Client(), DidFail(Truly(IsCancellation)));
@@ -352,7 +343,7 @@ TEST_F(ThreadableLoaderTest, CancelAndClearInDidReceiveData) {
   CallCheckpoint(1);
 
   EXPECT_CALL(GetCheckpoint(), Call(2));
-  EXPECT_CALL(*Client(), DidReceiveResponseMock(_, _, _));
+  EXPECT_CALL(*Client(), DidReceiveResponse(_, _));
   EXPECT_CALL(*Client(), DidReceiveData(_, _))
       .WillOnce(
           InvokeWithoutArgs(this, &ThreadableLoaderTest::CancelAndClearLoader));
@@ -370,7 +361,7 @@ TEST_F(ThreadableLoaderTest, DidFinishLoading) {
   CallCheckpoint(1);
 
   EXPECT_CALL(GetCheckpoint(), Call(2));
-  EXPECT_CALL(*Client(), DidReceiveResponseMock(_, _, _));
+  EXPECT_CALL(*Client(), DidReceiveResponse(_, _));
   EXPECT_CALL(*Client(), DidReceiveData(StrEq("fox"), 4));
   // We expect didReceiveResourceTiming() calls in ThreadableLoader.
   EXPECT_CALL(*Client(), DidReceiveResourceTiming(_));
@@ -388,7 +379,7 @@ TEST_F(ThreadableLoaderTest, CancelInDidFinishLoading) {
   CallCheckpoint(1);
 
   EXPECT_CALL(GetCheckpoint(), Call(2));
-  EXPECT_CALL(*Client(), DidReceiveResponseMock(_, _, _));
+  EXPECT_CALL(*Client(), DidReceiveResponse(_, _));
   EXPECT_CALL(*Client(), DidReceiveData(_, _));
   EXPECT_CALL(*Client(), DidReceiveResourceTiming(_));
   EXPECT_CALL(*Client(), DidFinishLoading(_))
@@ -406,7 +397,7 @@ TEST_F(ThreadableLoaderTest, ClearInDidFinishLoading) {
   CallCheckpoint(1);
 
   EXPECT_CALL(GetCheckpoint(), Call(2));
-  EXPECT_CALL(*Client(), DidReceiveResponseMock(_, _, _));
+  EXPECT_CALL(*Client(), DidReceiveResponse(_, _));
   EXPECT_CALL(*Client(), DidReceiveData(_, _));
   EXPECT_CALL(*Client(), DidReceiveResourceTiming(_));
   EXPECT_CALL(*Client(), DidFinishLoading(_))
@@ -474,7 +465,7 @@ TEST_F(ThreadableLoaderTest, DidFailInStart) {
                           network::mojom::CorsError::kDisallowedByMode))));
   EXPECT_CALL(GetCheckpoint(), Call(2));
 
-  StartLoader(ErrorURL(), network::mojom::FetchRequestMode::kSameOrigin);
+  StartLoader(ErrorURL(), network::mojom::RequestMode::kSameOrigin);
   CallCheckpoint(2);
   ServeRequests();
 }
@@ -489,7 +480,7 @@ TEST_F(ThreadableLoaderTest, CancelInDidFailInStart) {
       .WillOnce(InvokeWithoutArgs(this, &ThreadableLoaderTest::CancelLoader));
   EXPECT_CALL(GetCheckpoint(), Call(2));
 
-  StartLoader(ErrorURL(), network::mojom::FetchRequestMode::kSameOrigin);
+  StartLoader(ErrorURL(), network::mojom::RequestMode::kSameOrigin);
   CallCheckpoint(2);
   ServeRequests();
 }
@@ -504,7 +495,7 @@ TEST_F(ThreadableLoaderTest, ClearInDidFailInStart) {
       .WillOnce(InvokeWithoutArgs(this, &ThreadableLoaderTest::ClearLoader));
   EXPECT_CALL(GetCheckpoint(), Call(2));
 
-  StartLoader(ErrorURL(), network::mojom::FetchRequestMode::kSameOrigin);
+  StartLoader(ErrorURL(), network::mojom::RequestMode::kSameOrigin);
   CallCheckpoint(2);
   ServeRequests();
 }
@@ -522,7 +513,7 @@ TEST_F(ThreadableLoaderTest, DidFailAccessControlCheck) {
                   network::CorsErrorStatus(
                       network::mojom::CorsError::kMissingAllowOriginHeader))));
 
-  StartLoader(SuccessURL(), network::mojom::FetchRequestMode::kCors);
+  StartLoader(SuccessURL(), network::mojom::RequestMode::kCors);
   CallCheckpoint(2);
   ServeRequests();
 }
@@ -534,7 +525,7 @@ TEST_F(ThreadableLoaderTest, RedirectDidFinishLoading) {
   CallCheckpoint(1);
 
   EXPECT_CALL(GetCheckpoint(), Call(2));
-  EXPECT_CALL(*Client(), DidReceiveResponseMock(_, _, _));
+  EXPECT_CALL(*Client(), DidReceiveResponse(_, _));
   EXPECT_CALL(*Client(), DidReceiveData(StrEq("fox"), 4));
   EXPECT_CALL(*Client(), DidReceiveResourceTiming(_));
   EXPECT_CALL(*Client(), DidFinishLoading(_));
@@ -551,7 +542,7 @@ TEST_F(ThreadableLoaderTest, CancelInRedirectDidFinishLoading) {
   CallCheckpoint(1);
 
   EXPECT_CALL(GetCheckpoint(), Call(2));
-  EXPECT_CALL(*Client(), DidReceiveResponseMock(_, _, _));
+  EXPECT_CALL(*Client(), DidReceiveResponse(_, _));
   EXPECT_CALL(*Client(), DidReceiveData(StrEq("fox"), 4));
   EXPECT_CALL(*Client(), DidReceiveResourceTiming(_));
   EXPECT_CALL(*Client(), DidFinishLoading(_))
@@ -569,7 +560,7 @@ TEST_F(ThreadableLoaderTest, ClearInRedirectDidFinishLoading) {
   CallCheckpoint(1);
 
   EXPECT_CALL(GetCheckpoint(), Call(2));
-  EXPECT_CALL(*Client(), DidReceiveResponseMock(_, _, _));
+  EXPECT_CALL(*Client(), DidReceiveResponse(_, _));
   EXPECT_CALL(*Client(), DidReceiveData(StrEq("fox"), 4));
   EXPECT_CALL(*Client(), DidReceiveResourceTiming(_));
   EXPECT_CALL(*Client(), DidFinishLoading(_))
@@ -589,7 +580,7 @@ TEST_F(ThreadableLoaderTest, DidFailRedirectCheck) {
   EXPECT_CALL(GetCheckpoint(), Call(2));
   EXPECT_CALL(*Client(), DidFailRedirectCheck());
 
-  StartLoader(RedirectLoopURL(), network::mojom::FetchRequestMode::kCors);
+  StartLoader(RedirectLoopURL(), network::mojom::RequestMode::kCors);
   CallCheckpoint(2);
   ServeRequests();
 }
@@ -604,7 +595,7 @@ TEST_F(ThreadableLoaderTest, CancelInDidFailRedirectCheck) {
   EXPECT_CALL(*Client(), DidFailRedirectCheck())
       .WillOnce(InvokeWithoutArgs(this, &ThreadableLoaderTest::CancelLoader));
 
-  StartLoader(RedirectLoopURL(), network::mojom::FetchRequestMode::kCors);
+  StartLoader(RedirectLoopURL(), network::mojom::RequestMode::kCors);
   CallCheckpoint(2);
   ServeRequests();
 }
@@ -619,7 +610,7 @@ TEST_F(ThreadableLoaderTest, ClearInDidFailRedirectCheck) {
   EXPECT_CALL(*Client(), DidFailRedirectCheck())
       .WillOnce(InvokeWithoutArgs(this, &ThreadableLoaderTest::ClearLoader));
 
-  StartLoader(RedirectLoopURL(), network::mojom::FetchRequestMode::kCors);
+  StartLoader(RedirectLoopURL(), network::mojom::RequestMode::kCors);
   CallCheckpoint(2);
   ServeRequests();
 }
@@ -639,17 +630,17 @@ TEST_F(ThreadableLoaderTest, GetResponseSynchronously) {
   // test is not saying that didFailAccessControlCheck should be dispatched
   // synchronously, but is saying that even when a response is served
   // synchronously it should not lead to a crash.
-  StartLoader(KURL("about:blank"), network::mojom::FetchRequestMode::kCors);
+  StartLoader(KURL("about:blank"), network::mojom::RequestMode::kCors);
   CallCheckpoint(2);
 }
 
 TEST(ThreadableLoaderCreatePreflightRequestTest, LexicographicalOrder) {
   ResourceRequest request;
-  request.AddHTTPHeaderField("Orange", "Orange");
-  request.AddHTTPHeaderField("Apple", "Red");
-  request.AddHTTPHeaderField("Kiwifruit", "Green");
-  request.AddHTTPHeaderField("Content-Type", "application/octet-stream");
-  request.AddHTTPHeaderField("Strawberry", "Red");
+  request.AddHttpHeaderField("Orange", "Orange");
+  request.AddHttpHeaderField("Apple", "Red");
+  request.AddHttpHeaderField("Kiwifruit", "Green");
+  request.AddHttpHeaderField("Content-Type", "application/octet-stream");
+  request.AddHttpHeaderField("Strawberry", "Red");
 
   std::unique_ptr<ResourceRequest> preflight =
       ThreadableLoader::CreateAccessControlPreflightRequestForTesting(request);
@@ -660,10 +651,10 @@ TEST(ThreadableLoaderCreatePreflightRequestTest, LexicographicalOrder) {
 
 TEST(ThreadableLoaderCreatePreflightRequestTest, ExcludeSimpleHeaders) {
   ResourceRequest request;
-  request.AddHTTPHeaderField("Accept", "everything");
-  request.AddHTTPHeaderField("Accept-Language", "everything");
-  request.AddHTTPHeaderField("Content-Language", "everything");
-  request.AddHTTPHeaderField("Save-Data", "on");
+  request.AddHttpHeaderField("Accept", "everything");
+  request.AddHttpHeaderField("Accept-Language", "everything");
+  request.AddHttpHeaderField("Content-Language", "everything");
+  request.AddHttpHeaderField("Save-Data", "on");
 
   std::unique_ptr<ResourceRequest> preflight =
       ThreadableLoader::CreateAccessControlPreflightRequestForTesting(request);
@@ -678,7 +669,7 @@ TEST(ThreadableLoaderCreatePreflightRequestTest, ExcludeSimpleHeaders) {
 TEST(ThreadableLoaderCreatePreflightRequestTest,
      ExcludeSimpleContentTypeHeader) {
   ResourceRequest request;
-  request.AddHTTPHeaderField("Content-Type", "text/plain");
+  request.AddHttpHeaderField("Content-Type", "text/plain");
 
   std::unique_ptr<ResourceRequest> preflight =
       ThreadableLoader::CreateAccessControlPreflightRequestForTesting(request);
@@ -690,7 +681,7 @@ TEST(ThreadableLoaderCreatePreflightRequestTest,
 
 TEST(ThreadableLoaderCreatePreflightRequestTest, IncludeNonSimpleHeader) {
   ResourceRequest request;
-  request.AddHTTPHeaderField("X-Custom-Header", "foobar");
+  request.AddHttpHeaderField("X-Custom-Header", "foobar");
 
   std::unique_ptr<ResourceRequest> preflight =
       ThreadableLoader::CreateAccessControlPreflightRequestForTesting(request);
@@ -702,7 +693,7 @@ TEST(ThreadableLoaderCreatePreflightRequestTest, IncludeNonSimpleHeader) {
 TEST(ThreadableLoaderCreatePreflightRequestTest,
      IncludeNonSimpleContentTypeHeader) {
   ResourceRequest request;
-  request.AddHTTPHeaderField("Content-Type", "application/octet-stream");
+  request.AddHttpHeaderField("Content-Type", "application/octet-stream");
 
   std::unique_ptr<ResourceRequest> preflight =
       ThreadableLoader::CreateAccessControlPreflightRequestForTesting(request);

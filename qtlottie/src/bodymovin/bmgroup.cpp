@@ -68,9 +68,9 @@ void BMGroup::construct(const QJsonObject &definition)
             // Transform affects how group contents are drawn.
             // It must be traversed first when drawing
             if (shape->type() == BM_SHAPE_TRANS_IX)
-                addChild(shape, true);
+                prependChild(shape);
             else
-               addChild(shape);
+                appendChild(shape);
         }
     }
 }
@@ -79,7 +79,7 @@ void BMGroup::updateProperties(int frame)
 {
     BMShape::updateProperties(frame);
 
-    for (BMBase *child : qAsConst(m_children)) {
+    for (BMBase *child : children()) {
         if (child->hidden())
             continue;
 
@@ -109,7 +109,7 @@ void BMGroup::render(LottieRenderer &renderer) const
     } else
         renderer.setTrimmingState(LottieRenderer::Off);
 
-   for (BMBase *child : qAsConst(m_children)) {
+   for (BMBase *child : children()) {
         if (child->hidden())
             continue;
         child->render(renderer);
@@ -135,7 +135,7 @@ void BMGroup::applyTrim(const BMTrimPath &trimmer)
     // Setting a friendly name helps in testing
     m_appliedTrim->setName(QStringLiteral("Inherited from") + trimmer.name());
 
-    for (BMBase *child : qAsConst(m_children)) {
+    for (BMBase *child : children()) {
         BMShape *shape = static_cast<BMShape*>(child);
         if (shape->acceptsTrim())
             shape->applyTrim(*m_appliedTrim);

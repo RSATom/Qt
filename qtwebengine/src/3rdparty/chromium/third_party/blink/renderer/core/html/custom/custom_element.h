@@ -9,14 +9,15 @@
 #include "third_party/blink/renderer/core/dom/create_element_flags.h"
 #include "third_party/blink/renderer/core/dom/element.h"
 #include "third_party/blink/renderer/platform/text/character.h"
-#include "third_party/blink/renderer/platform/wtf/allocator.h"
-#include "third_party/blink/renderer/platform/wtf/ascii_ctype.h"
+#include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
+#include "third_party/blink/renderer/platform/wtf/text/ascii_ctype.h"
 #include "third_party/blink/renderer/platform/wtf/text/atomic_string.h"
 
 namespace blink {
 
 class Document;
 class Element;
+class FileOrUSVStringOrFormData;
 class HTMLElement;
 class HTMLFormElement;
 class QualifiedName;
@@ -107,8 +108,11 @@ class CORE_EXPORT CustomElement {
   static void EnqueueFormAssociatedCallback(Element& element,
                                             HTMLFormElement* nullable_form);
   static void EnqueueFormResetCallback(Element& element);
-  static void EnqueueDisabledStateChangedCallback(Element& element,
-                                                  bool is_disabled);
+  static void EnqueueFormDisabledCallback(Element& element, bool is_disabled);
+  static void EnqueueFormStateRestoreCallback(
+      Element& element,
+      const FileOrUSVStringOrFormData& value,
+      const String& mode);
 
   static void TryToUpgrade(Element&, bool upgrade_invisible_elements = false);
 
@@ -119,7 +123,7 @@ class CORE_EXPORT CustomElement {
   // Some existing specs have element names with hyphens in them,
   // like font-face in SVG. The custom elements spec explicitly
   // disallows these as custom element names.
-  // https://html.spec.whatwg.org/#valid-custom-element-name
+  // https://html.spec.whatwg.org/C/#valid-custom-element-name
   static bool IsHyphenatedSpecElementName(const AtomicString&);
 
   static Vector<AtomicString>& EmbedderCustomElementNames();

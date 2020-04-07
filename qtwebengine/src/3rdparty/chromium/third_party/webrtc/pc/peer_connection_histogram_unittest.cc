@@ -18,10 +18,14 @@
 #include "absl/types/optional.h"
 #include "api/call/call_factory_interface.h"
 #include "api/jsep.h"
+#include "api/jsep_session_description.h"
 #include "api/peer_connection_interface.h"
 #include "api/peer_connection_proxy.h"
 #include "api/rtc_error.h"
+#include "api/scoped_refptr.h"
+#include "api/task_queue/default_task_queue_factory.h"
 #include "media/base/fake_media_engine.h"
+#include "p2p/base/mock_async_resolver.h"
 #include "p2p/base/port_allocator.h"
 #include "p2p/client/basic_port_allocator.h"
 #include "pc/peer_connection.h"
@@ -29,28 +33,34 @@
 #include "pc/peer_connection_wrapper.h"
 #include "pc/sdp_utils.h"
 #include "pc/test/mock_peer_connection_observers.h"
+#include "pc/webrtc_sdp.h"
+#include "rtc_base/arraysize.h"
 #include "rtc_base/checks.h"
+#include "rtc_base/fake_mdns_responder.h"
 #include "rtc_base/fake_network.h"
 #include "rtc_base/gunit.h"
 #include "rtc_base/ref_counted_object.h"
 #include "rtc_base/rtc_certificate_generator.h"
-#include "rtc_base/scoped_ref_ptr.h"
 #include "rtc_base/socket_address.h"
 #include "rtc_base/thread.h"
 #include "rtc_base/virtual_socket_server.h"
 #include "system_wrappers/include/metrics.h"
-#include "test/gtest.h"
+#include "test/gmock.h"
 
 namespace webrtc {
 
 using RTCConfiguration = PeerConnectionInterface::RTCConfiguration;
 using RTCOfferAnswerOptions = PeerConnectionInterface::RTCOfferAnswerOptions;
+using ::testing::NiceMock;
 using ::testing::Values;
 
 static const char kUsagePatternMetric[] = "WebRTC.PeerConnection.UsagePattern";
 static constexpr int kDefaultTimeout = 10000;
-static const rtc::SocketAddress kDefaultLocalAddress("1.1.1.1", 0);
+static const rtc::SocketAddress kLocalAddrs[2] = {
+    rtc::SocketAddress("1.1.1.1", 0), rtc::SocketAddress("2.2.2.2", 0)};
 static const rtc::SocketAddress kPrivateLocalAddress("10.1.1.1", 0);
+static const rtc::SocketAddress kPrivateIpv6LocalAddress("fd12:3456:789a:1::1",
+                                                         0);
 
 int MakeUsageFingerprint(std::set<PeerConnection::UsageEvent> events) {
   int signature = 0;
@@ -64,13 +74,17 @@ class PeerConnectionFactoryForUsageHistogramTest
     : public rtc::RefCountedObject<PeerConnectionFactory> {
  public:
   PeerConnectionFactoryForUsageHistogramTest()
-      : rtc::RefCountedObject<PeerConnectionFactory>(
-            rtc::Thread::Current(),
-            rtc::Thread::Current(),
-            rtc::Thread::Current(),
-            absl::make_unique<cricket::FakeMediaEngine>(),
-            CreateCallFactory(),
-            nullptr) {}
+      : rtc::RefCountedObject<PeerConnectionFactory>([] {
+          PeerConnectionFactoryDependencies dependencies;
+          dependencies.network_thread = rtc::Thread::Current();
+          dependencies.worker_thread = rtc::Thread::Current();
+          dependencies.signaling_thread = rtc::Thread::Current();
+          dependencies.task_queue_factory = CreateDefaultTaskQueueFactory();
+          dependencies.media_engine =
+              absl::make_unique<cricket::FakeMediaEngine>();
+          dependencies.call_factory = CreateCallFactory();
+          return dependencies;
+        }()) {}
 
   void ActionsBeforeInitializeForTesting(PeerConnectionInterface* pc) override {
     PeerConnection* internal_pc = static_cast<PeerConnection*>(pc);
@@ -111,8 +125,11 @@ class ObserverForUsageHistogramTest : public MockPeerConnectionObserver {
     interesting_usage_detected_ = absl::optional<int>();
   }
 
+  bool candidate_gathered() const { return candidate_gathered_; }
+
  private:
   absl::optional<int> interesting_usage_detected_;
+  bool candidate_gathered_ = false;
   RawWrapperPtr candidate_target_;  // Note: Not thread-safe against deletions.
 };
 
@@ -196,6 +213,10 @@ class PeerConnectionWrapperForUsageHistogramTest
     return true;
   }
 
+  webrtc::PeerConnectionInterface::IceGatheringState ice_gathering_state() {
+    return pc()->ice_gathering_state();
+  }
+
  private:
   // Candidates that have been sent but not yet configured
   std::vector<std::unique_ptr<webrtc::IceCandidateInterface>>
@@ -204,10 +225,11 @@ class PeerConnectionWrapperForUsageHistogramTest
 
 void ObserverForUsageHistogramTest::OnIceCandidate(
     const webrtc::IceCandidateInterface* candidate) {
+  // If target is not set, ignore. This happens in one-ended unit tests.
   if (candidate_target_) {
     this->candidate_target_->AddOrBufferIceCandidate(candidate);
   }
-  // If target is not set, ignore. This happens in one-ended unit tests.
+  candidate_gathered_ = true;
 }
 
 class PeerConnectionUsageHistogramTest : public ::testing::Test {
@@ -231,6 +253,28 @@ class PeerConnectionUsageHistogramTest : public ::testing::Test {
         config, PeerConnectionFactoryInterface::Options(), nullptr, false);
   }
 
+  WrapperPtr CreatePeerConnectionWithMdns(const RTCConfiguration& config) {
+    auto resolver_factory =
+        absl::make_unique<NiceMock<webrtc::MockAsyncResolverFactory>>();
+
+    webrtc::PeerConnectionDependencies deps(nullptr /* observer_in */);
+
+    auto fake_network = NewFakeNetwork();
+    fake_network->set_mdns_responder(
+        absl::make_unique<webrtc::FakeMdnsResponder>(rtc::Thread::Current()));
+    fake_network->AddInterface(NextLocalAddress());
+
+    std::unique_ptr<cricket::BasicPortAllocator> port_allocator(
+        new cricket::BasicPortAllocator(fake_network));
+
+    deps.async_resolver_factory = std::move(resolver_factory);
+    deps.allocator = std::move(port_allocator);
+
+    return CreatePeerConnection(config,
+                                PeerConnectionFactoryInterface::Options(),
+                                std::move(deps), false);
+  }
+
   WrapperPtr CreatePeerConnectionWithImmediateReport() {
     return CreatePeerConnection(RTCConfiguration(),
                                 PeerConnectionFactoryInterface::Options(),
@@ -238,11 +282,26 @@ class PeerConnectionUsageHistogramTest : public ::testing::Test {
   }
 
   WrapperPtr CreatePeerConnectionWithPrivateLocalAddresses() {
-    fake_network_manager_.reset(new rtc::FakeNetworkManager());
-    fake_network_manager_->AddInterface(kDefaultLocalAddress);
-    fake_network_manager_->AddInterface(kPrivateLocalAddress);
-    std::unique_ptr<cricket::BasicPortAllocator> port_allocator(
-        new cricket::BasicPortAllocator(fake_network_manager_.get()));
+    auto* fake_network = NewFakeNetwork();
+    fake_network->AddInterface(NextLocalAddress());
+    fake_network->AddInterface(kPrivateLocalAddress);
+
+    auto port_allocator =
+        absl::make_unique<cricket::BasicPortAllocator>(fake_network);
+
+    return CreatePeerConnection(RTCConfiguration(),
+                                PeerConnectionFactoryInterface::Options(),
+                                std::move(port_allocator), false);
+  }
+
+  WrapperPtr CreatePeerConnectionWithPrivateIpv6LocalAddresses() {
+    auto* fake_network = NewFakeNetwork();
+    fake_network->AddInterface(NextLocalAddress());
+    fake_network->AddInterface(kPrivateIpv6LocalAddress);
+
+    auto port_allocator =
+        absl::make_unique<cricket::BasicPortAllocator>(fake_network);
+
     return CreatePeerConnection(RTCConfiguration(),
                                 PeerConnectionFactoryInterface::Options(),
                                 std::move(port_allocator), false);
@@ -253,6 +312,18 @@ class PeerConnectionUsageHistogramTest : public ::testing::Test {
       const PeerConnectionFactoryInterface::Options factory_options,
       std::unique_ptr<cricket::PortAllocator> allocator,
       bool immediate_report) {
+    PeerConnectionDependencies deps(nullptr);
+    deps.allocator = std::move(allocator);
+
+    return CreatePeerConnection(config, factory_options, std::move(deps),
+                                immediate_report);
+  }
+
+  WrapperPtr CreatePeerConnection(
+      const RTCConfiguration& config,
+      const PeerConnectionFactoryInterface::Options factory_options,
+      PeerConnectionDependencies deps,
+      bool immediate_report) {
     rtc::scoped_refptr<PeerConnectionFactoryForUsageHistogramTest> pc_factory(
         new PeerConnectionFactoryForUsageHistogramTest());
     pc_factory->SetOptions(factory_options);
@@ -260,9 +331,20 @@ class PeerConnectionUsageHistogramTest : public ::testing::Test {
     if (immediate_report) {
       pc_factory->ReturnHistogramVeryQuickly();
     }
+
+    // If no allocator is provided, one will be created using a network manager
+    // that uses the host network. This doesn't work on all trybots.
+    if (!deps.allocator) {
+      auto fake_network = NewFakeNetwork();
+      fake_network->AddInterface(NextLocalAddress());
+      deps.allocator =
+          absl::make_unique<cricket::BasicPortAllocator>(fake_network);
+    }
+
     auto observer = absl::make_unique<ObserverForUsageHistogramTest>();
-    auto pc = pc_factory->CreatePeerConnection(config, std::move(allocator),
-                                               nullptr, observer.get());
+    deps.observer = observer.get();
+
+    auto pc = pc_factory->CreatePeerConnection(config, std::move(deps));
     if (!pc) {
       return nullptr;
     }
@@ -281,7 +363,23 @@ class PeerConnectionUsageHistogramTest : public ::testing::Test {
     return webrtc::metrics::MinSample(kUsagePatternMetric);
   }
 
-  std::unique_ptr<rtc::FakeNetworkManager> fake_network_manager_;
+  // The PeerConnection's port allocator is tied to the PeerConnection's
+  // lifetime and expects the underlying NetworkManager to outlive it.  That
+  // prevents us from having the PeerConnectionWrapper own the fake network.
+  // Therefore, the test fixture will own all the fake networks even though
+  // tests should access the fake network through the PeerConnectionWrapper.
+  rtc::FakeNetworkManager* NewFakeNetwork() {
+    fake_networks_.emplace_back(absl::make_unique<rtc::FakeNetworkManager>());
+    return fake_networks_.back().get();
+  }
+
+  rtc::SocketAddress NextLocalAddress() {
+    RTC_DCHECK(next_local_address_ < (int)arraysize(kLocalAddrs));
+    return kLocalAddrs[next_local_address_++];
+  }
+
+  std::vector<std::unique_ptr<rtc::FakeNetworkManager>> fake_networks_;
+  int next_local_address_ = 0;
   std::unique_ptr<rtc::VirtualSocketServer> vss_;
   rtc::AutoSocketServerThread main_;
 };
@@ -312,11 +410,12 @@ TEST_F(PeerConnectionUsageHistogramTest, FingerprintAudioVideo) {
   int expected_fingerprint = MakeUsageFingerprint(
       {PeerConnection::UsageEvent::AUDIO_ADDED,
        PeerConnection::UsageEvent::VIDEO_ADDED,
-       PeerConnection::UsageEvent::SET_LOCAL_DESCRIPTION_CALLED,
-       PeerConnection::UsageEvent::SET_REMOTE_DESCRIPTION_CALLED,
+       PeerConnection::UsageEvent::SET_LOCAL_DESCRIPTION_SUCCEEDED,
+       PeerConnection::UsageEvent::SET_REMOTE_DESCRIPTION_SUCCEEDED,
        PeerConnection::UsageEvent::CANDIDATE_COLLECTED,
-       PeerConnection::UsageEvent::REMOTE_CANDIDATE_ADDED,
+       PeerConnection::UsageEvent::ADD_ICE_CANDIDATE_SUCCEEDED,
        PeerConnection::UsageEvent::ICE_STATE_CONNECTED,
+       PeerConnection::UsageEvent::REMOTE_CANDIDATE_ADDED,
        PeerConnection::UsageEvent::CLOSE_CALLED});
   // In this case, we may or may not have PRIVATE_CANDIDATE_COLLECTED,
   // depending on the machine configuration.
@@ -332,34 +431,96 @@ TEST_F(PeerConnectionUsageHistogramTest, FingerprintAudioVideo) {
           2);
 }
 
-// Test getting the usage fingerprint when there are no host candidates.
-TEST_F(PeerConnectionUsageHistogramTest, FingerprintWithNoHostCandidates) {
+// Test getting the usage fingerprint when the caller collects an mDNS
+// candidate.
+TEST_F(PeerConnectionUsageHistogramTest, FingerprintWithMdnsCaller) {
   RTCConfiguration config;
-  config.type = PeerConnectionInterface::kNoHost;
-  auto caller = CreatePeerConnection(config);
+
+  // Enable hostname candidates with mDNS names.
+  auto caller = CreatePeerConnectionWithMdns(config);
   auto callee = CreatePeerConnection(config);
+
   caller->AddAudioTrack("audio");
   caller->AddVideoTrack("video");
-  // Under some bot configurations, this will fail - presumably bots where
-  // no working non-host addresses exist.
-  if (!caller->ConnectTo(callee.get())) {
-    return;
-  }
-  // If we manage to connect, we should get this precise fingerprint.
+  ASSERT_TRUE(caller->ConnectTo(callee.get()));
   caller->pc()->Close();
   callee->pc()->Close();
-  int expected_fingerprint = MakeUsageFingerprint(
+
+  int expected_fingerprint_caller = MakeUsageFingerprint(
       {PeerConnection::UsageEvent::AUDIO_ADDED,
        PeerConnection::UsageEvent::VIDEO_ADDED,
-       PeerConnection::UsageEvent::SET_LOCAL_DESCRIPTION_CALLED,
-       PeerConnection::UsageEvent::SET_REMOTE_DESCRIPTION_CALLED,
+       PeerConnection::UsageEvent::SET_LOCAL_DESCRIPTION_SUCCEEDED,
+       PeerConnection::UsageEvent::SET_REMOTE_DESCRIPTION_SUCCEEDED,
        PeerConnection::UsageEvent::CANDIDATE_COLLECTED,
-       PeerConnection::UsageEvent::REMOTE_CANDIDATE_ADDED,
+       PeerConnection::UsageEvent::MDNS_CANDIDATE_COLLECTED,
+       PeerConnection::UsageEvent::ADD_ICE_CANDIDATE_SUCCEEDED,
        PeerConnection::UsageEvent::ICE_STATE_CONNECTED,
+       PeerConnection::UsageEvent::REMOTE_CANDIDATE_ADDED,
        PeerConnection::UsageEvent::CLOSE_CALLED});
+
+  int expected_fingerprint_callee = MakeUsageFingerprint(
+      {PeerConnection::UsageEvent::AUDIO_ADDED,
+       PeerConnection::UsageEvent::VIDEO_ADDED,
+       PeerConnection::UsageEvent::SET_LOCAL_DESCRIPTION_SUCCEEDED,
+       PeerConnection::UsageEvent::SET_REMOTE_DESCRIPTION_SUCCEEDED,
+       PeerConnection::UsageEvent::CANDIDATE_COLLECTED,
+       PeerConnection::UsageEvent::ADD_ICE_CANDIDATE_SUCCEEDED,
+       PeerConnection::UsageEvent::REMOTE_MDNS_CANDIDATE_ADDED,
+       PeerConnection::UsageEvent::ICE_STATE_CONNECTED,
+       PeerConnection::UsageEvent::REMOTE_CANDIDATE_ADDED,
+       PeerConnection::UsageEvent::CLOSE_CALLED});
+
   EXPECT_EQ(2, webrtc::metrics::NumSamples(kUsagePatternMetric));
-  EXPECT_EQ(
-      2, webrtc::metrics::NumEvents(kUsagePatternMetric, expected_fingerprint));
+  EXPECT_EQ(1, webrtc::metrics::NumEvents(kUsagePatternMetric,
+                                          expected_fingerprint_caller));
+  EXPECT_EQ(1, webrtc::metrics::NumEvents(kUsagePatternMetric,
+                                          expected_fingerprint_callee));
+}
+
+// Test getting the usage fingerprint when the callee collects an mDNS
+// candidate.
+TEST_F(PeerConnectionUsageHistogramTest, FingerprintWithMdnsCallee) {
+  RTCConfiguration config;
+
+  // Enable hostname candidates with mDNS names.
+  auto caller = CreatePeerConnection(config);
+  auto callee = CreatePeerConnectionWithMdns(config);
+
+  caller->AddAudioTrack("audio");
+  caller->AddVideoTrack("video");
+  ASSERT_TRUE(caller->ConnectTo(callee.get()));
+  caller->pc()->Close();
+  callee->pc()->Close();
+
+  int expected_fingerprint_caller = MakeUsageFingerprint(
+      {PeerConnection::UsageEvent::AUDIO_ADDED,
+       PeerConnection::UsageEvent::VIDEO_ADDED,
+       PeerConnection::UsageEvent::SET_LOCAL_DESCRIPTION_SUCCEEDED,
+       PeerConnection::UsageEvent::SET_REMOTE_DESCRIPTION_SUCCEEDED,
+       PeerConnection::UsageEvent::CANDIDATE_COLLECTED,
+       PeerConnection::UsageEvent::ADD_ICE_CANDIDATE_SUCCEEDED,
+       PeerConnection::UsageEvent::REMOTE_MDNS_CANDIDATE_ADDED,
+       PeerConnection::UsageEvent::ICE_STATE_CONNECTED,
+       PeerConnection::UsageEvent::REMOTE_CANDIDATE_ADDED,
+       PeerConnection::UsageEvent::CLOSE_CALLED});
+
+  int expected_fingerprint_callee = MakeUsageFingerprint(
+      {PeerConnection::UsageEvent::AUDIO_ADDED,
+       PeerConnection::UsageEvent::VIDEO_ADDED,
+       PeerConnection::UsageEvent::SET_LOCAL_DESCRIPTION_SUCCEEDED,
+       PeerConnection::UsageEvent::SET_REMOTE_DESCRIPTION_SUCCEEDED,
+       PeerConnection::UsageEvent::CANDIDATE_COLLECTED,
+       PeerConnection::UsageEvent::MDNS_CANDIDATE_COLLECTED,
+       PeerConnection::UsageEvent::ADD_ICE_CANDIDATE_SUCCEEDED,
+       PeerConnection::UsageEvent::ICE_STATE_CONNECTED,
+       PeerConnection::UsageEvent::REMOTE_CANDIDATE_ADDED,
+       PeerConnection::UsageEvent::CLOSE_CALLED});
+
+  EXPECT_EQ(2, webrtc::metrics::NumSamples(kUsagePatternMetric));
+  EXPECT_EQ(1, webrtc::metrics::NumEvents(kUsagePatternMetric,
+                                          expected_fingerprint_caller));
+  EXPECT_EQ(1, webrtc::metrics::NumEvents(kUsagePatternMetric,
+                                          expected_fingerprint_callee));
 }
 
 #ifdef HAVE_SCTP
@@ -373,11 +534,12 @@ TEST_F(PeerConnectionUsageHistogramTest, FingerprintDataOnly) {
   callee->pc()->Close();
   int expected_fingerprint = MakeUsageFingerprint(
       {PeerConnection::UsageEvent::DATA_ADDED,
-       PeerConnection::UsageEvent::SET_LOCAL_DESCRIPTION_CALLED,
-       PeerConnection::UsageEvent::SET_REMOTE_DESCRIPTION_CALLED,
+       PeerConnection::UsageEvent::SET_LOCAL_DESCRIPTION_SUCCEEDED,
+       PeerConnection::UsageEvent::SET_REMOTE_DESCRIPTION_SUCCEEDED,
        PeerConnection::UsageEvent::CANDIDATE_COLLECTED,
-       PeerConnection::UsageEvent::REMOTE_CANDIDATE_ADDED,
+       PeerConnection::UsageEvent::ADD_ICE_CANDIDATE_SUCCEEDED,
        PeerConnection::UsageEvent::ICE_STATE_CONNECTED,
+       PeerConnection::UsageEvent::REMOTE_CANDIDATE_ADDED,
        PeerConnection::UsageEvent::CLOSE_CALLED});
   EXPECT_EQ(2, webrtc::metrics::NumSamples(kUsagePatternMetric));
   EXPECT_TRUE(
@@ -438,24 +600,162 @@ TEST_F(PeerConnectionUsageHistogramTest, FingerprintStunTurnInReconfiguration) {
       1, webrtc::metrics::NumEvents(kUsagePatternMetric, expected_fingerprint));
 }
 
-TEST_F(PeerConnectionUsageHistogramTest, FingerprintWithPrivateIP) {
+TEST_F(PeerConnectionUsageHistogramTest, FingerprintWithPrivateIPCaller) {
   auto caller = CreatePeerConnectionWithPrivateLocalAddresses();
+  auto callee = CreatePeerConnection();
   caller->AddAudioTrack("audio");
-  ASSERT_TRUE(caller->GenerateOfferAndCollectCandidates());
+  ASSERT_TRUE(caller->ConnectTo(callee.get()));
   caller->pc()->Close();
-  int expected_fingerprint = MakeUsageFingerprint(
+  callee->pc()->Close();
+
+  int expected_fingerprint_caller = MakeUsageFingerprint(
       {PeerConnection::UsageEvent::AUDIO_ADDED,
-       PeerConnection::UsageEvent::SET_LOCAL_DESCRIPTION_CALLED,
+       PeerConnection::UsageEvent::SET_LOCAL_DESCRIPTION_SUCCEEDED,
+       PeerConnection::UsageEvent::SET_REMOTE_DESCRIPTION_SUCCEEDED,
        PeerConnection::UsageEvent::CANDIDATE_COLLECTED,
-       PeerConnection::UsageEvent::CLOSE_CALLED,
-       PeerConnection::UsageEvent::PRIVATE_CANDIDATE_COLLECTED});
-  EXPECT_EQ(1, webrtc::metrics::NumSamples(kUsagePatternMetric));
-  EXPECT_EQ(
-      1, webrtc::metrics::NumEvents(kUsagePatternMetric, expected_fingerprint));
+       PeerConnection::UsageEvent::PRIVATE_CANDIDATE_COLLECTED,
+       PeerConnection::UsageEvent::ADD_ICE_CANDIDATE_SUCCEEDED,
+       PeerConnection::UsageEvent::ICE_STATE_CONNECTED,
+       PeerConnection::UsageEvent::REMOTE_CANDIDATE_ADDED,
+       PeerConnection::UsageEvent::CLOSE_CALLED});
+
+  int expected_fingerprint_callee = MakeUsageFingerprint(
+      {PeerConnection::UsageEvent::AUDIO_ADDED,
+       PeerConnection::UsageEvent::SET_LOCAL_DESCRIPTION_SUCCEEDED,
+       PeerConnection::UsageEvent::SET_REMOTE_DESCRIPTION_SUCCEEDED,
+       PeerConnection::UsageEvent::CANDIDATE_COLLECTED,
+       PeerConnection::UsageEvent::ADD_ICE_CANDIDATE_SUCCEEDED,
+       PeerConnection::UsageEvent::REMOTE_PRIVATE_CANDIDATE_ADDED,
+       PeerConnection::UsageEvent::ICE_STATE_CONNECTED,
+       PeerConnection::UsageEvent::REMOTE_CANDIDATE_ADDED,
+       PeerConnection::UsageEvent::CLOSE_CALLED});
+
+  EXPECT_EQ(2, webrtc::metrics::NumSamples(kUsagePatternMetric));
+  EXPECT_EQ(1, webrtc::metrics::NumEvents(kUsagePatternMetric,
+                                          expected_fingerprint_caller));
+  EXPECT_EQ(1, webrtc::metrics::NumEvents(kUsagePatternMetric,
+                                          expected_fingerprint_callee));
+}
+
+TEST_F(PeerConnectionUsageHistogramTest, FingerprintWithPrivateIpv6Callee) {
+  auto caller = CreatePeerConnection();
+  auto callee = CreatePeerConnectionWithPrivateIpv6LocalAddresses();
+  caller->AddAudioTrack("audio");
+  ASSERT_TRUE(caller->ConnectTo(callee.get()));
+  caller->pc()->Close();
+  callee->pc()->Close();
+
+  int expected_fingerprint_caller = MakeUsageFingerprint(
+      {PeerConnection::UsageEvent::AUDIO_ADDED,
+       PeerConnection::UsageEvent::SET_LOCAL_DESCRIPTION_SUCCEEDED,
+       PeerConnection::UsageEvent::SET_REMOTE_DESCRIPTION_SUCCEEDED,
+       PeerConnection::UsageEvent::CANDIDATE_COLLECTED,
+       PeerConnection::UsageEvent::ADD_ICE_CANDIDATE_SUCCEEDED,
+       PeerConnection::UsageEvent::REMOTE_PRIVATE_CANDIDATE_ADDED,
+       PeerConnection::UsageEvent::ICE_STATE_CONNECTED,
+       PeerConnection::UsageEvent::REMOTE_CANDIDATE_ADDED,
+       PeerConnection::UsageEvent::REMOTE_IPV6_CANDIDATE_ADDED,
+       PeerConnection::UsageEvent::CLOSE_CALLED});
+
+  int expected_fingerprint_callee = MakeUsageFingerprint(
+      {PeerConnection::UsageEvent::AUDIO_ADDED,
+       PeerConnection::UsageEvent::SET_LOCAL_DESCRIPTION_SUCCEEDED,
+       PeerConnection::UsageEvent::SET_REMOTE_DESCRIPTION_SUCCEEDED,
+       PeerConnection::UsageEvent::CANDIDATE_COLLECTED,
+       PeerConnection::UsageEvent::PRIVATE_CANDIDATE_COLLECTED,
+       PeerConnection::UsageEvent::IPV6_CANDIDATE_COLLECTED,
+       PeerConnection::UsageEvent::ADD_ICE_CANDIDATE_SUCCEEDED,
+       PeerConnection::UsageEvent::REMOTE_CANDIDATE_ADDED,
+       PeerConnection::UsageEvent::ICE_STATE_CONNECTED,
+       PeerConnection::UsageEvent::CLOSE_CALLED});
+
+  EXPECT_EQ(2, webrtc::metrics::NumSamples(kUsagePatternMetric));
+  EXPECT_EQ(1, webrtc::metrics::NumEvents(kUsagePatternMetric,
+                                          expected_fingerprint_caller));
+  EXPECT_EQ(1, webrtc::metrics::NumEvents(kUsagePatternMetric,
+                                          expected_fingerprint_callee));
 }
 
 #ifndef WEBRTC_ANDROID
 #ifdef HAVE_SCTP
+// Test that the usage pattern bits for adding remote (private IPv6) candidates
+// are set when the remote candidates are retrieved from the Offer SDP instead
+// of trickled ICE messages.
+TEST_F(PeerConnectionUsageHistogramTest,
+       AddRemoteCandidatesFromRemoteDescription) {
+  // We construct the following data-channel-only scenario. The caller collects
+  // IPv6 private local candidates and appends them in the Offer as in
+  // non-trickled sessions. The callee collects mDNS candidates that are not
+  // contained in the Answer as in Trickle ICE. Only the Offer and Answer are
+  // signaled and we expect a connection with prflx remote candidates at the
+  // caller side.
+  auto caller = CreatePeerConnectionWithPrivateIpv6LocalAddresses();
+  auto callee = CreatePeerConnectionWithMdns(RTCConfiguration());
+  caller->CreateDataChannel("test_channel");
+  ASSERT_TRUE(caller->SetLocalDescription(caller->CreateOffer()));
+  // Wait until the gathering completes so that the session description would
+  // have contained ICE candidates.
+  EXPECT_EQ_WAIT(webrtc::PeerConnectionInterface::kIceGatheringComplete,
+                 caller->ice_gathering_state(), kDefaultTimeout);
+  EXPECT_TRUE(caller->observer()->candidate_gathered());
+  // Get the current offer that contains candidates and pass it to the callee.
+  //
+  // Note that we cannot use CloneSessionDescription on |cur_offer| to obtain an
+  // SDP with candidates. The method above does not strictly copy everything, in
+  // particular, not copying the ICE candidates.
+  // TODO(qingsi): Technically, this is a bug. Fix it.
+  auto cur_offer = caller->pc()->local_description();
+  ASSERT_TRUE(cur_offer);
+  std::string sdp_with_candidates_str;
+  cur_offer->ToString(&sdp_with_candidates_str);
+  auto offer = absl::make_unique<JsepSessionDescription>(SdpType::kOffer);
+  ASSERT_TRUE(SdpDeserialize(sdp_with_candidates_str, offer.get(),
+                             nullptr /* error */));
+  ASSERT_TRUE(callee->SetRemoteDescription(std::move(offer)));
+
+  // By default, the Answer created does not contain ICE candidates.
+  auto answer = callee->CreateAnswer();
+  callee->SetLocalDescription(CloneSessionDescription(answer.get()));
+  caller->SetRemoteDescription(std::move(answer));
+  EXPECT_TRUE_WAIT(caller->IsConnected(), kDefaultTimeout);
+  EXPECT_TRUE_WAIT(callee->IsConnected(), kDefaultTimeout);
+  // The callee needs to process the open message to have the data channel open.
+  EXPECT_TRUE_WAIT(callee->observer()->last_datachannel_ != nullptr,
+                   kDefaultTimeout);
+  caller->pc()->Close();
+  callee->pc()->Close();
+
+  // The caller should not have added any remote candidate either via
+  // AddIceCandidate or from the remote description.
+  int expected_fingerprint_caller = MakeUsageFingerprint(
+      {PeerConnection::UsageEvent::DATA_ADDED,
+       PeerConnection::UsageEvent::SET_LOCAL_DESCRIPTION_SUCCEEDED,
+       PeerConnection::UsageEvent::SET_REMOTE_DESCRIPTION_SUCCEEDED,
+       PeerConnection::UsageEvent::CANDIDATE_COLLECTED,
+       PeerConnection::UsageEvent::PRIVATE_CANDIDATE_COLLECTED,
+       PeerConnection::UsageEvent::IPV6_CANDIDATE_COLLECTED,
+       PeerConnection::UsageEvent::ICE_STATE_CONNECTED,
+       PeerConnection::UsageEvent::CLOSE_CALLED});
+
+  int expected_fingerprint_callee = MakeUsageFingerprint(
+      {PeerConnection::UsageEvent::DATA_ADDED,
+       PeerConnection::UsageEvent::SET_LOCAL_DESCRIPTION_SUCCEEDED,
+       PeerConnection::UsageEvent::SET_REMOTE_DESCRIPTION_SUCCEEDED,
+       PeerConnection::UsageEvent::CANDIDATE_COLLECTED,
+       PeerConnection::UsageEvent::MDNS_CANDIDATE_COLLECTED,
+       PeerConnection::UsageEvent::REMOTE_CANDIDATE_ADDED,
+       PeerConnection::UsageEvent::REMOTE_PRIVATE_CANDIDATE_ADDED,
+       PeerConnection::UsageEvent::REMOTE_IPV6_CANDIDATE_ADDED,
+       PeerConnection::UsageEvent::ICE_STATE_CONNECTED,
+       PeerConnection::UsageEvent::CLOSE_CALLED});
+
+  EXPECT_EQ(2, webrtc::metrics::NumSamples(kUsagePatternMetric));
+  EXPECT_EQ(1, webrtc::metrics::NumEvents(kUsagePatternMetric,
+                                          expected_fingerprint_caller));
+  EXPECT_EQ(1, webrtc::metrics::NumEvents(kUsagePatternMetric,
+                                          expected_fingerprint_callee));
+}
+
 TEST_F(PeerConnectionUsageHistogramTest, NotableUsageNoted) {
   auto caller = CreatePeerConnection();
   caller->CreateDataChannel("foo");
@@ -463,7 +763,7 @@ TEST_F(PeerConnectionUsageHistogramTest, NotableUsageNoted) {
   caller->pc()->Close();
   int expected_fingerprint = MakeUsageFingerprint(
       {PeerConnection::UsageEvent::DATA_ADDED,
-       PeerConnection::UsageEvent::SET_LOCAL_DESCRIPTION_CALLED,
+       PeerConnection::UsageEvent::SET_LOCAL_DESCRIPTION_SUCCEEDED,
        PeerConnection::UsageEvent::CANDIDATE_COLLECTED,
        PeerConnection::UsageEvent::CLOSE_CALLED});
   EXPECT_EQ(1, webrtc::metrics::NumSamples(kUsagePatternMetric));
@@ -482,7 +782,7 @@ TEST_F(PeerConnectionUsageHistogramTest, NotableUsageOnEventFiring) {
   caller->GenerateOfferAndCollectCandidates();
   int expected_fingerprint = MakeUsageFingerprint(
       {PeerConnection::UsageEvent::DATA_ADDED,
-       PeerConnection::UsageEvent::SET_LOCAL_DESCRIPTION_CALLED,
+       PeerConnection::UsageEvent::SET_LOCAL_DESCRIPTION_SUCCEEDED,
        PeerConnection::UsageEvent::CANDIDATE_COLLECTED});
   EXPECT_EQ(0, webrtc::metrics::NumSamples(kUsagePatternMetric));
   caller->GetInternalPeerConnection()->RequestUsagePatternReportForTesting();
@@ -504,7 +804,7 @@ TEST_F(PeerConnectionUsageHistogramTest,
   caller->GenerateOfferAndCollectCandidates();
   int expected_fingerprint = MakeUsageFingerprint(
       {PeerConnection::UsageEvent::DATA_ADDED,
-       PeerConnection::UsageEvent::SET_LOCAL_DESCRIPTION_CALLED,
+       PeerConnection::UsageEvent::SET_LOCAL_DESCRIPTION_SUCCEEDED,
        PeerConnection::UsageEvent::CANDIDATE_COLLECTED,
        PeerConnection::UsageEvent::CLOSE_CALLED});
   EXPECT_EQ(0, webrtc::metrics::NumSamples(kUsagePatternMetric));

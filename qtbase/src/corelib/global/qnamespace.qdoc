@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2019 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the documentation of the Qt Toolkit.
@@ -285,6 +285,13 @@
            on Windows, which only makes sense if you use \l QWhatsThis functionality.
            This value was added in Qt 5.10. In Qt 6, WindowContextHelpButtonHint
            will not be set by default.
+
+    \value AA_DisableSessionManager Disables the QSessionManager.
+           By default Qt will connect to a running session manager for a GUI
+           application on supported platforms, use of a session manager may be
+           redundant for system services.
+           This attribute must be set before QGuiApplication is constructed.
+           This value was added in 5.13
 
     The following values are deprecated or obsolete:
 
@@ -717,9 +724,17 @@
     \value LocalDate \e{This enum value is deprecated.} Use Qt::SystemLocaleShortDate
     instead (or Qt::SystemLocaleLongDate if you want long dates).
 
-    \value RFC2822Date \l{RFC 2822}, \l{RFC 850} and \l{RFC 1036} format: either
-    \c{[ddd,] dd MMM yyyy hh:mm[:ss] +/-TZ} or \c{ddd MMM dd yyyy hh:mm[:ss] +/-TZ}
-    for combined dates and times.
+    \value RFC2822Date \l{RFC 2822}, \l{RFC 850} and \l{RFC 1036} format:
+    either \c{[ddd,] dd MMM yyyy [hh:mm[:ss]][ ±tzoff]}
+    or \c{ddd MMM dd[ hh:mm:ss] yyyy[ ±tzoff]} are recognized for combined dates
+    and times, where \c{tzoff} is a timezone offset in \c{hhmm} format. For
+    dates and times separately, the same formats are matched and the unwanted
+    parts are ignored. In particular, note that a time is not recognized without
+    an accompanying date. When converting dates to string form,
+    format \c{dd MMM yyyy} is used, for times the format is \c{hh:mm:ss}. For
+    combined date and time, these are combined
+    as \c{dd MMM yyyy hh:mm:ss ±tzoff} (omitting the optional leading day of the
+    week from the first format recognized).
 
     \note For \c ISODate formats, each \c Y, \c M and \c D represents a single digit
     of the year, month and day used to specify the date. Each \c H, \c M and \c S
@@ -1002,7 +1017,7 @@
 
     \value WA_MacNoClickThrough This value is obsolete and has no effect.
 
-    \value WA_MacOpaqueSizeGrip Indicates that the native Carbon size grip
+    \value WA_MacOpaqueSizeGrip Indicates that the native size grip
     should be opaque instead of transparent (the default). This attribute
     is only applicable to \macos and is set by the widget's author.
 
@@ -1166,6 +1181,7 @@
 
     \value WA_StyleSheetTarget Indicates that the widget appearance was modified
     by a \l{Qt Style Sheets}{style sheet}. WA_StyleSheet will also be set.
+    This value was introduced in Qt 5.12.
 
     \value WA_TabletTracking Indicates that the widget has tablet
     tracking enabled. See QWidget::tabletTracking.
@@ -2362,6 +2378,19 @@
 */
 
 /*!
+    \enum Qt::SplitBehaviorFlags
+    \since 5.14
+
+    This enum specifies how the split() functions should behave with
+    respect to empty strings.
+
+    \value KeepEmptyParts  If a field is empty, keep it in the result.
+    \value SkipEmptyParts  If a field is empty, don't include it in the result.
+
+    \sa QString::split()
+*/
+
+/*!
     \enum Qt::ClipOperation
 
     \value NoClip This operation turns clipping off.
@@ -2464,6 +2493,9 @@
     \value AutoText The text string is interpreted as for
         Qt::RichText if Qt::mightBeRichText() returns \c true, otherwise
         as Qt::PlainText.
+
+    \value MarkdownText The text string is interpreted as Markdown-formatted text.
+        This enum value was added in Qt 5.14.
 */
 
 /*!
@@ -3251,4 +3283,26 @@
   \value ChecksumIso3309 Checksum calculation based on ISO 3309.
 
   \value ChecksumItuV41 Checksum calculation based on ITU-V.41.
+*/
+
+/*!
+  \enum Qt::HighDpiScaleFactorRoundingPolicy
+  \since 5.14
+
+  This enum describes the possible High-DPI scale factor rounding policies, which
+  decide how non-integer scale factors (such as Windows 150%) are handled.
+
+  The active policy is set by calling QGuiApplication::setHighDdpiScaleFactorRoundingPolicy() before
+  the application object is created, or by setting the QT_SCALE_FACTOR_ROUNDING_POLICY
+  environment variable.
+
+  \sa QGuiApplication::setHighDpiScaleFactorRoundingPolicy()
+  \sa AA_EnableHighDpiScaling.
+
+  \omitvalue Unset
+  \value Round Round up for .5 and above.
+  \value Ceil Always round up.
+  \value Floor Always round down.
+  \value RoundPreferFloor Round up for .75 and above.
+  \value PassThrough Don't round.
 */

@@ -6,6 +6,8 @@ IMPORT_VERSION = 2.$$QT_MINOR_VERSION
 SOURCES += \
     plugin.cpp
 
-QT += quick-private qml-private
+QT += quick-private qml-private qmlmodels-private
+
+qtConfig(qml-worker-script): QT += qmlworkerscript-private
 
 load(qml_plugin)

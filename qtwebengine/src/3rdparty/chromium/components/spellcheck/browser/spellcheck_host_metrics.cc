@@ -6,8 +6,10 @@
 
 #include <stdint.h>
 
-#include "base/md5.h"
+#include "base/hash/md5.h"
 #include "base/metrics/histogram_macros.h"
+#include "base/numerics/safe_conversions.h"
+#include "build/build_config.h"
 
 SpellCheckHostMetrics::SpellCheckHostMetrics()
     : misspelled_word_count_(0),
@@ -18,7 +20,7 @@ SpellCheckHostMetrics::SpellCheckHostMetrics()
       last_suggestion_show_count_(-1),
       replaced_word_count_(0),
       last_replaced_word_count_(-1),
-      last_unique_word_count_(-1),
+      last_unique_word_count_(0),
       start_time_(base::TimeTicks::Now()) {
   const uint64_t kHistogramTimerDurationInMinutes = 30;
   recording_timer_.Start(FROM_HERE,
@@ -32,7 +34,8 @@ SpellCheckHostMetrics::~SpellCheckHostMetrics() {
 
 // static
 void SpellCheckHostMetrics::RecordCustomWordCountStats(size_t count) {
-  UMA_HISTOGRAM_COUNTS_1M("SpellCheck.CustomWords", count);
+  UMA_HISTOGRAM_COUNTS_1M("SpellCheck.CustomWords",
+                          base::saturated_cast<int>(count));
 }
 
 void SpellCheckHostMetrics::RecordEnabledStats(bool enabled) {
@@ -79,7 +82,7 @@ void SpellCheckHostMetrics::OnHistogramTimerExpired() {
     size_t checked_words_per_hour = spellchecked_word_count_ *
         base::TimeDelta::FromHours(1).InSeconds() / since_start.InSeconds();
     UMA_HISTOGRAM_COUNTS_1M("SpellCheck.CheckedWordsPerHour",
-                            checked_words_per_hour);
+                            base::saturated_cast<int>(checked_words_per_hour));
   }
 }
 
@@ -133,10 +136,11 @@ void SpellCheckHostMetrics::RecordWordCounts() {
     last_replaced_word_count_ = replaced_word_count_;
   }
 
-  if (((int)checked_word_hashes_.size()) != last_unique_word_count_) {
-    DCHECK((int)checked_word_hashes_.size() > last_unique_word_count_);
-    UMA_HISTOGRAM_COUNTS_1M("SpellCheck.UniqueWords",
-                            checked_word_hashes_.size());
+  if (checked_word_hashes_.size() != last_unique_word_count_) {
+    DCHECK(checked_word_hashes_.size() > last_unique_word_count_);
+    UMA_HISTOGRAM_COUNTS_1M(
+        "SpellCheck.UniqueWords",
+        base::saturated_cast<int>(checked_word_hashes_.size()));
     last_unique_word_count_ = checked_word_hashes_.size();
   }
 
@@ -151,3 +155,15 @@ void SpellCheckHostMetrics::RecordWordCounts() {
 void SpellCheckHostMetrics::RecordSpellingServiceStats(bool enabled) {
   UMA_HISTOGRAM_BOOLEAN("SpellCheck.SpellingService.Enabled", enabled);
 }
+
+#if defined(OS_WIN)
+void SpellCheckHostMetrics::RecordMissingLanguagePacksCount(int count) {
+  UMA_HISTOGRAM_EXACT_LINEAR("Spellcheck.Windows.MissingLanguagePacksCount",
+                             count, 20);
+}
+
+void SpellCheckHostMetrics::RecordHunspellUnsupportedLanguageCount(int count) {
+  UMA_HISTOGRAM_EXACT_LINEAR(
+      "Spellcheck.Windows.HunspellUnsupportedLanguageCount", count, 20);
+}
+#endif  // defined(OS_WIN)

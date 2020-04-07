@@ -36,8 +36,9 @@
 SourceFrame.SourceFrame = class extends UI.SimpleView {
   /**
    * @param {function(): !Promise<?string>} lazyContent
+   * @param {!UI.TextEditor.Options=} codeMirrorOptions
    */
-  constructor(lazyContent) {
+  constructor(lazyContent, codeMirrorOptions) {
     super(Common.UIString('Source'));
 
     this._lazyContent = lazyContent;
@@ -56,7 +57,7 @@ SourceFrame.SourceFrame = class extends UI.SimpleView {
     this._shouldAutoPrettyPrint = false;
     this._prettyToggle.setVisible(false);
 
-    this._textEditor = new SourceFrame.SourcesTextEditor(this);
+    this._textEditor = new SourceFrame.SourcesTextEditor(this, codeMirrorOptions);
     this._textEditor.show(this.element);
 
     /** @type {?number} */
@@ -732,7 +733,7 @@ SourceFrame.SourceFrame = class extends UI.SimpleView {
     let textRange = selections[0];
     if (textRange.isEmpty()) {
       const location = this._prettyToRawLocation(textRange.endLine, textRange.endColumn);
-      this._sourcePosition.setText(`Line ${location[0] + 1}, Column ${location[1] + 1}`);
+      this._sourcePosition.setText(ls`Line ${location[0] + 1}, Column ${location[1] + 1}`);
       return;
     }
     textRange = textRange.normalize();
@@ -756,8 +757,9 @@ SourceFrame.LineDecorator.prototype = {
   /**
    * @param {!Workspace.UISourceCode} uiSourceCode
    * @param {!TextEditor.CodeMirrorTextEditor} textEditor
+   * @param {string} type
    */
-  decorate(uiSourceCode, textEditor) {}
+  decorate(uiSourceCode, textEditor, type) {}
 };
 
 /**

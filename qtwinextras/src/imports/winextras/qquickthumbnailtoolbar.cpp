@@ -74,9 +74,7 @@ QQuickThumbnailToolBar::QQuickThumbnailToolBar(QQuickItem *parent) :
             this, &QQuickThumbnailToolBar::iconicLivePreviewRequested);
 }
 
-QQuickThumbnailToolBar::~QQuickThumbnailToolBar()
-{
-}
+QQuickThumbnailToolBar::~QQuickThumbnailToolBar() = default;
 
 int QQuickThumbnailToolBar::count() const
 {
@@ -85,12 +83,12 @@ int QQuickThumbnailToolBar::count() const
 
 QQmlListProperty<QObject> QQuickThumbnailToolBar::data()
 {
-    return QQmlListProperty<QObject>(this, 0, &QQuickThumbnailToolBar::addData, 0, 0, 0);
+    return QQmlListProperty<QObject>(this, nullptr, &QQuickThumbnailToolBar::addData, nullptr, nullptr, nullptr);
 }
 
 QQmlListProperty<QQuickThumbnailToolButton> QQuickThumbnailToolBar::buttons()
 {
-    return QQmlListProperty<QQuickThumbnailToolButton>(this, 0, &QQuickThumbnailToolBar::buttonCount, &QQuickThumbnailToolBar::buttonAt);
+    return QQmlListProperty<QQuickThumbnailToolButton>(this, nullptr, &QQuickThumbnailToolBar::buttonCount, &QQuickThumbnailToolBar::buttonAt);
 }
 
 void QQuickThumbnailToolBar::addButton(QQuickThumbnailToolButton *button)
@@ -226,8 +224,8 @@ void QQuickThumbnailToolBar::itemChange(QQuickItem::ItemChange change, const QQu
 
 void QQuickThumbnailToolBar::addData(QQmlListProperty<QObject> *property, QObject *object)
 {
-    if (QQuickThumbnailToolButton *button = qobject_cast<QQuickThumbnailToolButton *>(object)) {
-        QQuickThumbnailToolBar *quickThumbbar = static_cast<QQuickThumbnailToolBar *>(property->object);
+    if (auto *button = qobject_cast<QQuickThumbnailToolButton *>(object)) {
+        auto *quickThumbbar = static_cast<QQuickThumbnailToolBar *>(property->object);
         quickThumbbar->m_toolbar.addButton(button->m_button);
         quickThumbbar->m_buttons.append(button);
         emit quickThumbbar->countChanged();

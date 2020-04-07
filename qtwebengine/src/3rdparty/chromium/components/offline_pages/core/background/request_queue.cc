@@ -9,7 +9,6 @@
 #include "base/bind.h"
 #include "base/location.h"
 #include "base/threading/thread_task_runner_handle.h"
-#include "components/offline_pages/core/background/add_request_task.h"
 #include "components/offline_pages/core/background/change_requests_state_task.h"
 #include "components/offline_pages/core/background/get_requests_task.h"
 #include "components/offline_pages/core/background/initialize_store_task.h"
@@ -36,33 +35,10 @@ void GetRequestsDone(RequestQueue::GetRequestsCallback callback,
   std::move(callback).Run(result, std::move(requests));
 }
 
-// Completes the add request call.
-void AddRequestDone(RequestQueue::AddRequestCallback callback,
-                    const SavePageRequest& request,
-                    ItemActionStatus status) {
-  AddRequestResult result;
-  switch (status) {
-    case ItemActionStatus::SUCCESS:
-      result = AddRequestResult::SUCCESS;
-      break;
-    case ItemActionStatus::ALREADY_EXISTS:
-      result = AddRequestResult::ALREADY_EXISTS;
-      break;
-    case ItemActionStatus::STORE_ERROR:
-      result = AddRequestResult::STORE_FAILURE;
-      break;
-    case ItemActionStatus::NOT_FOUND:
-    default:
-      NOTREACHED();
-      return;
-  }
-  std::move(callback).Run(result, request);
-}
-
 }  // namespace
 
 RequestQueue::RequestQueue(std::unique_ptr<RequestQueueStore> store)
-    : store_(std::move(store)), task_queue_(this), weak_ptr_factory_(this) {
+    : store_(std::move(store)), task_queue_(this) {
   Initialize();
 }
 
@@ -77,11 +53,17 @@ void RequestQueue::GetRequests(GetRequestsCallback callback) {
 }
 
 void RequestQueue::AddRequest(const SavePageRequest& request,
+                              AddOptions options,
                               AddRequestCallback callback) {
-  std::unique_ptr<AddRequestTask> task(new AddRequestTask(
-      store_.get(), request,
-      base::BindOnce(&AddRequestDone, std::move(callback), request)));
-  task_queue_.AddTask(std::move(task));
+  // |callback| receives both |request| and the result, whereas
+  // RequestQueueStore returns only the result. Adapt the callback here.
+  RequestQueueStore::AddCallback adapter = base::BindOnce(
+      [](AddRequestCallback callback, const SavePageRequest& request,
+         AddRequestResult result) { std::move(callback).Run(result, request); },
+      std::move(callback), request);
+  task_queue_.AddTask(std::make_unique<ClosureTask>(base::BindOnce(
+      &RequestQueueStore::AddRequest, base::Unretained(store_.get()), request,
+      std::move(options), std::move(adapter))));
 }
 
 void RequestQueue::RemoveRequests(const std::vector<int64_t>& request_ids,
@@ -149,7 +131,6 @@ void RequestQueue::MarkAttemptDeferred(int64_t request_id,
 
 void RequestQueue::PickNextRequest(
     OfflinerPolicy* policy,
-    ClientPolicyController* policy_controller,
     PickRequestTask::RequestPickedCallback picked_callback,
     PickRequestTask::RequestNotPickedCallback not_picked_callback,
     PickRequestTask::RequestCountCallback request_count_callback,
@@ -158,7 +139,7 @@ void RequestQueue::PickNextRequest(
     base::circular_deque<int64_t>* prioritized_requests) {
   // Using the PickerContext, create a picker task.
   std::unique_ptr<Task> task(new PickRequestTask(
-      store_.get(), policy, policy_controller, std::move(picked_callback),
+      store_.get(), policy, std::move(picked_callback),
       std::move(not_picked_callback), std::move(request_count_callback),
       std::move(conditions), disabled_requests, prioritized_requests));
 

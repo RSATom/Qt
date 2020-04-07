@@ -37,7 +37,7 @@ void DevToolsProtocolTest::SetUpOnMainThread() {
 
 bool DevToolsProtocolTest::DidAddMessageToConsole(
     WebContents* source,
-    int32_t level,
+    blink::mojom::ConsoleMessageLevel log_level,
     const base::string16& message,
     int32_t line_no,
     const base::string16& source_id) {
@@ -232,7 +232,7 @@ void DevToolsProtocolTest::DispatchProtocolMessage(
     const std::string& message) {
   std::unique_ptr<base::DictionaryValue> root(
       static_cast<base::DictionaryValue*>(
-          base::JSONReader::Read(message).release()));
+          base::JSONReader::ReadDeprecated(message).release()));
   int id;
   if (root->GetInteger("id", &id)) {
     result_ids_.push_back(id);

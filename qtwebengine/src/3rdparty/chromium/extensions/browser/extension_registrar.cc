@@ -4,6 +4,8 @@
 
 #include "extensions/browser/extension_registrar.h"
 
+#include "base/bind.h"
+#include "base/bind_helpers.h"
 #include "base/logging.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/stl_util.h"
@@ -37,8 +39,8 @@ ExtensionRegistrar::ExtensionRegistrar(content::BrowserContext* browser_context,
       extension_prefs_(ExtensionPrefs::Get(browser_context)),
       registry_(ExtensionRegistry::Get(browser_context)),
       renderer_helper_(
-          RendererStartupHelperFactory::GetForBrowserContext(browser_context)),
-      weak_factory_(this) {}
+          RendererStartupHelperFactory::GetForBrowserContext(browser_context)) {
+}
 
 ExtensionRegistrar::~ExtensionRegistrar() = default;
 
@@ -109,6 +111,7 @@ void ExtensionRegistrar::AddExtension(
 void ExtensionRegistrar::AddNewExtension(
     scoped_refptr<const Extension> extension) {
   if (extension_prefs_->IsExtensionBlacklisted(extension->id())) {
+    DCHECK(!Manifest::IsComponentLocation(extension->location()));
     // Only prefs is checked for the blacklist. We rely on callers to check the
     // blacklist before calling into here, e.g. CrxInstaller checks before
     // installation then threads through the install and pending install flow
@@ -116,6 +119,7 @@ void ExtensionRegistrar::AddNewExtension(
     // extensions.
     registry_->AddBlacklisted(extension);
   } else if (delegate_->ShouldBlockExtension(extension.get())) {
+    DCHECK(!Manifest::IsComponentLocation(extension->location()));
     registry_->AddBlocked(extension);
   } else if (extension_prefs_->IsExtensionDisabled(extension->id())) {
     registry_->AddDisabled(extension);
@@ -351,7 +355,7 @@ void ExtensionRegistrar::TerminateExtension(const ExtensionId& extension_id) {
   // even if it's not permanently installed.
   unloaded_extension_paths_[extension->id()] = extension->path();
 
-  DCHECK(!base::ContainsKey(reloading_extensions_, extension->id()))
+  DCHECK(!base::Contains(reloading_extensions_, extension->id()))
       << "Enabled extension shouldn't be marked for reloading";
 
   registry_->AddTerminated(extension);
@@ -509,7 +513,7 @@ void ExtensionRegistrar::MaybeSpinUpLazyBackgroundPage(
   // For orphaned devtools, we will reconnect devtools to it later in
   // DidCreateRenderViewForBackgroundPage().
   bool has_orphaned_dev_tools =
-      base::ContainsKey(orphaned_dev_tools_, extension->id());
+      base::Contains(orphaned_dev_tools_, extension->id());
 
   // Reloading component extension does not trigger install, so RuntimeAPI won't
   // be able to detect its loading. Therefore, we need to spin up its lazy

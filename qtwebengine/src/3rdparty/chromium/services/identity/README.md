@@ -24,9 +24,9 @@ illustrating connection to the Identity Manager from a client
 
 There is no way to obtain the information of the primary account synchronously,
 i.e., there is no literal equivalent to
-SigninManagerBase::GetAuthenticatedAccountInfo(). Instead, you should call the
+PrimaryAccountManager::GetAuthenticatedAccountInfo(). Instead, you should call the
 asynchronous method IdentityManager::GetPrimaryAccountInfo(). To date, all use
-cases of SigninManagerBase::GetAuthenticatedAccountInfo() that we have seen have
+cases of PrimaryAccountManager::GetAuthenticatedAccountInfo() that we have seen have
 been part of a larger asynchronous flow (e.g., obtaining an access token in
 response to an invocation of the chrome.identity extension API). In these use
 cases, you can simply fold the asynchronous obtaining of the authenticated
@@ -57,7 +57,7 @@ to work this class into the Identity Service interface.
 
 ## Being Notified on Signin of the Primary Account
 
-If you were previously listening to SigninManagerBase::GoogleSigninSucceeded()
+If you were previously listening to PrimaryAccountManager::GoogleSigninSucceeded()
 or OAuth2TokenService::OnRefreshTokenIsAvailable() to determine when the primary
 account is available, you should call
 IdentityManager::GetPrimaryAccountWhenAvailable(). This method will fire when
@@ -102,22 +102,9 @@ blundell@chromium.org.
 
 There are plans to build a unified Observer interface that will supersede the
 various current Observer interfaces (AccountTracker, OAuth2TokenService,
-SigninManager, AccountTrackerService). However, this functionality has not yet
-been built. Contact blundell@chromium.org with your use case, which can help
-drive the bringup of this interface.
-
-## Obtaining the Information of All Accounts
-
-If you are currently calling AccountTracker::GetAccounts(),
-AccountTrackerService::GetAccounts(), or OAuth2TokenService::GetAccounts(), the
-corresponding interface in the Identity Service is
-IdentityManager::GetAccounts(). Note the semantics of this method carefully (as
-described in its documentation). In particular, this method returns only
-accounts that have a refresh token available, which is not necessarily the
-same behavior as AccountTracker::GetAccounts() or
-AccountTrackerService::GetAccounts() (but *is* the same behavior as
-OAuth2TokenService::GetAccounts()). If your use case is difficult to
-implement with the semantics of this method, contact blundell@chromium.org.
+PrimaryAccountManager, AccountTrackerService). However, this functionality has
+not yet been built. Contact blundell@chromium.org with your use case, which can
+help drive the bringup of this interface.
 
 ## Other Needs
 

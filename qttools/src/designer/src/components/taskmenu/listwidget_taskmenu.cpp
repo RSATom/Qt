@@ -60,9 +60,7 @@ ListWidgetTaskMenu::ListWidgetTaskMenu(QListWidget *button, QObject *parent)
     m_taskActions.append(sep);
 }
 
-ListWidgetTaskMenu::~ListWidgetTaskMenu()
-{
-}
+ListWidgetTaskMenu::~ListWidgetTaskMenu() = default;
 
 QAction *ListWidgetTaskMenu::preferredEditAction() const
 {
@@ -80,7 +78,7 @@ void ListWidgetTaskMenu::editItems()
     if (m_formWindow.isNull())
         return;
 
-    Q_ASSERT(m_listWidget != 0);
+    Q_ASSERT(m_listWidget != nullptr);
 
     ListWidgetEditor dlg(m_formWindow, m_listWidget->window());
     ListContents oldItems = dlg.fillContentsFromListWidget(m_listWidget);

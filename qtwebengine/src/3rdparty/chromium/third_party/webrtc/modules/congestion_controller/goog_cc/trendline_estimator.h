@@ -12,9 +12,12 @@
 
 #include <stddef.h>
 #include <stdint.h>
+
 #include <deque>
 #include <utility>
 
+#include "api/network_state_predictor.h"
+#include "api/transport/webrtc_key_value_config.h"
 #include "modules/congestion_controller/goog_cc/delay_increase_detector_interface.h"
 #include "modules/remote_bitrate_estimator/include/bwe_defines.h"
 #include "rtc_base/constructor_magic.h"
@@ -23,15 +26,19 @@ namespace webrtc {
 
 class TrendlineEstimator : public DelayIncreaseDetectorInterface {
  public:
+  TrendlineEstimator(const WebRtcKeyValueConfig* key_value_config,
+                     NetworkStatePredictor* network_state_predictor);
   // |window_size| is the number of points required to compute a trend line.
   // |smoothing_coef| controls how much we smooth out the delay before fitting
   // the trend line. |threshold_gain| is used to scale the trendline slope for
   // comparison to the old threshold. Once the old estimator has been removed
   // (or the thresholds been merged into the estimators), we can just set the
-  // threshold instead of setting a gain.
+  // threshold instead of setting a gain.|network_state_predictor| is used to
+  // bettter predict network state.
   TrendlineEstimator(size_t window_size,
                      double smoothing_coef,
-                     double threshold_gain);
+                     double threshold_gain,
+                     NetworkStatePredictor* network_state_predictor);
 
   ~TrendlineEstimator() override;
 
@@ -39,7 +46,9 @@ class TrendlineEstimator : public DelayIncreaseDetectorInterface {
   // between timestamp groups as defined by the InterArrival class.
   void Update(double recv_delta_ms,
               double send_delta_ms,
-              int64_t arrival_time_ms) override;
+              int64_t send_time_ms,
+              int64_t arrival_time_ms,
+              bool calculated_deltas) override;
 
   BandwidthUsage State() const override;
 
@@ -78,6 +87,8 @@ class TrendlineEstimator : public DelayIncreaseDetectorInterface {
   double time_over_using_;
   int overuse_counter_;
   BandwidthUsage hypothesis_;
+  BandwidthUsage hypothesis_predicted_;
+  NetworkStatePredictor* network_state_predictor_;
 
   RTC_DISALLOW_COPY_AND_ASSIGN(TrendlineEstimator);
 };

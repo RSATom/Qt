@@ -56,18 +56,26 @@ class CSSPropertyValueSet;
 
 struct SerializedResource;
 
+class FrameSerializerResourceDelegate {
+ public:
+  virtual ~FrameSerializerResourceDelegate() = default;
+
+  // Adds the resource needed to serialize an element.
+  virtual void AddResourceForElement(Document&, const Element&) = 0;
+
+  // Serializes the stylesheet back to text and adds it to the resources if
+  // URL is not-empty.  It also adds any resources included in that stylesheet
+  // (including any imported stylesheets and their own resources).
+  virtual void SerializeCSSStyleSheet(CSSStyleSheet&, const KURL&) = 0;
+};
+
 // This class is used to serialize frame's contents back to text (typically
 // HTML).  It serializes frame's document and resources such as images and CSS
 // stylesheets.
-class CORE_EXPORT FrameSerializer final {
+class CORE_EXPORT FrameSerializer : public FrameSerializerResourceDelegate {
   STACK_ALLOCATED();
 
  public:
-  enum ResourceHasCacheControlNoStoreHeader {
-    kNoCacheControlNoStoreHeader,
-    kHasCacheControlNoStoreHeader
-  };
-
   class Delegate {
    public:
     virtual ~Delegate() = default;
@@ -96,11 +104,6 @@ class CORE_EXPORT FrameSerializer final {
     // Tells whether to skip serialization of a subresource or CSSStyleSheet
     // with a given URI. Used to deduplicate resources across multiple frames.
     virtual bool ShouldSkipResourceWithURL(const KURL&) { return false; }
-
-    // Tells whether to skip serialization of a subresource.
-    virtual bool ShouldSkipResource(ResourceHasCacheControlNoStoreHeader) {
-      return false;
-    }
 
     // Returns custom attributes that need to add in order to serialize the
     // element.
@@ -133,10 +136,8 @@ class CORE_EXPORT FrameSerializer final {
   static String MarkOfTheWebDeclaration(const KURL&);
 
  private:
-  // Serializes the stylesheet back to text and adds it to the resources if URL
-  // is not-empty.  It also adds any resources included in that stylesheet
-  // (including any imported stylesheets and their own resources).
-  void SerializeCSSStyleSheet(CSSStyleSheet&, const KURL&);
+  void AddResourceForElement(Document&, const Element&) override;
+  void SerializeCSSStyleSheet(CSSStyleSheet&, const KURL&) override;
 
   // Serializes the css rule (including any imported stylesheets), adding
   // referenced resources.
@@ -145,7 +146,6 @@ class CORE_EXPORT FrameSerializer final {
   bool ShouldAddURL(const KURL&);
 
   void AddToResources(const String& mime_type,
-                      ResourceHasCacheControlNoStoreHeader,
                       scoped_refptr<const SharedBuffer>,
                       const KURL&);
   void AddImageToResources(ImageResourceContent*, const KURL&);

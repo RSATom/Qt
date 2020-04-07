@@ -100,7 +100,7 @@ QScriptDebugOutputWidget::QScriptDebugOutputWidget(QWidget *parent)
     Q_D(QScriptDebugOutputWidget);
     d->outputEdit = new QScriptDebugOutputWidgetOutputEdit();
     QVBoxLayout *vbox = new QVBoxLayout(this);
-    vbox->setMargin(0);
+    vbox->setContentsMargins(0, 0, 0, 0);
     vbox->setSpacing(0);
     vbox->addWidget(d->outputEdit);
 

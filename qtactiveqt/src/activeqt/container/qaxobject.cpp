@@ -92,7 +92,7 @@ QT_BEGIN_NAMESPACE
 
 const QMetaObject QAxObject::staticMetaObject = {
     { &QObject::staticMetaObject, qt_meta_stringdata_QAxBase.data,
-      qt_meta_data_QAxBase, qt_static_metacall, 0, 0 }
+      qt_meta_data_QAxBase, qt_static_metacall, nullptr, nullptr }
 };
 
 /*!
@@ -221,14 +221,14 @@ bool QAxObject::doVerb(const QString &verb)
 {
     if (!verbs().contains(verb))
         return false;
-    IOleObject *ole = 0;
+    IOleObject *ole = nullptr;
     queryInterface(IID_IOleObject, reinterpret_cast<void **>(&ole));
     if (!ole)
         return false;
 
     LONG index = indexOfVerb(verb);
 
-    HRESULT hres = ole->DoVerb(index, 0, 0, 0, 0, 0);
+    HRESULT hres = ole->DoVerb(index, nullptr, nullptr, 0, nullptr, nullptr);
 
     ole->Release();
 

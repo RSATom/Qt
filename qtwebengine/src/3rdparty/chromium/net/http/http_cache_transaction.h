@@ -86,25 +86,6 @@ class NET_EXPORT_PRIVATE HttpCache::Transaction : public HttpTransaction {
 
   const std::string& key() const { return cache_key_; }
 
-  // Writes |buf_len| bytes of meta-data from the provided buffer |buf|. to the
-  // HTTP cache entry that backs this transaction (if any).
-  // Returns the number of bytes actually written, or a net error code. If the
-  // operation cannot complete immediately, returns ERR_IO_PENDING, grabs a
-  // reference to the buffer (until completion), and notifies the caller using
-  // the provided |callback| when the operation finishes.
-  //
-  // The first time this method is called for a given transaction, previous
-  // meta-data will be overwritten with the provided data, and subsequent
-  // invocations will keep appending to the cached entry.
-  //
-  // In order to guarantee that the metadata is set to the correct entry, the
-  // response (or response info) must be evaluated by the caller, for instance
-  // to make sure that the response_time is as expected, before calling this
-  // method.
-  int WriteMetadata(IOBuffer* buf,
-                    int buf_len,
-                    CompletionOnceCallback callback);
-
   HttpCache::ActiveEntry* entry() { return entry_; }
 
   // Returns the LoadState of the writer transaction of a given ActiveEntry. In
@@ -114,6 +95,10 @@ class NET_EXPORT_PRIVATE HttpCache::Transaction : public HttpTransaction {
   LoadState GetWriterLoadState() const;
 
   const CompletionRepeatingCallback& io_callback() { return io_callback_; }
+
+  void SetIOCallBackForTest(CompletionRepeatingCallback cb) {
+    io_callback_ = cb;
+  }
 
   const NetLogWithSource& net_log() const;
 
@@ -238,8 +223,8 @@ class NET_EXPORT_PRIVATE HttpCache::Transaction : public HttpTransaction {
     STATE_GET_BACKEND,
     STATE_GET_BACKEND_COMPLETE,
     STATE_INIT_ENTRY,
-    STATE_OPEN_ENTRY,
-    STATE_OPEN_ENTRY_COMPLETE,
+    STATE_OPEN_OR_CREATE_ENTRY,
+    STATE_OPEN_OR_CREATE_ENTRY_COMPLETE,
     STATE_DOOM_ENTRY,
     STATE_DOOM_ENTRY_COMPLETE,
     STATE_CREATE_ENTRY,
@@ -274,8 +259,6 @@ class NET_EXPORT_PRIVATE HttpCache::Transaction : public HttpTransaction {
     STATE_TRUNCATE_CACHED_METADATA,
     STATE_TRUNCATE_CACHED_METADATA_COMPLETE,
     STATE_PARTIAL_HEADERS_RECEIVED,
-    STATE_CACHE_READ_METADATA,
-    STATE_CACHE_READ_METADATA_COMPLETE,
     STATE_HEADERS_PHASE_CANNOT_PROCEED,
     STATE_FINISH_HEADERS,
     STATE_FINISH_HEADERS_COMPLETE,
@@ -320,8 +303,8 @@ class NET_EXPORT_PRIVATE HttpCache::Transaction : public HttpTransaction {
   int DoGetBackend();
   int DoGetBackendComplete(int result);
   int DoInitEntry();
-  int DoOpenEntry();
-  int DoOpenEntryComplete(int result);
+  int DoOpenOrCreateEntry();
+  int DoOpenOrCreateEntryComplete(int result);
   int DoDoomEntry();
   int DoDoomEntryComplete(int result);
   int DoCreateEntry();
@@ -356,8 +339,6 @@ class NET_EXPORT_PRIVATE HttpCache::Transaction : public HttpTransaction {
   int DoTruncateCachedMetadata();
   int DoTruncateCachedMetadataComplete(int result);
   int DoPartialHeadersReceived();
-  int DoCacheReadMetadata();
-  int DoCacheReadMetadataComplete(int result);
   int DoHeadersPhaseCannotProceed(int result);
   int DoFinishHeaders(int result);
   int DoFinishHeadersComplete(int result);
@@ -427,6 +408,10 @@ class NET_EXPORT_PRIVATE HttpCache::Transaction : public HttpTransaction {
   // but may also be modified in other cases.
   bool IsResponseConditionalizable(std::string* etag_value,
                                    std::string* last_modified_value) const;
+
+  // Returns true if |method_| indicates that we should only try to open an
+  // entry and not attempt to create.
+  bool ShouldOpenOnlyMethods() const;
 
   // Returns true if the resource info MemoryEntryDataHints bit flags in
   // |in_memory_info| and the current request & load flags suggest that
@@ -613,6 +598,10 @@ class NET_EXPORT_PRIVATE HttpCache::Transaction : public HttpTransaction {
                                              // lock.
   bool fail_conditionalization_for_test_;  // Fail ConditionalizeRequest.
   scoped_refptr<IOBuffer> read_buf_;
+
+  // Length of the buffer passed in Read().
+  int read_buf_len_;
+
   int io_buf_len_;
   int read_offset_;
   int effective_load_flags_;
@@ -635,8 +624,6 @@ class NET_EXPORT_PRIVATE HttpCache::Transaction : public HttpTransaction {
   base::TimeTicks send_request_since_;
   base::TimeTicks read_headers_since_;
   base::Time open_entry_last_used_;
-  base::TimeDelta stale_entry_freshness_;
-  base::TimeDelta stale_entry_age_;
   bool cant_conditionalize_zero_freshness_from_memhint_;
   bool recorded_histograms_;
   ParallelWritingPattern parallel_writing_pattern_;
@@ -667,7 +654,7 @@ class NET_EXPORT_PRIVATE HttpCache::Transaction : public HttpTransaction {
   // True if the Transaction is currently processing the DoLoop.
   bool in_do_loop_;
 
-  base::WeakPtrFactory<Transaction> weak_factory_;
+  base::WeakPtrFactory<Transaction> weak_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(Transaction);
 };

@@ -23,7 +23,8 @@ namespace blink {
 class WebPepperSocketChannelClientProxy final
     : public GarbageCollectedFinalized<WebPepperSocketChannelClientProxy>,
       public WebSocketChannelClient {
-  USING_GARBAGE_COLLECTED_MIXIN(WebPepperSocketChannelClientProxy)
+  USING_GARBAGE_COLLECTED_MIXIN(WebPepperSocketChannelClientProxy);
+
  public:
   static WebPepperSocketChannelClientProxy* Create(WebPepperSocketImpl* impl) {
     return MakeGarbageCollected<WebPepperSocketChannelClientProxy>(impl);
@@ -39,8 +40,14 @@ class WebPepperSocketChannelClientProxy final
   void DidReceiveTextMessage(const String& payload) override {
     impl_->DidReceiveTextMessage(payload);
   }
-  void DidReceiveBinaryMessage(std::unique_ptr<Vector<char>> payload) override {
-    impl_->DidReceiveBinaryMessage(std::move(payload));
+  void DidReceiveBinaryMessage(
+      const Vector<base::span<const char>>& data) override {
+    std::unique_ptr<Vector<char>> data_to_pass =
+        std::make_unique<Vector<char>>();
+    for (const auto& span : data) {
+      data_to_pass->Append(span.data(), static_cast<wtf_size_t>(span.size()));
+    }
+    impl_->DidReceiveBinaryMessage(std::move(data_to_pass));
   }
   void DidError() override { impl_->DidError(); }
   void DidConsumeBufferedAmount(uint64_t consumed) override {
@@ -50,7 +57,7 @@ class WebPepperSocketChannelClientProxy final
     impl_->DidStartClosingHandshake();
   }
   void DidClose(ClosingHandshakeCompletionStatus status,
-                unsigned short code,
+                uint16_t code,
                 const String& reason) override {
     WebPepperSocketImpl* impl = impl_;
     impl_ = nullptr;

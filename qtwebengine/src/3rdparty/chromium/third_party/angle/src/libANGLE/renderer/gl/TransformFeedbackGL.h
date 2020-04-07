@@ -30,15 +30,15 @@ class TransformFeedbackGL : public TransformFeedbackImpl
     angle::Result pause(const gl::Context *context) override;
     angle::Result resume(const gl::Context *context) override;
 
-    angle::Result bindGenericBuffer(const gl::Context *context,
-                                    const gl::BindingPointer<gl::Buffer> &binding) override;
     angle::Result bindIndexedBuffer(const gl::Context *context,
                                     size_t index,
                                     const gl::OffsetBindingPointer<gl::Buffer> &binding) override;
 
     GLuint getTransformFeedbackID() const;
 
-    void syncActiveState(bool active, gl::PrimitiveMode primitiveMode) const;
+    void syncActiveState(const gl::Context *context,
+                         bool active,
+                         gl::PrimitiveMode primitiveMode) const;
     void syncPausedState(bool paused) const;
 
   private:
@@ -49,6 +49,7 @@ class TransformFeedbackGL : public TransformFeedbackImpl
 
     mutable bool mIsActive;
     mutable bool mIsPaused;
+    mutable GLuint mActiveProgram;
 };
 }  // namespace rx
 

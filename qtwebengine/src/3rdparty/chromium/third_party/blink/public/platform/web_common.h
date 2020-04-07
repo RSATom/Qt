@@ -39,6 +39,10 @@
 #define BLINK_PLATFORM_IMPLEMENTATION 0
 #endif
 
+#if !defined(BLINK_MODULES_IMPLEMENTATION)
+#define BLINK_MODULES_IMPLEMENTATION 0
+#endif
+
 #if defined(COMPONENT_BUILD)
 #if defined(WIN32)
 
@@ -52,15 +56,22 @@
 #else  // BLINK_PLATFORM_IMPLEMENTATION
 #define BLINK_PLATFORM_EXPORT __declspec(dllimport)
 #endif  // BLINK_PLATFORM_IMPLEMENTATION
+#if BLINK_MODULES_IMPLEMENTATION
+#define BLINK_MODULES_EXPORT __declspec(dllexport)
+#else  // BLINK_MODULES_IMPLEMENTATION
+#define BLINK_MODULES_EXPORT __declspec(dllimport)
+#endif  // BLINK_MODULES_IMPLEMENTATION
 
 #else  // defined(WIN32)
 #define BLINK_EXPORT __attribute__((visibility("default")))
 #define BLINK_PLATFORM_EXPORT __attribute__((visibility("default")))
+#define BLINK_MODULES_EXPORT __attribute__((visibility("default")))
 #endif  // defined(WIN32)
 
 #else  // defined(COMPONENT_BUILD)
 #define BLINK_EXPORT
 #define BLINK_PLATFORM_EXPORT
+#define BLINK_MODULES_EXPORT
 #endif  // defined(COMPONENT_BUILD)
 
 // -----------------------------------------------------------------------------
@@ -78,7 +89,7 @@ typedef int32_t WebUChar32;
 #if defined(WIN32)
 typedef wchar_t WebUChar;
 #else
-typedef unsigned short WebUChar;
+typedef uint16_t WebUChar;
 #endif
 
 // Latin-1 character type

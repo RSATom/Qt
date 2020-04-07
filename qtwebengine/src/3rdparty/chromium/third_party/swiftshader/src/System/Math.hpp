@@ -18,6 +18,8 @@
 #include "Types.hpp"
 #include "Half.hpp"
 
+#include "Vulkan/VkDebug.hpp"
+
 #include <cmath>
 #if defined(_MSC_VER)
 	#include <intrin.h>
@@ -64,14 +66,6 @@ namespace sw
 	inline T min(T a, T b, T c, T d)
 	{
 		return min(min(a, b), min(c, d));
-	}
-
-	template<class T>
-	inline void swap(T &a, T &b)
-	{
-		T t = a;
-		a = b;
-		b = t;
 	}
 
 	template <typename destType, typename sourceType>
@@ -185,6 +179,7 @@ namespace sw
 	template<class T>
 	inline T clamp(T x, T a, T b)
 	{
+		ASSERT(a <= b);
 		if(x < a) x = a;
 		if(x > b) x = b;
 

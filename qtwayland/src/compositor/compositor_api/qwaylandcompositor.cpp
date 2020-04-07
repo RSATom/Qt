@@ -6,7 +6,7 @@
 **
 ** This file is part of the QtWaylandCompositor module of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL$
+** $QT_BEGIN_LICENSE:GPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
@@ -15,24 +15,14 @@
 ** and conditions see https://www.qt.io/terms-conditions. For further
 ** information use the contact form at https://www.qt.io/contact-us.
 **
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 3 as published by the Free Software
-** Foundation and appearing in the file LICENSE.LGPL3 included in the
-** packaging of this file. Please review the following information to
-** ensure the GNU Lesser General Public License version 3 requirements
-** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
-**
 ** GNU General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU
-** General Public License version 2.0 or (at your option) the GNU General
-** Public license version 3 or any later version approved by the KDE Free
-** Qt Foundation. The licenses are as published by the Free Software
-** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** General Public License version 3 or (at your option) any later version
+** approved by the KDE Free Qt Foundation. The licenses are as published by
+** the Free Software Foundation and appearing in the file LICENSE.GPL3
 ** included in the packaging of this file. Please review the following
 ** information to ensure the GNU General Public License requirements will
-** be met: https://www.gnu.org/licenses/gpl-2.0.html and
-** https://www.gnu.org/licenses/gpl-3.0.html.
+** be met: https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -200,8 +190,8 @@ void QWaylandCompositorPrivate::init()
     buffer_manager = new QtWayland::BufferManager(q);
 
     wl_display_init_shm(display);
-    QVector<wl_shm_format> formats = QWaylandSharedMemoryFormatHelper::supportedWaylandFormats();
-    foreach (wl_shm_format format, formats)
+    const QVector<wl_shm_format> formats = QWaylandSharedMemoryFormatHelper::supportedWaylandFormats();
+    for (wl_shm_format format : formats)
         wl_display_add_shm_format(display, format);
 
     if (!socket_name.isEmpty()) {
@@ -234,7 +224,7 @@ void QWaylandCompositorPrivate::init()
 
     initialized = true;
 
-    Q_FOREACH (QPointer<QObject> object, polish_objects) {
+    for (const QPointer<QObject> &object : qExchange(polish_objects, {})) {
         if (object) {
             QEvent polishEvent(QEvent::Polish);
             QCoreApplication::sendEvent(object.data(), &polishEvent);
@@ -246,9 +236,12 @@ void QWaylandCompositorPrivate::init()
 
 QWaylandCompositorPrivate::~QWaylandCompositorPrivate()
 {
-    qDeleteAll(clients);
+    // Take copies, since the lists will get modified as elements are deleted
+    const auto clientsToDelete = clients;
+    qDeleteAll(clientsToDelete);
 
-    qDeleteAll(outputs);
+    const auto outputsToDelete = outputs;
+    qDeleteAll(outputsToDelete);
 
 #if QT_CONFIG(wayland_datadevice)
     delete data_device_manager;
@@ -302,7 +295,7 @@ void QWaylandCompositorPrivate::addPolishObject(QObject *object)
     if (initialized) {
         QCoreApplication::postEvent(object, new QEvent(QEvent::Polish));
     } else {
-        polish_objects.append(object);
+        polish_objects.push_back(object);
     }
 }
 
@@ -378,8 +371,6 @@ void QWaylandCompositorPrivate::initializeHardwareIntegration()
 
     if (client_buffer_integration)
         client_buffer_integration->initializeHardware(display);
-    if (server_buffer_integration)
-        server_buffer_integration->initializeHardware(q);
 #endif
 }
 
@@ -421,6 +412,7 @@ void QWaylandCompositorPrivate::loadClientBufferIntegration()
 void QWaylandCompositorPrivate::loadServerBufferIntegration()
 {
 #if QT_CONFIG(opengl)
+    Q_Q(QWaylandCompositor);
     QStringList keys = QtWayland::ServerBufferIntegrationFactory::keys();
     QString targetKey;
     QByteArray serverBufferIntegration = qgetenv("QT_WAYLAND_SERVER_BUFFER_INTEGRATION");
@@ -429,9 +421,22 @@ void QWaylandCompositorPrivate::loadServerBufferIntegration()
     }
     if (!targetKey.isEmpty()) {
         server_buffer_integration.reset(QtWayland::ServerBufferIntegrationFactory::create(targetKey, QStringList()));
-        if (hw_integration)
-            hw_integration->setServerBufferIntegration(targetKey);
+        if (server_buffer_integration) {
+            qCDebug(qLcWaylandCompositorHardwareIntegration)
+                    << "Loaded server buffer integration:" << targetKey;
+            if (!server_buffer_integration->initializeHardware(q)) {
+                qCWarning(qLcWaylandCompositorHardwareIntegration)
+                        << "Failed to initialize hardware for server buffer integration:" << targetKey;
+                server_buffer_integration.reset();
+            }
+        } else {
+            qCWarning(qLcWaylandCompositorHardwareIntegration)
+                    << "Failed to load server buffer integration:" << targetKey;
+        }
     }
+
+    if (server_buffer_integration && hw_integration)
+        hw_integration->setServerBufferIntegration(targetKey);
 #endif
 }
 
@@ -470,33 +475,35 @@ void QWaylandCompositorPrivate::loadServerBufferIntegration()
 /*!
   \qmlsignal void QtWaylandCompositor::WaylandCompositor::surfaceRequested(WaylandClient client, int id, int version)
 
-  This signal is emitted when a client has created a surface.
-  The slot connecting to this signal may create and initialize
-  a WaylandSurface instance in the scope of the slot.
-  Otherwise a default surface is created.
+  This signal is emitted when a \a client has created a surface with id \a id.
+  The interface \a version is also available.
+
+  The slot connecting to this signal may create and initialize a WaylandSurface
+  instance in the scope of the slot. Otherwise a default surface is created.
 */
 
 /*!
   \fn void QWaylandCompositor::surfaceRequested(QWaylandClient *client, uint id, int version)
 
-  This signal is emitted when a client has created a surface.
-  The slot connecting to this signal may create and initialize
-  a QWaylandSurface instance in the scope of the slot.
-  Otherwise a default surface is created.
+  This signal is emitted when a \a client has created a surface with id \a id.
+  The interface \a version is also available.
+
+  The slot connecting to this signal may create and initialize a QWaylandSurface
+  instance in the scope of the slot. Otherwise a default surface is created.
 
   Connections to this signal must be of Qt::DirectConnection connection type.
 */
 
 /*!
-  \qmlsignal void QtWaylandCompositor::WaylandCompositor::surfaceCreated(QWaylandSurface *surface)
+  \qmlsignal void QtWaylandCompositor::WaylandCompositor::surfaceCreated(WaylandSurface surface)
 
-  This signal is emitted when a new WaylandSurface instance has been created.
+  This signal is emitted when a new WaylandSurface instance \a surface has been created.
 */
 
 /*!
   \fn void QWaylandCompositor::surfaceCreated(QWaylandSurface *surface)
 
-  This signal is emitted when a new QWaylandSurface instance has been created.
+  This signal is emitted when a new QWaylandSurface instance \a surface has been created.
 */
 
 /*!
@@ -706,7 +713,7 @@ QList<QWaylandSurface *> QWaylandCompositor::surfacesForClient(QWaylandClient* c
 {
     Q_D(const QWaylandCompositor);
     QList<QWaylandSurface *> surfs;
-    foreach (QWaylandSurface *surface, d->all_surfaces) {
+    for (QWaylandSurface *surface : d->all_surfaces) {
         if (surface->client() == client)
             surfs.append(surface);
     }
@@ -728,7 +735,7 @@ QList<QWaylandSurface *> QWaylandCompositor::surfaces() const
 QWaylandOutput *QWaylandCompositor::outputFor(QWindow *window) const
 {
     Q_D(const QWaylandCompositor);
-    foreach (QWaylandOutput *output, d->outputs) {
+    for (QWaylandOutput *output : d->outputs) {
         if (output->window() == window)
             return output;
     }

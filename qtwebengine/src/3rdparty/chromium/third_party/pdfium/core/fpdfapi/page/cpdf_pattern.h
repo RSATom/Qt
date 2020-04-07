@@ -7,9 +7,10 @@
 #ifndef CORE_FPDFAPI_PAGE_CPDF_PATTERN_H_
 #define CORE_FPDFAPI_PAGE_CPDF_PATTERN_H_
 
-#include "core/fpdfapi/page/cpdf_countedobject.h"
 #include "core/fxcrt/fx_coordinates.h"
 #include "core/fxcrt/fx_system.h"
+#include "core/fxcrt/observed_ptr.h"
+#include "core/fxcrt/retain_ptr.h"
 #include "core/fxcrt/unowned_ptr.h"
 
 class CPDF_Document;
@@ -17,19 +18,20 @@ class CPDF_Object;
 class CPDF_ShadingPattern;
 class CPDF_TilingPattern;
 
-class CPDF_Pattern {
+class CPDF_Pattern : public Retainable, public Observable {
  public:
-  enum PatternType { TILING = 1, SHADING };
+  // Values used in PDFs. Do not change.
+  enum PatternType { kTiling = 1, kShading = 2 };
 
-  virtual ~CPDF_Pattern();
+  ~CPDF_Pattern() override;
 
-  virtual CPDF_TilingPattern* AsTilingPattern() = 0;
-  virtual CPDF_ShadingPattern* AsShadingPattern() = 0;
+  virtual CPDF_TilingPattern* AsTilingPattern();
+  virtual CPDF_ShadingPattern* AsShadingPattern();
 
   // All the getters that return pointers return non-NULL pointers.
   CPDF_Document* document() const { return m_pDocument.Get(); }
   CPDF_Object* pattern_obj() const { return m_pPatternObj.Get(); }
-  CFX_Matrix* pattern_to_form() { return &m_Pattern2Form; }
+  const CFX_Matrix& pattern_to_form() const { return m_Pattern2Form; }
   const CFX_Matrix& parent_matrix() const { return m_ParentMatrix; }
 
  protected:
@@ -41,10 +43,9 @@ class CPDF_Pattern {
 
  private:
   UnownedPtr<CPDF_Document> const m_pDocument;
-  UnownedPtr<CPDF_Object> const m_pPatternObj;
+  RetainPtr<CPDF_Object> const m_pPatternObj;
   CFX_Matrix m_Pattern2Form;
   const CFX_Matrix m_ParentMatrix;
 };
-using CPDF_CountedPattern = CPDF_CountedObject<CPDF_Pattern>;
 
 #endif  // CORE_FPDFAPI_PAGE_CPDF_PATTERN_H_

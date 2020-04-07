@@ -92,7 +92,7 @@ public:
     QJsonValue(const QJsonValue &other);
     QJsonValue &operator =(const QJsonValue &other);
 
-    QJsonValue(QJsonValue &&other) Q_DECL_NOTHROW
+    QJsonValue(QJsonValue &&other) noexcept
         : ui(other.ui),
           d(other.d),
           t(other.t)
@@ -102,13 +102,13 @@ public:
         other.t = Null;
     }
 
-    QJsonValue &operator =(QJsonValue &&other) Q_DECL_NOTHROW
+    QJsonValue &operator =(QJsonValue &&other) noexcept
     {
         swap(other);
         return *this;
     }
 
-    void swap(QJsonValue &other) Q_DECL_NOTHROW
+    void swap(QJsonValue &other) noexcept
     {
         qSwap(ui, other.ui);
         qSwap(d, other.d);
@@ -137,7 +137,10 @@ public:
     QJsonObject toObject() const;
     QJsonObject toObject(const QJsonObject &defaultValue) const;
 
+#if QT_STRINGVIEW_LEVEL < 2
     const QJsonValue operator[](const QString &key) const;
+#endif
+    const QJsonValue operator[](QStringView key) const;
     const QJsonValue operator[](QLatin1String key) const;
     const QJsonValue operator[](int i) const;
 

@@ -6,17 +6,25 @@
 #define CONTENT_BROWSER_LOADER_PREFETCH_URL_LOADER_H_
 
 #include <memory>
+#include <string>
 
 #include "base/callback.h"
 #include "base/macros.h"
+#include "base/memory/weak_ptr.h"
 #include "base/optional.h"
 #include "base/unguessable_token.h"
+#include "content/browser/web_package/prefetched_signed_exchange_cache.h"
 #include "content/common/content_export.h"
 #include "mojo/public/cpp/bindings/binding.h"
 #include "mojo/public/cpp/system/data_pipe_drainer.h"
 #include "net/traffic_annotation/network_traffic_annotation.h"
+#include "services/network/public/mojom/url_loader.mojom.h"
 #include "services/network/public/mojom/url_loader_factory.mojom.h"
 #include "url/gurl.h"
+
+namespace storage {
+class BlobStorageContext;
+}  // namespace storage
 
 namespace net {
 class URLRequestContextGetter;
@@ -28,8 +36,10 @@ class SharedURLLoaderFactory;
 
 namespace content {
 
+class BrowserContext;
 class ResourceContext;
 class URLLoaderThrottle;
+class PrefetchedSignedExchangeCacheAdapter;
 class SignedExchangePrefetchHandler;
 class SignedExchangePrefetchMetricRecorder;
 
@@ -57,11 +67,24 @@ class CONTENT_EXPORT PrefetchURLLoader : public network::mojom::URLLoader,
       const net::MutableNetworkTrafficAnnotationTag& traffic_annotation,
       scoped_refptr<network::SharedURLLoaderFactory> network_loader_factory,
       URLLoaderThrottlesGetter url_loader_throttles_getter,
+      BrowserContext* browser_context,
       ResourceContext* resource_context,
       scoped_refptr<net::URLRequestContextGetter> request_context_getter,
       scoped_refptr<SignedExchangePrefetchMetricRecorder>
-          signed_exchange_prefetch_metric_recorder);
+          signed_exchange_prefetch_metric_recorder,
+      scoped_refptr<PrefetchedSignedExchangeCache>
+          prefetched_signed_exchange_cache,
+      base::WeakPtr<storage::BlobStorageContext> blob_storage_context,
+      const std::string& accept_langs);
   ~PrefetchURLLoader() override;
+
+  // Sends an empty response's body to |forwarding_client_|. If failed to create
+  // a new data pipe, sends ERR_INSUFFICIENT_RESOURCES and closes the
+  // connection, and returns false. Otherwise returns true.
+  bool SendEmptyBody();
+
+  void SendOnComplete(
+      const network::URLLoaderCompletionStatus& completion_status);
 
  private:
   // network::mojom::URLLoader overrides:
@@ -81,7 +104,7 @@ class CONTENT_EXPORT PrefetchURLLoader : public network::mojom::URLLoader,
   void OnUploadProgress(int64_t current_position,
                         int64_t total_size,
                         base::OnceCallback<void()> callback) override;
-  void OnReceiveCachedMetadata(const std::vector<uint8_t>& data) override;
+  void OnReceiveCachedMetadata(mojo_base::BigBuffer data) override;
   void OnTransferSizeUpdated(int32_t transfer_size_diff) override;
   void OnStartLoadingResponseBody(
       mojo::ScopedDataPipeConsumerHandle body) override;
@@ -93,6 +116,8 @@ class CONTENT_EXPORT PrefetchURLLoader : public network::mojom::URLLoader,
   void OnDataComplete() override {}
 
   void OnNetworkConnectionError();
+
+  bool IsSignedExchangeHandlingEnabled();
 
   const base::RepeatingCallback<int(void)> frame_tree_node_id_getter_;
 
@@ -111,6 +136,7 @@ class CONTENT_EXPORT PrefetchURLLoader : public network::mojom::URLLoader,
   // |url_loader_throttles_getter_| and |resource_context_| should be
   // valid as far as |request_context_getter_| returns non-null value.
   URLLoaderThrottlesGetter url_loader_throttles_getter_;
+  BrowserContext* browser_context_;
   ResourceContext* resource_context_;
   scoped_refptr<net::URLRequestContextGetter> request_context_getter_;
 
@@ -121,6 +147,13 @@ class CONTENT_EXPORT PrefetchURLLoader : public network::mojom::URLLoader,
 
   scoped_refptr<SignedExchangePrefetchMetricRecorder>
       signed_exchange_prefetch_metric_recorder_;
+
+  // Used when SignedExchangeSubresourcePrefetch is enabled to store the
+  // prefetched signed exchanges to a PrefetchedSignedExchangeCache.
+  std::unique_ptr<PrefetchedSignedExchangeCacheAdapter>
+      prefetched_signed_exchange_cache_adapter_;
+
+  const std::string accept_langs_;
 
   DISALLOW_COPY_AND_ASSIGN(PrefetchURLLoader);
 };

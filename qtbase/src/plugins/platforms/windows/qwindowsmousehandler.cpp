@@ -106,7 +106,7 @@ static inline void compressMouseMove(MSG *msg)
                 // Extract the x,y coordinates from the lParam as we do in the WndProc
                 msg->pt.x = GET_X_LPARAM(mouseMsg.lParam);
                 msg->pt.y = GET_Y_LPARAM(mouseMsg.lParam);
-                ClientToScreen(msg->hwnd, &(msg->pt));
+                clientToScreen(msg->hwnd, &(msg->pt));
                 // Remove the mouse move message
                 PeekMessage(&mouseMsg, msg->hwnd, WM_MOUSEMOVE,
                             WM_MOUSEMOVE, PM_REMOVE);
@@ -124,10 +124,10 @@ static inline QTouchDevice *createTouchDevice()
         return nullptr;
     const int tabletPc = GetSystemMetrics(SM_TABLETPC);
     const int maxTouchPoints = GetSystemMetrics(SM_MAXIMUMTOUCHES);
-    qCDebug(lcQpaEvents) << "Digitizers:" << hex << showbase << (digitizers & ~NID_READY)
-        << "Ready:" << (digitizers & NID_READY) << dec << noshowbase
+    qCDebug(lcQpaEvents) << "Digitizers:" << Qt::hex << Qt::showbase << (digitizers & ~NID_READY)
+        << "Ready:" << (digitizers & NID_READY) << Qt::dec << Qt::noshowbase
         << "Tablet PC:" << tabletPc << "Max touch points:" << maxTouchPoints;
-    QTouchDevice *result = new QTouchDevice;
+    auto *result = new QTouchDevice;
     result->setType(digitizers & NID_INTEGRATED_TOUCH
                     ? QTouchDevice::TouchScreen : QTouchDevice::TouchPad);
     QTouchDevice::Capabilities capabilities = QTouchDevice::Position | QTouchDevice::Area | QTouchDevice::NormalizedPosition;
@@ -268,7 +268,13 @@ bool QWindowsMouseHandler::translateMouseEvent(QWindow *window, HWND hwnd,
     if (et == QtWindows::MouseWheelEvent)
         return translateMouseWheelEvent(window, hwnd, msg, result);
 
-    const QPoint winEventPosition(GET_X_LPARAM(msg.lParam), GET_Y_LPARAM(msg.lParam));
+    QPoint winEventPosition(GET_X_LPARAM(msg.lParam), GET_Y_LPARAM(msg.lParam));
+    if ((et & QtWindows::NonClientEventFlag) == 0 && QWindowsBaseWindow::isRtlLayout(hwnd))  {
+        RECT clientArea;
+        GetClientRect(hwnd, &clientArea);
+        winEventPosition.setX(clientArea.right - winEventPosition.x());
+    }
+
     QPoint clientPosition;
     QPoint globalPosition;
     if (et & QtWindows::NonClientEventFlag) {
@@ -300,7 +306,7 @@ bool QWindowsMouseHandler::translateMouseEvent(QWindow *window, HWND hwnd,
     // However, when tablet support is active, extraInfo is a packet serial number. This is not a problem
     // since we do not want to ignore mouse events coming from a tablet.
     // See https://msdn.microsoft.com/en-us/library/windows/desktop/ms703320.aspx
-    const quint64 extraInfo = quint64(GetMessageExtraInfo());
+    const auto extraInfo = quint64(GetMessageExtraInfo());
     if ((extraInfo & signatureMask) == miWpSignature) {
         if (extraInfo & 0x80) { // Bit 7 indicates touch event, else tablet pen.
             source = Qt::MouseEventSynthesizedBySystem;
@@ -364,7 +370,7 @@ bool QWindowsMouseHandler::translateMouseEvent(QWindow *window, HWND hwnd,
         return true;
     }
 
-    QWindowsWindow *platformWindow = static_cast<QWindowsWindow *>(window->handle());
+    auto *platformWindow = static_cast<QWindowsWindow *>(window->handle());
 
     // If the window was recently resized via mouse doubleclick on the frame or title bar,
     // we don't get WM_LBUTTONDOWN or WM_LBUTTONDBLCLK for the second click,
@@ -603,8 +609,8 @@ bool QWindowsMouseHandler::translateTouchEvent(QWindow *window, HWND,
                                                QtWindows::WindowsEventType,
                                                MSG msg, LRESULT *)
 {
-    typedef QWindowSystemInterface::TouchPoint QTouchPoint;
-    typedef QList<QWindowSystemInterface::TouchPoint> QTouchPointList;
+    using QTouchPoint = QWindowSystemInterface::TouchPoint;
+    using QTouchPointList = QList<QWindowSystemInterface::TouchPoint>;
 
     if (!QWindowsContext::instance()->initTouch()) {
         qWarning("Unable to initialize touch handling.");

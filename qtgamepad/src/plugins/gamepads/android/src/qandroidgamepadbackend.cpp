@@ -223,17 +223,17 @@ Q_GLOBAL_STATIC(DefaultMapping, g_defaultMapping)
 
 void QAndroidGamepadBackend::Mapping::AndroidAxisInfo::restoreSavedData(const QVariantMap &value)
 {
-    gamepadAxis = QGamepadManager::GamepadAxis(value[QLatin1Literal("axis")].toInt());
-    gamepadMinButton = QGamepadManager::GamepadButton(value[QLatin1Literal("minButton")].toInt());
-    gamepadMaxButton = QGamepadManager::GamepadButton(value[QLatin1Literal("maxButton")].toInt());
+    gamepadAxis = QGamepadManager::GamepadAxis(value[QLatin1String("axis")].toInt());
+    gamepadMinButton = QGamepadManager::GamepadButton(value[QLatin1String("minButton")].toInt());
+    gamepadMaxButton = QGamepadManager::GamepadButton(value[QLatin1String("maxButton")].toInt());
 }
 
 QVariantMap QAndroidGamepadBackend::Mapping::AndroidAxisInfo::dataToSave() const
 {
     QVariantMap data;
-    data[QLatin1Literal("axis")] = gamepadAxis;
-    data[QLatin1Literal("minButton")] = gamepadMinButton;
-    data[QLatin1Literal("maxButton")] = gamepadMaxButton;
+    data[QLatin1String("axis")] = gamepadAxis;
+    data[QLatin1String("minButton")] = gamepadMinButton;
+    data[QLatin1String("maxButton")] = gamepadMaxButton;
     return data;
 }
 

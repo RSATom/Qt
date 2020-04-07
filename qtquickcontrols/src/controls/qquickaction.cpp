@@ -169,28 +169,30 @@ QT_BEGIN_NAMESPACE
     \endqml
 */
 
-/*! \qmlsignal Action::triggered(QObject *source)
+/*! \qmlsignal Action::triggered(QtObject source)
 
     Emitted when either the menu item or its bound action have been activated. Includes
-    the object that triggered the event if relevant (e.g. a Button or MenuItem).
+    the object (\a source) that triggered the event if relevant (e.g. a Button or MenuItem).
     You shouldn't need to emit this signal, use \l trigger() instead.
 
     The corresponding handler is \c onTriggered.
 */
 
-/*! \qmlmethod void Action::trigger(QObject *source)
+/*! \qmlmethod void Action::trigger(QtObject source)
 
-    Will emit the \l triggered signal if the action is enabled. You may provide a source
-    object if the Action would benefit from knowing the origin of the triggering (e.g.
-    for analytics). Will also emit the \l toggled signal if it is checkable.
+    Will emit the \l triggered signal on \a source if the action is enabled. You may provide
+    a source object if the Action would benefit from knowing the origin of the triggering
+    (e.g. for analytics). Will also emit the \l toggled signal if it is checkable.
 */
 
 /*! \qmlsignal Action::toggled(checked)
 
-    Emitted whenever a action's \l checked property changes.
+    Emitted whenever an action's \a checked property changes.
     This usually happens at the same time as \l triggered.
 
     The corresponding handler is \c onToggled.
+
+    \sa checked
 */
 
 QQuickAction1::QQuickAction1(QObject *parent)

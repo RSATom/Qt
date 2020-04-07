@@ -9,6 +9,7 @@
 #include <utility>
 #include <vector>
 
+#include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/i18n/rtl.h"
 #include "chrome/browser/browser_process.h"
@@ -38,9 +39,7 @@ const char kAdvancedFontSettingsExtensionId[] =
 namespace settings {
 
 FontHandler::FontHandler(content::WebUI* webui)
-    : extension_registry_observer_(this),
-      profile_(Profile::FromWebUI(webui)),
-      weak_ptr_factory_(this) {
+    : extension_registry_observer_(this), profile_(Profile::FromWebUI(webui)) {
 #if defined(OS_MACOSX)
   // Perform validation for saved fonts.
   settings_utils::ValidateSavedFonts(profile_->GetPrefs());

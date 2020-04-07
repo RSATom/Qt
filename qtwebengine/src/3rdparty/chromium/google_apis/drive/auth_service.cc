@@ -13,10 +13,10 @@
 #include "base/metrics/histogram_macros.h"
 #include "base/single_thread_task_runner.h"
 #include "base/threading/thread_task_runner_handle.h"
+#include "components/signin/public/identity_manager/access_token_fetcher.h"
+#include "components/signin/public/identity_manager/access_token_info.h"
 #include "google_apis/drive/auth_service_observer.h"
 #include "google_apis/gaia/google_service_auth_error.h"
-#include "services/identity/public/cpp/access_token_fetcher.h"
-#include "services/identity/public/cpp/access_token_info.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
 
 namespace google_apis {
@@ -39,8 +39,8 @@ void RecordAuthResultHistogram(int value) {
 // OAuth2 authorization token retrieval request.
 class AuthRequest {
  public:
-  AuthRequest(identity::IdentityManager* identity_manager,
-              const std::string& account_id,
+  AuthRequest(signin::IdentityManager* identity_manager,
+              const CoreAccountId& account_id,
               scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
               const AuthStatusCallback& callback,
               const std::vector<std::string>& scopes);
@@ -48,18 +48,18 @@ class AuthRequest {
 
  private:
   void OnAccessTokenFetchComplete(GoogleServiceAuthError error,
-                                  identity::AccessTokenInfo token_info);
+                                  signin::AccessTokenInfo token_info);
 
   AuthStatusCallback callback_;
-  std::unique_ptr<identity::AccessTokenFetcher> access_token_fetcher_;
+  std::unique_ptr<signin::AccessTokenFetcher> access_token_fetcher_;
   base::ThreadChecker thread_checker_;
 
   DISALLOW_COPY_AND_ASSIGN(AuthRequest);
 };
 
 AuthRequest::AuthRequest(
-    identity::IdentityManager* identity_manager,
-    const std::string& account_id,
+    signin::IdentityManager* identity_manager,
+    const CoreAccountId& account_id,
     scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
     const AuthStatusCallback& callback,
     const std::vector<std::string>& scopes)
@@ -72,14 +72,14 @@ AuthRequest::AuthRequest(
       identity::ScopeSet(scopes.begin(), scopes.end()),
       base::BindOnce(&AuthRequest::OnAccessTokenFetchComplete,
                      base::Unretained(this)),
-      identity::AccessTokenFetcher::Mode::kImmediate);
+      signin::AccessTokenFetcher::Mode::kImmediate);
 }
 
 AuthRequest::~AuthRequest() {}
 
 void AuthRequest::OnAccessTokenFetchComplete(
     GoogleServiceAuthError error,
-    identity::AccessTokenInfo token_info) {
+    signin::AccessTokenInfo token_info) {
   DCHECK(thread_checker_.CalledOnValidThread());
 
   if (error.state() == GoogleServiceAuthError::NONE) {
@@ -111,8 +111,8 @@ void AuthRequest::OnAccessTokenFetchComplete(
 }  // namespace
 
 AuthService::AuthService(
-    identity::IdentityManager* identity_manager,
-    const std::string& account_id,
+    signin::IdentityManager* identity_manager,
+    const CoreAccountId& account_id,
     scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
     const std::vector<std::string>& scopes)
     : identity_manager_(identity_manager),
@@ -137,7 +137,7 @@ void AuthService::StartAuthentication(const AuthStatusCallback& callback) {
   if (HasAccessToken()) {
     // We already have access token. Give it back to the caller asynchronously.
     base::ThreadTaskRunnerHandle::Get()->PostTask(
-        FROM_HERE, base::Bind(callback, HTTP_SUCCESS, access_token_));
+        FROM_HERE, base::BindOnce(callback, HTTP_SUCCESS, access_token_));
   } else if (HasRefreshToken()) {
     // We have refresh token, let's get an access token.
     new AuthRequest(identity_manager_, account_id_, url_loader_factory_,
@@ -146,7 +146,7 @@ void AuthService::StartAuthentication(const AuthStatusCallback& callback) {
                     scopes_);
   } else {
     base::ThreadTaskRunnerHandle::Get()->PostTask(
-        FROM_HERE, base::Bind(callback, DRIVE_NOT_READY, std::string()));
+        FROM_HERE, base::BindOnce(callback, DRIVE_NOT_READY, std::string()));
   }
 }
 
@@ -201,13 +201,13 @@ void AuthService::RemoveObserver(AuthServiceObserver* observer) {
 }
 
 void AuthService::OnRefreshTokenUpdatedForAccount(
-    const AccountInfo& account_info) {
+    const CoreAccountInfo& account_info) {
   if (account_info.account_id == account_id_)
     OnHandleRefreshToken(true);
 }
 
 void AuthService::OnRefreshTokenRemovedForAccount(
-    const std::string& account_id) {
+    const CoreAccountId& account_id) {
   if (account_id == account_id_)
     OnHandleRefreshToken(false);
 }

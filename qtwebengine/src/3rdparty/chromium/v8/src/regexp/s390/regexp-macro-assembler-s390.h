@@ -5,15 +5,15 @@
 #ifndef V8_REGEXP_S390_REGEXP_MACRO_ASSEMBLER_S390_H_
 #define V8_REGEXP_S390_REGEXP_MACRO_ASSEMBLER_S390_H_
 
-#include "src/macro-assembler.h"
+#include "src/codegen/macro-assembler.h"
+#include "src/codegen/s390/assembler-s390.h"
 #include "src/regexp/regexp-macro-assembler.h"
-#include "src/s390/assembler-s390.h"
 
 namespace v8 {
 namespace internal {
 
-#ifndef V8_INTERPRETED_REGEXP
-class RegExpMacroAssemblerS390 : public NativeRegExpMacroAssembler {
+class V8_EXPORT_PRIVATE RegExpMacroAssemblerS390
+    : public NativeRegExpMacroAssembler {
  public:
   RegExpMacroAssemblerS390(Isolate* isolate, Zone* zone, Mode mode,
                            int registers_to_save);
@@ -207,7 +207,6 @@ class RegExpMacroAssemblerS390 : public NativeRegExpMacroAssembler {
 const RegList kRegExpCalleeSaved =
     1 << 6 | 1 << 7 | 1 << 8 | 1 << 9 | 1 << 10 | 1 << 11 | 1 << 13;
 
-#endif  // V8_INTERPRETED_REGEXP
 }  // namespace internal
 }  // namespace v8
 

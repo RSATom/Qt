@@ -9,8 +9,8 @@
 #ifndef V8_OBJECTS_JS_COLLATOR_INL_H_
 #define V8_OBJECTS_JS_COLLATOR_INL_H_
 
-#include "src/objects-inl.h"
 #include "src/objects/js-collator.h"
+#include "src/objects/objects-inl.h"
 
 // Has to be the last include (doesn't have include guards):
 #include "src/objects/object-macros.h"
@@ -20,10 +20,10 @@ namespace internal {
 
 OBJECT_CONSTRUCTORS_IMPL(JSCollator, JSObject)
 
-ACCESSORS(JSCollator, icu_collator, Managed<icu::Collator>, kICUCollatorOffset)
-ACCESSORS(JSCollator, bound_compare, Object, kBoundCompareOffset);
+ACCESSORS(JSCollator, icu_collator, Managed<icu::Collator>, kIcuCollatorOffset)
+ACCESSORS(JSCollator, bound_compare, Object, kBoundCompareOffset)
 
-CAST_ACCESSOR(JSCollator);
+CAST_ACCESSOR(JSCollator)
 
 }  // namespace internal
 }  // namespace v8

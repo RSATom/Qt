@@ -5,36 +5,59 @@
  * found in the LICENSE file.
  */
 
-#include "gm.h"
-#include "sk_tool_utils.h"
-#include "SkTextUtils.h"
+#include "gm/gm.h"
+#include "include/core/SkBlendMode.h"
+#include "include/core/SkCanvas.h"
+#include "include/core/SkColor.h"
+#include "include/core/SkMatrix.h"
+#include "include/core/SkPoint.h"
+#include "include/core/SkRect.h"
+#include "include/core/SkRefCnt.h"
+#include "include/core/SkString.h"
+#include "include/gpu/GrContext.h"
+#include "include/private/GrRecordingContext.h"
+#include "include/private/GrTypesPriv.h"
+#include "src/gpu/GrBuffer.h"
+#include "src/gpu/GrCaps.h"
+#include "src/gpu/GrContextPriv.h"
+#include "src/gpu/GrGeometryProcessor.h"
+#include "src/gpu/GrGpuBuffer.h"
+#include "src/gpu/GrGpuCommandBuffer.h"
+#include "src/gpu/GrMemoryPool.h"
+#include "src/gpu/GrMesh.h"
+#include "src/gpu/GrOpFlushState.h"
+#include "src/gpu/GrPipeline.h"
+#include "src/gpu/GrPrimitiveProcessor.h"
+#include "src/gpu/GrProcessor.h"
+#include "src/gpu/GrProcessorSet.h"
+#include "src/gpu/GrRecordingContextPriv.h"
+#include "src/gpu/GrRenderTargetContext.h"
+#include "src/gpu/GrRenderTargetContextPriv.h"
+#include "src/gpu/GrResourceProvider.h"
+#include "src/gpu/GrShaderCaps.h"
+#include "src/gpu/GrShaderVar.h"
+#include "src/gpu/glsl/GrGLSLFragmentShaderBuilder.h"
+#include "src/gpu/glsl/GrGLSLGeometryProcessor.h"
+#include "src/gpu/glsl/GrGLSLPrimitiveProcessor.h"
+#include "src/gpu/glsl/GrGLSLProgramDataManager.h"
+#include "src/gpu/glsl/GrGLSLUniformHandler.h"
+#include "src/gpu/glsl/GrGLSLVarying.h"
+#include "src/gpu/glsl/GrGLSLVertexGeoBuilder.h"
+#include "src/gpu/ops/GrDrawOp.h"
+#include "src/gpu/ops/GrOp.h"
 
-#if SK_SUPPORT_GPU
+#include <memory>
+#include <utility>
 
-#include "GrContext.h"
-#include "GrGpuCommandBuffer.h"
-#include "GrMemoryPool.h"
-#include "GrRenderTargetContext.h"
-#include "GrRenderTargetContextPriv.h"
-#include "glsl/GrGLSLFragmentShaderBuilder.h"
-#include "glsl/GrGLSLGeometryProcessor.h"
-#include "glsl/GrGLSLVarying.h"
-#include "glsl/GrGLSLVertexGeoBuilder.h"
+class GrAppliedClip;
 
+/**
+ * This test ensures that fwidth() works properly on GPU configs by drawing a squircle.
+ */
 namespace skiagm {
 
 static constexpr GrGeometryProcessor::Attribute gVertex =
         {"bboxcoord", kFloat2_GrVertexAttribType, kFloat2_GrSLType};
-
-/**
- * This ensures that fwidth() works properly on GPU configs by drawing a squircle.
- */
-class FwidthSquircleGM : public GM {
-private:
-    SkString onShortName() final { return SkString("fwidth_squircle"); }
-    SkISize onISize() override { return SkISize::Make(200, 200); }
-    void onDraw(SkCanvas*) override;
-};
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // SkSL code.
@@ -85,10 +108,10 @@ class FwidthSquircleTestProcessor::Impl : public GrGLSLGeometryProcessor {
                        squircleCoord.fsIn(), squircleCoord.fsIn());
 
         // Squircle function!
-        f->codeAppendf("float fn = pow(x, golden_ratio*pi) + pow(y, golden_ratio*pi) - 1;");
+        f->codeAppendf("float fn = half(pow(x, golden_ratio*pi) + pow(y, golden_ratio*pi) - 1);");
         f->codeAppendf("float fnwidth = fwidth(fn);");
         f->codeAppendf("fnwidth += 1e-10;");  // Guard against divide-by-zero.
-        f->codeAppendf("half coverage = clamp(.5 - fn/fnwidth, 0, 1);");
+        f->codeAppendf("half coverage = clamp(half(.5 - fn/fnwidth), 0, 1);");
 
         f->codeAppendf("%s = half4(.51, .42, .71, 1) * .89;", args.fOutputColor);
         f->codeAppendf("%s = half4(coverage);", args.fOutputCoverage);
@@ -115,8 +138,8 @@ class FwidthSquircleTestOp : public GrDrawOp {
 public:
     DEFINE_OP_CLASS_ID
 
-    static std::unique_ptr<GrDrawOp> Make(GrContext* ctx, const SkMatrix& viewMatrix) {
-        GrOpMemoryPool* pool = ctx->contextPriv().opMemoryPool();
+    static std::unique_ptr<GrDrawOp> Make(GrRecordingContext* ctx, const SkMatrix& viewMatrix) {
+        GrOpMemoryPool* pool = ctx->priv().opMemoryPool();
         return pool->allocate<FwidthSquircleTestOp>(viewMatrix);
     }
 
@@ -129,7 +152,8 @@ private:
 
     const char* name() const override { return "ClockwiseTestOp"; }
     FixedFunctionFlags fixedFunctionFlags() const override { return FixedFunctionFlags::kNone; }
-    GrProcessorSet::Analysis finalize(const GrCaps&, const GrAppliedClip*) override {
+    GrProcessorSet::Analysis finalize(
+            const GrCaps&, const GrAppliedClip*, bool hasMixedSampledCoverage, GrClampType) override {
         return GrProcessorSet::EmptySetAnalysis();
     }
     void onPrepare(GrOpFlushState*) override {}
@@ -140,17 +164,16 @@ private:
             {-1, +1},
             {+1, +1},
         };
-        sk_sp<GrBuffer> vertexBuffer(flushState->resourceProvider()->createBuffer(
-                sizeof(vertices), kVertex_GrBufferType, kStatic_GrAccessPattern,
-                GrResourceProvider::Flags::kNone, vertices));
+        sk_sp<const GrBuffer> vertexBuffer(flushState->resourceProvider()->createBuffer(
+                sizeof(vertices), GrGpuBufferType::kVertex, kStatic_GrAccessPattern, vertices));
         if (!vertexBuffer) {
             return;
         }
-        GrPipeline pipeline(flushState->drawOpArgs().fProxy, GrScissorTest::kDisabled,
-                            SkBlendMode::kSrcOver);
+        GrPipeline pipeline(GrScissorTest::kDisabled, SkBlendMode::kSrcOver,
+                            flushState->drawOpArgs().fOutputSwizzle);
         GrMesh mesh(GrPrimitiveType::kTriangleStrip);
         mesh.setNonIndexedNonInstanced(4);
-        mesh.setVertexData(vertexBuffer.get());
+        mesh.setVertexData(std::move(vertexBuffer));
         flushState->rtCommandBuffer()->draw(FwidthSquircleTestProcessor(fViewMatrix), pipeline,
                                             nullptr, nullptr, &mesh, 1, SkRect::MakeIWH(100, 100));
     }
@@ -163,30 +186,16 @@ private:
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // Test.
 
-void FwidthSquircleGM::onDraw(SkCanvas* canvas) {
-    GrContext* ctx = canvas->getGrContext();
-    GrRenderTargetContext* rtc = canvas->internal_private_accessTopLayerRenderTargetContext();
-
-    canvas->clear(SK_ColorWHITE);
-
-    if (!ctx || !rtc) {
-        DrawGpuOnlyMessage(canvas);
-        return;
-    }
-
-    if (!ctx->contextPriv().caps()->shaderCaps()->shaderDerivativeSupport()) {
-        SkFont font(sk_tool_utils::create_portable_typeface(), 15);
-        SkTextUtils::DrawString(canvas, "Shader derivatives not supported.", 150,
-                                150 - 8, font, SkPaint(), SkTextUtils::kCenter_Align);
-        return;
+DEF_SIMPLE_GPU_GM_CAN_FAIL(fwidth_squircle, ctx, rtc, canvas, errorMsg, 200, 200) {
+    if (!ctx->priv().caps()->shaderCaps()->shaderDerivativeSupport()) {
+        *errorMsg = "Shader derivatives not supported.";
+        return DrawResult::kSkip;
     }
 
     // Draw the test directly to the frame buffer.
+    canvas->clear(SK_ColorWHITE);
     rtc->priv().testingOnly_addDrawOp(FwidthSquircleTestOp::Make(ctx, canvas->getTotalMatrix()));
+    return skiagm::DrawResult::kOk;
 }
 
-DEF_GM( return new FwidthSquircleGM(); )
-
 }
-
-#endif  // SK_SUPPORT_GPU

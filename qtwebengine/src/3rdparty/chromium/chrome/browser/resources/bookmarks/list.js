@@ -43,6 +43,9 @@ Polymer({
       type: String,
       observer: 'onDisplayedListSourceChange_',
     },
+
+    /** @private {Set<string>} */
+    selectedItems_: Object,
   },
 
   listeners: {
@@ -64,6 +67,7 @@ Polymer({
     this.watch('selectedFolder_', function(state) {
       return state.selectedFolder;
     });
+    this.watch('selectedItems_', ({selection: {items}}) => items);
     this.updateFromStore();
 
     this.$.list.addEventListener(
@@ -97,6 +101,20 @@ Polymer({
    */
   onDisplayedIdsChanged_: async function(newValue, oldValue) {
     const updatedList = newValue.map(id => ({id: id}));
+    let skipFocus = false;
+    let selectIndex = -1;
+    if (this.matches(':focus-within')) {
+      if (this.selectedItems_.size > 0) {
+        const selectedId = Array.from(this.selectedItems_)[0];
+        skipFocus = newValue.some(id => id == selectedId);
+        selectIndex = this.displayedList_.findIndex(({id}) => selectedId == id);
+      }
+      if (selectIndex == -1 && updatedList.length > 0) {
+        selectIndex = 0;
+      } else {
+        selectIndex = Math.min(selectIndex, updatedList.length - 1);
+      }
+    }
     this.updateList('displayedList_', item => item.id, updatedList);
     // Trigger a layout of the iron list. Otherwise some elements may render
     // as blank entries. See https://crbug.com/848683
@@ -104,6 +122,17 @@ Polymer({
     const label = await cr.sendWithPromise(
         'getPluralString', 'listChanged', this.displayedList_.length);
     this.fire('iron-announce', {text: label});
+
+    if (!skipFocus && selectIndex > -1) {
+      setTimeout(() => {
+        this.$.list.focusItem(selectIndex);
+        // Focus menu button so 'Undo' is only one tab stop away on delete.
+        const item = getDeepActiveElement();
+        if (item) {
+          item.focusMenuButton();
+        }
+      });
+    }
   },
 
   /** @private */
@@ -162,7 +191,8 @@ Polymer({
   onOpenCommandMenu_: function(e) {
     // If the item is not visible, scroll to it before rendering the menu.
     if (e.source == MenuSource.ITEM) {
-      this.scrollToId_(/** @type {BookmarksItemElement} */ (e.path[0]).itemId);
+      this.scrollToId_(
+          /** @type {BookmarksItemElement} */ (e.composedPath()[0]).itemId);
     }
   },
 
@@ -260,8 +290,13 @@ Polymer({
     }
 
     // Prevent the iron-list from changing focus on enter.
-    if (e.path[0] instanceof HTMLButtonElement && e.key == 'Enter') {
-      handled = true;
+    if (e.key == 'Enter') {
+      if (e.composedPath()[0].tagName == 'CR-ICON-BUTTON') {
+        return;
+      }
+      if (e.composedPath()[0] instanceof HTMLButtonElement) {
+        handled = true;
+      }
     }
 
     if (!handled) {

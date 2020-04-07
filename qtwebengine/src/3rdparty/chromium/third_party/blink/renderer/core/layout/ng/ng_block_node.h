@@ -6,9 +6,10 @@
 #define NGBlockNode_h
 
 #include "third_party/blink/renderer/core/core_export.h"
-#include "third_party/blink/renderer/core/layout/ng/geometry/ng_physical_offset.h"
+#include "third_party/blink/renderer/core/layout/geometry/physical_offset.h"
 #include "third_party/blink/renderer/core/layout/ng/ng_layout_input_node.h"
 #include "third_party/blink/renderer/platform/fonts/font_baseline.h"
+#include "third_party/blink/renderer/platform/wtf/casting.h"
 
 namespace blink {
 
@@ -23,7 +24,8 @@ class NGPhysicalContainerFragment;
 class NGPhysicalFragment;
 struct MinMaxSize;
 struct NGBoxStrut;
-struct NGLogicalOffset;
+struct NGLayoutAlgorithmParams;
+struct LogicalOffset;
 
 // Represents a node to be laid out.
 class CORE_EXPORT NGBlockNode final : public NGLayoutInputNode {
@@ -33,9 +35,28 @@ class CORE_EXPORT NGBlockNode final : public NGLayoutInputNode {
 
   NGBlockNode(std::nullptr_t) : NGLayoutInputNode(nullptr) {}
 
-  scoped_refptr<NGLayoutResult> Layout(
+  scoped_refptr<const NGLayoutResult> Layout(
       const NGConstraintSpace& constraint_space,
       const NGBreakToken* break_token = nullptr);
+
+  // This method is just for use within the |NGSimplifiedLayoutAlgorithm|.
+  //
+  // If layout is dirty, it will perform layout using the previous constraint
+  // space used to generate the |NGLayoutResult|.
+  // Otherwise it will simply return the previous layout result generated.
+  scoped_refptr<const NGLayoutResult> SimplifiedLayout();
+
+  // This method is just for use within the |NGOutOfFlowLayoutPart|.
+  //
+  // As OOF-positioned objects have their position, and size computed
+  // pre-layout, we need a way to quickly determine if we need to perform this
+  // work. This method compares the containing-block size to determine this.
+  //
+  // If the containing-block size hasn't changed, and we are layout-clean we
+  // can reuse the previous layout result.
+  scoped_refptr<const NGLayoutResult> CachedLayoutResultForOutOfFlowPositioned(
+      LogicalSize container_content_size) const;
+
   NGLayoutInputNode NextSibling() const;
 
   // Computes the value of min-content and max-content for this node's border
@@ -60,39 +81,55 @@ class CORE_EXPORT NGBlockNode final : public NGLayoutInputNode {
                                const MinMaxSizeInput&,
                                const NGConstraintSpace* = nullptr);
 
-  MinMaxSize ComputeMinMaxSizeFromLegacy(NGMinMaxSizeType) const;
-
-  NGBoxStrut GetScrollbarSizes() const;
+  MinMaxSize ComputeMinMaxSizeFromLegacy(const MinMaxSizeInput&) const;
 
   NGLayoutInputNode FirstChild() const;
 
   NGBlockNode GetRenderedLegend() const;
   NGBlockNode GetFieldsetContent() const;
 
+  bool ChildrenInline() const;
   bool IsInlineLevel() const;
   bool IsAtomicInlineLevel() const;
+
+  // Returns true if this node should fill the viewport.
+  // This occurs when we are in quirks-mode and we are *not* OOF-positioned,
+  // floating, or inline-level.
+  //
+  // https://quirks.spec.whatwg.org/#the-body-element-fills-the-html-element-quirk
+  bool IsQuirkyAndFillsViewport() const {
+    if (!GetDocument().InQuirksMode())
+      return false;
+    if (IsOutOfFlowPositioned())
+      return false;
+    if (IsFloating())
+      return false;
+    if (IsAtomicInlineLevel())
+      return false;
+    return (IsDocumentElement() || IsBody());
+  }
 
   // CSS defines certain cases to synthesize inline block baselines from box.
   // See comments in UseLogicalBottomMarginEdgeForInlineBlockBaseline().
   bool UseLogicalBottomMarginEdgeForInlineBlockBaseline() const;
 
+  // Return true if the block size of this table cell should be considered
+  // restricted (e.g. height of the cell or its table is non-auto).
+  bool IsRestrictedBlockSizeTableCell() const;
+
   // Layout an atomic inline; e.g., inline block.
-  scoped_refptr<NGLayoutResult> LayoutAtomicInline(
+  scoped_refptr<const NGLayoutResult> LayoutAtomicInline(
       const NGConstraintSpace& parent_constraint_space,
       const ComputedStyle& parent_style,
       FontBaseline,
       bool use_first_line_style);
 
-  // Runs layout on the underlying LayoutObject and creates a fragment for the
-  // resulting geometry.
-  scoped_refptr<NGLayoutResult> RunOldLayout(const NGConstraintSpace&);
-
   // Called if this is an out-of-flow block which needs to be
   // positioned with legacy layout.
-  void UseOldOutOfFlowPositioning() const;
+  void UseLegacyOutOfFlowPositioning() const;
 
   // Save static position for legacy AbsPos layout.
-  void SaveStaticOffsetForLegacy(const NGLogicalOffset&,
+  void SaveStaticOffsetForLegacy(const LogicalOffset&,
                                  const LayoutObject* offset_container);
 
   // Write back resolved margins to legacy.
@@ -106,12 +143,19 @@ class CORE_EXPORT NGBlockNode final : public NGLayoutInputNode {
  private:
   void PrepareForLayout();
 
+  // Runs layout on the underlying LayoutObject and creates a fragment for the
+  // resulting geometry.
+  scoped_refptr<const NGLayoutResult> RunLegacyLayout(const NGConstraintSpace&);
+
+  scoped_refptr<const NGLayoutResult> RunSimplifiedLayout(
+      const NGLayoutAlgorithmParams&) const;
+
   // If this node is a LayoutNGMixin, the caller must pass the layout object for
   // this node cast to a LayoutBlockFlow as the first argument.
   void FinishLayout(LayoutBlockFlow*,
                     const NGConstraintSpace&,
                     const NGBreakToken*,
-                    scoped_refptr<NGLayoutResult>);
+                    scoped_refptr<const NGLayoutResult>);
 
   // After we run the layout algorithm, this function copies back the geometry
   // data to the layout box.
@@ -121,32 +165,33 @@ class CORE_EXPORT NGBlockNode final : public NGLayoutInputNode {
       const NGPhysicalContainerFragment& container,
       LayoutUnit initial_container_width,
       bool initial_container_is_flipped,
-      NGPhysicalOffset offset = {});
+      PhysicalOffset offset = {});
   void PlaceChildrenInLayoutBox(const NGConstraintSpace&,
                                 const NGPhysicalBoxFragment&,
-                                const NGPhysicalOffset& offset_from_start);
+                                const PhysicalOffset& offset_from_start);
   void PlaceChildrenInFlowThread(const NGConstraintSpace&,
                                  const NGPhysicalBoxFragment&);
   void CopyChildFragmentPosition(
       const NGPhysicalFragment& fragment,
-      const NGPhysicalOffset fragment_offset,
-      const NGPhysicalOffset additional_offset = NGPhysicalOffset());
+      const PhysicalOffset fragment_offset,
+      const PhysicalOffset additional_offset = PhysicalOffset());
 
-  void CopyBaselinesFromOldLayout(const NGConstraintSpace&,
-                                  NGBoxFragmentBuilder*);
-  LayoutUnit AtomicInlineBaselineFromOldLayout(const NGBaselineRequest&,
-                                               const NGConstraintSpace&);
+  void CopyBaselinesFromLegacyLayout(const NGConstraintSpace&,
+                                     NGBoxFragmentBuilder*);
+  LayoutUnit AtomicInlineBaselineFromLegacyLayout(const NGBaselineRequest&,
+                                                  const NGConstraintSpace&);
 
   void UpdateShapeOutsideInfoIfNeeded(
       const NGLayoutResult&,
       LayoutUnit percentage_resolution_inline_size);
 };
 
-DEFINE_TYPE_CASTS(NGBlockNode,
-                  NGLayoutInputNode,
-                  node,
-                  node->IsBlock(),
-                  node.IsBlock());
+template <>
+struct DowncastTraits<NGBlockNode> {
+  static bool AllowFrom(const NGLayoutInputNode& node) {
+    return node.IsBlock();
+  }
+};
 
 }  // namespace blink
 

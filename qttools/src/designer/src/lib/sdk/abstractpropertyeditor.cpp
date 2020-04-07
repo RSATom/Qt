@@ -98,9 +98,7 @@ QDesignerPropertyEditorInterface::QDesignerPropertyEditorInterface(QWidget *pare
 /*!
     Destroys the property editor interface.
 */
-QDesignerPropertyEditorInterface::~QDesignerPropertyEditorInterface()
-{
-}
+QDesignerPropertyEditorInterface::~QDesignerPropertyEditorInterface() = default;
 
 /*!
     Returns a pointer to \QD's current QDesignerFormEditorInterface
@@ -108,7 +106,7 @@ QDesignerPropertyEditorInterface::~QDesignerPropertyEditorInterface()
 */
 QDesignerFormEditorInterface *QDesignerPropertyEditorInterface::core() const
 {
-    return 0;
+    return nullptr;
 }
 
 /*!

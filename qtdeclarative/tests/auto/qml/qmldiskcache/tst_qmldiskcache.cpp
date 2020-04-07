@@ -30,10 +30,11 @@
 
 #include <private/qv4compileddata_p.h>
 #include <private/qv4compiler_p.h>
-#include <private/qv8engine_p.h>
 #include <private/qv4engine_p.h>
 #include <private/qv4codegen_p.h>
 #include <private/qqmlcomponent_p.h>
+#include <private/qv4executablecompilationunit_p.h>
+#include <private/qqmlscriptdata_p.h>
 #include <QQmlComponent>
 #include <QQmlEngine>
 #include <QQmlFileSelector>
@@ -119,7 +120,8 @@ struct TestCompiler
     {
         closeMapping();
         testFilePath = baseDirectory + QStringLiteral("/test.qml");
-        cacheFilePath = QV4::CompiledData::CompilationUnit::localCacheFilePath(QUrl::fromLocalFile(testFilePath));
+        cacheFilePath = QV4::ExecutableCompilationUnit::localCacheFilePath(
+                QUrl::fromLocalFile(testFilePath));
         mappedFile.setFileName(cacheFilePath);
     }
 
@@ -186,8 +188,10 @@ struct TestCompiler
 
     bool verify()
     {
-        QQmlRefPointer<QV4::CompiledData::CompilationUnit> unit = QV4::Compiler::Codegen::createUnitForLoading();
-        return unit->loadFromDisk(QUrl::fromLocalFile(testFilePath), QFileInfo(testFilePath).lastModified(), &lastErrorString);
+        QQmlRefPointer<QV4::ExecutableCompilationUnit> unit
+                = QV4::ExecutableCompilationUnit::create();
+        return unit->loadFromDisk(QUrl::fromLocalFile(testFilePath),
+                                  QFileInfo(testFilePath).lastModified(), &lastErrorString);
     }
 
     void closeMapping()
@@ -264,8 +268,9 @@ void tst_qmldiskcache::loadLocalAsFallback()
         f.write(reinterpret_cast<const char *>(&unit), sizeof(unit));
     }
 
-    QQmlRefPointer<QV4::CompiledData::CompilationUnit> unit = QV4::Compiler::Codegen::createUnitForLoading();
-    bool loaded = unit->loadFromDisk(QUrl::fromLocalFile(testCompiler.testFilePath), QFileInfo(testCompiler.testFilePath).lastModified(),
+    QQmlRefPointer<QV4::ExecutableCompilationUnit> unit = QV4::ExecutableCompilationUnit::create();
+    bool loaded = unit->loadFromDisk(QUrl::fromLocalFile(testCompiler.testFilePath),
+                                     QFileInfo(testCompiler.testFilePath).lastModified(),
                                      &testCompiler.lastErrorString);
     QVERIFY2(loaded, qPrintable(testCompiler.lastErrorString));
     QCOMPARE(unit->objectCount(), 1);
@@ -324,7 +329,10 @@ void tst_qmldiskcache::regenerateAfterChange()
         const QV4::CompiledData::Object *obj = qmlUnit->objectAt(0);
         QCOMPARE(quint32(obj->nBindings), quint32(2));
         QCOMPARE(quint32(obj->bindingTable()->type), quint32(QV4::CompiledData::Binding::Type_Number));
-        QCOMPARE(obj->bindingTable()->valueAsNumber(reinterpret_cast<const QV4::Value *>(testUnit->constants())), double(42));
+
+        QCOMPARE(reinterpret_cast<const QV4::Value *>(testUnit->constants())
+                         [obj->bindingTable()->value.constantValueIndex].doubleValue(),
+                 double(42));
 
         QCOMPARE(quint32(testUnit->functionTableSize), quint32(1));
 
@@ -573,7 +581,8 @@ void tst_qmldiskcache::fileSelectors()
         QVERIFY(!obj.isNull());
         QCOMPARE(obj->property("value").toInt(), 42);
 
-        QFile cacheFile(QV4::CompiledData::CompilationUnit::localCacheFilePath(QUrl::fromLocalFile(testFilePath)));
+        QFile cacheFile(QV4::ExecutableCompilationUnit::localCacheFilePath(
+                QUrl::fromLocalFile(testFilePath)));
         QVERIFY2(cacheFile.exists(), qPrintable(cacheFile.fileName()));
     }
 
@@ -588,7 +597,8 @@ void tst_qmldiskcache::fileSelectors()
         QVERIFY(!obj.isNull());
         QCOMPARE(obj->property("value").toInt(), 100);
 
-        QFile cacheFile(QV4::CompiledData::CompilationUnit::localCacheFilePath(QUrl::fromLocalFile(selectedTestFilePath)));
+        QFile cacheFile(QV4::ExecutableCompilationUnit::localCacheFilePath(
+                QUrl::fromLocalFile(selectedTestFilePath)));
         QVERIFY2(cacheFile.exists(), qPrintable(cacheFile.fileName()));
     }
 }
@@ -636,10 +646,21 @@ void tst_qmldiskcache::localAliases()
     }
 }
 
+static QSet<QString> entrySet(const QDir &dir)
+{
+    const auto &list = dir.entryList(QDir::Files | QDir::NoDotAndDotDot);
+    return QSet<QString>(list.cbegin(), list.cend());
+}
+
+static QSet<QString> entrySet(const QDir &dir, const QStringList &filters)
+{
+    const auto &list = dir.entryList(filters);
+    return QSet<QString>(list.cbegin(), list.cend());
+}
+
 void tst_qmldiskcache::cacheResources()
 {
-    const QSet<QString> existingFiles =
-        m_qmlCacheDirectory.entryList(QDir::Files | QDir::NoDotAndDotDot).toSet();
+    const QSet<QString> existingFiles = entrySet(m_qmlCacheDirectory);
 
     QQmlEngine engine;
 
@@ -650,8 +671,7 @@ void tst_qmldiskcache::cacheResources()
         QCOMPARE(obj->property("value").toInt(), 20);
     }
 
-    const QSet<QString> entries =
-        m_qmlCacheDirectory.entryList(QDir::NoDotAndDotDot | QDir::Files).toSet().subtract(existingFiles);
+    const QSet<QString> entries = entrySet(m_qmlCacheDirectory).subtract(existingFiles);
     QCOMPARE(entries.count(), 1);
 
     QDateTime cacheFileTimeStamp;
@@ -680,8 +700,7 @@ void tst_qmldiskcache::cacheResources()
     }
 
     {
-        const QSet<QString> entries =
-            m_qmlCacheDirectory.entryList(QDir::NoDotAndDotDot | QDir::Files).toSet().subtract(existingFiles);
+        const QSet<QString> entries = entrySet(m_qmlCacheDirectory).subtract(existingFiles);
         QCOMPARE(entries.count(), 1);
 
         QCOMPARE(QFileInfo(m_qmlCacheDirectory.absoluteFilePath(*entries.cbegin())).lastModified().toMSecsSinceEpoch(),
@@ -738,7 +757,8 @@ void tst_qmldiskcache::stableOrderOfDependentCompositeTypes()
     QVERIFY2(firstDependentTypeClassName.contains("QMLTYPE"), firstDependentTypeClassName.constData());
     QVERIFY2(secondDependentTypeClassName.contains("QMLTYPE"), secondDependentTypeClassName.constData());
 
-    const QString testFileCachePath = QV4::CompiledData::CompilationUnit::localCacheFilePath(QUrl::fromLocalFile(testFilePath));
+    const QString testFileCachePath = QV4::ExecutableCompilationUnit::localCacheFilePath(
+            QUrl::fromLocalFile(testFilePath));
     QVERIFY(QFile::exists(testFileCachePath));
     QDateTime initialCacheTimeStamp = QFileInfo(testFileCachePath).lastModified();
 
@@ -816,7 +836,8 @@ void tst_qmldiskcache::singletonDependency()
         QCOMPARE(obj->property("value").toInt(), 42);
     }
 
-    const QString testFileCachePath = QV4::CompiledData::CompilationUnit::localCacheFilePath(QUrl::fromLocalFile(testFilePath));
+    const QString testFileCachePath = QV4::ExecutableCompilationUnit::localCacheFilePath(
+            QUrl::fromLocalFile(testFilePath));
     QVERIFY(QFile::exists(testFileCachePath));
     QDateTime initialCacheTimeStamp = QFileInfo(testFileCachePath).lastModified();
 
@@ -873,7 +894,8 @@ void tst_qmldiskcache::cppRegisteredSingletonDependency()
         QCOMPARE(value.toInt(), 42);
     }
 
-    const QString testFileCachePath = QV4::CompiledData::CompilationUnit::localCacheFilePath(QUrl::fromLocalFile(testFilePath));
+    const QString testFileCachePath = QV4::ExecutableCompilationUnit::localCacheFilePath(
+            QUrl::fromLocalFile(testFilePath));
     QVERIFY(QFile::exists(testFileCachePath));
     QDateTime initialCacheTimeStamp = QFileInfo(testFileCachePath).lastModified();
 
@@ -902,8 +924,7 @@ void tst_qmldiskcache::cppRegisteredSingletonDependency()
 
 void tst_qmldiskcache::cacheModuleScripts()
 {
-    const QSet<QString> existingFiles =
-        m_qmlCacheDirectory.entryList(QDir::Files | QDir::NoDotAndDotDot).toSet();
+    const QSet<QString> existingFiles = entrySet(m_qmlCacheDirectory);
 
     QQmlEngine engine;
 
@@ -924,8 +945,7 @@ void tst_qmldiskcache::cacheModuleScripts()
         QVERIFY(!compilationUnit->backingFile.isNull());
     }
 
-    const QSet<QString> entries =
-         m_qmlCacheDirectory.entryList(QStringList("*.mjsc")).toSet().subtract(existingFiles);
+    const QSet<QString> entries = entrySet(m_qmlCacheDirectory, QStringList("*.mjsc"));
 
     QCOMPARE(entries.count(), 1);
 

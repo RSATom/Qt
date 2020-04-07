@@ -53,6 +53,10 @@ namespace dawn_native { namespace metal {
                             mIndexInfo[stage][group][binding] = textureIndex;
                             textureIndex++;
                             break;
+                        case dawn::BindingType::StorageTexture:
+                        case dawn::BindingType::ReadonlyStorageBuffer:
+                            UNREACHABLE();
+                            break;
                     }
                 }
             }
@@ -60,7 +64,7 @@ namespace dawn_native { namespace metal {
     }
 
     const PipelineLayout::BindingIndexInfo& PipelineLayout::GetBindingIndexInfo(
-        dawn::ShaderStage stage) const {
+        ShaderStage stage) const {
         return mIndexInfo[stage];
     }
 

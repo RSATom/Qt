@@ -35,7 +35,6 @@
 #include "base/location.h"
 #include "third_party/blink/public/platform/platform.h"
 #include "third_party/blink/public/platform/task_type.h"
-#include "third_party/blink/public/platform/web_database_observer.h"
 #include "third_party/blink/public/platform/web_security_origin.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
@@ -43,22 +42,19 @@
 #include "third_party/blink/renderer/modules/webdatabase/database_client.h"
 #include "third_party/blink/renderer/modules/webdatabase/database_context.h"
 #include "third_party/blink/renderer/modules/webdatabase/quota_tracker.h"
-#include "third_party/blink/renderer/modules/webdatabase/sqlite/sqlite_file_system.h"
-#include "third_party/blink/renderer/platform/cross_thread_functional.h"
+#include "third_party/blink/renderer/modules/webdatabase/web_database_host.h"
 #include "third_party/blink/renderer/platform/scheduler/public/post_cross_thread_task.h"
 #include "third_party/blink/renderer/platform/weborigin/security_origin.h"
 #include "third_party/blink/renderer/platform/wtf/assertions.h"
+#include "third_party/blink/renderer/platform/wtf/cross_thread_functional.h"
 #include "third_party/blink/renderer/platform/wtf/functional.h"
 #include "third_party/blink/renderer/platform/wtf/std_lib_extras.h"
 
 namespace blink {
 
 static void DatabaseClosed(Database* database) {
-  if (Platform::Current()->DatabaseObserver()) {
-    Platform::Current()->DatabaseObserver()->DatabaseClosed(
-        WebSecurityOrigin(database->GetSecurityOrigin()),
-        database->StringIdentifier());
-  }
+  WebDatabaseHost::GetInstance().DatabaseClosed(*database->GetSecurityOrigin(),
+                                                database->StringIdentifier());
 }
 
 DatabaseTracker& DatabaseTracker::Tracker() {
@@ -67,18 +63,13 @@ DatabaseTracker& DatabaseTracker::Tracker() {
 }
 
 DatabaseTracker::DatabaseTracker() {
-  SQLiteFileSystem::InitializeSQLite();
 }
 
 bool DatabaseTracker::CanEstablishDatabase(DatabaseContext* database_context,
-                                           const String& name,
-                                           const String& display_name,
-                                           unsigned estimated_size,
                                            DatabaseError& error) {
   ExecutionContext* execution_context = database_context->GetExecutionContext();
-  bool success = DatabaseClient::From(execution_context)
-                     ->AllowDatabase(execution_context, name, display_name,
-                                     estimated_size);
+  bool success =
+      DatabaseClient::From(execution_context)->AllowDatabase(execution_context);
   if (!success)
     error = DatabaseError::kGenericSecurityError;
   return success;
@@ -148,33 +139,29 @@ void DatabaseTracker::RemoveOpenDatabase(Database* database) {
 void DatabaseTracker::PrepareToOpenDatabase(Database* database) {
   DCHECK(
       database->GetDatabaseContext()->GetExecutionContext()->IsContextThread());
-  if (Platform::Current()->DatabaseObserver()) {
-    // This is an asynchronous call to the browser to open the database,
-    // however we can't actually use the database until we revieve an RPC back
-    // that advises is of the actual size of the database, so there is a race
-    // condition where the database is in an unusable state. To assist, we
-    // will record the size of the database straight away so we can use it
-    // immediately, and the real size will eventually be updated by the RPC from
-    // the browser.
-    Platform::Current()->DatabaseObserver()->DatabaseOpened(
-        WebSecurityOrigin(database->GetSecurityOrigin()),
-        database->StringIdentifier(), database->DisplayName(),
-        database->EstimatedSize());
-    // We write a temporary size of 0 to the QuotaTracker - we will be updated
-    // with the correct size via RPC asynchronously.
-    QuotaTracker::Instance().UpdateDatabaseSize(
-        database->GetSecurityOrigin(), database->StringIdentifier(), 0);
-  }
+
+  // This is an asynchronous call to the browser to open the database, however
+  // we can't actually use the database until we revieve an RPC back that
+  // advises is of the actual size of the database, so there is a race condition
+  // where the database is in an unusable state. To assist, we will record the
+  // size of the database straight away so we can use it immediately, and the
+  // real size will eventually be updated by the RPC from the browser.
+  WebDatabaseHost::GetInstance().DatabaseOpened(
+      *database->GetSecurityOrigin(), database->StringIdentifier(),
+      database->DisplayName(), database->EstimatedSize());
+  // We write a temporary size of 0 to the QuotaTracker - we will be updated
+  // with the correct size via RPC asynchronously.
+  QuotaTracker::Instance().UpdateDatabaseSize(database->GetSecurityOrigin(),
+                                              database->StringIdentifier(), 0);
 }
 
 void DatabaseTracker::FailedToOpenDatabase(Database* database) {
   DatabaseClosed(database);
 }
 
-unsigned long long DatabaseTracker::GetMaxSizeForDatabase(
-    const Database* database) {
-  unsigned long long space_available = 0;
-  unsigned long long database_size = 0;
+uint64_t DatabaseTracker::GetMaxSizeForDatabase(const Database* database) {
+  uint64_t space_available = 0;
+  uint64_t database_size = 0;
   QuotaTracker::Instance().GetDatabaseSizeAndSpaceAvailableToOrigin(
       database->GetSecurityOrigin(), database->StringIdentifier(),
       &database_size, &space_available);
@@ -201,8 +188,9 @@ void DatabaseTracker::CloseDatabasesImmediately(const SecurityOrigin* origin,
        it != database_set->end(); ++it) {
     PostCrossThreadTask(
         *(*it)->GetDatabaseTaskRunner(), FROM_HERE,
-        CrossThreadBind(&DatabaseTracker::CloseOneDatabaseImmediately,
-                        CrossThreadUnretained(this), origin_string, name, *it));
+        CrossThreadBindOnce(&DatabaseTracker::CloseOneDatabaseImmediately,
+                            CrossThreadUnretained(this), origin_string, name,
+                            *it));
   }
 }
 
@@ -239,8 +227,7 @@ void DatabaseTracker::CloseOneDatabaseImmediately(const String& origin_string,
     if (!database_set)
       return;
 
-    DatabaseSet::iterator found = database_set->find(database);
-    if (found == database_set->end())
+    if (!database_set->Contains(database))
       return;
   }
 

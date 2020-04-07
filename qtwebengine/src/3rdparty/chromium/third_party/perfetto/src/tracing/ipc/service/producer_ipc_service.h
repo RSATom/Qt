@@ -21,10 +21,10 @@
 #include <memory>
 #include <string>
 
-#include "perfetto/base/weak_ptr.h"
-#include "perfetto/ipc/basic_types.h"
-#include "perfetto/tracing/core/producer.h"
-#include "perfetto/tracing/core/tracing_service.h"
+#include "perfetto/ext/base/weak_ptr.h"
+#include "perfetto/ext/ipc/basic_types.h"
+#include "perfetto/ext/tracing/core/producer.h"
+#include "perfetto/ext/tracing/core/tracing_service.h"
 
 #include "perfetto/ipc/producer_port.ipc.h"
 
@@ -55,9 +55,16 @@ class ProducerIPCService : public protos::ProducerPort {
                              DeferredUnregisterTraceWriterResponse) override;
   void CommitData(const protos::CommitDataRequest&,
                   DeferredCommitDataResponse) override;
+  void NotifyDataSourceStarted(
+      const protos::NotifyDataSourceStartedRequest&,
+      DeferredNotifyDataSourceStartedResponse) override;
   void NotifyDataSourceStopped(
       const protos::NotifyDataSourceStoppedRequest&,
       DeferredNotifyDataSourceStoppedResponse) override;
+
+  void ActivateTriggers(const protos::ActivateTriggersRequest&,
+                        DeferredActivateTriggersResponse) override;
+
   void GetAsyncCommand(const protos::GetAsyncCommandRequest&,
                        DeferredGetAsyncCommandResponse) override;
   void OnClientDisconnected() override;
@@ -85,6 +92,9 @@ class ProducerIPCService : public protos::ProducerPort {
                const DataSourceInstanceID* data_source_ids,
                size_t num_data_sources) override;
 
+    void ClearIncrementalState(const DataSourceInstanceID* data_source_ids,
+                               size_t num_data_sources) override;
+
     // The interface obtained from the core service business logic through
     // Service::ConnectProducer(this). This allows to invoke methods for a
     // specific Producer on the Service business logic.
@@ -109,7 +119,7 @@ class ProducerIPCService : public protos::ProducerPort {
   // |core_service_| business logic.
   std::map<ipc::ClientID, std::unique_ptr<RemoteProducer>> producers_;
 
-  base::WeakPtrFactory<ProducerIPCService> weak_ptr_factory_;
+  base::WeakPtrFactory<ProducerIPCService> weak_ptr_factory_;  // Keep last.
 };
 
 }  // namespace perfetto

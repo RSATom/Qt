@@ -24,7 +24,6 @@ using namespace std;
 #include "util.h"
 
 struct BuildLog;
-struct DepfileParserOptions;
 struct DiskInterface;
 struct DepsLog;
 struct Edge;
@@ -210,10 +209,8 @@ struct Edge {
 /// "depfile" attribute in build files.
 struct ImplicitDepLoader {
   ImplicitDepLoader(State* state, DepsLog* deps_log,
-                    DiskInterface* disk_interface,
-                    DepfileParserOptions const* depfile_parser_options)
-      : state_(state), disk_interface_(disk_interface), deps_log_(deps_log),
-        depfile_parser_options_(depfile_parser_options) {}
+                    DiskInterface* disk_interface)
+      : state_(state), disk_interface_(disk_interface), deps_log_(deps_log) {}
 
   /// Load implicit dependencies for \a edge.
   /// @return false on error (without filling \a err if info is just missing
@@ -245,7 +242,6 @@ struct ImplicitDepLoader {
   State* state_;
   DiskInterface* disk_interface_;
   DepsLog* deps_log_;
-  DepfileParserOptions const* depfile_parser_options_;
 };
 
 
@@ -253,11 +249,10 @@ struct ImplicitDepLoader {
 /// and updating the dirty/outputs_ready state of all the nodes and edges.
 struct DependencyScan {
   DependencyScan(State* state, BuildLog* build_log, DepsLog* deps_log,
-                 DiskInterface* disk_interface,
-                 DepfileParserOptions const* depfile_parser_options)
+                 DiskInterface* disk_interface)
       : build_log_(build_log),
         disk_interface_(disk_interface),
-        dep_loader_(state, deps_log, disk_interface, depfile_parser_options) {}
+        dep_loader_(state, deps_log, disk_interface) {}
 
   /// Update the |dirty_| state of the given node by inspecting its input edge.
   /// Examine inputs, outputs, and command lines to judge whether an edge

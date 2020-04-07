@@ -22,7 +22,6 @@
 
 namespace perfetto {
 namespace {
-using protos::TraceConfig;
 using ValueUnit = std::pair<uint64_t, std::string>;
 using UnitMultipler = std::pair<const char*, uint64_t>;
 
@@ -84,7 +83,7 @@ bool ConvertSizeToKb(const std::string& arg, uint64_t* out) {
 }  // namespace
 
 bool CreateConfigFromOptions(const ConfigOptions& options,
-                             TraceConfig* config) {
+                             protos::TraceConfig* config) {
   uint64_t duration_ms = 0;
   if (!ConvertTimeToMs(options.time, &duration_ms)) {
     PERFETTO_ELOG("--time argument is invalid");
@@ -117,6 +116,7 @@ bool CreateConfigFromOptions(const ConfigOptions& options,
 
   config->set_duration_ms(static_cast<unsigned int>(duration_ms));
   config->set_max_file_size_bytes(max_file_size_kb * 1024);
+  config->set_flush_period_ms(30 * 1000);
   if (max_file_size_kb)
     config->set_write_into_file(true);
   config->add_buffers()->set_size_kb(static_cast<unsigned int>(buffer_size_kb));

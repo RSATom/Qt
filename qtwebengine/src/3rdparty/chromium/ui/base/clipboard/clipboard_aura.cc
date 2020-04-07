@@ -50,7 +50,7 @@ class ClipboardData {
       : web_smart_paste_(false),
         format_(0) {}
 
-  virtual ~ClipboardData() {}
+  virtual ~ClipboardData() = default;
 
   // Bitmask of AuraClipboardFormat types.
   int format() const { return format_; }
@@ -164,7 +164,7 @@ class AuraClipboard {
   AuraClipboard() : sequence_number_(0) {
   }
 
-  ~AuraClipboard() {}
+  ~AuraClipboard() = default;
 
   void Clear() {
     sequence_number_++;
@@ -176,11 +176,11 @@ class AuraClipboard {
     return sequence_number_;
   }
 
-  // Returns the data currently on the top of the clipboard stack, NULL if the
-  // clipboard stack is empty.
+  // Returns the data currently on the top of the clipboard stack, nullptr if
+  // the clipboard stack is empty.
   const ClipboardData* GetData() const {
     if (data_list_.empty())
-      return NULL;
+      return nullptr;
     return data_list_.front().get();
   }
 
@@ -202,7 +202,7 @@ class AuraClipboard {
     *result = base::UTF8ToUTF16(utf8_result);
   }
 
-  // Reads ascii text from the data at the top of clipboard stack.
+  // Reads ASCII text from the data at the top of clipboard stack.
   void ReadAsciiText(std::string* result) const {
     result->clear();
     const ClipboardData* data = GetData();
@@ -279,14 +279,18 @@ class AuraClipboard {
 
   // Reads bookmark from the data at the top of clipboard stack.
   void ReadBookmark(base::string16* title, std::string* url) const {
-    title->clear();
-    url->clear();
+    if (title)
+      title->clear();
+    if (url)
+      url->clear();
     if (!HasFormat(BOOKMARK))
       return;
 
     const ClipboardData* data = GetData();
-    *title = base::UTF8ToUTF16(data->bookmark_title());
-    *url = data->bookmark_url();
+    if (title)
+      *title = base::UTF8ToUTF16(data->bookmark_title());
+    if (url)
+      *url = data->bookmark_url();
   }
 
   void ReadData(const std::string& type, std::string* result) const {

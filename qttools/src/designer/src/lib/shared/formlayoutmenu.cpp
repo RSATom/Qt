@@ -81,7 +81,7 @@ struct FormLayoutRow {
 // are updated. It also checks the buddy setting depending on whether  the
 // label text contains a buddy marker.
 class FormLayoutRowDialog : public QDialog {
-    Q_DISABLE_COPY(FormLayoutRowDialog)
+    Q_DISABLE_COPY_MOVE(FormLayoutRowDialog)
     Q_OBJECT
 public:
     explicit FormLayoutRowDialog(QDesignerFormEditorInterface *core,
@@ -131,8 +131,6 @@ FormLayoutRowDialog::FormLayoutRowDialog(QDesignerFormEditorInterface *core,
     m_fieldNameEdited(false),
     m_buddyClicked(false)
 {
-    typedef void (QComboBox::*QComboIntSignal)(int);
-
     Q_ASSERT(m_buddyMarkerRegexp.isValid());
 
     setWindowFlags(windowFlags() & ~Qt::WindowContextHelpButtonHint);
@@ -155,7 +153,8 @@ FormLayoutRowDialog::FormLayoutRowDialog(QDesignerFormEditorInterface *core,
 
     m_ui.fieldClassComboBox->addItems(fieldWidgetClasses(core));
     m_ui.fieldClassComboBox->setCurrentIndex(0);
-    connect(m_ui.fieldClassComboBox, static_cast<QComboIntSignal>(&QComboBox::currentIndexChanged),
+    connect(m_ui.fieldClassComboBox,
+            QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, &FormLayoutRowDialog::fieldClassChanged);
 
     updateOkButton();
@@ -360,17 +359,16 @@ QStringList FormLayoutRowDialog::fieldWidgetClasses(QDesignerFormEditorInterface
     typedef QMultiHash<QString, QString> ClassMap;
 
     static QStringList rc;
-    if (rc.empty()) {
-        const int fwCount = sizeof(fieldWidgetBaseClasses)/sizeof(const char*);
+    if (rc.isEmpty()) {
         // Turn known base classes into list
         QStringList baseClasses;
-        for (int i = 0; i < fwCount; i++)
-            baseClasses.push_back(QLatin1String(fieldWidgetBaseClasses[i]));
+        for (auto fw : fieldWidgetBaseClasses)
+            baseClasses.append(QLatin1String(fw));
         // Scan for custom widgets that inherit them and store them in a
         // multimap of base class->custom widgets unless we have a language
         // extension installed which might do funny things with custom widgets.
         ClassMap customClassMap;
-        if (qt_extension<QDesignerLanguageExtension *>(core->extensionManager(), core) == 0) {
+        if (qt_extension<QDesignerLanguageExtension *>(core->extensionManager(), core) == nullptr) {
             const QDesignerWidgetDataBaseInterface *wdb = core->widgetDataBase();
             const int wdbCount = wdb->count();
             for (int w = 0; w < wdbCount; ++w) {
@@ -386,9 +384,9 @@ QStringList FormLayoutRowDialog::fieldWidgetClasses(QDesignerFormEditorInterface
         }
         // Compile final list, taking each base class and append custom widgets
         // based on it.
-        for (int i = 0; i < fwCount; i++) {
-            rc.push_back(baseClasses.at(i));
-            rc += customClassMap.values(baseClasses.at(i));
+        for (const auto &baseClass : baseClasses) {
+            rc.append(baseClass);
+            rc += customClassMap.values(baseClass);
         }
     }
     return rc;
@@ -398,10 +396,10 @@ QStringList FormLayoutRowDialog::fieldWidgetClasses(QDesignerFormEditorInterface
 
 static QFormLayout *managedFormLayout(const QDesignerFormEditorInterface *core, const QWidget *w)
 {
-    QLayout *l = 0;
+    QLayout *l = nullptr;
     if (LayoutInfo::managedLayoutType(core, w, &l) == LayoutInfo::Form)
         return qobject_cast<QFormLayout *>(l);
-    return 0;
+    return nullptr;
 }
 
 // Create the widgets of a control row and apply text properties contained
@@ -485,7 +483,7 @@ void FormLayoutMenu::populate(QWidget *w, QDesignerFormWindowInterface *fw, Acti
         m_widget = w;
         break;
     default:
-        m_widget = 0;
+        m_widget = nullptr;
         break;
     }
 }
@@ -511,7 +509,7 @@ QAction *FormLayoutMenu::preferredEditAction(QWidget *w, QDesignerFormWindowInte
         m_widget = w;
         return m_populateFormAction;
     }
-    return 0;
+    return nullptr;
 }
 }
 

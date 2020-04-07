@@ -1,5 +1,4 @@
 SUBPROGRAMS = \
-     #alive \
      assert \
      badxml \
      benchlibcallgrind \
@@ -37,6 +36,7 @@ SUBPROGRAMS = \
      printdatatagswithglobaltags \
      qexecstringlist \
      silent \
+     signaldumper \
      singleskip \
      skip \
      skipcleanup \

@@ -8,11 +8,11 @@
 #ifndef GrTexureOpList_DEFINED
 #define GrTexureOpList_DEFINED
 
-#include "GrGpuResource.h"
-#include "GrOpList.h"
-#include "GrSurfaceProxy.h"
+#include "include/gpu/GrGpuResource.h"
+#include "src/gpu/GrOpList.h"
+#include "src/gpu/GrSurfaceProxy.h"
 
-#include "SkTArray.h"
+#include "include/private/SkTArray.h"
 
 class GrAuditTrail;
 class GrGpu;
@@ -23,7 +23,7 @@ struct SkIRect;
 
 class GrTextureOpList final : public GrOpList {
 public:
-    GrTextureOpList(GrResourceProvider*, sk_sp<GrOpMemoryPool>, GrTextureProxy*, GrAuditTrail*);
+    GrTextureOpList(sk_sp<GrOpMemoryPool>, sk_sp<GrTextureProxy>, GrAuditTrail*);
     ~GrTextureOpList() override;
 
     /**
@@ -48,7 +48,7 @@ public:
      * depending on the type of surface, configs, etc, and the backend-specific
      * limitations.
      */
-    bool copySurface(GrContext*,
+    bool copySurface(GrRecordingContext*,
                      GrSurfaceProxy* dst,
                      GrSurfaceProxy* src,
                      const SkIRect& srcRect,
@@ -59,6 +59,8 @@ public:
     SkDEBUGCODE(void dump(bool printDependencies) const override;)
 
 private:
+    bool onIsUsed(GrSurfaceProxy*) const override;
+
     void deleteOp(int index);
     void deleteOps();
 

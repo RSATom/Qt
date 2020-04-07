@@ -1,4 +1,4 @@
-﻿/****************************************************************************
+/****************************************************************************
 **
 ** Copyright (C) 2017 Denis Shienkov <denis.shienkov@gmail.com>
 ** Contact: http://www.qt.io/licensing/
@@ -103,11 +103,11 @@ QList<QCanBusDeviceInfo> VectorCanBackend::interfaces()
 
 static int driverRefCount = 0;
 
-class ReadNotifier : public QWinEventNotifier
+class VectorCanReadNotifier : public QWinEventNotifier
 {
     // no Q_OBJECT macro!
 public:
-    explicit ReadNotifier(VectorCanBackendPrivate *d, QObject *parent)
+    explicit VectorCanReadNotifier(VectorCanBackendPrivate *d, QObject *parent)
         : QWinEventNotifier(parent)
         , dptr(d)
     {
@@ -128,11 +128,11 @@ private:
     VectorCanBackendPrivate * const dptr;
 };
 
-class WriteNotifier : public QTimer
+class VectorCanWriteNotifier : public QTimer
 {
     // no Q_OBJECT macro!
 public:
-    WriteNotifier(VectorCanBackendPrivate *d, QObject *parent)
+    VectorCanWriteNotifier(VectorCanBackendPrivate *d, QObject *parent)
         : QTimer(parent)
         , dptr(d)
     {
@@ -202,10 +202,10 @@ bool VectorCanBackendPrivate::open()
         }
     }
 
-    readNotifier = new ReadNotifier(this, q);
+    readNotifier = new VectorCanReadNotifier(this, q);
     readNotifier->setEnabled(true);
 
-    writeNotifier = new WriteNotifier(this, q);
+    writeNotifier = new VectorCanWriteNotifier(this, q);
 
     return true;
 }
@@ -271,7 +271,8 @@ void VectorCanBackendPrivate::setupChannel(const QString &interfaceName)
         }
     }
 
-    qCritical("Unable to parse the channel %ls", qUtf16Printable(interfaceName));
+    qCCritical(QT_CANBUS_PLUGINS_VECTORCAN, "Unable to parse the channel %ls",
+               qUtf16Printable(interfaceName));
 }
 
 void VectorCanBackendPrivate::setupDefaultConfigurations()
@@ -388,7 +389,8 @@ XLstatus VectorCanBackendPrivate::loadDriver()
             return status;
 
     } else if (Q_UNLIKELY(driverRefCount < 0)) {
-        qCritical("Wrong reference counter: %d", driverRefCount);
+        qCCritical(QT_CANBUS_PLUGINS_VECTORCAN, "Wrong driver reference counter: %d",
+                   driverRefCount);
         return XL_ERR_CANNOT_OPEN_DRIVER;
     }
 
@@ -412,7 +414,8 @@ void VectorCanBackendPrivate::cleanupDriver()
     --driverRefCount;
 
     if (Q_UNLIKELY(driverRefCount < 0)) {
-        qCritical("Wrong reference counter: %d", driverRefCount);
+        qCCritical(QT_CANBUS_PLUGINS_VECTORCAN, "Wrong driver reference counter: %d",
+                   driverRefCount);
         driverRefCount = 0;
     } else if (driverRefCount == 0) {
         ::xlCloseDriver();
@@ -443,6 +446,9 @@ VectorCanBackend::VectorCanBackend(const QString &name, QObject *parent)
 
     d->setupChannel(name);
     d->setupDefaultConfigurations();
+
+    std::function<CanBusStatus()> g = std::bind(&VectorCanBackend::busStatus, this);
+    setCanBusStatusGetter(g);
 }
 
 VectorCanBackend::~VectorCanBackend()
@@ -535,6 +541,50 @@ QString VectorCanBackend::interpretErrorFrame(const QCanBusFrame &errorFrame)
     Q_UNUSED(errorFrame);
 
     return QString();
+}
+
+QCanBusDevice::CanBusStatus VectorCanBackend::busStatus()
+{
+    Q_D(VectorCanBackend);
+
+    const XLstatus requestStatus = ::xlCanRequestChipState(d->portHandle, d->channelMask);
+    if (Q_UNLIKELY(requestStatus != XL_SUCCESS)) {
+        const QString errorString = d->systemErrorString(requestStatus);
+        qCWarning(QT_CANBUS_PLUGINS_VECTORCAN, "Can not query CAN bus status: %ls.",
+                  qUtf16Printable(errorString));
+        setError(errorString, QCanBusDevice::CanBusError::ReadError);
+        return QCanBusDevice::CanBusStatus::Unknown;
+    }
+
+    quint32 eventCount = 1;
+    XLevent event;
+    ::memset(&event, 0, sizeof(event));
+
+    const XLstatus receiveStatus = ::xlReceive(d->portHandle, &eventCount, &event);
+    if (Q_UNLIKELY(receiveStatus != XL_SUCCESS)) {
+        const QString errorString = d->systemErrorString(receiveStatus);
+        qCWarning(QT_CANBUS_PLUGINS_VECTORCAN, "Can not query CAN bus status: %ls.",
+                  qUtf16Printable(errorString));
+        setError(errorString, QCanBusDevice::CanBusError::ReadError);
+        return QCanBusDevice::CanBusStatus::Unknown;
+    }
+
+    if (Q_LIKELY(event.tag == XL_CHIP_STATE)) {
+        switch (event.tagData.chipState.busStatus) {
+        case XL_CHIPSTAT_BUSOFF:
+            return QCanBusDevice::CanBusStatus::BusOff;
+        case XL_CHIPSTAT_ERROR_PASSIVE:
+            return QCanBusDevice::CanBusStatus::Error;
+        case XL_CHIPSTAT_ERROR_WARNING:
+            return QCanBusDevice::CanBusStatus::Warning;
+        case XL_CHIPSTAT_ERROR_ACTIVE:
+            return QCanBusDevice::CanBusStatus::Good;
+        }
+    }
+
+    qCWarning(QT_CANBUS_PLUGINS_VECTORCAN, "Unknown CAN bus status: %u",
+              uint(event.tagData.chipState.busStatus));
+    return QCanBusDevice::CanBusStatus::Unknown;
 }
 
 QT_END_NAMESPACE

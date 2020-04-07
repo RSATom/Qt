@@ -4,6 +4,7 @@
 
 #include "components/download/internal/common/download_worker.h"
 
+#include "base/bind.h"
 #include "components/download/internal/common/resource_downloader.h"
 #include "components/download/public/common/download_create_info.h"
 #include "components/download/public/common/download_interrupt_reasons.h"
@@ -15,6 +16,7 @@
 #include "net/url_request/url_request_context_getter.h"
 #include "services/network/public/cpp/features.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
+#include "services/service_manager/public/cpp/connector.h"
 
 namespace download {
 namespace {
@@ -29,7 +31,7 @@ bool IsURLSafe(int render_process_id, const GURL& url) {
 
 class CompletedInputStream : public InputStream {
  public:
-  CompletedInputStream(DownloadInterruptReason status) : status_(status){};
+  CompletedInputStream(DownloadInterruptReason status) : status_(status) {}
   ~CompletedInputStream() override = default;
 
   // InputStream
@@ -54,10 +56,12 @@ void CreateUrlDownloadHandler(
         url_loader_factory_getter,
     const URLSecurityPolicy& url_security_policy,
     scoped_refptr<net::URLRequestContextGetter> url_request_context_getter,
+    std::unique_ptr<service_manager::Connector> connector,
     const scoped_refptr<base::SingleThreadTaskRunner>& task_runner) {
   auto downloader = UrlDownloadHandlerFactory::Create(
       std::move(params), delegate, std::move(url_loader_factory_getter),
-      url_security_policy, std::move(url_request_context_getter), task_runner);
+      url_security_policy, std::move(url_request_context_getter),
+      std::move(connector), task_runner);
   task_runner->PostTask(
       FROM_HERE,
       base::BindOnce(&UrlDownloadHandler::Delegate::OnUrlDownloadHandlerCreated,
@@ -75,8 +79,7 @@ DownloadWorker::DownloadWorker(DownloadWorker::Delegate* delegate,
       is_paused_(false),
       is_canceled_(false),
       is_user_cancel_(false),
-      url_download_handler_(nullptr, base::OnTaskRunnerDeleter(nullptr)),
-      weak_factory_(this) {
+      url_download_handler_(nullptr, base::OnTaskRunnerDeleter(nullptr)) {
   DCHECK(delegate_);
 }
 
@@ -86,13 +89,15 @@ void DownloadWorker::SendRequest(
     std::unique_ptr<DownloadUrlParameters> params,
     scoped_refptr<download::DownloadURLLoaderFactoryGetter>
         url_loader_factory_getter,
-    scoped_refptr<net::URLRequestContextGetter> url_request_context_getter) {
+    scoped_refptr<net::URLRequestContextGetter> url_request_context_getter,
+    service_manager::Connector* connector) {
   GetIOTaskRunner()->PostTask(
       FROM_HERE, base::BindOnce(&CreateUrlDownloadHandler, std::move(params),
                                 weak_factory_.GetWeakPtr(),
                                 std::move(url_loader_factory_getter),
                                 base::BindRepeating(&IsURLSafe),
                                 std::move(url_request_context_getter),
+                                connector ? connector->Clone() : nullptr,
                                 base::ThreadTaskRunnerHandle::Get()));
 }
 

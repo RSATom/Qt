@@ -25,6 +25,7 @@
 
 #include "third_party/blink/renderer/core/svg/svg_use_element.h"
 
+#include "third_party/blink/public/common/features.h"
 #include "third_party/blink/public/platform/task_type.h"
 #include "third_party/blink/renderer/core/css/style_change_reason.h"
 #include "third_party/blink/renderer/core/dom/document.h"
@@ -41,6 +42,7 @@
 #include "third_party/blink/renderer/core/svg_names.h"
 #include "third_party/blink/renderer/core/xlink_names.h"
 #include "third_party/blink/renderer/core/xml/parser/xml_document_parser.h"
+#include "third_party/blink/renderer/platform/heap/heap.h"
 #include "third_party/blink/renderer/platform/loader/fetch/fetch_parameters.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource_fetcher.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource_loader_options.h"
@@ -48,27 +50,31 @@
 
 namespace blink {
 
-inline SVGUseElement::SVGUseElement(Document& document)
+SVGUseElement::SVGUseElement(Document& document)
     : SVGGraphicsElement(svg_names::kUseTag, document),
       SVGURIReference(this),
-      x_(SVGAnimatedLength::Create(this,
-                                   svg_names::kXAttr,
-                                   SVGLengthMode::kWidth,
-                                   SVGLength::Initial::kUnitlessZero,
-                                   CSSPropertyX)),
-      y_(SVGAnimatedLength::Create(this,
-                                   svg_names::kYAttr,
-                                   SVGLengthMode::kHeight,
-                                   SVGLength::Initial::kUnitlessZero,
-                                   CSSPropertyY)),
-      width_(SVGAnimatedLength::Create(this,
-                                       svg_names::kWidthAttr,
-                                       SVGLengthMode::kWidth,
-                                       SVGLength::Initial::kUnitlessZero)),
-      height_(SVGAnimatedLength::Create(this,
-                                        svg_names::kHeightAttr,
-                                        SVGLengthMode::kHeight,
-                                        SVGLength::Initial::kUnitlessZero)),
+      x_(MakeGarbageCollected<SVGAnimatedLength>(
+          this,
+          svg_names::kXAttr,
+          SVGLengthMode::kWidth,
+          SVGLength::Initial::kUnitlessZero,
+          CSSPropertyID::kX)),
+      y_(MakeGarbageCollected<SVGAnimatedLength>(
+          this,
+          svg_names::kYAttr,
+          SVGLengthMode::kHeight,
+          SVGLength::Initial::kUnitlessZero,
+          CSSPropertyID::kY)),
+      width_(MakeGarbageCollected<SVGAnimatedLength>(
+          this,
+          svg_names::kWidthAttr,
+          SVGLengthMode::kWidth,
+          SVGLength::Initial::kUnitlessZero)),
+      height_(MakeGarbageCollected<SVGAnimatedLength>(
+          this,
+          svg_names::kHeightAttr,
+          SVGLengthMode::kHeight,
+          SVGLength::Initial::kUnitlessZero)),
       element_url_is_local_(true),
       have_fired_load_event_(false),
       needs_shadow_tree_recreation_(false) {
@@ -78,13 +84,8 @@ inline SVGUseElement::SVGUseElement(Document& document)
   AddToPropertyMap(y_);
   AddToPropertyMap(width_);
   AddToPropertyMap(height_);
-}
 
-SVGUseElement* SVGUseElement::Create(Document& document) {
-  // Always build a user agent #shadow-root for SVGUseElement.
-  SVGUseElement* use = MakeGarbageCollected<SVGUseElement>(document);
-  use->AttachShadowRootInternal(ShadowRootType::kClosed);
-  return use;
+  AttachShadowRootInternal(ShadowRootType::kClosed);
 }
 
 SVGUseElement::~SVGUseElement() = default;
@@ -139,41 +140,31 @@ static void TransferUseWidthAndHeightIfNeeded(
     const SVGUseElement& use,
     SVGElement& shadow_element,
     const SVGElement& original_element) {
-  DEFINE_STATIC_LOCAL(const AtomicString, hundred_percent_string, ("100%"));
-  // Use |originalElement| for checking the element type, because we will
+  // Use |original_element| for checking the element type, because we will
   // have replaced a <symbol> with an <svg> in the instance tree.
-  if (IsSVGSymbolElement(original_element)) {
-    // Spec (<use> on <symbol>): This generated 'svg' will always have
-    // explicit values for attributes width and height.  If attributes
-    // width and/or height are provided on the 'use' element, then these
-    // attributes will be transferred to the generated 'svg'. If attributes
-    // width and/or height are not specified, the generated 'svg' element
-    // will use values of 100% for these attributes.
-    shadow_element.setAttribute(
-        svg_names::kWidthAttr,
-        use.width()->IsSpecified()
-            ? AtomicString(use.width()->CurrentValue()->ValueAsString())
-            : hundred_percent_string);
-    shadow_element.setAttribute(
-        svg_names::kHeightAttr,
-        use.height()->IsSpecified()
-            ? AtomicString(use.height()->CurrentValue()->ValueAsString())
-            : hundred_percent_string);
-  } else if (IsSVGSVGElement(original_element)) {
-    // Spec (<use> on <svg>): If attributes width and/or height are
-    // provided on the 'use' element, then these values will override the
-    // corresponding attributes on the 'svg' in the generated tree.
-    shadow_element.setAttribute(
-        svg_names::kWidthAttr,
-        use.width()->IsSpecified()
-            ? AtomicString(use.width()->CurrentValue()->ValueAsString())
-            : original_element.getAttribute(svg_names::kWidthAttr));
-    shadow_element.setAttribute(
-        svg_names::kHeightAttr,
-        use.height()->IsSpecified()
-            ? AtomicString(use.height()->CurrentValue()->ValueAsString())
-            : original_element.getAttribute(svg_names::kHeightAttr));
-  }
+  if (!IsSVGSymbolElement(original_element) &&
+      !IsSVGSVGElement(original_element))
+    return;
+
+  // "The width and height properties on the 'use' element override the values
+  // for the corresponding properties on a referenced 'svg' or 'symbol' element
+  // when determining the used value for that property on the instance root
+  // element. However, if the computed value for the property on the 'use'
+  // element is auto, then the property is computed as normal for the element
+  // instance. ... Because auto is the initial value, if dimensions are not
+  // explicitly set on the 'use' element, the values set on the 'svg' or
+  // 'symbol' will be used as defaults."
+  // (https://svgwg.org/svg2-draft/struct.html#UseElement)
+  AtomicString width_value(
+      use.width()->IsSpecified()
+          ? use.width()->CurrentValue()->ValueAsString()
+          : original_element.getAttribute(svg_names::kWidthAttr));
+  shadow_element.setAttribute(svg_names::kWidthAttr, width_value);
+  AtomicString height_value(
+      use.height()->IsSpecified()
+          ? use.height()->CurrentValue()->ValueAsString()
+          : original_element.getAttribute(svg_names::kHeightAttr));
+  shadow_element.setAttribute(svg_names::kHeightAttr, height_value);
 }
 
 void SVGUseElement::CollectStyleForPresentationAttribute(
@@ -214,9 +205,22 @@ void SVGUseElement::UpdateTargetReference() {
   ResourceLoaderOptions options;
   options.initiator_info.name = localName();
   FetchParameters params(ResourceRequest(element_url_), options);
-  params.MutableResourceRequest().SetFetchRequestMode(
-      network::mojom::FetchRequestMode::kSameOrigin);
-  DocumentResource::FetchSVGDocument(params, GetDocument().Fetcher(), this);
+  params.MutableResourceRequest().SetMode(
+      network::mojom::RequestMode::kSameOrigin);
+  ResourceFetcher* fetcher = GetDocument().Fetcher();
+  if (base::FeatureList::IsEnabled(
+          features::kHtmlImportsRequestInitiatorLock)) {
+    // For @imports from HTML imported Documents, we use the
+    // context document for getting origin and ResourceFetcher to use the
+    // main Document's origin, while using the element document for
+    // CompleteURL() to use imported Documents' base URLs.
+    if (!GetDocument().ContextDocument()) {
+      ClearResource();
+      return;
+    }
+    fetcher = GetDocument().ContextDocument()->Fetcher();
+  }
+  DocumentResource::FetchSVGDocument(params, fetcher, this);
 }
 
 void SVGUseElement::SvgAttributeChanged(const QualifiedName& attr_name) {
@@ -336,7 +340,7 @@ void SVGUseElement::BuildPendingResource() {
   CancelShadowTreeRecreation();
   if (!isConnected())
     return;
-  SVGElement* target = ToSVGElementOrNull(ResolveTargetElement(kAddObserver));
+  auto* target = DynamicTo<SVGElement>(ResolveTargetElement(kAddObserver));
   // TODO(fs): Why would the Element not be "connected" at this point?
   if (target && target->isConnected()) {
     BuildShadowAndInstanceTree(*target);
@@ -409,7 +413,7 @@ static void MoveChildrenToReplacementElement(ContainerNode& source_root,
 }
 
 Element* SVGUseElement::CreateInstanceTree(SVGElement& target_root) const {
-  Element* instance_root = target_root.CloneWithChildren();
+  Element* instance_root = &target_root.CloneWithChildren();
   DCHECK(instance_root->IsSVGElement());
   if (IsSVGSymbolElement(target_root)) {
     // Spec: The referenced 'symbol' and its contents are deep-cloned into
@@ -420,8 +424,8 @@ Element* SVGUseElement::CreateInstanceTree(SVGElement& target_root) const {
     // transferred to the generated 'svg'. If attributes width and/or
     // height are not specified, the generated 'svg' element will use
     // values of 100% for these attributes.
-    SVGSVGElement* svg_element =
-        SVGSVGElement::Create(target_root.GetDocument());
+    auto* svg_element =
+        MakeGarbageCollected<SVGSVGElement>(target_root.GetDocument());
     // Transfer all attributes from the <symbol> to the new <svg>
     // element.
     svg_element->CloneAttributesFrom(*instance_root);
@@ -429,10 +433,10 @@ Element* SVGUseElement::CreateInstanceTree(SVGElement& target_root) const {
     MoveChildrenToReplacementElement(*instance_root, *svg_element);
     instance_root = svg_element;
   }
-  TransferUseWidthAndHeightIfNeeded(*this, ToSVGElement(*instance_root),
+  TransferUseWidthAndHeightIfNeeded(*this, To<SVGElement>(*instance_root),
                                     target_root);
-  AssociateCorrespondingElements(target_root, ToSVGElement(*instance_root));
-  RemoveDisallowedElementsFromSubtree(ToSVGElement(*instance_root));
+  AssociateCorrespondingElements(target_root, To<SVGElement>(*instance_root));
+  RemoveDisallowedElementsFromSubtree(To<SVGElement>(*instance_root));
   return instance_root;
 }
 
@@ -449,7 +453,7 @@ void SVGUseElement::BuildShadowAndInstanceTree(SVGElement& target) {
   // Clone the target subtree into the shadow tree, not handling <use> and
   // <symbol> yet.
   Element* instance_root = CreateInstanceTree(target);
-  target_element_instance_ = ToSVGElement(instance_root);
+  target_element_instance_ = To<SVGElement>(instance_root);
   ShadowRoot& shadow_root = UseShadowRoot();
   shadow_root.AppendChild(instance_root);
 
@@ -471,7 +475,7 @@ void SVGUseElement::BuildShadowAndInstanceTree(SVGElement& target) {
 
   // If the instance root was a <use>, it could have been replaced now, so
   // reset |m_targetElementInstance|.
-  target_element_instance_ = ToSVGElementOrDie(shadow_root.firstChild());
+  target_element_instance_ = To<SVGElement>(shadow_root.firstChild());
   DCHECK_EQ(target_element_instance_->parentNode(), shadow_root);
 
   CloneNonMarkupEventListeners();
@@ -480,7 +484,8 @@ void SVGUseElement::BuildShadowAndInstanceTree(SVGElement& target) {
   UpdateRelativeLengthsInformation();
 }
 
-LayoutObject* SVGUseElement::CreateLayoutObject(const ComputedStyle& style) {
+LayoutObject* SVGUseElement::CreateLayoutObject(const ComputedStyle& style,
+                                                LegacyLayout) {
   if (style.Display() == EDisplay::kContents)
     return nullptr;
   return new LayoutSVGTransformableContainer(this);
@@ -508,25 +513,21 @@ Path SVGUseElement::ToClipPath() const {
 
 SVGGraphicsElement* SVGUseElement::VisibleTargetGraphicsElementForClipping()
     const {
-  Node* n = UseShadowRoot().firstChild();
-  if (!n || !n->IsSVGElement())
-    return nullptr;
-
-  SVGElement& element = ToSVGElement(*n);
-
-  if (!element.IsSVGGraphicsElement())
+  auto* svg_graphics_element =
+      DynamicTo<SVGGraphicsElement>(UseShadowRoot().firstChild());
+  if (!svg_graphics_element)
     return nullptr;
 
   // Spec: "If a <use> element is a child of a clipPath element, it must
   // directly reference <path>, <text> or basic shapes elements. Indirect
   // references are an error and the clipPath element must be ignored."
   // https://drafts.fxtf.org/css-masking/#the-clip-path
-  if (!IsDirectReference(element)) {
+  if (!IsDirectReference(*svg_graphics_element)) {
     // Spec: Indirect references are an error (14.3.5)
     return nullptr;
   }
 
-  return &ToSVGGraphicsElement(element);
+  return svg_graphics_element;
 }
 
 void SVGUseElement::AddReferencesToFirstDegreeNestedUseElements(
@@ -564,13 +565,13 @@ bool SVGUseElement::HasCycleUseReferencing(const ContainerNode& target_instance,
     return true;
 
   AtomicString target_id = target.GetIdAttribute();
-  ContainerNode* instance = target_instance.ParentOrShadowHostElement();
-  while (instance && instance->IsSVGElement()) {
-    SVGElement* element = ToSVGElement(instance);
+  auto* element =
+      DynamicTo<SVGElement>(target_instance.ParentOrShadowHostElement());
+  while (element) {
     if (element->HasID() && element->GetIdAttribute() == target_id &&
         element->GetDocument() == target.GetDocument())
       return true;
-    instance = instance->ParentOrShadowHostElement();
+    element = DynamicTo<SVGElement>(element->ParentOrShadowHostElement());
   }
   return false;
 }
@@ -602,8 +603,8 @@ void SVGUseElement::ExpandUseElementsInShadowTree() {
     DCHECK(!use->ResourceIsStillLoading());
 
     SVGUseElement& original_use = ToSVGUseElement(*use->CorrespondingElement());
-    SVGElement* target =
-        ToSVGElementOrNull(original_use.ResolveTargetElement(kDontAddObserver));
+    auto* target = DynamicTo<SVGElement>(
+        original_use.ResolveTargetElement(kDontAddObserver));
     if (target) {
       if (IsDisallowedElement(*target) || HasCycleUseReferencing(*use, *target))
         return;
@@ -611,7 +612,8 @@ void SVGUseElement::ExpandUseElementsInShadowTree() {
 
     // Don't DCHECK(target) here, it may be "pending", too.
     // Setup sub-shadow tree root node
-    SVGGElement* clone_parent = SVGGElement::Create(original_use.GetDocument());
+    auto* clone_parent =
+        MakeGarbageCollected<SVGGElement>(original_use.GetDocument());
     // Transfer all data (attributes, etc.) from <use> to the new <g> element.
     clone_parent->CloneAttributesFrom(*use);
     clone_parent->SetCorrespondingElement(&original_use);

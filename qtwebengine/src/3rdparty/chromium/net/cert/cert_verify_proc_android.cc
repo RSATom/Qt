@@ -10,7 +10,6 @@
 #include "base/logging.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
-#include "base/sha1.h"
 #include "base/strings/string_piece.h"
 #include "crypto/sha2.h"
 #include "net/android/cert_verify_result_android.h"
@@ -341,7 +340,9 @@ void GetChainDEREncodedBytes(X509Certificate* cert,
 
 }  // namespace
 
-CertVerifyProcAndroid::CertVerifyProcAndroid() {}
+CertVerifyProcAndroid::CertVerifyProcAndroid(
+    scoped_refptr<CertNetFetcher> cert_net_fetcher)
+    : cert_net_fetcher_(std::move(cert_net_fetcher)) {}
 
 CertVerifyProcAndroid::~CertVerifyProcAndroid() {}
 
@@ -353,20 +354,24 @@ int CertVerifyProcAndroid::VerifyInternal(
     X509Certificate* cert,
     const std::string& hostname,
     const std::string& ocsp_response,
+    const std::string& sct_list,
     int flags,
     CRLSet* crl_set,
     const CertificateList& additional_trust_anchors,
     CertVerifyResult* verify_result) {
   std::vector<std::string> cert_bytes;
   GetChainDEREncodedBytes(cert, &cert_bytes);
-  if (!VerifyFromAndroidTrustManager(
-          cert_bytes, hostname, GetGlobalCertNetFetcher(), verify_result)) {
+  if (!VerifyFromAndroidTrustManager(cert_bytes, hostname, cert_net_fetcher_,
+                                     verify_result)) {
     NOTREACHED();
     return ERR_FAILED;
   }
 
   if (IsCertStatusError(verify_result->cert_status))
     return MapCertStatusToNetError(verify_result->cert_status);
+
+  LogNameNormalizationMetrics(".Android", verify_result->verified_cert.get(),
+                              verify_result->is_issued_by_known_root);
 
   return OK;
 }

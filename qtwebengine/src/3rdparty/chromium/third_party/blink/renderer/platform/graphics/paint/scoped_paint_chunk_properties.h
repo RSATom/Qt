@@ -11,7 +11,7 @@
 #include "third_party/blink/renderer/platform/graphics/paint/paint_chunk.h"
 #include "third_party/blink/renderer/platform/graphics/paint/paint_controller.h"
 #include "third_party/blink/renderer/platform/graphics/paint/property_tree_state.h"
-#include "third_party/blink/renderer/platform/wtf/allocator.h"
+#include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 
 namespace blink {
 
@@ -32,7 +32,7 @@ class ScopedPaintChunkProperties {
 
   // Use new transform state, and keep the current other properties.
   ScopedPaintChunkProperties(PaintController& paint_controller,
-                             const TransformPaintPropertyNode* transform,
+                             const TransformPaintPropertyNode& transform,
                              const DisplayItemClient& client,
                              DisplayItem::Type type)
       : ScopedPaintChunkProperties(
@@ -43,7 +43,7 @@ class ScopedPaintChunkProperties {
 
   // Use new clip state, and keep the current other properties.
   ScopedPaintChunkProperties(PaintController& paint_controller,
-                             const ClipPaintPropertyNode* clip,
+                             const ClipPaintPropertyNode& clip,
                              const DisplayItemClient& client,
                              DisplayItem::Type type)
       : ScopedPaintChunkProperties(
@@ -54,7 +54,7 @@ class ScopedPaintChunkProperties {
 
   // Use new effect state, and keep the current other properties.
   ScopedPaintChunkProperties(PaintController& paint_controller,
-                             const EffectPaintPropertyNode* effect,
+                             const EffectPaintPropertyNode& effect,
                              const DisplayItemClient& client,
                              DisplayItem::Type type)
       : ScopedPaintChunkProperties(
@@ -75,7 +75,7 @@ class ScopedPaintChunkProperties {
 
  private:
   static PropertyTreeState GetPaintChunkProperties(
-      const TransformPaintPropertyNode* transform,
+      const TransformPaintPropertyNode& transform,
       PaintController& paint_controller) {
     PropertyTreeState properties(
         paint_controller.CurrentPaintChunkProperties());
@@ -84,7 +84,7 @@ class ScopedPaintChunkProperties {
   }
 
   static PropertyTreeState GetPaintChunkProperties(
-      const ClipPaintPropertyNode* clip,
+      const ClipPaintPropertyNode& clip,
       PaintController& paint_controller) {
     PropertyTreeState properties(
         paint_controller.CurrentPaintChunkProperties());
@@ -93,7 +93,7 @@ class ScopedPaintChunkProperties {
   }
 
   static PropertyTreeState GetPaintChunkProperties(
-      const EffectPaintPropertyNode* effect,
+      const EffectPaintPropertyNode& effect,
       PaintController& paint_controller) {
     PropertyTreeState properties(
         paint_controller.CurrentPaintChunkProperties());

@@ -4,13 +4,14 @@
 
 #include "headless/lib/utility/headless_content_utility_client.h"
 
+#include "base/bind.h"
 #include "base/lazy_instance.h"
 #include "content/public/utility/utility_thread.h"
 #include "printing/buildflags/buildflags.h"
 
 #if BUILDFLAG(ENABLE_PRINTING)
 #include "components/services/pdf_compositor/public/cpp/pdf_compositor_service_factory.h"
-#include "components/services/pdf_compositor/public/interfaces/pdf_compositor.mojom.h"
+#include "components/services/pdf_compositor/public/mojom/pdf_compositor.mojom.h"
 #endif
 
 namespace headless {

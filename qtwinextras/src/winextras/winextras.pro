@@ -2,8 +2,6 @@ TARGET = QtWinExtras
 
 QT += gui-private core-private
 
-DEFINES += QT_NO_FOREACH
-
 SOURCES += \
     qwinfunctions.cpp \
     qwintaskbarbutton.cpp \

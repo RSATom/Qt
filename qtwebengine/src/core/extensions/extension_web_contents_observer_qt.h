@@ -50,8 +50,8 @@
 namespace extensions {
 
 class ExtensionWebContentsObserverQt
-    : public ExtensionWebContentsObserver,
-      public content::WebContentsUserData<ExtensionWebContentsObserverQt>
+    : public ExtensionWebContentsObserver
+    , public content::WebContentsUserData<ExtensionWebContentsObserverQt>
 {
 public:
     explicit ExtensionWebContentsObserverQt(content::WebContents *web_contents);
@@ -67,7 +67,7 @@ public:
 
 private:
     friend class content::WebContentsUserData<ExtensionWebContentsObserverQt>;
-    WEB_CONTENTS_USER_DATA_KEY_DECL()
+    WEB_CONTENTS_USER_DATA_KEY_DECL();
     DISALLOW_COPY_AND_ASSIGN(ExtensionWebContentsObserverQt);
 };
 

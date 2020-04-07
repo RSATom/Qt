@@ -142,7 +142,7 @@ bool WillListenerReplyAsync(v8::Local<v8::Context> context,
 
 OneTimeMessageHandler::OneTimeMessageHandler(
     NativeExtensionBindingsSystem* bindings_system)
-    : bindings_system_(bindings_system), weak_factory_(this) {}
+    : bindings_system_(bindings_system) {}
 OneTimeMessageHandler::~OneTimeMessageHandler() {}
 
 bool OneTimeMessageHandler::HasPort(ScriptContext* script_context,
@@ -155,8 +155,8 @@ bool OneTimeMessageHandler::HasPort(ScriptContext* script_context,
                                                    kDontCreateIfMissing);
   if (!data)
     return false;
-  return port_id.is_opener ? base::ContainsKey(data->openers, port_id)
-                           : base::ContainsKey(data->receivers, port_id);
+  return port_id.is_opener ? base::Contains(data->openers, port_id)
+                           : base::Contains(data->receivers, port_id);
 }
 
 void OneTimeMessageHandler::SendMessage(
@@ -192,7 +192,7 @@ void OneTimeMessageHandler::SendMessage(
   IPCMessageSender* ipc_sender = bindings_system_->GetIPCMessageSender();
   ipc_sender->SendOpenMessageChannel(script_context, new_port_id, target,
                                      method_name, include_tls_channel_id);
-  ipc_sender->SendPostMessageToPort(routing_id, new_port_id, message);
+  ipc_sender->SendPostMessageToPort(new_port_id, message);
 
   // If the sender doesn't provide a response callback, we can immediately
   // close the channel. Note: we only do this for extension messages, not
@@ -220,7 +220,7 @@ void OneTimeMessageHandler::AddReceiver(ScriptContext* script_context,
   OneTimeMessageContextData* data =
       GetPerContextData<OneTimeMessageContextData>(context, kCreateIfMissing);
   DCHECK(data);
-  DCHECK(!base::ContainsKey(data->receivers, target_port_id));
+  DCHECK(!base::Contains(data->receivers, target_port_id));
   OneTimeReceiver& receiver = data->receivers[target_port_id];
   receiver.sender.Reset(isolate, sender);
   receiver.routing_id = RoutingIdForScriptContext(script_context);
@@ -475,7 +475,7 @@ void OneTimeMessageHandler::OnOneTimeMessageResponse(
     return;
   }
   IPCMessageSender* ipc_sender = bindings_system_->GetIPCMessageSender();
-  ipc_sender->SendPostMessageToPort(routing_id, port_id, *message);
+  ipc_sender->SendPostMessageToPort(port_id, *message);
   bool close_channel = true;
   ipc_sender->SendCloseMessagePort(routing_id, port_id, close_channel);
 }

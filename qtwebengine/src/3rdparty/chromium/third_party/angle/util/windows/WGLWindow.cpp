@@ -69,7 +69,10 @@ WGLWindow::WGLWindow(int glesMajorVersion, int glesMinorVersion)
 WGLWindow::~WGLWindow() {}
 
 // Internally initializes GL resources.
-bool WGLWindow::initializeGL(OSWindow *osWindow, angle::Library *glWindowingLibrary)
+bool WGLWindow::initializeGL(OSWindow *osWindow,
+                             angle::Library *glWindowingLibrary,
+                             const EGLPlatformParameters &platformParams,
+                             const ConfigParameters &configParams)
 {
     glWindowingLibrary->getAs("wglGetProcAddress", &gCurrentWGLGetProcAddress);
 
@@ -113,7 +116,10 @@ bool WGLWindow::initializeGL(OSWindow *osWindow, angle::Library *glWindowingLibr
         return false;
     }
 
-    makeCurrent();
+    if (!makeCurrent())
+    {
+        return false;
+    }
 
     // Reload entry points to capture extensions.
     angle::LoadWGL(GetProcAddressWithFallback);
@@ -135,7 +141,7 @@ bool WGLWindow::initializeGL(OSWindow *osWindow, angle::Library *glWindowingLibr
         return false;
     }
 
-    if (mWebGLCompatibility.valid() || mRobustResourceInit.valid())
+    if (configParams.webGLCompatibility.valid() || configParams.robustResourceInit.valid())
     {
         std::cerr << "WGLWindow does not support the requested feature set." << std::endl;
         return false;
@@ -161,22 +167,13 @@ bool WGLWindow::initializeGL(OSWindow *osWindow, angle::Library *glWindowingLibr
         return false;
     }
 
-    makeCurrent();
-
-    if (mSwapInterval != -1)
+    if (!makeCurrent())
     {
-        if (_wglSwapIntervalEXT)
-        {
-            if (_wglSwapIntervalEXT(mSwapInterval) == FALSE)
-            {
-                std::cerr << "Error setting swap interval." << std::endl;
-            }
-        }
-        else
-        {
-            std::cerr << "Error setting swap interval." << std::endl;
-        }
+        return false;
     }
+
+    mPlatform     = platformParams;
+    mConfigParams = configParams;
 
     angle::LoadGLES(GetProcAddressWithFallback);
     return true;
@@ -202,19 +199,32 @@ bool WGLWindow::isGLInitialized() const
     return mWGLContext != nullptr;
 }
 
-void WGLWindow::makeCurrent()
+bool WGLWindow::makeCurrent()
 {
     if (_wglMakeCurrent(mDeviceContext, mWGLContext) == FALSE)
     {
-        std::cerr << "Error during wglMakeCurrent." << std::endl;
+        std::cerr << "Error during wglMakeCurrent.\n";
+        return false;
     }
+
+    return true;
+}
+
+bool WGLWindow::setSwapInterval(EGLint swapInterval)
+{
+    if (!_wglSwapIntervalEXT || _wglSwapIntervalEXT(swapInterval) == FALSE)
+    {
+        std::cerr << "Error during wglSwapIntervalEXT.\n";
+        return false;
+    }
+    return true;
 }
 
 void WGLWindow::swap()
 {
     if (SwapBuffers(mDeviceContext) == FALSE)
     {
-        std::cerr << "Error during SwapBuffers." << std::endl;
+        std::cerr << "Error during SwapBuffers.\n";
     }
 }
 

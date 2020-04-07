@@ -11,7 +11,7 @@
 #include "third_party/blink/renderer/core/loader/preload_helper.h"
 #include "third_party/blink/renderer/core/script/document_write_intervention.h"
 #include "third_party/blink/renderer/core/script/script_loader.h"
-#include "third_party/blink/renderer/platform/cross_origin_attribute_value.h"
+#include "third_party/blink/renderer/platform/loader/fetch/cross_origin_attribute_value.h"
 #include "third_party/blink/renderer/platform/loader/fetch/fetch_initiator_info.h"
 #include "third_party/blink/renderer/platform/loader/fetch/fetch_parameters.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource_fetcher.h"
@@ -39,12 +39,17 @@ Resource* PreloadRequest::Start(Document* document) {
   DCHECK(!url.ProtocolIsData());
 
   ResourceRequest resource_request(url);
-  resource_request.SetReferrerPolicy(referrer_policy_);
-  if (referrer_source_ == kBaseUrlIsReferrer)
-    resource_request.SetReferrerString(base_url_.StrippedForUseAsReferrer());
+  resource_request.SetReferrerPolicy(
+      referrer_policy_,
+      ResourceRequest::SetReferrerPolicyLocation::kPreloadRequestStart);
+  if (referrer_source_ == kBaseUrlIsReferrer) {
+    resource_request.SetReferrerString(
+        base_url_.StrippedForUseAsReferrer(),
+        ResourceRequest::SetReferrerStringLocation::kPreloadRequestStart);
+  }
 
-  resource_request.SetRequestContext(ResourceFetcher::DetermineRequestContext(
-      resource_type_, is_image_set_, false));
+  resource_request.SetRequestContext(
+      ResourceFetcher::DetermineRequestContext(resource_type_, is_image_set_));
 
   resource_request.SetFetchImportanceMode(importance_);
 
@@ -103,12 +108,12 @@ Resource* PreloadRequest::Start(Document* document) {
     // the async request to the blocked script here.
   }
 
-  if (resource_type_ == ResourceType::kImage) {
+  if (resource_type_ == ResourceType::kImage &&
+      params.Url().ProtocolIsInHTTPFamily()) {
     if (const auto* frame = document->Loader()->GetFrame()) {
       if (frame->IsClientLoFiAllowed(params.GetResourceRequest())) {
         params.SetClientLoFiPlaceholder();
-      } else if (!is_lazyload_image_disabled_ &&
-                 frame->IsLazyLoadingImageAllowed()) {
+      } else if (is_lazy_load_image_enabled_) {
         params.SetLazyImagePlaceholder();
       }
     }

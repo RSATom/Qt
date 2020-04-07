@@ -1,0 +1,5 @@
+TextToSpeech options:
+
+  -flite ............... Enable Flite support [auto] (Unix only)
+  -flite-alsa .......... Enable Flite with ALSA support [auto] (Unix only)
+  -speechd ............. Enable speech dispatcher support [auto] (Unix only)

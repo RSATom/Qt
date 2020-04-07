@@ -11,7 +11,9 @@
 #include "modules/audio_processing/aec3/render_signal_analyzer.h"
 
 #include <math.h>
+
 #include <array>
+#include <cmath>
 #include <vector>
 
 #include "api/array_view.h"
@@ -35,8 +37,8 @@ void ProduceSinusoid(int sample_rate_hz,
   // Produce a sinusoid of the specified frequency.
   for (size_t k = *sample_counter, j = 0; k < (*sample_counter + kBlockSize);
        ++k, ++j) {
-    x[j] =
-        32767.f * sin(2.f * kPi * sinusoidal_frequency_hz * k / sample_rate_hz);
+    x[j] = 32767.f *
+           std::sin(2.f * kPi * sinusoidal_frequency_hz * k / sample_rate_hz);
   }
   *sample_counter = *sample_counter + kBlockSize;
 }
@@ -59,7 +61,7 @@ TEST(RenderSignalAnalyzer, NoFalseDetectionOfNarrowBands) {
   std::vector<std::vector<float>> x(3, std::vector<float>(kBlockSize, 0.f));
   std::array<float, kBlockSize> x_old;
   std::unique_ptr<RenderDelayBuffer> render_delay_buffer(
-      RenderDelayBuffer::Create2(EchoCanceller3Config(), 3));
+      RenderDelayBuffer::Create(EchoCanceller3Config(), 3));
   std::array<float, kFftLengthBy2Plus1> mask;
   x_old.fill(0.f);
 
@@ -91,9 +93,8 @@ TEST(RenderSignalAnalyzer, NarrowBandDetection) {
   std::array<float, kBlockSize> x_old;
   Aec3Fft fft;
   EchoCanceller3Config config;
-  config.delay.min_echo_path_delay_blocks = 0;
   std::unique_ptr<RenderDelayBuffer> render_delay_buffer(
-      RenderDelayBuffer::Create2(config, 3));
+      RenderDelayBuffer::Create(config, 3));
 
   std::array<float, kFftLengthBy2Plus1> mask;
   x_old.fill(0.f);

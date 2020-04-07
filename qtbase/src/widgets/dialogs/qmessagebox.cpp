@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2018 The Qt Company Ltd.
+** Copyright (C) 2020 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtWidgets module of the Qt Toolkit.
@@ -756,6 +756,12 @@ void QMessageBoxPrivate::_q_clicked(QPlatformDialogHelper::StandardButton button
 */
 
 /*!
+    \enum QMessageBox::ButtonRole
+
+    \include qdialogbuttonbox.cpp buttonrole-enum
+*/
+
+/*!
     \enum QMessageBox::StandardButton
     \since 4.2
 
@@ -1508,7 +1514,7 @@ void QMessageBox::keyPressEvent(QKeyEvent *e)
             if (d->detailsText)
                 textToCopy += d->detailsText->text() + QLatin1Char('\n') + separator;
 #endif
-            QApplication::clipboard()->setText(textToCopy);
+            QGuiApplication::clipboard()->setText(textToCopy);
             return;
         }
 #endif // Q_OS_WIN
@@ -1890,7 +1896,7 @@ void QMessageBox::aboutQt(QWidget *parent, const QString &title)
         "<p>Qt and the Qt logo are trademarks of The Qt Company Ltd.</p>"
         "<p>Qt is The Qt Company Ltd product developed as an open source "
         "project. See <a href=\"http://%3/\">%3</a> for more information.</p>"
-        ).arg(QStringLiteral("2019"),
+        ).arg(QStringLiteral("2020"),
               QStringLiteral("qt.io/licensing"),
               QStringLiteral("qt.io"));
     QMessageBox *msgBox = new QMessageBox(parent);
@@ -2662,14 +2668,9 @@ QPixmap QMessageBoxPrivate::standardIcon(QMessageBox::Icon icon, QMessageBox *mb
         break;
     }
     if (!tmpIcon.isNull()) {
-        QWindow *window = nullptr;
-        if (mb) {
-            window = mb->windowHandle();
-            if (!window) {
-                if (const QWidget *nativeParent = mb->nativeParentWidget())
-                    window = nativeParent->windowHandle();
-            }
-        }
+        QWindow *window = mb
+            ? qt_widget_private(mb)->windowHandle(QWidgetPrivate::WindowHandleMode::Closest)
+            : nullptr;
         return tmpIcon.pixmap(window, QSize(iconSize, iconSize));
     }
     return QPixmap();

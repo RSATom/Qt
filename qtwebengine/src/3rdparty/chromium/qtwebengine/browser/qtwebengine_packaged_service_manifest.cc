@@ -7,7 +7,6 @@
 #include "base/no_destructor.h"
 #include "build/build_config.h"
 #include "components/spellcheck/spellcheck_buildflags.h"
-#include "services/proxy_resolver/proxy_resolver_manifest.h"
 #include "services/service_manager/public/cpp/manifest_builder.h"
 
 #if BUILDFLAG(ENABLE_SPELLCHECK)
@@ -23,6 +22,7 @@ const service_manager::Manifest &GetQtWebEngineManifest()
             .WithServiceName("qtwebengine")
             .WithDisplayName("QtWebEngine")
             .WithOptions(service_manager::ManifestOptionsBuilder()
+                             .WithExecutionMode(service_manager::Manifest::ExecutionMode::kInProcessBuiltin)
                              .WithInstanceSharingPolicy(service_manager::Manifest::InstanceSharingPolicy::kSharedAcrossGroups)
                              .CanConnectToInstancesWithAnyId(true)
                              .CanRegisterOtherServiceInstances(true)
@@ -43,7 +43,6 @@ const std::vector<service_manager::Manifest> &GetQtWebEnginePackagedServiceManif
 {
     static base::NoDestructor<std::vector<service_manager::Manifest>> manifests{{
         GetQtWebEngineManifest(),
-        proxy_resolver::GetManifest(),
     }};
     return *manifests;
 }

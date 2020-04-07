@@ -5,9 +5,10 @@
  * found in the LICENSE file.
  */
 
-#include "GrGLVertexArray.h"
-#include "GrGLBuffer.h"
-#include "GrGLGpu.h"
+#include "src/gpu/GrCpuBuffer.h"
+#include "src/gpu/gl/GrGLBuffer.h"
+#include "src/gpu/gl/GrGLGpu.h"
+#include "src/gpu/gl/GrGLVertexArray.h"
 
 struct AttribLayout {
     bool        fNormalized;  // Only used by floating point types.
@@ -73,6 +74,10 @@ static AttribLayout attrib_layout(GrVertexAttribType type) {
             return {false, 1, GR_GL_INT};
         case kUint_GrVertexAttribType:
             return {false, 1, GR_GL_UNSIGNED_INT};
+        case kUShort_norm_GrVertexAttribType:
+            return {true, 1, GR_GL_UNSIGNED_SHORT};
+        case kUShort4_norm_GrVertexAttribType:
+            return {true, 4, GR_GL_UNSIGNED_SHORT};
     }
     SK_ABORT("Unknown vertex attrib type");
     return {false, 0, 0};
@@ -89,14 +94,32 @@ void GrGLAttribArrayState::set(GrGLGpu* gpu,
     SkASSERT(index >= 0 && index < fAttribArrayStates.count());
     SkASSERT(0 == divisor || gpu->caps()->instanceAttribSupport());
     AttribArrayState* array = &fAttribArrayStates[index];
-    if (array->fVertexBufferUniqueID != vertexBuffer->uniqueID() ||
+    const char* offsetAsPtr;
+    bool bufferChanged = false;
+    if (vertexBuffer->isCpuBuffer()) {
+        if (!array->fUsingCpuBuffer) {
+            bufferChanged = true;
+            array->fUsingCpuBuffer = true;
+        }
+        offsetAsPtr = static_cast<const GrCpuBuffer*>(vertexBuffer)->data() + offsetInBytes;
+    } else {
+        auto gpuBuffer = static_cast<const GrGpuBuffer*>(vertexBuffer);
+        if (array->fUsingCpuBuffer || array->fVertexBufferUniqueID != gpuBuffer->uniqueID()) {
+            bufferChanged = true;
+            array->fVertexBufferUniqueID = gpuBuffer->uniqueID();
+        }
+        offsetAsPtr = reinterpret_cast<const char*>(offsetInBytes);
+    }
+    if (bufferChanged ||
         array->fCPUType != cpuType ||
         array->fGPUType != gpuType ||
         array->fStride != stride ||
-        array->fOffset != offsetInBytes) {
-        gpu->bindBuffer(kVertex_GrBufferType, vertexBuffer);
+        array->fOffset != offsetAsPtr) {
+        // We always have to call this if we're going to change the array pointer. 'array' is
+        // tracking the last buffer used to setup attrib pointers, not the last buffer bound.
+        // GrGLGpu will avoid redundant binds.
+        gpu->bindBuffer(GrGpuBufferType::kVertex, vertexBuffer);
         const AttribLayout& layout = attrib_layout(cpuType);
-        const GrGLvoid* offsetAsPtr = reinterpret_cast<const GrGLvoid*>(offsetInBytes);
         if (GrSLTypeIsFloatType(gpuType)) {
             GR_GL_CALL(gpu->glInterface(), VertexAttribPointer(index,
                                                                layout.fCount,
@@ -113,11 +136,10 @@ void GrGLAttribArrayState::set(GrGLGpu* gpu,
                                                                 stride,
                                                                 offsetAsPtr));
         }
-        array->fVertexBufferUniqueID = vertexBuffer->uniqueID();
         array->fCPUType = cpuType;
         array->fGPUType = gpuType;
         array->fStride = stride;
-        array->fOffset = offsetInBytes;
+        array->fOffset = offsetAsPtr;
     }
     if (gpu->caps()->instanceAttribSupport() && array->fDivisor != divisor) {
         SkASSERT(0 == divisor || 1 == divisor); // not necessarily a requirement but what we expect.
@@ -179,15 +201,19 @@ GrGLAttribArrayState* GrGLVertexArray::bind(GrGLGpu* gpu) {
 
 GrGLAttribArrayState* GrGLVertexArray::bindWithIndexBuffer(GrGLGpu* gpu, const GrBuffer* ibuff) {
     GrGLAttribArrayState* state = this->bind(gpu);
-    if (state && fIndexBufferUniqueID != ibuff->uniqueID()) {
-        if (ibuff->isCPUBacked()) {
-            GR_GL_CALL(gpu->glInterface(), BindBuffer(GR_GL_ELEMENT_ARRAY_BUFFER, 0));
-        } else {
+    if (!state) {
+        return nullptr;
+    }
+    if (ibuff->isCpuBuffer()) {
+        GR_GL_CALL(gpu->glInterface(), BindBuffer(GR_GL_ELEMENT_ARRAY_BUFFER, 0));
+    } else {
+        const GrGLBuffer* glBuffer = static_cast<const GrGLBuffer*>(ibuff);
+        if (fIndexBufferUniqueID != glBuffer->uniqueID()) {
             const GrGLBuffer* glBuffer = static_cast<const GrGLBuffer*>(ibuff);
-            GR_GL_CALL(gpu->glInterface(), BindBuffer(GR_GL_ELEMENT_ARRAY_BUFFER,
-                                                      glBuffer->bufferID()));
+            GR_GL_CALL(gpu->glInterface(),
+                       BindBuffer(GR_GL_ELEMENT_ARRAY_BUFFER, glBuffer->bufferID()));
+            fIndexBufferUniqueID = glBuffer->uniqueID();
         }
-        fIndexBufferUniqueID = ibuff->uniqueID();
     }
     return state;
 }

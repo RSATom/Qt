@@ -8,7 +8,7 @@
 #ifndef SkDisplacementMapEffect_DEFINED
 #define SkDisplacementMapEffect_DEFINED
 
-#include "SkImageFilter.h"
+#include "include/core/SkImageFilter.h"
 
 class SK_API SkDisplacementMapEffect : public SkImageFilter {
 public:
@@ -35,7 +35,6 @@ public:
 
     virtual SkIRect onFilterBounds(const SkIRect& src, const SkMatrix& ctm,
                                    MapDirection, const SkIRect* inputRect) const override;
-    sk_sp<SkImageFilter> onMakeColorSpace(SkColorSpaceXformer*) const override;
     SkIRect onFilterNodeBounds(const SkIRect&, const SkMatrix& ctm,
                                MapDirection, const SkIRect* inputRect) const override;
 

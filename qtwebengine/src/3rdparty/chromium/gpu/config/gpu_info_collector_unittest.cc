@@ -12,7 +12,6 @@
 #include "base/strings/string_split.h"
 #include "gpu/config/gpu_info.h"
 #include "gpu/config/gpu_info_collector.h"
-#include "gpu/config/gpu_preferences.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/gl/gl_context_stub.h"
@@ -196,9 +195,9 @@ class GPUInfoCollectorTest
   std::vector<std::string> split_extensions_;
 };
 
-INSTANTIATE_TEST_CASE_P(GPUConfig,
-                        GPUInfoCollectorTest,
-                        ::testing::ValuesIn(kMockedOperatingSystemKinds));
+INSTANTIATE_TEST_SUITE_P(GPUConfig,
+                         GPUInfoCollectorTest,
+                         ::testing::ValuesIn(kMockedOperatingSystemKinds));
 
 // TODO(rlp): Test the vendor and device id collection if deemed necessary as
 //            it involves several complicated mocks for each platform.
@@ -208,7 +207,7 @@ INSTANTIATE_TEST_CASE_P(GPUConfig,
 // be fixed.
 TEST_P(GPUInfoCollectorTest, CollectGraphicsInfoGL) {
   GPUInfo gpu_info;
-  CollectGraphicsInfoGL(&gpu_info, GpuPreferences());
+  CollectGraphicsInfoGL(&gpu_info);
 #if defined(OS_WIN)
   if (GetParam() == kMockedWindows) {
     EXPECT_EQ(test_values_.gpu.driver_vendor, gpu_info.gpu.driver_vendor);

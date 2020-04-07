@@ -11,6 +11,8 @@
 #include "base/strings/string_util.h"
 #include "base/time/time.h"
 #include "chrome/browser/browser_process.h"
+#include "chrome/browser/lookalikes/lookalike_url_controller_client.h"
+#include "chrome/browser/lookalikes/lookalike_url_interstitial_page.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/safe_browsing/safe_browsing_blocking_page.h"
 #include "chrome/browser/safe_browsing/safe_browsing_service.h"
@@ -19,11 +21,11 @@
 #include "chrome/browser/ssl/bad_clock_blocking_page.h"
 #include "chrome/browser/ssl/mitm_software_blocking_page.h"
 #include "chrome/browser/ssl/ssl_blocking_page.h"
-#include "chrome/browser/supervised_user/supervised_user_interstitial.h"
 #include "chrome/common/buildflags.h"
 #include "chrome/common/url_constants.h"
 #include "components/grit/components_resources.h"
 #include "components/safe_browsing/db/database_manager.h"
+#include "components/security_interstitials/content/origin_policy_ui.h"
 #include "components/security_interstitials/core/ssl_error_ui.h"
 #include "components/supervised_user_error_page/supervised_user_error_page.h"
 #include "content/public/browser/interstitial_page_delegate.h"
@@ -39,6 +41,7 @@
 #include "net/cert/x509_certificate.h"
 #include "net/cert/x509_util.h"
 #include "net/ssl/ssl_info.h"
+#include "services/metrics/public/cpp/ukm_source_id.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/base/webui/web_ui_util.h"
 
@@ -79,11 +82,11 @@ class InterstitialHTMLSource : public content::URLDataSource {
   ~InterstitialHTMLSource() override = default;
 
   // content::URLDataSource:
-  std::string GetMimeType(const std::string& mime_type) const override;
-  std::string GetSource() const override;
-  std::string GetContentSecurityPolicyScriptSrc() const override;
-  std::string GetContentSecurityPolicyStyleSrc() const override;
-  std::string GetContentSecurityPolicyImgSrc() const override;
+  std::string GetMimeType(const std::string& mime_type) override;
+  std::string GetSource() override;
+  std::string GetContentSecurityPolicyScriptSrc() override;
+  std::string GetContentSecurityPolicyStyleSrc() override;
+  std::string GetContentSecurityPolicyImgSrc() override;
   void StartDataRequest(
       const std::string& path,
       const content::ResourceRequestInfo::WebContentsGetter& wc_getter,
@@ -250,6 +253,18 @@ BadClockBlockingPage* CreateBadClockBlockingPage(
       base::Callback<void(content::CertificateRequestResultType)>());
 }
 
+LookalikeUrlInterstitialPage* CreateLookalikeInterstitialPage(
+    content::WebContents* web_contents) {
+  GURL request_url("https://example.net");
+  GURL safe_url("https://example.com");
+
+  return new LookalikeUrlInterstitialPage(
+      web_contents, safe_url, ukm::kInvalidSourceId,
+      LookalikeUrlInterstitialPage::MatchType::kNone,
+      std::make_unique<LookalikeUrlControllerClient>(web_contents, request_url,
+                                                     safe_url));
+}
+
 safe_browsing::SafeBrowsingBlockingPage* CreateSafeBrowsingBlockingPage(
     content::WebContents* web_contents) {
   safe_browsing::SBThreatType threat_type =
@@ -404,6 +419,13 @@ CaptivePortalBlockingPage* CreateCaptivePortalBlockingPage(
 }
 #endif
 
+security_interstitials::SecurityInterstitialPage*
+CreateOriginPolicyInterstitialPage(content::WebContents* web_contents) {
+  return security_interstitials::OriginPolicyUI::GetBlockingPage(
+      network::OriginPolicyState::kCannotLoadPolicy, web_contents,
+      GURL("https://example.com/broken/origin/policy"));
+}
+
 }  //  namespace
 
 InterstitialUI::InterstitialUI(content::WebUI* web_ui)
@@ -417,25 +439,24 @@ InterstitialUI::~InterstitialUI() {
 
 // InterstitialHTMLSource
 
-std::string InterstitialHTMLSource::GetMimeType(
-    const std::string& mime_type) const {
+std::string InterstitialHTMLSource::GetMimeType(const std::string& mime_type) {
   return "text/html";
 }
 
-std::string InterstitialHTMLSource::GetSource() const {
+std::string InterstitialHTMLSource::GetSource() {
   return chrome::kChromeUIInterstitialHost;
 }
 
-std::string InterstitialHTMLSource::GetContentSecurityPolicyScriptSrc() const {
+std::string InterstitialHTMLSource::GetContentSecurityPolicyScriptSrc() {
   // 'unsafe-inline' is added to script-src.
   return "script-src chrome://resources 'self' 'unsafe-inline';";
 }
 
-std::string InterstitialHTMLSource::GetContentSecurityPolicyStyleSrc() const {
+std::string InterstitialHTMLSource::GetContentSecurityPolicyStyleSrc() {
   return "style-src 'self' 'unsafe-inline';";
 }
 
-std::string InterstitialHTMLSource::GetContentSecurityPolicyImgSrc() const {
+std::string InterstitialHTMLSource::GetContentSecurityPolicyImgSrc() {
   return "img-src data:;";
 }
 
@@ -464,10 +485,15 @@ void InterstitialHTMLSource::StartDataRequest(
     interstitial_delegate.reset(CreateSafeBrowsingBlockingPage(web_contents));
   } else if (path_without_query == "/clock") {
     interstitial_delegate.reset(CreateBadClockBlockingPage(web_contents));
+  } else if (path_without_query == "/lookalike") {
+    interstitial_delegate.reset(CreateLookalikeInterstitialPage(web_contents));
 #if BUILDFLAG(ENABLE_CAPTIVE_PORTAL_DETECTION)
   } else if (path_without_query == "/captiveportal") {
     interstitial_delegate.reset(CreateCaptivePortalBlockingPage(web_contents));
 #endif
+  } else if (path_without_query == "/origin_policy") {
+    interstitial_delegate.reset(
+        CreateOriginPolicyInterstitialPage(web_contents));
   }
 
   if (path_without_query == "/supervised_user") {
@@ -480,9 +506,8 @@ void InterstitialHTMLSource::StartDataRequest(
   } else if (interstitial_delegate.get()) {
     html = interstitial_delegate.get()->GetHTMLContents();
   } else {
-    html = ui::ResourceBundle::GetSharedInstance()
-               .GetRawDataResource(IDR_SECURITY_INTERSTITIAL_UI_HTML)
-               .as_string();
+    html = ui::ResourceBundle::GetSharedInstance().DecompressDataResource(
+        IDR_SECURITY_INTERSTITIAL_UI_HTML);
   }
   scoped_refptr<base::RefCountedString> html_bytes = new base::RefCountedString;
   html_bytes->data().assign(html.begin(), html.end());

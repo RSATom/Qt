@@ -274,17 +274,17 @@
 */
 
 /*!
-  \fn int qmlRegisterType()
+  \fn int qmlRegisterAnonymousType(const char *uri, int versionMajor)
   \relates QQmlEngine
-  \overload
 
-  This template function registers the C++ type in the QML
-  system. Instances of this type cannot be created from the QML
-  system.
+  This template function registers the C++ type in the QML system as an anonymous type. The
+  resulting QML type does not have a name. Therefore, instances of this type cannot be created from
+  the QML system. You can, however, access instances of the type when they are exposed as properties
+  of other types.
 
-  This function should be used when the type will not be referenced by name.
-  Specifically, it has to be used for C++ types that are used as the left-hand
-  side of a property binding.
+  Use this function when the type will not be referenced by name, specifically for C++ types that
+  are used on the left-hand side of a property binding. To indicate to which module the type belongs
+  use \a uri and \a versionMajor.
 
   For example, consider the following two classes:
 
@@ -344,15 +344,26 @@
 
     \code
     qmlRegisterType<Foo>("App", 1, 0, "Foo");
-    qmlRegisterType<Bar>();
+    qmlRegisterAnonymousType<Bar>("App", 1);
     \endcode
 
   As the \c Foo type is instantiated in QML, it must be registered
-  with the version of \l qmlRegisterType() that takes an import URI.
+  with the version of \l qmlRegisterType() that takes an element name.
 
   Returns the QML type id.
 
+  \since 5.14
   \sa {Choosing the Correct Integration Method Between C++ and QML}
+*/
+
+/*!
+  \fn int qmlRegisterType()
+  \relates QQmlEngine
+  \overload
+  \deprecated
+
+  Do not use this function. For anonymous type registrations, use \l qmlRegisterAnonymousType(),
+  and make sure to provide a URI and a major version.
 */
 
 /*!
@@ -448,7 +459,7 @@
 */
 
 /*!
-    \fn template<typename T> QObject *qmlAttachedPropertiesObject(const QObject *attachee, bool create = true)
+    \fn template<typename T> QObject *qmlAttachedPropertiesObject(const QObject *attachee, bool create)
     \relates QQmlEngine
 
     The form of this template function is:
@@ -487,8 +498,7 @@
 
    A QObject singleton type may be referenced via the type name with which it was registered, and this
    typename may be used as the target in a \l Connections type or otherwise used as any other type id would.
-   One exception to this is that a QObject singleton type property may not be aliased (because the
-   singleton type name does not identify an object within the same component as any other item).
+   One exception to this is that a QObject singleton type property may not be aliased.
 
    \b{NOTE:} A QObject singleton type instance returned from a singleton type provider is owned by
    the QML engine unless the object has explicit QQmlEngine::CppOwnership flag set.
@@ -538,7 +548,7 @@
    Alternatively, you can use a C++11 lambda:
 
    \code
-   qmlRegisterSingletonType<SingletonTypeExample>("Qt.example.qjsvalueApi", 1, 0, "MyApi", [](QQmlEngine *engine, QJSEngine *scriptEngine) -> QObject * {
+   qmlRegisterSingletonType<SingletonTypeExample>("Qt.example.qobjectSingleton", 1, 0, "MyApi", [](QQmlEngine *engine, QJSEngine *scriptEngine) -> QObject * {
        Q_UNUSED(engine)
        Q_UNUSED(scriptEngine)
 
@@ -562,6 +572,14 @@
    \endqml
 
    \sa {Choosing the Correct Integration Method Between C++ and QML}
+*/
+
+
+/*!
+   \fn int qmlRegisterSingletonType(const char *uri, int versionMajor, int versionMinor, const char *typeName, std::function<QObject*(QQmlEngine *, QJSEngine *)> callback)
+   \relates QQmlEngine
+
+   \overload qmlRegisterSingletonType
 */
 
 /*!
@@ -609,6 +627,99 @@
    the type must be defined in a qmldir file with a singleton keyword and the qmldir must be imported by the QML
    files using the singleton.
 */
+
+/*!
+   \fn int qmlRegisterSingletonInstance(const char *uri, int versionMajor, int versionMinor, const char *typeName, QObject* cppObject)
+   \relates QQmlEngine
+   \since 5.14
+
+   This function is used to register a singleton object \a cppObject, with a
+   particular \a uri and \a typeName. Its version is a combination of \a
+   versionMajor and \a versionMinor.
+
+   Installing a singleton type into a URI allows you to provide arbitrary
+   functionality (methods and properties) to QML code without requiring
+   individual instances of the type to be instantiated by the client.
+
+   Use this function to register an object of the given type T as a singleton
+   type.
+
+   A QObject singleton type may be referenced via the type name with which it
+   was registered; in turn this type name may be used as the target in a \l
+   Connections type, or like any other type ID. However, there's one
+   exception: a QObject singleton type property can't be aliased because the
+   singleton type name does not identify an object within the same component
+   as any other item.
+
+   \note \a cppObject must outlive the QML engine in which it is used.
+   Moreover, \cppObject must have the same thread affinity as the engine. If
+   you want separate singleton instances for multiple engines, you need to use
+   \l {qmlRegisterSingletonType}.  See \l{Threads and QObjects} for more
+   information about thread safety.
+
+    Usage:
+    \code
+    // First, define your QObject which provides the functionality.
+    class SingletonTypeExample : public QObject
+    {
+        Q_OBJECT
+        Q_PROPERTY(int someProperty READ someProperty WRITE setSomeProperty NOTIFY somePropertyChanged)
+
+    public:
+        explicit SingletonTypeExample(QObject* parent = nullptr) : QObject(parent) {}
+
+        Q_INVOKABLE int doSomething()
+        {
+            setSomeProperty(5);
+            return m_someProperty;
+        }
+
+        int someProperty() const { return m_someProperty; }
+        void setSomeProperty(int val) {
+            if (m_someProperty != val) {
+                m_someProperty = val;
+                emit somePropertyChanged(val);
+            }
+        }
+
+    signals:
+        void somePropertyChanged(int newValue);
+
+    private:
+        int m_someProperty = 0;
+    };
+    \endcode
+
+    \code
+    // Second, create an instance of the object
+
+    // allocate example before the engine to ensure that it outlives it
+    QScopedPointer<SingletonTypeExample> example(new SingletonTypeExample);
+    QQmlEngine engine;
+
+    // Third, register the singleton type provider with QML by calling this
+    // function in an initialization function.
+    qmlRegisterSingletonInstance("Qt.example.qobjectSingleton", 1, 0, "MyApi", example.get());
+    \endcode
+
+
+    In order to use the registered singleton type in QML, you must import the
+    URI with the corresponding version.
+    \qml
+    import QtQuick 2.0
+    import Qt.example.qobjectSingleton 1.0
+    Item {
+        id: root
+        property int someValue: MyApi.someProperty
+
+        Component.onCompleted: {
+            console.log(MyApi.doSomething())
+        }
+    }
+    \endqml
+
+   \sa qmlRegisterSingletonType
+ */
 
 /*!
   \fn int qmlRegisterType(const QUrl &url, const char *uri, int versionMajor, int versionMinor, const char *qmlName);

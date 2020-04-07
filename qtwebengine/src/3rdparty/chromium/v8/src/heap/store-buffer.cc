@@ -9,12 +9,12 @@
 #include "src/base/bits.h"
 #include "src/base/macros.h"
 #include "src/base/template-utils.h"
-#include "src/counters.h"
+#include "src/execution/isolate.h"
 #include "src/heap/incremental-marking.h"
 #include "src/heap/store-buffer-inl.h"
-#include "src/isolate.h"
-#include "src/objects-inl.h"
-#include "src/v8.h"
+#include "src/init/v8.h"
+#include "src/logging/counters.h"
+#include "src/objects/objects-inl.h"
 
 namespace v8 {
 namespace internal {
@@ -78,7 +78,7 @@ void StoreBuffer::SetUp() {
   }
   current_ = 0;
   top_ = start_[current_];
-  virtual_memory_.TakeControl(&reservation);
+  virtual_memory_ = std::move(reservation);
 }
 
 void StoreBuffer::TearDown() {
@@ -104,16 +104,7 @@ void StoreBuffer::InsertDuringRuntime(StoreBuffer* store_buffer, Address slot) {
 
 void StoreBuffer::DeleteDuringGarbageCollection(StoreBuffer* store_buffer,
                                                 Address start, Address end) {
-  // In GC the store buffer has to be empty at any time.
-  DCHECK(store_buffer->Empty());
-  DCHECK(store_buffer->mode() != StoreBuffer::NOT_IN_GC);
-  Page* page = Page::FromAddress(start);
-  if (end) {
-    RememberedSet<OLD_TO_NEW>::RemoveRange(page, start, end,
-                                           SlotSet::PREFREE_EMPTY_BUCKETS);
-  } else {
-    RememberedSet<OLD_TO_NEW>::Remove(page, start);
-  }
+  UNREACHABLE();
 }
 
 void StoreBuffer::InsertDuringGarbageCollection(StoreBuffer* store_buffer,

@@ -17,7 +17,11 @@
 
 namespace net {
 class URLRequestContextGetter;
-}
+}  // namespace net
+
+namespace service_manager {
+class Connector;
+}  // namespace service_manager
 
 namespace download {
 class DownloadURLLoaderFactoryGetter;
@@ -53,7 +57,8 @@ class COMPONENTS_DOWNLOAD_EXPORT DownloadWorker
       std::unique_ptr<DownloadUrlParameters> params,
       scoped_refptr<download::DownloadURLLoaderFactoryGetter>
           url_loader_factory_getter,
-      scoped_refptr<net::URLRequestContextGetter> url_request_context_getter);
+      scoped_refptr<net::URLRequestContextGetter> url_request_context_getter,
+      service_manager::Connector* connector);
 
   // Download operations.
   void Pause();
@@ -91,7 +96,7 @@ class COMPONENTS_DOWNLOAD_EXPORT DownloadWorker
   // Used to handle the url request. Live and die on IO thread.
   UrlDownloadHandler::UniqueUrlDownloadHandlerPtr url_download_handler_;
 
-  base::WeakPtrFactory<DownloadWorker> weak_factory_;
+  base::WeakPtrFactory<DownloadWorker> weak_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(DownloadWorker);
 };

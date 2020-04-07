@@ -2,6 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "base/bind.h"
 #include "base/files/file_path.h"
 #include "chrome/browser/extensions/extension_action.h"
 #include "chrome/browser/extensions/extension_action_manager.h"
@@ -63,7 +64,7 @@ IN_PROC_BROWSER_TEST_F(ExtensionBrowserTest,
   ASSERT_TRUE(listener.WaitUntilSatisfied());
 
   ExtensionAction* extension_action =
-      ExtensionActionManager::Get(profile())->GetBrowserAction(*extension);
+      ExtensionActionManager::Get(profile())->GetExtensionAction(*extension);
   ASSERT_TRUE(extension_action);
   EXPECT_EQ(SK_ColorBLUE, extension_action->GetBadgeBackgroundColor(0));
 }
@@ -88,7 +89,7 @@ IN_PROC_BROWSER_TEST_F(ExtensionBrowserTest, BrowserActionDefaultPersistence) {
   ASSERT_TRUE(extension) << "Could not find extension in registry.";
 
   ExtensionAction* extension_action =
-      ExtensionActionManager::Get(profile())->GetBrowserAction(*extension);
+      ExtensionActionManager::Get(profile())->GetExtensionAction(*extension);
   ASSERT_TRUE(extension_action);
 
   // If the extension hasn't already set the badge text, then we should wait for

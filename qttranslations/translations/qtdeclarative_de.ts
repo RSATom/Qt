@@ -217,6 +217,14 @@
         <source>Connections: script expected</source>
         <translation>Verbindungen: Skript erwartet</translation>
     </message>
+    <message>
+        <source>Implicitly defined onFoo properties in Connections are deprecated. Use this syntax instead: function onFoo(&lt;arguments&gt;) { ... }</source>
+        <translation>Implizit definierte onFoo-Eigenschaften im Connections-Element sind deprecated. Verwenden Sie stattdessen die Syntax: function onFoo(&lt;arguments&gt;) { ... }</translation>
+    </message>
+    <message>
+        <source>Detected function &quot;%1&quot; in Connections element. This is probably intended to be a signal handler but no signal of the target matches the name.</source>
+        <translation>Im Connections-Element wurde die Funktion &quot;%1&quot; gefunden. Wahrscheinlich ist sie ein Signal-Handler, aber kein Signal des Ziels entspricht dem Namen.</translation>
+    </message>
 </context>
 <context>
     <name>QQmlDebugServerImpl</name>
@@ -410,7 +418,7 @@
 <context>
     <name>QQmlEngine</name>
     <message>
-        <source>Locale cannot be instantiated.  Use Qt.locale()</source>
+        <source>Locale cannot be instantiated. Use Qt.locale()</source>
         <translation>Locale kann nicht instanziiert werden. Verwenden Sie Qt.locale()</translation>
     </message>
     <message>
@@ -540,24 +548,8 @@
         <translation>&quot;qmldir&quot; und Namensraum fehlen bei dem Import &quot;%1&quot;</translation>
     </message>
     <message>
-        <source>Module loaded for URI &apos;%1&apos; does not implement QQmlTypesExtensionInterface</source>
-        <translation>Das für den URI &apos;%1&apos; geladene Modul implementiert nicht QQmlTypesExtensionInterface</translation>
-    </message>
-    <message>
         <source>File name case mismatch for &quot;%1&quot;</source>
         <translation>Die Groß/Kleinschreibung des Dateinamens &quot;%1&quot; stimmt nicht überein</translation>
-    </message>
-    <message>
-        <source>Module namespace &apos;%1&apos; does not match import URI &apos;%2&apos;</source>
-        <translation>Der Modul-Namensraum &apos;%1&apos; entspricht nicht dem Import-URI &apos;%2&apos;</translation>
-    </message>
-    <message>
-        <source>Namespace &apos;%1&apos; has already been used for type registration</source>
-        <translation>Der Namensraum &apos;%1&apos; wurde bereits zur Typregistrierung verwendet</translation>
-    </message>
-    <message>
-        <source>Module &apos;%1&apos; does not contain a module identifier directive - it cannot be protected from external registrations.</source>
-        <translation>Der Modul &apos;%1&apos; enthält keine Modulbezeichner-Direktive - er kann nicht vor externen Registrierungen geschützt werden.</translation>
     </message>
 </context>
 <context>
@@ -808,6 +800,14 @@
         <translation>Eine importierte Datei muss ein Skript sein</translation>
     </message>
     <message>
+        <source>Module import requires a minor version (missing dot)</source>
+        <translation>Der Import eines Moduls erfordert die Angabe der Minor-Version (fehlender Punkt)</translation>
+    </message>
+    <message>
+        <source>Module import requires a minor version (missing number)</source>
+        <translation>Der Import eines Moduls erfordert die Angabe der Minor-Version (fehlende Zahl)</translation>
+    </message>
+    <message>
         <source>File import requires a qualifier</source>
         <translation>Dateiimport erfordert die Angabe eines Qualifizierers</translation>
     </message>
@@ -878,6 +878,10 @@
         <translation>Ungültiger Typ der Eigenschaft</translation>
     </message>
     <message>
+        <source>Cyclic alias</source>
+        <translation>Zyklischer Alias</translation>
+    </message>
+    <message>
         <source>Invalid alias target</source>
         <translation>Ungültiges Alias-Ziel</translation>
     </message>
@@ -931,6 +935,10 @@
     <message>
         <source>Invalid grouped property access</source>
         <translation>Falscher Zugriff auf gruppierte Eigenschaft</translation>
+    </message>
+    <message>
+        <source>Invalid grouped property access: Property &quot;%1&quot; with primitive type &quot;%2&quot;.</source>
+        <translation>Falscher Zugriff auf gruppierte Eigenschaft &quot;%1&quot; des primitiven Typs &quot;%2&quot;.</translation>
     </message>
     <message>
         <source>Invalid grouped property access: Property &quot;%1&quot; with type &quot;%2&quot;, which is not a value type</source>
@@ -1073,12 +1081,20 @@
         <translation>Der Listeneigenschaft &quot;%1&quot; kann kein Objekt zugewiesen werden</translation>
     </message>
     <message>
-        <source>Unexpected object assignment for property &quot;%1&quot;</source>
-        <translation>Ungültige Objektzuweisung für Eigenschaft &quot;%1&quot;</translation>
+        <source>Can not assign value of type &quot;%1&quot; to property &quot;%2&quot;, expecting &quot;%3&quot;</source>
+        <translation>Der Eigenschaft &quot;%2&quot; kann kein Wert des Typs &quot;%1&quot; zugewiesen werden; es wird &quot;%3&quot; erwartet</translation>
+    </message>
+    <message>
+        <source>Can not assign value of type &quot;%1&quot; to property &quot;%2&quot;, expecting an object</source>
+        <translation>Der Eigenschaft &quot;%2&quot; kann kein Wert des Typs &quot;%1&quot; zugewiesen werden; es wird ein Objekt erwartet</translation>
     </message>
     <message>
         <source>Cannot assign object of type &quot;%1&quot; to property of type &quot;%2&quot; as the former is neither the same as the latter nor a sub-class of it.</source>
         <translation>Das Objekt des Typs &quot;%1&quot; kann nicht einer Eigenschaft des Typs &quot;%2&quot; zugewiesen werden, da sein Typ weder dem Typ der Eigenschaft entspricht noch eine davon abgeleitete Klasse ist.</translation>
+    </message>
+    <message>
+        <source>Cannot assign to property of unknown type &quot;%1&quot;.</source>
+        <translation>Es kann keine Zuweisung an eine Eigenschaft des unbekannten Typs &quot;%1&quot; durchgeführt werden.</translation>
     </message>
     <message>
         <source>Invalid property assignment: script expected</source>
@@ -1485,6 +1501,10 @@
     <message>
         <source>PointerHandler is an abstract base class</source>
         <translation>PointerHandler ist eine abstrakte Basisklasse</translation>
+    </message>
+    <message>
+        <source>ImageBase is an abstract base class</source>
+        <translation>ImageBase ist eine abstrakte Basisklasse</translation>
     </message>
 </context>
 <context>

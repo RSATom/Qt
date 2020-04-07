@@ -20,29 +20,33 @@
 
 namespace device {
 
+class FidoDiscoveryFactory;
+
 // Handles receiving response form potentially multiple connected authenticators
 // and relaying response to the relying party.
+//
+// TODO: this class should be dropped; it's not pulling its weight.
 template <class Response>
 class FidoRequestHandler : public FidoRequestHandlerBase {
  public:
-  using CompletionCallback = base::OnceCallback<void(
-      FidoReturnCode status_code,
-      base::Optional<Response> response_data,
-      base::Optional<FidoTransportProtocol> transport_used)>;
+  using CompletionCallback =
+      base::OnceCallback<void(FidoReturnCode status_code,
+                              base::Optional<Response> response_data,
+                              const FidoAuthenticator* authenticator)>;
 
   // The |available_transports| should be the intersection of transports
   // supported by the client and allowed by the relying party.
   FidoRequestHandler(
       service_manager::Connector* connector,
+      FidoDiscoveryFactory* fido_discovery_factory,
       const base::flat_set<FidoTransportProtocol>& available_transports,
       CompletionCallback completion_callback)
-      : FidoRequestHandlerBase(connector, available_transports),
+      : FidoRequestHandlerBase(connector,
+                               fido_discovery_factory,
+                               available_transports),
         completion_callback_(std::move(completion_callback)) {}
 
-  ~FidoRequestHandler() override {
-    if (!is_complete())
-      CancelActiveAuthenticators();
-  }
+  ~FidoRequestHandler() override = default;
 
   bool is_complete() const { return completion_callback_.is_null(); }
 
@@ -50,44 +54,26 @@ class FidoRequestHandler : public FidoRequestHandlerBase {
   // Converts authenticator response code received from CTAP1/CTAP2 device into
   // FidoReturnCode and passes response data to webauth::mojom::Authenticator.
   void OnAuthenticatorResponse(FidoAuthenticator* authenticator,
-                               CtapDeviceResponseCode device_response_code,
+                               FidoReturnCode result,
                                base::Optional<Response> response_data) {
     if (is_complete()) {
-      DVLOG(2)
-          << "Response from authenticator received after request is complete.";
+      // TODO: this should be handled at a higher level and so there should be
+      // a NOTREACHED() here. But some unittests are exercising this directly.
       return;
     }
 
-    base::Optional<FidoReturnCode> return_code =
-        ConvertDeviceResponseCodeToFidoReturnCode(device_response_code,
-                                                  response_data.has_value());
-
-    // Any authenticator response codes that do not result from user consent
-    // imply that the authenticator should be dropped and that other on-going
-    // requests should continue until timeout is reached.
-    if (!return_code) {
-      active_authenticators().erase(authenticator->GetId());
-      return;
-    }
-
-    // Once response has been passed to the relying party, cancel all other on
-    // going requests.
-    CancelActiveAuthenticators(authenticator->GetId());
     std::move(completion_callback_)
-        .Run(*return_code, std::move(response_data),
-             authenticator->AuthenticatorTransport());
+        .Run(result, std::move(response_data), authenticator);
   }
 
- private:
+  CompletionCallback completion_callback_;
+
   static base::Optional<FidoReturnCode>
   ConvertDeviceResponseCodeToFidoReturnCode(
-      CtapDeviceResponseCode device_response_code,
-      bool response_has_value) {
+      CtapDeviceResponseCode device_response_code) {
     switch (device_response_code) {
       case CtapDeviceResponseCode::kSuccess:
-        return response_has_value
-                   ? FidoReturnCode::kSuccess
-                   : FidoReturnCode::kAuthenticatorResponseInvalid;
+        return FidoReturnCode::kSuccess;
 
       // These errors are only returned after the user interacted with the
       // authenticator.
@@ -101,6 +87,15 @@ class FidoRequestHandler : public FidoRequestHandlerBase {
       // return it e.g. after the user fails fingerprint verification.
       case CtapDeviceResponseCode::kCtap2ErrOperationDenied:
         return FidoReturnCode::kUserConsentDenied;
+
+      // External authenticators may return this error if internal user
+      // verification fails for a make credential request or if the pin token is
+      // not valid.
+      case CtapDeviceResponseCode::kCtap2ErrPinAuthInvalid:
+        return FidoReturnCode::kUserConsentDenied;
+
+      case CtapDeviceResponseCode::kCtap2ErrKeyStoreFull:
+        return FidoReturnCode::kStorageFull;
 
       // This error is returned by some authenticators (e.g. the "Yubico FIDO
       // 2" CTAP2 USB keys) during GetAssertion **before the user interacted
@@ -120,8 +115,7 @@ class FidoRequestHandler : public FidoRequestHandlerBase {
     }
   }
 
-  CompletionCallback completion_callback_;
-
+ private:
   DISALLOW_COPY_AND_ASSIGN(FidoRequestHandler);
 };
 

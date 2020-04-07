@@ -23,6 +23,12 @@ namespace content {
 
 using internal::ChildProcessLauncherHelper;
 
+#if defined(OS_ANDROID)
+bool ChildProcessLauncher::Client::CanUseWarmUpConnection() {
+  return true;
+}
+#endif
+
 ChildProcessLauncher::ChildProcessLauncher(
     std::unique_ptr<SandboxedProcessLauncherDelegate> delegate,
     std::unique_ptr<base::CommandLine> command_line,
@@ -37,17 +43,19 @@ ChildProcessLauncher::ChildProcessLauncher(
 #if defined(ADDRESS_SANITIZER) || defined(LEAK_SANITIZER) ||  \
     defined(MEMORY_SANITIZER) || defined(THREAD_SANITIZER) || \
     defined(UNDEFINED_SANITIZER) || BUILDFLAG(CLANG_COVERAGE)
-      terminate_child_on_shutdown_(false),
+      terminate_child_on_shutdown_(false)
 #else
-      terminate_child_on_shutdown_(terminate_on_shutdown),
+      terminate_child_on_shutdown_(terminate_on_shutdown)
 #endif
-      weak_factory_(this) {
+{
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  CHECK(BrowserThread::GetCurrentThreadIdentifier(&client_thread_id_));
 
-  helper_ = new ChildProcessLauncherHelper(
-      child_process_id, client_thread_id_, std::move(command_line),
-      std::move(delegate), weak_factory_.GetWeakPtr(), terminate_on_shutdown,
+  helper_ = base::MakeRefCounted<ChildProcessLauncherHelper>(
+      child_process_id, std::move(command_line), std::move(delegate),
+      weak_factory_.GetWeakPtr(), terminate_on_shutdown,
+#if defined(OS_ANDROID)
+      client_->CanUseWarmUpConnection(),
+#endif
       std::move(mojo_invitation), process_error_callback);
   helper_->StartLaunchOnClientThread();
 }
@@ -161,6 +169,15 @@ void ChildProcessLauncher::ResetRegisteredFilesForTesting() {
   ChildProcessLauncherHelper::ResetRegisteredFilesForTesting();
 }
 
+#if defined(OS_ANDROID)
+void ChildProcessLauncher::DumpProcessStack() {
+  base::Process to_pass = process_.process.Duplicate();
+  GetProcessLauncherTaskRunner()->PostTask(
+      FROM_HERE, base::BindOnce(&ChildProcessLauncherHelper::DumpProcessStack,
+                                helper_, std::move(to_pass)));
+}
+#endif
+
 ChildProcessLauncher::Client* ChildProcessLauncher::ReplaceClientForTest(
     Client* client) {
   Client* ret = client_;
@@ -169,19 +186,12 @@ ChildProcessLauncher::Client* ChildProcessLauncher::ReplaceClientForTest(
 }
 
 bool ChildProcessLauncherPriority::is_background() const {
-  return !visible && !has_media_stream &&
-         !(should_boost_for_pending_views && boost_for_pending_views) &&
-         !(has_foreground_service_worker &&
-           base::FeatureList::IsEnabled(
-               features::kServiceWorkerForegroundPriority));
+  return !visible && !has_media_stream && !boost_for_pending_views &&
+         !has_foreground_service_worker;
 }
 
 bool ChildProcessLauncherPriority::operator==(
     const ChildProcessLauncherPriority& other) const {
-  // |should_boost_for_pending_views| is temporary and constant for all
-  // ChildProcessLauncherPriority throughout a session (experiment driven).
-  DCHECK_EQ(should_boost_for_pending_views,
-            other.should_boost_for_pending_views);
   return visible == other.visible &&
          has_media_stream == other.has_media_stream &&
          has_foreground_service_worker == other.has_foreground_service_worker &&

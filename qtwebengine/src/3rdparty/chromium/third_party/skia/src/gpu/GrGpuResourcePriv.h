@@ -8,7 +8,7 @@
 #ifndef GrGpuResourcePriv_DEFINED
 #define GrGpuResourcePriv_DEFINED
 
-#include "GrGpuResource.h"
+#include "include/gpu/GrGpuResource.h"
 
 /**
  * This class allows code internal to Skia privileged access to manage the cache keys and budget
@@ -43,12 +43,13 @@ public:
     void makeUnbudgeted() { fResource->makeUnbudgeted(); }
 
     /**
-     * Does the resource count against the resource budget?
+     * Get the resource's budgeted-type which indicates whether it counts against the resource cache
+     * budget and if not whether it is allowed to be cached.
      */
-    SkBudgeted isBudgeted() const {
-        bool ret = SkBudgeted::kYes == fResource->fBudgeted;
-        SkASSERT(ret || !fResource->getUniqueKey().isValid() || fResource->fRefsWrappedObjects);
-        return SkBudgeted(ret);
+    GrBudgetedType budgetedType() const {
+        SkASSERT(GrBudgetedType::kBudgeted == fResource->fBudgetedType ||
+                 !fResource->getUniqueKey().isValid() || fResource->fRefsWrappedObjects);
+        return fResource->fBudgetedType;
     }
 
     /**
@@ -70,6 +71,8 @@ public:
     void removeScratchKey() const { fResource->removeScratchKey();  }
 
     bool isPurgeable() const { return fResource->isPurgeable(); }
+
+    bool hasRefOrPendingIO() const { return fResource->hasRefOrPendingIO(); }
 
 protected:
     ResourcePriv(GrGpuResource* resource) : fResource(resource) {   }

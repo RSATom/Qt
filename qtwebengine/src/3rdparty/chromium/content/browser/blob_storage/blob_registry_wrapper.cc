@@ -4,6 +4,7 @@
 
 #include "content/browser/blob_storage/blob_registry_wrapper.h"
 
+#include "base/bind.h"
 #include "base/task/post_task.h"
 #include "content/browser/blob_storage/chrome_blob_storage_context.h"
 #include "content/browser/child_process_security_policy_impl.h"
@@ -19,32 +20,23 @@ namespace {
 
 class BindingDelegate : public storage::BlobRegistryImpl::Delegate {
  public:
-  explicit BindingDelegate(int process_id) : process_id_(process_id) {}
+  explicit BindingDelegate(
+      ChildProcessSecurityPolicyImpl::Handle security_policy_handle)
+      : security_policy_handle_(std::move(security_policy_handle)) {}
   ~BindingDelegate() override {}
 
   bool CanReadFile(const base::FilePath& file) override {
-    ChildProcessSecurityPolicyImpl* security_policy =
-        ChildProcessSecurityPolicyImpl::GetInstance();
-    return security_policy->CanReadFile(process_id_, file);
+    return security_policy_handle_.CanReadFile(file);
   }
   bool CanReadFileSystemFile(const storage::FileSystemURL& url) override {
-    ChildProcessSecurityPolicyImpl* security_policy =
-        ChildProcessSecurityPolicyImpl::GetInstance();
-    return security_policy->CanReadFileSystemFile(process_id_, url);
+    return security_policy_handle_.CanReadFileSystemFile(url);
   }
   bool CanCommitURL(const GURL& url) override {
-    ChildProcessSecurityPolicyImpl* security_policy =
-        ChildProcessSecurityPolicyImpl::GetInstance();
-    return security_policy->CanCommitURL(process_id_, url);
-  }
-  bool IsProcessValid() override {
-    ChildProcessSecurityPolicyImpl* security_policy =
-        ChildProcessSecurityPolicyImpl::GetInstance();
-    return security_policy->HasSecurityState(process_id_);
+    return security_policy_handle_.CanCommitURL(url);
   }
 
  private:
-  const int process_id_;
+  ChildProcessSecurityPolicyImpl::Handle security_policy_handle_;
 };
 
 }  // namespace
@@ -68,8 +60,11 @@ BlobRegistryWrapper::BlobRegistryWrapper() {
 void BlobRegistryWrapper::Bind(int process_id,
                                blink::mojom::BlobRegistryRequest request) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
-  blob_registry_->Bind(std::move(request),
-                       std::make_unique<BindingDelegate>(process_id));
+  blob_registry_->Bind(
+      std::move(request),
+      std::make_unique<BindingDelegate>(
+          ChildProcessSecurityPolicyImpl::GetInstance()->CreateHandle(
+              process_id)));
 }
 
 BlobRegistryWrapper::~BlobRegistryWrapper() {}

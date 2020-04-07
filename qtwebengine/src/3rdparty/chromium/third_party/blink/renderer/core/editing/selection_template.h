@@ -12,7 +12,7 @@
 #include "third_party/blink/renderer/core/editing/position.h"
 #include "third_party/blink/renderer/core/editing/selection_type.h"
 #include "third_party/blink/renderer/core/editing/text_affinity.h"
-#include "third_party/blink/renderer/platform/wtf/allocator.h"
+#include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 
 namespace blink {
 
@@ -84,7 +84,7 @@ class SelectionTemplate final {
     explicit InvalidSelectionResetter(const SelectionTemplate&);
     ~InvalidSelectionResetter();
 
-    void Trace(blink::Visitor*);
+    void Trace(Visitor*);
 
    private:
     const Member<const Document> document_;
@@ -121,10 +121,10 @@ class SelectionTemplate final {
   // Returns |SelectionType| for |this| based on |base_| and |extent_|.
   SelectionType Type() const;
 
-  void Trace(blink::Visitor*);
+  void Trace(Visitor*);
 
   void PrintTo(std::ostream*, const char* type) const;
-#ifndef NDEBUG
+#if DCHECK_IS_ON()
   void ShowTreeForThis() const;
 #endif
 

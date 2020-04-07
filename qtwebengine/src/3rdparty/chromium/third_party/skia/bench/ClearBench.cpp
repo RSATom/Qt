@@ -10,20 +10,20 @@
 // partial clears on the GPU should follow a fast path that maps to backend-specialized clear
 // operations, whereas the rounded-rect clear cannot be.
 
-#include "Benchmark.h"
+#include "bench/Benchmark.h"
 
-#include "SkCanvas.h"
-#include "SkGradientShader.h"
-#include "SkPaint.h"
-#include "SkRect.h"
-#include "SkRRect.h"
+#include "include/core/SkCanvas.h"
+#include "include/core/SkPaint.h"
+#include "include/core/SkRRect.h"
+#include "include/core/SkRect.h"
+#include "include/effects/SkGradientShader.h"
 
-#include "GrRenderTargetContext.h"
+#include "src/gpu/GrRenderTargetContext.h"
 
 static sk_sp<SkShader> make_shader() {
     static const SkPoint kPts[] = {{0, 0}, {10, 10}};
     static const SkColor kColors[] = {SK_ColorBLUE, SK_ColorWHITE};
-    return SkGradientShader::MakeLinear(kPts, kColors, nullptr, 2, SkShader::kClamp_TileMode);
+    return SkGradientShader::MakeLinear(kPts, kColors, nullptr, 2, SkTileMode::kClamp);
 }
 
 class ClearBench : public Benchmark {
@@ -64,11 +64,11 @@ protected:
 
         GrRenderTargetContext* rtc = canvas->internal_private_accessTopLayerRenderTargetContext();
         if (rtc) {
-            // Tricks the GrRenderTargetOpList into thinking it cannot reset its draw op list on
-            // a fullscreen clear. If we don't do this, fullscreen clear ops would be created and
-            // constantly discard the previous iteration's op so execution would only invoke one
-            // actual clear on the GPU (not what we want to measure).
-            rtc->setNeedsStencil();
+            // Tell the GrRenderTargetContext to not reset its draw op list on a fullscreen clear.
+            // If we don't do this, fullscreen clear ops would be created and constantly discard the
+            // previous iteration's op so execution would only invoke one actual clear on the GPU
+            // (not what we want to measure).
+            rtc->testingOnly_SetPreserveOpsOnFullClear();
         }
 
         for (int i = 0; i < loops; i++) {

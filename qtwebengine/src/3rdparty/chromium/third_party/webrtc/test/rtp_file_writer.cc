@@ -12,6 +12,7 @@
 
 #include <stdint.h>
 #include <stdio.h>
+
 #include <string>
 
 #include "rtc_base/checks.h"
@@ -31,7 +32,7 @@ class RtpDumpWriter : public RtpFileWriter {
     RTC_CHECK(file_ != NULL);
     Init();
   }
-  virtual ~RtpDumpWriter() {
+  ~RtpDumpWriter() override {
     if (file_ != NULL) {
       fclose(file_);
       file_ = NULL;

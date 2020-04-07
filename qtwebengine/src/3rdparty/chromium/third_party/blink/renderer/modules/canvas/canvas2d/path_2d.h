@@ -28,6 +28,7 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_MODULES_CANVAS_CANVAS2D_PATH_2D_H_
 #define THIRD_PARTY_BLINK_RENDERER_MODULES_CANVAS_CANVAS2D_PATH_2D_H_
 
+#include "base/macros.h"
 #include "third_party/blink/renderer/bindings/modules/v8/path_2d_or_string.h"
 #include "third_party/blink/renderer/core/geometry/dom_matrix.h"
 #include "third_party/blink/renderer/core/geometry/dom_matrix_2d_init.h"
@@ -38,12 +39,18 @@
 #include "third_party/blink/renderer/platform/transforms/affine_transform.h"
 
 namespace blink {
+namespace {
+
+bool IsInfinityOrNaN(double value) {
+  return !std::isfinite(value) || std::isnan(value);
+}
+
+}  // namespace
 
 class ExceptionState;
 
 class MODULES_EXPORT Path2D final : public ScriptWrappable, public CanvasPath {
   DEFINE_WRAPPERTYPEINFO();
-  WTF_MAKE_NONCOPYABLE(Path2D);
 
  public:
   static Path2D* Create(Path2DOrString pathorstring) {
@@ -67,7 +74,10 @@ class MODULES_EXPORT Path2D final : public ScriptWrappable, public CanvasPath {
                ExceptionState& exception_state) {
     DOMMatrixReadOnly* matrix =
         DOMMatrixReadOnly::fromMatrix2D(transform, exception_state);
-    if (!matrix)
+    if (!matrix || IsInfinityOrNaN(matrix->m11()) ||
+        IsInfinityOrNaN(matrix->m12()) || IsInfinityOrNaN(matrix->m21()) ||
+        IsInfinityOrNaN(matrix->m22()) || IsInfinityOrNaN(matrix->m41()) ||
+        IsInfinityOrNaN(matrix->m42()))
       return;
     path_.AddPath(path->GetPath(), matrix->GetAffineTransform());
   }
@@ -79,6 +89,9 @@ class MODULES_EXPORT Path2D final : public ScriptWrappable, public CanvasPath {
     BuildPathFromString(path_data, path_);
   }
   ~Path2D() override = default;
+
+ private:
+  DISALLOW_COPY_AND_ASSIGN(Path2D);
 };
 
 }  // namespace blink

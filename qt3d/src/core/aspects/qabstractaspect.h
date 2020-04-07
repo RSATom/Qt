@@ -42,6 +42,7 @@
 
 #include <Qt3DCore/qt3dcore_global.h>
 #include <Qt3DCore/qnodeid.h>
+#include <Qt3DCore/qscenechange.h>
 #include <QtCore/QObject>
 #include <QtCore/QSharedPointer>
 
@@ -77,7 +78,7 @@ protected:
 
     template<class Frontend>
     void registerBackendType(const QBackendNodeMapperPtr &functor);
-    void registerBackendType(const QMetaObject &, const QBackendNodeMapperPtr &functor);
+    void registerBackendType(const QMetaObject &obj, const QBackendNodeMapperPtr &functor);
     template<class Frontend>
     void unregisterBackendType();
     void unregisterBackendType(const QMetaObject &);

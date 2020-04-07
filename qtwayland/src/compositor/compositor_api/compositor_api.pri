@@ -69,16 +69,21 @@ qtConfig(wayland-compositor-quick) {
         compositor_api/qwaylandquickcompositor.cpp \
         compositor_api/qwaylandquicksurface.cpp \
         compositor_api/qwaylandquickoutput.cpp \
-        compositor_api/qwaylandquickitem.cpp \
-        compositor_api/qwaylandquickhardwarelayer.cpp
+        compositor_api/qwaylandquickitem.cpp
 
     HEADERS += \
         compositor_api/qwaylandquickcompositor.h \
         compositor_api/qwaylandquicksurface.h \
         compositor_api/qwaylandquickoutput.h \
         compositor_api/qwaylandquickitem.h \
-        compositor_api/qwaylandquickitem_p.h \
-        compositor_api/qwaylandquickhardwarelayer_p.h
+        compositor_api/qwaylandquickitem_p.h
+
+    qtConfig(opengl) {
+        SOURCES += \
+            compositor_api/qwaylandquickhardwarelayer.cpp
+        HEADERS += \
+            compositor_api/qwaylandquickhardwarelayer_p.h
+    }
 
     QT += qml qml-private quick quick-private
 }

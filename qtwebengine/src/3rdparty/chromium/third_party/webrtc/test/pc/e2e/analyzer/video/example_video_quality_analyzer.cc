@@ -13,12 +13,13 @@
 #include "rtc_base/logging.h"
 
 namespace webrtc {
-namespace test {
+namespace webrtc_pc_e2e {
 
 ExampleVideoQualityAnalyzer::ExampleVideoQualityAnalyzer() = default;
 ExampleVideoQualityAnalyzer::~ExampleVideoQualityAnalyzer() = default;
 
-void ExampleVideoQualityAnalyzer::Start(int max_threads_count) {}
+void ExampleVideoQualityAnalyzer::Start(std::string test_case_name,
+                                        int max_threads_count) {}
 
 uint16_t ExampleVideoQualityAnalyzer::OnFrameCaptured(
     const std::string& stream_label,
@@ -28,25 +29,32 @@ uint16_t ExampleVideoQualityAnalyzer::OnFrameCaptured(
   auto it = frames_in_flight_.find(frame_id);
   if (it == frames_in_flight_.end()) {
     frames_in_flight_.insert(frame_id);
+    frames_to_stream_label_.insert({frame_id, stream_label});
   } else {
     RTC_LOG(WARNING) << "Meet new frame with the same id: " << frame_id
                      << ". Assumes old one as dropped";
     // We needn't insert frame to frames_in_flight_, because it is already
     // there.
     ++frames_dropped_;
+    auto stream_it = frames_to_stream_label_.find(frame_id);
+    RTC_CHECK(stream_it != frames_to_stream_label_.end());
+    stream_it->second = stream_label;
   }
   ++frames_captured_;
   return frame_id;
 }
 
 void ExampleVideoQualityAnalyzer::OnFramePreEncode(
-    const webrtc::VideoFrame& frame) {}
+    const webrtc::VideoFrame& frame) {
+  rtc::CritScope crit(&lock_);
+  ++frames_pre_encoded_;
+}
 
 void ExampleVideoQualityAnalyzer::OnFrameEncoded(
     uint16_t frame_id,
     const webrtc::EncodedImage& encoded_image) {
   rtc::CritScope crit(&lock_);
-  ++frames_sent_;
+  ++frames_encoded_;
 }
 
 void ExampleVideoQualityAnalyzer::OnFrameDropped(
@@ -66,7 +74,10 @@ void ExampleVideoQualityAnalyzer::OnFrameReceived(
 void ExampleVideoQualityAnalyzer::OnFrameDecoded(
     const webrtc::VideoFrame& frame,
     absl::optional<int32_t> decode_time_ms,
-    absl::optional<uint8_t> qp) {}
+    absl::optional<uint8_t> qp) {
+  rtc::CritScope crit(&lock_);
+  ++frames_decoded_;
+}
 
 void ExampleVideoQualityAnalyzer::OnFrameRendered(
     const webrtc::VideoFrame& frame) {
@@ -95,14 +106,27 @@ void ExampleVideoQualityAnalyzer::Stop() {
   frames_dropped_ += frames_in_flight_.size();
 }
 
+std::string ExampleVideoQualityAnalyzer::GetStreamLabel(uint16_t frame_id) {
+  rtc::CritScope crit(&lock_);
+  auto it = frames_to_stream_label_.find(frame_id);
+  RTC_DCHECK(it != frames_to_stream_label_.end())
+      << "Unknown frame_id=" << frame_id;
+  return it->second;
+}
+
 uint64_t ExampleVideoQualityAnalyzer::frames_captured() const {
   rtc::CritScope crit(&lock_);
   return frames_captured_;
 }
 
-uint64_t ExampleVideoQualityAnalyzer::frames_sent() const {
+uint64_t ExampleVideoQualityAnalyzer::frames_pre_encoded() const {
   rtc::CritScope crit(&lock_);
-  return frames_sent_;
+  return frames_pre_encoded_;
+}
+
+uint64_t ExampleVideoQualityAnalyzer::frames_encoded() const {
+  rtc::CritScope crit(&lock_);
+  return frames_encoded_;
 }
 
 uint64_t ExampleVideoQualityAnalyzer::frames_received() const {
@@ -110,9 +134,9 @@ uint64_t ExampleVideoQualityAnalyzer::frames_received() const {
   return frames_received_;
 }
 
-uint64_t ExampleVideoQualityAnalyzer::frames_dropped() const {
+uint64_t ExampleVideoQualityAnalyzer::frames_decoded() const {
   rtc::CritScope crit(&lock_);
-  return frames_dropped_;
+  return frames_decoded_;
 }
 
 uint64_t ExampleVideoQualityAnalyzer::frames_rendered() const {
@@ -120,5 +144,10 @@ uint64_t ExampleVideoQualityAnalyzer::frames_rendered() const {
   return frames_rendered_;
 }
 
-}  // namespace test
+uint64_t ExampleVideoQualityAnalyzer::frames_dropped() const {
+  rtc::CritScope crit(&lock_);
+  return frames_dropped_;
+}
+
+}  // namespace webrtc_pc_e2e
 }  // namespace webrtc

@@ -5,7 +5,7 @@
 #ifndef UI_AURA_EVENT_INJECTOR_H_
 #define UI_AURA_EVENT_INJECTOR_H_
 
-#include "services/ws/public/mojom/event_injector.mojom.h"
+#include "base/macros.h"
 #include "ui/aura/aura_export.h"
 
 namespace ui {
@@ -17,19 +17,17 @@ namespace aura {
 
 class WindowTreeHost;
 
-// Used to inject events into the system. In LOCAL mode, it directly injects
-// events into the WindowTreeHost, but in MUS mode, it injects events into the
-// window-server (over the mojom API).
+// Used to inject events as if they came from the OS.
 class AURA_EXPORT EventInjector {
  public:
   EventInjector();
   ~EventInjector();
 
+  // Inject |event| to |host|. If |event| is a LocatedEvent, then coordinates
+  // are relative to host and in DIPs.
   ui::EventDispatchDetails Inject(WindowTreeHost* host, ui::Event* event);
 
  private:
-  ws::mojom::EventInjectorPtr event_injector_;
-
   DISALLOW_COPY_AND_ASSIGN(EventInjector);
 };
 

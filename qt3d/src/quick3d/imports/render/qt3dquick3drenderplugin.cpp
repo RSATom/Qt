@@ -55,6 +55,7 @@
 #include <Qt3DRender/qcolormask.h>
 #include <Qt3DRender/qcomputecommand.h>
 #include <Qt3DRender/qcullface.h>
+#include <Qt3DRender/qdepthrange.h>
 #include <Qt3DRender/qdepthtest.h>
 #include <Qt3DRender/qdirectionallight.h>
 #include <Qt3DRender/qdispatchcompute.h>
@@ -114,6 +115,10 @@
 #include <Qt3DRender/qblitframebuffer.h>
 #include <Qt3DRender/qsetfence.h>
 #include <Qt3DRender/qwaitfence.h>
+#include <Qt3DRender/qrastermode.h>
+#include <Qt3DRender/qnopicking.h>
+#include <Qt3DRender/qshaderimage.h>
+#include <Qt3DRender/qsubtreeenabler.h>
 
 #include <QtGui/qwindow.h>
 
@@ -188,6 +193,7 @@ void Qt3DQuick3DRenderPlugin::registerTypes(const char *uri)
     // Camera
     qmlRegisterType<Qt3DRender::QCamera>(uri, 2, 0, "Camera");
     qmlRegisterType<Qt3DRender::QCamera, 9>(uri, 2, 9, "Camera");
+    qmlRegisterType<Qt3DRender::QCamera, 14>(uri, 2, 14, "Camera");
     qmlRegisterType<Qt3DRender::QCameraLens>(uri, 2, 0, "CameraLens");
     qmlRegisterType<Qt3DRender::QCameraLens, 9>(uri, 2, 9, "CameraLens");
 
@@ -210,6 +216,7 @@ void Qt3DQuick3DRenderPlugin::registerTypes(const char *uri)
     qmlRegisterUncreatableType<Qt3DRender::QAbstractTextureImage>(uri, 2, 0, "QAbstractTextureImage", QStringLiteral("QAbstractTextureImage is abstract"));
     qmlRegisterType<Qt3DRender::QTextureImage>(uri, 2, 0, "TextureImage");
     qmlRegisterType<Qt3DRender::QSharedGLTexture>(uri, 2, 13, "SharedGLTexture");
+    qmlRegisterType<Qt3DRender::QShaderImage>(uri, 2, 14, "ShaderImage");
 
     // Geometry
     qmlRegisterType<Qt3DRender::QAttribute>(uri, 2, 0, "Attribute");
@@ -232,6 +239,7 @@ void Qt3DQuick3DRenderPlugin::registerTypes(const char *uri)
     qmlRegisterType<Qt3DRender::QObjectPicker, 9>(uri, 2, 9, "ObjectPicker");
     qmlRegisterType<Qt3DRender::QObjectPicker, 13>(uri, 2, 13, "ObjectPicker");
     qmlRegisterUncreatableType<Qt3DRender::QPickEvent>(uri, 2, 0, "PickEvent", QStringLiteral("Events cannot be created"));
+    qmlRegisterUncreatableType<Qt3DRender::QPickEvent, 14>(uri, 2, 14, "PickEvent", QStringLiteral("Events cannot be created"));
     qmlRegisterType<Qt3DRender::Render::Quick::Quick3DRayCaster>(uri, 2, 11, "RayCaster");
     qmlRegisterType<Qt3DRender::Render::Quick::Quick3DScreenRayCaster>(uri, 2, 11, "ScreenRayCaster");
 
@@ -272,6 +280,8 @@ void Qt3DQuick3DRenderPlugin::registerTypes(const char *uri)
     qmlRegisterType<Qt3DRender::QBlitFramebuffer>(uri, 2, 10, "BlitFramebuffer");
     qmlRegisterType<Qt3DRender::QSetFence>(uri, 2, 13, "SetFence");
     qmlRegisterType<Qt3DRender::QWaitFence>(uri, 2, 13, "WaitFence");
+    qmlRegisterType<Qt3DRender::QNoPicking>(uri, 2, 14, "NoPicking");
+    qmlRegisterType<Qt3DRender::QSubtreeEnabler>(uri, 2, 14, "SubtreeEnabler");
 
     // RenderTarget
     qmlRegisterType<Qt3DRender::QRenderTargetOutput>(uri, 2, 0, "RenderTargetOutput");
@@ -288,6 +298,7 @@ void Qt3DQuick3DRenderPlugin::registerTypes(const char *uri)
     qmlRegisterType<Qt3DRender::QBlendEquationArguments>(uri, 2, 0, "BlendEquationArguments");
     qmlRegisterType<Qt3DRender::QBlendEquation>(uri, 2, 0, "BlendEquation");
     qmlRegisterType<Qt3DRender::QAlphaTest>(uri, 2, 0, "AlphaTest");
+    qmlRegisterType<Qt3DRender::QDepthRange>(uri, 2, 14, "DepthRange");
     qmlRegisterType<Qt3DRender::QDepthTest>(uri, 2, 0, "DepthTest");
     qmlRegisterType<Qt3DRender::QMultiSampleAntiAliasing>(uri, 2, 0, "MultiSampleAntiAliasing");
     qmlRegisterType<Qt3DRender::QNoDepthMask>(uri, 2, 0, "NoDepthMask");
@@ -307,6 +318,7 @@ void Qt3DQuick3DRenderPlugin::registerTypes(const char *uri)
     qmlRegisterType<Qt3DRender::QStencilOperation>(uri, 2, 0, "StencilOperation");
     qmlRegisterType<Qt3DRender::QStencilMask>(uri, 2, 0, "StencilMask");
     qmlRegisterType<Qt3DRender::QLineWidth>(uri, 2, 10, "LineWidth");
+    qmlRegisterType<Qt3DRender::QRasterMode>(uri, 2, 13, "RasterMode");
 
     // Auto-increment the import to stay in sync with ALL future Qt minor versions
     qmlRegisterModule(uri, 2, QT_VERSION_MINOR);

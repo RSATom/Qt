@@ -92,6 +92,7 @@ public:
     QAtomicInt running;
     Thread<QQnxNativeServerPrivate> thread;
     mutable QMutex mutex;
+    int terminateCoid;
 #ifdef USE_HAM
     ham_entity_t *hamEntityHandle;
     ham_condition_t *hamConditionHandle;

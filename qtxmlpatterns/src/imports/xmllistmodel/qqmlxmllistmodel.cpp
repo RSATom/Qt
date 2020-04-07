@@ -40,8 +40,8 @@
 #include "qqmlxmllistmodel_p.h"
 
 #include <qqmlcontext.h>
+#include <qqmlfile.h>
 #include <private/qqmlengine_p.h>
-#include <private/qv8engine_p.h>
 #include <private/qv4value_p.h>
 #include <private/qv4engine_p.h>
 #include <private/qv4object_p.h>
@@ -132,7 +132,7 @@ typedef QPair<int, int> QQuickXmlListRange;
 
     For example, if there is an XML document like this:
 
-    \quotefile qml/xmlrole.qml
+    \quotefile qml/xmlrole.xml
     Here are some valid XPath expressions for XmlRole queries on this document:
 
     \snippet qml/xmlrole.qml 0
@@ -276,12 +276,12 @@ int QQuickXmlQueryEngine::doQuery(QString query, QString namespaces, QByteArray 
     {
         QMutexLocker m1(&m_mutex);
         m_queryIds.ref();
-        if (m_queryIds.load() <= 0)
-            m_queryIds.store(1);
+        if (m_queryIds.loadRelaxed() <= 0)
+            m_queryIds.storeRelaxed(1);
     }
 
     XmlQueryJob job;
-    job.queryId = m_queryIds.load();
+    job.queryId = m_queryIds.loadRelaxed();
     job.data = data;
     job.query = QLatin1String("doc($src)") + query;
     job.namespaces = namespaces;
@@ -922,13 +922,13 @@ void QQuickXmlListModel::setNamespaceDeclarations(const QString &declarations)
     var title = model.get(0).title;
     \endjs
 */
-QQmlV4Handle QQuickXmlListModel::get(int index) const
+QJSValue QQuickXmlListModel::get(int index) const
 {
     // Must be called with a context and handle scope
     Q_D(const QQuickXmlListModel);
 
     if (index < 0 || index >= count())
-        return QQmlV4Handle(Encode::undefined());
+        return QJSValue(QJSValue::UndefinedValue);
 
     QQmlEngine *engine = qmlContext(this)->engine();
     ExecutionEngine *v4engine = engine->handle();
@@ -942,7 +942,7 @@ QQmlV4Handle QQuickXmlListModel::get(int index) const
         o->insertMember(name.getPointer(), value);
     }
 
-    return QQmlV4Handle(o);
+    return QJSValue(v4engine, o->asReturnedValue());
 }
 
 /*!

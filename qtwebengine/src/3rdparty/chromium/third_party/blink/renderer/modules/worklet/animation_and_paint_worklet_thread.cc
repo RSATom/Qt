@@ -5,14 +5,15 @@
 #include "third_party/blink/renderer/modules/worklet/animation_and_paint_worklet_thread.h"
 
 #include "base/memory/ptr_util.h"
+#include "base/synchronization/waitable_event.h"
 #include "third_party/blink/renderer/core/workers/global_scope_creation_params.h"
 #include "third_party/blink/renderer/core/workers/worker_backing_thread.h"
 #include "third_party/blink/renderer/core/workers/worklet_thread_holder.h"
 #include "third_party/blink/renderer/modules/animationworklet/animation_worklet_global_scope.h"
 #include "third_party/blink/renderer/modules/csspaint/paint_worklet_global_scope.h"
-#include "third_party/blink/renderer/platform/cross_thread_functional.h"
 #include "third_party/blink/renderer/platform/instrumentation/tracing/trace_event.h"
-#include "third_party/blink/renderer/platform/web_thread_supporting_gc.h"
+#include "third_party/blink/renderer/platform/scheduler/public/post_cross_thread_task.h"
+#include "third_party/blink/renderer/platform/wtf/cross_thread_functional.h"
 
 namespace blink {
 
@@ -64,21 +65,23 @@ WorkerBackingThread& AnimationAndPaintWorkletThread::GetWorkerBackingThread() {
               ->GetThread();
 }
 
-static void CollectAllGarbageOnThread(WaitableEvent* done_event) {
-  blink::ThreadState::Current()->CollectAllGarbage();
+static void CollectAllGarbageOnThreadForTesting(
+    base::WaitableEvent* done_event) {
+  blink::ThreadState::Current()->CollectAllGarbageForTesting();
   done_event->Signal();
 }
 
-void AnimationAndPaintWorkletThread::CollectAllGarbage() {
+void AnimationAndPaintWorkletThread::CollectAllGarbageForTesting() {
   DCHECK(IsMainThread());
-  WaitableEvent done_event;
+  base::WaitableEvent done_event;
   auto* holder =
       WorkletThreadHolder<AnimationAndPaintWorkletThread>::GetInstance();
   if (!holder)
     return;
-  holder->GetThread()->BackingThread().PostTask(
-      FROM_HERE, CrossThreadBind(&CollectAllGarbageOnThread,
-                                 CrossThreadUnretained(&done_event)));
+  PostCrossThreadTask(*holder->GetThread()->BackingThread().GetTaskRunner(),
+                      FROM_HERE,
+                      CrossThreadBindOnce(&CollectAllGarbageOnThreadForTesting,
+                                          CrossThreadUnretained(&done_event)));
   done_event.Wait();
 }
 
@@ -89,8 +92,8 @@ AnimationAndPaintWorkletThread::CreateWorkerGlobalScope(
     case WorkletType::ANIMATION_WORKLET: {
       TRACE_EVENT0(TRACE_DISABLED_BY_DEFAULT("animation-worklet"),
                    "AnimationAndPaintWorkletThread::CreateWorkerGlobalScope");
-      return AnimationWorkletGlobalScope::Create(std::move(creation_params),
-                                                 this);
+      return MakeGarbageCollected<AnimationWorkletGlobalScope>(
+          std::move(creation_params), this);
     }
     case WorkletType::PAINT_WORKLET:
       TRACE_EVENT0(TRACE_DISABLED_BY_DEFAULT("paint-worklet"),

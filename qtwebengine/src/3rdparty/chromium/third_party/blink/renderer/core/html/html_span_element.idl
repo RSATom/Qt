@@ -23,7 +23,9 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-// https://html.spec.whatwg.org/#the-span-element
-[HTMLConstructor]
-interface HTMLSpanElement : HTMLElement {
+// https://html.spec.whatwg.org/C/#the-span-element
+[
+    Exposed=Window,
+    HTMLConstructor
+] interface HTMLSpanElement : HTMLElement {
 };

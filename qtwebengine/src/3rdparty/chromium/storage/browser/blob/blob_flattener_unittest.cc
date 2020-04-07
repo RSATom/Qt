@@ -10,8 +10,8 @@
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
-#include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
+#include "base/test/scoped_task_environment.h"
 #include "base/test/test_simple_task_runner.h"
 #include "base/time/time.h"
 #include "storage/browser/blob/blob_data_builder.h"
@@ -70,20 +70,20 @@ class BlobFlattenerTest : public testing::Test {
 
   scoped_refptr<BlobDataItem> CreateDataDescriptionItem(size_t size) {
     return BlobDataItem::CreateBytesDescription(size);
-  };
+  }
 
   scoped_refptr<BlobDataItem> CreateDataItem(const char* memory, size_t size) {
     return BlobDataItem::CreateBytes(base::make_span(memory, size));
-  };
+  }
 
   scoped_refptr<BlobDataItem> CreateFileItem(size_t offset, size_t size) {
     return BlobDataItem::CreateFile(fake_file_path_, offset, size,
                                     base::Time::Max());
-  };
+  }
 
   scoped_refptr<BlobDataItem> CreateFutureFileItem(size_t offset, size_t size) {
     return BlobDataItem::CreateFutureFile(offset, size, 0);
-  };
+  }
 
   std::unique_ptr<BlobDataHandle> SetupBasicBlob(const std::string& id) {
     auto builder = std::make_unique<BlobDataBuilder>(id);
@@ -117,7 +117,7 @@ class BlobFlattenerTest : public testing::Test {
   base::ScopedTempDir temp_dir_;
   scoped_refptr<TestSimpleTaskRunner> file_runner_ = new TestSimpleTaskRunner();
 
-  base::MessageLoop fake_io_message_loop;
+  base::test::ScopedTaskEnvironment scoped_task_environment;
   std::unique_ptr<BlobStorageContext> context_;
 };
 

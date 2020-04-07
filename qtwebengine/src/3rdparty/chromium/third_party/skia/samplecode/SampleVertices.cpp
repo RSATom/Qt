@@ -4,24 +4,24 @@
  * Use of this source code is governed by a BSD-style license that can be
  * found in the LICENSE file.
  */
-#include "Sample.h"
-#include "SkBitmap.h"
-#include "SkCanvas.h"
-#include "SkGradientShader.h"
-#include "SkGraphics.h"
-#include "SkPath.h"
-#include "SkRandom.h"
-#include "SkRegion.h"
-#include "SkShader.h"
-#include "SkUTF.h"
-#include "SkColorPriv.h"
-#include "SkColorFilter.h"
-#include "SkTime.h"
-#include "SkTypeface.h"
-#include "SkVertices.h"
+#include "include/core/SkBitmap.h"
+#include "include/core/SkCanvas.h"
+#include "include/core/SkColorFilter.h"
+#include "include/core/SkColorPriv.h"
+#include "include/core/SkGraphics.h"
+#include "include/core/SkPath.h"
+#include "include/core/SkRegion.h"
+#include "include/core/SkShader.h"
+#include "include/core/SkTime.h"
+#include "include/core/SkTypeface.h"
+#include "include/core/SkVertices.h"
+#include "include/effects/SkGradientShader.h"
+#include "include/utils/SkRandom.h"
+#include "samplecode/Sample.h"
+#include "src/utils/SkUTF.h"
 
-#include "SkOSFile.h"
-#include "SkStream.h"
+#include "include/core/SkStream.h"
+#include "src/core/SkOSFile.h"
 
 static sk_sp<SkShader> make_shader0(SkIPoint* size) {
     SkBitmap    bm;
@@ -34,7 +34,7 @@ static sk_sp<SkShader> make_shader0(SkIPoint* size) {
     pixels[0] = pixels[2] = color0;
     pixels[1] = pixels[3] = color1;
 
-    return SkShader::MakeBitmapShader(bm, SkShader::kRepeat_TileMode, SkShader::kRepeat_TileMode);
+    return bm.makeShader(SkTileMode::kRepeat, SkTileMode::kRepeat);
 }
 
 static sk_sp<SkShader> make_shader1(const SkIPoint& size) {
@@ -42,7 +42,7 @@ static sk_sp<SkShader> make_shader1(const SkIPoint& size) {
                       { SkIntToScalar(size.fX), SkIntToScalar(size.fY) } };
     SkColor colors[] = { SK_ColorRED, SK_ColorGREEN, SK_ColorBLUE, SK_ColorRED };
     return SkGradientShader::MakeLinear(pts, colors, nullptr,
-                    SK_ARRAY_COUNT(colors), SkShader::kMirror_TileMode);
+                    SK_ARRAY_COUNT(colors), SkTileMode::kMirror);
 }
 
 class VerticesView : public Sample {
@@ -66,13 +66,7 @@ public:
     }
 
 protected:
-    bool onQuery(Sample::Event* evt) override {
-        if (Sample::TitleQ(*evt)) {
-            Sample::TitleR(evt, "Vertices");
-            return true;
-        }
-        return this->INHERITED::onQuery(evt);
-    }
+    SkString name() override { return SkString("Vertices"); }
 
     SkScalar fScale;
 
@@ -105,8 +99,8 @@ protected:
         }
     }
 
-    Sample::Click* onFindClickHandler(SkScalar x, SkScalar y, unsigned) override {
-        return new Click(this);
+    Sample::Click* onFindClickHandler(SkScalar x, SkScalar y, ModifierKey) override {
+        return new Click();
     }
 
     bool onClick(Click* click) override {
@@ -158,8 +152,9 @@ private:
         v[0].set(0, 0);
         t[0].set(0, 0);
         for (int i = 0; i < n; i++) {
-            SkScalar cos;
-            SkScalar sin = SkScalarSinCos(SK_ScalarPI * 2 * i / n, &cos);
+            SkScalar r   = SK_ScalarPI * 2 * i / n,
+                     sin = SkScalarSin(r),
+                     cos = SkScalarCos(r);
             v[i+1].set(cos, sin);
             t[i+1].set(i*tx/n, ty);
         }
@@ -186,8 +181,9 @@ private:
         SkPoint* t = rec->fTexs;
 
         for (int i = 0; i < n; i++) {
-            SkScalar cos;
-            SkScalar sin = SkScalarSinCos(SK_ScalarPI * 2 * i / n, &cos);
+            SkScalar r   = SK_ScalarPI * 2 * i / n,
+                     sin = SkScalarSin(r),
+                     cos = SkScalarCos(r);
             v[i*2 + 0].set(cos/2, sin/2);
             v[i*2 + 1].set(cos, sin);
 

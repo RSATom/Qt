@@ -6,50 +6,54 @@
 #
 # generate_loader.py:
 #   Generates dynamic loaders for various binding interfaces.
+#   NOTE: don't run this script directly. Run scripts/run_code_generation.py.
 
 import sys, os, pprint, json
 from datetime import date
 import registry_xml
 
-# Handle inputs/outputs for run_code_generation.py's auto_script
-if len(sys.argv) == 2 and sys.argv[1] == 'inputs':
 
-    inputs = [
-        'egl.xml',
-        'egl_angle_ext.xml',
-        'registry_xml.py',
-        'wgl.xml',
-    ]
-
-    print(",".join(inputs))
-    sys.exit(0)
-
-def write_header(data_source_name, all_cmds, api, preamble, path, lib, ns = "", prefix = None, export = ""):
+def write_header(data_source_name,
+                 all_cmds,
+                 api,
+                 preamble,
+                 path,
+                 lib,
+                 ns="",
+                 prefix=None,
+                 export=""):
     file_name = "%s_loader_autogen.h" % api
     header_path = registry_xml.path_to(path, file_name)
+
     def pre(cmd):
         if prefix == None:
             return cmd
         return prefix + cmd[len(api):]
+
     with open(header_path, "w") as out:
-        var_protos = ["%sextern PFN%sPROC %s%s;" % (export, cmd.upper(), ns, pre(cmd)) for cmd in all_cmds]
+        var_protos = [
+            "%sextern PFN%sPROC %s%s;" % (export, cmd.upper(), ns, pre(cmd)) for cmd in all_cmds
+        ]
         loader_header = template_loader_h.format(
-            script_name = os.path.basename(sys.argv[0]),
-            data_source_name = data_source_name,
-            year = date.today().year,
-            function_pointers = "\n".join(var_protos),
-            api_upper = api.upper(),
-            api_lower = api,
-            preamble = preamble,
-            export = export,
-            lib = lib.upper())
+            script_name=os.path.basename(sys.argv[0]),
+            data_source_name=data_source_name,
+            year=date.today().year,
+            function_pointers="\n".join(var_protos),
+            api_upper=api.upper(),
+            api_lower=api,
+            preamble=preamble,
+            export=export,
+            lib=lib.upper(),
+            load_fn_name="Load%s%s" % (prefix if prefix else "", api.upper()))
 
         out.write(loader_header)
         out.close()
 
-def write_source(data_source_name, all_cmds, api, path, ns = "", prefix = None, export = ""):
+
+def write_source(data_source_name, all_cmds, api, path, ns="", prefix=None, export=""):
     file_name = "%s_loader_autogen.cpp" % api
     source_path = registry_xml.path_to(path, file_name)
+
     def pre(cmd):
         if prefix == None:
             return cmd
@@ -62,16 +66,18 @@ def write_source(data_source_name, all_cmds, api, path, ns = "", prefix = None, 
         setters = [setter % (ns, pre(cmd), cmd.upper(), pre(cmd)) for cmd in all_cmds]
 
         loader_source = template_loader_cpp.format(
-            script_name = os.path.basename(sys.argv[0]),
-            data_source_name = data_source_name,
-            year = date.today().year,
-            function_pointers = "\n".join(var_defs),
-            set_pointers = "\n".join(setters),
-            api_upper = api.upper(),
-            api_lower = api)
+            script_name=os.path.basename(sys.argv[0]),
+            data_source_name=data_source_name,
+            year=date.today().year,
+            function_pointers="\n".join(var_defs),
+            set_pointers="\n".join(setters),
+            api_upper=api.upper(),
+            api_lower=api,
+            load_fn_name="Load%s%s" % (prefix if prefix else "", api.upper()))
 
         out.write(loader_source)
         out.close()
+
 
 def gen_libegl_loader():
 
@@ -93,6 +99,7 @@ def gen_libegl_loader():
     path = os.path.join("..", "src", "libEGL")
     write_header(data_source_name, all_cmds, "egl", libegl_preamble, path, "LIBEGL", "", "EGL_")
     write_source(data_source_name, all_cmds, "egl", path, "", "EGL_")
+
 
 def gen_gl_loader():
 
@@ -125,6 +132,7 @@ def gen_gl_loader():
     write_header(data_source_name, all_cmds, "gles", util_gles_preamble, path, "UTIL", export=ex)
     write_source(data_source_name, all_cmds, "gles", path, export=ex)
 
+
 def gen_egl_loader():
 
     data_source_name = "egl.xml and egl_angle_ext.xml"
@@ -146,6 +154,7 @@ def gen_egl_loader():
     ex = "ANGLE_UTIL_EXPORT "
     write_header(data_source_name, all_cmds, "egl", util_egl_preamble, path, "UTIL", export=ex)
     write_source(data_source_name, all_cmds, "egl", path, export=ex)
+
 
 def gen_wgl_loader():
 
@@ -174,11 +183,42 @@ def gen_wgl_loader():
     write_header(source, all_cmds, "wgl", util_wgl_preamble, path, "UTIL_WINDOWS", "_")
     write_source(source, all_cmds, "wgl", path, "_")
 
+
 def main():
+
+    # Handle inputs/outputs for run_code_generation.py's auto_script
+    if len(sys.argv) > 1:
+        inputs = [
+            'egl.xml',
+            'egl_angle_ext.xml',
+            'registry_xml.py',
+            'wgl.xml',
+        ]
+        outputs = [
+            '../src/libEGL/egl_loader_autogen.cpp',
+            '../src/libEGL/egl_loader_autogen.h',
+            '../util/egl_loader_autogen.cpp',
+            '../util/egl_loader_autogen.h',
+            '../util/gles_loader_autogen.cpp',
+            '../util/gles_loader_autogen.h',
+            '../util/windows/wgl_loader_autogen.cpp',
+            '../util/windows/wgl_loader_autogen.h',
+        ]
+
+        if sys.argv[1] == 'inputs':
+            print ','.join(inputs)
+        elif sys.argv[1] == 'outputs':
+            print ','.join(outputs)
+        else:
+            print('Invalid script parameters')
+            return 1
+        return 0
+
     gen_libegl_loader()
     gen_gl_loader()
     gen_egl_loader()
     gen_wgl_loader()
+    return 0
 
 
 libegl_preamble = """#include <EGL/egl.h>
@@ -228,9 +268,9 @@ namespace angle
 {{
 using GenericProc = void (*)();
 using LoadProc = GenericProc (KHRONOS_APIENTRY *)(const char *);
-{export}void Load{api_upper}(LoadProc loadProc);
+{export}void {load_fn_name}(LoadProc loadProc);
 }}  // namespace angle
-    
+
 #endif  // {lib}_{api_upper}_LOADER_AUTOGEN_H_
 """
 
@@ -250,7 +290,7 @@ template_loader_cpp = """// GENERATED FILE - DO NOT EDIT.
 
 namespace angle
 {{
-void Load{api_upper}(LoadProc loadProc)
+void {load_fn_name}(LoadProc loadProc)
 {{
 {set_pointers}
 }}

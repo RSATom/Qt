@@ -297,14 +297,21 @@ using GLCopyOutputScalingPixelTest = CopyOutputScalingPixelTest<GLRenderer>;
 TEST_P(GLCopyOutputScalingPixelTest, ScaledCopyOfDrawnFrame) {
   RunTest();
 }
-INSTANTIATE_TEST_CASE_P(, GLCopyOutputScalingPixelTest, kParameters);
+INSTANTIATE_TEST_SUITE_P(, GLCopyOutputScalingPixelTest, kParameters);
+
+// TODO(crbug.com/939442): Enable this test for SkiaRenderer.
+using SkiaCopyOutputScalingPixelTest = CopyOutputScalingPixelTest<SkiaRenderer>;
+TEST_P(SkiaCopyOutputScalingPixelTest, DISABLED_ScaledCopyOfDrawnFrame) {
+  RunTest();
+}
+INSTANTIATE_TEST_SUITE_P(, SkiaCopyOutputScalingPixelTest, kParameters);
 
 using SoftwareCopyOutputScalingPixelTest =
     CopyOutputScalingPixelTest<SoftwareRenderer>;
 TEST_P(SoftwareCopyOutputScalingPixelTest, ScaledCopyOfDrawnFrame) {
   RunTest();
 }
-INSTANTIATE_TEST_CASE_P(, SoftwareCopyOutputScalingPixelTest, kParameters);
+INSTANTIATE_TEST_SUITE_P(, SoftwareCopyOutputScalingPixelTest, kParameters);
 
 }  // namespace
 }  // namespace viz

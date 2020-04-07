@@ -15,7 +15,7 @@
 #include "base/macros.h"
 #include "base/optional.h"
 #include "base/time/time.h"
-#include "components/services/leveldb/public/interfaces/leveldb.mojom.h"
+#include "components/services/leveldb/public/mojom/leveldb.mojom.h"
 #include "content/common/content_export.h"
 #include "mojo/public/cpp/bindings/binding_set.h"
 #include "mojo/public/cpp/bindings/interface_ptr_set.h"
@@ -99,6 +99,15 @@ class CONTENT_EXPORT StorageAreaImpl : public blink::mojom::StorageArea {
                   const Options& options);
 
   ~StorageAreaImpl() override;
+
+  // Initializes the storage area as loaded & empty. This can only be called
+  // immediately after construction, and before any other methods are called
+  // that would load data from the database.
+  // This avoids hitting disk to load a map that the implementer already knows
+  // must be empty. Do not use this option unless you are absolutely certain
+  // that there must be no data for the |prefix|, as the data will not be loaded
+  // to check.
+  void InitializeAsEmpty();
 
   void Bind(blink::mojom::StorageAreaRequest request);
 
@@ -335,7 +344,7 @@ class CONTENT_EXPORT StorageAreaImpl : public blink::mojom::StorageArea {
   bool has_committed_data_ = false;
   std::unique_ptr<CommitBatch> commit_batch_;
 
-  base::WeakPtrFactory<StorageAreaImpl> weak_ptr_factory_;
+  base::WeakPtrFactory<StorageAreaImpl> weak_ptr_factory_{this};
 
   static bool s_aggressive_flushing_enabled_;
 

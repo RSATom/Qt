@@ -4,6 +4,7 @@
 
 #include "content/browser/browsing_data/clear_site_data_throttle.h"
 
+#include "base/bind.h"
 #include "base/command_line.h"
 #include "base/memory/ptr_util.h"
 #include "base/metrics/histogram_macros.h"
@@ -14,7 +15,6 @@
 #include "base/task/post_task.h"
 #include "base/values.h"
 #include "content/browser/renderer_host/render_process_host_impl.h"
-#include "content/browser/service_worker/service_worker_response_info.h"
 #include "content/browser/web_contents/web_contents_impl.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/browser_task_traits.h"
@@ -59,7 +59,7 @@ bool AreExperimentalFeaturesEnabled2() {
 }
 
 bool IsNavigationRequest(net::URLRequest* request) {
-  const ResourceRequestInfo* info = ResourceRequestInfo::ForRequest(request);
+  ResourceRequestInfo* info = ResourceRequestInfo::ForRequest(request);
   return info && IsResourceTypeFrame(info->GetResourceType());
 }
 
@@ -94,7 +94,7 @@ BrowserContext* GetBrowserContext(
 
 // Outputs a single |formatted_message| on the UI thread.
 void OutputFormattedMessage2(WebContents* web_contents,
-                             ConsoleMessageLevel level,
+                             blink::mojom::ConsoleMessageLevel level,
                              const std::string& formatted_text) {
   if (web_contents)
     web_contents->GetMainFrame()->AddMessageToConsole(level, formatted_text);
@@ -135,7 +135,7 @@ ClearSiteDataThrottle::ConsoleMessagesDelegate::~ConsoleMessagesDelegate() {}
 void ClearSiteDataThrottle::ConsoleMessagesDelegate::AddMessage(
     const GURL& url,
     const std::string& text,
-    ConsoleMessageLevel level) {
+    blink::mojom::ConsoleMessageLevel level) {
   messages_.push_back({url, text, level});
 }
 
@@ -183,7 +183,7 @@ ClearSiteDataThrottle::~ClearSiteDataThrottle() {
     OutputConsoleMessages();
 }
 
-const char* ClearSiteDataThrottle::GetNameForLogging() const {
+const char* ClearSiteDataThrottle::GetNameForLogging() {
   return kNameForLogging2;
 }
 
@@ -222,9 +222,7 @@ bool ClearSiteDataThrottle::ParseHeaderForTesting(
 ClearSiteDataThrottle::ClearSiteDataThrottle(
     net::URLRequest* request,
     std::unique_ptr<ConsoleMessagesDelegate> delegate)
-    : request_(request),
-      delegate_(std::move(delegate)),
-      weak_ptr_factory_(this) {
+    : request_(request), delegate_(std::move(delegate)) {
   DCHECK(request_);
   DCHECK(delegate_);
 }
@@ -251,14 +249,14 @@ bool ClearSiteDataThrottle::HandleHeader() {
   if (!IsOriginSecure(GetCurrentURL())) {
     delegate_->AddMessage(GetCurrentURL(),
                           "Not supported for insecure origins.",
-                          CONSOLE_MESSAGE_LEVEL_ERROR);
+                          blink::mojom::ConsoleMessageLevel::kError);
     return false;
   }
 
   url::Origin origin = url::Origin::Create(GetCurrentURL());
   if (origin.opaque()) {
     delegate_->AddMessage(GetCurrentURL(), "Not supported for unique origins.",
-                          CONSOLE_MESSAGE_LEVEL_ERROR);
+                          blink::mojom::ConsoleMessageLevel::kError);
     return false;
   }
 
@@ -273,29 +271,8 @@ bool ClearSiteDataThrottle::HandleHeader() {
         GetCurrentURL(),
         "The request's credentials mode prohibits modifying cookies "
         "and other local data.",
-        CONSOLE_MESSAGE_LEVEL_ERROR);
+        blink::mojom::ConsoleMessageLevel::kError);
     return false;
-  }
-
-  // Service workers can handle fetches of third-party resources and inject
-  // arbitrary headers. Ignore responses that came from a service worker,
-  // as supporting Clear-Site-Data would give them the power to delete data from
-  // any website.
-  // See https://w3c.github.io/webappsec-clear-site-data/#service-workers
-  // for more information.
-  const ServiceWorkerResponseInfo* response_info =
-      ServiceWorkerResponseInfo::ForRequest(request_);
-  if (response_info) {
-    network::ResourceResponseInfo extra_response_info;
-    response_info->GetExtraResponseInfo(&extra_response_info);
-
-    if (extra_response_info.was_fetched_via_service_worker) {
-      delegate_->AddMessage(
-          GetCurrentURL(),
-          "Ignoring, as the response came from a service worker.",
-          CONSOLE_MESSAGE_LEVEL_ERROR);
-      return false;
-    }
   }
 
   bool clear_cookies;
@@ -340,7 +317,7 @@ bool ClearSiteDataThrottle::ParseHeader(const std::string& header,
                                         const GURL& current_url) {
   if (!base::IsStringASCII(header)) {
     delegate->AddMessage(current_url, "Must only contain ASCII characters.",
-                         CONSOLE_MESSAGE_LEVEL_ERROR);
+                         blink::mojom::ConsoleMessageLevel::kError);
     return false;
   }
 
@@ -371,7 +348,7 @@ bool ClearSiteDataThrottle::ParseHeader(const std::string& header,
       delegate->AddMessage(
           current_url,
           base::StringPrintf("Unrecognized type: %s.", input_types[i].c_str()),
-          CONSOLE_MESSAGE_LEVEL_ERROR);
+          blink::mojom::ConsoleMessageLevel::kError);
       continue;
     }
 
@@ -388,7 +365,7 @@ bool ClearSiteDataThrottle::ParseHeader(const std::string& header,
 
   if (!*clear_cookies && !*clear_storage && !*clear_cache) {
     delegate->AddMessage(current_url, "No recognized types specified.",
-                         CONSOLE_MESSAGE_LEVEL_ERROR);
+                         blink::mojom::ConsoleMessageLevel::kError);
     return false;
   }
 
@@ -401,7 +378,8 @@ bool ClearSiteDataThrottle::ParseHeader(const std::string& header,
         " Clearing channel IDs and HTTP authentication cache is currently not"
         " supported, as it breaks active network connections.";
   }
-  delegate->AddMessage(current_url, console_output, CONSOLE_MESSAGE_LEVEL_INFO);
+  delegate->AddMessage(current_url, console_output,
+                       blink::mojom::ConsoleMessageLevel::kInfo);
 
   return true;
 }
@@ -441,7 +419,7 @@ void ClearSiteDataThrottle::TaskFinished() {
 }
 
 void ClearSiteDataThrottle::OutputConsoleMessages() {
-  const ResourceRequestInfo* info = ResourceRequestInfo::ForRequest(request_);
+  ResourceRequestInfo* info = ResourceRequestInfo::ForRequest(request_);
   if (info)
     delegate_->OutputMessages(info->GetWebContentsGetterForRequest());
 }

@@ -8,6 +8,9 @@
 #include <stdint.h>
 #include <wrl/client.h>
 
+#include <algorithm>
+
+#include "base/bind.h"
 #include "base/macros.h"
 #include "base/memory/singleton.h"
 #include "base/strings/string_number_conversions.h"
@@ -33,11 +36,12 @@ class TtsPlatformImplWin : public TtsPlatformImpl {
  public:
   bool PlatformImplAvailable() override { return true; }
 
-  bool Speak(int utterance_id,
+  void Speak(int utterance_id,
              const std::string& utterance,
              const std::string& lang,
              const VoiceData& voice,
-             const UtteranceContinuousParameters& params) override;
+             const UtteranceContinuousParameters& params,
+             base::OnceCallback<void(bool)> on_speak_finished) override;
 
   bool StopSpeaking() override;
 
@@ -62,6 +66,13 @@ class TtsPlatformImplWin : public TtsPlatformImpl {
 
   void SetVoiceFromName(const std::string& name);
 
+  void ProcessSpeech(int utterance_id,
+                     const std::string& lang,
+                     const VoiceData& voice,
+                     const UtteranceContinuousParameters& params,
+                     base::OnceCallback<void(bool)> on_speak_finished,
+                     const std::string& parsed_utterance);
+
   Microsoft::WRL::ComPtr<ISpVoice> speech_synthesizer_;
 
   // These apply to the current utterance only.
@@ -70,10 +81,13 @@ class TtsPlatformImplWin : public TtsPlatformImpl {
   int prefix_len_;
   ULONG stream_number_;
   int char_position_;
+  int char_length_;
   bool paused_;
   std::string last_voice_name_;
 
   friend struct base::DefaultSingletonTraits<TtsPlatformImplWin>;
+
+  base::WeakPtrFactory<TtsPlatformImplWin> weak_factory_;
 
   DISALLOW_COPY_AND_ASSIGN(TtsPlatformImplWin);
 };
@@ -83,16 +97,34 @@ TtsPlatformImpl* TtsPlatformImpl::GetInstance() {
   return TtsPlatformImplWin::GetInstance();
 }
 
-bool TtsPlatformImplWin::Speak(int utterance_id,
-                               const std::string& src_utterance,
-                               const std::string& lang,
-                               const VoiceData& voice,
-                               const UtteranceContinuousParameters& params) {
+void TtsPlatformImplWin::Speak(
+    int utterance_id,
+    const std::string& utterance,
+    const std::string& lang,
+    const VoiceData& voice,
+    const UtteranceContinuousParameters& params,
+    base::OnceCallback<void(bool)> on_speak_finished) {
+  // Parse SSML and process speech.
+  TtsController::GetInstance()->StripSSML(
+      utterance, base::BindOnce(&TtsPlatformImplWin::ProcessSpeech,
+                                weak_factory_.GetWeakPtr(), utterance_id, lang,
+                                voice, params, std::move(on_speak_finished)));
+}
+
+void TtsPlatformImplWin::ProcessSpeech(
+    int utterance_id,
+    const std::string& lang,
+    const VoiceData& voice,
+    const UtteranceContinuousParameters& params,
+    base::OnceCallback<void(bool)> on_speak_finished,
+    const std::string& parsed_utterance) {
   std::wstring prefix;
   std::wstring suffix;
 
-  if (!speech_synthesizer_.Get())
-    return false;
+  if (!speech_synthesizer_.Get()) {
+    std::move(on_speak_finished).Run(false);
+    return;
+  }
 
   SetVoiceFromName(voice.name);
 
@@ -106,12 +138,16 @@ bool TtsPlatformImplWin::Speak(int utterance_id,
   }
 
   if (params.pitch >= 0.0) {
-    // The TTS api allows a range of -10 to 10 for speech pitch.
-    // TODO(dtseng): cleanup if we ever use any other properties that
-    // require xml.
-    std::wstring pitch_value =
-        base::IntToString16(static_cast<int>(params.pitch * 10 - 10));
-    prefix = L"<pitch absmiddle=\"" + pitch_value + L"\">";
+    // The TTS api allows a range of -10 to 10 for speech pitch:
+    // https://docs.microsoft.com/en-us/previous-versions/windows/desktop/ms720500(v%3Dvs.85)
+    // Note that the API requires an integer value, so be sure to cast the pitch
+    // value to an int before calling NumberToString16. TODO(dtseng): cleanup if
+    // we ever use any other properties that require xml.
+    double adjusted_pitch =
+        std::max<double>(-10, std::min<double>(params.pitch * 10 - 10, 10));
+    std::wstring adjusted_pitch_string =
+        base::NumberToString16(static_cast<int>(adjusted_pitch));
+    prefix = L"<pitch absmiddle=\"" + adjusted_pitch_string + L"\">";
     suffix = L"</pitch>";
   }
 
@@ -122,15 +158,16 @@ bool TtsPlatformImplWin::Speak(int utterance_id,
 
   // TODO(dmazzoni): convert SSML to SAPI xml. http://crbug.com/88072
 
-  utterance_ = base::UTF8ToWide(src_utterance);
+  utterance_ = base::UTF8ToWide(parsed_utterance);
   utterance_id_ = utterance_id;
   char_position_ = 0;
+  char_length_ = 0;
   std::wstring merged_utterance = prefix + utterance_ + suffix;
   prefix_len_ = prefix.size();
 
   HRESULT result = speech_synthesizer_->Speak(merged_utterance.c_str(),
                                               SPF_ASYNC, &stream_number_);
-  return (result == S_OK);
+  std::move(on_speak_finished).Run((result == S_OK));
 }
 
 bool TtsPlatformImplWin::StopSpeaking() {
@@ -140,8 +177,9 @@ bool TtsPlatformImplWin::StopSpeaking() {
     stream_number_ = 0;
 
     if (IsSpeaking()) {
-      // Stop speech by speaking the empty string with the purge flag.
-      speech_synthesizer_->Speak(L"", SPF_ASYNC | SPF_PURGEBEFORESPEAK, NULL);
+      // Stop speech by speaking nullptr with the purge flag.
+      speech_synthesizer_->Speak(nullptr, SPF_ASYNC | SPF_PURGEBEFORESPEAK,
+                                 NULL);
     }
     if (paused_) {
       speech_synthesizer_->Resume();
@@ -156,7 +194,7 @@ void TtsPlatformImplWin::Pause() {
     speech_synthesizer_->Pause();
     paused_ = true;
     TtsController::GetInstance()->OnTtsEvent(utterance_id_, TTS_EVENT_PAUSE,
-                                             char_position_, "");
+                                             char_position_, -1, "");
   }
 }
 
@@ -165,7 +203,7 @@ void TtsPlatformImplWin::Resume() {
     speech_synthesizer_->Resume();
     paused_ = false;
     TtsController::GetInstance()->OnTtsEvent(utterance_id_, TTS_EVENT_RESUME,
-                                             char_position_, "");
+                                             char_position_, -1, "");
   }
 }
 
@@ -239,27 +277,28 @@ void TtsPlatformImplWin::OnSpeechEvent() {
 
     switch (event.eEventId) {
       case SPEI_START_INPUT_STREAM:
-        controller->OnTtsEvent(utterance_id_, TTS_EVENT_START, 0,
+        controller->OnTtsEvent(utterance_id_, TTS_EVENT_START, 0, -1,
                                std::string());
         break;
       case SPEI_END_INPUT_STREAM:
         char_position_ = utterance_.size();
-        controller->OnTtsEvent(utterance_id_, TTS_EVENT_END, char_position_,
+        controller->OnTtsEvent(utterance_id_, TTS_EVENT_END, char_position_, 0,
                                std::string());
         break;
       case SPEI_TTS_BOOKMARK:
         controller->OnTtsEvent(utterance_id_, TTS_EVENT_MARKER, char_position_,
-                               std::string());
+                               -1, std::string());
         break;
       case SPEI_WORD_BOUNDARY:
         char_position_ = static_cast<ULONG>(event.lParam) - prefix_len_;
+        char_length_ = static_cast<ULONG>(event.wParam);
         controller->OnTtsEvent(utterance_id_, TTS_EVENT_WORD, char_position_,
-                               std::string());
+                               char_length_, std::string());
         break;
       case SPEI_SENTENCE_BOUNDARY:
         char_position_ = static_cast<ULONG>(event.lParam) - prefix_len_;
         controller->OnTtsEvent(utterance_id_, TTS_EVENT_SENTENCE,
-                               char_position_, std::string());
+                               char_position_, -1, std::string());
         break;
       default:
         break;
@@ -301,7 +340,8 @@ TtsPlatformImplWin::TtsPlatformImplWin()
       prefix_len_(0),
       stream_number_(0),
       char_position_(0),
-      paused_(false) {
+      paused_(false),
+      weak_factory_(this) {
   ::CoCreateInstance(CLSID_SpVoice, nullptr, CLSCTX_ALL,
                      IID_PPV_ARGS(&speech_synthesizer_));
   if (speech_synthesizer_.Get()) {

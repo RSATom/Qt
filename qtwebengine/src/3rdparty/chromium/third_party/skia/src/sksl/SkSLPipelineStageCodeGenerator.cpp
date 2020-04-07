@@ -5,10 +5,10 @@
  * found in the LICENSE file.
  */
 
-#include "SkSLPipelineStageCodeGenerator.h"
+#include "src/sksl/SkSLPipelineStageCodeGenerator.h"
 
-#include "SkSLCompiler.h"
-#include "SkSLHCodeGenerator.h"
+#include "src/sksl/SkSLCompiler.h"
+#include "src/sksl/SkSLHCodeGenerator.h"
 
 namespace SkSL {
 
@@ -37,6 +37,7 @@ void PipelineStageCodeGenerator::writef(const char* s, va_list va) {
         vsprintf(heap.get(), s, copy);
         fOut->write(heap.get(), length);
     }
+    va_end(copy);
 }
 
 void PipelineStageCodeGenerator::writef(const char* s, ...) {
@@ -58,7 +59,7 @@ String PipelineStageCodeGenerator::getTypeName(const Type& type) {
 }
 
 void PipelineStageCodeGenerator::writeBinaryExpression(const BinaryExpression& b,
-                                             Precedence parentPrecedence) {
+                                                       Precedence parentPrecedence) {
     if (b.fOperator == Token::PERCENT) {
         // need to use "%%" instead of "%" b/c the code will be inside of a printf
         Precedence precedence = GetBinaryPrecedence(b.fOperator);
@@ -146,8 +147,7 @@ void PipelineStageCodeGenerator::writeVariableReference(const VariableReference&
                                 found = true;
                                 break;
                             }
-                            if (var.fModifiers.fFlags & (Modifiers::kIn_Flag |
-                                                         Modifiers::kUniform_Flag)) {
+                            if (var.fModifiers.fFlags & Modifiers::kUniform_Flag) {
                                 ++index;
                             }
                         }
@@ -156,8 +156,7 @@ void PipelineStageCodeGenerator::writeVariableReference(const VariableReference&
                 SkASSERT(found);
                 fFormatArgs->push_back(Compiler::FormatArg(Compiler::FormatArg::Kind::kUniform,
                                                            index));
-            }
-            else {
+            } else {
                 this->write(ref.fVariable.fName);
             }
     }
@@ -178,6 +177,7 @@ void PipelineStageCodeGenerator::writeSwitchStatement(const SwitchStatement& s) 
 }
 
 void PipelineStageCodeGenerator::writeFunction(const FunctionDefinition& f) {
+    fCurrentFunction = &f.fDeclaration;
     if (f.fDeclaration.fName == "main") {
         fFunctionHeader = "";
         OutputStream* oldOut = fOut;

@@ -18,7 +18,6 @@
 #include "net/dns/mock_host_resolver.h"
 #include "net/log/net_log_event_type.h"
 #include "net/log/test_net_log.h"
-#include "net/log/test_net_log_entry.h"
 #include "net/log/test_net_log_util.h"
 #include "net/socket/client_socket_factory.h"
 #include "net/socket/socket_test_util.h"
@@ -92,97 +91,13 @@ std::unique_ptr<SOCKSClientSocket> SOCKSClientSocketTest::BuildMockSocket(
   EXPECT_THAT(rv, IsOk());
   EXPECT_TRUE(socket->IsConnected());
 
-  auto connection = std::make_unique<ClientSocketHandle>();
-  // |connection| takes ownership of |socket|, but |tcp_socket_| keeps a
+  // The SOCKSClientSocket takes ownership of |socket|, but |tcp_sock_| keeps a
   // non-owning pointer to it.
   tcp_sock_ = socket.get();
-  connection->SetSocket(std::move(socket));
   return std::make_unique<SOCKSClientSocket>(
-      std::move(connection),
-      HostResolver::RequestInfo(HostPortPair(hostname, port)), DEFAULT_PRIORITY,
+      std::move(socket), HostPortPair(hostname, port), DEFAULT_PRIORITY,
       host_resolver, TRAFFIC_ANNOTATION_FOR_TESTS);
 }
-
-// Implementation of HostResolver that never completes its resolve request.
-// We use this in the test "DisconnectWhileHostResolveInProgress" to make
-// sure that the outstanding resolve request gets cancelled.
-class HangingHostResolverWithCancel : public HostResolver {
- public:
-  HangingHostResolverWithCancel() : outstanding_request_(NULL) {}
-
-  std::unique_ptr<ResolveHostRequest> CreateRequest(
-      const HostPortPair& host,
-      const NetLogWithSource& net_log,
-      const base::Optional<ResolveHostParameters>& optional_parameters)
-      override {
-    NOTIMPLEMENTED();
-    return nullptr;
-  }
-
-  int Resolve(const RequestInfo& info,
-              RequestPriority priority,
-              AddressList* addresses,
-              CompletionOnceCallback callback,
-              std::unique_ptr<Request>* out_req,
-              const NetLogWithSource& net_log) override {
-    DCHECK(addresses);
-    DCHECK_EQ(false, callback.is_null());
-    EXPECT_FALSE(HasOutstandingRequest());
-    outstanding_request_ = new RequestImpl(this);
-    out_req->reset(outstanding_request_);
-    return ERR_IO_PENDING;
-  }
-
-  int ResolveFromCache(const RequestInfo& info,
-                       AddressList* addresses,
-                       const NetLogWithSource& net_log) override {
-    NOTIMPLEMENTED();
-    return ERR_UNEXPECTED;
-  }
-
-  int ResolveStaleFromCache(const RequestInfo& info,
-                            AddressList* addresses,
-                            HostCache::EntryStaleness* stale_info,
-                            const NetLogWithSource& net_log) override {
-    NOTIMPLEMENTED();
-    return ERR_UNEXPECTED;
-  }
-
-  bool HasCached(base::StringPiece hostname,
-                 HostCache::Entry::Source* source_out,
-                 HostCache::EntryStaleness* stale_out) const override {
-    NOTIMPLEMENTED();
-    return false;
-  }
-
-  void RemoveRequest(Request* req) {
-    EXPECT_TRUE(HasOutstandingRequest());
-    EXPECT_EQ(outstanding_request_, req);
-    outstanding_request_ = nullptr;
-  }
-
-  bool HasOutstandingRequest() { return outstanding_request_ != nullptr; }
-
- private:
-  class RequestImpl : public HostResolver::Request {
-   public:
-    RequestImpl(HangingHostResolverWithCancel* resolver)
-        : resolver_(resolver) {}
-    ~RequestImpl() override {
-      DCHECK(resolver_);
-      resolver_->RemoveRequest(this);
-    }
-
-    void ChangeRequestPriority(RequestPriority priority) override {}
-
-   private:
-    HangingHostResolverWithCancel* resolver_;
-  };
-
-  Request* outstanding_request_;
-
-  DISALLOW_COPY_AND_ASSIGN(HangingHostResolverWithCancel);
-};
 
 // Tests a complete handshake and the disconnection.
 TEST_F(SOCKSClientSocketTest, CompleteHandshake) {
@@ -211,8 +126,7 @@ TEST_F(SOCKSClientSocketTest, CompleteHandshake) {
     int rv = user_sock_->Connect(callback_.callback());
     EXPECT_THAT(rv, IsError(ERR_IO_PENDING));
 
-    TestNetLogEntry::List entries;
-    log.GetEntries(&entries);
+    auto entries = log.GetEntries();
     EXPECT_TRUE(
         LogContainsBeginEvent(entries, 0, NetLogEventType::SOCKS_CONNECT));
     EXPECT_FALSE(user_sock_->IsConnected());
@@ -220,7 +134,7 @@ TEST_F(SOCKSClientSocketTest, CompleteHandshake) {
     rv = callback_.WaitForResult();
     EXPECT_THAT(rv, IsOk());
     EXPECT_TRUE(user_sock_->IsConnected());
-    log.GetEntries(&entries);
+    entries = log.GetEntries();
     EXPECT_TRUE(
         LogContainsEndEvent(entries, -1, NetLogEventType::SOCKS_CONNECT));
 
@@ -326,8 +240,7 @@ TEST_F(SOCKSClientSocketTest, HandshakeFailures) {
     int rv = user_sock_->Connect(callback_.callback());
     EXPECT_THAT(rv, IsError(ERR_IO_PENDING));
 
-    TestNetLogEntry::List entries;
-    log.GetEntries(&entries);
+    auto entries = log.GetEntries();
     EXPECT_TRUE(
         LogContainsBeginEvent(entries, 0, NetLogEventType::SOCKS_CONNECT));
 
@@ -335,7 +248,7 @@ TEST_F(SOCKSClientSocketTest, HandshakeFailures) {
     EXPECT_EQ(test.fail_code, rv);
     EXPECT_FALSE(user_sock_->IsConnected());
     EXPECT_TRUE(tcp_sock_->IsConnected());
-    log.GetEntries(&entries);
+    entries = log.GetEntries();
     EXPECT_TRUE(
         LogContainsEndEvent(entries, -1, NetLogEventType::SOCKS_CONNECT));
   }
@@ -359,15 +272,14 @@ TEST_F(SOCKSClientSocketTest, PartialServerReads) {
 
   int rv = user_sock_->Connect(callback_.callback());
   EXPECT_THAT(rv, IsError(ERR_IO_PENDING));
-  TestNetLogEntry::List entries;
-  log.GetEntries(&entries);
+  auto entries = log.GetEntries();
   EXPECT_TRUE(
       LogContainsBeginEvent(entries, 0, NetLogEventType::SOCKS_CONNECT));
 
   rv = callback_.WaitForResult();
   EXPECT_THAT(rv, IsOk());
   EXPECT_TRUE(user_sock_->IsConnected());
-  log.GetEntries(&entries);
+  entries = log.GetEntries();
   EXPECT_TRUE(LogContainsEndEvent(entries, -1, NetLogEventType::SOCKS_CONNECT));
 }
 
@@ -394,15 +306,14 @@ TEST_F(SOCKSClientSocketTest, PartialClientWrites) {
 
   int rv = user_sock_->Connect(callback_.callback());
   EXPECT_THAT(rv, IsError(ERR_IO_PENDING));
-  TestNetLogEntry::List entries;
-  log.GetEntries(&entries);
+  auto entries = log.GetEntries();
   EXPECT_TRUE(
       LogContainsBeginEvent(entries, 0, NetLogEventType::SOCKS_CONNECT));
 
   rv = callback_.WaitForResult();
   EXPECT_THAT(rv, IsOk());
   EXPECT_TRUE(user_sock_->IsConnected());
-  log.GetEntries(&entries);
+  entries = log.GetEntries();
   EXPECT_TRUE(LogContainsEndEvent(entries, -1, NetLogEventType::SOCKS_CONNECT));
 }
 
@@ -422,15 +333,14 @@ TEST_F(SOCKSClientSocketTest, FailedSocketRead) {
 
   int rv = user_sock_->Connect(callback_.callback());
   EXPECT_THAT(rv, IsError(ERR_IO_PENDING));
-  TestNetLogEntry::List entries;
-  log.GetEntries(&entries);
+  auto entries = log.GetEntries();
   EXPECT_TRUE(
       LogContainsBeginEvent(entries, 0, NetLogEventType::SOCKS_CONNECT));
 
   rv = callback_.WaitForResult();
   EXPECT_THAT(rv, IsError(ERR_CONNECTION_CLOSED));
   EXPECT_FALSE(user_sock_->IsConnected());
-  log.GetEntries(&entries);
+  entries = log.GetEntries();
   EXPECT_TRUE(LogContainsEndEvent(entries, -1, NetLogEventType::SOCKS_CONNECT));
 }
 
@@ -448,30 +358,28 @@ TEST_F(SOCKSClientSocketTest, FailedDNS) {
 
   int rv = user_sock_->Connect(callback_.callback());
   EXPECT_THAT(rv, IsError(ERR_IO_PENDING));
-  TestNetLogEntry::List entries;
-  log.GetEntries(&entries);
+  auto entries = log.GetEntries();
   EXPECT_TRUE(
       LogContainsBeginEvent(entries, 0, NetLogEventType::SOCKS_CONNECT));
 
   rv = callback_.WaitForResult();
   EXPECT_THAT(rv, IsError(ERR_NAME_NOT_RESOLVED));
   EXPECT_FALSE(user_sock_->IsConnected());
-  log.GetEntries(&entries);
+  entries = log.GetEntries();
   EXPECT_TRUE(LogContainsEndEvent(entries, -1, NetLogEventType::SOCKS_CONNECT));
 }
 
 // Calls Disconnect() while a host resolve is in progress. The outstanding host
 // resolve should be cancelled.
 TEST_F(SOCKSClientSocketTest, DisconnectWhileHostResolveInProgress) {
-  std::unique_ptr<HangingHostResolverWithCancel> hanging_resolver(
-      new HangingHostResolverWithCancel());
+  auto hanging_resolver = std::make_unique<HangingHostResolver>();
 
   // Doesn't matter what the socket data is, we will never use it -- garbage.
   MockWrite data_writes[] = { MockWrite(SYNCHRONOUS, "", 0) };
   MockRead data_reads[] = { MockRead(SYNCHRONOUS, "", 0) };
 
   user_sock_ = BuildMockSocket(data_reads, data_writes, hanging_resolver.get(),
-                               "foo", 80, NULL);
+                               "foo", 80, nullptr);
 
   // Start connecting (will get stuck waiting for the host to resolve).
   int rv = user_sock_->Connect(callback_.callback());
@@ -480,13 +388,10 @@ TEST_F(SOCKSClientSocketTest, DisconnectWhileHostResolveInProgress) {
   EXPECT_FALSE(user_sock_->IsConnected());
   EXPECT_FALSE(user_sock_->IsConnectedAndIdle());
 
-  // The host resolver should have received the resolve request.
-  EXPECT_TRUE(hanging_resolver->HasOutstandingRequest());
-
   // Disconnect the SOCKS socket -- this should cancel the outstanding resolve.
+  ASSERT_EQ(0, hanging_resolver->num_cancellations());
   user_sock_->Disconnect();
-
-  EXPECT_FALSE(hanging_resolver->HasOutstandingRequest());
+  EXPECT_EQ(1, hanging_resolver->num_cancellations());
 
   EXPECT_FALSE(user_sock_->IsConnected());
   EXPECT_FALSE(user_sock_->IsConnectedAndIdle());
@@ -498,7 +403,7 @@ TEST_F(SOCKSClientSocketTest, NoIPv6) {
   const char kHostName[] = "::1";
 
   user_sock_ = BuildMockSocket(base::span<MockRead>(), base::span<MockWrite>(),
-                               host_resolver_.get(), kHostName, 80, NULL);
+                               host_resolver_.get(), kHostName, 80, nullptr);
 
   EXPECT_EQ(ERR_NAME_NOT_RESOLVED,
             callback_.GetResult(user_sock_->Connect(callback_.callback())));
@@ -509,10 +414,10 @@ TEST_F(SOCKSClientSocketTest, NoIPv6RealResolver) {
   const char kHostName[] = "::1";
 
   std::unique_ptr<HostResolver> host_resolver(
-      HostResolver::CreateSystemResolver(HostResolver::Options(), NULL));
+      HostResolver::CreateStandaloneResolver(nullptr));
 
   user_sock_ = BuildMockSocket(base::span<MockRead>(), base::span<MockWrite>(),
-                               host_resolver.get(), kHostName, 80, NULL);
+                               host_resolver.get(), kHostName, 80, nullptr);
 
   EXPECT_EQ(ERR_NAME_NOT_RESOLVED,
             callback_.GetResult(user_sock_->Connect(callback_.callback())));
@@ -528,12 +433,10 @@ TEST_F(SOCKSClientSocketTest, Tag) {
   std::unique_ptr<ClientSocketHandle> connection(new ClientSocketHandle);
   // |connection| takes ownership of |tagging_sock|, but keep a
   // non-owning pointer to it.
-  connection->SetSocket(std::unique_ptr<StreamSocket>(tagging_sock));
   MockHostResolver host_resolver;
-  SOCKSClientSocket socket(
-      std::move(connection),
-      HostResolver::RequestInfo(HostPortPair("localhost", 80)),
-      DEFAULT_PRIORITY, &host_resolver, TRAFFIC_ANNOTATION_FOR_TESTS);
+  SOCKSClientSocket socket(std::unique_ptr<StreamSocket>(tagging_sock),
+                           HostPortPair("localhost", 80), DEFAULT_PRIORITY,
+                           &host_resolver, TRAFFIC_ANNOTATION_FOR_TESTS);
 
   EXPECT_EQ(tagging_sock->tag(), SocketTag());
 #if defined(OS_ANDROID)

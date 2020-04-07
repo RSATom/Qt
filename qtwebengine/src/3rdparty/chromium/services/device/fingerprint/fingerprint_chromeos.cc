@@ -6,7 +6,9 @@
 
 #include <string.h>
 
-#include "chromeos/dbus/dbus_thread_manager.h"
+#include "base/bind.h"
+#include "chromeos/dbus/biod/biod_client.h"
+#include "dbus/object_path.h"
 #include "mojo/public/cpp/bindings/strong_binding.h"
 #include "services/device/fingerprint/fingerprint.h"
 #include "services/device/public/mojom/fingerprint.mojom.h"
@@ -16,7 +18,7 @@ namespace device {
 namespace {
 
 chromeos::BiodClient* GetBiodClient() {
-  return chromeos::DBusThreadManager::Get()->GetBiodClient();
+  return chromeos::BiodClient::Get();
 }
 
 // Helper functions to convert between dbus and mojo types. The dbus type comes
@@ -62,6 +64,7 @@ device::mojom::ScanResult ToMojom(biod::ScanResult type) {
 }  // namespace
 
 FingerprintChromeOS::FingerprintChromeOS() : weak_ptr_factory_(this) {
+  CHECK(GetBiodClient());
   GetBiodClient()->AddObserver(this);
 }
 
@@ -91,7 +94,7 @@ void FingerprintChromeOS::GetRecordsForUser(
 void FingerprintChromeOS::RunGetRecordsForUser(
     const std::string& user_id,
     GetRecordsForUserCallback callback) {
-  chromeos::DBusThreadManager::Get()->GetBiodClient()->GetRecordsForUser(
+  GetBiodClient()->GetRecordsForUser(
       user_id,
       base::BindOnce(&FingerprintChromeOS::OnGetRecordsForUser,
                      weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
@@ -114,11 +117,6 @@ void FingerprintChromeOS::OnCloseAuthSessionForEnroll(
   if (!result)
     return;
 
-  ScheduleStartEnroll(user_id, label);
-}
-
-void FingerprintChromeOS::ScheduleStartEnroll(const std::string& user_id,
-                                              const std::string& label) {
   GetBiodClient()->StartEnrollSession(
       user_id, label,
       base::Bind(&FingerprintChromeOS::OnStartEnrollSession,
@@ -165,7 +163,9 @@ void FingerprintChromeOS::StartAuthSession() {
         base::BindRepeating(&FingerprintChromeOS::OnCloseEnrollSessionForAuth,
                             weak_ptr_factory_.GetWeakPtr()));
   } else {
-    ScheduleStartAuth();
+    GetBiodClient()->StartAuthSession(
+        base::Bind(&FingerprintChromeOS::OnStartAuthSession,
+                   weak_ptr_factory_.GetWeakPtr()));
   }
 }
 
@@ -173,10 +173,6 @@ void FingerprintChromeOS::OnCloseEnrollSessionForAuth(bool result) {
   if (!result)
     return;
 
-  ScheduleStartAuth();
-}
-
-void FingerprintChromeOS::ScheduleStartAuth() {
   GetBiodClient()->StartAuthSession(
       base::Bind(&FingerprintChromeOS::OnStartAuthSession,
                  weak_ptr_factory_.GetWeakPtr()));

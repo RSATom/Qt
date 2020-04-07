@@ -12,7 +12,6 @@
 #include "base/stl_util.h"
 #include "base/strings/string_util.h"
 #include "components/variations/client_filterable_state.h"
-#include "components/variations/proto/study.pb.h"
 
 namespace variations {
 namespace {
@@ -22,7 +21,7 @@ base::Time ConvertStudyDateToBaseTime(int64_t date_time) {
   return base::Time::UnixEpoch() + base::TimeDelta::FromSeconds(date_time);
 }
 
-// Similar to base::ContainsValue(), but specifically for ASCII strings and
+// Similar to base::Contains(), but specifically for ASCII strings and
 // case-insensitive comparison.
 template <typename Collection>
 bool ContainsStringIgnoreCaseASCII(const Collection& collection,
@@ -60,10 +59,10 @@ bool CheckStudyFormFactor(const Study::Filter& filter,
   // ignored. We do not expect both to be present for Chrome due to server-side
   // checks.
   if (filter.form_factor_size() > 0)
-    return base::ContainsValue(filter.form_factor(), form_factor);
+    return base::Contains(filter.form_factor(), form_factor);
 
   // Omit if we match the blacklist.
-  return !base::ContainsValue(filter.exclude_form_factor(), form_factor);
+  return !base::Contains(filter.exclude_form_factor(), form_factor);
 }
 
 bool CheckStudyHardwareClass(const Study::Filter& filter,
@@ -100,17 +99,13 @@ bool CheckStudyLocale(const Study::Filter& filter, const std::string& locale) {
   // that this means this overrides the exclude_locale in case that ever occurs
   // (which it shouldn't).
   if (filter.locale_size() > 0)
-    return base::ContainsValue(filter.locale(), locale);
+    return base::Contains(filter.locale(), locale);
 
   // Omit if matches any of the exclude entries.
-  return !base::ContainsValue(filter.exclude_locale(), locale);
+  return !base::Contains(filter.exclude_locale(), locale);
 }
 
 bool CheckStudyPlatform(const Study::Filter& filter, Study::Platform platform) {
-  // An empty platform list matches all platforms.
-  if (filter.platform_size() == 0)
-    return true;
-
   for (int i = 0; i < filter.platform_size(); ++i) {
     if (filter.platform(i) == platform)
       return true;
@@ -160,6 +155,25 @@ bool CheckStudyVersion(const Study::Filter& filter,
   return true;
 }
 
+bool CheckStudyOSVersion(const Study::Filter& filter,
+                         const base::Version& version) {
+  if (filter.has_min_os_version()) {
+    if (!version.IsValid() ||
+        version.CompareToWildcardString(filter.min_os_version()) < 0) {
+      return false;
+    }
+  }
+
+  if (filter.has_max_os_version()) {
+    if (!version.IsValid() ||
+        version.CompareToWildcardString(filter.max_os_version()) > 0) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
 bool CheckStudyCountry(const Study::Filter& filter,
                        const std::string& country) {
   // Empty country and exclude_country matches all.
@@ -170,10 +184,10 @@ bool CheckStudyCountry(const Study::Filter& filter,
   // that this means this overrides the exclude_country in case that ever occurs
   // (which it shouldn't).
   if (filter.country_size() > 0)
-    return base::ContainsValue(filter.country(), country);
+    return base::Contains(filter.country(), country);
 
   // Omit if matches any of the exclude entries.
-  return !base::ContainsValue(filter.exclude_country(), country);
+  return !base::Contains(filter.exclude_country(), country);
 }
 
 const std::string& GetClientCountryForStudy(
@@ -260,19 +274,17 @@ bool ShouldAddStudy(const Study& study,
       return false;
     }
 
+    if (!CheckStudyOSVersion(study.filter(), client_state.os_version)) {
+      DVLOG(1) << "Filtered out study " << study.name()
+               << " due to os_version.";
+      return false;
+    }
+
     const std::string& country = GetClientCountryForStudy(study, client_state);
     if (!CheckStudyCountry(study.filter(), country)) {
       DVLOG(1) << "Filtered out study " << study.name() << " due to country.";
       return false;
     }
-  }
-
-  // TODO(paulmiller): Remove this once https://crbug.com/866722 is resolved.
-  if (study.consistency() == Study_Consistency_PERMANENT &&
-      !client_state.supports_permanent_consistency) {
-    DVLOG(1) << "Filtered out study " << study.name()
-             << " due to supports_permanent_consistency.";
-    return false;
   }
 
   DVLOG(1) << "Kept study " << study.name() << ".";
@@ -300,14 +312,14 @@ void FilterAndValidateStudies(const VariationsSeed& seed,
 
     if (internal::IsStudyExpired(study, client_state.reference_date)) {
       expired_studies.push_back(&study);
-    } else if (!base::ContainsKey(created_studies, study.name())) {
+    } else if (!base::Contains(created_studies, study.name())) {
       ProcessedStudy::ValidateAndAppendStudy(&study, false, filtered_studies);
       created_studies.insert(study.name());
     }
   }
 
   for (size_t i = 0; i < expired_studies.size(); ++i) {
-    if (!base::ContainsKey(created_studies, expired_studies[i]->name())) {
+    if (!base::Contains(created_studies, expired_studies[i]->name())) {
       ProcessedStudy::ValidateAndAppendStudy(expired_studies[i], true,
                                              filtered_studies);
     }

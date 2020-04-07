@@ -30,7 +30,6 @@
 #include "chrome/grit/generated_resources.h"
 #include "components/prefs/pref_service.h"
 #include "components/prefs/scoped_user_pref_update.h"
-#include "components/signin/core/browser/account_consistency_method.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/web_ui.h"
@@ -49,7 +48,7 @@ const char kProfileShortcutNotFound[] = "profileShortcutNotFound";
 }  // namespace
 
 ManageProfileHandler::ManageProfileHandler(Profile* profile)
-    : profile_(profile), observer_(this), weak_factory_(this) {}
+    : profile_(profile), observer_(this) {}
 
 ManageProfileHandler::~ManageProfileHandler() {}
 
@@ -121,19 +120,15 @@ void ManageProfileHandler::HandleGetAvailableIcons(
 }
 
 std::unique_ptr<base::ListValue> ManageProfileHandler::GetAvailableIcons() {
-  std::unique_ptr<base::ListValue> avatars(
-      profiles::GetDefaultProfileAvatarIconsAndLabels());
-
   PrefService* pref_service = profile_->GetPrefs();
   bool using_gaia = pref_service->GetBoolean(prefs::kProfileUsingGAIAAvatar);
+  size_t selected_avatar_idx =
+      using_gaia ? SIZE_MAX
+                 : pref_service->GetInteger(prefs::kProfileAvatarIndex);
 
-  // Select the avatar from the default set.
-  if (!using_gaia) {
-    size_t index = pref_service->GetInteger(prefs::kProfileAvatarIndex);
-    base::DictionaryValue* avatar = nullptr;
-    if (avatars->GetDictionary(index, &avatar))
-      avatar->SetBoolean("selected", true);
-  }
+  // Obtain a list of the default avatar icons.
+  std::unique_ptr<base::ListValue> avatars(
+      profiles::GetDefaultProfileAvatarIconsAndLabels(selected_avatar_idx));
 
   // Add the GAIA picture to the beginning of the list if it is available.
   ProfileAttributesEntry* entry;

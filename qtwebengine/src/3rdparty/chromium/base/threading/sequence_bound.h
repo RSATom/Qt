@@ -43,7 +43,7 @@ namespace base {
 //   // On any thread...
 //   scoped_refptr<SequencedTaskRunner> main_task_runner = ...;
 //   auto widget = SequenceBound<MyClass>(main_task_runner, "My Title");
-//   widget.Post(&MyObject::DoSomething, 1234);
+//   widget.Post(FROM_HERE, &MyClass::DoSomething, 1234);
 //
 // Note that |widget| is constructed asynchronously on |main_task_runner|,
 // but calling Post() immediately is safe, since the actual call is posted
@@ -93,7 +93,7 @@ struct is_virtual_base_of<Base,
                               static_cast<Base*>(nullptr)))> : std::false_type {
 };
 
-};  // namespace internal
+}  // namespace internal
 
 template <typename T>
 class SequenceBound {
@@ -110,8 +110,9 @@ class SequenceBound {
   // constructed, except by posting such a access to |impl_task_runner_| after
   // posting construction there as well.
   template <typename... Args>
+  NO_SANITIZE("cfi-unrelated-cast")
   SequenceBound(scoped_refptr<base::SequencedTaskRunner> task_runner,
-                Args&&... args) NO_SANITIZE("cfi-unrelated-cast")
+                Args&&... args)
       : impl_task_runner_(std::move(task_runner)) {
     // Allocate space for but do not construct an instance of |T|.
     storage_ = AlignedAlloc(sizeof(T), alignof(T));
@@ -159,7 +160,7 @@ class SequenceBound {
   // non-virtual base classes are allowed before construction by the standard.
   // See http://eel.is/c++draft/basic.life#6 for more information.
   template <typename From>
-  void MoveRecordFrom(From&& other) NO_SANITIZE("cfi-unrelated-cast") {
+  void NO_SANITIZE("cfi-unrelated-cast") MoveRecordFrom(From&& other) {
     // |other| might be is_null(), but that's okay.
     impl_task_runner_ = std::move(other.impl_task_runner_);
 
@@ -176,17 +177,13 @@ class SequenceBound {
   }
 
   // Post a call to |method| to |impl_task_runner_|.
-  template <typename... Args>
+  template <typename... MethodArgs, typename... Args>
   void Post(const base::Location& from_here,
-            void (T::*method)(Args...),
+            void (T::*method)(MethodArgs...),
             Args&&... args) const {
-    impl_task_runner_->PostTask(
-        from_here, base::BindOnce(
-                       [](void (T::*method)(Args...), T* t, Args... args) {
-                         (t->*method)(std::forward<Args>(args)...);
-                       },
-                       std::move(method), base::Unretained(t_),
-                       std::forward<Args>(args)...));
+    impl_task_runner_->PostTask(from_here,
+                                base::BindOnce(method, base::Unretained(t_),
+                                               std::forward<Args>(args)...));
   }
 
   // TODO(liberato): Add PostOrCall(), to support cases where synchronous calls
@@ -218,6 +215,9 @@ class SequenceBound {
   // might still be pending destruction on the impl thread.
   bool is_null() const { return !t_; }
 
+  // True if and only if we have an object, with the same caveats as is_null().
+  explicit operator bool() const { return !is_null(); }
+
  private:
   // Pointer to the object,  Pointer may be modified on the owning thread.
   T* t_ = nullptr;
@@ -234,8 +234,8 @@ class SequenceBound {
 
   // Run on impl thread to construct |t|'s storage.
   template <typename... Args>
-  static void ConstructOwnerRecord(T* t, Args&&... args) {
-    new (t) T(std::forward<Args>(args)...);
+  static void ConstructOwnerRecord(T* t, std::decay_t<Args>&&... args) {
+    new (t) T(std::move(args)...);
   }
 
   // Destruct the object associated with |t|, and delete |storage|.

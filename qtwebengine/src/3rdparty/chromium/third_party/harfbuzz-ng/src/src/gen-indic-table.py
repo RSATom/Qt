@@ -79,10 +79,6 @@ data = combined
 del combined
 num = len (data)
 
-for u in [0x17CD, 0x17CE, 0x17CF, 0x17D0, 0x17D3]:
-	if data[u][0] == 'Other':
-		data[u][0] = "Vowel_Dependent"
-
 # Move the outliers NO-BREAK SPACE and DOTTED CIRCLE out
 singles = {}
 for u in ALLOWED_SINGLES:
@@ -101,6 +97,10 @@ for h in headers:
 	for l in h:
 		print (" * %s" % (l.strip()))
 print (" */")
+print ()
+print ('#include "hb.hh"')
+print ()
+print ('#ifndef HB_NO_OT_SHAPE')
 print ()
 print ('#include "hb-ot-shape-complex-indic.hh"')
 print ()
@@ -255,6 +255,8 @@ for i in range (2):
 		print ("#undef %s_%s" %
 			(what_short[i], short[i][v]))
 print ()
+print ()
+print ('#endif')
 print ("/* == End of generated table == */")
 
 # Maintain at least 30% occupancy in the table */

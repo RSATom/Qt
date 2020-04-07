@@ -7,6 +7,7 @@
 
 #include <dwrite.h>
 #include <dwrite_2.h>
+#include <dwrite_3.h>
 #include <wrl.h>
 #include <set>
 #include <utility>
@@ -17,6 +18,7 @@
 #include "base/memory/read_only_shared_memory_region.h"
 #include "base/memory/ref_counted.h"
 #include "base/strings/string16.h"
+#include "content/browser/renderer_host/dwrite_font_lookup_table_builder_win.h"
 #include "content/common/content_export.h"
 #include "content/public/browser/browser_message_filter.h"
 #include "content/public/browser/browser_thread.h"
@@ -41,7 +43,6 @@ class CONTENT_EXPORT DWriteFontProxyImpl
                      const service_manager::BindSourceInfo& source_info);
 
   void SetWindowsFontsPathForTesting(base::string16 path);
-  void SetSlowDownIndexingForTesting(bool);
 
  protected:
   // blink::mojom::DWriteFontProxy:
@@ -58,27 +59,36 @@ class CONTENT_EXPORT DWriteFontProxyImpl
                      uint32_t reading_direction,
                      const base::string16& base_family_name,
                      MapCharactersCallback callback) override;
+  void MatchUniqueFont(const base::string16& unique_font_name,
+                       MatchUniqueFontCallback callback) override;
+  void GetUniqueFontLookupMode(
+      GetUniqueFontLookupModeCallback callback) override;
+
+  void GetUniqueNameLookupTableIfAvailable(
+      GetUniqueNameLookupTableIfAvailableCallback callback) override;
 
   void GetUniqueNameLookupTable(
       GetUniqueNameLookupTableCallback callback) override;
 
+  void FallbackFamilyNameForCodepoint(
+      const std::string& base_family_name,
+      const std::string& locale_name,
+      uint32_t codepoint,
+      FallbackFamilyNameForCodepointCallback callback) override;
+
   void InitializeDirectWrite();
 
  private:
-  // Checks if the unique font table has been built already, and if not, builds
-  // it by enumerating fonts from the collection, extracting their file
-  // locations, ttc indices and names.
-  bool EnsureFontUniqueNameTable();
   bool IsLastResortFallbackFont(uint32_t font_index);
 
  private:
-  bool IsFontUniqueNameTableValid();
   bool direct_write_initialized_ = false;
   Microsoft::WRL::ComPtr<IDWriteFontCollection> collection_;
+  Microsoft::WRL::ComPtr<IDWriteFactory> factory_;
   Microsoft::WRL::ComPtr<IDWriteFactory2> factory2_;
+  Microsoft::WRL::ComPtr<IDWriteFactory3> factory3_;
   Microsoft::WRL::ComPtr<IDWriteFontFallback> font_fallback_;
   base::string16 windows_fonts_path_;
-  bool slow_down_indexing_for_testing_;
   base::MappedReadOnlyRegion font_unique_name_table_memory_;
 
   // Temp code to help track down crbug.com/561873

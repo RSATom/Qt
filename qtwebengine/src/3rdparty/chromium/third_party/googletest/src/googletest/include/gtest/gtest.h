@@ -52,9 +52,11 @@
 #ifndef GTEST_INCLUDE_GTEST_GTEST_H_
 #define GTEST_INCLUDE_GTEST_GTEST_H_
 
+#include <cstddef>
 #include <limits>
 #include <memory>
 #include <ostream>
+#include <type_traits>
 #include <vector>
 
 #include "gtest/internal/gtest-internal.h"
@@ -70,21 +72,6 @@
 
 GTEST_DISABLE_MSC_WARNINGS_PUSH_(4251 \
 /* class A needs to have dll-interface to be used by clients of class B */)
-
-// Depending on the platform, different string classes are available.
-// On Linux, in addition to ::std::string, Google also makes use of
-// class ::string, which has the same interface as ::std::string, but
-// has a different implementation.
-//
-// You can define GTEST_HAS_GLOBAL_STRING to 1 to indicate that
-// ::string is available AND is a distinct type to ::std::string, or
-// define it to 0 to indicate otherwise.
-//
-// If ::std::string and ::string are the same class on your platform
-// due to aliasing, you should define GTEST_HAS_GLOBAL_STRING to 0.
-//
-// If you do not define GTEST_HAS_GLOBAL_STRING, it is defined
-// heuristically.
 
 namespace testing {
 
@@ -427,7 +414,7 @@ class GTEST_API_ Test {
   // class.
   static void SetUpTestSuite() {}
 
-  // Tears down the stuff shared by all tests in this test case.
+  // Tears down the stuff shared by all tests in this test suite.
   //
   // Google Test will call Foo::TearDownTestSuite() after running the last
   // test in test case Foo.  Hence a sub-class can define its own
@@ -1484,6 +1471,10 @@ GTEST_API_ void InitGoogleTest(int* argc, char** argv);
 // UNICODE mode.
 GTEST_API_ void InitGoogleTest(int* argc, wchar_t** argv);
 
+// This overloaded version can be used on Arduino/embedded platforms where
+// there is no argc/argv.
+GTEST_API_ void InitGoogleTest();
+
 namespace internal {
 
 // Separate the error generating code from the code path to reduce the stack
@@ -1528,18 +1519,17 @@ GTEST_API_ AssertionResult CmpHelperEQ(const char* lhs_expression,
                                        BiggestInt lhs,
                                        BiggestInt rhs);
 
-// The helper class for {ASSERT|EXPECT}_EQ.  The template argument
-// lhs_is_null_literal is true iff the first argument to ASSERT_EQ()
-// is a null pointer literal.  The following default implementation is
-// for lhs_is_null_literal being false.
-template <bool lhs_is_null_literal>
 class EqHelper {
  public:
   // This templatized version is for the general case.
-  template <typename T1, typename T2>
+  template <
+      typename T1, typename T2,
+      // Disable this overload for cases where one argument is a pointer
+      // and the other is the null pointer constant.
+      typename std::enable_if<!std::is_integral<T1>::value ||
+                              !std::is_pointer<T2>::value>::type* = nullptr>
   static AssertionResult Compare(const char* lhs_expression,
-                                 const char* rhs_expression,
-                                 const T1& lhs,
+                                 const char* rhs_expression, const T1& lhs,
                                  const T2& rhs) {
     return CmpHelperEQ(lhs_expression, rhs_expression, lhs, rhs);
   }
@@ -1556,44 +1546,12 @@ class EqHelper {
                                  BiggestInt rhs) {
     return CmpHelperEQ(lhs_expression, rhs_expression, lhs, rhs);
   }
-};
 
-// This specialization is used when the first argument to ASSERT_EQ()
-// is a null pointer literal, like NULL, false, or 0.
-template <>
-class EqHelper<true> {
- public:
-  // We define two overloaded versions of Compare().  The first
-  // version will be picked when the second argument to ASSERT_EQ() is
-  // NOT a pointer, e.g. ASSERT_EQ(0, AnIntFunction()) or
-  // EXPECT_EQ(false, a_bool).
-  template <typename T1, typename T2>
-  static AssertionResult Compare(
-      const char* lhs_expression, const char* rhs_expression, const T1& lhs,
-      const T2& rhs,
-      // The following line prevents this overload from being considered if T2
-      // is not a pointer type.  We need this because ASSERT_EQ(NULL, my_ptr)
-      // expands to Compare("", "", NULL, my_ptr), which requires a conversion
-      // to match the Secret* in the other overload, which would otherwise make
-      // this template match better.
-      typename EnableIf<!std::is_pointer<T2>::value>::type* = nullptr) {
-    return CmpHelperEQ(lhs_expression, rhs_expression, lhs, rhs);
-  }
-
-  // This version will be picked when the second argument to ASSERT_EQ() is a
-  // pointer, e.g. ASSERT_EQ(NULL, a_pointer).
   template <typename T>
   static AssertionResult Compare(
-      const char* lhs_expression,
-      const char* rhs_expression,
-      // We used to have a second template parameter instead of Secret*.  That
-      // template parameter would deduce to 'long', making this a better match
-      // than the first overload even without the first overload's EnableIf.
-      // Unfortunately, gcc with -Wconversion-null warns when "passing NULL to
-      // non-pointer argument" (even a deduced integral argument), so the old
-      // implementation caused warnings in user code.
-      Secret* /* lhs (NULL) */,
-      T* rhs) {
+      const char* lhs_expression, const char* rhs_expression,
+      // Handle cases where '0' is used as a null pointer literal.
+      std::nullptr_t /* lhs */, T* rhs) {
     // We already know that 'lhs' is a null pointer.
     return CmpHelperEQ(lhs_expression, rhs_expression, static_cast<T*>(nullptr),
                        rhs);
@@ -1850,13 +1808,13 @@ GTEST_API_ GTEST_ATTRIBUTE_PRINTF_(2, 3) void ColoredPrintf(GTestColor color,
 //   FooTest() {
 //     // Can use GetParam() here.
 //   }
-//   virtual ~FooTest() {
+//   ~FooTest() override {
 //     // Can use GetParam() here.
 //   }
-//   virtual void SetUp() {
+//   void SetUp() override {
 //     // Can use GetParam() here.
 //   }
-//   virtual void TearDown {
+//   void TearDown override {
 //     // Can use GetParam() here.
 //   }
 // };
@@ -1941,6 +1899,11 @@ class TestWithParam : public Test, public WithParamInterface<T> {
 
 // Generates a fatal failure with a generic message.
 #define GTEST_FAIL() GTEST_FATAL_FAILURE_("Failed")
+
+// Like GTEST_FAIL(), but at the given source file location.
+#define GTEST_FAIL_AT(file, line)         \
+  GTEST_MESSAGE_AT_(file, line, "Failed", \
+                    ::testing::TestPartResult::kFatalFailure)
 
 // Define this macro to 1 to omit the definition of FAIL(), which is a
 // generic name and clashes with some other libraries.
@@ -2042,9 +2005,7 @@ class TestWithParam : public Test, public WithParamInterface<T> {
 //   ASSERT_GT(records.size(), 0) << "There is no record left.";
 
 #define EXPECT_EQ(val1, val2) \
-  EXPECT_PRED_FORMAT2(::testing::internal:: \
-                      EqHelper<GTEST_IS_NULL_LITERAL_(val1)>::Compare, \
-                      val1, val2)
+  EXPECT_PRED_FORMAT2(::testing::internal::EqHelper::Compare, val1, val2)
 #define EXPECT_NE(val1, val2) \
   EXPECT_PRED_FORMAT2(::testing::internal::CmpHelperNE, val1, val2)
 #define EXPECT_LE(val1, val2) \
@@ -2057,9 +2018,7 @@ class TestWithParam : public Test, public WithParamInterface<T> {
   EXPECT_PRED_FORMAT2(::testing::internal::CmpHelperGT, val1, val2)
 
 #define GTEST_ASSERT_EQ(val1, val2) \
-  ASSERT_PRED_FORMAT2(::testing::internal:: \
-                      EqHelper<GTEST_IS_NULL_LITERAL_(val1)>::Compare, \
-                      val1, val2)
+  ASSERT_PRED_FORMAT2(::testing::internal::EqHelper::Compare, val1, val2)
 #define GTEST_ASSERT_NE(val1, val2) \
   ASSERT_PRED_FORMAT2(::testing::internal::CmpHelperNE, val1, val2)
 #define GTEST_ASSERT_LE(val1, val2) \
@@ -2250,12 +2209,6 @@ class GTEST_API_ ScopedTrace {
     PushTrace(file, line, message ? message : "(null)");
   }
 
-#if GTEST_HAS_GLOBAL_STRING
-  ScopedTrace(const char* file, int line, const ::string& message) {
-    PushTrace(file, line, message);
-  }
-#endif
-
   ScopedTrace(const char* file, int line, const std::string& message) {
     PushTrace(file, line, message);
   }
@@ -2376,7 +2329,7 @@ bool StaticAssertTypeEq() {
 //
 //   class FooTest : public testing::Test {
 //    protected:
-//     virtual void SetUp() { b_.AddElement(3); }
+//     void SetUp() override { b_.AddElement(3); }
 //
 //     Foo a_;
 //     Foo b_;
@@ -2390,7 +2343,8 @@ bool StaticAssertTypeEq() {
 //     EXPECT_EQ(a_.size(), 0);
 //     EXPECT_EQ(b_.size(), 1);
 //   }
-
+//
+// GOOGLETEST_CM0011 DO NOT DELETE
 #define TEST_F(test_fixture, test_name)\
   GTEST_TEST_(test_fixture, test_name, test_fixture, \
               ::testing::internal::GetTypeId<test_fixture>())
@@ -2478,8 +2432,8 @@ TestInfo* RegisterTest(const char* test_suite_name, const char* test_name,
   return internal::MakeAndRegisterTestInfo(
       test_suite_name, test_name, type_param, value_param,
       internal::CodeLocation(file, line), internal::GetTypeId<TestT>(),
-      internal::SuiteApiResolver<TestT>::GetSetUpCaseOrSuite(),
-      internal::SuiteApiResolver<TestT>::GetTearDownCaseOrSuite(),
+      internal::SuiteApiResolver<TestT>::GetSetUpCaseOrSuite(file, line),
+      internal::SuiteApiResolver<TestT>::GetTearDownCaseOrSuite(file, line),
       new FactoryImpl{std::move(factory)});
 }
 

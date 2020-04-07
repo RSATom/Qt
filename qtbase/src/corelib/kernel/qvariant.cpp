@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2019 The Qt Company Ltd.
 ** Copyright (C) 2018 Intel Corporation.
 ** Copyright (C) 2015 Olivier Goffart <ogoffart@woboq.com>
 ** Contact: https://www.qt.io/licensing/
@@ -46,7 +46,9 @@
 #include "qdebug.h"
 #include "qmap.h"
 #include "qdatetime.h"
+#if QT_CONFIG(easingcurve)
 #include "qeasingcurve.h"
+#endif
 #include "qlist.h"
 #if QT_CONFIG(regularexpression)
 #include "qregularexpression.h"
@@ -55,6 +57,7 @@
 #include "qstringlist.h"
 #include "qurl.h"
 #include "qlocale.h"
+#include "qregexp.h"
 #include "quuid.h"
 #if QT_CONFIG(itemmodel)
 #include "qabstractitemmodel.h"
@@ -118,19 +121,19 @@ namespace { // annonymous used to hide QVariant handlers
 static void construct(QVariant::Private *x, const void *copy)
 {
     QVariantConstructor<CoreTypesFilter> constructor(x, copy);
-    QMetaTypeSwitcher::switcher<void>(constructor, x->type, 0);
+    QMetaTypeSwitcher::switcher<void>(constructor, x->type);
 }
 
 static void clear(QVariant::Private *d)
 {
     QVariantDestructor<CoreTypesFilter> cleaner(d);
-    QMetaTypeSwitcher::switcher<void>(cleaner, d->type, 0);
+    QMetaTypeSwitcher::switcher<void>(cleaner, d->type);
 }
 
 static bool isNull(const QVariant::Private *d)
 {
     QVariantIsNull<CoreTypesFilter> isNull(d);
-    return QMetaTypeSwitcher::switcher<bool>(isNull, d->type, 0);
+    return QMetaTypeSwitcher::switcher<bool>(isNull, d->type);
 }
 
 /*!
@@ -142,7 +145,7 @@ static bool isNull(const QVariant::Private *d)
 static bool compare(const QVariant::Private *a, const QVariant::Private *b)
 {
     QVariantComparator<CoreTypesFilter> comparator(a, b);
-    return QMetaTypeSwitcher::switcher<bool>(comparator, a->type, 0);
+    return QMetaTypeSwitcher::switcher<bool>(comparator, a->type);
 }
 
 /*!
@@ -1400,7 +1403,7 @@ static void streamDebug(QDebug dbg, const QVariant &v)
 {
     QVariant::Private *d = const_cast<QVariant::Private *>(&v.data_ptr());
     QVariantDebugStream<CoreTypesFilter> stream(dbg, d);
-    QMetaTypeSwitcher::switcher<void>(stream, d->type, 0);
+    QMetaTypeSwitcher::switcher<void>(stream, d->type);
 }
 #endif
 
@@ -1409,16 +1412,16 @@ const QVariant::Handler qt_kernel_variant_handler = {
     clear,
     isNull,
 #ifndef QT_NO_DATASTREAM
-    0,
-    0,
+    nullptr,
+    nullptr,
 #endif
     compare,
     convert,
-    0,
+    nullptr,
 #if !defined(QT_NO_DEBUG_STREAM)
     streamDebug
 #else
-    0
+    nullptr
 #endif
 };
 
@@ -1435,16 +1438,16 @@ const QVariant::Handler qt_dummy_variant_handler = {
     dummyClear,
     dummyIsNull,
 #ifndef QT_NO_DATASTREAM
-    0,
-    0,
+    nullptr,
+    nullptr,
 #endif
     dummyCompare,
     dummyConvert,
-    0,
+    nullptr,
 #if !defined(QT_NO_DEBUG_STREAM)
     dummyStreamDebug
 #else
-    0
+    nullptr
 #endif
 };
 
@@ -1462,6 +1465,7 @@ static void customConstruct(QVariant::Private *d, const void *copy)
     if (size <= sizeof(QVariant::Private::Data)
             && (type.flags() & (QMetaType::MovableType | QMetaType::IsEnumeration))) {
         type.construct(&d->data.ptr, copy);
+        d->is_null = d->data.ptr == nullptr;
         d->is_shared = false;
     } else {
         // Private::Data contains long long, and long double is the biggest standard type.
@@ -1472,6 +1476,7 @@ static void customConstruct(QVariant::Private *d, const void *copy)
         void *data = operator new(offset + size);
         void *ptr = static_cast<char *>(data) + offset;
         type.construct(ptr, copy);
+        d->is_null = ptr == nullptr;
         d->is_shared = true;
         d->data.shared = new (data) QVariant::PrivateShared(ptr);
     }
@@ -1552,16 +1557,16 @@ const QVariant::Handler qt_custom_variant_handler = {
     customClear,
     customIsNull,
 #ifndef QT_NO_DATASTREAM
-    0,
-    0,
+    nullptr,
+    nullptr,
 #endif
     customCompare,
     customConvert,
-    0,
+    nullptr,
 #if !defined(QT_NO_DEBUG_STREAM)
     customStreamDebug
 #else
-    0
+    nullptr
 #endif
 };
 
@@ -2122,7 +2127,7 @@ QVariant::QVariant(const char *val)
 */
 
 QVariant::QVariant(Type type)
-{ create(type, 0); }
+{ create(type, nullptr); }
 QVariant::QVariant(int typeId, const void *copy)
 { create(typeId, copy); d.is_null = false; }
 
@@ -2191,7 +2196,7 @@ QVariant::QVariant(const QTime &val)
 QVariant::QVariant(const QDateTime &val)
     : d(DateTime)
 { v_construct<QDateTime>(&d, val); }
-#ifndef QT_BOOTSTRAPPED
+#if QT_CONFIG(easingcurve)
 QVariant::QVariant(const QEasingCurve &val)
     : d(EasingCurve)
 { v_construct<QEasingCurve>(&d, val); }
@@ -2363,7 +2368,7 @@ QVariant& QVariant::operator=(const QVariant &variant)
 
 void QVariant::detach()
 {
-    if (!d.is_shared || d.data.shared->ref.load() == 1)
+    if (!d.is_shared || d.data.shared->ref.loadRelaxed() == 1)
         return;
 
     Private dd;
@@ -2468,7 +2473,9 @@ static const ushort mapIdFromQt3ToCurrent[MapFromThreeCount] =
     QVariant::Pen,
     QVariant::LongLong,
     QVariant::ULongLong,
+#if QT_CONFIG(easingcurve)
     QVariant::EasingCurve
+#endif
 };
 
 /*!
@@ -2570,8 +2577,8 @@ void QVariant::save(QDataStream &s) const
         } else if (typeId >= QMetaType::QKeySequence && typeId <= QMetaType::QQuaternion) {
             // and as a result these types received lower ids too
             typeId +=1;
-        } else if (typeId == QMetaType::QPolygonF) {
-            // This existed in Qt 4 only as a custom type
+        } else if (typeId == QMetaType::QPolygonF || typeId == QMetaType::QUuid) {
+            // These existed in Qt 4 only as a custom type
             typeId = 127;
             fakeUserType = true;
         }
@@ -2664,7 +2671,7 @@ inline T qVariantToHelper(const QVariant::Private &d, const HandlersManager &han
             return ret;
     }
 
-    handlerManager[d.type]->convert(&d, targetType, &ret, 0);
+    handlerManager[d.type]->convert(&d, targetType, &ret, nullptr);
     return ret;
 }
 
@@ -2785,7 +2792,7 @@ QDateTime QVariant::toDateTime() const
 
     \sa canConvert(int targetTypeId), convert()
 */
-#ifndef QT_BOOTSTRAPPED
+#if QT_CONFIG(easingcurve)
 QEasingCurve QVariant::toEasingCurve() const
 {
     return qVariantToHelper<QEasingCurve>(d, handlerManager);
@@ -3214,7 +3221,7 @@ bool QVariant::toBool() const
         return d.data.b;
 
     bool res = false;
-    handlerManager[d.type]->convert(&d, Bool, &res, 0);
+    handlerManager[d.type]->convert(&d, Bool, &res, nullptr);
 
     return res;
 }
@@ -3732,7 +3739,7 @@ bool QVariant::convert(int targetTypeId)
     if (!oldValue.canConvert(targetTypeId))
         return false;
 
-    create(targetTypeId, 0);
+    create(targetTypeId, nullptr);
     // Fail if the value is not initialized or was forced null by a previous failed convert.
     if (oldValue.d.is_null && oldValue.d.type != QMetaType::Nullptr)
         return false;
@@ -3757,7 +3764,7 @@ bool QVariant::convert(int targetTypeId)
 */
 bool QVariant::convert(const int type, void *ptr) const
 {
-    return handlerManager[type]->convert(&d, type, ptr, 0);
+    return handlerManager[type]->convert(&d, type, ptr, nullptr);
 }
 
 
@@ -4002,8 +4009,8 @@ static int numericCompare(const QVariant::Private *d1, const QVariant::Private *
         return 0;
 
     // only do fuzzy comparisons for finite, non-zero numbers
-    int c1 = std::fpclassify(r1);
-    int c2 = std::fpclassify(r2);
+    int c1 = qFpClassify(r1);
+    int c2 = qFpClassify(r2);
     if ((c1 == FP_NORMAL || c1 == FP_SUBNORMAL) && (c2 == FP_NORMAL || c2 == FP_SUBNORMAL)) {
         if (qFuzzyCompare(r1, r2))
             return 0;
@@ -4280,6 +4287,7 @@ QDebug operator<<(QDebug dbg, const QVariant::Type p)
     \sa fromValue()
 */
 
+#if QT_DEPRECATED_SINCE(5, 14)
 /*!
     \fn template<typename T> QVariant qVariantFromValue(const T &value)
     \relates QVariant
@@ -4317,6 +4325,7 @@ QDebug operator<<(QDebug dbg, const QVariant::Type p)
 
     \sa QVariant::setValue()
 */
+#endif
 
 /*!
     \fn template<typename T> T qvariant_cast(const QVariant &value)
@@ -4511,15 +4520,24 @@ QSequentialIterable::const_iterator QSequentialIterable::end() const
     return it;
 }
 
+static const QVariant variantFromVariantDataHelper(const QtMetaTypePrivate::VariantData &d) {
+    QVariant v;
+    if (d.metaTypeId == qMetaTypeId<QVariant>())
+        v =  *reinterpret_cast<const QVariant*>(d.data);
+    else
+        v = QVariant(d.metaTypeId, d.data, d.flags & ~QVariantConstructionFlags::ShouldDeleteVariantData);
+    if (d.flags & QVariantConstructionFlags::ShouldDeleteVariantData)
+        QMetaType::destroy(d.metaTypeId, const_cast<void *>(d.data));
+    return v;
+}
+
 /*!
     Returns the element at position \a idx in the container.
 */
 QVariant QSequentialIterable::at(int idx) const
 {
     const QtMetaTypePrivate::VariantData d = m_impl.at(idx);
-    if (d.metaTypeId == qMetaTypeId<QVariant>())
-        return *reinterpret_cast<const QVariant*>(d.data);
-    return QVariant(d.metaTypeId, d.data, d.flags);
+    return variantFromVariantDataHelper(d);
 }
 
 /*!
@@ -4596,9 +4614,7 @@ QSequentialIterable::const_iterator::operator=(const const_iterator &other)
 const QVariant QSequentialIterable::const_iterator::operator*() const
 {
     const QtMetaTypePrivate::VariantData d = m_impl.getCurrent();
-    if (d.metaTypeId == qMetaTypeId<QVariant>())
-        return *reinterpret_cast<const QVariant*>(d.data);
-    return QVariant(d.metaTypeId, d.data, d.flags);
+    return variantFromVariantDataHelper(d);
 }
 
 /*!
@@ -4930,10 +4946,7 @@ QAssociativeIterable::const_iterator::operator=(const const_iterator &other)
 const QVariant QAssociativeIterable::const_iterator::operator*() const
 {
     const QtMetaTypePrivate::VariantData d = m_impl.getCurrentValue();
-    QVariant v(d.metaTypeId, d.data, d.flags);
-    if (d.metaTypeId == qMetaTypeId<QVariant>())
-        return *reinterpret_cast<const QVariant*>(d.data);
-    return v;
+    return variantFromVariantDataHelper(d);
 }
 
 /*!
@@ -4942,10 +4955,7 @@ const QVariant QAssociativeIterable::const_iterator::operator*() const
 const QVariant QAssociativeIterable::const_iterator::key() const
 {
     const QtMetaTypePrivate::VariantData d = m_impl.getCurrentKey();
-    QVariant v(d.metaTypeId, d.data, d.flags);
-    if (d.metaTypeId == qMetaTypeId<QVariant>())
-        return *reinterpret_cast<const QVariant*>(d.data);
-    return v;
+    return variantFromVariantDataHelper(d);
 }
 
 /*!
@@ -4953,11 +4963,7 @@ const QVariant QAssociativeIterable::const_iterator::key() const
 */
 const QVariant QAssociativeIterable::const_iterator::value() const
 {
-    const QtMetaTypePrivate::VariantData d = m_impl.getCurrentValue();
-    QVariant v(d.metaTypeId, d.data, d.flags);
-    if (d.metaTypeId == qMetaTypeId<QVariant>())
-        return *reinterpret_cast<const QVariant*>(d.data);
-    return v;
+    return operator*();
 }
 
 /*!

@@ -39,10 +39,10 @@
 
 #include "joint_p.h"
 #include <Qt3DRender/private/managers_p.h>
+#include <Qt3DCore/QJoint>
 #include <Qt3DCore/private/qjoint_p.h>
-#include <Qt3DCore/qpropertyupdatedchange.h>
-#include <Qt3DCore/qpropertynodeaddedchange.h>
-#include <Qt3DCore/qpropertynoderemovedchange.h>
+
+#include <algorithm>
 
 QT_BEGIN_NAMESPACE
 
@@ -69,62 +69,52 @@ void Joint::cleanup()
     setEnabled(false);
 }
 
-void Joint::initializeFromPeer(const Qt3DCore::QNodeCreatedChangeBasePtr &change)
+void Joint::syncFromFrontEnd(const QNode *frontEnd, bool firstTime)
 {
-    Q_ASSERT(m_jointManager);
-    const auto typedChange = qSharedPointerCast<Qt3DCore::QNodeCreatedChange<QJointData>>(change);
-    const auto &data = typedChange->data;
-    m_inverseBindMatrix = data.inverseBindMatrix;
-    m_localPose.rotation = data.rotation;
-    m_localPose.scale = data.scale;
-    m_localPose.translation = data.translation;
-    m_childJointIds = data.childJointIds;
-    m_name = data.name;
-    markDirty(AbstractRenderer::JointDirty);
-    m_jointManager->addDirtyJoint(peerId());
-}
+    const Qt3DCore::QJoint *joint = qobject_cast<const Qt3DCore::QJoint *>(frontEnd);
+    if (!joint)
+        return;
 
-void Joint::sceneChangeEvent(const Qt3DCore::QSceneChangePtr &e)
-{
-    if (e->type() == PropertyUpdated) {
-        const QPropertyUpdatedChangePtr &propertyChange = qSharedPointerCast<QPropertyUpdatedChange>(e);
-        if (propertyChange->propertyName() == QByteArrayLiteral("scale")) {
-            m_localPose.scale = propertyChange->value().value<QVector3D>();
-            markDirty(AbstractRenderer::JointDirty);
-            m_jointManager->addDirtyJoint(peerId());
-        } else if (propertyChange->propertyName() == QByteArrayLiteral("rotation")) {
-            m_localPose.rotation = propertyChange->value().value<QQuaternion>();
-            markDirty(AbstractRenderer::JointDirty);
-            m_jointManager->addDirtyJoint(peerId());
-        } else if (propertyChange->propertyName() == QByteArrayLiteral("translation")) {
-            m_localPose.translation = propertyChange->value().value<QVector3D>();
-            markDirty(AbstractRenderer::JointDirty);
-            m_jointManager->addDirtyJoint(peerId());
-        } else if (propertyChange->propertyName() == QByteArrayLiteral("inverseBindMatrix")) {
-            // Setting the inverse bind matrix should be a rare operation. Usually it is
-            // set once and then remains constant for the duration of the skeleton. So just
-            // trigger a rebuild of the skeleton's SkeletonData which will include obtaining
-            // the inverse bind matrix.
-            m_inverseBindMatrix = propertyChange->value().value<QMatrix4x4>();
-            m_skeletonManager->addDirtySkeleton(SkeletonManager::SkeletonDataDirty, m_owningSkeleton);
-        } else if (propertyChange->propertyName() == QByteArrayLiteral("name")) {
-            // Joint name doesn't affect anything in the render aspect so no need
-            // to mark anything as dirty.
-            m_name = propertyChange->value().toString();
+    bool jointDirty = firstTime;
+    if (m_localPose.scale != joint->scale()) {
+        m_localPose.scale = joint->scale();
+        jointDirty = true;
+    }
+    if (m_localPose.rotation != joint->rotation()) {
+        m_localPose.rotation = joint->rotation();
+        jointDirty = true;
+    }
+    if (m_localPose.translation != joint->translation()) {
+        m_localPose.translation = joint->translation();
+        jointDirty = true;
+    }
+    if (m_inverseBindMatrix != joint->inverseBindMatrix()) {
+        // Setting the inverse bind matrix should be a rare operation. Usually it is
+        // set once and then remains constant for the duration of the skeleton. So just
+        // trigger a rebuild of the skeleton's SkeletonData which will include obtaining
+        // the inverse bind matrix.
+        m_inverseBindMatrix = joint->inverseBindMatrix();
+        m_skeletonManager->addDirtySkeleton(SkeletonManager::SkeletonDataDirty, m_owningSkeleton);
+    }
+    if (m_name != joint->name()) {
+        // Joint name doesn't affect anything in the render aspect so no need
+        // to mark anything as dirty.
+        m_name = joint->name();
 
-            // TODO: Notify other aspects (animation) about the name change.
-        }
-    } else if (e->type() == PropertyValueAdded) {
-        const auto addedChange = qSharedPointerCast<QPropertyNodeAddedChange>(e);
-        if (addedChange->propertyName() == QByteArrayLiteral("childJoint"))
-            m_childJointIds.push_back(addedChange->addedNodeId());
-    } else if (e->type() == PropertyValueRemoved) {
-        const auto removedChange = qSharedPointerCast<QPropertyNodeRemovedChange>(e);
-        if (removedChange->propertyName() == QByteArrayLiteral("childJoint"))
-            m_childJointIds.removeOne(removedChange->removedNodeId());
+        // TODO: Notify other aspects (animation) about the name change.
     }
 
-    BackendNode::sceneChangeEvent(e);
+    Qt3DCore::QNodeIdVector childIds = qIdsForNodes(joint->childJoints());
+    std::sort(std::begin(childIds), std::end(childIds));
+    if (m_childJointIds != childIds)
+        m_childJointIds = childIds;
+
+    if (jointDirty) {
+        markDirty(AbstractRenderer::JointDirty);
+        m_jointManager->addDirtyJoint(peerId());
+    }
+
+    BackendNode::syncFromFrontEnd(frontEnd, firstTime);
 }
 
 

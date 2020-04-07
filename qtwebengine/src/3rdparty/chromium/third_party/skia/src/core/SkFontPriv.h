@@ -8,12 +8,10 @@
 #ifndef SkFontPriv_DEFINED
 #define SkFontPriv_DEFINED
 
-#include "SkFont.h"
-#include "SkMatrix.h"
-#include "SkTypeface.h"
+#include "include/core/SkFont.h"
+#include "include/core/SkMatrix.h"
+#include "include/core/SkTypeface.h"
 
-class SkGlyph;
-class SkStrike;
 class SkReadBuffer;
 class SkWriteBuffer;
 
@@ -35,10 +33,6 @@ public:
      */
     static constexpr int kCanonicalTextSizeForPaths  = 64;
 
-    static bool TooBigToUseCache(const SkMatrix& ctm, const SkMatrix& textM, SkScalar maxLimit);
-
-    static SkScalar MaxCacheSize2(SkScalar maxLimit);
-
     /**
      *  Return a matrix that applies the paint's text values: size, scale, skew
      */
@@ -56,13 +50,6 @@ public:
 
     static void ScaleFontMetrics(SkFontMetrics*, SkScalar);
 
-    // returns -1 if buffer is invalid for specified encoding
-    static int ValidCountText(const void* text, size_t length, SkTextEncoding);
-
-    typedef const SkGlyph& (*GlyphCacheProc)(SkStrike*, const char**, const char*);
-
-    static GlyphCacheProc GetGlyphCacheProc(SkTextEncoding encoding, bool needFullMetrics);
-
     /**
         Returns the union of bounds of all glyphs.
         Returned dimensions are computed by font manager from font data,
@@ -77,9 +64,9 @@ public:
     static SkRect GetFontBounds(const SkFont&);
 
     static bool IsFinite(const SkFont& font) {
-        return SkScalarIsFinite(font.fSize) &&
-               SkScalarIsFinite(font.fScaleX) &&
-               SkScalarIsFinite(font.fSkewX);
+        return SkScalarIsFinite(font.getSize()) &&
+               SkScalarIsFinite(font.getScaleX()) &&
+               SkScalarIsFinite(font.getSkewX());
     }
 
     // Returns the number of elements (characters or glyphs) in the array.
@@ -94,7 +81,7 @@ public:
 class SkAutoToGlyphs {
 public:
     SkAutoToGlyphs(const SkFont& font, const void* text, size_t length, SkTextEncoding encoding) {
-        if (encoding == kGlyphID_SkTextEncoding || length == 0) {
+        if (encoding == SkTextEncoding::kGlyphID || length == 0) {
             fGlyphs = reinterpret_cast<const uint16_t*>(text);
             fCount = length >> 1;
         } else {

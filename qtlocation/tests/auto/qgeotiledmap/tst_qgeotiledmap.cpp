@@ -145,7 +145,7 @@ void tst_QGeoTiledMap::fetchTiles()
     m_tilesCounter->m_tiles.clear();
     m_map->setCameraData(camera);
     waitForFetch(visibleCount);
-    QSet<QGeoTileSpec> visible = m_tilesCounter->m_tiles;
+    const QSet<QGeoTileSpec> visible = m_tilesCounter->m_tiles;
     m_map->clearData();
     m_tilesCounter->m_tiles.clear();
     m_map->prefetchData();
@@ -164,9 +164,8 @@ void tst_QGeoTiledMap::fetchTiles()
 
     QVERIFY2(visibleCount == visible.size(), "visible count incorrect");
     QVERIFY2(prefetchCount == prefetched.size(), "prefetch count incorrect");
-    QSetIterator<QGeoTileSpec> i(visible);
-    while (i.hasNext())
-        QVERIFY2(prefetched.contains(i.next()),"visible tile missing from prefetched tiles");
+    for (const QGeoTileSpec &tile : visible)
+        QVERIFY2(prefetched.contains(tile),"visible tile missing from prefetched tiles");
 
     //for zoomLevels wihtout fractions more tiles are fetched for current zoomlevel due to ViewExpansion
     if (qCeil(zoomLevel) != zoomLevel && style == QGeoTiledMap::PrefetchNeighbourLayer && nearestNeighbourLayer < zoomLevel)

@@ -36,7 +36,7 @@ class AcmReceiverTestOldApi : public AudioPacketizationCallback,
       : timestamp_(0),
         packet_sent_(false),
         last_packet_send_timestamp_(timestamp_),
-        last_frame_type_(kEmptyFrame) {
+        last_frame_type_(AudioFrameType::kEmptyFrame) {
     config_.decoder_factory = decoder_factory_;
   }
 
@@ -50,13 +50,12 @@ class AcmReceiverTestOldApi : public AudioPacketizationCallback,
     acm_->InitializeReceiver();
     acm_->RegisterTransportCallback(this);
 
-    rtp_header_.header.sequenceNumber = 0;
-    rtp_header_.header.timestamp = 0;
-    rtp_header_.header.markerBit = false;
-    rtp_header_.header.ssrc = 0x12345678;  // Arbitrary.
-    rtp_header_.header.numCSRCs = 0;
-    rtp_header_.header.payloadType = 0;
-    rtp_header_.frameType = kAudioFrameSpeech;
+    rtp_header_.sequenceNumber = 0;
+    rtp_header_.timestamp = 0;
+    rtp_header_.markerBit = false;
+    rtp_header_.ssrc = 0x12345678;  // Arbitrary.
+    rtp_header_.numCSRCs = 0;
+    rtp_header_.payloadType = 0;
   }
 
   void TearDown() override {}
@@ -104,18 +103,16 @@ class AcmReceiverTestOldApi : public AudioPacketizationCallback,
     return num_10ms_frames;
   }
 
-  int SendData(FrameType frame_type,
+  int SendData(AudioFrameType frame_type,
                uint8_t payload_type,
                uint32_t timestamp,
                const uint8_t* payload_data,
-               size_t payload_len_bytes,
-               const RTPFragmentationHeader* fragmentation) override {
-    if (frame_type == kEmptyFrame)
+               size_t payload_len_bytes) override {
+    if (frame_type == AudioFrameType::kEmptyFrame)
       return 0;
 
-    rtp_header_.header.payloadType = payload_type;
-    rtp_header_.frameType = frame_type;
-    rtp_header_.header.timestamp = timestamp;
+    rtp_header_.payloadType = payload_type;
+    rtp_header_.timestamp = timestamp;
 
     int ret_val = receiver_->InsertPacket(
         rtp_header_,
@@ -124,7 +121,7 @@ class AcmReceiverTestOldApi : public AudioPacketizationCallback,
       assert(false);
       return -1;
     }
-    rtp_header_.header.sequenceNumber++;
+    rtp_header_.sequenceNumber++;
     packet_sent_ = true;
     last_frame_type_ = frame_type;
     return 0;
@@ -137,11 +134,11 @@ class AcmReceiverTestOldApi : public AudioPacketizationCallback,
   AudioCodingModule::Config config_;
   std::unique_ptr<AcmReceiver> receiver_;
   std::unique_ptr<AudioCodingModule> acm_;
-  WebRtcRTPHeader rtp_header_;
+  RTPHeader rtp_header_;
   uint32_t timestamp_;
   bool packet_sent_;  // Set when SendData is called reset when inserting audio.
   uint32_t last_packet_send_timestamp_;
-  FrameType last_frame_type_;
+  AudioFrameType last_frame_type_;
 };
 
 #if defined(WEBRTC_ANDROID)
@@ -317,14 +314,13 @@ TEST_F(AcmReceiverTestOldApi, MAYBE_LastAudioCodec) {
                                                 {1, {"PCMA", 8000, 1}},
                                                 {2, {"ISAC", 32000, 1}},
                                                 {3, {"L16", 32000, 1}}};
-  const std::map<int, int> cng_payload_types = {{8000, 100},
-                                                {16000, 101},
-                                                {32000, 102}};
+  const std::map<int, int> cng_payload_types = {
+      {8000, 100}, {16000, 101}, {32000, 102}};
   {
     std::map<int, SdpAudioFormat> receive_codecs = codecs;
     for (const auto& cng_type : cng_payload_types) {
-      receive_codecs.emplace(
-          std::make_pair(cng_type.second, SdpAudioFormat("CN", cng_type.first, 1)));
+      receive_codecs.emplace(std::make_pair(
+          cng_type.second, SdpAudioFormat("CN", cng_type.first, 1)));
     }
     receiver_->SetCodecs(receive_codecs);
   }
@@ -336,9 +332,9 @@ TEST_F(AcmReceiverTestOldApi, MAYBE_LastAudioCodec) {
   packet_sent_ = false;
   InsertOnePacketOfSilence(
       SetEncoder(0, codecs.at(0), cng_payload_types));  // Enough to test
-                                                     // with one codec.
+                                                        // with one codec.
   ASSERT_TRUE(packet_sent_);
-  EXPECT_EQ(kAudioFrameCN, last_frame_type_);
+  EXPECT_EQ(AudioFrameType::kAudioFrameCN, last_frame_type_);
 
   // Has received, only, DTX. Last Audio codec is undefined.
   EXPECT_EQ(absl::nullopt, receiver_->LastDecoder());
@@ -355,7 +351,7 @@ TEST_F(AcmReceiverTestOldApi, MAYBE_LastAudioCodec) {
     // Sanity check if Actually an audio payload received, and it should be
     // of type "speech."
     ASSERT_TRUE(packet_sent_);
-    ASSERT_EQ(kAudioFrameSpeech, last_frame_type_);
+    ASSERT_EQ(AudioFrameType::kAudioFrameSpeech, last_frame_type_);
     EXPECT_EQ(info_without_cng.sample_rate_hz,
               receiver_->last_packet_sample_rate_hz());
 
@@ -363,7 +359,7 @@ TEST_F(AcmReceiverTestOldApi, MAYBE_LastAudioCodec) {
     // the expected codec. Encode repeatedly until a DTX is sent.
     const AudioCodecInfo info_with_cng =
         SetEncoder(payload_type, codecs.at(i), cng_payload_types);
-    while (last_frame_type_ != kAudioFrameCN) {
+    while (last_frame_type_ != AudioFrameType::kAudioFrameCN) {
       packet_sent_ = false;
       InsertOnePacketOfSilence(info_with_cng);
       ASSERT_TRUE(packet_sent_);

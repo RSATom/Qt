@@ -10,9 +10,7 @@
 #include "chrome/browser/profiles/profile_attributes_entry.h"
 #include "chrome/browser/profiles/profile_attributes_storage.h"
 #include "chrome/browser/profiles/profile_avatar_icon_util.h"
-#include "chrome/browser/signin/fake_signin_manager_builder.h"
 #include "chrome/browser/signin/signin_error_controller_factory.h"
-#include "chrome/browser/signin/signin_manager_factory.h"
 #include "chrome/browser/signin/signin_util.h"
 #include "chrome/browser/ui/webui/signin/signin_utils.h"
 #include "chrome/common/buildflags.h"
@@ -120,24 +118,18 @@ class SigninCreateProfileHandlerTest : public BrowserWithTestWindowTest {
     return handler_.get();
   }
 
-  FakeSigninManagerForTesting* signin_manager() {
-    return fake_signin_manager_;
-  }
-
  private:
   std::unique_ptr<content::TestWebUI> web_ui_;
-  FakeSigninManagerForTesting* fake_signin_manager_;
   std::unique_ptr<TestSigninCreateProfileHandler> handler_;
 };
 
-TEST_F(SigninCreateProfileHandlerTest, ReturnDefaultProfileNameAndIcons) {
+TEST_F(SigninCreateProfileHandlerTest, ReturnDefaultProfileIcons) {
   // Request default profile information.
   base::ListValue list_args;
   handler()->RequestDefaultProfileIcons(&list_args);
 
-  // Expect two JS callbacks. One with profile avatar icons and the other with
-  // the default profile name.
-  EXPECT_EQ(2U, web_ui()->call_data().size());
+  // Expect one JS callbacks for the profile avatar icons.
+  EXPECT_EQ(1U, web_ui()->call_data().size());
 
   EXPECT_EQ(kTestWebUIResponse, web_ui()->call_data()[0]->function_name());
 
@@ -148,17 +140,6 @@ TEST_F(SigninCreateProfileHandlerTest, ReturnDefaultProfileNameAndIcons) {
   const base::ListValue* profile_icons;
   ASSERT_TRUE(web_ui()->call_data()[0]->arg2()->GetAsList(&profile_icons));
   EXPECT_NE(0U, profile_icons->GetSize());
-
-  EXPECT_EQ(kTestWebUIResponse, web_ui()->call_data()[1]->function_name());
-
-  ASSERT_TRUE(web_ui()->call_data()[1]->arg1()->GetAsString(&callback_name));
-  EXPECT_EQ("profile-defaults-received", callback_name);
-
-  const base::DictionaryValue* profile_info;
-  ASSERT_TRUE(web_ui()->call_data()[1]->arg2()->GetAsDictionary(&profile_info));
-  std::string profile_name;
-  ASSERT_TRUE(profile_info->GetString("name", &profile_name));
-  EXPECT_NE("", profile_name);
 }
 
 TEST_F(SigninCreateProfileHandlerTest, CreateProfile) {

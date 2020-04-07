@@ -38,6 +38,7 @@
 #include "third_party/blink/renderer/platform/image-decoders/jpeg/jpeg_image_decoder.h"
 
 #include <memory>
+
 #include "build/build_config.h"
 #include "third_party/blink/renderer/platform/graphics/bitmap_image_metrics.h"
 #include "third_party/blink/renderer/platform/instrumentation/tracing/trace_event.h"
@@ -337,7 +338,6 @@ static void ProgressMonitor(j_common_ptr info) {
 
 class JPEGImageReader final {
   USING_FAST_MALLOC(JPEGImageReader);
-  WTF_MAKE_NONCOPYABLE(JPEGImageReader);
 
  public:
   JPEGImageReader(JPEGImageDecoder* decoder)
@@ -529,13 +529,13 @@ class JPEGImageReader final {
           // the original size won't exceed the memory limit (see
           // |max_decoded_bytes_| in ImageDecoder) or something less than
           // |g_scale_denominator| otherwise to ensure the image is downscaled.
-          std::vector<SkISize> sizes;
+          Vector<SkISize> sizes;
           if (max_numerator == g_scale_denominator &&
               ShouldDecodeToOriginalSize()) {
             sizes.push_back(
                 SkISize::Make(info_.image_width, info_.image_height));
           } else {
-            sizes.reserve(max_numerator);
+            sizes.ReserveCapacity(max_numerator);
             for (int numerator = 1; numerator <= max_numerator; ++numerator) {
               info_.scale_num = numerator;
               jpeg_calc_output_dimensions(&info_);
@@ -807,6 +807,8 @@ class JPEGImageReader final {
 
   JSAMPARRAY samples_;
   IntSize uv_size_;
+
+  DISALLOW_COPY_AND_ASSIGN(JPEGImageReader);
 };
 
 void error_exit(
@@ -916,32 +918,35 @@ unsigned JPEGImageDecoder::DesiredScaleNumerator() const {
 }
 
 bool JPEGImageDecoder::ShouldGenerateAllSizes() const {
-  return supported_decode_sizes_.empty();
+  return supported_decode_sizes_.IsEmpty();
 }
 
 bool JPEGImageDecoder::CanDecodeToYUV() {
-  // TODO(crbug.com/919627): Re-enable the code below once JPEG YUV decoding is
-  // finished.
+  // TODO(crbug.com/919627): Right now |decode_to_yuv_for_testing_| is false by
+  // default and is only set true for unit tests. Remove it once
+  // JPEG YUV decoding is finished and YUV decoding doesn't need to be disabled
+  // outside of tests.
+  //
   // Returning false here is a bit deceptive because the JPEG decoder does
   // support YUV. But the rest of the infrastructure at levels above the decoder
   // is not quite there yet to handle the resulting JPEG YUV data,
   // so for now we disable that path.
-  return false;
+  //
   // Calling IsSizeAvailable() ensures the reader is created and the output
   // color space is set.
-  // return IsSizeAvailable() && reader_->Info()->out_color_space == JCS_YCbCr;
+  return decode_to_yuv_for_testing_ && IsSizeAvailable() &&
+         reader_->Info()->out_color_space == JCS_YCbCr;
 }
 
-bool JPEGImageDecoder::DecodeToYUV() {
-  if (!HasImagePlanes())
-    return false;
+void JPEGImageDecoder::DecodeToYUV() {
+  DCHECK(HasImagePlanes());
+  DCHECK(CanDecodeToYUV());
 
   {
     TRACE_EVENT1(TRACE_DISABLED_BY_DEFAULT("devtools.timeline"), "Decode Image",
                  "imageType", "JPEG");
     Decode(false);
   }
-  return !Failed();
 }
 
 void JPEGImageDecoder::SetImagePlanes(
@@ -949,11 +954,11 @@ void JPEGImageDecoder::SetImagePlanes(
   image_planes_ = std::move(image_planes);
 }
 
-void JPEGImageDecoder::SetSupportedDecodeSizes(std::vector<SkISize> sizes) {
+void JPEGImageDecoder::SetSupportedDecodeSizes(Vector<SkISize> sizes) {
   supported_decode_sizes_ = std::move(sizes);
 }
 
-std::vector<SkISize> JPEGImageDecoder::GetSupportedDecodeSizes() const {
+Vector<SkISize> JPEGImageDecoder::GetSupportedDecodeSizes() const {
   // DCHECK IsDecodedSizeAvailable instead of IsSizeAvailable, since the latter
   // has side effects of actually doing the decode.
   DCHECK(IsDecodedSizeAvailable());

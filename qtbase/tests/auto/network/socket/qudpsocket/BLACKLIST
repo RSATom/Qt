@@ -1,26 +1,10 @@
 [writeDatagramToNonExistingPeer]
-windows
-osx
-[asyncReadDatagram]
-osx
-[multicastLeaveAfterClose]
-osx
-[readyRead]
-osx
+windows-10 msvc-2017
+windows-10 msvc-2015
+windows-7sp1
 [readyReadForEmptyDatagram]
-osx
+opensuse-leap
 [echo]
-linux
-osx
-[ipv6Loop]
-osx
-[loop]
-osx
-[broadcasting]
-osx
-[zeroLengthDatagram]
-osx
-[linkLocalIPv6]
-linux
+opensuse-42.3
 [readyReadForEmptyDatagram]
 linux

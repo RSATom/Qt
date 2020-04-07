@@ -8,6 +8,7 @@
 
 #include <utility>
 
+#include "core/fxge/render_defines.h"
 #include "third_party/base/ptr_util.h"
 #include "xfa/fwl/cfwl_notedriver.h"
 #include "xfa/fwl/cfwl_pushbutton.h"
@@ -32,14 +33,14 @@ CXFA_FFPushButton::~CXFA_FFPushButton() = default;
 
 void CXFA_FFPushButton::RenderWidget(CXFA_Graphics* pGS,
                                      const CFX_Matrix& matrix,
-                                     uint32_t dwStatus) {
-  if (!IsMatchVisibleStatus(dwStatus))
+                                     HighlightOption highlight) {
+  if (!HasVisibleStatus())
     return;
 
   CFX_Matrix mtRotate = GetRotateMatrix();
   mtRotate.Concat(matrix);
 
-  CXFA_FFWidget::RenderWidget(pGS, mtRotate, dwStatus);
+  CXFA_FFWidget::RenderWidget(pGS, mtRotate, highlight);
   RenderHighlightCaption(pGS, &mtRotate);
 
   CFX_RectF rtWidget = GetRectWithoutRotate();
@@ -55,7 +56,7 @@ bool CXFA_FFPushButton::LoadWidget() {
   m_pOldDelegate = pPushButton->GetDelegate();
   pPushButton->SetDelegate(this);
   m_pNormalWidget = std::move(pNew);
-  m_pNormalWidget->SetLayoutItem(this);
+  m_pNormalWidget->SetFFWidget(this);
 
   CFWL_NoteDriver* pNoteDriver =
       m_pNormalWidget->GetOwnerApp()->GetNoteDriver();

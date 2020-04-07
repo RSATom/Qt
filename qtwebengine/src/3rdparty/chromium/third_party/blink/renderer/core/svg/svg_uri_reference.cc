@@ -25,6 +25,7 @@
 #include "third_party/blink/renderer/core/html/parser/html_parser_idioms.h"
 #include "third_party/blink/renderer/core/svg/svg_element.h"
 #include "third_party/blink/renderer/core/xlink_names.h"
+#include "third_party/blink/renderer/platform/heap/heap.h"
 #include "third_party/blink/renderer/platform/wtf/functional.h"
 
 namespace blink {
@@ -46,7 +47,7 @@ class SVGElementReferenceObserver : public IdTargetObserver {
 }
 
 SVGURIReference::SVGURIReference(SVGElement* element)
-    : href_(SVGAnimatedHref::Create(element)) {
+    : href_(MakeGarbageCollected<SVGAnimatedHref>(element)) {
   DCHECK(element);
   href_->AddToPropertyMap(element);
 }
@@ -148,6 +149,15 @@ void SVGURIReference::UnobserveTarget(Member<IdTargetObserver>& observer) {
     return;
   observer->Unregister();
   observer = nullptr;
+}
+
+const AttrNameToTrustedType& SVGURIReference::GetCheckedAttributeTypes() {
+  DEFINE_STATIC_LOCAL(
+      AttrNameToTrustedType, attribute_map,
+      ({
+          {svg_names::kHrefAttr.LocalName(), SpecificTrustedType::kTrustedURL},
+      }));
+  return attribute_map;
 }
 
 }  // namespace blink

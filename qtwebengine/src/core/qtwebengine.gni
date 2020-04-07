@@ -29,6 +29,7 @@ deps = [
   "//components/web_cache/renderer",
   "//components/spellcheck:buildflags",
   "//components/proxy_config",
+  "//components/user_prefs",
   "//content/public/app:browser",
   "//content",
   "//media:media_buildflags",
@@ -64,9 +65,9 @@ if (enable_extensions) {
   ]
 }
 
-assert_no_deps = [
-  "//ui/views/mus",
-]
+if (is_win) {
+  data_deps = [ ":qtwebengine_sandbox_win" ]
+}
 
 defines = [
   "CHROMIUM_VERSION=\"" + chromium_version[0] + "\""

@@ -7,11 +7,13 @@
 #include <string>
 #include <utility>
 
+#include "base/bind.h"
 #include "base/command_line.h"
 #include "base/metrics/field_trial_params.h"
 #include "base/optional.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/time/time.h"
+#include "build/build_config.h"
 #include "media/audio/audio_manager.h"
 #include "media/base/media_switches.h"
 #include "services/audio/in_process_audio_manager_accessor.h"
@@ -50,29 +52,35 @@ base::Optional<base::TimeDelta> GetQuitTimeout() {
   if (auto timeout = GetExperimentalQuitTimeout())
     return *timeout >= base::TimeDelta() ? timeout : base::nullopt;
 
+#if defined(OS_LINUX) && !defined(OS_CHROMEOS)
+  // On platforms where the audio service have launched, use default timeout
+  // instead of no lifetime management.
+  return base::TimeDelta::FromMinutes(15);
+#else
   return base::nullopt;
+#endif
 }
 
 }  // namespace
 
 std::unique_ptr<Service> CreateEmbeddedService(
     media::AudioManager* audio_manager,
-    service_manager::mojom::ServiceRequest request) {
+    mojo::PendingReceiver<service_manager::mojom::Service> receiver) {
   return std::make_unique<Service>(
       std::make_unique<InProcessAudioManagerAccessor>(audio_manager),
       base::nullopt /* do not quit if all clients disconnected */,
       false /* enable_device_notifications */,
-      std::make_unique<service_manager::BinderRegistry>(), std::move(request));
+      std::make_unique<service_manager::BinderMap>(), std::move(receiver));
 }
 
 std::unique_ptr<Service> CreateStandaloneService(
-    std::unique_ptr<service_manager::BinderRegistry> registry,
-    service_manager::mojom::ServiceRequest request) {
+    std::unique_ptr<service_manager::BinderMap> extra_binders,
+    mojo::PendingReceiver<service_manager::mojom::Service> receiver) {
   return std::make_unique<Service>(
       std::make_unique<audio::OwningAudioManagerAccessor>(
           base::BindOnce(&media::AudioManager::Create)),
       GetQuitTimeout(), true /* enable_remote_client_support */,
-      std::move(registry), std::move(request));
+      std::move(extra_binders), std::move(receiver));
 }
 
 }  // namespace audio

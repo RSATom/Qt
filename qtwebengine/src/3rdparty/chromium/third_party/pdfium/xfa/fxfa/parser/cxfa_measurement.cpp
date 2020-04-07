@@ -6,6 +6,8 @@
 
 #include "xfa/fxfa/parser/cxfa_measurement.h"
 
+#include <cmath>
+
 #include "core/fxcrt/fx_extension.h"
 
 namespace {
@@ -32,18 +34,21 @@ CXFA_Measurement::CXFA_Measurement(float fValue, XFA_Unit eUnit) {
 
 void CXFA_Measurement::SetString(WideStringView wsMeasure) {
   if (wsMeasure.IsEmpty()) {
-    m_fValue = 0;
-    m_eUnit = XFA_Unit::Unknown;
+    Set(0, XFA_Unit::Unknown);
     return;
   }
 
+  if (wsMeasure[0] == L'=')
+    wsMeasure = wsMeasure.Right(wsMeasure.GetLength() - 1);
+
   int32_t iUsedLen = 0;
-  int32_t iOffset = (wsMeasure[0] == L'=') ? 1 : 0;
-  float fValue = FXSYS_wcstof(wsMeasure.unterminated_c_str() + iOffset,
-                              wsMeasure.GetLength() - iOffset, &iUsedLen);
-  XFA_Unit eUnit = GetUnitFromString(
-      wsMeasure.Right(wsMeasure.GetLength() - (iOffset + iUsedLen)));
-  Set(fValue, eUnit);
+  float fValue = FXSYS_wcstof(wsMeasure.unterminated_c_str(),
+                              wsMeasure.GetLength(), &iUsedLen);
+  if (!std::isfinite(fValue))
+    fValue = 0.0f;
+
+  wsMeasure = wsMeasure.Right(wsMeasure.GetLength() - iUsedLen);
+  Set(fValue, GetUnitFromString(wsMeasure));
 }
 
 WideString CXFA_Measurement::ToString() const {

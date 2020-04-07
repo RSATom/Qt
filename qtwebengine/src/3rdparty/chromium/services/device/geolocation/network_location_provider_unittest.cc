@@ -8,19 +8,22 @@
 
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
+#include "base/bind.h"
 #include "base/json/json_reader.h"
 #include "base/json/json_writer.h"
 #include "base/macros.h"
-#include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/test/scoped_task_environment.h"
 #include "base/values.h"
 #include "net/base/net_errors.h"
+#include "services/device/geolocation/fake_position_cache.h"
 #include "services/device/geolocation/location_arbitrator.h"
 #include "services/device/geolocation/wifi_data_provider.h"
 #include "services/device/public/cpp/geolocation/geoposition.h"
@@ -106,21 +109,6 @@ class MockWifiDataProvider : public WifiDataProvider {
   DISALLOW_COPY_AND_ASSIGN(MockWifiDataProvider);
 };
 
-// An implementation of LastPositionCache.
-class TestLastPositionCache
-    : public NetworkLocationProvider::LastPositionCache {
- public:
-  void SetLastNetworkPosition(const mojom::Geoposition& position) override {
-    last_network_position_ = position;
-  }
-  const mojom::Geoposition& GetLastNetworkPosition() override {
-    return last_network_position_;
-  }
-
- private:
-  mojom::Geoposition last_network_position_;
-};
-
 MockWifiDataProvider* MockWifiDataProvider::instance_ = nullptr;
 
 // Main test fixture
@@ -130,10 +118,12 @@ class GeolocationNetworkProviderTest : public testing::Test {
     WifiDataProviderManager::ResetFactoryForTesting();
   }
 
-  LocationProvider* CreateProvider(bool set_permission_granted,
-                                   const std::string& api_key = std::string()) {
-    LocationProvider* provider = new NetworkLocationProvider(
-        shared_url_loader_factory_, api_key, last_position_cache_.get());
+  std::unique_ptr<LocationProvider> CreateProvider(
+      bool set_permission_granted,
+      const std::string& api_key = std::string()) {
+    auto provider = std::make_unique<NetworkLocationProvider>(
+        test_url_loader_factory_.GetSafeWeakWrapper(), api_key,
+        &position_cache_);
     if (set_permission_granted)
       provider->OnPermissionGranted();
     return provider;
@@ -141,19 +131,11 @@ class GeolocationNetworkProviderTest : public testing::Test {
 
  protected:
   GeolocationNetworkProviderTest()
-      : shared_url_loader_factory_(
-            new network::WeakWrapperSharedURLLoaderFactory(
-                &test_url_loader_factory_)),
-        wifi_data_provider_(MockWifiDataProvider::CreateInstance()),
-        last_position_cache_(std::make_unique<TestLastPositionCache>()) {
+      : wifi_data_provider_(MockWifiDataProvider::CreateInstance()) {
     // TODO(joth): Really these should be in SetUp, not here, but they take no
     // effect on Mac OS Release builds if done there. I kid not. Figure out why.
     WifiDataProviderManager::SetFactoryForTesting(
         MockWifiDataProvider::GetInstance);
-  }
-
-  ~GeolocationNetworkProviderTest() override {
-    shared_url_loader_factory_->Detach();
   }
 
   static int IndexToChannel(int index) { return index + 4; }
@@ -166,6 +148,19 @@ class GeolocationNetworkProviderTest : public testing::Test {
       AccessPointData ap;
       ap.mac_address =
           base::ASCIIToUTF16(base::StringPrintf("%02d-34-56-78-54-32", i));
+      ap.radio_signal_strength = ap_count - i;
+      ap.channel = IndexToChannel(i);
+      ap.signal_to_noise = i + 42;
+      ap.ssid = base::ASCIIToUTF16("Some nice+network|name\\");
+      data.access_point_data.insert(ap);
+    }
+    return data;
+  }
+
+  static WifiData CreateReferenceWifiScanDataWithNoMACAddress(int ap_count) {
+    WifiData data;
+    for (int i = 0; i < ap_count; ++i) {
+      AccessPointData ap;
       ap.radio_signal_strength = ap_count - i;
       ap.channel = IndexToChannel(i);
       ap.signal_to_noise = i + 42;
@@ -254,8 +249,8 @@ class GeolocationNetworkProviderTest : public testing::Test {
 
     std::string json_parse_error_msg;
     std::unique_ptr<base::Value> parsed_json =
-        base::JSONReader::ReadAndReturnError(upload_data, base::JSON_PARSE_RFC,
-                                             nullptr, &json_parse_error_msg);
+        base::JSONReader::ReadAndReturnErrorDeprecated(
+            upload_data, base::JSON_PARSE_RFC, nullptr, &json_parse_error_msg);
     EXPECT_TRUE(json_parse_error_msg.empty());
     ASSERT_TRUE(parsed_json);
 
@@ -289,18 +284,14 @@ class GeolocationNetworkProviderTest : public testing::Test {
     }
   }
 
-  const base::MessageLoop main_message_loop_;
+  const base::test::ScopedTaskEnvironment scoped_task_environment_;
   network::TestURLLoaderFactory test_url_loader_factory_;
-  const scoped_refptr<network::WeakWrapperSharedURLLoaderFactory>
-      shared_url_loader_factory_;
   const scoped_refptr<MockWifiDataProvider> wifi_data_provider_;
-  std::unique_ptr<NetworkLocationProvider::LastPositionCache>
-      last_position_cache_;
+  FakePositionCache position_cache_;
 };
 
 // Tests that fixture members were SetUp correctly.
 TEST_F(GeolocationNetworkProviderTest, CreateDestroy) {
-  EXPECT_TRUE(main_message_loop_.IsBoundToCurrentThread());
   std::unique_ptr<LocationProvider> provider(CreateProvider(true));
   EXPECT_TRUE(provider);
   provider.reset();
@@ -362,6 +353,24 @@ TEST_F(GeolocationNetworkProviderTest, StartProviderLongRequest) {
   EXPECT_LT(request_url.size(), size_t(2048));
   // Expect only 16 out of 20 original access points.
   CheckRequestIsValid(16, 4);
+}
+
+TEST_F(GeolocationNetworkProviderTest, StartProviderNoMacAddress) {
+  std::unique_ptr<LocationProvider> provider(CreateProvider(true));
+  provider->StartProvider(false);
+  // Create Wifi scan data with no MAC Addresses.
+  const int kFirstScanAps = 5;
+  wifi_data_provider_->SetData(
+      CreateReferenceWifiScanDataWithNoMACAddress(kFirstScanAps));
+  base::RunLoop().RunUntilIdle();
+
+  ASSERT_EQ(1, test_url_loader_factory_.NumPending());
+
+  test_url_loader_factory_.pending_requests()->back().request.url.spec();
+
+  // Expect only 0 out of 5 original access points. since none of them have
+  // MAC Addresses.
+  CheckRequestIsValid(0, 0);
 }
 
 // Tests that the provider issues the right requests, and provides the right
@@ -531,32 +540,6 @@ TEST_F(GeolocationNetworkProviderTest,
   CheckRequestIsValid(kScanCount, 0);
 }
 
-// Tests that the provider's position cache correctly caches each item, and
-// begins evicting the oldest entries in order once it reaches its maximum size.
-TEST_F(GeolocationNetworkProviderTest, NetworkPositionCache) {
-  NetworkLocationProvider::PositionCache cache;
-
-  const int kCacheSize = NetworkLocationProvider::PositionCache::kMaximumSize;
-  for (int i = 1; i < kCacheSize * 2 + 1; ++i) {
-    mojom::Geoposition pos = CreateReferencePosition(i);
-    bool ret = cache.CachePosition(CreateReferenceWifiScanData(i), pos);
-    EXPECT_TRUE(ret) << i;
-    const mojom::Geoposition* item =
-        cache.FindPosition(CreateReferenceWifiScanData(i));
-    ASSERT_TRUE(item) << i;
-    EXPECT_EQ(pos.latitude, item->latitude) << i;
-    EXPECT_EQ(pos.longitude, item->longitude) << i;
-    if (i <= kCacheSize) {
-      // Nothing should have spilled yet; check oldest item is still there.
-      EXPECT_TRUE(cache.FindPosition(CreateReferenceWifiScanData(1)));
-    } else {
-      const int evicted = i - kCacheSize;
-      EXPECT_FALSE(cache.FindPosition(CreateReferenceWifiScanData(evicted)));
-      EXPECT_TRUE(cache.FindPosition(CreateReferenceWifiScanData(evicted + 1)));
-    }
-  }
-}
-
 // Tests that the provider's last position cache delegate is correctly used to
 // cache the most recent network position estimate, and that this estimate is
 // not lost when the provider is torn down and recreated.
@@ -569,7 +552,7 @@ TEST_F(GeolocationNetworkProviderTest, LastPositionCache) {
   EXPECT_FALSE(ValidateGeoposition(position));
 
   // Check that the cached value is also invalid.
-  position = last_position_cache_->GetLastNetworkPosition();
+  position = position_cache_.GetLastUsedNetworkPosition();
   EXPECT_FALSE(ValidateGeoposition(position));
 
   // Now wifi data arrives -- SetData will notify listeners.
@@ -608,7 +591,7 @@ TEST_F(GeolocationNetworkProviderTest, LastPositionCache) {
   provider = nullptr;
 
   // The cache preserves the last estimate while the provider is inactive.
-  position = last_position_cache_->GetLastNetworkPosition();
+  position = position_cache_.GetLastUsedNetworkPosition();
   EXPECT_EQ(51.0, position.latitude);
   EXPECT_EQ(-0.1, position.longitude);
   EXPECT_EQ(1200.4, position.accuracy);
@@ -616,7 +599,7 @@ TEST_F(GeolocationNetworkProviderTest, LastPositionCache) {
   EXPECT_TRUE(ValidateGeoposition(position));
 
   // Restart the provider.
-  provider.reset(CreateProvider(true));
+  provider = CreateProvider(true);
   provider->StartProvider(false);
 
   // Check that the most recent position estimate is retained.
@@ -639,7 +622,7 @@ TEST_F(GeolocationNetworkProviderTest, LastPositionCacheUsed) {
   // timestamp set to the current time.
   mojom::Geoposition last_position = CreateReferencePosition(0);
   EXPECT_TRUE(ValidateGeoposition(last_position));
-  last_position_cache_->SetLastNetworkPosition(last_position);
+  position_cache_.SetLastUsedNetworkPosition(last_position);
 
   // Simulate no initial wifi data.
   wifi_data_provider_->set_got_data(false);
@@ -683,7 +666,7 @@ TEST_F(GeolocationNetworkProviderTest, LastPositionNotUsedTooOld) {
   last_position.timestamp =
       base::Time::Now() - base::TimeDelta::FromMinutes(20);
   EXPECT_TRUE(ValidateGeoposition(last_position));
-  last_position_cache_->SetLastNetworkPosition(last_position);
+  position_cache_.SetLastUsedNetworkPosition(last_position);
 
   // Simulate no initial wifi data.
   wifi_data_provider_->set_got_data(false);
@@ -719,7 +702,7 @@ TEST_F(GeolocationNetworkProviderTest, LastPositionNotUsedNewData) {
   // of the cached position is set to the current time.
   mojom::Geoposition last_position = CreateReferencePosition(0);
   EXPECT_TRUE(ValidateGeoposition(last_position));
-  last_position_cache_->SetLastNetworkPosition(last_position);
+  position_cache_.SetLastUsedNetworkPosition(last_position);
 
   // Simulate a completed wifi scan.
   const int kFirstScanAps = 6;

@@ -11,6 +11,30 @@
 
 namespace {
 
+bool IsFoldingVerticalLine(const CFX_PointF& a,
+                           const CFX_PointF& b,
+                           const CFX_PointF& c) {
+  return a.x == b.x && b.x == c.x && (b.y - a.y) * (b.y - c.y) > 0;
+}
+
+bool IsFoldingHorizontalLine(const CFX_PointF& a,
+                             const CFX_PointF& b,
+                             const CFX_PointF& c) {
+  return a.y == b.y && b.y == c.y && (b.x - a.x) * (b.x - c.x) > 0;
+}
+
+bool IsFoldingDiagonalLine(const CFX_PointF& a,
+                           const CFX_PointF& b,
+                           const CFX_PointF& c) {
+  return a.x != b.x && c.x != b.x && a.y != b.y && c.y != b.y &&
+         (a.y - b.y) * (c.x - b.x) == (c.y - b.y) * (a.x - b.x);
+}
+
+bool IsClosedFigure(const FX_PATHPOINT& prev, const FX_PATHPOINT& next) {
+  return prev.m_Type == FXPT_TYPE::MoveTo && next.m_Type == FXPT_TYPE::LineTo &&
+         prev.m_Point == next.m_Point && next.m_CloseFigure;
+}
+
 void UpdateLineEndPoints(CFX_FloatRect* rect,
                          const CFX_PointF& start_pos,
                          const CFX_PointF& end_pos,
@@ -166,11 +190,13 @@ FX_PATHPOINT::FX_PATHPOINT(const FX_PATHPOINT& other) = default;
 
 FX_PATHPOINT::~FX_PATHPOINT() = default;
 
-CFX_PathData::CFX_PathData() {}
+CFX_PathData::CFX_PathData() = default;
 
-CFX_PathData::~CFX_PathData() {}
+CFX_PathData::CFX_PathData(const CFX_PathData& src) = default;
 
-CFX_PathData::CFX_PathData(const CFX_PathData& src) : m_Points(src.m_Points) {}
+CFX_PathData::CFX_PathData(CFX_PathData&& src) = default;
+
+CFX_PathData::~CFX_PathData() = default;
 
 void CFX_PathData::Clear() {
   m_Points.clear();
@@ -356,58 +382,52 @@ bool CFX_PathData::GetZeroAreaPath(const CFX_Matrix* pMatrix,
   }
 
   int startPoint = 0;
-  int next = 0;
   for (size_t i = 0; i < m_Points.size(); i++) {
     FXPT_TYPE point_type = m_Points[i].m_Type;
     if (point_type == FXPT_TYPE::MoveTo) {
       startPoint = i;
-    } else if (point_type == FXPT_TYPE::LineTo) {
-      next = (i + 1 - startPoint) % (m_Points.size() - startPoint) + startPoint;
-      if (m_Points[next].m_Type != FXPT_TYPE::BezierTo &&
-          m_Points[next].m_Type != FXPT_TYPE::MoveTo) {
-        if ((m_Points[i - 1].m_Point.x == m_Points[i].m_Point.x &&
-             m_Points[i].m_Point.x == m_Points[next].m_Point.x) &&
-            ((m_Points[i].m_Point.y - m_Points[i - 1].m_Point.y) *
-                 (m_Points[i].m_Point.y - m_Points[next].m_Point.y) >
-             0)) {
-          int pre = i;
-          if (fabs(m_Points[i].m_Point.y - m_Points[i - 1].m_Point.y) <
-              fabs(m_Points[i].m_Point.y - m_Points[next].m_Point.y)) {
-            pre--;
-            next--;
-          }
+      continue;
+    }
 
-          NewPath->AppendPoint(m_Points[pre].m_Point, FXPT_TYPE::MoveTo, false);
-          NewPath->AppendPoint(m_Points[next].m_Point, FXPT_TYPE::LineTo,
-                               false);
-        } else if ((m_Points[i - 1].m_Point.y == m_Points[i].m_Point.y &&
-                    m_Points[i].m_Point.y == m_Points[next].m_Point.y) &&
-                   ((m_Points[i].m_Point.x - m_Points[i - 1].m_Point.x) *
-                        (m_Points[i].m_Point.x - m_Points[next].m_Point.x) >
-                    0)) {
-          int pre = i;
-          if (fabs(m_Points[i].m_Point.x - m_Points[i - 1].m_Point.x) <
-              fabs(m_Points[i].m_Point.x - m_Points[next].m_Point.x)) {
-            pre--;
-            next--;
-          }
-
-          NewPath->AppendPoint(m_Points[pre].m_Point, FXPT_TYPE::MoveTo, false);
-          NewPath->AppendPoint(m_Points[next].m_Point, FXPT_TYPE::LineTo,
-                               false);
-        } else if (m_Points[i - 1].m_Type == FXPT_TYPE::MoveTo &&
-                   m_Points[next].m_Type == FXPT_TYPE::LineTo &&
-                   m_Points[i - 1].m_Point == m_Points[next].m_Point &&
-                   m_Points[next].m_CloseFigure) {
-          NewPath->AppendPoint(m_Points[i - 1].m_Point, FXPT_TYPE::MoveTo,
-                               false);
-          NewPath->AppendPoint(m_Points[i].m_Point, FXPT_TYPE::LineTo, false);
-          *bThin = true;
-        }
-      }
-    } else if (point_type == FXPT_TYPE::BezierTo) {
+    if (point_type == FXPT_TYPE::BezierTo) {
       i += 2;
       continue;
+    }
+
+    ASSERT(point_type == FXPT_TYPE::LineTo);
+    int next_index =
+        (i + 1 - startPoint) % (m_Points.size() - startPoint) + startPoint;
+    const FX_PATHPOINT& next = m_Points[next_index];
+    if (next.m_Type == FXPT_TYPE::BezierTo || next.m_Type == FXPT_TYPE::MoveTo)
+      continue;
+
+    const FX_PATHPOINT& prev = m_Points[i - 1];
+    const FX_PATHPOINT& cur = m_Points[i];
+    if (IsFoldingVerticalLine(prev.m_Point, cur.m_Point, next.m_Point)) {
+      bool use_prev = fabs(cur.m_Point.y - prev.m_Point.y) <
+                      fabs(cur.m_Point.y - next.m_Point.y);
+      const FX_PATHPOINT& start = use_prev ? prev : cur;
+      const FX_PATHPOINT& end = use_prev ? m_Points[next_index - 1] : next;
+      NewPath->AppendPoint(start.m_Point, FXPT_TYPE::MoveTo, false);
+      NewPath->AppendPoint(end.m_Point, FXPT_TYPE::LineTo, false);
+      continue;
+    }
+
+    if (IsFoldingHorizontalLine(prev.m_Point, cur.m_Point, next.m_Point) ||
+        IsFoldingDiagonalLine(prev.m_Point, cur.m_Point, next.m_Point)) {
+      bool use_prev = fabs(cur.m_Point.x - prev.m_Point.x) <
+                      fabs(cur.m_Point.x - next.m_Point.x);
+      const FX_PATHPOINT& start = use_prev ? prev : cur;
+      const FX_PATHPOINT& end = use_prev ? m_Points[next_index - 1] : next;
+      NewPath->AppendPoint(start.m_Point, FXPT_TYPE::MoveTo, false);
+      NewPath->AppendPoint(end.m_Point, FXPT_TYPE::LineTo, false);
+      continue;
+    }
+
+    if (IsClosedFigure(prev, next)) {
+      NewPath->AppendPoint(prev.m_Point, FXPT_TYPE::MoveTo, false);
+      NewPath->AppendPoint(cur.m_Point, FXPT_TYPE::LineTo, false);
+      *bThin = true;
     }
   }
 
@@ -493,4 +513,21 @@ bool CFX_PathData::IsRect(const CFX_Matrix* pMatrix,
     pRect->Normalize();
   }
   return true;
+}
+
+CFX_RetainablePathData::CFX_RetainablePathData() = default;
+
+// Note: can't default the copy constructor since Retainable<> has a deleted
+// copy constructor (as it should). Instead, we want the default Retainable<>
+// constructor to be invoked so as to create a copy with a ref-count of 1 as
+// of the time it is created, then populate the remainder of the members from
+// the |src| object.
+CFX_RetainablePathData::CFX_RetainablePathData(
+    const CFX_RetainablePathData& src)
+    : CFX_PathData(src) {}
+
+CFX_RetainablePathData::~CFX_RetainablePathData() = default;
+
+RetainPtr<CFX_RetainablePathData> CFX_RetainablePathData::Clone() const {
+  return pdfium::MakeRetain<CFX_RetainablePathData>(*this);
 }

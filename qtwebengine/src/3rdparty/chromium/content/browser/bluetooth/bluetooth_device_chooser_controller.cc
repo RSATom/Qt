@@ -132,7 +132,7 @@ bool MatchesFilter(const std::string* device_name,
 
   if (filter->services) {
     for (const auto& service : filter->services.value()) {
-      if (!base::ContainsKey(device_uuids, service)) {
+      if (!base::Contains(device_uuids, service)) {
         return false;
       }
     }
@@ -237,8 +237,7 @@ BluetoothDeviceChooserController::BluetoothDeviceChooserController(
           base::Bind(&BluetoothDeviceChooserController::StopDeviceDiscovery,
                      // base::Timer guarantees it won't call back after its
                      // destructor starts.
-                     base::Unretained(this))),
-      weak_ptr_factory_(this) {
+                     base::Unretained(this))) {
   CHECK(adapter_);
 }
 
@@ -319,7 +318,7 @@ void BluetoothDeviceChooserController::GetDevice(
         BLOCK_GLOBALLY_DISABLED: {
       // Log to the developer console.
       web_contents_->GetMainFrame()->AddMessageToConsole(
-          content::CONSOLE_MESSAGE_LEVEL_INFO,
+          blink::mojom::ConsoleMessageLevel::kInfo,
           "Bluetooth permission has been blocked.");
       // Block requests.
       RecordRequestDeviceOutcome(

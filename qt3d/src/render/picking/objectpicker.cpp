@@ -43,7 +43,6 @@
 #include <Qt3DRender/private/qobjectpicker_p.h>
 #include <Qt3DRender/qattribute.h>
 #include <Qt3DRender/private/pickboundingvolumejob_p.h>
-#include <Qt3DCore/qpropertyupdatedchange.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -75,40 +74,37 @@ void ObjectPicker::cleanup()
     notifyJob();
 }
 
-void ObjectPicker::initializeFromPeer(const Qt3DCore::QNodeCreatedChangeBasePtr &change)
+void ObjectPicker::syncFromFrontEnd(const Qt3DCore::QNode *frontEnd, bool firstTime)
 {
-    const auto typedChange = qSharedPointerCast<Qt3DCore::QNodeCreatedChange<QObjectPickerData>>(change);
-    const auto &data = typedChange->data;
-    m_hoverEnabled = data.hoverEnabled;
-    m_dragEnabled = data.dragEnabled;
-    m_priority = data.priority;
-    notifyJob();
+    const QObjectPicker *node = qobject_cast<const QObjectPicker *>(frontEnd);
+    if (!node)
+        return;
+
+    BackendNode::syncFromFrontEnd(frontEnd, firstTime);
+
+    if (node->isHoverEnabled() != m_hoverEnabled) {
+        m_hoverEnabled = node->isHoverEnabled();
+        markDirty(AbstractRenderer::AllDirty);
+        notifyJob();
+    }
+
+    if (node->isDragEnabled() != m_dragEnabled) {
+        m_dragEnabled = node->isDragEnabled();
+        markDirty(AbstractRenderer::AllDirty);
+        notifyJob();
+    }
+
+    if (node->priority() != m_priority) {
+        m_priority = node->priority();
+        markDirty(AbstractRenderer::AllDirty);
+        notifyJob();
+    }
 }
 
 void ObjectPicker::notifyJob()
 {
     if (m_renderer && m_renderer->pickBoundingVolumeJob())
         qSharedPointerCast<PickBoundingVolumeJob>(m_renderer->pickBoundingVolumeJob())->markPickersDirty();
-}
-
-void ObjectPicker::sceneChangeEvent(const Qt3DCore::QSceneChangePtr &e)
-{
-    if (e->type() == Qt3DCore::PropertyUpdated) {
-        const Qt3DCore::QPropertyUpdatedChangePtr propertyChange = qSharedPointerCast<Qt3DCore::QPropertyUpdatedChange>(e);
-
-        if (propertyChange->propertyName() == QByteArrayLiteral("hoverEnabled")) {
-            m_hoverEnabled = propertyChange->value().toBool();
-        } else if (propertyChange->propertyName() == QByteArrayLiteral("dragEnabled")) {
-            m_dragEnabled = propertyChange->value().toBool();
-        } else if (propertyChange->propertyName() == QByteArrayLiteral("priority")) {
-            m_priority = propertyChange->value().toInt();
-        }
-
-        markDirty(AbstractRenderer::AllDirty);
-        notifyJob();
-    }
-
-    BackendNode::sceneChangeEvent(e);
 }
 
 bool ObjectPicker::isPressed() const
@@ -126,58 +122,9 @@ bool ObjectPicker::isDragEnabled() const
     return m_dragEnabled;
 }
 
-void ObjectPicker::onClicked(QPickEventPtr event)
+void ObjectPicker::setPressed(bool pressed)
 {
-    auto e = Qt3DCore::QPropertyUpdatedChangePtr::create(peerId());
-    e->setDeliveryFlags(Qt3DCore::QSceneChange::DeliverToAll);
-    e->setPropertyName("clicked");
-    e->setValue(QVariant::fromValue(event));
-    notifyObservers(e);
-}
-
-void ObjectPicker::onMoved(QPickEventPtr event)
-{
-    auto e = Qt3DCore::QPropertyUpdatedChangePtr::create(peerId());
-    e->setDeliveryFlags(Qt3DCore::QSceneChange::DeliverToAll);
-    e->setPropertyName("moved");
-    e->setValue(QVariant::fromValue(event));
-    notifyObservers(e);
-}
-
-void ObjectPicker::onPressed(QPickEventPtr event)
-{
-    auto e = Qt3DCore::QPropertyUpdatedChangePtr::create(peerId());
-    e->setDeliveryFlags(Qt3DCore::QSceneChange::DeliverToAll);
-    e->setPropertyName("pressed");
-    e->setValue(QVariant::fromValue(event));
-    m_isPressed = true;
-    notifyObservers(e);
-}
-
-void ObjectPicker::onReleased(QPickEventPtr event)
-{
-    auto e = Qt3DCore::QPropertyUpdatedChangePtr::create(peerId());
-    e->setDeliveryFlags(Qt3DCore::QSceneChange::DeliverToAll);
-    e->setPropertyName("released");
-    e->setValue(QVariant::fromValue(event));
-    m_isPressed = false;
-    notifyObservers(e);
-}
-
-void ObjectPicker::onEntered()
-{
-    auto e = Qt3DCore::QPropertyUpdatedChangePtr::create(peerId());
-    e->setDeliveryFlags(Qt3DCore::QSceneChange::DeliverToAll);
-    e->setPropertyName("entered");
-    notifyObservers(e);
-}
-
-void ObjectPicker::onExited()
-{
-    auto e = Qt3DCore::QPropertyUpdatedChangePtr::create(peerId());
-    e->setDeliveryFlags(Qt3DCore::QSceneChange::DeliverToAll);
-    e->setPropertyName("exited");
-    notifyObservers(e);
+    m_isPressed = pressed;
 }
 
 void ObjectPicker::setPriority(int priority)

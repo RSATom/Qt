@@ -122,6 +122,7 @@ enum Property {
     BorderRight,
     BorderTop,
     BorderBottom,
+    BorderCollapse,
     Padding,
     PaddingLeft,
     PaddingRight,
@@ -196,6 +197,7 @@ enum Property {
     LineHeight,
     QtLineHeightType,
     FontKerning,
+    QtForegroundTextureCacheKey,
     NumProperties
 };
 
@@ -204,6 +206,7 @@ enum KnownValue {
     Value_Normal,
     Value_Pre,
     Value_NoWrap,
+    Value_PreLine,
     Value_PreWrap,
     Value_Small,
     Value_Medium,
@@ -467,8 +470,8 @@ struct Q_GUI_EXPORT Declaration
     Attachment attachmentValue() const;
     int  styleFeaturesValue() const;
 
-    bool intValue(int *i, const char *unit = 0) const;
-    bool realValue(qreal *r, const char *unit = 0) const;
+    bool intValue(int *i, const char *unit = nullptr) const;
+    bool realValue(qreal *r, const char *unit = nullptr) const;
 
     QSize sizeValue() const;
     QRect rectValue() const;
@@ -476,6 +479,7 @@ struct Q_GUI_EXPORT Declaration
     QIcon iconValue() const;
 
     void borderImageValue(QString *image, int *cuts, TileMode *h, TileMode *v) const;
+    bool borderCollapseValue() const;
 };
 QT_CSS_DECLARE_TYPEINFO(Declaration, Q_MOVABLE_TYPE)
 
@@ -584,7 +588,7 @@ struct Q_GUI_EXPORT Selector
 {
     QVector<BasicSelector> basicSelectors;
     int specificity() const;
-    quint64 pseudoClass(quint64 *negated = 0) const;
+    quint64 pseudoClass(quint64 *negated = nullptr) const;
     QString pseudoElement() const;
 };
 QT_CSS_DECLARE_TYPEINFO(Selector, Q_MOVABLE_TYPE)
@@ -656,7 +660,7 @@ public:
     };
 
     QVector<StyleRule> styleRulesForNode(NodePtr node);
-    QVector<Declaration> declarationsForNode(NodePtr node, const char *extraPseudo = 0);
+    QVector<Declaration> declarationsForNode(NodePtr node, const char *extraPseudo = nullptr);
 
     virtual bool nodeNameEquals(NodePtr node, const QString& nodeName) const;
     virtual QString attribute(NodePtr node, const QString &name) const = 0;
@@ -744,7 +748,7 @@ QT_CSS_DECLARE_TYPEINFO(Symbol, Q_MOVABLE_TYPE)
 class Q_GUI_EXPORT Scanner
 {
 public:
-    static QString preprocess(const QString &input, bool *hasEscapeSequences = 0);
+    static QString preprocess(const QString &input, bool *hasEscapeSequences = nullptr);
     static void scan(const QString &preprocessedInput, QVector<Symbol> *symbols);
 };
 
@@ -845,20 +849,20 @@ struct Q_GUI_EXPORT ValueExtractor
     bool extractGeometry(int *w, int *h, int *minw, int *minh, int *maxw, int *maxh);
     bool extractPosition(int *l, int *t, int *r, int *b, QCss::Origin *, Qt::Alignment *,
                          QCss::PositionMode *, Qt::Alignment *);
-    bool extractBox(int *margins, int *paddings, int *spacing = 0);
+    bool extractBox(int *margins, int *paddings, int *spacing = nullptr);
     bool extractBorder(int *borders, QBrush *colors, BorderStyle *Styles, QSize *radii);
     bool extractOutline(int *borders, QBrush *colors, BorderStyle *Styles, QSize *radii, int *offsets);
     bool extractPalette(QBrush *fg, QBrush *sfg, QBrush *sbg, QBrush *abg);
     int  extractStyleFeatures();
     bool extractImage(QIcon *icon, Qt::Alignment *a, QSize *size);
 
-    int lengthValue(const Declaration &decl);
+    void lengthValues(const Declaration &decl, int *m);
 
 private:
     void extractFont();
     void borderValue(const Declaration &decl, int *width, QCss::BorderStyle *style, QBrush *color);
     LengthData lengthValue(const Value& v);
-    void lengthValues(const Declaration &decl, int *m);
+    int lengthValue(const Declaration &decl);
     QSize sizeValue(const Declaration &decl);
     void sizeValues(const Declaration &decl, QSize *radii);
 

@@ -14,7 +14,7 @@
 #include "cc/paint/skia_paint_canvas.h"
 #include "cc/test/layer_tree_pixel_resource_test.h"
 #include "cc/test/pixel_comparator.h"
-#include "components/viz/test/test_layer_tree_frame_sink.h"
+#include "cc/test/test_layer_tree_frame_sink.h"
 #include "third_party/skia/include/core/SkImage.h"
 #include "third_party/skia/include/core/SkSurface.h"
 
@@ -71,7 +71,7 @@ class LayerTreeHostBlendingPixelTest
  public:
   LayerTreeHostBlendingPixelTest()
       : force_antialiasing_(false), force_blending_with_shaders_(false) {
-    pixel_comparator_.reset(new FuzzyPixelOffByOneComparator(true));
+    pixel_comparator_ = std::make_unique<FuzzyPixelOffByOneComparator>(true);
   }
 
   PixelResourceTestCase resource_type() const {
@@ -82,7 +82,7 @@ class LayerTreeHostBlendingPixelTest
   }
 
  protected:
-  std::unique_ptr<viz::TestLayerTreeFrameSink> CreateLayerTreeFrameSink(
+  std::unique_ptr<TestLayerTreeFrameSink> CreateLayerTreeFrameSink(
       const viz::RendererSettings& renderer_settings,
       double refresh_rate,
       scoped_refptr<viz::ContextProvider> compositor_context_provider,
@@ -132,7 +132,7 @@ class LayerTreeHostBlendingPixelTest
     gfx::Size bounds = layer->bounds();
     scoped_refptr<PictureImageLayer> mask = PictureImageLayer::Create();
     mask->SetIsDrawable(true);
-    mask->SetLayerMaskType(Layer::LayerMaskType::MULTI_TEXTURE_MASK);
+    mask->SetLayerMaskType(Layer::LayerMaskType::SINGLE_TEXTURE_MASK);
     mask->SetBounds(bounds);
 
     sk_sp<SkSurface> surface =
@@ -213,10 +213,10 @@ class LayerTreeHostBlendingPixelTest
     InitializeFromTestCase(resource_type());
 
     // Force shaders only applies to gl renderer.
-    if (test_type_ != PIXEL_TEST_GL && flags & kForceShaders)
+    if (renderer_type() != RENDERER_GL && flags & kForceShaders)
       return;
 
-    SCOPED_TRACE(test_type_ == PIXEL_TEST_GL ? "GL" : "Software");
+    SCOPED_TRACE(TestTypeToString(renderer_type()));
     SCOPED_TRACE(SkBlendMode_Name(current_blend_mode()));
 
     scoped_refptr<SolidColorLayer> root = CreateSolidColorLayer(
@@ -229,28 +229,23 @@ class LayerTreeHostBlendingPixelTest
 
     CreateBlendingColorLayers(kRootWidth, kRootHeight, background.get(), flags);
 
-    this->force_antialiasing_ = (flags & kUseAntialiasing);
-    this->force_blending_with_shaders_ = (flags & kForceShaders);
+    force_antialiasing_ = (flags & kUseAntialiasing);
+    force_blending_with_shaders_ = (flags & kForceShaders);
 
-    if ((flags & kUseAntialiasing) && (test_type_ == PIXEL_TEST_GL)) {
+    if ((renderer_type() == RENDERER_GL && force_antialiasing_) ||
+        renderer_type() == RENDERER_SKIA_VK) {
       // Blending results might differ with one pixel.
-      // Don't allow large errors here, only off by ones.
-      // However, large error still has to be specified to satisfy
-      // the pixel comparator so set it equivalent to small errors.
+      float percentage_pixels_error = 35.f;
+      float percentage_pixels_small_error = 0.f;
+      float average_error_allowed_in_bad_pixels = 1.f;
       int large_error_allowed = 1;
-      int small_error_allowed = 1;
-      float percentage_pixels_small_error = 35.0f;
-      float percentage_pixels_error = 35.0f;
-      // The average error is still close to 1.
-      float average_error_allowed_in_bad_pixels = 1.4f;
+      int small_error_allowed = 0;
 
-      pixel_comparator_.reset(
-          new FuzzyPixelComparator(false,  // discard_alpha
-                                   percentage_pixels_error,
-                                   percentage_pixels_small_error,
-                                   average_error_allowed_in_bad_pixels,
-                                   large_error_allowed,
-                                   small_error_allowed));
+      pixel_comparator_ = std::make_unique<FuzzyPixelComparator>(
+          false,  // discard_alpha
+          percentage_pixels_error, percentage_pixels_small_error,
+          average_error_allowed_in_bad_pixels, large_error_allowed,
+          small_error_allowed);
     }
 
     RunPixelResourceTest(root, CreateBlendingWithRenderPassExpected(
@@ -262,11 +257,19 @@ class LayerTreeHostBlendingPixelTest
   SkColor misc_opaque_color_ = 0xffc86464;
 };
 
-INSTANTIATE_TEST_CASE_P(B,
-                        LayerTreeHostBlendingPixelTest,
-                        ::testing::Combine(::testing::Values(SOFTWARE,
-                                                             ZERO_COPY),
-                                           ::testing::ValuesIn(kBlendModes)));
+std::vector<PixelResourceTestCase> const kTestCases = {
+    {LayerTreeTest::RENDERER_SOFTWARE, SOFTWARE},
+    {LayerTreeTest::RENDERER_GL, ZERO_COPY},
+    {LayerTreeTest::RENDERER_SKIA_GL, GPU},
+#if defined(ENABLE_CC_VULKAN_TESTS)
+    {LayerTreeTest::RENDERER_SKIA_VK, GPU},
+#endif
+};
+
+INSTANTIATE_TEST_SUITE_P(B,
+                         LayerTreeHostBlendingPixelTest,
+                         ::testing::Combine(::testing::ValuesIn(kTestCases),
+                                            ::testing::ValuesIn(kBlendModes)));
 
 TEST_P(LayerTreeHostBlendingPixelTest, BlendingWithRoot) {
   const int kRootWidth = 2;
@@ -311,9 +314,8 @@ TEST_P(LayerTreeHostBlendingPixelTest, BlendingWithBackdropFilter) {
   background->AddChild(green_lane);
   FilterOperations filters;
   filters.Append(FilterOperation::CreateGrayscaleFilter(.75));
-  gfx::RectF backdrop_filter_bounds;
   green_lane->SetBackdropFilters(filters);
-  green_lane->SetBackdropFilterBounds(backdrop_filter_bounds);
+  green_lane->ClearBackdropFilterBounds();
   green_lane->SetBlendMode(current_blend_mode());
 
   SkBitmap expected;

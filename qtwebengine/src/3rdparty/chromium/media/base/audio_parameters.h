@@ -78,6 +78,22 @@ struct MEDIA_SHMEM_EXPORT AudioOutputBuffer {
   int8_t audio[1];
 };
 
+struct MEDIA_SHMEM_EXPORT AudioRendererAlgorithmParameters {
+  // The maximum size for the audio buffer.
+  base::TimeDelta max_capacity;
+
+  // The minimum size for the audio buffer.
+  base::TimeDelta starting_capacity;
+
+  // The minimum size for the audio buffer for encrypted streams.
+  // Set this to be larger than |max_capacity| because the
+  // performance of encrypted playback is always worse than clear playback, due
+  // to decryption and potentially IPC overhead. For the context, see
+  // https://crbug.com/403462, https://crbug.com/718161 and
+  // https://crbug.com/879970.
+  base::TimeDelta starting_capacity_for_encrypted;
+};
+
 // These convenience function safely computes the size required for
 // |shared_memory_count| AudioInputBuffers, with enough memory for AudioBus
 // data, using |paremeters| (or alternatively |channels| and |frames|). The
@@ -221,7 +237,7 @@ class MEDIA_SHMEM_EXPORT AudioParameters {
   ChannelLayout channel_layout() const { return channel_layout_; }
 
   // The number of channels is usually computed from channel_layout_. Setting
-  // this explictly is only required with CHANNEL_LAYOUT_DISCRETE.
+  // this explicitly is only required with CHANNEL_LAYOUT_DISCRETE.
   void set_channels_for_discrete(int channels) {
     DCHECK(channel_layout_ == CHANNEL_LAYOUT_DISCRETE ||
            channels == ChannelLayoutToChannelCount(channel_layout_));

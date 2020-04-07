@@ -39,7 +39,8 @@ const base::FilePath::CharType kAndroidTraceConfigFile[] =
     FILE_PATH_LITERAL("/data/local/chrome-trace-config.json");
 
 const char kDefaultStartupCategories[] =
-    "startup,browser,toplevel,EarlyJava,cc,Java,navigation,loading,gpu,"
+    "startup,browser,toplevel,disabled-by-default-toplevel.flow,ipc,disabled-"
+    "by-default-ipc.flow,EarlyJava,cc,Java,navigation,loading,gpu,"
     "disabled-by-default-cpu_profiler,download_service,-*";
 #else
 const char kDefaultStartupCategories[] =
@@ -51,6 +52,7 @@ const char kDefaultStartupCategories[] =
 const char kTraceConfigParam[] = "trace_config";
 const char kStartupDurationParam[] = "startup_duration";
 const char kResultFileParam[] = "result_file";
+const char kResultDirectoryParam[] = "result_directory";
 
 }  // namespace
 
@@ -76,20 +78,26 @@ TraceStartupConfig::GetDefaultBrowserStartupConfig() {
   return trace_config;
 }
 
-TraceStartupConfig::TraceStartupConfig()
-    : is_enabled_(false),
-      is_enabled_from_background_tracing_(false),
-      trace_config_(base::trace_event::TraceConfig()),
-      startup_duration_(0),
-      should_trace_to_result_file_(false) {
+TraceStartupConfig::TraceStartupConfig() {
+  auto* command_line = base::CommandLine::ForCurrentProcess();
+  if (!command_line->HasSwitch(switches::kDisablePerfetto)) {
+    const std::string value =
+        command_line->GetSwitchValueASCII(switches::kTraceStartupOwner);
+    if (value == "devtools") {
+      session_owner_ = SessionOwner::kDevToolsTracingHandler;
+    } else if (value == "system") {
+      session_owner_ = SessionOwner::kSystemTracing;
+    }
+  }
+
   if (EnableFromCommandLine()) {
     DCHECK(IsEnabled());
   } else if (EnableFromConfigFile()) {
-    DCHECK(IsEnabled());
+    DCHECK(IsEnabled() || IsUsingPerfettoOutput());
   } else if (EnableFromBackgroundTracing()) {
     DCHECK(IsEnabled());
     DCHECK(!IsTracingStartupForDuration());
-    DCHECK(GetBackgroundStartupTracingEnabled());
+    DCHECK_EQ(SessionOwner::kBackgroundTracing, session_owner_);
     CHECK(!ShouldTraceToResultFile());
   }
 }
@@ -97,7 +105,12 @@ TraceStartupConfig::TraceStartupConfig()
 TraceStartupConfig::~TraceStartupConfig() = default;
 
 bool TraceStartupConfig::IsEnabled() const {
-  return is_enabled_;
+  // TODO(oysteine): Support early startup tracing using Perfetto
+  // output; right now the early startup tracing gets controlled
+  // through the TracingController, and the Perfetto output is
+  // using the Consumer Mojo interface; the two can't be used
+  // together.
+  return is_enabled_ && !IsUsingPerfettoOutput();
 }
 
 void TraceStartupConfig::SetDisabled() {
@@ -105,21 +118,22 @@ void TraceStartupConfig::SetDisabled() {
 }
 
 bool TraceStartupConfig::IsTracingStartupForDuration() const {
-  return is_enabled_ && startup_duration_ > 0;
+  return IsEnabled() && startup_duration_ > 0 &&
+         session_owner_ == SessionOwner::kTracingController;
 }
 
 base::trace_event::TraceConfig TraceStartupConfig::GetTraceConfig() const {
-  DCHECK(IsEnabled());
+  DCHECK(IsEnabled() || IsUsingPerfettoOutput());
   return trace_config_;
 }
 
 int TraceStartupConfig::GetStartupDuration() const {
-  DCHECK(IsEnabled());
+  DCHECK(IsEnabled() || IsUsingPerfettoOutput());
   return startup_duration_;
 }
 
 bool TraceStartupConfig::ShouldTraceToResultFile() const {
-  return is_enabled_ && should_trace_to_result_file_;
+  return IsEnabled() && should_trace_to_result_file_;
 }
 
 base::FilePath TraceStartupConfig::GetResultFile() const {
@@ -128,8 +142,13 @@ base::FilePath TraceStartupConfig::GetResultFile() const {
   return result_file_;
 }
 
-bool TraceStartupConfig::GetBackgroundStartupTracingEnabled() const {
-  return is_enabled_from_background_tracing_;
+void TraceStartupConfig::OnTraceToResultFileFinished() {
+  finished_writing_to_file_ = true;
+}
+
+bool TraceStartupConfig::IsUsingPerfettoOutput() const {
+  return base::CommandLine::ForCurrentProcess()->HasSwitch(
+      switches::kPerfettoOutputFile);
 }
 
 void TraceStartupConfig::SetBackgroundStartupTracingEnabled(bool enabled) {
@@ -138,11 +157,26 @@ void TraceStartupConfig::SetBackgroundStartupTracingEnabled(bool enabled) {
 #endif
 }
 
+TraceStartupConfig::SessionOwner TraceStartupConfig::GetSessionOwner() const {
+  DCHECK(IsEnabled());
+  return session_owner_;
+}
+
+bool TraceStartupConfig::AttemptAdoptBySessionOwner(SessionOwner owner) {
+  if (IsEnabled() && GetSessionOwner() == owner && !session_adopted_) {
+    // The session can only be adopted once.
+    session_adopted_ = true;
+    return true;
+  }
+  return false;
+}
+
 bool TraceStartupConfig::EnableFromCommandLine() {
   auto* command_line = base::CommandLine::ForCurrentProcess();
 
   if (!command_line->HasSwitch(switches::kTraceStartup))
     return false;
+
   std::string startup_duration_str =
       command_line->GetSwitchValueASCII(switches::kTraceStartupDuration);
   startup_duration_ = kDefaultStartupDuration;
@@ -205,19 +239,21 @@ bool TraceStartupConfig::EnableFromConfigFile() {
 }
 
 bool TraceStartupConfig::EnableFromBackgroundTracing() {
+  bool enabled = enable_background_tracing_for_testing_;
 #if defined(OS_ANDROID)
-  is_enabled_from_background_tracing_ =
-      base::android::GetBackgroundStartupTracingFlag();
+  // Tests can enable this value.
+  enabled |= base::android::GetBackgroundStartupTracingFlag();
 #else
-  is_enabled_from_background_tracing_ = false;
+  // TODO(ssid): Implement saving setting to preference for next startup.
 #endif
   // Do not set the flag to false if it's not enabled unnecessarily.
-  if (!is_enabled_from_background_tracing_)
+  if (!enabled)
     return false;
 
   SetBackgroundStartupTracingEnabled(false);
   trace_config_ = GetDefaultBrowserStartupConfig();
   is_enabled_ = true;
+  session_owner_ = SessionOwner::kBackgroundTracing;
   should_trace_to_result_file_ = false;
   // Set startup duration to 0 since background tracing config will configure
   // the durations later.
@@ -227,7 +263,7 @@ bool TraceStartupConfig::EnableFromBackgroundTracing() {
 
 bool TraceStartupConfig::ParseTraceConfigFileContent(
     const std::string& content) {
-  std::unique_ptr<base::Value> value(base::JSONReader::Read(content));
+  std::unique_ptr<base::Value> value(base::JSONReader::ReadDeprecated(content));
   if (!value || !value->is_dict())
     return false;
 
@@ -246,9 +282,16 @@ bool TraceStartupConfig::ParseTraceConfigFileContent(
   if (startup_duration_ < 0)
     startup_duration_ = 0;
 
-  base::FilePath::StringType result_file_str;
-  if (dict->GetString(kResultFileParam, &result_file_str))
-    result_file_ = base::FilePath(result_file_str);
+  base::FilePath::StringType result_file_or_dir_str;
+  if (dict->GetString(kResultFileParam, &result_file_or_dir_str))
+    result_file_ = base::FilePath(result_file_or_dir_str);
+  else if (dict->GetString(kResultDirectoryParam, &result_file_or_dir_str)) {
+    result_file_ = base::FilePath(result_file_or_dir_str);
+    // Java time to get an int instead of a double.
+    result_file_ = result_file_.AppendASCII(
+        base::NumberToString(base::Time::Now().ToJavaTime()) +
+        "_chrometrace.log");
+  }
 
   return true;
 }

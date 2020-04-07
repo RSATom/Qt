@@ -12,6 +12,7 @@
 #define MODULES_AUDIO_CODING_ACM2_ACM_RECEIVER_H_
 
 #include <stdint.h>
+
 #include <map>
 #include <memory>
 #include <string>
@@ -33,7 +34,6 @@ namespace webrtc {
 class Clock;
 class NetEq;
 struct RTPHeader;
-struct WebRtcRTPHeader;
 
 namespace acm2 {
 
@@ -58,7 +58,7 @@ class AcmReceiver {
   // Return value             : 0 if OK.
   //                           <0 if NetEq returned an error.
   //
-  int InsertPacket(const WebRtcRTPHeader& rtp_header,
+  int InsertPacket(const RTPHeader& rtp_header,
                    rtc::ArrayView<const uint8_t> incoming_payload);
 
   //
@@ -107,6 +107,16 @@ class AcmReceiver {
   //                           <0 if NetEq returned an error.
   //
   int SetMaximumDelay(int delay_ms);
+
+  // Sets a base minimum delay in milliseconds for the packet buffer.
+  // Base minimum delay sets lower bound minimum delay value which
+  // is set via SetMinimumDelay.
+  //
+  // Returns true if value was successfully set, false overwise.
+  bool SetBaseMinimumDelayMs(int delay_ms);
+
+  // Returns current value of base minimum delay in milliseconds.
+  int GetBaseMinimumDelayMs() const;
 
   //
   // Resets the initial delay to zero.
@@ -201,7 +211,7 @@ class AcmReceiver {
   std::unique_ptr<int16_t[]> last_audio_buffer_ RTC_GUARDED_BY(crit_sect_);
   CallStatistics call_stats_ RTC_GUARDED_BY(crit_sect_);
   const std::unique_ptr<NetEq> neteq_;  // NetEq is thread-safe; no lock needed.
-  const Clock* const clock_;
+  Clock* const clock_;
   bool resampled_last_output_frame_ RTC_GUARDED_BY(crit_sect_);
 };
 

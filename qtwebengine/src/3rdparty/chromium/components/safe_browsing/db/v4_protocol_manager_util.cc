@@ -5,10 +5,10 @@
 #include "components/safe_browsing/db/v4_protocol_manager_util.h"
 
 #include "base/base64.h"
-#include "base/hash.h"
+#include "base/hash/hash.h"
+#include "base/hash/sha1.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/rand_util.h"
-#include "base/sha1.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "components/version_info/version_info.h"
@@ -45,7 +45,7 @@ std::string Unescape(const std::string& url) {
   int loop_var = 0;
   do {
     old_size = unescaped_str.size();
-    net::UnescapeBinaryURLComponent(unescaped_str, &unescaped_str);
+    unescaped_str = net::UnescapeBinaryURLComponent(unescaped_str);
   } while (old_size != unescaped_str.size() &&
            ++loop_var <= kMaxLoopIterations);
 
@@ -155,6 +155,11 @@ ListIdentifier GetUrlCsdDownloadWhitelistId() {
 
 ListIdentifier GetUrlCsdWhitelistId() {
   return ListIdentifier(GetCurrentPlatformType(), URL, CSD_WHITELIST);
+}
+
+ListIdentifier GetUrlHighConfidenceAllowlistId() {
+  return ListIdentifier(GetCurrentPlatformType(), URL,
+                        HIGH_CONFIDENCE_ALLOWLIST);
 }
 
 ListIdentifier GetUrlMalwareId() {
@@ -422,6 +427,15 @@ void V4ProtocolManagerUtil::GeneratePatternsToCheck(
       urls->push_back(hosts[h] + paths[p]);
     }
   }
+}
+
+// static
+FullHash V4ProtocolManagerUtil::GetFullHash(const GURL& url) {
+  std::string host;
+  std::string path;
+  CanonicalizeUrl(url, &host, &path, nullptr);
+
+  return crypto::SHA256HashString(host + path);
 }
 
 // static

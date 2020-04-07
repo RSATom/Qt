@@ -6,7 +6,7 @@
 **
 ** This file is part of the QtWaylandCompositor module of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL$
+** $QT_BEGIN_LICENSE:GPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
@@ -15,24 +15,14 @@
 ** and conditions see https://www.qt.io/terms-conditions. For further
 ** information use the contact form at https://www.qt.io/contact-us.
 **
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 3 as published by the Free Software
-** Foundation and appearing in the file LICENSE.LGPL3 included in the
-** packaging of this file. Please review the following information to
-** ensure the GNU Lesser General Public License version 3 requirements
-** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
-**
 ** GNU General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU
-** General Public License version 2.0 or (at your option) the GNU General
-** Public license version 3 or any later version approved by the KDE Free
-** Qt Foundation. The licenses are as published by the Free Software
-** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** General Public License version 3 or (at your option) any later version
+** approved by the KDE Free Qt Foundation. The licenses are as published by
+** the Free Software Foundation and appearing in the file LICENSE.GPL3
 ** included in the packaging of this file. Please review the following
 ** information to ensure the GNU General Public License requirements will
-** be met: https://www.gnu.org/licenses/gpl-2.0.html and
-** https://www.gnu.org/licenses/gpl-3.0.html.
+** be met: https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -256,7 +246,8 @@ void QWaylandKeyboardPrivate::maybeUpdateKeymap()
         return;
 
     createXKBKeymap();
-    foreach (Resource *res, resourceMap()) {
+    const auto resMap = resourceMap();
+    for (Resource *res : resMap) {
         send_keymap(res->handle, WL_KEYBOARD_KEYMAP_FORMAT_XKB_V1, keymap_fd, keymap_size);
     }
 
@@ -365,6 +356,13 @@ void QWaylandKeyboardPrivate::createXKBKeymap()
     QByteArray variant = keymap->variant().toLocal8Bit();
     QByteArray options = keymap->options().toLocal8Bit();
 
+    if (!layout.isEmpty() && !layout.contains("us")) {
+        // This is needed for shortucts like "ctrl+c" to function even when
+        // user has selected only non-latin keyboard layouts, e.g. 'ru'.
+        layout.append(",us");
+        variant.append(",");
+    }
+
     struct xkb_rule_names rule_names = {
         rules.constData(),
         model.constData(),
@@ -386,7 +384,8 @@ void QWaylandKeyboardPrivate::createXKBKeymap()
 
 void QWaylandKeyboardPrivate::sendRepeatInfo()
 {
-    Q_FOREACH (Resource *resource, resourceMap()) {
+    const auto resMap = resourceMap();
+    for (Resource *resource : resMap) {
         if (resource->version() >= WL_KEYBOARD_REPEAT_INFO_SINCE_VERSION)
             send_repeat_info(resource->handle, repeatRate, repeatDelay);
     }

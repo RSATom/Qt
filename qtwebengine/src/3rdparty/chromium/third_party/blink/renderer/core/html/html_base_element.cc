@@ -34,10 +34,8 @@ namespace blink {
 
 using namespace html_names;
 
-inline HTMLBaseElement::HTMLBaseElement(Document& document)
+HTMLBaseElement::HTMLBaseElement(Document& document)
     : HTMLElement(kBaseTag, document) {}
-
-DEFINE_NODE_FACTORY(HTMLBaseElement)
 
 const AttrNameToTrustedType& HTMLBaseElement::GetCheckedAttributeTypes() const {
   DEFINE_STATIC_LOCAL(AttrNameToTrustedType, attribute_map,
@@ -81,7 +79,7 @@ KURL HTMLBaseElement::href() const {
   // relative to the document's base URL; base elements like this one can be
   // used to set that base URL. Thus we need to resolve relative to the
   // document's fallback base URL and ignore the base URL.
-  // https://html.spec.whatwg.org/multipage/semantics.html#dom-base-href
+  // https://html.spec.whatwg.org/C/#dom-base-href
 
   const AtomicString& attribute_value = FastGetAttribute(kHrefAttr);
   if (attribute_value.IsNull())

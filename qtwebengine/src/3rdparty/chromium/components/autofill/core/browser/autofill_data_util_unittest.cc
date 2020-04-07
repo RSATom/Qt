@@ -5,12 +5,73 @@
 #include "components/autofill/core/browser/autofill_data_util.h"
 
 #include "base/strings/utf_string_conversions.h"
-#include "components/autofill/core/browser/autofill_profile.h"
 #include "components/autofill/core/browser/autofill_test_utils.h"
+#include "components/autofill/core/browser/data_model/autofill_profile.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace autofill {
 namespace data_util {
+namespace {
+
+using data_util::bit_field_type_groups::kAddress;
+using data_util::bit_field_type_groups::kEmail;
+using data_util::bit_field_type_groups::kName;
+using data_util::bit_field_type_groups::kPhone;
+
+TEST(AutofillDataUtilTest, DetermineGroupsForHomeNameAndAddress) {
+  const std::vector<ServerFieldType> field_types{
+      NAME_FIRST,        NAME_LAST,          ADDRESS_HOME_LINE1,
+      ADDRESS_HOME_CITY, ADDRESS_HOME_STATE, ADDRESS_HOME_ZIP};
+
+  const uint32_t expected_group_bitmask = kName | kAddress;
+  const uint32_t group_bitmask = data_util::DetermineGroups(field_types);
+  EXPECT_EQ(expected_group_bitmask, group_bitmask);
+}
+
+TEST(AutofillDataUtilTest, DetermineGroupsForBillingNameAndAddress) {
+  const std::vector<ServerFieldType> field_types{
+      NAME_BILLING_FULL, ADDRESS_BILLING_LINE1, ADDRESS_BILLING_CITY,
+      ADDRESS_BILLING_STATE, ADDRESS_BILLING_ZIP};
+
+  const uint32_t expected_group_bitmask = kName | kAddress;
+  const uint32_t group_bitmask = data_util::DetermineGroups(field_types);
+  EXPECT_EQ(expected_group_bitmask, group_bitmask);
+}
+
+TEST(AutofillDataUtilTest, DetermineGroupsForHomeNamePhoneAndEmail) {
+  const std::vector<ServerFieldType> field_types{
+      NAME_FULL, PHONE_HOME_CITY_AND_NUMBER, EMAIL_ADDRESS};
+
+  const uint32_t expected_group_bitmask = kName | kPhone | kEmail;
+  const uint32_t group_bitmask = data_util::DetermineGroups(field_types);
+  EXPECT_EQ(expected_group_bitmask, group_bitmask);
+}
+
+TEST(AutofillDataUtilTest, DetermineGroupsForBillingNamePhoneAndEmail) {
+  const std::vector<ServerFieldType> field_types{
+      NAME_BILLING_FULL, PHONE_BILLING_WHOLE_NUMBER, EMAIL_ADDRESS};
+
+  const uint32_t expected_group_bitmask = kName | kPhone | kEmail;
+  const uint32_t group_bitmask = data_util::DetermineGroups(field_types);
+  EXPECT_EQ(expected_group_bitmask, group_bitmask);
+}
+
+TEST(AutofillDataUtilTest, DetermineGroupsForUnknownServerFieldType) {
+  const std::vector<ServerFieldType> field_types{UNKNOWN_TYPE, NAME_FULL,
+                                                 ADDRESS_HOME_ZIP};
+
+  const uint32_t expected_group_bitmask = kName | kAddress;
+  const uint32_t group_bitmask = data_util::DetermineGroups(field_types);
+  EXPECT_EQ(expected_group_bitmask, group_bitmask);
+}
+
+TEST(AutofillDataUtilTest, DetermineGroupsForNoServerFieldTypes) {
+  const std::vector<ServerFieldType> field_types =
+      std::vector<ServerFieldType>();
+  const uint32_t expected_group_bitmask = 0;
+  const uint32_t group_bitmask = data_util::DetermineGroups(field_types);
+  EXPECT_EQ(expected_group_bitmask, group_bitmask);
+}
 
 struct IsCJKNameTestCase {
   const char* full_name;
@@ -25,7 +86,7 @@ TEST_P(IsCJKNameTest, IsCJKName) {
       << "Failed for: " << test_case.full_name;
 }
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     AutofillDataUtilTest,
     IsCJKNameTest,
     testing::Values(
@@ -73,7 +134,7 @@ TEST_P(SplitNameTest, SplitName) {
   EXPECT_EQ(base::UTF8ToUTF16(test_case.family_name), name_parts.family);
 }
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     AutofillDataUtil,
     SplitNameTest,
     testing::Values(
@@ -150,7 +211,7 @@ TEST_P(JoinNamePartsTest, JoinNameParts) {
   EXPECT_EQ(base::UTF8ToUTF16(test_case.full_name), joined);
 }
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     AutofillDataUtil,
     JoinNamePartsTest,
     testing::Values(
@@ -213,7 +274,7 @@ TEST_P(ValidCountryCodeTest, ValidCountryCode) {
             IsValidCountryCode(test_case.country_code));
 }
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     AutofillDataUtil,
     ValidCountryCodeTest,
     testing::Values(
@@ -240,5 +301,6 @@ INSTANTIATE_TEST_CASE_P(
         ValidCountryCodeTestCase{"Ca", false},
         ValidCountryCodeTestCase{"cN", false}));
 
+}  // namespace
 }  // namespace data_util
 }  // namespace autofill

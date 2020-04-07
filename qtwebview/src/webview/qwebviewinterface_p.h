@@ -63,6 +63,8 @@ class QWebViewInterface
 {
 public:
     virtual ~QWebViewInterface() {}
+    virtual QString httpUserAgent() const = 0;
+    virtual void setHttpUserAgent(const QString &httpUserAgent) = 0;
     virtual QUrl url() const = 0;
     virtual void setUrl(const QUrl &url) = 0;
     virtual bool canGoBack() const = 0;

@@ -22,14 +22,16 @@
 #include <memory>
 #include <string>
 
-#include "perfetto/base/weak_ptr.h"
-#include "perfetto/ipc/basic_types.h"
-#include "perfetto/tracing/core/consumer.h"
-#include "perfetto/tracing/core/tracing_service.h"
+#include "perfetto/ext/base/weak_ptr.h"
+#include "perfetto/ext/ipc/basic_types.h"
+#include "perfetto/ext/tracing/core/consumer.h"
+#include "perfetto/ext/tracing/core/tracing_service.h"
 
 #include "perfetto/ipc/consumer_port.ipc.h"
 
 namespace perfetto {
+
+class TracingServiceState;
 
 namespace ipc {
 class Host;
@@ -48,6 +50,8 @@ class ConsumerIPCService : public protos::ConsumerPort {
                      DeferredEnableTracingResponse) override;
   void StartTracing(const protos::StartTracingRequest&,
                     DeferredStartTracingResponse) override;
+  void ChangeTraceConfig(const protos::ChangeTraceConfigRequest&,
+                         DeferredChangeTraceConfigResponse) override;
   void DisableTracing(const protos::DisableTracingRequest&,
                       DeferredDisableTracingResponse) override;
   void ReadBuffers(const protos::ReadBuffersRequest&,
@@ -59,6 +63,10 @@ class ConsumerIPCService : public protos::ConsumerPort {
   void Attach(const protos::AttachRequest&, DeferredAttachResponse) override;
   void GetTraceStats(const protos::GetTraceStatsRequest&,
                      DeferredGetTraceStatsResponse) override;
+  void ObserveEvents(const protos::ObserveEventsRequest&,
+                     DeferredObserveEventsResponse) override;
+  void QueryServiceState(const protos::QueryServiceStateRequest&,
+                         DeferredQueryServiceStateResponse) override;
   void OnClientDisconnected() override;
 
  private:
@@ -79,13 +87,16 @@ class ConsumerIPCService : public protos::ConsumerPort {
     void OnDetach(bool) override;
     void OnAttach(bool, const TraceConfig&) override;
     void OnTraceStats(bool, const TraceStats&) override;
+    void OnObservableEvents(const ObservableEvents&) override;
+
+    void CloseObserveEventsResponseStream();
 
     // The interface obtained from the core service business logic through
     // TracingService::ConnectConsumer(this). This allows to invoke methods for
     // a specific Consumer on the Service business logic.
     std::unique_ptr<TracingService::ConsumerEndpoint> service_endpoint;
 
-    // After DisableTracing() is invoked, this binds the async callback that
+    // After ReadBuffers() is invoked, this binds the async callback that
     // allows to stream trace packets back to the client.
     DeferredReadBuffersResponse read_buffers_response;
 
@@ -102,10 +113,15 @@ class ConsumerIPCService : public protos::ConsumerPort {
 
     // As above, but for GetTraceStats().
     DeferredGetTraceStatsResponse get_trace_stats_response;
+
+    // After ObserveEvents() is invoked, this binds the async callback that
+    // allows to stream ObservableEvents back to the client.
+    DeferredObserveEventsResponse observe_events_response;
   };
 
   // This has to be a container that doesn't invalidate iterators.
   using PendingFlushResponses = std::list<DeferredFlushResponse>;
+  using PendingQuerySvcResponses = std::list<DeferredQueryServiceStateResponse>;
 
   ConsumerIPCService(const ConsumerIPCService&) = delete;
   ConsumerIPCService& operator=(const ConsumerIPCService&) = delete;
@@ -115,6 +131,9 @@ class ConsumerIPCService : public protos::ConsumerPort {
   RemoteConsumer* GetConsumerForCurrentRequest();
 
   void OnFlushCallback(bool success, PendingFlushResponses::iterator);
+  void OnQueryServiceCallback(bool success,
+                              const TracingServiceState&,
+                              PendingQuerySvcResponses::iterator);
 
   TracingService* const core_service_;
 
@@ -123,6 +142,7 @@ class ConsumerIPCService : public protos::ConsumerPort {
   std::map<ipc::ClientID, std::unique_ptr<RemoteConsumer>> consumers_;
 
   PendingFlushResponses pending_flush_responses_;
+  PendingQuerySvcResponses pending_query_service_responses_;
 
   base::WeakPtrFactory<ConsumerIPCService> weak_ptr_factory_;  // Keep last.
 };

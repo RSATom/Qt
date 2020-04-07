@@ -174,8 +174,8 @@
   <message name="IDS_MULTIDEVICE_SETUP_START_SETUP_PAGE_AWM_DESCRIPTION" desc="Description of a feature that shows text messages received by the user's phone as notification on their Chromebook and a link to an information page.">
     Send you notifications and default to remembering this computer for Messages. <ph name="LINK_BEGIN">&lt;a href="$1<ex>https://support.google.com/chromebook/?p=messages</ex>"&gt;</ph>Learn more<ph name="LINK_END">&lt;/a&gt;</ph>
   </message>
-  <message name="IDS_MULTIDEVICE_SETUP_START_SETUP_PAGE_INSTALL_APPS_DESCRIPTION" desc="Tell the user that Better Together can install apps on their Chromebook">
-    Install apps on your Chromebook
+  <message name="IDS_MULTIDEVICE_SETUP_START_SETUP_PAGE_INSTALL_APPS_DESCRIPTION" desc="Tell the user that Better Together can automatically install apps on their Chromebook">
+    Automatically install apps
   </message>
   <message name="IDS_MULTIDEVICE_SETUP_START_SETUP_PAGE_ADD_FEATURES" desc="Tell the user that Better Together can offer to add new features to that use their phone's connection to their Chromebook">
     Offer new features as they become available
@@ -193,11 +193,82 @@
   <message name="IDS_CHECKING_FOR_UPDATES" desc="Notification for checking for update">
     Checking for updates
   </message>
+  <message name="IDS_QUICK_FIX_RELEASE_BUILD" desc="Quick Fix build which is Chrome OS release build displayed string instead of canary/dev/beta.">
+    QuickFix
+  </message>
   <message name="IDS_UPDATE_VERIFYING" desc="Message that the system is verifying an update">
     Verifying...
   </message>
   <message name="IDS_UPDATE_FINALIZING" desc="Message that the system is finalizing an update">
     Finalizing...
+  </message>
+
+  <!-- Cellular Setup UI Strings -->
+  <message name="IDS_CELLULAR_SETUP_BACK_LABEL" desc="Label for button to go to previous screen during cellular setup">
+    Back
+  </message>
+  <message name="IDS_CELLULAR_SETUP_FINISH_LABEL" desc="Label for button to finish and exit cellular setup">
+    Finish
+  </message>
+  <message name="IDS_CELLULAR_SETUP_TRY_AGAIN_LABEL" desc="Label for button to retry a step during cellular setup">
+    Try again
+  </message>
+  <message name="IDS_CELLULAR_SETUP_SIM_DETECT_PAGE_TITLE" desc="Title for first screen of cellular setup during which ChromeOS is preparing the cellular device for setup." translateable="false">
+    Sim Detect Page
+  </message>
+  <message name="IDS_CELLULAR_SETUP_PROVISIONING_PAGE_TITLE" desc="Title for cellular setup step in which the user uses the embedded carrier provisioning portal to make payment and activate the device." translateable="false">
+    Provisioning Page
+  </message>
+  <message name="IDS_CELLULAR_SETUP_FINAL_PAGE_TITLE" desc="Title for the final success screen of cellular setup that tells the user that setup is completed but service is being activated">
+    Mobile data being activated
+  </message>
+  <message name="IDS_CELLULAR_SETUP_FINAL_PAGE_MESSAGE" desc="Message displayed under title in final success screen of cellular setup that tells user that service may take a while to activate.">
+    It might take up to 15 minutes to complete mobile data activation.
+  </message>
+  <message name="IDS_CELLULAR_SETUP_FINAL_PAGE_ERROR_TITLE" desc="Title for the final screen of cellular setup when ChromeOS encountered an error completing activation">
+    Could not activate cellular device
+  </message>
+  <message name="IDS_CELLULAR_SETUP_FINAL_PAGE_ERROR_MESSAGE" desc="Message displayed under title in final screen of cellular setup when ChromeOS encountered an error completing activation.">
+    An error occured during activation.
+  </message>
+
+  <!-- Upgrade notifications -->
+  <message name="IDS_RELAUNCH_REQUIRED_TITLE_DAYS" desc="The title of a dialog that tells users the device must be restarted within two or more days.">
+    {0, plural,
+      =1 {Update within a day}
+      other {Update within # days}}
+  </message>
+  <message name="IDS_RELAUNCH_REQUIRED_TITLE_HOURS" desc="The title of a dialog that tells users the device must be restarted within one or more hours.">
+    {0, plural,
+      =1 {Update within an hour}
+      other {Update within # hours}}
+  </message>
+  <message name="IDS_RELAUNCH_REQUIRED_TITLE_MINUTES" desc="The title of a dialog that tells users the device must be restarted within one or more minutes.">
+    {0, plural,
+      =1 {Update within 1 minute}
+      other {Update within # minutes}}
+  </message>
+  <message name="IDS_RELAUNCH_REQUIRED_TITLE_SECONDS" desc="The title of a dialog that tells users the device must be restarted within some number of seconds.">
+    {0, plural,
+      =0 {Update now}
+      =1 {Update within 1 second}
+      other {Update within # seconds}}
+  </message>
+  <message name="IDS_RELAUNCH_REQUIRED_BODY" desc="The body text of a dialog that tells users the device must be restarted.">
+    Your organization requires an update to this device
+  </message>
+
+  <message name="IDS_RELAUNCH_RECOMMENDED_TITLE" desc="The title of a dialog that tells users that a device restart is recommended for an update.">
+    Update available
+  </message>
+  <message name="IDS_RELAUNCH_RECOMMENDED_OVERDUE_TITLE" desc="The title of a dialog that tells users that a device restart had been recommended for an update.">
+    Update overdue
+  </message>
+  <message name="IDS_RELAUNCH_RECOMMENDED_BODY" desc="The body text of a dialog that tells users the device must be restarted.">
+    Your organization asks that you update this device
+  </message>
+  <message name="IDS_RELAUNCH_RECOMMENDED_OVERDUE_BODY" desc="The body text of a dialog that tells users the device must be restarted right now.">
+    Your organization requires an update to this device right away
   </message>
 
   <!-- Chrome OS Strings -->
@@ -279,9 +350,6 @@
   <message name="IDS_WELCOME_SCREEN_GREETING" desc="Greeting message on the OOBE welcome screen">
     Welcome!
   </message>
-  <message name="IDS_WELCOME_SCREEN_TITLE" desc="Title of the OOBE welcome screen">
-    Connect
-  </message>
   <message name="IDS_OOBE_ADVANCED_OPTIONS_SCREEN_TITLE" desc="Screen title on the Chrome OS OOBE (first run) Advanced options screen">
     Advanced options
   </message>
@@ -296,9 +364,6 @@
   </message>
   <message name="IDS_OOBE_ADVANCED_OPTIONS_DEVICE_REQUISITION_SUBTITLE" desc="Subtitle of the button that trigers Device requisition device setup mode on the Chrome OS OOBE (first run UI) Advanced options screen">
     Add requisition ID to this device
-  </message>
-  <message name="IDS_EULA_SCREEN_TITLE" desc="Title of the OOBE EULA screen">
-    The small print
   </message>
   <message name="IDS_NETWORK_PROXY_SETTINGS_LIST_ITEM_NAME" desc="OOBE network screen list entry that opens proxy settings dialog">
     Proxy settings
@@ -342,17 +407,11 @@
   <message name="IDS_RESET_SCREEN_ILLUSTRATION_TITLE" desc="Accessible title of the reset screen illustration depicting powerwash.">
     Powerwash illustration
   </message>
-  <message name="IDS_UPDATE_SCREEN_TITLE" desc="Title of the OOBE update screen">
-    Update
-  </message>
   <message name="IDS_UPDATING_SCREEN_TITLE" desc="Title of the OOBE screen displayed while system update is being dowloaded.">
     Updating
   </message>
   <message name="IDS_UPDATE_SCREEN_ACCESSIBLE_TITLE" desc="Title to be spoken on opening the OOBE update screen">
     Chrome updates automatically so you always have the freshest version
-  </message>
-  <message name="IDS_SIGNIN_SCREEN_TITLE_TAB_PROMPT" desc="Title of OOBE/Add User sign-in screen with TAB prompt when ChromeVox is active">
-    Sign in, press the tab key to interact with input elements
   </message>
   <message name="IDS_LOGIN_GAIA_LOADING_MESSAGE" desc="Message on the OOBE gaia loading screen">
     Please wait...
@@ -419,6 +478,9 @@
   </message>
   <message name="IDS_KEYBOARD_DROPDOWN_TITLE" desc="Title of keyboard selection dropdown menu" meaning="Small title near keyboard dropdown menu suggesting that this is a keyboard layout selector.">
     Keyboard
+  </message>
+  <message name="IDS_COUNTRY_DROPDOWN_TITLE" desc="Title of country selection dropdown menu" meaning="Small title near country dropdown menu suggesting that this is a country selector.">
+    Country
   </message>
   <message name="IDS_OOBE_WELCOME_NEXT_BUTTON_TEXT" desc="Text on 'Start to use Chrome OS' button" meaning="This is the text label displayed on the 'Next' button for the first Chrome OS initial device setup screen ('Welcome screen').">
     Let's go
@@ -491,6 +553,9 @@
   </message>
   <message name="IDS_KEYBOARD_DROPDOWN_LABEL" desc="Navigation label attached to the 'List of keyboards' dropdown menu on Chrome OS Language and keyboard initial device setup screen" meaning="The menu itself displays only current keyboard layout name. But for accessibility mode we need full description of this menu. So this label suggests that activating a menu will allow to change current input method.">
     Select keyboard
+  </message>
+  <message name="IDS_COUNTRY_DROPDOWN_LABEL" desc="Navigation label attached to the 'List of countries' dropdown menu on Chrome OS Demo Mode setup screen" meaning="The menu itself displays only current country name. But for accessibility mode we need full description of this menu. So this label suggests that activating a menu will allow to change current country.">
+    Select country
   </message>
   <message name="IDS_OOBE_OTHER_LANGUAGES" desc="Option group name dividing vendor-configured languages from other available languages in out-of-box 'Select language' select control.">
     Other languages
@@ -875,24 +940,11 @@
   <message name="IDS_LOGIN_PASSWORD_CHANGED_TRY_AGAIN" desc="Label for the retry button on the proceed anyway step in the the GAIA password changed flow">
     Try again
   </message>
-  <message name="IDS_LOGIN_UNRECOVERABLE_CRYPTOHOME_ERROR_TITLE" desc="Title for the fatal cryptohome error dialog box">
-    Can't sign in
-  </message>
-  <message name="IDS_LOGIN_UNRECOVERABLE_CRYPTOHOME_ERROR_MESSAGE" desc="Message for the fatal cryptohome error dialog box">
-    We're sorry. We can't access your profile. Files and data stored on this device may have been lost.<ph name="BR">&lt;br&gt;</ph>
-    <ph name="BR">&lt;br&gt;</ph>
-    You'll have to set up your profile again.<ph name="BR">&lt;br&gt;</ph>
-    <ph name="BR">&lt;br&gt;</ph>
-    On the next screen, please send feedback to help us fix the issue.
-  </message>
-  <message name="IDS_LOGIN_UNRECOVERABLE_CRYPTOHOME_ERROR_CONTINUE" desc="Label of the button to continue with re-creating cryptohome for the fatal cryptohome error dialog box">
-    Continue
-  </message>
-  <message name="IDS_LOGIN_UNRECOVERABLE_CRYPTOHOME_ERROR_WAIT_MESSAGE" desc="Message to show when the fatal cryptohome error dialog box is waiting for user profile re-creation to be closed.">
-    Re-creating profile, please wait...
-  </message>
   <message name="IDS_LOGIN_SAML_NOTICE" desc="Text message displayed above SAML portal to early indicate that the user is being redirected to another sign-in provider. This is the version of the string used in the GAIA flow.">
     This sign-in service is hosted by <ph name="SAML_DOMAIN">$1<ex>saml.com</ex></ph>
+  </message>
+  <message name="IDS_LOGIN_SAML_PASSWORD_CHANGE_NOTICE" desc="Text message displayed in the system dialog title. The dialog shows a web-page where the user can change their SAML password while staying in the session">
+    This authentication service is hosted by <ph name="SAML_DOMAIN">$1<ex>saml.com</ex></ph>
   </message>
   <message name="IDS_LOGIN_SAML_NOTICE_WITH_VIDEO" desc="Text message displayed above SAML portal to early indicate that the user is being redirected to another sign-in provider which has requested video media access.">
     This sign-in service, hosted by <ph name="SAML_DOMAIN">$1<ex>saml.com</ex></ph>, is accessing your camera.
@@ -1173,6 +1225,45 @@
   <message name="IDS_SUPERVISED_USER_EXPIRING_NOTIFICATION_LEARN_MORE" desc="Learn more text for button on Supervised User expiration notification.">
     Learn more
   </message>
+  <message name="IDS_WILCO_NOTIFICATION_BATTERY_AUTH_TITLE" desc="The title of the notification shown to inform the user that an unauthorized battery is connected to a Chromebook.">
+    Battery isn't charging
+  </message>
+  <message name="IDS_WILCO_NOTIFICATION_BATTERY_AUTH_MESSAGE" desc="The message of the notification shown to inform the user that an unauthorized battery is connected to a Chromebook.">
+    To charge this Chromebook, use a battery from the same brand.
+  </message>
+  <message name="IDS_WILCO_NOTIFICATION_NON_WILCO_CHARGER_TITLE" desc="The title of the notification shown to inform the user that charger is unauthorized and battery will not charge.">
+    Power adapter issue
+  </message>
+  <message name="IDS_WILCO_NOTIFICATION_NON_WILCO_CHARGER_MESSAGE" desc="The message of the notification shown to inform the user that charger is unauthorized and battery will not charge.">
+    Please use a USB Type-C power adapter or an adapter from the same brand as your Chromebook.
+  </message>
+  <message name="IDS_WILCO_NOTIFICATION_INCOMPATIBLE_DOCK_TITLE" desc="The title of the notification shown to inform the user that attached dock is incompatible.">
+    Not all features on this dock are supported
+  </message>
+  <message name="IDS_WILCO_NOTIFICATION_INCOMPATIBLE_DOCK_MESSAGE" desc="The message of the notification shown to inform the user that attached dock is incompatible.">
+    Use a docking station designed to work with this Chromebook.
+  </message>
+  <message name="IDS_WILCO_NOTIFICATION_DOCK_ERROR_TITLE" desc="The title of the notification shown to inform the user that attached dock presents hardware failures.">
+    Dock has an issue
+  </message>
+  <message name="IDS_WILCO_NOTIFICATION_DOCK_ERROR_MESSAGE" desc="The message of the notification shown to inform the user that attached dock presents hardware failures.">
+    Your dock needs to be serviced. Without a working fan your dock will shut down.
+  </message>
+  <message name="IDS_WILCO_NOTIFICATION_DOCK_DISPLAY_TITLE" desc="The title of the notification shown to inform the user that HDMI and USB Type-C cannot be used for displays at the same time with the attached dock.">
+    Display connected to the dock has an issue
+  </message>
+  <message name="IDS_WILCO_NOTIFICATION_DOCK_DISPLAY_MESSAGE" desc="The message of the notification shown to inform the user that HDMI and USB Type-C cannot be used for displays at the same time with the attached dock.">
+    Your dock's HDMI port can't be used when the USB Type-C port is used for video output. Please use a different port for one of the displays.
+  </message>
+  <message name="IDS_WILCO_NOTIFICATION_DOCK_THUNDERBOLT_TITLE" desc="The title of the notification shown to inform the user that attached dock will operate in USB Type-C compatible mode.">
+    Thunderbolt is not supported
+  </message>
+  <message name="IDS_WILCO_NOTIFICATION_DOCK_THUNDERBOLT_MESSAGE" desc="The message of the notification shown to inform the user that attached dock will operate in USB Type-C compatible mode.">
+    Your docking station will operate in USB Type-C compatible mode.
+  </message>
+  <message name="IDS_WILCO_NOTIFICATION_LEARN_MORE" desc="Label on button in various Wilco notification.">
+    Learn More
+  </message>
   <message name="IDS_MULTI_PROFILES_RESTRICTED_POLICY_TITLE" desc="Text that is shown on the title of the bubble shown for user pod which is not allowed in multi-profiles session.">
     Can't set up multiple sign-in
   </message>
@@ -1203,12 +1294,6 @@
   <message name="IDS_OFFLINE_LOGIN_HTML" desc="Text which suggests enter as an existing user when valid network isn't presented.">
     If you've already registered on this device, you can <ph name="LINK2_START">$1<ex>&gt;a&lt;</ex></ph>sign in as an existing user<ph name="LINK2_END">$2<ex>&gt;/a&lt;</ex></ph>.
   </message>
-  <message name="IDS_KIOSK_APPS_BUTTON" desc="Text shown on a button that brings up the kiosk apps menu on login screen">
-    Apps
-  </message>
-  <message name="IDS_LOCK_SCREEN_TASK_MANAGER_NAME" desc="The name of the lock screen as it appears in the task manager. This will be prefixed with another string, such as 'Extension: ' (see IDS_TASK_MANAGER_EXTENSION_PREFIX)">
-    Lock Screen
-  </message>
   <message name="IDS_LOGIN_USER_ADDING_BANNER" desc="Text shown on a banner in user adding screen.">
     Add an account to multiple sign-in. All signed-in accounts can be accessed without a password, so this feature should only be used with trusted accounts.
   </message>
@@ -1217,9 +1302,6 @@
   </message>
   <message name="IDS_LOGIN_NEEDS_DIRCRYPTO_MIGRATION_BANNER" desc="Banner text for users that need to migrate their data to use dircrypto.">
     A critical update is ready to install. Sign in to get started.
-  </message>
-  <message name="IDS_LOGIN_NEW_LOCK_SCREEN_NOTE_BUTTON_TITLE" desc="Title for the button on the Chrome OS lock screen that launches an app for taking notes (the action of creating a new note is delegated to the app). The string is primarily intended to be spoken out by accessibility tools - the button is represented by an icon in the lock screen UI.">
-    Create new note
   </message>
 
   <!-- Network error strings -->
@@ -1299,6 +1381,12 @@
   </message>
   <message name="IDS_SIGNIN_ERROR_SECONDARY_ACCOUNT_BUBBLE_VIEW_MESSAGE" desc="Message in the sign-in error bubble view for Chrome OS Secondary Accounts.">
     Your Google Account(s) need attention
+  </message>
+  <message name="IDS_SIGNIN_ERROR_SECONDARY_ACCOUNT_MIGRATION_BUBBLE_VIEW_TITLE" desc="Title in the sign-in error bubble view/notification for Chrome OS Secondary Accounts that have not been migrated to Chrome OS Account Manager.">
+    Sign-in has changed
+  </message>
+  <message name="IDS_SIGNIN_ERROR_SECONDARY_ACCOUNT_MIGRATION_BUBBLE_VIEW_MESSAGE" desc="Message in the sign-in error bubble view for Chrome OS Secondary Accounts that have not been migrated to Chrome OS Account Manager.">
+    Account update required
   </message>
 
   <!-- Strings used in <cr-network-list>, used in Settings and OOBE -->
@@ -1390,9 +1478,6 @@
   </message>
 
   <!-- Misc settings related strings -->
-  <message name="IDS_OPTIONS_SETTINGS_TIMEZONE_DESCRIPTION" desc="In the settings tab, the text next to the timezone combobox.">
-    Time zone:
-  </message>
   <message name="IDS_OPTIONS_SETTINGS_TIMEZONE_DISPLAY_TEMPLATE" desc="In the settings tab, the display template of a timezone in the pull-down list of timezones">
     (<ph name="UTCOffset">$1<ex>UTC-8:00</ex></ph>) <ph name="LongTZName">$2<ex>Pacific Standard Time</ex></ph> (<ph name="ExemplarCity">$3<ex>Los Angeles</ex></ph>)
   </message>
@@ -1651,8 +1736,11 @@
   <message name="IDS_TERMS_OF_SERVICE_SCREEN_ACCEPT_BUTTON" desc="Text of the accept button on the Terms of Service screen.">
     Accept and continue
   </message>
-  <message name="IDS_CONTROLLED_SETTING_OWNER" desc="Text displayed in the controlled settings bubble when a setting's value can be edited only by the owner.">
+  <message name="IDS_CONTROLLED_SETTING_WITH_OWNER" desc="Text displayed in the controlled settings bubble when a setting's value can be edited only by the owner.">
     This setting is managed by the device owner, <ph name="OWNER_EMAIL">$1<ex>john@google.com</ex></ph>.
+  </message>
+  <message name="IDS_CONTROLLED_SETTING_NO_OWNER" desc="Text displayed in the controlled settings bubble when a setting's value can be edited only by the owner.">
+    This setting is managed by the device owner.
   </message>
   <message name="IDS_CONTROLLED_SETTING_SHARED" desc="Text displayed in the controlled settings bubble when a setting's value belongs to the primary user but can be edited.">
     This setting belongs to <ph name="OWNER_EMAIL">$1<ex>john@google.com</ex></ph>.
@@ -1660,7 +1748,12 @@
   <message name="IDS_CONTROLLED_SETTING_DEMO_SESSION" desc="Text displayed in the controlled settings bubble when a setting's value is enforced by demo session.">
     This setting can't be changed in a demo session.
   </message>
-
+  <message name="IDS_CONTROLLED_SETTING_PARENT" desc="Text displayed in the controlled settings bubble when a setting's value is controlled by user's parent.">
+    This setting is managed by a parent.
+  </message>
+  <message name="IDS_CONTROLLED_SETTING_CHILD_RESTRICTION" desc="Text displayed in the controlled settings bubble when a setting's value is pre-set because the user is a child.">
+    This setting can't be changed by a child user.
+  </message>
   <message name="IDS_STATUSBAR_DISABLE_SPOKEN_FEEDBACK" desc="The menu option to disable spoken feedback accessibility feature.">
     Disable ChromeVox (spoken feedback)
   </message>
@@ -1681,13 +1774,22 @@
   <message name="IDS_NETWORK_TYPE_WIFI" desc="Label for WiFi networks.">
     Wi-Fi
   </message>
+  <message name="IDS_NETWORK_TYPE_METERED_WIFI" desc="Label for metered Wi-Fi networks (i.e., Wi-Fi networks which have resticted data usage such as a monthly limit).">
+    metered Wi-Fi
+  </message>
   <message name="IDS_NETWORK_TYPE_WIMAX" desc="Label for WiMAX networks.">
     WiMAX
   </message>
   <message name="IDS_NETWORK_TYPE_BLUETOOTH" desc="Label for Bluetooth networks.">
     Bluetooth
   </message>
-  <message name="IDS_NETWORK_TYPE_MOBILE_DATA" desc="Label for Cellular and Tether networks.">
+  <message name="IDS_NETWORK_TYPE_CELLULAR" desc="Label for Cellular networks.">
+    Cellular
+  </message>
+  <message name="IDS_NETWORK_TYPE_TETHER" desc="Label for Instant Tethering networks.">
+    Instant Tethering
+  </message>
+  <message name="IDS_NETWORK_TYPE_MOBILE_DATA" desc="Label for category which includes both Cellular and Tether networks.">
     Mobile data
   </message>
   <message name="IDS_NETWORK_TYPE_VPN" desc="Label for VPN networks.">
@@ -1740,6 +1842,15 @@
     Learn more.
   </message>
 
+  <!-- Auto launch managed guest sessions privacy notification -->
+  <message name="IDS_AUTO_LAUNCH_NOTIFICATION_TITLE" desc="Title of the notification which is shown when the managed guest session auto launched.">
+    Managed guest session
+  </message>
+  <message name="IDS_AUTO_LAUNCH_NOTIFICATION_BUTTON" desc="Text of the button.">
+    View details
+  </message>
+
+
   <!-- Removable device notifications -->
   <message name="IDS_REMOVABLE_DEVICE_DETECTION_TITLE" desc="Text of notification message which is shown when user inserts removable device (SD card, USB key...)">
     Removable device detected
@@ -1747,11 +1858,20 @@
   <message name="IDS_REMOVABLE_DEVICE_NAVIGATION_MESSAGE" desc="Text of notification message to navigate users to the Files app. If user clicks a button in the notification, the Files app opens.">
     Explore the device's content in the Files app.
   </message>
+  <message name="IDS_REMOVABLE_DEVICE_ALLOW_PLAY_STORE_ACCESS_MESSAGE" desc="Text of notification message to navigate users to the ARC settings page. If user clicks a button in the notification, the page opens.">
+    Allow Play Store applications to access this device via Settings.
+  </message>
+  <message name="IDS_REMOVABLE_DEVICE_PLAY_STORE_APPS_HAVE_ACCESS_MESSAGE" desc="Text of notification message to navigate users to the ARC settings page. If user clicks a button in the notification, the page opens.">
+    Play Store applications have access to this device.
+  </message>
   <message name="IDS_REMOVABLE_DEVICE_NAVIGATION_MESSAGE_READONLY_POLICY" desc="Text of notification message to navigate users to the Files app when attaching a removable media, but the administrator's poilcy forbids writing data to them. If user clicks a button in the notification, the Files app opens.">
     Explore the device's content in the Files app. The content is restricted by an admin and can’t be modified.
   </message>
   <message name="IDS_REMOVABLE_DEVICE_NAVIGATION_BUTTON_LABEL" desc="Text of a button label in a notification to navigate users to the Files app. If user clicks the button, the Files app opens.">
     Open Files app
+  </message>
+  <message name="IDS_REMOVABLE_DEVICE_OPEN_SETTTINGS_BUTTON_LABEL" desc="Text of a button label in a notification to navigate users to the ARC settings page. If user clicks the button, the page opens.">
+    Open settings
   </message>
   <message name="IDS_REMOVABLE_DEVICE_IMPORT_MESSAGE" desc="Text of notification message to start the media import flow. If user clicks a button in the notification, the import flow begins.">
     Back up media from the device using the Files app.
@@ -2106,8 +2226,8 @@
   <message name="IDS_UPGRADE_OFFLINE" desc="Status label: Currently offline">
     You are currently offline.
   </message>
-  <message name="IDS_UPGRADE_DISALLOWED" desc="Status label: Upgrade disallowed for the current network">
-    You are currently connected to the <ph name="NETWORK_TYPE">$1<ex>mobile</ex></ph> network.
+  <message name="IDS_UPGRADE_DISALLOWED" desc="Status label: Shown when an upgrade is disallowed for the current network to alert the user to what the current network type is.">
+    You're connected to a <ph name="NETWORK_TYPE">$1<ex>mobile</ex></ph> network.
   </message>
   <message name="IDS_UPGRADE_NETWORK_LIST_CELLULAR_ALLOWED" desc="Status label: for updates you need to connect to an Ethernet, Wi-Fi or mobile data">
     To check for updates, please use Ethernet, Wi-Fi or mobile data.
@@ -2115,19 +2235,16 @@
   <message name="IDS_UPGRADE_NETWORK_LIST_CELLULAR_DISALLOWED" desc="Status label: for updates you need to connect to an Ethernet or Wi-Fi">
     To check for updates, please use Ethernet or Wi-Fi.
   </message>
-  <message name="IDS_UPGRADE_NETWORK_LIST_CELLULAR_ALLOWED_NOT_AUTOMATIC" desc="Status label: for automatic updates you need to connect to an Ethernet or Wi-Fi">
-    Automatic updates only happen over Ethernet or Wi-Fi.
+  <message name="IDS_UPGRADE_NETWORK_LIST_CELLULAR_ALLOWED_NOT_AUTOMATIC" desc="Status label: Shown when the user is connected to a network type that does not support automatic updates (e.g., could be a mobile network with limited data per month). In this case, users can still attempt an update manually.">
+    Automatic updates don't download on this network type, but you can check for updates manually.
   </message>
 
   <!-- EOL Notification Strings -->
-  <message name="IDS_EOL_NOTIFICATION_DISPLAY_SOURCE" desc="Notification header title shown to inform the user that this device is no longer supported.">
-    End of support
-  </message>
   <message name="IDS_EOL_NOTIFICATION_TITLE" desc="Notification title shown to inform the user that this device is no longer supported.">
-    This device is no longer supported
+    Final software update
   </message>
   <message name="IDS_EOL_NOTIFICATION_EOL" desc="Notification shown to inform the user that this device will no longer receive latest software updates.">
-    This device will no longer receive the latest software updates. Please consider upgrading.
+    This is the last automatic software and security update for this <ph name="DEVICE_TYPE">$1<ex>Chromebook</ex></ph>. To get future updates, upgrade to a newer model.
   </message>
   <message name="IDS_EOL_DISMISS_BUTTON" desc="A button label shown in the notification for eol status change to dismiss the notification.">
     Don't remind me again
@@ -2139,6 +2256,17 @@
   </message>
   <message name="IDS_TPM_FIRMWARE_UPDATE_NOTIFICATION_MESSAGE" desc="Notification shown to inform the user that there is a pending TPM firmware update for the device.">
     Reset your <ph name="DEVICE_TYPE">$1<ex>Chromebook</ex></ph> to upgrade your security.
+  </message>
+
+  <!-- U2F Notification Strings -->
+  <message name="IDS_U2F_INSECURE_NOTIFICATION_TITLE" desc="Notification title shown to inform the user that the legacy U2F feature is insecure.">
+    Internal security key requires reset
+  </message>
+  <message name="IDS_U2F_INSECURE_NOTIFICATION_MESSAGE" desc="Notification shown to inform the user that the legacy U2F feature is insecure.">
+    Your internal security key is currently insecure. Please remove it from any services that you used it with. In order to resolve the issue, please reset the security key.
+  </message>
+  <message name="IDS_U2F_INSECURE_NOTIFICATION_RESET" desc="Label for the reset button in the notification shown to inform the user that the legacy U2F feature is insecure.">
+    Reset
   </message>
 
   <!-- Obsolete versions Notification strings-->
@@ -2729,6 +2857,21 @@
   <message name="IDS_NETWORK_UI_DEVICES" desc="Label for list of network devices, e.g. wifi or cellular">
     Devices:
   </message>
+  <message name="IDS_NETWORK_UI_NO_CELLULAR_ACTIVATION_LABEL" desc="Label for section dealing with activating a cellular network SIM card.">
+    Cellular Activation
+  </message>
+  <message name="IDS_NETWORK_UI_OPEN_CELLULAR_ACTIVATION_BUTTON_TEXT" desc="Text for button which, when pressed, opens the cellular activation UI.">
+    Open Cellular Activation UI
+  </message>
+  <message name="IDS_NETWORK_UI_NO_CELLULAR_ERROR_TEXT" desc="Text displayed when the cellular activation UI cannot be opened because no cellular network exists.">
+    No cellular network exists
+  </message>
+  <message name="IDS_NETWORK_UI_ADD_NEW_WIFI_LABEL" desc="Label for section dealing with showing the 'Add new Wi-Fi network' dialog.">
+    New Wi-Fi Network Dialog
+  </message>
+  <message name="IDS_NETWORK_UI_ADD_NEW_WIFI_BUTTON_TEXT" desc="Text for button which, when pressed, opens the 'Add new Wi-Fi network' dialog.">
+    Show 'Add new Wi-Fi' dialog
+  </message>
 
   <message name="IDS_DEVICE_LOG_LINK_TEXT" desc="Message preceeding link to chrome://device-log">
     For network logs, see: <ph name="DEVICE_LOG_LINK">&lt;a href="chrome://device-log"&gt;chrome://device-log&lt;/a&gt;</ph>
@@ -2741,14 +2884,14 @@
   <message name="IDS_SET_TIME_PROMPT" desc="Text prompting the user to check and set the system time.">
     Chrome was unable to set the system time. Please check the time below and correct it if needed.
   </message>
-  <message name="IDS_SET_TIME_BUTTON_CLOSE" desc="Text for the button to close the window.">
-    Done
+  <message name="IDS_SET_TIME_DATE_LABEL" desc="Label for the set time dialog date input element.">
+    Date
   </message>
-  <message name="IDS_SET_TIME_DATE_LABEL" desc="Label for the date input element.">
-    System date
+  <message name="IDS_SET_TIME_TIME_LABEL" desc="Label for the set time dialog time input element.">
+    Time
   </message>
-  <message name="IDS_SET_TIME_TIME_LABEL" desc="Label for the time input element.">
-    System time
+  <message name="IDS_SET_TIME_TIMEZONE_LABEL" desc="Label for the set time dialog timezone select element.">
+    Timezone
   </message>
 
   <message name="IDS_FILE_SYSTEM_REQUEST_FILE_SYSTEM_DIALOG_TITLE" desc="Title of a prompt dialog for granting permissions to a volume (eg. USB drive, SD card, MTP device) with the specified name. Only used for screen readers (a11y); not visible.">
@@ -2877,6 +3020,9 @@
   </message>
   <message name="IDS_ARC_OOBE_TERMS_DIALOG_METRICS_DISABLED_CHILD" desc="Message in the Arc Terms OOBE dialog in case metrics disabled on the device, and a child account is in use.">
     Send usage and diagnostic data. Help improve your child's Android experience by automatically sending diagnostic, device, and app usage data to Google. This won't be used to identify your child and will help system and app stability and other improvements. Some aggregate data will also help Google apps and partners, such as Android developers. If additional Web &#38; App Activity setting is turned on for your child, this data may be saved to their Google Account. <ph name="BEGIN_LINK1">&lt;a href="#" id="learn-more-link-metrics"&gt;</ph>Learn More<ph name="END_LINK1">&lt;/a&gt;<ex>&lt;/a&gt;</ex></ph>
+  </message>
+  <message name="IDS_ARC_OOBE_TERMS_DIALOG_DEMO_APPS" desc="Addendum to the metrics disclaimer in the Arc Terms OOBE dialog during Demo Mode setup explaining that demo apps have their own policies for data collection.">
+    Note that Android, Play, and associated apps are governed by their own data collection and use policies.
   </message>
   <message name="IDS_ARC_OPT_IN_LOCATION_SETTING" desc="Message in the opt-in dialog for Android apps for the user to turn on Google location services.">
     Use location. Allow apps and services with location permission to use your device’s location. Google may collect location data periodically and use this data in an anonymous way to improve location accuracy and location-based services. <ph name="BEGIN_LINK1">&lt;a href="#" id="learn-more-link-location-service"&gt;</ph>Learn More<ph name="END_LINK1">&lt;/a&gt;<ex>&lt;/a&gt;</ex></ph>
@@ -3096,16 +3242,10 @@
   <message name="IDS_VOICE_INTERACTION_LOGO" desc="Logo label for voice interaction.">
     Google assistant logo
   </message>
-  <message name="IDS_ASSISTANT_HOTWORD_TITLE" desc="Title for assistant hotword optin.">
-    "Ok Google"
-  </message>
-  <message name="IDS_ASSISTANT_HOTWORD_DESC" desc="Description for assistant hotword optin.">
-    Access your Assistant any time you say "Ok Google" when your screen is on
-  </message>
-  <message name="IDS_ASSISTANT_SCREEN_CONTEXT_TITLE" desc="Title for assistant screen context optin.">
+  <message name="IDS_ASSISTANT_SCREEN_CONTEXT_TITLE" desc="Title for assistant screen context optin. This is also used as the title for a toggle that lets the assistant use whats on the screen in Assistant settings page.">
     Related info
   </message>
-  <message name="IDS_ASSISTANT_SCREEN_CONTEXT_DESC" desc="Description for assistant screen context optin.">
+  <message name="IDS_ASSISTANT_SCREEN_CONTEXT_DESC" desc="Description for assistant screen context optin. This is also used as the sub label for context-enable toggle in Assistant settings page.">
     Let the Assistant show you info related to what's on your screen
   </message>
   <message name="IDS_ASSISTANT_READY_SCREEN_TITLE" desc="Title for assistant ready screen.">
@@ -3130,16 +3270,21 @@
     Access your Assistant with Voice Match
   </message>
   <message name="IDS_ASSISTANT_VOICE_MATCH_MESSAGE" desc="Message for Assistant voice match screen.">
-    Your Assistant uses these recordings to create your voice model, which is stored in your device. Delete or retrain the model in Assistant settings. View or delete voice commands in your Google activity controls.
+    Voice Match lets you access your Assistant directly by using your voice.
+    <ph name="BR">&lt;br&gt;</ph>
+    <ph name="BEGIN_BOLD">&lt;b&gt;</ph>Keep in mind:<ph name="END_BOLD">&lt;/b&gt;</ph> A similar voice or recording might be able to access your Assistant, too. You can remove Voice Match permission later by turning it off in Assistant Settings.
   </message>
-  <message name="IDS_ASSISTANT_VOICE_MATCH_RECORDING" desc="Title for recording in assistant voice match screen.">
-    Teach the Assistant to recognize your voice
+  <message name="IDS_ASSISTANT_VOICE_MATCH_NO_DSP_MESSAGE" desc="Message without DSP support for Assistant voice match screen.">
+    To save battery, “Ok Google” is on only when your device is connected to a power source. To make changes, go to Settings.
+  </message>
+  <message name="IDS_ASSISTANT_VOICE_MATCH_RECORDING" desc="Title for recording in assistant voice match screen. This is also used as the sub label for the Assistant voice settings.">
+    Teach your Assistant to recognize your voice
   </message>
   <message name="IDS_ASSISTANT_VOICE_MATCH_COMPLETED" desc="Title for completed assistant voice match screen.">
     Ok Google is all set
   </message>
   <message name="IDS_ASSISTANT_VOICE_MATCH_FOOTER" desc="Footer message for Assistant voice match screen.">
-    Your Assistant uses these recordings and your spoken requests to create and update your voice model, which is only stored on devices where you've turned on Voice Match. View or delete voice activity in your Google activity controls.
+    Your Assistant uses these recordings and your spoken requests to create and update your voice model, which is only stored on devices where you've turned on Voice Match. View or retrain voice activity in Assistant Settings.
   </message>
   <message name="IDS_ASSISTANT_VOICE_MATCH_INSTRUCTION0" desc="Instruction message for assistant voice match recording.">
     Say "Ok Google"
@@ -3158,6 +3303,9 @@
   </message>
   <message name="IDS_ASSISTANT_VOICE_MATCH_UPLOADING" desc="Uploading message for assistant voice match recording.">
     Uploading...
+  </message>
+  <message name="IDS_ASSISTANT_VOICE_MATCH_ACCESSIBILITY_MESSAGE" desc="Instruction message for ChromeVox users while voice match recording.">
+    Please consider using headphones while training your voice
   </message>
   <message name="IDS_ASSISTANT_VOICE_MATCH_ALREADY_SETUP_TITLE" desc="Title for assistant voice match already setup.">
     Your Assistant can already recognize your voice
@@ -3233,6 +3381,20 @@
     Get help
   </message>
 
+  <!-- USB Printer Installation Notification -->
+  <message name="IDS_USB_PRINTER_NOTIFICATION_CONNECTED_TITLE" desc="Title of the USB printer connected successfully notification.">
+    USB printer connected
+  </message>
+  <message name="IDS_USB_PRINTER_NOTIFICATION_CONNECTED_MESSAGE" desc="Message displayed when the USB printer is connected successfully.">
+    <ph name="PRINTER_NAME">$1<ex> Google InkJet 1234</ex></ph> is connected and ready
+  </message>
+  <message name="IDS_USB_PRINTER_NOTIFICATION_CONFIGURATION_REQUIRED_TITLE" desc="Title of the USB printer needs configuration notification.">
+    USB printer needs configuration
+  </message>
+  <message name="IDS_USB_PRINTER_NOTIFICATION_CONFIGURATION_REQUIRED_MESSAGE" desc="Message displayed when the USB printer is connected but needs configuration.">
+    <ph name="PRINTER_NAME">$1<ex> Google InkJet 1234</ex></ph> is connected but needs configuration
+  </message>
+
   <!-- RequestPin dialog messages -->
   <message name="IDS_REQUEST_PIN_DIALOG_HEADER" desc="The text displayed in the certificate provider PIN request dialog.">
     "<ph name="EXTENSION_NAME">$1<ex>My Extension</ex></ph>" is requesting your <ph name="CODE_TYPE">$2<ex>PIN</ex></ph>
@@ -3274,8 +3436,8 @@
     <ph name="PRINTER_MAKE_OR_MODEL">$1<ex>OfficeJet 8710</ex></ph> (USB)
   </message>
 
-  <message name="IDS_WIFI_SCANNING_MESSAGE" desc="Scanning for wifi networks">
-    Searching for Wi-Fi networks...
+  <message name="IDS_NETWORK_SCANNING_MESSAGE" desc="Label for spinner whose purpose is to indicate to the user that the device is currently scanning for nearby networks (e.g. Wi-Fi).">
+    Searching for networks...
   </message>
 
   <!-- Screenshot notification -->
@@ -3366,6 +3528,12 @@
   <message name="IDS_CROSTINI_INSTALLER_INSTALLING" desc="Text shown in the Crostini installer dialog while  Linux is installing.">
     Installing Linux...
   </message>
+  <message name="IDS_CROSTINI_INSTALLER_CANCELING_TITLE" desc="Title of the Crostini installer when the install is canceled.">
+    Cancelling Linux installation...
+  </message>
+  <message name="IDS_CROSTINI_INSTALLER_CANCELING" desc="Text shown in the Crostini installer dialog when the install is canceled.">
+    This window will close after cancellation is complete.
+  </message>
   <message name="IDS_CROSTINI_INSTALLER_ERROR_TITLE" desc="Title of the Crostini installer when an error occurs.">
     Error installing Linux...
   </message>
@@ -3401,6 +3569,9 @@
   </message>
   <message name="IDS_CROSTINI_INSTALLER_OFFLINE_ERROR" desc="Text shown in the Crostini installer dialog when there is no internet connection">
     <ph name="DEVICE_TYPE">$1<ex>Chromebook</ex></ph> is offline. Connect to the Internet and try again.
+  </message>
+  <message name="IDS_CROSTINI_INSTALLER_INSUFFICIENT_DISK" desc="Text shown in the Crostini installer dialog when there is not enough free disk space to complete the installation">
+    Install failed due to lack of storage space. At least <ph name="INSTALL_SIZE">$1<ex>1.3GB</ex></ph> of free space is required. To free up space, delete files from device storage.
   </message>
   <message name="IDS_CROSTINI_INSTALLER_LOAD_TERMINA_ERROR" desc="Text shown in the Crostini installer dialog when the VM component fails to load">
     Error downloading the virtual machine. Please try again.
@@ -3448,7 +3619,7 @@
     Your app will open when the upgrade is finished. Upgrades can take a few minutes.
   </message>
   <message name="IDS_CROSTINI_SHUT_DOWN_LINUX_MENU_ITEM" desc="Text shown in the context menu for the Linux terminal app, allowing users to shut down the Linux virtual machine.">
-    Shut Down Linux (Beta)
+    Shut down Linux (Beta)
   </message>
   <message name="IDS_CROSTINI_TERMINA_UPDATE_REQUIRED" desc="Text shown in the Crostini update dialog when the VM component needs updating.">
     Linux (Beta) update required
@@ -3467,6 +3638,9 @@
   </message>
   <message name="IDS_CROSTINI_PACKAGE_INSTALL_NOTIFICATION_COMPLETED_MESSAGE" desc="Message in the Notification for Linux package installation once installation has completed successfully.">
     App is available in your terminal. There may also be an icon in your Launcher.
+  </message>
+  <message name="IDS_CROSTINI_PACKAGE_INSTALL_NOTIFICATION_COMPLETED_BUTTON" desc="Button text in the Notification for Linux package installation once installation has completed successfully.">
+    Launch
   </message>
   <message name="IDS_CROSTINI_PACKAGE_INSTALL_NOTIFICATION_ERROR_TITLE" desc="Title of the Notification for Linux package installation when there is an error during installation.">
     Error while installing
@@ -3510,8 +3684,83 @@
     An error occurred during uninstallation. Please uninstall through the Terminal.
   </message>
 
-  <message name="IDS_CROSTINI_REPOSITORY_SEARCH_RESULT_PLACEHOLDER_TEXT" translateable="false" desc="Placeholder text for surfaced Crostini Repository Search results in the app launcher">
+  <!-- Crostini Repository Search -->
+  <message name="IDS_CROSTINI_REPOSITORY_SEARCH_RESULT_TITLE_PLACEHOLDER_TEXT" translateable="false" desc="Placeholder title text for surfaced Crostini Repository Search results in the app launcher">
     Install <ph name="LINUX_APP_NAME">$1<ex>GIMP</ex></ph>
+  </message>
+  <message name="IDS_CROSTINI_REPOSITORY_SEARCH_RESULT_DETAILS_PLACEHOLDER_TEXT" translateable="false" desc="Placeholder description details for surfaced Crostini Repository Search results in the app launcher">
+    Linux Application
+  </message>
+
+  <!-- Crostini app install dialog messages-->
+  <message name="IDS_CROSTINI_APP_INSTALL_DIALOG_INSTALL_BUTTON" desc="Label for the button in the Crostini app install dialog to begin installing a Linux app.">
+    Install
+  </message>
+  <message name="IDS_CROSTINI_APP_INSTALL_DIALOG_TITLE_TEXT" desc="Title text for the Crostini app install dialog">
+    Install <ph name="APP_NAME">$1<ex>GIMP</ex></ph> (Linux App)
+  </message>
+  <message name="IDS_CROSTINI_APP_INSTALL_DIALOG_BODY_TEXT" desc="General body text for the Crostini app install dialog">
+    Are you sure you want to install <ph name="APP_NAME">$1<ex>GIMP</ex></ph>?
+  </message>
+  <message name="IDS_CROSTINI_APP_INSTALL_DIALOG_PACKAGE_TEXT" desc="Body text for the package information in the Crostini app install dialog">
+    Version:
+    <ph name="LINUX_VERSION">$1<ex>0.8-1</ex></ph>
+
+    Description:
+    <ph name="LINUX_DESCRIPTION">$2<ex>GIMP is a really great text editor</ex></ph>
+  </message>
+  <message name="IDS_CROSTINI_APP_INSTALL_DIALOG_NO_DESCRIPTION_TEXT" desc="Body text for when their is no description to display in the Crostini app install dialog">
+    No description is available.
+  </message>
+
+  <!-- Crostini export and import notification -->
+  <message name="IDS_CROSTINI_NOTIFICATION_OPERATION_STARTING" desc="Message to display in a notification when the operation is starting and we don't yet have an estimate for how long it will take">
+    Starting...
+  </message>
+  <message name="IDS_CROSTINI_EXPORT_IMPORT_NOTIFICATION_DISPLAY_SOURCE" desc="The name of the notification source, which is 'Linux'.  Shown in the notification header">
+    Linux
+  </message>
+  <message name="IDS_CROSTINI_EXPORT_NOTIFICATION_TITLE_RUNNING" desc="Title displayed in the notification while export (backup) of the Linux container is in progress.">
+    Backing up Linux apps &amp; files
+  </message>
+  <message name="IDS_CROSTINI_EXPORT_NOTIFICATION_TITLE_DONE" desc="Title displayed in the notification when export (backup) of the Linux container is complete.">
+    Backup complete
+  </message>
+  <message name="IDS_CROSTINI_EXPORT_NOTIFICATION_MESSAGE_DONE" desc="Message displayed in the notification when export (backup) of the Linux container is complete.">
+    Linux apps &amp; files have been successfully backed up
+  </message>
+  <message name="IDS_CROSTINI_EXPORT_NOTIFICATION_TITLE_FAILED" desc="Title displayed in the notification when export (backup) of the Linux container fails.">
+    Error while backing up Linux
+  </message>
+  <message name="IDS_CROSTINI_EXPORT_NOTIFICATION_MESSAGE_FAILED" desc="Message displayed in the notification when export (backup) of the Linux container fails.">
+    Backup couldn't be completed due to an error
+  </message>
+  <message name="IDS_CROSTINI_EXPORT_NOTIFICATION_MESSAGE_FAILED_IN_PROGRESS" desc="Message displayed in the notification when export (backup) of the Linux container fails due to another being in progress.">
+    Linux backup currently in progress
+  </message>
+  <message name="IDS_CROSTINI_IMPORT_NOTIFICATION_TITLE_RUNNING" desc="Title displayed in the notification while import (restore) of the Linux container is in progress.">
+    Restoring Linux apps &amp; files
+  </message>
+  <message name="IDS_CROSTINI_IMPORT_NOTIFICATION_TITLE_DONE" desc="Title displayed in the notification when import (restore) of the Linux container is complete.">
+    Restore complete
+  </message>
+  <message name="IDS_CROSTINI_IMPORT_NOTIFICATION_MESSAGE_DONE" desc="Message displayed in the notification when import (restore) of the Linux container is complete.">
+    Linux apps &amp; files have been successfully replaced
+  </message>
+  <message name="IDS_CROSTINI_IMPORT_NOTIFICATION_TITLE_FAILED" desc="Title displayed in the notification when import (restore) of the Linux container fails.">
+    Error while restoring Linux
+  </message>
+  <message name="IDS_CROSTINI_IMPORT_NOTIFICATION_MESSAGE_FAILED" desc="Message displayed in the notification when import (restore) of the Linux container fails.">
+    Restoring couldn't be completed due to an error
+  </message>
+  <message name="IDS_CROSTINI_IMPORT_NOTIFICATION_MESSAGE_FAILED_IN_PROGRESS" desc="Message displayed in the notification when import (restore) of the Linux container fails due to another being in progress.">
+    Linux restore currently in progress
+  </message>
+  <message name="IDS_CROSTINI_IMPORT_NOTIFICATION_MESSAGE_FAILED_ARCHITECTURE" desc="Message displayed in the notification when import (restore) of the Linux container fails due to architecture mismatch.">
+    Cannot import container architecture type <ph name="ARCHITECTURE_CONTAINER">$1<ex>arm64</ex></ph> with this device which is <ph name="ARCHITECTURE_DEVICE">$2<ex>x86_64</ex></ph>. You can try restoring this container into a different device, or you can access the files inside this container image by opening in Files app.
+  </message>
+  <message name="IDS_CROSTINI_IMPORT_NOTIFICATION_MESSAGE_FAILED_SPACE" desc="Message displayed in the notification when import (restore) of the Linux container fails due to insufficient space.">
+    Cannot restore due to lack of storage space. Free up <ph name="SPACE_REQUIRED">$1<ex>10Gb</ex></ph> from the device and try again.
   </message>
 
   <!-- Time limit notification -->
@@ -3520,6 +3769,21 @@
   </message>
   <message name="IDS_BED_TIME_NOTIFICATION_TITLE" desc="The title of the notification when bedtime reaches before locking the device.">
     Lights out soon
+  </message>
+  <message name="IDS_TIME_LIMIT_UPDATED_NOTIFICATION_TITLE" desc="The title of the notification displayed when parent updates bedtime or usage limit for kids device.">
+    Update from your parent
+  </message>
+  <message name="IDS_BEDTIME_UPDATED_NOTIFICATION_MESSAGE" desc="The message of the notification when parent updates bedtime limit for kids device.">
+    New bedtime set
+  </message>
+  <message name="IDS_SCREEN_TIME_UPDATED_NOTIFICATION_MESSAGE" desc="The message of the notification when parent updates usage limit for kids device.">
+    New screen time limit
+  </message>
+  <message name="IDS_OVERRIDE_WITH_DURATION_UPDATED_NOTIFICATION_TITLE" desc="The title of the notification when parent granted the child more time on this device.">
+    Bonus! You got more screen time
+  </message>
+  <message name="IDS_OVERRIDE_WITH_DURATION_UPDATED_NOTIFICATION_MESSAGE" desc="The message of the notification when parent granted the child more time on this device. Informs the child of the device's new lock time.">
+    Your device now locks at <ph name="UNLOCK_TIME">$1<ex>9:30 PM</ex></ph>.
   </message>
   <message name="IDS_TIME_LIMIT_NOTIFICATION_DISPLAY_SOURCE" desc="The string shown as the display source of the bedtime or screen time notifications.">
     Family Link
@@ -3531,7 +3795,7 @@
     Smart Lock is turned on
   </message>
   <message name="IDS_EASY_UNLOCK_CHROMEBOOK_ADDED_NOTIFICATION_MESSAGE" desc="Message for the notification shown when this Chromebook is added to Easy Unlock as an additional Easy Unlock device.">
-    Next time, your phone will unlock your <ph name="DEVICE_TYPE">$1<ex>Chromebook</ex></ph>. Turn off Smart Lock in Settings.
+    Next time, your phone will unlock your <ph name="DEVICE_TYPE">$1<ex>Chromebook</ex></ph>. You can turn off Smart Lock in Settings.
   </message>
   <message name="IDS_EASY_UNLOCK_CHROMEBOOK_ADDED_NOTIFICATION_ABOUT_BUTTON" desc="Label of a button on the new chrome notification to bring user to smart lock settings.">
     Change settings
@@ -3541,7 +3805,7 @@
     Smart Lock phone changed
   </message>
   <message name="IDS_EASY_UNLOCK_PAIRING_CHANGED_NOTIFICATION_MESSAGE" desc="Message for notification shown when the paired phone is changed.">
-    Next time, a new phone will unlock this <ph name="DEVICE_TYPE">$1<ex>Chromebook</ex></ph>. Turn off Smart Lock in Settings.
+    Next time, a new phone will unlock this <ph name="DEVICE_TYPE">$1<ex>Chromebook</ex></ph>. You can turn off Smart Lock in Settings.
   </message>
   <message name="IDS_EASY_UNLOCK_PAIRING_CHANGED_NOTIFICATION_UPDATE_BUTTON" desc="Label of a button on the notification shown when the paired phone is changed to update Smart lock now.">
     Update now
@@ -3560,7 +3824,7 @@
     Bluetooth is off on this <ph name="DEVICE_TYPE">$1<ex>Chromebook</ex></ph>. Enter your password, and turn on Bluetooth.
   </message>
   <message name="IDS_EASY_UNLOCK_SCREENLOCK_TOOLTIP_NO_PHONE" desc="Tooltip for an icon on a user's lock screen pod shown by Easy Unlock when a phone eligible to unlock the Chromebook cannot be found.">
-    Can’t find your phone. Make sure it’s handy and Bluetooth is turned on.
+    Can’t connect. Make sure your phone’s Bluetooth is turned on.
   </message>
   <message name="IDS_EASY_UNLOCK_SCREENLOCK_TOOLTIP_PHONE_NOT_AUTHENTICATED" desc="Tooltip for an icon on a user's lock screen pod shown by Easy Unlock when no phones eligible to unlock the Chromebook can be authenticated.">
     Unable to unlock. Enter your password.
@@ -3590,10 +3854,10 @@
     Your <ph name="DEVICE_TYPE">$1<ex>Chromebook</ex></ph> is locked for security. Manually enter your password to continue.
   </message>
   <message name="IDS_EASY_UNLOCK_SCREENLOCK_TOOLTIP_HARDLOCK_PAIRING_CHANGED" desc="Tooltip text shown on a user's lock screen pod when Easy Unlock feature is enabled for the user, but the pairing data is changed. A password has to be entered to unlock the device.">
-    Smart Lock phone changed. Enter your password to update Smart Lock. Next time, your phone will unlock your <ph name="DEVICE_TYPE">$1<ex>Chromebook</ex></ph>. Turn off Smart Lock in Settings.
+    Smart Lock phone changed. Enter your password to update Smart Lock. Next time, your phone will unlock your <ph name="DEVICE_TYPE">$1<ex>Chromebook</ex></ph>. You can turn off Smart Lock in Settings
   </message>
   <message name="IDS_EASY_UNLOCK_SCREENLOCK_TOOLTIP_HARDLOCK_PAIRING_ADDED" desc="Tooltip text shown on a user's lock screen pod when Easy Unlock pairing data is synced on a new Chromebook.">
-    Enter your password to enable Smart Lock. Next time, your phone will unlock your <ph name="DEVICE_TYPE">$1<ex>Chromebook</ex></ph>. Turn off Smart Lock in Settings.
+    Enter your password to enable Smart Lock. Next time, your phone will unlock your <ph name="DEVICE_TYPE">$1<ex>Chromebook</ex></ph>. You can turn off Smart Lock in Settings.
   </message>
   <message name="IDS_EASY_UNLOCK_SCREENLOCK_TOOLTIP_LOGIN_FAILURE" desc="Tooltip text shown on a user's sign-in screen when Smart Lock sign-in attempt fails.">
     Smart Lock couldn’t verify your account. Type your password to enter.
@@ -3603,6 +3867,9 @@
   </message>
   <message name="IDS_SMART_LOCK_SCREENLOCK_TOOLTIP_HARDLOCK_REAUTH_USER" desc="Tooltip text shown on a user's lock screen pod to reauthenticate the user before setting up Smart Lock. A password has to be entered to unlock the device.">
     To set up Smart Lock for Chromebook, Google needs to make sure it’s you—type your password to get started.
+  </message>
+  <message name="IDS_EASY_UNLOCK_SCREENLOCK_TOOLTIP_PRIMARY_USER_ABSENT" desc="Tooltip for the icon on user's lock screen pod shown by Easy Unlock when a phone set up to unlock the Chromebook is detected, but the primary user profile is in the background on the phone or the user is a secondary user profile. The user is asked to switch to the primary user.">
+    To use Smart Lock, switch to the primary user profile on your phone
   </message>
   <message name="IDS_EASY_UNLOCK_SCREENLOCK_USER_POD_AUTH_VALUE" desc="Message on lock screen user pod shown in place of password field when Easy Unlock is enabled and a phone that can unlock the Chromebook is detected in proximity.">
     Select your photo
@@ -3621,20 +3888,6 @@
     This picture will show up on the Chromebook sign in screen and lock screen.
   </message>
 
-  <!-- Strings for ARC intent picker -->
-  <message name="IDS_INTENT_PICKER_BUBBLE_VIEW_OPEN_WITH" desc="Message contained in a label used as a header for a list of applications from which the user will pick one.">
-    Open with
-  </message>
-  <message name="IDS_INTENT_PICKER_BUBBLE_VIEW_REMEMBER_SELECTION" desc="Message contained in a checkbox that must be marked in order for the intent picker to not be shown again for a similar URL.">
-    Remember my choice
-  </message>
-  <message name="IDS_INTENT_PICKER_BUBBLE_VIEW_USE_APP" desc="Message contained in a button to continue the navigation in an ARC app selected by the user.">
-    Use app
-  </message>
-  <message name="IDS_INTENT_PICKER_BUBBLE_VIEW_STAY_IN_CHROME" desc="Message contained in a button to continue the navigation within Chrome.">
-    Stay in Chrome
-  </message>
-
   <!-- Strings for Oobe fingerprint enrollment screen -->
   <message name="IDS_OOBE_FINGERPINT_SETUP_SCREEN_TITLE" desc="The title of the dialog that allow users to register their fingerprint.">
     Set up your fingerprint
@@ -3642,8 +3895,11 @@
   <message name="IDS_OOBE_FINGERPINT_SETUP_SCREEN_SENSOR_LOCATION_TITLE" desc="The title of the dialog that shows where the fingerprint sensor is.">
     Set up your fingerprint
   </message>
-  <message name="IDS_OOBE_FINGERPINT_SETUP_SCREEN_SENSOR_DESCRIPTION" desc="The label that explains the location of the fingerprint sensor on the device.">
+  <message name="IDS_OOBE_FINGERPINT_SETUP_SCREEN_SENSOR_POWER_BUTTON_DESCRIPTION" desc="The label that explains that the fingerprint sensor is in the power button.">
     Touch the power button with your finger
+  </message>
+  <message name="IDS_OOBE_FINGERPINT_SETUP_SCREEN_SENSOR_GENERAL_DESCRIPTION" desc="The label that explains the location of the fingerprint sensor on the device.">
+      Touch the fingerprint sensor with your finger
   </message>
   <message name="IDS_OOBE_FINGERPINT_SETUP_SCREEN_ENROLLMENT_PROGRESS_TITLE" desc="The title of the dialog that shows where the fingerprint sensor is.">
     Lift, then touch again
@@ -3688,9 +3944,6 @@
   <!-- Mojo service names (displayed in task manager) -->
   <message name="IDS_ASH_ASH_SERVICE_NAME" desc="Name of the internal software service that manages windows. Appears in the task manager.">
     Window manager
-  </message>
-  <message name="IDS_ASH_QUICK_LAUNCH_APP_NAME" desc="Name of the app used to launch other apps by typing an app name. Appears in the task manager.">
-    Quick launch
   </message>
   <message name="IDS_ASH_SHORTCUT_VIEWER_APP_NAME" desc="Name of the app that shows the list of keyboard shortcuts. Appears in the task manager.">
     Shortcut viewer
@@ -3749,42 +4002,149 @@
     Password (optional)
   </message>
 
-  <!-- Strings for PluginVm launcher -->
-  <!-- TODO(okalitova, timloh): Remove translatable flag after strings are finalized. -->
-  <message name="IDS_PLUGIN_VM_LAUNCHER_ENVIRONMENT_SETTING_TITLE" desc="Title of the PluginVm launcher, a dialog for launching PluginVm." translateable="false">
-    Finishing <ph name="APP_NAME">PluginVm</ph> environment setting...
+  <!-- Strings for Plugin VM -->
+  <message name="IDS_PLUGIN_VM_APP_NAME" desc="Name of the 'Plugin VM' app.">
+    Plugin VM
   </message>
-  <message name="IDS_PLUGIN_VM_LAUNCHER_FINISHED_TITLE" desc="Title of the PluginVm launcher, a dialog for launching PluginVm." translateable="false">
-    <ph name="APP_NAME">PluginVm</ph> environment setting complete
+  <message name="IDS_PLUGIN_VM_LAUNCHER_ENVIRONMENT_SETTING_TITLE" desc="Title of the Plugin VM installer during installation.">
+    Setting up Plugin VM...
   </message>
-  <message name="IDS_PLUGIN_VM_LAUNCHER_ERROR_TITLE" desc="Title of the PluginVm launcher, a dialog for launching PluginVm." translateable="false">
-    Error setting <ph name="APP_NAME">PluginVm</ph> environment
+  <message name="IDS_PLUGIN_VM_LAUNCHER_FINISHED_TITLE" desc="Title of the Plugin VM installer after successful installation.">
+    Setup complete
   </message>
-  <message name="IDS_PLUGIN_VM_LAUNCHER_DOWNLOADING_MESSAGE" desc="Description of the current state of PluginVm environment setting." translateable="false">
-    Downloading <ph name="APP_NAME">PluginVm</ph> image...
+  <message name="IDS_PLUGIN_VM_LAUNCHER_ERROR_TITLE" desc="Title of the Plugin VM installer if there was an error during installation.">
+    Setup couldn't complete
   </message>
-  <message name="IDS_PLUGIN_VM_LAUNCHER_UNZIPPING_MESSAGE" desc="Description of the current state of PluginVm environment setting." translateable="false">
-    Configuring <ph name="APP_NAME">PluginVm</ph> image...
+  <message name="IDS_PLUGIN_VM_LAUNCHER_NOT_ALLOWED_TITLE" desc="Title of the Plugin VM installer if Plugin VM is disallowed.">
+    Plugin VM needs permission to run
   </message>
-  <message name="IDS_PLUGIN_VM_LAUNCHER_ERROR_MESSAGE" desc="Description of the current state of PluginVm environment setting." translateable="false">
-    The <ph name="APP_NAME">PluginVm</ph> environment didn't set. Please try again.
+  <message name="IDS_PLUGIN_VM_LAUNCHER_START_DOWNLOADING_MESSAGE" desc="Text of the Plugin VM installer that informs the user that setup may take a while.">
+    This may take awhile
   </message>
-  <message name="IDS_PLUGIN_VM_LAUNCHER_LAUNCH_BUTTON" desc="Label for the button in the PluginVm launcher dialog to launch PluginVm." translateable="false">
+  <message name="IDS_PLUGIN_VM_LAUNCHER_DOWNLOADING_MESSAGE" desc="Text of the Plugin VM installer while downloading the VM.">
+    Downloading the virtual machine
+  </message>
+  <message name="IDS_PLUGIN_VM_LAUNCHER_IMPORTING_MESSAGE" desc="Text of the Plugin VM installer while configuring the VM.">
+    Configuring the virtual machine. This may take a few minutes.
+  </message>
+  <message name="IDS_PLUGIN_VM_LAUNCHER_FINISHED_MESSAGE" desc="Text of the Plugin VM installer after successful installation.">
+    Plugin VM is ready to use
+  </message>
+  <message name="IDS_PLUGIN_VM_LAUNCHER_ERROR_MESSAGE" desc="Text of the Plugin VM installer if the installation failed.">
+    Try installing again
+  </message>
+  <message name="IDS_PLUGIN_VM_LAUNCHER_NOT_ALLOWED_MESSAGE" desc="Error message to be shown if a setup/launch is attempted although Plugin VM is disallowed.">
+    Contact your organization's device admin
+  </message>
+  <message name="IDS_PLUGIN_VM_LAUNCHER_DOWNLOAD_PROGRESS_MESSAGE" desc="Text of the Plugin VM installer during downloading Plugin VM image, showing download progress.">
+    <ph name="DOWNLOADED_SIZE">$1<ex>1.2</ex></ph>/<ph name="DOWNLOAD_SIZE">$2<ex>3.4 GB</ex></ph>
+  </message>
+  <message name="IDS_PLUGIN_VM_LAUNCHER_DOWNLOAD_PROGRESS_WITHOUT_DOWNLOAD_SIZE_MESSAGE" desc="Text of the Plugin VM installer while downloading Plugin VM image, showing download progress when the full download size is not known.">
+    <ph name="DOWNLOADED_SIZE">$1<ex>1.2 GB</ex></ph>
+  </message>
+  <message name="IDS_PLUGIN_VM_LAUNCHER_TIME_LEFT_MESSAGE" desc="Text of the Plugin VM installer that shows estimated time left before current installation stage ends.">
+    <ph name="TIME_LEFT">$1<ex>30 mins</ex></ph> left
+  </message>
+  <message name="IDS_PLUGIN_VM_LAUNCHER_LAUNCH_BUTTON" desc="Label for the button in the Plugin VM installer to launch Plugin VM after successful installation.">
     Launch
   </message>
-  <message name="IDS_PLUGIN_VM_LAUNCHER_RETRY_BUTTON" desc="Label for the button in the PluginVm launcher dialog to retry PluginVm environment setting." translateable="false">
+  <message name="IDS_PLUGIN_VM_LAUNCHER_RETRY_BUTTON" desc="Label for the button in the Plugin VM installer to retry installation on failure.">
     Retry
+  </message>
+  <message name="IDS_PLUGIN_VM_SHUT_DOWN_MENU_ITEM" desc="Text shown in the launcher and shelf context menus for the Plugin VM app to shut it down.">
+    Shut down
+  </message>
+  <message name="IDS_PLUGIN_VM_INVALID_LICENSE_NOTIFICATION_TITLE" desc="Title in the notification shown when launching the 'Plugin VM' app failed due to an invalid or missing license.">
+    Plugin VM requires a license
+  </message>
+  <message name="IDS_PLUGIN_VM_INVALID_LICENSE_NOTIFICATION_MESSAGE" desc="Message in the notification shown when launching the 'Plugin VM' app failed due to an invalid or missing license.">
+    Contact the device admin for your organization
   </message>
 
   <!-- Strings for Account Manager welcome screen -->
   <message name="IDS_ACCOUNT_MANAGER_WELCOME_TITLE" desc="Title for the Chrome OS Account Manager Welcome screen.">
-    Manage your Google Accounts in one place
+    Sign-in has changed
   </message>
   <message name="IDS_ACCOUNT_MANAGER_WELCOME_TEXT" desc="Text body for the Chrome OS Account Manager Welcome screen.">
-    Apps and websites that have your permission can access the account information they need to work properly.
+    You can now manage all of your Google Accounts in one place. Access and permissions you've granted to apps, websites, and extensions in Chrome and Google Play may now apply to all of your signed-in accounts. <ph name="LINK_BEGIN">&lt;a target="_blank" href="$1<ex>https://support.google.com/chromebook/?p=google_accounts</ex>"&gt;</ph>Learn more<ph name="LINK_END">&lt;/a&gt;</ph>
+  </message>
+  <message name="IDS_ACCOUNT_MANAGER_WELCOME_BUTTON" desc="Label for the button to view accounts on the Chrome OS Account Manager Welcome screen.">
+    View accounts
+  </message>
 
-    If you don't want to add an account, sign in as a guest or open an incognito window for web browsing.
+  <!-- Strings for per-account Migration welcome screen -->
+  <message name="IDS_ACCOUNT_MIGRATION_WELCOME_PAGE_TITLE" desc="Title for the Account Migration Welcome page.">
+    Sign in again
+  </message>
+  <message name="IDS_ACCOUNT_MIGRATION_WELCOME_TITLE" desc="Title for the Account Migration Welcome screen.">
+    Sign in again to update <ph name="USER_EMAIL">$1<ex>john.doe@example.com</ex></ph>
+  </message>
+  <message name="IDS_ACCOUNT_MIGRATION_WELCOME_TEXT" desc="Text body for the Account Migration Welcome screen.">
+    Please sign in again to confirm that your account <ph name="USER_EMAIL">$1<ex>john.doe@example.com</ex></ph> can be used with websites, apps, and extensions in Chrome and Google Play. You may also remove this account. <ph name="LINK_BEGIN">&lt;a target="_blank" href="$2<ex>https://google.com/</ex>"&gt;</ph>Learn more<ph name="LINK_END">&lt;/a&gt;</ph>
+  </message>
+  <message name="IDS_ACCOUNT_MIGRATION_UPDATE_BUTTON" desc="Label for the button in Account Migration dialog to migrate the account.">
+    Update account
+  </message>
 
-    You can go to Settings -> Google Accounts to view and manage all accounts.
+  <!-- TPM firmware auto-update notifications -->
+  <message name="IDS_TPM_AUTO_UPDATE_PLANNED_NOTIFICATION_TITLE" desc="Title for the notification informing the user that local data will be deleted.">
+    Your local data will soon be deleted
+  </message>
+  <message name="IDS_TPM_AUTO_UPDATE_PLANNED_NOTIFICATION_MESSAGE" desc="Text for the notification informing the user that a TPM update is planned by the administrator which will result in local data being deleted.">
+    After 24 hours, your administrator will perform a one-time update that will delete your local data when you restart your device. Save any local data you need to cloud storage within 24 hours.
+  </message>
+  <message name="IDS_TPM_AUTO_UPDATE_REBOOT_NOTIFICATION_TITLE" desc="Title for the notification informing the user that local data will be deleted after reboot.">
+    Local data will be deleted when you restart
+  </message>
+  <message name="IDS_TPM_AUTO_UPDATE_REBOOT_NOTIFICATION_MESSAGE" desc="Text for the notification informing the user that a TPM update will be performed after reboot which will result in local data being deleted.">
+    The next time you restart your device, your administrator will perform a one-time update that will delete your local data.
+  </message>
+
+  <message name="IDS_RELEASE_NOTES_NOTIFICATION_TITLE" desc="Text for the notification title informing the user that the device has been updated and patch notes are available.">
+    See what's new on Chromebook
+  </message>
+  <message name="IDS_RELEASE_NOTES_NOTIFICATION_MESSAGE" desc="Text for the notification message informing the user that the device has been updated and patch notes are available.">
+    Get highlights from the latest update
+  </message>
+
+  <!-- Strings for Add Supervision screen -->
+  <message name="IDS_ADD_SUPERVISION_PAGE_TITLE" desc="Title for the Chrome OS Add Supervision screen.">
+    Add Supervision
+  </message>
+  <message name="IDS_ADD_SUPERVISION_NETWORK_DOWN_HEADING" desc="Heading string shown in the Add Supervision page when the network is not available.">
+    Network not available
+  </message>
+  <message name="IDS_ADD_SUPERVISION_NETWORK_DOWN_DESCRIPTION" desc="Description shown in the Add Supervision page when the network is not available.">
+    Please check your network connection and retry.
+  </message>
+  <message name="IDS_ADD_SUPERVISION_NETWORK_DOWN_BUTTON_LABEL" desc="Label of the button shown on the Add Supervision page when the network is not available.">
+    Close
+  </message>
+  <message name="IDS_ADD_SUPERVISION_EXIT_DIALOG_TITLE" desc="Title for the dialog shown when attempting to exit the Add Supervision screen.">
+    Are you sure you want to exit?
+  </message>
+  <!-- TODO(danan):  Add final string and remove untranslateable -->
+  <message translateable="false" name="IDS_ADD_SUPERVISION_EXIT_DIALOG_BODY" desc="Body for the dialog shown when attempting to exit the Add Supervision screen.">
+    Supervision is already set up for <ph name="USER_FIRST_NAME">$1<ex>John</ex></ph>'s Google Account.
+You can always stop supervision from the Famly Link app. We've sent instructions to you in an email that explains how to install Family Link.
+  </message>
+  <message name="IDS_ADD_SUPERVISION_EXIT_DIALOG_CANCEL_BUTTON_LABEL" desc="Label for the cancel button on the dialog shown when attempting to exit the Add Supervision screen.">
+    Cancel
+  </message>
+  <message name="IDS_ADD_SUPERVISION_EXIT_DIALOG_SIGNOUT_BUTTON_LABEL" desc="Label for the signout button on the dialog shown when attempting to exit the Add Supervision screen.">
+    Sign out
+  </message>
+
+    <!-- Strings for gnubby U2FD authentication UI -->
+  <message name="IDS_GNUBBY_NOTIFICATION_TITLE" desc="Title for notification informing user to press power button for gnubby U2FD.">
+    A security key is being requested
+  </message>
+  <message name="IDS_GNUBBY_NOTIFICATION_MESSAGE" desc="Text for notifications informing user that Chrome is requestor for U2FD.">
+    Please tap your power button
+  </message>
+
+  <!-- Strings for login screen extension UI -->
+  <message name="IDS_LOGIN_EXTENSION_UI_DIALOG_TITLE" desc="Dialog title for windows opened from a login screen extension. These windows will be displayed over the login screen.">
+    This authentication service is hosted by <ph name="EXTENSION_NAME">$1<ex>Identity Provider Name</ex></ph>
   </message>
 </grit-part>

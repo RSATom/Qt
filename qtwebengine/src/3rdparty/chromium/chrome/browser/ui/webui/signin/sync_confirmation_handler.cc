@@ -11,6 +11,7 @@
 #include "base/metrics/user_metrics.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "chrome/browser/consent_auditor/consent_auditor_factory.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_avatar_icon_util.h"
 #include "chrome/browser/signin/identity_manager_factory.h"
 #include "chrome/browser/ui/browser_list.h"
@@ -21,8 +22,8 @@
 #include "chrome/browser/ui/webui/signin/sync_confirmation_ui.h"
 #include "chrome/common/webui_url_constants.h"
 #include "components/consent_auditor/consent_auditor.h"
-#include "components/signin/core/browser/account_info.h"
-#include "components/signin/core/browser/avatar_icon_util.h"
+#include "components/signin/public/base/avatar_icon_util.h"
+#include "components/signin/public/identity_manager/account_info.h"
 #include "components/unified_consent/feature.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_ui.h"
@@ -32,13 +33,11 @@ const int kProfileImageSize = 128;
 
 SyncConfirmationHandler::SyncConfirmationHandler(
     Browser* browser,
-    const std::unordered_map<std::string, int>& string_to_grd_id_map,
-    consent_auditor::Feature consent_feature)
+    const std::unordered_map<std::string, int>& string_to_grd_id_map)
     : profile_(browser->profile()),
       browser_(browser),
       did_user_explicitly_interact(false),
       string_to_grd_id_map_(string_to_grd_id_map),
-      consent_feature_(consent_feature),
       identity_manager_(IdentityManagerFactory::GetForProfile(profile_)) {
   DCHECK(profile_);
   DCHECK(browser_);
@@ -90,6 +89,7 @@ void SyncConfirmationHandler::HandleConfirm(const base::ListValue* args) {
 }
 
 void SyncConfirmationHandler::HandleGoToSettings(const base::ListValue* args) {
+  DCHECK(profile_->IsSyncAllowed());
   did_user_explicitly_interact = true;
   RecordConsent(args);
   CloseModalSigninWindow(LoginUIService::CONFIGURE_SYNC_FIRST);
@@ -102,13 +102,17 @@ void SyncConfirmationHandler::HandleUndo(const base::ListValue* args) {
 
 void SyncConfirmationHandler::HandleAccountImageRequest(
     const base::ListValue* args) {
-  AccountInfo account_info = identity_manager_->GetPrimaryAccountInfo();
+  DCHECK(profile_->IsSyncAllowed());
+  base::Optional<AccountInfo> primary_account_info =
+      identity_manager_->FindExtendedAccountInfoForAccount(
+          identity_manager_->GetPrimaryAccountInfo());
 
   // Fire the "account-image-changed" listener from |SetUserImageURL()|.
   // Note: If the account info is not available yet in the
   // IdentityManager, i.e. account_info is empty, the listener will be
   // fired again through |OnAccountUpdated()|.
-  SetUserImageURL(account_info.picture_url);
+  if (primary_account_info)
+    SetUserImageURL(primary_account_info->picture_url);
 }
 
 void SyncConfirmationHandler::RecordConsent(const base::ListValue* args) {
@@ -117,12 +121,11 @@ void SyncConfirmationHandler::RecordConsent(const base::ListValue* args) {
       args->GetList()[0].GetList();
   const std::string& consent_confirmation = args->GetList()[1].GetString();
 
-  std::vector<int> consent_text_ids;
-
   // The strings returned by the WebUI are not free-form, they must belong into
   // a pre-determined set of strings (stored in |string_to_grd_id_map_|). As
   // this has privacy and legal implications, CHECK the integrity of the strings
   // received from the renderer process before recording the consent.
+  std::vector<int> consent_text_ids;
   for (const base::Value& text : consent_description) {
     auto iter = string_to_grd_id_map_.find(text.GetString());
     CHECK(iter != string_to_grd_id_map_.end()) << "Unexpected string:\n"
@@ -135,33 +138,27 @@ void SyncConfirmationHandler::RecordConsent(const base::ListValue* args) {
                                              << consent_confirmation;
   int consent_confirmation_id = iter->second;
 
+  sync_pb::UserConsentTypes::SyncConsent sync_consent;
+  sync_consent.set_confirmation_grd_id(consent_confirmation_id);
+  for (int id : consent_text_ids) {
+    sync_consent.add_description_grd_ids(id);
+  }
+  sync_consent.set_status(sync_pb::UserConsentTypes::ConsentStatus::
+                              UserConsentTypes_ConsentStatus_GIVEN);
+
   consent_auditor::ConsentAuditor* consent_auditor =
       ConsentAuditorFactory::GetForProfile(profile_);
-  const std::string& account_id = identity_manager_->GetPrimaryAccountId();
-  // TODO(markusheintz): Use a bool unified_consent_enabled instead of a
-  // consent_auditor::Feature type variable.
-  if (consent_feature_ == consent_auditor::Feature::CHROME_UNIFIED_CONSENT) {
-    sync_pb::UserConsentTypes::UnifiedConsent unified_consent;
-    unified_consent.set_confirmation_grd_id(consent_confirmation_id);
-    for (int id : consent_text_ids) {
-      unified_consent.add_description_grd_ids(id);
-    }
-    unified_consent.set_status(sync_pb::UserConsentTypes::ConsentStatus::
-                                   UserConsentTypes_ConsentStatus_GIVEN);
-    consent_auditor->RecordUnifiedConsent(account_id, unified_consent);
-  } else {
-    sync_pb::UserConsentTypes::SyncConsent sync_consent;
-    sync_consent.set_confirmation_grd_id(consent_confirmation_id);
-    for (int id : consent_text_ids) {
-      sync_consent.add_description_grd_ids(id);
-    }
-    sync_consent.set_status(sync_pb::UserConsentTypes::ConsentStatus::
-                                UserConsentTypes_ConsentStatus_GIVEN);
-    consent_auditor->RecordSyncConsent(account_id, sync_consent);
-  }
+  consent_auditor->RecordSyncConsent(identity_manager_->GetPrimaryAccountId(),
+                                     sync_consent);
 }
 
 void SyncConfirmationHandler::SetUserImageURL(const std::string& picture_url) {
+  if (!profile_->IsSyncAllowed()) {
+    // The sync disabled confirmation handler does not present the user image.
+    // Avoid updating the image URL in this case.
+    return;
+  }
+
   std::string picture_url_to_load;
   GURL picture_gurl(picture_url);
   if (picture_gurl.is_valid()) {
@@ -174,16 +171,13 @@ void SyncConfirmationHandler::SetUserImageURL(const std::string& picture_url) {
     picture_url_to_load = profiles::GetPlaceholderAvatarIconUrl();
   }
   base::Value picture_url_value(picture_url_to_load);
-  web_ui()->CallJavascriptFunctionUnsafe("sync.confirmation.setUserImageURL",
-                                         picture_url_value);
 
-  if (unified_consent::IsUnifiedConsentFeatureEnabled()) {
-    AllowJavascript();
-    FireWebUIListener("account-image-changed", picture_url_value);
-  }
+  AllowJavascript();
+  FireWebUIListener("account-image-changed", picture_url_value);
 }
 
-void SyncConfirmationHandler::OnAccountUpdated(const AccountInfo& info) {
+void SyncConfirmationHandler::OnExtendedAccountInfoUpdated(
+    const AccountInfo& info) {
   if (!info.IsValid())
     return;
 
@@ -220,18 +214,20 @@ void SyncConfirmationHandler::HandleInitializedWithSize(
   if (!browser_)
     return;
 
-  if (!identity_manager_->HasPrimaryAccount()) {
+  base::Optional<AccountInfo> primary_account_info =
+      identity_manager_->FindExtendedAccountInfoForAccount(
+          identity_manager_->GetPrimaryAccountInfo());
+  if (!primary_account_info) {
     // No account is signed in, so there is nothing to be displayed in the sync
     // confirmation dialog.
     return;
   }
-  AccountInfo account_info = identity_manager_->GetPrimaryAccountInfo();
 
-  if (!account_info.IsValid()) {
+  if (!primary_account_info->IsValid()) {
     SetUserImageURL(kNoPictureURLFound);
     identity_manager_->AddObserver(this);
   } else {
-    SetUserImageURL(account_info.picture_url);
+    SetUserImageURL(primary_account_info->picture_url);
   }
 
   signin::SetInitializedModalHeight(browser_, web_ui(), args);

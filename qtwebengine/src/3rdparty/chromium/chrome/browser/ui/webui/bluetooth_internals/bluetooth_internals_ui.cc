@@ -4,6 +4,7 @@
 
 #include "chrome/browser/ui/webui/bluetooth_internals/bluetooth_internals_ui.h"
 
+#include "base/bind.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/webui/bluetooth_internals/bluetooth_internals_handler.h"
 #include "chrome/common/url_constants.h"
@@ -61,7 +62,6 @@ BluetoothInternalsUI::BluetoothInternalsUI(content::WebUI* web_ui)
                                IDR_BLUETOOTH_INTERNALS_VALUE_CONTROL_JS);
 
   html_source->SetDefaultResource(IDR_BLUETOOTH_INTERNALS_HTML);
-  html_source->UseGzip();
 
   Profile* profile = Profile::FromWebUI(web_ui);
   content::WebUIDataSource::Add(profile, html_source);

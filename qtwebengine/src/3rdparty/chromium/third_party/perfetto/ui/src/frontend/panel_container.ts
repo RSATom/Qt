@@ -25,12 +25,13 @@ import {
   RunningStatistics,
   runningStatStr
 } from './perf';
+import {TRACK_SHELL_WIDTH} from './track_constants';
 
 /**
  * If the panel container scrolls, the backing canvas height is
  * SCROLLING_CANVAS_OVERDRAW_FACTOR * parent container height.
  */
-const SCROLLING_CANVAS_OVERDRAW_FACTOR = 2;
+const SCROLLING_CANVAS_OVERDRAW_FACTOR = 1.2;
 
 // We need any here so we can accept vnodes with arbitrary attrs.
 // tslint:disable-next-line:no-any
@@ -39,6 +40,7 @@ export type AnyAttrsVnode = m.Vnode<any, {}>;
 interface Attrs {
   panels: AnyAttrsVnode[];
   doesScroll: boolean;
+  kind: 'TRACKS'|'OVERVIEW'|'DETAILS';
 }
 
 export class PanelContainer implements m.ClassComponent<Attrs> {
@@ -95,7 +97,6 @@ export class PanelContainer implements m.ClassComponent<Attrs> {
     this.parentHeight = clientRect.height;
 
     this.readPanelHeightsFromDom(vnodeDom.dom);
-    (vnodeDom.dom as HTMLElement).style.height = `${this.totalPanelHeight}px`;
 
     this.updateCanvasDimensions();
     this.repositionCanvas();
@@ -137,7 +138,7 @@ export class PanelContainer implements m.ClassComponent<Attrs> {
     this.attrs = attrs;
     const renderPanel = (panel: m.Vnode) => perfDebug() ?
         m('.panel', panel, m('.debug-panel-border')) :
-        m('.panel', panel);
+        m('.panel', {key: panel.key}, panel);
 
     return m(
         '.scroll-limiter',
@@ -149,15 +150,16 @@ export class PanelContainer implements m.ClassComponent<Attrs> {
     const totalPanelHeightChanged = this.readPanelHeightsFromDom(vnodeDom.dom);
     const parentSizeChanged = this.readParentSizeFromDom(vnodeDom.dom);
 
-    if (totalPanelHeightChanged) {
-      (vnodeDom.dom as HTMLElement).style.height = `${this.totalPanelHeight}px`;
-    }
-
     const canvasSizeShouldChange =
-        this.attrs.doesScroll ? parentSizeChanged : totalPanelHeightChanged;
+        parentSizeChanged || !this.attrs.doesScroll && totalPanelHeightChanged;
     if (canvasSizeShouldChange) {
       this.updateCanvasDimensions();
       this.repositionCanvas();
+      if (this.attrs.kind === 'TRACKS') {
+        globals.frontendLocalState.timeScale.setLimitsPx(
+            0, this.parentWidth - TRACK_SHELL_WIDTH);
+      }
+      this.redrawCanvas();
     }
   }
 

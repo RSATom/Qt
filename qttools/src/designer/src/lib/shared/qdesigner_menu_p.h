@@ -68,7 +68,7 @@ class QDESIGNER_SHARED_EXPORT QDesignerMenu: public QMenu
 {
     Q_OBJECT
 public:
-    QDesignerMenu(QWidget *parent = 0);
+    QDesignerMenu(QWidget *parent = nullptr);
     ~QDesignerMenu() override;
 
     bool eventFilter(QObject *object, QEvent *event) override;
@@ -83,7 +83,6 @@ public:
 
     void adjustSpecialActions();
 
-    bool interactive(bool i);
     void createRealMenuAction(QAction *action);
     void removeRealMenu(QAction *action);
 
@@ -174,17 +173,16 @@ private:
     const QPixmap m_subMenuPixmap;
 
     QPoint m_startPosition;
-    int m_currentIndex;
+    int m_currentIndex = 0;
     QAction *m_addItem;
     QAction *m_addSeparator;
     QHash<QAction*, QDesignerMenu*> m_subMenus;
     QTimer *m_showSubMenuTimer;
     QTimer *m_deactivateWindowTimer;
     QTimer *m_adjustSizeTimer;
-    bool m_interactive;
     QLineEdit *m_editor;
-    bool m_dragging;
-    int m_lastSubMenuIndex;
+    bool m_dragging = false;
+    int m_lastSubMenuIndex = -1;
 
     friend class qdesigner_internal::CreateSubmenuCommand;
     friend class qdesigner_internal::ActionInsertionCommand;

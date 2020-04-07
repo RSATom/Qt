@@ -85,8 +85,7 @@ bool IsValidInput(const base::StringPiece& scheme,
     //
     // TODO: Migrate "content:" and "externalfile:" to be standard schemes, and
     // remove this local scheme exception.
-    if (base::ContainsValue(GetLocalSchemes(), scheme) && host.empty() &&
-        port == 0)
+    if (base::Contains(GetLocalSchemes(), scheme) && host.empty() && port == 0)
       return true;
 
     // Otherwise, allow non-standard schemes only if the Android WebView
@@ -303,7 +302,7 @@ std::string SchemeHostPort::SerializeInternal(url::Parsed* parsed) const {
     return result;
   if (port_ != default_port) {
     result.push_back(':');
-    std::string port(base::UintToString(port_));
+    std::string port(base::NumberToString(port_));
     parsed->port = Component(result.length(), port.length());
     result.append(std::move(port));
   }

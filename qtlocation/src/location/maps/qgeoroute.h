@@ -109,6 +109,7 @@ class Q_LOCATION_EXPORT QGeoRouteLeg: public QGeoRoute
 public:
     QGeoRouteLeg();
     QGeoRouteLeg(const QGeoRouteLeg &other);
+    QGeoRouteLeg &operator=(const QGeoRouteLeg &other) = default;
     ~QGeoRouteLeg();
 
     void setLegIndex(int idx);

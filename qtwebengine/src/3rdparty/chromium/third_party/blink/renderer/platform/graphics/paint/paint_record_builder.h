@@ -15,8 +15,6 @@
 #include "third_party/blink/renderer/platform/platform_export.h"
 #include "third_party/skia/include/core/SkRefCnt.h"
 
-class SkMetaData;
-
 namespace cc {
 class PaintCanvas;
 }
@@ -39,7 +37,7 @@ class PLATFORM_EXPORT PaintRecordBuilder final : public DisplayItemClient {
   // PropertyTreeState::Root() before beginning to record.
   // TODO(wangxianzhu): Remove the input PaintController feature for
   // CompositeAfterPaint.
-  PaintRecordBuilder(SkMetaData* metadata = nullptr,
+  PaintRecordBuilder(printing::MetafileSkia* metafile = nullptr,
                      GraphicsContext* containing_context = nullptr,
                      PaintController* = nullptr);
   ~PaintRecordBuilder() override;
@@ -60,7 +58,7 @@ class PLATFORM_EXPORT PaintRecordBuilder final : public DisplayItemClient {
 
   // DisplayItemClient methods
   String DebugName() const final { return "PaintRecordBuilder"; }
-  LayoutRect VisualRect() const final { return LayoutRect(); }
+  IntRect VisualRect() const final { return IntRect(); }
 
  private:
   PaintController* paint_controller_;

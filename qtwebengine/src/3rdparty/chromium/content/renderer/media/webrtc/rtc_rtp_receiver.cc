@@ -4,9 +4,11 @@
 
 #include "content/renderer/media/webrtc/rtc_rtp_receiver.h"
 
+#include "base/bind.h"
 #include "base/logging.h"
 #include "content/renderer/media/webrtc/rtc_rtp_source.h"
 #include "content/renderer/media/webrtc/rtc_stats.h"
+#include "content/renderer/media/webrtc/webrtc_util.h"
 #include "third_party/webrtc/api/scoped_refptr.h"
 
 namespace content {
@@ -20,6 +22,8 @@ RtpReceiverState::RtpReceiverState(
     : main_task_runner_(std::move(main_task_runner)),
       signaling_task_runner_(std::move(signaling_task_runner)),
       webrtc_receiver_(std::move(webrtc_receiver)),
+      webrtc_dtls_transport_(webrtc_receiver_->dtls_transport()),
+      webrtc_dtls_transport_information_(webrtc::DtlsTransportState::kNew),
       is_initialized_(false),
       track_ref_(std::move(track_ref)),
       stream_ids_(std::move(stream_id)) {
@@ -27,12 +31,18 @@ RtpReceiverState::RtpReceiverState(
   DCHECK(signaling_task_runner_);
   DCHECK(webrtc_receiver_);
   DCHECK(track_ref_);
+  if (webrtc_dtls_transport_) {
+    webrtc_dtls_transport_information_ = webrtc_dtls_transport_->Information();
+  }
 }
 
 RtpReceiverState::RtpReceiverState(RtpReceiverState&& other)
     : main_task_runner_(other.main_task_runner_),
       signaling_task_runner_(other.signaling_task_runner_),
       webrtc_receiver_(std::move(other.webrtc_receiver_)),
+      webrtc_dtls_transport_(std::move(other.webrtc_dtls_transport_)),
+      webrtc_dtls_transport_information_(
+          other.webrtc_dtls_transport_information_),
       is_initialized_(other.is_initialized_),
       track_ref_(std::move(other.track_ref_)),
       stream_ids_(std::move(other.stream_ids_)) {
@@ -54,6 +64,8 @@ RtpReceiverState& RtpReceiverState::operator=(RtpReceiverState&& other) {
   other.main_task_runner_ = nullptr;
   other.signaling_task_runner_ = nullptr;
   webrtc_receiver_ = std::move(other.webrtc_receiver_);
+  webrtc_dtls_transport_ = std::move(other.webrtc_dtls_transport_);
+  webrtc_dtls_transport_information_ = other.webrtc_dtls_transport_information_;
   track_ref_ = std::move(other.track_ref_);
   stream_ids_ = std::move(other.stream_ids_);
   return *this;
@@ -88,6 +100,18 @@ scoped_refptr<webrtc::RtpReceiverInterface> RtpReceiverState::webrtc_receiver()
     const {
   DCHECK(main_task_runner_->BelongsToCurrentThread());
   return webrtc_receiver_;
+}
+
+rtc::scoped_refptr<webrtc::DtlsTransportInterface>
+RtpReceiverState::webrtc_dtls_transport() const {
+  DCHECK(main_task_runner_->BelongsToCurrentThread());
+  return webrtc_dtls_transport_;
+}
+
+webrtc::DtlsTransportInformation
+RtpReceiverState::webrtc_dtls_transport_information() const {
+  DCHECK(main_task_runner_->BelongsToCurrentThread());
+  return webrtc_dtls_transport_information_;
 }
 
 const std::unique_ptr<WebRtcMediaStreamTrackAdapterMap::AdapterRef>&
@@ -144,17 +168,23 @@ class RTCRtpReceiver::RTCRtpReceiverInternal
     return sources;
   }
 
-  void GetStats(std::unique_ptr<blink::WebRTCStatsReportCallback> callback,
-                blink::RTCStatsFilter filter) {
+  void GetStats(
+      blink::WebRTCStatsReportCallback callback,
+      const blink::WebVector<webrtc::NonStandardGroupId>& exposed_group_ids) {
     signaling_task_runner_->PostTask(
         FROM_HERE,
         base::BindOnce(&RTCRtpReceiverInternal::GetStatsOnSignalingThread, this,
-                       std::move(callback), filter));
+                       std::move(callback), exposed_group_ids));
   }
 
   std::unique_ptr<webrtc::RtpParameters> GetParameters() {
     return std::make_unique<webrtc::RtpParameters>(
         webrtc_receiver_->GetParameters());
+  }
+
+  void SetJitterBufferMinimumDelay(base::Optional<double> delay_seconds) {
+    webrtc_receiver_->SetJitterBufferMinimumDelay(
+        ToAbslOptional(delay_seconds));
   }
 
  private:
@@ -165,12 +195,12 @@ class RTCRtpReceiver::RTCRtpReceiverInternal
   }
 
   void GetStatsOnSignalingThread(
-      std::unique_ptr<blink::WebRTCStatsReportCallback> callback,
-      blink::RTCStatsFilter filter) {
+      blink::WebRTCStatsReportCallback callback,
+      const blink::WebVector<webrtc::NonStandardGroupId>& exposed_group_ids) {
     native_peer_connection_->GetStats(
         webrtc_receiver_.get(),
-        RTCStatsCollectorCallbackImpl::Create(main_task_runner_,
-                                              std::move(callback), filter));
+        RTCStatsCollectorCallbackImpl::Create(
+            main_task_runner_, std::move(callback), exposed_group_ids));
   }
 
   const scoped_refptr<webrtc::PeerConnectionInterface> native_peer_connection_;
@@ -240,6 +270,15 @@ uintptr_t RTCRtpReceiver::Id() const {
   return getId(internal_->state().webrtc_receiver().get());
 }
 
+rtc::scoped_refptr<webrtc::DtlsTransportInterface>
+RTCRtpReceiver::DtlsTransport() {
+  return internal_->state().webrtc_dtls_transport();
+}
+
+webrtc::DtlsTransportInformation RTCRtpReceiver::DtlsTransportInformation() {
+  return internal_->state().webrtc_dtls_transport_information();
+}
+
 const blink::WebMediaStreamTrack& RTCRtpReceiver::Track() const {
   return internal_->state().track_ref()->web_track();
 }
@@ -258,13 +297,18 @@ RTCRtpReceiver::GetSources() {
 }
 
 void RTCRtpReceiver::GetStats(
-    std::unique_ptr<blink::WebRTCStatsReportCallback> callback,
-    blink::RTCStatsFilter filter) {
-  internal_->GetStats(std::move(callback), filter);
+    blink::WebRTCStatsReportCallback callback,
+    const blink::WebVector<webrtc::NonStandardGroupId>& exposed_group_ids) {
+  internal_->GetStats(std::move(callback), exposed_group_ids);
 }
 
 std::unique_ptr<webrtc::RtpParameters> RTCRtpReceiver::GetParameters() const {
   return internal_->GetParameters();
+}
+
+void RTCRtpReceiver::SetJitterBufferMinimumDelay(
+    base::Optional<double> delay_seconds) {
+  internal_->SetJitterBufferMinimumDelay(delay_seconds);
 }
 
 RTCRtpReceiverOnlyTransceiver::RTCRtpReceiverOnlyTransceiver(
@@ -329,4 +373,9 @@ RTCRtpReceiverOnlyTransceiver::FiredDirection() const {
   return webrtc::RtpTransceiverDirection::kSendOnly;
 }
 
+webrtc::RTCError RTCRtpReceiverOnlyTransceiver::SetCodecPreferences(
+    blink::WebVector<webrtc::RtpCodecCapability>) {
+  NOTIMPLEMENTED();
+  return {};
+}
 }  // namespace content

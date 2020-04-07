@@ -9,7 +9,7 @@
 #include <memory>
 
 #include "base/containers/flat_set.h"
-#include "components/services/pdf_compositor/public/interfaces/pdf_compositor.mojom.h"
+#include "components/services/pdf_compositor/public/mojom/pdf_compositor.mojom.h"
 #include "content/public/browser/web_contents_observer.h"
 #include "content/public/browser/web_contents_user_data.h"
 
@@ -84,7 +84,7 @@ class PrintCompositeClient
       base::ReadOnlySharedMemoryRegion region);
 
   // Get the request or create a new one if none exists.
-  // Since printed pages always share content with it document, they share the
+  // Since printed pages always share content with its document, they share the
   // same composite request.
   mojom::PdfCompositorPtr& GetCompositeRequest(int cookie);
 

@@ -297,11 +297,8 @@ void QPlace::setContent(QPlaceContent::Type type, const QPlaceContent::Collectio
 */
 void QPlace::insertContent(QPlaceContent::Type type, const QPlaceContent::Collection &content)
 {
-    QMapIterator<int, QPlaceContent> iter(content);
-    while (iter.hasNext()) {
-        iter.next();
+    for (auto iter = content.cbegin(), end = content.cend(); iter != end; ++iter)
         d_ptr->m_contentCollections[type].insert(iter.key(), iter.value());
-    }
 }
 
 /*!

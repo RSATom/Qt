@@ -21,6 +21,7 @@
 #include "extensions/renderer/bindings/api_signature.h"
 #include "extensions/renderer/bindings/api_type_reference_map.h"
 #include "extensions/renderer/bindings/binding_access_checker.h"
+#include "extensions/renderer/bindings/test_interaction_provider.h"
 #include "extensions/renderer/bindings/test_js_runner.h"
 #include "gin/arguments.h"
 #include "gin/converter.h"
@@ -125,16 +126,18 @@ class APIBindingUnittest : public APIBindingTest {
       : type_refs_(APITypeReferenceMap::InitializeTypeCallback()) {}
   void SetUp() override {
     APIBindingTest::SetUp();
+    interaction_provider_ = std::make_unique<TestInteractionProvider>();
     request_handler_ = std::make_unique<APIRequestHandler>(
         base::BindRepeating(&APIBindingUnittest::OnFunctionCall,
                             base::Unretained(this)),
         APILastError(APILastError::GetParent(), binding::AddConsoleError()),
-        nullptr, base::BindRepeating(&GetTestUserActivationState));
+        nullptr, interaction_provider_.get());
   }
 
   void TearDown() override {
     DisposeAllContexts();
     access_checker_.reset();
+    interaction_provider_.reset();
     request_handler_.reset();
     event_handler_.reset();
     binding_.reset();
@@ -269,6 +272,7 @@ class APIBindingUnittest : public APIBindingTest {
   std::unique_ptr<APIRequestHandler::Request> last_request_;
   std::unique_ptr<APIBinding> binding_;
   std::unique_ptr<APIEventHandler> event_handler_;
+  std::unique_ptr<TestInteractionProvider> interaction_provider_;
   std::unique_ptr<APIRequestHandler> request_handler_;
   std::unique_ptr<BindingAccessChecker> access_checker_;
   APITypeReferenceMap type_refs_;
@@ -1048,6 +1052,62 @@ TEST_F(APIBindingUnittest, TestThrowingFromCustomJSHook) {
   RunFunctionAndExpectError(function, context, v8::Undefined(isolate()),
                             base::size(args), args,
                             "Uncaught Error: Custom Hook Error");
+}
+
+// Tests that JS custom hooks correctly handle the context being invalidated.
+// Regression test for https://crbug.com/944014.
+TEST_F(APIBindingUnittest, TestInvalidatingInCustomHook) {
+  auto hooks = std::make_unique<APIBindingHooks>(kBindingName);
+
+  v8::HandleScope handle_scope(isolate());
+  v8::Local<v8::Context> context = MainContext();
+
+  auto context_invalidator =
+      [](const v8::FunctionCallbackInfo<v8::Value>& info) {
+        gin::Arguments arguments(info);
+        binding::InvalidateContext(arguments.GetHolderCreationContext());
+      };
+
+  {
+    v8::Local<v8::Function> v8_context_invalidator =
+        v8::Function::New(context, context_invalidator).ToLocalChecked();
+    // Register two hooks. Since the context is invalidated in the first, the
+    // second should never run.
+    const char kRegisterHook[] =
+        R"((function(hooks, contextInvalidator) {
+             hooks.setUpdateArgumentsPreValidate('oneString', () => {
+               contextInvalidator();
+               return ['foo'];
+             });
+             hooks.setHandleRequest('oneString', () => {
+               this.ranHandleHook = true;
+             });
+            }))";
+    v8::Local<v8::Object> js_hooks = hooks->GetJSHookInterface(context);
+    v8::Local<v8::Function> function =
+        FunctionFromString(context, kRegisterHook);
+    v8::Local<v8::Value> args[] = {js_hooks, v8_context_invalidator};
+    RunFunctionOnGlobal(function, context, base::size(args), args);
+  }
+
+  SetHooks(std::move(hooks));
+  SetFunctions(kFunctions);
+  InitializeBinding();
+
+  v8::Local<v8::Object> binding_object = binding()->CreateInstance(context);
+
+  v8::Local<v8::Function> function = FunctionFromString(
+      context, "(function(obj) { return obj.oneString('ping'); })");
+  v8::Local<v8::Value> args[] = {binding_object};
+
+  RunFunction(function, context, v8::Undefined(isolate()), base::size(args),
+              args);
+
+  // The context should be properly invalidated, and the second hook (which
+  // sets "ranHandleHook") shouldn't have ran.
+  EXPECT_FALSE(binding::IsContextValid(context));
+  EXPECT_EQ("undefined", GetStringPropertyFromObject(context->Global(), context,
+                                                     "ranHandleHook"));
 }
 
 // Tests that native custom hooks can return results synchronously, or throw

@@ -10,6 +10,7 @@
 #include <utility>
 #include <vector>
 
+#include "base/bind.h"
 #include "base/command_line.h"
 #include "base/i18n/case_conversion.h"
 #include "base/logging.h"
@@ -20,9 +21,10 @@
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
 #include "components/autofill/core/browser/autofill_client.h"
+#include "components/autofill/core/browser/autofill_driver.h"
 #include "components/autofill/core/browser/autofill_experiments.h"
-#include "components/autofill/core/browser/popup_item_ids.h"
-#include "components/autofill/core/browser/suggestion.h"
+#include "components/autofill/core/browser/ui/popup_item_ids.h"
+#include "components/autofill/core/browser/ui/suggestion.h"
 #include "components/autofill/core/common/autofill_constants.h"
 #include "components/autofill/core/common/autofill_data_validation.h"
 #include "components/autofill/core/common/autofill_util.h"
@@ -115,7 +117,7 @@ void AppendSuggestionIfMatching(
             : autofill::Suggestion::SUBSTRING_MATCH;
     suggestion.custom_icon = custom_icon;
     // The UI code will pick up an icon from the resources based on the string.
-    suggestion.icon = base::ASCIIToUTF16("globeIcon");
+    suggestion.icon = "globeIcon";
     suggestions->push_back(suggestion);
   }
 }
@@ -172,8 +174,7 @@ PasswordAutofillManager::PasswordAutofillManager(
     PasswordManagerClient* password_client)
     : password_manager_driver_(password_manager_driver),
       autofill_client_(autofill_client),
-      password_client_(password_client),
-      weak_ptr_factory_(this) {}
+      password_client_(password_client) {}
 
 PasswordAutofillManager::~PasswordAutofillManager() {
   if (deletion_callback_)
@@ -204,14 +205,16 @@ void PasswordAutofillManager::DidAcceptSuggestion(const base::string16& value,
   if (identifier == autofill::POPUP_ITEM_ID_GENERATE_PASSWORD_ENTRY) {
     password_client_->GeneratePassword();
     metrics_util::LogPasswordDropdownItemSelected(
-        PasswordDropdownSelectedOption::kGenerate);
+        PasswordDropdownSelectedOption::kGenerate,
+        password_client_->IsIncognito());
   } else if (identifier == autofill::POPUP_ITEM_ID_ALL_SAVED_PASSWORDS_ENTRY) {
     password_client_->NavigateToManagePasswordsPage(
         ManagePasswordsReferrer::kPasswordDropdown);
     metrics_util::LogContextOfShowAllSavedPasswordsAccepted(
         metrics_util::SHOW_ALL_SAVED_PASSWORDS_CONTEXT_PASSWORD);
     metrics_util::LogPasswordDropdownItemSelected(
-        PasswordDropdownSelectedOption::kShowAll);
+        PasswordDropdownSelectedOption::kShowAll,
+        password_client_->IsIncognito());
 
     if (password_client_ && password_client_->GetMetricsRecorder()) {
       using UserAction =
@@ -221,7 +224,8 @@ void PasswordAutofillManager::DidAcceptSuggestion(const base::string16& value,
     }
   } else {
     metrics_util::LogPasswordDropdownItemSelected(
-        PasswordDropdownSelectedOption::kPassword);
+        PasswordDropdownSelectedOption::kPassword,
+        password_client_->IsIncognito());
     bool success = FillSuggestion(GetUsernameFromSuggestion(value));
     DCHECK(success);
   }
@@ -254,6 +258,13 @@ autofill::PopupType PasswordAutofillManager::GetPopupType() const {
 
 autofill::AutofillDriver* PasswordAutofillManager::GetAutofillDriver() {
   return password_manager_driver_->GetAutofillDriver();
+}
+
+int32_t PasswordAutofillManager::GetWebContentsPopupControllerAxId() const {
+  // TODO: Needs to be implemented when we step up accessibility features in the
+  // future.
+  NOTIMPLEMENTED_LOG_ONCE() << "See http://crbug.com/991253";
+  return 0;
 }
 
 void PasswordAutofillManager::RegisterDeletionCallback(
@@ -297,20 +308,21 @@ void PasswordAutofillManager::OnShowPasswordSuggestions(
 
   if (ShouldShowManualFallbackForPreLollipop(
           autofill_client_->GetSyncService())) {
-      autofill::Suggestion suggestion(
-          l10n_util::GetStringUTF8(IDS_PASSWORD_MANAGER_MANAGE_PASSWORDS),
-          std::string(), std::string(),
-          autofill::POPUP_ITEM_ID_ALL_SAVED_PASSWORDS_ENTRY);
-      suggestions.push_back(suggestion);
+    autofill::Suggestion suggestion(
+        l10n_util::GetStringUTF16(IDS_PASSWORD_MANAGER_MANAGE_PASSWORDS));
+    suggestion.frontend_id = autofill::POPUP_ITEM_ID_ALL_SAVED_PASSWORDS_ENTRY;
+    suggestions.push_back(suggestion);
 
-      metrics_util::LogContextOfShowAllSavedPasswordsShown(
-          metrics_util::SHOW_ALL_SAVED_PASSWORDS_CONTEXT_PASSWORD);
+    metrics_util::LogContextOfShowAllSavedPasswordsShown(
+        metrics_util::SHOW_ALL_SAVED_PASSWORDS_CONTEXT_PASSWORD);
   }
 
   metrics_util::LogPasswordDropdownShown(
-      metrics_util::PasswordDropdownState::kStandard);
+      metrics_util::PasswordDropdownState::kStandard,
+      password_client_->IsIncognito());
   autofill_client_->ShowAutofillPopup(bounds, text_direction, suggestions,
-                                      false, weak_ptr_factory_.GetWeakPtr());
+                                      false, autofill::PopupType::kPasswords,
+                                      weak_ptr_factory_.GetWeakPtr());
 }
 
 bool PasswordAutofillManager::MaybeShowPasswordSuggestions(
@@ -337,18 +349,17 @@ bool PasswordAutofillManager::MaybeShowPasswordSuggestionsWithGeneration(
   // Add 'Generation' option.
   // The UI code will pick up an icon from the resources based on the string.
   autofill::Suggestion suggestion(
-      l10n_util::GetStringUTF8(IDS_PASSWORD_MANAGER_GENERATE_PASSWORD),
-      std::string(), std::string("keyIcon"),
-      autofill::POPUP_ITEM_ID_GENERATE_PASSWORD_ENTRY);
+      l10n_util::GetStringUTF16(IDS_PASSWORD_MANAGER_GENERATE_PASSWORD));
+  suggestion.icon = "keyIcon";
+  suggestion.frontend_id = autofill::POPUP_ITEM_ID_GENERATE_PASSWORD_ENTRY;
   suggestions.push_back(suggestion);
 
   // Add "Manage passwords".
   if (ShouldShowManualFallbackForPreLollipop(
           autofill_client_->GetSyncService())) {
     autofill::Suggestion suggestion(
-        l10n_util::GetStringUTF8(IDS_PASSWORD_MANAGER_MANAGE_PASSWORDS),
-        std::string(), std::string(),
-        autofill::POPUP_ITEM_ID_ALL_SAVED_PASSWORDS_ENTRY);
+        l10n_util::GetStringUTF16(IDS_PASSWORD_MANAGER_MANAGE_PASSWORDS));
+    suggestion.frontend_id = autofill::POPUP_ITEM_ID_ALL_SAVED_PASSWORDS_ENTRY;
     suggestions.push_back(suggestion);
 
     metrics_util::LogContextOfShowAllSavedPasswordsShown(
@@ -356,9 +367,11 @@ bool PasswordAutofillManager::MaybeShowPasswordSuggestionsWithGeneration(
   }
 
   metrics_util::LogPasswordDropdownShown(
-      metrics_util::PasswordDropdownState::kStandardGenerate);
+      metrics_util::PasswordDropdownState::kStandardGenerate,
+      password_client_->IsIncognito());
   autofill_client_->ShowAutofillPopup(bounds, text_direction, suggestions,
-                                      false, weak_ptr_factory_.GetWeakPtr());
+                                      false, autofill::PopupType::kPasswords,
+                                      weak_ptr_factory_.GetWeakPtr());
   return true;
 }
 

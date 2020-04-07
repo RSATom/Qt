@@ -11,9 +11,11 @@
 #include "base/memory/ptr_util.h"
 #include "base/memory/singleton.h"
 #include "base/single_thread_task_runner.h"
+#include "base/threading/thread.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "device/gamepad/gamepad_consumer.h"
 #include "device/gamepad/gamepad_data_fetcher.h"
+#include "device/gamepad/gamepad_data_fetcher_manager.h"
 #include "device/gamepad/gamepad_provider.h"
 #include "services/service_manager/public/cpp/connector.h"
 
@@ -32,7 +34,9 @@ GamepadService::GamepadService()
 
 GamepadService::GamepadService(
     std::unique_ptr<device::GamepadDataFetcher> fetcher)
-    : provider_(new device::GamepadProvider(this, std::move(fetcher))),
+    : provider_(new device::GamepadProvider(this,
+                                            std::move(fetcher),
+                                            std::unique_ptr<base::Thread>())),
       main_thread_task_runner_(base::ThreadTaskRunnerHandle::Get()),
       num_active_consumers_(0),
       gesture_callback_pending_(false) {
@@ -59,14 +63,20 @@ GamepadService* GamepadService::GetInstance() {
 
 void GamepadService::StartUp(
     std::unique_ptr<service_manager::Connector> service_manager_connector) {
-  service_manager_connector_ = std::move(service_manager_connector);
+  if (!service_manager_connector_)
+    service_manager_connector_ = std::move(service_manager_connector);
+
+  // Ensures GamepadDataFetcherManager is created on UI thread. Otherwise,
+  // GamepadPlatformDataFetcherLinux::Factory would be created with the
+  // wrong thread for its |dbus_runner_|.
+  GamepadDataFetcherManager::GetInstance();
 }
 
 service_manager::Connector* GamepadService::GetConnector() {
   return service_manager_connector_.get();
 }
 
-void GamepadService::ConsumerBecameActive(device::GamepadConsumer* consumer) {
+bool GamepadService::ConsumerBecameActive(device::GamepadConsumer* consumer) {
   DCHECK(main_thread_task_runner_->BelongsToCurrentThread());
 
   if (!provider_)
@@ -75,6 +85,8 @@ void GamepadService::ConsumerBecameActive(device::GamepadConsumer* consumer) {
   std::pair<ConsumerSet::iterator, bool> insert_result =
       consumers_.insert(consumer);
   const ConsumerInfo& info = *insert_result.first;
+  if (info.is_active)
+    return false;
   info.is_active = true;
   if (info.did_observe_user_gesture) {
     auto consumer_state_it = inactive_consumer_state_.find(consumer);
@@ -100,15 +112,18 @@ void GamepadService::ConsumerBecameActive(device::GamepadConsumer* consumer) {
 
   if (num_active_consumers_++ == 0)
     provider_->Resume();
+  return true;
 }
 
-void GamepadService::ConsumerBecameInactive(device::GamepadConsumer* consumer) {
+bool GamepadService::ConsumerBecameInactive(device::GamepadConsumer* consumer) {
   DCHECK(provider_);
-  DCHECK(num_active_consumers_ > 0);
   auto consumer_it = consumers_.find(consumer);
-  DCHECK(consumer_it != consumers_.end());
+  if (consumer_it == consumers_.end())
+    return false;
   const ConsumerInfo& info = *consumer_it;
-  DCHECK(info.is_active);
+  if (!info.is_active)
+    return false;
+  DCHECK_GT(num_active_consumers_, 0);
 
   info.is_active = false;
   if (--num_active_consumers_ == 0)
@@ -123,16 +138,21 @@ void GamepadService::ConsumerBecameInactive(device::GamepadConsumer* consumer) {
       connected_state[i] = gamepads.items[i].connected;
     inactive_consumer_state_[consumer] = connected_state;
   }
+  return true;
 }
 
-void GamepadService::RemoveConsumer(device::GamepadConsumer* consumer) {
+bool GamepadService::RemoveConsumer(device::GamepadConsumer* consumer) {
   DCHECK(main_thread_task_runner_->BelongsToCurrentThread());
 
   auto it = consumers_.find(consumer);
+  if (it == consumers_.end())
+    return false;
+  DCHECK_GT(num_active_consumers_, 0);
   if (it->is_active && --num_active_consumers_ == 0)
     provider_->Pause();
   consumers_.erase(it);
   inactive_consumer_state_.erase(consumer);
+  return true;
 }
 
 void GamepadService::RegisterForUserGesture(const base::Closure& closure) {

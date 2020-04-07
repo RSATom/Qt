@@ -26,13 +26,13 @@ namespace dawn_native { namespace metal {
 
     namespace {
 
-        spv::ExecutionModel SpirvExecutionModelForStage(dawn::ShaderStage stage) {
+        spv::ExecutionModel SpirvExecutionModelForStage(ShaderStage stage) {
             switch (stage) {
-                case dawn::ShaderStage::Vertex:
+                case ShaderStage::Vertex:
                     return spv::ExecutionModelVertex;
-                case dawn::ShaderStage::Fragment:
+                case ShaderStage::Fragment:
                     return spv::ExecutionModelFragment;
-                case dawn::ShaderStage::Compute:
+                case ShaderStage::Compute:
                     return spv::ExecutionModelGLCompute;
                 default:
                     UNREACHABLE();
@@ -48,7 +48,7 @@ namespace dawn_native { namespace metal {
     }
 
     ShaderModule::MetalFunctionData ShaderModule::GetFunction(const char* functionName,
-                                                              dawn::ShaderStage functionStage,
+                                                              ShaderStage functionStage,
                                                               const PipelineLayout* layout) const {
         spirv_cross::CompilerMSL compiler(mSpirv);
 
@@ -58,10 +58,18 @@ namespace dawn_native { namespace metal {
         options_glsl.vertex.flip_vert_y = true;
         compiler.spirv_cross::CompilerGLSL::set_common_options(options_glsl);
 
+        // Disable PointSize builtin for https://bugs.chromium.org/p/dawn/issues/detail?id=146
+        // Becuase Metal will reject PointSize builtin if the shader is compiled into a render
+        // pipeline that uses a non-point topology.
+        // TODO (hao.x.li@intel.com): Remove this once WebGPU requires there is no
+        // gl_PointSize builtin (https://github.com/gpuweb/gpuweb/issues/332).
+        spirv_cross::CompilerMSL::Options options_msl;
+        options_msl.enable_point_size_builtin = false;
+        compiler.set_msl_options(options_msl);
+
         // By default SPIRV-Cross will give MSL resources indices in increasing order.
         // To make the MSL indices match the indices chosen in the PipelineLayout, we build
-        // a table of MSLResourceBinding to give to SPIRV-Cross
-        std::vector<spirv_cross::MSLResourceBinding> mslBindings;
+        // a table of MSLResourceBinding to give to SPIRV-Cross.
 
         // Reserve index 0 for buffers for the push constants buffer.
         for (auto stage : IterateStages(kAllStages)) {
@@ -71,7 +79,7 @@ namespace dawn_native { namespace metal {
             binding.binding = spirv_cross::kPushConstBinding;
             binding.msl_buffer = 0;
 
-            mslBindings.push_back(binding);
+            compiler.add_msl_resource_binding(binding);
         }
 
         // Create one resource binding entry per stage per binding.
@@ -87,7 +95,7 @@ namespace dawn_native { namespace metal {
                     mslBinding.binding = binding;
                     mslBinding.msl_buffer = mslBinding.msl_texture = mslBinding.msl_sampler = index;
 
-                    mslBindings.push_back(mslBinding);
+                    compiler.add_msl_resource_binding(mslBinding);
                 }
             }
         }
@@ -103,7 +111,7 @@ namespace dawn_native { namespace metal {
         {
             // SPIRV-Cross also supports re-ordering attributes but it seems to do the correct thing
             // by default.
-            std::string msl = compiler.compile(nullptr, &mslBindings);
+            std::string msl = compiler.compile();
             NSString* mslSource = [NSString stringWithFormat:@"%s", msl.c_str()];
 
             auto mtlDevice = ToBackend(GetDevice())->GetMTLDevice();

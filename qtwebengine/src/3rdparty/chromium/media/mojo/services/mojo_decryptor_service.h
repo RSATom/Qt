@@ -92,7 +92,7 @@ class MEDIA_MOJO_EXPORT MojoDecryptorService : public mojom::Decryptor {
                       const media::Decryptor::AudioFrames& frames);
   void OnVideoDecoded(DecryptAndDecodeVideoCallback callback,
                       Status status,
-                      const scoped_refptr<VideoFrame>& frame);
+                      scoped_refptr<VideoFrame> frame);
 
   // Returns audio/video buffer reader according to the |stream_type|.
   MojoDecoderBufferReader* GetBufferReader(StreamType stream_type) const;
@@ -112,7 +112,7 @@ class MEDIA_MOJO_EXPORT MojoDecryptorService : public mojom::Decryptor {
   std::unique_ptr<CdmContextRef> cdm_context_ref_;
 
   base::WeakPtr<MojoDecryptorService> weak_this_;
-  base::WeakPtrFactory<MojoDecryptorService> weak_factory_;
+  base::WeakPtrFactory<MojoDecryptorService> weak_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(MojoDecryptorService);
 };

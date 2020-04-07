@@ -9,7 +9,7 @@
 #include "third_party/blink/renderer/bindings/core/v8/script_promise.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_value.h"
 #include "third_party/blink/renderer/core/core_export.h"
-#include "third_party/blink/renderer/core/dom/context_lifecycle_observer.h"
+#include "third_party/blink/renderer/core/execution_context/context_lifecycle_observer.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
 #include "third_party/blink/renderer/platform/bindings/script_state.h"
 #include "third_party/blink/renderer/platform/bindings/script_wrappable.h"
@@ -18,11 +18,10 @@
 
 namespace blink {
 
-class ReadableStreamDefaultControllerWrapper;
+class ReadableStreamDefaultControllerInterface;
 
 class CORE_EXPORT UnderlyingSourceBase
     : public ScriptWrappable,
-      public ActiveScriptWrappable<UnderlyingSourceBase>,
       public ContextLifecycleObserver {
   DEFINE_WRAPPERTYPEINFO();
   USING_GARBAGE_COLLECTED_MIXIN(UnderlyingSourceBase);
@@ -41,26 +40,20 @@ class CORE_EXPORT UnderlyingSourceBase
 
   ScriptValue type(ScriptState*) const;
 
-  void notifyLockAcquired();
-  void notifyLockReleased();
-
-  // ScriptWrappable
-  bool HasPendingActivity() const override;
-
   // ContextLifecycleObserver
+  // TODO(ricea): Is this still useful?
   void ContextDestroyed(ExecutionContext*) override;
 
  protected:
   explicit UnderlyingSourceBase(ScriptState* script_state)
       : ContextLifecycleObserver(ExecutionContext::From(script_state)) {}
 
-  ReadableStreamDefaultControllerWrapper* Controller() const {
+  ReadableStreamDefaultControllerInterface* Controller() const {
     return controller_;
   }
 
  private:
-  Member<ReadableStreamDefaultControllerWrapper> controller_;
-  bool is_stream_locked_ = false;
+  Member<ReadableStreamDefaultControllerInterface> controller_;
 };
 
 }  // namespace blink

@@ -4,22 +4,25 @@
 
 #include "ui/ozone/platform/x11/x11_window_ozone.h"
 
+#include <memory>
+#include <utility>
+
 #include "base/run_loop.h"
 #include "base/test/scoped_task_environment.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/events/devices/x11/touch_factory_x11.h"
 #include "ui/events/event.h"
-#include "ui/events/platform/x11/x11_event_source_default.h"
+#include "ui/events/platform/x11/x11_event_source_libevent.h"
 #include "ui/events/test/events_test_utils_x11.h"
 #include "ui/ozone/platform/x11/x11_window_manager_ozone.h"
 #include "ui/ozone/test/mock_platform_window_delegate.h"
 #include "ui/platform_window/platform_window_delegate.h"
+#include "ui/platform_window/platform_window_init_properties.h"
 
 namespace ui {
 
 namespace {
 
-using ::testing::Eq;
 using ::testing::_;
 
 constexpr int kPointerDeviceId = 1;
@@ -44,7 +47,7 @@ class X11WindowOzoneTest : public testing::Test {
 
   void SetUp() override {
     XDisplay* display = gfx::GetXDisplay();
-    event_source_ = std::make_unique<X11EventSourceDefault>(display);
+    event_source_ = std::make_unique<X11EventSourceLibevent>(display);
     window_manager_ = std::make_unique<X11WindowManagerOzone>();
 
     TouchFactory::GetInstance()->SetPointerDeviceForTest({kPointerDeviceId});
@@ -57,8 +60,9 @@ class X11WindowOzoneTest : public testing::Test {
       gfx::AcceleratedWidget* widget) {
     EXPECT_CALL(*delegate, OnAcceleratedWidgetAvailable(_))
         .WillOnce(StoreWidget(widget));
-    auto window = std::make_unique<X11WindowOzone>(window_manager_.get(),
-                                                   delegate, bounds);
+    PlatformWindowInitProperties init_params(bounds);
+    auto window = std::make_unique<X11WindowOzone>(delegate, init_params,
+                                                   window_manager_.get());
     return std::move(window);
   }
 
@@ -70,10 +74,14 @@ class X11WindowOzoneTest : public testing::Test {
     event_source_->ProcessXEvent(event);
   }
 
+  X11WindowManagerOzone* window_manager() const {
+    return window_manager_.get();
+  }
+
  private:
   std::unique_ptr<base::test::ScopedTaskEnvironment> task_env_;
   std::unique_ptr<X11WindowManagerOzone> window_manager_;
-  std::unique_ptr<X11EventSourceDefault> event_source_;
+  std::unique_ptr<X11EventSourceLibevent> event_source_;
 
   DISALLOW_COPY_AND_ASSIGN(X11WindowOzoneTest);
 };
@@ -145,6 +153,30 @@ TEST_F(X11WindowOzoneTest, SendPlatformEventToCapturedWindow) {
   DispatchXEvent(xi_event, widget);
   EXPECT_EQ(ET_MOUSE_PRESSED, event->type());
   EXPECT_EQ(gfx::Point(-277, 215), event->AsLocatedEvent()->location());
+}
+
+// This test case ensures window_manager properly provides X11WindowOzone
+// instances as they are created/destroyed.
+TEST_F(X11WindowOzoneTest, GetWindowFromAcceleratedWigets) {
+  MockPlatformWindowDelegate delegate;
+  gfx::Rect bounds(0, 0, 100, 100);
+  gfx::AcceleratedWidget widget_1;
+  auto window_1 = CreatePlatformWindow(&delegate, bounds, &widget_1);
+  EXPECT_EQ(window_1.get(), window_manager()->GetWindow(widget_1));
+
+  gfx::AcceleratedWidget widget_2;
+  auto window_2 = CreatePlatformWindow(&delegate, bounds, &widget_2);
+  EXPECT_EQ(window_2.get(), window_manager()->GetWindow(widget_2));
+  EXPECT_EQ(window_1.get(), window_manager()->GetWindow(widget_1));
+
+  window_1->Close();
+  window_1.reset();
+  EXPECT_EQ(nullptr, window_manager()->GetWindow(widget_1));
+  EXPECT_EQ(window_2.get(), window_manager()->GetWindow(widget_2));
+
+  window_2.reset();
+  EXPECT_EQ(nullptr, window_manager()->GetWindow(widget_1));
+  EXPECT_EQ(nullptr, window_manager()->GetWindow(widget_2));
 }
 
 }  // namespace ui

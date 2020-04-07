@@ -58,8 +58,8 @@ QT_BEGIN_NAMESPACE
 
 QAxBase *qax_create_object_wrapper(QObject *object)
 {
-    IDispatch *dispatch = 0;
-    QAxObject *wrapper = 0;
+    IDispatch *dispatch = nullptr;
+    QAxObject *wrapper = nullptr;
     qAxFactory()->createObjectWrapper(object, &dispatch);
     if (dispatch) {
         wrapper = new QAxObject(dispatch, object);

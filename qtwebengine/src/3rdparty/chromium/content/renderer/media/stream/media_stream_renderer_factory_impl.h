@@ -5,28 +5,30 @@
 #ifndef CONTENT_RENDERER_MEDIA_STREAM_MEDIA_STREAM_RENDERER_FACTORY_IMPL_H_
 #define CONTENT_RENDERER_MEDIA_STREAM_MEDIA_STREAM_RENDERER_FACTORY_IMPL_H_
 
+#include "third_party/blink/public/platform/modules/mediastream/web_media_stream_renderer_factory.h"
+
 #include <string>
 
 #include "base/macros.h"
-#include "content/public/renderer/media_stream_renderer_factory.h"
 
 namespace content {
 
-class MediaStreamRendererFactoryImpl : public MediaStreamRendererFactory {
+class MediaStreamRendererFactoryImpl
+    : public blink::WebMediaStreamRendererFactory {
  public:
   MediaStreamRendererFactoryImpl();
   ~MediaStreamRendererFactoryImpl() override;
 
-  scoped_refptr<MediaStreamVideoRenderer> GetVideoRenderer(
+  scoped_refptr<blink::WebMediaStreamVideoRenderer> GetVideoRenderer(
       const blink::WebMediaStream& web_stream,
-      const base::Closure& error_cb,
-      const MediaStreamVideoRenderer::RepaintCB& repaint_cb,
-      const scoped_refptr<base::SingleThreadTaskRunner>& io_task_runner)
+      const blink::WebMediaStreamVideoRenderer::RepaintCB& repaint_cb,
+      scoped_refptr<base::SingleThreadTaskRunner> io_task_runner,
+      scoped_refptr<base::SingleThreadTaskRunner> main_render_task_runner)
       override;
 
-  scoped_refptr<MediaStreamAudioRenderer> GetAudioRenderer(
+  scoped_refptr<blink::WebMediaStreamAudioRenderer> GetAudioRenderer(
       const blink::WebMediaStream& web_stream,
-      int render_frame_id,
+      blink::WebLocalFrame* web_frame,
       const std::string& device_id) override;
 
  private:

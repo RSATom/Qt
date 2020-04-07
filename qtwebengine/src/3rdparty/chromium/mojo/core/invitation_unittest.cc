@@ -78,6 +78,9 @@ void PrepareToPassRemoteEndpoint(PlatformChannel* channel,
   std::string value;
 #if defined(OS_FUCHSIA)
   channel->PrepareToPassRemoteEndpoint(&options->handles_to_transfer, &value);
+#elif defined(OS_MACOSX)
+  channel->PrepareToPassRemoteEndpoint(&options->mach_ports_for_rendezvous,
+                                       &value);
 #elif defined(OS_POSIX)
   channel->PrepareToPassRemoteEndpoint(&options->fds_to_remap, &value);
 #elif defined(OS_WIN)

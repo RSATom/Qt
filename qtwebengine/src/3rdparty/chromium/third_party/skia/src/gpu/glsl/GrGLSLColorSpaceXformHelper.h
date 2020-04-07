@@ -8,9 +8,9 @@
 #ifndef GrGLSLColorSpaceXformHelper_DEFINED
 #define GrGLSLColorSpaceXformHelper_DEFINED
 
-#include "GrColorSpaceXform.h"
-#include "GrGLSLUniformHandler.h"
-#include "SkColorSpaceXformSteps.h"
+#include "src/core/SkColorSpaceXformSteps.h"
+#include "src/gpu/GrColorSpaceXform.h"
+#include "src/gpu/glsl/GrGLSLUniformHandler.h"
 
 /**
  * Helper class to assist with using GrColorSpaceXform within an FP. This manages all of the
@@ -45,13 +45,13 @@ public:
 
     void setData(const GrGLSLProgramDataManager& pdman, const GrColorSpaceXform* colorSpaceXform) {
         if (this->applySrcTF()) {
-            pdman.set1fv(fSrcTFVar, kNumTransferFnCoeffs, &colorSpaceXform->fSteps.srcTF.fG);
+            pdman.set1fv(fSrcTFVar, kNumTransferFnCoeffs, &colorSpaceXform->fSteps.srcTF.g);
         }
         if (this->applyGamutXform()) {
             pdman.setMatrix3f(fGamutXformVar, colorSpaceXform->fSteps.src_to_dst_matrix);
         }
         if (this->applyDstTF()) {
-            pdman.set1fv(fDstTFVar, kNumTransferFnCoeffs, &colorSpaceXform->fSteps.dstTFInv.fG);
+            pdman.set1fv(fDstTFVar, kNumTransferFnCoeffs, &colorSpaceXform->fSteps.dstTFInv.g);
         }
     }
 

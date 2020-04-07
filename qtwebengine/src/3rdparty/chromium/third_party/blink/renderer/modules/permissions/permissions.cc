@@ -15,6 +15,7 @@
 #include "third_party/blink/renderer/bindings/modules/v8/v8_midi_permission_descriptor.h"
 #include "third_party/blink/renderer/bindings/modules/v8/v8_permission_descriptor.h"
 #include "third_party/blink/renderer/bindings/modules/v8/v8_push_permission_descriptor.h"
+#include "third_party/blink/renderer/bindings/modules/v8/v8_wake_lock_permission_descriptor.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/dom/dom_exception.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
@@ -26,8 +27,8 @@
 #include "third_party/blink/renderer/modules/permissions/permission_utils.h"
 #include "third_party/blink/renderer/platform/runtime_enabled_features.h"
 #include "third_party/blink/renderer/platform/wtf/functional.h"
-#include "third_party/blink/renderer/platform/wtf/not_found.h"
 #include "third_party/blink/renderer/platform/wtf/vector.h"
+#include "third_party/blink/renderer/platform/wtf/wtf_size_t.h"
 
 namespace blink {
 
@@ -139,16 +140,39 @@ PermissionDescriptorPtr ParsePermission(ScriptState* script_state,
   }
   if (name == "payment-handler")
     return CreatePermissionDescriptor(PermissionName::PAYMENT_HANDLER);
-  if (name == "background-fetch") {
-    if (!origin_trials::BackgroundFetchEnabled(
-            ExecutionContext::From(script_state))) {
-      exception_state.ThrowTypeError("Background Fetch is not enabled.");
-      return nullptr;
-    }
+  if (name == "background-fetch")
     return CreatePermissionDescriptor(PermissionName::BACKGROUND_FETCH);
-  }
   if (name == "idle-detection")
     return CreatePermissionDescriptor(PermissionName::IDLE_DETECTION);
+  if (name == "periodic-background-sync") {
+    if (!RuntimeEnabledFeatures::PeriodicBackgroundSyncEnabled(
+            ExecutionContext::From(script_state))) {
+      exception_state.ThrowTypeError(
+          "Periodic Background Sync is not enabled.");
+      return nullptr;
+    }
+    return CreatePermissionDescriptor(PermissionName::PERIODIC_BACKGROUND_SYNC);
+  }
+  if (name == "wake-lock") {
+    if (!RuntimeEnabledFeatures::WakeLockEnabled()) {
+      exception_state.ThrowTypeError("Wake Lock is not enabled.");
+      return nullptr;
+    }
+    WakeLockPermissionDescriptor* wake_lock_permission =
+        NativeValueTraits<WakeLockPermissionDescriptor>::NativeValue(
+            script_state->GetIsolate(), raw_permission.V8Value(),
+            exception_state);
+    const String& type = wake_lock_permission->type();
+    if (type == "screen") {
+      return CreateWakeLockPermissionDescriptor(
+          mojom::blink::WakeLockType::kScreen);
+    } else if (type == "system") {
+      return CreateWakeLockPermissionDescriptor(
+          mojom::blink::WakeLockType::kSystem);
+    } else {
+      NOTREACHED();
+    }
+  }
 
   return nullptr;
 }
@@ -163,7 +187,7 @@ ScriptPromise Permissions::query(ScriptState* script_state,
   if (exception_state.HadException())
     return ScriptPromise();
 
-  ScriptPromiseResolver* resolver = ScriptPromiseResolver::Create(script_state);
+  auto* resolver = MakeGarbageCollected<ScriptPromiseResolver>(script_state);
   ScriptPromise promise = resolver->Promise();
 
   // If the current origin is a file scheme, it will unlikely return a
@@ -189,7 +213,7 @@ ScriptPromise Permissions::request(ScriptState* script_state,
 
   ExecutionContext* context = ExecutionContext::From(script_state);
 
-  ScriptPromiseResolver* resolver = ScriptPromiseResolver::Create(script_state);
+  auto* resolver = MakeGarbageCollected<ScriptPromiseResolver>(script_state);
   ScriptPromise promise = resolver->Promise();
 
   PermissionDescriptorPtr descriptor_copy = descriptor->Clone();
@@ -214,7 +238,7 @@ ScriptPromise Permissions::revoke(ScriptState* script_state,
   if (exception_state.HadException())
     return ScriptPromise();
 
-  ScriptPromiseResolver* resolver = ScriptPromiseResolver::Create(script_state);
+  auto* resolver = MakeGarbageCollected<ScriptPromiseResolver>(script_state);
   ScriptPromise promise = resolver->Promise();
 
   PermissionDescriptorPtr descriptor_copy = descriptor->Clone();
@@ -234,6 +258,9 @@ ScriptPromise Permissions::requestAll(
   Vector<PermissionDescriptorPtr> internal_permissions;
   Vector<int> caller_index_to_internal_index;
   caller_index_to_internal_index.resize(raw_permissions.size());
+
+  ExecutionContext* context = ExecutionContext::From(script_state);
+
   for (wtf_size_t i = 0; i < raw_permissions.size(); ++i) {
     const ScriptValue& raw_permission = raw_permissions[i];
 
@@ -257,9 +284,7 @@ ScriptPromise Permissions::requestAll(
     caller_index_to_internal_index[i] = internal_index;
   }
 
-  ExecutionContext* context = ExecutionContext::From(script_state);
-
-  ScriptPromiseResolver* resolver = ScriptPromiseResolver::Create(script_state);
+  auto* resolver = MakeGarbageCollected<ScriptPromiseResolver>(script_state);
   ScriptPromise promise = resolver->Promise();
 
   Vector<PermissionDescriptorPtr> internal_permissions_copy;

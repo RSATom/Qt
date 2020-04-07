@@ -121,7 +121,51 @@ class BuilderTest(LoggingTestCase):
 
     def test_get_step_name_without_build_number(self):
         buildbot = BuildBot()
-        self.assertIsNone(buildbot.get_layout_test_step_name(Build('builder', None)))
+        self.assertIsNone(
+            buildbot.get_layout_test_step_name(Build('builder', None)))
+
+    def test_fetch_webdriver_results_without_build_number(self):
+        buildbot = BuildBot()
+        self.assertIsNone(buildbot.fetch_webdriver_test_results(
+            Build('builder', None), 'bar'))
+        self.assertLog(
+            ['DEBUG: Builder name or build number or master is None\n'])
+
+    def test_fetch_webdriver_results_without_master(self):
+        buildbot = BuildBot()
+        self.assertIsNone(buildbot.fetch_webdriver_test_results(
+            Build('builder', 1), ''))
+        self.assertLog(
+            ['DEBUG: Builder name or build number or master is None\n'])
+
+    def test_fetch_webdriver_test_results_with_no_results(self):
+        buildbot = BuildBot()
+        buildbot.web = MockWeb()
+        results = buildbot.fetch_webdriver_test_results(
+            Build('bar-rel', 123), 'foo.chrome')
+        self.assertIsNone(results)
+        self.assertLog([
+            'DEBUG: Got 404 response from:\n'
+            'https://test-results.appspot.com/testfile?buildnumber=123&'
+            'master=foo.chrome&builder=bar-rel&'
+            'testtype=webdriver_tests_suite+%28with+patch%29&name=full_results.json\n'
+        ])
+
+    def test_fetch_webdriver_results_success(self):
+        buildbot = BuildBot()
+        buildbot.web = MockWeb(urls={
+            'https://test-results.appspot.com/testfile?buildnumber=123&'
+            'master=foo.chrome&builder=bar-rel&'
+            'testtype=webdriver_tests_suite+%28with+patch%29&'
+            'name=full_results.json':
+                json.dumps({'passed': True}),
+        })
+        results = buildbot.fetch_webdriver_test_results(
+            Build('bar-rel', 123), 'foo.chrome')
+        self.assertEqual(results._results, {  # pylint: disable=protected-access
+            'passed': True
+        })
+        self.assertLog([])
 
 
 class BuildBotHelperFunctionTest(unittest.TestCase):
@@ -131,15 +175,18 @@ class BuildBotHelperFunctionTest(unittest.TestCase):
 
     def test_filter_latest_jobs_higher_build_first(self):
         self.assertEqual(
-            filter_latest_builds([Build('foo', 5), Build('foo', 3), Build('bar', 5)]),
+            filter_latest_builds(
+                [Build('foo', 5), Build('foo', 3), Build('bar', 5)]),
             [Build('bar', 5), Build('foo', 5)])
 
     def test_filter_latest_jobs_higher_build_last(self):
         self.assertEqual(
-            filter_latest_builds([Build('foo', 3), Build('bar', 5), Build('foo', 5)]),
+            filter_latest_builds(
+                [Build('foo', 3), Build('bar', 5), Build('foo', 5)]),
             [Build('bar', 5), Build('foo', 5)])
 
     def test_filter_latest_jobs_no_build_number(self):
         self.assertEqual(
-            filter_latest_builds([Build('foo', 3), Build('bar'), Build('bar')]),
+            filter_latest_builds(
+                [Build('foo', 3), Build('bar'), Build('bar')]),
             [Build('bar'), Build('foo', 3)])

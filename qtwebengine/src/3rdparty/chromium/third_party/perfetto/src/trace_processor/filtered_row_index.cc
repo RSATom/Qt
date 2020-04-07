@@ -16,6 +16,7 @@
 
 #include "src/trace_processor/filtered_row_index.h"
 
+#include <stddef.h>
 #include <numeric>
 
 namespace perfetto {
@@ -25,6 +26,8 @@ FilteredRowIndex::FilteredRowIndex(uint32_t start_row, uint32_t end_row)
     : mode_(Mode::kAllRows), start_row_(start_row), end_row_(end_row) {}
 
 void FilteredRowIndex::IntersectRows(std::vector<uint32_t> rows) {
+  PERFETTO_DCHECK(error_.empty());
+
   // Sort the rows so all branches below make sense.
   std::sort(rows.begin(), rows.end());
 
@@ -69,6 +72,8 @@ void FilteredRowIndex::IntersectRows(std::vector<uint32_t> rows) {
 }
 
 std::vector<uint32_t> FilteredRowIndex::ToRowVector() {
+  PERFETTO_DCHECK(error_.empty());
+
   switch (mode_) {
     case Mode::kAllRows:
       mode_ = Mode::kRowVector;
@@ -86,6 +91,8 @@ std::vector<uint32_t> FilteredRowIndex::ToRowVector() {
 }
 
 void FilteredRowIndex::ConvertBitVectorToRowVector() {
+  PERFETTO_DCHECK(error_.empty());
+
   mode_ = Mode::kRowVector;
 
   auto b = row_filter_.begin();
@@ -99,6 +106,8 @@ void FilteredRowIndex::ConvertBitVectorToRowVector() {
 }
 
 std::unique_ptr<RowIterator> FilteredRowIndex::ToRowIterator(bool desc) {
+  PERFETTO_DCHECK(error_.empty());
+
   switch (mode_) {
     case Mode::kAllRows:
       return std::unique_ptr<RangeRowIterator>(
@@ -107,14 +116,20 @@ std::unique_ptr<RowIterator> FilteredRowIndex::ToRowIterator(bool desc) {
       return std::unique_ptr<RangeRowIterator>(
           new RangeRowIterator(start_row_, desc, TakeBitVector()));
     }
-    case Mode::kRowVector:
+    case Mode::kRowVector: {
+      auto vector = TakeRowVector();
+      if (desc)
+        std::reverse(vector.begin(), vector.end());
       return std::unique_ptr<VectorRowIterator>(
-          new VectorRowIterator(TakeRowVector()));
+          new VectorRowIterator(std::move(vector)));
+    }
   }
   PERFETTO_FATAL("For GCC");
 }
 
 std::vector<uint32_t> FilteredRowIndex::TakeRowVector() {
+  PERFETTO_DCHECK(error_.empty());
+
   PERFETTO_DCHECK(mode_ == Mode::kRowVector);
   auto vector = std::move(rows_);
   rows_.clear();
@@ -123,6 +138,8 @@ std::vector<uint32_t> FilteredRowIndex::TakeRowVector() {
 }
 
 std::vector<bool> FilteredRowIndex::TakeBitVector() {
+  PERFETTO_DCHECK(error_.empty());
+
   PERFETTO_DCHECK(mode_ == Mode::kBitVector);
   auto filter = std::move(row_filter_);
   row_filter_.clear();

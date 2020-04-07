@@ -44,9 +44,11 @@
 #include <qfileinfo.h>
 #include <qstringlist.h>
 #include <qset.h>
+#include <qscopeguard.h>
 #include <qdatetime.h>
 #include <qdir.h>
 #include <qtextstream.h>
+#include <private/qlocking_p.h>
 
 #include <qt_windows.h>
 
@@ -79,7 +81,7 @@ static Qt::HANDLE createChangeNotification(const QString &path, uint flags)
         nativePath.append(QLatin1Char('\\'));
     const HANDLE result = FindFirstChangeNotification(reinterpret_cast<const wchar_t *>(nativePath.utf16()),
                                                       FALSE, flags);
-    DEBUG() << __FUNCTION__ << nativePath << hex <<showbase << flags << "returns" << result;
+    DEBUG() << __FUNCTION__ << nativePath << Qt::hex <<showbase << flags << "returns" << result;
     return result;
 }
 
@@ -108,7 +110,11 @@ public:
     // Call from QFileSystemWatcher::addPaths() to set up notifications on drives
     void addPath(const QString &path);
 
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+    bool nativeEventFilter(const QByteArray &, void *messageIn, qintptr *) override;
+#else
     bool nativeEventFilter(const QByteArray &, void *messageIn, long *) override;
+#endif
 
 signals:
     void driveAdded();
@@ -255,7 +261,11 @@ inline void QWindowsRemovableDriveListener::handleDbtDriveArrivalRemoval(const M
     }
 }
 
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+bool QWindowsRemovableDriveListener::nativeEventFilter(const QByteArray &, void *messageIn, qintptr *)
+#else
 bool QWindowsRemovableDriveListener::nativeEventFilter(const QByteArray &, void *messageIn, long *)
+#endif
 {
     const MSG *msg = reinterpret_cast<const MSG *>(messageIn);
     if (msg->message == WM_DEVICECHANGE) {
@@ -297,8 +307,7 @@ void QWindowsRemovableDriveListener::addPath(const QString &p)
                    OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, //  Volume requires BACKUP_SEMANTICS
                    0);
     if (volumeHandle == INVALID_HANDLE_VALUE) {
-        qErrnoWarning("CreateFile %s failed.",
-                      qPrintable(QString::fromWCharArray(devicePath)));
+        qErrnoWarning("CreateFile %ls failed.", devicePath);
         return;
     }
 
@@ -315,8 +324,7 @@ void QWindowsRemovableDriveListener::addPath(const QString &p)
     // closed. Do it here to avoid having to close/reopen in lock message handling.
     CloseHandle(volumeHandle);
     if (!re.devNotify) {
-        qErrnoWarning("RegisterDeviceNotification %s failed.",
-                      qPrintable(QString::fromWCharArray(devicePath)));
+        qErrnoWarning("RegisterDeviceNotification %ls failed.", devicePath);
         return;
     }
 
@@ -369,10 +377,9 @@ QStringList QWindowsFileSystemWatcherEngine::addPaths(const QStringList &paths,
                                                        QStringList *directories)
 {
     DEBUG() << "Adding" << paths.count() << "to existing" << (files->count() + directories->count()) << "watchers";
-    QStringList p = paths;
-    QMutableListIterator<QString> it(p);
-    while (it.hasNext()) {
-        QString path = it.next();
+    QStringList unhandled;
+    for (const QString &path : paths) {
+        auto sg = qScopeGuard([&] { unhandled.push_back(path); });
         QString normalPath = path;
         if ((normalPath.endsWith(QLatin1Char('/')) && !normalPath.endsWith(QLatin1String(":/")))
             || (normalPath.endsWith(QLatin1Char('\\')) && !normalPath.endsWith(QLatin1String(":\\")))) {
@@ -396,6 +403,7 @@ QStringList QWindowsFileSystemWatcherEngine::addPaths(const QStringList &paths,
         const QString absolutePath = isDir ? fileInfo.absoluteFilePath() : fileInfo.absolutePath();
         const uint flags = isDir
                            ? (FILE_NOTIFY_CHANGE_DIR_NAME
+                              | FILE_NOTIFY_CHANGE_ATTRIBUTES
                               | FILE_NOTIFY_CHANGE_FILE_NAME)
                            : (FILE_NOTIFY_CHANGE_DIR_NAME
                               | FILE_NOTIFY_CHANGE_FILE_NAME
@@ -417,14 +425,14 @@ QStringList QWindowsFileSystemWatcherEngine::addPaths(const QStringList &paths,
         end = threads.constEnd();
         for(jt = threads.constBegin(); jt != end; ++jt) {
             thread = *jt;
-            QMutexLocker locker(&(thread->mutex));
+            const auto locker = qt_scoped_lock(thread->mutex);
 
             const auto hit = thread->handleForDir.find(QFileSystemWatcherPathKey(absolutePath));
             if (hit != thread->handleForDir.end() && hit.value().flags < flags) {
                 // Requesting to add a file whose directory has been added previously.
                 // Recreate the notification handle to add the missing notification attributes
                 // for files (FILE_NOTIFY_CHANGE_ATTRIBUTES...)
-                DEBUG() << "recreating" << absolutePath << hex << showbase << hit.value().flags
+                DEBUG() << "recreating" << absolutePath << Qt::hex << Qt::showbase << hit.value().flags
                     << "->" << flags;
                 const Qt::HANDLE fileHandle = createChangeNotification(absolutePath, flags);
                 if (fileHandle != INVALID_HANDLE_VALUE) {
@@ -455,7 +463,7 @@ QStringList QWindowsFileSystemWatcherEngine::addPaths(const QStringList &paths,
                     else
                         files->append(path);
                 }
-                it.remove();
+                sg.dismiss();
                 thread->wakeup();
                 break;
             }
@@ -472,7 +480,7 @@ QStringList QWindowsFileSystemWatcherEngine::addPaths(const QStringList &paths,
             // now look for a thread to insert
             bool found = false;
             for (QWindowsFileSystemWatcherEngineThread *thread : qAsConst(threads)) {
-                QMutexLocker locker(&(thread->mutex));
+                const auto locker = qt_scoped_lock(thread->mutex);
                 if (thread->handles.count() < MAXIMUM_WAIT_OBJECTS) {
                     DEBUG() << "Added handle" << handle.handle << "for" << absolutePath << "to watch" << fileInfo.absoluteFilePath()
                             << "to existing thread " << thread;
@@ -485,7 +493,7 @@ QStringList QWindowsFileSystemWatcherEngine::addPaths(const QStringList &paths,
                     else
                         files->append(path);
 
-                    it.remove();
+                    sg.dismiss();
                     found = true;
                     thread->wakeup();
                     break;
@@ -511,7 +519,7 @@ QStringList QWindowsFileSystemWatcherEngine::addPaths(const QStringList &paths,
                 thread->msg = '@';
                 thread->start();
                 threads.append(thread);
-                it.remove();
+                sg.dismiss();
             }
         }
     }
@@ -519,12 +527,12 @@ QStringList QWindowsFileSystemWatcherEngine::addPaths(const QStringList &paths,
 #ifndef Q_OS_WINRT
     if (Q_LIKELY(m_driveListener)) {
         for (const QString &path : paths) {
-            if (!p.contains(path))
+            if (!unhandled.contains(path))
                 m_driveListener->addPath(path);
         }
     }
 #endif // !Q_OS_WINRT
-    return p;
+    return unhandled;
 }
 
 QStringList QWindowsFileSystemWatcherEngine::removePaths(const QStringList &paths,
@@ -532,10 +540,9 @@ QStringList QWindowsFileSystemWatcherEngine::removePaths(const QStringList &path
                                                           QStringList *directories)
 {
     DEBUG() << "removePaths" << paths;
-    QStringList p = paths;
-    QMutableListIterator<QString> it(p);
-    while (it.hasNext()) {
-        QString path = it.next();
+    QStringList unhandled;
+    for (const QString &path : paths) {
+        auto sg = qScopeGuard([&] { unhandled.push_back(path); });
         QString normalPath = path;
         if (normalPath.endsWith(QLatin1Char('/')) || normalPath.endsWith(QLatin1Char('\\')))
             normalPath.chop(1);
@@ -549,7 +556,7 @@ QStringList QWindowsFileSystemWatcherEngine::removePaths(const QStringList &path
             if (*jt == 0)
                 continue;
 
-            QMutexLocker locker(&(thread->mutex));
+            auto locker = qt_unique_lock(thread->mutex);
 
             QWindowsFileSystemWatcherEngine::Handle handle = thread->handleForDir.value(QFileSystemWatcherPathKey(absolutePath));
             if (handle.handle == INVALID_HANDLE_VALUE) {
@@ -564,7 +571,7 @@ QStringList QWindowsFileSystemWatcherEngine::removePaths(const QStringList &path
                     // ###
                     files->removeAll(path);
                     directories->removeAll(path);
-                    it.remove();
+                    sg.dismiss();
 
                     if (h.isEmpty()) {
                         DEBUG() << "Closing handle" << handle.handle;
@@ -582,7 +589,7 @@ QStringList QWindowsFileSystemWatcherEngine::removePaths(const QStringList &path
                             locker.unlock();
                             thread->stop();
                             thread->wait();
-                            locker.relock();
+                            locker.lock();
                             // We can't delete the thread until the mutex locker is
                             // out of scope
                         }
@@ -605,7 +612,7 @@ QStringList QWindowsFileSystemWatcherEngine::removePaths(const QStringList &path
     }
 
     threads.removeAll(0);
-    return p;
+    return unhandled;
 }
 
 ///////////
@@ -634,26 +641,26 @@ QWindowsFileSystemWatcherEngineThread::~QWindowsFileSystemWatcherEngineThread()
     }
 }
 
-static inline QString msgFindNextFailed(const QWindowsFileSystemWatcherEngineThread::PathInfoHash &pathInfos)
+Q_DECL_COLD_FUNCTION
+static QString msgFindNextFailed(const QWindowsFileSystemWatcherEngineThread::PathInfoHash &pathInfos)
 {
-    QString result;
-    QTextStream str(&result);
-    str << "QFileSystemWatcher: FindNextChangeNotification failed for";
+    QString str;
+    str += QLatin1String("QFileSystemWatcher: FindNextChangeNotification failed for");
     for (const QWindowsFileSystemWatcherEngine::PathInfo &pathInfo : pathInfos)
-        str << " \"" << QDir::toNativeSeparators(pathInfo.absolutePath) << '"';
-    str << ' ';
-    return result;
+        str += QLatin1String(" \"") + QDir::toNativeSeparators(pathInfo.absolutePath) + QLatin1Char('"');
+    str += QLatin1Char(' ');
+    return str;
 }
 
 void QWindowsFileSystemWatcherEngineThread::run()
 {
-    QMutexLocker locker(&mutex);
+    auto locker = qt_unique_lock(mutex);
     forever {
         QVector<HANDLE> handlesCopy = handles;
         locker.unlock();
         DEBUG() << "QWindowsFileSystemWatcherThread" << this << "waiting on" << handlesCopy.count() << "handles";
         DWORD r = WaitForMultipleObjects(handlesCopy.count(), handlesCopy.constData(), false, INFINITE);
-        locker.relock();
+        locker.lock();
         do {
             if (r == WAIT_OBJECT_0) {
                 int m = msg;
@@ -688,11 +695,10 @@ void QWindowsFileSystemWatcherEngineThread::run()
                             fakeRemove = true;
                         }
 
-                        qErrnoWarning(error, "%s", qPrintable(msgFindNextFailed(h)));
+                        qErrnoWarning(error, "%ls", qUtf16Printable(msgFindNextFailed(h)));
                     }
-                    QMutableHashIterator<QFileSystemWatcherPathKey, QWindowsFileSystemWatcherEngine::PathInfo> it(h);
-                    while (it.hasNext()) {
-                        QWindowsFileSystemWatcherEngineThread::PathInfoHash::iterator x = it.next();
+                    for (auto it = h.begin(), end = h.end(); it != end; /*erasing*/ ) {
+                        auto x = it++;
                         QString absolutePath = x.value().absolutePath;
                         QFileInfo fileInfo(x.value().path);
                         DEBUG() << "checking" << x.key();
@@ -718,6 +724,7 @@ void QWindowsFileSystemWatcherEngineThread::run()
 
                                 handleForDir.remove(QFileSystemWatcherPathKey(absolutePath));
                                 // h is now invalid
+                                break;
                             }
                         } else if (x.value().isDir) {
                             DEBUG() << x.key() << "directory changed!";

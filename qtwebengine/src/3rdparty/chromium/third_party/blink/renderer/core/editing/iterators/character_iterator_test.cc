@@ -33,6 +33,7 @@
 #include "third_party/blink/renderer/core/editing/ephemeral_range.h"
 #include "third_party/blink/renderer/core/editing/testing/editing_test_base.h"
 #include "third_party/blink/renderer/core/frame/local_frame_view.h"
+#include "third_party/blink/renderer/platform/heap/heap.h"
 #include "third_party/blink/renderer/platform/testing/runtime_enabled_features_test_helpers.h"
 
 namespace blink {
@@ -50,9 +51,9 @@ class ParameterizedCharacterIteratorTest
   bool LayoutNGEnabled() const { return GetParam(); }
 };
 
-INSTANTIATE_TEST_CASE_P(All,
-                        ParameterizedCharacterIteratorTest,
-                        testing::Bool());
+INSTANTIATE_TEST_SUITE_P(All,
+                         ParameterizedCharacterIteratorTest,
+                         testing::Bool());
 
 TEST_P(ParameterizedCharacterIteratorTest, SubrangeWithReplacedElements) {
   static const char* body_content =
@@ -61,7 +62,8 @@ TEST_P(ParameterizedCharacterIteratorTest, SubrangeWithReplacedElements) {
   UpdateAllLifecyclePhasesForTest();
 
   Node* div_node = GetDocument().getElementById("div");
-  Range* entire_range = Range::Create(GetDocument(), div_node, 0, div_node, 3);
+  auto* entire_range =
+      MakeGarbageCollected<Range>(GetDocument(), div_node, 0, div_node, 3);
 
   EphemeralRange result =
       CalculateCharacterSubrange(EphemeralRange(entire_range), 2, 3);
@@ -77,8 +79,8 @@ TEST_P(ParameterizedCharacterIteratorTest, CollapsedSubrange) {
   UpdateAllLifecyclePhasesForTest();
 
   Node* text_node = GetDocument().getElementById("div")->lastChild();
-  Range* entire_range =
-      Range::Create(GetDocument(), text_node, 1, text_node, 4);
+  auto* entire_range =
+      MakeGarbageCollected<Range>(GetDocument(), text_node, 1, text_node, 4);
   EXPECT_EQ(1u, entire_range->startOffset());
   EXPECT_EQ(4u, entire_range->endOffset());
 

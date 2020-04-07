@@ -52,36 +52,16 @@
 //
 
 #include "osxbluetooth_p.h"
+#include "btdelegates_p.h"
 
 #include <QtCore/qglobal.h>
 
 #include <Foundation/Foundation.h>
 #include <IOKit/IOReturn.h>
 
-@class QT_MANGLE_NAMESPACE(OSXBTDeviceInquiry);
-
-QT_BEGIN_NAMESPACE
-
-namespace OSXBluetooth {
-
-class DeviceInquiryDelegate {
-public:
-    typedef QT_MANGLE_NAMESPACE(OSXBTDeviceInquiry) DeviceInquiryObjC;
-
-    virtual ~DeviceInquiryDelegate();
-
-    virtual void inquiryFinished(IOBluetoothDeviceInquiry *inq) = 0;
-    virtual void error(IOBluetoothDeviceInquiry *inq, IOReturn error) = 0;
-    virtual void deviceFound(IOBluetoothDeviceInquiry *inq, IOBluetoothDevice *device) = 0;
-};
-
-}
-
-QT_END_NAMESPACE
-
 @interface QT_MANGLE_NAMESPACE(OSXBTDeviceInquiry) : NSObject<IOBluetoothDeviceInquiryDelegate>
 
-- (id)initWithDelegate:(QT_PREPEND_NAMESPACE(OSXBluetooth::DeviceInquiryDelegate) *)delegate;
+- (id)initWithDelegate:(QT_PREPEND_NAMESPACE(DarwinBluetooth::DeviceInquiryDelegate) *)delegate;
 - (void)dealloc;
 
 - (bool)isActive;

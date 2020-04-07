@@ -1,5 +1,7 @@
 # Callback<> and Bind()
 
+[TOC]
+
 ## Introduction
 
 The templated `base::Callback<>` class is a generalized function object.
@@ -46,8 +48,8 @@ implicit conversion.
 
 ### Memory Management And Passing
 
-Pass `base::Callback` objects by value if ownership is transferred; otherwise,
-pass it by const-reference.
+Pass `base::{Once,Repeating}Callback` objects by value if ownership is
+transferred; otherwise, pass it by const-reference.
 
 ```cpp
 // |Foo| just refers to |cb| but doesn't store it nor consume it.
@@ -56,8 +58,8 @@ bool Foo(const base::OnceCallback<void(int)>& cb) {
 }
 
 // |Bar| takes the ownership of |cb| and stores |cb| into |g_cb|.
-base::OnceCallback<void(int)> g_cb;
-void Bar(base::OnceCallback<void(int)> cb) {
+base::RepeatingCallback<void(int)> g_cb;
+void Bar(base::RepeatingCallback<void(int)> cb) {
   g_cb = std::move(cb);
 }
 
@@ -68,18 +70,19 @@ void Baz(base::OnceCallback<void(int)> cb) {
 
 // |Qux| takes the ownership of |cb| and transfers ownership to PostTask(),
 // which also takes the ownership of |cb|.
-void Qux(base::OnceCallback<void(int)> cb) {
-  PostTask(FROM_HERE,
-           base::BindOnce(std::move(cb), 42));
+void Qux(base::RepeatingCallback<void(int)> cb) {
+  PostTask(FROM_HERE, base::BindOnce(cb, 42));
+  PostTask(FROM_HERE, base::BindOnce(std::move(cb), 43));
 }
 ```
 
-When you pass a `base::Callback` object to a function parameter, use
-`std::move()` if you don't need to keep a reference to it, otherwise, pass the
+When you pass a `base::{Once,Repeating}Callback` object to a function parameter,
+use `std::move()` if you don't need to keep a reference to it, otherwise, pass the
 object directly. You may see a compile error when the function requires the
 exclusive ownership, and you didn't pass the callback by move. Note that the
-moved-from `base::Callback` becomes null, as if its `Reset()` method had been
-called, and its `is_null()` method will return true.
+moved-from `base::{Once,Repeating}Callback` becomes null, as if its `Reset()`
+method had been called. Afterward, its `is_null()` method will return true and
+its `operator bool()` will return false.
 
 ## Quick reference for basic stuff
 
@@ -105,6 +108,20 @@ LOG(INFO) << lambda_cb.Run();  // Print 4.
 
 base::OnceCallback<int()> lambda_cb2 = base::BindOnce([] { return 3; });
 LOG(INFO) << std::move(lambda_cb2).Run();  // Print 3.
+```
+
+### Binding A Capturing Lambda (In Tests)
+
+When writing tests, it is often useful to capture arguments that need to be
+modified in a callback.
+
+``` cpp
+#include "base/test/bind_test_util.h"
+
+int i = 2;
+base::Callback<void()> lambda_cb = base::BindLambdaForTesting([&]() { i++; });
+lambda_cb.Run();
+LOG(INFO) << i;  // Print 3;
 ```
 
 ### Binding A Class Method
@@ -320,17 +337,42 @@ base::BindRepeating(&Foo, base::Passed(std::move(p))); // Ok, but subtle.
 
 ### Binding A Class Method With Weak Pointers
 
+If `MyClass` has a `base::WeakPtr<MyClass> weak_this_` member (see below)
+then a class method can be bound with:
+
 ```cpp
-base::Bind(&MyClass::Foo, GetWeakPtr());
+base::Bind(&MyClass::Foo, weak_this_);
 ```
 
 The callback will not be run if the object has already been destroyed.
-**DANGER**: weak pointers are not threadsafe, so don't use this when passing
-between threads!
 
-To make a weak pointer, you would typically create a
-`base::WeakPtrFactory<Foo>` member at the bottom (to ensure it's destroyed
-last) of class `Foo`, then call `weak_factory_.GetWeakPtr()`.
+Note that class method callbacks bound to `base::WeakPtr`s may only be
+run on the same sequence on which the object will be destroyed, since otherwise
+execution of the callback might race with the object's deletion.
+
+To use `base::WeakPtr` with `base::Bind()`, `MyClass` will typically look like:
+
+```cpp
+class MyClass {
+public:
+  MyClass() {
+    weak_this_ = weak_factory_.GetWeakPtr();
+  }
+private:
+  base::WeakPtr<MyClass> weak_this_;
+  // MyClass member variables go here.
+  base::WeakPtrFactory<MyClass> weak_factory_{this};
+};
+```
+
+`weak_factory_` is the last member variable in `MyClass` so that it is
+destroyed first. This ensures that if any class methods bound to `weak_this_`
+are `Run()` during teardown, then they will not actually be executed.
+
+If `MyClass` only ever `base::Bind()`s and executes callbacks on the same
+sequence, then it is generally safe to call `weak_factory_.GetWeakPtr()` at the
+`base::Bind()` call, rather than taking a separate `weak_this_` during
+construction.
 
 ### Binding A Class Method With Manual Lifetime Management
 
@@ -425,13 +467,13 @@ the object when the Callback is run.
 
 ### Passing Parameters By Reference
 
-Const references are *copied* unless `base::ConstRef` is used. Example:
+References are *copied* unless `std::ref` or `std::cref` is used. Example:
 
 ```cpp
 void foo(const int& arg) { printf("%d %p\n", arg, &arg); }
 int n = 1;
 base::Closure has_copy = base::Bind(&foo, n);
-base::Closure has_ref = base::Bind(&foo, base::ConstRef(n));
+base::Closure has_ref = base::Bind(&foo, std::cref(n));
 n = 2;
 foo(n);                        // Prints "2 0xaaaaaaaaaaaa"
 has_copy.Run();                // Prints "1 0xbbbbbbbbbbbb"
@@ -439,9 +481,9 @@ has_ref.Run();                 // Prints "2 0xaaaaaaaaaaaa"
 ```
 
 Normally parameters are copied in the closure.
-**DANGER**: `base::ConstRef` stores a const reference instead, referencing the
-original parameter. This means that you must ensure the object outlives the
-callback!
+**DANGER**: `std::ref` and `std::cref` store a (const) reference instead,
+referencing the original parameter. This means that you must ensure the object
+outlives the callback!
 
 ## Implementation notes
 
@@ -481,16 +523,16 @@ if it's evaluated to false. You can specialize `base::IsWeakReceiver` to make
 an external smart pointer as a weak pointer.
 
 `base::UnwrapTraits<BoundObject>::Unwrap()` is called for each bound arguments
-right before `base::Callback` calls the target function. You can specialize
-this to define an argument wrapper such as `base::Unretained`,
-`base::ConstRef`, `base::Owned`, `base::RetainedRef` and `base::Passed`.
+right before `base::Callback` calls the target function. You can specialize this
+to define an argument wrapper such as `base::Unretained`, `base::Owned`,
+`base::RetainedRef` and `base::Passed`.
 
 ### How The Implementation Works:
 
 There are three main components to the system:
   1) The `base::Callback<>` classes.
   2) The `base::Bind()` functions.
-  3) The arguments wrappers (e.g., `base::Unretained()` and `base::ConstRef()`).
+  3) The arguments wrappers (e.g., `base::Unretained()` and `base::Owned()`).
 
 The Callback classes represent a generic function pointer. Internally, it
 stores a refcounted piece of state that represents the target function and all
@@ -527,16 +569,15 @@ method. These copies are created even if the function takes parameters as const
 references. (Binding to non-const references is forbidden, see bind.h.)
 
 To change this behavior, we introduce a set of argument wrappers (e.g.,
-`base::Unretained()`, and `base::ConstRef()`).  These are simple container
-templates that are passed by value, and wrap a pointer to argument.  See the
-file-level comment in base/bind_helpers.h for more info.
+`base::Unretained()`).  These are simple container templates that are passed by
+value, and wrap a pointer to argument.  See the file-level comment in
+base/bind_helpers.h for more info.
 
 These types are passed to the `Unwrap()` functions to modify the behavior of
 `base::Bind()`.  The `Unwrap()` functions change behavior by doing partial
 specialization based on whether or not a parameter is a wrapper type.
 
-`base::ConstRef()` is similar to `tr1::cref`.  `base::Unretained()` is specific
-to Chromium.
+`base::Unretained()` is specific to Chromium.
 
 ### Missing Functionality
  - Binding arrays to functions that take a non-const pointer.

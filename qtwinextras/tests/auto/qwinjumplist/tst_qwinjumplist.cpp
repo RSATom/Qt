@@ -67,7 +67,7 @@ void tst_QWinJumpList::testRecent()
     recent1->clear();
     QVERIFY(recent1->isEmpty());
 
-    recent1->addItem(0);
+    recent1->addItem(nullptr);
     QVERIFY(recent1->isEmpty());
 
     recent1->setVisible(true);
@@ -116,7 +116,7 @@ void tst_QWinJumpList::testFrequent()
     frequent1->clear();
     QVERIFY(frequent1->isEmpty());
 
-    frequent1->addItem(0);
+    frequent1->addItem(nullptr);
     QVERIFY(frequent1->isEmpty());
 
     frequent1->setVisible(true);
@@ -164,7 +164,7 @@ void tst_QWinJumpList::testTasks()
     tasks->setVisible(true);
     QVERIFY(tasks->isVisible());
 
-    tasks->addItem(0);
+    tasks->addItem(nullptr);
     QVERIFY(tasks->isEmpty());
 
     QWinJumpListItem* link1 = tasks->addLink(QStringLiteral("tst_QWinJumpList"), QCoreApplication::applicationFilePath());
@@ -203,7 +203,7 @@ void tst_QWinJumpList::testCategories()
     QWinJumpList jumplist;
     QVERIFY(jumplist.categories().isEmpty());
 
-    jumplist.addCategory(0);
+    jumplist.addCategory(nullptr);
 
     QWinJumpListCategory *cat1 = new QWinJumpListCategory(QStringLiteral("tmp"));
     QCOMPARE(cat1->title(), QStringLiteral("tmp"));

@@ -17,6 +17,7 @@
 #include "base/threading/thread_restrictions.h"
 #include "base/win/scoped_handle.h"
 #include "base/win/windows_version.h"
+#include "build/build_config.h"
 
 #include <windows.h>
 
@@ -115,6 +116,14 @@ bool CreateThreadInternal(size_t stack_size,
   unsigned int flags = 0;
   if (stack_size > 0) {
     flags = STACK_SIZE_PARAM_IS_A_RESERVATION;
+#if defined(ARCH_CPU_32_BITS)
+  } else {
+    // The process stack size is increased to give spaces to |RendererMain| in
+    // |chrome/BUILD.gn|, but keep the default stack size of other threads to
+    // 1MB for the address space pressure.
+    flags = STACK_SIZE_PARAM_IS_A_RESERVATION;
+    stack_size = 1024 * 1024;
+#endif
   }
 
   ThreadParams* params = new ThreadParams;
@@ -164,7 +173,7 @@ void AssertMemoryPriority(HANDLE thread, int memory_priority) {
           ::GetModuleHandle(L"Kernel32.dll"), "GetThreadInformation"));
 
   if (!get_thread_information_fn) {
-    DCHECK_EQ(win::GetVersion(), win::VERSION_WIN7);
+    DCHECK_EQ(win::GetVersion(), win::Version::WIN7);
     return;
   }
 
@@ -214,7 +223,7 @@ void PlatformThread::SetName(const std::string& name) {
   ThreadIdNameManager::GetInstance()->SetName(name);
 
   // The SetThreadDescription API works even if no debugger is attached.
-  auto set_thread_description_func =
+  static auto set_thread_description_func =
       reinterpret_cast<SetThreadDescription>(::GetProcAddress(
           ::GetModuleHandle(L"Kernel32.dll"), "SetThreadDescription"));
   if (set_thread_description_func) {
@@ -373,7 +382,7 @@ ThreadPriority PlatformThread::GetCurrentThreadPriority() {
   switch (priority) {
     case THREAD_PRIORITY_IDLE:
     case internal::kWin7BackgroundThreadModePriority:
-      DCHECK_EQ(win::GetVersion(), win::VERSION_WIN7);
+      DCHECK_EQ(win::GetVersion(), win::Version::WIN7);
       FALLTHROUGH;
     case kWin8AboveBackgroundThreadModePriority:
     case THREAD_PRIORITY_LOWEST:

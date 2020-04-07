@@ -5,8 +5,8 @@
  * found in the LICENSE file.
  */
 
-#include "SkRasterPipeline.h"
-#include "SkOpts.h"
+#include "src/core/SkOpts.h"
+#include "src/core/SkRasterPipeline.h"
 #include <algorithm>
 
 SkRasterPipeline::SkRasterPipeline(SkArenaAlloc* alloc) : fAlloc(alloc) {
@@ -30,6 +30,11 @@ void SkRasterPipeline::unchecked_append(StockStage stage, void* ctx) {
     fStages = fAlloc->make<StageList>( StageList{fStages, (uint64_t) stage, ctx, false} );
     fNumStages   += 1;
     fSlotsNeeded += ctx ? 2 : 1;
+}
+void SkRasterPipeline::append(StockStage stage, uintptr_t ctx) {
+    void* ptrCtx;
+    memcpy(&ptrCtx, &ctx, sizeof(ctx));
+    this->append(stage, ptrCtx);
 }
 void SkRasterPipeline::append(void* fn, void* ctx) {
     fStages = fAlloc->make<StageList>( StageList{fStages, (uint64_t) fn, ctx, true} );
@@ -165,6 +170,7 @@ void SkRasterPipeline::append_load(SkColorType ct, const SkRasterPipeline_Memory
         case kARGB_4444_SkColorType:    this->append(load_4444,    ctx); break;
         case kRGBA_8888_SkColorType:    this->append(load_8888,    ctx); break;
         case kRGBA_1010102_SkColorType: this->append(load_1010102, ctx); break;
+        case kRGBA_F16Norm_SkColorType:
         case kRGBA_F16_SkColorType:     this->append(load_f16,     ctx); break;
         case kRGBA_F32_SkColorType:     this->append(load_f32,     ctx); break;
 
@@ -195,6 +201,7 @@ void SkRasterPipeline::append_load_dst(SkColorType ct, const SkRasterPipeline_Me
         case kARGB_4444_SkColorType:    this->append(load_4444_dst,    ctx); break;
         case kRGBA_8888_SkColorType:    this->append(load_8888_dst,    ctx); break;
         case kRGBA_1010102_SkColorType: this->append(load_1010102_dst, ctx); break;
+        case kRGBA_F16Norm_SkColorType:
         case kRGBA_F16_SkColorType:     this->append(load_f16_dst,     ctx); break;
         case kRGBA_F32_SkColorType:     this->append(load_f32_dst,     ctx); break;
 
@@ -225,6 +232,7 @@ void SkRasterPipeline::append_store(SkColorType ct, const SkRasterPipeline_Memor
         case kARGB_4444_SkColorType:    this->append(store_4444,    ctx); break;
         case kRGBA_8888_SkColorType:    this->append(store_8888,    ctx); break;
         case kRGBA_1010102_SkColorType: this->append(store_1010102, ctx); break;
+        case kRGBA_F16Norm_SkColorType:
         case kRGBA_F16_SkColorType:     this->append(store_f16,     ctx); break;
         case kRGBA_F32_SkColorType:     this->append(store_f32,     ctx); break;
 
@@ -236,7 +244,7 @@ void SkRasterPipeline::append_store(SkColorType ct, const SkRasterPipeline_Memor
                                         this->append(store_1010102, ctx);
                                         break;
 
-        case kGray_8_SkColorType:       this->append(luminance_to_alpha);
+        case kGray_8_SkColorType:       this->append(bt709_luminance_or_luma_to_alpha);
                                         this->append(store_a8, ctx);
                                         break;
 
@@ -247,6 +255,7 @@ void SkRasterPipeline::append_store(SkColorType ct, const SkRasterPipeline_Memor
 }
 
 void SkRasterPipeline::append_gamut_clamp_if_normalized(const SkImageInfo& dstInfo) {
+    // N.B. we _do_ clamp for kRGBA_F16Norm_SkColorType... because it's normalized.
     if (dstInfo.colorType() != kRGBA_F16_SkColorType &&
         dstInfo.colorType() != kRGBA_F32_SkColorType &&
         dstInfo.alphaType() == kPremul_SkAlphaType)

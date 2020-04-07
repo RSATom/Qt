@@ -158,9 +158,9 @@ static bool isChecked(const QObject *o)
 /*!
     \qmlmethod void ExclusiveGroup::bindCheckable(object)
 
-    Register \c object to the exclusive group.
+    Registers \a object to the exclusive group.
 
-    You should only need to call this function when creating a component you want to be compatible with \c ExclusiveGroup.
+    You should only need to call this function when creating a component you want to be compatible with ExclusiveGroup.
 
     \sa ExclusiveGroup::unbindCheckable()
 */
@@ -168,9 +168,9 @@ static bool isChecked(const QObject *o)
 /*!
     \qmlmethod void ExclusiveGroup::unbindCheckable(object)
 
-    Unregister \c object from the exclusive group.
+    Unregisters \a object from the exclusive group.
 
-    You should only need to call this function when creating a component you want to be compatible with \c ExclusiveGroup.
+    You should only need to call this function when creating a component you want to be compatible with ExclusiveGroup.
 
     \sa ExclusiveGroup::bindCheckable()
 */

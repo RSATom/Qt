@@ -20,6 +20,7 @@
 #include "ui/gfx/geometry/vector2d_f.h"
 
 namespace display {
+class Display;
 class DisplayAndroidManager;
 }  // namespace display
 
@@ -41,7 +42,11 @@ class UI_ANDROID_EXPORT WindowAndroid : public ViewAndroid {
   static WindowAndroid* FromJavaWindowAndroid(
       const base::android::JavaParamRef<jobject>& jwindow_android);
 
-  WindowAndroid(JNIEnv* env, jobject obj, int display_id, float scroll_factor);
+  WindowAndroid(JNIEnv* env,
+                jobject obj,
+                int display_id,
+                float scroll_factor,
+                bool window_is_wide_color_gamut);
 
   ~WindowAndroid() override;
 
@@ -60,6 +65,9 @@ class UI_ANDROID_EXPORT WindowAndroid : public ViewAndroid {
 
   WindowAndroidCompositor* GetCompositor() { return compositor_; }
   viz::BeginFrameSource* GetBeginFrameSource();
+  float GetRefreshRate();
+  std::vector<float> GetSupportedRefreshRates();
+  void SetPreferredRefreshRate(float refresh_rate);
 
   // Runs the provided callback as soon as the current vsync was handled.
   // This call is only allowed from inside the OnBeginFrame call from the
@@ -75,6 +83,10 @@ class UI_ANDROID_EXPORT WindowAndroid : public ViewAndroid {
   void OnVisibilityChanged(JNIEnv* env,
                            const base::android::JavaParamRef<jobject>& obj,
                            bool visible);
+  void OnFallbackCursorModeToggled(
+      JNIEnv* env,
+      const base::android::JavaParamRef<jobject>& obj,
+      bool is_on);
   void OnActivityStopped(JNIEnv* env,
                          const base::android::JavaParamRef<jobject>& obj);
   void OnActivityStarted(JNIEnv* env,
@@ -82,6 +94,17 @@ class UI_ANDROID_EXPORT WindowAndroid : public ViewAndroid {
   void SetVSyncPaused(JNIEnv* env,
                       const base::android::JavaParamRef<jobject>& obj,
                       bool paused);
+  void OnCursorVisibilityChanged(
+      JNIEnv* env,
+      const base::android::JavaParamRef<jobject>& obj,
+      bool visible);
+  void OnUpdateRefreshRate(JNIEnv* env,
+                           const base::android::JavaParamRef<jobject>& obj,
+                           float refresh_rate);
+  void OnSupportedRefreshRatesUpdated(
+      JNIEnv* env,
+      const base::android::JavaParamRef<jobject>& obj,
+      const base::android::JavaParamRef<jfloatArray>& supported_refresh_rates);
 
   // Return whether the specified Android permission is granted.
   bool HasPermission(const std::string& permission);
@@ -95,6 +118,31 @@ class UI_ANDROID_EXPORT WindowAndroid : public ViewAndroid {
   // Return the window token for this window, if one exists.
   base::android::ScopedJavaLocalRef<jobject> GetWindowToken();
 
+  // This should return the same Display as Screen::GetDisplayNearestWindow
+  // except the color space depends on the status of this particular window
+  // rather than the display itself.
+  // See comment on WindowAndroid.getWindowIsWideColorGamut for details.
+  display::Display GetDisplayWithWindowColorSpace();
+
+  void SetForce60HzRefreshRate();
+
+  class TestHooks {
+   public:
+    virtual ~TestHooks() = default;
+    virtual std::vector<float> GetSupportedRates() = 0;
+    virtual void SetPreferredRate(float refresh_rate) = 0;
+  };
+  void SetTestHooks(TestHooks* hooks);
+
+  class ScopedSelectionHandles {
+   public:
+    ScopedSelectionHandles(WindowAndroid* window);
+    ~ScopedSelectionHandles();
+
+   private:
+    WindowAndroid* window_;
+  };
+
  private:
   class WindowBeginFrameSource;
   class ScopedOnBeginFrame;
@@ -103,6 +151,7 @@ class UI_ANDROID_EXPORT WindowAndroid : public ViewAndroid {
 
   void SetNeedsBeginFrames(bool needs_begin_frames);
   void RequestVSyncUpdate();
+  void Force60HzRefreshRateIfNeeded();
 
   // ViewAndroid overrides.
   WindowAndroid* GetWindowAndroid() const override;
@@ -112,6 +161,7 @@ class UI_ANDROID_EXPORT WindowAndroid : public ViewAndroid {
 
   base::android::ScopedJavaGlobalRef<jobject> java_window_;
   const int display_id_;
+  const bool window_is_wide_color_gamut_;
   WindowAndroidCompositor* compositor_;
 
   base::ObserverList<WindowAndroidObserver>::Unchecked observer_list_;
@@ -120,6 +170,11 @@ class UI_ANDROID_EXPORT WindowAndroid : public ViewAndroid {
   bool needs_begin_frames_;
   float mouse_wheel_scroll_factor_;
   bool vsync_paused_ = false;
+
+  TestHooks* test_hooks_ = nullptr;
+  bool force_60hz_refresh_rate_ = false;
+
+  int selection_handles_active_count_ = 0;
 
   DISALLOW_COPY_AND_ASSIGN(WindowAndroid);
 };

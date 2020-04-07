@@ -1,12 +1,16 @@
 # Copyright 2015 The Chromium Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
+from __future__ import absolute_import
+from __future__ import division
+from __future__ import print_function
 import threading
 import traceback
+from six.moves import range  # pylint: disable=redefined-builtin
 try:
   import queue
 except ImportError:
-  import Queue as queue
+  import six.moves.queue as queue # pylint: disable=import-error
 
 
 class ThreadedWorkQueue(object):
@@ -97,6 +101,11 @@ class ThreadedWorkQueue(object):
   def _RunSingleThreaded(self):
     while True:
       if self._stop:
+        break
+      # Since this is single-threaded, if both task-lists are empty, then
+      # nothing will be able to add any more tasks to either task-queue.
+      if self._any_thread_tasks.empty() and self._main_thread_tasks.empty():
+        self.Stop()
         break
       self._TryToRunOneTask(self._any_thread_tasks)
       self._TryToRunOneTask(self._main_thread_tasks)

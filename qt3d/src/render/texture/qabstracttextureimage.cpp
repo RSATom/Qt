@@ -39,7 +39,6 @@
 
 #include "qabstracttextureimage.h"
 #include "qabstracttextureimage_p.h"
-#include <Qt3DCore/qpropertyupdatedchange.h>
 #include <Qt3DRender/qtextureimagedatagenerator.h>
 
 QT_BEGIN_NAMESPACE
@@ -94,6 +93,12 @@ QAbstractTextureImagePrivate::~QAbstractTextureImagePrivate()
 {
 }
 
+QTextureImageDataGeneratorPtr QAbstractTextureImagePrivate::dataGenerator() const
+{
+    Q_Q(const QAbstractTextureImage);
+    return q->dataGenerator();
+}
+
 /*!
     \qmltype AbstractTextureImage
     \instantiates Qt3DRender::QAbstractTextureImage
@@ -126,8 +131,8 @@ QAbstractTextureImagePrivate::~QAbstractTextureImagePrivate()
 /*!
    \fn Qt3DRender::QTextureImageDataGeneratorPtr Qt3DRender::QAbstractTextureImage::dataGenerator() const
 
-    Implement this method to return the \l QTextureImageDataGeneratorPtr, which will
-    provide the data for the texture image.
+    Implement this method to return the QTextureImageDataGeneratorPtr instance,
+    which will provide the data for the texture image.
 */
 
 /*!
@@ -255,12 +260,7 @@ void QAbstractTextureImage::setFace(QAbstractTexture::CubeMapFace face)
 void QAbstractTextureImage::notifyDataGeneratorChanged()
 {
     Q_D(QAbstractTextureImage);
-    if (d->m_changeArbiter != nullptr) {
-        auto change = QPropertyUpdatedChangePtr::create(d->m_id);
-        change->setPropertyName("dataGenerator");
-        change->setValue(QVariant::fromValue(dataGenerator()));
-        d->notifyObservers(change);
-    }
+    d->update();
 }
 
 /*! \internal */

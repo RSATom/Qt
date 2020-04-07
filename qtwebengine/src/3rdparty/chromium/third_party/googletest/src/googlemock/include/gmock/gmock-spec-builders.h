@@ -61,6 +61,7 @@
 #ifndef GMOCK_INCLUDE_GMOCK_GMOCK_SPEC_BUILDERS_H_
 #define GMOCK_INCLUDE_GMOCK_GMOCK_SPEC_BUILDERS_H_
 
+#include <functional>
 #include <map>
 #include <memory>
 #include <set>
@@ -1453,7 +1454,7 @@ template <typename F>
 class FunctionMocker;
 
 template <typename R, typename... Args>
-class FunctionMocker<R(Args...)> : public UntypedFunctionMockerBase {
+class FunctionMocker<R(Args...)> final : public UntypedFunctionMockerBase {
   using F = R(Args...);
 
  public:

@@ -10,16 +10,17 @@
 #include "base/at_exit.h"
 #include "base/command_line.h"
 #include "base/logging.h"
-#include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
 #include "base/strings/string_number_conversions.h"
-#include "base/task/task_scheduler/task_scheduler.h"
+#include "base/task/single_thread_task_executor.h"
+#include "base/task/thread_pool/thread_pool.h"
 #include "net/base/ip_address.h"
 #include "net/base/ip_endpoint.h"
 #include "net/quic/crypto/proof_source_chromium.h"
-#include "net/third_party/quic/core/quic_packets.h"
-#include "net/third_party/quic/tools/quic_memory_cache_backend.h"
-#include "net/third_party/quic/tools/quic_simple_server_backend.h"
+#include "net/third_party/quiche/src/quic/core/quic_packets.h"
+#include "net/third_party/quiche/src/quic/core/quic_versions.h"
+#include "net/third_party/quiche/src/quic/tools/quic_memory_cache_backend.h"
+#include "net/third_party/quiche/src/quic/tools/quic_simple_server_backend.h"
 #include "net/tools/quic/quic_http_proxy_backend.h"
 #include "net/tools/quic/quic_simple_server.h"
 
@@ -34,6 +35,8 @@ std::string FLAGS_quic_response_cache_dir = "";
 // URL with http/https, IP address or host name and the port number of the
 // backend server
 std::string FLAGS_quic_proxy_backend_url = "";
+// QUIC IETF draft number to use over the wire.
+int32_t FLAGS_quic_ietf_draft = 0;
 
 std::unique_ptr<quic::ProofSource> CreateProofSource(
     const base::FilePath& cert_path,
@@ -45,15 +48,16 @@ std::unique_ptr<quic::ProofSource> CreateProofSource(
 }
 
 int main(int argc, char* argv[]) {
-  base::TaskScheduler::CreateAndStartWithDefaultParams("quic_server");
+  base::ThreadPoolInstance::CreateAndStartWithDefaultParams("quic_server");
   base::AtExitManager exit_manager;
-  base::MessageLoopForIO message_loop;
+  base::SingleThreadTaskExecutor io_task_executor(base::MessagePump::Type::IO);
 
   base::CommandLine::Init(argc, argv);
   base::CommandLine* line = base::CommandLine::ForCurrentProcess();
 
   logging::LoggingSettings settings;
-  settings.logging_dest = logging::LOG_TO_SYSTEM_DEBUG_LOG;
+  settings.logging_dest =
+      logging::LOG_TO_SYSTEM_DEBUG_LOG | logging::LOG_TO_STDERR;
   CHECK(logging::InitLogging(settings));
 
   if (line->HasSwitch("h") || line->HasSwitch("help")) {
@@ -74,6 +78,9 @@ int main(int argc, char* argv[]) {
         "                            The URL for the single backend server "
         "hostname \n"
         "                            For example, \"http://xyz.com:80\"\n"
+        "--quic_ietf_draft=<draft>   Specify which QUIC IETF draft number to "
+        "use over the wire, e.g. 18. This also enables required internal "
+        "QUIC flags.\n"
         "--certificate_file=<file>   path to the certificate chain\n"
         "--key_file=<file>           path to the pkcs8 private key\n";
     std::cout << help_str;
@@ -87,11 +94,11 @@ int main(int argc, char* argv[]) {
     FLAGS_quic_mode = line->GetSwitchValueASCII("mode");
   }
   if (FLAGS_quic_mode.compare("cache") == 0) {
+    quic_simple_server_backend =
+        std::make_unique<quic::QuicMemoryCacheBackend>();
     if (line->HasSwitch("quic_response_cache_dir")) {
       FLAGS_quic_response_cache_dir =
           line->GetSwitchValueASCII("quic_response_cache_dir");
-      quic_simple_server_backend =
-          std::make_unique<quic::QuicMemoryCacheBackend>();
       if (FLAGS_quic_response_cache_dir.empty() ||
           quic_simple_server_backend->InitializeBackend(
               FLAGS_quic_response_cache_dir) != true) {
@@ -116,11 +123,25 @@ int main(int argc, char* argv[]) {
     LOG(ERROR) << "unknown --mode. cache is a valid mode of operation";
     return 1;
   }
+  DCHECK(quic_simple_server_backend);
 
   if (line->HasSwitch("port")) {
     if (!base::StringToInt(line->GetSwitchValueASCII("port"), &FLAGS_port)) {
       LOG(ERROR) << "--port must be an integer\n";
       return 1;
+    }
+  }
+
+  if (line->HasSwitch("quic_ietf_draft")) {
+    if (!base::StringToInt(line->GetSwitchValueASCII("quic_ietf_draft"),
+                           &FLAGS_quic_ietf_draft)) {
+      LOG(ERROR) << "--quic_ietf_draft must be an integer\n";
+      return 1;
+    }
+    if (FLAGS_quic_ietf_draft > 0) {
+      quic::QuicVersionInitializeSupportForIetfDraft(FLAGS_quic_ietf_draft);
+      quic::QuicEnableVersion(quic::ParsedQuicVersion(quic::PROTOCOL_TLS1_3,
+                                                      quic::QUIC_VERSION_99));
     }
   }
 

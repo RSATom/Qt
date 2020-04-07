@@ -255,11 +255,17 @@ public:
 #ifndef Q_QDOC //suppress qdoc warnings
     QVector<QBluetoothUuid> serviceUuids() const;
 #endif // Q_QDOC
-#else
+#elif QT_DEPRECATED_SINCE(5, 13)
     QList<QBluetoothUuid> serviceUuids(DataCompleteness *completeness = nullptr) const;
+#else
+    QList<QBluetoothUuid> serviceUuids() const;
 #endif
     void setServiceUuids(const QVector<QBluetoothUuid> &uuids);
 
+    // TODO Qt6 manufacturerData()
+    // manufacturerData() and manufacturerData(quint16) return types should be modified to
+    // cope with multiple data entires per manufacturer ID. QHash<quint16, QByteArray>
+    // may stay though if it retains insertMulti() in Qt 6.
     QVector<quint16> manufacturerIds() const;
     QByteArray manufacturerData(quint16 manufacturerId) const;
     bool setManufacturerData(quint16 manufacturerId, const QByteArray &data);

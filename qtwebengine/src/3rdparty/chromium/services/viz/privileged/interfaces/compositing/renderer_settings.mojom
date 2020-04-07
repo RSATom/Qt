@@ -4,12 +4,12 @@
 
 module viz.mojom;
 
+import "services/viz/privileged/interfaces/compositing/overlay_strategy.mojom";
 import "ui/gfx/geometry/mojo/geometry.mojom";
 import "ui/gfx/mojo/color_space.mojom";
 
 struct RendererSettings {
   bool allow_antialiasing;
-  bool finish_rendering_on_resize;
   bool force_antialiasing;
   bool force_blending_with_shaders;
   bool tint_gl_composited_content;
@@ -18,7 +18,6 @@ struct RendererSettings {
   bool release_overlay_resources_after_gpu_query;
   bool should_clear_root_render_pass;
   bool show_overdraw_feedback;
-  bool enable_draw_occlusion;
   int32 slow_down_compositing_scale_factor;
   bool use_skia_renderer;
   bool record_sk_picture;
@@ -30,4 +29,7 @@ struct RendererSettings {
 
   [EnableIf=is_android]
   gfx.mojom.ColorSpace color_space;
+
+  [EnableIf=use_ozone]
+  array<OverlayStrategy> overlay_strategies;
 };

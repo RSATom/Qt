@@ -39,11 +39,18 @@ class GrContext;
 
 namespace cc {
 class ImageDecodeCache;
+class PaintCanvas;
 }  // namespace cc
+
+namespace media {
+class PaintCanvasVideoRenderer;
+class VideoFrame;
+}  // namespace media
 
 namespace gpu {
 struct Capabilities;
 struct GpuFeatureInfo;
+class SharedImageInterface;
 
 namespace gles2 {
 class GLES2Interface;
@@ -59,6 +66,22 @@ class GLHelper;
 }
 
 namespace blink {
+enum AntialiasingMode {
+  kAntialiasingModeUnspecified,
+  kAntialiasingModeNone,
+  kAntialiasingModeMSAAImplicitResolve,
+  kAntialiasingModeMSAAExplicitResolve,
+  kAntialiasingModeScreenSpaceAntialiasing,
+};
+
+struct WebglPreferences {
+  AntialiasingMode anti_aliasing_mode = kAntialiasingModeUnspecified;
+  uint32_t msaa_sample_count = 8;
+  uint32_t eqaa_storage_sample_count = 4;
+  // WebGL-specific numeric limits.
+  uint32_t max_active_webgl_contexts = 0;
+  uint32_t max_active_webgl_contexts_on_worker = 0;
+};
 
 class WebGraphicsContext3DProvider {
  public:
@@ -70,6 +93,7 @@ class WebGraphicsContext3DProvider {
   virtual GrContext* GetGrContext() = 0;
   virtual const gpu::Capabilities& GetCapabilities() const = 0;
   virtual const gpu::GpuFeatureInfo& GetGpuFeatureInfo() const = 0;
+  virtual const WebglPreferences& GetWebglPreferences() const = 0;
   // Creates a viz::GLHelper after first call and returns that instance. This
   // method cannot return null.
   virtual viz::GLHelper* GetGLHelper() = 0;
@@ -77,11 +101,12 @@ class WebGraphicsContext3DProvider {
   virtual void SetLostContextCallback(base::RepeatingClosure) = 0;
   virtual void SetErrorMessageCallback(
       base::RepeatingCallback<void(const char* msg, int32_t id)>) = 0;
-  // Return a static software image decode cache for a given color type and
-  // space.
-  virtual cc::ImageDecodeCache* ImageDecodeCache(
-      SkColorType color_type,
-      sk_sp<SkColorSpace> color_space) = 0;
+  // Return a static software image decode cache for a given color type.
+  virtual cc::ImageDecodeCache* ImageDecodeCache(SkColorType color_type) = 0;
+  virtual gpu::SharedImageInterface* SharedImageInterface() = 0;
+  virtual void CopyVideoFrame(media::PaintCanvasVideoRenderer* video_render,
+                              media::VideoFrame* video_frame,
+                              cc::PaintCanvas* canvas) = 0;
 };
 
 }  // namespace blink

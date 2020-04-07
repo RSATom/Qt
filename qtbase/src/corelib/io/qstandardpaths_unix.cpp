@@ -71,6 +71,28 @@ static void appendOrganizationAndApp(QString &path)
 #endif
 }
 
+#if QT_CONFIG(regularexpression)
+static QLatin1String xdg_key_name(QStandardPaths::StandardLocation type)
+{
+    switch (type) {
+    case QStandardPaths::DesktopLocation:
+        return QLatin1String("DESKTOP");
+    case QStandardPaths::DocumentsLocation:
+        return QLatin1String("DOCUMENTS");
+    case QStandardPaths::PicturesLocation:
+        return QLatin1String("PICTURES");
+    case QStandardPaths::MusicLocation:
+        return QLatin1String("MUSIC");
+    case QStandardPaths::MoviesLocation:
+        return QLatin1String("VIDEOS");
+    case QStandardPaths::DownloadLocation:
+        return QLatin1String("DOWNLOAD");
+    default:
+        return QLatin1String();
+    }
+}
+#endif
+
 QString QStandardPaths::writableLocation(StandardLocation type)
 {
     switch (type) {
@@ -120,54 +142,60 @@ QString QStandardPaths::writableLocation(StandardLocation type)
     }
     case RuntimeLocation:
     {
-        const uint myUid = uint(geteuid());
         // http://standards.freedesktop.org/basedir-spec/latest/
+        const uint myUid = uint(geteuid());
+        // since the current user is the owner, set both xxxUser and xxxOwner
+        const QFile::Permissions wantedPerms = QFile::ReadUser | QFile::WriteUser | QFile::ExeUser
+                                               | QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner;
         QFileInfo fileInfo;
         QString xdgRuntimeDir = QFile::decodeName(qgetenv("XDG_RUNTIME_DIR"));
         if (xdgRuntimeDir.isEmpty()) {
             const QString userName = QFileSystemEngine::resolveUserName(myUid);
             xdgRuntimeDir = QDir::tempPath() + QLatin1String("/runtime-") + userName;
             fileInfo.setFile(xdgRuntimeDir);
-            if (!fileInfo.isDir()) {
-                if (!QDir().mkdir(xdgRuntimeDir)) {
-                    qWarning("QStandardPaths: error creating runtime directory %s: %s", qPrintable(xdgRuntimeDir), qPrintable(qt_error_string(errno)));
-                    return QString();
-                }
-            }
 #ifndef Q_OS_WASM
-            qWarning("QStandardPaths: XDG_RUNTIME_DIR not set, defaulting to '%s'", qPrintable(xdgRuntimeDir));
+            qWarning("QStandardPaths: XDG_RUNTIME_DIR not set, defaulting to '%ls'", qUtf16Printable(xdgRuntimeDir));
 #endif
         } else {
             fileInfo.setFile(xdgRuntimeDir);
-            if (!fileInfo.exists()) {
-                qWarning("QStandardPaths: XDG_RUNTIME_DIR points to non-existing path '%s', "
-                         "please create it with 0700 permissions.", qPrintable(xdgRuntimeDir));
+        }
+        if (fileInfo.exists()) {
+            if (!fileInfo.isDir()) {
+                qWarning("QStandardPaths: XDG_RUNTIME_DIR points to '%ls' which is not a directory",
+                         qUtf16Printable(xdgRuntimeDir));
                 return QString();
             }
-            if (!fileInfo.isDir()) {
-                qWarning("QStandardPaths: XDG_RUNTIME_DIR points to '%s' which is not a directory",
-                         qPrintable(xdgRuntimeDir));
-                return QString();
+        } else {
+            QFileSystemEntry entry(xdgRuntimeDir);
+            if (!QFileSystemEngine::createDirectory(entry, false)) {
+                if (errno != EEXIST) {
+                    qErrnoWarning("QStandardPaths: error creating runtime directory %ls",
+                                  qUtf16Printable(xdgRuntimeDir));
+                    return QString();
+                }
+            } else {
+                QSystemError error;
+                if (!QFileSystemEngine::setPermissions(entry, wantedPerms, error)) {
+                    qWarning("QStandardPaths: could not set correct permissions on runtime directory %ls: %ls",
+                             qUtf16Printable(xdgRuntimeDir), qUtf16Printable(error.toString()));
+                    return QString();
+                }
             }
         }
         // "The directory MUST be owned by the user"
         if (fileInfo.ownerId() != myUid) {
-            qWarning("QStandardPaths: wrong ownership on runtime directory %s, %d instead of %d", qPrintable(xdgRuntimeDir),
+            qWarning("QStandardPaths: wrong ownership on runtime directory %ls, %d instead of %d",
+                     qUtf16Printable(xdgRuntimeDir),
                      fileInfo.ownerId(), myUid);
             return QString();
         }
         // "and he MUST be the only one having read and write access to it. Its Unix access mode MUST be 0700."
-        // since the current user is the owner, set both xxxUser and xxxOwner
-        const QFile::Permissions wantedPerms = QFile::ReadUser | QFile::WriteUser | QFile::ExeUser
-                                               | QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner;
         if (fileInfo.permissions() != wantedPerms) {
-            QFile file(xdgRuntimeDir);
-            if (!file.setPermissions(wantedPerms)) {
-                qWarning("QStandardPaths: could not set correct permissions on runtime directory %s: %s",
-                         qPrintable(xdgRuntimeDir), qPrintable(file.errorString()));
-                return QString();
-            }
+            qWarning("QStandardPaths: wrong permissions on runtime directory %ls, %x instead of %x",
+                     qUtf16Printable(xdgRuntimeDir), uint(fileInfo.permissions()), uint(wantedPerms));
+            return QString();
         }
+
         return xdgRuntimeDir;
     }
     default:
@@ -180,61 +208,32 @@ QString QStandardPaths::writableLocation(StandardLocation type)
     if (xdgConfigHome.isEmpty())
         xdgConfigHome = QDir::homePath() + QLatin1String("/.config");
     QFile file(xdgConfigHome + QLatin1String("/user-dirs.dirs"));
-    if (!isTestModeEnabled() && file.open(QIODevice::ReadOnly)) {
-        QHash<QString, QString> lines;
+    const QLatin1String key = xdg_key_name(type);
+    if (!key.isEmpty() && !isTestModeEnabled() && file.open(QIODevice::ReadOnly)) {
         QTextStream stream(&file);
         // Only look for lines like: XDG_DESKTOP_DIR="$HOME/Desktop"
         QRegularExpression exp(QLatin1String("^XDG_(.*)_DIR=(.*)$"));
+        QString result;
         while (!stream.atEnd()) {
             const QString &line = stream.readLine();
             QRegularExpressionMatch match = exp.match(line);
-            if (match.hasMatch()) {
-                const QStringList lst = match.capturedTexts();
-                const QString key = lst.at(1);
-                QString value = lst.at(2);
+            if (match.hasMatch() && match.capturedView(1) == key) {
+                QStringView value = match.capturedView(2);
                 if (value.length() > 2
                     && value.startsWith(QLatin1Char('\"'))
                     && value.endsWith(QLatin1Char('\"')))
                     value = value.mid(1, value.length() - 2);
-                // Store the key and value: "DESKTOP", "$HOME/Desktop"
-                lines[key] = value;
-            }
-        }
-
-        QString key;
-        switch (type) {
-        case DesktopLocation:
-            key = QLatin1String("DESKTOP");
-            break;
-        case DocumentsLocation:
-            key = QLatin1String("DOCUMENTS");
-            break;
-        case PicturesLocation:
-            key = QLatin1String("PICTURES");
-            break;
-        case MusicLocation:
-            key = QLatin1String("MUSIC");
-            break;
-        case MoviesLocation:
-            key = QLatin1String("VIDEOS");
-            break;
-        case DownloadLocation:
-            key = QLatin1String("DOWNLOAD");
-            break;
-        default:
-            break;
-        }
-        if (!key.isEmpty()) {
-            QString value = lines.value(key);
-            if (!value.isEmpty()) {
                 // value can start with $HOME
                 if (value.startsWith(QLatin1String("$HOME")))
-                    value = QDir::homePath() + value.midRef(5);
-                if (value.length() > 1 && value.endsWith(QLatin1Char('/')))
-                    value.chop(1);
-                return value;
+                    result = QDir::homePath() + value.mid(5);
+                else
+                    result = value.toString();
+                if (result.length() > 1 && result.endsWith(QLatin1Char('/')))
+                    result.chop(1);
             }
         }
+        if (!result.isNull())
+            return result;
     }
 #endif // QT_CONFIG(regularexpression)
 
@@ -284,16 +283,12 @@ static QStringList xdgDataDirs()
         dirs.append(QString::fromLatin1("/usr/local/share"));
         dirs.append(QString::fromLatin1("/usr/share"));
     } else {
-        dirs = xdgDataDirsEnv.split(QLatin1Char(':'), QString::SkipEmptyParts);
+        const auto parts = xdgDataDirsEnv.splitRef(QLatin1Char(':'), QString::SkipEmptyParts);
 
         // Normalize paths, skip relative paths
-        QMutableListIterator<QString> it(dirs);
-        while (it.hasNext()) {
-            const QString dir = it.next();
-            if (!dir.startsWith(QLatin1Char('/')))
-                it.remove();
-            else
-                it.setValue(QDir::cleanPath(dir));
+        for (const QStringRef &dir : parts) {
+            if (dir.startsWith(QLatin1Char('/')))
+                dirs.push_back(QDir::cleanPath(dir.toString()));
         }
 
         // Remove duplicates from the list, there's no use for duplicated

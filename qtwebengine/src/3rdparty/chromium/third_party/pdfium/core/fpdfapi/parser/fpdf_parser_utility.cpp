@@ -9,6 +9,7 @@
 #include "core/fpdfapi/parser/cpdf_array.h"
 #include "core/fpdfapi/parser/cpdf_boolean.h"
 #include "core/fpdfapi/parser/cpdf_dictionary.h"
+#include "core/fpdfapi/parser/cpdf_name.h"
 #include "core/fpdfapi/parser/cpdf_number.h"
 #include "core/fpdfapi/parser/cpdf_reference.h"
 #include "core/fpdfapi/parser/cpdf_stream.h"
@@ -90,23 +91,23 @@ int32_t GetDirectInteger(const CPDF_Dictionary* pDict, const ByteString& key) {
   return pObj ? pObj->GetInteger() : 0;
 }
 
-ByteString PDF_NameDecode(ByteStringView bstr) {
-  if (!bstr.Contains('#'))
-    return ByteString(bstr);
+ByteString PDF_NameDecode(ByteStringView orig) {
+  if (!orig.Contains('#'))
+    return ByteString(orig);
 
-  size_t src_size = bstr.GetLength();
+  size_t src_size = orig.GetLength();
   size_t out_index = 0;
   ByteString result;
   {
     // Span's lifetime must end before ReleaseBuffer() below.
     pdfium::span<char> pDest = result.GetBuffer(src_size);
     for (size_t i = 0; i < src_size; i++) {
-      if (bstr[i] == '#' && i + 2 < src_size) {
-        pDest[out_index++] = FXSYS_HexCharToInt(bstr[i + 1]) * 16 +
-                             FXSYS_HexCharToInt(bstr[i + 2]);
+      if (orig[i] == '#' && i + 2 < src_size) {
+        pDest[out_index++] = FXSYS_HexCharToInt(orig[i + 1]) * 16 +
+                             FXSYS_HexCharToInt(orig[i + 2]);
         i += 2;
       } else {
-        pDest[out_index++] = bstr[i];
+        pDest[out_index++] = orig[i];
       }
     }
   }
@@ -150,6 +151,41 @@ ByteString PDF_NameEncode(const ByteString& orig) {
   }
   res.ReleaseBuffer(dest_len);
   return res;
+}
+
+std::vector<float> ReadArrayElementsToVector(const CPDF_Array* pArray,
+                                             size_t nCount) {
+  ASSERT(pArray);
+  ASSERT(pArray->size() >= nCount);
+  std::vector<float> ret(nCount);
+  for (size_t i = 0; i < nCount; ++i)
+    ret[i] = pArray->GetNumberAt(i);
+  return ret;
+}
+
+bool ValidateDictType(const CPDF_Dictionary* dict, const ByteString& type) {
+  ASSERT(dict);
+  ASSERT(!type.IsEmpty());
+  const CPDF_Name* name_obj = ToName(dict->GetObjectFor("Type"));
+  return name_obj && name_obj->GetString() == type;
+}
+
+bool ValidateDictAllResourcesOfType(const CPDF_Dictionary* dict,
+                                    const ByteString& type) {
+  if (!dict)
+    return false;
+
+  CPDF_DictionaryLocker locker(dict);
+  for (const auto& it : locker) {
+    const CPDF_Dictionary* entry = ToDictionary(it.second.Get()->GetDirect());
+    if (!entry || !ValidateDictType(entry, type))
+      return false;
+  }
+  return true;
+}
+
+bool ValidateFontResourceDict(const CPDF_Dictionary* dict) {
+  return ValidateDictAllResourcesOfType(dict, "Font");
 }
 
 std::ostream& operator<<(std::ostream& buf, const CPDF_Object* pObj) {
@@ -196,7 +232,7 @@ std::ostream& operator<<(std::ostream& buf, const CPDF_Object* pObj) {
       buf << "<<";
       for (const auto& it : locker) {
         const ByteString& key = it.first;
-        CPDF_Object* pValue = it.second.get();
+        CPDF_Object* pValue = it.second.Get();
         buf << "/" << PDF_NameEncode(key);
         if (pValue && !pValue->IsInline()) {
           buf << " " << pValue->GetObjNum() << " 0 R ";

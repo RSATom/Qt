@@ -11,14 +11,17 @@
 
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
+#include "base/memory/weak_ptr.h"
 #include "base/time/time.h"
 #include "base/timer/timer.h"
 #include "net/base/net_export.h"
+#include "net/dns/host_resolver.h"
 #include "net/log/net_log_with_source.h"
 #include "net/socket/transport_connect_job.h"
 
 namespace net {
 
+class SocketTag;
 class WebSocketTransportConnectSubJob;
 
 // WebSocketTransportConnectJob handles the host resolution necessary for socket
@@ -38,13 +41,16 @@ class NET_EXPORT_PRIVATE WebSocketTransportConnectJob : public ConnectJob {
  public:
   WebSocketTransportConnectJob(
       RequestPriority priority,
-      const CommonConnectJobParams& common_connect_job_params,
+      const SocketTag& socket_tag,
+      const CommonConnectJobParams* common_connect_job_params,
       const scoped_refptr<TransportSocketParams>& params,
-      Delegate* delegate);
+      Delegate* delegate,
+      const NetLogWithSource* net_log);
   ~WebSocketTransportConnectJob() override;
 
   // ConnectJob methods.
   LoadState GetLoadState() const override;
+  bool HasEstablishedConnection() const override;
 
  private:
   friend class WebSocketTransportConnectSubJob;
@@ -83,11 +89,10 @@ class NET_EXPORT_PRIVATE WebSocketTransportConnectJob : public ConnectJob {
   void ChangePriorityInternal(RequestPriority priority) override;
 
   scoped_refptr<TransportSocketParams> params_;
-  std::unique_ptr<HostResolver::Request> request_;
+  std::unique_ptr<HostResolver::ResolveHostRequest> request_;
 
   State next_state_;
 
-  AddressList addresses_;
   // The addresses are divided into IPv4 and IPv6, which are performed partially
   // in parallel. If the list of IPv6 addresses is non-empty, then the IPv6 jobs
   // go first, followed after |kIPv6FallbackTimerInMs| by the IPv4
@@ -100,6 +105,8 @@ class NET_EXPORT_PRIVATE WebSocketTransportConnectJob : public ConnectJob {
 
   bool had_ipv4_;
   bool had_ipv6_;
+
+  base::WeakPtrFactory<WebSocketTransportConnectJob> weak_ptr_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(WebSocketTransportConnectJob);
 };

@@ -5,16 +5,15 @@
  * found in the LICENSE file.
  */
 
-#include "SkImageSource.h"
+#include "include/effects/SkImageSource.h"
 
-#include "SkCanvas.h"
-#include "SkColorSpaceXformer.h"
-#include "SkImage.h"
-#include "SkReadBuffer.h"
-#include "SkSpecialImage.h"
-#include "SkSpecialSurface.h"
-#include "SkWriteBuffer.h"
-#include "SkString.h"
+#include "include/core/SkCanvas.h"
+#include "include/core/SkImage.h"
+#include "include/core/SkString.h"
+#include "src/core/SkReadBuffer.h"
+#include "src/core/SkSpecialImage.h"
+#include "src/core/SkSpecialSurface.h"
+#include "src/core/SkWriteBuffer.h"
 
 sk_sp<SkImageFilter> SkImageSource::Make(sk_sp<SkImage> image) {
     if (!image) {
@@ -130,16 +129,6 @@ sk_sp<SkSpecialImage> SkImageSource::onFilterImage(SkSpecialImage* source, const
     offset->fX = dstIRect.fLeft;
     offset->fY = dstIRect.fTop;
     return surf->makeImageSnapshot();
-}
-
-sk_sp<SkImageFilter> SkImageSource::onMakeColorSpace(SkColorSpaceXformer* xformer) const {
-    SkASSERT(0 == this->countInputs());
-
-    auto image = xformer->apply(fImage.get());
-    if (image != fImage) {
-        return SkImageSource::Make(image, fSrcRect, fDstRect, fFilterQuality);
-    }
-    return this->refMe();
 }
 
 SkRect SkImageSource::computeFastBounds(const SkRect& src) const {

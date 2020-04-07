@@ -60,8 +60,9 @@
 #include <QScopedValueRollback>
 
 using namespace QV4;
+using namespace QQmlJS;
 
-Script::Script(ExecutionEngine *v4, QmlContext *qml, const QQmlRefPointer<CompiledData::CompilationUnit> &compilationUnit)
+Script::Script(ExecutionEngine *v4, QmlContext *qml, const QQmlRefPointer<ExecutableCompilationUnit> &compilationUnit)
     : line(1), column(0), context(v4->rootContext()), strictMode(false), inheritContext(true), parsed(false)
     , compilationUnit(compilationUnit), vmFunction(nullptr), parseAsBinding(true)
 {
@@ -108,10 +109,10 @@ void Script::parse()
     const auto diagnosticMessages = parser.diagnosticMessages();
     for (const DiagnosticMessage &m : diagnosticMessages) {
         if (m.isError()) {
-            valueScope.engine->throwSyntaxError(m.message, sourceFile, m.loc.startLine, m.loc.startColumn);
+            valueScope.engine->throwSyntaxError(m.message, sourceFile, m.line, m.column);
             return;
         } else {
-            qWarning() << sourceFile << ':' << m.loc.startLine << ':' << m.loc.startColumn
+            qWarning() << sourceFile << ':' << m.line << ':' << m.column
                       << ": warning: " << m.message;
         }
     }
@@ -133,7 +134,7 @@ void Script::parse()
         if (v4->hasException)
             return;
 
-        compilationUnit = cg.generateCompilationUnit();
+        compilationUnit = QV4::ExecutableCompilationUnit::create(cg.generateCompilationUnit());
         vmFunction = compilationUnit->linkToEngine(v4);
     }
 
@@ -172,10 +173,11 @@ Function *Script::function()
     return vmFunction;
 }
 
-QQmlRefPointer<QV4::CompiledData::CompilationUnit> Script::precompile(QV4::Compiler::Module *module, QQmlJS::Engine *jsEngine, Compiler::JSUnitGenerator *unitGenerator,
-                                                                      const QString &fileName, const QString &finalUrl, const QString &source,
-                                                                      QList<QQmlError> *reportedErrors,
-                                                                      QV4::Compiler::ContextType contextType)
+QV4::CompiledData::CompilationUnit Script::precompile(
+        QV4::Compiler::Module *module, QQmlJS::Engine *jsEngine,
+        Compiler::JSUnitGenerator *unitGenerator, const QString &fileName, const QString &finalUrl,
+        const QString &source, QList<QQmlError> *reportedErrors,
+        QV4::Compiler::ContextType contextType)
 {
     using namespace QV4::Compiler;
     using namespace QQmlJS::AST;
@@ -202,10 +204,16 @@ QQmlRefPointer<QV4::CompiledData::CompilationUnit> Script::precompile(QV4::Compi
 
     Codegen cg(unitGenerator, /*strict mode*/false);
     cg.generateFromProgram(fileName, finalUrl, source, program, module, contextType);
-    errors = cg.qmlErrors();
-    if (!errors.isEmpty()) {
-        if (reportedErrors)
-            *reportedErrors << errors;
+    if (cg.hasError()) {
+        if (reportedErrors) {
+            const auto v4Error = cg.error();
+            QQmlError error;
+            error.setUrl(cg.url());
+            error.setLine(v4Error.line);
+            error.setColumn(v4Error.column);
+            error.setDescription(v4Error.message);
+            reportedErrors->append(error);
+        }
         return nullptr;
     }
 
@@ -219,8 +227,9 @@ Script *Script::createFromFileOrCache(ExecutionEngine *engine, QmlContext *qmlCo
 
     QQmlMetaType::CachedUnitLookupError cacheError = QQmlMetaType::CachedUnitLookupError::NoError;
     if (const QV4::CompiledData::Unit *cachedUnit = QQmlMetaType::findCachedCompilationUnit(originalUrl, &cacheError)) {
-        QQmlRefPointer<QV4::CompiledData::CompilationUnit> jsUnit;
-        jsUnit.adopt(new QV4::CompiledData::CompilationUnit(cachedUnit));
+        QQmlRefPointer<QV4::ExecutableCompilationUnit> jsUnit
+                = QV4::ExecutableCompilationUnit::create(
+                        QV4::CompiledData::CompilationUnit(cachedUnit));
         return new QV4::Script(engine, qmlContext, jsUnit);
     }
 
@@ -237,7 +246,6 @@ Script *Script::createFromFileOrCache(ExecutionEngine *engine, QmlContext *qmlCo
 
     QByteArray data = f.readAll();
     QString sourceCode = QString::fromUtf8(data);
-    QmlIR::Document::removeScriptPragmas(sourceCode);
 
     auto result = new QV4::Script(engine, qmlContext, /*parseAsBinding*/false, sourceCode, originalUrl.toString());
     result->contextType = QV4::Compiler::ContextType::ScriptImportedByQML;

@@ -5,12 +5,14 @@
 mojom = "//services/network/public/mojom/url_loader.mojom"
 public_headers = [
   "//base/memory/scoped_refptr.h",
+  "//services/network/public/cpp/data_element.h",
   "//services/network/public/cpp/resource_request.h",
   "//services/network/public/cpp/resource_request_body.h",
 ]
 traits_headers = [
   "//services/network/public/cpp/network_ipc_param_traits.h",
   "//services/network/public/cpp/url_request_mojom_traits.h",
+  "//services/network/public/cpp/network_isolation_key_mojom_traits.h",
 ]
 public_deps = [
   "//base",

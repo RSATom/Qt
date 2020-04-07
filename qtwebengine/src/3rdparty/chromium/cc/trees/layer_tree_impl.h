@@ -12,7 +12,6 @@
 #include <vector>
 
 #include "base/containers/flat_set.h"
-#include "base/macros.h"
 #include "base/time/time.h"
 #include "base/values.h"
 #include "cc/base/synced_property.h"
@@ -99,7 +98,10 @@ class CC_EXPORT LayerTreeImpl {
                 scoped_refptr<SyncedProperty<ScaleGroup>> page_scale_factor,
                 scoped_refptr<SyncedBrowserControls> top_controls_shown_ratio,
                 scoped_refptr<SyncedElasticOverscroll> elastic_overscroll);
+  LayerTreeImpl(const LayerTreeImpl&) = delete;
   virtual ~LayerTreeImpl();
+
+  LayerTreeImpl& operator=(const LayerTreeImpl&) = delete;
 
   void Shutdown();
   void ReleaseResources();
@@ -181,7 +183,6 @@ class CC_EXPORT LayerTreeImpl {
   void PushPropertyTreesTo(LayerTreeImpl* tree_impl);
   void PushPropertiesTo(LayerTreeImpl* tree_impl);
   void PushSurfaceRangesTo(LayerTreeImpl* tree_impl);
-  void PushRegisteredElementIdsTo(LayerTreeImpl* tree_impl);
 
   void MoveChangeTrackingToLayers();
 
@@ -198,6 +199,8 @@ class CC_EXPORT LayerTreeImpl {
                            const gfx::Transform& transform);
   void SetOpacityMutated(ElementId element_id, float opacity);
   void SetFilterMutated(ElementId element_id, const FilterOperations& filters);
+  void SetBackdropFilterMutated(ElementId element_id,
+                                const FilterOperations& backdrop_filters);
 
   const std::unordered_map<ElementId, float, ElementIdHash>&
   element_id_to_opacity_animations_for_testing() const {
@@ -210,6 +213,10 @@ class CC_EXPORT LayerTreeImpl {
   const std::unordered_map<ElementId, FilterOperations, ElementIdHash>&
   element_id_to_filter_animations_for_testing() const {
     return element_id_to_filter_animations_;
+  }
+  const std::unordered_map<ElementId, FilterOperations, ElementIdHash>&
+  element_id_to_backdrop_filter_animations_for_testing() const {
+    return element_id_to_backdrop_filter_animations_;
   }
 
   int source_frame_number() const { return source_frame_number_; }
@@ -336,9 +343,6 @@ class CC_EXPORT LayerTreeImpl {
     return painted_device_scale_factor_;
   }
 
-  void set_content_source_id(uint32_t id) { content_source_id_ = id; }
-  uint32_t content_source_id() { return content_source_id_; }
-
   void SetLocalSurfaceIdAllocationFromParent(
       const viz::LocalSurfaceIdAllocation&
           local_surface_id_allocation_from_parent);
@@ -367,9 +371,23 @@ class CC_EXPORT LayerTreeImpl {
 
   void SetRasterColorSpace(int raster_color_space_id,
                            const gfx::ColorSpace& raster_color_space);
+  // OOPIFs need to know the page scale factor used in the main frame, but it
+  // is distributed differently (via VisualPropertiesSync), and used only to
+  // set raster-scale (page_scale_factor has geometry implications that are
+  // inappropriate for OOPIFs).
   void SetExternalPageScaleFactor(float external_page_scale_factor);
   float external_page_scale_factor() const {
     return external_page_scale_factor_;
+  }
+  // A function to provide page scale information for scaling scroll
+  // deltas. In top-level frames we store this value in page_scale_factor_, but
+  // for cross-process subframes it's stored in external_page_scale_factor_, so
+  // that it only affects raster scale. These cases are mutually exclusive, so
+  // only one of the values should ever vary from 1.f.
+  float page_scale_factor_for_scroll() const {
+    DCHECK(external_page_scale_factor_ == 1.f ||
+           current_page_scale_factor() == 1.f);
+    return external_page_scale_factor_ * current_page_scale_factor();
   }
   const gfx::ColorSpace& raster_color_space() const {
     return raster_color_space_;
@@ -439,9 +457,13 @@ class CC_EXPORT LayerTreeImpl {
   gfx::Rect RootScrollLayerDeviceViewportBounds() const;
 
   LayerImpl* LayerById(int id) const;
+  LayerImpl* LayerByElementId(ElementId element_id) const;
   LayerImpl* ScrollableLayerByElementId(ElementId element_id) const;
 
-  bool IsElementInLayerList(ElementId element_id) const;
+  bool IsElementInPropertyTree(ElementId element_id) const;
+  void AddToElementPropertyTreeList(ElementId element_id);
+  void RemoveFromElementPropertyTreeList(ElementId element_id);
+
   void AddToElementLayerList(ElementId element_id, LayerImpl* layer);
   void RemoveFromElementLayerList(ElementId element_id);
 
@@ -471,10 +493,6 @@ class CC_EXPORT LayerTreeImpl {
 
   // Used for accessing the task runner and debug assertions.
   TaskRunnerProvider* task_runner_provider() const;
-
-  // Distribute the root scroll between outer and inner viewport scroll layer.
-  // The outer viewport scroll layer scrolls first.
-  bool DistributeRootScrollOffset(const gfx::ScrollOffset& root_offset);
 
   void ApplyScroll(ScrollNode* scroll_node, ScrollState* scroll_state) {
     host_impl_->ApplyScroll(scroll_node, scroll_state);
@@ -525,6 +543,13 @@ class CC_EXPORT LayerTreeImpl {
     return picture_layers_;
   }
 
+  void NotifyLayerHasPaintWorkletsChanged(PictureLayerImpl* layer,
+                                          bool has_worklets);
+  const base::flat_set<PictureLayerImpl*>& picture_layers_with_paint_worklets()
+      const {
+    return picture_layers_with_paint_worklets_;
+  }
+
   void RegisterScrollbar(ScrollbarLayerImplBase* scrollbar_layer);
   void UnregisterScrollbar(ScrollbarLayerImplBase* scrollbar_layer);
   ScrollbarSet ScrollbarsFor(ElementId scroll_element_id) const;
@@ -538,6 +563,10 @@ class CC_EXPORT LayerTreeImpl {
       const gfx::PointF& screen_space_point);
 
   LayerImpl* FindLayerThatIsHitByPointInWheelEventHandlerRegion(
+      const gfx::PointF& screen_space_point);
+
+  // Return all layers with a hit non-fast scrollable region.
+  std::vector<const LayerImpl*> FindLayersHitByPointInNonFastScrollableRegion(
       const gfx::PointF& screen_space_point);
 
   void RegisterSelection(const LayerSelection& selection);
@@ -630,11 +659,6 @@ class CC_EXPORT LayerTreeImpl {
 
   LayerTreeLifecycle& lifecycle() { return lifecycle_; }
 
-  const std::unordered_set<ElementId, ElementIdHash>&
-  elements_in_property_trees() {
-    return elements_in_property_trees_;
-  }
-
   std::string LayerListAsJson() const;
   // TODO(pdr): This should be removed because there is no longer a tree
   // of layers, only a list.
@@ -689,7 +713,6 @@ class CC_EXPORT LayerTreeImpl {
   int raster_color_space_id_ = -1;
   gfx::ColorSpace raster_color_space_;
 
-  uint32_t content_source_id_;
   viz::LocalSurfaceIdAllocation local_surface_id_allocation_from_parent_;
   bool new_local_surface_id_request_ = false;
   gfx::Size device_viewport_size_;
@@ -707,15 +730,14 @@ class CC_EXPORT LayerTreeImpl {
   // Set of layers that need to push properties.
   base::flat_set<LayerImpl*> layers_that_should_push_properties_;
 
-  // Set of ElementIds which are present in the |layer_list_|.
-  std::unordered_set<ElementId, ElementIdHash> elements_in_property_trees_;
-
   std::unordered_map<ElementId, float, ElementIdHash>
       element_id_to_opacity_animations_;
   std::unordered_map<ElementId, gfx::Transform, ElementIdHash>
       element_id_to_transform_animations_;
   std::unordered_map<ElementId, FilterOperations, ElementIdHash>
       element_id_to_filter_animations_;
+  std::unordered_map<ElementId, FilterOperations, ElementIdHash>
+      element_id_to_backdrop_filter_animations_;
 
   std::unordered_map<ElementId, LayerImpl*, ElementIdHash>
       element_id_to_scrollable_layer_;
@@ -730,6 +752,11 @@ class CC_EXPORT LayerTreeImpl {
       element_id_to_scrollbar_layer_ids_;
 
   std::vector<PictureLayerImpl*> picture_layers_;
+
+  // After commit (or impl-side invalidation), the LayerTreeHostImpl must walk
+  // all PictureLayerImpls that have PaintWorklets to ensure they are painted.
+  // To avoid unnecessary walking, we track that set here.
+  base::flat_set<PictureLayerImpl*> picture_layers_with_paint_worklets_;
 
   base::flat_set<viz::SurfaceRange> surface_layer_ranges_;
 
@@ -789,8 +816,6 @@ class CC_EXPORT LayerTreeImpl {
   LayerTreeLifecycle lifecycle_;
 
   std::vector<LayerTreeHost::PresentationTimeCallback> presentation_callbacks_;
-
-  DISALLOW_COPY_AND_ASSIGN(LayerTreeImpl);
 };
 
 }  // namespace cc

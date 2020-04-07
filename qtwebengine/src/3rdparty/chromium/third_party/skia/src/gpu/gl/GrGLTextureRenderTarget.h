@@ -9,8 +9,8 @@
 #ifndef GrGLTextureRenderTarget_DEFINED
 #define GrGLTextureRenderTarget_DEFINED
 
-#include "GrGLTexture.h"
-#include "GrGLRenderTarget.h"
+#include "src/gpu/gl/GrGLRenderTarget.h"
+#include "src/gpu/gl/GrGLTexture.h"
 
 class GrGLGpu;
 
@@ -27,6 +27,7 @@ public:
     GrGLTextureRenderTarget(GrGLGpu* gpu,
                             SkBudgeted budgeted,
                             const GrSurfaceDesc& desc,
+                            int sampleCount,
                             const GrGLTexture::IDDesc& texIDDesc,
                             const GrGLRenderTarget::IDDesc& rtIDDesc,
                             GrMipMapsStatus);
@@ -36,9 +37,11 @@ public:
     void dumpMemoryStatistics(SkTraceMemoryDump* traceMemoryDump) const override;
 
     static sk_sp<GrGLTextureRenderTarget> MakeWrapped(GrGLGpu* gpu, const GrSurfaceDesc& desc,
+                                                      int sampleCount,
                                                       const GrGLTexture::IDDesc& texIDDesc,
+                                                      sk_sp<GrGLTextureParameters> parameters,
                                                       const GrGLRenderTarget::IDDesc& rtIDDesc,
-                                                      GrMipMapsStatus);
+                                                      GrWrapCacheable cacheble, GrMipMapsStatus);
 
     GrBackendFormat backendFormat() const override {
         // It doesn't matter if we take the texture or render target path, so just pick texture.
@@ -60,8 +63,11 @@ private:
     // Constructor for instances wrapping backend objects.
     GrGLTextureRenderTarget(GrGLGpu* gpu,
                             const GrSurfaceDesc& desc,
+                            int sampleCount,
                             const GrGLTexture::IDDesc& texIDDesc,
+                            sk_sp<GrGLTextureParameters> parameters,
                             const GrGLRenderTarget::IDDesc& rtIDDesc,
+                            GrWrapCacheable,
                             GrMipMapsStatus);
 
     size_t onGpuMemorySize() const override;

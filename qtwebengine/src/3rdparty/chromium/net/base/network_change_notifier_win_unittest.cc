@@ -4,9 +4,13 @@
 
 #include "net/base/network_change_notifier_win.h"
 
+#include <utility>
+
+#include "base/bind.h"
 #include "base/macros.h"
 #include "base/run_loop.h"
 #include "base/single_thread_task_runner.h"
+#include "base/threading/thread_task_runner_handle.h"
 #include "net/base/network_change_notifier.h"
 #include "net/base/network_change_notifier_factory.h"
 #include "net/test/test_with_scoped_task_environment.h"
@@ -41,11 +45,11 @@ class TestNetworkChangeNotifierWin : public NetworkChangeNotifierWin {
   }
 
   // From NetworkChangeNotifierWin.
-  void RecomputeCurrentConnectionTypeOnDnsThread(
-      base::Callback<void(ConnectionType)> reply_callback) const override {
+  void RecomputeCurrentConnectionTypeOnBlockingSequence(
+      base::OnceCallback<void(ConnectionType)> reply_callback) const override {
     base::ThreadTaskRunnerHandle::Get()->PostTask(
-        FROM_HERE,
-        base::Bind(reply_callback, NetworkChangeNotifier::CONNECTION_UNKNOWN));
+        FROM_HERE, base::BindOnce(std::move(reply_callback),
+                                  NetworkChangeNotifier::CONNECTION_UNKNOWN));
   }
 
   // From NetworkChangeNotifierWin.

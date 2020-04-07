@@ -20,8 +20,9 @@
  *
  */
 
-// https://html.spec.whatwg.org/#validitystate
+// https://html.spec.whatwg.org/C/#validitystate
 
+[Exposed=Window]
 interface ValidityState {
     readonly attribute boolean valueMissing;
     readonly attribute boolean typeMismatch;

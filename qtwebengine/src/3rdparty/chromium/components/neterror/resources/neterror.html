@@ -62,6 +62,15 @@
             </div>
           </div>
         </div>
+        <div id="save-page-for-later-button" class="hidden">
+          <a class="link-button" onclick="savePageLaterClick()"
+            jsselect="savePageLater" jscontent="savePageMsg">
+          </a>
+        </div>
+        <div id="cancel-save-page-button" class="hidden"
+          onclick="cancelSavePageClick()" jsselect="savePageLater"
+          jsvalues=".innerHTML:cancelMsg">
+        </div>
         <div id="offline-content-list" class="list-hidden" hidden>
           <div id="offline-content-list-visibility-card"
               onclick="toggleOfflineContentListVisibility(true)">
@@ -84,28 +93,6 @@
             </a>
           </div>
         </div>
-        <div id="offline-content-summary" onclick="launchDownloadsPage()" hidden>
-          <div class="offline-content-summary-images">
-            <div class="offline-content-summary-image-truncate">
-              <img id="earth" src="images/generic-globe.svg">
-            </div>
-            <div class="offline-content-summary-image-truncate">
-              <img id="music-note" src="images/music-note.svg">
-            </div>
-            <div class="offline-content-summary-image-truncate">
-              <img id="video" src="images/video.svg">
-            </div>
-            <div>
-              <img id="image" src="images/image.svg">
-            </div>
-          </div>
-          <div class="offline-content-summary-description"
-              jsselect="offlineContentSummary" jscontent="description">
-          </div>
-          <a class="offline-content-summary-action link-button"
-              jsselect="offlineContentSummary" jscontent="actionText">
-          </a>
-        </div>
       </div>
     </div>
     <div id="buttons" class="nav-wrapper">
@@ -117,29 +104,12 @@
             jsselect="reloadButton"
             jsvalues=".url:reloadUrl; .trackingId:reloadTrackingId"
             jscontent="msg"></button>
-        <button id="show-saved-copy-button"
-            class="blue-button text-button"
-            onclick="showSavedCopyButtonClick()"
-            jsselect="showSavedCopyButton"
-            jscontent="msg" jsvalues="title:title; .primary:primary">
-        </button>
         <button id="download-button"
             class="blue-button text-button"
             onclick="downloadButtonClick()"
             jsselect="downloadButton"
             jscontent="msg" jsvalues=".disabledText:disabledMsg">
         </button>
-        <div id="save-page-for-later-button" class="hidden">
-          <a class="link-button" onclick="savePageLaterClick()"
-            jsselect="savePageLater"
-            jscontent="savePageMsg">
-          </a>
-        </div>
-        <div id="cancel-save-page-button" class="hidden"
-          onclick="cancelSavePageClick()"
-          jsselect="savePageLater"
-          jsvalues=".innerHTML:cancelMsg">
-        </div>
       </div>
       <button id="details-button" class="secondary-button text-button small-link"
          onclick="detailsButtonClick(); toggleHelpBox()" jscontent="details"
@@ -161,6 +131,11 @@
     <div id="sub-frame-error-details" jsselect="summary" jsvalues=".innerHTML:msg"></div>
   </div>
 
+<if expr="SHOW_INSTRUCTIONS_FOR_DINO_PAGE">
+  <div id="offline-instruction" class="hidden">
+    <img src="images/default_100_percent/offline/100-offline-instruction.png"/>
+  </div>
+</if>
   <div id="offline-resources">
     <img id="offline-resources-1x" src="images/default_100_percent/offline/100-offline-sprite.png">
     <img id="offline-resources-2x" src="images/default_200_percent/offline/200-offline-sprite.png">

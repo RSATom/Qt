@@ -8,15 +8,19 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
+#include "api/peer_connection_interface.h"
+
 #include <limits.h>
 #include <stdint.h>
 #include <string.h>
+
 #include <memory>
 #include <string>
 #include <utility>
 #include <vector>
 
 #include "absl/memory/memory.h"
+#include "absl/strings/str_replace.h"
 #include "absl/types/optional.h"
 #include "api/audio/audio_mixer.h"
 #include "api/audio_codecs/audio_decoder_factory.h"
@@ -30,26 +34,26 @@
 #include "api/jsep_session_description.h"
 #include "api/media_stream_interface.h"
 #include "api/media_types.h"
-#include "api/peer_connection_interface.h"
 #include "api/rtc_error.h"
+#include "api/rtc_event_log/rtc_event_log.h"
+#include "api/rtc_event_log/rtc_event_log_factory.h"
 #include "api/rtc_event_log_output.h"
+#include "api/rtc_event_log_output_file.h"
 #include "api/rtp_receiver_interface.h"
 #include "api/rtp_sender_interface.h"
 #include "api/rtp_transceiver_interface.h"
+#include "api/scoped_refptr.h"
+#include "api/task_queue/default_task_queue_factory.h"
 #include "api/video_codecs/builtin_video_decoder_factory.h"
 #include "api/video_codecs/builtin_video_encoder_factory.h"
 #include "api/video_codecs/video_decoder_factory.h"
 #include "api/video_codecs/video_encoder_factory.h"
-#include "logging/rtc_event_log/output/rtc_event_log_output_file.h"
-#include "logging/rtc_event_log/rtc_event_log.h"
-#include "logging/rtc_event_log/rtc_event_log_factory.h"
-#include "logging/rtc_event_log/rtc_event_log_factory_interface.h"
 #include "media/base/codec.h"
 #include "media/base/media_config.h"
 #include "media/base/media_engine.h"
 #include "media/base/stream_params.h"
-#include "media/base/video_capturer.h"
 #include "media/engine/webrtc_media_engine.h"
+#include "media/engine/webrtc_media_engine_defaults.h"
 #include "media/sctp/sctp_transport_internal.h"
 #include "modules/audio_device/include/audio_device.h"
 #include "modules/audio_processing/include/audio_processing.h"
@@ -77,12 +81,9 @@
 #include "rtc_base/checks.h"
 #include "rtc_base/copy_on_write_buffer.h"
 #include "rtc_base/gunit.h"
-#include "rtc_base/platform_file.h"
 #include "rtc_base/ref_counted_object.h"
 #include "rtc_base/rtc_certificate_generator.h"
-#include "rtc_base/scoped_ref_ptr.h"
 #include "rtc_base/socket_address.h"
-#include "rtc_base/string_utils.h"
 #include "rtc_base/thread.h"
 #include "rtc_base/time_utils.h"
 #include "rtc_base/virtual_socket_server.h"
@@ -105,7 +106,7 @@ static const char kStunAddressOnly[] = "stun:address";
 static const char kStunInvalidPort[] = "stun:address:-1";
 static const char kStunAddressPortAndMore1[] = "stun:address:port:more";
 static const char kStunAddressPortAndMore2[] = "stun:address:port more";
-static const char kTurnIceServerUri[] = "turn:user@turn.example.org";
+static const char kTurnIceServerUri[] = "turn:turn.example.org";
 static const char kTurnUsername[] = "user";
 static const char kTurnPassword[] = "password";
 static const char kTurnHostname[] = "turn.example.org";
@@ -452,6 +453,12 @@ static const char kDtlsSdesFallbackSdp[] =
     "inline:NzB4d1BINUAvLEw6UzF3WSJ+PSdFcGdUJShpX1Zj|2^20|1:32 "
     "dummy_session_params\r\n";
 
+class RtcEventLogOutputNull final : public RtcEventLogOutput {
+ public:
+  bool IsActive() const override { return true; }
+  bool Write(const std::string& output) override { return true; }
+};
+
 using ::cricket::StreamParams;
 using ::testing::Exactly;
 using ::testing::Values;
@@ -635,51 +642,35 @@ class PeerConnectionFactoryForTest : public webrtc::PeerConnectionFactory {
  public:
   static rtc::scoped_refptr<PeerConnectionFactoryForTest>
   CreatePeerConnectionFactoryForTest() {
-    auto audio_encoder_factory = webrtc::CreateBuiltinAudioEncoderFactory();
-    auto audio_decoder_factory = webrtc::CreateBuiltinAudioDecoderFactory();
-    auto video_encoder_factory = webrtc::CreateBuiltinVideoEncoderFactory();
-    auto video_decoder_factory = webrtc::CreateBuiltinVideoDecoderFactory();
-
+    PeerConnectionFactoryDependencies dependencies;
+    dependencies.worker_thread = rtc::Thread::Current();
+    dependencies.network_thread = rtc::Thread::Current();
+    dependencies.signaling_thread = rtc::Thread::Current();
+    dependencies.task_queue_factory = CreateDefaultTaskQueueFactory();
+    cricket::MediaEngineDependencies media_deps;
+    media_deps.task_queue_factory = dependencies.task_queue_factory.get();
     // Use fake audio device module since we're only testing the interface
     // level, and using a real one could make tests flaky when run in parallel.
-    auto media_engine = std::unique_ptr<cricket::MediaEngineInterface>(
-        cricket::WebRtcMediaEngineFactory::Create(
-            FakeAudioCaptureModule::Create(), audio_encoder_factory,
-            audio_decoder_factory, std::move(video_encoder_factory),
-            std::move(video_decoder_factory), nullptr,
-            webrtc::AudioProcessingBuilder().Create()));
-
-    std::unique_ptr<webrtc::CallFactoryInterface> call_factory =
-        webrtc::CreateCallFactory();
-
-    std::unique_ptr<webrtc::RtcEventLogFactoryInterface> event_log_factory =
-        webrtc::CreateRtcEventLogFactory();
+    media_deps.adm = FakeAudioCaptureModule::Create();
+    SetMediaEngineDefaults(&media_deps);
+    dependencies.media_engine =
+        cricket::CreateMediaEngine(std::move(media_deps));
+    dependencies.call_factory = webrtc::CreateCallFactory();
+    dependencies.event_log_factory = absl::make_unique<RtcEventLogFactory>(
+        dependencies.task_queue_factory.get());
 
     return new rtc::RefCountedObject<PeerConnectionFactoryForTest>(
-        rtc::Thread::Current(), rtc::Thread::Current(), rtc::Thread::Current(),
-        std::move(media_engine), std::move(call_factory),
-        std::move(event_log_factory));
+        std::move(dependencies));
   }
 
-  PeerConnectionFactoryForTest(
-      rtc::Thread* network_thread,
-      rtc::Thread* worker_thread,
-      rtc::Thread* signaling_thread,
-      std::unique_ptr<cricket::MediaEngineInterface> media_engine,
-      std::unique_ptr<webrtc::CallFactoryInterface> call_factory,
-      std::unique_ptr<webrtc::RtcEventLogFactoryInterface> event_log_factory)
-      : webrtc::PeerConnectionFactory(network_thread,
-                                      worker_thread,
-                                      signaling_thread,
-                                      std::move(media_engine),
-                                      std::move(call_factory),
-                                      std::move(event_log_factory)) {}
+  using PeerConnectionFactory::PeerConnectionFactory;
 
+ private:
   rtc::scoped_refptr<FakeAudioCaptureModule> fake_audio_capture_module_;
 };
 
 // TODO(steveanton): Convert to use the new PeerConnectionWrapper.
-class PeerConnectionInterfaceBaseTest : public testing::Test {
+class PeerConnectionInterfaceBaseTest : public ::testing::Test {
  protected:
   explicit PeerConnectionInterfaceBaseTest(SdpSemantics sdp_semantics)
       : vss_(new rtc::VirtualSocketServer()),
@@ -730,10 +721,12 @@ class PeerConnectionInterfaceBaseTest : public testing::Test {
   }
 
   void CreatePeerConnectionWithIceServer(const std::string& uri,
+                                         const std::string& username,
                                          const std::string& password) {
     PeerConnectionInterface::RTCConfiguration config;
     PeerConnectionInterface::IceServer server;
     server.uri = uri;
+    server.username = username;
     server.password = password;
     config.servers.push_back(server);
     CreatePeerConnection(config);
@@ -786,7 +779,7 @@ class PeerConnectionInterfaceBaseTest : public testing::Test {
   }
 
   void CreatePeerConnectionWithDifferentConfigurations() {
-    CreatePeerConnectionWithIceServer(kStunAddressOnly, "");
+    CreatePeerConnectionWithIceServer(kStunAddressOnly, "", "");
     EXPECT_EQ(1u, port_allocator_->stun_servers().size());
     EXPECT_EQ(0u, port_allocator_->turn_servers().size());
     EXPECT_EQ("address", port_allocator_->stun_servers().begin()->hostname());
@@ -797,7 +790,8 @@ class PeerConnectionInterfaceBaseTest : public testing::Test {
     CreatePeerConnectionExpectFail(kStunAddressPortAndMore1);
     CreatePeerConnectionExpectFail(kStunAddressPortAndMore2);
 
-    CreatePeerConnectionWithIceServer(kTurnIceServerUri, kTurnPassword);
+    CreatePeerConnectionWithIceServer(kTurnIceServerUri, kTurnUsername,
+                                      kTurnPassword);
     EXPECT_EQ(0u, port_allocator_->stun_servers().size());
     EXPECT_EQ(1u, port_allocator_->turn_servers().size());
     EXPECT_EQ(kTurnUsername,
@@ -823,8 +817,6 @@ class PeerConnectionInterfaceBaseTest : public testing::Test {
     auto sender_or_error =
         pc_->AddTrack(CreateVideoTrack(track_label), stream_ids);
     ASSERT_EQ(RTCErrorType::NONE, sender_or_error.error().type());
-    EXPECT_TRUE_WAIT(observer_.renegotiation_needed_, kTimeout);
-    observer_.renegotiation_needed_ = false;
   }
 
   void AddVideoStream(const std::string& label) {
@@ -832,8 +824,6 @@ class PeerConnectionInterfaceBaseTest : public testing::Test {
         pc_factory_->CreateLocalMediaStream(label));
     stream->AddTrack(CreateVideoTrack(label + "v0"));
     ASSERT_TRUE(pc_->AddStream(stream));
-    EXPECT_TRUE_WAIT(observer_.renegotiation_needed_, kTimeout);
-    observer_.renegotiation_needed_ = false;
   }
 
   rtc::scoped_refptr<AudioTrackInterface> CreateAudioTrack(
@@ -846,8 +836,6 @@ class PeerConnectionInterfaceBaseTest : public testing::Test {
     auto sender_or_error =
         pc_->AddTrack(CreateAudioTrack(track_label), stream_ids);
     ASSERT_EQ(RTCErrorType::NONE, sender_or_error.error().type());
-    EXPECT_TRUE_WAIT(observer_.renegotiation_needed_, kTimeout);
-    observer_.renegotiation_needed_ = false;
   }
 
   void AddAudioStream(const std::string& label) {
@@ -855,8 +843,6 @@ class PeerConnectionInterfaceBaseTest : public testing::Test {
         pc_factory_->CreateLocalMediaStream(label));
     stream->AddTrack(CreateAudioTrack(label + "a0"));
     ASSERT_TRUE(pc_->AddStream(stream));
-    EXPECT_TRUE_WAIT(observer_.renegotiation_needed_, kTimeout);
-    observer_.renegotiation_needed_ = false;
   }
 
   void AddAudioVideoStream(const std::string& stream_id,
@@ -868,8 +854,6 @@ class PeerConnectionInterfaceBaseTest : public testing::Test {
     stream->AddTrack(CreateAudioTrack(audio_track_label));
     stream->AddTrack(CreateVideoTrack(video_track_label));
     ASSERT_TRUE(pc_->AddStream(stream));
-    EXPECT_TRUE_WAIT(observer_.renegotiation_needed_, kTimeout);
-    observer_.renegotiation_needed_ = false;
   }
 
   rtc::scoped_refptr<RtpReceiverInterface> GetFirstReceiverOfType(
@@ -2030,8 +2014,7 @@ TEST_P(PeerConnectionInterfaceTest, TestReceiveOnlyDataChannel) {
   std::string receive_label = "answer_channel";
   std::string sdp;
   EXPECT_TRUE(pc_->local_description()->ToString(&sdp));
-  rtc::replace_substrs(offer_label.c_str(), offer_label.length(),
-                       receive_label.c_str(), receive_label.length(), &sdp);
+  absl::StrReplaceAll({{offer_label, receive_label}}, &sdp);
   CreateAnswerAsRemoteDescription(sdp);
 
   // Verify that a new incoming data channel has been created and that
@@ -2092,7 +2075,6 @@ TEST_P(PeerConnectionInterfaceTest, CreateSctpDataChannel) {
   CreatePeerConnection(rtc_config);
 
   webrtc::DataChannelInit config;
-
   rtc::scoped_refptr<DataChannelInterface> channel =
       pc_->CreateDataChannel("1", &config);
   EXPECT_TRUE(channel != NULL);
@@ -2113,12 +2095,27 @@ TEST_P(PeerConnectionInterfaceTest, CreateSctpDataChannel) {
   EXPECT_FALSE(channel->reliable());
   EXPECT_FALSE(observer_.renegotiation_needed_);
 
-  config.maxRetransmits = -1;
+  config.maxRetransmits = absl::nullopt;
   config.maxRetransmitTime = 0;
   channel = pc_->CreateDataChannel("4", &config);
   EXPECT_TRUE(channel != NULL);
   EXPECT_FALSE(channel->reliable());
   EXPECT_FALSE(observer_.renegotiation_needed_);
+}
+
+// For backwards compatibility, we want people who "unset" maxRetransmits
+// and maxRetransmitTime by setting them to -1 to get what they want.
+TEST_P(PeerConnectionInterfaceTest, CreateSctpDataChannelWithMinusOne) {
+  RTCConfiguration rtc_config;
+  rtc_config.enable_dtls_srtp = true;
+  CreatePeerConnection(rtc_config);
+
+  webrtc::DataChannelInit config;
+  config.maxRetransmitTime = -1;
+  config.maxRetransmits = -1;
+  rtc::scoped_refptr<DataChannelInterface> channel =
+      pc_->CreateDataChannel("1", &config);
+  EXPECT_TRUE(channel != NULL);
 }
 
 // This tests that no data channel is returned if both maxRetransmits and
@@ -2151,6 +2148,7 @@ TEST_P(PeerConnectionInterfaceTest,
   rtc::scoped_refptr<DataChannelInterface> channel;
 
   config.id = 1;
+  config.negotiated = true;
   channel = pc_->CreateDataChannel("1", &config);
   EXPECT_TRUE(channel != NULL);
   EXPECT_EQ(1, channel->id());
@@ -2159,11 +2157,13 @@ TEST_P(PeerConnectionInterfaceTest,
   EXPECT_TRUE(channel == NULL);
 
   config.id = cricket::kMaxSctpSid;
+  config.negotiated = true;
   channel = pc_->CreateDataChannel("max", &config);
   EXPECT_TRUE(channel != NULL);
   EXPECT_EQ(config.id, channel->id());
 
   config.id = cricket::kMaxSctpSid + 1;
+  config.negotiated = true;
   channel = pc_->CreateDataChannel("x", &config);
   EXPECT_TRUE(channel == NULL);
 }
@@ -2197,9 +2197,12 @@ TEST_P(PeerConnectionInterfaceTest, RenegotiationNeededForNewRtpDataChannel) {
   EXPECT_TRUE(observer_.renegotiation_needed_);
   observer_.renegotiation_needed_ = false;
 
+  CreateOfferReceiveAnswer();
+
   rtc::scoped_refptr<DataChannelInterface> dc2 =
       pc_->CreateDataChannel("test2", NULL);
-  EXPECT_TRUE(observer_.renegotiation_needed_);
+  EXPECT_EQ(observer_.renegotiation_needed_,
+            GetParam() == SdpSemantics::kPlanB);
 }
 
 // This test that a data channel closes when a PeerConnection is deleted/closed.
@@ -2463,9 +2466,22 @@ TEST_P(PeerConnectionInterfaceTest, SetConfigurationChangesIceCheckInterval) {
   config = pc_->GetConfiguration();
   config.ice_check_min_interval = 100;
   EXPECT_TRUE(pc_->SetConfiguration(config));
-  PeerConnectionInterface::RTCConfiguration new_config =
-      pc_->GetConfiguration();
-  EXPECT_EQ(new_config.ice_check_min_interval, 100);
+  config = pc_->GetConfiguration();
+  EXPECT_EQ(config.ice_check_min_interval, 100);
+}
+
+TEST_P(PeerConnectionInterfaceTest,
+       SetConfigurationChangesSurfaceIceCandidatesOnIceTransportTypeChanged) {
+  PeerConnectionInterface::RTCConfiguration config;
+  config.surface_ice_candidates_on_ice_transport_type_changed = false;
+  CreatePeerConnection(config);
+  config = pc_->GetConfiguration();
+  EXPECT_FALSE(config.surface_ice_candidates_on_ice_transport_type_changed);
+
+  config.surface_ice_candidates_on_ice_transport_type_changed = true;
+  EXPECT_TRUE(pc_->SetConfiguration(config));
+  config = pc_->GetConfiguration();
+  EXPECT_TRUE(config.surface_ice_candidates_on_ice_transport_type_changed);
 }
 
 // Test that when SetConfiguration changes both the pool size and other
@@ -2664,7 +2680,7 @@ TEST_P(PeerConnectionInterfaceTest, CloseAndTestStreamsAndStates) {
   } else {
     // Verify that the RtpTransceivers are still present but all stopped.
     EXPECT_EQ(2u, pc_->GetTransceivers().size());
-    for (auto transceiver : pc_->GetTransceivers()) {
+    for (const auto& transceiver : pc_->GetTransceivers()) {
       EXPECT_TRUE(transceiver->stopped());
     }
   }
@@ -2885,8 +2901,7 @@ TEST_P(PeerConnectionInterfaceTest, RecvonlyDescriptionDoesntCreateStream) {
   CreatePeerConnection(config);
 
   std::string recvonly_offer = GetSdpStringWithStream1();
-  rtc::replace_substrs(kSendrecv, strlen(kSendrecv), kRecvonly,
-                       strlen(kRecvonly), &recvonly_offer);
+  absl::StrReplaceAll({{kSendrecv, kRecvonly}}, &recvonly_offer);
   CreateAndSetRemoteOffer(recvonly_offer);
 
   EXPECT_EQ(0u, observer_.remote_streams()->count());
@@ -3169,8 +3184,7 @@ TEST_P(PeerConnectionInterfaceTest,
   std::unique_ptr<SessionDescriptionInterface> modified_offer =
       webrtc::CreateSessionDescription(
           webrtc::SdpType::kOffer, offer->session_id(),
-          offer->session_version(),
-          absl::WrapUnique(offer->description()->Copy()));
+          offer->session_version(), offer->description()->Clone());
   EXPECT_TRUE(DoSetLocalDescription(std::move(offer)));
 
   auto senders = pc_->GetSenders();
@@ -3447,30 +3461,6 @@ TEST_P(PeerConnectionInterfaceTest, CurrentAndPendingDescriptions) {
 
 // Tests that it won't crash when calling StartRtcEventLog or StopRtcEventLog
 // after the PeerConnection is closed.
-// This version tests the StartRtcEventLog version that receives a file.
-TEST_P(PeerConnectionInterfaceTest,
-       StartAndStopLoggingToFileAfterPeerConnectionClosed) {
-  CreatePeerConnection();
-  // The RtcEventLog will be reset when the PeerConnection is closed.
-  pc_->Close();
-
-  auto test_info = ::testing::UnitTest::GetInstance()->current_test_info();
-  std::string filename = webrtc::test::OutputPath() +
-                         test_info->test_case_name() + test_info->name();
-  rtc::PlatformFile file = rtc::CreatePlatformFile(filename);
-
-  constexpr int64_t max_size_bytes = 1024;
-
-  EXPECT_FALSE(pc_->StartRtcEventLog(file, max_size_bytes));
-  pc_->StopRtcEventLog();
-
-  // Cleanup.
-  rtc::ClosePlatformFile(file);
-  rtc::RemoveFile(filename);
-}
-
-// Tests that it won't crash when calling StartRtcEventLog or StopRtcEventLog
-// after the PeerConnection is closed.
 // This version tests the StartRtcEventLog version that receives an object
 // of type |RtcEventLogOutput|.
 TEST_P(PeerConnectionInterfaceTest,
@@ -3479,11 +3469,9 @@ TEST_P(PeerConnectionInterfaceTest,
   // The RtcEventLog will be reset when the PeerConnection is closed.
   pc_->Close();
 
-  rtc::PlatformFile file = 0;
-  int64_t max_size_bytes = 1024;
-  EXPECT_FALSE(pc_->StartRtcEventLog(
-      absl::make_unique<webrtc::RtcEventLogOutputFile>(file, max_size_bytes),
-      webrtc::RtcEventLog::kImmediateOutput));
+  EXPECT_FALSE(
+      pc_->StartRtcEventLog(absl::make_unique<webrtc::RtcEventLogOutputNull>(),
+                            webrtc::RtcEventLog::kImmediateOutput));
   pc_->StopRtcEventLog();
 }
 
@@ -3889,14 +3877,17 @@ TEST_F(PeerConnectionInterfaceTestPlanB,
   EXPECT_TRUE_WAIT(observer_.renegotiation_needed_, kTimeout);
   observer_.renegotiation_needed_ = false;
 
+  CreateOfferReceiveAnswer();
   stream->AddTrack(video_track);
   EXPECT_TRUE_WAIT(observer_.renegotiation_needed_, kTimeout);
   observer_.renegotiation_needed_ = false;
 
+  CreateOfferReceiveAnswer();
   stream->RemoveTrack(audio_track);
   EXPECT_TRUE_WAIT(observer_.renegotiation_needed_, kTimeout);
   observer_.renegotiation_needed_ = false;
 
+  CreateOfferReceiveAnswer();
   stream->RemoveTrack(video_track);
   EXPECT_TRUE_WAIT(observer_.renegotiation_needed_, kTimeout);
   observer_.renegotiation_needed_ = false;
@@ -3948,12 +3939,12 @@ TEST_P(PeerConnectionInterfaceTest, ExtmapAllowMixedIsConfigurable) {
   EXPECT_TRUE(offer->description()->extmap_allow_mixed());
 }
 
-INSTANTIATE_TEST_CASE_P(PeerConnectionInterfaceTest,
-                        PeerConnectionInterfaceTest,
-                        Values(SdpSemantics::kPlanB,
-                               SdpSemantics::kUnifiedPlan));
+INSTANTIATE_TEST_SUITE_P(PeerConnectionInterfaceTest,
+                         PeerConnectionInterfaceTest,
+                         Values(SdpSemantics::kPlanB,
+                                SdpSemantics::kUnifiedPlan));
 
-class PeerConnectionMediaConfigTest : public testing::Test {
+class PeerConnectionMediaConfigTest : public ::testing::Test {
  protected:
   void SetUp() override {
     pcf_ = PeerConnectionFactoryForTest::CreatePeerConnectionFactoryForTest();

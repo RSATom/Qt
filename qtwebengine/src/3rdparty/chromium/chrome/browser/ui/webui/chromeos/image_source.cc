@@ -16,7 +16,7 @@
 #include "base/single_thread_task_runner.h"
 #include "base/stl_util.h"
 #include "base/task/post_task.h"
-#include "base/task/task_scheduler/task_scheduler.h"
+#include "base/task/thread_pool/thread_pool.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "chrome/browser/chromeos/login/users/avatar/user_image_loader.h"
 #include "chrome/common/url_constants.h"
@@ -49,7 +49,7 @@ ImageSource::ImageSource() : weak_factory_(this) {
 ImageSource::~ImageSource() {
 }
 
-std::string ImageSource::GetSource() const {
+std::string ImageSource::GetSource() {
   return chrome::kChromeOSAssetHost;
 }
 
@@ -87,7 +87,7 @@ void ImageSource::StartDataRequestAfterPathExists(
   }
 }
 
-std::string ImageSource::GetMimeType(const std::string& path) const {
+std::string ImageSource::GetMimeType(const std::string& path) {
   std::string mime_type;
   std::string ext = base::FilePath(path).Extension();
   if (!ext.empty())

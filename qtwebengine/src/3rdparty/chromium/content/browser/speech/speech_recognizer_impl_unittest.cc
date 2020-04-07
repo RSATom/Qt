@@ -7,6 +7,7 @@
 
 #include <vector>
 
+#include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/compiler_specific.h"
 #include "base/memory/ref_counted.h"
@@ -115,8 +116,8 @@ class SpeechRecognizerImplTest : public SpeechRecognitionEventListener,
 
     const int channels =
         ChannelLayoutToChannelCount(SpeechRecognizerImpl::kChannelLayout);
-    bytes_per_sample_ = SpeechRecognizerImpl::kNumBitsPerAudioSample / 8;
-    const int frames = audio_packet_length_bytes / channels / bytes_per_sample_;
+    int bytes_per_sample = SpeechRecognizerImpl::kNumBitsPerAudioSample / 8;
+    const int frames = audio_packet_length_bytes / channels / bytes_per_sample;
     audio_bus_ = media::AudioBus::Create(channels, frames);
     audio_bus_->Zero();
   }
@@ -225,9 +226,11 @@ class SpeechRecognizerImplTest : public SpeechRecognitionEventListener,
   }
 
   void CopyPacketToAudioBus() {
+    static_assert(SpeechRecognizerImpl::kNumBitsPerAudioSample == 16,
+                  "FromInterleaved expects 2 bytes.");
     // Copy the created signal into an audio bus in a deinterleaved format.
-    audio_bus_->FromInterleaved(
-        &audio_packet_[0], audio_bus_->frames(), bytes_per_sample_);
+    audio_bus_->FromInterleaved<media::SignedInt16SampleTypeTraits>(
+        reinterpret_cast<int16_t*>(audio_packet_.data()), audio_bus_->frames());
   }
 
   void FillPacketWithTestWaveform() {
@@ -251,7 +254,7 @@ class SpeechRecognizerImplTest : public SpeechRecognitionEventListener,
     auto* capture_callback =
         static_cast<media::AudioCapturerSource::CaptureCallback*>(
             recognizer_.get());
-    capture_callback->Capture(data, 0, 0.0, false);
+    capture_callback->Capture(data, base::TimeTicks::Now(), 0.0, false);
   }
 
   void OnCaptureError() {
@@ -288,7 +291,6 @@ class SpeechRecognizerImplTest : public SpeechRecognitionEventListener,
   blink::mojom::SpeechRecognitionErrorCode error_;
   std::vector<uint8_t> audio_packet_;
   std::unique_ptr<media::AudioBus> audio_bus_;
-  int bytes_per_sample_;
   float volume_;
   float noise_volume_;
 };
@@ -578,7 +580,7 @@ TEST_F(SpeechRecognizerImplTest, ServerError) {
   network::ResourceResponseHead response;
   const char kHeaders[] = "HTTP/1.0 500 Internal Server Error";
   response.headers = base::MakeRefCounted<net::HttpResponseHeaders>(
-      net::HttpUtil::AssembleRawHeaders(kHeaders, base::size(kHeaders)));
+      net::HttpUtil::AssembleRawHeaders(kHeaders));
   url_loader_factory_.AddResponse(pending_request->request.url, response, "",
                                   network::URLLoaderCompletionStatus());
 

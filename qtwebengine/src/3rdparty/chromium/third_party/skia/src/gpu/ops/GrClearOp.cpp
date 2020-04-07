@@ -5,14 +5,16 @@
  * found in the LICENSE file.
  */
 
-#include "GrClearOp.h"
+#include "src/gpu/ops/GrClearOp.h"
 
-#include "GrGpuCommandBuffer.h"
-#include "GrMemoryPool.h"
-#include "GrOpFlushState.h"
-#include "GrProxyProvider.h"
+#include "include/private/GrRecordingContext.h"
+#include "src/gpu/GrGpuCommandBuffer.h"
+#include "src/gpu/GrMemoryPool.h"
+#include "src/gpu/GrOpFlushState.h"
+#include "src/gpu/GrProxyProvider.h"
+#include "src/gpu/GrRecordingContextPriv.h"
 
-std::unique_ptr<GrClearOp> GrClearOp::Make(GrContext* context,
+std::unique_ptr<GrClearOp> GrClearOp::Make(GrRecordingContext* context,
                                            const GrFixedClip& clip,
                                            const SkPMColor4f& color,
                                            GrSurfaceProxy* dstProxy) {
@@ -21,18 +23,18 @@ std::unique_ptr<GrClearOp> GrClearOp::Make(GrContext* context,
         return nullptr;
     }
 
-    GrOpMemoryPool* pool = context->contextPriv().opMemoryPool();
+    GrOpMemoryPool* pool = context->priv().opMemoryPool();
 
     return pool->allocate<GrClearOp>(clip, color, dstProxy);
 }
 
-std::unique_ptr<GrClearOp> GrClearOp::Make(GrContext* context,
+std::unique_ptr<GrClearOp> GrClearOp::Make(GrRecordingContext* context,
                                            const SkIRect& rect,
                                            const SkPMColor4f& color,
                                            bool fullScreen) {
     SkASSERT(fullScreen || !rect.isEmpty());
 
-    GrOpMemoryPool* pool = context->contextPriv().opMemoryPool();
+    GrOpMemoryPool* pool = context->priv().opMemoryPool();
 
     return pool->allocate<GrClearOp>(rect, color, fullScreen);
 }

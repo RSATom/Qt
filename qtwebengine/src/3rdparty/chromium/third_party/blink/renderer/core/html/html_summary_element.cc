@@ -20,6 +20,7 @@
 
 #include "third_party/blink/renderer/core/html/html_summary_element.h"
 
+#include "third_party/blink/renderer/core/css/style_change_reason.h"
 #include "third_party/blink/renderer/core/dom/flat_tree_traversal.h"
 #include "third_party/blink/renderer/core/dom/shadow_root.h"
 #include "third_party/blink/renderer/core/events/keyboard_event.h"
@@ -31,23 +32,20 @@
 #include "third_party/blink/renderer/core/layout/layout_block_flow.h"
 #include "third_party/blink/renderer/core/layout/layout_object_factory.h"
 #include "third_party/blink/renderer/platform/bindings/exception_state.h"
+#include "third_party/blink/renderer/platform/heap/heap.h"
 
 namespace blink {
 
 using namespace html_names;
 
-HTMLSummaryElement* HTMLSummaryElement::Create(Document& document) {
-  HTMLSummaryElement* summary =
-      MakeGarbageCollected<HTMLSummaryElement>(document);
-  summary->EnsureUserAgentShadowRoot();
-  return summary;
+HTMLSummaryElement::HTMLSummaryElement(Document& document)
+    : HTMLElement(kSummaryTag, document) {
+  SetHasCustomStyleCallbacks();
+  EnsureUserAgentShadowRoot();
 }
 
-HTMLSummaryElement::HTMLSummaryElement(Document& document)
-    : HTMLElement(kSummaryTag, document) {}
-
-LayoutObject* HTMLSummaryElement::CreateLayoutObject(
-    const ComputedStyle& style) {
+LayoutObject* HTMLSummaryElement::CreateLayoutObject(const ComputedStyle& style,
+                                                     LegacyLayout legacy) {
   // See: crbug.com/603928 - We manually check for other dislay types, then
   // fallback to a regular LayoutBlockFlow as "display: inline;" should behave
   // as an "inline-block".
@@ -56,13 +54,13 @@ LayoutObject* HTMLSummaryElement::CreateLayoutObject(
       display == EDisplay::kGrid || display == EDisplay::kInlineGrid ||
       display == EDisplay::kLayoutCustom ||
       display == EDisplay::kInlineLayoutCustom)
-    return LayoutObject::CreateObject(this, style);
-  return LayoutObjectFactory::CreateBlockFlow(*this, style);
+    return LayoutObject::CreateObject(this, style, legacy);
+  return LayoutObjectFactory::CreateBlockFlow(*this, style, legacy);
 }
 
 void HTMLSummaryElement::DidAddUserAgentShadowRoot(ShadowRoot& root) {
-  DetailsMarkerControl* marker_control =
-      DetailsMarkerControl::Create(GetDocument());
+  auto* marker_control =
+      MakeGarbageCollected<DetailsMarkerControl>(GetDocument());
   marker_control->SetIdAttribute(shadow_element_names::DetailsMarker());
   root.AppendChild(marker_control);
   root.AppendChild(HTMLSlotElement::CreateUserAgentDefaultSlot(GetDocument()));
@@ -89,9 +87,9 @@ bool HTMLSummaryElement::IsMainSummary() const {
 }
 
 static bool IsClickableControl(Node* node) {
-  if (!node->IsElementNode())
+  auto* element = DynamicTo<Element>(node);
+  if (!element)
     return false;
-  Element* element = ToElement(node);
   if (element->IsFormControlElement())
     return true;
   Element* host = element->OwnerShadowHost();
@@ -150,6 +148,16 @@ bool HTMLSummaryElement::HasActivationBehavior() const {
 
 bool HTMLSummaryElement::WillRespondToMouseClickEvents() {
   return IsMainSummary() || HTMLElement::WillRespondToMouseClickEvents();
+}
+
+void HTMLSummaryElement::WillRecalcStyle(const StyleRecalcChange) {
+  if (GetForceReattachLayoutTree() && IsMainSummary()) {
+    if (Element* marker = MarkerControl()) {
+      marker->SetNeedsStyleRecalc(
+          kLocalStyleChange,
+          StyleChangeReasonForTracing::Create(style_change_reason::kControl));
+    }
+  }
 }
 
 }  // namespace blink

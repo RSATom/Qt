@@ -4,7 +4,7 @@
 
 #include "third_party/blink/renderer/core/html/link_style.h"
 
-#include "services/network/public/mojom/referrer_policy.mojom-shared.h"
+#include "services/network/public/mojom/referrer_policy.mojom-blink.h"
 #include "third_party/blink/renderer/core/css/style_sheet_contents.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/frame/csp/content_security_policy.h"
@@ -17,7 +17,8 @@
 #include "third_party/blink/renderer/core/loader/link_load_parameters.h"
 #include "third_party/blink/renderer/core/loader/resource/css_style_sheet_resource.h"
 #include "third_party/blink/renderer/core/loader/subresource_integrity_helper.h"
-#include "third_party/blink/renderer/platform/histogram.h"
+#include "third_party/blink/renderer/platform/heap/heap.h"
+#include "third_party/blink/renderer/platform/instrumentation/histogram.h"
 #include "third_party/blink/renderer/platform/loader/fetch/fetch_parameters.h"
 #include "third_party/blink/renderer/platform/loader/subresource_integrity.h"
 #include "third_party/blink/renderer/platform/network/mime/content_type.h"
@@ -34,10 +35,6 @@ static bool StyleSheetTypeIsSupported(const String& type) {
   String trimmed_type = ContentType(type).GetType();
   return trimmed_type.IsEmpty() ||
          MIMETypeRegistry::IsSupportedStyleSheetMIMEType(trimmed_type);
-}
-
-LinkStyle* LinkStyle::Create(HTMLLinkElement* owner) {
-  return MakeGarbageCollected<LinkStyle>(owner);
 }
 
 LinkStyle::LinkStyle(HTMLLinkElement* owner)
@@ -72,9 +69,10 @@ void LinkStyle::NotifyFinished(Resource* resource) {
   CSSStyleSheetResource* cached_style_sheet = ToCSSStyleSheetResource(resource);
   // See the comment in pending_script.cc about why this check is necessary
   // here, instead of in the resource fetcher. https://crbug.com/500701.
-  if (!cached_style_sheet->ErrorOccurred() &&
-      !owner_->FastGetAttribute(kIntegrityAttr).IsEmpty() &&
-      !cached_style_sheet->IntegrityMetadata().IsEmpty()) {
+  if ((!cached_style_sheet->ErrorOccurred() &&
+       !owner_->FastGetAttribute(kIntegrityAttr).IsEmpty() &&
+       !cached_style_sheet->IntegrityMetadata().IsEmpty()) ||
+      resource->IsLinkPreload()) {
     ResourceIntegrityDisposition disposition =
         cached_style_sheet->IntegrityDisposition();
 
@@ -90,7 +88,7 @@ void LinkStyle::NotifyFinished(Resource* resource) {
     }
   }
 
-  CSSParserContext* parser_context = CSSParserContext::Create(
+  auto* parser_context = MakeGarbageCollected<CSSParserContext>(
       GetDocument(), cached_style_sheet->GetResponse().ResponseUrl(),
       cached_style_sheet->GetResponse().IsCorsSameOrigin(),
       cached_style_sheet->GetReferrerPolicy(), cached_style_sheet->Encoding());
@@ -99,7 +97,7 @@ void LinkStyle::NotifyFinished(Resource* resource) {
           cached_style_sheet->CreateParsedStyleSheetFromCache(parser_context)) {
     if (sheet_)
       ClearSheet();
-    sheet_ = CSSStyleSheet::Create(parsed_sheet, *owner_);
+    sheet_ = MakeGarbageCollected<CSSStyleSheet>(parsed_sheet, *owner_);
     sheet_->SetMediaQueries(MediaQuerySet::Create(owner_->Media()));
     if (owner_->IsInDocumentTree())
       SetSheetTitle(owner_->title());
@@ -110,13 +108,13 @@ void LinkStyle::NotifyFinished(Resource* resource) {
     return;
   }
 
-  StyleSheetContents* style_sheet =
-      StyleSheetContents::Create(cached_style_sheet->Url(), parser_context);
+  auto* style_sheet = MakeGarbageCollected<StyleSheetContents>(
+      parser_context, cached_style_sheet->Url());
 
   if (sheet_)
     ClearSheet();
 
-  sheet_ = CSSStyleSheet::Create(style_sheet, *owner_);
+  sheet_ = MakeGarbageCollected<CSSStyleSheet>(style_sheet, *owner_);
   sheet_->SetMediaQueries(MediaQuerySet::Create(owner_->Media()));
   if (owner_->IsInDocumentTree())
     SetSheetTitle(owner_->title());

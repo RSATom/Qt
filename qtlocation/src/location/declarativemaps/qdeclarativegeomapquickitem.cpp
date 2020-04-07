@@ -115,6 +115,17 @@ QT_BEGIN_NAMESPACE
     \image api-mapquickitem.png
 */
 
+/*!
+    \qmlproperty bool QtLocation::MapQuickItem::autoFadeIn
+
+    This property holds whether the item automatically fades in when zooming into the map
+    starting from very low zoom levels. By default this is \c true.
+    Setting this property to \c false causes the map item to always have the opacity specified
+    with the \l QtQuick::Item::opacity property, which is 1.0 by default.
+
+    \since 5.14
+*/
+
 QMapQuickItemMatrix4x4::QMapQuickItemMatrix4x4(QObject *parent) : QQuickTransform(parent) { }
 
 void QMapQuickItemMatrix4x4::setMatrix(const QMatrix4x4 &matrix)

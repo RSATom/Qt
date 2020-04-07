@@ -96,8 +96,7 @@ AsyncLayerTreeFrameSink::AsyncLayerTreeFrameSink(
                             params->client_name)),
       submit_begin_frame_histogram_(GetHistogramNamed(
           "GraphicsPipeline.%s.SubmitCompositorFrameAfterBeginFrame",
-          params->client_name)),
-      weak_factory_(this) {
+          params->client_name)) {
   // We should not create hit test data provider if we want to use cc layer tree
   // to generated data.
   if (features::IsVizHitTestingSurfaceLayerEnabled())
@@ -174,8 +173,6 @@ void AsyncLayerTreeFrameSink::SubmitCompositorFrame(
   DCHECK(frame.metadata.begin_frame_ack.has_damage);
   DCHECK_LE(viz::BeginFrameArgs::kStartingFrameNumber,
             frame.metadata.begin_frame_ack.sequence_number);
-  TRACE_EVENT1("cc,benchmark", "AsyncLayerTreeFrameSink::SubmitCompositorFrame",
-               "source_frame_number_", source_frame_number_);
 
   // It's possible to request an immediate composite from cc which will bypass
   // BeginFrame. In that case, we cannot collect full graphics pipeline data.
@@ -202,12 +199,6 @@ void AsyncLayerTreeFrameSink::SubmitCompositorFrame(
                 frame.size_in_pixels().width());
     }
   }
-
-  TRACE_EVENT_FLOW_BEGIN0(TRACE_DISABLED_BY_DEFAULT("cc.debug.ipc"),
-                          "SubmitCompositorFrame", local_surface_id_.hash());
-  bool tracing_enabled;
-  TRACE_EVENT_CATEGORY_GROUP_ENABLED(TRACE_DISABLED_BY_DEFAULT("cc.debug.ipc"),
-                                     &tracing_enabled);
 
   base::Optional<viz::HitTestRegionList> hit_test_region_list;
   if (hit_test_data_provider_)
@@ -245,12 +236,22 @@ void AsyncLayerTreeFrameSink::SubmitCompositorFrame(
     last_submitted_device_scale_factor_ = frame.device_scale_factor();
     last_submitted_size_in_pixels_ = frame.size_in_pixels();
 
+    // These traces are split into two due to the incoming flow using
+    // TRACE_ID_LOCAL, and the outgoing flow using TRACE_ID_GLOBAL. This is
+    // needed to ensure the incoming flow is not messed up. The outgoing flow is
+    // going to a different process.
+    TRACE_EVENT_WITH_FLOW2(
+        TRACE_DISABLED_BY_DEFAULT("viz.surface_id_flow"),
+        "LocalSurfaceId.Submission.Flow",
+        TRACE_ID_LOCAL(local_surface_id_.submission_trace_id()),
+        TRACE_EVENT_FLAG_FLOW_IN, "step", "SubmitCompositorFrame", "surface_id",
+        local_surface_id_.ToString());
     TRACE_EVENT_WITH_FLOW2(
         TRACE_DISABLED_BY_DEFAULT("viz.surface_id_flow"),
         "LocalSurfaceId.Submission.Flow",
         TRACE_ID_GLOBAL(local_surface_id_.submission_trace_id()),
-        TRACE_EVENT_FLAG_FLOW_IN | TRACE_EVENT_FLAG_FLOW_OUT, "step",
-        "SubmitCompositorFrame", "surface_id", local_surface_id_.ToString());
+        TRACE_EVENT_FLAG_FLOW_OUT, "step", "SubmitCompositorFrame",
+        "surface_id", local_surface_id_.ToString());
   }
 
   // The trace_id is negated in order to keep the Graphics.Pipeline and
@@ -262,9 +263,7 @@ void AsyncLayerTreeFrameSink::SubmitCompositorFrame(
                          "SubmitHitTestData");
 
   compositor_frame_sink_ptr_->SubmitCompositorFrame(
-      local_surface_id_, std::move(frame), std::move(hit_test_region_list),
-      tracing_enabled ? base::TimeTicks::Now().since_origin().InMicroseconds()
-                      : 0);
+      local_surface_id_, std::move(frame), std::move(hit_test_region_list), 0);
 }
 
 void AsyncLayerTreeFrameSink::DidNotProduceFrame(
@@ -283,10 +282,10 @@ void AsyncLayerTreeFrameSink::DidNotProduceFrame(
 }
 
 void AsyncLayerTreeFrameSink::DidAllocateSharedBitmap(
-    mojo::ScopedSharedBufferHandle buffer,
+    base::ReadOnlySharedMemoryRegion region,
     const viz::SharedBitmapId& id) {
   DCHECK(compositor_frame_sink_ptr_);
-  compositor_frame_sink_ptr_->DidAllocateSharedBitmap(std::move(buffer), id);
+  compositor_frame_sink_ptr_->DidAllocateSharedBitmap(std::move(region), id);
 }
 
 void AsyncLayerTreeFrameSink::DidDeleteSharedBitmap(
@@ -309,9 +308,10 @@ void AsyncLayerTreeFrameSink::DidReceiveCompositorFrameAck(
 
 void AsyncLayerTreeFrameSink::OnBeginFrame(
     const viz::BeginFrameArgs& args,
-    const base::flat_map<uint32_t, gfx::PresentationFeedback>& feedbacks) {
-  for (const auto& pair : feedbacks) {
-    client_->DidPresentCompositorFrame(pair.first, pair.second);
+    const viz::FrameTimingDetailsMap& timing_details) {
+  for (const auto& pair : timing_details) {
+    client_->DidPresentCompositorFrame(pair.first,
+                                       pair.second.presentation_feedback);
   }
 
   DCHECK_LE(pipeline_reporting_frame_times_.size(), 25u);

@@ -497,7 +497,11 @@
     \table
     \header \li Option \li Result
     \row \li \c -regserver \li Registers the server in the system registry
+    \row \li \c -regserverperuser \li Registers the server in the system
+        registry for the current user (since 5.14)
     \row \li \c -unregserver \li Unregisters the server from the system registry
+    \row \li \c -unregserverperuser \li Unregisters the server from the
+        system registry for the current user (since 5.14)
     \row \li \c -activex \li Starts the application as an ActiveX server
     \row \li \c{-dumpidl <file> -version x.y} \li Writes the server's IDL to the
     specified file. The type library will have version x.y
@@ -513,9 +517,9 @@
 
     \section3 "No overloaded function takes 2 parameters"
 
-    When the error occurs in code that uses the QAXFACTORY_DEFAULT()
-    macro, the widget class had no constructor that can be used by the
-    default factory. Either add a standard widget constructor or
+    When the error occurs in code that uses the QAXCLASS() or
+    QAXFACTORY_DEFAULT() macro, the widget class had no constructor that can be
+    used by the default factory. Either add a standard widget constructor or
     implement a custom factory that doesn't require one.
 
     When the error occurs in code that uses the QAXFACTORY_EXPORT()
@@ -529,21 +533,21 @@
     \section3 "Syntax error: bad suffix on number"
 
     The unique identifiers have not been passed as strings into the
-    QAXFACTORY_EXPORT() or QAXFACTORY_DEFAULT() macro.
+    QAXFACTORY_EXPORT(), QAXFACTORY_BEGIN() or QAXFACTORY_DEFAULT() macro.
 
     \section3 "Unresolved external symbol _ucm_instantiate"
 
     The server does not export an implementation of a QAxFactory. Use
     the QAXFACTORY_EXPORT() macro in one of the project's
     implementation files to instantiate and export a factory, or use
-    the QAXFACTORY_DEFAULT() macro to use the default factory.
+    the QAXCLASS() or QAXFACTORY_DEFAULT() macro to use the default factory.
 
     \section3 "_ucm_initialize already defined in ..."
 
     The server exports more than one implementation of a QAxFactory,
     or exports the same implementation twice. If you use the default
-    factory, the QAXFACTORY_DEFAULT() macro must only be used once in
-    the project. Use a custom QAxFactory implementation and the
+    factory, the QAXFACTORY_BEGIN() or QAXFACTORY_DEFAULT() macro must only be
+    used once in the project. Use a custom QAxFactory implementation and the
     QAXFACTORY_EXPORT() macro if the server provides multiple ActiveX
     controls.
 

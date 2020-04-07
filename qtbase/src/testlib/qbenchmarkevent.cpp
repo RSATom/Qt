@@ -44,14 +44,9 @@
 
 QT_BEGIN_NAMESPACE
 
-QBenchmarkEvent::QBenchmarkEvent()
-    : eventCounter(0)
-{
-}
+QBenchmarkEvent::QBenchmarkEvent() = default;
 
-QBenchmarkEvent::~QBenchmarkEvent()
-{
-}
+QBenchmarkEvent::~QBenchmarkEvent() = default;
 
 void QBenchmarkEvent::start()
 {
@@ -96,7 +91,11 @@ QTest::QBenchmarkMetric QBenchmarkEvent::metricType()
 }
 
 // This could be done in a much better way, this is just the beginning.
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+bool QBenchmarkEvent::nativeEventFilter(const QByteArray &eventType, void *message, qintptr *result)
+#else
 bool QBenchmarkEvent::nativeEventFilter(const QByteArray &eventType, void *message, long *result)
+#endif
 {
     Q_UNUSED(eventType);
     Q_UNUSED(message);

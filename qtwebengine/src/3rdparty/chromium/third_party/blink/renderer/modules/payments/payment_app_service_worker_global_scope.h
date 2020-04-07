@@ -6,7 +6,7 @@
 #define THIRD_PARTY_BLINK_RENDERER_MODULES_PAYMENTS_PAYMENT_APP_SERVICE_WORKER_GLOBAL_SCOPE_H_
 
 #include "third_party/blink/renderer/core/dom/events/event_target.h"
-#include "third_party/blink/renderer/platform/wtf/allocator.h"
+#include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 
 namespace blink {
 
@@ -14,9 +14,9 @@ class PaymentAppServiceWorkerGlobalScope {
   STATIC_ONLY(PaymentAppServiceWorkerGlobalScope);
 
  public:
-  DEFINE_STATIC_ATTRIBUTE_EVENT_LISTENER(abortpayment, kAbortpayment);
-  DEFINE_STATIC_ATTRIBUTE_EVENT_LISTENER(canmakepayment, kCanmakepayment);
-  DEFINE_STATIC_ATTRIBUTE_EVENT_LISTENER(paymentrequest, kPaymentrequest);
+  DEFINE_STATIC_ATTRIBUTE_EVENT_LISTENER(abortpayment, kAbortpayment)
+  DEFINE_STATIC_ATTRIBUTE_EVENT_LISTENER(canmakepayment, kCanmakepayment)
+  DEFINE_STATIC_ATTRIBUTE_EVENT_LISTENER(paymentrequest, kPaymentrequest)
 };
 
 }  // namespace blink

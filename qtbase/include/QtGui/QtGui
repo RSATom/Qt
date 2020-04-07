@@ -12,6 +12,8 @@
 #include "qbrush.h"
 #include "qclipboard.h"
 #include "qcolor.h"
+#include "qcolorspace.h"
+#include "qcolortransform.h"
 #include "qcursor.h"
 #include "qdesktopservices.h"
 #if QT_CONFIG(draganddrop)

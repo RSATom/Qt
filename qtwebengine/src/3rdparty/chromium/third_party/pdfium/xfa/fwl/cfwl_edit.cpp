@@ -11,6 +11,9 @@
 #include <utility>
 #include <vector>
 
+#include "build/build_config.h"
+#include "core/fxge/cfx_renderdevice.h"
+#include "core/fxge/text_char_pos.h"
 #include "third_party/base/ptr_util.h"
 #include "third_party/base/stl_util.h"
 #include "xfa/fde/cfde_texteditengine.h"
@@ -26,17 +29,16 @@
 #include "xfa/fwl/cfwl_themebackground.h"
 #include "xfa/fwl/cfwl_themepart.h"
 #include "xfa/fwl/cfwl_widgetmgr.h"
+#include "xfa/fwl/fwl_widgetdef.h"
 #include "xfa/fwl/ifwl_themeprovider.h"
 #include "xfa/fwl/theme/cfwl_utils.h"
-#include "xfa/fxfa/cxfa_ffdoc.h"
-#include "xfa/fxfa/cxfa_ffwidget.h"
 #include "xfa/fxgraphics/cxfa_gepath.h"
 
 namespace {
 
-const int kEditMargin = 3;
+constexpr int kEditMargin = 3;
 
-#if (_FX_OS_ == _FX_OS_MACOSX_)
+#if defined(OS_MACOSX)
 constexpr int kEditingModifier = FWL_KEYFLAG_Command;
 #else
 constexpr int kEditingModifier = FWL_KEYFLAG_Ctrl;
@@ -159,10 +161,16 @@ void CFWL_Edit::SetThemeProvider(IFWL_ThemeProvider* pThemeProvider) {
   m_pProperties->m_pThemeProvider = pThemeProvider;
 }
 
-void CFWL_Edit::SetText(const WideString& wsText,
-                        CFDE_TextEditEngine::RecordOperation op) {
+void CFWL_Edit::SetText(const WideString& wsText) {
   m_EdtEngine.Clear();
-  m_EdtEngine.Insert(0, wsText, op);
+  m_EdtEngine.Insert(0, wsText,
+                     CFDE_TextEditEngine::RecordOperation::kInsertRecord);
+}
+
+void CFWL_Edit::SetTextSkipNotify(const WideString& wsText) {
+  m_EdtEngine.Clear();
+  m_EdtEngine.Insert(0, wsText,
+                     CFDE_TextEditEngine::RecordOperation::kSkipNotify);
 }
 
 int32_t CFWL_Edit::GetTextLength() const {
@@ -453,12 +461,12 @@ void CFWL_Edit::RenderText(CFX_RenderDevice* pRenderDev,
     if (!rtDocClip.IntersectWith(info.rtPiece))
       continue;
 
-    std::vector<FXTEXT_CHARPOS> char_pos = m_EdtEngine.GetDisplayPos(info);
+    std::vector<TextCharPos> char_pos = m_EdtEngine.GetDisplayPos(info);
     if (char_pos.empty())
       continue;
 
     CFDE_TextOut::DrawString(pRenderDev, m_EdtEngine.GetFontColor(), font,
-                             char_pos, m_EdtEngine.GetFontSize(), &mt);
+                             char_pos, m_EdtEngine.GetFontSize(), mt);
   }
 }
 
@@ -900,17 +908,12 @@ void CFWL_Edit::ShowCaret(CFX_RectF* pRect) {
     pRect->Offset(rtOuter.left, rtOuter.top);
   }
 
-  CXFA_FFWidget* pXFAWidget = pOuter->GetLayoutItem();
+  CFWL_Widget::AdapterIface* pXFAWidget = pOuter->GetFFWidget();
   if (!pXFAWidget)
     return;
 
-  IXFA_DocEnvironment* pDocEnvironment =
-      pXFAWidget->GetDoc()->GetDocEnvironment();
-  if (!pDocEnvironment)
-    return;
-
   CFX_RectF rt = pXFAWidget->GetRotateMatrix().TransformRect(*pRect);
-  pDocEnvironment->DisplayCaret(pXFAWidget, true, &rt);
+  pXFAWidget->DisplayCaret(true, &rt);
 }
 
 void CFWL_Edit::HideCaret(CFX_RectF* pRect) {
@@ -924,16 +927,11 @@ void CFWL_Edit::HideCaret(CFX_RectF* pRect) {
   while (pOuter->GetOuter())
     pOuter = pOuter->GetOuter();
 
-  CXFA_FFWidget* pXFAWidget = pOuter->GetLayoutItem();
+  CFWL_Widget::AdapterIface* pXFAWidget = pOuter->GetFFWidget();
   if (!pXFAWidget)
     return;
 
-  IXFA_DocEnvironment* pDocEnvironment =
-      pXFAWidget->GetDoc()->GetDocEnvironment();
-  if (!pDocEnvironment)
-    return;
-
-  pDocEnvironment->DisplayCaret(pXFAWidget, false, pRect);
+  pXFAWidget->DisplayCaret(false, pRect);
 }
 
 bool CFWL_Edit::ValidateNumberChar(wchar_t cNum) {
@@ -1180,28 +1178,28 @@ void CFWL_Edit::OnKeyDown(CFWL_MessageKey* pMsg) {
   }
 
   switch (pMsg->m_dwKeyCode) {
-    case FWL_VKEY_Left:
+    case XFA_FWL_VKEY_Left:
       SetCursorPosition(m_EdtEngine.GetIndexLeft(m_CursorPosition));
       break;
-    case FWL_VKEY_Right:
+    case XFA_FWL_VKEY_Right:
       SetCursorPosition(m_EdtEngine.GetIndexRight(m_CursorPosition));
       break;
-    case FWL_VKEY_Up:
+    case XFA_FWL_VKEY_Up:
       SetCursorPosition(m_EdtEngine.GetIndexUp(m_CursorPosition));
       break;
-    case FWL_VKEY_Down:
+    case XFA_FWL_VKEY_Down:
       SetCursorPosition(m_EdtEngine.GetIndexDown(m_CursorPosition));
       break;
-    case FWL_VKEY_Home:
+    case XFA_FWL_VKEY_Home:
       SetCursorPosition(
           bCtrl ? 0 : m_EdtEngine.GetIndexAtStartOfLine(m_CursorPosition));
       break;
-    case FWL_VKEY_End:
+    case XFA_FWL_VKEY_End:
       SetCursorPosition(
           bCtrl ? m_EdtEngine.GetLength()
                 : m_EdtEngine.GetIndexAtEndOfLine(m_CursorPosition));
       break;
-    case FWL_VKEY_Delete: {
+    case XFA_FWL_VKEY_Delete: {
       if ((m_pProperties->m_dwStyleExes & FWL_STYLEEXT_EDT_ReadOnly) ||
           (m_pProperties->m_dwStates & FWL_WGTSTATE_Disabled)) {
         break;
@@ -1211,9 +1209,9 @@ void CFWL_Edit::OnKeyDown(CFWL_MessageKey* pMsg) {
       UpdateCaret();
       break;
     }
-    case FWL_VKEY_Insert:
-    case FWL_VKEY_F2:
-    case FWL_VKEY_Tab:
+    case XFA_FWL_VKEY_Insert:
+    case XFA_FWL_VKEY_F2:
+    case XFA_FWL_VKEY_Tab:
     default:
       break;
   }

@@ -40,13 +40,13 @@ namespace blink {
 using namespace html_names;
 
 AtomicString StyleSheetCandidate::Title() const {
-  return IsElement() ? ToElement(GetNode()).FastGetAttribute(kTitleAttr)
+  return IsElement() ? To<Element>(GetNode()).FastGetAttribute(kTitleAttr)
                      : g_null_atom;
 }
 
 bool StyleSheetCandidate::IsXSL() const {
   return !GetNode().GetDocument().IsHTMLDocument() && type_ == kPi &&
-         ToProcessingInstruction(GetNode()).IsXSL();
+         To<ProcessingInstruction>(GetNode()).IsXSL();
 }
 
 bool StyleSheetCandidate::IsImport() const {
@@ -74,9 +74,10 @@ bool StyleSheetCandidate::IsEnabledAndLoading() const {
 bool StyleSheetCandidate::CanBeActivated(
     const String& current_preferrable_name) const {
   StyleSheet* sheet = this->Sheet();
-  if (!sheet || sheet->disabled() || !sheet->IsCSSStyleSheet())
+  auto* css_style_sheet = DynamicTo<CSSStyleSheet>(sheet);
+  if (!css_style_sheet || sheet->disabled())
     return false;
-  return ToCSSStyleSheet(Sheet())->CanBeActivated(current_preferrable_name);
+  return css_style_sheet->CanBeActivated(current_preferrable_name);
 }
 
 StyleSheetCandidate::Type StyleSheetCandidate::TypeOf(Node& node) {
@@ -109,7 +110,7 @@ StyleSheet* StyleSheetCandidate::Sheet() const {
     case kSVGStyle:
       return ToSVGStyleElement(GetNode()).sheet();
     case kPi:
-      return ToProcessingInstruction(GetNode()).sheet();
+      return To<ProcessingInstruction>(GetNode()).sheet();
     default:
       NOTREACHED();
       return nullptr;

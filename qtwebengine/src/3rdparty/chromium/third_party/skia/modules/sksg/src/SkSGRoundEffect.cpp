@@ -5,11 +5,11 @@
  * found in the LICENSE file.
  */
 
-#include "SkSGRoundEffect.h"
+#include "modules/sksg/include/SkSGRoundEffect.h"
 
-#include "SkCanvas.h"
-#include "SkCornerPathEffect.h"
-#include "SkStrokeRec.h"
+#include "include/core/SkCanvas.h"
+#include "include/core/SkStrokeRec.h"
+#include "include/effects/SkCornerPathEffect.h"
 
 namespace sksg {
 
@@ -30,6 +30,10 @@ void RoundEffect::onDraw(SkCanvas* canvas, const SkPaint& paint) const {
     SkASSERT(!paint.getPathEffect());
 
     canvas->drawPath(fRoundedPath, paint);
+}
+
+bool RoundEffect::onContains(const SkPoint& p) const {
+    return fRoundedPath.contains(p.x(), p.y());
 }
 
 SkPath RoundEffect::onAsPath() const {

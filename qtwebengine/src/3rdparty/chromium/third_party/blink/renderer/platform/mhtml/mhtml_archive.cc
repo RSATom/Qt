@@ -33,16 +33,16 @@
 #include <stddef.h>
 #include "base/metrics/histogram_macros.h"
 #include "build/build_config.h"
-#include "third_party/blink/renderer/platform/date_components.h"
 #include "third_party/blink/renderer/platform/mhtml/archive_resource.h"
 #include "third_party/blink/renderer/platform/mhtml/mhtml_parser.h"
+#include "third_party/blink/renderer/platform/mhtml/serialized_resource.h"
 #include "third_party/blink/renderer/platform/network/mime/mime_type_registry.h"
-#include "third_party/blink/renderer/platform/serialized_resource.h"
 #include "third_party/blink/renderer/platform/shared_buffer.h"
+#include "third_party/blink/renderer/platform/text/date_components.h"
 #include "third_party/blink/renderer/platform/weborigin/scheme_registry.h"
-#include "third_party/blink/renderer/platform/wtf/ascii_ctype.h"
 #include "third_party/blink/renderer/platform/wtf/assertions.h"
 #include "third_party/blink/renderer/platform/wtf/date_math.h"
+#include "third_party/blink/renderer/platform/wtf/text/ascii_ctype.h"
 #include "third_party/blink/renderer/platform/wtf/text/base64.h"
 #include "third_party/blink/renderer/platform/wtf/text/string_builder.h"
 #include "third_party/blink/renderer/platform/wtf/time.h"
@@ -51,6 +51,8 @@
 namespace blink {
 
 namespace {
+
+using blink::mojom::MHTMLLoadResult;
 
 const wtf_size_t kMaximumLineLength = 76;
 
@@ -188,49 +190,58 @@ String ConvertToPrintableCharacters(const String& text) {
   // as:   =?utf-8?Q?encoded_text?=
   // where, "utf-8" is the chosen charset to represent the text and "Q" is the
   // Quoted-Printable format to convert to 7-bit printable ASCII characters.
-  CString utf8_text = text.Utf8();
+  std::string utf8_text = text.Utf8();
   Vector<char> encoded_text;
-  QuotedPrintableEncode(utf8_text.data(), utf8_text.length(),
+  QuotedPrintableEncode(utf8_text.c_str(), utf8_text.length(),
                         true /* is_header */, encoded_text);
   return String(encoded_text.data(), encoded_text.size());
 }
 
 }  // namespace
 
-const char* MHTMLArchive::kLoadResultUmaName =
-    "PageSerialization.MhtmlLoading.LoadResult";
-
-MHTMLArchive::MHTMLArchive() = default;
+MHTMLArchive::MHTMLArchive() : load_result_(MHTMLLoadResult::kInvalidArchive) {}
 
 // static
-void MHTMLArchive::ReportLoadResult(MHTMLArchive::LoadResult result) {
-  UMA_HISTOGRAM_ENUMERATION(kLoadResultUmaName, result);
+void MHTMLArchive::ReportLoadResult(MHTMLLoadResult result) {
+  UMA_HISTOGRAM_ENUMERATION("PageSerialization.MhtmlLoading.LoadResult",
+                            result);
 }
 
+// static
 MHTMLArchive* MHTMLArchive::Create(const KURL& url,
                                    scoped_refptr<const SharedBuffer> data) {
+  MHTMLArchive* archive = CreateArchive(url, data);
+  ReportLoadResult(archive->LoadResult());
+  return archive;
+}
+
+// static
+MHTMLArchive* MHTMLArchive::CreateArchive(
+    const KURL& url,
+    scoped_refptr<const SharedBuffer> data) {
+  MHTMLArchive* archive = MakeGarbageCollected<MHTMLArchive>();
+
   // |data| may be null if archive file is empty.
   if (!data || data->IsEmpty()) {
-    ReportLoadResult(LoadResult::kEmptyFile);
-    return nullptr;
+    archive->load_result_ = MHTMLLoadResult::kEmptyFile;
+    return archive;
   }
 
   // MHTML pages can only be loaded from local URLs, http/https URLs, and
   // content URLs(Android specific).  The latter is now allowed due to full
   // sandboxing enforcement on MHTML pages.
   if (!CanLoadArchive(url)) {
-    ReportLoadResult(LoadResult::kUrlSchemeNotAllowed);
-    return nullptr;
+    archive->load_result_ = MHTMLLoadResult::kUrlSchemeNotAllowed;
+    return archive;
   }
 
   MHTMLParser parser(std::move(data));
   HeapVector<Member<ArchiveResource>> resources = parser.ParseArchive();
   if (resources.IsEmpty()) {
-    ReportLoadResult(LoadResult::kInvalidArchive);
-    return nullptr;  // Invalid MHTML file.
+    archive->load_result_ = MHTMLLoadResult::kInvalidArchive;
+    return archive;
   }
 
-  MHTMLArchive* archive = MakeGarbageCollected<MHTMLArchive>();
   archive->date_ = parser.CreationDate();
 
   size_t resources_count = resources.size();
@@ -261,13 +272,12 @@ MHTMLArchive* MHTMLArchive::Create(const KURL& url,
     else
       archive->AddSubresource(resource);
   }
-  if (archive->MainResource()) {
-    ReportLoadResult(LoadResult::kSuccess);
-    return archive;
-  }
+  if (archive->MainResource())
+    archive->load_result_ = MHTMLLoadResult::kSuccess;
+  else
+    archive->load_result_ = MHTMLLoadResult::kMissingMainResource;
 
-  ReportLoadResult(LoadResult::kMissingMainResource);
-  return nullptr;
+  return archive;
 }
 
 bool MHTMLArchive::CanLoadArchive(const KURL& url) {
@@ -289,7 +299,7 @@ void MHTMLArchive::GenerateMHTMLHeader(const String& boundary,
                                        const KURL& url,
                                        const String& title,
                                        const String& mime_type,
-                                       WTF::Time date,
+                                       base::Time date,
                                        Vector<char>& output_buffer) {
   DCHECK(!boundary.IsEmpty());
   DCHECK(!mime_type.IsEmpty());
@@ -320,9 +330,9 @@ void MHTMLArchive::GenerateMHTMLHeader(const String& boundary,
   // We use utf8() below instead of ascii() as ascii() replaces CRLFs with ??
   // (we still only have put ASCII characters in it).
   DCHECK(string_builder.ToString().ContainsOnlyASCIIOrEmpty());
-  CString ascii_string = string_builder.ToString().Utf8();
+  std::string utf8_string = string_builder.ToString().Utf8();
 
-  output_buffer.Append(ascii_string.data(), ascii_string.length());
+  output_buffer.Append(utf8_string.c_str(), utf8_string.length());
 }
 
 void MHTMLArchive::GenerateMHTMLPart(const String& boundary,
@@ -371,8 +381,8 @@ void MHTMLArchive::GenerateMHTMLPart(const String& boundary,
 
   string_builder.Append("\r\n");
 
-  CString ascii_string = string_builder.ToString().Utf8();
-  output_buffer.Append(ascii_string.data(), ascii_string.length());
+  std::string utf8_string = string_builder.ToString().Utf8();
+  output_buffer.Append(utf8_string.data(), utf8_string.length());
 
   if (!strcmp(content_encoding, kBinary)) {
     for (const auto& span : *resource.data)
@@ -382,17 +392,18 @@ void MHTMLArchive::GenerateMHTMLPart(const String& boundary,
     // fetch it all.
     const SharedBuffer::DeprecatedFlatData flat_data(resource.data);
     const char* data = flat_data.Data();
-    size_t data_length = flat_data.size();
+    wtf_size_t data_length = SafeCast<wtf_size_t>(flat_data.size());
     Vector<char> encoded_data;
     if (!strcmp(content_encoding, kQuotedPrintable)) {
-      QuotedPrintableEncode(data, SafeCast<wtf_size_t>(data_length),
-                            false /* is_header */, encoded_data);
+      QuotedPrintableEncode(data, data_length, false /* is_header */,
+                            encoded_data);
       output_buffer.Append(encoded_data.data(), encoded_data.size());
     } else {
       DCHECK(!strcmp(content_encoding, kBase64));
       // We are not specifying insertLFs = true below as it would cut the lines
       // with LFs and MHTML requires CRLFs.
-      Base64Encode(data, SafeCast<wtf_size_t>(data_length), encoded_data);
+      Base64Encode(base::as_bytes(base::make_span(data, data_length)),
+                   encoded_data);
       wtf_size_t index = 0;
       wtf_size_t encoded_data_length = encoded_data.size();
       do {
@@ -409,8 +420,8 @@ void MHTMLArchive::GenerateMHTMLPart(const String& boundary,
 void MHTMLArchive::GenerateMHTMLFooterForTesting(const String& boundary,
                                                  Vector<char>& output_buffer) {
   DCHECK(!boundary.IsEmpty());
-  CString ascii_string = String("\r\n--" + boundary + "--\r\n").Utf8();
-  output_buffer.Append(ascii_string.data(), ascii_string.length());
+  std::string utf8_string = String("\r\n--" + boundary + "--\r\n").Utf8();
+  output_buffer.Append(utf8_string.c_str(), utf8_string.length());
 }
 
 void MHTMLArchive::SetMainResource(ArchiveResource* main_resource) {

@@ -8,14 +8,14 @@
 #ifndef SkRemoteTypeface_DEFINED
 #define SkRemoteTypeface_DEFINED
 
-#include "SkAdvancedTypefaceMetrics.h"
-#include "SkDescriptor.h"
-#include "SkFontDescriptor.h"
-#include "SkFontStyle.h"
-#include "SkPaint.h"
-#include "SkRemoteGlyphCache.h"
-#include "SkScalerContext.h"
-#include "SkTypeface.h"
+#include "include/core/SkFontStyle.h"
+#include "include/core/SkPaint.h"
+#include "include/core/SkTypeface.h"
+#include "src/core/SkAdvancedTypefaceMetrics.h"
+#include "src/core/SkDescriptor.h"
+#include "src/core/SkFontDescriptor.h"
+#include "src/core/SkRemoteGlyphCache.h"
+#include "src/core/SkScalerContext.h"
 
 class SkTypefaceProxy;
 class SkStrikeCache;
@@ -31,7 +31,6 @@ public:
 
 protected:
     unsigned generateGlyphCount() override;
-    uint16_t generateCharToGlyph(SkUnichar) override;
     bool generateAdvance(SkGlyph* glyph) override;
     void generateMetrics(SkGlyph* glyph) override;
     void generateImage(const SkGlyph& glyph) override;
@@ -65,7 +64,7 @@ public:
 
 protected:
     int onGetUPEM() const override { SK_ABORT("Should never be called."); return 0; }
-    SkStreamAsset* onOpenStream(int* ttcIndex) const override {
+    std::unique_ptr<SkStreamAsset> onOpenStream(int* ttcIndex) const override {
         SK_ABORT("Should never be called.");
         return nullptr;
     }
@@ -119,14 +118,16 @@ protected:
         SK_ABORT("Should never be called.");
     }
 
+    void getPostScriptGlyphNames(SkString*) const override {
+        SK_ABORT("Should never be called.");
+    }
+
     std::unique_ptr<SkAdvancedTypefaceMetrics> onGetAdvancedMetrics() const override {
         SK_ABORT("Should never be called.");
         return nullptr;
     }
-    int onCharsToGlyphs(const void* chars, Encoding,
-                        uint16_t glyphs[], int glyphCount) const override {
+    void onCharsToGlyphs(const SkUnichar* chars, int count, SkGlyphID glyphs[]) const override {
         SK_ABORT("Should never be called.");
-        return 0;
     }
     int onCountGlyphs() const override {
         return this->glyphCount();

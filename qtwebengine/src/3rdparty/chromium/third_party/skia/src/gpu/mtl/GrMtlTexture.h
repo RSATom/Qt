@@ -8,7 +8,7 @@
 #ifndef GrMtlTexture_DEFINED
 #define GrMtlTexture_DEFINED
 
-#include "GrTexture.h"
+#include "include/gpu/GrTexture.h"
 
 #import <Metal/Metal.h>
 
@@ -16,13 +16,13 @@ class GrMtlGpu;
 
 class GrMtlTexture : public GrTexture {
 public:
-    static sk_sp<GrMtlTexture> CreateNewTexture(GrMtlGpu*, SkBudgeted budgeted,
-                                                const GrSurfaceDesc&,
-                                                MTLTextureDescriptor*,
-                                                GrMipMapsStatus);
+    static sk_sp<GrMtlTexture> MakeNewTexture(GrMtlGpu*, SkBudgeted budgeted,
+                                              const GrSurfaceDesc&,
+                                              MTLTextureDescriptor*,
+                                              GrMipMapsStatus);
 
     static sk_sp<GrMtlTexture> MakeWrappedTexture(GrMtlGpu*, const GrSurfaceDesc&, id<MTLTexture>,
-                                                  GrIOType, bool purgeImmediately);
+                                                  GrWrapCacheable, GrIOType);
 
     ~GrMtlTexture() override;
 
@@ -36,31 +36,18 @@ public:
 
     bool reallocForMipmap(GrMtlGpu* gpu, uint32_t mipLevels);
 
-    void setRelease(sk_sp<GrReleaseProcHelper> releaseHelper) override {
-        // Since all MTLResources are inherently ref counted, we can call the Release proc when we
-        // delete the GrMtlTexture without worry of the MTLTexture getting deleted before it is done
-        // on the GPU.
-        fReleaseHelper = std::move(releaseHelper);
-    }
-
-    void setIdleProc(IdleProc proc, void* context) override {
-        fIdleProc = proc;
-        fIdleProcContext = context;
-    }
-    void* idleContext() const override { return fIdleProcContext; }
-
 protected:
     GrMtlTexture(GrMtlGpu*, const GrSurfaceDesc&, id<MTLTexture>, GrMipMapsStatus);
 
     GrMtlGpu* getMtlGpu() const;
 
     void onAbandon() override {
-        this->invokeReleaseProc();
         fTexture = nil;
+        INHERITED::onAbandon();
     }
     void onRelease() override {
-        this->invokeReleaseProc();
         fTexture = nil;
+        INHERITED::onRelease();
     }
 
      bool onStealBackendTexture(GrBackendTexture*, SkImage::BackendTextureReleaseProc*) override {
@@ -70,30 +57,13 @@ protected:
 private:
     enum Wrapped { kWrapped };
 
-    void invokeReleaseProc() {
-        // Depending on the ref count of fReleaseHelper this may or may not actually trigger the
-        // ReleaseProc to be called.
-        fReleaseHelper.reset();
-    }
-
-    void becamePurgeable() override {
-        if (fIdleProc) {
-            fIdleProc(fIdleProcContext);
-            fIdleProc = nullptr;
-            fIdleProcContext = nullptr;
-        }
-    }
-
     GrMtlTexture(GrMtlGpu*, SkBudgeted, const GrSurfaceDesc&, id<MTLTexture>,
                  GrMipMapsStatus);
 
     GrMtlTexture(GrMtlGpu*, Wrapped, const GrSurfaceDesc&, id<MTLTexture>, GrMipMapsStatus,
-                 GrIOType, bool purgeImmediately);
+                 GrWrapCacheable, GrIOType);
 
     id<MTLTexture> fTexture;
-    sk_sp<GrReleaseProcHelper> fReleaseHelper;
-    IdleProc* fIdleProc = nullptr;
-    void* fIdleProcContext = nullptr;
 
     typedef GrTexture INHERITED;
 };

@@ -111,14 +111,6 @@ async function makeCertAndKey(opt_original) {
   if (opt_original) {
     transport = transportType(opt_original);
   }
-  if (transport !== null) {
-    if (transport.length != 2) {
-      throw Error('bad extension length');
-    }
-    if (transport[0] < 3) {
-      throw Error('too many bits set');  // Only 5 bits are defined.
-    }
-  }
 
   const keyalg = {name: 'ECDSA', namedCurve: 'P-256'};
   const keypair =
@@ -820,42 +812,27 @@ Enroller.prototype.sendEnrollRequestToHelper_ = function() {
     if (self.done_) {
       return;
     }
-    if (result) {
-      // AppID is valid, so the request should be sent.
-      await new Promise(resolve => {
-        if (!chrome.cryptotokenPrivate || !window.PublicKeyCredential) {
-          resolve(false);
-        } else {
-          chrome.cryptotokenPrivate.canProxyToWebAuthn(resolve);
-        }
-      }).then(shouldUseWebAuthn => {
-        let v2Challenge;
-        for (let index = 0; index < self.enrollChallenges_.length; index++) {
-          if (self.enrollChallenges_[index]['version'] === 'U2F_V2') {
-            v2Challenge = self.enrollChallenges_[index]['challenge'];
-          }
-        }
 
-        if (v2Challenge && shouldUseWebAuthn) {
-          // If we can proxy to WebAuthn, send the request via WebAuthn.
-          console.log('Proxying registration request to WebAuthn');
-          this.doRegisterWebAuthn_(enrollAppIds[0], v2Challenge, request);
-        } else {
-          self.handler_ =
-              FACTORY_REGISTRY.getRequestHelper().getHandler(request);
-          if (self.handler_) {
-            var helperComplete =
-                /** @type {function(HelperReply)} */
-                (self.helperComplete_.bind(self));
-            self.handler_.run(helperComplete);
-          } else {
-            self.notifyError_({errorCode: ErrorCodes.OTHER_ERROR});
-          }
-        }
-      });
-    } else {
+    if (!result) {
       self.notifyError_({errorCode: ErrorCodes.BAD_REQUEST});
+      return;
     }
+
+    let v2Challenge;
+    for (let index = 0; index < self.enrollChallenges_.length; index++) {
+      if (self.enrollChallenges_[index]['version'] === 'U2F_V2') {
+        v2Challenge = self.enrollChallenges_[index]['challenge'];
+      }
+    }
+
+    if (v2Challenge === undefined) {
+      console.warn('Did not find U2F_V2 challenge');
+      this.notifyError_({errorCode: ErrorCodes.BAD_REQUEST});
+      return;
+    }
+
+    console.log('Proxying registration request to WebAuthn');
+    this.doRegisterWebAuthn_(enrollAppIds[0], v2Challenge, request);
   });
 };
 
@@ -888,12 +865,29 @@ Enroller.prototype.doRegisterWebAuthnContinue_ = function(
   const randomId = new Uint8Array(new ArrayBuffer(16));
   crypto.getRandomValues(randomId);
 
+  const decodedChallenge = B64_decode(challenge);
+  if (decodedChallenge.length == 0) {
+    this.notifyError_({
+      errorCode: ErrorCodes.BAD_REQUEST,
+      errorMessage: 'challenge must be base64url encoded',
+    });
+    return;
+  }
+
   const excludeList = [];
   for (let index = 0; index < request['signData'].length; index++) {
     const element = request['signData'][index];
+    const decodedKeyHandle = B64_decode(element['keyHandle']);
+    if (decodedKeyHandle.length == 0) {
+      this.notifyError_({
+        errorCode: ErrorCodes.BAD_REQUEST,
+        errorMessage: 'keyHandle must be base64url encoded',
+      });
+      return;
+    }
     excludeList.push({
       type: 'public-key',
-      id: new Uint8Array(B64_decode(element['keyHandle'])).buffer,
+      id: new Uint8Array(decodedKeyHandle).buffer,
       transports: ['usb'],
     });
   }
@@ -913,7 +907,7 @@ Enroller.prototype.doRegisterWebAuthnContinue_ = function(
         displayName: this.sender_.origin,
         name: this.sender_.origin,
       },
-      challenge: new Uint8Array(B64_decode(challenge)).buffer,
+      challenge: new Uint8Array(decodedChallenge).buffer,
       pubKeyCredParams: [{
         type: 'public-key',
         alg: -7,  // ES-256

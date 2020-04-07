@@ -86,6 +86,8 @@ typedef blink::protocol::IndexedDB::Backend::DeleteObjectStoreEntriesCallback
     DeleteObjectStoreEntriesCallback;
 typedef blink::protocol::IndexedDB::Backend::ClearObjectStoreCallback
     ClearObjectStoreCallback;
+typedef blink::protocol::IndexedDB::Backend::GetMetadataCallback
+    GetMetadataCallback;
 typedef blink::protocol::IndexedDB::Backend::DeleteDatabaseCallback
     DeleteDatabaseCallback;
 
@@ -109,13 +111,6 @@ Response AssertIDBFactory(Document* document, IDBFactory*& result) {
 
 class GetDatabaseNamesCallback final : public NativeEventListener {
  public:
-  static GetDatabaseNamesCallback* Create(
-      std::unique_ptr<RequestDatabaseNamesCallback> request_callback,
-      const String& security_origin) {
-    return MakeGarbageCollected<GetDatabaseNamesCallback>(
-        std::move(request_callback), security_origin);
-  }
-
   GetDatabaseNamesCallback(
       std::unique_ptr<RequestDatabaseNamesCallback> request_callback,
       const String& security_origin)
@@ -138,10 +133,9 @@ class GetDatabaseNamesCallback final : public NativeEventListener {
     }
 
     DOMStringList* database_names_list = request_result->DomStringList();
-    std::unique_ptr<protocol::Array<String>> database_names =
-        protocol::Array<String>::create();
+    auto database_names = std::make_unique<protocol::Array<String>>();
     for (uint32_t i = 0; i < database_names_list->length(); ++i)
-      database_names->addItem(database_names_list->item(i));
+      database_names->emplace_back(database_names_list->item(i));
     request_callback_->sendSuccess(std::move(database_names));
   }
 
@@ -152,13 +146,6 @@ class GetDatabaseNamesCallback final : public NativeEventListener {
 
 class DeleteCallback final : public NativeEventListener {
  public:
-  static DeleteCallback* Create(
-      std::unique_ptr<DeleteDatabaseCallback> request_callback,
-      const String& security_origin) {
-    return MakeGarbageCollected<DeleteCallback>(std::move(request_callback),
-                                                security_origin);
-  }
-
   DeleteCallback(std::unique_ptr<DeleteDatabaseCallback> request_callback,
                  const String& security_origin)
       : request_callback_(std::move(request_callback)),
@@ -377,12 +364,9 @@ std::unique_ptr<KeyPath> KeyPathFromIDBKeyPath(const IDBKeyPath& idb_key_path) {
       break;
     case mojom::IDBKeyPathType::Array: {
       key_path = KeyPath::create().setType(KeyPath::TypeEnum::Array).build();
-      std::unique_ptr<protocol::Array<String>> array =
-          protocol::Array<String>::create();
-      const Vector<String>& string_array = idb_key_path.Array();
-      for (wtf_size_t i = 0; i < string_array.size(); ++i)
-        array->addItem(string_array[i]);
-      key_path->setArray(std::move(array));
+      const Vector<String>& array = idb_key_path.Array();
+      key_path->setArray(std::make_unique<protocol::Array<String>>(
+          array.begin(), array.end()));
       break;
     }
     default:
@@ -405,17 +389,15 @@ class DatabaseLoader final
   void Execute(IDBDatabase* idb_database, ScriptState*) override {
     const IDBDatabaseMetadata database_metadata = idb_database->Metadata();
 
-    std::unique_ptr<protocol::Array<protocol::IndexedDB::ObjectStore>>
-        object_stores =
-            protocol::Array<protocol::IndexedDB::ObjectStore>::create();
+    auto object_stores =
+        std::make_unique<protocol::Array<protocol::IndexedDB::ObjectStore>>();
 
     for (const auto& store_map_entry : database_metadata.object_stores) {
       const IDBObjectStoreMetadata& object_store_metadata =
           *store_map_entry.value;
 
-      std::unique_ptr<protocol::Array<protocol::IndexedDB::ObjectStoreIndex>>
-          indexes =
-              protocol::Array<protocol::IndexedDB::ObjectStoreIndex>::create();
+      auto indexes = std::make_unique<
+          protocol::Array<protocol::IndexedDB::ObjectStoreIndex>>();
 
       for (const auto& metadata_map_entry : object_store_metadata.indexes) {
         const IDBIndexMetadata& index_metadata = *metadata_map_entry.value;
@@ -427,7 +409,7 @@ class DatabaseLoader final
                 .setUnique(index_metadata.unique)
                 .setMultiEntry(index_metadata.multi_entry)
                 .build();
-        indexes->addItem(std::move(object_store_index));
+        indexes->emplace_back(std::move(object_store_index));
       }
 
       std::unique_ptr<ObjectStore> object_store =
@@ -437,13 +419,12 @@ class DatabaseLoader final
               .setAutoIncrement(object_store_metadata.auto_increment)
               .setIndexes(std::move(indexes))
               .build();
-      object_stores->addItem(std::move(object_store));
+      object_stores->emplace_back(std::move(object_store));
     }
     std::unique_ptr<DatabaseWithObjectStores> result =
         DatabaseWithObjectStores::create()
             .setName(idb_database->name())
-            .setVersion(
-                static_cast<unsigned long long>(idb_database->version()))
+            .setVersion(idb_database->version())
             .setObjectStores(std::move(object_stores))
             .build();
 
@@ -468,28 +449,30 @@ static std::unique_ptr<IDBKey> IdbKeyFromInspectorObject(
     return nullptr;
   String type = key->getType();
 
-  DEFINE_STATIC_LOCAL(String, number, ("number"));
-  DEFINE_STATIC_LOCAL(String, string, ("string"));
-  DEFINE_STATIC_LOCAL(String, date, ("date"));
-  DEFINE_STATIC_LOCAL(String, array, ("array"));
+  DEFINE_STATIC_LOCAL(String, number_type, ("number"));
+  DEFINE_STATIC_LOCAL(String, string_type, ("string"));
+  DEFINE_STATIC_LOCAL(String, date_type, ("date"));
+  DEFINE_STATIC_LOCAL(String, array_type, ("array"));
 
-  if (type == number) {
+  if (type == number_type) {
     if (!key->hasNumber())
       return nullptr;
     idb_key = IDBKey::CreateNumber(key->getNumber(0));
-  } else if (type == string) {
+  } else if (type == string_type) {
     if (!key->hasString())
       return nullptr;
     idb_key = IDBKey::CreateString(key->getString(String()));
-  } else if (type == date) {
+  } else if (type == date_type) {
     if (!key->hasDate())
       return nullptr;
     idb_key = IDBKey::CreateDate(key->getDate(0));
-  } else if (type == array) {
+  } else if (type == array_type) {
     IDBKey::KeyArray key_array;
     auto* array = key->getArray(nullptr);
-    for (size_t i = 0; array && i < array->length(); ++i)
-      key_array.push_back(IdbKeyFromInspectorObject(array->get(i)));
+    if (array) {
+      for (const std::unique_ptr<protocol::IndexedDB::Key>& key : *array)
+        key_array.emplace_back(IdbKeyFromInspectorObject(key.get()));
+    }
     idb_key = IDBKey::CreateArray(std::move(key_array));
   } else {
     return nullptr;
@@ -545,7 +528,7 @@ class OpenCursorCallback final : public NativeEventListener {
         request_callback_(std::move(request_callback)),
         skip_count_(skip_count),
         page_size_(page_size) {
-    result_ = Array<DataEntry>::create();
+    result_ = std::make_unique<protocol::Array<DataEntry>>();
   }
   ~OpenCursorCallback() override = default;
 
@@ -580,7 +563,7 @@ class OpenCursorCallback final : public NativeEventListener {
       return;
     }
 
-    if (result_->length() == page_size_) {
+    if (result_->size() == page_size_) {
       end(true);
       return;
     }
@@ -615,7 +598,7 @@ class OpenCursorCallback final : public NativeEventListener {
                 context, idb_cursor->value(script_state_).V8Value(),
                 object_group, true /* generatePreview */))
             .build();
-    result_->addItem(std::move(data_entry));
+    result_->emplace_back(std::move(data_entry));
   }
 
   void end(bool has_more) {
@@ -786,7 +769,7 @@ void InspectorIndexedDBAgent::requestDatabaseNames(
   }
   idb_request->addEventListener(
       event_type_names::kSuccess,
-      GetDatabaseNamesCallback::Create(
+      MakeGarbageCollected<GetDatabaseNamesCallback>(
           std::move(request_callback),
           document->GetSecurityOrigin()->ToRawString()),
       false);
@@ -829,14 +812,146 @@ void InspectorIndexedDBAgent::requestData(
       database_name);
 }
 
-class DeleteObjectStoreEntriesListener final : public NativeEventListener {
+class GetMetadata;
+
+class GetMetadataListener final : public NativeEventListener {
  public:
-  static DeleteObjectStoreEntriesListener* Create(
-      std::unique_ptr<DeleteObjectStoreEntriesCallback> request_callback) {
-    return MakeGarbageCollected<DeleteObjectStoreEntriesListener>(
-        std::move(request_callback));
+  GetMetadataListener(scoped_refptr<GetMetadata> owner, int64_t* result)
+      : owner_(owner), result_(result) {}
+  ~GetMetadataListener() override = default;
+
+  void Invoke(ExecutionContext*, Event* event) override {
+    if (event->type() != event_type_names::kSuccess) {
+      NotifySubtaskDone(owner_, "Failed to get meta data of object store.");
+      return;
+    }
+
+    IDBRequest* idb_request = static_cast<IDBRequest*>(event->target());
+    IDBAny* request_result = idb_request->ResultAsAny();
+    if (request_result->GetType() != IDBAny::kIntegerType) {
+      NotifySubtaskDone(owner_, "Unexpected result type.");
+      return;
+    }
+    *result_ = request_result->Integer();
+    NotifySubtaskDone(owner_, String());
   }
 
+ private:
+  void NotifySubtaskDone(scoped_refptr<GetMetadata> owner,
+                         const String& error) const;
+  scoped_refptr<GetMetadata> owner_;
+  int64_t* result_;
+};
+
+class GetMetadata final : public ExecutableWithDatabase<GetMetadataCallback> {
+ public:
+  static scoped_refptr<GetMetadata> Create(
+      const String& object_store_name,
+      std::unique_ptr<GetMetadataCallback> request_callback) {
+    return AdoptRef(
+        new GetMetadata(object_store_name, std::move(request_callback)));
+  }
+
+  void NotifySubtaskDone(const String& error) {
+    if (!error.IsNull()) {
+      request_callback_->sendFailure(Response::Error(error));
+      return;
+    }
+    if (--subtask_pending_ == 0) {
+      request_callback_->sendSuccess(entries_count_,
+                                     key_generator_current_number_);
+    }
+  }
+
+ private:
+  GetMetadata(const String& object_store_name,
+              std::unique_ptr<GetMetadataCallback> request_callback)
+      : object_store_name_(object_store_name),
+        request_callback_(std::move(request_callback)),
+        subtask_pending_(2),
+        entries_count_(-1),
+        key_generator_current_number_(-1) {}
+
+  void Execute(IDBDatabase* idb_database, ScriptState* script_state) override {
+    IDBTransaction* idb_transaction =
+        TransactionForDatabase(script_state, idb_database, object_store_name_,
+                               indexed_db_names::kReadonly);
+    if (!idb_transaction) {
+      request_callback_->sendFailure(
+          Response::Error("Could not get transaction"));
+      return;
+    }
+    IDBObjectStore* idb_object_store =
+        ObjectStoreForTransaction(idb_transaction, object_store_name_);
+    if (!idb_object_store) {
+      request_callback_->sendFailure(
+          Response::Error("Could not get object store"));
+      return;
+    }
+
+    // subtask 1. get entries count
+    ScriptState::Scope scope(script_state);
+    DummyExceptionStateForTesting exception_state;
+    IDBRequest* idb_request_get_entries_count = idb_object_store->count(
+        script_state, ScriptValue::CreateNull(script_state), exception_state);
+    DCHECK(!exception_state.HadException());
+    if (exception_state.HadException()) {
+      ExceptionCode ec = exception_state.Code();
+      request_callback_->sendFailure(Response::Error(
+          String::Format("Could not count entries in object store '%s': %d",
+                         object_store_name_.Utf8().c_str(), ec)));
+      return;
+    }
+    GetMetadataListener* listener_get_entries_count =
+        MakeGarbageCollected<GetMetadataListener>(this, &entries_count_);
+    idb_request_get_entries_count->addEventListener(
+        event_type_names::kSuccess, listener_get_entries_count, false);
+    idb_request_get_entries_count->addEventListener(
+        event_type_names::kError, listener_get_entries_count, false);
+
+    // subtask 2. get key generator current number
+    IDBRequest* idb_request_get_key_generator =
+        idb_object_store->getKeyGeneratorCurrentNumber(script_state);
+    GetMetadataListener* listener_get_key_generator =
+        MakeGarbageCollected<GetMetadataListener>(
+            this, &key_generator_current_number_);
+    idb_request_get_key_generator->addEventListener(
+        event_type_names::kSuccess, listener_get_key_generator, false);
+    idb_request_get_key_generator->addEventListener(
+        event_type_names::kError, listener_get_key_generator, false);
+  }
+
+  GetMetadataCallback* GetRequestCallback() override {
+    return request_callback_.get();
+  }
+
+ private:
+  const String object_store_name_;
+  std::unique_ptr<GetMetadataCallback> request_callback_;
+  uint8_t subtask_pending_;
+  int64_t entries_count_;
+  int64_t key_generator_current_number_;
+};
+
+void GetMetadataListener::NotifySubtaskDone(scoped_refptr<GetMetadata> owner,
+                                            const String& error) const {
+  owner->NotifySubtaskDone(error);
+}
+
+void InspectorIndexedDBAgent::getMetadata(
+    const String& security_origin,
+    const String& database_name,
+    const String& object_store_name,
+    std::unique_ptr<GetMetadataCallback> request_callback) {
+  scoped_refptr<GetMetadata> get_metadata =
+      GetMetadata::Create(object_store_name, std::move(request_callback));
+  get_metadata->Start(
+      inspected_frames_->FrameWithSecurityOrigin(security_origin),
+      database_name);
+}
+
+class DeleteObjectStoreEntriesListener final : public NativeEventListener {
+ public:
   DeleteObjectStoreEntriesListener(
       std::unique_ptr<DeleteObjectStoreEntriesCallback> request_callback)
       : request_callback_(std::move(request_callback)) {}
@@ -896,7 +1011,8 @@ class DeleteObjectStoreEntries final
         idb_object_store->deleteFunction(script_state, idb_key_range_.Get());
     idb_request->addEventListener(
         event_type_names::kSuccess,
-        DeleteObjectStoreEntriesListener::Create(std::move(request_callback_)),
+        MakeGarbageCollected<DeleteObjectStoreEntriesListener>(
+            std::move(request_callback_)),
         false);
   }
 
@@ -931,12 +1047,6 @@ void InspectorIndexedDBAgent::deleteObjectStoreEntries(
 
 class ClearObjectStoreListener final : public NativeEventListener {
  public:
-  static ClearObjectStoreListener* Create(
-      std::unique_ptr<ClearObjectStoreCallback> request_callback) {
-    return MakeGarbageCollected<ClearObjectStoreListener>(
-        std::move(request_callback));
-  }
-
   ClearObjectStoreListener(
       std::unique_ptr<ClearObjectStoreCallback> request_callback)
       : request_callback_(std::move(request_callback)) {}
@@ -994,12 +1104,14 @@ class ClearObjectStore final
       ExceptionCode ec = exception_state.Code();
       request_callback_->sendFailure(Response::Error(
           String::Format("Could not clear object store '%s': %d",
-                         object_store_name_.Utf8().data(), ec)));
+                         object_store_name_.Utf8().c_str(), ec)));
       return;
     }
     idb_transaction->addEventListener(
         event_type_names::kComplete,
-        ClearObjectStoreListener::Create(std::move(request_callback_)), false);
+        MakeGarbageCollected<ClearObjectStoreListener>(
+            std::move(request_callback_)),
+        false);
   }
 
   ClearObjectStoreCallback* GetRequestCallback() override {
@@ -1057,8 +1169,9 @@ void InspectorIndexedDBAgent::deleteDatabase(
   }
   idb_request->addEventListener(
       event_type_names::kSuccess,
-      DeleteCallback::Create(std::move(request_callback),
-                             document->GetSecurityOrigin()->ToRawString()),
+      MakeGarbageCollected<DeleteCallback>(
+          std::move(request_callback),
+          document->GetSecurityOrigin()->ToRawString()),
       false);
 }
 

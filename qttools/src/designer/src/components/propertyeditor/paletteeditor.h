@@ -49,7 +49,7 @@ public:
 
     static QPalette getPalette(QDesignerFormEditorInterface *core,
                 QWidget* parent, const QPalette &init = QPalette(),
-                const QPalette &parentPal = QPalette(), int *result = 0);
+                const QPalette &parentPal = QPalette(), int *result = nullptr);
 
     QPalette palette() const;
     void setPalette(const QPalette &palette);
@@ -95,15 +95,15 @@ class PaletteModel : public QAbstractTableModel
     Q_OBJECT
     Q_PROPERTY(QPalette::ColorRole colorRole READ colorRole)
 public:
-    explicit PaletteModel(QObject *parent = 0);
+    explicit PaletteModel(QObject *parent = nullptr);
 
-    int rowCount(const QModelIndex &parent = QModelIndex()) const;
-    int columnCount(const QModelIndex &parent = QModelIndex()) const;
-    QVariant data(const QModelIndex &index, int role) const;
-    bool setData(const QModelIndex &index, const QVariant &value, int role);
-    Qt::ItemFlags flags(const QModelIndex &index) const;
+    int rowCount(const QModelIndex &parent = QModelIndex()) const override;
+    int columnCount(const QModelIndex &parent = QModelIndex()) const override;
+    QVariant data(const QModelIndex &index, int role) const override;
+    bool setData(const QModelIndex &index, const QVariant &value, int role) override;
+    Qt::ItemFlags flags(const QModelIndex &index) const override;
     QVariant headerData(int section, Qt::Orientation orientation,
-                int role = Qt::DisplayRole) const;
+                int role = Qt::DisplayRole) const override;
 
     QPalette getPalette() const;
     void setPalette(const QPalette &palette, const QPalette &parentPalette);
@@ -120,14 +120,14 @@ private:
     QPalette m_palette;
     QPalette m_parentPalette;
     QMap<QPalette::ColorRole, QString> m_roleNames;
-    bool m_compute;
+    bool m_compute = true;
 };
 
 class BrushEditor : public QWidget
 {
     Q_OBJECT
 public:
-    explicit BrushEditor(QDesignerFormEditorInterface *core, QWidget *parent = 0);
+    explicit BrushEditor(QDesignerFormEditorInterface *core, QWidget *parent = nullptr);
 
     void setBrush(const QBrush &brush);
     QBrush brush() const;
@@ -138,7 +138,7 @@ private slots:
     void brushChanged();
 private:
     QtColorButton *m_button;
-    bool m_changed;
+    bool m_changed = false;
     QDesignerFormEditorInterface *m_core;
 };
 
@@ -146,7 +146,7 @@ class RoleEditor : public QWidget
 {
     Q_OBJECT
 public:
-    explicit RoleEditor(QWidget *parent = 0);
+    explicit RoleEditor(QWidget *parent = nullptr);
 
     void setLabel(const QString &label);
     void setEdited(bool on);
@@ -157,7 +157,7 @@ private slots:
     void emitResetProperty();
 private:
     QLabel *m_label;
-    bool    m_edited;
+    bool m_edited = false;
 };
 
 class ColorDelegate : public QItemDelegate
@@ -165,7 +165,7 @@ class ColorDelegate : public QItemDelegate
     Q_OBJECT
 
 public:
-    explicit ColorDelegate(QDesignerFormEditorInterface *core, QObject *parent = 0);
+    explicit ColorDelegate(QDesignerFormEditorInterface *core, QObject *parent = nullptr);
 
     QWidget *createEditor(QWidget *parent, const QStyleOptionViewItem &option,
                           const QModelIndex &index) const override;

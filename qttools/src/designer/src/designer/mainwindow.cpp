@@ -56,7 +56,7 @@ static const char *uriListMimeFormatC = "text/uri-list";
 
 QT_BEGIN_NAMESPACE
 
-typedef QList<QAction *> ActionList;
+using ActionList = QList<QAction *>;
 
 // Helpers for creating toolbars and menu
 
@@ -79,8 +79,7 @@ static QToolBar *createToolBar(const QString &title, const QString &objectName, 
 // ---------------- MainWindowBase
 
 MainWindowBase::MainWindowBase(QWidget *parent, Qt::WindowFlags flags) :
-    QMainWindow(parent, flags),
-    m_policy(AcceptCloseEvents)
+    QMainWindow(parent, flags)
 {
 #ifndef Q_OS_MACOS
     setWindowIcon(qDesigner->windowIcon());
@@ -294,7 +293,7 @@ bool ToolBarManager::restoreState(const QByteArray &state, int version)
 DockedMainWindow::DockedMainWindow(QDesignerWorkbench *wb,
                                    QMenu *toolBarMenu,
                                    const QVector<QDesignerToolWindow *> &toolWindows) :
-    m_toolBarManager(0)
+    m_toolBarManager(nullptr)
 {
     setObjectName(QStringLiteral("MDIWindow"));
     setWindowTitle(mainWindowTitle());

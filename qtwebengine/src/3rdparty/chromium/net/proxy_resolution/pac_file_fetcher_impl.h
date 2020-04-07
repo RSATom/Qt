@@ -79,8 +79,9 @@ class NET_EXPORT PacFileFetcherImpl : public PacFileFetcher,
                           const RedirectInfo& redirect_info,
                           bool* defer_redirect) override;
   void OnAuthRequired(URLRequest* request,
-                      AuthChallengeInfo* auth_info) override;
+                      const AuthChallengeInfo& auth_info) override;
   void OnSSLCertificateError(URLRequest* request,
+                             int net_error,
                              const SSLInfo& ssl_info,
                              bool is_hsts_ok) override;
   void OnResponseStarted(URLRequest* request, int net_error) override;
@@ -160,7 +161,7 @@ class NET_EXPORT PacFileFetcherImpl : public PacFileFetcher,
 
   // Factory for creating the time-out task. This takes care of revoking
   // outstanding tasks when |this| is deleted.
-  base::WeakPtrFactory<PacFileFetcherImpl> weak_factory_;
+  base::WeakPtrFactory<PacFileFetcherImpl> weak_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(PacFileFetcherImpl);
 };

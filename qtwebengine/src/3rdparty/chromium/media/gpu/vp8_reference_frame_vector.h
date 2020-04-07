@@ -7,9 +7,9 @@
 
 #include <array>
 
-#include "base/memory/ref_counted.h"
+#include "base/memory/scoped_refptr.h"
 #include "base/sequence_checker.h"
-#include "media/filters/vp8_parser.h"
+#include "media/parsers/vp8_parser.h"
 
 namespace media {
 

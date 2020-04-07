@@ -15,14 +15,22 @@
 namespace blink {
 
 class ExecutionContext;
+class BarcodeDetectorOptions;
 
 class MODULES_EXPORT BarcodeDetector final : public ShapeDetector {
   DEFINE_WRAPPERTYPEINFO();
 
  public:
-  static BarcodeDetector* Create(ExecutionContext*);
+  static BarcodeDetector* Create(ExecutionContext*,
+                                 const BarcodeDetectorOptions*,
+                                 ExceptionState& exception_state);
 
-  explicit BarcodeDetector(ExecutionContext*);
+  // Barcode Detection API functions.
+  static ScriptPromise getSupportedFormats(ScriptState*);
+
+  explicit BarcodeDetector(ExecutionContext*,
+                           const BarcodeDetectorOptions*,
+                           ExceptionState& exception_state);
 
   void Trace(blink::Visitor*) override;
 
@@ -33,11 +41,12 @@ class MODULES_EXPORT BarcodeDetector final : public ShapeDetector {
   void OnDetectBarcodes(
       ScriptPromiseResolver*,
       Vector<shape_detection::mojom::blink::BarcodeDetectionResultPtr>);
-  void OnBarcodeServiceConnectionError();
 
-  shape_detection::mojom::blink::BarcodeDetectionPtr barcode_service_;
+  void OnConnectionError();
 
-  HeapHashSet<Member<ScriptPromiseResolver>> barcode_service_requests_;
+  shape_detection::mojom::blink::BarcodeDetectionPtr service_;
+
+  HeapHashSet<Member<ScriptPromiseResolver>> detect_requests_;
 };
 
 }  // namespace blink

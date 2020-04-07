@@ -28,10 +28,6 @@ TooltipIcon::~TooltipIcon() {
   HideBubble();
 }
 
-const char* TooltipIcon::GetClassName() const {
-  return "TooltipIcon";
-}
-
 void TooltipIcon::OnMouseEntered(const ui::MouseEvent& event) {
   mouse_inside_ = true;
   show_timer_.Start(FROM_HERE, base::TimeDelta::FromMilliseconds(150), this,
@@ -87,7 +83,7 @@ void TooltipIcon::ShowBubble() {
   bubble_->SetArrow(anchor_point_arrow_);
   // When shown due to a gesture event, close on deactivate (i.e. don't use
   // "focusless").
-  bubble_->set_can_activate(!mouse_inside_);
+  bubble_->SetCanActivate(!mouse_inside_);
 
   bubble_->Show();
   observer_.Add(bubble_->GetWidget());
@@ -112,5 +108,9 @@ void TooltipIcon::OnWidgetDestroyed(Widget* widget) {
   mouse_watcher_.reset();
   bubble_ = nullptr;
 }
+
+BEGIN_METADATA(TooltipIcon)
+METADATA_PARENT_CLASS(ImageView)
+END_METADATA()
 
 }  // namespace views

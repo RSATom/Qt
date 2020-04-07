@@ -8,6 +8,7 @@ namespace extensions {
 namespace declarative_net_request {
 
 const char kAPIPermission[] = "declarativeNetRequest";
+const char kFeedbackAPIPermission[] = "declarativeNetRequestFeedback";
 
 const char kIDKey[] = "id";
 const char kPriorityKey[] = "priority";
@@ -22,6 +23,7 @@ const char kExcludedResourceTypesKey[] = "excludedResourceTypes";
 const char kDomainTypeKey[] = "domainType";
 const char kRuleActionTypeKey[] = "type";
 const char kRedirectUrlKey[] = "redirectUrl";
+const char kRemoveHeadersListKey[] = "removeHeadersList";
 
 }  // namespace declarative_net_request
 }  // namespace extensions

@@ -4,9 +4,14 @@
 
 #include "third_party/blink/renderer/modules/gamepad/gamepad_haptic_actuator.h"
 
+#include "base/bind_helpers.h"
+#include "device/gamepad/public/cpp/gamepad.h"
+#include "third_party/blink/renderer/bindings/core/v8/script_promise.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise_resolver.h"
 #include "third_party/blink/renderer/modules/gamepad/gamepad_dispatcher.h"
+#include "third_party/blink/renderer/modules/gamepad/gamepad_effect_parameters.h"
 #include "third_party/blink/renderer/platform/wtf/functional.h"
+#include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
 
 namespace {
 
@@ -62,7 +67,11 @@ GamepadHapticActuator::GamepadHapticActuator(
     ExecutionContext* context,
     int pad_index,
     device::GamepadHapticActuatorType type)
-    : ContextClient(context), pad_index_(pad_index) {
+    : ContextClient(context),
+      pad_index_(pad_index),
+      // See https://bit.ly/2S0zRAS for task types
+      gamepad_dispatcher_(MakeGarbageCollected<GamepadDispatcher>(
+          context->GetTaskRunner(TaskType::kMiscPlatformAPI))) {
   SetType(type);
 }
 
@@ -85,7 +94,7 @@ ScriptPromise GamepadHapticActuator::playEffect(
     ScriptState* script_state,
     const String& type,
     const GamepadEffectParameters* params) {
-  ScriptPromiseResolver* resolver = ScriptPromiseResolver::Create(script_state);
+  auto* resolver = MakeGarbageCollected<ScriptPromiseResolver>(script_state);
 
   if (params->duration() < 0.0 || params->startDelay() < 0.0 ||
       params->strongMagnitude() < 0.0 || params->strongMagnitude() > 1.0 ||
@@ -110,7 +119,7 @@ ScriptPromise GamepadHapticActuator::playEffect(
   auto callback = WTF::Bind(&GamepadHapticActuator::OnPlayEffectCompleted,
                             WrapPersistent(this), WrapPersistent(resolver));
 
-  GamepadDispatcher::Instance().PlayVibrationEffectOnce(
+  gamepad_dispatcher_->PlayVibrationEffectOnce(
       pad_index_, EffectTypeFromString(type),
       device::mojom::blink::GamepadEffectParameters::New(
           params->duration(), params->startDelay(), params->strongMagnitude(),
@@ -152,19 +161,17 @@ void GamepadHapticActuator::OnPlayEffectCompleted(
 void GamepadHapticActuator::ResetVibrationIfNotPreempted() {
   if (should_reset_) {
     should_reset_ = false;
-    GamepadDispatcher::Instance().ResetVibrationActuator(pad_index_,
-                                                         base::DoNothing());
+    gamepad_dispatcher_->ResetVibrationActuator(pad_index_, base::DoNothing());
   }
 }
 
 ScriptPromise GamepadHapticActuator::reset(ScriptState* script_state) {
-  ScriptPromiseResolver* resolver = ScriptPromiseResolver::Create(script_state);
+  auto* resolver = MakeGarbageCollected<ScriptPromiseResolver>(script_state);
 
   auto callback = WTF::Bind(&GamepadHapticActuator::OnResetCompleted,
                             WrapPersistent(this), WrapPersistent(resolver));
 
-  GamepadDispatcher::Instance().ResetVibrationActuator(pad_index_,
-                                                       std::move(callback));
+  gamepad_dispatcher_->ResetVibrationActuator(pad_index_, std::move(callback));
 
   return resolver->Promise();
 }
@@ -180,6 +187,7 @@ void GamepadHapticActuator::OnResetCompleted(
 }
 
 void GamepadHapticActuator::Trace(blink::Visitor* visitor) {
+  visitor->Trace(gamepad_dispatcher_);
   ScriptWrappable::Trace(visitor);
   ContextClient::Trace(visitor);
 }

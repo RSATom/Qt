@@ -74,6 +74,9 @@ class WebMediaStreamSource {
     WebVector<bool> auto_gain_control;
     WebVector<bool> noise_suppression;
     WebVector<int32_t> sample_size;
+    WebVector<int32_t> channel_count;
+    WebVector<int32_t> sample_rate;
+    WebVector<double> latency;
 
     WebMediaStreamTrack::FacingMode facing_mode =
         WebMediaStreamTrack::FacingMode::kNone;
@@ -92,9 +95,6 @@ class WebMediaStreamSource {
 
   BLINK_PLATFORM_EXPORT void Assign(const WebMediaStreamSource&);
 
-  BLINK_PLATFORM_EXPORT void Initialize(const WebString& id,
-                                        Type,
-                                        const WebString& name);  // DEPRECATED
   BLINK_PLATFORM_EXPORT void Initialize(const WebString& id,
                                         Type,
                                         const WebString& name,

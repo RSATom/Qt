@@ -29,21 +29,23 @@ PaintWorkletGlobalScopeProxy* PaintWorkletGlobalScopeProxy::From(
 PaintWorkletGlobalScopeProxy::PaintWorkletGlobalScopeProxy(
     LocalFrame* frame,
     WorkletModuleResponsesMap* module_responses_map,
-    PaintWorkletPendingGeneratorRegistry* pending_generator_registry,
     size_t global_scope_number) {
   DCHECK(IsMainThread());
   Document* document = frame->GetDocument();
   reporting_proxy_ =
       std::make_unique<MainThreadWorkletReportingProxy>(document);
 
-  WorkerClients* worker_clients = WorkerClients::Create();
+  String global_scope_name =
+      StringView("PaintWorklet #") + String::Number(global_scope_number);
+
+  auto* worker_clients = MakeGarbageCollected<WorkerClients>();
   ProvideContentSettingsClientToWorker(
       worker_clients, frame->Client()->CreateWorkerContentSettingsClient());
 
   auto creation_params = std::make_unique<GlobalScopeCreationParams>(
       document->Url(), mojom::ScriptType::kModule,
-      OffMainThreadWorkerScriptFetchOption::kEnabled, document->UserAgent(),
-      frame->Client()->CreateWorkerFetchContext(),
+      OffMainThreadWorkerScriptFetchOption::kEnabled, global_scope_name,
+      document->UserAgent(), frame->Client()->CreateWorkerFetchContext(),
       document->GetContentSecurityPolicy()->Headers(),
       document->GetReferrerPolicy(), document->GetSecurityOrigin(),
       document->IsSecureContext(), document->GetHttpsState(), worker_clients,
@@ -51,20 +53,21 @@ PaintWorkletGlobalScopeProxy::PaintWorkletGlobalScopeProxy(
       base::UnguessableToken::Create(), nullptr /* worker_settings */,
       kV8CacheOptionsDefault, module_responses_map);
   global_scope_ = PaintWorkletGlobalScope::Create(
-      frame, std::move(creation_params), *reporting_proxy_,
-      pending_generator_registry, global_scope_number);
+      frame, std::move(creation_params), *reporting_proxy_);
 }
 
 void PaintWorkletGlobalScopeProxy::FetchAndInvokeScript(
     const KURL& module_url_record,
-    network::mojom::FetchCredentialsMode credentials_mode,
-    FetchClientSettingsObjectSnapshot* outside_settings_object,
+    network::mojom::CredentialsMode credentials_mode,
+    const FetchClientSettingsObjectSnapshot& outside_settings_object,
+    WorkerResourceTimingNotifier& outside_resource_timing_notifier,
     scoped_refptr<base::SingleThreadTaskRunner> outside_settings_task_runner,
     WorkletPendingTasks* pending_tasks) {
   DCHECK(IsMainThread());
   global_scope_->FetchAndInvokeScript(
       module_url_record, credentials_mode, outside_settings_object,
-      std::move(outside_settings_task_runner), pending_tasks);
+      outside_resource_timing_notifier, std::move(outside_settings_task_runner),
+      pending_tasks);
 }
 
 void PaintWorkletGlobalScopeProxy::WorkletObjectDestroyed() {

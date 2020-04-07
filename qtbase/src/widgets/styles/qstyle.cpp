@@ -560,7 +560,7 @@ QRect QStyle::itemPixmapRect(const QRect &rect, int alignment, const QPixmap &pi
         x += w - pixmapWidth;
     else if ((alignment & Qt::AlignHCenter) == Qt::AlignHCenter)
         x += w/2 - pixmapWidth/2;
-    else if ((alignment & Qt::AlignLeft) != Qt::AlignLeft && QApplication::isRightToLeft())
+    else if ((alignment & Qt::AlignLeft) != Qt::AlignLeft && QGuiApplication::isRightToLeft())
         x += w - pixmapWidth;
     result = QRect(x, y, pixmapWidth, pixmapHeight);
     return result;
@@ -624,7 +624,7 @@ void QStyle::drawItemPixmap(QPainter *painter, const QRect &rect, int alignment,
                             const QPixmap &pixmap) const
 {
     qreal scale = pixmap.devicePixelRatio();
-    QRect aligned = alignedRect(QApplication::layoutDirection(), QFlag(alignment), pixmap.size() / scale, rect);
+    QRect aligned = alignedRect(QGuiApplication::layoutDirection(), QFlag(alignment), pixmap.size() / scale, rect);
     QRect inter = aligned.intersected(rect);
 
     painter->drawPixmap(inter.x(), inter.y(), pixmap, inter.x() - aligned.x(), inter.y() - aligned.y(), inter.width() * scale, inter.height() *scale);
@@ -2101,6 +2101,20 @@ void QStyle::drawItemPixmap(QPainter *painter, const QRect &rect, int alignment,
     \value SP_MediaVolume Icon indicating a volume control.
     \value SP_MediaVolumeMuted Icon indicating a muted volume control.
     \value SP_LineEditClearButton Icon for a standard clear button in a QLineEdit. This enum value was added in Qt 5.2.
+    \value SP_DialogYesToAllButton Icon for a standard YesToAll button in a QDialogButtonBox.
+        This enum value was added in Qt 5.14.
+    \value SP_DialogNoToAllButton Icon for a standard NoToAll button in a QDialogButtonBox.
+        This enum value was added in Qt 5.14.
+    \value SP_DialogSaveAllButton Icon for a standard SaveAll button in a QDialogButtonBox.
+       This enum value was added in Qt 5.14.
+    \value SP_DialogAbortButton Icon for a standard Abort button in a QDialogButtonBox.
+       This enum value was added in Qt 5.14.
+    \value SP_DialogRetryButton Icon for a standard Retry button in a QDialogButtonBox.
+       This enum value was added in Qt 5.14.
+    \value SP_DialogIgnoreButton Icon for a standard Ignore button in a QDialogButtonBox.
+       This enum value was added in Qt 5.14.
+    \value SP_RestoreDefaultsButton Icon for a standard RestoreDefaults button in a QDialogButtonBox.
+       This enum value was added in Qt 5.14.
     \value SP_CustomBase  Base value for custom standard pixmaps;
     custom values must be greater than this value.
 

@@ -145,7 +145,7 @@ class TestResourceHandler : public ResourceHandler {
 
   network::ResourceResponse* resource_response() {
     return resource_response_.get();
-  };
+  }
 
   const std::string& body() const { return body_; }
   net::URLRequestStatus final_status() const { return final_status_; }
@@ -219,7 +219,7 @@ class TestResourceHandler : public ResourceHandler {
 
   base::RunLoop response_complete_run_loop_;
 
-  base::WeakPtrFactory<TestResourceHandler> weak_ptr_factory_;
+  base::WeakPtrFactory<TestResourceHandler> weak_ptr_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(TestResourceHandler);
 };

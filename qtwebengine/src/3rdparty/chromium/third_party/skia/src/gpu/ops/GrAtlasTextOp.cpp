@@ -5,31 +5,31 @@
  * found in the LICENSE file.
  */
 
-#include "GrAtlasTextOp.h"
+#include "src/gpu/ops/GrAtlasTextOp.h"
 
-#include "GrCaps.h"
-#include "GrContext.h"
-#include "GrContextPriv.h"
-#include "GrMemoryPool.h"
-#include "GrOpFlushState.h"
-#include "GrResourceProvider.h"
-#include "SkMathPriv.h"
-#include "SkMatrixPriv.h"
-#include "SkPoint3.h"
-#include "SkStrikeCache.h"
-#include "effects/GrBitmapTextGeoProc.h"
-#include "effects/GrDistanceFieldGeoProc.h"
-#include "text/GrAtlasManager.h"
-#include "text/GrStrikeCache.h"
+#include "include/core/SkPoint3.h"
+#include "include/private/GrRecordingContext.h"
+#include "src/core/SkMathPriv.h"
+#include "src/core/SkMatrixPriv.h"
+#include "src/core/SkStrikeCache.h"
+#include "src/gpu/GrCaps.h"
+#include "src/gpu/GrMemoryPool.h"
+#include "src/gpu/GrOpFlushState.h"
+#include "src/gpu/GrRecordingContextPriv.h"
+#include "src/gpu/GrResourceProvider.h"
+#include "src/gpu/effects/GrBitmapTextGeoProc.h"
+#include "src/gpu/effects/GrDistanceFieldGeoProc.h"
+#include "src/gpu/text/GrAtlasManager.h"
+#include "src/gpu/text/GrStrikeCache.h"
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
-std::unique_ptr<GrAtlasTextOp> GrAtlasTextOp::MakeBitmap(GrContext* context,
+std::unique_ptr<GrAtlasTextOp> GrAtlasTextOp::MakeBitmap(GrRecordingContext* context,
                                                          GrPaint&& paint,
                                                          GrMaskFormat maskFormat,
                                                          int glyphCount,
                                                          bool needsTransform) {
-        GrOpMemoryPool* pool = context->contextPriv().opMemoryPool();
+        GrOpMemoryPool* pool = context->priv().opMemoryPool();
 
         std::unique_ptr<GrAtlasTextOp> op = pool->allocate<GrAtlasTextOp>(std::move(paint));
 
@@ -52,7 +52,7 @@ std::unique_ptr<GrAtlasTextOp> GrAtlasTextOp::MakeBitmap(GrContext* context,
     }
 
 std::unique_ptr<GrAtlasTextOp> GrAtlasTextOp::MakeDistanceField(
-                                            GrContext* context,
+                                            GrRecordingContext* context,
                                             GrPaint&& paint,
                                             int glyphCount,
                                             const GrDistanceFieldAdjustTable* distanceAdjustTable,
@@ -61,7 +61,7 @@ std::unique_ptr<GrAtlasTextOp> GrAtlasTextOp::MakeDistanceField(
                                             const SkSurfaceProps& props,
                                             bool isAntiAliased,
                                             bool useLCD) {
-        GrOpMemoryPool* pool = context->contextPriv().opMemoryPool();
+        GrOpMemoryPool* pool = context->priv().opMemoryPool();
 
         std::unique_ptr<GrAtlasTextOp> op = pool->allocate<GrAtlasTextOp>(std::move(paint));
 
@@ -113,7 +113,7 @@ void GrAtlasTextOp::init() {
     this->setBounds(bounds, HasAABloat::kNo, IsZeroArea::kNo);
 }
 
-void GrAtlasTextOp::visitProxies(const VisitProxyFunc& func, VisitorType) const {
+void GrAtlasTextOp::visitProxies(const VisitProxyFunc& func) const {
     fProcessors.visitProxies(func);
 }
 
@@ -140,7 +140,9 @@ GrDrawOp::FixedFunctionFlags GrAtlasTextOp::fixedFunctionFlags() const {
     return FixedFunctionFlags::kNone;
 }
 
-GrProcessorSet::Analysis GrAtlasTextOp::finalize(const GrCaps& caps, const GrAppliedClip* clip) {
+GrProcessorSet::Analysis GrAtlasTextOp::finalize(
+        const GrCaps& caps, const GrAppliedClip* clip, bool hasMixedSampledCoverage,
+        GrClampType clampType) {
     GrProcessorAnalysisCoverage coverage;
     GrProcessorAnalysisColor color;
     if (kColorBitmapMask_MaskType == fMaskType) {
@@ -163,7 +165,9 @@ GrProcessorSet::Analysis GrAtlasTextOp::finalize(const GrCaps& caps, const GrApp
             coverage = GrProcessorAnalysisCoverage::kNone;
             break;
     }
-    auto analysis = fProcessors.finalize(color, coverage, clip, false, caps, &fGeoData[0].fColor);
+    auto analysis = fProcessors.finalize(
+            color, coverage, clip, &GrUserStencilSettings::kUnused, hasMixedSampledCoverage, caps,
+            clampType, &fGeoData[0].fColor);
     fUsesLocalCoords = analysis.usesLocalCoords();
     return analysis;
 }
@@ -298,16 +302,13 @@ void GrAtlasTextOp::onPrepareDraws(Target* target) {
     GR_STATIC_ASSERT(GrDistanceFieldA8TextGeoProc::kMaxTextures == kMaxTextures);
     GR_STATIC_ASSERT(GrDistanceFieldLCDTextGeoProc::kMaxTextures == kMaxTextures);
 
-    static const uint32_t kPipelineFlags = 0;
-    auto pipe = target->makePipeline(kPipelineFlags, std::move(fProcessors),
-                                     target->detachAppliedClip(), kMaxTextures);
+    auto fixedDynamicState = target->makeFixedDynamicState(kMaxTextures);
     for (unsigned i = 0; i < numActiveProxies; ++i) {
-        pipe.fFixedDynamicState->fPrimitiveProcessorTextures[i] = proxies[i].get();
+        fixedDynamicState->fPrimitiveProcessorTextures[i] = proxies[i].get();
     }
 
     FlushInfo flushInfo;
-    flushInfo.fPipeline = pipe.fPipeline;
-    flushInfo.fFixedDynamicState = pipe.fFixedDynamicState;
+    flushInfo.fFixedDynamicState = fixedDynamicState;
 
     bool vmPerspective = fGeoData[0].fViewMatrix.hasPerspective();
     if (this->usesDistanceFields()) {
@@ -325,12 +326,10 @@ void GrAtlasTextOp::onPrepareDraws(Target* target) {
     size_t vertexStride = flushInfo.fGeometryProcessor->vertexStride();
 
     int glyphCount = this->numGlyphs();
-    const GrBuffer* vertexBuffer;
 
-    void* vertices = target->makeVertexSpace(
-            vertexStride, glyphCount * kVerticesPerGlyph, &vertexBuffer, &flushInfo.fVertexOffset);
-    flushInfo.fVertexBuffer.reset(SkRef(vertexBuffer));
-    flushInfo.fIndexBuffer = target->resourceProvider()->refQuadIndexBuffer();
+    void* vertices = target->makeVertexSpace(vertexStride, glyphCount * kVerticesPerGlyph,
+                                             &flushInfo.fVertexBuffer, &flushInfo.fVertexOffset);
+    flushInfo.fIndexBuffer = resourceProvider->refQuadIndexBuffer();
     if (!vertices || !flushInfo.fVertexBuffer) {
         SkDebugf("Could not allocate vertices\n");
         return;
@@ -391,6 +390,11 @@ void GrAtlasTextOp::onPrepareDraws(Target* target) {
     this->flush(target, &flushInfo);
 }
 
+void GrAtlasTextOp::onExecute(GrOpFlushState* flushState, const SkRect& chainBounds) {
+    flushState->executeDrawsAndUploadsForMeshDrawOp(
+            this, chainBounds, std::move(fProcessors), GrPipeline::InputFlags::kNone);
+}
+
 void GrAtlasTextOp::flush(GrMeshDrawOp::Target* target, FlushInfo* flushInfo) const {
     if (!flushInfo->fGlyphsToFlush) {
         return;
@@ -425,14 +429,13 @@ void GrAtlasTextOp::flush(GrMeshDrawOp::Target* target, FlushInfo* flushInfo) co
                                                                       samplerState);
         }
     }
-    int maxGlyphsPerDraw =
-            static_cast<int>(flushInfo->fIndexBuffer->gpuMemorySize() / sizeof(uint16_t) / 6);
+    int maxGlyphsPerDraw = static_cast<int>(flushInfo->fIndexBuffer->size() / sizeof(uint16_t) / 6);
     GrMesh* mesh = target->allocMesh(GrPrimitiveType::kTriangles);
-    mesh->setIndexedPatterned(flushInfo->fIndexBuffer.get(), kIndicesPerGlyph, kVerticesPerGlyph,
+    mesh->setIndexedPatterned(flushInfo->fIndexBuffer, kIndicesPerGlyph, kVerticesPerGlyph,
                               flushInfo->fGlyphsToFlush, maxGlyphsPerDraw);
-    mesh->setVertexData(flushInfo->fVertexBuffer.get(), flushInfo->fVertexOffset);
-    target->draw(flushInfo->fGeometryProcessor, flushInfo->fPipeline, flushInfo->fFixedDynamicState,
-                 mesh);
+    mesh->setVertexData(flushInfo->fVertexBuffer, flushInfo->fVertexOffset);
+    target->recordDraw(
+            flushInfo->fGeometryProcessor, mesh, 1, flushInfo->fFixedDynamicState, nullptr);
     flushInfo->fVertexOffset += kVerticesPerGlyph * flushInfo->fGlyphsToFlush;
     flushInfo->fGlyphsToFlush = 0;
 }

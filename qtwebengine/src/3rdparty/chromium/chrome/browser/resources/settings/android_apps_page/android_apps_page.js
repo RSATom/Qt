@@ -31,7 +31,7 @@ Polymer({
         if (settings.routes.ANDROID_APPS_DETAILS) {
           map.set(
               settings.routes.ANDROID_APPS_DETAILS.path,
-              '#android-apps .subpage-arrow button');
+              '#android-apps .subpage-arrow');
         }
         return map;
       },
@@ -61,5 +61,16 @@ Polymer({
     if (this.androidAppsInfo.playStoreEnabled) {
       settings.navigateTo(settings.routes.ANDROID_APPS_DETAILS);
     }
+  },
+
+  /**
+   * @param {!MouseEvent} event
+   * @private
+   */
+  onManageAndroidAppsTap_: function(event) {
+    // |event.detail| is the click count. Keyboard events will have 0 clicks.
+    const isKeyboardAction = event.detail == 0;
+    settings.AndroidAppsBrowserProxyImpl.getInstance().showAndroidAppsSettings(
+        isKeyboardAction);
   },
 });

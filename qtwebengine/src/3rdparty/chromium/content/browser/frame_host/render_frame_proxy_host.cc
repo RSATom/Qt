@@ -9,7 +9,7 @@
 #include <vector>
 
 #include "base/callback.h"
-#include "base/hash.h"
+#include "base/hash/hash.h"
 #include "base/lazy_instance.h"
 #include "content/browser/bad_message.h"
 #include "content/browser/blob_storage/chrome_blob_storage_context.h"
@@ -17,6 +17,7 @@
 #include "content/browser/frame_host/cross_process_frame_connector.h"
 #include "content/browser/frame_host/frame_tree.h"
 #include "content/browser/frame_host/frame_tree_node.h"
+#include "content/browser/frame_host/ipc_utils.h"
 #include "content/browser/frame_host/navigator.h"
 #include "content/browser/frame_host/render_frame_host_delegate.h"
 #include "content/browser/renderer_host/render_view_host_impl.h"
@@ -26,7 +27,9 @@
 #include "content/browser/site_instance_impl.h"
 #include "content/common/frame_messages.h"
 #include "content/common/frame_owner_properties.h"
+#include "content/common/unfreezable_frame_messages.h"
 #include "content/public/browser/browser_thread.h"
+#include "content/public/common/content_features.h"
 #include "ipc/ipc_message.h"
 
 namespace content {
@@ -53,25 +56,23 @@ RenderFrameProxyHost* RenderFrameProxyHost::FromID(int process_id,
   return it == frames->end() ? NULL : it->second;
 }
 
-RenderFrameProxyHost::RenderFrameProxyHost(SiteInstance* site_instance,
-                                           RenderViewHostImpl* render_view_host,
-                                           FrameTreeNode* frame_tree_node)
+RenderFrameProxyHost::RenderFrameProxyHost(
+    SiteInstance* site_instance,
+    scoped_refptr<RenderViewHostImpl> render_view_host,
+    FrameTreeNode* frame_tree_node)
     : routing_id_(site_instance->GetProcess()->GetNextRoutingID()),
       site_instance_(site_instance),
       process_(site_instance->GetProcess()),
       frame_tree_node_(frame_tree_node),
       render_frame_proxy_created_(false),
-      render_view_host_(render_view_host) {
+      render_view_host_(std::move(render_view_host)) {
   GetProcess()->AddRoute(routing_id_, this);
   CHECK(g_routing_id_frame_proxy_map.Get().insert(
       std::make_pair(
           RenderFrameProxyHostID(GetProcess()->GetID(), routing_id_),
           this)).second);
-  CHECK(render_view_host ||
-        (frame_tree_node_->render_manager()->ForInnerDelegate() &&
-         frame_tree_node_->IsMainFrame()));
-  if (render_view_host)
-    frame_tree_node_->frame_tree()->AddRenderViewHostRef(render_view_host_);
+  CHECK(render_view_host_ ||
+        frame_tree_node_->render_manager()->IsMainFrameForInnerDelegate());
 
   bool is_proxy_to_parent = !frame_tree_node_->IsMainFrame() &&
                             frame_tree_node_->parent()
@@ -79,8 +80,7 @@ RenderFrameProxyHost::RenderFrameProxyHost(SiteInstance* site_instance,
                                     ->current_frame_host()
                                     ->GetSiteInstance() == site_instance;
   bool is_proxy_to_outer_delegate =
-      frame_tree_node_->IsMainFrame() &&
-      frame_tree_node_->render_manager()->ForInnerDelegate();
+      frame_tree_node_->render_manager()->IsMainFrameForInnerDelegate();
 
   // If this is a proxy to parent frame or this proxy is for the inner
   // WebContents's FrameTreeNode in outer WebContents's SiteInstance, then we
@@ -98,20 +98,20 @@ RenderFrameProxyHost::RenderFrameProxyHost(SiteInstance* site_instance,
 }
 
 RenderFrameProxyHost::~RenderFrameProxyHost() {
-  if (!destruction_callback_.is_null())
-    std::move(destruction_callback_).Run();
-
   if (GetProcess()->IsInitializedAndNotDead()) {
     // TODO(nasko): For now, don't send this IPC for top-level frames, as
     // the top-level RenderFrame will delete the RenderFrameProxy.
     // This can be removed once we don't have a swapped out state on
     // RenderFrame. See https://crbug.com/357747
     if (!frame_tree_node_->IsMainFrame())
-      Send(new FrameMsg_DeleteProxy(routing_id_));
+      Send(new UnfreezableFrameMsg_DeleteProxy(routing_id_));
   }
 
-  if (render_view_host_)
-    frame_tree_node_->frame_tree()->ReleaseRenderViewHostRef(render_view_host_);
+  // TODO(arthursonzogni): There are no known reason for removing the
+  // RenderViewHostImpl here instead of automatically at the end of the
+  // destructor. This line can be removed.
+  render_view_host_.reset();
+
   GetProcess()->RemoveRoute(routing_id_);
   g_routing_id_frame_proxy_map.Get().erase(
       RenderFrameProxyHostID(GetProcess()->GetID(), routing_id_));
@@ -127,8 +127,9 @@ void RenderFrameProxyHost::SetChildRWHView(
 }
 
 RenderViewHostImpl* RenderFrameProxyHost::GetRenderViewHost() {
-  return frame_tree_node_->frame_tree()->GetRenderViewHost(
-      site_instance_.get());
+  return frame_tree_node_->frame_tree()
+      ->GetRenderViewHost(site_instance_.get())
+      .get();
 }
 
 RenderWidgetHostView* RenderFrameProxyHost::GetRenderWidgetHostView() {
@@ -167,6 +168,13 @@ bool RenderFrameProxyHost::OnMessageReceived(const IPC::Message& msg) {
 
 bool RenderFrameProxyHost::InitRenderFrameProxy() {
   DCHECK(!render_frame_proxy_created_);
+
+  // If the current RenderFrameHost is pending deletion, no new proxies should
+  // be created for it, since this frame should no longer be visible from other
+  // processes. We can get here with postMessage while trying to recreate
+  // proxies for the sender.
+  if (!frame_tree_node_->current_frame_host()->is_active())
+    return false;
 
   // It is possible to reach this when the process is dead (in particular, when
   // creating proxies from CreateProxiesForChildFrame).  In that case, don't
@@ -214,6 +222,12 @@ bool RenderFrameProxyHost::InitRenderFrameProxy() {
 
   set_render_frame_proxy_created(true);
 
+  // If this proxy was created for a frame that hasn't yet finished loading,
+  // let the renderer know so it can also mark the proxy as loading. See
+  // https://crbug.com/916137.
+  if (frame_tree_node_->IsLoading())
+    Send(new FrameMsg_DidStartLoading(routing_id_));
+
   // For subframes, initialize the proxy's FrameOwnerProperties only if they
   // differ from default values.
   bool should_send_properties =
@@ -252,54 +266,41 @@ void RenderFrameProxyHost::ScrollRectToVisible(
 
 void RenderFrameProxyHost::BubbleLogicalScroll(
     blink::WebScrollDirection direction,
-    blink::WebScrollGranularity granularity) {
+    ui::input_types::ScrollGranularity granularity) {
   Send(new FrameMsg_BubbleLogicalScroll(routing_id_, direction, granularity));
 }
 
-void RenderFrameProxyHost::SetDestructionCallback(
-    DestructionCallback destruction_callback) {
-  destruction_callback_ = std::move(destruction_callback);
-}
-
 void RenderFrameProxyHost::OnDetach() {
-  if (frame_tree_node_->render_manager()->ForInnerDelegate()) {
-    // Only main frame proxy can detach for inner WebContents.
-    DCHECK(frame_tree_node_->IsMainFrame());
+  if (frame_tree_node_->render_manager()->IsMainFrameForInnerDelegate()) {
     frame_tree_node_->render_manager()->RemoveOuterDelegateFrame();
     return;
   }
 
-  // This message should only be received for subframes.  Note that we can't
-  // restrict it to just the current SiteInstances of the ancestors of this
-  // frame, because another frame in the tree may be able to detach this frame
-  // by navigating its parent.
-  if (frame_tree_node_->IsMainFrame()) {
-    bad_message::ReceivedBadMessage(GetProcess(), bad_message::RFPH_DETACH);
+  // For a main frame with no outer delegate, no further work is needed. In this
+  // case, detach can only be triggered by closing the entire RenderViewHost.
+  // Instead, this cleanup relies on the destructors of RenderFrameHost and
+  // RenderFrameProxyHost decrementing the refcounts of their associated
+  // RenderViewHost. When the refcount hits 0, the corresponding renderer object
+  // is cleaned up. Since WebContents destruction will also destroy
+  // RenderFrameHost/RenderFrameProxyHost objects in FrameTree, this eventually
+  // results in all the associated RenderViewHosts being closed.
+  if (frame_tree_node_->IsMainFrame())
     return;
-  }
 
+  // Otherwise, a remote child frame has been removed from the frame tree.
+  // Make sure that this action is mirrored to all the other renderers, so
+  // the frame tree remains consistent.
   frame_tree_node_->current_frame_host()->DetachFromProxy();
 }
 
 void RenderFrameProxyHost::OnOpenURL(
     const FrameHostMsg_OpenURL_Params& params) {
-  GURL validated_url(params.url);
-  GetProcess()->FilterURL(false, &validated_url);
-
-  mojo::ScopedMessagePipeHandle blob_url_token_handle(params.blob_url_token);
-  blink::mojom::BlobURLTokenPtr blob_url_token(
-      blink::mojom::BlobURLTokenPtrInfo(std::move(blob_url_token_handle),
-                                        blink::mojom::BlobURLToken::Version_));
+  // Verify and unpack IPC payload.
+  GURL validated_url;
   scoped_refptr<network::SharedURLLoaderFactory> blob_url_loader_factory;
-  if (blob_url_token) {
-    if (!params.url.SchemeIsBlob()) {
-      bad_message::ReceivedBadMessage(
-          GetProcess(), bad_message::RFPH_BLOB_URL_TOKEN_FOR_NON_BLOB_URL);
-      return;
-    }
-    blob_url_loader_factory =
-        ChromeBlobStorageContext::URLLoaderFactoryForToken(
-            GetSiteInstance()->GetBrowserContext(), std::move(blob_url_token));
+  if (!VerifyOpenURLParams(GetSiteInstance(), params, &validated_url,
+                           &blob_url_loader_factory)) {
+    return;
   }
 
   RenderFrameHostImpl* current_rfh = frame_tree_node_->current_frame_host();
@@ -314,18 +315,16 @@ void RenderFrameProxyHost::OnOpenURL(
   if (!site_instance_->IsRelatedSiteInstance(current_rfh->GetSiteInstance()))
     return;
 
-  // Verify if the request originator (*not* |current_rfh|) has access to the
-  // contents of the POST body.
-  if (!ChildProcessSecurityPolicyImpl::GetInstance()->CanReadRequestBody(
-          GetSiteInstance(), params.resource_request_body)) {
-    bad_message::ReceivedBadMessage(GetProcess(),
-                                    bad_message::RFPH_ILLEGAL_UPLOAD_PARAMS);
-    return;
-  }
-
   // Since this navigation targeted a specific RenderFrameProxy, it should stay
   // in the current tab.
   DCHECK_EQ(WindowOpenDisposition::CURRENT_TAB, params.disposition);
+
+  // Augment |download_policy| for situations that were not covered on the
+  // renderer side, e.g. status not available on remote frame, etc.
+  NavigationDownloadPolicy download_policy = params.download_policy;
+  GetContentClient()->browser()->AugmentNavigationDownloadPolicy(
+      frame_tree_node_->navigator()->GetController()->GetWebContents(),
+      current_rfh, params.user_gesture, &download_policy);
 
   // TODO(lfg, lukasza): Remove |extra_headers| parameter from
   // RequestTransferURL method once both RenderFrameProxyHost and
@@ -336,7 +335,7 @@ void RenderFrameProxyHost::OnOpenURL(
   frame_tree_node_->navigator()->NavigateFromFrameProxy(
       current_rfh, validated_url, params.initiator_origin, site_instance_.get(),
       params.referrer, ui::PAGE_TRANSITION_LINK,
-      params.should_replace_current_entry, params.download_policy,
+      params.should_replace_current_entry, download_policy,
       params.uses_post ? "POST" : "GET", params.resource_request_body,
       params.extra_headers, std::move(blob_url_loader_factory),
       params.user_gesture);
@@ -350,6 +349,15 @@ void RenderFrameProxyHost::OnCheckCompleted() {
 void RenderFrameProxyHost::OnRouteMessageEvent(
     const FrameMsg_PostMessage_Params& params) {
   RenderFrameHostImpl* target_rfh = frame_tree_node()->current_frame_host();
+  if (!target_rfh->IsRenderFrameLive()) {
+    // Check if there is an inner delegate involved; if so target its main
+    // frame or otherwise return since there is no point in forwarding the
+    // message.
+    target_rfh = target_rfh->delegate()->GetMainFrameForInnerDelegate(
+        target_rfh->frame_tree_node());
+    if (!target_rfh || !target_rfh->IsRenderFrameLive())
+      return;
+  }
 
   // |targetOrigin| argument of postMessage is already checked by
   // blink::LocalDOMWindow::DispatchMessageEventWithOriginCheck (needed for
@@ -397,15 +405,18 @@ void RenderFrameProxyHost::OnRouteMessageEvent(
                                                        GetSiteInstance()))
     return;
 
-  FrameMsg_PostMessage_Params new_params(params);
+  int32_t source_routing_id = params.source_routing_id;
+  base::string16 source_origin = params.source_origin;
+  base::string16 target_origin = params.target_origin;
+  blink::TransferableMessage message = std::move(params.message->data);
 
   // If there is a source_routing_id, translate it to the routing ID of the
   // equivalent RenderFrameProxyHost in the target process.
-  if (new_params.source_routing_id != MSG_ROUTING_NONE) {
-    RenderFrameHostImpl* source_rfh = RenderFrameHostImpl::FromID(
-        GetProcess()->GetID(), new_params.source_routing_id);
+  if (source_routing_id != MSG_ROUTING_NONE) {
+    RenderFrameHostImpl* source_rfh =
+        RenderFrameHostImpl::FromID(GetProcess()->GetID(), source_routing_id);
     if (!source_rfh) {
-      new_params.source_routing_id = MSG_ROUTING_NONE;
+      source_routing_id = MSG_ROUTING_NONE;
     } else {
       // https://crbug.com/822958: If the postMessage is going to a descendant
       // frame, ensure that any pending visual properties such as size are sent
@@ -430,6 +441,18 @@ void RenderFrameProxyHost::OnRouteMessageEvent(
       // to the target page.
       target_rfh->delegate()->EnsureOpenerProxiesExist(source_rfh);
 
+      // Transfer user activation state in the frame tree in the browser and
+      // the non-source and non-target renderer processes when
+      // |transfer_user_activation| is true.
+      // TODO(lanwei): we should transfer user activation state only when
+      // |source_rfh| and |target_rfh| are in the same frame tree.
+      if (base::FeatureList::IsEnabled(
+              features::kUserActivationPostMessageTransfer) &&
+          message.transfer_user_activation &&
+          source_rfh->frame_tree_node()->HasTransientUserActivation()) {
+        target_rfh->frame_tree_node()->TransferUserActivationFrom(source_rfh);
+      }
+
       // If the message source is a cross-process subframe, its proxy will only
       // be created in --site-per-process mode.  If the proxy wasn't created,
       // set the source routing ID to MSG_ROUTING_NONE (see
@@ -439,16 +462,16 @@ void RenderFrameProxyHost::OnRouteMessageEvent(
               ->render_manager()
               ->GetRenderFrameProxyHost(target_site_instance);
       if (source_proxy_in_target_site_instance) {
-        new_params.source_routing_id =
+        source_routing_id =
             source_proxy_in_target_site_instance->GetRoutingID();
       } else {
-        new_params.source_routing_id = MSG_ROUTING_NONE;
+        source_routing_id = MSG_ROUTING_NONE;
       }
     }
   }
 
-  target_rfh->Send(
-      new FrameMsg_PostMessageEvent(target_rfh->GetRoutingID(), new_params));
+  target_rfh->PostMessageEvent(source_routing_id, source_origin, target_origin,
+                               std::move(message));
 }
 
 void RenderFrameProxyHost::OnDidChangeOpener(int32_t opener_routing_id) {

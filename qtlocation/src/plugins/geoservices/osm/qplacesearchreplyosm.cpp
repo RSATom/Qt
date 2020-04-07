@@ -184,7 +184,7 @@ QPlaceResult QPlaceSearchReplyOsm::parsePlaceResult(const QJsonObject &item) con
     //double importance = item.value(QStringLiteral("importance")).toDouble();
 
     place.setAttribution(item.value(QStringLiteral("licence")).toString());
-    place.setPlaceId(item.value(QStringLiteral("place_id")).toString());
+    place.setPlaceId(QString::number(item.value(QStringLiteral("place_id")).toInt()));
 
     QVariantMap iconParameters;
     iconParameters.insert(QPlaceIcon::SingleUrl,

@@ -23,14 +23,14 @@ BLINK_COMMON_EXPORT extern const char
 
 struct BLINK_COMMON_EXPORT TrackControls {
   TrackControls();
-  explicit TrackControls(bool request, MediaStreamType type);
+  explicit TrackControls(bool request, mojom::MediaStreamType type);
   explicit TrackControls(const TrackControls& other);
   ~TrackControls();
 
   bool requested = false;
 
   // Represents the requested  stream type.
-  MediaStreamType stream_type = MEDIA_NO_SERVICE;
+  mojom::MediaStreamType stream_type = mojom::MediaStreamType::NO_SERVICE;
 
   // An empty string represents the default device.
   // A nonempty string represents a specific device.
@@ -50,7 +50,7 @@ struct BLINK_COMMON_EXPORT StreamControls {
   TrackControls audio;
   TrackControls video;
   // Hotword functionality (chromeos only)
-  // See crbug.com/564574 for discussion on possibly #ifdef'ing this out.
+  // TODO(crbug.com/577627): this is now never set and needs to be removed.
   bool hotword_enabled = false;
   bool disable_local_echo = false;
 };

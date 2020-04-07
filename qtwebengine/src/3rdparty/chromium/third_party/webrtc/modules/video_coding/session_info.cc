@@ -12,6 +12,7 @@
 
 #include <assert.h>
 #include <string.h>
+
 #include <vector>
 
 #include "absl/types/variant.h"
@@ -36,7 +37,7 @@ uint16_t BufferToUWord16(const uint8_t* dataBuffer) {
 
 VCMSessionInfo::VCMSessionInfo()
     : complete_(false),
-      frame_type_(kVideoFrameDelta),
+      frame_type_(VideoFrameType::kVideoFrameDelta),
       packets_(),
       empty_seq_num_low_(-1),
       empty_seq_num_high_(-1),
@@ -95,6 +96,8 @@ int VCMSessionInfo::TemporalId() const {
     return absl::get<RTPVideoHeaderVP9>(
                packets_.front().video_header.video_type_header)
         .temporal_idx;
+  } else if (packets_.front().video_header.codec == kVideoCodecH264) {
+    return packets_.front().video_header.frame_marking.temporal_id;
   } else {
     return kNoTemporalIdx;
   }
@@ -111,6 +114,8 @@ bool VCMSessionInfo::LayerSync() const {
     return absl::get<RTPVideoHeaderVP9>(
                packets_.front().video_header.video_type_header)
         .temporal_up_switch;
+  } else if (packets_.front().video_header.codec == kVideoCodecH264) {
+    return packets_.front().video_header.frame_marking.base_layer_sync;
   } else {
     return false;
   }
@@ -127,6 +132,8 @@ int VCMSessionInfo::Tl0PicId() const {
     return absl::get<RTPVideoHeaderVP9>(
                packets_.front().video_header.video_type_header)
         .tl0_pic_idx;
+  } else if (packets_.front().video_header.codec == kVideoCodecH264) {
+    return packets_.front().video_header.frame_marking.tl0_pic_idx;
   } else {
     return kNoTl0PicIdx;
   }
@@ -166,7 +173,7 @@ void VCMSessionInfo::SetGofInfo(const GofInfoVP9& gof_info, size_t idx) {
 
 void VCMSessionInfo::Reset() {
   complete_ = false;
-  frame_type_ = kVideoFrameDelta;
+  frame_type_ = VideoFrameType::kVideoFrameDelta;
   packets_.clear();
   empty_seq_num_low_ = -1;
   empty_seq_num_high_ = -1;
@@ -348,7 +355,7 @@ VCMSessionInfo::PacketIterator VCMSessionInfo::FindNextPartitionBeginning(
 
 VCMSessionInfo::PacketIterator VCMSessionInfo::FindPartitionEnd(
     PacketIterator it) const {
-  assert((*it).codec == kVideoCodecVP8);
+  assert((*it).codec() == kVideoCodecVP8);
   PacketIterator prev_it = it;
   const int partition_id =
       absl::get<RTPVideoHeaderVP8>((*it).video_header.video_type_header)
@@ -420,7 +427,7 @@ bool VCMSessionInfo::HaveLastPacket() const {
 int VCMSessionInfo::InsertPacket(const VCMPacket& packet,
                                  uint8_t* frame_buffer,
                                  const FrameData& frame_data) {
-  if (packet.frameType == kEmptyFrame) {
+  if (packet.video_header.frame_type == VideoFrameType::kEmptyFrame) {
     // Update sequence number of an empty packet.
     // Only media packets are inserted into the packet list.
     InformOfEmptyPacket(packet.seqNum);
@@ -444,9 +451,9 @@ int VCMSessionInfo::InsertPacket(const VCMPacket& packet,
       (*rit).sizeBytes > 0)
     return -2;
 
-  if (packet.codec == kVideoCodecH264) {
-    frame_type_ = packet.frameType;
-    if (packet.is_first_packet_in_frame &&
+  if (packet.codec() == kVideoCodecH264) {
+    frame_type_ = packet.video_header.frame_type;
+    if (packet.is_first_packet_in_frame() &&
         (first_packet_seq_num_ == -1 ||
          IsNewerSequenceNumber(first_packet_seq_num_, packet.seqNum))) {
       first_packet_seq_num_ = packet.seqNum;
@@ -462,9 +469,9 @@ int VCMSessionInfo::InsertPacket(const VCMPacket& packet,
     // Placing check here, as to properly account for duplicate packets.
     // Check if this is first packet (only valid for some codecs)
     // Should only be set for one packet per session.
-    if (packet.is_first_packet_in_frame && first_packet_seq_num_ == -1) {
+    if (packet.is_first_packet_in_frame() && first_packet_seq_num_ == -1) {
       // The first packet in a frame signals the frame type.
-      frame_type_ = packet.frameType;
+      frame_type_ = packet.video_header.frame_type;
       // Store the sequence number for the first packet.
       first_packet_seq_num_ = static_cast<int>(packet.seqNum);
     } else if (first_packet_seq_num_ != -1 &&
@@ -473,10 +480,11 @@ int VCMSessionInfo::InsertPacket(const VCMPacket& packet,
           << "Received packet with a sequence number which is out "
              "of frame boundaries";
       return -3;
-    } else if (frame_type_ == kEmptyFrame && packet.frameType != kEmptyFrame) {
+    } else if (frame_type_ == VideoFrameType::kEmptyFrame &&
+               packet.video_header.frame_type != VideoFrameType::kEmptyFrame) {
       // Update the frame type with the type of the first media packet.
       // TODO(mikhal): Can this trigger?
-      frame_type_ = packet.frameType;
+      frame_type_ = packet.video_header.frame_type;
     }
 
     // Track the marker bit, should only be set for one packet per session.

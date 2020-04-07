@@ -39,7 +39,6 @@
 
 #include "scene_p.h"
 #include <Qt3DCore/qentity.h>
-#include <Qt3DCore/qpropertyupdatedchange.h>
 #include <Qt3DCore/private/qnode_p.h>
 #include <Qt3DCore/private/qscene_p.h>
 #include <Qt3DCore/private/qdownloadhelperservice_p.h>
@@ -66,46 +65,23 @@ void Scene::cleanup()
     m_source.clear();
 }
 
-void Scene::setStatus(QSceneLoader::Status status)
+void Scene::syncFromFrontEnd(const Qt3DCore::QNode *frontEnd, bool firstTime)
 {
-    // Send the new subtree to the frontend or notify failure
-    auto e = Qt3DCore::QPropertyUpdatedChangePtr::create(peerId());
-    e->setDeliveryFlags(Qt3DCore::QSceneChange::DeliverToAll);
-    e->setPropertyName("status");
-    e->setValue(QVariant::fromValue(status));
-    notifyObservers(e);
-}
+    const QSceneLoader *node = qobject_cast<const QSceneLoader *>(frontEnd);
+    if (!node)
+        return;
 
-void Scene::initializeFromPeer(const Qt3DCore::QNodeCreatedChangeBasePtr &change)
-{
-    const auto typedChange = qSharedPointerCast<Qt3DCore::QNodeCreatedChange<QSceneLoaderData>>(change);
-    const auto &data = typedChange->data;
-    m_source = data.source;
-    Q_ASSERT(m_sceneManager);
-    if (Qt3DCore::QDownloadHelperService::isLocal(m_source))
-        m_sceneManager->addSceneData(m_source, peerId());
-    else
-        m_sceneManager->startSceneDownload(m_source, peerId());
-}
+    BackendNode::syncFromFrontEnd(frontEnd, firstTime);
 
-void Scene::sceneChangeEvent(const Qt3DCore::QSceneChangePtr &e)
-{
-    if (e->type() == PropertyUpdated) {
-        QPropertyUpdatedChangePtr propertyChange = qSharedPointerCast<QPropertyUpdatedChange>(e);
-        if (propertyChange->propertyName() == QByteArrayLiteral("source")) {
-            m_source = propertyChange->value().toUrl();
+    if (node->source() != m_source) {
+        m_source = node->source();
+        if (m_source.isEmpty() || Qt3DCore::QDownloadHelperService::isLocal(m_source))
+            m_sceneManager->addSceneData(m_source, peerId());
+        else
+            m_sceneManager->startSceneDownload(m_source, peerId());
 
-            // If the source is empty -> we need to unload anything that was
-            // previously loaded and reset the status accordingly. This means
-            // we need to call addSceneData with the empty source to send a
-            // change to the frontend that will trigger the removal of the
-            // previous scene. The reason this scheme is employed is because
-            // the backend also takes care of updating the status.
-            if (m_source.isEmpty() || Qt3DCore::QDownloadHelperService::isLocal(m_source))
-                m_sceneManager->addSceneData(m_source, peerId());
-            else
-                m_sceneManager->startSceneDownload(m_source, peerId());
-        }
+        const auto d = static_cast<const QSceneLoaderPrivate *>(Qt3DCore::QNodePrivate::get(node));
+        const_cast<QSceneLoaderPrivate *>(d)->setStatus(QSceneLoader::Loading);
     }
     markDirty(AbstractRenderer::AllDirty);
 }
@@ -113,22 +89,6 @@ void Scene::sceneChangeEvent(const Qt3DCore::QSceneChangePtr &e)
 QUrl Scene::source() const
 {
     return m_source;
-}
-
-void Scene::setSceneSubtree(Qt3DCore::QEntity *subTree)
-{
-    if (subTree) {
-        // Move scene sub tree to the application thread so that it can be grafted in.
-        const auto appThread = QCoreApplication::instance()->thread();
-        subTree->moveToThread(appThread);
-    }
-
-    // Send the new subtree to the frontend or notify failure
-    auto e = Qt3DCore::QPropertyUpdatedChangePtr::create(peerId());
-    e->setDeliveryFlags(Qt3DCore::QSceneChange::DeliverToAll);
-    e->setPropertyName("scene");
-    e->setValue(QVariant::fromValue(subTree));
-    notifyObservers(e);
 }
 
 void Scene::setSceneManager(SceneManager *manager)

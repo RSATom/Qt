@@ -75,15 +75,15 @@ public:
     QDialogPrivate()
         :
 #if QT_CONFIG(pushbutton)
-          mainDef(0),
+          mainDef(nullptr),
 #endif
-          orientation(Qt::Horizontal),extension(0), doShowExtension(false),
+          orientation(Qt::Horizontal),extension(nullptr), doShowExtension(false),
 #if QT_CONFIG(sizegrip)
-          resizer(0),
+          resizer(nullptr),
           sizeGripEnabled(false),
 #endif
-          rescode(0), resetModalityTo(-1), wasModalitySet(true), eventLoop(0),
-          nativeDialogInUse(false), m_platformHelper(0), m_platformHelperCreated(false)
+          rescode(0), resetModalityTo(-1), wasModalitySet(true), eventLoop(nullptr),
+          nativeDialogInUse(false), m_platformHelper(nullptr), m_platformHelperCreated(false)
         {}
     ~QDialogPrivate();
 
@@ -140,14 +140,14 @@ class QAutoPointer {
     struct internal { void func() {} };
     typedef void (internal::*RestrictedBool)();
 public:
-    explicit QAutoPointer(T *t) Q_DECL_NOTHROW : o(t) {}
+    explicit QAutoPointer(T *t) noexcept : o(t) {}
     ~QAutoPointer() { delete o; }
 
-    T *operator->() const Q_DECL_NOTHROW { return get(); }
-    T *get() const Q_DECL_NOTHROW { return o; }
+    T *operator->() const noexcept { return get(); }
+    T *get() const noexcept { return o; }
     T &operator*() const { return *get(); }
-    operator RestrictedBool() const Q_DECL_NOTHROW { return o ? &internal::func : nullptr; }
-    bool operator!() const Q_DECL_NOTHROW { return !o; }
+    operator RestrictedBool() const noexcept { return o ? &internal::func : nullptr; }
+    bool operator!() const noexcept { return !o; }
 private:
     Q_DISABLE_COPY(QAutoPointer);
 };

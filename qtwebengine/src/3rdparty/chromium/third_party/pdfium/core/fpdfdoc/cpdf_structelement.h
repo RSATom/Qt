@@ -39,7 +39,10 @@ class CPDF_StructElement final : public Retainable {
   friend RetainPtr<T> pdfium::MakeRetain(Args&&... args);
 
   ByteString GetType() const { return m_Type; }
-  ByteString GetTitle() const { return m_Title; }
+  WideString GetAltText() const;
+  WideString GetTitle() const;
+
+  // Never returns nullptr.
   const CPDF_Dictionary* GetDict() const { return m_pDict.Get(); }
 
   size_t CountKids() const;
@@ -54,14 +57,13 @@ class CPDF_StructElement final : public Retainable {
 
   void LoadKids(const CPDF_Dictionary* pDict);
   void LoadKid(uint32_t PageObjNum,
-               const CPDF_Object* pObj,
+               const CPDF_Object* pKidObj,
                CPDF_StructKid* pKid);
 
   UnownedPtr<CPDF_StructTree> const m_pTree;
   UnownedPtr<CPDF_StructElement> const m_pParent;
   UnownedPtr<const CPDF_Dictionary> const m_pDict;
-  ByteString m_Type;
-  ByteString m_Title;
+  const ByteString m_Type;
   std::vector<CPDF_StructKid> m_Kids;
 };
 

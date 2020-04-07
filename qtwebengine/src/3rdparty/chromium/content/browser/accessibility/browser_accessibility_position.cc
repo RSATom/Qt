@@ -22,7 +22,7 @@ BrowserAccessibilityPosition::Clone() const {
   return AXPositionInstance(new BrowserAccessibilityPosition(*this));
 }
 
-base::string16 BrowserAccessibilityPosition::GetInnerText() const {
+base::string16 BrowserAccessibilityPosition::GetText() const {
   if (IsNullPosition())
     return base::string16();
   DCHECK(GetAnchor());
@@ -64,8 +64,19 @@ int BrowserAccessibilityPosition::AnchorChildCount() const {
 }
 
 int BrowserAccessibilityPosition::AnchorIndexInParent() const {
-  return GetAnchor() ? static_cast<int>(GetAnchor()->GetIndexInParent())
+  return GetAnchor() ? GetAnchor()->GetIndexInParent()
                      : AXPosition::INVALID_INDEX;
+}
+
+base::stack<BrowserAccessibility*>
+BrowserAccessibilityPosition::GetAncestorAnchors() const {
+  base::stack<BrowserAccessibility*> anchors;
+  BrowserAccessibility* current_anchor = GetAnchor();
+  while (current_anchor) {
+    anchors.push(current_anchor);
+    current_anchor = current_anchor->PlatformGetParent();
+  }
+  return anchors;
 }
 
 void BrowserAccessibilityPosition::AnchorParent(AXTreeID* tree_id,
@@ -98,12 +109,6 @@ BrowserAccessibility* BrowserAccessibilityPosition::GetNodeInTree(
   return manager->GetFromID(node_id);
 }
 
-int BrowserAccessibilityPosition::MaxTextOffset() const {
-  if (IsNullPosition())
-    return INVALID_OFFSET;
-  return static_cast<int>(GetInnerText().length());
-}
-
 // On some platforms, most objects are represented in the text of their parents
 // with a special (embedded object) character and not with their actual text
 // contents.
@@ -123,13 +128,54 @@ int BrowserAccessibilityPosition::MaxTextOffsetInParent() const {
 #endif
 }
 
+bool BrowserAccessibilityPosition::IsInLineBreak() const {
+  if (IsNullPosition())
+    return false;
+  DCHECK(GetAnchor());
+  return GetAnchor()->IsLineBreakObject();
+}
+
+bool BrowserAccessibilityPosition::IsInTextObject() const {
+  if (IsNullPosition())
+    return false;
+  DCHECK(GetAnchor());
+  return GetAnchor()->IsTextOnlyObject();
+}
+
 bool BrowserAccessibilityPosition::IsInWhiteSpace() const {
   if (IsNullPosition())
     return false;
-
   DCHECK(GetAnchor());
   return GetAnchor()->IsLineBreakObject() ||
-         base::ContainsOnlyChars(GetInnerText(), base::kWhitespaceUTF16);
+         base::ContainsOnlyChars(GetText(), base::kWhitespaceUTF16);
+}
+
+bool BrowserAccessibilityPosition::IsInLineBreakingObject() const {
+  if (IsNullPosition())
+    return false;
+  DCHECK(GetAnchor());
+  return GetAnchor()->GetBoolAttribute(
+      ax::mojom::BoolAttribute::kIsLineBreakingObject);
+}
+
+ax::mojom::Role BrowserAccessibilityPosition::GetRole() const {
+  if (IsNullPosition())
+    return ax::mojom::Role::kNone;
+  DCHECK(GetAnchor());
+  return GetAnchor()->GetRole();
+}
+
+ui::AXNodeTextStyles BrowserAccessibilityPosition::GetTextStyles() const {
+  // Check either the current anchor or its parent for text styles.
+  ui::AXNodeTextStyles current_anchor_text_styles =
+      !IsNullPosition() ? GetAnchor()->GetData().GetTextStyles()
+                        : ui::AXNodeTextStyles();
+  if (current_anchor_text_styles.IsUnset()) {
+    AXPositionInstance parent = CreateParentPosition();
+    if (!parent->IsNullPosition())
+      return parent->GetAnchor()->GetData().GetTextStyles();
+  }
+  return current_anchor_text_styles;
 }
 
 std::vector<int32_t> BrowserAccessibilityPosition::GetWordStartOffsets() const {

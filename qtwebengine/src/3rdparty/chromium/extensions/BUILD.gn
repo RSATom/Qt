@@ -54,7 +54,7 @@ grit("extensions_renderer_resources") {
   source_is_generated = true
 
   deps = [
-    "//extensions/common:mojo_js",
+    "//extensions/common:mojom_js",
     "//extensions/common/api:mojom_js",
     "//services/device/public/mojom:mojom_js",
   ]
@@ -234,17 +234,12 @@ test("extensions_unittests") {
   data_deps = [
     "//third_party/mesa_headers",
   ]
-
-  if (enable_mus) {
-    deps += [ "//ui/aura:test_support" ]
-  }
 }
 
 test("extensions_browsertests") {
   data = [
     "//extensions/test/data/",
     "//net/tools/testserver/",
-    "//third_party/pyftpdlib/",
     "//third_party/pywebsocket/src/mod_pywebsocket/",
     "//third_party/tlslite/",
     "$root_out_dir/extensions_shell_and_test.pak",

@@ -10,7 +10,6 @@
 #include <sstream>
 #include <utility>
 
-#include "core/fpdfapi/edit/cpdf_creator.h"
 #include "core/fpdfapi/parser/cpdf_dictionary.h"
 #include "core/fpdfapi/parser/cpdf_syntax_parser.h"
 #include "core/fpdfapi/parser/fpdf_parser_utility.h"
@@ -24,7 +23,7 @@ CFDF_Document::~CFDF_Document() = default;
 
 std::unique_ptr<CFDF_Document> CFDF_Document::CreateNewDoc() {
   auto pDoc = pdfium::MakeUnique<CFDF_Document>();
-  pDoc->m_pRootDict = pDoc->NewIndirect<CPDF_Dictionary>();
+  pDoc->m_pRootDict.Reset(pDoc->NewIndirect<CPDF_Dictionary>());
   pDoc->m_pRootDict->SetNewFor<CPDF_Dictionary>("FDF");
   return pDoc;
 }
@@ -36,9 +35,8 @@ std::unique_ptr<CFDF_Document> CFDF_Document::ParseMemory(
   return pDoc->m_pRootDict ? std::move(pDoc) : nullptr;
 }
 
-void CFDF_Document::ParseStream(
-    const RetainPtr<IFX_SeekableReadStream>& pFile) {
-  m_pFile = pFile;
+void CFDF_Document::ParseStream(RetainPtr<IFX_SeekableReadStream> pFile) {
+  m_pFile = std::move(pFile);
   CPDF_SyntaxParser parser(m_pFile);
   while (1) {
     bool bNumber;
@@ -56,7 +54,7 @@ void CFDF_Document::ParseStream(
       if (word != "obj")
         break;
 
-      std::unique_ptr<CPDF_Object> pObj = parser.GetObjectBody(this);
+      RetainPtr<CPDF_Object> pObj = parser.GetObjectBody(this);
       if (!pObj)
         break;
 
@@ -68,10 +66,10 @@ void CFDF_Document::ParseStream(
       if (word != "trailer")
         break;
 
-      std::unique_ptr<CPDF_Dictionary> pMainDict =
+      RetainPtr<CPDF_Dictionary> pMainDict =
           ToDictionary(parser.GetObjectBody(this));
       if (pMainDict)
-        m_pRootDict = pMainDict->GetDictFor("Root");
+        m_pRootDict.Reset(pMainDict->GetDictFor("Root"));
 
       break;
     }
@@ -86,7 +84,7 @@ ByteString CFDF_Document::WriteToString() const {
   buf << "%FDF-1.2\r\n";
   for (const auto& pair : *this)
     buf << pair.first << " 0 obj\r\n"
-        << pair.second.get() << "\r\nendobj\r\n\r\n";
+        << pair.second.Get() << "\r\nendobj\r\n\r\n";
 
   buf << "trailer\r\n<</Root " << m_pRootDict->GetObjNum()
       << " 0 R>>\r\n%%EOF\r\n";

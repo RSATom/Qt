@@ -2,6 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "base/bind.h"
 #include "base/command_line.h"
 #include "base/files/scoped_temp_dir.h"
 #include "base/memory/weak_ptr.h"
@@ -11,6 +12,7 @@
 #include "content/browser/frame_host/debug_urls.h"
 #include "content/browser/frame_host/navigation_handle_impl.h"
 #include "content/browser/frame_host/navigation_request.h"
+#include "content/browser/site_instance_impl.h"
 #include "content/browser/web_contents/web_contents_impl.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
@@ -174,8 +176,7 @@ class TestNavigationThrottleInstaller : public WebContentsObserver {
         will_redirect_result_(will_redirect_result),
         will_fail_result_(will_fail_result),
         will_process_result_(will_process_result),
-        expected_start_url_(expected_start_url),
-        weak_factory_(this) {}
+        expected_start_url_(expected_start_url) {}
   ~TestNavigationThrottleInstaller() override {}
 
   // Installs a TestNavigationThrottle whose |method| method will return
@@ -332,7 +333,7 @@ class TestNavigationThrottleInstaller : public WebContentsObserver {
 
   // The throttle installer can be deleted before all tasks posted by its
   // throttles are run, so it must be referenced via weak pointers.
-  base::WeakPtrFactory<TestNavigationThrottleInstaller> weak_factory_;
+  base::WeakPtrFactory<TestNavigationThrottleInstaller> weak_factory_{this};
 };
 
 // Same as above, but installs NavigationThrottles that do not directly return
@@ -703,13 +704,13 @@ IN_PROC_BROWSER_TEST_F(NavigationHandleImplBrowserTest, VerifySrcdoc) {
   GURL url(embedded_test_server()->GetURL(
       "/frame_tree/page_with_srcdoc_frame.html"));
   NavigationHandleObserver observer(shell()->web_contents(),
-                                    GURL(kAboutSrcDocURL));
+                                    GURL("about:srcdoc"));
 
   EXPECT_TRUE(NavigateToURL(shell(), url));
 
   EXPECT_TRUE(observer.has_committed());
   EXPECT_FALSE(observer.is_error());
-  EXPECT_EQ(GURL(kAboutSrcDocURL), observer.last_committed_url());
+  EXPECT_TRUE(observer.last_committed_url().IsAboutSrcdoc());
 }
 
 // Ensure that the IsSameDocument() method on NavigationHandle behaves
@@ -1409,6 +1410,86 @@ IN_PROC_BROWSER_TEST_F(NavigationHandleImplBrowserTest,
   EXPECT_FALSE(NavigateToURL(shell(), kUrl2));
 }
 
+// Verify that a cross-process navigation in a frame for which the current
+// renderer process is not live will not result in leaking a
+// RenderProcessHost. See https://crbug.com/949977.
+IN_PROC_BROWSER_TEST_F(NavigationHandleImplBrowserTest,
+                       NoLeakFromStartingSiteInstance) {
+  GURL url_a = embedded_test_server()->GetURL("a.com", "/title1.html");
+  EXPECT_TRUE(NavigateToURL(shell(), url_a));
+
+  // Kill the a.com process, to test what happens with the next navigation.
+  scoped_refptr<SiteInstance> site_instance_a =
+      shell()->web_contents()->GetMainFrame()->GetSiteInstance();
+  EXPECT_TRUE(site_instance_a->HasProcess());
+  RenderProcessHost* process_1 = site_instance_a->GetProcess();
+  RenderProcessHostWatcher process_exit_observer_1(
+      process_1, content::RenderProcessHostWatcher::WATCH_FOR_PROCESS_EXIT);
+  RenderProcessHostWatcher rph_gone_observer_1(
+      process_1, content::RenderProcessHostWatcher::WATCH_FOR_HOST_DESTRUCTION);
+  process_1->Shutdown(RESULT_CODE_KILLED);
+  process_exit_observer_1.Wait();
+
+  // Start to navigate the sad tab to another site.
+  GURL url_b = embedded_test_server()->GetURL("b.com", "/title2.html");
+  TestNavigationManager navigation_b(shell()->web_contents(), url_b);
+  shell()->web_contents()->GetController().LoadURL(
+      url_b, Referrer(), ui::PAGE_TRANSITION_TYPED, std::string());
+  EXPECT_TRUE(navigation_b.WaitForRequestStart());
+
+  // The starting SiteInstance should be the SiteInstance of the current
+  // RenderFrameHost.
+  scoped_refptr<SiteInstance> starting_site_instance =
+      navigation_b.GetNavigationHandle()->GetStartingSiteInstance();
+  EXPECT_EQ(shell()->web_contents()->GetMainFrame()->GetSiteInstance(),
+            starting_site_instance);
+  // Because of the sad tab, this is actually the b.com SiteInstance, which
+  // commits immediately after starting the navigation and has a process.
+  if (AreDefaultSiteInstancesEnabled()) {
+    EXPECT_TRUE(static_cast<SiteInstanceImpl*>(starting_site_instance.get())
+                    ->IsDefaultSiteInstance());
+  } else {
+    EXPECT_EQ(GURL("http://b.com"), starting_site_instance->GetSiteURL());
+  }
+  EXPECT_TRUE(starting_site_instance->HasProcess());
+
+  // In https://crbug.com/949977, we used the a.com SiteInstance here and didn't
+  // have a process, and an observer called GetProcess, creating a process. This
+  // RPH never went away, even after the SiteInstance was gone. Simulate this
+  // by creating a new RPH for site_instance_a directly. Note that the actual
+  // process may not get created (only if the spare process is in use), so wait
+  // for RPH destruction rather than process exit.
+  RenderProcessHost* rph_2 = site_instance_a->GetProcess();
+  RenderProcessHostWatcher process_exit_observer_2(
+      rph_2, content::RenderProcessHostWatcher::WATCH_FOR_HOST_DESTRUCTION);
+  navigation_b.WaitForNavigationFinished();
+
+  // Ensure RPH 1 is destroyed, which happens at commit time even before the fix
+  // for the bug.
+  rph_gone_observer_1.Wait();
+
+  // Navigate to another process. This isn't necessary to trigger the original
+  // leak (when the starting SiteInstance was a.com), but it lets the test
+  // finish in the case that the starting SiteInstance is b.com, since b.com's
+  // process goes away with this navigation.
+  // TODO(creis): There's still a slight risk that other buggy code could find
+  // site_instance_a and call GetProcess() on it, causing a leak. We'll add a
+  // backup fix and test for that in a followup CL.
+  GURL url_c = embedded_test_server()->GetURL("c.com", "/title1.html");
+  EXPECT_TRUE(NavigateToURL(shell()->web_contents(), url_c));
+
+  // Remove all references to site_instance_a so that we can be sure its process
+  // gets cleaned up. Pruning the NavigationEntry for url_a on the tab simulates
+  // closing the tab (from that SiteInstance's perspective).
+  site_instance_a = nullptr;
+  starting_site_instance = nullptr;
+  shell()->web_contents()->GetController().PruneAllButLastCommitted();
+
+  // Wait for rph_2 to exit when it's not used. This wouldn't happen when the
+  // bug was present.
+  process_exit_observer_2.Wait();
+}
+
 // Specialized test that verifies the NavigationHandle gets the HTTPS upgraded
 // URL from the very beginning of the navigation.
 class NavigationHandleImplHttpsUpgradeBrowserTest
@@ -1848,7 +1929,7 @@ IN_PROC_BROWSER_TEST_F(NavigationHandleImplBrowserTest, ErrorPageNetworkError) {
 // the privileged process.
 IN_PROC_BROWSER_TEST_F(NavigationHandleImplBrowserTest,
                        BlockedRequestAfterWebUI) {
-  GURL web_ui_url("chrome://gpu");
+  GURL web_ui_url(GetWebUIURL("gpu"));
   WebContents* web_contents = shell()->web_contents();
 
   // Navigate to the initial page.
@@ -2458,7 +2539,7 @@ IN_PROC_BROWSER_TEST_P(
       url, action, TestNavigationThrottleInstaller::WILL_PROCESS_RESPONSE);
 }
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     /* no prefix */,
     NavigationHandleImplThrottleResultWithErrorPageBrowserTest,
     testing::Range(NavigationThrottle::ThrottleAction::FIRST,
@@ -2488,8 +2569,9 @@ IN_PROC_BROWSER_TEST_F(NavigationHandleImplDownloadBrowserTest,
   FrameTreeNode* root = static_cast<WebContentsImpl*>(shell()->web_contents())
                             ->GetMainFrame()
                             ->frame_tree_node();
-  EXPECT_EQ(NavigationDownloadPolicy::kAllow,
-            root->navigation_request()->common_params().download_policy);
+  EXPECT_TRUE(root->navigation_request()
+                  ->common_params()
+                  .download_policy.IsDownloadAllowed());
 
   // The response is not handled as a download.
   manager.WaitForNavigationFinished();
@@ -2511,8 +2593,9 @@ IN_PROC_BROWSER_TEST_F(NavigationHandleImplDownloadBrowserTest,
   FrameTreeNode* root = static_cast<WebContentsImpl*>(shell()->web_contents())
                             ->GetMainFrame()
                             ->frame_tree_node();
-  EXPECT_EQ(NavigationDownloadPolicy::kAllow,
-            root->navigation_request()->common_params().download_policy);
+  EXPECT_TRUE(root->navigation_request()
+                  ->common_params()
+                  .download_policy.IsDownloadAllowed());
 
   // The response is handled as a download.
   manager.WaitForNavigationFinished();
@@ -2537,12 +2620,225 @@ IN_PROC_BROWSER_TEST_F(NavigationHandleImplDownloadBrowserTest, Disallowed) {
   FrameTreeNode* root = static_cast<WebContentsImpl*>(shell()->web_contents())
                             ->GetMainFrame()
                             ->frame_tree_node();
-  EXPECT_EQ(NavigationDownloadPolicy::kDisallowViewSource,
-            root->navigation_request()->common_params().download_policy);
+  EXPECT_TRUE(
+      root->navigation_request()->common_params().download_policy.IsType(
+          NavigationDownloadType::kViewSource));
+  EXPECT_FALSE(root->navigation_request()
+                   ->common_params()
+                   .download_policy.IsDownloadAllowed());
 
   // The response is not handled as a download.
   manager.WaitForNavigationFinished();
   EXPECT_FALSE(handle_observer.is_download());
+}
+
+class NavigationHandleImplBackForwardBrowserTest
+    : public NavigationHandleImplBrowserTest,
+      public WebContentsObserver {
+ protected:
+  void SetUpOnMainThread() override {
+    NavigationHandleImplBrowserTest::SetUpOnMainThread();
+
+    WebContentsObserver::Observe(shell()->web_contents());
+  }
+
+  void DidFinishNavigation(NavigationHandle* navigation_handle) override {
+    if (navigation_handle->HasCommitted()) {
+      offsets_.push_back(navigation_handle->GetNavigationEntryOffset());
+    }
+  }
+
+  std::vector<int64_t> offsets_;
+};
+
+IN_PROC_BROWSER_TEST_F(NavigationHandleImplBackForwardBrowserTest,
+                       NavigationEntryOffsets) {
+  const GURL url1(embedded_test_server()->GetURL("/title1.html"));
+  const GURL url2(embedded_test_server()->GetURL("/title2.html"));
+  const GURL url3(embedded_test_server()->GetURL("/title3.html"));
+
+  EXPECT_TRUE(NavigateToURL(shell(), url1));
+  // The navigation entries are:
+  // [*url1].
+
+  {
+    TestNavigationObserver navigation_observer(shell()->web_contents());
+    shell()->Reload();
+    navigation_observer.WaitForNavigationFinished();
+  }
+  // The navigation entries are:
+  // [*url1].
+
+  EXPECT_TRUE(NavigateToURL(shell(), url2));
+  // The navigation entries are:
+  // [url1, *url2].
+
+  EXPECT_TRUE(NavigateToURL(shell(), url3));
+  // The navigation entries are:
+  // [url1, url2, *url3].
+
+  {
+    TestNavigationObserver navigation_observer(shell()->web_contents());
+    shell()->GoBackOrForward(-1);
+    navigation_observer.WaitForNavigationFinished();
+  }
+  // The navigation entries are:
+  // [url1, *url2, url3].
+
+  {
+    TestNavigationObserver navigation_observer(shell()->web_contents());
+    shell()->GoBackOrForward(-1);
+    navigation_observer.WaitForNavigationFinished();
+  }
+  // The navigation entries are:
+  // [*url1, url2, url3].
+
+  {
+    TestNavigationObserver navigation_observer(shell()->web_contents());
+    shell()->GoBackOrForward(1);
+    navigation_observer.WaitForNavigationFinished();
+  }
+  // The navigation entries are:
+  // [url1, *url2, url3].
+
+  // Navigations 1, 3, 4 are regular navigations.
+  // Navigation 2 is a reload.
+  // Navigaations 5 and 6 are back navigations.
+  // Navigation 7 is a forward navigation.
+  EXPECT_THAT(offsets_, testing::ElementsAre(1, 0, 1, 1, -1, -1, 1));
+}
+
+IN_PROC_BROWSER_TEST_F(NavigationHandleImplBackForwardBrowserTest,
+                       NavigationEntryOffsetsForSubframes) {
+  const GURL url1(embedded_test_server()->GetURL("/title1.html"));
+  const GURL url1_fragment1(
+      embedded_test_server()->GetURL("/title1.html#id_1"));
+  const GURL url2(
+      embedded_test_server()->GetURL("/frame_tree/page_with_one_frame.html"));
+  const char kChildFrameId[] = "child0";
+
+  EXPECT_TRUE(NavigateToURL(shell(), url1));
+  // The navigation entries are:
+  // [*url1].
+
+  EXPECT_TRUE(NavigateToURL(shell(), url1_fragment1));
+  // The navigation entries are:
+  // [url1, *url1_fragment1].
+
+  EXPECT_TRUE(NavigateToURL(shell(), url2));
+  // The navigation entries are:
+  // [url1, url1_fragment1, *url2(subframe)].
+
+  EXPECT_TRUE(
+      NavigateIframeToURL(shell()->web_contents(), kChildFrameId, url1));
+  // The navigation entries are:
+  // [url1, url1_fragment1, url2(subframe), *url2(url1)].
+
+  EXPECT_TRUE(NavigateToURL(shell(), url1));
+  // The navigation entries are:
+  // [url1, url1_fragment1, url2(subframe), url2(url1), *url1].
+
+  {
+    // We are waiting for two navigations here: main frame and subframe.
+    TestNavigationObserver navigation_observer(shell()->web_contents(), 2);
+    shell()->GoBackOrForward(-1);
+    navigation_observer.WaitForNavigationFinished();
+  }
+  // The navigation entries are:
+  // [url1, url1_fragment1, url2(subframe), *url2(url1), url1].
+
+  {
+    TestNavigationObserver navigation_observer(shell()->web_contents());
+    shell()->GoBackOrForward(-1);
+    navigation_observer.WaitForNavigationFinished();
+  }
+  // The navigation entries are:
+  // [url1, url1_fragment1, *url2(subframe), url2(url1), url1].
+
+  {
+    TestNavigationObserver navigation_observer(shell()->web_contents());
+    shell()->GoBackOrForward(-1);
+    navigation_observer.WaitForNavigationFinished();
+  }
+  // The navigation entries are:
+  // [url1, *url1_fragment1, url2(subframe), url2(url1), url1].
+
+  {
+    TestNavigationObserver navigation_observer(shell()->web_contents());
+    shell()->GoBackOrForward(-1);
+    navigation_observer.WaitForNavigationFinished();
+  }
+  // The navigation entries are:
+  // [*url1, url1_fragment1, url2(subframe), url2(url1), url1].
+
+  {
+    TestNavigationObserver navigation_observer(shell()->web_contents());
+    shell()->GoBackOrForward(4);
+    navigation_observer.WaitForNavigationFinished();
+  }
+  // The navigation entries are:
+  // [url1, url1_fragment1, url2(subframe), url2(url1), *url1].
+
+  // New navigations have offset 1, back navigations have offset -1 and the last
+  // navigations have offset 3 as requested.
+  // Note that all subframe navigations have offset 1 regardless of whether they
+  // result in a new entry being generated or not.
+  EXPECT_THAT(offsets_,
+              testing::ElementsAre(1, 1, 1, 0, 1, 1, -1, 1, -1, -1, -1, 4));
+}
+
+IN_PROC_BROWSER_TEST_F(NavigationHandleImplBackForwardBrowserTest,
+                       NavigationEntryLimit) {
+  const GURL url1(embedded_test_server()->GetURL("/title1.html"));
+
+  static_cast<NavigationControllerImpl*>(
+      &shell()->web_contents()->GetController())
+      ->set_max_entry_count_for_testing(3);
+
+  for (int i = 0; i < 5; ++i) {
+    EXPECT_TRUE(NavigateToURL(shell(), url1));
+  }
+
+  // Expect that the offsets are still 1 even when we hit the entry count limit.
+  EXPECT_THAT(offsets_, testing::ElementsAre(1, 1, 1, 1, 1));
+}
+
+IN_PROC_BROWSER_TEST_F(NavigationHandleImplBackForwardBrowserTest,
+                       LocationReplace) {
+  const GURL url1(embedded_test_server()->GetURL("/title1.html"));
+
+  EXPECT_TRUE(NavigateToURL(shell(), url1));
+  FrameTreeNode* root = static_cast<WebContentsImpl*>(shell()->web_contents())
+                            ->GetFrameTree()
+                            ->root();
+
+  {
+    TestNavigationObserver navigation_observer(shell()->web_contents());
+    EXPECT_TRUE(ExecuteScript(root, "window.location.replace('#frag');"));
+    navigation_observer.WaitForNavigationFinished();
+  }
+
+  // The second navigation replaces the current navigation entry and should have
+  // offset of zero.
+  EXPECT_THAT(offsets_, testing::ElementsAre(1, 0));
+}
+
+// Tests that the correct net::AuthChallengeInfo is exposed from the
+// NavigationHandle when the page requests authentication.
+IN_PROC_BROWSER_TEST_F(NavigationHandleImplBrowserTest, AuthChallengeInfo) {
+  GURL url(embedded_test_server()->GetURL("/auth-basic"));
+  NavigationHandleObserver observer(shell()->web_contents(), url);
+  EXPECT_TRUE(NavigateToURL(shell(), url));
+  EXPECT_TRUE(observer.has_committed());
+  ASSERT_TRUE(observer.auth_challenge_info().has_value());
+  EXPECT_FALSE(observer.auth_challenge_info()->is_proxy);
+  EXPECT_EQ(url::Origin::Create(url),
+            observer.auth_challenge_info()->challenger);
+  EXPECT_EQ("basic", observer.auth_challenge_info()->scheme);
+  EXPECT_EQ("testrealm", observer.auth_challenge_info()->realm);
+  EXPECT_EQ("Basic realm=\"testrealm\"",
+            observer.auth_challenge_info()->challenge);
+  EXPECT_EQ("/auth-basic", observer.auth_challenge_info()->path);
 }
 
 }  // namespace content

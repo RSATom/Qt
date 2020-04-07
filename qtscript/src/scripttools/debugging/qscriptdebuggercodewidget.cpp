@@ -202,7 +202,7 @@ QScriptDebuggerCodeWidget::QScriptDebuggerCodeWidget(QWidget *parent)
 {
     Q_D(QScriptDebuggerCodeWidget);
     QVBoxLayout *vbox = new QVBoxLayout(this);
-    vbox->setMargin(0);
+    vbox->setContentsMargins(0, 0, 0, 0);
     d->viewStack = new QStackedWidget();
     vbox->addWidget(d->viewStack);
 }

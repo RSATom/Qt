@@ -41,9 +41,6 @@
 #include "qtechnique_p.h"
 #include "qparameter.h"
 #include "qgraphicsapifilter.h"
-#include <Qt3DCore/qpropertyupdatedchange.h>
-#include <Qt3DCore/qpropertynodeaddedchange.h>
-#include <Qt3DCore/qpropertynoderemovedchange.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -238,12 +235,7 @@ QTechnique::QTechnique(QTechniquePrivate &dd, QNode *parent)
 /*! \internal */
 void QTechniquePrivate::_q_graphicsApiFilterChanged()
 {
-    if (m_changeArbiter != nullptr) {
-        auto change = QPropertyUpdatedChangePtr::create(m_id);
-        change->setPropertyName("graphicsApiFilterData");
-        change->setValue(QVariant::fromValue(QGraphicsApiFilterPrivate::get(const_cast<QGraphicsApiFilter *>(&m_graphicsApiFilter))->m_data));
-        notifyObservers(change);
-    }
+    update();
 }
 
 /*!
@@ -266,11 +258,7 @@ void QTechnique::addFilterKey(QFilterKey *filterKey)
         if (!filterKey->parent())
             filterKey->setParent(this);
 
-        if (d->m_changeArbiter != nullptr) {
-            const auto change = QPropertyNodeAddedChangePtr::create(id(), filterKey);
-            change->setPropertyName("filterKeys");
-            d->notifyObservers(change);
-        }
+        d->updateNode(filterKey, "filterKeys", Qt3DCore::PropertyValueAdded);
     }
 }
 
@@ -281,12 +269,9 @@ void QTechnique::removeFilterKey(QFilterKey *filterKey)
 {
     Q_ASSERT(filterKey);
     Q_D(QTechnique);
-    if (d->m_changeArbiter != nullptr) {
-        const auto change = QPropertyNodeRemovedChangePtr::create(id(), filterKey);
-        change->setPropertyName("filterKeys");
-        d->notifyObservers(change);
-    }
-    d->m_filterKeys.removeOne(filterKey);
+    if (!d->m_filterKeys.removeOne(filterKey))
+        return;
+    d->updateNode(filterKey, "filterKeys", Qt3DCore::PropertyValueRemoved);
     // Remove bookkeeping connection
     d->unregisterDestructionHelper(filterKey);
 }
@@ -321,11 +306,7 @@ void QTechnique::addParameter(QParameter *parameter)
         if (!parameter->parent())
             parameter->setParent(this);
 
-        if (d->m_changeArbiter != nullptr) {
-            const auto change = QPropertyNodeAddedChangePtr::create(id(), parameter);
-            change->setPropertyName("parameter");
-            d->notifyObservers(change);
-        }
+        d->updateNode(parameter, "parameter", Qt3DCore::PropertyValueAdded);
     }
 }
 
@@ -336,12 +317,9 @@ void QTechnique::removeParameter(QParameter *parameter)
 {
     Q_ASSERT(parameter);
     Q_D(QTechnique);
-    if (d->m_changeArbiter != nullptr) {
-        const auto change = QPropertyNodeRemovedChangePtr::create(id(), parameter);
-        change->setPropertyName("parameter");
-        d->notifyObservers(change);
-    }
-    d->m_parameters.removeOne(parameter);
+    if (!d->m_parameters.removeOne(parameter))
+        return;
+    d->updateNode(parameter, "parameter", Qt3DCore::PropertyValueRemoved);
     // Remove bookkeeping connection
     d->unregisterDestructionHelper(parameter);
 }
@@ -366,11 +344,7 @@ void QTechnique::addRenderPass(QRenderPass *pass)
         if (!pass->parent())
             pass->setParent(this);
 
-        if (d->m_changeArbiter != nullptr) {
-            const auto change = QPropertyNodeAddedChangePtr::create(id(), pass);
-            change->setPropertyName("pass");
-            d->notifyObservers(change);
-        }
+        d->updateNode(pass, "pass", Qt3DCore::PropertyValueAdded);
     }
 }
 
@@ -381,12 +355,9 @@ void QTechnique::removeRenderPass(QRenderPass *pass)
 {
     Q_ASSERT(pass);
     Q_D(QTechnique);
-    if (d->m_changeArbiter) {
-        const auto change = QPropertyNodeRemovedChangePtr::create(id(), pass);
-        change->setPropertyName("pass");
-        d->notifyObservers(change);
-    }
-    d->m_renderPasses.removeOne(pass);
+    if (!d->m_renderPasses.removeOne(pass))
+        return;
+    d->updateNode(pass, "pass", Qt3DCore::PropertyValueAdded);
     // Remove bookkeeping connection
     d->unregisterDestructionHelper(pass);
 }
@@ -412,6 +383,12 @@ QVector<QParameter *> QTechnique::parameters() const
 QGraphicsApiFilter *QTechnique::graphicsApiFilter()
 {
     Q_D(QTechnique);
+    return &d->m_graphicsApiFilter;
+}
+
+const QGraphicsApiFilter *QTechnique::graphicsApiFilter() const
+{
+    Q_D(const QTechnique);
     return &d->m_graphicsApiFilter;
 }
 

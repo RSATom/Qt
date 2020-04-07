@@ -36,16 +36,14 @@
 ** $QT_END_LICENSE$
 **
 ****************************************************************************/
-#include <qv4engine_p.h>
+
 #include <qv4runtime_p.h>
-#include <qv4string_p.h>
 #include <qv4propertykey_p.h>
-#ifndef V4_BOOTSTRAP
+#include <qv4string_p.h>
 #include <qv4symbol_p.h>
 #include <qv4object_p.h>
 #include <qv4objectproto_p.h>
 #include <private/qv4mm_p.h>
-#endif
 
 #include <wtf/MathExtras.h>
 
@@ -83,12 +81,8 @@ bool Value::toBooleanImpl(Value val)
         Heap::Base *b = val.m();
         if (!b)
             return false;
-#ifdef V4_BOOTSTRAP
-        Q_UNIMPLEMENTED();
-#else
         if (b->internalClass->vtable->isString)
             return static_cast<Heap::String *>(b)->length() > 0;
-#endif
         return true;
     }
 
@@ -103,10 +97,6 @@ double Value::toNumberImpl(Value val)
     case QV4::Value::Undefined_Type:
         return std::numeric_limits<double>::quiet_NaN();
     case QV4::Value::Managed_Type:
-#ifdef V4_BOOTSTRAP
-        Q_UNIMPLEMENTED();
-        Q_FALLTHROUGH();
-#else
         if (String *s = val.stringValue())
             return RuntimeHelpers::stringToNumber(s->toQString());
         if (val.isSymbol()) {
@@ -114,16 +104,15 @@ double Value::toNumberImpl(Value val)
             m.engine()->throwTypeError();
             return 0;
         }
-    {
-        Q_ASSERT(val.isObject());
-        Scope scope(val.objectValue()->engine());
-        ScopedValue protectThis(scope, val);
-        ScopedValue prim(scope, RuntimeHelpers::toPrimitive(val, NUMBER_HINT));
+        {
+            Q_ASSERT(val.isObject());
+            Scope scope(val.objectValue()->engine());
+            ScopedValue protectThis(scope, val);
+            ScopedValue prim(scope, RuntimeHelpers::toPrimitive(val, NUMBER_HINT));
             if (scope.engine->hasException)
                 return 0;
             return prim->toNumber();
         }
-#endif
     case QV4::Value::Null_Type:
     case QV4::Value::Boolean_Type:
     case QV4::Value::Integer_Type:
@@ -133,7 +122,6 @@ double Value::toNumberImpl(Value val)
     }
 }
 
-#ifndef V4_BOOTSTRAP
 QString Value::toQStringNoThrow() const
 {
     switch (type()) {
@@ -248,7 +236,6 @@ QV4::PropertyKey Value::toPropertyKey(ExecutionEngine *e) const
     ScopedStringOrSymbol s(scope, v);
     return s->toPropertyKey();
 }
-#endif // V4_BOOTSTRAP
 
 bool Value::sameValue(Value other) const {
     if (_val == other._val)
@@ -285,7 +272,6 @@ bool Value::sameValueZero(Value other) const {
     return false;
 }
 
-#ifndef V4_BOOTSTRAP
 Heap::String *Value::toString(ExecutionEngine *e, Value val)
 {
     return RuntimeHelpers::convertToString(e, val);
@@ -327,4 +313,3 @@ uint Value::asArrayLength(bool *ok) const
     }
     return idx;
 }
-#endif // V4_BOOTSTRAP

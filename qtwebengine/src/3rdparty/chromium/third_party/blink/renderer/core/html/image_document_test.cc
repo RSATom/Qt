@@ -76,7 +76,9 @@ class WindowToViewportScalingChromeClient : public EmptyChromeClient {
 
 class ImageDocumentTest : public testing::Test {
  protected:
-  void TearDown() override { ThreadState::Current()->CollectAllGarbage(); }
+  void TearDown() override {
+    ThreadState::Current()->CollectAllGarbageForTesting();
+  }
 
   void CreateDocumentWithoutLoadingImage(int view_width, int view_height);
   void CreateDocument(int view_width, int view_height);
@@ -101,8 +103,8 @@ void ImageDocumentTest::CreateDocumentWithoutLoadingImage(int view_width,
   FillWithEmptyClients(page_clients);
   chrome_client_ = MakeGarbageCollected<WindowToViewportScalingChromeClient>();
   page_clients.chrome_client = chrome_client_;
-  dummy_page_holder_ =
-      DummyPageHolder::Create(IntSize(view_width, view_height), &page_clients);
+  dummy_page_holder_ = std::make_unique<DummyPageHolder>(
+      IntSize(view_width, view_height), &page_clients);
 
   LocalFrame& frame = dummy_page_holder_->GetFrame();
   frame.GetDocument()->Shutdown();
@@ -234,16 +236,26 @@ TEST_F(ImageDocumentTest, MAYBE(ImageCenteredAtDeviceScaleFactor)) {
   GetDocument().ImageClicked(15, 27);
   ScrollOffset offset =
       GetDocument().GetFrame()->View()->LayoutViewport()->GetScrollOffset();
-  EXPECT_EQ(22, offset.Width());
-  EXPECT_EQ(42, offset.Height());
+  if (RuntimeEnabledFeatures::FractionalScrollOffsetsEnabled()) {
+    EXPECT_EQ(22.5f, offset.Width());
+    EXPECT_EQ(42, offset.Height());
+  } else {
+    EXPECT_EQ(22, offset.Width());
+    EXPECT_EQ(42, offset.Height());
+  }
 
   GetDocument().ImageClicked(20, 20);
 
   GetDocument().ImageClicked(12, 15);
   offset =
       GetDocument().GetFrame()->View()->LayoutViewport()->GetScrollOffset();
-  EXPECT_EQ(11, offset.Width());
-  EXPECT_EQ(22, offset.Height());
+  if (RuntimeEnabledFeatures::FractionalScrollOffsetsEnabled()) {
+    EXPECT_EQ(11.25f, offset.Width());
+    EXPECT_EQ(22.5f, offset.Height());
+  } else {
+    EXPECT_EQ(11, offset.Width());
+    EXPECT_EQ(22, offset.Height());
+  }
 }
 
 class ImageDocumentViewportTest : public SimTest {
@@ -264,8 +276,9 @@ class ImageDocumentViewportTest : public SimTest {
   }
 
   ImageDocument& GetDocument() {
-    Document* document =
-        ToLocalFrame(WebView().GetPage()->MainFrame())->DomWindow()->document();
+    Document* document = To<LocalFrame>(WebView().GetPage()->MainFrame())
+                             ->DomWindow()
+                             ->document();
     ImageDocument* image_document = static_cast<ImageDocument*>(document);
     return *image_document;
   }

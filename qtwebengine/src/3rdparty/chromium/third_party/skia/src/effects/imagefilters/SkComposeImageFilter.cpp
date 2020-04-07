@@ -5,12 +5,11 @@
  * found in the LICENSE file.
  */
 
-#include "SkComposeImageFilter.h"
-#include "SkColorSpaceXformer.h"
-#include "SkImageFilterPriv.h"
-#include "SkReadBuffer.h"
-#include "SkSpecialImage.h"
-#include "SkWriteBuffer.h"
+#include "include/effects/SkComposeImageFilter.h"
+#include "src/core/SkImageFilterPriv.h"
+#include "src/core/SkReadBuffer.h"
+#include "src/core/SkSpecialImage.h"
+#include "src/core/SkWriteBuffer.h"
 
 sk_sp<SkImageFilter> SkComposeImageFilter::Make(sk_sp<SkImageFilter> outer,
                                                 sk_sp<SkImageFilter> inner) {
@@ -63,24 +62,14 @@ sk_sp<SkSpecialImage> SkComposeImageFilter::onFilterImage(SkSpecialImage* source
     return outer;
 }
 
-sk_sp<SkImageFilter> SkComposeImageFilter::onMakeColorSpace(SkColorSpaceXformer* xformer) const {
-    SkASSERT(2 == this->countInputs() && this->getInput(0) && this->getInput(1));
-
-    auto input0 = xformer->apply(this->getInput(0));
-    auto input1 = xformer->apply(this->getInput(1));
-    if (input0.get() != this->getInput(0) || input1.get() != this->getInput(1)) {
-        return SkComposeImageFilter::Make(std::move(input0), std::move(input1));
-    }
-    return this->refMe();
-}
-
 SkIRect SkComposeImageFilter::onFilterBounds(const SkIRect& src, const SkMatrix& ctm,
                                              MapDirection dir, const SkIRect* inputRect) const {
     SkImageFilter* outer = this->getInput(0);
     SkImageFilter* inner = this->getInput(1);
 
     const SkIRect innerRect = inner->filterBounds(src, ctm, dir, inputRect);
-    return outer->filterBounds(innerRect, ctm, dir, &innerRect);
+    return outer->filterBounds(innerRect, ctm, dir,
+                               kReverse_MapDirection == dir ? &innerRect : nullptr);
 }
 
 sk_sp<SkFlattenable> SkComposeImageFilter::CreateProc(SkReadBuffer& buffer) {

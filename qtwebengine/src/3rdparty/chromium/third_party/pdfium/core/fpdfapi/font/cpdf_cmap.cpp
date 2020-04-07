@@ -13,6 +13,7 @@
 #include "core/fpdfapi/cmaps/cmap_int.h"
 #include "core/fpdfapi/font/cpdf_cmapmanager.h"
 #include "core/fpdfapi/font/cpdf_cmapparser.h"
+#include "core/fpdfapi/font/cpdf_fontglobals.h"
 #include "core/fpdfapi/parser/cpdf_simple_parser.h"
 
 namespace {
@@ -282,7 +283,8 @@ void CPDF_CMap::LoadPredefined(CPDF_CMapManager* pMgr,
         m_MixedTwoByteLeadingBytes[b] = true;
     }
   }
-  m_pEmbedMap = FindEmbeddedCMap(bsName, m_Charset, m_Coding);
+  m_pEmbedMap = FindEmbeddedCMap(
+      CPDF_FontGlobals::GetInstance()->GetEmbeddedCharset(m_Charset), bsName);
   if (!m_pEmbedMap)
     return;
 
@@ -338,7 +340,7 @@ uint16_t CPDF_CMap::CIDFromCharCode(uint32_t charcode) const {
 
 uint32_t CPDF_CMap::GetNextChar(ByteStringView pString, size_t* pOffset) const {
   size_t& offset = *pOffset;
-  auto pBytes = pString.span();
+  auto pBytes = pString.raw_span();
   switch (m_CodingScheme) {
     case OneByte: {
       return offset < pBytes.size() ? pBytes[offset++] : 0;

@@ -23,12 +23,9 @@ class GLES2Interface;
 }  // namespace gpu
 
 namespace viz {
+class ContextProviderCommandBuffer;
 class GLHelper;
 }  // namespace viz
-
-namespace ws {
-class ContextProviderCommandBuffer;
-}  // namespace ws
 
 namespace content {
 
@@ -37,7 +34,7 @@ class CONTENT_EXPORT WebGraphicsContext3DProviderImpl
       public viz::ContextLostObserver {
  public:
   WebGraphicsContext3DProviderImpl(
-      scoped_refptr<ws::ContextProviderCommandBuffer> provider);
+      scoped_refptr<viz::ContextProviderCommandBuffer> provider);
   ~WebGraphicsContext3DProviderImpl() override;
 
   // WebGraphicsContext3DProvider implementation.
@@ -47,15 +44,18 @@ class CONTENT_EXPORT WebGraphicsContext3DProviderImpl
   GrContext* GetGrContext() override;
   const gpu::Capabilities& GetCapabilities() const override;
   const gpu::GpuFeatureInfo& GetGpuFeatureInfo() const override;
+  const blink::WebglPreferences& GetWebglPreferences() const override;
   viz::GLHelper* GetGLHelper() override;
   void SetLostContextCallback(base::RepeatingClosure) override;
   void SetErrorMessageCallback(
       base::RepeatingCallback<void(const char*, int32_t)>) override;
-  cc::ImageDecodeCache* ImageDecodeCache(
-      SkColorType color_type,
-      sk_sp<SkColorSpace> color_space) override;
+  cc::ImageDecodeCache* ImageDecodeCache(SkColorType color_type) override;
+  gpu::SharedImageInterface* SharedImageInterface() override;
+  void CopyVideoFrame(media::PaintCanvasVideoRenderer* video_render,
+                      media::VideoFrame* video_frame,
+                      cc::PaintCanvas* canvas) override;
 
-  ws::ContextProviderCommandBuffer* context_provider() const {
+  viz::ContextProviderCommandBuffer* context_provider() const {
     return provider_.get();
   }
 
@@ -63,11 +63,10 @@ class CONTENT_EXPORT WebGraphicsContext3DProviderImpl
   // viz::ContextLostObserver implementation.
   void OnContextLost() override;
 
-  scoped_refptr<ws::ContextProviderCommandBuffer> provider_;
+  scoped_refptr<viz::ContextProviderCommandBuffer> provider_;
   std::unique_ptr<viz::GLHelper> gl_helper_;
   base::RepeatingClosure context_lost_callback_;
-  base::flat_map<std::pair<SkColorType, uint64_t>,
-                 std::unique_ptr<cc::ImageDecodeCache>>
+  base::flat_map<SkColorType, std::unique_ptr<cc::ImageDecodeCache>>
       image_decode_cache_map_;
 
   DISALLOW_COPY_AND_ASSIGN(WebGraphicsContext3DProviderImpl);

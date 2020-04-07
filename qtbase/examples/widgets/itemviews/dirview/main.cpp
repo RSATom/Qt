@@ -49,9 +49,9 @@
 ****************************************************************************/
 
 #include <QApplication>
-#include <QDesktopWidget>
 #include <QFileSystemModel>
 #include <QFileIconProvider>
+#include <QScreen>
 #include <QTreeView>
 #include <QCommandLineParser>
 #include <QCommandLineOption>
@@ -65,8 +65,10 @@ int main(int argc, char *argv[])
     parser.setApplicationDescription("Qt Dir View Example");
     parser.addHelpOption();
     parser.addVersionOption();
-    QCommandLineOption dontUseCustomDirectoryIconsOption("c", "Set QFileIconProvider::DontUseCustomDirectoryIcons");
+    QCommandLineOption dontUseCustomDirectoryIconsOption("c", "Set QFileSystemModel::DontUseCustomDirectoryIcons");
     parser.addOption(dontUseCustomDirectoryIconsOption);
+    QCommandLineOption dontWatchOption("w", "Set QFileSystemModel::DontWatch");
+    parser.addOption(dontWatchOption);
     parser.addPositionalArgument("directory", "The directory to start in.");
     parser.process(app);
     const QString rootPath = parser.positionalArguments().isEmpty()
@@ -75,7 +77,9 @@ int main(int argc, char *argv[])
     QFileSystemModel model;
     model.setRootPath("");
     if (parser.isSet(dontUseCustomDirectoryIconsOption))
-        model.iconProvider()->setOptions(QFileIconProvider::DontUseCustomDirectoryIcons);
+        model.setOption(QFileSystemModel::DontUseCustomDirectoryIcons);
+    if (parser.isSet(dontWatchOption))
+        model.setOption(QFileSystemModel::DontWatchForChanges);
     QTreeView tree;
     tree.setModel(&model);
     if (!rootPath.isEmpty()) {
@@ -88,7 +92,7 @@ int main(int argc, char *argv[])
     tree.setAnimated(false);
     tree.setIndentation(20);
     tree.setSortingEnabled(true);
-    const QSize availableSize = QApplication::desktop()->availableGeometry(&tree).size();
+    const QSize availableSize = tree.screen()->availableGeometry().size();
     tree.resize(availableSize / 2);
     tree.setColumnWidth(0, tree.width() / 3);
 

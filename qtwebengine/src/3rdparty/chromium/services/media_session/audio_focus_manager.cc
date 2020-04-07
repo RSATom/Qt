@@ -7,11 +7,15 @@
 #include <iterator>
 #include <utility>
 
+#include "base/bind.h"
 #include "base/containers/adapters.h"
+#include "base/power_monitor/power_monitor.h"
+#include "base/power_monitor/power_observer.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/unguessable_token.h"
 #include "mojo/public/cpp/bindings/interface_request.h"
 #include "services/media_session/audio_focus_manager_metrics_helper.h"
+#include "services/media_session/audio_focus_request.h"
 #include "services/media_session/public/cpp/features.h"
 #include "services/media_session/public/mojom/audio_focus.mojom.h"
 
@@ -31,204 +35,26 @@ mojom::EnforcementMode GetDefaultEnforcementMode() {
 
 }  // namespace
 
-class AudioFocusManager::StackRow : public mojom::AudioFocusRequestClient {
+// MediaPowerDelegate will pause all playback if the device is suspended.
+class MediaPowerDelegate : public base::PowerObserver {
  public:
-  StackRow(AudioFocusManager* owner,
-           mojom::AudioFocusRequestClientRequest request,
-           mojom::MediaSessionPtr session,
-           mojom::MediaSessionInfoPtr session_info,
-           mojom::AudioFocusType audio_focus_type,
-           RequestId id,
-           const std::string& source_name,
-           const base::UnguessableToken& group_id)
-      : id_(id),
-        source_name_(source_name),
-        group_id_(group_id),
-        metrics_helper_(source_name),
-        session_(std::move(session)),
-        session_info_(std::move(session_info)),
-        audio_focus_type_(audio_focus_type),
-        binding_(this, std::move(request)),
-        owner_(owner) {
-    // Listen for mojo errors.
-    binding_.set_connection_error_handler(
-        base::BindOnce(&AudioFocusManager::StackRow::OnConnectionError,
-                       base::Unretained(this)));
-    session_.set_connection_error_handler(
-        base::BindOnce(&AudioFocusManager::StackRow::OnConnectionError,
-                       base::Unretained(this)));
-
-    metrics_helper_.OnRequestAudioFocus(
-        AudioFocusManagerMetricsHelper::AudioFocusRequestSource::kInitial,
-        audio_focus_type);
+  explicit MediaPowerDelegate(base::WeakPtr<AudioFocusManager> owner)
+      : owner_(owner) {
+    base::PowerMonitor::AddObserver(this);
   }
 
-  ~StackRow() override = default;
+  ~MediaPowerDelegate() override { base::PowerMonitor::RemoveObserver(this); }
 
-  // mojom::AudioFocusRequestClient.
-  void RequestAudioFocus(mojom::MediaSessionInfoPtr session_info,
-                         mojom::AudioFocusType type,
-                         RequestAudioFocusCallback callback) override {
-    SetSessionInfo(std::move(session_info));
-
-    if (IsActive() && owner_->IsSessionOnTopOfAudioFocusStack(id(), type)) {
-      // Early returning if |media_session| is already on top (has focus) and is
-      // active.
-      std::move(callback).Run();
-      return;
-    }
-
-    // Remove this StackRow for the audio focus stack.
-    std::unique_ptr<StackRow> row = owner_->RemoveFocusEntryIfPresent(id());
-    DCHECK(row);
-
-    owner_->RequestAudioFocusInternal(std::move(row), type,
-                                      std::move(callback));
-
-    metrics_helper_.OnRequestAudioFocus(
-        AudioFocusManagerMetricsHelper::AudioFocusRequestSource::kUpdate,
-        audio_focus_type_);
-  }
-
-  void AbandonAudioFocus() override {
-    metrics_helper_.OnAbandonAudioFocus(
-        AudioFocusManagerMetricsHelper::AudioFocusAbandonSource::kAPI);
-
-    owner_->AbandonAudioFocusInternal(id_);
-  }
-
-  void MediaSessionInfoChanged(mojom::MediaSessionInfoPtr info) override {
-    bool suspended_change =
-        (info->state == mojom::MediaSessionInfo::SessionState::kSuspended ||
-         IsSuspended()) &&
-        info->state != session_info_->state;
-
-    SetSessionInfo(std::move(info));
-
-    // If we have transitioned to/from a suspended state then we should
-    // re-enforce audio focus.
-    if (suspended_change)
-      owner_->EnforceAudioFocus();
-  }
-
-  void GetRequestId(GetRequestIdCallback callback) override {
-    std::move(callback).Run(id());
-  }
-
-  mojom::MediaSession* session() { return session_.get(); }
-  const mojom::MediaSessionInfoPtr& info() const { return session_info_; }
-  mojom::AudioFocusType audio_focus_type() const { return audio_focus_type_; }
-
-  void SetAudioFocusType(mojom::AudioFocusType type) {
-    audio_focus_type_ = type;
-  }
-
-  bool IsActive() const {
-    return session_info_->state ==
-           mojom::MediaSessionInfo::SessionState::kActive;
-  }
-
-  bool IsSuspended() const {
-    return session_info_->state ==
-           mojom::MediaSessionInfo::SessionState::kSuspended;
-  }
-
-  RequestId id() const { return id_; }
-
-  const std::string& source_name() const { return source_name_; }
-
-  const base::UnguessableToken& group_id() const { return group_id_; }
-
-  mojom::AudioFocusRequestStatePtr ToAudioFocusRequestState() const {
-    auto request = mojom::AudioFocusRequestState::New();
-    request->session_info = session_info_.Clone();
-    request->audio_focus_type = audio_focus_type_;
-    request->request_id = id_;
-    request->source_name = source_name_;
-    return request;
-  }
-
-  void BindToController(mojom::MediaControllerRequest request) {
-    if (!controller_) {
-      controller_ = std::make_unique<MediaController>();
-      controller_->SetMediaSession(session_.get());
-    }
-
-    controller_->BindToInterface(std::move(request));
-  }
-
-  void Suspend(const EnforcementState& state) {
-    DCHECK(!session_info_->force_duck);
-
-    // In most cases if we stop or suspend we should call the ::Suspend method
-    // on the media session. The only exception is if the session has the
-    // |prefer_stop_for_gain_focus_loss| bit set in which case we should use
-    // ::Stop and ::Suspend respectively.
-    if (state.should_stop && session_info_->prefer_stop_for_gain_focus_loss) {
-      session_->Stop(mojom::MediaSession::SuspendType::kSystem);
-    } else {
-      was_suspended_ = was_suspended_ || state.should_suspend;
-      session_->Suspend(mojom::MediaSession::SuspendType::kSystem);
-    }
-  }
-
-  void MaybeResume() {
-    DCHECK(!session_info_->force_duck);
-
-    if (!was_suspended_)
-      return;
-
-    was_suspended_ = false;
-    session_->Resume(mojom::MediaSession::SuspendType::kSystem);
+  // base::PowerObserver:
+  void OnSuspend() override {
+    DCHECK(owner_);
+    owner_->SuspendAllSessions();
   }
 
  private:
-  void SetSessionInfo(mojom::MediaSessionInfoPtr session_info) {
-    bool is_controllable_changed =
-        session_info_->is_controllable != session_info->is_controllable;
+  const base::WeakPtr<AudioFocusManager> owner_;
 
-    session_info_ = std::move(session_info);
-
-    if (is_controllable_changed)
-      owner_->MaybeUpdateActiveSession();
-  }
-
-  void OnConnectionError() {
-    // Since we have multiple pathways that can call |OnConnectionError| we
-    // should use the |encountered_error_| bit to make sure we abandon focus
-    // just the first time.
-    if (encountered_error_)
-      return;
-    encountered_error_ = true;
-
-    metrics_helper_.OnAbandonAudioFocus(
-        AudioFocusManagerMetricsHelper::AudioFocusAbandonSource::
-            kConnectionError);
-
-    base::ThreadTaskRunnerHandle::Get()->PostTask(
-        FROM_HERE, base::BindOnce(&AudioFocusManager::AbandonAudioFocusInternal,
-                                  base::Unretained(owner_), id_));
-  }
-
-  const RequestId id_;
-  const std::string source_name_;
-  const base::UnguessableToken group_id_;
-
-  AudioFocusManagerMetricsHelper metrics_helper_;
-  bool encountered_error_ = false;
-  bool was_suspended_ = false;
-
-  std::unique_ptr<MediaController> controller_;
-
-  mojom::MediaSessionPtr session_;
-  mojom::MediaSessionInfoPtr session_info_;
-  mojom::AudioFocusType audio_focus_type_;
-  mojo::Binding<mojom::AudioFocusRequestClient> binding_;
-
-  // Weak pointer to the owning |AudioFocusManager| instance.
-  AudioFocusManager* owner_;
-
-  DISALLOW_COPY_AND_ASSIGN(StackRow);
+  DISALLOW_COPY_AND_ASSIGN(MediaPowerDelegate);
 };
 
 void AudioFocusManager::RequestAudioFocus(
@@ -249,12 +75,16 @@ void AudioFocusManager::RequestGroupedAudioFocus(
     mojom::AudioFocusType type,
     const base::UnguessableToken& group_id,
     RequestGroupedAudioFocusCallback callback) {
+  base::UnguessableToken request_id = base::UnguessableToken::Create();
+
   RequestAudioFocusInternal(
-      std::make_unique<StackRow>(
-          this, std::move(request), std::move(media_session),
-          std::move(session_info), type, base::UnguessableToken::Create(),
+      std::make_unique<AudioFocusRequest>(
+          weak_ptr_factory_.GetWeakPtr(), std::move(request),
+          std::move(media_session), std::move(session_info), type, request_id,
           GetBindingSourceName(), group_id),
-      type, std::move(callback));
+      type);
+
+  std::move(callback).Run(request_id);
 }
 
 void AudioFocusManager::GetFocusRequests(GetFocusRequestsCallback callback) {
@@ -273,7 +103,7 @@ void AudioFocusManager::GetDebugInfoForRequest(
     if (row->id() != request_id)
       continue;
 
-    row->session()->GetDebugInfo(base::BindOnce(
+    row->ipc()->GetDebugInfo(base::BindOnce(
         [](const base::UnguessableToken& group_id,
            GetDebugInfoForRequestCallback callback,
            mojom::MediaSessionDebugInfoPtr info) {
@@ -297,43 +127,36 @@ void AudioFocusManager::AbandonAudioFocusInternal(RequestId id) {
   if (audio_focus_stack_.empty())
     return;
 
-  if (audio_focus_stack_.back()->id() != id) {
-    RemoveFocusEntryIfPresent(id);
-    MaybeUpdateActiveSession();
+  bool was_top_most_session = audio_focus_stack_.back()->id() == id;
+
+  auto row = RemoveFocusEntryIfPresent(id);
+  if (!row)
     return;
-  }
-
-  auto row = std::move(audio_focus_stack_.back());
-  audio_focus_stack_.pop_back();
-
-  if (audio_focus_stack_.empty()) {
-    // Notify observers that we lost audio focus.
-    observers_.ForAllPtrs([&row](mojom::AudioFocusObserver* observer) {
-      observer->OnFocusLost(row->ToAudioFocusRequestState());
-    });
-
-    MaybeUpdateActiveSession();
-    return;
-  }
 
   EnforceAudioFocus();
   MaybeUpdateActiveSession();
 
   // Notify observers that we lost audio focus.
-  observers_.ForAllPtrs([&row](mojom::AudioFocusObserver* observer) {
-    observer->OnFocusLost(row->ToAudioFocusRequestState());
-  });
+  mojom::AudioFocusRequestStatePtr session_state =
+      row->ToAudioFocusRequestState();
+
+  for (const auto& observer : observers_)
+    observer->OnFocusLost(session_state.Clone());
+
+  if (!was_top_most_session || audio_focus_stack_.empty())
+    return;
 
   // Notify observers that the session on top gained focus.
-  StackRow* new_session = audio_focus_stack_.back().get();
-  observers_.ForAllPtrs([&new_session](mojom::AudioFocusObserver* observer) {
+  AudioFocusRequest* new_session = audio_focus_stack_.back().get();
+
+  for (const auto& observer : observers_)
     observer->OnFocusGained(new_session->ToAudioFocusRequestState());
-  });
 }
 
-void AudioFocusManager::AddObserver(mojom::AudioFocusObserverPtr observer) {
+void AudioFocusManager::AddObserver(
+    mojo::PendingRemote<mojom::AudioFocusObserver> observer) {
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
-  observers_.AddPtr(std::move(observer));
+  observers_.Add(std::move(observer));
 }
 
 void AudioFocusManager::SetSourceName(const std::string& name) {
@@ -357,21 +180,28 @@ void AudioFocusManager::SetEnforcementMode(mojom::EnforcementMode mode) {
 }
 
 void AudioFocusManager::CreateActiveMediaController(
-    mojom::MediaControllerRequest request) {
+    mojo::PendingReceiver<mojom::MediaController> receiver) {
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
-  active_media_controller_.BindToInterface(std::move(request));
+  active_media_controller_.BindToInterface(std::move(receiver));
 }
 
 void AudioFocusManager::CreateMediaControllerForSession(
-    mojom::MediaControllerRequest request,
-    const base::UnguessableToken& request_id) {
+    mojo::PendingReceiver<mojom::MediaController> receiver,
+    const base::UnguessableToken& receiver_id) {
   for (auto& row : audio_focus_stack_) {
-    if (row->id() != request_id)
+    if (row->id() != receiver_id)
       continue;
 
-    row->BindToController(std::move(request));
+    row->BindToMediaController(std::move(receiver));
     break;
   }
+}
+
+void AudioFocusManager::SuspendAllSessions() {
+  DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
+
+  for (auto& row : audio_focus_stack_)
+    row->ipc()->Suspend(mojom::MediaSession::SuspendType::kUI);
 }
 
 void AudioFocusManager::BindToInterface(
@@ -394,10 +224,9 @@ void AudioFocusManager::BindToControllerManagerInterface(
 }
 
 void AudioFocusManager::RequestAudioFocusInternal(
-    std::unique_ptr<StackRow> row,
-    mojom::AudioFocusType type,
-    base::OnceCallback<void()> callback) {
-  row->SetAudioFocusType(type);
+    std::unique_ptr<AudioFocusRequest> row,
+    mojom::AudioFocusType type) {
+  row->set_audio_focus_type(type);
   audio_focus_stack_.push_back(std::move(row));
 
   EnforceAudioFocus();
@@ -406,13 +235,8 @@ void AudioFocusManager::RequestAudioFocusInternal(
   // Notify observers that we were gained audio focus.
   mojom::AudioFocusRequestStatePtr session_state =
       audio_focus_stack_.back()->ToAudioFocusRequestState();
-  observers_.ForAllPtrs([&session_state](mojom::AudioFocusObserver* observer) {
+  for (const auto& observer : observers_)
     observer->OnFocusGained(session_state.Clone());
-  });
-
-  // We always grant the audio focus request but this may not always be the case
-  // in the future.
-  std::move(callback).Run();
 }
 
 void AudioFocusManager::EnforceAudioFocus() {
@@ -440,12 +264,14 @@ void AudioFocusManager::EnforceAudioFocus() {
         if (!session->IsSuspended())
           state.should_duck = true;
         break;
+      case mojom::AudioFocusType::kAmbient:
+        break;
     }
   }
 }
 
 void AudioFocusManager::MaybeUpdateActiveSession() {
-  StackRow* active = nullptr;
+  AudioFocusRequest* active = nullptr;
 
   for (auto& row : base::Reversed(audio_focus_stack_)) {
     if (!row->info()->is_controllable)
@@ -455,30 +281,26 @@ void AudioFocusManager::MaybeUpdateActiveSession() {
     break;
   }
 
-  if (!active_media_controller_.SetMediaSession(active ? active->session()
-                                                       : nullptr)) {
-    return;
+  if (active) {
+    active_media_controller_.SetMediaSession(active);
+  } else {
+    active_media_controller_.ClearMediaSession();
   }
-
-  mojom::AudioFocusRequestStatePtr state =
-      active ? active->ToAudioFocusRequestState() : nullptr;
-
-  // Notify observers that the active media session changed.
-  observers_.ForAllPtrs([&state](mojom::AudioFocusObserver* observer) {
-    observer->OnActiveSessionChanged(state.Clone());
-  });
 }
 
 AudioFocusManager::AudioFocusManager()
     : enforcement_mode_(GetDefaultEnforcementMode()) {
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
+
+  power_delegate_ =
+      std::make_unique<MediaPowerDelegate>(weak_ptr_factory_.GetWeakPtr());
 }
 
 AudioFocusManager::~AudioFocusManager() = default;
 
-std::unique_ptr<AudioFocusManager::StackRow>
-AudioFocusManager::RemoveFocusEntryIfPresent(RequestId id) {
-  std::unique_ptr<StackRow> row;
+std::unique_ptr<AudioFocusRequest> AudioFocusManager::RemoveFocusEntryIfPresent(
+    RequestId id) {
+  std::unique_ptr<AudioFocusRequest> row;
 
   for (auto iter = audio_focus_stack_.begin(); iter != audio_focus_stack_.end();
        ++iter) {
@@ -505,7 +327,7 @@ bool AudioFocusManager::IsSessionOnTopOfAudioFocusStack(
 }
 
 bool AudioFocusManager::ShouldSessionBeSuspended(
-    const StackRow* session,
+    const AudioFocusRequest* session,
     const EnforcementState& state) const {
   bool should_suspend_any = state.should_stop || state.should_suspend;
 
@@ -524,7 +346,7 @@ bool AudioFocusManager::ShouldSessionBeSuspended(
 }
 
 bool AudioFocusManager::ShouldSessionBeDucked(
-    const StackRow* session,
+    const AudioFocusRequest* session,
     const EnforcementState& state) const {
   switch (enforcement_mode_) {
     case mojom::EnforcementMode::kSingleSession:
@@ -540,12 +362,12 @@ bool AudioFocusManager::ShouldSessionBeDucked(
   }
 }
 
-void AudioFocusManager::EnforceSingleSession(StackRow* session,
+void AudioFocusManager::EnforceSingleSession(AudioFocusRequest* session,
                                              const EnforcementState& state) {
   if (ShouldSessionBeDucked(session, state)) {
-    session->session()->StartDucking();
+    session->ipc()->StartDucking();
   } else {
-    session->session()->StopDucking();
+    session->ipc()->StopDucking();
   }
 
   // If the session wants to be ducked instead of suspended we should stop now.
@@ -555,7 +377,7 @@ void AudioFocusManager::EnforceSingleSession(StackRow* session,
   if (ShouldSessionBeSuspended(session, state)) {
     session->Suspend(state);
   } else {
-    session->MaybeResume();
+    session->ReleaseTransientHold();
   }
 }
 

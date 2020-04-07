@@ -44,6 +44,7 @@
 #include <QCoreApplication>
 
 #include <private/qdebug_p.h>
+#include <private/qlocking_p.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -201,15 +202,20 @@ void QTouchDevice::setName(const QString &name)
     d->name = name;
 }
 
-typedef QList<const QTouchDevice *> TouchDevices;
-Q_GLOBAL_STATIC(TouchDevices, deviceList)
 static QBasicMutex devicesMutex;
 
-static void cleanupDevicesList()
+struct TouchDevices {
+    TouchDevices();
+    QList<const QTouchDevice *> list;
+};
+Q_GLOBAL_STATIC(TouchDevices, deviceList)
+
+TouchDevices::TouchDevices()
 {
-    QMutexLocker lock(&devicesMutex);
-    qDeleteAll(*deviceList());
-    deviceList()->clear();
+    qAddPostRoutine([]{
+        const auto locker = qt_scoped_lock(devicesMutex);
+        qDeleteAll(qExchange(deviceList->list, {}));
+    });
 }
 
 /*!
@@ -222,8 +228,8 @@ static void cleanupDevicesList()
   */
 QList<const QTouchDevice *> QTouchDevice::devices()
 {
-    QMutexLocker lock(&devicesMutex);
-    return *deviceList();
+    const auto locker = qt_scoped_lock(devicesMutex);
+    return deviceList->list;
 }
 
 /*!
@@ -231,14 +237,14 @@ QList<const QTouchDevice *> QTouchDevice::devices()
   */
 bool QTouchDevicePrivate::isRegistered(const QTouchDevice *dev)
 {
-    QMutexLocker locker(&devicesMutex);
-    return deviceList()->contains(dev);
+    const auto locker = qt_scoped_lock(devicesMutex);
+    return deviceList->list.contains(dev);
 }
 
 const QTouchDevice *QTouchDevicePrivate::deviceById(quint8 id)
 {
-    QMutexLocker locker(&devicesMutex);
-    for (const QTouchDevice *dev : *deviceList())
+    const auto locker = qt_scoped_lock(devicesMutex);
+    for (const QTouchDevice *dev : qAsConst(deviceList->list))
         if (QTouchDevicePrivate::get(const_cast<QTouchDevice *>(dev))->id == id)
             return dev;
     return nullptr;
@@ -249,10 +255,8 @@ const QTouchDevice *QTouchDevicePrivate::deviceById(quint8 id)
   */
 void QTouchDevicePrivate::registerDevice(const QTouchDevice *dev)
 {
-    QMutexLocker lock(&devicesMutex);
-    if (deviceList()->isEmpty())
-        qAddPostRoutine(cleanupDevicesList);
-    deviceList()->append(dev);
+    const auto locker = qt_scoped_lock(devicesMutex);
+    deviceList->list.append(dev);
 }
 
 /*!
@@ -260,10 +264,8 @@ void QTouchDevicePrivate::registerDevice(const QTouchDevice *dev)
   */
 void QTouchDevicePrivate::unregisterDevice(const QTouchDevice *dev)
 {
-    QMutexLocker lock(&devicesMutex);
-    bool wasRemoved = deviceList()->removeOne(dev);
-    if (wasRemoved && deviceList()->isEmpty())
-        qRemovePostRoutine(cleanupDevicesList);
+    const auto locker = qt_scoped_lock(devicesMutex);
+    deviceList->list.removeOne(dev);
 }
 
 #ifndef QT_NO_DEBUG_STREAM

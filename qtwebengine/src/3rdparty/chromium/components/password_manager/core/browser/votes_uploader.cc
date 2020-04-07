@@ -5,14 +5,20 @@
 #include "components/password_manager/core/browser/votes_uploader.h"
 
 #include <ctype.h>
-#include <map>
 
+#include <algorithm>
+#include <utility>
+#include "base/hash/hash.h"
+#include "base/logging.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/rand_util.h"
+#include "base/strings/utf_string_conversions.h"
 #include "components/autofill/core/browser/autofill_download_manager.h"
+#include "components/autofill/core/browser/autofill_field.h"
 #include "components/autofill/core/browser/form_structure.h"
 #include "components/autofill/core/browser/randomized_encoder.h"
 #include "components/autofill/core/common/form_data.h"
+#include "components/autofill/core/common/form_field_data.h"
 #include "components/password_manager/core/browser/browser_save_password_progress_logger.h"
 #include "components/password_manager/core/browser/password_manager_client.h"
 #include "components/password_manager/core/browser/password_manager_util.h"
@@ -21,6 +27,7 @@ using autofill::AutofillDownloadManager;
 using autofill::AutofillField;
 using autofill::AutofillUploadContents;
 using autofill::FormData;
+using autofill::FormFieldData;
 using autofill::FormStructure;
 using autofill::PasswordForm;
 using autofill::RandomizedEncoder;
@@ -31,7 +38,13 @@ using autofill::ValueElementPair;
 using Logger = autofill::SavePasswordProgressLogger;
 
 namespace password_manager {
+
 namespace {
+// Number of distinct low-entropy hash values.
+constexpr uint32_t kNumberOfLowEntropyHashValues = 64;
+
+// Contains all special symbols considered for password-generation.
+constexpr char kSpecialSymbols[] = "!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~";
 
 // Sets autofill types of password and new password fields in |field_types|.
 // |password_type| (the autofill type of new password field) should be equal to
@@ -94,14 +107,13 @@ void LabelFields(const FieldTypeMap& field_types,
              field->vote_type() !=
                  AutofillUploadContents::Field::NO_INFORMATION);
     }
-
     ServerFieldTypeSet types;
     types.insert(type);
     field->set_possible_types(types);
   }
 }
 
-// Returns true iff |credentials| has the same password as an entry in |matches|
+// Returns true if |credentials| has the same password as an entry in |matches|
 // which doesn't have a username.
 bool IsAddingUsernameToExistingMatch(
     const PasswordForm& credentials,
@@ -124,9 +136,33 @@ bool IsLowercaseLetter(int c) {
 bool IsUppercaseLetter(int c) {
   return 'A' <= c && c <= 'Z';
 }
+
+// Checks if a supplied character |c| is a special symbol.
+// Special symbols are defined by the string |kSpecialSymbols|.
 bool IsSpecialSymbol(int c) {
-  return ('!' <= c && c <= '/') || (':' <= c && c <= '@') ||
-         ('[' <= c && c <= '`') || ('{' <= c && c <= '~');
+  return std::find(std::begin(kSpecialSymbols), std::end(kSpecialSymbols), c) !=
+         std::end(kSpecialSymbols);
+}
+
+// Returns a uniformly distributed random symbol from the set of random symbols
+// defined by the string |kSpecialSymbols|.
+int GetRandomSpecialSymbol() {
+  return kSpecialSymbols[base::RandGenerator(base::size(kSpecialSymbols))];
+}
+
+// Returns a random special symbol used in |password|.
+// It is expected that |password| contains at least one special symbol.
+int GetRandomSpecialSymbolFromPassword(const base::string16& password) {
+  std::vector<int> symbols;
+  std::copy_if(password.begin(), password.end(), std::back_inserter(symbols),
+               &IsSpecialSymbol);
+  DCHECK(!symbols.empty()) << "Password must contain at least one symbol.";
+  return symbols[base::RandGenerator(symbols.size())];
+}
+
+size_t GetLowEntropyHashValue(const base::string16& value) {
+  return base::PersistentHash(base::UTF16ToUTF8(value)) %
+         kNumberOfLowEntropyHashValues;
 }
 
 }  // namespace
@@ -155,8 +191,8 @@ void VotesUploader::SendVotesOnSave(
   if (pending_credentials->times_used == 0) {
     UploadPasswordVote(*pending_credentials, submitted_form, autofill::PASSWORD,
                        std::string());
-    if (has_username_correction_vote_) {
-      UploadPasswordVote(username_correction_vote_, submitted_form,
+    if (username_correction_vote_) {
+      UploadPasswordVote(*username_correction_vote_, submitted_form,
                          autofill::USERNAME,
                          FormStructure(observed).FormSignatureAsStr());
     }
@@ -191,18 +227,20 @@ void VotesUploader::SendVoteOnCredentialsReuse(
       if (UploadPasswordVote(*pending, submitted_form,
                              autofill::ACCOUNT_CREATION_PASSWORD,
                              observed_structure.FormSignatureAsStr())) {
-        pending->generation_upload_status = PasswordForm::POSITIVE_SIGNAL_SENT;
+        pending->generation_upload_status =
+            PasswordForm::GenerationUploadStatus::kPositiveSignalSent;
       }
     }
   } else if (pending->generation_upload_status ==
-             PasswordForm::POSITIVE_SIGNAL_SENT) {
+             PasswordForm::GenerationUploadStatus::kPositiveSignalSent) {
     // A signal was sent that this was an account creation form, but the
     // credential is now being used on the same form again. This cancels out
     // the previous vote.
     if (UploadPasswordVote(*pending, submitted_form,
                            autofill::NOT_ACCOUNT_CREATION_PASSWORD,
                            std::string())) {
-      pending->generation_upload_status = PasswordForm::NEGATIVE_SIGNAL_SENT;
+      pending->generation_upload_status =
+          PasswordForm::GenerationUploadStatus::kNegativeSignalSent;
     }
   } else if (generation_popup_was_shown_) {
     // Even if there is no autofill vote to be sent, send the vote about the
@@ -284,7 +322,7 @@ bool VotesUploader::UploadPasswordVote(
     }
     if (autofill_type == autofill::PASSWORD) {
       // The password attributes should be uploaded only on the first save.
-      DCHECK(form_to_upload.times_used == 0);
+      DCHECK_EQ(form_to_upload.times_used, 0);
       GeneratePasswordAttributesVote(form_to_upload.password_value,
                                      &form_structure);
     }
@@ -371,9 +409,31 @@ void VotesUploader::UploadFirstLoginVotes(
   form_structure.set_randomized_encoder(
       RandomizedEncoder::Create(client_->GetPrefs()));
 
+  SetInitialHashValueOfUsernameField(
+      form_to_upload.username_element_renderer_id, &form_structure);
+
   download_manager->StartUploadRequest(
       form_structure, false /* was_autofilled */, available_field_types,
       std::string(), true /* observed_submission */, nullptr /* prefs */);
+}
+
+void VotesUploader::SetInitialHashValueOfUsernameField(
+    uint32_t username_element_renderer_id,
+    FormStructure* form_structure) {
+  auto it = initial_values_.find(username_element_renderer_id);
+
+  if (it == initial_values_.end() || it->second.empty())
+    return;
+
+  for (const auto& field : *form_structure) {
+    if (field && field->unique_renderer_id == username_element_renderer_id) {
+      const base::string16 form_signature =
+          base::UTF8ToUTF16(form_structure->FormSignatureAsStr());
+      const base::string16 seeded_input = it->second.append(form_signature);
+      field->set_initial_value_hash(GetLowEntropyHashValue(seeded_input));
+      break;
+    }
+  }
 }
 
 void VotesUploader::AddGeneratedVote(FormStructure* form_structure) {
@@ -402,8 +462,9 @@ void VotesUploader::AddGeneratedVote(FormStructure* form_structure) {
               : AutofillUploadContents::Field::
                     AUTOMATICALLY_TRIGGERED_GENERATION_ON_SIGN_UP_FORM;
     }
-  } else
+  } else {
     type = AutofillUploadContents::Field::IGNORED_GENERATION_POPUP;
+  }
 
   for (size_t i = 0; i < form_structure->field_count(); ++i) {
     AutofillField* field = form_structure->field(i);
@@ -423,19 +484,23 @@ void VotesUploader::SetKnownValueFlag(
     const PasswordForm& pending_credentials,
     const std::map<base::string16, const PasswordForm*>& best_matches,
     FormStructure* form) {
-  DCHECK(!password_overridden_ ||
-         best_matches.find(pending_credentials.username_value) !=
-             best_matches.end())
-      << "The credential is being overriden, but it does not exist in "
-         "the best matches.";
-
   const base::string16& known_username = pending_credentials.username_value;
+  base::string16 known_password;
+  if (password_overridden_) {
+    // If we are updating a password, the known value should be the old
+    // password, not the new one.
+    auto it = best_matches.find(known_username);
+    if (it == best_matches.end()) {
+      // Username was not found, do nothing.
+      return;
+    }
+    known_password = it->second->password_value;
+  } else {
+    known_password = pending_credentials.password_value;
+  }
+
   // If we are updating a password, the known value is the old password, not
   // the new one.
-  const base::string16& known_password =
-      password_overridden_ ? best_matches.at(known_username)->password_value
-                           : pending_credentials.password_value;
-
   for (auto& field : *form) {
     if (field->value.empty())
       continue;
@@ -448,13 +513,12 @@ void VotesUploader::SetKnownValueFlag(
 bool VotesUploader::FindUsernameInOtherPossibleUsernames(
     const PasswordForm& match,
     const base::string16& username) {
-  DCHECK(!has_username_correction_vote_);
+  DCHECK(!username_correction_vote_);
 
-  for (const ValueElementPair& pair : match.other_possible_usernames) {
+  for (const ValueElementPair& pair : match.all_possible_usernames) {
     if (pair.first == username) {
       username_correction_vote_ = match;
-      username_correction_vote_.username_element = pair.second;
-      has_username_correction_vote_ = true;
+      username_correction_vote_->username_element = pair.second;
       return true;
     }
   }
@@ -513,22 +577,40 @@ void VotesUploader::GeneratePasswordAttributesVote(
     predicate = &IsSpecialSymbol;
     character_class_attribute = autofill::PasswordAttribute::kHasSpecialSymbol;
   }
-  bool actual_value_for_character_class =
-      std::any_of(password_value.begin(), password_value.end(), predicate);
 
   // Apply the randomized response technique to noisify the actual value
   // (https://en.wikipedia.org/wiki/Randomized_response).
+  bool respond_randomly = base::RandGenerator(2);
   bool randomized_value_for_character_class =
-      base::RandGenerator(2) ? actual_value_for_character_class
-                             : base::RandGenerator(2);
+      respond_randomly ? base::RandGenerator(2)
+                       : std::any_of(password_value.begin(),
+                                     password_value.end(), predicate);
   form_structure->set_password_attributes_vote(std::make_pair(
       character_class_attribute, randomized_value_for_character_class));
+
+  if (character_class_attribute ==
+          autofill::PasswordAttribute::kHasSpecialSymbol &&
+      randomized_value_for_character_class) {
+    form_structure->set_password_symbol_vote(
+        respond_randomly ? GetRandomSpecialSymbol()
+                         : GetRandomSpecialSymbolFromPassword(password_value));
+  }
 
   size_t actual_length = password_value.size();
   size_t randomized_length = actual_length <= 1 || base::RandGenerator(5) == 0
                                  ? actual_length
                                  : base::RandGenerator(actual_length - 1) + 1;
+
   form_structure->set_password_length_vote(randomized_length);
+}
+
+void VotesUploader::StoreInitialFieldValues(
+    const autofill::FormData& observed_form) {
+  for (const auto& field : observed_form.fields) {
+    if (!field.value.empty())
+      initial_values_.insert(
+          std::make_pair(field.unique_renderer_id, field.value));
+  }
 }
 
 }  // namespace password_manager

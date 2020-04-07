@@ -7,6 +7,7 @@
 #include <memory>
 #include <string>
 
+#include "base/bind.h"
 #include "base/values.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/feedback/feedback_uploader_chrome.h"
@@ -17,19 +18,25 @@
 #include "chrome/browser/ui/simple_message_box.h"
 #include "chrome/grit/generated_resources.h"
 #include "components/feedback/system_logs/system_logs_fetcher.h"
+#include "components/signin/public/identity_manager/identity_manager.h"
 #include "components/strings/grit/components_strings.h"
 #include "content/public/browser/browser_context.h"
-#include "services/identity/public/cpp/identity_manager.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/webui/web_ui_util.h"
 
 #if defined(OS_CHROMEOS)
+#include "base/strings/string_split.h"
+#include "base/system/sys_info.h"
 #include "chrome/browser/chromeos/arc/arc_util.h"
 #include "chrome/browser/chromeos/system_logs/iwlwifi_dump_log_source.h"
 #include "chrome/browser/chromeos/system_logs/single_debug_daemon_log_source.h"
 #include "chrome/browser/chromeos/system_logs/single_log_file_log_source.h"
-#include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/extensions/component_loader.h"
+#include "chrome/browser/extensions/extension_service.h"
+#include "components/feedback/feedback_util.h"
 #include "components/feedback/system_logs/system_logs_source.h"
+#include "extensions/browser/extension_system.h"
+#include "extensions/common/constants.h"
 #endif  // defined(OS_CHROMEOS)
 
 namespace extensions {
@@ -40,11 +47,13 @@ int GetSysInfoCheckboxStringId(content::BrowserContext* browser_context) {
 #if defined(OS_CHROMEOS)
   if (arc::IsArcPlayStoreEnabledForProfile(
           Profile::FromBrowserContext(browser_context))) {
-    return IDS_FEEDBACK_INCLUDE_SYSTEM_INFORMATION_CHKBOX_ARC;
+    return IDS_FEEDBACK_INCLUDE_SYSTEM_INFORMATION_AND_METRICS_CHKBOX_ARC;
+  } else {
+    return IDS_FEEDBACK_INCLUDE_SYSTEM_INFORMATION_AND_METRICS_CHKBOX;
   }
-#endif
-
+#else
   return IDS_FEEDBACK_INCLUDE_SYSTEM_INFORMATION_CHKBOX;
+#endif
 }
 
 }  // namespace
@@ -85,6 +94,8 @@ ChromeFeedbackPrivateDelegate::GetStrings(
              IDS_FEEDBACK_INCLUDE_PERFORMANCE_TRACE_CHECKBOX);
   SET_STRING("bluetooth-logs-info", IDS_FEEDBACK_BLUETOOTH_LOGS_CHECKBOX);
   SET_STRING("bluetooth-logs-message", IDS_FEEDBACK_BLUETOOTH_LOGS_MESSAGE);
+  SET_STRING("assistant-logs-message", IDS_FEEDBACK_ASSISTANT_LOGS_MESSAGE);
+
   // Add the localized strings needed for the "system information" page.
   SET_STRING("sysinfoPageTitle", IDS_FEEDBACK_SYSINFO_PAGE_TITLE);
   SET_STRING("sysinfoPageDescription", IDS_ABOUT_SYS_DESC);
@@ -94,10 +105,6 @@ ChromeFeedbackPrivateDelegate::GetStrings(
   SET_STRING("sysinfoPageExpandBtn", IDS_ABOUT_SYS_EXPAND);
   SET_STRING("sysinfoPageCollapseBtn", IDS_ABOUT_SYS_COLLAPSE);
   SET_STRING("sysinfoPageStatusLoading", IDS_FEEDBACK_SYSINFO_PAGE_LOADING);
-  // And the localized strings needed for the SRT Download Prompt.
-  SET_STRING("srtPromptBody", IDS_FEEDBACK_SRT_PROMPT_BODY);
-  SET_STRING("srtPromptAcceptButton", IDS_FEEDBACK_SRT_PROMPT_ACCEPT_BUTTON);
-  SET_STRING("srtPromptDeclineButton", IDS_FEEDBACK_SRT_PROMPT_DECLINE_BUTTON);
 #undef SET_STRING
 
   const std::string& app_locale = g_browser_process->GetApplicationLocale();
@@ -172,24 +179,59 @@ ChromeFeedbackPrivateDelegate::CreateSingleLogSource(
   }
 }
 
-void ChromeFeedbackPrivateDelegate::FetchAndMergeIwlwifiDumpLogsIfPresent(
-    std::unique_ptr<FeedbackCommon::SystemLogsMap> original_sys_logs,
-    content::BrowserContext* context,
-    system_logs::SysLogsFetcherCallback callback) const {
-  if (!original_sys_logs ||
-      !system_logs::ContainsIwlwifiLogs(original_sys_logs.get())) {
-    VLOG(1) << "WiFi dump logs are not present.";
-    std::move(callback).Run(std::move(original_sys_logs));
-    return;
+void OnFetchedExtraLogs(
+    scoped_refptr<feedback::FeedbackData> feedback_data,
+    FetchExtraLogsCallback callback,
+    std::unique_ptr<system_logs::SystemLogsResponse> response) {
+  using system_logs::kIwlwifiDumpKey;
+  if (response && response->count(kIwlwifiDumpKey)) {
+    feedback_data->AddLog(kIwlwifiDumpKey,
+                          std::move(response->at(kIwlwifiDumpKey)));
   }
+  std::move(callback).Run(feedback_data);
+}
 
-  VLOG(1) << "Fetching WiFi dump logs.";
-  system_logs::SystemLogsFetcher* fetcher =
-      new system_logs::SystemLogsFetcher(true /* scrub_data */);
-  fetcher->AddSource(std::make_unique<system_logs::IwlwifiDumpLogSource>());
-  fetcher->Fetch(base::BindOnce(&system_logs::MergeIwlwifiLogs,
-                                std::move(original_sys_logs),
-                                std::move(callback)));
+void ChromeFeedbackPrivateDelegate::FetchExtraLogs(
+    scoped_refptr<feedback::FeedbackData> feedback_data,
+    FetchExtraLogsCallback callback) const {
+  // Anonymize data.
+  constexpr bool scrub = true;
+
+  if (system_logs::ContainsIwlwifiLogs(feedback_data->sys_info())) {
+    // TODO (jkardatzke): Modify this so that we are using the same instance of
+    // the anonymizer for the rest of the logs.
+    // We can pass null for the 1st party IDs since we are just anonymizing
+    // wifi data here.
+    system_logs::SystemLogsFetcher* fetcher =
+        new system_logs::SystemLogsFetcher(scrub, nullptr);
+    fetcher->AddSource(std::make_unique<system_logs::IwlwifiDumpLogSource>());
+    fetcher->Fetch(base::BindOnce(&OnFetchedExtraLogs, feedback_data,
+                                  std::move(callback)));
+  } else {
+    std::move(callback).Run(feedback_data);
+  }
+}
+
+void ChromeFeedbackPrivateDelegate::UnloadFeedbackExtension(
+    content::BrowserContext* context) const {
+  extensions::ExtensionSystem::Get(context)
+      ->extension_service()
+      ->component_loader()
+      ->Remove(extension_misc::kFeedbackExtensionId);
+}
+
+api::feedback_private::LandingPageType
+ChromeFeedbackPrivateDelegate::GetLandingPageType(
+    const feedback::FeedbackData& feedback_data) const {
+  // Googlers using eve get a custom landing page.
+  if (!feedback_util::IsGoogleEmail(feedback_data.user_email()))
+    return api::feedback_private::LANDING_PAGE_TYPE_NORMAL;
+
+  const std::vector<std::string> board =
+      base::SplitString(base::SysInfo::GetLsbReleaseBoard(), "-",
+                        base::TRIM_WHITESPACE, base::SPLIT_WANT_NONEMPTY);
+  return board[0] == "eve" ? api::feedback_private::LANDING_PAGE_TYPE_TECHSTOP
+                           : api::feedback_private::LANDING_PAGE_TYPE_NORMAL;
 }
 #endif  // defined(OS_CHROMEOS)
 

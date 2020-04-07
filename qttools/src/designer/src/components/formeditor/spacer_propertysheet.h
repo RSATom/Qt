@@ -42,7 +42,7 @@ class SpacerPropertySheet: public QDesignerPropertySheet
     Q_OBJECT
     Q_INTERFACES(QDesignerPropertySheetExtension)
 public:
-    explicit SpacerPropertySheet(Spacer *object, QObject *parent = 0);
+    explicit SpacerPropertySheet(Spacer *object, QObject *parent = nullptr);
      ~SpacerPropertySheet() override;
 
     void setProperty(int index, const QVariant &value) override;
@@ -51,7 +51,7 @@ public:
     bool dynamicPropertiesAllowed() const override;
 };
 
-typedef QDesignerPropertySheetFactory<Spacer, SpacerPropertySheet> SpacerPropertySheetFactory;
+using SpacerPropertySheetFactory = QDesignerPropertySheetFactory<Spacer, SpacerPropertySheet>;
 }  // namespace qdesigner_internal
 
 QT_END_NAMESPACE

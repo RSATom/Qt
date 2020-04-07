@@ -17,15 +17,16 @@
 #ifndef SRC_TRACED_PROBES_PS_PROCESS_STATS_DATA_SOURCE_H_
 #define SRC_TRACED_PROBES_PS_PROCESS_STATS_DATA_SOURCE_H_
 
+#include <limits>
 #include <memory>
 #include <set>
+#include <unordered_map>
 #include <vector>
 
-#include "perfetto/base/scoped_file.h"
-#include "perfetto/base/weak_ptr.h"
-#include "perfetto/tracing/core/basic_types.h"
-#include "perfetto/tracing/core/data_source_config.h"
-#include "perfetto/tracing/core/trace_writer.h"
+#include "perfetto/ext/base/scoped_file.h"
+#include "perfetto/ext/base/weak_ptr.h"
+#include "perfetto/ext/tracing/core/basic_types.h"
+#include "perfetto/ext/tracing/core/trace_writer.h"
 #include "src/traced/probes/probes_data_source.h"
 
 namespace perfetto {
@@ -42,6 +43,8 @@ class ProcessStats_Process;
 }  // namespace pbzero
 }  // namespace protos
 
+class DataSourceConfig;
+
 class ProcessStatsDataSource : public ProbesDataSource {
  public:
   static constexpr int kTypeId = 3;
@@ -55,10 +58,12 @@ class ProcessStatsDataSource : public ProbesDataSource {
   base::WeakPtr<ProcessStatsDataSource> GetWeakPtr() const;
   void WriteAllProcesses();
   void OnPids(const std::vector<int32_t>& pids);
+  void OnRenamePids(const std::vector<int32_t>& pids);
 
   // ProbesDataSource implementation.
   void Start() override;
   void Flush(FlushRequestID, std::function<void()> callback) override;
+  void ClearIncrementalState() override;
 
   bool on_demand_dumps_enabled() const { return enable_on_demand_dumps_; }
 
@@ -67,6 +72,18 @@ class ProcessStatsDataSource : public ProbesDataSource {
   virtual std::string ReadProcPidFile(int32_t pid, const std::string& file);
 
  private:
+  struct CachedProcessStats {
+    uint32_t vm_size_kb = std::numeric_limits<uint32_t>::max();
+    uint32_t vm_rss_kb = std::numeric_limits<uint32_t>::max();
+    uint32_t rss_anon_kb = std::numeric_limits<uint32_t>::max();
+    uint32_t rss_file_kb = std::numeric_limits<uint32_t>::max();
+    uint32_t rss_shmem_kb = std::numeric_limits<uint32_t>::max();
+    uint32_t vm_swap_kb = std::numeric_limits<uint32_t>::max();
+    uint32_t vm_locked_kb = std::numeric_limits<uint32_t>::max();
+    uint32_t vm_hvm_kb = std::numeric_limits<uint32_t>::max();
+    int oom_score_adj = std::numeric_limits<int>::max();
+  };
+
   // Common functions.
   ProcessStatsDataSource(const ProcessStatsDataSource&) = delete;
   ProcessStatsDataSource& operator=(const ProcessStatsDataSource&) = delete;
@@ -88,10 +105,25 @@ class ProcessStatsDataSource : public ProbesDataSource {
   void WriteAllProcessStats();
   bool WriteMemCounters(int32_t pid, const std::string& proc_status);
 
+  // Read and "latch" the current procfs scan-start timestamp, which
+  // we reset only in FinalizeCurPacket.
+  uint64_t CacheProcFsScanStartTimestamp();
+
   // Common fields used for both process/tree relationships and stats/counters.
   base::TaskRunner* const task_runner_;
   std::unique_ptr<TraceWriter> writer_;
   TraceWriter::TracePacketHandle cur_packet_;
+
+  // Cached before-scan timestamp; zero means cached time is absent.
+  // By the time we create the trace packet into which we dump procfs
+  // scan results, we've already read at least one bit of data from
+  // procfs, and by that point, it's too late to snap a timestamp from
+  // before we started looking at procfs at all, which is what trace
+  // analysis wants.  To solve this problem, we record the scan-start
+  // timestamp here when we first open something in procfs and use
+  // that time when we create the packet.
+  // We reset this field after each FinalizeCurPacket().
+  uint64_t cur_procfs_scan_start_timestamp_ = 0;
 
   // Fields for keeping track of the state of process/tree relationships.
   protos::pbzero::ProcessTree* cur_ps_tree_ = nullptr;
@@ -106,9 +138,24 @@ class ProcessStatsDataSource : public ProbesDataSource {
 
   // Fields for keeping track of the periodic stats/counters.
   uint32_t poll_period_ms_ = 0;
+  uint64_t cache_ticks_ = 0;
   protos::pbzero::ProcessStats* cur_ps_stats_ = nullptr;
   protos::pbzero::ProcessStats_Process* cur_ps_stats_process_ = nullptr;
   std::vector<bool> skip_stats_for_pids_;
+
+  // Cached process stats per process. Cleared every |cache_ttl_ticks_| *
+  // |poll_period_ms_| ms.
+  uint32_t process_stats_cache_ttl_ticks_ = 0;
+  std::unordered_map<int32_t, CachedProcessStats> process_stats_cache_;
+
+  // If true, the next trace packet will have the |incremental_state_cleared|
+  // flag set. Set when handling a ClearIncrementalState call.
+  //
+  // TODO(rsavitski): initialized to true since the first packet also doesn't
+  // have any prior state to refer to. It might make more sense to let the
+  // tracing service set this for every first packet (as it does for
+  // |previous_packet_dropped|).
+  bool did_clear_incremental_state_ = true;
 
   base::WeakPtrFactory<ProcessStatsDataSource> weak_factory_;  // Keep last.
 };

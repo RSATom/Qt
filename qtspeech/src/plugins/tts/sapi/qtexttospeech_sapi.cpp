@@ -386,7 +386,7 @@ QVoice QTextToSpeechEngineSapi::voice() const
     m_voice->GetVoice(&cpVoiceToken);
     QString vId = voiceId(cpVoiceToken);
     cpVoiceToken->Release();
-    foreach (const QVoice &voice, m_voices.values()) {
+    for (const QVoice &voice : m_voices) {
         if (voiceData(voice).toString() == vId) {
             return voice;
         }

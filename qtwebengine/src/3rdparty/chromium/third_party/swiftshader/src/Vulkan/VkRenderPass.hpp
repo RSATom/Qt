@@ -17,6 +17,8 @@
 
 #include "VkObject.hpp"
 
+#include <vector>
+
 namespace vk
 {
 
@@ -24,20 +26,70 @@ class RenderPass : public Object<RenderPass, VkRenderPass>
 {
 public:
 	RenderPass(const VkRenderPassCreateInfo* pCreateInfo, void* mem);
-	~RenderPass() = delete;
 	void destroy(const VkAllocationCallbacks* pAllocator);
 
 	static size_t ComputeRequiredAllocationSize(const VkRenderPassCreateInfo* pCreateInfo);
 
+	void getRenderAreaGranularity(VkExtent2D* pGranularity) const;
+
 	void begin();
+	void nextSubpass();
 	void end();
 
+	uint32_t getAttachmentCount() const
+	{
+		return attachmentCount;
+	}
+
+	VkAttachmentDescription getAttachment(uint32_t i) const
+	{
+		return attachments[i];
+	}
+
+	uint32_t getSubpassCount() const
+	{
+		return subpassCount;
+	}
+
+	VkSubpassDescription getSubpass(uint32_t i) const
+	{
+		return subpasses[i];
+	}
+
+	VkSubpassDescription getCurrentSubpass() const
+	{
+		return subpasses[currentSubpass];
+	}
+
+	uint32_t getDependencyCount() const
+	{
+		return dependencyCount;
+	}
+
+	VkSubpassDependency getDependency(uint32_t i) const
+	{
+		return dependencies[i];
+	}
+
+	bool isAttachmentUsed(uint32_t i) const
+	{
+		return attachmentFirstUse[i] >= 0;
+	}
+
 private:
+	uint32_t                 attachmentCount = 0;
+	VkAttachmentDescription* attachments = nullptr;
+	uint32_t                 subpassCount = 0;
+	VkSubpassDescription*    subpasses = nullptr;
+	uint32_t                 dependencyCount = 0;
+	VkSubpassDependency*     dependencies = nullptr;
+	uint32_t                 currentSubpass = 0;
+	int*                     attachmentFirstUse = nullptr;
 };
 
 static inline RenderPass* Cast(VkRenderPass object)
 {
-	return reinterpret_cast<RenderPass*>(object);
+	return RenderPass::Cast(object);
 }
 
 } // namespace vk

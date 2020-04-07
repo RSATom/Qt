@@ -17,9 +17,9 @@
 syntax = "proto2";
 option optimize_for = LITE_RUNTIME;
 
-import "perfetto/config/data_source_config.proto";
-import "perfetto/config/data_source_descriptor.proto";
 import "perfetto/common/commit_data_request.proto";
+import "perfetto/config/data_source_config.proto";
+import "perfetto/common/data_source_descriptor.proto";
 
 package perfetto.protos;
 
@@ -38,6 +38,21 @@ service ProducerPort {
   rpc UnregisterDataSource(UnregisterDataSourceRequest)
       returns (UnregisterDataSourceResponse) {}
 
+  // Sent by the client to request the service to:
+  // 1) Move some chunks from the shmem buffer into the logging buffer.
+  // 2) Patch the content of some chunks previously moved.
+  // 3) Acknowledge a Flush() request.
+  rpc CommitData(protos.CommitDataRequest) returns (CommitDataResponse) {}
+
+  // This is a backchannel to get asynchronous commands / notifications back
+  // from the Service.
+  rpc GetAsyncCommand(GetAsyncCommandRequest)
+      returns (stream GetAsyncCommandResponse) {}
+
+  // ----------------------------------------------------
+  // All methods below have been introduced in Android Q.
+  // ----------------------------------------------------
+
   // Associates a trace writer with its target buffer.
   rpc RegisterTraceWriter(RegisterTraceWriterRequest)
       returns (RegisterTraceWriterResponse) {}
@@ -47,11 +62,11 @@ service ProducerPort {
   rpc UnregisterTraceWriter(UnregisterTraceWriterRequest)
       returns (UnregisterTraceWriterResponse) {}
 
-  // Sent by the client to request the service to:
-  // 1) Move some chunks from the shmem buffer into the logging buffer.
-  // 2) Patch the content of some chunks previously moved.
-  // 3) Acknowledge a Flush() request.
-  rpc CommitData(protos.CommitDataRequest) returns (CommitDataResponse) {}
+  // Sent by the client in response to a StartDataSource message, when a data
+  // source is successfully started. This is expected only for data sources that
+  // set the DataSourceDescriptor.will_notify_on_start flag when registering.
+  rpc NotifyDataSourceStarted(NotifyDataSourceStartedRequest)
+      returns (NotifyDataSourceStartedResponse) {}
 
   // Sent by the client in response to a StopDataSource message, when a data
   // source is succesfully stopped. This is expected only for data sources that
@@ -59,17 +74,21 @@ service ProducerPort {
   rpc NotifyDataSourceStopped(NotifyDataSourceStoppedRequest)
       returns (NotifyDataSourceStoppedResponse) {}
 
-  // This is a backchannel to get asynchronous commands / notifications back
-  // from the Service.
-  rpc GetAsyncCommand(GetAsyncCommandRequest)
-      returns (stream GetAsyncCommandResponse) {}
+  // Sent by the client to request the service to:
+  // 1) Find all sessions which define these triggers
+  // 2) Perform an action as defined in those sessions configs.
+  rpc ActivateTriggers(ActivateTriggersRequest)
+      returns (ActivateTriggersResponse) {}
 }
 
 // Arguments for rpc InitializeConnection().
 message InitializeConnectionRequest {
-  // Defines the granularity of the tracing pages. Must be an integer multiple
-  // of 4096. See tradeoff considerations in shared_memory_abi.h.
-  optional uint32 shared_buffer_page_size_bytes = 1;
+  // Optional. Provides a hint to the tracing service about the suggested size
+  // of the shared memory buffer pages. The service is not required to respect
+  // this if it has already another value in the configuration or if the hint
+  // is unreasonably large. Must be an integer multiple of 4096. See tradeoff
+  // considerations in shared_memory_abi.h.
+  optional uint32 shared_memory_page_size_hint_bytes = 1;
 
   // Optional. Provides a hint to the tracing service about the suggested size
   // of the shared memory buffer. The service is not required to respect this
@@ -79,6 +98,22 @@ message InitializeConnectionRequest {
   // Required to match the producer config set by the service to the correct
   // producer.
   optional string producer_name = 3;
+
+  enum ProducerSMBScrapingMode {
+    // Use the service's default setting for SMB scraping.
+    SMB_SCRAPING_UNSPECIFIED = 0;
+
+    // Enable scraping of uncommitted chunks from the producer's shared memory
+    // buffer.
+    SMB_SCRAPING_ENABLED = 1;
+
+    // Disable scraping of uncommitted chunks from the producer's shared memory
+    // buffer.
+    SMB_SCRAPING_DISABLED = 2;
+  }
+
+  // If provided, overrides the service's SMB scraping setting for the producer.
+  optional ProducerSMBScrapingMode smb_scraping_mode = 4;
 }
 
 message InitializeConnectionResponse {
@@ -134,7 +169,16 @@ message UnregisterTraceWriterResponse {}
 
 message CommitDataResponse {}
 
-// Arguments for rpc NotifyDataSourceStoppedRequest().
+// Arguments for rpc NotifyDataSourceStarted().
+
+message NotifyDataSourceStartedRequest {
+  // ID of the data source that has successfully started.
+  optional uint64 data_source_id = 1;
+}
+
+message NotifyDataSourceStartedResponse {}
+
+// Arguments for rpc NotifyDataSourceStopped().
 
 message NotifyDataSourceStoppedRequest {
   // ID of the data source that has successfully stopped.
@@ -142,6 +186,14 @@ message NotifyDataSourceStoppedRequest {
 }
 
 message NotifyDataSourceStoppedResponse {}
+
+// Arguments for rpc ActivateTriggersRequest().
+
+message ActivateTriggersRequest {
+  repeated string trigger_names = 1;
+}
+
+message ActivateTriggersResponse {}
 
 // Arguments for rpc GetAsyncCommand().
 
@@ -180,7 +232,18 @@ message GetAsyncCommandResponse {
     optional uint64 request_id = 2;
   }
 
-  // Next id: 7.
+  // Instructs the given data sources to stop referring to any trace contents
+  // emitted so far. Sent only to active data sources that set
+  // |handles_incremental_state_clear| in their DataSourceDescriptor.
+  //
+  // Added to perfetto tree in May 2019.
+  message ClearIncrementalState {
+    // The instance id (i.e. StartDataSource.new_instance_id) of the data
+    // sources that should clear their incremental state.
+    repeated uint64 data_source_ids = 1;
+  }
+
+  // Next id: 8.
   oneof cmd {
     SetupTracing setup_tracing = 3;
     SetupDataSource setup_data_source = 6;
@@ -188,5 +251,6 @@ message GetAsyncCommandResponse {
     StopDataSource stop_data_source = 2;
     // id == 4 was teardown_tracing, never implemented.
     Flush flush = 5;
+    ClearIncrementalState clear_incremental_state = 7;
   }
 }

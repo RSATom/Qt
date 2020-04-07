@@ -19,6 +19,7 @@
 #include "api/video/video_codec_type.h"
 #include "api/video/video_content_type.h"
 #include "api/video/video_frame_marking.h"
+#include "api/video/video_frame_type.h"
 #include "api/video/video_rotation.h"
 #include "api/video/video_timing.h"
 #include "common_types.h"  // NOLINT(build/include)
@@ -43,6 +44,7 @@ struct RTPVideoHeader {
     int temporal_index = 0;
     absl::InlinedVector<int64_t, 5> dependencies;
     absl::InlinedVector<int, 5> higher_spatial_layers;
+    bool discardable = false;
   };
 
   RTPVideoHeader();
@@ -52,6 +54,7 @@ struct RTPVideoHeader {
 
   absl::optional<GenericDescriptorInfo> generic;
 
+  VideoFrameType frame_type = VideoFrameType::kEmptyFrame;
   uint16_t width = 0;
   uint16_t height = 0;
   VideoRotation rotation = VideoRotation::kVideoRotation_0;
@@ -63,7 +66,7 @@ struct RTPVideoHeader {
 
   PlayoutDelay playout_delay = {-1, -1};
   VideoSendTiming video_timing;
-  FrameMarking frame_marking;
+  FrameMarking frame_marking = {false, false, false, false, false, 0xFF, 0, 0};
   absl::optional<ColorSpace> color_space;
   RTPVideoTypeHeader video_type_header;
 };

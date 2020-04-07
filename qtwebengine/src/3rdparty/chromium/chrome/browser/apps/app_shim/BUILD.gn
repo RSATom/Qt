@@ -17,8 +17,8 @@ source_set("app_shim") {
     "app_shim_host_manager_mac.mm",
     "apps_page_shim_handler.h",
     "apps_page_shim_handler.mm",
-    "unix_domain_socket_acceptor.cc",
-    "unix_domain_socket_acceptor.h",
+    "mach_bootstrap_acceptor.cc",
+    "mach_bootstrap_acceptor.h",
   ]
 
   deps = [
@@ -28,6 +28,7 @@ source_set("app_shim") {
     "//chrome/common:mojo_bindings",
     "//chrome/common:non_code_constants",
     "//components/crx_file",
+    "//components/remote_cocoa/browser",
     "//components/version_info",
     "//content/public/browser",
     "//content/public/common",

@@ -64,6 +64,7 @@
 #include <qtextstream.h>
 #include <qloggingcategory.h>
 #include <qdebug.h>
+#include <QScopeGuard>
 
 #include <qt_windows.h>
 #include <olectl.h>
@@ -74,13 +75,13 @@ QT_BEGIN_NAMESPACE
 
 // Some global variables to store module information
 bool qAxIsServer = false;
-HANDLE qAxInstance = 0;
-ITypeLib *qAxTypeLibrary = 0;
+HANDLE qAxInstance = nullptr;
+ITypeLib *qAxTypeLibrary = nullptr;
 wchar_t qAxModuleFilename[MAX_PATH];
 bool qAxOutProcServer = false;
 
 // The QAxFactory instance
-static QAxFactory* qax_factory = 0;
+static QAxFactory* qax_factory = nullptr;
 extern CLSID CLSID_QRect;
 extern CLSID CLSID_QSize;
 extern CLSID CLSID_QPoint;
@@ -93,7 +94,7 @@ extern QAxFactory *qax_instantiate();
 QAxFactory *qAxFactory()
 {
     if (!qax_factory) {
-        bool hadQApp = qApp != 0;
+        bool hadQApp = qApp != nullptr;
         qax_factory = qax_instantiate();
         // QAxFactory created a QApplication
         if (!hadQApp && qApp)
@@ -163,11 +164,11 @@ void qAxCleanup()
         return;
 
     delete qax_factory;
-    qax_factory = 0;
+    qax_factory = nullptr;
 
     if (qAxTypeLibrary) {
         qAxTypeLibrary->Release();
-        qAxTypeLibrary = 0;
+        qAxTypeLibrary = nullptr;
     }
 
     DeleteCriticalSection(&qAxModuleSection);
@@ -221,11 +222,8 @@ QString qax_clean_type(const QString &type, const QMetaObject *mo)
     return alias;
 }
 
-// (Un)Register the ActiveX server in the registry.
-// The QAxFactory implementation provides the information.
-HRESULT UpdateRegistry(BOOL bRegister)
+static void UpdateRegistryKeys(bool bRegister, const QString keyPath, QScopedPointer<QSettings> & settings)
 {
-    qAxIsServer = false;
     const QChar dot(QLatin1Char('.'));
     const QChar slash(QLatin1Char('/'));
     QString file = QString::fromWCharArray(qAxModuleFilename);
@@ -233,54 +231,6 @@ HRESULT UpdateRegistry(BOOL bRegister)
 
     const QString appId = qAxFactory()->appID().toString().toUpper();
     const QString libId = qAxFactory()->typeLibID().toString().toUpper();
-
-    const QString libFile = qAxInit();
-
-    TLIBATTR *libAttr = 0;
-    if (qAxTypeLibrary)
-        qAxTypeLibrary->GetLibAttr(&libAttr);
-    if (!libAttr)
-        return SELFREG_E_TYPELIB;
-    bool userFallback = false;
-    if (bRegister) {
-        if (RegisterTypeLib(qAxTypeLibrary,
-                            reinterpret_cast<wchar_t *>(const_cast<ushort *>(libFile.utf16())), 0) == TYPE_E_REGISTRYACCESS) {
-#ifndef Q_CC_MINGW
-            // MinGW does not have RegisterTypeLibForUser() implemented so we cannot fallback in this case
-            RegisterTypeLibForUser(qAxTypeLibrary, reinterpret_cast<wchar_t *>(const_cast<ushort *>(libFile.utf16())), 0);
-            userFallback = true;
-#endif
-        }
-    } else {
-        if (UnRegisterTypeLib(libAttr->guid, libAttr->wMajorVerNum, libAttr->wMinorVerNum, libAttr->lcid,
-                              libAttr->syskind) == TYPE_E_REGISTRYACCESS) {
-#ifndef Q_CC_MINGW
-            // MinGW does not have RegisterTypeLibForUser() implemented so we cannot fallback in this case
-            UnRegisterTypeLibForUser(libAttr->guid, libAttr->wMajorVerNum, libAttr->wMinorVerNum, libAttr->lcid, libAttr->syskind);
-            userFallback = true;
-#endif
-        }
-    }
-    if (userFallback)
-        qWarning("QAxServer: Falling back to registering as user for %s due to insufficient permission.", qPrintable(module));
-    qAxTypeLibrary->ReleaseTLibAttr(libAttr);
-
-    // check whether the user has permission to write to HKLM\Software\Classes
-    // if not, use HKCU\Software\Classes
-    QString keyPath(QLatin1String("HKEY_LOCAL_MACHINE\\Software\\Classes"));
-    QScopedPointer<QSettings> settings(new QSettings(keyPath, QSettings::NativeFormat));
-    if (userFallback || !settings->isWritable()) {
-        keyPath = QLatin1String("HKEY_CURRENT_USER\\Software\\Classes");
-        settings.reset(new QSettings(keyPath, QSettings::NativeFormat));
-    }
-
-    // we try to create the ActiveX widgets later on...
-    bool delete_qApp = false;
-    if (!qApp) {
-        static int argc = 0; // static lifetime, since it's passed as reference to QApplication, which has a lifetime exceeding the stack frame
-        (void)new QApplication(argc, 0);
-        delete_qApp = true;
-    }
 
     if (bRegister) {
         settings->setValue(QLatin1String("/AppID/") + appId + QLatin1String("/."), module);
@@ -473,11 +423,72 @@ HRESULT UpdateRegistry(BOOL bRegister)
                 << keyPath << '"';
         }
     }
+}
+
+// (Un)Register the ActiveX server in the registry.
+// The QAxFactory implementation provides the information.
+HRESULT UpdateRegistry(bool bRegister, bool perUser)
+{
+    qAxIsServer = false;
+    QString file = QString::fromWCharArray(qAxModuleFilename);
+    const QString module = QFileInfo(file).baseName();
+
+    const QString libFile = qAxInit();
+    auto libFile_cleanup = qScopeGuard([] { qAxCleanup(); });
+
+    TLIBATTR *libAttr = nullptr;
+    if (qAxTypeLibrary)
+        qAxTypeLibrary->GetLibAttr(&libAttr);
+    if (!libAttr)
+        return SELFREG_E_TYPELIB;
+    auto libAttr_cleanup = qScopeGuard([libAttr] { qAxTypeLibrary->ReleaseTLibAttr(libAttr); });
+
+    if (bRegister) {
+        if (!perUser) {
+            HRESULT hr = RegisterTypeLib(qAxTypeLibrary, reinterpret_cast<wchar_t *>(const_cast<ushort *>(libFile.utf16())), nullptr);
+            if (FAILED(hr)) {
+                qWarning("Failing to register %s due to insufficient permission.", qPrintable(module));
+                return hr;
+            }
+        } else {
+#ifndef Q_CC_MINGW
+            // MinGW does not have RegisterTypeLibForUser() implemented so we cannot fallback in this case
+            RegisterTypeLibForUser(qAxTypeLibrary, reinterpret_cast<wchar_t *>(const_cast<ushort *>(libFile.utf16())), nullptr);
+#endif
+        }
+    } else {
+        if (!perUser) {
+            HRESULT hr = UnRegisterTypeLib(libAttr->guid, libAttr->wMajorVerNum, libAttr->wMinorVerNum, libAttr->lcid, libAttr->syskind);
+            if (FAILED(hr)) {
+                qWarning("Failing to register %s due to insufficient permission.", qPrintable(module));
+                return hr;
+            }
+        } else {
+#ifndef Q_CC_MINGW
+            // MinGW does not have RegisterTypeLibForUser() implemented so we cannot fallback in this case
+            UnRegisterTypeLibForUser(libAttr->guid, libAttr->wMajorVerNum, libAttr->wMinorVerNum, libAttr->lcid, libAttr->syskind);
+#endif
+        }
+    }
+
+    QString keyPath(QLatin1String("HKEY_LOCAL_MACHINE\\Software\\Classes"));
+    if (perUser)
+        keyPath = QLatin1String("HKEY_CURRENT_USER\\Software\\Classes");
+    QScopedPointer<QSettings> settings(new QSettings(keyPath, QSettings::NativeFormat));
+
+    // we try to create the ActiveX widgets later on...
+    bool delete_qApp = false;
+    if (!qApp) {
+        static int argc = 0; // static lifetime, since it's passed as reference to QApplication, which has a lifetime exceeding the stack frame
+        (void)new QApplication(argc, nullptr);
+        delete_qApp = true;
+    }
+
+    UpdateRegistryKeys(bRegister, keyPath, settings);
 
     if (delete_qApp)
         delete qApp;
 
-    qAxCleanup();
     if (settings->status() == QSettings::NoError)
         return S_OK;
     qWarning() << module << ": Error writing to " << keyPath;
@@ -542,7 +553,7 @@ static const char* const type_map[][2] =
     { "IUnknown",       "IUnknown*" },
     { "IDispatch*",     "IDispatch*" },
     { "IUnknown*",      "IUnknown*" },
-    { 0,                0 }
+    { nullptr,                nullptr }
 };
 
 static QByteArray convertTypes(const QByteArray &qtype, bool *ok)
@@ -614,7 +625,7 @@ static const char* const keyword_map[][2] =
     { "source",         "source_"           },
     { "string",         "string_"           },
     { "uuid",           "uuid_"             },
-    { 0,                0                   }
+    { nullptr,                nullptr                   }
 };
 
 static QByteArray replaceKeyword(const QByteArray &name)
@@ -684,7 +695,7 @@ static const char* const ignore_props[] =
     "customWhatsThis",
     "shown",
     "windowOpacity",
-    0
+    nullptr
 };
 
 // filter out some slots
@@ -707,7 +718,7 @@ static const char* const ignore_slots[] =
     "move_1",
     "resize_1",
     "setGeometry_1",
-    0
+    nullptr
 };
 
 static bool ignore(const char *test, const char *const *table)
@@ -750,7 +761,7 @@ static QByteArray prototype(const QList<QByteArray> &parameterTypes, const QList
     for (int p = 0; p < parameterTypes.count() && *ok; ++p) {
         bool out = false;
         QByteArray type(parameterTypes.at(p));
-        QByteArray name(parameterNames.at(p));
+        const QByteArray &name = parameterNames.at(p);
 
         if (type.endsWith('&')) {
             out = true;
@@ -1174,7 +1185,7 @@ extern "C" HRESULT __stdcall DumpIDL(const QString &outfile, const QString &ver)
     bool delete_qApp = false;
     if (!qApp) {
         static int argc = 0; // static lifetime, since it's passed as reference to QApplication, which has a lifetime exceeding the stack frame
-        (void)new QApplication(argc, 0);
+        (void)new QApplication(argc, nullptr);
         delete_qApp = true;
     }
 
@@ -1257,7 +1268,7 @@ extern "C" HRESULT __stdcall DumpIDL(const QString &outfile, const QString &ver)
             QObject *o = qAxFactory()->createObject(className);
             // It's not a control class, so it is actually a subtype. Define it.
             if (!o)
-                res = classIDL(0, mo, className, false, out);
+                res = classIDL(nullptr, mo, className, false, out);
             delete o;
         }
     }
@@ -1272,7 +1283,7 @@ extern "C" HRESULT __stdcall DumpIDL(const QString &outfile, const QString &ver)
             continue;
         const QMetaObject *mo = o->metaObject();
         QAxBindable *bind = static_cast<QAxBindable *>(o->qt_metacast("QAxBindable"));
-        bool isBindable =  bind != 0;
+        bool isBindable =  bind != nullptr;
 
         const QByteArray cleanType = qax_clean_type(className, mo).toLatin1();
         subtypes.append(cleanType);

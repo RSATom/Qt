@@ -5,11 +5,11 @@
  * found in the LICENSE file.
  */
 
-#include "SkSLCPPCodeGenerator.h"
+#include "src/sksl/SkSLCPPCodeGenerator.h"
 
-#include "SkSLCompiler.h"
-#include "SkSLCPPUniformCTypes.h"
-#include "SkSLHCodeGenerator.h"
+#include "src/sksl/SkSLCPPUniformCTypes.h"
+#include "src/sksl/SkSLCompiler.h"
+#include "src/sksl/SkSLHCodeGenerator.h"
 
 #include <algorithm>
 
@@ -77,6 +77,32 @@ void CPPCodeGenerator::writeBinaryExpression(const BinaryExpression& b,
         if (precedence >= parentPrecedence) {
             this->write(")");
         }
+    } else if (b.fLeft->fKind == Expression::kNullLiteral_Kind ||
+               b.fRight->fKind == Expression::kNullLiteral_Kind) {
+        const Variable* var;
+        if (b.fLeft->fKind != Expression::kNullLiteral_Kind) {
+            SkASSERT(b.fLeft->fKind == Expression::kVariableReference_Kind);
+            var = &((VariableReference&) *b.fLeft).fVariable;
+        } else {
+            SkASSERT(b.fRight->fKind == Expression::kVariableReference_Kind);
+            var = &((VariableReference&) *b.fRight).fVariable;
+        }
+        SkASSERT(var->fType.kind() == Type::kNullable_Kind &&
+                 var->fType.componentType() == *fContext.fFragmentProcessor_Type);
+        this->write("%s");
+        const char* op;
+        switch (b.fOperator) {
+            case Token::EQEQ:
+                op = "<";
+                break;
+            case Token::NEQ:
+                op = ">=";
+                break;
+            default:
+                SkASSERT(false);
+        }
+        fFormatArgs.push_back("_outer." + String(var->fName) + "_index " + op + " 0 ? \"true\" "
+                              ": \"false\"");
     } else {
         INHERITED::writeBinaryExpression(b, parentPrecedence);
     }
@@ -112,7 +138,7 @@ void CPPCodeGenerator::writeIndexExpression(const IndexExpression& i) {
             }
             int64_t index = ((IntLiteral&) *i.fIndex).fValue;
             fFormatArgs.push_back("        fragBuilder->getProgramBuilder()->samplerVariable("
-                                            "args.fTexSamplers[" + to_string(index) + "]).c_str()");
+                                            "args.fTexSamplers[" + to_string(index) + "])");
             return;
         }
     }
@@ -180,6 +206,12 @@ void CPPCodeGenerator::writeRuntimeValue(const Type& type, const Layout& layout,
                 fFormatArgs.push_back(cppCode + ".fG");
                 fFormatArgs.push_back(cppCode + ".fB");
                 fFormatArgs.push_back(cppCode + ".fA");
+                break;
+            case Layout::CType::kSkVector4:
+                fFormatArgs.push_back(cppCode + ".fData[0]");
+                fFormatArgs.push_back(cppCode + ".fData[1]");
+                fFormatArgs.push_back(cppCode + ".fData[2]");
+                fFormatArgs.push_back(cppCode + ".fData[3]");
                 break;
             case Layout::CType::kSkRect: // fall through
             case Layout::CType::kDefault:
@@ -274,7 +306,7 @@ void CPPCodeGenerator::writeVariableReference(const VariableReference& ref) {
             if (ref.fVariable.fType.kind() == Type::kSampler_Kind) {
                 this->write("%s");
                 fFormatArgs.push_back("fragBuilder->getProgramBuilder()->samplerVariable(" +
-                                      this->getSamplerHandle(ref.fVariable) + ").c_str()");
+                                      this->getSamplerHandle(ref.fVariable) + ")");
                 return;
             }
             if (ref.fVariable.fModifiers.fFlags & Modifiers::kUniform_Flag) {
@@ -283,7 +315,7 @@ void CPPCodeGenerator::writeVariableReference(const VariableReference& ref) {
                 String var = String::printf("args.fUniformHandler->getUniformCStr(%sVar)",
                                             HCodeGenerator::FieldName(name.c_str()).c_str());
                 String code;
-                if (ref.fVariable.fModifiers.fLayout.fWhen.size()) {
+                if (ref.fVariable.fModifiers.fLayout.fWhen.fLength) {
                     code = String::printf("%sVar.isValid() ? %s : \"%s\"",
                                           HCodeGenerator::FieldName(name.c_str()).c_str(),
                                           var.c_str(),
@@ -295,7 +327,7 @@ void CPPCodeGenerator::writeVariableReference(const VariableReference& ref) {
             } else if (SectionAndParameterHelper::IsParameter(ref.fVariable)) {
                 String name(ref.fVariable.fName);
                 this->writeRuntimeValue(ref.fVariable.fType, ref.fVariable.fModifiers.fLayout,
-                                        String::printf("_outer.%s()", name.c_str()).c_str());
+                                        String::printf("_outer.%s", name.c_str()).c_str());
             } else {
                 this->write(ref.fVariable.fName);
             }
@@ -333,9 +365,10 @@ void CPPCodeGenerator::writeFieldAccess(const FieldAccess& access) {
         }
 
         const Type::Field& field = fContext.fFragmentProcessor_Type->fields()[access.fFieldIndex];
-        int index = getChildFPIndex((const VariableReference&) *access.fBase);
-        String cppAccess = String::printf("_outer.childProcessor(%s).%s()",
-                                          to_string(index).c_str(), String(field.fName).c_str());
+        const Variable& var = ((const VariableReference&) *access.fBase).fVariable;
+        String cppAccess = String::printf("_outer.childProcessor(_outer.%s_index).%s()",
+                                          String(var.fName).c_str(),
+                                          String(field.fName).c_str());
 
         if (fCPPMode) {
             this->write(cppAccess.c_str());
@@ -347,7 +380,7 @@ void CPPCodeGenerator::writeFieldAccess(const FieldAccess& access) {
     INHERITED::writeFieldAccess(access);
 }
 
-int CPPCodeGenerator::getChildFPIndex(const VariableReference& reference) const {
+int CPPCodeGenerator::getChildFPIndex(const Variable& var) const {
     int index = 0;
     bool found = false;
     for (const auto& p : fProgram) {
@@ -355,9 +388,9 @@ int CPPCodeGenerator::getChildFPIndex(const VariableReference& reference) const 
             const VarDeclarations& decls = (const VarDeclarations&) p;
             for (const auto& raw : decls.fVars) {
                 const VarDeclaration& decl = (VarDeclaration&) *raw;
-                if (decl.fVar == &reference.fVariable) {
+                if (decl.fVar == &var) {
                     found = true;
-                } else if (decl.fVar->fType == *fContext.fFragmentProcessor_Type) {
+                } else if (decl.fVar->fType.nonnullable() == *fContext.fFragmentProcessor_Type) {
                     ++index;
                 }
             }
@@ -374,7 +407,8 @@ void CPPCodeGenerator::writeFunctionCall(const FunctionCall& c) {
     if (c.fFunction.fBuiltin && c.fFunction.fName == "process") {
         // Sanity checks that are detected by function definition in sksl_fp.inc
         SkASSERT(c.fArguments.size() == 1 || c.fArguments.size() == 2);
-        SkASSERT("fragmentProcessor" == c.fArguments[0]->fType.name());
+        SkASSERT("fragmentProcessor"  == c.fArguments[0]->fType.name() ||
+                 "fragmentProcessor?" == c.fArguments[0]->fType.name());
 
         // Actually fail during compilation if arguments with valid types are
         // provided that are not variable references, since process() is a
@@ -388,7 +422,8 @@ void CPPCodeGenerator::writeFunctionCall(const FunctionCall& c) {
             // Second argument must also be a half4 expression
             SkASSERT("half4" == c.fArguments[1]->fType.name());
         }
-        int index = getChildFPIndex((const VariableReference&) *c.fArguments[0]);
+        const Variable& child = ((const VariableReference&) *c.fArguments[0]).fVariable;
+        int index = getChildFPIndex(child);
 
         // Start a new extra emit code section so that the emitted child processor can depend on
         // sksl variables defined in earlier sksl code.
@@ -412,9 +447,22 @@ void CPPCodeGenerator::writeFunctionCall(const FunctionCall& c) {
         // Write the output handling after the possible input handling
         String childName = "_child" + to_string(index);
         addExtraEmitCodeLine("SkString " + childName + "(\"" + childName + "\");");
-        addExtraEmitCodeLine("this->emitChild(" + to_string(index) + inputArg +
-                             ", &" + childName + ", args);");
-
+        if (c.fArguments[0]->fType.kind() == Type::kNullable_Kind) {
+            addExtraEmitCodeLine("if (_outer." + String(child.fName) + "_index >= 0) {\n    ");
+        }
+        addExtraEmitCodeLine("this->emitChild(_outer." + String(child.fName) + "_index" +
+                             inputArg + ", &" + childName + ", args);");
+        if (c.fArguments[0]->fType.kind() == Type::kNullable_Kind) {
+            // Null FPs are not emitted, but their output can still be referenced in dependent
+            // expressions - thus we always declare the variable.
+            // Note: this is essentially dead code required to satisfy the compiler, because
+            // 'process' function calls should always be guarded at a higher level, in the .fp
+            // source.
+            addExtraEmitCodeLine(
+                "} else {"
+                "   fragBuilder->codeAppendf(\"half4 %s;\", " + childName + ".c_str());"
+                "}");
+        }
         this->write("%s");
         fFormatArgs.push_back(childName + ".c_str()");
         return;
@@ -492,16 +540,6 @@ void CPPCodeGenerator::addUniform(const Variable& var) {
     if (!needs_uniform_var(var)) {
         return;
     }
-    const char* precision;
-    if (var.fModifiers.fFlags & Modifiers::kHighp_Flag) {
-        precision = "kHigh_GrSLPrecision";
-    } else if (var.fModifiers.fFlags & Modifiers::kMediump_Flag) {
-        precision = "kMedium_GrSLPrecision";
-    } else if (var.fModifiers.fFlags & Modifiers::kLowp_Flag) {
-        precision = "kLow_GrSLPrecision";
-    } else {
-        precision = "kDefault_GrSLPrecision";
-    }
     const char* type;
     if (var.fType == *fContext.fFloat_Type) {
         type = "kFloat_GrSLType";
@@ -523,14 +561,14 @@ void CPPCodeGenerator::addUniform(const Variable& var) {
         ABORT("unsupported uniform type: %s %s;\n", String(var.fType.fName).c_str(),
               String(var.fName).c_str());
     }
-    if (var.fModifiers.fLayout.fWhen.size()) {
-        this->writef("        if (%s) {\n    ", var.fModifiers.fLayout.fWhen.c_str());
+    if (var.fModifiers.fLayout.fWhen.fLength) {
+        this->writef("        if (%s) {\n    ", String(var.fModifiers.fLayout.fWhen).c_str());
     }
     String name(var.fName);
     this->writef("        %sVar = args.fUniformHandler->addUniform(kFragment_GrShaderFlag, %s, "
-                 "%s, \"%s\");\n", HCodeGenerator::FieldName(name.c_str()).c_str(), type, precision,
+                 "\"%s\");\n", HCodeGenerator::FieldName(name.c_str()).c_str(), type,
                  name.c_str());
-    if (var.fModifiers.fLayout.fWhen.size()) {
+    if (var.fModifiers.fLayout.fWhen.fLength) {
         this->write("        }\n");
     }
 }
@@ -597,8 +635,9 @@ void CPPCodeGenerator::writePrivateVarValues() {
 }
 
 static bool is_accessible(const Variable& var) {
-    return Type::kSampler_Kind != var.fType.kind() &&
-           Type::kOther_Kind != var.fType.kind();
+    const Type& type = var.fType.nonnullable();
+    return Type::kSampler_Kind != type.kind() &&
+           Type::kOther_Kind != type.kind();
 }
 
 void CPPCodeGenerator::newExtraEmitCodeBlock() {
@@ -813,7 +852,7 @@ bool CPPCodeGenerator::writeEmitCode(std::vector<const Variable*>& uniforms) {
                 const char* name = nameString.c_str();
                 if (SectionAndParameterHelper::IsParameter(*decl.fVar) &&
                     is_accessible(*decl.fVar)) {
-                    this->writef("        auto %s = _outer.%s();\n"
+                    this->writef("        auto %s = _outer.%s;\n"
                                  "        (void) %s;\n",
                                  name, name, name);
                 }
@@ -885,12 +924,12 @@ void CPPCodeGenerator::writeSetData(std::vector<const Variable*>& uniforms) {
                 // Use AccessType since that will match the return type of _outer's public API.
                 String valueType = HCodeGenerator::AccessType(fContext, u->fType,
                                                               u->fModifiers.fLayout);
-                this->writef("%s%s %s = _outer.%s();\n",
+                this->writef("%s%s %s = _outer.%s;\n",
                              indent.c_str(), valueType.c_str(), valueVar.c_str(), name);
             } else {
                 // Not tracked and the mapper only needs to use the value once
                 // so send it a safe expression instead of the variable name
-                valueVar.appendf("(_outer.%s())", name);
+                valueVar.appendf("(_outer.%s)", name);
             }
 
             if (isTracked) {
@@ -946,7 +985,7 @@ void CPPCodeGenerator::writeSetData(std::vector<const Variable*>& uniforms) {
                                          fullName);
                             wroteProcessor = true;
                         }
-                        this->writef("        auto %s = _outer.%s();\n"
+                        this->writef("        auto %s = _outer.%s;\n"
                                      "        (void) %s;\n",
                                      name, name, name);
                     }
@@ -990,30 +1029,39 @@ void CPPCodeGenerator::writeClone() {
         this->writef("%s::%s(const %s& src)\n"
                      ": INHERITED(k%s_ClassID, src.optimizationFlags())", fFullName.c_str(),
                      fFullName.c_str(), fFullName.c_str(), fFullName.c_str());
-        for (const auto& param : fSectionAndParameterHelper.getParameters()) {
-            if (param->fType == *fContext.fFragmentProcessor_Type) {
-                continue;
-            }
-            String fieldName = HCodeGenerator::FieldName(String(param->fName).c_str());
-            this->writef("\n, %s(src.%s)",
-                         fieldName.c_str(),
-                         fieldName.c_str());
-        }
         const auto transforms = fSectionAndParameterHelper.getSections(COORD_TRANSFORM_SECTION);
         for (size_t i = 0; i < transforms.size(); ++i) {
             const Section& s = *transforms[i];
             String fieldName = HCodeGenerator::CoordTransformName(s.fArgument, i);
             this->writef("\n, %s(src.%s)", fieldName.c_str(), fieldName.c_str());
         }
+        for (const auto& param : fSectionAndParameterHelper.getParameters()) {
+            String fieldName = HCodeGenerator::FieldName(String(param->fName).c_str());
+            if (param->fType.nonnullable() == *fContext.fFragmentProcessor_Type) {
+                this->writef("\n, %s_index(src.%s_index)",
+                             fieldName.c_str(),
+                             fieldName.c_str());
+            } else {
+                this->writef("\n, %s(src.%s)",
+                             fieldName.c_str(),
+                             fieldName.c_str());
+            }
+        }
         this->writef(" {\n");
-        int childCount = 0;
         int samplerCount = 0;
         for (const auto& param : fSectionAndParameterHelper.getParameters()) {
             if (param->fType.kind() == Type::kSampler_Kind) {
                 ++samplerCount;
-            } else if (param->fType == *fContext.fFragmentProcessor_Type) {
-                this->writef("    this->registerChildProcessor(src.childProcessor(%d).clone());"
-                             "\n", childCount++);
+            } else if (param->fType.nonnullable() == *fContext.fFragmentProcessor_Type) {
+                String fieldName = HCodeGenerator::FieldName(String(param->fName).c_str());
+                if (param->fType.kind() == Type::kNullable_Kind) {
+                    this->writef("    if (%s_index >= 0) {\n    ", fieldName.c_str());
+                }
+                this->writef("    this->registerChildProcessor(src.childProcessor(%s_index)."
+                             "clone());\n", fieldName.c_str());
+                if (param->fType.kind() == Type::kNullable_Kind) {
+                    this->writef("    }\n");
+                }
             }
         }
         if (samplerCount) {
@@ -1053,47 +1101,85 @@ void CPPCodeGenerator::writeGetKey() {
     this->writef("void %s::onGetGLSLProcessorKey(const GrShaderCaps& caps, "
                                                 "GrProcessorKeyBuilder* b) const {\n",
                  fFullName.c_str());
-    for (const auto& param : fSectionAndParameterHelper.getParameters()) {
-        String nameString(param->fName);
-        const char* name = nameString.c_str();
-        if (param->fModifiers.fLayout.fKey != Layout::kNo_Key &&
-            (param->fModifiers.fFlags & Modifiers::kUniform_Flag)) {
-            fErrors.error(param->fOffset,
-                          "layout(key) may not be specified on uniforms");
-        }
-        switch (param->fModifiers.fLayout.fKey) {
-            case Layout::kKey_Key:
-                if (param->fType == *fContext.fFloat4x4_Type) {
-                    ABORT("no automatic key handling for float4x4\n");
-                } else if (param->fType == *fContext.fFloat2_Type) {
-                    this->writef("    b->add32(%s.fX);\n",
-                                 HCodeGenerator::FieldName(name).c_str());
-                    this->writef("    b->add32(%s.fY);\n",
-                                 HCodeGenerator::FieldName(name).c_str());
-                } else if (param->fType == *fContext.fFloat4_Type) {
-                    this->writef("    b->add32(%s.x());\n",
-                                 HCodeGenerator::FieldName(name).c_str());
-                    this->writef("    b->add32(%s.y());\n",
-                                 HCodeGenerator::FieldName(name).c_str());
-                    this->writef("    b->add32(%s.width());\n",
-                                 HCodeGenerator::FieldName(name).c_str());
-                    this->writef("    b->add32(%s.height());\n",
-                                 HCodeGenerator::FieldName(name).c_str());
-                } else {
-                    this->writef("    b->add32((int32_t) %s);\n",
-                                 HCodeGenerator::FieldName(name).c_str());
+    for (const auto& p : fProgram) {
+        if (ProgramElement::kVar_Kind == p.fKind) {
+            const VarDeclarations& decls = (const VarDeclarations&) p;
+            for (const auto& raw : decls.fVars) {
+                const VarDeclaration& decl = (VarDeclaration&) *raw;
+                const Variable& var = *decl.fVar;
+                String nameString(var.fName);
+                const char* name = nameString.c_str();
+                if (var.fModifiers.fLayout.fKey != Layout::kNo_Key &&
+                    (var.fModifiers.fFlags & Modifiers::kUniform_Flag)) {
+                    fErrors.error(var.fOffset,
+                                  "layout(key) may not be specified on uniforms");
                 }
-                break;
-            case Layout::kIdentity_Key:
-                if (param->fType.kind() != Type::kMatrix_Kind) {
-                    fErrors.error(param->fOffset,
-                                  "layout(key=identity) requires matrix type");
+                switch (var.fModifiers.fLayout.fKey) {
+                    case Layout::kKey_Key:
+                        if (is_private(var)) {
+                            this->writef("%s %s =",
+                                         HCodeGenerator::FieldType(fContext, var.fType,
+                                                                   var.fModifiers.fLayout).c_str(),
+                                         String(var.fName).c_str());
+                            if (decl.fValue) {
+                                fCPPMode = true;
+                                this->writeExpression(*decl.fValue, kAssignment_Precedence);
+                                fCPPMode = false;
+                            } else {
+                                this->writef("%s", default_value(var).c_str());
+                            }
+                            this->write(";\n");
+                        }
+                        if (var.fModifiers.fLayout.fWhen.fLength) {
+                            this->writef("if (%s) {", String(var.fModifiers.fLayout.fWhen).c_str());
+                        }
+                        if (var.fType == *fContext.fFloat4x4_Type) {
+                            ABORT("no automatic key handling for float4x4\n");
+                        } else if (var.fType == *fContext.fFloat2_Type) {
+                            this->writef("    b->add32(%s.fX);\n",
+                                         HCodeGenerator::FieldName(name).c_str());
+                            this->writef("    b->add32(%s.fY);\n",
+                                         HCodeGenerator::FieldName(name).c_str());
+                        } else if (var.fType == *fContext.fFloat4_Type) {
+                            this->writef("    b->add32(%s.x());\n",
+                                         HCodeGenerator::FieldName(name).c_str());
+                            this->writef("    b->add32(%s.y());\n",
+                                         HCodeGenerator::FieldName(name).c_str());
+                            this->writef("    b->add32(%s.width());\n",
+                                         HCodeGenerator::FieldName(name).c_str());
+                            this->writef("    b->add32(%s.height());\n",
+                                         HCodeGenerator::FieldName(name).c_str());
+                        } else if (var.fType == *fContext.fHalf4_Type) {
+                            this->writef("    uint16_t red = SkFloatToHalf(%s.fR);\n",
+                                         HCodeGenerator::FieldName(name).c_str());
+                            this->writef("    uint16_t green = SkFloatToHalf(%s.fG);\n",
+                                         HCodeGenerator::FieldName(name).c_str());
+                            this->writef("    uint16_t blue = SkFloatToHalf(%s.fB);\n",
+                                         HCodeGenerator::FieldName(name).c_str());
+                            this->writef("    uint16_t alpha = SkFloatToHalf(%s.fA);\n",
+                                         HCodeGenerator::FieldName(name).c_str());
+                            this->write("    b->add32(((uint32_t)red << 16) | green);\n");
+                            this->write("    b->add32(((uint32_t)blue << 16) | alpha);\n");
+                        } else {
+                            this->writef("    b->add32((int32_t) %s);\n",
+                                         HCodeGenerator::FieldName(name).c_str());
+                        }
+                        if (var.fModifiers.fLayout.fWhen.fLength) {
+                            this->write("}");
+                        }
+                        break;
+                    case Layout::kIdentity_Key:
+                        if (var.fType.kind() != Type::kMatrix_Kind) {
+                            fErrors.error(var.fOffset,
+                                          "layout(key=identity) requires matrix type");
+                        }
+                        this->writef("    b->add32(%s.isIdentity() ? 1 : 0);\n",
+                                     HCodeGenerator::FieldName(name).c_str());
+                        break;
+                    case Layout::kNo_Key:
+                        break;
                 }
-                this->writef("    b->add32(%s.isIdentity() ? 1 : 0);\n",
-                             HCodeGenerator::FieldName(name).c_str());
-                break;
-            case Layout::kNo_Key:
-                break;
+            }
         }
     }
     this->write("}\n");
@@ -1143,14 +1229,14 @@ bool CPPCodeGenerator::generateCode() {
     const char* fullName = fFullName.c_str();
     this->writef("%s\n", HCodeGenerator::GetHeader(fProgram, fErrors).c_str());
     this->writef(kFragmentProcessorHeader, fullName);
-    this->writef("#include \"%s.h\"\n", fullName);
+    this->writef("#include \"%s.h\"\n\n", fullName);
     this->writeSection(CPP_SECTION);
-    this->writef("#include \"glsl/GrGLSLFragmentProcessor.h\"\n"
-                 "#include \"glsl/GrGLSLFragmentShaderBuilder.h\"\n"
-                 "#include \"glsl/GrGLSLProgramBuilder.h\"\n"
-                 "#include \"GrTexture.h\"\n"
-                 "#include \"SkSLCPP.h\"\n"
-                 "#include \"SkSLUtil.h\"\n"
+    this->writef("#include \"include/gpu/GrTexture.h\"\n"
+                 "#include \"src/gpu/glsl/GrGLSLFragmentProcessor.h\"\n"
+                 "#include \"src/gpu/glsl/GrGLSLFragmentShaderBuilder.h\"\n"
+                 "#include \"src/gpu/glsl/GrGLSLProgramBuilder.h\"\n"
+                 "#include \"src/sksl/SkSLCPP.h\"\n"
+                 "#include \"src/sksl/SkSLUtil.h\"\n"
                  "class GrGLSL%s : public GrGLSLFragmentProcessor {\n"
                  "public:\n"
                  "    GrGLSL%s() {}\n",
@@ -1182,7 +1268,7 @@ bool CPPCodeGenerator::generateCode() {
                  "    (void) that;\n",
                  fullName, fullName, fullName);
     for (const auto& param : fSectionAndParameterHelper.getParameters()) {
-        if (param->fType == *fContext.fFragmentProcessor_Type) {
+        if (param->fType.nonnullable() == *fContext.fFragmentProcessor_Type) {
             continue;
         }
         String nameString(param->fName);

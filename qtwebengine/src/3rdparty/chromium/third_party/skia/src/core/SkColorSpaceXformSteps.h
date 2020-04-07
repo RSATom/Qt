@@ -8,12 +8,16 @@
 #ifndef SkColorSpaceXformSteps_DEFINED
 #define SkColorSpaceXformSteps_DEFINED
 
-#include "SkColorSpace.h"
-#include "SkImageInfo.h"
+#include "include/core/SkColorSpace.h"
+#include "include/core/SkImageInfo.h"
 
 class SkRasterPipeline;
 
 struct SkColorSpaceXformSteps {
+    // Returns true if SkColorSpaceXformSteps must be applied
+    // to draw content in `src` into a destination in `dst`.
+    static bool Required(SkColorSpace* src, SkColorSpace* dst);
+
     struct Flags {
         bool unpremul         = false;
         bool linearize        = false;
@@ -37,14 +41,20 @@ struct SkColorSpaceXformSteps {
     void apply(SkRasterPipeline*, bool src_is_normalized) const;
 
     void apply(SkRasterPipeline* p, SkColorType srcCT) const {
+    #if 0
         this->apply(p, srcCT < kRGBA_F16_SkColorType);
+    #else
+        // F16Norm is normalized, but to make diffing with F16 easier we
+        // intentionally take the slower, non-normalized path here.
+        this->apply(p, srcCT < kRGBA_F16Norm_SkColorType);
+    #endif
     }
 
     Flags flags;
 
     bool srcTF_is_sRGB,
          dstTF_is_sRGB;
-    SkColorSpaceTransferFn srcTF,     // Apply for linearize.
+    skcms_TransferFunction srcTF,     // Apply for linearize.
                            dstTFInv;  // Apply for encode.
     float src_to_dst_matrix[9];       // Apply this 3x3 column-major matrix for gamut_transform.
 };

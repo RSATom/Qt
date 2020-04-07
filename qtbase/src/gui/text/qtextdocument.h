@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2019 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtGui module of the Qt Toolkit.
@@ -151,6 +151,24 @@ public:
     void setHtml(const QString &html);
 #endif
 
+#if QT_CONFIG(textmarkdownwriter) || QT_CONFIG(textmarkdownreader)
+    enum MarkdownFeature {
+        MarkdownNoHTML = 0x0020 | 0x0040,
+        MarkdownDialectCommonMark = 0,
+        MarkdownDialectGitHub = 0x0004 | 0x0008 | 0x0400 | 0x0100 | 0x0200 | 0x0800
+    };
+    Q_DECLARE_FLAGS(MarkdownFeatures, MarkdownFeature)
+    Q_FLAG(MarkdownFeatures)
+#endif
+
+#if QT_CONFIG(textmarkdownwriter)
+    QString toMarkdown(MarkdownFeatures features = MarkdownDialectGitHub) const;
+#endif
+
+#if QT_CONFIG(textmarkdownreader)
+    void setMarkdown(const QString &markdown, MarkdownFeatures features = MarkdownDialectGitHub);
+#endif
+
     QString toRawText() const;
     QString toPlainText() const;
     void setPlainText(const QString &text);
@@ -203,15 +221,20 @@ public:
 
     bool isModified() const;
 
+#ifndef QT_NO_PRINTER
     void print(QPagedPaintDevice *printer) const;
+#endif
 
     enum ResourceType {
+        UnknownResource = 0,
         HtmlResource  = 1,
         ImageResource = 2,
         StyleSheetResource = 3,
+        MarkdownResource = 4,
 
         UserResource  = 100
     };
+    Q_ENUM(ResourceType)
 
     QVariant resource(int type, const QUrl &name) const;
     void addResource(int type, const QUrl &name, const QVariant &resource);

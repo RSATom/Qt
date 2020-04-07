@@ -50,10 +50,13 @@
 
 #include <QtCore/QDebug>
 #include <QtCore/qregexp.h>
+#if QT_CONFIG(regularexpression)
+#include <QtCore/qregularexpression.h>
+#endif
 #include <cassert>
 #include <typeinfo>
 #include <iostream>
-#include "qv4alloca_p.h"
+#include <private/qv4alloca_p.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -134,6 +137,25 @@ void Heap::RegExpObject::init(const QRegExp &re)
     o->initProperties();
 }
 
+#if QT_CONFIG(regularexpression)
+// Converts a QRegularExpression to a JS RegExp.
+// The conversion is not 100% exact since ECMA regexp and QRegularExpression
+// have different semantics/flags, but we try to do our best.
+void Heap::RegExpObject::init(const QRegularExpression &re)
+{
+    Object::init();
+
+    Scope scope(internalClass->engine);
+    Scoped<QV4::RegExpObject> o(scope, this);
+
+    const uint flags = (re.patternOptions() & QRegularExpression::CaseInsensitiveOption)
+            ? CompiledData::RegExp::RegExp_IgnoreCase
+            : CompiledData::RegExp::RegExp_NoFlags;
+    o->d()->value.set(scope.engine, QV4::RegExp::create(scope.engine, re.pattern(), flags));
+    o->initProperties();
+}
+#endif
+
 void RegExpObject::initProperties()
 {
     setProperty(Index_LastIndex, Value::fromInt32(0));
@@ -150,6 +172,20 @@ QRegExp RegExpObject::toQRegExp() const
     return QRegExp(*value()->pattern, caseSensitivity, QRegExp::RegExp2);
 }
 
+#if QT_CONFIG(regularexpression)
+// Converts a JS RegExp to a QRegularExpression.
+// The conversion is not 100% exact since ECMA regexp and QRegularExpression
+// have different semantics/flags, but we try to do our best.
+QRegularExpression RegExpObject::toQRegularExpression() const
+{
+    QRegularExpression::PatternOptions caseSensitivity
+            = (value()->flags & CompiledData::RegExp::RegExp_IgnoreCase)
+            ? QRegularExpression::CaseInsensitiveOption
+            : QRegularExpression::NoPatternOption;
+    return QRegularExpression(*value()->pattern, caseSensitivity);
+}
+#endif
+
 QString RegExpObject::toString() const
 {
     QString p = *value()->pattern;
@@ -160,13 +196,6 @@ QString RegExpObject::toString() const
         p.replace('/', QLatin1String("\\/"));
     }
     return p;
-}
-
-QString RegExpObject::source() const
-{
-    Scope scope(engine());
-    ScopedValue s(scope, get(scope.engine->id_source()));
-    return s->toQString();
 }
 
 ReturnedValue RegExpObject::builtinExec(ExecutionEngine *engine, const String *str)
@@ -452,6 +481,8 @@ ReturnedValue RegExpPrototype::exec(ExecutionEngine *engine, const Object *o, co
     ScopedFunctionObject exec(scope, o->get(key));
     if (exec) {
         ScopedValue result(scope, exec->call(o, s, 1));
+        if (scope.hasException())
+            RETURN_UNDEFINED();
         if (!result->isNull() && !result->isObject())
             return scope.engine->throwTypeError();
         return result->asReturnedValue();
@@ -708,6 +739,8 @@ ReturnedValue RegExpPrototype::method_replace(const FunctionObject *f, const Val
             cData->args[nCaptures + 1] = Encode(position);
             cData->args[nCaptures + 2] = s;
             ScopedValue replValue(scope, replaceFunction->call(cData));
+            if (scope.hasException())
+                return Encode::undefined();
             replacement = replValue->toQString();
         } else {
             replacement = RegExp::getSubstitution(matchString->toQString(), s->toQString(), position, cData.args, nCaptures, replaceValue->toQString());
@@ -932,8 +965,8 @@ ReturnedValue RegExpPrototype::method_compile(const FunctionObject *b, const Val
         return scope.engine->throwTypeError();
 
     Scoped<RegExpObject> re(scope, scope.engine->regExpCtor()->callAsConstructor(argv, argc));
-
-    r->d()->value.set(scope.engine, re->value());
+    if (re) // Otherwise the regexp constructor should have thrown an exception
+        r->d()->value.set(scope.engine, re->value());
     return Encode::undefined();
 }
 

@@ -61,7 +61,6 @@ class IDLLexer(object):
     'callback' : 'CALLBACK',
     'const' : 'CONST',
     'creator' : 'CREATOR',
-    'Date' : 'DATE',
     'deleter' : 'DELETER',
     'dictionary' : 'DICTIONARY',
     'DOMString' : 'DOMSTRING',
@@ -71,7 +70,6 @@ class IDLLexer(object):
     'float' : 'FLOAT',
     'FrozenArray' : 'FROZENARRAY',
     'getter': 'GETTER',
-    'implements' : 'IMPLEMENTS',
     'includes' : 'INCLUDES',
     'Infinity' : 'INFINITY',
     'inherit' : 'INHERIT',
@@ -91,7 +89,6 @@ class IDLLexer(object):
     'partial' : 'PARTIAL',
     'Promise' : 'PROMISE',
     'readonly' : 'READONLY',
-    'RegExp' : 'REGEXP',
     'record' : 'RECORD',
     'required' : 'REQUIRED',
     'sequence' : 'SEQUENCE',
@@ -161,7 +158,7 @@ class IDLLexer(object):
 
   # A symbol or keyword.
   def t_KEYWORD_OR_SYMBOL(self, t):
-    r'_?[A-Za-z][A-Za-z_0-9-]*'
+    r'[_-]?[A-Za-z][A-Za-z_0-9-]*'
 
     # All non-keywords are assumed to be symbols
     t.type = self.keywords.get(t.value, 'identifier')

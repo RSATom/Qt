@@ -732,8 +732,10 @@ typedef struct _FPDF_FORMFILLINFO {
                            int sizeofArray);
 
   /**
-  *   pointer to IPDF_JSPLATFORM interface
-  **/
+   *   Pointer to IPDF_JSPLATFORM interface.
+   *   Unused if PDFium is built without V8 support. Otherwise, if NULL, then
+   *   JavaScript will be prevented from executing while rendering the document.
+   **/
   IPDF_JSPLATFORM* m_pJsPlatform;
 
 #ifdef PDF_ENABLE_XFA
@@ -1432,7 +1434,7 @@ FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV FORM_OnChar(FPDF_FORMHANDLE hHandle,
  *          page        -   Handle to the page. Returned by FPDF_LoadPage
  *                          function.
  *          buffer      -   Buffer for holding the form text, encoded in
- *                          UTF16-LE. If NULL, |buffer| is not modified.
+ *                          UTF-16LE. If NULL, |buffer| is not modified.
  *          buflen      -   Length of |buffer| in bytes. If |buflen| is less
                             than the length of the form text string, |buffer| is
                             not modified.
@@ -1455,7 +1457,7 @@ FORM_GetFocusedText(FPDF_FORMHANDLE hHandle,
  *          page        -   Handle to the page. Returned by FPDF_LoadPage
  *                          function.
  *          buffer      -   Buffer for holding the selected text, encoded in
- *                          UTF16-LE. If NULL, |buffer| is not modified.
+ *                          UTF-16LE. If NULL, |buffer| is not modified.
  *          buflen      -   Length of |buffer| in bytes. If |buflen| is less
                             than the length of the selected text string,
                             |buffer| is not modified.
@@ -1771,6 +1773,57 @@ FPDF_EXPORT void FPDF_CALLCONV FPDF_FFLRecord(FPDF_FORMHANDLE hHandle,
  *           If |document| is NULL, then the return value is FORMTYPE_NONE.
  **/
 FPDF_EXPORT int FPDF_CALLCONV FPDF_GetFormType(FPDF_DOCUMENT document);
+
+/**
+ * Experimental API
+ * Function: FORM_SetIndexSelected
+ *           Selects/deselects the value at the given |index| of the focused
+ *           annotation.
+ * Parameters:
+ *           hHandle     -   Handle to the form fill module. Returned by
+ *                           FPDFDOC_InitFormFillEnvironment.
+ *           page        -   Handle to the page. Returned by FPDF_LoadPage
+ *           index       -   0-based index of value to be set as
+ *                           selected/unselected
+ *           selected    -   true to select, false to deselect
+ * Return Value:
+ *           TRUE if the operation succeeded.
+ *           FALSE if the operation failed or widget is not a supported type.
+ * Comments:
+ *           Intended for use with listbox/combobox widget types. Comboboxes
+ *           have at most a single value selected at a time which cannot be
+ *           deselected. Deselect on a combobox is a no-op that returns false.
+ *           Default implementation is a no-op that will return false for
+ *           other types.
+ *           Not currently supported for XFA forms - will return false.
+ **/
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+FORM_SetIndexSelected(FPDF_FORMHANDLE hHandle,
+                      FPDF_PAGE page,
+                      int index,
+                      FPDF_BOOL selected);
+
+/**
+ * Experimental API
+ * Function: FORM_IsIndexSelected
+ *           Returns whether or not the value at |index| of the focused
+ *           annotation is currently selected.
+ * Parameters:
+ *           hHandle     -   Handle to the form fill module. Returned by
+ *                           FPDFDOC_InitFormFillEnvironment.
+ *           page        -   Handle to the page. Returned by FPDF_LoadPage
+ *           index       -   0-based Index of value to check
+ * Return Value:
+ *           TRUE if value at |index| is currently selected.
+ *           FALSE if value at |index| is not selected or widget is not a
+ *           supported type.
+ * Comments:
+ *           Intended for use with listbox/combobox widget types. Default
+ *           implementation is a no-op that will return false for other types.
+ *           Not currently supported for XFA forms - will return false.
+ **/
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+FORM_IsIndexSelected(FPDF_FORMHANDLE hHandle, FPDF_PAGE page, int index);
 
 #ifdef PDF_ENABLE_XFA
 /**

@@ -638,7 +638,7 @@ void QQuickTextNodeEngine::addBorder(const QRectF &rect, qreal border,
                                      QTextFrameFormat::BorderStyle borderStyle,
                                      const QBrush &borderBrush)
 {
-    QColor color = borderBrush.color();
+    const QColor &color = borderBrush.color();
 
     // Currently we don't support other styles than solid
     Q_UNUSED(borderStyle);
@@ -1010,6 +1010,17 @@ void QQuickTextNodeEngine::addTextBlock(QTextDocument *textDocument, const QText
                 listItemBullet = QChar(0x2022); // Black bullet
                 break;
             };
+
+            switch (block.blockFormat().marker()) {
+            case QTextBlockFormat::MarkerType::Checked:
+                listItemBullet = QChar(0x2612); // Checked checkbox
+                break;
+            case QTextBlockFormat::MarkerType::Unchecked:
+                listItemBullet = QChar(0x2610); // Unchecked checkbox
+                break;
+            case QTextBlockFormat::MarkerType::NoMarker:
+                break;
+            }
 
             QSizeF size(fontMetrics.horizontalAdvance(listItemBullet), fontMetrics.height());
             qreal xoff = fontMetrics.horizontalAdvance(QLatin1Char(' '));

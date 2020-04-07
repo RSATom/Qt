@@ -34,10 +34,13 @@ class CORE_EXPORT SVGAElement final : public SVGGraphicsElement,
   USING_GARBAGE_COLLECTED_MIXIN(SVGAElement);
 
  public:
-  DECLARE_NODE_FACTORY(SVGAElement);
   SVGAnimatedString* svgTarget() { return svg_target_.Get(); }
 
   explicit SVGAElement(Document&);
+
+  const AttrNameToTrustedType& GetCheckedAttributeTypes() const override {
+    return SVGURIReference::GetCheckedAttributeTypes();
+  }
 
   void Trace(blink::Visitor*) override;
 
@@ -46,7 +49,7 @@ class CORE_EXPORT SVGAElement final : public SVGGraphicsElement,
 
   void SvgAttributeChanged(const QualifiedName&) override;
 
-  LayoutObject* CreateLayoutObject(const ComputedStyle&) override;
+  LayoutObject* CreateLayoutObject(const ComputedStyle&, LegacyLayout) override;
 
   void DefaultEventHandler(Event&) override;
   bool HasActivationBehavior() const override;

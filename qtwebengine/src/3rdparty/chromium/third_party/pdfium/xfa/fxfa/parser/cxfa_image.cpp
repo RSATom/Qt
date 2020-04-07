@@ -6,7 +6,8 @@
 
 #include "xfa/fxfa/parser/cxfa_image.h"
 
-#include "fxjs/xfa/cjx_image.h"
+#include "fxjs/xfa/cjx_node.h"
+#include "third_party/base/ptr_util.h"
 
 namespace {
 
@@ -21,7 +22,7 @@ const CXFA_Node::AttributeData kImageAttributeData[] = {
     {XFA_Attribute::Aspect, XFA_AttributeType::Enum,
      (void*)XFA_AttributeValue::Fit},
     {XFA_Attribute::Href, XFA_AttributeType::CData, nullptr},
-    {XFA_Attribute::Unknown, XFA_AttributeType::Integer, nullptr}};
+};
 
 }  // namespace
 
@@ -31,8 +32,9 @@ CXFA_Image::CXFA_Image(CXFA_Document* doc, XFA_PacketType packet)
                 (XFA_XDPPACKET_Template | XFA_XDPPACKET_Form),
                 XFA_ObjectType::ContentNode,
                 XFA_Element::Image,
-                nullptr,
-                kImageAttributeData) {}
+                {},
+                kImageAttributeData,
+                pdfium::MakeUnique<CJX_Node>(this)) {}
 
 CXFA_Image::~CXFA_Image() = default;
 

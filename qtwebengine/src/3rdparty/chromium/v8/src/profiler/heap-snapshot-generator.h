@@ -12,23 +12,21 @@
 
 #include "include/v8-profiler.h"
 #include "src/base/platform/time.h"
-#include "src/objects.h"
 #include "src/objects/fixed-array.h"
 #include "src/objects/hash-table.h"
 #include "src/objects/heap-object.h"
 #include "src/objects/js-objects.h"
 #include "src/objects/literal-objects.h"
+#include "src/objects/objects.h"
+#include "src/objects/visitors.h"
 #include "src/profiler/strings-storage.h"
-#include "src/string-hasher.h"
-#include "src/visitors.h"
+#include "src/strings/string-hasher.h"
 
 namespace v8 {
 namespace internal {
 
-class AllocationTracker;
 class AllocationTraceNode;
 class HeapEntry;
-class HeapIterator;
 class HeapProfiler;
 class HeapSnapshot;
 class HeapSnapshotGenerator;
@@ -146,8 +144,8 @@ class HeapEntry {
                                   const char* description, HeapEntry* child,
                                   StringsStorage* strings);
 
-  void Print(
-      const char* prefix, const char* edge_name, int max_depth, int indent);
+  V8_EXPORT_PRIVATE void Print(const char* prefix, const char* edge_name,
+                               int max_depth, int indent);
 
  private:
   V8_INLINE std::vector<HeapGraphEdge*>::iterator children_begin() const;
@@ -262,8 +260,6 @@ class HeapObjectsMap {
                                         int64_t* timestamp_us);
   const std::vector<TimeInterval>& samples() const { return time_intervals_; }
 
-  SnapshotObjectId GenerateId(v8::RetainedObjectInfo* info);
-
   static const int kObjectIdStep = 2;
   static const SnapshotObjectId kInternalRootObjectId;
   static const SnapshotObjectId kGcRootsObjectId;
@@ -296,7 +292,7 @@ class HeapObjectsMap {
 
 // A typedef for referencing anything that can be snapshotted living
 // in any kind of heap memory.
-typedef void* HeapThing;
+using HeapThing = void*;
 
 // An interface that creates HeapEntries by HeapThings.
 class HeapEntriesAllocator {
@@ -313,7 +309,7 @@ class SnapshottingProgressReportingInterface {
 };
 
 // An implementation of V8 heap graph extractor.
-class V8HeapExplorer : public HeapEntriesAllocator {
+class V8_EXPORT_PRIVATE V8HeapExplorer : public HeapEntriesAllocator {
  public:
   V8HeapExplorer(HeapSnapshot* snapshot,
                  SnapshottingProgressReportingInterface* progress,
@@ -444,63 +440,22 @@ class V8HeapExplorer : public HeapEntriesAllocator {
   DISALLOW_COPY_AND_ASSIGN(V8HeapExplorer);
 };
 
-
-class NativeGroupRetainedObjectInfo;
-
-
 // An implementation of retained native objects extractor.
 class NativeObjectsExplorer {
  public:
   NativeObjectsExplorer(HeapSnapshot* snapshot,
                         SnapshottingProgressReportingInterface* progress);
-  virtual ~NativeObjectsExplorer();
-  int EstimateObjectsCount();
   bool IterateAndExtractReferences(HeapSnapshotGenerator* generator);
 
  private:
-  void FillRetainedObjects();
-  void FillEdges();
-  std::vector<HeapObject>* GetVectorMaybeDisposeInfo(
-      v8::RetainedObjectInfo* info);
-  void SetNativeRootReference(v8::RetainedObjectInfo* info);
-  void SetRootNativeRootsReference();
-  void SetWrapperNativeReferences(HeapObject wrapper,
-                                  v8::RetainedObjectInfo* info);
-  void VisitSubtreeWrapper(Handle<Object> p, uint16_t class_id);
-
-  struct RetainedInfoHasher {
-    std::size_t operator()(v8::RetainedObjectInfo* info) const {
-      return ComputeUnseededHash(static_cast<uint32_t>(info->GetHash()));
-    }
-  };
-  struct RetainedInfoEquals {
-    bool operator()(v8::RetainedObjectInfo* info1,
-                    v8::RetainedObjectInfo* info2) const {
-      return info1 == info2 || info1->IsEquivalent(info2);
-    }
-  };
-
-  NativeGroupRetainedObjectInfo* FindOrAddGroupInfo(const char* label);
-
   HeapEntry* EntryForEmbedderGraphNode(EmbedderGraph::Node* node);
 
   Isolate* isolate_;
   HeapSnapshot* snapshot_;
   StringsStorage* names_;
-  bool embedder_queried_;
-  std::unordered_set<Object, Object::Hasher> in_groups_;
-  std::unordered_map<v8::RetainedObjectInfo*, std::vector<HeapObject>*,
-                     RetainedInfoHasher, RetainedInfoEquals>
-      objects_by_info_;
-  std::unordered_map<const char*, NativeGroupRetainedObjectInfo*,
-                     SeededStringHasher, StringEquals>
-      native_groups_;
-  std::unique_ptr<HeapEntriesAllocator> synthetic_entries_allocator_;
-  std::unique_ptr<HeapEntriesAllocator> native_entries_allocator_;
   std::unique_ptr<HeapEntriesAllocator> embedder_graph_entries_allocator_;
   // Used during references extraction.
   HeapSnapshotGenerator* generator_ = nullptr;
-  v8::HeapProfiler::RetainerEdges edges_;
 
   static HeapThing const kNativesRootObject;
 

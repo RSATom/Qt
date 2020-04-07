@@ -41,7 +41,6 @@
 #include "qjsengine_p.h"
 #include "qjsvalue.h"
 #include "qjsvalue_p.h"
-#include "private/qv8engine_p.h"
 
 #include "private/qv4engine_p.h"
 #include "private/qv4mm_p.h"
@@ -348,7 +347,6 @@ QJSEngine::QJSEngine(QObject *parent)
     : QObject(*new QJSEnginePrivate, parent)
     , m_v4Engine(new QV4::ExecutionEngine(this))
 {
-    m_v4Engine->v8Engine = new QV8Engine(m_v4Engine);
     checkForApplicationInstance();
 
     QJSEnginePrivate::addToDebugServer(this);
@@ -361,7 +359,6 @@ QJSEngine::QJSEngine(QJSEnginePrivate &dd, QObject *parent)
     : QObject(dd, parent)
     , m_v4Engine(new QV4::ExecutionEngine(this))
 {
-    m_v4Engine->v8Engine = new QV8Engine(m_v4Engine);
     checkForApplicationInstance();
 }
 
@@ -375,7 +372,6 @@ QJSEngine::QJSEngine(QJSEnginePrivate &dd, QObject *parent)
 QJSEngine::~QJSEngine()
 {
     QJSEnginePrivate::removeFromDebugServer(this);
-    delete m_v4Engine->v8Engine;
     delete m_v4Engine;
 }
 
@@ -470,6 +466,33 @@ void QJSEngine::installExtensions(QJSEngine::Extensions extensions, const QJSVal
     QV4::GlobalExtensions::init(obj, extensions);
 }
 
+/*!
+  \since 5.14
+  Interrupts or re-enables JavaScript execution.
+
+  If \a interrupted is \c true, any JavaScript executed by this engine
+  immediately aborts and returns an error object until this function is
+  called again with a value of \c false for \a interrupted.
+
+  This function is thread safe. You may call it from a different thread
+  in order to interrupt, for example, an infinite loop in JavaScript.
+*/
+void QJSEngine::setInterrupted(bool interrupted)
+{
+    m_v4Engine->isInterrupted = interrupted;
+}
+
+/*!
+  \since 5.14
+  Returns whether JavaScript execution is currently interrupted.
+
+  \sa setInterrupted()
+*/
+bool QJSEngine::isInterrupted() const
+{
+    return m_v4Engine->isInterrupted.loadAcquire();
+}
+
 static QUrl urlForFileName(const QString &fileName)
 {
     if (!fileName.startsWith(QLatin1Char(':')))
@@ -527,6 +550,8 @@ QJSValue QJSEngine::evaluate(const QString& program, const QString& fileName, in
         result = script.run();
     if (scope.engine->hasException)
         result = v4->catchException();
+    if (v4->isInterrupted.loadAcquire())
+        result = v4->newErrorObject(QStringLiteral("Interrupted"));
 
     QJSValue retval(v4, result->asReturnedValue());
 
@@ -565,7 +590,12 @@ QJSValue QJSEngine::importModule(const QString &fileName)
     if (m_v4Engine->hasException)
         return QJSValue(m_v4Engine, m_v4Engine->catchException());
     moduleUnit->evaluate();
-    return QJSValue(m_v4Engine, moduleNamespace->asReturnedValue());
+    if (!m_v4Engine->isInterrupted.loadAcquire())
+        return QJSValue(m_v4Engine, moduleNamespace->asReturnedValue());
+
+    return QJSValue(
+            m_v4Engine,
+            m_v4Engine->newErrorObject(QStringLiteral("Interrupted"))->asReturnedValue());
 }
 
 /*!

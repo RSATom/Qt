@@ -51,7 +51,6 @@
 #include "qv4variantobject_p.h"
 #include "qv4regexpobject_p.h"
 #include "qv4errorobject_p.h"
-#include "private/qv8engine_p.h"
 #include <private/qv4mm_p.h>
 #include <private/qv4jscall_p.h>
 #include <private/qv4qobjectwrapper_p.h>
@@ -770,6 +769,8 @@ QJSValue QJSValue::call(const QJSValueList &args)
     ScopedValue result(scope, f->call(jsCallData));
     if (engine->hasException)
         result = engine->catchException();
+    if (engine->isInterrupted.loadAcquire())
+        result = engine->newErrorObject(QStringLiteral("Interrupted"));
 
     return QJSValue(engine, result->asReturnedValue());
 }
@@ -826,6 +827,8 @@ QJSValue QJSValue::callWithInstance(const QJSValue &instance, const QJSValueList
     ScopedValue result(scope, f->call(jsCallData));
     if (engine->hasException)
         result = engine->catchException();
+    if (engine->isInterrupted.loadAcquire())
+        result = engine->newErrorObject(QStringLiteral("Interrupted"));
 
     return QJSValue(engine, result->asReturnedValue());
 }
@@ -874,6 +877,8 @@ QJSValue QJSValue::callAsConstructor(const QJSValueList &args)
     ScopedValue result(scope, f->callAsConstructor(jsCallData));
     if (engine->hasException)
         result = engine->catchException();
+    if (engine->isInterrupted.loadAcquire())
+        result = engine->newErrorObject(QStringLiteral("Interrupted"));
 
     return QJSValue(engine, result->asReturnedValue());
 }
@@ -1042,7 +1047,7 @@ bool QJSValue::equals(const QJSValue& other) const
     if (!ov)
         return other.equals(*this);
 
-    return Runtime::method_compareEqual(*v, *ov);
+    return Runtime::CompareEqual::call(*v, *ov);
 }
 
 /*!

@@ -1,4 +1,5 @@
 # QTBUG-27571
 [ftpProxyServer]
-windows 32bit
-windows 64bit
+windows-7sp1
+windows-10
+

@@ -29,6 +29,7 @@
 
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/dom/element.h"
+#include "third_party/blink/renderer/platform/wtf/casting.h"
 
 namespace blink {
 
@@ -47,10 +48,8 @@ class CORE_EXPORT PseudoElement : public Element {
   bool CanStartSelection() const override { return false; }
   bool CanContainRangeEndPoint() const override { return false; }
   PseudoId GetPseudoId() const override { return pseudo_id_; }
-  const ComputedStyle* VirtualEnsureComputedStyle(
-      PseudoId pseudo_element_specifier = kPseudoIdNone) final;
-  scoped_refptr<ComputedStyle> StoreOriginalAndReturnLayoutStyle(
-      scoped_refptr<ComputedStyle>);
+  scoped_refptr<ComputedStyle> LayoutStyleForDisplayContents(
+      const ComputedStyle&);
 
   static String PseudoElementNameForEvents(PseudoId);
 
@@ -61,6 +60,18 @@ class CORE_EXPORT PseudoElement : public Element {
   virtual void Dispose();
 
  private:
+  class AttachLayoutTreeScope {
+    STACK_ALLOCATED();
+
+   public:
+    AttachLayoutTreeScope(PseudoElement*);
+    ~AttachLayoutTreeScope();
+
+   private:
+    Member<PseudoElement> element_;
+    scoped_refptr<const ComputedStyle> original_style_;
+  };
+
   PseudoId pseudo_id_;
 };
 
@@ -68,7 +79,10 @@ const QualifiedName& PseudoElementTagName();
 
 bool PseudoElementLayoutObjectIsNeeded(const ComputedStyle*);
 
-DEFINE_ELEMENT_TYPE_CASTS(PseudoElement, IsPseudoElement());
+template <>
+struct DowncastTraits<PseudoElement> {
+  static bool AllowFrom(const Node& node) { return node.IsPseudoElement(); }
+};
 
 }  // namespace blink
 

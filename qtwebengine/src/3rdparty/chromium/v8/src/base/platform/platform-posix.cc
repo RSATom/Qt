@@ -43,7 +43,7 @@
 #include "src/base/utils/random-number-generator.h"
 
 #ifdef V8_FAST_TLS_SUPPORTED
-#include "src/base/atomicops.h"
+#include <atomic>
 #endif
 
 #if V8_OS_MACOSX
@@ -93,7 +93,7 @@ bool g_hard_abort = false;
 const char* g_gc_fake_mmap = nullptr;
 
 DEFINE_LAZY_LEAKY_OBJECT_GETTER(RandomNumberGenerator,
-                                GetPlatformRandomNumberGenerator);
+                                GetPlatformRandomNumberGenerator)
 static LazyMutex rng_mutex = LAZY_MUTEX_INITIALIZER;
 
 #if !V8_OS_FUCHSIA
@@ -199,6 +199,12 @@ void* OS::GetRandomMmapAddr() {
     MutexGuard guard(rng_mutex.Pointer());
     GetPlatformRandomNumberGenerator()->NextBytes(&raw_addr, sizeof(raw_addr));
   }
+#if defined(__APPLE__)
+#if V8_TARGET_ARCH_ARM64
+  DCHECK_EQ(1 << 14, AllocatePageSize());
+  raw_addr = RoundDown(raw_addr, 1 << 14);
+#endif
+#endif
 #if defined(V8_USE_ADDRESS_SANITIZER) || defined(MEMORY_SANITIZER) || \
     defined(THREAD_SANITIZER) || defined(LEAK_SANITIZER)
   // If random hint addresses interfere with address ranges hard coded in
@@ -269,7 +275,7 @@ void* OS::GetRandomMmapAddr() {
   return reinterpret_cast<void*>(raw_addr);
 }
 
-// TODO(bbudge) Move Cygwin and Fuschia stuff into platform-specific files.
+// TODO(bbudge) Move Cygwin and Fuchsia stuff into platform-specific files.
 #if !V8_OS_CYGWIN && !V8_OS_FUCHSIA
 // static
 void* OS::Allocate(void* address, size_t size, size_t alignment,
@@ -444,15 +450,22 @@ class PosixMemoryMappedFile final : public OS::MemoryMappedFile {
 
 
 // static
-OS::MemoryMappedFile* OS::MemoryMappedFile::open(const char* name) {
-  if (FILE* file = fopen(name, "r+")) {
+OS::MemoryMappedFile* OS::MemoryMappedFile::open(const char* name,
+                                                 FileMode mode) {
+  const char* fopen_mode = (mode == FileMode::kReadOnly) ? "r" : "r+";
+  if (FILE* file = fopen(name, fopen_mode)) {
     if (fseek(file, 0, SEEK_END) == 0) {
       long size = ftell(file);  // NOLINT(runtime/int)
       if (size == 0) return new PosixMemoryMappedFile(file, nullptr, 0);
       if (size > 0) {
+        int prot = PROT_READ;
+        int flags = MAP_PRIVATE;
+        if (mode == FileMode::kReadWrite) {
+          prot |= PROT_WRITE;
+          flags = MAP_SHARED;
+        }
         void* const memory =
-            mmap(OS::GetRandomMmapAddr(), size, PROT_READ | PROT_WRITE,
-                 MAP_SHARED, fileno(file), 0);
+            mmap(OS::GetRandomMmapAddr(), size, prot, flags, fileno(file), 0);
         if (memory != MAP_FAILED) {
           return new PosixMemoryMappedFile(file, memory, size);
         }
@@ -462,7 +475,6 @@ OS::MemoryMappedFile* OS::MemoryMappedFile::open(const char* name) {
   }
   return nullptr;
 }
-
 
 // static
 OS::MemoryMappedFile* OS::MemoryMappedFile::create(const char* name,
@@ -672,11 +684,6 @@ int OS::VSNPrintF(char* str,
 // POSIX string support.
 //
 
-char* OS::StrChr(char* str, int c) {
-  return strchr(str, c);
-}
-
-
 void OS::StrNCpy(char* dest, int length, const char* src, size_t n) {
   strncpy(dest, src, n);
 }
@@ -815,7 +822,7 @@ static pthread_key_t LocalKeyToPthreadKey(Thread::LocalStorageKey local_key) {
 
 #ifdef V8_FAST_TLS_SUPPORTED
 
-static Atomic32 tls_base_offset_initialized = 0;
+static std::atomic<bool> tls_base_offset_initialized{false};
 intptr_t kMacTlsBaseOffset = 0;
 
 // It's safe to do the initialization more that once, but it has to be
@@ -851,7 +858,7 @@ static void InitializeTlsBaseOffset() {
     kMacTlsBaseOffset = 0;
   }
 
-  Release_Store(&tls_base_offset_initialized, 1);
+  tls_base_offset_initialized.store(true, std::memory_order_release);
 }
 
 
@@ -871,7 +878,7 @@ static void CheckFastTls(Thread::LocalStorageKey key) {
 Thread::LocalStorageKey Thread::CreateThreadLocalKey() {
 #ifdef V8_FAST_TLS_SUPPORTED
   bool check_fast_tls = false;
-  if (tls_base_offset_initialized == 0) {
+  if (!tls_base_offset_initialized.load(std::memory_order_acquire)) {
     check_fast_tls = true;
     InitializeTlsBaseOffset();
   }

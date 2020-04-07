@@ -23,7 +23,7 @@
 
 namespace base {
 class CommandLine;
-class SharedPersistentMemoryAllocator;
+class PersistentMemoryAllocator;
 }
 
 namespace content {
@@ -65,10 +65,10 @@ class CONTENT_EXPORT BrowserChildProcessHost : public IPC::Sender {
       std::unique_ptr<base::CommandLine> cmd_line,
       bool terminate_on_shutdown) = 0;
 
-  virtual const ChildProcessData& GetData() const = 0;
+  virtual const ChildProcessData& GetData() = 0;
 
   // Returns the ChildProcessHost object used by this object.
-  virtual ChildProcessHost* GetHost() const = 0;
+  virtual ChildProcessHost* GetHost() = 0;
 
   // Returns the termination info of a child.
   // |known_dead| indicates that the child is already dead. On Linux, this
@@ -77,7 +77,7 @@ class CONTENT_EXPORT BrowserChildProcessHost : public IPC::Sender {
   virtual ChildProcessTerminationInfo GetTerminationInfo(bool known_dead) = 0;
 
   // Take ownership of a "shared" metrics allocator (if one exists).
-  virtual std::unique_ptr<base::SharedPersistentMemoryAllocator>
+  virtual std::unique_ptr<base::PersistentMemoryAllocator>
   TakeMetricsAllocator() = 0;
 
   // Sets the user-visible name of the process.
@@ -105,6 +105,6 @@ class CONTENT_EXPORT BrowserChildProcessHost : public IPC::Sender {
 #endif
 };
 
-};  // namespace content
+}  // namespace content
 
 #endif  // CONTENT_PUBLIC_BROWSER_BROWSER_CHILD_PROCESS_HOST_H_

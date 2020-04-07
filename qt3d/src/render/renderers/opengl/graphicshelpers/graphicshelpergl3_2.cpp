@@ -365,6 +365,11 @@ void GraphicsHelperGL3_2::deleteSync(void *sync)
     m_funcs->glDeleteSync(static_cast<GLsync>(sync));
 }
 
+void GraphicsHelperGL3_2::rasterMode(GLenum faceMode, GLenum rasterMode)
+{
+    m_funcs->glPolygonMode(faceMode, rasterMode);
+}
+
 void GraphicsHelperGL3_2::blendEquation(GLenum mode)
 {
     m_funcs->glBlendEquation(mode);
@@ -404,6 +409,11 @@ void GraphicsHelperGL3_2::depthTest(GLenum mode)
 void GraphicsHelperGL3_2::depthMask(GLenum mode)
 {
     m_funcs->glDepthMask(mode);
+}
+
+void GraphicsHelperGL3_2::depthRange(GLdouble nearValue, GLdouble farValue)
+{
+    m_funcs->glDepthRange(nearValue, farValue);
 }
 
 void GraphicsHelperGL3_2::frontFace(GLenum mode)
@@ -450,6 +460,21 @@ void GraphicsHelperGL3_2::bindFrameBufferObject(GLuint frameBufferId, FBOBindMod
         m_funcs->glBindFramebuffer(GL_FRAMEBUFFER, frameBufferId);
         return;
     }
+}
+
+void GraphicsHelperGL3_2::bindImageTexture(GLuint imageUnit, GLuint texture,
+                                           GLint mipLevel, GLboolean layered,
+                                           GLint layer, GLenum access, GLenum format)
+{
+    Q_UNUSED(imageUnit)
+    Q_UNUSED(texture)
+    Q_UNUSED(mipLevel)
+    Q_UNUSED(layered)
+    Q_UNUSED(layer)
+    Q_UNUSED(access)
+    Q_UNUSED(format)
+    qWarning() << "Shader Images are not supported by OpenGL 3.2 (since OpenGL 4.2)";
+
 }
 
 GLuint GraphicsHelperGL3_2::boundFrameBufferObject()

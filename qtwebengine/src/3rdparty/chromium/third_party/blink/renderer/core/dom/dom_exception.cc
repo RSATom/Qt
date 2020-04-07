@@ -142,10 +142,10 @@ const struct DOMExceptionEntry {
      "User or security policy denied the request."},
 };
 
-unsigned short ToLegacyErrorCode(DOMExceptionCode exception_code) {
+uint16_t ToLegacyErrorCode(DOMExceptionCode exception_code) {
   if (DOMExceptionCode::kLegacyErrorCodeMin <= exception_code &&
       exception_code <= DOMExceptionCode::kLegacyErrorCodeMax) {
-    return static_cast<unsigned short>(exception_code);
+    return static_cast<uint16_t>(exception_code);
   }
   return 0;
 }
@@ -159,7 +159,7 @@ const DOMExceptionEntry* FindErrorEntry(DOMExceptionCode exception_code) {
   return nullptr;
 }
 
-unsigned short FindLegacyErrorCode(const String& name) {
+uint16_t FindLegacyErrorCode(const String& name) {
   for (const auto& entry : kDOMExceptionEntryTable) {
     if (name == entry.name)
       return ToLegacyErrorCode(entry.code);
@@ -168,17 +168,6 @@ unsigned short FindLegacyErrorCode(const String& name) {
 }
 
 }  // namespace
-
-// static
-DOMException* DOMException::Create(DOMExceptionCode exception_code,
-                                   const String& sanitized_message,
-                                   const String& unsanitized_message) {
-  const DOMExceptionEntry* entry = FindErrorEntry(exception_code);
-  return MakeGarbageCollected<DOMException>(
-      ToLegacyErrorCode(entry->code), entry->name ? entry->name : "Error",
-      sanitized_message.IsNull() ? String(entry->message) : sanitized_message,
-      unsanitized_message);
-}
 
 // static
 DOMException* DOMException::Create(const String& message, const String& name) {
@@ -208,7 +197,19 @@ String DOMException::GetErrorMessage(DOMExceptionCode exception_code) {
   return entry->message;
 }
 
-DOMException::DOMException(unsigned short legacy_code,
+DOMException::DOMException(DOMExceptionCode exception_code,
+                           const String& sanitized_message,
+                           const String& unsanitized_message)
+    : DOMException(ToLegacyErrorCode(FindErrorEntry(exception_code)->code),
+                   FindErrorEntry(exception_code)->name
+                       ? FindErrorEntry(exception_code)->name
+                       : "Error",
+                   sanitized_message.IsNull()
+                       ? String(FindErrorEntry(exception_code)->message)
+                       : sanitized_message,
+                   unsanitized_message) {}
+
+DOMException::DOMException(uint16_t legacy_code,
                            const String& name,
                            const String& sanitized_message,
                            const String& unsanitized_message)

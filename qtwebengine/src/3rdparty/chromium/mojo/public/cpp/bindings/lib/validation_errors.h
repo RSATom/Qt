@@ -87,7 +87,9 @@ void ReportValidationError(ValidationContext* context,
 COMPONENT_EXPORT(MOJO_CPP_BINDINGS_BASE)
 void ReportValidationErrorForMessage(mojo::Message* message,
                                      ValidationError error,
-                                     const char* description = nullptr);
+                                     const char* interface_name,
+                                     unsigned int method_ordinal,
+                                     bool is_response);
 
 // This class may be used by tests to suppress validation error logging. This is
 // not thread-safe and must only be instantiated on the main thread with no
@@ -166,6 +168,6 @@ class COMPONENT_EXPORT(MOJO_CPP_BINDINGS_BASE)
   DLOG_IF(FATAL, (condition) && !ReportSerializationWarning(error))   \
       << "The outgoing message will trigger "                         \
       << ValidationErrorToString(error) << " at the receiving side (" \
-      << description << ").";
+      << description << ")."
 
 #endif  // MOJO_PUBLIC_CPP_BINDINGS_LIB_VALIDATION_ERRORS_H_

@@ -23,17 +23,17 @@ class PLATFORM_EXPORT CompositorThreadScheduler
       public SingleThreadIdleTaskRunner::Delegate {
  public:
   explicit CompositorThreadScheduler(
-      std::unique_ptr<base::sequence_manager::SequenceManager>
-          sequence_manager);
+      base::sequence_manager::SequenceManager* sequence_manager);
 
   ~CompositorThreadScheduler() override;
 
   // NonMainThreadSchedulerImpl:
   scoped_refptr<NonMainThreadTaskQueue> DefaultTaskQueue() override;
-  void OnTaskCompleted(NonMainThreadTaskQueue* worker_task_queue,
-                       const base::sequence_manager::Task& task,
-                       const base::sequence_manager::TaskQueue::TaskTiming&
-                           task_timing) override;
+  void OnTaskCompleted(
+      NonMainThreadTaskQueue* worker_task_queue,
+      const base::sequence_manager::Task& task,
+      base::sequence_manager::TaskQueue::TaskTiming* task_timing,
+      base::sequence_manager::LazyNow* lazy_now) override;
 
   // WebThreadScheduler:
   scoped_refptr<base::SingleThreadTaskRunner> V8TaskRunner() override;
@@ -45,7 +45,8 @@ class PLATFORM_EXPORT CompositorThreadScheduler
   void AddTaskObserver(base::MessageLoop::TaskObserver* task_observer) override;
   void RemoveTaskObserver(
       base::MessageLoop::TaskObserver* task_observer) override;
-  void AddRAILModeObserver(WebRAILModeObserver*) override {}
+  void AddRAILModeObserver(RAILModeObserver*) override {}
+  void RemoveRAILModeObserver(RAILModeObserver const*) override {}
   void Shutdown() override;
 
   // ThreadSchedulerImpl:

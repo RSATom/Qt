@@ -9,7 +9,9 @@
 
 #include <memory>
 #include <set>
+#include <utility>
 
+#include "base/callback.h"
 #include "base/lazy_instance.h"
 #include "base/memory/ref_counted.h"
 #include "content/browser/indexed_db/indexed_db_backing_store.h"
@@ -18,56 +20,54 @@
 #include "content/common/content_export.h"
 #include "third_party/blink/public/common/indexeddb/web_idb_types.h"
 #include "third_party/blink/public/mojom/indexeddb/indexeddb.mojom.h"
-
-namespace leveldb {
-class Iterator;
-class Snapshot;
-}  // namespace leveldb
+#include "third_party/leveldatabase/src/include/leveldb/status.h"
 
 namespace content {
-
 class IndexedDBBackingStore;
 class IndexedDBConnection;
 class IndexedDBFactory;
 class IndexedDBTransaction;
-class LevelDBDatabase;
-class LevelDBIteratorImpl;
-class LevelDBTransaction;
 
 // Use this factory to create some IndexedDB objects. Exists solely to
 // facilitate tests which sometimes need to inject mock objects into the system.
-// TODO(dmurph): Remove th8s class in favor of dependency injection. This makes
+// TODO(dmurph): Remove this class in favor of dependency injection. This makes
 // it really hard to iterate on the system.
 class CONTENT_EXPORT IndexedDBClassFactory {
  public:
   typedef IndexedDBClassFactory* GetterCallback();
+  // Used to report irrecoverable backend errors. The second argument can be
+  // null.
+  using ErrorCallback =
+      base::RepeatingCallback<void(leveldb::Status, const char*)>;
 
   static IndexedDBClassFactory* Get();
 
   static void SetIndexedDBClassFactoryGetter(GetterCallback* cb);
 
-  virtual scoped_refptr<IndexedDBDatabase> CreateIndexedDBDatabase(
+  // Returns a constructed database, or a leveldb::Status error if there was a
+  // problem initializing the database. |error_callback| is called when a
+  // backing store operation has failed. The database will be closed
+  // (IndexedDBFactory::ForceClose) when the callback is called. |destroy_me|
+  // will destroy the IndexedDBDatabase object.
+  virtual std::pair<std::unique_ptr<IndexedDBDatabase>, leveldb::Status>
+  CreateIndexedDBDatabase(
       const base::string16& name,
-      scoped_refptr<IndexedDBBackingStore> backing_store,
-      scoped_refptr<IndexedDBFactory> factory,
+      IndexedDBBackingStore* backing_store,
+      IndexedDBFactory* factory,
+      IndexedDBDatabase::ErrorCallback error_callback,
+      base::OnceClosure destroy_me,
       std::unique_ptr<IndexedDBMetadataCoding> metadata_coding,
       const IndexedDBDatabase::Identifier& unique_identifier,
       ScopesLockManager* transaction_lock_manager);
 
+  // |error_callback| is used to report unrecoverable errors.
   virtual std::unique_ptr<IndexedDBTransaction> CreateIndexedDBTransaction(
       int64_t id,
       IndexedDBConnection* connection,
+      ErrorCallback error_callback,
       const std::set<int64_t>& scope,
       blink::mojom::IDBTransactionMode mode,
       IndexedDBBackingStore::Transaction* backing_store_transaction);
-
-  virtual std::unique_ptr<LevelDBIteratorImpl> CreateIteratorImpl(
-      std::unique_ptr<leveldb::Iterator> iterator,
-      LevelDBDatabase* db,
-      const leveldb::Snapshot* snapshot);
-
-  virtual scoped_refptr<LevelDBTransaction> CreateLevelDBTransaction(
-      LevelDBDatabase* db);
 
  protected:
   IndexedDBClassFactory() {}

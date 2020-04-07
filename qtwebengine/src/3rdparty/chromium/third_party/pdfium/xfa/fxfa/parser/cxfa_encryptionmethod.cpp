@@ -6,13 +6,16 @@
 
 #include "xfa/fxfa/parser/cxfa_encryptionmethod.h"
 
+#include "fxjs/xfa/cjx_node.h"
+#include "third_party/base/ptr_util.h"
+
 namespace {
 
 const CXFA_Node::AttributeData kEncryptionMethodAttributeData[] = {
     {XFA_Attribute::Id, XFA_AttributeType::CData, nullptr},
     {XFA_Attribute::Use, XFA_AttributeType::CData, nullptr},
     {XFA_Attribute::Usehref, XFA_AttributeType::CData, nullptr},
-    {XFA_Attribute::Unknown, XFA_AttributeType::Integer, nullptr}};
+};
 
 }  // namespace
 
@@ -23,7 +26,8 @@ CXFA_EncryptionMethod::CXFA_EncryptionMethod(CXFA_Document* doc,
                 (XFA_XDPPACKET_Template | XFA_XDPPACKET_Form),
                 XFA_ObjectType::NodeC,
                 XFA_Element::EncryptionMethod,
-                nullptr,
-                kEncryptionMethodAttributeData) {}
+                {},
+                kEncryptionMethodAttributeData,
+                pdfium::MakeUnique<CJX_Node>(this)) {}
 
 CXFA_EncryptionMethod::~CXFA_EncryptionMethod() = default;

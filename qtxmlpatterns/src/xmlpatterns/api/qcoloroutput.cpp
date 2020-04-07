@@ -99,7 +99,7 @@ namespace QPatternist
     private:
         QFile                       m_out;
 
-        /*!
+        /*
          Returns true if it's suitable to send colored output to \c stderr.
          */
         inline bool isColoringPossible() const
@@ -208,6 +208,7 @@ const char *const ColorOutputPrivate::backgrounds[] =
  */
 
 /*!
+  \internal
   \enum ColorOutput::ColorCodeComponent
   \value BlackForeground
   \value BlueForeground

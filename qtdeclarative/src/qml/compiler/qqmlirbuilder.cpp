@@ -39,7 +39,7 @@
 
 #include "qqmlirbuilder_p.h"
 
-#include <private/qv4value_p.h>
+#include <private/qv4staticvalue_p.h>
 #include <private/qv4compileddata_p.h>
 #include <private/qqmljsparser_p.h>
 #include <private/qqmljslexer_p.h>
@@ -48,12 +48,6 @@
 #include <QCryptographicHash>
 #include <cmath>
 
-#ifndef V4_BOOTSTRAP
-#include <private/qqmlglobal_p.h>
-#include <private/qqmltypeloader_p.h>
-#include <private/qqmlengine_p.h>
-#endif
-
 #ifdef CONST
 #undef CONST
 #endif
@@ -61,18 +55,92 @@
 QT_USE_NAMESPACE
 
 static const quint32 emptyStringIndex = 0;
-
-#if 0 //ndef V4_BOOTSTRAP
-DEFINE_BOOL_CONFIG_OPTION(lookupHints, QML_LOOKUP_HINTS);
-#endif // V4_BOOTSTRAP
-
 using namespace QmlIR;
+using namespace QQmlJS;
 
 #define COMPILE_EXCEPTION(location, desc) \
     { \
         recordError(location, desc); \
         return false; \
     }
+
+bool Parameter::init(QV4::Compiler::JSUnitGenerator *stringGenerator, const QString &parameterName,
+                     const QString &typeName)
+{
+    return init(this, stringGenerator, stringGenerator->registerString(parameterName), stringGenerator->registerString(typeName));
+}
+
+bool Parameter::init(QV4::CompiledData::Parameter *param, const QV4::Compiler::JSUnitGenerator *stringGenerator,
+                     int parameterNameIndex, int typeNameIndex)
+{
+    param->nameIndex = parameterNameIndex;
+    return initType(&param->type, stringGenerator, typeNameIndex);
+}
+
+bool Parameter::initType(QV4::CompiledData::ParameterType *paramType, const QV4::Compiler::JSUnitGenerator *stringGenerator, int typeNameIndex)
+{
+    paramType->indexIsBuiltinType = false;
+    paramType->typeNameIndexOrBuiltinType = 0;
+    const QString typeName = stringGenerator->stringForIndex(typeNameIndex);
+    auto builtinType = stringToBuiltinType(typeName);
+    if (builtinType == QV4::CompiledData::BuiltinType::InvalidBuiltin) {
+        if (typeName.isEmpty() || !typeName.at(0).isUpper())
+            return false;
+        paramType->indexIsBuiltinType = false;
+        paramType->typeNameIndexOrBuiltinType = typeNameIndex;
+        Q_ASSERT(quint32(typeNameIndex) < (1u << 31));
+    } else {
+        paramType->indexIsBuiltinType = true;
+        paramType->typeNameIndexOrBuiltinType = static_cast<quint32>(builtinType);
+        Q_ASSERT(quint32(builtinType) < (1u << 31));
+    }
+    return true;
+}
+
+QV4::CompiledData::BuiltinType Parameter::stringToBuiltinType(const QString &typeName)
+{
+    static const struct TypeNameToType {
+        const char *name;
+        size_t nameLength;
+        QV4::CompiledData::BuiltinType type;
+    } propTypeNameToTypes[] = {
+        { "int", strlen("int"), QV4::CompiledData::BuiltinType::Int },
+        { "bool", strlen("bool"), QV4::CompiledData::BuiltinType::Bool },
+        { "double", strlen("double"), QV4::CompiledData::BuiltinType::Real },
+        { "real", strlen("real"), QV4::CompiledData::BuiltinType::Real },
+        { "string", strlen("string"), QV4::CompiledData::BuiltinType::String },
+        { "url", strlen("url"), QV4::CompiledData::BuiltinType::Url },
+        { "color", strlen("color"), QV4::CompiledData::BuiltinType::Color },
+        // Internally QTime, QDate and QDateTime are all supported.
+        // To be more consistent with JavaScript we expose only
+        // QDateTime as it matches closely with the Date JS type.
+        // We also call it "date" to match.
+        // { "time", strlen("time"), Property::Time },
+        // { "date", strlen("date"), Property::Date },
+        { "date", strlen("date"), QV4::CompiledData::BuiltinType::DateTime },
+        { "rect", strlen("rect"), QV4::CompiledData::BuiltinType::Rect },
+        { "point", strlen("point"), QV4::CompiledData::BuiltinType::Point },
+        { "size", strlen("size"), QV4::CompiledData::BuiltinType::Size },
+        { "font", strlen("font"), QV4::CompiledData::BuiltinType::Font },
+        { "vector2d", strlen("vector2d"), QV4::CompiledData::BuiltinType::Vector2D },
+        { "vector3d", strlen("vector3d"), QV4::CompiledData::BuiltinType::Vector3D },
+        { "vector4d", strlen("vector4d"), QV4::CompiledData::BuiltinType::Vector4D },
+        { "quaternion", strlen("quaternion"), QV4::CompiledData::BuiltinType::Quaternion },
+        { "matrix4x4", strlen("matrix4x4"), QV4::CompiledData::BuiltinType::Matrix4x4 },
+        { "variant", strlen("variant"), QV4::CompiledData::BuiltinType::Variant },
+        { "var", strlen("var"), QV4::CompiledData::BuiltinType::Var }
+    };
+    static const int propTypeNameToTypesCount = sizeof(propTypeNameToTypes) /
+                                                sizeof(propTypeNameToTypes[0]);
+
+    for (int typeIndex = 0; typeIndex < propTypeNameToTypesCount; ++typeIndex) {
+        const TypeNameToType *t = propTypeNameToTypes + typeIndex;
+        if (typeName == QLatin1String(t->name, static_cast<int>(t->nameLength))) {
+            return t->type;
+        }
+    }
+    return QV4::CompiledData::BuiltinType::InvalidBuiltin;
+}
 
 void Object::init(QQmlJS::MemoryPool *pool, int typeNameIndex, int idIndex, const QQmlJS::AST::SourceLocation &loc)
 {
@@ -258,62 +326,9 @@ QStringList Signal::parameterStringList(const QV4::Compiler::StringTableGenerato
 {
     QStringList result;
     result.reserve(parameters->count);
-    for (SignalParameter *param = parameters->first; param; param = param->next)
+    for (Parameter *param = parameters->first; param; param = param->next)
         result << stringPool->stringForIndex(param->nameIndex);
     return result;
-}
-
-static void replaceWithSpace(QString &str, int idx, int n)
-{
-    QChar *data = str.data() + idx;
-    const QChar space(QLatin1Char(' '));
-    for (int ii = 0; ii < n; ++ii)
-        *data++ = space;
-}
-
-void Document::removeScriptPragmas(QString &script)
-{
-    const QLatin1String pragma("pragma");
-    const QLatin1String library("library");
-
-    QQmlJS::Lexer l(nullptr);
-    l.setCode(script, 0);
-
-    int token = l.lex();
-
-    while (true) {
-        if (token != QQmlJSGrammar::T_DOT)
-            return;
-
-        int startOffset = l.tokenOffset();
-        int startLine = l.tokenStartLine();
-
-        token = l.lex();
-
-        if (token != QQmlJSGrammar::T_PRAGMA ||
-            l.tokenStartLine() != startLine ||
-            script.midRef(l.tokenOffset(), l.tokenLength()) != pragma)
-            return;
-
-        token = l.lex();
-
-        if (token != QQmlJSGrammar::T_IDENTIFIER ||
-            l.tokenStartLine() != startLine)
-            return;
-
-        const QStringRef pragmaValue = script.midRef(l.tokenOffset(), l.tokenLength());
-        int endOffset = l.tokenLength() + l.tokenOffset();
-
-        token = l.lex();
-        if (l.tokenStartLine() == startLine)
-            return;
-
-        if (pragmaValue == library) {
-            replaceWithSpace(script, startOffset, endOffset - startOffset);
-        } else {
-            return;
-        }
-    }
 }
 
 Document::Document(bool debugMode)
@@ -385,13 +400,12 @@ bool IRBuilder::generateFromQml(const QString &code, const QString &url, Documen
         if (!parseResult || !diagnosticMessages.isEmpty()) {
             // Extract errors from the parser
             for (const QQmlJS::DiagnosticMessage &m : diagnosticMessages) {
-
                 if (m.isWarning()) {
-                    qWarning("%s:%d : %s", qPrintable(url), m.loc.startLine, qPrintable(m.message));
+                    qWarning("%s:%d : %s", qPrintable(url), m.line, qPrintable(m.message));
                     continue;
                 }
 
-                recordError(m.loc, m.message);
+                errors << m;
             }
             return false;
         }
@@ -661,11 +675,9 @@ bool IRBuilder::visit(QQmlJS::AST::UiImport *node)
         return false;
     }
 
-    if (node->versionToken.isValid()) {
-        int major, minor;
-        extractVersion(textRefAt(node->versionToken), &major, &minor);
-        import->majorVersion = major;
-        import->minorVersion = minor;
+    if (node->version) {
+        import->majorVersion = node->version->majorVersion;
+        import->minorVersion = node->version->minorVersion;
     } else if (import->type == QV4::CompiledData::Import::ImportLibrary) {
         recordError(node->importIdToken, QCoreApplication::translate("QQmlParser","Library import requires a version"));
         return false;
@@ -778,40 +790,6 @@ bool IRBuilder::visit(QQmlJS::AST::UiEnumDeclaration *node)
 
 bool IRBuilder::visit(QQmlJS::AST::UiPublicMember *node)
 {
-    static const struct TypeNameToType {
-        const char *name;
-        size_t nameLength;
-        QV4::CompiledData::Property::Type type;
-    } propTypeNameToTypes[] = {
-        { "int", strlen("int"), QV4::CompiledData::Property::Int },
-        { "bool", strlen("bool"), QV4::CompiledData::Property::Bool },
-        { "double", strlen("double"), QV4::CompiledData::Property::Real },
-        { "real", strlen("real"), QV4::CompiledData::Property::Real },
-        { "string", strlen("string"), QV4::CompiledData::Property::String },
-        { "url", strlen("url"), QV4::CompiledData::Property::Url },
-        { "color", strlen("color"), QV4::CompiledData::Property::Color },
-        // Internally QTime, QDate and QDateTime are all supported.
-        // To be more consistent with JavaScript we expose only
-        // QDateTime as it matches closely with the Date JS type.
-        // We also call it "date" to match.
-        // { "time", strlen("time"), Property::Time },
-        // { "date", strlen("date"), Property::Date },
-        { "date", strlen("date"), QV4::CompiledData::Property::DateTime },
-        { "rect", strlen("rect"), QV4::CompiledData::Property::Rect },
-        { "point", strlen("point"), QV4::CompiledData::Property::Point },
-        { "size", strlen("size"), QV4::CompiledData::Property::Size },
-        { "font", strlen("font"), QV4::CompiledData::Property::Font },
-        { "vector2d", strlen("vector2d"), QV4::CompiledData::Property::Vector2D },
-        { "vector3d", strlen("vector3d"), QV4::CompiledData::Property::Vector3D },
-        { "vector4d", strlen("vector4d"), QV4::CompiledData::Property::Vector4D },
-        { "quaternion", strlen("quaternion"), QV4::CompiledData::Property::Quaternion },
-        { "matrix4x4", strlen("matrix4x4"), QV4::CompiledData::Property::Matrix4x4 },
-        { "variant", strlen("variant"), QV4::CompiledData::Property::Variant },
-        { "var", strlen("var"), QV4::CompiledData::Property::Var }
-    };
-    static const int propTypeNameToTypesCount = sizeof(propTypeNameToTypes) /
-                                                sizeof(propTypeNameToTypes[0]);
-
     if (node->type == QQmlJS::AST::UiPublicMember::Signal) {
         Signal *signal = New<Signal>();
         QString signalName = node->name.toString();
@@ -821,7 +799,7 @@ bool IRBuilder::visit(QQmlJS::AST::UiPublicMember *node)
         signal->location.line = loc.startLine;
         signal->location.column = loc.startColumn;
 
-        signal->parameters = New<PoolList<SignalParameter> >();
+        signal->parameters = New<PoolList<Parameter> >();
 
         QQmlJS::AST::UiParameterList *p = node->parameters;
         while (p) {
@@ -832,38 +810,13 @@ bool IRBuilder::visit(QQmlJS::AST::UiPublicMember *node)
                 return false;
             }
 
-            const TypeNameToType *type = nullptr;
-            for (int typeIndex = 0; typeIndex < propTypeNameToTypesCount; ++typeIndex) {
-                const TypeNameToType *t = propTypeNameToTypes + typeIndex;
-                if (memberType == QLatin1String(t->name, static_cast<int>(t->nameLength))) {
-                    type = t;
-                    break;
-                }
+            Parameter *param = New<Parameter>();
+            if (!param->init(jsGenerator, p->name.toString(), memberType)) {
+                QString errStr = QCoreApplication::translate("QQmlParser","Invalid signal parameter type: ");
+                errStr.append(memberType);
+                recordError(node->typeToken, errStr);
+                return false;
             }
-
-            SignalParameter *param = New<SignalParameter>();
-
-            if (!type) {
-                if (memberType.at(0).isUpper()) {
-                    // Must be a QML object type.
-                    // Lazily determine type during compilation.
-                    param->type = QV4::CompiledData::Property::Custom;
-                    param->customTypeNameIndex = registerString(memberType);
-                } else {
-                    QString errStr = QCoreApplication::translate("QQmlParser","Invalid signal parameter type: ");
-                    errStr.append(memberType);
-                    recordError(node->typeToken, errStr);
-                    return false;
-                }
-            } else {
-                // the parameter is a known basic type
-                param->type = type->type;
-                param->customTypeNameIndex = emptyStringIndex;
-            }
-
-            param->nameIndex = registerString(p->name.toString());
-            param->location.line = p->identifierToken.startLine;
-            param->location.column = p->identifierToken.startColumn;
             signal->parameters->append(param);
             p = p->next;
         }
@@ -886,25 +839,21 @@ bool IRBuilder::visit(QQmlJS::AST::UiPublicMember *node)
         } else {
             const QStringRef &name = node->name;
 
-            bool typeFound = false;
-            QV4::CompiledData::Property::Type type = QV4::CompiledData::Property::Var;
+            Property *property = New<Property>();
+            property->isReadOnly = node->isReadonlyMember;
 
-            for (int ii = 0; !typeFound && ii < propTypeNameToTypesCount; ++ii) {
-                const TypeNameToType *t = propTypeNameToTypes + ii;
-                if (memberType == QLatin1String(t->name, static_cast<int>(t->nameLength))) {
-                    type = t->type;
-                    typeFound = true;
-                }
-            }
+            QV4::CompiledData::BuiltinType builtinPropertyType = Parameter::stringToBuiltinType(memberType);
+            bool typeFound = builtinPropertyType != QV4::CompiledData::BuiltinType::InvalidBuiltin;
+            if (typeFound)
+                property->setBuiltinType(builtinPropertyType);
 
             if (!typeFound && memberType.at(0).isUpper()) {
                 const QStringRef &typeModifier = node->typeModifier;
 
-                if (typeModifier.isEmpty()) {
-                    type = QV4::CompiledData::Property::Custom;
-                } else if (typeModifier == QLatin1String("list")) {
-                    type = QV4::CompiledData::Property::CustomList;
-                } else {
+                property->setCustomType(registerString(memberType));
+                if (typeModifier == QLatin1String("list")) {
+                    property->isList = true;
+                } else if (!typeModifier.isEmpty()) {
                     recordError(node->typeModifierToken, QCoreApplication::translate("QQmlParser","Invalid property type modifier"));
                     return false;
                 }
@@ -918,16 +867,6 @@ bool IRBuilder::visit(QQmlJS::AST::UiPublicMember *node)
                 recordError(node->typeToken, QCoreApplication::translate("QQmlParser","Expected property type"));
                 return false;
             }
-
-            Property *property = New<Property>();
-            property->flags = 0;
-            if (node->isReadonlyMember)
-                property->flags |= QV4::CompiledData::Property::IsReadOnly;
-            property->type = type;
-            if (type >= QV4::CompiledData::Property::Custom)
-                property->customTypeNameIndex = registerString(memberType);
-            else
-                property->customTypeNameIndex = emptyStringIndex;
 
             const QString propName = name.toString();
             property->nameIndex = registerString(propName);
@@ -969,7 +908,7 @@ bool IRBuilder::visit(QQmlJS::AST::UiPublicMember *node)
 
 bool IRBuilder::visit(QQmlJS::AST::UiSourceElement *node)
 {
-    if (QQmlJS::AST::FunctionDeclaration *funDecl = QQmlJS::AST::cast<QQmlJS::AST::FunctionDeclaration *>(node->sourceElement)) {
+    if (QQmlJS::AST::FunctionExpression *funDecl = node->sourceElement->asFunctionDefinition()) {
         CompiledFunctionOrExpression *foe = New<CompiledFunctionOrExpression>();
         foe->node = funDecl;
         foe->parentNode = funDecl;
@@ -983,13 +922,16 @@ bool IRBuilder::visit(QQmlJS::AST::UiSourceElement *node)
         f->index = index;
         f->nameIndex = registerString(funDecl->name.toString());
 
-        const QStringList formals = funDecl->formals ? funDecl->formals->formals() : QStringList();
+        QString returnTypeName = funDecl->typeAnnotation ? funDecl->typeAnnotation->type->toString() : QString();
+        Parameter::initType(&f->returnType, jsGenerator, registerString(returnTypeName));
+
+        const QQmlJS::AST::BoundNames formals = funDecl->formals ? funDecl->formals->formals() : QQmlJS::AST::BoundNames();
         int formalsCount = formals.size();
         f->formals.allocate(pool, formalsCount);
 
         int i = 0;
-        for (const QString &arg : formals) {
-            f->formals[i] = registerString(arg);
+        for (const auto &arg : formals) {
+            f->formals[i].init(jsGenerator, arg.id, arg.typeName());
             ++i;
         }
 
@@ -1022,7 +964,7 @@ QStringRef IRBuilder::asStringRef(QQmlJS::AST::Node *node)
     return textRefAt(node->firstSourceLocation(), node->lastSourceLocation());
 }
 
-void IRBuilder::extractVersion(QStringRef string, int *maj, int *min)
+void IRBuilder::extractVersion(const QStringRef &string, int *maj, int *min)
 {
     *maj = -1; *min = -1;
 
@@ -1051,7 +993,7 @@ void IRBuilder::setBindingValue(QV4::CompiledData::Binding *binding, QQmlJS::AST
     binding->valueLocation.line = loc.startLine;
     binding->valueLocation.column = loc.startColumn;
     binding->type = QV4::CompiledData::Binding::Type_Invalid;
-    if (_propertyDeclaration && (_propertyDeclaration->flags & QV4::CompiledData::Property::IsReadOnly))
+    if (_propertyDeclaration && _propertyDeclaration->isReadOnly)
         binding->flags |= QV4::CompiledData::Binding::InitializerForReadOnlyDeclaration;
 
     QQmlJS::AST::ExpressionStatement *exprStmt = QQmlJS::AST::cast<QQmlJS::AST::ExpressionStatement *>(statement);
@@ -1282,7 +1224,7 @@ void IRBuilder::appendBinding(const QQmlJS::AST::SourceLocation &qualifiedNameLo
 
     binding->flags = 0;
 
-    if (_propertyDeclaration && (_propertyDeclaration->flags & QV4::CompiledData::Property::IsReadOnly))
+    if (_propertyDeclaration && _propertyDeclaration->isReadOnly)
         binding->flags |= QV4::CompiledData::Binding::InitializerForReadOnlyDeclaration;
 
     // No type name on the initializer means it must be a group property
@@ -1513,7 +1455,8 @@ bool IRBuilder::resolveQualifiedId(QQmlJS::AST::UiQualifiedId **nameToResolve, O
 void IRBuilder::recordError(const QQmlJS::AST::SourceLocation &location, const QString &description)
 {
     QQmlJS::DiagnosticMessage error;
-    error.loc = location;
+    error.line = location.startLine;
+    error.column = location.startColumn;
     error.message = description;
     errors << error;
 }
@@ -1545,7 +1488,7 @@ bool IRBuilder::isStatementNodeScript(QQmlJS::AST::Statement *statement)
 
 bool IRBuilder::isRedundantNullInitializerForPropertyDeclaration(Property *property, QQmlJS::AST::Statement *statement)
 {
-    if (property->type != QV4::CompiledData::Property::Custom)
+    if (property->isBuiltinType || property->isList)
         return false;
     QQmlJS::AST::ExpressionStatement *exprStmt = QQmlJS::AST::cast<QQmlJS::AST::ExpressionStatement *>(statement);
     if (!exprStmt)
@@ -1559,17 +1502,12 @@ void QmlUnitGenerator::generate(Document &output, const QV4::CompiledData::Depen
     output.jsGenerator.stringTable.registerString(output.jsModule.fileName);
     output.jsGenerator.stringTable.registerString(output.jsModule.finalUrl);
 
-    QQmlRefPointer<QV4::CompiledData::CompilationUnit> compilationUnit = output.javaScriptCompilationUnit;
-
     QV4::CompiledData::Unit *jsUnit = nullptr;
-    const bool finalize = !compilationUnit->data;
 
     // We may already have unit data if we're loading an ahead-of-time generated cache file.
-    if (!finalize) {
-        jsUnit = const_cast<QV4::CompiledData::Unit *>(compilationUnit->data);
-#ifndef V4_BOOTSTRAP
-        output.javaScriptCompilationUnit->dynamicStrings = output.jsGenerator.stringTable.allStrings();
-#endif
+    if (output.javaScriptCompilationUnit.data) {
+        jsUnit = const_cast<QV4::CompiledData::Unit *>(output.javaScriptCompilationUnit.data);
+        output.javaScriptCompilationUnit.dynamicStrings = output.jsGenerator.stringTable.allStrings();
     } else {
         QV4::CompiledData::Unit *createdUnit;
         jsUnit = createdUnit = output.jsGenerator.generateUnit();
@@ -1581,22 +1519,15 @@ void QmlUnitGenerator::generate(Document &output, const QV4::CompiledData::Depen
                 break;
             }
         }
-        // This unit's memory was allocated with malloc on the heap, so it's
-        // definitely not suitable for StaticData access.
-        createdUnit->flags &= ~QV4::CompiledData::Unit::StaticData;
 
-#ifndef V4_BOOTSTRAP
         if (dependencyHasher) {
-            QCryptographicHash hash(QCryptographicHash::Md5);
-            if (dependencyHasher(&hash)) {
-                QByteArray checksum = hash.result();
-                Q_ASSERT(checksum.size() == sizeof(createdUnit->dependencyMD5Checksum));
-                memcpy(createdUnit->dependencyMD5Checksum, checksum.constData(), sizeof(createdUnit->dependencyMD5Checksum));
+            const QByteArray checksum = dependencyHasher();
+            if (checksum.size() == sizeof(createdUnit->dependencyMD5Checksum)) {
+                memcpy(createdUnit->dependencyMD5Checksum, checksum.constData(),
+                       sizeof(createdUnit->dependencyMD5Checksum));
             }
         }
-#else
-        Q_UNUSED(dependencyHasher);
-#endif
+
         createdUnit->sourceFileIndex = output.jsGenerator.stringTable.getStringId(output.jsModule.fileName);
         createdUnit->finalUrlIndex = output.jsGenerator.stringTable.getStringId(output.jsModule.finalUrl);
     }
@@ -1730,7 +1661,7 @@ void QmlUnitGenerator::generate(Document &output, const QV4::CompiledData::Depen
             signalToWrite->nParameters = s->parameters->count;
 
             QV4::CompiledData::Parameter *parameterToWrite = reinterpret_cast<QV4::CompiledData::Parameter*>(signalPtr + sizeof(*signalToWrite));
-            for (SignalParameter *param = s->parameters->first; param; param = param->next, ++parameterToWrite)
+            for (Parameter *param = s->parameters->first; param; param = param->next, ++parameterToWrite)
                 *parameterToWrite = *param;
 
             int size = QV4::CompiledData::Signal::calculateSize(s->parameters->count);
@@ -1765,14 +1696,14 @@ void QmlUnitGenerator::generate(Document &output, const QV4::CompiledData::Depen
         }
     }
 
-    if (finalize) {
+    if (!output.javaScriptCompilationUnit.data) {
         // Combine the qml data into the general unit data.
         jsUnit = static_cast<QV4::CompiledData::Unit *>(realloc(jsUnit, jsUnit->unitSize + totalSize));
         jsUnit->offsetToQmlUnit = jsUnit->unitSize;
         jsUnit->unitSize += totalSize;
         memcpy(jsUnit->qmlUnit(), qmlUnit, totalSize);
         free(qmlUnit);
-        jsUnit->generateChecksum();
+        QV4::Compiler::JSUnitGenerator::generateUnitChecksum(jsUnit);
         qmlUnit = jsUnit->qmlUnit();
     }
 
@@ -1798,7 +1729,8 @@ void QmlUnitGenerator::generate(Document &output, const QV4::CompiledData::Depen
         qDebug() << "    " << totalStringSize << "bytes total strings";
     }
 
-    compilationUnit->setUnitData(jsUnit, qmlUnit, output.jsModule.fileName, output.jsModule.finalUrl);
+    output.javaScriptCompilationUnit.setUnitData(jsUnit, qmlUnit, output.jsModule.fileName,
+                                                 output.jsModule.finalUrl);
 }
 
 char *QmlUnitGenerator::writeBindings(char *bindingPtr, const Object *o, BindingFilter filter) const
@@ -1815,19 +1747,11 @@ char *QmlUnitGenerator::writeBindings(char *bindingPtr, const Object *o, Binding
     return bindingPtr;
 }
 
-JSCodeGen::JSCodeGen(const QString &sourceCode, QV4::Compiler::JSUnitGenerator *jsUnitGenerator,
-                     QV4::Compiler::Module *jsModule, QQmlJS::Engine *jsEngine,
-                     QQmlJS::AST::UiProgram *qmlRoot,
-                     const QV4::Compiler::StringTableGenerator *stringPool, const QSet<QString> &globalNames)
-    : QV4::Compiler::Codegen(jsUnitGenerator, /*strict mode*/false)
-    , sourceCode(sourceCode)
-    , jsEngine(jsEngine)
-    , qmlRoot(qmlRoot)
-    , stringPool(stringPool)
+JSCodeGen::JSCodeGen(Document *document, const QSet<QString> &globalNames)
+    : QV4::Compiler::Codegen(&document->jsGenerator, /*strict mode*/false), document(document)
 {
     m_globalNames = globalNames;
-
-    _module = jsModule;
+    _module = &document->jsModule;
     _fileNameIsUrl = true;
 }
 
@@ -1835,18 +1759,18 @@ QVector<int> JSCodeGen::generateJSCodeForFunctionsAndBindings(const QList<Compil
 {
     auto qmlName = [&](const CompiledFunctionOrExpression &c) {
         if (c.nameIndex != 0)
-            return stringPool->stringForIndex(c.nameIndex);
+            return document->stringAt(c.nameIndex);
         else
             return QStringLiteral("%qml-expression-entry");
     };
     QVector<int> runtimeFunctionIndices(functions.size());
 
-    QV4::Compiler::ScanFunctions scan(this, sourceCode, QV4::Compiler::ContextType::Global);
+    QV4::Compiler::ScanFunctions scan(this, document->code, QV4::Compiler::ContextType::Global);
     scan.enterGlobalEnvironment(QV4::Compiler::ContextType::Binding);
     for (const CompiledFunctionOrExpression &f : functions) {
-        Q_ASSERT(f.node != qmlRoot);
-        Q_ASSERT(f.parentNode && f.parentNode != qmlRoot);
-        QQmlJS::AST::FunctionDeclaration *function = QQmlJS::AST::cast<QQmlJS::AST::FunctionDeclaration*>(f.node);
+        Q_ASSERT(f.node != document->program);
+        Q_ASSERT(f.parentNode && f.parentNode != document->program);
+        auto function = f.node->asFunctionDefinition();
 
         if (function) {
             scan.enterQmlFunction(function);
@@ -1860,7 +1784,7 @@ QVector<int> JSCodeGen::generateJSCodeForFunctionsAndBindings(const QList<Compil
     }
     scan.leaveEnvironment();
 
-    if (hasError)
+    if (hasError())
         return QVector<int>();
 
     _context = nullptr;
@@ -1868,9 +1792,9 @@ QVector<int> JSCodeGen::generateJSCodeForFunctionsAndBindings(const QList<Compil
     for (int i = 0; i < functions.count(); ++i) {
         const CompiledFunctionOrExpression &qmlFunction = functions.at(i);
         QQmlJS::AST::Node *node = qmlFunction.node;
-        Q_ASSERT(node != qmlRoot);
+        Q_ASSERT(node != document->program);
 
-        QQmlJS::AST::FunctionDeclaration *function = QQmlJS::AST::cast<QQmlJS::AST::FunctionDeclaration*>(node);
+        QQmlJS::AST::FunctionExpression *function = node->asFunctionDefinition();
 
         QString name;
         if (function)
@@ -1883,7 +1807,7 @@ QVector<int> JSCodeGen::generateJSCodeForFunctionsAndBindings(const QList<Compil
             body = function->body;
         } else {
             // Synthesize source elements.
-            QQmlJS::MemoryPool *pool = jsEngine->pool();
+            QQmlJS::MemoryPool *pool = document->jsParserEngine.pool();
 
             QQmlJS::AST::Statement *stmt = node->statementCast();
             if (!stmt) {
@@ -1904,213 +1828,57 @@ QVector<int> JSCodeGen::generateJSCodeForFunctionsAndBindings(const QList<Compil
     return runtimeFunctionIndices;
 }
 
-#ifndef V4_BOOTSTRAP
-
-QQmlPropertyData *PropertyResolver::property(const QString &name, bool *notInRevision, RevisionCheck check) const
+bool JSCodeGen::generateCodeForComponents(const QVector<quint32> &componentRoots)
 {
-    if (notInRevision) *notInRevision = false;
-
-    QQmlPropertyData *d = cache->property(name, nullptr, nullptr);
-
-    // Find the first property
-    while (d && d->isFunction())
-        d = cache->overrideData(d);
-
-    if (check != IgnoreRevision && d && !cache->isAllowedInRevision(d)) {
-        if (notInRevision) *notInRevision = true;
-        return nullptr;
-    } else {
-        return d;
+    for (int i = 0; i < componentRoots.count(); ++i) {
+        if (!compileComponent(componentRoots.at(i)))
+            return false;
     }
+
+    return compileComponent(/*root object*/0);
 }
 
-
-QQmlPropertyData *PropertyResolver::signal(const QString &name, bool *notInRevision) const
+bool JSCodeGen::compileComponent(int contextObject)
 {
-    if (notInRevision) *notInRevision = false;
-
-    QQmlPropertyData *d = cache->property(name, nullptr, nullptr);
-    if (notInRevision) *notInRevision = false;
-
-    while (d && !(d->isFunction()))
-        d = cache->overrideData(d);
-
-    if (d && !cache->isAllowedInRevision(d)) {
-        if (notInRevision) *notInRevision = true;
-        return nullptr;
-    } else if (d && d->isSignal()) {
-        return d;
+    const QmlIR::Object *obj = document->objects.at(contextObject);
+    if (obj->flags & QV4::CompiledData::Object::IsComponent) {
+        Q_ASSERT(obj->bindingCount() == 1);
+        const QV4::CompiledData::Binding *componentBinding = obj->firstBinding();
+        Q_ASSERT(componentBinding->type == QV4::CompiledData::Binding::Type_Object);
+        contextObject = componentBinding->value.objectIndex;
     }
 
-    if (name.endsWith(QLatin1String("Changed"))) {
-        QString propName = name.mid(0, name.length() - static_cast<int>(strlen("Changed")));
-
-        d = property(propName, notInRevision);
-        if (d)
-            return cache->signal(d->notifyIndex());
-    }
-
-    return nullptr;
+    return compileJavaScriptCodeInObjectsRecursively(contextObject, contextObject);
 }
 
-IRLoader::IRLoader(const QV4::CompiledData::Unit *qmlData, QmlIR::Document *output)
-    : unit(qmlData)
-    , output(output)
+bool JSCodeGen::compileJavaScriptCodeInObjectsRecursively(int objectIndex, int scopeObjectIndex)
 {
-    pool = output->jsParserEngine.pool();
+    QmlIR::Object *object = document->objects.at(objectIndex);
+    if (object->flags & QV4::CompiledData::Object::IsComponent)
+        return true;
+
+    if (object->functionsAndExpressions->count > 0) {
+        QList<QmlIR::CompiledFunctionOrExpression> functionsToCompile;
+        for (QmlIR::CompiledFunctionOrExpression *foe = object->functionsAndExpressions->first; foe; foe = foe->next)
+            functionsToCompile << *foe;
+        const QVector<int> runtimeFunctionIndices = generateJSCodeForFunctionsAndBindings(functionsToCompile);
+        if (hasError())
+            return false;
+
+        object->runtimeFunctionIndices.allocate(document->jsParserEngine.pool(),
+                                                runtimeFunctionIndices);
+    }
+
+    for (const QmlIR::Binding *binding = object->firstBinding(); binding; binding = binding->next) {
+        if (binding->type < QV4::CompiledData::Binding::Type_Object)
+            continue;
+
+        int target = binding->value.objectIndex;
+        int scope = binding->type == QV4::CompiledData::Binding::Type_Object ? target : scopeObjectIndex;
+
+        if (!compileJavaScriptCodeInObjectsRecursively(binding->value.objectIndex, scope))
+            return false;
+    }
+
+    return true;
 }
-
-void IRLoader::load()
-{
-    output->jsGenerator.stringTable.initializeFromBackingUnit(unit);
-
-    const QV4::CompiledData::QmlUnit *qmlUnit = unit->qmlUnit();
-
-    for (quint32 i = 0; i < qmlUnit->nImports; ++i)
-        output->imports << qmlUnit->importAt(i);
-
-    if (unit->flags & QV4::CompiledData::Unit::IsSingleton) {
-        QmlIR::Pragma *p = New<QmlIR::Pragma>();
-        p->location = QV4::CompiledData::Location();
-        p->type = QmlIR::Pragma::PragmaSingleton;
-        output->pragmas << p;
-    }
-
-    for (uint i = 0; i < qmlUnit->nObjects; ++i) {
-        const QV4::CompiledData::Object *serializedObject = qmlUnit->objectAt(i);
-        QmlIR::Object *object = loadObject(serializedObject);
-        output->objects.append(object);
-    }
-}
-
-struct FakeExpression : public QQmlJS::AST::NullExpression
-{
-    FakeExpression(int start, int length)
-        : location(start, length)
-    {}
-
-    virtual QQmlJS::AST::SourceLocation firstSourceLocation() const
-    { return location; }
-
-    virtual QQmlJS::AST::SourceLocation lastSourceLocation() const
-    { return location; }
-
-private:
-    QQmlJS::AST::SourceLocation location;
-};
-
-QmlIR::Object *IRLoader::loadObject(const QV4::CompiledData::Object *serializedObject)
-{
-    QmlIR::Object *object = pool->New<QmlIR::Object>();
-    object->init(pool, serializedObject->inheritedTypeNameIndex, serializedObject->idNameIndex);
-
-    object->indexOfDefaultPropertyOrAlias = serializedObject->indexOfDefaultPropertyOrAlias;
-    object->defaultPropertyIsAlias = serializedObject->defaultPropertyIsAlias;
-    object->flags = serializedObject->flags;
-    object->id = serializedObject->id;
-    object->location = serializedObject->location;
-    object->locationOfIdProperty = serializedObject->locationOfIdProperty;
-
-    QVector<int> functionIndices;
-    functionIndices.reserve(serializedObject->nFunctions + serializedObject->nBindings / 2);
-
-    for (uint i = 0; i < serializedObject->nBindings; ++i) {
-        QmlIR::Binding *b = pool->New<QmlIR::Binding>();
-        *static_cast<QV4::CompiledData::Binding*>(b) = serializedObject->bindingTable()[i];
-        object->bindings->append(b);
-        if (b->type == QV4::CompiledData::Binding::Type_Script) {
-            functionIndices.append(b->value.compiledScriptIndex);
-            b->value.compiledScriptIndex = functionIndices.count() - 1;
-
-            QmlIR::CompiledFunctionOrExpression *foe = pool->New<QmlIR::CompiledFunctionOrExpression>();
-            foe->nameIndex = 0;
-
-            QQmlJS::AST::ExpressionNode *expr;
-
-            if (b->stringIndex != quint32(0)) {
-                const int start = output->code.length();
-                const QString script = output->stringAt(b->stringIndex);
-                const int length = script.length();
-                output->code.append(script);
-                expr = new (pool) FakeExpression(start, length);
-            } else
-                expr = new (pool) QQmlJS::AST::NullExpression();
-            foe->node = new (pool) QQmlJS::AST::ExpressionStatement(expr); // dummy
-            object->functionsAndExpressions->append(foe);
-        }
-    }
-
-    Q_ASSERT(object->functionsAndExpressions->count == functionIndices.count());
-
-    for (uint i = 0; i < serializedObject->nSignals; ++i) {
-        const QV4::CompiledData::Signal *serializedSignal = serializedObject->signalAt(i);
-        QmlIR::Signal *s = pool->New<QmlIR::Signal>();
-        s->nameIndex = serializedSignal->nameIndex;
-        s->location = serializedSignal->location;
-        s->parameters = pool->New<QmlIR::PoolList<QmlIR::SignalParameter> >();
-
-        for (uint i = 0; i < serializedSignal->nParameters; ++i) {
-            QmlIR::SignalParameter *p = pool->New<QmlIR::SignalParameter>();
-            *static_cast<QV4::CompiledData::Parameter*>(p) = *serializedSignal->parameterAt(i);
-            s->parameters->append(p);
-        }
-
-        object->qmlSignals->append(s);
-    }
-
-    for (uint i = 0; i < serializedObject->nEnums; ++i) {
-        const QV4::CompiledData::Enum *serializedEnum = serializedObject->enumAt(i);
-        QmlIR::Enum *e = pool->New<QmlIR::Enum>();
-        e->nameIndex = serializedEnum->nameIndex;
-        e->location = serializedEnum->location;
-        e->enumValues = pool->New<QmlIR::PoolList<QmlIR::EnumValue> >();
-
-        for (uint i = 0; i < serializedEnum->nEnumValues; ++i) {
-            QmlIR::EnumValue *v = pool->New<QmlIR::EnumValue>();
-            *static_cast<QV4::CompiledData::EnumValue*>(v) = *serializedEnum->enumValueAt(i);
-            e->enumValues->append(v);
-        }
-
-        object->qmlEnums->append(e);
-    }
-
-    const QV4::CompiledData::Property *serializedProperty = serializedObject->propertyTable();
-    for (uint i = 0; i < serializedObject->nProperties; ++i, ++serializedProperty) {
-        QmlIR::Property *p = pool->New<QmlIR::Property>();
-        *static_cast<QV4::CompiledData::Property*>(p) = *serializedProperty;
-        object->properties->append(p);
-    }
-
-    {
-        const QV4::CompiledData::Alias *serializedAlias = serializedObject->aliasTable();
-        for (uint i = 0; i < serializedObject->nAliases; ++i, ++serializedAlias) {
-            QmlIR::Alias *a = pool->New<QmlIR::Alias>();
-            *static_cast<QV4::CompiledData::Alias*>(a) = *serializedAlias;
-            object->aliases->append(a);
-        }
-    }
-
-    const quint32_le *functionIdx = serializedObject->functionOffsetTable();
-    for (uint i = 0; i < serializedObject->nFunctions; ++i, ++functionIdx) {
-        QmlIR::Function *f = pool->New<QmlIR::Function>();
-        const QV4::CompiledData::Function *compiledFunction = unit->functionAt(*functionIdx);
-
-        functionIndices.append(*functionIdx);
-        f->index = functionIndices.count() - 1;
-        f->location = compiledFunction->location;
-        f->nameIndex = compiledFunction->nameIndex;
-
-        f->formals.allocate(pool, int(compiledFunction->nFormals));
-        const quint32_le *formalNameIdx = compiledFunction->formalsTable();
-        for (uint i = 0; i < compiledFunction->nFormals; ++i, ++formalNameIdx)
-            f->formals[i] = *formalNameIdx;
-
-        object->functions->append(f);
-    }
-
-    object->runtimeFunctionIndices.allocate(pool, functionIndices);
-
-    return object;
-}
-
-#endif // V4_BOOTSTRAP

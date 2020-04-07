@@ -2,9 +2,14 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+from __future__ import absolute_import
+from __future__ import division
+from __future__ import print_function
+
 import json
 import unittest
 
+from six.moves import range  # pylint: disable=redefined-builtin
 from tracing.value import histogram
 from tracing.value import histogram_set
 from tracing.value.diagnostics import add_reserved_diagnostics
@@ -26,6 +31,36 @@ class AddReservedDiagnosticsUnittest(unittest.TestCase):
           [True])
     return h
 
+  def testStrict(self):
+    hs = histogram_set.HistogramSet()
+    hs.CreateHistogram('name', 'count', [])
+    self.assertEqual(1, len(add_reserved_diagnostics.Batch(
+        hs, 1000, strict=True)))
+    self.assertEqual(1, len(add_reserved_diagnostics.Batch(hs, 1)))
+    with self.assertRaises(ValueError):
+      add_reserved_diagnostics.Batch(hs, 1, strict=True)
+
+  def testEmpty(self):
+    hs = histogram_set.HistogramSet()
+    self.assertEqual(0, len(add_reserved_diagnostics.AddReservedDiagnostics(
+        hs.AsDicts(), {})))
+
+  def testBatch(self):
+    hs = histogram_set.HistogramSet([
+        self._CreateHistogram(
+            'measurement%d' % (i / 10), ['story%d' % (i % 10)])
+        for i in range(100)])
+    monolith = add_reserved_diagnostics.AddReservedDiagnostics(
+        hs.AsDicts(), {})
+    self.assertEqual(1, len(monolith))
+    self.assertGreater(len(monolith[0]), 100)
+    max_size = len(monolith[0]) / 10
+    results = add_reserved_diagnostics.AddReservedDiagnostics(
+        hs.AsDicts(), {}, max_size)
+    self.assertGreater(len(results), 10)
+    for part in results:
+      self.assertGreater(max_size, len(part))
+
   def testAddReservedDiagnostics_InvalidDiagnostic_Raises(self):
     hs = histogram_set.HistogramSet([
         self._CreateHistogram('foo')])
@@ -43,7 +78,7 @@ class AddReservedDiagnosticsUnittest(unittest.TestCase):
         self._CreateHistogram('blah')])
 
     new_hs_json = add_reserved_diagnostics.AddReservedDiagnostics(
-        hs.AsDicts(), {'benchmarks': 'bar'})
+        hs.AsDicts(), {'benchmarks': 'bar'})[0]
 
     new_hs = histogram_set.HistogramSet()
     new_hs.ImportDicts(json.loads(new_hs_json))
@@ -62,7 +97,7 @@ class AddReservedDiagnosticsUnittest(unittest.TestCase):
         self._CreateHistogram('blah')])
 
     new_hs_json = add_reserved_diagnostics.AddReservedDiagnostics(
-        hs.AsDicts(), {'benchmarks': 'bar'})
+        hs.AsDicts(), {'benchmarks': 'bar'})[0]
 
     new_hs = histogram_set.HistogramSet()
     new_hs.ImportDicts(json.loads(new_hs_json))
@@ -92,7 +127,7 @@ class AddReservedDiagnosticsUnittest(unittest.TestCase):
         self._CreateHistogram('foo2', stories=['foo2'])])
 
     new_hs_json = add_reserved_diagnostics.AddReservedDiagnostics(
-        hs.AsDicts(), {'benchmarks': 'bar'})
+        hs.AsDicts(), {'benchmarks': 'bar'})[0]
 
     new_hs = histogram_set.HistogramSet()
     new_hs.ImportDicts(json.loads(new_hs_json))
@@ -119,7 +154,7 @@ class AddReservedDiagnosticsUnittest(unittest.TestCase):
         self._CreateHistogram('bar', stories=['bar'])])
 
     new_hs_json = add_reserved_diagnostics.AddReservedDiagnostics(
-        hs.AsDicts(), {'benchmarks': 'bar'})
+        hs.AsDicts(), {'benchmarks': 'bar'})[0]
 
     new_hs = histogram_set.HistogramSet()
     new_hs.ImportDicts(json.loads(new_hs_json))
@@ -148,7 +183,7 @@ class AddReservedDiagnosticsUnittest(unittest.TestCase):
         self._CreateHistogram('bar')])
 
     new_hs_json = add_reserved_diagnostics.AddReservedDiagnostics(
-        hs.AsDicts(), {'benchmarks': 'bar'})
+        hs.AsDicts(), {'benchmarks': 'bar'})[0]
 
     new_hs = histogram_set.HistogramSet()
     new_hs.ImportDicts(json.loads(new_hs_json))
@@ -166,7 +201,7 @@ class AddReservedDiagnosticsUnittest(unittest.TestCase):
     ])
 
     new_hs_json = add_reserved_diagnostics.AddReservedDiagnostics(
-        hs.AsDicts(), {'benchmarks': 'bar'})
+        hs.AsDicts(), {'benchmarks': 'bar'})[0]
 
     new_hs = histogram_set.HistogramSet()
     new_hs.ImportDicts(json.loads(new_hs_json))
@@ -198,7 +233,7 @@ class AddReservedDiagnosticsUnittest(unittest.TestCase):
     ])
 
     new_hs_json = add_reserved_diagnostics.AddReservedDiagnostics(
-        hs.AsDicts(), {'benchmarks': 'bar'})
+        hs.AsDicts(), {'benchmarks': 'bar'})[0]
 
     new_hs = histogram_set.HistogramSet()
     new_hs.ImportDicts(json.loads(new_hs_json))
@@ -224,7 +259,7 @@ class AddReservedDiagnosticsUnittest(unittest.TestCase):
         self._CreateHistogram('foo', ['bar'], had_failures=True)])
 
     new_hs_json = add_reserved_diagnostics.AddReservedDiagnostics(
-        hs.AsDicts(), {'benchmarks': 'bar'})
+        hs.AsDicts(), {'benchmarks': 'bar'})[0]
 
     new_hs = histogram_set.HistogramSet()
     new_hs.ImportDicts(json.loads(new_hs_json))

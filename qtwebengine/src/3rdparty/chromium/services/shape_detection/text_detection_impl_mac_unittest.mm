@@ -4,13 +4,14 @@
 
 #include "services/shape_detection/text_detection_impl_mac.h"
 
+#include "base/bind.h"
 #include "base/command_line.h"
 #include "base/mac/mac_util.h"
 #include "base/mac/scoped_cftyperef.h"
 #include "base/mac/scoped_nsobject.h"
 #include "base/mac/sdk_forward_declarations.h"
-#include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
+#include "base/test/scoped_task_environment.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/skia/include/utils/mac/SkCGUtils.h"
@@ -33,7 +34,7 @@ class TextDetectionImplMacTest : public ::testing::Test {
   MOCK_METHOD1(Detection, void(size_t));
 
   API_AVAILABLE(macosx(10.11)) std::unique_ptr<TextDetectionImplMac> impl_;
-  const base::MessageLoop message_loop_;
+  base::test::ScopedTaskEnvironment scoped_task_environment_;
 };
 
 TEST_F(TextDetectionImplMacTest, CreateAndDestroy) {}

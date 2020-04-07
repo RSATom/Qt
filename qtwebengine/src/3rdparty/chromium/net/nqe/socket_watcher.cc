@@ -106,7 +106,10 @@ bool SocketWatcher::ShouldNotifyUpdatedRTT() const {
 void SocketWatcher::OnUpdatedRTTAvailable(const base::TimeDelta& rtt) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
-  if (rtt <= base::TimeDelta())
+  // tcp_socket_posix may sometimes report RTT as 1 microsecond when the RTT was
+  // actually invalid. See:
+  // https://cs.chromium.org/chromium/src/net/socket/tcp_socket_posix.cc?rcl=7ad660e34f2a996e381a85b2a515263003b0c171&l=106.
+  if (rtt <= base::TimeDelta::FromMicroseconds(1))
     return;
 
   if (!first_quic_rtt_notification_received_ &&
@@ -120,7 +123,7 @@ void SocketWatcher::OnUpdatedRTTAvailable(const base::TimeDelta& rtt) {
   last_rtt_notification_ = tick_clock_->NowTicks();
   task_runner_->PostTask(
       FROM_HERE,
-      base::Bind(updated_rtt_observation_callback_, protocol_, rtt, host_));
+      base::BindOnce(updated_rtt_observation_callback_, protocol_, rtt, host_));
 }
 
 void SocketWatcher::OnConnectionChanged() {

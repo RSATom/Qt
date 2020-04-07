@@ -6,14 +6,14 @@
 
 #include "xfa/fxfa/parser/cxfa_submit.h"
 
-#include "fxjs/xfa/cjx_submit.h"
+#include "fxjs/xfa/cjx_node.h"
 #include "third_party/base/ptr_util.h"
 
 namespace {
 
 const CXFA_Node::PropertyData kSubmitPropertyData[] = {
     {XFA_Element::Encrypt, 1, 0},
-    {XFA_Element::Unknown, 0, 0}};
+};
 
 const CXFA_Node::AttributeData kSubmitAttributeData[] = {
     {XFA_Attribute::Id, XFA_AttributeType::CData, nullptr},
@@ -25,7 +25,7 @@ const CXFA_Node::AttributeData kSubmitAttributeData[] = {
     {XFA_Attribute::Target, XFA_AttributeType::CData, nullptr},
     {XFA_Attribute::TextEncoding, XFA_AttributeType::CData, nullptr},
     {XFA_Attribute::XdpContent, XFA_AttributeType::CData, nullptr},
-    {XFA_Attribute::Unknown, XFA_AttributeType::Integer, nullptr}};
+};
 
 }  // namespace
 
@@ -37,7 +37,7 @@ CXFA_Submit::CXFA_Submit(CXFA_Document* doc, XFA_PacketType packet)
                 XFA_Element::Submit,
                 kSubmitPropertyData,
                 kSubmitAttributeData,
-                pdfium::MakeUnique<CJX_Submit>(this)) {}
+                pdfium::MakeUnique<CJX_Node>(this)) {}
 
 CXFA_Submit::~CXFA_Submit() = default;
 

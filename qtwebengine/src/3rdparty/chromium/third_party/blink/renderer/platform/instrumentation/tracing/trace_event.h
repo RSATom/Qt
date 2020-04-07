@@ -8,22 +8,7 @@
 #include "base/time/time.h"
 #include "base/trace_event/trace_event.h"
 #include "third_party/blink/renderer/platform/platform_export.h"
-#include "third_party/blink/renderer/platform/wtf/text/cstring.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
-
-namespace WTF {
-
-// CString version of SetTraceValue so that trace arguments can be strings.
-static inline void SetTraceValue(const CString& arg,
-                                 unsigned char* type,
-                                 unsigned long long* value) {
-  trace_event_internal::TraceValueUnion type_value;
-  type_value.as_string = arg.data();
-  *type = TRACE_VALUE_TYPE_COPY_STRING;
-  *value = type_value.as_uint;
-}
-
-}  // namespace WTF
 
 namespace blink {
 namespace trace_event {

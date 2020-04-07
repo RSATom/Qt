@@ -72,14 +72,14 @@ static inline QWindow *windowForWidget(QWidget *widget)
         return window;
     if (QWidget *nativeParent = widget->nativeParentWidget())
         return nativeParent->windowHandle();
-    return 0;
+    return nullptr;
 }
 
 HWND hwndForWidget(QWidget *widget)
 {
     if (QWindow *window = windowForWidget(widget))
         return static_cast<HWND> (QGuiApplication::platformNativeInterface()->nativeResourceForWindow("handle", window));
-    return 0;
+    return nullptr;
 }
 
 // Code courtesy of QWindowsXPStyle
@@ -149,9 +149,9 @@ void qaxClearCachedSystemLogicalDpi() // Call from WM_DISPLAYCHANGE
 static inline QDpi systemLogicalDpi()
 {
     if (cachedSystemLogicalDpi.first < 0) {
-        const HDC displayDC = GetDC(0);
+        const HDC displayDC = GetDC(nullptr);
         cachedSystemLogicalDpi = QDpi(GetDeviceCaps(displayDC, LOGPIXELSX), GetDeviceCaps(displayDC, LOGPIXELSY));
-        ReleaseDC(0, displayDC);
+        ReleaseDC(nullptr, displayDC);
     }
     return cachedSystemLogicalDpi;
 }

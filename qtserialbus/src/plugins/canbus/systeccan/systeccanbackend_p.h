@@ -94,6 +94,8 @@ public:
     void startWrite();
     void readAllReceivedMessages();
     bool verifyBitRate(int bitrate);
+    void resetController();
+    QCanBusDevice::CanBusStatus busStatus();
 
     SystecCanBackend * const q_ptr;
 

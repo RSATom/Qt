@@ -82,7 +82,7 @@ void LayoutSVGShape::CreatePath() {
 }
 
 float LayoutSVGShape::DashScaleFactor() const {
-  if (!StyleRef().SvgStyle().StrokeDashArray()->size())
+  if (StyleRef().SvgStyle().StrokeDashArray()->data.IsEmpty())
     return 1;
   return ToSVGGeometryElement(*GetElement()).PathLengthScaleFactor();
 }
@@ -112,8 +112,9 @@ bool HasSquareCapStyle(const SVGComputedStyle& svg_style) {
 
 }  // namespace
 
-FloatRect LayoutSVGShape::ApproximateStrokeBoundingBox() const {
-  FloatRect stroke_box = fill_bounding_box_;
+FloatRect LayoutSVGShape::ApproximateStrokeBoundingBox(
+    const FloatRect& shape_bounds) const {
+  FloatRect stroke_box = shape_bounds;
 
   // Implementation of
   // https://drafts.fxtf.org/css-masking/#compute-stroke-bounding-box
@@ -143,7 +144,7 @@ FloatRect LayoutSVGShape::ApproximateStrokeBoundingBox() const {
 FloatRect LayoutSVGShape::HitTestStrokeBoundingBox() const {
   if (StyleRef().SvgStyle().HasStroke())
     return stroke_bounding_box_;
-  return ApproximateStrokeBoundingBox();
+  return ApproximateStrokeBoundingBox(fill_bounding_box_);
 }
 
 bool LayoutSVGShape::ShapeDependentStrokeContains(
@@ -213,8 +214,8 @@ static inline bool TransformOriginIsFixed(const ComputedStyle& style) {
   // is does not depend on the reference box. For fill-box, the origin will
   // always move with the bounding box.
   return style.TransformBox() == ETransformBox::kViewBox &&
-         style.TransformOriginX().GetType() == kFixed &&
-         style.TransformOriginY().GetType() == kFixed;
+         style.TransformOriginX().IsFixed() &&
+         style.TransformOriginY().IsFixed();
 }
 
 static inline bool TransformDependsOnReferenceBox(const ComputedStyle& style) {
@@ -234,7 +235,7 @@ static inline bool TransformDependsOnReferenceBox(const ComputedStyle& style) {
 }
 
 bool LayoutSVGShape::UpdateLocalTransform() {
-  SVGGraphicsElement* graphics_element = ToSVGGraphicsElement(GetElement());
+  auto* graphics_element = To<SVGGraphicsElement>(GetElement());
   if (graphics_element->HasTransform(SVGElement::kIncludeMotionTransform)) {
     local_transform_.SetTransform(graphics_element->CalculateTransform(
         SVGElement::kIncludeMotionTransform));
@@ -315,10 +316,13 @@ AffineTransform LayoutSVGShape::ComputeNonScalingStrokeTransform() const {
   // current approach of applying/painting non-scaling-stroke, that can break in
   // unpleasant ways (see crbug.com/747708 for an example.) Maybe it would be
   // better to apply this effect during rasterization?
-  const LayoutSVGRoot* svg_root = SVGLayoutSupport::FindTreeRootObject(this);
+  const LayoutObject* root = this;
+  while (root && !root->IsSVGRoot())
+    root = root->Parent();
   AffineTransform host_transform;
   host_transform.Scale(1 / StyleRef().EffectiveZoom())
-      .Multiply(LocalToAncestorTransform(svg_root).ToAffineTransform());
+      .Multiply(
+          LocalToAncestorTransform(ToLayoutSVGRoot(root)).ToAffineTransform());
   // Width of non-scaling stroke is independent of translation, so zero it out
   // here.
   host_transform.SetE(0);
@@ -345,10 +349,10 @@ void LayoutSVGShape::Paint(const PaintInfo& paint_info) const {
 }
 
 bool LayoutSVGShape::NodeAtPoint(HitTestResult& result,
-                                 const HitTestLocation& location_in_parent,
-                                 const LayoutPoint& accumulated_offset,
+                                 const HitTestLocation& hit_test_location,
+                                 const PhysicalOffset& accumulated_offset,
                                  HitTestAction hit_test_action) {
-  DCHECK_EQ(accumulated_offset, LayoutPoint());
+  DCHECK_EQ(accumulated_offset, PhysicalOffset());
   // We only draw in the foreground phase, so we only hit-test then.
   if (hit_test_action != kHitTestForeground)
     return false;
@@ -361,16 +365,17 @@ bool LayoutSVGShape::NodeAtPoint(HitTestResult& result,
   if (hit_rules.require_visible && style.Visibility() != EVisibility::kVisible)
     return false;
 
-  TransformedHitTestLocation local_location(location_in_parent,
+  TransformedHitTestLocation local_location(hit_test_location,
                                             LocalToSVGParentTransform());
   if (!local_location)
     return false;
-  if (!SVGLayoutSupport::IntersectsClipPath(*this, *local_location))
+  if (!SVGLayoutSupport::IntersectsClipPath(*this, fill_bounding_box_,
+                                            *local_location))
     return false;
 
   if (HitTestShape(result.GetHitTestRequest(), *local_location, hit_rules)) {
-    const LayoutPoint local_layout_point(local_location->TransformedPoint());
-    UpdateHitTestResult(result, local_layout_point);
+    UpdateHitTestResult(result, PhysicalOffset::FromFloatPointRound(
+                                    local_location->TransformedPoint()));
     if (result.AddNodeToListBasedTestResult(GetElement(), *local_location) ==
         kStopHitTesting)
       return true;
@@ -407,7 +412,7 @@ FloatRect LayoutSVGShape::CalculateStrokeBoundingBox() const {
     return fill_bounding_box_;
   if (HasNonScalingStroke())
     return CalculateNonScalingStrokeBoundingBox();
-  return ApproximateStrokeBoundingBox();
+  return ApproximateStrokeBoundingBox(fill_bounding_box_);
 }
 
 FloatRect LayoutSVGShape::CalculateNonScalingStrokeBoundingBox() const {
@@ -415,16 +420,12 @@ FloatRect LayoutSVGShape::CalculateNonScalingStrokeBoundingBox() const {
   DCHECK(StyleRef().SvgStyle().HasStroke());
   DCHECK(HasNonScalingStroke());
 
-  StrokeData stroke_data;
-  SVGLayoutSupport::ApplyStrokeStyleToStrokeData(stroke_data, StyleRef(), *this,
-                                                 DashScaleFactor());
-
   FloatRect stroke_bounding_box = fill_bounding_box_;
   const auto& non_scaling_transform = NonScalingStrokeTransform();
   if (non_scaling_transform.IsInvertible()) {
     const auto& non_scaling_stroke = NonScalingStrokePath();
     FloatRect stroke_bounding_rect =
-        non_scaling_stroke.StrokeBoundingRect(stroke_data);
+        ApproximateStrokeBoundingBox(non_scaling_stroke.BoundingRect());
     stroke_bounding_rect =
         non_scaling_transform.Inverse().MapRect(stroke_bounding_rect);
     stroke_bounding_box.Unite(stroke_bounding_rect);

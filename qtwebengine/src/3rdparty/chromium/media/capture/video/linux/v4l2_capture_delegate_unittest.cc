@@ -182,7 +182,8 @@ class V4L2CaptureDelegateTest : public ::testing::Test {
             v4l2_.get(),
             device_descriptor_,
             base::ThreadTaskRunnerHandle::Get(),
-            50)) {}
+            50,
+            0)) {}
   ~V4L2CaptureDelegateTest() override = default;
 
   base::test::ScopedTaskEnvironment scoped_task_environment_;
@@ -233,7 +234,7 @@ TEST_F(V4L2CaptureDelegateTest, MAYBE_CreateAndDestroyAndVerifyControls) {
 
     base::RunLoop run_loop;
     base::Closure quit_closure = run_loop.QuitClosure();
-    EXPECT_CALL(*client_ptr, OnIncomingCapturedData(_, _, _, _, _, _, _))
+    EXPECT_CALL(*client_ptr, OnIncomingCapturedData(_, _, _, _, _, _, _, _, _))
         .Times(1)
         .WillOnce(RunClosure(quit_closure));
     run_loop.Run();
@@ -252,4 +253,4 @@ TEST_F(V4L2CaptureDelegateTest, MAYBE_CreateAndDestroyAndVerifyControls) {
   }
 }
 
-};  // namespace media
+}  // namespace media

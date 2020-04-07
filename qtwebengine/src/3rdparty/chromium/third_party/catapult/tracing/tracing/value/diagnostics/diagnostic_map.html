@@ -66,6 +66,13 @@ tr.exportTo('tr.v.d', function() {
       Map.prototype.delete.call(this, name);
     }
 
+    deserializeAdd(data, deserializer) {
+      for (const id of data) {
+        const {name, diagnostic} = deserializer.getDiagnostic(id);
+        this.set(name, diagnostic);
+      }
+    }
+
     /**
      * Add Diagnostics from a dictionary of dictionaries.
      *
@@ -102,12 +109,26 @@ tr.exportTo('tr.v.d', function() {
       }
     }
 
+    serialize(serializer) {
+      const data = [];
+      for (const [name, diagnostic] of this) {
+        data.push(serializer.getOrAllocateDiagnosticId(name, diagnostic));
+      }
+      return data;
+    }
+
     asDict() {
       const dict = {};
       for (const [name, diagnostic] of this) {
         dict[name] = diagnostic.asDictOrReference();
       }
       return dict;
+    }
+
+    static deserialize(data, deserializer) {
+      const diagnostics = new DiagnosticMap();
+      diagnostics.deserializeAdd(data, deserializer);
+      return diagnostics;
     }
 
     static fromDict(d) {

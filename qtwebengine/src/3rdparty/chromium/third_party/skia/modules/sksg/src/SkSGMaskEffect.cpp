@@ -5,9 +5,9 @@
  * found in the LICENSE file.
  */
 
-#include "SkSGMaskEffect.h"
+#include "modules/sksg/include/SkSGMaskEffect.h"
 
-#include "SkCanvas.h"
+#include "include/core/SkCanvas.h"
 
 namespace sksg {
 
@@ -23,15 +23,11 @@ MaskEffect::~MaskEffect() {
 }
 
 void MaskEffect::onRender(SkCanvas* canvas, const RenderContext* ctx) const {
-    if (this->bounds().isEmpty())
-        return;
-
     SkAutoCanvasRestore acr(canvas, false);
 
     canvas->saveLayer(this->bounds(), nullptr);
     // Note: the paint overrides in ctx don't apply to the mask.
     fMaskNode->render(canvas);
-
 
     SkPaint p;
     p.setBlendMode(fMaskMode == Mode::kNormal ? SkBlendMode::kSrcIn : SkBlendMode::kSrcOut);
@@ -40,6 +36,11 @@ void MaskEffect::onRender(SkCanvas* canvas, const RenderContext* ctx) const {
     this->INHERITED::onRender(canvas, ctx);
 }
 
+const RenderNode* MaskEffect::onNodeAt(const SkPoint& p) const {
+    const auto mask_hit = (!!fMaskNode->nodeAt(p) == (fMaskMode == Mode::kNormal));
+
+    return mask_hit ? this->INHERITED::onNodeAt(p) : nullptr;
+}
 
 SkRect MaskEffect::onRevalidate(InvalidationController* ic, const SkMatrix& ctm) {
     SkASSERT(this->hasInval());

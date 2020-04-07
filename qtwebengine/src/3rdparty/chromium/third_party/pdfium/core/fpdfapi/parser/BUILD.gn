@@ -26,6 +26,10 @@ jumbo_source_set("parser") {
     "cpdf_dictionary.h",
     "cpdf_document.cpp",
     "cpdf_document.h",
+    "cpdf_encryptor.cpp",
+    "cpdf_encryptor.h",
+    "cpdf_flateencoder.cpp",
+    "cpdf_flateencoder.h",
     "cpdf_hint_tables.cpp",
     "cpdf_hint_tables.h",
     "cpdf_indirect_object_holder.cpp",
@@ -79,11 +83,18 @@ jumbo_source_set("parser") {
     "../../fxcrt",
     "../../fxge",
   ]
-  allow_circular_includes_from = [
-    "../../fxge",
-    "../../fxcodec",
-  ]
+  allow_circular_includes_from = []
   visibility = [ "../../../*" ]
+
+  if (pdf_enable_xfa) {
+    sources += [
+      "cpdf_seekablemultistream.cpp",
+      "cpdf_seekablemultistream.h",
+    ]
+  }
+  if (pdf_use_skia || pdf_use_skia_paths) {
+    allow_circular_includes_from += [ "../../fxge" ]
+  }
 }
 
 pdfium_unittest_source_set("unittests") {
@@ -109,9 +120,14 @@ pdfium_unittest_source_set("unittests") {
     ":parser",
     "../",
     "../../../constants",
+    "../page",
+    "../render",
   ]
   pdfium_root_dir = "../../../"
 
+  if (pdf_enable_xfa) {
+    sources += [ "cpdf_seekablemultistream_unittest.cpp" ]
+  }
   if (is_clang) {
     # Suppress no override warning for overridden functions.
     cflags = [ "-Wno-inconsistent-missing-override" ]

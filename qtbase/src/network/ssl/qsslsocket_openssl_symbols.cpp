@@ -63,13 +63,11 @@
 # include <QtCore/qlibrary.h>
 #endif
 #include <QtCore/qmutex.h>
-#if QT_CONFIG(thread)
-#include <private/qmutexpool_p.h>
-#endif
 #include <QtCore/qdatetime.h>
 #if defined(Q_OS_UNIX)
 #include <QtCore/qdir.h>
 #endif
+#include <QtCore/private/qmemory_p.h>
 #if defined(Q_OS_LINUX) && !defined(Q_OS_ANDROID)
 #include <link.h>
 #endif
@@ -150,6 +148,7 @@ DEFINEFUNC(BIO *, BIO_new, const BIO_METHOD *a, a, return nullptr, return)
 DEFINEFUNC(const BIO_METHOD *, BIO_s_mem, void, DUMMYARG, return nullptr, return)
 DEFINEFUNC2(int, BN_is_word, BIGNUM *a, a, BN_ULONG w, w, return 0, return)
 DEFINEFUNC(int, EVP_CIPHER_CTX_reset, EVP_CIPHER_CTX *c, c, return 0, return)
+DEFINEFUNC(int, EVP_PKEY_up_ref, EVP_PKEY *a, a, return 0, return)
 DEFINEFUNC(int, EVP_PKEY_base_id, EVP_PKEY *a, a, return NID_undef, return)
 DEFINEFUNC(int, RSA_bits, RSA *a, a, return 0, return)
 DEFINEFUNC(int, DSA_bits, DSA *a, a, return 0, return)
@@ -363,6 +362,11 @@ DEFINEFUNC(const EVP_CIPHER *, EVP_des_ede3_cbc, DUMMYARG, DUMMYARG, return null
 #ifndef OPENSSL_NO_RC2
 DEFINEFUNC(const EVP_CIPHER *, EVP_rc2_cbc, DUMMYARG, DUMMYARG, return nullptr, return)
 #endif
+#ifndef OPENSSL_NO_AES
+DEFINEFUNC(const EVP_CIPHER *, EVP_aes_128_cbc, DUMMYARG, DUMMYARG, return nullptr, return)
+DEFINEFUNC(const EVP_CIPHER *, EVP_aes_192_cbc, DUMMYARG, DUMMYARG, return nullptr, return)
+DEFINEFUNC(const EVP_CIPHER *, EVP_aes_256_cbc, DUMMYARG, DUMMYARG, return nullptr, return)
+#endif
 DEFINEFUNC(const EVP_MD *, EVP_sha1, DUMMYARG, DUMMYARG, return nullptr, return)
 DEFINEFUNC3(int, EVP_PKEY_assign, EVP_PKEY *a, a, int b, b, char *c, c, return -1, return)
 DEFINEFUNC2(int, EVP_PKEY_set1_RSA, EVP_PKEY *a, a, RSA *b, b, return -1, return)
@@ -371,6 +375,7 @@ DEFINEFUNC2(int, EVP_PKEY_set1_DH, EVP_PKEY *a, a, DH *b, b, return -1, return)
 #ifndef OPENSSL_NO_EC
 DEFINEFUNC2(int, EVP_PKEY_set1_EC_KEY, EVP_PKEY *a, a, EC_KEY *b, b, return -1, return)
 #endif
+DEFINEFUNC2(int, EVP_PKEY_cmp, const EVP_PKEY *a, a, const EVP_PKEY *b, b, return -1, return)
 DEFINEFUNC(void, EVP_PKEY_free, EVP_PKEY *a, a, return, DUMMYARG)
 DEFINEFUNC(DSA *, EVP_PKEY_get1_DSA, EVP_PKEY *a, a, return nullptr, return)
 DEFINEFUNC(RSA *, EVP_PKEY_get1_RSA, EVP_PKEY *a, a, return nullptr, return)
@@ -592,8 +597,8 @@ DEFINEFUNC2(PKCS12 *, d2i_PKCS12_bio, BIO *bio, bio, PKCS12 **pkcs12, pkcs12, re
 DEFINEFUNC(void, PKCS12_free, PKCS12 *pkcs12, pkcs12, return, DUMMYARG)
 
 #define RESOLVEFUNC(func) \
-    if (!(_q_##func = _q_PTR_##func(libs.first->resolve(#func)))     \
-        && !(_q_##func = _q_PTR_##func(libs.second->resolve(#func)))) \
+    if (!(_q_##func = _q_PTR_##func(libs.ssl->resolve(#func)))     \
+        && !(_q_##func = _q_PTR_##func(libs.crypto->resolve(#func)))) \
         qsslSocketCannotResolveSymbolWarning(#func);
 
 #if !defined QT_LINKED_OPENSSL
@@ -692,7 +697,7 @@ static QStringList libraryPathList()
     // discover paths of already loaded libraries
     QSet<QString> loadedPaths;
     dl_iterate_phdr(dlIterateCallback, &loadedPaths);
-    paths.append(loadedPaths.toList());
+    paths.append(loadedPaths.values());
 #endif
 
     return paths;
@@ -729,34 +734,31 @@ static QStringList findAllLibCrypto()
 # endif
 
 #ifdef Q_OS_WIN
-static bool tryToLoadOpenSslWin32Library(QLatin1String ssleay32LibName, QLatin1String libeay32LibName, QPair<QSystemLibrary*, QSystemLibrary*> &pair)
+
+struct LoadedOpenSsl {
+    std::unique_ptr<QSystemLibrary> ssl, crypto;
+};
+
+static bool tryToLoadOpenSslWin32Library(QLatin1String ssleay32LibName, QLatin1String libeay32LibName, LoadedOpenSsl &result)
 {
-    pair.first = 0;
-    pair.second = 0;
-
-    QSystemLibrary *ssleay32 = new QSystemLibrary(ssleay32LibName);
+    auto ssleay32 = qt_make_unique<QSystemLibrary>(ssleay32LibName);
     if (!ssleay32->load(false)) {
-        delete ssleay32;
         return FALSE;
     }
 
-    QSystemLibrary *libeay32 = new QSystemLibrary(libeay32LibName);
+    auto libeay32 = qt_make_unique<QSystemLibrary>(libeay32LibName);
     if (!libeay32->load(false)) {
-        delete ssleay32;
-        delete libeay32;
         return FALSE;
     }
 
-    pair.first = ssleay32;
-    pair.second = libeay32;
+    result.ssl = std::move(ssleay32);
+    result.crypto = std::move(libeay32);
     return TRUE;
 }
 
-static QPair<QSystemLibrary*, QSystemLibrary*> loadOpenSslWin32()
+static LoadedOpenSsl loadOpenSsl()
 {
-    QPair<QSystemLibrary*,QSystemLibrary*> pair;
-    pair.first = 0;
-    pair.second = 0;
+    LoadedOpenSsl result;
 
 #if QT_CONFIG(opensslv11)
     // With OpenSSL 1.1 the names have changed to libssl-1_1(-x64) and libcrypto-1_1(-x64), for builds using
@@ -769,7 +771,7 @@ static QPair<QSystemLibrary*, QSystemLibrary*> loadOpenSslWin32()
 #endif // !Q_PROCESSOR_x86_64
 
     tryToLoadOpenSslWin32Library(QLatin1String("libssl-1_1" QT_SSL_SUFFIX),
-                                 QLatin1String("libcrypto-1_1" QT_SSL_SUFFIX), pair);
+                                 QLatin1String("libcrypto-1_1" QT_SSL_SUFFIX), result);
 
 #undef QT_SSL_SUFFIX
 
@@ -778,28 +780,30 @@ static QPair<QSystemLibrary*, QSystemLibrary*> loadOpenSslWin32()
     // When OpenSSL is built using MSVC then the libraries are named 'ssleay32.dll' and 'libeay32'dll'.
     // When OpenSSL is built using GCC then different library names are used (depending on the OpenSSL version)
     // The oldest version of a GCC-based OpenSSL which can be detected by the code below is 0.9.8g (released in 2007)
-    if (!tryToLoadOpenSslWin32Library(QLatin1String("ssleay32"), QLatin1String("libeay32"), pair)) {
-        if (!tryToLoadOpenSslWin32Library(QLatin1String("libssl-10"), QLatin1String("libcrypto-10"), pair)) {
-            if (!tryToLoadOpenSslWin32Library(QLatin1String("libssl-8"), QLatin1String("libcrypto-8"), pair)) {
-                tryToLoadOpenSslWin32Library(QLatin1String("libssl-7"), QLatin1String("libcrypto-7"), pair);
+    if (!tryToLoadOpenSslWin32Library(QLatin1String("ssleay32"), QLatin1String("libeay32"), result)) {
+        if (!tryToLoadOpenSslWin32Library(QLatin1String("libssl-10"), QLatin1String("libcrypto-10"), result)) {
+            if (!tryToLoadOpenSslWin32Library(QLatin1String("libssl-8"), QLatin1String("libcrypto-8"), result)) {
+                tryToLoadOpenSslWin32Library(QLatin1String("libssl-7"), QLatin1String("libcrypto-7"), result);
             }
         }
     }
 #endif // !QT_CONFIG(opensslv11)
 
-    return pair;
+    return result;
 }
 #else
 
-static QPair<QLibrary*, QLibrary*> loadOpenSsl()
+struct LoadedOpenSsl {
+    std::unique_ptr<QLibrary> ssl, crypto;
+};
+
+static LoadedOpenSsl loadOpenSsl()
 {
-    QPair<QLibrary*,QLibrary*> pair;
+    LoadedOpenSsl result = {qt_make_unique<QLibrary>(), qt_make_unique<QLibrary>()};
 
 # if defined(Q_OS_UNIX)
-    QLibrary *&libssl = pair.first;
-    QLibrary *&libcrypto = pair.second;
-    libssl = new QLibrary;
-    libcrypto = new QLibrary;
+    QLibrary * const libssl = result.ssl.get();
+    QLibrary * const libcrypto = result.crypto.get();
 
     // Try to find the libssl library on the system.
     //
@@ -843,7 +847,7 @@ static QPair<QLibrary*, QLibrary*> loadOpenSsl()
     libcrypto->setFileNameAndVersion(QLatin1String("crypto"), QLatin1String(SHLIB_VERSION_NUMBER));
     if (libcrypto->load() && libssl->load()) {
         // libssl.so.<SHLIB_VERSION_NUMBER> and libcrypto.so.<SHLIB_VERSION_NUMBER> found
-        return pair;
+        return result;
     } else {
         libssl->unload();
         libcrypto->unload();
@@ -862,7 +866,7 @@ static QPair<QLibrary*, QLibrary*> loadOpenSsl()
         libssl->setFileNameAndVersion(QLatin1String("ssl"), fallbackSoname);
         libcrypto->setFileNameAndVersion(QLatin1String("crypto"), fallbackSoname);
         if (libcrypto->load() && libssl->load()) {
-            return pair;
+            return result;
         } else {
             libssl->unload();
             libcrypto->unload();
@@ -899,7 +903,7 @@ static QPair<QLibrary*, QLibrary*> loadOpenSsl()
 # endif
     if (libcrypto->load() && libssl->load()) {
         // libssl.so.0 and libcrypto.so.0 found
-        return pair;
+        return result;
     } else {
         libssl->unload();
         libcrypto->unload();
@@ -924,7 +928,7 @@ static QPair<QLibrary*, QLibrary*> loadOpenSsl()
 
                 if (libssl->load()) {
                     // libssl.so.x and libcrypto.so.x found
-                    return pair;
+                    return result;
                 } else {
                     libssl->unload();
                 }
@@ -934,41 +938,33 @@ static QPair<QLibrary*, QLibrary*> loadOpenSsl()
     }
 
     // failed to load anything
-    delete libssl;
-    delete libcrypto;
-    libssl = libcrypto = 0;
-    return pair;
+    result = {};
+    return result;
 
 # else
     // not implemented for this platform yet
-    return pair;
+    return result;
 # endif
 }
 #endif
 
+static QBasicMutex symbolResolveMutex;
+static QBasicAtomicInt symbolsResolved = Q_BASIC_ATOMIC_INITIALIZER(false);
+static bool triedToResolveSymbols = false;
+
 bool q_resolveOpenSslSymbols()
 {
-    static bool symbolsResolved = false;
-    static bool triedToResolveSymbols = false;
-#if QT_CONFIG(thread)
-#if QT_CONFIG(opensslv11)
-    QMutexLocker locker(QMutexPool::globalInstanceGet((void *)&q_OPENSSL_init_ssl));
-#else
-    QMutexLocker locker(QMutexPool::globalInstanceGet((void *)&q_SSL_library_init));
-#endif
-#endif
-    if (symbolsResolved)
+    if (symbolsResolved.loadAcquire())
+        return true;
+    QMutexLocker locker(&symbolResolveMutex);
+    if (symbolsResolved.loadRelaxed())
         return true;
     if (triedToResolveSymbols)
         return false;
     triedToResolveSymbols = true;
 
-#ifdef Q_OS_WIN
-    QPair<QSystemLibrary *, QSystemLibrary *> libs = loadOpenSslWin32();
-#else
-    QPair<QLibrary *, QLibrary *> libs = loadOpenSsl();
-#endif
-    if (!libs.first || !libs.second)
+    LoadedOpenSsl libs = loadOpenSsl();
+    if (!libs.ssl || !libs.crypto)
         // failed to load them
         return false;
 
@@ -978,6 +974,7 @@ bool q_resolveOpenSslSymbols()
     RESOLVEFUNC(OPENSSL_init_crypto)
     RESOLVEFUNC(ASN1_STRING_get0_data)
     RESOLVEFUNC(EVP_CIPHER_CTX_reset)
+    RESOLVEFUNC(EVP_PKEY_up_ref)
     RESOLVEFUNC(EVP_PKEY_base_id)
     RESOLVEFUNC(RSA_bits)
     RESOLVEFUNC(OPENSSL_sk_new_null)
@@ -1016,8 +1013,6 @@ bool q_resolveOpenSslSymbols()
     if (!_q_OpenSSL_version) {
         // Apparently, we were built with OpenSSL 1.1 enabled but are now using
         // a wrong library.
-        delete libs.first;
-        delete libs.second;
         qCWarning(lcSsl, "Incompatible version of OpenSSL");
         return false;
     }
@@ -1139,8 +1134,6 @@ bool q_resolveOpenSslSymbols()
         // OpenSSL 1.1 has deprecated and removed SSLeay. We consider a failure to
         // resolve this symbol as a failure to resolve symbols.
         // The right operand of '||' above is ... a bit of paranoia.
-        delete libs.first;
-        delete libs.second;
         qCWarning(lcSsl, "Incompatible version of OpenSSL");
         return false;
     }
@@ -1204,6 +1197,11 @@ bool q_resolveOpenSslSymbols()
 #ifndef OPENSSL_NO_RC2
     RESOLVEFUNC(EVP_rc2_cbc)
 #endif
+#ifndef OPENSSL_NO_AES
+    RESOLVEFUNC(EVP_aes_128_cbc)
+    RESOLVEFUNC(EVP_aes_192_cbc)
+    RESOLVEFUNC(EVP_aes_256_cbc)
+#endif
     RESOLVEFUNC(EVP_sha1)
     RESOLVEFUNC(EVP_PKEY_assign)
     RESOLVEFUNC(EVP_PKEY_set1_RSA)
@@ -1212,6 +1210,7 @@ bool q_resolveOpenSslSymbols()
 #ifndef OPENSSL_NO_EC
     RESOLVEFUNC(EVP_PKEY_set1_EC_KEY)
 #endif
+    RESOLVEFUNC(EVP_PKEY_cmp)
     RESOLVEFUNC(EVP_PKEY_free)
     RESOLVEFUNC(EVP_PKEY_get1_DSA)
     RESOLVEFUNC(EVP_PKEY_get1_RSA)
@@ -1376,12 +1375,12 @@ bool q_resolveOpenSslSymbols()
     RESOLVEFUNC(SSL_select_next_proto)
     RESOLVEFUNC(SSL_CTX_set_next_proto_select_cb)
     RESOLVEFUNC(SSL_get0_next_proto_negotiated)
-#endif // OPENSSL_VERSION_NUMBER >= 0x1000100fL ...
 #if OPENSSL_VERSION_NUMBER >= 0x10002000L
-    RESOLVEFUNC(SSL_set_alpn_protos)
-    RESOLVEFUNC(SSL_CTX_set_alpn_select_cb)
-    RESOLVEFUNC(SSL_get0_alpn_selected)
+        RESOLVEFUNC(SSL_set_alpn_protos)
+        RESOLVEFUNC(SSL_CTX_set_alpn_select_cb)
+        RESOLVEFUNC(SSL_get0_alpn_selected)
 #endif // OPENSSL_VERSION_NUMBER >= 0x10002000L ...
+#endif // OPENSSL_VERSION_NUMBER >= 0x1000100fL ...
 #if QT_CONFIG(dtls)
     RESOLVEFUNC(SSL_CTX_set_cookie_generate_cb)
     RESOLVEFUNC(SSL_CTX_set_cookie_verify_cb)
@@ -1405,9 +1404,7 @@ bool q_resolveOpenSslSymbols()
     RESOLVEFUNC(d2i_PKCS12_bio)
     RESOLVEFUNC(PKCS12_free)
 
-    symbolsResolved = true;
-    delete libs.first;
-    delete libs.second;
+    symbolsResolved.storeRelease(true);
     return true;
 }
 #endif // QT_CONFIG(library)

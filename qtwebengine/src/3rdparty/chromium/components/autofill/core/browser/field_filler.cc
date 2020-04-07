@@ -14,17 +14,17 @@
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "components/autofill/core/browser/address_normalizer.h"
-#include "components/autofill/core/browser/autofill_country.h"
-#include "components/autofill/core/browser/autofill_data_model.h"
 #include "components/autofill/core/browser/autofill_data_util.h"
 #include "components/autofill/core/browser/autofill_field.h"
-#include "components/autofill/core/browser/autofill_profile.h"
 #include "components/autofill/core/browser/autofill_type.h"
-#include "components/autofill/core/browser/country_names.h"
-#include "components/autofill/core/browser/credit_card.h"
+#include "components/autofill/core/browser/data_model/autofill_data_model.h"
+#include "components/autofill/core/browser/data_model/autofill_profile.h"
+#include "components/autofill/core/browser/data_model/credit_card.h"
+#include "components/autofill/core/browser/data_model/phone_number.h"
 #include "components/autofill/core/browser/field_types.h"
-#include "components/autofill/core/browser/phone_number.h"
-#include "components/autofill/core/browser/state_names.h"
+#include "components/autofill/core/browser/geo/autofill_country.h"
+#include "components/autofill/core/browser/geo/country_names.h"
+#include "components/autofill/core/browser/geo/state_names.h"
 #include "components/autofill/core/common/autofill_features.h"
 #include "components/autofill/core/common/autofill_l10n_util.h"
 #include "components/autofill/core/common/autofill_util.h"
@@ -624,6 +624,7 @@ bool FieldFiller::FillFormField(const AutofillField& field,
                                 FormFieldData* field_data,
                                 const base::string16& cvc) {
   const AutofillType type = field.Type();
+
   // Don't fill if autocomplete=off is set on |field| on desktop for non credit
   // card related fields.
   if (!base::FeatureList::IsEnabled(features::kAutofillAlwaysFillAddresses) &&
@@ -631,6 +632,9 @@ bool FieldFiller::FillFormField(const AutofillField& field,
       (type.group() != CREDIT_CARD)) {
     return false;
   }
+
+  if (data_model.ShouldSkipFillingOrSuggesting(type.GetStorableType()))
+    return false;
 
   base::string16 value = data_model.GetInfo(type, app_locale_);
   if (type.GetStorableType() == CREDIT_CARD_VERIFICATION_CODE)

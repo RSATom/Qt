@@ -259,7 +259,6 @@ class IDLParser(object):
                   | Dictionary
                   | Enum
                   | Typedef
-                  | ImplementsStatement
                   | IncludesStatement"""
     p[0] = p[1]
 
@@ -369,8 +368,12 @@ class IDLParser(object):
     """MixinMember : Const
                    | Operation
                    | Stringifier
-                   | ReadonlyMember"""
-    p[0] = p[1]
+                   | ReadOnly AttributeRest"""
+    if len(p) == 2:
+      p[0] = p[1]
+    else:
+      p[2].AddChildren(p[1])
+      p[0] = p[2]
 
   def p_Dictionary(self, p):
     """Dictionary : DICTIONARY identifier Inheritance '{' DictionaryMembers '}' ';'"""
@@ -492,11 +495,6 @@ class IDLParser(object):
   def p_TypedefError(self, p):
     """Typedef : TYPEDEF error ';'"""
     p[0] = self.BuildError(p, 'Typedef')
-
-  def p_ImplementsStatement(self, p):
-    """ImplementsStatement : identifier IMPLEMENTS identifier ';'"""
-    name = self.BuildAttribute('REFERENCE', p[3])
-    p[0] = self.BuildNamed('Implements', p, 1, name)
 
   def p_IncludesStatement(self, p):
     """IncludesStatement : identifier INCLUDES identifier ';'"""
@@ -821,7 +819,6 @@ class IDLParser(object):
                            | DICTIONARY
                            | ENUM
                            | GETTER
-                           | IMPLEMENTS
                            | INCLUDES
                            | INHERIT
                            | LEGACYCALLER
@@ -880,7 +877,7 @@ class IDLParser(object):
     if len(p) > 2:
       p[0] = ListFromConcat(p[2], p[3])
 
-  # Moved BYTESTRING, DOMSTRING, OBJECT, DATE, REGEXP to PrimitiveType
+  # Moved BYTESTRING, DOMSTRING, OBJECT to PrimitiveType
   # Moving all built-in types into PrimitiveType makes it easier to
   # differentiate between them and 'identifier', since p[1] would be a string in
   # both cases.
@@ -912,7 +909,7 @@ class IDLParser(object):
       p[0] = p[1]
 
 
-  # Added StringType, OBJECT, DATE, REGEXP
+  # Added StringType, OBJECT
   def p_PrimitiveType(self, p):
     """PrimitiveType : UnsignedIntegerType
                      | UnrestrictedFloatType
@@ -920,9 +917,7 @@ class IDLParser(object):
                      | BOOLEAN
                      | BYTE
                      | OCTET
-                     | OBJECT
-                     | DATE
-                     | REGEXP"""
+                     | OBJECT"""
     if type(p[1]) == str:
       p[0] = self.BuildNamed('PrimitiveType', p, 1)
     else:
@@ -1127,6 +1122,9 @@ class IDLParser(object):
     self.tokens = lexer.KnownTokens()
     self.yaccobj = yacc.yacc(module=self, tabmodule=None, debug=debug,
                              optimize=0, write_tables=0)
+    # TODO: Make our code compatible with defaulted_states. Currently disabled
+    #       for compatibility.
+    self.yaccobj.defaulted_states = {}
     self.parse_debug = debug
     self.verbose = verbose
     self.mute_error = mute_error

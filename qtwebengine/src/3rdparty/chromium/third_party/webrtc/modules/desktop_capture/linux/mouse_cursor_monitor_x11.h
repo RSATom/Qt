@@ -12,14 +12,15 @@
 #define MODULES_DESKTOP_CAPTURE_LINUX_MOUSE_CURSOR_MONITOR_X11_H_
 
 #include <X11/X.h>
+
 #include <memory>
 
+#include "api/scoped_refptr.h"
 #include "modules/desktop_capture/desktop_capture_options.h"
 #include "modules/desktop_capture/desktop_capture_types.h"
 #include "modules/desktop_capture/linux/shared_x_display.h"
 #include "modules/desktop_capture/mouse_cursor.h"
 #include "modules/desktop_capture/mouse_cursor_monitor.h"
-#include "rtc_base/scoped_ref_ptr.h"
 
 namespace webrtc {
 

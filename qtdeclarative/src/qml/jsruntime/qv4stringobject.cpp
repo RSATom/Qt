@@ -45,7 +45,7 @@
 #include <private/qv4mm_p.h>
 #include "qv4scopedvalue_p.h"
 #include "qv4symbol_p.h"
-#include "qv4alloca_p.h"
+#include <private/qv4alloca_p.h>
 #include "qv4jscall_p.h"
 #include "qv4stringiterator_p.h"
 #include <QtCore/QDateTime>
@@ -152,13 +152,14 @@ PropertyAttributes StringObject::virtualGetOwnProperty(const Managed *m, Propert
     if (attributes != Attr_Invalid)
         return attributes;
 
-    const StringObject *s = static_cast<const StringObject *>(m);
-    uint slen = s->d()->string->toQString().length();
-    uint index = id.asArrayIndex();
-    if (index < slen) {
-        if (p)
-            p->value = s->getIndex(index);
-        return Attr_NotConfigurable|Attr_NotWritable;
+    if (id.isArrayIndex()) {
+        const uint index = id.asArrayIndex();
+        const auto s = static_cast<const StringObject *>(m);
+        if (index < uint(s->d()->string->toQString().length())) {
+            if (p)
+                p->value = s->getIndex(index);
+            return Attr_NotConfigurable|Attr_NotWritable;
+        }
     }
     return Object::virtualGetOwnProperty(m, id, p);
 }
@@ -590,7 +591,7 @@ ReturnedValue StringPrototype::method_match(const FunctionObject *b, const Value
     ScopedFunctionObject match(scope, that->get(scope.engine->symbol_match()));
     if (!match)
         return scope.engine->throwTypeError();
-    return match->call(that, s, 1);
+    return checkedResult(scope.engine, match->call(that, s, 1));
 }
 
 ReturnedValue StringPrototype::method_normalize(const FunctionObject *f, const Value *thisObject, const Value *argv, int argc)

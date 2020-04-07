@@ -20,10 +20,24 @@ class ProtoLevelDBWrapper;
 class Enums {
  public:
   enum InitStatus {
+    // Failed to migrate from shared to unique or unique to shared, or failed to
+    // create a non-existent database.
     kError = -1,
+    // Internal state, never returned to clients. TODO: This should be removed.
     kNotInitialized = 0,
+    // Leveldb initialization successful.
     kOK = 1,
+    // In case of unique database, this status is never returned. The legacy
+    // behavior is to delete the database on corruption and return a clean one
+    // (if possible). In case of shared database, the default behavior is to
+    // delete on corruption and not return this flag. In the future we will have
+    // a delete_on_corruption flag that clients can set to false and handle
+    // corruption with partial data. TODO(salg): Expose delete_on_corruption
+    // flag.
     kCorrupt = 2,
+    // Invalid arguments were passed (like database doesn't exist and
+    // create_if_missing was false), or the current platform does not support
+    // leveldb.
     kInvalidOperation = 3,
   };
 };
@@ -37,6 +51,14 @@ class Callbacks {
       base::OnceCallback<void(bool, std::unique_ptr<std::vector<std::string>>)>;
   using DestroyCallback = base::OnceCallback<void(bool)>;
   using OnCreateCallback = base::OnceCallback<void(ProtoLevelDBWrapper*)>;
+
+  // TODO(ssid): This should be moved to internal folder.
+  using LoadCallback =
+      base::OnceCallback<void(bool, std::unique_ptr<std::vector<std::string>>)>;
+  using GetCallback =
+      base::OnceCallback<void(bool, std::unique_ptr<std::string>)>;
+  using LoadKeysAndEntriesCallback = base::OnceCallback<
+      void(bool, std::unique_ptr<std::map<std::string, std::string>>)>;
 
   template <typename T>
   class Internal {
@@ -63,8 +85,24 @@ class Util {
 using KeyFilter = base::RepeatingCallback<bool(const std::string& key)>;
 
 // Interface for classes providing persistent storage of Protocol Buffer
-// entries (T must be a Proto type extending MessageLite).
-template <typename T>
+// entries. P must be a proto type extending MessageLite. T is optional and
+// defaults to P and there is then no additional requirements for clients.
+// If T is set to something else, the client must provide these functions
+// (note the namespace requirement):
+// namespace leveldb_proto {
+// void DataToProto(const T& data, P* proto);
+// void ProtoToData(const P& proto, T* data);
+// }  // namespace leveldb_proto
+// The P type will be stored in the database, and the T type will be required
+// as input and will be provided as output for all API calls. The backend will
+// invoke the methods above for all conversions between the two types.
+// For retrieving a database of proto type ClientProto, use:
+// auto db = ProtoDatabaseProviderFactory::GetForBrowserContext(...)
+//               -> GetDB<ClientProto>(...);
+// For automatically converting to a different data type, use:
+// auto db = ProtoDatabaseProviderFactory::GetForBrowserContext(...)
+//               -> GetDB<ClientProto, ClientStruct>(...);
+template <typename P, typename T = P>
 class ProtoDatabase {
  public:
   // For compatibility:
@@ -72,12 +110,25 @@ class ProtoDatabase {
 
   virtual ~ProtoDatabase() = default;
 
-  // Asynchronously initializes the object with the specified |options|.
-  // |callback| will be invoked on the calling thread when complete.
-  virtual void Init(const std::string& client_name,
+  // Asynchronously initializes the object, which must have been created by the
+  // ProtoDatabaseProvider::GetDB<T> function. |callback| will be invoked on the
+  // calling thread when complete.
+  //
+  // DEPRECATED: |unique_db_options| is used only when a unique DB is loaded,
+  // once migration to shared DB is done, this parameter will be ignored.
+  //
+  // DEPRECATED: |client_uma_name| was used to record UMA metrics, new clients
+  // should instead add their name to
+  // SharedProtoDatabaseClientList::ProtoDbTypeToString.
+  virtual void Init(Callbacks::InitStatusCallback callback) = 0;
+  virtual void Init(const std::string& client_uma_name,
                     Callbacks::InitStatusCallback callback) = 0;
-  // This version of Init is for compatibility, since many of the current
-  // proto database clients still use this.
+  virtual void Init(const leveldb_env::Options& unique_db_options,
+                    Callbacks::InitStatusCallback callback) = 0;
+
+  // DEPRECATED. This version of Init is for compatibility, must be called only
+  // when the object is created by the ProtoDatabaseProvider::CreateUniqueDB<T>
+  // function.
   virtual void Init(const char* client_name,
                     const base::FilePath& database_dir,
                     const leveldb_env::Options& options,
@@ -100,12 +151,6 @@ class ProtoDatabase {
       std::unique_ptr<typename Util::Internal<T>::KeyEntryVector>
           entries_to_save,
       const leveldb_proto::KeyFilter& delete_key_filter,
-      Callbacks::UpdateCallback callback) = 0;
-  virtual void UpdateEntriesWithRemoveFilter(
-      std::unique_ptr<typename Util::Internal<T>::KeyEntryVector>
-          entries_to_save,
-      const leveldb_proto::KeyFilter& delete_key_filter,
-      const std::string& target_prefix,
       Callbacks::UpdateCallback callback) = 0;
 
   // Asynchronously loads all entries from the database and invokes |callback|
@@ -149,8 +194,6 @@ class ProtoDatabase {
   // Asynchronously loads all keys from the database and invokes |callback| with
   // those keys when complete.
   virtual void LoadKeys(typename Callbacks::LoadKeysCallback callback) = 0;
-  virtual void LoadKeys(const std::string& target_prefix,
-                        typename Callbacks::LoadKeysCallback callback) = 0;
 
   // Asynchronously loads a single entry, identified by |key|, from the database
   // and invokes |callback| when complete. If no entry with |key| is found,

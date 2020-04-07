@@ -5,20 +5,32 @@
  * found in the LICENSE file.
  */
 
-#include "GrDrawPathOp.h"
-#include "GrAppliedClip.h"
-#include "GrMemoryPool.h"
-#include "GrRenderTargetContext.h"
-#include "GrRenderTargetPriv.h"
-#include "SkTemplates.h"
+#include "include/private/GrRecordingContext.h"
+#include "include/private/SkTemplates.h"
+#include "src/gpu/GrAppliedClip.h"
+#include "src/gpu/GrMemoryPool.h"
+#include "src/gpu/GrRecordingContextPriv.h"
+#include "src/gpu/GrRenderTargetContext.h"
+#include "src/gpu/GrRenderTargetPriv.h"
+#include "src/gpu/ops/GrDrawPathOp.h"
+
+static constexpr GrUserStencilSettings kCoverPass{
+        GrUserStencilSettings::StaticInit<
+                0x0000,
+                GrUserStencilTest::kNotEqual,
+                0xffff,
+                GrUserStencilOp::kZero,
+                GrUserStencilOp::kKeep,
+                0xffff>()
+};
 
 GrDrawPathOpBase::GrDrawPathOpBase(uint32_t classID, const SkMatrix& viewMatrix, GrPaint&& paint,
-                                   GrPathRendering::FillType fill, GrAAType aaType)
+                                   GrPathRendering::FillType fill, GrAA aa)
         : INHERITED(classID)
         , fViewMatrix(viewMatrix)
         , fInputColor(paint.getColor4f())
         , fFillType(fill)
-        , fAAType(aaType)
+        , fDoAA(GrAA::kYes == aa)
         , fProcessorSet(std::move(paint)) {}
 
 #ifdef SK_DEBUG
@@ -31,25 +43,24 @@ SkString GrDrawPathOp::dumpInfo() const {
 #endif
 
 GrPipeline::InitArgs GrDrawPathOpBase::pipelineInitArgs(const GrOpFlushState& state) {
-    static constexpr GrUserStencilSettings kCoverPass{
-            GrUserStencilSettings::StaticInit<
-                    0x0000,
-                    GrUserStencilTest::kNotEqual,
-                    0xffff,
-                    GrUserStencilOp::kZero,
-                    GrUserStencilOp::kKeep,
-                    0xffff>()
-    };
     GrPipeline::InitArgs args;
-    if (GrAATypeIsHW(fAAType)) {
-        args.fFlags |= GrPipeline::kHWAntialias_Flag;
+    if (fDoAA) {
+        args.fInputFlags |= GrPipeline::InputFlags::kHWAntialias;
     }
     args.fUserStencil = &kCoverPass;
-    args.fProxy = state.drawOpArgs().fProxy;
     args.fCaps = &state.caps();
-    args.fResourceProvider = state.resourceProvider();
     args.fDstProxy = state.drawOpArgs().fDstProxy;
+    args.fOutputSwizzle = state.drawOpArgs().fOutputSwizzle;
     return args;
+}
+
+const GrProcessorSet::Analysis& GrDrawPathOpBase::doProcessorAnalysis(
+        const GrCaps& caps, const GrAppliedClip* clip, bool hasMixedSampledCoverage,
+        GrClampType clampType) {
+    fAnalysis = fProcessorSet.finalize(
+            fInputColor, GrProcessorAnalysisCoverage::kNone, clip, &kCoverPass,
+            hasMixedSampledCoverage, caps, clampType, &fInputColor);
+    return fAnalysis;
 }
 
 //////////////////////////////////////////////////////////////////////////////
@@ -64,14 +75,14 @@ void init_stencil_pass_settings(const GrOpFlushState& flushState,
 
 //////////////////////////////////////////////////////////////////////////////
 
-std::unique_ptr<GrDrawOp> GrDrawPathOp::Make(GrContext* context,
+std::unique_ptr<GrDrawOp> GrDrawPathOp::Make(GrRecordingContext* context,
                                              const SkMatrix& viewMatrix,
                                              GrPaint&& paint,
-                                             GrAAType aaType,
+                                             GrAA aa,
                                              GrPath* path) {
-    GrOpMemoryPool* pool = context->contextPriv().opMemoryPool();
+    GrOpMemoryPool* pool = context->priv().opMemoryPool();
 
-    return pool->allocate<GrDrawPathOp>(viewMatrix, std::move(paint), aaType, path);
+    return pool->allocate<GrDrawPathOp>(viewMatrix, std::move(paint), aa, path);
 }
 
 void GrDrawPathOp::onExecute(GrOpFlushState* state, const SkRect& chainBounds) {
@@ -83,7 +94,9 @@ void GrDrawPathOp::onExecute(GrOpFlushState* state, const SkRect& chainBounds) {
 
     GrStencilSettings stencil;
     init_stencil_pass_settings(*state, this->fillType(), &stencil);
-    state->gpu()->pathRendering()->drawPath(*pathProc, pipeline, fixedDynamicState, stencil,
+    state->gpu()->pathRendering()->drawPath(state->drawOpArgs().renderTarget(),
+                                            state->drawOpArgs().origin(),
+                                            *pathProc, pipeline, fixedDynamicState, stencil,
                                             fPath.get());
 }
 

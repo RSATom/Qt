@@ -1,6 +1,6 @@
 [pauseAndPropertyAnimations]
-*
+macos
 [multipleSequentialGroups]
-osx
+macos
 [noTimerUpdates]
-osx
+macos

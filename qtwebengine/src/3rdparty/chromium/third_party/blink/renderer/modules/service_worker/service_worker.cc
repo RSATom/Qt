@@ -91,17 +91,11 @@ void ServiceWorker::postMessage(ScriptState* script_state,
   if (exception_state.HadException())
     return;
 
-  if (state_ == mojom::blink::ServiceWorkerState::kRedundant) {
-    exception_state.ThrowDOMException(DOMExceptionCode::kInvalidStateError,
-                                      "ServiceWorker is in redundant state.");
-    return;
-  }
-
   host_->PostMessageToServiceWorker(std::move(msg));
 }
 
 ScriptPromise ServiceWorker::InternalsTerminate(ScriptState* script_state) {
-  ScriptPromiseResolver* resolver = ScriptPromiseResolver::Create(script_state);
+  auto* resolver = MakeGarbageCollected<ScriptPromiseResolver>(script_state);
   ScriptPromise promise = resolver->Promise();
   host_->TerminateForTesting(
       WTF::Bind([](ScriptPromiseResolver* resolver) { resolver->Resolve(); },
@@ -171,6 +165,9 @@ bool ServiceWorker::HasPendingActivity() const {
   return state_ != mojom::blink::ServiceWorkerState::kRedundant;
 }
 
+void ServiceWorker::ContextLifecycleStateChanged(
+    mojom::FrameLifecycleState state) {}
+
 void ServiceWorker::ContextDestroyed(ExecutionContext*) {
   was_stopped_ = true;
 }
@@ -195,6 +192,11 @@ ServiceWorker::ServiceWorker(ExecutionContext* execution_context,
 }
 
 ServiceWorker::~ServiceWorker() = default;
+
+void ServiceWorker::Dispose() {
+  host_.reset();
+  binding_.Close();
+}
 
 void ServiceWorker::Trace(blink::Visitor* visitor) {
   AbstractWorker::Trace(visitor);

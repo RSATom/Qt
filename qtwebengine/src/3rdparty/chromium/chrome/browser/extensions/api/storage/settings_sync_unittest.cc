@@ -41,8 +41,6 @@ using base::ListValue;
 using base::Value;
 namespace extensions {
 
-namespace util = settings_test_util;
-
 namespace {
 
 // To save typing ValueStore::DEFAULTS everywhere.
@@ -213,8 +211,8 @@ class ExtensionSettingsSyncTest : public testing::Test {
   ValueStore* AddExtensionAndGetStorage(
       const std::string& id, Manifest::Type type) {
     scoped_refptr<const Extension> extension =
-        util::AddExtensionWithId(profile_.get(), id, type);
-    return util::GetStorage(extension, frontend_.get());
+        settings_test_util::AddExtensionWithId(profile_.get(), id, type);
+    return settings_test_util::GetStorage(extension, frontend_.get());
   }
 
   // Gets the syncer::SyncableService for the given sync type.
@@ -1322,11 +1320,7 @@ TEST_F(ExtensionSettingsSyncTest,
   Manifest::Type type = Manifest::TYPE_LEGACY_PACKAGED_APP;
 
   // This value should be larger than the limit in sync_storage_backend.cc.
-  std::string string_10k;
-  for (size_t i = 0; i < 10000; ++i) {
-    string_10k.append("a");
-  }
-  base::Value large_value(string_10k);
+  base::Value large_value(std::string(10000, 'a'));
 
   PostOnBackendSequenceAndWait(FROM_HERE, [&, this]() {
     GetSyncableService(model_type)
@@ -1425,9 +1419,9 @@ namespace {
 static void UnlimitedSyncStorageTestCallback(ValueStore* sync_storage) {
   // Sync storage should still run out after ~100K; the unlimitedStorage
   // permission can't apply to sync.
-  std::unique_ptr<base::Value> kilobyte = util::CreateKilobyte();
+  std::unique_ptr<base::Value> kilobyte = settings_test_util::CreateKilobyte();
   for (int i = 0; i < 100; ++i) {
-    sync_storage->Set(ValueStore::DEFAULTS, base::IntToString(i), *kilobyte);
+    sync_storage->Set(ValueStore::DEFAULTS, base::NumberToString(i), *kilobyte);
   }
 
   EXPECT_FALSE(sync_storage->Set(ValueStore::DEFAULTS, "WillError", *kilobyte)
@@ -1437,9 +1431,10 @@ static void UnlimitedSyncStorageTestCallback(ValueStore* sync_storage) {
 
 static void UnlimitedLocalStorageTestCallback(ValueStore* local_storage) {
   // Local storage should never run out.
-  std::unique_ptr<base::Value> megabyte = util::CreateMegabyte();
+  std::unique_ptr<base::Value> megabyte = settings_test_util::CreateMegabyte();
   for (int i = 0; i < 7; ++i) {
-    local_storage->Set(ValueStore::DEFAULTS, base::IntToString(i), *megabyte);
+    local_storage->Set(ValueStore::DEFAULTS, base::NumberToString(i),
+                       *megabyte);
   }
 
   EXPECT_TRUE(local_storage->Set(ValueStore::DEFAULTS, "WontError", *megabyte)
@@ -1462,7 +1457,7 @@ TEST_F(ExtensionSettingsSyncTest, MAYBE_UnlimitedStorageForLocalButNotSync) {
   std::set<std::string> permissions;
   permissions.insert("unlimitedStorage");
   scoped_refptr<const Extension> extension =
-      util::AddExtensionWithIdAndPermissions(
+      settings_test_util::AddExtensionWithIdAndPermissions(
           profile_.get(), id, Manifest::TYPE_EXTENSION, permissions);
 
   frontend_->RunWithStorage(extension,

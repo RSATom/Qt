@@ -100,6 +100,7 @@ UI.TextEditor.prototype = {
 
 /** @enum {symbol} */
 UI.TextEditor.Events = {
+  CursorChanged: Symbol('CursorChanged'),
   TextChanged: Symbol('TextChanged'),
   SuggestionChanged: Symbol('SuggestionChanged')
 };
@@ -107,6 +108,7 @@ UI.TextEditor.Events = {
 /**
  * @typedef {{
  *  bracketMatchingSetting: (!Common.Setting|undefined),
+ *  devtoolsAccessibleName: (string|undefined),
  *  lineNumbers: boolean,
  *  lineWrapping: boolean,
  *  mimeType: (string|undefined),

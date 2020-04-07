@@ -8,7 +8,7 @@
 #ifndef SkSGMaskEffect_DEFINED
 #define SkSGMaskEffect_DEFINED
 
-#include "SkSGEffectNode.h"
+#include "modules/sksg/include/SkSGEffectNode.h"
 
 namespace sksg {
 
@@ -36,6 +36,7 @@ protected:
     MaskEffect(sk_sp<RenderNode>, sk_sp<RenderNode> mask, Mode);
 
     void onRender(SkCanvas*, const RenderContext*) const override;
+    const RenderNode* onNodeAt(const SkPoint&)     const override;
 
     SkRect onRevalidate(InvalidationController*, const SkMatrix&) override;
 

@@ -662,10 +662,10 @@ UI.anotherProfilerActiveLabel = function() {
 UI.asyncStackTraceLabel = function(description) {
   if (description) {
     if (description === 'Promise.resolve')
-      description = Common.UIString('Promise resolved');
+      return ls`Promise resolved (async)`;
     else if (description === 'Promise.reject')
-      description = Common.UIString('Promise rejected');
-    return description + ' ' + Common.UIString('(async)');
+      return ls`Promise rejected (async)`;
+    return ls`${description} (async)`;
   }
   return Common.UIString('Async Call');
 };
@@ -1222,6 +1222,21 @@ UI.createInput = function(className, type) {
 };
 
 /**
+ * @param {string} title
+ * @param {string=} className
+ * @param {!Element=} associatedControl
+ * @return {!Element}
+ */
+UI.createLabel = function(title, className, associatedControl) {
+  const element = createElementWithClass('label', className || '');
+  element.textContent = title;
+  if (associatedControl)
+    UI.ARIAUtils.bindLabelToControl(element, associatedControl);
+
+  return element;
+};
+
+/**
  * @param {string} name
  * @param {string} title
  * @param {boolean=} checked
@@ -1240,7 +1255,7 @@ UI.createRadioLabel = function(name, title, checked) {
  * @param {string} iconClass
  * @return {!Element}
  */
-UI.createLabel = function(title, iconClass) {
+UI.createIconLabel = function(title, iconClass) {
   const element = createElement('span', 'dt-icon-label');
   element.createChild('span').textContent = title;
   element.type = iconClass;
@@ -1451,6 +1466,8 @@ UI.registerCustomElement('div', 'dt-close-button', class extends HTMLDivElement 
     super();
     const root = UI.createShadowRootWithCoreStyles(this, 'ui/closeButton.css');
     this._buttonElement = root.createChild('div', 'close-button');
+    UI.ARIAUtils.setAccessibleName(this._buttonElement, ls`Close`);
+    UI.ARIAUtils.markAsButton(this._buttonElement);
     const regularIcon = UI.Icon.create('smallicon-cross', 'default-icon');
     this._hoverIcon = UI.Icon.create('mediumicon-red-cross-hover', 'hover-icon');
     this._activeIcon = UI.Icon.create('mediumicon-red-cross-active', 'active-icon');
@@ -1472,13 +1489,21 @@ UI.registerCustomElement('div', 'dt-close-button', class extends HTMLDivElement 
       this._activeIcon.setIconType('mediumicon-red-cross-active');
     }
   }
+
+  /**
+   * @param {string} name
+   * @this {Element}
+   */
+  setAccessibleName(name) {
+    UI.ARIAUtils.setAccessibleName(this._buttonElement, name);
+  }
 });
 })();
 
 /**
  * @param {!Element} input
  * @param {function(string)} apply
- * @param {function(string):boolean} validate
+ * @param {function(string):{valid: boolean, errorMessage: (string|undefined)}} validate
  * @param {boolean} numeric
  * @param {number=} modifierMultiplier
  * @return {function(string)}
@@ -1494,7 +1519,7 @@ UI.bindInput = function(input, apply, validate, numeric, modifierMultiplier) {
   }
 
   function onChange() {
-    const valid = validate(input.value);
+    const {valid} = validate(input.value);
     input.classList.toggle('error-input', !valid);
     if (valid)
       apply(input.value);
@@ -1505,7 +1530,8 @@ UI.bindInput = function(input, apply, validate, numeric, modifierMultiplier) {
    */
   function onKeyDown(event) {
     if (isEnterKey(event)) {
-      if (validate(input.value))
+      const {valid} = validate(input.value);
+      if (valid)
         apply(input.value);
       event.preventDefault();
       return;
@@ -1516,7 +1542,8 @@ UI.bindInput = function(input, apply, validate, numeric, modifierMultiplier) {
 
     const value = UI._modifiedFloatNumber(parseFloat(input.value), event, modifierMultiplier);
     const stringValue = value ? String(value) : '';
-    if (!validate(stringValue) || !value)
+    const {valid} = validate(stringValue);
+    if (!valid || !value)
       return;
 
     input.value = stringValue;
@@ -1530,7 +1557,7 @@ UI.bindInput = function(input, apply, validate, numeric, modifierMultiplier) {
   function setValue(value) {
     if (value === input.value)
       return;
-    const valid = validate(value);
+    const {valid} = validate(value);
     input.classList.toggle('error-input', !valid);
     input.value = value;
   }
@@ -1631,7 +1658,8 @@ UI.ThemeSupport = class {
    * @param {!Common.Setting} setting
    */
   constructor(setting) {
-    this._themeName = setting.get() || 'default';
+    const systemPreferredTheme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'default';
+    this._themeName = setting.get() === 'systemPreferred' ? systemPreferredTheme : setting.get();
     this._themableProperties = new Set([
       'color', 'box-shadow', 'text-shadow', 'outline-color', 'background-image', 'background-color',
       'border-left-color', 'border-right-color', 'border-top-color', 'border-bottom-color', '-webkit-border-image',
@@ -1984,7 +2012,7 @@ UI.ConfirmDialog = class {
 };
 
 /**
- * @param {!UI.ToolbarToggle} toolbarButton
+ * @param {!UI.ToolbarButton} toolbarButton
  * @return {!Element}
  */
 UI.createInlineButton = function(toolbarButton) {
@@ -2003,6 +2031,11 @@ UI.createInlineButton = function(toolbarButton) {
  * @return {!DocumentFragment}
  */
 UI.createExpandableText = function(text, maxLength) {
+  const clickHandler = () => {
+    if (expandElement.parentElement)
+      expandElement.parentElement.insertBefore(createTextNode(text.slice(maxLength)), expandElement);
+    expandElement.remove();
+  };
   const fragment = createDocumentFragment();
   fragment.textContent = text.slice(0, maxLength);
   const expandElement = fragment.createChild('span');
@@ -2010,11 +2043,13 @@ UI.createExpandableText = function(text, maxLength) {
   if (text.length < 10000000) {
     expandElement.setAttribute('data-text', ls`Show more (${totalBytes})`);
     expandElement.classList.add('expandable-inline-button');
-    expandElement.addEventListener('click', () => {
-      if (expandElement.parentElement)
-        expandElement.parentElement.insertBefore(createTextNode(text.slice(maxLength)), expandElement);
-      expandElement.remove();
+    expandElement.addEventListener('click', clickHandler);
+    expandElement.addEventListener('keydown', event => {
+      if (event.key === 'Enter' || event.key === ' ')
+        clickHandler();
     });
+    UI.ARIAUtils.markAsButton(expandElement);
+
   } else {
     expandElement.setAttribute('data-text', ls`long text was truncated (${totalBytes})`);
     expandElement.classList.add('undisplayable-text');
@@ -2025,6 +2060,11 @@ UI.createExpandableText = function(text, maxLength) {
   copyButton.addEventListener('click', () => {
     InspectorFrontendHost.copyText(text);
   });
+  copyButton.addEventListener('keydown', event => {
+    if (event.key === 'Enter' || event.key === ' ')
+      InspectorFrontendHost.copyText(text);
+  });
+  UI.ARIAUtils.markAsButton(copyButton);
   return fragment;
 };
 
@@ -2056,3 +2096,27 @@ UI.Renderer.render = async function(object, options) {
 
 /** @typedef {!{title: (string|!Element|undefined), editable: (boolean|undefined) }} */
 UI.Renderer.Options;
+
+/**
+ * @param {number} timestamp
+ * @param {boolean} full
+ * @return {string}
+ */
+UI.formatTimestamp = function(timestamp, full) {
+  const date = new Date(timestamp);
+  const yymmdd = date.getFullYear() + '-' + leadZero(date.getMonth() + 1, 2) + '-' + leadZero(date.getDate(), 2);
+  const hhmmssfff = leadZero(date.getHours(), 2) + ':' + leadZero(date.getMinutes(), 2) + ':' +
+      leadZero(date.getSeconds(), 2) + '.' + leadZero(date.getMilliseconds(), 3);
+  return full ? (yymmdd + ' ' + hhmmssfff) : hhmmssfff;
+
+  /**
+   * @param {number} value
+   * @param {number} length
+   * @return {string}
+   */
+  function leadZero(value, length) {
+    const valueString = value.toString();
+    const padding = length - valueString.length;
+    return padding <= 0 ? valueString : '0'.repeat(padding) + valueString;
+  }
+};

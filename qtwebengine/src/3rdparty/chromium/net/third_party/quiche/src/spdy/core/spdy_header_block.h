@@ -12,7 +12,6 @@
 #include <utility>
 #include <vector>
 
-#include "base/macros.h"
 #include "net/third_party/quiche/src/spdy/platform/api/spdy_containers.h"
 #include "net/third_party/quiche/src/spdy/platform/api/spdy_export.h"
 #include "net/third_party/quiche/src/spdy/platform/api/spdy_macros.h"
@@ -181,7 +180,7 @@ class SPDY_EXPORT_PRIVATE SpdyHeaderBlock {
                               const SpdyStringPiece value);
 
   // Allows either lookup or mutation of the value associated with a key.
-  ValueProxy operator[](const SpdyStringPiece key) SPDY_MUST_USE_RESULT;
+  SPDY_MUST_USE_RESULT ValueProxy operator[](const SpdyStringPiece key);
 
   // This object provides automatic conversions that allow SpdyHeaderBlock to be
   // nearly a drop-in replacement for SpdyLinkedHashMap<SpdyString, SpdyString>.

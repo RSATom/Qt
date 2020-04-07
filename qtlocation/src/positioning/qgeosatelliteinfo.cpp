@@ -37,22 +37,13 @@
 **
 ****************************************************************************/
 #include "qgeosatelliteinfo.h"
+#include "qgeosatelliteinfo_p.h"
 
 #include <QHash>
 #include <QDebug>
 #include <QDataStream>
 
 QT_BEGIN_NAMESPACE
-
-class QGeoSatelliteInfoPrivate
-{
-public:
-    int signal;
-    int satId;
-    QGeoSatelliteInfo::SatelliteSystem system;
-    QHash<int, qreal> doubleAttribs;
-};
-
 
 /*!
     \class QGeoSatelliteInfo
@@ -103,6 +94,10 @@ QGeoSatelliteInfo::QGeoSatelliteInfo(const QGeoSatelliteInfo &other)
     operator=(other);
 }
 
+QGeoSatelliteInfo::QGeoSatelliteInfo(QGeoSatelliteInfoPrivate &dd) : d(&dd)
+{
+}
+
 /*!
     Destroys a satellite information object.
 */
@@ -119,10 +114,9 @@ QGeoSatelliteInfo &QGeoSatelliteInfo::operator=(const QGeoSatelliteInfo & other)
     if (this == &other)
         return *this;
 
-    d->signal = other.d->signal;
-    d->satId = other.d->satId;
-    d->system = other.d->system;
-    d->doubleAttribs = other.d->doubleAttribs;
+    delete d;
+    d = other.d->clone();
+
     return *this;
 }
 
@@ -132,10 +126,7 @@ QGeoSatelliteInfo &QGeoSatelliteInfo::operator=(const QGeoSatelliteInfo & other)
 */
 bool QGeoSatelliteInfo::operator==(const QGeoSatelliteInfo &other) const
 {
-    return d->signal == other.d->signal
-           && d->satId == other.d->satId
-           && d->system == other.d->system
-           && d->doubleAttribs == other.d->doubleAttribs;
+    return *d == *other.d;
 }
 
 /*!
@@ -309,6 +300,40 @@ QDataStream &operator>>(QDataStream &stream, QGeoSatelliteInfo &info)
     info.d->system = (QGeoSatelliteInfo::SatelliteSystem)system;
     return stream;
 }
+
+QGeoSatelliteInfoPrivate::QGeoSatelliteInfoPrivate()
+{
+
+}
+
+QGeoSatelliteInfoPrivate::QGeoSatelliteInfoPrivate(const QGeoSatelliteInfoPrivate &other)
+{
+    signal = other.signal;
+    satId = other.satId;
+    system = other.system;
+    doubleAttribs = other.doubleAttribs;
+}
+
+QGeoSatelliteInfoPrivate::~QGeoSatelliteInfoPrivate() {}
+
+QGeoSatelliteInfoPrivate *QGeoSatelliteInfoPrivate::clone() const
+{
+    return new QGeoSatelliteInfoPrivate(*this);
+}
+
+bool QGeoSatelliteInfoPrivate::operator==(const QGeoSatelliteInfoPrivate &other) const
+{
+    return signal == other.signal
+           && satId == other.satId
+           && system == other.system
+           && doubleAttribs == other.doubleAttribs;
+}
+
+QGeoSatelliteInfoPrivate *QGeoSatelliteInfoPrivate::get(const QGeoSatelliteInfo &info)
+{
+    return info.d;
+}
+
 #endif
 
 QT_END_NAMESPACE

@@ -30,10 +30,10 @@ CXFA_FFComboBox::CXFA_FFComboBox(CXFA_Node* pNode)
 
 CXFA_FFComboBox::~CXFA_FFComboBox() {}
 
-CFX_RectF CXFA_FFComboBox::GetBBox(uint32_t dwStatus, FocusOption focus) {
+CFX_RectF CXFA_FFComboBox::GetBBox(FocusOption focus) {
   if (focus == kDrawFocus)
     return CFX_RectF();
-  return CXFA_FFWidget::GetBBox(dwStatus, kDoNotDrawFocus);
+  return CXFA_FFWidget::GetBBox(kDoNotDrawFocus);
 }
 
 bool CXFA_FFComboBox::PtInActiveRect(const CFX_PointF& point) {
@@ -45,7 +45,7 @@ bool CXFA_FFComboBox::LoadWidget() {
   auto pNew = pdfium::MakeUnique<CFWL_ComboBox>(GetFWLApp());
   CFWL_ComboBox* pComboBox = pNew.get();
   m_pNormalWidget = std::move(pNew);
-  m_pNormalWidget->SetLayoutItem(this);
+  m_pNormalWidget->SetFFWidget(this);
 
   CFWL_NoteDriver* pNoteDriver =
       m_pNormalWidget->GetOwnerApp()->GetNoteDriver();
@@ -106,8 +106,7 @@ bool CXFA_FFComboBox::OnKillFocus(CXFA_FFWidget* pNewWidget) {
   if (!ProcessCommittedData())
     UpdateFWLData();
 
-  CXFA_FFField::OnKillFocus(pNewWidget);
-  return true;
+  return CXFA_FFField::OnKillFocus(pNewWidget);
 }
 
 void CXFA_FFComboBox::OpenDropDownList() {

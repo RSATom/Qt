@@ -11,6 +11,8 @@ namespace prefs {
 extern const char kAcceptLanguages[];
 extern const char kNotificationNextPersistentId[];
 extern const char kShowInternalAccessibilityTree[];
+extern const char kAccessibilityImageLabelsEnabled[];
+extern const char kAccessibilityImageLabelsOptInAccepted[];
 }  // namespace prefs
 
 #endif  // CHROME_COMMON_PREF_NAMES_H_

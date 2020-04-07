@@ -5,14 +5,14 @@
 #include "third_party/blink/renderer/modules/service_worker/service_worker_installed_scripts_manager.h"
 
 #include "base/run_loop.h"
+#include "base/synchronization/waitable_event.h"
 #include "mojo/public/cpp/bindings/binding.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/blink/public/mojom/service_worker/service_worker_installed_scripts_manager.mojom-blink.h"
 #include "third_party/blink/public/platform/platform.h"
-#include "third_party/blink/renderer/platform/cross_thread_functional.h"
 #include "third_party/blink/renderer/platform/scheduler/public/post_cross_thread_task.h"
 #include "third_party/blink/renderer/platform/scheduler/public/thread.h"
-#include "third_party/blink/renderer/platform/waitable_event.h"
+#include "third_party/blink/renderer/platform/wtf/cross_thread_functional.h"
 #include "third_party/blink/renderer/platform/wtf/functional.h"
 
 namespace blink {
@@ -57,12 +57,12 @@ class BrowserSideSender
     manager_->TransferInstalledScript(std::move(script_info));
   }
 
-  void PushBody(const std::string& data) {
-    PushDataPipe(data, body_handle_.get());
+  void PushBody(const String& data) {
+    PushDataPipe(data.Utf8(), body_handle_.get());
   }
 
-  void PushMetaData(const std::string& data) {
-    PushDataPipe(data, meta_data_handle_.get());
+  void PushMetaData(const String& data) {
+    PushDataPipe(data.Utf8(), meta_data_handle_.get());
   }
 
   void FinishTransferBody() { body_handle_.reset(); }
@@ -127,7 +127,10 @@ class ServiceWorkerInstalledScriptsManagerTest : public testing::Test {
                 .SetThreadNameForTest("io thread"))),
         worker_thread_(Platform::Current()->CreateThread(
             ThreadCreationParams(WebThreadType::kTestThread)
-                .SetThreadNameForTest("worker thread"))) {}
+                .SetThreadNameForTest("worker thread"))),
+        worker_waiter_(std::make_unique<base::WaitableEvent>(
+            base::WaitableEvent::ResetPolicy::AUTOMATIC,
+            base::WaitableEvent::InitialState::NOT_SIGNALED)) {}
 
  protected:
   using RawScriptData = ThreadSafeScriptContainer::RawScriptData;
@@ -143,41 +146,41 @@ class ServiceWorkerInstalledScriptsManagerTest : public testing::Test {
             io_thread_->GetTaskRunner());
   }
 
-  WaitableEvent* IsScriptInstalledOnWorkerThread(const String& script_url,
-                                                 bool* out_installed) {
+  base::WaitableEvent* IsScriptInstalledOnWorkerThread(const String& script_url,
+                                                       bool* out_installed) {
     PostCrossThreadTask(
         *worker_thread_->GetTaskRunner(), FROM_HERE,
-        CrossThreadBind(
+        CrossThreadBindOnce(
             [](ServiceWorkerInstalledScriptsManager* installed_scripts_manager,
                const String& script_url, bool* out_installed,
-               WaitableEvent* waiter) {
+               base::WaitableEvent* waiter) {
               *out_installed = installed_scripts_manager->IsScriptInstalled(
                   KURL(script_url));
               waiter->Signal();
             },
             CrossThreadUnretained(installed_scripts_manager_.get()), script_url,
             CrossThreadUnretained(out_installed),
-            CrossThreadUnretained(&worker_waiter_)));
-    return &worker_waiter_;
+            CrossThreadUnretained(worker_waiter_.get())));
+    return worker_waiter_.get();
   }
 
-  WaitableEvent* GetRawScriptDataOnWorkerThread(
+  base::WaitableEvent* GetRawScriptDataOnWorkerThread(
       const String& script_url,
       std::unique_ptr<RawScriptData>* out_data) {
     PostCrossThreadTask(
         *worker_thread_->GetTaskRunner(), FROM_HERE,
-        CrossThreadBind(
+        CrossThreadBindOnce(
             &ServiceWorkerInstalledScriptsManagerTest::CallGetRawScriptData,
             CrossThreadUnretained(this), script_url,
             CrossThreadUnretained(out_data),
-            CrossThreadUnretained(&worker_waiter_)));
-    return &worker_waiter_;
+            CrossThreadUnretained(worker_waiter_.get())));
+    return worker_waiter_.get();
   }
 
  private:
   void CallGetRawScriptData(const String& script_url,
                             std::unique_ptr<RawScriptData>* out_data,
-                            WaitableEvent* waiter) {
+                            base::WaitableEvent* waiter) {
     *out_data = installed_scripts_manager_->GetRawScriptData(KURL(script_url));
     waiter->Signal();
   }
@@ -185,7 +188,7 @@ class ServiceWorkerInstalledScriptsManagerTest : public testing::Test {
   std::unique_ptr<Thread> io_thread_;
   std::unique_ptr<Thread> worker_thread_;
 
-  WaitableEvent worker_waiter_;
+  std::unique_ptr<base::WaitableEvent> worker_waiter_;
 
   std::unique_ptr<ServiceWorkerInstalledScriptsManager>
       installed_scripts_manager_;
@@ -218,19 +221,19 @@ TEST_F(ServiceWorkerInstalledScriptsManagerTest, GetRawScriptData) {
 
   {
     std::unique_ptr<RawScriptData> script_data;
-    const std::string kExpectedBody = "This is a script body.";
-    const std::string kExpectedMetaData = "This is a meta data.";
+    const String kExpectedBody = "This is a script body.";
+    const String kExpectedMetaData = "This is a meta data.";
     const String kScriptInfoEncoding("utf8");
     const HashMap<String, String> kScriptInfoHeaders(
         {{"Cache-Control", "no-cache"}, {"User-Agent", "Chrome"}});
 
-    WaitableEvent* get_raw_script_data_waiter =
+    base::WaitableEvent* get_raw_script_data_waiter =
         GetRawScriptDataOnWorkerThread(kScriptUrl, &script_data);
 
     // Start transferring the script. +1 for null terminator.
-    sender.TransferInstalledScript(kScriptUrl, kScriptInfoEncoding,
-                                   kScriptInfoHeaders, kExpectedBody.size() + 1,
-                                   kExpectedMetaData.size() + 1);
+    sender.TransferInstalledScript(
+        kScriptUrl, kScriptInfoEncoding, kScriptInfoHeaders,
+        kExpectedBody.length() + 1, kExpectedMetaData.length() + 1);
     sender.PushBody(kExpectedBody);
     sender.PushMetaData(kExpectedMetaData);
     // GetRawScriptData should be blocked until body and meta data transfer are
@@ -242,16 +245,14 @@ TEST_F(ServiceWorkerInstalledScriptsManagerTest, GetRawScriptData) {
     // Wait for the script's arrival.
     get_raw_script_data_waiter->Wait();
     EXPECT_TRUE(script_data);
-    ASSERT_EQ(1u, script_data->ScriptTextChunks().size());
-    ASSERT_EQ(kExpectedBody.size() + 1,
-              script_data->ScriptTextChunks()[0].size());
-    EXPECT_STREQ(kExpectedBody.data(),
-                 script_data->ScriptTextChunks()[0].data());
-    ASSERT_EQ(1u, script_data->MetaDataChunks().size());
-    ASSERT_EQ(kExpectedMetaData.size() + 1,
-              script_data->MetaDataChunks()[0].size());
-    EXPECT_STREQ(kExpectedMetaData.data(),
-                 script_data->MetaDataChunks()[0].data());
+    Vector<uint8_t> script_text = script_data->TakeScriptText();
+    Vector<uint8_t> meta_data = script_data->TakeMetaData();
+    ASSERT_EQ(kExpectedBody.length() + 1, script_text.size());
+    EXPECT_EQ(kExpectedBody,
+              String(reinterpret_cast<const char*>(script_text.data())));
+    ASSERT_EQ(kExpectedMetaData.length() + 1, meta_data.size());
+    EXPECT_EQ(kExpectedMetaData,
+              String(reinterpret_cast<const char*>(meta_data.data())));
     EXPECT_EQ(kScriptInfoEncoding, script_data->Encoding());
     EXPECT_EQ(ToCrossThreadHTTPHeaderMapData(kScriptInfoHeaders),
               *(script_data->TakeHeaders()));
@@ -259,23 +260,23 @@ TEST_F(ServiceWorkerInstalledScriptsManagerTest, GetRawScriptData) {
 
   {
     std::unique_ptr<RawScriptData> script_data;
-    const std::string kExpectedBody = "This is another script body.";
-    const std::string kExpectedMetaData = "This is another meta data.";
+    const String kExpectedBody = "This is another script body.";
+    const String kExpectedMetaData = "This is another meta data.";
     const String kScriptInfoEncoding("ASCII");
     const HashMap<String, String> kScriptInfoHeaders(
         {{"Connection", "keep-alive"}, {"Content-Length", "512"}});
 
     // Request the same script again.
-    WaitableEvent* get_raw_script_data_waiter =
+    base::WaitableEvent* get_raw_script_data_waiter =
         GetRawScriptDataOnWorkerThread(kScriptUrl, &script_data);
 
     // It should call a Mojo IPC "RequestInstalledScript()" to the browser.
     sender.WaitForRequestInstalledScript(kScriptUrl);
 
     // Start transferring the script. +1 for null terminator.
-    sender.TransferInstalledScript(kScriptUrl, kScriptInfoEncoding,
-                                   kScriptInfoHeaders, kExpectedBody.size() + 1,
-                                   kExpectedMetaData.size() + 1);
+    sender.TransferInstalledScript(
+        kScriptUrl, kScriptInfoEncoding, kScriptInfoHeaders,
+        kExpectedBody.length() + 1, kExpectedMetaData.length() + 1);
     sender.PushBody(kExpectedBody);
     sender.PushMetaData(kExpectedMetaData);
     // GetRawScriptData should be blocked until body and meta data transfer are
@@ -287,16 +288,14 @@ TEST_F(ServiceWorkerInstalledScriptsManagerTest, GetRawScriptData) {
     // Wait for the script's arrival.
     get_raw_script_data_waiter->Wait();
     EXPECT_TRUE(script_data);
-    ASSERT_EQ(1u, script_data->ScriptTextChunks().size());
-    ASSERT_EQ(kExpectedBody.size() + 1,
-              script_data->ScriptTextChunks()[0].size());
-    EXPECT_STREQ(kExpectedBody.data(),
-                 script_data->ScriptTextChunks()[0].data());
-    ASSERT_EQ(1u, script_data->MetaDataChunks().size());
-    ASSERT_EQ(kExpectedMetaData.size() + 1,
-              script_data->MetaDataChunks()[0].size());
-    EXPECT_STREQ(kExpectedMetaData.data(),
-                 script_data->MetaDataChunks()[0].data());
+    Vector<uint8_t> script_text = script_data->TakeScriptText();
+    Vector<uint8_t> meta_data = script_data->TakeMetaData();
+    ASSERT_EQ(kExpectedBody.length() + 1, script_text.size());
+    EXPECT_EQ(kExpectedBody,
+              String(reinterpret_cast<const char*>(script_text.data())));
+    ASSERT_EQ(kExpectedMetaData.length() + 1, meta_data.size());
+    EXPECT_EQ(kExpectedMetaData,
+              String(reinterpret_cast<const char*>(meta_data.data())));
     EXPECT_EQ(kScriptInfoEncoding, script_data->Encoding());
     EXPECT_EQ(ToCrossThreadHTTPHeaderMapData(kScriptInfoHeaders),
               *(script_data->TakeHeaders()));
@@ -312,18 +311,18 @@ TEST_F(ServiceWorkerInstalledScriptsManagerTest, EarlyDisconnectionBody) {
 
   {
     std::unique_ptr<RawScriptData> script_data;
-    const std::string kExpectedBody = "This is a script body.";
-    const std::string kExpectedMetaData = "This is a meta data.";
-    WaitableEvent* get_raw_script_data_waiter =
+    const String kExpectedBody = "This is a script body.";
+    const String kExpectedMetaData = "This is a meta data.";
+    base::WaitableEvent* get_raw_script_data_waiter =
         GetRawScriptDataOnWorkerThread(kScriptUrl, &script_data);
 
     // Start transferring the script.
     // Body is expected to be 100 bytes larger than kExpectedBody, but sender
-    // only sends kExpectedBody and a null byte (kExpectedBody.size() + 1 bytes
-    // in total).
+    // only sends kExpectedBody and a null byte (kExpectedBody.length() + 1
+    // bytes in total).
     sender.TransferInstalledScript(
         kScriptUrl, String::FromUTF8("utf8"), HashMap<String, String>(),
-        kExpectedBody.size() + 100, kExpectedMetaData.size() + 1);
+        kExpectedBody.length() + 100, kExpectedMetaData.length() + 1);
     sender.PushBody(kExpectedBody);
     sender.PushMetaData(kExpectedMetaData);
     // GetRawScriptData should be blocked until body and meta data transfer are
@@ -357,18 +356,18 @@ TEST_F(ServiceWorkerInstalledScriptsManagerTest, EarlyDisconnectionMetaData) {
 
   {
     std::unique_ptr<RawScriptData> script_data;
-    const std::string kExpectedBody = "This is a script body.";
-    const std::string kExpectedMetaData = "This is a meta data.";
-    WaitableEvent* get_raw_script_data_waiter =
+    const String kExpectedBody = "This is a script body.";
+    const String kExpectedMetaData = "This is a meta data.";
+    base::WaitableEvent* get_raw_script_data_waiter =
         GetRawScriptDataOnWorkerThread(kScriptUrl, &script_data);
 
     // Start transferring the script.
     // Meta data is expected to be 100 bytes larger than kExpectedMetaData, but
     // sender only sends kExpectedMetaData and a null byte
-    // (kExpectedMetaData.size() + 1 bytes in total).
+    // (kExpectedMetaData.length() + 1 bytes in total).
     sender.TransferInstalledScript(
         kScriptUrl, String::FromUTF8("utf8"), HashMap<String, String>(),
-        kExpectedBody.size() + 1, kExpectedMetaData.size() + 100);
+        kExpectedBody.length() + 1, kExpectedMetaData.length() + 100);
     sender.PushBody(kExpectedBody);
     sender.PushMetaData(kExpectedMetaData);
     // GetRawScriptData should be blocked until body and meta data transfer are
@@ -402,7 +401,7 @@ TEST_F(ServiceWorkerInstalledScriptsManagerTest, EarlyDisconnectionManager) {
 
   {
     std::unique_ptr<RawScriptData> script_data;
-    WaitableEvent* get_raw_script_data_waiter =
+    base::WaitableEvent* get_raw_script_data_waiter =
         GetRawScriptDataOnWorkerThread(kScriptUrl, &script_data);
 
     // Reset the Mojo connection before sending the script.

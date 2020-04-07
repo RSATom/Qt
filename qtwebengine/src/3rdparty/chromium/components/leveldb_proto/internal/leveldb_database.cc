@@ -39,16 +39,11 @@ bool PrefixStopCallback(const std::string& prefix, const std::string& key) {
   return base::StartsWith(key, prefix, base::CompareCase::SENSITIVE);
 }
 
-LevelDB::LevelDB(const char* client_name)
-    : open_histogram_(nullptr), destroy_histogram_(nullptr) {
+LevelDB::LevelDB(const char* client_name) : open_histogram_(nullptr) {
   // Used in lieu of UMA_HISTOGRAM_ENUMERATION because the histogram name is
   // not a constant.
   open_histogram_ = base::LinearHistogram::FactoryGet(
       std::string("LevelDB.Open.") + client_name, 1,
-      leveldb_env::LEVELDB_STATUS_MAX, leveldb_env::LEVELDB_STATUS_MAX + 1,
-      base::Histogram::kUmaTargetedHistogramFlag);
-  destroy_histogram_ = base::LinearHistogram::FactoryGet(
-      std::string("LevelDB.Destroy.") + client_name, 1,
       leveldb_env::LEVELDB_STATUS_MAX, leveldb_env::LEVELDB_STATUS_MAX + 1,
       base::Histogram::kUmaTargetedHistogramFlag);
   approx_memtable_mem_histogram_ = base::LinearHistogram::FactoryGet(
@@ -107,7 +102,11 @@ leveldb::Status LevelDB::Init(const base::FilePath& database_dir,
             leveldb_chrome::GetSharedBrowserBlockCache()->TotalCharge());
       }
     }
-  } else {
+    // Don't log warnings when result is InvalidArgument and create_if_missing
+    // is false, as this means the DB file doesn't exist and the client didn't
+    // ask to create a new one.
+  } else if (!(status.IsInvalidArgument() &&
+               !open_options_.create_if_missing)) {
     LOG(WARNING) << "Unable to open " << database_dir.value() << ": "
                  << status.ToString();
   }
@@ -312,8 +311,6 @@ leveldb::Status LevelDB::Destroy() {
   leveldb::Status status = leveldb::DestroyDB(path, open_options_);
   if (!status.ok())
     LOG(WARNING) << "Unable to destroy " << path << ": " << status.ToString();
-  if (destroy_histogram_)
-    destroy_histogram_->Add(leveldb_env::GetLevelDBStatusUMAValue(status));
   return status;
 }
 

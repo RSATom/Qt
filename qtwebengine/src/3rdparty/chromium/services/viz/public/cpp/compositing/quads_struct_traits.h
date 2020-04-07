@@ -7,6 +7,7 @@
 
 #include "base/containers/span.h"
 #include "base/logging.h"
+#include "base/unguessable_token.h"
 #include "components/viz/common/quads/debug_border_draw_quad.h"
 #include "components/viz/common/quads/picture_draw_quad.h"
 #include "components/viz/common/quads/render_pass_draw_quad.h"
@@ -15,7 +16,10 @@
 #include "components/viz/common/quads/surface_draw_quad.h"
 #include "components/viz/common/quads/texture_draw_quad.h"
 #include "components/viz/common/quads/tile_draw_quad.h"
+#include "components/viz/common/quads/video_hole_draw_quad.h"
 #include "components/viz/common/quads/yuv_video_draw_quad.h"
+#include "gpu/ipc/common/vulkan_ycbcr_info.h"
+#include "gpu/ipc/common/vulkan_ycbcr_info_mojom_traits.h"
 #include "services/viz/public/cpp/compositing/filter_operation_struct_traits.h"
 #include "services/viz/public/cpp/compositing/filter_operations_struct_traits.h"
 #include "services/viz/public/cpp/compositing/shared_quad_state_struct_traits.h"
@@ -31,14 +35,15 @@ viz::DrawQuad* AllocateAndConstruct(
     viz::QuadList* list);
 
 template <>
-struct EnumTraits<viz::mojom::ProtectedVideoState, ui::ProtectedVideoType> {
-  static viz::mojom::ProtectedVideoState ToMojom(ui::ProtectedVideoType input) {
+struct EnumTraits<viz::mojom::ProtectedVideoState, gfx::ProtectedVideoType> {
+  static viz::mojom::ProtectedVideoState ToMojom(
+      gfx::ProtectedVideoType input) {
     switch (input) {
-      case ui::ProtectedVideoType::kClear:
+      case gfx::ProtectedVideoType::kClear:
         return viz::mojom::ProtectedVideoState::kClear;
-      case ui::ProtectedVideoType::kHardwareProtected:
+      case gfx::ProtectedVideoType::kHardwareProtected:
         return viz::mojom::ProtectedVideoState::kHardwareProtected;
-      case ui::ProtectedVideoType::kSoftwareProtected:
+      case gfx::ProtectedVideoType::kSoftwareProtected:
         return viz::mojom::ProtectedVideoState::kSoftwareProtected;
     }
     NOTREACHED();
@@ -46,16 +51,16 @@ struct EnumTraits<viz::mojom::ProtectedVideoState, ui::ProtectedVideoType> {
   }
 
   static bool FromMojom(viz::mojom::ProtectedVideoState input,
-                        ui::ProtectedVideoType* out) {
+                        gfx::ProtectedVideoType* out) {
     switch (input) {
       case viz::mojom::ProtectedVideoState::kClear:
-        *out = ui::ProtectedVideoType::kClear;
+        *out = gfx::ProtectedVideoType::kClear;
         return true;
       case viz::mojom::ProtectedVideoState::kHardwareProtected:
-        *out = ui::ProtectedVideoType::kHardwareProtected;
+        *out = gfx::ProtectedVideoType::kHardwareProtected;
         return true;
       case viz::mojom::ProtectedVideoState::kSoftwareProtected:
-        *out = ui::ProtectedVideoType::kSoftwareProtected;
+        *out = gfx::ProtectedVideoType::kSoftwareProtected;
         return true;
     }
     NOTREACHED();
@@ -68,25 +73,27 @@ struct UnionTraits<viz::mojom::DrawQuadStateDataView, viz::DrawQuad> {
   static viz::mojom::DrawQuadStateDataView::Tag GetTag(
       const viz::DrawQuad& quad) {
     switch (quad.material) {
-      case viz::DrawQuad::INVALID:
+      case viz::DrawQuad::Material::kInvalid:
         break;
-      case viz::DrawQuad::DEBUG_BORDER:
+      case viz::DrawQuad::Material::kDebugBorder:
         return viz::mojom::DrawQuadStateDataView::Tag::DEBUG_BORDER_QUAD_STATE;
-      case viz::DrawQuad::PICTURE_CONTENT:
+      case viz::DrawQuad::Material::kPictureContent:
         break;
-      case viz::DrawQuad::RENDER_PASS:
+      case viz::DrawQuad::Material::kRenderPass:
         return viz::mojom::DrawQuadStateDataView::Tag::RENDER_PASS_QUAD_STATE;
-      case viz::DrawQuad::SOLID_COLOR:
+      case viz::DrawQuad::Material::kSolidColor:
         return viz::mojom::DrawQuadStateDataView::Tag::SOLID_COLOR_QUAD_STATE;
-      case viz::DrawQuad::STREAM_VIDEO_CONTENT:
+      case viz::DrawQuad::Material::kStreamVideoContent:
         return viz::mojom::DrawQuadStateDataView::Tag::STREAM_VIDEO_QUAD_STATE;
-      case viz::DrawQuad::SURFACE_CONTENT:
+      case viz::DrawQuad::Material::kSurfaceContent:
         return viz::mojom::DrawQuadStateDataView::Tag::SURFACE_QUAD_STATE;
-      case viz::DrawQuad::TEXTURE_CONTENT:
+      case viz::DrawQuad::Material::kTextureContent:
         return viz::mojom::DrawQuadStateDataView::Tag::TEXTURE_QUAD_STATE;
-      case viz::DrawQuad::TILED_CONTENT:
+      case viz::DrawQuad::Material::kTiledContent:
         return viz::mojom::DrawQuadStateDataView::Tag::TILE_QUAD_STATE;
-      case viz::DrawQuad::YUV_VIDEO_CONTENT:
+      case viz::DrawQuad::Material::kVideoHole:
+        return viz::mojom::DrawQuadStateDataView::Tag::VIDEO_HOLE_QUAD_STATE;
+      case viz::DrawQuad::Material::kYuvVideoContent:
         return viz::mojom::DrawQuadStateDataView::Tag::YUV_VIDEO_QUAD_STATE;
     }
     NOTREACHED();
@@ -125,6 +132,10 @@ struct UnionTraits<viz::mojom::DrawQuadStateDataView, viz::DrawQuad> {
     return quad;
   }
 
+  static const viz::DrawQuad& video_hole_quad_state(const viz::DrawQuad& quad) {
+    return quad;
+  }
+
   static const viz::DrawQuad& yuv_video_quad_state(const viz::DrawQuad& quad) {
     return quad;
   }
@@ -145,12 +156,27 @@ struct UnionTraits<viz::mojom::DrawQuadStateDataView, viz::DrawQuad> {
         return data.ReadTileQuadState(out);
       case viz::mojom::DrawQuadStateDataView::Tag::STREAM_VIDEO_QUAD_STATE:
         return data.ReadStreamVideoQuadState(out);
+      case viz::mojom::DrawQuadStateDataView::Tag::VIDEO_HOLE_QUAD_STATE:
+        return data.ReadVideoHoleQuadState(out);
       case viz::mojom::DrawQuadStateDataView::Tag::YUV_VIDEO_QUAD_STATE:
         return data.ReadYuvVideoQuadState(out);
     }
     NOTREACHED();
     return false;
   }
+};
+
+template <>
+struct StructTraits<viz::mojom::VideoHoleQuadStateDataView, viz::DrawQuad> {
+  static const base::UnguessableToken& overlay_plane_id(
+      const viz::DrawQuad& input) {
+    const viz::VideoHoleDrawQuad* quad =
+        viz::VideoHoleDrawQuad::MaterialCast(&input);
+    return quad->overlay_plane_id;
+  }
+
+  static bool Read(viz::mojom::VideoHoleQuadStateDataView data,
+                   viz::DrawQuad* out);
 };
 
 template <>
@@ -196,6 +222,12 @@ struct StructTraits<viz::mojom::RenderPassQuadStateDataView, viz::DrawQuad> {
     const viz::RenderPassDrawQuad* quad =
         viz::RenderPassDrawQuad::MaterialCast(&input);
     return quad->mask_texture_size;
+  }
+
+  static bool mask_applies_to_backdrop(const viz::DrawQuad& input) {
+    const viz::RenderPassDrawQuad* quad =
+        viz::RenderPassDrawQuad::MaterialCast(&input);
+    return quad->mask_applies_to_backdrop;
   }
 
   static const gfx::Vector2dF& filters_scale(const viz::DrawQuad& input) {
@@ -265,10 +297,23 @@ struct StructTraits<viz::mojom::StreamVideoQuadStateDataView, viz::DrawQuad> {
         .size_in_pixels[viz::StreamVideoDrawQuad::kResourceIdIndex];
   }
 
-  static const gfx::Transform& matrix(const viz::DrawQuad& input) {
+  static const gfx::PointF& uv_top_left(const viz::DrawQuad& input) {
     const viz::StreamVideoDrawQuad* quad =
         viz::StreamVideoDrawQuad::MaterialCast(&input);
-    return quad->matrix;
+    return quad->uv_top_left;
+  }
+
+  static const gfx::PointF& uv_bottom_right(const viz::DrawQuad& input) {
+    const viz::StreamVideoDrawQuad* quad =
+        viz::StreamVideoDrawQuad::MaterialCast(&input);
+    return quad->uv_bottom_right;
+  }
+
+  static const base::Optional<gpu::VulkanYCbCrInfo>& ycbcr_info(
+      const viz::DrawQuad& input) {
+    const viz::StreamVideoDrawQuad* quad =
+        viz::StreamVideoDrawQuad::MaterialCast(&input);
+    return quad->ycbcr_info;
   }
 
   static bool Read(viz::mojom::StreamVideoQuadStateDataView data,
@@ -293,6 +338,12 @@ struct StructTraits<viz::mojom::SurfaceQuadStateDataView, viz::DrawQuad> {
     const viz::SurfaceDrawQuad* quad =
         viz::SurfaceDrawQuad::MaterialCast(&input);
     return quad->stretch_content_to_fill_bounds;
+  }
+
+  static bool is_reflection(const viz::DrawQuad& input) {
+    const viz::SurfaceDrawQuad* quad =
+        viz::SurfaceDrawQuad::MaterialCast(&input);
+    return quad->is_reflection;
   }
 
   static bool Read(viz::mojom::SurfaceQuadStateDataView data,
@@ -361,7 +412,7 @@ struct StructTraits<viz::mojom::TextureQuadStateDataView, viz::DrawQuad> {
     return quad->secure_output_only;
   }
 
-  static ui::ProtectedVideoType protected_video_type(
+  static gfx::ProtectedVideoType protected_video_type(
       const viz::DrawQuad& input) {
     const viz::TextureDrawQuad* quad =
         viz::TextureDrawQuad::MaterialCast(&input);
@@ -382,11 +433,6 @@ struct StructTraits<viz::mojom::TileQuadStateDataView, viz::DrawQuad> {
   static const gfx::Size& texture_size(const viz::DrawQuad& input) {
     const viz::TileDrawQuad* quad = viz::TileDrawQuad::MaterialCast(&input);
     return quad->texture_size;
-  }
-
-  static bool swizzle_contents(const viz::DrawQuad& input) {
-    const viz::TileDrawQuad* quad = viz::TileDrawQuad::MaterialCast(&input);
-    return quad->swizzle_contents;
   }
 
   static bool is_premultiplied(const viz::DrawQuad& input) {
@@ -484,7 +530,7 @@ struct StructTraits<viz::mojom::YUVVideoQuadStateDataView, viz::DrawQuad> {
         viz::YUVVideoDrawQuad::MaterialCast(&input);
     return quad->video_color_space;
   }
-  static ui::ProtectedVideoType protected_video_type(
+  static gfx::ProtectedVideoType protected_video_type(
       const viz::DrawQuad& input) {
     const viz::YUVVideoDrawQuad* quad =
         viz::YUVVideoDrawQuad::MaterialCast(&input);

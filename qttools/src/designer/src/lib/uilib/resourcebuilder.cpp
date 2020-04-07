@@ -107,7 +107,7 @@ QVariant QResourceBuilder::loadResource(const QDir &workingDirectory, const DomP
                 if (themeDebug)
                     qDebug("Theme %s known %d", qPrintable(theme), known);
                 if (known)
-                    return qVariantFromValue(QIcon::fromTheme(dpi->attributeTheme()));
+                    return QVariant::fromValue(QIcon::fromTheme(dpi->attributeTheme()));
             } // non-empty theme
             if (const int flags = iconStateFlags(dpi)) { // new, post 4.4 format
                 QIcon icon;
@@ -149,7 +149,7 @@ DomProperty *QResourceBuilder::saveResource(const QDir &workingDirectory, const 
 {
     Q_UNUSED(workingDirectory);
     Q_UNUSED(value);
-    return 0;
+    return nullptr;
 }
 
 bool QResourceBuilder::isResourceProperty(const DomProperty *p) const

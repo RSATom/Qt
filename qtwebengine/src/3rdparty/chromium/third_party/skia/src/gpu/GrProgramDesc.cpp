@@ -5,18 +5,18 @@
  * found in the LICENSE file.
  */
 
-#include "GrProgramDesc.h"
+#include "src/gpu/GrProgramDesc.h"
 
-#include "GrPipeline.h"
-#include "GrPrimitiveProcessor.h"
-#include "GrProcessor.h"
-#include "GrRenderTargetPriv.h"
-#include "GrShaderCaps.h"
-#include "GrTexturePriv.h"
-#include "SkChecksum.h"
-#include "SkTo.h"
-#include "glsl/GrGLSLFragmentProcessor.h"
-#include "glsl/GrGLSLFragmentShaderBuilder.h"
+#include "include/private/SkChecksum.h"
+#include "include/private/SkTo.h"
+#include "src/gpu/GrPipeline.h"
+#include "src/gpu/GrPrimitiveProcessor.h"
+#include "src/gpu/GrProcessor.h"
+#include "src/gpu/GrRenderTargetPriv.h"
+#include "src/gpu/GrShaderCaps.h"
+#include "src/gpu/GrTexturePriv.h"
+#include "src/gpu/glsl/GrGLSLFragmentProcessor.h"
+#include "src/gpu/glsl/GrGLSLFragmentShaderBuilder.h"
 
 enum {
     kSamplerOrImageTypeKeyBits = 4
@@ -34,76 +34,76 @@ static inline uint16_t texture_type_key(GrTextureType type) {
         case GrTextureType::kRectangle:
             value = 2;
             break;
+        default:
+            SK_ABORT("Unexpected texture type");
+            value = 3;
+            break;
     }
     SkASSERT((value & ((1 << kSamplerOrImageTypeKeyBits) - 1)) == value);
     return SkToU16(value);
 }
 
-static uint16_t sampler_key(GrTextureType textureType, GrPixelConfig config,
-                            const GrShaderCaps& caps) {
+static uint32_t sampler_key(GrTextureType textureType, const GrSwizzle& swizzle,
+                            GrPixelConfig config, const GrShaderCaps& caps) {
     int samplerTypeKey = texture_type_key(textureType);
 
-    GR_STATIC_ASSERT(1 == sizeof(caps.configTextureSwizzle(config).asKey()));
-    return SkToU16(samplerTypeKey |
-                   caps.configTextureSwizzle(config).asKey() << kSamplerOrImageTypeKeyBits |
-                   (GrSLSamplerPrecision(config) << (8 + kSamplerOrImageTypeKeyBits)));
+    GR_STATIC_ASSERT(2 == sizeof(swizzle.asKey()));
+    uint16_t swizzleKey = 0;
+    if (caps.textureSwizzleAppliedInShader()) {
+        swizzleKey = swizzle.asKey();
+    }
+    return SkToU32(samplerTypeKey |
+                   swizzleKey << kSamplerOrImageTypeKeyBits |
+                   (GrSLSamplerPrecision(config) << (16 + kSamplerOrImageTypeKeyBits)));
 }
 
 static void add_sampler_keys(GrProcessorKeyBuilder* b, const GrFragmentProcessor& fp,
                              GrGpu* gpu, const GrShaderCaps& caps) {
     int numTextureSamplers = fp.numTextureSamplers();
-    // Need two bytes per key.
-    int word32Count = (numTextureSamplers + 1) / 2;
-    if (0 == word32Count) {
+    if (!numTextureSamplers) {
         return;
     }
-    uint16_t* k16 = reinterpret_cast<uint16_t*>(b->add32n(word32Count));
     for (int i = 0; i < numTextureSamplers; ++i) {
         const GrFragmentProcessor::TextureSampler& sampler = fp.textureSampler(i);
         const GrTexture* tex = sampler.peekTexture();
-        k16[i] = sampler_key(tex->texturePriv().textureType(), tex->config(), caps);
+        uint32_t samplerKey = sampler_key(
+                tex->texturePriv().textureType(), sampler.swizzle(), tex->config(), caps);
         uint32_t extraSamplerKey = gpu->getExtraSamplerKeyForProgram(
                 sampler.samplerState(), sampler.proxy()->backendFormat());
         if (extraSamplerKey) {
             SkASSERT(sampler.proxy()->textureType() == GrTextureType::kExternal);
             // We first mark the normal sampler key with last bit to flag that it has an extra
-            // sampler key. We then add all the extraSamplerKeys to the end of the normal ones.
-            SkASSERT((k16[i] & (1 << 15)) == 0);
-            k16[i] = k16[i] | (1 << 15);
+            // sampler key. We then add both keys.
+            SkASSERT((samplerKey & (1 << 31)) == 0);
+            b->add32(samplerKey | (1 << 31));
             b->add32(extraSamplerKey);
+        } else {
+            b->add32(samplerKey);
         }
-    }
-    // zero the last 16 bits if the number of uniforms for samplers is odd.
-    if (numTextureSamplers & 0x1) {
-        k16[numTextureSamplers] = 0;
     }
 }
 
 static void add_sampler_keys(GrProcessorKeyBuilder* b, const GrPrimitiveProcessor& pp,
                              const GrShaderCaps& caps) {
     int numTextureSamplers = pp.numTextureSamplers();
-    // Need two bytes per key.
-    int word32Count = (numTextureSamplers + 1) / 2;
-    if (0 == word32Count) {
+    if (!numTextureSamplers) {
         return;
     }
-    uint16_t* k16 = reinterpret_cast<uint16_t*>(b->add32n(word32Count));
     for (int i = 0; i < numTextureSamplers; ++i) {
         const GrPrimitiveProcessor::TextureSampler& sampler = pp.textureSampler(i);
-        k16[i] = sampler_key(sampler.textureType(), sampler.config(), caps);
+        uint32_t samplerKey = sampler_key(
+                sampler.textureType(), sampler.swizzle(), sampler.config(), caps);
         uint32_t extraSamplerKey = sampler.extraSamplerKey();
         if (extraSamplerKey) {
             SkASSERT(sampler.textureType() == GrTextureType::kExternal);
             // We first mark the normal sampler key with last bit to flag that it has an extra
-            // sampler key. We then add all the extraSamplerKeys to the end of the normal ones.
-            SkASSERT((k16[i] & (1 << 15)) == 0);
-            k16[i] = k16[i] | (1 << 15);
+            // sampler key. We then add both keys.
+            SkASSERT((samplerKey & (1 << 31)) == 0);
+            b->add32(samplerKey | (1 << 31));
             b->add32(extraSamplerKey);
+        } else {
+            b->add32(samplerKey);
         }
-    }
-    // zero the last 16 bits if the number of uniforms for samplers is odd.
-    if (numTextureSamplers & 0x1) {
-        k16[numTextureSamplers] = 0;
     }
 }
 
@@ -192,11 +192,10 @@ static bool gen_frag_proc_and_meta_keys(const GrPrimitiveProcessor& primProc,
                                                                       fp.numCoordTransforms()), b);
 }
 
-bool GrProgramDesc::Build(GrProgramDesc* desc,
-                          const GrPrimitiveProcessor& primProc,
-                          bool hasPointSize,
-                          const GrPipeline& pipeline,
-                          GrGpu* gpu) {
+bool GrProgramDesc::Build(
+        GrProgramDesc* desc, const GrRenderTarget* renderTarget,
+        const GrPrimitiveProcessor& primProc, bool hasPointSize, const GrPipeline& pipeline,
+        GrGpu* gpu) {
     // The descriptor is used as a cache key. Thus when a field of the
     // descriptor will not affect program generation (because of the attribute
     // bindings in use or other descriptor field settings) it should be set
@@ -217,6 +216,7 @@ bool GrProgramDesc::Build(GrProgramDesc* desc,
         desc->key().reset();
         return false;
     }
+    GrProcessor::CustomFeatures processorFeatures = primProc.requestedFeatures();
 
     for (int i = 0; i < pipeline.numFragmentProcessors(); ++i) {
         const GrFragmentProcessor& fp = pipeline.getFragmentProcessor(i);
@@ -224,6 +224,7 @@ bool GrProgramDesc::Build(GrProgramDesc* desc,
             desc->key().reset();
             return false;
         }
+        processorFeatures |= fp.requestedFeatures();
     }
 
     const GrXferProcessor& xp = pipeline.getXferProcessor();
@@ -238,6 +239,12 @@ bool GrProgramDesc::Build(GrProgramDesc* desc,
         desc->key().reset();
         return false;
     }
+    processorFeatures |= xp.requestedFeatures();
+
+    if (processorFeatures & GrProcessor::CustomFeatures::kSampleLocations) {
+        SkASSERT(pipeline.isHWAntialiasState());
+        b.add32(renderTarget->renderTargetPriv().getSamplePatternKey());
+    }
 
     // --------DO NOT MOVE HEADER ABOVE THIS LINE--------------------------------------------------
     // Because header is a pointer into the dynamic array, we can't push any new data into the key
@@ -246,8 +253,7 @@ bool GrProgramDesc::Build(GrProgramDesc* desc,
 
     // make sure any padding in the header is zeroed.
     memset(header, 0, kHeaderSize);
-    header->fOutputSwizzle = shaderCaps.configOutputSwizzle(pipeline.proxy()->config()).asKey();
-    header->fSnapVerticesToPixelCenters = pipeline.snapVerticesToPixelCenters();
+    header->fOutputSwizzle = pipeline.outputSwizzle().asKey();
     header->fColorFragmentProcessorCnt = pipeline.numColorFragmentProcessors();
     header->fCoverageFragmentProcessorCnt = pipeline.numCoverageFragmentProcessors();
     // Fail if the client requested more processors than the key can fit.
@@ -255,6 +261,11 @@ bool GrProgramDesc::Build(GrProgramDesc* desc,
         header->fCoverageFragmentProcessorCnt != pipeline.numCoverageFragmentProcessors()) {
         return false;
     }
+    header->fProcessorFeatures = (uint8_t)processorFeatures;
+    SkASSERT(header->processorFeatures() == processorFeatures);  // Ensure enough bits.
+    header->fSnapVerticesToPixelCenters = pipeline.snapVerticesToPixelCenters();
     header->fHasPointSize = hasPointSize ? 1 : 0;
+    header->fClampBlendInput =
+            GrClampType::kManual == GrPixelConfigClampType(renderTarget->config()) ? 1 : 0;
     return true;
 }

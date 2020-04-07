@@ -8,6 +8,7 @@
 #include <utility>
 
 #include "base/bind.h"
+#include "base/bind_helpers.h"
 #include "base/callback.h"
 #include "base/run_loop.h"
 #include "base/stl_util.h"
@@ -1539,6 +1540,9 @@ class TestSoftwareBacking : public ResourcePool::SoftwareBacking {
 // into the pixels in the array.
 class TestSoftwareRasterBufferProvider : public FakeRasterBufferProviderImpl {
  public:
+  static constexpr bool kIsGpuCompositing = true;
+  static constexpr viz::ResourceFormat kResourceFormat = viz::RGBA_8888;
+
   std::unique_ptr<RasterBuffer> AcquireBufferForRaster(
       const ResourcePool::InUsePoolResource& resource,
       uint64_t resource_content_id,
@@ -1548,7 +1552,7 @@ class TestSoftwareRasterBufferProvider : public FakeRasterBufferProviderImpl {
       backing->shared_bitmap_id = viz::SharedBitmap::GenerateId();
       backing->pixels = std::make_unique<uint32_t[]>(
           viz::ResourceSizes::CheckedSizeInBytes<size_t>(resource.size(),
-                                                         viz::RGBA_8888));
+                                                         kResourceFormat));
       resource.set_software_backing(std::move(backing));
     }
     auto* backing =
@@ -1571,9 +1575,9 @@ class TestSoftwareRasterBufferProvider : public FakeRasterBufferProviderImpl {
                   const RasterSource::PlaybackSettings& playback_settings,
                   const GURL& url) override {
       RasterBufferProvider::PlaybackToMemory(
-          pixels_, viz::RGBA_8888, size_, /*stride=*/0, raster_source,
+          pixels_, kResourceFormat, size_, /*stride=*/0, raster_source,
           raster_full_rect, /*playback_rect=*/raster_full_rect, transform,
-          gfx::ColorSpace(), /*gpu_compositing=*/true, playback_settings);
+          gfx::ColorSpace(), kIsGpuCompositing, playback_settings);
     }
 
    private:
@@ -1804,8 +1808,11 @@ TEST_F(PixelInspectTileManagerTest, LowResHasNoImage) {
     EXPECT_TRUE(tile->draw_info().IsReadyToDraw());
 
     gfx::Size resource_size = tile->draw_info().resource_size();
-    auto info = SkImageInfo::MakeN32Premul(resource_size.width(),
-                                           resource_size.height());
+    SkColorType ct = ResourceFormatToClosestSkColorType(
+        TestSoftwareRasterBufferProvider::kIsGpuCompositing,
+        TestSoftwareRasterBufferProvider::kResourceFormat);
+    auto info = SkImageInfo::Make(resource_size.width(), resource_size.height(),
+                                  ct, kPremul_SkAlphaType);
     // CreateLayerTreeFrameSink() sets up a software compositing, so the
     // tile resource will be a bitmap.
     auto* backing = static_cast<TestSoftwareBacking*>(
@@ -2576,7 +2583,7 @@ TEST_F(TileManagerReadyToDrawTest, TilePrioritiesUpdated) {
         final_num_prepaint++;
       } else {
         final_num_required++;
-        if (base::ContainsValue(prepaint_tiles, tile)) {
+        if (base::Contains(prepaint_tiles, tile)) {
           found_one_prepaint_to_required_transition = true;
         }
       }
@@ -3362,9 +3369,9 @@ TEST_F(DecodedImageTrackerTileManagerTest, DecodedImageTrackerDropsLocksOnUse) {
 
   // Add the images to our decoded_image_tracker.
   host_impl()->tile_manager()->decoded_image_tracker().QueueImageDecode(
-      image1, base::DoNothing());
+      image1, gfx::ColorSpace(), base::DoNothing());
   host_impl()->tile_manager()->decoded_image_tracker().QueueImageDecode(
-      image2, base::DoNothing());
+      image2, gfx::ColorSpace(), base::DoNothing());
   EXPECT_EQ(0u, host_impl()
                     ->tile_manager()
                     ->decoded_image_tracker()
@@ -3428,6 +3435,10 @@ TEST_F(DecodedImageTrackerTileManagerTest, DecodedImageTrackerDropsLocksOnUse) {
 
 class TileManagerCheckRasterQueriesTest : public TileManagerTest {
  public:
+  ~TileManagerCheckRasterQueriesTest() override {
+    // Ensure that the host impl doesn't outlive |raster_buffer_provider_|.
+    TakeHostImpl();
+  }
   void SetUp() override {
     TileManagerTest::SetUp();
     host_impl()->tile_manager()->SetRasterBufferProviderForTesting(

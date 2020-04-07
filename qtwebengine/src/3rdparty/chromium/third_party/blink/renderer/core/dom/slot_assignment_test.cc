@@ -68,10 +68,10 @@ void ConvertDeclarativeShadowDOMToShadowRoot(Element& element) {
 void RemoveWhiteSpaceOnlyTextNode(ContainerNode& container) {
   for (Node* descendant :
        CollectFromIterable(NodeTraversal::InclusiveDescendantsOf(container))) {
-    if (Text* text = ToTextOrNull(descendant)) {
+    if (auto* text = DynamicTo<Text>(descendant)) {
       if (text->ContainsOnlyWhitespaceOrEmpty())
         text->remove();
-    } else if (Element* element = ToElementOrNull(descendant)) {
+    } else if (auto* element = DynamicTo<Element>(descendant)) {
       if (ShadowRoot* shadow_root = element->OpenShadowRoot())
         RemoveWhiteSpaceOnlyTextNode(*shadow_root);
     }
@@ -96,7 +96,7 @@ class SlotAssignmentTest : public testing::Test {
 };
 
 void SlotAssignmentTest::SetUp() {
-  dummy_page_holder_ = DummyPageHolder::Create(IntSize(800, 600));
+  dummy_page_holder_ = std::make_unique<DummyPageHolder>(IntSize(800, 600));
   document_ = &dummy_page_holder_->GetDocument();
   DCHECK(document_);
 }

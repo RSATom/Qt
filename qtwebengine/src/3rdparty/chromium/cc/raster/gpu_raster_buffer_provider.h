@@ -8,7 +8,6 @@
 #include <stdint.h>
 #include <random>
 
-#include "base/macros.h"
 #include "cc/raster/raster_buffer_provider.h"
 #include "gpu/command_buffer/common/sync_token.h"
 
@@ -27,17 +26,21 @@ namespace cc {
 
 class CC_EXPORT GpuRasterBufferProvider : public RasterBufferProvider {
  public:
-  static constexpr int kRasterMetricFrequency = 100;
-  GpuRasterBufferProvider(viz::ContextProvider* compositor_context_provider,
-                          viz::RasterContextProvider* worker_context_provider,
-                          bool use_gpu_memory_buffer_resources,
-                          int gpu_rasterization_msaa_sample_count,
-                          viz::ResourceFormat tile_format,
-                          const gfx::Size& max_tile_size,
-                          bool unpremultiply_and_dither_low_bit_depth_tiles,
-                          bool enable_oop_rasterization,
-                          int raster_metric_frequency = kRasterMetricFrequency);
+  static constexpr float kRasterMetricProbability = 0.01;
+  GpuRasterBufferProvider(
+      viz::ContextProvider* compositor_context_provider,
+      viz::RasterContextProvider* worker_context_provider,
+      bool use_gpu_memory_buffer_resources,
+      int gpu_rasterization_msaa_sample_count,
+      viz::ResourceFormat tile_format,
+      const gfx::Size& max_tile_size,
+      bool unpremultiply_and_dither_low_bit_depth_tiles,
+      bool enable_oop_rasterization,
+      float raster_metric_probability = kRasterMetricProbability);
+  GpuRasterBufferProvider(const GpuRasterBufferProvider&) = delete;
   ~GpuRasterBufferProvider() override;
+
+  GpuRasterBufferProvider& operator=(const GpuRasterBufferProvider&) = delete;
 
   // Overridden from RasterBufferProvider:
   std::unique_ptr<RasterBuffer> AcquireBufferForRaster(
@@ -46,7 +49,6 @@ class CC_EXPORT GpuRasterBufferProvider : public RasterBufferProvider {
       uint64_t previous_content_id) override;
   void Flush() override;
   viz::ResourceFormat GetResourceFormat() const override;
-  bool IsResourceSwizzleRequired() const override;
   bool IsResourcePremultiplied() const override;
   bool CanPartialRasterIntoProvidedResource() const override;
   bool IsResourceReadyToDraw(
@@ -84,7 +86,10 @@ class CC_EXPORT GpuRasterBufferProvider : public RasterBufferProvider {
                      const ResourcePool::InUsePoolResource& in_use_resource,
                      GpuRasterBacking* backing,
                      bool resource_has_previous_content);
+    RasterBufferImpl(const RasterBufferImpl&) = delete;
     ~RasterBufferImpl() override;
+
+    RasterBufferImpl& operator=(const RasterBufferImpl&) = delete;
 
     // Overridden from RasterBuffer:
     void Playback(const RasterSource* raster_source,
@@ -113,8 +118,6 @@ class CC_EXPORT GpuRasterBufferProvider : public RasterBufferProvider {
     // A SyncToken to be returned from the worker thread, and waited on before
     // using the rastered resource.
     gpu::SyncToken after_raster_sync_token_;
-
-    DISALLOW_COPY_AND_ASSIGN(RasterBufferImpl);
   };
 
   struct PendingRasterQuery {
@@ -152,7 +155,6 @@ class CC_EXPORT GpuRasterBufferProvider : public RasterBufferProvider {
   const gfx::Size max_tile_size_;
   const bool unpremultiply_and_dither_low_bit_depth_tiles_;
   const bool enable_oop_rasterization_;
-  const int raster_metric_frequency_;
 
   // Note that this lock should never be acquired while holding the raster
   // context lock.
@@ -162,9 +164,7 @@ class CC_EXPORT GpuRasterBufferProvider : public RasterBufferProvider {
 
   // Accessed with the worker context lock acquired.
   std::mt19937 random_generator_;
-  std::uniform_int_distribution<int> uniform_distribution_;
-
-  DISALLOW_COPY_AND_ASSIGN(GpuRasterBufferProvider);
+  std::bernoulli_distribution bernoulli_distribution_;
 };
 
 }  // namespace cc

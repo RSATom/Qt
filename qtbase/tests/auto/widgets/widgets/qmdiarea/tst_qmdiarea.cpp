@@ -333,6 +333,7 @@ void tst_QMdiArea::subWindowActivated()
     for ( i = 0; i < count; ++i ) {
         QWidget *widget = new QWidget(workspace, 0);
         widget->setAttribute(Qt::WA_DeleteOnClose);
+        widget->setFocus();
         workspace->addSubWindow(widget)->show();
         widget->show();
         qApp->processEvents();
@@ -478,9 +479,6 @@ void tst_QMdiArea::subWindowActivated2()
     // Check that we only emit _one_ signal and the active window
     // is unchanged after hide/show.
     mdiArea.hide();
-#if 0 // Used to be included in Qt4 for Q_WS_X11
-    qt_x11_wait_for_window_manager(&mdiArea);
-#endif
     QTest::qWait(100);
     QTRY_COMPARE(spy.count(), 1);
     QVERIFY(!mdiArea.activeSubWindow());
@@ -879,7 +877,7 @@ void tst_QMdiArea::minimumSizeHint()
 {
     QMdiArea workspace;
     workspace.show();
-    QSize expectedSize(workspace.style()->pixelMetric(QStyle::PM_MDIMinimizedWidth),
+    QSize expectedSize(workspace.style()->pixelMetric(QStyle::PM_MdiSubWindowMinimizedWidth),
                        workspace.style()->pixelMetric(QStyle::PM_TitleBarHeight));
     qApp->processEvents();
     QAbstractScrollArea dummyScrollArea;

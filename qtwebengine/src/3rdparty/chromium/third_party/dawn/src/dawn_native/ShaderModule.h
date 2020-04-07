@@ -16,10 +16,10 @@
 #define DAWNNATIVE_SHADERMODULE_H_
 
 #include "common/Constants.h"
-#include "dawn_native/Builder.h"
 #include "dawn_native/Error.h"
 #include "dawn_native/Forward.h"
 #include "dawn_native/ObjectBase.h"
+#include "dawn_native/PerStage.h"
 
 #include "dawn_native/dawn_platform.h"
 
@@ -38,17 +38,14 @@ namespace dawn_native {
 
     class ShaderModuleBase : public ObjectBase {
       public:
-        ShaderModuleBase(DeviceBase* device, const ShaderModuleDescriptor* descriptor);
+        ShaderModuleBase(DeviceBase* device,
+                         const ShaderModuleDescriptor* descriptor,
+                         bool blueprint = false);
+        ~ShaderModuleBase() override;
+
+        static ShaderModuleBase* MakeError(DeviceBase* device);
 
         void ExtractSpirvInfo(const spirv_cross::Compiler& compiler);
-
-        struct PushConstantInfo {
-            std::bitset<kMaxPushConstants> mask;
-
-            std::array<std::string, kMaxPushConstants> names;
-            std::array<uint32_t, kMaxPushConstants> sizes;
-            std::array<PushConstantType, kMaxPushConstants> types;
-        };
 
         struct BindingInfo {
             // The SPIRV ID of the resource.
@@ -60,20 +57,33 @@ namespace dawn_native {
         using ModuleBindingInfo =
             std::array<std::array<BindingInfo, kMaxBindingsPerGroup>, kMaxBindGroups>;
 
-        const PushConstantInfo& GetPushConstants() const;
         const ModuleBindingInfo& GetBindingInfo() const;
         const std::bitset<kMaxVertexAttributes>& GetUsedVertexAttributes() const;
-        dawn::ShaderStage GetExecutionModel() const;
+        ShaderStage GetExecutionModel() const;
 
         bool IsCompatibleWithPipelineLayout(const PipelineLayoutBase* layout);
 
+        // Functors necessary for the unordered_set<ShaderModuleBase*>-based cache.
+        struct HashFunc {
+            size_t operator()(const ShaderModuleBase* module) const;
+        };
+        struct EqualityFunc {
+            bool operator()(const ShaderModuleBase* a, const ShaderModuleBase* b) const;
+        };
+
       private:
+        ShaderModuleBase(DeviceBase* device, ObjectBase::ErrorTag tag);
+
         bool IsCompatibleWithBindGroupLayout(size_t group, const BindGroupLayoutBase* layout);
 
-        PushConstantInfo mPushConstants = {};
+        // TODO(cwallez@chromium.org): The code is only stored for deduplication. We could maybe
+        // store a cryptographic hash of the code instead?
+        std::vector<uint32_t> mCode;
+        bool mIsBlueprint = false;
+
         ModuleBindingInfo mBindingInfo;
         std::bitset<kMaxVertexAttributes> mUsedVertexAttributes;
-        dawn::ShaderStage mExecutionModel;
+        ShaderStage mExecutionModel;
     };
 
 }  // namespace dawn_native

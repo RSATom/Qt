@@ -37,7 +37,7 @@
 
 namespace blink {
 
-base::TimeDelta ResourceRequest::default_timeout_interval_ =
+const base::TimeDelta ResourceRequest::default_timeout_interval_ =
     base::TimeDelta::Max();
 
 ResourceRequest::ResourceRequest() : ResourceRequest(NullURL()) {}
@@ -58,26 +58,22 @@ ResourceRequest::ResourceRequest(const KURL& url)
       keepalive_(false),
       should_reset_app_cache_(false),
       allow_stale_response_(false),
-      stale_revalidate_candidate_(false),
       cache_mode_(mojom::FetchCacheMode::kDefault),
       skip_service_worker_(false),
       download_to_cache_only_(false),
-      priority_(ResourceLoadPriority::kLowest),
+      priority_(ResourceLoadPriority::kUnresolved),
       intra_priority_value_(0),
       requestor_id_(0),
       plugin_child_id_(-1),
-      app_cache_host_id_(0),
       previews_state_(WebURLRequest::kPreviewsUnspecified),
       request_context_(mojom::RequestContextType::UNSPECIFIED),
-      frame_type_(network::mojom::RequestContextFrameType::kNone),
-      fetch_request_mode_(network::mojom::FetchRequestMode::kNoCors),
+      mode_(network::mojom::RequestMode::kNoCors),
       fetch_importance_mode_(mojom::FetchImportanceMode::kImportanceAuto),
-      fetch_credentials_mode_(network::mojom::FetchCredentialsMode::kInclude),
-      fetch_redirect_mode_(network::mojom::FetchRedirectMode::kFollow),
+      credentials_mode_(network::mojom::CredentialsMode::kInclude),
+      redirect_mode_(network::mojom::RedirectMode::kFollow),
       referrer_string_(Referrer::ClientReferrerString()),
       referrer_policy_(network::mojom::ReferrerPolicy::kDefault),
       did_set_http_referrer_(false),
-      was_discarded_(false),
       is_external_request_(false),
       cors_preflight_policy_(
           network::mojom::CorsPreflightPolicy::kConsiderPreflight),
@@ -100,14 +96,15 @@ std::unique_ptr<ResourceRequest> ResourceRequest::CreateRedirectRequest(
   std::unique_ptr<ResourceRequest> request =
       std::make_unique<ResourceRequest>(new_url);
   request->SetRequestorOrigin(RequestorOrigin());
-  request->SetHTTPMethod(new_method);
+  request->SetHttpMethod(new_method);
   request->SetSiteForCookies(new_site_for_cookies);
   request->SetTopFrameOrigin(std::move(new_top_frame_origin));
   String referrer =
       new_referrer.IsEmpty() ? Referrer::NoReferrer() : String(new_referrer);
   // TODO(domfarolino): Stop storing ResourceRequest's generated referrer as a
   // header and instead use a separate member. See https://crbug.com/850813.
-  request->SetHTTPReferrer(Referrer(referrer, new_referrer_policy));
+  request->SetHttpReferrer(Referrer(referrer, new_referrer_policy),
+                           SetHttpReferrerLocation::kCreateRedirectRequest);
   request->SetSkipServiceWorker(skip_service_worker);
   request->SetRedirectStatus(RedirectStatus::kFollowedRedirect);
 
@@ -115,16 +112,14 @@ std::unique_ptr<ResourceRequest> ResourceRequest::CreateRedirectRequest(
   request->SetDownloadToBlob(DownloadToBlob());
   request->SetUseStreamOnResponse(UseStreamOnResponse());
   request->SetRequestContext(GetRequestContext());
-  request->SetFrameType(GetFrameType());
   request->SetShouldResetAppCache(ShouldResetAppCache());
-  request->SetFetchRequestMode(GetFetchRequestMode());
-  request->SetFetchCredentialsMode(GetFetchCredentialsMode());
+  request->SetMode(GetMode());
+  request->SetCredentialsMode(GetCredentialsMode());
   request->SetKeepalive(GetKeepalive());
   request->SetPriority(Priority());
 
   if (request->HttpMethod() == HttpMethod())
-    request->SetHTTPBody(HttpBody());
-  request->SetWasDiscarded(WasDiscarded());
+    request->SetHttpBody(HttpBody());
   request->SetCorsPreflightPolicy(CorsPreflightPolicy());
   if (IsAdResource())
     request->SetIsAdResource();
@@ -132,7 +127,12 @@ std::unique_ptr<ResourceRequest> ResourceRequest::CreateRedirectRequest(
   request->SetIsAutomaticUpgrade(IsAutomaticUpgrade());
   request->SetRequestedWithHeader(GetRequestedWithHeader());
   request->SetClientDataHeader(GetClientDataHeader());
+  request->SetPurposeHeader(GetPurposeHeader());
   request->SetUkmSourceId(GetUkmSourceId());
+  request->SetInspectorId(InspectorId());
+  request->SetFromOriginDirtyStyleSheet(IsFromOriginDirtyStyleSheet());
+  request->SetSignedExchangePrefetchCacheEnabled(
+      IsSignedExchangePrefetchCacheEnabled());
 
   return request;
 }
@@ -145,7 +145,7 @@ const KURL& ResourceRequest::Url() const {
   return url_;
 }
 
-void ResourceRequest::SetURL(const KURL& url) {
+void ResourceRequest::SetUrl(const KURL& url) {
   url_ = url;
 }
 
@@ -203,7 +203,7 @@ const AtomicString& ResourceRequest::HttpMethod() const {
   return http_method_;
 }
 
-void ResourceRequest::SetHTTPMethod(const AtomicString& http_method) {
+void ResourceRequest::SetHttpMethod(const AtomicString& http_method) {
   http_method_ = http_method;
 }
 
@@ -216,16 +216,19 @@ const AtomicString& ResourceRequest::HttpHeaderField(
   return http_header_fields_.Get(name);
 }
 
-void ResourceRequest::SetHTTPHeaderField(const AtomicString& name,
+void ResourceRequest::SetHttpHeaderField(const AtomicString& name,
                                          const AtomicString& value) {
   http_header_fields_.Set(name, value);
 }
 
-void ResourceRequest::SetHTTPReferrer(const Referrer& referrer) {
+void ResourceRequest::SetHttpReferrer(
+    const Referrer& referrer,
+    SetHttpReferrerLocation set_http_referrer_location) {
+  set_http_referrer_location_ = set_http_referrer_location;
   if (referrer.referrer.IsEmpty())
     http_header_fields_.Remove(http_names::kReferer);
   else
-    SetHTTPHeaderField(http_names::kReferer, referrer.referrer);
+    SetHttpHeaderField(http_names::kReferer, referrer.referrer);
   referrer_policy_ = referrer.referrer_policy;
   did_set_http_referrer_ = true;
 }
@@ -237,14 +240,14 @@ void ResourceRequest::ClearHTTPReferrer() {
 }
 
 void ResourceRequest::SetHTTPOrigin(const SecurityOrigin* origin) {
-  SetHTTPHeaderField(http_names::kOrigin, origin->ToAtomicString());
+  SetHttpHeaderField(http_names::kOrigin, origin->ToAtomicString());
 }
 
 void ResourceRequest::ClearHTTPOrigin() {
   http_header_fields_.Remove(http_names::kOrigin);
 }
 
-void ResourceRequest::SetHTTPOriginIfNeeded(const SecurityOrigin* origin) {
+void ResourceRequest::SetHttpOriginIfNeeded(const SecurityOrigin* origin) {
   if (NeedsHTTPOrigin())
     SetHTTPOrigin(origin);
 }
@@ -265,7 +268,7 @@ EncodedFormData* ResourceRequest::HttpBody() const {
   return http_body_.get();
 }
 
-void ResourceRequest::SetHTTPBody(scoped_refptr<EncodedFormData> http_body) {
+void ResourceRequest::SetHttpBody(scoped_refptr<EncodedFormData> http_body) {
   http_body_ = std::move(http_body);
 }
 
@@ -285,13 +288,17 @@ int ResourceRequest::IntraPriorityValue() const {
   return intra_priority_value_;
 }
 
+bool ResourceRequest::PriorityHasBeenSet() const {
+  return priority_ != ResourceLoadPriority::kUnresolved;
+}
+
 void ResourceRequest::SetPriority(ResourceLoadPriority priority,
                                   int intra_priority_value) {
   priority_ = priority;
   intra_priority_value_ = intra_priority_value;
 }
 
-void ResourceRequest::AddHTTPHeaderField(const AtomicString& name,
+void ResourceRequest::AddHttpHeaderField(const AtomicString& name,
                                          const AtomicString& value) {
   HTTPHeaderMap::AddResult result = http_header_fields_.Add(name, value);
   if (!result.is_new_entry)
@@ -302,10 +309,10 @@ void ResourceRequest::AddHTTPHeaderFields(const HTTPHeaderMap& header_fields) {
   HTTPHeaderMap::const_iterator end = header_fields.end();
   for (HTTPHeaderMap::const_iterator it = header_fields.begin(); it != end;
        ++it)
-    AddHTTPHeaderField(it->key, it->value);
+    AddHttpHeaderField(it->key, it->value);
 }
 
-void ResourceRequest::ClearHTTPHeaderField(const AtomicString& name) {
+void ResourceRequest::ClearHttpHeaderField(const AtomicString& name) {
   http_header_fields_.Remove(name);
 }
 

@@ -42,6 +42,9 @@ private slots:
     void binding();
     void whenAfterValue();
     void restoreBinding();
+    void restoreBindingValue();
+    void restoreBindingVarValue();
+    void restoreBindingJSValue();
     void restoreBindingWithLoop();
     void restoreBindingWithoutCrash();
     void deletedObject();
@@ -51,6 +54,9 @@ private slots:
     void disabledOnReadonlyProperty();
     void delayed();
     void bindingOverwriting();
+    void bindToQmlComponent();
+    void bindingDoesNoWeirdConversion();
+    void bindNaNToInt();
 
 private:
     QQmlEngine engine;
@@ -64,7 +70,7 @@ void tst_qqmlbinding::binding()
 {
     QQmlEngine engine;
     QQmlComponent c(&engine, testFileUrl("test-binding.qml"));
-    QQuickRectangle *rect = qobject_cast<QQuickRectangle*>(c.create());
+    QScopedPointer<QQuickRectangle> rect { qobject_cast<QQuickRectangle*>(c.create()) };
     QVERIFY(rect != nullptr);
 
     QQmlBind *binding3 = qobject_cast<QQmlBind*>(rect->findChild<QQmlBind*>("binding3"));
@@ -81,18 +87,16 @@ void tst_qqmlbinding::binding()
 
     QQmlBind *binding = qobject_cast<QQmlBind*>(rect->findChild<QQmlBind*>("binding1"));
     QVERIFY(binding != nullptr);
-    QCOMPARE(binding->object(), qobject_cast<QObject*>(rect));
+    QCOMPARE(binding->object(), qobject_cast<QObject*>(rect.get()));
     QCOMPARE(binding->property(), QLatin1String("text"));
     QCOMPARE(binding->value().toString(), QLatin1String("Hello"));
-
-    delete rect;
 }
 
 void tst_qqmlbinding::whenAfterValue()
 {
     QQmlEngine engine;
     QQmlComponent c(&engine, testFileUrl("test-binding2.qml"));
-    QQuickRectangle *rect = qobject_cast<QQuickRectangle*>(c.create());
+    QScopedPointer<QQuickRectangle> rect {qobject_cast<QQuickRectangle*>(c.create())};
 
     QVERIFY(rect != nullptr);
     QCOMPARE(rect->color(), QColor("yellow"));
@@ -100,15 +104,13 @@ void tst_qqmlbinding::whenAfterValue()
 
     rect->setProperty("changeColor", true);
     QCOMPARE(rect->color(), QColor("red"));
-
-    delete rect;
 }
 
 void tst_qqmlbinding::restoreBinding()
 {
     QQmlEngine engine;
     QQmlComponent c(&engine, testFileUrl("restoreBinding.qml"));
-    QQuickRectangle *rect = qobject_cast<QQuickRectangle*>(c.create());
+    QScopedPointer<QQuickRectangle> rect { qobject_cast<QQuickRectangle*>(c.create()) };
     QVERIFY(rect != nullptr);
 
     QQuickRectangle *myItem = qobject_cast<QQuickRectangle*>(rect->findChild<QQuickRectangle*>("myItem"));
@@ -130,15 +132,85 @@ void tst_qqmlbinding::restoreBinding()
     //original binding restored
     myItem->setY(49);
     QCOMPARE(myItem->x(), qreal(100-49));
+}
 
-    delete rect;
+void tst_qqmlbinding::restoreBindingValue()
+{
+    QQmlEngine engine;
+    QQmlComponent c(&engine, testFileUrl("restoreBinding2.qml"));
+    QScopedPointer<QQuickRectangle> rect(qobject_cast<QQuickRectangle*>(c.create()));
+    QVERIFY(!rect.isNull());
+
+    auto myItem = qobject_cast<QQuickRectangle*>(rect->findChild<QQuickRectangle*>("myItem"));
+    QVERIFY(myItem != nullptr);
+
+    QCOMPARE(myItem->height(), 100);
+    myItem->setProperty("when", QVariant(false));
+    QCOMPARE(myItem->height(), 300); // make sure the original value was restored
+
+    myItem->setProperty("when", QVariant(true));
+    QCOMPARE(myItem->height(), 100); // make sure the value specified in Binding is set
+    rect->setProperty("boundValue", 200);
+    QCOMPARE(myItem->height(), 200); // make sure the changed binding value is set
+    myItem->setProperty("when", QVariant(false));
+    // make sure that the original value is back, not e.g. the value from before the
+    // change (i.e. 100)
+    QCOMPARE(myItem->height(), 300);
+}
+
+void tst_qqmlbinding::restoreBindingVarValue()
+{
+    QQmlEngine engine;
+    QQmlComponent c(&engine, testFileUrl("restoreBinding3.qml"));
+    QScopedPointer<QQuickRectangle> rect(qobject_cast<QQuickRectangle*>(c.create()));
+    QVERIFY(!rect.isNull());
+
+    auto myItem = qobject_cast<QQuickRectangle*>(rect->findChild<QQuickRectangle*>("myItem"));
+    QVERIFY(myItem != nullptr);
+
+    QCOMPARE(myItem->property("foo"), 13);
+    myItem->setProperty("when", QVariant(false));
+    QCOMPARE(myItem->property("foo"), 42); // make sure the original value was restored
+
+    myItem->setProperty("when", QVariant(true));
+    QCOMPARE(myItem->property("foo"), 13); // make sure the value specified in Binding is set
+    rect->setProperty("boundValue", 31337);
+    QCOMPARE(myItem->property("foo"), 31337); // make sure the changed binding value is set
+    myItem->setProperty("when", QVariant(false));
+    // make sure that the original value is back, not e.g. the value from before the
+    // change (i.e. 100)
+    QCOMPARE(myItem->property("foo"), 42);
+}
+
+void tst_qqmlbinding::restoreBindingJSValue()
+{
+    QQmlEngine engine;
+    QQmlComponent c(&engine, testFileUrl("restoreBinding4.qml"));
+    QScopedPointer<QQuickRectangle> rect(qobject_cast<QQuickRectangle*>(c.create()));
+    QVERIFY(!rect.isNull());
+
+    auto myItem = qobject_cast<QQuickRectangle*>(rect->findChild<QQuickRectangle*>("myItem"));
+    QVERIFY(myItem != nullptr);
+
+    QCOMPARE(myItem->property("fooCheck"), false);
+    myItem->setProperty("when", QVariant(false));
+    QCOMPARE(myItem->property("fooCheck"), true); // make sure the original value was restored
+
+    myItem->setProperty("when", QVariant(true));
+    QCOMPARE(myItem->property("fooCheck"), false); // make sure the value specified in Binding is set
+    rect->setProperty("boundValue", 31337);
+    QCOMPARE(myItem->property("fooCheck"), false); // make sure the changed binding value is set
+    myItem->setProperty("when", QVariant(false));
+    // make sure that the original value is back, not e.g. the value from before the change
+    QCOMPARE(myItem->property("fooCheck"), true);
+
 }
 
 void tst_qqmlbinding::restoreBindingWithLoop()
 {
     QQmlEngine engine;
     QQmlComponent c(&engine, testFileUrl("restoreBindingWithLoop.qml"));
-    QQuickRectangle *rect = qobject_cast<QQuickRectangle*>(c.create());
+    QScopedPointer<QQuickRectangle> rect {qobject_cast<QQuickRectangle*>(c.create())};
     QVERIFY(rect != nullptr);
 
     QQuickRectangle *myItem = qobject_cast<QQuickRectangle*>(rect->findChild<QQuickRectangle*>("myItem"));
@@ -166,15 +238,13 @@ void tst_qqmlbinding::restoreBindingWithLoop()
 
     myItem->setY(49);
     QCOMPARE(myItem->x(), qreal(49 + 100));
-
-    delete rect;
 }
 
 void tst_qqmlbinding::restoreBindingWithoutCrash()
 {
     QQmlEngine engine;
     QQmlComponent c(&engine, testFileUrl("restoreBindingWithoutCrash.qml"));
-    QQuickRectangle *rect = qobject_cast<QQuickRectangle*>(c.create());
+    QScopedPointer<QQuickRectangle> rect {qobject_cast<QQuickRectangle*>(c.create())};
     QVERIFY(rect != nullptr);
 
     QQuickRectangle *myItem = qobject_cast<QQuickRectangle*>(rect->findChild<QQuickRectangle*>("myItem"));
@@ -205,8 +275,6 @@ void tst_qqmlbinding::restoreBindingWithoutCrash()
     //original binding restored
     myItem->setY(49);
     QCOMPARE(myItem->x(), qreal(100-49));
-
-    delete rect;
 }
 
 //QTBUG-20692
@@ -214,15 +282,13 @@ void tst_qqmlbinding::deletedObject()
 {
     QQmlEngine engine;
     QQmlComponent c(&engine, testFileUrl("deletedObject.qml"));
-    QQuickRectangle *rect = qobject_cast<QQuickRectangle*>(c.create());
+    QScopedPointer<QQuickRectangle> rect {qobject_cast<QQuickRectangle*>(c.create())};
     QVERIFY(rect != nullptr);
 
     QGuiApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
 
     //don't crash
     rect->setProperty("activateBinding", true);
-
-    delete rect;
 }
 
 void tst_qqmlbinding::warningOnUnknownProperty()
@@ -231,9 +297,8 @@ void tst_qqmlbinding::warningOnUnknownProperty()
 
     QQmlEngine engine;
     QQmlComponent c(&engine, testFileUrl("unknownProperty.qml"));
-    QQuickItem *item = qobject_cast<QQuickItem*>(c.create());
+    QScopedPointer<QQuickItem> item { qobject_cast<QQuickItem *>(c.create()) };
     QVERIFY(item);
-    delete item;
 
     QCOMPARE(messageHandler.messages().count(), 1);
 
@@ -247,9 +312,8 @@ void tst_qqmlbinding::warningOnReadOnlyProperty()
 
     QQmlEngine engine;
     QQmlComponent c(&engine, testFileUrl("readonlyProperty.qml"));
-    QQuickItem *item = qobject_cast<QQuickItem*>(c.create());
+    QScopedPointer<QQuickItem> item { qobject_cast<QQuickItem *>(c.create()) };
     QVERIFY(item);
-    delete item;
 
     QCOMPARE(messageHandler.messages().count(), 1);
 
@@ -263,9 +327,8 @@ void tst_qqmlbinding::disabledOnUnknownProperty()
 
     QQmlEngine engine;
     QQmlComponent c(&engine, testFileUrl("disabledUnknown.qml"));
-    QQuickItem *item = qobject_cast<QQuickItem*>(c.create());
+    QScopedPointer<QQuickItem> item { qobject_cast<QQuickItem *>(c.create()) };
     QVERIFY(item);
-    delete item;
 
     QCOMPARE(messageHandler.messages().count(), 0);
 }
@@ -276,10 +339,8 @@ void tst_qqmlbinding::disabledOnReadonlyProperty()
 
     QQmlEngine engine;
     QQmlComponent c(&engine, testFileUrl("disabledReadonly.qml"));
-    QQuickItem *item = qobject_cast<QQuickItem*>(c.create());
+    QScopedPointer<QQuickItem> item { qobject_cast<QQuickItem *>(c.create()) };
     QVERIFY(item);
-    delete item;
-
     QCOMPARE(messageHandler.messages().count(), 0);
 }
 
@@ -287,21 +348,19 @@ void tst_qqmlbinding::delayed()
 {
     QQmlEngine engine;
     QQmlComponent c(&engine, testFileUrl("delayed.qml"));
-    QQuickItem *item = qobject_cast<QQuickItem*>(c.create());
+    QScopedPointer<QQuickItem> item {qobject_cast<QQuickItem*>(c.create())};
 
     QVERIFY(item != nullptr);
     // update on creation
     QCOMPARE(item->property("changeCount").toInt(), 1);
 
-    QMetaObject::invokeMethod(item, "updateText");
+    QMetaObject::invokeMethod(item.get(), "updateText");
     // doesn't update immediately
     QCOMPARE(item->property("changeCount").toInt(), 1);
 
     QCoreApplication::processEvents();
     // only updates once (non-delayed would update twice)
     QCOMPARE(item->property("changeCount").toInt(), 2);
-
-    delete item;
 }
 
 void tst_qqmlbinding::bindingOverwriting()
@@ -311,14 +370,45 @@ void tst_qqmlbinding::bindingOverwriting()
 
     QQmlEngine engine;
     QQmlComponent c(&engine, testFileUrl("bindingOverwriting.qml"));
-    QQuickItem *item = qobject_cast<QQuickItem*>(c.create());
+    QScopedPointer<QQuickItem> item {qobject_cast<QQuickItem*>(c.create())};
     QVERIFY(item);
-    delete item;
 
     QLoggingCategory::setFilterRules(QString());
     QCOMPARE(messageHandler.messages().count(), 2);
 }
 
+void tst_qqmlbinding::bindToQmlComponent()
+{
+    QQmlEngine engine;
+    QQmlComponent c(&engine, testFileUrl("bindToQMLComponent.qml"));
+    QVERIFY(c.create());
+}
+
+// QTBUG-78943
+void tst_qqmlbinding::bindingDoesNoWeirdConversion()
+{
+    QQmlEngine engine;
+    QQmlComponent c(&engine, testFileUrl("noUnexpectedStringConversion.qml"));
+    QScopedPointer<QObject> o {c.create()};
+    QVERIFY(o);
+    QObject *colorRect = o->findChild<QObject*>("colorRect");
+    QVERIFY(colorRect);
+    QCOMPARE(qvariant_cast<QColor>(colorRect->property("color")), QColorConstants::Red);
+    QObject *colorLabel = o->findChild<QObject*>("colorLabel");
+    QCOMPARE(colorLabel->property("text").toString(), QLatin1String("red"));
+    QVERIFY(colorLabel);
+}
+
+//QTBUG-72442
+void tst_qqmlbinding::bindNaNToInt()
+{
+    QQmlEngine engine;
+    QQmlComponent c(&engine, testFileUrl("nanPropertyToInt.qml"));
+    QScopedPointer<QQuickItem> item(qobject_cast<QQuickItem*>(c.create()));
+
+    QVERIFY(item != nullptr);
+    QCOMPARE(item->property("val").toInt(), 0);
+}
 QTEST_MAIN(tst_qqmlbinding)
 
 #include "tst_qqmlbinding.moc"

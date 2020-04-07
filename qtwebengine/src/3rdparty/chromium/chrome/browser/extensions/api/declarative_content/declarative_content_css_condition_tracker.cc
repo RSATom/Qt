@@ -6,6 +6,7 @@
 
 #include <stddef.h>
 
+#include "base/bind.h"
 #include "base/memory/ptr_util.h"
 #include "base/stl_util.h"
 #include "base/strings/stringprintf.h"
@@ -230,7 +231,7 @@ void DeclarativeContentCssConditionTracker::TrackForWebContents(
 void DeclarativeContentCssConditionTracker::OnWebContentsNavigation(
     content::WebContents* contents,
     content::NavigationHandle* navigation_handle) {
-  DCHECK(base::ContainsKey(per_web_contents_tracker_, contents));
+  DCHECK(base::Contains(per_web_contents_tracker_, contents));
   per_web_contents_tracker_[contents]->OnWebContentsNavigation(
       navigation_handle);
 }
@@ -247,7 +248,7 @@ bool DeclarativeContentCssConditionTracker::EvaluatePredicate(
       loc->second->matching_css_selectors();
   for (const std::string& predicate_css_selector :
            typed_predicate->css_selectors()) {
-    if (!base::ContainsKey(matching_css_selectors, predicate_css_selector))
+    if (!base::Contains(matching_css_selectors, predicate_css_selector))
       return false;
   }
 
@@ -301,7 +302,7 @@ InstructRenderProcessIfManagingBrowserContext(
 
 void DeclarativeContentCssConditionTracker::DeletePerWebContentsTracker(
     content::WebContents* contents) {
-  DCHECK(base::ContainsKey(per_web_contents_tracker_, contents));
+  DCHECK(base::Contains(per_web_contents_tracker_, contents));
   per_web_contents_tracker_.erase(contents);
 }
 

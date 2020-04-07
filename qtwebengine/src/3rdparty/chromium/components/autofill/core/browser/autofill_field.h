@@ -7,13 +7,16 @@
 
 #include <stddef.h>
 
+#include <map>
 #include <string>
+#include <utility>
+#include <vector>
 
 #include "base/macros.h"
 #include "base/optional.h"
 #include "base/strings/string16.h"
-#include "components/autofill/core/browser/autofill_profile.h"
 #include "components/autofill/core/browser/autofill_type.h"
+#include "components/autofill/core/browser/data_model/autofill_profile.h"
 #include "components/autofill/core/browser/field_types.h"
 #include "components/autofill/core/browser/proto/password_requirements.pb.h"
 #include "components/autofill/core/browser/proto/server.pb.h"
@@ -22,8 +25,11 @@
 
 namespace autofill {
 
-typedef std::map<ServerFieldType, std::vector<AutofillProfile::ValidityState>>
+typedef std::map<ServerFieldType, std::vector<AutofillDataModel::ValidityState>>
     ServerFieldTypeValidityStatesMap;
+
+typedef std::map<ServerFieldType, AutofillDataModel::ValidityState>
+    ServerFieldTypeValidityStateMap;
 
 class AutofillField : public FormFieldData {
  public:
@@ -60,8 +66,7 @@ class AutofillField : public FormFieldData {
   void set_heuristic_type(ServerFieldType type);
   void set_server_type(ServerFieldType type);
   void add_possible_types_validities(
-      const std::map<ServerFieldType, AutofillProfile::ValidityState>&
-          possible_types_validities);
+      const ServerFieldTypeValidityStateMap& possible_types_validities);
   void set_server_predictions(
       const std::vector<AutofillQueryResponseContents::Field::FieldPrediction>
           predictions) {
@@ -74,8 +79,8 @@ class AutofillField : public FormFieldData {
       const ServerFieldTypeValidityStatesMap& possible_types_validities) {
     possible_types_validities_ = possible_types_validities;
   }
-  std::vector<AutofillProfile::ValidityState> get_validities_for_possible_type(
-      ServerFieldType);
+  std::vector<AutofillDataModel::ValidityState>
+      get_validities_for_possible_type(ServerFieldType);
 
   void SetHtmlType(HtmlFieldType type, HtmlFieldMode mode);
   void set_previously_autofilled(bool previously_autofilled) {
@@ -126,6 +131,9 @@ class AutofillField : public FormFieldData {
 
   void set_default_value(const std::string& value) { default_value_ = value; }
   const std::string& default_value() const { return default_value_; }
+
+  void set_initial_value_hash(uint32_t value) { initial_value_hash_ = value; }
+  base::Optional<uint32_t> initial_value_hash() { return initial_value_hash_; }
 
   void set_credit_card_number_offset(size_t position) {
     credit_card_number_offset_ = position;
@@ -218,6 +226,10 @@ class AutofillField : public FormFieldData {
 
   // The default value returned by the Autofill server.
   std::string default_value_;
+
+  // A low-entropy hash of the field's initial value before user-interactions or
+  // automatic fillings. This field is used to detect static placeholders.
+  base::Optional<uint32_t> initial_value_hash_;
 
   // Used to hold the position of the first digit to be copied as a substring
   // from credit card number.

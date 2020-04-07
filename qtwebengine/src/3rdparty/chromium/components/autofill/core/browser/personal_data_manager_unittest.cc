@@ -33,16 +33,17 @@
 #include "build/build_config.h"
 #include "components/autofill/core/browser/autofill_experiments.h"
 #include "components/autofill/core/browser/autofill_metrics.h"
-#include "components/autofill/core/browser/autofill_profile.h"
-#include "components/autofill/core/browser/autofill_profile_comparator.h"
 #include "components/autofill/core/browser/autofill_test_utils.h"
+#include "components/autofill/core/browser/data_model/autofill_profile.h"
+#include "components/autofill/core/browser/data_model/autofill_profile_comparator.h"
 #include "components/autofill/core/browser/field_types.h"
 #include "components/autofill/core/browser/form_structure.h"
 #include "components/autofill/core/browser/personal_data_manager_observer.h"
-#include "components/autofill/core/browser/suggestion_selection.h"
 #include "components/autofill/core/browser/sync_utils.h"
 #include "components/autofill/core/browser/test_autofill_clock.h"
 #include "components/autofill/core/browser/test_autofill_profile_validator.h"
+#include "components/autofill/core/browser/ui/label_formatter_utils.h"
+#include "components/autofill/core/browser/ui/suggestion_selection.h"
 #include "components/autofill/core/browser/webdata/autofill_table.h"
 #include "components/autofill/core/browser/webdata/autofill_webdata_service.h"
 #include "components/autofill/core/common/autofill_clock.h"
@@ -53,18 +54,22 @@
 #include "components/autofill/core/common/form_data.h"
 #include "components/os_crypt/os_crypt_mocker.h"
 #include "components/prefs/pref_service.h"
+#include "components/signin/public/identity_manager/identity_test_environment.h"
 #include "components/sync/driver/sync_service_utils.h"
 #include "components/sync/driver/test_sync_service.h"
 #include "components/version_info/version_info.h"
 #include "components/webdata/common/web_data_service_base.h"
 #include "components/webdata/common/web_database_service.h"
 #include "google_apis/gaia/google_service_auth_error.h"
-#include "services/identity/public/cpp/identity_test_environment.h"
+#include "services/network/test/test_url_loader_factory.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace autofill {
 namespace {
+
+const char kPrimaryAccountEmail[] = "syncuser@example.com";
+const char kSyncTransportAccountEmail[] = "transport@example.com";
 
 enum UserMode { USER_MODE_NORMAL, USER_MODE_INCOGNITO };
 
@@ -132,7 +137,8 @@ void ExpectSameElements(const std::vector<T*>& expectations,
 
 class PersonalDataManagerTestBase {
  protected:
-  PersonalDataManagerTestBase() {
+  PersonalDataManagerTestBase()
+      : identity_test_env_(&test_url_loader_factory_) {
     // Enable account storage by default, some tests will override this to be
     // false.
     scoped_features_.InitWithFeatures(
@@ -176,13 +182,6 @@ class PersonalDataManagerTestBase {
     account_database_service_->Init();
 
     test::DisableSystemServices(prefs_.get());
-    ResetPersonalDataManager(USER_MODE_NORMAL);
-
-    // Reset the deduping and profile validation prefs to their default value.
-    personal_data_->pref_service_->SetInteger(
-        prefs::kAutofillLastVersionDeduped, 0);
-    personal_data_->pref_service_->SetInteger(
-        prefs::kAutofillLastVersionValidated, CHROME_VERSION_MAJOR);
   }
 
   void TearDownTest() {
@@ -193,11 +192,11 @@ class PersonalDataManagerTestBase {
   }
 
   void ResetPersonalDataManager(UserMode user_mode,
-                                bool use_sync_transport_mode) {
+                                bool use_sync_transport_mode,
+                                PersonalDataManager* personal_data) {
     bool is_incognito = (user_mode == USER_MODE_INCOGNITO);
 
-    personal_data_.reset(new PersonalDataManagerMock("en"));
-    personal_data_->Init(
+    personal_data->Init(
         scoped_refptr<AutofillWebDataService>(profile_database_service_),
         base::FeatureList::IsEnabled(
             features::kAutofillEnableAccountWalletStorage)
@@ -205,22 +204,135 @@ class PersonalDataManagerTestBase {
             : nullptr,
         prefs_.get(), identity_test_env_.identity_manager(),
         TestAutofillProfileValidator::GetInstance(),
-        /*history_service=*/nullptr, /*cookie_manager_sevice=*/nullptr,
-        is_incognito);
+        /*history_service=*/nullptr, is_incognito);
 
-    personal_data_->AddObserver(&personal_data_observer_);
+    personal_data->AddObserver(&personal_data_observer_);
     AccountInfo account_info;
-    account_info.email = "sync@account";
+    account_info.email = use_sync_transport_mode ? kSyncTransportAccountEmail
+                                                 : kPrimaryAccountEmail;
     sync_service_.SetAuthenticatedAccountInfo(account_info);
     sync_service_.SetIsAuthenticatedAccountPrimary(!use_sync_transport_mode);
-    personal_data_->OnSyncServiceInitialized(&sync_service_);
-    personal_data_->OnStateChanged(&sync_service_);
+    personal_data->OnSyncServiceInitialized(&sync_service_);
+    personal_data->OnStateChanged(&sync_service_);
 
     WaitForOnPersonalDataChangedRepeatedly();
   }
 
-  void ResetPersonalDataManager(UserMode user_mode) {
-    ResetPersonalDataManager(user_mode, /*use_sync_transport_mode=*/false);
+  bool TurnOnSyncFeature(PersonalDataManager* personal_data)
+      WARN_UNUSED_RESULT {
+    sync_service_.SetIsAuthenticatedAccountPrimary(true);
+    if (!sync_service_.IsSyncFeatureEnabled())
+      return false;
+    personal_data->OnStateChanged(&sync_service_);
+
+    return personal_data->IsSyncFeatureEnabled();
+  }
+
+  void EnableWalletCardImport() {
+    identity_test_env_.MakePrimaryAccountAvailable(kPrimaryAccountEmail);
+    base::CommandLine::ForCurrentProcess()->AppendSwitch(
+        switches::kEnableOfferStoreUnmaskedWalletCards);
+  }
+
+  void RemoveByGUIDFromPersonalDataManager(const std::string& guid,
+                                           PersonalDataManager* personal_data) {
+    base::RunLoop run_loop;
+    EXPECT_CALL(personal_data_observer_, OnPersonalDataFinishedProfileTasks())
+        .WillOnce(QuitMessageLoop(&run_loop));
+    EXPECT_CALL(personal_data_observer_, OnPersonalDataChanged())
+        .Times(testing::AnyNumber());
+
+    personal_data->RemoveByGUID(guid);
+    run_loop.Run();
+  }
+
+  void SetServerCards(std::vector<CreditCard> server_cards) {
+    test::SetServerCreditCards(account_autofill_table_, server_cards);
+  }
+
+  // Verify that the web database has been updated and the notification sent.
+  void WaitOnceForOnPersonalDataChanged() {
+    base::RunLoop run_loop;
+    EXPECT_CALL(personal_data_observer_, OnPersonalDataFinishedProfileTasks())
+        .WillOnce(QuitMessageLoop(&run_loop));
+    EXPECT_CALL(personal_data_observer_, OnPersonalDataChanged()).Times(1);
+    run_loop.Run();
+  }
+
+  // Verifies that the web database has been updated and the notification sent.
+  void WaitForOnPersonalDataChanged() {
+    base::RunLoop run_loop;
+    EXPECT_CALL(personal_data_observer_, OnPersonalDataFinishedProfileTasks())
+        .WillOnce(QuitMessageLoop(&run_loop));
+    EXPECT_CALL(personal_data_observer_, OnPersonalDataChanged())
+        .Times(testing::AnyNumber());
+    run_loop.Run();
+  }
+
+  // Verifies that the web database has been updated and the notification sent.
+  void WaitForOnPersonalDataChangedRepeatedly() {
+    base::RunLoop run_loop;
+    EXPECT_CALL(personal_data_observer_, OnPersonalDataFinishedProfileTasks())
+        .WillRepeatedly(QuitMessageLoop(&run_loop));
+    EXPECT_CALL(personal_data_observer_, OnPersonalDataChanged())
+        .Times(testing::AnyNumber());
+    run_loop.Run();
+  }
+
+  AccountInfo SetActiveSecondaryAccount() {
+    AccountInfo account_info;
+    account_info.email = kSyncTransportAccountEmail;
+    account_info.account_id = "account_id";
+    sync_service_.SetAuthenticatedAccountInfo(account_info);
+    sync_service_.SetIsAuthenticatedAccountPrimary(false);
+    return account_info;
+  }
+
+  void MoveJapanCityToStreetAddress(PersonalDataManager* personal_data,
+                                    int move_times) {
+    base::RunLoop run_loop;
+    EXPECT_CALL(personal_data_observer_, OnPersonalDataFinishedProfileTasks())
+        .WillRepeatedly(QuitMessageLoop(&run_loop));
+    EXPECT_CALL(personal_data_observer_, OnPersonalDataChanged())
+        .Times(move_times);
+    personal_data->MoveJapanCityToStreetAddress();
+    run_loop.Run();
+  }
+
+  // The temporary directory should be deleted at the end to ensure that
+  // files are not used anymore and deletion succeeds.
+  base::ScopedTempDir temp_dir_;
+  base::test::ScopedTaskEnvironment task_environment_{
+      base::test::ScopedTaskEnvironment::MainThreadType::UI};
+  std::unique_ptr<PrefService> prefs_;
+  network::TestURLLoaderFactory test_url_loader_factory_;
+  signin::IdentityTestEnvironment identity_test_env_;
+  syncer::TestSyncService sync_service_;
+  scoped_refptr<AutofillWebDataService> profile_database_service_;
+  scoped_refptr<AutofillWebDataService> account_database_service_;
+  scoped_refptr<WebDatabaseService> profile_web_database_;
+  scoped_refptr<WebDatabaseService> account_web_database_;
+  AutofillTable* profile_autofill_table_;  // weak ref
+  AutofillTable* account_autofill_table_;  // weak ref
+  PersonalDataLoadedObserverMock personal_data_observer_;
+  base::test::ScopedFeatureList scoped_features_;
+};
+
+class PersonalDataManagerHelper : public PersonalDataManagerTestBase {
+ protected:
+  virtual ~PersonalDataManagerHelper() {
+    if (personal_data_)
+      personal_data_->Shutdown();
+    personal_data_.reset();
+  }
+
+  void ResetPersonalDataManager(UserMode user_mode,
+                                bool use_account_server_storage = false) {
+    if (personal_data_)
+      personal_data_->Shutdown();
+    personal_data_.reset(new PersonalDataManager("en"));
+    PersonalDataManagerTestBase::ResetPersonalDataManager(
+        user_mode, use_account_server_storage, personal_data_.get());
   }
 
   void ResetProfiles() {
@@ -229,18 +341,8 @@ class PersonalDataManagerTestBase {
     WaitForOnPersonalDataChanged();
   }
 
-  bool TurnOnSyncFeature() WARN_UNUSED_RESULT {
-    sync_service_.SetIsAuthenticatedAccountPrimary(true);
-    if (!sync_service_.IsSyncFeatureEnabled())
-      return false;
-    personal_data_->OnStateChanged(&sync_service_);
-    return personal_data_->IsSyncFeatureEnabled();
-  }
-
-  void EnableWalletCardImport() {
-    identity_test_env_.MakePrimaryAccountAvailable("syncuser@example.com");
-    base::CommandLine::ForCurrentProcess()->AppendSwitch(
-        switches::kEnableOfferStoreUnmaskedWalletCards);
+  bool TurnOnSyncFeature() {
+    return PersonalDataManagerTestBase::TurnOnSyncFeature(personal_data_.get());
   }
 
   void EnableAutofillProfileCleanup() {
@@ -400,14 +502,8 @@ class PersonalDataManagerTestBase {
   }
 
   void RemoveByGUIDFromPersonalDataManager(const std::string& guid) {
-    base::RunLoop run_loop;
-    EXPECT_CALL(personal_data_observer_, OnPersonalDataFinishedProfileTasks())
-        .WillOnce(QuitMessageLoop(&run_loop));
-    EXPECT_CALL(personal_data_observer_, OnPersonalDataChanged())
-        .Times(testing::AnyNumber());
-
-    personal_data_->RemoveByGUID(guid);
-    run_loop.Run();
+    PersonalDataManagerTestBase::RemoveByGUIDFromPersonalDataManager(
+        guid, personal_data_.get());
   }
 
   void SetServerCards(const std::vector<CreditCard>& server_cards) {
@@ -423,55 +519,71 @@ class PersonalDataManagerTestBase {
     base::RunLoop run_loop;
     EXPECT_CALL(personal_data_observer_, OnPersonalDataFinishedProfileTasks())
         .WillOnce(QuitMessageLoop(&run_loop));
-    EXPECT_CALL(personal_data_observer_, OnPersonalDataChanged()).Times(1);
+    EXPECT_CALL(personal_data_observer_, OnPersonalDataChanged())
+        .Times(testing::AnyNumber());
 
     personal_data_->SaveImportedProfile(profile);
     run_loop.Run();
   }
 
   void ConvertWalletAddressesAndUpdateWalletCards() {
-    base::RunLoop run_loop;
-    EXPECT_CALL(personal_data_observer_, OnPersonalDataFinishedProfileTasks())
-        .WillOnce(QuitMessageLoop(&run_loop));
-    EXPECT_CALL(personal_data_observer_, OnPersonalDataChanged()).Times(1);
-
-    personal_data_->ConvertWalletAddressesAndUpdateWalletCards();
-    run_loop.Run();
+    // Simulate new data is coming from sync which triggers a conversion of
+    // wallet addresses which in turn triggers a refresh.
+    personal_data_->AutofillMultipleChangedBySync();
+    WaitForOnPersonalDataChanged();
   }
 
-  // Verifies that the web database has been updated and the notification sent.
-  void WaitForOnPersonalDataChanged() {
-    base::RunLoop run_loop;
-    EXPECT_CALL(personal_data_observer_, OnPersonalDataFinishedProfileTasks())
-        .WillOnce(QuitMessageLoop(&run_loop));
-    EXPECT_CALL(personal_data_observer_, OnPersonalDataChanged())
-        .Times(testing::AnyNumber());
-    run_loop.Run();
+  std::unique_ptr<PersonalDataManager> personal_data_;
+};
+
+class PersonalDataManagerTest : public PersonalDataManagerHelper,
+                                public testing::Test {
+ protected:
+  void SetUp() override {
+    SetUpTest();
+    ResetPersonalDataManager(USER_MODE_NORMAL);
+  }
+  void TearDown() override { TearDownTest(); }
+};
+
+class PersonalDataManagerMockTest : public PersonalDataManagerTestBase,
+                                    public testing::Test {
+ protected:
+  void SetUp() override {
+    SetUpTest();
+    ResetPersonalDataManager(USER_MODE_NORMAL);
+    // Reset the deduping and profile validation prefs to their default value.
+    personal_data_->pref_service_->SetInteger(
+        prefs::kAutofillLastVersionDeduped, 0);
+    personal_data_->pref_service_->SetInteger(
+        prefs::kAutofillLastVersionValidated,
+        atoi(version_info::GetVersionNumber().c_str()));
+    personal_data_->is_autofill_profile_cleanup_pending_ = true;
   }
 
-  void WaitOnceForOnPersonalDataChanged() {
-    base::RunLoop run_loop;
-    EXPECT_CALL(personal_data_observer_, OnPersonalDataFinishedProfileTasks())
-        .WillOnce(QuitMessageLoop(&run_loop));
-    EXPECT_CALL(personal_data_observer_, OnPersonalDataChanged()).Times(1);
-    run_loop.Run();
+  void TearDown() override {
+    if (personal_data_)
+      personal_data_->Shutdown();
+    personal_data_.reset();
+    TearDownTest();
   }
 
-  // Verifies that the web database has been updated and the notification sent.
-  void WaitForOnPersonalDataChangedRepeatedly() {
-    base::RunLoop run_loop;
-    EXPECT_CALL(personal_data_observer_, OnPersonalDataFinishedProfileTasks())
-        .WillRepeatedly(QuitMessageLoop(&run_loop));
-    EXPECT_CALL(personal_data_observer_, OnPersonalDataChanged())
-        .Times(testing::AnyNumber());
-    run_loop.Run();
+  void ResetPersonalDataManager(UserMode user_mode) {
+    if (personal_data_)
+      personal_data_->Shutdown();
+    personal_data_.reset(new PersonalDataManagerMock("en"));
+    PersonalDataManagerTestBase::ResetPersonalDataManager(
+        user_mode, /*use_account_server_storage=*/true, personal_data_.get());
   }
 
-  void ExpectOnValidated(AutofillProfile* profile) {
-    EXPECT_CALL(*personal_data_, OnValidated(profile)).Times(1);
-    ON_CALL(*personal_data_, OnValidated(profile))
-        .WillByDefault(testing::Invoke(
-            personal_data_.get(), &PersonalDataManagerMock::OnValidatedPDM));
+  bool TurnOnSyncFeature() {
+    return PersonalDataManagerTestBase::TurnOnSyncFeature(personal_data_.get());
+  }
+
+  void StopTheDedupeProcess() {
+    personal_data_->pref_service_->SetInteger(
+        prefs::kAutofillLastVersionDeduped,
+        atoi(version_info::GetVersionNumber().c_str()));
   }
 
   void ResetAutofillLastVersionValidated() {
@@ -480,44 +592,81 @@ class PersonalDataManagerTestBase {
         prefs::kAutofillLastVersionValidated, 0);
   }
 
+  void AddProfileToPersonalDataManager(const AutofillProfile& profile) {
+    base::RunLoop run_loop;
+
+    EXPECT_CALL(*personal_data_, OnValidated(testing::_)).Times(1);
+    ON_CALL(*personal_data_, OnValidated(testing::_))
+        .WillByDefault(testing::Invoke(
+            personal_data_.get(), &PersonalDataManagerMock::OnValidatedPDM));
+
+    EXPECT_CALL(personal_data_observer_, OnPersonalDataFinishedProfileTasks())
+        .WillOnce(QuitMessageLoop(&run_loop));
+    EXPECT_CALL(personal_data_observer_, OnPersonalDataChanged())
+        .Times(testing::AnyNumber());
+
+    personal_data_->AddProfile(profile);
+
+    run_loop.Run();
+  }
+
+  void UpdateProfileOnPersonalDataManager(const AutofillProfile& profile) {
+    base::RunLoop run_loop;
+
+    EXPECT_CALL(*personal_data_, OnValidated(testing::_)).Times(1);
+    ON_CALL(*personal_data_, OnValidated(testing::_))
+        .WillByDefault(testing::Invoke(
+            personal_data_.get(), &PersonalDataManagerMock::OnValidatedPDM));
+
+    EXPECT_CALL(personal_data_observer_, OnPersonalDataFinishedProfileTasks())
+        .WillOnce(QuitMessageLoop(&run_loop));
+    EXPECT_CALL(personal_data_observer_, OnPersonalDataChanged())
+        .Times(testing::AnyNumber());
+
+    personal_data_->UpdateProfile(profile);
+
+    run_loop.Run();
+  }
+
+  void RemoveByGUIDFromPersonalDataManager(const std::string& guid) {
+    PersonalDataManagerTestBase::RemoveByGUIDFromPersonalDataManager(
+        guid, personal_data_.get());
+  }
+
+  void UpdateClientValidityStatesOnPersonalDataManager(
+      const std::vector<AutofillProfile*>& profiles) {
+    int num_updates = 0;
+    if (GetLastVersionValidatedUpdate() < CHROME_VERSION_MAJOR) {
+      num_updates = profiles.size();
+    } else {
+      for (auto* profile : profiles) {
+        if (!profile->is_client_validity_states_updated())
+          num_updates++;
+      }
+    }
+
+    base::RunLoop run_loop;
+
+    EXPECT_CALL(*personal_data_, OnValidated(testing::_)).Times(num_updates);
+    ON_CALL(*personal_data_, OnValidated(testing::_))
+        .WillByDefault(testing::Invoke(
+            personal_data_.get(), &PersonalDataManagerMock::OnValidatedPDM));
+
+    EXPECT_CALL(personal_data_observer_, OnPersonalDataFinishedProfileTasks())
+        .WillRepeatedly(QuitMessageLoop(&run_loop));
+    EXPECT_CALL(personal_data_observer_, OnPersonalDataChanged())
+        .Times(testing::AnyNumber());
+    // Validate the profiles through the client validation API.
+    personal_data_->UpdateClientValidityStates(profiles);
+    run_loop.Run();
+  }
+
   int GetLastVersionValidatedUpdate() {
     return personal_data_->pref_service_->GetInteger(
         prefs::kAutofillLastVersionValidated);
   }
 
-  AccountInfo SetActiveSecondaryAccount() {
-    AccountInfo account_info;
-    account_info.email = "signed_in_account@email.com";
-    account_info.account_id = "account_id";
-    sync_service_.SetAuthenticatedAccountInfo(account_info);
-    sync_service_.SetIsAuthenticatedAccountPrimary(false);
-    return account_info;
-  }
-
-  // The temporary directory should be deleted at the end to ensure that
-  // files are not used anymore and deletion succeeds.
-  base::ScopedTempDir temp_dir_;
-  base::test::ScopedTaskEnvironment task_environment_{
-      base::test::ScopedTaskEnvironment::MainThreadType::UI};
-  std::unique_ptr<PrefService> prefs_;
-  identity::IdentityTestEnvironment identity_test_env_;
-  syncer::TestSyncService sync_service_;
-  scoped_refptr<AutofillWebDataService> profile_database_service_;
-  scoped_refptr<AutofillWebDataService> account_database_service_;
-  scoped_refptr<WebDatabaseService> profile_web_database_;
-  scoped_refptr<WebDatabaseService> account_web_database_;
-  AutofillTable* profile_autofill_table_ = nullptr;  // weak ref
-  AutofillTable* account_autofill_table_ = nullptr;  // weak ref
-  PersonalDataLoadedObserverMock personal_data_observer_;
   std::unique_ptr<PersonalDataManagerMock> personal_data_;
-  base::test::ScopedFeatureList scoped_features_;
-};
-
-class PersonalDataManagerTest : public PersonalDataManagerTestBase,
-                                public testing::Test {
-  void SetUp() override { SetUpTest(); }
-
-  void TearDown() override { TearDownTest(); }
 };
 
 TEST_F(PersonalDataManagerTest, AddProfile) {
@@ -572,6 +721,7 @@ TEST_F(PersonalDataManagerTest, AddRemoveUpdateProfileSequence) {
 
   personal_data_->AddProfile(profile);
   personal_data_->RemoveByGUID(profile.guid());
+  personal_data_->UpdateProfile(profile);
   WaitForOnPersonalDataChanged();
 
   auto profiles = personal_data_->GetProfiles();
@@ -581,20 +731,54 @@ TEST_F(PersonalDataManagerTest, AddRemoveUpdateProfileSequence) {
   personal_data_->RemoveByGUID(profile.guid());
   personal_data_->RemoveByGUID(profile.guid());
   WaitForOnPersonalDataChanged();
+
   profiles = personal_data_->GetProfiles();
   ASSERT_EQ(0U, profiles.size());
 
   personal_data_->AddProfile(profile);
   profile.SetRawInfo(EMAIL_ADDRESS, base::ASCIIToUTF16("new@email.com"));
   personal_data_->UpdateProfile(profile);
+  WaitForOnPersonalDataChanged();
+
+  profiles = personal_data_->GetProfiles();
+  ASSERT_EQ(1U, profiles.size());
+  EXPECT_EQ(profiles[0]->GetRawInfo(EMAIL_ADDRESS),
+            base::ASCIIToUTF16("new@email.com"));
+
   profile.SetRawInfo(EMAIL_ADDRESS, base::ASCIIToUTF16("newer@email.com"));
+  personal_data_->UpdateProfile(profile);
+  profile.SetRawInfo(EMAIL_ADDRESS, base::ASCIIToUTF16("newest@email.com"));
   personal_data_->UpdateProfile(profile);
   WaitForOnPersonalDataChanged();
 
   profiles = personal_data_->GetProfiles();
   ASSERT_EQ(1U, profiles.size());
   EXPECT_EQ(profiles[0]->GetRawInfo(EMAIL_ADDRESS),
-            base::ASCIIToUTF16("newer@email.com"));
+            base::ASCIIToUTF16("newest@email.com"));
+}
+
+// The changes should happen in the same order as requested. If the later change
+// is validated before an earlier one, still we should process the earlier one
+// first.
+TEST_F(PersonalDataManagerTest, InconsistentValidationSequence) {
+  auto profile = test::GetFullProfile();
+  // Slow validation.
+  personal_data_->set_client_profile_validator_for_test(
+      TestAutofillProfileValidator::GetDelayedInstance());
+  personal_data_->AddProfile(profile);
+
+  // No validator, zero delay for validation.
+  personal_data_->set_client_profile_validator_for_test(nullptr);
+  profile.SetRawInfo(EMAIL_ADDRESS, base::ASCIIToUTF16("new@email.com"));
+  personal_data_->UpdateProfile(profile);
+
+  WaitForOnPersonalDataChanged();
+
+  auto profiles = personal_data_->GetProfiles();
+  ASSERT_EQ(1U, profiles.size());
+  EXPECT_EQ(profiles[0]->GetRawInfo(EMAIL_ADDRESS),
+            base::ASCIIToUTF16("new@email.com"));
+  EXPECT_FALSE(profiles[0]->is_client_validity_states_updated());
 }
 
 // Test that a new profile has its basic information set.
@@ -739,8 +923,7 @@ TEST_F(PersonalDataManagerTest, AddProfile_CrazyCharacters) {
 
   ASSERT_EQ(profiles.size(), personal_data_->GetProfiles().size());
   for (size_t i = 0; i < profiles.size(); ++i) {
-    EXPECT_TRUE(
-        base::ContainsValue(profiles, *personal_data_->GetProfiles()[i]));
+    EXPECT_TRUE(base::Contains(profiles, *personal_data_->GetProfiles()[i]));
   }
 }
 
@@ -995,8 +1178,7 @@ TEST_F(PersonalDataManagerTest, AddCreditCard_CrazyCharacters) {
 
   ASSERT_EQ(cards.size(), personal_data_->GetCreditCards().size());
   for (size_t i = 0; i < cards.size(); ++i) {
-    EXPECT_TRUE(
-        base::ContainsValue(cards, *personal_data_->GetCreditCards()[i]));
+    EXPECT_TRUE(base::Contains(cards, *personal_data_->GetCreditCards()[i]));
   }
 }
 
@@ -1042,26 +1224,25 @@ TEST_F(PersonalDataManagerTest, UpdateUnverifiedProfilesAndCreditCards) {
 
   // Try to update with just the origin changed.
   AutofillProfile original_profile(profile);
+  ASSERT_FALSE(original_profile.IsVerified());
   CreditCard original_credit_card(credit_card);
   profile.set_origin(kSettingsOrigin);
   credit_card.set_origin(kSettingsOrigin);
 
   EXPECT_TRUE(profile.IsVerified());
   EXPECT_TRUE(credit_card.IsVerified());
-
   UpdateProfileOnPersonalDataManager(profile);
   personal_data_->UpdateCreditCard(credit_card);
 
-  // Note: No refresh, as no update is expected.
-
+  // Credit Card origin should not be overwritten.
   const std::vector<AutofillProfile*>& profiles2 =
       personal_data_->GetProfiles();
   const std::vector<CreditCard*>& cards2 = personal_data_->GetCreditCards();
   ASSERT_EQ(1U, profiles2.size());
   ASSERT_EQ(1U, cards2.size());
-  EXPECT_NE(profile.origin(), profiles2[0]->origin());
+  EXPECT_EQ(profile.origin(), profiles2[0]->origin());
   EXPECT_NE(credit_card.origin(), cards2[0]->origin());
-  EXPECT_EQ(original_profile.origin(), profiles2[0]->origin());
+  EXPECT_NE(original_profile.origin(), profiles2[0]->origin());
   EXPECT_EQ(original_credit_card.origin(), cards2[0]->origin());
 
   // Try to update with data changed as well.
@@ -1082,6 +1263,39 @@ TEST_F(PersonalDataManagerTest, UpdateUnverifiedProfilesAndCreditCards) {
   EXPECT_EQ(0, credit_card.Compare(*cards3[0]));
   EXPECT_EQ(profile.origin(), profiles3[0]->origin());
   EXPECT_EQ(credit_card.origin(), cards3[0]->origin());
+}
+
+// Test that updating a verified profile with another profile whose only
+// difference is the origin, would not change the old profile, and thus it would
+// remain verified.
+TEST_F(PersonalDataManagerTest, UpdateVerifiedProfilesOrigin) {
+  // Start with verified data.
+  AutofillProfile profile(base::GenerateGUID(), kSettingsOrigin);
+  test::SetProfileInfo(&profile, "Marion", "Mitchell", "Morrison",
+                       "johnwayne@me.xyz", "Fox", "123 Zoo St.", "unit 5",
+                       "Hollywood", "CA", "91601", "US", "12345678910");
+  ASSERT_TRUE(profile.IsVerified());
+  AddProfileToPersonalDataManager(profile);
+
+  const std::vector<AutofillProfile*>& profiles1 =
+      personal_data_->GetProfiles();
+  ASSERT_EQ(1U, profiles1.size());
+  EXPECT_EQ(0, profile.Compare(*profiles1[0]));
+
+  // Try to update with just the origin changed to a non-setting origin.
+  AutofillProfile new_profile(profile);
+  new_profile.set_origin("");
+  ASSERT_FALSE(new_profile.IsVerified());
+
+  UpdateProfileOnPersonalDataManager(profile);
+
+  // Verified profile origin should not be overwritten.
+  const std::vector<AutofillProfile*>& profiles2 =
+      personal_data_->GetProfiles();
+  ASSERT_EQ(1U, profiles2.size());
+  EXPECT_EQ(profile.origin(), profiles2[0]->origin());
+  EXPECT_NE(new_profile.origin(), profiles2[0]->origin());
+  EXPECT_TRUE(profiles2[0]->IsVerified());
 }
 
 // Makes sure that full cards are re-masked when full PAN storage is off.
@@ -1453,7 +1667,6 @@ TEST_F(PersonalDataManagerTest, SaveImportedProfileWithVerifiedData) {
                        "Hollywood", "CA", "91601", "US", "12345678910");
   EXPECT_FALSE(profile.IsVerified());
 
-  // Add the profile to the database.
   AddProfileToPersonalDataManager(profile);
 
   // Make sure everything is set up correctly.
@@ -1816,7 +2029,12 @@ TEST_F(PersonalDataManagerTest, GetProfileSuggestions) {
             suggestions[0].value);
 }
 
-TEST_F(PersonalDataManagerTest, GetProfileSuggestions_PhoneSubstring) {
+TEST_F(PersonalDataManagerTest,
+       GetProfileSuggestions_PhoneSubstring_NoImprovedDisambiguation) {
+  base::test::ScopedFeatureList scoped_features;
+  scoped_features.InitAndDisableFeature(
+      features::kAutofillUseImprovedLabelDisambiguation);
+
   AutofillProfile profile(base::GenerateGUID(), test::kEmptyOrigin);
   test::SetProfileInfo(&profile, "Marion", "Mitchell", "Morrison",
                        "johnwayne@me.xyz", "Fox",
@@ -1831,6 +2049,29 @@ TEST_F(PersonalDataManagerTest, GetProfileSuggestions_PhoneSubstring) {
   ASSERT_FALSE(suggestions.empty());
   EXPECT_EQ(base::ASCIIToUTF16("12345678910"), suggestions[0].value);
 }
+
+#if !defined(OS_ANDROID) && !defined(OS_IOS)
+TEST_F(PersonalDataManagerTest,
+       GetProfileSuggestions_PhoneSubstring_ImprovedDisambiguation) {
+  base::test::ScopedFeatureList scoped_features;
+  scoped_features.InitAndEnableFeature(
+      features::kAutofillUseImprovedLabelDisambiguation);
+
+  AutofillProfile profile(base::GenerateGUID(), test::kEmptyOrigin);
+  test::SetProfileInfo(&profile, "Marion", "Mitchell", "Morrison",
+                       "johnwayne@me.xyz", "Fox",
+                       "123 Zoo St.\nSecond Line\nThird line", "unit 5",
+                       "Hollywood", "CA", "91601", "US", "12345678910");
+  AddProfileToPersonalDataManager(profile);
+  ResetPersonalDataManager(USER_MODE_NORMAL);
+
+  std::vector<Suggestion> suggestions = personal_data_->GetProfileSuggestions(
+      AutofillType(PHONE_HOME_WHOLE_NUMBER), base::ASCIIToUTF16("234"), false,
+      std::vector<ServerFieldType>());
+  ASSERT_FALSE(suggestions.empty());
+  EXPECT_EQ(base::ASCIIToUTF16("(234) 567-8910"), suggestions[0].value);
+}
+#endif  // !defined(OS_ANDROID) && !defined(OS_IOS)
 
 TEST_F(PersonalDataManagerTest, GetProfileSuggestions_HideSubsets) {
   AutofillProfile profile(base::GenerateGUID(), test::kEmptyOrigin);
@@ -2043,10 +2284,6 @@ TEST_F(PersonalDataManagerTest,
 
   ResetPersonalDataManager(USER_MODE_NORMAL);
 
-  base::test::ScopedFeatureList scoped_features;
-  scoped_features.InitAndEnableFeature(
-      features::kAutofillSuppressDisusedAddresses);
-
   // Query with empty string only returns profile2.
   {
     std::vector<Suggestion> suggestions = personal_data_->GetProfileSuggestions(
@@ -2084,86 +2321,61 @@ TEST_F(PersonalDataManagerTest,
         base::ASCIIToUTF16("456 Zoo St., Second Line, Third line, unit 5"),
         suggestions[0].value);
   }
-
-  // When suppression is disabled, returns all suggestions.
-  {
-    base::test::ScopedFeatureList scoped_features;
-    scoped_features.InitAndDisableFeature(
-        features::kAutofillSuppressDisusedAddresses);
-    std::vector<Suggestion> suggestions = personal_data_->GetProfileSuggestions(
-        AutofillType(ADDRESS_HOME_STREET_ADDRESS), base::string16(), false,
-        std::vector<ServerFieldType>());
-    ASSERT_EQ(2U, suggestions.size());
-    EXPECT_EQ(
-        base::ASCIIToUTF16("456 Zoo St., Second Line, Third line, unit 5"),
-        suggestions[0].value);
-    EXPECT_EQ(
-        base::ASCIIToUTF16("123 Zoo St., Second Line, Third line, unit 5"),
-        suggestions[1].value);
-  }
 }
 
 // Tests that suggestions based on invalid data are handled correctly.
-TEST_F(PersonalDataManagerTest,
-       GetProfileSuggestions_InvalidDataBasedOnClient) {
-  // Set up 2 different profiles.
-  AutofillProfile profile1(base::GenerateGUID(), test::kEmptyOrigin);
-  test::SetProfileInfo(&profile1, "Marion1", "Mitchell", "Morrison",
-                       "johnwayne@me.xyz", "Fox",
+TEST_F(PersonalDataManagerTest, GetProfileSuggestions_Validity) {
+  // Set up 2 different profiles: one valid and one invalid.
+  AutofillProfile valid_profile(test::GetFullValidProfileForCanada());
+  valid_profile.set_use_date(AutofillClock::Now() -
+                             base::TimeDelta::FromDays(1));
+  valid_profile.set_use_count(1);
+  AddProfileToPersonalDataManager(valid_profile);
+
+  AutofillProfile invalid_profile(base::GenerateGUID(), test::kEmptyOrigin);
+  test::SetProfileInfo(&invalid_profile, "Marion1", "Mitchell", "Morrison",
+                       "invalid email", "Fox",
                        "123 Zoo St.\nSecond Line\nThird line", "unit 5",
-                       "Hollywood", "CA", "91601", "US", "9876543210");
-  profile1.SetValidityState(PHONE_HOME_WHOLE_NUMBER, AutofillProfile::INVALID,
-                            AutofillProfile::CLIENT);
-  profile1.set_use_date(AutofillClock::Now() - base::TimeDelta::FromDays(20));
-  AddProfileToPersonalDataManager(profile1);
+                       "Hollywood", "CA", "91601", "US", "Invalid Phone");
+  invalid_profile.set_use_date(AutofillClock::Now() -
+                               base::TimeDelta::FromDays(1));
+  invalid_profile.set_use_count(1);
+  AddProfileToPersonalDataManager(invalid_profile);
 
-  AutofillProfile profile2(base::GenerateGUID(), test::kEmptyOrigin);
-  test::SetProfileInfo(&profile2, "Marion2", "Mitchell", "Morrison",
-                       "johnwayne@me.xyz", "Fox",
-                       "456 Zoo St.\nSecond Line\nThird line", "unit 5",
-                       "Hollywood", "CA", "91601", "US", "1234567890");
-  AddProfileToPersonalDataManager(profile2);
+  auto profiles = personal_data_->GetProfiles();
+  ASSERT_EQ(2U, profiles.size());
 
-  ResetPersonalDataManager(USER_MODE_NORMAL);
+  // Invalid based on client, and not invalid by server. Relying on both
+  // validity sources.
   {
-    base::HistogramTester histogram_tester;
     base::test::ScopedFeatureList scoped_features;
-    scoped_features.InitAndDisableFeature(
-        features::kAutofillSuggestInvalidProfileData);
-    std::vector<Suggestion> suggestions = personal_data_->GetProfileSuggestions(
-        AutofillType(PHONE_HOME_WHOLE_NUMBER), base::string16(), false,
-        std::vector<ServerFieldType>());
-    ASSERT_EQ(1U, suggestions.size());
-    EXPECT_EQ(base::ASCIIToUTF16("1234567890"), suggestions[0].value);
-    histogram_tester.ExpectUniqueSample(
-        "Autofill.InvalidProfileData.UsedForSuggestion", false, 1);
+    scoped_features.InitWithFeatures(
+        /*enabled_features=*/{features::kAutofillProfileServerValidation,
+                              features::kAutofillProfileClientValidation},
+        /*disabled_features=*/{});
+    std::vector<Suggestion> email_suggestions =
+        personal_data_->GetProfileSuggestions(AutofillType(EMAIL_ADDRESS),
+                                              base::string16(), false,
+                                              std::vector<ServerFieldType>());
+
+    for (auto* profile : profiles) {
+      ASSERT_EQ(profile->guid() == valid_profile.guid(),
+                profile->IsValidByClient());
+      ASSERT_TRUE(profile->IsValidByServer());
+    }
+    ASSERT_EQ(1U, email_suggestions.size());
+    EXPECT_EQ(base::ASCIIToUTF16("alice@wonderland.ca"),
+              email_suggestions[0].value);
+
+    std::vector<Suggestion> name_suggestions =
+        personal_data_->GetProfileSuggestions(AutofillType(NAME_FIRST),
+                                              base::string16(), false,
+                                              std::vector<ServerFieldType>());
+    ASSERT_EQ(2U, name_suggestions.size());
+    EXPECT_EQ(base::ASCIIToUTF16("Alice"), name_suggestions[0].value);
+    EXPECT_EQ(base::ASCIIToUTF16("Marion1"), name_suggestions[1].value);
   }
 
-  {
-    base::HistogramTester histogram_tester;
-    base::test::ScopedFeatureList scoped_features;
-    scoped_features.InitAndEnableFeature(
-        features::kAutofillSuggestInvalidProfileData);
-    std::vector<Suggestion> suggestions = personal_data_->GetProfileSuggestions(
-        AutofillType(PHONE_HOME_WHOLE_NUMBER), base::string16(), false,
-        std::vector<ServerFieldType>());
-    ASSERT_EQ(2U, suggestions.size());
-    EXPECT_EQ(base::ASCIIToUTF16("1234567890"), suggestions[0].value);
-    EXPECT_EQ(base::ASCIIToUTF16("9876543210"), suggestions[1].value);
-    histogram_tester.ExpectUniqueSample(
-        "Autofill.InvalidProfileData.UsedForSuggestion", true, 1);
-  }
-}
-
-// Tests that suggestions based on invalid data are handled correctly.
-TEST_F(PersonalDataManagerTest,
-       GetProfileSuggestions_InvalidDataBasedOnServer) {
-  // Set up 2 different profiles.
-  AutofillProfile profile1(base::GenerateGUID(), test::kEmptyOrigin);
-  test::SetProfileInfo(&profile1, "Marion1", "Mitchell", "Morrison",
-                       "johnwayne@me.xyz", "Fox",
-                       "123 Zoo St.\nSecond Line\nThird line", "unit 5",
-                       "Hollywood", "CA", "91601", "US", "9876543210");
   // Set the validity state of ADDRESS_HOME_STATE to INVALID on the prefs.
   {
     ProfileValidityMap profile_validity_map;
@@ -2171,9 +2383,11 @@ TEST_F(PersonalDataManagerTest,
     std::string autofill_profile_validity;
     personal_data_->pref_service_->SetString(prefs::kAutofillProfileValidity,
                                              autofill_profile_validity);
-    (*profile_validity_map.mutable_field_validity_states())[static_cast<int>(
-        ADDRESS_HOME_STATE)] = static_cast<int>(AutofillProfile::INVALID);
-    (*user_profile_validity_map.mutable_profile_validity())[profile1.guid()] =
+    (*profile_validity_map
+          .mutable_field_validity_states())[static_cast<int>(EMAIL_ADDRESS)] =
+        static_cast<int>(AutofillProfile::INVALID);
+    (*user_profile_validity_map
+          .mutable_profile_validity())[invalid_profile.guid()] =
         profile_validity_map;
     ASSERT_TRUE(user_profile_validity_map.SerializeToString(
         &autofill_profile_validity));
@@ -2181,44 +2395,95 @@ TEST_F(PersonalDataManagerTest,
     personal_data_->pref_service_->SetString(prefs::kAutofillProfileValidity,
                                              autofill_profile_validity);
   }
-  profile1.set_use_date(AutofillClock::Now() - base::TimeDelta::FromDays(20));
-  AddProfileToPersonalDataManager(profile1);
-
-  AutofillProfile profile2(base::GenerateGUID(), test::kEmptyOrigin);
-  test::SetProfileInfo(&profile2, "Marion2", "Mitchell", "Morrison",
-                       "johnwayne@me.xyz", "Fox",
-                       "456 Zoo St.\nSecond Line\nThird line", "unit 5",
-                       "Hollywood", "NY", "91601", "US", "1234567890");
-  AddProfileToPersonalDataManager(profile2);
-
-  ResetPersonalDataManager(USER_MODE_NORMAL);
+  // Invalid based on client, and server. Relying on both validity sources.
   {
-    base::HistogramTester histogram_tester;
     base::test::ScopedFeatureList scoped_features;
-    scoped_features.InitAndDisableFeature(
-        features::kAutofillSuggestInvalidProfileData);
-    std::vector<Suggestion> suggestions = personal_data_->GetProfileSuggestions(
-        AutofillType(ADDRESS_HOME_STATE), base::string16(), false,
-        std::vector<ServerFieldType>());
-    ASSERT_EQ(1U, suggestions.size());
-    EXPECT_EQ(base::ASCIIToUTF16("NY"), suggestions[0].value);
-    histogram_tester.ExpectUniqueSample(
-        "Autofill.InvalidProfileData.UsedForSuggestion", false, 1);
+    scoped_features.InitWithFeatures(
+        /*enabled_features=*/{features::kAutofillProfileClientValidation,
+                              features::kAutofillProfileServerValidation},
+        /*disabled_features=*/{});
+
+    std::vector<Suggestion> email_suggestions =
+        personal_data_->GetProfileSuggestions(AutofillType(EMAIL_ADDRESS),
+                                              base::string16(), false,
+                                              std::vector<ServerFieldType>());
+
+    for (auto* profile : profiles) {
+      ASSERT_EQ(profile->guid() == valid_profile.guid(),
+                profile->IsValidByClient());
+      ASSERT_EQ(profile->guid() == valid_profile.guid(),
+                profile->IsValidByServer());
+    }
+    ASSERT_EQ(1U, email_suggestions.size());
+    EXPECT_EQ(base::ASCIIToUTF16("alice@wonderland.ca"),
+              email_suggestions[0].value);
+
+    std::vector<Suggestion> name_suggestions =
+        personal_data_->GetProfileSuggestions(AutofillType(NAME_FIRST),
+                                              base::string16(), false,
+                                              std::vector<ServerFieldType>());
+    ASSERT_EQ(2U, name_suggestions.size());
+    EXPECT_EQ(base::ASCIIToUTF16("Alice"), name_suggestions[0].value);
+    EXPECT_EQ(base::ASCIIToUTF16("Marion1"), name_suggestions[1].value);
   }
-
+  // Invalid based on client, and server. Relying only on the client source.
   {
-    base::HistogramTester histogram_tester;
     base::test::ScopedFeatureList scoped_features;
-    scoped_features.InitAndEnableFeature(
-        features::kAutofillSuggestInvalidProfileData);
-    std::vector<Suggestion> suggestions = personal_data_->GetProfileSuggestions(
-        AutofillType(ADDRESS_HOME_STATE), base::string16(), false,
-        std::vector<ServerFieldType>());
-    ASSERT_EQ(2U, suggestions.size());
-    EXPECT_EQ(base::ASCIIToUTF16("CA"), suggestions[1].value);
-    EXPECT_EQ(base::ASCIIToUTF16("NY"), suggestions[0].value);
-    histogram_tester.ExpectUniqueSample(
-        "Autofill.InvalidProfileData.UsedForSuggestion", true, 1);
+    scoped_features.InitWithFeatures(
+        /*enabled_features=*/{features::kAutofillProfileClientValidation},
+        /*disabled_features=*/{features::kAutofillProfileServerValidation});
+    std::vector<Suggestion> email_suggestions =
+        personal_data_->GetProfileSuggestions(AutofillType(EMAIL_ADDRESS),
+                                              base::string16(), false,
+                                              std::vector<ServerFieldType>());
+
+    for (auto* profile : profiles) {
+      ASSERT_EQ(profile->guid() == valid_profile.guid(),
+                profile->IsValidByClient());
+      ASSERT_EQ(profile->guid() == valid_profile.guid(),
+                profile->IsValidByServer());
+    }
+    ASSERT_EQ(1U, email_suggestions.size());
+    EXPECT_EQ(base::ASCIIToUTF16("alice@wonderland.ca"),
+              email_suggestions[0].value);
+
+    std::vector<Suggestion> name_suggestions =
+        personal_data_->GetProfileSuggestions(AutofillType(NAME_FIRST),
+                                              base::string16(), false,
+                                              std::vector<ServerFieldType>());
+    ASSERT_EQ(2U, name_suggestions.size());
+    EXPECT_EQ(base::ASCIIToUTF16("Alice"), name_suggestions[0].value);
+    EXPECT_EQ(base::ASCIIToUTF16("Marion1"), name_suggestions[1].value);
+  }
+  // Invalid based on client, and server. Relying on server as a validity
+  // source.
+  {
+    base::test::ScopedFeatureList scoped_features;
+    scoped_features.InitWithFeatures(
+        /*enabled_features=*/{features::kAutofillProfileServerValidation},
+        /*disabled_features=*/{features::kAutofillProfileClientValidation});
+    std::vector<Suggestion> email_suggestions =
+        personal_data_->GetProfileSuggestions(AutofillType(EMAIL_ADDRESS),
+                                              base::string16(), false,
+                                              std::vector<ServerFieldType>());
+
+    for (auto* profile : profiles) {
+      ASSERT_EQ(profile->guid() == valid_profile.guid(),
+                profile->IsValidByClient());
+      ASSERT_EQ(profile->guid() == valid_profile.guid(),
+                profile->IsValidByServer());
+    }
+    ASSERT_EQ(1U, email_suggestions.size());
+    EXPECT_EQ(base::ASCIIToUTF16("alice@wonderland.ca"),
+              email_suggestions[0].value);
+
+    std::vector<Suggestion> name_suggestions =
+        personal_data_->GetProfileSuggestions(AutofillType(NAME_FIRST),
+                                              base::string16(), false,
+                                              std::vector<ServerFieldType>());
+    ASSERT_EQ(2U, name_suggestions.size());
+    EXPECT_EQ(base::ASCIIToUTF16("Alice"), name_suggestions[0].value);
+    EXPECT_EQ(base::ASCIIToUTF16("Marion1"), name_suggestions[1].value);
   }
 }
 
@@ -2336,6 +2601,345 @@ TEST_F(PersonalDataManagerTest,
   // Expect no profile values or suggestions were added.
   EXPECT_EQ(0U, personal_data_->GetProfiles().size());
 }
+
+#if !defined(OS_ANDROID) && !defined(OS_IOS)
+TEST_F(PersonalDataManagerTest,
+       GetProfileSuggestions_LogProfileSuggestionsMadeWithFormatter) {
+  AutofillProfile profile(base::GenerateGUID(), test::kEmptyOrigin);
+  test::SetProfileInfo(&profile, "Hoa", "", "Pham", "hoa.pham@comcast.net", "",
+                       "401 Merrimack St", "", "Lowell", "MA", "01852", "US",
+                       "19786744120");
+  AddProfileToPersonalDataManager(profile);
+
+  base::test::ScopedFeatureList scoped_features;
+  scoped_features.InitAndEnableFeature(
+      features::kAutofillUseImprovedLabelDisambiguation);
+
+  base::HistogramTester histogram_tester;
+  EXPECT_THAT(
+      personal_data_->GetProfileSuggestions(
+          AutofillType(NAME_FIRST), base::string16(), false,
+          std::vector<ServerFieldType>{NAME_FIRST, NAME_LAST, EMAIL_ADDRESS,
+                                       PHONE_HOME_WHOLE_NUMBER}),
+      ElementsAre(
+          testing::Field(&Suggestion::value, base::ASCIIToUTF16("Hoa"))));
+  histogram_tester.ExpectUniqueSample(
+      "Autofill.ProfileSuggestionsMadeWithFormatter", true, 1);
+}
+#endif  // #if !defined(OS_ANDROID) && !defined(OS_IOS)
+
+#if !defined(OS_ANDROID) && !defined(OS_IOS)
+TEST_F(PersonalDataManagerTest, GetProfileSuggestions_ForContactForm) {
+  AutofillProfile profile(base::GenerateGUID(), test::kEmptyOrigin);
+  test::SetProfileInfo(&profile, "Hoa", "", "Pham", "hoa.pham@comcast.net", "",
+                       "401 Merrimack St", "", "Lowell", "MA", "01852", "US",
+                       "19786744120");
+  AddProfileToPersonalDataManager(profile);
+
+  base::test::ScopedFeatureList scoped_features;
+  scoped_features.InitAndEnableFeature(
+      features::kAutofillUseImprovedLabelDisambiguation);
+
+  EXPECT_THAT(
+      personal_data_->GetProfileSuggestions(
+          AutofillType(NAME_FIRST), base::string16(), false,
+          std::vector<ServerFieldType>{NAME_FIRST, NAME_LAST, EMAIL_ADDRESS,
+                                       PHONE_HOME_WHOLE_NUMBER}),
+      ElementsAre(AllOf(
+          testing::Field(
+              &Suggestion::label,
+              ConstructLabelLine({base::ASCIIToUTF16("(978) 674-4120"),
+                                  base::ASCIIToUTF16("hoa.pham@comcast.net")})),
+          testing::Field(&Suggestion::icon, ""))));
+}
+#endif  // #if !defined(OS_ANDROID) && !defined(OS_IOS)
+
+#if !defined(OS_ANDROID) && !defined(OS_IOS)
+TEST_F(PersonalDataManagerTest, GetProfileSuggestions_AddressForm) {
+  AutofillProfile profile(base::GenerateGUID(), test::kEmptyOrigin);
+  test::SetProfileInfo(&profile, "Hoa", "", "Pham", "hoa.pham@comcast.net", "",
+                       "401 Merrimack St", "", "Lowell", "MA", "01852", "US",
+                       "19786744120");
+  AddProfileToPersonalDataManager(profile);
+
+  base::test::ScopedFeatureList scoped_features;
+  scoped_features.InitAndEnableFeature(
+      features::kAutofillUseImprovedLabelDisambiguation);
+
+  EXPECT_THAT(personal_data_->GetProfileSuggestions(
+                  AutofillType(NAME_FULL), base::string16(), false,
+                  std::vector<ServerFieldType>{
+                      NAME_FULL, ADDRESS_HOME_STREET_ADDRESS, ADDRESS_HOME_CITY,
+                      ADDRESS_HOME_STATE, ADDRESS_HOME_ZIP}),
+              ElementsAre(AllOf(
+                  testing::Field(
+                      &Suggestion::label,
+                      base::ASCIIToUTF16("401 Merrimack St, Lowell, MA 01852")),
+                  testing::Field(&Suggestion::icon, ""))));
+}
+#endif  // #if !defined(OS_ANDROID) && !defined(OS_IOS)
+
+#if !defined(OS_ANDROID) && !defined(OS_IOS)
+TEST_F(PersonalDataManagerTest, GetProfileSuggestions_AddressPhoneForm) {
+  AutofillProfile profile(base::GenerateGUID(), test::kEmptyOrigin);
+  test::SetProfileInfo(&profile, "Hoa", "", "Pham", "hoa.pham@comcast.net", "",
+                       "401 Merrimack St", "", "Lowell", "MA", "01852", "US",
+                       "19786744120");
+  AddProfileToPersonalDataManager(profile);
+
+  base::test::ScopedFeatureList scoped_features;
+  scoped_features.InitAndEnableFeature(
+      features::kAutofillUseImprovedLabelDisambiguation);
+
+  EXPECT_THAT(
+      personal_data_->GetProfileSuggestions(
+          AutofillType(NAME_FULL), base::string16(), false,
+          std::vector<ServerFieldType>{NAME_FULL, ADDRESS_HOME_STREET_ADDRESS,
+                                       PHONE_HOME_WHOLE_NUMBER}),
+      ElementsAre(AllOf(
+          testing::Field(
+              &Suggestion::label,
+              ConstructLabelLine({base::ASCIIToUTF16("(978) 674-4120"),
+                                  base::ASCIIToUTF16("401 Merrimack St")})),
+          testing::Field(&Suggestion::icon, ""))));
+}
+#endif  // #if !defined(OS_ANDROID) && !defined(OS_IOS)
+
+#if !defined(OS_ANDROID) && !defined(OS_IOS)
+TEST_F(PersonalDataManagerTest, GetProfileSuggestions_AddressEmailForm) {
+  AutofillProfile profile(base::GenerateGUID(), test::kEmptyOrigin);
+  test::SetProfileInfo(&profile, "Hoa", "", "Pham", "hoa.pham@comcast.net", "",
+                       "401 Merrimack St", "", "Lowell", "MA", "01852", "US",
+                       "19786744120");
+  AddProfileToPersonalDataManager(profile);
+
+  base::test::ScopedFeatureList scoped_features;
+  scoped_features.InitAndEnableFeature(
+      features::kAutofillUseImprovedLabelDisambiguation);
+
+  EXPECT_THAT(
+      personal_data_->GetProfileSuggestions(
+          AutofillType(NAME_FULL), base::string16(), false,
+          std::vector<ServerFieldType>{NAME_FULL, ADDRESS_HOME_STREET_ADDRESS,
+                                       EMAIL_ADDRESS}),
+      ElementsAre(AllOf(
+          testing::Field(
+              &Suggestion::label,
+              ConstructLabelLine({base::ASCIIToUTF16("401 Merrimack St"),
+                                  base::ASCIIToUTF16("hoa.pham@comcast.net")})),
+          testing::Field(&Suggestion::icon, ""))));
+}
+#endif  // #if !defined(OS_ANDROID) && !defined(OS_IOS)
+
+#if !defined(OS_ANDROID) && !defined(OS_IOS)
+TEST_F(PersonalDataManagerTest, GetProfileSuggestions_FormWithOneProfile) {
+  AutofillProfile profile(base::GenerateGUID(), test::kEmptyOrigin);
+  test::SetProfileInfo(&profile, "Hoa", "", "Pham", "hoa.pham@comcast.net", "",
+                       "401 Merrimack St", "", "Lowell", "MA", "01852", "US",
+                       "19786744120");
+  AddProfileToPersonalDataManager(profile);
+
+  base::test::ScopedFeatureList scoped_features;
+  scoped_features.InitAndEnableFeature(
+      features::kAutofillUseImprovedLabelDisambiguation);
+
+  EXPECT_THAT(
+      personal_data_->GetProfileSuggestions(
+          AutofillType(NAME_FULL), base::string16(), false,
+          std::vector<ServerFieldType>{NAME_FULL, ADDRESS_HOME_STREET_ADDRESS,
+                                       EMAIL_ADDRESS, PHONE_HOME_WHOLE_NUMBER}),
+      ElementsAre(AllOf(testing::Field(&Suggestion::label,
+                                       ConstructLabelLine({base::ASCIIToUTF16(
+                                           "401 Merrimack St")})),
+                        testing::Field(&Suggestion::icon, ""))));
+}
+#endif  // #if !defined(OS_ANDROID) && !defined(OS_IOS)
+
+#if !defined(OS_ANDROID) && !defined(OS_IOS)
+TEST_F(PersonalDataManagerTest,
+       GetProfileSuggestions_AddressContactFormWithProfiles) {
+  AutofillProfile profile1(base::GenerateGUID(), test::kEmptyOrigin);
+  test::SetProfileInfo(&profile1, "Hoa", "", "Pham", "hoa.pham@comcast.net", "",
+                       "401 Merrimack St", "", "Lowell", "MA", "01852", "US",
+                       "19786744120");
+
+  AutofillProfile profile2(base::GenerateGUID(), test::kEmptyOrigin);
+  test::SetProfileInfo(&profile2, "Hoa", "", "Pham", "hp@aol.com", "",
+                       "216 Broadway St", "", "Lowell", "MA", "01854", "US",
+                       "19784523366");
+
+  // The profiles' use dates and counts are set make this test deterministic.
+  // The suggestion created with data from profile1 should be ranked higher
+  // than profile2's associated suggestion. This ensures that profile1's
+  // suggestion is the first element in the collection returned by
+  // GetProfileSuggestions.
+  profile1.set_use_date(AutofillClock::Now());
+  profile1.set_use_count(10);
+  profile2.set_use_date(AutofillClock::Now() - base::TimeDelta::FromDays(10));
+  profile2.set_use_count(1);
+
+  EXPECT_TRUE(profile1.HasGreaterFrecencyThan(&profile2, base::Time::Now()));
+
+  AddProfileToPersonalDataManager(profile1);
+  AddProfileToPersonalDataManager(profile2);
+
+  base::test::ScopedFeatureList scoped_features;
+  scoped_features.InitAndEnableFeature(
+      features::kAutofillUseImprovedLabelDisambiguation);
+
+  EXPECT_THAT(
+      personal_data_->GetProfileSuggestions(
+          AutofillType(NAME_FULL), base::string16(), false,
+          std::vector<ServerFieldType>{NAME_FULL, ADDRESS_HOME_STREET_ADDRESS,
+                                       EMAIL_ADDRESS, PHONE_HOME_WHOLE_NUMBER}),
+      ElementsAre(
+          AllOf(
+              testing::Field(&Suggestion::label,
+                             ConstructLabelLine(
+                                 {base::ASCIIToUTF16("401 Merrimack St"),
+                                  base::ASCIIToUTF16("(978) 674-4120"),
+                                  base::ASCIIToUTF16("hoa.pham@comcast.net")})),
+              testing::Field(&Suggestion::icon, "")),
+          AllOf(testing::Field(
+                    &Suggestion::label,
+                    ConstructLabelLine({base::ASCIIToUTF16("216 Broadway St"),
+                                        base::ASCIIToUTF16("(978) 452-3366"),
+                                        base::ASCIIToUTF16("hp@aol.com")})),
+                testing::Field(&Suggestion::icon, ""))));
+}
+#endif  // #if !defined(OS_ANDROID) && !defined(OS_IOS)
+
+#if defined(OS_ANDROID) || defined(OS_IOS)
+TEST_F(PersonalDataManagerTest, GetProfileSuggestions_MobileShowOne) {
+  std::map<std::string, std::string> parameters;
+  parameters[features::kAutofillUseMobileLabelDisambiguationParameterName] =
+      features::kAutofillUseMobileLabelDisambiguationParameterShowOne;
+  base::test::ScopedFeatureList scoped_features;
+  scoped_features.InitAndEnableFeatureWithParameters(
+      features::kAutofillUseMobileLabelDisambiguation, parameters);
+
+  AutofillProfile profile1(base::GenerateGUID(), test::kEmptyOrigin);
+  test::SetProfileInfo(&profile1, "Hoa", "", "Pham", "hoa.pham@comcast.net", "",
+                       "401 Merrimack St", "", "Lowell", "MA", "01852", "US",
+                       "19786744120");
+  AutofillProfile profile2(base::GenerateGUID(), test::kEmptyOrigin);
+  test::SetProfileInfo(&profile2, "María", "", "Lòpez", "maria@aol.com", "",
+                       "11 Elkins St", "", "Boston", "MA", "02127", "US",
+                       "6172686862");
+
+  // The profiles' use dates and counts are set make this test deterministic.
+  // The suggestion created with data from profile1 should be ranked higher
+  // than profile2's associated suggestion. This ensures that profile1's
+  // suggestion is the first element in the collection returned by
+  // GetProfileSuggestions.
+  profile1.set_use_date(AutofillClock::Now());
+  profile1.set_use_count(10);
+  profile2.set_use_date(AutofillClock::Now() - base::TimeDelta::FromDays(10));
+  profile2.set_use_count(1);
+
+  AddProfileToPersonalDataManager(profile1);
+  AddProfileToPersonalDataManager(profile2);
+
+  // Tests a form with name, email address, and phone number fields.
+  EXPECT_THAT(
+      personal_data_->GetProfileSuggestions(
+          AutofillType(EMAIL_ADDRESS), base::string16(), false,
+          std::vector<ServerFieldType>{NAME_FIRST, NAME_LAST, EMAIL_ADDRESS,
+                                       PHONE_HOME_WHOLE_NUMBER}),
+      ElementsAre(AllOf(testing::Field(&Suggestion::label,
+                                       base::ASCIIToUTF16("(978) 674-4120")),
+                        testing::Field(&Suggestion::icon, "")),
+                  AllOf(testing::Field(&Suggestion::label,
+                                       base::ASCIIToUTF16("(617) 268-6862")),
+                        testing::Field(&Suggestion::icon, ""))));
+
+  // Tests a form with name, address, phone number, and email address fields.
+  EXPECT_THAT(
+      personal_data_->GetProfileSuggestions(
+          AutofillType(EMAIL_ADDRESS), base::string16(), false,
+          std::vector<ServerFieldType>{NAME_FULL, ADDRESS_HOME_STREET_ADDRESS,
+                                       ADDRESS_HOME_CITY, EMAIL_ADDRESS,
+                                       PHONE_HOME_WHOLE_NUMBER}),
+      ElementsAre(AllOf(testing::Field(&Suggestion::label,
+                                       base::ASCIIToUTF16("401 Merrimack St")),
+                        testing::Field(&Suggestion::icon, "")),
+                  AllOf(testing::Field(&Suggestion::label,
+                                       base::ASCIIToUTF16("11 Elkins St")),
+                        testing::Field(&Suggestion::icon, ""))));
+}
+#endif  // if defined(OS_ANDROID) || defined(OS_IOS)
+
+#if defined(OS_ANDROID) || defined(OS_IOS)
+TEST_F(PersonalDataManagerTest, GetProfileSuggestions_MobileShowAll) {
+  std::map<std::string, std::string> parameters;
+  parameters[features::kAutofillUseMobileLabelDisambiguationParameterName] =
+      features::kAutofillUseMobileLabelDisambiguationParameterShowAll;
+  base::test::ScopedFeatureList scoped_features;
+  scoped_features.InitAndEnableFeatureWithParameters(
+      features::kAutofillUseMobileLabelDisambiguation, parameters);
+
+  AutofillProfile profile1(base::GenerateGUID(), test::kEmptyOrigin);
+  test::SetProfileInfo(&profile1, "Hoa", "", "Pham", "hoa.pham@comcast.net", "",
+                       "401 Merrimack St", "", "Lowell", "MA", "01852", "US",
+                       "19786744120");
+  AutofillProfile profile2(base::GenerateGUID(), test::kEmptyOrigin);
+  test::SetProfileInfo(&profile2, "María", "", "Lòpez", "maria@aol.com", "",
+                       "11 Elkins St", "", "Boston", "MA", "02127", "US",
+                       "6172686862");
+
+  // The profiles' use dates and counts are set make this test deterministic.
+  // The suggestion created with data from profile1 should be ranked higher
+  // than profile2's associated suggestion. This ensures that profile1's
+  // suggestion is the first element in the collection returned by
+  // GetProfileSuggestions.
+  profile1.set_use_date(AutofillClock::Now());
+  profile1.set_use_count(10);
+  profile2.set_use_date(AutofillClock::Now() - base::TimeDelta::FromDays(10));
+  profile2.set_use_count(1);
+
+  AddProfileToPersonalDataManager(profile1);
+  AddProfileToPersonalDataManager(profile2);
+
+  // Tests a form with name, email address, and phone number fields.
+  EXPECT_THAT(
+      personal_data_->GetProfileSuggestions(
+          AutofillType(EMAIL_ADDRESS), base::string16(), false,
+          std::vector<ServerFieldType>{NAME_FIRST, NAME_LAST, EMAIL_ADDRESS,
+                                       PHONE_HOME_WHOLE_NUMBER}),
+      ElementsAre(
+          AllOf(testing::Field(&Suggestion::label,
+                               ConstructMobileLabelLine(
+                                   {base::ASCIIToUTF16("Hoa"),
+                                    base::ASCIIToUTF16("(978) 674-4120")})),
+                testing::Field(&Suggestion::icon, "")),
+          AllOf(testing::Field(&Suggestion::label,
+                               ConstructMobileLabelLine(
+                                   {base::UTF8ToUTF16("María"),
+                                    base::ASCIIToUTF16("(617) 268-6862")})),
+                testing::Field(&Suggestion::icon, ""))));
+
+  // Tests a form with name, address, phone number, and email address fields.
+  EXPECT_THAT(
+      personal_data_->GetProfileSuggestions(
+          AutofillType(EMAIL_ADDRESS), base::string16(), false,
+          std::vector<ServerFieldType>{NAME_FULL, ADDRESS_HOME_STREET_ADDRESS,
+                                       ADDRESS_HOME_CITY, EMAIL_ADDRESS,
+                                       PHONE_HOME_WHOLE_NUMBER}),
+      ElementsAre(
+          AllOf(testing::Field(&Suggestion::label,
+                               ConstructMobileLabelLine(
+                                   {base::ASCIIToUTF16("Hoa"),
+                                    base::ASCIIToUTF16("401 Merrimack St"),
+                                    base::ASCIIToUTF16("(978) 674-4120")})),
+                testing::Field(&Suggestion::icon, "")),
+          AllOf(testing::Field(&Suggestion::label,
+                               ConstructMobileLabelLine(
+                                   {base::UTF8ToUTF16("María"),
+                                    base::ASCIIToUTF16("11 Elkins St"),
+                                    base::ASCIIToUTF16("(617) 268-6862")})),
+                testing::Field(&Suggestion::icon, ""))));
+}
+#endif  // if defined(OS_ANDROID) || defined(OS_IOS)
 
 TEST_F(PersonalDataManagerTest, IsKnownCard_MatchesMaskedServerCard) {
   // Add a masked server card.
@@ -2848,27 +3452,6 @@ TEST_F(PersonalDataManagerTest,
   WaitForOnPersonalDataChanged();
   ASSERT_EQ(4U, personal_data_->GetCreditCards().size());
 
-  // Verify no suppression if feature is disabled.
-  {
-    base::test::ScopedFeatureList scoped_features;
-    scoped_features.InitAndDisableFeature(
-        features::kAutofillSuppressDisusedCreditCards);
-
-    std::vector<Suggestion> suggestions =
-        personal_data_->GetCreditCardSuggestions(
-            AutofillType(CREDIT_CARD_NAME_FULL), base::string16(),
-            /*include_server_cards=*/true);
-    EXPECT_EQ(4U, suggestions.size());
-    EXPECT_EQ(base::ASCIIToUTF16("Bonnie Parker"), suggestions[0].value);
-    EXPECT_EQ(base::ASCIIToUTF16("Clyde Barrow"), suggestions[1].value);
-    EXPECT_EQ(base::ASCIIToUTF16("Jane Doe"), suggestions[2].value);
-    EXPECT_EQ(base::ASCIIToUTF16("John Dillinger"), suggestions[3].value);
-  }
-
-  base::test::ScopedFeatureList scoped_features;
-  scoped_features.InitAndEnableFeature(
-      features::kAutofillSuppressDisusedCreditCards);
-
   // Query with empty string only returns card0 and card1. Note expired
   // masked card2 is not suggested on empty fields.
   {
@@ -2973,7 +3556,12 @@ TEST_F(PersonalDataManagerTest, GetCreditCardSuggestions_NumberMissing) {
   EXPECT_EQ(base::UTF8ToUTF16(std::string("Amex  ") +
                               test::ObfuscatedCardDigitsAsUTF8("0005")),
             suggestions[0].value);
+
+#if defined(OS_ANDROID) || defined(OS_IOS)
   EXPECT_EQ(base::ASCIIToUTF16("04/99"), suggestions[0].label);
+#else
+  EXPECT_EQ(base::ASCIIToUTF16("Expires on 04/99"), suggestions[0].label);
+#endif  // defined (OS_ANDROID) || defined(OS_IOS)
 }
 
 // Tests the suggestions of duplicate local and server credit cards.
@@ -2995,16 +3583,6 @@ TEST_F(PersonalDataManagerTest, GetCreditCardSuggestions_ServerDuplicates) {
                                    base::TimeDelta::FromDays(15));
   server_cards.back().SetNetworkForMaskedCard(kVisaCard);
 
-  // This server card is identical to a local card, but has a different
-  // card type. Not a dupe and therefore both should appear in the suggestions.
-  server_cards.push_back(CreditCard(CreditCard::MASKED_SERVER_CARD, "b456"));
-  test::SetCreditCardInfo(&server_cards.back(), "Bonnie Parker", "5100", "12",
-                          "2999", "1");
-  server_cards.back().set_use_count(3);
-  server_cards.back().set_use_date(AutofillClock::Now() -
-                                   base::TimeDelta::FromDays(15));
-  server_cards.back().SetNetworkForMaskedCard(kVisaCard);
-
   // This unmasked server card is an exact dupe of a local card. Therefore only
   // this card should appear in the suggestions as full server cards have
   // precedence over local cards.
@@ -3021,23 +3599,22 @@ TEST_F(PersonalDataManagerTest, GetCreditCardSuggestions_ServerDuplicates) {
   // Make sure everything is set up correctly.
   personal_data_->Refresh();
   WaitForOnPersonalDataChanged();
-  EXPECT_EQ(6U, personal_data_->GetCreditCards().size());
+  EXPECT_EQ(5U, personal_data_->GetCreditCards().size());
 
   std::vector<Suggestion> suggestions =
       personal_data_->GetCreditCardSuggestions(
           AutofillType(CREDIT_CARD_NAME_FULL),
           /* field_contents= */ base::string16(),
           /*include_server_cards=*/true);
-  ASSERT_EQ(4U, suggestions.size());
+  ASSERT_EQ(3U, suggestions.size());
   EXPECT_EQ(base::ASCIIToUTF16("John Dillinger"), suggestions[0].value);
   EXPECT_EQ(base::ASCIIToUTF16("Clyde Barrow"), suggestions[1].value);
   EXPECT_EQ(base::ASCIIToUTF16("Bonnie Parker"), suggestions[2].value);
-  EXPECT_EQ(base::ASCIIToUTF16("Bonnie Parker"), suggestions[3].value);
 
   suggestions = personal_data_->GetCreditCardSuggestions(
       AutofillType(CREDIT_CARD_NUMBER), /* field_contents= */ base::string16(),
       /*include_server_cards=*/true);
-  ASSERT_EQ(4U, suggestions.size());
+  ASSERT_EQ(3U, suggestions.size());
   EXPECT_EQ(base::UTF8ToUTF16(std::string("Visa  ") +
                               test::ObfuscatedCardDigitsAsUTF8("3456")),
             suggestions[0].value);
@@ -3047,9 +3624,6 @@ TEST_F(PersonalDataManagerTest, GetCreditCardSuggestions_ServerDuplicates) {
   EXPECT_EQ(base::UTF8ToUTF16(std::string("Mastercard  ") +
                               test::ObfuscatedCardDigitsAsUTF8("5100")),
             suggestions[2].value);
-  EXPECT_EQ(base::UTF8ToUTF16(std::string("Visa  ") +
-                              test::ObfuscatedCardDigitsAsUTF8("5100")),
-            suggestions[3].value);
 }
 
 // Tests that a full server card can be a dupe of more than one local card.
@@ -3249,40 +3823,39 @@ TEST_F(PersonalDataManagerTest, DedupeCreditCardToSuggest_FullServerAndMasked) {
   EXPECT_EQ(2U, credit_cards.size());
 }
 
-// Tests that slightly different local, full server, and masked credit cards are
-// not deduped.
+// Tests that different local, masked, and full server credit cards are not
+// deduped.
 TEST_F(PersonalDataManagerTest, DedupeCreditCardToSuggest_DifferentCards) {
   std::list<CreditCard*> credit_cards;
 
-  CreditCard credit_card2("002149C1-EE28-4213-A3B9-DA243FFF021B",
-                          test::kEmptyOrigin);
-  credit_card2.set_use_count(1);
-  credit_card2.set_use_date(AutofillClock::Now() -
-                            base::TimeDelta::FromDays(1));
-  test::SetCreditCardInfo(&credit_card2, "Homer Simpson",
+  CreditCard local_card("002149C1-EE28-4213-A3B9-DA243FFF021B",
+                        test::kEmptyOrigin);
+  local_card.set_use_count(1);
+  local_card.set_use_date(AutofillClock::Now() - base::TimeDelta::FromDays(1));
+  test::SetCreditCardInfo(&local_card, "Homer Simpson",
                           "5105105105105100" /* Mastercard */, "", "", "");
-  credit_cards.push_back(&credit_card2);
+  credit_cards.push_back(&local_card);
 
-  // Create a masked server card that is slightly different of the local card.
-  CreditCard credit_card4(CreditCard::MASKED_SERVER_CARD, "b456");
-  test::SetCreditCardInfo(&credit_card4, "Homer Simpson", "5100", "12", "2999",
+  // Create a masked server card that is different from the local card.
+  CreditCard masked_card(CreditCard::MASKED_SERVER_CARD, "b456");
+  test::SetCreditCardInfo(&masked_card, "Homer Simpson", "0005", "12", "2999",
                           "1");
-  credit_card4.set_use_count(3);
-  credit_card4.set_use_date(AutofillClock::Now() -
-                            base::TimeDelta::FromDays(15));
-  credit_card4.SetNetworkForMaskedCard(kVisaCard);
-  credit_cards.push_back(&credit_card4);
+  masked_card.set_use_count(3);
+  masked_card.set_use_date(AutofillClock::Now() -
+                           base::TimeDelta::FromDays(15));
+  // credit_card4.SetNetworkForMaskedCard(kVisaCard);
+  credit_cards.push_back(&masked_card);
 
   // Create a full server card that is slightly different of the two other
   // cards.
-  CreditCard credit_card5(CreditCard::FULL_SERVER_CARD, "c789");
-  test::SetCreditCardInfo(&credit_card5, "Homer Simpson",
+  CreditCard full_server_card(CreditCard::FULL_SERVER_CARD, "c789");
+  test::SetCreditCardInfo(&full_server_card, "Homer Simpson",
                           "378282246310005" /* American Express */, "04",
                           "2999", "1");
-  credit_card5.set_use_count(1);
-  credit_card5.set_use_date(AutofillClock::Now() -
-                            base::TimeDelta::FromDays(15));
-  credit_cards.push_back(&credit_card5);
+  full_server_card.set_use_count(1);
+  full_server_card.set_use_date(AutofillClock::Now() -
+                                base::TimeDelta::FromDays(15));
+  credit_cards.push_back(&full_server_card);
 
   PersonalDataManager::DedupeCreditCardToSuggest(&credit_cards);
   EXPECT_EQ(3U, credit_cards.size());
@@ -3535,13 +4108,16 @@ typedef struct {
 } SaveImportedProfileTestCase;
 
 class SaveImportedProfileTest
-    : public PersonalDataManagerTestBase,
+    : public PersonalDataManagerHelper,
       public testing::TestWithParam<SaveImportedProfileTestCase> {
  public:
   SaveImportedProfileTest() {}
   ~SaveImportedProfileTest() override {}
 
-  void SetUp() override { SetUpTest(); }
+  void SetUp() override {
+    SetUpTest();
+    ResetPersonalDataManager(USER_MODE_NORMAL);
+  }
 
   void TearDown() override { TearDownTest(); }
 };
@@ -3605,7 +4181,7 @@ TEST_P(SaveImportedProfileTest, SaveImportedProfile) {
   ResetProfiles();
 }
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     PersonalDataManagerTest,
     SaveImportedProfileTest,
     testing::Values(
@@ -4858,31 +5434,10 @@ TEST_F(PersonalDataManagerTest, ApplyDedupingRoutine_OncePerVersion) {
   EXPECT_EQ(2U, personal_data_->GetProfiles().size());
 }
 
-// Tests that DeleteDisusedAddresses is not run if the feature is disabled.
-TEST_F(PersonalDataManagerTest, DeleteDisusedAddresses_DoNothingWhenDisabled) {
-  base::test::ScopedFeatureList scoped_features;
-  scoped_features.InitAndDisableFeature(
-      features::kAutofillDeleteDisusedAddresses);
-
-  CreateDeletableDisusedProfile();
-
-  // DeleteDisusedCreditCards should return false to indicate it was not run.
-  EXPECT_FALSE(personal_data_->DeleteDisusedAddresses());
-
-  personal_data_->Refresh();
-
-  EXPECT_EQ(1U, personal_data_->GetProfiles().size());
-}
-
 // Tests that DeleteDisusedAddresses only deletes the addresses that are
 // supposed to be deleted.
 TEST_F(PersonalDataManagerTest,
        DeleteDisusedAddresses_DeleteDesiredAddressesOnly) {
-  // Enable the feature.
-  base::test::ScopedFeatureList scoped_features;
-  scoped_features.InitAndEnableFeature(
-      features::kAutofillDeleteDisusedAddresses);
-
   auto now = AutofillClock::Now();
 
   // Create unverified/disused/not-used-by-valid-credit-card
@@ -4961,31 +5516,9 @@ TEST_F(PersonalDataManagerTest,
             personal_data_->GetProfiles()[2]->GetRawInfo(NAME_LAST));
 }
 
-// Tests that DeleteDisusedCreditCards is not run if the feature is disabled.
-TEST_F(PersonalDataManagerTest,
-       DeleteDisusedCreditCards_DoNothingWhenDisabled) {
-  base::test::ScopedFeatureList scoped_features;
-  scoped_features.InitAndDisableFeature(
-      features::kAutofillDeleteDisusedCreditCards);
-
-  CreateDeletableExpiredAndDisusedCreditCard();
-
-  // DeleteDisusedCreditCards should return false to indicate it was not run.
-  EXPECT_FALSE(personal_data_->DeleteDisusedCreditCards());
-
-  personal_data_->Refresh();
-
-  EXPECT_EQ(1U, personal_data_->GetCreditCards().size());
-}
-
 // Tests that DeleteDisusedCreditCards deletes desired credit cards only.
 TEST_F(PersonalDataManagerTest,
        DeleteDisusedCreditCards_OnlyDeleteExpiredDisusedLocalCards) {
-  // Enable the feature.
-  base::test::ScopedFeatureList scoped_features;
-  scoped_features.InitAndEnableFeature(
-      features::kAutofillDeleteDisusedCreditCards);
-
   const char kHistogramName[] = "Autofill.CreditCardsDeletedForDisuse";
   auto now = AutofillClock::Now();
 
@@ -5207,7 +5740,7 @@ TEST_F(PersonalDataManagerTest,
 
   // Make sure that the added address has the email address of the currently
   // signed-in user.
-  EXPECT_EQ(base::UTF8ToUTF16("syncuser@example.com"),
+  EXPECT_EQ(base::UTF8ToUTF16(kPrimaryAccountEmail),
             profiles[0]->GetRawInfo(EMAIL_ADDRESS));
 }
 
@@ -5342,17 +5875,7 @@ TEST_F(PersonalDataManagerTest,
   ///////////////////////////////////////////////////////////////////////
   // Tested method.
   ///////////////////////////////////////////////////////////////////////
-  personal_data_->ConvertWalletAddressesAndUpdateWalletCards();
-
-  ///////////////////////////////////////////////////////////////////////
-  // Validation.
-  ///////////////////////////////////////////////////////////////////////
-  // Since there should be no change in data, OnPersonalDataChanged should not
-  // have been called.
-  EXPECT_CALL(personal_data_observer_, OnPersonalDataChanged()).Times(0);
-
-  personal_data_->Refresh();
-  WaitForOnPersonalDataChanged();
+  ConvertWalletAddressesAndUpdateWalletCards();
 
   // There should be no local profiles added.
   EXPECT_EQ(0U, personal_data_->GetProfiles().size());
@@ -5418,6 +5941,7 @@ TEST_F(
                           "2999", "1");
   local_card.set_billing_address_id(kServerAddressId);
   personal_data_->AddCreditCard(local_card);
+  WaitForOnPersonalDataChanged();
 
   std::vector<CreditCard> server_cards;
   server_cards.push_back(
@@ -5622,18 +6146,11 @@ TEST_F(PersonalDataManagerTest, DoNotConvertWalletAddressesInEphemeralStorage) {
   ///////////////////////////////////////////////////////////////////////
   // Since the wallet addresses are in ephemeral storage, they should *not* get
   // converted to local addresses.
-  personal_data_->ConvertWalletAddressesAndUpdateWalletCards();
+  ConvertWalletAddressesAndUpdateWalletCards();
 
   ///////////////////////////////////////////////////////////////////////
   // Validation.
   ///////////////////////////////////////////////////////////////////////
-  // Since there should be no change in data, OnPersonalDataChanged should not
-  // get called.
-  EXPECT_CALL(personal_data_observer_, OnPersonalDataChanged()).Times(0);
-
-  personal_data_->Refresh();
-  WaitForOnPersonalDataChanged();
-
   // There should be no changes to the local profiles: No new one added, and no
   // changes to the existing one (even though the second server profile contains
   // additional information and is mergeable in principle).
@@ -6126,37 +6643,6 @@ TEST_F(PersonalDataManagerTest, CannotAddFullServerCardOnLinux) {
 // These tests are not applicable on Linux since it does not support full server
 // cards.
 #if !defined(OS_LINUX) || defined(OS_CHROMEOS)
-// Make sure that an auth error masks all the server cards.
-TEST_F(PersonalDataManagerTest, SyncAuthErrorMasksServerCards) {
-  base::HistogramTester histogram_tester;
-  SetUpThreeCardTypes();
-
-  // Set an auth error and inform the personal data manager.
-  sync_service_.SetAuthError(
-      GoogleServiceAuthError(GoogleServiceAuthError::INVALID_GAIA_CREDENTIALS));
-  personal_data_->OnStateChanged(&sync_service_);
-  WaitForOnPersonalDataChanged();
-
-  // Remove the auth error to be able to get the server cards.
-  sync_service_.SetAuthError(
-      GoogleServiceAuthError(GoogleServiceAuthError::NONE));
-
-  // Check that cards were masked and other were untouched.
-  EXPECT_EQ(3U, personal_data_->GetCreditCards().size());
-  std::vector<CreditCard*> server_cards =
-      personal_data_->GetServerCreditCards();
-  EXPECT_EQ(2U, server_cards.size());
-  for (CreditCard* card : server_cards)
-    EXPECT_TRUE(card->record_type() == CreditCard::MASKED_SERVER_CARD);
-
-  // Check that the metrics are logged correctly.
-  histogram_tester.ExpectUniqueSample(
-      "Autofill.ResetFullServerCards.SyncServiceStatusOnStateChanged",
-      syncer::UploadState::NOT_ACTIVE, 1);
-  histogram_tester.ExpectUniqueSample(
-      "Autofill.ResetFullServerCards.NumberOfCardsReset", 1, 1);
-}
-
 // Test that calling OnSyncServiceInitialized with a null sync service remasks
 // full server cards.
 TEST_F(PersonalDataManagerTest, OnSyncServiceInitialized_NoSyncService) {
@@ -6174,12 +6660,6 @@ TEST_F(PersonalDataManagerTest, OnSyncServiceInitialized_NoSyncService) {
   EXPECT_EQ(2U, server_cards.size());
   for (CreditCard* card : server_cards)
     EXPECT_TRUE(card->record_type() == CreditCard::MASKED_SERVER_CARD);
-
-  // Check that the metrics are logged correctly.
-  histogram_tester.ExpectUniqueSample(
-      "Autofill.ResetFullServerCards.SyncServiceNullOnInitialized", true, 1);
-  histogram_tester.ExpectUniqueSample(
-      "Autofill.ResetFullServerCards.NumberOfCardsReset", 1, 1);
 }
 
 // Test that calling OnSyncServiceInitialized with a sync service in auth error
@@ -6207,41 +6687,13 @@ TEST_F(PersonalDataManagerTest, OnSyncServiceInitialized_NotActiveSyncService) {
   for (CreditCard* card : server_cards)
     EXPECT_TRUE(card->record_type() == CreditCard::MASKED_SERVER_CARD);
 
-  // Check that the metrics are logged correctly.
-  histogram_tester.ExpectUniqueSample(
-      "Autofill.ResetFullServerCards.SyncServiceNotActiveOnInitialized", true,
-      1);
-  histogram_tester.ExpectUniqueSample(
-      "Autofill.ResetFullServerCards.NumberOfCardsReset", 1, 1);
+  // Call OnSyncShutdown to ensure removing observer added by
+  // OnSyncServiceInitialized.
+  personal_data_->OnSyncShutdown(&sync_service);
 }
 #endif  // !defined(OS_LINUX) || defined(OS_CHROMEOS)
 
 #if !defined(OS_ANDROID)
-TEST_F(PersonalDataManagerTest, SyncAuthErrorHidesServerCards) {
-  SetUpThreeCardTypes();
-
-  // Set a persistent auth error.
-  sync_service_.SetAuthError(
-      GoogleServiceAuthError(GoogleServiceAuthError::INVALID_GAIA_CREDENTIALS));
-
-  // Check that no server cards are available for suggestion, but that the other
-  // calls to get the credit cards are unaffected.
-  EXPECT_EQ(3U, personal_data_->GetCreditCards().size());
-  EXPECT_EQ(1U, personal_data_->GetCreditCardsToSuggest(true).size());
-  EXPECT_EQ(1U, personal_data_->GetLocalCreditCards().size());
-  EXPECT_EQ(2U, personal_data_->GetServerCreditCards().size());
-
-  // Remove error.
-  sync_service_.SetAuthError(
-      GoogleServiceAuthError(GoogleServiceAuthError::NONE));
-
-  // Check that all cards are available.
-  EXPECT_EQ(3U, personal_data_->GetCreditCards().size());
-  EXPECT_EQ(3U, personal_data_->GetCreditCardsToSuggest(true).size());
-  EXPECT_EQ(1U, personal_data_->GetLocalCreditCards().size());
-  EXPECT_EQ(2U, personal_data_->GetServerCreditCards().size());
-}
-
 TEST_F(PersonalDataManagerTest, ExcludeServerSideCards) {
   SetUpThreeCardTypes();
 
@@ -6465,6 +6917,9 @@ TEST_F(PersonalDataManagerTest, ClearCreditCardNonSettingsOrigins) {
 // Tests that all city fields in a Japan profile are moved to the street address
 // field.
 TEST_F(PersonalDataManagerTest, MoveJapanCityToStreetAddress) {
+  // Turn on sync feature to avoid calling MoveJapanCityToStreetAddress on
+  // adding the profiles implicitly.
+  ASSERT_TRUE(TurnOnSyncFeature());
   // A US profile with both street address and a city.
   std::string guid0 = base::GenerateGUID();
   {
@@ -6514,14 +6969,12 @@ TEST_F(PersonalDataManagerTest, MoveJapanCityToStreetAddress) {
                          "JP", "");
     AddProfileToPersonalDataManager(profile4);
   }
+  auto profiles = personal_data_->GetProfiles();
+  ASSERT_EQ(5U, profiles.size());
 
-  base::RunLoop run_loop;
-  EXPECT_CALL(personal_data_observer_, OnPersonalDataFinishedProfileTasks())
-      .WillRepeatedly(QuitMessageLoop(&run_loop));
-  EXPECT_CALL(personal_data_observer_, OnPersonalDataChanged())
-      .Times(2);  // For the Japan profiles where the city is not empty.
-  personal_data_->MoveJapanCityToStreetAddress();
-  run_loop.Run();
+  MoveJapanCityToStreetAddress(
+      personal_data_.get(),
+      2);  // For the japan profiles where the city is not empty.
 
   {
     AutofillProfile* profile0 = personal_data_->GetProfileByGUID(guid0);
@@ -6742,9 +7195,9 @@ TEST_F(PersonalDataManagerTest, UseCorrectStorageForDifferentCards) {
   EXPECT_EQ(profile, *profiles[0]);
 }
 
-// Requests profiles fields validities: empty profiles, non-existent profiles,
-// and normal ones.
-TEST_F(PersonalDataManagerTest, RequestProfileValidity) {
+// Requests profiles fields validities according to the server: empty profiles,
+// non-existent profiles, and normal ones.
+TEST_F(PersonalDataManagerTest, RequestProfileServerValidity) {
   ResetPersonalDataManager(USER_MODE_NORMAL);
 
   ProfileValidityMap profile_validity_map;
@@ -6767,10 +7220,10 @@ TEST_F(PersonalDataManagerTest, RequestProfileValidity) {
   std::vector<ServerFieldType> types = {
       ADDRESS_HOME_LINE1, ADDRESS_HOME_STATE, ADDRESS_HOME_COUNTRY,
       EMAIL_ADDRESS,      ADDRESS_HOME_ZIP,   NAME_FULL};
-  std::vector<AutofillProfile::ValidityState> states = {
-      AutofillProfile::UNSUPPORTED, AutofillProfile::EMPTY,
-      AutofillProfile::INVALID,     AutofillProfile::VALID,
-      AutofillProfile::UNVALIDATED, AutofillProfile::INVALID};
+  std::vector<AutofillDataModel::ValidityState> states = {
+      AutofillDataModel::UNSUPPORTED, AutofillDataModel::EMPTY,
+      AutofillDataModel::INVALID,     AutofillDataModel::VALID,
+      AutofillDataModel::UNVALIDATED, AutofillDataModel::INVALID};
   ASSERT_EQ(types.size(), states.size());
   for (unsigned long i = 0; i < types.size(); ++i) {
     (*profile_validity_map
@@ -6791,7 +7244,7 @@ TEST_F(PersonalDataManagerTest, RequestProfileValidity) {
   autofill_profile_validity.clear();
   (*profile_validity_map
         .mutable_field_validity_states())[static_cast<int>(EMAIL_ADDRESS)] =
-      static_cast<int>(AutofillProfile::VALID);
+      static_cast<int>(AutofillDataModel::VALID);
   (*user_profile_validity_map.mutable_profile_validity())[guid] =
       profile_validity_map;
   ASSERT_TRUE(
@@ -6818,130 +7271,54 @@ TEST_F(PersonalDataManagerTest, RequestProfileValidity) {
   validities =
       personal_data_->GetProfileValidityByGUID(guid).field_validity_states();
   ASSERT_FALSE(validities.empty());
-  EXPECT_EQ(validities.at(EMAIL_ADDRESS), AutofillProfile::VALID);
+  EXPECT_EQ(validities.at(EMAIL_ADDRESS), AutofillDataModel::VALID);
 }
 
 // Use the client side validation API to validate three PDM profiles. This one
 // doesn't test the upload process or saving to the database.
-TEST_F(PersonalDataManagerTest, UpdateClientValidityStates) {
-  // Create three profiles and add them to personal_data_.
-  AutofillProfile valid_profile(test::GetFullValidProfileForCanada());
-  valid_profile.set_use_date(AutofillClock::Now());
-  valid_profile.set_guid("00000000-0000-0000-0000-000000000001");
-  AddProfileToPersonalDataManager(valid_profile);
-
-  AutofillProfile profile_invalid_phone_email(
-      test::GetFullValidProfileForChina());
-  profile_invalid_phone_email.SetRawInfo(
-      PHONE_HOME_WHOLE_NUMBER, base::UTF8ToUTF16("invalid phone number!"));
-  profile_invalid_phone_email.SetRawInfo(EMAIL_ADDRESS,
-                                         base::UTF8ToUTF16("invalid email!"));
-  profile_invalid_phone_email.set_use_date(AutofillClock::Now() -
-                                           base::TimeDelta::FromDays(10));
-  profile_invalid_phone_email.set_guid("00000000-0000-0000-0000-000000000002");
-  AddProfileToPersonalDataManager(profile_invalid_phone_email);
-
+TEST_F(PersonalDataManagerMockTest, UpdateClientValidityStates) {
   AutofillProfile profile_invalid_province(base::GenerateGUID(),
                                            test::kEmptyOrigin);
   test::SetProfileInfo(&profile_invalid_province, "Alice", "", "Munro",
                        "alice@munro.ca", "Fox", "123 Zoo St", "unit 5",
                        "Montreal", "CA", "H3C 2A3", "CA", "15142343254");
-  profile_invalid_province.set_guid("00000000-0000-0000-0000-000000000003");
-  profile_invalid_province.set_use_date(AutofillClock::Now() -
-                                        base::TimeDelta::FromDays(100));
   AddProfileToPersonalDataManager(profile_invalid_province);
 
-  ASSERT_EQ(3U, personal_data_->GetProfiles().size());
-
-  // Validate the profiles through the client validation API.
+  ASSERT_EQ(1U, personal_data_->GetProfiles().size());
   auto profiles = personal_data_->GetProfiles();
-  for (auto* profile : profiles) {
-    ASSERT_FALSE(profile->is_client_validity_states_updated());
-    // Expect OnValidated to be called for each profile.
-    ExpectOnValidated(profile);
-  }
+  profiles[0]->set_is_client_validity_states_updated(false);
 
-  personal_data_->UpdateClientValidityStates(profiles);
+  UpdateClientValidityStatesOnPersonalDataManager(profiles);
 
-  ASSERT_EQ(3U, profiles.size());
-  // The profiles are ordered according to their guid.
-  // valid_profile:
-  ASSERT_EQ(valid_profile.guid(), profiles[0]->guid());
+  profiles = personal_data_->GetProfiles();
+  ASSERT_EQ(1U, profiles.size());
+
   EXPECT_TRUE(profiles[0]->is_client_validity_states_updated());
-  EXPECT_EQ(AutofillProfile::VALID,
+  EXPECT_EQ(AutofillDataModel::VALID,
             profiles[0]->GetValidityState(ADDRESS_HOME_COUNTRY,
                                           AutofillProfile::CLIENT));
-  EXPECT_EQ(AutofillProfile::VALID,
+  EXPECT_EQ(AutofillDataModel::INVALID,
             profiles[0]->GetValidityState(ADDRESS_HOME_STATE,
                                           AutofillProfile::CLIENT));
   EXPECT_EQ(
-      AutofillProfile::VALID,
+      AutofillDataModel::VALID,
       profiles[0]->GetValidityState(ADDRESS_HOME_ZIP, AutofillProfile::CLIENT));
-  EXPECT_EQ(AutofillProfile::VALID,
+  EXPECT_EQ(AutofillDataModel::VALID,
             profiles[0]->GetValidityState(ADDRESS_HOME_CITY,
                                           AutofillProfile::CLIENT));
-  EXPECT_EQ(AutofillProfile::EMPTY,
+  EXPECT_EQ(AutofillDataModel::EMPTY,
             profiles[0]->GetValidityState(ADDRESS_HOME_DEPENDENT_LOCALITY,
                                           AutofillProfile::CLIENT));
   EXPECT_EQ(
-      AutofillProfile::VALID,
+      AutofillDataModel::VALID,
       profiles[0]->GetValidityState(EMAIL_ADDRESS, AutofillProfile::CLIENT));
-  EXPECT_EQ(AutofillProfile::VALID,
+  EXPECT_EQ(AutofillDataModel::VALID,
             profiles[0]->GetValidityState(PHONE_HOME_WHOLE_NUMBER,
-                                          AutofillProfile::CLIENT));
-
-  // profile_invalid_phone_email:
-  ASSERT_EQ(profile_invalid_phone_email.guid(), profiles[1]->guid());
-  EXPECT_TRUE(profiles[1]->is_client_validity_states_updated());
-  EXPECT_EQ(AutofillProfile::VALID,
-            profiles[1]->GetValidityState(ADDRESS_HOME_COUNTRY,
-                                          AutofillProfile::CLIENT));
-  EXPECT_EQ(AutofillProfile::VALID,
-            profiles[1]->GetValidityState(ADDRESS_HOME_STATE,
-                                          AutofillProfile::CLIENT));
-  EXPECT_EQ(
-      AutofillProfile::VALID,
-      profiles[1]->GetValidityState(ADDRESS_HOME_ZIP, AutofillProfile::CLIENT));
-  EXPECT_EQ(AutofillProfile::VALID,
-            profiles[1]->GetValidityState(ADDRESS_HOME_CITY,
-                                          AutofillProfile::CLIENT));
-  EXPECT_EQ(AutofillProfile::VALID,
-            profiles[1]->GetValidityState(ADDRESS_HOME_DEPENDENT_LOCALITY,
-                                          AutofillProfile::CLIENT));
-  EXPECT_EQ(
-      AutofillProfile::INVALID,
-      profiles[1]->GetValidityState(EMAIL_ADDRESS, AutofillProfile::CLIENT));
-  EXPECT_EQ(AutofillProfile::INVALID,
-            profiles[1]->GetValidityState(PHONE_HOME_WHOLE_NUMBER,
-                                          AutofillProfile::CLIENT));
-
-  ASSERT_EQ(profile_invalid_province.guid(), profiles[2]->guid());
-  EXPECT_TRUE(profiles[2]->is_client_validity_states_updated());
-  EXPECT_EQ(AutofillProfile::VALID,
-            profiles[2]->GetValidityState(ADDRESS_HOME_COUNTRY,
-                                          AutofillProfile::CLIENT));
-  EXPECT_EQ(AutofillProfile::INVALID,
-            profiles[2]->GetValidityState(ADDRESS_HOME_STATE,
-                                          AutofillProfile::CLIENT));
-  EXPECT_EQ(
-      AutofillProfile::VALID,
-      profiles[2]->GetValidityState(ADDRESS_HOME_ZIP, AutofillProfile::CLIENT));
-  EXPECT_EQ(AutofillProfile::INVALID,
-            profiles[2]->GetValidityState(ADDRESS_HOME_CITY,
-                                          AutofillProfile::CLIENT));
-  EXPECT_EQ(AutofillProfile::EMPTY,
-            profiles[2]->GetValidityState(ADDRESS_HOME_DEPENDENT_LOCALITY,
-                                          AutofillProfile::CLIENT));
-  EXPECT_EQ(
-      AutofillProfile::VALID,
-      profiles[2]->GetValidityState(EMAIL_ADDRESS, AutofillProfile::CLIENT));
-  EXPECT_EQ(AutofillProfile::VALID,
-            profiles[2]->GetValidityState(PHONE_HOME_WHOLE_NUMBER,
                                           AutofillProfile::CLIENT));
 }
 
 // Check the validity update status for AutofillProfiles.
-TEST_F(PersonalDataManagerTest, UpdateClientValidityStates_UpdatedFlag) {
+TEST_F(PersonalDataManagerMockTest, UpdateClientValidityStates_UpdatedFlag) {
   // Create two profiles and add them to personal_data_.
   AutofillProfile profile1(test::GetFullValidProfileForCanada());
   AddProfileToPersonalDataManager(profile1);
@@ -6951,18 +7328,10 @@ TEST_F(PersonalDataManagerTest, UpdateClientValidityStates_UpdatedFlag) {
 
   ASSERT_EQ(2U, personal_data_->GetProfiles().size());
 
-  // Validate the profiles through the client validation API.
+  // The validities were set when the profiles were added.
   auto profiles = personal_data_->GetProfiles();
-  ASSERT_FALSE(profiles[0]->is_client_validity_states_updated());
-  ASSERT_FALSE(profiles[1]->is_client_validity_states_updated());
-
-  ExpectOnValidated(profiles[0]);
-  ExpectOnValidated(profiles[1]);
-  personal_data_->UpdateClientValidityStates(profiles);
-
-  ASSERT_EQ(2U, profiles.size());
-  EXPECT_TRUE(profiles[0]->is_client_validity_states_updated());
-  EXPECT_TRUE(profiles[1]->is_client_validity_states_updated());
+  ASSERT_TRUE(profiles[0]->is_client_validity_states_updated());
+  ASSERT_TRUE(profiles[1]->is_client_validity_states_updated());
 
   *profiles[1] = *profiles[0];
   ASSERT_TRUE(profiles[0]->is_client_validity_states_updated());
@@ -6972,118 +7341,189 @@ TEST_F(PersonalDataManagerTest, UpdateClientValidityStates_UpdatedFlag) {
   ASSERT_TRUE(profiles[0]->is_client_validity_states_updated());
   ASSERT_FALSE(profiles[1]->is_client_validity_states_updated());
 
-  ExpectOnValidated(profiles[1]);
-  personal_data_->UpdateClientValidityStates(profiles);
-  ASSERT_TRUE(profiles[0]->is_client_validity_states_updated());
-  ASSERT_TRUE(profiles[1]->is_client_validity_states_updated());
-
-  profiles[1]->MergeDataFrom(*profiles[0], "en");
-  ASSERT_TRUE(profiles[0]->is_client_validity_states_updated());
-  ASSERT_FALSE(profiles[1]->is_client_validity_states_updated());
-
   profiles[0]->SetRawInfo(NAME_FULL, base::UTF8ToUTF16("Goli Boli"));
   ASSERT_TRUE(profiles[0]->is_client_validity_states_updated());
 }
 
+// Check the validity update status for AutofillProfiles.
+TEST_F(PersonalDataManagerMockTest,
+       UpdateClientValidityStates_UpdatedFlag_Merge) {
+  // Set the pref to the current major version.
+  StopTheDedupeProcess();
+
+  AutofillProfile profile1(test::GetFullValidProfileForCanada());
+  AddProfileToPersonalDataManager(profile1);
+
+  AutofillProfile profile2(test::GetFullValidProfileForCanada());
+  profile2.set_guid("00000000-0000-0000-0000-000000002019");
+  profile2.SetRawInfo(PHONE_HOME_WHOLE_NUMBER, base::UTF8ToUTF16(""));
+  AddProfileToPersonalDataManager(profile2);
+
+  // The validities were set when the profiles were added.
+  auto profiles = personal_data_->GetProfiles();
+  ASSERT_EQ(2U, profiles.size());
+
+  profiles[1]->MergeDataFrom(*profiles[0], "en");
+  ASSERT_TRUE(profiles[0]->is_client_validity_states_updated());
+  ASSERT_FALSE(profiles[1]->is_client_validity_states_updated());
+}
+
 // Check that the validity states are not updated when the validity flags are up
 // to date.
-TEST_F(PersonalDataManagerTest, UpdateClientValidityStates_AlreadyUpdated) {
+TEST_F(PersonalDataManagerMockTest, UpdateClientValidityStates_AlreadyUpdated) {
   // Create two profiles and add them to personal_data_.
   AutofillProfile profile1(test::GetFullValidProfileForCanada());
   profile1.SetRawInfo(EMAIL_ADDRESS, base::UTF8ToUTF16("invalid email!"));
   AddProfileToPersonalDataManager(profile1);
 
-  AutofillProfile profile2(test::GetFullValidProfileForChina());
-  profile2.SetRawInfo(ADDRESS_HOME_STATE, base::UTF8ToUTF16("invalid state!"));
-  AddProfileToPersonalDataManager(profile2);
-
-  EXPECT_CALL(*personal_data_, OnValidated(testing::_)).Times(0);
-
   auto profiles = personal_data_->GetProfiles();
-  ASSERT_EQ(2U, profiles.size());
+  ASSERT_EQ(1U, profiles.size());
+  // The validities were updated when the profile was added.
+  EXPECT_EQ(
+      AutofillDataModel::INVALID,
+      profiles[0]->GetValidityState(EMAIL_ADDRESS, AutofillProfile::CLIENT));
+
+  // Change the email, the validity update would turn false.
+  profiles[0]->SetRawInfo(EMAIL_ADDRESS, base::UTF8ToUTF16("alice@gmail.com"));
+  EXPECT_FALSE(profiles[0]->is_client_validity_states_updated());
   // Pretend that the validity states are updated.
   profiles[0]->set_is_client_validity_states_updated(true);
-  profiles[1]->set_is_client_validity_states_updated(true);
 
   // Validating the profiles through the client validation API should not change
   // the validity states.
   personal_data_->UpdateClientValidityStates(profiles);
+
   profiles = personal_data_->GetProfiles();
-  ASSERT_EQ(2U, profiles.size());
-  EXPECT_EQ(AutofillProfile::UNVALIDATED,
-            profiles[0]->GetValidityState(ADDRESS_HOME_COUNTRY,
-                                          AutofillProfile::CLIENT));
+  ASSERT_EQ(1U, profiles.size());
   EXPECT_EQ(
-      AutofillProfile::UNVALIDATED,
+      AutofillDataModel::INVALID,
       profiles[0]->GetValidityState(EMAIL_ADDRESS, AutofillProfile::CLIENT));
 
-  EXPECT_EQ(AutofillProfile::UNVALIDATED,
-            profiles[1]->GetValidityState(ADDRESS_HOME_COUNTRY,
-                                          AutofillProfile::CLIENT));
-  EXPECT_EQ(AutofillProfile::UNVALIDATED,
-            profiles[1]->GetValidityState(ADDRESS_HOME_STATE,
-                                          AutofillProfile::CLIENT));
+  // Try with the flag as not updated.
+  profiles[0]->set_is_client_validity_states_updated(false);
+
+  UpdateClientValidityStatesOnPersonalDataManager(profiles);
+
+  profiles = personal_data_->GetProfiles();
+  ASSERT_EQ(1U, profiles.size());
+  EXPECT_EQ(
+      AutofillDataModel::VALID,
+      profiles[0]->GetValidityState(EMAIL_ADDRESS, AutofillProfile::CLIENT));
 }
 
 // Verify that the fields are validated according to the version.
-TEST_F(PersonalDataManagerTest, UpdateClientValidityStates_Version) {
+TEST_F(PersonalDataManagerMockTest, UpdateClientValidityStates_Version) {
   // Create two profiles and add them to personal_data_. Set the guids
   // explicitly to preserve the order.
-  AutofillProfile profile1(test::GetFullValidProfileForCanada());
-  profile1.SetRawInfo(EMAIL_ADDRESS, base::UTF8ToUTF16("invalid email!"));
-  profile1.set_guid("00000000-0000-0000-0000-000000000001");
-  AddProfileToPersonalDataManager(profile1);
-
   AutofillProfile profile2(test::GetFullValidProfileForChina());
   profile2.SetRawInfo(ADDRESS_HOME_STATE, base::UTF8ToUTF16("invalid state!"));
   profile2.set_guid("00000000-0000-0000-0000-000000000002");
+  profile2.set_use_date(AutofillClock::Now() - base::TimeDelta::FromDays(200));
   AddProfileToPersonalDataManager(profile2);
 
+  AutofillProfile profile1(test::GetFullValidProfileForCanada());
+  profile1.SetRawInfo(EMAIL_ADDRESS, base::UTF8ToUTF16("invalid email!"));
+  profile1.set_use_date(AutofillClock::Now());
+  profile1.set_guid("00000000-0000-0000-0000-000000000001");
+  AddProfileToPersonalDataManager(profile1);
+
   auto profiles = personal_data_->GetProfiles();
+  ASSERT_EQ(2U, profiles.size());
 
-  // Pretend that the validity states are updated.
-  profiles[0]->set_is_client_validity_states_updated(true);
-  profiles[1]->set_is_client_validity_states_updated(true);
+  EXPECT_TRUE(profiles[0]->is_client_validity_states_updated());
+  EXPECT_TRUE(profiles[1]->is_client_validity_states_updated());
+  EXPECT_EQ(CHROME_VERSION_MAJOR, GetLastVersionValidatedUpdate());
 
-  // Should validate regardless of the validity update flag, because of the
-  // major version update.
-  ResetAutofillLastVersionValidated();
+  // No validation as both validity update flags are true, and the validation
+  // version is set to this version.
+  base::RunLoop run_loop;
+  EXPECT_CALL(*personal_data_, OnValidated(testing::_)).Times(0);
+  EXPECT_CALL(personal_data_observer_, OnPersonalDataChanged()).Times(0);
+  personal_data_->UpdateClientValidityStates(profiles);
 
   profiles = personal_data_->GetProfiles();
   ASSERT_EQ(2U, profiles.size());
+  ResetAutofillLastVersionValidated();
 
-  ExpectOnValidated(profiles[0]);
-  ExpectOnValidated(profiles[1]);
+  EXPECT_EQ(0, GetLastVersionValidatedUpdate());
+  EXPECT_TRUE(profiles[0]->is_client_validity_states_updated());
+  EXPECT_TRUE(profiles[1]->is_client_validity_states_updated());
 
+  // Should validate regardless of the validity update flag, because of the
+  // major version update.
+  EXPECT_CALL(*personal_data_, OnValidated(testing::_)).Times(2);
+  ON_CALL(*personal_data_, OnValidated(testing::_))
+      .WillByDefault(testing::Invoke(personal_data_.get(),
+                                     &PersonalDataManagerMock::OnValidatedPDM));
+
+  EXPECT_CALL(personal_data_observer_, OnPersonalDataFinishedProfileTasks())
+      .WillRepeatedly(QuitMessageLoop(&run_loop));
+  EXPECT_CALL(personal_data_observer_, OnPersonalDataChanged()).Times(2);
+  // Validate the profiles through the client validation API.
   personal_data_->UpdateClientValidityStates(profiles);
+  run_loop.Run();
 
-  EXPECT_EQ(AutofillProfile::VALID,
-            profiles[0]->GetValidityState(ADDRESS_HOME_COUNTRY,
-                                          AutofillProfile::CLIENT));
-  EXPECT_EQ(
-      AutofillProfile::INVALID,
-      profiles[0]->GetValidityState(EMAIL_ADDRESS, AutofillProfile::CLIENT));
-
-  EXPECT_EQ(AutofillProfile::VALID,
-            profiles[1]->GetValidityState(ADDRESS_HOME_COUNTRY,
-                                          AutofillProfile::CLIENT));
-  EXPECT_EQ(AutofillProfile::INVALID,
-            profiles[1]->GetValidityState(ADDRESS_HOME_STATE,
-                                          AutofillProfile::CLIENT));
+  profiles = personal_data_->GetProfiles();
+  ASSERT_EQ(2U, profiles.size());
+  ASSERT_EQ(profiles[0]->guid(), profile1.guid());
 
   // Verify that the version of the last update is set to this version.
   EXPECT_EQ(CHROME_VERSION_MAJOR, GetLastVersionValidatedUpdate());
 
-  // Update should not update any validity state, because both the validity
-  // state flag and the version are up to date.
-  // A fake change in the validity state of profile[1].
-  profiles[1]->SetValidityState(ADDRESS_HOME_STATE, AutofillProfile::VALID,
-                                AutofillProfile::CLIENT);
-  EXPECT_CALL(*personal_data_, OnValidated(testing::_)).Times(0);
-  personal_data_->UpdateClientValidityStates(profiles);
-  EXPECT_EQ(AutofillProfile::VALID,
+  EXPECT_EQ(AutofillDataModel::VALID,
+            profiles[0]->GetValidityState(ADDRESS_HOME_COUNTRY,
+                                          AutofillProfile::CLIENT));
+  EXPECT_EQ(
+      AutofillDataModel::INVALID,
+      profiles[0]->GetValidityState(EMAIL_ADDRESS, AutofillProfile::CLIENT));
+
+  EXPECT_EQ(AutofillDataModel::VALID,
+            profiles[1]->GetValidityState(ADDRESS_HOME_COUNTRY,
+                                          AutofillProfile::CLIENT));
+  EXPECT_EQ(AutofillDataModel::INVALID,
             profiles[1]->GetValidityState(ADDRESS_HOME_STATE,
                                           AutofillProfile::CLIENT));
+}
+
+// Verifies that the profiles are validated when added, updated.
+TEST_F(PersonalDataManagerMockTest, UpdateProfilesValidityStates_AddUpdate) {
+  // Add
+  AutofillProfile profile1(test::GetFullValidProfileForCanada());
+  AddProfileToPersonalDataManager(profile1);
+
+  auto profiles = personal_data_->GetProfiles();
+  ASSERT_EQ(1U, profiles.size());
+  EXPECT_EQ(true, profiles[0]->is_client_validity_states_updated());
+
+  // Update
+  profile1.SetRawInfo(EMAIL_ADDRESS, base::ASCIIToUTF16("email!"));
+  UpdateProfileOnPersonalDataManager(profile1);
+
+  profiles = personal_data_->GetProfiles();
+  ASSERT_EQ(1U, profiles.size());
+  EXPECT_EQ(true, profiles[0]->is_client_validity_states_updated());
+}
+
+// Verify that slow delayed validation will still work.
+TEST_F(PersonalDataManagerMockTest, UpdateClientValidityStates_Delayed) {
+  personal_data_->set_client_profile_validator_for_test(
+      TestAutofillProfileValidator::GetDelayedInstance());
+
+  AutofillProfile profile(test::GetFullProfile());
+  AddProfileToPersonalDataManager(profile);
+
+  auto profiles = personal_data_->GetProfiles();
+  ASSERT_EQ(1U, profiles.size());
+
+  profiles[0]->set_is_client_validity_states_updated(false);
+
+  UpdateClientValidityStatesOnPersonalDataManager(profiles);
+  profiles[0] =
+      nullptr;  // make sure the async task doesn't depend on the pointer.
+
+  profiles = personal_data_->GetProfiles();
+  ASSERT_EQ(1U, profiles.size());
+  EXPECT_TRUE(profiles[0]->is_client_validity_states_updated());
 }
 
 // The validation should not happen when the feature is disabled.
@@ -7101,24 +7541,21 @@ TEST_F(PersonalDataManagerTest, UpdateClientValidityStates_Disabled) {
   personal_data_->UpdateClientValidityStates(profiles);
 
   EXPECT_FALSE(profiles[0]->is_client_validity_states_updated());
-  EXPECT_EQ(AutofillProfile::UNVALIDATED,
+  EXPECT_EQ(AutofillDataModel::UNVALIDATED,
             profiles[0]->GetValidityState(ADDRESS_HOME_COUNTRY,
                                           AutofillProfile::CLIENT));
 }
 
 TEST_F(PersonalDataManagerTest, GetAccountInfoForPaymentsServer) {
-  const std::string kIdentityManagerAccountEmail = "identity_account@email.com";
-  const std::string kSyncServiceAccountEmail = "active_sync_account@email.com";
-
   // Make the IdentityManager return a non-empty AccountInfo when
   // GetPrimaryAccountInfo() is called.
-  identity_test_env_.SetPrimaryAccount(kIdentityManagerAccountEmail);
+  identity_test_env_.SetPrimaryAccount(kPrimaryAccountEmail);
   ResetPersonalDataManager(USER_MODE_NORMAL);
 
   // Make the sync service return a non-empty AccountInfo when
   // GetAuthenticatedAccountInfo() is called.
   AccountInfo active_info;
-  active_info.email = kSyncServiceAccountEmail;
+  active_info.email = kSyncTransportAccountEmail;
   sync_service_.SetAuthenticatedAccountInfo(active_info);
 
   // The IdentityManager's AccountInfo should be returned by default.
@@ -7129,7 +7566,7 @@ TEST_F(PersonalDataManagerTest, GetAccountInfoForPaymentsServer) {
         /*disabled_features=*/{features::kAutofillEnableAccountWalletStorage,
                                features::kAutofillGetPaymentsIdentityFromSync});
 
-    EXPECT_EQ(kIdentityManagerAccountEmail,
+    EXPECT_EQ(kPrimaryAccountEmail,
               personal_data_->GetAccountInfoForPaymentsServer().email);
   }
 
@@ -7141,7 +7578,7 @@ TEST_F(PersonalDataManagerTest, GetAccountInfoForPaymentsServer) {
         /*enabled_features=*/{features::kAutofillEnableAccountWalletStorage},
         /*disabled_features=*/{features::kAutofillGetPaymentsIdentityFromSync});
 
-    EXPECT_EQ(kSyncServiceAccountEmail,
+    EXPECT_EQ(kSyncTransportAccountEmail,
               personal_data_->GetAccountInfoForPaymentsServer().email);
   }
 
@@ -7153,12 +7590,12 @@ TEST_F(PersonalDataManagerTest, GetAccountInfoForPaymentsServer) {
         /*enabled_features=*/{features::kAutofillGetPaymentsIdentityFromSync},
         /*disabled_features=*/{features::kAutofillEnableAccountWalletStorage});
 
-    EXPECT_EQ(kSyncServiceAccountEmail,
+    EXPECT_EQ(kSyncTransportAccountEmail,
               personal_data_->GetAccountInfoForPaymentsServer().email);
   }
 }
 
-TEST_F(PersonalDataManagerTest, OnGaiaCookieDeletedByUserAction) {
+TEST_F(PersonalDataManagerTest, OnAccountsCookieDeletedByUserAction) {
   // Set up some sync transport opt-ins in the prefs.
   ::autofill::prefs::SetUserOptedInWalletSyncTransport(prefs_.get(), "account1",
                                                        true);
@@ -7166,7 +7603,7 @@ TEST_F(PersonalDataManagerTest, OnGaiaCookieDeletedByUserAction) {
       prefs_->GetDictionary(prefs::kAutofillSyncTransportOptIn)->DictEmpty());
 
   // Simulate that the cookies get cleared by the user.
-  personal_data_->OnGaiaCookieDeletedByUserAction();
+  personal_data_->OnAccountsCookieDeletedByUserAction();
 
   // Make sure the pref is now empty.
   EXPECT_TRUE(
@@ -7186,7 +7623,7 @@ TEST_F(PersonalDataManagerTest, ShouldShowCardsFromAccountOption) {
   // Set everything up so that the proposition should be shown.
   // Set an an active secondary account.
   AccountInfo active_info;
-  active_info.email = "signed_in_account@email.com";
+  active_info.email = kPrimaryAccountEmail;
   active_info.account_id = "account_id";
   sync_service_.SetAuthenticatedAccountInfo(active_info);
   sync_service_.SetIsAuthenticatedAccountPrimary(false);
@@ -7258,7 +7695,7 @@ TEST_F(PersonalDataManagerTest, ShouldShowCardsFromAccountOption) {
     EXPECT_FALSE(personal_data_->ShouldShowCardsFromAccountOption());
     // The metric should not be logged if the user had no server cards.
     histogram_tester.ExpectTotalCount(kHistogramName, 0);
-  };
+  }
 
   // Re-set some server cards. Check that the function now returns true.
   SetServerCards(server_cards);
@@ -7311,7 +7748,7 @@ TEST_F(PersonalDataManagerTest, ShouldShowCardsFromAccountOption) {
   // Set everything up so that the proposition should be shown on Desktop.
   // Set an an active secondary account.
   AccountInfo active_info;
-  active_info.email = "signed_in_account@email.com";
+  active_info.email = kPrimaryAccountEmail;
   active_info.account_id = "account_id";
   sync_service_.SetAuthenticatedAccountInfo(active_info);
   sync_service_.SetIsAuthenticatedAccountPrimary(false);
@@ -7444,7 +7881,7 @@ TEST_F(PersonalDataManagerTest, GetSyncSigninState) {
 
   // Simulate that the user has enabled the sync feature.
   AccountInfo primary_account_info;
-  primary_account_info.email = "active_sync_account@email.com";
+  primary_account_info.email = kPrimaryAccountEmail;
   sync_service_.SetAuthenticatedAccountInfo(primary_account_info);
   sync_service_.SetIsAuthenticatedAccountPrimary(true);
 // MakePrimaryAccountAvailable is not supported on CrOS.
@@ -7454,7 +7891,7 @@ TEST_F(PersonalDataManagerTest, GetSyncSigninState) {
 
   // Check that the sync state is |SignedInAndSyncFeature| if the sync feature
   // is enabled.
-  EXPECT_EQ(AutofillSyncSigninState::kSignedInAndSyncFeature,
+  EXPECT_EQ(AutofillSyncSigninState::kSignedInAndSyncFeatureEnabled,
             personal_data_->GetSyncSigninState());
 
   // Check that the sync state is |SignedInAndSyncFeature| if the the sync
@@ -7466,7 +7903,7 @@ TEST_F(PersonalDataManagerTest, GetSyncSigninState) {
         /*enabled_features=*/{features::kAutofillEnableAccountWalletStorage,
                               features::kAutofillGetPaymentsIdentityFromSync},
         /*disabled_features=*/{});
-    EXPECT_EQ(AutofillSyncSigninState::kSignedInAndSyncFeature,
+    EXPECT_EQ(AutofillSyncSigninState::kSignedInAndSyncFeatureEnabled,
               personal_data_->GetSyncSigninState());
   }
 }
@@ -7477,10 +7914,9 @@ TEST_F(PersonalDataManagerTest, OnUserAcceptedUpstreamOffer) {
   ///////////////////////////////////////////////////////////
   // Make a non-primary account available with both a refresh token and cookie
   // to be in Sync Transport for Wallet mode.
-  AccountInfo active_info;
-  active_info.email = "test@gmail.com";
-  active_info.account_id = "account_id";
-  identity_test_env_.SetPrimaryAccount(active_info.email);
+  CoreAccountInfo active_info =
+      identity_test_env_.MakeAccountAvailable(kSyncTransportAccountEmail);
+  identity_test_env_.SetCookieAccounts({{active_info.email, active_info.gaia}});
   sync_service_.SetAuthenticatedAccountInfo(active_info);
   sync_service_.SetIsAuthenticatedAccountPrimary(false);
   sync_service_.SetActiveDataTypes(
@@ -7488,13 +7924,10 @@ TEST_F(PersonalDataManagerTest, OnUserAcceptedUpstreamOffer) {
   // Make sure there are no opt-ins recorded yet.
   ASSERT_FALSE(prefs::IsUserOptedInWalletSyncTransport(prefs_.get(),
                                                        active_info.account_id));
-// The kSignedInAndWalletSyncTransportEnabled state is not available on CrOS.
-#if !defined(OS_CHROMEOS)
   {
     base::test::ScopedFeatureList scoped_features;
-    scoped_features.InitWithFeatures(
-        /*enabled_features=*/{features::kAutofillEnableAccountWalletStorage},
-        /*disabled_features=*/{});
+    scoped_features.InitAndEnableFeature(
+        features::kAutofillEnableAccountWalletStorage);
 
     EXPECT_EQ(AutofillSyncSigninState::kSignedInAndWalletSyncTransportEnabled,
               personal_data_->GetSyncSigninState());
@@ -7504,7 +7937,6 @@ TEST_F(PersonalDataManagerTest, OnUserAcceptedUpstreamOffer) {
     EXPECT_TRUE(prefs::IsUserOptedInWalletSyncTransport(
         prefs_.get(), active_info.account_id));
   }
-#endif  // !defined(OS_CHROMEOS)
 
   // Clear the prefs.
   prefs::ClearSyncTransportOptIns(prefs_.get());
@@ -7515,10 +7947,11 @@ TEST_F(PersonalDataManagerTest, OnUserAcceptedUpstreamOffer) {
   // kSignedIn
   ///////////////////////////////////////////////////////////
   {
+    // Without AccountWalletStorage, kSignedInAndWalletSyncTransportEnabled
+    // shouldn't be available.
     base::test::ScopedFeatureList scoped_features;
-    scoped_features.InitWithFeatures(
-        /*enabled_features=*/{},
-        /*disabled_features=*/{features::kAutofillEnableAccountWalletStorage});
+    scoped_features.InitAndDisableFeature(
+        features::kAutofillEnableAccountWalletStorage);
 
     EXPECT_EQ(AutofillSyncSigninState::kSignedIn,
               personal_data_->GetSyncSigninState());
@@ -7536,32 +7969,10 @@ TEST_F(PersonalDataManagerTest, OnUserAcceptedUpstreamOffer) {
                                                        active_info.account_id));
 
   ///////////////////////////////////////////////////////////
-  // kSignedInAndSyncFeature
-  ///////////////////////////////////////////////////////////
-  sync_service_.SetIsAuthenticatedAccountPrimary(true);
-  {
-    EXPECT_EQ(AutofillSyncSigninState::kSignedInAndSyncFeature,
-              personal_data_->GetSyncSigninState());
-
-    // Make sure an opt-in does not get recorded even if the user accepted an
-    // Upstream offer.
-    personal_data_->OnUserAcceptedUpstreamOffer();
-    EXPECT_FALSE(prefs::IsUserOptedInWalletSyncTransport(
-        prefs_.get(), active_info.account_id));
-  }
-
-  // Clear the prefs.
-  prefs::ClearSyncTransportOptIns(prefs_.get());
-  ASSERT_FALSE(prefs::IsUserOptedInWalletSyncTransport(prefs_.get(),
-                                                       active_info.account_id));
-
-  ///////////////////////////////////////////////////////////
   // kSignedOut
   ///////////////////////////////////////////////////////////
-// ClearPrimaryAccount is not supported on CrOS.
-#if !defined(OS_CHROMEOS)
+  identity_test_env_.RemoveRefreshTokenForAccount(active_info.account_id);
   {
-    identity_test_env_.ClearPrimaryAccount();
     EXPECT_EQ(AutofillSyncSigninState::kSignedOut,
               personal_data_->GetSyncSigninState());
 
@@ -7571,7 +7982,64 @@ TEST_F(PersonalDataManagerTest, OnUserAcceptedUpstreamOffer) {
     EXPECT_FALSE(prefs::IsUserOptedInWalletSyncTransport(
         prefs_.get(), active_info.account_id));
   }
-#endif  // !defined(OS_CHROMEOS)
+
+  ///////////////////////////////////////////////////////////
+  // kSignedInAndSyncFeature
+  ///////////////////////////////////////////////////////////
+  identity_test_env_.SetPrimaryAccount(active_info.email);
+  sync_service_.SetIsAuthenticatedAccountPrimary(true);
+  {
+    EXPECT_EQ(AutofillSyncSigninState::kSignedInAndSyncFeatureEnabled,
+              personal_data_->GetSyncSigninState());
+
+    // Make sure an opt-in does not get recorded even if the user accepted an
+    // Upstream offer.
+    personal_data_->OnUserAcceptedUpstreamOffer();
+    EXPECT_FALSE(prefs::IsUserOptedInWalletSyncTransport(
+        prefs_.get(), active_info.account_id));
+  }
+}
+
+namespace {
+
+class OneTimeObserver : public PersonalDataManagerObserver {
+ public:
+  OneTimeObserver(PersonalDataManager* manager) : manager_(manager) {}
+
+  ~OneTimeObserver() override {
+    if (manager_)
+      manager_->RemoveObserver(this);
+  }
+
+  void OnPersonalDataChanged() override {
+    ASSERT_TRUE(manager_) << "Callback called after RemoveObserver()";
+    manager_->RemoveObserver(this);
+    manager_ = nullptr;
+  }
+
+  void OnPersonalDataFinishedProfileTasks() override {
+    EXPECT_TRUE(manager_) << "Callback called after RemoveObserver()";
+  }
+
+  bool IsConnected() { return manager_; }
+
+ private:
+  PersonalDataManager* manager_;
+};
+
+}  // namespace
+
+TEST_F(PersonalDataManagerTest, RemoveObserverInOnPersonalDataChanged) {
+  OneTimeObserver observer(personal_data_.get());
+
+  personal_data_->AddObserver(&observer);
+
+  // Do something to trigger a data change
+  personal_data_->AddProfile(test::GetFullProfile());
+
+  WaitForOnPersonalDataChanged();
+
+  EXPECT_FALSE(observer.IsConnected()) << "Observer not called";
 }
 
 }  // namespace autofill

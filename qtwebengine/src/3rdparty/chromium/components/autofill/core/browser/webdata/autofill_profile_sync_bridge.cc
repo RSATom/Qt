@@ -12,10 +12,10 @@
 #include "base/guid.h"
 #include "base/stl_util.h"
 #include "base/strings/utf_string_conversions.h"
-#include "components/autofill/core/browser/autofill_profile.h"
 #include "components/autofill/core/browser/autofill_profile_sync_util.h"
-#include "components/autofill/core/browser/country_names.h"
+#include "components/autofill/core/browser/data_model/autofill_profile.h"
 #include "components/autofill/core/browser/field_types.h"
+#include "components/autofill/core/browser/geo/country_names.h"
 #include "components/autofill/core/browser/proto/autofill_sync.pb.h"
 #include "components/autofill/core/browser/webdata/autofill_profile_sync_difference_tracker.h"
 #include "components/autofill/core/browser/webdata/autofill_table.h"
@@ -108,14 +108,15 @@ Optional<syncer::ModelError> AutofillProfileSyncBridge::MergeSyncData(
       GetAutofillTable());
 
   for (const auto& change : entity_data) {
-    DCHECK(change.data().specifics.has_autofill_profile());
+    DCHECK(change->data().specifics.has_autofill_profile());
     std::unique_ptr<AutofillProfile> remote =
         CreateAutofillProfileFromSpecifics(
-            change.data().specifics.autofill_profile());
+            change->data().specifics.autofill_profile());
     if (!remote) {
-      DVLOG(2) << "[AUTOFILL SYNC] Invalid remote specifics "
-               << change.data().specifics.autofill_profile().SerializeAsString()
-               << " received from the server in an initial sync.";
+      DVLOG(2)
+          << "[AUTOFILL SYNC] Invalid remote specifics "
+          << change->data().specifics.autofill_profile().SerializeAsString()
+          << " received from the server in an initial sync.";
       continue;
     }
     RETURN_IF_ERROR(
@@ -127,6 +128,7 @@ Optional<syncer::ModelError> AutofillProfileSyncBridge::MergeSyncData(
   RETURN_IF_ERROR(
       FlushSyncTracker(std::move(metadata_change_list), &initial_sync_tracker));
 
+  web_data_backend_->CommitChanges();
   web_data_backend_->NotifyThatSyncHasStarted(syncer::AUTOFILL_PROFILE);
   return base::nullopt;
 }
@@ -137,18 +139,18 @@ Optional<ModelError> AutofillProfileSyncBridge::ApplySyncChanges(
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
 
   AutofillProfileSyncDifferenceTracker tracker(GetAutofillTable());
-  for (const syncer::EntityChange& change : entity_changes) {
-    if (change.type() == syncer::EntityChange::ACTION_DELETE) {
-      RETURN_IF_ERROR(tracker.IncorporateRemoteDelete(change.storage_key()));
+  for (const std::unique_ptr<syncer::EntityChange>& change : entity_changes) {
+    if (change->type() == syncer::EntityChange::ACTION_DELETE) {
+      RETURN_IF_ERROR(tracker.IncorporateRemoteDelete(change->storage_key()));
     } else {
-      DCHECK(change.data().specifics.has_autofill_profile());
+      DCHECK(change->data().specifics.has_autofill_profile());
       std::unique_ptr<AutofillProfile> remote =
           CreateAutofillProfileFromSpecifics(
-              change.data().specifics.autofill_profile());
+              change->data().specifics.autofill_profile());
       if (!remote) {
         DVLOG(2)
             << "[AUTOFILL SYNC] Invalid remote specifics "
-            << change.data().specifics.autofill_profile().SerializeAsString()
+            << change->data().specifics.autofill_profile().SerializeAsString()
             << " received from the server in an initial sync.";
         continue;
       }
@@ -156,7 +158,10 @@ Optional<ModelError> AutofillProfileSyncBridge::ApplySyncChanges(
     }
   }
 
-  return FlushSyncTracker(std::move(metadata_change_list), &tracker);
+  RETURN_IF_ERROR(FlushSyncTracker(std::move(metadata_change_list), &tracker));
+
+  web_data_backend_->CommitChanges();
+  return base::nullopt;
 }
 
 void AutofillProfileSyncBridge::GetData(StorageKeyList storage_keys,
@@ -174,7 +179,7 @@ void AutofillProfileSyncBridge::GetData(StorageKeyList storage_keys,
   auto batch = std::make_unique<syncer::MutableDataBatch>();
   for (const std::unique_ptr<AutofillProfile>& entry : entries) {
     std::string key = GetStorageKeyFromAutofillProfile(*entry);
-    if (base::ContainsKey(keys_set, key)) {
+    if (base::Contains(keys_set, key)) {
       batch->Put(key, CreateEntityDataFromAutofillProfile(*entry));
     }
   }
@@ -201,12 +206,8 @@ void AutofillProfileSyncBridge::GetAllDataForDebugging(DataCallback callback) {
 
 void AutofillProfileSyncBridge::ActOnLocalChange(
     const AutofillProfileChange& change) {
-  DCHECK((change.type() == AutofillProfileChange::REMOVE) ==
-         (change.data_model() == nullptr));
-  if (!change_processor()->IsTrackingMetadata()) {
-    return;
-  }
-  if (change.data_model() &&
+  DCHECK(change.data_model());
+  if (!change_processor()->IsTrackingMetadata() ||
       change.data_model()->record_type() != AutofillProfile::LOCAL_PROFILE) {
     return;
   }
@@ -224,12 +225,6 @@ void AutofillProfileSyncBridge::ActOnLocalChange(
           metadata_change_list.get());
       break;
     case AutofillProfileChange::REMOVE:
-      // Removals have no data_model() so this change can still be for a
-      // SERVER_PROFILE. We have no simple way to rule it out. For the time
-      // being we rely on the processor ignoring deletions for storage keys it
-      // does not know.
-      // TODO(jkrcal): implement a hash map of known storage_keys and use it
-      // here.
       change_processor()->Delete(change.key(), metadata_change_list.get());
       break;
     case AutofillProfileChange::EXPIRE:
@@ -237,6 +232,11 @@ void AutofillProfileSyncBridge::ActOnLocalChange(
       NOTREACHED();
       break;
   }
+
+  // We do not need to commit any local changes (written by the processor via
+  // the metadata change list) because the open WebDatabase transaction is
+  // committed by the AutofillWebDataService when the original local write
+  // operation (that triggered this notification to the bridge) finishes.
 
   if (Optional<ModelError> error = metadata_change_list->TakeError()) {
     change_processor()->ReportError(*error);

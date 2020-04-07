@@ -5,6 +5,7 @@
 #include "fpdfsdk/cpdfsdk_annot.h"
 #include "fpdfsdk/cpdfsdk_annotiterator.h"
 #include "fpdfsdk/cpdfsdk_formfillenvironment.h"
+#include "fpdfsdk/cpdfsdk_helpers.h"
 #include "fpdfsdk/formfiller/cffl_formfiller.h"
 #include "fpdfsdk/formfiller/cffl_interactiveformfiller.h"
 #include "fpdfsdk/pwl/cpwl_combo_box.h"
@@ -55,12 +56,12 @@ class CPWLComboBoxEditEmbedderTest : public EmbedderTest {
     CFFL_InteractiveFormFiller* pInteractiveFormFiller =
         m_pFormFillEnv->GetInteractiveFormFiller();
     {
-      CPDFSDK_Annot::ObservedPtr pObserved(pAnnotCombobox);
+      ObservedPtr<CPDFSDK_Annot> pObserved(pAnnotCombobox);
       EXPECT_TRUE(pInteractiveFormFiller->OnSetFocus(&pObserved, 0));
     }
 
     m_pFormFiller =
-        pInteractiveFormFiller->GetFormFiller(pAnnotCombobox, false);
+        pInteractiveFormFiller->GetFormFillerForTesting(pAnnotCombobox);
     ASSERT_TRUE(m_pFormFiller);
 
     CPWL_Wnd* pWindow =
@@ -273,8 +274,7 @@ TEST_F(CPWLComboBoxEditEmbedderTest,
   TypeTextIntoTextField(10);
 
   // Move cursor to beginning of user-editable combobox text field.
-  EXPECT_TRUE(GetCFFLFormFiller()->OnKeyDown(GetCPDFSDKAnnotUserEditable(),
-                                             FWL_VKEY_Home, 0));
+  EXPECT_TRUE(GetCFFLFormFiller()->OnKeyDown(FWL_VKEY_Home, 0));
 
   GetCPWLComboBox()->ReplaceSelection(L"Hello");
   EXPECT_STREQ(L"HelloABCDEFGHIJ", GetCPWLComboBox()->GetText().c_str());
@@ -287,8 +287,7 @@ TEST_F(CPWLComboBoxEditEmbedderTest,
 
   // Move cursor to middle of user-editable combobox text field.
   for (int i = 0; i < 5; ++i) {
-    EXPECT_TRUE(GetCFFLFormFiller()->OnKeyDown(GetCPDFSDKAnnotUserEditable(),
-                                               FWL_VKEY_Left, 0));
+    EXPECT_TRUE(GetCFFLFormFiller()->OnKeyDown(FWL_VKEY_Left, 0));
   }
 
   GetCPWLComboBox()->ReplaceSelection(L"Hello");

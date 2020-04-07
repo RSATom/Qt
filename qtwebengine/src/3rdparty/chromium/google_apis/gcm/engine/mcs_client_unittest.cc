@@ -15,9 +15,9 @@
 #include "base/command_line.h"
 #include "base/files/scoped_temp_dir.h"
 #include "base/memory/ptr_util.h"
-#include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
 #include "base/strings/string_number_conversions.h"
+#include "base/test/scoped_task_environment.h"
 #include "base/test/simple_test_clock.h"
 #include "base/timer/timer.h"
 #include "google_apis/gcm/base/fake_encryptor.h"
@@ -90,13 +90,18 @@ class TestMCSClient : public MCSClient {
   TestMCSClient(base::Clock* clock,
                 ConnectionFactory* connection_factory,
                 GCMStore* gcm_store,
+                scoped_refptr<base::SequencedTaskRunner> io_task_runner,
                 gcm::GCMStatsRecorder* recorder)
-    : MCSClient("", clock, connection_factory, gcm_store, recorder),
-      next_id_(0) {
-  }
+      : MCSClient("",
+                  clock,
+                  connection_factory,
+                  gcm_store,
+                  io_task_runner,
+                  recorder),
+        next_id_(0) {}
 
   std::string GetNextPersistentId() override {
-    return base::UintToString(++next_id_);
+    return base::NumberToString(++next_id_);
   }
 
  private:
@@ -168,7 +173,7 @@ class MCSClientTest : public testing::Test {
   base::SimpleTestClock clock_;
 
   base::ScopedTempDir temp_directory_;
-  base::MessageLoop message_loop_;
+  base::test::ScopedTaskEnvironment scoped_task_environment_;
   std::unique_ptr<base::RunLoop> run_loop_;
   std::unique_ptr<GCMStore> gcm_store_;
 
@@ -205,12 +210,12 @@ void MCSClientTest::SetUp() {
 
 void MCSClientTest::BuildMCSClient() {
   gcm_store_.reset(
-      new GCMStoreImpl(temp_directory_.GetPath(), message_loop_.task_runner(),
+      new GCMStoreImpl(temp_directory_.GetPath(),
+                       scoped_task_environment_.GetMainThreadTaskRunner(),
                        base::WrapUnique<Encryptor>(new FakeEncryptor)));
-  mcs_client_.reset(new TestMCSClient(&clock_,
-                                      &connection_factory_,
-                                      gcm_store_.get(),
-                                      &recorder_));
+  mcs_client_.reset(
+      new TestMCSClient(&clock_, &connection_factory_, gcm_store_.get(),
+                        base::ThreadTaskRunnerHandle::Get(), &recorder_));
 }
 
 void MCSClientTest::InitializeClient() {
@@ -250,7 +255,7 @@ void MCSClientTest::AddExpectedLoginRequest(
   if (heartbeat_interval_ms) {
     mcs_proto::Setting* setting = login_request->add_setting();
     setting->set_name("hbping");
-    setting->set_value(base::IntToString(heartbeat_interval_ms));
+    setting->set_value(base::NumberToString(heartbeat_interval_ms));
   }
   GetFakeHandler()->ExpectOutgoingMessage(
       MCSMessage(kLoginRequestTag, std::move(login_request)));
@@ -482,8 +487,8 @@ TEST_F(MCSClientTest, SendMessageRMQWithStreamAck) {
   // Send some messages.
   for (int i = 1; i <= kMessageBatchSize; ++i) {
     MCSMessage message(BuildDataMessage("from", "category", "X", 1,
-                                        base::IntToString(i), kTTLValue, 1, 0,
-                                        "", 0, IMMEDIATE_ACK_NO));
+                                        base::NumberToString(i), kTTLValue, 1,
+                                        0, "", 0, IMMEDIATE_ACK_NO));
     GetFakeHandler()->ExpectOutgoingMessage(message);
     mcs_client()->SendMessage(message);
     PumpLoop();
@@ -514,7 +519,7 @@ TEST_F(MCSClientTest, SendMessageRMQAckOnReconnect) {
   // Send some messages.
   std::vector<std::string> id_list;
   for (int i = 1; i <= kMessageBatchSize; ++i) {
-    id_list.push_back(base::IntToString(i));
+    id_list.push_back(base::NumberToString(i));
     MCSMessage message(BuildDataMessage("from", "category", id_list.back(), 1,
                                         id_list.back(), kTTLValue, 1, 0, "", 0,
                                         IMMEDIATE_ACK_NO));
@@ -546,7 +551,7 @@ TEST_F(MCSClientTest, SendMessageRMQPartialAckOnReconnect) {
   // Send some messages.
   std::vector<std::string> id_list;
   for (int i = 1; i <= kMessageBatchSize; ++i) {
-    id_list.push_back(base::IntToString(i));
+    id_list.push_back(base::NumberToString(i));
     MCSMessage message(BuildDataMessage("from", "category", id_list.back(), 1,
                                         id_list.back(), kTTLValue, 1, 0, "", 0,
                                         IMMEDIATE_ACK_NO));
@@ -674,7 +679,7 @@ TEST_F(MCSClientTest, AckOnLogin) {
   // Receive some messages.
   std::vector<std::string> id_list;
   for (int i = 1; i <= kMessageBatchSize; ++i) {
-    id_list.push_back(base::IntToString(i));
+    id_list.push_back(base::NumberToString(i));
     MCSMessage message(BuildDataMessage("from", "category", "X", 1,
                                         id_list.back(), kTTLValue, 1, 0, "", 0,
                                         IMMEDIATE_ACK_NO));
@@ -700,7 +705,7 @@ TEST_F(MCSClientTest, AckOnSend) {
   // Receive some messages.
   std::vector<std::string> id_list;
   for (int i = 1; i <= kMessageBatchSize; ++i) {
-    id_list.push_back(base::IntToString(i));
+    id_list.push_back(base::NumberToString(i));
     MCSMessage message(BuildDataMessage("from", "category", id_list.back(), 1,
                                         id_list.back(), kTTLValue, 1, 0, "", 0,
                                         IMMEDIATE_ACK_NO));
@@ -733,7 +738,7 @@ TEST_F(MCSClientTest, AckWhenLimitReachedWithHeartbeat) {
   // Receive some messages.
   std::vector<std::string> id_list;
   for (int i = 1; i <= kAckLimitSize; ++i) {
-    id_list.push_back(base::IntToString(i));
+    id_list.push_back(base::NumberToString(i));
     MCSMessage message(BuildDataMessage("from", "category", id_list.back(), 1,
                                         id_list.back(), kTTLValue, 1, 0, "", 0,
                                         IMMEDIATE_ACK_NO));
@@ -1162,7 +1167,7 @@ TEST_F(MCSClientTest, AckWhenImmediateAckRequested) {
 
   // Receive some messages.
   for (int i = 1; i < kAckLimitSize - 2; ++i) {
-    std::string id(base::IntToString(i));
+    std::string id(base::NumberToString(i));
     MCSMessage message(BuildDataMessage("from", "category", id, 1, id,
                                         kTTLValue, 1, 0, "", 0,
                                         IMMEDIATE_ACK_NO));
@@ -1173,7 +1178,7 @@ TEST_F(MCSClientTest, AckWhenImmediateAckRequested) {
   // This message expects immediate ACK, which means it will happen before the
   // ACK limit size is reached. All of the preceding messages will be acked at
   // the same time.
-  std::string ack_id(base::IntToString(kAckLimitSize - 1));
+  std::string ack_id(base::NumberToString(kAckLimitSize - 1));
   MCSMessage message(BuildDataMessage("from", "category", ack_id, 1, ack_id,
                                       kTTLValue, 1, 0, "", 0,
                                       IMMEDIATE_ACK_YES));

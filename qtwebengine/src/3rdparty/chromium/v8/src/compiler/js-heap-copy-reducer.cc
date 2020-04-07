@@ -30,8 +30,7 @@ Reduction JSHeapCopyReducer::Reduce(Node* node) {
       ObjectRef object(broker(), HeapConstantOf(node->op()));
       if (object.IsJSFunction()) object.AsJSFunction().Serialize();
       if (object.IsJSObject()) object.AsJSObject().SerializeObjectCreateMap();
-      if (object.IsModule()) object.AsModule().Serialize();
-      if (object.IsContext()) object.AsContext().Serialize();
+      if (object.IsSourceTextModule()) object.AsSourceTextModule().Serialize();
       break;
     }
     case IrOpcode::kJSCreateArray: {
@@ -64,7 +63,7 @@ Reduction JSHeapCopyReducer::Reduce(Node* node) {
     case IrOpcode::kJSCreateClosure: {
       CreateClosureParameters const& p = CreateClosureParametersOf(node->op());
       SharedFunctionInfoRef(broker(), p.shared_info());
-      HeapObjectRef(broker(), p.feedback_cell());
+      FeedbackCellRef(broker(), p.feedback_cell());
       HeapObjectRef(broker(), p.code());
       break;
     }
@@ -114,22 +113,21 @@ Reduction JSHeapCopyReducer::Reduce(Node* node) {
       break;
     }
     case IrOpcode::kMapGuard: {
-      ZoneHandleSet<Map> const maps = MapGuardMapsOf(node->op()).maps();
+      ZoneHandleSet<Map> const& maps = MapGuardMapsOf(node->op());
       for (Handle<Map> map : maps) {
         MapRef(broker(), map);
       }
       break;
     }
     case IrOpcode::kCheckMaps: {
-      ZoneHandleSet<Map> const maps = CheckMapsParametersOf(node->op()).maps();
+      ZoneHandleSet<Map> const& maps = CheckMapsParametersOf(node->op()).maps();
       for (Handle<Map> map : maps) {
         MapRef(broker(), map);
       }
       break;
     }
     case IrOpcode::kCompareMaps: {
-      ZoneHandleSet<Map> const maps =
-          CompareMapsParametersOf(node->op()).maps();
+      ZoneHandleSet<Map> const& maps = CompareMapsParametersOf(node->op());
       for (Handle<Map> map : maps) {
         MapRef(broker(), map);
       }

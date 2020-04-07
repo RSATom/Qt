@@ -193,7 +193,7 @@ void StyleInvalidator::PushInvalidationSetsForContainerNode(
   for (const auto& invalidation_set : pending_invalidations.Siblings()) {
     CHECK(invalidation_set->IsAlive());
     sibling_data.PushInvalidationSet(
-        ToSiblingInvalidationSet(*invalidation_set));
+        To<SiblingInvalidationSet>(*invalidation_set));
   }
 
   if (node.GetStyleChangeType() >= kSubtreeStyleChange)
@@ -318,9 +318,10 @@ void StyleInvalidator::InvalidateSlotDistributedElements(
   for (auto& distributed_node : slot.FlattenedAssignedNodes()) {
     if (distributed_node->NeedsStyleRecalc())
       continue;
-    if (!distributed_node->IsElementNode())
+    auto* element = DynamicTo<Element>(distributed_node.Get());
+    if (!element)
       continue;
-    if (MatchesCurrentInvalidationSetsAsSlotted(ToElement(*distributed_node))) {
+    if (MatchesCurrentInvalidationSetsAsSlotted(*element)) {
       distributed_node->SetNeedsStyleRecalc(
           kLocalStyleChange, StyleChangeReasonForTracing::Create(
                                  style_change_reason::kStyleInvalidator));

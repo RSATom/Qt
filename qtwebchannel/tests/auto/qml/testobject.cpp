@@ -33,11 +33,20 @@ QT_BEGIN_NAMESPACE
 
 TestObject::TestObject(QObject* parent)
     : QObject(parent)
+    , embeddedObject(new QObject(this))
 {
+    embeddedObject->setObjectName("embedded");
 }
 
 TestObject::~TestObject()
 {
+}
+
+QVariantMap TestObject::objectMap() const
+{
+    QVariantMap map;
+    map.insert("subObject", QVariant::fromValue(embeddedObject));
+    return map;
 }
 
 void TestObject::triggerSignals()
@@ -48,6 +57,24 @@ void TestObject::triggerSignals()
     emit testSignalInt(42);
     emit testSignalInt(1);
     emit testSignalInt(0);
+}
+
+int TestObject::testOverload(int i)
+{
+    emit testOverloadSignal(i);
+    return i + 1;
+}
+
+QString TestObject::testOverload(const QString &str)
+{
+    emit testOverloadSignal(str);
+    return str.toUpper();
+}
+
+QString TestObject::testOverload(const QString &str, int i)
+{
+    emit testOverloadSignal(str, i);
+    return str.toUpper() + QString::number(i + 1);
 }
 
 QT_END_NAMESPACE

@@ -33,17 +33,12 @@
 
 namespace blink {
 
-inline SVGScriptElement::SVGScriptElement(Document& document,
-                                          const CreateElementFlags flags)
+SVGScriptElement::SVGScriptElement(Document& document,
+                                   const CreateElementFlags flags)
     : SVGElement(svg_names::kScriptTag, document),
       SVGURIReference(this),
       loader_(InitializeScriptLoader(flags.IsCreatedByParser(),
                                      flags.WasAlreadyStarted())) {}
-
-SVGScriptElement* SVGScriptElement::Create(Document& document,
-                                           const CreateElementFlags flags) {
-  return MakeGarbageCollected<SVGScriptElement>(document, flags);
-}
 
 void SVGScriptElement::ParseAttribute(
     const AttributeModificationParams& params) {
@@ -136,23 +131,22 @@ const AtomicString& SVGScriptElement::GetNonceForElement() const {
 bool SVGScriptElement::AllowInlineScriptForCSP(
     const AtomicString& nonce,
     const WTF::OrdinalNumber& context_line,
-    const String& script_content,
-    ContentSecurityPolicy::InlineType inline_type) {
-  return GetDocument().GetContentSecurityPolicy()->AllowInlineScript(
-      this, GetDocument().Url(), nonce, context_line, script_content,
-      inline_type);
+    const String& script_content) {
+  return GetDocument().GetContentSecurityPolicyForWorld()->AllowInline(
+      ContentSecurityPolicy::InlineType::kScript, this, script_content, nonce,
+      GetDocument().Url(), context_line);
 }
 
 Document& SVGScriptElement::GetDocument() const {
   return Node::GetDocument();
 }
 
-Element* SVGScriptElement::CloneWithoutAttributesAndChildren(
+Element& SVGScriptElement::CloneWithoutAttributesAndChildren(
     Document& factory) const {
   CreateElementFlags flags =
       CreateElementFlags::ByCloneNode().SetAlreadyStarted(
           loader_->AlreadyStarted());
-  return factory.CreateElement(TagQName(), flags, IsValue());
+  return *factory.CreateElement(TagQName(), flags, IsValue());
 }
 
 void SVGScriptElement::DispatchLoadEvent() {
@@ -178,6 +172,16 @@ bool SVGScriptElement::IsAnimatableAttribute(const QualifiedName& name) const {
   return SVGElement::IsAnimatableAttribute(name);
 }
 #endif
+
+const AttrNameToTrustedType& SVGScriptElement::GetCheckedAttributeTypes()
+    const {
+  DEFINE_STATIC_LOCAL(AttrNameToTrustedType, attribute_map,
+                      ({
+                          {svg_names::kHrefAttr.LocalName(),
+                           SpecificTrustedType::kTrustedScriptURL},
+                      }));
+  return attribute_map;
+}
 
 void SVGScriptElement::Trace(blink::Visitor* visitor) {
   visitor->Trace(loader_);

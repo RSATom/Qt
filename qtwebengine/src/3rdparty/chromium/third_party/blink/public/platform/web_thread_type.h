@@ -20,14 +20,16 @@ enum class WebThreadType {
   kAudioWorkletThread = 7,
   kFileThread = 8,
   kDatabaseThread = 9,
-  kWebAudioThread = 10,
-  kScriptStreamerThread = 11,
+  // 10 was kWebAudioThread, which was deleted (crbug.com/965093)
+  // 11 was kScriptStreamerThread, which was deleted
   kOfflineAudioRenderThread = 12,
   kReverbConvolutionBackgroundThread = 13,
   kHRTFDatabaseLoaderThread = 14,
   kTestThread = 15,
+  kAudioEncoderThread = 16,
+  kVideoEncoderThread = 17,
 
-  kCount = 16
+  kCount = 18
 };
 
 BLINK_PLATFORM_EXPORT const char* GetNameForThreadType(WebThreadType);

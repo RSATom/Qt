@@ -138,15 +138,20 @@ void GetCachedNetworkPropertiesCallback(
 
 NetworkingPrivateLinux::NetworkingPrivateLinux()
     : dbus_thread_("Networking Private DBus"), network_manager_proxy_(NULL) {
-  base::Thread::Options thread_options(base::MessageLoop::Type::TYPE_IO, 0);
+  base::Thread::Options thread_options(base::MessageLoop::Type::IO, 0);
 
   dbus_thread_.StartWithOptions(thread_options);
   dbus_thread_.task_runner()->PostTask(
-      FROM_HERE,
-      base::Bind(&NetworkingPrivateLinux::Initialize, base::Unretained(this)));
+      FROM_HERE, base::BindOnce(&NetworkingPrivateLinux::Initialize,
+                                base::Unretained(this)));
 }
 
 NetworkingPrivateLinux::~NetworkingPrivateLinux() {
+  if (dbus_) {
+    // dbus_thread_.Stop() below will wait for this task.
+    dbus_thread_.task_runner()->PostTask(
+        FROM_HERE, base::BindOnce(&dbus::Bus::ShutdownAndBlock, dbus_));
+  }
   dbus_thread_.Stop();
 }
 
@@ -1219,8 +1224,8 @@ void NetworkingPrivateLinux::PostOnNetworksChangedToUIThread(
 
   base::PostTaskWithTraits(
       FROM_HERE, {content::BrowserThread::UI},
-      base::Bind(&NetworkingPrivateLinux::OnNetworksChangedEventTask,
-                 base::Unretained(this), base::Passed(&guid_list)));
+      base::BindOnce(&NetworkingPrivateLinux::OnNetworksChangedEventTask,
+                     base::Unretained(this), std::move(guid_list)));
 }
 
 void NetworkingPrivateLinux::OnNetworksChangedEventTask(

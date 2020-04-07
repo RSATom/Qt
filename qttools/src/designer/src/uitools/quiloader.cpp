@@ -119,9 +119,6 @@ public:
     explicit TranslatingTextBuilder(bool idBased, bool trEnabled, const QByteArray &className) :
         m_idBased(idBased), m_trEnabled(trEnabled), m_className(className) {}
 
-    TranslatingTextBuilder(bool trEnabled, const QByteArray &className) :
-        m_trEnabled(trEnabled), m_className(className) {}
-
     QVariant loadText(const DomProperty *icon) const override;
 
     QVariant toNativeValue(const QVariant &value) const override;
@@ -333,16 +330,15 @@ class FormBuilderPrivate: public QFormBuilder
 {
     friend class QT_PREPEND_NAMESPACE(QUiLoader);
     friend class QT_PREPEND_NAMESPACE(QUiLoaderPrivate);
-    typedef QFormBuilder ParentClass;
+    using ParentClass = QFormBuilder;
 
 public:
-    QUiLoader *loader;
+    QUiLoader *loader = nullptr;
 
-    bool dynamicTr;
-    bool trEnabled;
+    bool dynamicTr = false;
+    bool trEnabled = true;
 
-    FormBuilderPrivate(): loader(nullptr), dynamicTr(false), trEnabled(true),
-        m_trwatch(nullptr), m_idBased(false) {}
+    FormBuilderPrivate() = default;
 
     QWidget *defaultCreateWidget(const QString &className, QWidget *parent, const QString &name)
     {
@@ -371,7 +367,7 @@ public:
             return widget;
         }
 
-        return 0;
+        return nullptr;
     }
 
     QLayout *createLayout(const QString &className, QObject *parent, const QString &name) override
@@ -381,7 +377,7 @@ public:
             return layout;
         }
 
-        return 0;
+        return nullptr;
     }
 
     QActionGroup *createActionGroup(QObject *parent, const QString &name) override
@@ -391,7 +387,7 @@ public:
             return actionGroup;
         }
 
-        return 0;
+        return nullptr;
     }
 
     QAction *createAction(QObject *parent, const QString &name)  override
@@ -401,7 +397,7 @@ public:
             return action;
         }
 
-        return 0;
+        return nullptr;
     }
 
     void applyProperties(QObject *o, const QList<DomProperty*> &properties) override;
@@ -411,8 +407,8 @@ public:
 
 private:
     QByteArray m_class;
-    TranslationWatcher *m_trwatch;
-    bool m_idBased;
+    TranslationWatcher *m_trwatch = nullptr;
+    bool m_idBased = false;
 };
 
 static QString convertTranslatable(const DomProperty *p, const QByteArray &className,
@@ -469,7 +465,7 @@ void FormBuilderPrivate::applyProperties(QObject *o, const QList<DomProperty*> &
 QWidget *FormBuilderPrivate::create(DomUI *ui, QWidget *parentWidget)
 {
     m_class = ui->elementClass().toUtf8();
-    m_trwatch = 0;
+    m_trwatch = nullptr;
     m_idBased = ui->attributeIdbasedtr();
     setTextBuilder(new TranslatingTextBuilder(m_idBased, trEnabled, m_class));
     return QFormBuilder::create(ui, parentWidget);
@@ -478,8 +474,8 @@ QWidget *FormBuilderPrivate::create(DomUI *ui, QWidget *parentWidget)
 QWidget *FormBuilderPrivate::create(DomWidget *ui_widget, QWidget *parentWidget)
 {
     QWidget *w = QFormBuilder::create(ui_widget, parentWidget);
-    if (w == 0)
-        return 0;
+    if (w == nullptr)
+        return nullptr;
 
     if (0) {
 #if QT_CONFIG(tabwidget)
@@ -525,7 +521,7 @@ QWidget *FormBuilderPrivate::create(DomWidget *ui_widget, QWidget *parentWidget)
 
 bool FormBuilderPrivate::addItem(DomWidget *ui_widget, QWidget *widget, QWidget *parentWidget)
 {
-    if (parentWidget == 0)
+    if (parentWidget == nullptr)
         return true;
 
     if (!ParentClass::addItem(ui_widget, widget, parentWidget))
@@ -685,9 +681,7 @@ QUiLoader::QUiLoader(QObject *parent)
 /*!
     Destroys the loader.
 */
-QUiLoader::~QUiLoader()
-{
-}
+QUiLoader::~QUiLoader() = default;
 
 /*!
     Loads a form from the given \a device and creates a new widget with the

@@ -95,6 +95,26 @@ QBackendNodePrivate *QBackendNodePrivate::get(QBackendNode *n)
     return n->d_func();
 }
 
+void QBackendNodePrivate::addedToEntity(QNode *frontend)
+{
+    Q_UNUSED(frontend)
+}
+
+void QBackendNodePrivate::removedFromEntity(QNode *frontend)
+{
+    Q_UNUSED(frontend)
+}
+
+void QBackendNodePrivate::componentAdded(QNode *frontend)
+{
+    Q_UNUSED(frontend)
+}
+
+void QBackendNodePrivate::componentRemoved(QNode *frontend)
+{
+    Q_UNUSED(frontend)
+}
+
 /*!
  * \class Qt3DCore::QBackendNodeMapper
  * \inheaderfile Qt3DCore/QBackendNodeMapper
@@ -256,16 +276,16 @@ void QBackendNode::setEnabled(bool enabled) Q_DECL_NOTHROW
 void QBackendNode::sceneChangeEvent(const QSceneChangePtr &e)
 {
     Q_D(QBackendNode);
-    auto propertyChange = qSharedPointerCast<QPropertyUpdatedChange>(e);
 
     switch (e->type()) {
-        case PropertyUpdated: {
-            if (propertyChange->propertyName() == QByteArrayLiteral("enabled"))
-                d->m_enabled = propertyChange->value().toBool();
-            break;
-        }
-        default:
-            break;
+    case PropertyUpdated: {
+        auto propertyChange = qSharedPointerCast<QPropertyUpdatedChange>(e);
+        if (propertyChange->propertyName() == QByteArrayLiteral("enabled"))
+            d->m_enabled = propertyChange->value().toBool();
+        break;
+    }
+    default:
+        break;
     }
 }
 

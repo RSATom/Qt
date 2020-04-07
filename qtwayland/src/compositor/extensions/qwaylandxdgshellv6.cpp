@@ -1214,7 +1214,9 @@ QWaylandSurfaceRole *QWaylandXdgToplevelV6::role()
 QList<int> QWaylandXdgToplevelV6::statesAsInts() const
 {
    QList<int> list;
-   Q_FOREACH (uint state, states()) {
+   const auto s = states();
+   list.reserve(s.size());
+   for (auto state : s) {
        list << static_cast<int>(state);
    }
    return list;
@@ -1799,6 +1801,26 @@ uint QWaylandXdgPopupV6::sendConfigure(const QRect &geometry)
 {
     Q_D(QWaylandXdgPopupV6);
     return d->sendConfigure(geometry);
+}
+
+/*!
+ * \qmlmethod void QtWaylandCompositor::XdgPopupV6::sendPopupDone()
+ * \since 5.14
+ *
+ * Dismiss the popup. According to the \c xdg-shell-unstable-v6 protocol this should make the
+ * client destroy the popup.
+ */
+
+/*!
+ * \since 5.14
+ *
+ * Dismiss the popup. According to the \c xdg-shell-unstable-v6 protocol this should make the
+ * client destroy the popup.
+ */
+void QWaylandXdgPopupV6::sendPopupDone()
+{
+    Q_D(QWaylandXdgPopupV6);
+    d->send_popup_done();
 }
 
 /*!

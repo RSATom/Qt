@@ -272,7 +272,7 @@ QPlatformAccessibility *QWaylandIntegration::accessibility() const
 {
     if (!mAccessibility) {
 #ifndef QT_NO_ACCESSIBILITY_ATSPI_BRIDGE
-        Q_ASSERT_X(QCoreApplication::eventDispatcher(), "QXcbIntegration",
+        Q_ASSERT_X(QCoreApplication::eventDispatcher(), "QWaylandIntegration",
             "Initializing accessibility without event-dispatcher!");
         mAccessibility.reset(new QSpiAccessibleBridge());
 #else
@@ -352,7 +352,7 @@ void QWaylandIntegration::initializeClientBufferIntegration()
                 && mDisplay->hardwareIntegration()->clientBufferIntegration() != QLatin1String("linux-dmabuf-unstable-v1")) {
             targetKey = mDisplay->hardwareIntegration()->clientBufferIntegration();
         } else {
-            targetKey = QLatin1Literal("wayland-egl");
+            targetKey = QLatin1String("wayland-egl");
         }
     }
 
@@ -430,7 +430,7 @@ void QWaylandIntegration::initializeShellIntegration()
         preferredShells << QLatin1String("wl-shell") << QLatin1String("ivi-shell");
     }
 
-    Q_FOREACH (QString preferredShell, preferredShells) {
+    for (const QString &preferredShell : qAsConst(preferredShells)) {
         mShellIntegration.reset(createShellIntegration(preferredShell));
         if (mShellIntegration) {
             qCDebug(lcQpaWayland, "Using the '%s' shell integration", qPrintable(preferredShell));

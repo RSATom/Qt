@@ -20,7 +20,6 @@
 #include "components/offline_pages/core/background/request_queue_task_test_base.h"
 #include "components/offline_pages/core/background/save_page_request.h"
 #include "components/offline_pages/core/background/test_request_queue_store.h"
-#include "components/offline_pages/core/client_policy_controller.h"
 #include "components/offline_pages/core/offline_clock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -96,8 +95,6 @@ class PickRequestTaskTest : public RequestQueueTaskTestBase {
 
   void SetUp() override;
 
-  void AddRequestDone(ItemActionStatus status);
-
   void RequestPicked(
       const SavePageRequest& request,
       const std::unique_ptr<std::vector<SavePageRequest>> available_requests,
@@ -125,7 +122,6 @@ class PickRequestTaskTest : public RequestQueueTaskTestBase {
   std::unique_ptr<RequestNotifierStub> notifier_;
   std::unique_ptr<SavePageRequest> last_picked_;
   std::unique_ptr<OfflinerPolicy> policy_;
-  ClientPolicyController policy_controller_;
   RequestCoordinatorEventLogger event_logger_;
   std::set<int64_t> disabled_requests_;
   base::circular_deque<int64_t> prioritized_requests_;
@@ -157,8 +153,6 @@ void PickRequestTaskTest::TaskCompletionCallback(Task* completed_task) {
   task_complete_called_ = true;
 }
 
-void PickRequestTaskTest::AddRequestDone(ItemActionStatus status) {}
-
 void PickRequestTaskTest::RequestPicked(
     const SavePageRequest& request,
     std::unique_ptr<std::vector<SavePageRequest>> available_requests,
@@ -186,12 +180,8 @@ void PickRequestTaskTest::QueueRequests(const SavePageRequest& request1,
   DeviceConditions conditions;
   std::set<int64_t> disabled_requests;
   // Add test requests on the Queue.
-  store_.AddRequest(request1,
-                    base::BindOnce(&PickRequestTaskTest::AddRequestDone,
-                                   base::Unretained(this)));
-  store_.AddRequest(request2,
-                    base::BindOnce(&PickRequestTaskTest::AddRequestDone,
-                                   base::Unretained(this)));
+  store_.AddRequest(request1, RequestQueue::AddOptions(), base::DoNothing());
+  store_.AddRequest(request2, RequestQueue::AddOptions(), base::DoNothing());
 
   // Pump the loop to give the async queue the opportunity to do the adds.
   PumpLoop();
@@ -200,7 +190,7 @@ void PickRequestTaskTest::QueueRequests(const SavePageRequest& request1,
 void PickRequestTaskTest::MakePickRequestTask() {
   DeviceConditions conditions;
   task_.reset(new PickRequestTask(
-      &store_, policy_.get(), &policy_controller_,
+      &store_, policy_.get(),
       base::BindOnce(&PickRequestTaskTest::RequestPicked,
                      base::Unretained(this)),
       base::BindOnce(&PickRequestTaskTest::RequestNotPicked,

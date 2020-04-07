@@ -2,11 +2,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "base/barrier_closure.h"
+#include "base/bind.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
 #include "content/public/browser/content_browser_client.h"
 #include "content/public/browser/web_contents.h"
-#include "content/public/common/renderer_preferences.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/content_browser_test.h"
 #include "content/public/test/content_browser_test_utils.h"
@@ -14,6 +15,7 @@
 #include "net/test/embedded_test_server/embedded_test_server.h"
 #include "net/test/embedded_test_server/http_request.h"
 #include "net/test/embedded_test_server/http_response.h"
+#include "third_party/blink/public/mojom/renderer_preferences.mojom.h"
 
 #if defined(OS_ANDROID)
 #include "base/system/sys_info.h"
@@ -25,8 +27,9 @@ namespace {
 
 class MockContentBrowserClient final : public ContentBrowserClient {
  public:
-  void UpdateRendererPreferencesForWorker(BrowserContext*,
-                                          RendererPreferences* prefs) override {
+  void UpdateRendererPreferencesForWorker(
+      BrowserContext*,
+      blink::mojom::RendererPreferences* prefs) override {
     if (do_not_track_enabled_) {
       prefs->enable_do_not_track = true;
       prefs->enable_referrers = true;
@@ -66,7 +69,7 @@ class DoNotTrackTest : public ContentBrowserTest {
     if (!original_client_)
       return false;
     client_.EnableDoNotTrack();
-    RendererPreferences* prefs =
+    blink::mojom::RendererPreferences* prefs =
         shell()->web_contents()->GetMutableRendererPrefs();
     EXPECT_FALSE(prefs->enable_do_not_track);
     prefs->enable_do_not_track = true;
@@ -179,7 +182,8 @@ IN_PROC_BROWSER_TEST_F(DoNotTrackTest, Worker) {
   EXPECT_TRUE(header_map.find("DNT") != header_map.end());
   EXPECT_EQ("1", header_map["DNT"]);
 
-  // Wait until the worker script is loaded.
+  // Wait until the worker script is loaded to stop the test from crashing
+  // during destruction.
   EXPECT_EQ("DONE", EvalJs(shell(), "waitForMessage();"));
 }
 
@@ -210,13 +214,14 @@ IN_PROC_BROWSER_TEST_F(DoNotTrackTest, MAYBE_SharedWorker) {
   EXPECT_TRUE(header_map.find("DNT") != header_map.end());
   EXPECT_EQ("1", header_map["DNT"]);
 
-  // Wait until the worker script is loaded.
+  // Wait until the worker script is loaded to stop the test from crashing
+  // during destruction.
   EXPECT_EQ("DONE", EvalJs(shell(), "waitForMessage();"));
 }
 
 // Checks that the DNT header is sent in a request for a service worker
 // script.
-IN_PROC_BROWSER_TEST_F(DoNotTrackTest, ServiceWorker) {
+IN_PROC_BROWSER_TEST_F(DoNotTrackTest, ServiceWorker_Register) {
   const std::string kWorkerScript = "// empty";
   net::test_server::HttpRequest::HeaderMap header_map;
   base::RunLoop loop;
@@ -237,6 +242,35 @@ IN_PROC_BROWSER_TEST_F(DoNotTrackTest, ServiceWorker) {
   // Service worker doesn't have to wait for onmessage event because
   // navigator.serviceWorker.ready can ensure that the script load has
   // been completed.
+}
+
+// Checks that the DNT header is sent in a request for a service worker
+// script during update checking.
+IN_PROC_BROWSER_TEST_F(DoNotTrackTest, ServiceWorker_Update) {
+  const std::string kWorkerScript = "// empty";
+  net::test_server::HttpRequest::HeaderMap header_map;
+  base::RunLoop loop;
+  // Wait for two requests to capture the request header for updating.
+  embedded_test_server()->RegisterRequestHandler(base::BindRepeating(
+      &CaptureHeaderHandlerAndReturnScript, "/capture", &header_map,
+      kWorkerScript, base::BarrierClosure(2, loop.QuitClosure())));
+  ASSERT_TRUE(embedded_test_server()->Start());
+  if (!EnableDoNotTrack())
+    return;
+
+  // Register a service worker, trigger update, then wait until the handler sees
+  // the second request.
+  NavigateToURL(shell(), GetURL("/service_worker/create_service_worker.html"));
+  EXPECT_EQ("DONE", EvalJs(shell(), "register('/capture');"));
+  EXPECT_EQ("DONE", EvalJs(shell(), "update();"));
+  loop.Run();
+
+  EXPECT_TRUE(header_map.find("DNT") != header_map.end());
+  EXPECT_EQ("1", header_map["DNT"]);
+
+  // Service worker doesn't have to wait for onmessage event because
+  // waiting for a promise by registration.update() can ensure that the script
+  // load has been completed.
 }
 
 // Checks that the DNT header is preserved when fetching from a dedicated

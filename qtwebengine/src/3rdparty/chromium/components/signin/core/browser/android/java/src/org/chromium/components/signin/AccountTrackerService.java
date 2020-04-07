@@ -17,7 +17,6 @@ import org.chromium.base.task.AsyncTask;
 
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
-import java.util.concurrent.TimeUnit;
 
 /**
  * Android wrapper of AccountTrackerService which provides access from the java layer.
@@ -53,7 +52,7 @@ public class AccountTrackerService {
         // Called at the end of seedSystemAccounts().
         void onSystemAccountsSeedingComplete();
         // Called in invalidateAccountSeedStatus() indicating that accounts have changed.
-        void onSystemAccountsChanged();
+        default void onSystemAccountsChanged() {}
     }
 
     private final ObserverList<OnSystemAccountsSeededListener> mSystemAccountsSeedingObservers =
@@ -78,8 +77,7 @@ public class AccountTrackerService {
      */
     public boolean checkAndSeedSystemAccounts() {
         ThreadUtils.assertOnUiThread();
-        if (mSystemAccountsSeedingStatus == SystemAccountsSeedingStatus.SEEDING_DONE
-                && !mSystemAccountsChanged) {
+        if (areSystemAccountsSeeded()) {
             return true;
         }
         if ((mSystemAccountsSeedingStatus == SystemAccountsSeedingStatus.SEEDING_NOT_STARTED
@@ -92,14 +90,21 @@ public class AccountTrackerService {
     }
 
     /**
+     * Checks whether system accounts are seeded without changing the state.
+     * @return Whether account list in {@link AccountManagerFacade} is consistent with accounts in
+     *         the native AccountTrackerService.
+     */
+    boolean areSystemAccountsSeeded() {
+        return mSystemAccountsSeedingStatus == SystemAccountsSeedingStatus.SEEDING_DONE
+                && !mSystemAccountsChanged;
+    }
+
+    /**
      * Register an |observer| to observe system accounts seeding status.
      */
     public void addSystemAccountsSeededListener(OnSystemAccountsSeededListener observer) {
         ThreadUtils.assertOnUiThread();
         mSystemAccountsSeedingObservers.addObserver(observer);
-        if (mSystemAccountsSeedingStatus == SystemAccountsSeedingStatus.SEEDING_DONE) {
-            observer.onSystemAccountsSeedingComplete();
-        }
     }
 
     /**
@@ -145,8 +150,7 @@ public class AccountTrackerService {
                     }
 
                     RecordHistogram.recordTimesHistogram("Signin.AndroidGetAccountIdsTime",
-                            SystemClock.elapsedRealtime() - seedingStartTime,
-                            TimeUnit.MILLISECONDS);
+                            SystemClock.elapsedRealtime() - seedingStartTime);
 
                     return accountIdNameMap;
                 }

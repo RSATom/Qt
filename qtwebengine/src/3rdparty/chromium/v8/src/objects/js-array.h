@@ -8,7 +8,7 @@
 #include "src/objects/allocation-site.h"
 #include "src/objects/fixed-array.h"
 #include "src/objects/js-objects.h"
-#include "torque-generated/class-definitions-from-dsl.h"
+#include "torque-generated/field-offsets-tq.h"
 
 // Has to be the last include (doesn't have include guards):
 #include "src/objects/object-macros.h"
@@ -36,7 +36,8 @@ class JSArray : public JSObject {
   // Initialize the array with the given capacity. The function may
   // fail due to out-of-memory situations, but only if the requested
   // capacity is non-zero.
-  static void Initialize(Handle<JSArray> array, int capacity, int length = 0);
+  V8_EXPORT_PRIVATE static void Initialize(Handle<JSArray> array, int capacity,
+                                           int length = 0);
 
   // If the JSArray has fast elements, and new_length would result in
   // normalization, returns true.
@@ -46,7 +47,8 @@ class JSArray : public JSObject {
   // Initializes the array to a certain length.
   inline bool AllowsSetLength();
 
-  static void SetLength(Handle<JSArray> array, uint32_t length);
+  V8_EXPORT_PRIVATE static void SetLength(Handle<JSArray> array,
+                                          uint32_t length);
 
   // Set the content of the array to the content of storage.
   static inline void SetContent(Handle<JSArray> array,
@@ -55,14 +57,14 @@ class JSArray : public JSObject {
   // ES6 9.4.2.1
   V8_WARN_UNUSED_RESULT static Maybe<bool> DefineOwnProperty(
       Isolate* isolate, Handle<JSArray> o, Handle<Object> name,
-      PropertyDescriptor* desc, ShouldThrow should_throw);
+      PropertyDescriptor* desc, Maybe<ShouldThrow> should_throw);
 
   static bool AnythingToArrayLength(Isolate* isolate,
                                     Handle<Object> length_object,
                                     uint32_t* output);
   V8_WARN_UNUSED_RESULT static Maybe<bool> ArraySetLength(
       Isolate* isolate, Handle<JSArray> a, PropertyDescriptor* desc,
-      ShouldThrow should_throw);
+      Maybe<ShouldThrow> should_throw);
 
   // Support for Array.prototype.join().
   // Writes a fixed array of strings and separators to a single destination
@@ -105,8 +107,8 @@ class JSArray : public JSObject {
   // Number of element slots to pre-allocate for an empty array.
   static const int kPreallocatedArrayElements = 4;
 
-  DEFINE_FIELD_OFFSET_CONSTANTS(JSObject::kHeaderSize, JSARRAY_FIELDS)
-#undef JS_ARRAY_FIELDS
+  DEFINE_FIELD_OFFSET_CONSTANTS(JSObject::kHeaderSize,
+                                TORQUE_GENERATED_JSARRAY_FIELDS)
 
   static const int kLengthDescriptorIndex = 0;
 
@@ -130,7 +132,8 @@ class JSArray : public JSObject {
   OBJECT_CONSTRUCTORS(JSArray, JSObject);
 };
 
-Handle<Object> CacheInitialJSArrayMaps(Handle<Context> native_context,
+Handle<Object> CacheInitialJSArrayMaps(Isolate* isolate,
+                                       Handle<Context> native_context,
                                        Handle<Map> initial_map);
 
 // The JSArrayIterator describes JavaScript Array Iterators Objects, as
@@ -174,16 +177,11 @@ class JSArrayIterator : public JSObject {
   inline IterationKind kind() const;
   inline void set_kind(IterationKind kind);
 
-  // Layout description.
-#define JS_ARRAY_ITERATOR_FIELDS(V)     \
-  V(kIteratedObjectOffset, kTaggedSize) \
-  V(kNextIndexOffset, kTaggedSize)      \
-  V(kKindOffset, kTaggedSize)           \
-  /* Header size. */                    \
-  V(kSize, 0)
+  DEFINE_FIELD_OFFSET_CONSTANTS(JSObject::kHeaderSize,
+                                TORQUE_GENERATED_JSARRAY_ITERATOR_FIELDS)
 
-  DEFINE_FIELD_OFFSET_CONSTANTS(JSObject::kHeaderSize, JS_ARRAY_ITERATOR_FIELDS)
-#undef JS_ARRAY_ITERATOR_FIELDS
+ private:
+  DECL_INT_ACCESSORS(raw_kind)
 
   OBJECT_CONSTRUCTORS(JSArrayIterator, JSObject);
 };

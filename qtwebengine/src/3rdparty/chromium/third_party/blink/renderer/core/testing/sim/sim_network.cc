@@ -4,13 +4,18 @@
 
 #include "third_party/blink/renderer/core/testing/sim/sim_network.h"
 
+#include <memory>
+#include <utility>
 #include "third_party/blink/public/platform/platform.h"
 #include "third_party/blink/public/platform/web_url_error.h"
 #include "third_party/blink/public/platform/web_url_loader.h"
 #include "third_party/blink/public/platform/web_url_loader_client.h"
 #include "third_party/blink/public/platform/web_url_loader_mock_factory.h"
 #include "third_party/blink/public/platform/web_url_response.h"
+#include "third_party/blink/public/web/web_navigation_params.h"
+#include "third_party/blink/renderer/core/loader/document_loader.h"
 #include "third_party/blink/renderer/core/testing/sim/sim_request.h"
+#include "third_party/blink/renderer/platform/loader/static_data_navigation_body_loader.h"
 
 namespace blink {
 
@@ -72,25 +77,35 @@ void SimNetwork::DidFail(WebURLLoaderClient* client,
 }
 
 void SimNetwork::DidFinishLoading(WebURLLoaderClient* client,
-                                  TimeTicks finish_time,
+                                  base::TimeTicks finish_time,
                                   int64_t total_encoded_data_length,
                                   int64_t total_encoded_body_length,
                                   int64_t total_decoded_body_length) {
   if (!current_request_) {
     client->DidFinishLoading(finish_time, total_encoded_data_length,
                              total_encoded_body_length,
-                             total_decoded_body_length, false,
-                             std::vector<network::cors::PreflightTimingInfo>());
+                             total_decoded_body_length, false, {});
     return;
   }
   current_request_ = nullptr;
 }
 
 void SimNetwork::AddRequest(SimRequestBase& request) {
+  DCHECK(!requests_.Contains(request.url_.GetString()));
   requests_.insert(request.url_.GetString(), &request);
   WebURLResponse response(request.url_);
-  response.SetMIMEType(request.mime_type_);
-  response.SetHTTPStatusCode(200);
+  response.SetMimeType(request.mime_type_);
+
+  if (request.redirect_url_.IsEmpty()) {
+    response.SetHttpStatusCode(request.response_http_status_);
+  } else {
+    response.SetHttpStatusCode(302);
+    response.AddHttpHeaderField("Location", request.redirect_url_);
+  }
+
+  for (const auto& http_header : request.response_http_headers_)
+    response.AddHttpHeaderField(http_header.key, http_header.value);
+
   Platform::Current()->GetURLLoaderMockFactory()->RegisterURL(request.url_,
                                                               response, "");
 }
@@ -98,6 +113,21 @@ void SimNetwork::AddRequest(SimRequestBase& request) {
 void SimNetwork::RemoveRequest(SimRequestBase& request) {
   requests_.erase(request.url_);
   Platform::Current()->GetURLLoaderMockFactory()->UnregisterURL(request.url_);
+}
+
+bool SimNetwork::FillNavigationParamsResponse(WebNavigationParams* params) {
+  auto it = requests_.find(params->url.GetString());
+  SimRequestBase* request = it->value;
+  params->response = WebURLResponse(params->url);
+  params->response.SetMimeType(request->mime_type_);
+  params->response.SetHttpStatusCode(request->response_http_status_);
+  for (const auto& http_header : request->response_http_headers_)
+    params->response.AddHttpHeaderField(http_header.key, http_header.value);
+
+  auto body_loader = std::make_unique<StaticDataNavigationBodyLoader>();
+  request->UsedForNavigation(body_loader.get());
+  params->body_loader = std::move(body_loader);
+  return true;
 }
 
 }  // namespace blink

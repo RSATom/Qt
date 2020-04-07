@@ -57,7 +57,7 @@
 #include "qbluetoothserver.h"
 #include "qbluetooth.h"
 
-#if QT_CONFIG(bluez)
+#if QT_CONFIG(bluez) || defined(QT_WIN_BLUETOOTH)
 QT_FORWARD_DECLARE_CLASS(QSocketNotifier)
 #endif
 
@@ -77,21 +77,30 @@ class ServerAcceptanceThread;
 #include <windows.networking.sockets.h>
 #endif
 
+#ifdef QT_OSX_BLUETOOTH
+
+#include "osx/btdelegates_p.h"
+#include "osx/btraii_p.h"
+
+#include <QtCore/qvector.h>
+
+#endif // QT_OSX_BLUETOOTH
+
 QT_BEGIN_NAMESPACE
 
 class QBluetoothAddress;
 class QBluetoothSocket;
-
 class QBluetoothServer;
 
-#ifndef QT_OSX_BLUETOOTH
-
 class QBluetoothServerPrivate
+#ifdef QT_OSX_BLUETOOTH
+        : public DarwinBluetooth::SocketListener
+#endif
 {
     Q_DECLARE_PUBLIC(QBluetoothServer)
 
 public:
-    QBluetoothServerPrivate(QBluetoothServiceInfo::Protocol serverType);
+    QBluetoothServerPrivate(QBluetoothServiceInfo::Protocol serverType, QBluetoothServer *parent);
     ~QBluetoothServerPrivate();
 
 #if QT_CONFIG(bluez)
@@ -100,6 +109,9 @@ public:
     QBluetooth::SecurityFlags socketSecurityLevel() const;
     static QBluetoothSocket *createSocketForServer(
                 QBluetoothServiceInfo::Protocol socketType = QBluetoothServiceInfo::RfcommProtocol);
+#endif
+#if defined(QT_WIN_BLUETOOTH)
+    void _q_newConnection();
 #endif
 
 public:
@@ -114,7 +126,7 @@ protected:
 
 private:
     QBluetoothServer::Error m_lastError;
-#if QT_CONFIG(bluez)
+#if QT_CONFIG(bluez) || defined(QT_WIN_BLUETOOTH)
     QSocketNotifier *socketNotifier = nullptr;
 #elif defined(QT_ANDROID_BLUETOOTH)
     ServerAcceptanceThread *thread;
@@ -140,9 +152,53 @@ public:
     bool initiateActiveListening(const QString &serviceName);
     bool deactivateActiveListening();
 #endif
-};
 
-#endif //QT_OSX_BLUETOOTH
+#ifdef QT_OSX_BLUETOOTH
+
+public:
+
+    friend class QBluetoothServer;
+    friend class QBluetoothServiceInfoPrivate;
+
+private:
+    bool startListener(quint16 realPort);
+    void stopListener();
+    bool isListening() const;
+
+    // SocketListener (delegate):
+    void openNotifyRFCOMM(void *channel) override;
+    void openNotifyL2CAP(void *channel) override;
+
+    // Either a "temporary" channelID/PSM assigned by QBluetoothServer::listen,
+    // or a real channelID/PSM returned by IOBluetooth after we've registered
+    // a service.
+    quint16 port;
+
+    DarwinBluetooth::StrongReference listener;
+
+    // These static functions below
+    // deal with differences between bluetooth sockets
+    // (bluez and QtBluetooth's API) and IOBluetooth, where it's not possible
+    // to have a real PSM/channelID _before_ a service is registered,
+    // the solution - "fake" ports.
+    // These functions require external locking - using channelMapMutex.
+    static QMutex &channelMapMutex();
+
+    static bool channelIsBusy(quint16 channelID);
+    static quint16 findFreeChannel();
+
+    static bool psmIsBusy(quint16 psm);
+    static quint16 findFreePSM();
+
+    static void registerServer(QBluetoothServerPrivate *server, quint16 port);
+    static QBluetoothServerPrivate *registeredServer(quint16 port, QBluetoothServiceInfo::Protocol protocol);
+    static void unregisterServer(QBluetoothServerPrivate *server);
+
+    using PendingConnection = DarwinBluetooth::StrongReference;
+    QVector<PendingConnection> pendingConnections;
+
+#endif // QT_OSX_BLUETOOTH
+};
 
 QT_END_NAMESPACE
 

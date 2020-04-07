@@ -11,15 +11,14 @@
 #include "third_party/blink/renderer/core/inspector/inspector_base_agent.h"
 #include "third_party/blink/renderer/core/inspector/protocol/Emulation.h"
 #include "third_party/blink/renderer/core/loader/frame_loader_types.h"
+#include "third_party/blink/renderer/core/timezone/timezone_controller.h"
 #include "third_party/blink/renderer/platform/scheduler/public/page_scheduler.h"
 #include "third_party/blink/renderer/platform/wtf/time.h"
 
 namespace blink {
 
 class DocumentLoader;
-class ExecutionContext;
 class ResourceRequest;
-class ResourceResponse;
 class WebLocalFrameImpl;
 class WebViewImpl;
 enum class ResourceType : uint8_t;
@@ -32,8 +31,7 @@ class RGBA;
 }  // namespace protocol
 
 class CORE_EXPORT InspectorEmulationAgent final
-    : public InspectorBaseAgent<protocol::Emulation::Metainfo>,
-      public PageScheduler::VirtualTimeObserver {
+    : public InspectorBaseAgent<protocol::Emulation::Metainfo> {
  public:
   explicit InspectorEmulationAgent(WebLocalFrameImpl*);
   ~InspectorEmulationAgent() override;
@@ -57,6 +55,7 @@ class CORE_EXPORT InspectorEmulationAgent final
       protocol::Maybe<bool> wait_for_navigation,
       protocol::Maybe<double> initial_virtual_time,
       double* virtual_time_ticks_base_ms) override;
+  protocol::Response setTimezoneOverride(const String& timezone_id) override;
   protocol::Response setNavigatorOverrides(const String& platform) override;
   protocol::Response setDefaultBackgroundColorOverride(
       protocol::Maybe<protocol::DOM::RGBA>) override;
@@ -83,21 +82,14 @@ class CORE_EXPORT InspectorEmulationAgent final
   void ApplyAcceptLanguageOverride(String* accept_lang);
   void ApplyUserAgentOverride(String* user_agent);
   void FrameStartedLoading(LocalFrame*);
-  void WillSendRequest(ExecutionContext*,
-                       unsigned long identifier,
-                       DocumentLoader*,
-                       ResourceRequest&,
-                       const ResourceResponse& redirect_response,
-                       const FetchInitiatorInfo&,
-                       ResourceType);
+  void PrepareRequest(DocumentLoader*,
+                      ResourceRequest&,
+                      const FetchInitiatorInfo&,
+                      ResourceType);
 
   // InspectorBaseAgent overrides.
   protocol::Response disable() override;
   void Restore() override;
-
-  // scheduler::PageScheduler::VirtualTimeObserver implementation.
-  void OnVirtualTimeAdvanced(WTF::TimeDelta virtual_time_offset) override;
-  void OnVirtualTimePaused(WTF::TimeDelta virtual_time_offset) override;
 
   void Trace(blink::Visitor*) override;
 
@@ -115,15 +107,16 @@ class CORE_EXPORT InspectorEmulationAgent final
   void ApplyVirtualTimePolicy(const PendingVirtualTimePolicy& new_policy);
 
   Member<WebLocalFrameImpl> web_local_frame_;
-  bool virtual_time_setup_ = false;
-  WTF::TimeTicks virtual_time_base_ticks_;
+  base::TimeTicks virtual_time_base_ticks_;
+
+  std::unique_ptr<TimeZoneController::TimeZoneOverride> timezone_override_;
 
   // Supports a virtual time policy change scheduled to occur after any
   // navigation has started.
   base::Optional<PendingVirtualTimePolicy> pending_virtual_time_policy_;
   bool enabled_ = false;
 
-  InspectorAgentState::String default_background_color_override_rgba_;
+  InspectorAgentState::Bytes default_background_color_override_rgba_;
   InspectorAgentState::Boolean script_execution_disabled_;
   InspectorAgentState::Boolean scrollbars_hidden_;
   InspectorAgentState::Boolean document_cookie_disabled_;
@@ -141,6 +134,7 @@ class CORE_EXPORT InspectorEmulationAgent final
   InspectorAgentState::Integer virtual_time_task_starvation_count_;
   InspectorAgentState::Boolean wait_for_navigation_;
   InspectorAgentState::Boolean emulate_focus_;
+  InspectorAgentState::String timezone_id_override_;
   DISALLOW_COPY_AND_ASSIGN(InspectorEmulationAgent);
 };
 

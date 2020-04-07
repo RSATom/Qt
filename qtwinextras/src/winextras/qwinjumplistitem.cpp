@@ -80,7 +80,7 @@ QWinJumpListItem::QWinJumpListItem(QWinJumpListItem::Type type) :
     d_ptr(new QWinJumpListItemPrivate)
 {
     d_ptr->type = type;
-    d_ptr->category = 0;
+    d_ptr->category = nullptr;
 }
 
 /*!

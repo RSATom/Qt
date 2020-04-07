@@ -4,6 +4,8 @@
 
 #include "ui/ozone/public/input_controller.h"
 
+#include <memory>
+
 #include "base/callback.h"
 #include "base/logging.h"
 #include "base/macros.h"
@@ -54,6 +56,8 @@ class StubInputController : public InputController {
   void SetTouchscreensEnabled(bool enabled) override {}
   void SetInternalKeyboardFilter(bool enable_filter,
                                  std::vector<DomCode> allowed_keys) override {}
+  void GetGesturePropertiesService(
+      ui::ozone::mojom::GesturePropertiesServiceRequest request) override {}
 
  private:
   DISALLOW_COPY_AND_ASSIGN(StubInputController);

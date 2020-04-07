@@ -85,8 +85,8 @@ class XResetModel : public QStandardItemModel
         blockSignals(true);
         bool r = QStandardItemModel::removeRows(row, count, parent);
         blockSignals(false);
-        emit beginResetModel();
-        emit endResetModel();
+        beginResetModel();
+        endResetModel();
         return r;
     }
     virtual bool insertRows(int row, int count, const QModelIndex &parent = QModelIndex())
@@ -94,8 +94,8 @@ class XResetModel : public QStandardItemModel
         blockSignals(true);
         bool r = QStandardItemModel::insertRows(row, count, parent);
         blockSignals(false);
-        emit beginResetModel();
-        emit endResetModel();
+        beginResetModel();
+        endResetModel();
         return r;
     }
 };
@@ -106,6 +106,7 @@ class tst_QHeaderView : public QObject
 
 public:
     tst_QHeaderView();
+    static void initMain();
 
 private slots:
     void initTestCase();
@@ -215,6 +216,7 @@ private slots:
     void QTBUG14242_hideSectionAutoSize();
     void QTBUG50171_visualRegionForSwappedItems();
     void QTBUG53221_assertShiftHiddenRow();
+    void QTBUG75615_sizeHintWithStylesheet();
     void ensureNoIndexAtLength();
     void offsetConsistent();
 
@@ -264,6 +266,14 @@ protected:
     bool m_special_prepare = false;
     QElapsedTimer timer;
 };
+
+void tst_QHeaderView::initMain()
+{
+#ifdef Q_OS_WIN
+    // Ensure minimum size constraints of framed windows on High DPI screens
+    QCoreApplication::setAttribute(Qt::AA_EnableHighDpiScaling);
+#endif
+}
 
 class QtTestModel: public QAbstractTableModel
 {
@@ -2595,6 +2605,26 @@ void tst_QHeaderView::QTBUG53221_assertShiftHiddenRow()
     QCOMPARE(tableView.verticalHeader()->isSectionHidden(0), false);
     QCOMPARE(tableView.verticalHeader()->isSectionHidden(1), false);
     QCOMPARE(tableView.verticalHeader()->isSectionHidden(2), true);
+}
+
+void tst_QHeaderView::QTBUG75615_sizeHintWithStylesheet()
+{
+    QTableView tableView;
+    QStandardItemModel model(1, 1);
+    tableView.setModel(&model);
+    tableView.show();
+
+    const auto headerView = tableView.horizontalHeader();
+    const auto oldSizeHint = headerView->sizeHint();
+    QVERIFY(oldSizeHint.isValid());
+
+    tableView.setStyleSheet("QTableView QHeaderView::section { height: 100px;}");
+    QCOMPARE(headerView->sizeHint().width(), oldSizeHint.width());
+    QCOMPARE(headerView->sizeHint().height(), 100);
+
+    tableView.setStyleSheet("QTableView QHeaderView::section { width: 100px;}");
+    QCOMPARE(headerView->sizeHint().height(), oldSizeHint.height());
+    QCOMPARE(headerView->sizeHint().width(), 100);
 }
 
 void protected_QHeaderView::testVisualRegionForSelection()

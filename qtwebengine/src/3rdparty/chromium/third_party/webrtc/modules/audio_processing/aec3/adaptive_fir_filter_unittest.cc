@@ -11,12 +11,13 @@
 #include "modules/audio_processing/aec3/adaptive_fir_filter.h"
 
 // Defines WEBRTC_ARCH_X86_FAMILY, used below.
-#include "rtc_base/system/arch.h"
-
 #include <math.h>
+
 #include <algorithm>
 #include <numeric>
 #include <string>
+
+#include "rtc_base/system/arch.h"
 #if defined(WEBRTC_ARCH_X86_FAMILY)
 #include <emmintrin.h>
 #endif
@@ -317,7 +318,6 @@ TEST(AdaptiveFirFilter, FilterAndAdapt) {
                            config.filter.config_change_duration_blocks,
                            DetectOptimization(), &data_dumper);
   Aec3Fft fft;
-  config.delay.min_echo_path_delay_blocks = 0;
   config.delay.default_delay = 1;
   std::unique_ptr<RenderDelayBuffer> render_delay_buffer(
       RenderDelayBuffer::Create(config, 3));

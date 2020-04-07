@@ -61,6 +61,7 @@ QT_BEGIN_NAMESPACE
 
 class QCanBusFrame;
 class QLabel;
+class QTimer;
 
 namespace Ui {
 class MainWindow;
@@ -81,6 +82,7 @@ private slots:
     void sendFrame(const QCanBusFrame &frame) const;
     void processErrors(QCanBusDevice::CanBusError) const;
     void connectDevice();
+    void busStatus();
     void disconnectDevice();
     void processFramesWritten(qint64);
 
@@ -95,7 +97,8 @@ private:
     QLabel *m_status = nullptr;
     QLabel *m_written = nullptr;
     ConnectDialog *m_connectDialog = nullptr;
-    QCanBusDevice *m_canDevice = nullptr;
+    std::unique_ptr<QCanBusDevice> m_canDevice;
+    QTimer *m_busStatusTimer = nullptr;
 };
 
 #endif // MAINWINDOW_H

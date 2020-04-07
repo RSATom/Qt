@@ -7,13 +7,14 @@
 
 #include "third_party/blink/renderer/core/style/computed_style_constants.h"
 #include "third_party/blink/renderer/platform/geometry/layout_rect.h"
-#include "third_party/blink/renderer/platform/wtf/allocator.h"
+#include "third_party/blink/renderer/platform/graphics/dom_node_id.h"
+#include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 
 namespace blink {
 
-class LayoutPoint;
 class NGPaintFragment;
 struct PaintInfo;
+struct PhysicalOffset;
 
 // Text fragment painter for LayoutNG. Operates on NGPhysicalTextFragments and
 // handles clipping, selection, etc. Delegates to NGTextPainter to paint the
@@ -24,9 +25,14 @@ class NGTextFragmentPainter {
  public:
   explicit NGTextFragmentPainter(const NGPaintFragment&);
 
-  void Paint(const PaintInfo&, const LayoutPoint& paint_offset);
+  void Paint(const PaintInfo&,
+             const PhysicalOffset& paint_offset,
+             DOMNodeId node_id);
 
  private:
+  void PaintSymbol(const PaintInfo& paint_info,
+                   const PhysicalOffset& paint_offset);
+
   const NGPaintFragment& fragment_;
 };
 

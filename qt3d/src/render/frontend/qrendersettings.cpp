@@ -96,28 +96,33 @@ void QRenderSettingsPrivate::init()
                      q, SLOT(_q_onWorldSpaceToleranceChanged(float)));
 }
 
+void QRenderSettingsPrivate::invalidateFrame()
+{
+    update();
+}
+
 /*! \internal */
 void QRenderSettingsPrivate::_q_onPickingMethodChanged(QPickingSettings::PickMethod pickMethod)
 {
-    notifyPropertyChange("pickMethod", pickMethod);
+    notifyPropertyChange("pickMethod", pickMethod);// TODOSYNC
 }
 
 /*! \internal */
 void QRenderSettingsPrivate::_q_onPickResultModeChanged(QPickingSettings::PickResultMode pickResultMode)
 {
-    notifyPropertyChange("pickResultMode", pickResultMode);
+    notifyPropertyChange("pickResultMode", pickResultMode);// TODOSYNC
 }
 
 /*! \internal */
 void QRenderSettingsPrivate::_q_onFaceOrientationPickingModeChanged(QPickingSettings::FaceOrientationPickingMode faceOrientationPickingMode)
 {
-    notifyPropertyChange("faceOrientationPickingMode", faceOrientationPickingMode);
+    notifyPropertyChange("faceOrientationPickingMode", faceOrientationPickingMode);// TODOSYNC
 }
 
 /*! \internal */
 void QRenderSettingsPrivate::_q_onWorldSpaceToleranceChanged(float worldSpaceTolerance)
 {
-    notifyPropertyChange("pickWorldSpaceTolerance", worldSpaceTolerance);
+    notifyPropertyChange("pickWorldSpaceTolerance", worldSpaceTolerance);// TODOSYNC
 }
 
 QRenderSettings::QRenderSettings(Qt3DCore::QNode *parent)

@@ -121,7 +121,7 @@ class MockURLRequestThrottlerManager : public URLRequestThrottlerManager {
           MockURLRequestThrottlerEntry::kDefaultEntryLifetimeMs + 1000);
     }
     std::string fake_url_string("http://www.fakeurl.com/");
-    fake_url_string.append(base::IntToString(create_entry_index_++));
+    fake_url_string.append(base::NumberToString(create_entry_index_++));
     GURL fake_url(fake_url_string);
     OverrideEntryForTests(
         fake_url,
@@ -164,7 +164,7 @@ class URLRequestThrottlerEntryTest : public TestWithScopedTaskEnvironment {
   URLRequestThrottlerEntryTest()
       : request_(context_.CreateRequest(GURL(),
                                         DEFAULT_PRIORITY,
-                                        NULL,
+                                        nullptr,
                                         TRAFFIC_ANNOTATION_FOR_TESTS)) {}
 
   void SetUp() override;
@@ -315,7 +315,7 @@ class URLRequestThrottlerManagerTest : public TestWithScopedTaskEnvironment {
   URLRequestThrottlerManagerTest()
       : request_(context_.CreateRequest(GURL(),
                                         DEFAULT_PRIORITY,
-                                        NULL,
+                                        nullptr,
                                         TRAFFIC_ANNOTATION_FOR_TESTS)) {}
 
   void SetUp() override { request_->SetLoadFlags(0); }

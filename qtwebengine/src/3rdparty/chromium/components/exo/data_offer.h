@@ -36,14 +36,19 @@ enum class DndAction;
 // Object representing transferred data offered to a client.
 class DataOffer final : public ui::PropertyHandler {
  public:
-  explicit DataOffer(DataOfferDelegate* delegate);
+  enum Purpose {
+    COPY_PASTE,
+    DRAG_DROP,
+  };
+
+  DataOffer(DataOfferDelegate* delegate, Purpose purpose);
   ~DataOffer();
 
   void AddObserver(DataOfferObserver* observer);
   void RemoveObserver(DataOfferObserver* observer);
 
   // Notifies to the DataOffer that the client can accept |mime type|.
-  void Accept(const std::string& mime_type);
+  void Accept(const std::string* mime_type);
 
   // Notifies to the DataOffer that the client start receiving data of
   // |mime_type|. DataOffer writes the request data to |fd|.
@@ -89,9 +94,17 @@ class DataOffer final : public ui::PropertyHandler {
   // for unpopulated (nullptr) data bytes in |data_| to be populated.
   std::vector<std::pair<std::string, base::ScopedFD>> pending_receive_requests_;
 
+  using SendDataCallback = base::RepeatingCallback<void(base::ScopedFD)>;
+  // Map from mime type (or other offered data type) to a callback that sends
+  // data for that type. Using callbacks allows us to delay making copies or
+  // doing other expensive processing until actually necessary.
+  base::flat_map<std::string, SendDataCallback> data_callbacks_;
+
   base::flat_set<DndAction> source_actions_;
   DndAction dnd_action_;
   base::ObserverList<DataOfferObserver>::Unchecked observers_;
+  Purpose purpose_;
+
   base::WeakPtrFactory<DataOffer> weak_ptr_factory_;
 
   DISALLOW_COPY_AND_ASSIGN(DataOffer);

@@ -57,7 +57,7 @@ class BatchRenderer : public QThread
     };
 
 public:
-    virtual ~BatchRenderer();
+    ~BatchRenderer() override;
 
     BatchRenderer(BatchRenderer const &) = delete;
     void operator=(BatchRenderer const&) = delete;
@@ -77,26 +77,16 @@ public slots:
     bool gotoFrame(LottieAnimation *animator, int frame);
 
     void frameRendered(LottieAnimation *animator, int frameNumber);
-    void setCacheSize(int size);
 
 protected:
-    virtual void run();
+    void run() override;
 
-    int parse(BMBase* rootElement, QByteArray jsonSource);
+    int parse(BMBase *rootElement, const QByteArray &jsonSource) const;
 
-    void prerender();
     void prerender(Entry *animEntry);
 
-protected:
-    QHash<LottieAnimation*, Entry*> m_animData;
-    int m_cacheSize = 2;
-    int m_currentFrame = 0;
-
-    LottieAnimation *m_animation = nullptr;
-    QHash<int, QImage*> m_frameCache;
-
 private:
-    BatchRenderer() = default;
+    BatchRenderer();
 
     void pruneFrameCache(Entry* e);
 
@@ -105,6 +95,9 @@ private:
 
     QMutex m_mutex;
     QWaitCondition m_waitCondition;
+
+    int m_cacheSize = 2;
+    QHash<LottieAnimation *, Entry *> m_animData;
 };
 
 QT_END_NAMESPACE

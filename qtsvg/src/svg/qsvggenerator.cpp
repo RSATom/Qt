@@ -1009,7 +1009,7 @@ void QSvgPaintEngine::updateState(const QPaintEngineState &state)
     }
 
     if (flags & QPaintEngine::DirtyTransform) {
-        d->matrix = state.matrix();
+        d->matrix = state.transform().toAffine();
         *d->stream << "transform=\"matrix(" << d->matrix.m11() << ','
                    << d->matrix.m12() << ','
                    << d->matrix.m21() << ',' << d->matrix.m22() << ','

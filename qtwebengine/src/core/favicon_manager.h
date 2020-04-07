@@ -90,7 +90,7 @@ public:
         TouchIcon = 1 << 1,
         TouchPrecomposedIcon = 1 << 2
     };
-    Q_DECLARE_FLAGS(FaviconTypeFlags, FaviconTypeFlag);
+    Q_DECLARE_FLAGS(FaviconTypeFlags, FaviconTypeFlag)
 
     FaviconInfo();
     FaviconInfo(const FaviconInfo &);
@@ -118,6 +118,7 @@ public:
     QIcon getIcon(const QUrl &url = QUrl()) const;
     FaviconInfo getFaviconInfo(const QUrl &) const;
     QList<FaviconInfo> getFaviconInfoList(bool) const;
+    void copyStateFrom(FaviconManager *source);
 
 private:
     void update(const QList<FaviconInfo> &);

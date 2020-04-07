@@ -42,22 +42,16 @@ namespace sw
 		float4 xQuad;
 		float4 yQuad;
 
+		float pointCoordX;
+		float pointCoordY;
+
 		PlaneEquation z;
 		PlaneEquation w;
 
 		union
 		{
-			struct
-			{
-				PlaneEquation C[2][4];
-				PlaneEquation T[8][4];
-				PlaneEquation f;
-			};
-
-			PlaneEquation V[MAX_FRAGMENT_INPUTS][4];
+			PlaneEquation V[MAX_INTERFACE_COMPONENTS];
 		};
-
-		float area;
 
 		// Masks for two-sided stencil
 		int64_t clockwiseMask;

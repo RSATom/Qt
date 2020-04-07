@@ -39,9 +39,27 @@
 #include <QByteArray>
 #include <QMetaObject>
 #include <QMetaProperty>
-#include <QSignalMapper>
+#include <QObject>
 
 QT_BEGIN_NAMESPACE
+
+namespace {
+class SignalMapper : public QObject
+{
+    Q_OBJECT
+
+    int i;
+public:
+    explicit SignalMapper(int i, QObject *parent = nullptr)
+        : QObject(parent), i(i) {}
+
+public Q_SLOTS:
+    void map() { emit mapped(i); }
+
+Q_SIGNALS:
+    void mapped(int);
+};
+} // unnamed namespace
 
 /*!
     \qmltype MapParameter
@@ -50,7 +68,7 @@ QT_BEGIN_NAMESPACE
     \since QtLocation 5.9
     \deprecated
 
-    Use \l DynamicParameter instead.
+    This type is deprecated and has been remamed into \l DynamicParameter.
 */
 
 /*!
@@ -60,9 +78,11 @@ QT_BEGIN_NAMESPACE
     \ingroup qml-QtLocation5-maps
     \since Qt Location 5.11
 
-    \brief The DynamicParameter type represents a parameter for a Map element.
-    This type provides a mean to specify plugin-dependent optional parameters
-    for a map.
+    \brief The DynamicParameter (previously \l MapParameter ) type represents a parameter for a Map element,
+    or other elements used in a Map (such as map items, etc.).
+    This type provides a mean to specify plugin-dependent optional dynamic parameters that allow a plugin to
+    extend the runtime API of the module.
+
 
     DynamicParameters by default contain only the \l type property, and
     are highly plugin-dependent.
@@ -71,8 +91,8 @@ QT_BEGIN_NAMESPACE
 
     What properties have to be put inside a particular DynamicParameter type for
     a particular plugin can be found in the documentation of the plugin.
-    Note that DynamicParameters are \b optional.
-    By not specifying any of them, the Map will have the default behavior.
+    \note DynamicParameters are \b optional.
+    By not specifying any of them, the Map, or other container elements, will have the default behavior.
 */
 
 /*!
@@ -114,8 +134,7 @@ void QDeclarativeGeoMapParameter::componentComplete()
             return;
         }
 
-        QSignalMapper *mapper = new QSignalMapper(this);
-        mapper->setMapping(this, i);
+        SignalMapper *mapper = new SignalMapper(i, this);
 
         const QByteArray signalName = '2' + property.notifySignal().methodSignature(); // TODO: explain why '2'
         QObject::connect(this, signalName, mapper, SLOT(map()));
@@ -131,3 +150,5 @@ void QDeclarativeGeoMapParameter::onPropertyUpdated(int index)
 }
 
 QT_END_NAMESPACE
+
+#include "qdeclarativegeomapparameter.moc"

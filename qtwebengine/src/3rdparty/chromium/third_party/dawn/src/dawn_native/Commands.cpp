@@ -49,9 +49,18 @@ namespace dawn_native {
                     CopyTextureToBufferCmd* copy = commands->NextCommand<CopyTextureToBufferCmd>();
                     copy->~CopyTextureToBufferCmd();
                 } break;
+                case Command::CopyTextureToTexture: {
+                    CopyTextureToTextureCmd* copy =
+                        commands->NextCommand<CopyTextureToTextureCmd>();
+                    copy->~CopyTextureToTextureCmd();
+                } break;
                 case Command::Dispatch: {
                     DispatchCmd* dispatch = commands->NextCommand<DispatchCmd>();
                     dispatch->~DispatchCmd();
+                } break;
+                case Command::DispatchIndirect: {
+                    DispatchIndirectCmd* dispatch = commands->NextCommand<DispatchIndirectCmd>();
+                    dispatch->~DispatchIndirectCmd();
                 } break;
                 case Command::Draw: {
                     DrawCmd* draw = commands->NextCommand<DrawCmd>();
@@ -61,6 +70,14 @@ namespace dawn_native {
                     DrawIndexedCmd* draw = commands->NextCommand<DrawIndexedCmd>();
                     draw->~DrawIndexedCmd();
                 } break;
+                case Command::DrawIndirect: {
+                    DrawIndirectCmd* draw = commands->NextCommand<DrawIndirectCmd>();
+                    draw->~DrawIndirectCmd();
+                } break;
+                case Command::DrawIndexedIndirect: {
+                    DrawIndexedIndirectCmd* draw = commands->NextCommand<DrawIndexedIndirectCmd>();
+                    draw->~DrawIndexedIndirectCmd();
+                } break;
                 case Command::EndComputePass: {
                     EndComputePassCmd* cmd = commands->NextCommand<EndComputePassCmd>();
                     cmd->~EndComputePassCmd();
@@ -68,6 +85,20 @@ namespace dawn_native {
                 case Command::EndRenderPass: {
                     EndRenderPassCmd* cmd = commands->NextCommand<EndRenderPassCmd>();
                     cmd->~EndRenderPassCmd();
+                } break;
+                case Command::InsertDebugMarker: {
+                    InsertDebugMarkerCmd* cmd = commands->NextCommand<InsertDebugMarkerCmd>();
+                    commands->NextData<char>(cmd->length + 1);
+                    cmd->~InsertDebugMarkerCmd();
+                } break;
+                case Command::PopDebugGroup: {
+                    PopDebugGroupCmd* cmd = commands->NextCommand<PopDebugGroupCmd>();
+                    cmd->~PopDebugGroupCmd();
+                } break;
+                case Command::PushDebugGroup: {
+                    PushDebugGroupCmd* cmd = commands->NextCommand<PushDebugGroupCmd>();
+                    commands->NextData<char>(cmd->length + 1);
+                    cmd->~PushDebugGroupCmd();
                 } break;
                 case Command::SetComputePipeline: {
                     SetComputePipelineCmd* cmd = commands->NextCommand<SetComputePipelineCmd>();
@@ -77,14 +108,13 @@ namespace dawn_native {
                     SetRenderPipelineCmd* cmd = commands->NextCommand<SetRenderPipelineCmd>();
                     cmd->~SetRenderPipelineCmd();
                 } break;
-                case Command::SetPushConstants: {
-                    SetPushConstantsCmd* cmd = commands->NextCommand<SetPushConstantsCmd>();
-                    commands->NextData<uint32_t>(cmd->count);
-                    cmd->~SetPushConstantsCmd();
-                } break;
                 case Command::SetStencilReference: {
                     SetStencilReferenceCmd* cmd = commands->NextCommand<SetStencilReferenceCmd>();
                     cmd->~SetStencilReferenceCmd();
+                } break;
+                case Command::SetViewport: {
+                    SetViewportCmd* cmd = commands->NextCommand<SetViewportCmd>();
+                    cmd->~SetViewportCmd();
                 } break;
                 case Command::SetScissorRect: {
                     SetScissorRectCmd* cmd = commands->NextCommand<SetScissorRectCmd>();
@@ -96,6 +126,9 @@ namespace dawn_native {
                 } break;
                 case Command::SetBindGroup: {
                     SetBindGroupCmd* cmd = commands->NextCommand<SetBindGroupCmd>();
+                    if (cmd->dynamicOffsetCount > 0) {
+                        commands->NextData<uint64_t>(cmd->dynamicOffsetCount);
+                    }
                     cmd->~SetBindGroupCmd();
                 } break;
                 case Command::SetIndexBuffer: {
@@ -108,7 +141,7 @@ namespace dawn_native {
                     for (size_t i = 0; i < cmd->count; ++i) {
                         (&buffers[i])->~Ref<BufferBase>();
                     }
-                    commands->NextData<uint32_t>(cmd->count);
+                    commands->NextData<uint64_t>(cmd->count);
                     cmd->~SetVertexBuffersCmd();
                 } break;
             }
@@ -138,8 +171,16 @@ namespace dawn_native {
                 commands->NextCommand<CopyTextureToBufferCmd>();
                 break;
 
+            case Command::CopyTextureToTexture:
+                commands->NextCommand<CopyTextureToTextureCmd>();
+                break;
+
             case Command::Dispatch:
                 commands->NextCommand<DispatchCmd>();
+                break;
+
+            case Command::DispatchIndirect:
+                commands->NextCommand<DispatchIndirectCmd>();
                 break;
 
             case Command::Draw:
@@ -150,6 +191,14 @@ namespace dawn_native {
                 commands->NextCommand<DrawIndexedCmd>();
                 break;
 
+            case Command::DrawIndirect:
+                commands->NextCommand<DrawIndirectCmd>();
+                break;
+
+            case Command::DrawIndexedIndirect:
+                commands->NextCommand<DrawIndexedIndirectCmd>();
+                break;
+
             case Command::EndComputePass:
                 commands->NextCommand<EndComputePassCmd>();
                 break;
@@ -157,6 +206,20 @@ namespace dawn_native {
             case Command::EndRenderPass:
                 commands->NextCommand<EndRenderPassCmd>();
                 break;
+
+            case Command::InsertDebugMarker: {
+                InsertDebugMarkerCmd* cmd = commands->NextCommand<InsertDebugMarkerCmd>();
+                commands->NextData<char>(cmd->length + 1);
+            } break;
+
+            case Command::PopDebugGroup:
+                commands->NextCommand<PopDebugGroupCmd>();
+                break;
+
+            case Command::PushDebugGroup: {
+                PushDebugGroupCmd* cmd = commands->NextCommand<PushDebugGroupCmd>();
+                commands->NextData<char>(cmd->length + 1);
+            } break;
 
             case Command::SetComputePipeline:
                 commands->NextCommand<SetComputePipelineCmd>();
@@ -166,13 +229,12 @@ namespace dawn_native {
                 commands->NextCommand<SetRenderPipelineCmd>();
                 break;
 
-            case Command::SetPushConstants: {
-                auto* cmd = commands->NextCommand<SetPushConstantsCmd>();
-                commands->NextData<uint32_t>(cmd->count);
-            } break;
-
             case Command::SetStencilReference:
                 commands->NextCommand<SetStencilReferenceCmd>();
+                break;
+
+            case Command::SetViewport:
+                commands->NextCommand<SetViewportCmd>();
                 break;
 
             case Command::SetScissorRect:
@@ -194,7 +256,7 @@ namespace dawn_native {
             case Command::SetVertexBuffers: {
                 auto* cmd = commands->NextCommand<SetVertexBuffersCmd>();
                 commands->NextData<Ref<BufferBase>>(cmd->count);
-                commands->NextData<uint32_t>(cmd->count);
+                commands->NextData<uint64_t>(cmd->count);
             } break;
         }
     }

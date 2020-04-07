@@ -38,9 +38,6 @@ class StreamContainer {
       const GURL& original_url);
   ~StreamContainer();
 
-  // Aborts the stream.
-  void Abort(const base::Closure& callback);
-
   base::WeakPtr<StreamContainer> GetWeakPtr();
 
   content::mojom::TransferrableURLLoaderPtr TakeTransferrableURLLoader();
@@ -70,7 +67,7 @@ class StreamContainer {
   GURL stream_url_;
   scoped_refptr<net::HttpResponseHeaders> response_headers_;
 
-  base::WeakPtrFactory<StreamContainer> weak_factory_;
+  base::WeakPtrFactory<StreamContainer> weak_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(StreamContainer);
 };
@@ -88,13 +85,30 @@ class MimeHandlerViewGuest
   bool CanBeEmbeddedInsideCrossProcessFrames() override;
   content::RenderWidgetHost* GetOwnerRenderWidgetHost() override;
   content::SiteInstance* GetOwnerSiteInstance() override;
+  content::RenderFrameHost* GetEmbedderFrame() override;
 
   void SetEmbedderFrame(int process_id, int routing_id);
 
   void SetBeforeUnloadController(
       mime_handler::BeforeUnloadControlPtrInfo pending_before_unload_control);
 
-  content::RenderFrameHost* GetEmbedderFrame() const;
+  void SetPluginCanSave(bool can_save) { plugin_can_save_ = can_save; }
+
+  // Asks the plugin to do save.
+  bool PluginDoSave();
+
+  void set_original_resource_url(const GURL& url) {
+    original_resource_url_ = url;
+  }
+
+  // Returns true when the MHVG's embedder frame has a plugin element type of
+  // frame owner. In such a case there might be a MHVFC assigned to MHVG in the
+  // parent frame of the embedder frame (for post message).
+  bool maybe_has_frame_container() const { return maybe_has_frame_container_; }
+
+  const std::string& mime_type() const { return mime_type_; }
+
+  base::WeakPtr<MimeHandlerViewGuest> GetWeakPtr();
 
  protected:
   explicit MimeHandlerViewGuest(content::WebContents* owner_web_contents);
@@ -120,11 +134,13 @@ class MimeHandlerViewGuest
       const content::OpenURLParams& params) final;
   void NavigationStateChanged(content::WebContents* source,
                               content::InvalidateTypes changed_flags) final;
-  bool HandleContextMenu(const content::ContextMenuParams& params) final;
+  bool HandleContextMenu(content::RenderFrameHost* render_frame_host,
+                         const content::ContextMenuParams& params) final;
   bool PreHandleGestureEvent(content::WebContents* source,
                              const blink::WebGestureEvent& event) final;
   content::JavaScriptDialogManager* GetJavaScriptDialogManager(
       content::WebContents* source) final;
+  bool GuestSaveFrame(content::WebContents* guest_web_contents) final;
   bool SaveFrame(const GURL& url, const content::Referrer& referrer) final;
   void OnRenderFrameHostDeleted(int process_id, int routing_id) final;
   void EnterFullscreenModeForTab(
@@ -133,7 +149,7 @@ class MimeHandlerViewGuest
       const blink::WebFullscreenOptions& options) override;
   void ExitFullscreenModeForTab(content::WebContents*) override;
   bool IsFullscreenForTabOrPending(
-      const content::WebContents* web_contents) const override;
+      const content::WebContents* web_contents) override;
   bool ShouldCreateWebContents(
       content::WebContents* web_contents,
       content::RenderFrameHost* opener,
@@ -175,8 +191,16 @@ class MimeHandlerViewGuest
 
   bool is_guest_fullscreen_ = false;
   bool is_embedder_fullscreen_ = false;
+  bool plugin_can_save_ = false;
+  GURL original_resource_url_;
+  std::string mime_type_;
 
+  // True when the MimeHandlerViewGeust might have a frame container in its
+  // embedder's parent frame to facilitate postMessage.
+  bool maybe_has_frame_container_ = false;
   mime_handler::BeforeUnloadControlPtrInfo pending_before_unload_control_;
+
+  base::WeakPtrFactory<MimeHandlerViewGuest> weak_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(MimeHandlerViewGuest);
 };

@@ -89,7 +89,7 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* /*reserved*/)
     UnionJNIEnvToVoid uenv;
     uenv.venv = nullptr;
 
-    if (vm->GetEnv(&uenv.venv, JNI_VERSION_1_4) != JNI_OK) {
+    if (vm->GetEnv(&uenv.venv, JNI_VERSION_1_6) != JNI_OK) {
         __android_log_print(ANDROID_LOG_FATAL, "Qt", "GetEnv failed");
         return -1;
     }

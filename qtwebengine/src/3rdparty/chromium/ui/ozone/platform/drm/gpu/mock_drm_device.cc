@@ -5,6 +5,8 @@
 #include "ui/ozone/platform/drm/gpu/mock_drm_device.h"
 
 #include <xf86drm.h>
+#include <memory>
+#include <utility>
 
 #include "base/logging.h"
 #include "base/stl_util.h"
@@ -491,8 +493,8 @@ bool MockDrmDevice::ValidatePropertyValue(uint32_t id, uint64_t value) {
 
   std::vector<std::string> blob_properties = {"CTM", "DEGAMMA_LUT", "GAMMA_LUT",
                                               "PLANE_CTM"};
-  if (base::ContainsValue(blob_properties, it->second))
-    return base::ContainsKey(allocated_property_blobs_, value);
+  if (base::Contains(blob_properties, it->second))
+    return base::Contains(allocated_property_blobs_, value);
 
   return true;
 }

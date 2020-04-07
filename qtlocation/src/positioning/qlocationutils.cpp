@@ -40,6 +40,7 @@
 ****************************************************************************/
 #include "qlocationutils_p.h"
 #include "qgeopositioninfo.h"
+#include "qgeosatelliteinfo.h"
 
 #include <QTime>
 #include <QList>
@@ -121,6 +122,25 @@ static void qlocationutils_readGsa(const char *data, int size, QGeoPositionInfo 
         double vdop = parts[17].toDouble(&hasVdop);
         if (hasVdop)
             info->setAttribute(QGeoPositionInfo::VerticalAccuracy, 2 * vdop * uere);
+    }
+}
+
+static void qlocationutils_readGsa(const char *data,
+                                              int size,
+                                              QList<int> &pnrsInUse)
+{
+    QList<QByteArray> parts = QByteArray::fromRawData(data, size).split(',');
+    pnrsInUse.clear();
+    if (parts.count() <= 2)
+        return;
+    bool ok;
+    for (int i = 3; i <= qMin(14, parts.size()); ++i) {
+        const QByteArray &pnrString = parts.at(i);
+        if (pnrString.isEmpty())
+            continue;
+        int pnr = pnrString.toInt(&ok);
+        if (ok)
+            pnrsInUse.append(pnr);
     }
 }
 
@@ -269,6 +289,9 @@ QLocationUtils::NmeaSentence QLocationUtils::getNmeaSentenceType(const char *dat
     if (data[3] == 'G' && data[4] == 'S' && data[5] == 'A')
         return NmeaSentenceGSA;
 
+    if (data[3] == 'G' && data[4] == 'S' && data[5] == 'V')
+        return NmeaSentenceGSV;
+
     if (data[3] == 'G' && data[4] == 'L' && data[5] == 'L')
         return NmeaSentenceGLL;
 
@@ -327,6 +350,85 @@ bool QLocationUtils::getPosInfoFromNmea(const char *data, int size, QGeoPosition
     default:
         return false;
     }
+}
+
+QLocationUtils::GSVParseStatus QLocationUtils::getSatInfoFromNmea(const char *data, int size, QList<QGeoSatelliteInfo> &infos)
+{
+    if (!data || !size)
+        return GSVNotParsed;
+
+    NmeaSentence nmeaType = getNmeaSentenceType(data, size);
+    if (nmeaType != NmeaSentenceGSV)
+        return GSVNotParsed;
+
+    QList<QByteArray> parts = QByteArray::fromRawData(data, size).split(',');
+
+    if (parts.count() <= 3) {
+        infos.clear();
+        return GSVFullyParsed; // Malformed sentence.
+    }
+    bool ok;
+    const int totalSentences = parts.at(1).toInt(&ok);
+    if (!ok) {
+        infos.clear();
+        return GSVFullyParsed; // Malformed sentence.
+    }
+
+    const int sentence = parts.at(2).toInt(&ok);
+    if (!ok) {
+        infos.clear();
+        return GSVFullyParsed; // Malformed sentence.
+    }
+
+    const int totalSats = parts.at(3).toInt(&ok);
+    if (!ok) {
+        infos.clear();
+        return GSVFullyParsed; // Malformed sentence.
+    }
+
+    if (sentence == 1)
+        infos.clear();
+
+    const int numSatInSentence = qMin(sentence * 4, totalSats) - (sentence - 1) * 4;
+
+    int field = 4;
+    for (int i = 0; i < numSatInSentence; ++i) {
+        QGeoSatelliteInfo info;
+        const int prn = parts.at(field++).toInt(&ok);
+        info.setSatelliteIdentifier((ok) ? prn : 0);
+        const int elevation = parts.at(field++).toInt(&ok);
+        info.setAttribute(QGeoSatelliteInfo::Elevation, (ok) ? elevation : 0);
+        const int azimuth = parts.at(field++).toInt(&ok);
+        info.setAttribute(QGeoSatelliteInfo::Azimuth, (ok) ? azimuth : 0);
+        const int snr = parts.at(field++).toInt(&ok);
+        info.setSignalStrength((ok) ? snr : -1);
+        infos.append(info);
+    }
+
+    if (sentence == totalSentences)
+        return GSVFullyParsed;
+    return GSVPartiallyParsed;
+}
+
+bool QLocationUtils::getSatInUseFromNmea(const char *data, int size, QList<int> &pnrsInUse)
+{
+    pnrsInUse.clear();
+    if (!data || !size)
+        return false;
+
+    NmeaSentence nmeaType = getNmeaSentenceType(data, size);
+    if (nmeaType != NmeaSentenceGSA)
+        return false;
+
+    // Adjust size so that * and following characters are not parsed by the following functions.
+    for (int i = 0; i < size; ++i) {
+        if (data[i] == '*') {
+            size = i;
+            break;
+        }
+    }
+    qlocationutils_readGsa(data, size, pnrsInUse);
+    return true;
 }
 
 bool QLocationUtils::hasValidNmeaChecksum(const char *data, int size)

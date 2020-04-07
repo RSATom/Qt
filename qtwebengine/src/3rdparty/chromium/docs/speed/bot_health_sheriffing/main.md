@@ -1,5 +1,12 @@
 # Perf bot health sheriff rotation
 
+## Warning
+
+**Note that Sheriff-O-Matic currently doesn't work for the perf waterfall
+[crbug.com/984159](https://crbug.com/984159).
+Please use [Milo chrome.perf
+console](https://ci.chromium.org/p/chrome/g/chrome.perf/console) instead.**
+
 ## Goal
 
 The goal of the perf bot health sheriff rotation is to ensure that the benchmarks running on our perf waterfall continue to produce data and catch regressions quickly. This is also known as "keeping the bots green" and is primarily achieved by triaging incoming alerts.
@@ -25,6 +32,11 @@ Definitions of various bot health related vocabulary can be found in our [glossa
 ## High-level responsibilities
 
 The sheriff's role is to work through the list of failures, fixing the easiest ones and routing the  rest to the correct owners. This mostly requires filing bugs, disabling benchmarks and stories, launching bisects, and reverting any CLs that are obviously responsible for breakages.
+
+Additionally, the sheriff should watch the [catapult
+roll](https://autoroll.skia.org/r/catapult-autoroll), which should
+automatically TBR the sheriff. If the catapult roll fails, the sheriff should
+investigate and revert suspect changelists.
 
 The sheriff should *not* feel like responsible for investigating hard problems. The volume of incoming alerts makes this infeasible. Instead, they should delegate deep investigations to the right owners. As a rule of thumb, a trained sheriff should expect to spend 10-20 minutes per alert and should never be spending more than an hour per alert.
 

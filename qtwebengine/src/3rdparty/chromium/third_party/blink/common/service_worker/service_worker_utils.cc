@@ -6,7 +6,6 @@
 
 #include "base/feature_list.h"
 #include "base/metrics/field_trial_params.h"
-#include "services/network/public/cpp/features.h"
 #include "third_party/blink/public/common/features.h"
 
 namespace blink {
@@ -29,13 +28,6 @@ constexpr base::FeatureParam<EagerCodeCacheStrategy>
                                  &kEagerCodeCacheStrategyOptions};
 
 }  // namespace
-
-// static
-bool ServiceWorkerUtils::IsServicificationEnabled() {
-  return base::FeatureList::IsEnabled(network::features::kNetworkService) ||
-         base::FeatureList::IsEnabled(
-             blink::features::kServiceWorkerServicification);
-}
 
 bool ServiceWorkerUtils::IsImportedScriptUpdateCheckEnabled() {
   return base::FeatureList::IsEnabled(

@@ -185,7 +185,8 @@ void tst_QQuickAccessible::quickAttachedProperties()
         QObject *object = component.create();
         QVERIFY(object != nullptr);
 
-        QObject *attachedObject = QQuickAccessibleAttached::attachedProperties(object);
+        const auto attachedObject = qobject_cast<QQuickAccessibleAttached*>(
+            QQuickAccessibleAttached::attachedProperties(object));
         QVERIFY(attachedObject);
         if (attachedObject) {
             QVariant p = attachedObject->property("role");
@@ -195,6 +196,7 @@ void tst_QQuickAccessible::quickAttachedProperties()
             QCOMPARE(p.isNull(), true);
             p = attachedObject->property("description");
             QCOMPARE(p.isNull(), true);
+            QCOMPARE(attachedObject->wasNameExplicitlySet(), false);
         }
         delete object;
     }
@@ -211,7 +213,8 @@ void tst_QQuickAccessible::quickAttachedProperties()
         QObject *object = component.create();
         QVERIFY(object != nullptr);
 
-        QObject *attachedObject = QQuickAccessibleAttached::attachedProperties(object);
+        const auto attachedObject = qobject_cast<QQuickAccessibleAttached*>(
+            QQuickAccessibleAttached::attachedProperties(object));
         QVERIFY(attachedObject);
         if (attachedObject) {
             QVariant p = attachedObject->property("role");
@@ -223,6 +226,7 @@ void tst_QQuickAccessible::quickAttachedProperties()
             p = attachedObject->property("description");
             QCOMPARE(p.isNull(), false);
             QCOMPARE(p.toString(), QLatin1String("Duck"));
+            QCOMPARE(attachedObject->wasNameExplicitlySet(), true);
         }
         delete object;
     }
@@ -292,6 +296,32 @@ void tst_QQuickAccessible::quickAttachedProperties()
         }
         delete object;
     }
+    // Check that a name can be implicitly set.
+    {
+        QQmlEngine engine;
+        QQmlComponent component(&engine);
+        component.setData(R"(
+            import QtQuick 2.0
+            Text {
+                Accessible.role: Accessible.Button
+                Accessible.description: "Text Button"
+            })", QUrl());
+        QScopedPointer<QObject> object(component.create());
+        QVERIFY(object);
+
+        const auto attachedObject = qobject_cast<QQuickAccessibleAttached*>(
+            QQuickAccessibleAttached::attachedProperties(object.data()));
+        QVERIFY(attachedObject);
+        QVERIFY(!attachedObject->wasNameExplicitlySet());
+
+        attachedObject->setNameImplicitly(QLatin1String("Implicit"));
+        QCOMPARE(attachedObject->name(), QLatin1String("Implicit"));
+        QVERIFY(!attachedObject->wasNameExplicitlySet());
+
+        attachedObject->setName(QLatin1String("Explicit"));
+        QCOMPARE(attachedObject->name(), QLatin1String("Explicit"));
+        QVERIFY(attachedObject->wasNameExplicitlySet());
+    }
     QTestAccessibility::clearEvents();
 }
 
@@ -338,7 +368,7 @@ void tst_QQuickAccessible::basicPropertiesTest()
     QCOMPARE(text2->rect().y(), item->rect().y() + 40);
     QCOMPARE(text2->role(), QAccessible::StaticText);
     QCOMPARE(item->indexOfChild(text2), 1);
-    QCOMPARE(text2->state().editable, 0);
+    QCOMPARE(text2->state().editable, 0u);
     QCOMPARE(text2->state().readOnly, 1);
 
     QCOMPARE(iface->indexOfChild(text2), -1);

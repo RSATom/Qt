@@ -22,9 +22,9 @@ class CJS_Annot final : public CJS_Object {
 
   void SetSDKAnnot(CPDFSDK_BAAnnot* annot);
 
-  JS_STATIC_PROP(hidden, hidden, CJS_Annot);
-  JS_STATIC_PROP(name, name, CJS_Annot);
-  JS_STATIC_PROP(type, type, CJS_Annot);
+  JS_STATIC_PROP(hidden, hidden, CJS_Annot)
+  JS_STATIC_PROP(name, name, CJS_Annot)
+  JS_STATIC_PROP(type, type, CJS_Annot)
 
  private:
   static int ObjDefnID;
@@ -40,7 +40,7 @@ class CJS_Annot final : public CJS_Object {
   CJS_Result get_type(CJS_Runtime* pRuntime);
   CJS_Result set_type(CJS_Runtime* pRuntime, v8::Local<v8::Value> vp);
 
-  CPDFSDK_Annot::ObservedPtr m_pAnnot;
+  ObservedPtr<CPDFSDK_Annot> m_pAnnot;
 };
 
 #endif  // FXJS_CJS_ANNOT_H_

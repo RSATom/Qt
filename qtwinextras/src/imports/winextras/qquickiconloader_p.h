@@ -86,7 +86,7 @@ public:
                            Object *receiver, void (Object::*function)(const QVariant &));
 
 private:
-    QQuickIconLoader() {}
+    QQuickIconLoader() = default;
     static QVariant loadFromFile(const QUrl &url, QVariant::Type type);
     static QVariant loadFromImageProvider(const QUrl &url, const QQmlEngine *engine,
                                           QVariant::Type type, QSize requestedSize);
@@ -120,7 +120,7 @@ QQuickIconLoader::LoadResult
     const QString scheme = url.scheme();
     if (scheme.startsWith(QLatin1String("http"))) {
         if (QNetworkReply *reply = QQuickIconLoader::loadFromNetwork(url, engine)) {
-            QQuickIconLoaderNetworkReplyHandler *handler = new QQuickIconLoaderNetworkReplyHandler(reply, type);
+            auto *handler = new QQuickIconLoaderNetworkReplyHandler(reply, type);
             QObject::connect(handler, &QQuickIconLoaderNetworkReplyHandler::finished, receiver, function);
             return LoadNetworkRequestStarted;
         }

@@ -18,6 +18,12 @@ extern const base::Feature kQuotaExpandPoolSize;
 extern const base::FeatureParam<double> kExperimentalPoolSizeRatio;
 extern const base::FeatureParam<double> kPerHostRatio;
 
+COMPONENT_EXPORT(STORAGE_BROWSER)
+extern const base::Feature kStaticHostQuota;
+
+COMPONENT_EXPORT(STORAGE_BROWSER)
+extern const base::Feature kQuotaUnlimitedPoolSize;
+
 }  // namespace features
 
 }  // namespace storage

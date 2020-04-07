@@ -5,20 +5,19 @@
 // gpu/config/gpu_preferences.h
 module gpu.mojom;
 
+import "mojo/public/mojom/base/message_loop_type.mojom";
 import "ui/gfx/mojo/buffer_types.mojom";
 
-// gpu::GpuPreferences::VpxDecodeVendors
-enum VpxDecodeVendors {
-  VPX_VENDOR_NONE = 0,
-  VPX_VENDOR_MICROSOFT = 1,
-  VPX_VENDOR_AMD = 2,
-  VPX_VENDOR_ALL = 3,
+// Corresponds to gpu::VulkanImplementationName.
+enum VulkanImplementationName {
+  kNone = 0,
+  kNative = 1,
+  kSwiftshader = 2,
+  kLast = kSwiftshader,
 };
 
 // gpu::GpuPreferences
 struct GpuPreferences {
-  bool single_process;
-  bool in_process_gpu;
   bool disable_accelerated_video_decode;
   bool disable_accelerated_video_encode;
   bool gpu_startup_dialog;
@@ -27,14 +26,12 @@ struct GpuPreferences {
 
   // TODO(http://crbug.com/676224) Support preprocessing of mojoms. Following
   // variables should be used on Windows only.
-  VpxDecodeVendors enable_accelerated_vpx_decode;
   bool enable_low_latency_dxva;
   bool enable_zero_copy_dxgi_video;
   bool enable_nv12_dxgi_video;
   bool enable_media_foundation_vea_on_windows7;
   bool disable_software_rasterizer;
   bool log_gpu_control_list_decisions;
-  bool enable_trace_export_events_to_etw;
 
   bool compile_shader_always_succeeds;
   bool disable_gl_error_limit;
@@ -52,7 +49,6 @@ struct GpuPreferences {
   bool enable_threaded_texture_mailboxes;
   bool gl_shader_interm_output;
   bool emulate_shader_precision;
-  uint32 max_active_webgl_contexts;
   bool enable_android_surface_control;
   bool enable_gpu_service_logging;
   bool enable_gpu_service_tracing;
@@ -65,10 +61,12 @@ struct GpuPreferences {
   bool enable_oop_rasterization;
   bool disable_oop_rasterization;
   bool enable_oop_rasterization_ddl;
-  bool enable_raster_to_sk_image;
-  bool enable_passthrough_raster_decoder;
   bool watchdog_starts_backgrounded;
-  bool enable_vulkan;
+  VulkanImplementationName use_vulkan;
+  bool disable_vulkan_surface;
+  bool disable_vulkan_fallback_to_gl_for_testing;
+  bool enable_metal;
   bool enable_gpu_benchmarking_extension;
   bool enable_webgpu;
+  mojo_base.mojom.MessageLoopType message_loop_type;
 };

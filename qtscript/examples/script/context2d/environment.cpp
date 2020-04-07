@@ -506,7 +506,7 @@ QScriptValue Environment::newFakeDomEvent(const QString &type, const QScriptValu
     e.setProperty("target", target, QScriptValue::ReadOnly);
     e.setProperty("currentTarget", target, QScriptValue::ReadOnly);
     e.setProperty("eventPhase", 3); // bubbling
-    e.setProperty("timeStamp", QDateTime::currentDateTime().toTime_t());
+    e.setProperty("timeStamp", static_cast<int>(QDateTime::currentDateTime().toSecsSinceEpoch()));
     // UIEvent
     e.setProperty("detail", 0, QScriptValue::ReadOnly);
     e.setProperty("view", m_engine->globalObject(), QScriptValue::ReadOnly);

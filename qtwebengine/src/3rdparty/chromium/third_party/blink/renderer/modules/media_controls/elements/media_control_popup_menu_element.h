@@ -17,10 +17,6 @@ class MediaControlPopupMenuElement : public MediaControlDivElement {
 
   void SetIsWanted(bool) override;
 
-  // Only use when !IsModern to get the element that should be used an as anchor
-  // for the popup.
-  virtual Element* PopupAnchor() const = 0;
-
   // Callback run when an item is selected from the popup menu.
   virtual void OnItemSelected();
 
@@ -39,17 +35,18 @@ class MediaControlPopupMenuElement : public MediaControlDivElement {
   bool SupportsFocus() const override { return true; }
 
  protected:
-  MediaControlPopupMenuElement(MediaControlsImpl&, MediaControlElementType);
+  MediaControlPopupMenuElement(MediaControlsImpl&);
 
   void SetPosition();
 
  private:
   class EventListener;
 
-  Element* EffectivePopupAnchor() const;
+  Element* PopupAnchor() const;
 
   void HideIfNotFocused();
 
+  bool FocusListItemIfDisplayed(Node* node);
   void SelectFirstItem();
 
   // Actions called by the EventListener object when specific evenst are
@@ -59,6 +56,7 @@ class MediaControlPopupMenuElement : public MediaControlDivElement {
   void CloseFromKeyboard();
 
   Member<EventListener> event_listener_;
+  Member<Element> last_focused_element_;
 };
 
 }  // namespace blink

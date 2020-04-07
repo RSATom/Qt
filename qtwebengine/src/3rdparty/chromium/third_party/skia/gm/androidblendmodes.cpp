@@ -5,10 +5,22 @@
  * found in the LICENSE file.
  */
 
-#include "gm.h"
-#include "sk_tool_utils.h"
-#include "SkBitmap.h"
-#include "SkTextUtils.h"
+#include "gm/gm.h"
+#include "include/core/SkBitmap.h"
+#include "include/core/SkBlendMode.h"
+#include "include/core/SkCanvas.h"
+#include "include/core/SkColor.h"
+#include "include/core/SkFont.h"
+#include "include/core/SkImageInfo.h"
+#include "include/core/SkPaint.h"
+#include "include/core/SkRect.h"
+#include "include/core/SkSize.h"
+#include "include/core/SkString.h"
+#include "include/core/SkTypeface.h"
+#include "include/utils/SkTextUtils.h"
+#include "tools/ToolUtils.h"
+
+#include <initializer_list>
 
 namespace skiagm {
 
@@ -36,7 +48,7 @@ protected:
             tmp.clear(SK_ColorTRANSPARENT);
             SkPaint p;
             p.setAntiAlias(true);
-            p.setColor(sk_tool_utils::color_to_565(kBlue));
+            p.setColor(ToolUtils::color_to_565(kBlue));
             tmp.drawRect(SkRect::MakeLTRB(16, 96, 160, 240), p);
         }
 
@@ -46,7 +58,7 @@ protected:
             tmp.clear(SK_ColorTRANSPARENT);
             SkPaint p;
             p.setAntiAlias(true);
-            p.setColor(sk_tool_utils::color_to_565(kRed));
+            p.setColor(ToolUtils::color_to_565(kRed));
             tmp.drawCircle(160, 95, 80, p);
         }
     }
@@ -65,12 +77,9 @@ protected:
     }
 
     void onDraw(SkCanvas* canvas) override {
-        SkFont font(sk_tool_utils::create_portable_typeface());
+        SkFont font(ToolUtils::create_portable_typeface());
 
-        sk_tool_utils::draw_checkerboard(canvas,
-                                         kWhite,
-                                         kGrey,
-                                         32);
+        ToolUtils::draw_checkerboard(canvas, kWhite, kGrey, 32);
 
         int xOffset = 0, yOffset = 0;
 

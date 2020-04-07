@@ -22,10 +22,12 @@
 #include "base/stl_util.h"
 #include "base/system/sys_info.h"
 #include "base/test/metrics/histogram_tester.h"
+#include "base/test/scoped_feature_list.h"
 #include "base/test/scoped_task_environment.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
 #include "storage/browser/quota/quota_database.h"
+#include "storage/browser/quota/quota_features.h"
 #include "storage/browser/quota/quota_manager.h"
 #include "storage/browser/quota/quota_manager_proxy.h"
 #include "storage/browser/test/mock_special_storage_policy.h"
@@ -310,7 +312,7 @@ class QuotaManagerTest : public testing::Test {
     // The quota manager's default eviction policy is to use an LRU eviction
     // policy.
     quota_manager_->GetEvictionOrigin(
-        type, std::set<url::Origin>(), 0,
+        type, 0,
         base::BindOnce(&QuotaManagerTest::DidGetEvictionOrigin,
                        weak_factory_.GetWeakPtr()));
   }
@@ -458,7 +460,6 @@ class QuotaManagerTest : public testing::Test {
   const blink::mojom::UsageBreakdown& usage_breakdown() const {
     return *usage_breakdown_;
   }
-  int64_t limited_usage() const { return limited_usage_; }
   int64_t unlimited_usage() const { return unlimited_usage_; }
   int64_t quota() const { return quota_; }
   int64_t total_space() const { return total_space_; }
@@ -480,6 +481,7 @@ class QuotaManagerTest : public testing::Test {
   void reset_status_callback_count() { status_callback_count_ = 0; }
 
  protected:
+  base::test::ScopedFeatureList scoped_feature_list_;
   base::test::ScopedTaskEnvironment scoped_task_environment_;
 
  private:
@@ -497,7 +499,6 @@ class QuotaManagerTest : public testing::Test {
   UsageInfoEntries usage_info_;
   int64_t usage_;
   blink::mojom::UsageBreakdownPtr usage_breakdown_;
-  int64_t limited_usage_;
   int64_t unlimited_usage_;
   int64_t quota_;
   int64_t total_space_;
@@ -693,6 +694,7 @@ TEST_F(QuotaManagerTest, GetUsage_MultipleClients) {
     { "http://unlimited/",            kTemp, 512 },
   };
   mock_special_storage_policy()->AddUnlimited(GURL("http://unlimited/"));
+  GetStorageCapacity();
   RegisterClient(
       CreateClient(kData1, base::size(kData1), QuotaClient::kFileSystem));
   RegisterClient(
@@ -718,13 +720,13 @@ TEST_F(QuotaManagerTest, GetUsage_MultipleClients) {
   scoped_task_environment_.RunUntilIdle();
   EXPECT_EQ(QuotaStatusCode::kOk, status());
   EXPECT_EQ(512, usage());
-  EXPECT_EQ(kAvailableSpaceForApp + usage(), quota());
+  EXPECT_EQ(available_space() + usage(), quota());
 
   GetUsageAndQuotaForWebApps(ToOrigin("http://unlimited/"), kPerm);
   scoped_task_environment_.RunUntilIdle();
   EXPECT_EQ(QuotaStatusCode::kOk, status());
   EXPECT_EQ(8, usage());
-  EXPECT_EQ(kAvailableSpaceForApp + usage(), quota());
+  EXPECT_EQ(available_space() + usage(), quota());
 
   GetGlobalUsage(kTemp);
   scoped_task_environment_.RunUntilIdle();
@@ -1040,6 +1042,7 @@ TEST_F(QuotaManagerTest, GetTemporaryUsageAndQuota_Unlimited) {
     { "http://unlimited/", kTemp,  4000 },
   };
   mock_special_storage_policy()->AddUnlimited(GURL("http://unlimited/"));
+  GetStorageCapacity();
   MockStorageClient* client =
       CreateClient(kData, base::size(kData), QuotaClient::kFileSystem);
   RegisterClient(client);
@@ -1047,7 +1050,6 @@ TEST_F(QuotaManagerTest, GetTemporaryUsageAndQuota_Unlimited) {
   // Test when not overbugdet.
   const int kPerHostQuotaFor1000 = 200;
   SetQuotaSettings(1000, kPerHostQuotaFor1000, kMustRemainAvailableForSystem);
-
   GetGlobalUsage(kTemp);
   scoped_task_environment_.RunUntilIdle();
   EXPECT_EQ(10 + 50 + 4000, usage());
@@ -1069,7 +1071,7 @@ TEST_F(QuotaManagerTest, GetTemporaryUsageAndQuota_Unlimited) {
   scoped_task_environment_.RunUntilIdle();
   EXPECT_EQ(QuotaStatusCode::kOk, status());
   EXPECT_EQ(4000, usage());
-  EXPECT_EQ(kAvailableSpaceForApp + usage(), quota());
+  EXPECT_EQ(available_space() + usage(), quota());
 
   GetUsageAndQuotaForStorageClient(ToOrigin("http://unlimited/"), kTemp);
   scoped_task_environment_.RunUntilIdle();
@@ -1097,7 +1099,7 @@ TEST_F(QuotaManagerTest, GetTemporaryUsageAndQuota_Unlimited) {
   scoped_task_environment_.RunUntilIdle();
   EXPECT_EQ(QuotaStatusCode::kOk, status());
   EXPECT_EQ(4000, usage());
-  EXPECT_EQ(kAvailableSpaceForApp + usage(), quota());
+  EXPECT_EQ(available_space() + usage(), quota());
 
   GetUsageAndQuotaForStorageClient(ToOrigin("http://unlimited/"), kTemp);
   scoped_task_environment_.RunUntilIdle();
@@ -1189,6 +1191,7 @@ TEST_F(QuotaManagerTest, GetAndSetPerststentHostQuota) {
 }
 
 TEST_F(QuotaManagerTest, GetAndSetPersistentUsageAndQuota) {
+  GetStorageCapacity();
   RegisterClient(CreateClient(nullptr, 0, QuotaClient::kFileSystem));
 
   GetUsageAndQuotaForWebApps(ToOrigin("http://foo.com/"), kPerm);
@@ -1208,7 +1211,7 @@ TEST_F(QuotaManagerTest, GetAndSetPersistentUsageAndQuota) {
   mock_special_storage_policy()->AddUnlimited(GURL("http://unlimited/"));
   GetUsageAndQuotaForWebApps(ToOrigin("http://unlimited/"), kPerm);
   scoped_task_environment_.RunUntilIdle();
-  EXPECT_EQ(kAvailableSpaceForApp, quota());
+  EXPECT_EQ(available_space() + usage(), quota());
 
   // GetUsageAndQuotaForStorageClient should just return 0 usage and
   // kNoLimit quota.
@@ -1216,6 +1219,69 @@ TEST_F(QuotaManagerTest, GetAndSetPersistentUsageAndQuota) {
   scoped_task_environment_.RunUntilIdle();
   EXPECT_EQ(0, usage());
   EXPECT_EQ(QuotaManager::kNoLimit, quota());
+}
+
+TEST_F(QuotaManagerTest, GetQuotaLowAvailableDiskSpace) {
+  static const MockOriginData kData[] = {
+      {"http://foo.com/", kTemp, 100000},
+      {"http://unlimited/", kTemp, 4000000},
+  };
+
+  MockStorageClient* client =
+      CreateClient(kData, base::size(kData), QuotaClient::kFileSystem);
+  RegisterClient(client);
+
+  const int kPoolSize = 10000000;
+  const int kPerHostQuota = kPoolSize / 5;
+
+  // Simulating a low available disk space scenario by making
+  // kMustRemainAvailable 64KB less than GetAvailableDiskSpaceForTest(), which
+  // means there is 64KB of storage quota that can be used before triggering
+  // the low available space logic branch in quota_manager.cc. From the
+  // perspective of QuotaManager, there are 64KB of free space in the temporary
+  // pool, so it should return (64KB + usage) as quota since the sum is less
+  // than the default host quota.
+  const int kMustRemainAvailable =
+      static_cast<int>(GetAvailableDiskSpaceForTest() - 65536);
+  SetQuotaSettings(kPoolSize, kPerHostQuota, kMustRemainAvailable);
+
+  GetUsageAndQuotaForWebApps(ToOrigin("http://foo.com/"), kTemp);
+  scoped_task_environment_.RunUntilIdle();
+  EXPECT_EQ(QuotaStatusCode::kOk, status());
+  EXPECT_EQ(100000, usage());
+  EXPECT_GT(kPerHostQuota, quota());
+  EXPECT_EQ(65536 + usage(), quota());
+}
+
+TEST_F(QuotaManagerTest, GetStaticQuotaLowAvailableDiskSpace) {
+  // This test is the same as the previous but with the kStaticHostQuota Finch
+  // feature enabled. In here, we expect the low available space logic branch
+  // to be ignored. Doing so should have QuotaManager return the same per host
+  // quota as what is set in QuotaSettings, despite being in a state of low
+  // available space. Notice the different expectation in the last line of
+  // each test.
+  scoped_feature_list_.InitAndEnableFeature(
+      storage::features::kStaticHostQuota);
+  static const MockOriginData kData[] = {
+      {"http://foo.com/", kTemp, 100000},
+      {"http://unlimited/", kTemp, 4000000},
+  };
+
+  MockStorageClient* client =
+      CreateClient(kData, base::size(kData), QuotaClient::kFileSystem);
+  RegisterClient(client);
+
+  const int kPoolSize = 10000000;
+  const int kPerHostQuota = kPoolSize / 5;
+  const int kMustRemainAvailable =
+      static_cast<int>(GetAvailableDiskSpaceForTest() - 65536);
+  SetQuotaSettings(kPoolSize, kPerHostQuota, kMustRemainAvailable);
+
+  GetUsageAndQuotaForWebApps(ToOrigin("http://foo.com/"), kTemp);
+  scoped_task_environment_.RunUntilIdle();
+  EXPECT_EQ(QuotaStatusCode::kOk, status());
+  EXPECT_EQ(100000, usage());
+  EXPECT_EQ(kPerHostQuota, quota());
 }
 
 TEST_F(QuotaManagerTest, GetSyncableQuota) {
@@ -1956,7 +2022,7 @@ TEST_F(QuotaManagerTest, GetCachedOrigins) {
 
   for (size_t i = 0; i < base::size(kData); ++i) {
     if (kData[i].type == kTemp)
-      EXPECT_TRUE(base::ContainsKey(origins, ToOrigin(kData[i].origin)));
+      EXPECT_TRUE(base::Contains(origins, ToOrigin(kData[i].origin)));
   }
 }
 

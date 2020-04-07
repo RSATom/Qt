@@ -252,7 +252,10 @@ QRemoteObjectRootSource::~QRemoteObjectRootSource()
         delete it;
     }
     d->m_sourceIo->unregisterSource(this);
-    Q_FOREACH (IoDeviceBase *io, d->m_listeners) {
+    // removeListener tries to modify d->m_listeners, this is O(N²),
+    // so clear d->m_listeners prior to calling unregister (consume loop).
+    // We can do this, because we don't care about the return value of removeListener() here.
+    for (IoDeviceBase *io : qExchange(d->m_listeners, {})) {
         removeListener(io, true);
     }
     delete d;
@@ -372,7 +375,7 @@ void QRemoteObjectSourceBase::handleMetaCall(int index, QMetaObject::Call call, 
     serializeInvokePacket(d->m_packet, name(), call, index, *marshalArgs(index, a), -1, propertyIndex);
     d->m_packet.baseAddress = 0;
 
-    Q_FOREACH (IoDeviceBase *io, d->m_listeners)
+    for (IoDeviceBase *io : qAsConst(d->m_listeners))
         io->write(d->m_packet.array, d->m_packet.size);
 }
 
@@ -451,7 +454,7 @@ DynamicApiMap::DynamicApiMap(QObject *object, const QMetaObject *metaObject, con
                 if (typeName.isNull()) {
                     typeName = QString::fromLatin1(propertyMeta->className());
                     // TODO better way to ensure we have consistent typenames between source/replicas?
-                    if (typeName.endsWith(QStringLiteral("Source")))
+                    if (typeName.endsWith(QLatin1String("Source")))
                         typeName.chop(6);
                 }
 

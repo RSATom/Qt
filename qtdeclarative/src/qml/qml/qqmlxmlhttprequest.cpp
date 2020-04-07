@@ -39,8 +39,6 @@
 
 #include "qqmlxmlhttprequest_p.h"
 
-#include <private/qv8engine_p.h>
-
 #include "qqmlengine.h"
 #include "qqmlengine_p.h"
 #include <private/qqmlrefcount_p.h>
@@ -70,8 +68,6 @@
 
 using namespace QV4;
 
-#if QT_CONFIG(xmlstreamreader) && QT_CONFIG(qml_network)
-
 #define V4THROW_REFERENCE(string) \
     do { \
         ScopedObject error(scope, scope.engine->newReferenceErrorObject(QStringLiteral(string))); \
@@ -99,7 +95,7 @@ struct QQmlXMLHttpRequestData {
 
 static inline QQmlXMLHttpRequestData *xhrdata(ExecutionEngine *v4)
 {
-    return (QQmlXMLHttpRequestData *)v4->v8Engine->xmlHttpRequestData();
+    return (QQmlXMLHttpRequestData *)v4->xmlHttpRequestData();
 }
 
 QQmlXMLHttpRequestData::QQmlXMLHttpRequestData()
@@ -595,7 +591,7 @@ ReturnedValue NodePrototype::getProto(ExecutionEngine *v4)
     if (d->nodePrototype.isUndefined()) {
         ScopedObject p(scope, v4->memoryManager->allocate<NodePrototype>());
         d->nodePrototype.set(v4, p);
-        v4->v8Engine->freezeObject(p);
+        v4->freezeObject(p);
     }
     return d->nodePrototype.value();
 }
@@ -644,7 +640,7 @@ ReturnedValue Element::prototype(ExecutionEngine *engine)
         p->setPrototypeUnchecked((pp = NodePrototype::getProto(engine)));
         p->defineAccessorProperty(QStringLiteral("tagName"), NodePrototype::method_get_nodeName, nullptr);
         d->elementPrototype.set(engine, p);
-        engine->v8Engine->freezeObject(p);
+        engine->freezeObject(p);
     }
     return d->elementPrototype.value();
 }
@@ -661,7 +657,7 @@ ReturnedValue Attr::prototype(ExecutionEngine *engine)
         p->defineAccessorProperty(QStringLiteral("value"), method_value, nullptr);
         p->defineAccessorProperty(QStringLiteral("ownerElement"), method_ownerElement, nullptr);
         d->attrPrototype.set(engine, p);
-        engine->v8Engine->freezeObject(p);
+        engine->freezeObject(p);
     }
     return d->attrPrototype.value();
 }
@@ -717,7 +713,7 @@ ReturnedValue CharacterData::prototype(ExecutionEngine *v4)
         p->defineAccessorProperty(QStringLiteral("data"), NodePrototype::method_get_nodeValue, nullptr);
         p->defineAccessorProperty(QStringLiteral("length"), method_length, nullptr);
         d->characterDataPrototype.set(v4, p);
-        v4->v8Engine->freezeObject(p);
+        v4->freezeObject(p);
     }
     return d->characterDataPrototype.value();
 }
@@ -753,7 +749,7 @@ ReturnedValue Text::prototype(ExecutionEngine *v4)
         p->defineAccessorProperty(QStringLiteral("isElementContentWhitespace"), method_isElementContentWhitespace, nullptr);
         p->defineAccessorProperty(QStringLiteral("wholeText"), method_wholeText, nullptr);
         d->textPrototype.set(v4, p);
-        v4->v8Engine->freezeObject(p);
+        v4->freezeObject(p);
     }
     return d->textPrototype.value();
 }
@@ -768,7 +764,7 @@ ReturnedValue CDATA::prototype(ExecutionEngine *v4)
         ScopedObject pp(scope);
         p->setPrototypeUnchecked((pp = Text::prototype(v4)));
         d->cdataPrototype.set(v4, p);
-        v4->v8Engine->freezeObject(p);
+        v4->freezeObject(p);
     }
     return d->cdataPrototype.value();
 }
@@ -786,7 +782,7 @@ ReturnedValue Document::prototype(ExecutionEngine *v4)
         p->defineAccessorProperty(QStringLiteral("xmlStandalone"), method_xmlStandalone, nullptr);
         p->defineAccessorProperty(QStringLiteral("documentElement"), method_documentElement, nullptr);
         d->documentPrototype.set(v4, p);
-        v4->v8Engine->freezeObject(p);
+        v4->freezeObject(p);
     }
     return d->documentPrototype.value();
 }
@@ -1651,7 +1647,7 @@ struct QQmlXMLHttpRequestCtor : public FunctionObject
         Scope scope(f->engine());
         const QQmlXMLHttpRequestCtor *ctor = static_cast<const QQmlXMLHttpRequestCtor *>(f);
 
-        QQmlXMLHttpRequest *r = new QQmlXMLHttpRequest(scope.engine->v8Engine->networkAccessManager(), scope.engine);
+        QQmlXMLHttpRequest *r = new QQmlXMLHttpRequest(scope.engine->networkAccessManager(scope.engine), scope.engine);
         Scoped<QQmlXMLHttpRequestWrapper> w(scope, scope.engine->memoryManager->allocate<QQmlXMLHttpRequestWrapper>(r));
         ScopedObject proto(scope, ctor->d()->proto);
         w->setPrototypeUnchecked(proto);
@@ -2072,7 +2068,5 @@ void *qt_add_qmlxmlhttprequest(ExecutionEngine *v4)
 }
 
 QT_END_NAMESPACE
-
-#endif // xmlstreamreader && qml_network
 
 #include <qqmlxmlhttprequest.moc>

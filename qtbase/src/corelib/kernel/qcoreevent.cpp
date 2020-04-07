@@ -421,10 +421,10 @@ struct QBasicAtomicBitField {
     QBasicAtomicInteger<uint> next;
     QBasicAtomicInteger<uint> data[NumInts];
 
-    bool allocateSpecific(int which) Q_DECL_NOTHROW
+    bool allocateSpecific(int which) noexcept
     {
         QBasicAtomicInteger<uint> &entry = data[which / BitsPerInt];
-        const uint old = entry.load();
+        const uint old = entry.loadRelaxed();
         const uint bit = 1U << (which % BitsPerInt);
         return !(old & bit) // wasn't taken
             && entry.testAndSetRelaxed(old, old | bit); // still wasn't taken
@@ -437,7 +437,7 @@ struct QBasicAtomicBitField {
         // loop.
     }
 
-    int allocateNext() Q_DECL_NOTHROW
+    int allocateNext() noexcept
     {
         // Unroll loop to iterate over ints, then bits? Would save
         // potentially a lot of cmpxchgs, because we can scan the
@@ -445,10 +445,10 @@ struct QBasicAtomicBitField {
 
         // Then again, this should never execute many iterations, so
         // leave like this for now:
-        for (uint i = next.load(); i < NumBits; ++i) {
+        for (uint i = next.loadRelaxed(); i < NumBits; ++i) {
             if (allocateSpecific(i)) {
                 // remember next (possibly) free id:
-                const uint oldNext = next.load();
+                const uint oldNext = next.loadRelaxed();
                 next.testAndSetRelaxed(oldNext, qMax(i + 1, oldNext));
                 return i;
             }
@@ -463,7 +463,7 @@ typedef QBasicAtomicBitField<QEvent::MaxUser - QEvent::User + 1> UserEventTypeRe
 
 static UserEventTypeRegistry userEventTypeRegistry;
 
-static inline int registerEventTypeZeroBased(int id) Q_DECL_NOTHROW
+static inline int registerEventTypeZeroBased(int id) noexcept
 {
     // if the type hint hasn't been registered yet, take it:
     if (id < UserEventTypeRegistry::NumBits && id >= 0 && userEventTypeRegistry.allocateSpecific(id))
@@ -486,7 +486,7 @@ static inline int registerEventTypeZeroBased(int id) Q_DECL_NOTHROW
     Returns -1 if all available values are already taken or the
     program is shutting down.
 */
-int QEvent::registerEventType(int hint) Q_DECL_NOTHROW
+int QEvent::registerEventType(int hint) noexcept
 {
     const int result = registerEventTypeZeroBased(QEvent::MaxUser - hint);
     return result < 0 ? -1 : QEvent::MaxUser - result ;

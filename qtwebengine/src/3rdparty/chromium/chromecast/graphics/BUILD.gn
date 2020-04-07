@@ -62,7 +62,7 @@ cast_source_set("graphics") {
     ]
 
     deps += [
-      "//ui/base/ime",
+      "//ui/base/ime/init",
       "//ui/events:gesture_detection",
       "//ui/views",
       "//ui/wm",
@@ -147,6 +147,7 @@ if (use_aura && !is_cast_audio_only) {
       "//ui/gl:test_support",
       "//ui/platform_window",
       "//ui/views",
+      "//ui/views:test_support",
       "//ui/wm",
     ]
   }

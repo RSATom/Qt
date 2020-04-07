@@ -13,13 +13,13 @@
 
 #include <stddef.h>
 #include <stdint.h>
+
 #include <memory>
 #include <vector>
 
 #include "api/audio/audio_frame.h"
 #include "common_audio/channel_buffer.h"
 #include "modules/audio_processing/include/audio_processing.h"
-#include "rtc_base/gtest_prod_util.h"
 
 namespace webrtc {
 

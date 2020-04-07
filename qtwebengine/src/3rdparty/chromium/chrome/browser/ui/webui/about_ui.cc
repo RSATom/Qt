@@ -231,7 +231,7 @@ class ChromeOSTermsHandler
 
   void LoadOemEulaFileAsync() {
     base::ScopedBlockingCall scoped_blocking_call(
-        base::BlockingType::MAY_BLOCK);
+        FROM_HERE, base::BlockingType::MAY_BLOCK);
 
     const chromeos::StartupCustomizationDocument* customization =
         chromeos::StartupCustomizationDocument::GetInstance();
@@ -249,7 +249,7 @@ class ChromeOSTermsHandler
 
   void LoadEulaFileAsync() {
     base::ScopedBlockingCall scoped_blocking_call(
-        base::BlockingType::MAY_BLOCK);
+        FROM_HERE, base::BlockingType::MAY_BLOCK);
 
     std::string file_path =
         base::StringPrintf(chrome::kEULAPathFormat, locale_.c_str());
@@ -266,7 +266,7 @@ class ChromeOSTermsHandler
 
   void LoadArcPrivacyPolicyFileAsync() {
     base::ScopedBlockingCall scoped_blocking_call(
-        base::BlockingType::MAY_BLOCK);
+        FROM_HERE, base::BlockingType::MAY_BLOCK);
 
     for (const auto& locale : CreateArcLocaleLookupArray()) {
       // Offline ARC privacy policis are only available during demo mode setup.
@@ -288,7 +288,7 @@ class ChromeOSTermsHandler
 
   void LoadArcTermsFileAsync() {
     base::ScopedBlockingCall scoped_blocking_call(
-        base::BlockingType::MAY_BLOCK);
+        FROM_HERE, base::BlockingType::MAY_BLOCK);
 
     for (const auto& locale : CreateArcLocaleLookupArray()) {
       // Offline ARC TOS are only available during demo mode setup.
@@ -508,7 +508,7 @@ void AppendHeader(std::string* output, int refresh,
   output->append("<meta charset='utf-8'>\n");
   if (refresh > 0) {
     output->append("<meta http-equiv='refresh' content='");
-    output->append(base::IntToString(refresh));
+    output->append(base::NumberToString(refresh));
     output->append("'/>\n");
   }
 }
@@ -580,7 +580,7 @@ AboutUIHTMLSource::AboutUIHTMLSource(const std::string& source_name,
 
 AboutUIHTMLSource::~AboutUIHTMLSource() {}
 
-std::string AboutUIHTMLSource::GetSource() const {
+std::string AboutUIHTMLSource::GetSource() {
   return source_name_;
 }
 
@@ -640,7 +640,7 @@ void AboutUIHTMLSource::FinishDataRequest(
   callback.Run(base::RefCountedString::TakeString(&html_copy));
 }
 
-std::string AboutUIHTMLSource::GetMimeType(const std::string& path) const {
+std::string AboutUIHTMLSource::GetMimeType(const std::string& path) {
   if (path == kCreditsJsPath     ||
 #if defined(OS_CHROMEOS)
       path == kKeyboardUtilsPath ||
@@ -652,7 +652,7 @@ std::string AboutUIHTMLSource::GetMimeType(const std::string& path) const {
   return "text/html";
 }
 
-bool AboutUIHTMLSource::ShouldAddContentSecurityPolicy() const {
+bool AboutUIHTMLSource::ShouldAddContentSecurityPolicy() {
 #if defined(OS_CHROMEOS)
   if (source_name_ == chrome::kChromeUIOSCreditsHost ||
       source_name_ == chrome::kChromeUILinuxCreditsHost) {
@@ -663,7 +663,7 @@ bool AboutUIHTMLSource::ShouldAddContentSecurityPolicy() const {
 }
 
 std::string AboutUIHTMLSource::GetAccessControlAllowOriginForOrigin(
-    const std::string& origin) const {
+    const std::string& origin) {
 #if defined(OS_CHROMEOS)
   // Allow chrome://oobe to load chrome://terms via XHR.
   if (source_name_ == chrome::kChromeUITermsHost &&

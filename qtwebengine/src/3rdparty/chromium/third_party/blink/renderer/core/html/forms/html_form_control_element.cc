@@ -29,13 +29,13 @@
 #include "third_party/blink/renderer/core/dom/element_traversal.h"
 #include "third_party/blink/renderer/core/dom/events/event.h"
 #include "third_party/blink/renderer/core/dom/events/event_dispatch_forbidden_scope.h"
-#include "third_party/blink/renderer/core/frame/use_counter.h"
 #include "third_party/blink/renderer/core/html/forms/html_form_element.h"
 #include "third_party/blink/renderer/core/html/forms/validity_state.h"
 #include "third_party/blink/renderer/core/html/parser/html_parser_idioms.h"
 #include "third_party/blink/renderer/core/inspector/console_message.h"
 #include "third_party/blink/renderer/core/layout/layout_object.h"
 #include "third_party/blink/renderer/platform/bindings/exception_state.h"
+#include "third_party/blink/renderer/platform/instrumentation/use_counter.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource_fetcher.h"
 #include "third_party/blink/renderer/platform/wtf/vector.h"
 
@@ -216,13 +216,32 @@ const AtomicString& HTMLFormControlElement::autocapitalize() const {
 static bool ShouldAutofocusOnAttach(const HTMLFormControlElement* element) {
   if (!element->IsAutofocusable())
     return false;
-  if (element->GetDocument().IsSandboxed(kSandboxAutomaticFeatures)) {
-    // FIXME: This message should be moved off the console once a solution to
-    // https://bugs.webkit.org/show_bug.cgi?id=103274 exists.
-    element->GetDocument().AddConsoleMessage(ConsoleMessage::Create(
-        kSecurityMessageSource, kErrorMessageLevel,
+
+  Document& doc = element->GetDocument();
+
+  // The rest of this function implements part of the autofocus algorithm in the
+  // spec:
+  // https://html.spec.whatwg.org/multipage/form-control-infrastructure.html#autofocusing-a-form-control:-the-autofocus-attribute
+
+  // Step 4 of the spec algorithm above.
+  if (doc.IsSandboxed(WebSandboxFlags::kAutomaticFeatures)) {
+    doc.AddConsoleMessage(ConsoleMessage::Create(
+        mojom::ConsoleMessageSource::kSecurity,
+        mojom::ConsoleMessageLevel::kError,
         "Blocked autofocusing on a form control because the form's frame is "
         "sandboxed and the 'allow-scripts' permission is not set."));
+    return false;
+  }
+
+  // TODO(mustaq): Add Step 5 checks.
+
+  // Step 6 of the spec algorithm above.
+  if (!doc.IsInMainFrame() &&
+      !doc.TopFrameOrigin()->CanAccess(doc.GetSecurityOrigin())) {
+    doc.AddConsoleMessage(ConsoleMessage::Create(
+        mojom::ConsoleMessageSource::kSecurity,
+        mojom::ConsoleMessageLevel::kError,
+        "Blocked autofocusing on a form control in a cross-origin subframe."));
     return false;
   }
 
@@ -305,7 +324,9 @@ String HTMLFormControlElement::ResultForDialogSubmit() {
   return FastGetAttribute(kValueAttr);
 }
 
-void HTMLFormControlElement::DidRecalcStyle(StyleRecalcChange) {
+void HTMLFormControlElement::DidRecalcStyle(const StyleRecalcChange change) {
+  if (change.ReattachLayoutTree())
+    return;
   if (LayoutObject* layout_object = GetLayoutObject())
     layout_object->UpdateFromElement();
 }
@@ -315,6 +336,9 @@ bool HTMLFormControlElement::SupportsFocus() const {
 }
 
 bool HTMLFormControlElement::IsKeyboardFocusable() const {
+  if (RuntimeEnabledFeatures::FocuslessSpatialNavigationEnabled())
+    return HTMLElement::IsKeyboardFocusable();
+
   // Skip tabIndex check in a parent class.
   return IsFocusable();
 }
@@ -343,15 +367,6 @@ bool HTMLFormControlElement::MatchesValidityPseudoClasses() const {
 
 bool HTMLFormControlElement::IsValidElement() {
   return ListedElement::IsValidElement();
-}
-
-void HTMLFormControlElement::DispatchBlurEvent(
-    Element* new_focused_element,
-    WebFocusType type,
-    InputDeviceCapabilities* source_capabilities) {
-  HTMLElement::DispatchBlurEvent(new_focused_element, type,
-                                 source_capabilities);
-  HideVisibleValidationMessage();
 }
 
 bool HTMLFormControlElement::IsSuccessfulSubmitButton() const {
@@ -385,6 +400,13 @@ void HTMLFormControlElement::CloneNonAttributePropertiesFrom(
 
 void HTMLFormControlElement::AssociateWith(HTMLFormElement* form) {
   AssociateByParser(form);
-};
+}
+
+int32_t HTMLFormControlElement::GetAxId() const {
+  if (AXObjectCache* cache = GetDocument().ExistingAXObjectCache())
+    return cache->GetAXID(const_cast<HTMLFormControlElement*>(this));
+
+  return 0;
+}
 
 }  // namespace blink

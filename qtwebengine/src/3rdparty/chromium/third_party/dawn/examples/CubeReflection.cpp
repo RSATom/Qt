@@ -121,7 +121,7 @@ void init() {
 
     initBuffers();
 
-    dawn::ShaderModule vsModule = utils::CreateShaderModule(device, dawn::ShaderStage::Vertex, R"(
+    dawn::ShaderModule vsModule = utils::CreateShaderModule(device, utils::ShaderStage::Vertex, R"(
         #version 450
         layout(set = 0, binding = 0) uniform cameraData {
             mat4 view;
@@ -136,10 +136,10 @@ void init() {
         void main() {
             f_col = col;
             gl_Position = camera.proj * camera.view * modelMatrix * vec4(pos, 1.0);
-        })"
-    );
+        })");
 
-    dawn::ShaderModule fsModule = utils::CreateShaderModule(device, dawn::ShaderStage::Fragment, R"(
+    dawn::ShaderModule fsModule =
+        utils::CreateShaderModule(device, utils::ShaderStage::Fragment, R"(
         #version 450
         layout(location = 2) in vec3 f_col;
         layout(location = 0) out vec4 fragColor;
@@ -148,7 +148,7 @@ void init() {
         })");
 
     dawn::ShaderModule fsReflectionModule =
-        utils::CreateShaderModule(device, dawn::ShaderStage::Fragment, R"(
+        utils::CreateShaderModule(device, utils::ShaderStage::Fragment, R"(
         #version 450
         layout(location = 2) in vec3 f_col;
         layout(location = 0) out vec4 fragColor;
@@ -156,11 +156,15 @@ void init() {
             fragColor = vec4(mix(f_col, vec3(0.5, 0.5, 0.5), 0.5), 1.0);
         })");
 
-    auto inputState = device.CreateInputStateBuilder()
-        .SetAttribute(0, 0, dawn::VertexFormat::FloatR32G32B32, 0)
-        .SetAttribute(1, 0, dawn::VertexFormat::FloatR32G32B32, 3 * sizeof(float))
-        .SetInput(0, 6 * sizeof(float), dawn::InputStepMode::Vertex)
-        .GetResult();
+    utils::ComboVertexInputDescriptor vertexInput;
+    vertexInput.cBuffers[0].attributeCount = 2;
+    vertexInput.cAttributes[0].format = dawn::VertexFormat::Float3;
+    vertexInput.cAttributes[1].shaderLocation = 1;
+    vertexInput.cAttributes[1].offset = 3 * sizeof(float);
+    vertexInput.cAttributes[1].format = dawn::VertexFormat::Float3;
+
+    vertexInput.bufferCount = 1;
+    vertexInput.cBuffers[0].stride = 6 * sizeof(float);
 
     auto bgl = utils::MakeBindGroupLayout(
         device, {
@@ -172,7 +176,7 @@ void init() {
 
     dawn::BufferDescriptor cameraBufDesc;
     cameraBufDesc.size = sizeof(CameraData);
-    cameraBufDesc.usage = dawn::BufferUsageBit::TransferDst | dawn::BufferUsageBit::Uniform;
+    cameraBufDesc.usage = dawn::BufferUsageBit::CopyDst | dawn::BufferUsageBit::Uniform;
     cameraBuffer = device.CreateBuffer(&cameraBufDesc);
 
     glm::mat4 transform(1.0);
@@ -197,10 +201,10 @@ void init() {
     descriptor.layout = pl;
     descriptor.cVertexStage.module = vsModule;
     descriptor.cFragmentStage.module = fsModule;
-    descriptor.inputState = inputState;
-    descriptor.cAttachmentsState.hasDepthStencilAttachment = true;
-    descriptor.cDepthStencilAttachment.format = dawn::TextureFormat::D32FloatS8Uint;
-    descriptor.cColorAttachments[0]->format = GetPreferredSwapChainTextureFormat();
+    descriptor.vertexInput = &vertexInput;
+    descriptor.depthStencilState = &descriptor.cDepthStencilState;
+    descriptor.cDepthStencilState.format = dawn::TextureFormat::Depth24PlusStencil8;
+    descriptor.cColorStates[0]->format = GetPreferredSwapChainTextureFormat();
     descriptor.cDepthStencilState.depthWriteEnabled = true;
     descriptor.cDepthStencilState.depthCompare = dawn::CompareFunction::Less;
 
@@ -210,12 +214,12 @@ void init() {
     pDescriptor.layout = pl;
     pDescriptor.cVertexStage.module = vsModule;
     pDescriptor.cFragmentStage.module = fsModule;
-    pDescriptor.inputState = inputState;
-    pDescriptor.cAttachmentsState.hasDepthStencilAttachment = true;
-    pDescriptor.cDepthStencilAttachment.format = dawn::TextureFormat::D32FloatS8Uint;
-    pDescriptor.cColorAttachments[0]->format = GetPreferredSwapChainTextureFormat();
-    pDescriptor.cDepthStencilState.front.passOp = dawn::StencilOperation::Replace;
-    pDescriptor.cDepthStencilState.back.passOp = dawn::StencilOperation::Replace;
+    pDescriptor.vertexInput = &vertexInput;
+    pDescriptor.depthStencilState = &pDescriptor.cDepthStencilState;
+    pDescriptor.cDepthStencilState.format = dawn::TextureFormat::Depth24PlusStencil8;
+    pDescriptor.cColorStates[0]->format = GetPreferredSwapChainTextureFormat();
+    pDescriptor.cDepthStencilState.stencilFront.passOp = dawn::StencilOperation::Replace;
+    pDescriptor.cDepthStencilState.stencilBack.passOp = dawn::StencilOperation::Replace;
     pDescriptor.cDepthStencilState.depthCompare = dawn::CompareFunction::Less;
 
     planePipeline = device.CreateRenderPipeline(&pDescriptor);
@@ -224,14 +228,14 @@ void init() {
     rfDescriptor.layout = pl;
     rfDescriptor.cVertexStage.module = vsModule;
     rfDescriptor.cFragmentStage.module = fsReflectionModule;
-    rfDescriptor.inputState = inputState;
-    rfDescriptor.cAttachmentsState.hasDepthStencilAttachment = true;
-    rfDescriptor.cDepthStencilAttachment.format = dawn::TextureFormat::D32FloatS8Uint;
-    rfDescriptor.cColorAttachments[0]->format = GetPreferredSwapChainTextureFormat();
-    pDescriptor.cDepthStencilState.front.compare = dawn::CompareFunction::Equal;
-    pDescriptor.cDepthStencilState.back.compare = dawn::CompareFunction::Equal;
-    pDescriptor.cDepthStencilState.front.passOp = dawn::StencilOperation::Replace;
-    pDescriptor.cDepthStencilState.back.passOp = dawn::StencilOperation::Replace;
+    rfDescriptor.vertexInput = &vertexInput;
+    rfDescriptor.depthStencilState = &rfDescriptor.cDepthStencilState;
+    rfDescriptor.cDepthStencilState.format = dawn::TextureFormat::Depth24PlusStencil8;
+    rfDescriptor.cColorStates[0]->format = GetPreferredSwapChainTextureFormat();
+    rfDescriptor.cDepthStencilState.stencilFront.compare = dawn::CompareFunction::Equal;
+    rfDescriptor.cDepthStencilState.stencilBack.compare = dawn::CompareFunction::Equal;
+    rfDescriptor.cDepthStencilState.stencilFront.passOp = dawn::StencilOperation::Replace;
+    rfDescriptor.cDepthStencilState.stencilBack.passOp = dawn::StencilOperation::Replace;
     rfDescriptor.cDepthStencilState.depthWriteEnabled = true;
     rfDescriptor.cDepthStencilState.depthCompare = dawn::CompareFunction::Less;
 
@@ -245,7 +249,7 @@ void frame() {
     s.a = (s.a + 1) % 256;
     s.b += 0.01f;
     if (s.b >= 1.0f) {s.b = 0.0f;}
-    static const uint32_t vertexBufferOffsets[1] = {0};
+    static const uint64_t vertexBufferOffsets[1] = {0};
 
     cameraData.view = glm::lookAt(
         glm::vec3(8.f * std::sin(glm::radians(s.b * 360.f)), 2.f, 8.f * std::cos(glm::radians(s.b * 360.f))),
@@ -253,36 +257,36 @@ void frame() {
         glm::vec3(0.0f, -1.0f, 0.0f)
     );
 
-    cameraBuffer.SetSubData(0, sizeof(CameraData), reinterpret_cast<uint8_t*>(&cameraData));
+    cameraBuffer.SetSubData(0, sizeof(CameraData), &cameraData);
 
-    dawn::Texture backbuffer;
-    dawn::RenderPassDescriptor renderPass;
-    GetNextRenderPassDescriptor(device, swapchain, depthStencilView, &backbuffer, &renderPass);
+    dawn::Texture backbuffer = swapchain.GetNextTexture();
+    utils::ComboRenderPassDescriptor renderPass({backbuffer.CreateDefaultView()},
+                                                depthStencilView);
 
-    dawn::CommandBufferBuilder builder = device.CreateCommandBufferBuilder();
+    dawn::CommandEncoder encoder = device.CreateCommandEncoder();
     {
-        dawn::RenderPassEncoder pass = builder.BeginRenderPass(renderPass);
+        dawn::RenderPassEncoder pass = encoder.BeginRenderPass(&renderPass);
         pass.SetPipeline(pipeline);
-        pass.SetBindGroup(0, bindGroup[0]);
+        pass.SetBindGroup(0, bindGroup[0], 0, nullptr);
         pass.SetVertexBuffers(0, 1, &vertexBuffer, vertexBufferOffsets);
         pass.SetIndexBuffer(indexBuffer, 0);
         pass.DrawIndexed(36, 1, 0, 0, 0);
 
         pass.SetStencilReference(0x1);
         pass.SetPipeline(planePipeline);
-        pass.SetBindGroup(0, bindGroup[0]);
+        pass.SetBindGroup(0, bindGroup[0], 0, nullptr);
         pass.SetVertexBuffers(0, 1, &planeBuffer, vertexBufferOffsets);
         pass.DrawIndexed(6, 1, 0, 0, 0);
 
         pass.SetPipeline(reflectionPipeline);
         pass.SetVertexBuffers(0, 1, &vertexBuffer, vertexBufferOffsets);
-        pass.SetBindGroup(0, bindGroup[1]);
+        pass.SetBindGroup(0, bindGroup[1], 0, nullptr);
         pass.DrawIndexed(36, 1, 0, 0, 0);
 
         pass.EndPass();
     }
 
-    dawn::CommandBuffer commands = builder.GetResult();
+    dawn::CommandBuffer commands = encoder.Finish();
     queue.Submit(1, &commands);
     swapchain.Present(backbuffer);
     DoFlush();

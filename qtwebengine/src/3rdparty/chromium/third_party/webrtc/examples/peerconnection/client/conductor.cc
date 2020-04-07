@@ -12,6 +12,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+
 #include <memory>
 #include <utility>
 #include <vector>
@@ -31,7 +32,6 @@
 #include "api/video_codecs/video_decoder_factory.h"
 #include "api/video_codecs/video_encoder_factory.h"
 #include "examples/peerconnection/client/defaults.h"
-#include "media/base/device.h"
 #include "modules/audio_device/include/audio_device.h"
 #include "modules/audio_processing/include/audio_processing.h"
 #include "modules/video_capture/video_capture.h"
@@ -74,13 +74,23 @@ class CapturerTrackSource : public webrtc::VideoTrackSource {
     const size_t kWidth = 640;
     const size_t kHeight = 480;
     const size_t kFps = 30;
-    const size_t kDeviceIndex = 0;
-    std::unique_ptr<webrtc::test::VcmCapturer> capturer = absl::WrapUnique(
-        webrtc::test::VcmCapturer::Create(kWidth, kHeight, kFps, kDeviceIndex));
-    if (!capturer) {
+    std::unique_ptr<webrtc::test::VcmCapturer> capturer;
+    std::unique_ptr<webrtc::VideoCaptureModule::DeviceInfo> info(
+        webrtc::VideoCaptureFactory::CreateDeviceInfo());
+    if (!info) {
       return nullptr;
     }
-    return new rtc::RefCountedObject<CapturerTrackSource>(std::move(capturer));
+    int num_devices = info->NumberOfDevices();
+    for (int i = 0; i < num_devices; ++i) {
+      capturer = absl::WrapUnique(
+          webrtc::test::VcmCapturer::Create(kWidth, kHeight, kFps, i));
+      if (capturer) {
+        return new rtc::RefCountedObject<CapturerTrackSource>(
+            std::move(capturer));
+      }
+    }
+
+    return nullptr;
   }
 
  protected:

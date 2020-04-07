@@ -61,7 +61,7 @@
     </message>
     <message>
         <source>Could not load JPEG data from frame</source>
-        <translation type="vanished">No s&apos;han pogut carregar les dades JPEG des del marc</translation>
+        <translation type="vanished">No s&apos;han pogut carregar les dades JPEG des del fotograma</translation>
     </message>
     <message>
         <source>Camera not ready</source>
@@ -124,15 +124,15 @@
     <name>BbVideoDeviceSelectorControl</name>
     <message>
         <source>Front Camera</source>
-        <translation type="vanished">Davant de la càmera</translation>
+        <translation type="vanished">Càmera frontal</translation>
     </message>
     <message>
         <source>Rear Camera</source>
-        <translation type="vanished">Darrere de la càmera</translation>
+        <translation type="vanished">Càmera posterior</translation>
     </message>
     <message>
         <source>Desktop Camera</source>
-        <translation type="vanished">Escriptori de la càmera</translation>
+        <translation type="vanished">Càmera de l&apos;escriptori</translation>
     </message>
 </context>
 <context>
@@ -179,7 +179,7 @@
     </message>
     <message>
         <source>Failed to connect graph</source>
-        <translation>Ha fallat en connectar el graf</translation>
+        <translation>Ha fallat en connectar amb el graf</translation>
     </message>
     <message>
         <source>Failed to get stream control</source>
@@ -230,7 +230,7 @@
     </message>
     <message>
         <source>Attempting to play invalid Qt resource.</source>
-        <translation>S&apos;intenta reproduir un recurs de Qt no vàlid.</translation>
+        <translation>S&apos;intenta reproduir un recurs no vàlid de les Qt.</translation>
     </message>
     <message>
         <source>The system cannot find the file specified.</source>
@@ -310,7 +310,7 @@
     </message>
     <message>
         <source>Unsupported media, a codec is missing.</source>
-        <translation>Suport no acceptat, falta un còdec.</translation>
+        <translation>Suport no acceptat, manca un còdec.</translation>
     </message>
 </context>
 <context>
@@ -347,7 +347,7 @@
     <name>QAndroidCameraSession</name>
     <message>
         <source>Camera cannot be started without a viewfinder.</source>
-        <translation>La càmera no es pot iniciar sense el visor.</translation>
+        <translation>La càmera no es pot iniciar sense un visor.</translation>
     </message>
     <message>
         <source>Camera not ready</source>
@@ -423,7 +423,7 @@
     <name>QCamera</name>
     <message>
         <source>The camera service is missing</source>
-        <translation>No es troba el servei de la càmera</translation>
+        <translation>Manca el servei de la càmera</translation>
     </message>
 </context>
 <context>
@@ -437,7 +437,7 @@
     <name>QDeclarativeAudio</name>
     <message>
         <source>volume should be between 0.0 and 1.0</source>
-        <translation>el volum hauria d&apos;estar entre 0.0 i 1.0</translation>
+        <translation>el volum hauria d&apos;estar entre 0,0 i 1,0</translation>
     </message>
 </context>
 <context>
@@ -458,7 +458,7 @@
     <name>QGstreamerAudioInputSelector</name>
     <message>
         <source>System default device</source>
-        <translation>Dispositiu per omissió del sistema</translation>
+        <translation>Dispositiu predeterminat del sistema</translation>
     </message>
 </context>
 <context>
@@ -483,7 +483,7 @@
     <name>QGstreamerImageCaptureControl</name>
     <message>
         <source>Not ready to capture</source>
-        <translation>No està llest per capturar</translation>
+        <translation>No està llest per a capturar</translation>
     </message>
 </context>
 <context>
@@ -497,7 +497,7 @@
     <name>QGstreamerPlayerControl</name>
     <message>
         <source>Attempting to play invalid Qt resource</source>
-        <translation type="vanished">S&apos;intenta reproduir un recurs de Qt no vàlid</translation>
+        <translation type="vanished">S&apos;intenta reproduir un recurs no vàlid de les Qt</translation>
     </message>
     <message>
         <source>Attempting to play invalid user stream</source>
@@ -516,7 +516,7 @@
     </message>
     <message>
         <source>Media is loaded as a playlist</source>
-        <translation type="vanished">El suport s&apos;ha carregat com una llista de reproducció</translation>
+        <translation type="vanished">El suport s&apos;ha carregat com a una llista de reproducció</translation>
     </message>
 </context>
 <context>
@@ -538,14 +538,14 @@
     </message>
     <message>
         <source>Front camera</source>
-        <translation>Davant de la càmera</translation>
+        <translation>Càmera frontal</translation>
     </message>
 </context>
 <context>
     <name>QMediaPlayer</name>
     <message>
         <source>Attempting to play invalid Qt resource</source>
-        <translation>S&apos;intenta reproduir un recurs de Qt no vàlid</translation>
+        <translation>S&apos;intenta reproduir un recurs no vàlid de les Qt</translation>
     </message>
     <message>
         <source>The QMediaPlayer object does not have a valid service</source>
@@ -663,7 +663,7 @@
     </message>
     <message>
         <source>Invalid photo data length.</source>
-        <translation>Longitud no vàlida de les dades de la foto.</translation>
+        <translation>Longitud no vàlida en les dades de la fotografia.</translation>
     </message>
     <message>
         <source>Image saving failed</source>

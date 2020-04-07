@@ -4,10 +4,12 @@
 
 // https://immersive-web.github.io/webxr/#xrwebgllayer-interface
 dictionary XRWebGLLayerInit {
+  boolean compositionDisabled = false;
   boolean antialias = true;
   boolean depth = true;
   boolean stencil = false;
   boolean alpha = true;
+  boolean ignoreDepthValues = false;
   boolean multiview = false;
   double framebufferScaleFactor = 1.0;
 };

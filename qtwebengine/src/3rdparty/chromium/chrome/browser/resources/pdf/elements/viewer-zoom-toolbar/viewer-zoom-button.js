@@ -20,11 +20,24 @@ Polymer({
      */
     icons_: {type: Array, value: [''], computed: 'computeIconsArray_(icons)'},
 
+    /**
+     * Used to show the appropriate drop shadow when buttons are focused with
+     * the keyboard.
+     */
+    keyboardNavigationActive: {
+      type: Boolean,
+      reflectToAttribute: true,
+    },
+
     tooltips: Array,
 
     closed: {type: Boolean, reflectToAttribute: true, value: false},
 
     delay: {type: Number, observer: 'delayChanged_'},
+
+    newPrintPreview: {type: Boolean, reflectToAttribute: true},
+
+    showOnLeft: {type: Boolean, reflectToAttribute: true},
 
     /**
      * Index of the icon currently being displayed.

@@ -67,7 +67,7 @@ void ModelreplicaTest::basicFunctions()
     QRemoteObjectNode client(QUrl("tcp://localhost:5555"));
     const QScopedPointer<MediaReplica> replica(client.acquire<MediaReplica>());
     QSignalSpy tracksSpy(replica->tracks(), &QAbstractItemModelReplica::initialized);
-    QVERIFY(replica->waitForSource(100));
+    QVERIFY(replica->waitForSource(300));
     QVERIFY(tracksSpy.wait());
     // Rep file only uses display role
     QCOMPARE(QVector<int>{Qt::DisplayRole}, replica->tracks()->availableRoles());
@@ -96,7 +96,7 @@ void ModelreplicaTest::nullModel()
 
     QRemoteObjectNode client(QUrl("tcp://localhost:5555"));
     const QScopedPointer<MediaReplica> replica(client.acquire<MediaReplica>());
-    QVERIFY(replica->waitForSource(100));
+    QVERIFY(replica->waitForSource(300));
 
     auto model = new QStringListModel(this);
     model->setStringList(QStringList() << "Track1" << "Track2" << "Track3");

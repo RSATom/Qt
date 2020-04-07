@@ -23,10 +23,6 @@ src_tools_rcc.subdir = tools/rcc
 src_tools_rcc.target = sub-rcc
 src_tools_rcc.depends = src_tools_bootstrap
 
-src_tools_qfloat16_tables.subdir = tools/qfloat16-tables
-src_tools_qfloat16_tables.target = sub-qfloat16-tables
-src_tools_qfloat16_tables.depends = src_tools_bootstrap
-
 src_tools_qlalr.subdir = tools/qlalr
 src_tools_qlalr.target = sub-qlalr
 force_bootstrap: src_tools_qlalr.depends = src_tools_bootstrap
@@ -59,6 +55,10 @@ src_tools_androiddeployqt.subdir = tools/androiddeployqt
 src_tools_androiddeployqt.target = sub-androiddeployqt
 src_tools_androiddeployqt.depends = src_corelib
 
+src_tools_androidtestrunner.subdir = tools/androidtestrunner
+src_tools_androidtestrunner.target = sub-androidtestrunner
+src_tools_androidtestrunner.depends = src_corelib
+
 src_tools_qvkgen.subdir = tools/qvkgen
 src_tools_qvkgen.target = sub-qvkgen
 force_bootstrap: src_tools_qvkgen.depends = src_tools_bootstrap
@@ -70,7 +70,7 @@ src_winmain.depends = sub-corelib  # just for the module .pri file
 
 src_corelib.subdir = $$PWD/corelib
 src_corelib.target = sub-corelib
-src_corelib.depends = src_tools_moc src_tools_rcc src_tools_tracegen src_tools_qfloat16_tables
+src_corelib.depends = src_tools_moc src_tools_rcc src_tools_tracegen
 
 src_xml.subdir = $$PWD/xml
 src_xml.target = sub-xml
@@ -157,12 +157,12 @@ src_android.subdir = $$PWD/android
         src_3rdparty_freetype.depends += src_corelib
     }
 }
-SUBDIRS += src_tools_bootstrap src_tools_moc src_tools_rcc src_tools_tracegen src_tools_qfloat16_tables
+SUBDIRS += src_tools_bootstrap src_tools_moc src_tools_rcc src_tools_tracegen
 qtConfig(regularexpression):pcre2 {
     SUBDIRS += src_3rdparty_pcre2
     src_corelib.depends += src_3rdparty_pcre2
 }
-TOOLS = src_tools_moc src_tools_rcc src_tools_tracegen src_tools_qlalr src_tools_qfloat16_tables
+TOOLS = src_tools_moc src_tools_rcc src_tools_tracegen src_tools_qlalr
 SUBDIRS += src_corelib src_tools_qlalr
 win32:SUBDIRS += src_winmain
 qtConfig(network) {
@@ -186,8 +186,10 @@ qtConfig(dbus) {
 }
 
 android {
-    SUBDIRS += src_tools_androiddeployqt
-    TOOLS += src_tools_androiddeployqt
+    SUBDIRS += src_tools_androiddeployqt \
+               src_tools_androidtestrunner
+    TOOLS += src_tools_androiddeployqt \
+             src_tools_androidtestrunner
 }
 
 qtConfig(concurrent): SUBDIRS += src_concurrent
@@ -209,9 +211,11 @@ qtConfig(gui) {
         SUBDIRS += src_3rdparty_freetype
         src_platformsupport.depends += src_3rdparty_freetype
     }
-    SUBDIRS += src_tools_qvkgen
-    src_gui.depends += src_tools_qvkgen
-    TOOLS += src_tools_qvkgen
+    qtConfig(vkgen) {
+        SUBDIRS += src_tools_qvkgen
+        src_gui.depends += src_tools_qvkgen
+        TOOLS += src_tools_qvkgen
+    }
     SUBDIRS += src_gui src_platformsupport src_platformheaders
     qtConfig(opengl): SUBDIRS += src_openglextensions
     src_plugins.depends += src_gui src_platformsupport src_platformheaders

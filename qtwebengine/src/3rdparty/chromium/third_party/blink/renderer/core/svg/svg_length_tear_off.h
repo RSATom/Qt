@@ -55,19 +55,13 @@ class SVGLengthTearOff final : public SVGPropertyTearOff<SVGLength> {
     kSvgLengthtypePc = 10
   };
 
-  static SVGLengthTearOff* Create(SVGLength* target,
-                                  SVGAnimatedPropertyBase* binding,
-                                  PropertyIsAnimValType property_is_anim_val) {
-    return MakeGarbageCollected<SVGLengthTearOff>(target, binding,
-                                                  property_is_anim_val);
-  }
   static SVGLengthTearOff* CreateDetached();
 
   SVGLengthTearOff(SVGLength*,
                    SVGAnimatedPropertyBase* binding,
                    PropertyIsAnimValType);
 
-  unsigned short unitType();
+  uint16_t unitType();
   SVGLengthMode UnitMode();
   float value(ExceptionState&);
   void setValue(float value, ExceptionState&);
@@ -75,10 +69,10 @@ class SVGLengthTearOff final : public SVGPropertyTearOff<SVGLength> {
   void setValueInSpecifiedUnits(float value, ExceptionState&);
   String valueAsString();
   void setValueAsString(const String&, ExceptionState&);
-  void newValueSpecifiedUnits(unsigned short unit_type,
+  void newValueSpecifiedUnits(uint16_t unit_type,
                               float value_in_specified_units,
                               ExceptionState&);
-  void convertToSpecifiedUnits(unsigned short unit_type, ExceptionState&);
+  void convertToSpecifiedUnits(uint16_t unit_type, ExceptionState&);
 
   bool HasExposedLengthUnit();
 };

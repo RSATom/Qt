@@ -10,6 +10,20 @@ namespace torque {
 
 DEFINE_CONTEXTUAL_VARIABLE(TypeOracle)
 
+// static
+const std::vector<std::unique_ptr<AggregateType>>*
+TypeOracle::GetAggregateTypes() {
+  return &Get().aggregate_types_;
+}
+
+// static
+void TypeOracle::FinalizeAggregateTypes() {
+  auto it = Get().aggregate_types_.begin();
+  for (; it != Get().aggregate_types_.end(); ++it) {
+    (*it)->Finalize();
+  }
+}
+
 }  // namespace torque
 }  // namespace internal
 }  // namespace v8

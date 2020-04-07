@@ -309,7 +309,8 @@ ReturnedValue Lookup::getterAccessor(Lookup *l, ExecutionEngine *engine, const V
             if (!getter->isFunctionObject()) // ### catch at resolve time
                 return Encode::undefined();
 
-            return static_cast<const FunctionObject *>(getter)->call(&object, nullptr, 0);
+            return checkedResult(engine, static_cast<const FunctionObject *>(getter)->call(
+                                     &object, nullptr, 0));
         }
     }
     l->getter = getterFallback;
@@ -326,7 +327,8 @@ ReturnedValue Lookup::getterProtoAccessor(Lookup *l, ExecutionEngine *engine, co
         if (!getter->isFunctionObject()) // ### catch at resolve time
             return Encode::undefined();
 
-        return static_cast<const FunctionObject *>(getter)->call(&object, nullptr, 0);
+        return checkedResult(engine, static_cast<const FunctionObject *>(getter)->call(
+                                 &object, nullptr, 0));
     }
     return getterTwoClasses(l, engine, object);
 }
@@ -346,7 +348,8 @@ ReturnedValue Lookup::getterProtoAccessorTwoClasses(Lookup *l, ExecutionEngine *
             if (!getter->isFunctionObject()) // ### catch at resolve time
                 return Encode::undefined();
 
-            return static_cast<const FunctionObject *>(getter)->call(&object, nullptr, 0);
+            return checkedResult(engine, static_cast<const FunctionObject *>(getter)->call(
+                                     &object, nullptr, 0));
         }
     }
     l->getter = getterFallback;
@@ -391,7 +394,8 @@ ReturnedValue Lookup::primitiveGetterAccessor(Lookup *l, ExecutionEngine *engine
             if (!getter->isFunctionObject()) // ### catch at resolve time
                 return Encode::undefined();
 
-            return static_cast<const FunctionObject *>(getter)->call(&object, nullptr, 0);
+            return checkedResult(engine, static_cast<const FunctionObject *>(getter)->call(
+                                     &object, nullptr, 0));
         }
     }
     l->getter = getterGeneric;
@@ -429,7 +433,8 @@ ReturnedValue Lookup::globalGetterProtoAccessor(Lookup *l, ExecutionEngine *engi
         if (!getter->isFunctionObject()) // ### catch at resolve time
             return Encode::undefined();
 
-        return static_cast<const FunctionObject *>(getter)->call(engine->globalObject, nullptr, 0);
+        return checkedResult(engine, static_cast<const FunctionObject *>(getter)->call(
+                                  engine->globalObject, nullptr, 0));
     }
     l->globalGetter = globalGetterGeneric;
     return globalGetterGeneric(l, engine);
@@ -467,11 +472,11 @@ bool Lookup::setterTwoClasses(Lookup *l, ExecutionEngine *engine, Value &object,
             return false;
         }
 
-        if (l->setter == Lookup::setter0 || l->setter == Lookup::setter0Inline) {
+        if (l->setter == Lookup::setter0MemberData || l->setter == Lookup::setter0Inline) {
             l->objectLookupTwoClasses.ic = first.objectLookup.ic;
             l->objectLookupTwoClasses.ic2 = second.objectLookup.ic;
-            l->objectLookupTwoClasses.offset = first.objectLookup.offset;
-            l->objectLookupTwoClasses.offset2 = second.objectLookup.offset;
+            l->objectLookupTwoClasses.offset = first.objectLookup.index;
+            l->objectLookupTwoClasses.offset2 = second.objectLookup.index;
             l->setter = setter0setter0;
             return true;
         }
@@ -492,11 +497,11 @@ bool Lookup::setterFallback(Lookup *l, ExecutionEngine *engine, Value &object, c
     return o->put(name, value);
 }
 
-bool Lookup::setter0(Lookup *l, ExecutionEngine *engine, Value &object, const Value &value)
+bool Lookup::setter0MemberData(Lookup *l, ExecutionEngine *engine, Value &object, const Value &value)
 {
     Heap::Object *o = static_cast<Heap::Object *>(object.heapObject());
     if (o && o->internalClass == l->objectLookup.ic) {
-        o->setProperty(engine, l->objectLookup.offset, value);
+        o->memberData->values.set(engine, l->objectLookup.offset, value);
         return true;
     }
 
@@ -507,7 +512,7 @@ bool Lookup::setter0Inline(Lookup *l, ExecutionEngine *engine, Value &object, co
 {
     Heap::Object *o = static_cast<Heap::Object *>(object.heapObject());
     if (o && o->internalClass == l->objectLookup.ic) {
-        o->setInlineProperty(engine, l->objectLookup.offset, value);
+        o->setInlinePropertyWithOffset(engine, l->objectLookup.offset, value);
         return true;
     }
 

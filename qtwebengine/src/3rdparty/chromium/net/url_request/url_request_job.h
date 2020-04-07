@@ -14,9 +14,8 @@
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/optional.h"
-#include "base/power_monitor/power_observer.h"
 #include "net/base/completion_once_callback.h"
-#include "net/base/host_port_pair.h"
+#include "net/base/ip_endpoint.h"
 #include "net/base/load_states.h"
 #include "net/base/net_error_details.h"
 #include "net/base/net_export.h"
@@ -49,11 +48,11 @@ class UploadDataStream;
 class URLRequestStatus;
 class X509Certificate;
 
-class NET_EXPORT URLRequestJob : public base::PowerObserver {
+class NET_EXPORT URLRequestJob {
  public:
   explicit URLRequestJob(URLRequest* request,
                          NetworkDelegate* network_delegate);
-  ~URLRequestJob() override;
+  virtual ~URLRequestJob();
 
   // Returns the request that owns this job.
   URLRequest* request() const {
@@ -138,7 +137,7 @@ class NET_EXPORT URLRequestJob : public base::PowerObserver {
   // Gets the remote endpoint that the network stack is currently fetching the
   // URL from. Returns true and fills in |endpoint| if it is available; returns
   // false and leaves |endpoint| unchanged if it is unavailable.
-  virtual bool GetRemoteEndpoint(IPEndPoint* endpoint) const;
+  virtual bool GetTransactionRemoteEndpoint(IPEndPoint* endpoint) const;
 
   // Populates the network error details of the most recent origin that the
   // network stack makes the request to.
@@ -180,9 +179,9 @@ class NET_EXPORT URLRequestJob : public base::PowerObserver {
   // obtaining the credentials passing them to SetAuth.
   virtual bool NeedsAuth();
 
-  // Fills the authentication info with the server's response.
-  virtual void GetAuthChallengeInfo(
-      scoped_refptr<AuthChallengeInfo>* auth_info);
+  // Returns a copy of the authentication challenge that came with the server's
+  // response.
+  virtual std::unique_ptr<AuthChallengeInfo> GetAuthChallengeInfo();
 
   // Resend the request with authentication credentials.
   virtual void SetAuth(const AuthCredentials& credentials);
@@ -226,11 +225,7 @@ class NET_EXPORT URLRequestJob : public base::PowerObserver {
 
   // Returns the socket address for the connection.
   // See url_request.h for details.
-  virtual HostPortPair GetSocketAddress() const;
-
-  // base::PowerObserver methods:
-  // We invoke URLRequestJob::Kill on suspend (crbug.com/4606).
-  void OnSuspend() override;
+  virtual IPEndPoint GetResponseRemoteEndpoint() const;
 
   // Called after a NetworkDelegate has been informed that the URLRequest
   // will be destroyed. This is used to track that no pending callbacks
@@ -264,7 +259,9 @@ class NET_EXPORT URLRequestJob : public base::PowerObserver {
   void NotifyCertificateRequested(SSLCertRequestInfo* cert_request_info);
 
   // Notifies the job about an SSL certificate error.
-  void NotifySSLCertificateError(const SSLInfo& ssl_info, bool fatal);
+  void NotifySSLCertificateError(int net_error,
+                                 const SSLInfo& ssl_info,
+                                 bool fatal);
 
   // Delegates to URLRequest.
   bool CanGetCookies(const CookieList& cookie_list) const;
@@ -278,6 +275,10 @@ class NET_EXPORT URLRequestJob : public base::PowerObserver {
 
   // Notifies the job that headers have been received.
   void NotifyHeadersComplete();
+
+  // Called when the final set headers have been received (no more redirects to
+  // follow, and no more auth challenges that will be responded to).
+  void NotifyFinalHeadersReceived();
 
   // Notifies the request that a start error has occurred.
   void NotifyStartError(const URLRequestStatus& status);
@@ -461,7 +462,7 @@ class NET_EXPORT URLRequestJob : public base::PowerObserver {
   // completed.
   CompletionOnceCallback read_raw_callback_;
 
-  base::WeakPtrFactory<URLRequestJob> weak_factory_;
+  base::WeakPtrFactory<URLRequestJob> weak_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(URLRequestJob);
 };

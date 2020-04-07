@@ -72,14 +72,19 @@ public:
     }
 
 #ifdef QT_NETWORK_LIB
-    static QHostAddress serverIP()
+    static QHostAddress getServerIpImpl(const QString &serverName)
     {
-        const QHostInfo info = QHostInfo::fromName(serverName());
+        const QHostInfo info = QHostInfo::fromName(serverName);
         if (info.error()) {
             QTest::qFail(qPrintable(info.errorString()), __FILE__, __LINE__);
             return QHostAddress();
         }
         return info.addresses().constFirst();
+    }
+
+    static QHostAddress serverIP()
+    {
+        return getServerIpImpl(serverName());
     }
 #endif
 
@@ -104,8 +109,8 @@ public:
     static bool compareReplyFtp(QByteArray const& actual)
     {
         // output would be e.g. "220 (vsFTPd 2.3.5)\r\n221 Goodbye.\r\n"
-        QRegExp ftpVersion(QStringLiteral("220 \\(vsFTPd \\d+\\.\\d+.\\d+\\)\\r\\n221 Goodbye.\\r\\n"));
-        return ftpVersion.exactMatch(actual);
+        QRegularExpression ftpVersion(QRegularExpression::anchoredPattern(QStringLiteral("220 \\(vsFTPd \\d+\\.\\d+.\\d+\\)\\r\\n221 Goodbye.\\r\\n")));
+        return ftpVersion.match(actual).hasMatch();
     }
 
     static bool hasIPv6()
@@ -127,6 +132,22 @@ public:
         ::close(s);
 #endif
         return true;
+    }
+
+    static bool canBindToLowPorts()
+    {
+#ifdef Q_OS_UNIX
+        if (geteuid() == 0)
+            return true;
+        if (QOperatingSystemVersion::current() >= QOperatingSystemVersion::MacOSMojave)
+            return true;
+        // ### Which versions of iOS, watchOS and such does Apple's opening of
+        // all ports apply to?
+        return false;
+#else
+        // Windows
+        return true;
+#endif
     }
 
 
@@ -214,4 +235,67 @@ public:
         return serverName();
 #endif
     }
+    static QString imapServerName()
+    {
+#ifdef QT_TEST_SERVER_NAME
+        return QString("cyrus.") % serverDomainName();
+#else
+        return serverName();
+#endif
+    }
+
+    static QString echoServerName()
+    {
+#ifdef QT_TEST_SERVER_NAME
+        return QString("echo.") % serverDomainName();
+#else
+        return serverName();
+#endif
+    }
+
+    static QString firewallServerName()
+    {
+#ifdef QT_TEST_SERVER_NAME
+        return QString("iptables.") % serverDomainName();
+#else
+        return serverName();
+#endif
+    }
+
+#ifdef QT_NETWORK_LIB
+    static QHostAddress imapServerIp()
+    {
+        return getServerIpImpl(imapServerName());
+    }
+
+    static QHostAddress httpServerIp()
+    {
+        return getServerIpImpl(httpServerName());
+    }
+
+    static QHostAddress httpProxyServerIp()
+    {
+        return getServerIpImpl(httpProxyServerName());
+    }
+
+    static QHostAddress socksProxyServerIp()
+    {
+        return getServerIpImpl(socksProxyServerName());
+    }
+
+    static QHostAddress ftpProxyServerIp()
+    {
+        return getServerIpImpl(ftpProxyServerName());
+    }
+
+    static QHostAddress ftpServerIp()
+    {
+        return getServerIpImpl(ftpServerName());
+    }
+
+    static QHostAddress firewallServerIp()
+    {
+        return getServerIpImpl(firewallServerName());
+    }
+#endif
 };

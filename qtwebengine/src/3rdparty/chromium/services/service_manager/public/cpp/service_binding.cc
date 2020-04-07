@@ -9,9 +9,10 @@
 #include "base/bind.h"
 #include "base/no_destructor.h"
 #include "base/synchronization/lock.h"
+#include "mojo/public/cpp/bindings/remote.h"
 #include "services/service_manager/public/cpp/service.h"
 #include "services/tracing/public/cpp/traced_process.h"
-#include "services/tracing/public/mojom/tracing.mojom.h"
+#include "services/tracing/public/mojom/traced_process.mojom.h"
 
 namespace service_manager {
 
@@ -174,8 +175,25 @@ void ServiceBinding::OnBindInterface(
     return;
   }
 
-  service_->OnBindInterface(source_info, interface_name,
-                            std::move(interface_pipe));
+  service_->OnConnect(source_info, interface_name, std::move(interface_pipe));
+}
+
+void ServiceBinding::CreatePackagedServiceInstance(
+    const Identity& identity,
+    mojo::PendingReceiver<mojom::Service> receiver,
+    mojo::PendingRemote<mojom::ProcessMetadata> metadata) {
+  service_->CreatePackagedServiceInstance(
+      identity.name(), std::move(receiver),
+      base::BindOnce(
+          [](mojo::PendingRemote<mojom::ProcessMetadata> pending_metadata,
+             base::Optional<base::ProcessId> pid) {
+            if (pid) {
+              mojo::Remote<mojom::ProcessMetadata> metadata(
+                  std::move(pending_metadata));
+              metadata->SetPID(*pid);
+            }
+          },
+          std::move(metadata)));
 }
 
 }  // namespace service_manager

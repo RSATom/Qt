@@ -77,7 +77,7 @@ QVideoWidgetControlBackend::QVideoWidgetControlBackend(
     connect(control, SIGNAL(fullScreenChanged(bool)), widget, SLOT(_q_fullScreenChanged(bool)));
 
     QBoxLayout *layout = new QVBoxLayout;
-    layout->setMargin(0);
+    layout->setContentsMargins(0, 0, 0, 0);
     layout->setSpacing(0);
 
     QWidget *videoWidget = control->videoWidget();
@@ -1007,7 +1007,11 @@ void QVideoWidget::paintEvent(QPaintEvent *event)
 }
 
 #if defined(Q_OS_WIN)
+#  if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+bool QVideoWidget::nativeEvent(const QByteArray &eventType, void *message, qintptr *result)
+#  else
 bool QVideoWidget::nativeEvent(const QByteArray &eventType, void *message, long *result)
+#  endif
 {
     Q_D(QVideoWidget);
     Q_UNUSED(eventType);

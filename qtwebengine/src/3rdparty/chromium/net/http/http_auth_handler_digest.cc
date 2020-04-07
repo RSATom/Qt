@@ -6,15 +6,17 @@
 
 #include <string>
 
+#include "base/hash/md5.h"
 #include "base/logging.h"
-#include "base/md5.h"
 #include "base/rand_util.h"
+#include "base/strings/string_piece.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "net/base/net_errors.h"
 #include "net/base/net_string_util.h"
 #include "net/base/url_util.h"
+#include "net/dns/host_resolver.h"
 #include "net/http/http_auth.h"
 #include "net/http/http_auth_challenge_tokenizer.h"
 #include "net/http/http_auth_scheme.h"
@@ -94,6 +96,7 @@ int HttpAuthHandlerDigest::Factory::CreateAuthHandler(
     CreateReason reason,
     int digest_nonce_count,
     const NetLogWithSource& net_log,
+    HostResolver* host_resolver,
     std::unique_ptr<HttpAuthHandler>* handler) {
   // TODO(cbentzel): Move towards model of parsing in the factory
   //                 method and only constructing when valid.
@@ -104,33 +107,6 @@ int HttpAuthHandlerDigest::Factory::CreateAuthHandler(
     return ERR_INVALID_RESPONSE;
   handler->swap(tmp_handler);
   return OK;
-}
-
-HttpAuth::AuthorizationResult HttpAuthHandlerDigest::HandleAnotherChallenge(
-    HttpAuthChallengeTokenizer* challenge) {
-  // Even though Digest is not connection based, a "second round" is parsed
-  // to differentiate between stale and rejected responses.
-  // Note that the state of the current handler is not mutated - this way if
-  // there is a rejection the realm hasn't changed.
-  if (!base::LowerCaseEqualsASCII(challenge->scheme(), kDigestAuthScheme))
-    return HttpAuth::AUTHORIZATION_RESULT_INVALID;
-
-  HttpUtil::NameValuePairsIterator parameters = challenge->param_pairs();
-
-  // Try to find the "stale" value, and also keep track of the realm
-  // for the new challenge.
-  std::string original_realm;
-  while (parameters.GetNext()) {
-    if (base::LowerCaseEqualsASCII(parameters.name(), "stale")) {
-      if (base::LowerCaseEqualsASCII(parameters.value(), "true"))
-        return HttpAuth::AUTHORIZATION_RESULT_STALE;
-    } else if (base::LowerCaseEqualsASCII(parameters.name(), "realm")) {
-      original_realm = parameters.value();
-    }
-  }
-  return (original_realm_ != original_realm) ?
-      HttpAuth::AUTHORIZATION_RESULT_DIFFERENT_REALM :
-      HttpAuth::AUTHORIZATION_RESULT_REJECT;
 }
 
 bool HttpAuthHandlerDigest::Init(HttpAuthChallengeTokenizer* challenge,
@@ -152,9 +128,36 @@ int HttpAuthHandlerDigest::GenerateAuthTokenImpl(
   std::string path;
   GetRequestMethodAndPath(request, &method, &path);
 
-  *auth_token = AssembleCredentials(method, path, *credentials,
-                                    cnonce, nonce_count_);
+  *auth_token =
+      AssembleCredentials(method, path, *credentials, cnonce, nonce_count_);
   return OK;
+}
+
+HttpAuth::AuthorizationResult HttpAuthHandlerDigest::HandleAnotherChallengeImpl(
+    HttpAuthChallengeTokenizer* challenge) {
+  // Even though Digest is not connection based, a "second round" is parsed
+  // to differentiate between stale and rejected responses.
+  // Note that the state of the current handler is not mutated - this way if
+  // there is a rejection the realm hasn't changed.
+  if (!base::LowerCaseEqualsASCII(challenge->scheme(), kDigestAuthScheme))
+    return HttpAuth::AUTHORIZATION_RESULT_INVALID;
+
+  HttpUtil::NameValuePairsIterator parameters = challenge->param_pairs();
+
+  // Try to find the "stale" value, and also keep track of the realm
+  // for the new challenge.
+  std::string original_realm;
+  while (parameters.GetNext()) {
+    if (base::LowerCaseEqualsASCII(parameters.name_piece(), "stale")) {
+      if (base::LowerCaseEqualsASCII(parameters.value_piece(), "true"))
+        return HttpAuth::AUTHORIZATION_RESULT_STALE;
+    } else if (base::LowerCaseEqualsASCII(parameters.name_piece(), "realm")) {
+      original_realm = parameters.value();
+    }
+  }
+  return (original_realm_ != original_realm) ?
+      HttpAuth::AUTHORIZATION_RESULT_DIFFERENT_REALM :
+      HttpAuth::AUTHORIZATION_RESULT_REJECT;
 }
 
 HttpAuthHandlerDigest::HttpAuthHandlerDigest(
@@ -208,8 +211,8 @@ bool HttpAuthHandlerDigest::ParseChallenge(
   // Loop through all the properties.
   while (parameters.GetNext()) {
     // FAIL -- couldn't parse a property.
-    if (!ParseChallengeProperty(parameters.name(),
-                                parameters.value()))
+    if (!ParseChallengeProperty(parameters.name_piece(),
+                                parameters.value_piece()))
       return false;
   }
 
@@ -224,20 +227,20 @@ bool HttpAuthHandlerDigest::ParseChallenge(
   return true;
 }
 
-bool HttpAuthHandlerDigest::ParseChallengeProperty(const std::string& name,
-                                                   const std::string& value) {
+bool HttpAuthHandlerDigest::ParseChallengeProperty(base::StringPiece name,
+                                                   base::StringPiece value) {
   if (base::LowerCaseEqualsASCII(name, "realm")) {
     std::string realm;
     if (!ConvertToUtf8AndNormalize(value, kCharsetLatin1, &realm))
       return false;
     realm_ = realm;
-    original_realm_ = value;
+    original_realm_ = value.as_string();
   } else if (base::LowerCaseEqualsASCII(name, "nonce")) {
-    nonce_ = value;
+    nonce_ = value.as_string();
   } else if (base::LowerCaseEqualsASCII(name, "domain")) {
-    domain_ = value;
+    domain_ = value.as_string();
   } else if (base::LowerCaseEqualsASCII(name, "opaque")) {
-    opaque_ = value;
+    opaque_ = value.as_string();
   } else if (base::LowerCaseEqualsASCII(name, "stale")) {
     // Parse the stale boolean.
     stale_ = base::LowerCaseEqualsASCII(value, "true");
@@ -254,10 +257,15 @@ bool HttpAuthHandlerDigest::ParseChallengeProperty(const std::string& name,
   } else if (base::LowerCaseEqualsASCII(name, "qop")) {
     // Parse the comma separated list of qops.
     // auth is the only supported qop, and all other values are ignored.
-    HttpUtil::ValuesIterator qop_values(value.begin(), value.end(), ',');
+    //
+    // TODO(https://crbug.com/820198): Remove this copy when
+    // HttpUtil::ValuesIterator can take a StringPiece.
+    std::string value_str = value.as_string();
+    HttpUtil::ValuesIterator qop_values(value_str.begin(), value_str.end(),
+                                        ',');
     qop_ = QOP_UNSPECIFIED;
     while (qop_values.GetNext()) {
-      if (base::LowerCaseEqualsASCII(qop_values.value(), "auth")) {
+      if (base::LowerCaseEqualsASCII(qop_values.value_piece(), "auth")) {
         qop_ = QOP_AUTH;
         break;
       }

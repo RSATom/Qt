@@ -5,23 +5,23 @@
 #ifndef SERVICES_IDENTITY_IDENTITY_SERVICE_H_
 #define SERVICES_IDENTITY_IDENTITY_SERVICE_H_
 
-#include "components/signin/core/browser/signin_manager_base.h"
-#include "services/identity/public/mojom/identity_manager.mojom.h"
+#include "components/signin/public/identity_manager/identity_manager.h"
+#include "mojo/public/cpp/bindings/strong_binding_set.h"
+#include "services/identity/public/mojom/identity_accessor.mojom.h"
 #include "services/service_manager/public/cpp/binder_registry.h"
 #include "services/service_manager/public/cpp/service.h"
 #include "services/service_manager/public/cpp/service_binding.h"
 #include "services/service_manager/public/mojom/service.mojom.h"
 
-class AccountTrackerService;
-class ProfileOAuth2TokenService;
+namespace mojom {
+class IdentityAccessor;
+}
 
 namespace identity {
 
 class IdentityService : public service_manager::Service {
  public:
-  IdentityService(AccountTrackerService* account_tracker,
-                  SigninManagerBase* signin_manager,
-                  ProfileOAuth2TokenService* token_service,
+  IdentityService(signin::IdentityManager* identity_manager,
                   service_manager::mojom::ServiceRequest request);
   ~IdentityService() override;
 
@@ -31,7 +31,7 @@ class IdentityService : public service_manager::Service {
                        const std::string& interface_name,
                        mojo::ScopedMessagePipeHandle interface_pipe) override;
 
-  void Create(mojom::IdentityManagerRequest request);
+  void Create(mojom::IdentityAccessorRequest request);
 
   // Shuts down this instance, blocking it from serving any pending or future
   // requests. Safe to call multiple times; will be a no-op after the first
@@ -41,12 +41,9 @@ class IdentityService : public service_manager::Service {
 
   service_manager::ServiceBinding service_binding_;
 
-  AccountTrackerService* account_tracker_;
-  SigninManagerBase* signin_manager_;
-  ProfileOAuth2TokenService* token_service_;
+  signin::IdentityManager* identity_manager_;
 
-  std::unique_ptr<base::CallbackList<void()>::Subscription>
-      signin_manager_shutdown_subscription_;
+  mojo::StrongBindingSet<mojom::IdentityAccessor> identity_accessor_bindings_;
 
   service_manager::BinderRegistry registry_;
 

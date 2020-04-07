@@ -7,7 +7,7 @@
 
 #include "mojo/public/cpp/bindings/binding.h"
 #include "services/viz/public/interfaces/compositing/compositor_frame_sink.mojom-blink.h"
-#include "third_party/blink/public/platform/modules/frame_sinks/embedded_frame_sink.mojom-blink.h"
+#include "third_party/blink/public/mojom/frame_sinks/embedded_frame_sink.mojom-blink.h"
 #include "third_party/blink/renderer/platform/graphics/begin_frame_provider.h"
 #include "third_party/blink/renderer/platform/platform_export.h"
 
@@ -43,8 +43,7 @@ class PLATFORM_EXPORT BeginFrameProvider
   }
   void OnBeginFrame(
       const viz::BeginFrameArgs&,
-      WTF::HashMap<uint32_t, ::gfx::mojom::blink::PresentationFeedbackPtr>)
-      final;
+      WTF::HashMap<uint32_t, ::viz::mojom::blink::FrameTimingDetailsPtr>) final;
   void OnBeginFramePausedChanged(bool paused) final {}
   void ReclaimResources(
       const WTF::Vector<viz::ReturnedResource>& resources) final {
@@ -80,7 +79,7 @@ class PLATFORM_EXPORT BeginFrameProvider
   viz::mojom::blink::CompositorFrameSinkPtr compositor_frame_sink_;
   BeginFrameProviderClient* begin_frame_client_;
 
-  base::WeakPtrFactory<BeginFrameProvider> weak_factory_;
+  base::WeakPtrFactory<BeginFrameProvider> weak_factory_{this};
 };
 
 }  // namespace blink

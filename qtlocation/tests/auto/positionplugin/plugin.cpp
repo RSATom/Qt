@@ -27,6 +27,7 @@
 ****************************************************************************/
 
 #include <QtPositioning/qgeopositioninfosource.h>
+#include <QtPositioning/private/qgeopositioninfosource_p.h>
 #include <QtPositioning/qgeopositioninfosourcefactory.h>
 #include <QObject>
 #include <QtPlugin>
@@ -39,7 +40,7 @@ class DummySource : public QGeoPositionInfoSource
     Q_OBJECT
 
 public:
-    DummySource(QObject *parent=0);
+    DummySource(const QVariantMap &parameters, QObject *parent=0);
     ~DummySource();
 
     void startUpdates();
@@ -65,13 +66,42 @@ private slots:
     void doTimeout();
 };
 
-DummySource::DummySource(QObject *parent) :
-    QGeoPositionInfoSource(parent),
+class DummySourcePrivate : public QGeoPositionInfoSourcePrivate
+{
+public:
+    bool setBackendProperty(const QString &name, const QVariant &value) override
+    {
+        if (name == QStringLiteral("altitude")) {
+            m_altitude = value.toReal();
+            return true;
+        }
+        return false;
+    }
+    QVariant backendProperty(const QString &name) const override
+    {
+        if (name == QStringLiteral("altitude"))
+            return m_altitude;
+        return QVariant();
+    }
+
+    qreal m_altitude = 0.0;
+};
+
+DummySource::DummySource(const QVariantMap &parameters, QObject *parent) :
+    QGeoPositionInfoSource(*new DummySourcePrivate, parent),
     timer(new QTimer(this)),
     timeoutTimer(new QTimer(this)),
     singleTimer(new QTimer(this)),
     lastPosition(QGeoCoordinate(0,0), QDateTime::currentDateTime())
 {
+    DummySourcePrivate *dd = static_cast<DummySourcePrivate *>(QGeoPositionInfoSourcePrivate::get(*this));
+    if (parameters.contains(QStringLiteral("test.source.altitude"))) {
+        const qreal alti = parameters.value(QStringLiteral("test.source.altitude")).toReal();
+        dd->m_altitude = alti;
+        QGeoCoordinate crd = lastPosition.coordinate();
+        crd.setAltitude(alti);
+        lastPosition.setCoordinate(crd);
+    }
     timer->setInterval(1000);
     connect(timer, SIGNAL(timeout()),
             this, SLOT(updatePosition()));
@@ -151,13 +181,15 @@ DummySource::~DummySource()
 
 void DummySource::updatePosition()
 {
+    DummySourcePrivate *dd = static_cast<DummySourcePrivate *>(QGeoPositionInfoSourcePrivate::get(*this));
     timeoutTimer->stop();
     singleTimer->stop();
 
     const QDateTime now = QDateTime::currentDateTime();
 
     QGeoCoordinate coord(lastPosition.coordinate().latitude() + 0.1,
-                         lastPosition.coordinate().longitude() + 0.1);
+                         lastPosition.coordinate().longitude() + 0.1,
+                         dd->m_altitude);
 
     QGeoPositionInfo info(coord, now);
     info.setAttribute(QGeoPositionInfo::Direction, lastPosition.coordinate().azimuthTo(coord));
@@ -179,35 +211,55 @@ void DummySource::doTimeout()
 }
 
 
-class QGeoPositionInfoSourceFactoryTest : public QObject, public QGeoPositionInfoSourceFactory
+class QGeoPositionInfoSourceFactoryTest : public QObject, public QGeoPositionInfoSourceFactoryV2
 {
     Q_OBJECT
     Q_PLUGIN_METADATA(IID "org.qt-project.qt.position.sourcefactory/5.0"
                       FILE "plugin.json")
-    Q_INTERFACES(QGeoPositionInfoSourceFactory)
+    Q_INTERFACES(QGeoPositionInfoSourceFactoryV2)
 
 public:
     QGeoPositionInfoSource *positionInfoSource(QObject *parent);
     QGeoSatelliteInfoSource *satelliteInfoSource(QObject *parent);
     QGeoAreaMonitorSource *areaMonitor(QObject *parent);
+
+    QGeoPositionInfoSource *positionInfoSourceWithParameters(QObject *parent, const QVariantMap &parameters);
+    QGeoSatelliteInfoSource *satelliteInfoSourceWithParameters(QObject *parent, const QVariantMap &parameters);
+    QGeoAreaMonitorSource *areaMonitorWithParameters(QObject *parent, const QVariantMap &parameters);
 };
 
 QGeoPositionInfoSource *QGeoPositionInfoSourceFactoryTest::positionInfoSource(QObject *parent)
 {
-    return new DummySource(parent);
+    return new DummySource(QVariantMap(), parent);
 }
 
 QGeoSatelliteInfoSource *QGeoPositionInfoSourceFactoryTest::satelliteInfoSource(QObject *parent)
 {
-    Q_UNUSED(parent);
-    // not implemented
-    return 0;
+    return satelliteInfoSourceWithParameters(parent, QVariantMap());
 }
 
 QGeoAreaMonitorSource *QGeoPositionInfoSourceFactoryTest::areaMonitor(QObject* parent)
 {
+    return areaMonitorWithParameters(parent, QVariantMap());
+}
+
+QGeoPositionInfoSource *QGeoPositionInfoSourceFactoryTest::positionInfoSourceWithParameters(QObject *parent, const QVariantMap &parameters)
+{
+    return new DummySource(parameters, parent);
+}
+
+QGeoSatelliteInfoSource *QGeoPositionInfoSourceFactoryTest::satelliteInfoSourceWithParameters(QObject *parent, const QVariantMap &parameters)
+{
     Q_UNUSED(parent);
-    return 0;
+    Q_UNUSED(parameters)
+    return nullptr;
+}
+
+QGeoAreaMonitorSource *QGeoPositionInfoSourceFactoryTest::areaMonitorWithParameters(QObject *parent, const QVariantMap &parameters)
+{
+    Q_UNUSED(parent);
+    Q_UNUSED(parameters)
+    return nullptr;
 }
 
 #include "plugin.moc"

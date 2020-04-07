@@ -111,20 +111,20 @@ class CORE_EXPORT Event : public ScriptWrappable {
         Bubbles,
         Cancelable,
         ComposedMode,
-        TimeTicks platform_time_stamp);
+        base::TimeTicks platform_time_stamp);
   Event(const AtomicString& type,
         Bubbles,
         Cancelable,
-        TimeTicks platform_time_stamp);
+        base::TimeTicks platform_time_stamp);
   Event(const AtomicString& type,
         Bubbles,
         Cancelable,
         ComposedMode = ComposedMode::kScoped);
   Event(const AtomicString& type,
         const EventInit*,
-        TimeTicks platform_time_stamp);
+        base::TimeTicks platform_time_stamp);
   Event(const AtomicString& type, const EventInit* init)
-      : Event(type, init, CurrentTimeTicks()) {}
+      : Event(type, init, base::TimeTicks::Now()) {}
   ~Event() override;
 
   void initEvent(const AtomicString& type, bool bubbles, bool cancelable);
@@ -148,12 +148,12 @@ class CORE_EXPORT Event : public ScriptWrappable {
   // at the current target. It should only be used to influence UMA metrics
   // and not change functionality since observing the presence of listeners
   // is dangerous.
-  virtual void DoneDispatchingEventAtCurrentTarget();
+  virtual void DoneDispatchingEventAtCurrentTarget() {}
 
   void SetRelatedTargetIfExists(EventTarget* related_target);
 
-  unsigned short eventPhase() const { return event_phase_; }
-  void SetEventPhase(unsigned short event_phase) { event_phase_ = event_phase; }
+  uint8_t eventPhase() const { return event_phase_; }
+  void SetEventPhase(uint8_t event_phase) { event_phase_ = event_phase; }
 
   void SetFireOnlyCaptureListenersAtTarget(
       bool fire_only_capture_listeners_at_target) {
@@ -185,7 +185,7 @@ class CORE_EXPORT Event : public ScriptWrappable {
   // using the platform timestamp (see |platform_time_stamp_|).
   // For more info see http://crbug.com/160524
   double timeStamp(ScriptState*) const;
-  TimeTicks PlatformTimeStamp() const { return platform_time_stamp_; }
+  base::TimeTicks PlatformTimeStamp() const { return platform_time_stamp_; }
 
   void stopPropagation() { propagation_stopped_ = true; }
   void SetStopPropagation(bool stop_propagation) {
@@ -229,8 +229,6 @@ class CORE_EXPORT Event : public ScriptWrappable {
   virtual bool IsBeforeUnloadEvent() const;
   virtual bool IsErrorEvent() const;
 
-  virtual bool IsActivateInvisibleEvent() const;
-
   bool PropagationStopped() const {
     return propagation_stopped_ || immediate_propagation_stopped_;
   }
@@ -241,9 +239,6 @@ class CORE_EXPORT Event : public ScriptWrappable {
 
   bool defaultPrevented() const { return default_prevented_; }
   virtual void preventDefault();
-  void SetDefaultPrevented(bool default_prevented) {
-    default_prevented_ = default_prevented;
-  }
 
   bool DefaultHandled() const { return default_handled_; }
   void SetDefaultHandled() { default_handled_ = true; }
@@ -284,20 +279,8 @@ class CORE_EXPORT Event : public ScriptWrappable {
 
   void SetHandlingPassive(PassiveMode);
 
-  bool PreventDefaultCalledDuringPassive() const {
-    return prevent_default_called_during_passive_;
-  }
-
   bool PreventDefaultCalledOnUncancelableEvent() const {
     return prevent_default_called_on_uncancelable_event_;
-  }
-
-  bool executedListenerOrDefaultAction() const {
-    return executed_listener_or_default_action_;
-  }
-
-  void SetExecutedListenerOrDefaultAction() {
-    executed_listener_or_default_action_ = true;
   }
 
   bool LegacyDidListenersThrow() const {
@@ -344,13 +327,7 @@ class CORE_EXPORT Event : public ScriptWrappable {
   unsigned default_handled_ : 1;
   unsigned was_initialized_ : 1;
   unsigned is_trusted_ : 1;
-  // Only if at least one listeners or default actions are executed on an event
-  // does Event Timing report it.
-  unsigned executed_listener_or_default_action_ : 1;
 
-  // Whether preventDefault was called when |handling_passive_| is
-  // true. This field is reset on each call to SetHandlingPassive.
-  unsigned prevent_default_called_during_passive_ : 1;
   // Whether preventDefault was called on uncancelable event.
   unsigned prevent_default_called_on_uncancelable_event_ : 1;
 
@@ -360,13 +337,11 @@ class CORE_EXPORT Event : public ScriptWrappable {
   // https://dom.spec.whatwg.org/#concept-event-listener-inner-invoke
   unsigned legacy_did_listeners_throw_flag_ : 1;
 
-  // This fields are effective only when
-  // CallCaptureListenersAtCapturePhaseAtShadowHosts runtime flag is enabled.
   unsigned fire_only_capture_listeners_at_target_ : 1;
   unsigned fire_only_non_capture_listeners_at_target_ : 1;
 
   PassiveMode handling_passive_;
-  unsigned short event_phase_;
+  uint8_t event_phase_;
   Member<EventTarget> current_target_;
   Member<EventTarget> target_;
   Member<Event> underlying_event_;
@@ -374,7 +349,7 @@ class CORE_EXPORT Event : public ScriptWrappable {
   // The monotonic platform time in seconds, for input events it is the
   // event timestamp provided by the host OS and reported in the original
   // WebInputEvent instance.
-  TimeTicks platform_time_stamp_;
+  base::TimeTicks platform_time_stamp_;
 };
 
 #define DEFINE_EVENT_TYPE_CASTS(typeName)                          \

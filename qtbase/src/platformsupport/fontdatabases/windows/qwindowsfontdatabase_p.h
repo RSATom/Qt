@@ -96,6 +96,8 @@ public:
     QWindowsFontDatabase();
     ~QWindowsFontDatabase() override;
 
+    void ensureFamilyPopulated(const QString &familyName);
+
     void populateFontDatabase() override;
     void populateFamily(const QString &familyName) override;
     QFontEngine *fontEngine(const QFontDef &fontDef, void *handle) override;
@@ -130,8 +132,6 @@ public:
 
     static void setFontOptions(unsigned options);
     static unsigned fontOptions();
-
-    static QString readRegistryString(HKEY parentHandle, const wchar_t *keyPath, const wchar_t *keyName);
 
 private:
     void removeApplicationFonts();

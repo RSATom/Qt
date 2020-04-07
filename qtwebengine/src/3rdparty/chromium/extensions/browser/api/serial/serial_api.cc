@@ -9,6 +9,7 @@
 #include <unordered_set>
 #include <utility>
 
+#include "base/bind.h"
 #include "base/task/post_task.h"
 #include "base/values.h"
 #include "build/build_config.h"
@@ -171,16 +172,16 @@ void SerialConnectFunction::FinishConnect(
     // If a SerialConnection encountered a mojo connection error, it just
     // becomes useless, we won't try to re-connect it but just remove it
     // completely.
-    GetSerialConnection(id)->set_connection_error_handler(base::BindOnce(
+    GetSerialConnection(id)->SetConnectionErrorHandler(base::BindOnce(
         [](scoped_refptr<ApiResourceManager<SerialConnection>::ApiResourceData>
                connections,
            std::string extension_id, int api_resource_id) {
           connections->Remove(extension_id, api_resource_id);
         },
         manager_->data_, extension_->id(), id));
-
     info->connection_id = id;
-    serial_port_manager_->PollConnection(extension_->id(), id);
+    // Start polling.
+    serial_port_manager_->StartConnectionPolling(extension_->id(), id);
     results_ = serial::Connect::Results::Create(*info);
   }
   AsyncWorkCompleted();
@@ -226,14 +227,22 @@ bool SerialDisconnectFunction::Prepare() {
   return true;
 }
 
-void SerialDisconnectFunction::Work() {
+void SerialDisconnectFunction::AsyncWorkStart() {
   SerialConnection* connection = GetSerialConnection(params_->connection_id);
   if (!connection) {
     error_ = kErrorSerialConnectionNotFound;
+    AsyncWorkCompleted();
     return;
   }
-  RemoveSerialConnection(params_->connection_id);
+
+  connection->Close(
+      base::BindOnce(&SerialDisconnectFunction::OnCloseComplete, this));
+}
+
+void SerialDisconnectFunction::OnCloseComplete() {
   results_ = serial::Disconnect::Results::Create(true);
+  RemoveSerialConnection(params_->connection_id);
+  AsyncWorkCompleted();
 }
 
 SerialSendFunction::SerialSendFunction() {}
@@ -319,11 +328,7 @@ void SerialSetPausedFunction::Work() {
   }
 
   if (params_->paused != connection->paused()) {
-    connection->set_paused(params_->paused);
-    if (!params_->paused) {
-      serial_port_manager_->PollConnection(extension_->id(),
-                                           params_->connection_id);
-    }
+    connection->SetPaused(params_->paused);
   }
 
   results_ = serial::SetPaused::Results::Create();

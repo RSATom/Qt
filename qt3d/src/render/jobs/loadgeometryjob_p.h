@@ -62,6 +62,7 @@ namespace Qt3DRender {
 namespace Render {
 
 class NodeManagers;
+class LoadGeometryJobPrivate;
 
 class Q_AUTOTEST_EXPORT LoadGeometryJob : public Qt3DCore::QAspectJob
 {

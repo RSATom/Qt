@@ -117,8 +117,8 @@ ReceiveStatisticsProxy::ReceiveStatisticsProxy(
       num_delayed_frames_rendered_(0),
       sum_missed_render_deadline_ms_(0),
       timing_frame_info_counter_(kMovingMaxWindowMs) {
-  decode_thread_.DetachFromThread();
-  network_thread_.DetachFromThread();
+  decode_thread_.Detach();
+  network_thread_.Detach();
   stats_.ssrc = config_.rtp.remote_ssrc;
   // TODO(brandtr): Replace |rtx_stats_| with a single instance of
   // StreamDataCounters.
@@ -179,10 +179,12 @@ void ReceiveStatisticsProxy::UpdateHistograms() {
         (clock_->TimeInMilliseconds() - *first_decoded_frame_time_ms_);
     if (elapsed_ms >=
         metrics::kMinRunTimeInSeconds * rtc::kNumMillisecsPerSec) {
-      RTC_HISTOGRAM_COUNTS_100(
-          "WebRTC.Video.DecodedFramesPerSecond",
-          static_cast<int>((stats_.frames_decoded * 1000.0f / elapsed_ms) +
-                           0.5f));
+      int decoded_fps = static_cast<int>(
+          (stats_.frames_decoded * 1000.0f / elapsed_ms) + 0.5f);
+      RTC_HISTOGRAM_COUNTS_100("WebRTC.Video.DecodedFramesPerSecond",
+                               decoded_fps);
+      log_stream << "WebRTC.Video.DecodedFramesPerSecond " << decoded_fps
+                 << '\n';
 
       const uint32_t frames_rendered = stats_.frames_rendered;
       if (frames_rendered > 0) {
@@ -202,8 +204,10 @@ void ReceiveStatisticsProxy::UpdateHistograms() {
   const int kMinRequiredSamples = 200;
   int samples = static_cast<int>(render_fps_tracker_.TotalSampleCount());
   if (samples >= kMinRequiredSamples) {
+    int rendered_fps = round(render_fps_tracker_.ComputeTotalRate());
     RTC_HISTOGRAM_COUNTS_100("WebRTC.Video.RenderFramesPerSecond",
-                             round(render_fps_tracker_.ComputeTotalRate()));
+                             rendered_fps);
+    log_stream << "WebRTC.Video.RenderFramesPerSecond " << rendered_fps << '\n';
     RTC_HISTOGRAM_COUNTS_100000(
         "WebRTC.Video.RenderSqrtPixelsPerSecond",
         round(render_pixel_tracker_.ComputeTotalRate()));
@@ -275,7 +279,7 @@ void ReceiveStatisticsProxy::UpdateHistograms() {
   // Aggregate content_specific_stats_ by removing experiment or simulcast
   // information;
   std::map<VideoContentType, ContentSpecificStats> aggregated_stats;
-  for (auto it : content_specific_stats_) {
+  for (const auto& it : content_specific_stats_) {
     // Calculate simulcast specific metrics (".S0" ... ".S2" suffixes).
     VideoContentType content_type = it.first;
     if (videocontenttypehelpers::GetSimulcastId(content_type) > 0) {
@@ -297,7 +301,7 @@ void ReceiveStatisticsProxy::UpdateHistograms() {
     aggregated_stats[content_type].Add(it.second);
   }
 
-  for (auto it : aggregated_stats) {
+  for (const auto& it : aggregated_stats) {
     // For the metric Foo we report the following slices:
     // WebRTC.Video.Foo,
     // WebRTC.Video.Screenshare.Foo,
@@ -488,8 +492,6 @@ void ReceiveStatisticsProxy::UpdateHistograms() {
 }
 
 void ReceiveStatisticsProxy::QualitySample() {
-  RTC_DCHECK_RUN_ON(&network_thread_);
-
   int64_t now = clock_->TimeInMilliseconds();
   if (last_sample_time_ + kMinSampleLengthMs > now)
     return;
@@ -582,8 +584,22 @@ VideoReceiveStream::Stats ReceiveStatisticsProxy::GetStats() const {
       static_cast<int>(total_byte_tracker_.ComputeRate() * 8);
   stats_.interframe_delay_max_ms =
       interframe_delay_max_moving_.Max(now_ms).value_or(-1);
-  stats_.timing_frame_info = timing_frame_info_counter_.Max(now_ms);
+  stats_.freeze_count = video_quality_observer_->NumFreezes();
+  stats_.pause_count = video_quality_observer_->NumPauses();
+  stats_.total_freezes_duration_ms =
+      video_quality_observer_->TotalFreezesDurationMs();
+  stats_.total_pauses_duration_ms =
+      video_quality_observer_->TotalPausesDurationMs();
+  stats_.total_frames_duration_ms =
+      video_quality_observer_->TotalFramesDurationMs();
+  stats_.sum_squared_frame_durations =
+      video_quality_observer_->SumSquaredFrameDurationsSec();
   stats_.content_type = last_content_type_;
+  stats_.timing_frame_info = timing_frame_info_counter_.Max(now_ms);
+  stats_.jitter_buffer_delay_seconds =
+      static_cast<double>(current_delay_counter_.Sum(1).value_or(0)) /
+      rtc::kNumMillisecsPerSec;
+  stats_.jitter_buffer_emitted_count = current_delay_counter_.NumSamples();
   return stats_;
 }
 
@@ -597,16 +613,8 @@ void ReceiveStatisticsProxy::OnDecoderImplementationName(
   rtc::CritScope lock(&crit_);
   stats_.decoder_implementation_name = implementation_name;
 }
-void ReceiveStatisticsProxy::OnIncomingRate(unsigned int framerate,
-                                            unsigned int bitrate_bps) {
-  RTC_DCHECK_RUN_ON(&network_thread_);
-  rtc::CritScope lock(&crit_);
-  if (stats_.rtp_stats.first_packet_time_ms != -1)
-    QualitySample();
-}
 
 void ReceiveStatisticsProxy::OnFrameBufferTimingsUpdated(
-    int decode_ms,
     int max_decode_ms,
     int current_delay_ms,
     int target_delay_ms,
@@ -614,14 +622,12 @@ void ReceiveStatisticsProxy::OnFrameBufferTimingsUpdated(
     int min_playout_delay_ms,
     int render_delay_ms) {
   rtc::CritScope lock(&crit_);
-  stats_.decode_ms = decode_ms;
   stats_.max_decode_ms = max_decode_ms;
   stats_.current_delay_ms = current_delay_ms;
   stats_.target_delay_ms = target_delay_ms;
   stats_.jitter_buffer_ms = jitter_buffer_ms;
   stats_.min_playout_delay_ms = min_playout_delay_ms;
   stats_.render_delay_ms = render_delay_ms;
-  decode_time_counter_.Add(decode_ms);
   jitter_buffer_delay_counter_.Add(jitter_buffer_ms);
   target_delay_counter_.Add(target_delay_ms);
   current_delay_counter_.Add(current_delay_ms);
@@ -714,6 +720,7 @@ void ReceiveStatisticsProxy::DataCountersUpdated(
 
 void ReceiveStatisticsProxy::OnDecodedFrame(const VideoFrame& frame,
                                             absl::optional<uint8_t> qp,
+                                            int32_t decode_time_ms,
                                             VideoContentType content_type) {
   rtc::CritScope lock(&crit_);
 
@@ -736,7 +743,6 @@ void ReceiveStatisticsProxy::OnDecodedFrame(const VideoFrame& frame,
       if (stats_.frames_decoded != 1) {
         RTC_LOG(LS_WARNING)
             << "Frames decoded was not 1 when first qp value was received.";
-        stats_.frames_decoded = 1;
       }
       stats_.qp_sum = 0;
     }
@@ -745,8 +751,10 @@ void ReceiveStatisticsProxy::OnDecodedFrame(const VideoFrame& frame,
   } else if (stats_.qp_sum) {
     RTC_LOG(LS_WARNING)
         << "QP sum was already set and no QP was given for a frame.";
-    stats_.qp_sum = absl::nullopt;
   }
+  decode_time_counter_.Add(decode_time_ms);
+  stats_.decode_ms = decode_time_ms;
+  stats_.total_decode_time_ms += decode_time_ms;
   last_content_type_ = content_type;
   decode_fps_estimator_.Update(1, now_ms);
   if (last_decoded_frame_time_ms_) {
@@ -798,6 +806,7 @@ void ReceiveStatisticsProxy::OnRenderedFrame(const VideoFrame& frame) {
       content_specific_stats->e2e_delay_counter.Add(delay_ms);
     }
   }
+  QualitySample();
 }
 
 void ReceiveStatisticsProxy::OnSyncOffsetUpdated(int64_t sync_offset_ms,
@@ -814,9 +823,6 @@ void ReceiveStatisticsProxy::OnSyncOffsetUpdated(int64_t sync_offset_ms,
 
   freq_offset_counter_.Add(offset_khz);
 }
-
-void ReceiveStatisticsProxy::OnReceiveRatesUpdated(uint32_t bitRate,
-                                                   uint32_t frameRate) {}
 
 void ReceiveStatisticsProxy::OnCompleteFrame(bool is_keyframe,
                                              size_t size_bytes,
@@ -850,17 +856,6 @@ void ReceiveStatisticsProxy::OnCompleteFrame(bool is_keyframe,
   UpdateFramerate(now_ms);
 }
 
-void ReceiveStatisticsProxy::OnFrameCountsUpdated(
-    const FrameCounts& frame_counts) {
-  rtc::CritScope lock(&crit_);
-  stats_.frame_counts = frame_counts;
-}
-
-void ReceiveStatisticsProxy::OnDiscardedPacketsUpdated(int discarded_packets) {
-  rtc::CritScope lock(&crit_);
-  stats_.discarded_packets = discarded_packets;
-}
-
 void ReceiveStatisticsProxy::OnPreDecode(VideoCodecType codec_type, int qp) {
   RTC_DCHECK_RUN_ON(&decode_thread_);
   rtc::CritScope lock(&crit_);
@@ -892,7 +887,7 @@ void ReceiveStatisticsProxy::DecoderThreadStarting() {
 
 void ReceiveStatisticsProxy::DecoderThreadStopped() {
   RTC_DCHECK_RUN_ON(&main_thread_);
-  decode_thread_.DetachFromThread();
+  decode_thread_.Detach();
 }
 
 ReceiveStatisticsProxy::ContentSpecificStats::ContentSpecificStats()

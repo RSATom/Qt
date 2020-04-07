@@ -96,9 +96,9 @@ protected:
     const QMetaObject *fallbackMetaObject() const override;
 private:
     friend class QAxClientSite;
-    QAxClientSite *container;
+    QAxClientSite *container = nullptr;
 
-    QAxWidgetPrivate *d;
+    QAxWidgetPrivate *m_unused = nullptr;
     const QMetaObject *parentMetaObject() const override;
 };
 

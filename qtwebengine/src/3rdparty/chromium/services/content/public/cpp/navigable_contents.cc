@@ -4,6 +4,7 @@
 
 #include "services/content/public/cpp/navigable_contents.h"
 
+#include "base/bind.h"
 #include "base/memory/ptr_util.h"
 #include "services/content/public/cpp/navigable_contents_view.h"
 
@@ -14,11 +15,10 @@ NavigableContents::NavigableContents(mojom::NavigableContentsFactory* factory)
 
 NavigableContents::NavigableContents(mojom::NavigableContentsFactory* factory,
                                      mojom::NavigableContentsParamsPtr params)
-    : client_binding_(this), content_ax_tree_id_(ui::AXTreeIDUnknown()) {
-  mojom::NavigableContentsClientPtr client;
-  client_binding_.Bind(mojo::MakeRequest(&client));
-  factory->CreateContents(std::move(params), mojo::MakeRequest(&contents_),
-                          std::move(client));
+    : client_receiver_(this), content_ax_tree_id_(ui::AXTreeIDUnknown()) {
+  factory->CreateContents(std::move(params),
+                          contents_.BindNewPipeAndPassReceiver(),
+                          client_receiver_.BindNewPipeAndPassRemote());
 }
 
 NavigableContents::~NavigableContents() = default;
@@ -34,10 +34,8 @@ void NavigableContents::RemoveObserver(NavigableContentsObserver* observer) {
 NavigableContentsView* NavigableContents::GetView() {
   if (!view_) {
     view_ = base::WrapUnique(new NavigableContentsView(this));
-    contents_->CreateView(
-        NavigableContentsView::IsClientRunningInServiceProcess(),
-        base::BindOnce(&NavigableContents::OnEmbedTokenReceived,
-                       base::Unretained(this)));
+    contents_->CreateView(base::BindOnce(
+        &NavigableContents::OnEmbedTokenReceived, base::Unretained(this)));
   }
   return view_.get();
 }

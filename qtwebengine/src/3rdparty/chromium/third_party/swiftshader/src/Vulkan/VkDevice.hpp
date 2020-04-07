@@ -16,38 +16,80 @@
 #define VK_DEVICE_HPP_
 
 #include "VkObject.hpp"
+#include "Device/LRUCache.hpp"
+#include "Reactor/Routine.hpp"
+#include <memory>
+#include <mutex>
+
+namespace sw
+{
+	class Blitter;
+	class SamplingRoutineCache;
+}
 
 namespace vk
 {
 
+class PhysicalDevice;
 class Queue;
 
 class Device
 {
 public:
-	struct CreateInfo
-	{
-		const VkDeviceCreateInfo* pCreateInfo;
-		VkPhysicalDevice pPhysicalDevice;
-	};
-
 	static constexpr VkSystemAllocationScope GetAllocationScope() { return VK_SYSTEM_ALLOCATION_SCOPE_DEVICE; }
 
-	Device(const CreateInfo* info, void* mem);
+	Device(const VkDeviceCreateInfo* pCreateInfo, void* mem, PhysicalDevice *physicalDevice, const VkPhysicalDeviceFeatures *enabledFeatures);
 	void destroy(const VkAllocationCallbacks* pAllocator);
 
-	static size_t ComputeRequiredAllocationSize(const CreateInfo* info);
+	static size_t ComputeRequiredAllocationSize(const VkDeviceCreateInfo* pCreateInfo);
 
+	bool hasExtension(const char* extensionName) const;
 	VkQueue getQueue(uint32_t queueFamilyIndex, uint32_t queueIndex) const;
-	void waitForFences(uint32_t fenceCount, const VkFence* pFences, VkBool32 waitAll, uint64_t timeout);
+	VkResult waitForFences(uint32_t fenceCount, const VkFence* pFences, VkBool32 waitAll, uint64_t timeout);
+	VkResult waitIdle();
 	void getDescriptorSetLayoutSupport(const VkDescriptorSetLayoutCreateInfo* pCreateInfo,
 	                                   VkDescriptorSetLayoutSupport* pSupport) const;
-	VkPhysicalDevice getPhysicalDevice() const { return physicalDevice; }
+	PhysicalDevice *getPhysicalDevice() const { return physicalDevice; }
+	void updateDescriptorSets(uint32_t descriptorWriteCount, const VkWriteDescriptorSet* pDescriptorWrites,
+	                          uint32_t descriptorCopyCount, const VkCopyDescriptorSet* pDescriptorCopies);
+	const VkPhysicalDeviceFeatures &getEnabledFeatures() const { return enabledFeatures; }
+	sw::Blitter* getBlitter() const { return blitter.get(); }
+
+	class SamplingRoutineCache
+	{
+	public:
+		SamplingRoutineCache() : cache(1024) {}
+		~SamplingRoutineCache() {}
+
+		struct Key
+		{
+			uint32_t instruction;
+			uint32_t sampler;
+			uint32_t imageView;
+		};
+
+		rr::Routine* query(const Key& key) const;
+		void add(const Key& key, rr::Routine* routine);
+
+	private:
+		std::size_t hash(const Key &key) const;
+		sw::LRUCache<std::size_t, rr::Routine> cache;
+	};
+
+	SamplingRoutineCache* getSamplingRoutineCache();
+	std::mutex& getSamplingRoutineCacheMutex();
 
 private:
-	VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;
-	Queue* queues = nullptr;
+	PhysicalDevice *const physicalDevice = nullptr;
+	Queue *const queues = nullptr;
 	uint32_t queueCount = 0;
+	std::unique_ptr<sw::Blitter> blitter;
+	std::unique_ptr<SamplingRoutineCache> samplingRoutineCache;
+	std::mutex samplingRoutineCacheMutex;
+	uint32_t enabledExtensionCount = 0;
+	typedef char ExtensionName[VK_MAX_EXTENSION_NAME_SIZE];
+	ExtensionName* extensions = nullptr;
+	const VkPhysicalDeviceFeatures enabledFeatures = {};
 };
 
 using DispatchableDevice = DispatchableObject<Device, VkDevice>;

@@ -5,14 +5,26 @@
  * found in the LICENSE file.
  */
 
-#include "gm.h"
-#include "sk_tool_utils.h"
-
-#include "SkPictureImageFilter.h"
-#include "SkPictureRecorder.h"
-
-#include "SkImage.h"
-#include "SkImageSource.h"
+#include "gm/gm.h"
+#include "include/core/SkCanvas.h"
+#include "include/core/SkColor.h"
+#include "include/core/SkColorSpace.h"
+#include "include/core/SkFilterQuality.h"
+#include "include/core/SkFont.h"
+#include "include/core/SkImage.h"
+#include "include/core/SkImageFilter.h"
+#include "include/core/SkPaint.h"
+#include "include/core/SkPicture.h"
+#include "include/core/SkPictureRecorder.h"
+#include "include/core/SkRect.h"
+#include "include/core/SkRefCnt.h"
+#include "include/core/SkScalar.h"
+#include "include/core/SkSize.h"
+#include "include/core/SkString.h"
+#include "include/core/SkTypeface.h"
+#include "include/effects/SkImageSource.h"
+#include "include/effects/SkPictureImageFilter.h"
+#include "tools/ToolUtils.h"
 
 // This GM exercises the SkPictureImageFilter ImageFilter class.
 
@@ -32,7 +44,7 @@ static sk_sp<SkPicture> make_picture() {
     SkCanvas* canvas = recorder.beginRecording(100, 100, nullptr, 0);
     SkPaint paint;
     paint.setColor(0xFFFFFFFF);
-    SkFont font(sk_tool_utils::create_portable_typeface(), 96.0f);
+    SkFont font(ToolUtils::create_portable_typeface(), 96.0f);
     canvas->drawString("e", 20.0f, 70.0f, font, paint);
     return recorder.finishRecordingAsPicture();
 }
@@ -45,7 +57,7 @@ static sk_sp<SkPicture> make_LCD_picture() {
     SkPaint paint;
     paint.setColor(0xFFFFFFFF);
     // this has to be small enough that it doesn't become a path
-    SkFont font(sk_tool_utils::create_portable_typeface(), 36.0f);
+    SkFont font(ToolUtils::create_portable_typeface(), 36.0f);
     font.setEdging(SkFont::Edging::kSubpixelAntiAlias);
     canvas->drawString("e", 20.0f, 70.0f, font, paint);
     return recorder.finishRecordingAsPicture();

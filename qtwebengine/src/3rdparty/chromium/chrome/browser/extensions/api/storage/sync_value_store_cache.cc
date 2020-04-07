@@ -8,6 +8,7 @@
 
 #include <utility>
 
+#include "base/bind.h"
 #include "chrome/browser/extensions/api/storage/sync_storage_backend.h"
 #include "chrome/browser/sync/glue/sync_start_util.h"
 #include "content/public/browser/browser_thread.h"
@@ -54,8 +55,12 @@ SyncValueStoreCache::~SyncValueStoreCache() {
   DCHECK(IsOnBackendSequence());
 }
 
+base::WeakPtr<SyncValueStoreCache> SyncValueStoreCache::AsWeakPtr() {
+  return weak_ptr_factory_.GetWeakPtr();
+}
+
 syncer::SyncableService* SyncValueStoreCache::GetSyncableService(
-    syncer::ModelType type) const {
+    syncer::ModelType type) {
   DCHECK(IsOnBackendSequence());
   DCHECK(initialized_);
 

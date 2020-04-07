@@ -23,6 +23,7 @@
 
 #include "third_party/blink/renderer/core/html/html_html_element.h"
 
+#include "third_party/blink/renderer/core/css/style_engine.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/dom/document_parser.h"
 #include "third_party/blink/renderer/core/frame/deprecation.h"
@@ -32,16 +33,15 @@
 #include "third_party/blink/renderer/core/loader/appcache/application_cache_host.h"
 #include "third_party/blink/renderer/core/loader/document_loader.h"
 #include "third_party/blink/renderer/core/loader/frame_loader.h"
+#include "third_party/blink/renderer/platform/heap/heap.h"
 #include "third_party/blink/renderer/platform/runtime_enabled_features.h"
 
 namespace blink {
 
 using namespace html_names;
 
-inline HTMLHtmlElement::HTMLHtmlElement(Document& document)
+HTMLHtmlElement::HTMLHtmlElement(Document& document)
     : HTMLElement(kHTMLTag, document) {}
-
-DEFINE_NODE_FACTORY(HTMLHtmlElement)
 
 bool HTMLHtmlElement::IsURLAttribute(const Attribute& attribute) const {
   return attribute.GetName() == kManifestAttr ||
@@ -54,6 +54,8 @@ void HTMLHtmlElement::InsertedByParser() {
     return;
 
   MaybeSetupApplicationCache();
+  if (!GetDocument().Parser())
+    return;
 
   GetDocument().Parser()->DocumentElementAvailable();
   if (GetDocument().GetFrame()) {
@@ -84,11 +86,33 @@ void HTMLHtmlElement::MaybeSetupApplicationCache() {
     return;
   }
 
+  ApplicationCacheHost* host = document_loader->GetApplicationCacheHost();
+  DCHECK(host);
+
   if (manifest.IsEmpty())
-    document_loader->GetApplicationCacheHost()->SelectCacheWithoutManifest();
+    host->SelectCacheWithoutManifest();
   else
-    document_loader->GetApplicationCacheHost()->SelectCacheWithManifest(
-        GetDocument().CompleteURL(manifest));
+    host->SelectCacheWithManifest(GetDocument().CompleteURL(manifest));
+  bool app_cache_installed =
+      host->GetStatus() !=
+      blink::mojom::AppCacheStatus::APPCACHE_STATUS_UNCACHED;
+  if (app_cache_installed && manifest.IsEmpty()) {
+    UseCounter::Count(GetDocument(),
+                      WebFeature::kApplicationCacheInstalledButNoManifest);
+  }
+}
+
+const CSSPropertyValueSet*
+HTMLHtmlElement::AdditionalPresentationAttributeStyle() {
+  if (const CSSValue* color_scheme =
+          GetDocument().GetStyleEngine().GetMetaColorSchemeValue()) {
+    DEFINE_STATIC_LOCAL(
+        Persistent<MutableCSSPropertyValueSet>, color_scheme_style,
+        (MakeGarbageCollected<MutableCSSPropertyValueSet>(kHTMLStandardMode)));
+    color_scheme_style->SetProperty(CSSPropertyID::kColorScheme, *color_scheme);
+    return color_scheme_style;
+  }
+  return nullptr;
 }
 
 }  // namespace blink

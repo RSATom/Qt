@@ -63,7 +63,7 @@ QT_BEGIN_NAMESPACE
 
 class QBluetoothAddress;
 
-namespace OSXBluetooth {
+namespace DarwinBluetooth {
 
 class ChannelDelegate;
 
@@ -73,8 +73,8 @@ QT_END_NAMESPACE
 
 @interface QT_MANGLE_NAMESPACE(OSXBTRFCOMMChannel) : NSObject<IOBluetoothRFCOMMChannelDelegate>
 
-- (id)initWithDelegate:(QT_PREPEND_NAMESPACE(OSXBluetooth)::ChannelDelegate *)aDelegate;
-- (id)initWithDelegate:(QT_PREPEND_NAMESPACE(OSXBluetooth)::ChannelDelegate *)aDelegate
+- (id)initWithDelegate:(QT_PREPEND_NAMESPACE(DarwinBluetooth)::ChannelDelegate *)aDelegate;
+- (id)initWithDelegate:(QT_PREPEND_NAMESPACE(DarwinBluetooth)::ChannelDelegate *)aDelegate
       channel:(IOBluetoothRFCOMMChannel *)aChannel;
 
 - (void)dealloc;

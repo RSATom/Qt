@@ -5,6 +5,7 @@
 #include "qwebenginecallback.h"
 #include "qwebengineclientcertificatestore.h"
 #include "qwebenginecookiestore.h"
+#include "qwebenginefindtextresult.h"
 #include "qwebenginehttprequest.h"
 #include "qwebenginenotification.h"
 #include "qwebenginequotarequest.h"

@@ -6,6 +6,7 @@
 
 #include <string.h>
 
+#include "base/bind.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/task/post_task.h"
@@ -66,8 +67,7 @@ PepperExternalFileRefBackend::PepperExternalFileRefBackend(
       render_process_id_(render_process_id),
       task_runner_(base::CreateSequencedTaskRunnerWithTraits(
           {base::MayBlock(), base::TaskPriority::USER_VISIBLE,
-           base::TaskShutdownBehavior::BLOCK_SHUTDOWN})),
-      weak_factory_(this) {}
+           base::TaskShutdownBehavior::BLOCK_SHUTDOWN})) {}
 
 PepperExternalFileRefBackend::~PepperExternalFileRefBackend() {}
 

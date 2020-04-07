@@ -197,7 +197,7 @@ void MFPlayerSession::load(const QMediaContent &media, QIODevice *stream)
     qDebug() << "load";
 #endif
     clear();
-    QUrl url = media.canonicalUrl();
+    QUrl url = media.request().url();
 
     if (m_status == QMediaPlayer::LoadingMedia && m_sourceResolver)
         m_sourceResolver->cancel();
@@ -287,6 +287,9 @@ MFPlayerSession::MediaType MFPlayerSession::getStreamType(IMFStreamDescriptor *s
                 return Video;
         }
     }
+
+    if (typeHandler)
+        typeHandler->Release();
 
     return Unknown;
 }

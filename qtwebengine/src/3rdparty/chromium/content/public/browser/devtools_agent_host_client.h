@@ -8,11 +8,11 @@
 #include <string>
 
 #include "content/common/content_export.h"
+class GURL;
 
 namespace content {
 
 class DevToolsAgentHost;
-class RenderFrameHost;
 
 // DevToolsAgentHostClient can attach to a DevToolsAgentHost and start
 // debugging it.
@@ -27,19 +27,25 @@ class CONTENT_EXPORT DevToolsAgentHostClient {
   // This method is called when attached agent host is closed.
   virtual void AgentHostClosed(DevToolsAgentHost* agent_host) = 0;
 
-  // Returns true if the client is allowed to attach to the given renderer.
+  // Returns true if the client is allowed to attach to the given URL.
   // Note: this method may be called before navigation commits.
-  virtual bool MayAttachToRenderer(content::RenderFrameHost* render_frame_host,
-                                   bool is_webui);
+  virtual bool MayAttachToURL(const GURL& url, bool is_webui);
 
   // Returns true if the client is allowed to attach to the browser agent host.
   // Browser client is allowed to discover other DevTools targets and generally
   // manipulate browser altogether.
   virtual bool MayAttachToBrowser();
 
-  // Returns true if the client is allowed to affect local files over the
+  // Returns true if the client is allowed to read local files over the
+  // protocol. Example would be exposing file content to the page under debug.
+  virtual bool MayReadLocalFiles();
+
+  // Returns true if the client is allowed to write local files over the
   // protocol. Example would be manipulating a deault downloads path.
-  virtual bool MayAffectLocalFiles();
+  virtual bool MayWriteLocalFiles();
+
+  // Determines protocol message format.
+  virtual bool UsesBinaryProtocol();
 };
 
 }  // namespace content

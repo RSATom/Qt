@@ -1886,9 +1886,9 @@ TEST_P(GLES2DecoderManualInitTest, CompressedTexImage2DS3TC) {
 
     // test non-block-size width.
     bucket->SetSize(test.block_size * 2);
-    DoCompressedTexImage2D(
-        GL_TEXTURE_2D, 0, test.format, 5, 4, 0, test.block_size * 2, kBucketId);
-    EXPECT_EQ(GL_NO_ERROR, GetGLError());
+    cmd.Init(GL_TEXTURE_2D, 0, test.format, 5, 4, kBucketId);
+    EXPECT_EQ(error::kNoError, ExecuteCmd(cmd));
+    EXPECT_EQ(GL_INVALID_OPERATION, GetGLError());
 
     // test small height.
     DoCompressedTexImage2D(
@@ -1896,10 +1896,10 @@ TEST_P(GLES2DecoderManualInitTest, CompressedTexImage2DS3TC) {
     EXPECT_EQ(GL_NO_ERROR, GetGLError());
 
     // test non-block-size height.
+    cmd.Init(GL_TEXTURE_2D, 0, test.format, 4, 5, kBucketId);
     bucket->SetSize(test.block_size * 2);
-    DoCompressedTexImage2D(
-        GL_TEXTURE_2D, 0, test.format, 4, 5, 0, test.block_size * 2, kBucketId);
-    EXPECT_EQ(GL_NO_ERROR, GetGLError());
+    EXPECT_EQ(error::kNoError, ExecuteCmd(cmd));
+    EXPECT_EQ(GL_INVALID_OPERATION, GetGLError());
 
     // test small for level 0.
     DoCompressedTexImage2D(
@@ -2003,77 +2003,6 @@ TEST_P(GLES2DecoderManualInitTest, CompressedTexImage2DS3TC) {
           }
         }
       }
-    }
-
-    // Test a 13x13
-    DoCompressedTexImage2D(GL_TEXTURE_2D,
-                           0,
-                           test.format,
-                           13,
-                           13,
-                           0,
-                           test.block_size * 4 * 4,
-                           kBucketId);
-    EXPECT_EQ(GL_NO_ERROR, GetGLError());
-
-    {
-      // Accept non-multiple-of-4 width sub image if it aligns to the right
-      GLint xoffset = 12;
-      GLint width = 1;
-      GLint yoffset = 0;
-      GLint height = 4;
-      bucket->SetSize(test.block_size);
-
-      EXPECT_CALL(*gl_,
-                  CompressedTexSubImage2D(GL_TEXTURE_2D, 0, xoffset, yoffset,
-                                          width, height, test.format, _, _))
-          .Times(1)
-          .RetiresOnSaturation();
-      sub_cmd.Init(GL_TEXTURE_2D, 0, xoffset, yoffset, width, height,
-                   test.format, kBucketId);
-      EXPECT_EQ(error::kNoError, ExecuteCmd(sub_cmd));
-      EXPECT_EQ(GL_NO_ERROR, GetGLError());
-    }
-    {
-      // Accept non-multiple-of-4 height sub image if it aligns to the bottom
-      GLint xoffset = 0;
-      GLint width = 4;
-      GLint yoffset = 12;
-      GLint height = 1;
-      bucket->SetSize(test.block_size);
-
-      EXPECT_CALL(*gl_,
-                  CompressedTexSubImage2D(GL_TEXTURE_2D, 0, xoffset, yoffset,
-                                          width, height, test.format, _, _))
-          .Times(1)
-          .RetiresOnSaturation();
-      sub_cmd.Init(GL_TEXTURE_2D, 0, xoffset, yoffset, width, height,
-                   test.format, kBucketId);
-      EXPECT_EQ(error::kNoError, ExecuteCmd(sub_cmd));
-      EXPECT_EQ(GL_NO_ERROR, GetGLError());
-    }
-    {
-      // Check that partial blocks are still fully counted.
-      // Those 25 pixels still need to use 4 blocks.
-      GLint xoffset = 8;
-      GLint width = 5;
-      GLint yoffset = 8;
-      GLint height = 5;
-      bucket->SetSize(test.block_size * 3);
-
-      sub_cmd.Init(GL_TEXTURE_2D, 0, xoffset, yoffset, width, height,
-                   test.format, kBucketId);
-      EXPECT_EQ(error::kNoError, ExecuteCmd(sub_cmd));
-      EXPECT_EQ(GL_INVALID_VALUE, GetGLError());
-
-      bucket->SetSize(test.block_size * 4);
-      EXPECT_CALL(*gl_,
-                  CompressedTexSubImage2D(GL_TEXTURE_2D, 0, xoffset, yoffset,
-                                          width, height, test.format, _, _))
-          .Times(1)
-          .RetiresOnSaturation();
-      EXPECT_EQ(error::kNoError, ExecuteCmd(sub_cmd));
-      EXPECT_EQ(GL_NO_ERROR, GetGLError());
     }
   }
 }
@@ -3171,8 +3100,9 @@ TEST_P(GLES2DecoderTest, CreateAndConsumeTextureCHROMIUMInvalidTexture) {
   ProduceTextureDirectCHROMIUMImmediate& produce_cmd =
       *GetImmediateAs<ProduceTextureDirectCHROMIUMImmediate>();
   produce_cmd.Init(client_texture_id_, mailbox.name);
-  EXPECT_EQ(error::kNoError,
-            ExecuteImmediateCmd(produce_cmd, sizeof(mailbox.name)));
+  EXPECT_EQ(
+      error::kNoError,
+      ExecuteImmediateCmd(produce_cmd, sizeof(mailbox.name) + sizeof(GLenum)));
   EXPECT_EQ(GL_NO_ERROR, GetGLError());
 
   // Attempt to consume the mailbox with an invalid texture id.
@@ -3221,7 +3151,8 @@ class TestSharedImageBacking : public SharedImageBacking {
                            size,
                            color_space,
                            usage,
-                           0 /* estimated_size */) {
+                           0 /* estimated_size */,
+                           false /* is_thread_safe */) {
     texture_ = new gles2::Texture(texture_id);
     texture_->SetLightweightRef();
   }
@@ -3230,7 +3161,9 @@ class TestSharedImageBacking : public SharedImageBacking {
 
   void SetCleared() override {}
 
-  void Update() override {}
+  void Update(std::unique_ptr<gfx::GpuFence> in_fence) override {
+    DCHECK(!in_fence);
+  }
 
   bool ProduceLegacyMailbox(MailboxManager* mailbox_manager) override {
     return false;
@@ -3270,7 +3203,7 @@ TEST_P(GLES2DecoderTest, CreateAndTexStorage2DSharedImageCHROMIUM) {
 
   CreateAndTexStorage2DSharedImageINTERNALImmediate& cmd =
       *GetImmediateAs<CreateAndTexStorage2DSharedImageINTERNALImmediate>();
-  cmd.Init(kNewClientId, mailbox.name);
+  cmd.Init(kNewClientId, GL_NONE, mailbox.name);
   EXPECT_EQ(error::kNoError, ExecuteImmediateCmd(cmd, sizeof(mailbox.name)));
   EXPECT_EQ(GL_NO_ERROR, GetGLError());
 
@@ -3300,7 +3233,7 @@ TEST_P(GLES2DecoderTest,
 
   CreateAndTexStorage2DSharedImageINTERNALImmediate& cmd =
       *GetImmediateAs<CreateAndTexStorage2DSharedImageINTERNALImmediate>();
-  cmd.Init(kNewClientId, mailbox.name);
+  cmd.Init(kNewClientId, GL_NONE, mailbox.name);
   EXPECT_EQ(error::kNoError, ExecuteImmediateCmd(cmd, sizeof(mailbox.name)));
 
   // CreateAndTexStorage2DSharedImage should fail if the mailbox is invalid.
@@ -3331,7 +3264,7 @@ TEST_P(GLES2DecoderTest,
 
   CreateAndTexStorage2DSharedImageINTERNALImmediate& cmd =
       *GetImmediateAs<CreateAndTexStorage2DSharedImageINTERNALImmediate>();
-  cmd.Init(client_texture_id_, mailbox.name);
+  cmd.Init(client_texture_id_, GL_NONE, mailbox.name);
   EXPECT_EQ(error::kNoError, ExecuteImmediateCmd(cmd, sizeof(mailbox.name)));
 
   // CreateAndTexStorage2DSharedImage should fail.
@@ -3354,7 +3287,7 @@ TEST_P(GLES2DecoderTest, BeginEndSharedImageAccessCRHOMIUM) {
 
   CreateAndTexStorage2DSharedImageINTERNALImmediate& cmd =
       *GetImmediateAs<CreateAndTexStorage2DSharedImageINTERNALImmediate>();
-  cmd.Init(kNewClientId, mailbox.name);
+  cmd.Init(kNewClientId, GL_NONE, mailbox.name);
   EXPECT_EQ(error::kNoError, ExecuteImmediateCmd(cmd, sizeof(mailbox.name)));
   EXPECT_EQ(GL_NO_ERROR, GetGLError());
 
@@ -3414,7 +3347,7 @@ TEST_P(GLES2DecoderTest, BeginSharedImageAccessDirectCHROMIUMCantBeginAccess) {
 
   CreateAndTexStorage2DSharedImageINTERNALImmediate& cmd =
       *GetImmediateAs<CreateAndTexStorage2DSharedImageINTERNALImmediate>();
-  cmd.Init(kNewClientId, mailbox.name);
+  cmd.Init(kNewClientId, GL_NONE, mailbox.name);
   EXPECT_EQ(error::kNoError, ExecuteImmediateCmd(cmd, sizeof(mailbox.name)));
   EXPECT_EQ(GL_NO_ERROR, GetGLError());
 
@@ -3766,6 +3699,7 @@ class MockGLImage : public gl::GLImage {
   // Overridden from gl::GLImage:
   MOCK_METHOD0(GetSize, gfx::Size());
   MOCK_METHOD0(GetInternalFormat, unsigned());
+  MOCK_METHOD0(ShouldBindOrCopy, gl::GLImage::BindOrCopy());
   MOCK_METHOD1(BindTexImage, bool(unsigned));
   MOCK_METHOD1(ReleaseTexImage, void(unsigned));
   MOCK_METHOD1(CopyTexImage, bool(unsigned));
@@ -3806,9 +3740,10 @@ TEST_P(GLES2DecoderWithShaderTest, CopyTexImage) {
   GetImageManagerForTest()->AddImage(image.get(), kImageId);
 
   // Bind image to texture.
+  EXPECT_CALL(*image.get(), ShouldBindOrCopy())
+      .WillRepeatedly(Return(gl::GLImage::COPY));
   EXPECT_CALL(*image.get(), BindTexImage(GL_TEXTURE_2D))
-      .Times(1)
-      .WillRepeatedly(Return(false))
+      .Times(0)
       .RetiresOnSaturation();
   EXPECT_CALL(*image.get(), GetSize())
       .Times(1)
@@ -3845,8 +3780,7 @@ TEST_P(GLES2DecoderWithShaderTest, CopyTexImage) {
         .Times(1)
         .RetiresOnSaturation();
     EXPECT_CALL(*image.get(), BindTexImage(GL_TEXTURE_2D))
-        .Times(1)
-        .WillRepeatedly(Return(false))
+        .Times(0)
         .RetiresOnSaturation();
     EXPECT_CALL(*image.get(), CopyTexImage(GL_TEXTURE_2D))
         .Times(1)
@@ -3873,8 +3807,7 @@ TEST_P(GLES2DecoderWithShaderTest, CopyTexImage) {
   release_tex_image_2d_cmd.Init(GL_TEXTURE_2D, kImageId);
   EXPECT_EQ(error::kNoError, ExecuteCmd(release_tex_image_2d_cmd));
   EXPECT_CALL(*image.get(), BindTexImage(GL_TEXTURE_2D))
-      .Times(2)
-      .WillRepeatedly(Return(false))
+      .Times(0)
       .RetiresOnSaturation();
   EXPECT_CALL(*image.get(), GetSize())
       .Times(1)
@@ -3939,8 +3872,8 @@ TEST_P(GLES2DecoderManualInitTest, DrawWithGLImageExternal) {
   scoped_refptr<MockGLImage> image(new MockGLImage);
   group().texture_manager()->SetTarget(texture_ref, GL_TEXTURE_EXTERNAL_OES);
   group().texture_manager()->SetLevelInfo(texture_ref, GL_TEXTURE_EXTERNAL_OES,
-                                          0, GL_RGBA, 0, 0, 1, 0, GL_RGBA,
-                                          GL_UNSIGNED_BYTE, gfx::Rect());
+                                          0, GL_RGBA, 1, 1, 1, 0, GL_RGBA,
+                                          GL_UNSIGNED_BYTE, gfx::Rect(1, 1));
   group().texture_manager()->SetLevelImage(texture_ref, GL_TEXTURE_EXTERNAL_OES,
                                            0, image.get(), Texture::BOUND);
 
@@ -4227,9 +4160,9 @@ class GLES2DecoderCompressedFormatsTest : public GLES2DecoderManualInitTest {
   }
 };
 
-INSTANTIATE_TEST_CASE_P(Service,
-                        GLES2DecoderCompressedFormatsTest,
-                        ::testing::Bool());
+INSTANTIATE_TEST_SUITE_P(Service,
+                         GLES2DecoderCompressedFormatsTest,
+                         ::testing::Bool());
 
 TEST_P(GLES2DecoderCompressedFormatsTest, GetCompressedTextureFormatsS3TC) {
   const GLenum formats[] = {
@@ -4406,9 +4339,9 @@ class GLES2DecoderTexStorageFormatAndTypeTest
   }
 };
 
-INSTANTIATE_TEST_CASE_P(Service,
-                        GLES2DecoderTexStorageFormatAndTypeTest,
-                        ::testing::Bool());
+INSTANTIATE_TEST_SUITE_P(Service,
+                         GLES2DecoderTexStorageFormatAndTypeTest,
+                         ::testing::Bool());
 
 TEST_P(GLES2DecoderTexStorageFormatAndTypeTest, ES2) {
   InitState init;

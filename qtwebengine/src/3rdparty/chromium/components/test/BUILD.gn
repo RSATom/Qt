@@ -3,8 +3,6 @@
 # found in the LICENSE file.
 
 import("//printing/buildflags/buildflags.gni")
-import("//services/catalog/public/tools/catalog.gni")
-import("//services/service_manager/public/service_manifest.gni")
 import("//ui/base/ui_features.gni")
 
 source_set("test_support") {
@@ -18,7 +16,6 @@ source_set("test_support") {
   deps = [
     "//components/content_settings/core/common",
     "//components/gcm_driver:gcm_driver",
-    "//components/signin/core/browser",
     "//mojo/core/embedder",
     "//net",
     "//testing/gtest",
@@ -45,10 +42,6 @@ source_set("test_support") {
     ]
 
     public_deps += [ "//content/test:test_support" ]
-  }
-
-  if (enable_mus) {
-    deps += [ "//ui/aura:test_support" ]
   }
 }
 

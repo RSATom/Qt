@@ -65,7 +65,7 @@ QT_BEGIN_NAMESPACE
 
     \section2 Importing GeoJSON
 
-    The method \l importGeoJson accepts a \l
+    The importGeoJson() method accepts a \l
     {http://doc.qt.io/qt-5/qjsondocument.html} {QJsonDocument} from which it
     extracts a single \l {https://tools.ietf.org/html/rfc7159} {JSON} object,
     since the GeoJSON RFC expects that a valid GeoJSON Document has in its root
@@ -503,9 +503,9 @@ QT_BEGIN_NAMESPACE
 
     \section2 Exporting GeoJSON
 
-    The exporter accepts the QVariantList returned by \l {The importer}, and
-    returns a JSON document. The exporter is complementary to the importer
-    because it executes the inverse action.
+    The exporter accepts the QVariantList returned by the \l {Importing GeoJSON}
+    {importer}, and returns a JSON document. The exporter is complementary to
+    the importer because it executes the inverse action.
 
     \section2 The toString function
 
@@ -1231,9 +1231,9 @@ QString printQvariant(const QVariant v, int tabs = 0) {
 }
 
 /*!
-This method accepts the QVariantLists structured like described in section \l
-{Importing GeoJSON}, and returns a string containing the same data in a
-readable form.
+  This method accepts the QVariantList \a geoData, structured as described in
+  \l {Importing GeoJSON}, and returns a string containing the same data in a
+  readable form.
 */
 QString QGeoJson::toString(const QVariantList &geoData) {
     return printQvariant(geoData.first(), 0);

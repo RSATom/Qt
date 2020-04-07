@@ -139,16 +139,17 @@ bool OnBeginJSONRequest(const std::string& path,
   return false;
 }
 
-bool OnTracingRequest(const std::string& path,
+bool OnShouldHandleRequest(const std::string& path) {
+  return base::StartsWith(path, "json/", base::CompareCase::SENSITIVE);
+}
+
+void OnTracingRequest(const std::string& path,
                       const WebUIDataSource::GotDataCallback& callback) {
-  if (base::StartsWith(path, "json/", base::CompareCase::SENSITIVE)) {
-    if (!OnBeginJSONRequest(path, callback)) {
-      std::string error("##ERROR##");
-      callback.Run(base::RefCountedString::TakeString(&error));
-    }
-    return true;
+  DCHECK(OnShouldHandleRequest(path));
+  if (!OnBeginJSONRequest(path, callback)) {
+    std::string error("##ERROR##");
+    callback.Run(base::RefCountedString::TakeString(&error));
   }
-  return false;
 }
 
 }  // namespace
@@ -162,8 +163,7 @@ bool OnTracingRequest(const std::string& path,
 
 TracingUI::TracingUI(WebUI* web_ui)
     : WebUIController(web_ui),
-      delegate_(GetContentClient()->browser()->GetTracingDelegate()),
-      weak_factory_(this) {
+      delegate_(GetContentClient()->browser()->GetTracingDelegate()) {
   web_ui->RegisterMessageCallback(
       "doUpload",
       base::BindRepeating(&TracingUI::DoUpload, base::Unretained(this)));
@@ -176,16 +176,11 @@ TracingUI::TracingUI(WebUI* web_ui)
       web_ui->GetWebContents()->GetBrowserContext();
 
   WebUIDataSource* source = WebUIDataSource::Create(kChromeUITracingHost);
-  source->UseGzip(base::BindRepeating([](const std::string& path) {
-    return path != "json/begin_recording" && path != "json/categories" &&
-           path != "json/end_recording_compressed" &&
-           path != "json/get_buffer_percent_full" &&
-           path != "json/get_buffer_status";
-  }));
   source->SetJsonPath("strings.js");
   source->SetDefaultResource(IDR_TRACING_HTML);
   source->AddResourcePath("tracing.js", IDR_TRACING_JS);
-  source->SetRequestFilter(base::Bind(OnTracingRequest));
+  source->SetRequestFilter(base::BindRepeating(OnShouldHandleRequest),
+                           base::BindRepeating(OnTracingRequest));
   WebUIDataSource::Add(browser_context, source);
   TracingControllerImpl::GetInstance()->RegisterTracingUI(this);
 }
@@ -262,7 +257,8 @@ bool TracingUI::GetTracingOptions(
     return false;
   }
 
-  std::unique_ptr<base::Value> optionsRaw = base::JSONReader::Read(data);
+  std::unique_ptr<base::Value> optionsRaw =
+      base::JSONReader::ReadDeprecated(data);
   if (!optionsRaw) {
     LOG(ERROR) << "Options were not valid JSON";
     return false;

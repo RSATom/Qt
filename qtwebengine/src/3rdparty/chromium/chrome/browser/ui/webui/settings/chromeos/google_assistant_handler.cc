@@ -6,13 +6,16 @@
 
 #include <utility>
 
-#include "ash/public/interfaces/assistant_controller.mojom.h"
-#include "ash/public/interfaces/constants.mojom.h"
+#include "ash/public/cpp/assistant/assistant_settings.h"
+#include "ash/public/cpp/assistant/assistant_setup.h"
 #include "base/bind.h"
+#include "base/bind_helpers.h"
 #include "base/values.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/webui/chromeos/assistant_optin/assistant_optin_ui.h"
+#include "chromeos/audio/cras_audio_handler.h"
 #include "chromeos/constants/chromeos_switches.h"
+#include "chromeos/services/assistant/public/mojom/constants.mojom.h"
 #include "components/arc/arc_prefs.h"
 #include "components/arc/arc_service_manager.h"
 #include "content/public/browser/browser_context.h"
@@ -23,12 +26,33 @@ namespace chromeos {
 namespace settings {
 
 GoogleAssistantHandler::GoogleAssistantHandler(Profile* profile)
-    : profile_(profile), weak_factory_(this) {}
+    : profile_(profile), weak_factory_(this) {
+  chromeos::CrasAudioHandler::Get()->AddAudioObserver(this);
+}
 
-GoogleAssistantHandler::~GoogleAssistantHandler() {}
+GoogleAssistantHandler::~GoogleAssistantHandler() {
+  chromeos::CrasAudioHandler::Get()->RemoveAudioObserver(this);
+}
 
-void GoogleAssistantHandler::OnJavascriptAllowed() {}
+void GoogleAssistantHandler::OnJavascriptAllowed() {
+  if (pending_hotword_update_) {
+    OnAudioNodesChanged();
+  }
+}
+
 void GoogleAssistantHandler::OnJavascriptDisallowed() {}
+
+void GoogleAssistantHandler::OnAudioNodesChanged() {
+  if (!IsJavascriptAllowed()) {
+    pending_hotword_update_ = true;
+    return;
+  }
+
+  pending_hotword_update_ = false;
+  FireWebUIListener(
+      "hotwordDeviceUpdated",
+      base::Value(chromeos::CrasAudioHandler::Get()->HasHotwordDevice()));
+}
 
 void GoogleAssistantHandler::RegisterMessages() {
   web_ui()->RegisterMessageCallback(
@@ -40,26 +64,42 @@ void GoogleAssistantHandler::RegisterMessages() {
       "retrainAssistantVoiceModel",
       base::BindRepeating(&GoogleAssistantHandler::HandleRetrainVoiceModel,
                           base::Unretained(this)));
+  web_ui()->RegisterMessageCallback(
+      "syncVoiceModelStatus",
+      base::BindRepeating(&GoogleAssistantHandler::HandleSyncVoiceModelStatus,
+                          base::Unretained(this)));
+  web_ui()->RegisterMessageCallback(
+      "initializeGoogleAssistantPage",
+      base::BindRepeating(&GoogleAssistantHandler::HandleInitialized,
+                          base::Unretained(this)));
 }
 
 void GoogleAssistantHandler::HandleShowGoogleAssistantSettings(
     const base::ListValue* args) {
   CHECK_EQ(0U, args->GetSize());
-  if (chromeos::switches::IsAssistantEnabled()) {
-    // Opens Google Assistant settings.
-    service_manager::Connector* connector =
-        content::BrowserContext::GetConnectorFor(profile_);
-    ash::mojom::AssistantControllerPtr assistant_controller;
-    connector->BindInterface(ash::mojom::kServiceName, &assistant_controller);
-    assistant_controller->OpenAssistantSettings();
-  }
+  if (chromeos::switches::IsAssistantEnabled())
+    ash::OpenAssistantSettings();
 }
 
 void GoogleAssistantHandler::HandleRetrainVoiceModel(
     const base::ListValue* args) {
   CHECK_EQ(0U, args->GetSize());
-  chromeos::AssistantOptInDialog::Show(
-      ash::mojom::FlowType::SPEAKER_ID_ENROLLMENT, base::DoNothing());
+  chromeos::AssistantOptInDialog::Show(ash::FlowType::kSpeakerIdRetrain,
+                                       base::DoNothing());
+}
+
+void GoogleAssistantHandler::HandleSyncVoiceModelStatus(
+    const base::ListValue* args) {
+  CHECK_EQ(0U, args->GetSize());
+  if (!settings_manager_.is_bound())
+    BindAssistantSettingsManager();
+
+  settings_manager_->SyncSpeakerIdEnrollmentStatus();
+}
+
+void GoogleAssistantHandler::HandleInitialized(const base::ListValue* args) {
+  CHECK_EQ(0U, args->GetSize());
+  AllowJavascript();
 }
 
 void GoogleAssistantHandler::BindAssistantSettingsManager() {

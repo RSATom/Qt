@@ -28,10 +28,11 @@
 
 #include "base/macros.h"
 #include "base/memory/scoped_refptr.h"
+#include "third_party/blink/public/platform/web_vector.h"
 #include "third_party/blink/renderer/platform/graphics/paint/paint_image.h"
 #include "third_party/blink/renderer/platform/image-decoders/segment_reader.h"
 #include "third_party/blink/renderer/platform/platform_export.h"
-#include "third_party/blink/renderer/platform/wtf/allocator.h"
+#include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 #include "third_party/skia/include/core/SkImageInfo.h"
 #include "third_party/skia/include/core/SkYUVAIndex.h"
 
@@ -59,15 +60,16 @@ class PLATFORM_EXPORT DecodingImageGenerator final
       scoped_refptr<ImageFrameGenerator>,
       const SkImageInfo&,
       scoped_refptr<SegmentReader>,
-      std::vector<FrameMetadata>,
+      WebVector<FrameMetadata>,
       PaintImage::ContentId,
-      bool all_data_received);
+      bool all_data_received,
+      bool is_eligible_for_accelerated_decoding,
+      bool can_yuv_decode);
 
   ~DecodingImageGenerator() override;
 
-  void SetCanYUVDecode(bool yes) { can_yuv_decode_ = yes; }
-
   // PaintImageGenerator implementation.
+  bool IsEligibleForAcceleratedDecoding() const override;
   sk_sp<SkData> GetEncodedData() const override;
   bool GetPixels(const SkImageInfo&,
                  void* pixels,
@@ -90,14 +92,17 @@ class PLATFORM_EXPORT DecodingImageGenerator final
   DecodingImageGenerator(scoped_refptr<ImageFrameGenerator>,
                          const SkImageInfo&,
                          scoped_refptr<SegmentReader>,
-                         std::vector<FrameMetadata>,
+                         WebVector<FrameMetadata>,
                          PaintImage::ContentId,
-                         bool all_data_received);
+                         bool all_data_received,
+                         bool is_eligible_for_accelerated_decoding,
+                         bool can_yuv_decode);
 
   scoped_refptr<ImageFrameGenerator> frame_generator_;
   const scoped_refptr<SegmentReader> data_;  // Data source.
   const bool all_data_received_;
-  bool can_yuv_decode_;
+  const bool is_eligible_for_accelerated_decoding_;
+  const bool can_yuv_decode_;
   const PaintImage::ContentId complete_frame_content_id_;
 
   DISALLOW_COPY_AND_ASSIGN(DecodingImageGenerator);

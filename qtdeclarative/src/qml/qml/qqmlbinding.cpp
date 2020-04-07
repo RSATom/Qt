@@ -49,6 +49,7 @@
 #include <private/qqmlbuiltinfunctions_p.h>
 #include <private/qqmlvmemetaobject_p.h>
 #include <private/qqmlvaluetypewrapper_p.h>
+#include <private/qv4qmlcontext_p.h>
 #include <private/qv4qobjectwrapper_p.h>
 #include <private/qv4variantobject_p.h>
 #include <private/qv4jscall_p.h>
@@ -297,8 +298,9 @@ protected:
             case QMetaType::Int:
                 if (result.isInteger())
                     return doStore<int>(result.integerValue(), pd, flags);
-                else if (result.isNumber())
-                    return doStore<int>(result.doubleValue(), pd, flags);
+                else if (result.isNumber()) {
+                    return doStore<int>(QV4::StaticValue::toInteger(result.doubleValue()), pd, flags);
+                }
                 break;
             case QMetaType::Double:
                 if (result.isNumber())
@@ -335,7 +337,7 @@ protected:
 
 class QQmlTranslationBinding : public GenericBinding<QMetaType::QString> {
 public:
-    QQmlTranslationBinding(const QQmlRefPointer<QV4::CompiledData::CompilationUnit> &compilationUnit, const QV4::CompiledData::Binding *binding)
+    QQmlTranslationBinding(const QQmlRefPointer<QV4::ExecutableCompilationUnit> &compilationUnit, const QV4::CompiledData::Binding *binding)
     {
         setCompilationUnit(compilationUnit);
         m_binding = binding;
@@ -356,7 +358,7 @@ public:
         if (!isAddedToObject() || hasError())
             return;
 
-        const QString result = m_binding->valueAsString(m_compilationUnit.data());
+        const QString result = m_compilationUnit->bindingValueAsString(m_binding);
 
         Q_ASSERT(targetObject());
 
@@ -378,7 +380,7 @@ private:
     const QV4::CompiledData::Binding *m_binding;
 };
 
-QQmlBinding *QQmlBinding::createTranslationBinding(const QQmlRefPointer<QV4::CompiledData::CompilationUnit> &unit, const QV4::CompiledData::Binding *binding, QObject *obj, QQmlContextData *ctxt)
+QQmlBinding *QQmlBinding::createTranslationBinding(const QQmlRefPointer<QV4::ExecutableCompilationUnit> &unit, const QV4::CompiledData::Binding *binding, QObject *obj, QQmlContextData *ctxt)
 {
     QQmlTranslationBinding *b = new QQmlTranslationBinding(unit, binding);
 
@@ -517,9 +519,9 @@ QString QQmlBinding::expressionIdentifier() const
 {
     if (auto f = function()) {
         QString url = f->sourceFile();
-        quint16 lineNumber = f->compiledFunction->location.line;
-        quint16 columnNumber = f->compiledFunction->location.column;
-        return url + QString::asprintf(":%u:%u", uint(lineNumber), uint(columnNumber));
+        uint lineNumber = f->compiledFunction->location.line;
+        uint columnNumber = f->compiledFunction->location.column;
+        return url + QString::asprintf(":%u:%u", lineNumber, columnNumber);
     }
 
     return QStringLiteral("[native code]");

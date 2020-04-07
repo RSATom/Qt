@@ -35,7 +35,8 @@ class CORE_EXPORT DevToolsSession
       mojom::blink::DevToolsSessionHostAssociatedPtrInfo host_ptr_info,
       mojom::blink::DevToolsSessionAssociatedRequest main_request,
       mojom::blink::DevToolsSessionRequest io_request,
-      mojom::blink::DevToolsSessionStatePtr reattach_session_state);
+      mojom::blink::DevToolsSessionStatePtr reattach_session_state,
+      bool client_expects_binary_responses);
   ~DevToolsSession() override;
 
   void ConnectToV8(v8_inspector::V8Inspector*, int context_group_id);
@@ -55,9 +56,13 @@ class CORE_EXPORT DevToolsSession
   class IOSession;
 
   // mojom::blink::DevToolsSession implementation.
-  void DispatchProtocolCommand(int call_id,
-                               const String& method,
-                               const String& message) override;
+  void DispatchProtocolCommand(
+      int call_id,
+      const String& method,
+      mojom::blink::DevToolsMessagePtr message) override;
+  void DispatchProtocolCommandImpl(int call_id,
+                                   const String& method,
+                                   Vector<uint8_t> message);
 
   // protocol::FrontendChannel implementation.
   void sendProtocolResponse(
@@ -67,7 +72,7 @@ class CORE_EXPORT DevToolsSession
       std::unique_ptr<protocol::Serializable> message) override;
   void fallThrough(int call_id,
                    const String& method,
-                   const String& message) override;
+                   const protocol::ProtocolMessage& message) override;
   void flushProtocolNotifications() override;
 
   // v8_inspector::V8Inspector::Channel implementation.
@@ -78,7 +83,8 @@ class CORE_EXPORT DevToolsSession
       std::unique_ptr<v8_inspector::StringBuffer> message) override;
 
   bool IsDetached();
-  void SendProtocolResponse(int call_id, const String& message);
+  void SendProtocolResponse(int call_id,
+                            const protocol::ProtocolMessage& message);
 
   Member<DevToolsAgent> agent_;
   mojo::AssociatedBinding<mojom::blink::DevToolsSession> binding_;
@@ -90,8 +96,9 @@ class CORE_EXPORT DevToolsSession
   HeapVector<Member<InspectorAgent>> agents_;
   class Notification;
   Vector<std::unique_ptr<Notification>> notification_queue_;
+  const bool client_expects_binary_responses_;
   InspectorAgentState v8_session_state_;
-  InspectorAgentState::String v8_session_state_json_;
+  InspectorAgentState::Bytes v8_session_state_cbor_;
 
   DISALLOW_COPY_AND_ASSIGN(DevToolsSession);
 };

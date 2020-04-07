@@ -1019,5 +1019,92 @@ Item {
             waitForRendering(layout);
             verify(layout.children[1].visible == false);
         }
+
+
+
+        Component {
+            id: gridlayout_propertyChanges_Component
+            GridLayout {
+                columns: 1
+                property alias spy : signalSpy
+                SignalSpy {
+                    id: signalSpy
+                    target: parent
+                }
+            }
+        }
+
+        Component {
+            id: rowlayout_propertyChanges_Component
+            RowLayout {
+                property alias spy : signalSpy
+                SignalSpy {
+                    id: signalSpy
+                    target: parent
+                }
+            }
+        }
+
+        function test_propertyChanges_data()
+        {
+            let data = [
+                { tag: "columnSpacing", value: 9 },
+                { tag: "rowSpacing", value: 9 },
+                { tag: "columns", value: 2 },
+                { tag: "rows", value: 2 },
+                { tag: "flow", value: GridLayout.TopToBottom},
+                { tag: "layoutDirection", value: Qt.RightToLeft },
+                { tag: "spacing", value: 9 }
+            ]
+            return data
+        }
+
+        function test_propertyChanges(data)
+        {
+            var propName = data.tag
+            var layout = createTemporaryObject(propName === "spacing"
+                                               ? rowlayout_propertyChanges_Component
+                                               : gridlayout_propertyChanges_Component
+                                               , container)
+
+            layout.spy.signalName = propName + "Changed"
+            verify(layout.spy.valid)
+
+            layout[propName] = data.value
+            compare(layout.spy.count, 1)
+        }
+
+        Component {
+            id: layout_columnIsOutsideGrid_Component
+            GridLayout {
+                columns: 2
+                Item {
+                    Layout.row: 0
+                    Layout.column: 1
+                }
+                Item {
+                    implicitWidth: 10
+                    implicitHeight: 10
+                    Layout.row: 0
+                    Layout.column: 2
+                }
+                Item {
+                    Layout.columnSpan: 2
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                }
+            }
+        }
+
+        function test_columnIsOutsideGrid()
+        {
+            ignoreWarning(/QML Item: Layout: column \(2\) should be less than the number of columns \(2\)/);
+            var layout = layout_columnIsOutsideGrid_Component.createObject(container);
+            layout.width = layout.implicitWidth
+            layout.height = layout.implicitHeight
+            waitForRendering(layout);
+            layout.destroy()
+        }
+
     }
 }

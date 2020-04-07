@@ -186,17 +186,6 @@ Mode ParseModeSettingLine(base::StringPiece line) {
   return Mode::kUnknown;
 }
 
-// True if the next token in the manifest line is the pattern indicator flag.
-//
-// Pattern URLs are a non-standard feature.
-bool NextTokenIsPatternMatchingFlag(base::StringPiece line) {
-  base::StringPiece is_pattern_token;
-  std::tie(is_pattern_token, line) = SplitLineToken(line);
-
-  static constexpr base::StringPiece kPatternFlag("isPattern");
-  return is_pattern_token == kPatternFlag;
-}
-
 // Parses a URL token in an AppCache manifest.
 //
 // The returned URL may not be valid, if the token does not represent a valid
@@ -352,14 +341,9 @@ bool ParseManifest(const GURL& manifest_url,
       if (mode == Mode::kExplicit) {
         manifest.explicit_urls.insert(namespace_url.spec());
       } else {
-        // Chrome supports URL patterns in manifests. This is not standardized.
-        // An URL record followed by the "isPattern" token is considered a
-        // pattern.
-
-        // TODO(pwnall): Add a UMA metric to see if we can remove this feature.
-        bool is_pattern = NextTokenIsPatternMatchingFlag(line);
-        manifest.online_whitelist_namespaces.emplace_back(AppCacheNamespace(
-            APPCACHE_NETWORK_NAMESPACE, namespace_url, GURL(), is_pattern));
+        manifest.online_whitelist_namespaces.emplace_back(
+            AppCacheNamespace(APPCACHE_NETWORK_NAMESPACE, namespace_url, GURL(),
+                              /*is_pattern=*/false));
       }
       continue;
     }
@@ -396,10 +380,9 @@ bool ParseManifest(const GURL& manifest_url,
       if (manifest_url.GetOrigin() != target_url.GetOrigin())
         continue;
 
-      // TODO(pwnall): Add a UMA metric to see if we can remove this feature.
-      bool is_pattern = NextTokenIsPatternMatchingFlag(line);
-      manifest.intercept_namespaces.emplace_back(
-          APPCACHE_INTERCEPT_NAMESPACE, namespace_url, target_url, is_pattern);
+      manifest.intercept_namespaces.emplace_back(APPCACHE_INTERCEPT_NAMESPACE,
+                                                 namespace_url, target_url,
+                                                 /*is_pattern=*/false);
       continue;
     }
 
@@ -425,14 +408,11 @@ bool ParseManifest(const GURL& manifest_url,
       if (manifest_url.GetOrigin() != fallback_url.GetOrigin())
         continue;
 
-      // TODO(pwnall): Add a UMA metric to see if we can remove this feature.
-      bool is_pattern = NextTokenIsPatternMatchingFlag(line);
-
       // Store regardless of duplicate namespace URL. Only the first match will
       // ever be used.
-      manifest.fallback_namespaces.emplace_back(
-          AppCacheNamespace(APPCACHE_FALLBACK_NAMESPACE, namespace_url,
-                            fallback_url, is_pattern));
+      manifest.fallback_namespaces.emplace_back(APPCACHE_FALLBACK_NAMESPACE,
+                                                namespace_url, fallback_url,
+                                                /*is_pattern=*/false);
       continue;
     }
 

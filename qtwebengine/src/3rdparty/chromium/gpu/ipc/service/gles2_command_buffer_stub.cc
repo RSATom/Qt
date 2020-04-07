@@ -9,7 +9,7 @@
 
 #include "base/bind.h"
 #include "base/bind_helpers.h"
-#include "base/hash.h"
+#include "base/hash/hash.h"
 #include "base/json/json_writer.h"
 #include "base/macros.h"
 #include "base/memory/memory_pressure_listener.h"
@@ -26,6 +26,7 @@
 #include "gpu/command_buffer/common/swap_buffers_flags.h"
 #include "gpu/command_buffer/service/gl_context_virtual.h"
 #include "gpu/command_buffer/service/gl_state_restorer_impl.h"
+#include "gpu/command_buffer/service/gpu_fence_manager.h"
 #include "gpu/command_buffer/service/image_manager.h"
 #include "gpu/command_buffer/service/logger.h"
 #include "gpu/command_buffer/service/mailbox_manager.h"
@@ -41,6 +42,8 @@
 #include "gpu/ipc/service/gpu_memory_buffer_factory.h"
 #include "gpu/ipc/service/gpu_watchdog_thread.h"
 #include "gpu/ipc/service/image_transport_surface.h"
+#include "ui/gfx/gpu_fence.h"
+#include "ui/gfx/gpu_fence_handle.h"
 #include "ui/gl/gl_bindings.h"
 #include "ui/gl/gl_context.h"
 #include "ui/gl/gl_image.h"
@@ -51,10 +54,6 @@
 
 #if defined(OS_WIN)
 #include "base/win/win_util.h"
-#endif
-
-#if defined(OS_ANDROID)
-#include "gpu/ipc/service/stream_texture_android.h"
 #endif
 
 namespace gpu {
@@ -72,8 +71,7 @@ GLES2CommandBufferStub::GLES2CommandBufferStub(
                         sequence_id,
                         stream_id,
                         route_id),
-      gles2_decoder_(nullptr),
-      weak_ptr_factory_(this) {}
+      gles2_decoder_(nullptr) {}
 
 GLES2CommandBufferStub::~GLES2CommandBufferStub() {}
 
@@ -82,15 +80,25 @@ gpu::ContextResult GLES2CommandBufferStub::Initialize(
     const GPUCreateCommandBufferConfig& init_params,
     base::UnsafeSharedMemoryRegion shared_state_shm) {
   TRACE_EVENT0("gpu", "GLES2CommandBufferStub::Initialize");
-  FastSetActiveURL(active_url_, active_url_hash_, channel_);
+  UpdateActiveUrl();
 
   GpuChannelManager* manager = channel_->gpu_channel_manager();
   DCHECK(manager);
 
   if (share_command_buffer_stub) {
-    context_group_ = share_command_buffer_stub->context_group();
-    DCHECK(context_group_->bind_generates_resource() ==
-           init_params.attribs.bind_generates_resource);
+    context_group_ =
+        share_command_buffer_stub->decoder_context()->GetContextGroup();
+    if (!context_group_) {
+      LOG(ERROR) << "ContextResult::kFatalFailure: attempt to create a GLES2 "
+                    "context sharing with a non-GLES2 context";
+      return gpu::ContextResult::kFatalFailure;
+    }
+    if (context_group_->bind_generates_resource() !=
+        init_params.attribs.bind_generates_resource) {
+      LOG(ERROR) << "ContextResult::kFatalFailure: attempt to create a shared "
+                    "GLES2 context with inconsistent bind_generates_resource";
+      return gpu::ContextResult::kFatalFailure;
+    }
   } else {
     scoped_refptr<gles2::FeatureInfo> feature_info = new gles2::FeatureInfo(
         manager->gpu_driver_bug_workarounds(), manager->gpu_feature_info());
@@ -110,10 +118,10 @@ gpu::ContextResult GLES2CommandBufferStub::Initialize(
   }
 
 #if defined(OS_MACOSX)
-  // Virtualize PreferIntegratedGpu contexts by default on OS X to prevent
+  // Virtualize GpuPreference::kLowPower contexts by default on OS X to prevent
   // performance regressions when enabling FCM.
   // http://crbug.com/180463
-  if (init_params.attribs.gpu_preference == gl::PreferIntegratedGpu)
+  if (init_params.attribs.gpu_preference == gl::GpuPreference::kLowPower)
     use_virtualized_gl_context_ = true;
 #endif
 
@@ -157,7 +165,7 @@ gpu::ContextResult GLES2CommandBufferStub::Initialize(
 #endif
 
   command_buffer_ = std::make_unique<CommandBufferService>(
-      this, context_group_->transfer_buffer_manager());
+      this, context_group_->memory_tracker());
   gles2_decoder_ = gles2::GLES2Decoder::Create(
       this, command_buffer_.get(), manager->outputter(), context_group_.get());
   set_decoder_context(std::unique_ptr<DecoderContext>(gles2_decoder_));
@@ -316,7 +324,11 @@ gpu::ContextResult GLES2CommandBufferStub::Initialize(
     return gpu::ContextResult::kTransientFailure;
   }
 
-  if (!context->GetGLStateRestorer()) {
+  // The GLStateRestorer is not used with the passthrough command decoder
+  // because not all state is tracked in the decoder. Virtualized contexts are
+  // also not used.
+  if (!context->GetGLStateRestorer() &&
+      !context_group_->use_passthrough_cmd_decoder()) {
     context->SetGLStateRestorer(
         new GLStateRestorerImpl(gles2_decoder_->AsWeakPtr()));
   }
@@ -351,7 +363,7 @@ gpu::ContextResult GLES2CommandBufferStub::Initialize(
       std::move(shared_state_shm), std::move(shared_state_mapping)));
 
   if (offscreen && !active_url_.is_empty())
-    manager->delegate()->DidCreateOffscreenContext(active_url_);
+    manager->delegate()->DidCreateOffscreenContext(active_url_.url());
 
   if (use_virtualized_gl_context_) {
     // If virtualized GL contexts are in use, then real GL context state
@@ -407,21 +419,34 @@ void GLES2CommandBufferStub::BufferPresented(
                                                feedback));
 }
 
-void GLES2CommandBufferStub::AddFilter(IPC::MessageFilter* message_filter) {
-  return channel_->AddFilter(message_filter);
+viz::GpuVSyncCallback GLES2CommandBufferStub::GetGpuVSyncCallback() {
+  return viz::GpuVSyncCallback();
 }
 
-int32_t GLES2CommandBufferStub::GetRouteID() const {
-  return route_id_;
+MemoryTracker* GLES2CommandBufferStub::GetMemoryTracker() const {
+  return context_group_->memory_tracker();
+}
+
+bool GLES2CommandBufferStub::HandleMessage(const IPC::Message& message) {
+  bool handled = true;
+  IPC_BEGIN_MESSAGE_MAP(GLES2CommandBufferStub, message)
+    IPC_MESSAGE_HANDLER(GpuCommandBufferMsg_TakeFrontBuffer, OnTakeFrontBuffer);
+    IPC_MESSAGE_HANDLER(GpuCommandBufferMsg_ReturnFrontBuffer,
+                        OnReturnFrontBuffer);
+    IPC_MESSAGE_HANDLER(GpuCommandBufferMsg_CreateImage, OnCreateImage);
+    IPC_MESSAGE_HANDLER(GpuCommandBufferMsg_DestroyImage, OnDestroyImage);
+    IPC_MESSAGE_HANDLER(GpuCommandBufferMsg_CreateGpuFenceFromHandle,
+                        OnCreateGpuFenceFromHandle)
+    IPC_MESSAGE_HANDLER(GpuCommandBufferMsg_GetGpuFenceHandle,
+                        OnGetGpuFenceHandle)
+    IPC_MESSAGE_UNHANDLED(handled = false)
+  IPC_END_MESSAGE_MAP()
+  return handled;
 }
 
 void GLES2CommandBufferStub::OnTakeFrontBuffer(const Mailbox& mailbox) {
   TRACE_EVENT0("gpu", "CommandBufferStub::OnTakeFrontBuffer");
-  if (!gles2_decoder_) {
-    LOG(ERROR) << "Can't take front buffer before initialization.";
-    return;
-  }
-
+  DCHECK(gles2_decoder_);
   gles2_decoder_->TakeFrontBuffer(mailbox);
 }
 
@@ -430,6 +455,98 @@ void GLES2CommandBufferStub::OnReturnFrontBuffer(const Mailbox& mailbox,
   // No need to pull texture updates.
   DCHECK(!context_group_->mailbox_manager()->UsesSync());
   gles2_decoder_->ReturnFrontBuffer(mailbox, is_lost);
+}
+
+void GLES2CommandBufferStub::OnCreateGpuFenceFromHandle(
+    uint32_t gpu_fence_id,
+    const gfx::GpuFenceHandle& handle) {
+  if (!context_group_->feature_info()->feature_flags().chromium_gpu_fence) {
+    DLOG(ERROR) << "CHROMIUM_gpu_fence unavailable";
+    command_buffer_->SetParseError(error::kLostContext);
+    return;
+  }
+
+  if (gles2_decoder_->GetGpuFenceManager()->CreateGpuFenceFromHandle(
+          gpu_fence_id, handle))
+    return;
+
+  // The insertion failed. This shouldn't happen, force context loss to avoid
+  // inconsistent state.
+  command_buffer_->SetParseError(error::kLostContext);
+  CheckContextLost();
+}
+
+void GLES2CommandBufferStub::OnGetGpuFenceHandle(uint32_t gpu_fence_id) {
+  if (!context_group_->feature_info()->feature_flags().chromium_gpu_fence) {
+    DLOG(ERROR) << "CHROMIUM_gpu_fence unavailable";
+    command_buffer_->SetParseError(error::kLostContext);
+    return;
+  }
+
+  auto* manager = gles2_decoder_->GetGpuFenceManager();
+  gfx::GpuFenceHandle handle;
+  if (manager->IsValidGpuFence(gpu_fence_id)) {
+    std::unique_ptr<gfx::GpuFence> gpu_fence =
+        manager->GetGpuFence(gpu_fence_id);
+    handle = gfx::CloneHandleForIPC(gpu_fence->GetGpuFenceHandle());
+  } else {
+    // Retrieval failed. This shouldn't happen, force context loss to avoid
+    // inconsistent state.
+    DLOG(ERROR) << "GpuFence not found";
+    command_buffer_->SetParseError(error::kLostContext);
+    CheckContextLost();
+  }
+  Send(new GpuCommandBufferMsg_GetGpuFenceHandleComplete(route_id_,
+                                                         gpu_fence_id, handle));
+}
+
+void GLES2CommandBufferStub::OnCreateImage(
+    GpuCommandBufferMsg_CreateImage_Params params) {
+  TRACE_EVENT0("gpu", "GLES2CommandBufferStub::OnCreateImage");
+  const int32_t id = params.id;
+  const gfx::Size& size = params.size;
+  const gfx::BufferFormat& format = params.format;
+  const uint64_t image_release_count = params.image_release_count;
+
+  gles2::ImageManager* image_manager = channel_->image_manager();
+  DCHECK(image_manager);
+  if (image_manager->LookupImage(id)) {
+    LOG(ERROR) << "Image already exists with same ID.";
+    return;
+  }
+
+  if (!gpu::IsImageFromGpuMemoryBufferFormatSupported(
+          format, gles2_decoder_->GetCapabilities())) {
+    LOG(ERROR) << "Format is not supported.";
+    return;
+  }
+
+  if (!gpu::IsImageSizeValidForGpuMemoryBufferFormat(size, format)) {
+    LOG(ERROR) << "Invalid image size for format.";
+    return;
+  }
+
+  scoped_refptr<gl::GLImage> image = channel()->CreateImageForGpuMemoryBuffer(
+      std::move(params.gpu_memory_buffer), size, format, surface_handle_);
+  if (!image.get())
+    return;
+
+  image_manager->AddImage(image.get(), id);
+  if (image_release_count)
+    sync_point_client_state_->ReleaseFenceSync(image_release_count);
+}
+
+void GLES2CommandBufferStub::OnDestroyImage(int32_t id) {
+  TRACE_EVENT0("gpu", "GLES2CommandBufferStub::OnDestroyImage");
+
+  gles2::ImageManager* image_manager = channel_->image_manager();
+  DCHECK(image_manager);
+  if (!image_manager->LookupImage(id)) {
+    LOG(ERROR) << "Image with ID doesn't exist.";
+    return;
+  }
+
+  image_manager->RemoveImage(id);
 }
 
 void GLES2CommandBufferStub::OnSwapBuffers(uint64_t swap_id, uint32_t flags) {

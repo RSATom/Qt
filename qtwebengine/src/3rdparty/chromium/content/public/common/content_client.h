@@ -13,6 +13,7 @@
 #include "base/strings/string_piece.h"
 #include "build/build_config.h"
 #include "content/common/content_export.h"
+#include "mojo/public/cpp/system/message_pipe.h"
 #include "ui/base/layout.h"
 #include "url/gurl.h"
 #include "url/origin.h"
@@ -51,7 +52,6 @@ class ContentClient;
 class ContentGpuClient;
 class ContentRendererClient;
 class ContentUtilityClient;
-class ServiceManagerConnection;
 struct CdmInfo;
 struct PepperPluginInfo;
 
@@ -135,9 +135,6 @@ class CONTENT_EXPORT ContentClient {
     std::vector<std::string> csp_bypassing_schemes;
     // See https://www.w3.org/TR/powerful-features/#is-origin-trustworthy.
     std::vector<std::string> secure_schemes;
-    // Registers a serialized origin or a hostname pattern that should be
-    // considered trustworthy.
-    std::vector<std::string> secure_origins;
     // Registers a URL scheme as strictly empty documents, allowing them to
     // commit synchronously.
     std::vector<std::string> empty_document_schemes;
@@ -154,19 +151,25 @@ class CONTENT_EXPORT ContentClient {
   virtual bool CanSendWhileSwappedOut(const IPC::Message* message);
 
   // Returns a string resource given its id.
-  virtual base::string16 GetLocalizedString(int message_id) const;
+  virtual base::string16 GetLocalizedString(int message_id);
+
+  // Returns a string resource given its id and replace $1 with the given
+  // replacement.
+  virtual base::string16 GetLocalizedString(int message_id,
+                                            const base::string16& replacement);
 
   // Return the contents of a resource in a StringPiece given the resource id.
-  virtual base::StringPiece GetDataResource(
-      int resource_id,
-      ui::ScaleFactor scale_factor) const;
+  virtual base::StringPiece GetDataResource(int resource_id,
+                                            ui::ScaleFactor scale_factor);
 
   // Returns the raw bytes of a scale independent data resource.
-  virtual base::RefCountedMemory* GetDataResourceBytes(
-      int resource_id) const;
+  virtual base::RefCountedMemory* GetDataResourceBytes(int resource_id);
+
+  // Returns whether the contents of a resource are compressed (with gzip).
+  virtual bool IsDataResourceGzipped(int resource_id);
 
   // Returns a native image given its id.
-  virtual gfx::Image& GetNativeImageNamed(int resource_id) const;
+  virtual gfx::Image& GetNativeImageNamed(int resource_id);
 
   // Called by content::GetProcessTypeNameInEnglish for process types that it
   // doesn't know about because they're from the embedder.
@@ -178,11 +181,12 @@ class CONTENT_EXPORT ContentClient {
   // |GetNetConstants()| and passed to FileNetLogObserver - see documentation
   // of |FileNetLogObserver::CreateBounded()| for more information.  The
   // convention is to put new constants under a subdict at the key "clientInfo".
-  virtual base::DictionaryValue GetNetLogConstants() const;
+  virtual base::DictionaryValue GetNetLogConstants();
 
   // Returns whether or not V8 script extensions should be allowed for a
   // service worker.
-  virtual bool AllowScriptExtensionForServiceWorker(const GURL& script_url);
+  virtual bool AllowScriptExtensionForServiceWorker(
+      const url::Origin& script_origin);
 
   // Returns the origin trial policy, or nullptr if origin trials are not
   // supported by the embedder.
@@ -198,7 +202,11 @@ class CONTENT_EXPORT ContentClient {
   virtual media::MediaDrmBridgeClient* GetMediaDrmBridgeClient();
 #endif  // OS_ANDROID
 
-  virtual void OnServiceManagerConnected(ServiceManagerConnection* connection);
+  // Allows the embedder to handle incoming interface binding requests from
+  // the browser process to any type of child process.
+  virtual void BindChildProcessInterface(
+      const std::string& interface_name,
+      mojo::ScopedMessagePipeHandle* receiving_handle);
 
  private:
   friend class ContentClientInitializer;  // To set these pointers.

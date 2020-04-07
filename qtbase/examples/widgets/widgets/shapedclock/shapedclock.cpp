@@ -48,14 +48,20 @@
 **
 ****************************************************************************/
 
-#include <QtWidgets>
-
 #include "shapedclock.h"
+
+#include <QAction>
+#include <QCoreApplication>
+#include <QMouseEvent>
+#include <QPainter>
+#include <QTime>
+#include <QTimer>
 
 //! [0]
 ShapedClock::ShapedClock(QWidget *parent)
     : QWidget(parent, Qt::FramelessWindowHint | Qt::WindowSystemMenuHint)
 {
+    setAttribute(Qt::WA_TranslucentBackground);
     QTimer *timer = new QTimer(this);
     connect(timer, &QTimer::timeout, this, QOverload<>::of(&ShapedClock::update));
     timer->start(1000);
@@ -118,6 +124,10 @@ void ShapedClock::paintEvent(QPaintEvent *)
     painter.scale(side / 200.0, side / 200.0);
 
     painter.setPen(Qt::NoPen);
+    painter.setBrush(palette().window());
+    painter.drawEllipse(QPoint(0, 0), 98, 98);
+
+    painter.setPen(Qt::NoPen);
     painter.setBrush(hourColor);
 
     painter.save();
@@ -163,6 +173,6 @@ void ShapedClock::resizeEvent(QResizeEvent * /* event */)
 //! [5]
 QSize ShapedClock::sizeHint() const
 {
-    return QSize(100, 100);
+    return QSize(200, 200);
 }
 //! [5]

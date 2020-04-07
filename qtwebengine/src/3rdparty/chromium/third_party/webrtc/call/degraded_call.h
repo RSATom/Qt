@@ -13,6 +13,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+
 #include <memory>
 
 #include "absl/types/optional.h"
@@ -32,13 +33,37 @@
 #include "call/simulated_network.h"
 #include "call/video_receive_stream.h"
 #include "call/video_send_stream.h"
+#include "modules/include/module.h"
 #include "modules/utility/include/process_thread.h"
-#include "rtc_base/bitrate_allocation_strategy.h"
 #include "rtc_base/copy_on_write_buffer.h"
 #include "rtc_base/network/sent_packet.h"
 #include "system_wrappers/include/clock.h"
 
 namespace webrtc {
+class FakeNetworkPipeModule : public Module {
+ public:
+  FakeNetworkPipeModule(
+      Clock* clock,
+      std::unique_ptr<NetworkBehaviorInterface> network_behavior,
+      Transport* transport);
+  ~FakeNetworkPipeModule() override;
+  void SendRtp(const uint8_t* packet,
+               size_t length,
+               const PacketOptions& options);
+  void SendRtcp(const uint8_t* packet, size_t length);
+
+  // Implements Module interface
+  int64_t TimeUntilNextProcess() override;
+  void ProcessThreadAttached(ProcessThread* process_thread) override;
+  void Process() override;
+
+ private:
+  void MaybeResumeProcess();
+  FakeNetworkPipe pipe_;
+  rtc::CriticalSection process_thread_lock_;
+  ProcessThread* process_thread_ RTC_GUARDED_BY(process_thread_lock_) = nullptr;
+  bool pending_process_ RTC_GUARDED_BY(process_thread_lock_) = false;
+};
 
 class DegradedCall : public Call, private Transport, private PacketReceiver {
  public:
@@ -81,10 +106,6 @@ class DegradedCall : public Call, private Transport, private PacketReceiver {
 
   Stats GetStats() const override;
 
-  void SetBitrateAllocationStrategy(
-      std::unique_ptr<rtc::BitrateAllocationStrategy>
-          bitrate_allocation_strategy) override;
-
   void SignalChannelNetworkState(MediaType media, NetworkState state) override;
   void OnAudioTransportOverheadChanged(
       int transport_overhead_per_packet) override;
@@ -108,10 +129,12 @@ class DegradedCall : public Call, private Transport, private PacketReceiver {
   const std::unique_ptr<Call> call_;
 
   void MediaTransportChange(MediaTransportInterface* media_transport) override;
+  void SetClientBitratePreferences(
+      const webrtc::BitrateSettings& preferences) override {}
   const absl::optional<BuiltInNetworkBehaviorConfig> send_config_;
   const std::unique_ptr<ProcessThread> send_process_thread_;
   SimulatedNetwork* send_simulated_network_;
-  std::unique_ptr<FakeNetworkPipe> send_pipe_;
+  std::unique_ptr<FakeNetworkPipeModule> send_pipe_;
   size_t num_send_streams_;
 
   const absl::optional<BuiltInNetworkBehaviorConfig> receive_config_;

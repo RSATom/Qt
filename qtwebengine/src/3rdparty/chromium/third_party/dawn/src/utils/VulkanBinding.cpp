@@ -20,17 +20,15 @@
 // Include GLFW after VulkanBackend so that it declares the Vulkan-specific functions
 #include "GLFW/glfw3.h"
 
+#include <memory>
+
 namespace utils {
 
     class VulkanBinding : public BackendBinding {
       public:
-        void SetupGLFWWindowHints() override {
-            glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
+        VulkanBinding(GLFWwindow* window, DawnDevice device) : BackendBinding(window, device) {
         }
-        dawnDevice CreateDevice() override {
-            mDevice = dawn_native::vulkan::CreateDevice();
-            return mDevice;
-        }
+
         uint64_t GetSwapChainImplementation() override {
             if (mSwapchainImpl.userData == nullptr) {
                 VkSurfaceKHR surface = VK_NULL_HANDLE;
@@ -43,18 +41,17 @@ namespace utils {
             }
             return reinterpret_cast<uint64_t>(&mSwapchainImpl);
         }
-        dawnTextureFormat GetPreferredSwapChainTextureFormat() override {
+        DawnTextureFormat GetPreferredSwapChainTextureFormat() override {
             ASSERT(mSwapchainImpl.userData != nullptr);
             return dawn_native::vulkan::GetNativeSwapChainPreferredFormat(&mSwapchainImpl);
         }
 
       private:
-        dawnDevice mDevice;
-        dawnSwapChainImplementation mSwapchainImpl = {};
+        DawnSwapChainImplementation mSwapchainImpl = {};
     };
 
-    BackendBinding* CreateVulkanBinding() {
-        return new VulkanBinding;
+    BackendBinding* CreateVulkanBinding(GLFWwindow* window, DawnDevice device) {
+        return new VulkanBinding(window, device);
     }
 
 }  // namespace utils

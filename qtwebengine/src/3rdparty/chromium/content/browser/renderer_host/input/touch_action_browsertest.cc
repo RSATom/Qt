@@ -11,6 +11,7 @@
 #include "base/macros.h"
 #include "base/run_loop.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/test/bind_test_util.h"
 #include "base/test/scoped_feature_list.h"
 #include "build/build_config.h"
 #include "content/browser/renderer_host/input/synthetic_gesture.h"
@@ -31,6 +32,7 @@
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/content_browser_test.h"
 #include "content/public/test/content_browser_test_utils.h"
+#include "content/public/test/hit_test_region_observer.h"
 #include "content/public/test/test_utils.h"
 #include "content/shell/browser/shell.h"
 #include "third_party/blink/public/platform/web_input_event.h"
@@ -167,11 +169,12 @@ class TouchActionBrowserTest : public ContentBrowserTest,
     TitleWatcher watcher(shell()->web_contents(), ready_title);
     ignore_result(watcher.WaitAndGetTitle());
 
-    // We need to wait until at least one frame has been composited
-    // otherwise the injection of the synthetic gestures may get
-    // dropped because of MainThread/Impl thread sync of touch event
-    // regions.
-    frame_observer_->WaitForAnyFrameSubmission();
+    // We need to wait until hit test data is available. We use our own
+    // HitTestRegionObserver here, rather than
+    // WaitForHitTestDataOrChildSurfaceReady, because we have the
+    // RenderWidgetHostImpl available.
+    HitTestRegionObserver observer(host->GetFrameSinkId());
+    observer.WaitForHitTestData();
   }
 
   // ContentBrowserTest:
@@ -287,6 +290,8 @@ class TouchActionBrowserTest : public ContentBrowserTest,
     DCHECK(URLLoaded());
     EXPECT_EQ(0, GetScrollTop());
 
+    EnsureInitializedForSyntheticGestures();
+
     int scroll_height =
         ExecuteScriptAndExtractInt("document.documentElement.scrollHeight");
     EXPECT_EQ(expected_scroll_height_after_scroll, scroll_height);
@@ -348,10 +353,10 @@ class TouchActionBrowserTest : public ContentBrowserTest,
         )HTML";
 
     base::JSONReader json_reader;
-    std::unique_ptr<base::Value> params =
+    base::Optional<base::Value> params =
         json_reader.ReadToValue(pointer_actions_json);
-    ASSERT_TRUE(params.get()) << json_reader.GetErrorMessage();
-    ActionsParser actions_parser(params.get());
+    ASSERT_TRUE(params.has_value()) << json_reader.GetErrorMessage();
+    ActionsParser actions_parser(std::move(params.value()));
 
     ASSERT_TRUE(actions_parser.ParsePointerActionSequence());
 
@@ -378,7 +383,7 @@ class TouchActionBrowserTest : public ContentBrowserTest,
           "actions": [
             { "name": "pointerDown", "x": 50, "y": 50 },
             { "name": "pointerUp" },
-            { "name": "pause", "duration": 0.05 },
+            { "name": "pause", "duration": 50 },
             { "name": "pointerDown", "x": 50, "y": 50 },
             { "name": "pointerMove", "x": 50, "y": 150 },
             { "name": "pointerUp" }
@@ -387,10 +392,10 @@ class TouchActionBrowserTest : public ContentBrowserTest,
         )HTML";
 
     base::JSONReader json_reader;
-    std::unique_ptr<base::Value> params =
+    base::Optional<base::Value> params =
         json_reader.ReadToValue(pointer_actions_json);
-    ASSERT_TRUE(params.get()) << json_reader.GetErrorMessage();
-    ActionsParser actions_parser(params.get());
+    ASSERT_TRUE(params.has_value()) << json_reader.GetErrorMessage();
+    ActionsParser actions_parser(std::move(params.value()));
 
     ASSERT_TRUE(actions_parser.ParsePointerActionSequence());
 
@@ -404,6 +409,22 @@ class TouchActionBrowserTest : public ContentBrowserTest,
     // Runs until we get the OnSyntheticGestureCompleted callback
     run_loop_->Run();
     run_loop_.reset();
+  }
+
+  // Sends a no-op gesture to the page to ensure the SyntheticGestureController
+  // is initialized. We need to do this if the first sent gesture happens when
+  // the main thread is janked, otherwise the initialization won't happen
+  // because of the blocked main thread.
+  void EnsureInitializedForSyntheticGestures() {
+    DCHECK(URLLoaded());
+
+    base::RunLoop run_loop;
+
+    GetWidgetHost()->EnsureReadyForSyntheticGestures(
+        base::BindLambdaForTesting([&]() { run_loop.Quit(); }));
+
+    // Runs until we get the OnSyntheticGestureCompleted callback
+    run_loop.Run();
   }
 
   void CheckScrollOffset(
@@ -456,7 +477,7 @@ class TouchActionBrowserTest : public ContentBrowserTest,
   DISALLOW_COPY_AND_ASSIGN(TouchActionBrowserTest);
 };
 
-INSTANTIATE_TEST_CASE_P(, TouchActionBrowserTest, testing::Bool());
+INSTANTIATE_TEST_SUITE_P(, TouchActionBrowserTest, testing::Bool());
 
 #if !defined(NDEBUG) || defined(ADDRESS_SANITIZER) ||       \
     defined(MEMORY_SANITIZER) || defined(LEAK_SANITIZER) || \
@@ -684,13 +705,6 @@ IN_PROC_BROWSER_TEST_P(TouchActionBrowserTest, BlockDoubleTapDragZoom) {
   ASSERT_EQ(1, ExecuteScriptAndExtractDouble("window.visualViewport.scale"));
 
   DoDoubleTapDragZoom();
-
-  // Since we don't expect anything to change, we don't know how long to wait
-  // before we're sure the zoom was blocked.  Do a scroll so that we can wait
-  // until the offset changes. At that point, we know the zoom should have
-  // taken effect if it wasn't blocked by touch-action.
-  DoTouchScroll(gfx::Point(300, 300), gfx::Vector2d(0, 200), true, 10075,
-                gfx::Vector2d(0, 200), kNoJankTime);
 
   EXPECT_EQ(1, ExecuteScriptAndExtractDouble("window.visualViewport.scale"));
 }

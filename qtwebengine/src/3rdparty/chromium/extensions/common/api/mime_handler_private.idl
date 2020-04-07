@@ -28,7 +28,6 @@
     boolean embedded;
   };
 
-  callback AbortCallback = void ();
   callback GetStreamDetailsCallback = void (StreamInfo streamInfo);
   callback SetShowBeforeUnloadDialogCallback = void ();
 
@@ -36,13 +35,16 @@
     // Returns the StreamInfo for the stream for this context if there is one.
     [nocompile] static void getStreamInfo(GetStreamDetailsCallback callback);
 
-    // Aborts the stream for this context if there is one.
-    [nocompile] static void abortStream(optional AbortCallback callback);
-
     // Instructs the PluginDocument, if running in one, to show a dialog in
     // response to beforeunload events.
     [nocompile] static void setShowBeforeUnloadDialog(
         boolean showDialog,
         optional SetShowBeforeUnloadDialogCallback callback);
+  };
+
+  interface Events {
+    // Fired when the browser wants the listener to perform a save.
+    // |streamUrl|: Unique ID for the instance that should perform the save.
+    static void onSave(DOMString streamUrl);
   };
 };

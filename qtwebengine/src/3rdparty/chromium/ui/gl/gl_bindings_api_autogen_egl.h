@@ -8,9 +8,9 @@
 //    clang-format -i -style=chromium filename
 // DO NOT EDIT!
 
-// The following line silences a presubmit warning that would otherwise be
-// triggered by this:
+// Silence presubmit and Tricium warnings about include guards
 // no-include-guard-because-multiply-included
+// NOLINT(build/header_guard)
 
 EGLBoolean eglBindAPIFn(EGLenum api) override;
 EGLBoolean eglBindTexImageFn(EGLDisplay dpy,
@@ -116,9 +116,9 @@ EGLClientBuffer eglGetNativeClientBufferANDROIDFn(
 EGLBoolean eglGetNextFrameIdANDROIDFn(EGLDisplay dpy,
                                       EGLSurface surface,
                                       EGLuint64KHR* frameId) override;
-EGLDisplay eglGetPlatformDisplayEXTFn(EGLenum platform,
-                                      void* native_display,
-                                      const EGLint* attrib_list) override;
+EGLDisplay eglGetPlatformDisplayFn(EGLenum platform,
+                                   void* native_display,
+                                   const EGLAttrib* attrib_list) override;
 __eglMustCastToProperFunctionPointerType eglGetProcAddressFn(
     const char* procname) override;
 EGLBoolean eglGetSyncAttribKHRFn(EGLDisplay dpy,
@@ -156,6 +156,9 @@ EGLBoolean eglQueryContextFn(EGLDisplay dpy,
                              EGLint attribute,
                              EGLint* value) override;
 EGLBoolean eglQueryDebugKHRFn(EGLint attribute, EGLAttrib* value) override;
+EGLBoolean eglQueryDisplayAttribANGLEFn(EGLDisplay dpy,
+                                        EGLint attribute,
+                                        EGLAttrib* value) override;
 EGLBoolean eglQueryStreamKHRFn(EGLDisplay dpy,
                                EGLStreamKHR stream,
                                EGLenum attribute,
@@ -165,6 +168,9 @@ EGLBoolean eglQueryStreamu64KHRFn(EGLDisplay dpy,
                                   EGLenum attribute,
                                   EGLuint64KHR* value) override;
 const char* eglQueryStringFn(EGLDisplay dpy, EGLint name) override;
+const char* eglQueryStringiANGLEFn(EGLDisplay dpy,
+                                   EGLint name,
+                                   EGLint index) override;
 EGLBoolean eglQuerySurfaceFn(EGLDisplay dpy,
                              EGLSurface surface,
                              EGLint attribute,

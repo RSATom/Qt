@@ -42,7 +42,6 @@
 
 #include <QtCore/QAbstractItemModel>
 #include <QtQml/QQmlContext>
-#include <QtQml/private/qqmldelegatemodel_p.h>
 #include <QtQml/private/qqmlopenmetaobject_p.h>
 #include <QtQuick/private/qquickanimation_p.h>
 #include <QtQml/QQmlListProperty>

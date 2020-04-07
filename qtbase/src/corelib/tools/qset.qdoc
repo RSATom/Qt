@@ -108,9 +108,17 @@
 
     Constructs a set with a copy of each of the elements in the
     initializer list \a list.
+*/
 
-    This function is only available if the program is being
-    compiled in C++11 mode.
+/*! \fn template <class T> template<typename InputIterator> QSet<T>::QSet(InputIterator first, InputIterator last)
+    \since 5.14
+
+    Constructs a set with the contents in the iterator range [\a first, \a last).
+
+    The value type of \c InputIterator must be convertible to \c T.
+
+    \note If the range [\a first, \a last) contains duplicate elements,
+    the first one is retained.
 */
 
 /*!
@@ -993,6 +1001,8 @@
 
     \snippet code/doc_src_qset.cpp 13
 
+    \include containers-range-constructor.qdocinc
+
     \sa fromList(), QList::fromSet()
 */
 
@@ -1002,6 +1012,8 @@
     order of the elements in the QList is undefined.
 
     This is the same as toList().
+
+    \include containers-range-constructor.qdocinc
 
     \sa fromList(), QList::fromSet()
 */
@@ -1017,6 +1029,8 @@
     Example:
 
     \snippet code/doc_src_qset.cpp 14
+
+    \include containers-range-constructor.qdocinc
 
     \sa toList(), QList::toSet()
 */

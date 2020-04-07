@@ -15,11 +15,11 @@
 #include "base/environment.h"
 #include "base/files/file_util.h"
 #include "base/macros.h"
-#include "base/message_loop/message_loop.h"
 #include "base/path_service.h"
 #include "base/run_loop.h"
 #include "base/single_thread_task_runner.h"
 #include "base/strings/stringprintf.h"
+#include "base/test/scoped_task_environment.h"
 #include "base/test/test_timeouts.h"
 #include "base/win/scoped_com_initializer.h"
 #include "media/audio/audio_device_description.h"
@@ -37,7 +37,6 @@ using ::testing::_;
 using ::testing::AnyNumber;
 using ::testing::AtLeast;
 using ::testing::Gt;
-using ::testing::NiceMock;
 using ::testing::NotNull;
 
 namespace media {
@@ -269,7 +268,7 @@ class WinAudioInputTest : public ::testing::Test {
   ~WinAudioInputTest() override { audio_manager_->Shutdown(); }
 
  protected:
-  base::MessageLoop message_loop_;
+  base::test::ScopedTaskEnvironment scoped_task_environment_;
   std::unique_ptr<AudioManager> audio_manager_;
 };
 
@@ -345,7 +344,7 @@ TEST_F(WinAudioInputTest, WASAPIAudioInputStreamOpenStartAndClose) {
   ScopedAudioInputStream ais(
       CreateDefaultAudioInputStream(audio_manager_.get()));
   EXPECT_TRUE(ais->Open());
-  NiceMock<MockAudioInputCallback> sink;
+  MockAudioInputCallback sink;
   ais->Start(&sink);
   ais.Close();
 }
@@ -356,7 +355,7 @@ TEST_F(WinAudioInputTest, WASAPIAudioInputStreamOpenStartStopAndClose) {
   ScopedAudioInputStream ais(
       CreateDefaultAudioInputStream(audio_manager_.get()));
   EXPECT_TRUE(ais->Open());
-  NiceMock<MockAudioInputCallback> sink;
+  MockAudioInputCallback sink;
   ais->Start(&sink);
   ais->Stop();
   ais.Close();
@@ -414,9 +413,9 @@ TEST_F(WinAudioInputTest, WASAPIAudioInputStreamTestPacketSizes) {
     base::RunLoop run_loop;
     EXPECT_CALL(sink, OnData(NotNull(), _, _))
         .Times(AtLeast(10))
-        .WillRepeatedly(
-            CheckCountAndPostQuitTask(&count, 10, message_loop_.task_runner(),
-                                      run_loop.QuitWhenIdleClosure()));
+        .WillRepeatedly(CheckCountAndPostQuitTask(
+            &count, 10, scoped_task_environment_.GetMainThreadTaskRunner(),
+            run_loop.QuitWhenIdleClosure()));
     ais->Start(&sink);
     run_loop.Run();
     ais->Stop();
@@ -439,9 +438,9 @@ TEST_F(WinAudioInputTest, WASAPIAudioInputStreamTestPacketSizes) {
     base::RunLoop run_loop;
     EXPECT_CALL(sink, OnData(NotNull(), _, _))
         .Times(AtLeast(10))
-        .WillRepeatedly(
-            CheckCountAndPostQuitTask(&count, 10, message_loop_.task_runner(),
-                                      run_loop.QuitWhenIdleClosure()));
+        .WillRepeatedly(CheckCountAndPostQuitTask(
+            &count, 10, scoped_task_environment_.GetMainThreadTaskRunner(),
+            run_loop.QuitWhenIdleClosure()));
     ais->Start(&sink);
     run_loop.Run();
     ais->Stop();
@@ -460,9 +459,9 @@ TEST_F(WinAudioInputTest, WASAPIAudioInputStreamTestPacketSizes) {
     base::RunLoop run_loop;
     EXPECT_CALL(sink, OnData(NotNull(), _, _))
         .Times(AtLeast(10))
-        .WillRepeatedly(
-            CheckCountAndPostQuitTask(&count, 10, message_loop_.task_runner(),
-                                      run_loop.QuitWhenIdleClosure()));
+        .WillRepeatedly(CheckCountAndPostQuitTask(
+            &count, 10, scoped_task_environment_.GetMainThreadTaskRunner(),
+            run_loop.QuitWhenIdleClosure()));
     ais->Start(&sink);
     run_loop.Run();
     ais->Stop();

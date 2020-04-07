@@ -6,6 +6,7 @@
 
 #include "base/memory/read_only_shared_memory_region.h"
 #include "media/base/video_frame.h"
+#include "media/capture/mojom/video_capture_types.mojom.h"
 #include "mojo/public/cpp/base/shared_memory_utils.h"
 
 namespace mirroring {
@@ -16,8 +17,8 @@ FakeVideoCaptureHost::FakeVideoCaptureHost(
 FakeVideoCaptureHost::~FakeVideoCaptureHost() {}
 
 void FakeVideoCaptureHost::Start(
-    int32_t device_id,
-    int32_t session_id,
+    const base::UnguessableToken& device_id,
+    const base::UnguessableToken& session_id,
     const media::VideoCaptureParams& params,
     media::mojom::VideoCaptureObserverPtr observer) {
   ASSERT_TRUE(observer);
@@ -25,7 +26,7 @@ void FakeVideoCaptureHost::Start(
   observer_->OnStateChanged(media::mojom::VideoCaptureState::STARTED);
 }
 
-void FakeVideoCaptureHost::Stop(int32_t device_id) {
+void FakeVideoCaptureHost::Stop(const base::UnguessableToken& device_id) {
   if (!observer_)
     return;
 

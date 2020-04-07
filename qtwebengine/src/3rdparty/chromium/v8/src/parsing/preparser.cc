@@ -4,25 +4,26 @@
 
 #include <cmath>
 
-#include "src/allocation.h"
 #include "src/base/logging.h"
-#include "src/conversions-inl.h"
-#include "src/conversions.h"
-#include "src/globals.h"
+#include "src/common/globals.h"
+#include "src/numbers/conversions-inl.h"
+#include "src/numbers/conversions.h"
 #include "src/parsing/parser-base.h"
 #include "src/parsing/preparse-data.h"
 #include "src/parsing/preparser.h"
-#include "src/unicode.h"
-#include "src/utils.h"
+#include "src/strings/unicode.h"
+#include "src/utils/allocation.h"
+#include "src/utils/utils.h"
+#include "src/zone/zone-list-inl.h"
 
 namespace v8 {
 namespace internal {
 
 namespace {
 
-PreParserIdentifier GetSymbolHelper(Scanner* scanner,
-                                    const AstRawString* string,
-                                    AstValueFactory* avf) {
+PreParserIdentifier GetIdentifierHelper(Scanner* scanner,
+                                        const AstRawString* string,
+                                        AstValueFactory* avf) {
   // These symbols require slightly different treatement:
   // - regular keywords (async, await, etc.; treated in 1st switch.)
   // - 'contextual' keywords (and may contain escaped; treated in 2nd switch.)
@@ -57,10 +58,10 @@ PreParserIdentifier GetSymbolHelper(Scanner* scanner,
 
 }  // unnamed namespace
 
-PreParserIdentifier PreParser::GetSymbol() const {
+PreParserIdentifier PreParser::GetIdentifier() const {
   const AstRawString* result = scanner()->CurrentSymbol(ast_value_factory());
   PreParserIdentifier symbol =
-      GetSymbolHelper(scanner(), result, ast_value_factory());
+      GetIdentifierHelper(scanner(), result, ast_value_factory());
   DCHECK_NOT_NULL(result);
   symbol.string_ = result;
   return symbol;
@@ -73,11 +74,9 @@ PreParser::PreParseResult PreParser::PreParseProgram() {
   scope->set_is_being_lazily_parsed(true);
 #endif
 
-  if (FLAG_harmony_hashbang) {
-    // Note: We should only skip the hashbang in non-Eval scripts
-    // (currently, Eval is not handled by the PreParser).
-    scanner()->SkipHashBang();
-  }
+  // Note: We should only skip the hashbang in non-Eval scripts
+  // (currently, Eval is not handled by the PreParser).
+  scanner()->SkipHashBang();
 
   // ModuleDeclarationInstantiation for Source Text Module Records creates a
   // new Module Environment Record whose outer lexical environment record is
@@ -89,6 +88,7 @@ PreParser::PreParseResult PreParser::PreParseProgram() {
   int start_position = peek_position();
   PreParserScopedStatementList body(pointer_buffer());
   ParseStatementList(&body, Token::EOS);
+  CheckConflictingVarDeclarations(scope);
   original_scope_ = nullptr;
   if (stack_overflow()) return kPreParseStackOverflow;
   if (is_strict(language_mode())) {
@@ -173,25 +173,29 @@ PreParser::PreParseResult PreParser::PreParseFunction(
   }
 
   bool allow_duplicate_parameters = false;
+  CheckConflictingVarDeclarations(inner_scope);
 
-  if (formals.is_simple) {
-    if (is_sloppy(function_scope->language_mode())) {
-      function_scope->HoistSloppyBlockFunctions(nullptr);
-    }
+  if (!has_error()) {
+    if (formals.is_simple) {
+      if (is_sloppy(function_scope->language_mode())) {
+        function_scope->HoistSloppyBlockFunctions(nullptr);
+      }
 
-    allow_duplicate_parameters =
-        is_sloppy(function_scope->language_mode()) && !IsConciseMethod(kind);
-  } else {
-    if (is_sloppy(inner_scope->language_mode())) {
-      inner_scope->HoistSloppyBlockFunctions(nullptr);
-    }
+      allow_duplicate_parameters =
+          is_sloppy(function_scope->language_mode()) && !IsConciseMethod(kind);
+    } else {
+      if (is_sloppy(inner_scope->language_mode())) {
+        inner_scope->HoistSloppyBlockFunctions(nullptr);
+      }
 
-    SetLanguageMode(function_scope, inner_scope->language_mode());
-    inner_scope->set_end_position(scanner()->peek_location().end_pos);
-    if (inner_scope->FinalizeBlockScope() != nullptr) {
-      const AstRawString* conflict = inner_scope->FindVariableDeclaredIn(
-          function_scope, VariableMode::kLastLexicalVariableMode);
-      if (conflict != nullptr) ReportVarRedeclarationIn(conflict, inner_scope);
+      SetLanguageMode(function_scope, inner_scope->language_mode());
+      inner_scope->set_end_position(scanner()->peek_location().end_pos);
+      if (inner_scope->FinalizeBlockScope() != nullptr) {
+        const AstRawString* conflict = inner_scope->FindVariableDeclaredIn(
+            function_scope, VariableMode::kLastLexicalVariableMode);
+        if (conflict != nullptr)
+          ReportVarRedeclarationIn(conflict, inner_scope);
+      }
     }
   }
 
@@ -339,7 +343,8 @@ PreParser::Expression PreParser::ParseFunctionLiteral(
     }
     if (skippable_function) {
       preparse_data_builder_scope.SetSkippableFunction(
-          function_scope, GetLastFunctionLiteralId() - func_id);
+          function_scope, formals.function_length,
+          GetLastFunctionLiteralId() - func_id);
     }
   }
 
@@ -373,7 +378,7 @@ void PreParser::ParseStatementListAndLogFunction(
   int body_end = scanner()->peek_location().end_pos;
   DCHECK_EQ(this->scope()->is_function_scope(), formals->is_simple);
   log_.LogFunction(body_end, formals->num_parameters(),
-                   GetLastFunctionLiteralId());
+                   formals->function_length, GetLastFunctionLiteralId());
 }
 
 PreParserBlock PreParser::BuildParameterInitializationBlock(

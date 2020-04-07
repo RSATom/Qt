@@ -8,6 +8,7 @@
 #include <string>
 #include <vector>
 
+#include "base/bind.h"
 #include "base/memory/weak_ptr.h"
 #include "components/offline_pages/core/prefetch/prefetch_dispatcher.h"
 #include "components/offline_pages/core/prefetch/prefetch_service.h"
@@ -175,8 +176,7 @@ PageBundleUpdateTask::PageBundleUpdateTask(
     : store_(store),
       dispatcher_(dispatcher),
       operation_name_(operation_name),
-      pages_(pages),
-      weak_factory_(this) {
+      pages_(pages) {
   DCHECK(store_);
 }
 

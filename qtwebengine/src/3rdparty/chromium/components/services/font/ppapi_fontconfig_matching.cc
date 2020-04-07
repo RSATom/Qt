@@ -11,6 +11,7 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 
+#include <memory>
 #include <string>
 
 #include "base/posix/eintr_wrapper.h"
@@ -127,10 +128,12 @@ int MatchFontFaceWithFallback(const std::string& face,
                               bool is_italic,
                               uint32_t charset,
                               uint32_t fallback_family) {
-  FcLangSet* langset = FcLangSetCreate();
-  bool is_lgc = MSCharSetToFontconfig(langset, charset);
-  FcPattern* pattern = FcPatternCreate();
-  FcPatternAddString(pattern, FC_FAMILY,
+  std::unique_ptr<FcLangSet, decltype(&FcLangSetDestroy)> langset(
+      FcLangSetCreate(), &FcLangSetDestroy);
+  bool is_lgc = MSCharSetToFontconfig(langset.get(), charset);
+  std::unique_ptr<FcPattern, decltype(&FcPatternDestroy)> pattern(
+      FcPatternCreate(), &FcPatternDestroy);
+  FcPatternAddString(pattern.get(), FC_FAMILY,
                      reinterpret_cast<const FcChar8*>(face.c_str()));
 
   // TODO(thestig) Check if we can access Chrome's per-script font preference
@@ -152,24 +155,30 @@ int MatchFontFaceWithFallback(const std::string& face,
   if (!generic_font_name.empty()) {
     const FcChar8* fc_generic_font_name =
         reinterpret_cast<const FcChar8*>(generic_font_name.c_str());
-    FcPatternAddString(pattern, FC_FAMILY, fc_generic_font_name);
+    FcPatternAddString(pattern.get(), FC_FAMILY, fc_generic_font_name);
   }
 
   if (is_bold)
-    FcPatternAddInteger(pattern, FC_WEIGHT, FC_WEIGHT_BOLD);
+    FcPatternAddInteger(pattern.get(), FC_WEIGHT, FC_WEIGHT_BOLD);
   if (is_italic)
-    FcPatternAddInteger(pattern, FC_SLANT, FC_SLANT_ITALIC);
-  FcPatternAddLangSet(pattern, FC_LANG, langset);
-  FcPatternAddBool(pattern, FC_SCALABLE, FcTrue);
-  FcConfigSubstitute(nullptr, pattern, FcMatchPattern);
-  FcDefaultSubstitute(pattern);
+    FcPatternAddInteger(pattern.get(), FC_SLANT, FC_SLANT_ITALIC);
+  FcPatternAddLangSet(pattern.get(), FC_LANG, langset.get());
+  FcPatternAddBool(pattern.get(), FC_SCALABLE, FcTrue);
+  FcConfigSubstitute(nullptr, pattern.get(), FcMatchPattern);
+  FcDefaultSubstitute(pattern.get());
 
   FcResult result;
-  FcFontSet* font_set = FcFontSort(nullptr, pattern, 0, nullptr, &result);
+  std::unique_ptr<FcFontSet, decltype(&FcFontSetDestroy)> font_set(
+      FcFontSort(nullptr, pattern.get(), 0, nullptr, &result),
+      &FcFontSetDestroy);
   int font_fd = -1;
   int good_enough_index = -1;
   bool good_enough_index_set = false;
 
+  const char* c_filename;
+  const char* c_sysroot =
+      reinterpret_cast<const char*>(FcConfigGetSysRoot(nullptr));
+  const std::string sysroot = c_sysroot ? c_sysroot : "";
   if (font_set) {
     for (int i = 0; i < font_set->nfont; ++i) {
       FcPattern* current = font_set->fonts[i];
@@ -183,11 +192,12 @@ int MatchFontFaceWithFallback(const std::string& face,
         continue;
       }
 
-      FcChar8* c_filename;
-      if (FcPatternGetString(current, FC_FILE, 0, &c_filename) !=
-          FcResultMatch) {
+      if (FcPatternGetString(current, FC_FILE, 0,
+                             reinterpret_cast<FcChar8**>(const_cast<char**>(
+                                 &c_filename))) != FcResultMatch) {
         continue;
       }
+      const std::string filename = sysroot + c_filename;
 
       // We only want to return sfnt (TrueType) based fonts. We don't have a
       // very good way of detecting this so we'll filter based on the
@@ -200,8 +210,8 @@ int MatchFontFaceWithFallback(const std::string& face,
           // None of the extensions matched.
           break;
         }
-        if (base::EndsWith(std::string(reinterpret_cast<char*>(c_filename)),
-                           kSFNTExtensions[j], base::CompareCase::SENSITIVE)) {
+        if (base::EndsWith(filename, kSFNTExtensions[j],
+                           base::CompareCase::SENSITIVE)) {
           is_sfnt = true;
           break;
         }
@@ -236,8 +246,7 @@ int MatchFontFaceWithFallback(const std::string& face,
         continue;
       }
 
-      font_fd =
-          HANDLE_EINTR(open(reinterpret_cast<char*>(c_filename), O_RDONLY));
+      font_fd = HANDLE_EINTR(open(filename.c_str(), O_RDONLY));
       if (font_fd >= 0)
         break;
     }
@@ -247,14 +256,13 @@ int MatchFontFaceWithFallback(const std::string& face,
     // We didn't find a font that we liked, so we fallback to something
     // acceptable.
     FcPattern* current = font_set->fonts[good_enough_index];
-    FcChar8* c_filename;
-    FcPatternGetString(current, FC_FILE, 0, &c_filename);
-    font_fd = HANDLE_EINTR(open(reinterpret_cast<char*>(c_filename), O_RDONLY));
+    if (!FcPatternGetString(
+            current, FC_FILE, 0,
+            reinterpret_cast<FcChar8**>(const_cast<char**>(&c_filename)))) {
+      const std::string filename = sysroot + c_filename;
+      font_fd = HANDLE_EINTR(open(filename.c_str(), O_RDONLY));
+    }
   }
-
-  if (font_set)
-    FcFontSetDestroy(font_set);
-  FcPatternDestroy(pattern);
 
   return font_fd;
 }

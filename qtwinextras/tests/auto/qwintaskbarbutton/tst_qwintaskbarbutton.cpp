@@ -50,9 +50,9 @@ void tst_QWinTaskbarButton::testWindow()
     btn1.setWindow(&window);
     QCOMPARE(btn1.window(), &window);
 
-    QWinTaskbarButton *btn2 = new QWinTaskbarButton(&window);
+    auto *btn2 = new QWinTaskbarButton(&window);
     QCOMPARE(btn2->window(), &window);
-    btn2->setWindow(0);
+    btn2->setWindow(nullptr);
     QVERIFY(!btn2->window());
 }
 

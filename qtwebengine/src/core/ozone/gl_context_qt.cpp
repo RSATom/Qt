@@ -163,6 +163,17 @@ QFunctionPointer GLContextHelper::getEglGetProcAddress()
     return get_proc_address;
 }
 
+bool GLContextHelper::isCreateContextRobustnessSupported()
+{
+#if QT_CONFIG(opengl)
+    if (QGuiApplication::platformName() == QLatin1String("offscreen"))
+        return false;
+
+    if (QOpenGLContext *context = qt_gl_global_share_context())
+        return context->format().testOption(QSurfaceFormat::ResetNotification);
+#endif
+    return false;
+}
 QT_END_NAMESPACE
 
 #if defined(OS_WIN)

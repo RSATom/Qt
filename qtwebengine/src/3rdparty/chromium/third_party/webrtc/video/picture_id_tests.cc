@@ -72,7 +72,7 @@ class PictureIdObserver : public test::RtpRtcpObserver {
     int16_t picture_id;
     int16_t tl0_pic_idx;
     uint8_t temporal_idx;
-    FrameType frame_type;
+    VideoFrameType frame_type;
   };
 
   bool ParsePayload(const uint8_t* packet,
@@ -122,7 +122,7 @@ class PictureIdObserver : public test::RtpRtcpObserver {
         break;
     }
 
-    parsed->frame_type = parsed_payload.frame_type;
+    parsed->frame_type = parsed_payload.video_header().frame_type;
     return true;
   }
 
@@ -146,7 +146,7 @@ class PictureIdObserver : public test::RtpRtcpObserver {
     if (diff > 1) {
       // If the VideoSendStream is destroyed, any frames still in queue is lost.
       // Gaps only possible for first frame after a recreation, i.e. key frames.
-      EXPECT_EQ(kVideoFrameKey, current.frame_type);
+      EXPECT_EQ(VideoFrameType::kVideoFrameKey, current.frame_type);
       EXPECT_LE(diff - 1, max_expected_picture_id_gap_);
     }
   }
@@ -172,7 +172,7 @@ class PictureIdObserver : public test::RtpRtcpObserver {
     if (diff > 1) {
       // If the VideoSendStream is destroyed, any frames still in queue is lost.
       // Gaps only possible for first frame after a recreation, i.e. key frames.
-      EXPECT_EQ(kVideoFrameKey, current.frame_type);
+      EXPECT_EQ(VideoFrameType::kVideoFrameKey, current.frame_type);
       EXPECT_LE(diff - 1, max_expected_tl0_idx_gap_);
     }
   }
@@ -240,9 +240,9 @@ class PictureIdTest : public test::CallTest,
   std::unique_ptr<PictureIdObserver> observer_;
 };
 
-INSTANTIATE_TEST_CASE_P(TemporalLayers,
-                        PictureIdTest,
-                        ::testing::ValuesIn(kNumTemporalLayers));
+INSTANTIATE_TEST_SUITE_P(TemporalLayers,
+                         PictureIdTest,
+                         ::testing::ValuesIn(kNumTemporalLayers));
 
 // Use a special stream factory to ensure that all simulcast streams are being
 // sent.

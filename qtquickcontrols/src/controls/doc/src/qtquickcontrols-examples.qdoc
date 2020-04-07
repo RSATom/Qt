@@ -31,6 +31,8 @@
     \title Qt Quick Controls 1 Examples
     \brief A Collection of examples for \l{Qt Quick Controls 1}, written in QML.
 
+    \deprecationwarning
+
     These examples show how to create user interfaces using
     \l{Qt Quick Controls 1}.
 */
@@ -40,6 +42,8 @@
     \title Qt Quick Controls 1 - Gallery
     \ingroup qtquickcontrols_examples
     \brief A collection of components for a classic desktop-style UI.
+
+    \deprecationwarning
 
     \raw HTML
     <div class="table"><table style="background:transparent; border:0px">
@@ -68,6 +72,8 @@
     \title Qt Quick Controls 1 - UI Forms
     \ingroup qtquickcontrols_examples
     \brief Demonstrates how to separate the application logic from the UI.
+
+    \deprecationwarning
 
     \image qtquickcontrols-example-uiforms.png
 
@@ -129,6 +135,9 @@
     \title Qt Quick Controls 1 - Table View Example
     \ingroup qtquickcontrols_examples
     \brief An example for the TableView control.
+
+    \deprecationwarning
+
     \image qtquickcontrols-example-tableview.png
 
     This example project demonstrates the usage of \l {TableView} from
@@ -170,6 +179,8 @@
     \brief A QML app using Qt Quick Controls and a C++ class to
     provide a fully-functional rich-text editor application.
 
+    \deprecationwarning
+
     \image qtquickcontrols-example-text.png
 
     The \e{Text Editor Example} presents a sample HTML file using the TextArea
@@ -209,6 +220,9 @@
     \title Qt Quick Controls 1 - Touch Gallery
     \ingroup qtquickcontrols_examples
     \brief Demonstrates UI controls for a touch interface.
+
+    \deprecationwarning
+
     \image qtquickcontrols-example-touch.png
 
     \e {Touch Gallery} demonstrates how to implement a UI suitable for touch
@@ -455,6 +469,9 @@
     \title Qt Quick Controls 1 - Calendar Example
     \ingroup qtquickcontrols_examples
     \brief Demonstrates the use of Calendar control.
+
+    \deprecationwarning
+
     \image qtquickcontrols-example-calendar.png
 
     The Calendar example displays a Calendar control and an events list for
@@ -543,6 +560,9 @@
     \title Qt Quick Controls 1 - Styles Example
     \ingroup qtquickcontrols_examples
     \brief Demonstrates custom styles.
+
+    \deprecationwarning
+
     \image qtquickcontrols-example-styles.png
 
     This example shows how to create custom styles for \l{Qt Quick Controls 1}.
@@ -555,6 +575,9 @@
     \title Qt Quick Controls 1 - File System Browser Example
     \ingroup qtquickcontrols_examples
     \brief An example for the TreeView control.
+
+    \deprecationwarning
+
     \image qtquickcontrols-example-filesystembrowser.png
 
     This example project demonstrates the usage of \l {TreeView} from

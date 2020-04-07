@@ -51,7 +51,7 @@ toolsVersion="r26.1.1"
 # toolsFile dertermines tools version
 toolsFile="sdk-tools-darwin-4333796.zip"
 
-ndkVersion="r19c"
+ndkVersion="r20"
 ndkFile="android-ndk-$ndkVersion-darwin-x86_64.zip"
 sdkBuildToolsVersion="28.0.3"
 # this is compile sdk version
@@ -68,8 +68,13 @@ sudo unzip -q "$toolsSourceFile" -d "$sdkTargetFolder"
 echo "Changing ownership of Android files."
 sudo chown -R qt:wheel "$targetFolder"
 
+# Run the following command under `eval` or `sh -c` so that the shell properly splits it
+sdkmanager_no_progress_bar_cmd="tr '\r' '\n'  |  grep -v '^\[[ =]*\]'"
+
 echo "Running SDK manager for platforms;$sdkApiLevel, platform-tools and build-tools;$sdkBuildToolsVersion."
-(echo "y"; echo "y") |"$sdkTargetFolder/tools/bin/sdkmanager" "platforms;$sdkApiLevel" "platform-tools" "build-tools;$sdkBuildToolsVersion"
+(echo "y"; echo "y") | "$sdkTargetFolder/tools/bin/sdkmanager"  \
+    "platforms;$sdkApiLevel" "platform-tools" "build-tools;$sdkBuildToolsVersion"  \
+    | eval $sdkmanager_no_progress_bar_cmd
 
 echo "Checking the contents of Android SDK..."
 ls -l "$sdkTargetFolder"

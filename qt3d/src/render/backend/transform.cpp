@@ -39,7 +39,6 @@
 
 #include "transform_p.h"
 
-#include <Qt3DCore/qpropertyupdatedchange.h>
 #include <Qt3DCore/private/qchangearbiter_p.h>
 #include <Qt3DCore/qtransform.h>
 #include <Qt3DCore/private/qtransform_p.h>
@@ -52,7 +51,7 @@ namespace Qt3DRender {
 namespace Render {
 
 Transform::Transform()
-    : BackendNode()
+    : BackendNode(ReadWrite)
     , m_rotation()
     , m_scale(1.0f, 1.0f, 1.0f)
     , m_translation()
@@ -66,16 +65,6 @@ void Transform::cleanup()
     m_translation = QVector3D();
     m_transformMatrix = Matrix4x4();
     QBackendNode::setEnabled(false);
-}
-
-void Transform::initializeFromPeer(const Qt3DCore::QNodeCreatedChangeBasePtr &change)
-{
-    const auto typedChange = qSharedPointerCast<Qt3DCore::QNodeCreatedChange<QTransformData>>(change);
-    const auto &data = typedChange->data;
-    m_rotation = data.rotation;
-    m_scale = data.scale;
-    m_translation = data.translation;
-    updateMatrix();
 }
 
 Matrix4x4 Transform::transformMatrix() const
@@ -98,25 +87,25 @@ QVector3D Transform::translation() const
     return m_translation;
 }
 
-void Transform::sceneChangeEvent(const Qt3DCore::QSceneChangePtr &e)
+void Transform::syncFromFrontEnd(const QNode *frontEnd, bool firstTime)
 {
-    // TODO: Flag the matrix as dirty and update all matrices batched in a job
-    if (e->type() == PropertyUpdated) {
-        const QPropertyUpdatedChangePtr &propertyChange = qSharedPointerCast<QPropertyUpdatedChange>(e);
-        if (propertyChange->propertyName() == QByteArrayLiteral("scale3D")) {
-            m_scale = propertyChange->value().value<QVector3D>();
-            updateMatrix();
-        } else if (propertyChange->propertyName() == QByteArrayLiteral("rotation")) {
-            m_rotation = propertyChange->value().value<QQuaternion>();
-            updateMatrix();
-        } else if (propertyChange->propertyName() == QByteArrayLiteral("translation")) {
-            m_translation = propertyChange->value().value<QVector3D>();
-            updateMatrix();
-        }
-    }
-    markDirty(AbstractRenderer::TransformDirty);
+    const Qt3DCore::QTransform *transform = qobject_cast<const Qt3DCore::QTransform *>(frontEnd);
+    if (!transform)
+        return;
 
-    BackendNode::sceneChangeEvent(e);
+    bool dirty = m_rotation != transform->rotation();
+    m_rotation = transform->rotation();
+    dirty |= m_scale != transform->scale3D();
+    m_scale = transform->scale3D();
+    dirty |= m_translation != transform->translation();
+    m_translation = transform->translation();
+
+    if (dirty || firstTime) {
+        updateMatrix();
+        markDirty(AbstractRenderer::TransformDirty);
+    }
+
+    BackendNode::syncFromFrontEnd(frontEnd, firstTime);
 }
 
 void Transform::updateMatrix()

@@ -36,14 +36,8 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
     <!--The polyfill is not needed for browser that have native API support,
         but is linked by these samples for wider compatibility.-->
     <!--script src='https://cdn.jsdelivr.net/npm/webxr-polyfill@latest/build/webxr-polyfill.js'></script-->
+    <script src='js/xrray-polyfill.js' type='module'></script>
     <script src='js/webxr-polyfill.js'></script>
-
-    <!--This script patches up around implementation differences in past browser versions
-        so that the samples can always be written against the most recent spec changes.
-        It won't be necessary after the API has been officially shipped for a bit.-->
-    <script src='js/webxr-version-shim.js'></script>
-
-    <script src='js/cottontail/build/cottontail.js'></script>
 
     <script src='js/webxr-button.js'></script>
   </head>
@@ -54,33 +48,34 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
         <p>
           This sample demonstrates a way to fallback to rendering the scene when
           WebXR isn't available.
-          <a class="back" href="./">Back</a>
+          <a class="back" href="./index.html">Back</a>
         </p>
       </details>
     </header>
-    <script>
-      (function () {
-      'use strict';
+    <script type="module">
+      import {Scene} from './js/cottontail/src/scenes/scene.js';
+      import {Renderer, createWebGLContext} from './js/cottontail/src/core/renderer.js';
+      import {Gltf2Node} from './js/cottontail/src/nodes/gltf2.js';
+      import {QueryArgs} from './js/cottontail/src/util/query-args.js';
+      import {SkyboxNode} from './js/cottontail/src/nodes/skybox.js';
+      import {mat4} from './js/cottontail/src/math/gl-matrix.js';
 
       // If requested, initialize the WebXR polyfill
       if (QueryArgs.getBool('allowPolyfill', false)) {
         var polyfill = new WebXRPolyfill();
       }
-      // Apply the version shim after the polyfill is instantiated, to ensure
-      // that the polyfill also gets patched if necessary.
-      var versionShim = new WebXRVersionShim();
 
       // XR globals.
       let xrButton = null;
-      let xrImmersiveFrameOfRef = null;
-      let xrNonImmersiveFrameOfRef = null;
+      let xrImmersiveRefSpace = null;
+      let xrNonImmersiveRefSpace = null;
 
       // WebGL scene globals.
       let gl = null;
       let renderer = null;
       let scene = new Scene();
-      scene.addNode(new Gltf2Node({url: 'media/gltf/space/space.gltf'}));
-      scene.addNode(new SkyboxNode({url: 'media/textures/milky-way-4k.png'}));
+      scene.addNode(new Gltf2Node({url: '../media/gltf/space/space.gltf'}));
+      scene.addNode(new SkyboxNode({url: '../media/textures/milky-way-4k.png'}));
 
       let projectionMatrix = mat4.create();
       let viewMatrix = mat4.create();
@@ -88,29 +83,13 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
       function initXR() {
         xrButton = new XRDeviceButton({
           onRequestSession: onRequestSession,
-          onEndSession: onEndSession
+          onEndSession: onEndSession,
+          supportedSessionTypes: ['immersive-vr']
         });
         document.querySelector('header').appendChild(xrButton.domElement);
 
         if (navigator.xr) {
-          navigator.xr.requestDevice().then((device) => {
-            device.supportsSession({immersive: true}).then(() => {
-              xrButton.setDevice(device);
-            });
-
-            let outputCanvas = document.createElement('canvas');
-            let ctx = outputCanvas.getContext('xrpresent');
-
-            device.requestSession({ outputContext: ctx })
-                .then((session) => {
-                  document.body.appendChild(outputCanvas);
-                  onSessionStarted(session);
-                });
-          }).catch(() => {
-            // If navigator.xr is found but it doesn't have any devices, we'll
-            // need to use the fallback rendering path.
-            initFallback();
-          });
+          navigator.xr.requestSession('inline').then(onSessionStarted);
         } else {
           // If navigator.xr isn't present in the browser then we need to use
           // the fallback rendering path.
@@ -148,12 +127,12 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
       // Since both the XR and fallback paths need to do the same WebGL
       // initialization code, we've moved that code out to it's own function.
-      function initGL(compatibleDevice) {
+      function initGL() {
         if (gl)
           return;
 
         gl = createWebGLContext({
-          compatibleXRDevice: compatibleDevice
+          xrCompatible: true
         });
 
         renderer = new Renderer(gl);
@@ -161,30 +140,42 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
         scene.setRenderer(renderer);
       }
 
-      function onRequestSession(device) {
-        let mirrorCanvas = document.createElement('canvas');
-        let ctx = mirrorCanvas.getContext('xrpresent');
-        mirrorCanvas.setAttribute('id', 'mirror-canvas');
-        document.body.appendChild(mirrorCanvas);
-
-        device.requestSession({ immersive: true, outputContext: ctx }).then((session) => {
+      function onRequestSession() {
+        navigator.xr.requestSession('immersive-vr').then((session) => {
+          session.mode = 'immersive-vr';
           xrButton.setSession(session);
           onSessionStarted(session);
         });
       }
 
       function onSessionStarted(session) {
+        if (!session.mode)
+          session.mode = 'inline';
         session.addEventListener('end', onSessionEnded);
 
-        initGL(session.device);
+        initGL();
 
-        session.baseLayer = new XRWebGLLayer(session, gl);
+        session.updateRenderState({
+            baseLayer: new XRWebGLLayer(session, gl, {
+              compositionDisabled: session.mode == 'inline'
+            })
+        });
 
-        session.requestFrameOfReference('eye-level').then((frameOfRef) => {
-          if (session.immersive) {
-            xrImmersiveFrameOfRef = frameOfRef;
+        session.requestReferenceSpace('local').then((refSpace) => {
+          return refSpace;
+        }, (e) => {
+          if (!session.mode.startsWith('immersive')) {
+            // If we're in inline mode, our underlying platform may not support
+            // the stationary reference space, but an identity space is guaranteed.
+            return session.requestReferenceSpace('viewer');
           } else {
-            xrNonImmersiveFrameOfRef = frameOfRef;
+            throw e;
+          }
+        }).then((refSpace) => {
+          if (session.mode.startsWith('immersive')) {
+            xrImmersiveRefSpace = refSpace;
+          } else {
+            xrNonImmersiveRefSpace = refSpace;
           }
           session.requestAnimationFrame(onXRFrame);
         });
@@ -195,33 +186,32 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
       }
 
       function onSessionEnded(event) {
-        if (event.session.immersive) {
-          document.body.removeChild(document.querySelector('#mirror-canvas'));
+        if (event.session.mode.startsWith('immersive')) {
           xrButton.setSession(null);
         }
       }
 
       function onXRFrame(t, frame) {
         let session = frame.session;
-        let frameOfRef = session.immersive ?
-                         xrImmersiveFrameOfRef :
-                         xrNonImmersiveFrameOfRef;
-        let pose = frame.getDevicePose(frameOfRef);
+        let refSpace = session.mode.startsWith('immersive') ?
+                         xrImmersiveRefSpace :
+                         xrNonImmersiveRefSpace;
+        let pose = frame.getViewerPose(refSpace);
 
         session.requestAnimationFrame(onXRFrame);
 
         scene.startFrame();
 
         if (pose) {
-          gl.bindFramebuffer(gl.FRAMEBUFFER, session.baseLayer.framebuffer);
+          gl.bindFramebuffer(gl.FRAMEBUFFER, session.renderState.baseLayer.framebuffer);
           gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
-          for (let view of frame.views) {
-            let viewport = session.baseLayer.getViewport(view);
+          for (let view of pose.views) {
+            let viewport = session.renderState.baseLayer.getViewport(view);
             gl.viewport(viewport.x, viewport.y,
                         viewport.width, viewport.height);
 
-            scene.draw(view.projectionMatrix, pose.getViewMatrix(view));
+            scene.draw(view.projectionMatrix, view.transform.inverse.matrix);
           }
         }
 
@@ -241,7 +231,7 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
         // only when we resize for efficency.
         gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
-        // We're drawing with our own projection and view matrix now, and we 
+        // We're drawing with our own projection and view matrix now, and we
         // don't have a list of view to loop through, but otherwise all of the
         // WebGL drawing logic is exactly the same.
         scene.draw(projectionMatrix, viewMatrix);
@@ -251,7 +241,6 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
       // Start the XR application.
       initXR();
-      })();
     </script>
   </body>
 </html>

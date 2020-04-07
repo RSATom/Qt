@@ -134,16 +134,16 @@ enum class CommitPendingWriteMode {
   WITH_SYNCHRONOUS_CALLBACK,
 };
 
-base::test::ScopedTaskEnvironment::ExecutionMode GetExecutionMode(
+base::test::ScopedTaskEnvironment::ThreadPoolExecutionMode GetExecutionMode(
     CommitPendingWriteMode commit_mode) {
   switch (commit_mode) {
     case CommitPendingWriteMode::WITHOUT_CALLBACK:
       FALLTHROUGH;
     case CommitPendingWriteMode::WITH_CALLBACK:
-      return base::test::ScopedTaskEnvironment::ExecutionMode::QUEUED;
+      return base::test::ScopedTaskEnvironment::ThreadPoolExecutionMode::QUEUED;
     case CommitPendingWriteMode::WITH_SYNCHRONOUS_CALLBACK:
       // Synchronous callbacks require async tasks to run on their own.
-      return base::test::ScopedTaskEnvironment::ExecutionMode::ASYNC;
+      return base::test::ScopedTaskEnvironment::ThreadPoolExecutionMode::ASYNC;
   }
 }
 
@@ -285,7 +285,7 @@ void RunBasicJsonPrefStoreTest(
 
   pref_store->SetValue(
       kLongIntPref,
-      std::make_unique<Value>(base::Int64ToString(214748364842LL)),
+      std::make_unique<Value>(base::NumberToString(214748364842LL)),
       WriteablePrefStore::DEFAULT_PREF_WRITE_FLAGS);
   EXPECT_TRUE(pref_store->GetValue(kLongIntPref, &actual));
   EXPECT_TRUE(actual->GetAsString(&string_value));
@@ -538,15 +538,15 @@ TEST_P(JsonPrefStoreTest, ReadAsyncWithInterceptor) {
                             &scoped_task_environment_);
 }
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     WithoutCallback,
     JsonPrefStoreTest,
     ::testing::Values(CommitPendingWriteMode::WITHOUT_CALLBACK));
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     WithCallback,
     JsonPrefStoreTest,
     ::testing::Values(CommitPendingWriteMode::WITH_CALLBACK));
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     WithSynchronousCallback,
     JsonPrefStoreTest,
     ::testing::Values(CommitPendingWriteMode::WITH_SYNCHRONOUS_CALLBACK));
@@ -694,15 +694,15 @@ TEST_P(JsonPrefStoreLossyWriteTest, ScheduleLossyWrite) {
   ASSERT_EQ("{\"lossy\":\"lossy\"}", GetTestFileContents());
 }
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     WithoutCallback,
     JsonPrefStoreLossyWriteTest,
     ::testing::Values(CommitPendingWriteMode::WITHOUT_CALLBACK));
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     WithReply,
     JsonPrefStoreLossyWriteTest,
     ::testing::Values(CommitPendingWriteMode::WITH_CALLBACK));
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     WithNotify,
     JsonPrefStoreLossyWriteTest,
     ::testing::Values(CommitPendingWriteMode::WITH_SYNCHRONOUS_CALLBACK));
@@ -838,7 +838,7 @@ class JsonPrefStoreCallbackTest : public testing::Test {
  protected:
   base::test::ScopedTaskEnvironment scoped_task_environment_{
       base::test::ScopedTaskEnvironment::MainThreadType::DEFAULT,
-      base::test::ScopedTaskEnvironment::ExecutionMode::QUEUED};
+      base::test::ScopedTaskEnvironment::ThreadPoolExecutionMode::QUEUED};
 
   base::ScopedTempDir temp_dir_;
 

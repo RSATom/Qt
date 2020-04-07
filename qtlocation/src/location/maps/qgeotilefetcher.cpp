@@ -43,6 +43,9 @@
 #include "qgeotilespec_p.h"
 #include "qgeotiledmap_p.h"
 
+#include <algorithm>
+#include <iterator>
+
 QT_BEGIN_NAMESPACE
 
 QGeoTileFetcher::QGeoTileFetcher(QGeoMappingManagerEngine *parent)
@@ -75,7 +78,7 @@ void QGeoTileFetcher::updateTileRequests(const QSet<QGeoTileSpec> &tilesAdded,
 
     cancelTileRequests(tilesRemoved);
 
-    d->queue_ += tilesAdded.toList();
+    std::copy(tilesAdded.cbegin(), tilesAdded.cend(), std::back_inserter(d->queue_));
 
     if (d->enabled_ && initialized() && !d->queue_.isEmpty() && !d->timer_.isActive())
         d->timer_.start(0, this);

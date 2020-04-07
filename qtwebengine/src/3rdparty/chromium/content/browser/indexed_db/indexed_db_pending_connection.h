@@ -8,6 +8,7 @@
 #include <stdint.h>
 
 #include "base/memory/ref_counted.h"
+#include "base/memory/weak_ptr.h"
 #include "content/browser/indexed_db/indexed_db_callbacks.h"
 #include "content/browser/indexed_db/indexed_db_data_loss_info.h"
 #include "content/browser/indexed_db/indexed_db_database_callbacks.h"
@@ -25,8 +26,9 @@ struct CONTENT_EXPORT IndexedDBPendingConnection {
       scoped_refptr<IndexedDBDatabaseCallbacks> database_callbacks,
       int child_process_id,
       int64_t transaction_id,
-      int64_t version);
-  IndexedDBPendingConnection(const IndexedDBPendingConnection& other);
+      int64_t version,
+      base::OnceCallback<void(base::WeakPtr<IndexedDBTransaction>)>
+          create_transaction_callback);
   ~IndexedDBPendingConnection();
   scoped_refptr<IndexedDBCallbacks> callbacks;
   scoped_refptr<IndexedDBDatabaseCallbacks> database_callbacks;
@@ -34,6 +36,10 @@ struct CONTENT_EXPORT IndexedDBPendingConnection {
   int64_t transaction_id;
   int64_t version;
   IndexedDBDataLossInfo data_loss_info;
+  base::OnceCallback<void(base::WeakPtr<IndexedDBTransaction>)>
+      create_transaction_callback;
+  base::WeakPtr<IndexedDBTransaction> transaction;
+  bool was_cold_open = false;
 };
 
 }  // namespace content

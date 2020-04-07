@@ -82,7 +82,7 @@ class DevToolsURLRequestInterceptor : public net::URLRequestInterceptor,
                                      InterceptionStage* stage);
 
   const DevToolsTargetRegistry::TargetInfo* TargetInfoForRequestInfo(
-      const ResourceRequestInfo* request_info) const;
+      ResourceRequestInfo* request_info) const;
 
   // Returns a WeakPtr to the DevToolsURLInterceptorRequestJob corresponding
   // to |interception_id|.
@@ -106,7 +106,7 @@ class DevToolsURLRequestInterceptor : public net::URLRequestInterceptor,
 
   size_t next_id_;
 
-  base::WeakPtrFactory<DevToolsURLRequestInterceptor> weak_factory_;
+  base::WeakPtrFactory<DevToolsURLRequestInterceptor> weak_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(DevToolsURLRequestInterceptor);
 };

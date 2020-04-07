@@ -89,6 +89,9 @@ public:
     void insertTree(QNode *treeRoot, int depth = 0);
     void updatePropertyTrackMode();
 
+    void update();
+    void updateNode(QNode *node, const char* property, ChangeFlag change);
+
     Q_DECLARE_PUBLIC(QNode)
 
     // For now this just protects access to the m_changeArbiter.
@@ -106,6 +109,7 @@ public:
     QHash<QString, QNode::PropertyTrackingMode> m_trackedPropertiesOverrides;
 
     static QNodePrivate *get(QNode *q);
+    static const QNodePrivate *get(const QNode *q);
     static void nodePtrDeleter(QNode *q);
 
     template<typename Caller, typename NodeType>
@@ -120,7 +124,7 @@ public:
         // If the node is destoyed, we make sure not to keep a dangling pointer to it
         Q_Q(QNode);
         auto f = [q, func]() { (static_cast<Caller *>(q)->*func)(nullptr); };
-        m_destructionConnections.insert(node, QObject::connect(node, &QNode::nodeDestroyed, f));
+        m_destructionConnections.push_back({node, QObject::connect(node, &QNode::nodeDestroyed, f)});
     }
 
     template<typename Caller, typename NodeType>
@@ -129,7 +133,7 @@ public:
         // If the node is destoyed, we make sure not to keep a dangling pointer to it
         Q_Q(QNode);
         auto f = [q, func, node]() { (static_cast<Caller *>(q)->*func)(node); };
-        m_destructionConnections.insert(node, QObject::connect(node, &QNode::nodeDestroyed, f));
+        m_destructionConnections.push_back({node, QObject::connect(node, &QNode::nodeDestroyed, f)});
     }
 
     template<typename Caller, typename ValueType>
@@ -142,7 +146,7 @@ public:
         // If the node is destoyed, we make sure not to keep a dangling pointer to it
         Q_Q(QNode);
         auto f = [q, func, resetValue]() { (static_cast<Caller *>(q)->*func)(resetValue); };
-        m_destructionConnections.insert(node, QObject::connect(node, &QNode::nodeDestroyed, f));
+        m_destructionConnections.push_back({node, QObject::connect(node, &QNode::nodeDestroyed, f)});
     }
 
     template<typename Caller, typename NodeType>
@@ -150,12 +154,21 @@ public:
     {
         // If the node is destoyed, we make sure not to keep a dangling pointer to it
         auto f = [this, func, node]() { (static_cast<Caller *>(this)->*func)(node); };
-        m_destructionConnections.insert(node, QObject::connect(node, &QNode::nodeDestroyed, f));
+        m_destructionConnections.push_back({node, QObject::connect(node, &QNode::nodeDestroyed, f)});
     }
 
     void unregisterDestructionHelper(QNode *node)
     {
-        QObject::disconnect(m_destructionConnections.take(node));
+        m_destructionConnections.erase(std::remove_if(m_destructionConnections.begin(),
+                                                      m_destructionConnections.end(),
+                                                      [node] (const QPair<QNode *, QMetaObject::Connection> &nodeConnectionPair) {
+                                                          if (nodeConnectionPair.first == node) {
+                                                              QObject::disconnect(nodeConnectionPair.second);
+                                                              return true;
+                                                          }
+                                                          return false;
+                                                      }),
+                                       m_destructionConnections.end());
     }
 
     static const QMetaObject *findStaticMetaObject(const QMetaObject *metaObject);
@@ -164,7 +177,7 @@ public:
     void _q_ensureBackendNodeCreated();
 
 private:
-    void notifyCreationChange();
+    void createBackendNode();
     void notifyDestructionChangesAndRemoveFromScene();
     void _q_addChild(QNode *childNode);
     void _q_removeChild(QNode *childNode);
@@ -180,7 +193,7 @@ private:
     friend class PropertyChangeHandler<QNodePrivate>;
     bool m_propertyChangesSetup;
     PropertyChangeHandler<QNodePrivate> m_signals;
-    QHash<QNode *, QMetaObject::Connection> m_destructionConnections;
+    QVector<QPair<QNode *, QMetaObject::Connection>> m_destructionConnections;
 };
 
 class NodePostConstructorInit : public QObject
@@ -192,7 +205,7 @@ public:
     void removeNode(QNode *node);
     void addNode(QNode *node);
 
-private Q_SLOTS:
+public Q_SLOTS:
     void processNodes();
 
 private:

@@ -20,8 +20,8 @@ class COMPONENT_EXPORT(VULKAN_WIN32) VulkanImplementationWin32
   ~VulkanImplementationWin32() override;
 
   // VulkanImplementation:
-  bool InitializeVulkanInstance() override;
-  VkInstance GetVulkanInstance() override;
+  bool InitializeVulkanInstance(bool using_surface) override;
+  VulkanInstance* GetVulkanInstance() override;
   std::unique_ptr<VulkanSurface> CreateViewSurface(
       gfx::AcceleratedWidget window) override;
   bool GetPhysicalDevicePresentationSupport(
@@ -33,6 +33,22 @@ class COMPONENT_EXPORT(VULKAN_WIN32) VulkanImplementationWin32
   std::unique_ptr<gfx::GpuFence> ExportVkFenceToGpuFence(
       VkDevice vk_device,
       VkFence vk_fence) override;
+  VkSemaphore CreateExternalSemaphore(VkDevice vk_device) override;
+  VkSemaphore ImportSemaphoreHandle(VkDevice vk_device,
+                                    SemaphoreHandle handle) override;
+  SemaphoreHandle GetSemaphoreHandle(VkDevice vk_device,
+                                     VkSemaphore vk_semaphore) override;
+  VkExternalMemoryHandleTypeFlagBits GetExternalImageHandleType() override;
+  bool CanImportGpuMemoryBuffer(
+      gfx::GpuMemoryBufferType memory_buffer_type) override;
+  bool CreateImageFromGpuMemoryHandle(
+      VkDevice vk_device,
+      gfx::GpuMemoryBufferHandle gmb_handle,
+      gfx::Size size,
+      VkImage* vk_image,
+      VkImageCreateInfo* vk_image_info,
+      VkDeviceMemory* vk_device_memory,
+      VkDeviceSize* mem_allocation_size) override;
 
  private:
   VulkanInstance vulkan_instance_;

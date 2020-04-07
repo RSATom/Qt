@@ -103,6 +103,19 @@ QAndroidWebViewPrivate::~QAndroidWebViewPrivate()
     m_viewController.callMethod<void>("destroy");
 }
 
+QString QAndroidWebViewPrivate::httpUserAgent() const
+{
+    return QString( m_viewController.callObjectMethod<jstring>("getUserAgent").toString());
+}
+
+void QAndroidWebViewPrivate::setHttpUserAgent(const QString &userAgent)
+{
+    m_viewController.callMethod<void>("setUserAgent",
+                                      "(Ljava/lang/String;)V",
+                                      QJNIObjectPrivate::fromString(userAgent).object());
+    Q_EMIT httpUserAgentChanged(userAgent);
+}
+
 QUrl QAndroidWebViewPrivate::url() const
 {
     return QUrl::fromUserInput(m_viewController.callObjectMethod<jstring>("getUrl").toString());
@@ -409,7 +422,7 @@ JNIEXPORT jint JNI_OnLoad(JavaVM* vm, void* /*reserved*/)
     UnionJNIEnvToVoid uenv;
     uenv.venv = NULL;
 
-    if (vm->GetEnv(&uenv.venv, JNI_VERSION_1_4) != JNI_OK)
+    if (vm->GetEnv(&uenv.venv, JNI_VERSION_1_6) != JNI_OK)
         return JNI_ERR;
 
     JNIEnv *env = uenv.nativeEnvironment;
@@ -433,5 +446,5 @@ JNIEXPORT jint JNI_OnLoad(JavaVM* vm, void* /*reserved*/)
     if (env->RegisterNatives(clazz, methods, nMethods) != JNI_OK)
         return JNI_ERR;
 
-    return JNI_VERSION_1_4;
+    return JNI_VERSION_1_6;
 }

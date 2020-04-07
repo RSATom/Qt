@@ -21,73 +21,50 @@
 namespace viz {
 
 BufferQueue::BufferQueue(gpu::gles2::GLES2Interface* gl,
-                         uint32_t texture_target,
-                         uint32_t internal_format,
                          gfx::BufferFormat format,
                          gpu::GpuMemoryBufferManager* gpu_memory_buffer_manager,
-                         gpu::SurfaceHandle surface_handle)
+                         gpu::SurfaceHandle surface_handle,
+                         const gpu::Capabilities& capabilities)
     : gl_(gl),
-      fbo_(0),
       allocated_count_(0),
-      texture_target_(texture_target),
-      internal_format_(internal_format),
+      texture_target_(gpu::GetBufferTextureTarget(gfx::BufferUsage::SCANOUT,
+                                                  format,
+                                                  capabilities)),
+      internal_format_(base::strict_cast<uint32_t>(
+          gpu::InternalFormatForGpuMemoryBufferFormat(format))),
       format_(format),
       gpu_memory_buffer_manager_(gpu_memory_buffer_manager),
-      surface_handle_(surface_handle) {
-  DCHECK_EQ(internal_format,
-            gpu::InternalFormatForGpuMemoryBufferFormat(format_));
-}
+      surface_handle_(surface_handle) {}
 
 BufferQueue::~BufferQueue() {
   FreeAllSurfaces();
-
-  if (fbo_)
-    gl_->DeleteFramebuffers(1, &fbo_);
 }
 
-void BufferQueue::Initialize() {
-  gl_->GenFramebuffers(1, &fbo_);
-}
-
-void BufferQueue::BindFramebuffer() {
-  gl_->BindFramebuffer(GL_FRAMEBUFFER, fbo_);
-
+unsigned BufferQueue::GetCurrentBuffer(unsigned* stencil) {
+  DCHECK(stencil);
   if (!current_surface_)
     current_surface_ = GetNextSurface();
-
   if (current_surface_) {
-    gl_->FramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
-                              texture_target_, current_surface_->texture, 0);
-    if (current_surface_->stencil) {
-      gl_->FramebufferRenderbuffer(GL_FRAMEBUFFER, GL_STENCIL_ATTACHMENT,
-                                   GL_RENDERBUFFER, current_surface_->stencil);
-    }
+    *stencil = current_surface_->stencil;
+    return current_surface_->texture;
   }
+  *stencil = 0u;
+  return 0u;
 }
 
-void BufferQueue::CopyBufferDamage(int texture,
-                                   int source_texture,
+void BufferQueue::CopyBufferDamage(unsigned texture,
+                                   unsigned source_texture,
                                    const gfx::Rect& new_damage,
                                    const gfx::Rect& old_damage) {
   SkRegion region(gfx::RectToSkIRect(old_damage));
   if (!region.op(gfx::RectToSkIRect(new_damage), SkRegion::kDifference_Op))
     return;
-
-  GLuint dst_framebuffer = 0;
-  gl_->GenFramebuffers(1, &dst_framebuffer);
-  DCHECK(dst_framebuffer);
-  gl_->BindFramebuffer(GL_FRAMEBUFFER, dst_framebuffer);
-  gl_->BindTexture(texture_target_, texture);
-  gl_->FramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
-                            texture_target_, source_texture, 0);
   for (SkRegion::Iterator it(region); !it.done(); it.next()) {
     const SkIRect& rect = it.rect();
-    gl_->CopyTexSubImage2D(texture_target_, 0, rect.x(), rect.y(), rect.x(),
-                           rect.y(), rect.width(), rect.height());
+    gl_->CopySubTextureCHROMIUM(
+        source_texture, 0, texture_target_, texture, 0, rect.x(), rect.y(),
+        rect.x(), rect.y(), rect.width(), rect.height(), false, false, false);
   }
-  gl_->BindTexture(texture_target_, 0);
-  gl_->Flush();
-  gl_->DeleteFramebuffers(1, &dst_framebuffer);
 }
 
 void BufferQueue::UpdateBufferDamage(const gfx::Rect& damage) {
@@ -101,48 +78,51 @@ void BufferQueue::UpdateBufferDamage(const gfx::Rect& damage) {
   }
 }
 
+void BufferQueue::CopyDamageForCurrentSurface(const gfx::Rect& damage) {
+  if (!current_surface_)
+    return;
+
+  if (damage != gfx::Rect(size_)) {
+    // Copy damage from the most recently swapped buffer. In the event that
+    // the buffer was destroyed and failed to recreate, pick from the most
+    // recently available buffer.
+    unsigned texture_id = 0;
+    for (auto& surface : base::Reversed(in_flight_surfaces_)) {
+      if (surface) {
+        texture_id = surface->texture;
+        break;
+      }
+    }
+    if (!texture_id && displayed_surface_)
+      texture_id = displayed_surface_->texture;
+
+    if (texture_id) {
+      CopyBufferDamage(current_surface_->texture, texture_id, damage,
+                       current_surface_->damage);
+    }
+  }
+  current_surface_->damage = gfx::Rect();
+}
+
 void BufferQueue::SwapBuffers(const gfx::Rect& damage) {
   if (damage.IsEmpty()) {
     in_flight_surfaces_.push_back(std::move(current_surface_));
     return;
   }
 
-  if (current_surface_) {
-    if (damage != gfx::Rect(size_)) {
-      // Copy damage from the most recently swapped buffer. In the event that
-      // the buffer was destroyed and failed to recreate, pick from the most
-      // recently available buffer.
-      uint32_t texture_id = 0;
-      for (auto& surface : base::Reversed(in_flight_surfaces_)) {
-        if (surface) {
-          texture_id = surface->texture;
-          break;
-        }
-      }
-      if (!texture_id && displayed_surface_)
-        texture_id = displayed_surface_->texture;
-
-      if (texture_id) {
-        CopyBufferDamage(current_surface_->texture, texture_id, damage,
-                         current_surface_->damage);
-      }
-    }
-    current_surface_->damage = gfx::Rect();
-  }
+  DCHECK(!current_surface_ || current_surface_->damage.IsEmpty());
   UpdateBufferDamage(damage);
   in_flight_surfaces_.push_back(std::move(current_surface_));
-  // Some things reset the framebuffer (CopyBufferDamage, some GLRenderer
-  // paths), so ensure we restore it here.
-  gl_->BindFramebuffer(GL_FRAMEBUFFER, fbo_);
 }
 
-void BufferQueue::Reshape(const gfx::Size& size,
+bool BufferQueue::Reshape(const gfx::Size& size,
                           float scale_factor,
                           const gfx::ColorSpace& color_space,
                           bool use_stencil) {
   if (size == size_ && color_space == color_space_ &&
-      use_stencil == use_stencil_)
-    return;
+      use_stencil == use_stencil_) {
+    return false;
+  }
 #if !defined(OS_MACOSX)
   // TODO(ccameron): This assert is being hit on Mac try jobs. Determine if that
   // is cause for concern or if it is benign.
@@ -153,52 +133,8 @@ void BufferQueue::Reshape(const gfx::Size& size,
   color_space_ = color_space;
   use_stencil_ = use_stencil;
 
-  gl_->BindFramebuffer(GL_FRAMEBUFFER, fbo_);
-  gl_->FramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
-                            texture_target_, 0, 0);
-  gl_->FramebufferRenderbuffer(GL_FRAMEBUFFER, GL_STENCIL_ATTACHMENT,
-                               GL_RENDERBUFFER, 0);
-
   FreeAllSurfaces();
-}
-
-void BufferQueue::RecreateBuffers() {
-  // We need to recreate the buffers, for whatever reason the old ones are not
-  // presentable on the device anymore.
-  // Unused buffers can be freed directly, they will be re-allocated as needed.
-  // Any in flight, current or displayed surface must be replaced.
-  available_surfaces_.clear();
-
-  // Recreate all in-flight surfaces and put the recreated copies in the queue.
-  for (auto& surface : in_flight_surfaces_)
-    surface = RecreateBuffer(std::move(surface));
-
-  current_surface_ = RecreateBuffer(std::move(current_surface_));
-  displayed_surface_ = RecreateBuffer(std::move(displayed_surface_));
-
-  if (current_surface_) {
-    // If we have a texture bound, we will need to re-bind it.
-    gl_->BindFramebuffer(GL_FRAMEBUFFER, fbo_);
-    gl_->FramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
-                              texture_target_, current_surface_->texture, 0);
-  }
-}
-
-std::unique_ptr<BufferQueue::AllocatedSurface> BufferQueue::RecreateBuffer(
-    std::unique_ptr<AllocatedSurface> surface) {
-  if (!surface)
-    return nullptr;
-
-  std::unique_ptr<AllocatedSurface> new_surface(GetNextSurface());
-  if (!new_surface)
-    return nullptr;
-
-  new_surface->damage = surface->damage;
-
-  // Copy the entire texture.
-  CopyBufferDamage(new_surface->texture, surface->texture, gfx::Rect(),
-                   gfx::Rect(size_));
-  return new_surface;
+  return true;
 }
 
 void BufferQueue::PageFlipComplete() {
@@ -210,25 +146,6 @@ void BufferQueue::PageFlipComplete() {
   }
 
   in_flight_surfaces_.pop_front();
-}
-
-uint32_t BufferQueue::GetCurrentTextureId() const {
-  if (current_surface_)
-    return current_surface_->texture;
-
-  // Return in-flight or displayed surface texture if no surface is
-  // currently bound. This can happen when using overlays and surface
-  // damage is empty. Note: |in_flight_surfaces_| entries can be null
-  // as a result of calling FreeAllSurfaces().
-  for (auto& surface : base::Reversed(in_flight_surfaces_)) {
-    if (surface)
-      return surface->texture;
-  }
-
-  if (displayed_surface_)
-    return displayed_surface_->texture;
-
-  return 0;
 }
 
 void BufferQueue::FreeAllSurfaces() {
@@ -263,10 +180,10 @@ std::unique_ptr<BufferQueue::AllocatedSurface> BufferQueue::GetNextSurface() {
     return surface;
   }
 
-  GLuint texture;
+  unsigned texture;
   gl_->GenTextures(1, &texture);
 
-  GLuint stencil = 0;
+  unsigned stencil = 0;
   if (use_stencil_) {
     gl_->GenRenderbuffers(1, &stencil);
     gl_->BindRenderbuffer(GL_RENDERBUFFER, stencil);
@@ -276,7 +193,7 @@ std::unique_ptr<BufferQueue::AllocatedSurface> BufferQueue::GetNextSurface() {
   }
 
   // We don't want to allow anything more than triple buffering.
-  DCHECK_LT(allocated_count_, 4U);
+  DCHECK_LT(allocated_count_, 3U);
   std::unique_ptr<gfx::GpuMemoryBuffer> buffer(
       gpu_memory_buffer_manager_->CreateGpuMemoryBuffer(
           size_, format_, gfx::BufferUsage::SCANOUT, surface_handle_));
@@ -287,7 +204,7 @@ std::unique_ptr<BufferQueue::AllocatedSurface> BufferQueue::GetNextSurface() {
   }
   buffer->SetColorSpace(color_space_);
 
-  uint32_t id =
+  unsigned id =
       gl_->CreateImageCHROMIUM(buffer->AsClientBuffer(), size_.width(),
                                size_.height(), internal_format_);
   if (!id) {
@@ -299,6 +216,11 @@ std::unique_ptr<BufferQueue::AllocatedSurface> BufferQueue::GetNextSurface() {
   allocated_count_++;
   gl_->BindTexture(texture_target_, texture);
   gl_->BindTexImage2DCHROMIUM(texture_target_, id);
+
+  // The texture must be bound to the image before setting the color space.
+  gl_->SetColorSpaceMetadataCHROMIUM(
+      texture, reinterpret_cast<GLColorSpace>(&color_space_));
+
   return std::make_unique<AllocatedSurface>(this, std::move(buffer), texture,
                                             id, stencil, gfx::Rect(size_));
 }
@@ -306,9 +228,9 @@ std::unique_ptr<BufferQueue::AllocatedSurface> BufferQueue::GetNextSurface() {
 BufferQueue::AllocatedSurface::AllocatedSurface(
     BufferQueue* buffer_queue,
     std::unique_ptr<gfx::GpuMemoryBuffer> buffer,
-    uint32_t texture,
-    uint32_t image,
-    uint32_t stencil,
+    unsigned texture,
+    unsigned image,
+    unsigned stencil,
     const gfx::Rect& rect)
     : buffer_queue(buffer_queue),
       buffer(buffer.release()),

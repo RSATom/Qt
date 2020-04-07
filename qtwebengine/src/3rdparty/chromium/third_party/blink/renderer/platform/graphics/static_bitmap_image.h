@@ -75,6 +75,7 @@ class PLATFORM_EXPORT StaticBitmapImage : public Image {
   virtual bool CopyToTexture(gpu::gles2::GLES2Interface*,
                              GLenum,
                              GLuint,
+                             GLint,
                              bool,
                              bool,
                              const IntPoint&,
@@ -106,7 +107,6 @@ class PLATFORM_EXPORT StaticBitmapImage : public Image {
     return mailbox;
   }
   virtual const gpu::SyncToken& GetSyncToken() const;
-  virtual void UpdateSyncToken(gpu::SyncToken) { NOTREACHED(); }
   virtual bool IsPremultiplied() const { return true; }
 
   // Methods have exactly the same implementation for all sub-classes

@@ -713,6 +713,12 @@ class MinidumpWriter {
     stream->exception_record.exception_code = dumper_->crash_signal();
     stream->exception_record.exception_flags = dumper_->crash_signal_code();
     stream->exception_record.exception_address = dumper_->crash_address();
+    const std::vector<uint64_t> crash_exception_info =
+        dumper_->crash_exception_info();
+    stream->exception_record.number_parameters = crash_exception_info.size();
+    memcpy(stream->exception_record.exception_information,
+           crash_exception_info.data(),
+           sizeof(uint64_t) * crash_exception_info.size());
     stream->thread_context = crashing_thread_context_;
 
     return true;
@@ -1418,8 +1424,10 @@ bool WriteMinidump(const char* minidump_path, pid_t process,
   // MinidumpWriter will set crash address
   dumper.set_crash_signal(MD_EXCEPTION_CODE_LIN_DUMP_REQUESTED);
   dumper.set_crash_thread(process_blamed_thread);
-  MinidumpWriter writer(minidump_path, -1, NULL, MappingList(),
-                        AppMemoryList(), false, 0, false, &dumper);
+  MappingList mapping_list;
+  AppMemoryList app_memory_list;
+  MinidumpWriter writer(minidump_path, -1, NULL, mapping_list,
+                        app_memory_list, false, 0, false, &dumper);
   if (!writer.Init())
     return false;
   return writer.Dump();

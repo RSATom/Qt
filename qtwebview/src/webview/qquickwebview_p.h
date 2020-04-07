@@ -60,6 +60,7 @@ class QWebViewLoadRequestPrivate;
 class Q_WEBVIEW_EXPORT QQuickWebView : public QQuickViewController, public QWebViewInterface
 {
     Q_OBJECT
+    Q_PROPERTY(QString httpUserAgent READ httpUserAgent WRITE setHttpUserAgent NOTIFY httpUserAgentChanged REVISION 14)
     Q_PROPERTY(QUrl url READ url WRITE setUrl NOTIFY urlChanged)
     Q_PROPERTY(bool loading READ isLoading NOTIFY loadingChanged REVISION 1)
     Q_PROPERTY(int loadProgress READ loadProgress NOTIFY loadProgressChanged)
@@ -79,6 +80,8 @@ public:
     QQuickWebView(QQuickItem *parent = 0);
     ~QQuickWebView();
 
+    QString httpUserAgent() const Q_DECL_OVERRIDE;
+    void setHttpUserAgent(const QString &userAgent) Q_DECL_OVERRIDE;
     QUrl url() const Q_DECL_OVERRIDE;
     void setUrl(const QUrl &url) Q_DECL_OVERRIDE;
     int loadProgress() const Q_DECL_OVERRIDE;
@@ -101,6 +104,7 @@ Q_SIGNALS:
     void urlChanged();
     Q_REVISION(1) void loadingChanged(QQuickWebViewLoadRequest *loadRequest);
     void loadProgressChanged();
+    Q_REVISION(14) void httpUserAgentChanged();
 
 protected:
     void itemChange(ItemChange change, const ItemChangeData &value) Q_DECL_OVERRIDE;

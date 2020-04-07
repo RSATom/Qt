@@ -19,12 +19,8 @@ bool StructTraits<media::mojom::VideoDecoderConfigDataView,
   if (!input.ReadProfile(&profile))
     return false;
 
-  media::VideoPixelFormat format;
-  if (!input.ReadFormat(&format))
-    return false;
-
-  media::VideoRotation rotation;
-  if (!input.ReadVideoRotation(&rotation))
+  media::VideoTransformation transformation;
+  if (!input.ReadTransformation(&transformation))
     return false;
 
   gfx::Size coded_size;
@@ -55,8 +51,12 @@ bool StructTraits<media::mojom::VideoDecoderConfigDataView,
   if (!input.ReadHdrMetadata(&hdr_metadata))
     return false;
 
-  output->Initialize(codec, profile, format, color_space, rotation, coded_size,
-                     visible_rect, natural_size, extra_data, encryption_scheme);
+  output->Initialize(codec, profile,
+                     input.has_alpha()
+                         ? media::VideoDecoderConfig::AlphaMode::kHasAlpha
+                         : media::VideoDecoderConfig::AlphaMode::kIsOpaque,
+                     color_space, transformation, coded_size, visible_rect,
+                     natural_size, extra_data, encryption_scheme);
 
   if (hdr_metadata)
     output->set_hdr_metadata(hdr_metadata.value());

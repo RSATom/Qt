@@ -48,15 +48,23 @@
 **
 ****************************************************************************/
 
-#include <QtWidgets>
-
 #include "locationdialog.h"
 #include "mainwindow.h"
 #include "settingstree.h"
 
-MainWindow::MainWindow()
-    : settingsTree(new SettingsTree)
-    , locationDialog(nullptr)
+#include <QAction>
+#include <QApplication>
+#include <QFileDialog>
+#include <QInputDialog>
+#include <QLineEdit>
+#include <QMenuBar>
+#include <QMessageBox>
+#include <QScreen>
+#include <QStandardPaths>
+#include <QStatusBar>
+
+MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
+    , settingsTree(new SettingsTree)
 {
     setCentralWidget(settingsTree);
 
@@ -66,7 +74,7 @@ MainWindow::MainWindow()
     fallbacksAct->setChecked(true);
 
     setWindowTitle(QCoreApplication::applicationName());
-    const QRect availableGeometry = QApplication::desktop()->availableGeometry(this);
+    const QRect availableGeometry = screen()->availableGeometry();
     adjustSize();
     move((availableGeometry.width() - width()) / 2, (availableGeometry.height() - height()) / 2);
 }

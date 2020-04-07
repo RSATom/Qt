@@ -20,23 +20,14 @@ const char kOfflinePagesUseTestingSnapshotDelay[] =
 
 namespace offline_pages {
 
-const base::Feature kOfflineBookmarksFeature{"OfflineBookmarks",
-                                             base::FEATURE_ENABLED_BY_DEFAULT};
-
 const base::Feature kOffliningRecentPagesFeature{
     "OfflineRecentPages", base::FEATURE_ENABLED_BY_DEFAULT};
 
 const base::Feature kOfflinePagesCTFeature{"OfflinePagesCT",
                                            base::FEATURE_ENABLED_BY_DEFAULT};
 
-const base::Feature kOfflinePagesSharingFeature{
-    "OfflinePagesSharing", base::FEATURE_ENABLED_BY_DEFAULT};
-
 const base::Feature kOfflinePagesLivePageSharingFeature{
     "OfflinePagesLivePageSharing", base::FEATURE_DISABLED_BY_DEFAULT};
-
-const base::Feature kOfflinePagesSvelteConcurrentLoadingFeature{
-    "OfflinePagesSvelteConcurrentLoading", base::FEATURE_DISABLED_BY_DEFAULT};
 
 const base::Feature kOfflinePagesLoadSignalCollectingFeature{
     "OfflinePagesLoadSignalCollecting", base::FEATURE_DISABLED_BY_DEFAULT};
@@ -47,11 +38,8 @@ const base::Feature kOfflinePagesRenovationsFeature{
 const base::Feature kOfflinePagesResourceBasedSnapshotFeature{
     "OfflinePagesResourceBasedSnapshot", base::FEATURE_DISABLED_BY_DEFAULT};
 
-const base::Feature kBackgroundLoaderForDownloadsFeature{
-    "BackgroundLoadingForDownloads", base::FEATURE_ENABLED_BY_DEFAULT};
-
 const base::Feature kPrefetchingOfflinePagesFeature{
-    "OfflinePagesPrefetching", base::FEATURE_DISABLED_BY_DEFAULT};
+    "OfflinePagesPrefetching", base::FEATURE_ENABLED_BY_DEFAULT};
 
 const base::Feature kOfflinePagesCTV2Feature{"OfflinePagesCTV2",
                                              base::FEATURE_DISABLED_BY_DEFAULT};
@@ -82,37 +70,21 @@ const base::Feature kOnTheFlyMhtmlHashComputationFeature{
 
 const char kPrefetchingOfflinePagesExperimentsOption[] = "exp";
 
-bool IsOfflineBookmarksEnabled() {
-  return base::FeatureList::IsEnabled(kOfflineBookmarksFeature);
-}
-
 bool IsOffliningRecentPagesEnabled() {
   return base::FeatureList::IsEnabled(kOffliningRecentPagesFeature);
-}
-
-bool IsOfflinePagesSvelteConcurrentLoadingEnabled() {
-  return base::FeatureList::IsEnabled(
-      kOfflinePagesSvelteConcurrentLoadingFeature);
 }
 
 bool IsOfflinePagesCTEnabled() {
   return base::FeatureList::IsEnabled(kOfflinePagesCTFeature);
 }
 
-bool IsOfflinePagesSharingEnabled() {
-  return base::FeatureList::IsEnabled(kOfflinePagesSharingFeature);
-}
-
 bool IsOfflinePagesLivePageSharingEnabled() {
   return base::FeatureList::IsEnabled(kOfflinePagesLivePageSharingFeature);
 }
 
-bool IsBackgroundLoaderForDownloadsEnabled() {
-  return base::FeatureList::IsEnabled(kBackgroundLoaderForDownloadsFeature);
-}
-
 bool IsPrefetchingOfflinePagesEnabled() {
-  return base::FeatureList::IsEnabled(kPrefetchingOfflinePagesFeature);
+  return IsOfflinePagesEnabled() &&
+         base::FeatureList::IsEnabled(kPrefetchingOfflinePagesFeature);
 }
 
 bool IsOfflinePagesLoadSignalCollectingEnabled() {
@@ -169,7 +141,8 @@ std::string GetPrefetchingOfflinePagesExperimentTag() {
 }
 
 bool IsOfflineIndicatorFeatureEnabled() {
-  return base::FeatureList::IsEnabled(kOfflineIndicatorFeature);
+  return IsOfflinePagesEnabled() &&
+         base::FeatureList::IsEnabled(kOfflineIndicatorFeature);
 }
 
 bool IsOfflineIndicatorAlwaysHttpProbeEnabled() {
@@ -178,6 +151,14 @@ bool IsOfflineIndicatorAlwaysHttpProbeEnabled() {
 
 bool IsOnTheFlyMhtmlHashComputationEnabled() {
   return base::FeatureList::IsEnabled(kOnTheFlyMhtmlHashComputationFeature);
+}
+
+bool IsOfflinePagesEnabled() {
+#if defined(DISABLE_OFFLINE_PAGES_TOUCHLESS)
+  return false;
+#else
+  return true;
+#endif  // defined(DISABLE_OFFLINE_PAGES_TOUCHLESS)
 }
 
 }  // namespace offline_pages

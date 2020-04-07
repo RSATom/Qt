@@ -15,7 +15,7 @@ Polymer({
   properties: {
     /**
      * The list of network state properties for the items to display.
-     * @type {!Array<!CrOnc.NetworkStateProperties>}
+     * @type {!Array<!OncMojo.NetworkStateProperties>}
      */
     networks: {
       type: Array,
@@ -41,6 +41,9 @@ Polymer({
       value: false,
       reflectToAttribute: true,
     },
+
+    /** Whether to show technology badges on mobile network icons. */
+    showTechnologyBadge: {type: Boolean, value: true},
 
     /**
      * Reflects the iron-list selecteditem property.

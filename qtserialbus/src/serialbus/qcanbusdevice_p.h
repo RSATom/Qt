@@ -74,6 +74,9 @@ public:
 
     bool waitForReceivedEntered = false;
     bool waitForWrittenEntered = false;
+
+    std::function<void()> m_resetControllerFunction;
+    std::function<QCanBusDevice::CanBusStatus()> m_busStatusGetter;
 };
 
 QT_END_NAMESPACE

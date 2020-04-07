@@ -11,6 +11,7 @@
 #include "modules/desktop_capture/desktop_frame.h"
 
 #include <string.h>
+
 #include <utility>
 
 #include "absl/memory/memory.h"
@@ -69,8 +70,13 @@ DesktopRect DesktopFrame::rect() const {
 
 float DesktopFrame::scale_factor() const {
   float scale = 1.0f;
+
+#if defined(WEBRTC_MAC)
+  // At least on Windows the logical and physical pixel are the same
+  // See http://crbug.com/948362.
   if (!dpi().is_zero() && dpi().x() == dpi().y())
     scale = dpi().x() / kStandardDPI;
+#endif
 
   return scale;
 }
@@ -85,6 +91,7 @@ void DesktopFrame::CopyFrameInfoFrom(const DesktopFrame& other) {
   set_capturer_id(other.capturer_id());
   *mutable_updated_region() = other.updated_region();
   set_top_left(other.top_left());
+  set_icc_profile(other.icc_profile());
 }
 
 void DesktopFrame::MoveFrameInfoFrom(DesktopFrame* other) {
@@ -93,6 +100,7 @@ void DesktopFrame::MoveFrameInfoFrom(DesktopFrame* other) {
   set_capturer_id(other->capturer_id());
   mutable_updated_region()->Swap(other->mutable_updated_region());
   set_top_left(other->top_left());
+  set_icc_profile(other->icc_profile());
 }
 
 BasicDesktopFrame::BasicDesktopFrame(DesktopSize size)

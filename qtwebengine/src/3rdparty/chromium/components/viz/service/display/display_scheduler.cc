@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "base/auto_reset.h"
+#include "base/bind.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/stl_util.h"
 #include "base/trace_event/trace_event.h"
@@ -34,8 +35,7 @@ DisplayScheduler::DisplayScheduler(BeginFrameSource* begin_frame_source,
       pending_swaps_(0),
       max_pending_swaps_(max_pending_swaps),
       wait_for_all_surfaces_before_draw_(wait_for_all_surfaces_before_draw),
-      observing_begin_frame_source_(false),
-      weak_ptr_factory_(this) {
+      observing_begin_frame_source_(false) {
   begin_frame_deadline_closure_ = base::BindRepeating(
       &DisplayScheduler::OnBeginFrameDeadline, weak_ptr_factory_.GetWeakPtr());
 
@@ -258,7 +258,7 @@ bool DisplayScheduler::OnBeginFrameDerivedImpl(const BeginFrameArgs& args) {
   // Schedule the deadline.
   current_begin_frame_args_ = save_args;
   current_begin_frame_args_.deadline -=
-      BeginFrameArgs::DefaultEstimatedParentDrawTime();
+      BeginFrameArgs::DefaultEstimatedDisplayDrawTime(save_args.interval);
   inside_begin_frame_deadline_interval_ = true;
   UpdateHasPendingSurfaces();
   ScheduleBeginFrameDeadline();
@@ -316,7 +316,8 @@ void DisplayScheduler::OnSurfaceActivated(
     const SurfaceId& surface_id,
     base::Optional<base::TimeDelta> duration) {}
 
-void DisplayScheduler::OnSurfaceDestroyed(const SurfaceId& surface_id) {
+void DisplayScheduler::OnSurfaceMarkedForDestruction(
+    const SurfaceId& surface_id) {
   auto it = surface_states_.find(surface_id);
   if (it == surface_states_.end())
     return;
@@ -333,8 +334,8 @@ bool DisplayScheduler::OnSurfaceDamaged(const SurfaceId& surface_id,
   return damaged;
 }
 
-void DisplayScheduler::OnSurfaceDiscarded(const SurfaceId& surface_id) {
-  client_->SurfaceDiscarded(surface_id);
+void DisplayScheduler::OnSurfaceDestroyed(const SurfaceId& surface_id) {
+  client_->SurfaceDestroyed(surface_id);
 }
 
 void DisplayScheduler::OnSurfaceDamageExpected(const SurfaceId& surface_id,
@@ -520,10 +521,13 @@ void DisplayScheduler::DidSwapBuffers() {
 }
 
 void DisplayScheduler::DidReceiveSwapBuffersAck() {
-  begin_frame_source_->SetIsGpuBusy(false);
-
   uint32_t swap_id = next_swap_id_ - pending_swaps_;
   pending_swaps_--;
+
+  // It is important to call this after updating |pending_swaps_| above to
+  // ensure any callback from BeginFrameSource observes the correct swap
+  // throttled state.
+  begin_frame_source_->SetIsGpuBusy(false);
   TRACE_EVENT_ASYNC_END0("viz", "DisplayScheduler:pending_swaps", swap_id);
   ScheduleBeginFrameDeadline();
 }

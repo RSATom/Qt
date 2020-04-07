@@ -12,7 +12,7 @@
 #include "base/scoped_observer.h"
 #include "chrome/browser/chromeos/settings/cros_settings.h"
 #include "chrome/browser/ui/webui/settings/settings_page_ui_handler.h"
-#include "chromeos/dbus/system_clock_client.h"
+#include "chromeos/dbus/system_clock/system_clock_client.h"
 #include "components/prefs/pref_change_registrar.h"
 
 namespace base {
@@ -54,6 +54,14 @@ class DateTimeHandler : public ::settings::SettingsPageUIHandler,
 
   // Called to show the Set Time UI.
   void HandleShowSetDateTimeUI(const base::ListValue* args);
+
+  // Handles clicks on the timezone row on the settings page. This should only
+  // be called when the current user is a child.
+  void HandleShowParentAccessForTimeZone(const base::ListValue* args);
+
+  // Called when the parent access code was validated with result equals
+  // |success|.
+  void OnParentAccessValidation(bool success);
 
   // Updates the UI, enabling or disabling the time zone automatic detection
   // setting according to policy.

@@ -8,10 +8,11 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#include <algorithm>
-
-#include "common_types.h"  // NOLINT(build/include)
 #include "modules/video_coding/utility/simulcast_utility.h"
+
+#include <algorithm>
+#include <cmath>
+
 #include "rtc_base/checks.h"
 
 namespace webrtc {
@@ -35,8 +36,9 @@ int SimulcastUtility::NumberOfSimulcastStreams(const VideoCodec& codec) {
   return streams;
 }
 
-bool SimulcastUtility::ValidSimulcastResolutions(const VideoCodec& codec,
-                                                 int num_streams) {
+bool SimulcastUtility::ValidSimulcastParameters(const VideoCodec& codec,
+                                                int num_streams) {
+  // Check resolution.
   if (codec.width != codec.simulcastStream[num_streams - 1].width ||
       codec.height != codec.simulcastStream[num_streams - 1].height) {
     return false;
@@ -47,17 +49,32 @@ bool SimulcastUtility::ValidSimulcastResolutions(const VideoCodec& codec,
       return false;
     }
   }
+  if (codec.codecType == webrtc::kVideoCodecVP8) {
+    for (int i = 1; i < num_streams; ++i) {
+      if (codec.simulcastStream[i].width < codec.simulcastStream[i - 1].width) {
+        return false;
+      }
+    }
+  } else {
+    // TODO(mirtad): H264 encoder implementation still assumes the default
+    // resolution downscaling is used.
+    for (int i = 1; i < num_streams; ++i) {
+      if (codec.simulcastStream[i].width !=
+          codec.simulcastStream[i - 1].width * 2) {
+        return false;
+      }
+    }
+  }
+
+  // Check frame-rate.
   for (int i = 1; i < num_streams; ++i) {
-    if (codec.simulcastStream[i].width !=
-        codec.simulcastStream[i - 1].width * 2) {
+    if (fabs(codec.simulcastStream[i].maxFramerate -
+             codec.simulcastStream[i - 1].maxFramerate) > 1e-9) {
       return false;
     }
   }
-  return true;
-}
 
-bool SimulcastUtility::ValidSimulcastTemporalLayers(const VideoCodec& codec,
-                                                    int num_streams) {
+  // Check temporal layers.
   for (int i = 0; i < num_streams - 1; ++i) {
     if (codec.simulcastStream[i].numberOfTemporalLayers !=
         codec.simulcastStream[i + 1].numberOfTemporalLayers)

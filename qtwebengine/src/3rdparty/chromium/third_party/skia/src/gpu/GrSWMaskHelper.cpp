@@ -5,14 +5,15 @@
  * found in the LICENSE file.
  */
 
-#include "GrSWMaskHelper.h"
+#include "src/gpu/GrSWMaskHelper.h"
 
-#include "GrContext.h"
-#include "GrContextPriv.h"
-#include "GrProxyProvider.h"
-#include "GrShape.h"
-#include "GrSurfaceContext.h"
-#include "GrTextureProxy.h"
+#include "include/private/GrRecordingContext.h"
+#include "src/gpu/GrCaps.h"
+#include "src/gpu/GrProxyProvider.h"
+#include "src/gpu/GrRecordingContextPriv.h"
+#include "src/gpu/GrSurfaceContext.h"
+#include "src/gpu/GrTextureProxy.h"
+#include "src/gpu/geometry/GrShape.h"
 
 /*
  * Convert a boolean operation into a transfer mode code
@@ -91,7 +92,8 @@ bool GrSWMaskHelper::init(const SkIRect& resultBounds) {
     return true;
 }
 
-sk_sp<GrTextureProxy> GrSWMaskHelper::toTextureProxy(GrContext* context, SkBackingFit fit) {
+sk_sp<GrTextureProxy> GrSWMaskHelper::toTextureProxy(GrRecordingContext* context,
+                                                     SkBackingFit fit) {
     SkImageInfo ii = SkImageInfo::MakeA8(fPixels->width(), fPixels->height());
     size_t rowBytes = fPixels->rowBytes();
 
@@ -105,24 +107,6 @@ sk_sp<GrTextureProxy> GrSWMaskHelper::toTextureProxy(GrContext* context, SkBacki
         return nullptr;
     }
 
-    // TODO: http://skbug.com/8422: Although this fixes http://skbug.com/8351, it seems like these
-    // should just participate in the normal allocation process and not need the pending IO flag.
-    auto surfaceFlags = GrInternalSurfaceFlags::kNone;
-    if (!context->contextPriv().resourceProvider()) {
-        // In DDL mode, this texture proxy will be instantiated at flush time, therfore it cannot
-        // have pending IO.
-        surfaceFlags |= GrInternalSurfaceFlags::kNoPendingIO;
-    }
-    auto clearFlag = kNone_GrSurfaceFlags;
-    // In a WASM build on Firefox, we see warnings like
-    // WebGL warning: texSubImage2D: This operation requires zeroing texture data. This is slow.
-    // WebGL warning: texSubImage2D: Texture has not been initialized prior to a partial upload,
-    //                forcing the browser to clear it. This may be slow.
-    // Setting the initial clear seems to make those warnings go away and offers a substantial
-    // boost in performance in Firefox. Chrome sees a more modest increase.
-#if IS_WEBGL==1
-    clearFlag = kPerformInitialClear_GrSurfaceFlag;
-#endif
-    return context->contextPriv().proxyProvider()->createTextureProxy(
-            std::move(img), clearFlag, 1, SkBudgeted::kYes, fit, surfaceFlags);
+    return context->priv().proxyProvider()->createTextureProxy(std::move(img), GrRenderable::kNo, 1,
+                                                               SkBudgeted::kYes, fit);
 }

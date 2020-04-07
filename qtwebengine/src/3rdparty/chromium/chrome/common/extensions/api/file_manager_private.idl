@@ -47,6 +47,9 @@ enum MountCompletedStatus {
   error_invalid_archive
 };
 
+// Filesystem to format to.
+enum FormatFileSystemType { vfat, exfat, ntfs };
+
 // File transfer progress state.
 enum TransferState { in_progress, completed, failed };
 
@@ -226,7 +229,7 @@ enum SourceRestriction {
   native_or_drive_source
 };
 
-enum CrostiniSharedPathsChangedEventType { share, unshare };
+enum CrostiniEventType { enable, disable, share, unshare };
 
 // A file task represents an action that the file manager can perform over the
 // currently selected files. See
@@ -558,12 +561,15 @@ dictionary Preferences {
   boolean cellularDisabled;
   boolean searchSuggestEnabled;
   boolean use24hourClock;
-  boolean allowRedeemOffers;
   DOMString timezone;
+  boolean arcEnabled;
+  boolean arcRemovableMediaAccessEnabled;
 };
 
 dictionary PreferencesChange {
   boolean? cellularDisabled;
+  boolean? arcEnabled;
+  boolean? arcRemovableMediaAccessEnabled;
 };
 
 dictionary SearchParams {
@@ -588,7 +594,7 @@ dictionary SearchMetadataParams {
 };
 
 // Entry and Drive-related properties representing a search result.
-dictionary SearchResult {
+dictionary DriveMetadataSearchResult {
   // A dictionary object which represents a Drive file. This will be converted
   // into a kind of FileEntry object. See
   // file_browser_handler_custom_bindings.cc for details. For filesystem API's
@@ -601,6 +607,10 @@ dictionary SearchResult {
   // sub strings are highlighted with <b> element. Meta characters are escaped
   // like &lt;.
   DOMString highlightedBaseName;
+
+  // Whether the file is available while offline. May be unset if not
+  // applicable.
+  boolean? availableOffline;
 };
 
 dictionary DriveConnectionState {
@@ -658,13 +668,31 @@ dictionary LinuxPackageInfo {
   DOMString? description;
 };
 
-// Payload data for crostini shared paths changed event.
-dictionary CrostiniSharedPathsChangedEvent {
-  // Is the event raised for shared or unshared.
-  CrostiniSharedPathsChangedEventType eventType;
+// Payload data for crostini event.
+dictionary CrostiniEvent {
+  // Is the event raised for enable, disable, share, or unshare.
+  CrostiniEventType eventType;
+
+  // VM that this event relates to.
+  DOMString vmName;
 
   // Paths that have been shared or unshared.
   [instanceOf=Entry] object[] entries;
+};
+
+// Represents an Android app (activity).
+dictionary AndroidApp {
+  // Name of the app to be shown to the user (e.g. Photos).
+  DOMString name;
+
+  // Package name (e.g. com.google.android.apps.photos).
+  DOMString packageName;
+
+  // Activity name (e.g. .PhotosPickerActivity).
+  DOMString activityName;
+
+  // App icon.
+  IconSet? iconSet;
 };
 
 // Callback that does not take arguments.
@@ -726,7 +754,10 @@ callback GetPreferencesCallback = void(Preferences result);
 callback SearchDriveCallback =
     void([instanceOf=Entry] object[] entries, DOMString nextFeed);
 
-callback SearchDriveMetadataCallback = void(SearchResult[] results);
+callback SearchDriveMetadataCallback =
+    void(DriveMetadataSearchResult[] results);
+
+callback SearchFilesCallback = void([instanceOf=Entry] object[] entries);
 
 // |urls| The map of hash and array of FileEntry's URL. The array can be empty
 // if the corresponding file is not found.
@@ -794,6 +825,9 @@ callback DetectCharacterEncodingCallback = void(DOMString result);
 // |thumbnailDataUrl| A data URL for the thumbnail as a PNG; |thumbnailDataUrl|
 // is empty if no thumbnail was available.
 callback GetThumbnailCallback = void(DOMString thumbnailDataUrl);
+
+// |apps| List of Android picker apps.
+callback GetAndroidPickerAppsCallback = void(AndroidApp[] apps);
 
 interface Functions {
   // Logout the current user for navigating to the re-authentication screen for
@@ -988,7 +1022,11 @@ interface Functions {
 
   // Formats a mounted volume.
   // |volumeId| ID of the volume to be formatted.
-  static void formatVolume(DOMString volumeId);
+  // |filesystem| Filesystem type to be formatted to.
+  // |volumeLabel| Label of the drive after formatting.
+  static void formatVolume(DOMString volumeId,
+                           FormatFileSystemType filesystem,
+                           DOMString volumeLabel);
 
   // Renames a mounted volume.
   // |volumeId| ID of the volume to be renamed.
@@ -1002,6 +1040,11 @@ interface Functions {
   // Sets file manager preferences.
   // |changeInfo|
   static void setPreferences(PreferencesChange changeInfo);
+
+  // Sets the flag for remembering if the toast UI for ARC storage
+  // has already been shown.
+  // |callback| Completion callback with the original value of the flag.
+  static void setArcStorageToastShownFlag(BooleanCallback callback);
 
   // Performs drive content search.
   // |searchParams|
@@ -1020,6 +1063,10 @@ interface Functions {
   static void searchFilesByHashes(DOMString volumeId,
                                   DOMString[] hashList,
                                   SearchFilesByHashesCallback callback);
+
+  // Search files in My Files.
+  static void searchFiles(SearchMetadataParams searchParams,
+                          SearchFilesCallback callback);
 
   // Create a zip file for the selected files.
   // |parentEntry| Entry of the directory containing the selected files.
@@ -1097,9 +1144,6 @@ interface Functions {
   static void computeChecksum([instanceof=Entry] object entry,
                               ComputeChecksumCallback callback);
 
-  // Is UMA enabled?
-  static void isUMAEnabled(BooleanCallback callback);
-
   // Sets a tag on a file or a directory. Only Drive files are supported.
   [nocompile]
   static void setEntryTag([instanceof=Entry] object entry,
@@ -1150,32 +1194,34 @@ interface Functions {
   static void getRecentFiles(SourceRestriction restriction,
                              GetRecentFilesCallback callback);
 
-  // Returns true if crostini is enabled.
-  // |callback|
-  static void isCrostiniEnabled(BooleanCallback callback);
-
   // Starts and mounts crostini container.
   // |callback|
   static void mountCrostini(SimpleCallback callback);
 
   // Shares paths with crostini container.
+  // |vmName| VM to share path with.
   // |entries| Entries of the files or directories to share.
   // |persist| If true, shares will persist across restarts.
   // |callback|
-  [nocompile]
-  static void sharePathsWithCrostini(
-      [instanceof=Entry] object[] entries, boolean persist, SimpleCallback callback);
+  [nocompile] static void sharePathsWithCrostini(
+      DOMString vmName, [ instanceof = Entry] object[] entries, boolean persist,
+      SimpleCallback callback);
 
   // Unshares path with crostini container.
+  // |vmName| VM to unshare path from.
   // |entry| Entry of the file or directory to unshare.
   // |callback|
-  [nocompile]
-  static void unsharePathWithCrostini(
-      [instanceof=Entry] object entry, SimpleCallback callback);
+  [nocompile] static void unsharePathWithCrostini(
+      DOMString vmName, [ instanceof = Entry] object entry,
+      SimpleCallback callback);
 
   // Returns list of paths shared with crostini container.
-  [nocompile]
-  static void getCrostiniSharedPaths(GetCrostiniSharedPathsCallback callback);
+  // |observeFirstForSession| If true, callback provides whether this is the
+  // |vmName| VM to get shared paths of.
+  // first time this function has been called with observeFirstForSession true.
+  [nocompile] static void getCrostiniSharedPaths(
+      boolean observeFirstForSession, DOMString vmName, 
+      GetCrostiniSharedPathsCallback callback);
 
   // Requests information about a Linux package. |entry| is a .deb file.
   [nocompile]
@@ -1203,6 +1249,14 @@ interface Functions {
   // Returns an empty string if failed.
   static DOMString detectCharacterEncoding(DOMString bytes,
     DetectCharacterEncodingCallback callback);
+
+  // Returns a list of Android picker apps to be shown in file selector.
+  static void getAndroidPickerApps(DOMString[] extensions,
+                                   GetAndroidPickerAppsCallback callback);
+
+  // Called when the user selects an Android picker app in file selector.
+  static void selectAndroidPickerApp(AndroidApp androidApp,
+                                     SimpleCallback callback);
 };
 
 interface Events {
@@ -1224,7 +1278,6 @@ interface Events {
 
   static void onAppsUpdated();
 
-  static void onCrostiniSharedPathsChanged(
-      CrostiniSharedPathsChangedEvent event);
+  static void onCrostiniChanged(CrostiniEvent event);
 };
 };

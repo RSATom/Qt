@@ -4,6 +4,7 @@
 
 #include "extensions/browser/image_sanitizer.h"
 
+#include "base/bind.h"
 #include "base/files/file_util.h"
 #include "base/task_runner_util.h"
 #include "extensions/browser/extension_file_task_runner.h"
@@ -76,8 +77,7 @@ ImageSanitizer::ImageSanitizer(
     : image_dir_(image_dir),
       image_paths_(image_relative_paths),
       image_decoded_callback_(std::move(image_decoded_callback)),
-      done_callback_(std::move(done_callback)),
-      weak_factory_(this) {}
+      done_callback_(std::move(done_callback)) {}
 
 ImageSanitizer::~ImageSanitizer() = default;
 

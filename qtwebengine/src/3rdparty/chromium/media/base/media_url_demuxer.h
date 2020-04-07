@@ -35,13 +35,16 @@ class MEDIA_EXPORT MediaUrlDemuxer : public Demuxer {
   MediaUrlDemuxer(
       const scoped_refptr<base::SingleThreadTaskRunner>& task_runner,
       const GURL& media_url,
-      const GURL& site_for_cookies);
+      const GURL& site_for_cookies,
+      bool allow_credentials,
+      bool is_hls);
   ~MediaUrlDemuxer() override;
 
   // MediaResource interface.
   std::vector<DemuxerStream*> GetAllStreams() override;
   MediaUrlParams GetMediaUrlParams() const override;
   MediaResource::Type GetType() const override;
+  void ForwardDurationChangeToDemuxerHost(base::TimeDelta duration) override;
 
   // Demuxer interface.
   std::string GetDisplayName() const override;
@@ -64,6 +67,7 @@ class MEDIA_EXPORT MediaUrlDemuxer : public Demuxer {
 
  private:
   MediaUrlParams params_;
+  DemuxerHost* host_;
 
   scoped_refptr<base::SingleThreadTaskRunner> task_runner_;
 

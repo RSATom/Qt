@@ -12,8 +12,9 @@
 #include "cc/paint/paint_canvas.h"
 #include "cc/paint/paint_flags.h"
 #include "cc/test/layer_tree_pixel_test.h"
-#include "cc/test/test_in_process_context_provider.h"
+#include "cc/test/pixel_comparator.h"
 #include "cc/trees/layer_tree_impl.h"
+#include "components/viz/test/test_in_process_context_provider.h"
 #include "gpu/command_buffer/client/gles2_interface.h"
 
 #if !defined(OS_ANDROID)
@@ -21,13 +22,13 @@
 namespace cc {
 namespace {
 
-class LayerTreeHostScrollbarsPixelTest : public LayerTreePixelTest {
+class LayerTreeHostScrollbarsPixelTest
+    : public LayerTreePixelTest,
+      public ::testing::WithParamInterface<LayerTreeTest::RendererType> {
  protected:
   LayerTreeHostScrollbarsPixelTest() = default;
 
-  void InitializeSettings(LayerTreeSettings* settings) override {
-    settings->layer_transforms_should_scale_layer_contents = true;
-  }
+  RendererType renderer_type() { return GetParam(); }
 
   void SetupTree() override {
     SetInitialDeviceScaleFactor(device_scale_factor_);
@@ -49,6 +50,8 @@ class PaintedScrollbar : public Scrollbar {
   int ThumbThickness() const override { return rect_.width(); }
   int ThumbLength() const override { return rect_.height(); }
   gfx::Rect TrackRect() const override { return rect_; }
+  gfx::Rect BackButtonRect() const override { return rect_; }
+  gfx::Rect ForwardButtonRect() const override { return rect_; }
   float ThumbOpacity() const override { return 1.f; }
   bool NeedsPaintPart(ScrollbarPart part) const override { return true; }
   bool HasTickmarks() const override { return false; }
@@ -82,7 +85,19 @@ class PaintedScrollbar : public Scrollbar {
   gfx::Rect rect_;
 };
 
-TEST_F(LayerTreeHostScrollbarsPixelTest, NoScale) {
+LayerTreeTest::RendererType const kRendererTypes[] = {
+    LayerTreeTest::RENDERER_GL,
+    LayerTreeTest::RENDERER_SKIA_GL,
+#if defined(ENABLE_CC_VULKAN_TESTS)
+    LayerTreeTest::RENDERER_SKIA_VK,
+#endif
+};
+
+INSTANTIATE_TEST_SUITE_P(,
+                         LayerTreeHostScrollbarsPixelTest,
+                         ::testing::ValuesIn(kRendererTypes));
+
+TEST_P(LayerTreeHostScrollbarsPixelTest, NoScale) {
   scoped_refptr<SolidColorLayer> background =
       CreateSolidColorLayer(gfx::Rect(200, 200), SK_ColorWHITE);
 
@@ -93,11 +108,11 @@ TEST_F(LayerTreeHostScrollbarsPixelTest, NoScale) {
   layer->SetBounds(gfx::Size(200, 200));
   background->AddChild(layer);
 
-  RunPixelTest(PIXEL_TEST_GL, background,
+  RunPixelTest(renderer_type(), background,
                base::FilePath(FILE_PATH_LITERAL("spiral.png")));
 }
 
-TEST_F(LayerTreeHostScrollbarsPixelTest, DeviceScaleFactor) {
+TEST_P(LayerTreeHostScrollbarsPixelTest, DeviceScaleFactor) {
   // With a device scale of 2, the scrollbar should still be rendered
   // pixel-perfect, not show scaling artifacts
   device_scale_factor_ = 2.f;
@@ -112,11 +127,11 @@ TEST_F(LayerTreeHostScrollbarsPixelTest, DeviceScaleFactor) {
   layer->SetBounds(gfx::Size(100, 100));
   background->AddChild(layer);
 
-  RunPixelTest(PIXEL_TEST_GL, background,
+  RunPixelTest(renderer_type(), background,
                base::FilePath(FILE_PATH_LITERAL("spiral_double_scale.png")));
 }
 
-TEST_F(LayerTreeHostScrollbarsPixelTest, TransformScale) {
+TEST_P(LayerTreeHostScrollbarsPixelTest, TransformScale) {
   scoped_refptr<SolidColorLayer> background =
       CreateSolidColorLayer(gfx::Rect(200, 200), SK_ColorWHITE);
 
@@ -133,7 +148,7 @@ TEST_F(LayerTreeHostScrollbarsPixelTest, TransformScale) {
   scale_transform.Scale(2.0, 2.0);
   layer->SetTransform(scale_transform);
 
-  RunPixelTest(PIXEL_TEST_GL, background,
+  RunPixelTest(renderer_type(), background,
                base::FilePath(FILE_PATH_LITERAL("spiral_double_scale.png")));
 }
 
@@ -143,7 +158,7 @@ TEST_F(LayerTreeHostScrollbarsPixelTest, TransformScale) {
 #else
 #define MAYBE_HugeTransformScale HugeTransformScale
 #endif
-TEST_F(LayerTreeHostScrollbarsPixelTest, MAYBE_HugeTransformScale) {
+TEST_P(LayerTreeHostScrollbarsPixelTest, MAYBE_HugeTransformScale) {
   scoped_refptr<SolidColorLayer> background =
       CreateSolidColorLayer(gfx::Rect(400, 400), SK_ColorWHITE);
 
@@ -155,9 +170,9 @@ TEST_F(LayerTreeHostScrollbarsPixelTest, MAYBE_HugeTransformScale) {
   layer->SetBounds(gfx::Size(10, 400));
   background->AddChild(layer);
 
-  scoped_refptr<TestInProcessContextProvider> context(
-      new TestInProcessContextProvider(/*enable_oop_rasterization=*/false,
-                                       /*support_locking=*/false));
+  auto context = base::MakeRefCounted<viz::TestInProcessContextProvider>(
+      /*enable_oop_rasterization=*/false,
+      /*support_locking=*/false);
   gpu::ContextResult result = context->BindToCurrentThread();
   DCHECK_EQ(result, gpu::ContextResult::kSuccess);
   int max_texture_size = 0;
@@ -177,7 +192,11 @@ TEST_F(LayerTreeHostScrollbarsPixelTest, MAYBE_HugeTransformScale) {
   scale_transform.Scale(scale, scale);
   layer->SetTransform(scale_transform);
 
-  RunPixelTest(PIXEL_TEST_GL, background,
+  if (renderer_type() == RENDERER_SKIA_GL ||
+      renderer_type() == RENDERER_SKIA_VK)
+    pixel_comparator_ = std::make_unique<FuzzyPixelOffByOneComparator>(true);
+
+  RunPixelTest(renderer_type(), background,
                base::FilePath(FILE_PATH_LITERAL("spiral_64_scale.png")));
 }
 
@@ -239,9 +258,13 @@ class PaintedOverlayScrollbar : public PaintedScrollbar {
   }
 };
 
+INSTANTIATE_TEST_SUITE_P(,
+                         LayerTreeHostOverlayScrollbarsPixelTest,
+                         ::testing::ValuesIn(kRendererTypes));
+
 // Simulate increasing the thickness of a painted overlay scrollbar. Ensure that
 // the scrollbar border remains crisp.
-TEST_F(LayerTreeHostOverlayScrollbarsPixelTest, NinePatchScrollbarScaledUp) {
+TEST_P(LayerTreeHostOverlayScrollbarsPixelTest, NinePatchScrollbarScaledUp) {
   scoped_refptr<SolidColorLayer> background =
       CreateSolidColorLayer(gfx::Rect(400, 400), SK_ColorWHITE);
 
@@ -259,13 +282,13 @@ TEST_F(LayerTreeHostOverlayScrollbarsPixelTest, NinePatchScrollbarScaledUp) {
   layer->SetPosition(gfx::PointF(185, 10));
 
   RunPixelTest(
-      PIXEL_TEST_GL, background,
+      renderer_type(), background,
       base::FilePath(FILE_PATH_LITERAL("overlay_scrollbar_scaled_up.png")));
 }
 
 // Simulate decreasing the thickness of a painted overlay scrollbar. Ensure that
 // the scrollbar border remains crisp.
-TEST_F(LayerTreeHostOverlayScrollbarsPixelTest, NinePatchScrollbarScaledDown) {
+TEST_P(LayerTreeHostOverlayScrollbarsPixelTest, NinePatchScrollbarScaledDown) {
   scoped_refptr<SolidColorLayer> background =
       CreateSolidColorLayer(gfx::Rect(400, 400), SK_ColorWHITE);
 
@@ -283,7 +306,7 @@ TEST_F(LayerTreeHostOverlayScrollbarsPixelTest, NinePatchScrollbarScaledDown) {
   layer->SetPosition(gfx::PointF(185, 10));
 
   RunPixelTest(
-      PIXEL_TEST_GL, background,
+      renderer_type(), background,
       base::FilePath(FILE_PATH_LITERAL("overlay_scrollbar_scaled_down.png")));
 }
 

@@ -1,6 +1,6 @@
 <link rel="import" href="chrome://resources/html/polymer.html">
 
-<link rel="import" href="chrome://resources/polymer/v1_0/paper-icon-button/paper-icon-button.html">
+<link rel="import" href="chrome://resources/cr_elements/cr_icon_button/cr_icon_button.html">
 <link rel="import" href="chrome://resources/cr_elements/icons.html">
 <link rel="import" href="chrome://resources/cr_elements/shared_vars_css.html">
 
@@ -8,9 +8,14 @@
   <template>
     <style>
       :host {
+        display: inline-block;
         position: relative;
         text-align: start;
         --dropdown-width: 260px;
+      }
+
+      :host-context([hidden]) {
+        display: none;
       }
 
       :host([dropdown-centered]) {
@@ -28,13 +33,26 @@
       }
 
       #dropdown {
-        @apply --shadow-elevation-2dp;
-        background-color: rgb(256, 256, 256);
+        background-color: var(--cr-menu-background-color);
         border-radius: 4px;
         color: var(--cr-primary-text-color);
         overflow-y: hidden;
         padding-bottom: 2px;
         width: var(--dropdown-width);
+      }
+
+      @media (prefers-color-scheme: light) {
+        #dropdown {
+          @apply --shadow-elevation-2dp;
+        }
+      }
+
+      @media (prefers-color-scheme: dark) {
+        #dropdown {
+          background-image: linear-gradient(var(--cr-menu-background-sheen),
+                                            var(--cr-menu-background-sheen));
+          box-shadow: var(--cr-menu-shadow);
+        }
       }
 
       #scroll-container {
@@ -43,36 +61,38 @@
         padding: 6px 0 4px 0;
       }
 
-      #icon {
-        cursor: pointer;
-        display: inline-block;
+      #button {
+        --cr-icon-button-color: currentColor;
+        --cr-icon-button-height: 32px;
+        --cr-icon-button-icon-start-offset: 4px;
+        --cr-icon-button-width: 48px;
+        margin: 0;
       }
 
-      :host([dropdown-open]) #icon,
-      :host([selected]) #icon {
-        background-color: var(--dropdown-open-background, rgb(25, 27, 29));
-        border-radius: 4px;
+      #button:hover {
+        background-color: rgba(255, 255, 255, 0.08);
+        opacity: 1;
       }
 
-      #arrow {
-        margin-inline-start: -12px;
-        padding-inline-end: 4px;
+      :host([selected]) #button {
+        opacity: 1;
+
+      }
+      :host([dropdown-open]) #button {
+        background-color: rgba(255, 255, 255, 0.24);
       }
 
       h1 {
-        border-bottom: 1px solid rgb(219, 219, 219);
+        border-bottom: var(--cr-separator-line);
         font-size: 0.87rem;
         font-weight: 500;
         margin: 0;
         padding: 14px 28px;
       }
     </style>
-    <div on-click="toggleDropdown" id="icon">
-      <paper-icon-button id="main-icon" icon="[[dropdownIcon]]"
-         aria-label$="{{header}}" title$="{{header}}">
-      </paper-icon-button>
-      <iron-icon icon="cr:arrow-drop-down" id="arrow"></iron-icon>
-    </div>
+    <cr-icon-button on-click="toggleDropdown" id="button"
+        iron-icon="[[dropdownIcon]],cr:arrow-drop-down" title$="[[header]]">
+    </cr-icon-button>
 
     <div id="container">
       <div id="dropdown" style="display: none">

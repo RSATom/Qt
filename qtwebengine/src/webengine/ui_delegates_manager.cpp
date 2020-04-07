@@ -486,6 +486,8 @@ void UIDelegatesManager::showFilePicker(QSharedPointer<FilePickerController> con
         Q_UNREACHABLE();
     }
 
+    filePicker->setProperty("nameFilters", FilePickerController::nameFilters(controller->acceptedMimeTypes()));
+
     QQmlProperty filesPickedSignal(filePicker, QStringLiteral("onFilesSelected"));
     CHECK_QML_SIGNAL_PROPERTY(filesPickedSignal, filePickerComponent->url());
     QQmlProperty rejectSignal(filePicker, QStringLiteral("onRejected"));
@@ -539,13 +541,13 @@ void UIDelegatesManager::showMenu(QObject *menu)
 
 void UIDelegatesManager::showToolTip(const QString &text)
 {
-    if (!ensureComponentLoaded(ToolTip))
-        return;
-
     if (text.isEmpty()) {
         m_toolTip.reset();
         return;
     }
+
+    if (!ensureComponentLoaded(ToolTip))
+        return;
 
     if (!m_toolTip.isNull())
         return;

@@ -33,7 +33,7 @@
 
 #include "third_party/blink/renderer/platform/heap/heap.h"
 #include "third_party/blink/renderer/platform/heap/visitor.h"
-#include "third_party/blink/renderer/platform/wtf/allocator.h"
+#include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 
 namespace blink {
 
@@ -108,14 +108,6 @@ template <typename T>
 inline size_t HeapLinkedStack<T>::size() {
   return size_;
 }
-
-template <typename T>
-class TraceEagerlyTrait<HeapLinkedStack<T>> {
-  STATIC_ONLY(TraceEagerlyTrait);
-
- public:
-  static const bool value = TraceEagerlyTrait<T>::value;
-};
 
 }  // namespace blink
 

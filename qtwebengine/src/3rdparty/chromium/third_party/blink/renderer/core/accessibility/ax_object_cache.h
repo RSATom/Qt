@@ -58,6 +58,10 @@ class CORE_EXPORT AXObjectCache
 
   virtual void Dispose() = 0;
 
+  // Register/remove popups
+  virtual void InitializePopup(Document* document) = 0;
+  virtual void DisposePopup(Document* document) = 0;
+
   virtual void SelectionChanged(Node*) = 0;
   virtual void ChildrenChanged(Node*) = 0;
   virtual void ChildrenChanged(LayoutObject*) = 0;
@@ -68,6 +72,7 @@ class CORE_EXPORT AXObjectCache
   virtual void ListboxActiveIndexChanged(HTMLSelectElement*) = 0;
   virtual void LocationChanged(LayoutObject*) = 0;
   virtual void RadiobuttonRemovedFromGroup(HTMLInputElement*) = 0;
+  virtual void ImageLoaded(LayoutObject*) = 0;
 
   virtual void Remove(AccessibleNode*) = 0;
   virtual void Remove(LayoutObject*) = 0;
@@ -85,10 +90,11 @@ class CORE_EXPORT AXObjectCache
   virtual void UpdateCacheAfterNodeIsAttached(Node*) = 0;
   virtual void DidInsertChildrenOfNode(Node*) = 0;
 
-  virtual void HandleAttributeChanged(const QualifiedName& attr_name,
+  // Returns true if the AXObjectCache cares about this attribute
+  virtual bool HandleAttributeChanged(const QualifiedName& attr_name,
                                       Element*) = 0;
-  virtual void HandleFocusedUIElementChanged(Node* old_focused_node,
-                                             Node* new_focused_node) = 0;
+  virtual void HandleFocusedUIElementChanged(Element* old_focused_node,
+                                             Element* new_focused_node) = 0;
   virtual void HandleInitialFocus() = 0;
   virtual void HandleEditableTextContentChanged(Node*) = 0;
   virtual void HandleScaleAndLocationChanged(Document*) = 0;
@@ -127,6 +133,10 @@ class CORE_EXPORT AXObjectCache
   virtual void HandleLayoutComplete(LayoutObject*) = 0;
   virtual void HandleScrolledToAnchor(const Node* anchor_node) = 0;
 
+  // Called when the frame rect changes, which can sometimes happen
+  // without producing any layout or other notifications.
+  virtual void HandleFrameRectsChanged(Document&) = 0;
+
   virtual const AtomicString& ComputedRoleForNode(Node*) = 0;
   virtual String ComputedNameForNode(Node*) = 0;
 
@@ -141,10 +151,10 @@ class CORE_EXPORT AXObjectCache
   // Static helper functions.
   static bool IsInsideFocusableElementOrARIAWidget(const Node&);
 
- protected:
+ private:
+  friend class AXObjectCacheBase;
   AXObjectCache(Document&);
 
- private:
   static AXObjectCacheCreateFunction create_function_;
   DISALLOW_COPY_AND_ASSIGN(AXObjectCache);
 };

@@ -11,6 +11,7 @@
 #include <utility>
 
 #include "base/bind.h"
+#include "base/logging.h"
 #include "base/memory/ptr_util.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/single_thread_task_runner.h"
@@ -93,9 +94,62 @@ float AveragePower(const media::AudioBus& buffer) {
 #endif  // AUDIO_POWER_MONITORING
 
 #if defined(AUDIO_PROCESSING_IN_AUDIO_SERVICE)
+
 bool CanRunApm() {
   return base::FeatureList::IsEnabled(features::kWebRtcApmInAudioService);
 }
+
+bool SamplesNeedClamping(const media::AudioBus& bus) {
+  const auto IsOutOfRange = [](float sample) {
+    // See comment in CopySamplesWithClamping() for why the conditional is
+    // written this way.
+    if (UNLIKELY(!(sample >= -1.f && sample <= 1.f))) {
+      return true;
+    }
+    return false;
+  };
+
+  const int frames = bus.frames();
+  for (int i = 0; i < bus.channels(); ++i) {
+    auto* const channel = bus.channel(i);
+    if (UNLIKELY(std::any_of(channel, channel + frames, IsOutOfRange))) {
+      return true;
+    }
+  }
+  return false;
+}
+
+void CopySamplesWithClamping(const media::AudioBus& src_bus,
+                             media::AudioBus* dest_bus) {
+  DCHECK_EQ(src_bus.channels(), dest_bus->channels());
+  DCHECK_EQ(src_bus.frames(), dest_bus->frames());
+
+  const auto ToClampedSample = [](float sample) {
+    // First check for all the invalid cases with a single conditional to
+    // optimize for the typical (data ok) case. Different cases are handled
+    // inside of the conditional. The condition is written like this to catch
+    // NaN. It cannot be simplified to "channel[j] < -1.f || channel[j] > 1.f",
+    // which isn't equivalent.
+    if (UNLIKELY(!(sample >= -1.f && sample <= 1.f))) {
+      // Don't just set all bad values to 0. If a value like 1.0001 is produced
+      // due to floating-point shenanigans, 1 will sound better than 0.
+      if (sample < -1.f) {
+        return -1.f;
+      } else {
+        // channel[j] > 1 or NaN.
+        return 1.f;
+      }
+    }
+    return sample;
+  };
+
+  const int frames = src_bus.frames();
+  for (int i = 0; i < src_bus.channels(); ++i) {
+    auto* const src = src_bus.channel(i);
+    std::transform(src, src + frames, dest_bus->channel(i), ToClampedSample);
+  }
+}
+
 #endif  // defined(AUDIO_PROCESSING_IN_AUDIO_SERVICE)
 
 }  // namespace
@@ -104,8 +158,8 @@ bool CanRunApm() {
 InputController::ProcessingHelper::ProcessingHelper(
     const media::AudioParameters& params,
     media::AudioProcessingSettings processing_settings,
-    mojom::AudioProcessorControlsRequest controls_request)
-    : binding_(this, std::move(controls_request)),
+    mojo::PendingReceiver<mojom::AudioProcessorControls> controls_receiver)
+    : receiver_(this, std::move(controls_receiver)),
       params_(params),
       audio_processor_(
           std::make_unique<media::AudioProcessor>(params,
@@ -125,8 +179,7 @@ void InputController::ProcessingHelper::ChangeMonitoredStream(
     return;
 
   if (monitored_output_stream_) {
-    monitored_output_stream_->StopSnooping(this,
-                                           Snoopable::SnoopingMode::kRealtime);
+    monitored_output_stream_->StopSnooping(this);
     if (!stream) {
       audio_processor_->set_has_reverse_stream(false);
     }
@@ -134,24 +187,39 @@ void InputController::ProcessingHelper::ChangeMonitoredStream(
   monitored_output_stream_ = stream;
   if (!monitored_output_stream_) {
     output_params_ = media::AudioParameters();
+    clamped_bus_.reset();
     return;
   }
   output_params_ = monitored_output_stream_->GetAudioParameters();
   audio_processor_->set_has_reverse_stream(true);
-  monitored_output_stream_->StartSnooping(this,
-                                          Snoopable::SnoopingMode::kRealtime);
+  monitored_output_stream_->StartSnooping(this);
 }
 
 void InputController::ProcessingHelper::OnData(const media::AudioBus& audio_bus,
                                                base::TimeTicks reference_time,
                                                double volume) {
   TRACE_EVENT0("audio", "APM AnalyzePlayout");
+
   // OnData gets called when the InputController is snooping on an output stream
   // for audio processing purposes. |audio_bus| contains the data from the
   // snooped-upon output stream, not the input stream's data.
   // |volume| is applied in the WebRTC mixer in the renderer, so we don't have
   // to inform the |audio_processor_| of the new volume.
-  audio_processor_->AnalyzePlayout(audio_bus, output_params_, reference_time);
+
+  // If there are out-of-range samples, clamp them.
+  const media::AudioBus* bus_to_analyze = &audio_bus;
+  if (SamplesNeedClamping(audio_bus)) {
+    if (!clamped_bus_ || clamped_bus_->channels() != audio_bus.channels() ||
+        clamped_bus_->frames() != audio_bus.frames()) {
+      clamped_bus_ =
+          media::AudioBus::Create(audio_bus.channels(), audio_bus.frames());
+    }
+    CopySamplesWithClamping(audio_bus, clamped_bus_.get());
+    bus_to_analyze = clamped_bus_.get();
+  }
+
+  audio_processor_->AnalyzePlayout(*bus_to_analyze, output_params_,
+                                   reference_time);
 }
 
 void InputController::ProcessingHelper::GetStats(GetStatsCallback callback) {
@@ -346,9 +414,9 @@ InputController::InputController(
     if (processing_config_->settings.requires_apm() && CanRunApm()) {
       processing_helper_.emplace(
           params, processing_config_->settings,
-          std::move(processing_config_->controls_request));
+          std::move(processing_config_->controls_receiver));
     } else {
-      processing_config_->controls_request.ResetWithReason(0, "");
+      processing_config_->controls_receiver.reset();
     }
   }
 #endif  // defined(AUDIO_PROCESSING_IN_AUDIO_SERVICE)
@@ -554,7 +622,6 @@ void InputController::OnStreamActive(Snoopable* output_stream) {
       if (output_stream)
         stream_->SetOutputDeviceForAec(output_stream->GetDeviceId());
       break;
-    case media::EchoCancellationType::kAec2:
     case media::EchoCancellationType::kAec3:
 #if defined(AUDIO_PROCESSING_IN_AUDIO_SERVICE)
       if (processing_helper_)
@@ -803,7 +870,6 @@ void InputController::CheckMutedState() {
 void InputController::UpdateVolumeAndAPMStats(
     base::Optional<double> new_volume) {
   DCHECK_CALLED_ON_VALID_THREAD(owning_thread_);
-  processing_helper_->GetAudioProcessor()->UpdateInternalStats();
   if (new_volume)
     SetVolume(*new_volume);
 }

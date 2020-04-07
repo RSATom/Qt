@@ -33,8 +33,10 @@ class MockRtpSenderInternal : public RtpSenderInternal {
   MOCK_CONST_METHOD0(stream_ids, std::vector<std::string>());
   MOCK_CONST_METHOD0(init_send_encodings, std::vector<RtpEncodingParameters>());
   MOCK_METHOD1(set_transport, void(rtc::scoped_refptr<DtlsTransportInterface>));
-  MOCK_METHOD0(GetParameters, RtpParameters());
+  MOCK_CONST_METHOD0(GetParameters, RtpParameters());
+  MOCK_CONST_METHOD0(GetParametersInternal, RtpParameters());
   MOCK_METHOD1(SetParameters, RTCError(const RtpParameters&));
+  MOCK_METHOD1(SetParametersInternal, RTCError(const RtpParameters&));
   MOCK_CONST_METHOD0(GetDtmfSender, rtc::scoped_refptr<DtmfSenderInterface>());
   MOCK_METHOD1(SetFrameEncryptor,
                void(rtc::scoped_refptr<FrameEncryptorInterface>));
@@ -45,10 +47,13 @@ class MockRtpSenderInternal : public RtpSenderInternal {
   MOCK_METHOD1(SetMediaChannel, void(cricket::MediaChannel*));
   MOCK_METHOD1(SetSsrc, void(uint32_t));
   MOCK_METHOD1(set_stream_ids, void(const std::vector<std::string>&));
+  MOCK_METHOD1(SetStreams, void(const std::vector<std::string>&));
   MOCK_METHOD1(set_init_send_encodings,
                void(const std::vector<RtpEncodingParameters>&));
   MOCK_METHOD0(Stop, void());
   MOCK_CONST_METHOD0(AttachmentId, int());
+  MOCK_METHOD1(DisableEncodingLayers,
+               RTCError(const std::vector<std::string>&));
 };
 
 }  // namespace webrtc

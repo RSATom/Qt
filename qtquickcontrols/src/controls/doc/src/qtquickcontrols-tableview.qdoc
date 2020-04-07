@@ -179,7 +179,7 @@
 /*!
     \qmlmethod void TableView::positionViewAtRow( int row, PositionMode mode )
 
-    Positions the view such that the specified \a row is at the position defined by \a mode:
+    Positions the view such that the specified \a row is at the position defined by \e mode:
        \list
        \li ListView.Beginning - position item at the top of the view.
        \li ListView.Center - position item in the center of the view.
@@ -208,7 +208,7 @@
 /*!
     \qmlmethod int TableView::rowAt( int x, int y )
 
-    Returns the index of the visible row at the point \a x, \a y in content
+    Returns the index of the visible row at the point \a x, \e y in content
     coordinates. If there is no visible row at the point specified, \c -1 is returned.
 
     \note This method should only be called after the component has completed.

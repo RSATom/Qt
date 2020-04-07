@@ -24,27 +24,23 @@ component("chromeos") {
   configs += [
     ":chromeos_implementation",
     "//build/config/linux/nss:system_nss_no_ssl_config",
+    "//build/config/compiler:use_orderfile_for_hugepage",
   ]
   public_deps = [
-    ":chromeos_constants",
+    "//chromeos/constants",
   ]
   deps = [
-    ":account_manager_proto",
     ":chromeos_export",
     "//base",
     "//base:i18n",
+    "//chromeos/dbus",
+    "//chromeos/dbus/constants",
     "//components/policy/proto",
     "//google_apis",
     "//services/network/public/cpp:cpp",
     "//third_party/protobuf:protobuf_lite",
   ]
   sources = [
-    "account_manager/account_manager.cc",
-    "account_manager/account_manager.h",
-    "account_manager/account_manager_factory.cc",
-    "account_manager/account_manager_factory.h",
-    "app_mode/kiosk_oem_manifest_parser.cc",
-    "app_mode/kiosk_oem_manifest_parser.h",
     "hugepage_text/hugepage_text.cc",
     "hugepage_text/hugepage_text.h",
     "policy/weekly_time/time_utils.cc",
@@ -53,6 +49,8 @@ component("chromeos") {
     "policy/weekly_time/weekly_time.h",
     "policy/weekly_time/weekly_time_interval.cc",
     "policy/weekly_time/weekly_time_interval.h",
+    "printing/epson_driver_matching.cc",
+    "printing/epson_driver_matching.h",
     "printing/ppd_cache.cc",
     "printing/ppd_cache.h",
     "printing/ppd_line_reader.cc",
@@ -65,26 +63,14 @@ component("chromeos") {
     "printing/printer_translator.h",
     "printing/uri_components.cc",
     "printing/uri_components.h",
+    "printing/usb_printer_id.cc",
+    "printing/usb_printer_id.h",
     "process_proxy/process_output_watcher.cc",
     "process_proxy/process_output_watcher.h",
     "process_proxy/process_proxy.cc",
     "process_proxy/process_proxy.h",
     "process_proxy/process_proxy_registry.cc",
     "process_proxy/process_proxy_registry.h",
-    "system/cpu_temperature_reader.cc",
-    "system/cpu_temperature_reader.h",
-    "system/devicemode.cc",
-    "system/devicemode.h",
-    "system/factory_ping_embargo_check.cc",
-    "system/factory_ping_embargo_check.h",
-
-    # Used when running mash, both on Linux and on real devices.
-    "system/fake_statistics_provider.cc",
-    "system/fake_statistics_provider.h",
-    "system/name_value_pairs_parser.cc",
-    "system/name_value_pairs_parser.h",
-    "system/statistics_provider.cc",
-    "system/statistics_provider.h",
   ]
   if (current_cpu == "arm" || current_cpu == "x86") {
     defines = [ "BINDER_IPC_32BIT" ]
@@ -97,31 +83,6 @@ source_set("chromeos_export") {
   ]
   sources = [
     "chromeos_export.h",
-  ]
-}
-
-source_set("chromeos_constants") {
-  configs += [ ":chromeos_implementation" ]
-  deps = [
-    ":chromeos_export",
-    "//base",
-    "//base:i18n",
-    "//chromeos/dbus:constants",
-    "//third_party/icu",
-  ]
-  sources = [
-    "constants/chromeos_constants.cc",
-    "constants/chromeos_constants.h",
-    "constants/chromeos_features.cc",
-    "constants/chromeos_features.h",
-    "constants/chromeos_paths.cc",
-    "constants/chromeos_paths.h",
-    "constants/chromeos_pref_names.cc",
-    "constants/chromeos_pref_names.h",
-    "constants/chromeos_switches.cc",
-    "constants/chromeos_switches.h",
-    "constants/devicetype.cc",
-    "constants/devicetype.h",
   ]
 }
 
@@ -151,6 +112,7 @@ source_set("test_support_source_set") {
     "//chromeos/login/auth:test_support",
     "//chromeos/login/login_state:test_support",
     "//chromeos/network:test_support",
+    "//chromeos/tpm:test_support",
     "//google_apis",
     "//net:test_support",
     "//services/network:test_support",
@@ -188,10 +150,12 @@ test("chromeos_unittests") {
     "//chromeos/geolocation:unit_tests",
     "//chromeos/login/auth:unit_tests",
     "//chromeos/login/login_state:unit_tests",
+    "//chromeos/login/session:unit_tests",
     "//chromeos/network:test_support",
     "//chromeos/network:unit_tests",
     "//chromeos/services:unit_tests",
     "//chromeos/settings:unit_tests",
+    "//chromeos/system:unit_tests",
     "//chromeos/timezone:unit_tests",
     "//chromeos/tpm:unit_tests",
     "//components/onc",
@@ -212,21 +176,18 @@ test("chromeos_unittests") {
     "//url",
   ]
   sources = [
-    "account_manager/account_manager_unittest.cc",
-    "app_mode/kiosk_oem_manifest_parser_unittest.cc",
     "policy/weekly_time/time_utils_unittest.cc",
     "policy/weekly_time/weekly_time_interval_unittest.cc",
     "policy/weekly_time/weekly_time_unittest.cc",
+    "printing/epson_driver_matching_unittest.cc",
     "printing/ppd_cache_unittest.cc",
     "printing/ppd_line_reader_unittest.cc",
     "printing/ppd_provider_unittest.cc",
     "printing/printer_configuration_unittest.cc",
     "printing/printer_translator_unittest.cc",
+    "printing/usb_printer_id_unittest.cc",
     "process_proxy/process_output_watcher_unittest.cc",
     "process_proxy/process_proxy_unittest.cc",
-    "system/cpu_temperature_reader_unittest.cc",
-    "system/factory_ping_embargo_check_unittest.cc",
-    "system/name_value_pairs_parser_unittest.cc",
     "test/run_all_unittests.cc",
   ]
 
@@ -240,22 +201,24 @@ test("chromeos_unittests") {
 # https://chromium.googlesource.com/chromium/src/+/master/docs/chromeos_build_instructions.md
 # https://chromium.googlesource.com/chromiumos/docs/+/master/simple_chrome_workflow.md
 if (is_cros_chrome_sdk) {
-  generate_runner_script("cros_vm_launcher") {
-    generated_script = "$root_build_dir/bin/launch_cros_vm"
+  # This builds a tool that prepares a DUT or VM for testing, which can be
+  # utilized by wrapping a host-side script test.
+  generate_runner_script("cros_test_wrapper") {
+    generated_script = "$root_build_dir/bin/cros_test_wrapper"
 
-    # Assume every time we build cros_vm_launcher, we also build chrome and
-    # want to deploy it to the VM.
+    # Assume every time we build cros_test_wrapper, we also build chrome and
+    # want to deploy it to the DUT.
     deploy_chrome = true
   }
 
   # The sanity test's actual binary is baked into the OS image. All we need to
-  # do is build the test wrapper and build our own browser to push to the VM
+  # do is build the test wrapper and build our own browser to push to the DUT
   # before testing it.
-  generate_runner_script("cros_vm_sanity_test") {
+  generate_runner_script("cros_browser_sanity_test") {
     testonly = true
-    test_exe = "cros_vm_sanity_test"
-    generated_script = "$root_build_dir/bin/run_cros_vm_sanity_test"
-    runtime_deps_file = "$root_out_dir/cros_vm_sanity_test.runtime_deps"
+    test_exe = "cros_browser_sanity_test"
+    generated_script = "$root_build_dir/bin/run_cros_browser_sanity_test"
+    runtime_deps_file = "$root_out_dir/cros_browser_sanity_test.runtime_deps"
 
     data_deps = [
       ":cros_chrome_deploy",
@@ -274,18 +237,11 @@ if (is_cros_chrome_sdk) {
   # Tast test sources live in the Chromium OS repository.
   # To diagnose tast failures or disable tests, see go/tast-failures
   tast_test("chrome_all_tast_tests") {
+    # To disable a specific test, add it the following list.
     tast_disabled_tests = [
-      # Disabled due to flake. https://crbug.com/909736
+      "security.SELinuxFilesARC",  # crbug.com/968155
       "ui.MashLogin",
-    ]
-  }
-  tast_test("chrome_kevin_tast_tests") {
-    # Tests that fail on Kevin devices.
-    tast_disabled_tests = [
-      # Disabled due to misleading USE flags on full boards. crbug.com/916367
-      "arc.Boot",
-      "security.NetworkListenersARC",
-      "video.WebRTCPeerConnCameraVP8",  # crbug.com/923061
+      "ui.SingleProcessMashLogin",
     ]
   }
 
@@ -308,12 +264,4 @@ if (is_cros_chrome_sdk) {
       "$root_out_dir/resources/chromeos/",
     ]
   }
-}
-
-proto_library("account_manager_proto") {
-  sources = [
-    "account_manager/tokens.proto",
-  ]
-
-  proto_out_dir = "chromeos/account_manager"
 }

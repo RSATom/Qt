@@ -9,6 +9,8 @@
 
 #include "base/memory/ref_counted.h"
 #include "net/base/net_export.h"
+#include "net/base/network_isolation_key.h"
+#include "net/base/privacy_mode.h"
 #include "net/cert/x509_certificate.h"
 #include "net/socket/next_proto.h"
 #include "net/ssl/ssl_private_key.h"
@@ -83,14 +85,6 @@ struct NET_EXPORT SSLConfig {
   // disable TLS_ECDH_ECDSA_WITH_RC4_128_SHA, specify 0xC002.
   std::vector<uint16_t> disabled_cipher_suites;
 
-  // Enables the version interference probing mode. While TLS 1.3 has avoided
-  // most endpoint intolerance, middlebox interference with TLS 1.3 is
-  // rampant. This causes the connection to be discarded on success with
-  // ERR_SSL_VERSION_INTERFERENCE.
-  bool version_interference_probe;
-
-  bool channel_id_enabled;   // True if TLS channel ID extension is enabled.
-
   bool false_start_enabled;  // True if we'll use TLS False Start.
 
   // If true, causes only ECDHE cipher suites to be enabled.
@@ -130,7 +124,7 @@ struct NET_EXPORT SSLConfig {
   bool send_client_cert;
 
   // The list of application level protocols supported with ALPN (Application
-  // Layer Protocol Negotation), in decreasing order of preference.  Protocols
+  // Layer Protocol Negotiation), in decreasing order of preference.  Protocols
   // will be advertised in this order during TLS handshake.
   NextProtoVector alpn_protos;
 
@@ -143,6 +137,20 @@ struct NET_EXPORT SSLConfig {
 
   scoped_refptr<X509Certificate> client_cert;
   scoped_refptr<SSLPrivateKey> client_private_key;
+
+  // If the PartitionSSLSessionsByNetworkIsolationKey feature is enabled, the
+  // session cache is partitioned by this value.
+  NetworkIsolationKey network_isolation_key;
+
+  // An additional boolean to partition the session cache by.
+  //
+  // TODO(https://crbug.com/775438, https://crbug.com/951205): This should
+  // additionally disable client certificates, once client certificate handling
+  // is moved into SSLClientContext. With client certificates are disabled, the
+  // current session cache partitioning behavior will be needed to correctly
+  // implement it. For now, it acts as an incomplete version of
+  // PartitionSSLSessionsByNetworkIsolationKey.
+  PrivacyMode privacy_mode;
 };
 
 }  // namespace net

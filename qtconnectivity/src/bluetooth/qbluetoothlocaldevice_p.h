@@ -1,6 +1,7 @@
 /****************************************************************************
 **
 ** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2014 Denis Shienkov <denis.shienkov@gmail.com>
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtBluetooth module of the Qt Toolkit.
@@ -200,7 +201,8 @@ public slots:
 private Q_SLOTS:
     void PropertiesChanged(const QString &interface,
                            const QVariantMap &changed_properties,
-                           const QStringList &invalidated_properties);
+                           const QStringList &invalidated_properties,
+                           const QDBusMessage &signal);
     void InterfacesAdded(const QDBusObjectPath &object_path,
                          InterfaceList interfaces_and_properties);
     void InterfacesRemoved(const QDBusObjectPath &object_path,
@@ -221,6 +223,29 @@ private:
 
     void initializeAdapter();
     void initializeAdapterBluez5();
+};
+
+#elif defined(QT_WIN_BLUETOOTH)
+
+class QBluetoothLocalDevicePrivate : public QObject
+{
+    Q_OBJECT
+    Q_DECLARE_PUBLIC(QBluetoothLocalDevice)
+public:
+    QBluetoothLocalDevicePrivate(QBluetoothLocalDevice *q,
+                                 const QBluetoothAddress &address = QBluetoothAddress());
+
+    ~QBluetoothLocalDevicePrivate();
+    bool isValid() const;
+    void initialize(const QBluetoothAddress &address);
+
+    static QList<QBluetoothHostInfo> localAdapters();
+
+    QBluetoothAddress deviceAddress;
+    QString deviceName;
+    bool deviceValid;
+private:
+    QBluetoothLocalDevice *q_ptr;
 };
 #elif defined(QT_WINRT_BLUETOOTH)
 class QBluetoothLocalDevicePrivate : public QObject

@@ -42,6 +42,14 @@ enum WebAXExpanded {
   kWebAXExpandedExpanded
 };
 
+// Grabbed State.
+// These values must match blink::AccessibilityGrabbedState values.
+enum WebAXGrabbedState {
+  kWebAXGrabbedStateUndefined = 0,
+  kWebAXGrabbedStateFalse,
+  kWebAXGrabbedStateTrue
+};
+
 // Selected State.
 // These values must match blink::AccessibilitySelectedState values.
 enum WebAXSelectedState {
@@ -82,6 +90,18 @@ enum WebAXRestriction {
 // must be false.
 enum class WebAXBoolAttribute {
   kAriaBusy,
+};
+
+enum class WebAXIntAttribute {
+  kAriaColumnCount,
+  kAriaRowCount,
+};
+
+enum class WebAXUIntAttribute {
+  kAriaColumnIndex,
+  kAriaColumnSpan,
+  kAriaRowIndex,
+  kAriaRowSpan,
 };
 
 // Sparse attributes of a WebAXObject whose value is a string.

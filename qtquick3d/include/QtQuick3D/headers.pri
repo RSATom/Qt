@@ -1,0 +1,6 @@
+SYNCQT.HEADER_FILES = qtquick3dglobal.h 
+SYNCQT.GENERATED_HEADER_FILES = qtquick3dversion.h QtQuick3DVersion QtQuick3D 
+SYNCQT.PRIVATE_HEADER_FILES = qquick3dabstractlight_p.h qquick3darealight_p.h qquick3dcamera_p.h qquick3dcustomcamera_p.h qquick3dcustommaterial_p.h qquick3ddefaultmaterial_p.h qquick3ddirectionallight_p.h qquick3dfrustumcamera_p.h qquick3dgeometry_p.h qquick3dloader_p.h qquick3dmaterial_p.h qquick3dmodel_p.h qquick3dnode_p.h qquick3dnode_p_p.h qquick3dobject_p.h qquick3dobject_p_p.h qquick3dobjectchangelistener_p.h qquick3dorthographiccamera_p.h qquick3dperspectivecamera_p.h qquick3dpickresult_p.h qquick3dpointlight_p.h qquick3dprincipledmaterial_p.h qquick3drenderstats_p.h qquick3drepeater_p.h qquick3dsceneenvironment_p.h qquick3dscenemanager_p.h qquick3dscenerenderer_p.h qquick3dscenerootnode_p.h qquick3dtexture_p.h qquick3dutils_p.h qquick3dviewport_p.h qtquick3dglobal_p.h 
+SYNCQT.QPA_HEADER_FILES = 
+SYNCQT.CLEAN_HEADER_FILES = qtquick3dglobal.h 
+SYNCQT.INJECTIONS = 

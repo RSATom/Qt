@@ -262,7 +262,7 @@ void Q3DInputHandler::wheelEvent(QWheelEvent *event)
         zoomLevel = qBound(minZoomLevel, zoomLevel, maxZoomLevel);
 
         if (isZoomAtTargetEnabled()) {
-            scene()->setGraphPositionQuery(event->pos());
+            scene()->setGraphPositionQuery(event->position().toPoint());
             d_ptr->m_zoomAtTargetPending = true;
             // If zoom at target is enabled, we don't want to zoom yet, as that causes
             // jitter. Instead, we zoom next frame, when we apply the camera position.

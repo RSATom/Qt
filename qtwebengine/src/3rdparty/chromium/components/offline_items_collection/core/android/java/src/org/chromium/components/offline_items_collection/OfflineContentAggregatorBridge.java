@@ -93,6 +93,12 @@ public class OfflineContentAggregatorBridge implements OfflineContentProvider {
     }
 
     @Override
+    public void renameItem(ContentId id, String name, Callback</*RenameResult*/ Integer> callback) {
+        nativeRenameItem(
+                mNativeOfflineContentAggregatorBridge, id.namespace, id.id, name, callback);
+    }
+
+    @Override
     public void addObserver(final OfflineContentProvider.Observer observer) {
         mObservers.addObserver(observer);
     }
@@ -122,9 +128,9 @@ public class OfflineContentAggregatorBridge implements OfflineContentProvider {
     }
 
     @CalledByNative
-    private void onItemUpdated(OfflineItem item) {
+    private void onItemUpdated(OfflineItem item, UpdateDelta updateDelta) {
         for (Observer observer : mObservers) {
-            observer.onItemUpdated(item);
+            observer.onItemUpdated(item, updateDelta);
         }
     }
 
@@ -181,4 +187,6 @@ public class OfflineContentAggregatorBridge implements OfflineContentProvider {
             String nameSpace, String id, VisualsCallback callback);
     private native void nativeGetShareInfoForItem(long nativeOfflineContentAggregatorBridge,
             String nameSpace, String id, ShareCallback callback);
+    private native void nativeRenameItem(long nativeOfflineContentAggregatorBridge,
+            String nameSpace, String id, String name, Callback</*RenameResult*/ Integer> callback);
 }

@@ -8,14 +8,16 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
+#include "media/sctp/sctp_transport.h"
+
 #include <stdio.h>
 #include <string.h>
-#include <algorithm>
+
 #include <memory>
 #include <string>
 #include <vector>
 
-#include "media/sctp/sctp_transport.h"
+#include "absl/algorithm/container.h"
 #include "p2p/base/fake_dtls_transport.h"
 #include "rtc_base/copy_on_write_buffer.h"
 #include "rtc_base/gunit.h"
@@ -75,12 +77,11 @@ class SctpTransportObserver : public sigslot::has_slots<> {
   }
 
   int StreamCloseCount(int stream) {
-    return std::count(closed_streams_.begin(), closed_streams_.end(), stream);
+    return absl::c_count(closed_streams_, stream);
   }
 
   bool WasStreamClosed(int stream) {
-    return std::find(closed_streams_.begin(), closed_streams_.end(), stream) !=
-           closed_streams_.end();
+    return absl::c_linear_search(closed_streams_, stream);
   }
 
   bool ReadyToSend() { return ready_to_send_; }
@@ -102,9 +103,7 @@ class SignalTransportClosedReopener : public sigslot::has_slots<> {
   SignalTransportClosedReopener(SctpTransport* transport, SctpTransport* peer)
       : transport_(transport), peer_(peer) {}
 
-  int StreamCloseCount(int stream) {
-    return std::count(streams_.begin(), streams_.end(), stream);
-  }
+  int StreamCloseCount(int stream) { return absl::c_count(streams_, stream); }
 
  private:
   void OnStreamClosed(int stream) {
@@ -119,11 +118,11 @@ class SignalTransportClosedReopener : public sigslot::has_slots<> {
 };
 
 // SCTP Data Engine testing framework.
-class SctpTransportTest : public testing::Test, public sigslot::has_slots<> {
+class SctpTransportTest : public ::testing::Test, public sigslot::has_slots<> {
  protected:
   // usrsctp uses the NSS random number generator on non-Android platforms,
   // so we need to initialize SSL.
-  static void SetUpTestCase() {}
+  static void SetUpTestSuite() {}
 
   void SetupConnectedTransportsWithTwoStreams() {
     SetupConnectedTransportsWithTwoStreams(kTransport1Port, kTransport2Port);
@@ -154,8 +153,8 @@ class SctpTransportTest : public testing::Test, public sigslot::has_slots<> {
         << "Connect the transports -----------------------------";
     // Both transports need to have started (with matching ports) for an
     // association to be formed.
-    transport1_->Start(port1, port2);
-    transport2_->Start(port2, port1);
+    transport1_->Start(port1, port2, kSctpSendBufferSize);
+    transport2_->Start(port2, port1, kSctpSendBufferSize);
   }
 
   bool AddStream(int sid) {
@@ -254,8 +253,8 @@ TEST_F(SctpTransportTest, SwitchDtlsTransport) {
   transport2->OpenStream(1);
 
   // Tell them both to start (though transport1_ is connected to black_hole).
-  transport1->Start(kTransport1Port, kTransport2Port);
-  transport2->Start(kTransport2Port, kTransport1Port);
+  transport1->Start(kTransport1Port, kTransport2Port, kSctpSendBufferSize);
+  transport2->Start(kTransport2Port, kTransport1Port, kSctpSendBufferSize);
 
   // Switch transport1_ to the normal fake_dtls1_ transport.
   transport1->SetDtlsTransport(&fake_dtls1);
@@ -279,7 +278,8 @@ TEST_F(SctpTransportTest, SwitchDtlsTransport) {
 // Calling Start twice shouldn't do anything bad, if with the same parameters.
 TEST_F(SctpTransportTest, DuplicateStartCallsIgnored) {
   SetupConnectedTransportsWithTwoStreams();
-  EXPECT_TRUE(transport1()->Start(kTransport1Port, kTransport2Port));
+  EXPECT_TRUE(transport1()->Start(kTransport1Port, kTransport2Port,
+                                  kSctpSendBufferSize));
 
   // Make sure we can still send/recv data.
   SendDataResult result;
@@ -292,8 +292,8 @@ TEST_F(SctpTransportTest, DuplicateStartCallsIgnored) {
 // Calling Start a second time with a different port should fail.
 TEST_F(SctpTransportTest, CallingStartWithDifferentPortFails) {
   SetupConnectedTransportsWithTwoStreams();
-  EXPECT_FALSE(transport1()->Start(kTransport1Port, 1234));
-  EXPECT_FALSE(transport1()->Start(1234, kTransport2Port));
+  EXPECT_FALSE(transport1()->Start(kTransport1Port, 1234, kSctpSendBufferSize));
+  EXPECT_FALSE(transport1()->Start(1234, kTransport2Port, kSctpSendBufferSize));
 }
 
 // A value of -1 for the local/remote port should be treated as the default
@@ -314,8 +314,8 @@ TEST_F(SctpTransportTest, NegativeOnePortTreatedAsDefault) {
 
   // Tell them both to start, giving one transport the default port and the
   // other transport -1.
-  transport1->Start(kSctpDefaultPort, kSctpDefaultPort);
-  transport2->Start(-1, -1);
+  transport1->Start(kSctpDefaultPort, kSctpDefaultPort, kSctpSendBufferSize);
+  transport2->Start(-1, -1, kSctpSendBufferSize);
 
   // Connect the two fake DTLS transports.
   bool asymmetric = false;
@@ -354,7 +354,7 @@ TEST_F(SctpTransportTest, SignalReadyToSendDataAfterDtlsWritable) {
   std::unique_ptr<SctpTransport> transport(CreateTransport(&fake_dtls, &recv));
   SctpTransportObserver observer(transport.get());
 
-  transport->Start(kSctpDefaultPort, kSctpDefaultPort);
+  transport->Start(kSctpDefaultPort, kSctpDefaultPort, kSctpSendBufferSize);
   fake_dtls.SetWritable(true);
   EXPECT_TRUE_WAIT(observer.ReadyToSend(), kDefaultTimeout);
 }
@@ -565,6 +565,33 @@ TEST_F(SctpTransportTest, ReusesAStream) {
   EXPECT_TRUE_WAIT(ReceivedData(receiver2(), 1, "hi?"), kDefaultTimeout);
   transport1()->ResetStream(1);
   EXPECT_EQ_WAIT(2, transport2_observer.StreamCloseCount(1), kDefaultTimeout);
+}
+
+TEST_F(SctpTransportTest, RejectsTooLargeMessageSize) {
+  FakeDtlsTransport fake_dtls("fake dtls", 0);
+  SctpFakeDataReceiver recv;
+  std::unique_ptr<SctpTransport> transport(CreateTransport(&fake_dtls, &recv));
+
+  EXPECT_FALSE(transport->Start(kSctpDefaultPort, kSctpDefaultPort,
+                                kSctpSendBufferSize + 1));
+}
+
+TEST_F(SctpTransportTest, RejectsTooSmallMessageSize) {
+  FakeDtlsTransport fake_dtls("fake dtls", 0);
+  SctpFakeDataReceiver recv;
+  std::unique_ptr<SctpTransport> transport(CreateTransport(&fake_dtls, &recv));
+
+  EXPECT_FALSE(transport->Start(kSctpDefaultPort, kSctpDefaultPort, 0));
+}
+
+TEST_F(SctpTransportTest, RejectsSendTooLargeMessages) {
+  SetupConnectedTransportsWithTwoStreams();
+  // Use "Start" to reduce the max message size
+  transport1()->Start(kTransport1Port, kTransport2Port, 10);
+  EXPECT_EQ(10, transport1()->max_message_size());
+  const char eleven_characters[] = "12345678901";
+  SendDataResult result;
+  EXPECT_FALSE(SendData(transport1(), 1, eleven_characters, &result));
 }
 
 }  // namespace cricket

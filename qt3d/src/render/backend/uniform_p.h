@@ -101,6 +101,7 @@ enum UniformType {
     Mat3x4,
     Mat4x3,
     Sampler,
+    Image,
     Unknown
 };
 
@@ -111,7 +112,8 @@ public:
         ScalarValue,
         NodeId,
         TextureValue,
-        BufferValue
+        BufferValue,
+        ShaderImageValue
     };
 
     // UniformValue implicitely converts doubles to floats to ensure
@@ -225,9 +227,9 @@ public:
         return !(*this == other);
     }
 private:
-    // Allocate 4 floats on stack
+    // Allocate 16 floats on stack
     // For larger elements, heap allocation will be used
-    QVarLengthArray<float, 4> m_data;
+    QVarLengthArray<float, 16> m_data;
 
     ValueType m_valueType = ScalarValue;
 

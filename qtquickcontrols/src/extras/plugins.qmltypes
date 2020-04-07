@@ -9,6 +9,7 @@ import QtQuick.tooling 1.2
 Module {
     dependencies: [
         "QtGraphicalEffects 1.12",
+        "QtQml 2.14",
         "QtQml.Models 2.2",
         "QtQuick 2.9",
         "QtQuick.Controls 1.5",
@@ -73,6 +74,11 @@ Module {
             Parameter { name: "color"; type: "QColor" }
         }
         Method { name: "redraw" }
+    }
+    Component {
+        name: "QQuickControlsPrivate1Attached"
+        prototype: "QObject"
+        Property { name: "window"; type: "QQuickWindow"; isReadonly: true; isPointer: true }
     }
     Component {
         name: "QQuickFlatProgressBar"
@@ -210,7 +216,7 @@ Module {
         isComposite: true
         defaultProperty: "data"
         Property { name: "isDefault"; type: "bool" }
-        Property { name: "menu"; type: "Menu_QMLTYPE_28"; isPointer: true }
+        Property { name: "menu"; type: "Menu_QMLTYPE_33"; isPointer: true }
         Property { name: "checkable"; type: "bool" }
         Property { name: "checked"; type: "bool" }
         Property { name: "exclusiveGroup"; type: "QQuickExclusiveGroup1"; isPointer: true }
@@ -346,7 +352,7 @@ Module {
         Property { name: "progress"; type: "double"; isReadonly: true }
         Signal { name: "activated" }
         Property { name: "isDefault"; type: "bool" }
-        Property { name: "menu"; type: "Menu_QMLTYPE_28"; isPointer: true }
+        Property { name: "menu"; type: "Menu_QMLTYPE_33"; isPointer: true }
         Property { name: "checkable"; type: "bool" }
         Property { name: "checked"; type: "bool" }
         Property { name: "exclusiveGroup"; type: "QQuickExclusiveGroup1"; isPointer: true }
@@ -493,15 +499,15 @@ Module {
         exportMetaObjectRevisions: [0]
         isComposite: true
         defaultProperty: "data"
-        Property { name: "control"; type: "PieMenu_QMLTYPE_84"; isPointer: true }
+        Property { name: "control"; type: "PieMenu_QMLTYPE_87"; isPointer: true }
         Property { name: "styleData"; type: "QObject"; isPointer: true }
         Property { name: "iconSource"; type: "string"; isReadonly: true }
     }
     Component {
         prototype: "QQuickFocusScope"
-        name: "QtQuick.Extras/StatusIndicator 1.1"
-        exports: ["QtQuick.Extras/StatusIndicator 1.1"]
-        exportMetaObjectRevisions: [1]
+        name: "QtQuick.Extras/StatusIndicator 1.0"
+        exports: ["QtQuick.Extras/StatusIndicator 1.0"]
+        exportMetaObjectRevisions: [0]
         isComposite: true
         defaultProperty: "data"
         Property { name: "active"; type: "bool" }
@@ -515,9 +521,9 @@ Module {
     }
     Component {
         prototype: "QQuickFocusScope"
-        name: "QtQuick.Extras/StatusIndicator 1.0"
-        exports: ["QtQuick.Extras/StatusIndicator 1.0"]
-        exportMetaObjectRevisions: [0]
+        name: "QtQuick.Extras/StatusIndicator 1.1"
+        exports: ["QtQuick.Extras/StatusIndicator 1.1"]
+        exportMetaObjectRevisions: [1]
         isComposite: true
         defaultProperty: "data"
         Property { name: "active"; type: "bool" }
@@ -547,7 +553,7 @@ Module {
         isComposite: true
         defaultProperty: "data"
         Property { name: "isDefault"; type: "bool" }
-        Property { name: "menu"; type: "Menu_QMLTYPE_28"; isPointer: true }
+        Property { name: "menu"; type: "Menu_QMLTYPE_33"; isPointer: true }
         Property { name: "checkable"; type: "bool" }
         Property { name: "checked"; type: "bool" }
         Property { name: "exclusiveGroup"; type: "QQuickExclusiveGroup1"; isPointer: true }

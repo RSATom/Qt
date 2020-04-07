@@ -4,13 +4,14 @@
 
 #include "third_party/blink/public/platform/web_blob_info.h"
 
+#include "third_party/blink/public/mojom/blob/blob.mojom-blink.h"
 #include "third_party/blink/renderer/platform/blob/blob_data.h"
 
 namespace blink {
 
 WebBlobInfo::WebBlobInfo(const WebString& uuid,
                          const WebString& type,
-                         long long size,
+                         uint64_t size,
                          mojo::ScopedMessagePipeHandle handle)
     : WebBlobInfo(BlobDataHandle::Create(
           uuid,
@@ -24,7 +25,7 @@ WebBlobInfo::WebBlobInfo(const WebString& uuid,
                          const WebString& file_name,
                          const WebString& type,
                          double last_modified,
-                         long long size,
+                         uint64_t size,
                          mojo::ScopedMessagePipeHandle handle)
     : WebBlobInfo(BlobDataHandle::Create(
                       uuid,
@@ -39,7 +40,7 @@ WebBlobInfo::WebBlobInfo(const WebString& uuid,
 // static
 WebBlobInfo WebBlobInfo::BlobForTesting(const WebString& uuid,
                                         const WebString& type,
-                                        long long size) {
+                                        uint64_t size) {
   return WebBlobInfo(uuid, type, size, mojo::MessagePipe().handle0);
 }
 
@@ -48,7 +49,8 @@ WebBlobInfo WebBlobInfo::FileForTesting(const WebString& uuid,
                                         const WebString& file_path,
                                         const WebString& file_name,
                                         const WebString& type) {
-  return WebBlobInfo(uuid, file_path, file_name, type, 0, -1,
+  return WebBlobInfo(uuid, file_path, file_name, type, 0,
+                     std::numeric_limits<uint64_t>::max(),
                      mojo::MessagePipe().handle0);
 }
 
@@ -84,7 +86,7 @@ WebBlobInfo::WebBlobInfo(scoped_refptr<BlobDataHandle> handle,
 
 WebBlobInfo::WebBlobInfo(scoped_refptr<BlobDataHandle> handle,
                          const WebString& type,
-                         long long size)
+                         uint64_t size)
     : is_file_(false),
       uuid_(handle->Uuid()),
       type_(type),
@@ -97,7 +99,7 @@ WebBlobInfo::WebBlobInfo(scoped_refptr<BlobDataHandle> handle,
                          const WebString& file_name,
                          const WebString& type,
                          double last_modified,
-                         long long size)
+                         uint64_t size)
     : is_file_(true),
       uuid_(handle->Uuid()),
       type_(type),

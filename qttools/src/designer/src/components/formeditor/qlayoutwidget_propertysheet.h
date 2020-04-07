@@ -42,7 +42,7 @@ class QLayoutWidgetPropertySheet: public QDesignerPropertySheet
     Q_OBJECT
     Q_INTERFACES(QDesignerPropertySheetExtension)
 public:
-    explicit QLayoutWidgetPropertySheet(QLayoutWidget *object, QObject *parent = 0);
+    explicit QLayoutWidgetPropertySheet(QLayoutWidget *object, QObject *parent = nullptr);
     ~QLayoutWidgetPropertySheet() override;
 
     void setProperty(int index, const QVariant &value) override;
@@ -51,7 +51,7 @@ public:
     bool dynamicPropertiesAllowed() const override;
 };
 
-typedef QDesignerPropertySheetFactory<QLayoutWidget, QLayoutWidgetPropertySheet> QLayoutWidgetPropertySheetFactory;
+using QLayoutWidgetPropertySheetFactory = QDesignerPropertySheetFactory<QLayoutWidget, QLayoutWidgetPropertySheet>;
 }  // namespace qdesigner_internal
 
 QT_END_NAMESPACE

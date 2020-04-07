@@ -59,7 +59,6 @@ QWasmCompositedWindow::QWasmCompositedWindow()
 
 QWasmCompositor::QWasmCompositor(QWasmScreen *screen)
     :QObject(screen)
-    , m_frameBuffer(nullptr)
     , m_blitter(new QOpenGLTextureBlitter)
     , m_needComposit(false)
     , m_inFlush(false)
@@ -71,7 +70,6 @@ QWasmCompositor::QWasmCompositor(QWasmScreen *screen)
 
 QWasmCompositor::~QWasmCompositor()
 {
-    delete m_frameBuffer;
     destroy();
 }
 
@@ -681,7 +679,7 @@ void QWasmCompositor::frame()
 
     QWasmWindow *someWindow = nullptr;
 
-    foreach (QWasmWindow *window, m_windowStack) {
+    for (QWasmWindow *window : qAsConst(m_windowStack)) {
         if (window->window()->surfaceClass() == QSurface::Window
                 && qt_window_private(static_cast<QWindow *>(window->window()))->receivedExpose) {
             someWindow = window;
@@ -694,7 +692,7 @@ void QWasmCompositor::frame()
 
     if (m_context.isNull()) {
         m_context.reset(new QOpenGLContext());
-        //mContext->setFormat(mScreen->format());
+        m_context->setFormat(someWindow->window()->requestedFormat());
         m_context->setScreen(screen()->screen());
         m_context->create();
     }
@@ -715,7 +713,7 @@ void QWasmCompositor::frame()
     m_blitter->bind();
     m_blitter->setRedBlueSwizzle(true);
 
-    foreach (QWasmWindow *window, m_windowStack) {
+    for (QWasmWindow *window : qAsConst(m_windowStack)) {
         QWasmCompositedWindow &compositedWindow = m_compositedWindows[window];
 
         if (!compositedWindow.visible)
@@ -747,4 +745,9 @@ void QWasmCompositor::notifyTopWindowChanged(QWasmWindow *window)
 QWasmScreen *QWasmCompositor::screen()
 {
     return static_cast<QWasmScreen *>(parent());
+}
+
+QOpenGLContext *QWasmCompositor::context()
+{
+    return m_context.data();
 }

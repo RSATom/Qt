@@ -65,7 +65,7 @@
    then be shown in their corresponding column.
 
    You can customize the look by overriding the \l [QML]{TreeView::}{itemDelegate},
-   \l {basictableview-rowdelegate}{rowDelegate}, or \l {basictableview-headerdelegate}{headerDelegate} properties.
+   rowDelegate, or headerDelegate properties.
 
    The view itself does not provide sorting. This has to
    be done on the model itself. However you can provide sorting
@@ -265,7 +265,7 @@
 /*!
     \qmlmethod bool TreeView::isExpanded(QModelIndex index)
 
-    Returns true if the model item index is expanded; otherwise returns false.
+    Returns true if the model item at \a index is expanded; otherwise returns false.
 
     \sa {expanded}, {expand}
 */
@@ -273,7 +273,7 @@
 /*!
     \qmlmethod void TreeView::collapse(QModelIndex index)
 
-    Collapses the model item specified by the index.
+    Collapses the model item specified by the \a index.
 
     \sa {collapsed}, {isExpanded}
 */
@@ -281,7 +281,7 @@
 /*!
     \qmlmethod void TreeView::expand(QModelIndex index)
 
-    Expands the model item specified by the index.
+    Expands the model item specified by the \a index.
 
     \sa {expanded}, {isExpanded}
 */
@@ -289,7 +289,7 @@
 /*!
     \qmlmethod QModelIndex TreeView::indexAt( int x, int y )
 
-    Returns the model index of the visible row at the point \a x, \a y in content
+    Returns the model index of the visible row at the point \a x, \e y in content
     coordinates. If there is no visible row at the point specified, an invalid
     \l QModelIndex is returned.
 

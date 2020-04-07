@@ -31,7 +31,11 @@ class BrowserAccessibilityAuraLinux : public BrowserAccessibility {
   // BrowserAccessibility methods.
   void OnDataChanged() override;
   bool IsNative() const override;
+  base::string16 GetText() const override;
+  base::string16 GetHypertext() const override;
+
   gfx::NativeViewAccessible GetNativeViewAccessible() override;
+  ui::AXPlatformNode* GetFromNodeID(int32_t id) override;
 
  private:
   // Give BrowserAccessibility::Create access to our constructor.

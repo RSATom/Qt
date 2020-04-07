@@ -104,18 +104,12 @@
     "channel": "stable",
     "contexts": ["webui"],
     "matches": [
+      // TODO(maybelle): Audit and remove chrome://settings or
+      // chrome://os-settings as appropriate
+      "chrome://os-settings/*",
       "chrome://settings/*"
     ]
   }],
-  "automationInternal": {
-    "internal": true,
-    "dependencies": ["manifest:automation"],
-    "contexts": ["blessed_extension"]
-  },
-  "automation": {
-    "dependencies": ["manifest:automation"],
-    "contexts": ["blessed_extension"]
-  },
   "autotestPrivate": {
     "dependencies": ["permission:autotestPrivate"],
     "contexts": ["blessed_extension"]
@@ -142,41 +136,30 @@
       "chrome://welcome/*"
     ]
   }],
-  "bookmarks.export": [{
-    "whitelist": [
-      "D5736E4B5CF695CB93A2FB57E4FDC6E5AFAB6FE2", // http://crbug.com/312900
-      "D57DE394F36DC1C3220E7604C575D29C51A6C495", // http://crbug.com/319444
-      "3F65507A3B39259B38C8173C6FFA3D12DF64CCE9"  // http://crbug.com/371562
-    ]
-  }, {
+  "bookmarks.export": {
     "channel": "stable",
     "contexts": ["webui"],
     "dependencies": [],
     "matches": [
       "chrome://bookmarks/*"
     ]
-  }],
-  "bookmarks.import": [{
-    "whitelist": [
-      "D5736E4B5CF695CB93A2FB57E4FDC6E5AFAB6FE2", // http://crbug.com/312900
-      "D57DE394F36DC1C3220E7604C575D29C51A6C495", // http://crbug.com/319444
-      "3F65507A3B39259B38C8173C6FFA3D12DF64CCE9"  // http://crbug.com/371562
-    ]
-  }, {
+  },
+  "bookmarks.import": {
     "channel": "stable",
     "contexts": ["webui"],
     "dependencies": [],
     "matches": [
       "chrome://bookmarks/*"
     ]
-  }],
+  },
   "brailleDisplayPrivate": {
     "dependencies": ["permission:brailleDisplayPrivate"],
     "contexts": ["blessed_extension"]
   },
   "browserAction": {
     "dependencies": ["manifest:browser_action"],
-    "contexts": ["blessed_extension"]
+    "contexts": ["blessed_extension"],
+    "disallow_for_service_workers": false
   },
   // This API is whitelisted on stable and should not be enabled for a wider
   // audience without resolving security issues raised in API proposal and
@@ -255,10 +238,11 @@
       "chrome://chrome-signin/*",
       "chrome://discards/*",
       "chrome://hats/*",
-      "chrome://media-router/*",
       "chrome://mobilesetup/*",
       "chrome://oobe/*",
-      "chrome://assistant-optin/*"
+      "chrome://password-change/*",
+      "chrome://assistant-optin/*",
+      "chrome://add-supervision/*"
     ]
   }],
   "cloudPrintPrivate": {
@@ -279,7 +263,8 @@
   },
   "contextMenus": {
     "dependencies": ["permission:contextMenus"],
-    "contexts": ["blessed_extension"]
+    "contexts": ["blessed_extension"],
+    "disallow_for_service_workers": false
   },
   "contextMenusInternal": {
     "internal": true,
@@ -410,7 +395,8 @@
     "contexts": ["blessed_extension"]
   },
   "extension.getURL": {
-    "contexts": ["blessed_extension", "unblessed_extension", "content_script", "extension_service_worker"]
+    "contexts": ["blessed_extension", "unblessed_extension", "content_script"],
+    "disallow_for_service_workers": false
   },
   "extension.getViews": [
     {
@@ -484,10 +470,6 @@
     "dependencies": ["permission:fileSystemProvider"],
     "contexts": ["blessed_extension"]
   },
-  "firstRunPrivate": {
-    "dependencies": ["permission:firstRunPrivate"],
-    "contexts": ["blessed_extension"]
-  },
   "fontSettings": {
     "dependencies": ["permission:fontSettings"],
     "contexts": ["blessed_extension"]
@@ -534,6 +516,9 @@
     "channel": "stable",
     "contexts": ["webui"],
     "matches": [
+      // TODO(maybelle): Audit and remove chrome://settings or
+      // chrome://os-settings as appropriate
+      "chrome://os-settings/*",
       "chrome://settings/*"
     ]
   }],
@@ -548,11 +533,22 @@
     "channel": "stable",
     "contexts": ["webui"],
     "matches": [
+      // TODO(maybelle): Audit and remove chrome://settings or
+      // chrome://os-settings as appropriate
+      "chrome://os-settings/*",
       "chrome://settings/*"
     ]
   }],
   "launcherSearchProvider": {
     "dependencies": ["permission:launcherSearchProvider"],
+    "contexts": ["blessed_extension"]
+  },
+  "login": {
+    "dependencies": ["permission:login"],
+    "contexts": ["blessed_extension"]
+  },
+  "loginScreenUi": {
+    "dependencies": ["permission:loginScreenUi"],
     "contexts": ["blessed_extension"]
   },
   "webcamPrivate": {
@@ -608,6 +604,9 @@
     "channel": "stable",
     "contexts": ["webui"],
     "matches": [
+      // TODO(maybelle): Audit and remove chrome://settings or
+      // chrome://os-settings as appropriate
+      "chrome://os-settings/*",
       "chrome://settings/*"
     ]
   }],
@@ -629,10 +628,6 @@
     "internal": true,
     "contexts": ["blessed_extension"]
   }],
-  "preferencesPrivate": {
-    "dependencies": ["permission:preferencesPrivate"],
-    "contexts": ["blessed_extension"]
-  },
   "privacy": {
     "dependencies": ["permission:privacy"],
     "contexts": ["blessed_extension"]
@@ -654,6 +649,9 @@
     "contexts": ["webui"],
     "matches": [
       "chrome://multidevice-setup/*",
+      // TODO(maybelle): Audit and remove chrome://settings or
+      // chrome://os-settings as appropriate
+      "chrome://os-settings/*",
       "chrome://settings/*",
       "chrome://oobe/*"
     ],
@@ -688,6 +686,9 @@
     "channel": "stable",
     "contexts": ["webui"],
     "matches": [
+      // TODO(maybelle): Audit and remove chrome://settings or
+      // chrome://os-settings as appropriate
+      "chrome://os-settings/*",
       "chrome://settings/*"
     ]
   }],
@@ -710,18 +711,28 @@
   "tabs": [{
     "channel": "stable",
     "extension_types": ["extension", "legacy_packaged_app"],
-    "contexts": ["blessed_extension", "extension_service_worker"]
+    "contexts": ["blessed_extension"],
+    "disallow_for_service_workers": false
   }, {
     "channel": "stable",
     "contexts": ["webui"],
     "matches": [
-      "chrome://bookmarks/*"
+      "chrome://bookmarks/*",
+      "chrome://terminal/*"
     ]
   }],
-  "terminalPrivate": {
+  "terminalPrivate": [{
     "dependencies": ["permission:terminalPrivate"],
-    "contexts": ["blessed_extension"]
-  },
+    "contexts": ["blessed_extension"],
+    "platforms": ["chromeos"]
+  }, {
+    "channel": "dev",
+    "contexts": ["webui"],
+    "matches": [
+      "chrome://terminal/*"
+    ],
+    "platforms": ["chromeos"]
+  }],
   "topSites": {
     "dependencies": ["permission:topSites"],
     "contexts": ["blessed_extension"]
@@ -742,6 +753,9 @@
     "channel": "stable",
     "contexts": ["webui"],
     "matches": [
+      // TODO(maybelle): Audit and remove chrome://settings or
+      // chrome://os-settings as appropriate
+      "chrome://os-settings/*",
       "chrome://settings/*"
     ]
   }],
@@ -759,7 +773,8 @@
   },
   "webNavigation": {
     "dependencies": ["permission:webNavigation"],
-    "contexts": ["blessed_extension", "extension_service_worker"]
+    "contexts": ["blessed_extension"],
+    "disallow_for_service_workers": false
   },
   "webrtcAudioPrivate": {
     "dependencies": ["permission:webrtcAudioPrivate"],
@@ -804,7 +819,8 @@
     "channel": "stable",
     "contexts": ["webui"],
     "matches": [
-      "chrome://bookmarks/*"
+      "chrome://bookmarks/*",
+      "chrome://terminal/*"
     ]
   }]
 }

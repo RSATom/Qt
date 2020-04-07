@@ -23,7 +23,7 @@
 #include "common/debug.h"
 #include "Common/Version.h"
 
-#if defined(__ANDROID__)
+#if defined(__ANDROID__) && !defined(ANDROID_NDK_BUILD)
 #include <system/window.h>
 #elif defined(USE_X11)
 #include "Main/libX11.hpp"
@@ -932,13 +932,6 @@ EGLBoolean MakeCurrent(EGLDisplay dpy, EGLSurface draw, EGLSurface read, EGLCont
 		return EGL_FALSE;
 	}
 
-	if((draw != EGL_NO_SURFACE && drawSurface->hasClientBuffer()) ||
-	   (read != EGL_NO_SURFACE && readSurface->hasClientBuffer()))
-	{
-		// Make current is not supported on IOSurface pbuffers.
-		return error(EGL_BAD_SURFACE, EGL_FALSE);
-	}
-
 	if((draw != EGL_NO_SURFACE) ^ (read != EGL_NO_SURFACE))
 	{
 		return error(EGL_BAD_MATCH, EGL_FALSE);
@@ -1148,6 +1141,8 @@ EGLImage CreateImage(EGLDisplay dpy, EGLContext ctx, EGLenum target, EGLClientBu
 	}
 
 	EGLenum imagePreserved = EGL_FALSE;
+	(void)imagePreserved; // currently unused
+
 	GLuint textureLevel = 0;
 	if(attrib_list)
 	{
@@ -1168,7 +1163,7 @@ EGLImage CreateImage(EGLDisplay dpy, EGLContext ctx, EGLenum target, EGLClientBu
 		}
 	}
 
-	#if defined(__ANDROID__)
+	#if defined(__ANDROID__) && !defined(ANDROID_NDK_BUILD)
 		if(target == EGL_NATIVE_BUFFER_ANDROID)
 		{
 			ANativeWindowBuffer *nativeBuffer = reinterpret_cast<ANativeWindowBuffer*>(buffer);
@@ -1411,6 +1406,11 @@ EGLBoolean GetSyncAttrib(EGLDisplay dpy, EGLSyncKHR sync, EGLint attribute, EGLA
 	}
 
 	if(!display->isValidSync(eglSync))
+	{
+		return error(EGL_BAD_PARAMETER, EGL_FALSE);
+	}
+
+	if(!value)
 	{
 		return error(EGL_BAD_PARAMETER, EGL_FALSE);
 	}

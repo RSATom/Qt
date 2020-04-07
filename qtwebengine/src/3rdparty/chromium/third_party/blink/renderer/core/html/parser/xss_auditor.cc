@@ -31,7 +31,6 @@
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/frame/settings.h"
-#include "third_party/blink/renderer/core/frame/use_counter.h"
 #include "third_party/blink/renderer/core/html/html_param_element.h"
 #include "third_party/blink/renderer/core/html/link_rel_attribute.h"
 #include "third_party/blink/renderer/core/html/parser/html_document_parser.h"
@@ -44,9 +43,10 @@
 #include "third_party/blink/renderer/core/loader/mixed_content_checker.h"
 #include "third_party/blink/renderer/core/svg_names.h"
 #include "third_party/blink/renderer/core/xlink_names.h"
+#include "third_party/blink/renderer/platform/instrumentation/use_counter.h"
 #include "third_party/blink/renderer/platform/network/encoded_form_data.h"
 #include "third_party/blink/renderer/platform/text/decode_escape_sequences.h"
-#include "third_party/blink/renderer/platform/wtf/ascii_ctype.h"
+#include "third_party/blink/renderer/platform/wtf/text/ascii_ctype.h"
 
 namespace {
 
@@ -363,6 +363,7 @@ void XSSAuditor::InitForFragment() {
 
 void XSSAuditor::Init(Document* document,
                       XSSAuditorDelegate* auditor_delegate) {
+  TRACE_EVENT0("loading", "XSSAuditor::Init");
   DCHECK(IsMainThread());
   if (state_ != kUninitialized)
     return;
@@ -438,7 +439,8 @@ void XSSAuditor::Init(Document* document,
     }
     if (xss_protection_header == kReflectedXSSInvalid) {
       document->AddConsoleMessage(ConsoleMessage::Create(
-          kSecurityMessageSource, kErrorMessageLevel,
+          mojom::ConsoleMessageSource::kSecurity,
+          mojom::ConsoleMessageLevel::kError,
           "Error parsing header X-XSS-Protection: " + header_value + ": " +
               error_details + " at character position " +
               String::Format("%u", error_position) +
@@ -448,7 +450,7 @@ void XSSAuditor::Init(Document* document,
     xss_protection_ = xss_protection_header;
     if (xss_protection_ == kReflectedXSSInvalid ||
         xss_protection_ == kReflectedXSSUnset) {
-      xss_protection_ = kBlockReflectedXSS;
+      xss_protection_ = kFilterReflectedXSS;
     }
 
     if (auditor_delegate)
@@ -463,6 +465,7 @@ void XSSAuditor::Init(Document* document,
 }
 
 void XSSAuditor::SetEncoding(const WTF::TextEncoding& encoding) {
+  TRACE_EVENT0("loading", "XSSAuditor::SetEncoding");
   const wtf_size_t kMiniumLengthForSuffixTree =
       512;  // FIXME: Tune this parameter.
   const int kSuffixTreeDepth = 5;
@@ -511,8 +514,8 @@ std::unique_ptr<XSSInfo> XSSAuditor::FilterToken(
   if (did_block_script) {
     bool did_block_entire_page = (xss_protection_ == kBlockReflectedXSS);
     std::unique_ptr<XSSInfo> xss_info =
-        XSSInfo::Create(document_url_, did_block_entire_page,
-                        did_send_valid_xss_protection_header_);
+        std::make_unique<XSSInfo>(document_url_, did_block_entire_page,
+                                  did_send_valid_xss_protection_header_);
     return xss_info;
   }
   return nullptr;
@@ -842,6 +845,8 @@ String XSSAuditor::SnippetFromAttribute(const FilterTokenRequest& request,
 }
 
 String XSSAuditor::Canonicalize(String snippet, TruncationKind treatment) {
+  TRACE_EVENT0("loading", "XSSAuditor::Canonicalize");
+
   String decoded_snippet = FullyDecodeString(snippet, encoding_);
 
   if (treatment != kNoTruncation) {
@@ -921,7 +926,13 @@ String XSSAuditor::CanonicalizedSnippetForJavaScript(
           StartsMultiLineCommentAt(string, found_position)) {
         break;
       }
-      if (!request.should_allow_cdata) {
+      if (request.should_allow_cdata) {
+        // Under SVG/XML rules, blink may apply an additional html entity
+        // decoding to this particular string before handing it to the JS
+        // parser. So stop before anything that looks like an entity.
+        if (string[found_position] == '&')
+          break;
+      } else {
         if (StartsHTMLOpenCommentAt(string, found_position) ||
             StartsHTMLCloseCommentAt(string, found_position)) {
           break;

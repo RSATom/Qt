@@ -21,10 +21,9 @@ class WebViewPermissionHelperDelegate : public content::WebContentsObserver {
       WebViewPermissionHelper* web_view_permission_helper);
   ~WebViewPermissionHelperDelegate() override;
 
-  virtual void CanDownload(
-      const GURL& url,
-      const std::string& request_method,
-      const base::Callback<void(bool)>& callback) {}
+  virtual void CanDownload(const GURL& url,
+                           const std::string& request_method,
+                           base::OnceCallback<void(bool)> callback) {}
 
   virtual void RequestPointerLockPermission(
       bool user_gesture,
@@ -36,7 +35,7 @@ class WebViewPermissionHelperDelegate : public content::WebContentsObserver {
       int bridge_id,
       const GURL& requesting_frame,
       bool user_gesture,
-      const base::Callback<void(bool)>& callback) {}
+      base::OnceCallback<void(bool)> callback) {}
 
   virtual void CancelGeolocationPermissionRequest(int bridge_id) {}
 

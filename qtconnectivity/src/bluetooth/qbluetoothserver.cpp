@@ -167,9 +167,8 @@ QT_BEGIN_NAMESPACE
     Constructs a bluetooth server with \a parent and \a serverType.
 */
 QBluetoothServer::QBluetoothServer(QBluetoothServiceInfo::Protocol serverType, QObject *parent)
-    : QObject(parent), d_ptr(new QBluetoothServerPrivate(serverType))
+    : QObject(parent), d_ptr(new QBluetoothServerPrivate(serverType, this))
 {
-    d_ptr->q_ptr = this;
 }
 
 /*!
@@ -266,7 +265,7 @@ bool QBluetoothServer::isListening() const
 {
     Q_D(const QBluetoothServer);
 
-#if defined(QT_ANDROID_BLUETOOTH) || defined(QT_WINRT_BLUETOOTH)
+#if defined(QT_ANDROID_BLUETOOTH) || defined(QT_WINRT_BLUETOOTH) || defined(QT_OSX_BLUETOOTH)
     return d->isListening();
 #endif
 

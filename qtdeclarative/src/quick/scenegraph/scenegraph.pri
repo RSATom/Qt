@@ -4,7 +4,11 @@
 HEADERS += \
     $$PWD/coreapi/qsggeometry.h \
     $$PWD/coreapi/qsgmaterial.h \
+    $$PWD/coreapi/qsgmaterialtype.h \
+    $$PWD/coreapi/qsgmaterialshader.h \
     $$PWD/coreapi/qsgmaterialshader_p.h \
+    $$PWD/coreapi/qsgmaterialrhishader.h \
+    $$PWD/coreapi/qsgmaterialrhishader_p.h \
     $$PWD/coreapi/qsgnode.h \
     $$PWD/coreapi/qsgnode_p.h \
     $$PWD/coreapi/qsgnodeupdater_p.h \
@@ -14,12 +18,17 @@ HEADERS += \
     $$PWD/coreapi/qsgrendernode.h \
     $$PWD/coreapi/qsgrendernode_p.h \
     $$PWD/coreapi/qsgrendererinterface.h \
-    $$PWD/coreapi/qsggeometry_p.h
+    $$PWD/coreapi/qsggeometry_p.h \
+    $$PWD/coreapi/qsgtexture.h \
+    $$PWD/coreapi/qsgtexture_p.h
 
 SOURCES += \
     $$PWD/coreapi/qsgabstractrenderer.cpp \
     $$PWD/coreapi/qsggeometry.cpp \
     $$PWD/coreapi/qsgmaterial.cpp \
+    $$PWD/coreapi/qsgmaterialshader.cpp \
+    $$PWD/coreapi/qsgmaterialrhishader.cpp \
+    $$PWD/coreapi/qsgtexture.cpp \
     $$PWD/coreapi/qsgnode.cpp \
     $$PWD/coreapi/qsgnodeupdater.cpp \
     $$PWD/coreapi/qsgrenderer.cpp \
@@ -28,9 +37,13 @@ SOURCES += \
 
 qtConfig(opengl(es1|es2)?) {
     HEADERS += \
-        $$PWD/coreapi/qsgbatchrenderer_p.h
+        $$PWD/coreapi/qsgbatchrenderer_p.h \
+        $$PWD/coreapi/qsgopenglvisualizer_p.h \
+        $$PWD/coreapi/qsgrhivisualizer_p.h
     SOURCES += \
         $$PWD/coreapi/qsgbatchrenderer.cpp \
+        $$PWD/coreapi/qsgopenglvisualizer.cpp \
+        $$PWD/coreapi/qsgrhivisualizer.cpp \
         $$PWD/coreapi/qsgshaderrewriter.cpp
 }
 
@@ -39,10 +52,10 @@ HEADERS += \
     $$PWD/util/qsgareaallocator_p.h \
     $$PWD/util/qsgengine.h \
     $$PWD/util/qsgengine_p.h \
+    $$PWD/util/qsgplaintexture_p.h \
+    $$PWD/util/qsgrhinativetextureimporter_p.h \
     $$PWD/util/qsgsimplerectnode.h \
     $$PWD/util/qsgsimpletexturenode.h \
-    $$PWD/util/qsgtexture.h \
-    $$PWD/util/qsgtexture_p.h \
     $$PWD/util/qsgtextureprovider.h \
     $$PWD/util/qsgflatcolormaterial.h \
     $$PWD/util/qsgsimplematerial.h \
@@ -56,9 +69,10 @@ HEADERS += \
 SOURCES += \
     $$PWD/util/qsgareaallocator.cpp \
     $$PWD/util/qsgengine.cpp \
+    $$PWD/util/qsgplaintexture.cpp \
+    $$PWD/util/qsgrhinativetextureimporter.cpp \
     $$PWD/util/qsgsimplerectnode.cpp \
     $$PWD/util/qsgsimpletexturenode.cpp \
-    $$PWD/util/qsgtexture.cpp \
     $$PWD/util/qsgtextureprovider.cpp \
     $$PWD/util/qsgflatcolormaterial.cpp \
     $$PWD/util/qsgsimplematerial.cpp \
@@ -72,13 +86,27 @@ qtConfig(opengl(es1|es2)?) {
     HEADERS += \
         $$PWD/util/qsgdepthstencilbuffer_p.h \
         $$PWD/util/qsgshadersourcebuilder_p.h \
-        $$PWD/util/qsgatlastexture_p.h
+        $$PWD/util/qsgopenglatlastexture_p.h
     SOURCES += \
         $$PWD/util/qsgdepthstencilbuffer.cpp \
-        $$PWD/util/qsgatlastexture.cpp \
+        $$PWD/util/qsgopenglatlastexture.cpp \
         $$PWD/util/qsgshadersourcebuilder.cpp
-}
 
+    # rhi, still tied to OpenGL-enabled Qt builds for now
+    HEADERS += \
+        $$PWD/qsgrhitextureglyphcache_p.h \
+        $$PWD/util/qsgrhiatlastexture_p.h \
+        $$PWD/qsgrhilayer_p.h \
+        $$PWD/qsgrhishadereffectnode_p.h \
+        $$PWD/qsgrhidistancefieldglyphcache_p.h
+
+    SOURCES += \
+        $$PWD/qsgrhitextureglyphcache.cpp \
+        $$PWD/qsgrhilayer.cpp \
+        $$PWD/qsgrhishadereffectnode.cpp \
+        $$PWD/util/qsgrhiatlastexture.cpp \
+        $$PWD/qsgrhidistancefieldglyphcache.cpp
+}
 
 # QML / Adaptations API
 HEADERS += \
@@ -88,7 +116,8 @@ HEADERS += \
     $$PWD/qsgbasicinternalrectanglenode_p.h \
     $$PWD/qsgbasicinternalimagenode_p.h \
     $$PWD/qsgbasicglyphnode_p.h \
-    $$PWD/qsgrenderloop_p.h
+    $$PWD/qsgrenderloop_p.h \
+    $$PWD/qsgrhisupport_p.h
 
 SOURCES += \
     $$PWD/qsgadaptationlayer.cpp \
@@ -97,13 +126,14 @@ SOURCES += \
     $$PWD/qsgbasicinternalrectanglenode.cpp \
     $$PWD/qsgbasicinternalimagenode.cpp \
     $$PWD/qsgbasicglyphnode.cpp \
-    $$PWD/qsgrenderloop.cpp
+    $$PWD/qsgrenderloop.cpp \
+    $$PWD/qsgrhisupport.cpp
 
 qtConfig(opengl(es1|es2)?) {
     SOURCES += \
         $$PWD/qsgdefaultglyphnode.cpp \
         $$PWD/qsgdefaultglyphnode_p.cpp \
-        $$PWD/qsgdefaultdistancefieldglyphcache.cpp \
+        $$PWD/qsgopengldistancefieldglyphcache.cpp \
         $$PWD/qsgdistancefieldglyphnode.cpp \
         $$PWD/qsgdistancefieldglyphnode_p.cpp \
         $$PWD/qsgdefaultinternalimagenode.cpp \
@@ -114,11 +144,11 @@ qtConfig(opengl(es1|es2)?) {
         $$PWD/util/qsgdefaultrectanglenode.cpp \
         $$PWD/util/qsgdefaultimagenode.cpp \
         $$PWD/util/qsgdefaultninepatchnode.cpp \
-        $$PWD/qsgdefaultlayer.cpp \
+        $$PWD/qsgopengllayer.cpp \
         $$PWD/qsgwindowsrenderloop.cpp
     HEADERS += \
         $$PWD/qsgdefaultglyphnode_p.h \
-        $$PWD/qsgdefaultdistancefieldglyphcache_p.h \
+        $$PWD/qsgopengldistancefieldglyphcache_p.h \
         $$PWD/qsgdistancefieldglyphnode_p.h \
         $$PWD/qsgdistancefieldglyphnode_p_p.h \
         $$PWD/qsgdefaultglyphnode_p_p.h \
@@ -130,7 +160,7 @@ qtConfig(opengl(es1|es2)?) {
         $$PWD/util/qsgdefaultrectanglenode_p.h \
         $$PWD/util/qsgdefaultimagenode_p.h \
         $$PWD/util/qsgdefaultninepatchnode_p.h \
-        $$PWD/qsgdefaultlayer_p.h \
+        $$PWD/qsgopengllayer_p.h \
         $$PWD/qsgwindowsrenderloop_p.h
 
     qtConfig(thread) {

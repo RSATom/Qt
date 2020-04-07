@@ -16,6 +16,7 @@
 
 #include <memory>
 
+#include "base/bind.h"
 #include "base/compiler_specific.h"
 #include "base/stl_util.h"
 #include "gpu/command_buffer/client/client_test_helper.h"
@@ -3585,10 +3586,27 @@ TEST_F(GLES2ImplementationTest, CreateAndTexStorage2DSharedImageCHROMIUM) {
     GLbyte data[GL_MAILBOX_SIZE_CHROMIUM];
   };
 
-  Mailbox mailbox = Mailbox::Generate();
+  Mailbox mailbox = Mailbox::GenerateForSharedImage();
   Cmds expected;
-  expected.cmd.Init(kTexturesStartId, mailbox.name);
+  expected.cmd.Init(kTexturesStartId, GL_NONE, mailbox.name);
   GLuint id = gl_->CreateAndTexStorage2DSharedImageCHROMIUM(mailbox.name);
+  EXPECT_EQ(0, memcmp(&expected, commands_, sizeof(expected)));
+  EXPECT_EQ(kTexturesStartId, id);
+}
+
+TEST_F(GLES2ImplementationTest,
+       CreateAndTexStorage2DSharedImageWithInternalFormatCHROMIUM) {
+  struct Cmds {
+    cmds::CreateAndTexStorage2DSharedImageINTERNALImmediate cmd;
+    GLbyte data[GL_MAILBOX_SIZE_CHROMIUM];
+  };
+
+  Mailbox mailbox = Mailbox::GenerateForSharedImage();
+  const GLenum kFormat = GL_RGBA;
+  Cmds expected;
+  expected.cmd.Init(kTexturesStartId, kFormat, mailbox.name);
+  GLuint id = gl_->CreateAndTexStorage2DSharedImageWithInternalFormatCHROMIUM(
+      mailbox.name, kFormat);
   EXPECT_EQ(0, memcmp(&expected, commands_, sizeof(expected)));
   EXPECT_EQ(kTexturesStartId, id);
 }
@@ -3833,7 +3851,7 @@ TEST_F(GLES2ImplementationTest, GenSyncTokenCHROMIUM) {
   EXPECT_EQ(GL_INVALID_VALUE, CheckError());
 
   const void* commands = GetPut();
-  cmds::InsertFenceSyncCHROMIUM insert_fence_sync;
+  cmd::InsertFenceSync insert_fence_sync;
   insert_fence_sync.Init(kFenceSync);
 
   EXPECT_CALL(*gpu_control_, GenerateFenceSyncRelease())
@@ -3866,7 +3884,7 @@ TEST_F(GLES2ImplementationTest, GenUnverifiedSyncTokenCHROMIUM) {
   EXPECT_EQ(GL_INVALID_VALUE, CheckError());
 
   const void* commands = GetPut();
-  cmds::InsertFenceSyncCHROMIUM insert_fence_sync;
+  cmd::InsertFenceSync insert_fence_sync;
   insert_fence_sync.Init(kFenceSync);
 
   EXPECT_CALL(*gpu_control_, GenerateFenceSyncRelease())
@@ -4016,7 +4034,7 @@ TEST_F(GLES2ImplementationTest, WaitSyncTokenCHROMIUM) {
   GLbyte* sync_token_data = sync_token.GetData();
 
   struct Cmds {
-    cmds::InsertFenceSyncCHROMIUM insert_fence_sync;
+    cmd::InsertFenceSync insert_fence_sync;
   };
   Cmds expected;
   expected.insert_fence_sync.Init(kFenceSync);

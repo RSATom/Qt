@@ -4,9 +4,11 @@
 
 #include "components/ui_devtools/views/view_element.h"
 
+#include "base/strings/string_split.h"
 #include "base/strings/utf_string_conversions.h"
 #include "components/ui_devtools/Protocol.h"
 #include "components/ui_devtools/ui_element_delegate.h"
+#include "components/ui_devtools/views/element_utility.h"
 #include "ui/views/widget/widget.h"
 
 namespace ui_devtools {
@@ -37,8 +39,7 @@ void ViewElement::OnChildViewRemoved(views::View* parent, views::View* view) {
 
 void ViewElement::OnChildViewAdded(views::View* parent, views::View* view) {
   DCHECK_EQ(parent, view_);
-  AddChild(new ViewElement(view, delegate(), this),
-           children().empty() ? nullptr : children().back());
+  AddChild(new ViewElement(view, delegate(), this));
 }
 
 void ViewElement::OnChildViewReordered(views::View* parent, views::View* view) {
@@ -58,14 +59,47 @@ void ViewElement::OnViewBoundsChanged(views::View* view) {
   delegate()->OnUIElementBoundsChanged(this);
 }
 
-std::vector<std::pair<std::string, std::string>>
-ViewElement::GetCustomProperties() const {
-  base::string16 description;
-  if (view_->GetTooltipText(gfx::Point(), &description)) {
-    return {std::make_pair<std::string, std::string>(
-        "tooltip", base::UTF16ToUTF8(description))};
+std::vector<UIElement::ClassProperties>
+ViewElement::GetCustomPropertiesForMatchedStyle() const {
+  std::vector<UIElement::ClassProperties> ret;
+
+  ui::Layer* layer = view_->layer();
+  if (layer) {
+    std::vector<UIElement::UIProperty> layer_properties;
+    AppendLayerPropertiesMatchedStyle(layer, &layer_properties);
+    ret.emplace_back("Layer", layer_properties);
   }
-  return {};
+
+  std::vector<UIElement::UIProperty> class_properties;
+  views::metadata::ClassMetaData* metadata = view_->GetClassMetaData();
+  for (auto member = metadata->begin(); member != metadata->end(); member++) {
+    if (member.GetCurrentCollectionName() == "View" &&
+        class_properties.empty()) {
+      gfx::Rect bounds = view_->bounds();
+      class_properties.emplace_back("x", base::NumberToString(bounds.x()));
+      class_properties.emplace_back("y", base::NumberToString(bounds.y()));
+      class_properties.emplace_back("width",
+                                    base::NumberToString(bounds.width()));
+      class_properties.emplace_back("height",
+                                    base::NumberToString(bounds.height()));
+      class_properties.emplace_back("is-drawn",
+                                    view_->IsDrawn() ? "true" : "false");
+      base::string16 description = view_->GetTooltipText(gfx::Point());
+      if (!description.empty())
+        class_properties.emplace_back("tooltip",
+                                      base::UTF16ToUTF8(description));
+    }
+
+    class_properties.emplace_back(
+        (*member)->member_name(),
+        base::UTF16ToUTF8((*member)->GetValueAsString(view_)));
+
+    if (member.IsLastMember()) {
+      ret.emplace_back(member.GetCurrentCollectionName(), class_properties);
+      class_properties.clear();
+    }
+  }
+  return ret;
 }
 
 void ViewElement::GetBounds(gfx::Rect* bounds) const {
@@ -77,20 +111,53 @@ void ViewElement::SetBounds(const gfx::Rect& bounds) {
 }
 
 void ViewElement::GetVisible(bool* visible) const {
-  *visible = view_->visible();
+  // Visibility information should be directly retrieved from View's metadata,
+  // no need for this function any more.
+  NOTREACHED();
 }
 
 void ViewElement::SetVisible(bool visible) {
-  view_->SetVisible(visible);
+  // Intentional No-op.
 }
 
-std::unique_ptr<protocol::Array<std::string>> ViewElement::GetAttributes()
-    const {
-  auto attributes = protocol::Array<std::string>::create();
+bool ViewElement::SetPropertiesFromString(const std::string& text) {
+  std::vector<std::string> tokens = base::SplitString(
+      text, ":;", base::TRIM_WHITESPACE, base::SPLIT_WANT_NONEMPTY);
+
+  if (tokens.size() == 0UL)
+    return false;
+
+  for (size_t i = 0; i < tokens.size() - 1; i += 2) {
+    const std::string& property_name = tokens.at(i);
+    const std::string& property_value = base::ToLowerASCII(tokens.at(i + 1));
+
+    views::metadata::ClassMetaData* metadata = view_->GetClassMetaData();
+    views::metadata::MemberMetaDataBase* member =
+        metadata->FindMemberData(property_name);
+    if (!member) {
+      DLOG(ERROR) << "UI DevTools: Can not find property " << property_name
+                  << " in MetaData.";
+      continue;
+    }
+
+    // Since DevTools frontend doesn't check the value, we do a sanity check
+    // based on its type here.
+    if (member->member_type() == "bool") {
+      if (property_value != "true" && property_value != "false") {
+        // Ignore the value.
+        continue;
+      }
+    }
+
+    member->SetValueAsString(view_, base::UTF8ToUTF16(property_value));
+  }
+
+  return true;
+}
+
+std::vector<std::string> ViewElement::GetAttributes() const {
   // TODO(lgrey): Change name to class after updating tests.
-  attributes->addItem("name");
-  attributes->addItem(view_->GetClassName());
-  return attributes;
+  return {"name", view_->GetClassName()};
 }
 
 std::pair<gfx::NativeWindow, gfx::Rect>
@@ -118,6 +185,10 @@ int UIElement::FindUIElementIdForBackendElement<views::View>(
       return ui_element_id;
   }
   return 0;
+}
+
+void ViewElement::PaintRect() const {
+  view()->SchedulePaint();
 }
 
 }  // namespace ui_devtools

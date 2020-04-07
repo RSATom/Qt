@@ -18,13 +18,17 @@
 #include "media/base/adapted_video_track_source.h"
 #include "rtc_base/async_invoker.h"
 #include "rtc_base/checks.h"
-#include "rtc_base/thread_checker.h"
 #include "rtc_base/timestamp_aligner.h"
 #include "sdk/android/src/jni/video_frame.h"
 
 namespace webrtc {
 namespace jni {
 
+// This class needs to be used in conjunction with the Java corresponding class
+// NativeAndroidVideoTrackSource. This class is thred safe and methods can be
+// called from any thread, but if frames A, B, ..., are sent to adaptFrame(),
+// the adapted frames adaptedA, adaptedB, ..., needs to be passed in the same
+// order to onFrameCaptured().
 class AndroidVideoTrackSource : public rtc::AdaptedVideoTrackSource {
  public:
   AndroidVideoTrackSource(rtc::Thread* signaling_thread,
@@ -40,30 +44,54 @@ class AndroidVideoTrackSource : public rtc::AdaptedVideoTrackSource {
   // depending on video codec.
   absl::optional<bool> needs_denoising() const override;
 
-  // Called by the native capture observer
   void SetState(SourceState state);
 
   SourceState state() const override;
 
   bool remote() const override;
 
-  void OnFrameCaptured(JNIEnv* jni,
-                       int width,
-                       int height,
-                       int64_t timestamp_ns,
-                       VideoRotation rotation,
+  // This function should be called before delivering any frame to determine if
+  // the frame should be dropped or what the cropping and scaling parameters
+  // should be. This function is thread safe and can be called from any thread.
+  // This function returns
+  // NativeAndroidVideoTrackSource.FrameAdaptationParameters, or null if the
+  // frame should be dropped.
+  ScopedJavaLocalRef<jobject> AdaptFrame(JNIEnv* env,
+                                         const JavaRef<jobject>& j_caller,
+                                         jint j_width,
+                                         jint j_height,
+                                         jint j_rotation,
+                                         jlong j_timestamp_ns);
+
+  // This function converts and passes the frame on to the rest of the C++
+  // WebRTC layer. Note that GetFrameAdaptationParameters() is expected to be
+  // called first and that the delivered frame conforms to those parameters.
+  // This function is thread safe and can be called from any thread.
+  void OnFrameCaptured(JNIEnv* env,
+                       const JavaRef<jobject>& j_caller,
+                       jint j_rotation,
+                       jlong j_timestamp_ns,
                        const JavaRef<jobject>& j_video_frame_buffer);
 
-  void OnOutputFormatRequest(int landscape_width,
-                             int landscape_height,
-                             int portrait_width,
-                             int portrait_height,
-                             int fps);
+  void SetState(JNIEnv* env,
+                const JavaRef<jobject>& j_caller,
+                jboolean j_is_live);
+
+  void AdaptOutputFormat(JNIEnv* env,
+                         const JavaRef<jobject>& j_caller,
+                         jint j_landscape_width,
+                         jint j_landscape_height,
+                         const JavaRef<jobject>& j_max_landscape_pixel_count,
+                         jint j_portrait_width,
+                         jint j_portrait_height,
+                         const JavaRef<jobject>& j_max_portrait_pixel_count,
+                         const JavaRef<jobject>& j_max_fps);
 
  private:
+  void InternalSetState(SourceState state);
+
   rtc::Thread* signaling_thread_;
   rtc::AsyncInvoker invoker_;
-  rtc::ThreadChecker camera_thread_checker_;
   SourceState state_;
   const bool is_screencast_;
   rtc::TimestampAligner timestamp_aligner_;

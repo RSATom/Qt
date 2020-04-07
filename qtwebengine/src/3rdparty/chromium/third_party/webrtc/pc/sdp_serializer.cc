@@ -10,12 +10,13 @@
 
 #include "pc/sdp_serializer.h"
 
-#include <algorithm>
 #include <string>
 #include <utility>
 #include <vector>
 
+#include "absl/algorithm/container.h"
 #include "api/jsep.h"
+#include "modules/rtp_rtcp/include/rtp_rtcp_defines.h"
 #include "rtc_base/checks.h"
 #include "rtc_base/string_encode.h"
 #include "rtc_base/string_to_number.h"
@@ -81,7 +82,7 @@ rtc::StringBuilder& operator<<(
 rtc::StringBuilder& operator<<(rtc::StringBuilder& builder,
                                const SimulcastLayerList& simulcast_layers) {
   bool first = true;
-  for (auto alternatives : simulcast_layers) {
+  for (const auto& alternatives : simulcast_layers) {
     if (!first) {
       builder << kDelimiterSemicolon;
     }
@@ -166,8 +167,7 @@ webrtc::RTCError ParseRidPayloadList(const std::string& payload_list,
     }
 
     // Check if the value already appears in the payload list.
-    if (std::find(payload_types.begin(), payload_types.end(), value.value()) !=
-        payload_types.end()) {
+    if (absl::c_linear_search(payload_types, value.value())) {
       return ParseError("Duplicate payload type in list: " + payload_type);
     }
     payload_types.push_back(value.value());
@@ -327,6 +327,10 @@ RTCErrorOr<RidDescription> SdpSerializer::DeserializeRidDescription(
 
   if (tokens.size() > 3) {
     return ParseError("Invalid RID Description format. Too many arguments.");
+  }
+
+  if (!IsLegalRsidName(tokens[0])) {
+    return ParseError("Invalid RID value: " + tokens[0] + ".");
   }
 
   if (tokens[1] != kSendDirection && tokens[1] != kReceiveDirection) {

@@ -5,7 +5,6 @@
 #ifndef CC_LAYERS_SOLID_COLOR_SCROLLBAR_LAYER_H_
 #define CC_LAYERS_SOLID_COLOR_SCROLLBAR_LAYER_H_
 
-#include "base/macros.h"
 #include "cc/cc_export.h"
 #include "cc/layers/layer.h"
 #include "cc/layers/scrollbar_layer_interface.h"
@@ -24,6 +23,9 @@ class CC_EXPORT SolidColorScrollbarLayer : public ScrollbarLayerInterface,
       bool is_left_side_vertical_scrollbar,
       ElementId scroll_element_id);
 
+  SolidColorScrollbarLayer(const SolidColorScrollbarLayer&) = delete;
+  SolidColorScrollbarLayer& operator=(const SolidColorScrollbarLayer&) = delete;
+
   // Layer overrides.
   bool OpacityCanAnimateOnImplThread() const override;
 
@@ -31,6 +33,8 @@ class CC_EXPORT SolidColorScrollbarLayer : public ScrollbarLayerInterface,
   void PushPropertiesTo(LayerImpl* layer) override;
 
   void SetNeedsDisplayRect(const gfx::Rect& rect) override;
+
+  bool HitTestable() const override;
 
   // ScrollbarLayerInterface
   void SetScrollElementId(ElementId element_id) override;
@@ -63,8 +67,6 @@ class CC_EXPORT SolidColorScrollbarLayer : public ScrollbarLayerInterface,
   };
 
   SolidColorScrollbarLayerInputs solid_color_scrollbar_layer_inputs_;
-
-  DISALLOW_COPY_AND_ASSIGN(SolidColorScrollbarLayer);
 };
 
 }  // namespace cc

@@ -6,6 +6,7 @@
 
 #include <memory>
 
+#include "base/bind.h"
 #include "base/command_line.h"
 #include "base/containers/flat_map.h"
 #include "base/feature_list.h"
@@ -34,9 +35,6 @@
 namespace metrics {
 
 namespace {
-
-const base::Feature kBackgroundIndependentMetrics = {
-    "BackgoundIndependentMetrics", base::FEATURE_ENABLED_BY_DEFAULT};
 
 // These structures provide values used to define how files are opened and
 // accessed. It obviates the need for multiple code-paths within several of
@@ -80,19 +78,6 @@ constexpr SourceOptions kSourceOptions[] = {
     false
   }
 };
-
-enum EmbeddedProfileResult : int {
-  EMBEDDED_PROFILE_ATTEMPT,
-  EMBEDDED_PROFILE_FOUND,
-  EMBEDDED_PROFILE_FALLBACK,
-  EMBEDDED_PROFILE_DROPPED,
-  EMBEDDED_PROFILE_ACTION_MAX
-};
-
-void RecordEmbeddedProfileResult(EmbeddedProfileResult result) {
-  UMA_HISTOGRAM_ENUMERATION("UMA.FileMetricsProvider.EmbeddedProfileResult",
-                            result, EMBEDDED_PROFILE_ACTION_MAX);
-}
 
 void DeleteFileWhenPossible(const base::FilePath& path) {
   // Open (with delete) and then immediately close the file by going out of
@@ -205,9 +190,7 @@ FileMetricsProvider::Params::Params(const base::FilePath& path,
 FileMetricsProvider::Params::~Params() {}
 
 FileMetricsProvider::FileMetricsProvider(PrefService* local_state)
-    : task_runner_(CreateBackgroundTaskRunner()),
-      pref_service_(local_state),
-      weak_factory_(this) {
+    : task_runner_(CreateBackgroundTaskRunner()), pref_service_(local_state) {
   base::StatisticsRecorder::RegisterHistogramProvider(
       weak_factory_.GetWeakPtr());
 }
@@ -532,7 +515,6 @@ FileMetricsProvider::AccessResult FileMetricsProvider::CheckAndMapMetricSource(
 // static
 void FileMetricsProvider::MergeHistogramDeltasFromSource(SourceInfo* source) {
   DCHECK(source->allocator);
-  SCOPED_UMA_HISTOGRAM_TIMER("UMA.FileMetricsProvider.SnapshotTime.File");
   base::PersistentHistogramAllocator::Iterator histogram_iter(
       source->allocator.get());
 
@@ -635,30 +617,13 @@ bool FileMetricsProvider::ProvideIndependentMetricsOnTaskRunner(
     SourceInfo* source,
     SystemProfileProto* system_profile_proto,
     base::HistogramSnapshotManager* snapshot_manager) {
-  RecordEmbeddedProfileResult(EMBEDDED_PROFILE_ATTEMPT);
-  base::Time start_time = base::Time::Now();
   if (PersistentSystemProfile::GetSystemProfile(
           *source->allocator->memory_allocator(), system_profile_proto)) {
     system_profile_proto->mutable_stability()->set_from_previous_run(true);
     RecordHistogramSnapshotsFromSource(snapshot_manager, source);
-    UMA_HISTOGRAM_TIMES("UMA.FileMetricsProvider.EmbeddedProfile.RecordTime",
-                        base::Time::Now() - start_time);
-    RecordEmbeddedProfileResult(EMBEDDED_PROFILE_FOUND);
     return true;
   }
 
-  RecordEmbeddedProfileResult(EMBEDDED_PROFILE_DROPPED);
-
-  // TODO(bcwhite): Remove these once crbug/695880 is resolved.
-  int histogram_count = 0;
-  base::PersistentHistogramAllocator::Iterator histogram_iter(
-      source->allocator.get());
-  while (histogram_iter.GetNext()) {
-    ++histogram_count;
-  }
-  UMA_HISTOGRAM_COUNTS_10000(
-      "UMA.FileMetricsProvider.EmbeddedProfile.DroppedHistogramCount",
-      histogram_count);
   return false;
 }
 
@@ -763,8 +728,10 @@ bool FileMetricsProvider::HasIndependentMetrics() {
 
 void FileMetricsProvider::ProvideIndependentMetrics(
     base::OnceCallback<void(bool)> done_callback,
-    SystemProfileProto* system_profile_proto,
+    ChromeUserMetricsExtension* uma_proto,
     base::HistogramSnapshotManager* snapshot_manager) {
+  SystemProfileProto* system_profile_proto =
+      uma_proto->mutable_system_profile();
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
   if (sources_with_profile_.empty()) {
@@ -778,23 +745,15 @@ void FileMetricsProvider::ProvideIndependentMetrics(
   SourceInfo* source_ptr = source.get();
   DCHECK(source->allocator);
 
-  if (base::FeatureList::IsEnabled(kBackgroundIndependentMetrics)) {
-    // Do the actual work as a background task.
-    base::PostTaskAndReplyWithResult(
-        task_runner_.get(), FROM_HERE,
-        base::BindOnce(
-            &FileMetricsProvider::ProvideIndependentMetricsOnTaskRunner,
-            source_ptr, system_profile_proto, snapshot_manager),
-        base::BindOnce(&FileMetricsProvider::ProvideIndependentMetricsCleanup,
-                       weak_factory_.GetWeakPtr(), std::move(done_callback),
-                       std::move(source)));
-  } else {
-    // Do the actual work now, inline (for performance comparisons).
-    bool success = ProvideIndependentMetricsOnTaskRunner(
-        source_ptr, system_profile_proto, snapshot_manager);
-    ProvideIndependentMetricsCleanup(std::move(done_callback),
-                                     std::move(source), success);
-  }
+  // Do the actual work as a background task.
+  base::PostTaskAndReplyWithResult(
+      task_runner_.get(), FROM_HERE,
+      base::BindOnce(
+          &FileMetricsProvider::ProvideIndependentMetricsOnTaskRunner,
+          source_ptr, system_profile_proto, snapshot_manager),
+      base::BindOnce(&FileMetricsProvider::ProvideIndependentMetricsCleanup,
+                     weak_factory_.GetWeakPtr(), std::move(done_callback),
+                     std::move(source)));
 }
 
 void FileMetricsProvider::ProvideIndependentMetricsCleanup(
@@ -820,8 +779,6 @@ bool FileMetricsProvider::HasPreviousSessionData() {
   // Check all sources for previous run to see if they need to be read.
   for (auto iter = sources_for_previous_run_.begin();
        iter != sources_for_previous_run_.end();) {
-    SCOPED_UMA_HISTOGRAM_TIMER("UMA.FileMetricsProvider.InitialCheckTime.File");
-
     auto temp = iter++;
     SourceInfo* source = temp->get();
 
@@ -852,8 +809,6 @@ bool FileMetricsProvider::HasPreviousSessionData() {
     if (source->association == ASSOCIATE_INTERNAL_PROFILE_OR_PREVIOUS_RUN) {
       if (PersistentSystemProfile::HasSystemProfile(
               *source->allocator->memory_allocator())) {
-        RecordEmbeddedProfileResult(EMBEDDED_PROFILE_ATTEMPT);
-        RecordEmbeddedProfileResult(EMBEDDED_PROFILE_FALLBACK);
         sources_with_profile_.splice(sources_with_profile_.end(),
                                      sources_for_previous_run_, temp);
       }
@@ -868,9 +823,6 @@ void FileMetricsProvider::RecordInitialHistogramSnapshots(
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
   for (const std::unique_ptr<SourceInfo>& source : sources_for_previous_run_) {
-    SCOPED_UMA_HISTOGRAM_TIMER(
-        "UMA.FileMetricsProvider.InitialSnapshotTime.File");
-
     // The source needs to have an allocator attached to it in order to read
     // histograms out of it.
     DCHECK(!source->read_complete);

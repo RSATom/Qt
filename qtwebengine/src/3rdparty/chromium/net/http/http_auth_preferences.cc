@@ -39,13 +39,28 @@ std::string HttpAuthPreferences::AuthAndroidNegotiateAccountType() const {
 }
 #endif
 
+#if defined(OS_CHROMEOS)
+bool HttpAuthPreferences::AllowGssapiLibraryLoad() const {
+  return allow_gssapi_library_load_;
+}
+#endif
+
 bool HttpAuthPreferences::CanUseDefaultCredentials(
     const GURL& auth_origin) const {
   return security_manager_->CanUseDefaultCredentials(auth_origin);
 }
 
-bool HttpAuthPreferences::CanDelegate(const GURL& auth_origin) const {
-  return security_manager_->CanDelegate(auth_origin);
+using DelegationType = HttpAuth::DelegationType;
+
+DelegationType HttpAuthPreferences::GetDelegationType(
+    const GURL& auth_origin) const {
+  if (!security_manager_->CanDelegate(auth_origin))
+    return DelegationType::kNone;
+
+  if (delegate_by_kdc_policy())
+    return DelegationType::kByKdcPolicy;
+
+  return DelegationType::kUnconstrained;
 }
 
 void HttpAuthPreferences::SetServerWhitelist(

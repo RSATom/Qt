@@ -11,6 +11,7 @@
 #include <utility>
 #include <vector>
 
+#include "base/bind.h"
 #include "base/containers/circular_deque.h"
 #include "base/location.h"
 #include "base/memory/ptr_util.h"
@@ -95,11 +96,12 @@ class ClientCertStoreStub : public net::ClientCertStore {
 
   // net::ClientCertStore:
   void GetClientCerts(const net::SSLCertRequestInfo& cert_request_info,
-                      const ClientCertListCallback& callback) override {
+                      ClientCertListCallback callback) override {
     *requested_authorities_ = cert_request_info.cert_authorities;
     ++(*request_count_);
 
-    callback.Run(net::FakeClientCertIdentityListFromCertificateList(response_));
+    std::move(callback).Run(
+        net::FakeClientCertIdentityListFromCertificateList(response_));
   }
 
  private:
@@ -121,15 +123,14 @@ class LoaderDestroyingCertStore : public net::ClientCertStore {
         on_loader_deleted_callback_(on_loader_deleted_callback) {}
 
   // net::ClientCertStore:
-  void GetClientCerts(
-      const net::SSLCertRequestInfo& cert_request_info,
-      const ClientCertListCallback& cert_selected_callback) override {
+  void GetClientCerts(const net::SSLCertRequestInfo& cert_request_info,
+                      ClientCertListCallback cert_selected_callback) override {
     // Don't destroy |loader_| while it's on the stack.
     base::ThreadTaskRunnerHandle::Get()->PostTask(
-        FROM_HERE,
-        base::BindOnce(&LoaderDestroyingCertStore::DoCallback,
-                       base::Unretained(loader_), cert_selected_callback,
-                       on_loader_deleted_callback_));
+        FROM_HERE, base::BindOnce(&LoaderDestroyingCertStore::DoCallback,
+                                  base::Unretained(loader_),
+                                  std::move(cert_selected_callback),
+                                  on_loader_deleted_callback_));
   }
 
  private:
@@ -137,10 +138,10 @@ class LoaderDestroyingCertStore : public net::ClientCertStore {
   // LoaderDestroyingCertStore (ClientCertStores are actually handles, and not
   // global cert stores).
   static void DoCallback(std::unique_ptr<ResourceLoader>* loader,
-                         const ClientCertListCallback& cert_selected_callback,
+                         ClientCertListCallback cert_selected_callback,
                          const base::Closure& on_loader_deleted_callback) {
     loader->reset();
-    cert_selected_callback.Run(net::ClientCertIdentityList());
+    std::move(cert_selected_callback).Run(net::ClientCertIdentityList());
     on_loader_deleted_callback.Run();
   }
 
@@ -155,8 +156,7 @@ class MockClientCertURLRequestJob : public net::URLRequestTestJob {
  public:
   MockClientCertURLRequestJob(net::URLRequest* request,
                               net::NetworkDelegate* network_delegate)
-      : net::URLRequestTestJob(request, network_delegate),
-        weak_factory_(this) {}
+      : net::URLRequestTestJob(request, network_delegate) {}
 
   static std::vector<std::string> test_authorities() {
     return std::vector<std::string>(1, "dummy");
@@ -164,8 +164,7 @@ class MockClientCertURLRequestJob : public net::URLRequestTestJob {
 
   // net::URLRequestTestJob:
   void Start() override {
-    scoped_refptr<net::SSLCertRequestInfo> cert_request_info(
-        new net::SSLCertRequestInfo);
+    auto cert_request_info = base::MakeRefCounted<net::SSLCertRequestInfo>();
     cert_request_info->cert_authorities = test_authorities();
     base::ThreadTaskRunnerHandle::Get()->PostTask(
         FROM_HERE,
@@ -183,7 +182,7 @@ class MockClientCertURLRequestJob : public net::URLRequestTestJob {
  private:
   ~MockClientCertURLRequestJob() override {}
 
-  base::WeakPtrFactory<MockClientCertURLRequestJob> weak_factory_;
+  base::WeakPtrFactory<MockClientCertURLRequestJob> weak_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(MockClientCertURLRequestJob);
 };
@@ -275,7 +274,7 @@ class SelectCertificateBrowserClient : public TestContentBrowserClient {
     base::RunLoop().RunUntilIdle();
   }
 
-  void SelectClientCertificate(
+  base::OnceClosure SelectClientCertificate(
       WebContents* web_contents,
       net::SSLCertRequestInfo* cert_request_info,
       net::ClientCertIdentityList client_certs,
@@ -286,6 +285,7 @@ class SelectCertificateBrowserClient : public TestContentBrowserClient {
     passed_identities_ = std::move(client_certs);
     delegate_ = std::move(delegate);
     select_certificate_run_loop_.Quit();
+    return base::OnceClosure();
   }
 
   std::unique_ptr<net::ClientCertStore> CreateClientCertStore(
@@ -434,16 +434,16 @@ class ResourceLoaderTest : public testing::Test,
 
     // A request marked as a main frame request must also belong to a main
     // frame.
-    ASSERT_TRUE((resource_type != RESOURCE_TYPE_MAIN_FRAME) ||
+    ASSERT_TRUE((resource_type != ResourceType::kMainFrame) ||
                 belongs_to_main_frame);
 
     RenderFrameHost* rfh = web_contents_->GetMainFrame();
     ResourceRequestInfo::AllocateForTesting(
         request.get(), resource_type, nullptr /* resource_context */,
         rfh->GetProcess()->GetID(), rfh->GetRenderViewHost()->GetRoutingID(),
-        rfh->GetRoutingID(), belongs_to_main_frame, true /* allow_download */,
-        false /* is_async */, PREVIEWS_OFF /* previews_state */,
-        nullptr /* navigation_ui_data */);
+        rfh->GetRoutingID(), belongs_to_main_frame,
+        ResourceInterceptPolicy::kAllowAll, false /* is_async */,
+        PREVIEWS_OFF /* previews_state */, nullptr /* navigation_ui_data */);
     std::unique_ptr<TestResourceHandler> resource_handler(
         new TestResourceHandler(nullptr, nullptr));
     raw_ptr_resource_handler_ = resource_handler.get();
@@ -458,7 +458,7 @@ class ResourceLoaderTest : public testing::Test,
         test_url_request_context_.CreateRequest(
             test_url, net::DEFAULT_PRIORITY, nullptr /* delegate */,
             TRAFFIC_ANNOTATION_FOR_TESTS));
-    SetUpResourceLoader(std::move(request), RESOURCE_TYPE_MAIN_FRAME, true);
+    SetUpResourceLoader(std::move(request), ResourceType::kMainFrame, true);
   }
 
   void SetUp() override {
@@ -486,9 +486,9 @@ class ResourceLoaderTest : public testing::Test,
   }
 
   // ResourceLoaderDelegate:
-  scoped_refptr<LoginDelegate> CreateLoginDelegate(
+  std::unique_ptr<LoginDelegate> CreateLoginDelegate(
       ResourceLoader* loader,
-      net::AuthChallengeInfo* auth_info) override {
+      const net::AuthChallengeInfo& auth_info) override {
     return nullptr;
   }
   bool HandleExternalProtocol(ResourceLoader* loader,
@@ -766,13 +766,13 @@ TEST_F(ClientCertResourceLoaderTest, StoreAsyncCancel) {
   SetBrowserClientForTesting(old_client);
 }
 
-// Tests that a RESOURCE_TYPE_PREFETCH request sets the LOAD_PREFETCH flag.
+// Tests that a ResourceType::kPrefetch request sets the LOAD_PREFETCH flag.
 TEST_F(ResourceLoaderTest, PrefetchFlag) {
   std::unique_ptr<net::URLRequest> request(
       test_url_request_context_.CreateRequest(
           test_async_url(), net::DEFAULT_PRIORITY, nullptr /* delegate */,
           TRAFFIC_ANNOTATION_FOR_TESTS));
-  SetUpResourceLoader(std::move(request), RESOURCE_TYPE_PREFETCH, true);
+  SetUpResourceLoader(std::move(request), ResourceType::kPrefetch, true);
 
   loader_->StartRequest();
   raw_ptr_resource_handler_->WaitUntilResponseComplete();
@@ -1592,14 +1592,14 @@ class EffectiveConnectionTypeResourceLoaderTest : public ResourceLoaderTest {
 
 // Tests that the effective connection type is set on main frame requests.
 TEST_F(EffectiveConnectionTypeResourceLoaderTest, Slow2G) {
-  VerifyEffectiveConnectionType(RESOURCE_TYPE_MAIN_FRAME, true,
+  VerifyEffectiveConnectionType(ResourceType::kMainFrame, true,
                                 net::EFFECTIVE_CONNECTION_TYPE_SLOW_2G,
                                 net::EFFECTIVE_CONNECTION_TYPE_SLOW_2G);
 }
 
 // Tests that the effective connection type is set on main frame requests.
 TEST_F(EffectiveConnectionTypeResourceLoaderTest, 3G) {
-  VerifyEffectiveConnectionType(RESOURCE_TYPE_MAIN_FRAME, true,
+  VerifyEffectiveConnectionType(ResourceType::kMainFrame, true,
                                 net::EFFECTIVE_CONNECTION_TYPE_3G,
                                 net::EFFECTIVE_CONNECTION_TYPE_3G);
 }
@@ -1607,7 +1607,7 @@ TEST_F(EffectiveConnectionTypeResourceLoaderTest, 3G) {
 // Tests that the effective connection type is not set on requests that belong
 // to main frame.
 TEST_F(EffectiveConnectionTypeResourceLoaderTest, BelongsToMainFrame) {
-  VerifyEffectiveConnectionType(RESOURCE_TYPE_OBJECT, true,
+  VerifyEffectiveConnectionType(ResourceType::kObject, true,
                                 net::EFFECTIVE_CONNECTION_TYPE_3G,
                                 net::EFFECTIVE_CONNECTION_TYPE_UNKNOWN);
 }
@@ -1615,7 +1615,7 @@ TEST_F(EffectiveConnectionTypeResourceLoaderTest, BelongsToMainFrame) {
 // Tests that the effective connection type is not set on non-main frame
 // requests.
 TEST_F(EffectiveConnectionTypeResourceLoaderTest, DoesNotBelongToMainFrame) {
-  VerifyEffectiveConnectionType(RESOURCE_TYPE_OBJECT, false,
+  VerifyEffectiveConnectionType(ResourceType::kObject, false,
                                 net::EFFECTIVE_CONNECTION_TYPE_3G,
                                 net::EFFECTIVE_CONNECTION_TYPE_UNKNOWN);
 }
@@ -1770,6 +1770,39 @@ TEST_F(ResourceLoaderTest, MultiplePauseResumeReadingBodyFromNet) {
   loader_.reset();
   EXPECT_LE(0, output_sample);
   StopMonitorBodyReadFromNetBeforePausedHistogram();
+}
+
+// Tests that AuthChallengeInfo is present on a request that requests
+// authentication.
+TEST_F(ResourceLoaderTest, AuthChallengeInfo) {
+  net::EmbeddedTestServer server;
+  server.AddDefaultHandlers(base::FilePath());
+  ASSERT_TRUE(server.Start());
+  SetUpResourceLoaderForUrl(server.GetURL("/auth-basic"));
+  loader_->StartRequest();
+  raw_ptr_resource_handler_->WaitUntilResponseComplete();
+  const base::Optional<net::AuthChallengeInfo>& auth_info =
+      raw_ptr_resource_handler_->resource_response()->head.auth_challenge_info;
+  ASSERT_TRUE(auth_info.has_value());
+  EXPECT_FALSE(auth_info->is_proxy);
+  EXPECT_EQ(url::Origin::Create(server.GetURL("/")), auth_info->challenger);
+  EXPECT_EQ("basic", auth_info->scheme);
+  EXPECT_EQ("testrealm", auth_info->realm);
+  EXPECT_EQ("Basic realm=\"testrealm\"", auth_info->challenge);
+  EXPECT_EQ("/auth-basic", auth_info->path);
+}
+
+// Tests that no AuthChallengeInfo is present on a request that doesn't request
+// authentication.
+TEST_F(ResourceLoaderTest, NoAuthChallengeInfo) {
+  net::EmbeddedTestServer server;
+  server.AddDefaultHandlers(base::FilePath());
+  ASSERT_TRUE(server.Start());
+  SetUpResourceLoaderForUrl(server.GetURL("/"));
+  loader_->StartRequest();
+  raw_ptr_resource_handler_->WaitUntilResponseComplete();
+  EXPECT_FALSE(raw_ptr_resource_handler_->resource_response()
+                   ->head.auth_challenge_info.has_value());
 }
 
 }  // namespace content

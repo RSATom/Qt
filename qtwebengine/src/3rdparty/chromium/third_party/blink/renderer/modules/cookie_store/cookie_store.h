@@ -10,8 +10,8 @@
 #include "third_party/blink/public/mojom/cookie_store/cookie_store.mojom-blink.h"
 #include "third_party/blink/public/platform/web_canonical_cookie.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise.h"
-#include "third_party/blink/renderer/core/dom/context_lifecycle_observer.h"
 #include "third_party/blink/renderer/core/dom/events/event_target.h"
+#include "third_party/blink/renderer/core/execution_context/context_lifecycle_observer.h"
 #include "third_party/blink/renderer/platform/bindings/exception_state.h"
 #include "third_party/blink/renderer/platform/bindings/script_wrappable.h"
 #include "third_party/blink/renderer/platform/heap/handle.h"
@@ -39,14 +39,6 @@ class CookieStore final : public EventTargetWithInlineData,
               blink::mojom::blink::CookieStorePtr subscription_backend);
   // Needed because of the network::mojom::blink::RestrictedCookieManagerPtr
   ~CookieStore() override;
-
-  static CookieStore* Create(
-      ExecutionContext* execution_context,
-      network::mojom::blink::RestrictedCookieManagerPtr backend,
-      blink::mojom::blink::CookieStorePtr subscription_backend) {
-    return MakeGarbageCollected<CookieStore>(
-        execution_context, std::move(backend), std::move(subscription_backend));
-  }
 
   ScriptPromise getAll(ScriptState*, const String& name, ExceptionState&);
   ScriptPromise getAll(ScriptState*,
@@ -85,7 +77,7 @@ class CookieStore final : public EventTargetWithInlineData,
   void ContextDestroyed(ExecutionContext*) override;
 
   // EventTargetWithInlineData
-  DEFINE_ATTRIBUTE_EVENT_LISTENER(change, kChange);
+  DEFINE_ATTRIBUTE_EVENT_LISTENER(change, kChange)
   const AtomicString& InterfaceName() const override;
   ExecutionContext* GetExecutionContext() const override;
   void RemoveAllEventListeners() override;

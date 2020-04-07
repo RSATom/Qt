@@ -5,8 +5,6 @@
 #ifndef WebURLLoaderMockFactoryImpl_h
 #define WebURLLoaderMockFactoryImpl_h
 
-#include <map>
-
 #include "base/files/file_path.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
@@ -55,6 +53,7 @@ class WebURLLoaderMockFactoryImpl : public WebURLLoaderMockFactory {
   void SetLoaderDelegate(WebURLLoaderTestDelegate* delegate) override {
     delegate_ = delegate;
   }
+  void FillNavigationParamsResponse(WebNavigationParams*) override;
 
   // Returns true if |url| was registered for being mocked.
   bool IsMockedURL(const WebURL& url);

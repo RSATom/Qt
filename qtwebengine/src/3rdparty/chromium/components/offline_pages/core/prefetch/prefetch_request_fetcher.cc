@@ -4,6 +4,7 @@
 
 #include "components/offline_pages/core/prefetch/prefetch_request_fetcher.h"
 
+#include "base/bind.h"
 #include "base/logging.h"
 #include "base/memory/ptr_util.h"
 #include "components/offline_pages/core/prefetch/prefetch_server_urls.h"
@@ -32,26 +33,34 @@ std::unique_ptr<PrefetchRequestFetcher> PrefetchRequestFetcher::CreateForGet(
     const GURL& url,
     scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
     FinishedCallback callback) {
-  return base::WrapUnique(new PrefetchRequestFetcher(
-      url, std::string(), url_loader_factory, std::move(callback)));
+  return base::WrapUnique(
+      new PrefetchRequestFetcher(url, std::string(), std::string(), false,
+                                 url_loader_factory, std::move(callback)));
 }
 
 // static
 std::unique_ptr<PrefetchRequestFetcher> PrefetchRequestFetcher::CreateForPost(
     const GURL& url,
     const std::string& message,
+    const std::string& testing_header_value,
+    bool empty_request,
     scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
     FinishedCallback callback) {
   return base::WrapUnique(new PrefetchRequestFetcher(
-      url, message, url_loader_factory, std::move(callback)));
+      url, message, testing_header_value, empty_request, url_loader_factory,
+      std::move(callback)));
 }
 
 PrefetchRequestFetcher::PrefetchRequestFetcher(
     const GURL& url,
     const std::string& message,
+    const std::string& testing_header_value,
+    bool empty_request,
     scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
     FinishedCallback callback)
-    : url_loader_factory_(url_loader_factory), callback_(std::move(callback)) {
+    : empty_request_(empty_request),
+      url_loader_factory_(url_loader_factory),
+      callback_(std::move(callback)) {
   net::NetworkTrafficAnnotationTag traffic_annotation =
       net::DefineNetworkTrafficAnnotation("offline_prefetch", R"(
         semantics {
@@ -77,12 +86,15 @@ PrefetchRequestFetcher::PrefetchRequestFetcher(
   auto resource_request = std::make_unique<network::ResourceRequest>();
   resource_request->url = url;
   resource_request->method = message.empty() ? "GET" : "POST";
-  resource_request->load_flags =
-      net::LOAD_DO_NOT_SEND_COOKIES | net::LOAD_DO_NOT_SAVE_COOKIES;
+  resource_request->allow_credentials = false;
 
   std::string experiment_header = PrefetchExperimentHeader();
   if (!experiment_header.empty())
     resource_request->headers.AddHeaderFromString(experiment_header);
+
+  if (!testing_header_value.empty())
+    resource_request->headers.SetHeader(kPrefetchTestingHeaderName,
+                                        testing_header_value);
 
   if (message.empty())
     resource_request->headers.SetHeader(net::HttpRequestHeaders::kContentType,
@@ -90,6 +102,7 @@ PrefetchRequestFetcher::PrefetchRequestFetcher(
 
   url_loader_ = network::SimpleURLLoader::Create(std::move(resource_request),
                                                  traffic_annotation);
+  url_loader_->SetAllowHttpErrorResults(true);
 
   if (!message.empty())
     url_loader_->AttachStringForUpload(message, kRequestContentType);
@@ -125,6 +138,13 @@ PrefetchRequestStatus PrefetchRequestFetcher::ParseResponse(
       case net::HTTP_NOT_IMPLEMENTED:
         return PrefetchRequestStatus::kShouldSuspendNotImplemented;
       case net::HTTP_FORBIDDEN:
+        // Check whether the request was forbidden because of a filter rule.
+        if (response_body && response_body->find("request forbidden by OPS") !=
+                                 std::string::npos) {
+          if (!empty_request_)
+            return PrefetchRequestStatus::kShouldSuspendNewlyForbiddenByOPS;
+          return PrefetchRequestStatus::kShouldSuspendForbiddenByOPS;
+        }
         return PrefetchRequestStatus::kShouldSuspendForbidden;
       default:
         return PrefetchRequestStatus::kShouldRetryWithBackoff;
@@ -144,6 +164,9 @@ PrefetchRequestStatus PrefetchRequestFetcher::ParseResponse(
   }
 
   *data = *response_body;
+
+  if (empty_request_)
+    return PrefetchRequestStatus::kEmptyRequestSuccess;
   return PrefetchRequestStatus::kSuccess;
 }
 

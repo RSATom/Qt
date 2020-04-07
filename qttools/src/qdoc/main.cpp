@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2019 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the tools applications of the Qt Toolkit.
@@ -26,16 +26,6 @@
 **
 ****************************************************************************/
 
-#include <algorithm>
-#include <stdlib.h>
-#include <QtCore/qcommandlineoption.h>
-#include <QtCore/qcommandlineparser.h>
-#include <QtCore/qdatetime.h>
-#include <QtCore/qdebug.h>
-#include <QtCore/qglobal.h>
-#include <QtCore/qglobalstatic.h>
-#include <QtCore/qhashfunctions.h>
-
 #include "clangcodeparser.h"
 #include "codemarker.h"
 #include "codeparser.h"
@@ -48,19 +38,29 @@
 #include "location.h"
 #include "loggingcategory.h"
 #include "puredocparser.h"
+#include "qdocdatabase.h"
 #include "qmlcodemarker.h"
 #include "qmlcodeparser.h"
-#include "qdoccommandlineparser.h"
-#include "qdocdatabase.h"
-#include "qdocglobals.h"
+#include "utilities.h"
 #include "qtranslator.h"
 #include "tokenizer.h"
 #include "tree.h"
 #include "webxmlgenerator.h"
 
+#include <QtCore/qcommandlineoption.h>
+#include <QtCore/qcommandlineparser.h>
+#include <QtCore/qdatetime.h>
+#include <QtCore/qdebug.h>
+#include <QtCore/qglobal.h>
+#include <QtCore/qglobalstatic.h>
+#include <QtCore/qhashfunctions.h>
+
 #ifndef QT_BOOTSTRAPPED
-#  include "qcoreapplication.h"
+#    include <QtCore/qcoreapplication.h>
 #endif
+
+#include <algorithm>
+#include <stdlib.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -72,12 +72,11 @@ bool creationTimeBefore(const QFileInfo &fi1, const QFileInfo &fi2)
 }
 
 #ifndef QT_NO_TRANSLATION
-typedef QPair<QString, QTranslator*> Translator;
-static QList<Translator> translators;
+typedef QPair<QString, QTranslator *> Translator;
+static QVector<Translator> translators;
 #endif
 
-static ClangCodeParser* clangParser_ = nullptr;
-static QDocGlobals qdocGlobals;
+static ClangCodeParser *clangParser_ = nullptr;
 
 /*!
   Read some XML indexes containing definitions from other
@@ -88,69 +87,91 @@ static QDocGlobals qdocGlobals;
   a list of output formats; each format may have a different
   output subdirectory where index files are located.
 */
-static void loadIndexFiles(Config& config, const QSet<QString> &formats)
+static void loadIndexFiles(Config &config, const QSet<QString> &formats)
 {
-    QDocDatabase* qdb = QDocDatabase::qdocDB();
+    QDocDatabase *qdb = QDocDatabase::qdocDB();
     QStringList indexFiles;
-    QStringList configIndexes = config.getStringList(CONFIG_INDEXES);
-    foreach (const QString &index, configIndexes) {
+    const QStringList configIndexes = config.getStringList(CONFIG_INDEXES);
+    for (const auto &index : configIndexes) {
         QFileInfo fi(index);
         if (fi.exists() && fi.isFile())
             indexFiles << index;
         else
-            Location::null.warning(QString("Index file not found: %1").arg(index));
+            Location().warning(QString("Index file not found: %1").arg(index));
     }
 
-    qdocGlobals.dependModules() += config.getStringList(CONFIG_DEPENDS);
-    qdocGlobals.dependModules().removeDuplicates();
+    config.dependModules() += config.getStringList(CONFIG_DEPENDS);
+    config.dependModules().removeDuplicates();
+    bool useNoSubDirs = false;
     QSet<QString> subDirs;
 
     for (const auto &format : formats) {
         if (config.getBool(format + Config::dot + "nosubdirs")) {
-            QString singleOutputSubdir = config.getString(format
-                                                          + Config::dot
-                                                          + "outputsubdir");
+            useNoSubDirs = true;
+            QString singleOutputSubdir = config.getString(format + Config::dot + "outputsubdir");
             if (singleOutputSubdir.isEmpty())
                 singleOutputSubdir = "html";
             subDirs << singleOutputSubdir;
         }
     }
 
-    if (qdocGlobals.dependModules().size() > 0) {
-        if (qdocGlobals.indexDirs().size() > 0) {
-            for (int i = 0; i < qdocGlobals.indexDirs().size(); i++) {
-                if (qdocGlobals.indexDirs()[i].startsWith("..")) {
-                    const QString prefix(QDir(qdocGlobals.currentDir()).relativeFilePath(qdocGlobals.previousCurrentDir()));
+    if (config.dependModules().size() > 0) {
+        if (config.indexDirs().size() > 0) {
+            for (auto &dir : config.indexDirs()) {
+                if (dir.startsWith("..")) {
+                    const QString prefix(QDir(config.currentDir())
+                                                 .relativeFilePath(config.previousCurrentDir()));
                     if (!prefix.isEmpty())
-                        qdocGlobals.indexDirs()[i].prepend(prefix + QLatin1Char('/'));
+                        dir.prepend(prefix + QLatin1Char('/'));
                 }
             }
             /*
-              Add all subdirectories of the indexdirs as dependModules,
-              when an asterisk is used in the 'depends' list.
+              Load all dependencies:
+              Either add all subdirectories of the indexdirs as dependModules,
+              when an asterisk is used in the 'depends' list, or
+              when <format>.nosubdirs is set, we need to look for all .index files
+              in the output subdirectory instead.
             */
-            if (qdocGlobals.dependModules().contains("*")) {
-                qdocGlobals.dependModules().removeOne("*");
-                for (int i = 0; i < qdocGlobals.indexDirs().size(); i++) {
-                    QDir scanDir = QDir(qdocGlobals.indexDirs()[i]);
-                    scanDir.setFilter(QDir::Dirs | QDir::NoDotAndDotDot);
-                    QFileInfoList dirList = scanDir.entryInfoList();
-                    for (int j = 0; j < dirList.size(); j++) {
-                        if (dirList[j].fileName().toLower() != config.getString(CONFIG_PROJECT).toLower())
-                            qdocGlobals.dependModules().append(dirList[j].fileName());
+            bool asteriskUsed = false;
+            if (config.dependModules().contains("*")) {
+                config.dependModules().removeOne("*");
+                asteriskUsed = true;
+                if (useNoSubDirs) {
+                    std::for_each(formats.begin(), formats.end(), [&](const QString &format) {
+                        QDir scanDir(config.getOutputDir(format));
+                        QStringList foundModules =
+                                scanDir.entryList(QStringList("*.index"), QDir::Files);
+                        std::transform(
+                                foundModules.begin(), foundModules.end(), foundModules.begin(),
+                                [](const QString &index) { return QFileInfo(index).baseName(); });
+                        config.dependModules() << foundModules;
+                    });
+                } else {
+                    for (const auto &indexDir : config.indexDirs()) {
+                        QDir scanDir = QDir(indexDir);
+                        scanDir.setFilter(QDir::Dirs | QDir::NoDotAndDotDot);
+                        QFileInfoList dirList = scanDir.entryInfoList();
+                        for (const auto &dir : dirList)
+                            config.dependModules().append(dir.fileName());
                     }
                 }
+                // Remove self-dependencies and possible duplicates
+                config.dependModules().removeAll(config.getString(CONFIG_PROJECT).toLower());
+                config.dependModules().removeDuplicates();
+                Location::logToStdErrAlways(QString("qdocconf file has depends = *;"
+                                                    " loading all %1 index files found")
+                                                    .arg(config.dependModules().count()));
             }
-            for (int i = 0; i < qdocGlobals.dependModules().size(); i++) {
-                QString indexToAdd;
-                QList<QFileInfo> foundIndices;
+            for (const auto &module : config.dependModules()) {
+                QVector<QFileInfo> foundIndices;
                 // Always look in module-specific subdir, even with *.nosubdirs config
-                subDirs << qdocGlobals.dependModules()[i];
-                for (int j = 0; j < qdocGlobals.indexDirs().size(); j++) {
+                bool useModuleSubDir = !subDirs.contains(module);
+                subDirs << module;
+
+                for (const auto &dir : config.indexDirs()) {
                     for (const auto &subDir : subDirs) {
-                        QString fileToLookFor = qdocGlobals.indexDirs()[j]
-                                + QLatin1Char('/') + subDir
-                                + QLatin1Char('/') + qdocGlobals.dependModules()[i] + ".index";
+                        QString fileToLookFor = dir + QLatin1Char('/') + subDir + QLatin1Char('/')
+                                + module + ".index";
                         if (QFile::exists(fileToLookFor)) {
                             QFileInfo tempFileInfo(fileToLookFor);
                             if (!foundIndices.contains(tempFileInfo))
@@ -158,8 +179,11 @@ static void loadIndexFiles(Config& config, const QSet<QString> &formats)
                         }
                     }
                 }
-                subDirs.remove(qdocGlobals.dependModules()[i]);
+                // Clear the temporary module-specific subdir
+                if (useModuleSubDir)
+                    subDirs.remove(module);
                 std::sort(foundIndices.begin(), foundIndices.end(), creationTimeBefore);
+                QString indexToAdd;
                 if (foundIndices.size() > 1) {
                     /*
                         QDoc should always use the last entry in the multimap when there are
@@ -167,67 +191,67 @@ static void loadIndexFiles(Config& config, const QSet<QString> &formats)
                         highest UNIX timestamp.
                     */
                     QStringList indexPaths;
-                    for (int k = 0; k < foundIndices.size(); k++)
-                        indexPaths << foundIndices[k].absoluteFilePath();
-                    Location::null.warning(QString("Multiple index files found for dependency \"%1\":\n%2").arg(
-                                               qdocGlobals.dependModules()[i], indexPaths.join('\n')));
-                    Location::null.warning(QString("Using %1 as index file for dependency \"%2\"").arg(
-                                               foundIndices[foundIndices.size() - 1].absoluteFilePath(),
-                                               qdocGlobals.dependModules()[i]));
+                    indexPaths.reserve(foundIndices.size());
+                    for (const auto &found : qAsConst(foundIndices))
+                        indexPaths << found.absoluteFilePath();
+                    Location().warning(
+                            QString("Multiple index files found for dependency \"%1\":\n%2")
+                                    .arg(module, indexPaths.join('\n')));
+                    Location().warning(
+                            QString("Using %1 as index file for dependency \"%2\"")
+                                    .arg(foundIndices[foundIndices.size() - 1].absoluteFilePath(),
+                                         module));
                     indexToAdd = foundIndices[foundIndices.size() - 1].absoluteFilePath();
-                }
-                else if (foundIndices.size() == 1) {
+                } else if (foundIndices.size() == 1) {
                     indexToAdd = foundIndices[0].absoluteFilePath();
                 }
                 if (!indexToAdd.isEmpty()) {
                     if (!indexFiles.contains(indexToAdd))
                         indexFiles << indexToAdd;
-                }
-                else {
-                    Location::null.warning(QString("\"%1\" Cannot locate index file for dependency \"%2\"").arg(
-                                               config.getString(CONFIG_PROJECT), qdocGlobals.dependModules()[i]));
+                } else if (!asteriskUsed) {
+                    Location().warning(
+                            QString("\"%1\" Cannot locate index file for dependency \"%2\"")
+                                    .arg(config.getString(CONFIG_PROJECT), module));
                 }
             }
-        }
-        else {
-            Location::null.warning(QLatin1String("Dependent modules specified, but no index directories were set. There will probably be errors for missing links."));
+        } else {
+            Location().warning(
+                    QLatin1String("Dependent modules specified, but no index directories were set. "
+                                  "There will probably be errors for missing links."));
         }
     }
     qdb->readIndexes(indexFiles);
 }
 
 /*!
-  Processes the qdoc config file \a fileName. This is the
-  controller for all of qdoc.
+    \internal
+    Prints to stderr the name of the project that QDoc is running for,
+    in which mode and which phase.
+
+    If QDoc is running in debug mode, also logs the command line arguments.
  */
-static void processQdocconfFile(const QString &fileName)
+void logStartEndMessage(const QLatin1String &startStop, const Config &config)
 {
-    /*
-      The Config instance represents the configuration data for qdoc.
-      All the other classes are initialized with the config. Below, we
-      initialize the configuration with some default values.
+    const QString runName = " qdoc for "
+            + config.getString(CONFIG_PROJECT)
+            + QLatin1String(" in ")
+            + QLatin1String(Generator::singleExec() ? "single" : "dual")
+            + QLatin1String(" process mode, (")
+            + QLatin1String(Generator::preparing() ? "prepare" : "generate")
+            + QLatin1String(" phase)");
 
-      I don't think the call to translate() does anything here. For one
-      thing, the translators haven't been installed at this point. And
-      I doubt any translator would translate QDoc anyway. But I left it
-      here because it does no harm.
-     */
-    Config config(QCoreApplication::translate("QDoc", "qdoc"));
+    const QString msg = startStop + runName;
+    Location::logToStdErrAlways(msg);
+}
 
-    QHash<QString,QString>::iterator iter;
-    for (iter = qdocGlobals.defaults().begin(); iter != qdocGlobals.defaults().end(); ++iter)
-        config.setStringList(iter.key(), QStringList() << iter.value());
-
-    config.setStringList(CONFIG_SYNTAXHIGHLIGHTING, QStringList(qdocGlobals.highlighting() ? "true" : "false"));
-    config.setStringList(CONFIG_SHOWINTERNAL, QStringList(qdocGlobals.showInternal() ? "true" : "false"));
-    config.setStringList(CONFIG_SINGLEEXEC, QStringList(qdocGlobals.singleExec() ? "true" : "false"));
-    config.setStringList(CONFIG_WRITEQAPAGES, QStringList(qdocGlobals.writeQaPages() ? "true" : "false"));
-    config.setStringList(CONFIG_REDIRECTDOCUMENTATIONTODEVNULL, QStringList(qdocGlobals.redirectDocumentationToDevNull() ? "true" : "false"));
-    config.setStringList(CONFIG_NOLINKERRORS, QStringList(qdocGlobals.noLinkErrors() ? "true" : "false"));
-    config.setStringList(CONFIG_AUTOLINKERRORS, QStringList(qdocGlobals.autolinkErrors() ? "true" : "false"));
-    config.setStringList(CONFIG_OBSOLETELINKS, QStringList(qdocGlobals.obsoleteLinks() ? "true" : "false"));
-
-    qdocGlobals.setPreviousCurrentDir(QDir::currentPath());
+/*!
+    Processes the qdoc config file \a fileName. This is the controller for all
+    of QDoc. The \a config instance represents the configuration data for QDoc.
+    All other classes are initialized with the same config.
+ */
+static void processQdocconfFile(const QString &fileName, Config &config)
+{
+    config.setPreviousCurrentDir(QDir::currentPath());
 
     /*
       With the default configuration values in place, load
@@ -241,36 +265,23 @@ static void processQdocconfFile(const QString &fileName)
     Location::initialize(config);
     config.load(fileName);
     QString project = config.getString(CONFIG_PROJECT);
-    QString moduleHeader = config.getString(CONFIG_MODULEHEADER);
     if (project.isEmpty()) {
-        Location::logToStdErrAlways(QLatin1String("qdoc can't run; no project set in qdocconf file"));
+        Location::logToStdErrAlways(
+                QLatin1String("qdoc can't run; no project set in qdocconf file"));
         exit(1);
     }
-    /*
-      Add the defines to the configuration variables.
-     */
-    QStringList defs = qdocGlobals.defines() + config.getStringList(CONFIG_DEFINES);
-    config.setStringList(CONFIG_DEFINES,defs);
-    QStringList incs = qdocGlobals.includesPaths() + config.getStringList(CONFIG_INCLUDEPATHS);
-    config.setStringList(CONFIG_INCLUDEPATHS, incs);
     Location::terminate();
 
-    qdocGlobals.setCurrentDir(QFileInfo(fileName).path());
-    if (!qdocGlobals.currentDir().isEmpty())
-        QDir::setCurrent(qdocGlobals.currentDir());
+    config.setCurrentDir(QFileInfo(fileName).path());
+    if (!config.currentDir().isEmpty())
+        QDir::setCurrent(config.currentDir());
 
-    QString phase = " in ";
-    if (Generator::singleExec())
-        phase += "single process mode, ";
-    else
-        phase += "dual process mode, ";
-    if (Generator::preparing())
-        phase += "(prepare phase)";
-    else if (Generator::generating())
-        phase += "(generate phase)";
+    logStartEndMessage(QLatin1String("Start"), config);
 
-    QString msg = "Start qdoc for " + config.getString(CONFIG_PROJECT) + phase;
-    Location::logToStdErrAlways(msg);
+    if (config.getDebug()) {
+        Utilities::startDebugging(QString("command line"));
+        qCDebug(lcQdoc).noquote() << "Arguments:" << QCoreApplication::arguments();
+    }
 
     /*
       Initialize all the classes and data structures with the
@@ -292,13 +303,12 @@ static void processQdocconfFile(const QString &fileName)
       but only if they haven't already been loaded. This works in both
       -prepare/-generate mode and -singleexec mode.
      */
-    QStringList fileNames = config.getStringList(CONFIG_TRANSLATORS);
-    QStringList::ConstIterator fn = fileNames.constBegin();
-    while (fn != fileNames.constEnd()) {
+    const QStringList fileNames = config.getStringList(CONFIG_TRANSLATORS);
+    for (const auto &fileName : fileNames) {
         bool found = false;
         if (!translators.isEmpty()) {
-            for (int i=0; i<translators.size(); ++i) {
-                if (translators.at(i).first == *fn) {
+            for (const auto &translator : translators) {
+                if (translator.first == fileName) {
                     found = true;
                     break;
                 }
@@ -306,19 +316,17 @@ static void processQdocconfFile(const QString &fileName)
         }
         if (!found) {
             QTranslator *translator = new QTranslator(nullptr);
-            if (!translator->load(*fn)) {
-                config.lastLocation().error(QCoreApplication::translate("QDoc", "Cannot load translator '%1'").arg(*fn));
-            }
-            else {
+            if (!translator->load(fileName)) {
+                config.lastLocation().error(
+                        QCoreApplication::translate("QDoc", "Cannot load translator '%1'")
+                                .arg(fileName));
+            } else {
                 QCoreApplication::instance()->installTranslator(translator);
-                translators.append(Translator(*fn, translator));
+                translators.append(Translator(fileName, translator));
             }
         }
-        ++fn;
     }
 #endif
-
-    //QSet<QString> outputLanguages = config.getStringSet(CONFIG_OUTPUTLANGUAGES);
 
     /*
       Get the source language (Cpp) from the configuration
@@ -337,7 +345,7 @@ static void processQdocconfFile(const QString &fileName)
       Note: qdocDB() allocates a new instance only if no instance exists.
       So it is safe to call qdocDB() any time.
      */
-    QDocDatabase* qdb = QDocDatabase::qdocDB();
+    QDocDatabase *qdb = QDocDatabase::qdocDB();
     qdb->setVersion(config.getString(CONFIG_VERSION));
     qdb->setShowInternal(config.getBool(CONFIG_SHOWINTERNAL));
     qdb->setSingleExec(config.getBool(CONFIG_SINGLEEXEC));
@@ -355,43 +363,46 @@ static void processQdocconfFile(const QString &fileName)
             qCDebug(lcQdoc, "  done loading index files");
         }
         qdb->newPrimaryTree(project);
-    }
-    else if (Generator::preparing())
+    } else if (Generator::preparing())
         qdb->newPrimaryTree(project);
     else
         qdb->setPrimaryTree(project);
+
+    const QString moduleHeader = config.getString(CONFIG_MODULEHEADER);
     if (!moduleHeader.isNull())
         clangParser_->setModuleHeader(moduleHeader);
     else
         clangParser_->setModuleHeader(project);
 
-    qdocGlobals.dependModules() = config.getStringList(CONFIG_DEPENDS);
-    qdocGlobals.dependModules().removeDuplicates();
-    qdb->setSearchOrder(qdocGlobals.dependModules());
+    // Retrieve the dependencies if loadIndexFiles() was not called
+    if (config.dependModules().isEmpty()) {
+        config.dependModules() = config.getStringList(CONFIG_DEPENDS);
+        config.dependModules().removeDuplicates();
+    }
+    qdb->setSearchOrder(config.dependModules());
 
     // Store the title of the index (landing) page
-    NamespaceNode* root = qdb->primaryTreeRoot();
+    NamespaceNode *root = qdb->primaryTreeRoot();
     if (root) {
-        QString title = config.getString(CONFIG_NAVIGATION
-                                        + Config::dot
-                                        + CONFIG_LANDINGPAGE);
-        root->tree()->setIndexTitle(config.getString(CONFIG_NAVIGATION
-                                        + Config::dot
-                                        + CONFIG_LANDINGTITLE, title));
+        QString title = config.getString(CONFIG_NAVIGATION + Config::dot + CONFIG_LANDINGPAGE);
+        root->tree()->setIndexTitle(
+                config.getString(CONFIG_NAVIGATION + Config::dot + CONFIG_LANDINGTITLE, title));
     }
 
-    QSet<QString> excludedDirs = QSet<QString>::fromList(config.getCanonicalPathList(CONFIG_EXCLUDEDIRS));
-    QSet<QString> excludedFiles = QSet<QString>::fromList(config.getCanonicalPathList(CONFIG_EXCLUDEFILES));
+    const auto &excludedDirList = config.getCanonicalPathList(CONFIG_EXCLUDEDIRS);
+    QSet<QString> excludedDirs = QSet<QString>(excludedDirList.cbegin(), excludedDirList.cend());
+    const auto &excludedFilesList = config.getCanonicalPathList(CONFIG_EXCLUDEFILES);
+    QSet<QString> excludedFiles =
+            QSet<QString>(excludedFilesList.cbegin(), excludedFilesList.cend());
 
     qCDebug(lcQdoc, "Adding doc/image dirs found in exampledirs to imagedirs");
     QSet<QString> exampleImageDirs;
     QStringList exampleImageList = config.getExampleImageFiles(excludedDirs, excludedFiles);
-    for (int i = 0; i < exampleImageList.size(); ++i) {
-        if (exampleImageList[i].contains("doc/images")) {
-            QString t = exampleImageList[i].left(exampleImageList[i].lastIndexOf("doc/images") + 10);
-            if (!exampleImageDirs.contains(t)) {
+    for (const auto &image : exampleImageList) {
+        if (image.contains("doc/images")) {
+            QString t = image.left(image.lastIndexOf("doc/images") + 10);
+            if (!exampleImageDirs.contains(t))
                 exampleImageDirs.insert(t);
-            }
         }
     }
     Generator::augmentImageDirs(exampleImageDirs);
@@ -401,31 +412,33 @@ static void processQdocconfFile(const QString &fileName)
         QStringList sourceList;
 
         qCDebug(lcQdoc, "Reading headerdirs");
-        headerList = config.getAllFiles(CONFIG_HEADERS,CONFIG_HEADERDIRS,excludedDirs,excludedFiles);
-        QMap<QString,QString> headers;
-        QMultiMap<QString,QString> headerFileNames;
-        for (int i=0; i<headerList.size(); ++i) {
-            if (headerList[i].contains(QString("doc/snippets")))
+        headerList =
+                config.getAllFiles(CONFIG_HEADERS, CONFIG_HEADERDIRS, excludedDirs, excludedFiles);
+        QMap<QString, QString> headers;
+        QMultiMap<QString, QString> headerFileNames;
+        for (const auto &header : headerList) {
+            if (header.contains(QLatin1String("doc/snippets")))
                 continue;
-            if (headers.contains(headerList[i]))
+            if (headers.contains(header))
                 continue;
-            headers.insert(headerList[i],headerList[i]);
-            QString t = headerList[i].mid(headerList[i].lastIndexOf('/')+1);
-            headerFileNames.insert(t,t);
+            headers.insert(header, header);
+            QString t = header.mid(header.lastIndexOf('/') + 1);
+            headerFileNames.insert(t, t);
         }
 
         qCDebug(lcQdoc, "Reading sourcedirs");
-        sourceList = config.getAllFiles(CONFIG_SOURCES,CONFIG_SOURCEDIRS,excludedDirs,excludedFiles);
-        QMap<QString,QString> sources;
-        QMultiMap<QString,QString> sourceFileNames;
-        for (int i=0; i<sourceList.size(); ++i) {
-            if (sourceList[i].contains(QString("doc/snippets")))
+        sourceList =
+                config.getAllFiles(CONFIG_SOURCES, CONFIG_SOURCEDIRS, excludedDirs, excludedFiles);
+        QMap<QString, QString> sources;
+        QMultiMap<QString, QString> sourceFileNames;
+        for (const auto &source : sourceList) {
+            if (source.contains(QLatin1String("doc/snippets")))
                 continue;
-            if (sources.contains(sourceList[i]))
+            if (sources.contains(source))
                 continue;
-            sources.insert(sourceList[i],sourceList[i]);
-            QString t = sourceList[i].mid(sourceList[i].lastIndexOf('/')+1);
-            sourceFileNames.insert(t,t);
+            sources.insert(source, source);
+            QString t = source.mid(source.lastIndexOf('/') + 1);
+            sourceFileNames.insert(t, t);
         }
         /*
           Find all the qdoc files in the example dirs, and add
@@ -433,11 +446,11 @@ static void processQdocconfFile(const QString &fileName)
         */
         qCDebug(lcQdoc, "Reading exampledirs");
         QStringList exampleQdocList = config.getExampleQdocFiles(excludedDirs, excludedFiles);
-        for (int i=0; i<exampleQdocList.size(); ++i) {
-            if (!sources.contains(exampleQdocList[i])) {
-                sources.insert(exampleQdocList[i],exampleQdocList[i]);
-                QString t = exampleQdocList[i].mid(exampleQdocList[i].lastIndexOf('/')+1);
-                sourceFileNames.insert(t,t);
+        for (const auto &example : exampleQdocList) {
+            if (!sources.contains(example)) {
+                sources.insert(example, example);
+                QString t = example.mid(example.lastIndexOf('/') + 1);
+                sourceFileNames.insert(t, t);
             }
         }
         /*
@@ -447,15 +460,13 @@ static void processQdocconfFile(const QString &fileName)
 
         qCDebug(lcQdoc, "Parsing header files");
         int parsed = 0;
-        QMap<QString,QString>::ConstIterator h = headers.constBegin();
-        while (h != headers.constEnd()) {
-            CodeParser *codeParser = CodeParser::parserForHeaderFile(h.key());
+        for (auto it = headers.constBegin(); it != headers.constEnd(); ++it) {
+            CodeParser *codeParser = CodeParser::parserForHeaderFile(it.key());
             if (codeParser) {
                 ++parsed;
-                qCDebug(lcQdoc, "Parsing %s", qPrintable(h.key()));
-                codeParser->parseHeaderFile(config.location(), h.key());
+                qCDebug(lcQdoc, "Parsing %s", qPrintable(it.key()));
+                codeParser->parseHeaderFile(config.location(), it.key());
             }
-            ++h;
         }
 
         clangParser_->precompileHeaders();
@@ -466,15 +477,13 @@ static void processQdocconfFile(const QString &fileName)
         */
         parsed = 0;
         Location::logToStdErrAlways("Parse source files for " + project);
-        QMap<QString,QString>::ConstIterator s = sources.constBegin();
-        while (s != sources.constEnd()) {
-            CodeParser *codeParser = CodeParser::parserForSourceFile(s.key());
+        for (const auto &key : sources.keys()) {
+            auto *codeParser = CodeParser::parserForSourceFile(key);
             if (codeParser) {
                 ++parsed;
-                qCDebug(lcQdoc, "Parsing %s", qPrintable(s.key()));
-                codeParser->parseSourceFile(config.location(), s.key());
+                qCDebug(lcQdoc, "Parsing %s", qPrintable(key));
+                codeParser->parseSourceFile(config.location(), key);
             }
-            ++s;
         }
         Location::logToStdErrAlways("Source files parsed for " + project);
     }
@@ -494,28 +503,21 @@ static void processQdocconfFile(const QString &fileName)
       one.
      */
     qCDebug(lcQdoc, "Generating docs");
-    QSet<QString>::ConstIterator of = outputFormats.constBegin();
-    while (of != outputFormats.constEnd()) {
-        Generator* generator = Generator::generatorForFormat(*of);
+    for (const auto &format : outputFormats) {
+        auto *generator = Generator::generatorForFormat(format);
         if (generator == nullptr)
-            outputFormatsLocation.fatal(QCoreApplication::translate("QDoc",
-                                               "Unknown output format '%1'").arg(*of));
+            outputFormatsLocation.fatal(
+                    QCoreApplication::translate("QDoc", "Unknown output format '%1'").arg(format));
         generator->initializeFormat(config);
         generator->generateDocs();
-        ++of;
     }
-#if 0
-    if (Generator::generating() && Generator::writeQaPages())
-        qdb->printLinkCounts(project);
-#endif
     qdb->clearLinkCounts();
 
     qCDebug(lcQdoc, "Terminating qdoc classes");
-    if (Generator::debugging())
-        Generator::stopDebugging(project);
+    if (Utilities::debugging())
+        Utilities::stopDebugging(project);
 
-    msg = "End qdoc for " + config.getString(CONFIG_PROJECT) + phase;
-    Location::logToStdErrAlways(msg);
+    logStartEndMessage(QLatin1String("End"), config);
     QDocDatabase::qdocDB()->setVersion(QString());
     Generator::terminate();
     CodeParser::terminate();
@@ -523,7 +525,7 @@ static void processQdocconfFile(const QString &fileName)
     Doc::terminate();
     Tokenizer::terminate();
     Location::terminate();
-    QDir::setCurrent(qdocGlobals.previousCurrentDir());
+    QDir::setCurrent(config.previousCurrentDir());
 
     qCDebug(lcQdoc, "qdoc classes terminated");
 }
@@ -554,8 +556,14 @@ int main(int argc, char **argv)
     /*
       Create code markers for plain text, C++,
       javascript, and QML.
+
+      The plain CodeMarker must be instantiated first because it is used as
+      fallback when the other markers cannot be used.
+
+      Each marker instance is prepended to the CodeMarker::markers list by the
+      base class constructor.
      */
-    PlainCodeMarker plainMarker;
+    CodeMarker fallbackMarker;
     CppCodeMarker cppMarker;
     JsCodeMarker jsMarker;
     QmlCodeMarker qmlMarker;
@@ -563,45 +571,42 @@ int main(int argc, char **argv)
     HtmlGenerator htmlGenerator;
     WebXMLGenerator webXMLGenerator;
 
-    // Set the globals declared at the top of this file:
-    QDocCommandLineParser parser;
-    parser.process(app, qdocGlobals);
+    Config config(QCoreApplication::translate("QDoc", "qdoc"), app.arguments());
 
     // Get the list of files to act on:
-    QStringList qdocFiles = parser.positionalArguments();
+    QStringList qdocFiles = config.qdocFiles();
     if (qdocFiles.isEmpty())
-        parser.showHelp();
+        config.showHelp();
 
-    if (qdocGlobals.singleExec())
+    if (config.singleExec())
         qdocFiles = Config::loadMaster(qdocFiles.at(0));
 
     if (Generator::singleExec()) {
         // single qdoc process for prepare and generate phases
         Generator::setQDocPass(Generator::Prepare);
-        foreach (const QString &qf, qdocFiles) {
-            qdocGlobals.dependModules().clear();
-            processQdocconfFile(qf);
+        for (const auto &file : qAsConst(qdocFiles)) {
+            config.dependModules().clear();
+            processQdocconfFile(file, config);
         }
         Generator::setQDocPass(Generator::Generate);
         QDocDatabase::qdocDB()->processForest();
-        foreach (const QString &qf, qdocFiles) {
-            qdocGlobals.dependModules().clear();
-            processQdocconfFile(qf);
+        for (const auto &file : qAsConst(qdocFiles)) {
+            config.dependModules().clear();
+            processQdocconfFile(file, config);
         }
     } else {
         // separate qdoc processes for prepare and generate phases
-        foreach (const QString &qf, qdocFiles) {
-            qdocGlobals.dependModules().clear();
-            processQdocconfFile(qf);
+        for (const auto &file : qAsConst(qdocFiles)) {
+            config.dependModules().clear();
+            processQdocconfFile(file, config);
         }
     }
 
     // Tidy everything away:
 #ifndef QT_NO_TRANSLATION
     if (!translators.isEmpty()) {
-        for (int i=0; i<translators.size(); ++i) {
-            delete translators.at(i).second;
-        }
+        for (const auto &translator : translators)
+            delete translator.second;
     }
     translators.clear();
 #endif

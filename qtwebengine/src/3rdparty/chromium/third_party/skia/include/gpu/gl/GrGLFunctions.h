@@ -10,8 +10,8 @@
 #define GrGLFunctions_DEFINED
 
 #include <cstring>
-#include "../private/SkTLogic.h"
-#include "GrGLTypes.h"
+#include "include/gpu/gl/GrGLTypes.h"
+#include "include/private/SkTLogic.h"
 
 
 extern "C" {
@@ -132,7 +132,6 @@ using GrGLProgramBinaryFn = GrGLvoid GR_GL_FUNCTION_TYPE(GrGLuint program, GrGLe
 using GrGLProgramParameteriFn = GrGLvoid GR_GL_FUNCTION_TYPE(GrGLuint program, GrGLenum pname, GrGLint value);
 using GrGLPushGroupMarkerFn = GrGLvoid GR_GL_FUNCTION_TYPE(GrGLsizei length, const char* marker);
 using GrGLQueryCounterFn = GrGLvoid GR_GL_FUNCTION_TYPE(GrGLuint id, GrGLenum target);
-using GrGLRasterSamplesFn = GrGLvoid GR_GL_FUNCTION_TYPE(GrGLuint samples, GrGLboolean fixedsamplelocations);
 using GrGLReadBufferFn = GrGLvoid GR_GL_FUNCTION_TYPE(GrGLenum src);
 using GrGLReadPixelsFn = GrGLvoid GR_GL_FUNCTION_TYPE(GrGLint x, GrGLint y, GrGLsizei width, GrGLsizei height, GrGLenum format, GrGLenum type, GrGLvoid* pixels);
 using GrGLRenderbufferStorageFn = GrGLvoid GR_GL_FUNCTION_TYPE(GrGLenum target, GrGLenum internalformat, GrGLsizei width, GrGLsizei height);

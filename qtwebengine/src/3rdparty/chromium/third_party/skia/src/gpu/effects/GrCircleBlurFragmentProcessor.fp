@@ -31,7 +31,7 @@ uniform half4 circleData;
 }
 
 @cpp {
-    #include "GrProxyProvider.h"
+    #include "src/gpu/GrProxyProvider.h"
 
     // Computes an unnormalized half kernel (right side). Returns the summation of all the half
     // kernel values.
@@ -248,7 +248,7 @@ uniform half4 circleData;
             bm.setImmutable();
             sk_sp<SkImage> image = SkImage::MakeFromBitmap(bm);
 
-            blurProfile = proxyProvider->createTextureProxy(std::move(image), kNone_GrSurfaceFlags, 1,
+            blurProfile = proxyProvider->createTextureProxy(std::move(image), GrRenderable::kNo, 1,
                                                             SkBudgeted::kYes, SkBackingFit::kExact);
             if (!blurProfile) {
                 return nullptr;
@@ -278,8 +278,8 @@ uniform half4 circleData;
 void main() {
     // We just want to compute "(length(vec) - circleData.z + 0.5) * circleData.w" but need to
     // rearrange for precision.
-    half2 vec = half2((sk_FragCoord.x - circleData.x) * circleData.w,
-                      (sk_FragCoord.y - circleData.y) * circleData.w);
+    half2 vec = half2(half((sk_FragCoord.x - circleData.x) * circleData.w),
+                      half((sk_FragCoord.y - circleData.y) * circleData.w));
     half dist = length(vec) + (0.5 - circleData.z) * circleData.w;
     sk_OutColor = sk_InColor * texture(blurProfileSampler, half2(dist, 0.5)).a;
 }

@@ -47,6 +47,8 @@ class ChildExitObserver : public content::BrowserChildProcessObserver,
     bool is_crashed() const { return crash_signo != kInvalidSigno; }
 
     int process_host_id = content::ChildProcessHost::kInvalidUniqueID;
+    // |pid| may not be valid if termination happens before the process has
+    // finished launching.
     base::ProcessHandle pid = base::kNullProcessHandle;
     content::ProcessType process_type = content::PROCESS_TYPE_UNKNOWN;
     base::android::ApplicationState app_state =
@@ -68,6 +70,7 @@ class ChildExitObserver : public content::BrowserChildProcessObserver,
     int remaining_process_with_strong_binding = 0;
     int remaining_process_with_moderate_binding = 0;
     int remaining_process_with_waived_binding = 0;
+    int best_effort_reverse_rank = -1;
 
     // Note this is slightly different |has_oom_protection_bindings|.
     // This is equivalent to status == TERMINATION_STATUS_NORMAL_TERMINATION,

@@ -2057,13 +2057,13 @@ void tst_QScriptEngine::getSetDefaultPrototype_customType()
     QCOMPARE(eng.defaultPrototype(qMetaTypeId<Foo>()).isValid(), false);
     eng.setDefaultPrototype(qMetaTypeId<Foo>(), object);
     QCOMPARE(eng.defaultPrototype(qMetaTypeId<Foo>()).strictlyEquals(object), true);
-    QScriptValue value = eng.newVariant(qVariantFromValue(Foo()));
+    QScriptValue value = eng.newVariant(QVariant::fromValue(Foo()));
     QCOMPARE(value.prototype().isObject(), true);
     QCOMPARE(value.prototype().strictlyEquals(object), true);
 
     eng.setDefaultPrototype(qMetaTypeId<Foo>(), QScriptValue());
     QCOMPARE(eng.defaultPrototype(qMetaTypeId<Foo>()).isValid(), false);
-    QScriptValue value2 = eng.newVariant(qVariantFromValue(Foo()));
+    QScriptValue value2 = eng.newVariant(QVariant::fromValue(Foo()));
     QCOMPARE(value2.prototype().strictlyEquals(object), false);
 }
 
@@ -2091,12 +2091,12 @@ static void fooFromScriptValueV2(const QScriptValue &value, Foo &foo)
     foo.x = value.toInt32();
 }
 
-Q_DECLARE_METATYPE(QLinkedList<QString>)
+Q_DECLARE_METATYPE(std::list<QString>)
 Q_DECLARE_METATYPE(QList<Foo>)
 Q_DECLARE_METATYPE(QVector<QChar>)
 Q_DECLARE_METATYPE(QStack<int>)
 Q_DECLARE_METATYPE(QQueue<char>)
-Q_DECLARE_METATYPE(QLinkedList<QStack<int> >)
+Q_DECLARE_METATYPE(std::list<QStack<int> >)
 
 void tst_QScriptEngine::valueConversion_basic()
 {
@@ -2215,11 +2215,10 @@ void tst_QScriptEngine::valueConversion_customType()
 void tst_QScriptEngine::valueConversion_sequence()
 {
     QScriptEngine eng;
-    qScriptRegisterSequenceMetaType<QLinkedList<QString> >(&eng);
+    qScriptRegisterSequenceMetaType<std::list<QString> >(&eng);
 
     {
-        QLinkedList<QString> lst;
-        lst << QLatin1String("foo") << QLatin1String("bar");
+        std::list<QString> lst = {QLatin1String("foo"), QLatin1String("bar")};
         QScriptValue lstVal = qScriptValueFromValue(&eng, lst);
         QCOMPARE(lstVal.isArray(), true);
         QCOMPARE(lstVal.property("length").toInt32(), 2);
@@ -2233,12 +2232,12 @@ void tst_QScriptEngine::valueConversion_sequence()
     qScriptRegisterSequenceMetaType<QStack<int> >(&eng);
     qScriptRegisterSequenceMetaType<QVector<QChar> >(&eng);
     qScriptRegisterSequenceMetaType<QQueue<char> >(&eng);
-    qScriptRegisterSequenceMetaType<QLinkedList<QStack<int> > >(&eng);
+    qScriptRegisterSequenceMetaType<std::list<QStack<int> > >(&eng);
 
     {
-        QLinkedList<QStack<int> > lst;
-        QStack<int> first; first << 13 << 49; lst << first;
-        QStack<int> second; second << 99999;lst << second;
+        QStack<int> first; first << 13 << 49;
+        QStack<int> second; second << 99999;
+        std::list<QStack<int> > lst = {first, second};
         QScriptValue lstVal = qScriptValueFromValue(&eng, lst);
         QCOMPARE(lstVal.isArray(), true);
         QCOMPARE(lstVal.property("length").toInt32(), 2);
@@ -2251,7 +2250,7 @@ void tst_QScriptEngine::valueConversion_sequence()
         QCOMPARE(lstVal.property("1").property("0").toInt32(), second.at(0));
         QCOMPARE(qscriptvalue_cast<QStack<int> >(lstVal.property("0")), first);
         QCOMPARE(qscriptvalue_cast<QStack<int> >(lstVal.property("1")), second);
-        QCOMPARE(qscriptvalue_cast<QLinkedList<QStack<int> > >(lstVal), lst);
+        QCOMPARE(qscriptvalue_cast<std::list<QStack<int> > >(lstVal), lst);
     }
 
     // pointers
@@ -2362,13 +2361,13 @@ void tst_QScriptEngine::valueConversion_QVariant()
         QCOMPARE(val.toString(), str);
     }
     {
-        QScriptValue val = qScriptValueFromValue(&eng, qVariantFromValue((QObject*)this));
+        QScriptValue val = qScriptValueFromValue(&eng, QVariant::fromValue((QObject*)this));
         QVERIFY(!val.isVariant());
         QVERIFY(val.isQObject());
         QCOMPARE(val.toQObject(), (QObject*)this);
     }
     {
-        QVariant var = qVariantFromValue(QPoint(123, 456));
+        QVariant var = QVariant::fromValue(QPoint(123, 456));
         QScriptValue val = qScriptValueFromValue(&eng, var);
         QVERIFY(val.isVariant());
         QCOMPARE(val.toVariant(), var);
@@ -5784,7 +5783,7 @@ void tst_QScriptEngine::qRegExpInport()
     }
 }
 
-static QByteArray msgDateRoundtripJSQtJS(int i, uint secs,
+static QByteArray msgDateRoundtripJSQtJS(int i, qint64 secs,
                                          const QScriptValue &jsDate2,
                                          const QScriptValue &jsDate)
 {
@@ -5804,7 +5803,7 @@ static QByteArray msgDateRoundtripJSQtJS(int i, uint secs,
 // effect at a given date (QTBUG-9770).
 void tst_QScriptEngine::dateRoundtripJSQtJS()
 {
-    uint secs = QDateTime(QDate(2009, 1, 1)).toUTC().toTime_t();
+    qint64 secs = QDateTime(QDate(2009, 1, 1)).toUTC().toSecsSinceEpoch();
     QScriptEngine eng;
     for (int i = 0; i < 8000; ++i) {
         QScriptValue jsDate = eng.evaluate(QString::fromLatin1("new Date(%0 * 1000.0)").arg(secs));
@@ -5829,7 +5828,7 @@ void tst_QScriptEngine::dateRoundtripQtJSQt()
     }
 }
 
-static QByteArray msgDateConversionJSQt(int i, uint secs,
+static QByteArray msgDateConversionJSQt(int i, qint64 secs,
                                         const QString &qtUTCDateStr,
                                         const QString &jsUTCDateStr,
                                         const QScriptValue &jsDate)
@@ -5844,7 +5843,7 @@ static QByteArray msgDateConversionJSQt(int i, uint secs,
 
 void tst_QScriptEngine::dateConversionJSQt()
 {
-    uint secs = QDateTime(QDate(2009, 1, 1)).toUTC().toTime_t();
+    qint64 secs = QDateTime(QDate(2009, 1, 1)).toUTC().toSecsSinceEpoch();
     QScriptEngine eng;
     for (int i = 0; i < 8000; ++i) {
         QScriptValue jsDate = eng.evaluate(QString::fromLatin1("new Date(%0 * 1000.0)").arg(secs));

@@ -11,21 +11,76 @@
 
 namespace ui_devtools {
 
+namespace {
+
+// Returns a pair of the ClassProperties index and UIProperty index
+std::pair<size_t, size_t> GetPropertyIndices(ui_devtools::ViewElement* element,
+                                             const std::string& property_name) {
+  std::vector<UIElement::ClassProperties> props =
+      element->GetCustomPropertiesForMatchedStyle();
+  for (size_t cp_index = 0; cp_index < props.size(); ++cp_index) {
+    for (size_t uip_index = 0; uip_index < props[cp_index].properties_.size();
+         ++uip_index) {
+      if (props[cp_index].properties_[uip_index].name_ == property_name)
+        return std::make_pair(cp_index, uip_index);
+    }
+  }
+  DCHECK(false) << "Property " << property_name << " can not be found.";
+  return std::make_pair(-1, -1);
+}
+
+void TestBooleanCustomPropertySetting(ui_devtools::ViewElement* element,
+                                      const std::string& property_name,
+                                      bool init_value) {
+  std::pair<size_t, size_t> indices =
+      GetPropertyIndices(element, property_name);
+  std::string old_value(init_value ? "true" : "false");
+  std::vector<UIElement::ClassProperties> props =
+      element->GetCustomPropertiesForMatchedStyle();
+  std::vector<UIElement::UIProperty> ui_props =
+      props[indices.first].properties_;
+  EXPECT_EQ(ui_props[indices.second].value_, old_value);
+
+  // Check the property can be set accordingly.
+  std::string new_value(init_value ? "false" : "true");
+  std::string separator(":");
+  element->SetPropertiesFromString(property_name + separator + new_value);
+  props = element->GetCustomPropertiesForMatchedStyle();
+  ui_props = props[indices.first].properties_;
+  EXPECT_EQ(ui_props[indices.second].name_, property_name);
+  EXPECT_EQ(ui_props[indices.second].value_, new_value);
+
+  element->SetPropertiesFromString(property_name + separator + old_value);
+  props = element->GetCustomPropertiesForMatchedStyle();
+  ui_props = props[indices.first].properties_;
+  EXPECT_EQ(ui_props[indices.second].name_, property_name);
+  EXPECT_EQ(ui_props[indices.second].value_, old_value);
+}
+
+}  // namespace
+
 using ::testing::_;
 
 class NamedTestView : public views::View {
  public:
-  static const char kViewClassName[];
-  const char* GetClassName() const override { return kViewClassName; }
+  METADATA_HEADER(NamedTestView);
 
   // For custom properties test.
-  bool GetTooltipText(const gfx::Point& p,
-                      base::string16* tooltip) const override {
-    *tooltip = base::ASCIIToUTF16("This is the tooltip");
-    return true;
+  base::string16 GetTooltipText(const gfx::Point& p) const override {
+    return base::ASCIIToUTF16("This is the tooltip");
   }
+
+  int GetBoolProperty() const { return bool_property_; }
+  void SetBoolProperty(bool bool_property) { bool_property_ = bool_property; }
+
+ private:
+  bool bool_property_ = false;
 };
-const char NamedTestView::kViewClassName[] = "NamedTestView";
+
+BEGIN_METADATA(NamedTestView)
+METADATA_PARENT_CLASS(views::View)
+ADD_PROPERTY_METADATA(NamedTestView, bool, BoolProperty)
+END_METADATA()
 
 class ViewElementTest : public views::ViewsTestBase {
  public:
@@ -81,26 +136,39 @@ TEST_F(ViewElementTest, SettingsBoundsOnElementSetsOnView) {
   EXPECT_EQ(view()->bounds(), gfx::Rect(1, 2, 3, 4));
 }
 
-TEST_F(ViewElementTest, SettingVisibleOnElementSetsOnView) {
-  DCHECK(view()->visible());
+TEST_F(ViewElementTest, SetPropertiesFromString) {
+  static const char* kEnabledProperty = "Enabled";
+  TestBooleanCustomPropertySetting(element(), kEnabledProperty, true);
+  std::pair<size_t, size_t> indices =
+      GetPropertyIndices(element(), kEnabledProperty);
 
-  element()->SetVisible(false);
-  EXPECT_FALSE(view()->visible());
+  // Test setting a non-existent property has no effect.
+  element()->SetPropertiesFromString("Enable:false");
+  std::vector<UIElement::ClassProperties> props =
+      element()->GetCustomPropertiesForMatchedStyle();
+  std::vector<UIElement::UIProperty> ui_props =
+      props[indices.first].properties_;
 
-  element()->SetVisible(true);
-  EXPECT_TRUE(view()->visible());
+  EXPECT_EQ(ui_props[indices.second].name_, kEnabledProperty);
+  EXPECT_EQ(ui_props[indices.second].value_, "true");
+
+  // Test setting empty string for property value has no effect.
+  element()->SetPropertiesFromString("Enabled:");
+  props = element()->GetCustomPropertiesForMatchedStyle();
+  ui_props = props[indices.first].properties_;
+  EXPECT_EQ(ui_props[indices.second].name_, kEnabledProperty);
+  EXPECT_EQ(ui_props[indices.second].value_, "true");
+
+  // Ensure setting pure whitespace doesn't crash.
+  ASSERT_NO_FATAL_FAILURE(element()->SetPropertiesFromString("   \n  "));
 }
 
-TEST_F(ViewElementTest, GetVisible) {
-  bool visible;
+TEST_F(ViewElementTest, SettingVisibilityOnView) {
+  TestBooleanCustomPropertySetting(element(), "Visible", true);
+}
 
-  view()->SetVisible(false);
-  element()->GetVisible(&visible);
-  EXPECT_FALSE(visible);
-
-  view()->SetVisible(true);
-  element()->GetVisible(&visible);
-  EXPECT_TRUE(visible);
+TEST_F(ViewElementTest, SettingSubclassBoolProperty) {
+  TestBooleanCustomPropertySetting(element(), "BoolProperty", false);
 }
 
 TEST_F(ViewElementTest, GetBounds) {
@@ -112,20 +180,49 @@ TEST_F(ViewElementTest, GetBounds) {
 }
 
 TEST_F(ViewElementTest, GetAttributes) {
-  std::unique_ptr<protocol::Array<std::string>> attrs =
-      element()->GetAttributes();
-  DCHECK_EQ(attrs->length(), 2U);
-
-  EXPECT_EQ(attrs->get(0), "name");
-  EXPECT_EQ(attrs->get(1), NamedTestView::kViewClassName);
+  std::vector<std::string> attrs = element()->GetAttributes();
+  EXPECT_THAT(attrs,
+              testing::ElementsAre("name", NamedTestView::kViewClassName));
 }
 
 TEST_F(ViewElementTest, GetCustomProperties) {
-  auto props = element()->GetCustomProperties();
-  DCHECK_EQ(props.size(), 1U);
+  std::vector<UIElement::ClassProperties> props =
+      element()->GetCustomPropertiesForMatchedStyle();
 
-  EXPECT_EQ(props[0].first, "tooltip");
-  EXPECT_EQ(props[0].second, "This is the tooltip");
+  // The ClassProperties vector should be of size 2.
+  DCHECK_EQ(props.size(), 2U);
+
+  std::pair<size_t, size_t> indices =
+      GetPropertyIndices(element(), "BoolProperty");
+  // The BoolProperty property should be in the second ClassProperties object in
+  // the vector.
+  DCHECK_EQ(indices.first, 0U);
+
+  indices = GetPropertyIndices(element(), "tooltip");
+  // The tooltip property should be in the second ClassProperties object in the
+  // vector.
+  DCHECK_EQ(indices.first, 1U);
+
+  std::vector<UIElement::UIProperty> ui_props =
+      props[indices.first].properties_;
+
+  EXPECT_EQ(ui_props[indices.second].name_, "tooltip");
+  EXPECT_EQ(ui_props[indices.second].value_, "This is the tooltip");
+}
+
+TEST_F(ViewElementTest, CheckCustomProperties) {
+  std::vector<UIElement::ClassProperties> props =
+      element()->GetCustomPropertiesForMatchedStyle();
+  DCHECK_GT(props.size(), 1U);
+  DCHECK_GT(props[1].properties_.size(), 1U);
+
+  // Check visibility information is passed in.
+  bool is_visible_set = false;
+  for (size_t i = 0; i < props[1].properties_.size(); ++i) {
+    if (props[1].properties_[i].name_ == "Visible")
+      is_visible_set = true;
+  }
+  EXPECT_TRUE(is_visible_set);
 }
 
 TEST_F(ViewElementTest, GetNodeWindowAndScreenBounds) {

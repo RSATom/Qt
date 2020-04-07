@@ -259,6 +259,64 @@
                type="chrome_html"
                compress="gzip" />
 
+    <!-- Shared between cellular setup flow and OOBE. -->
+    <structure name="IDR_WEBUI_CHROMEOS_CELLULAR_SETUP_CELLULAR_SETUP_HTML"
+               file="cr_components/chromeos/cellular_setup/cellular_setup.html"
+               type="chrome_html"
+               compress="gzip" />
+    <structure name="IDR_WEBUI_CHROMEOS_CELLULAR_SETUP_CELLULAR_SETUP_JS"
+               file="cr_components/chromeos/cellular_setup/cellular_setup.js"
+               type="chrome_html"
+               compress="gzip" />
+    <structure name="IDR_WEBUI_CHROMEOS_CELLULAR_SETUP_MOJO_INTERFACE_PROVIDER_HTML"
+               file="cr_components/chromeos/cellular_setup/mojo_interface_provider.html"
+               type="chrome_html"
+               compress="gzip" />
+    <structure name="IDR_WEBUI_CHROMEOS_CELLULAR_SETUP_MOJO_INTERFACE_PROVIDER_JS"
+               file="cr_components/chromeos/cellular_setup/mojo_interface_provider.js"
+               type="chrome_html"
+               compress="gzip" />
+    <structure name="IDR_WEBUI_CHROMEOS_CELLULAR_SETUP_BUTTON_BAR_HTML"
+               file="cr_components/chromeos/cellular_setup/button_bar.html"
+               type="chrome_html"
+               compress="gzip" />
+    <structure name="IDR_WEBUI_CHROMEOS_CELLULAR_SETUP_BUTTON_BAR_JS"
+               file="cr_components/chromeos/cellular_setup/button_bar.js"
+               type="chrome_html"
+               compress="gzip" />
+    <structure name="IDR_WEBUI_CHROMEOS_CELLULAR_SETUP_BASE_PAGE_HTML"
+               file="cr_components/chromeos/cellular_setup/base_page.html"
+               type="chrome_html"
+               compress="gzip" />
+    <structure name="IDR_WEBUI_CHROMEOS_CELLULAR_SETUP_BASE_PAGE_JS"
+               file="cr_components/chromeos/cellular_setup/base_page.js"
+               type="chrome_html"
+               compress="gzip" />
+    <structure name="IDR_WEBUI_CHROMEOS_CELLULAR_SETUP_SIM_DETECT_PAGE_HTML"
+               file="cr_components/chromeos/cellular_setup/sim_detect_page.html"
+               type="chrome_html"
+               compress="gzip" />
+    <structure name="IDR_WEBUI_CHROMEOS_CELLULAR_SETUP_SIM_DETECT_PAGE_JS"
+               file="cr_components/chromeos/cellular_setup/sim_detect_page.js"
+               type="chrome_html"
+               compress="gzip" />
+    <structure name="IDR_WEBUI_CHROMEOS_CELLULAR_SETUP_PROVISIONING_PAGE_HTML"
+               file="cr_components/chromeos/cellular_setup/provisioning_page.html"
+               type="chrome_html"
+               compress="gzip" />
+    <structure name="IDR_WEBUI_CHROMEOS_CELLULAR_SETUP_PROVISIONING_PAGE_JS"
+               file="cr_components/chromeos/cellular_setup/provisioning_page.js"
+               type="chrome_html"
+               compress="gzip" />
+    <structure name="IDR_WEBUI_CHROMEOS_CELLULAR_SETUP_FINAL_PAGE_HTML"
+               file="cr_components/chromeos/cellular_setup/final_page.html"
+               type="chrome_html"
+               compress="gzip" />
+    <structure name="IDR_WEBUI_CHROMEOS_CELLULAR_SETUP_FINAL_PAGE_JS"
+               file="cr_components/chromeos/cellular_setup/final_page.js"
+               type="chrome_html"
+               compress="gzip" />
+
     <!-- Shared between MultiDevice setup flow and OOBE. -->
     <structure name="IDR_WEBUI_CHROMEOS_MULTIDEVICE_SETUP_MULTIDEVICE_SETUP_BROWSER_PROXY_HTML"
                file="cr_components/chromeos/multidevice_setup/multidevice_setup_browser_proxy.html"
@@ -354,6 +412,16 @@
                compress="gzip" />
     <structure name="IDR_WEBUI_CHROMEOS_MULTIDEVICE_SETUP_UI_PAGE_JS"
                file="cr_components/chromeos/multidevice_setup/ui_page.js"
+               type="chrome_html"
+               compress="gzip" />
+
+    <!-- For use in Settings, oobe, configuration dialogs, and debug UI. -->
+    <structure name="IDR_WEBUI_CHROMEOS_NETWORK_MOJO_INTERFACE_PROVIDER_HTML"
+               file="cr_components/chromeos/network/mojo_interface_provider.html"
+               type="chrome_html"
+               compress="gzip" />
+    <structure name="IDR_WEBUI_CHROMEOS_NETWORK_MOJO_INTERFACE_PROVIDER_JS"
+               file="cr_components/chromeos/network/mojo_interface_provider.js"
                type="chrome_html"
                compress="gzip" />
 

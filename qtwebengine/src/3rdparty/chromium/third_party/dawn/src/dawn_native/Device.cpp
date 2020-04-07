@@ -19,14 +19,15 @@
 #include "dawn_native/BindGroupLayout.h"
 #include "dawn_native/Buffer.h"
 #include "dawn_native/CommandBuffer.h"
+#include "dawn_native/CommandEncoder.h"
 #include "dawn_native/ComputePipeline.h"
+#include "dawn_native/DynamicUploader.h"
 #include "dawn_native/ErrorData.h"
 #include "dawn_native/Fence.h"
 #include "dawn_native/FenceSignalTracker.h"
-#include "dawn_native/InputState.h"
+#include "dawn_native/Instance.h"
 #include "dawn_native/PipelineLayout.h"
 #include "dawn_native/Queue.h"
-#include "dawn_native/RenderPassDescriptor.h"
 #include "dawn_native/RenderPipeline.h"
 #include "dawn_native/Sampler.h"
 #include "dawn_native/ShaderModule.h"
@@ -41,21 +42,35 @@ namespace dawn_native {
 
     // The caches are unordered_sets of pointers with special hash and compare functions
     // to compare the value of the objects, instead of the pointers.
-    using BindGroupLayoutCache = std::
-        unordered_set<BindGroupLayoutBase*, BindGroupLayoutCacheFuncs, BindGroupLayoutCacheFuncs>;
+    template <typename Object>
+    using ContentLessObjectCache =
+        std::unordered_set<Object*, typename Object::HashFunc, typename Object::EqualityFunc>;
 
     struct DeviceBase::Caches {
-        BindGroupLayoutCache bindGroupLayouts;
+        ContentLessObjectCache<BindGroupLayoutBase> bindGroupLayouts;
+        ContentLessObjectCache<ComputePipelineBase> computePipelines;
+        ContentLessObjectCache<PipelineLayoutBase> pipelineLayouts;
+        ContentLessObjectCache<RenderPipelineBase> renderPipelines;
+        ContentLessObjectCache<SamplerBase> samplers;
+        ContentLessObjectCache<ShaderModuleBase> shaderModules;
     };
 
     // DeviceBase
 
-    DeviceBase::DeviceBase(AdapterBase* adapter) : mAdapter(adapter) {
+    DeviceBase::DeviceBase(AdapterBase* adapter, const DeviceDescriptor* descriptor)
+        : mAdapter(adapter) {
         mCaches = std::make_unique<DeviceBase::Caches>();
         mFenceSignalTracker = std::make_unique<FenceSignalTracker>(this);
+        mDynamicUploader = std::make_unique<DynamicUploader>(this);
+        SetDefaultToggles();
+
+        mFormatTable = BuildFormatTable(this);
     }
 
     DeviceBase::~DeviceBase() {
+        // Devices must explicitly free the uploader
+        ASSERT(mDynamicUploader == nullptr);
+        ASSERT(mDeferredCreateBufferMappedAsyncResults.empty());
     }
 
     void DeviceBase::HandleError(const char* message) {
@@ -64,18 +79,48 @@ namespace dawn_native {
         }
     }
 
-    void DeviceBase::SetErrorCallback(dawn::DeviceErrorCallback callback,
-                                      dawn::CallbackUserdata userdata) {
+    void DeviceBase::SetErrorCallback(dawn::DeviceErrorCallback callback, void* userdata) {
         mErrorCallback = callback;
         mErrorUserdata = userdata;
     }
 
-    DeviceBase* DeviceBase::GetDevice() {
-        return this;
+    MaybeError DeviceBase::ValidateObject(const ObjectBase* object) const {
+        if (DAWN_UNLIKELY(object->GetDevice() != this)) {
+            return DAWN_VALIDATION_ERROR("Object from a different device.");
+        }
+        if (DAWN_UNLIKELY(object->IsError())) {
+            return DAWN_VALIDATION_ERROR("Object is an error.");
+        }
+        return {};
+    }
+
+    AdapterBase* DeviceBase::GetAdapter() const {
+        return mAdapter;
     }
 
     FenceSignalTracker* DeviceBase::GetFenceSignalTracker() const {
         return mFenceSignalTracker.get();
+    }
+
+    ResultOrError<const Format*> DeviceBase::GetInternalFormat(dawn::TextureFormat format) const {
+        size_t index = ComputeFormatIndex(format);
+        if (index >= mFormatTable.size()) {
+            return DAWN_VALIDATION_ERROR("Unknown texture format");
+        }
+
+        const Format* internalFormat = &mFormatTable[index];
+        if (!internalFormat->isSupported) {
+            return DAWN_VALIDATION_ERROR("Unsupported texture format");
+        }
+
+        return internalFormat;
+    }
+
+    const Format& DeviceBase::GetValidInternalFormat(dawn::TextureFormat format) const {
+        size_t index = ComputeFormatIndex(format);
+        ASSERT(index < mFormatTable.size());
+        ASSERT(mFormatTable[index].isSupported);
+        return mFormatTable[index];
     }
 
     ResultOrError<BindGroupLayoutBase*> DeviceBase::GetOrCreateBindGroupLayout(
@@ -95,12 +140,113 @@ namespace dawn_native {
     }
 
     void DeviceBase::UncacheBindGroupLayout(BindGroupLayoutBase* obj) {
-        mCaches->bindGroupLayouts.erase(obj);
+        size_t removedCount = mCaches->bindGroupLayouts.erase(obj);
+        ASSERT(removedCount == 1);
     }
 
-    const PCIInfo& DeviceBase::GetPCIInfo() const {
-        ASSERT(mAdapter != nullptr);
-        return mAdapter->GetPCIInfo();
+    ResultOrError<ComputePipelineBase*> DeviceBase::GetOrCreateComputePipeline(
+        const ComputePipelineDescriptor* descriptor) {
+        ComputePipelineBase blueprint(this, descriptor, true);
+
+        auto iter = mCaches->computePipelines.find(&blueprint);
+        if (iter != mCaches->computePipelines.end()) {
+            (*iter)->Reference();
+            return *iter;
+        }
+
+        ComputePipelineBase* backendObj;
+        DAWN_TRY_ASSIGN(backendObj, CreateComputePipelineImpl(descriptor));
+        mCaches->computePipelines.insert(backendObj);
+        return backendObj;
+    }
+
+    void DeviceBase::UncacheComputePipeline(ComputePipelineBase* obj) {
+        size_t removedCount = mCaches->computePipelines.erase(obj);
+        ASSERT(removedCount == 1);
+    }
+
+    ResultOrError<PipelineLayoutBase*> DeviceBase::GetOrCreatePipelineLayout(
+        const PipelineLayoutDescriptor* descriptor) {
+        PipelineLayoutBase blueprint(this, descriptor, true);
+
+        auto iter = mCaches->pipelineLayouts.find(&blueprint);
+        if (iter != mCaches->pipelineLayouts.end()) {
+            (*iter)->Reference();
+            return *iter;
+        }
+
+        PipelineLayoutBase* backendObj;
+        DAWN_TRY_ASSIGN(backendObj, CreatePipelineLayoutImpl(descriptor));
+        mCaches->pipelineLayouts.insert(backendObj);
+        return backendObj;
+    }
+
+    void DeviceBase::UncachePipelineLayout(PipelineLayoutBase* obj) {
+        size_t removedCount = mCaches->pipelineLayouts.erase(obj);
+        ASSERT(removedCount == 1);
+    }
+
+    ResultOrError<RenderPipelineBase*> DeviceBase::GetOrCreateRenderPipeline(
+        const RenderPipelineDescriptor* descriptor) {
+        RenderPipelineBase blueprint(this, descriptor, true);
+
+        auto iter = mCaches->renderPipelines.find(&blueprint);
+        if (iter != mCaches->renderPipelines.end()) {
+            (*iter)->Reference();
+            return *iter;
+        }
+
+        RenderPipelineBase* backendObj;
+        DAWN_TRY_ASSIGN(backendObj, CreateRenderPipelineImpl(descriptor));
+        mCaches->renderPipelines.insert(backendObj);
+        return backendObj;
+    }
+
+    void DeviceBase::UncacheRenderPipeline(RenderPipelineBase* obj) {
+        size_t removedCount = mCaches->renderPipelines.erase(obj);
+        ASSERT(removedCount == 1);
+    }
+
+    ResultOrError<SamplerBase*> DeviceBase::GetOrCreateSampler(
+        const SamplerDescriptor* descriptor) {
+        SamplerBase blueprint(this, descriptor, true);
+
+        auto iter = mCaches->samplers.find(&blueprint);
+        if (iter != mCaches->samplers.end()) {
+            (*iter)->Reference();
+            return *iter;
+        }
+
+        SamplerBase* backendObj;
+        DAWN_TRY_ASSIGN(backendObj, CreateSamplerImpl(descriptor));
+        mCaches->samplers.insert(backendObj);
+        return backendObj;
+    }
+
+    void DeviceBase::UncacheSampler(SamplerBase* obj) {
+        size_t removedCount = mCaches->samplers.erase(obj);
+        ASSERT(removedCount == 1);
+    }
+
+    ResultOrError<ShaderModuleBase*> DeviceBase::GetOrCreateShaderModule(
+        const ShaderModuleDescriptor* descriptor) {
+        ShaderModuleBase blueprint(this, descriptor, true);
+
+        auto iter = mCaches->shaderModules.find(&blueprint);
+        if (iter != mCaches->shaderModules.end()) {
+            (*iter)->Reference();
+            return *iter;
+        }
+
+        ShaderModuleBase* backendObj;
+        DAWN_TRY_ASSIGN(backendObj, CreateShaderModuleImpl(descriptor));
+        mCaches->shaderModules.insert(backendObj);
+        return backendObj;
+    }
+
+    void DeviceBase::UncacheShaderModule(ShaderModuleBase* obj) {
+        size_t removedCount = mCaches->shaderModules.erase(obj);
+        ASSERT(removedCount == 1);
     }
 
     // Object creation API methods
@@ -109,7 +255,7 @@ namespace dawn_native {
         BindGroupBase* result = nullptr;
 
         if (ConsumedError(CreateBindGroupInternal(&result, descriptor))) {
-            return nullptr;
+            return BindGroupBase::MakeError(this);
         }
 
         return result;
@@ -119,7 +265,7 @@ namespace dawn_native {
         BindGroupLayoutBase* result = nullptr;
 
         if (ConsumedError(CreateBindGroupLayoutInternal(&result, descriptor))) {
-            return nullptr;
+            return BindGroupLayoutBase::MakeError(this);
         }
 
         return result;
@@ -128,42 +274,82 @@ namespace dawn_native {
         BufferBase* result = nullptr;
 
         if (ConsumedError(CreateBufferInternal(&result, descriptor))) {
-            return nullptr;
+            return BufferBase::MakeError(this);
         }
 
         return result;
     }
-    CommandBufferBuilder* DeviceBase::CreateCommandBufferBuilder() {
-        return new CommandBufferBuilder(this);
+    DawnCreateBufferMappedResult DeviceBase::CreateBufferMapped(
+        const BufferDescriptor* descriptor) {
+        BufferBase* buffer = nullptr;
+        uint8_t* data = nullptr;
+
+        uint64_t size = descriptor->size;
+        if (ConsumedError(CreateBufferInternal(&buffer, descriptor)) ||
+            ConsumedError(buffer->MapAtCreation(&data))) {
+            // Map failed. Replace the buffer with an error buffer.
+            if (buffer != nullptr) {
+                delete buffer;
+            }
+            buffer = BufferBase::MakeErrorMapped(this, size, &data);
+        }
+
+        ASSERT(buffer != nullptr);
+        if (data == nullptr) {
+            // |data| may be nullptr if there was an OOM in MakeErrorMapped.
+            // Non-zero dataLength and nullptr data is used to indicate there should be
+            // mapped data but the allocation failed.
+            ASSERT(buffer->IsError());
+        } else {
+            memset(data, 0, size);
+        }
+
+        DawnCreateBufferMappedResult result = {};
+        result.buffer = reinterpret_cast<DawnBuffer>(buffer);
+        result.data = data;
+        result.dataLength = size;
+
+        return result;
+    }
+    void DeviceBase::CreateBufferMappedAsync(const BufferDescriptor* descriptor,
+                                             dawn::BufferCreateMappedCallback callback,
+                                             void* userdata) {
+        DawnCreateBufferMappedResult result = CreateBufferMapped(descriptor);
+
+        DawnBufferMapAsyncStatus status = DAWN_BUFFER_MAP_ASYNC_STATUS_SUCCESS;
+        if (result.data == nullptr || result.dataLength != descriptor->size) {
+            status = DAWN_BUFFER_MAP_ASYNC_STATUS_ERROR;
+        }
+
+        DeferredCreateBufferMappedAsync deferred_info;
+        deferred_info.callback = callback;
+        deferred_info.status = status;
+        deferred_info.result = result;
+        deferred_info.userdata = userdata;
+
+        // The callback is deferred so it matches the async behavior of WebGPU.
+        mDeferredCreateBufferMappedAsyncResults.push_back(deferred_info);
+    }
+    CommandEncoderBase* DeviceBase::CreateCommandEncoder(
+        const CommandEncoderDescriptor* descriptor) {
+        return new CommandEncoderBase(this, descriptor);
     }
     ComputePipelineBase* DeviceBase::CreateComputePipeline(
         const ComputePipelineDescriptor* descriptor) {
         ComputePipelineBase* result = nullptr;
 
         if (ConsumedError(CreateComputePipelineInternal(&result, descriptor))) {
-            return nullptr;
+            return ComputePipelineBase::MakeError(this);
         }
 
         return result;
-    }
-    FenceBase* DeviceBase::CreateFence(const FenceDescriptor* descriptor) {
-        FenceBase* result = nullptr;
-
-        if (ConsumedError(CreateFenceInternal(&result, descriptor))) {
-            return nullptr;
-        }
-
-        return result;
-    }
-    InputStateBuilder* DeviceBase::CreateInputStateBuilder() {
-        return new InputStateBuilder(this);
     }
     PipelineLayoutBase* DeviceBase::CreatePipelineLayout(
         const PipelineLayoutDescriptor* descriptor) {
         PipelineLayoutBase* result = nullptr;
 
         if (ConsumedError(CreatePipelineLayoutInternal(&result, descriptor))) {
-            return nullptr;
+            return PipelineLayoutBase::MakeError(this);
         }
 
         return result;
@@ -172,19 +358,19 @@ namespace dawn_native {
         QueueBase* result = nullptr;
 
         if (ConsumedError(CreateQueueInternal(&result))) {
+            // If queue creation failure ever becomes possible, we should implement MakeError and
+            // friends for them.
+            UNREACHABLE();
             return nullptr;
         }
 
         return result;
     }
-    RenderPassDescriptorBuilder* DeviceBase::CreateRenderPassDescriptorBuilder() {
-        return new RenderPassDescriptorBuilder(this);
-    }
     SamplerBase* DeviceBase::CreateSampler(const SamplerDescriptor* descriptor) {
         SamplerBase* result = nullptr;
 
         if (ConsumedError(CreateSamplerInternal(&result, descriptor))) {
-            return nullptr;
+            return SamplerBase::MakeError(this);
         }
 
         return result;
@@ -194,7 +380,7 @@ namespace dawn_native {
         RenderPipelineBase* result = nullptr;
 
         if (ConsumedError(CreateRenderPipelineInternal(&result, descriptor))) {
-            return nullptr;
+            return RenderPipelineBase::MakeError(this);
         }
 
         return result;
@@ -203,20 +389,27 @@ namespace dawn_native {
         ShaderModuleBase* result = nullptr;
 
         if (ConsumedError(CreateShaderModuleInternal(&result, descriptor))) {
-            return nullptr;
+            return ShaderModuleBase::MakeError(this);
         }
 
         return result;
     }
-    SwapChainBuilder* DeviceBase::CreateSwapChainBuilder() {
-        return new SwapChainBuilder(this);
+    SwapChainBase* DeviceBase::CreateSwapChain(const SwapChainDescriptor* descriptor) {
+        SwapChainBase* result = nullptr;
+
+        if (ConsumedError(CreateSwapChainInternal(&result, descriptor))) {
+            return SwapChainBase::MakeError(this);
+        }
+
+        return result;
     }
     TextureBase* DeviceBase::CreateTexture(const TextureDescriptor* descriptor) {
         TextureBase* result = nullptr;
 
         if (ConsumedError(CreateTextureInternal(&result, descriptor))) {
-            return nullptr;
+            return TextureBase::MakeError(this);
         }
+
         return result;
     }
     TextureViewBase* DeviceBase::CreateTextureView(TextureBase* texture,
@@ -224,8 +417,9 @@ namespace dawn_native {
         TextureViewBase* result = nullptr;
 
         if (ConsumedError(CreateTextureViewInternal(&result, texture, descriptor))) {
-            return nullptr;
+            return TextureViewBase::MakeError(this);
         }
+
         return result;
     }
 
@@ -233,6 +427,12 @@ namespace dawn_native {
 
     void DeviceBase::Tick() {
         TickImpl();
+        {
+            auto deferredResults = std::move(mDeferredCreateBufferMappedAsyncResults);
+            for (const auto& deferred : deferredResults) {
+                deferred.callback(deferred.status, deferred.result, deferred.userdata);
+            }
+        }
         mFenceSignalTracker->Tick(GetCompletedCommandSerial());
     }
 
@@ -247,6 +447,46 @@ namespace dawn_native {
         if (mRefCount == 0) {
             delete this;
         }
+    }
+
+    void DeviceBase::ApplyToggleOverrides(const DeviceDescriptor* deviceDescriptor) {
+        ASSERT(deviceDescriptor);
+
+        for (const char* toggleName : deviceDescriptor->forceEnabledToggles) {
+            Toggle toggle = GetAdapter()->GetInstance()->ToggleNameToEnum(toggleName);
+            if (toggle != Toggle::InvalidEnum) {
+                mTogglesSet.SetToggle(toggle, true);
+            }
+        }
+        for (const char* toggleName : deviceDescriptor->forceDisabledToggles) {
+            Toggle toggle = GetAdapter()->GetInstance()->ToggleNameToEnum(toggleName);
+            if (toggle != Toggle::InvalidEnum) {
+                mTogglesSet.SetToggle(toggle, false);
+            }
+        }
+    }
+
+    std::vector<const char*> DeviceBase::GetTogglesUsed() const {
+        std::vector<const char*> togglesNameInUse(mTogglesSet.toggleBitset.count());
+
+        uint32_t index = 0;
+        for (uint32_t i : IterateBitSet(mTogglesSet.toggleBitset)) {
+            const char* toggleName =
+                GetAdapter()->GetInstance()->ToggleEnumToName(static_cast<Toggle>(i));
+            togglesNameInUse[index] = toggleName;
+            ++index;
+        }
+
+        return togglesNameInUse;
+    }
+
+    bool DeviceBase::IsToggleEnabled(Toggle toggle) const {
+        return mTogglesSet.IsEnabled(toggle);
+    }
+
+    void DeviceBase::SetDefaultToggles() {
+        // Sets the default-enabled toggles
+        mTogglesSet.SetToggle(Toggle::LazyClearResourceOnFirstUse, true);
     }
 
     // Implementation details of object creation
@@ -277,14 +517,7 @@ namespace dawn_native {
         ComputePipelineBase** result,
         const ComputePipelineDescriptor* descriptor) {
         DAWN_TRY(ValidateComputePipelineDescriptor(this, descriptor));
-        DAWN_TRY_ASSIGN(*result, CreateComputePipelineImpl(descriptor));
-        return {};
-    }
-
-    MaybeError DeviceBase::CreateFenceInternal(FenceBase** result,
-                                               const FenceDescriptor* descriptor) {
-        DAWN_TRY(ValidateFenceDescriptor(this, descriptor));
-        *result = new FenceBase(this, descriptor);
+        DAWN_TRY_ASSIGN(*result, GetOrCreateComputePipeline(descriptor));
         return {};
     }
 
@@ -292,7 +525,7 @@ namespace dawn_native {
         PipelineLayoutBase** result,
         const PipelineLayoutDescriptor* descriptor) {
         DAWN_TRY(ValidatePipelineLayoutDescriptor(this, descriptor));
-        DAWN_TRY_ASSIGN(*result, CreatePipelineLayoutImpl(descriptor));
+        DAWN_TRY_ASSIGN(*result, GetOrCreatePipelineLayout(descriptor));
         return {};
     }
 
@@ -305,21 +538,28 @@ namespace dawn_native {
         RenderPipelineBase** result,
         const RenderPipelineDescriptor* descriptor) {
         DAWN_TRY(ValidateRenderPipelineDescriptor(this, descriptor));
-        DAWN_TRY_ASSIGN(*result, CreateRenderPipelineImpl(descriptor));
+        DAWN_TRY_ASSIGN(*result, GetOrCreateRenderPipeline(descriptor));
         return {};
     }
 
     MaybeError DeviceBase::CreateSamplerInternal(SamplerBase** result,
                                                  const SamplerDescriptor* descriptor) {
         DAWN_TRY(ValidateSamplerDescriptor(this, descriptor));
-        DAWN_TRY_ASSIGN(*result, CreateSamplerImpl(descriptor));
+        DAWN_TRY_ASSIGN(*result, GetOrCreateSampler(descriptor));
         return {};
     }
 
     MaybeError DeviceBase::CreateShaderModuleInternal(ShaderModuleBase** result,
                                                       const ShaderModuleDescriptor* descriptor) {
         DAWN_TRY(ValidateShaderModuleDescriptor(this, descriptor));
-        DAWN_TRY_ASSIGN(*result, CreateShaderModuleImpl(descriptor));
+        DAWN_TRY_ASSIGN(*result, GetOrCreateShaderModule(descriptor));
+        return {};
+    }
+
+    MaybeError DeviceBase::CreateSwapChainInternal(SwapChainBase** result,
+                                                   const SwapChainDescriptor* descriptor) {
+        DAWN_TRY(ValidateSwapChainDescriptor(this, descriptor));
+        DAWN_TRY_ASSIGN(*result, CreateSwapChainImpl(descriptor));
         return {};
     }
 
@@ -344,6 +584,17 @@ namespace dawn_native {
         ASSERT(error != nullptr);
         HandleError(error->GetMessage().c_str());
         delete error;
+    }
+
+    ResultOrError<DynamicUploader*> DeviceBase::GetDynamicUploader() const {
+        if (mDynamicUploader->IsEmpty()) {
+            DAWN_TRY(mDynamicUploader->CreateAndAppendBuffer());
+        }
+        return mDynamicUploader.get();
+    }
+
+    void DeviceBase::SetToggle(Toggle toggle, bool isEnabled) {
+        mTogglesSet.SetToggle(toggle, isEnabled);
     }
 
 }  // namespace dawn_native

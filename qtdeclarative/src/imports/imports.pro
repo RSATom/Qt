@@ -1,4 +1,5 @@
 TEMPLATE = subdirs
+QT_FOR_CONFIG += qml-private
 
 SUBDIRS += \
     builtins \
@@ -6,7 +7,8 @@ SUBDIRS += \
     models \
     labsmodels
 
-SUBDIRS += folderlistmodel
+qtConfig(qml-itemmodel): SUBDIRS += folderlistmodel
+qtConfig(qml-worker-script): SUBDIRS += workerscript
 qtHaveModule(sql): SUBDIRS += localstorage
 qtConfig(settings): SUBDIRS += settings
 qtConfig(statemachine): SUBDIRS += statemachine
@@ -15,10 +17,12 @@ qtHaveModule(quick) {
     QT_FOR_CONFIG += quick-private
 
     SUBDIRS += \
+        labsanimation \
         layouts \
         qtquick2 \
-        window \
-        wavefrontmesh
+        window
+
+    qtConfig(quick-shadereffect): SUBDIRS += wavefrontmesh
 
     qtHaveModule(testlib): SUBDIRS += testlib
     qtConfig(systemsemaphore): SUBDIRS += sharedimage

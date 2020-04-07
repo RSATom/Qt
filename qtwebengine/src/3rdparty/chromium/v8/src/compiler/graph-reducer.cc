@@ -5,10 +5,11 @@
 #include <functional>
 #include <limits>
 
-#include "src/compiler/graph.h"
+#include "src/codegen/tick-counter.h"
 #include "src/compiler/graph-reducer.h"
-#include "src/compiler/node.h"
+#include "src/compiler/graph.h"
 #include "src/compiler/node-properties.h"
+#include "src/compiler/node.h"
 #include "src/compiler/verifier.h"
 
 namespace v8 {
@@ -25,13 +26,15 @@ enum class GraphReducer::State : uint8_t {
 
 void Reducer::Finalize() {}
 
-GraphReducer::GraphReducer(Zone* zone, Graph* graph, Node* dead)
+GraphReducer::GraphReducer(Zone* zone, Graph* graph, TickCounter* tick_counter,
+                           Node* dead)
     : graph_(graph),
       dead_(dead),
       state_(graph, 4),
       reducers_(zone),
       revisit_(zone),
-      stack_(zone) {
+      stack_(zone),
+      tick_counter_(tick_counter) {
   if (dead != nullptr) {
     NodeProperties::SetType(dead_, Type::None());
   }
@@ -82,6 +85,7 @@ Reduction GraphReducer::Reduce(Node* const node) {
   auto skip = reducers_.end();
   for (auto i = reducers_.begin(); i != reducers_.end();) {
     if (i != skip) {
+      tick_counter_->DoTick();
       Reduction reduction = (*i)->Reduce(node);
       if (!reduction.Changed()) {
         // No change from this reducer.
@@ -90,7 +94,8 @@ Reduction GraphReducer::Reduce(Node* const node) {
         // all the other reducers for this node, as now there may be more
         // opportunities for reduction.
         if (FLAG_trace_turbo_reduction) {
-          StdoutStream{} << "- In-place update of " << *node << " by reducer "
+          AllowHandleDereference allow_deref;
+          StdoutStream{} << "- In-place update of #" << *node << " by reducer "
                          << (*i)->reducer_name() << std::endl;
         }
         skip = i;
@@ -99,7 +104,8 @@ Reduction GraphReducer::Reduce(Node* const node) {
       } else {
         // {node} was replaced by another node.
         if (FLAG_trace_turbo_reduction) {
-          StdoutStream{} << "- Replacement of " << *node << " with "
+          AllowHandleDereference allow_deref;
+          StdoutStream{} << "- Replacement of #" << *node << " with #"
                          << *(reduction.replacement()) << " by reducer "
                          << (*i)->reducer_name() << std::endl;
         }

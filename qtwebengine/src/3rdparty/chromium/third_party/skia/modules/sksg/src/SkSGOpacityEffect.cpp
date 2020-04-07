@@ -5,7 +5,7 @@
  * found in the LICENSE file.
  */
 
-#include "SkSGOpacityEffect.h"
+#include "modules/sksg/include/SkSGOpacityEffect.h"
 
 namespace sksg {
 
@@ -21,6 +21,10 @@ void OpacityEffect::onRender(SkCanvas* canvas, const RenderContext* ctx) const {
     const auto local_context = ScopedRenderContext(canvas, ctx).modulateOpacity(fOpacity);
 
     this->INHERITED::onRender(canvas, local_context);
+}
+
+const RenderNode* OpacityEffect::onNodeAt(const SkPoint& p) const {
+    return (fOpacity > 0) ? this->INHERITED::onNodeAt(p) : nullptr;
 }
 
 SkRect OpacityEffect::onRevalidate(InvalidationController* ic, const SkMatrix& ctm) {

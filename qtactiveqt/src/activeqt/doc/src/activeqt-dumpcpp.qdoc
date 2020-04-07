@@ -70,8 +70,11 @@
     \li Print help
     \endtable
 
-    \c dumpcpp can be integrated into the \c qmake build system. In your .pro
-    file, list the type libraries you want to use in the TYPELIBS variable:
+    Running the tool manually (and perhaps even checking the generated files into your version
+    control system) is usually sufficient, as type libraries change very rarely.
+    If your type library changes frequently, then you can integrate \c dumpcpp into the \c qmake
+    build system. In your .pro file, list the type libraries you want to use in the TYPELIBS
+    variable:
 
     \snippet activeqt/qutlook/qutlook.pro 0
 

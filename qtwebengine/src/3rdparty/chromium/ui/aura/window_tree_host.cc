@@ -20,8 +20,8 @@
 #include "ui/aura/window_event_dispatcher.h"
 #include "ui/aura/window_targeter.h"
 #include "ui/aura/window_tree_host_observer.h"
+#include "ui/base/ime/init/input_method_factory.h"
 #include "ui/base/ime/input_method.h"
-#include "ui/base/ime/input_method_factory.h"
 #include "ui/base/layout.h"
 #include "ui/base/ui_base_features.h"
 #include "ui/base/view_prop.h"
@@ -51,13 +51,6 @@ namespace {
 const char kWindowTreeHostForAcceleratedWidget[] =
     "__AURA_WINDOW_TREE_HOST_ACCELERATED_WIDGET__";
 
-bool ShouldAllocateLocalSurfaceId(Window* window) {
-  // When running with the window service (either in 'mus' or 'mash' mode), the
-  // LocalSurfaceId allocation for the WindowTreeHost is managed by the
-  // WindowTreeClient and WindowTreeHostMus.
-  return window->env()->mode() == Env::Mode::LOCAL;
-}
-
 #if DCHECK_IS_ON()
 class ScopedLocalSurfaceIdValidator {
  public:
@@ -67,9 +60,10 @@ class ScopedLocalSurfaceIdValidator {
             window ? window->GetLocalSurfaceIdAllocation().local_surface_id()
                    : viz::LocalSurfaceId()) {}
   ~ScopedLocalSurfaceIdValidator() {
-    if (window_ && ShouldAllocateLocalSurfaceId(window_))
+    if (window_) {
       DCHECK_EQ(local_surface_id_,
                 window_->GetLocalSurfaceIdAllocation().local_surface_id());
+    }
   }
 
  private:
@@ -120,7 +114,7 @@ void WindowTreeHost::InitHost() {
 
   UpdateRootWindowSizeInPixels();
   InitCompositor();
-  window()->env()->NotifyHostInitialized(this);
+  Env::GetInstance()->NotifyHostInitialized(this);
 }
 
 void WindowTreeHost::AddObserver(WindowTreeHostObserver* observer) {
@@ -258,14 +252,14 @@ ui::InputMethod* WindowTreeHost::GetInputMethod() {
 }
 
 void WindowTreeHost::SetSharedInputMethod(ui::InputMethod* input_method) {
-  DCHECK(!input_method_);
+  if (input_method_ && owned_input_method_)
+    delete input_method_;
   input_method_ = input_method;
   owned_input_method_ = false;
 }
 
 ui::EventDispatchDetails WindowTreeHost::DispatchKeyEventPostIME(
-    ui::KeyEvent* event,
-    base::OnceCallback<void(bool)> ack_callback) {
+    ui::KeyEvent* event) {
   // If dispatch to IME is already disabled we shouldn't reach here.
   DCHECK(!dispatcher_->should_skip_ime());
   dispatcher_->set_skip_ime(true);
@@ -274,7 +268,6 @@ ui::EventDispatchDetails WindowTreeHost::DispatchKeyEventPostIME(
       event_sink()->OnEventFromSource(event);
   if (!dispatch_details.dispatcher_destroyed)
     dispatcher_->set_skip_ime(false);
-  CallDispatchKeyEventPostIMEAck(event, std::move(ack_callback));
   return dispatch_details;
 }
 
@@ -351,8 +344,7 @@ WindowTreeHost::WindowTreeHost(std::unique_ptr<Window> window)
       occlusion_state_(Window::OcclusionState::UNKNOWN),
       last_cursor_(ui::CursorType::kNull),
       input_method_(nullptr),
-      owned_input_method_(false),
-      weak_factory_(this) {
+      owned_input_method_(false) {
   if (!window_)
     window_ = new Window(nullptr);
   display::Screen::GetScreen()->AddObserver(this);
@@ -393,8 +385,7 @@ void WindowTreeHost::CreateCompositor(
     ui::ExternalBeginFrameClient* external_begin_frame_client,
     bool are_events_in_pixels,
     const char* trace_environment_name) {
-  DCHECK(window()->env());
-  Env* env = window()->env();
+  Env* env = Env::GetInstance();
   ui::ContextFactory* context_factory = env->context_factory();
   DCHECK(context_factory);
   ui::ContextFactoryPrivate* context_factory_private =
@@ -427,7 +418,8 @@ void WindowTreeHost::InitCompositor() {
 
   display::Display display =
       display::Screen::GetScreen()->GetDisplayNearestWindow(window());
-  compositor_->SetDisplayColorSpace(display.color_space());
+  compositor_->SetDisplayColorSpace(display.color_space(),
+                                    display.sdr_white_level());
 }
 
 void WindowTreeHost::OnAcceleratedWidgetAvailable() {
@@ -446,26 +438,22 @@ void WindowTreeHost::OnHostMovedInPixels(
 }
 
 void WindowTreeHost::OnHostResizedInPixels(
-    const gfx::Size& new_size_in_pixels,
-    const viz::LocalSurfaceIdAllocation& new_local_surface_id_allocation) {
-  // TODO(jonross) Unify all OnHostResizedInPixels to have both
-  // viz::LocalSurfaceId and allocation time as optional parameters.
+    const gfx::Size& new_size_in_pixels) {
+  // The compositor is deleted from WM_DESTROY, but we don't delete things until
+  // WM_NCDESTROY, and it must be possible to still get some messages between
+  // these two.
+  if (!compositor_)
+    return;
   display::Display display =
       display::Screen::GetScreen()->GetDisplayNearestWindow(window());
   device_scale_factor_ = display.device_scale_factor();
   UpdateRootWindowSizeInPixels();
 
   // Allocate a new LocalSurfaceId for the new state.
-  viz::LocalSurfaceIdAllocation local_surface_id_allocation(
-      new_local_surface_id_allocation);
-  if (ShouldAllocateLocalSurfaceId(window()) &&
-      !new_local_surface_id_allocation.IsValid()) {
-    window_->AllocateLocalSurfaceId();
-    local_surface_id_allocation = window_->GetLocalSurfaceIdAllocation();
-  }
+  window_->AllocateLocalSurfaceId();
   ScopedLocalSurfaceIdValidator lsi_validator(window());
   compositor_->SetScaleAndSize(device_scale_factor_, new_size_in_pixels,
-                               local_surface_id_allocation);
+                               window_->GetLocalSurfaceIdAllocation());
 
   for (WindowTreeHostObserver& observer : observers_)
     observer.OnHostResized(this);
@@ -481,7 +469,8 @@ void WindowTreeHost::OnHostDisplayChanged() {
     return;
   display::Display display =
       display::Screen::GetScreen()->GetDisplayNearestWindow(window());
-  compositor_->SetDisplayColorSpace(display.color_space());
+  compositor_->SetDisplayColorSpace(display.color_space(),
+                                    display.sdr_white_level());
 }
 
 void WindowTreeHost::OnHostCloseRequested() {
@@ -507,7 +496,8 @@ void WindowTreeHost::OnDisplayMetricsChanged(const display::Display& display,
     display::Screen* screen = display::Screen::GetScreen();
     if (compositor_ &&
         display.id() == screen->GetDisplayNearestView(window()).id()) {
-      compositor_->SetDisplayColorSpace(display.color_space());
+      compositor_->SetDisplayColorSpace(display.color_space(),
+                                        display.sdr_white_level());
     }
   }
 }
@@ -537,7 +527,7 @@ void WindowTreeHost::MoveCursorToInternal(const gfx::Point& root_location,
   dispatcher()->OnCursorMovedToRootLocation(root_location);
 }
 
-void WindowTreeHost::OnCompositingDidCommit(ui::Compositor* compositor) {
+void WindowTreeHost::OnCompositingEnded(ui::Compositor* compositor) {
   if (!holding_pointer_moves_)
     return;
 
@@ -549,7 +539,7 @@ void WindowTreeHost::OnCompositingDidCommit(ui::Compositor* compositor) {
 }
 
 void WindowTreeHost::OnCompositingChildResizing(ui::Compositor* compositor) {
-  if (!window()->env()->throttle_input_on_resize() || holding_pointer_moves_)
+  if (!Env::GetInstance()->throttle_input_on_resize() || holding_pointer_moves_)
     return;
   synchronization_start_time_ = base::TimeTicks::Now();
   dispatcher_->HoldPointerMoves();

@@ -139,8 +139,9 @@ void MenuHost::InitMenuHost(Widget* parent,
   Init(params);
 
 #if !defined(OS_MACOSX)
-  pre_dispatch_handler_.reset(new internal::PreMenuEventDispatchHandler(
-      menu_controller, submenu_, GetNativeView()));
+  pre_dispatch_handler_ =
+      std::make_unique<internal::PreMenuEventDispatchHandler>(
+          menu_controller, submenu_, GetNativeView());
 #endif
 
   DCHECK(!owner_);
@@ -230,7 +231,7 @@ void MenuHost::OnMouseCaptureLost() {
   MenuController* menu_controller =
       submenu_->GetMenuItem()->GetMenuController();
   if (menu_controller && !menu_controller->drag_in_progress())
-    menu_controller->CancelAll();
+    menu_controller->Cancel(MenuController::ExitType::kAll);
   Widget::OnMouseCaptureLost();
 }
 
@@ -251,7 +252,7 @@ void MenuHost::OnOwnerClosing() {
   MenuController* menu_controller =
       submenu_->GetMenuItem()->GetMenuController();
   if (menu_controller && !menu_controller->drag_in_progress())
-    menu_controller->CancelAll();
+    menu_controller->Cancel(MenuController::ExitType::kAll);
 }
 
 void MenuHost::OnDragWillStart() {

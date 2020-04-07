@@ -30,8 +30,9 @@
 #include <private/qqmljsparser_p.h>
 #include <private/qqmljsast_p.h>
 #include <private/qv4codegen_p.h>
-#include <private/qv4value_p.h>
+#include <private/qv4staticvalue_p.h>
 #include <private/qqmlirbuilder_p.h>
+#include <private/qqmljsdiagnosticmessage_p.h>
 
 #include <QtCore/QCoreApplication>
 #include <QtCore/QDir>
@@ -47,6 +48,8 @@
 #include <QtCore/QJsonArray>
 #include <QtCore/QJsonDocument>
 #include <QtCore/QLibraryInfo>
+
+#include <resourcefilemapper.h>
 
 #include <iostream>
 #include <algorithm>
@@ -79,13 +82,14 @@ void printUsage(const QString &appNameIn)
 #endif
     std::wcerr
         << "Usage: " << appName << " -rootPath path/to/app/qml/directory -importPath path/to/qt/qml/directory\n"
-           "       " << appName << " -qmlFiles file1 file2 -importPath path/to/qt/qml/directory\n\n"
+           "       " << appName << " -qmlFiles file1 file2 -importPath path/to/qt/qml/directory\n"
+           "       " << appName << " -qrcFiles file1.qrc file2.qrc -importPath path/to/qt/qml/directory\n\n"
            "Example: " << appName << " -rootPath . -importPath "
         << QDir::toNativeSeparators(qmlPath).toStdWString()
         << '\n';
 }
 
-QVariantList findImportsInAst(QQmlJS::AST::UiHeaderItemList *headerItemList, const QString &code, const QString &path)
+QVariantList findImportsInAst(QQmlJS::AST::UiHeaderItemList *headerItemList, const QString &path)
 {
     QVariantList imports;
 
@@ -119,7 +123,8 @@ QVariantList findImportsInAst(QQmlJS::AST::UiHeaderItemList *headerItemList, con
             if (!name.isEmpty())
                 import[nameLiteral()] = name;
             import[typeLiteral()] = moduleLiteral();
-            import[versionLiteral()] = code.mid(importNode->versionToken.offset, importNode->versionToken.length);
+            auto versionString = importNode->version ? QString::number(importNode->version->majorVersion) + QLatin1Char('.') + QString::number(importNode->version->minorVersion) : QString();
+            import[versionLiteral()] = versionString;
         }
 
         imports.append(import);
@@ -272,11 +277,11 @@ QVariantList findQmlImportsInQmlCode(const QString &filePath, const QString &cod
         const auto diagnosticMessages = parser.diagnosticMessages();
         for (const QQmlJS::DiagnosticMessage &m : diagnosticMessages) {
             std::cerr << QDir::toNativeSeparators(filePath).toStdString() << ':'
-                      << m.loc.startLine << ':' << m.message.toStdString() << std::endl;
+                      << m.line << ':' << m.message.toStdString() << std::endl;
         }
         return QVariantList();
     }
-    return findImportsInAst(parser.ast()->headers, code, filePath);
+    return findImportsInAst(parser.ast()->headers, filePath);
 }
 
 // Scan a single qml file for import statements
@@ -494,6 +499,36 @@ QVariantList findQmlImportsRecursively(const QStringList &qmlDirs, const QString
     return ret;
 }
 
+
+QString generateCmakeIncludeFileContent(const QVariantList &importList) {
+    // The function assumes that "list" is a QVariantList with 0 or more QVariantMaps, where
+    // each map contains QString -> QVariant<QString> mappings. This matches with the structure
+    // that qmake parses for static qml plugin auto imporitng.
+    // So: [ {"a": "a","b": "b"}, {"c": "c"} ]
+    QString content;
+    QTextStream s(&content);
+    int importsCount = 0;
+    for (const QVariant &importVariant: importList) {
+        if (static_cast<QMetaType::Type>(importVariant.type()) == QMetaType::QVariantMap) {
+            s << QStringLiteral("set(qml_import_scanner_import_") << importsCount
+              << QStringLiteral(" \"");
+
+            const QMap<QString, QVariant> &importDict = importVariant.toMap();
+            for (auto it = importDict.cbegin(); it != importDict.cend(); ++it) {
+                s << it.key().toUpper() << QLatin1Char(';')
+                  << it.value().toString() << QLatin1Char(';');
+            }
+            s << QStringLiteral("\")\n");
+            ++importsCount;
+        }
+    }
+    if (importsCount >= 0) {
+        content.prepend(QString(QStringLiteral("set(qml_import_scanner_imports_count %1)\n"))
+               .arg(importsCount));
+    }
+    return content;
+}
+
 } // namespace
 
 int main(int argc, char *argv[])
@@ -510,6 +545,8 @@ int main(int argc, char *argv[])
     QStringList qmlRootPaths;
     QStringList scanFiles;
     QStringList qmlImportPaths;
+    QStringList qrcFiles;
+    bool generateCmakeContent = false;
 
     int i = 1;
     while (i < args.count()) {
@@ -534,6 +571,10 @@ int main(int argc, char *argv[])
             if (i >= args.count())
                 std::cerr << "-importPath requires an argument\n";
             argReceiver = &qmlImportPaths;
+        } else if (arg == QLatin1String("-cmake-output")) {
+             generateCmakeContent = true;
+        } else if (arg == QLatin1String("-qrcFiles")) {
+            argReceiver = &qrcFiles;
         } else {
             std::cerr << qPrintable(appName) << ": Invalid argument: \""
                 << qPrintable(arg) << "\"\n";
@@ -555,13 +596,23 @@ int main(int argc, char *argv[])
         }
     }
 
+    if (!qrcFiles.isEmpty())
+        scanFiles << ResourceFileMapper(qrcFiles).qmlCompilerFiles(ResourceFileMapper::FileOutput::AbsoluteFilePath);
+
     g_qmlImportPaths = qmlImportPaths;
 
     // Find the imports!
     QVariantList imports = findQmlImportsRecursively(qmlRootPaths, scanFiles);
 
-    // Convert to JSON
-    QByteArray json = QJsonDocument(QJsonArray::fromVariantList(imports)).toJson();
-    std::cout << json.constData() << std::endl;
+    QByteArray content;
+    if (generateCmakeContent) {
+        // Convert to CMake code
+        content = generateCmakeIncludeFileContent(imports).toUtf8();
+    } else {
+        // Convert to JSON
+        content = QJsonDocument(QJsonArray::fromVariantList(imports)).toJson();
+    }
+
+    std::cout << content.constData() << std::endl;
     return 0;
 }

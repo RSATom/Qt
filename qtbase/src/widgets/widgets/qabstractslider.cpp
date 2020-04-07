@@ -47,6 +47,8 @@
 #endif
 #include <limits.h>
 
+#include <private/qapplication_p.h>
+
 QT_BEGIN_NAMESPACE
 
 /*!
@@ -719,15 +721,10 @@ bool QAbstractSliderPrivate::scrollByDelta(Qt::Orientation orientation, Qt::Keyb
             offset_accumulated = 0;
 
         offset_accumulated += stepsToScrollF;
-#if 1 // Used to be excluded in Qt4 for Q_WS_MAC
+
         // Don't scroll more than one page in any case:
         stepsToScroll = qBound(-pageStep, int(offset_accumulated), pageStep);
-#else
-        // Native UI-elements on Mac can scroll hundreds of lines at a time as
-        // a result of acceleration. So keep the same behaviour in Qt, and
-        // don't restrict stepsToScroll to certain maximum (pageStep):
-        stepsToScroll = int(offset_accumulated);
-#endif
+
         offset_accumulated -= int(offset_accumulated);
         if (stepsToScroll == 0) {
             // We moved less than a line, but might still have accumulated partial scroll,
@@ -764,10 +761,11 @@ void QAbstractSlider::wheelEvent(QWheelEvent * e)
 {
     Q_D(QAbstractSlider);
     e->ignore();
-    int delta = e->delta();
+    bool vertical = bool(e->angleDelta().y());
+    int delta = vertical ? e->angleDelta().y() : e->angleDelta().x();
     if (e->inverted())
         delta = -delta;
-    if (d->scrollByDelta(e->orientation(), e->modifiers(), delta))
+    if (d->scrollByDelta(vertical ? Qt::Vertical : Qt::Horizontal, e->modifiers(), delta))
         e->accept();
 }
 
@@ -815,13 +813,13 @@ void QAbstractSlider::keyPressEvent(QKeyEvent *ev)
     switch (ev->key()) {
 #ifdef QT_KEYPAD_NAVIGATION
         case Qt::Key_Select:
-            if (QApplication::keypadNavigationEnabled())
+            if (QApplicationPrivate::keypadNavigationEnabled())
                 setEditFocus(!hasEditFocus());
             else
                 ev->ignore();
             break;
         case Qt::Key_Back:
-            if (QApplication::keypadNavigationEnabled() && hasEditFocus()) {
+            if (QApplicationPrivate::keypadNavigationEnabled() && hasEditFocus()) {
                 setValue(d->origValue);
                 setEditFocus(false);
             } else
@@ -834,7 +832,7 @@ void QAbstractSlider::keyPressEvent(QKeyEvent *ev)
             // In QApplication::KeypadNavigationDirectional, we want to change the slider
             // value if there is no left/right navigation possible and if this slider is not
             // inside a tab widget.
-            if (QApplication::keypadNavigationEnabled()
+            if (QApplicationPrivate::keypadNavigationEnabled()
                     && (!hasEditFocus() && QApplication::navigationMode() == Qt::NavigationModeKeypadTabOrder
                     || d->orientation == Qt::Vertical
                     || !hasEditFocus()
@@ -842,7 +840,7 @@ void QAbstractSlider::keyPressEvent(QKeyEvent *ev)
                 ev->ignore();
                 return;
             }
-            if (QApplication::keypadNavigationEnabled() && d->orientation == Qt::Vertical)
+            if (QApplicationPrivate::keypadNavigationEnabled() && d->orientation == Qt::Vertical)
                 action = d->invertedControls ? SliderSingleStepSub : SliderSingleStepAdd;
             else
 #endif
@@ -854,7 +852,7 @@ void QAbstractSlider::keyPressEvent(QKeyEvent *ev)
         case Qt::Key_Right:
 #ifdef QT_KEYPAD_NAVIGATION
             // Same logic as in Qt::Key_Left
-            if (QApplication::keypadNavigationEnabled()
+            if (QApplicationPrivate::keypadNavigationEnabled()
                     && (!hasEditFocus() && QApplication::navigationMode() == Qt::NavigationModeKeypadTabOrder
                     || d->orientation == Qt::Vertical
                     || !hasEditFocus()
@@ -862,7 +860,7 @@ void QAbstractSlider::keyPressEvent(QKeyEvent *ev)
                 ev->ignore();
                 return;
             }
-            if (QApplication::keypadNavigationEnabled() && d->orientation == Qt::Vertical)
+            if (QApplicationPrivate::keypadNavigationEnabled() && d->orientation == Qt::Vertical)
                 action = d->invertedControls ? SliderSingleStepAdd : SliderSingleStepSub;
             else
 #endif
@@ -875,7 +873,7 @@ void QAbstractSlider::keyPressEvent(QKeyEvent *ev)
 #ifdef QT_KEYPAD_NAVIGATION
             // In QApplication::KeypadNavigationDirectional, we want to change the slider
             // value if there is no up/down navigation possible.
-            if (QApplication::keypadNavigationEnabled()
+            if (QApplicationPrivate::keypadNavigationEnabled()
                     && (QApplication::navigationMode() == Qt::NavigationModeKeypadTabOrder
                     || d->orientation == Qt::Horizontal
                     || !hasEditFocus() && QWidgetPrivate::canKeypadNavigate(Qt::Vertical))) {
@@ -888,7 +886,7 @@ void QAbstractSlider::keyPressEvent(QKeyEvent *ev)
         case Qt::Key_Down:
 #ifdef QT_KEYPAD_NAVIGATION
             // Same logic as in Qt::Key_Up
-            if (QApplication::keypadNavigationEnabled()
+            if (QApplicationPrivate::keypadNavigationEnabled()
                     && (QApplication::navigationMode() == Qt::NavigationModeKeypadTabOrder
                     || d->orientation == Qt::Horizontal
                     || !hasEditFocus() && QWidgetPrivate::canKeypadNavigate(Qt::Vertical))) {

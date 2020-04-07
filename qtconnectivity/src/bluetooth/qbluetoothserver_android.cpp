@@ -53,9 +53,10 @@ Q_DECLARE_LOGGING_CATEGORY(QT_BT_ANDROID)
 
 QHash<QBluetoothServerPrivate*, int> __fakeServerPorts;
 
-QBluetoothServerPrivate::QBluetoothServerPrivate(QBluetoothServiceInfo::Protocol sType)
+QBluetoothServerPrivate::QBluetoothServerPrivate(QBluetoothServiceInfo::Protocol sType,
+                                                 QBluetoothServer *parent)
     : socket(0),maxPendingConnections(1), securityFlags(QBluetooth::NoSecurity), serverType(sType),
-      m_lastError(QBluetoothServer::NoError)
+      m_lastError(QBluetoothServer::NoError), q_ptr(parent)
 {
     thread = new ServerAcceptanceThread();
     thread->setMaxPendingConnections(maxPendingConnections);

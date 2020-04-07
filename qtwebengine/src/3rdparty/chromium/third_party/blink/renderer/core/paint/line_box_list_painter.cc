@@ -11,6 +11,7 @@
 #include "third_party/blink/renderer/core/layout/line/root_inline_box.h"
 #include "third_party/blink/renderer/core/paint/object_painter.h"
 #include "third_party/blink/renderer/core/paint/paint_info.h"
+#include "third_party/blink/renderer/core/paint/paint_timing_detector.h"
 #include "third_party/blink/renderer/platform/graphics/paint/paint_controller.h"
 
 namespace blink {
@@ -18,7 +19,7 @@ namespace blink {
 static void AddPDFURLRectsForInlineChildrenRecursively(
     const LayoutObject& layout_object,
     const PaintInfo& paint_info,
-    const LayoutPoint& paint_offset) {
+    const PhysicalOffset& paint_offset) {
   for (LayoutObject* child = layout_object.SlowFirstChild(); child;
        child = child->NextSibling()) {
     if (!child->IsLayoutInline() ||
@@ -32,7 +33,7 @@ static void AddPDFURLRectsForInlineChildrenRecursively(
 
 void LineBoxListPainter::Paint(const LayoutBoxModelObject& layout_object,
                                const PaintInfo& paint_info,
-                               const LayoutPoint& paint_offset) const {
+                               const PhysicalOffset& paint_offset) const {
   DCHECK(!ShouldPaintSelfOutline(paint_info.phase) &&
          !ShouldPaintDescendantOutlines(paint_info.phase));
 
@@ -60,6 +61,18 @@ void LineBoxListPainter::Paint(const LayoutBoxModelObject& layout_object,
           paint_info.GetCullRect(), paint_offset))
     return;
 
+  ScopedPaintTimingDetectorBlockPaintHook
+      scoped_paint_timing_detector_block_paint_hook;
+  if (RuntimeEnabledFeatures::FirstContentfulPaintPlusPlusEnabled() ||
+      RuntimeEnabledFeatures::ElementTimingEnabled(
+          &layout_object.GetDocument())) {
+    if (paint_info.phase == PaintPhase::kForeground) {
+      scoped_paint_timing_detector_block_paint_hook.EmplaceIfNeeded(
+          layout_object, paint_info.context.GetPaintController()
+                             .CurrentPaintChunkProperties());
+    }
+  }
+
   // See if our root lines intersect with the dirty rect. If so, then we paint
   // them. Note that boxes can easily overlap, so we can't make any assumptions
   // based off positions of our first line box or our last line box.
@@ -69,7 +82,8 @@ void LineBoxListPainter::Paint(const LayoutBoxModelObject& layout_object,
                 const_cast<LayoutBoxModelObject*>(&layout_object)),
             curr, paint_info.GetCullRect(), paint_offset)) {
       RootInlineBox& root = curr->Root();
-      curr->Paint(paint_info, paint_offset, root.LineTop(), root.LineBottom());
+      curr->Paint(paint_info, paint_offset.ToLayoutPoint(), root.LineTop(),
+                  root.LineBottom());
     }
   }
 }

@@ -35,7 +35,6 @@
 #include <QTransform>
 #include <QGradient>
 #include <QPointer>
-#include <QVectorIterator>
 
 #include <QtBodymovin/private/bmshape_p.h>
 #include <QtBodymovin/private/bmfill_p.h>

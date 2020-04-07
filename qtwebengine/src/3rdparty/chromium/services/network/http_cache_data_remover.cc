@@ -7,6 +7,7 @@
 #include <set>
 #include <string>
 
+#include "base/bind.h"
 #include "base/location.h"
 #include "base/threading/sequenced_task_runner_handle.h"
 #include "net/base/registry_controlled_domains/registry_controlled_domain.h"
@@ -47,8 +48,7 @@ HttpCacheDataRemover::HttpCacheDataRemover(
     : delete_begin_(delete_begin),
       delete_end_(delete_end),
       done_callback_(std::move(done_callback)),
-      backend_(nullptr),
-      weak_factory_(this) {
+      backend_(nullptr) {
   DCHECK(!done_callback_.is_null());
 
   if (!url_filter)

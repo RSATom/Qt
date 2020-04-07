@@ -1,7 +1,7 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
-** Copyright (C) 2016 Intel Corporation.
+** Copyright (C) 2019 The Qt Company Ltd.
+** Copyright (C) 2019 Intel Corporation.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtCore module of the Qt Toolkit.
@@ -307,6 +307,14 @@ typedef double qreal;
 #  define QT_DEPRECATED_CONSTRUCTOR
 #endif
 
+#ifndef QT_DEPRECATED_WARNINGS_SINCE
+# ifdef QT_DISABLE_DEPRECATED_BEFORE
+#  define QT_DEPRECATED_WARNINGS_SINCE QT_DISABLE_DEPRECATED_BEFORE
+# else
+#  define QT_DEPRECATED_WARNINGS_SINCE QT_VERSION
+# endif
+#endif
+
 #ifndef QT_DISABLE_DEPRECATED_BEFORE
 #define QT_DISABLE_DEPRECATED_BEFORE QT_VERSION_CHECK(5, 0, 0)
 #endif
@@ -327,6 +335,59 @@ typedef double qreal;
 #define QT_DEPRECATED_SINCE(major, minor) (QT_VERSION_CHECK(major, minor, 0) > QT_DISABLE_DEPRECATED_BEFORE)
 #else
 #define QT_DEPRECATED_SINCE(major, minor) 0
+#endif
+
+/*
+  QT_DEPRECATED_VERSION(major, minor) and QT_DEPRECATED_VERSION_X(major, minor, text)
+  outputs a deprecation warning if QT_DEPRECATED_WARNINGS_SINCE is equal or greater
+  than the version specified as major, minor. This makes it possible to deprecate a
+  function without annoying a user who needs to stick at a specified minimum version
+  and therefore can't use the new function.
+*/
+#if QT_DEPRECATED_WARNINGS_SINCE >= QT_VERSION_CHECK(5, 12, 0)
+# define QT_DEPRECATED_VERSION_X_5_12(text) QT_DEPRECATED_X(text)
+# define QT_DEPRECATED_VERSION_5_12         QT_DEPRECATED
+#else
+# define QT_DEPRECATED_VERSION_X_5_12(text)
+# define QT_DEPRECATED_VERSION_5_12
+#endif
+
+#if QT_DEPRECATED_WARNINGS_SINCE >= QT_VERSION_CHECK(5, 13, 0)
+# define QT_DEPRECATED_VERSION_X_5_13(text) QT_DEPRECATED_X(text)
+# define QT_DEPRECATED_VERSION_5_13         QT_DEPRECATED
+#else
+# define QT_DEPRECATED_VERSION_X_5_13(text)
+# define QT_DEPRECATED_VERSION_5_13
+#endif
+
+#if QT_DEPRECATED_WARNINGS_SINCE >= QT_VERSION_CHECK(5, 14, 0)
+# define QT_DEPRECATED_VERSION_X_5_14(text) QT_DEPRECATED_X(text)
+# define QT_DEPRECATED_VERSION_5_14         QT_DEPRECATED
+#else
+# define QT_DEPRECATED_VERSION_X_5_14(text)
+# define QT_DEPRECATED_VERSION_5_14
+#endif
+
+#if QT_DEPRECATED_WARNINGS_SINCE >= QT_VERSION_CHECK(5, 15, 0)
+# define QT_DEPRECATED_VERSION_X_5_15(text) QT_DEPRECATED_X(text)
+# define QT_DEPRECATED_VERSION_5_15         QT_DEPRECATED
+#else
+# define QT_DEPRECATED_VERSION_X_5_15(text)
+# define QT_DEPRECATED_VERSION_5_15
+#endif
+
+#define QT_DEPRECATED_VERSION_X_5(minor, text)      QT_DEPRECATED_VERSION_X_5_##minor(text)
+#define QT_DEPRECATED_VERSION_X(major, minor, text) QT_DEPRECATED_VERSION_X_##major(minor, text)
+
+#define QT_DEPRECATED_VERSION_5(minor)      QT_DEPRECATED_VERSION_5_##minor
+#define QT_DEPRECATED_VERSION(major, minor) QT_DEPRECATED_VERSION_##major(minor)
+
+#ifdef __cplusplus
+// A tag to help mark stuff deprecated (cf. QStringViewLiteral)
+namespace QtPrivate {
+enum class Deprecated_t {};
+constexpr Q_DECL_UNUSED Deprecated_t Deprecated = {};
+}
 #endif
 
 /*
@@ -369,8 +430,8 @@ typedef double qreal;
    operator to disable copying (the compiler gives an error message).
 */
 #define Q_DISABLE_COPY(Class) \
-    Class(const Class &) Q_DECL_EQ_DELETE;\
-    Class &operator=(const Class &) Q_DECL_EQ_DELETE;
+    Class(const Class &) = delete;\
+    Class &operator=(const Class &) = delete;
 
 #define Q_DISABLE_MOVE(Class) \
     Class(Class &&) = delete; \
@@ -411,7 +472,7 @@ typedef double qreal;
 #if !defined(QT_NAMESPACE) && defined(__cplusplus) && !defined(Q_QDOC)
 extern "C"
 #endif
-Q_CORE_EXPORT Q_DECL_CONST_FUNCTION const char *qVersion(void) Q_DECL_NOTHROW;
+Q_CORE_EXPORT Q_DECL_CONST_FUNCTION const char *qVersion(void) Q_DECL_NOEXCEPT;
 
 #if defined(__cplusplus)
 
@@ -456,11 +517,8 @@ namespace QtPrivate {
 
     template <class T> struct AlignOf : AlignOf_Default<T> { };
     template <class T> struct AlignOf<T &> : AlignOf<T> {};
-    template <size_t N, class T> struct AlignOf<T[N]> : AlignOf<T> {};
-
-#ifdef Q_COMPILER_RVALUE_REFS
     template <class T> struct AlignOf<T &&> : AlignOf<T> {};
-#endif
+    template <size_t N, class T> struct AlignOf<T[N]> : AlignOf<T> {};
 
 #if defined(Q_PROCESSOR_X86_32) && !defined(Q_OS_WIN)
     template <class T> struct AlignOf_WorkaroundForI386Abi { enum { Value = sizeof(T) }; };
@@ -562,7 +620,8 @@ using qsizetype = QIntegerForSizeof<std::size_t>::Signed;
 #  define Q_ALWAYS_INLINE inline
 #endif
 
-#if defined(Q_CC_GNU) && defined(Q_OS_WIN)
+#if defined(Q_CC_GNU) && defined(Q_OS_WIN) && !defined(QT_NO_DATA_RELOCATION)
+// ### Qt6: you can remove me
 #  define QT_INIT_METAOBJECT __attribute__((init_priority(101)))
 #else
 #  define QT_INIT_METAOBJECT
@@ -710,7 +769,7 @@ inline void qt_noop(void) {}
 
 #if !defined(QT_NO_EXCEPTIONS)
 #  if !defined(Q_MOC_RUN)
-#    if (defined(Q_CC_CLANG) && !defined(Q_CC_INTEL) && !QT_HAS_FEATURE(cxx_exceptions)) || \
+#    if (defined(Q_CC_CLANG) && !defined(Q_CC_INTEL) && !__has_feature(cxx_exceptions)) || \
         (defined(Q_CC_GNU) && !defined(__EXCEPTIONS))
 #      define QT_NO_EXCEPTIONS
 #    endif
@@ -730,7 +789,7 @@ inline void qt_noop(void) {}
 #  define QT_CATCH(A) catch (A)
 #  define QT_THROW(A) throw A
 #  define QT_RETHROW throw
-Q_NORETURN Q_DECL_COLD_FUNCTION Q_CORE_EXPORT void qTerminate() Q_DECL_NOTHROW;
+Q_NORETURN Q_DECL_COLD_FUNCTION Q_CORE_EXPORT void qTerminate() noexcept;
 #  ifdef Q_COMPILER_NOEXCEPT
 #    define QT_TERMINATE_ON_EXCEPTION(expr) do { expr; } while (false)
 #  else
@@ -738,7 +797,7 @@ Q_NORETURN Q_DECL_COLD_FUNCTION Q_CORE_EXPORT void qTerminate() Q_DECL_NOTHROW;
 #  endif
 #endif
 
-Q_CORE_EXPORT Q_DECL_CONST_FUNCTION bool qSharedBuild() Q_DECL_NOTHROW;
+Q_CORE_EXPORT Q_DECL_CONST_FUNCTION bool qSharedBuild() noexcept;
 
 #ifndef Q_OUTOFLINE_TEMPLATE
 #  define Q_OUTOFLINE_TEMPLATE
@@ -781,7 +840,7 @@ Q_CORE_EXPORT QString qt_error_string(int errorCode = -1);
 Q_NORETURN
 #endif
 Q_DECL_COLD_FUNCTION
-Q_CORE_EXPORT void qt_assert(const char *assertion, const char *file, int line) Q_DECL_NOTHROW;
+Q_CORE_EXPORT void qt_assert(const char *assertion, const char *file, int line) noexcept;
 
 #if !defined(Q_ASSERT)
 #  if defined(QT_NO_DEBUG) && !defined(QT_FORCE_ASSERTS)
@@ -791,15 +850,11 @@ Q_CORE_EXPORT void qt_assert(const char *assertion, const char *file, int line) 
 #  endif
 #endif
 
-#if defined(QT_NO_DEBUG) && !defined(QT_PAINT_DEBUG)
-#define QT_NO_PAINT_DEBUG
-#endif
-
 #ifndef Q_CC_MSVC
 Q_NORETURN
 #endif
 Q_DECL_COLD_FUNCTION
-Q_CORE_EXPORT void qt_assert_x(const char *where, const char *what, const char *file, int line) Q_DECL_NOTHROW;
+Q_CORE_EXPORT void qt_assert_x(const char *where, const char *what, const char *file, int line) noexcept;
 
 #if !defined(Q_ASSERT_X)
 #  if defined(QT_NO_DEBUG) && !defined(QT_FORCE_ASSERTS)
@@ -809,7 +864,7 @@ Q_CORE_EXPORT void qt_assert_x(const char *where, const char *what, const char *
 #  endif
 #endif
 
-Q_NORETURN Q_CORE_EXPORT void qt_check_pointer(const char *, int) Q_DECL_NOTHROW;
+Q_NORETURN Q_CORE_EXPORT void qt_check_pointer(const char *, int) noexcept;
 Q_DECL_COLD_FUNCTION
 Q_CORE_EXPORT void qBadAlloc();
 
@@ -852,37 +907,22 @@ Q_REQUIRED_RESULT Q_DECL_CONSTEXPR static inline Q_DECL_UNUSED  bool qFuzzyIsNul
     return qAbs(f) <= 0.00001f;
 }
 
-/*
-   This function tests a double for a null value. It doesn't
-   check whether the actual value is 0 or close to 0, but whether
-   it is binary 0, disregarding sign.
-*/
-Q_REQUIRED_RESULT static inline Q_DECL_UNUSED bool qIsNull(double d)
+QT_WARNING_PUSH
+QT_WARNING_DISABLE_CLANG("-Wfloat-equal")
+QT_WARNING_DISABLE_GCC("-Wfloat-equal")
+QT_WARNING_DISABLE_INTEL(1572)
+
+Q_REQUIRED_RESULT Q_DECL_CONSTEXPR static inline Q_DECL_UNUSED bool qIsNull(double d) noexcept
 {
-    union U {
-        double d;
-        quint64 u;
-    };
-    U val;
-    val.d = d;
-    return (val.u & Q_UINT64_C(0x7fffffffffffffff)) == 0;
+    return d == 0.0;
 }
 
-/*
-   This function tests a float for a null value. It doesn't
-   check whether the actual value is 0 or close to 0, but whether
-   it is binary 0, disregarding sign.
-*/
-Q_REQUIRED_RESULT static inline Q_DECL_UNUSED bool qIsNull(float f)
+Q_REQUIRED_RESULT Q_DECL_CONSTEXPR static inline Q_DECL_UNUSED bool qIsNull(float f) noexcept
 {
-    union U {
-        float f;
-        quint32 u;
-    };
-    U val;
-    val.f = f;
-    return (val.u & 0x7fffffff) == 0;
+    return f == 0.0f;
 }
+
+QT_WARNING_POP
 
 /*
    Compilers which follow outdated template instantiation rules
@@ -904,24 +944,30 @@ Q_REQUIRED_RESULT static inline Q_DECL_UNUSED bool qIsNull(float f)
 #  define Q_DUMMY_COMPARISON_OPERATOR(C)
 #endif
 
+QT_WARNING_PUSH
+// warning: noexcept-expression evaluates to 'false' because of a call to 'void swap(..., ...)'
+QT_WARNING_DISABLE_GCC("-Wnoexcept")
+
 namespace QtPrivate
 {
 namespace SwapExceptionTester { // insulate users from the "using std::swap" below
     using std::swap; // import std::swap
     template <typename T>
     void checkSwap(T &t)
-        Q_DECL_NOEXCEPT_EXPR(noexcept(swap(t, t)));
+        noexcept(noexcept(swap(t, t)));
     // declared, but not implemented (only to be used in unevaluated contexts (noexcept operator))
 }
 } // namespace QtPrivate
 
 template <typename T>
 inline void qSwap(T &value1, T &value2)
-    Q_DECL_NOEXCEPT_EXPR(noexcept(QtPrivate::SwapExceptionTester::checkSwap(value1)))
+    noexcept(noexcept(QtPrivate::SwapExceptionTester::checkSwap(value1)))
 {
     using std::swap;
     swap(value1, value2);
 }
+
+QT_WARNING_POP
 
 #if QT_DEPRECATED_SINCE(5, 0)
 Q_CORE_EXPORT QT_DEPRECATED void *qMalloc(size_t size) Q_ALLOC_SIZE(1);
@@ -966,12 +1012,44 @@ QT_WARNING_DISABLE_MSVC(4530) /* C++ exception handler used, but unwind semantic
 #  endif
 #endif
 
+// Work around MSVC warning about use of 3-arg algorithms
+// until we can depend on the C++14 4-arg ones.
+//
+// These algortithms do NOT check for equal length.
+// They need to be treated as if they called the 3-arg version (which they do)!
+#ifdef Q_CC_MSVC
+# define QT_3ARG_ALG(alg, f1, l1, f2, l2) \
+    std::alg(f1, l1, f2, l2)
+#else
+# define QT_3ARG_ALG(alg, f1, l1, f2, l2)     \
+    [&f1, &l1, &f2, &l2]() {                  \
+        Q_UNUSED(l2);                         \
+        return std::alg(f1, l1, f2);          \
+    }()
+#endif
+template <typename ForwardIterator1, typename ForwardIterator2>
+inline bool qt_is_permutation(ForwardIterator1 first1, ForwardIterator1 last1,
+                              ForwardIterator2 first2, ForwardIterator2 last2)
+{
+    return QT_3ARG_ALG(is_permutation, first1, last1, first2, last2);
+}
+#undef QT_3ARG_ALG
+
 // this adds const to non-const objects (like std::as_const)
 template <typename T>
-Q_DECL_CONSTEXPR typename std::add_const<T>::type &qAsConst(T &t) Q_DECL_NOTHROW { return t; }
+Q_DECL_CONSTEXPR typename std::add_const<T>::type &qAsConst(T &t) noexcept { return t; }
 // prevent rvalue arguments:
 template <typename T>
-void qAsConst(const T &&) Q_DECL_EQ_DELETE;
+void qAsConst(const T &&) = delete;
+
+// like std::exchange
+template <typename T, typename U = T>
+Q_DECL_RELAXED_CONSTEXPR T qExchange(T &t, U &&newValue)
+{
+    T old = std::move(t);
+    t = std::forward<U>(newValue);
+    return old;
+}
 
 #ifndef QT_NO_FOREACH
 
@@ -1052,7 +1130,7 @@ for (auto _container_ = QtPrivate::qMakeForeachContainer(container); \
 #endif
 
 template <typename T> inline T *qGetPtrHelper(T *ptr) { return ptr; }
-template <typename Ptr> inline auto qGetPtrHelper(const Ptr &ptr) -> decltype(ptr.operator->()) { return ptr.operator->(); }
+template <typename Ptr> inline auto qGetPtrHelper(Ptr &ptr) -> decltype(ptr.operator->()) { return ptr.operator->(); }
 
 // The body must be a statement:
 #define Q_CAST_IGNORE_ALIGN(body) QT_WARNING_PUSH QT_WARNING_DISABLE_GCC("-Wcast-align") body QT_WARNING_POP
@@ -1130,11 +1208,11 @@ template <typename... Args>
 struct QNonConstOverload
 {
     template <typename R, typename T>
-    Q_DECL_CONSTEXPR auto operator()(R (T::*ptr)(Args...)) const Q_DECL_NOTHROW -> decltype(ptr)
+    Q_DECL_CONSTEXPR auto operator()(R (T::*ptr)(Args...)) const noexcept -> decltype(ptr)
     { return ptr; }
 
     template <typename R, typename T>
-    static Q_DECL_CONSTEXPR auto of(R (T::*ptr)(Args...)) Q_DECL_NOTHROW -> decltype(ptr)
+    static Q_DECL_CONSTEXPR auto of(R (T::*ptr)(Args...)) noexcept -> decltype(ptr)
     { return ptr; }
 };
 
@@ -1142,11 +1220,11 @@ template <typename... Args>
 struct QConstOverload
 {
     template <typename R, typename T>
-    Q_DECL_CONSTEXPR auto operator()(R (T::*ptr)(Args...) const) const Q_DECL_NOTHROW -> decltype(ptr)
+    Q_DECL_CONSTEXPR auto operator()(R (T::*ptr)(Args...) const) const noexcept -> decltype(ptr)
     { return ptr; }
 
     template <typename R, typename T>
-    static Q_DECL_CONSTEXPR auto of(R (T::*ptr)(Args...) const) Q_DECL_NOTHROW -> decltype(ptr)
+    static Q_DECL_CONSTEXPR auto of(R (T::*ptr)(Args...) const) noexcept -> decltype(ptr)
     { return ptr; }
 };
 
@@ -1159,11 +1237,11 @@ struct QOverload : QConstOverload<Args...>, QNonConstOverload<Args...>
     using QNonConstOverload<Args...>::operator();
 
     template <typename R>
-    Q_DECL_CONSTEXPR auto operator()(R (*ptr)(Args...)) const Q_DECL_NOTHROW -> decltype(ptr)
+    Q_DECL_CONSTEXPR auto operator()(R (*ptr)(Args...)) const noexcept -> decltype(ptr)
     { return ptr; }
 
     template <typename R>
-    static Q_DECL_CONSTEXPR auto of(R (*ptr)(Args...)) Q_DECL_NOTHROW -> decltype(ptr)
+    static Q_DECL_CONSTEXPR auto of(R (*ptr)(Args...)) noexcept -> decltype(ptr)
     { return ptr; }
 };
 
@@ -1184,9 +1262,9 @@ Q_CORE_EXPORT QString qEnvironmentVariable(const char *varName, const QString &d
 Q_CORE_EXPORT bool qputenv(const char *varName, const QByteArray& value);
 Q_CORE_EXPORT bool qunsetenv(const char *varName);
 
-Q_CORE_EXPORT bool qEnvironmentVariableIsEmpty(const char *varName) Q_DECL_NOEXCEPT;
-Q_CORE_EXPORT bool qEnvironmentVariableIsSet(const char *varName) Q_DECL_NOEXCEPT;
-Q_CORE_EXPORT int  qEnvironmentVariableIntValue(const char *varName, bool *ok=nullptr) Q_DECL_NOEXCEPT;
+Q_CORE_EXPORT bool qEnvironmentVariableIsEmpty(const char *varName) noexcept;
+Q_CORE_EXPORT bool qEnvironmentVariableIsSet(const char *varName) noexcept;
+Q_CORE_EXPORT int  qEnvironmentVariableIntValue(const char *varName, bool *ok=nullptr) noexcept;
 
 inline int qIntCast(double f) { return int(f); }
 inline int qIntCast(float f) { return int(f); }

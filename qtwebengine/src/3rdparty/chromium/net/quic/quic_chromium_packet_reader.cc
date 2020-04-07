@@ -4,12 +4,14 @@
 
 #include "net/quic/quic_chromium_packet_reader.h"
 
+#include "base/bind.h"
 #include "base/location.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/single_thread_task_runner.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "net/base/net_errors.h"
-#include "net/third_party/quic/platform/api/quic_clock.h"
+#include "net/quic/address_utils.h"
+#include "net/third_party/quiche/src/quic/platform/api/quic_clock.h"
 
 namespace net {
 
@@ -29,9 +31,8 @@ QuicChromiumPacketReader::QuicChromiumPacketReader(
       yield_after_duration_(yield_after_duration),
       yield_after_(quic::QuicTime::Infinite()),
       read_buffer_(base::MakeRefCounted<IOBufferWithSize>(
-          static_cast<size_t>(quic::kMaxPacketSize))),
-      net_log_(net_log),
-      weak_factory_(this) {}
+          static_cast<size_t>(quic::kMaxOutgoingPacketSize))),
+      net_log_(net_log) {}
 
 QuicChromiumPacketReader::~QuicChromiumPacketReader() {}
 
@@ -62,8 +63,8 @@ void QuicChromiumPacketReader::StartReading() {
       // Schedule the work through the message loop to 1) prevent infinite
       // recursion and 2) avoid blocking the thread for too long.
       base::ThreadTaskRunnerHandle::Get()->PostTask(
-          FROM_HERE, base::Bind(&QuicChromiumPacketReader::OnReadComplete,
-                                weak_factory_.GetWeakPtr(), rv));
+          FROM_HERE, base::BindOnce(&QuicChromiumPacketReader::OnReadComplete,
+                                    weak_factory_.GetWeakPtr(), rv));
     } else {
       if (!ProcessReadResult(rv)) {
         return;
@@ -74,7 +75,7 @@ void QuicChromiumPacketReader::StartReading() {
 
 size_t QuicChromiumPacketReader::EstimateMemoryUsage() const {
   // Return the size of |read_buffer_|.
-  return quic::kMaxPacketSize;
+  return quic::kMaxOutgoingPacketSize;
 }
 
 bool QuicChromiumPacketReader::ProcessReadResult(int result) {
@@ -92,10 +93,8 @@ bool QuicChromiumPacketReader::ProcessReadResult(int result) {
   IPEndPoint peer_address;
   socket_->GetLocalAddress(&local_address);
   socket_->GetPeerAddress(&peer_address);
-  return visitor_->OnPacket(
-      packet,
-      quic::QuicSocketAddress(quic::QuicSocketAddressImpl(local_address)),
-      quic::QuicSocketAddress(quic::QuicSocketAddressImpl(peer_address)));
+  return visitor_->OnPacket(packet, ToQuicSocketAddress(local_address),
+                            ToQuicSocketAddress(peer_address));
 }
 
 void QuicChromiumPacketReader::OnReadComplete(int result) {

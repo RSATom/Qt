@@ -70,8 +70,10 @@ Q_DECLARE_LOGGING_CATEGORY(QT_BT_WINRT)
 
 QHash<QBluetoothServerPrivate *, int> __fakeServerPorts;
 
-QBluetoothServerPrivate::QBluetoothServerPrivate(QBluetoothServiceInfo::Protocol sType)
-    : maxPendingConnections(1), serverType(sType), m_lastError(QBluetoothServer::NoError), socket(0)
+QBluetoothServerPrivate::QBluetoothServerPrivate(QBluetoothServiceInfo::Protocol sType,
+                                                 QBluetoothServer *parent)
+    : maxPendingConnections(1), serverType(sType), m_lastError(QBluetoothServer::NoError),
+      socket(0), q_ptr(parent)
 {
 #ifdef CLASSIC_APP_BUILD
     CoInitialize(NULL);
@@ -139,6 +141,7 @@ HRESULT QBluetoothServerPrivate::handleClientConnection(IStreamSocketListener *l
     if (pendingConnections.count() < maxPendingConnections) {
         qCDebug(QT_BT_WINRT) << "Accepting connection";
         pendingConnections.append(socket);
+        locker.unlock();
         q->newConnection();
     } else {
         qCDebug(QT_BT_WINRT) << "Refusing connection";

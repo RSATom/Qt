@@ -50,13 +50,15 @@
 
 #include <QApplication>
 #include <QMainWindow>
-#include <QDesktopWidget>
+#include <QScreen>
 #include <QSurfaceFormat>
 #include <QOpenGLContext>
 #include <QCommandLineParser>
 #include <QCommandLineOption>
 #include "mainwindow.h"
 #include "glwidget.h"
+
+#include <memory>
 
 static QString getGlString(QOpenGLFunctions *functions, GLenum name)
 {
@@ -88,7 +90,7 @@ int main( int argc, char ** argv )
     // The rendering for the four QOpenGLWidgets happens on four separate threads.
 
     GLWidget topLevelGlWidget;
-    QPoint pos = QApplication::desktop()->availableGeometry(&topLevelGlWidget).topLeft() + QPoint(200, 200);
+    QPoint pos = topLevelGlWidget.screen()->availableGeometry().topLeft() + QPoint(200, 200);
     topLevelGlWidget.setWindowTitle(QStringLiteral("Threaded QOpenGLWidget example top level"));
     topLevelGlWidget.resize(200, 200);
     topLevelGlWidget.move(pos);
@@ -104,8 +106,8 @@ int main( int argc, char ** argv )
     const QString toolTip = supportsThreading ? glInfo : glInfo + QStringLiteral("\ndoes not support threaded OpenGL.");
     topLevelGlWidget.setToolTip(toolTip);
 
-    QScopedPointer<MainWindow> mw1;
-    QScopedPointer<MainWindow> mw2;
+    std::unique_ptr<MainWindow> mw1;
+    std::unique_ptr<MainWindow> mw2;
     if (!parser.isSet(singleOption)) {
         if (supportsThreading) {
             pos += QPoint(100, 100);

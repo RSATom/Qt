@@ -22,7 +22,7 @@
 #define THIRD_PARTY_BLINK_RENDERER_CORE_HTML_FORMS_STEP_RANGE_H_
 
 #include "third_party/blink/renderer/core/core_export.h"
-#include "third_party/blink/renderer/platform/wtf/allocator.h"
+#include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 #include "third_party/blink/renderer/platform/wtf/decimal.h"
 #include "third_party/blink/renderer/platform/wtf/forward.h"
 
@@ -83,7 +83,7 @@ class CORE_EXPORT StepRange {
   bool HasStep() const { return has_step_; }
   Decimal Maximum() const { return maximum_; }
   Decimal Minimum() const { return minimum_; }
-  // https://html.spec.whatwg.org/multipage/forms.html#have-range-limitations
+  // https://html.spec.whatwg.org/C/#have-range-limitations
   bool HasRangeLimitations() const { return has_range_limitations_; }
   static Decimal ParseStep(AnyStepHandling,
                            const StepDescription&,

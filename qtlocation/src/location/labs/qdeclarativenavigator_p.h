@@ -81,6 +81,8 @@ class Q_LOCATION_PRIVATE_EXPORT QDeclarativeNavigator : public QParameterizableO
     Q_PROPERTY(bool active READ active WRITE setActive NOTIFY activeChanged)
     Q_PROPERTY(bool navigatorReady READ navigatorReady NOTIFY navigatorReadyChanged)
     Q_PROPERTY(bool trackPositionSource READ trackPositionSource WRITE setTrackPositionSource NOTIFY trackPositionSourceChanged)
+    Q_PROPERTY(bool automaticReroutingEnabled READ automaticReroutingEnabled WRITE setAutomaticReroutingEnabled NOTIFY automaticReroutingEnabledChanged)
+    Q_PROPERTY(bool isOnRoute READ isOnRoute NOTIFY isOnRouteChanged)
     Q_PROPERTY(QDeclarativeNavigationBasicDirections *directions READ directions CONSTANT)
     Q_PROPERTY(NavigationError error READ error NOTIFY errorChanged)
     Q_PROPERTY(QString errorString READ errorString NOTIFY errorChanged)
@@ -129,16 +131,25 @@ public:
     void setPositionSource(QDeclarativePositionSource *positionSource);
     QDeclarativePositionSource *positionSource() const;
 
+    // To enable/disable automatic route recalculation in the engines
+    bool automaticReroutingEnabled() const;
+    void setAutomaticReroutingEnabled(bool autoRerouting);
+
     bool navigatorReady() const;
 
     void setTrackPositionSource(bool trackPositionSource);
     bool trackPositionSource() const;
+
+    // To discover/notify when the tracked position goes off the active navigation route
+    bool isOnRoute() const;
 
     QDeclarativeNavigationBasicDirections *directions() const;
     QAbstractNavigator *abstractNavigator() const;
 
     NavigationError error() const;
     QString errorString() const;
+
+    Q_INVOKABLE void recalculateRoutes();
 
 signals:
     void navigatorReadyChanged(bool ready);
@@ -150,6 +161,8 @@ signals:
     void routeChanged();
     void positionSourceChanged();
     void errorChanged();
+    void automaticReroutingEnabledChanged();
+    void isOnRouteChanged();
 
 protected:
     void pluginReady();

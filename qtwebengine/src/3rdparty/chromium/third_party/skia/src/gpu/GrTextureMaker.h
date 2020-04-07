@@ -8,7 +8,7 @@
 #ifndef GrTextureMaker_DEFINED
 #define GrTextureMaker_DEFINED
 
-#include "GrTextureProducer.h"
+#include "src/gpu/GrTextureProducer.h"
 
 /**
  * Base class for sources that start out as something other than a texture (encoded image,
@@ -26,8 +26,9 @@ public:
             const GrSamplerState::Filter* filterOrNullForBicubic) override;
 
 protected:
-    GrTextureMaker(GrContext* context, int width, int height, bool isAlphaOnly)
-        : INHERITED(context, width, height, isAlphaOnly) {}
+    GrTextureMaker(GrRecordingContext* context, int width, int height, const GrColorSpaceInfo& info,
+                   bool domainNeedsLocal)
+            : INHERITED(context, width, height, info, domainNeedsLocal) {}
 
     /**
      *  Return the maker's "original" texture. It is the responsibility of the maker to handle any
@@ -38,8 +39,6 @@ protected:
      */
     virtual sk_sp<GrTextureProxy> refOriginalTextureProxy(bool willBeMipped,
                                                           AllowedTexGenType genType) = 0;
-
-    GrContext* context() const { return fContext; }
 
 private:
     sk_sp<GrTextureProxy> onRefTextureProxyForParams(const GrSamplerState&,

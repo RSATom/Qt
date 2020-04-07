@@ -154,6 +154,8 @@ int QX11Info::appDpiY(int screen)
     return scr->logicalDotsPerInchY();
 }
 
+#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
+// ### Qt 6: remove
 /*!
     Returns a handle for the applications root window on the given \a screen.
 
@@ -164,8 +166,6 @@ int QX11Info::appDpiY(int screen)
 
     \sa QApplication::desktop()
 */
-#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
-// ### Qt 6: remove
 unsigned long QX11Info::appRootWindow(int screen)
 #else
 quint32 QX11Info::appRootWindow(int screen)

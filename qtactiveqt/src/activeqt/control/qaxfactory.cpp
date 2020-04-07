@@ -458,7 +458,7 @@ public:
 };
 
 ActiveObject::ActiveObject(QObject *parent, QAxFactory *factory)
-: QObject(parent), wrapper(0), cookie(0)
+: QObject(parent), wrapper(nullptr), cookie(0)
 {
     QLatin1String key(parent->metaObject()->className());
 
@@ -470,7 +470,7 @@ ActiveObject::ActiveObject(QObject *parent, QAxFactory *factory)
 ActiveObject::~ActiveObject()
 {
     if (cookie)
-        RevokeActiveObject(cookie, 0);
+        RevokeActiveObject(cookie, nullptr);
     if (wrapper)
         wrapper->Release();
 }
@@ -506,6 +506,7 @@ bool QAxFactory::registerActiveObject(QObject *object)
 /*!
     \macro QAXFACTORY_DEFAULT(Class, ClassID, InterfaceID, EventID, LibID, AppID)
     \relates QAxFactory
+    \deprecated
 
     This macro can be used to export a single QObject subclass \a Class a this
     COM server through an implicitly declared QAxFactory implementation.
@@ -519,7 +520,8 @@ bool QAxFactory::registerActiveObject(QObject *object)
 
     \snippet src_activeqt_control_qaxfactory.cpp 7
 
-    \sa QAXFACTORY_EXPORT(), QAXFACTORY_BEGIN()
+    \note This class has been deprecated in favor of QAXFACTORY_BEGIN().
+    \sa QAXFACTORY_EXPORT()
 */
 
 /*!

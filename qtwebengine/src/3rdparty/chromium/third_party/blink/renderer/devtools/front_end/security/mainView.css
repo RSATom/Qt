@@ -3,6 +3,10 @@
  * found in the LICENSE file.
  */
 
+.devtools-link {
+  display: inline-block;
+}
+
 .security-main-view {
     -webkit-user-select: text;
     overflow-x: hidden;
@@ -150,18 +154,6 @@
     color: rgb(48, 57, 66);
     margin-top: 1px;
     margin-bottom: 8px;
-}
-
-.security-explanation-neutral .security-section-title,
-.security-explanation-warning .security-section-title
-{
-    color: #cb3626;
-    font-weight: bold;
-}
-.security-explanation-insecure .security-section-title
-{
-    color: rgb(216, 71, 60);
-    font-weight: bold;
 }
 
 .security-mixed-content {

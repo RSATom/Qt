@@ -1,0 +1,46 @@
+include($QT_INSTALL_DOCS/global/qt-module-defaults.qdocconf)
+
+project                 = QtQuickTimeline
+description             = Qt Quick Timeline Reference Documentation
+version                 = $QT_VERSION
+
+examplesinstallpath = qtquicktimeline
+
+qhp.projects            = QtQuickTimeline
+
+qhp.QtQuickTimeline.file                = qtquicktimeline.qhp
+qhp.QtQuickTimeline.namespace           = org.qt-project.qtquicktimeline.$QT_VERSION_TAG
+qhp.QtQuickTimeline.virtualFolder       = qtquicktimeline
+qhp.QtQuickTimeline.indexTitle          = Qt Quick Timeline
+qhp.QtQuickTimeline.indexRoot           =
+
+qhp.QtQuickTimeline.filterAttributes    = qtquicktimeline $QT_VERSION qtrefdoc
+qhp.QtQuickTimeline.customFilters.Qt.name = QtQuickTimeline $QT_VERSION
+qhp.QtQuickTimeline.customFilters.Qt.filterAttributes = qtquicktimeline $QT_VERSION
+
+qhp.QtQuickTimeline.subprojects         = qmltypes
+
+qhp.QtQuickTimeline.subprojects.qmltypes.title      = QML Types
+qhp.QtQuickTimeline.subprojects.qmltypes.indexTitle = Qt Quick Timeline QML Types
+qhp.QtQuickTimeline.subprojects.qmltypes.selectors  = qmlclass
+qhp.QtQuickTimeline.subprojects.qmltypes.sortPages  = true
+
+#qhp.QtQuickTimeline.subprojects.examples.title         = Examples
+#qhp.QtQuickTimeline.subprojects.examples.indexTitle    = Qt Qt Quick Timeline Examples
+#qhp.QtQuickTimeline.subprojects.examples.selectors     = fake:example
+#qhp.QtQuickTimeline.subprojects.examples.sortPages     = true
+
+headerdirs  += ..
+sourcedirs  += ..
+#exampledirs =
+imagedirs   += images \
+
+depends += qtcore qtdoc qtquick
+
+tagfile  = qtquicktimeline.tags
+
+#add generic thumbnail images for example documentation that does not have an image.
+#manifestmeta.thumbnail.names  +=
+
+navigation.landingpage = "Qt Quick Timeline"
+navigation.qmltypespage = "Qt Quick Timeline QML Types"

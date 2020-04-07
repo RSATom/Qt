@@ -40,13 +40,10 @@ class U2fSignOperationTest : public ::testing::Test {
     CtapGetAssertionRequest request(test_data::kRelyingPartyId,
                                     test_data::kClientDataJson);
 
-    std::vector<PublicKeyCredentialDescriptor> allowed_list;
     for (auto& key_handle : key_handles) {
-      allowed_list.emplace_back(CredentialType::kPublicKey,
-                                std::move(key_handle));
+      request.allow_list.emplace_back(CredentialType::kPublicKey,
+                                      std::move(key_handle));
     }
-
-    request.SetAllowList(std::move(allowed_list));
     return request;
   }
 
@@ -64,9 +61,6 @@ TEST_F(U2fSignOperationTest, SignSuccess) {
   auto device = std::make_unique<MockFidoDevice>();
   EXPECT_CALL(*device, GetId()).WillRepeatedly(testing::Return("device"));
   InSequence s;
-  device->ExpectRequestAndRespondWith(
-      test_data::kU2fCheckOnlySignCommandApdu,
-      test_data::kApduEncodedNoErrorSignResponse);
   device->ExpectRequestAndRespondWith(
       test_data::kU2fSignCommandApdu,
       test_data::kApduEncodedNoErrorSignResponse);
@@ -118,10 +112,9 @@ TEST_F(U2fSignOperationTest, SignSuccessWithFakeDevice) {
                 .value()
                 ->auth_data()
                 .SerializeToByteArray()[32]);  // UP flag
-  // Counter is incremented for every sign request. Since we conduct 2 sign
-  // requests (check only sign followed by a regular sign), counter should be
-  // incremented twice.
-  EXPECT_EQ(44, sign_callback_receiver()
+  // Counter is incremented for every sign request so this counter should have
+  // been incremented once.
+  EXPECT_EQ(43, sign_callback_receiver()
                     .value()
                     ->auth_data()
                     .SerializeToByteArray()[36]);  // counter
@@ -137,9 +130,6 @@ TEST_F(U2fSignOperationTest, DelayedSuccess) {
   EXPECT_CALL(*device, GetId()).WillRepeatedly(::testing::Return("device"));
 
   InSequence s;
-  device->ExpectRequestAndRespondWith(
-      test_data::kU2fCheckOnlySignCommandApdu,
-      test_data::kApduEncodedNoErrorSignResponse);
   device->ExpectRequestAndRespondWith(
       test_data::kU2fSignCommandApdu,
       test_data::kU2fConditionNotSatisfiedApduResponse);
@@ -173,14 +163,10 @@ TEST_F(U2fSignOperationTest, MultipleHandles) {
   InSequence s;
   // Wrong key would respond with SW_WRONG_DATA.
   device->ExpectRequestAndRespondWith(
-      test_data::kU2fCheckOnlySignCommandApduWithKeyAlpha,
+      test_data::kU2fSignCommandApduWithKeyAlpha,
       test_data::kU2fWrongDataApduResponse);
-  device->ExpectRequestAndRespondWith(
-      test_data::kU2fCheckOnlySignCommandApduWithKeyBeta,
-      test_data::kU2fWrongDataApduResponse);
-  device->ExpectRequestAndRespondWith(
-      test_data::kU2fCheckOnlySignCommandApdu,
-      test_data::kApduEncodedNoErrorSignResponse);
+  device->ExpectRequestAndRespondWith(test_data::kU2fSignCommandApduWithKeyBeta,
+                                      test_data::kU2fWrongDataApduResponse);
   device->ExpectRequestAndRespondWith(
       test_data::kU2fSignCommandApdu,
       test_data::kApduEncodedNoErrorSignResponse);
@@ -211,11 +197,8 @@ TEST_F(U2fSignOperationTest, MultipleHandlesLengthError) {
 
   // Wrong key would respond with the key handle length.
   device->ExpectRequestAndRespondWith(
-      test_data::kU2fCheckOnlySignCommandApduWithKeyAlpha,
+      test_data::kU2fSignCommandApduWithKeyAlpha,
       test_data::kU2fKeyHandleSizeApduResponse);
-  device->ExpectRequestAndRespondWith(
-      test_data::kU2fCheckOnlySignCommandApdu,
-      test_data::kApduEncodedNoErrorSignResponse);
   device->ExpectRequestAndRespondWith(
       test_data::kU2fSignCommandApdu,
       test_data::kApduEncodedNoErrorSignResponse);
@@ -243,11 +226,10 @@ TEST_F(U2fSignOperationTest, FakeEnroll) {
   auto device = std::make_unique<MockFidoDevice>();
   InSequence s;
   device->ExpectRequestAndRespondWith(
-      test_data::kU2fCheckOnlySignCommandApduWithKeyAlpha,
+      test_data::kU2fSignCommandApduWithKeyAlpha,
       test_data::kU2fWrongDataApduResponse);
-  device->ExpectRequestAndRespondWith(
-      test_data::kU2fCheckOnlySignCommandApduWithKeyBeta,
-      test_data::kU2fWrongDataApduResponse);
+  device->ExpectRequestAndRespondWith(test_data::kU2fSignCommandApduWithKeyBeta,
+                                      test_data::kU2fWrongDataApduResponse);
   device->ExpectRequestAndRespondWith(
       test_data::kU2fFakeRegisterCommand,
       test_data::kApduEncodedNoErrorRegisterResponse);
@@ -274,7 +256,7 @@ TEST_F(U2fSignOperationTest, DelayedFakeEnrollment) {
   auto device = std::make_unique<MockFidoDevice>();
   EXPECT_CALL(*device, GetId()).WillRepeatedly(::testing::Return("device0"));
   InSequence s;
-  device->ExpectRequestAndRespondWith(test_data::kU2fCheckOnlySignCommandApdu,
+  device->ExpectRequestAndRespondWith(test_data::kU2fSignCommandApdu,
                                       test_data::kU2fWrongDataApduResponse);
   device->ExpectRequestAndRespondWith(
       test_data::kU2fFakeRegisterCommand,
@@ -305,7 +287,7 @@ TEST_F(U2fSignOperationTest, FakeEnrollErroringOut) {
   auto device = std::make_unique<MockFidoDevice>();
   EXPECT_CALL(*device, GetId()).WillRepeatedly(::testing::Return("device0"));
   InSequence s;
-  device->ExpectRequestAndRespondWith(test_data::kU2fCheckOnlySignCommandApdu,
+  device->ExpectRequestAndRespondWith(test_data::kU2fSignCommandApdu,
                                       test_data::kU2fWrongDataApduResponse);
   device->ExpectRequestAndRespondWith(test_data::kU2fFakeRegisterCommand,
                                       test_data::kU2fWrongDataApduResponse);
@@ -329,8 +311,6 @@ TEST_F(U2fSignOperationTest, SignWithCorruptedResponse) {
   auto device = std::make_unique<MockFidoDevice>();
   EXPECT_CALL(*device, GetId()).WillRepeatedly(::testing::Return("device"));
   InSequence s;
-  device->ExpectRequestAndRespondWith(test_data::kU2fCheckOnlySignCommandApdu,
-                                      test_data::kTestCorruptedU2fSignResponse);
   device->ExpectRequestAndRespondWith(test_data::kU2fSignCommandApdu,
                                       test_data::kTestCorruptedU2fSignResponse);
 
@@ -347,20 +327,15 @@ TEST_F(U2fSignOperationTest, SignWithCorruptedResponse) {
 TEST_F(U2fSignOperationTest, AlternativeApplicationParameter) {
   auto request = CreateSignRequest(
       {fido_parsing_utils::Materialize(test_data::kU2fSignKeyHandle)});
-  request.SetAppId(test_data::kAppId);
+  request.app_id = test_data::kAppId;
+  request.alternative_application_parameter =
+      fido_parsing_utils::Materialize(base::span<const uint8_t, 32>(
+          test_data::kAlternativeApplicationParameter));
 
   auto device = std::make_unique<MockFidoDevice>();
   EXPECT_CALL(*device, GetId()).WillRepeatedly(::testing::Return("device"));
   InSequence s;
-  // The first request will use the primary app_param, which will be rejected.
-  device->ExpectRequestAndRespondWith(test_data::kU2fCheckOnlySignCommandApdu,
-                                      test_data::kU2fWrongDataApduResponse);
-  // After the rejection, the U2F sign request with alternative application
-  // parameter should be tried.
-  device->ExpectRequestAndRespondWith(
-      test_data::
-          kU2fCheckOnlySignCommandApduWithAlternativeApplicationParameter,
-      test_data::kApduEncodedNoErrorSignResponse);
+  // The first request will use the alternative app_param.
   device->ExpectRequestAndRespondWith(
       test_data::kU2fSignCommandApduWithAlternativeApplicationParameter,
       test_data::kApduEncodedNoErrorSignResponse);
@@ -377,29 +352,32 @@ TEST_F(U2fSignOperationTest, AlternativeApplicationParameter) {
               ::testing::ElementsAreArray(test_data::kU2fSignature));
   EXPECT_THAT(response_value->raw_credential_id(),
               ::testing::ElementsAreArray(test_data::kU2fSignKeyHandle));
-  EXPECT_THAT(
-      response_value->GetRpIdHash(),
-      ::testing::ElementsAreArray(test_data::kAlternativeApplicationParameter));
+  EXPECT_THAT(response_value->GetRpIdHash(),
+              ::testing::ElementsAreArray(base::span<const uint8_t, 32>(
+                  test_data::kAlternativeApplicationParameter)));
 }
 
 // This is a regression test in response to https://crbug.com/833398.
 TEST_F(U2fSignOperationTest, AlternativeApplicationParameterRejection) {
   auto request = CreateSignRequest(
       {fido_parsing_utils::Materialize(test_data::kU2fSignKeyHandle)});
-  request.SetAppId(test_data::kAppId);
+  request.app_id = test_data::kAppId;
+  request.alternative_application_parameter =
+      fido_parsing_utils::Materialize(base::span<const uint8_t, 32>(
+          test_data::kAlternativeApplicationParameter));
 
   auto device = std::make_unique<MockFidoDevice>();
   EXPECT_CALL(*device, GetId()).WillRepeatedly(::testing::Return("device"));
   InSequence s;
-  // The first request will use the primary app_param, which will be rejected.
-  device->ExpectRequestAndRespondWith(test_data::kU2fCheckOnlySignCommandApdu,
-                                      test_data::kU2fWrongDataApduResponse);
-  // After the rejection, request with alternative application parameter should
-  // be tried, which will also be rejected.
+  // The first request will use the alternative app_param, which will be
+  // rejected.
   device->ExpectRequestAndRespondWith(
-      test_data::
-          kU2fCheckOnlySignCommandApduWithAlternativeApplicationParameter,
+      test_data::kU2fSignCommandApduWithAlternativeApplicationParameter,
       test_data::kU2fWrongDataApduResponse);
+  // After the rejection, request with primary application parameter should
+  // be tried, which will also be rejected.
+  device->ExpectRequestAndRespondWith(test_data::kU2fSignCommandApdu,
+                                      test_data::kU2fWrongDataApduResponse);
   // The second rejection will trigger a bogus register command. This will be
   // rejected as well, triggering the device to be abandoned.
   device->ExpectRequestAndRespondWith(test_data::kU2fFakeRegisterCommand,

@@ -93,11 +93,15 @@ class QWaylandScreen;
 class QWaylandClientBufferIntegration;
 class QWaylandWindowManagerIntegration;
 class QWaylandDataDeviceManager;
+#if QT_CONFIG(wayland_client_primary_selection)
+class QWaylandPrimarySelectionDeviceManagerV1;
+#endif
 class QWaylandTouchExtension;
 class QWaylandQtKeyExtension;
 class QWaylandWindow;
 class QWaylandIntegration;
 class QWaylandHardwareIntegration;
+class QWaylandSurface;
 class QWaylandShellIntegration;
 class QWaylandCursor;
 class QWaylandCursorTheme;
@@ -149,6 +153,9 @@ public:
 #if QT_CONFIG(wayland_datadevice)
     QWaylandDataDeviceManager *dndSelectionHandler() const { return mDndSelectionHandler.data(); }
 #endif
+#if QT_CONFIG(wayland_client_primary_selection)
+    QWaylandPrimarySelectionDeviceManagerV1 *primarySelectionManager() const { return mPrimarySelectionManager.data(); }
+#endif
     QtWayland::qt_surface_extension *windowExtension() const { return mWindowExtension.data(); }
     QWaylandTouchExtension *touchExtension() const { return mTouchExtension.data(); }
     QtWayland::zwp_text_input_manager_v2 *textInputManager() const { return mTextInputManager.data(); }
@@ -166,7 +173,7 @@ public:
             : id(id_), interface(interface_), version(version_), registry(registry_) { }
     };
     QList<RegistryGlobal> globals() const { return mGlobals; }
-    bool hasRegistryGlobal(const QString &interfaceName);
+    bool hasRegistryGlobal(QStringView interfaceName) const;
 
     /* wl_registry_add_listener does not add but rather sets a listener, so this function is used
      * to enable many listeners at once. */
@@ -236,6 +243,9 @@ private:
     QScopedPointer<QWaylandTouchExtension> mTouchExtension;
     QScopedPointer<QWaylandQtKeyExtension> mQtKeyExtension;
     QScopedPointer<QWaylandWindowManagerIntegration> mWindowManagerIntegration;
+#if QT_CONFIG(wayland_client_primary_selection)
+    QScopedPointer<QWaylandPrimarySelectionDeviceManagerV1> mPrimarySelectionManager;
+#endif
     QScopedPointer<QtWayland::zwp_text_input_manager_v2> mTextInputManager;
     QScopedPointer<QWaylandHardwareIntegration> mHardwareIntegration;
     QScopedPointer<QtWayland::zxdg_output_manager_v1> mXdgOutputManager;

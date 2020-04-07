@@ -147,6 +147,7 @@
 /*      GL_ALWAYS */
 
 /* EnableCap */
+#define GR_GL_TEXTURE_NONE                   0x0000
 #define GR_GL_TEXTURE_2D                     0x0DE1
 #define GR_GL_CULL_FACE                      0x0B44
 #define GR_GL_BLEND                          0x0BE2
@@ -460,6 +461,7 @@
 
 /* Luminance sized formats */
 #define GR_GL_LUMINANCE8                     0x8040
+#define GR_GL_LUMINANCE16F                   0x881E
 
 /* Alpha sized formats */
 #define GR_GL_ALPHA8                         0x803C
@@ -480,6 +482,7 @@
 #define GR_GL_RG16                           0x822C
 #define GR_GL_R16F                           0x822D
 #define GR_GL_R32F                           0x822E
+#define GR_GL_RG16F                          0x822F
 
 /* RG sized integer formats */
 #define GR_GL_RG8I                           0x8237
@@ -512,6 +515,7 @@
 #define GR_GL_RGBA16F                        0x881A
 #define GR_GL_RGBA32F                        0x8814
 #define GR_GL_RG32F                          0x8230
+#define GR_GL_RGBA16                         0x805B
 
 /* RGBA integer sized formats */
 #define GR_GL_RGBA8I                         0x8D8E
@@ -987,15 +991,7 @@
 #define GR_GL_PATH_MODELVIEW                                0x1700
 
 /*  ARM specific define for MSAA support on framebuffer fetch */
-#define GR_GL_FETCH_PER_SAMPLE_ARM                          0x8F65
-
-/* GL_EXT_raster_multisample */
-#define GR_GL_RASTER_MULTISAMPLE                            0x9327
-#define GR_GL_RASTER_SAMPLES                                0x9328
-#define GR_GL_MAX_RASTER_SAMPLES                            0x9329
-#define GR_GL_RASTER_FIXED_SAMPLE_LOCATIONS                 0x932A
-#define GR_GL_MULTISAMPLE_RASTERIZATION_ALLOWED             0x932B
-#define GR_GL_EFFECTIVE_RASTER_SAMPLES                      0x932C
+#define GR_GL_FETCH_PER_SAMPLE                              0x8F65
 
 /* GL_KHR_debug */
 #define GR_GL_DEBUG_OUTPUT                                  0x92E0
@@ -1038,9 +1034,11 @@
 
 /* GL_OES_EGL_image_external */
 #define GR_GL_TEXTURE_EXTERNAL                              0x8D65
+#define GR_GL_TEXTURE_BINDING_EXTERNAL                      0x8D67
 
 /* GL_ARB_texture_rectangle or GL_ANGLE_texture_rectangle */
 #define GR_GL_TEXTURE_RECTANGLE                             0x84F5
+#define GR_GL_TEXTURE_BINDING_RECTANGLE                     0x84F6
 
 /* GL_EXT_window_rectangles */
 #define GR_GL_MAX_WINDOW_RECTANGLES                         0x8f14

@@ -240,7 +240,11 @@ FrameTreeNode* FrameTree::AddFrame(
   // Now that the new node is part of the FrameTree and has a RenderFrameHost,
   // we can announce the creation of the initial RenderFrame which already
   // exists in the renderer process.
-  added_node->current_frame_host()->SetRenderFrameCreated(true);
+  if (added_node->frame_owner_element_type() !=
+      blink::FrameOwnerElementType::kPortal) {
+    // Portals do not have a live RenderFrame in the renderer process.
+    added_node->current_frame_host()->SetRenderFrameCreated(true);
+  }
   return added_node;
 }
 
@@ -259,12 +263,13 @@ void FrameTree::CreateProxiesForSiteInstance(
     SiteInstance* site_instance) {
   // Create the RenderFrameProxyHost for the new SiteInstance.
   if (!source || !source->IsMainFrame()) {
-    RenderViewHostImpl* render_view_host = GetRenderViewHost(site_instance);
-    if (!render_view_host) {
-      root()->render_manager()->CreateRenderFrameProxy(site_instance);
-    } else {
+    RenderViewHostImpl* render_view_host =
+        GetRenderViewHost(site_instance).get();
+    if (render_view_host) {
       root()->render_manager()->EnsureRenderViewInitialized(render_view_host,
                                                             site_instance);
+    } else {
+      root()->render_manager()->CreateRenderFrameProxy(site_instance);
     }
   }
 
@@ -355,60 +360,50 @@ void FrameTree::SetFrameRemoveListener(
   on_frame_removed_ = on_frame_removed;
 }
 
-RenderViewHostImpl* FrameTree::CreateRenderViewHost(
+scoped_refptr<RenderViewHostImpl> FrameTree::CreateRenderViewHost(
     SiteInstance* site_instance,
     int32_t routing_id,
     int32_t main_frame_routing_id,
     int32_t widget_routing_id,
     bool swapped_out,
     bool hidden) {
-  auto iter = render_view_host_map_.find(site_instance->GetId());
-  if (iter != render_view_host_map_.end())
-    return iter->second;
+  scoped_refptr<RenderViewHostImpl> existing_rvh =
+      GetRenderViewHost(site_instance);
+  if (existing_rvh)
+    return existing_rvh;
 
   RenderViewHostImpl* rvh =
       static_cast<RenderViewHostImpl*>(RenderViewHostFactory::Create(
           site_instance, render_view_delegate_, render_widget_delegate_,
           routing_id, main_frame_routing_id, widget_routing_id, swapped_out,
           hidden));
-
   render_view_host_map_[site_instance->GetId()] = rvh;
-  return rvh;
+  return base::WrapRefCounted(rvh);
 }
 
-RenderViewHostImpl* FrameTree::GetRenderViewHost(SiteInstance* site_instance) {
-  auto iter = render_view_host_map_.find(site_instance->GetId());
-  if (iter != render_view_host_map_.end())
-    return iter->second;
+scoped_refptr<RenderViewHostImpl> FrameTree::GetRenderViewHost(
+    SiteInstance* site_instance) {
+  auto it = render_view_host_map_.find(site_instance->GetId());
+  if (it == render_view_host_map_.end())
+    return nullptr;
 
-  return nullptr;
+  return base::WrapRefCounted(it->second);
 }
 
-void FrameTree::AddRenderViewHostRef(RenderViewHostImpl* render_view_host) {
-  SiteInstance* site_instance = render_view_host->GetSiteInstance();
-  auto iter = render_view_host_map_.find(site_instance->GetId());
-  CHECK(iter != render_view_host_map_.end());
-  CHECK(iter->second == render_view_host);
-
-  iter->second->increment_ref_count();
+void FrameTree::RenderViewHostDeleted(RenderViewHost* rvh) {
+  auto it = render_view_host_map_.find(rvh->GetSiteInstance()->GetId());
+  CHECK(it != render_view_host_map_.end());
+  CHECK_EQ(it->second, rvh);
+  render_view_host_map_.erase(it);
 }
 
-void FrameTree::ReleaseRenderViewHostRef(RenderViewHostImpl* render_view_host) {
-  SiteInstance* site_instance = render_view_host->GetSiteInstance();
-  int32_t site_instance_id = site_instance->GetId();
-  auto iter = render_view_host_map_.find(site_instance_id);
+void FrameTree::FrameUnloading(FrameTreeNode* frame) {
+  if (frame->frame_tree_node_id() == focused_frame_tree_node_id_)
+    focused_frame_tree_node_id_ = FrameTreeNode::kFrameTreeNodeInvalidId;
 
-  CHECK(iter != render_view_host_map_.end());
-  CHECK_EQ(iter->second, render_view_host);
-
-  // Decrement the refcount and shutdown the RenderViewHost if no one else is
-  // using it.
-  CHECK_GT(iter->second->ref_count(), 0);
-  iter->second->decrement_ref_count();
-  if (iter->second->ref_count() == 0) {
-    iter->second->ShutdownAndDestroy();
-    render_view_host_map_.erase(iter);
-  }
+  // Ensure frames that are about to be deleted aren't visible from the other
+  // processes anymore.
+  frame->render_manager()->ResetProxyHosts();
 }
 
 void FrameTree::FrameRemoved(FrameTreeNode* frame) {

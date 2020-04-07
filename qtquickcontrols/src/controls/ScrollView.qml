@@ -37,6 +37,7 @@
 **
 ****************************************************************************/
 
+import QtQml 2.14 as Qml
 import QtQuick 2.2
 import QtQuick.Controls 1.2
 import QtQuick.Controls.Private 1.0
@@ -224,18 +225,20 @@ FocusScope {
             property alias __control: root
         }
 
-        Binding {
+        Qml.Binding {
             target: flickableItem
             property: "contentHeight"
             when: contentItem !== flickableItem
             value: contentItem ? contentItem.height : 0
+            restoreMode: Binding.RestoreBinding
         }
 
-        Binding {
+        Qml.Binding {
             target: flickableItem
             when: contentItem !== flickableItem
             property: "contentWidth"
             value: contentItem ? contentItem.width : 0
+            restoreMode: Binding.RestoreBinding
         }
 
         Connections {

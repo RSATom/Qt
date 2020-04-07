@@ -46,7 +46,7 @@ namespace QPatternistSDK
      * @author Frans Englich <frans.englich@nokia.com>
      * @ingroup PatternistSDK
      */
-    class Q_PATTERNISTSDK_EXPORT TestResultHandler : public QXmlDefaultHandler
+    class TestResultHandler : public QXmlDefaultHandler
     {
     public:
         /**

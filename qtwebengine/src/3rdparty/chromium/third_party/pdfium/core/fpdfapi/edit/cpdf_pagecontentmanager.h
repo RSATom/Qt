@@ -8,6 +8,7 @@
 #include <set>
 #include <sstream>
 
+#include "core/fxcrt/retain_ptr.h"
 #include "core/fxcrt/unowned_ptr.h"
 
 class CPDF_Array;
@@ -18,7 +19,7 @@ class CPDF_PageObjectHolder;
 
 class CPDF_PageContentManager {
  public:
-  explicit CPDF_PageContentManager(const CPDF_PageObjectHolder* pObjHolder);
+  explicit CPDF_PageContentManager(const CPDF_PageObjectHolder* obj_holder);
   ~CPDF_PageContentManager();
 
   // Gets the Content stream at a given index. If Contents is a single stream
@@ -41,8 +42,8 @@ class CPDF_PageContentManager {
  private:
   UnownedPtr<const CPDF_PageObjectHolder> const obj_holder_;
   UnownedPtr<CPDF_Document> const doc_;
-  UnownedPtr<CPDF_Array> contents_array_;
-  UnownedPtr<CPDF_Stream> contents_stream_;
+  RetainPtr<CPDF_Array> contents_array_;
+  RetainPtr<CPDF_Stream> contents_stream_;
   std::set<size_t> streams_to_remove_;
 };
 

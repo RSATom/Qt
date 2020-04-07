@@ -35,17 +35,14 @@ void CopyData(const scoped_refptr<IOBuffer>& buf,
 
 URLRequestSimpleJob::URLRequestSimpleJob(URLRequest* request,
                                          NetworkDelegate* network_delegate)
-    : URLRangeRequestJob(request, network_delegate),
-      next_data_offset_(0),
-      weak_factory_(this) {
-}
+    : URLRangeRequestJob(request, network_delegate), next_data_offset_(0) {}
 
 void URLRequestSimpleJob::Start() {
   // Start reading asynchronously so that all error reporting and data
   // callbacks happen as they would for network requests.
   base::ThreadTaskRunnerHandle::Get()->PostTask(
-      FROM_HERE,
-      base::Bind(&URLRequestSimpleJob::StartAsync, weak_factory_.GetWeakPtr()));
+      FROM_HERE, base::BindOnce(&URLRequestSimpleJob::StartAsync,
+                                weak_factory_.GetWeakPtr()));
 }
 
 void URLRequestSimpleJob::Kill() {

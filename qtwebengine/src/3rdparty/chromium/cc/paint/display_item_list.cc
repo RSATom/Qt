@@ -31,6 +31,31 @@ bool GetCanvasClipBounds(SkCanvas* canvas, gfx::Rect* clip_bounds) {
   return true;
 }
 
+void FillTextContent(const PaintOpBuffer* buffer,
+                     std::vector<NodeId>* content) {
+  for (auto* op : PaintOpBuffer::Iterator(buffer)) {
+    if (op->GetType() == PaintOpType::DrawTextBlob) {
+      content->push_back(static_cast<DrawTextBlobOp*>(op)->node_id);
+    } else if (op->GetType() == PaintOpType::DrawRecord) {
+      FillTextContent(static_cast<DrawRecordOp*>(op)->record.get(), content);
+    }
+  }
+}
+
+void FillTextContentByOffsets(const PaintOpBuffer* buffer,
+                              const std::vector<size_t>& offsets,
+                              std::vector<NodeId>* content) {
+  if (!buffer)
+    return;
+  for (auto* op : PaintOpBuffer::OffsetIterator(buffer, &offsets)) {
+    if (op->GetType() == PaintOpType::DrawTextBlob) {
+      content->push_back(static_cast<DrawTextBlobOp*>(op)->node_id);
+    } else if (op->GetType() == PaintOpType::DrawRecord) {
+      FillTextContent(static_cast<DrawRecordOp*>(op)->record.get(), content);
+    }
+  }
+}
+
 }  // namespace
 
 DisplayItemList::DisplayItemList(UsageHint usage_hint)
@@ -44,10 +69,8 @@ DisplayItemList::DisplayItemList(UsageHint usage_hint)
 
 DisplayItemList::~DisplayItemList() = default;
 
-void DisplayItemList::Raster(
-    SkCanvas* canvas,
-    ImageProvider* image_provider,
-    PaintWorkletImageProvider* paint_worklet_image_provider) const {
+void DisplayItemList::Raster(SkCanvas* canvas,
+                             ImageProvider* image_provider) const {
   DCHECK(usage_hint_ == kTopLevelDisplayItemList);
   gfx::Rect canvas_playback_rect;
   if (!GetCanvasClipBounds(canvas, &canvas_playback_rect))
@@ -55,9 +78,14 @@ void DisplayItemList::Raster(
 
   std::vector<size_t> offsets;
   rtree_.Search(canvas_playback_rect, &offsets);
-  paint_op_buffer_.Playback(
-      canvas, PlaybackParams(image_provider, paint_worklet_image_provider),
-      &offsets);
+  paint_op_buffer_.Playback(canvas, PlaybackParams(image_provider), &offsets);
+}
+
+void DisplayItemList::CaptureContent(const gfx::Rect& rect,
+                                     std::vector<NodeId>* content) const {
+  std::vector<size_t> offsets;
+  rtree_.Search(rect, &offsets);
+  FillTextContentByOffsets(&paint_op_buffer_, offsets, content);
 }
 
 void DisplayItemList::Finalize() {
@@ -120,12 +148,15 @@ DisplayItemList::CreateTracedValue(bool include_items) const {
     state->BeginArray("items");
 
     PlaybackParams params(nullptr, SkMatrix::I());
-    const auto& bounds = rtree_.GetAllBoundsForTracing();
-    size_t i = 0;
+    std::map<size_t, gfx::Rect> visual_rects = rtree_.GetAllBoundsForTracing();
     for (const PaintOp* op : PaintOpBuffer::Iterator(&paint_op_buffer_)) {
       state->BeginDictionary();
       state->SetString("name", PaintOpTypeToString(op->GetType()));
-      MathUtil::AddToTracedValue("visual_rect", bounds[i++], state.get());
+
+      MathUtil::AddToTracedValue(
+          "visual_rect",
+          visual_rects[paint_op_buffer_.GetOpOffsetForTracing(op)],
+          state.get());
 
       SkPictureRecorder recorder;
       SkCanvas* canvas =

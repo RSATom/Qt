@@ -27,6 +27,7 @@ class EventStream;  // Auto-generated from protobuf.
 }  // namespace rtclog2
 
 class RtcEventAlrState;
+class RtcEventRouteChange;
 class RtcEventAudioNetworkAdaptation;
 class RtcEventAudioPlayout;
 class RtcEventAudioReceiveStreamConfig;
@@ -49,6 +50,9 @@ class RtcEventVideoSendStreamConfig;
 class RtcEventIceCandidatePairConfig;
 class RtcEventIceCandidatePair;
 class RtpPacket;
+class RtcEventGenericAckReceived;
+class RtcEventGenericPacketReceived;
+class RtcEventGenericPacketSent;
 
 class RtcEventLogEncoderNewFormat final : public RtcEventLogEncoder {
  public:
@@ -89,6 +93,21 @@ class RtcEventLogEncoderNewFormat final : public RtcEventLogEncoder {
   void EncodeDtlsWritableState(
       rtc::ArrayView<const RtcEventDtlsWritableState*> batch,
       rtclog2::EventStream* event_stream);
+  void EncodeGenericAcksReceived(
+      rtc::ArrayView<const RtcEventGenericAckReceived*> batch,
+      rtclog2::EventStream* event_stream);
+  void EncodeGenericPacketsReceived(
+      rtc::ArrayView<const RtcEventGenericPacketReceived*> batch,
+      rtclog2::EventStream* event_stream);
+  void EncodeGenericPacketsSent(
+      rtc::ArrayView<const RtcEventGenericPacketSent*> batch,
+      rtclog2::EventStream* event_stream);
+  void EncodeIceCandidatePairConfig(
+      rtc::ArrayView<const RtcEventIceCandidatePairConfig*> batch,
+      rtclog2::EventStream* event_stream);
+  void EncodeIceCandidatePairEvent(
+      rtc::ArrayView<const RtcEventIceCandidatePair*> batch,
+      rtclog2::EventStream* event_stream);
   void EncodeLoggingStarted(rtc::ArrayView<const RtcEventLoggingStarted*> batch,
                             rtclog2::EventStream* event_stream);
   void EncodeLoggingStopped(rtc::ArrayView<const RtcEventLoggingStopped*> batch,
@@ -102,6 +121,8 @@ class RtcEventLogEncoderNewFormat final : public RtcEventLogEncoder {
   void EncodeProbeResultSuccess(
       rtc::ArrayView<const RtcEventProbeResultSuccess*> batch,
       rtclog2::EventStream* event_stream);
+  void EncodeRouteChange(rtc::ArrayView<const RtcEventRouteChange*> batch,
+                         rtclog2::EventStream* event_stream);
   void EncodeRtcpPacketIncoming(
       rtc::ArrayView<const RtcEventRtcpPacketIncoming*> batch,
       rtclog2::EventStream* event_stream);
@@ -121,12 +142,6 @@ class RtcEventLogEncoderNewFormat final : public RtcEventLogEncoder {
       rtclog2::EventStream* event_stream);
   void EncodeVideoSendStreamConfig(
       rtc::ArrayView<const RtcEventVideoSendStreamConfig*> batch,
-      rtclog2::EventStream* event_stream);
-  void EncodeIceCandidatePairConfig(
-      rtc::ArrayView<const RtcEventIceCandidatePairConfig*> batch,
-      rtclog2::EventStream* event_stream);
-  void EncodeIceCandidatePairEvent(
-      rtc::ArrayView<const RtcEventIceCandidatePair*> batch,
       rtclog2::EventStream* event_stream);
 };
 

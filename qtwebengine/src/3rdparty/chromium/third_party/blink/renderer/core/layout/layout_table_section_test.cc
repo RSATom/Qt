@@ -47,7 +47,7 @@ TEST_F(LayoutTableSectionTest,
   auto* section = GetSectionByElementId("section");
   EXPECT_TRUE(section);
   EXPECT_FALSE(
-      section->BackgroundIsKnownToBeOpaqueInRect(LayoutRect(0, 0, 1, 1)));
+      section->BackgroundIsKnownToBeOpaqueInRect(PhysicalRect(0, 0, 1, 1)));
 }
 
 TEST_F(LayoutTableSectionTest, BackgroundIsKnownToBeOpaqueWithBorderSpacing) {
@@ -62,7 +62,7 @@ TEST_F(LayoutTableSectionTest, BackgroundIsKnownToBeOpaqueWithBorderSpacing) {
   auto* section = GetSectionByElementId("section");
   EXPECT_TRUE(section);
   EXPECT_FALSE(
-      section->BackgroundIsKnownToBeOpaqueInRect(LayoutRect(0, 0, 1, 1)));
+      section->BackgroundIsKnownToBeOpaqueInRect(PhysicalRect(0, 0, 1, 1)));
 }
 
 TEST_F(LayoutTableSectionTest, BackgroundIsKnownToBeOpaqueWithEmptyCell) {
@@ -78,7 +78,7 @@ TEST_F(LayoutTableSectionTest, BackgroundIsKnownToBeOpaqueWithEmptyCell) {
   auto* section = GetSectionByElementId("section");
   EXPECT_TRUE(section);
   EXPECT_FALSE(
-      section->BackgroundIsKnownToBeOpaqueInRect(LayoutRect(0, 0, 1, 1)));
+      section->BackgroundIsKnownToBeOpaqueInRect(PhysicalRect(0, 0, 1, 1)));
 }
 
 TEST_F(LayoutTableSectionTest, EmptySectionDirtiedRowsAndEffeciveColumns) {
@@ -301,11 +301,8 @@ TEST_F(LayoutTableSectionTest, VisualOverflowWithCollapsedBorders) {
 
   auto* section = GetSectionByElementId("section");
 
-  // The section's self visual overflow covers the collapsed borders.
-  LayoutRect expected_self_visual_overflow = section->BorderBoxRect();
-  expected_self_visual_overflow.ExpandEdges(LayoutUnit(1), LayoutUnit(8),
-                                            LayoutUnit(0), LayoutUnit(0));
-  EXPECT_EQ(expected_self_visual_overflow, section->SelfVisualOverflowRect());
+  // The section's self visual overflow doesn't cover the collapsed borders.
+  EXPECT_EQ(section->BorderBoxRect(), section->SelfVisualOverflowRect());
 
   // The section's visual overflow covers self visual overflow and visual
   // overflows rows.
@@ -317,7 +314,7 @@ TEST_F(LayoutTableSectionTest, VisualOverflowWithCollapsedBorders) {
 
 static void SetCellsOverflowInRow(LayoutTableRow* row) {
   for (auto* cell = row->FirstCell(); cell; cell = cell->NextCell()) {
-    ToElement(cell->GetNode())
+    To<Element>(cell->GetNode())
         ->setAttribute(html_names::kClassAttr, "overflow");
   }
 }

@@ -44,7 +44,7 @@ QT_BEGIN_NAMESPACE
 /*!
     \qmltype Container
     \inherits Control
-    \instantiates QQuickContainer
+//!     \instantiates QQuickContainer
     \inqmlmodule QtQuick.Controls
     \since 5.7
     \ingroup qtquickcontrols2-containers
@@ -110,7 +110,7 @@ QT_BEGIN_NAMESPACE
     \list
         \li \l incrementCurrentIndex()
         \li \l decrementCurrentIndex()
-        \li \l setCurrentIndex(int index)
+        \li \l setCurrentIndex()
     \endlist
 
     \code
@@ -241,7 +241,7 @@ void QQuickContainerPrivate::insertItem(int index, QQuickItem *item)
 
     updatingCurrent = true;
 
-    item->setParentItem(effectiveContentItem(getContentItem()));
+    item->setParentItem(effectiveContentItem(q->contentItem()));
     QQuickItemPrivate::get(item)->addItemChangeListener(this, changeTypes);
     contentModel->insert(index, item);
 
@@ -383,7 +383,7 @@ void QQuickContainerPrivate::contentData_append(QQmlListProperty<QObject> *prop,
     QQuickItem *item = qobject_cast<QQuickItem *>(obj);
     if (item) {
         if (QQuickItemPrivate::get(item)->isTransparentForPositioner())
-            item->setParentItem(effectiveContentItem(p->contentItem));
+            item->setParentItem(effectiveContentItem(q->contentItem()));
         else if (p->contentModel->indexOf(item, nullptr) == -1)
             q->addItem(item);
     } else {
@@ -700,7 +700,7 @@ int QQuickContainer::currentIndex() const
 /*!
     \qmlmethod void QtQuick.Controls::Container::setCurrentIndex(int index)
 
-    Sets the current index of the container.
+    Sets the current \a index of the container.
 
     This method can be called to set a specific current index without breaking
     existing \c currentIndex bindings.

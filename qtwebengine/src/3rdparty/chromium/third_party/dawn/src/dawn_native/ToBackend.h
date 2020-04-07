@@ -59,11 +59,6 @@ namespace dawn_native {
     };
 
     template <typename BackendTraits>
-    struct ToBackendTraits<InputStateBase, BackendTraits> {
-        using BackendType = typename BackendTraits::InputStateType;
-    };
-
-    template <typename BackendTraits>
     struct ToBackendTraits<PipelineLayoutBase, BackendTraits> {
         using BackendType = typename BackendTraits::PipelineLayoutType;
     };
@@ -71,11 +66,6 @@ namespace dawn_native {
     template <typename BackendTraits>
     struct ToBackendTraits<QueueBase, BackendTraits> {
         using BackendType = typename BackendTraits::QueueType;
-    };
-
-    template <typename BackendTraits>
-    struct ToBackendTraits<RenderPassDescriptorBase, BackendTraits> {
-        using BackendType = typename BackendTraits::RenderPassDescriptorType;
     };
 
     template <typename BackendTraits>
@@ -91,6 +81,11 @@ namespace dawn_native {
     template <typename BackendTraits>
     struct ToBackendTraits<ShaderModuleBase, BackendTraits> {
         using BackendType = typename BackendTraits::ShaderModuleType;
+    };
+
+    template <typename BackendTraits>
+    struct ToBackendTraits<StagingBufferBase, BackendTraits> {
+        using BackendType = typename BackendTraits::StagingBufferType;
     };
 
     template <typename BackendTraits>

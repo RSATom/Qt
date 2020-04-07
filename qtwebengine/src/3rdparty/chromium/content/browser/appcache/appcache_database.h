@@ -43,6 +43,7 @@ FORWARD_DECLARE_TEST(AppCacheDatabaseTest, OnlineWhiteListRecords);
 FORWARD_DECLARE_TEST(AppCacheDatabaseTest, ReCreate);
 FORWARD_DECLARE_TEST(AppCacheDatabaseTest, DeletableResponseIds);
 FORWARD_DECLARE_TEST(AppCacheDatabaseTest, OriginUsage);
+FORWARD_DECLARE_TEST(AppCacheDatabaseTest, FindCachesForOrigin);
 FORWARD_DECLARE_TEST(AppCacheDatabaseTest,
                      UpgradeSchemaForVersionsWithoutSupportedMigrations);
 FORWARD_DECLARE_TEST(AppCacheDatabaseTest, UpgradeSchemaFrom7to8);
@@ -50,6 +51,7 @@ FORWARD_DECLARE_TEST(AppCacheDatabaseTest, WasCorrutionDetected);
 class AppCacheDatabaseTest;
 class AppCacheStorageImplTest;
 
+// A wrapper around the SQLite database that serves one StoragePartition.
 class CONTENT_EXPORT AppCacheDatabase {
  public:
   struct CONTENT_EXPORT GroupRecord {
@@ -271,6 +273,7 @@ class CONTENT_EXPORT AppCacheDatabase {
   FRIEND_TEST_ALL_PREFIXES(content::AppCacheDatabaseTest, ReCreate);
   FRIEND_TEST_ALL_PREFIXES(content::AppCacheDatabaseTest, DeletableResponseIds);
   FRIEND_TEST_ALL_PREFIXES(content::AppCacheDatabaseTest, OriginUsage);
+  FRIEND_TEST_ALL_PREFIXES(content::AppCacheDatabaseTest, FindCachesForOrigin);
   FRIEND_TEST_ALL_PREFIXES(content::AppCacheDatabaseTest,
                            UpgradeSchemaForVersionsWithoutSupportedMigrations);
   FRIEND_TEST_ALL_PREFIXES(content::AppCacheDatabaseTest,

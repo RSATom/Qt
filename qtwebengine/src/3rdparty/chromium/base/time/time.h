@@ -97,10 +97,12 @@ class TimeDelta;
 // time classes instead.
 namespace time_internal {
 
-// Add or subtract |value| from a TimeDelta. The int64_t argument and return
-// value are in terms of a microsecond timebase.
-BASE_EXPORT int64_t SaturatedAdd(TimeDelta delta, int64_t value);
-BASE_EXPORT int64_t SaturatedSub(TimeDelta delta, int64_t value);
+// Add or subtract a TimeDelta from |value|. TimeDelta::Min()/Max() are treated
+// as infinity and will always saturate the return value (infinity math applies
+// if |value| also is at either limit of its spectrum). The int64_t argument and
+// return value are in terms of a microsecond timebase.
+BASE_EXPORT int64_t SaturatedAdd(int64_t value, TimeDelta delta);
+BASE_EXPORT int64_t SaturatedSub(int64_t value, TimeDelta delta);
 
 }  // namespace time_internal
 
@@ -127,6 +129,9 @@ class BASE_EXPORT TimeDelta {
   static TimeDelta FromFileTime(FILETIME ft);
 #elif defined(OS_POSIX) || defined(OS_FUCHSIA)
   static TimeDelta FromTimeSpec(const timespec& ts);
+#endif
+#if defined(OS_FUCHSIA)
+  static TimeDelta FromZxDuration(zx_duration_t nanos);
 #endif
 
   // Converts an integer value representing TimeDelta to a class. This is used
@@ -180,6 +185,9 @@ class BASE_EXPORT TimeDelta {
 #if defined(OS_POSIX) || defined(OS_FUCHSIA)
   struct timespec ToTimeSpec() const;
 #endif
+#if defined(OS_FUCHSIA)
+  zx_duration_t ToZxDuration() const;
+#endif
 
   // Returns the time delta in some unit. The InXYZF versions return a floating
   // point value. The InXYZ versions return a truncated value (aka rounded
@@ -204,10 +212,10 @@ class BASE_EXPORT TimeDelta {
   // __builtin_(add|sub)_overflow in safe_math_clang_gcc_impl.h :
   // https://chromium-review.googlesource.com/c/chromium/src/+/873352#message-59594ab70827795a67e0780404adf37b4b6c2f14
   TimeDelta operator+(TimeDelta other) const {
-    return TimeDelta(time_internal::SaturatedAdd(*this, other.delta_));
+    return TimeDelta(time_internal::SaturatedAdd(delta_, other));
   }
   TimeDelta operator-(TimeDelta other) const {
-    return TimeDelta(time_internal::SaturatedSub(*this, other.delta_));
+    return TimeDelta(time_internal::SaturatedSub(delta_, other));
   }
 
   TimeDelta& operator+=(TimeDelta other) {
@@ -279,8 +287,8 @@ class BASE_EXPORT TimeDelta {
   }
 
  private:
-  friend int64_t time_internal::SaturatedAdd(TimeDelta delta, int64_t value);
-  friend int64_t time_internal::SaturatedSub(TimeDelta delta, int64_t value);
+  friend int64_t time_internal::SaturatedAdd(int64_t value, TimeDelta delta);
+  friend int64_t time_internal::SaturatedSub(int64_t value, TimeDelta delta);
 
   // Constructs a delta given the duration in microseconds. This is private
   // to avoid confusion by callers with an integer constructor. Use
@@ -393,10 +401,10 @@ class TimeBase {
 
   // Return a new time modified by some delta.
   TimeClass operator+(TimeDelta delta) const {
-    return TimeClass(time_internal::SaturatedAdd(delta, us_));
+    return TimeClass(time_internal::SaturatedAdd(us_, delta));
   }
   TimeClass operator-(TimeDelta delta) const {
-    return TimeClass(-time_internal::SaturatedSub(delta, us_));
+    return TimeClass(time_internal::SaturatedSub(us_, delta));
   }
 
   // Modify by some time delta.
@@ -575,6 +583,11 @@ class BASE_EXPORT Time : public time_internal::TimeBase<Time> {
 #if defined(OS_POSIX) || defined(OS_FUCHSIA)
   static Time FromTimeVal(struct timeval t);
   struct timeval ToTimeVal() const;
+#endif
+
+#if defined(OS_FUCHSIA)
+  static Time FromZxTime(zx_time_t time);
+  zx_time_t ToZxTime() const;
 #endif
 
 #if defined(OS_MACOSX)
@@ -988,11 +1001,17 @@ class BASE_EXPORT ThreadTicks : public time_internal::TimeBase<ThreadTicks> {
 #if defined(OS_WIN)
   FRIEND_TEST_ALL_PREFIXES(TimeTicks, TSCTicksPerSecond);
 
+#if defined(ARCH_CPU_ARM64)
+  // TSCTicksPerSecond is not supported on Windows on Arm systems because the
+  // cycle-counting methods use the actual CPU cycle count, and not a consistent
+  // incrementing counter.
+#else
   // Returns the frequency of the TSC in ticks per second, or 0 if it hasn't
   // been measured yet. Needs to be guarded with a call to IsSupported().
   // This method is declared here rather than in the anonymous namespace to
   // allow testing.
   static double TSCTicksPerSecond();
+#endif
 
   static bool IsSupportedWin() WARN_UNUSED_RESULT;
   static void WaitUntilInitializedWin();

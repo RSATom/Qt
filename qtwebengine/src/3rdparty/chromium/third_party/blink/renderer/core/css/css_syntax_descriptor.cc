@@ -4,6 +4,7 @@
 
 #include "third_party/blink/renderer/core/css/css_syntax_descriptor.h"
 
+#include <utility>
 #include "third_party/blink/renderer/core/css/css_custom_property_declaration.h"
 #include "third_party/blink/renderer/core/css/css_syntax_component.h"
 #include "third_party/blink/renderer/core/css/css_uri_value.h"
@@ -16,140 +17,27 @@
 #include "third_party/blink/renderer/platform/runtime_enabled_features.h"
 
 namespace blink {
+namespace {
 
-void ConsumeWhitespace(const String& string, wtf_size_t& offset) {
-  while (IsHTMLSpace(string[offset]))
-    offset++;
-}
-
-bool ConsumeCharacterAndWhitespace(const String& string,
-                                   char character,
-                                   wtf_size_t& offset) {
-  if (string[offset] != character)
+// The 'revert' and 'default' keywords are reserved.
+//
+// https://drafts.csswg.org/css-cascade/#default
+// https://drafts.csswg.org/css-values-4/#identifier-value
+//
+// TODO(crbug.com/579788): Implement 'revert'.
+// TODO(crbug.com/882285): Make 'default' invalid as <custom-ident>.
+bool IsReservedIdentToken(const CSSParserToken& token) {
+  if (token.GetType() != kIdentToken)
     return false;
-  offset++;
-  ConsumeWhitespace(string, offset);
-  return true;
+  return css_property_parser_helpers::IsRevertKeyword(token.Value()) ||
+         css_property_parser_helpers::IsDefaultKeyword(token.Value());
 }
 
-CSSSyntaxType ParseSyntaxType(String type) {
-  // TODO(timloh): Are these supposed to be case sensitive?
-  if (type == "length")
-    return CSSSyntaxType::kLength;
-  if (type == "number")
-    return CSSSyntaxType::kNumber;
-  if (type == "percentage")
-    return CSSSyntaxType::kPercentage;
-  if (type == "length-percentage")
-    return CSSSyntaxType::kLengthPercentage;
-  if (type == "color")
-    return CSSSyntaxType::kColor;
-  if (RuntimeEnabledFeatures::CSSVariables2ImageValuesEnabled()) {
-    if (type == "image")
-      return CSSSyntaxType::kImage;
-  }
-  if (type == "url")
-    return CSSSyntaxType::kUrl;
-  if (type == "integer")
-    return CSSSyntaxType::kInteger;
-  if (type == "angle")
-    return CSSSyntaxType::kAngle;
-  if (type == "time")
-    return CSSSyntaxType::kTime;
-  if (type == "resolution")
-    return CSSSyntaxType::kResolution;
-  if (RuntimeEnabledFeatures::CSSVariables2TransformValuesEnabled()) {
-    if (type == "transform-function")
-      return CSSSyntaxType::kTransformFunction;
-    if (type == "transform-list")
-      return CSSSyntaxType::kTransformList;
-  }
-  if (type == "custom-ident")
-    return CSSSyntaxType::kCustomIdent;
-  // Not an Ident, just used to indicate failure
-  return CSSSyntaxType::kIdent;
-}
-
-bool ConsumeSyntaxType(const String& input,
-                       wtf_size_t& offset,
-                       CSSSyntaxType& type) {
-  DCHECK_EQ(input[offset], '<');
-  offset++;
-  wtf_size_t type_start = offset;
-  while (offset < input.length() && input[offset] != '>')
-    offset++;
-  if (offset == input.length())
-    return false;
-  type = ParseSyntaxType(input.Substring(type_start, offset - type_start));
-  if (type == CSSSyntaxType::kIdent)
-    return false;
-  offset++;
-  return true;
-}
-
-bool ConsumeSyntaxIdent(const String& input,
-                        wtf_size_t& offset,
-                        String& ident) {
-  wtf_size_t ident_start = offset;
-  while (IsNameCodePoint(input[offset]))
-    offset++;
-  if (offset == ident_start)
-    return false;
-  ident = input.Substring(ident_start, offset - ident_start);
-  return !css_property_parser_helpers::IsCSSWideKeyword(ident);
-}
-
-CSSSyntaxDescriptor::CSSSyntaxDescriptor(const String& input) {
-  wtf_size_t offset = 0;
-  ConsumeWhitespace(input, offset);
-
-  if (ConsumeCharacterAndWhitespace(input, '*', offset)) {
-    if (offset != input.length())
-      return;
-    syntax_components_.push_back(CSSSyntaxComponent(
-        CSSSyntaxType::kTokenStream, g_empty_string, CSSSyntaxRepeat::kNone));
-    return;
-  }
-
-  do {
-    CSSSyntaxType type;
-    String ident;
-    bool success;
-
-    if (input[offset] == '<') {
-      success = ConsumeSyntaxType(input, offset, type);
-    } else {
-      type = CSSSyntaxType::kIdent;
-      success = ConsumeSyntaxIdent(input, offset, ident);
-    }
-
-    if (!success) {
-      syntax_components_.clear();
-      return;
-    }
-
-    CSSSyntaxRepeat repeat = CSSSyntaxRepeat::kNone;
-
-    if (ConsumeCharacterAndWhitespace(input, '+', offset))
-      repeat = CSSSyntaxRepeat::kSpaceSeparated;
-    else if (ConsumeCharacterAndWhitespace(input, '#', offset))
-      repeat = CSSSyntaxRepeat::kCommaSeparated;
-
-    // <transform-list> is already a space separated list,
-    // <transform-list>+ is invalid.
-    // TODO(andruud): Is <transform-list># invalid?
-    if (type == CSSSyntaxType::kTransformList &&
-        repeat != CSSSyntaxRepeat::kNone) {
-      syntax_components_.clear();
-      return;
-    }
-    ConsumeWhitespace(input, offset);
-    syntax_components_.push_back(CSSSyntaxComponent(type, ident, repeat));
-
-  } while (ConsumeCharacterAndWhitespace(input, '|', offset));
-
-  if (offset != input.length())
-    syntax_components_.clear();
+bool CouldConsumeReservedKeyword(CSSParserTokenRange range) {
+  range.ConsumeWhitespace();
+  if (IsReservedIdentToken(range.ConsumeIncludingWhitespace()))
+    return range.AtEnd();
+  return false;
 }
 
 const CSSValue* ConsumeSingleType(const CSSSyntaxComponent& syntax,
@@ -162,7 +50,8 @@ const CSSValue* ConsumeSingleType(const CSSSyntaxComponent& syntax,
       if (range.Peek().GetType() == kIdentToken &&
           range.Peek().Value() == syntax.GetString()) {
         range.ConsumeIncludingWhitespace();
-        return CSSCustomIdentValue::Create(AtomicString(syntax.GetString()));
+        return MakeGarbageCollected<CSSCustomIdentValue>(
+            AtomicString(syntax.GetString()));
       }
       return nullptr;
     case CSSSyntaxType::kLength:
@@ -194,6 +83,10 @@ const CSSValue* ConsumeSingleType(const CSSSyntaxComponent& syntax,
     case CSSSyntaxType::kTransformList:
       return ConsumeTransformList(range, *context);
     case CSSSyntaxType::kCustomIdent:
+      // TODO(crbug.com/579788): Implement 'revert'.
+      // TODO(crbug.com/882285): Make 'default' invalid as <custom-ident>.
+      if (IsReservedIdentToken(range.Peek()))
+        return nullptr;
       return ConsumeCustomIdent(range, *context);
     default:
       NOTREACHED();
@@ -232,23 +125,16 @@ const CSSValue* ConsumeSyntaxComponent(const CSSSyntaxComponent& syntax,
   return result;
 }
 
-const CSSSyntaxComponent* CSSSyntaxDescriptor::Match(
-    const CSSStyleValue& value) const {
-  for (const CSSSyntaxComponent& component : syntax_components_) {
-    if (component.CanTake(value))
-      return &component;
-  }
-  return nullptr;
-}
-
-bool CSSSyntaxDescriptor::CanTake(const CSSStyleValue& value) const {
-  return Match(value);
-}
+}  // namespace
 
 const CSSValue* CSSSyntaxDescriptor::Parse(CSSParserTokenRange range,
                                            const CSSParserContext* context,
                                            bool is_animation_tainted) const {
   if (IsTokenStream()) {
+    // TODO(crbug.com/579788): Implement 'revert'.
+    // TODO(crbug.com/882285): Make 'default' invalid as <custom-ident>.
+    if (CouldConsumeReservedKeyword(range))
+      return nullptr;
     return CSSVariableParser::ParseRegisteredPropertyValue(
         range, *context, false, is_animation_tainted);
   }
@@ -260,6 +146,29 @@ const CSSValue* CSSSyntaxDescriptor::Parse(CSSParserTokenRange range,
   }
   return CSSVariableParser::ParseRegisteredPropertyValue(range, *context, true,
                                                          is_animation_tainted);
+}
+
+CSSSyntaxDescriptor CSSSyntaxDescriptor::IsolatedCopy() const {
+  Vector<CSSSyntaxComponent> syntax_components_copy;
+  syntax_components_copy.ReserveCapacity(syntax_components_.size());
+  for (const auto& syntax_component : syntax_components_) {
+    syntax_components_copy.push_back(CSSSyntaxComponent(
+        syntax_component.GetType(), syntax_component.GetString().IsolatedCopy(),
+        syntax_component.GetRepeat()));
+  }
+  return CSSSyntaxDescriptor(std::move(syntax_components_copy));
+}
+
+CSSSyntaxDescriptor::CSSSyntaxDescriptor(Vector<CSSSyntaxComponent> components)
+    : syntax_components_(std::move(components)) {
+  DCHECK(syntax_components_.size());
+}
+
+CSSSyntaxDescriptor CSSSyntaxDescriptor::CreateUniversal() {
+  Vector<CSSSyntaxComponent> components;
+  components.push_back(CSSSyntaxComponent(
+      CSSSyntaxType::kTokenStream, g_empty_string, CSSSyntaxRepeat::kNone));
+  return CSSSyntaxDescriptor(std::move(components));
 }
 
 }  // namespace blink

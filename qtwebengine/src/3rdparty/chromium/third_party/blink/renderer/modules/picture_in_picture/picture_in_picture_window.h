@@ -28,6 +28,7 @@ class PictureInPictureWindow
 
   int width() const { return size_.width; }
   int height() const { return size_.height; }
+  Document* document() const { return nullptr; }
 
   // Called when Picture-in-Picture window state is closed.
   void OnClose();
@@ -35,7 +36,7 @@ class PictureInPictureWindow
   // Called when the Picture-in-Picture window is resized.
   void OnResize(const WebSize&);
 
-  DEFINE_ATTRIBUTE_EVENT_LISTENER(resize, kResize);
+  DEFINE_ATTRIBUTE_EVENT_LISTENER(resize, kResize)
 
   // EventTarget overrides.
   const AtomicString& InterfaceName() const override;

@@ -20,9 +20,9 @@
 #include "net/base/host_port_pair.h"
 #include "net/base/net_export.h"
 #include "net/socket/next_proto.h"
-#include "net/third_party/quic/core/quic_bandwidth.h"
-#include "net/third_party/quic/core/quic_server_id.h"
-#include "net/third_party/quic/core/quic_versions.h"
+#include "net/third_party/quiche/src/quic/core/quic_bandwidth.h"
+#include "net/third_party/quiche/src/quic/core/quic_server_id.h"
+#include "net/third_party/quiche/src/quic/core/quic_versions.h"
 #include "net/third_party/quiche/src/spdy/core/spdy_framer.h"  // TODO(willchan): Reconsider this.
 #include "net/third_party/quiche/src/spdy/core/spdy_protocol.h"
 #include "url/scheme_host_port.h"
@@ -63,6 +63,7 @@ enum BrokenAlternateProtocolLocation {
   BROKEN_ALTERNATE_PROTOCOL_LOCATION_HTTP_STREAM_FACTORY_JOB_ALT = 2,
   BROKEN_ALTERNATE_PROTOCOL_LOCATION_HTTP_STREAM_FACTORY_JOB_MAIN = 3,
   BROKEN_ALTERNATE_PROTOCOL_LOCATION_QUIC_HTTP_STREAM = 4,
+  BROKEN_ALTERNATE_PROTOCOL_LOCATION_HTTP_NETWORK_TRANSACTION = 5,
   BROKEN_ALTERNATE_PROTOCOL_LOCATION_MAX,
 };
 
@@ -132,7 +133,7 @@ class NET_EXPORT_PRIVATE AlternativeServiceInfo {
   static AlternativeServiceInfo CreateQuicAlternativeServiceInfo(
       const AlternativeService& alternative_service,
       base::Time expiration,
-      const quic::QuicTransportVersionVector& advertised_versions);
+      const quic::ParsedQuicVersionVector& advertised_versions);
 
   AlternativeServiceInfo();
   ~AlternativeServiceInfo();
@@ -172,12 +173,13 @@ class NET_EXPORT_PRIVATE AlternativeServiceInfo {
   }
 
   void set_advertised_versions(
-      const quic::QuicTransportVersionVector& advertised_versions) {
+      const quic::ParsedQuicVersionVector& advertised_versions) {
     if (alternative_service_.protocol != kProtoQUIC)
       return;
 
     advertised_versions_ = advertised_versions;
-    std::sort(advertised_versions_.begin(), advertised_versions_.end());
+    std::sort(advertised_versions_.begin(), advertised_versions_.end(),
+              TransportVersionLessThan);
   }
 
   const AlternativeService& alternative_service() const {
@@ -192,7 +194,7 @@ class NET_EXPORT_PRIVATE AlternativeServiceInfo {
 
   base::Time expiration() const { return expiration_; }
 
-  const quic::QuicTransportVersionVector& advertised_versions() const {
+  const quic::ParsedQuicVersionVector& advertised_versions() const {
     return advertised_versions_;
   }
 
@@ -200,7 +202,10 @@ class NET_EXPORT_PRIVATE AlternativeServiceInfo {
   AlternativeServiceInfo(
       const AlternativeService& alternative_service,
       base::Time expiration,
-      const quic::QuicTransportVersionVector& advertised_versions);
+      const quic::ParsedQuicVersionVector& advertised_versions);
+
+  static bool TransportVersionLessThan(const quic::ParsedQuicVersion& lhs,
+                                       const quic::ParsedQuicVersion& rhs);
 
   AlternativeService alternative_service_;
   base::Time expiration_;
@@ -209,7 +214,7 @@ class NET_EXPORT_PRIVATE AlternativeServiceInfo {
   // by Chrome. If empty, defaults to versions used by the current instance of
   // the netstack.
   // This list MUST be sorted in ascending order.
-  quic::QuicTransportVersionVector advertised_versions_;
+  quic::ParsedQuicVersionVector advertised_versions_;
 };
 
 struct NET_EXPORT SupportsQuic {
@@ -372,7 +377,7 @@ class NET_EXPORT HttpServerProperties {
       const url::SchemeHostPort& origin,
       const AlternativeService& alternative_service,
       base::Time expiration,
-      const quic::QuicTransportVersionVector& advertised_versions) = 0;
+      const quic::ParsedQuicVersionVector& advertised_versions) = 0;
 
   // Set alternative services for |origin|.  Previous alternative services for
   // |origin| are discarded.

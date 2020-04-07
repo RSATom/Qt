@@ -29,10 +29,6 @@ bool ParseMacMachineModel(const std::string &identifier,
                           int32_t *minor);
 bool CMDeviceIDToDeviceAndVendorID(const std::string &id, uint32_t *vendorId, uint32_t *deviceId);
 
-// In the case there are multiple GPUs, this finds the primary one and sets Optimus or AMD
-// Switchable
-void FindPrimaryGPU(SystemInfo *info);
-
 }  // namespace angle
 
 #endif  // GPU_INFO_UTIL_SYSTEM_INFO_INTERNAL_H_

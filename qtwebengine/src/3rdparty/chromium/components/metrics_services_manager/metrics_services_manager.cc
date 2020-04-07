@@ -6,6 +6,7 @@
 
 #include <utility>
 
+#include "base/bind.h"
 #include "base/command_line.h"
 #include "base/logging.h"
 #include "base/metrics/histogram_macros.h"
@@ -174,6 +175,10 @@ void MetricsServicesManager::UpdateUploadPermissions(bool may_upload) {
 
 bool MetricsServicesManager::IsMetricsReportingEnabled() const {
   return client_->IsMetricsReportingEnabled();
+}
+
+bool MetricsServicesManager::IsMetricsConsentGiven() const {
+  return client_->IsMetricsConsentGiven();
 }
 
 }  // namespace metrics_services_manager

@@ -5,6 +5,8 @@
 #ifndef CONTENT_BROWSER_COMPOSITOR_GPU_SURFACELESS_BROWSER_COMPOSITOR_OUTPUT_SURFACE_H_
 #define CONTENT_BROWSER_COMPOSITOR_GPU_SURFACELESS_BROWSER_COMPOSITOR_OUTPUT_SURFACE_H_
 
+#include <stdint.h>
+
 #include <memory>
 #include <vector>
 
@@ -25,13 +27,8 @@ class GpuSurfacelessBrowserCompositorOutputSurface
     : public GpuBrowserCompositorOutputSurface {
  public:
   GpuSurfacelessBrowserCompositorOutputSurface(
-      scoped_refptr<ws::ContextProviderCommandBuffer> context,
+      scoped_refptr<viz::ContextProviderCommandBuffer> context,
       gpu::SurfaceHandle surface_handle,
-      const UpdateVSyncParametersCallback& update_vsync_parameters_callback,
-      std::unique_ptr<viz::CompositorOverlayCandidateValidator>
-          overlay_candidate_validator,
-      unsigned int target,
-      unsigned int internalformat,
       gfx::BufferFormat format,
       gpu::GpuMemoryBufferManager* gpu_memory_buffer_manager);
   ~GpuSurfacelessBrowserCompositorOutputSurface() override;
@@ -49,6 +46,8 @@ class GpuSurfacelessBrowserCompositorOutputSurface
   unsigned GetOverlayTextureId() const override;
   gfx::BufferFormat GetOverlayBufferFormat() const override;
   unsigned UpdateGpuFence() override;
+  void SetDrawRectangle(const gfx::Rect& damage) override;
+  gpu::SurfaceHandle GetSurfaceHandle() const override;
 
   // BrowserCompositorOutputSurface implementation.
   void OnGpuSwapBuffersCompleted(
@@ -62,7 +61,11 @@ class GpuSurfacelessBrowserCompositorOutputSurface
   unsigned gpu_fence_id_;
 
   std::unique_ptr<viz::BufferQueue> buffer_queue_;
+  unsigned current_texture_;
+  uint32_t fbo_;
+
   gpu::GpuMemoryBufferManager* gpu_memory_buffer_manager_;
+  gpu::SurfaceHandle surface_handle_;
 };
 
 }  // namespace content

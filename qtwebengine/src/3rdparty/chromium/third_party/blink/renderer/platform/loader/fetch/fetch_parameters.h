@@ -27,15 +27,14 @@
 #define THIRD_PARTY_BLINK_RENDERER_PLATFORM_LOADER_FETCH_FETCH_PARAMETERS_H_
 
 #include "third_party/blink/public/platform/web_url_request.h"
-#include "third_party/blink/renderer/platform/cross_origin_attribute_value.h"
 #include "third_party/blink/renderer/platform/loader/fetch/client_hints_preferences.h"
+#include "third_party/blink/renderer/platform/loader/fetch/cross_origin_attribute_value.h"
 #include "third_party/blink/renderer/platform/loader/fetch/integrity_metadata.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource_loader_options.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource_request.h"
 #include "third_party/blink/renderer/platform/loader/fetch/text_resource_decoder_options.h"
 #include "third_party/blink/renderer/platform/platform_export.h"
-#include "third_party/blink/renderer/platform/wtf/allocator.h"
-#include "third_party/blink/renderer/platform/wtf/noncopyable.h"
+#include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 #include "third_party/blink/renderer/platform/wtf/text/text_encoding.h"
 
 namespace blink {
@@ -148,7 +147,7 @@ class PLATFORM_EXPORT FetchParameters {
   // Configures the request to use the "cors" mode and the specified
   // credentials mode.
   void SetCrossOriginAccessControl(const SecurityOrigin*,
-                                   network::mojom::FetchCredentialsMode);
+                                   network::mojom::CredentialsMode);
   const IntegrityMetadataSet IntegrityMetadata() const {
     return options_.integrity_metadata;
   }
@@ -186,12 +185,25 @@ class PLATFORM_EXPORT FetchParameters {
   // image and sets the lazy image load bit.
   void SetLazyImagePlaceholder();
   void SetLazyImageDeferred();
+  void SetLazyImageAutoReload();
 
   // Configures the request to load an image placeholder if the request is
   // eligible (e.g. the url's protocol is HTTP, etc.). If this request is
   // non-eligible, this method doesn't modify the ResourceRequest. Calling this
   // method sets image_request_optimization_ to the appropriate value.
   void SetAllowImagePlaceholder();
+
+  // See documentation in blink::ResourceRequest.
+  bool IsFromOriginDirtyStyleSheet() const {
+    return is_from_origin_dirty_style_sheet_;
+  }
+  void SetFromOriginDirtyStyleSheet(bool dirty) {
+    is_from_origin_dirty_style_sheet_ = dirty;
+  }
+
+  void SetSignedExchangePrefetchCacheEnabled(bool enabled) {
+    resource_request_.SetSignedExchangePrefetchCacheEnabled(enabled);
+  }
 
  private:
   ResourceRequest resource_request_;
@@ -206,6 +218,7 @@ class PLATFORM_EXPORT FetchParameters {
   ClientHintsPreferences client_hint_preferences_;
   ImageRequestOptimization image_request_optimization_;
   bool is_stale_revalidation_ = false;
+  bool is_from_origin_dirty_style_sheet_ = false;
 };
 
 }  // namespace blink

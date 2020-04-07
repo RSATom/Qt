@@ -9,12 +9,14 @@
 #include <memory>
 #include <sstream>
 
+#include "constants/annotation_common.h"
 #include "core/fpdfapi/parser/cpdf_array.h"
 #include "core/fpdfapi/parser/cpdf_dictionary.h"
 #include "core/fpdfapi/parser/cpdf_document.h"
 #include "core/fpdfapi/parser/cpdf_reference.h"
 #include "core/fpdfapi/parser/cpdf_stream.h"
 #include "core/fpdfapi/parser/cpdf_string.h"
+#include "core/fpdfdoc/cba_fontmap.h"
 #include "core/fpdfdoc/cpdf_defaultappearance.h"
 #include "core/fpdfdoc/cpdf_formcontrol.h"
 #include "core/fpdfdoc/cpdf_formfield.h"
@@ -25,10 +27,8 @@
 #include "core/fxge/cfx_renderdevice.h"
 #include "fpdfsdk/cpdfsdk_actionhandler.h"
 #include "fpdfsdk/cpdfsdk_formfillenvironment.h"
-#include "fpdfsdk/cpdfsdk_helpers.h"
 #include "fpdfsdk/cpdfsdk_interactiveform.h"
 #include "fpdfsdk/cpdfsdk_pageview.h"
-#include "fpdfsdk/formfiller/cba_fontmap.h"
 #include "fpdfsdk/pwl/cpwl_appstream.h"
 #include "fpdfsdk/pwl/cpwl_edit.h"
 
@@ -176,8 +176,8 @@ static XFA_EVENTTYPE GetXFAEventType(CPDF_AAction::AActionType eAAT,
 }
 
 bool CPDFSDK_Widget::HasXFAAAction(PDFSDK_XFAAActionType eXFAAAT) const {
-  CXFA_FFWidget* hWidget = GetMixXFAWidget();
-  if (!hWidget)
+  ObservedPtr<CXFA_FFWidget> pWidget(GetMixXFAWidget());
+  if (!pWidget)
     return false;
 
   CXFA_FFWidgetHandler* pXFAWidgetHandler = GetXFAWidgetHandler();
@@ -196,7 +196,12 @@ bool CPDFSDK_Widget::HasXFAAAction(PDFSDK_XFAAActionType eXFAAAT) const {
       }
     }
   }
-  CXFA_Node* node = hWidget->GetNode();
+
+  // Check |pWidget| again because JS may have destroyed it in the block above.
+  if (!pWidget)
+    return false;
+
+  CXFA_Node* node = pWidget->GetNode();
   if (!node->IsWidgetReady())
     return false;
   return pXFAWidgetHandler->HasEvent(node, eEventType);
@@ -207,8 +212,8 @@ bool CPDFSDK_Widget::OnXFAAAction(PDFSDK_XFAAActionType eXFAAAT,
                                   CPDFSDK_PageView* pPageView) {
   CPDFXFA_Context* pContext = m_pPageView->GetFormFillEnv()->GetXFAContext();
 
-  CXFA_FFWidget* hWidget = GetMixXFAWidget();
-  if (!hWidget)
+  ObservedPtr<CXFA_FFWidget> pWidget(GetMixXFAWidget());
+  if (!pWidget)
     return false;
 
   XFA_EVENTTYPE eEventType = GetXFAEventType(eXFAAAT);
@@ -239,14 +244,18 @@ bool CPDFSDK_Widget::OnXFAAAction(PDFSDK_XFAAActionType eXFAAAT,
 
       param.m_pTarget = node;
       if (pXFAWidgetHandler->ProcessEvent(node, &param) !=
-          XFA_EVENTERROR_Success) {
+          XFA_EventError::kSuccess) {
         return false;
       }
     }
   }
 
-  int32_t nRet = XFA_EVENTERROR_NotExist;
-  CXFA_Node* node = hWidget->GetNode();
+  // Check |pWidget| again because JS may have destroyed it in the block above.
+  if (!pWidget)
+    return false;
+
+  XFA_EventError nRet = XFA_EventError::kNotExist;
+  CXFA_Node* node = pWidget->GetNode();
   if (node->IsWidgetReady()) {
     param.m_pTarget = node;
     nRet = pXFAWidgetHandler->ProcessEvent(node, &param);
@@ -254,7 +263,7 @@ bool CPDFSDK_Widget::OnXFAAAction(PDFSDK_XFAAActionType eXFAAAT,
   if (CXFA_FFDocView* pDocView = pContext->GetXFADocView())
     pDocView->UpdateDocView();
 
-  return nRet == XFA_EVENTERROR_Success;
+  return nRet == XFA_EventError::kSuccess;
 }
 
 void CPDFSDK_Widget::Synchronize(bool bSynchronizeElse) {
@@ -304,7 +313,8 @@ void CPDFSDK_Widget::Synchronize(bool bSynchronizeElse) {
 #endif  // PDF_ENABLE_XFA
 
 bool CPDFSDK_Widget::IsWidgetAppearanceValid(CPDF_Annot::AppearanceMode mode) {
-  CPDF_Dictionary* pAP = GetAnnotDict()->GetDictFor("AP");
+  const CPDF_Dictionary* pAP =
+      GetAnnotDict()->GetDictFor(pdfium::annotation::kAP);
   if (!pAP)
     return false;
 
@@ -318,8 +328,8 @@ bool CPDFSDK_Widget::IsWidgetAppearanceValid(CPDF_Annot::AppearanceMode mode) {
     ap_entry = "N";
 
   // Get the AP stream or subdirectory
-  CPDF_Object* psub = pAP->GetDirectObjectFor(ap_entry);
-  if (!psub)
+  const CPDF_Object* pSub = pAP->GetDirectObjectFor(ap_entry);
+  if (!pSub)
     return false;
 
   FormFieldType fieldType = GetFieldType();
@@ -329,10 +339,10 @@ bool CPDFSDK_Widget::IsWidgetAppearanceValid(CPDF_Annot::AppearanceMode mode) {
     case FormFieldType::kListBox:
     case FormFieldType::kTextField:
     case FormFieldType::kSignature:
-      return psub->IsStream();
+      return pSub->IsStream();
     case FormFieldType::kCheckBox:
     case FormFieldType::kRadioButton:
-      if (CPDF_Dictionary* pSubDict = psub->AsDictionary()) {
+      if (const CPDF_Dictionary* pSubDict = pSub->AsDictionary()) {
         return !!pSubDict->GetStreamFor(GetAppState());
       }
       return false;
@@ -361,12 +371,7 @@ int CPDFSDK_Widget::GetLayoutOrder() const {
 }
 
 int CPDFSDK_Widget::GetFieldFlags() const {
-  CPDF_InteractiveForm* pPDFInteractiveForm =
-      m_pInteractiveForm->GetInteractiveForm();
-  CPDF_FormControl* pFormControl =
-      pPDFInteractiveForm->GetControlByDict(GetAnnotDict());
-  CPDF_FormField* pFormField = pFormControl->GetField();
-  return pFormField->GetFieldFlags();
+  return GetFormField()->GetFieldFlags();
 }
 
 bool CPDFSDK_Widget::IsSignatureWidget() const {
@@ -818,7 +823,7 @@ bool CPDFSDK_Widget::OnAAction(CPDF_AAction::AActionType type,
         param.m_bModifier = data->bModifier;
         param.m_wsPrevText = data->sValue;
 
-        int32_t nRet = XFA_EVENTERROR_NotExist;
+        XFA_EventError nRet = XFA_EventError::kNotExist;
         CXFA_Node* node = hWidget->GetNode();
         if (node->IsWidgetReady()) {
           param.m_pTarget = node;
@@ -828,7 +833,7 @@ bool CPDFSDK_Widget::OnAAction(CPDF_AAction::AActionType type,
         if (CXFA_FFDocView* pDocView = pContext->GetXFADocView())
           pDocView->UpdateDocView();
 
-        if (nRet == XFA_EVENTERROR_Success)
+        if (nRet == XFA_EventError::kSuccess)
           return true;
       }
     }

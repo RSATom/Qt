@@ -4,8 +4,8 @@
 
 #include "media/ffmpeg/ffmpeg_common.h"
 
+#include "base/hash/sha1.h"
 #include "base/logging.h"
-#include "base/sha1.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
@@ -16,6 +16,7 @@
 #include "media/base/media_util.h"
 #include "media/base/video_decoder_config.h"
 #include "media/base/video_util.h"
+#include "media/formats/mp4/box_definitions.h"
 #include "media/media_buildflags.h"
 
 namespace media {
@@ -468,9 +469,6 @@ bool AVStreamToVideoDecoderConfig(const AVStream* stream,
   gfx::Size natural_size =
       GetNaturalSize(visible_rect.size(), aspect_ratio.num, aspect_ratio.den);
 
-  VideoPixelFormat format =
-      AVPixelFormatToVideoPixelFormat(codec_context->pix_fmt);
-
   // Without the ffmpeg decoder configured, libavformat is unable to get the
   // profile, format, or coded size. So choose sensible defaults and let
   // decoders fail later if the configuration is actually unsupported.
@@ -479,24 +477,48 @@ bool AVStreamToVideoDecoderConfig(const AVStream* stream,
   // actually handle capabilities requests correctly. http://crbug.com/784610
   VideoCodecProfile profile = VIDEO_CODEC_PROFILE_UNKNOWN;
   switch (codec) {
-#if !BUILDFLAG(ENABLE_FFMPEG_VIDEO_DECODERS)
-    case kCodecH264:
-      format = PIXEL_FORMAT_I420;
-      profile = H264PROFILE_BASELINE;
+#if BUILDFLAG(USE_PROPRIETARY_CODECS)
+    case kCodecH264: {
+      profile = ProfileIDToVideoCodecProfile(codec_context->profile);
+      // if the profile is still unknown, try to extract it from
+      // the extradata using the internal parser
+      if (profile == VIDEO_CODEC_PROFILE_UNKNOWN && codec_context->extradata &&
+          codec_context->extradata_size) {
+        mp4::AVCDecoderConfigurationRecord avc_config;
+        if (avc_config.Parse(codec_context->extradata,
+                             codec_context->extradata_size)) {
+          profile = ProfileIDToVideoCodecProfile(avc_config.profile_indication);
+        }
+      }
+      // All the heuristics failed, let's assign a default profile
+      if (profile == VIDEO_CODEC_PROFILE_UNKNOWN)
+        profile = H264PROFILE_BASELINE;
       break;
+    }
 #endif
     case kCodecVP8:
-#if !BUILDFLAG(ENABLE_FFMPEG_VIDEO_DECODERS)
-      format = PIXEL_FORMAT_I420;
-#endif
       profile = VP8PROFILE_ANY;
       break;
     case kCodecVP9:
-      format = PIXEL_FORMAT_I420;
-      profile = VP9PROFILE_PROFILE0;
+      switch (codec_context->profile) {
+        case FF_PROFILE_VP9_0:
+          profile = VP9PROFILE_PROFILE0;
+          break;
+        case FF_PROFILE_VP9_1:
+          profile = VP9PROFILE_PROFILE1;
+          break;
+        case FF_PROFILE_VP9_2:
+          profile = VP9PROFILE_PROFILE2;
+          break;
+        case FF_PROFILE_VP9_3:
+          profile = VP9PROFILE_PROFILE3;
+          break;
+        default:
+          profile = VP9PROFILE_MIN;
+          break;
+      }
       break;
     case kCodecAV1:
-      format = PIXEL_FORMAT_I420;
       profile = AV1PROFILE_PROFILE_MAIN;
       break;
 #if BUILDFLAG(ENABLE_HEVC_DEMUXING)
@@ -511,18 +533,8 @@ bool AVStreamToVideoDecoderConfig(const AVStream* stream,
       profile = ProfileIDToVideoCodecProfile(codec_context->profile);
   }
 
-  // Pad out |coded_size| for subsampled YUV formats.
-  if (format != PIXEL_FORMAT_I444 && format != PIXEL_FORMAT_UNKNOWN) {
-    coded_size.set_width((coded_size.width() + 1) / 2 * 2);
-    if (format != PIXEL_FORMAT_I422)
-      coded_size.set_height((coded_size.height() + 1) / 2 * 2);
-  }
-
-  AVDictionaryEntry* webm_alpha =
-      av_dict_get(stream->metadata, "alpha_mode", nullptr, 0);
-  if (webm_alpha && !strcmp(webm_alpha->value, "1")) {
-    format = PIXEL_FORMAT_I420A;
-  }
+  auto* alpha_mode = av_dict_get(stream->metadata, "alpha_mode", nullptr, 0);
+  const bool has_alpha = alpha_mode && !strcmp(alpha_mode->value, "1");
 
   VideoRotation video_rotation = VIDEO_ROTATION_0;
   int rotation = 0;
@@ -589,9 +601,46 @@ bool AVStreamToVideoDecoderConfig(const AVStream* stream,
     extra_data.assign(codec_context->extradata,
                       codec_context->extradata + codec_context->extradata_size);
   }
-  config->Initialize(codec, profile, format, color_space, video_rotation,
+  // TODO(tmathmeyer) ffmpeg can't provide us with an actual video rotation yet.
+  config->Initialize(codec, profile,
+                     has_alpha ? VideoDecoderConfig::AlphaMode::kHasAlpha
+                               : VideoDecoderConfig::AlphaMode::kIsOpaque,
+                     color_space, VideoTransformation(video_rotation),
                      coded_size, visible_rect, natural_size, extra_data,
                      GetEncryptionScheme(stream));
+
+  if (stream->nb_side_data) {
+    for (int i = 0; i < stream->nb_side_data; ++i) {
+      AVPacketSideData side_data = stream->side_data[i];
+      if (side_data.type != AV_PKT_DATA_MASTERING_DISPLAY_METADATA)
+        continue;
+
+      HDRMetadata hdr_metadata{};
+      AVMasteringDisplayMetadata* metadata =
+          reinterpret_cast<AVMasteringDisplayMetadata*>(side_data.data);
+      if (metadata->has_primaries) {
+        hdr_metadata.mastering_metadata.primary_r =
+            gfx::PointF(av_q2d(metadata->display_primaries[0][0]),
+                        av_q2d(metadata->display_primaries[0][1]));
+        hdr_metadata.mastering_metadata.primary_g =
+            gfx::PointF(av_q2d(metadata->display_primaries[1][0]),
+                        av_q2d(metadata->display_primaries[1][1]));
+        hdr_metadata.mastering_metadata.primary_b =
+            gfx::PointF(av_q2d(metadata->display_primaries[2][0]),
+                        av_q2d(metadata->display_primaries[2][1]));
+        hdr_metadata.mastering_metadata.white_point = gfx::PointF(
+            av_q2d(metadata->white_point[0]), av_q2d(metadata->white_point[1]));
+      }
+      if (metadata->has_luminance) {
+        hdr_metadata.mastering_metadata.luminance_max =
+            av_q2d(metadata->max_luminance);
+        hdr_metadata.mastering_metadata.luminance_min =
+            av_q2d(metadata->min_luminance);
+      }
+      config->set_hdr_metadata(hdr_metadata);
+    }
+  }
+
   return true;
 }
 
@@ -603,7 +652,6 @@ void VideoDecoderConfigToAVCodecContext(
   codec_context->profile = VideoCodecProfileToProfileID(config.profile());
   codec_context->coded_width = config.coded_size().width();
   codec_context->coded_height = config.coded_size().height();
-  codec_context->pix_fmt = VideoPixelFormatToAVPixelFormat(config.format());
   if (config.color_space_info().range == gfx::ColorSpace::RangeID::FULL)
     codec_context->color_range = AVCOL_RANGE_JPEG;
 
@@ -737,43 +785,6 @@ VideoPixelFormat AVPixelFormatToVideoPixelFormat(AVPixelFormat pixel_format) {
       DVLOG(1) << "Unsupported AVPixelFormat: " << pixel_format;
   }
   return PIXEL_FORMAT_UNKNOWN;
-}
-
-AVPixelFormat VideoPixelFormatToAVPixelFormat(VideoPixelFormat video_format) {
-  switch (video_format) {
-    case PIXEL_FORMAT_I420:
-      return AV_PIX_FMT_YUV420P;
-    case PIXEL_FORMAT_I422:
-      return AV_PIX_FMT_YUV422P;
-    case PIXEL_FORMAT_I420A:
-      return AV_PIX_FMT_YUVA420P;
-    case PIXEL_FORMAT_I444:
-      return AV_PIX_FMT_YUV444P;
-    case PIXEL_FORMAT_YUV420P9:
-      return AV_PIX_FMT_YUV420P9LE;
-    case PIXEL_FORMAT_YUV420P10:
-      return AV_PIX_FMT_YUV420P10LE;
-    case PIXEL_FORMAT_YUV420P12:
-      return AV_PIX_FMT_YUV420P12LE;
-    case PIXEL_FORMAT_YUV422P9:
-      return AV_PIX_FMT_YUV422P9LE;
-    case PIXEL_FORMAT_YUV422P10:
-      return AV_PIX_FMT_YUV422P10LE;
-    case PIXEL_FORMAT_YUV422P12:
-      return AV_PIX_FMT_YUV422P12LE;
-    case PIXEL_FORMAT_YUV444P9:
-      return AV_PIX_FMT_YUV444P9LE;
-    case PIXEL_FORMAT_YUV444P10:
-      return AV_PIX_FMT_YUV444P10LE;
-    case PIXEL_FORMAT_YUV444P12:
-      return AV_PIX_FMT_YUV444P12LE;
-    case PIXEL_FORMAT_P016LE:
-      return AV_PIX_FMT_P016LE;
-
-    default:
-      DVLOG(1) << "Unsupported Format: " << video_format;
-  }
-  return AV_PIX_FMT_NONE;
 }
 
 VideoColorSpace AVColorSpaceToColorSpace(AVColorSpace color_space,

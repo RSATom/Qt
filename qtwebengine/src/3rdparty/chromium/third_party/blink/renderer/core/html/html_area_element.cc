@@ -44,7 +44,7 @@ float ClampCoordinate(double value) {
 
 using namespace html_names;
 
-inline HTMLAreaElement::HTMLAreaElement(Document& document)
+HTMLAreaElement::HTMLAreaElement(Document& document)
     : HTMLAnchorElement(kAreaTag, document), shape_(kRect) {}
 
 // An explicit empty destructor should be in html_area_element.cc, because
@@ -53,8 +53,6 @@ inline HTMLAreaElement::HTMLAreaElement(Document& document)
 // the destructor and causes a compile error because of lack of blink::Path
 // definition.
 HTMLAreaElement::~HTMLAreaElement() = default;
-
-DEFINE_NODE_FACTORY(HTMLAreaElement)
 
 void HTMLAreaElement::ParseAttribute(
     const AttributeModificationParams& params) {
@@ -88,22 +86,23 @@ void HTMLAreaElement::InvalidateCachedPath() {
   path_ = nullptr;
 }
 
-bool HTMLAreaElement::PointInArea(const LayoutPoint& location,
+bool HTMLAreaElement::PointInArea(const PhysicalOffset& location,
                                   const LayoutObject* container_object) const {
   return GetPath(container_object).Contains(FloatPoint(location));
 }
 
-LayoutRect HTMLAreaElement::ComputeAbsoluteRect(
+PhysicalRect HTMLAreaElement::ComputeAbsoluteRect(
     const LayoutObject* container_object) const {
   if (!container_object)
-    return LayoutRect();
+    return PhysicalRect();
 
   // FIXME: This doesn't work correctly with transforms.
-  FloatPoint abs_pos = container_object->LocalToAbsolute();
+  PhysicalOffset abs_pos = container_object->LocalToAbsolutePoint(
+      PhysicalOffset(), kIgnoreTransforms);
 
   Path path = GetPath(container_object);
-  path.Translate(ToFloatSize(abs_pos));
-  return EnclosingLayoutRect(path.BoundingRect());
+  path.Translate(FloatSize(abs_pos));
+  return PhysicalRect::EnclosingRect(path.BoundingRect());
 }
 
 Path HTMLAreaElement::GetPath(const LayoutObject* container_object) const {

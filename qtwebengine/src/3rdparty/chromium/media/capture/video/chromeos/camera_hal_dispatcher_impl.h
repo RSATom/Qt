@@ -8,11 +8,15 @@
 #include <memory>
 #include <set>
 
+#include "base/containers/unique_ptr_adapters.h"
 #include "base/files/scoped_file.h"
 #include "base/memory/singleton.h"
 #include "base/threading/thread.h"
+#include "components/chromeos_camera/common/jpeg_encode_accelerator.mojom.h"
+#include "components/chromeos_camera/common/mjpeg_decode_accelerator.mojom.h"
 #include "media/capture/capture_export.h"
 #include "media/capture/video/chromeos/mojo/cros_camera_service.mojom.h"
+#include "media/capture/video/chromeos/video_capture_device_factory_chromeos.h"
 #include "media/capture/video/video_capture_device_factory.h"
 #include "mojo/public/cpp/bindings/binding_set.h"
 #include "mojo/public/cpp/bindings/interface_ptr_set.h"
@@ -26,6 +30,9 @@ class WaitableEvent;
 }  // namespace base
 
 namespace media {
+
+using MojoJpegEncodeAcceleratorFactoryCB = base::RepeatingCallback<void(
+    chromeos_camera::mojom::JpegEncodeAcceleratorRequest)>;
 
 class CAPTURE_EXPORT CameraClientObserver {
  public:
@@ -49,7 +56,7 @@ class CAPTURE_EXPORT CameraHalDispatcherImpl final
  public:
   static CameraHalDispatcherImpl* GetInstance();
 
-  bool Start(MojoJpegDecodeAcceleratorFactoryCB jda_factory,
+  bool Start(MojoMjpegDecodeAcceleratorFactoryCB jda_factory,
              MojoJpegEncodeAcceleratorFactoryCB jea_factory);
 
   void AddClientObserver(std::unique_ptr<CameraClientObserver> observer);
@@ -60,9 +67,9 @@ class CAPTURE_EXPORT CameraHalDispatcherImpl final
   void RegisterServer(cros::mojom::CameraHalServerPtr server) final;
   void RegisterClient(cros::mojom::CameraHalClientPtr client) final;
   void GetJpegDecodeAccelerator(
-      media::mojom::JpegDecodeAcceleratorRequest jda_request) final;
+      chromeos_camera::mojom::MjpegDecodeAcceleratorRequest jda_request) final;
   void GetJpegEncodeAccelerator(
-      media::mojom::JpegEncodeAcceleratorRequest jea_request) final;
+      chromeos_camera::mojom::JpegEncodeAcceleratorRequest jea_request) final;
 
   // base::trace_event::TraceLog::EnabledStateObserver implementation.
   void OnTraceLogEnabled() final;
@@ -115,9 +122,10 @@ class CAPTURE_EXPORT CameraHalDispatcherImpl final
 
   cros::mojom::CameraHalServerPtr camera_hal_server_;
 
-  std::set<std::unique_ptr<CameraClientObserver>> client_observers_;
+  std::set<std::unique_ptr<CameraClientObserver>, base::UniquePtrComparator>
+      client_observers_;
 
-  MojoJpegDecodeAcceleratorFactoryCB jda_factory_;
+  MojoMjpegDecodeAcceleratorFactoryCB jda_factory_;
 
   MojoJpegEncodeAcceleratorFactoryCB jea_factory_;
 

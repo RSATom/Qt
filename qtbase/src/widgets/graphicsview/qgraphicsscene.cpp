@@ -114,7 +114,7 @@
     Another responsibility that QGraphicsScene has, is to propagate events
     from QGraphicsView. To send an event to a scene, you construct an event
     that inherits QEvent, and then send it using, for example,
-    QApplication::sendEvent(). event() is responsible for dispatching
+    QCoreApplication::sendEvent(). event() is responsible for dispatching
     the event to the individual items. Some common events are handled by
     convenience event handlers. For example, key press events are handled by
     keyPressEvent(), and mouse press events are handled by mousePressEvent().
@@ -386,7 +386,15 @@ void QGraphicsScenePrivate::_q_emitUpdated()
 
     // Notify the changes to anybody interested.
     QList<QRectF> oldUpdatedRects;
-    oldUpdatedRects = updateAll ? (QList<QRectF>() << q->sceneRect()) : updatedRects;
+    if (updateAll) {
+        oldUpdatedRects << q->sceneRect();
+    } else {
+        // Switch to a ranged constructor in Qt 6...
+        oldUpdatedRects.reserve(int(updatedRects.size()));
+        std::copy(updatedRects.cbegin(), updatedRects.cend(),
+                  std::back_inserter(oldUpdatedRects));
+    }
+
     updateAll = false;
     updatedRects.clear();
     emit q->changed(oldUpdatedRects);
@@ -451,7 +459,7 @@ void QGraphicsScenePrivate::_q_polishItems()
         }
         if (itemd->isWidget) {
             QEvent event(QEvent::Polish);
-            QApplication::sendEvent((QGraphicsWidget *)item, &event);
+            QCoreApplication::sendEvent((QGraphicsWidget *)item, &event);
         }
     }
 
@@ -774,7 +782,7 @@ void QGraphicsScenePrivate::setActivePanelHelper(QGraphicsItem *item, bool durin
     // Update activate state.
     activePanel = panel;
     QEvent event(QEvent::ActivationChange);
-    QApplication::sendEvent(q, &event);
+    QCoreApplication::sendEvent(q, &event);
 
     // Activate
     if (panel) {
@@ -1243,7 +1251,7 @@ bool QGraphicsScenePrivate::sendEvent(QGraphicsItem *item, QEvent *event)
         return false;
     if (QGraphicsObject *o = item->toGraphicsObject()) {
         bool spont = event->spontaneous();
-        if (spont ? qt_sendSpontaneousEvent(o, event) : QApplication::sendEvent(o, event))
+        if (spont ? qt_sendSpontaneousEvent(o, event) : QCoreApplication::sendEvent(o, event))
             return true;
         event->spont = spont;
     }
@@ -1569,7 +1577,7 @@ void QGraphicsScenePrivate::updateFont(const QFont &font)
 
     // Send the scene a FontChange event.
     QEvent event(QEvent::FontChange);
-    QApplication::sendEvent(q, &event);
+    QCoreApplication::sendEvent(q, &event);
 }
 
 /*!
@@ -1593,7 +1601,7 @@ void QGraphicsScenePrivate::setPalette_helper(const QPalette &palette)
 */
 void QGraphicsScenePrivate::resolvePalette()
 {
-    QPalette naturalPalette = QApplication::palette();
+    QPalette naturalPalette = QGuiApplication::palette();
     naturalPalette.resolve(0);
     QPalette resolvedPalette = palette.resolve(naturalPalette);
     updatePalette(resolvedPalette);
@@ -1626,7 +1634,7 @@ void QGraphicsScenePrivate::updatePalette(const QPalette &palette)
 
     // Send the scene a PaletteChange event.
     QEvent event(QEvent::PaletteChange);
-    QApplication::sendEvent(q, &event);
+    QCoreApplication::sendEvent(q, &event);
 }
 
 /*!
@@ -3219,8 +3227,7 @@ void QGraphicsScene::update(const QRectF &rect)
                     view->d_func()->updateRectF(rect);
             }
         } else {
-            if (!d->updatedRects.contains(rect))
-                d->updatedRects << rect;
+            d->updatedRects.insert(rect);
         }
     }
 
@@ -3548,10 +3555,10 @@ bool QGraphicsScene::eventFilter(QObject *watched, QEvent *event)
 
     switch (event->type()) {
     case QEvent::ApplicationPaletteChange:
-        QApplication::postEvent(this, new QEvent(QEvent::ApplicationPaletteChange));
+        QCoreApplication::postEvent(this, new QEvent(QEvent::ApplicationPaletteChange));
         break;
     case QEvent::ApplicationFontChange:
-        QApplication::postEvent(this, new QEvent(QEvent::ApplicationFontChange));
+        QCoreApplication::postEvent(this, new QEvent(QEvent::ApplicationFontChange));
         break;
     default:
         break;
@@ -4170,14 +4177,6 @@ void QGraphicsScene::wheelEvent(QGraphicsSceneWheelEvent *wheelEvent)
                                                                       wheelEvent->scenePos(),
                                                                       wheelEvent->widget());
 
-#if 0 // Used to be included in Qt4 for Q_WS_MAC
-    // On Mac, ignore the event if the first item under the mouse is not the last opened
-    // popup (or one of its descendant)
-    if (!d->popupWidgets.isEmpty() && !wheelCandidates.isEmpty() && wheelCandidates.first() != d->popupWidgets.back() && !d->popupWidgets.back()->isAncestorOf(wheelCandidates.first())) {
-        wheelEvent->accept();
-        return;
-    }
-#else
     // Find the first popup under the mouse (including the popup's descendants) starting from the last.
     // Remove all popups after the one found, or all or them if no popup is under the mouse.
     // Then continue with the event.
@@ -4187,7 +4186,6 @@ void QGraphicsScene::wheelEvent(QGraphicsSceneWheelEvent *wheelEvent)
             break;
         d->removePopup(*iter);
     }
-#endif
 
     bool hasSetFocus = false;
     for (QGraphicsItem *item : wheelCandidates) {
@@ -4409,11 +4407,7 @@ void QGraphicsScenePrivate::drawItemHelper(QGraphicsItem *item, QPainter *painte
     QGraphicsItem::CacheMode cacheMode = QGraphicsItem::CacheMode(itemd->cacheMode);
 
     // Render directly, using no cache.
-    if (cacheMode == QGraphicsItem::NoCache
-#if 0 // Used to be included in Qt4 for Q_WS_X11
-        || !X11->use_xrender
-#endif
-        ) {
+    if (cacheMode == QGraphicsItem::NoCache) {
         _q_paintItem(static_cast<QGraphicsWidget *>(item), painter, option, widget, true, painterStateProtection);
         return;
     }
@@ -5605,7 +5599,7 @@ void QGraphicsScene::setStyle(QStyle *style)
 
     // Notify the scene.
     QEvent event(QEvent::StyleChange);
-    QApplication::sendEvent(this, &event);
+    QCoreApplication::sendEvent(this, &event);
 
     // Notify all widgets that don't have a style explicitly set.
     const auto items_ = items();
@@ -5613,7 +5607,7 @@ void QGraphicsScene::setStyle(QStyle *style)
         if (item->isWidget()) {
             QGraphicsWidget *widget = static_cast<QGraphicsWidget *>(item);
             if (!widget->testAttribute(Qt::WA_SetStyle))
-                QApplication::sendEvent(widget, &event);
+                QCoreApplication::sendEvent(widget, &event);
         }
     }
 }
@@ -5686,7 +5680,7 @@ QPalette QGraphicsScene::palette() const
 void QGraphicsScene::setPalette(const QPalette &palette)
 {
     Q_D(QGraphicsScene);
-    QPalette naturalPalette = QApplication::palette();
+    QPalette naturalPalette = QGuiApplication::palette();
     naturalPalette.resolve(0);
     QPalette resolvedPalette = palette.resolve(naturalPalette);
     d->setPalette_helper(resolvedPalette);
@@ -6352,7 +6346,7 @@ void QGraphicsScenePrivate::gestureEventHandler(QGestureEvent *event)
                         << "delivering override to"
                         << item.data() << gestures;
                 // send gesture override
-                QGestureEvent ev(gestures.toList());
+                QGestureEvent ev(gestures.values());
                 ev.t = QEvent::GestureOverride;
                 ev.setWidget(event->widget());
                 // mark event and individual gestures as ignored
@@ -6442,7 +6436,7 @@ void QGraphicsScenePrivate::gestureEventHandler(QGestureEvent *event)
         DEBUG() << "QGraphicsScenePrivate::gestureEventHandler:"
                 << "delivering to"
                 << receiver.data() << gestures;
-        QGestureEvent ev(gestures.toList());
+        QGestureEvent ev(gestures.values());
         ev.setWidget(event->widget());
         sendEvent(receiver.data(), &ev);
         QSet<QGesture *> ignoredGestures;
@@ -6473,7 +6467,7 @@ void QGraphicsScenePrivate::gestureEventHandler(QGestureEvent *event)
             // look for new potential targets for gestures that were ignored
             // and should be propagated.
 
-            QSet<QGraphicsObject *> targetsSet = cachedTargetItems.toSet();
+            QSet<QGraphicsObject *> targetsSet(cachedTargetItems.constBegin(), cachedTargetItems.constEnd());
 
             if (receiver) {
                 // first if the gesture should be propagated to parents only
@@ -6505,7 +6499,7 @@ void QGraphicsScenePrivate::gestureEventHandler(QGestureEvent *event)
             gestureTargetsAtHotSpots(ignoredGestures, Qt::ReceivePartialGestures,
                                      &cachedItemGestures, &targetsSet, 0, 0);
 
-            cachedTargetItems = targetsSet.toList();
+            cachedTargetItems = targetsSet.values();
             std::sort(cachedTargetItems.begin(), cachedTargetItems.end(), qt_closestItemFirst);
             DEBUG() << "QGraphicsScenePrivate::gestureEventHandler:"
                     << "new targets:" << cachedTargetItems;
@@ -6583,7 +6577,7 @@ void QGraphicsScenePrivate::cancelGesturesForChildren(QGesture *original)
         }
         Q_ASSERT(target);
 
-        const QList<QGesture *> list = gestures.toList();
+        const QList<QGesture *> list = gestures.values();
         QGestureEvent ev(list);
         sendEvent(target, &ev);
 

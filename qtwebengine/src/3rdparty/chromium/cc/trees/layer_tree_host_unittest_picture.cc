@@ -4,6 +4,7 @@
 
 #include "cc/trees/layer_tree_host.h"
 
+#include "base/bind.h"
 #include "base/time/time.h"
 #include "cc/test/fake_content_layer_client.h"
 #include "cc/test/fake_picture_layer.h"
@@ -427,7 +428,7 @@ class LayerTreeHostPictureTestRSLLMembershipWithScale
     picture_->SetBounds(gfx::Size(100, 100));
     pinch_->AddChild(picture_);
 
-    LayerTreeHost::ViewportLayers viewport_layers;
+    ViewportLayers viewport_layers;
     viewport_layers.page_scale = page_scale_layer;
     viewport_layers.inner_viewport_container = root_clip;
     viewport_layers.inner_viewport_scroll = pinch_;
@@ -436,10 +437,6 @@ class LayerTreeHostPictureTestRSLLMembershipWithScale
     layer_tree_host()->SetRootLayer(root_clip);
     LayerTreeHostPictureTest::SetupTree();
     client_.set_bounds(picture_->bounds());
-  }
-
-  void InitializeSettings(LayerTreeSettings* settings) override {
-    settings->layer_transforms_should_scale_layer_contents = true;
   }
 
   void BeginTest() override {
@@ -604,10 +601,6 @@ class LayerTreeHostPictureTestForceRecalculateScales
 
     client_.set_fill_with_nonsolid_color(true);
     client_.set_bounds(size);
-  }
-
-  void InitializeSettings(LayerTreeSettings* settings) override {
-    settings->layer_transforms_should_scale_layer_contents = true;
   }
 
   void BeginTest() override { PostSetNeedsCommitToMainThread(); }

@@ -13,7 +13,7 @@
 #include "third_party/blink/renderer/core/paint/ng/ng_paint_fragment.h"
 #include "third_party/blink/renderer/platform/geometry/layout_point.h"
 #include "third_party/blink/renderer/platform/geometry/layout_size.h"
-#include "third_party/blink/renderer/platform/wtf/allocator.h"
+#include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 
 namespace blink {
 
@@ -21,7 +21,6 @@ class FillLayer;
 class HitTestLocation;
 class HitTestRequest;
 class HitTestResult;
-class LayoutRect;
 class NGPhysicalFragment;
 class ScopedPaintState;
 struct PaintInfo;
@@ -36,15 +35,16 @@ class NGBoxFragmentPainter : public BoxPainterBase {
 
   void Paint(const PaintInfo&);
   void PaintObject(const PaintInfo&,
-                   const LayoutPoint&,
+                   const PhysicalOffset&,
                    bool suppress_box_decoration_background = false);
 
   // Hit tests this box fragment.
-  // @param physical_offset Physical offset of this box fragment in paint layer.
+  // @param physical_offset Physical offset of this box fragment in the
+  // coordinate space of |hit_test_location|.
   // TODO(eae): Change to take a HitTestResult pointer instead as it mutates.
   bool NodeAtPoint(HitTestResult&,
-                   const HitTestLocation& location_in_container,
-                   const LayoutPoint& physical_offset,
+                   const HitTestLocation& hit_test_location,
+                   const PhysicalOffset& physical_offset,
                    HitTestAction);
 
  protected:
@@ -57,20 +57,21 @@ class NGBoxFragmentPainter : public BoxPainterBase {
 
   void PaintTextClipMask(GraphicsContext&,
                          const IntRect& mask_rect,
-                         const LayoutPoint& paint_offset,
+                         const PhysicalOffset& paint_offset,
                          bool object_has_multiple_boxes) override;
-  LayoutRect AdjustRectForScrolledContent(const PaintInfo&,
-                                          const BoxPainterBase::FillLayerInfo&,
-                                          const LayoutRect&) override;
+  PhysicalRect AdjustRectForScrolledContent(
+      const PaintInfo&,
+      const BoxPainterBase::FillLayerInfo&,
+      const PhysicalRect&) override;
 
  private:
   bool IsPaintingScrollingBackground(const NGPaintFragment&, const PaintInfo&);
   bool ShouldPaint(const ScopedPaintState&) const;
 
   void PaintBoxDecorationBackground(const PaintInfo&,
-                                    const LayoutPoint& paint_offset);
+                                    const PhysicalOffset& paint_offset);
   void PaintBoxDecorationBackgroundWithRect(const PaintInfo&,
-                                            const LayoutRect&);
+                                            const PhysicalRect&);
   bool BackgroundIsKnownToBeOpaque(const PaintInfo&);
 
   void PaintInternal(const PaintInfo&);
@@ -78,44 +79,33 @@ class NGBoxFragmentPainter : public BoxPainterBase {
   void PaintBlockChildren(const PaintInfo&);
   void PaintLineBoxChildren(NGPaintFragment::ChildList,
                             const PaintInfo&,
-                            const LayoutPoint& paint_offset);
+                            const PhysicalOffset& paint_offset);
   void PaintInlineChildren(NGPaintFragment::ChildList,
                            const PaintInfo&,
-                           const LayoutPoint& paint_offset);
-  void PaintInlineChildrenOutlines(NGPaintFragment::ChildList,
-                                   const PaintInfo&,
-                                   const LayoutPoint& paint_offset);
+                           const PhysicalOffset& paint_offset);
   void PaintInlineChildBoxUsingLegacyFallback(const NGPhysicalFragment&,
                                               const PaintInfo&);
   void PaintBlockFlowContents(const PaintInfo&,
-                              const LayoutPoint& paint_offset);
-  void PaintInlineChild(const NGPaintFragment&,
-                        const PaintInfo&,
-                        const LayoutPoint& paint_offset);
+                              const PhysicalOffset& paint_offset);
   void PaintAtomicInlineChild(const NGPaintFragment&, const PaintInfo&);
   void PaintTextChild(const NGPaintFragment&,
                       const PaintInfo&,
-                      const LayoutPoint& paint_offset);
+                      const PhysicalOffset& paint_offset);
   void PaintFloatingChildren(NGPaintFragment::ChildList, const PaintInfo&);
   void PaintFloats(const PaintInfo&);
-  void PaintMask(const PaintInfo&, const LayoutPoint& paint_offset);
-  void PaintOverflowControlsIfNeeded(const PaintInfo&,
-                                     const LayoutPoint& paint_offset);
+  void PaintMask(const PaintInfo&, const PhysicalOffset& paint_offset);
   void PaintAtomicInline(const PaintInfo&);
   void PaintBackground(const PaintInfo&,
-                       const LayoutRect&,
+                       const PhysicalRect&,
                        const Color& background_color,
                        BackgroundBleedAvoidance = kBackgroundBleedNone);
-  void PaintSymbol(const NGPaintFragment&,
-                   const PaintInfo&,
-                   const LayoutPoint& paint_offset);
-  void PaintCarets(const PaintInfo&, const LayoutPoint& paint_offset);
+  void PaintCarets(const PaintInfo&, const PhysicalOffset& paint_offset);
 
   void RecordHitTestData(const PaintInfo& paint_info,
-                         const LayoutPoint& paint_offset);
+                         const PhysicalOffset& paint_offset);
 
   void RecordHitTestDataForLine(const PaintInfo& paint_info,
-                                const LayoutPoint& paint_offset,
+                                const PhysicalOffset& paint_offset,
                                 const NGPaintFragment& line);
 
   bool IsInSelfHitTestingPhase(HitTestAction) const;
@@ -128,8 +118,8 @@ class NGBoxFragmentPainter : public BoxPainterBase {
   // container has 'overflow: scroll'.
   bool HitTestChildren(HitTestResult&,
                        NGPaintFragment::ChildList,
-                       const HitTestLocation& location_in_container,
-                       const LayoutPoint& physical_offset,
+                       const HitTestLocation& hit_test_location,
+                       const PhysicalOffset& physical_offset,
                        HitTestAction);
 
   // Hit tests a box fragment, which is a child of either |box_fragment_|, or
@@ -138,16 +128,16 @@ class NGBoxFragmentPainter : public BoxPainterBase {
   // paint layer.
   bool HitTestChildBoxFragment(HitTestResult&,
                                const NGPaintFragment&,
-                               const HitTestLocation& location_in_container,
-                               const LayoutPoint& physical_offset,
+                               const HitTestLocation& hit_test_location,
+                               const PhysicalOffset& physical_offset,
                                HitTestAction);
 
   // Hit tests the given text fragment.
   // @param physical_offset Physical offset of the text fragment in paint layer.
   bool HitTestTextFragment(HitTestResult&,
                            const NGPaintFragment&,
-                           const HitTestLocation& location_in_container,
-                           const LayoutPoint& physical_offset,
+                           const HitTestLocation& hit_test_location,
+                           const PhysicalOffset& physical_offset,
                            HitTestAction);
 
   // Hit tests the given line box fragment.
@@ -155,24 +145,31 @@ class NGBoxFragmentPainter : public BoxPainterBase {
   // layer.
   bool HitTestLineBoxFragment(HitTestResult&,
                               const NGPaintFragment&,
-                              const HitTestLocation& location_in_container,
-                              const LayoutPoint& physical_offset,
+                              const HitTestLocation& hit_test_location,
+                              const PhysicalOffset& physical_offset,
                               HitTestAction);
 
   // Returns whether the hit test location is completely outside the border box,
   // which possibly has rounded corners.
-  bool HitTestClippedOutByBorder(const HitTestLocation&,
-                                 const LayoutPoint& border_box_location) const;
-
-  LayoutPoint FlipForWritingModeForChild(
-      const NGPhysicalFragment& child_fragment,
-      const LayoutPoint& offset);
+  bool HitTestClippedOutByBorder(
+      const HitTestLocation&,
+      const PhysicalOffset& border_box_location) const;
 
   const NGPhysicalBoxFragment& PhysicalFragment() const;
+  const NGBorderEdges& BorderEdges() const;
 
   const NGPaintFragment& box_fragment_;
-  NGBorderEdges border_edges_;
+  mutable base::Optional<NGBorderEdges> border_edges_;
 };
+
+inline NGBoxFragmentPainter::NGBoxFragmentPainter(const NGPaintFragment& box)
+    : BoxPainterBase(&box.GetLayoutObject()->GetDocument(),
+                     box.Style(),
+                     box.GetLayoutObject()->GeneratingNode()),
+      box_fragment_(box) {
+  DCHECK(box.PhysicalFragment().IsBox() ||
+         box.PhysicalFragment().IsRenderedLegend());
+}
 
 }  // namespace blink
 

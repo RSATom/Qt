@@ -44,6 +44,8 @@
 
 #include <memory>
 
+Q_DECLARE_METATYPE(QCanBusDevice::Filter)
+
 class tst_Backend : public QCanBusDevice
 {
     Q_OBJECT
@@ -84,8 +86,11 @@ public:
 
     bool writeFrame(const QCanBusFrame &data)
     {
-        if (state() != QCanBusDevice::ConnectedState)
+        if (state() != QCanBusDevice::ConnectedState) {
+            setError(QStringLiteral("Cannot write frame as device is not connected"),
+                     QCanBusDevice::OperationError);
             return false;
+        }
 
         if (writeBufferUsed) {
             enqueueOutgoingFrame(data);
@@ -149,6 +154,8 @@ private slots:
     void error();
     void cleanupTestCase();
     void tst_filtering();
+    void filterEqual_data();
+    void filterEqual();
     void tst_bufferingAttribute();
 
     void tst_waitForFramesReceived();
@@ -161,6 +168,7 @@ tst_QCanBusDevice::tst_QCanBusDevice()
 {
     qRegisterMetaType<QCanBusDevice::CanBusDeviceState>();
     qRegisterMetaType<QCanBusDevice::CanBusError>();
+    qRegisterMetaType<QCanBusDevice::Filter>();
 }
 
 void tst_QCanBusDevice::initTestCase()
@@ -171,7 +179,9 @@ void tst_QCanBusDevice::initTestCase()
     QSignalSpy stateSpy(device.data(), &QCanBusDevice::stateChanged);
 
     QVERIFY(!device->connectDevice()); // first connect triggered to fail
+    QCOMPARE(device->error(), QCanBusDevice::NoError);
     QVERIFY(device->connectDevice());
+    QCOMPARE(device->error(), QCanBusDevice::NoError);
     QTRY_VERIFY_WITH_TIMEOUT(device->state() == QCanBusDevice::ConnectedState, 5000);
     QCOMPARE(stateSpy.count(), 4);
     QCOMPARE(stateSpy.at(0).at(0).value<QCanBusDevice::CanBusDeviceState>(),
@@ -233,7 +243,8 @@ void tst_QCanBusDevice::write()
     stateSpy.clear();
     QVERIFY(stateSpy.isEmpty());
 
-    device->writeFrame(frame);
+    QVERIFY(!device->writeFrame(frame));
+    QCOMPARE(device->error(), QCanBusDevice::OperationError);
     QCOMPARE(spy.count(), 0);
 
     device->connectDevice();
@@ -244,7 +255,8 @@ void tst_QCanBusDevice::write()
     QCOMPARE(stateSpy.at(1).at(0).value<QCanBusDevice::CanBusDeviceState>(),
              QCanBusDevice::ConnectedState);
 
-    device->writeFrame(frame);
+    QVERIFY(device->writeFrame(frame));
+    QCOMPARE(device->error(), QCanBusDevice::NoError);
     QCOMPARE(spy.count(), 1);
 }
 
@@ -257,6 +269,7 @@ void tst_QCanBusDevice::read()
     stateSpy.clear();
 
     const QCanBusFrame frame1 = device->readFrame();
+    QCOMPARE(device->error(), QCanBusDevice::OperationError);
 
     QVERIFY(device->connectDevice());
     QTRY_VERIFY_WITH_TIMEOUT(device->state() == QCanBusDevice::ConnectedState, 5000);
@@ -268,6 +281,7 @@ void tst_QCanBusDevice::read()
 
     device->triggerNewFrame();
     const QCanBusFrame frame2 = device->readFrame();
+    QCOMPARE(device->error(), QCanBusDevice::NoError);
     QVERIFY(!frame1.frameId());
     QVERIFY(!frame1.isValid());
     QVERIFY(frame2.frameId());
@@ -278,6 +292,12 @@ void tst_QCanBusDevice::readAll()
 {
     enum { FrameNumber = 10 };
     device->disconnectDevice();
+    QTRY_VERIFY_WITH_TIMEOUT(device->state() == QCanBusDevice::UnconnectedState, 5000);
+
+    const QVector<QCanBusFrame> empty = device->readAllFrames();
+    QCOMPARE(device->error(), QCanBusDevice::OperationError);
+    QVERIFY(empty.isEmpty());
+
     QVERIFY(device->connectDevice());
     QTRY_VERIFY_WITH_TIMEOUT(device->state() == QCanBusDevice::ConnectedState, 5000);
 
@@ -285,21 +305,30 @@ void tst_QCanBusDevice::readAll()
         device->triggerNewFrame();
 
     const QVector<QCanBusFrame> frames = device->readAllFrames();
+    QCOMPARE(device->error(), QCanBusDevice::NoError);
     QCOMPARE(FrameNumber, frames.size());
     QVERIFY(!device->framesAvailable());
 }
 
 void tst_QCanBusDevice::clearInputBuffer()
 {
-    if (device->state() != QCanBusDevice::ConnectedState) {
-        QVERIFY(device->connectDevice());
-        QTRY_VERIFY_WITH_TIMEOUT(device->state() == QCanBusDevice::ConnectedState, 5000);
-    }
+    device->disconnectDevice();
+    QTRY_VERIFY_WITH_TIMEOUT(device->state() == QCanBusDevice::UnconnectedState, 5000);
+
+    device->clear(QCanBusDevice::Input);
+    QCOMPARE(device->error(), QCanBusDevice::OperationError);
+
+    QVERIFY(device->connectDevice());
+    QTRY_VERIFY_WITH_TIMEOUT(device->state() == QCanBusDevice::ConnectedState, 5000);
+
+    device->clear(QCanBusDevice::Input);
+    QCOMPARE(device->error(), QCanBusDevice::NoError);
 
     for (int i = 0; i < 10; ++i)
         device->triggerNewFrame();
 
     device->clear(QCanBusDevice::Input);
+    QCOMPARE(device->error(), QCanBusDevice::NoError);
 
     QVERIFY(!device->framesAvailable());
 }
@@ -308,11 +337,17 @@ void tst_QCanBusDevice::clearOutputBuffer()
 {
     // this test requires buffered writing
     device->setWriteBuffered(true);
+    device->disconnectDevice();
+    QTRY_VERIFY_WITH_TIMEOUT(device->state() == QCanBusDevice::UnconnectedState, 5000);
 
-    if (device->state() != QCanBusDevice::ConnectedState) {
-        QVERIFY(device->connectDevice());
-        QTRY_VERIFY_WITH_TIMEOUT(device->state() == QCanBusDevice::ConnectedState, 5000);
-    }
+    device->clear(QCanBusDevice::Output);
+    QCOMPARE(device->error(), QCanBusDevice::OperationError);
+
+    QVERIFY(device->connectDevice());
+    QTRY_VERIFY_WITH_TIMEOUT(device->state() == QCanBusDevice::ConnectedState, 5000);
+
+    device->clear(QCanBusDevice::Output);
+    QCOMPARE(device->error(), QCanBusDevice::NoError);
 
     // first test buffered writing, frames will be written after some delay
     QSignalSpy spy(device.data(), &QCanBusDevice::framesWritten);
@@ -326,6 +361,7 @@ void tst_QCanBusDevice::clearOutputBuffer()
         device->writeFrame(QCanBusFrame(0x123, "output"));
 
     device->clear(QCanBusDevice::Output);
+    QCOMPARE(device->error(), QCanBusDevice::NoError);
     QTRY_VERIFY_WITH_TIMEOUT(spy.count() == 0, 5000);
 }
 
@@ -421,6 +457,89 @@ void tst_QCanBusDevice::tst_filtering()
     QVERIFY(!(newFilter.at(1).format & QCanBusDevice::Filter::MatchExtendedFormat));
 }
 
+void tst_QCanBusDevice::filterEqual_data()
+{
+    using Filter = QCanBusDevice::Filter;
+    using Frame = QCanBusFrame;
+
+    QTest::addColumn<QCanBusDevice::Filter>("first");
+    QTest::addColumn<QCanBusDevice::Filter>("second");
+    QTest::addColumn<bool>("isEqual");
+
+    auto filter = [](quint32 frameId, quint32 frameIdMask,
+                     Frame::FrameType type,
+                     Filter::FormatFilter format) {
+        Filter result;
+        result.frameId = frameId;
+        result.frameIdMask = frameIdMask;
+        result.type = type;
+        result.format = format;
+        return result;
+    };
+
+    QTest::newRow("empty-equal")
+            << Filter()
+            << Filter()
+            << true;
+    QTest::newRow("empty-default-equal")
+            << Filter()
+            << filter(0, 0, Frame::InvalidFrame, Filter::MatchBaseAndExtendedFormat)
+            << true;
+    QTest::newRow("empty-non-default-different")
+            << Filter()
+            << filter(1, 2, Frame::ErrorFrame, Filter::MatchBaseFormat)
+            << false;
+
+    QTest::newRow("frame-id-equal")
+            << filter(0x345, 0x800, Frame::RemoteRequestFrame, Filter::MatchBaseFormat)
+            << filter(0x345, 0x800, Frame::RemoteRequestFrame, Filter::MatchBaseFormat)
+            << true;
+    QTest::newRow("frame-id-different")
+            << filter(0x345, 0x000, Frame::RemoteRequestFrame, Filter::MatchBaseFormat)
+            << filter(0x346, 0x000, Frame::RemoteRequestFrame, Filter::MatchBaseFormat)
+            << false;
+
+    QTest::newRow("frame-mask-equal")
+            << filter(0x123, 0x7FF, Frame::InvalidFrame, Filter::MatchBaseAndExtendedFormat)
+            << filter(0x123, 0x7FF, Frame::InvalidFrame, Filter::MatchBaseAndExtendedFormat)
+            << true;
+    QTest::newRow("frame-mask-different")
+            << filter(0x123, 0x7FF, Frame::InvalidFrame, Filter::MatchBaseAndExtendedFormat)
+            << filter(0x123, 0x7FE, Frame::InvalidFrame, Filter::MatchBaseAndExtendedFormat)
+            << false;
+
+    QTest::newRow("frame-type-equal")
+            << filter(0xFFF, 0xBFF, Frame::DataFrame,    Filter::MatchBaseAndExtendedFormat)
+            << filter(0xFFF, 0xBFF, Frame::DataFrame,    Filter::MatchBaseAndExtendedFormat)
+            << true;
+    QTest::newRow("frame-type-different")
+            << filter(0xFFF, 0xBFF, Frame::DataFrame,    Filter::MatchBaseAndExtendedFormat)
+            << filter(0xFFF, 0xBFF, Frame::InvalidFrame, Filter::MatchBaseAndExtendedFormat)
+            << false;
+
+    QTest::newRow("filter-equal")
+            << filter(0xFFF, 0xBFF, Frame::ErrorFrame,    Filter::MatchExtendedFormat)
+            << filter(0xFFF, 0xBFF, Frame::ErrorFrame,    Filter::MatchExtendedFormat)
+            << true;
+    QTest::newRow("filter-different")
+            << filter(0xFFF, 0xBFF, Frame::ErrorFrame,    Filter::MatchExtendedFormat)
+            << filter(0xFFF, 0xBFF, Frame::ErrorFrame,    Filter::MatchBaseAndExtendedFormat)
+            << false;
+}
+
+void tst_QCanBusDevice::filterEqual()
+{
+    QFETCH(QCanBusDevice::Filter, first);
+    QFETCH(QCanBusDevice::Filter, second);
+    QFETCH(bool, isEqual);
+
+    if (isEqual) {
+        QCOMPARE(first, second);
+    } else {
+        QVERIFY(first != second);
+    }
+}
+
 void tst_QCanBusDevice::tst_bufferingAttribute()
 {
     std::unique_ptr<tst_Backend> canDevice(new tst_Backend);
@@ -436,6 +555,10 @@ void tst_QCanBusDevice::tst_bufferingAttribute()
 
 void tst_QCanBusDevice::tst_waitForFramesReceived()
 {
+    device->disconnectDevice();
+    QVERIFY(!device->waitForFramesReceived(100));
+    QCOMPARE(device->error(), QCanBusDevice::OperationError);
+
     if (device->state() != QCanBusDevice::ConnectedState) {
         QVERIFY(device->connectDevice());
         QTRY_VERIFY_WITH_TIMEOUT(device->state() == QCanBusDevice::ConnectedState, 5000);
@@ -445,9 +568,10 @@ void tst_QCanBusDevice::tst_waitForFramesReceived()
     QVERIFY(device->triggerNewFrame());
     QVERIFY(device->framesAvailable());
 
-    // frame is available, function blocks and times out
-    bool result = device->waitForFramesReceived(2000);
-    QVERIFY(!result);
+    // frame is already available, but no new frame comes in
+    // while function blocks, therefore times out
+    QVERIFY(!device->waitForFramesReceived(2000));
+    QCOMPARE(device->error(), QCanBusDevice::TimeoutError);
 
     QCanBusFrame frame = device->readFrame();
     QVERIFY(frame.isValid());
@@ -457,16 +581,16 @@ void tst_QCanBusDevice::tst_waitForFramesReceived()
     QElapsedTimer elapsed;
     elapsed.start();
     // no pending frame (should trigger active wait & timeout)
-    result = device->waitForFramesReceived(5000);
+    QVERIFY(!device->waitForFramesReceived(5000));
     QVERIFY(elapsed.hasExpired(4000)); // should have caused time elapse
-    QVERIFY(!result);
+    QCOMPARE(device->error(), QCanBusDevice::TimeoutError);
 
     QTimer::singleShot(2000, [&]() { device->triggerNewFrame(); });
     elapsed.restart();
     // frame will be inserted after 2s
-    result = device->waitForFramesReceived(8000);
+    QVERIFY(device->waitForFramesReceived(8000));
+    QCOMPARE(device->error(), QCanBusDevice::NoError);
     QVERIFY(!elapsed.hasExpired(8000));
-    QVERIFY(result);
 
     frame = device->readFrame();
     QVERIFY(frame.isValid());
@@ -478,9 +602,8 @@ void tst_QCanBusDevice::tst_waitForFramesReceived()
     });
     elapsed.restart();
     // error will be inserted after 2s
-    result = device->waitForFramesReceived(8000);
+    QVERIFY(!device->waitForFramesReceived(8000));
     QVERIFY(!elapsed.hasExpired(8000));
-    QVERIFY(!result);
     QCOMPARE(device->errorString(), QStringLiteral("TriggerError"));
     QCOMPARE(device->error(), QCanBusDevice::ReadError);
 
@@ -494,56 +617,71 @@ void tst_QCanBusDevice::tst_waitForFramesReceived()
     QObject::connect(device.data(), &QCanBusDevice::framesReceived, [this, &handleCounter]() {
         handleCounter++;
         // this should trigger a recursion which we want to catch
-        device->waitForFramesReceived(5000);
+        QVERIFY(!device->waitForFramesReceived(5000));
+        // Only the first two frames create a recursion, as the outer
+        // waitForFramesReceived() will immediately exit once at least
+        // one frame was received. Therefore the third frame here leads
+        // to TimeoutError, as no further frame is received.
+        if (handleCounter < 3) {
+            QCOMPARE(device->error(), QCanBusDevice::OperationError);
+        } else {
+            QCOMPARE(device->error(), QCanBusDevice::TimeoutError);
+        }
     });
-    result = device->waitForFramesReceived(8000);
-    QVERIFY(result);
+    QVERIFY(device->waitForFramesReceived(8000));
+    QCOMPARE(device->error(), QCanBusDevice::NoError);
     QTRY_COMPARE_WITH_TIMEOUT(handleCounter, 3, 5000);
 }
 
 void tst_QCanBusDevice::tst_waitForFramesWritten()
 {
+    device->disconnectDevice();
+    QVERIFY(!device->waitForFramesWritten(100));
+    QCOMPARE(device->error(), QCanBusDevice::OperationError);
+
     if (device->state() != QCanBusDevice::ConnectedState) {
+        QVERIFY(!device->waitForFramesWritten(100));
+        QCOMPARE(device->error(), QCanBusDevice::OperationError);
+
         QVERIFY(device->connectDevice());
         QTRY_VERIFY_WITH_TIMEOUT(device->state() == QCanBusDevice::ConnectedState, 5000);
     }
 
     device->setWriteBuffered(false);
-    bool result = device->waitForFramesWritten(1000);
-    QVERIFY(!result); // no buffer, waiting not possible
+    QVERIFY(!device->waitForFramesWritten(1000)); // no buffer, waiting not possible
+    QCOMPARE(device->error(), QCanBusDevice::NoError);
 
     device->setWriteBuffered(true);
 
     QVERIFY(device->framesToWrite() == 0);
-    result = device->waitForFramesWritten(1000);
-    QVERIFY(!result); // nothing in buffer, nothing to wait for
+    QVERIFY(!device->waitForFramesWritten(1000)); // nothing in buffer, nothing to wait for
+    QCOMPARE(device->error(), QCanBusDevice::NoError);
 
     QCanBusFrame frame;
     frame.setPayload(QByteArray("testData"));
 
     // test error case
     QTimer::singleShot(500, [&]() {
-        device->emulateError(QStringLiteral("TriggerWriteError"), QCanBusDevice::ReadError);
+        device->emulateError(QStringLiteral("TriggerWriteError"), QCanBusDevice::WriteError);
     });
     device->writeFrame(frame);
     QElapsedTimer elapsed;
     elapsed.start();
 
     // error will be triggered
-    result = device->waitForFramesWritten(8000);
+    QVERIFY(!device->waitForFramesWritten(8000));
     QVERIFY(!elapsed.hasExpired(8000));
-    QVERIFY(!result);
     QCOMPARE(device->errorString(), QStringLiteral("TriggerWriteError"));
-    QCOMPARE(device->error(), QCanBusDevice::ReadError);
+    QCOMPARE(device->error(), QCanBusDevice::WriteError);
 
     // flush remaining frames out to reset the test
     QTRY_VERIFY_WITH_TIMEOUT(device->framesToWrite() == 0, 10000);
 
     // test timeout
     device->writeFrame(frame);
-    result = device->waitForFramesWritten(500);
+    QVERIFY(!device->waitForFramesWritten(500));
+    QCOMPARE(device->error(), QCanBusDevice::TimeoutError);
     QVERIFY(elapsed.hasExpired(500));
-    QVERIFY(!result);
 
     // flush remaining frames out to reset the test
     QTRY_VERIFY_WITH_TIMEOUT(device->framesToWrite() == 0, 10000);
@@ -551,9 +689,9 @@ void tst_QCanBusDevice::tst_waitForFramesWritten()
     device->writeFrame(frame);
     device->writeFrame(frame);
     elapsed.restart();
-    result = device->waitForFramesWritten(8000);
+    QVERIFY(device->waitForFramesWritten(8000));
+    QCOMPARE(device->error(), QCanBusDevice::NoError);
     QVERIFY(!elapsed.hasExpired(8000));
-    QVERIFY(result);
 
     // flush remaining frames out to reset the test
     QTRY_VERIFY_WITH_TIMEOUT(device->framesToWrite() == 0, 10000);
@@ -566,10 +704,11 @@ void tst_QCanBusDevice::tst_waitForFramesWritten()
     QObject::connect(device.data(), &QCanBusDevice::framesWritten, [this, &handleCounter]() {
         handleCounter++;
         // this should trigger a recursion which we want to catch
-        device->waitForFramesWritten(5000);
+        QVERIFY(!device->waitForFramesWritten(5000));
+        QCOMPARE(device->error(), QCanBusDevice::OperationError);
     });
-    result = device->waitForFramesWritten(8000);
-    QVERIFY(result);
+    QVERIFY(device->waitForFramesWritten(8000));
+    QCOMPARE(device->error(), QCanBusDevice::NoError);
     QTRY_COMPARE_WITH_TIMEOUT(handleCounter, 3, 5000);
 
     device->setWriteBuffered(false);

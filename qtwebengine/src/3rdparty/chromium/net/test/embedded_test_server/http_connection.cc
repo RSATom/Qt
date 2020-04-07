@@ -6,6 +6,7 @@
 
 #include <utility>
 
+#include "base/bind.h"
 #include "net/base/net_errors.h"
 #include "net/socket/stream_socket.h"
 #include "net/traffic_annotation/network_traffic_annotation_test_helper.h"
@@ -17,8 +18,7 @@ HttpConnection::HttpConnection(std::unique_ptr<StreamSocket> socket,
                                const HandleRequestCallback& callback)
     : socket_(std::move(socket)),
       callback_(callback),
-      read_buf_(base::MakeRefCounted<IOBufferWithSize>(4096)),
-      weak_factory_(this) {}
+      read_buf_(base::MakeRefCounted<IOBufferWithSize>(4096)) {}
 
 HttpConnection::~HttpConnection() {
   weak_factory_.InvalidateWeakPtrs();

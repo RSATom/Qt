@@ -4,6 +4,7 @@
 
 #include "content/browser/service_worker/service_worker_registration_object_host.h"
 
+#include "base/bind.h"
 #include "base/task/post_task.h"
 #include "base/time/time.h"
 #include "content/browser/service_worker/service_worker_consts.h"
@@ -82,14 +83,13 @@ ServiceWorkerRegistrationObjectHost::ServiceWorkerRegistrationObjectHost(
     scoped_refptr<ServiceWorkerRegistration> registration)
     : provider_host_(provider_host),
       context_(context),
-      registration_(registration),
-      weak_ptr_factory_(this) {
+      registration_(registration) {
   DCHECK(registration_.get());
   DCHECK(provider_host_);
   registration_->AddListener(this);
-  bindings_.set_connection_error_handler(
-      base::Bind(&ServiceWorkerRegistrationObjectHost::OnConnectionError,
-                 base::Unretained(this)));
+  bindings_.set_connection_error_handler(base::BindRepeating(
+      &ServiceWorkerRegistrationObjectHost::OnConnectionError,
+      base::Unretained(this)));
 }
 
 ServiceWorkerRegistrationObjectHost::~ServiceWorkerRegistrationObjectHost() {
@@ -145,26 +145,56 @@ void ServiceWorkerRegistrationObjectHost::OnUpdateFound(
 }
 
 void ServiceWorkerRegistrationObjectHost::Update(UpdateCallback callback) {
-  if (!CanServeRegistrationObjectHostMethods(&callback,
-                                             kServiceWorkerUpdateErrorPrefix)) {
+  if (!CanServeRegistrationObjectHostMethods(
+          &callback, ServiceWorkerConsts::kServiceWorkerUpdateErrorPrefix)) {
     return;
   }
 
-  if (!registration_->GetNewestVersion()) {
+  // Run steps according to section 3.2.7:
+  // https://w3c.github.io/ServiceWorker/#service-worker-registration-update
+
+  // 1. Let |registration| be the service worker registration.
+  ServiceWorkerRegistration* registration = registration_.get();
+  DCHECK(registration);
+
+  // 2. Let |newest_worker| be the result of running Get Newest Worker algorithm
+  // passing |registration| as its argument.
+  ServiceWorkerVersion* newest_worker = registration->GetNewestVersion();
+
+  // 3. If |newest_worker| is null, return a promise rejected with an
+  // "InvalidStateError" DOMException and abort these steps.
+  if (!newest_worker) {
     // This can happen if update() is called during initial script evaluation.
-    // Abort the following steps according to the spec.
     std::move(callback).Run(
         blink::mojom::ServiceWorkerErrorType::kState,
-        std::string(kServiceWorkerUpdateErrorPrefix) +
+        std::string(ServiceWorkerConsts::kServiceWorkerUpdateErrorPrefix) +
             std::string(ServiceWorkerConsts::kInvalidStateErrorMessage));
     return;
   }
 
+  // 4. If the context object’s relevant settings object’s global object
+  // globalObject is a ServiceWorkerGlobalScope object, and globalObject’s
+  // associated service worker's state is installing, return a promise rejected
+  // with an "InvalidStateError" DOMException and abort these steps.
+  if (provider_host_->IsProviderForServiceWorker()) {
+    ServiceWorkerVersion* version = provider_host_->running_hosted_version();
+    DCHECK(version);
+    if (ServiceWorkerVersion::Status::INSTALLING == version->status()) {
+      // This can happen if update() is called during execution of the
+      // install-event-handler.
+      std::move(callback).Run(
+          blink::mojom::ServiceWorkerErrorType::kState,
+          std::string(ServiceWorkerConsts::kServiceWorkerUpdateErrorPrefix) +
+              std::string(ServiceWorkerConsts::kInvalidStateErrorMessage));
+      return;
+    }
+  }
+
   DelayUpdate(
-      provider_host_->provider_type(), registration_.get(),
+      provider_host_->provider_type(), registration,
       provider_host_->running_hosted_version(),
       base::BindOnce(
-          &ExecuteUpdate, context_, registration_->id(),
+          &ExecuteUpdate, context_, registration->id(),
           false /* force_bypass_cache */, false /* skip_script_comparison */,
           base::BindOnce(&ServiceWorkerRegistrationObjectHost::UpdateComplete,
                          weak_ptr_factory_.GetWeakPtr(), std::move(callback))));
@@ -215,7 +245,8 @@ void ServiceWorkerRegistrationObjectHost::DelayUpdate(
 void ServiceWorkerRegistrationObjectHost::Unregister(
     UnregisterCallback callback) {
   if (!CanServeRegistrationObjectHostMethods(
-          &callback, kServiceWorkerUnregisterErrorPrefix)) {
+          &callback,
+          ServiceWorkerConsts::kServiceWorkerUnregisterErrorPrefix)) {
     return;
   }
 
@@ -308,8 +339,9 @@ void ServiceWorkerRegistrationObjectHost::UpdateComplete(
     blink::mojom::ServiceWorkerErrorType error_type;
     GetServiceWorkerErrorTypeForRegistration(status, status_message,
                                              &error_type, &error_message);
-    std::move(callback).Run(error_type,
-                            kServiceWorkerUpdateErrorPrefix + error_message);
+    std::move(callback).Run(
+        error_type,
+        ServiceWorkerConsts::kServiceWorkerUpdateErrorPrefix + error_message);
     return;
   }
 
@@ -326,7 +358,8 @@ void ServiceWorkerRegistrationObjectHost::UnregistrationComplete(
     GetServiceWorkerErrorTypeForRegistration(status, std::string(), &error_type,
                                              &error_message);
     std::move(callback).Run(
-        error_type, kServiceWorkerUnregisterErrorPrefix + error_message);
+        error_type, ServiceWorkerConsts::kServiceWorkerUnregisterErrorPrefix +
+                        error_message);
     return;
   }
 
@@ -438,7 +471,7 @@ bool ServiceWorkerRegistrationObjectHost::CanServeRegistrationObjectHostMethods(
     return false;
   }
 
-  if (!provider_host_->AllowServiceWorker(registration_->scope())) {
+  if (!provider_host_->AllowServiceWorker(registration_->scope(), GURL())) {
     std::move(*callback).Run(
         blink::mojom::ServiceWorkerErrorType::kDisabled,
         std::string(error_prefix) +

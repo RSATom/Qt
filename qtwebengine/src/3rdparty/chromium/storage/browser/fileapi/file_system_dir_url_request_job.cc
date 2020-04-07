@@ -17,7 +17,7 @@
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
-#include "components/services/filesystem/public/interfaces/types.mojom.h"
+#include "components/services/filesystem/public/mojom/types.mojom.h"
 #include "net/base/directory_listing.h"
 #include "net/base/io_buffer.h"
 #include "net/url_request/url_request.h"
@@ -155,7 +155,7 @@ void FileSystemDirURLRequestJob::DidReadDirectory(
 void FileSystemDirURLRequestJob::GetMetadata(size_t index) {
   const filesystem::mojom::DirectoryEntry& entry = entries_[index];
   const FileSystemURL url = file_system_context_->CreateCrackedFileSystemURL(
-      url_.origin(), url_.type(),
+      url_.origin().GetURL(), url_.type(),
       url_.path().Append(base::FilePath(entry.name)));
   DCHECK(url.is_valid());
   file_system_context_->operation_runner()->GetMetadata(

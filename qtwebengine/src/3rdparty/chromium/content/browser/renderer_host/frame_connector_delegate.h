@@ -5,6 +5,7 @@
 #ifndef CONTENT_BROWSER_RENDERER_HOST_FRAME_CONNECTOR_DELEGATE_H_
 #define CONTENT_BROWSER_RENDERER_HOST_FRAME_CONNECTOR_DELEGATE_H_
 
+#include "base/compiler_specific.h"
 #include "base/time/time.h"
 #include "cc/input/touch_action.h"
 #include "components/viz/common/surfaces/local_surface_id_allocation.h"
@@ -13,11 +14,8 @@
 #include "content/common/content_export.h"
 #include "content/public/common/input_event_ack_state.h"
 #include "content/public/common/screen_info.h"
+#include "third_party/blink/public/common/frame/occlusion_state.h"
 #include "ui/gfx/geometry/rect.h"
-
-#if defined(USE_AURA)
-#include "services/ws/public/mojom/window_tree.mojom.h"
-#endif
 
 namespace blink {
 class WebGestureEvent;
@@ -121,20 +119,6 @@ class CONTENT_EXPORT FrameConnectorDelegate {
       const gfx::PointF& point,
       const viz::SurfaceId& surface_id);
 
-  // Given a point in the coordinate space of a different Surface, transform
-  // it into the coordinate space for this view (corresponding to
-  // local_surface_id).
-  // TransformPointToLocalCoordSpaceLegacy() can only transform points between
-  // surfaces where one is embedded (not necessarily directly) within the
-  // other, and will return false if this is not the case. For points that can
-  // be in sibling surfaces, they must first be converted to the root
-  // surface's coordinate space.
-  virtual bool TransformPointToLocalCoordSpaceLegacy(
-      const gfx::PointF& point,
-      const viz::SurfaceId& original_surface,
-      const viz::SurfaceId& local_surface_id,
-      gfx::PointF* transformed_point);
-
   // Transform a point into the coordinate space of the root
   // RenderWidgetHostView, for the current view's coordinate space.
   // Returns false if |target_view| and |view_| do not have the same root
@@ -143,8 +127,7 @@ class CONTENT_EXPORT FrameConnectorDelegate {
       const gfx::PointF& point,
       RenderWidgetHostViewBase* target_view,
       const viz::SurfaceId& local_surface_id,
-      gfx::PointF* transformed_point,
-      viz::EventSource source = viz::EventSource::ANY);
+      gfx::PointF* transformed_point);
 
   // Pass acked touchpad pinch or double tap gesture events to the root view
   // for processing.
@@ -152,9 +135,13 @@ class CONTENT_EXPORT FrameConnectorDelegate {
       const blink::WebGestureEvent& event,
       InputEventAckState ack_result) {}
 
-  // Gesture events with unused scroll deltas must be bubbled to ancestors
-  // who may consume the delta.
-  virtual void BubbleScrollEvent(const blink::WebGestureEvent& event) {}
+  // A gesture scroll sequence that is not consumed by a child must be bubbled
+  // to ancestors who may consume it.
+  // Returns false if the scroll event could not be bubbled. The caller must
+  // not attempt to bubble the rest of the scroll sequence in this case.
+  // Otherwise, returns true.
+  virtual bool BubbleScrollEvent(const blink::WebGestureEvent& event)
+      WARN_UNUSED_RESULT;
 
   // Determines whether the root RenderWidgetHostView (and thus the current
   // page) has focus.
@@ -183,7 +170,9 @@ class CONTENT_EXPORT FrameConnectorDelegate {
 
   // Returns whether the current view may be occluded or distorted (e.g, with
   // CSS opacity or transform) in the parent view.
-  bool occluded_or_obscured() const { return occluded_or_obscured_; }
+  blink::FrameOcclusionState occlusion_state() const {
+    return occlusion_state_;
+  }
 
   // Returns the viz::LocalSurfaceIdAllocation propagated from the parent to be
   // used by this child frame.
@@ -240,13 +229,6 @@ class CONTENT_EXPORT FrameConnectorDelegate {
   // zoom-for-dsf is enabled, and in DIP if not.
   virtual void SetScreenSpaceRect(const gfx::Rect& screen_space_rect);
 
-#if defined(USE_AURA)
-  // Embeds a WindowTreeClient in the parent. This results in the parent
-  // creating a window in the ui server so that this can render to the screen.
-  virtual void EmbedRendererWindowTreeClientInParent(
-      ws::mojom::WindowTreeClientPtr window_tree_client) {}
-#endif
-
   // Called by RenderWidgetHostViewChildFrame when the child frame has updated
   // its visual properties and its viz::LocalSurfaceId has changed.
   virtual void DidUpdateVisualProperties(
@@ -265,10 +247,9 @@ class CONTENT_EXPORT FrameConnectorDelegate {
   // This is here rather than in the implementation class so that
   // ViewportIntersection() can return a reference.
   gfx::Rect viewport_intersection_rect_;
-
   gfx::Rect compositor_visible_rect_;
-
-  bool occluded_or_obscured_ = false;
+  blink::FrameOcclusionState occlusion_state_ =
+      blink::FrameOcclusionState::kUnknown;
 
   ScreenInfo screen_info_;
   gfx::Size local_frame_size_in_dip_;

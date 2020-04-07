@@ -64,6 +64,14 @@ class MEDIA_GPU_EXPORT ImageProcessor {
   // Process() is responsible for making sure this invariant is
   // respected by using media::BindToCurrentLoop().
   using FrameReadyCB = base::OnceCallback<void(scoped_refptr<VideoFrame>)>;
+  // Callback to be used to return a processed image to the client.
+  // Used when calling the "legacy" Process() method with buffers that are
+  // managed by the IP. The first argument is the index of the returned buffer.
+  // FrameReadyCB is guaranteed to be executed on the "client thread".
+  // Process() is responsible for making sure this invariant is
+  // respected by using media::BindToCurrentLoop().
+  using LegacyFrameReadyCB =
+      base::OnceCallback<void(size_t, scoped_refptr<VideoFrame>)>;
 
   // Callback to be used to notify client when ImageProcess encounters error.
   // It should be assigned in subclass' factory method. ErrorCB is guaranteed to
@@ -97,12 +105,9 @@ class MEDIA_GPU_EXPORT ImageProcessor {
 
 #if defined(OS_POSIX) || defined(OS_FUCHSIA)
   // Called by client to process |frame|. The resulting processed frame will be
-  // stored in |output_buffer_index| output buffer and notified via |cb|. The
+  // stored in a ImageProcessor-owned output buffer and notified via |cb|. The
   // processor will drop all its references to |frame| after it finishes
-  // accessing it. If the input buffers are DMA-backed, the caller
-  // should pass non-empty |output_dmabuf_fds| and the processed frame will be
-  // stored in those buffers. If the number of |output_dmabuf_fds| is not
-  // expected, this function will return false.
+  // accessing it.
   // Process() must be called on "client thread". This should not be blocking
   // function.
   //
@@ -112,9 +117,7 @@ class MEDIA_GPU_EXPORT ImageProcessor {
   // TODO(crbug.com/907767): Remove this once ImageProcessor always works as
   // IMPORT mode for output.
   bool Process(scoped_refptr<VideoFrame> frame,
-               int output_buffer_index,
-               std::vector<base::ScopedFD> output_dmabuf_fds,
-               FrameReadyCB cb);
+               LegacyFrameReadyCB cb);
 #endif
 
   // Called by client to process |input_frame| and store in |output_frame|. This
@@ -157,9 +160,7 @@ class MEDIA_GPU_EXPORT ImageProcessor {
   // "client thread".
 #if defined(OS_POSIX) || defined(OS_FUCHSIA)
   virtual bool ProcessInternal(scoped_refptr<VideoFrame> frame,
-                               int output_buffer_index,
-                               std::vector<base::ScopedFD> output_dmabuf_fds,
-                               FrameReadyCB cb) = 0;
+                               LegacyFrameReadyCB cb) = 0;
 #endif
   virtual bool ProcessInternal(scoped_refptr<VideoFrame> input_frame,
                                scoped_refptr<VideoFrame> output_frame,

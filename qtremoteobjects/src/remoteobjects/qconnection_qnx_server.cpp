@@ -175,8 +175,8 @@ void QQnxNativeServerPrivate::thread_func()
                  * our client, and if so, clean up our saved state
                  */
                 const int scoid = recv_buf.pulse.scoid;
-                QSet<int> coids = connections.take(scoid);
-                Q_FOREACH (int coid, coids)
+                const QSet<int> coids = connections.take(scoid);
+                for (int coid : coids)
                 {
                     const uint64_t uid = static_cast<uint64_t>(scoid) << 32 | static_cast<uint32_t>(coid);
                     QSharedPointer<QIOQnxSource> io;
@@ -235,9 +235,11 @@ void QQnxNativeServerPrivate::thread_func()
             }
                 break;
             case _PULSE_CODE_UNBLOCK:
-                // did we forget to Reply to our client?
-                qCWarning(QT_REMOTEOBJECT) << "got an unblock pulse, did you forget to reply to your client?";
-                WARN_ON_ERROR(MsgError, recv_buf.pulse.value.sival_int, EINTR)
+                if (running.load()) {
+                    // did we forget to Reply to our client?
+                    qCWarning(QT_REMOTEOBJECT) << "got an unblock pulse, did you forget to reply to your client?";
+                    WARN_ON_ERROR(MsgError, recv_buf.pulse.value.sival_int, EINTR)
+                }
                 break;
             default:
                 qCWarning(QT_REMOTEOBJECT) << "unexpected pulse code: " << recv_buf.pulse.code << __FILE__ << __LINE__;
@@ -404,6 +406,11 @@ bool QQnxNativeServerPrivate::listen(const QString &name)
         qCDebug(QT_REMOTEOBJECT, "name_attach call failed");
         return false;
     }
+    terminateCoid = ConnectAttach(ND_LOCAL_NODE, 0, attachStruct->chid, _NTO_SIDE_CHANNEL, 0);
+    if (terminateCoid == -1) {
+        qCDebug(QT_REMOTEOBJECT, "ConnectAttach failed");
+        return false;
+    }
 
     running.ref();
     thread.start();
@@ -415,12 +422,12 @@ void QQnxNativeServerPrivate::cleanupIOSource(QIOQnxSource *conn)
 {
     QSharedPointer<QIOQnxSource> io;
     mutex.lock();
-    QHashIterator<uint64_t, QSharedPointer<QIOQnxSource>> i(sources);
-    while (i.hasNext()) {
-        i.next();
-        if (i.value().data() == conn)
-            io = sources.take(i.key());
-        break;
+    for (auto i = sources.begin(), end = sources.end(); i != end; ++i) {
+        if (i.value().data() == conn) {
+            io = std::move(i.value());
+            sources.erase(i);
+            break;
+        }
     }
     mutex.unlock();
     if (!io.isNull()) {
@@ -435,7 +442,8 @@ void QQnxNativeServerPrivate::teardownServer()
         return;
 
     running.deref();
-    ChannelDestroy(attachStruct->chid);
+    MsgSendPulse(terminateCoid, SIGEV_PULSE_PRIO_INHERIT, _PULSE_CODE_UNBLOCK, 0);
+    ConnectDetach(terminateCoid);
     thread.wait();
 
     //Existing QIOQnxSources will be deleted along with object

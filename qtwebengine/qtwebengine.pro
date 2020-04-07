@@ -1,13 +1,6 @@
+requires(qtHaveModule(gui))
 load(qt_parts)
-load(configure)
-
-runConfigure()
-
-!isEmpty(skipBuildReason) {
-    SUBDIRS =
-    log($${skipBuildReason}$${EOL})
-    log(QtWebEngine will not be built.$${EOL})
-}
+load(functions)
 
 QMAKE_DISTCLEAN += .qmake.cache
 

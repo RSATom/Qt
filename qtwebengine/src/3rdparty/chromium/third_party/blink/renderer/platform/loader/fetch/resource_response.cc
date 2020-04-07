@@ -174,7 +174,7 @@ int ResourceResponse::HttpStatusCode() const {
   return http_status_code_;
 }
 
-void ResourceResponse::SetHTTPStatusCode(int status_code) {
+void ResourceResponse::SetHttpStatusCode(int status_code) {
   http_status_code_ = status_code;
 }
 
@@ -182,7 +182,7 @@ const AtomicString& ResourceResponse::HttpStatusText() const {
   return http_status_text_;
 }
 
-void ResourceResponse::SetHTTPStatusText(const AtomicString& status_text) {
+void ResourceResponse::SetHttpStatusText(const AtomicString& status_text) {
   http_status_text_ = status_text;
 }
 
@@ -223,28 +223,21 @@ void ResourceResponse::SetSecurityDetails(
     time_t valid_to,
     const Vector<AtomicString>& certificate,
     const SignedCertificateTimestampList& sct_list) {
-  security_details_.protocol = protocol;
-  security_details_.key_exchange = key_exchange;
-  security_details_.key_exchange_group = key_exchange_group;
-  security_details_.cipher = cipher;
-  security_details_.mac = mac;
-  security_details_.subject_name = subject_name;
-  security_details_.san_list = san_list;
-  security_details_.issuer = issuer;
-  security_details_.valid_from = valid_from;
-  security_details_.valid_to = valid_to;
-  security_details_.certificate = certificate;
-  security_details_.sct_list = sct_list;
+  DCHECK_NE(security_style_, kWebSecurityStyleUnknown);
+  DCHECK_NE(security_style_, kWebSecurityStyleNeutral);
+  security_details_ = SecurityDetails(
+      protocol, key_exchange, key_exchange_group, cipher, mac, subject_name,
+      san_list, issuer, valid_from, valid_to, certificate, sct_list);
 }
 
-void ResourceResponse::SetHTTPHeaderField(const AtomicString& name,
+void ResourceResponse::SetHttpHeaderField(const AtomicString& name,
                                           const AtomicString& value) {
   UpdateHeaderParsedState(name);
 
   http_header_fields_.Set(name, value);
 }
 
-void ResourceResponse::AddHTTPHeaderField(const AtomicString& name,
+void ResourceResponse::AddHttpHeaderField(const AtomicString& name,
                                           const AtomicString& value) {
   UpdateHeaderParsedState(name);
 
@@ -253,7 +246,7 @@ void ResourceResponse::AddHTTPHeaderField(const AtomicString& name,
     result.stored_value->value = result.stored_value->value + ", " + value;
 }
 
-void ResourceResponse::ClearHTTPHeaderField(const AtomicString& name) {
+void ResourceResponse::ClearHttpHeaderField(const AtomicString& name) {
   http_header_fields_.Remove(name);
 }
 

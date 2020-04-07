@@ -32,8 +32,7 @@ AudioLoopbackStreamBroker::AudioLoopbackStreamBroker(
       shared_memory_count_(shared_memory_count),
       deleter_(std::move(deleter)),
       renderer_factory_client_(std::move(renderer_factory_client)),
-      observer_binding_(this),
-      weak_ptr_factory_(this) {
+      observer_binding_(this) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
   DCHECK(source_);
   DCHECK(renderer_factory_client_);
@@ -87,8 +86,9 @@ void AudioLoopbackStreamBroker::CreateStream(
       &AudioLoopbackStreamBroker::Cleanup, base::Unretained(this)));
 
   factory->CreateLoopbackStream(
-      std::move(stream_request), std::move(client), std::move(observer_ptr),
-      params_, shared_memory_count_, source_->GetGroupID(),
+      std::move(stream_request), client.PassInterface(),
+      observer_ptr.PassInterface(), params_, shared_memory_count_,
+      source_->GetGroupID(),
       base::BindOnce(&AudioLoopbackStreamBroker::StreamCreated,
                      weak_ptr_factory_.GetWeakPtr(), std::move(stream)));
 }

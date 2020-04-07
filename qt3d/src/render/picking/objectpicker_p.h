@@ -69,24 +69,18 @@ public:
     ~ObjectPicker();
 
     void cleanup();
-    void sceneChangeEvent(const Qt3DCore::QSceneChangePtr &e) final;
+    void syncFromFrontEnd(const Qt3DCore::QNode *frontEnd, bool firstTime) override;
     bool isPressed() const;
     bool isHoverEnabled() const;
     bool isDragEnabled() const;
 
-    void onClicked(QPickEventPtr event);
-    void onMoved(QPickEventPtr event);
-    void onPressed(QPickEventPtr event);
-    void onReleased(QPickEventPtr event);
-    void onEntered();
-    void onExited();
+    void setPressed(bool pressed);
 
     // Needed for unit tests
     void setPriority(int priority);
     int priority() const;
 
 private:
-    void initializeFromPeer(const Qt3DCore::QNodeCreatedChangeBasePtr &change) final;
     void notifyJob();
 
     int m_priority;

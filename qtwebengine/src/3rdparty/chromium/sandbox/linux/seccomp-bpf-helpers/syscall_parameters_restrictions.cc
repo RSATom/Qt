@@ -21,6 +21,7 @@
 
 #include "base/logging.h"
 #include "base/macros.h"
+#include "base/synchronization/synchronization_buildflags.h"
 #include "build/build_config.h"
 #include "sandbox/linux/bpf_dsl/bpf_dsl.h"
 #include "sandbox/linux/bpf_dsl/seccomp_macros.h"
@@ -309,6 +310,11 @@ ResultExpr RestrictFutex() {
   const Arg<int> op(1);
   return Switch(op & ~kAllowedFutexFlags)
       .CASES((FUTEX_WAIT, FUTEX_WAKE, FUTEX_REQUEUE, FUTEX_CMP_REQUEUE,
+#if BUILDFLAG(ENABLE_MUTEX_PRIORITY_INHERITANCE)
+              // Enable priority-inheritance operations.
+              FUTEX_LOCK_PI, FUTEX_UNLOCK_PI, FUTEX_TRYLOCK_PI,
+              FUTEX_WAIT_REQUEUE_PI, FUTEX_CMP_REQUEUE_PI,
+#endif  // BUILDFLAG(ENABLE_MUTEX_PRIORITY_INHERITANCE)
               FUTEX_WAKE_OP, FUTEX_WAIT_BITSET, FUTEX_WAKE_BITSET),
              Allow())
       .Default(IsBuggyGlibcSemPost() ? Error(EINVAL) : CrashSIGSYSFutex());
@@ -407,11 +413,9 @@ ResultExpr RestrictPtrace() {
 #if !defined(__aarch64__)
         PTRACE_GETREGS,
         PTRACE_GETFPREGS,
-#if defined(TRACE_GET_THREAD_AREA)
         PTRACE_GET_THREAD_AREA,
 #endif
-#endif
-#if defined(__arm__) && defined (PTRACE_GETVFPREGS)
+#if defined(__arm__)
         PTRACE_GETVFPREGS,
 #endif
         PTRACE_GETREGSET,

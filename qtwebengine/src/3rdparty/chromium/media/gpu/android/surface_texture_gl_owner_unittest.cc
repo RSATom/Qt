@@ -10,7 +10,7 @@
 
 #include "base/bind.h"
 #include "base/logging.h"
-#include "base/message_loop/message_loop.h"
+#include "base/test/scoped_task_environment.h"
 #include "media/gpu/android/mock_abstract_texture.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -50,7 +50,8 @@ class SurfaceTextureGLOwnerTest : public testing::Test {
     std::unique_ptr<MockAbstractTexture> texture =
         std::make_unique<MockAbstractTexture>(texture_id_);
     abstract_texture_ = texture->AsWeakPtr();
-    surface_texture_ = SurfaceTextureGLOwner::Create(std::move(texture));
+    surface_texture_ = SurfaceTextureGLOwner::Create(
+        std::move(texture), TextureOwner::Mode::kSurfaceTextureInsecure);
     texture_id_ = surface_texture_->GetTextureId();
     EXPECT_TRUE(abstract_texture_);
   }
@@ -73,7 +74,7 @@ class SurfaceTextureGLOwnerTest : public testing::Test {
   scoped_refptr<gl::GLContext> context_;
   scoped_refptr<gl::GLShareGroup> share_group_;
   scoped_refptr<gl::GLSurface> surface_;
-  base::MessageLoop message_loop_;
+  base::test::ScopedTaskEnvironment scoped_task_environment_;
 };
 
 TEST_F(SurfaceTextureGLOwnerTest, OwnerReturnsServiceId) {

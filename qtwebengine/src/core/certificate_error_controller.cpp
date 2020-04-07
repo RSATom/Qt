@@ -78,21 +78,22 @@ void CertificateErrorControllerPrivate::accept(bool accepted)
 CertificateErrorControllerPrivate::CertificateErrorControllerPrivate(int cert_error,
                                                                      const net::SSLInfo& ssl_info,
                                                                      const GURL &request_url,
-                                                                     content::ResourceType resource_type,
+                                                                     bool main_frame,
                                                                      bool fatal_error,
                                                                      bool strict_enforcement,
                                                                      const base::Callback<void(content::CertificateRequestResultType)>& cb
                                                                     )
     : certError(CertificateErrorController::CertificateError(cert_error))
     , requestUrl(toQt(request_url))
-    , resourceType(CertificateErrorController::ResourceType(resource_type))
+    , resourceType(main_frame ? CertificateErrorController::ResourceTypeMainFrame : CertificateErrorController::ResourceTypeOther)
     , fatalError(fatal_error)
     , strictEnforcement(strict_enforcement)
     , callback(cb)
 {
-    if (ssl_info.cert.get()) {
-        validStart = toQt(ssl_info.cert->valid_start());
-        validExpiry = toQt(ssl_info.cert->valid_expiry());
+    if (auto cert = ssl_info.cert.get()) {
+        validStart = toQt(cert->valid_start());
+        validExpiry = toQt(cert->valid_expiry());
+        certificateChain = toCertificateChain(cert);
     }
 }
 
@@ -184,6 +185,11 @@ QString CertificateErrorController::errorString() const
     }
 
     return getQStringForMessageId(IDS_CERT_ERROR_UNKNOWN_ERROR_DESCRIPTION);
+}
+
+QList<QSslCertificate> CertificateErrorController::certificateChain() const
+{
+    return d->certificateChain;
 }
 
 QT_END_NAMESPACE

@@ -104,8 +104,6 @@ static void GetNativeThemeExtraParams(
       native_theme_extra_params->button.checked = extra_params->button.checked;
       break;
     case WebThemeEngine::kPartButton:
-      native_theme_extra_params->button.is_default =
-          extra_params->button.is_default;
       native_theme_extra_params->button.has_border =
           extra_params->button.has_border;
       // Native buttons have a different focus style.
@@ -166,7 +164,9 @@ static void GetNativeThemeExtraParams(
   }
 }
 
-blink::WebSize WebThemeEngineImpl::GetSize(WebThemeEngine::Part part) {
+WebThemeEngineAndroid::~WebThemeEngineAndroid() = default;
+
+blink::WebSize WebThemeEngineAndroid::GetSize(WebThemeEngine::Part part) {
   switch (part) {
     case WebThemeEngine::kPartScrollbarHorizontalThumb:
     case WebThemeEngine::kPartScrollbarVerticalThumb: {
@@ -184,7 +184,7 @@ blink::WebSize WebThemeEngineImpl::GetSize(WebThemeEngine::Part part) {
   }
 }
 
-void WebThemeEngineImpl::GetOverlayScrollbarStyle(ScrollbarStyle* style) {
+void WebThemeEngineAndroid::GetOverlayScrollbarStyle(ScrollbarStyle* style) {
   // TODO(bokan): Android scrollbars on non-composited scrollers don't
   // currently fade out so the fadeOutDuration and Delay  Now that this has
   // been added into Blink for other platforms we should plumb that through for
@@ -202,7 +202,7 @@ void WebThemeEngineImpl::GetOverlayScrollbarStyle(ScrollbarStyle* style) {
   }
 }
 
-void WebThemeEngineImpl::Paint(
+void WebThemeEngineAndroid::Paint(
     cc::PaintCanvas* canvas,
     WebThemeEngine::Part part,
     WebThemeEngine::State state,

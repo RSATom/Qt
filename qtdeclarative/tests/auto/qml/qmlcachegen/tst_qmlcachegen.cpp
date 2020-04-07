@@ -36,6 +36,7 @@
 #include <QSysInfo>
 #include <QLoggingCategory>
 #include <private/qqmlcomponent_p.h>
+#include <private/qqmlscriptdata_p.h>
 #include <qtranslator.h>
 
 #include "../../shared/util.h"
@@ -72,6 +73,8 @@ private slots:
 
     void reproducibleCache_data();
     void reproducibleCache();
+
+    void parameterAdjustment();
 };
 
 // A wrapper around QQmlComponent to ensure the temporary reference counts
@@ -667,6 +670,14 @@ void tst_qmlcachegen::reproducibleCache()
     const QByteArray contents1 = generate(file.fileName());
     const QByteArray contents2 = generate(file.fileName());
     QCOMPARE(contents1, contents2);
+}
+
+void tst_qmlcachegen::parameterAdjustment()
+{
+    QQmlEngine engine;
+    CleanlyLoadingComponent component(&engine, QUrl("qrc:///data/parameterAdjustment.qml"));
+    QScopedPointer<QObject> obj(component.create());
+    QVERIFY(!obj.isNull()); // Doesn't crash
 }
 
 QTEST_GUILESS_MAIN(tst_qmlcachegen)

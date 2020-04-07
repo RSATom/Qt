@@ -19,8 +19,8 @@ qtConfig(xkbcommon) {
     QT_FOR_PRIVATE += xkbcommon_support-private
 }
 
-qtHaveModule(linuxaccessibility_support_private): \
-    QT_PRIVATE += linuxaccessibility_support_private
+qtHaveModule(linuxaccessibility_support-private): \
+    QT_PRIVATE += linuxaccessibility_support-private
 
 QMAKE_USE += wayland-client
 
@@ -31,6 +31,7 @@ WAYLANDCLIENTSOURCES += \
             ../extensions/touch-extension.xml \
             ../extensions/qt-key-unstable-v1.xml \
             ../extensions/qt-windowmanager.xml \
+            ../3rdparty/protocol/wp-primary-selection-unstable-v1.xml \
             ../3rdparty/protocol/text-input-unstable-v2.xml \
             ../3rdparty/protocol/xdg-output-unstable-v1.xml \
             ../3rdparty/protocol/wayland.xml
@@ -46,6 +47,7 @@ SOURCES +=  qwaylandintegration.cpp \
             qwaylandshellsurface.cpp \
             qwaylandextendedsurface.cpp \
             qwaylandsubsurface.cpp \
+            qwaylandsurface.cpp \
             qwaylandtouch.cpp \
             qwaylandqtkey.cpp \
             ../shared/qwaylandmimehelper.cpp \
@@ -70,6 +72,7 @@ HEADERS +=  qwaylandintegration_p.h \
             qwaylandshellsurface_p.h \
             qwaylandextendedsurface_p.h \
             qwaylandsubsurface_p.h \
+            qwaylandsurface_p.h \
             qwaylandtouch_p.h \
             qwaylandqtkey_p.h \
             qwaylandabstractdecoration_p.h \
@@ -114,6 +117,11 @@ qtConfig(wayland-datadevice) {
         qwaylanddatadevicemanager.cpp \
         qwaylanddataoffer.cpp \
         qwaylanddatasource.cpp
+}
+
+qtConfig(wayland-client-primary-selection) {
+    HEADERS += qwaylandprimaryselectionv1_p.h
+    SOURCES += qwaylandprimaryselectionv1.cpp
 }
 
 qtConfig(draganddrop) {

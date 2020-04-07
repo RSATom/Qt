@@ -4,14 +4,14 @@
 
 #include <memory>
 
-#include "components/ui_devtools/views/dom_agent_aura.h"
+#include "components/ui_devtools/views/dom_agent_views.h"
 
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "components/ui_devtools/css_agent.h"
 #include "components/ui_devtools/ui_devtools_unittest_utils.h"
 #include "components/ui_devtools/ui_element.h"
-#include "components/ui_devtools/views/overlay_agent_aura.h"
+#include "components/ui_devtools/views/overlay_agent_views.h"
 #include "components/ui_devtools/views/view_element.h"
 #include "components/ui_devtools/views/widget_element.h"
 #include "ui/views/test/views_test_base.h"
@@ -45,9 +45,9 @@ class TestView : public views::View {
 std::string GetAttributeValue(const std::string& attribute, DOM::Node* node) {
   EXPECT_TRUE(node->hasAttributes());
   Array<std::string>* attributes = node->getAttributes(nullptr);
-  for (size_t i = 0; i < attributes->length() - 1; i++) {
-    if (attributes->get(i) == attribute)
-      return attributes->get(i + 1);
+  for (size_t i = 0; i < attributes->size() - 1; i += 2) {
+    if ((*attributes)[i] == attribute)
+      return (*attributes)[i + 1];
   }
   return std::string();
 }
@@ -57,8 +57,8 @@ DOM::Node* FindNodeWithID(int id, DOM::Node* root) {
     return root;
   }
   Array<DOM::Node>* children = root->getChildren(nullptr);
-  for (size_t i = 0; i < children->length(); i++) {
-    if (DOM::Node* node = FindNodeWithID(id, children->get(i)))
+  for (size_t i = 0; i < children->size(); i++) {
+    if (DOM::Node* node = FindNodeWithID(id, (*children)[i].get()))
       return node;
   }
   return nullptr;
@@ -75,23 +75,32 @@ class DOMAgentTest : public views::ViewsTestBase {
     views::Widget* widget = new views::Widget;
     views::Widget::InitParams params;
     params.ownership = views::Widget::InitParams::NATIVE_WIDGET_OWNS_WIDGET;
+#if defined(USE_AURA)
     params.parent = GetContext();
+#endif
     widget->Init(params);
     return widget->native_widget_private();
   }
 
-  std::unique_ptr<views::Widget> CreateTestWidget(const gfx::Rect& bounds) {
+  std::unique_ptr<views::Widget> CreateTestWidget(
+      const gfx::Rect& bounds,
+      const std::string* name = nullptr) {
     auto widget = std::make_unique<views::Widget>();
     views::Widget::InitParams params;
     params.delegate = nullptr;
     params.ownership = views::Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
     params.bounds = bounds;
+#if defined(USE_AURA)
     params.parent = GetContext();
+#endif
+    if (name)
+      params.name = *name;
     widget->Init(params);
     widget->Show();
     return widget;
   }
 
+#if defined(USE_AURA)
   std::unique_ptr<aura::Window> CreateChildWindow(
       aura::Window* parent,
       aura::client::WindowType type = aura::client::WINDOW_TYPE_NORMAL) {
@@ -103,18 +112,18 @@ class DOMAgentTest : public views::ViewsTestBase {
     window->Show();
     return window;
   }
+#endif
 
   void SetUp() override {
     fake_frontend_channel_ = std::make_unique<FakeFrontendChannel>();
     uber_dispatcher_ =
         std::make_unique<UberDispatcher>(fake_frontend_channel_.get());
-    aura::Env* env = aura::Env::GetInstance();
-    dom_agent_ = std::make_unique<DOMAgentAura>(env);
+    dom_agent_ = DOMAgentViews::Create();
     dom_agent_->Init(uber_dispatcher_.get());
     css_agent_ = std::make_unique<CSSAgent>(dom_agent_.get());
     css_agent_->Init(uber_dispatcher_.get());
     css_agent_->enable();
-    overlay_agent_ = std::make_unique<OverlayAgentAura>(dom_agent_.get(), env);
+    overlay_agent_ = OverlayAgentViews::Create(dom_agent_.get());
     overlay_agent_->Init(uber_dispatcher_.get());
     overlay_agent_->enable();
 
@@ -122,11 +131,15 @@ class DOMAgentTest : public views::ViewsTestBase {
     // WindowTreeHosts in ViewTestBase::SetUp().
     views::ViewsTestBase::SetUp();
 
+#if defined(USE_AURA)
     top_window = CreateChildWindow(GetContext());
+#endif
   }
 
   void TearDown() override {
+#if defined(USE_AURA)
     top_window.reset();
+#endif
     css_agent_.reset();
     overlay_agent_.reset();
     dom_agent_.reset();
@@ -188,16 +201,16 @@ class DOMAgentTest : public views::ViewsTestBase {
     size_t child_index = 0;
     views::Widget* widget = views::Widget::GetWidgetForNativeView(window);
     if (widget &&
-        !ElementTreeMatchesDOMTree(widget, children->get(child_index++))) {
+        !ElementTreeMatchesDOMTree(widget, (*children)[child_index++].get())) {
       return false;
     }
     for (aura::Window* child_window : window->children()) {
       if (!ElementTreeMatchesDOMTree(child_window,
-                                     children->get(child_index++)))
+                                     (*children)[child_index++].get()))
         return false;
     }
     // Make sure there are no stray children.
-    return child_index == children->length();
+    return child_index == children->size();
   }
 #endif
 
@@ -210,10 +223,9 @@ class DOMAgentTest : public views::ViewsTestBase {
 
     Array<DOM::Node>* children = root->getChildren(nullptr);
     views::View* root_view = widget->GetRootView();
-    if (!root_view)
-      return children->length() == 0;
-    else
-      return ElementTreeMatchesDOMTree(root_view, children->get(0));
+    return root_view
+               ? ElementTreeMatchesDOMTree(root_view, (*children)[0].get())
+               : children->empty();
   }
 
   bool ElementTreeMatchesDOMTree(views::View* view, DOM::Node* root) {
@@ -226,11 +238,11 @@ class DOMAgentTest : public views::ViewsTestBase {
     Array<DOM::Node>* children = root->getChildren(nullptr);
     std::vector<views::View*> child_views = view->GetChildrenInZOrder();
     const size_t child_count = child_views.size();
-    if (child_count != children->length())
+    if (child_count != children->size())
       return false;
 
     for (size_t i = 0; i < child_count; i++) {
-      if (!ElementTreeMatchesDOMTree(child_views[i], children->get(i)))
+      if (!ElementTreeMatchesDOMTree(child_views[i], (*children)[i].get()))
         return false;
     }
     return true;
@@ -239,16 +251,17 @@ class DOMAgentTest : public views::ViewsTestBase {
   FakeFrontendChannel* frontend_channel() {
     return fake_frontend_channel_.get();
   }
-  DOMAgentAura* dom_agent() { return dom_agent_.get(); }
+  DOMAgentViews* dom_agent() { return dom_agent_.get(); }
 
+#if defined(USE_AURA)
   std::unique_ptr<aura::Window> top_window;
-
+#endif
  private:
   std::unique_ptr<UberDispatcher> uber_dispatcher_;
   std::unique_ptr<FakeFrontendChannel> fake_frontend_channel_;
-  std::unique_ptr<DOMAgentAura> dom_agent_;
+  std::unique_ptr<DOMAgentViews> dom_agent_;
   std::unique_ptr<CSSAgent> css_agent_;
-  std::unique_ptr<OverlayAgentAura> overlay_agent_;
+  std::unique_ptr<OverlayAgentViews> overlay_agent_;
 
   DISALLOW_COPY_AND_ASSIGN(DOMAgentTest);
 };
@@ -263,7 +276,7 @@ TEST_F(DOMAgentTest, GetDocumentWithWindowWidgetView) {
   //        child_view
   //   child_window
   std::unique_ptr<views::Widget> widget(
-      CreateTestWidget(gfx::Rect(1, 1, 1, 1)));
+      CreateTestWidget(gfx::Rect(1, 1, 80, 80)));
   aura::Window* parent_window = widget->GetNativeWindow();
   parent_window->SetName("parent_window");
   std::unique_ptr<aura::Window> child_window = CreateChildWindow(parent_window);
@@ -317,10 +330,9 @@ TEST_F(DOMAgentTest, GetDocumentMultipleWidgets) {
   //          child_b121
   //          child_b122
   std::unique_ptr<views::Widget> widget_a(
-      CreateTestWidget(gfx::Rect(1, 1, 1, 1)));
+      CreateTestWidget(gfx::Rect(1, 1, 80, 80)));
   std::unique_ptr<views::Widget> widget_b(
-      CreateTestWidget(gfx::Rect(100, 100, 1, 1)));
-
+      CreateTestWidget(gfx::Rect(100, 100, 80, 80)));
   widget_a->GetRootView()->AddChildView(new TestView("child_a1"));
   widget_a->GetRootView()->AddChildView(new TestView("child_a2"));
 
@@ -447,7 +459,7 @@ TEST_F(DOMAgentTest, WindowStackingChangedChildNodeRemovedAndInserted) {
 
 TEST_F(DOMAgentTest, ViewInserted) {
   std::unique_ptr<views::Widget> widget(
-      CreateTestWidget(gfx::Rect(1, 1, 1, 1)));
+      CreateTestWidget(gfx::Rect(1, 1, 80, 80)));
   widget->Show();
 
   // Initialize DOMAgent
@@ -455,13 +467,15 @@ TEST_F(DOMAgentTest, ViewInserted) {
   dom_agent()->getDocument(&root);
 
   views::View* root_view = widget->GetRootView();
-  root_view->AddChildView(new views::View);
-  EXPECT_TRUE(WasChildNodeInserted(root_view, root_view->child_at(0)));
+  ASSERT_FALSE(root_view->children().empty());
+  auto* last_child = root_view->children().back();
+  root_view->AddChildView(std::make_unique<views::View>());
+  EXPECT_TRUE(WasChildNodeInserted(root_view, last_child));
 }
 
 TEST_F(DOMAgentTest, ViewRemoved) {
   std::unique_ptr<views::Widget> widget(
-      CreateTestWidget(gfx::Rect(1, 1, 1, 1)));
+      CreateTestWidget(gfx::Rect(1, 1, 80, 80)));
   widget->Show();
   views::View* root_view = widget->GetRootView();
 
@@ -481,7 +495,7 @@ TEST_F(DOMAgentTest, ViewRemoved) {
 
 TEST_F(DOMAgentTest, ViewRearranged) {
   std::unique_ptr<views::Widget> widget(
-      CreateTestWidget(gfx::Rect(1, 1, 1, 1)));
+      CreateTestWidget(gfx::Rect(1, 1, 80, 80)));
 
   widget->Show();
   views::View* root_view = widget->GetRootView();
@@ -521,7 +535,7 @@ TEST_F(DOMAgentTest, ViewRearranged) {
 
 TEST_F(DOMAgentTest, ViewRearrangedRemovedAndInserted) {
   std::unique_ptr<views::Widget> widget(
-      CreateTestWidget(gfx::Rect(1, 1, 1, 1)));
+      CreateTestWidget(gfx::Rect(1, 1, 80, 80)));
 
   widget->Show();
   views::View* root_view = widget->GetRootView();
@@ -541,6 +555,128 @@ TEST_F(DOMAgentTest, ViewRearrangedRemovedAndInserted) {
   target_view->AddChildView(child_view);
   EXPECT_TRUE(WasChildNodeRemoved(parent_view, child_id));
   EXPECT_TRUE(WasChildNodeInserted(target_view));
+}
+
+// Tests to ensure dom search for native UI is working
+TEST_F(DOMAgentTest, SimpleDomSearch) {
+  std::unique_ptr<views::Widget> widget_a(
+      CreateTestWidget(gfx::Rect(1, 1, 80, 80)));
+  widget_a->GetRootView()->AddChildView(new TestView("child_a1"));
+  widget_a->GetRootView()->AddChildView(new TestView("child_a2"));
+
+  std::unique_ptr<DOM::Node> root;
+  dom_agent()->getDocument(&root);
+
+  std::string search_id;
+  int result_count = 0;
+  std::unique_ptr<protocol::Array<int>> node_ids = nullptr;
+
+  // 1 match
+  dom_agent()->performSearch("child_a1", false, &search_id, &result_count);
+  EXPECT_EQ(result_count, 1);
+  dom_agent()->getSearchResults(search_id, 0, result_count, &node_ids);
+  EXPECT_EQ(node_ids->size(), 1u);
+  dom_agent()->discardSearchResults(search_id);
+  node_ids.reset();
+
+  // no match
+  dom_agent()->performSearch("child_a12", false, &search_id, &result_count);
+  EXPECT_EQ(result_count, 0);
+  dom_agent()->getSearchResults(search_id, 0, 1, &node_ids);
+  EXPECT_TRUE(!node_ids);
+}
+
+TEST_F(DOMAgentTest, ExactDomSearch) {
+  std::unique_ptr<views::Widget> widget_a(
+      CreateTestWidget(gfx::Rect(1, 1, 80, 80)));
+  widget_a->GetRootView()->AddChildView(new TestView("child_a"));
+  widget_a->GetRootView()->AddChildView(new TestView("child_aa"));
+
+  std::unique_ptr<DOM::Node> root;
+  dom_agent()->getDocument(&root);
+  std::string search_id;
+  int result_count = 0;
+  std::unique_ptr<protocol::Array<int>> node_ids = nullptr;
+
+  // substring matches
+  dom_agent()->performSearch("child_a", false, &search_id, &result_count);
+  EXPECT_EQ(result_count, 2);
+  dom_agent()->getSearchResults(search_id, 0, result_count, &node_ids);
+  EXPECT_EQ(node_ids->size(), 2u);
+  dom_agent()->discardSearchResults(search_id);
+  node_ids.reset();
+
+  // exact string matches
+  dom_agent()->performSearch("\"child_a\"", false, &search_id, &result_count);
+  EXPECT_EQ(result_count, 1);
+  dom_agent()->getSearchResults(search_id, 0, result_count, &node_ids);
+  EXPECT_EQ(node_ids->size(), 1u);
+  dom_agent()->discardSearchResults(search_id);
+  node_ids.reset();
+
+  dom_agent()->performSearch("\"child\"", false, &search_id, &result_count);
+  EXPECT_EQ(result_count, 0);
+  dom_agent()->getSearchResults(search_id, 0, 1, &node_ids);
+  EXPECT_TRUE(!node_ids);
+}
+
+TEST_F(DOMAgentTest, TagDomSearch) {
+  std::string widget_name = "TestElement";
+  std::unique_ptr<views::Widget> widget_a(
+      CreateTestWidget(gfx::Rect(1, 1, 80, 80), &widget_name));
+  std::unique_ptr<views::Widget> widget_b(
+      CreateTestWidget(gfx::Rect(1, 1, 80, 80), &widget_name));
+  std::unique_ptr<views::Widget> widget_c(
+      CreateTestWidget(gfx::Rect(1, 1, 80, 80), &widget_name));
+  widget_a->GetRootView()->AddChildView(new TestView("WidgetView"));
+
+  std::unique_ptr<DOM::Node> root;
+  dom_agent()->getDocument(&root);
+  std::string search_id;
+  int result_count = 0;
+  std::unique_ptr<protocol::Array<int>> node_ids = nullptr;
+
+  // normal search looks for any "widget" substrings
+  dom_agent()->performSearch("widget", false, &search_id, &result_count);
+  EXPECT_EQ(result_count, 4);
+  dom_agent()->getSearchResults(search_id, 0, result_count, &node_ids);
+  EXPECT_EQ(node_ids->size(), 4u);
+  dom_agent()->discardSearchResults(search_id);
+  node_ids.reset();
+
+  // tag search only looks for <widget...>
+  dom_agent()->performSearch("<widget>", false, &search_id, &result_count);
+  EXPECT_EQ(result_count, 3);
+  dom_agent()->getSearchResults(search_id, 0, result_count, &node_ids);
+  EXPECT_EQ(node_ids->size(), 3u);
+}
+
+TEST_F(DOMAgentTest, DomSearchForStylesPanel) {
+  std::unique_ptr<views::Widget> widget_a(
+      CreateTestWidget(gfx::Rect(1, 1, 80, 80)));
+  widget_a->GetRootView()->AddChildView(new TestView("child_a1"));
+
+  std::unique_ptr<DOM::Node> root;
+  dom_agent()->getDocument(&root);
+
+  std::string search_id;
+  int result_count = 0;
+  std::unique_ptr<protocol::Array<int>> node_ids = nullptr;
+
+  // Search for something that is in style properties but not in dom name or
+  // attributes.
+  dom_agent()->performSearch("style: classname: child_a1", false, &search_id,
+                             &result_count);
+  EXPECT_EQ(result_count, 1);
+  dom_agent()->getSearchResults(search_id, 0, result_count, &node_ids);
+  EXPECT_EQ(node_ids->size(), 1u);
+  node_ids.reset();
+
+  dom_agent()->performSearch("classname: child_a1", false, &search_id,
+                             &result_count);
+  EXPECT_EQ(result_count, 0);
+  dom_agent()->getSearchResults(search_id, 0, 1, &node_ids);
+  EXPECT_TRUE(!node_ids);
 }
 
 }  // namespace ui_devtools

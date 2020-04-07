@@ -96,7 +96,7 @@ TEST_F(NinjaBuildWriterTest, TwoTargets) {
       Label(SourceDir("//other/"), "depth_pool", other_toolchain_label.dir(),
             other_toolchain_label.name()));
   other_regular_pool.set_depth(42);
-  other_toolchain.GetTool(Toolchain::TYPE_LINK)
+  other_toolchain.GetTool(CTool::kCToolLink)
       ->set_pool(LabelPtrPair<Pool>(&other_regular_pool));
 
   // Make another target that uses its own pool
@@ -122,7 +122,7 @@ TEST_F(NinjaBuildWriterTest, TwoTargets) {
                                             setup.toolchain()->label().dir(),
                                             setup.toolchain()->label().name()));
   console_pool.set_depth(1);
-  other_toolchain.GetTool(Toolchain::TYPE_STAMP)
+  other_toolchain.GetTool(GeneralTool::kGeneralToolStamp)
       ->set_pool(LabelPtrPair<Pool>(&console_pool));
 
   // Settings to go with the other toolchain.
@@ -182,6 +182,33 @@ TEST_F(NinjaBuildWriterTest, TwoTargets) {
 
   // A pool definition for ninja's built-in console pool must not be written.
   EXPECT_EQ(std::string::npos, out_str.find("pool console"));
+}
+
+TEST_F(NinjaBuildWriterTest, SpaceInDepfile) {
+  TestWithScope setup;
+  Err err;
+
+  // Setup sets the default root dir to ".".
+  base::FilePath root(FILE_PATH_LITERAL("."));
+  base::FilePath root_realpath = base::MakeAbsoluteFilePath(root);
+  setup.build_settings()->SetRootPath(root_realpath);
+
+  // Cannot use MakeAbsoluteFilePath for non-existed paths
+  base::FilePath dependency =
+      root_realpath.Append(FILE_PATH_LITERAL("path with space/BUILD.gn"));
+  g_scheduler->AddGenDependency(dependency);
+
+  std::unordered_map<const Settings*, const Toolchain*> used_toolchains;
+  used_toolchains[setup.settings()] = setup.toolchain();
+  std::vector<const Target*> targets;
+  std::ostringstream ninja_out;
+  std::ostringstream depfile_out;
+  NinjaBuildWriter writer(setup.build_settings(), used_toolchains, targets,
+                          setup.toolchain(), targets, ninja_out, depfile_out);
+  ASSERT_TRUE(writer.Run(&err));
+
+  EXPECT_EQ(depfile_out.str(),
+            "build.ninja: ../../path\\ with\\ space/BUILD.gn");
 }
 
 TEST_F(NinjaBuildWriterTest, DuplicateOutputs) {

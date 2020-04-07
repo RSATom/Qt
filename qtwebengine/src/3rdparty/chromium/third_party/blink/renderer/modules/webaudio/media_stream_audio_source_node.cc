@@ -30,7 +30,6 @@
 #include "third_party/blink/renderer/modules/webaudio/audio_node_output.h"
 #include "third_party/blink/renderer/modules/webaudio/media_stream_audio_source_options.h"
 #include "third_party/blink/renderer/platform/bindings/exception_state.h"
-#include "third_party/blink/renderer/platform/wtf/locker.h"
 
 namespace blink {
 
@@ -136,11 +135,6 @@ MediaStreamAudioSourceNode* MediaStreamAudioSourceNode::Create(
     ExceptionState& exception_state) {
   DCHECK(IsMainThread());
 
-  if (context.IsContextClosed()) {
-    context.ThrowExceptionForClosedState(exception_state);
-    return nullptr;
-  }
-
   MediaStreamTrackVector audio_tracks = media_stream.getAudioTracks();
   if (audio_tracks.IsEmpty()) {
     exception_state.ThrowDOMException(DOMExceptionCode::kInvalidStateError,
@@ -148,10 +142,16 @@ MediaStreamAudioSourceNode* MediaStreamAudioSourceNode::Create(
     return nullptr;
   }
 
-  // Use the first audio track in the media stream.
+  // Find the first track, which is the track whose id comes first given a
+  // lexicographic ordering of the code units of the track id.
   MediaStreamTrack* audio_track = audio_tracks[0];
+  for (auto track : audio_tracks) {
+    if (CodeUnitCompareLessThan(track->id(), audio_track->id())) {
+      audio_track = track;
+    }
+  }
   std::unique_ptr<AudioSourceProvider> provider =
-      audio_track->CreateWebAudioSource();
+      audio_track->CreateWebAudioSource(context.sampleRate());
 
   MediaStreamAudioSourceNode* node =
       MakeGarbageCollected<MediaStreamAudioSourceNode>(
@@ -196,6 +196,11 @@ void MediaStreamAudioSourceNode::SetFormat(uint32_t number_of_channels,
                                            float source_sample_rate) {
   GetMediaStreamAudioSourceHandler().SetFormat(number_of_channels,
                                                source_sample_rate);
+}
+
+bool MediaStreamAudioSourceNode::HasPendingActivity() const {
+  // As long as the context is running, this node has activity.
+  return (context()->ContextState() == BaseAudioContext::kRunning);
 }
 
 }  // namespace blink

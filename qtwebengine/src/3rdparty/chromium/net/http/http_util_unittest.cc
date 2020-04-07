@@ -12,10 +12,6 @@
 
 namespace net {
 
-namespace {
-class HttpUtilTest : public testing::Test {};
-}
-
 TEST(HttpUtilTest, IsSafeHeader) {
   static const char* const unsafe_headers[] = {
     "sec-",
@@ -327,12 +323,12 @@ TEST(HttpUtilTest, Quote) {
 TEST(HttpUtilTest, LocateEndOfHeaders) {
   struct {
     const char* const input;
-    int expected_result;
+    size_t expected_result;
   } tests[] = {
-      {"\r\n", -1},
-      {"\n", -1},
-      {"\r", -1},
-      {"foo", -1},
+      {"\r\n", std::string::npos},
+      {"\n", std::string::npos},
+      {"\r", std::string::npos},
+      {"foo", std::string::npos},
       {"\r\n\r\n", 4},
       {"foo\r\nbar\r\n\r\n", 12},
       {"foo\nbar\n\n", 9},
@@ -342,8 +338,8 @@ TEST(HttpUtilTest, LocateEndOfHeaders) {
       {"foo\nbar\r\n\njunk", 10},
   };
   for (size_t i = 0; i < base::size(tests); ++i) {
-    int input_len = static_cast<int>(strlen(tests[i].input));
-    int eoh = HttpUtil::LocateEndOfHeaders(tests[i].input, input_len);
+    size_t input_len = strlen(tests[i].input);
+    size_t eoh = HttpUtil::LocateEndOfHeaders(tests[i].input, input_len);
     EXPECT_EQ(tests[i].expected_result, eoh);
   }
 }
@@ -351,12 +347,12 @@ TEST(HttpUtilTest, LocateEndOfHeaders) {
 TEST(HttpUtilTest, LocateEndOfAdditionalHeaders) {
   struct {
     const char* const input;
-    int expected_result;
+    size_t expected_result;
   } tests[] = {
       {"\r\n", 2},
       {"\n", 1},
-      {"\r", -1},
-      {"foo", -1},
+      {"\r", std::string::npos},
+      {"foo", std::string::npos},
       {"\r\n\r\n", 2},
       {"foo\r\nbar\r\n\r\n", 12},
       {"foo\nbar\n\n", 9},
@@ -366,8 +362,9 @@ TEST(HttpUtilTest, LocateEndOfAdditionalHeaders) {
       {"foo\nbar\r\n\njunk", 10},
   };
   for (size_t i = 0; i < base::size(tests); ++i) {
-    int input_len = static_cast<int>(strlen(tests[i].input));
-    int eoh = HttpUtil::LocateEndOfAdditionalHeaders(tests[i].input, input_len);
+    size_t input_len = strlen(tests[i].input);
+    size_t eoh =
+        HttpUtil::LocateEndOfAdditionalHeaders(tests[i].input, input_len);
     EXPECT_EQ(tests[i].expected_result, eoh);
   }
 }
@@ -690,7 +687,7 @@ TEST(HttpUtilTest, AssembleRawHeaders) {
   for (size_t i = 0; i < base::size(tests); ++i) {
     std::string input = tests[i].input;
     std::replace(input.begin(), input.end(), '|', '\0');
-    std::string raw = HttpUtil::AssembleRawHeaders(input.data(), input.size());
+    std::string raw = HttpUtil::AssembleRawHeaders(input);
     std::replace(raw.begin(), raw.end(), '\0', '|');
     EXPECT_EQ(tests[i].expected_result, raw);
   }
@@ -735,13 +732,6 @@ TEST(HttpUtilTest, RequestUrlSanitize) {
 
     EXPECT_EQ(expected_spec, HttpUtil::SpecForRequest(url));
   }
-}
-
-// Test SpecForRequest() for "ftp" scheme.
-TEST(HttpUtilTest, SpecForRequestForUrlWithFtpScheme) {
-  GURL ftp_url("ftp://user:pass@google.com/pub/chromium/");
-  EXPECT_EQ("ftp://google.com/pub/chromium/",
-            HttpUtil::SpecForRequest(ftp_url));
 }
 
 TEST(HttpUtilTest, GenerateAcceptLanguageHeader) {

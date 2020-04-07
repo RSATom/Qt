@@ -6,11 +6,14 @@
 
 #include "xfa/fxfa/parser/cxfa_datagroup.h"
 
+#include "fxjs/xfa/cjx_node.h"
+#include "third_party/base/ptr_util.h"
+
 namespace {
 
 const CXFA_Node::AttributeData kDataGroupAttributeData[] = {
     {XFA_Attribute::Name, XFA_AttributeType::CData, nullptr},
-    {XFA_Attribute::Unknown, XFA_AttributeType::Integer, nullptr}};
+};
 
 }  // namespace
 
@@ -20,7 +23,8 @@ CXFA_DataGroup::CXFA_DataGroup(CXFA_Document* doc, XFA_PacketType packet)
                 XFA_XDPPACKET_Datasets,
                 XFA_ObjectType::Node,
                 XFA_Element::DataGroup,
-                nullptr,
-                kDataGroupAttributeData) {}
+                {},
+                kDataGroupAttributeData,
+                pdfium::MakeUnique<CJX_Node>(this)) {}
 
 CXFA_DataGroup::~CXFA_DataGroup() = default;

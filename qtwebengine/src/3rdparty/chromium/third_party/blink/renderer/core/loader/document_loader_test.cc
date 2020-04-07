@@ -4,7 +4,7 @@
 
 #include "third_party/blink/renderer/core/loader/document_loader.h"
 
-#include <queue>
+#include <utility>
 #include "base/auto_reset.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/blink/public/common/frame/frame_owner_element_type.h"
@@ -14,8 +14,13 @@
 #include "third_party/blink/renderer/core/frame/frame_test_helpers.h"
 #include "third_party/blink/renderer/core/frame/web_local_frame_impl.h"
 #include "third_party/blink/renderer/core/page/page.h"
+#include "third_party/blink/renderer/core/testing/scoped_fake_plugin_registry.h"
+#include "third_party/blink/renderer/core/testing/sim/sim_request.h"
+#include "third_party/blink/renderer/core/testing/sim/sim_test.h"
+#include "third_party/blink/renderer/platform/loader/static_data_navigation_body_loader.h"
 #include "third_party/blink/renderer/platform/testing/unit_test_helpers.h"
 #include "third_party/blink/renderer/platform/testing/url_test_helpers.h"
+#include "third_party/blink/renderer/platform/wtf/deque.h"
 
 namespace blink {
 
@@ -81,27 +86,34 @@ TEST_F(DocumentLoaderTest, MultiChunkNoReentrancy) {
   Platform::Current()->GetURLLoaderMockFactory()->SetLoaderDelegate(nullptr);
 }
 
-// Finally, test reentrant callbacks to DocumentLoader::dataReceived().
+// Finally, test reentrant callbacks to DocumentLoader::BodyDataReceived().
 TEST_F(DocumentLoaderTest, MultiChunkWithReentrancy) {
   // This test delegate chunks the response stage into three distinct stages:
-  // 1. The first dataReceived() callback, which triggers frame detach due to
-  //    commiting a provisional load.
-  // 2.  The middle part of the response, which is dispatched to
-  //    dataReceived() reentrantly.
+  // 1. The first BodyDataReceived() callback, which triggers frame detach
+  //    due to committing a provisional load.
+  // 2. The middle part of the response, which is dispatched to
+  //    BodyDataReceived() reentrantly.
   // 3. The final chunk, which is dispatched normally at the top-level.
-  class ChildDelegate : public WebURLLoaderTestDelegate,
-                        public frame_test_helpers::TestWebFrameClient {
+  class MainFrameClient : public WebURLLoaderTestDelegate,
+                          public frame_test_helpers::TestWebFrameClient {
    public:
     // WebURLLoaderTestDelegate overrides:
-    void DidReceiveData(WebURLLoaderClient* original_client,
-                        const char* data,
-                        int data_length) override {
-      EXPECT_EQ(34, data_length) << "foo.html was not served in a single chunk";
+    bool FillNavigationParamsResponse(WebNavigationParams* params) override {
+      params->response = WebURLResponse(params->url);
+      params->response.SetMimeType("application/pdf");
+      params->response.SetHttpStatusCode(200);
 
-      loader_client_ = original_client;
-      for (int i = 0; i < data_length; ++i)
-        data_.push(data[i]);
+      String data("<html><body>foo</body></html>");
+      for (wtf_size_t i = 0; i < data.length(); i++)
+        data_.push_back(data[i]);
 
+      auto body_loader = std::make_unique<StaticDataNavigationBodyLoader>();
+      body_loader_ = body_loader.get();
+      params->body_loader = std::move(body_loader);
+      return true;
+    }
+
+    void Serve() {
       {
         // Serve the first byte to the real WebURLLoaderCLient, which
         // should trigger frameDetach() due to committing a provisional
@@ -109,87 +121,74 @@ TEST_F(DocumentLoaderTest, MultiChunkWithReentrancy) {
         base::AutoReset<bool> dispatching(&dispatching_did_receive_data_, true);
         DispatchOneByte();
       }
+
       // Serve the remaining bytes to complete the load.
-      EXPECT_FALSE(data_.empty());
-      while (!data_.empty())
+      EXPECT_FALSE(data_.IsEmpty());
+      while (!data_.IsEmpty())
         DispatchOneByte();
+
+      body_loader_->Finish();
+      body_loader_ = nullptr;
     }
 
     // WebLocalFrameClient overrides:
-    void FrameDetached(DetachType detach_type) override {
+    void RunScriptsAtDocumentElementAvailable() override {
       if (dispatching_did_receive_data_) {
-        // This should be called by the first didReceiveData() call, since
-        // it should commit the provisional load.
+        // This should be called by the first BodyDataReceived() call, since
+        // it should create a plugin document structure and trigger this.
         EXPECT_GT(data_.size(), 10u);
-        // Dispatch dataReceived() callbacks for part of the remaining
+        // Dispatch BodyDataReceived() callbacks for part of the remaining
         // data, saving the rest to be dispatched at the top-level as
         // normal.
         while (data_.size() > 10)
           DispatchOneByte();
         served_reentrantly_ = true;
       }
-      TestWebFrameClient::FrameDetached(detach_type);
+      TestWebFrameClient::RunScriptsAtDocumentElementAvailable();
     }
 
     void DispatchOneByte() {
-      char c = data_.front();
-      data_.pop();
-      loader_client_->DidReceiveData(&c, 1);
+      char c = data_.TakeFirst();
+      body_loader_->Write(&c, 1);
     }
 
     bool ServedReentrantly() const { return served_reentrantly_; }
 
    private:
-    WebURLLoaderClient* loader_client_ = nullptr;
-    std::queue<char> data_;
+    Deque<char> data_;
     bool dispatching_did_receive_data_ = false;
     bool served_reentrantly_ = false;
+    StaticDataNavigationBodyLoader* body_loader_ = nullptr;
   };
 
-  class MainFrameClient : public frame_test_helpers::TestWebFrameClient {
-   public:
-    explicit MainFrameClient(TestWebFrameClient& child_client)
-        : child_client_(child_client) {}
-    WebLocalFrame* CreateChildFrame(WebLocalFrame* parent,
-                                    WebTreeScopeType scope,
-                                    const WebString& name,
-                                    const WebString& fallback_name,
-                                    WebSandboxFlags,
-                                    const ParsedFeaturePolicy&,
-                                    const WebFrameOwnerProperties&,
-                                    FrameOwnerElementType) override {
-      return CreateLocalChild(*parent, scope, &child_client_);
-    }
-
-   private:
-    TestWebFrameClient& child_client_;
-  };
-
-  ChildDelegate child_delegate;
-  MainFrameClient main_frame_client(child_delegate);
+  // We use a plugin document triggered by "application/pdf" mime type,
+  // because that gives us reliable way to get a WebLocalFrameClient callback
+  // from inside BodyDataReceived() call.
+  ScopedFakePluginRegistry fake_plugins;
+  MainFrameClient main_frame_client;
   web_view_helper_.Initialize(&main_frame_client);
-
-  // This doesn't go through the mocked URL load path: it's just intended to
-  // setup a situation where didReceiveData() can be invoked reentrantly.
-  frame_test_helpers::LoadHTMLString(MainFrame(), "<iframe></iframe>",
-                                     url_test_helpers::ToKURL("about:blank"));
+  web_view_helper_.GetWebView()->GetPage()->GetSettings().SetPluginsEnabled(
+      true);
 
   Platform::Current()->GetURLLoaderMockFactory()->SetLoaderDelegate(
-      &child_delegate);
-  frame_test_helpers::LoadFrame(MainFrame(), "https://example.com/foo.html");
+      &main_frame_client);
+  frame_test_helpers::LoadFrameDontWait(
+      MainFrame(), url_test_helpers::ToKURL("https://example.com/foo.html"));
+  main_frame_client.Serve();
+  frame_test_helpers::PumpPendingRequestsForFrameToLoad(MainFrame());
   Platform::Current()->GetURLLoaderMockFactory()->SetLoaderDelegate(nullptr);
 
-  EXPECT_TRUE(child_delegate.ServedReentrantly());
+  // Sanity check that we did actually test reeentrancy.
+  EXPECT_TRUE(main_frame_client.ServedReentrantly());
 
-  // delegate is a WebLocalFrameClient and stack-allocated, so manually reset()
-  // the WebViewHelper here.
+  // MainFrameClient is stack-allocated, so manually Reset to avoid UAF.
   web_view_helper_.Reset();
 }
 
 TEST_F(DocumentLoaderTest, isCommittedButEmpty) {
   WebViewImpl* web_view_impl =
       web_view_helper_.InitializeAndLoad("about:blank");
-  EXPECT_TRUE(ToLocalFrame(web_view_impl->GetPage()->MainFrame())
+  EXPECT_TRUE(To<LocalFrame>(web_view_impl->GetPage()->MainFrame())
                   ->Loader()
                   .GetDocumentLoader()
                   ->IsCommittedButEmpty());
@@ -199,16 +198,14 @@ TEST_F(DocumentLoaderTest, MixedContentOptOutSetIfHeaderReceived) {
   WebURL url =
       url_test_helpers::ToKURL("https://examplenoupgrade.com/foo.html");
   WebURLResponse response(url);
-  response.SetHTTPStatusCode(200);
-  response.SetHTTPHeaderField("mixed-content", "noupgrade");
+  response.SetHttpStatusCode(200);
+  response.SetHttpHeaderField("mixed-content", "noupgrade");
+  response.SetMimeType("text/html");
   url_test_helpers::RegisterMockedURLLoadWithCustomResponse(
       url, test::CoreTestDataPath("foo.html"), response);
   WebViewImpl* web_view_impl = web_view_helper_.InitializeAndLoad(
       "https://examplenoupgrade.com/foo.html");
-  EXPECT_TRUE(ToLocalFrame(web_view_impl->GetPage()->MainFrame())
-                  ->Loader()
-                  .GetDocumentLoader()
-                  ->GetFrame()
+  EXPECT_TRUE(To<LocalFrame>(web_view_impl->GetPage()->MainFrame())
                   ->GetDocument()
                   ->GetMixedAutoUpgradeOptOut());
 }
@@ -216,12 +213,43 @@ TEST_F(DocumentLoaderTest, MixedContentOptOutSetIfHeaderReceived) {
 TEST_F(DocumentLoaderTest, MixedContentOptOutNotSetIfNoHeaderReceived) {
   WebViewImpl* web_view_impl =
       web_view_helper_.InitializeAndLoad("https://example.com/foo.html");
-  EXPECT_FALSE(ToLocalFrame(web_view_impl->GetPage()->MainFrame())
+  EXPECT_FALSE(To<LocalFrame>(web_view_impl->GetPage()->MainFrame())
                    ->Loader()
                    .GetDocumentLoader()
                    ->GetFrame()
                    ->GetDocument()
                    ->GetMixedAutoUpgradeOptOut());
+}
+
+class DocumentLoaderSimTest : public SimTest {};
+
+TEST_F(DocumentLoaderSimTest, DocumentOpenUpdatesUrl) {
+  SimRequest main_resource("https://example.com", "text/html");
+  LoadURL("https://example.com");
+  main_resource.Write("<iframe src='javascript:42;'></iframe>");
+
+  auto* child_frame = To<WebLocalFrameImpl>(MainFrame().FirstChild());
+  auto* child_document = child_frame->GetFrame()->GetDocument();
+  EXPECT_TRUE(child_document->HasPendingJavaScriptUrlsForTest());
+
+  main_resource.Write(
+      "<script>"
+      "window[0].document.open();"
+      "window[0].document.write('hello');"
+      "window[0].document.close();"
+      "</script>");
+
+  main_resource.Finish();
+
+  // document.open() should have cancelled the pending JavaScript URLs.
+  EXPECT_FALSE(child_document->HasPendingJavaScriptUrlsForTest());
+
+  // Per https://whatwg.org/C/dynamic-markup-insertion.html#document-open-steps,
+  // the URL associated with the Document should match the URL of the entry
+  // Document.
+  EXPECT_EQ(KURL("https://example.com"), child_document->Url());
+  // Similarly, the URL of the DocumentLoader should also match.
+  EXPECT_EQ(KURL("https://example.com"), child_document->Loader()->Url());
 }
 
 }  // namespace blink

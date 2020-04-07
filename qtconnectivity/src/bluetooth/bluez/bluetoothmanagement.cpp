@@ -51,6 +51,7 @@
 #include <sys/types.h>
 #include <linux/capability.h>
 
+#include <cerrno>
 
 QT_BEGIN_NAMESPACE
 

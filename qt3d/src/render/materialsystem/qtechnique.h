@@ -77,6 +77,7 @@ public:
     QVector<QRenderPass *> renderPasses() const;
 
     QGraphicsApiFilter *graphicsApiFilter();
+    const QGraphicsApiFilter *graphicsApiFilter() const;
 
 protected:
     explicit QTechnique(QTechniquePrivate &dd, Qt3DCore::QNode *parent = nullptr);

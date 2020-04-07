@@ -40,7 +40,6 @@
 #include "qblitframebuffer.h"
 #include "qblitframebuffer_p.h"
 
-#include <Qt3DCore/qpropertyupdatedchange.h>
 #include <Qt3DRender/qframegraphnodecreatedchange.h>
 
 QT_BEGIN_NAMESPACE
@@ -71,6 +70,10 @@ namespace Qt3DRender {
 
     Specifies the interpolation applied if the image is stretched.
 
+    \value Nearest
+           Nearest-neighbor interpolation.
+    \value Linear
+           Linear interpolation.
 */
 /*!
     \property Qt3DRender::QBlitFramebuffer::destination
@@ -364,6 +367,7 @@ void QBlitFramebuffer::setDestination(QRenderTarget *destination)
     }
 }
 
+// TO DO Qt6: convert QRectF to QRect
 /*!
     Sets the source rectangle to \a inputRect. The coordinates are assumed to
     follow the normal Qt coordinate system, meaning Y runs from top to bottom.

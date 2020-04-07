@@ -56,8 +56,6 @@ class SVGTextPathElement final : public SVGTextContentElement,
     kTextpathSpacingtypeExact = kSVGTextPathSpacingExact
   };
 
-  DECLARE_NODE_FACTORY(SVGTextPathElement);
-
   explicit SVGTextPathElement(Document&);
 
   SVGAnimatedLength* startOffset() const { return start_offset_.Get(); }
@@ -66,6 +64,10 @@ class SVGTextPathElement final : public SVGTextContentElement,
   }
   SVGAnimatedEnumeration<SVGTextPathSpacingType>* spacing() {
     return spacing_.Get();
+  }
+
+  const AttrNameToTrustedType& GetCheckedAttributeTypes() const override {
+    return SVGURIReference::GetCheckedAttributeTypes();
   }
 
   void Trace(blink::Visitor*) override;
@@ -81,7 +83,7 @@ class SVGTextPathElement final : public SVGTextContentElement,
 
   void SvgAttributeChanged(const QualifiedName&) override;
 
-  LayoutObject* CreateLayoutObject(const ComputedStyle&) override;
+  LayoutObject* CreateLayoutObject(const ComputedStyle&, LegacyLayout) override;
   bool LayoutObjectIsNeeded(const ComputedStyle&) const override;
 
   bool SelfHasRelativeLengths() const override;

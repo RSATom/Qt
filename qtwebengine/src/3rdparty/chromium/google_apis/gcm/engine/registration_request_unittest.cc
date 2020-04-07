@@ -8,8 +8,10 @@
 #include <utility>
 #include <vector>
 
+#include "base/bind.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_tokenizer.h"
+#include "base/threading/thread_task_runner_handle.h"
 #include "google_apis/gcm/engine/gcm_registration_request_handler.h"
 #include "google_apis/gcm/engine/gcm_request_test_base.h"
 #include "google_apis/gcm/engine/instance_id_get_token_request_handler.h"
@@ -106,7 +108,8 @@ void GCMRegistrationRequestTest::CreateRequest(const std::string& sender_ids) {
       GetBackoffPolicy(),
       base::Bind(&RegistrationRequestTest::RegistrationCallback,
                  base::Unretained(this)),
-      max_retry_count_, url_loader_factory(), &recorder_, sender_ids));
+      max_retry_count_, url_loader_factory(),
+      base::ThreadTaskRunnerHandle::Get(), &recorder_, sender_ids));
 }
 
 TEST_F(GCMRegistrationRequestTest, RequestSuccessful) {
@@ -163,10 +166,7 @@ TEST_F(GCMRegistrationRequestTest, RequestRegistrationWithMultipleSenderIds) {
     continue;
 
   ASSERT_TRUE(data_tokenizer.GetNext());
-  std::string senders(net::UnescapeURLComponent(
-      data_tokenizer.token(),
-      net::UnescapeRule::PATH_SEPARATORS |
-          net::UnescapeRule::URL_SPECIAL_CHARS_EXCEPT_PATH_SEPARATORS));
+  std::string senders(net::UnescapeBinaryURLComponent(data_tokenizer.token()));
   base::StringTokenizer sender_tokenizer(senders, ",");
   ASSERT_TRUE(sender_tokenizer.GetNext());
   EXPECT_EQ("sender1", sender_tokenizer.token());
@@ -432,7 +432,8 @@ void InstanceIDGetTokenRequestTest::CreateRequest(
       GetBackoffPolicy(),
       base::Bind(&RegistrationRequestTest::RegistrationCallback,
                  base::Unretained(this)),
-      max_retry_count_, url_loader_factory(), &recorder_, authorized_entity));
+      max_retry_count_, url_loader_factory(),
+      base::ThreadTaskRunnerHandle::Get(), &recorder_, authorized_entity));
 }
 
 TEST_F(InstanceIDGetTokenRequestTest, RequestSuccessful) {
@@ -458,10 +459,11 @@ TEST_F(InstanceIDGetTokenRequestTest, RequestDataAndURL) {
   request_->Start();
 
   // Verify that the no-cookie flag is set.
-  int flags = 0;
-  ASSERT_TRUE(test_url_loader_factory()->IsPending(kRegistrationURL, &flags));
-  EXPECT_TRUE(flags & net::LOAD_DO_NOT_SEND_COOKIES);
-  EXPECT_TRUE(flags & net::LOAD_DO_NOT_SAVE_COOKIES);
+  const network::ResourceRequest* pending_request;
+  ASSERT_TRUE(
+      test_url_loader_factory()->IsPending(kRegistrationURL, &pending_request));
+  EXPECT_TRUE(pending_request->load_flags & net::LOAD_DO_NOT_SEND_COOKIES);
+  EXPECT_TRUE(pending_request->load_flags & net::LOAD_DO_NOT_SAVE_COOKIES);
 
   // Verify that authorization header was put together properly.
   const net::HttpRequestHeaders* headers =
@@ -478,7 +480,7 @@ TEST_F(InstanceIDGetTokenRequestTest, RequestDataAndURL) {
   EXPECT_EQ(base::NumberToString(kSecurityToken), auth_tokenizer.token());
 
   std::map<std::string, std::string> expected_pairs;
-  expected_pairs["gmsv"] = base::IntToString(kGCMVersion);
+  expected_pairs["gmsv"] = base::NumberToString(kGCMVersion);
   expected_pairs["app"] = kAppId;
   expected_pairs["sender"] = kDeveloperId;
   expected_pairs["device"] = base::NumberToString(kAndroidId);
@@ -500,7 +502,7 @@ TEST_F(InstanceIDGetTokenRequestTest, RequestDataWithSubtype) {
 
   // Same as RequestDataAndURL except "app" and "X-subtype".
   std::map<std::string, std::string> expected_pairs;
-  expected_pairs["gmsv"] = base::IntToString(kGCMVersion);
+  expected_pairs["gmsv"] = base::NumberToString(kGCMVersion);
   expected_pairs["app"] = kProductCategoryForSubtypes;
   expected_pairs["X-subtype"] = kAppId;
   expected_pairs["sender"] = kDeveloperId;

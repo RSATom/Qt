@@ -27,12 +27,15 @@
 ****************************************************************************/
 
 #include "metamakefile.h"
-#include "qregexp.h"
 #include "qdir.h"
 #include "qdebug.h"
 #include "makefile.h"
 #include "project.h"
 #include "cachekeys.h"
+
+#include <algorithm>
+#include <iterator>
+#include <utility>
 
 #define BUILDSMETATYPE 1
 #define SUBDIRSMETATYPE 2
@@ -58,6 +61,8 @@ private:
     QList<Build *> makefiles;
     void clearBuilds();
     MakefileGenerator *processBuild(const ProString &);
+    void accumulateVariableFromBuilds(const ProKey &name, Build *build) const;
+    void checkForConflictingTargets() const;
 
 public:
 
@@ -96,9 +101,6 @@ BuildsMetaMakefileGenerator::init()
     if(builds.count() > 1 && Option::output.fileName() == "-") {
         use_single_build = true;
         warn_msg(WarnLogic, "Cannot direct to stdout when using multiple BUILDS.");
-    } else if(0 && !use_single_build && project->first("TEMPLATE") == "subdirs") {
-        use_single_build = true;
-        warn_msg(WarnLogic, "Cannot specify multiple builds with TEMPLATE subdirs.");
     }
     if(!use_single_build) {
         for(int i = 0; i < builds.count(); i++) {
@@ -139,7 +141,8 @@ bool
 BuildsMetaMakefileGenerator::write()
 {
     Build *glue = nullptr;
-    if(!makefiles.isEmpty() && !makefiles.first()->build.isNull()) {
+    if(!makefiles.isEmpty() && !makefiles.first()->build.isNull()
+        && Option::qmake_mode != Option::QMAKE_GENERATE_PRL) {
         glue = new Build;
         glue->name = name;
         glue->makefile = createMakefileGenerator(project, true);
@@ -189,6 +192,8 @@ BuildsMetaMakefileGenerator::write()
         if(!build->makefile) {
             ret = false;
         } else if(build == glue) {
+            checkForConflictingTargets();
+            accumulateVariableFromBuilds("QMAKE_INTERNAL_INCLUDED_FILES", build);
             ret = build->makefile->writeProjectMakefile();
         } else {
             ret = build->makefile->write();
@@ -229,6 +234,53 @@ MakefileGenerator
             return createMakefileGenerator(build_proj);
     }
     return nullptr;
+}
+
+void BuildsMetaMakefileGenerator::accumulateVariableFromBuilds(const ProKey &name, Build *dst) const
+{
+    ProStringList &values = dst->makefile->projectFile()->values(name);
+    for (auto build : makefiles) {
+        if (build != dst)
+            values += build->makefile->projectFile()->values(name);
+    }
+    values.removeDuplicates();
+}
+
+void BuildsMetaMakefileGenerator::checkForConflictingTargets() const
+{
+    if (makefiles.count() < 3) {
+        // Checking for conflicts only makes sense if we have more than one BUILD,
+        // and the last entry in makefiles is the "glue" Build.
+        return;
+    }
+    if (!project->isActiveConfig("build_all")) {
+        // Only complain if we're about to build all configurations.
+        return;
+    }
+    using TargetInfo = std::pair<Build *, ProString>;
+    QVector<TargetInfo> targets;
+    const int last = makefiles.count() - 1;
+    targets.resize(last);
+    for (int i = 0; i < last; ++i) {
+        Build *b = makefiles.at(i);
+        auto mkf = b->makefile;
+        auto prj = mkf->projectFile();
+        targets[i] = std::make_pair(b, prj->first(mkf->fullTargetVariable()));
+    }
+    std::stable_sort(targets.begin(), targets.end(),
+              [](const TargetInfo &lhs, const TargetInfo &rhs)
+              {
+                  return lhs.second < rhs.second;
+              });
+    for (auto prev = targets.begin(), it = std::next(prev); it != targets.end(); ++prev, ++it) {
+        if (prev->second == it->second) {
+            warn_msg(WarnLogic, "Targets of builds '%s' and '%s' conflict: %s.",
+                     qPrintable(prev->first->build),
+                     qPrintable(it->first->build),
+                     qPrintable(prev->second.toQString()));
+            break;
+        }
+    }
 }
 
 class SubdirsMetaMakefileGenerator : public MetaMakefileGenerator
@@ -328,17 +380,13 @@ SubdirsMetaMakefileGenerator::init()
                 hasError |= tmpError;
             }
             sub->makefile = MetaMakefileGenerator::createMetaGenerator(sub_proj, sub_name);
-            if(0 && sub->makefile->type() == SUBDIRSMETATYPE) {
-                subs.append(sub);
-            } else {
-                const QString output_name = Option::output.fileName();
-                Option::output.setFileName(sub->output_file);
-                hasError |= !sub->makefile->write();
-                delete sub;
-                qmakeClearCaches();
-                sub = nullptr;
-                Option::output.setFileName(output_name);
-            }
+            const QString output_name = Option::output.fileName();
+            Option::output.setFileName(sub->output_file);
+            hasError |= !sub->makefile->write();
+            delete sub;
+            qmakeClearCaches();
+            sub = nullptr;
+            Option::output.setFileName(output_name);
             Option::output_dir = old_output_dir;
             qmake_setpwd(oldpwd);
 

@@ -9,6 +9,7 @@
 #include "base/strings/utf_string_conversions.h"
 #include "net/base/net_errors.h"
 #include "net/base/test_completion_callback.h"
+#include "net/dns/mock_host_resolver.h"
 #include "net/http/http_auth_challenge_tokenizer.h"
 #include "net/http/http_auth_handler_digest.h"
 #include "net/http/http_request_info.h"
@@ -42,8 +43,8 @@ bool RespondToChallenge(HttpAuth::Target target,
                         const std::string& challenge,
                         std::string* token) {
   // Input validation.
-  if (token == NULL) {
-    ADD_FAILURE() << "|token| must be non-NULL";
+  if (token == nullptr) {
+    ADD_FAILURE() << "|token| must be valid";
     return false;
   }
   EXPECT_TRUE(target != HttpAuth::AUTH_PROXY || !proxy_name.empty());
@@ -56,6 +57,7 @@ bool RespondToChallenge(HttpAuth::Target target,
   HttpAuthHandlerDigest::NonceGenerator* nonce_generator =
       new HttpAuthHandlerDigest::FixedNonceGenerator("client_nonce");
   factory->set_nonce_generator(nonce_generator);
+  auto host_resolver = std::make_unique<MockHostResolver>();
   std::unique_ptr<HttpAuthHandler> handler;
 
   // Create a handler for a particular challenge.
@@ -63,8 +65,8 @@ bool RespondToChallenge(HttpAuth::Target target,
   GURL url_origin(target == HttpAuth::AUTH_SERVER ? request_url : proxy_name);
   int rv_create = factory->CreateAuthHandlerFromString(
       challenge, target, null_ssl_info, url_origin.GetOrigin(),
-      NetLogWithSource(), &handler);
-  if (rv_create != OK || handler.get() == NULL) {
+      NetLogWithSource(), host_resolver.get(), &handler);
+  if (rv_create != OK || handler.get() == nullptr) {
     ADD_FAILURE() << "Unable to create auth handler.";
     return false;
   }
@@ -361,18 +363,19 @@ TEST(HttpAuthHandlerDigestTest, ParseChallenge) {
       new HttpAuthHandlerDigest::Factory());
   for (size_t i = 0; i < base::size(tests); ++i) {
     SSLInfo null_ssl_info;
+    auto host_resolver = std::make_unique<MockHostResolver>();
     std::unique_ptr<HttpAuthHandler> handler;
     int rv = factory->CreateAuthHandlerFromString(
         tests[i].challenge, HttpAuth::AUTH_SERVER, null_ssl_info, origin,
-        NetLogWithSource(), &handler);
+        NetLogWithSource(), host_resolver.get(), &handler);
     if (tests[i].parsed_success) {
       EXPECT_THAT(rv, IsOk());
     } else {
       EXPECT_NE(OK, rv);
-      EXPECT_TRUE(handler.get() == NULL);
+      EXPECT_TRUE(handler.get() == nullptr);
       continue;
     }
-    ASSERT_TRUE(handler.get() != NULL);
+    ASSERT_TRUE(handler.get() != nullptr);
     HttpAuthHandlerDigest* digest =
         static_cast<HttpAuthHandlerDigest*>(handler.get());
     EXPECT_STREQ(tests[i].parsed_realm, digest->realm_.c_str());
@@ -525,12 +528,13 @@ TEST(HttpAuthHandlerDigestTest, AssembleCredentials) {
       new HttpAuthHandlerDigest::Factory());
   for (size_t i = 0; i < base::size(tests); ++i) {
     SSLInfo null_ssl_info;
+    auto host_resolver = std::make_unique<MockHostResolver>();
     std::unique_ptr<HttpAuthHandler> handler;
     int rv = factory->CreateAuthHandlerFromString(
         tests[i].challenge, HttpAuth::AUTH_SERVER, null_ssl_info, origin,
-        NetLogWithSource(), &handler);
+        NetLogWithSource(), host_resolver.get(), &handler);
     EXPECT_THAT(rv, IsOk());
-    ASSERT_TRUE(handler != NULL);
+    ASSERT_TRUE(handler != nullptr);
 
     HttpAuthHandlerDigest* digest =
         static_cast<HttpAuthHandlerDigest*>(handler.get());
@@ -550,6 +554,7 @@ TEST(HttpAuthHandlerDigestTest, AssembleCredentials) {
 TEST(HttpAuthHandlerDigest, HandleAnotherChallenge) {
   std::unique_ptr<HttpAuthHandlerDigest::Factory> factory(
       new HttpAuthHandlerDigest::Factory());
+  auto host_resolver = std::make_unique<MockHostResolver>();
   std::unique_ptr<HttpAuthHandler> handler;
   std::string default_challenge =
       "Digest realm=\"Oblivion\", nonce=\"nonce-value\"";
@@ -557,9 +562,9 @@ TEST(HttpAuthHandlerDigest, HandleAnotherChallenge) {
   SSLInfo null_ssl_info;
   int rv = factory->CreateAuthHandlerFromString(
       default_challenge, HttpAuth::AUTH_SERVER, null_ssl_info, origin,
-      NetLogWithSource(), &handler);
+      NetLogWithSource(), host_resolver.get(), &handler);
   EXPECT_THAT(rv, IsOk());
-  ASSERT_TRUE(handler.get() != NULL);
+  ASSERT_TRUE(handler.get() != nullptr);
   HttpAuthChallengeTokenizer tok_default(default_challenge.begin(),
                                          default_challenge.end());
   EXPECT_EQ(HttpAuth::AUTHORIZATION_RESULT_REJECT,

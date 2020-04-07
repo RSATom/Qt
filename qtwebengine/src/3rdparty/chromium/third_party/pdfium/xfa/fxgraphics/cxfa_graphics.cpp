@@ -6,6 +6,7 @@
 
 #include "xfa/fxgraphics/cxfa_graphics.h"
 
+#include <cmath>
 #include <memory>
 
 #include "core/fxge/cfx_defaultrenderdevice.h"
@@ -293,24 +294,26 @@ void CXFA_Graphics::FillPathWithShading(const CXFA_GEPath* path,
       float y_span = end_y - start_y;
       float axis_len_square = (x_span * x_span) + (y_span * y_span);
       for (int32_t row = 0; row < height; row++) {
-        uint32_t* dib_buf = (uint32_t*)(bmp->GetBuffer() + row * pitch);
+        uint32_t* dib_buf =
+            reinterpret_cast<uint32_t*>(bmp->GetBuffer() + row * pitch);
         for (int32_t column = 0; column < width; column++) {
-          float x = (float)(column);
-          float y = (float)(row);
-          float scale = (((x - start_x) * x_span) + ((y - start_y) * y_span)) /
-                        axis_len_square;
-          if (scale < 0) {
-            if (!m_info.fillColor.GetShading()->m_isExtendedBegin) {
-              continue;
+          float scale = 0.0f;
+          if (axis_len_square) {
+            float y = static_cast<float>(row);
+            float x = static_cast<float>(column);
+            scale = (((x - start_x) * x_span) + ((y - start_y) * y_span)) /
+                    axis_len_square;
+            if (std::isnan(scale) || scale < 0.0f) {
+              if (!m_info.fillColor.GetShading()->m_isExtendedBegin)
+                continue;
+              scale = 0.0f;
+            } else if (scale > 1.0f) {
+              if (!m_info.fillColor.GetShading()->m_isExtendedEnd)
+                continue;
+              scale = 1.0f;
             }
-            scale = 0;
-          } else if (scale > 1.0f) {
-            if (!m_info.fillColor.GetShading()->m_isExtendedEnd) {
-              continue;
-            }
-            scale = 1.0f;
           }
-          int32_t index = (int32_t)(scale * (FX_SHADING_Steps - 1));
+          int32_t index = static_cast<int32_t>(scale * (FX_SHADING_Steps - 1));
           dib_buf[column] = m_info.fillColor.GetShading()->m_argbArray[index];
         }
       }
@@ -359,16 +362,14 @@ void CXFA_Graphics::FillPathWithShading(const CXFA_GEPath* path,
               continue;
             }
           }
-          if (s < 0) {
-            if (!m_info.fillColor.GetShading()->m_isExtendedBegin) {
+          if (std::isnan(s) || s < 0.0f) {
+            if (!m_info.fillColor.GetShading()->m_isExtendedBegin)
               continue;
-            }
-            s = 0;
+            s = 0.0f;
           }
           if (s > 1.0f) {
-            if (!m_info.fillColor.GetShading()->m_isExtendedEnd) {
+            if (!m_info.fillColor.GetShading()->m_isExtendedEnd)
               continue;
-            }
             s = 1.0f;
           }
           int index = (int32_t)(s * (FX_SHADING_Steps - 1));

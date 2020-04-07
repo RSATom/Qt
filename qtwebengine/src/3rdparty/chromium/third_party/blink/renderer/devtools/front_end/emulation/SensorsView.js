@@ -41,7 +41,8 @@ Emulation.SensorsView = class extends UI.VBox {
    */
   _createGeolocationSection(geolocation) {
     const geogroup = this.contentElement.createChild('section', 'sensors-group');
-    geogroup.createChild('div', 'sensors-group-title').textContent = Common.UIString('Geolocation');
+    const geogroupTitle = UI.createLabel(ls`Geolocation`, 'sensors-group-title');
+    geogroup.appendChild(geogroupTitle);
     const fields = geogroup.createChild('div', 'geo-fields');
 
     const noOverrideOption = {
@@ -50,6 +51,7 @@ Emulation.SensorsView = class extends UI.VBox {
     };
 
     this._locationSelectElement = fields.createChild('select', 'chrome-select');
+    UI.ARIAUtils.bindLabelToControl(geogroupTitle, this._locationSelectElement);
 
     // No override
     this._locationSelectElement.appendChild(new Option(noOverrideOption.title, noOverrideOption.location));
@@ -58,7 +60,9 @@ Emulation.SensorsView = class extends UI.VBox {
     this._customLocationsGroup = this._locationSelectElement.createChild('optgroup');
     this._customLocationsGroup.label = ls`Overrides`;
     const customGeolocations = Common.moduleSetting('emulation.geolocations');
-    fields.appendChild(UI.createTextButton(ls`Manage`, () => Common.Revealer.reveal(customGeolocations)));
+    const manageButton = UI.createTextButton(ls`Manage`, () => Common.Revealer.reveal(customGeolocations));
+    UI.ARIAUtils.setAccessibleName(manageButton, ls`Manage the list of geolocations`);
+    fields.appendChild(manageButton);
     const fillCustomSettings = () => {
       this._customLocationsGroup.removeChildren();
       for (const geolocation of customGeolocations.get())
@@ -113,8 +117,8 @@ Emulation.SensorsView = class extends UI.VBox {
     this._latitudeInput.title = modifierKeyMessage;
     this._longitudeInput.title = modifierKeyMessage;
 
-    latitudeGroup.createChild('div', 'latlong-title').textContent = Common.UIString('Latitude');
-    longitudeGroup.createChild('div', 'latlong-title').textContent = Common.UIString('Longitude');
+    latitudeGroup.appendChild(UI.createLabel(ls`Latitude`, 'latlong-title', this._latitudeInput));
+    longitudeGroup.appendChild(UI.createLabel(ls`Longitude`, 'latlong-title', this._longitudeInput));
   }
 
   _geolocationSelectChanged() {
@@ -166,7 +170,8 @@ Emulation.SensorsView = class extends UI.VBox {
 
   _createDeviceOrientationSection() {
     const orientationGroup = this.contentElement.createChild('section', 'sensors-group');
-    orientationGroup.createChild('div', 'sensors-group-title').textContent = Common.UIString('Orientation');
+    const orientationTitle = UI.createLabel(ls`Orientation`, 'sensors-group-title');
+    orientationGroup.appendChild(orientationTitle);
     const orientationContent = orientationGroup.createChild('div', 'orientation-content');
     const fields = orientationContent.createChild('div', 'orientation-fields');
 
@@ -179,6 +184,7 @@ Emulation.SensorsView = class extends UI.VBox {
       orientation: Emulation.SensorsView.NonPresetOptions.Custom
     };
     this._orientationSelectElement = this.contentElement.createChild('select', 'chrome-select');
+    UI.ARIAUtils.bindLabelToControl(orientationTitle, this._orientationSelectElement);
     this._orientationSelectElement.appendChild(
         new Option(orientationOffOption.title, orientationOffOption.orientation));
     this._orientationSelectElement.appendChild(
@@ -199,7 +205,6 @@ Emulation.SensorsView = class extends UI.VBox {
     this._deviceOrientationFieldset = this._createDeviceOrientationOverrideElement(this._deviceOrientation);
 
     this._stageElement = orientationContent.createChild('div', 'orientation-stage');
-    this._stageElement.title = Common.UIString('Shift+drag horizontally to rotate around the y-axis');
     this._orientationLayer = this._stageElement.createChild('div', 'orientation-layer');
     this._boxElement = this._orientationLayer.createChild('section', 'orientation-box orientation-element');
 
@@ -226,9 +231,11 @@ Emulation.SensorsView = class extends UI.VBox {
     if (disable) {
       this._deviceOrientationFieldset.disabled = true;
       this._stageElement.classList.add('disabled');
+      this._stageElement.title = ls`Enable orientation to rotate`;
     } else {
       this._deviceOrientationFieldset.disabled = false;
       this._stageElement.classList.remove('disabled');
+      this._stageElement.title = ls`Shift+drag horizontally to rotate around the y-axis`;
     }
   }
 
@@ -321,7 +328,7 @@ Emulation.SensorsView = class extends UI.VBox {
   _createAxisInput(parentElement, input, label) {
     const div = parentElement.createChild('div', 'orientation-axis-input-container');
     div.appendChild(input);
-    div.createTextChild(label);
+    div.appendChild(UI.createLabel(label, /* className */ '', input));
     input.type = 'number';
     return UI.bindInput(
         input, this._applyDeviceOrientationUserInput.bind(this), SDK.EmulationModel.DeviceOrientation.validator, true);
@@ -351,8 +358,11 @@ Emulation.SensorsView = class extends UI.VBox {
     this._gammaSetter = this._createAxisInput(cellElement, this._gammaElement, Common.UIString('\u03B3 (gamma)'));
     this._gammaSetter(String(deviceOrientation.gamma));
 
-    cellElement.appendChild(UI.createTextButton(
-        Common.UIString('Reset'), this._resetDeviceOrientation.bind(this), 'orientation-reset-button'));
+    const resetButton = UI.createTextButton(
+        Common.UIString('Reset'), this._resetDeviceOrientation.bind(this), 'orientation-reset-button');
+    UI.ARIAUtils.setAccessibleName(resetButton, ls`Reset device orientation`);
+    resetButton.setAttribute('type', 'reset');
+    cellElement.appendChild(resetButton);
     return fieldsetElement;
   }
 
@@ -446,17 +456,19 @@ Emulation.SensorsView = class extends UI.VBox {
 
   _appendTouchControl() {
     const groupElement = this.contentElement.createChild('div', 'sensors-group');
-    const title = groupElement.createChild('div', 'sensors-group-title');
+    const title = UI.createLabel(ls`Touch`, 'sensors-group-title');
+    groupElement.appendChild(title);
     const fieldsElement = groupElement.createChild('div', 'sensors-group-fields');
 
-    title.textContent = Common.UIString('Touch');
     const select = fieldsElement.createChild('select', 'chrome-select');
+    UI.ARIAUtils.bindLabelToControl(title, select);
     select.appendChild(new Option(Common.UIString('Device-based'), 'auto'));
     select.appendChild(new Option(Common.UIString('Force enabled'), 'enabled'));
     select.addEventListener('change', applyTouch, false);
 
     const reloadWarning = groupElement.createChild('div', 'reload-warning hidden');
     reloadWarning.textContent = Common.UIString('*Requires reload');
+    UI.ARIAUtils.markAsAlert(reloadWarning);
 
     function applyTouch() {
       for (const emulationModel of SDK.targetManager.models(SDK.EmulationModel))

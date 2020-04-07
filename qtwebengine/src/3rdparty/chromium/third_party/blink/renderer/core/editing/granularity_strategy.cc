@@ -46,12 +46,12 @@ static Position NextWordBound(const Position& pos,
   bool next_bound_if_on_bound =
       word_bound_adjust == BoundAdjust::kNextBoundIfOnBound;
   if (direction == SearchDirection::kSearchForward) {
-    EWordSide word_side = next_bound_if_on_bound ? kNextWordIfOnBoundary
-                                                 : kPreviousWordIfOnBoundary;
+    WordSide word_side = next_bound_if_on_bound ? kNextWordIfOnBoundary
+                                                : kPreviousWordIfOnBoundary;
     return EndOfWordPosition(pos, word_side);
   }
-  EWordSide word_side = next_bound_if_on_bound ? kPreviousWordIfOnBoundary
-                                               : kNextWordIfOnBoundary;
+  WordSide word_side = next_bound_if_on_bound ? kPreviousWordIfOnBoundary
+                                              : kNextWordIfOnBoundary;
   return StartOfWordPosition(pos, word_side);
 }
 
@@ -256,9 +256,13 @@ SelectionInDOMTree DirectionGranularityStrategy::UpdateExtent(
     VisiblePosition bound_before_extent = CreateVisiblePosition(NextWordBound(
         new_offset_extent_position.DeepEquivalent(),
         SearchDirection::kSearchBackwards, BoundAdjust::kCurrentPosIfOnBound));
+    if (bound_before_extent.IsNull())
+      return selection.AsSelection();
     VisiblePosition bound_after_extent = CreateVisiblePosition(NextWordBound(
         new_offset_extent_position.DeepEquivalent(),
         SearchDirection::kSearchForward, BoundAdjust::kCurrentPosIfOnBound));
+    if (bound_after_extent.IsNull())
+      return selection.AsSelection();
     int x_middle_between_bounds = (PositionLocation(bound_after_extent).X() +
                                    PositionLocation(bound_before_extent).X()) /
                                   2;

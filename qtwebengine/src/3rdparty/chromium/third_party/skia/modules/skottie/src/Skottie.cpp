@@ -5,32 +5,32 @@
  * found in the LICENSE file.
  */
 
-#include "Skottie.h"
+#include "modules/skottie/include/Skottie.h"
 
-#include "SkCanvas.h"
-#include "SkData.h"
-#include "SkFontMgr.h"
-#include "SkImage.h"
-#include "SkMakeUnique.h"
-#include "SkPaint.h"
-#include "SkPoint.h"
-#include "SkSGColor.h"
-#include "SkSGInvalidationController.h"
-#include "SkSGOpacityEffect.h"
-#include "SkSGPath.h"
-#include "SkSGScene.h"
-#include "SkSGTransform.h"
-#include "SkStream.h"
-#include "SkTArray.h"
-#include "SkTime.h"
-#include "SkTo.h"
-#include "SkottieAdapter.h"
-#include "SkottieJson.h"
-#include "SkottiePriv.h"
-#include "SkottieProperty.h"
-#include "SkottieValue.h"
-#include "SkTraceEvent.h"
+#include "include/core/SkCanvas.h"
+#include "include/core/SkData.h"
+#include "include/core/SkFontMgr.h"
+#include "include/core/SkImage.h"
+#include "include/core/SkPaint.h"
+#include "include/core/SkPoint.h"
+#include "include/core/SkStream.h"
+#include "include/private/SkTArray.h"
+#include "include/private/SkTo.h"
+#include "modules/skottie/include/SkottieProperty.h"
+#include "modules/skottie/src/SkottieAdapter.h"
+#include "modules/skottie/src/SkottieJson.h"
+#include "modules/skottie/src/SkottiePriv.h"
+#include "modules/skottie/src/SkottieValue.h"
+#include "modules/sksg/include/SkSGInvalidationController.h"
+#include "modules/sksg/include/SkSGOpacityEffect.h"
+#include "modules/sksg/include/SkSGPaint.h"
+#include "modules/sksg/include/SkSGPath.h"
+#include "modules/sksg/include/SkSGRenderEffect.h"
+#include "modules/sksg/include/SkSGScene.h"
+#include "modules/sksg/include/SkSGTransform.h"
+#include "src/core/SkTraceEvent.h"
 
+#include <chrono>
 #include <cmath>
 
 #include "stdlib.h"
@@ -48,12 +48,17 @@ void AnimationBuilder::log(Logger::Level lvl, const skjson::Value* json,
     char buff[1024];
     va_list va;
     va_start(va, fmt);
-    const auto len = vsprintf(buff, fmt, va);
+    const auto len = vsnprintf(buff, sizeof(buff), fmt, va);
     va_end(va);
 
-    if (len < 0 || len >= SkToInt(sizeof(buff))) {
+    if (len < 0) {
         SkDebugf("!! Could not format log message !!\n");
         return;
+    }
+
+    if (len >= SkToInt(sizeof(buff))) {
+        static constexpr char kEllipsesStr[] = "...";
+        strcpy(buff + sizeof(buff) - sizeof(kEllipsesStr), kEllipsesStr);
     }
 
     SkString jsonstr = json ? json->toString() : SkString();
@@ -111,12 +116,16 @@ sk_sp<sksg::Transform> AnimationBuilder::attachMatrix2D(const skjson::ObjectValu
 
 sk_sp<sksg::Transform> AnimationBuilder::attachMatrix3D(const skjson::ObjectValue& t,
                                                         AnimatorScope* ascope,
-                                                        sk_sp<sksg::Transform> parent) const {
+                                                        sk_sp<sksg::Transform> parent,
+                                                        sk_sp<TransformAdapter3D> adapter,
+                                                        bool precompose_parent) const {
     static const VectorValue g_default_vec_0   = {  0,   0,   0},
                              g_default_vec_100 = {100, 100, 100};
 
-    auto matrix = sksg::Matrix<SkMatrix44>::Make(SkMatrix::I());
-    auto adapter = sk_make_sp<TransformAdapter3D>(matrix);
+    if (!adapter) {
+        // Default to TransformAdapter3D (we only use external adapters for cameras).
+        adapter = sk_make_sp<TransformAdapter3D>();
+    }
 
     auto bound = this->bindProperty<VectorValue>(t["a"], ascope,
             [adapter](const VectorValue& a) {
@@ -158,9 +167,13 @@ sk_sp<sksg::Transform> AnimationBuilder::attachMatrix3D(const skjson::ObjectValu
 
     // TODO: dispatch 3D transform properties
 
-    return (bound)
-        ? sksg::Transform::MakeConcat(std::move(parent), std::move(matrix))
-        : parent;
+    if (!bound) {
+        return parent;
+    }
+
+    return precompose_parent
+        ? sksg::Transform::MakeConcat(adapter->refTransform(), std::move(parent))
+        : sksg::Transform::MakeConcat(std::move(parent), adapter->refTransform());
 }
 
 sk_sp<sksg::RenderNode> AnimationBuilder::attachOpacity(const skjson::ObjectValue& jtransform,
@@ -180,6 +193,53 @@ sk_sp<sksg::RenderNode> AnimationBuilder::attachOpacity(const skjson::ObjectValu
 
     // We can ignore constant full opacity.
     return (bound || dispatched) ? std::move(opacityNode) : childNode;
+}
+
+namespace  {
+
+static SkBlendMode GetBlendMode(const skjson::ObjectValue& jobject,
+                                const AnimationBuilder* abuilder) {
+    static constexpr SkBlendMode kBlendModeMap[] = {
+        SkBlendMode::kSrcOver,    // 0:'normal'
+        SkBlendMode::kMultiply,   // 1:'multiply'
+        SkBlendMode::kScreen,     // 2:'screen'
+        SkBlendMode::kOverlay,    // 3:'overlay
+        SkBlendMode::kDarken,     // 4:'darken'
+        SkBlendMode::kLighten,    // 5:'lighten'
+        SkBlendMode::kColorDodge, // 6:'color-dodge'
+        SkBlendMode::kColorBurn,  // 7:'color-burn'
+        SkBlendMode::kHardLight,  // 8:'hard-light'
+        SkBlendMode::kSoftLight,  // 9:'soft-light'
+        SkBlendMode::kDifference, // 10:'difference'
+        SkBlendMode::kExclusion,  // 11:'exclusion'
+        SkBlendMode::kHue,        // 12:'hue'
+        SkBlendMode::kSaturation, // 13:'saturation'
+        SkBlendMode::kColor,      // 14:'color'
+        SkBlendMode::kLuminosity, // 15:'luminosity'
+        SkBlendMode::kPlus,       // 16:'add'
+    };
+
+    const auto bm_index = ParseDefault<size_t>(jobject["bm"], 0);
+    if (bm_index >= SK_ARRAY_COUNT(kBlendModeMap)) {
+            abuilder->log(Logger::Level::kWarning, &jobject,
+                          "Unsupported blend mode %lu\n", bm_index);
+            return SkBlendMode::kSrcOver;
+    }
+
+    return kBlendModeMap[bm_index];
+}
+
+} // namespace
+
+sk_sp<sksg::RenderNode> AnimationBuilder::attachBlendMode(const skjson::ObjectValue& jobject,
+                                                          sk_sp<sksg::RenderNode> child) const {
+    const auto bm = GetBlendMode(jobject, this);
+    if (bm != SkBlendMode::kSrcOver) {
+        fHasNontrivialBlending = true;
+        child = sksg::BlendModeEffect::Make(std::move(child), bm);
+    }
+
+    return child;
 }
 
 sk_sp<sksg::Path> AnimationBuilder::attachPath(const skjson::Value& jpath,
@@ -214,15 +274,17 @@ AnimationBuilder::AnimationBuilder(sk_sp<ResourceProvider> rp, sk_sp<SkFontMgr> 
                                    sk_sp<PropertyObserver> pobserver, sk_sp<Logger> logger,
                                    sk_sp<MarkerObserver> mobserver,
                                    Animation::Builder::Stats* stats,
-                                   float duration, float framerate)
+                                   const SkSize& size, float duration, float framerate)
     : fResourceProvider(std::move(rp))
     , fLazyFontMgr(std::move(fontmgr))
     , fPropertyObserver(std::move(pobserver))
     , fLogger(std::move(logger))
     , fMarkerObserver(std::move(mobserver))
     , fStats(stats)
+    , fSize(size)
     , fDuration(duration)
-    , fFrameRate(framerate) {}
+    , fFrameRate(framerate)
+    , fHasNontrivialBlending(false) {}
 
 std::unique_ptr<sksg::Scene> AnimationBuilder::parse(const skjson::ObjectValue& jroot) {
     this->dispatchMarkers(jroot["markers"]);
@@ -335,7 +397,8 @@ sk_sp<SkData> ResourceProvider::load(const char[], const char[]) const {
     return nullptr;
 }
 
-sk_sp<ImageAsset> ResourceProvider::loadImageAsset(const char path[], const char name[]) const {
+sk_sp<ImageAsset> ResourceProvider::loadImageAsset(const char path[], const char name[],
+                                                   const char id[]) const {
     return nullptr;
 }
 
@@ -406,7 +469,7 @@ sk_sp<Animation> Animation::Builder::make(const char* data, size_t data_len) {
     memset(&fStats, 0, sizeof(struct Stats));
 
     fStats.fJsonSize = data_len;
-    const auto t0 = SkTime::GetMSecs();
+    const auto t0 = std::chrono::steady_clock::now();
 
     const skjson::DOM dom(data, data_len);
     if (!dom.root().is<skjson::ObjectValue>()) {
@@ -418,8 +481,8 @@ sk_sp<Animation> Animation::Builder::make(const char* data, size_t data_len) {
     }
     const auto& json = dom.root().as<skjson::ObjectValue>();
 
-    const auto t1 = SkTime::GetMSecs();
-    fStats.fJsonParseTimeMS = t1 - t0;
+    const auto t1 = std::chrono::steady_clock::now();
+    fStats.fJsonParseTimeMS = std::chrono::duration<float, std::milli>{t1-t0}.count();
 
     const auto version  = ParseDefault<SkString>(json["v"], SkString());
     const auto size     = SkSize::Make(ParseDefault<float>(json["w"], 0.0f),
@@ -446,19 +509,29 @@ sk_sp<Animation> Animation::Builder::make(const char* data, size_t data_len) {
                                        std::move(fPropertyObserver),
                                        std::move(fLogger),
                                        std::move(fMarkerObserver),
-                                       &fStats, duration, fps);
+                                       &fStats, size, duration, fps);
     auto scene = builder.parse(json);
 
-    const auto t2 = SkTime::GetMSecs();
-    fStats.fSceneParseTimeMS = t2 - t1;
-    fStats.fTotalLoadTimeMS  = t2 - t0;
+    const auto t2 = std::chrono::steady_clock::now();
+    fStats.fSceneParseTimeMS = std::chrono::duration<float, std::milli>{t2-t1}.count();
+    fStats.fTotalLoadTimeMS  = std::chrono::duration<float, std::milli>{t2-t0}.count();
 
     if (!scene && fLogger) {
         fLogger->log(Logger::Level::kError, "Could not parse animation.\n");
     }
 
-    return sk_sp<Animation>(
-        new Animation(std::move(scene), std::move(version), size, inPoint, outPoint, duration));
+    uint32_t flags = 0;
+    if (builder.hasNontrivialBlending()) {
+        flags |= Flags::kRequiresTopLevelIsolation;
+    }
+
+    return sk_sp<Animation>(new Animation(std::move(scene),
+                                          std::move(version),
+                                          size,
+                                          inPoint,
+                                          outPoint,
+                                          duration,
+                                          flags));
 }
 
 sk_sp<Animation> Animation::Builder::makeFromFile(const char path[]) {
@@ -469,13 +542,14 @@ sk_sp<Animation> Animation::Builder::makeFromFile(const char path[]) {
 }
 
 Animation::Animation(std::unique_ptr<sksg::Scene> scene, SkString version, const SkSize& size,
-                     SkScalar inPoint, SkScalar outPoint, SkScalar duration)
+                     SkScalar inPoint, SkScalar outPoint, SkScalar duration, uint32_t flags)
     : fScene(std::move(scene))
     , fVersion(std::move(version))
     , fSize(size)
     , fInPoint(inPoint)
     , fOutPoint(outPoint)
-    , fDuration(duration) {
+    , fDuration(duration)
+    , fFlags(flags) {
 
     // In case the client calls render before the first tick.
     this->seek(0);
@@ -483,34 +557,51 @@ Animation::Animation(std::unique_ptr<sksg::Scene> scene, SkString version, const
 
 Animation::~Animation() = default;
 
-void Animation::setShowInval(bool show) {
-    if (fScene) {
-        fScene->setShowInval(show);
-    }
+void Animation::render(SkCanvas* canvas, const SkRect* dstR) const {
+    this->render(canvas, dstR, 0);
 }
 
-void Animation::render(SkCanvas* canvas, const SkRect* dstR) const {
+void Animation::render(SkCanvas* canvas, const SkRect* dstR, RenderFlags renderFlags) const {
     TRACE_EVENT0("skottie", TRACE_FUNC);
 
     if (!fScene)
         return;
 
     SkAutoCanvasRestore restore(canvas, true);
+
     const SkRect srcR = SkRect::MakeSize(this->size());
     if (dstR) {
         canvas->concat(SkMatrix::MakeRectToRect(srcR, *dstR, SkMatrix::kCenter_ScaleToFit));
     }
+
+    if ((fFlags & Flags::kRequiresTopLevelIsolation) &&
+        !(renderFlags & RenderFlag::kSkipTopLevelIsolation)) {
+        // The animation uses non-trivial blending, and needs
+        // to be rendered into a separate/transparent layer.
+        canvas->saveLayer(srcR, nullptr);
+    }
+
     canvas->clipRect(srcR);
+
     fScene->render(canvas);
 }
 
-void Animation::seek(SkScalar t) {
+void Animation::seek(SkScalar t, sksg::InvalidationController* ic) {
     TRACE_EVENT0("skottie", TRACE_FUNC);
 
     if (!fScene)
         return;
 
-    fScene->animate(fInPoint + SkTPin(t, 0.0f, 1.0f) * (fOutPoint - fInPoint));
+    // Per AE/Lottie semantics out_point is exclusive.
+    const auto kLastValidFrame = std::nextafter(fOutPoint, fInPoint);
+
+    fScene->animate(SkTPin(fInPoint + t * (fOutPoint - fInPoint), fInPoint, kLastValidFrame), ic);
+}
+
+void Animation::seekFrameTime(double t, sksg::InvalidationController* ic) {
+    if (double dur = this->duration()) {
+        this->seek((SkScalar)(t / dur), ic);
+    }
 }
 
 sk_sp<Animation> Animation::Make(const char* data, size_t length) {

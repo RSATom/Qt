@@ -63,12 +63,24 @@ void PasswordReuseDetectionManager::OnKeyPressed(const base::string16& text) {
     input_characters_.erase(
         0, input_characters_.size() - kMaxNumberOfCharactersToStore);
   }
-
   PasswordStore* store = client_->GetPasswordStore();
   if (!store)
     return;
   store->CheckReuse(input_characters_, main_frame_url_.GetOrigin().spec(),
                     this);
+}
+
+void PasswordReuseDetectionManager::OnPaste(const base::string16 text) {
+  // Do not check reuse if it was already found on this page.
+  if (reuse_on_this_page_was_found_)
+    return;
+  base::string16 input = std::move(text);
+  if (input.size() > kMaxNumberOfCharactersToStore)
+    input = text.substr(input.size() - kMaxNumberOfCharactersToStore);
+  PasswordStore* store = client_->GetPasswordStore();
+  if (!store)
+    return;
+  store->CheckReuse(input, main_frame_url_.GetOrigin().spec(), this);
 }
 
 void PasswordReuseDetectionManager::OnReuseFound(
@@ -85,7 +97,8 @@ void PasswordReuseDetectionManager::OnReuseFound(
     logger.reset(
         new BrowserSavePasswordProgressLogger(client_->GetLogManager()));
     std::vector<std::string> domains_to_log(matching_domains);
-    if (reused_password_type == metrics_util::PasswordType::SYNC_PASSWORD) {
+    if (reused_password_type ==
+        metrics_util::PasswordType::PRIMARY_ACCOUNT_PASSWORD) {
       domains_to_log.push_back("CHROME SYNC PASSWORD");
     } else if (reused_password_type ==
                metrics_util::PasswordType::OTHER_GAIA_PASSWORD) {
@@ -110,11 +123,18 @@ void PasswordReuseDetectionManager::OnReuseFound(
   metrics_util::LogPasswordReuse(password_length, saved_passwords,
                                  matching_domains.size(),
                                  password_field_detected, reused_password_type);
-#if defined(SAFE_BROWSING_DB_LOCAL)
-  if (reused_password_type == metrics_util::PasswordType::SYNC_PASSWORD)
+#if defined(FULL_SAFE_BROWSING)
+  // TODO(crbug/1673863): Log password reuse event for signed in non sync
+  // account.
+  if (reused_password_type ==
+      metrics_util::PasswordType::PRIMARY_ACCOUNT_PASSWORD)
     client_->LogPasswordReuseDetectedEvent();
+  std::string username = reused_protected_password_hash.has_value()
+                             ? reused_protected_password_hash->username
+                             : "";
 
-  client_->CheckProtectedPasswordEntry(reused_password_type, matching_domains,
+  client_->CheckProtectedPasswordEntry(reused_password_type, username,
+                                       matching_domains,
                                        password_field_detected);
 #endif
 }
@@ -135,7 +155,7 @@ metrics_util::PasswordType PasswordReuseDetectionManager::GetReusedPasswordType(
     return metrics_util::PasswordType::ENTERPRISE_PASSWORD;
   } else if (client_->GetStoreResultFilter()->IsSyncAccountEmail(
                  reused_protected_password_hash->username)) {
-    return metrics_util::PasswordType::SYNC_PASSWORD;
+    return metrics_util::PasswordType::PRIMARY_ACCOUNT_PASSWORD;
   } else {
     return metrics_util::PasswordType::OTHER_GAIA_PASSWORD;
   }

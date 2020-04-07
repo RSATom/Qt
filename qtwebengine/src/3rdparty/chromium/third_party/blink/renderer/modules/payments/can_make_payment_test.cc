@@ -8,6 +8,7 @@
 #include "third_party/blink/renderer/bindings/core/v8/v8_binding_for_testing.h"
 #include "third_party/blink/renderer/modules/payments/payment_request.h"
 #include "third_party/blink/renderer/modules/payments/payment_test_helper.h"
+#include "third_party/blink/renderer/platform/testing/runtime_enabled_features_test_helpers.h"
 
 namespace blink {
 namespace {
@@ -17,115 +18,76 @@ using payments::mojom::blink::HasEnrolledInstrumentQueryResult;
 using payments::mojom::blink::PaymentErrorReason;
 using payments::mojom::blink::PaymentRequestClient;
 
-// HasEnrolledInstrumentTest is parameterized on this enum to test that
-// canMakePayment when PaymentRequestHasEnrolledInstrumentEnabled is false
-// behaves identically to hasEnrolledInstrument.
-enum class HasEnrolledInstrumentEnabled { kYes, kNo };
-
 class HasEnrolledInstrumentTest
     : public testing::Test,
-      public testing::WithParamInterface<HasEnrolledInstrumentEnabled> {
-  void SetUp() override {
-    testing::Test::SetUp();
-    RuntimeEnabledFeatures::SetPaymentRequestHasEnrolledInstrumentEnabled(
-        GetParam() == HasEnrolledInstrumentEnabled::kYes);
-  }
+      private ScopedPaymentRequestHasEnrolledInstrumentForTest {
+ public:
+  HasEnrolledInstrumentTest()
+      : ScopedPaymentRequestHasEnrolledInstrumentForTest(true) {}
 };
 
-TEST_P(HasEnrolledInstrumentTest, RejectPromiseOnUserCancel) {
-  V8TestingScope scope;
+TEST_F(HasEnrolledInstrumentTest, RejectPromiseOnUserCancel) {
+  PaymentRequestV8TestingScope scope;
   PaymentRequestMockFunctionScope funcs(scope.GetScriptState());
-  MakePaymentRequestOriginSecure(scope.GetDocument());
   PaymentRequest* request = PaymentRequest::Create(
       scope.GetExecutionContext(), BuildPaymentMethodDataForTest(),
       BuildPaymentDetailsInitForTest(), scope.GetExceptionState());
 
-  if (GetParam() == HasEnrolledInstrumentEnabled::kYes) {
-    request->hasEnrolledInstrument(scope.GetScriptState())
-        .Then(funcs.ExpectNoCall(), funcs.ExpectCall());
-  } else {
-    request->canMakePayment(scope.GetScriptState())
-        .Then(funcs.ExpectNoCall(), funcs.ExpectCall());
-  }
+  request->hasEnrolledInstrument(scope.GetScriptState())
+      .Then(funcs.ExpectNoCall(), funcs.ExpectCall());
 
   static_cast<PaymentRequestClient*>(request)->OnError(
-      PaymentErrorReason::USER_CANCEL);
+      PaymentErrorReason::USER_CANCEL, "User closed UI.");
 }
 
-TEST_P(HasEnrolledInstrumentTest, RejectPromiseOnUnknownError) {
-  V8TestingScope scope;
+TEST_F(HasEnrolledInstrumentTest, RejectPromiseOnUnknownError) {
+  PaymentRequestV8TestingScope scope;
   PaymentRequestMockFunctionScope funcs(scope.GetScriptState());
-  MakePaymentRequestOriginSecure(scope.GetDocument());
   PaymentRequest* request = PaymentRequest::Create(
       scope.GetExecutionContext(), BuildPaymentMethodDataForTest(),
       BuildPaymentDetailsInitForTest(), scope.GetExceptionState());
 
-  if (GetParam() == HasEnrolledInstrumentEnabled::kYes) {
-    request->hasEnrolledInstrument(scope.GetScriptState())
-        .Then(funcs.ExpectNoCall(), funcs.ExpectCall());
-  } else {
-    request->canMakePayment(scope.GetScriptState())
-        .Then(funcs.ExpectNoCall(), funcs.ExpectCall());
-  }
+  request->hasEnrolledInstrument(scope.GetScriptState())
+      .Then(funcs.ExpectNoCall(), funcs.ExpectCall());
 
   static_cast<PaymentRequestClient*>(request)->OnError(
-      PaymentErrorReason::UNKNOWN);
+      PaymentErrorReason::UNKNOWN, "Unknown error.");
 }
 
-TEST_P(HasEnrolledInstrumentTest, RejectDuplicateRequest) {
-  V8TestingScope scope;
+TEST_F(HasEnrolledInstrumentTest, RejectDuplicateRequest) {
+  PaymentRequestV8TestingScope scope;
   PaymentRequestMockFunctionScope funcs(scope.GetScriptState());
-  MakePaymentRequestOriginSecure(scope.GetDocument());
   PaymentRequest* request = PaymentRequest::Create(
       scope.GetExecutionContext(), BuildPaymentMethodDataForTest(),
       BuildPaymentDetailsInitForTest(), scope.GetExceptionState());
-  if (GetParam() == HasEnrolledInstrumentEnabled::kYes) {
-    request->hasEnrolledInstrument(scope.GetScriptState());
-    request->hasEnrolledInstrument(scope.GetScriptState())
-        .Then(funcs.ExpectNoCall(), funcs.ExpectCall());
-  } else {
-    request->canMakePayment(scope.GetScriptState());
-    request->canMakePayment(scope.GetScriptState())
-        .Then(funcs.ExpectNoCall(), funcs.ExpectCall());
-  }
+  request->hasEnrolledInstrument(scope.GetScriptState());
+  request->hasEnrolledInstrument(scope.GetScriptState())
+      .Then(funcs.ExpectNoCall(), funcs.ExpectCall());
 }
 
-TEST_P(HasEnrolledInstrumentTest, RejectQueryQuotaExceeded) {
-  RuntimeEnabledFeatures::SetPaymentRequestHasEnrolledInstrumentEnabled(false);
-  V8TestingScope scope;
+TEST_F(HasEnrolledInstrumentTest, RejectQueryQuotaExceeded) {
+  PaymentRequestV8TestingScope scope;
   PaymentRequestMockFunctionScope funcs(scope.GetScriptState());
-  MakePaymentRequestOriginSecure(scope.GetDocument());
   PaymentRequest* request = PaymentRequest::Create(
       scope.GetExecutionContext(), BuildPaymentMethodDataForTest(),
       BuildPaymentDetailsInitForTest(), scope.GetExceptionState());
 
-  if (GetParam() == HasEnrolledInstrumentEnabled::kYes) {
-    request->hasEnrolledInstrument(scope.GetScriptState())
-        .Then(funcs.ExpectNoCall(), funcs.ExpectCall());
-  } else {
-    request->canMakePayment(scope.GetScriptState())
-        .Then(funcs.ExpectNoCall(), funcs.ExpectCall());
-  }
+  request->hasEnrolledInstrument(scope.GetScriptState())
+      .Then(funcs.ExpectNoCall(), funcs.ExpectCall());
 
   static_cast<PaymentRequestClient*>(request)->OnHasEnrolledInstrument(
       HasEnrolledInstrumentQueryResult::QUERY_QUOTA_EXCEEDED);
 }
 
-TEST_P(HasEnrolledInstrumentTest, ReturnHasNoEnrolledInstrument) {
-  V8TestingScope scope;
+TEST_F(HasEnrolledInstrumentTest, ReturnHasNoEnrolledInstrument) {
+  PaymentRequestV8TestingScope scope;
   PaymentRequestMockFunctionScope funcs(scope.GetScriptState());
-  MakePaymentRequestOriginSecure(scope.GetDocument());
   PaymentRequest* request = PaymentRequest::Create(
       scope.GetExecutionContext(), BuildPaymentMethodDataForTest(),
       BuildPaymentDetailsInitForTest(), scope.GetExceptionState());
   String captor;
-  if (GetParam() == HasEnrolledInstrumentEnabled::kYes) {
-    request->hasEnrolledInstrument(scope.GetScriptState())
-        .Then(funcs.ExpectCall(&captor), funcs.ExpectNoCall());
-  } else {
-    request->canMakePayment(scope.GetScriptState())
-        .Then(funcs.ExpectCall(&captor), funcs.ExpectNoCall());
-  }
+  request->hasEnrolledInstrument(scope.GetScriptState())
+      .Then(funcs.ExpectCall(&captor), funcs.ExpectNoCall());
 
   static_cast<PaymentRequestClient*>(request)->OnHasEnrolledInstrument(
       HasEnrolledInstrumentQueryResult::HAS_NO_ENROLLED_INSTRUMENT);
@@ -134,21 +96,15 @@ TEST_P(HasEnrolledInstrumentTest, ReturnHasNoEnrolledInstrument) {
   EXPECT_EQ("false", captor);
 }
 
-TEST_P(HasEnrolledInstrumentTest, ReturnHasEnrolledInstrument) {
-  V8TestingScope scope;
+TEST_F(HasEnrolledInstrumentTest, ReturnHasEnrolledInstrument) {
+  PaymentRequestV8TestingScope scope;
   PaymentRequestMockFunctionScope funcs(scope.GetScriptState());
-  MakePaymentRequestOriginSecure(scope.GetDocument());
   PaymentRequest* request = PaymentRequest::Create(
       scope.GetExecutionContext(), BuildPaymentMethodDataForTest(),
       BuildPaymentDetailsInitForTest(), scope.GetExceptionState());
   String captor;
-  if (GetParam() == HasEnrolledInstrumentEnabled::kYes) {
-    request->hasEnrolledInstrument(scope.GetScriptState())
-        .Then(funcs.ExpectCall(&captor), funcs.ExpectNoCall());
-  } else {
-    request->canMakePayment(scope.GetScriptState())
-        .Then(funcs.ExpectCall(&captor), funcs.ExpectNoCall());
-  }
+  request->hasEnrolledInstrument(scope.GetScriptState())
+      .Then(funcs.ExpectCall(&captor), funcs.ExpectNoCall());
 
   static_cast<PaymentRequestClient*>(request)->OnHasEnrolledInstrument(
       HasEnrolledInstrumentQueryResult::HAS_ENROLLED_INSTRUMENT);
@@ -157,24 +113,23 @@ TEST_P(HasEnrolledInstrumentTest, ReturnHasEnrolledInstrument) {
   EXPECT_EQ("true", captor);
 }
 
-INSTANTIATE_TEST_CASE_P(ProgrammaticHasEnrolledInstrumentTest,
-                        HasEnrolledInstrumentTest,
-                        ::testing::Values(HasEnrolledInstrumentEnabled::kYes,
-                                          HasEnrolledInstrumentEnabled::kNo));
+// CanMakePaymentTest is parameterized on this enum to test both legacy and new
+// behaviors.
+enum class HasEnrolledInstrumentEnabled { kYes, kNo };
 
-// Test fixture for canMakePayment when
-// PaymentRequestHasEnrolledInstrumentEnabled is true.
-class CanMakePaymentTest : public testing::Test {
-  void SetUp() override {
-    testing::Test::SetUp();
-    RuntimeEnabledFeatures::SetPaymentRequestHasEnrolledInstrumentEnabled(true);
-  }
+class CanMakePaymentTest
+    : public testing::Test,
+      public testing::WithParamInterface<HasEnrolledInstrumentEnabled>,
+      private ScopedPaymentRequestHasEnrolledInstrumentForTest {
+ public:
+  CanMakePaymentTest()
+      : ScopedPaymentRequestHasEnrolledInstrumentForTest(
+            GetParam() == HasEnrolledInstrumentEnabled::kYes) {}
 };
 
-TEST_F(CanMakePaymentTest, RejectPromiseOnUserCancel) {
-  V8TestingScope scope;
+TEST_P(CanMakePaymentTest, RejectPromiseOnUserCancel) {
+  PaymentRequestV8TestingScope scope;
   PaymentRequestMockFunctionScope funcs(scope.GetScriptState());
-  MakePaymentRequestOriginSecure(scope.GetDocument());
   PaymentRequest* request = PaymentRequest::Create(
       scope.GetExecutionContext(), BuildPaymentMethodDataForTest(),
       BuildPaymentDetailsInitForTest(), scope.GetExceptionState());
@@ -183,13 +138,13 @@ TEST_F(CanMakePaymentTest, RejectPromiseOnUserCancel) {
       .Then(funcs.ExpectNoCall(), funcs.ExpectCall());
 
   static_cast<PaymentRequestClient*>(request)->OnError(
-      PaymentErrorReason::USER_CANCEL);
+      PaymentErrorReason::USER_CANCEL, "User closed the UI.");
 }
 
-TEST_F(CanMakePaymentTest, RejectPromiseOnUnknownError) {
-  V8TestingScope scope;
+TEST_P(CanMakePaymentTest, RejectPromiseOnUnknownError) {
+  PaymentRequestV8TestingScope scope;
+
   PaymentRequestMockFunctionScope funcs(scope.GetScriptState());
-  MakePaymentRequestOriginSecure(scope.GetDocument());
   PaymentRequest* request = PaymentRequest::Create(
       scope.GetExecutionContext(), BuildPaymentMethodDataForTest(),
       BuildPaymentDetailsInitForTest(), scope.GetExceptionState());
@@ -198,13 +153,12 @@ TEST_F(CanMakePaymentTest, RejectPromiseOnUnknownError) {
       .Then(funcs.ExpectNoCall(), funcs.ExpectCall());
 
   static_cast<PaymentRequestClient*>(request)->OnError(
-      PaymentErrorReason::UNKNOWN);
+      PaymentErrorReason::UNKNOWN, "Unknown error.");
 }
 
-TEST_F(CanMakePaymentTest, RejectDuplicateRequest) {
-  V8TestingScope scope;
+TEST_P(CanMakePaymentTest, RejectDuplicateRequest) {
+  PaymentRequestV8TestingScope scope;
   PaymentRequestMockFunctionScope funcs(scope.GetScriptState());
-  MakePaymentRequestOriginSecure(scope.GetDocument());
   PaymentRequest* request = PaymentRequest::Create(
       scope.GetExecutionContext(), BuildPaymentMethodDataForTest(),
       BuildPaymentDetailsInitForTest(), scope.GetExceptionState());
@@ -214,10 +168,23 @@ TEST_F(CanMakePaymentTest, RejectDuplicateRequest) {
       .Then(funcs.ExpectNoCall(), funcs.ExpectCall());
 }
 
-TEST_F(CanMakePaymentTest, ReturnCannotMakePayment) {
-  V8TestingScope scope;
+TEST_P(CanMakePaymentTest, RejectQueryQuotaExceeded) {
+  PaymentRequestV8TestingScope scope;
   PaymentRequestMockFunctionScope funcs(scope.GetScriptState());
-  MakePaymentRequestOriginSecure(scope.GetDocument());
+  PaymentRequest* request = PaymentRequest::Create(
+      scope.GetExecutionContext(), BuildPaymentMethodDataForTest(),
+      BuildPaymentDetailsInitForTest(), scope.GetExceptionState());
+
+  request->canMakePayment(scope.GetScriptState())
+      .Then(funcs.ExpectNoCall(), funcs.ExpectCall());
+
+  static_cast<PaymentRequestClient*>(request)->OnCanMakePayment(
+      CanMakePaymentQueryResult::QUERY_QUOTA_EXCEEDED);
+}
+
+TEST_P(CanMakePaymentTest, ReturnCannotMakePayment) {
+  PaymentRequestV8TestingScope scope;
+  PaymentRequestMockFunctionScope funcs(scope.GetScriptState());
   PaymentRequest* request = PaymentRequest::Create(
       scope.GetExecutionContext(), BuildPaymentMethodDataForTest(),
       BuildPaymentDetailsInitForTest(), scope.GetExceptionState());
@@ -232,10 +199,9 @@ TEST_F(CanMakePaymentTest, ReturnCannotMakePayment) {
   EXPECT_EQ("false", captor);
 }
 
-TEST_F(CanMakePaymentTest, ReturnCanMakePayment) {
-  V8TestingScope scope;
+TEST_P(CanMakePaymentTest, ReturnCanMakePayment) {
+  PaymentRequestV8TestingScope scope;
   PaymentRequestMockFunctionScope funcs(scope.GetScriptState());
-  MakePaymentRequestOriginSecure(scope.GetDocument());
   PaymentRequest* request = PaymentRequest::Create(
       scope.GetExecutionContext(), BuildPaymentMethodDataForTest(),
       BuildPaymentDetailsInitForTest(), scope.GetExceptionState());
@@ -249,6 +215,11 @@ TEST_F(CanMakePaymentTest, ReturnCanMakePayment) {
   v8::MicrotasksScope::PerformCheckpoint(scope.GetScriptState()->GetIsolate());
   EXPECT_EQ("true", captor);
 }
+
+INSTANTIATE_TEST_SUITE_P(ProgrammaticCanMakePaymentTest,
+                         CanMakePaymentTest,
+                         ::testing::Values(HasEnrolledInstrumentEnabled::kYes,
+                                           HasEnrolledInstrumentEnabled::kNo));
 
 }  // namespace
 }  // namespace blink

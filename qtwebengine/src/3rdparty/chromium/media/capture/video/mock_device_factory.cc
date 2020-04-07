@@ -4,6 +4,8 @@
 
 #include "media/capture/video/mock_device_factory.h"
 
+#include <utility>
+
 namespace {
 
 // Report a single hard-coded supported format to clients.
@@ -57,6 +59,10 @@ void MockDeviceFactory::AddMockDevice(
   devices_[descriptor] = device;
 }
 
+void MockDeviceFactory::RemoveAllDevices() {
+  devices_.clear();
+}
+
 std::unique_ptr<media::VideoCaptureDevice> MockDeviceFactory::CreateDevice(
     const media::VideoCaptureDeviceDescriptor& device_descriptor) {
   if (devices_.find(device_descriptor) == devices_.end())
@@ -80,7 +86,7 @@ void MockDeviceFactory::GetSupportedFormats(
 void MockDeviceFactory::GetCameraLocationsAsync(
     std::unique_ptr<media::VideoCaptureDeviceDescriptors> device_descriptors,
     DeviceDescriptorsCallback result_callback) {
-  base::ResetAndReturn(&result_callback).Run(std::move(device_descriptors));
+  std::move(result_callback).Run(std::move(device_descriptors));
 }
 
 }  // namespace media

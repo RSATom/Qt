@@ -33,6 +33,7 @@
 #include <qpa/qplatformintegration.h>
 #include <QtWidgets/QApplication>
 #include <QtOpenGL/QtOpenGL>
+#include <qelapsedtimer.h>
 #include "tst_qglthreads.h"
 
 #ifndef QT_OPENGL_ES_2
@@ -74,9 +75,9 @@ public:
     }
 
     void run() {
-        QTime time;
-        time.start();
-        while (time.elapsed() < RUNNING_TIME) {
+        QElapsedTimer timer;
+        timer.start();
+        while (timer.elapsed() < RUNNING_TIME) {
             lock();
             waitForReadyToSwap();
 
@@ -291,11 +292,11 @@ public:
     }
 
     void run() {
-        QTime time;
-        time.start();
+        QElapsedTimer timer;
+        timer.start();
         failure = false;
 
-        while (time.elapsed() < RUNNING_TIME && !failure) {
+        while (timer.elapsed() < RUNNING_TIME && !failure) {
 
             m_widget->makeCurrent();
 
@@ -466,13 +467,13 @@ public:
 public slots:
     void draw() {
         bool beginFailed = false;
-        QTime time;
-        time.start();
+        QElapsedTimer timer;
+        timer.start();
         int rotAngle = 10;
         device->prepareDevice();
         QPaintDevice *paintDevice = device->realPaintDevice();
         QSize s(paintDevice->width(), paintDevice->height());
-        while (time.elapsed() < RUNNING_TIME) {
+        while (timer.elapsed() < RUNNING_TIME) {
             QPainter p;
             if (!p.begin(paintDevice)) {
                 beginFailed = true;
@@ -605,9 +606,6 @@ void tst_QGLThreads::painterOnPixmapInThread()
     if (!QGuiApplicationPrivate::platformIntegration()->hasCapability(QPlatformIntegration::ThreadedOpenGL)
         || !QGuiApplicationPrivate::platformIntegration()->hasCapability(QPlatformIntegration::ThreadedPixmaps))
         QSKIP("No platformsupport for ThreadedOpenGL or ThreadedPixmaps");
-#if 0 // Used to be included in Qt4 for Q_WS_X11
-    QSKIP("Drawing text in threads onto X11 drawables currently crashes on some X11 servers.");
-#endif
     PaintThreadManager<PixmapWrapper> painterThreads(5);
     painterThreads.start();
 

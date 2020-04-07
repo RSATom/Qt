@@ -166,8 +166,8 @@ TEST(DataPackTest, LoadFromBufferV4) {
 TEST(DataPackTest, LoadFromBufferV5) {
   DataPack pack(SCALE_FACTOR_100P);
 
-  ASSERT_TRUE(pack.LoadFromBuffer(
-      base::StringPiece(kSamplePakContentsV5, kSamplePakSizeV5)));
+  ASSERT_TRUE(pack.LoadFromBuffer(base::StringPiece(
+      kSampleCompressPakContentsV5, kSampleCompressPakSizeV5)));
 
   base::StringPiece data;
   ASSERT_TRUE(pack.HasResource(4));
@@ -175,25 +175,25 @@ TEST(DataPackTest, LoadFromBufferV5) {
   EXPECT_EQ("this is id 4", data);
   ASSERT_TRUE(pack.HasResource(6));
   ASSERT_TRUE(pack.GetStringPiece(6, &data));
-  EXPECT_EQ("this is id 6", data);
-
-  // Try reading zero-length data blobs, just in case.
-  ASSERT_TRUE(pack.GetStringPiece(1, &data));
-  EXPECT_EQ(0U, data.length());
+  ASSERT_TRUE(pack.HasResource(8));
+  ASSERT_TRUE(pack.GetStringPiece(8, &data));
   ASSERT_TRUE(pack.GetStringPiece(10, &data));
-  EXPECT_EQ("this is id 4", data);
+  ASSERT_EQ("this is id 4", data);
 
   // Try looking up an invalid key.
   ASSERT_FALSE(pack.HasResource(140));
   ASSERT_FALSE(pack.GetStringPiece(140, &data));
 }
 
-INSTANTIATE_TEST_CASE_P(WriteBINARY, DataPackTest, ::testing::Values(
-    DataPack::BINARY));
-INSTANTIATE_TEST_CASE_P(WriteUTF8, DataPackTest, ::testing::Values(
-    DataPack::UTF8));
-INSTANTIATE_TEST_CASE_P(WriteUTF16, DataPackTest, ::testing::Values(
-    DataPack::UTF16));
+INSTANTIATE_TEST_SUITE_P(WriteBINARY,
+                         DataPackTest,
+                         ::testing::Values(DataPack::BINARY));
+INSTANTIATE_TEST_SUITE_P(WriteUTF8,
+                         DataPackTest,
+                         ::testing::Values(DataPack::UTF8));
+INSTANTIATE_TEST_SUITE_P(WriteUTF16,
+                         DataPackTest,
+                         ::testing::Values(DataPack::UTF16));
 
 TEST(DataPackTest, LoadFileWithTruncatedHeader) {
   base::FilePath data_path;

@@ -16,7 +16,6 @@
 #include "base/single_thread_task_runner.h"
 #include "base/synchronization/waitable_event.h"
 #include "build/build_config.h"
-#include "components/tracing/child/child_trace_message_filter.h"
 #include "ipc/ipc_channel_handle.h"
 #include "ipc/ipc_logging.h"
 #include "ipc/ipc_message.h"
@@ -55,7 +54,6 @@ PpapiDispatcher::PpapiDispatcher(
   channel_->AddFilter(plugin_filter.get());
   globals->RegisterResourceMessageFilters(plugin_filter.get());
 
-  channel_->AddFilter(new tracing::ChildTraceMessageFilter(task_runner_.get()));
   channel_->Init(browser_ipc_handle, IPC::Channel::MODE_SERVER, true);
 }
 
@@ -179,7 +177,8 @@ void PpapiDispatcher::OnMsgInitializeNaClDispatcher(
         args.switch_names[i], args.switch_values[i]);
   }
   logging::LoggingSettings settings;
-  settings.logging_dest = logging::LOG_TO_SYSTEM_DEBUG_LOG;
+  settings.logging_dest =
+      logging::LOG_TO_SYSTEM_DEBUG_LOG | logging::LOG_TO_STDERR;
   logging::InitLogging(settings);
 
   base::FeatureList::ClearInstanceForTesting();

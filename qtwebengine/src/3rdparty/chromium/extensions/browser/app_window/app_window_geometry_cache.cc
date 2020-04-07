@@ -56,7 +56,7 @@ void AppWindowGeometryCache::SaveGeometry(const std::string& extension_id,
   if (extension_data[window_id].bounds == bounds &&
       extension_data[window_id].window_state == window_state &&
       extension_data[window_id].screen_bounds == screen_bounds &&
-      !base::ContainsKey(unsynced_extensions_, extension_id))
+      !base::Contains(unsynced_extensions_, extension_id))
     return;
 
   base::Time now = base::Time::Now();
@@ -121,7 +121,7 @@ void AppWindowGeometryCache::SyncToStorage() {
       value->SetInteger("screen_bounds_h", screen_bounds.height());
       value->SetInteger("state", it->second.window_state);
       value->SetString(
-          "ts", base::Int64ToString(it->second.last_change.ToInternalValue()));
+          "ts", base::NumberToString(it->second.last_change.ToInternalValue()));
       dict->SetWithoutPathExpansion(it->first, std::move(value));
 
       for (auto& observer : observers_)

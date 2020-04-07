@@ -7,6 +7,7 @@
 #include <algorithm>
 
 #include "base/auto_reset.h"
+#include "third_party/blink/renderer/core/display_lock/display_lock_utilities.h"
 #include "third_party/blink/renderer/core/dom/node_computed_style.h"
 #include "third_party/blink/renderer/core/dom/node_traversal.h"
 #include "third_party/blink/renderer/core/dom/text.h"
@@ -25,6 +26,7 @@
 #include "third_party/blink/renderer/core/layout/ng/inline/ng_inline_node.h"
 #include "third_party/blink/renderer/core/layout/ng/inline/ng_inline_node_data.h"
 #include "third_party/blink/renderer/core/layout/ng/inline/ng_offset_mapping.h"
+#include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 #include "third_party/blink/renderer/platform/wtf/text/character_names.h"
 #include "third_party/blink/renderer/platform/wtf/text/string_builder.h"
 #include "third_party/blink/renderer/platform/wtf/vector.h"
@@ -35,8 +37,10 @@ namespace {
 
 // The implementation of Element#innerText algorithm[1].
 // [1]
-// https://html.spec.whatwg.org/multipage/dom.html#the-innertext-idl-attribute
+// https://html.spec.whatwg.org/C/#the-innertext-idl-attribute
 class ElementInnerTextCollector final {
+  STACK_ALLOCATED();
+
  public:
   ElementInnerTextCollector() = default;
 
@@ -85,19 +89,19 @@ class ElementInnerTextCollector final {
   // Result character buffer.
   Result result_;
 
-  // Remember last |NGOffsetMapping| to avoid repeated offset mapping
-  // computation.
-  const LayoutBlockFlow* last_offset_mapping_block_flow_ = nullptr;
-  const NGOffsetMapping* last_offset_mapping_ = nullptr;
-  std::unique_ptr<NGOffsetMapping> offset_mapping_storage_;
-
   DISALLOW_COPY_AND_ASSIGN(ElementInnerTextCollector);
 };
 
 String ElementInnerTextCollector::RunOn(const Element& element) {
   DCHECK(!element.InActiveDocument() || !NeedsLayoutTreeUpdate(element));
 
-  // 1. If this element is not being rendered, or if the user agent is a non-CSS
+  // 1. If this element is locked or a part of a locked subtree, then it is
+  // hidden from view (and also possibly not laid out) and innerText should be
+  // empty.
+  if (DisplayLockUtilities::NearestLockedInclusiveAncestor(element))
+    return {};
+
+  // 2. If this element is not being rendered, or if the user agent is a non-CSS
   // user agent, then return the same value as the textContent IDL attribute on
   // this element.
   // Note: To pass WPT test, case we don't use |textContent| for
@@ -109,8 +113,8 @@ String ElementInnerTextCollector::RunOn(const Element& element) {
     return element.textContent(convert_brs_to_newlines);
   }
 
-  // 2. Let results be a new empty list.
-  // 3. For each child node node of this element:
+  // 3. Let results be a new empty list.
+  // 4. For each child node node of this element:
   //   1. Let current be the list resulting in running the inner text collection
   //      steps with node. Each item in results will either be a JavaScript
   //      string or a positive integer (a required line break count).
@@ -129,7 +133,8 @@ String ElementInnerTextCollector::RunOn(const Element& element) {
 
 // static
 bool ElementInnerTextCollector::HasDisplayContentsStyle(const Node& node) {
-  return node.IsElementNode() && ToElement(node).HasDisplayContentsStyle();
+  auto* element = DynamicTo<Element>(node);
+  return element && element->HasDisplayContentsStyle();
 }
 
 // An element is *being rendered* if it has any associated CSS layout boxes,
@@ -137,7 +142,7 @@ bool ElementInnerTextCollector::HasDisplayContentsStyle(const Node& node) {
 // Note: Just being off-screen does not mean the element is not being rendered.
 // The presence of the "hidden" attribute normally means the element is not
 // being rendered, though this might be overridden by the style sheets.
-// From https://html.spec.whatwg.org/multipage/rendering.html#being-rendered
+// From https://html.spec.whatwg.org/C/#being-rendered
 // static
 bool ElementInnerTextCollector::IsBeingRendered(const Node& node) {
   return node.GetLayoutObject();
@@ -220,14 +225,7 @@ const NGOffsetMapping* ElementInnerTextCollector::GetOffsetMapping(
   LayoutBlockFlow* const block_flow =
       NGOffsetMapping::GetInlineFormattingContextOf(layout_text);
   DCHECK(block_flow) << layout_text;
-  if (block_flow == last_offset_mapping_block_flow_)
-    return last_offset_mapping_;
-  const NGOffsetMapping* const mapping =
-      NGInlineNode::GetOffsetMapping(block_flow, &offset_mapping_storage_);
-  DCHECK(mapping) << layout_text;
-  last_offset_mapping_block_flow_ = block_flow;
-  last_offset_mapping_ = mapping;
-  return mapping;
+  return NGInlineNode::GetOffsetMapping(block_flow);
 }
 
 void ElementInnerTextCollector::ProcessChildren(const Node& container) {
@@ -256,8 +254,17 @@ void ElementInnerTextCollector::ProcessLayoutText(const LayoutText& layout_text,
   }
 
   const NGOffsetMapping* const mapping = GetOffsetMapping(layout_text);
-  const NGMappingUnitRange range = mapping->GetMappingUnitsForNode(text_node);
-  for (const NGOffsetMappingUnit& unit : range) {
+  if (!mapping) {
+    // TODO(crbug.com/967995): There are certain cases where we fail to compute
+    // |NGOffsetMapping| due to failures in layout. As the root cause is hard to
+    // fix at the moment, we work around it here so that the production build
+    // doesn't crash.
+    NOTREACHED() << layout_text;
+    return;
+  }
+
+  for (const NGOffsetMappingUnit& unit :
+       mapping->GetMappingUnitsForNode(text_node)) {
     result_.EmitText(
         StringView(mapping->GetText(), unit.TextContentStart(),
                    unit.TextContentEnd() - unit.TextContentStart()));
@@ -270,13 +277,21 @@ void ElementInnerTextCollector::ProcessNode(const Node& node) {
   // each child node of node in tree order, and then concatenating the results
   // to a single list.
 
-  // 2. If node's computed value of 'visibility' is not 'visible', then return
+  // 2. If the node is display locked, then we should not process it or its
+  // children, since they are not visible or accessible via innerText.
+  if (auto* element = DynamicTo<Element>(node)) {
+    auto* context = element->GetDisplayLockContext();
+    if (context && context->IsLocked())
+      return;
+  }
+
+  // 3. If node's computed value of 'visibility' is not 'visible', then return
   // items.
   const ComputedStyle* style = node.GetComputedStyle();
   if (style && style->Visibility() != EVisibility::kVisible)
     return ProcessChildren(node);
 
-  // 3. If node is not being rendered, then return items. For the purpose of
+  // 4. If node is not being rendered, then return items. For the purpose of
   // this step, the following elements must act as described if the computed
   // value of the 'display' property is not 'none':
   // Note: items can be non-empty due to 'display:contents'.
@@ -300,11 +315,12 @@ void ElementInnerTextCollector::ProcessNode(const Node& node) {
     return ProcessOptionElement(ToHTMLOptionElement(node));
   }
 
-  // 4. If node is a Text node, then for each CSS text box produced by node.
-  if (node.IsTextNode())
-    return ProcessTextNode(ToText(node));
+  // 5. If node is a Text node, then for each CSS text box produced by node.
+  auto* text_node = DynamicTo<Text>(node);
+  if (text_node)
+    return ProcessTextNode(*text_node);
 
-  // 5. If node is a br element, then append a string containing a single U+000A
+  // 6. If node is a br element, then append a string containing a single U+000A
   // LINE FEED (LF) character to items.
   if (IsHTMLBRElement(node)) {
     ProcessChildren(node);
@@ -312,7 +328,7 @@ void ElementInnerTextCollector::ProcessNode(const Node& node) {
     return;
   }
 
-  // 6. If node's computed value of 'display' is 'table-cell', and node's CSS
+  // 7. If node's computed value of 'display' is 'table-cell', and node's CSS
   // box is not the last 'table-cell' box of its enclosing 'table-row' box, then
   // append a string containing a single U+0009 CHARACTER TABULATION (tab)
   // character to items.
@@ -325,7 +341,7 @@ void ElementInnerTextCollector::ProcessNode(const Node& node) {
     return;
   }
 
-  // 7. If node's computed value of 'display' is 'table-row', and node's CSS box
+  // 8. If node's computed value of 'display' is 'table-row', and node's CSS box
   // is not the last 'table-row' box of the nearest ancestor 'table' box, then
   // append a string containing a single U+000A LINE FEED (LF) character to
   // items.
@@ -337,7 +353,7 @@ void ElementInnerTextCollector::ProcessNode(const Node& node) {
     return;
   }
 
-  // 8. If node is a p element, then append 2 (a required line break count) at
+  // 9. If node is a p element, then append 2 (a required line break count) at
   // the beginning and end of items.
   if (IsHTMLParagraphElement(node)) {
     // Note: <p style="display:contents>foo</p> doesn't generate layout object
@@ -346,7 +362,7 @@ void ElementInnerTextCollector::ProcessNode(const Node& node) {
     return;
   }
 
-  // 9. If node's used value of 'display' is block-level or 'table-caption',
+  // 10. If node's used value of 'display' is block-level or 'table-caption',
   // then append 1 (a required line break count) at the beginning and end of
   // items.
   if (IsDisplayBlockLevel(node))
@@ -456,7 +472,7 @@ void ElementInnerTextCollector::Result::FlushRequiredLineBreak() {
 String Element::innerText() {
   // We need to update layout, since |ElementInnerTextCollector()| uses line
   // boxes in the layout tree.
-  GetDocument().UpdateStyleAndLayoutIgnorePendingStylesheetsForNode(this);
+  GetDocument().UpdateStyleAndLayoutForNode(this);
   return ElementInnerTextCollector().RunOn(*this);
 }
 

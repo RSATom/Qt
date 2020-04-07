@@ -5,6 +5,10 @@
 #ifndef CONTENT_BROWSER_RENDERER_HOST_LEGACY_RENDER_WIDGET_HOST_WIN_H_
 #define CONTENT_BROWSER_RENDERER_HOST_LEGACY_RENDER_WIDGET_HOST_WIN_H_
 
+// Must be included before <atlapp.h>.
+#include "base/win/atl.h"   // NOLINT(build/include_order)
+
+#include <atlapp.h>
 #include <atlcrack.h>
 #include <oleacc.h>
 #include <wrl/client.h>
@@ -12,24 +16,23 @@
 #include <memory>
 
 #include "base/macros.h"
-#include "base/win/atl.h"
 #include "content/common/content_export.h"
+#include "ui/accessibility/platform/ax_fragment_root_delegate_win.h"
 #include "ui/compositor/compositor_animation_observer.h"
 #include "ui/gfx/geometry/rect.h"
+#include "ui/gfx/native_widget_types.h"
 
 namespace ui {
+class AXFragmentRootWin;
 class AXSystemCaretWin;
-class DirectManipulationHelper;
 class WindowEventTarget;
-namespace win {
-class DirectManipulationHelper;
-}  // namespace win
 }  // namespace ui
 
 namespace content {
-class RenderWidgetHostViewAura;
 
 class DirectManipulationBrowserTest;
+class DirectManipulationHelper;
+class RenderWidgetHostViewAura;
 
 // Reasons for the existence of this class outlined below:-
 // 1. Some screen readers expect every tab / every unique web content container
@@ -57,9 +60,10 @@ class DirectManipulationBrowserTest;
 class CONTENT_EXPORT LegacyRenderWidgetHostHWND
     : public ATL::CWindowImpl<LegacyRenderWidgetHostHWND,
                               ATL::CWindow,
-                              ATL::CWinTraits<WS_CHILD>> {
+                              ATL::CWinTraits<WS_CHILD>>,
+      public ui::AXFragmentRootDelegateWin {
  public:
-  DECLARE_WND_CLASS_EX(L"Chrome_RenderWidgetHostHWND", CS_DBLCLKS, 0);
+  DECLARE_WND_CLASS_EX(L"Chrome_RenderWidgetHostHWND", CS_DBLCLKS, 0)
 
   typedef ATL::CWindowImpl<LegacyRenderWidgetHostHWND,
                            ATL::CWindow,
@@ -98,6 +102,7 @@ class CONTENT_EXPORT LegacyRenderWidgetHostHWND
     MESSAGE_HANDLER_EX(WM_NCCALCSIZE, OnNCCalcSize)
     MESSAGE_HANDLER_EX(WM_SIZE, OnSize)
     MESSAGE_HANDLER_EX(WM_WINDOWPOSCHANGED, OnWindowPosChanged)
+    MESSAGE_HANDLER_EX(WM_DESTROY, OnDestroy)
     MESSAGE_HANDLER_EX(DM_POINTERHITTEST, OnPointerHitTest)
   END_MSG_MAP()
 
@@ -127,10 +132,14 @@ class CONTENT_EXPORT LegacyRenderWidgetHostHWND
   // gesturing on touchpad.
   void PollForNextEvent();
 
+  // Return the root accessible object for either MSAA or UI Automation.
+  gfx::NativeViewAccessible GetOrCreateWindowRootAccessible();
+
  protected:
   void OnFinalMessage(HWND hwnd) override;
 
  private:
+  friend class AccessibilityObjectLifetimeWinBrowserTest;
   friend class DirectManipulationBrowserTest;
 
   explicit LegacyRenderWidgetHostHWND(HWND parent);
@@ -160,8 +169,15 @@ class CONTENT_EXPORT LegacyRenderWidgetHostHWND
   LRESULT OnNCCalcSize(UINT message, WPARAM w_param, LPARAM l_param);
   LRESULT OnSize(UINT message, WPARAM w_param, LPARAM l_param);
   LRESULT OnWindowPosChanged(UINT message, WPARAM w_param, LPARAM l_param);
+  LRESULT OnDestroy(UINT message, WPARAM w_param, LPARAM l_param);
 
   LRESULT OnPointerHitTest(UINT message, WPARAM w_param, LPARAM l_param);
+
+  // Overridden from AXFragmentRootDelegateWin.
+  gfx::NativeViewAccessible GetChildOfAXFragmentRoot() override;
+  gfx::NativeViewAccessible GetParentOfAXFragmentRoot() override;
+
+  gfx::NativeViewAccessible GetOrCreateBrowserAccessibilityRoot();
 
   void CreateAnimationObserver();
 
@@ -177,11 +193,13 @@ class CONTENT_EXPORT LegacyRenderWidgetHostHWND
   // Some assistive software need to track the location of the caret.
   std::unique_ptr<ui::AXSystemCaretWin> ax_system_caret_;
 
+  // Implements IRawElementProviderFragmentRoot when UIA is enabled
+  std::unique_ptr<ui::AXFragmentRootWin> ax_fragment_root_;
+
   // This class provides functionality to register the legacy window as a
   // Direct Manipulation consumer. This allows us to support smooth scroll
   // in Chrome on Windows 10.
-  std::unique_ptr<ui::win::DirectManipulationHelper>
-      direct_manipulation_helper_;
+  std::unique_ptr<DirectManipulationHelper> direct_manipulation_helper_;
 
   std::unique_ptr<ui::CompositorAnimationObserver>
       compositor_animation_observer_;

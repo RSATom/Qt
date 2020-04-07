@@ -7,14 +7,15 @@
 #include <list>
 #include <string>
 
+#include "base/bind.h"
 #include "base/containers/adapters.h"
 #include "base/task/post_task.h"
 #include "base/values.h"
 #include "content/browser/media/media_internals.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
+#include "content/public/browser/system_connector.h"
 #include "content/public/browser/web_ui.h"
-#include "content/public/common/service_manager_connection.h"
 #include "mojo/public/cpp/bindings/interface_request.h"
 #include "services/media_session/public/mojom/constants.mojom.h"
 #include "services/service_manager/public/cpp/connector.h"
@@ -33,6 +34,7 @@ const char kAudioFocusPreferStop[] = "PreferStop";
 const char kAudioFocusTypeGain[] = "Gain";
 const char kAudioFocusTypeGainTransient[] = "GainTransient";
 const char kAudioFocusTypeGainTransientMayDuck[] = "GainTransientMayDuck";
+const char kAudioFocusTypeAmbient[] = "Ambient";
 
 const char kMediaSessionStateActive[] = "Active";
 const char kMediaSessionStateDucking[] = "Ducking";
@@ -92,7 +94,7 @@ void MediaInternalsAudioFocusHelper::SetEnabled(bool enabled) {
   if (!enabled) {
     audio_focus_ptr_.reset();
     audio_focus_debug_ptr_.reset();
-    binding_.Close();
+    receiver_.reset();
   }
 }
 
@@ -102,13 +104,8 @@ bool MediaInternalsAudioFocusHelper::EnsureServiceConnection() {
   if (!enabled_)
     return false;
 
-  // |connection| and |connector| may be nullptr in some tests.
-  ServiceManagerConnection* connection =
-      ServiceManagerConnection::GetForProcess();
-  if (!connection)
-    return false;
-
-  service_manager::Connector* connector = connection->GetConnector();
+  // |connector| may be nullptr in some tests.
+  service_manager::Connector* connector = GetSystemConnector();
   if (!connector)
     return false;
 
@@ -130,12 +127,10 @@ bool MediaInternalsAudioFocusHelper::EnsureServiceConnection() {
   }
 
   // Add the observer to receive audio focus events.
-  if (!binding_.is_bound()) {
-    media_session::mojom::AudioFocusObserverPtr observer;
-    binding_.Bind(mojo::MakeRequest(&observer));
-    audio_focus_ptr_->AddObserver(std::move(observer));
+  if (!receiver_.is_bound()) {
+    audio_focus_ptr_->AddObserver(receiver_.BindNewPipeAndPassRemote());
 
-    binding_.set_connection_error_handler(base::BindRepeating(
+    receiver_.set_disconnect_handler(base::BindRepeating(
         &MediaInternalsAudioFocusHelper::OnMojoError, base::Unretained(this)));
   }
 
@@ -144,7 +139,7 @@ bool MediaInternalsAudioFocusHelper::EnsureServiceConnection() {
 
 void MediaInternalsAudioFocusHelper::OnMojoError() {
   audio_focus_ptr_.reset();
-  binding_.Close();
+  receiver_.reset();
 }
 
 void MediaInternalsAudioFocusHelper::OnDebugMojoError() {
@@ -266,6 +261,9 @@ std::string MediaInternalsAudioFocusHelper::BuildStateString(
       break;
     case media_session::mojom::AudioFocusType::kGainTransientMayDuck:
       stream << " " << kAudioFocusTypeGainTransientMayDuck;
+      break;
+    case media_session::mojom::AudioFocusType::kAmbient:
+      stream << " " << kAudioFocusTypeAmbient;
       break;
   }
 

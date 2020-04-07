@@ -37,6 +37,7 @@
 **
 ****************************************************************************/
 
+import QtQml 2.14 as Qml
 import QtQuick 2.2
 import QtQuick.Controls 1.2
 import QtQuick.Controls.Private 1.0
@@ -310,11 +311,12 @@ Control {
     // During the drag, we simply ignore the position set from the range, this
     // means that setting a value while dragging will not "interrupt" the
     // dragging activity.
-    Binding {
+    Qml.Binding {
         when: !mouseArea.drag.active
         target: fakeHandle
         property: __horizontal ? "x" : "y"
         value: range.position
+        restoreMode: Binding.RestoreBinding
     }
 
     WheelArea {

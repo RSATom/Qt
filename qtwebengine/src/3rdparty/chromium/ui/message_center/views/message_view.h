@@ -8,6 +8,7 @@
 #include <memory>
 
 #include "base/macros.h"
+#include "base/observer_list.h"
 #include "base/strings/string16.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "third_party/skia/include/core/SkColor.h"
@@ -19,11 +20,11 @@
 #include "ui/message_center/public/cpp/notification_delegate.h"
 #include "ui/message_center/views/slide_out_controller.h"
 #include "ui/views/animation/ink_drop_host_view.h"
+#include "ui/views/controls/focus_ring.h"
 #include "ui/views/focus/focus_manager.h"
 #include "ui/views/view.h"
 
 namespace views {
-class Painter;
 class ScrollView;
 }  // namespace views
 
@@ -54,6 +55,7 @@ class MESSAGE_CENTER_EXPORT MessageView : public views::InkDropHostView,
 
     virtual void OnSlideStarted(const std::string& notification_id) {}
     virtual void OnSlideChanged(const std::string& notification_id) {}
+    virtual void OnSlideOut(const std::string& notification_id) {}
   };
 
   enum class Mode {
@@ -91,6 +93,7 @@ class MESSAGE_CENTER_EXPORT MessageView : public views::InkDropHostView,
   virtual bool IsManuallyExpandedOrCollapsed() const;
   virtual void SetManuallyExpandedOrCollapsed(bool value);
   virtual void CloseSwipeControl();
+  virtual void SlideOutAndClose(int direction);
 
   // Update corner radii of the notification. Subclasses will override this to
   // implement rounded corners if they don't use MessageView's default
@@ -115,9 +118,8 @@ class MESSAGE_CENTER_EXPORT MessageView : public views::InkDropHostView,
   void OnMouseReleased(const ui::MouseEvent& event) override;
   bool OnKeyPressed(const ui::KeyEvent& event) override;
   bool OnKeyReleased(const ui::KeyEvent& event) override;
-  void PaintChildren(const views::PaintInfo& paint_info) override;
   void OnPaint(gfx::Canvas* canvas) override;
-  void OnFocus() override;
+  void OnBoundsChanged(const gfx::Rect& previous_bounds) override;
   void OnBlur() override;
   void OnGestureEvent(ui::GestureEvent* event) override;
   void RemovedFromWidget() override;
@@ -135,6 +137,7 @@ class MESSAGE_CENTER_EXPORT MessageView : public views::InkDropHostView,
   void OnDidChangeFocus(views::View* before, views::View* now) override;
 
   void AddSlideObserver(SlideObserver* observer);
+  void RemoveSlideObserver(SlideObserver* observer);
 
   Mode GetMode() const;
 
@@ -161,6 +164,13 @@ class MESSAGE_CENTER_EXPORT MessageView : public views::InkDropHostView,
   // Changes the background color and schedules a paint.
   virtual void SetDrawBackgroundAsActive(bool active);
 
+  // Update the focus ring highlight for the notification.
+  // Adds a highlight path based on the notification's bounds
+  // and corner radii.
+  void UpdateFocusHighlight();
+
+  void SetCornerRadius(int top_radius, int bottom_radius);
+
   views::ScrollView* scroller() { return scroller_; }
 
   bool is_nested() const { return is_nested_; }
@@ -186,10 +196,8 @@ class MESSAGE_CENTER_EXPORT MessageView : public views::InkDropHostView,
   // "fixed" mode flag. See the comment in MessageView::Mode for detail.
   bool setting_mode_ = false;
 
-  std::unique_ptr<views::Painter> focus_painter_;
-
   SlideOutController slide_out_controller_;
-  std::vector<SlideObserver*> slide_observers_;
+  base::ObserverList<SlideObserver>::Unchecked slide_observers_;
 
   // True if |this| is embedded in another view. Equivalent to |!top_level| in
   // MessageViewFactory parlance.
@@ -199,6 +207,12 @@ class MESSAGE_CENTER_EXPORT MessageView : public views::InkDropHostView,
   bool disable_slide_ = false;
 
   views::FocusManager* focus_manager_ = nullptr;
+  std::unique_ptr<views::FocusRing> focus_ring_;
+
+  // Radius values used to determine the rounding for the rounded rectangular
+  // shape of the notification.
+  int top_radius_ = 0;
+  int bottom_radius_ = 0;
 
   DISALLOW_COPY_AND_ASSIGN(MessageView);
 };

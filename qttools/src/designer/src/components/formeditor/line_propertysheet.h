@@ -42,7 +42,7 @@ class LinePropertySheet: public QDesignerPropertySheet
     Q_OBJECT
     Q_INTERFACES(QDesignerPropertySheetExtension)
 public:
-    explicit LinePropertySheet(Line *object, QObject *parent = 0);
+    explicit LinePropertySheet(Line *object, QObject *parent = nullptr);
     ~LinePropertySheet() override;
 
     void setProperty(int index, const QVariant &value) override;
@@ -50,7 +50,7 @@ public:
     QString propertyGroup(int index) const override;
 };
 
-typedef QDesignerPropertySheetFactory<Line, LinePropertySheet> LinePropertySheetFactory;
+using LinePropertySheetFactory = QDesignerPropertySheetFactory<Line, LinePropertySheet>;
 }  // namespace qdesigner_internal
 
 QT_END_NAMESPACE

@@ -19,6 +19,7 @@
 #include "media/mojo/interfaces/audio_input_stream.mojom.h"
 #include "media/webrtc/audio_processor_controls.h"
 #include "mojo/public/cpp/bindings/binding.h"
+#include "services/audio/public/mojom/audio_processing.mojom.h"
 
 namespace content {
 
@@ -95,7 +96,7 @@ class CONTENT_EXPORT MojoAudioInputIPC
 
   base::TimeTicks stream_creation_start_time_;
 
-  base::WeakPtrFactory<MojoAudioInputIPC> weak_factory_;
+  base::WeakPtrFactory<MojoAudioInputIPC> weak_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(MojoAudioInputIPC);
 };

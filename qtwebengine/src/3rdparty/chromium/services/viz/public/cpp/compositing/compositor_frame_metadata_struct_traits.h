@@ -21,6 +21,7 @@ struct StructTraits<viz::mojom::CompositorFrameMetadataDataView,
                     viz::CompositorFrameMetadata> {
   static float device_scale_factor(
       const viz::CompositorFrameMetadata& metadata) {
+    DCHECK_GT(metadata.device_scale_factor, 0);
     return metadata.device_scale_factor;
   }
 
@@ -72,11 +73,6 @@ struct StructTraits<viz::mojom::CompositorFrameMetadataDataView,
     return metadata.deadline;
   }
 
-  static uint32_t content_source_id(
-      const viz::CompositorFrameMetadata& metadata) {
-    return metadata.content_source_id;
-  }
-
   static const viz::BeginFrameAck& begin_frame_ack(
       const viz::CompositorFrameMetadata& metadata) {
     return metadata.begin_frame_ack;
@@ -116,6 +112,15 @@ struct StructTraits<viz::mojom::CompositorFrameMetadataDataView,
       const viz::CompositorFrameMetadata& metadata) {
     DCHECK(!metadata.local_surface_id_allocation_time.is_null());
     return metadata.local_surface_id_allocation_time;
+  }
+
+  static base::Optional<base::TimeDelta> preferred_frame_interval(
+      const viz::CompositorFrameMetadata& metadata) {
+    return metadata.preferred_frame_interval;
+  }
+
+  static gfx::Rect mirror_rect(const viz::CompositorFrameMetadata& metadata) {
+    return metadata.mirror_rect;
   }
 
 #if defined(OS_ANDROID)

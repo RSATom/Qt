@@ -68,9 +68,6 @@ class CC_EXPORT LayerTreeFrameSinkClient {
   // viz::ContextProviders) must be recreated.
   virtual void DidLoseLayerTreeFrameSink() = 0;
 
-  // Notification that the client does not need a new BeginFrame.
-  virtual void DidNotNeedBeginFrame() = 0;
-
   // For SynchronousCompositor (WebView) to ask the layer compositor to submit
   // a new CompositorFrame synchronously.
   virtual void OnDraw(const gfx::Transform& transform,
@@ -85,6 +82,8 @@ class CC_EXPORT LayerTreeFrameSinkClient {
   // For SynchronousCompositor (WebView) to change which tiles should be
   // included in submitted CompositorFrames independently of what the viewport
   // is.
+  // |viewport_rect| is in device viewport space.
+  // |transform| transforms from from device viewport space to screen space.
   virtual void SetExternalTilePriorityConstraints(
       const gfx::Rect& viewport_rect,
       const gfx::Transform& transform) = 0;

@@ -8,11 +8,11 @@
 #ifndef SkImageEncoderFns_DEFINED
 #define SkImageEncoderFns_DEFINED
 
-#include "../../third_party/skcms/skcms.h"
-#include "SkColor.h"
-#include "SkColorData.h"
-#include "SkICC.h"
-#include "SkTypes.h"
+#include "include/core/SkColor.h"
+#include "include/core/SkICC.h"
+#include "include/core/SkTypes.h"
+#include "include/private/SkColorData.h"
+#include "include/third_party/skcms/skcms.h"
 
 typedef void (*transform_scanline_proc)(char* dst, const char* src, int width, int bpp);
 
@@ -167,12 +167,10 @@ static inline sk_sp<SkData> icc_from_color_space(const SkImageInfo& info) {
         return nullptr;
     }
 
-    SkColorSpaceTransferFn fn;
+    skcms_TransferFunction fn;
     skcms_Matrix3x3 toXYZD50;
     if (cs->isNumericalTransferFn(&fn) && cs->toXYZD50(&toXYZD50)) {
-        SkMatrix44 m44;
-        m44.set3x3RowMajorf(&toXYZD50.vals[0][0]);
-        return SkICC::WriteToICC(fn, m44);
+        return SkWriteICCProfile(fn, toXYZD50);
     }
     return nullptr;
 }

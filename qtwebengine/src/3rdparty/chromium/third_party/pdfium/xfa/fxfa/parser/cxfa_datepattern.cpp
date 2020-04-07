@@ -6,12 +6,15 @@
 
 #include "xfa/fxfa/parser/cxfa_datepattern.h"
 
+#include "fxjs/xfa/cjx_node.h"
+#include "third_party/base/ptr_util.h"
+
 namespace {
 
 const CXFA_Node::AttributeData kDatePatternAttributeData[] = {
     {XFA_Attribute::Name, XFA_AttributeType::Enum,
      (void*)XFA_AttributeValue::Med},
-    {XFA_Attribute::Unknown, XFA_AttributeType::Integer, nullptr}};
+};
 
 }  // namespace
 
@@ -21,7 +24,8 @@ CXFA_DatePattern::CXFA_DatePattern(CXFA_Document* doc, XFA_PacketType packet)
                 XFA_XDPPACKET_LocaleSet,
                 XFA_ObjectType::ContentNode,
                 XFA_Element::DatePattern,
-                nullptr,
-                kDatePatternAttributeData) {}
+                {},
+                kDatePatternAttributeData,
+                pdfium::MakeUnique<CJX_Node>(this)) {}
 
 CXFA_DatePattern::~CXFA_DatePattern() = default;

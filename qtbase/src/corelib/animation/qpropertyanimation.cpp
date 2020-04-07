@@ -85,6 +85,7 @@
 #include "qpropertyanimation_p.h"
 
 #include <QtCore/QMutex>
+#include <QtCore/private/qlocking_p.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -261,7 +262,7 @@ void QPropertyAnimation::updateState(QAbstractAnimation::State newState,
     QPropertyAnimation *animToStop = 0;
     {
         static QBasicMutex mutex;
-        QMutexLocker locker(&mutex);
+        auto locker = qt_unique_lock(mutex);
         typedef QPair<QObject *, QByteArray> QPropertyAnimationPair;
         typedef QHash<QPropertyAnimationPair, QPropertyAnimation*> QPropertyAnimationHash;
         static QPropertyAnimationHash hash;
@@ -277,15 +278,20 @@ void QPropertyAnimation::updateState(QAbstractAnimation::State newState,
             if (oldState == Stopped) {
                 d->setDefaultStartEndValue(d->targetValue->property(d->propertyName.constData()));
                 //let's check if we have a start value and an end value
+                const char *what = nullptr;
                 if (!startValue().isValid() && (d->direction == Backward || !d->defaultStartEndValue.isValid())) {
-                    qWarning("QPropertyAnimation::updateState (%s, %s, %s): starting an animation without start value",
-                             d->propertyName.constData(), d->target.data()->metaObject()->className(),
-                             qPrintable(d->target.data()->objectName()));
+                    what = "start";
                 }
                 if (!endValue().isValid() && (d->direction == Forward || !d->defaultStartEndValue.isValid())) {
-                    qWarning("QPropertyAnimation::updateState (%s, %s, %s): starting an animation without end value",
+                    if (what)
+                        what = "start and end";
+                    else
+                        what = "end";
+                }
+                if (Q_UNLIKELY(what)) {
+                    qWarning("QPropertyAnimation::updateState (%s, %s, %ls): starting an animation without %s value",
                              d->propertyName.constData(), d->target.data()->metaObject()->className(),
-                             qPrintable(d->target.data()->objectName()));
+                             qUtf16Printable(d->target.data()->objectName()), what);
                 }
             }
         } else if (hash.value(key) == this) {

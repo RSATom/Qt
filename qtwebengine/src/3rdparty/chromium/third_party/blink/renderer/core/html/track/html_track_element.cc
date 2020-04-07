@@ -33,6 +33,7 @@
 #include "third_party/blink/renderer/core/html/media/html_media_element.h"
 #include "third_party/blink/renderer/core/html/track/loadable_text_track.h"
 #include "third_party/blink/renderer/core/html_names.h"
+#include "third_party/blink/renderer/platform/heap/heap.h"
 
 #define TRACK_LOG_LEVEL 3
 
@@ -48,15 +49,13 @@ static String UrlForLoggingTrack(const KURL& url) {
   return url.GetString().Substring(0, kMaximumURLLengthForLogging) + "...";
 }
 
-inline HTMLTrackElement::HTMLTrackElement(Document& document)
+HTMLTrackElement::HTMLTrackElement(Document& document)
     : HTMLElement(kTrackTag, document),
       load_timer_(document.GetTaskRunner(TaskType::kNetworking),
                   this,
                   &HTMLTrackElement::LoadTimerFired) {
   DVLOG(TRACK_LOG_LEVEL) << "HTMLTrackElement - " << (void*)this;
 }
-
-DEFINE_NODE_FACTORY(HTMLTrackElement)
 
 HTMLTrackElement::~HTMLTrackElement() = default;
 
@@ -128,7 +127,7 @@ void HTMLTrackElement::setKind(const AtomicString& kind) {
 LoadableTextTrack* HTMLTrackElement::EnsureTrack() {
   if (!track_) {
     // kind, label and language are updated by parseAttribute
-    track_ = LoadableTextTrack::Create(this);
+    track_ = MakeGarbageCollected<LoadableTextTrack>(this);
   }
   return track_.Get();
 }
@@ -164,7 +163,7 @@ void HTMLTrackElement::ScheduleLoad() {
 
   // 4. Run the remainder of these steps in parallel, allowing whatever caused
   // these steps to run to continue.
-  load_timer_.StartOneShot(TimeDelta(), FROM_HERE);
+  load_timer_.StartOneShot(base::TimeDelta(), FROM_HERE);
 
   // 5. Top: Await a stable state. The synchronous section consists of the
   // following steps. (The steps in the synchronous section are marked with [X])
@@ -219,7 +218,9 @@ void HTMLTrackElement::LoadTimerFired(TimerBase*) {
   if (loader_)
     loader_->CancelLoad();
 
-  loader_ = TextTrackLoader::Create(*this, GetDocument());
+  loader_ =
+      MakeGarbageCollected<TextTrackLoader, TextTrackLoaderClient&, Document&>(
+          *this, GetDocument());
   if (!loader_->Load(url_, GetCrossOriginAttributeValue(cors_mode)))
     DidCompleteLoad(kFailure);
 }

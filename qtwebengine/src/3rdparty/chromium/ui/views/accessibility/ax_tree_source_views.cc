@@ -14,12 +14,14 @@
 #include "ui/gfx/transform.h"
 #include "ui/views/accessibility/ax_aura_obj_cache.h"
 #include "ui/views/accessibility/ax_aura_obj_wrapper.h"
+#include "ui/views/accessibility/ax_virtual_view.h"
 
 namespace views {
 
 AXTreeSourceViews::AXTreeSourceViews(AXAuraObjWrapper* root,
-                                     const ui::AXTreeID& tree_id)
-    : root_(root), tree_id_(tree_id) {
+                                     const ui::AXTreeID& tree_id,
+                                     views::AXAuraObjCache* cache)
+    : root_(root), tree_id_(tree_id), cache_(cache) {
   DCHECK(root_);
   DCHECK_NE(tree_id_, ui::AXTreeIDUnknown());
 }
@@ -39,7 +41,7 @@ void AXTreeSourceViews::HandleAccessibleAction(const ui::AXActionData& action) {
     id = action.anchor_node_id;
   }
 
-  AXAuraObjWrapper* obj = AXAuraObjCache::GetInstance()->Get(id);
+  AXAuraObjWrapper* obj = GetFromId(id);
   if (obj)
     obj->HandleAccessibleAction(action);
 }
@@ -48,7 +50,7 @@ bool AXTreeSourceViews::GetTreeData(ui::AXTreeData* tree_data) const {
   tree_data->tree_id = tree_id_;
   tree_data->loaded = true;
   tree_data->loading_progress = 1.0;
-  AXAuraObjWrapper* focus = AXAuraObjCache::GetInstance()->GetFocus();
+  AXAuraObjWrapper* focus = cache_->GetFocus();
   if (focus)
     tree_data->focus_id = focus->GetUniqueId();
   return true;
@@ -63,7 +65,16 @@ AXAuraObjWrapper* AXTreeSourceViews::GetFromId(int32_t id) const {
   // Root might not be in the cache.
   if (id == root->GetUniqueId())
     return root;
-  return AXAuraObjCache::GetInstance()->Get(id);
+  AXAuraObjWrapper* wrapper = cache_->Get(id);
+
+  // We must do a lookup in AXVirtualView as well if the main cache doesn't hold
+  // this node.
+  if (!wrapper && AXVirtualView::GetFromId(id)) {
+    AXVirtualView* virtual_view = AXVirtualView::GetFromId(id);
+    return virtual_view->GetOrCreateWrapper(cache_);
+  }
+
+  return wrapper;
 }
 
 int32_t AXTreeSourceViews::GetId(AXAuraObjWrapper* node) const {
@@ -88,8 +99,12 @@ AXAuraObjWrapper* AXTreeSourceViews::GetParent(AXAuraObjWrapper* node) const {
   return parent;
 }
 
+bool AXTreeSourceViews::IsIgnored(AXAuraObjWrapper* node) const {
+  return node && node->IsIgnored();
+}
+
 bool AXTreeSourceViews::IsValid(AXAuraObjWrapper* node) const {
-  return node && !node->IsIgnored();
+  return node;
 }
 
 bool AXTreeSourceViews::IsEqual(AXAuraObjWrapper* node1,

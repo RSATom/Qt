@@ -13,9 +13,11 @@
 
 #include <X11/X.h>
 #include <X11/Xlib.h>
+
 #include <memory>
 #include <string>
 
+#include "api/scoped_refptr.h"
 #include "modules/desktop_capture/desktop_capture_options.h"
 #include "modules/desktop_capture/desktop_capturer.h"
 #include "modules/desktop_capture/desktop_geometry.h"
@@ -24,7 +26,6 @@
 #include "modules/desktop_capture/linux/x_atom_cache.h"
 #include "modules/desktop_capture/linux/x_server_pixel_buffer.h"
 #include "rtc_base/constructor_magic.h"
-#include "rtc_base/scoped_ref_ptr.h"
 
 namespace webrtc {
 

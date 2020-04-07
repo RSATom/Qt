@@ -358,8 +358,8 @@ public slots:
     //! [Image handler]
     void handleImagesReply() {
         if (contentReply->error() == QPlaceReply::NoError) {
-            QMapIterator<int, QPlaceContent> iter(contentReply->content());
-            while (iter.hasNext()) {
+            const auto content = contentReply->content();
+            for (auto iter = content.cbegin(), end = content.cend(); iter != end; ++iter) {
                 qDebug() << "Index: " << iter.key();
                 QPlaceImage image = iter.value();
                 qDebug() << image.url();

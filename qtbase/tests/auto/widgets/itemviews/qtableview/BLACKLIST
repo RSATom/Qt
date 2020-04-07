@@ -1,4 +1,5 @@
 [moveCursorBiggerJump]
 osx
-[columnViewportPosition]
-winrt # QTBUG-72853
+[mouseWheel:scroll down per pixel]
+macos
+

@@ -65,6 +65,7 @@ class QTime;
 class QByteArray;
 
 class QGeoPositionInfo;
+class QGeoSatelliteInfo;
 class Q_POSITIONING_PRIVATE_EXPORT QLocationUtils
 {
 public:
@@ -94,7 +95,8 @@ public:
         NmeaSentenceGLL, // Lat/Lon data
         NmeaSentenceRMC, // Recommended minimum data for gps
         NmeaSentenceVTG, // Vector track an Speed over the Ground
-        NmeaSentenceZDA  // Date and Time
+        NmeaSentenceZDA, // Date and Time
+        NmeaSentenceGSV  // Per-Satellite Info
     };
 
     inline static bool isValidLat(double lat) {
@@ -280,6 +282,29 @@ public:
                                    int size,
                                    QGeoPositionInfo *info, double uere,
                                    bool *hasFix = nullptr);
+
+    /*
+        Retruns a list of QGeoSatelliteInfo in the view.
+
+        Note: this function has to be called repeatedly until it returns true.
+        Reason being that GSV sentences can be split into multiple samples, so getting the full data
+        requires parsing multiple sentences.
+     */
+    enum GSVParseStatus {
+        GSVNotParsed,
+        GSVPartiallyParsed,
+        GSVFullyParsed
+    };
+    static GSVParseStatus getSatInfoFromNmea(const char *data,
+                                   int size,
+                                   QList<QGeoSatelliteInfo> &infos);
+
+    /*
+        Parses GSA for satellites in use.
+     */
+    static bool getSatInUseFromNmea(const char *data,
+                                    int size,
+                                    QList<int> &pnrsInUse);
 
     /*
         Returns true if the given NMEA sentence has a valid checksum.

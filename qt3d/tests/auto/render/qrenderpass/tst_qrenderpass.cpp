@@ -36,7 +36,6 @@
 #include <Qt3DRender/private/qrenderpass_p.h>
 #include <QObject>
 #include <QSignalSpy>
-#include <Qt3DCore/qpropertyupdatedchange.h>
 #include <Qt3DCore/qpropertynodeaddedchange.h>
 #include <Qt3DCore/qpropertynoderemovedchange.h>
 #include <Qt3DCore/private/qnodecreatedchangegenerator_p.h>
@@ -305,13 +304,11 @@ private Q_SLOTS:
             QCoreApplication::processEvents();
 
             // THEN
-            QCOMPARE(arbiter.events.size(), 1);
-            auto change = arbiter.events.first().staticCast<Qt3DCore::QPropertyUpdatedChange>();
-            QCOMPARE(change->propertyName(), "shaderProgram");
-            QCOMPARE(change->value().value<Qt3DCore::QNodeId>(), renderPass.shaderProgram()->id());
-            QCOMPARE(change->type(), Qt3DCore::PropertyUpdated);
+            QCOMPARE(arbiter.events.size(), 0);
+            QCOMPARE(arbiter.dirtyNodes.size(), 1);
+            QCOMPARE(arbiter.dirtyNodes.front(), &renderPass);
 
-            arbiter.events.clear();
+            arbiter.dirtyNodes.clear();
         }
 
         {
@@ -321,6 +318,7 @@ private Q_SLOTS:
 
             // THEN
             QCOMPARE(arbiter.events.size(), 0);
+            QCOMPARE(arbiter.dirtyNodes.size(), 0);
         }
 
     }
@@ -339,11 +337,9 @@ private Q_SLOTS:
             QCoreApplication::processEvents();
 
             // THEN
-            QCOMPARE(arbiter.events.size(), 1);
-            auto change = arbiter.events.first().staticCast<Qt3DCore::QPropertyNodeAddedChange>();
-            QCOMPARE(change->propertyName(), "filterKeys");
-            QCOMPARE(change->addedNodeId(), filterKey.id());
-            QCOMPARE(change->type(), Qt3DCore::PropertyValueAdded);
+            QCOMPARE(arbiter.events.size(), 0);
+            QCOMPARE(arbiter.dirtyNodes.size(), 1);
+            QCOMPARE(arbiter.dirtyNodes.front(), &renderPass);
 
             arbiter.events.clear();
         }
@@ -354,11 +350,9 @@ private Q_SLOTS:
             QCoreApplication::processEvents();
 
             // THEN
-            QCOMPARE(arbiter.events.size(), 1);
-            auto change = arbiter.events.first().staticCast<Qt3DCore::QPropertyNodeRemovedChange>();
-            QCOMPARE(change->propertyName(), "filterKeys");
-            QCOMPARE(change->removedNodeId(), filterKey.id());
-            QCOMPARE(change->type(), Qt3DCore::PropertyValueRemoved);
+            QCOMPARE(arbiter.events.size(), 0);
+            QCOMPARE(arbiter.dirtyNodes.size(), 1);
+            QCOMPARE(arbiter.dirtyNodes.front(), &renderPass);
 
             arbiter.events.clear();
         }
@@ -379,11 +373,9 @@ private Q_SLOTS:
             QCoreApplication::processEvents();
 
             // THEN
-            QCOMPARE(arbiter.events.size(), 1);
-            auto change = arbiter.events.first().staticCast<Qt3DCore::QPropertyNodeAddedChange>();
-            QCOMPARE(change->propertyName(), "renderState");
-            QCOMPARE(change->addedNodeId(), renderState.id());
-            QCOMPARE(change->type(), Qt3DCore::PropertyValueAdded);
+            QCOMPARE(arbiter.events.size(), 0);
+            QCOMPARE(arbiter.dirtyNodes.size(), 1);
+            QCOMPARE(arbiter.dirtyNodes.front(), &renderPass);
 
             arbiter.events.clear();
         }
@@ -394,11 +386,9 @@ private Q_SLOTS:
             QCoreApplication::processEvents();
 
             // THEN
-            QCOMPARE(arbiter.events.size(), 1);
-            auto change = arbiter.events.first().staticCast<Qt3DCore::QPropertyNodeRemovedChange>();
-            QCOMPARE(change->propertyName(), "renderState");
-            QCOMPARE(change->removedNodeId(), renderState.id());
-            QCOMPARE(change->type(), Qt3DCore::PropertyValueRemoved);
+            QCOMPARE(arbiter.events.size(), 0);
+            QCOMPARE(arbiter.dirtyNodes.size(), 1);
+            QCOMPARE(arbiter.dirtyNodes.front(), &renderPass);
 
             arbiter.events.clear();
         }
@@ -419,11 +409,9 @@ private Q_SLOTS:
             QCoreApplication::processEvents();
 
             // THEN
-            QCOMPARE(arbiter.events.size(), 1);
-            auto change = arbiter.events.first().staticCast<Qt3DCore::QPropertyNodeAddedChange>();
-            QCOMPARE(change->propertyName(), "parameter");
-            QCOMPARE(change->addedNodeId(), parameter.id());
-            QCOMPARE(change->type(), Qt3DCore::PropertyValueAdded);
+            QCOMPARE(arbiter.events.size(), 0);
+            QCOMPARE(arbiter.dirtyNodes.size(), 1);
+            QCOMPARE(arbiter.dirtyNodes.front(), &renderPass);
 
             arbiter.events.clear();
         }
@@ -434,11 +422,9 @@ private Q_SLOTS:
             QCoreApplication::processEvents();
 
             // THEN
-            QCOMPARE(arbiter.events.size(), 1);
-            auto change = arbiter.events.first().staticCast<Qt3DCore::QPropertyNodeRemovedChange>();
-            QCOMPARE(change->propertyName(), "parameter");
-            QCOMPARE(change->removedNodeId(), parameter.id());
-            QCOMPARE(change->type(), Qt3DCore::PropertyValueRemoved);
+            QCOMPARE(arbiter.events.size(), 0);
+            QCOMPARE(arbiter.dirtyNodes.size(), 1);
+            QCOMPARE(arbiter.dirtyNodes.front(), &renderPass);
 
             arbiter.events.clear();
         }

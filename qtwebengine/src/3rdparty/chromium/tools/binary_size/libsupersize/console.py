@@ -76,6 +76,7 @@ class _Session(object):
         'ReadStringLiterals': self._ReadStringLiterals,
         'Disassemble': self._DisassembleFunc,
         'ExpandRegex': match_util.ExpandRegexIdentifierPlaceholder,
+        'SizeStats': self._SizeStats,
         'ShowExamples': self._ShowExamplesFunc,
         'canned_queries': canned_queries.CannedQueries(size_infos),
         'printed': self._printed_variables,
@@ -84,7 +85,6 @@ class _Session(object):
     self._output_directory_finder = output_directory_finder
     self._tool_prefix_finder = tool_prefix_finder
     self._size_infos = size_infos
-    self._disassemble_prefix_len = None
 
     if len(size_infos) == 1:
       self._variables['size_info'] = size_infos[0]
@@ -147,13 +147,23 @@ class _Session(object):
     """Diffs two SizeInfo objects. Returns a DeltaSizeInfo.
 
     Args:
-      before: Defaults to first size_infos[0].
-      after: Defaults to second size_infos[1].
+      before: Defaults to size_infos[0].
+      after: Defaults to size_infos[1].
       sort: When True (default), calls SymbolGroup.Sorted() after diffing.
     """
     before = before if before is not None else self._size_infos[0]
     after = after if after is not None else self._size_infos[1]
     return diff.Diff(before, after, sort=sort)
+
+  def _SizeStats(self, size_info=None):
+    """Prints some statistics for the given size info.
+
+    Args:
+      size_info: Defaults to size_infos[0].
+    """
+    size_info = size_info or self._size_infos[0]
+    describe.WriteLines(
+        describe.DescribeSizeInfoCoverage(size_info), sys.stdout.write)
 
   def _PrintFunc(self, obj=None, verbose=False, summarize=True, recursive=False,
                  use_pager=None, to_file=None):
@@ -250,26 +260,6 @@ class _Session(object):
         'ensure {} is located beside {}, or pass its path explicitly using '
         'elf_path=').format(os.path.basename(filename), size_info.size_path)
 
-  def _DetectDisassemblePrefixLen(self, args):
-    # Look for a line that looks like:
-    # /usr/{snip}/src/out/Release/../../net/quic/core/quic_time.h:100
-    output = subprocess.check_output(args)
-    for line in output.splitlines():
-      if line and line[0] == os.path.sep and line[-1].isdigit():
-        release_idx = line.find('Release')
-        if release_idx != -1:
-          return line.count(os.path.sep, 0, release_idx)
-        dot_dot_idx = line.find('..')
-        if dot_dot_idx != -1:
-          return line.count(os.path.sep, 0, dot_dot_idx) - 1
-        out_idx = line.find(os.path.sep + 'out')
-        if out_idx != -1:
-          return line.count(os.path.sep, 0, out_idx) + 2
-        logging.warning('Could not guess source path from found path.')
-        return None
-    logging.warning('Found no source paths in objdump output.')
-    return None
-
   def _SizeInfoForSymbol(self, symbol):
     for size_info in self._size_infos:
       if symbol in size_info.raw_symbols:
@@ -291,32 +281,27 @@ class _Session(object):
                                   'passing .before_symbol or .after_symbol.')
     size_info = self._SizeInfoForSymbol(symbol)
     tool_prefix = self._ToolPrefixForSymbol(size_info)
-    elf_path = self._ElfPathForSymbol(
-        size_info, tool_prefix, elf_path)
+    elf_path = self._ElfPathForSymbol(size_info, tool_prefix, elf_path)
+    # Always use Android NDK's objdump because llvm-objdump does not seem to
+    # correctly disassemble.
+    output_directory_finder = self._output_directory_finder
+    if not output_directory_finder.Tentative():
+      output_directory_finder = path_util.OutputDirectoryFinder(
+          any_path_within_output_directory=elf_path)
+    tool_prefix = path_util.ToolPrefixFinder(
+        output_directory_finder=output_directory_finder,
+        linker_name='ld').Finalized()
 
-    args = [path_util.GetObjDumpPath(tool_prefix), '--disassemble', '--source',
-            '--line-numbers', '--start-address=0x%x' % symbol.address,
-            '--stop-address=0x%x' % symbol.end_address, elf_path]
-    # llvm-objdump does not support '--demangle' switch.
-    if not self._tool_prefix_finder.IsLld():
-      args.append('--demangle')
-    if self._disassemble_prefix_len is None:
-      prefix_len = self._DetectDisassemblePrefixLen(args)
-      if prefix_len is not None:
-        self._disassemble_prefix_len = prefix_len
-
-    if self._disassemble_prefix_len is not None:
-      output_directory = self._output_directory_finder.Tentative()
-      # Only matters for non-generated paths, so be lenient here.
-      if output_directory is None:
-        output_directory = os.path.join(path_util.SRC_ROOT, 'out', 'Release')
-        if not os.path.exists(output_directory):
-          os.makedirs(output_directory)
-
-      args += [
-          '--prefix-strip', str(self._disassemble_prefix_len),
-          '--prefix', os.path.normpath(os.path.relpath(output_directory))
-      ]
+    args = [
+        path_util.GetObjDumpPath(tool_prefix),
+        '--disassemble',
+        '--source',
+        '--line-numbers',
+        '--demangle',
+        '--start-address=0x%x' % symbol.address,
+        '--stop-address=0x%x' % symbol.end_address,
+        elf_path,
+    ]
 
     proc = subprocess.Popen(args, stdout=subprocess.PIPE)
     lines = itertools.chain(('Showing disassembly for %r' % symbol,

@@ -5,10 +5,10 @@
  * found in the LICENSE file.
  */
 
-#include "SkSGImage.h"
+#include "modules/sksg/include/SkSGImage.h"
 
-#include "SkCanvas.h"
-#include "SkImage.h"
+#include "include/core/SkCanvas.h"
+#include "include/core/SkImage.h"
 
 namespace sksg {
 
@@ -24,10 +24,15 @@ void Image::onRender(SkCanvas* canvas, const RenderContext* ctx) const {
     paint.setFilterQuality(fQuality);
 
     if (ctx) {
-        ctx->modulatePaint(&paint);
+        ctx->modulatePaint(canvas->getTotalMatrix(), &paint);
     }
 
     canvas->drawImage(fImage, 0, 0, &paint);
+}
+
+const RenderNode* Image::onNodeAt(const SkPoint& p) const {
+    SkASSERT(this->bounds().contains(p.x(), p.y()));
+    return this;
 }
 
 SkRect Image::onRevalidate(InvalidationController*, const SkMatrix& ctm) {

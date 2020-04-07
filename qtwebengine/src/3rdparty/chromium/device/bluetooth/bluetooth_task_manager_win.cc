@@ -278,8 +278,7 @@ void BluetoothTaskManagerWin::InitializeWithBluetoothTaskRunner(
   DCHECK(ui_task_runner_->RunsTasksInCurrentSequence());
   bluetooth_task_runner_ = bluetooth_task_runner;
   bluetooth_task_runner_->PostTask(
-      FROM_HERE,
-      base::Bind(&BluetoothTaskManagerWin::StartPolling, this));
+      FROM_HERE, base::BindOnce(&BluetoothTaskManagerWin::StartPolling, this));
 }
 
 void BluetoothTaskManagerWin::StartPolling() {
@@ -293,10 +292,9 @@ void BluetoothTaskManagerWin::StartPolling() {
     // will not be present.
     AdapterState* state = new AdapterState();
     ui_task_runner_->PostTask(
-      FROM_HERE,
-      base::Bind(&BluetoothTaskManagerWin::OnAdapterStateChanged,
-                 this,
-                 base::Owned(state)));
+        FROM_HERE,
+        base::BindOnce(&BluetoothTaskManagerWin::OnAdapterStateChanged, this,
+                       base::Owned(state)));
   }
 }
 
@@ -306,26 +304,21 @@ void BluetoothTaskManagerWin::PostSetPoweredBluetoothTask(
     const BluetoothAdapter::ErrorCallback& error_callback) {
   DCHECK(ui_task_runner_->RunsTasksInCurrentSequence());
   bluetooth_task_runner_->PostTask(
-      FROM_HERE,
-      base::Bind(&BluetoothTaskManagerWin::SetPowered,
-                 this,
-                 powered,
-                 callback,
-                 error_callback));
+      FROM_HERE, base::BindOnce(&BluetoothTaskManagerWin::SetPowered, this,
+                                powered, callback, error_callback));
 }
 
 void BluetoothTaskManagerWin::PostStartDiscoveryTask() {
   DCHECK(ui_task_runner_->RunsTasksInCurrentSequence());
   bluetooth_task_runner_->PostTask(
       FROM_HERE,
-      base::Bind(&BluetoothTaskManagerWin::StartDiscovery, this));
+      base::BindOnce(&BluetoothTaskManagerWin::StartDiscovery, this));
 }
 
 void BluetoothTaskManagerWin::PostStopDiscoveryTask() {
   DCHECK(ui_task_runner_->RunsTasksInCurrentSequence());
   bluetooth_task_runner_->PostTask(
-      FROM_HERE,
-      base::Bind(&BluetoothTaskManagerWin::StopDiscovery, this));
+      FROM_HERE, base::BindOnce(&BluetoothTaskManagerWin::StopDiscovery, this));
 }
 
 void BluetoothTaskManagerWin::LogPollingError(const char* message,
@@ -405,9 +398,7 @@ void BluetoothTaskManagerWin::PollAdapter() {
 
   // Re-poll.
   bluetooth_task_runner_->PostDelayedTask(
-      FROM_HERE,
-      base::Bind(&BluetoothTaskManagerWin::PollAdapter,
-                 this),
+      FROM_HERE, base::BindOnce(&BluetoothTaskManagerWin::PollAdapter, this),
       base::TimeDelta::FromMilliseconds(kPollIntervalMs));
 }
 
@@ -416,10 +407,8 @@ void BluetoothTaskManagerWin::PostAdapterStateToUi() {
   AdapterState* state = new AdapterState();
   GetAdapterState(classic_wrapper_.get(), state);
   ui_task_runner_->PostTask(
-      FROM_HERE,
-      base::Bind(&BluetoothTaskManagerWin::OnAdapterStateChanged,
-                 this,
-                 base::Owned(state)));
+      FROM_HERE, base::BindOnce(&BluetoothTaskManagerWin::OnAdapterStateChanged,
+                                this, base::Owned(state)));
 }
 
 void BluetoothTaskManagerWin::SetPowered(
@@ -447,8 +436,8 @@ void BluetoothTaskManagerWin::StartDiscovery() {
   DCHECK(bluetooth_task_runner_->RunsTasksInCurrentSequence());
   bool adapter_opened = classic_wrapper_->HasHandle();
   ui_task_runner_->PostTask(
-      FROM_HERE, base::Bind(&BluetoothTaskManagerWin::OnDiscoveryStarted, this,
-                            adapter_opened));
+      FROM_HERE, base::BindOnce(&BluetoothTaskManagerWin::OnDiscoveryStarted,
+                                this, adapter_opened));
   if (!adapter_opened)
     return;
   discovering_ = true;
@@ -461,7 +450,7 @@ void BluetoothTaskManagerWin::StopDiscovery() {
   discovering_ = false;
   ui_task_runner_->PostTask(
       FROM_HERE,
-      base::Bind(&BluetoothTaskManagerWin::OnDiscoveryStopped, this));
+      base::BindOnce(&BluetoothTaskManagerWin::OnDiscoveryStopped, this));
 }
 
 void BluetoothTaskManagerWin::DiscoverDevices(int timeout_multiplier) {
@@ -469,7 +458,7 @@ void BluetoothTaskManagerWin::DiscoverDevices(int timeout_multiplier) {
   if (!discovering_ || !classic_wrapper_->HasHandle()) {
     ui_task_runner_->PostTask(
         FROM_HERE,
-        base::Bind(&BluetoothTaskManagerWin::OnDiscoveryStopped, this));
+        base::BindOnce(&BluetoothTaskManagerWin::OnDiscoveryStopped, this));
     return;
   }
 
@@ -483,9 +472,8 @@ void BluetoothTaskManagerWin::DiscoverDevices(int timeout_multiplier) {
   if (timeout_multiplier < kMaxDeviceDiscoveryTimeoutMultiplier)
     ++timeout_multiplier;
   bluetooth_task_runner_->PostTask(
-      FROM_HERE,
-      base::Bind(
-          &BluetoothTaskManagerWin::DiscoverDevices, this, timeout_multiplier));
+      FROM_HERE, base::BindOnce(&BluetoothTaskManagerWin::DiscoverDevices, this,
+                                timeout_multiplier));
 }
 
 void BluetoothTaskManagerWin::GetKnownDevices() {
@@ -888,14 +876,14 @@ void BluetoothTaskManagerWin::WriteGattCharacteristicValue(
       service_path, (PBTH_LE_GATT_CHARACTERISTIC)(&characteristic),
       win_new_value);
 
-  ui_task_runner_->PostTask(FROM_HERE, base::Bind(callback, hr));
+  ui_task_runner_->PostTask(FROM_HERE, base::BindOnce(callback, hr));
 }
 
 void BluetoothTaskManagerWin::RegisterGattCharacteristicValueChangedEvent(
     base::FilePath service_path,
     BTH_LE_GATT_CHARACTERISTIC characteristic,
     BTH_LE_GATT_DESCRIPTOR ccc_descriptor,
-    const GattEventRegistrationCallback& callback,
+    GattEventRegistrationCallback callback,
     const GattCharacteristicValueChangedCallback& registered_callback) {
   DCHECK(bluetooth_task_runner_->RunsTasksInCurrentSequence());
   BLUETOOTH_GATT_EVENT_HANDLE win_event_handle = NULL;
@@ -938,8 +926,8 @@ void BluetoothTaskManagerWin::RegisterGattCharacteristicValueChangedEvent(
         std::move(registration);
   }
 
-  ui_task_runner_->PostTask(FROM_HERE,
-                            base::Bind(callback, user_event_handle, hr));
+  ui_task_runner_->PostTask(
+      FROM_HERE, base::BindOnce(std::move(callback), user_event_handle, hr));
 }
 
 void BluetoothTaskManagerWin::UnregisterGattCharacteristicValueChangedEvent(
@@ -963,8 +951,8 @@ void BluetoothTaskManagerWin::PostGetGattIncludedCharacteristics(
   DCHECK(ui_task_runner_->RunsTasksInCurrentSequence());
   bluetooth_task_runner_->PostTask(
       FROM_HERE,
-      base::Bind(&BluetoothTaskManagerWin::GetGattIncludedCharacteristics, this,
-                 service_path, uuid, attribute_handle, callback));
+      base::BindOnce(&BluetoothTaskManagerWin::GetGattIncludedCharacteristics,
+                     this, service_path, uuid, attribute_handle, callback));
 }
 
 void BluetoothTaskManagerWin::PostGetGattIncludedDescriptors(
@@ -974,8 +962,8 @@ void BluetoothTaskManagerWin::PostGetGattIncludedDescriptors(
   DCHECK(ui_task_runner_->RunsTasksInCurrentSequence());
   bluetooth_task_runner_->PostTask(
       FROM_HERE,
-      base::Bind(&BluetoothTaskManagerWin::GetGattIncludedDescriptors, this,
-                 service_path, *characteristic, callback));
+      base::BindOnce(&BluetoothTaskManagerWin::GetGattIncludedDescriptors, this,
+                     service_path, *characteristic, callback));
 }
 
 void BluetoothTaskManagerWin::PostReadGattCharacteristicValue(
@@ -985,8 +973,8 @@ void BluetoothTaskManagerWin::PostReadGattCharacteristicValue(
   DCHECK(ui_task_runner_->RunsTasksInCurrentSequence());
   bluetooth_task_runner_->PostTask(
       FROM_HERE,
-      base::Bind(&BluetoothTaskManagerWin::ReadGattCharacteristicValue, this,
-                 service_path, *characteristic, callback));
+      base::BindOnce(&BluetoothTaskManagerWin::ReadGattCharacteristicValue,
+                     this, service_path, *characteristic, callback));
 }
 
 void BluetoothTaskManagerWin::PostWriteGattCharacteristicValue(
@@ -997,32 +985,33 @@ void BluetoothTaskManagerWin::PostWriteGattCharacteristicValue(
   DCHECK(ui_task_runner_->RunsTasksInCurrentSequence());
   bluetooth_task_runner_->PostTask(
       FROM_HERE,
-      base::Bind(&BluetoothTaskManagerWin::WriteGattCharacteristicValue, this,
-                 service_path, *characteristic, new_value, callback));
+      base::BindOnce(&BluetoothTaskManagerWin::WriteGattCharacteristicValue,
+                     this, service_path, *characteristic, new_value, callback));
 }
 
 void BluetoothTaskManagerWin::PostRegisterGattCharacteristicValueChangedEvent(
     const base::FilePath& service_path,
     const PBTH_LE_GATT_CHARACTERISTIC characteristic,
     const PBTH_LE_GATT_DESCRIPTOR ccc_descriptor,
-    const GattEventRegistrationCallback& callback,
+    GattEventRegistrationCallback callback,
     const GattCharacteristicValueChangedCallback& registered_callback) {
   DCHECK(ui_task_runner_->RunsTasksInCurrentSequence());
   bluetooth_task_runner_->PostTask(
       FROM_HERE,
-      base::Bind(
+      base::BindOnce(
           &BluetoothTaskManagerWin::RegisterGattCharacteristicValueChangedEvent,
-          this, service_path, *characteristic, *ccc_descriptor, callback,
-          registered_callback));
+          this, service_path, *characteristic, *ccc_descriptor,
+          std::move(callback), registered_callback));
 }
 
 void BluetoothTaskManagerWin::PostUnregisterGattCharacteristicValueChangedEvent(
     PVOID event_handle) {
   DCHECK(ui_task_runner_->RunsTasksInCurrentSequence());
   bluetooth_task_runner_->PostTask(
-      FROM_HERE, base::Bind(&BluetoothTaskManagerWin::
-                                UnregisterGattCharacteristicValueChangedEvent,
-                            this, event_handle));
+      FROM_HERE,
+      base::BindOnce(&BluetoothTaskManagerWin::
+                         UnregisterGattCharacteristicValueChangedEvent,
+                     this, event_handle));
 }
 
 }  // namespace device

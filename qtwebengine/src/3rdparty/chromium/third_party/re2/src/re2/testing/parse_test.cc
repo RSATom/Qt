@@ -217,6 +217,10 @@ static Test tests[] = {
     Regexp::PerlClasses | Regexp::NeverNL },
   { "\\S", "cc{0-0x8 0xb 0xe-0x1f 0x21-0x10ffff}",
     Regexp::PerlClasses | Regexp::NeverNL | Regexp::FoldCase },
+
+  // Bug in Regexp::ToString() that emitted [^], which
+  // would (obviously) fail to parse when fed back in.
+  { "[\\s\\S]", "cc{0-0x10ffff}" },
 };
 
 bool RegexpEqualTestingOnly(Regexp* a, Regexp* b) {
@@ -224,7 +228,7 @@ bool RegexpEqualTestingOnly(Regexp* a, Regexp* b) {
 }
 
 void TestParse(const Test* tests, int ntests, Regexp::ParseFlags flags,
-               const string& title) {
+               const std::string& title) {
   Regexp** re = new Regexp*[ntests];
   for (int i = 0; i < ntests; i++) {
     RegexpStatus status;
@@ -235,14 +239,16 @@ void TestParse(const Test* tests, int ntests, Regexp::ParseFlags flags,
     re[i] = Regexp::Parse(tests[i].regexp, f, &status);
     ASSERT_TRUE(re[i] != NULL)
       << " " << tests[i].regexp << " " << status.Text();
-    string s = re[i]->Dump();
-    EXPECT_EQ(string(tests[i].parse), s) << "Regexp: " << tests[i].regexp
-      << "\nparse: " << string(tests[i].parse) << " s: " << s << " flag=" << f;
+    std::string s = re[i]->Dump();
+    EXPECT_EQ(std::string(tests[i].parse), s)
+        << "Regexp: " << tests[i].regexp
+        << "\nparse: " << std::string(tests[i].parse)
+        << " s: " << s << " flag=" << f;
   }
 
   for (int i = 0; i < ntests; i++) {
     for (int j = 0; j < ntests; j++) {
-      EXPECT_EQ(string(tests[i].parse) == string(tests[j].parse),
+      EXPECT_EQ(std::string(tests[i].parse) == std::string(tests[j].parse),
                 RegexpEqualTestingOnly(re[i], re[j]))
         << "Regexp: " << tests[i].regexp << " " << tests[j].regexp;
     }
@@ -453,9 +459,12 @@ TEST(TestToString, EquivalentParse) {
     }
     Regexp* re = Regexp::Parse(tests[i].regexp, f, &status);
     ASSERT_TRUE(re != NULL) << " " << tests[i].regexp << " " << status.Text();
-    string s = re->Dump();
-    EXPECT_EQ(string(tests[i].parse), s) << " " << tests[i].regexp << " " << string(tests[i].parse) << " " << s;
-    string t = re->ToString();
+    std::string s = re->Dump();
+    EXPECT_EQ(std::string(tests[i].parse), s)
+        << "Regexp: " << tests[i].regexp
+        << "\nparse: " << std::string(tests[i].parse)
+        << " s: " << s << " flag=" << f;
+    std::string t = re->ToString();
     if (t != tests[i].regexp) {
       // If ToString didn't return the original regexp,
       // it must have found one with fewer parens.
@@ -468,8 +477,8 @@ TEST(TestToString, EquivalentParse) {
       // Test that if we parse the new regexp we get the same structure.
       Regexp* nre = Regexp::Parse(t, Regexp::MatchNL | Regexp::PerlX, &status);
       ASSERT_TRUE(nre != NULL) << " reparse " << t << " " << status.Text();
-      string ss = nre->Dump();
-      string tt = nre->ToString();
+      std::string ss = nre->Dump();
+      std::string tt = nre->ToString();
       if (s != ss || t != tt)
         LOG(INFO) << "ToString(" << tests[i].regexp << ") = " << t;
       EXPECT_EQ(s, ss);

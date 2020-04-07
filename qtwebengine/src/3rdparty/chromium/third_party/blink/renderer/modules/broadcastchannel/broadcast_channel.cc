@@ -81,6 +81,7 @@ void BroadcastChannel::close() {
   remote_client_.reset();
   if (binding_.is_bound())
     binding_.Close();
+  feature_handle_for_scheduler_.reset();
 }
 
 const AtomicString& BroadcastChannel::InterfaceName() const {
@@ -113,7 +114,15 @@ void BroadcastChannel::OnMessage(BlinkCloneableMessage message) {
     event = MessageEvent::CreateError(
         GetExecutionContext()->GetSecurityOrigin()->ToString());
   }
-  EnqueueEvent(*event, TaskType::kPostedMessage);
+  // <specdef
+  // href="https://html.spec.whatwg.org/multipage/web-messaging.html#dom-broadcastchannel-postmessage">
+  // <spec>The tasks must use the DOM manipulation task source, and, for
+  // those where the event loop specified by the target BroadcastChannel
+  // object's BroadcastChannel settings object is a window event loop,
+  // must be associated with the responsible document specified by that
+  // target BroadcastChannel object's BroadcastChannel settings object.
+  // </spec>
+  EnqueueEvent(*event, TaskType::kDOMManipulation);
 }
 
 void BroadcastChannel::OnError() {
@@ -125,13 +134,24 @@ BroadcastChannel::BroadcastChannel(ExecutionContext* execution_context,
     : ContextLifecycleObserver(execution_context),
       origin_(execution_context->GetSecurityOrigin()),
       name_(name),
-      binding_(this) {
+      binding_(this),
+      feature_handle_for_scheduler_(
+          execution_context->GetScheduler()->RegisterFeature(
+              SchedulingPolicy::Feature::kBroadcastChannel,
+              {SchedulingPolicy::RecordMetricsForBackForwardCache()})) {
   mojom::blink::BroadcastChannelProviderPtr& provider =
       GetThreadSpecificProvider();
 
   // Local BroadcastChannelClient for messages send from the browser to this
   // channel.
   mojom::blink::BroadcastChannelClientAssociatedPtrInfo local_client_info;
+  // Note: We cannot associate per-frame task runner here, but postTask
+  //       to it manually via EnqueueEvent, since the current expectation
+  //       is to receive messages even after close for which queued before
+  //       close.
+  //       https://github.com/whatwg/html/issues/1319
+  //       Relying on Mojo binding will cancel the enqueued messages
+  //       at close().
   binding_.Bind(mojo::MakeRequest(&local_client_info));
   binding_.set_connection_error_handler(
       WTF::Bind(&BroadcastChannel::OnError, WrapWeakPersistent(this)));

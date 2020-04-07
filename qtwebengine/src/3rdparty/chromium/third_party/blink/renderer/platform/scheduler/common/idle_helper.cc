@@ -4,6 +4,7 @@
 
 #include "third_party/blink/renderer/platform/scheduler/common/idle_helper.h"
 
+#include "base/bind.h"
 #include "base/task/sequence_manager/sequence_manager.h"
 #include "base/task/sequence_manager/task_queue.h"
 #include "base/task/sequence_manager/time_domain.h"
@@ -29,8 +30,7 @@ IdleHelper::IdleHelper(
       state_(helper, delegate, idle_period_tracing_name),
       required_quiescence_duration_before_long_idle_period_(
           required_quiescence_duration_before_long_idle_period),
-      is_shutdown_(false),
-      weak_factory_(this) {
+      is_shutdown_(false) {
   weak_idle_helper_ptr_ = weak_factory_.GetWeakPtr();
   enable_next_long_idle_period_closure_.Reset(base::BindRepeating(
       &IdleHelper::EnableLongIdlePeriod, weak_idle_helper_ptr_));

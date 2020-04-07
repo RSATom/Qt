@@ -9,6 +9,7 @@
 #include <memory>
 #include <utility>
 
+#include "core/fpdfapi/font/cpdf_font.h"
 #include "core/fpdfapi/parser/cpdf_dictionary.h"
 #include "core/fxcrt/fx_memory.h"
 
@@ -17,19 +18,20 @@ CFX_StockFontArray::CFX_StockFontArray() = default;
 CFX_StockFontArray::~CFX_StockFontArray() {
   for (size_t i = 0; i < FX_ArraySize(m_StockFonts); ++i) {
     if (m_StockFonts[i]) {
-      std::unique_ptr<CPDF_Dictionary> destroy(m_StockFonts[i]->GetFontDict());
+      RetainPtr<CPDF_Dictionary> destroy(m_StockFonts[i]->GetFontDict());
       m_StockFonts[i]->ClearFontDict();
     }
   }
 }
 
-CPDF_Font* CFX_StockFontArray::GetFont(uint32_t index) const {
+CPDF_Font* CFX_StockFontArray::GetFont(
+    CFX_FontMapper::StandardFont index) const {
   if (index >= FX_ArraySize(m_StockFonts))
     return nullptr;
   return m_StockFonts[index].get();
 }
 
-CPDF_Font* CFX_StockFontArray::SetFont(uint32_t index,
+CPDF_Font* CFX_StockFontArray::SetFont(CFX_FontMapper::StandardFont index,
                                        std::unique_ptr<CPDF_Font> pFont) {
   CPDF_Font* result = pFont.get();
   if (index < FX_ArraySize(m_StockFonts))

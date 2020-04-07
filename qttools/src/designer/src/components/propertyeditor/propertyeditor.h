@@ -63,7 +63,7 @@ class QT_PROPERTYEDITOR_EXPORT PropertyEditor: public QDesignerPropertyEditor
 {
     Q_OBJECT
 public:
-    explicit PropertyEditor(QDesignerFormEditorInterface *core, QWidget *parent = 0, Qt::WindowFlags flags = 0);
+    explicit PropertyEditor(QDesignerFormEditorInterface *core, QWidget *parent = nullptr, Qt::WindowFlags flags = {});
     ~PropertyEditor() override;
 
     QDesignerFormEditorInterface *core() const override;
@@ -146,10 +146,10 @@ private:
 
     const Strings m_strings;
     QDesignerFormEditorInterface *m_core;
-    QDesignerPropertySheetExtension *m_propertySheet;
-    QtAbstractPropertyBrowser *m_currentBrowser;
+    QDesignerPropertySheetExtension *m_propertySheet = nullptr;
+    QtAbstractPropertyBrowser *m_currentBrowser = nullptr;
     QtButtonPropertyBrowser *m_buttonBrowser;
-    QtTreePropertyBrowser *m_treeBrowser;
+    QtTreePropertyBrowser *m_treeBrowser = nullptr;
     DesignerPropertyManager *m_propertyManager;
     DesignerEditorFactory *m_treeFactory;
     DesignerEditorFactory *m_groupFactory;
@@ -158,14 +158,14 @@ private:
     QMap<QtProperty*, QString> m_propertyToGroup;
     QMap<QString, QtVariantProperty*> m_nameToGroup;
     QList<QtProperty *> m_groups;
-    QtProperty *m_dynamicGroup;
+    QtProperty *m_dynamicGroup = nullptr;
     QString m_recentlyAddedDynamicProperty;
-    bool m_updatingBrowser;
+    bool m_updatingBrowser = false;
 
     QStackedWidget *m_stackedWidget;
     QLineEdit *m_filterWidget;
-    int m_buttonIndex;
-    int m_treeIndex;
+    int m_buttonIndex = -1;
+    int m_treeIndex = -1;
     QAction *m_addDynamicAction;
     QAction *m_removeDynamicAction;
     QAction *m_sortingAction;
@@ -174,8 +174,8 @@ private:
     QAction *m_buttonAction;
     ElidingLabel *m_classLabel;
 
-    bool m_sorting;
-    bool m_coloring;
+    bool m_sorting = false;
+    bool m_coloring = false;
 
     QMap<QString, bool> m_expansionState;
 
@@ -184,7 +184,7 @@ private:
     QPair<QColor, QColor> m_dynamicColor;
     QPair<QColor, QColor> m_layoutColor;
 
-    bool m_brightness;
+    bool m_brightness = false;
 };
 
 }  // namespace qdesigner_internal

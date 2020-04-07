@@ -37,6 +37,7 @@
 **
 ****************************************************************************/
 
+import QtQml 2.14 as Qml
 import QtQuick 2.2
 import QtQuick.Controls 1.2
 import QtQuick.Controls.Private 1.0
@@ -85,17 +86,82 @@ Loader {
                      type === "rotate" ? Qt.createComponent("RotateDrawable.qml") :
                      type === "stateslist" ? Qt.createComponent("StateDrawable.qml") : null
 
-    Binding { target: loader.item; property: "styleDef"; value: loader.styleDef }
-    Binding { target: loader.item; property: "focused"; value: loader.focused }
-    Binding { target: loader.item; property: "pressed"; value: loader.pressed }
-    Binding { target: loader.item; property: "checked"; value: loader.checked }
-    Binding { target: loader.item; property: "selected"; value: loader.selected }
-    Binding { target: loader.item; property: "accelerated"; value: loader.accelerated }
-    Binding { target: loader.item; property: "window_focused"; value: loader.window_focused }
-    Binding { target: loader.item; property: "level"; value: loader.level }
-    Binding { target: loader.item; property: "levelId"; value: loader.levelId }
-    Binding { target: loader.item; property: "orientations"; value: loader.orientations }
-    Binding { target: loader.item; property: "duration"; value: loader.duration }
-    Binding { target: loader.item; property: "excludes"; value: loader.excludes }
-    Binding { target: loader.item; property: "clippables"; value: loader.clippables }
+    Qml.Binding {
+        target: loader.item
+        property: "styleDef"
+        value: loader.styleDef
+        restoreMode: Binding.RestoreBinding
+    }
+    Qml.Binding {
+        target: loader.item
+        property: "focused"
+        value: loader.focused
+        restoreMode: Binding.RestoreBinding
+    }
+    Qml.Binding {
+        target: loader.item
+        property: "pressed"
+        value: loader.pressed
+        restoreMode: Binding.RestoreBinding
+    }
+    Qml.Binding {
+        target: loader.item
+        property: "checked"
+        value: loader.checked
+        restoreMode: Binding.RestoreBinding
+    }
+    Qml.Binding {
+        target: loader.item
+        property: "selected"
+        value: loader.selected
+        restoreMode: Binding.RestoreBinding
+    }
+    Qml.Binding {
+        target: loader.item
+        property: "accelerated"
+        value: loader.accelerated
+        restoreMode: Binding.RestoreBinding
+    }
+    Qml.Binding {
+        target: loader.item
+        property: "window_focused"
+        value: loader.window_focused
+        restoreMode: Binding.RestoreBinding
+    }
+    Qml.Binding {
+        target: loader.item
+        property: "level"
+        value: loader.level
+        restoreMode: Binding.RestoreBinding
+    }
+    Qml.Binding {
+        target: loader.item
+        property: "levelId"
+        value: loader.levelId
+        restoreMode: Binding.RestoreBinding
+    }
+    Qml.Binding {
+        target: loader.item
+        property: "orientations"
+        value: loader.orientations
+        restoreMode: Binding.RestoreBinding
+    }
+    Qml.Binding {
+        target: loader.item
+        property: "duration"
+        value: loader.duration
+        restoreMode: Binding.RestoreBinding
+    }
+    Qml.Binding {
+        target: loader.item
+        property: "excludes"
+        value: loader.excludes
+        restoreMode: Binding.RestoreBinding
+    }
+    Qml.Binding {
+        target: loader.item
+        property: "clippables"
+        value: loader.clippables
+        restoreMode: Binding.RestoreBinding
+    }
 }

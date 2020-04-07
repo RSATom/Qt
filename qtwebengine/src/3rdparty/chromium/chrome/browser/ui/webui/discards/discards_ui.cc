@@ -7,12 +7,14 @@
 #include <utility>
 #include <vector>
 
+#include "base/bind.h"
 #include "base/containers/flat_map.h"
 #include "base/logging.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/engagement/site_engagement_service.h"
+#include "chrome/browser/performance_manager/performance_manager.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/resource_coordinator/lifecycle_unit.h"
 #include "chrome/browser/resource_coordinator/lifecycle_unit_state.mojom.h"
@@ -24,18 +26,19 @@
 #include "chrome/browser/resource_coordinator/tab_manager.h"
 #include "chrome/browser/resource_coordinator/time.h"
 #include "chrome/browser/ui/webui/discards/discards.mojom.h"
+#include "chrome/browser/ui/webui/favicon_source.h"
 #include "chrome/common/webui_url_constants.h"
 #include "chrome/grit/browser_resources.h"
+#include "components/favicon_base/favicon_url_parser.h"
 #include "content/public/browser/navigation_controller.h"
 #include "content/public/browser/navigation_entry.h"
+#include "content/public/browser/url_data_source.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_ui.h"
 #include "content/public/browser/web_ui_data_source.h"
 #include "content/public/browser/web_ui_message_handler.h"
-#include "content/public/common/service_manager_connection.h"
 #include "mojo/public/cpp/bindings/binding.h"
 #include "services/resource_coordinator/public/mojom/service_constants.mojom.h"
-#include "services/service_manager/public/cpp/connector.h"
 #include "ui/resources/grit/ui_resources.h"
 #include "url/gurl.h"
 #include "url/origin.h"
@@ -90,7 +93,7 @@ double GetSiteEngagementScore(content::WebContents* contents) {
 }
 
 mojom::SiteCharacteristicsFeaturePtr ConvertFeatureFromProto(
-    const SiteCharacteristicsFeatureProto& proto) {
+    const SiteDataFeatureProto& proto) {
   mojom::SiteCharacteristicsFeaturePtr feature =
       mojom::SiteCharacteristicsFeature::New();
 
@@ -110,7 +113,7 @@ mojom::SiteCharacteristicsFeaturePtr ConvertFeatureFromProto(
 }
 
 mojom::SiteCharacteristicsDatabaseEntryPtr ConvertEntryFromProto(
-    SiteCharacteristicsProto* proto) {
+    SiteDataProto* proto) {
   mojom::SiteCharacteristicsDatabaseValuePtr value =
       mojom::SiteCharacteristicsDatabaseValue::New();
 
@@ -227,6 +230,8 @@ class DiscardsDetailsProviderImpl : public mojom::DiscardsDetailsProvider {
       if (info->has_reactivation_score)
         info->reactivation_score = reactivation_score.value();
       info->site_engagement_score = GetSiteEngagementScore(contents);
+      info->state_change_time =
+          lifecycle_unit->GetStateChangeTime() - base::TimeTicks::UnixEpoch();
       // TODO(crbug.com/876340): The focus is used to compute the page lifecycle
       // state. This should be replaced with the actual page lifecycle state
       // information from Blink, but this depends on implementing the passive
@@ -345,7 +350,7 @@ void DiscardsDetailsProviderImpl::GetSiteCharacteristicsDatabase(
   for (const url::Origin& origin : in_memory_origins) {
     // Get the data for this origin and convert it from proto to the
     // corresponding mojo structure.
-    std::unique_ptr<SiteCharacteristicsProto> proto;
+    std::unique_ptr<SiteDataProto> proto;
     bool is_dirty = false;
     if (data_store_inspector_->GetDataForOrigin(origin, &is_dirty, &proto)) {
       auto entry = ConvertEntryFromProto(proto.get());
@@ -413,23 +418,28 @@ DiscardsUI::DiscardsUI(content::WebUI* web_ui)
   source->AddResourcePath("mojo_api.html", IDR_DISCARDS_MOJO_API_HTML);
 
   // Full paths (relative to src) are important for Mojom generated files.
-  source->AddResourcePath("chrome/browser/ui/webui/discards/discards.mojom.js",
-                          IDR_DISCARDS_MOJO_JS);
   source->AddResourcePath(
-      "chrome/browser/resource_coordinator/lifecycle_unit_state.mojom.js",
-      IDR_DISCARDS_LIFECYCLE_UNIT_STATE_MOJO_JS);
-  source->AddResourcePath("mojom/webui_graph_dump.mojom.js",
-                          IDR_DISCARDS_WEBUI_GRAPH_DUMP_MOJO_JS);
+      "chrome/browser/ui/webui/discards/discards.mojom-lite.js",
+      IDR_DISCARDS_MOJOM_LITE_JS);
+  source->AddResourcePath(
+      "chrome/browser/resource_coordinator/lifecycle_unit_state.mojom-lite.js",
+      IDR_DISCARDS_LIFECYCLE_UNIT_STATE_MOJOM_LITE_JS);
+  source->AddResourcePath("mojom/webui_graph_dump.mojom-lite.js",
+                          IDR_DISCARDS_WEBUI_GRAPH_DUMP_MOJOM_LITE_JS);
 
   // Add the mojo base dependency for the WebUI Graph Dump.
-  source->AddResourcePath("mojo/public/mojom/base/process_id.mojom.js",
-                          IDR_DISCARDS_MOJO_PUBLIC_BASE_PROCESS_ID_MOJOM_JS);
+  source->AddResourcePath(
+      "mojo/public/mojom/base/process_id.mojom-lite.js",
+      IDR_DISCARDS_MOJO_PUBLIC_BASE_PROCESS_ID_MOJOM_LITE_JS);
 
   source->SetDefaultResource(IDR_DISCARDS_HTML);
-  source->UseGzip();
 
   Profile* profile = Profile::FromWebUI(web_ui);
   content::WebUIDataSource::Add(profile, source.release());
+
+  content::URLDataSource::Add(
+      profile, std::make_unique<FaviconSource>(
+                   profile, chrome::FaviconUrlFormat::kFavicon2));
 
   AddHandlerToRegistry(base::BindRepeating(
       &DiscardsUI::BindDiscardsDetailsProvider, base::Unretained(this)));
@@ -449,13 +459,11 @@ void DiscardsUI::BindDiscardsDetailsProvider(
 }
 
 void DiscardsUI::BindWebUIGraphDumpProvider(
-    resource_coordinator::mojom::WebUIGraphDumpRequest request) {
-  service_manager::Connector* connector =
-      content::ServiceManagerConnection::GetForProcess()->GetConnector();
-
-  if (connector) {
+    performance_manager::mojom::WebUIGraphDumpRequest request) {
+  performance_manager::PerformanceManager* performance_manager =
+      performance_manager::PerformanceManager::GetInstance();
+  if (performance_manager) {
     // Forward the interface request directly to the service.
-    connector->BindInterface(resource_coordinator::mojom::kServiceName,
-                             std::move(request));
+    performance_manager->BindInterface(std::move(request));
   }
 }

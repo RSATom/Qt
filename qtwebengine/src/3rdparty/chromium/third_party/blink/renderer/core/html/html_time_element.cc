@@ -4,17 +4,13 @@
 
 #include "third_party/blink/renderer/core/html/html_time_element.h"
 
-#include "third_party/blink/renderer/core/frame/use_counter.h"
+#include "third_party/blink/renderer/platform/instrumentation/use_counter.h"
 
 namespace blink {
 
 HTMLTimeElement::HTMLTimeElement(Document& document)
     : HTMLElement(html_names::kTimeTag, document) {
   UseCounter::Count(document, WebFeature::kTimeElement);
-}
-
-HTMLTimeElement* HTMLTimeElement::Create(Document& document) {
-  return MakeGarbageCollected<HTMLTimeElement>(document);
 }
 
 }  // namespace blink

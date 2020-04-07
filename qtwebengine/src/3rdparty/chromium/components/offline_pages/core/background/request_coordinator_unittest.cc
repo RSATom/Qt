@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "base/bind.h"
+#include "base/bind_helpers.h"
 #include "base/containers/circular_deque.h"
 #include "base/location.h"
 #include "base/logging.h"
@@ -497,7 +498,7 @@ void RequestCoordinatorTest::SetupForOfflinerDoneCallbackTest(
   // Mark request as started and add it to the queue,
   // then wait for callback to finish.
   request->MarkAttemptStarted(OfflineTimeNow());
-  queue()->AddRequest(*request, base::DoNothing());
+  queue()->AddRequest(*request, RequestQueue::AddOptions(), base::DoNothing());
   PumpLoop();
 
   // Override the processing callback for test visiblity.
@@ -522,14 +523,14 @@ void RequestCoordinatorTest::SendOfflinerDoneCallback(
 SavePageRequest RequestCoordinatorTest::AddRequest1() {
   offline_pages::SavePageRequest request1(kRequestId1, kUrl1, kClientId1,
                                           OfflineTimeNow(), kUserRequested);
-  queue()->AddRequest(request1, base::DoNothing());
+  queue()->AddRequest(request1, RequestQueue::AddOptions(), base::DoNothing());
   return request1;
 }
 
 SavePageRequest RequestCoordinatorTest::AddRequest2() {
   offline_pages::SavePageRequest request2(kRequestId2, kUrl2, kClientId2,
                                           OfflineTimeNow(), kUserRequested);
-  queue()->AddRequest(request2, base::DoNothing());
+  queue()->AddRequest(request2, RequestQueue::AddOptions(), base::DoNothing());
   return request2;
 }
 
@@ -1043,7 +1044,7 @@ TEST_F(RequestCoordinatorTest, SchedulerGetsLeastRestrictiveConditions) {
 
   offline_pages::SavePageRequest request2(kRequestId2, kUrl2, kClientId2,
                                           OfflineTimeNow(), !kUserRequested);
-  queue()->AddRequest(request2, base::DoNothing());
+  queue()->AddRequest(request2, RequestQueue::AddOptions(), base::DoNothing());
   PumpLoop();
 
   // Trigger the scheduler to schedule for the least restrictive condition.
@@ -1345,7 +1346,7 @@ TEST_F(RequestCoordinatorTest,
   // Set request to allow one more completed attempt.
   int max_tries = coordinator()->policy()->GetMaxCompletedTries();
   request.set_completed_attempt_count(max_tries - 1);
-  queue()->AddRequest(request, base::DoNothing());
+  queue()->AddRequest(request, RequestQueue::AddOptions(), base::DoNothing());
   PumpLoop();
 
   // Ensure that the new request does not finish - we simulate it being
@@ -1416,7 +1417,7 @@ TEST_F(RequestCoordinatorTest, TimeBudgetExceeded) {
   offline_pages::SavePageRequest request2(kRequestId1 + 1, kUrl1, kClientId1,
                                           OfflineTimeNow(), kUserRequested);
   request2.set_completed_attempt_count(kAttemptCount);
-  queue()->AddRequest(request2, base::DoNothing());
+  queue()->AddRequest(request2, RequestQueue::AddOptions(), base::DoNothing());
   PumpLoop();
 
   // Sending the request to the offliner.
@@ -1620,44 +1621,6 @@ TEST_F(RequestCoordinatorTest,
   EXPECT_TRUE(state() == RequestCoordinatorState::OFFLINING);
 }
 
-TEST_F(RequestCoordinatorTest,
-       SavePageStartsProcessingWhenConnectedOnLowEndDeviceIfFlagEnabled) {
-  // Mark device as low-end device.
-  SetIsLowEndDeviceForTest(true);
-  EXPECT_FALSE(offline_pages::IsOfflinePagesSvelteConcurrentLoadingEnabled());
-
-  // Make a request.
-  EXPECT_NE(0, SavePageLater());
-  PumpLoop();
-
-  // Verify not immediately busy (since low-end device).
-  EXPECT_FALSE(state() == RequestCoordinatorState::OFFLINING);
-
-  // Set feature flag to allow concurrent loads.
-  base::test::ScopedFeatureList scoped_feature_list;
-  scoped_feature_list.InitAndEnableFeature(
-      kOfflinePagesSvelteConcurrentLoadingFeature);
-  EXPECT_TRUE(offline_pages::IsOfflinePagesSvelteConcurrentLoadingEnabled());
-
-  // Turn off the callback so that the request stops before processing in
-  // PumpLoop.
-  EnableOfflinerCallback(false);
-
-  // Make another request.
-  RequestCoordinator::SavePageLaterParams params;
-  params.url = kUrl2;
-  params.client_id = kClientId2;
-  params.user_requested = kUserRequested;
-  EXPECT_NE(0, coordinator()->SavePageLater(
-                   params, base::BindOnce(
-                               &RequestCoordinatorTest::SavePageRequestCallback,
-                               base::Unretained(this))));
-  PumpLoop();
-
-  // Verify immediate processing did start this time.
-  EXPECT_TRUE(state() == RequestCoordinatorState::OFFLINING);
-}
-
 TEST_F(RequestCoordinatorTest, SavePageDoesntStartProcessingWhenDisconnected) {
   SetNetworkConnected(false);
   EnableOfflinerCallback(false);
@@ -1741,7 +1704,7 @@ TEST_F(RequestCoordinatorTest, SnapshotOnLastTryForScheduledProcessing) {
   // be the last retry.
   int max_tries = coordinator()->policy()->GetMaxCompletedTries();
   request.set_completed_attempt_count(max_tries - 1);
-  queue()->AddRequest(request, base::DoNothing());
+  queue()->AddRequest(request, RequestQueue::AddOptions(), base::DoNothing());
   PumpLoop();
 
   // Ensure that the new request does not finish - we simulate it being

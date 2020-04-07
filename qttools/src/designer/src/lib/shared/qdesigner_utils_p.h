@@ -81,15 +81,15 @@ template <class IntType>
 class MetaEnum
 {
 public:
-    typedef QMap<QString, IntType> KeyToValueMap;
+    using KeyToValueMap = QMap<QString, IntType>;
 
     MetaEnum(const QString &name, const QString &scope, const QString &separator);
-    MetaEnum() {}
+    MetaEnum() = default;
     void addKey(IntType value, const QString &name);
 
-    QString valueToKey(IntType value, bool *ok = 0) const;
+    QString valueToKey(IntType value, bool *ok = nullptr) const;
     // Ignorant of scopes.
-    IntType keyToValue(QString key, bool *ok = 0) const;
+    IntType keyToValue(QString key, bool *ok = nullptr) const;
 
     const QString &name() const      { return m_name; }
     const QString &scope() const     { return m_scope; }
@@ -161,16 +161,16 @@ class QDESIGNER_SHARED_EXPORT DesignerMetaEnum : public MetaEnum<int>
 {
 public:
     DesignerMetaEnum(const QString &name, const QString &scope, const QString &separator);
-    DesignerMetaEnum() {}
+    DesignerMetaEnum() = default;
 
     enum SerializationMode { FullyQualified, NameOnly };
-    QString toString(int value, SerializationMode sm, bool *ok = 0) const;
+    QString toString(int value, SerializationMode sm, bool *ok = nullptr) const;
 
     QString messageToStringFailed(int value) const;
     QString messageParseFailed(const QString &s) const;
 
     // parse a string (ignorant of scopes)
-    int parseEnum(const QString &s, bool *ok = 0) const { return keyToValue(s, ok); }
+    int parseEnum(const QString &s, bool *ok = nullptr) const { return keyToValue(s, ok); }
 };
 
 // -------------- DesignerMetaFlags: Meta type for flags.
@@ -181,7 +181,7 @@ class QDESIGNER_SHARED_EXPORT DesignerMetaFlags : public MetaEnum<uint>
 {
 public:
     DesignerMetaFlags(const QString &name, const QString &scope, const QString &separator);
-    DesignerMetaFlags() {}
+    DesignerMetaFlags() = default;
 
     enum SerializationMode { FullyQualified, NameOnly };
     QString toString(int value, SerializationMode sm) const;
@@ -189,7 +189,7 @@ public:
 
     QString messageParseFailed(const QString &s) const;
     // parse a string (ignorant of scopes)
-    int parseFlags(const QString &s, bool *ok = 0) const;
+    int parseFlags(const QString &s, bool *ok = nullptr) const;
 };
 
 // -------------- EnumValue: Returned by the property sheet for enumerations
@@ -273,8 +273,8 @@ class QDESIGNER_SHARED_EXPORT PropertySheetIconValue
     PropertySheetIconValue themed() const;
     PropertySheetIconValue unthemed() const;
 
-    typedef QPair<QIcon::Mode, QIcon::State> ModeStateKey;
-    typedef QMap<ModeStateKey, PropertySheetPixmapValue> ModeStateToPixmapMap;
+    using ModeStateKey = QPair<QIcon::Mode, QIcon::State>;
+    using ModeStateToPixmapMap = QMap<ModeStateKey, PropertySheetPixmapValue>;
 
     const ModeStateToPixmapMap &paths() const;
 
@@ -289,7 +289,7 @@ class QDESIGNER_SHARED_EXPORT DesignerPixmapCache : public QObject
 {
     Q_OBJECT
 public:
-    DesignerPixmapCache(QObject *parent = 0);
+    DesignerPixmapCache(QObject *parent = nullptr);
     QPixmap pixmap(const PropertySheetPixmapValue &value) const;
     void clear();
 signals:
@@ -303,7 +303,7 @@ class QDESIGNER_SHARED_EXPORT DesignerIconCache : public QObject
 {
     Q_OBJECT
 public:
-    explicit DesignerIconCache(DesignerPixmapCache *pixmapCache, QObject *parent = 0);
+    explicit DesignerIconCache(DesignerPixmapCache *pixmapCache, QObject *parent = nullptr);
     QIcon icon(const PropertySheetIconValue &value) const;
     void clear();
 signals:
@@ -435,8 +435,15 @@ QDESIGNER_SHARED_EXPORT QDesignerFormWindowCommand *createTextPropertyCommand(co
 // Returns preferred task menu action for managed widget
 QDESIGNER_SHARED_EXPORT QAction *preferredEditAction(QDesignerFormEditorInterface *core, QWidget *managedWidget);
 
+enum class UicLanguage
+{
+    Cpp,
+    Python,
+};
+
 // Convenience to run UIC
-QDESIGNER_SHARED_EXPORT bool runUIC(const QString &fileName, QByteArray& ba, QString &errorMessage);
+QDESIGNER_SHARED_EXPORT bool runUIC(const QString &fileName, UicLanguage language,
+                                    QByteArray& ba, QString &errorMessage);
 
 // Find a suitable variable name for a class.
 QDESIGNER_SHARED_EXPORT QString qtify(const QString &name);
@@ -446,7 +453,7 @@ QDESIGNER_SHARED_EXPORT QString qtify(const QString &name);
  * which is important to avoid side-effects when putting it into QStackedLayout. */
 
 class QDESIGNER_SHARED_EXPORT UpdateBlocker {
-    Q_DISABLE_COPY(UpdateBlocker)
+    Q_DISABLE_COPY_MOVE(UpdateBlocker)
 
 public:
     UpdateBlocker(QWidget *w);
@@ -459,14 +466,14 @@ private:
 
 namespace Utils {
 
-inline int valueOf(const QVariant &value, bool *ok = 0)
+inline int valueOf(const QVariant &value, bool *ok = nullptr)
 {
     if (value.canConvert<PropertySheetEnumValue>()) {
         if (ok)
             *ok = true;
         return qvariant_cast<PropertySheetEnumValue>(value).value;
     }
-    else if (value.canConvert<PropertySheetFlagValue>()) {
+    if (value.canConvert<PropertySheetFlagValue>()) {
         if (ok)
             *ok = true;
         return qvariant_cast<PropertySheetFlagValue>(value).value;
@@ -477,7 +484,7 @@ inline int valueOf(const QVariant &value, bool *ok = 0)
 inline bool isObjectAncestorOf(QObject *ancestor, QObject *child)
 {
     QObject *obj = child;
-    while (obj != 0) {
+    while (obj != nullptr) {
         if (obj == ancestor)
             return true;
         obj = obj->parent();

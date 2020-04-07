@@ -77,7 +77,9 @@ public:
     QBluetoothDeviceInfo::MajorDeviceClass majorDeviceClass;
     quint8 minorDeviceClass;
 
+#if QT_DEPRECATED_SINCE(5, 13)
     QBluetoothDeviceInfo::DataCompleteness serviceUuidsCompleteness;
+#endif
     QVector<QBluetoothUuid> serviceUuids;
     QHash<quint16, QByteArray> manufacturerData;
     QBluetoothDeviceInfo::CoreConfigurations deviceCoreConfiguration;

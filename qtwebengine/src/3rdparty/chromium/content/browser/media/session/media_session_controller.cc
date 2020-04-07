@@ -14,7 +14,7 @@
 namespace content {
 
 MediaSessionController::MediaSessionController(
-    const WebContentsObserver::MediaPlayerId& id,
+    const MediaPlayerId& id,
     MediaWebContentsObserver* media_web_contents_observer)
     : id_(id),
       media_web_contents_observer_(media_web_contents_observer),
@@ -29,11 +29,15 @@ MediaSessionController::~MediaSessionController() {
 bool MediaSessionController::Initialize(
     bool has_audio,
     bool is_remote,
-    media::MediaContentType media_content_type) {
+    media::MediaContentType media_content_type,
+    media_session::MediaPosition* position) {
   // Store these as we will need them later.
   is_remote_ = is_remote;
   has_audio_ = has_audio;
   media_content_type_ = media_content_type;
+
+  if (position)
+    position_ = *position;
 
   // Don't generate a new id if one has already been set.
   if (!has_session_) {
@@ -79,8 +83,11 @@ bool MediaSessionController::Initialize(
 
 void MediaSessionController::OnSuspend(int player_id) {
   DCHECK_EQ(player_id_, player_id);
+  // TODO(crbug.com/953645): Set triggered_by_user to true ONLY if that action
+  // was actually triggered by user as this will create a WebUserGestureToken.
   id_.render_frame_host->Send(new MediaPlayerDelegateMsg_Pause(
-      id_.render_frame_host->GetRoutingID(), id_.delegate_id));
+      id_.render_frame_host->GetRoutingID(), id_.delegate_id,
+      true /* triggered_by_user */));
 }
 
 void MediaSessionController::OnResume(int player_id) {
@@ -135,6 +142,14 @@ void MediaSessionController::WebContentsMutedStateChanged(bool muted) {
     has_session_ = false;
     media_session_->RemovePlayer(this, player_id_);
   }
+}
+
+void MediaSessionController::OnMediaPositionStateChanged(
+    const media_session::MediaPosition& position) {
+  position_ = position;
+
+  // TODO(https://crbug.com/985394): Notify MediaSessionImpl that the
+  // position state has changed.
 }
 
 }  // namespace content

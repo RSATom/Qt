@@ -30,6 +30,8 @@
     \title Qt Quick Controls 1 Platform Notes
     \brief Platform specific notes for Qt Quick Controls.
 
+    \deprecationwarning
+
     This page contains platform specific notes for creating applications
     that use \l{Qt Quick Controls 1}.
 

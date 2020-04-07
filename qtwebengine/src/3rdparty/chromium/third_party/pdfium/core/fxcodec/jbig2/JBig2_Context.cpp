@@ -14,8 +14,6 @@
 #include <utility>
 #include <vector>
 
-#include "core/fpdfapi/parser/cpdf_stream.h"
-#include "core/fpdfapi/parser/cpdf_stream_acc.h"
 #include "core/fxcodec/jbig2/JBig2_ArithDecoder.h"
 #include "core/fxcodec/jbig2/JBig2_BitStream.h"
 #include "core/fxcodec/jbig2/JBig2_GrdProc.h"
@@ -51,25 +49,30 @@ static const size_t kSymbolDictCacheMaxSize = 2;
 static_assert(kSymbolDictCacheMaxSize > 0,
               "Symbol Dictionary Cache must have non-zero size");
 
-CJBig2_Context::CJBig2_Context(const RetainPtr<CPDF_StreamAcc>& pGlobalStream,
-                               const RetainPtr<CPDF_StreamAcc>& pSrcStream,
+// static
+std::unique_ptr<CJBig2_Context> CJBig2_Context::Create(
+    pdfium::span<const uint8_t> pGlobalSpan,
+    uint32_t dwGlobalObjNum,
+    pdfium::span<const uint8_t> pSrcSpan,
+    uint32_t dwSrcObjNum,
+    std::list<CJBig2_CachePair>* pSymbolDictCache) {
+  auto result = pdfium::WrapUnique(
+      new CJBig2_Context(pSrcSpan, dwSrcObjNum, pSymbolDictCache, false));
+  if (!pGlobalSpan.empty()) {
+    result->m_pGlobalContext = pdfium::WrapUnique(new CJBig2_Context(
+        pGlobalSpan, dwGlobalObjNum, pSymbolDictCache, true));
+  }
+  return result;
+}
+
+CJBig2_Context::CJBig2_Context(pdfium::span<const uint8_t> pSrcSpan,
+                               uint32_t dwObjNum,
                                std::list<CJBig2_CachePair>* pSymbolDictCache,
                                bool bIsGlobal)
-    : m_pStream(pdfium::MakeUnique<CJBig2_BitStream>(pSrcStream)),
+    : m_pStream(pdfium::MakeUnique<CJBig2_BitStream>(pSrcSpan, dwObjNum)),
       m_HuffmanTables(CJBig2_HuffmanTable::kNumHuffmanTables),
-      m_nSegmentDecoded(0),
-      m_bInPage(false),
-      m_bBufSpecified(false),
-      m_PauseStep(10),
-      m_ProcessingStatus(FXCODEC_STATUS_FRAME_READY),
-      m_dwOffset(0),
-      m_pSymbolDictCache(pSymbolDictCache),
-      m_bIsGlobal(bIsGlobal) {
-  if (pGlobalStream && pGlobalStream->GetSize() > 0) {
-    m_pGlobalContext = pdfium::MakeUnique<CJBig2_Context>(
-        nullptr, pGlobalStream, pSymbolDictCache, true);
-  }
-}
+      m_bIsGlobal(bIsGlobal),
+      m_pSymbolDictCache(pSymbolDictCache) {}
 
 CJBig2_Context::~CJBig2_Context() {}
 
@@ -122,47 +125,6 @@ JBig2_Result CJBig2_Context::DecodeSequential(PauseIndicatorIface* pPause) {
   return JBig2_Result::kSuccess;
 }
 
-JBig2_Result CJBig2_Context::DecodeRandomFirstPage(
-    PauseIndicatorIface* pPause) {
-  while (m_pStream->getByteLeft() > JBIG2_MIN_SEGMENT_SIZE) {
-    auto pSegment = pdfium::MakeUnique<CJBig2_Segment>();
-    JBig2_Result nRet = ParseSegmentHeader(pSegment.get());
-    if (nRet != JBig2_Result::kSuccess)
-      return nRet;
-
-    if (pSegment->m_cFlags.s.type == 51)
-      break;
-
-    m_SegmentList.push_back(std::move(pSegment));
-    if (pPause && pPause->NeedToPauseNow()) {
-      m_PauseStep = 3;
-      m_ProcessingStatus = FXCODEC_STATUS_DECODE_TOBECONTINUE;
-      return JBig2_Result::kSuccess;
-    }
-  }
-  m_nSegmentDecoded = 0;
-  return DecodeRandom(pPause);
-}
-
-JBig2_Result CJBig2_Context::DecodeRandom(PauseIndicatorIface* pPause) {
-  for (; m_nSegmentDecoded < m_SegmentList.size(); ++m_nSegmentDecoded) {
-    JBig2_Result nRet =
-        ParseSegmentData(m_SegmentList[m_nSegmentDecoded].get(), pPause);
-    if (nRet == JBig2_Result::kEndReached)
-      return JBig2_Result::kSuccess;
-
-    if (nRet != JBig2_Result::kSuccess)
-      return nRet;
-
-    if (m_pPage && pPause && pPause->NeedToPauseNow()) {
-      m_PauseStep = 4;
-      m_ProcessingStatus = FXCODEC_STATUS_DECODE_TOBECONTINUE;
-      return JBig2_Result::kSuccess;
-    }
-  }
-  return JBig2_Result::kSuccess;
-}
-
 bool CJBig2_Context::GetFirstPage(uint8_t* pBuf,
                                   int32_t width,
                                   int32_t height,
@@ -189,16 +151,13 @@ bool CJBig2_Context::GetFirstPage(uint8_t* pBuf,
 bool CJBig2_Context::Continue(PauseIndicatorIface* pPause) {
   m_ProcessingStatus = FXCODEC_STATUS_DECODE_READY;
   JBig2_Result nRet = JBig2_Result::kSuccess;
-  if (m_PauseStep <= 2) {
-    nRet = DecodeSequential(pPause);
-  } else if (m_PauseStep == 3) {
-    nRet = DecodeRandomFirstPage(pPause);
-  } else if (m_PauseStep == 4) {
-    nRet = DecodeRandom(pPause);
-  } else if (m_PauseStep == 5) {
+  if (m_PauseStep == 5) {
     m_ProcessingStatus = FXCODEC_STATUS_DECODE_FINISH;
     return true;
   }
+
+  if (m_PauseStep <= 2)
+    nRet = DecodeSequential(pPause);
   if (m_ProcessingStatus == FXCODEC_STATUS_DECODE_TOBECONTINUE)
     return nRet == JBig2_Result::kSuccess;
 
@@ -467,7 +426,7 @@ JBig2_Result CJBig2_Context::ParseSymbolDict(CJBig2_Segment* pSegment) {
       CJBig2_Segment* pSeg =
           FindSegmentByNumber(pSegment->m_Referred_to_segment_numbers[i]);
       if (pSeg->m_cFlags.s.type == 0) {
-        const CJBig2_SymbolDict& dict = *pSeg->m_SymbolDict.get();
+        const CJBig2_SymbolDict& dict = *pSeg->m_SymbolDict;
         for (size_t j = 0; j < dict.NumImages(); ++j)
           SDINSYMS.get()[dwTemp + j] = dict.GetImage(j);
         dwTemp += dict.NumImages();
@@ -681,7 +640,7 @@ JBig2_Result CJBig2_Context::ParseTextRegion(CJBig2_Segment* pSegment) {
       CJBig2_Segment* pSeg =
           FindSegmentByNumber(pSegment->m_Referred_to_segment_numbers[i]);
       if (pSeg->m_cFlags.s.type == 0) {
-        const CJBig2_SymbolDict& dict = *pSeg->m_SymbolDict.get();
+        const CJBig2_SymbolDict& dict = *pSeg->m_SymbolDict;
         for (size_t j = 0; j < dict.NumImages(); ++j)
           SBSYMS.get()[dwTemp + j] = dict.GetImage(j);
         dwTemp += dict.NumImages();

@@ -48,13 +48,28 @@
 **
 ****************************************************************************/
 
-#include <QtWidgets>
-
-#include "characterwidget.h"
 #include "mainwindow.h"
+#include "characterwidget.h"
+
+#include <QApplication>
+#include <QBoxLayout>
+#include <QCheckBox>
+#include <QClipboard>
+#include <QDesktopWidget>
+#include <QDialog>
+#include <QDialogButtonBox>
+#include <QFontComboBox>
+#include <QLabel>
+#include <QLineEdit>
+#include <QMenuBar>
+#include <QPlainTextEdit>
+#include <QPushButton>
+#include <QScreen>
+#include <QScrollArea>
+#include <QStatusBar>
+#include <QTextStream>
 
 //! [0]
-
 Q_DECLARE_METATYPE(QFontComboBox::FontFilter)
 
 MainWindow::MainWindow(QWidget *parent)
@@ -114,9 +129,9 @@ MainWindow::MainWindow(QWidget *parent)
             this, &MainWindow::findSizes);
     connect(fontCombo, &QFontComboBox::currentFontChanged,
             characterWidget, &CharacterWidget::updateFont);
-    connect(sizeCombo, QOverload<const QString &>::of(&QComboBox::currentIndexChanged),
+    connect(sizeCombo, &QComboBox::currentTextChanged,
             characterWidget, &CharacterWidget::updateSize);
-    connect(styleCombo, QOverload<const QString &>::of(&QComboBox::currentIndexChanged),
+    connect(styleCombo, &QComboBox::currentTextChanged,
             characterWidget, &CharacterWidget::updateStyle);
 //! [4] //! [5]
     connect(characterWidget, &CharacterWidget::characterSelected,
@@ -288,7 +303,7 @@ QString FontInfoDialog::text() const
 
 void MainWindow::showInfo()
 {
-    const QRect screenGeometry = QApplication::desktop()->screenGeometry(this);
+    const QRect screenGeometry = screen()->geometry();
     FontInfoDialog *dialog = new FontInfoDialog(this);
     dialog->setWindowTitle(tr("Fonts"));
     dialog->setAttribute(Qt::WA_DeleteOnClose);

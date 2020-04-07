@@ -52,6 +52,8 @@ class Scheduler {
 
   // Declares that the given file was read and affected the build output.
   //
+  // Some consumers expect provided path to be absolute.kk
+  //
   // TODO(brettw) this is global rather than per-BuildSettings. If we
   // start using >1 build settings, then we probably want this to take a
   // BuildSettings object so we know the depdency on a per-build basis.
@@ -113,7 +115,7 @@ class Scheduler {
 
   scoped_refptr<InputFileManager> input_file_manager_;
 
-  bool verbose_logging_;
+  bool verbose_logging_ = false;
 
   base::AtomicRefCount work_count_;
 
@@ -130,14 +132,14 @@ class Scheduler {
   WorkerPool worker_pool_;
 
   mutable std::mutex lock_;
-  bool is_failed_;
+  bool is_failed_ = false;
 
-  bool suppress_output_for_testing_;
+  bool suppress_output_for_testing_ = false;
 
   // Used to track whether the worker pool has been shutdown. This is necessary
   // to clean up after tests that make a scheduler but don't run the message
   // loop.
-  bool has_been_shutdown_;
+  bool has_been_shutdown_ = false;
 
   // Protected by the lock. See the corresponding Add/Get functions above.
   std::vector<base::FilePath> gen_dependencies_;

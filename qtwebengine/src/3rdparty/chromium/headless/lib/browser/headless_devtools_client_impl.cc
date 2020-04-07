@@ -77,7 +77,7 @@ HeadlessDevToolsClientImpl::HeadlessDevToolsClientImpl()
 HeadlessDevToolsClientImpl::~HeadlessDevToolsClientImpl() {
   if (parent_client_)
     parent_client_->sessions_.erase(session_id_);
-};
+}
 
 void HeadlessDevToolsClientImpl::AttachToExternalHost(
     ExternalHost* external_host) {
@@ -131,7 +131,8 @@ int HeadlessDevToolsClientImpl::GetNextRawDevToolsMessageId() {
 
 void HeadlessDevToolsClientImpl::SendRawDevToolsMessage(
     const std::string& json_message) {
-  std::unique_ptr<base::Value> message = base::JSONReader::Read(json_message);
+  std::unique_ptr<base::Value> message =
+      base::JSONReader::ReadDeprecated(json_message);
   if (!message->is_dict()) {
     LOG(ERROR) << "Malformed raw message";
     return;
@@ -153,7 +154,7 @@ void HeadlessDevToolsClientImpl::ReceiveProtocolMessage(
     const std::string& json_message) {
   // LOG(ERROR) << "[RECV] " << json_message;
   std::unique_ptr<base::Value> message =
-      base::JSONReader::Read(json_message, base::JSON_PARSE_RFC);
+      base::JSONReader::ReadDeprecated(json_message, base::JSON_PARSE_RFC);
   if (!message || !message->is_dict()) {
     NOTREACHED() << "Badly formed reply " << json_message;
     return;
@@ -225,6 +226,7 @@ bool HeadlessDevToolsClientImpl::DispatchMessageReply(
       }
     } else if (message_dict.GetDictionary("error", &result_dict)) {
       auto null_value = std::make_unique<base::Value>();
+      base::Value* null_value_ptr = null_value.get();
       DLOG(ERROR) << "Error in method call result: " << *result_dict;
       if (browser_main_thread_) {
         browser_main_thread_->PostTask(
@@ -232,7 +234,7 @@ bool HeadlessDevToolsClientImpl::DispatchMessageReply(
             base::BindOnce(
                 &HeadlessDevToolsClientImpl::DispatchMessageReplyWithResultTask,
                 weak_ptr_factory_.GetWeakPtr(), std::move(null_value),
-                std::move(callback.callback_with_result), null_value.get()));
+                std::move(callback.callback_with_result), null_value_ptr));
       } else {
         std::move(callback.callback_with_result).Run(*null_value);
       }

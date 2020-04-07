@@ -19,7 +19,6 @@ group("closure_compile") {
 js_type_check("closure_compile_module") {
   deps = [
     ":byte_reader",
-    ":closure_compile_externs",
     ":content_metadata_provider",
     ":exif_constants",
     ":exif_parser",
@@ -44,14 +43,6 @@ js_type_check("closure_compile_module") {
   ]
 }
 
-js_library("closure_compile_externs") {
-  sources = []
-  externs_list = [
-    "../../../../externs/app_window_common.js",
-    "../../../../externs/platform.js",
-  ]
-}
-
 js_library("byte_reader") {
 }
 
@@ -60,6 +51,7 @@ js_library("content_metadata_provider") {
     ":metadata_provider",
     "../../../common/js:file_type",
     "../../../common/js:util",
+    "../../js:thumbnail_loader",
   ]
 }
 
@@ -189,8 +181,14 @@ js_unittest("metadata_cache_set_unittest") {
 
 js_library("metadata_dispatcher") {
   deps = [
+    ":byte_reader",
+    ":exif_parser",
+    ":id3_parser",
+    ":image_parsers",
     ":metadata_parser",
+    ":mpeg_parser",
   ]
+  externs_list = [ "../../../../externs/platform.js" ]
 }
 
 js_library("metadata_item") {
@@ -290,4 +288,5 @@ js_unit_tests("unit_tests") {
     ":multi_metadata_provider_unittest",
     ":thumbnail_model_unittest",
   ]
+  mocks = [ "metadata_dispatcher_mock_deps.js" ]
 }

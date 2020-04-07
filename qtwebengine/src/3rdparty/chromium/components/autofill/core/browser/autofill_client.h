@@ -15,7 +15,8 @@
 #include "base/strings/string16.h"
 #include "base/values.h"
 #include "build/build_config.h"
-#include "components/autofill/core/browser/risk_data_loader.h"
+#include "components/autofill/core/browser/payments/risk_data_loader.h"
+#include "components/autofill/core/browser/ui/popup_types.h"
 #include "components/security_state/core/security_state.h"
 #include "services/metrics/public/cpp/ukm_source_id.h"
 #include "ui/base/window_open_disposition.h"
@@ -31,7 +32,7 @@ namespace gfx {
 class RectF;
 }
 
-namespace identity {
+namespace signin {
 class IdentityManager;
 }
 
@@ -57,7 +58,7 @@ class CardUnmaskDelegate;
 class CreditCard;
 class FormDataImporter;
 class FormStructure;
-class LegacyStrikeDatabase;
+class LogManager;
 class MigratableCreditCard;
 class PersonalDataManager;
 class StrikeDatabase;
@@ -115,12 +116,73 @@ class AutofillClient : public RiskDataLoader {
     UNMASK_FOR_AUTOFILL,
   };
 
+  // Authentication methods for card unmasking.
+  enum UnmaskAuthMethod {
+    UNKNOWN = 0,
+    // Require user to unmask via CVC.
+    CVC = 1,
+    // Suggest use of FIDO authenticator for card unmasking.
+    FIDO = 2,
+  };
+
+  // Details for card unmasking, such as the suggested method of authentication,
+  // along with any information required to facilitate the authentication.
+  struct UnmaskDetails {
+    UnmaskDetails();
+    ~UnmaskDetails();
+
+    // The type of authentication method suggested for card unmask.
+    UnmaskAuthMethod unmask_auth_method = UnmaskAuthMethod::UNKNOWN;
+    // Set to true if the user should be offered opt-in for FIDO Authentication.
+    bool offer_fido_opt_in = false;
+    // Public Key Credential Request Options required for authentication.
+    // https://www.w3.org/TR/webauthn/#dictdef-publickeycredentialrequestoptions
+    base::Value fido_request_options;
+    // Set of credit cards ids that are eligible for FIDO Authentication.
+    std::set<std::string> fido_eligible_card_ids;
+  };
+
   // Used for explicitly requesting the user to enter/confirm cardholder name,
   // expiration date month and year.
   struct UserProvidedCardDetails {
     base::string16 cardholder_name;
     base::string16 expiration_date_month;
     base::string16 expiration_date_year;
+  };
+
+  // Used for options of upload prompt.
+  struct SaveCreditCardOptions {
+    SaveCreditCardOptions& with_from_dynamic_change_form(bool b) {
+      from_dynamic_change_form = b;
+      return *this;
+    }
+
+    SaveCreditCardOptions& with_has_non_focusable_field(bool b) {
+      has_non_focusable_field = b;
+      return *this;
+    }
+
+    SaveCreditCardOptions& with_should_request_name_from_user(bool b) {
+      should_request_name_from_user = b;
+      return *this;
+    }
+
+    SaveCreditCardOptions& with_should_request_expiration_date_from_user(
+        bool b) {
+      should_request_expiration_date_from_user = b;
+      return *this;
+    }
+
+    SaveCreditCardOptions& with_show_prompt(bool b = true) {
+      show_prompt = b;
+      return *this;
+    }
+
+    bool from_dynamic_change_form = false;
+    bool has_non_focusable_field = false;
+    bool should_request_name_from_user = false;
+    bool should_request_expiration_date_from_user = false;
+    bool show_prompt = false;
   };
 
   // Callback to run after local credit card save is offered. Sends whether the
@@ -172,17 +234,13 @@ class AutofillClient : public RiskDataLoader {
   virtual syncer::SyncService* GetSyncService() = 0;
 
   // Gets the IdentityManager associated with the client.
-  virtual identity::IdentityManager* GetIdentityManager() = 0;
+  virtual signin::IdentityManager* GetIdentityManager() = 0;
 
   // Gets the FormDataImporter instance owned by the client.
   virtual FormDataImporter* GetFormDataImporter() = 0;
 
   // Gets the payments::PaymentsClient instance owned by the client.
   virtual payments::PaymentsClient* GetPaymentsClient() = 0;
-
-  // Gets the LegacyStrikeDatabase associated with the client.
-  // TODO(crbug.com/884817): Delete this once v2 of StrikeDatabase is launched.
-  virtual LegacyStrikeDatabase* GetLegacyStrikeDatabase() = 0;
 
   // Gets the StrikeDatabase associated with the client.
   virtual StrikeDatabase* GetStrikeDatabase() = 0;
@@ -247,36 +305,48 @@ class AutofillClient : public RiskDataLoader {
 
   // Runs |callback| once the user makes a decision with respect to the
   // offer-to-save prompt. On desktop, shows the offer-to-save bubble if
-  // |show_prompt| is true; otherwise only shows the omnibox icon. On mobile,
-  // shows the offer-to-save infobar if |show_prompt| is true; otherwise does
-  // not offer to save at all.
+  // |options.show_prompt| is true; otherwise only shows the
+  // omnibox icon. On mobile, shows the offer-to-save infobar if
+  // |options.show_prompt| is true; otherwise does not offer to
+  // save at all.
   virtual void ConfirmSaveCreditCardLocally(
       const CreditCard& card,
-      bool show_prompt,
+      AutofillClient::SaveCreditCardOptions options,
       LocalSaveCardPromptCallback callback) = 0;
 
 #if defined(OS_ANDROID)
-  // Run |callback| if the card should be uploaded to payments with updated
-  // name from the user.
+  // Display the cardholder name fix flow prompt and run the |callback| if
+  // the card should be uploaded to payments with updated name from the user.
   virtual void ConfirmAccountNameFixFlow(
       base::OnceCallback<void(const base::string16&)> callback) = 0;
+  // Display the expiration date fix flow prompt with the |card| details
+  // and run the |callback| if the card should be uploaded to payments with
+  // updated expiration date from the user.
+  virtual void ConfirmExpirationDateFixFlow(
+      const CreditCard& card,
+      base::OnceCallback<void(const base::string16&, const base::string16&)>
+          callback) = 0;
 #endif  // defined(OS_ANDROID)
 
   // Runs |callback| once the user makes a decision with respect to the
   // offer-to-save prompt. Displays the contents of |legal_message| to the user.
   // Displays a cardholder name textfield in the bubble if
-  // |should_request_name_from_user| is true. Displays a pair of expiration date
-  // dropdowns in the bubble if |should_request_expiration_date_from_user| is
-  // true. On desktop, shows the offer-to-save bubble if |show_prompt| is true;
+  // |options.should_request_name_from_user| is true. Displays
+  // a pair of expiration date dropdowns in the bubble if
+  // |should_request_expiration_date_from_user| is true. On desktop, shows the
+  // offer-to-save bubble if |options.show_prompt| is true;
   // otherwise only shows the omnibox icon. On mobile, shows the offer-to-save
-  // infobar if |show_prompt| is true; otherwise does not offer to save at all.
+  // infobar if |options.show_prompt| is true; otherwise does
+  // not offer to save at all.
   virtual void ConfirmSaveCreditCardToCloud(
       const CreditCard& card,
       std::unique_ptr<base::DictionaryValue> legal_message,
-      bool should_request_name_from_user,
-      bool should_request_expiration_date_from_user,
-      bool show_prompt,
+      SaveCreditCardOptions options,
       UploadSaveCardPromptCallback callback) = 0;
+
+  // Called after credit card upload is finished. Will show upload result to
+  // users. |card_saved| indicates if the card is successfully saved.
+  virtual void CreditCardUploadCompleted(bool card_saved) = 0;
 
   // Will show an infobar to get user consent for Credit Card assistive filling.
   // Will run |callback| on success.
@@ -300,6 +370,7 @@ class AutofillClient : public RiskDataLoader {
       base::i18n::TextDirection text_direction,
       const std::vector<Suggestion>& suggestions,
       bool autoselect_first_suggestion,
+      PopupType popup_type,
       base::WeakPtr<AutofillPopupDelegate> delegate) = 0;
 
   // Update the data list values shown by the Autofill popup, if visible.
@@ -336,6 +407,10 @@ class AutofillClient : public RiskDataLoader {
 
   // Handles simple actions for the autofill popups.
   virtual void ExecuteCommand(int id) = 0;
+
+  // Returns a LogManager instance. May be null for platforms that don't support
+  // this.
+  virtual LogManager* GetLogManager() const;
 };
 
 }  // namespace autofill

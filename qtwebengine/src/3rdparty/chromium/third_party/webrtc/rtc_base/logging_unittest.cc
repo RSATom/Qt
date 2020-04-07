@@ -11,6 +11,7 @@
 #include "rtc_base/logging.h"
 
 #include <string.h>
+
 #include <algorithm>
 
 #include "rtc_base/arraysize.h"
@@ -162,13 +163,14 @@ TEST(LogTest, SingleStream) {
   std::string s1 = "char*";
   std::string s2 = "std::string";
   std::string s3 = "absl::stringview";
-
+  const char* null_string = nullptr;
   void* p = reinterpret_cast<void*>(0xabcd);
 
   // Log all suported types(except doubles/floats) as a sanity-check.
   RTC_LOG(LS_INFO) << "|" << i << "|" << l << "|" << ll << "|" << u << "|" << ul
                    << "|" << ull << "|" << s1.c_str() << "|" << s2 << "|"
-                   << absl::string_view(s3) << "|" << p << "|";
+                   << absl::string_view(s3) << "|" << p << "|" << null_string
+                   << "|";
 
   // Signed integers
   EXPECT_NE(std::string::npos, str.find("|1|"));
@@ -188,43 +190,42 @@ TEST(LogTest, SingleStream) {
   // void*
   EXPECT_NE(std::string::npos, str.find("|abcd|"));
 
+  // null char*
+  EXPECT_NE(std::string::npos, str.find("|(null)|"));
+
   LogMessage::RemoveLogToStream(&stream);
   EXPECT_EQ(LS_NONE, LogMessage::GetLogToStream(&stream));
   EXPECT_EQ(sev, LogMessage::GetLogToStream(nullptr));
 }
 
-/*
 #if GTEST_HAS_DEATH_TEST && !defined(WEBRTC_ANDROID)
 TEST(LogTest, Checks) {
   EXPECT_DEATH(FATAL() << "message",
                "\n\n#\n"
-               "# Fatal error in: \\S+, line \\d+\n"
-               "# last system error: \\d+\n"
+               "# Fatal error in: \\S+, line \\w+\n"
+               "# last system error: \\w+\n"
                "# Check failed: FATAL\\(\\)\n"
-               "# message"
-               );
+               "# message");
 
   int a = 1, b = 2;
   EXPECT_DEATH(RTC_CHECK_EQ(a, b) << 1 << 2u,
                "\n\n#\n"
-               "# Fatal error in: \\S+, line \\d+\n"
-               "# last system error: \\d+\n"
+               "# Fatal error in: \\S+, line \\w+\n"
+               "# last system error: \\w+\n"
                "# Check failed: a == b \\(1 vs. 2\\)\n"
-               "# 12"
-               );
+               "# 12");
   RTC_CHECK_EQ(5, 5);
 
   RTC_CHECK(true) << "Shouldn't crash" << 1;
   EXPECT_DEATH(RTC_CHECK(false) << "Hi there!",
                "\n\n#\n"
-               "# Fatal error in: \\S+, line \\d+\n"
-               "# last system error: \\d+\n"
+               "# Fatal error in: \\S+, line \\w+\n"
+               "# last system error: \\w+\n"
                "# Check failed: false\n"
-               "# Hi there!"
-               );
+               "# Hi there!");
 }
 #endif
-*/
+
 // Test using multiple log streams. The INFO stream should get the INFO message,
 // the VERBOSE stream should get the INFO and the VERBOSE.
 // We should restore the correct global state at the end.
@@ -366,6 +367,20 @@ TEST(LogTest, Perf) {
   EXPECT_EQ(str.size(), (message.size() + logging_overhead) * kRepetitions);
   RTC_LOG(LS_INFO) << "Total log time: " << TimeDiff(finish, start) << " ms "
                    << " total bytes logged: " << str.size();
+}
+
+TEST(LogTest, EnumsAreSupported) {
+  enum class TestEnum { kValue0 = 0, kValue1 = 1 };
+  std::string str;
+  LogSinkImpl<StringStream> stream(&str);
+  LogMessage::AddLogToStream(&stream, LS_INFO);
+  RTC_LOG(LS_INFO) << "[" << TestEnum::kValue0 << "]";
+  EXPECT_NE(std::string::npos, str.find("[0]"));
+  EXPECT_EQ(std::string::npos, str.find("[1]"));
+  RTC_LOG(LS_INFO) << "[" << TestEnum::kValue1 << "]";
+  EXPECT_NE(std::string::npos, str.find("[1]"));
+  LogMessage::RemoveLogToStream(&stream);
+  stream.Close();
 }
 
 }  // namespace rtc

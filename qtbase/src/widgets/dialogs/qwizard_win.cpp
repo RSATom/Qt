@@ -87,7 +87,7 @@ QVistaBackButton::QVistaBackButton(QWidget *widget)
 QSize QVistaBackButton::sizeHint() const
 {
     ensurePolished();
-    int size = int(QStyleHelper::dpiScaled(32));
+    int size = int(QStyleHelper::dpiScaled(32, this));
     int width = size, height = size;
     return QSize(width, height);
 }
@@ -156,7 +156,7 @@ QVistaHelper::QVistaHelper(QWizard *wizard)
     backButton_ = new QVistaBackButton(wizard);
     backButton_->hide();
 
-    iconSpacing = QStyleHelper::dpiScaled(7);
+    iconSpacing = QStyleHelper::dpiScaled(7, wizard);
 }
 
 QVistaHelper::~QVistaHelper()
@@ -172,7 +172,7 @@ void QVistaHelper::updateCustomMargins(bool vistaMargins)
         const QMargins customMarginsDp = vistaMargins
             ? QMargins(0, -titleBarSizeDp(), 0, 0)
             : QMargins();
-        const QVariant customMarginsV = qVariantFromValue(customMarginsDp);
+        const QVariant customMarginsV = QVariant::fromValue(customMarginsDp);
         // The dynamic property takes effect when creating the platform window.
         window->setProperty("_q_windowsCustomMargins", customMarginsV);
         // If a platform window exists, change via native interface.
@@ -229,7 +229,7 @@ bool QVistaHelper::setDWMTitleBar(TitleBarChangeType type)
         if (type == NormalTitleBar)
             mar.cyTopHeight = 0;
         else
-            mar.cyTopHeight = (titleBarSize() + topOffset()) * QVistaHelper::m_devicePixelRatio;
+            mar.cyTopHeight = (titleBarSize() + topOffset(wizard)) * QVistaHelper::m_devicePixelRatio;
         if (const HWND wizardHandle = wizardHWND())
             if (SUCCEEDED(DwmExtendFrameIntoClientArea(wizardHandle, &mar)))
                 value = true;
@@ -275,7 +275,7 @@ void QVistaHelper::drawTitleBar(QPainter *painter)
 
     if (vistaState() == VistaAero && isWindow)
         drawBlackRect(QRect(0, 0, wizard->width(),
-                            titleBarSize() + topOffset()), hdc);
+                            titleBarSize() + topOffset(wizard)), hdc);
     // The button is positioned in QWizardPrivate::handleAeroStyleChange(),
     // all calculation is relative to it.
     const int btnTop = backButton_->mapToParent(QPoint()).y();
@@ -293,9 +293,9 @@ void QVistaHelper::drawTitleBar(QPainter *painter)
     int glowOffset = 0;
 
     if (vistaState() == VistaAero) {
-        textHeight += 2 * glowSize();
-        textWidth += 2 * glowSize();
-        glowOffset = glowSize();
+        glowOffset = glowSize(wizard);
+        textHeight += 2 * glowOffset;
+        textWidth += 2 * glowOffset;
     }
 
     const int titleLeft = (wizard->layoutDirection() == Qt::LeftToRight
@@ -314,10 +314,10 @@ void QVistaHelper::drawTitleBar(QPainter *painter)
 
     const QIcon windowIcon = wizard->windowIcon();
     if (!windowIcon.isNull()) {
-        const int size = QVistaHelper::iconSize();
+        const int size = QVistaHelper::iconSize(wizard);
         const int iconLeft = (wizard->layoutDirection() == Qt::LeftToRight
-                              ? leftMargin()
-                              : wizard->width() - leftMargin() - size);
+                              ? leftMargin(wizard)
+                              : wizard->width() - leftMargin(wizard) - size);
 
         const QPoint pos(origin.x() + iconLeft, origin.y() + verticalCenter - size / 2);
         const QPoint posDp = pos * QVistaHelper::m_devicePixelRatio;
@@ -339,7 +339,11 @@ void QVistaHelper::setTitleBarIconAndCaptionVisible(bool visible)
         SetWindowThemeAttribute(handle, WTA_NONCLIENT, &opt, sizeof(WTA_OPTIONS));
 }
 
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+bool QVistaHelper::winEvent(MSG* msg, qintptr *result)
+#else
 bool QVistaHelper::winEvent(MSG* msg, long* result)
+#endif
 {
     switch (msg->message) {
     case WM_NCHITTEST: {
@@ -401,7 +405,11 @@ void QVistaHelper::mouseEvent(QEvent *event)
     }
 }
 
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+bool QVistaHelper::handleWinEvent(MSG *message, qintptr *result)
+#else
 bool QVistaHelper::handleWinEvent(MSG *message, long *result)
+#endif
 {
     if (message->message == WM_THEMECHANGED || message->message == WM_DWMCOMPOSITIONCHANGED)
         cachedVistaState = Dirty;
@@ -419,7 +427,7 @@ void QVistaHelper::resizeEvent(QResizeEvent * event)
 {
     Q_UNUSED(event);
     rtTop = QRect (0, 0, wizard->width(), frameSize());
-    int height = captionSize() + topOffset();
+    int height = captionSize() + topOffset(wizard);
     if (vistaState() == VistaBasic)
         height -= titleBarSize();
     rtTitle = QRect (0, frameSize(), wizard->width(), height);
@@ -509,7 +517,11 @@ bool QVistaHelper::eventFilter(QObject *obj, QEvent *event)
 
     if (event->type() == QEvent::MouseMove) {
         QMouseEvent *mouseEvent = static_cast<QMouseEvent*>(event);
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+        qintptr result;
+#else
         long result;
+#endif
         MSG msg;
         msg.message = WM_NCHITTEST;
         msg.wParam  = 0;
@@ -523,7 +535,11 @@ bool QVistaHelper::eventFilter(QObject *obj, QEvent *event)
         QMouseEvent *mouseEvent = static_cast<QMouseEvent*>(event);
 
         if (mouseEvent->button() == Qt::LeftButton) {
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+            qintptr result;
+#else
             long result;
+#endif
             MSG msg;
             msg.message = WM_NCHITTEST;
             msg.wParam  = 0;
@@ -538,7 +554,11 @@ bool QVistaHelper::eventFilter(QObject *obj, QEvent *event)
         QMouseEvent *mouseEvent = static_cast<QMouseEvent*>(event);
 
         if (mouseEvent->button() == Qt::LeftButton) {
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+            qintptr result;
+#else
             long result;
+#endif
             MSG msg;
             msg.message = WM_NCHITTEST;
             msg.wParam  = 0;
@@ -617,7 +637,7 @@ bool QVistaHelper::drawTitleText(QPainter *painter, const QString &text, const Q
         RECT rctext ={0,0, rectDp.width(), rectDp.height()};
 
         dto.dwFlags = DTT_COMPOSITED|DTT_GLOWSIZE;
-        dto.iGlowSize = glowSize();
+        dto.iGlowSize = glowSize(wizard);
 
         DrawThemeTextEx(hTheme, dcMem, 0, 0, reinterpret_cast<LPCWSTR>(text.utf16()), -1, uFormat, &rctext, &dto );
         BitBlt(hdc, rectDp.left(), rectDp.top(), rectDp.width(), rectDp.height(), dcMem, 0, 0, SRCCOPY);
@@ -694,27 +714,27 @@ int QVistaHelper::captionSizeDp()
 
 int QVistaHelper::titleOffset()
 {
-    int iconOffset = wizard ->windowIcon().isNull() ? 0 : iconSize() + iconSpacing;
-    return leftMargin() + iconOffset;
+    int iconOffset = wizard ->windowIcon().isNull() ? 0 : iconSize(wizard) + iconSpacing;
+    return leftMargin(wizard) + iconOffset;
 }
 
-int QVistaHelper::iconSize()
+int QVistaHelper::iconSize(const QPaintDevice *device)
 {
-    return QStyleHelper::dpiScaled(16); // Standard Aero
+    return QStyleHelper::dpiScaled(16, device); // Standard Aero
 }
 
-int QVistaHelper::glowSize()
+int QVistaHelper::glowSize(const QPaintDevice *device)
 {
-    return QStyleHelper::dpiScaled(10);
+    return QStyleHelper::dpiScaled(10, device);
 }
 
-int QVistaHelper::topOffset()
+int QVistaHelper::topOffset(const QPaintDevice *device)
 {
     if (vistaState() != VistaAero)
         return titleBarSize() + 3;
     static const int aeroOffset =
         QOperatingSystemVersion::current() < QOperatingSystemVersion::Windows8 ?
-        QStyleHelper::dpiScaled(4) : QStyleHelper::dpiScaled(13);
+        QStyleHelper::dpiScaled(4, device) : QStyleHelper::dpiScaled(13, device);
     return aeroOffset + titleBarSize();
 }
 

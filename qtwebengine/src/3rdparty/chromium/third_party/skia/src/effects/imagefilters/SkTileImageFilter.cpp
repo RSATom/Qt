@@ -5,21 +5,20 @@
  * found in the LICENSE file.
  */
 
-#include "SkTileImageFilter.h"
-#include "SkColorSpaceXformer.h"
-#include "SkCanvas.h"
-#include "SkImage.h"
-#include "SkImageFilterPriv.h"
-#include "SkMatrix.h"
-#include "SkOffsetImageFilter.h"
-#include "SkPaint.h"
-#include "SkReadBuffer.h"
-#include "SkShader.h"
-#include "SkSpecialImage.h"
-#include "SkSpecialSurface.h"
-#include "SkSurface.h"
-#include "SkValidationUtils.h"
-#include "SkWriteBuffer.h"
+#include "include/core/SkCanvas.h"
+#include "include/core/SkImage.h"
+#include "include/core/SkMatrix.h"
+#include "include/core/SkPaint.h"
+#include "include/core/SkShader.h"
+#include "include/core/SkSurface.h"
+#include "include/effects/SkOffsetImageFilter.h"
+#include "include/effects/SkTileImageFilter.h"
+#include "src/core/SkImageFilterPriv.h"
+#include "src/core/SkReadBuffer.h"
+#include "src/core/SkSpecialImage.h"
+#include "src/core/SkSpecialSurface.h"
+#include "src/core/SkValidationUtils.h"
+#include "src/core/SkWriteBuffer.h"
 
 sk_sp<SkImageFilter> SkTileImageFilter::Make(const SkRect& srcRect, const SkRect& dstRect,
                                              sk_sp<SkImageFilter> input) {
@@ -109,22 +108,12 @@ sk_sp<SkSpecialImage> SkTileImageFilter::onFilterImage(SkSpecialImage* source,
 
     SkPaint paint;
     paint.setBlendMode(SkBlendMode::kSrc);
-    paint.setShader(subset->makeShader(SkShader::kRepeat_TileMode, SkShader::kRepeat_TileMode));
+    paint.setShader(subset->makeShader(SkTileMode::kRepeat, SkTileMode::kRepeat));
     canvas->translate(-dstRect.fLeft, -dstRect.fTop);
     canvas->drawRect(dstRect, paint);
     offset->fX = dstIRect.fLeft;
     offset->fY = dstIRect.fTop;
     return surf->makeImageSnapshot();
-}
-
-sk_sp<SkImageFilter> SkTileImageFilter::onMakeColorSpace(SkColorSpaceXformer* xformer) const {
-    SkASSERT(1 == this->countInputs());
-
-    auto input = xformer->apply(this->getInput(0));
-    if (input.get() != this->getInput(0)) {
-        return SkTileImageFilter::Make(fSrcRect, fDstRect, std::move(input));
-    }
-    return this->refMe();
 }
 
 SkIRect SkTileImageFilter::onFilterNodeBounds(const SkIRect& src, const SkMatrix& ctm,

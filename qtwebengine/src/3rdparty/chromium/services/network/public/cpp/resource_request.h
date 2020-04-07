@@ -12,13 +12,13 @@
 #include "base/memory/ref_counted.h"
 #include "base/optional.h"
 #include "base/unguessable_token.h"
+#include "net/base/network_isolation_key.h"
 #include "net/base/request_priority.h"
 #include "net/http/http_request_headers.h"
 #include "net/url_request/url_request.h"
 #include "services/network/public/cpp/resource_request_body.h"
 #include "services/network/public/mojom/cors.mojom-shared.h"
 #include "services/network/public/mojom/fetch_api.mojom-shared.h"
-#include "services/network/public/mojom/request_context_frame_type.mojom-shared.h"
 #include "url/gurl.h"
 #include "url/origin.h"
 
@@ -34,6 +34,8 @@ struct COMPONENT_EXPORT(NETWORK_CPP_BASE) ResourceRequest {
   ~ResourceRequest();
 
   bool EqualsForTesting(const ResourceRequest& request) const;
+  bool SendsCookies() const;
+  bool SavesCookies() const;
 
   std::string method = "GET";
   GURL url;
@@ -45,6 +47,10 @@ struct COMPONENT_EXPORT(NETWORK_CPP_BASE) ResourceRequest {
 #endif
 
   base::Optional<url::Origin> top_frame_origin;
+  net::NetworkIsolationKey trusted_network_isolation_key;
+  mojom::UpdateNetworkIsolationKeyOnRedirect
+      update_network_isolation_key_on_redirect =
+          network::mojom::UpdateNetworkIsolationKeyOnRedirect::kDoNotUpdate;
   bool attach_same_site_cookies = false;
   bool update_first_party_url_on_redirect = false;
   base::Optional<url::Origin> request_initiator;
@@ -53,30 +59,26 @@ struct COMPONENT_EXPORT(NETWORK_CPP_BASE) ResourceRequest {
       net::URLRequest::NEVER_CLEAR_REFERRER;
   bool is_prerendering = false;
   net::HttpRequestHeaders headers;
-  std::string requested_with_header;
-  std::string client_data_header;
+  net::HttpRequestHeaders cors_exempt_headers;
   int load_flags = 0;
   bool allow_credentials = true;
   int plugin_child_id = -1;
   int resource_type = 0;
   net::RequestPriority priority = net::IDLE;
-  int appcache_host_id = 0;
+  base::Optional<base::UnguessableToken> appcache_host_id;
   bool should_reset_appcache = false;
   bool is_external_request = false;
   mojom::CorsPreflightPolicy cors_preflight_policy =
       mojom::CorsPreflightPolicy::kConsiderPreflight;
-  int service_worker_provider_id = -1;
   bool originated_from_service_worker = false;
   bool skip_service_worker = false;
-  mojom::FetchRequestMode fetch_request_mode = mojom::FetchRequestMode::kNoCors;
-  mojom::FetchCredentialsMode fetch_credentials_mode =
-      mojom::FetchCredentialsMode::kInclude;
-  mojom::FetchRedirectMode fetch_redirect_mode =
-      mojom::FetchRedirectMode::kFollow;
+  bool corb_detachable = false;
+  bool corb_excluded = false;
+  mojom::RequestMode mode = mojom::RequestMode::kNoCors;
+  mojom::CredentialsMode credentials_mode = mojom::CredentialsMode::kInclude;
+  mojom::RedirectMode redirect_mode = mojom::RedirectMode::kFollow;
   std::string fetch_integrity;
   int fetch_request_context_type = 0;
-  mojom::RequestContextFrameType fetch_frame_type =
-      mojom::RequestContextFrameType::kAuxiliary;
   scoped_refptr<ResourceRequestBody> request_body;
   bool keepalive = false;
   bool has_user_gesture = false;
@@ -92,11 +94,14 @@ struct COMPONENT_EXPORT(NETWORK_CPP_BASE) ResourceRequest {
   bool initiated_in_secure_context = false;
   bool upgrade_if_insecure = false;
   bool is_revalidating = false;
+  bool should_also_use_factory_bound_origin_for_cors = false;
   base::Optional<base::UnguessableToken> throttling_profile_id;
   net::HttpRequestHeaders custom_proxy_pre_cache_headers;
   net::HttpRequestHeaders custom_proxy_post_cache_headers;
   bool custom_proxy_use_alternate_proxy_list = false;
   base::Optional<base::UnguessableToken> fetch_window_id;
+  base::Optional<std::string> devtools_request_id;
+  bool is_signed_exchange_prefetch_cache_enabled = false;
 };
 
 }  // namespace network

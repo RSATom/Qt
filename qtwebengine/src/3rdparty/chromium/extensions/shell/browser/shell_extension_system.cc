@@ -8,6 +8,7 @@
 #include <string>
 
 #include "apps/launcher.h"
+#include "base/bind.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/task/post_task.h"
@@ -37,8 +38,7 @@ namespace extensions {
 
 ShellExtensionSystem::ShellExtensionSystem(BrowserContext* browser_context)
     : browser_context_(browser_context),
-      store_factory_(new ValueStoreFactoryImpl(browser_context->GetPath())),
-      weak_factory_(this) {}
+      store_factory_(new ValueStoreFactoryImpl(browser_context->GetPath())) {}
 
 ShellExtensionSystem::~ShellExtensionSystem() = default;
 
@@ -68,7 +68,8 @@ void ShellExtensionSystem::LaunchApp(const ExtensionId& extension_id) {
   const Extension* extension = ExtensionRegistry::Get(browser_context_)
                                    ->enabled_extensions()
                                    .GetByID(extension_id);
-  apps::LaunchPlatformApp(browser_context_, extension, SOURCE_UNTRACKED);
+  apps::LaunchPlatformApp(browser_context_, extension,
+                          AppLaunchSource::kSourceUntracked);
 }
 
 void ShellExtensionSystem::ReloadExtension(const ExtensionId& extension_id) {
@@ -87,10 +88,6 @@ void ShellExtensionSystem::InitForRegularProfile(bool extensions_enabled) {
   quota_service_ = std::make_unique<QuotaService>();
   app_sorting_ = std::make_unique<NullAppSorting>();
   extension_loader_ = std::make_unique<ShellExtensionLoader>(browser_context_);
-}
-
-void ShellExtensionSystem::InitForIncognitoProfile() {
-  NOTREACHED();
 }
 
 ExtensionService* ShellExtensionSystem::extension_service() {
@@ -153,7 +150,7 @@ void ShellExtensionSystem::UnregisterExtensionWithRequestContexts(
     const std::string& extension_id,
     const UnloadedExtensionReason reason) {}
 
-const OneShotEvent& ShellExtensionSystem::ready() const {
+const base::OneShotEvent& ShellExtensionSystem::ready() const {
   return ready_;
 }
 

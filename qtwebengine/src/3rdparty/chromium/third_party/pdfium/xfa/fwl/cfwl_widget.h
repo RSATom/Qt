@@ -45,11 +45,19 @@ class CFWL_AppImp;
 class CFWL_MessageKey;
 class CFWL_Widget;
 class CFWL_WidgetMgr;
-class CXFA_FFWidget;
 class IFWL_ThemeProvider;
 
+// NOTE: CFWL_Widget serves as its own delegate until replaced at runtime.
 class CFWL_Widget : public IFWL_WidgetDelegate {
  public:
+  class AdapterIface {
+   public:
+    virtual ~AdapterIface() {}
+    virtual CFX_Matrix GetRotateMatrix() = 0;
+    virtual void DisplayCaret(bool bVisible, const CFX_RectF* pRtAnchor) = 0;
+    virtual void GetBorderColorAndThickness(FX_ARGB* cr, float* fWidth) = 0;
+  };
+
   ~CFWL_Widget() override;
 
   virtual FWL_Type GetClassID() const = 0;
@@ -85,8 +93,8 @@ class CFWL_Widget : public IFWL_WidgetDelegate {
 
   CFWL_Widget* GetOwner() { return m_pWidgetMgr->GetOwnerWidget(this); }
   CFWL_Widget* GetOuter() const { return m_pOuter; }
+  CFWL_Widget* GetOutmost() const;
 
-  uint32_t GetStyles() const;
   void ModifyStyles(uint32_t dwStylesAdded, uint32_t dwStylesRemoved);
   uint32_t GetStylesEx() const;
   uint32_t GetStates() const;
@@ -115,8 +123,8 @@ class CFWL_Widget : public IFWL_WidgetDelegate {
   uint32_t GetEventKey() const { return m_nEventKey; }
   void SetEventKey(uint32_t key) { m_nEventKey = key; }
 
-  CXFA_FFWidget* GetLayoutItem() const { return m_pLayoutItem; }
-  void SetLayoutItem(CXFA_FFWidget* pItem) { m_pLayoutItem = pItem; }
+  AdapterIface* GetFFWidget() const { return m_pFFWidget; }
+  void SetFFWidget(AdapterIface* pItem) { m_pFFWidget = pItem; }
 
   void RepaintRect(const CFX_RectF& pRect);
 
@@ -154,7 +162,7 @@ class CFWL_Widget : public IFWL_WidgetDelegate {
   UnownedPtr<CFWL_WidgetMgr> const m_pWidgetMgr;
   std::unique_ptr<CFWL_WidgetProperties> m_pProperties;
   CFWL_Widget* m_pOuter;
-  int32_t m_iLock;
+  int32_t m_iLock = 0;
 
  private:
   CFWL_Widget* GetParent() const { return m_pWidgetMgr->GetParentWidget(this); }
@@ -166,8 +174,8 @@ class CFWL_Widget : public IFWL_WidgetDelegate {
   void NotifyDriver();
   bool IsParent(CFWL_Widget* pParent);
 
-  CXFA_FFWidget* m_pLayoutItem;
-  uint32_t m_nEventKey;
+  uint32_t m_nEventKey = 0;
+  AdapterIface* m_pFFWidget = nullptr;
   UnownedPtr<IFWL_WidgetDelegate> m_pDelegate;
 };
 

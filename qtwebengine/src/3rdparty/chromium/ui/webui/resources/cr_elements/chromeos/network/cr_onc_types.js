@@ -388,6 +388,23 @@ CrOnc.getIPConfigForType = function(properties, type) {
 };
 
 /**
+ * Determines whether the provided properties represent a connecting/connected
+ * network.
+ * @param {!CrOnc.NetworkProperties|undefined} properties
+ * @return {boolean} Whether the properties provided indicate that the network
+ *     is connecting or connected.
+ */
+CrOnc.isConnectingOrConnected = function(properties) {
+  if (!properties) {
+    return false;
+  }
+
+  const connectionState = properties.ConnectionState;
+  return connectionState == CrOnc.ConnectionState.CONNECTED ||
+      connectionState == CrOnc.ConnectionState.CONNECTING;
+};
+
+/**
  * Gets the SignalStrength value from |properties| based on properties.Type.
  * @param {!CrOnc.NetworkProperties|!CrOnc.NetworkStateProperties|undefined}
  *     properties The ONC network properties or state properties.
@@ -458,6 +475,7 @@ CrOnc.getNetworkName = function(properties) {
   const name = CrOnc.getStateOrActiveString(properties.Name);
   const type = CrOnc.getStateOrActiveString(properties.Type);
   if (!name) {
+    assert(CrOncStrings);
     return CrOncStrings['OncType' + type];
   }
   if (type == 'VPN' && properties.VPN) {
@@ -681,23 +699,6 @@ CrOnc.proxyMatches = function(a, b) {
 };
 
 /**
- * @param {!CrOnc.NetworkProperties|!CrOnc.NetworkStateProperties|undefined}
- *     networkProperties The ONC network properties or state properties.
- * @return {boolean}
- */
-CrOnc.shouldShowTetherDialogBeforeConnection = function(networkProperties) {
-  // Only show for Tether networks.
-  if (networkProperties.Type != CrOnc.Type.TETHER) {
-    return false;
-  }
-
-  // Show if there are no Tether properties or if there are Tether properties
-  // and they indicate that a connection has not yet occurred to this host.
-  return !networkProperties.Tether ||
-      !networkProperties.Tether.HasConnectedToHost;
-};
-
-/**
  * Returns a valid CrOnc.Type, or undefined.
  * @param {string} typeStr
  * @return {!CrOnc.Type|undefined}
@@ -707,4 +708,19 @@ CrOnc.getValidType = function(typeStr) {
     return /** @type {!CrOnc.Type} */ (typeStr);
   }
   return undefined;
+};
+
+/**
+ * Returns whether |properties| has a Cellular or Tether network type.
+ * @param {!CrOnc.NetworkProperties|!CrOnc.NetworkStateProperties|undefined}
+ *     properties The ONC property dictionary to be checked.
+ * @return {boolean}
+ */
+CrOnc.isMobileNetwork = function(properties) {
+  if (!properties) {
+    return false;
+  }
+
+  const type = properties.Type;
+  return type == CrOnc.Type.CELLULAR || type == CrOnc.Type.TETHER;
 };

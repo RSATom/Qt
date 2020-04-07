@@ -34,9 +34,9 @@
     To import the QML types into your application, use the following import statement
     in your .qml file:
 
-    \code \QtMinorVersion
+    \qml \QtMinorVersion
     import QtScxml 5.\1
-    \endcode
+    \endqml
 
     For more information, see \l{Instantiating State Machines}.
  */

@@ -97,9 +97,9 @@ angle::Result VertexArray11::syncState(const gl::Context *context,
                 break;
             }
 
-                ANGLE_VERTEX_INDEX_CASES(ANGLE_VERTEX_DIRTY_ATTRIB_FUNC);
-                ANGLE_VERTEX_INDEX_CASES(ANGLE_VERTEX_DIRTY_BINDING_FUNC);
-                ANGLE_VERTEX_INDEX_CASES(ANGLE_VERTEX_DIRTY_BUFFER_DATA_FUNC);
+                ANGLE_VERTEX_INDEX_CASES(ANGLE_VERTEX_DIRTY_ATTRIB_FUNC)
+                ANGLE_VERTEX_INDEX_CASES(ANGLE_VERTEX_DIRTY_BINDING_FUNC)
+                ANGLE_VERTEX_INDEX_CASES(ANGLE_VERTEX_DIRTY_BUFFER_DATA_FUNC)
 
             default:
                 UNREACHABLE();
@@ -334,6 +334,9 @@ void VertexArray11::markAllAttributeDivisorsForAdjustment(int numViews)
     {
         mAppliedNumViewsToDivisor = numViews;
         mAttribsToTranslate.set();
+        // mDynamicAttribsMask may have already been set (updateVertexAttribStorage
+        // We don't want to override DYNAMIC attribs as they will be handled separately.
+        mAttribsToTranslate = mAttribsToTranslate ^ mDynamicAttribsMask;
     }
 }
 

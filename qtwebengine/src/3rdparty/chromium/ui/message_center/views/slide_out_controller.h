@@ -6,6 +6,7 @@
 #define UI_MESSAGE_CENTER_VIEWS_SLIDE_OUT_CONTROLLER_H_
 
 #include "base/macros.h"
+#include "base/memory/weak_ptr.h"
 #include "ui/compositor/layer_animation_observer.h"
 #include "ui/events/scoped_target_handler.h"
 #include "ui/message_center/message_center_export.h"
@@ -70,6 +71,10 @@ class MESSAGE_CENTER_EXPORT SlideOutController
   // Effective only when swipe control is enabled by EnableSwipeControl().
   void CloseSwipeControl();
 
+  // Slides the view out and closes it after the animation. The sign of
+  // |direction| indicates which way the slide occurs.
+  void SlideOutAndClose(int direction);
+
  private:
   // Positions where the slided view stays after the touch released.
   enum class SwipeControlOpenState { CLOSED, OPEN_ON_LEFT, OPEN_ON_RIGHT };
@@ -80,14 +85,20 @@ class MESSAGE_CENTER_EXPORT SlideOutController
   // Decides which position the slide should go back after touch is released.
   void CaptureControlOpenState();
 
-  // Slides the view out and closes it after the animation. The sign of
-  // |direction| indicates which way the slide occurs.
-  void SlideOutAndClose(int direction);
-
   // Sets the opacity of the slide out layer if |update_opacity_| is true.
   void SetOpacityIfNecessary(float opacity);
 
+  // Sets the transform matrix and performs animation if the matrix is changed.
+  void SetTransformWithAnimationIfNecessary(const gfx::Transform& transform,
+                                            base::TimeDelta animation_duration);
+
+  // Called asynchronously after the slide out animation completes to inform the
+  // delegate.
+  void OnSlideOut();
+
   ui::ScopedTargetHandler target_handling_;
+
+  // Unowned and outlives this object.
   Delegate* delegate_;
 
   // Cumulative scroll amount since the beginning of current slide gesture.
@@ -114,6 +125,8 @@ class MESSAGE_CENTER_EXPORT SlideOutController
 
   // Last opacity set by SetOpacityIfNecessary.
   float opacity_ = 1.0;
+
+  base::WeakPtrFactory<SlideOutController> weak_ptr_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(SlideOutController);
 };

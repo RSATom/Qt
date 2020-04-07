@@ -72,7 +72,7 @@ public:
     };
     Q_DECLARE_FLAGS(Feature, FeatureFlag)
 
-    explicit QDesignerIntegrationInterface(QDesignerFormEditorInterface *core, QObject *parent = Q_NULLPTR);
+    explicit QDesignerIntegrationInterface(QDesignerFormEditorInterface *core, QObject *parent = nullptr);
     virtual ~QDesignerIntegrationInterface();
 
     QDesignerFormEditorInterface *core() const;
@@ -80,7 +80,7 @@ public:
     virtual QWidget *containerWindow(QWidget *widget) const = 0;
 
     // Create a resource browser specific to integration. Language integration takes precedence
-    virtual QDesignerResourceBrowserInterface *createResourceBrowser(QWidget *parent = Q_NULLPTR) = 0;
+    virtual QDesignerResourceBrowserInterface *createResourceBrowser(QWidget *parent = nullptr) = 0;
     virtual QString headerSuffix() const = 0;
     virtual void setHeaderSuffix(const QString &headerSuffix) = 0;
 
@@ -131,42 +131,42 @@ class QDESIGNER_SDK_EXPORT QDesignerIntegration: public QDesignerIntegrationInte
 {
     Q_OBJECT
 public:
-    explicit QDesignerIntegration(QDesignerFormEditorInterface *core, QObject *parent = Q_NULLPTR);
+    explicit QDesignerIntegration(QDesignerFormEditorInterface *core, QObject *parent = nullptr);
     virtual ~QDesignerIntegration();
 
-    QString headerSuffix() const;
-    void setHeaderSuffix(const QString &headerSuffix);
+    QString headerSuffix() const override;
+    void setHeaderSuffix(const QString &headerSuffix) override;
 
-    bool isHeaderLowercase() const;
-    void setHeaderLowercase(bool headerLowerCase);
+    bool isHeaderLowercase() const override;
+    void setHeaderLowercase(bool headerLowerCase) override;
 
-    Feature features() const;
-    virtual void setFeatures(Feature f);
+    Feature features() const override;
+    virtual void setFeatures(Feature f) override;
 
-    ResourceFileWatcherBehaviour resourceFileWatcherBehaviour() const;
-    void setResourceFileWatcherBehaviour(ResourceFileWatcherBehaviour behaviour);
+    ResourceFileWatcherBehaviour resourceFileWatcherBehaviour() const override;
+    void setResourceFileWatcherBehaviour(ResourceFileWatcherBehaviour behaviour) override;
 
-    virtual QWidget *containerWindow(QWidget *widget) const;
+    virtual QWidget *containerWindow(QWidget *widget) const override;
 
     // Load plugins into widget database and factory.
     static void initializePlugins(QDesignerFormEditorInterface *formEditor);
 
     // Create a resource browser specific to integration. Language integration takes precedence
-    virtual QDesignerResourceBrowserInterface *createResourceBrowser(QWidget *parent = Q_NULLPTR);
+    QDesignerResourceBrowserInterface *createResourceBrowser(QWidget *parent = nullptr) override;
 
-    virtual QString contextHelpId() const;
+    QString contextHelpId() const override;
 
-    virtual void updateProperty(const QString &name, const QVariant &value, bool enableSubPropertyHandling);
-    virtual void updateProperty(const QString &name, const QVariant &value);
+    void updateProperty(const QString &name, const QVariant &value, bool enableSubPropertyHandling) override;
+    void updateProperty(const QString &name, const QVariant &value) override;
     // Additional signals of designer property editor
-    virtual void resetProperty(const QString &name);
-    virtual void addDynamicProperty(const QString &name, const QVariant &value);
-    virtual void removeDynamicProperty(const QString &name);
+    void resetProperty(const QString &name) override;
+    void addDynamicProperty(const QString &name, const QVariant &value) override;
+    void removeDynamicProperty(const QString &name) override;
 
-    virtual void updateActiveFormWindow(QDesignerFormWindowInterface *formWindow);
-    virtual void setupFormWindow(QDesignerFormWindowInterface *formWindow);
-    virtual void updateSelection();
-    virtual void updateCustomWidgetPlugins();
+    void updateActiveFormWindow(QDesignerFormWindowInterface *formWindow) override;
+    void setupFormWindow(QDesignerFormWindowInterface *formWindow) override;
+    void updateSelection() override;
+    void updateCustomWidgetPlugins() override;
 
 private:
     QScopedPointer<qdesigner_internal::QDesignerIntegrationPrivate> d;

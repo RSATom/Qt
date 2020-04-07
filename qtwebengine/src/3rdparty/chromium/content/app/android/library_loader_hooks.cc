@@ -7,8 +7,8 @@
 #include "base/android/reached_code_profiler.h"
 #include "base/logging.h"
 #include "base/trace_event/trace_event.h"
-#include "components/tracing/common/trace_startup.h"
 #include "content/common/content_constants_internal.h"
+#include "services/tracing/public/cpp/trace_startup.h"
 
 namespace content {
 
@@ -40,7 +40,8 @@ bool LibraryLoaded(JNIEnv* env,
   TRACE_EVENT0("jni", "JNI_OnLoad continuation");
 
   logging::LoggingSettings settings;
-  settings.logging_dest = logging::LOG_TO_SYSTEM_DEBUG_LOG;
+  settings.logging_dest =
+      logging::LOG_TO_SYSTEM_DEBUG_LOG | logging::LOG_TO_STDERR;
   logging::InitLogging(settings);
   // To view log output with IDs and timestamps use "adb logcat -v threadtime".
   logging::SetLogItems(false,    // Process ID

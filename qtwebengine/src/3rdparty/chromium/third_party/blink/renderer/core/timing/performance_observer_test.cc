@@ -9,6 +9,7 @@
 #include "third_party/blink/renderer/bindings/core/v8/v8_binding_for_testing.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_performance_observer_callback.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
+#include "third_party/blink/renderer/core/timing/layout_shift.h"
 #include "third_party/blink/renderer/core/timing/performance.h"
 #include "third_party/blink/renderer/core/timing/performance_mark.h"
 #include "third_party/blink/renderer/core/timing/performance_observer_init.h"
@@ -20,7 +21,7 @@ namespace blink {
 class MockPerformance : public Performance {
  public:
   explicit MockPerformance(ScriptState* script_state)
-      : Performance(TimeTicks(),
+      : Performance(base::TimeTicks(),
                     ExecutionContext::From(script_state)
                         ->GetTaskRunner(TaskType::kPerformanceTimeline)) {}
   ~MockPerformance() override = default;
@@ -62,13 +63,35 @@ TEST_F(PerformanceObserverTest, Observe) {
   EXPECT_TRUE(IsRegistered());
 }
 
-TEST_F(PerformanceObserverTest, Enqueue) {
+TEST_F(PerformanceObserverTest, ObserveWithBufferedFlag) {
   V8TestingScope scope;
   Initialize(scope.GetScriptState());
 
+  NonThrowableExceptionState exception_state;
+  PerformanceObserverInit* options = PerformanceObserverInit::Create();
+  options->setType("layout-shift");
+  options->setBuffered(true);
+  EXPECT_EQ(0, NumPerformanceEntries());
+
+  // add a layoutjank to performance so getEntries() returns it
+  auto* entry = MakeGarbageCollected<LayoutShift>(0.0, 1234, true, 5678);
+  base_->AddLayoutJankBuffer(*entry);
+
+  // call observe with the buffered flag
+  observer_->observe(options, exception_state);
+  EXPECT_TRUE(IsRegistered());
+  // Verify that the entry was added to the performance entries
+  EXPECT_EQ(1, NumPerformanceEntries());
+}
+
+TEST_F(PerformanceObserverTest, Enqueue) {
+  V8TestingScope scope;
+  NonThrowableExceptionState exception_state;
+  Initialize(scope.GetScriptState());
+
   ScriptValue empty_value;
-  Persistent<PerformanceEntry> entry =
-      PerformanceMark::Create(scope.GetScriptState(), "m", 1234, empty_value);
+  Persistent<PerformanceEntry> entry = PerformanceMark::Create(
+      scope.GetScriptState(), "m", 1234, empty_value, exception_state);
   EXPECT_EQ(0, NumPerformanceEntries());
 
   observer_->EnqueuePerformanceEntry(*entry);
@@ -77,11 +100,12 @@ TEST_F(PerformanceObserverTest, Enqueue) {
 
 TEST_F(PerformanceObserverTest, Deliver) {
   V8TestingScope scope;
+  NonThrowableExceptionState exception_state;
   Initialize(scope.GetScriptState());
 
   ScriptValue empty_value;
-  Persistent<PerformanceEntry> entry =
-      PerformanceMark::Create(scope.GetScriptState(), "m", 1234, empty_value);
+  Persistent<PerformanceEntry> entry = PerformanceMark::Create(
+      scope.GetScriptState(), "m", 1234, empty_value, exception_state);
   EXPECT_EQ(0, NumPerformanceEntries());
 
   observer_->EnqueuePerformanceEntry(*entry);
@@ -93,11 +117,12 @@ TEST_F(PerformanceObserverTest, Deliver) {
 
 TEST_F(PerformanceObserverTest, Disconnect) {
   V8TestingScope scope;
+  NonThrowableExceptionState exception_state;
   Initialize(scope.GetScriptState());
 
   ScriptValue empty_value;
-  Persistent<PerformanceEntry> entry =
-      PerformanceMark::Create(scope.GetScriptState(), "m", 1234, empty_value);
+  Persistent<PerformanceEntry> entry = PerformanceMark::Create(
+      scope.GetScriptState(), "m", 1234, empty_value, exception_state);
   EXPECT_EQ(0, NumPerformanceEntries());
 
   observer_->EnqueuePerformanceEntry(*entry);
@@ -107,4 +132,4 @@ TEST_F(PerformanceObserverTest, Disconnect) {
   EXPECT_FALSE(IsRegistered());
   EXPECT_EQ(0, NumPerformanceEntries());
 }
-}
+}  // namespace blink

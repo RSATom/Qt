@@ -1,7 +1,7 @@
 #include "winver.h"
 
 1 TYPELIB "multipleax.rc"
-1 ICON DISCARDABLE "multipleax.ico"
+1 ICON "multipleax.ico"
 
 VS_VERSION_INFO VERSIONINFO
  FILEVERSION 1,0,0,0

@@ -45,6 +45,7 @@
 #include <qmimedata.h>
 #include <qdebug.h>
 #include <qvector.h>
+#include <qregexp.h>
 #include <qstack.h>
 #include <qbitarray.h>
 #include <qdatetime.h>
@@ -76,7 +77,7 @@ QPersistentModelIndexData *QPersistentModelIndexData::create(const QModelIndex &
 void QPersistentModelIndexData::destroy(QPersistentModelIndexData *data)
 {
     Q_ASSERT(data);
-    Q_ASSERT(data->ref.load() == 0);
+    Q_ASSERT(data->ref.loadRelaxed() == 0);
     QAbstractItemModel *model = const_cast<QAbstractItemModel *>(data->index.model());
     // a valid persistent model index with a null model pointer can only happen if the model was destroyed
     if (model) {
@@ -105,6 +106,9 @@ void QPersistentModelIndexData::destroy(QPersistentModelIndexData *data)
 
   It is good practice to check that persistent model indexes are valid
   before using them.
+
+  \note You cannot store a QStandardItemModel's  QPersistentModelIndex
+  in one of the model's items.
 
   \sa {Model/View Programming}, QModelIndex, QAbstractItemModel
 */
@@ -531,21 +535,16 @@ void QAbstractItemModelPrivate::invalidatePersistentIndex(const QModelIndex &ind
     }
 }
 
-namespace {
-    struct DefaultRoleNames : public QHash<int, QByteArray>
+using DefaultRoleNames = QHash<int, QByteArray>;
+Q_GLOBAL_STATIC_WITH_ARGS(DefaultRoleNames, qDefaultRoleNames, (
     {
-        DefaultRoleNames() {
-            (*this)[Qt::DisplayRole] = "display";
-            (*this)[Qt::DecorationRole] = "decoration";
-            (*this)[Qt::EditRole] = "edit";
-            (*this)[Qt::ToolTipRole] = "toolTip";
-            (*this)[Qt::StatusTipRole] = "statusTip";
-            (*this)[Qt::WhatsThisRole] = "whatsThis";
-        }
-    };
-}
-
-Q_GLOBAL_STATIC(DefaultRoleNames, qDefaultRoleNames)
+        { Qt::DisplayRole,    "display"    },
+        { Qt::DecorationRole, "decoration" },
+        { Qt::EditRole,       "edit"       },
+        { Qt::ToolTipRole,    "toolTip"    },
+        { Qt::StatusTipRole,  "statusTip"  },
+        { Qt::WhatsThisRole,  "whatsThis"  },
+    }))
 
 const QHash<int,QByteArray> &QAbstractItemModelPrivate::defaultRoleNames()
 {
@@ -1902,10 +1901,17 @@ bool QAbstractItemModel::clearItemData(const QModelIndex &index)
 */
 bool QAbstractItemModel::setItemData(const QModelIndex &index, const QMap<int, QVariant> &roles)
 {
-    bool b = true;
-    for (QMap<int, QVariant>::ConstIterator it = roles.begin(); it != roles.end(); ++it)
-        b = b && setData(index, it.value(), it.key());
-    return b;
+    // ### Qt 6: Consider change the semantics of this function,
+    // or deprecating/removing it altogether.
+    //
+    // For instance, it should try setting *all* the data
+    // in \a roles, and not bail out at the first setData that returns
+    // false. It should also have a transactional approach.
+    for (auto it = roles.begin(), e = roles.end(); it != e; ++it) {
+        if (!setData(index, it.value(), it.key()))
+            return false;
+    }
+    return true;
 }
 
 /*!

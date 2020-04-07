@@ -67,6 +67,7 @@ namespace Input {
 class AbstractAxisInput;
 class ButtonAxisInput;
 class InputHandler;
+class UpdateAxisActionJobPrivate;
 
 class UpdateAxisActionJob : public Qt3DCore::QAspectJob
 {

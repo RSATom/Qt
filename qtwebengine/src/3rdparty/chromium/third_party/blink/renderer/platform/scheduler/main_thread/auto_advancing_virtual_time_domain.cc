@@ -4,16 +4,12 @@
 
 #include "third_party/blink/renderer/platform/scheduler/main_thread/auto_advancing_virtual_time_domain.h"
 
+#include <atomic>
+
 #include "base/atomicops.h"
 #include "base/time/time_override.h"
 #include "build/build_config.h"
 #include "third_party/blink/renderer/platform/scheduler/common/scheduler_helper.h"
-
-// windows.h #defines MemoryBarrier on x64. So we copy this bit
-// from base/atomicops.h to be independent of the include order in this file.
-#if defined(OS_WIN) && defined(ARCH_CPU_64_BITS)
-#undef MemoryBarrier
-#endif
 
 namespace blink {
 namespace scheduler {
@@ -26,7 +22,6 @@ AutoAdvancingVirtualTimeDomain::AutoAdvancingVirtualTimeDomain(
     : task_starvation_count_(0),
       max_task_starvation_count_(0),
       can_advance_virtual_time_(true),
-      observer_(nullptr),
       helper_(helper),
       now_ticks_(initial_time_ticks),
       initial_time_ticks_(initial_time_ticks),
@@ -36,7 +31,7 @@ AutoAdvancingVirtualTimeDomain::AutoAdvancingVirtualTimeDomain(
   AutoAdvancingVirtualTimeDomain::g_time_domain_ = this;
 
   // GetVirtualTime / GetVirtualTimeTicks access g_time_domain_.
-  base::subtle::MemoryBarrier();
+  std::atomic_thread_fence(std::memory_order_seq_cst);
 
   if (policy == BaseTimeOverridePolicy::OVERRIDE) {
     time_overrides_ = std::make_unique<base::subtle::ScopedTimeClockOverrides>(
@@ -54,7 +49,7 @@ AutoAdvancingVirtualTimeDomain::~AutoAdvancingVirtualTimeDomain() {
 
   // GetVirtualTime / GetVirtualTimeTicks (the functions we may have
   // temporariliy installed in the constructor) access g_time_domain_.
-  base::subtle::MemoryBarrier();
+  std::atomic_thread_fence(std::memory_order_seq_cst);
 
   DCHECK_EQ(AutoAdvancingVirtualTimeDomain::g_time_domain_, this);
   AutoAdvancingVirtualTimeDomain::g_time_domain_ = nullptr;
@@ -118,10 +113,6 @@ void AutoAdvancingVirtualTimeDomain::SetNextDelayedDoWork(
     RequestDoWork();
 }
 
-void AutoAdvancingVirtualTimeDomain::SetObserver(Observer* observer) {
-  observer_ = observer;
-}
-
 void AutoAdvancingVirtualTimeDomain::SetCanAdvanceVirtualTime(
     bool can_advance_virtual_time) {
   can_advance_virtual_time_ = can_advance_virtual_time;
@@ -161,9 +152,6 @@ bool AutoAdvancingVirtualTimeDomain::MaybeAdvanceVirtualTime(
     base::AutoLock lock(now_ticks_lock_);
     now_ticks_ = new_virtual_time;
   }
-
-  if (observer_)
-    observer_->OnVirtualTimeAdvanced();
 
   return true;
 }
@@ -208,10 +196,6 @@ base::Time AutoAdvancingVirtualTimeDomain::GetVirtualTime() {
   DCHECK(AutoAdvancingVirtualTimeDomain::g_time_domain_);
   return AutoAdvancingVirtualTimeDomain::g_time_domain_->Date();
 }
-
-AutoAdvancingVirtualTimeDomain::Observer::Observer() = default;
-
-AutoAdvancingVirtualTimeDomain::Observer::~Observer() = default;
 
 }  // namespace scheduler
 }  // namespace blink

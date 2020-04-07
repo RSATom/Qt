@@ -14,12 +14,17 @@
 #include "base/timer/timer.h"
 #include "components/download/internal/common/download_job_impl.h"
 #include "components/download/internal/common/download_worker.h"
+#include "components/download/public/common/download_create_info.h"
 #include "components/download/public/common/download_export.h"
 #include "components/download/public/common/parallel_download_configs.h"
 
 namespace net {
 class URLRequestContextGetter;
-}
+}  // namespace net
+
+namespace service_manager {
+class Connector;
+}  // namespace service_manager
 
 namespace download {
 
@@ -38,7 +43,8 @@ class COMPONENTS_DOWNLOAD_EXPORT ParallelDownloadJob
       const DownloadCreateInfo& create_info,
       scoped_refptr<download::DownloadURLLoaderFactoryGetter>
           url_loader_factory_getter,
-      net::URLRequestContextGetter* url_request_context_getter);
+      net::URLRequestContextGetter* url_request_context_getter,
+      service_manager::Connector* connector);
   ~ParallelDownloadJob() override;
 
   // DownloadJobImpl implementation.
@@ -114,6 +120,9 @@ class COMPONENTS_DOWNLOAD_EXPORT ParallelDownloadJob
   // If the download progress is canceled.
   bool is_canceled_;
 
+  // Whether the server accepts range requests.
+  RangeRequestSupportType range_support_;
+
   // URLLoaderFactory getter to issue network requests with network service
   scoped_refptr<download::DownloadURLLoaderFactoryGetter>
       url_loader_factory_getter_;
@@ -121,6 +130,9 @@ class COMPONENTS_DOWNLOAD_EXPORT ParallelDownloadJob
   // URLRequestContextGetter for issueing network requests when network service
   // is disabled.
   scoped_refptr<net::URLRequestContextGetter> url_request_context_getter_;
+
+  // Connector used for establishing the connection to the ServiceManager.
+  service_manager::Connector* connector_;
 
   DISALLOW_COPY_AND_ASSIGN(ParallelDownloadJob);
 };

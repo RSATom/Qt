@@ -41,7 +41,7 @@
 */
 
 /*!
-    \qmlmodule QtSensors 5.11
+    \qmlmodule QtSensors 5.\QtMinorVersion
     \title Qt Sensors QML Types
     \ingroup qmlmodules
 
@@ -51,8 +51,8 @@
 
     If the module is imported into a namespace, some additional methods become available.
 
-    \qml
-    import QtSensors 5.11
+    \qml \QtMinorVersion
+    import QtSensors 5.\1
     //  ...
         Component.onCompleted: {
             var types = QmlSensors.sensorTypes();

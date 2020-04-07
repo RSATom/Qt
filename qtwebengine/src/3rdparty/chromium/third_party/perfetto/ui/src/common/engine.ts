@@ -28,6 +28,8 @@ import {TimeSpan} from './time';
  */
 export abstract class Engine {
   abstract readonly id: string;
+  private _numCpus?: number;
+  private _numGpus?: number;
 
   /**
    * Push trace data into the engine. The engine is supposed to automatically
@@ -61,12 +63,23 @@ export abstract class Engine {
     return res;
   }
 
-  // TODO(hjd): Maybe we should cache result? But then Engine must be
-  // streaming aware.
+  // TODO(hjd): When streaming must invalidate this somehow.
   async getNumberOfCpus(): Promise<number> {
-    const result =
-        await this.query('select count(distinct(cpu)) as cpuCount from sched;');
-    return +result.columns[0].longValues![0];
+    if (!this._numCpus) {
+      const result = await this.query(
+          'select count(distinct(cpu)) as cpuCount from sched;');
+      this._numCpus = +result.columns[0].longValues![0];
+    }
+    return this._numCpus;
+  }
+
+  async getNumberOfGpus(): Promise<number> {
+    if (!this._numGpus) {
+      const result = await this.query(
+          'select count(distinct(arg_set_id)) as gpuCount from counters where name = "gpufreq";');
+      this._numGpus = +result.columns[0].longValues![0];
+    }
+    return this._numGpus;
   }
 
   // TODO: This should live in code that's more specific to chrome, instead of
@@ -77,18 +90,8 @@ export abstract class Engine {
   }
 
   async getTraceTimeBounds(): Promise<TimeSpan> {
-    const maxQuery = `select max(ts) from (
-      select max(ts) as ts from sched
-      union all select max(ts) as ts from slices
-      union all select max(ts) as ts from counters
-    )`;
-    const minQuery = `select min(ts) from (
-      select min(ts) as ts from sched
-      union all select min(ts) as ts from slices
-      union all select min(ts) as ts from counters
-    )`;
-    const start = (await this.queryOneRow(minQuery))[0];
-    const end = (await this.queryOneRow(maxQuery))[0];
-    return new TimeSpan(start / 1e9, end / 1e9);
+    const query = `select start_ts, end_ts from trace_bounds`;
+    const res = (await this.queryOneRow(query));
+    return new TimeSpan(res[0] / 1e9, res[1] / 1e9);
   }
 }

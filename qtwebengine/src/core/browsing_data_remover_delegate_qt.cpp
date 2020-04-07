@@ -49,29 +49,32 @@
 namespace QtWebEngineCore {
 
 bool DoesOriginMatchEmbedderMask(int origin_type_mask,
-                                 const GURL &origin,
-                                 storage::SpecialStoragePolicy *policy) {
+                                 const url::Origin &origin,
+                                 storage::SpecialStoragePolicy *policy)
+{
     Q_UNUSED(origin_type_mask);
     Q_UNUSED(origin);
     Q_UNUSED(policy);
     return true;
 }
 
-content::BrowsingDataRemoverDelegate::EmbedderOriginTypeMatcher BrowsingDataRemoverDelegateQt::GetOriginTypeMatcher() const {
-    return base::Bind(&DoesOriginMatchEmbedderMask);
+content::BrowsingDataRemoverDelegate::EmbedderOriginTypeMatcher BrowsingDataRemoverDelegateQt::GetOriginTypeMatcher()
+{
+    return base::BindRepeating(&DoesOriginMatchEmbedderMask);
 }
 
-bool BrowsingDataRemoverDelegateQt::MayRemoveDownloadHistory() const {
+bool BrowsingDataRemoverDelegateQt::MayRemoveDownloadHistory()
+{
     return true;
 }
 
-void BrowsingDataRemoverDelegateQt::RemoveEmbedderData(
-            const base::Time &delete_begin,
+void BrowsingDataRemoverDelegateQt::RemoveEmbedderData(const base::Time &delete_begin,
             const base::Time &delete_end,
             int remove_mask,
-            const content::BrowsingDataFilterBuilder& filter_builder,
+            content::BrowsingDataFilterBuilder *filter_builder,
             int origin_type_mask,
-            base::OnceClosure callback) {
+            base::OnceClosure callback)
+{
     Q_UNUSED(delete_begin);
     Q_UNUSED(delete_end);
     Q_UNUSED(filter_builder);

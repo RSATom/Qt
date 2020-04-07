@@ -3,40 +3,35 @@
 // found in the LICENSE file.
 
 #include "content/browser/frame_host/origin_policy_throttle.h"
+#include "content/public/browser/origin_policy_commands.h"
 
+#include <string>
+#include <utility>
+
+#include "base/bind.h"
 #include "base/command_line.h"
 #include "base/feature_list.h"
-#include "base/no_destructor.h"
 #include "content/browser/frame_host/navigation_handle_impl.h"
-#include "content/public/browser/browser_context.h"
+#include "content/browser/frame_host/navigation_request.h"
+#include "content/browser/storage_partition_impl.h"
 #include "content/public/browser/browser_thread.h"
-#include "content/public/browser/navigation_handle.h"
-#include "content/public/browser/origin_policy_error_reason.h"
 #include "content/public/browser/storage_partition.h"
 #include "content/public/common/content_features.h"
 #include "content/public/common/content_switches.h"
-#include "net/base/load_flags.h"
-#include "net/http/http_request_headers.h"
-#include "services/network/public/cpp/simple_url_loader.h"
+#include "services/network/public/mojom/origin_policy_manager.mojom.h"
 #include "url/origin.h"
-
-namespace {
-// Constants derived from the spec, https://github.com/WICG/origin-policy
-static const char* kDefaultPolicy = "0";
-static const char* kDeletePolicy = "0";
-static const char* kWellKnown = "/.well-known/origin-policy/";
-
-// Maximum policy size (implementation-defined limit in bytes).
-// (Limit copied from network::SimpleURLLoader::kMaxBoundedStringDownloadSize.)
-static const size_t kMaxPolicySize = 1024 * 1024;
-}  // namespace
 
 namespace content {
 
+// Implement the public "API" from
+// content/public/browser/origin_policy_commands.h:
+void OriginPolicyAddExceptionFor(BrowserContext* browser_context,
+                                 const GURL& url) {
+  OriginPolicyThrottle::AddExceptionFor(browser_context, url);
+}
+
 // static
-bool OriginPolicyThrottle::ShouldRequestOriginPolicy(
-    const GURL& url,
-    std::string* request_version) {
+bool OriginPolicyThrottle::ShouldRequestOriginPolicy(const GURL& url) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   bool origin_policy_enabled =
       base::FeatureList::IsEnabled(features::kOriginPolicy) ||
@@ -48,12 +43,6 @@ bool OriginPolicyThrottle::ShouldRequestOriginPolicy(
   if (!url.SchemeIs(url::kHttpsScheme))
     return false;
 
-  if (request_version) {
-    const KnownVersionMap& versions = GetKnownVersions();
-    const auto iter = versions.find(url::Origin::Create(url));
-    *request_version =
-        iter == versions.end() ? std::string(kDefaultPolicy) : iter->second;
-  }
   return true;
 }
 
@@ -72,9 +61,20 @@ OriginPolicyThrottle::MaybeCreateThrottleFor(NavigationHandle* handle) {
   // TODO(vogelheim): Rewrite & hoist up this DCHECK to ensure that ..HasHeader
   //     and ShouldRequestOriginPolicy are always equal on entry to the method.
   //     This depends on https://crbug.com/881234 being fixed.
-  DCHECK(OriginPolicyThrottle::ShouldRequestOriginPolicy(handle->GetURL(),
-                                                         nullptr));
+  DCHECK(OriginPolicyThrottle::ShouldRequestOriginPolicy(handle->GetURL()));
   return base::WrapUnique(new OriginPolicyThrottle(handle));
+}
+
+// static
+void OriginPolicyThrottle::AddExceptionFor(BrowserContext* browser_context,
+                                           const GURL& url) {
+  DCHECK(browser_context);
+  StoragePartitionImpl* storage_partition = static_cast<StoragePartitionImpl*>(
+      BrowserContext::GetStoragePartitionForSite(browser_context, url));
+  network::mojom::OriginPolicyManager* origin_policy_manager =
+      storage_partition->GetOriginPolicyManagerForBrowserProcess();
+
+  origin_policy_manager->AddExceptionFor(url::Origin::Create(url));
 }
 
 OriginPolicyThrottle::~OriginPolicyThrottle() {}
@@ -100,54 +100,25 @@ OriginPolicyThrottle::WillProcessResponse() {
   if (!navigation_handle()->GetResponseHeaders())
     return NavigationThrottle::PROCEED;
 
-  // This determines whether and which policy version applies and fetches it.
-  //
-  // Inputs are the kSecOriginPolicy HTTP header, and the version
-  // we've last seen from this particular origin.
-  //
-  // - header with kDeletePolicy received: No policy applies, and delete the
-  //       last-known policy for this origin.
-  // - header received: Use header version and update last-known policy.
-  // - no header received, last-known version exists: Use last-known version
-  // - no header, no last-known version: No policy applies.
+  std::string header;
+  navigation_handle()->GetResponseHeaders()->GetNormalizedHeader(
+      net::HttpRequestHeaders::kSecOriginPolicy, &header);
 
-  std::string response_version;
-  bool header_found =
-      navigation_handle()->GetResponseHeaders()->GetNormalizedHeader(
-          net::HttpRequestHeaders::kSecOriginPolicy, &response_version);
+  network::mojom::OriginPolicyManager::RetrieveOriginPolicyCallback
+      origin_policy_manager_done = base::BindOnce(
+          &OriginPolicyThrottle::OnOriginPolicyManagerRetrieveDone,
+          weak_factory_.GetWeakPtr());
 
-  url::Origin origin = GetRequestOrigin();
-  DCHECK(!origin.Serialize().empty());
-  DCHECK(!origin.opaque());
-  KnownVersionMap& versions = GetKnownVersions();
-  auto iter = versions.find(origin);
+  SiteInstance* site_instance = navigation_handle()->GetStartingSiteInstance();
+  StoragePartitionImpl* storage_partition =
+      static_cast<StoragePartitionImpl*>(BrowserContext::GetStoragePartition(
+          site_instance->GetBrowserContext(), site_instance));
+  network::mojom::OriginPolicyManager* origin_policy_manager =
+      storage_partition->GetOriginPolicyManagerForBrowserProcess();
 
-  // Process policy deletion first!
-  if (header_found && response_version == kDeletePolicy) {
-    if (iter != versions.end())
-      versions.erase(iter);
-    return NavigationThrottle::PROCEED;
-  }
+  origin_policy_manager->RetrieveOriginPolicy(
+      GetRequestOrigin(), header, std::move(origin_policy_manager_done));
 
-  // No policy applies to this request?
-  if (!header_found && iter == versions.end()) {
-    return NavigationThrottle::PROCEED;
-  }
-
-  if (!header_found)
-    response_version = iter->second;
-  else if (iter == versions.end())
-    versions.insert(std::make_pair(origin, response_version));
-  else
-    iter->second = response_version;
-
-  GURL policy = GURL(origin.Serialize() + kWellKnown + response_version);
-  FetchCallback done =
-      base::BindOnce(&OriginPolicyThrottle::OnTheGloriousPolicyHasArrived,
-                     base::Unretained(this));
-  RedirectCallback redirect = base::BindRepeating(
-      &OriginPolicyThrottle::OnRedirect, base::Unretained(this));
-  FetchPolicy(policy, std::move(done), std::move(redirect));
   return NavigationThrottle::DEFER;
 }
 
@@ -155,114 +126,45 @@ const char* OriginPolicyThrottle::GetNameForLogging() {
   return "OriginPolicyThrottle";
 }
 
-// static
-OriginPolicyThrottle::KnownVersionMap&
-OriginPolicyThrottle::GetKnownVersionsForTesting() {
-  return GetKnownVersions();
-}
-
 OriginPolicyThrottle::OriginPolicyThrottle(NavigationHandle* handle)
     : NavigationThrottle(handle) {}
 
-OriginPolicyThrottle::KnownVersionMap&
-OriginPolicyThrottle::GetKnownVersions() {
-  static base::NoDestructor<KnownVersionMap> map_instance;
-  return *map_instance;
-}
-
-const url::Origin OriginPolicyThrottle::GetRequestOrigin() {
+const url::Origin OriginPolicyThrottle::GetRequestOrigin() const {
   return url::Origin::Create(navigation_handle()->GetURL());
 }
 
-void OriginPolicyThrottle::FetchPolicy(const GURL& url,
-                                       FetchCallback done,
-                                       RedirectCallback redirect) {
-  // Create the traffic annotation
-  net::NetworkTrafficAnnotationTag traffic_annotation =
-      net::DefineNetworkTrafficAnnotation("origin_policy_loader", R"(
-        semantics {
-          sender: "Origin Policy URL Loader Throttle"
-          description:
-            "Fetches the Origin Policy with a given version from an origin."
-          trigger:
-            "In case the Origin Policy with a given version does not "
-            "exist in the cache, it is fetched from the origin at a "
-            "well-known location."
-          data:
-            "None, the URL itself contains the origin and Origin Policy "
-            "version."
-          destination: OTHER
-        }
-        policy {
-          cookies_allowed: NO
-          setting: "This feature cannot be disabled by settings. Server "
-            "opt-in or out of this mechanism."
-          policy_exception_justification:
-            "Not implemented, considered not useful."})");
-
-  // Create and configure the SimpleURLLoader for the policy.
-  std::unique_ptr<network::ResourceRequest> policy_request =
-      std::make_unique<network::ResourceRequest>();
-  policy_request->url = url;
-  policy_request->request_initiator = url::Origin::Create(url);
-  policy_request->load_flags = net::LOAD_DO_NOT_SEND_COOKIES |
-                               net::LOAD_DO_NOT_SAVE_COOKIES |
-                               net::LOAD_DO_NOT_SEND_AUTH_DATA;
-  url_loader_ = network::SimpleURLLoader::Create(std::move(policy_request),
-                                                 traffic_annotation);
-  url_loader_->SetOnRedirectCallback(std::move(redirect));
-
-  // Obtain the URLLoaderFactory from the NavigationHandle.
-  SiteInstance* site_instance = navigation_handle()->GetStartingSiteInstance();
-  StoragePartition* storage_partition = BrowserContext::GetStoragePartition(
-      site_instance->GetBrowserContext(), site_instance);
-  scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory =
-      storage_partition->GetURLLoaderFactoryForBrowserProcess();
-
-  // Start the download, and pass the callback for when we're finished.
-  url_loader_->DownloadToString(url_loader_factory.get(), std::move(done),
-                                kMaxPolicySize);
-}
-
-void OriginPolicyThrottle::InjectPolicyForTesting(
-    const std::string& policy_content) {
-  OnTheGloriousPolicyHasArrived(std::make_unique<std::string>(policy_content));
-}
-
-void OriginPolicyThrottle::OnTheGloriousPolicyHasArrived(
-    std::unique_ptr<std::string> policy_content) {
-  // Release resources associated with the loading.
-  url_loader_.reset();
-
-  // Fail hard if the policy could not be loaded.
-  if (!policy_content) {
-    CancelNavigation(OriginPolicyErrorReason::kCannotLoadPolicy);
-    return;
-  }
-
-  // TODO(vogelheim): Determine whether we need to parse or sanity check
-  //                  the policy content at this point.
-
-  static_cast<NavigationHandleImpl*>(navigation_handle())
-      ->set_origin_policy(*policy_content);
-  Resume();
-}
-
-void OriginPolicyThrottle::OnRedirect(
-    const net::RedirectInfo& redirect_info,
-    const network::ResourceResponseHead& response_head,
-    std::vector<std::string>* to_be_removed_headers) {
-  // Fail hard if the policy response follows a redirect.
-  url_loader_.reset();  // Cancel the request while it's ongoing.
-  CancelNavigation(OriginPolicyErrorReason::kPolicyShouldNotRedirect);
-}
-
-void OriginPolicyThrottle::CancelNavigation(OriginPolicyErrorReason reason) {
+void OriginPolicyThrottle::CancelNavigation(network::OriginPolicyState state,
+                                            const GURL& policy_url) {
   base::Optional<std::string> error_page =
       GetContentClient()->browser()->GetOriginPolicyErrorPage(
-          reason, GetRequestOrigin(), navigation_handle()->GetURL());
+          state, navigation_handle());
   CancelDeferredNavigation(NavigationThrottle::ThrottleCheckResult(
       NavigationThrottle::CANCEL, net::ERR_BLOCKED_BY_CLIENT, error_page));
+}
+
+void OriginPolicyThrottle::OnOriginPolicyManagerRetrieveDone(
+    const network::OriginPolicy& origin_policy) {
+  switch (origin_policy.state) {
+    case network::OriginPolicyState::kCannotLoadPolicy:
+    case network::OriginPolicyState::kInvalidRedirect:
+      CancelNavigation(origin_policy.state, origin_policy.policy_url);
+      return;
+
+    case network::OriginPolicyState::kNoPolicyApplies:
+      Resume();
+      return;
+
+    case network::OriginPolicyState::kLoaded:
+      DCHECK(origin_policy.contents);
+      static_cast<NavigationHandleImpl*>(navigation_handle())
+          ->navigation_request()
+          ->SetOriginPolicy(origin_policy);
+      Resume();
+      return;
+
+    default:
+      NOTREACHED();
+  }
 }
 
 }  // namespace content

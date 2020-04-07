@@ -30,8 +30,10 @@
 
 #include "third_party/blink/renderer/platform/wtf/allocator/partitions.h"
 
+#include "base/allocator/partition_allocator/memory_reclaimer.h"
 #include "base/allocator/partition_allocator/oom.h"
 #include "base/allocator/partition_allocator/page_allocator.h"
+#include "base/allocator/partition_allocator/partition_root_base.h"
 #include "base/debug/alias.h"
 #include "base/lazy_instance.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/partition_allocator.h"
@@ -82,25 +84,19 @@ void Partitions::Initialize(
     buffer_allocator_->init();
     layout_allocator_->init();
     report_size_function_ = report_size_function;
+
     initialized_ = true;
   }
 }
 
-void Partitions::DecommitFreeableMemory() {
+// static
+void Partitions::StartPeriodicReclaim(
+    scoped_refptr<base::SequencedTaskRunner> task_runner) {
   CHECK(IsMainThread());
   if (!initialized_)
     return;
 
-  ArrayBufferPartition()->PurgeMemory(
-      base::PartitionPurgeDecommitEmptyPages |
-      base::PartitionPurgeDiscardUnusedSystemPages);
-  BufferPartition()->PurgeMemory(base::PartitionPurgeDecommitEmptyPages |
-                                 base::PartitionPurgeDiscardUnusedSystemPages);
-  FastMallocPartition()->PurgeMemory(
-      base::PartitionPurgeDecommitEmptyPages |
-      base::PartitionPurgeDiscardUnusedSystemPages);
-  LayoutPartition()->PurgeMemory(base::PartitionPurgeDecommitEmptyPages |
-                                 base::PartitionPurgeDiscardUnusedSystemPages);
+  base::PartitionAllocMemoryReclaimer::Instance()->Start(task_runner);
 }
 
 void Partitions::ReportMemoryUsageHistogram() {
@@ -126,7 +122,7 @@ void Partitions::DumpMemoryStats(
   // accessed only on the main thread.
   DCHECK(IsMainThread());
 
-  DecommitFreeableMemory();
+  base::PartitionAllocMemoryReclaimer::Instance()->DeprecatedReclaim();
   FastMallocPartition()->DumpStats("fast_malloc", is_light_dump,
                                    partition_stats_dumper);
   ArrayBufferPartition()->DumpStats("array_buffer", is_light_dump,

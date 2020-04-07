@@ -12,7 +12,9 @@
 #define MODULES_DESKTOP_CAPTURE_DESKTOP_FRAME_H_
 
 #include <stdint.h>
+
 #include <memory>
+#include <vector>
 
 #include "modules/desktop_capture/desktop_geometry.h"
 #include "modules/desktop_capture/desktop_region.h"
@@ -22,7 +24,7 @@
 
 namespace webrtc {
 
-const int kStandardDPI = 96;
+const float kStandardDPI = 96.0f;
 
 // DesktopFrame represents a video frame captured from the screen.
 class RTC_EXPORT DesktopFrame {
@@ -110,6 +112,15 @@ class RTC_EXPORT DesktopFrame {
   // DesktopFrameWithCursor.
   void MoveFrameInfoFrom(DesktopFrame* other);
 
+  // Set and get the ICC profile of the frame data pixels. Useful to build the
+  // a ColorSpace object from clients of webrtc library like chromium. The
+  // format of an ICC profile is defined in the following specification
+  // http://www.color.org/specification/ICC1v43_2010-12.pdf.
+  const std::vector<uint8_t>& icc_profile() const { return icc_profile_; }
+  void set_icc_profile(const std::vector<uint8_t>& icc_profile) {
+    icc_profile_ = icc_profile;
+  }
+
  protected:
   DesktopFrame(DesktopSize size,
                int stride,
@@ -131,6 +142,7 @@ class RTC_EXPORT DesktopFrame {
   DesktopVector dpi_;
   int64_t capture_time_ms_;
   uint32_t capturer_id_;
+  std::vector<uint8_t> icc_profile_;
 
   RTC_DISALLOW_COPY_AND_ASSIGN(DesktopFrame);
 };
@@ -138,6 +150,7 @@ class RTC_EXPORT DesktopFrame {
 // A DesktopFrame that stores data in the heap.
 class RTC_EXPORT BasicDesktopFrame : public DesktopFrame {
  public:
+  // The entire data buffer used for the frame is initialized with zeros.
   explicit BasicDesktopFrame(DesktopSize size);
 
   ~BasicDesktopFrame() override;

@@ -8,8 +8,8 @@
 #ifndef SkSGNode_DEFINED
 #define SkSGNode_DEFINED
 
-#include "SkRect.h"
-#include "SkRefCnt.h"
+#include "include/core/SkRect.h"
+#include "include/core/SkRefCnt.h"
 
 #include <vector>
 
@@ -39,7 +39,10 @@ protected:
     enum InvalTraits {
         // Nodes with this trait never generate direct damage -- instead,
         // the damage bubbles up to ancestors.
-        kBubbleDamage_Trait = 1 << 0,
+        kBubbleDamage_Trait   = 1 << 0,
+
+        // Nodes with this trait obscure the descendants' damage and always override it.
+        kOverrideDamage_Trait = 1 << 1,
     };
 
     explicit Node(uint32_t invalTraits);
@@ -80,8 +83,13 @@ private:
         std::vector<Node*>* fInvalObserverArray;
     };
     SkRect                  fBounds;
-    const uint32_t          fInvalTraits : 16;
-    uint32_t                fFlags       : 16;
+    const uint32_t          fInvalTraits :  2;
+    uint32_t                fFlags       :  4; // Internal flags.
+    uint32_t                fNodeFlags   :  8; // Accessible from select subclasses.
+    // Free bits                         : 18;
+
+    friend class NodePriv;
+    friend class RenderNode; // node flags access
 
     typedef SkRefCnt INHERITED;
 };

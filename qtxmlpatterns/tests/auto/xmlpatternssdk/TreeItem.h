@@ -55,7 +55,7 @@ namespace QPatternistSDK
      * @see TreeModel
      * @ingroup PatternistSDK
      */
-    class Q_PATTERNISTSDK_EXPORT TreeItem : public QObject
+    class TreeItem : public QObject
     {
         Q_OBJECT
     public:

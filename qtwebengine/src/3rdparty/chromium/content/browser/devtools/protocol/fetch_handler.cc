@@ -6,6 +6,8 @@
 #include <memory>
 #include <utility>
 
+#include "base/bind.h"
+#include "base/bind_helpers.h"
 #include "base/strings/utf_string_conversions.h"
 #include "content/browser/devtools/devtools_agent_host_impl.h"
 #include "content/browser/devtools/devtools_io_context.h"
@@ -27,10 +29,13 @@ std::vector<FetchHandler*> FetchHandler::ForAgentHost(
   return host->HandlersByName<FetchHandler>(Fetch::Metainfo::domainName);
 }
 
-FetchHandler::FetchHandler(DevToolsIOContext* io_context)
+FetchHandler::FetchHandler(
+    DevToolsIOContext* io_context,
+    UpdateLoaderFactoriesCallback update_loader_factories_callback)
     : DevToolsDomainHandler(Fetch::Metainfo::domainName),
       io_context_(io_context),
-      weak_factory_(this) {}
+      update_loader_factories_callback_(
+          std::move(update_loader_factories_callback)) {}
 
 FetchHandler::~FetchHandler() = default;
 
@@ -54,14 +59,14 @@ Response ToInterceptionPatterns(
     std::vector<DevToolsNetworkInterceptor::Pattern>* result) {
   result->clear();
   if (!maybe_patterns.isJust()) {
-    result->push_back(DevToolsNetworkInterceptor::Pattern(
-        "*", {}, DevToolsNetworkInterceptor::REQUEST));
+    result->emplace_back("*", base::flat_set<ResourceType>(),
+                         DevToolsNetworkInterceptor::REQUEST);
     return Response::OK();
   }
   Array<Fetch::RequestPattern>& patterns = *maybe_patterns.fromJust();
-  for (size_t i = 0; i < patterns.length(); ++i) {
+  for (const std::unique_ptr<Fetch::RequestPattern>& pattern : patterns) {
     base::flat_set<ResourceType> resource_types;
-    std::string resource_type = patterns.get(i)->GetResourceType("");
+    std::string resource_type = pattern->GetResourceType("");
     if (!resource_type.empty()) {
       if (!NetworkHandler::AddInterceptedResourceType(resource_type,
                                                       &resource_types)) {
@@ -70,31 +75,35 @@ Response ToInterceptionPatterns(
                                resource_type.c_str()));
       }
     }
-    result->push_back(DevToolsNetworkInterceptor::Pattern(
-        patterns.get(i)->GetUrlPattern("*"), std::move(resource_types),
-        RequestStageToInterceptorStage(patterns.get(i)->GetRequestStage(
-            Fetch::RequestStageEnum::Request))));
+    result->emplace_back(
+        pattern->GetUrlPattern("*"), std::move(resource_types),
+        RequestStageToInterceptorStage(
+            pattern->GetRequestStage(Fetch::RequestStageEnum::Request)));
   }
   return Response::OK();
 }
 
 bool FetchHandler::MaybeCreateProxyForInterception(
-    RenderFrameHostImpl* rfh,
+    RenderProcessHost* rph,
+    const base::UnguessableToken& frame_token,
     bool is_navigation,
     bool is_download,
-    network::mojom::URLLoaderFactoryRequest* target_factory_request) {
-  return interceptor_ &&
-         interceptor_->CreateProxyForInterception(
-             rfh, is_navigation, is_download, target_factory_request);
+    mojo::PendingReceiver<network::mojom::URLLoaderFactory>*
+        target_factory_receiver) {
+  return interceptor_ && interceptor_->CreateProxyForInterception(
+                             rph, frame_token, is_navigation, is_download,
+                             target_factory_receiver);
 }
 
-Response FetchHandler::Enable(Maybe<Array<Fetch::RequestPattern>> patterns,
-                              Maybe<bool> handleAuth) {
+void FetchHandler::Enable(Maybe<Array<Fetch::RequestPattern>> patterns,
+                          Maybe<bool> handleAuth,
+                          std::unique_ptr<EnableCallback> callback) {
   if (!interceptor_) {
     if (!base::FeatureList::IsEnabled(network::features::kNetworkService)) {
-      return Response::Error(
-          "Fetch domain is only supported with "
-          "--enable-features=NetworkService");
+      callback->sendFailure(
+          Response::Error("Fetch domain is only supported with "
+                          "--enable-features=NetworkService"));
+      return;
     }
     interceptor_ =
         std::make_unique<DevToolsURLLoaderInterceptor>(base::BindRepeating(
@@ -102,18 +111,26 @@ Response FetchHandler::Enable(Maybe<Array<Fetch::RequestPattern>> patterns,
   }
   std::vector<DevToolsNetworkInterceptor::Pattern> interception_patterns;
   Response response = ToInterceptionPatterns(patterns, &interception_patterns);
-  if (!response.isSuccess())
-    return response;
-  if (!interception_patterns.size() && handleAuth.fromMaybe(false))
-    return Response::InvalidParams(
-        "Can\'t specify empty patterns with handleAuth set");
+  if (!response.isSuccess()) {
+    callback->sendFailure(response);
+    return;
+  }
+  if (!interception_patterns.size() && handleAuth.fromMaybe(false)) {
+    callback->sendFailure(Response::InvalidParams(
+        "Can\'t specify empty patterns with handleAuth set"));
+    return;
+  }
   interceptor_->SetPatterns(std::move(interception_patterns),
                             handleAuth.fromMaybe(false));
-  return Response::OK();
+  update_loader_factories_callback_.Run(
+      base::BindOnce(&EnableCallback::sendSuccess, std::move(callback)));
 }
 
 Response FetchHandler::Disable() {
+  const bool was_enabled = !!interceptor_;
   interceptor_.reset();
+  if (was_enabled)
+    update_loader_factories_callback_.Run(base::DoNothing());
   return Response::OK();
 }
 
@@ -205,9 +222,8 @@ void FetchHandler::FulfillRequest(
       base::StringPrintf("HTTP/1.1 %d %s", responseCode, status_phrase.c_str());
   headers.append(1, '\0');
   if (responseHeaders) {
-    for (size_t i = 0; i < responseHeaders->length(); ++i) {
-      auto* entry = responseHeaders->get(i);
-      if (!ValidateHeaders(entry, callback.get()))
+    for (const std::unique_ptr<Fetch::HeaderEntry>& entry : *responseHeaders) {
+      if (!ValidateHeaders(entry.get(), callback.get()))
         return;
       headers.append(entry->GetName());
       headers.append(":");
@@ -240,9 +256,9 @@ void FetchHandler::ContinueRequest(
   if (headers.isJust()) {
     request_headers = std::make_unique<
         DevToolsNetworkInterceptor::Modifications::HeadersVector>();
-    for (size_t i = 0; i < headers.fromJust()->length(); ++i) {
-      auto* entry = headers.fromJust()->get(i);
-      if (!ValidateHeaders(entry, callback.get()))
+    for (const std::unique_ptr<Fetch::HeaderEntry>& entry :
+         *headers.fromJust()) {
+      if (!ValidateHeaders(entry.get(), callback.get()))
         return;
       request_headers->emplace_back(entry->GetName(), entry->GetValue());
     }
@@ -336,7 +352,7 @@ std::unique_ptr<Array<Fetch::HeaderEntry>> ToHeaderEntryArray(
   std::string name;
   std::string value;
   while (headers->EnumerateHeaderLines(&iterator, &name, &value)) {
-    result->addItem(
+    result->emplace_back(
         Fetch::HeaderEntry::Create().SetName(name).SetValue(value).Build());
   }
   return result;
@@ -379,7 +395,7 @@ void FetchHandler::RequestIntercepted(
       info->frame_id.ToString(),
       NetworkHandler::ResourceTypeToString(info->resource_type),
       std::move(error_reason), std::move(status_code),
-      std::move(response_headers));
+      std::move(response_headers), std::move(info->renderer_request_id));
 }
 
 }  // namespace protocol

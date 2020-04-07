@@ -75,7 +75,7 @@ class GLBox : public QGLWidget,
 public:
     explicit GLBox(QWidget *parent, const char *name = nullptr);
     virtual ~GLBox();
-    QAxAggregated *createAggregate();
+    QAxAggregated *createAggregate() override;
 
 public slots:
     void                setXRotation(int degrees);
@@ -84,9 +84,9 @@ public slots:
     void                setZRotation(int degrees);
 
 protected:
-    void                initializeGL();
-    void                paintGL();
-    void                resizeGL(int w, int h);
+    void                initializeGL() override;
+    void                paintGL() override;
+    void                resizeGL(int w, int h) override;
     virtual GLuint      makeObject();
 
 private:

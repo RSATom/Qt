@@ -17,14 +17,14 @@
 #include "base/single_thread_task_runner.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
-#include "cc/trees/element_id.h"
+#include "cc/paint/element_id.h"
 #include "cc/trees/layer_tree_host.h"
 #include "cc/trees/layer_tree_host_client.h"
 #include "cc/trees/layer_tree_host_single_thread_client.h"
 #include "components/viz/common/frame_sinks/begin_frame_args.h"
 #include "components/viz/common/surfaces/frame_sink_id.h"
-#include "components/viz/common/surfaces/local_surface_id.h"
 #include "components/viz/host/host_frame_sink_client.h"
+#include "services/viz/privileged/interfaces/compositing/vsync_parameter_observer.mojom-forward.h"
 #include "third_party/skia/include/core/SkColor.h"
 #include "third_party/skia/include/core/SkMatrix44.h"
 #include "ui/compositor/compositor_animation_observer.h"
@@ -64,15 +64,15 @@ class GpuMemoryBufferManager;
 }
 
 namespace viz {
-class FrameSinkManagerImpl;
 class ContextProvider;
 class HostFrameSinkManager;
+class LocalSurfaceIdAllocation;
+class RasterContextProvider;
 }
 
 namespace ui {
 
 class Compositor;
-class CompositorVSyncManager;
 class ExternalBeginFrameClient;
 class LatencyInfo;
 class Layer;
@@ -86,20 +86,15 @@ class COMPOSITOR_EXPORT ContextFactoryObserver {
  public:
   virtual ~ContextFactoryObserver() {}
 
-  // Notifies that the viz::ContextProvider returned from
-  // ui::ContextFactory::SharedMainThreadContextProvider was lost.  When this
-  // is called, the old resources (e.g. shared context, GL helper) still
-  // exist, but are about to be destroyed. Getting a reference to those
+  // Notifies that the viz::ContextProviders returned from
+  // ui::ContextFactory::SharedMainThreadContextProvider and/or
+  // ui::ContextFactory::SharedMainThreadRasterContextProvider were lost.
+  // When this is called, the old resources (e.g. shared context, GL helper)
+  // still exist, but are about to be destroyed. Getting a reference to those
   // resources from the ContextFactory (e.g. through
   // SharedMainThreadContextProvider()) will return newly recreated, valid
   // resources.
   virtual void OnLostSharedContext() = 0;
-
-  // Notifies that the Viz process was lost, eg. crashed, failed to start or
-  // restarted. There are no ordering guarantees for when OnLostSharedContext()
-  // and OnLostVizProcess() will be called. This is only called when OOP-D is
-  // enabled.
-  virtual void OnLostVizProcess() = 0;
 };
 
 // This is privileged interface to the compositor. It is a global object.
@@ -118,9 +113,6 @@ class COMPOSITOR_EXPORT ContextFactoryPrivate {
 
   // Allocate a new client ID for the display compositor.
   virtual viz::FrameSinkId AllocateFrameSinkId() = 0;
-
-  // Gets the frame sink manager.
-  virtual viz::FrameSinkManagerImpl* GetFrameSinkManager() = 0;
 
   // Gets the frame sink manager host instance.
   virtual viz::HostFrameSinkManager* GetHostFrameSinkManager() = 0;
@@ -144,10 +136,9 @@ class COMPOSITOR_EXPORT ContextFactoryPrivate {
                                      const SkMatrix44& matrix) = 0;
 
   // Set the output color profile into which this compositor should render.
-  virtual void SetDisplayColorSpace(
-      ui::Compositor* compositor,
-      const gfx::ColorSpace& blending_color_space,
-      const gfx::ColorSpace& output_color_space) = 0;
+  virtual void SetDisplayColorSpace(ui::Compositor* compositor,
+                                    const gfx::ColorSpace& output_color_space,
+                                    float sdr_white_level) = 0;
 
   // Mac path for transporting vsync parameters to the display.  Other platforms
   // update it via the BrowserCompositorLayerTreeFrameSink directly.
@@ -158,6 +149,11 @@ class COMPOSITOR_EXPORT ContextFactoryPrivate {
                                        const viz::BeginFrameArgs& args) = 0;
 
   virtual void SetOutputIsSecure(Compositor* compositor, bool secure) = 0;
+
+  // Adds an observer for vsync parameter changes.
+  virtual void AddVSyncParameterObserver(
+      Compositor* compositor,
+      viz::mojom::VSyncParameterObserverPtr observer) = 0;
 };
 
 // This class abstracts the creation of the 3D context for the compositor. It is
@@ -176,6 +172,11 @@ class COMPOSITOR_EXPORT ContextFactory {
   // main thread.
   virtual scoped_refptr<viz::ContextProvider>
   SharedMainThreadContextProvider() = 0;
+
+  // Return a reference to a shared offscreen context provider usable from the
+  // main thread.
+  virtual scoped_refptr<viz::RasterContextProvider>
+  SharedMainThreadRasterContextProvider() = 0;
 
   // Destroys per-compositor data.
   virtual void RemoveCompositor(Compositor* compositor) = 0;
@@ -281,8 +282,11 @@ class COMPOSITOR_EXPORT Compositor : public cc::LayerTreeHostClient,
       const gfx::Size& size_in_pixel,
       const viz::LocalSurfaceIdAllocation& local_surface_id_allocation);
 
-  // Set the output color profile into which this compositor should render.
-  void SetDisplayColorSpace(const gfx::ColorSpace& color_space);
+  // Set the output color profile into which this compositor should render. Also
+  // sets the SDR white level (in nits) used to scale HDR color space primaries.
+  void SetDisplayColorSpace(
+      const gfx::ColorSpace& color_space,
+      float sdr_white_level = gfx::ColorSpace::kDefaultSDRWhiteLevel);
 
   // Returns the size of the widget that is being drawn to in pixel coordinates.
   const gfx::Size& size() const { return size_; }
@@ -303,11 +307,12 @@ class COMPOSITOR_EXPORT Compositor : public cc::LayerTreeHostClient,
                                gfx::ScrollOffset* offset) const;
   bool ScrollLayerTo(cc::ElementId element_id, const gfx::ScrollOffset& offset);
 
-  // Most platforms set their vsync info via
-  // BrowerCompositorLayerTreeFrameSink::OnUpdateVSyncParametersFromGpu(), but
-  // Mac routes vsync info via the browser compositor instead through this path.
+  // Mac sets vsync parameters through the browser compositor rather than from
+  // the GPU.
   void SetDisplayVSyncParameters(base::TimeTicks timebase,
                                  base::TimeDelta interval);
+  void AddVSyncParameterObserver(
+      viz::mojom::VSyncParameterObserverPtr observer);
 
   // Sets the widget for the compositor to render into.
   void SetAcceleratedWidget(gfx::AcceleratedWidget widget);
@@ -316,9 +321,6 @@ class COMPOSITOR_EXPORT Compositor : public cc::LayerTreeHostClient,
   // The compositor must be set to invisible when taking away a widget.
   gfx::AcceleratedWidget ReleaseAcceleratedWidget();
   gfx::AcceleratedWidget widget() const;
-
-  // Returns the vsync manager for this compositor.
-  scoped_refptr<CompositorVSyncManager> vsync_manager() const;
 
   // This flag is used to force a compositor into software compositing even tho
   // in general chrome is using gpu compositing. This allows the compositor to
@@ -367,14 +369,15 @@ class COMPOSITOR_EXPORT Compositor : public cc::LayerTreeHostClient,
   // LayerTreeHostClient implementation.
   void WillBeginMainFrame() override {}
   void DidBeginMainFrame() override {}
+  void WillUpdateLayers() override {}
+  void DidUpdateLayers() override;
   void BeginMainFrame(const viz::BeginFrameArgs& args) override;
   void BeginMainFrameNotExpectedSoon() override;
   void BeginMainFrameNotExpectedUntil(base::TimeTicks time) override;
-  void UpdateLayerTreeHost(bool record_main_frame_metrics) override;
+  void UpdateLayerTreeHost() override;
   void ApplyViewportChanges(const cc::ApplyViewportChangesArgs& args) override {
   }
-  void RecordWheelAndTouchScrollingCount(bool has_scrolled_by_wheel,
-                                         bool has_scrolled_by_touch) override {}
+  void RecordManipulationTypeCounts(cc::ManipulationInfo info) override {}
   void SendOverscrollEventFromImplSide(
       const gfx::Vector2dF& overscroll_delta,
       cc::ElementId scroll_latched_element_id) override {}
@@ -391,9 +394,8 @@ class COMPOSITOR_EXPORT Compositor : public cc::LayerTreeHostClient,
   void DidPresentCompositorFrame(
       uint32_t frame_token,
       const gfx::PresentationFeedback& feedback) override;
+  void RecordStartOfFrameMetrics() override {}
   void RecordEndOfFrameMetrics(base::TimeTicks frame_begin_time) override {}
-  void DidGenerateLocalSurfaceIdAllocation(
-      const viz::LocalSurfaceIdAllocation& allocation) override;
 
   // cc::LayerTreeHostSingleThreadClient implementation.
   void DidSubmitCompositorFrame() override;
@@ -403,6 +405,10 @@ class COMPOSITOR_EXPORT Compositor : public cc::LayerTreeHostClient,
   // viz::HostFrameSinkClient implementation.
   void OnFirstSurfaceActivation(const viz::SurfaceInfo& surface_info) override;
   void OnFrameTokenChanged(uint32_t frame_token) override;
+
+#if defined(USE_X11)
+  void OnCompleteSwapWithNewSize(const gfx::Size& size);
+#endif
 
   bool IsLocked() { return lock_manager_.IsLocked(); }
 
@@ -467,9 +473,6 @@ class COMPOSITOR_EXPORT Compositor : public cc::LayerTreeHostClient,
   std::unique_ptr<cc::LayerTreeHost> host_;
   scoped_refptr<base::SingleThreadTaskRunner> task_runner_;
 
-  // The manager of vsync parameters for this compositor.
-  scoped_refptr<CompositorVSyncManager> vsync_manager_;
-
   // Snapshot of last set vsync parameters, to avoid redundant IPCs.
   base::TimeTicks vsync_timebase_;
   base::TimeDelta vsync_interval_;
@@ -489,7 +492,8 @@ class COMPOSITOR_EXPORT Compositor : public cc::LayerTreeHostClient,
   SkMatrix44 display_color_matrix_;
 
   gfx::ColorSpace output_color_space_;
-  gfx::ColorSpace blending_color_space_;
+
+  float sdr_white_level_ = gfx::ColorSpace::kDefaultSDRWhiteLevel;
 
   // If true, all paint commands are recorded at pixel size instead of DIP.
   const bool is_pixel_canvas_;
@@ -503,7 +507,7 @@ class COMPOSITOR_EXPORT Compositor : public cc::LayerTreeHostClient,
 
   const char* trace_environment_name_;
 
-  base::WeakPtrFactory<Compositor> context_creation_weak_ptr_factory_;
+  base::WeakPtrFactory<Compositor> context_creation_weak_ptr_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(Compositor);
 };

@@ -13,24 +13,37 @@
 #include "components/autofill_assistant/browser/actions/action.h"
 
 namespace autofill_assistant {
+
 // An action to set the value of a form input element.
 class SetFormFieldValueAction : public Action {
  public:
-  explicit SetFormFieldValueAction(const ActionProto& proto);
+  explicit SetFormFieldValueAction(ActionDelegate* delegate,
+                                   const ActionProto& proto);
   ~SetFormFieldValueAction() override;
 
  private:
   // Overrides Action:
-  void InternalProcessAction(ActionDelegate* delegate,
-                             ProcessActionCallback callback) override;
+  void InternalProcessAction(ProcessActionCallback callback) override;
 
-  void OnWaitForElement(ActionDelegate* delegate,
-                        ProcessActionCallback callback,
+  void OnWaitForElement(ProcessActionCallback callback,
+                        const Selector& selector,
                         bool element_found);
-  void OnSetFieldValue(ActionDelegate* delegate,
-                       ProcessActionCallback callback,
+
+  void OnGetFieldValue(ProcessActionCallback callback,
+                       const Selector& selector,
                        int next,
-                       bool status);
+                       bool status,
+                       const std::string& value);
+
+  void OnSetFieldValue(ProcessActionCallback callback,
+                       const Selector& selector,
+                       int next,
+                       const ClientStatus& status);
+
+  void OnSetFieldValueAndCheckFallback(ProcessActionCallback callback,
+                                       const Selector& selector,
+                                       int next,
+                                       const ClientStatus& status);
 
   base::WeakPtrFactory<SetFormFieldValueAction> weak_ptr_factory_;
 

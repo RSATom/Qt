@@ -22,6 +22,14 @@ if ((enable_basic_printing && is_win) || enable_print_preview) {
              "set enable_pdf=true.")
 }
 
+# Several targets want to include this header file. We separate it out
+# here so multiple targets can depend on it.
+source_set("printing_export") {
+  sources = [
+    "printing_export.h",
+  ]
+}
+
 component("printing") {
   sources = [
     "backend/print_backend.cc",
@@ -37,8 +45,6 @@ component("printing") {
     "metafile.h",
     "metafile_skia.cc",
     "metafile_skia.h",
-    "metafile_skia_wrapper.cc",
-    "metafile_skia_wrapper.h",
     "native_drawing_context.h",
     "nup_parameters.cc",
     "nup_parameters.h",
@@ -69,7 +75,6 @@ component("printing") {
     "printed_document_win.cc",
     "printing_context.cc",
     "printing_context.h",
-    "printing_export.h",
     "printing_utils.cc",
     "printing_utils.h",
     "pwg_raster_settings.h",
@@ -84,6 +89,7 @@ component("printing") {
     "//printing/buildflags",
   ]
   deps = [
+    ":printing_export",
     "//base",
     "//base:i18n",
     "//base/third_party/dynamic_annotations",
@@ -134,6 +140,10 @@ component("printing") {
       "printing_context_win.cc",
       "printing_context_win.h",
     ]
+  }
+
+  if (is_android) {
+    deps += [ "//ui/android" ]
   }
 
   if (use_cups) {
@@ -206,6 +216,14 @@ component("printing") {
         "backend/print_backend_cups.cc",
         "backend/print_backend_cups.h",
       ]
+
+      # We still build the utils for fuzzing.
+      if (use_fuzzing_engine) {
+        sources += [
+          "backend/cups_ipp_util.cc",
+          "backend/cups_ipp_util.h",
+        ]
+      }
     }
   }
 
@@ -217,8 +235,11 @@ component("printing") {
       "backend/printing_restrictions.cc",
       "backend/printing_restrictions.h",
       "printed_document_chromeos.cc",
+      "printer_query_result_chromeos.h",
       "printing_context_no_system_dialog.cc",
       "printing_context_no_system_dialog.h",
+      "printing_features_chromeos.cc",
+      "printing_features_chromeos.h",
     ]
   } else if (is_android) {
     sources += [
@@ -273,6 +294,7 @@ test("printing_unittests") {
     "page_range_unittest.cc",
     "page_setup_unittest.cc",
     "pdf_metafile_cg_mac_unittest.cc",
+    "print_settings_conversion_unittest.cc",
     "printing_context_win_unittest.cc",
     "printing_test.h",
     "printing_utils_unittest.cc",
@@ -307,6 +329,12 @@ test("printing_unittests") {
       sources += [ "backend/cups_ipp_util_unittest.cc" ]
     } else {
       sources += [ "backend/cups_helper_unittest.cc" ]
+      if (is_linux) {
+        sources += [ "backend/print_backend_cups_linux_unittest.cc" ]
+      }
+      if (is_mac) {
+        sources += [ "backend/print_backend_cups_mac_unittest.cc" ]
+      }
     }
   }
 }
@@ -340,12 +368,12 @@ if (is_android) {
     sources = [
       "android/java/src/org/chromium/printing/PrintingContext.java",
     ]
-    jni_package = "printing"
   }
 
   android_library("printing_java") {
     deps = [
       "//base:base_java",
+      "//ui/android:ui_java",
     ]
     java_files = [
       "android/java/src/org/chromium/printing/PrintDocumentAdapterWrapper.java",

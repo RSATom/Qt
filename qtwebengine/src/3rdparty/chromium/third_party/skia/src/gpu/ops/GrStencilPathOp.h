@@ -8,19 +8,19 @@
 #ifndef GrStencilPathOp_DEFINED
 #define GrStencilPathOp_DEFINED
 
-#include "GrOp.h"
-#include "GrPath.h"
-#include "GrPathRendering.h"
-#include "GrStencilSettings.h"
+#include "src/gpu/GrPath.h"
+#include "src/gpu/GrPathRendering.h"
+#include "src/gpu/GrStencilSettings.h"
+#include "src/gpu/ops/GrOp.h"
 
-class GrContext;
 class GrOpFlushState;
+class GrRecordingContext;
 
 class GrStencilPathOp final : public GrOp {
 public:
     DEFINE_OP_CLASS_ID
 
-    static std::unique_ptr<GrOp> Make(GrContext* context,
+    static std::unique_ptr<GrOp> Make(GrRecordingContext* context,
                                       const SkMatrix& viewMatrix,
                                       bool useHWAA,
                                       GrPathRendering::FillType fillType,

@@ -103,8 +103,6 @@ source_set("audio") {
     "audio_output_stream_sink.h",
     "audio_power_monitor.cc",
     "audio_power_monitor.h",
-    "audio_processing.cc",
-    "audio_processing.h",
     "audio_sink_parameters.cc",
     "audio_sink_parameters.h",
     "audio_source_diverter.h",
@@ -141,18 +139,14 @@ source_set("audio") {
     "scoped_task_runner_observer.h",
     "simple_sources.cc",
     "simple_sources.h",
-    "sounds/audio_stream_handler.cc",
-    "sounds/audio_stream_handler.h",
-    "sounds/sounds_manager.cc",
-    "sounds/sounds_manager.h",
-    "sounds/wav_audio_handler.cc",
-    "sounds/wav_audio_handler.h",
     "virtual_audio_input_stream.cc",
     "virtual_audio_input_stream.h",
     "virtual_audio_output_stream.cc",
     "virtual_audio_output_stream.h",
     "virtual_audio_sink.cc",
     "virtual_audio_sink.h",
+    "wav_audio_handler.cc",
+    "wav_audio_handler.h",
   ]
   deps = [
     "//base",
@@ -223,8 +217,6 @@ source_set("audio") {
     sources += [
       "android/audio_manager_android.cc",
       "android/audio_manager_android.h",
-      "android/audio_record_input.cc",
-      "android/audio_record_input.h",
       "android/audio_track_output_stream.cc",
       "android/audio_track_output_stream.h",
       "android/muteable_audio_output_stream.h",
@@ -431,17 +423,14 @@ source_set("unit_tests") {
 
   if (is_chromeos || is_chromecast) {
     sources += [
-      "sounds/audio_stream_handler_unittest.cc",
-      "sounds/sounds_manager_unittest.cc",
-      "sounds/test_data.cc",
-      "sounds/test_data.h",
-      "sounds/wav_audio_handler_unittest.cc",
+      "test_data.h",
+      "wav_audio_handler_unittest.cc",
     ]
 
     if (!is_chromecast) {
       deps += [
         "//chromeos/audio",
-        "//chromeos/dbus:test_support",
+        "//chromeos/dbus/audio",
       ]
     }
 

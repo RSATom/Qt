@@ -47,7 +47,7 @@ private Q_SLOTS:
         SubClassSimpleSource subclass;
         QStringListModel model;
         const MyPOD initialValue(42, 3.14f, QStringLiteral("SubClass"));
-        if (objectMode == QLatin1Literal("ObjectPointer")) {
+        if (objectMode == QLatin1String("ObjectPointer")) {
             subclass.setMyPOD(initialValue);
             model.setStringList(QStringList() << "Track1" << "Track2" << "Track3");
             myTestServer.setSubClass(&subclass);
@@ -66,9 +66,9 @@ private Q_SLOTS:
         QTest::qWait(200);
 
         qDebug() << "Client connected";
-        if (runMode != QLatin1Literal("Baseline")) {
+        if (runMode != QLatin1String("Baseline")) {
             qDebug() << "Server quitting" << runMode;
-            if (runMode == QLatin1Literal("ServerRestartFatal"))
+            if (runMode == QLatin1String("ServerRestartFatal"))
                 qFatal("Fatal");
             QCoreApplication::exit();
             return;

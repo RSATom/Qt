@@ -78,7 +78,7 @@ class RemoteSelector : public QDialog
     Q_OBJECT
 
 public:
-    explicit RemoteSelector(QWidget *parent = 0);
+    explicit RemoteSelector(QWidget *parent = nullptr);
     ~RemoteSelector();
 
     void startDiscovery(const QBluetoothUuid &uuid);
@@ -95,7 +95,7 @@ private:
     QPointer<pinDisplay> m_pindisplay;
     bool m_pairingError;
 
-    QString addressToName(const QBluetoothAddress &address);
+    QString addressToName(const QBluetoothAddress &address) const;
 
 public Q_SLOTS:
     void startDiscovery();

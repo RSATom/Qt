@@ -50,10 +50,10 @@ QT_BEGIN_NAMESPACE
 
 #if !defined(Q_QDOC) && !defined(Q_MOC_RUN)
 struct QMetaObject;
-const QMetaObject *qt_getQtMetaObject() Q_DECL_NOEXCEPT; // defined in qobject.h (which can't be included here)
+const QMetaObject *qt_getQtMetaObject() noexcept; // defined in qobject.h (which can't be included here)
 #define QT_Q_ENUM(ENUM) \
-    inline const QMetaObject *qt_getEnumMetaObject(ENUM) Q_DECL_NOEXCEPT { return qt_getQtMetaObject(); } \
-    inline Q_DECL_CONSTEXPR const char *qt_getEnumName(ENUM) Q_DECL_NOEXCEPT { return #ENUM; }
+    inline const QMetaObject *qt_getEnumMetaObject(ENUM) noexcept { return qt_getQtMetaObject(); } \
+    inline Q_DECL_CONSTEXPR const char *qt_getEnumName(ENUM) noexcept { return #ENUM; }
 #define QT_Q_FLAG(ENUM) QT_Q_ENUM(ENUM)
 #else
 #define QT_Q_ENUM Q_ENUM
@@ -193,6 +193,13 @@ public:
         AscendingOrder,
         DescendingOrder
     };
+
+    enum SplitBehaviorFlags {
+        KeepEmptyParts = 0,
+        SkipEmptyParts = 0x1,
+    };
+    Q_DECLARE_FLAGS(SplitBehavior, SplitBehaviorFlags)
+    Q_DECLARE_OPERATORS_FOR_FLAGS(SplitBehavior)
 
     enum TileRule {
         StretchTile,
@@ -351,14 +358,18 @@ public:
         WA_MouseTracking = 2,
         WA_ContentsPropagated = 3, // ## deprecated
         WA_OpaquePaintEvent = 4,
-        WA_NoBackground = WA_OpaquePaintEvent, // ## deprecated
+#if QT_DEPRECATED_SINCE(5, 14)
+        WA_NoBackground Q_DECL_ENUMERATOR_DEPRECATED = WA_OpaquePaintEvent,
+#endif
         WA_StaticContents = 5,
         WA_LaidOut = 7,
         WA_PaintOnScreen = 8,
         WA_NoSystemBackground = 9,
         WA_UpdatesDisabled = 10,
         WA_Mapped = 11,
-        WA_MacNoClickThrough = 12, // Mac only
+#if QT_DEPRECATED_SINCE(5, 14)
+        WA_MacNoClickThrough Q_DECL_ENUMERATOR_DEPRECATED = 12,
+#endif
         WA_InputMethodEnabled = 14,
         WA_WState_Visible = 15,
         WA_WState_Hidden = 16,
@@ -376,8 +387,10 @@ public:
         WA_Moved = 43,
         WA_PendingUpdate = 44,
         WA_InvalidSize = 45,
-        WA_MacBrushedMetal = 46, // Mac only
-        WA_MacMetalStyle = WA_MacBrushedMetal, // obsolete
+#if QT_DEPRECATED_SINCE(5, 14)
+        WA_MacBrushedMetal Q_DECL_ENUMERATOR_DEPRECATED = 46,
+        WA_MacMetalStyle Q_DECL_ENUMERATOR_DEPRECATED = 46,
+#endif
         WA_CustomWhatsThis = 47,
         WA_LayoutOnEntireRect = 48,
         WA_OutsideWSRange = 49,
@@ -434,7 +447,9 @@ public:
 
         WA_LayoutUsesWidgetRect = 92,
         WA_StyledBackground = 93, // internal
-        WA_MSWindowsUseDirect3D = 94, // Win only
+#if QT_DEPRECATED_SINCE(5, 14)
+        WA_MSWindowsUseDirect3D Q_DECL_ENUMERATOR_DEPRECATED = 94,
+#endif
         WA_CanHostQMdiSubWindowTitleBar = 95, // Internal
 
         WA_MacAlwaysShowToolWindow = 96, // Mac only
@@ -466,9 +481,9 @@ public:
         WA_X11NetWmWindowTypeNotification = 114,
         WA_X11NetWmWindowTypeCombo = 115,
         WA_X11NetWmWindowTypeDND = 116,
-
-        WA_MacFrameworkScaled  = 117,
-
+#if QT_DEPRECATED_SINCE(5, 14)
+        WA_MacFrameworkScaled Q_DECL_ENUMERATOR_DEPRECATED = 117,
+#endif
         WA_SetWindowModality = 118,
         WA_WState_WindowOpacitySet = 119, // internal
         WA_TranslucentBackground = 120,
@@ -495,7 +510,9 @@ public:
     enum ApplicationAttribute
     {
         AA_ImmediateWidgetCreation = 0,
-        AA_MSWindowsUseDirect3DByDefault = 1, // Win only
+#if QT_DEPRECATED_SINCE(5, 14)
+        AA_MSWindowsUseDirect3DByDefault Q_DECL_ENUMERATOR_DEPRECATED = 1,
+#endif
         AA_DontShowIconsInMenus = 2,
         AA_NativeWindows = 3,
         AA_DontCreateNativeWidgetSiblings = 4,
@@ -506,7 +523,9 @@ public:
         AA_DontUseNativeMenuBar = 6,
         AA_MacDontSwapCtrlAndMeta = 7,
         AA_Use96Dpi = 8,
-        AA_X11InitThreads = 10,
+#if QT_DEPRECATED_SINCE(5, 14)
+        AA_X11InitThreads Q_DECL_ENUMERATOR_DEPRECATED = 10,
+#endif
         AA_SynthesizeTouchForUnhandledMouseEvents = 11,
         AA_SynthesizeMouseForUnhandledTouchEvents = 12,
         AA_UseHighDpiPixmaps = 13,
@@ -527,6 +546,7 @@ public:
         AA_DontShowShortcutsInContextMenus = 28,
         AA_CompressTabletEvents = 29,
         AA_DisableWindowContextHelpButton = 30, // ### Qt 6: remove me
+        AA_DisableSessionManager = 31,
 
         // Add new attributes before this line
         AA_AttributeCount
@@ -1198,7 +1218,8 @@ public:
     enum TextFormat {
         PlainText,
         RichText,
-        AutoText
+        AutoText,
+        MarkdownText
     };
 
     enum AspectRatioMode {
@@ -1379,7 +1400,9 @@ public:
     enum InputMethodQuery {
         ImEnabled = 0x1,
         ImCursorRectangle = 0x2,
-        ImMicroFocus = 0x2, // deprecated
+#if QT_DEPRECATED_SINCE(5, 14)
+        ImMicroFocus Q_DECL_ENUMERATOR_DEPRECATED = 0x2,
+#endif
         ImFont = 0x4,
         ImCursorPosition = 0x8,
         ImSurroundingText = 0x10,
@@ -1614,7 +1637,7 @@ public:
         TitleBarArea    // For move
     };
 
-#if defined(Q_COMPILER_CLASS_ENUM) && defined(Q_COMPILER_CONSTEXPR)
+#if defined(Q_COMPILER_CONSTEXPR)
     enum class Initialization {
         Uninitialized
     };
@@ -1731,6 +1754,15 @@ public:
         ChecksumItuV41
     };
 
+    enum class HighDpiScaleFactorRoundingPolicy {
+        Unset,
+        Round,
+        Ceil,
+        Floor,
+        RoundPreferFloor,
+        PassThrough
+    };
+
 #ifndef Q_QDOC
     // NOTE: Generally, do not add QT_Q_ENUM if a corresponding Q_Q_FLAG exists.
     QT_Q_ENUM(ScrollBarPolicy)
@@ -1757,6 +1789,7 @@ public:
     QT_Q_FLAG(Alignment)
     QT_Q_ENUM(TextFlag)
     QT_Q_FLAG(Orientations)
+    QT_Q_FLAG(SplitBehavior)
     QT_Q_FLAG(DropActions)
     QT_Q_FLAG(Edges)
     QT_Q_FLAG(DockWidgetAreas)
@@ -1816,6 +1849,7 @@ public:
     QT_Q_ENUM(MouseEventSource)
     QT_Q_FLAG(MouseEventFlag)
     QT_Q_ENUM(ChecksumType)
+    QT_Q_ENUM(HighDpiScaleFactorRoundingPolicy)
     QT_Q_ENUM(TabFocusBehavior)
 #endif // Q_DOC
 

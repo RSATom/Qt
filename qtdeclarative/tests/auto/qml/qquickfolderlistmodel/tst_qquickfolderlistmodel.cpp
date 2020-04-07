@@ -75,6 +75,7 @@ private slots:
     void introspectQrc();
     void sortCaseSensitive_data();
     void sortCaseSensitive();
+    void updateProperties();
 private:
     void checkNoErrors(const QQmlComponent& component);
     QQmlEngine engine;
@@ -112,6 +113,10 @@ void tst_qquickfolderlistmodel::initTestCase()
 
 void tst_qquickfolderlistmodel::basicProperties()
 {
+#ifdef Q_OS_ANDROID
+    QSKIP("[QTBUG-77335] Initial folder of FolderListModel on Android does not work properly,"
+          " and from there on it is unreliable to change the folder");
+#endif
     QQmlComponent component(&engine, testFileUrl("basic.qml"));
     checkNoErrors(component);
 
@@ -356,6 +361,9 @@ void tst_qquickfolderlistmodel::showDotAndDotDot()
 
 void tst_qquickfolderlistmodel::showDotAndDotDot_data()
 {
+#ifdef Q_OS_ANDROID
+    QSKIP("Resource file system does not list '.' and '..' due to QDir::entryList() behavior");
+#endif
     QTest::addColumn<QUrl>("folder");
     QTest::addColumn<QUrl>("rootFolder");
     QTest::addColumn<bool>("showDotAndDotDot");
@@ -411,11 +419,52 @@ void tst_qquickfolderlistmodel::sortCaseSensitive()
 
     QAbstractListModel *flm = qobject_cast<QAbstractListModel*>(component.create());
     QVERIFY(flm != 0);
-    flm->setProperty("folder", QUrl::fromLocalFile(dataDirectoryUrl().path() + QLatin1String("/sortdir")));
+    flm->setProperty("folder", testFileUrl("sortdir"));
     flm->setProperty("sortCaseSensitive", sortCaseSensitive);
     QTRY_COMPARE(flm->property("count").toInt(), 2); // wait for refresh
     for (int i = 0; i < 2; ++i)
         QTRY_COMPARE(flm->data(flm->index(i),FileNameRole).toString(), expectedOrder.at(i));
+}
+
+void tst_qquickfolderlistmodel::updateProperties()
+{
+    QQmlComponent component(&engine, testFileUrl("basic.qml"));
+    checkNoErrors(component);
+
+    QObject *folderListModel = component.create();
+    QVERIFY(folderListModel);
+
+    QVariant caseSensitive = folderListModel->property("caseSensitive");
+    QVERIFY(caseSensitive.isValid());
+    QCOMPARE(caseSensitive.toBool(), true);
+    folderListModel->setProperty("caseSensitive", false);
+    caseSensitive = folderListModel->property("caseSensitive");
+    QVERIFY(caseSensitive.isValid());
+    QCOMPARE(caseSensitive.toBool(), false);
+
+    QVariant showOnlyReadable = folderListModel->property("showOnlyReadable");
+    QVERIFY(showOnlyReadable.isValid());
+    QCOMPARE(showOnlyReadable.toBool(), false);
+    folderListModel->setProperty("showOnlyReadable", true);
+    showOnlyReadable = folderListModel->property("showOnlyReadable");
+    QVERIFY(showOnlyReadable.isValid());
+    QCOMPARE(showOnlyReadable.toBool(), true);
+
+    QVariant showDotAndDotDot = folderListModel->property("showDotAndDotDot");
+    QVERIFY(showDotAndDotDot.isValid());
+    QCOMPARE(showDotAndDotDot.toBool(), false);
+    folderListModel->setProperty("showDotAndDotDot", true);
+    showDotAndDotDot = folderListModel->property("showDotAndDotDot");
+    QVERIFY(showDotAndDotDot.isValid());
+    QCOMPARE(showDotAndDotDot.toBool(), true);
+
+    QVariant showHidden = folderListModel->property("showHidden");
+    QVERIFY(showHidden.isValid());
+    QCOMPARE(showHidden.toBool(), false);
+    folderListModel->setProperty("showHidden", true);
+    showHidden = folderListModel->property("showHidden");
+    QVERIFY(showHidden.isValid());
+    QCOMPARE(showHidden.toBool(), true);
 }
 
 QTEST_MAIN(tst_qquickfolderlistmodel)

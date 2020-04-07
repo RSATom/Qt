@@ -4,6 +4,7 @@
 
 #include "content/browser/screen_orientation/screen_orientation_provider.h"
 
+#include "base/bind.h"
 #include "base/optional.h"
 #include "base/run_loop.h"
 #include "content/common/frame_messages.h"
@@ -70,8 +71,7 @@ class FakeWebContentsDelegate : public WebContentsDelegate {
     fullscreened_contents_ = nullptr;
   }
 
-  bool IsFullscreenForTabOrPending(
-      const WebContents* web_contents) const override {
+  bool IsFullscreenForTabOrPending(const WebContents* web_contents) override {
     return fullscreened_contents_ && web_contents == fullscreened_contents_;
   }
 

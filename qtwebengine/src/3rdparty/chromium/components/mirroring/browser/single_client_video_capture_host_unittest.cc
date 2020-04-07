@@ -4,6 +4,7 @@
 
 #include "components/mirroring/browser/single_client_video_capture_host.h"
 
+#include "base/bind.h"
 #include "base/memory/weak_ptr.h"
 #include "base/run_loop.h"
 #include "base/test/scoped_task_environment.h"
@@ -25,7 +26,7 @@ class MockVideoCaptureDevice final
   MockVideoCaptureDevice() {}
   ~MockVideoCaptureDevice() override {}
   void GetPhotoState(
-      VideoCaptureDevice::GetPhotoStateCallback callback) const override {}
+      VideoCaptureDevice::GetPhotoStateCallback callback) override {}
   void SetPhotoOptions(
       media::mojom::PhotoSettingsPtr settings,
       VideoCaptureDevice::SetPhotoOptionsCallback callback) override {}
@@ -48,13 +49,13 @@ class FakeDeviceLauncher final : public content::VideoCaptureDeviceLauncher {
                               MockVideoCaptureDevice*)>;
 
   explicit FakeDeviceLauncher(DeviceLaunchedCallback launched_cb)
-      : after_launch_cb_(std::move(launched_cb)), weak_factory_(this) {}
+      : after_launch_cb_(std::move(launched_cb)) {}
 
   ~FakeDeviceLauncher() override {}
 
   // content::VideoCaptureDeviceLauncher implementation.
   void LaunchDeviceAsync(const std::string& device_id,
-                         blink::MediaStreamType stream_type,
+                         blink::mojom::MediaStreamType stream_type,
                          const VideoCaptureParams& params,
                          base::WeakPtr<VideoFrameReceiver> receiver,
                          base::OnceClosure connection_lost_cb,
@@ -80,7 +81,7 @@ class FakeDeviceLauncher final : public content::VideoCaptureDeviceLauncher {
   }
 
   DeviceLaunchedCallback after_launch_cb_;
-  base::WeakPtrFactory<FakeDeviceLauncher> weak_factory_;
+  base::WeakPtrFactory<FakeDeviceLauncher> weak_factory_{this};
   DISALLOW_COPY_AND_ASSIGN(FakeDeviceLauncher);
 };
 
@@ -132,7 +133,8 @@ class MockVideoCaptureObserver final
   void Start() {
     media::mojom::VideoCaptureObserverPtr observer;
     binding_.Bind(mojo::MakeRequest(&observer));
-    host_->Start(0, 0, VideoCaptureParams(), std::move(observer));
+    host_->Start(device_id_, session_id_, VideoCaptureParams(),
+                 std::move(observer));
   }
 
   void FinishConsumingBuffer(int32_t buffer_id, double utilization) {
@@ -140,12 +142,14 @@ class MockVideoCaptureObserver final
     const auto iter = frame_infos_.find(buffer_id);
     EXPECT_TRUE(iter != frame_infos_.end());
     frame_infos_.erase(iter);
-    host_->ReleaseBuffer(0, buffer_id, utilization);
+    host_->ReleaseBuffer(device_id_, buffer_id, utilization);
   }
 
-  void Stop() { host_->Stop(0); }
+  void Stop() { host_->Stop(device_id_); }
 
  private:
+  const base::UnguessableToken device_id_ = base::UnguessableToken::Create();
+  const base::UnguessableToken session_id_ = base::UnguessableToken::Create();
   media::mojom::VideoCaptureHostPtr host_;
   mojo::Binding<media::mojom::VideoCaptureObserver> binding_;
   base::flat_map<int, media::mojom::VideoBufferHandlePtr> buffers_;
@@ -165,9 +169,9 @@ media::mojom::VideoFrameInfoPtr GetVideoFrameInfo() {
 
 class SingleClientVideoCaptureHostTest : public ::testing::Test {
  public:
-  SingleClientVideoCaptureHostTest() : weak_factory_(this) {
+  SingleClientVideoCaptureHostTest() {
     auto host_impl = std::make_unique<SingleClientVideoCaptureHost>(
-        std::string(), blink::MediaStreamType::MEDIA_GUM_TAB_VIDEO_CAPTURE,
+        std::string(), blink::mojom::MediaStreamType::GUM_TAB_VIDEO_CAPTURE,
         base::BindRepeating(
             &SingleClientVideoCaptureHostTest::CreateDeviceLauncher,
             base::Unretained(this)));
@@ -258,7 +262,7 @@ class SingleClientVideoCaptureHostTest : public ::testing::Test {
     OnDeviceLaunchedCall();
   }
 
-  base::WeakPtrFactory<SingleClientVideoCaptureHostTest> weak_factory_;
+  base::WeakPtrFactory<SingleClientVideoCaptureHostTest> weak_factory_{this};
 };
 
 TEST_F(SingleClientVideoCaptureHostTest, Basic) {

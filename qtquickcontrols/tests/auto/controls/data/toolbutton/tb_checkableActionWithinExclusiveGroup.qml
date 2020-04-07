@@ -48,6 +48,7 @@
 **
 ****************************************************************************/
 
+import QtQml 2.14 as Qml
 import QtQuick 2.2
 import QtQuick.Controls 1.2
 
@@ -75,15 +76,17 @@ Row {
             checked: textinput.font.underline
         }
     }
-    Binding {
+    Qml.Binding {
         target: textinput
         property: "font.bold"
         value: bold.checked
+        restoreMode: Binding.RestoreBinding
     }
-    Binding {
+    Qml.Binding {
         target: textinput
         property: "font.underline"
         value: underline.checked
+        restoreMode: Binding.RestoreBinding
     }
     ToolButton {
         id: _tb1

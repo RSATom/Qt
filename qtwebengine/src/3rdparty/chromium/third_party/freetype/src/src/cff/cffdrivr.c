@@ -4,7 +4,7 @@
  *
  *   OpenType font driver implementation (body).
  *
- * Copyright 1996-2018 by
+ * Copyright (C) 1996-2019 by
  * David Turner, Robert Wilhelm, and Werner Lemberg.
  *
  * This file is part of the FreeType project, and may only be used,
@@ -381,8 +381,8 @@
 
 
   static FT_UInt
-  cff_get_name_index( CFF_Face    face,
-                      FT_String*  glyph_name )
+  cff_get_name_index( CFF_Face          face,
+                      const FT_String*  glyph_name )
   {
     CFF_Font            cff;
     CFF_Charset         charset;

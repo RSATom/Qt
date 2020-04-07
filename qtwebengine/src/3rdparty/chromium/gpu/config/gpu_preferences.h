@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "base/macros.h"
+#include "base/message_loop/message_loop.h"
 #include "build/build_config.h"
 #include "gpu/gpu_export.h"
 #include "media/media_buildflags.h"
@@ -24,6 +25,13 @@ const size_t kDefaultMaxProgramCacheMemoryBytes = 6 * 1024 * 1024;
 const size_t kDefaultMaxProgramCacheMemoryBytes = 2 * 1024 * 1024;
 const size_t kLowEndMaxProgramCacheMemoryBytes = 128 * 1024;
 #endif
+
+enum VulkanImplementationName : uint32_t {
+  kNone = 0,
+  kNative = 1,
+  kSwiftshader = 2,
+  kLast = kSwiftshader,
+};
 
 // NOTE: if you modify this structure then you must also modify the
 // following two files to keep them in sync:
@@ -44,23 +52,8 @@ struct GPU_EXPORT GpuPreferences {
   // If return false, |this| won't be touched.
   bool FromSwitchValue(const std::string& data);
 
-  // Support for accelerated vpx decoding for various vendors,
-  // intended to be used as a bitfield.
-  // VPX_VENDOR_ALL should be updated whenever a new entry is added.
-  enum VpxDecodeVendors {
-    VPX_VENDOR_NONE = 0x00,
-    VPX_VENDOR_MICROSOFT = 0x01,
-    VPX_VENDOR_AMD = 0x02,
-    VPX_VENDOR_ALL = 0x03,
-  };
   // ===================================
   // Settings from //content/public/common/content_switches.h
-
-  // Runs the renderer and plugins in the same process as the browser.
-  bool single_process = false;
-
-  // Run the GPU process as a thread in the browser process.
-  bool in_process_gpu = false;
 
   // Disables hardware acceleration of video decode, where available.
   bool disable_accelerated_video_decode = false;
@@ -77,10 +70,6 @@ struct GPU_EXPORT GpuPreferences {
 
   // Starts the GPU sandbox before creating a GL context.
   bool gpu_sandbox_start_early = false;
-
-  // Enables experimental hardware acceleration for VP8/VP9 video decoding.
-  // Bitmask - 0x1=Microsoft, 0x2=AMD, 0x03=Try all. Windows only.
-  VpxDecodeVendors enable_accelerated_vpx_decode = VPX_VENDOR_MICROSOFT;
 
   // Enables using CODECAPI_AVLowLatencyMode. Windows only.
   bool enable_low_latency_dxva = true;
@@ -100,9 +89,6 @@ struct GPU_EXPORT GpuPreferences {
   bool disable_software_rasterizer = false;
 
   bool log_gpu_control_list_decisions = false;
-
-  // Enable exporting of events to ETW (on Windows).
-  bool enable_trace_export_events_to_etw = false;
 
   // ===================================
   // Settings from //gpu/command_buffer/service/gpu_switches.cc
@@ -161,10 +147,6 @@ struct GPU_EXPORT GpuPreferences {
   // ===================================
   // Settings from //gpu/config/gpu_switches.h
 
-  // Allows user to override the maximum number of WebGL contexts. A value of 0
-  // uses the defaults, which are encoded in the GPU process's code.
-  uint32_t max_active_webgl_contexts = 0;
-
   // Enables the use of SurfaceControl for overlays on Android.
   bool enable_android_surface_control = false;
 
@@ -204,15 +186,26 @@ struct GPU_EXPORT GpuPreferences {
   bool disable_oop_rasterization = false;
 
   bool enable_oop_rasterization_ddl = false;
-  bool enable_raster_to_sk_image = false;
-  bool enable_passthrough_raster_decoder = false;
 
   // Start the watchdog suspended, as the app is already backgrounded and won't
   // send a background/suspend signal.
   bool watchdog_starts_backgrounded = false;
 
+  // ===================================
+  // Settings from //gpu/command_buffer/service/gpu_switches.h
   // Use Vulkan for rasterization and display compositing.
-  bool enable_vulkan = false;
+  VulkanImplementationName use_vulkan = VulkanImplementationName::kNone;
+
+  // Use vulkan VK_KHR_surface for presenting.
+  bool disable_vulkan_surface = false;
+
+  // If Vulkan initialization has failed, do not fallback to GL. This is for
+  // testing in order to detect regressions which crash Vulkan.
+  bool disable_vulkan_fallback_to_gl_for_testing = false;
+
+  // Use Metal for rasterization and Skia-based display compositing. Note that
+  // this is compatible with GL-based display compositing.
+  bool enable_metal = false;
 
   // ===================================
   // Settings from //cc/base/switches.h
@@ -221,6 +214,9 @@ struct GPU_EXPORT GpuPreferences {
 
   // Enable the WebGPU command buffer.
   bool enable_webgpu = false;
+
+  // Determines message loop type for the GPU thread.
+  base::MessageLoop::Type message_loop_type = base::MessageLoop::TYPE_DEFAULT;
 
   // Please update gpu_preferences_unittest.cc when making additions or
   // changes to this struct.

@@ -503,9 +503,7 @@ bool KeymapParser::generateHeader(QFile *f)
 
     for (int i = 0; i < m_keymap.size(); ++i) {
         const QEvdevKeyboardMap::Mapping &m = m_keymap.at(i);
-        QString s;
-        s.sprintf("    { %3d, 0x%04x, 0x%08x, 0x%02x, 0x%02x, 0x%04x },\n", m.keycode, m.unicode, m.qtcode, m.modifiers, m.flags, m.special);
-        ts << s;
+        ts << QString::asprintf("    { %3d, 0x%04x, 0x%08x, 0x%02x, 0x%02x, 0x%04x },\n", m.keycode, m.unicode, m.qtcode, m.modifiers, m.flags, m.special);
     }
 
     ts << "};" << endl << endl;
@@ -514,9 +512,7 @@ bool KeymapParser::generateHeader(QFile *f)
 
     for (int i = 0; i < m_keycompose.size(); ++i) {
         const QEvdevKeyboardMap::Composing &c = m_keycompose.at(i);
-        QString s;
-        s.sprintf("    { 0x%04x, 0x%04x, 0x%04x },\n", c.first, c.second, c.result);
-        ts << s;
+        ts << QString::asprintf("    { 0x%04x, 0x%04x, 0x%04x },\n", c.first, c.second, c.result);
     }
     ts << "};" << endl << endl;
 
@@ -622,7 +618,7 @@ bool KeymapParser::parseKmap(QFile *f)
                     else
                         parseWarning("keymaps has an invalid range");
                 }
-                qSort(keymaps);
+                std::sort(keymaps.begin(), keymaps.end());
             }
             else
                 parseWarning("keymaps with more than one argument");
@@ -784,7 +780,7 @@ bool KeymapParser::parseKmap(QFile *f)
             }
         }
     }
-    qSort(m_keymap);
+    std::sort(m_keymap.begin(), m_keymap.end());
     return !m_keymap.isEmpty();
 }
 

@@ -32,7 +32,7 @@ void SpellCheckHostImpl::NotifyChecked(const base::string16& word,
   return;
 }
 
-#if !BUILDFLAG(USE_BROWSER_SPELLCHECKER)
+#if BUILDFLAG(USE_RENDERER_SPELLCHECKER)
 void SpellCheckHostImpl::CallSpellingService(
     const base::string16& text,
     CallSpellingServiceCallback callback) {
@@ -44,7 +44,7 @@ void SpellCheckHostImpl::CallSpellingService(
   // This API requires Chrome-only features.
   std::move(callback).Run(false, std::vector<SpellCheckResult>());
 }
-#endif  // !BUILDFLAG(USE_BROWSER_SPELLCHECKER)
+#endif  // BUILDFLAG(USE_RENDERER_SPELLCHECKER)
 
 #if BUILDFLAG(USE_BROWSER_SPELLCHECKER)
 void SpellCheckHostImpl::RequestTextCheck(const base::string16& text,
@@ -60,14 +60,6 @@ void SpellCheckHostImpl::RequestTextCheck(const base::string16& text,
 #else
   // This API requires Chrome-only features on the platform.
   std::move(callback).Run(std::vector<SpellCheckResult>());
-#endif
-}
-
-void SpellCheckHostImpl::ToggleSpellCheck(bool enabled, bool checked) {
-  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
-#if defined(OS_ANDROID)
-  if (!enabled)
-    session_bridge_.DisconnectSession();
 #endif
 }
 
@@ -89,3 +81,10 @@ void SpellCheckHostImpl::FillSuggestionList(
   std::move(callback).Run(std::vector<base::string16>());
 }
 #endif  // BUILDFLAG(USE_BROWSER_SPELLCHECKER)
+
+#if defined(OS_ANDROID)
+void SpellCheckHostImpl::DisconnectSessionBridge() {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+  session_bridge_.DisconnectSession();
+}
+#endif

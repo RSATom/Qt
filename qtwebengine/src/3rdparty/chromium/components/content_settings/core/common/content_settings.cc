@@ -27,10 +27,7 @@ struct HistogramValue {
 //
 // TODO(raymes): We should use a sparse histogram here on the hash of the
 // content settings type name instead.
-//
-// The array size must be explicit for the static_asserts below.
-constexpr size_t kNumHistogramValues = 41;
-constexpr HistogramValue kHistogramValue[kNumHistogramValues] = {
+constexpr HistogramValue kHistogramValue[] = {
     {CONTENT_SETTINGS_TYPE_COOKIES, 0},
     {CONTENT_SETTINGS_TYPE_IMAGES, 1},
     {CONTENT_SETTINGS_TYPE_JAVASCRIPT, 2},
@@ -72,6 +69,15 @@ constexpr HistogramValue kHistogramValue[kNumHistogramValues] = {
     {CONTENT_SETTINGS_TYPE_BACKGROUND_FETCH, 45},
     {CONTENT_SETTINGS_TYPE_INTENT_PICKER_DISPLAY, 46},
     {CONTENT_SETTINGS_TYPE_IDLE_DETECTION, 47},
+    {CONTENT_SETTINGS_TYPE_SERIAL_GUARD, 48},
+    {CONTENT_SETTINGS_TYPE_SERIAL_CHOOSER_DATA, 49},
+    {CONTENT_SETTINGS_TYPE_PERIODIC_BACKGROUND_SYNC, 50},
+    {CONTENT_SETTINGS_TYPE_BLUETOOTH_SCANNING, 51},
+    {CONTENT_SETTINGS_TYPE_HID_GUARD, 52},
+    {CONTENT_SETTINGS_TYPE_HID_CHOOSER_DATA, 53},
+    {CONTENT_SETTINGS_TYPE_WAKE_LOCK_SCREEN, 54},
+    {CONTENT_SETTINGS_TYPE_WAKE_LOCK_SYSTEM, 55},
+    {CONTENT_SETTINGS_TYPE_LEGACY_COOKIE_ACCESS, 56},
 };
 
 }  // namespace
@@ -92,7 +98,7 @@ int ContentSettingTypeToHistogramValue(ContentSettingsType content_setting,
                         [](const HistogramValue& a, const HistogramValue& b) {
                           return a.type < b.type;
                         }));
-  static_assert(kHistogramValue[kNumHistogramValues - 1].type ==
+  static_assert(kHistogramValue[base::size(kHistogramValue) - 1].type ==
                     CONTENT_SETTINGS_NUM_TYPES - 1,
                 "Update content settings histogram lookup");
 

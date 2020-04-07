@@ -89,6 +89,7 @@ template("chrome_ios_eg2_test_app_host") {
     deps = [
       ":$_deps_group_name",
       "//ios/chrome/app:main",
+      "//ios/chrome/test/earl_grey:eg_app_support+eg2",
       "//ios/chrome/test/earl_grey:hooks",
       "//ios/chrome/test/earl_grey2:eg_app_support+eg2",
       "//ios/testing:http_server_bundle_data",
@@ -101,6 +102,7 @@ template("chrome_ios_eg2_test_app_host") {
     bundle_deps += [
       "//ios/chrome/app/resources",
       "//ios/third_party/earl_grey2:app_framework+bundle",
+      "//ios/third_party/gtx:gtx+bundle",
       ios_application_icons_target,
     ]
 
@@ -147,10 +149,17 @@ template("chrome_ios_eg2_test") {
                              "deps",
                            ])
 
+    xctest_bundle_principal_class = "ChromeEGTestBundleMain"
+
     if (!defined(deps)) {
       deps = []
     }
-    deps += [ "//ios/chrome/test/earl_grey2:eg_test_support+eg2" ]
+    deps += [ "//ios/chrome/test/earl_grey:eg_test_support+eg2" ]
+
+    bundle_deps = [
+      "//ios/chrome/app/resources",
+      "//ios/third_party/gtx:gtx+bundle",
+    ]
   }
 }
 

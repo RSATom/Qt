@@ -5,16 +5,16 @@
  * found in the LICENSE file.
  */
 
-#include "SkMipMap.h"
+#include "src/core/SkMipMap.h"
 
-#include "SkBitmap.h"
-#include "SkColorData.h"
-#include "SkHalf.h"
-#include "SkImageInfoPriv.h"
-#include "SkMathPriv.h"
-#include "SkNx.h"
-#include "SkTo.h"
-#include "SkTypes.h"
+#include "include/core/SkBitmap.h"
+#include "include/core/SkTypes.h"
+#include "include/private/SkColorData.h"
+#include "include/private/SkHalf.h"
+#include "include/private/SkImageInfoPriv.h"
+#include "include/private/SkNx.h"
+#include "include/private/SkTo.h"
+#include "src/core/SkMathPriv.h"
 #include <new>
 
 //
@@ -42,7 +42,7 @@ struct ColorTypeFilter_565 {
         return (x & ~SK_G16_MASK_IN_PLACE) | ((x & SK_G16_MASK_IN_PLACE) << 16);
     }
     static uint16_t Compact(uint32_t x) {
-        return (x & ~SK_G16_MASK_IN_PLACE) | ((x >> 16) & SK_G16_MASK_IN_PLACE);
+        return ((x & ~SK_G16_MASK_IN_PLACE) & 0xFFFF) | ((x >> 16) & SK_G16_MASK_IN_PLACE);
     }
 };
 
@@ -369,6 +369,7 @@ SkMipMap* SkMipMap::Build(const SkPixmap& src, SkDiscardableFactoryProc fact) {
             proc_3_2 = downsample_3_2<ColorTypeFilter_8>;
             proc_3_3 = downsample_3_3<ColorTypeFilter_8>;
             break;
+        case kRGBA_F16Norm_SkColorType:
         case kRGBA_F16_SkColorType:
             proc_1_2 = downsample_1_2<ColorTypeFilter_F16>;
             proc_1_3 = downsample_1_3<ColorTypeFilter_F16>;

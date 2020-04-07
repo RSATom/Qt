@@ -116,10 +116,17 @@ if (use_ozone) {
         "evdev/touch_filter/false_touch_finder.h",
         "evdev/touch_filter/far_apart_taps_touch_noise_filter.cc",
         "evdev/touch_filter/far_apart_taps_touch_noise_filter.h",
+        "evdev/touch_filter/heuristic_stylus_palm_detection_filter.cc",
+        "evdev/touch_filter/heuristic_stylus_palm_detection_filter.h",
         "evdev/touch_filter/horizontally_aligned_touch_noise_filter.cc",
         "evdev/touch_filter/horizontally_aligned_touch_noise_filter.h",
         "evdev/touch_filter/low_pressure_filter.cc",
         "evdev/touch_filter/low_pressure_filter.h",
+        "evdev/touch_filter/open_palm_detection_filter.cc",
+        "evdev/touch_filter/open_palm_detection_filter.h",
+        "evdev/touch_filter/palm_detection_filter.cc",
+        "evdev/touch_filter/palm_detection_filter.h",
+        "evdev/touch_filter/shared_palm_detection_filter_state.h",
         "evdev/touch_filter/single_position_touch_noise_filter.cc",
         "evdev/touch_filter/single_position_touch_noise_filter.h",
         "evdev/touch_filter/touch_filter.h",
@@ -157,6 +164,8 @@ if (use_ozone) {
 
       if (use_evdev_gestures) {
         sources += [
+          "chromeos/gesture_properties_service.cc",
+          "chromeos/gesture_properties_service.h",
           "evdev/libgestures_glue/event_reader_libevdev_cros.cc",
           "evdev/libgestures_glue/event_reader_libevdev_cros.h",
           "evdev/libgestures_glue/gesture_feedback.cc",
@@ -174,6 +183,7 @@ if (use_ozone) {
         deps += [
           "//third_party/gestures",
           "//third_party/libevdev",
+          "//ui/ozone/public/interfaces:gesture_properties_service",
         ]
 
         public_configs += [ ":evdev_gestures" ]
@@ -188,8 +198,6 @@ component("events_ozone_layout") {
     "layout/keyboard_layout_engine.h",
     "layout/keyboard_layout_engine_manager.cc",
     "layout/keyboard_layout_engine_manager.h",
-    "layout/layout_util.cc",
-    "layout/layout_util.h",
     "layout/no/no_keyboard_layout_engine.cc",
     "layout/no/no_keyboard_layout_engine.h",
     "layout/stub/stub_keyboard_layout_engine.cc",

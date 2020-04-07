@@ -12,10 +12,12 @@
 namespace gwp_asan {
 namespace internal {
 
-// TODO(vtsyrklevich): See if the platform-specific memory allocation and
-// protection routines can be broken out in base/ and merged with those used for
-// PartionAlloc/ProtectedMemory.
 void* GuardedPageAllocator::MapRegion() {
+  if (void* hint = MapRegionHint())
+    if (void* ptr =
+            VirtualAlloc(hint, RegionSize(), MEM_RESERVE, PAGE_NOACCESS))
+      return ptr;
+
   return VirtualAlloc(nullptr, RegionSize(), MEM_RESERVE, PAGE_NOACCESS);
 }
 
@@ -23,7 +25,7 @@ void GuardedPageAllocator::UnmapRegion() {
   CHECK(state_.pages_base_addr);
   BOOL err = VirtualFree(reinterpret_cast<void*>(state_.pages_base_addr), 0,
                          MEM_RELEASE);
-  DCHECK(err);
+  DPCHECK(err) << "VirtualFree";
   (void)err;
 }
 

@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2019 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtWidgets module of the Qt Toolkit.
@@ -70,6 +70,7 @@
 #include <qtextformat.h>
 #include <qdatetime.h>
 #include <qapplication.h>
+#include <private/qapplication_p.h>
 #include <limits.h>
 #include <qtexttable.h>
 #include <qvariant.h>
@@ -167,6 +168,9 @@ void QTextEditPrivate::init(const QString &html)
     QObject::connect(control, SIGNAL(copyAvailable(bool)), q, SIGNAL(copyAvailable(bool)));
     QObject::connect(control, SIGNAL(selectionChanged()), q, SIGNAL(selectionChanged()));
     QObject::connect(control, SIGNAL(cursorPositionChanged()), q, SLOT(_q_cursorPositionChanged()));
+#if QT_CONFIG(cursor)
+    QObject::connect(control, SIGNAL(blockMarkerHovered(QTextBlock)), q, SLOT(_q_hoveredBlockWithMarkerChanged(QTextBlock)));
+#endif
 
     QObject::connect(control, SIGNAL(textChanged()), q, SLOT(updateMicroFocus()));
 
@@ -187,6 +191,7 @@ void QTextEditPrivate::init(const QString &html)
     vbar->setSingleStep(20);
 
     viewport->setBackgroundRole(QPalette::Base);
+    q->setMouseTracking(true);
     q->setAcceptDrops(true);
     q->setFocusPolicy(Qt::StrongFocus);
     q->setAttribute(Qt::WA_KeyCompression);
@@ -194,9 +199,6 @@ void QTextEditPrivate::init(const QString &html)
     q->setInputMethodHints(Qt::ImhMultiLine);
 #ifndef QT_NO_CURSOR
     viewport->setCursor(Qt::IBeamCursor);
-#endif
-#if 0 // Used to be included in Qt4 for Q_WS_WIN
-    setSingleFingerPanEnabled(true);
 #endif
 }
 
@@ -227,6 +229,23 @@ void QTextEditPrivate::_q_cursorPositionChanged()
     QAccessible::updateAccessibility(&event);
 #endif
 }
+
+#if QT_CONFIG(cursor)
+void QTextEditPrivate::_q_hoveredBlockWithMarkerChanged(const QTextBlock &block)
+{
+    Q_Q(QTextEdit);
+    Qt::CursorShape cursor = cursorToRestoreAfterHover;
+    if (block.isValid() && !q->isReadOnly()) {
+        QTextBlockFormat::MarkerType marker = block.blockFormat().marker();
+        if (marker != QTextBlockFormat::MarkerType::NoMarker) {
+            if (viewport->cursor().shape() != Qt::PointingHandCursor)
+                cursorToRestoreAfterHover = viewport->cursor().shape();
+            cursor = Qt::PointingHandCursor;
+        }
+    }
+    viewport->setCursor(cursor);
+}
+#endif
 
 void QTextEditPrivate::pageUpDown(QTextCursor::MoveOperation op, QTextCursor::MoveMode moveMode)
 {
@@ -366,8 +385,8 @@ void QTextEditPrivate::_q_ensureVisible(const QRectF &_rect)
     \section1 Introduction and Concepts
 
     QTextEdit is an advanced WYSIWYG viewer/editor supporting rich
-    text formatting using HTML-style tags. It is optimized to handle
-    large documents and to respond quickly to user input.
+    text formatting using HTML-style tags, or Markdown format. It is optimized
+    to handle large documents and to respond quickly to user input.
 
     QTextEdit works on paragraphs and characters. A paragraph is a
     formatted string which is word-wrapped to fit into the width of
@@ -381,7 +400,7 @@ void QTextEditPrivate::_q_ensureVisible(const QRectF &_rect)
     QTextEdit can display images, lists and tables. If the text is
     too large to view within the text edit's viewport, scroll bars will
     appear. The text edit can load both plain text and rich text files.
-    Rich text is described using a subset of HTML 4 markup, refer to the
+    Rich text can be described using a subset of HTML 4 markup; refer to the
     \l {Supported HTML Subset} page for more information.
 
     If you just need to display a small piece of rich text use QLabel.
@@ -401,11 +420,18 @@ void QTextEditPrivate::_q_ensureVisible(const QRectF &_rect)
     QTextEdit can display a large HTML subset, including tables and
     images.
 
-    The text is set or replaced using setHtml() which deletes any
+    The text can be set or replaced using \l setHtml() which deletes any
     existing text and replaces it with the text passed in the
     setHtml() call. If you call setHtml() with legacy HTML, and then
     call toHtml(), the text that is returned may have different markup,
     but will render the same. The entire text can be deleted with clear().
+
+    Text can also be set or replaced using \l setMarkdown(), and the same
+    caveats apply: if you then call \l toMarkdown(), the text that is returned
+    may be different, but the meaning is preserved as much as possible.
+    Markdown with some embedded HTML can be parsed, with the same limitations
+    that \l setHtml() has; but \l toMarkdown() only writes "pure" Markdown,
+    without any embedded HTML.
 
     Text itself can be inserted using the QTextCursor class or using the
     convenience functions insertHtml(), insertPlainText(), append() or
@@ -1089,7 +1115,7 @@ bool QTextEdit::event(QEvent *e)
 #endif // QT_NO_CONTEXTMENU
 #ifdef QT_KEYPAD_NAVIGATION
     if (e->type() == QEvent::EnterEditFocus || e->type() == QEvent::LeaveEditFocus) {
-        if (QApplication::keypadNavigationEnabled())
+        if (QApplicationPrivate::keypadNavigationEnabled())
             d->sendControlEvent(e);
     }
 #endif
@@ -1214,6 +1240,57 @@ QString QTextEdit::toHtml() const
 }
 #endif
 
+#if QT_CONFIG(textmarkdownreader) && QT_CONFIG(textmarkdownwriter)
+/*!
+    \property QTextEdit::markdown
+
+    This property provides a Markdown interface to the text of the text edit.
+
+    \c toMarkdown() returns the text of the text edit as "pure" Markdown,
+    without any embedded HTML formatting. Some features that QTextDocument
+    supports (such as the use of specific colors and named fonts) cannot be
+    expressed in "pure" Markdown, and they will be omitted.
+
+    \c setMarkdown() changes the text of the text edit.  Any previous text is
+    removed and the undo/redo history is cleared. The input text is
+    interpreted as rich text in Markdown format.
+
+    Parsing of HTML included in the \a markdown string is handled in the same
+    way as in \l setHtml; however, Markdown formatting inside HTML blocks is
+    not supported.
+
+    Some features of the parser can be enabled or disabled via the \a features
+    argument:
+
+    \value MarkdownNoHTML
+           Any HTML tags in the Markdown text will be discarded
+    \value MarkdownDialectCommonMark
+           The parser supports only the features standardized by CommonMark
+    \value MarkdownDialectGitHub
+           The parser supports the GitHub dialect
+
+    The default is \c MarkdownDialectGitHub.
+
+    \sa plainText, html, QTextDocument::toMarkdown(), QTextDocument::setMarkdown()
+    \since 5.14
+*/
+#endif
+
+#if QT_CONFIG(textmarkdownreader)
+void QTextEdit::setMarkdown(const QString &markdown)
+{
+    Q_D(const QTextEdit);
+    d->control->setMarkdown(markdown);
+}
+#endif
+
+#if QT_CONFIG(textmarkdownwriter)
+QString QTextEdit::toMarkdown(QTextDocument::MarkdownFeatures features) const
+{
+    Q_D(const QTextEdit);
+    return d->control->toMarkdown(features);
+}
+#endif
 
 /*! \reimp
 */
@@ -1224,7 +1301,7 @@ void QTextEdit::keyPressEvent(QKeyEvent *e)
 #ifdef QT_KEYPAD_NAVIGATION
     switch (e->key()) {
         case Qt::Key_Select:
-            if (QApplication::keypadNavigationEnabled()) {
+            if (QApplicationPrivate::keypadNavigationEnabled()) {
                 // code assumes linksaccessible + editable isn't meaningful
                 if (d->control->textInteractionFlags() & Qt::TextEditable) {
                     setEditFocus(!hasEditFocus());
@@ -1245,14 +1322,14 @@ void QTextEdit::keyPressEvent(QKeyEvent *e)
             break;
         case Qt::Key_Back:
         case Qt::Key_No:
-            if (!QApplication::keypadNavigationEnabled()
-                    || (QApplication::keypadNavigationEnabled() && !hasEditFocus())) {
+            if (!QApplicationPrivate::keypadNavigationEnabled()
+                    || (QApplicationPrivate::keypadNavigationEnabled() && !hasEditFocus())) {
                 e->ignore();
                 return;
             }
             break;
         default:
-            if (QApplication::keypadNavigationEnabled()) {
+            if (QApplicationPrivate::keypadNavigationEnabled()) {
                 if (!hasEditFocus() && !(e->modifiers() & Qt::ControlModifier)) {
                     if (e->text()[0].isPrint())
                         setEditFocus(true);
@@ -1341,7 +1418,7 @@ void QTextEdit::keyPressEvent(QKeyEvent *e)
         switch (e->key()) {
             case Qt::Key_Up:
             case Qt::Key_Down:
-                if (QApplication::keypadNavigationEnabled()) {
+                if (QApplicationPrivate::keypadNavigationEnabled()) {
                     // Cursor position didn't change, so we want to leave
                     // these keys to change focus.
                     e->ignore();
@@ -1350,7 +1427,7 @@ void QTextEdit::keyPressEvent(QKeyEvent *e)
                 break;
             case Qt::Key_Back:
                 if (!e->isAutoRepeat()) {
-                    if (QApplication::keypadNavigationEnabled()) {
+                    if (QApplicationPrivate::keypadNavigationEnabled()) {
                         if (document()->isEmpty() || !(d->control->textInteractionFlags() & Qt::TextEditable)) {
                             setEditFocus(false);
                             e->accept();
@@ -1376,7 +1453,7 @@ void QTextEdit::keyReleaseEvent(QKeyEvent *e)
 {
 #ifdef QT_KEYPAD_NAVIGATION
     Q_D(QTextEdit);
-    if (QApplication::keypadNavigationEnabled()) {
+    if (QApplicationPrivate::keypadNavigationEnabled()) {
         if (!e->isAutoRepeat() && e->key() == Qt::Key_Back
             && d->deleteAllTimer.isActive()) {
             d->deleteAllTimer.stop();
@@ -1588,7 +1665,7 @@ void QTextEdit::mousePressEvent(QMouseEvent *e)
 {
     Q_D(QTextEdit);
 #ifdef QT_KEYPAD_NAVIGATION
-    if (QApplication::keypadNavigationEnabled() && !hasEditFocus())
+    if (QApplicationPrivate::keypadNavigationEnabled() && !hasEditFocus())
         setEditFocus(true);
 #endif
     d->sendControlEvent(e);
@@ -1719,7 +1796,7 @@ void QTextEdit::inputMethodEvent(QInputMethodEvent *e)
     Q_D(QTextEdit);
 #ifdef QT_KEYPAD_NAVIGATION
     if (d->control->textInteractionFlags() & Qt::TextEditable
-        && QApplication::keypadNavigationEnabled()
+        && QApplicationPrivate::keypadNavigationEnabled()
         && !hasEditFocus())
         setEditFocus(true);
 #endif
@@ -2187,7 +2264,7 @@ void QTextEdit::setReadOnly(bool ro)
     d->control->setTextInteractionFlags(flags);
     setAttribute(Qt::WA_InputMethodEnabled, shouldEnableInputMethod(this));
     QEvent event(QEvent::ReadOnlyChange);
-    QApplication::sendEvent(this, &event);
+    QCoreApplication::sendEvent(this, &event);
 }
 
 /*!

@@ -70,16 +70,16 @@ class MODULES_EXPORT OfflineAudioContext final : public BaseAudioContext {
 
   bool HasRealtimeConstraint() final { return false; }
 
-  DEFINE_ATTRIBUTE_EVENT_LISTENER(complete, kComplete);
+  bool IsPullingAudioGraph() const final;
+
+  DEFINE_ATTRIBUTE_EVENT_LISTENER(complete, kComplete)
 
   // Fire completion event when the rendering is finished.
   void FireCompletionEvent();
 
-  // This is same with the online version in BaseAudioContext class except
-  // for returning a boolean value after checking the scheduled suspends.
-  bool HandlePreOfflineRenderTasks();
-
-  void HandlePostOfflineRenderTasks();
+  bool HandlePreRenderTasks(const AudioIOPosition* output_position,
+                            const AudioCallbackMetric* metric) final;
+  void HandlePostRenderTasks() final;
 
   // Resolve a suspend scheduled at the specified frame. With this specified
   // frame as a unique key, the associated promise resolver can be retrieved

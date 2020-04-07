@@ -14,15 +14,15 @@
 #include <vector>
 
 #include "constants/stream_dict_common.h"
-#include "core/fpdfapi/cpdf_modulemgr.h"
 #include "core/fpdfapi/parser/cpdf_array.h"
 #include "core/fpdfapi/parser/cpdf_dictionary.h"
 #include "core/fpdfapi/parser/fpdf_parser_utility.h"
-#include "core/fxcodec/codec/ccodec_faxmodule.h"
-#include "core/fxcodec/codec/ccodec_flatemodule.h"
-#include "core/fxcodec/codec/ccodec_scanlinedecoder.h"
+#include "core/fxcodec/fax/faxmodule.h"
+#include "core/fxcodec/flate/flatemodule.h"
 #include "core/fxcodec/fx_codec.h"
+#include "core/fxcodec/scanlinedecoder.h"
 #include "core/fxcrt/fx_extension.h"
+#include "core/fxcrt/fx_safe_types.h"
 #include "third_party/base/numerics/safe_math.h"
 #include "third_party/base/stl_util.h"
 
@@ -90,7 +90,15 @@ const uint16_t PDFDocEncoding[256] = {
 
 bool ValidateDecoderPipeline(const CPDF_Array* pDecoders) {
   size_t count = pDecoders->size();
-  if (count <= 1)
+  if (count == 0)
+    return true;
+
+  for (size_t i = 0; i < count; ++i) {
+    if (!pDecoders->GetObjectAt(i)->IsName())
+      return false;
+  }
+
+  if (count == 1)
     return true;
 
   // TODO(thestig): Consolidate all the places that use these filter names.
@@ -283,7 +291,7 @@ uint32_t RunLengthDecode(pdfium::span<const uint8_t> src_span,
   return std::min(i + 1, src_span.size());
 }
 
-std::unique_ptr<CCodec_ScanlineDecoder> CreateFaxDecoder(
+std::unique_ptr<ScanlineDecoder> CreateFaxDecoder(
     pdfium::span<const uint8_t> src_span,
     int width,
     int height,
@@ -304,12 +312,11 @@ std::unique_ptr<CCodec_ScanlineDecoder> CreateFaxDecoder(
     if (Rows > USHRT_MAX)
       Rows = 0;
   }
-  return CPDF_ModuleMgr::Get()->GetFaxModule()->CreateDecoder(
-      src_span, width, height, K, EndOfLine, ByteAlign, BlackIs1, Columns,
-      Rows);
+  return FaxModule::CreateDecoder(src_span, width, height, K, EndOfLine,
+                                  ByteAlign, BlackIs1, Columns, Rows);
 }
 
-std::unique_ptr<CCodec_ScanlineDecoder> CreateFlateDecoder(
+std::unique_ptr<ScanlineDecoder> CreateFlateDecoder(
     pdfium::span<const uint8_t> src_span,
     int width,
     int height,
@@ -328,9 +335,9 @@ std::unique_ptr<CCodec_ScanlineDecoder> CreateFlateDecoder(
     if (!CheckFlateDecodeParams(Colors, BitsPerComponent, Columns))
       return nullptr;
   }
-  return CPDF_ModuleMgr::Get()->GetFlateModule()->CreateDecoder(
-      src_span, width, height, nComps, bpc, predictor, Colors, BitsPerComponent,
-      Columns);
+  return FlateModule::CreateDecoder(src_span, width, height, nComps, bpc,
+                                    predictor, Colors, BitsPerComponent,
+                                    Columns);
 }
 
 uint32_t FlateOrLZWDecode(bool bLZW,
@@ -353,51 +360,57 @@ uint32_t FlateOrLZWDecode(bool bLZW,
     if (!CheckFlateDecodeParams(Colors, BitsPerComponent, Columns))
       return FX_INVALID_OFFSET;
   }
-  return CPDF_ModuleMgr::Get()->GetFlateModule()->FlateOrLZWDecode(
-      bLZW, src_span, bEarlyChange, predictor, Colors, BitsPerComponent,
-      Columns, estimated_size, dest_buf, dest_size);
+  return FlateModule::FlateOrLZWDecode(bLZW, src_span, bEarlyChange, predictor,
+                                       Colors, BitsPerComponent, Columns,
+                                       estimated_size, dest_buf, dest_size);
 }
 
-bool PDF_DataDecode(pdfium::span<const uint8_t> src_span,
-                    const CPDF_Dictionary* pDict,
-                    uint32_t last_estimated_size,
-                    bool bImageAcc,
-                    std::unique_ptr<uint8_t, FxFreeDeleter>* dest_buf,
-                    uint32_t* dest_size,
-                    ByteString* ImageEncoding,
-                    UnownedPtr<const CPDF_Dictionary>* pImageParams) {
+Optional<std::vector<std::pair<ByteString, const CPDF_Object*>>>
+GetDecoderArray(const CPDF_Dictionary* pDict) {
   const CPDF_Object* pDecoder = pDict->GetDirectObjectFor("Filter");
   if (!pDecoder || (!pDecoder->IsArray() && !pDecoder->IsName()))
-    return false;
+    return {};
 
   const CPDF_Object* pParams =
       pDict->GetDirectObjectFor(pdfium::stream::kDecodeParms);
 
-  std::vector<std::pair<ByteString, const CPDF_Object*>> DecoderArray;
+  std::vector<std::pair<ByteString, const CPDF_Object*>> decoder_array;
   if (const CPDF_Array* pDecoders = pDecoder->AsArray()) {
     if (!ValidateDecoderPipeline(pDecoders))
-      return false;
+      return {};
 
     const CPDF_Array* pParamsArray = ToArray(pParams);
     for (size_t i = 0; i < pDecoders->size(); ++i) {
-      DecoderArray.push_back(
+      decoder_array.push_back(
           {pDecoders->GetStringAt(i),
            pParamsArray ? pParamsArray->GetDictAt(i) : nullptr});
     }
   } else {
-    DecoderArray.push_back(
+    decoder_array.push_back(
         {pDecoder->GetString(), pParams ? pParams->GetDict() : nullptr});
   }
 
+  return decoder_array;
+}
+
+bool PDF_DataDecode(
+    pdfium::span<const uint8_t> src_span,
+    uint32_t last_estimated_size,
+    bool bImageAcc,
+    const std::vector<std::pair<ByteString, const CPDF_Object*>>& decoder_array,
+    std::unique_ptr<uint8_t, FxFreeDeleter>* dest_buf,
+    uint32_t* dest_size,
+    ByteString* ImageEncoding,
+    UnownedPtr<const CPDF_Dictionary>* pImageParams) {
   std::unique_ptr<uint8_t, FxFreeDeleter> result;
   // May be changed to point to |result| in the for-loop below. So put it below
   // |result| and let it get destroyed first.
   pdfium::span<const uint8_t> last_span = src_span;
-  size_t nSize = DecoderArray.size();
+  size_t nSize = decoder_array.size();
   for (size_t i = 0; i < nSize; ++i) {
     int estimated_size = i == nSize - 1 ? last_estimated_size : 0;
-    ByteString decoder = DecoderArray[i].first;
-    const CPDF_Dictionary* pParam = ToDictionary(DecoderArray[i].second);
+    ByteString decoder = decoder_array[i].first;
+    const CPDF_Dictionary* pParam = ToDictionary(decoder_array[i].second);
     std::unique_ptr<uint8_t, FxFreeDeleter> new_buf;
     uint32_t new_size = 0xFFFFFFFF;
     uint32_t offset = FX_INVALID_OFFSET;
@@ -459,7 +472,7 @@ WideString PDF_DecodeText(pdfium::span<const uint8_t> span) {
   WideString result;
   if (span.size() >= 2 && ((span[0] == 0xfe && span[1] == 0xff) ||
                            (span[0] == 0xff && span[1] == 0xfe))) {
-    uint32_t max_chars = (span.size() - 2) / 2;
+    size_t max_chars = (span.size() - 2) / 2;
     if (!max_chars)
       return result;
 
@@ -468,7 +481,7 @@ WideString PDF_DecodeText(pdfium::span<const uint8_t> span) {
         span[0] == 0xfe ? GetUnicodeFromBigEndianBytes
                         : GetUnicodeFromLittleEndianBytes;
     const uint8_t* unicode_str = &span[2];
-    for (uint32_t i = 0; i < max_chars * 2; i += 2) {
+    for (size_t i = 0; i < max_chars * 2; i += 2) {
       uint16_t unicode = GetUnicodeFromBytes(unicode_str + i);
 
       // 0x001B is a begin/end marker for language metadata region that
@@ -479,7 +492,8 @@ WideString PDF_DecodeText(pdfium::span<const uint8_t> span) {
           unicode = GetUnicodeFromBytes(unicode_str + i);
           if (unicode == 0x001B) {
             i += 2;
-            unicode = GetUnicodeFromBytes(unicode_str + i);
+            if (i < max_chars * 2)
+              unicode = GetUnicodeFromBytes(unicode_str + i);
             break;
           }
         }
@@ -491,7 +505,7 @@ WideString PDF_DecodeText(pdfium::span<const uint8_t> span) {
     }
   } else {
     pdfium::span<wchar_t> dest_buf = result.GetBuffer(span.size());
-    for (uint32_t i = 0; i < span.size(); ++i)
+    for (size_t i = 0; i < span.size(); ++i)
       dest_buf[i] = PDFDocEncoding[span[i]];
     dest_pos = span.size();
   }
@@ -578,15 +592,13 @@ ByteString PDF_EncodeString(const ByteString& src, bool bHex) {
 bool FlateEncode(pdfium::span<const uint8_t> src_span,
                  std::unique_ptr<uint8_t, FxFreeDeleter>* dest_buf,
                  uint32_t* dest_size) {
-  CCodec_ModuleMgr* pEncoders = CPDF_ModuleMgr::Get()->GetCodecModule();
-  return pEncoders->GetFlateModule()->Encode(src_span.data(), src_span.size(),
-                                             dest_buf, dest_size);
+  return FlateModule::Encode(src_span.data(), src_span.size(), dest_buf,
+                             dest_size);
 }
 
 uint32_t FlateDecode(pdfium::span<const uint8_t> src_span,
                      std::unique_ptr<uint8_t, FxFreeDeleter>* dest_buf,
                      uint32_t* dest_size) {
-  CCodec_ModuleMgr* pEncoders = CPDF_ModuleMgr::Get()->GetCodecModule();
-  return pEncoders->GetFlateModule()->FlateOrLZWDecode(
-      false, src_span, false, 0, 0, 0, 0, 0, dest_buf, dest_size);
+  return FlateModule::FlateOrLZWDecode(false, src_span, false, 0, 0, 0, 0, 0,
+                                       dest_buf, dest_size);
 }

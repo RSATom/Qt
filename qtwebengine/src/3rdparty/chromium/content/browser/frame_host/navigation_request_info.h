@@ -29,7 +29,7 @@ struct CONTENT_EXPORT NavigationRequestInfo {
 #if defined(TOOLKIT_QT)
                         const GURL& first_party_url,
 #endif
-                        const base::Optional<url::Origin>& top_frame_origin,
+                        const net::NetworkIsolationKey& network_isolation_key,
                         bool is_main_frame,
                         bool parent_is_main_frame,
                         bool are_ancestors_secure,
@@ -42,7 +42,7 @@ struct CONTENT_EXPORT NavigationRequestInfo {
                             blob_url_loader_factory,
                         const base::UnguessableToken& devtools_navigation_token,
                         const base::UnguessableToken& devtools_frame_token);
-  NavigationRequestInfo(const NavigationRequestInfo& other);
+  NavigationRequestInfo(const NavigationRequestInfo& other) = delete;
   ~NavigationRequestInfo();
 
   const CommonNavigationParams common_params;
@@ -56,11 +56,9 @@ struct CONTENT_EXPORT NavigationRequestInfo {
   // The top level frame URL
   const GURL first_party_url;
 #endif
-  // The origin of the navigation if top frame, else the origin of the top
-  // frame.
-  // TODO(crbug.com/910716) Make this required. I believe we just need to add
-  // support for signed exchange redirects.
-  const base::Optional<url::Origin> top_frame_origin;
+  // Navigation resource requests will be keyed using |network_isolation_key|
+  // for accessing shared network resources like the http cache.
+  const net::NetworkIsolationKey network_isolation_key;
 
   const bool is_main_frame;
   const bool parent_is_main_frame;

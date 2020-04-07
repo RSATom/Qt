@@ -34,6 +34,9 @@
 #include <QElapsedTimer>
 #include <QTextStream>
 #include <QDir>
+#if defined(Q_OS_WIN) && !defined(Q_OS_WINRT)
+#include <windows.h>
+#endif
 
 /* All tests need to run in temporary directories not used
  * by the application to avoid non-deterministic failures on Windows
@@ -46,11 +49,13 @@ public:
     tst_QFileSystemWatcher();
 
 private slots:
+#ifdef QT_BUILD_INTERNAL
     void basicTest_data();
     void basicTest();
 
     void watchDirectory_data();
     void watchDirectory();
+#endif
 
     void addPath();
     void removePath();
@@ -58,8 +63,10 @@ private slots:
     void removePaths();
     void removePathsFilesInSameDirectory();
 
+#ifdef QT_BUILD_INTERNAL
     void watchFileAndItsDirectory_data() { basicTest_data(); }
     void watchFileAndItsDirectory();
+#endif
 
     void nonExistingFile();
 
@@ -67,12 +74,17 @@ private slots:
 
     void destroyAfterQCoreApplication();
 
+#ifdef QT_BUILD_INTERNAL
     void QTBUG2331();
     void QTBUG2331_data() { basicTest_data(); }
+#endif
 
     void signalsEmittedAfterFileMoved();
 
     void watchUnicodeCharacters();
+#if defined(Q_OS_WIN) && !defined(Q_OS_WINRT)
+    void watchDirectoryAttributeChanges();
+#endif
 
 private:
     QString m_tempDirPattern;
@@ -90,6 +102,7 @@ tst_QFileSystemWatcher::tst_QFileSystemWatcher()
 #endif
 }
 
+#ifdef QT_BUILD_INTERNAL
 void tst_QFileSystemWatcher::basicTest_data()
 {
     QTest::addColumn<QString>("backend");
@@ -360,6 +373,7 @@ void tst_QFileSystemWatcher::watchDirectory()
     for (const auto &testDirName : testDirs)
         QVERIFY(temporaryDir.rmdir(testDirName));
 }
+#endif // QT_BUILD_INTERNAL
 
 void tst_QFileSystemWatcher::addPath()
 {
@@ -502,6 +516,7 @@ void tst_QFileSystemWatcher::removePathsFilesInSameDirectory()
     QCOMPARE(watcher.files().size(), 0);
 }
 
+#ifdef QT_BUILD_INTERNAL
 static QByteArray msgFileOperationFailed(const char *what, const QFile &f)
 {
     return what + QByteArrayLiteral(" failed on \"")
@@ -601,6 +616,7 @@ void tst_QFileSystemWatcher::watchFileAndItsDirectory()
 
     QVERIFY(temporaryDir.rmdir(testDirName));
 }
+#endif // QT_BUILD_INTERNAL
 
 void tst_QFileSystemWatcher::nonExistingFile()
 {
@@ -673,6 +689,7 @@ void tst_QFileSystemWatcher::destroyAfterQCoreApplication()
     QTest::qWait(30);
 }
 
+#ifdef QT_BUILD_INTERNAL
 // regression test for QTBUG2331.
 // essentially, on windows, directories were not unwatched after being deleted
 // from the disk, causing all sorts of interesting problems.
@@ -696,6 +713,7 @@ void tst_QFileSystemWatcher::QTBUG2331()
     QTRY_COMPARE(changedSpy.count(), 1);
     QCOMPARE(watcher.directories(), QStringList());
 }
+#endif // QT_BUILD_INTERNAL
 
 class SignalReceiver : public QObject
 {
@@ -800,6 +818,28 @@ void tst_QFileSystemWatcher::watchUnicodeCharacters()
     QVERIFY(testDir.mkdir("creme"));
     QTRY_COMPARE(changedSpy.count(), 1);
 }
+
+#if defined(Q_OS_WIN) && !defined(Q_OS_WINRT)
+void tst_QFileSystemWatcher::watchDirectoryAttributeChanges()
+{
+    QTemporaryDir temporaryDirectory(m_tempDirPattern);
+    QVERIFY2(temporaryDirectory.isValid(), qPrintable(temporaryDirectory.errorString()));
+
+    QDir testDir(temporaryDirectory.path());
+    const QString subDir(QString::fromLatin1("attrib_test"));
+    QVERIFY(testDir.mkdir(subDir));
+    testDir = QDir(temporaryDirectory.path() + QDir::separator() + subDir);
+
+    QFileSystemWatcher watcher;
+    QVERIFY(watcher.addPath(temporaryDirectory.path()));
+    FileSystemWatcherSpy changedSpy(&watcher, FileSystemWatcherSpy::SpyOnDirectoryChanged);
+    QCOMPARE(changedSpy.count(), 0);
+    QVERIFY(SetFileAttributes(reinterpret_cast<LPCWSTR>(testDir.absolutePath().utf16()), FILE_ATTRIBUTE_HIDDEN) != 0);
+    QTRY_COMPARE(changedSpy.count(), 1);
+    QVERIFY(SetFileAttributes(reinterpret_cast<LPCWSTR>(testDir.absolutePath().utf16()), FILE_ATTRIBUTE_NORMAL) != 0);
+    QTRY_COMPARE(changedSpy.count(), 2);
+}
+#endif
 
 QTEST_MAIN(tst_QFileSystemWatcher)
 #include "tst_qfilesystemwatcher.moc"

@@ -365,6 +365,7 @@ void PaintCommands::staticInit()
                       "^gradient_setCoordinateMode\\s+(\\w*)$",
                       "gradient_setCoordinateMode <coordinate method enum>",
                       "gradient_setCoordinateMode ObjectBoundingMode");
+
     DECL_PAINTCOMMANDSECTION("drawing ops");
     DECL_PAINTCOMMAND("drawPoint", command_drawPoint,
                       "^drawPoint\\s+(-?[\\w.]*)\\s+(-?[\\w.]*)$",
@@ -454,6 +455,14 @@ void PaintCommands::staticInit()
                       "\n  - where t means tile"
                       "\n  - and s is an offset in the tile",
                       "drawTiledPixmap :/images/alpha.png ");
+    DECL_PAINTCOMMAND("fillRect", command_fillRect,
+                      "^fillRect\\s+(-?\\w*)\\s+(-?\\w*)\\s+(-?\\w*)\\s+(-?\\w*)\\s*(\\w*)?$",
+                      "fillRect <x> <y> <w> <h> [color]\n - Uses current brush if no color given",
+                      "fillRect 10 10 20 20 blue");
+    DECL_PAINTCOMMAND("fillRectF", command_fillRectF,
+                      "^fillRectF\\s+(-?[.\\w]*)\\s+(-?[.\\w]*)\\s+(-?[.\\w]*)\\s+(-?[.\\w]*)\\s*(\\w*)?$",
+                      "fillRectF <x> <y> <w> <h> [color]\n - Uses current brush if no color given",
+                      "fillRectF 10.5 10.5 20.2 20.2 blue");
 
     DECL_PAINTCOMMANDSECTION("painterPaths");
     DECL_PAINTCOMMAND("path_moveTo", command_path_moveTo,
@@ -1208,7 +1217,7 @@ void PaintCommands::command_drawRoundRect(QRegularExpressionMatch re)
 
     QT_WARNING_PUSH
     QT_WARNING_DISABLE_DEPRECATED
-    m_painter->drawRoundRect(x, y, w, h, xs, ys);
+    m_painter->drawRoundedRect(x, y, w, h, xs, ys, Qt::RelativeSize);
     QT_WARNING_POP
 }
 
@@ -1331,6 +1340,46 @@ void PaintCommands::command_drawTextDocument(QRegularExpressionMatch re)
     m_painter->restore();
 }
 
+/***************************************************************************************************/
+void PaintCommands::command_fillRect(QRegularExpressionMatch re)
+{
+    QStringList caps = re.capturedTexts();
+    int x = convertToInt(caps.at(1));
+    int y = convertToInt(caps.at(2));
+    int w = convertToInt(caps.at(3));
+    int h = convertToInt(caps.at(4));
+
+    if (!caps.at(5).isEmpty()) {
+        QColor color = convertToColor(caps.at(5));
+        if (m_verboseMode)
+            printf(" -(lance) fillRect(%d, %d, %d, %d, %s)\n", x, y, w, h, qPrintable(color.name()));
+        m_painter->fillRect(x, y, w, h, color);
+    } else {
+        if (m_verboseMode)
+            printf(" -(lance) fillRect(%d, %d, %d, %d)\n", x, y, w, h);
+        m_painter->fillRect(x, y, w, h, m_painter->brush());
+    }
+}
+
+void PaintCommands::command_fillRectF(QRegularExpressionMatch re)
+{
+    QStringList caps = re.capturedTexts();
+    double x = convertToDouble(caps.at(1));
+    double y = convertToDouble(caps.at(2));
+    double w = convertToDouble(caps.at(3));
+    double h = convertToDouble(caps.at(4));
+
+    if (!caps.at(5).isEmpty()) {
+        QColor color = convertToColor(caps.at(5));
+        if (m_verboseMode)
+            printf(" -(lance) fillRectF(%.2f, %.2f, %.2f, %.2f, %s)\n", x, y, w, h, qPrintable(color.name()));
+        m_painter->fillRect(QRectF(x, y, w, h), color);
+    } else {
+        if (m_verboseMode)
+            printf(" -(lance) fillRectF(%.2f, %.2f, %.2f, %.2f)\n", x, y, w, h);
+        m_painter->fillRect(QRectF(x, y, w, h), m_painter->brush());
+    }
+}
 
 /***************************************************************************************************/
 void PaintCommands::command_noop(QRegularExpressionMatch)
@@ -2484,12 +2533,6 @@ void PaintCommands::command_surface_begin(QRegularExpressionMatch re)
         m_painter->fillRect(QRect(0, 0, qRound(w), qRound(h)), Qt::transparent);
         m_painter->restore();
 #endif
-#if 0 // Used to be included in Qt4 for Q_WS_X11
-    } else if (m_type == WidgetType) {
-        m_surface_pixmap = QPixmap(qRound(w), qRound(h));
-        m_surface_pixmap.fill(Qt::transparent);
-        m_painter = new QPainter(&m_surface_pixmap);
-#endif
     } else {
         QImage::Format surface_format;
         if (QImage::toPixelFormat(m_format).alphaUsage() != QPixelFormat::UsesAlpha)
@@ -2540,11 +2583,6 @@ void PaintCommands::command_surface_end(QRegularExpressionMatch)
         // Flush the pipeline:
         m_painter->beginNativePainting();
         m_painter->endNativePainting();
-#endif
-#if 0 // Used to be included in Qt4 for Q_WS_X11
-    } else if (m_type == WidgetType) {
-        m_painter->drawPixmap(m_surface_rect.topLeft(), m_surface_pixmap);
-        m_surface_pixmap = QPixmap();
 #endif
     } else {
         m_painter->drawImage(m_surface_rect, m_surface_image);

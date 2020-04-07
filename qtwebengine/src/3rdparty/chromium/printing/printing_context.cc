@@ -5,8 +5,6 @@
 #include "printing/printing_context.h"
 
 #include "base/logging.h"
-#include "base/values.h"
-#include "printing/buildflags/buildflags.h"
 #include "printing/page_setup.h"
 #include "printing/page_size_margins.h"
 #include "printing/print_job_constants.h"
@@ -20,9 +18,7 @@ const float kCloudPrintMarginInch = 0.25;
 }
 
 PrintingContext::PrintingContext(Delegate* delegate)
-    : delegate_(delegate),
-      in_print_job_(false),
-      abort_printing_(false) {
+    : delegate_(delegate), in_print_job_(false), abort_printing_(false) {
   DCHECK(delegate_);
 }
 

@@ -34,13 +34,15 @@ namespace dawn_native {
 
     struct BufferBinding {
         BufferBase* buffer;
-        uint32_t offset;
-        uint32_t size;
+        uint64_t offset;
+        uint64_t size;
     };
 
     class BindGroupBase : public ObjectBase {
       public:
         BindGroupBase(DeviceBase* device, const BindGroupDescriptor* descriptor);
+
+        static BindGroupBase* MakeError(DeviceBase* device);
 
         const BindGroupLayoutBase* GetLayout() const;
         BufferBinding GetBindingAsBufferBinding(size_t binding);
@@ -48,6 +50,8 @@ namespace dawn_native {
         TextureViewBase* GetBindingAsTextureView(size_t binding);
 
       private:
+        BindGroupBase(DeviceBase* device, ObjectBase::ErrorTag tag);
+
         Ref<BindGroupLayoutBase> mLayout;
         std::array<Ref<ObjectBase>, kMaxBindingsPerGroup> mBindings;
         std::array<uint32_t, kMaxBindingsPerGroup> mOffsets;

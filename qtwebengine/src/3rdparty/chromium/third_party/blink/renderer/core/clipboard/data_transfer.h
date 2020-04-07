@@ -50,9 +50,9 @@ enum class DataTransferAccessPolicy;
 
 // Used for drag and drop and copy/paste.
 // Drag and Drop:
-// http://www.whatwg.org/specs/web-apps/current-work/multipage/dnd.html
+// https://html.spec.whatwg.org/multipage/dnd.html
 // Clipboard API (copy/paste):
-// http://dev.w3.org/2006/webapi/clipops/clipops.html
+// https://w3c.github.io/clipboard-apis/
 class CORE_EXPORT DataTransfer final : public ScriptWrappable,
                                        public DataObject::Observer {
   USING_GARBAGE_COLLECTED_MIXIN(DataTransfer);
@@ -72,7 +72,9 @@ class CORE_EXPORT DataTransfer final : public ScriptWrappable,
                               DataTransferAccessPolicy,
                               DataObject*);
 
-  DataTransfer(DataTransferType, DataTransferAccessPolicy, DataObject*);
+  explicit DataTransfer(DataTransferType,
+                        DataTransferAccessPolicy,
+                        DataObject*);
   ~DataTransfer() override;
 
   bool IsForCopyAndPaste() const { return transfer_type_ == kCopyAndPaste; }

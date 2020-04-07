@@ -18,14 +18,12 @@
 #include <random>
 #include <string>
 
-#include "gtest/gtest.h"
+#include <gtest/gtest.h>
 #include "perfetto/base/logging.h"
-#include "perfetto/base/scoped_file.h"
+#include "perfetto/ext/base/scoped_file.h"
 #include "perfetto/trace_processor/trace_processor.h"
 #include "src/base/test/utils.h"
 #include "src/trace_processor/json_trace_parser.h"
-
-#include "perfetto/trace_processor/raw_query.pb.h"
 
 namespace perfetto {
 namespace trace_processor {
@@ -37,7 +35,7 @@ class TraceProcessorIntegrationTest : public ::testing::Test {
       : processor_(TraceProcessor::CreateInstance(Config())) {}
 
  protected:
-  bool LoadTrace(const char* name, int min_chunk_size = 1) {
+  util::Status LoadTrace(const char* name, int min_chunk_size = 512) {
     base::ScopedFstream f(fopen(base::GetTestDataPath(name).c_str(), "rb"));
     std::minstd_rand0 rnd_engine(0);
     std::uniform_int_distribution<> dist(min_chunk_size, 1024);
@@ -45,20 +43,16 @@ class TraceProcessorIntegrationTest : public ::testing::Test {
       size_t chunk_size = static_cast<size_t>(dist(rnd_engine));
       std::unique_ptr<uint8_t[]> buf(new uint8_t[chunk_size]);
       auto rsize = fread(reinterpret_cast<char*>(buf.get()), 1, chunk_size, *f);
-      if (!processor_->Parse(std::move(buf), rsize))
-        return false;
+      auto status = processor_->Parse(std::move(buf), rsize);
+      if (!status.ok())
+        return status;
     }
     processor_->NotifyEndOfFile();
-    return true;
+    return util::OkStatus();
   }
 
-  void Query(const std::string& query, protos::RawQueryResult* result) {
-    protos::RawQueryArgs args;
-    args.set_sql_query(query);
-    auto on_result = [&result](const protos::RawQueryResult& res) {
-      result->CopyFrom(res);
-    };
-    processor_->ExecuteQuery(args, on_result);
+  TraceProcessor::Iterator Query(const std::string& query) {
+    return processor_->ExecuteQuery(query.c_str());
   }
 
  private:
@@ -66,29 +60,61 @@ class TraceProcessorIntegrationTest : public ::testing::Test {
 };
 
 TEST_F(TraceProcessorIntegrationTest, AndroidSchedAndPs) {
-  ASSERT_TRUE(LoadTrace("android_sched_and_ps.pb"));
-  protos::RawQueryResult res;
-  Query(
+  ASSERT_TRUE(LoadTrace("android_sched_and_ps.pb").ok());
+  auto it = Query(
       "select count(*), max(ts) - min(ts) from sched "
-      "where dur != 0 and utid != 0",
-      &res);
-  ASSERT_EQ(res.num_records(), 1);
-  ASSERT_EQ(res.columns(0).long_values(0), 139789);
-  ASSERT_EQ(res.columns(1).long_values(0), 19684308497);
+      "where dur != 0 and utid != 0");
+  ASSERT_TRUE(it.Next());
+  ASSERT_EQ(it.Get(0).type, SqlValue::kLong);
+  ASSERT_EQ(it.Get(0).long_value, 139787);
+  ASSERT_EQ(it.Get(1).type, SqlValue::kLong);
+  ASSERT_EQ(it.Get(1).long_value, 19684308497);
+  ASSERT_FALSE(it.Next());
 }
 
 TEST_F(TraceProcessorIntegrationTest, Sfgate) {
-  ASSERT_TRUE(LoadTrace("sfgate.json", strlen("{\"traceEvents\":[")));
-  protos::RawQueryResult res;
-  Query("select count(*), max(ts) - min(ts) from slices where utid != 0", &res);
-  ASSERT_EQ(res.num_records(), 1);
-  ASSERT_EQ(res.columns(0).long_values(0), 39828);
-  ASSERT_EQ(res.columns(1).long_values(0), 40532506000);
+  ASSERT_TRUE(LoadTrace("sfgate.json", strlen("{\"traceEvents\":[")).ok());
+  auto it =
+      Query("select count(*), max(ts) - min(ts) from slices where utid != 0");
+  ASSERT_TRUE(it.Next());
+  ASSERT_EQ(it.Get(0).type, SqlValue::kLong);
+  ASSERT_EQ(it.Get(0).long_value, 39828);
+  ASSERT_EQ(it.Get(1).type, SqlValue::kLong);
+  ASSERT_EQ(it.Get(1).long_value, 40532506000);
+  ASSERT_FALSE(it.Next());
+}
+
+TEST_F(TraceProcessorIntegrationTest, UnsortedTrace) {
+  ASSERT_TRUE(
+      LoadTrace("unsorted_trace.json", strlen("{\"traceEvents\":[")).ok());
+  auto it = Query("select ts, depth from slices order by ts");
+  ASSERT_TRUE(it.Next());
+  ASSERT_EQ(it.Get(0).type, SqlValue::kLong);
+  ASSERT_EQ(it.Get(0).long_value, 50000);
+  ASSERT_EQ(it.Get(1).type, SqlValue::kLong);
+  ASSERT_EQ(it.Get(1).long_value, 0);
+  ASSERT_TRUE(it.Next());
+  ASSERT_EQ(it.Get(0).type, SqlValue::kLong);
+  ASSERT_EQ(it.Get(0).long_value, 100000);
+  ASSERT_EQ(it.Get(1).type, SqlValue::kLong);
+  ASSERT_EQ(it.Get(1).long_value, 1);
+  ASSERT_FALSE(it.Next());
+}
+
+TEST_F(TraceProcessorIntegrationTest, TraceBounds) {
+  ASSERT_TRUE(LoadTrace("android_sched_and_ps.pb").ok());
+  auto it = Query("select start_ts, end_ts from trace_bounds");
+  ASSERT_TRUE(it.Next());
+  ASSERT_EQ(it.Get(0).type, SqlValue::kLong);
+  ASSERT_EQ(it.Get(0).long_value, 81473009948313);
+  ASSERT_EQ(it.Get(1).type, SqlValue::kLong);
+  ASSERT_EQ(it.Get(1).long_value, 81492700784311);
+  ASSERT_FALSE(it.Next());
 }
 
 // TODO(hjd): Add trace to test_data.
 TEST_F(TraceProcessorIntegrationTest, DISABLED_AndroidBuildTrace) {
-  ASSERT_TRUE(LoadTrace("android_build_trace.json", strlen("[\n{")));
+  ASSERT_TRUE(LoadTrace("android_build_trace.json", strlen("[\n{")).ok());
 }
 
 }  // namespace

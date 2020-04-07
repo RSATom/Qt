@@ -6,17 +6,20 @@
 
 #include <algorithm>
 
+#include "base/bind.h"
+#include "base/bind_helpers.h"
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
 #include "base/rand_util.h"
 #include "base/run_loop.h"
 #include "base/task/post_task.h"
-#include "base/task/task_scheduler/task_scheduler.h"
+#include "base/task/thread_pool/thread_pool.h"
 #include "base/test/bind_test_util.h"
 #include "base/test/scoped_task_environment.h"
 #include "mojo/public/cpp/bindings/associated_binding.h"
+#include "mojo/public/cpp/system/data_pipe_producer.h"
 #include "mojo/public/cpp/system/data_pipe_utils.h"
-#include "mojo/public/cpp/system/string_data_pipe_producer.h"
+#include "mojo/public/cpp/system/string_data_source.h"
 #include "storage/browser/blob/blob_data_builder.h"
 #include "storage/browser/blob/blob_data_item.h"
 #include "storage/browser/blob/blob_storage_context.h"
@@ -64,7 +67,7 @@ class BlobBuilderFromStreamTestWithDelayedLimits
   void TearDown() override {
     // Make sure we clean up files.
     base::RunLoop().RunUntilIdle();
-    base::TaskScheduler::GetInstance()->FlushForTesting();
+    base::ThreadPoolInstance::Get()->FlushForTesting();
     base::RunLoop().RunUntilIdle();
   }
 
@@ -92,14 +95,14 @@ class BlobBuilderFromStreamTestWithDelayedLimits
     uint64_t length_hint = GetLengthHint(data.length());
     BlobBuilderFromStream* finished_builder = nullptr;
     BlobBuilderFromStream builder(
-        context_->AsWeakPtr(), kContentType, kContentDisposition, length_hint,
-        std::move(pipe.consumer_handle), nullptr,
+        context_->AsWeakPtr(), kContentType, kContentDisposition,
         base::BindLambdaForTesting([&](BlobBuilderFromStream* result_builder,
                                        std::unique_ptr<BlobDataHandle> blob) {
           finished_builder = result_builder;
           result = std::move(blob);
           loop.Quit();
         }));
+    builder.Start(length_hint, std::move(pipe.consumer_handle), nullptr);
 
     // Make sure the initial memory allocation done by the builder matches the
     // length hint passed in.
@@ -187,14 +190,13 @@ class BlobBuilderFromStreamTest
   }
 };
 
-TEST_P(BlobBuilderFromStreamTest, CallbackCalledOnDeletion) {
+TEST_P(BlobBuilderFromStreamTest, CallbackCalledOnAbortBeforeDeletion) {
   mojo::DataPipe pipe;
 
   base::RunLoop loop;
   BlobBuilderFromStream* builder_ptr = nullptr;
   auto builder = std::make_unique<BlobBuilderFromStream>(
-      context_->AsWeakPtr(), "", "", GetLengthHint(16),
-      std::move(pipe.consumer_handle), nullptr,
+      context_->AsWeakPtr(), "", "",
       base::BindLambdaForTesting([&](BlobBuilderFromStream* result_builder,
                                      std::unique_ptr<BlobDataHandle> blob) {
         EXPECT_EQ(builder_ptr, result_builder);
@@ -202,6 +204,8 @@ TEST_P(BlobBuilderFromStreamTest, CallbackCalledOnDeletion) {
         loop.Quit();
       }));
   builder_ptr = builder.get();
+  builder->Start(GetLengthHint(16), std::move(pipe.consumer_handle), nullptr);
+  builder->Abort();
   builder.reset();
   loop.Run();
 }
@@ -329,7 +333,7 @@ TEST_P(BlobBuilderFromStreamTest, TooLargeForQuota) {
 
   // Make sure we clean up files.
   base::RunLoop().RunUntilIdle();
-  base::TaskScheduler::GetInstance()->FlushForTesting();
+  base::ThreadPoolInstance::Get()->FlushForTesting();
   base::RunLoop().RunUntilIdle();
 
   EXPECT_EQ(0u, context_->memory_controller().memory_usage());
@@ -358,13 +362,13 @@ TEST_F(BlobBuilderFromStreamTest, HintTooLargeForQuota) {
   base::RunLoop loop;
   std::unique_ptr<BlobDataHandle> result;
   BlobBuilderFromStream builder(
-      context_->AsWeakPtr(), "", "", kLengthHint,
-      std::move(pipe.consumer_handle), nullptr,
+      context_->AsWeakPtr(), "", "",
       base::BindLambdaForTesting(
           [&](BlobBuilderFromStream*, std::unique_ptr<BlobDataHandle> blob) {
             result = std::move(blob);
             loop.Quit();
           }));
+  builder.Start(kLengthHint, std::move(pipe.consumer_handle), nullptr);
   pipe.producer_handle.reset();
   loop.Run();
 
@@ -381,13 +385,13 @@ TEST_F(BlobBuilderFromStreamTest, HintTooLargeForQuotaAndNoDisk) {
   base::RunLoop loop;
   std::unique_ptr<BlobDataHandle> result;
   BlobBuilderFromStream builder(
-      context_->AsWeakPtr(), "", "", kLengthHint,
-      std::move(pipe.consumer_handle), nullptr,
+      context_->AsWeakPtr(), "", "",
       base::BindLambdaForTesting(
           [&](BlobBuilderFromStream*, std::unique_ptr<BlobDataHandle> blob) {
             result = std::move(blob);
             loop.Quit();
           }));
+  builder.Start(kLengthHint, std::move(pipe.consumer_handle), nullptr);
   pipe.producer_handle.reset();
   loop.Run();
 
@@ -410,13 +414,14 @@ TEST_P(BlobBuilderFromStreamTest, ProgressEvents) {
   base::RunLoop loop;
   std::unique_ptr<BlobDataHandle> result;
   BlobBuilderFromStream builder(
-      context_->AsWeakPtr(), "", "", GetLengthHint(kData.size()),
-      std::move(pipe.consumer_handle), progress_client_ptr.PassInterface(),
+      context_->AsWeakPtr(), "", "",
       base::BindLambdaForTesting(
           [&](BlobBuilderFromStream*, std::unique_ptr<BlobDataHandle> blob) {
             result = std::move(blob);
             loop.Quit();
           }));
+  builder.Start(GetLengthHint(kData.size()), std::move(pipe.consumer_handle),
+                progress_client_ptr.PassInterface());
   mojo::BlockingCopyFromString(kData, pipe.producer_handle);
   pipe.producer_handle.reset();
 
@@ -427,12 +432,12 @@ TEST_P(BlobBuilderFromStreamTest, ProgressEvents) {
   EXPECT_GE(progress_client.call_count, 2);
 }
 
-INSTANTIATE_TEST_CASE_P(BlobBuilderFromStreamTest,
-                        BlobBuilderFromStreamTest,
-                        ::testing::Values(LengthHintTestType::kUnknownSize,
-                                          LengthHintTestType::kCorrectSize,
-                                          LengthHintTestType::kTooLargeSize,
-                                          LengthHintTestType::kTooSmallSize));
+INSTANTIATE_TEST_SUITE_P(BlobBuilderFromStreamTest,
+                         BlobBuilderFromStreamTest,
+                         ::testing::Values(LengthHintTestType::kUnknownSize,
+                                           LengthHintTestType::kCorrectSize,
+                                           LengthHintTestType::kTooLargeSize,
+                                           LengthHintTestType::kTooSmallSize));
 
 TEST_F(BlobBuilderFromStreamTestWithDelayedLimits, LargeStream) {
   const std::string kData =
@@ -444,24 +449,24 @@ TEST_F(BlobBuilderFromStreamTestWithDelayedLimits, LargeStream) {
   base::RunLoop loop;
   std::unique_ptr<BlobDataHandle> result;
   BlobBuilderFromStream builder(
-      context_->AsWeakPtr(), kContentType, kContentDisposition, kData.size(),
-      std::move(pipe.consumer_handle), nullptr,
+      context_->AsWeakPtr(), kContentType, kContentDisposition,
       base::BindLambdaForTesting([&](BlobBuilderFromStream* result_builder,
                                      std::unique_ptr<BlobDataHandle> blob) {
         result = std::move(blob);
         loop.Quit();
       }));
+  builder.Start(kData.size(), std::move(pipe.consumer_handle), nullptr);
 
   context_->set_limits_for_testing(limits_);
-  auto data_producer = std::make_unique<mojo::StringDataPipeProducer>(
-      std::move(pipe.producer_handle));
+  auto data_producer =
+      std::make_unique<mojo::DataPipeProducer>(std::move(pipe.producer_handle));
   auto* producer_ptr = data_producer.get();
   producer_ptr->Write(
-      kData,
-      mojo::StringDataPipeProducer::AsyncWritingMode::
-          STRING_STAYS_VALID_UNTIL_COMPLETION,
+      std::make_unique<mojo::StringDataSource>(
+          kData, mojo::StringDataSource::AsyncWritingMode::
+                     STRING_STAYS_VALID_UNTIL_COMPLETION),
       base::BindOnce(
-          base::DoNothing::Once<std::unique_ptr<mojo::StringDataPipeProducer>,
+          base::DoNothing::Once<std::unique_ptr<mojo::DataPipeProducer>,
                                 MojoResult>(),
           std::move(data_producer)));
   pipe.producer_handle.reset();

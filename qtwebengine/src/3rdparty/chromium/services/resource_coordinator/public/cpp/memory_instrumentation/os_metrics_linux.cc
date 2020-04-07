@@ -7,13 +7,20 @@
 #include <stdint.h>
 #include <memory>
 
-#include "base/debug/elf_reader_linux.h"
+#if defined(OS_ANDROID)
+#include "base/android/library_loader/anchor_functions.h"
+#include "base/android/library_loader/anchor_functions_buildflags.h"
+#endif
+#include "base/debug/elf_reader.h"
+#include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/files/scoped_file.h"
 #include "base/format_macros.h"
 #include "base/process/process_metrics.h"
 #include "base/strings/string_number_conversions.h"
+#include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
+#include "base/threading/thread_restrictions.h"
 #include "build/build_config.h"
 #include "services/resource_coordinator/public/cpp/memory_instrumentation/os_metrics.h"
 
@@ -27,15 +34,16 @@ namespace {
 using mojom::VmRegion;
 using mojom::VmRegionPtr;
 
+const char kClearPeakRssCommand[] = "5";
 const uint32_t kMaxLineSize = 4096;
 
-base::ScopedFD OpenStatm(base::ProcessId pid) {
-  std::string name =
-      "/proc/" +
-      (pid == base::kNullProcessId ? "self" : base::IntToString(pid)) +
-      "/statm";
-  base::ScopedFD fd = base::ScopedFD(open(name.c_str(), O_RDONLY));
-  return fd;
+// TODO(chiniforooshan): Many of the utility functions in this anonymous
+// namespace should move to base/process/process_metrics_linux.cc to make the
+// code a lot cleaner.  However, we should do so after we made sure the metrics
+// we are experimenting with here have real value.
+base::FilePath GetProcPidDir(base::ProcessId pid) {
+  return base::FilePath("/proc").Append(
+      pid == base::kNullProcessId ? "self" : base::NumberToString(pid));
 }
 
 bool GetResidentAndSharedPagesFromStatmFile(int fd,
@@ -50,6 +58,19 @@ bool GetResidentAndSharedPagesFromStatmFile(int fd,
   int num_scanned =
       sscanf(line, "%*s %" SCNu64 " %" SCNu64, resident_pages, shared_pages);
   return num_scanned == 2;
+}
+
+bool ResetPeakRSSIfPossible(base::ProcessId pid) {
+  static bool is_peak_rss_resettable = true;
+  if (!is_peak_rss_resettable)
+    return false;
+  auto clear_refs_file = GetProcPidDir(pid).Append("clear_refs");
+  base::ScopedFD clear_refs_fd(open(clear_refs_file.value().c_str(), O_WRONLY));
+  is_peak_rss_resettable =
+      clear_refs_fd.get() >= 0 &&
+      base::WriteFileDescriptor(clear_refs_fd.get(), kClearPeakRssCommand,
+                                sizeof(kClearPeakRssCommand) - 1);
+  return is_peak_rss_resettable;
 }
 
 std::unique_ptr<base::ProcessMetrics> CreateProcessMetrics(
@@ -69,11 +90,12 @@ ModuleData GetMainModuleData() {
   ModuleData module_data;
   Dl_info dl_info;
   if (dladdr(&__ehdr_start, &dl_info)) {
-    base::Optional<std::string> build_id =
-        base::debug::ReadElfBuildId(&__ehdr_start);
-    if (build_id) {
+    base::debug::ElfBuildIdBuffer build_id;
+    size_t build_id_length =
+        base::debug::ReadElfBuildId(&__ehdr_start, true, build_id);
+    if (build_id_length) {
       module_data.path = dl_info.dli_fname;
-      module_data.build_id = *build_id;
+      module_data.build_id = std::string(build_id, build_id_length);
     }
   }
   return module_data;
@@ -217,7 +239,10 @@ void OSMetrics::SetProcSmapsForTesting(FILE* f) {
 // static
 bool OSMetrics::FillOSMemoryDump(base::ProcessId pid,
                                  mojom::RawOSMemDump* dump) {
-  base::ScopedFD autoclose = OpenStatm(pid);
+  // TODO(chiniforooshan): There is no need to read both /statm and /status
+  // files. Refactor to get everything from /status using ProcessMetric.
+  auto statm_file = GetProcPidDir(pid).Append("statm");
+  auto autoclose = base::ScopedFD(open(statm_file.value().c_str(), O_RDONLY));
   int statm_fd = autoclose.get();
 
   if (statm_fd == -1)
@@ -240,6 +265,30 @@ bool OSMetrics::FillOSMemoryDump(base::ProcessId pid,
   dump->platform_private_footprint->rss_anon_bytes = rss_anon_bytes;
   dump->platform_private_footprint->vm_swap_bytes = vm_swap_bytes;
   dump->resident_set_kb = process_metrics->GetResidentSetSize() / 1024;
+  dump->peak_resident_set_kb = GetPeakResidentSetSize(pid);
+  dump->is_peak_rss_resettable = ResetPeakRSSIfPossible(pid);
+
+#if defined(OS_ANDROID)
+#if BUILDFLAG(SUPPORTS_CODE_ORDERING)
+  if (!base::android::AreAnchorsSane()) {
+    DLOG(WARNING) << "Incorrect code ordering";
+    return false;
+  }
+
+  std::vector<uint8_t> accessed_pages_bitmap;
+  OSMetrics::MappedAndResidentPagesDumpState state =
+      OSMetrics::GetMappedAndResidentPages(base::android::kStartOfText,
+                                           base::android::kEndOfText,
+                                           &accessed_pages_bitmap);
+
+  // MappedAndResidentPagesDumpState |state| can be |kAccessPagemapDenied|
+  // for Android devices running a kernel version < 4.4.
+  if (state != OSMetrics::MappedAndResidentPagesDumpState::kSuccess)
+    return state != OSMetrics::MappedAndResidentPagesDumpState::kFailure;
+
+  dump->native_library_pages_bitmap = std::move(accessed_pages_bitmap);
+#endif  // BUILDFLAG(SUPPORTS_CODE_ORDERING)
+#endif  //  defined(OS_ANDROID)
 
   return true;
 }
@@ -253,7 +302,7 @@ std::vector<VmRegionPtr> OSMetrics::GetProcessMemoryMaps(base::ProcessId pid) {
   } else {
     std::string file_name =
         "/proc/" +
-        (pid == base::kNullProcessId ? "self" : base::IntToString(pid)) +
+        (pid == base::kNullProcessId ? "self" : base::NumberToString(pid)) +
         "/smaps";
     base::ScopedFILE smaps_file(fopen(file_name.c_str(), "r"));
     res = ReadLinuxProcSmapsFile(smaps_file.get(), &maps);
@@ -263,6 +312,88 @@ std::vector<VmRegionPtr> OSMetrics::GetProcessMemoryMaps(base::ProcessId pid) {
     return std::vector<VmRegionPtr>();
 
   return maps;
+}
+
+// static
+OSMetrics::MappedAndResidentPagesDumpState OSMetrics::GetMappedAndResidentPages(
+    const size_t start_address,
+    const size_t end_address,
+    std::vector<uint8_t>* accessed_pages_bitmap) {
+  const char* kPagemap = "/proc/self/pagemap";
+
+  base::ScopedFILE pagemap_file(fopen(kPagemap, "r"));
+  if (!pagemap_file.get()) {
+    DLOG(WARNING) << "Could not open " << kPagemap;
+    return OSMetrics::MappedAndResidentPagesDumpState::kAccessPagemapDenied;
+  }
+
+  const size_t kPageSize = base::GetPageSize();
+  const size_t start_page = start_address / kPageSize;
+  // |end_address| is exclusive.
+  const size_t end_page = (end_address - 1) / kPageSize;
+  const size_t total_pages = end_page - start_page + 1;
+
+  // The pagemap has one 64 bit entry per page or 8 bytes.
+  auto offset = static_cast<long>(start_page * 8);
+  if (fseek(pagemap_file.get(), offset, SEEK_SET) != 0) {
+    DLOG(ERROR) << "Error in fseek " << kPagemap;
+    return OSMetrics::MappedAndResidentPagesDumpState::kFailure;
+  }
+
+  // |entries| will be 2kB/MB (if |kPageSize| = 4096),
+  // that would only be ~80kB on Android, and up to 200kB on Linux (for 100MB)
+  std::vector<uint64_t> entries(total_pages);
+  if (fread(&entries[0], sizeof(uint64_t), total_pages, pagemap_file.get()) !=
+      total_pages) {
+    return OSMetrics::MappedAndResidentPagesDumpState::kFailure;
+  }
+
+  accessed_pages_bitmap->resize(1 + (total_pages - 1) / 8);
+  for (size_t page = 0; page < total_pages; page++) {
+    // Bit 63 is "page present" according to
+    // https://www.kernel.org/doc/Documentation/vm/pagemap.txt.
+    if (entries[page] & (1LL << 63)) {
+      auto byte = page / 8;
+      auto bit = page & 0x7;
+      CHECK_LT(byte, accessed_pages_bitmap->size());
+      (*accessed_pages_bitmap)[byte] |= 1 << bit;
+    }
+  }
+  return OSMetrics::MappedAndResidentPagesDumpState::kSuccess;
+}
+
+// static
+size_t OSMetrics::GetPeakResidentSetSize(base::ProcessId pid) {
+  std::string data;
+  {
+    // Synchronously reading files in /proc does not hit the disk.
+    base::ScopedAllowBlocking allow_blocking;
+    if (!base::ReadFileToString(GetProcPidDir(pid).Append("status"), &data))
+      return 0;
+  }
+  base::StringPairs pairs;
+  base::SplitStringIntoKeyValuePairs(data, ':', '\n', &pairs);
+  for (auto& pair : pairs) {
+    base::TrimWhitespaceASCII(pair.first, base::TRIM_ALL, &pair.first);
+    // VmHWM gives the peak resident set size since the start of the process or
+    // since the last time it was reset. HWM stands for "High Water Mark".
+    if (pair.first == "VmHWM") {
+      base::TrimWhitespaceASCII(pair.second, base::TRIM_ALL, &pair.second);
+      auto split_value_str = base::SplitStringPiece(
+          pair.second, " ", base::TRIM_WHITESPACE, base::SPLIT_WANT_ALL);
+      if (split_value_str.size() != 2 || split_value_str[1] != "kB") {
+        NOTREACHED();
+        return 0;
+      }
+      size_t res;
+      if (!base::StringToSizeT(split_value_str[0], &res)) {
+        NOTREACHED();
+        return 0;
+      }
+      return res;
+    }
+  }
+  return 0;
 }
 
 }  // namespace memory_instrumentation

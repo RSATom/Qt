@@ -13,10 +13,35 @@
 // limitations under the License.
 
 #include "dawn_wire/client/Client.h"
+#include "dawn_wire/client/Device.h"
 
 namespace dawn_wire { namespace client {
 
-    Client::Client(Device* device) : mDevice(device) {
+    Client::Client(CommandSerializer* serializer, MemoryTransferService* memoryTransferService)
+        : ClientBase(),
+          mDevice(DeviceAllocator().New(this)->object.get()),
+          mSerializer(serializer),
+          mMemoryTransferService(memoryTransferService) {
+        if (mMemoryTransferService == nullptr) {
+            // If a MemoryTransferService is not provided, fall back to inline memory.
+            mOwnedMemoryTransferService = CreateInlineMemoryTransferService();
+            mMemoryTransferService = mOwnedMemoryTransferService.get();
+        }
+    }
+
+    Client::~Client() {
+        DeviceAllocator().Free(mDevice);
+    }
+
+    ReservedTexture Client::ReserveTexture(DawnDevice cDevice) {
+        Device* device = reinterpret_cast<Device*>(cDevice);
+        ObjectAllocator<Texture>::ObjectAndSerial* allocation = TextureAllocator().New(device);
+
+        ReservedTexture result;
+        result.texture = reinterpret_cast<DawnTexture>(allocation->object.get());
+        result.id = allocation->object->id;
+        result.generation = allocation->serial;
+        return result;
     }
 
 }}  // namespace dawn_wire::client

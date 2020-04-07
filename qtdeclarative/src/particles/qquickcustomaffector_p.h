@@ -108,7 +108,7 @@ public:
 
 
 Q_SIGNALS:
-    void affectParticles(QQmlV4Handle particles, qreal dt);
+    void affectParticles(const QJSValue &particles, qreal dt);
 
     void positionChanged(QQuickDirection * arg);
 
@@ -156,7 +156,7 @@ protected:
     bool affectParticle(QQuickParticleData *d, qreal dt) override;
 
 private:
-    void affectProperties(const QList<QQuickParticleData*> particles, qreal dt);
+    void affectProperties(const QList<QQuickParticleData*> &particles, qreal dt);
     QQuickDirection * m_position;
     QQuickDirection * m_velocity;
     QQuickDirection * m_acceleration;

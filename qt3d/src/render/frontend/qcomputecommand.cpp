@@ -39,7 +39,6 @@
 
 #include "qcomputecommand.h"
 #include "qcomputecommand_p.h"
-#include <Qt3DCore/qpropertyupdatedchange.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -67,7 +66,7 @@ namespace Qt3DRender {
 /*!
     \qmltype ComputeCommand
     \since 5.7
-    \inmodule Qt3DRender
+    \inqmlmodule Qt3D.Render
     \inherits Component3D
     \instantiates Qt3DRender::QComputeCommand
     \brief Component to issue work for the compute shader on GPU.
@@ -93,15 +92,15 @@ namespace Qt3DRender {
  */
 
 /*!
-    \qmlproperty QComputeCommand::runType
+    \qmlproperty enumeration ComputeCommand::runType
 
     Specifies whether the compute command should be performed every frame or
     manually triggered.
 
-    \value Continuous Compute command is executed everyframe. This is the
+    \value ComputeCommand.Continuous Compute command is executed everyframe. This is the
     default.
 
-    \value Manual CompouteCommand is executed for a given number of frames and
+    \value ComputeCommand.Manual CompouteCommand is executed for a given number of frames and
     then the component disables itself.
  */
 
@@ -156,10 +155,7 @@ QComputeCommandPrivate::QComputeCommandPrivate()
 void QComputeCommandPrivate::setFrameCount(int frameCount)
 {
     m_frameCount = frameCount;
-    const auto propertyChange = Qt3DCore::QPropertyUpdatedChangePtr::create(m_id);
-    propertyChange->setPropertyName("frameCount");
-    propertyChange->setValue(m_frameCount);
-    notifyObservers(propertyChange);
+    update();
 }
 
 /*!

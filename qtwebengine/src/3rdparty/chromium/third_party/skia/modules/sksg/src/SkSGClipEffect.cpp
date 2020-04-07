@@ -5,11 +5,11 @@
  * found in the LICENSE file.
  */
 
-#include "SkSGClipEffect.h"
+#include "modules/sksg/include/SkSGClipEffect.h"
 
-#include "SkCanvas.h"
-#include "SkPath.h"
-#include "SkSGGeometryNode.h"
+#include "include/core/SkCanvas.h"
+#include "include/core/SkPath.h"
+#include "modules/sksg/include/SkSGGeometryNode.h"
 
 namespace sksg {
 
@@ -25,15 +25,16 @@ ClipEffect::~ClipEffect() {
 }
 
 void ClipEffect::onRender(SkCanvas* canvas, const RenderContext* ctx) const {
-    if (this->bounds().isEmpty())
-        return;
-
     SkAutoCanvasRestore acr(canvas, !fNoop);
     if (!fNoop) {
         fClipNode->clip(canvas, fAntiAlias);
     }
 
     this->INHERITED::onRender(canvas, ctx);
+}
+
+const RenderNode* ClipEffect::onNodeAt(const SkPoint& p) const {
+    return fClipNode->contains(p) ? this->INHERITED::onNodeAt(p) : nullptr;
 }
 
 SkRect ClipEffect::onRevalidate(InvalidationController* ic, const SkMatrix& ctm) {

@@ -6,6 +6,8 @@
 # Using colorama.Fore/Back/Style members
 # pylint: disable=no-member
 
+from __future__ import print_function
+
 import argparse
 import collections
 import json
@@ -21,6 +23,7 @@ import sys
 import tempfile
 import textwrap
 
+import adb_command_line
 import devil_chromium
 from devil import devil_env
 from devil.android import apk_helper
@@ -90,21 +93,26 @@ def _InstallApk(devices, apk, install_dict):
 #   keystore_path: Path to keystore file.
 #   keystore_password: Password for the keystore file.
 #   keystore_alias: Signing key name alias within the keystore file.
+#   system_image_locales: List of Chromium locales to include in system .apks.
 BundleGenerationInfo = collections.namedtuple(
     'BundleGenerationInfo',
     'bundle_path,bundle_apks_path,aapt2_path,keystore_path,keystore_password,'
-    'keystore_alias')
+    'keystore_alias,system_image_locales')
 
 
-def _GenerateBundleApks(info, output_path, minimal=False, universal=False):
+def _GenerateBundleApks(info,
+                        output_path,
+                        minimal=False,
+                        minimal_sdk_version=None,
+                        mode=None):
   """Generate an .apks archive from a bundle on demand.
 
   Args:
     info: A BundleGenerationInfo instance.
     output_path: Path of output .apks archive.
     minimal: Create the minimal set of apks possible (english-only).
-    universal: Whether to create a single APK that contains the contents of all
-        modules.
+    minimal_sdk_version: When minimal=True, use this sdkVersion.
+    mode: Build mode, either None, or one of app_bundle_utils.BUILD_APKS_MODES.
   """
   app_bundle_utils.GenerateBundleApks(
       info.bundle_path,
@@ -113,8 +121,10 @@ def _GenerateBundleApks(info, output_path, minimal=False, universal=False):
       info.keystore_path,
       info.keystore_password,
       info.keystore_alias,
-      universal=universal,
-      minimal=minimal)
+      system_image_locales=info.system_image_locales,
+      mode=mode,
+      minimal=minimal,
+      minimal_sdk_version=minimal_sdk_version)
 
 
 def _InstallBundle(devices, bundle_apks, package_name, command_line_flags_file,
@@ -134,16 +144,22 @@ def _InstallBundle(devices, bundle_apks, package_name, command_line_flags_file,
     return False
 
   def ClearFakeModules(device):
-    for path in [SPLITCOMPAT_PATH, MODULES_SRC_DIRECTORY_PATH]:
-      if device.PathExists(path, as_root=True):
-        device.RemovePath(path, force=True, recursive=True, as_root=True)
-        logging.info('Removed %s', path)
-      else:
-        logging.info('Skipped removing nonexistent %s', path)
+    if device.PathExists(SPLITCOMPAT_PATH, as_root=True):
+      device.RemovePath(
+          SPLITCOMPAT_PATH, force=True, recursive=True, as_root=True)
+      logging.info('Removed %s', SPLITCOMPAT_PATH)
+    else:
+      logging.info('Skipped removing nonexistent %s', SPLITCOMPAT_PATH)
 
   def InstallFakeModules(device):
     try:
       temp_path = tempfile.mkdtemp()
+
+      if not fake_modules:
+        # Push empty temp_path to clear folder on device and update the cache.
+        device.PushChangedFiles([(temp_path, MODULES_SRC_DIRECTORY_PATH)],
+                                delete_device_stale=True)
+        return
 
       # Device-spec JSON is needed, so create that first.
       device_spec_filename = os.path.join(temp_path, 'device_spec.json')
@@ -153,9 +169,9 @@ def _InstallBundle(devices, bundle_apks, package_name, command_line_flags_file,
       ]
       bundletool.RunBundleTool(get_device_spec_cmd_args)
 
-      # Extract fake modules to temp directory. For now, installation requires
-      # running 'bundletool extract-apks'. Unfortunately, this leads to unneeded
-      # compression of module files.
+      # Extract fake modules to temp directory. For now, installation
+      # requires running 'bundletool extract-apks'. Unfortunately, this leads
+      # to unneeded compression of module files.
       extract_apks_cmd_args = [
           'extract-apks', '--apks=' + bundle_apks,
           '--device-spec=' + device_spec_filename,
@@ -164,20 +180,40 @@ def _InstallBundle(devices, bundle_apks, package_name, command_line_flags_file,
       bundletool.RunBundleTool(extract_apks_cmd_args)
 
       # Push fake modules, with renames.
+      fake_module_apks = set()
       for fake_module in fake_modules:
-        remote = posixpath.join(MODULES_SRC_DIRECTORY_PATH,
-                                '%s.apk' % fake_module)
-        # Try |local| filename alternatives, and ensure there's exactly one.
-        # TODO(huangs): Handle fake packages with different languages: See
-        #     http://crbug.com/925358.
-        local_choices = []
-        for suffix in ['-master.apk', '-master_2.apk']:
-          local = os.path.join(temp_path, fake_module + suffix)
-          if os.path.isfile(local):
-            local_choices.append(local)
-        if len(local_choices) != 1:
-          raise Exception('Expect 1 matching local file for %s' % fake_module)
-        device.adb.Push(local_choices[0], remote)
+        found_master = False
+
+        for filename in os.listdir(temp_path):
+          # If file matches expected format, rename it to follow conventions
+          # required by splitcompatting.
+          match = re.match(r'%s-([a-z_0-9]+)\.apk' % fake_module, filename)
+          local_path = os.path.join(temp_path, filename)
+
+          if not match:
+            continue
+
+          module_suffix = match.group(1)
+          remote = os.path.join(
+              temp_path, '%s.config.%s.apk' % (fake_module, module_suffix))
+          # Check if filename matches a master apk.
+          if 'master' in module_suffix:
+            if found_master:
+              raise Exception('Expect 1 master apk file for %s' % fake_module)
+            found_master = True
+            remote = os.path.join(temp_path, '%s.apk' % fake_module)
+
+          os.rename(local_path, remote)
+          fake_module_apks.add(os.path.basename(remote))
+
+      # Files that weren't renamed should not be pushed, remove from temp_path.
+      for filename in os.listdir(temp_path):
+        if filename not in fake_module_apks:
+          os.remove(os.path.join(temp_path, filename))
+
+      device.PushChangedFiles([(temp_path, MODULES_SRC_DIRECTORY_PATH)],
+                              delete_device_stale=True)
+
     finally:
       shutil.rmtree(temp_path, ignore_errors=True)
 
@@ -188,8 +224,9 @@ def _InstallBundle(devices, bundle_apks, package_name, command_line_flags_file,
       if ShouldWarnFakeFeatureModuleInstallFlag(device):
         msg = ('Command line has no %s: Fake modules will be ignored.' %
                FAKE_FEATURE_MODULE_INSTALL)
-        print _Colorize(msg, colorama.Fore.YELLOW + colorama.Style.BRIGHT)
-      InstallFakeModules(device)
+        print(_Colorize(msg, colorama.Fore.YELLOW + colorama.Style.BRIGHT))
+
+    InstallFakeModules(device)
 
     # NOTE: For now, installation requires running 'bundletool install-apks'.
     # TODO(digit): Add proper support for bundles to devil instead, then use it.
@@ -227,6 +264,24 @@ def _UninstallApk(devices, install_dict, package_name):
     else:
       device.Uninstall(package_name)
   device_utils.DeviceUtils.parallel(devices).pMap(uninstall)
+
+
+def _IsWebViewProvider(apk_helper_instance):
+  meta_data = apk_helper_instance.GetAllMetadata()
+  meta_data_keys = [pair[0] for pair in meta_data]
+  return 'com.android.webview.WebViewLibrary' in meta_data_keys
+
+
+def _SetWebViewProvider(devices, package_name):
+
+  def switch_provider(device):
+    if device.build_version_sdk < version_codes.NOUGAT:
+      logging.error('No need to switch provider on pre-Nougat devices (%s)',
+                    device.serial)
+    else:
+      device.SetWebViewImplementation(package_name)
+
+  device_utils.DeviceUtils.parallel(devices).pMap(switch_provider)
 
 
 def _NormalizeProcessName(debug_process_name, package_name):
@@ -271,6 +326,8 @@ def _LaunchUrl(devices, package_name, argv=None, command_line_flags_file=None,
         changer = flag_changer.FlagChanger(device, command_line_flags_file)
         flags = []
         if argv:
+          adb_command_line.CheckBuildTypeSupportsFlags(device,
+                                                       command_line_flags_file)
           flags = shlex.split(argv)
         try:
           changer.ReplaceFlags(flags)
@@ -279,8 +336,10 @@ def _LaunchUrl(devices, package_name, argv=None, command_line_flags_file=None,
 
     if url is None:
       # Simulate app icon click if no url is present.
-      cmd = ['monkey', '-p', package_name, '-c',
-             'android.intent.category.LAUNCHER', '1']
+      cmd = [
+          'am', 'start', '-p', package_name, '-c',
+          'android.intent.category.LAUNCHER', '-a', 'android.intent.action.MAIN'
+      ]
       device.RunShellCommand(cmd, check_return=True)
     else:
       launch_intent = intent.Intent(action='android.intent.action.VIEW',
@@ -289,8 +348,8 @@ def _LaunchUrl(devices, package_name, argv=None, command_line_flags_file=None,
       device.StartActivity(launch_intent)
   device_utils.DeviceUtils.parallel(devices).pMap(launch)
   if wait_for_java_debugger:
-    print ('Waiting for debugger to attach to process: ' +
-           _Colorize(debug_process_name, colorama.Fore.YELLOW))
+    print('Waiting for debugger to attach to process: ' +
+          _Colorize(debug_process_name, colorama.Fore.YELLOW))
 
 
 def _ChangeFlags(devices, argv, command_line_flags_file):
@@ -299,6 +358,8 @@ def _ChangeFlags(devices, argv, command_line_flags_file):
   else:
     flags = shlex.split(argv)
     def update(device):
+      adb_command_line.CheckBuildTypeSupportsFlags(device,
+                                                   command_line_flags_file)
       changer = flag_changer.FlagChanger(device, command_line_flags_file)
       changer.ReplaceFlags(flags)
     device_utils.DeviceUtils.parallel(devices).pMap(update)
@@ -340,8 +401,8 @@ def _RunGdb(device, package_name, debug_process_name, pid, output_directory,
   if target_cpu:
     cmd.append('--target-arch=%s' % _TargetCpuToTargetArch(target_cpu))
   logging.warning('Running: %s', ' '.join(pipes.quote(x) for x in cmd))
-  print _Colorize(
-      'All subsequent output is from adb_gdb script.', colorama.Fore.YELLOW)
+  print(_Colorize('All subsequent output is from adb_gdb script.',
+                  colorama.Fore.YELLOW))
   os.execv(gdb_script_path, cmd)
 
 
@@ -372,13 +433,12 @@ def _RunMemUsage(devices, package_name, query_app=False):
   all_results = parallel_devices.pMap(mem_usage_helper).pGet(None)
   for result in _PrintPerDeviceOutput(devices, all_results):
     if not result:
-      print 'No processes found.'
+      print('No processes found.')
     else:
       for name, usage in sorted(result):
-        print _Colorize(
-            '==== Output of "dumpsys meminfo %s" ====' % name,
-            colorama.Fore.GREEN)
-        print usage
+        print(_Colorize('==== Output of "dumpsys meminfo %s" ====' % name,
+                        colorama.Fore.GREEN))
+        print(usage)
 
 
 def _DuHelper(device, path_spec, run_as=None):
@@ -550,15 +610,15 @@ def _RunDiskUsage(devices, package_name):
             compilation_filter)
 
   def print_sizes(desc, sizes):
-    print '%s: %d KiB' % (desc, sum(sizes.itervalues()))
+    print('%s: %d KiB' % (desc, sum(sizes.itervalues())))
     for path, size in sorted(sizes.iteritems()):
-      print '    %s: %s KiB' % (path, size)
+      print('    %s: %s KiB' % (path, size))
 
   parallel_devices = device_utils.DeviceUtils.parallel(devices)
   all_results = parallel_devices.pMap(disk_usage_helper).pGet(None)
   for result in _PrintPerDeviceOutput(devices, all_results):
     if not result:
-      print 'APK is not installed.'
+      print('APK is not installed.')
       continue
 
     (data_dir_sizes, code_cache_sizes, apk_sizes, lib_sizes, odex_sizes,
@@ -575,7 +635,7 @@ def _RunDiskUsage(devices, package_name):
     if show_warning:
       logging.warning('For a more realistic odex size, run:')
       logging.warning('    %s compile-dex [speed|speed-profile]', sys.argv[0])
-    print 'Total: %s KiB (%.1f MiB)' % (total, total / 1024.0)
+    print('Total: %s KiB (%.1f MiB)' % (total, total / 1024.0))
 
 
 class _LogcatProcessor(object):
@@ -619,43 +679,45 @@ class _LogcatProcessor(object):
     # pylint:disable=no-self-use
     if dim:
       return ''
-    style = ''
+    style = colorama.Fore.BLACK
     if priority == 'E' or priority == 'F':
-      style = colorama.Back.RED
+      style += colorama.Back.RED
     elif priority == 'W':
-      style = colorama.Back.YELLOW
+      style += colorama.Back.YELLOW
     elif priority == 'I':
-      style = colorama.Back.GREEN
+      style += colorama.Back.GREEN
     elif priority == 'D':
-      style = colorama.Back.BLUE
-    return style + colorama.Fore.BLACK
+      style += colorama.Back.BLUE
+    return style
 
   def _ParseLine(self, line):
     tokens = line.split(None, 6)
-    date = tokens[0]
-    invokation_time = tokens[1]
-    pid = int(tokens[2])
-    tid = int(tokens[3])
-    priority = tokens[4]
-    tag = tokens[5]
-    if len(tokens) > 6:
-      original_message = tokens[6]
-    else:  # Empty log message
-      original_message = ''
+
+    def consume_token_or_default(default):
+      return tokens.pop(0) if len(tokens) > 0 else default
+
+    date = consume_token_or_default('')
+    invokation_time = consume_token_or_default('')
+    pid = int(consume_token_or_default(-1))
+    tid = int(consume_token_or_default(-1))
+    priority = consume_token_or_default('')
+    tag = consume_token_or_default('')
+    original_message = consume_token_or_default('')
+
     # Example:
     #   09-19 06:35:51.113  9060  9154 W GCoreFlp: No location...
     #   09-19 06:01:26.174  9060 10617 I Auth    : [ReflectiveChannelBinder]...
     # Parsing "GCoreFlp:" vs "Auth    :", we only want tag to contain the word,
     # and we don't want to keep the colon for the message.
-    if tag[-1] == ':':
+    if tag and tag[-1] == ':':
       tag = tag[:-1]
-    else:
+    elif len(original_message) > 2:
       original_message = original_message[2:]
     return self.ParsedLine(
         date, invokation_time, pid, tid, priority, tag, original_message)
 
   def _PrintParsedLine(self, parsed_line, dim=False):
-    tid_style = ''
+    tid_style = colorama.Style.NORMAL
     # Make the main thread bright.
     if not dim and parsed_line.pid == parsed_line.tid:
       tid_style = colorama.Style.BRIGHT
@@ -742,13 +804,13 @@ def _RunPs(devices, package_name):
       lambda d: _GetPackageProcesses(d, package_name)).pGet(None)
   for processes in _PrintPerDeviceOutput(devices, all_processes):
     if not processes:
-      print 'No processes found.'
+      print('No processes found.')
     else:
       proc_map = collections.defaultdict(list)
       for p in processes:
         proc_map[p.name].append(str(p.pid))
       for name, pids in sorted(proc_map.items()):
-        print name, ','.join(pids)
+        print(name, ','.join(pids))
 
 
 def _RunShell(devices, package_name, cmd):
@@ -758,7 +820,7 @@ def _RunShell(devices, package_name, cmd):
         cmd, run_as=package_name).pGet(None)
     for output in _PrintPerDeviceOutput(devices, outputs):
       for line in output:
-        print line
+        print(line)
   else:
     adb_path = adb_wrapper.AdbWrapper.GetAdbPath()
     cmd = [adb_path, '-s', devices[0].serial, 'shell']
@@ -766,9 +828,9 @@ def _RunShell(devices, package_name, cmd):
     if devices[0].build_version_sdk >= version_codes.NOUGAT:
       cmd += ['-t', 'run-as', package_name]
     else:
-      print 'Upon entering the shell, run:'
-      print 'run-as', package_name
-      print
+      print('Upon entering the shell, run:')
+      print('run-as', package_name)
+      print()
     os.execv(adb_path, cmd)
 
 
@@ -779,7 +841,7 @@ def _RunCompileDex(devices, package_name, compilation_filter):
   outputs = parallel_devices.RunShellCommand(cmd, timeout=120).pGet(None)
   for output in _PrintPerDeviceOutput(devices, outputs):
     for line in output:
-      print line
+      print(line)
 
 
 def _RunProfile(device, package_name, host_build_directory, pprof_out_path,
@@ -799,7 +861,7 @@ def _RunProfile(device, package_name, host_build_directory, pprof_out_path,
 
     simpleperf.ConvertSimpleperfToPprof(host_simpleperf_out_path,
                                         host_build_directory, pprof_out_path)
-    print textwrap.dedent("""
+    print(textwrap.dedent("""
         Profile data written to %(s)s.
 
         To view profile as a call graph in browser:
@@ -809,7 +871,7 @@ def _RunProfile(device, package_name, host_build_directory, pprof_out_path,
           pprof -top %(s)s
 
         pprof has many useful customization options; `pprof --help` for details.
-        """ % {'s': pprof_out_path})
+        """ % {'s': pprof_out_path}))
 
 
 def _GenerateAvailableDevicesMessage(devices):
@@ -835,11 +897,11 @@ def _DisplayArgs(devices, command_line_flags_file):
 
   parallel_devices = device_utils.DeviceUtils.parallel(devices)
   outputs = parallel_devices.pMap(flags_helper).pGet(None)
-  print 'Existing flags per-device (via /data/local/tmp/{}):'.format(
-      command_line_flags_file)
+  print('Existing flags per-device (via /data/local/tmp/{}):'.format(
+      command_line_flags_file))
   for flags in _PrintPerDeviceOutput(devices, outputs, single_line=True):
     quoted_flags = ' '.join(pipes.quote(f) for f in flags)
-    print quoted_flags or 'No flags set.'
+    print(quoted_flags or 'No flags set.')
 
 
 def _DeviceCachePath(device, output_directory):
@@ -1075,7 +1137,26 @@ class _DevicesCommand(_Command):
   all_devices_by_default = True
 
   def Run(self):
-    print _GenerateAvailableDevicesMessage(self.devices)
+    print(_GenerateAvailableDevicesMessage(self.devices))
+
+
+class _PackageInfoCommand(_Command):
+  name = 'package-info'
+  # TODO(ntfschr): Support this by figuring out how to construct
+  # self.apk_helper for bundles (http://crbug.com/952443).
+  description = 'Show various attributes of this APK.'
+  need_device_args = False
+  needs_package_name = True
+  needs_apk_path = True
+
+  def Run(self):
+    # Format all (even ints) as strings, to handle cases where APIs return None
+    print('Package name: "%s"' % self.args.package_name)
+    print('versionCode: %s' % self.apk_helper.GetVersionCode())
+    print('versionName: "%s"' % self.apk_helper.GetVersionName())
+    print('minSdkVersion: %s' % self.apk_helper.GetMinSdkVersion())
+    print('targetSdkVersion: %s' % self.apk_helper.GetTargetSdkVersion())
+    print('Supported ABIs: %r' % self.apk_helper.GetAbis())
 
 
 class _InstallCommand(_Command):
@@ -1119,6 +1200,24 @@ class _UninstallCommand(_Command):
 
   def Run(self):
     _UninstallApk(self.devices, self.install_dict, self.args.package_name)
+
+
+class _SetWebViewProviderCommand(_Command):
+  name = 'set-webview-provider'
+  description = ("Sets the device's WebView provider to this APK's "
+                 "package name.")
+  needs_package_name = True
+
+  def Run(self):
+    if self.is_bundle:
+      # TODO(ntfschr): Support this by figuring out how to construct
+      # self.apk_helper for bundles (http://crbug.com/952443).
+      raise Exception(
+          'Switching WebView providers not supported for bundles yet!')
+    if not _IsWebViewProvider(self.apk_helper):
+      raise Exception('This package does not have a WebViewLibrary meta-data '
+                      'tag. Are you sure it contains a WebView implementation?')
+    _SetWebViewProvider(self.devices, self.args.package_name)
 
 
 class _LaunchCommand(_Command):
@@ -1425,24 +1524,45 @@ class _BuildBundleApks(_Command):
         action='store_true',
         help='Build .apks archive that targets the bundle\'s minSdkVersion and '
         'contains only english splits. It still contains optional splits.')
-    group.add_argument('--universal', action='store_true',
-                       help='Build .apks archive containing single APK with '
-                            'contents of all splits. NOTE: Won\'t add modules '
-                            'with <dist:fusing dist:include="false"/> flag.')
+    group.add_argument(
+        '--sdk-version',
+        help='Implies --minimal. The sdkVersion to build the .apks for.')
+    group.add_argument(
+        '--build-mode',
+        choices=app_bundle_utils.BUILD_APKS_MODES,
+        help='Specify which type of APKs archive to build. "default" '
+        'generates regular splits, "universal" generates an archive with a '
+        'single universal APK, "system" generates an archive with a system '
+        'image APK, while "system_compressed" generates a compressed system '
+        'APK, with an additional stub APK for the system image.')
 
   def Run(self):
     _GenerateBundleApks(
         self.bundle_generation_info,
         self.args.output_apks,
-        minimal=self.args.minimal,
-        universal=self.args.universal)
+        minimal=self.args.sdk_version is not None or self.args.minimal,
+        minimal_sdk_version=self.args.sdk_version,
+        mode=self.args.build_mode)
+
+
+class _ManifestCommand(_Command):
+  name = 'dump-manifest'
+  description = 'Dump the android manifest from this bundle, as XML, to stdout.'
+  need_device_args = False
+
+  def Run(self):
+    bundletool.RunBundleTool([
+        'dump', 'manifest', '--bundle', self.bundle_generation_info.bundle_path
+    ])
 
 
 # Shared commands for regular APKs and app bundles.
 _COMMANDS = [
     _DevicesCommand,
+    _PackageInfoCommand,
     _InstallCommand,
     _UninstallCommand,
+    _SetWebViewProviderCommand,
     _LaunchCommand,
     _StopCommand,
     _ClearDataCommand,
@@ -1461,6 +1581,7 @@ _COMMANDS = [
 # Commands specific to app bundles.
 _BUNDLE_COMMANDS = [
     _BuildBundleApks,
+    _ManifestCommand,
 ]
 
 
@@ -1512,10 +1633,10 @@ def Run(output_directory, apk_path, incremental_json, command_line_flags_file,
   _RunInternal(parser, output_directory=output_directory)
 
 
-def RunForBundle(output_directory, bundle_path, bundle_apks_path,
-                 aapt2_path, keystore_path, keystore_password,
-                 keystore_alias, package_name, command_line_flags_file,
-                 proguard_mapping_path, target_cpu):
+def RunForBundle(output_directory, bundle_path, bundle_apks_path, aapt2_path,
+                 keystore_path, keystore_password, keystore_alias, package_name,
+                 command_line_flags_file, proguard_mapping_path, target_cpu,
+                 system_image_locales):
   """Entry point for generated app bundle wrapper scripts.
 
   Args:
@@ -1532,6 +1653,8 @@ def RunForBundle(output_directory, bundle_path, bundle_apks_path,
     proguard_mapping_path: Input path to the Proguard mapping file, used to
       deobfuscate Java stack traces.
     target_cpu: Chromium target CPU name, used by the 'gdb' command.
+    system_image_locales: List of Chromium locales that should be included in
+      system image APKs.
   """
   constants.SetOutputDirectory(output_directory)
   devil_chromium.Initialize(output_directory=output_directory)
@@ -1541,7 +1664,8 @@ def RunForBundle(output_directory, bundle_path, bundle_apks_path,
       aapt2_path=aapt2_path,
       keystore_path=keystore_path,
       keystore_password=keystore_password,
-      keystore_alias=keystore_alias)
+      keystore_alias=keystore_alias,
+      system_image_locales=system_image_locales)
 
   parser = argparse.ArgumentParser()
   parser.set_defaults(

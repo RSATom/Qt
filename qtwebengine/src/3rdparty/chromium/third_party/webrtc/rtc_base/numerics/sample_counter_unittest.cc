@@ -15,7 +15,7 @@
 #include "test/gmock.h"
 #include "test/gtest.h"
 
-using testing::Eq;
+using ::testing::Eq;
 
 namespace rtc {
 
@@ -33,6 +33,7 @@ TEST(SampleCounterTest, NotEnoughSamples) {
     counter.Add(value);
   }
   EXPECT_THAT(counter.Avg(kMinSamples), Eq(absl::nullopt));
+  EXPECT_THAT(counter.Sum(kMinSamples), Eq(absl::nullopt));
   EXPECT_THAT(counter.Max(), Eq(5));
 }
 
@@ -43,6 +44,7 @@ TEST(SampleCounterTest, EnoughSamples) {
     counter.Add(value);
   }
   EXPECT_THAT(counter.Avg(kMinSamples), Eq(3));
+  EXPECT_THAT(counter.Sum(kMinSamples), Eq(15));
   EXPECT_THAT(counter.Max(), Eq(5));
 }
 

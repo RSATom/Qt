@@ -53,8 +53,8 @@ class PLATFORM_EXPORT ScrollbarThemeMac : public ScrollbarTheme {
   // Mac queues up scrollbar paint timers.
   bool ShouldDisableInvisibleScrollbars() const override { return false; }
 
-  TimeDelta InitialAutoscrollTimerDelay() override;
-  TimeDelta AutoscrollTimerDelay() override;
+  base::TimeDelta InitialAutoscrollTimerDelay() override;
+  base::TimeDelta AutoscrollTimerDelay() override;
 
   void PaintTickmarks(GraphicsContext&,
                       const Scrollbar&,
@@ -96,8 +96,8 @@ class PLATFORM_EXPORT ScrollbarThemeMac : public ScrollbarTheme {
 
   // See WebScrollbarTheme for parameters description.
   static void UpdateScrollbarsWithNSDefaults(
-      float initial_button_delay,
-      float autoscroll_button_delay,
+      base::Optional<float> initial_button_delay,
+      base::Optional<float> autoscroll_button_delay,
       NSScrollerStyle preferred_scroller_style,
       bool redraw,
       bool jump_on_track_click);

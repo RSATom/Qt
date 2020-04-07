@@ -71,6 +71,9 @@ TestCase {
             lastFactoryObj = component.createObject(myFactory, {objectName: id});
             return lastFactoryObj;
         }
+        function switchObject() {
+            otherObject = myOtherObj;
+        }
         property var objectInProperty: QtObject {
             objectName: "foo"
         }
@@ -84,6 +87,7 @@ TestCase {
             property var myProperty : 0
             function myMethod(arg) {
                 lastMethodArg = arg;
+                return myProperty;
             }
             signal mySignal(var arg1, var arg2)
         }
@@ -235,6 +239,7 @@ TestCase {
         var testObjBeforeDeletion;
         var testObjAfterDeletion;
         var testObjId;
+        var testReturn;
         var channel = client.createChannel(function(channel) {
             channel.objects.myFactory.create("testObj", function(obj) {
                 testObjId = obj.__id__;
@@ -246,7 +251,9 @@ TestCase {
                     testObjAfterDeletion = obj;
                 });
                 obj.myProperty = 42;
-                obj.myMethod("foobar");
+                obj.myMethod("foobar").then(function(result) {
+                    testReturn = result;
+                });
             });
         });
         client.awaitInit();
@@ -285,11 +292,12 @@ TestCase {
         // the server should eventually notify the client about the property update
         client.awaitPropertyUpdate();
 
-        client.awaitIdle();
+        // check that the Promise from myMethod was resolved
+        // must happen after waiting for something so the Promise callback
+        // can execute
+        compare(testReturn, 42);
 
-        // trigger a signal and ensure it gets transmitted
-        lastFactoryObj.mySignal("foobar", 42);
-        client.awaitSignal();
+        client.awaitIdle();
 
         // property should be wrapped
         compare(channel.objects.myFactory.objectInProperty.objectName, "foo");
@@ -297,8 +305,23 @@ TestCase {
         compare(channel.objects.myFactory.objects.length, 2);
         compare(channel.objects.myFactory.objects[0].objectName, "bar");
         compare(channel.objects.myFactory.objects[1].objectName, "baz");
+        // map property as well
+        compare(channel.objects.testObject.objectMap.subObject.objectName,
+            "embedded");
         // also works with properties that reference other registered objects
         compare(channel.objects.myFactory.otherObject, channel.objects.myObj);
+
+        // change object property
+        channel.objects.myFactory.switchObject();
+        client.awaitMessage();
+        client.awaitResponse();
+        client.awaitIdle();
+        client.awaitPropertyUpdate();
+        compare(channel.objects.myFactory.otherObject, channel.objects.myOtherObj);
+
+        // trigger a signal and ensure it gets transmitted
+        lastFactoryObj.mySignal("foobar", 42);
+        client.awaitSignal();
 
         // deleteLater call
         msg = client.awaitMessage();
@@ -447,5 +470,90 @@ TestCase {
             1,
             0
         ]);
+    }
+
+    function test_multiConnect()
+    {
+        var signalArgs = [];
+        function logSignalArgs(arg) {
+            signalArgs.push(arg);
+        }
+        var channel = client.createChannel(function(channel) {
+            var testObject = channel.objects.testObject;
+            testObject.testSignalInt.connect(logSignalArgs);
+            testObject.testSignalInt.connect(logSignalArgs);
+            testObject.triggerSignals();
+        });
+        client.awaitInit();
+
+        var msg = client.awaitMessage();
+        compare(msg.type, JSClient.QWebChannelMessageTypes.connectToSignal);
+        compare(msg.object, "testObject");
+
+        msg = client.awaitMessage();
+        compare(msg.type, JSClient.QWebChannelMessageTypes.invokeMethod);
+        client.awaitIdle();
+
+        compare(signalArgs, [42, 42, 1, 1, 0, 0]);
+    }
+
+    function test_overloading()
+    {
+        var signalArgs_implicit = [];
+        var signalArgs_explicit1 = [];
+        var signalArgs_explicit2 = [];
+        var signalArgs_explicit3 = [];
+        function logSignalArgs(container) {
+            return function(...args) {
+                container.push(args);
+            };
+        }
+        var returnValues = [];
+        function logReturnValue(value) {
+            returnValues.push(value);
+        }
+        var channel = client.createChannel(function(channel) {
+            var testObject = channel.objects.testObject;
+            testObject.testOverloadSignal.connect(logSignalArgs(signalArgs_implicit));
+            testObject["testOverloadSignal(int)"].connect(logSignalArgs(signalArgs_explicit1));
+            testObject["testOverloadSignal(QString)"].connect(logSignalArgs(signalArgs_explicit2));
+            testObject["testOverloadSignal(QString,int)"].connect(logSignalArgs(signalArgs_explicit3));
+            testObject.testOverload(99, logReturnValue);
+            testObject["testOverload(int)"](41, logReturnValue);
+            testObject["testOverload(QString)"]("hello world", logReturnValue);
+            testObject["testOverload(QString,int)"]("the answer is ", 41, logReturnValue);
+        });
+        client.awaitInit();
+
+        function awaitMessage(type)
+        {
+            var msg = client.awaitMessage();
+            compare(msg.type, type);
+            compare(msg.object, "testObject");
+        }
+
+        console.log("sig1");
+        awaitMessage(JSClient.QWebChannelMessageTypes.connectToSignal);
+        console.log("sig2");
+        awaitMessage(JSClient.QWebChannelMessageTypes.connectToSignal);
+        console.log("sig3");
+        awaitMessage(JSClient.QWebChannelMessageTypes.connectToSignal);
+
+        console.log("method1");
+        awaitMessage(JSClient.QWebChannelMessageTypes.invokeMethod);
+        console.log("method2");
+        awaitMessage(JSClient.QWebChannelMessageTypes.invokeMethod);
+        console.log("method3");
+        awaitMessage(JSClient.QWebChannelMessageTypes.invokeMethod);
+        console.log("method4");
+        awaitMessage(JSClient.QWebChannelMessageTypes.invokeMethod);
+
+        client.awaitIdle();
+
+        compare(signalArgs_implicit, [[99], [41]]);
+        compare(signalArgs_explicit1, signalArgs_implicit);
+        compare(signalArgs_explicit2, [["hello world"]]);
+        compare(signalArgs_explicit3, [["the answer is ", 41]]);
+        compare(returnValues, [100, 42, "HELLO WORLD", "THE ANSWER IS 42"]);
     }
 }

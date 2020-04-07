@@ -422,7 +422,7 @@ ReturnedValue ObjectPrototype::method_seal(const FunctionObject *b, const Value 
 
     Scope scope(b);
     ScopedObject o(scope, a);
-    o->setInternalClass(o->internalClass()->sealed());
+    o->setInternalClass(o->internalClass()->canned());
 
     if (o->arrayData()) {
         ArrayData::ensureAttributes(o);
@@ -448,7 +448,7 @@ ReturnedValue ObjectPrototype::method_freeze(const FunctionObject *b, const Valu
     if (ArgumentsObject::isNonStrictArgumentsObject(o))
         static_cast<ArgumentsObject *>(o.getPointer())->fullyCreate();
 
-    o->setInternalClass(o->internalClass()->frozen());
+    o->setInternalClass(o->internalClass()->cryopreserved());
 
     if (o->arrayData()) {
         ArrayData::ensureAttributes(o);
@@ -489,7 +489,7 @@ ReturnedValue ObjectPrototype::method_isSealed(const FunctionObject *b, const Va
     if (o->isExtensible())
         return  Encode(false);
 
-    if (o->internalClass() != o->internalClass()->sealed())
+    if (o->internalClass() != o->internalClass()->canned())
         return Encode(false);
 
     if (!o->arrayData() || !o->arrayData()->length())
@@ -521,7 +521,7 @@ ReturnedValue ObjectPrototype::method_isFrozen(const FunctionObject *b, const Va
     if (o->isExtensible())
         return Encode(false);
 
-    if (o->internalClass() != o->internalClass()->frozen())
+    if (!o->internalClass()->isImplicitlyFrozen())
         return Encode(false);
 
     if (!o->arrayData() || !o->arrayData()->length())
@@ -658,6 +658,7 @@ ReturnedValue ObjectPrototype::method_toString(const FunctionObject *b, const Va
 ReturnedValue ObjectPrototype::method_toLocaleString(const FunctionObject *b, const Value *thisObject, const Value *argv, int argc)
 {
     Scope scope(b);
+    CHECK_STACK_LIMITS(scope.engine)
     ScopedObject o(scope, thisObject->toObject(scope.engine));
     if (!o)
         RETURN_UNDEFINED();
@@ -666,7 +667,7 @@ ReturnedValue ObjectPrototype::method_toLocaleString(const FunctionObject *b, co
     if (!f)
         THROW_TYPE_ERROR();
 
-    return f->call(thisObject, argv, argc);
+    return checkedResult(scope.engine, f->call(thisObject, argv, argc));
 }
 
 ReturnedValue ObjectPrototype::method_valueOf(const FunctionObject *b, const Value *thisObject, const Value *, int)

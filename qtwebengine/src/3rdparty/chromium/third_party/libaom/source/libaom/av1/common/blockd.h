@@ -243,8 +243,10 @@ typedef struct MB_MODE_INFO {
   // Joint sign of alpha Cb and alpha Cr
   int cfl_alpha_signs;
 
-  int compound_idx;
+  // Indicate if masked compound is used(1) or not(0).
   int comp_group_idx;
+  // If comp_group_idx=0, indicate if dist_wtd_comp(0) or avg_comp(1) is used.
+  int compound_idx;
 #if CONFIG_INSPECTION
   int16_t tx_skip[TXK_TYPE_BUF_LEN];
 #endif
@@ -596,7 +598,7 @@ typedef struct macroblockd {
   uint8_t *tmp_obmc_bufs[2];
 } MACROBLOCKD;
 
-static INLINE int get_bitdepth_data_path_index(const MACROBLOCKD *xd) {
+static INLINE int is_cur_buf_hbd(const MACROBLOCKD *xd) {
   return xd->cur_buf->flags & YV12_FLAG_HIGHBITDEPTH ? 1 : 0;
 }
 
@@ -771,11 +773,13 @@ static INLINE int av1_raster_order_to_block_index(TX_SIZE tx_size,
 
 static INLINE TX_TYPE get_default_tx_type(PLANE_TYPE plane_type,
                                           const MACROBLOCKD *xd,
-                                          TX_SIZE tx_size) {
+                                          TX_SIZE tx_size,
+                                          int is_screen_content_type) {
   const MB_MODE_INFO *const mbmi = xd->mi[0];
 
   if (is_inter_block(mbmi) || plane_type != PLANE_TYPE_Y ||
-      xd->lossless[mbmi->segment_id] || tx_size >= TX_32X32)
+      xd->lossless[mbmi->segment_id] || tx_size >= TX_32X32 ||
+      is_screen_content_type)
     return DCT_DCT;
 
   return intra_mode_to_tx_type(mbmi, plane_type);

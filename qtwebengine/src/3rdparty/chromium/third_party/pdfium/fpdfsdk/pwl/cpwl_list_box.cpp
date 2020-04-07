@@ -254,7 +254,7 @@ bool CPWL_ListBox::OnNotifySelectionChanged(bool bKeyDown, uint32_t nFlag) {
   if (!m_pFillerNotify)
     return false;
 
-  CPWL_Wnd::ObservedPtr thisObserved(this);
+  ObservedPtr<CPWL_Wnd> thisObserved(this);
 
   WideString swChange = GetText();
   WideString strChangeEx;
@@ -300,6 +300,10 @@ float CPWL_ListBox::GetFontSize() const {
 
 void CPWL_ListBox::Select(int32_t nItemIndex) {
   m_pList->Select(nItemIndex);
+}
+
+void CPWL_ListBox::Deselect(int32_t nItemIndex) {
+  m_pList->Deselect(nItemIndex);
 }
 
 void CPWL_ListBox::SetCaret(int32_t nItemIndex) {

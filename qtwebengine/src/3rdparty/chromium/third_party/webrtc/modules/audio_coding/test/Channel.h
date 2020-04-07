@@ -47,12 +47,11 @@ class Channel : public AudioPacketizationCallback {
   Channel(int16_t chID = -1);
   ~Channel() override;
 
-  int32_t SendData(FrameType frameType,
+  int32_t SendData(AudioFrameType frameType,
                    uint8_t payloadType,
                    uint32_t timeStamp,
                    const uint8_t* payloadData,
-                   size_t payloadSize,
-                   const RTPFragmentationHeader* fragmentation) override;
+                   size_t payloadSize) override;
 
   void RegisterReceiverACM(AudioCodingModule* acm);
 
@@ -81,7 +80,7 @@ class Channel : public AudioPacketizationCallback {
   }
 
  private:
-  void CalcStatistics(WebRtcRTPHeader& rtpInfo, size_t payloadSize);
+  void CalcStatistics(const RTPHeader& rtp_header, size_t payloadSize);
 
   AudioCodingModule* _receiverACM;
   uint16_t _seqNo;
@@ -94,7 +93,7 @@ class Channel : public AudioPacketizationCallback {
   int16_t _lastPayloadType;
   ACMTestPayloadStats _payloadStats[MAX_NUM_PAYLOADS];
   bool _isStereo;
-  WebRtcRTPHeader _rtpInfo;
+  RTPHeader _rtp_header;
   bool _leftChannel;
   uint32_t _lastInTimestamp;
   bool _useLastFrameSize;

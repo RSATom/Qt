@@ -9,10 +9,10 @@
 #ifndef GrGLRenderTarget_DEFINED
 #define GrGLRenderTarget_DEFINED
 
-#include "GrBackendSurface.h"
-#include "GrGLIRect.h"
-#include "GrRenderTarget.h"
-#include "SkScalar.h"
+#include "include/core/SkScalar.h"
+#include "include/gpu/GrBackendSurface.h"
+#include "include/gpu/GrRenderTarget.h"
+#include "src/gpu/gl/GrGLIRect.h"
 
 class GrGLCaps;
 class GrGLGpu;
@@ -31,17 +31,14 @@ public:
         GrBackendObjectOwnership   fRTFBOOwnership;
         GrGLuint                   fTexFBOID;
         GrGLuint                   fMSColorRenderbufferID;
-        bool                       fIsMixedSampled;
     };
 
     static sk_sp<GrGLRenderTarget> MakeWrapped(GrGLGpu*,
                                                const GrSurfaceDesc&,
+                                               int sampleCount,
                                                GrGLenum format,
                                                const IDDesc&,
                                                int stencilBits);
-
-    void setViewport(const GrGLIRect& rect) { fViewport = rect; }
-    const GrGLIRect& getViewport() const { return fViewport; }
 
     // The following two functions return the same ID when a texture/render target is not
     // multisampled, and different IDs when it is multisampled.
@@ -52,8 +49,7 @@ public:
 
     // override of GrRenderTarget
     ResolveType getResolveType() const override {
-        if (GrFSAAType::kUnifiedMSAA != this->fsaaType() || fRTFBOID == fTexFBOID) {
-            // catches FBO 0 and non unified-MSAA case
+        if (this->numSamples() <= 1 || fRTFBOID == fTexFBOID) {  // Also catches FBO 0.
             return kAutoResolves_ResolveType;
         } else if (kUnresolvableFBOID == fTexFBOID) {
             return kCantResolve_ResolveType;
@@ -74,7 +70,8 @@ public:
 
 protected:
     // Constructor for subclasses.
-    GrGLRenderTarget(GrGLGpu*, const GrSurfaceDesc&, GrGLenum format, const IDDesc&);
+    GrGLRenderTarget(GrGLGpu*, const GrSurfaceDesc&, int sampleCount, GrGLenum format,
+                     const IDDesc&);
 
     void init(const GrSurfaceDesc&, GrGLenum format, const IDDesc&);
 
@@ -85,8 +82,8 @@ protected:
 
 private:
     // Constructor for instances wrapping backend objects.
-    GrGLRenderTarget(GrGLGpu*, const GrSurfaceDesc&, GrGLenum format, const IDDesc&,
-                     GrGLStencilAttachment*);
+    GrGLRenderTarget(GrGLGpu*, const GrSurfaceDesc&, int sampleCount, GrGLenum format,
+                     const IDDesc&, GrGLStencilAttachment*);
 
     void setFlags(const GrGLCaps&, const IDDesc&);
 
@@ -105,11 +102,6 @@ private:
     GrGLenum    fRTFormat;
 
     GrBackendObjectOwnership fRTFBOOwnership;
-
-    // when we switch to this render target we want to set the viewport to
-    // only render to content area (as opposed to the whole allocation) and
-    // we want the rendering to be at top left (GL has origin in bottom left)
-    GrGLIRect   fViewport;
 
     // The RenderTarget needs to be able to report its VRAM footprint even after abandon and
     // release have potentially zeroed out the IDs (e.g., so the cache can reset itself). Since

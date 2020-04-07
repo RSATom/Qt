@@ -289,8 +289,7 @@ public:
 
         ~Node()
         {
-            foreach (Node *n, children)
-               delete n;
+            qDeleteAll(children);
         }
 
         void addRows(int row, int count)

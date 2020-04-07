@@ -12,7 +12,7 @@
 #include "content/browser/frame_host/frame_tree_node.h"
 #include "content/browser/frame_host/render_frame_host_impl.h"
 #include "content/browser/renderer_host/render_view_host_impl.h"
-#import "content/browser/renderer_host/render_widget_host_view_cocoa.h"
+#import "content/app_shim_remote_cocoa/render_widget_host_view_cocoa.h"
 #include "content/browser/renderer_host/render_widget_host_view_mac.h"
 #include "content/browser/renderer_host/webmenurunner_mac.h"
 #include "content/common/buildflags.h"
@@ -65,7 +65,7 @@ void PopupMenuHelper::ShowPopupMenu(
   RenderWidgetHostViewMac* rwhvm =
       static_cast<RenderWidgetHostViewMac*>(GetRenderWidgetHostView());
   base::scoped_nsobject<RenderWidgetHostViewCocoa> cocoa_view(
-      [rwhvm->cocoa_view() retain]);
+      [rwhvm->GetInProcessNSView() retain]);
 
   // Display the menu.
   base::scoped_nsobject<WebMenuRunner> runner([[WebMenuRunner alloc]

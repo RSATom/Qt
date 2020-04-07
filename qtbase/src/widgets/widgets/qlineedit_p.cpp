@@ -127,6 +127,7 @@ void QLineEditPrivate::_q_handleWindowActivate()
 void QLineEditPrivate::_q_textEdited(const QString &text)
 {
     Q_Q(QLineEdit);
+    edited = true;
     emit q->textEdited(text);
 #if QT_CONFIG(completer)
     if (control->completer()
@@ -253,10 +254,7 @@ QRect QLineEditPrivate::adjustedContentsRect() const
     QStyleOptionFrame opt;
     q->initStyleOption(&opt);
     QRect r = q->style()->subElementRect(QStyle::SE_LineEditContents, &opt, q);
-    r.setX(r.x() + effectiveLeftTextMargin());
-    r.setY(r.y() + topTextMargin);
-    r.setRight(r.right() - effectiveRightTextMargin());
-    r.setBottom(r.bottom() - bottomTextMargin);
+    r = r.marginsRemoved(effectiveTextMargins());
     return r;
 }
 
@@ -270,6 +268,12 @@ void QLineEditPrivate::setCursorVisible(bool visible)
         q->update(cursorRect());
     else
         q->update();
+}
+
+void QLineEditPrivate::setText(const QString& text)
+{
+    edited = true;
+    control->setText(text);
 }
 
 void QLineEditPrivate::updatePasswordEchoEditing(bool editing)
@@ -348,9 +352,7 @@ QLineEditPrivate *QLineEditIconButton::lineEditPrivate() const
 void QLineEditIconButton::paintEvent(QPaintEvent *)
 {
     QPainter painter(this);
-    QWindow *window = nullptr;
-    if (const QWidget *nativeParent = nativeParentWidget())
-        window = nativeParent->windowHandle();
+    QWindow *window = qt_widget_private(this)->windowHandle(QWidgetPrivate::WindowHandleMode::Closest);
     QIcon::Mode state = QIcon::Disabled;
     if (isEnabled())
         state = isDown() ? QIcon::Active : QIcon::Normal;
@@ -667,14 +669,12 @@ static int effectiveTextMargin(int defaultMargin, const QLineEditPrivate::SideWi
                                  return e.widget->isVisibleTo(e.widget->parentWidget()); }));
 }
 
-int QLineEditPrivate::effectiveLeftTextMargin() const
+QMargins QLineEditPrivate::effectiveTextMargins() const
 {
-    return effectiveTextMargin(leftTextMargin, leftSideWidgetList(), sideWidgetParameters());
-}
-
-int QLineEditPrivate::effectiveRightTextMargin() const
-{
-    return effectiveTextMargin(rightTextMargin, rightSideWidgetList(), sideWidgetParameters());
+    return {effectiveTextMargin(textMargins.left(), leftSideWidgetList(), sideWidgetParameters()),
+            textMargins.top(),
+            effectiveTextMargin(textMargins.right(), rightSideWidgetList(), sideWidgetParameters()),
+            textMargins.bottom()};
 }
 
 

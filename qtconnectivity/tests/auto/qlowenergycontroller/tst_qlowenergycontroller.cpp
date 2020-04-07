@@ -451,14 +451,18 @@ void tst_QLowEnergyController::tst_concurrentDiscovery()
 
     // 2. new controller to same device fails
     {
+#ifdef Q_OS_DARWIN
+        QLowEnergyController control2(remoteDeviceInfo);
+#else
         QLowEnergyController control2(remoteDevice);
+#endif
         control2.connectToDevice();
         {
             QTRY_IMPL(control2.state() != QLowEnergyController::ConnectingState,
                       30000);
         }
 
-#if defined(Q_OS_ANDROID) || QT_CONFIG(winrt_bt)
+#if defined(Q_OS_ANDROID) || defined(Q_OS_DARWIN) || QT_CONFIG(winrt_bt)
         QCOMPARE(control.state(), QLowEnergyController::ConnectedState);
         QCOMPARE(control2.state(), QLowEnergyController::ConnectedState);
         control2.disconnectFromDevice();

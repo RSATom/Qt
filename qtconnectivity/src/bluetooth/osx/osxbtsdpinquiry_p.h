@@ -68,17 +68,13 @@ QT_BEGIN_NAMESPACE
 class QBluetoothServiceInfo;
 class QVariant;
 
+namespace DarwinBluetooth {
+
+class SDPInquiryDelegate;
+
+}
+
 namespace OSXBluetooth {
-
-class SDPInquiryDelegate {
-public:
-    typedef QT_MANGLE_NAMESPACE(OSXBTSDPInquiry) ObjCServiceInquiry;
-
-    virtual ~SDPInquiryDelegate();
-
-    virtual void SDPInquiryFinished(IOBluetoothDevice *device) = 0;
-    virtual void SDPInquiryError(IOBluetoothDevice *device, IOReturn errorCode) = 0;
-};
 
 void extract_service_record(IOBluetoothSDPServiceRecord *record, QBluetoothServiceInfo &serviceInfo);
 QVariant extract_attribute_value(IOBluetoothSDPDataElement *dataElement);
@@ -90,7 +86,7 @@ QT_END_NAMESPACE
 
 @interface QT_MANGLE_NAMESPACE(OSXBTSDPInquiry) : NSObject
 
-- (id)initWithDelegate:(QT_PREPEND_NAMESPACE(OSXBluetooth::SDPInquiryDelegate) *)aDelegate;
+- (id)initWithDelegate:(QT_PREPEND_NAMESPACE(DarwinBluetooth::SDPInquiryDelegate) *)aDelegate;
 - (void)dealloc;
 
 - (IOReturn)performSDPQueryWithDevice:(const QBluetoothAddress &)address;

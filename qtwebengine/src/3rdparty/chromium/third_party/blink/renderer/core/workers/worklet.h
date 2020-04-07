@@ -8,7 +8,7 @@
 #include "base/macros.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise.h"
 #include "third_party/blink/renderer/core/core_export.h"
-#include "third_party/blink/renderer/core/dom/context_lifecycle_observer.h"
+#include "third_party/blink/renderer/core/execution_context/context_lifecycle_observer.h"
 #include "third_party/blink/renderer/core/workers/worklet_global_scope_proxy.h"
 #include "third_party/blink/renderer/core/workers/worklet_module_responses_map.h"
 #include "third_party/blink/renderer/core/workers/worklet_options.h"
@@ -27,12 +27,12 @@ class CORE_EXPORT Worklet : public ScriptWrappable,
                             public ContextLifecycleObserver {
   DEFINE_WRAPPERTYPEINFO();
   USING_GARBAGE_COLLECTED_MIXIN(Worklet);
-  // Eager finalization is needed to notify parent object destruction of the
-  // GC-managed messaging proxy and to initiate worklet termination.
-  EAGERLY_FINALIZE();
+  USING_PRE_FINALIZER(Worklet, Dispose);
 
  public:
   ~Worklet() override;
+
+  void Dispose();
 
   // Worklet.idl
   // addModule() imports ES6 module scripts.

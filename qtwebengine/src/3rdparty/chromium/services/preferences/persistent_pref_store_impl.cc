@@ -7,6 +7,7 @@
 #include <utility>
 
 #include "base/auto_reset.h"
+#include "base/bind.h"
 #include "base/stl_util.h"
 #include "base/values.h"
 #include "components/prefs/persistent_pref_store.h"
@@ -100,7 +101,7 @@ class PersistentPrefStoreImpl::Connection : public mojom::PersistentPrefStore {
 
     std::vector<mojom::PrefUpdatePtr> filtered_updates;
     for (const auto& update : updates) {
-      if (base::ContainsKey(observed_keys_, update->key)) {
+      if (base::Contains(observed_keys_, update->key)) {
         filtered_updates.push_back(update->Clone());
       }
     }
@@ -118,7 +119,7 @@ class PersistentPrefStoreImpl::Connection : public mojom::PersistentPrefStore {
 
   void RequestValue(const std::string& key,
                     const std::vector<std::string>& path) override {
-    if (!base::ContainsKey(observed_keys_, key))
+    if (!base::Contains(observed_keys_, key))
       return;
 
     const base::Value* value = nullptr;

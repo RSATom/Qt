@@ -7,6 +7,7 @@
 #include <memory>
 #include <utility>
 
+#include "base/bind.h"
 #include "base/metrics/histogram.h"
 #include "base/metrics/user_metrics.h"
 #include "base/metrics/user_metrics_action.h"
@@ -114,7 +115,8 @@ MetricsHelper::MetricsHelper(const GURL& request_url,
   if (history_service) {
     history_service->GetVisibleVisitCountToHost(
         request_url_,
-        base::Bind(&MetricsHelper::OnGotHistoryCount, base::Unretained(this)),
+        base::BindOnce(&MetricsHelper::OnGotHistoryCount,
+                       base::Unretained(this)),
         &request_tracker_);
   }
 }
@@ -172,11 +174,10 @@ void MetricsHelper::RecordExtraUserInteractionMetrics(Interaction interaction) {
 
 void MetricsHelper::RecordExtraShutdownMetrics() {}
 
-void MetricsHelper::OnGotHistoryCount(bool success,
-                                      int num_visits,
-                                      base::Time /*first_visit*/) {
-  if (success)
-    num_visits_ = num_visits;
+void MetricsHelper::OnGotHistoryCount(
+    history::VisibleVisitCountToHostResult result) {
+  if (result.success)
+    num_visits_ = result.count;
 }
 
 }  // namespace security_interstitials

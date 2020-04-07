@@ -9,6 +9,7 @@
 #include <memory>
 #include <vector>
 
+#include "core/fpdfapi/page/cpdf_occontext.h"
 #include "core/fpdfapi/page/cpdf_page.h"
 #include "core/fpdfapi/parser/cpdf_dictionary.h"
 #include "core/fpdfapi/parser/cpdf_document.h"
@@ -16,7 +17,6 @@
 #include "core/fpdfdoc/cpdf_formcontrol.h"
 #include "core/fpdfdoc/cpdf_formfield.h"
 #include "core/fpdfdoc/cpdf_interactiveform.h"
-#include "core/fpdfdoc/cpdf_occontext.h"
 #include "core/fxge/cfx_defaultrenderdevice.h"
 #include "fpdfsdk/cpdfsdk_actionhandler.h"
 #include "fpdfsdk/cpdfsdk_formfillenvironment.h"
@@ -159,12 +159,6 @@ static_assert(static_cast<int>(CPDF_AAction::kDocumentPrinted) ==
 
 namespace {
 
-CPDFSDK_InteractiveForm* FormHandleToInteractiveForm(FPDF_FORMHANDLE hHandle) {
-  CPDFSDK_FormFillEnvironment* pFormFillEnv =
-      CPDFSDKFormFillEnvironmentFromFPDFFormHandle(hHandle);
-  return pFormFillEnv ? pFormFillEnv->GetInteractiveForm() : nullptr;
-}
-
 CPDFSDK_PageView* FormHandleToPageView(FPDF_FORMHANDLE hHandle,
                                        FPDF_PAGE fpdf_page) {
   IPDF_Page* pPage = IPDFPageFromFPDFPage(fpdf_page);
@@ -205,7 +199,7 @@ void FFLCommon(FPDF_FORMHANDLE hHandle,
 #endif
 
   RetainPtr<CFX_DIBitmap> holder(CFXDIBitmapFromFPDFBitmap(bitmap));
-  pDevice->Attach(holder, false, nullptr, false);
+  pDevice->Attach(holder, !!(flags & FPDF_REVERSE_BYTE_ORDER), nullptr, false);
   {
     CFX_RenderDevice::StateRestorer restorer(pDevice.get());
     pDevice->SetClip_Rect(rect);
@@ -238,12 +232,14 @@ FPDFPage_HasFormFieldAtPoint(FPDF_FORMHANDLE hHandle,
                              FPDF_PAGE page,
                              double page_x,
                              double page_y) {
-  if (!hHandle)
-    return -1;
   CPDF_Page* pPage = CPDFPageFromFPDFPage(page);
   if (pPage) {
-    CPDF_InteractiveForm interactive_form(pPage->GetDocument());
-    CPDF_FormControl* pFormCtrl = interactive_form.GetControlAtPoint(
+    CPDFSDK_InteractiveForm* pForm = FormHandleToInteractiveForm(hHandle);
+    if (!pForm)
+      return -1;
+
+    CPDF_InteractiveForm* pPDFForm = pForm->GetInteractiveForm();
+    CPDF_FormControl* pFormCtrl = pPDFForm->GetControlAtPoint(
         pPage,
         CFX_PointF(static_cast<float>(page_x), static_cast<float>(page_y)),
         nullptr);
@@ -252,6 +248,9 @@ FPDFPage_HasFormFieldAtPoint(FPDF_FORMHANDLE hHandle,
     CPDF_FormField* pFormField = pFormCtrl->GetField();
     return pFormField ? static_cast<int>(pFormField->GetFieldType()) : -1;
   }
+
+  if (!hHandle)
+    return -1;
 
 #ifdef PDF_ENABLE_XFA
   CPDFXFA_Page* pXFAPage = ToXFAPage(IPDFPageFromFPDFPage(page));
@@ -281,9 +280,7 @@ FPDFPage_HasFormFieldAtPoint(FPDF_FORMHANDLE hHandle,
     if (pXFAAnnot->GetFormFieldType() == FormFieldType::kXFA)
       continue;
 
-    CFX_RectF rcBBox = pXFAAnnot->GetWidgetRect();
-    CFX_FloatRect rcWidget(rcBBox.left, rcBBox.top, rcBBox.left + rcBBox.width,
-                           rcBBox.top + rcBBox.height);
+    CFX_FloatRect rcWidget = pXFAAnnot->GetWidgetRect().ToFloatRect();
     rcWidget.Inflate(1.0f, 1.0f);
     if (rcWidget.Contains(CFX_PointF(static_cast<float>(page_x),
                                      static_cast<float>(page_y)))) {
@@ -299,14 +296,17 @@ FPDFPage_FormFieldZOrderAtPoint(FPDF_FORMHANDLE hHandle,
                                 FPDF_PAGE page,
                                 double page_x,
                                 double page_y) {
-  if (!hHandle)
+  CPDFSDK_InteractiveForm* pForm = FormHandleToInteractiveForm(hHandle);
+  if (!pForm)
     return -1;
+
   CPDF_Page* pPage = CPDFPageFromFPDFPage(page);
   if (!pPage)
     return -1;
-  CPDF_InteractiveForm interactive_form(pPage->GetDocument());
+
+  CPDF_InteractiveForm* pPDFForm = pForm->GetInteractiveForm();
   int z_order = -1;
-  (void)interactive_form.GetControlAtPoint(
+  pPDFForm->GetControlAtPoint(
       pPage, CFX_PointF(static_cast<float>(page_x), static_cast<float>(page_y)),
       &z_order);
   return z_order;
@@ -683,7 +683,7 @@ FPDF_EXPORT void FPDF_CALLCONV FORM_DoDocumentAAction(FPDF_FORMHANDLE hHandle,
     return;
 
   CPDF_Document* pDoc = pFormFillEnv->GetPDFDocument();
-  const CPDF_Dictionary* pDict = pDoc->GetRoot();
+  CPDF_Dictionary* pDict = pDoc->GetRoot();
   if (!pDict)
     return;
 
@@ -722,4 +722,23 @@ FPDF_EXPORT void FPDF_CALLCONV FORM_DoPageAAction(FPDF_PAGE page,
     CPDF_Action action = aa.GetAction(type);
     pActionHandler->DoAction_Page(action, type, pFormFillEnv);
   }
+}
+
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+FORM_SetIndexSelected(FPDF_FORMHANDLE hHandle,
+                      FPDF_PAGE page,
+                      int index,
+                      FPDF_BOOL selected) {
+  CPDFSDK_PageView* pPageView = FormHandleToPageView(hHandle, page);
+  if (!pPageView)
+    return false;
+  return pPageView->SetIndexSelected(index, selected);
+}
+
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+FORM_IsIndexSelected(FPDF_FORMHANDLE hHandle, FPDF_PAGE page, int index) {
+  CPDFSDK_PageView* pPageView = FormHandleToPageView(hHandle, page);
+  if (!pPageView)
+    return false;
+  return pPageView->IsIndexSelected(index);
 }

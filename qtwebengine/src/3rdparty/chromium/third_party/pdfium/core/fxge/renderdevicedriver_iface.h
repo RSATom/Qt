@@ -14,22 +14,29 @@
 #include "core/fxcrt/retain_ptr.h"
 #include "core/fxge/fx_dib.h"
 
-class CFX_DIBitmap;
 class CFX_DIBBase;
+class CFX_DIBitmap;
 class CFX_Font;
 class CFX_GraphStateData;
 class CFX_ImageRenderer;
 class CFX_Matrix;
 class CFX_PathData;
 class CPDF_ShadingPattern;
-class FXTEXT_CHARPOS;
 class PauseIndicatorIface;
+class TextCharPos;
 struct FX_RECT;
+
+enum class DeviceType : uint8_t {
+  kUnknown,
+  kDisplay,
+  kPrinter,
+};
 
 class RenderDeviceDriverIface {
  public:
   virtual ~RenderDeviceDriverIface();
 
+  virtual DeviceType GetDeviceType() const = 0;
   virtual int GetDeviceCaps(int caps_id) const = 0;
 
   virtual bool StartRendering();
@@ -89,9 +96,9 @@ class RenderDeviceDriverIface {
   virtual bool ContinueDIBits(CFX_ImageRenderer* handle,
                               PauseIndicatorIface* pPause);
   virtual bool DrawDeviceText(int nChars,
-                              const FXTEXT_CHARPOS* pCharPos,
+                              const TextCharPos* pCharPos,
                               CFX_Font* pFont,
-                              const CFX_Matrix* pObject2Device,
+                              const CFX_Matrix& mtObject2Device,
                               float font_size,
                               uint32_t color);
   virtual int GetDriverType() const;

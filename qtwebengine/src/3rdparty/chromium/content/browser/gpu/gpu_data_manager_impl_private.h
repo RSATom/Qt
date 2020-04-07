@@ -30,7 +30,6 @@ class CommandLine;
 
 namespace gpu {
 struct GpuPreferences;
-struct VideoMemoryUsageStats;
 }
 
 namespace content {
@@ -51,14 +50,12 @@ class CONTENT_EXPORT GpuDataManagerImplPrivate {
   bool IsGpuFeatureInfoAvailable() const;
   gpu::GpuFeatureStatus GetFeatureStatus(gpu::GpuFeatureType feature) const;
   void RequestVideoMemoryUsageStatsUpdate(
-      const base::Callback<void(const gpu::VideoMemoryUsageStats& stats)>&
-          callback) const;
+      GpuDataManager::VideoMemoryUsageStatsCallback callback) const;
   void AddObserver(GpuDataManagerObserver* observer);
   void RemoveObserver(GpuDataManagerObserver* observer);
   void UnblockDomainFrom3DAPIs(const GURL& url);
   void DisableHardwareAcceleration();
   bool HardwareAccelerationEnabled() const;
-  bool SwiftShaderAllowed() const;
 
   void UpdateGpuInfo(
       const gpu::GPUInfo& gpu_info,
@@ -71,12 +68,17 @@ class CONTENT_EXPORT GpuDataManagerImplPrivate {
   void UpdateGpuFeatureInfo(const gpu::GpuFeatureInfo& gpu_feature_info,
                             const base::Optional<gpu::GpuFeatureInfo>&
                                 gpu_feature_info_for_hardware_gpu);
+  void UpdateGpuExtraInfo(const gpu::GpuExtraInfo& process_info);
+
   gpu::GpuFeatureInfo GetGpuFeatureInfo() const;
   gpu::GpuFeatureInfo GetGpuFeatureInfoForHardwareGpu() const;
+  gpu::GpuExtraInfo GetGpuExtraInfo() const;
 
-  void AppendGpuCommandLine(base::CommandLine* command_line) const;
+  void AppendGpuCommandLine(base::CommandLine* command_line,
+                            GpuProcessKind kind) const;
 
-  void UpdateGpuPreferences(gpu::GpuPreferences* gpu_preferences) const;
+  void UpdateGpuPreferences(gpu::GpuPreferences* gpu_preferences,
+                            GpuProcessKind kind) const;
 
   void AddLogMessage(int level,
                      const std::string& header,
@@ -189,17 +191,18 @@ class CONTENT_EXPORT GpuDataManagerImplPrivate {
   gpu::GpuFeatureInfo gpu_feature_info_for_hardware_gpu_;
   gpu::GPUInfo gpu_info_for_hardware_gpu_;
 
+  gpu::GpuExtraInfo gpu_extra_info_;
+
   const scoped_refptr<GpuDataManagerObserverList> observer_list_;
 
   // Contains the 1000 most recent log messages.
   std::vector<LogMessage> log_messages_;
 
-  // Current card force-disabled due to GPU crashes, or disabled through
-  // the --disable-gpu commandline switch.
-  bool card_disabled_ = false;
+  // What the gpu process is being run for.
+  gpu::GpuMode gpu_mode_ = gpu::GpuMode::HARDWARE_ACCELERATED;
 
-  // SwiftShader force-blocked due to GPU crashes using SwiftShader.
-  bool swiftshader_blocked_ = false;
+  // Used to tell if the gpu was disabled due to process crashes.
+  bool hardware_disabled_by_fallback_ = false;
 
   // We disable histogram stuff in testing, especially in unit tests because
   // they cause random failures.

@@ -89,7 +89,6 @@ LayerTreeImpl::LayerTreeImpl(
       external_page_scale_factor_(1.f),
       device_scale_factor_(1.f),
       painted_device_scale_factor_(1.f),
-      content_source_id_(0),
       elastic_overscroll_(elastic_overscroll),
       layers_(new OwnedLayerImplList),
       needs_update_draw_properties_(true),
@@ -484,8 +483,6 @@ void LayerTreeImpl::PushPropertiesTo(LayerTreeImpl* target_tree) {
   target_tree->SetRasterColorSpace(raster_color_space_id_, raster_color_space_);
   target_tree->elastic_overscroll()->PushPendingToActive();
 
-  target_tree->set_content_source_id(content_source_id());
-
   target_tree->set_painted_device_scale_factor(painted_device_scale_factor());
   target_tree->SetDeviceScaleFactor(device_scale_factor());
   target_tree->SetDeviceViewportSize(device_viewport_size_);
@@ -618,8 +615,8 @@ LayerImplList::reverse_iterator LayerTreeImpl::rend() {
   return layer_list_.rend();
 }
 
-bool LayerTreeImpl::IsElementInLayerList(ElementId element_id) const {
-  return elements_in_property_trees_.count(element_id);
+bool LayerTreeImpl::IsElementInPropertyTree(ElementId element_id) const {
+  return property_trees()->HasElement(element_id);
 }
 
 ElementListType LayerTreeImpl::GetElementTypeForAnimation() const {
@@ -635,19 +632,12 @@ void LayerTreeImpl::AddToElementLayerList(ElementId element_id,
                "LayerTreeImpl::AddToElementLayerList", "element",
                element_id.AsValue().release());
 
-#if DCHECK_IS_ON()
-  bool element_id_collision_detected =
-      elements_in_property_trees_.count(element_id);
+  if (!settings().use_layer_lists) {
+    host_impl_->mutator_host()->RegisterElementId(element_id,
+                                                  GetElementTypeForAnimation());
+  }
 
-  DCHECK(!element_id_collision_detected);
-#endif
-
-  elements_in_property_trees_.insert(element_id);
-
-  host_impl_->mutator_host()->RegisterElement(element_id,
-                                              GetElementTypeForAnimation());
-
-  if (layer && layer->scrollable())
+  if (layer->scrollable())
     AddScrollableLayer(layer);
 }
 
@@ -659,10 +649,11 @@ void LayerTreeImpl::RemoveFromElementLayerList(ElementId element_id) {
                "LayerTreeImpl::RemoveFromElementLayerList", "element",
                element_id.AsValue().release());
 
-  host_impl_->mutator_host()->UnregisterElement(element_id,
-                                                GetElementTypeForAnimation());
+  if (!settings().use_layer_lists) {
+    host_impl_->mutator_host()->UnregisterElementId(
+        element_id, GetElementTypeForAnimation());
+  }
 
-  elements_in_property_trees_.erase(element_id);
   element_id_to_scrollable_layer_.erase(element_id);
 }
 
@@ -705,6 +696,18 @@ void LayerTreeImpl::SetFilterMutated(ElementId element_id,
   if (IsSyncTree() || IsRecycleTree())
     element_id_to_filter_animations_[element_id] = filters;
   if (property_trees()->effect_tree.OnFilterAnimated(element_id, filters))
+    set_needs_update_draw_properties();
+}
+
+void LayerTreeImpl::SetBackdropFilterMutated(
+    ElementId element_id,
+    const FilterOperations& backdrop_filters) {
+  DCHECK_EQ(
+      1u, property_trees()->element_id_to_effect_node_index.count(element_id));
+  if (IsSyncTree() || IsRecycleTree())
+    element_id_to_backdrop_filter_animations_[element_id] = backdrop_filters;
+  if (property_trees()->effect_tree.OnBackdropFilterAnimated(element_id,
+                                                             backdrop_filters))
     set_needs_update_draw_properties();
 }
 
@@ -809,6 +812,23 @@ void LayerTreeImpl::UpdatePropertyTreeAnimationFromMainThread() {
     ++element_id_to_filter;
   }
 
+  auto element_id_to_backdrop_filter =
+      element_id_to_backdrop_filter_animations_.begin();
+  while (element_id_to_backdrop_filter !=
+         element_id_to_backdrop_filter_animations_.end()) {
+    const ElementId id = element_id_to_backdrop_filter->first;
+    EffectNode* node = property_trees_.effect_tree.FindNodeFromElementId(id);
+    if (!node || !node->is_currently_animating_backdrop_filter ||
+        node->backdrop_filters == element_id_to_backdrop_filter->second) {
+      element_id_to_backdrop_filter_animations_.erase(
+          element_id_to_backdrop_filter++);
+      continue;
+    }
+    node->backdrop_filters = element_id_to_backdrop_filter->second;
+    property_trees_.effect_tree.set_needs_update(true);
+    ++element_id_to_backdrop_filter;
+  }
+
   auto element_id_to_transform = element_id_to_transform_animations_.begin();
   while (element_id_to_transform != element_id_to_transform_animations_.end()) {
     const ElementId id = element_id_to_transform->first;
@@ -843,8 +863,9 @@ void LayerTreeImpl::UpdateTransformAnimation(ElementId element_id,
                                                                   list_type);
       if (node->has_potential_animation != has_potential_animation) {
         node->has_potential_animation = has_potential_animation;
-        node->has_only_translation_animations =
-            mutator_host()->HasOnlyTranslationTransforms(element_id, list_type);
+        mutator_host()->GetAnimationScales(element_id, list_type,
+                                           &node->maximum_animation_scale,
+                                           &node->starting_animation_scale);
         transform_tree.set_needs_update(true);
         set_needs_update_draw_properties();
       }
@@ -1143,7 +1164,7 @@ gfx::SizeF LayerTreeImpl::ScrollableViewportSize() const {
     return gfx::SizeF();
 
   return gfx::ScaleSize(gfx::SizeF(inner_node->container_bounds),
-                        1.0f / current_page_scale_factor());
+                        1.0f / page_scale_factor_for_scroll());
 }
 
 gfx::Rect LayerTreeImpl::RootScrollLayerDeviceViewportBounds() const {
@@ -1266,7 +1287,6 @@ bool LayerTreeImpl::UpdateDrawProperties(
         InnerViewportScrollLayer(), OuterViewportScrollLayer(),
         elastic_overscroll()->Current(IsActiveTree()),
         OverscrollElasticityElementId(), max_texture_size(),
-        settings().layer_transforms_should_scale_layer_contents,
         &render_surface_list_, &property_trees_, PageScaleTransformNode());
     LayerTreeHostCommon::CalculateDrawProperties(&inputs);
     if (const char* client_name = GetClientNameForMetrics()) {
@@ -1364,8 +1384,7 @@ bool LayerTreeImpl::UpdateDrawProperties(
   }
 
   if (update_image_animation_controller && image_animation_controller()) {
-    image_animation_controller()->UpdateStateFromDrivers(
-        CurrentBeginFrameArgs().frame_time);
+    image_animation_controller()->UpdateStateFromDrivers();
   }
 
   DCHECK(!needs_update_draw_properties_)
@@ -1401,6 +1420,7 @@ void LayerTreeImpl::BuildPropertyTreesForTesting() {
       gfx::Rect(GetDeviceViewport().size()), host_impl_->DrawTransform(),
       &property_trees_);
   property_trees_.transform_tree.set_source_to_parent_updates_allowed(false);
+  host_impl_->UpdateElements(GetElementTypeForAnimation());
 }
 
 const RenderSurfaceList& LayerTreeImpl::GetRenderSurfaceList() const {
@@ -1432,6 +1452,18 @@ LayerImpl* LayerTreeImpl::LayerById(int id) const {
   return iter != layer_id_map_.end() ? iter->second : nullptr;
 }
 
+// TODO(masonfreed): If this shows up on profiles, this could use
+// a layer_element_map_ approach similar to LayerById().
+LayerImpl* LayerTreeImpl::LayerByElementId(ElementId element_id) const {
+  auto it = std::find_if(layer_list_.rbegin(), layer_list_.rend(),
+                         [&element_id](LayerImpl* layer_impl) {
+                           return layer_impl->element_id() == element_id;
+                         });
+  if (it == layer_list_.rend())
+    return nullptr;
+  return *it;
+}
+
 LayerImpl* LayerTreeImpl::ScrollableLayerByElementId(
     ElementId element_id) const {
   auto iter = element_id_to_scrollable_layer_.find(element_id);
@@ -1458,7 +1490,7 @@ void LayerTreeImpl::AddLayerShouldPushProperties(LayerImpl* layer) {
   DCHECK(!IsActiveTree()) << "The active tree does not push layer properties";
   // TODO(crbug.com/303943): PictureLayerImpls always push properties so should
   // not go into this set or we'd push them twice.
-  DCHECK(!base::ContainsValue(picture_layers_, layer));
+  DCHECK(!base::Contains(picture_layers_, layer));
   layers_that_should_push_properties_.insert(layer);
 }
 
@@ -1479,7 +1511,7 @@ void LayerTreeImpl::UnregisterLayer(LayerImpl* layer) {
 
 // These manage ownership of the LayerImpl.
 void LayerTreeImpl::AddLayer(std::unique_ptr<LayerImpl> layer) {
-  DCHECK(!base::ContainsValue(*layers_, layer));
+  DCHECK(!base::Contains(*layers_, layer));
   DCHECK(layer);
   layers_->push_back(std::move(layer));
   set_needs_update_draw_properties();
@@ -1719,49 +1751,6 @@ void LayerTreeImpl::AsValueInto(base::trace_event::TracedValue* state) const {
   state->EndArray();
 }
 
-bool LayerTreeImpl::DistributeRootScrollOffset(
-    const gfx::ScrollOffset& desired_root_offset) {
-  if (!InnerViewportScrollNode() || !OuterViewportScrollLayer())
-    return false;
-
-  gfx::ScrollOffset root_offset = desired_root_offset;
-  ScrollTree& scroll_tree = property_trees()->scroll_tree;
-
-  // If we get here, we have both inner/outer viewports, and need to distribute
-  // the scroll offset between them.
-  gfx::ScrollOffset inner_viewport_offset =
-      scroll_tree.current_scroll_offset(InnerViewportScrollNode()->element_id);
-  gfx::ScrollOffset outer_viewport_offset =
-      OuterViewportScrollLayer()->CurrentScrollOffset();
-  DCHECK(inner_viewport_offset + outer_viewport_offset == TotalScrollOffset());
-
-  // Setting the root scroll offset is driven by user actions so prevent
-  // it if it is not user scrollable in certain directions.
-  if (!InnerViewportScrollNode()->user_scrollable_horizontal)
-    root_offset.set_x(inner_viewport_offset.x() + outer_viewport_offset.x());
-
-  if (!InnerViewportScrollNode()->user_scrollable_vertical)
-    root_offset.set_y(inner_viewport_offset.y() + outer_viewport_offset.y());
-
-  // It may be nothing has changed.
-  if (inner_viewport_offset + outer_viewport_offset == root_offset)
-    return false;
-
-  gfx::ScrollOffset max_outer_viewport_scroll_offset =
-      OuterViewportScrollLayer()->MaxScrollOffset();
-
-  outer_viewport_offset = root_offset - inner_viewport_offset;
-  outer_viewport_offset.SetToMin(max_outer_viewport_scroll_offset);
-  outer_viewport_offset.SetToMax(gfx::ScrollOffset());
-
-  OuterViewportScrollLayer()->SetCurrentScrollOffset(outer_viewport_offset);
-  inner_viewport_offset = root_offset - outer_viewport_offset;
-  if (scroll_tree.SetScrollOffset(InnerViewportScrollNode()->element_id,
-                                  inner_viewport_offset))
-    DidUpdateScrollOffset(InnerViewportScrollNode()->element_id);
-  return true;
-}
-
 void LayerTreeImpl::QueueSwapPromise(
     std::unique_ptr<SwapPromise> swap_promise) {
   DCHECK(swap_promise);
@@ -1777,8 +1766,15 @@ void LayerTreeImpl::QueuePinnedSwapPromise(
 
 void LayerTreeImpl::PassSwapPromises(
     std::vector<std::unique_ptr<SwapPromise>> new_swap_promises) {
-  for (auto& swap_promise : swap_promise_list_)
-    swap_promise->DidNotSwap(SwapPromise::SWAP_FAILS);
+  for (auto& swap_promise : swap_promise_list_) {
+    if (swap_promise->DidNotSwap(SwapPromise::SWAP_FAILS) ==
+        SwapPromise::DidNotSwapAction::KEEP_ACTIVE) {
+      // |swap_promise| must remain active, so place it in |new_swap_promises|
+      // in order to keep it alive and active.
+      new_swap_promises.push_back(std::move(swap_promise));
+    }
+  }
+  swap_promise_list_.clear();
   swap_promise_list_.swap(new_swap_promises);
 }
 
@@ -1806,13 +1802,30 @@ void LayerTreeImpl::ClearSwapPromises() {
 }
 
 void LayerTreeImpl::BreakSwapPromises(SwapPromise::DidNotSwapReason reason) {
-  for (auto& swap_promise : swap_promise_list_)
-    swap_promise->DidNotSwap(reason);
-  swap_promise_list_.clear();
+  {
+    std::vector<std::unique_ptr<SwapPromise>> persistent_swap_promises;
+    for (auto& swap_promise : swap_promise_list_) {
+      if (swap_promise->DidNotSwap(reason) ==
+          SwapPromise::DidNotSwapAction::KEEP_ACTIVE) {
+        persistent_swap_promises.push_back(std::move(swap_promise));
+      }
+    }
+    // |persistent_swap_promises| must remain active even when swap fails.
+    swap_promise_list_ = std::move(persistent_swap_promises);
+  }
 
-  for (auto& swap_promise : pinned_swap_promise_list_)
-    swap_promise->DidNotSwap(reason);
-  pinned_swap_promise_list_.clear();
+  {
+    std::vector<std::unique_ptr<SwapPromise>> persistent_swap_promises;
+    for (auto& swap_promise : pinned_swap_promise_list_) {
+      if (swap_promise->DidNotSwap(reason) ==
+          SwapPromise::DidNotSwapAction::KEEP_ACTIVE) {
+        persistent_swap_promises.push_back(std::move(swap_promise));
+      }
+    }
+
+    // |persistent_swap_promises| must remain active even when swap fails.
+    pinned_swap_promise_list_ = std::move(persistent_swap_promises);
+  }
 }
 
 void LayerTreeImpl::DidModifyTilePriorities() {
@@ -1833,6 +1846,8 @@ bool LayerTreeImpl::IsUIResourceOpaque(UIResourceId uid) const {
 }
 
 void LayerTreeImpl::ProcessUIResourceRequestQueue() {
+  TRACE_EVENT1("cc", "ProcessUIResourceRequestQueue", "queue_size",
+               ui_resource_request_queue_.size());
   for (const auto& req : ui_resource_request_queue_) {
     switch (req.GetType()) {
       case UIResourceRequest::UI_RESOURCE_CREATE:
@@ -1855,7 +1870,7 @@ void LayerTreeImpl::ProcessUIResourceRequestQueue() {
 }
 
 void LayerTreeImpl::RegisterPictureLayerImpl(PictureLayerImpl* layer) {
-  DCHECK(!base::ContainsValue(picture_layers_, layer));
+  DCHECK(!base::Contains(picture_layers_, layer));
   picture_layers_.push_back(layer);
 }
 
@@ -1863,6 +1878,23 @@ void LayerTreeImpl::UnregisterPictureLayerImpl(PictureLayerImpl* layer) {
   auto it = std::find(picture_layers_.begin(), picture_layers_.end(), layer);
   DCHECK(it != picture_layers_.end());
   picture_layers_.erase(it);
+
+  // Make sure that |picture_layers_with_paint_worklets_| doesn't get left with
+  // dead layers. They should already have been removed (via calling
+  // NotifyLayerHasPaintWorkletsChanged) before the layer was unregistered.
+  DCHECK(!picture_layers_with_paint_worklets_.contains(layer));
+}
+
+void LayerTreeImpl::NotifyLayerHasPaintWorkletsChanged(PictureLayerImpl* layer,
+                                                       bool has_worklets) {
+  if (has_worklets) {
+    auto insert_pair = picture_layers_with_paint_worklets_.insert(layer);
+    DCHECK(insert_pair.second);
+  } else {
+    auto it = picture_layers_with_paint_worklets_.find(layer);
+    DCHECK(it != picture_layers_with_paint_worklets_.end());
+    picture_layers_with_paint_worklets_.erase(it);
+  }
 }
 
 void LayerTreeImpl::RegisterScrollbar(ScrollbarLayerImplBase* scrollbar_layer) {
@@ -2134,9 +2166,10 @@ static void FindClosestMatchingLayer(const gfx::PointF& screen_space_point,
   }
 }
 
-struct FindScrollingLayerOrScrollbarFunctor {
+struct HitTestScrollingLayerOrScrollbarFunctor {
   bool operator()(LayerImpl* layer) const {
-    return layer->scrollable() || layer->is_scrollbar();
+    return layer->HitTestable() &&
+           (layer->scrollable() || layer->is_scrollbar());
   }
 };
 
@@ -2148,15 +2181,12 @@ LayerImpl* LayerTreeImpl::FindFirstScrollingLayerOrScrollbarThatIsHitByPoint(
   FindClosestMatchingLayerState state;
   LayerImpl* root_layer = layer_list_[0];
   FindClosestMatchingLayer(screen_space_point, root_layer,
-                           FindScrollingLayerOrScrollbarFunctor(), &state);
+                           HitTestScrollingLayerOrScrollbarFunctor(), &state);
   return state.closest_match;
 }
 
 struct HitTestVisibleScrollableOrTouchableFunctor {
-  bool operator()(LayerImpl* layer) const {
-    return layer->scrollable() || layer->ShouldHitTest() ||
-           !layer->touch_action_region().region().IsEmpty();
-  }
+  bool operator()(LayerImpl* layer) const { return layer->HitTestable(); }
 };
 
 LayerImpl* LayerTreeImpl::FindLayerThatIsHitByPoint(
@@ -2174,8 +2204,10 @@ LayerImpl* LayerTreeImpl::FindLayerThatIsHitByPoint(
 
 struct FindTouchEventLayerFunctor {
   bool operator()(LayerImpl* layer) const {
+    if (!layer->has_touch_action_regions())
+      return false;
     return PointHitsRegion(screen_space_point, layer->ScreenSpaceTransform(),
-                           layer->touch_action_region().region(), layer);
+                           layer->GetAllTouchActionRegions(), layer);
   }
   const gfx::PointF screen_space_point;
 };
@@ -2213,6 +2245,28 @@ LayerImpl* LayerTreeImpl::FindLayerThatIsHitByPointInWheelEventHandlerRegion(
   FindWheelEventHandlerLayerFunctor func = {screen_space_point};
   return FindLayerThatIsHitByPointInEventHandlerRegion(screen_space_point,
                                                        func);
+}
+
+std::vector<const LayerImpl*>
+LayerTreeImpl::FindLayersHitByPointInNonFastScrollableRegion(
+    const gfx::PointF& screen_space_point) {
+  std::vector<const LayerImpl*> layers;
+  if (layer_list_.empty())
+    return layers;
+  if (!UpdateDrawProperties())
+    return layers;
+  for (const auto* layer : *this) {
+    if (layer->non_fast_scrollable_region().IsEmpty())
+      continue;
+    if (!PointHitsLayer(layer, screen_space_point, nullptr))
+      continue;
+    if (PointHitsRegion(screen_space_point, layer->ScreenSpaceTransform(),
+                        layer->non_fast_scrollable_region(), layer)) {
+      layers.push_back(layer);
+    }
+  }
+
+  return layers;
 }
 
 void LayerTreeImpl::RegisterSelection(const LayerSelection& selection) {

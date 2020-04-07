@@ -54,17 +54,14 @@
 #include "qv4runtime_p.h"
 #include "qv4engine_p.h"
 #include "qv4context_p.h"
-
-#if !defined(V4_BOOTSTRAP)
 #include "qv4object_p.h"
 #include "qv4internalclass_p.h"
-#endif
 
 QT_BEGIN_NAMESPACE
 
 namespace QV4 {
 
-struct Lookup {
+struct Q_QML_PRIVATE_EXPORT Lookup {
     union {
         ReturnedValue (*getter)(Lookup *l, ExecutionEngine *engine, const Value &object);
         ReturnedValue (*globalGetter)(Lookup *l, ExecutionEngine *engine);
@@ -81,8 +78,9 @@ struct Lookup {
         } markDef;
         struct {
             Heap::InternalClass *ic;
-            quintptr _unused;
-            int offset;
+            quintptr unused;
+            uint index;
+            uint offset;
         } objectLookup;
         struct {
             quintptr protoId;
@@ -92,8 +90,8 @@ struct Lookup {
         struct {
             Heap::InternalClass *ic;
             Heap::InternalClass *ic2;
-            int offset;
-            int offset2;
+            uint offset;
+            uint offset2;
         } objectLookupTwoClasses;
         struct {
             quintptr protoId;
@@ -111,12 +109,14 @@ struct Lookup {
         struct {
             Heap::InternalClass *newClass;
             quintptr protoId;
-            int offset;
+            uint offset;
+            uint unused;
         } insertionLookup;
         struct {
             quintptr _unused;
             quintptr _unused2;
             uint index;
+            uint unused;
         } indexedLookup;
         struct {
             Heap::InternalClass *ic;
@@ -151,6 +151,19 @@ struct Lookup {
             quintptr reserved3;
             ReturnedValue (*getterTrampoline)(Lookup *l, ExecutionEngine *engine);
         } qmlContextGlobalLookup;
+        struct {
+            Heap::Object *qmlTypeWrapper;
+            quintptr unused2;
+        } qmlTypeLookup;
+        struct {
+            Heap::InternalClass *ic;
+            quintptr unused;
+            ReturnedValue encodedEnumValue;
+        } qmlEnumValueLookup;
+        struct {
+            Heap::InternalClass *ic;
+            Heap::Object *qmlScopedEnumWrapper;
+        } qmlScopedEnumWrapperLookup;
     };
     uint nameIndex;
 
@@ -187,7 +200,7 @@ struct Lookup {
     static bool setterGeneric(Lookup *l, ExecutionEngine *engine, Value &object, const Value &value);
     Q_NEVER_INLINE static bool setterTwoClasses(Lookup *l, ExecutionEngine *engine, Value &object, const Value &value);
     static bool setterFallback(Lookup *l, ExecutionEngine *engine, Value &object, const Value &value);
-    static bool setter0(Lookup *l, ExecutionEngine *engine, Value &object, const Value &value);
+    static bool setter0MemberData(Lookup *l, ExecutionEngine *engine, Value &object, const Value &value);
     static bool setter0Inline(Lookup *l, ExecutionEngine *engine, Value &object, const Value &value);
     static bool setter0setter0(Lookup *l, ExecutionEngine *engine, Value &object, const Value &value);
     static bool setterInsert(Lookup *l, ExecutionEngine *engine, Value &object, const Value &value);

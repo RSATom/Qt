@@ -6,9 +6,9 @@
 #define THIRD_PARTY_BLINK_RENDERER_CORE_HTML_MEDIA_VIDEO_WAKE_LOCK_H_
 
 #include "services/device/public/mojom/wake_lock.mojom-blink.h"
-#include "third_party/blink/public/platform/modules/remoteplayback/web_remote_playback_state.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/dom/events/native_event_listener.h"
+#include "third_party/blink/renderer/core/execution_context/context_lifecycle_state_observer.h"
 #include "third_party/blink/renderer/core/html/media/remote_playback_observer.h"
 #include "third_party/blink/renderer/core/page/page_visibility_observer.h"
 
@@ -20,18 +20,22 @@ class HTMLVideoElement;
 // take wake lock iif:
 //  - the video is playing;
 //  - the page is visible OR the video is in picture-in-picture;
-//  - the video isn't being remoted.
+//  - the video isn't being remoted;
+//  - the execution context is neither paused nor destroyed.
 // Each video element implements its own wake lock logic. The service will then
 // merge all the requests and take the appropriate system wake lock.
 // VideoWakeLock only uses "screen" related wake lock: it prevents the screen
 // from locking on mobile or the lockscreen to show up on desktop.
 class CORE_EXPORT VideoWakeLock final : public NativeEventListener,
                                         public PageVisibilityObserver,
-                                        public RemotePlaybackObserver {
-  USING_GARBAGE_COLLECTED_MIXIN(VideoWakeLock)
+                                        public RemotePlaybackObserver,
+                                        public ContextLifecycleStateObserver {
+  USING_GARBAGE_COLLECTED_MIXIN(VideoWakeLock);
 
  public:
   explicit VideoWakeLock(HTMLVideoElement&);
+
+  void ElementDidMoveToNewDocument();
 
   void Trace(Visitor*) final;
 
@@ -39,8 +43,12 @@ class CORE_EXPORT VideoWakeLock final : public NativeEventListener,
   void Invoke(ExecutionContext*, Event*) final;
 
   // RemotePlaybackObserver implementation.
-  void OnRemotePlaybackStateChanged(WebRemotePlaybackState) final;
-  void OnRemotePlaybackAvailabilityChanged(WebRemotePlaybackAvailability) final;
+  void OnRemotePlaybackStateChanged(
+      mojom::blink::PresentationConnectionState) final;
+
+  // ContextLifecycleStateObserver
+  void ContextLifecycleStateChanged(mojom::FrameLifecycleState) override;
+  void ContextDestroyed(ExecutionContext*) override;
 
   bool active_for_tests() const { return active_; }
 
@@ -74,8 +82,8 @@ class CORE_EXPORT VideoWakeLock final : public NativeEventListener,
 
   bool playing_ = false;
   bool active_ = false;
-  WebRemotePlaybackState remote_playback_state_ =
-      WebRemotePlaybackState::kDisconnected;
+  mojom::blink::PresentationConnectionState remote_playback_state_ =
+      mojom::blink::PresentationConnectionState::CLOSED;
 };
 
 }  // namespace blink

@@ -100,16 +100,16 @@ static TBPFLAG nativeProgressState(QWinTaskbarProgress *progress)
     return TBPF_NORMAL;
 }
 
-QWinTaskbarButtonPrivate::QWinTaskbarButtonPrivate() : progressBar(0), pTbList(0), window(0)
+QWinTaskbarButtonPrivate::QWinTaskbarButtonPrivate()
 {
-    HRESULT hresult = CoCreateInstance(CLSID_TaskbarList, 0, CLSCTX_INPROC_SERVER, qIID_ITaskbarList4, reinterpret_cast<void **>(&pTbList));
+    HRESULT hresult = CoCreateInstance(CLSID_TaskbarList, nullptr, CLSCTX_INPROC_SERVER, qIID_ITaskbarList4, reinterpret_cast<void **>(&pTbList));
     if (FAILED(hresult)) {
-        pTbList = 0;
+        pTbList = nullptr;
         const QString err = QtWin::errorStringFromHresult(hresult);
         qWarning("QWinTaskbarButton: qIID_ITaskbarList4 was not created: %#010x, %s.", unsigned(hresult), qPrintable(err));
     } else if (FAILED(pTbList->HrInit())) {
         pTbList->Release();
-        pTbList = 0;
+        pTbList = nullptr;
         const QString err = QtWin::errorStringFromHresult(hresult);
         qWarning("QWinTaskbarButton: qIID_ITaskbarList4 was not initialized: %#010x, %s.", unsigned(hresult), qPrintable(err));
     }
@@ -136,8 +136,8 @@ void QWinTaskbarButtonPrivate::updateOverlayIcon()
     if (!pTbList || !window)
         return;
 
-    wchar_t *descrPtr = 0;
-    HICON hicon = 0;
+    wchar_t *descrPtr = nullptr;
+    HICON hicon = nullptr;
     if (!overlayAccessibleDescription.isEmpty())
         descrPtr = qt_qstringToNullTerminated(overlayAccessibleDescription);
     if (!overlayIcon.isNull())
@@ -146,9 +146,9 @@ void QWinTaskbarButtonPrivate::updateOverlayIcon()
     if (hicon)
         pTbList->SetOverlayIcon(handle(), hicon, descrPtr);
     else if (!hicon && !overlayIcon.isNull())
-        pTbList->SetOverlayIcon(handle(), static_cast<HICON>(LoadImage(0, IDI_APPLICATION, IMAGE_ICON, SM_CXSMICON, SM_CYSMICON, LR_SHARED)), descrPtr);
+        pTbList->SetOverlayIcon(handle(), static_cast<HICON>(LoadImage(nullptr, IDI_APPLICATION, IMAGE_ICON, SM_CXSMICON, SM_CYSMICON, LR_SHARED)), descrPtr);
     else
-        pTbList->SetOverlayIcon(handle(), NULL, descrPtr);
+        pTbList->SetOverlayIcon(handle(), nullptr, descrPtr);
 
     if (hicon)
         DestroyIcon(hicon);
@@ -269,8 +269,8 @@ QWinTaskbarProgress *QWinTaskbarButton::progress() const
 {
     Q_D(const QWinTaskbarButton);
     if (!d->progressBar) {
-        QWinTaskbarButton *that = const_cast<QWinTaskbarButton *>(this);
-        QWinTaskbarProgress *pbar = new QWinTaskbarProgress(that);
+        auto *that = const_cast<QWinTaskbarButton *>(this);
+        auto *pbar = new QWinTaskbarProgress(that);
         connect(pbar, SIGNAL(destroyed()), this, SLOT(_q_updateProgress()));
         connect(pbar, SIGNAL(valueChanged(int)), this, SLOT(_q_updateProgress()));
         connect(pbar, SIGNAL(minimumChanged(int)), this, SLOT(_q_updateProgress()));

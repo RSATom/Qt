@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2020 The Qt Company Ltd.
 ** Copyright (C) 2014 Olivier Goffart <ogoffart@woboq.com>
 ** Contact: https://www.qt.io/licensing/
 **
@@ -48,8 +48,10 @@ private slots:
 
     void defaultHandler();
     void installMessageHandler();
+#if QT_DEPRECATED_SINCE(5, 0)
     void installMsgHandler();
     void installBothHandler();
+#endif
 
 #ifdef QT_BUILD_INTERNAL
     void cleanupFuncinfo_data();
@@ -112,7 +114,9 @@ void tst_qmessagehandler::initTestCase()
 
 void tst_qmessagehandler::cleanup()
 {
+#if QT_DEPRECATED_SINCE(5, 0)
     qInstallMsgHandler(0);
+#endif
     qInstallMessageHandler((QtMessageHandler)0);
     s_type = QtFatalMsg;
     s_file = 0;
@@ -143,6 +147,7 @@ void tst_qmessagehandler::installMessageHandler()
     QCOMPARE((void*)myHandler, (void*)customMessageHandler);
 }
 
+#if QT_DEPRECATED_SINCE(5, 0)
 void tst_qmessagehandler::installMsgHandler()
 {
     QtMsgHandler oldHandler = qInstallMsgHandler(customMsgHandler);
@@ -172,6 +177,7 @@ void tst_qmessagehandler::installBothHandler()
     QCOMPARE(s_function, Q_FUNC_INFO);
     QCOMPARE(s_line, line);
 }
+#endif
 
 # define ADD(x)          QTest::newRow(x) << Q_FUNC_INFO << x;
 
@@ -254,19 +260,15 @@ public:
     int rvalue() && { ADD("TestClass1::rvalue"); return 0; }
     int const_rvalue() const && { ADD("TestClass1::const_rvalue"); return 0; }
 #endif
-#ifdef Q_COMPILER_DECLTYPE
     int decltype_param(int x = 0, decltype(x) = 0) { ADD("TestClass1::decltype_param"); return x; }
     template<typename T> int decltype_template_param(T x = 0, decltype(x) = 0)
     { ADD("TestClass1::decltype_template_param"); return x; }
     template<typename T> void decltype_template_param2(T x, decltype(x + QString()))
     { ADD("TestClass1::decltype_template_param2"); }
-#  ifdef Q_COMPILER_AUTO_FUNCTION
     auto decltype_return(int x = 0) -> decltype(x)
     { ADD("TestClass1::decltype_return"); return x; }
     template <typename T> auto decltype_template_return(T x = 0) -> decltype(x)
     { ADD("TestClass1::decltype_template_return"); return x; }
-#  endif
-#endif
 
 public:
     TestClass1()
@@ -323,15 +325,11 @@ public:
             std::move(*this).rvalue();
             std::move(*this).const_rvalue();
 #endif
-#ifdef Q_COMPILER_DECLTYPE
             decltype_param();
             decltype_template_param(0);
             decltype_template_param2(QByteArray(), QString());
-#  ifdef Q_COMPILER_AUTO_FUNCTION
             decltype_return();
             decltype_template_return(0);
-#  endif
-#endif
         }
 };
 
@@ -769,18 +767,18 @@ void tst_qmessagehandler::qMessagePattern_data()
         QTest::qWait(10000);
     QTest::newRow("time") << "/%{time yyyy - MM - d}/%{message}"
         << true << (QList<QByteArray>()
-            << ('/' + QDateTime::currentDateTime().toString("yyyy - MM - d").toUtf8() + "/qDebug"));
+            << ('/' + QDateTime::currentDateTime().toString("yyyy - MM - d").toLocal8Bit() + "/qDebug"));
 
     QTest::newRow("time-time") << "/%{time yyyy - MM - d}/%{time dd-MM-yy}/%{message}"
         << true << (QList<QByteArray>()
-            << ('/' + QDateTime::currentDateTime().toString("yyyy - MM - d").toUtf8()
-                + '/' + QDateTime::currentDateTime().toString("dd-MM-yy").toUtf8()
+            << ('/' + QDateTime::currentDateTime().toString("yyyy - MM - d").toLocal8Bit()
+                + '/' + QDateTime::currentDateTime().toString("dd-MM-yy").toLocal8Bit()
                 + "/qDebug"));
 
     QTest::newRow("skipped-time-shown-time")
             << "/%{if-warning}%{time yyyy - MM - d}%{endif}%{if-debug}%{time dd-MM-yy}%{endif}/%{message}"
             << true << (QList<QByteArray>()
-            << ('/' + QDateTime::currentDateTime().toString("dd-MM-yy").toUtf8() + "/qDebug"));
+            << ('/' + QDateTime::currentDateTime().toString("dd-MM-yy").toLocal8Bit() + "/qDebug"));
 
     // %{time}  should have a padding of 6 so if it takes less than 10 seconds to show
     // the first message, there should be 5 spaces
@@ -878,12 +876,14 @@ void tst_qmessagehandler::setMessagePattern()
 #endif
 
     // make sure there is no QT_MESSAGE_PATTERN in the environment
-    QStringList environment = m_baseEnvironment;
-    QMutableListIterator<QString> iter(environment);
-    while (iter.hasNext()) {
-        if (iter.next().startsWith("QT_MESSAGE_PATTERN"))
-            iter.remove();
-    }
+    QStringList environment;
+    environment.reserve(m_baseEnvironment.size());
+    const auto doesNotStartWith = [](QLatin1String s) {
+        return [s](const QString &str) { return !str.startsWith(s); };
+    };
+    std::copy_if(m_baseEnvironment.cbegin(), m_baseEnvironment.cend(),
+                 std::back_inserter(environment),
+                 doesNotStartWith(QLatin1String("QT_MESSAGE_PATTERN")));
     process.setEnvironment(environment);
 
     process.start(appExe);

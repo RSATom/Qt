@@ -294,10 +294,13 @@ FPDF_EXPORT int FPDF_CALLCONV FPDFText_GetBoundedText(FPDF_TEXTPAGE text_page,
                                                       int buflen);
 
 // Flags used by FPDFText_FindStart function.
-#define FPDF_MATCHCASE \
-  0x00000001  // If not set, it will not match case by default.
-#define FPDF_MATCHWHOLEWORD \
-  0x00000002  // If not set, it will not match the whole word by default.
+//
+// If not set, it will not match case by default.
+#define FPDF_MATCHCASE 0x00000001
+// If not set, it will not match the whole word by default.
+#define FPDF_MATCHWHOLEWORD 0x00000002
+// If not set, it will skip past the current match to look for the next match.
+#define FPDF_CONSECUTIVE 0x00000004
 
 // Function: FPDFText_FindStart
 //          Start a search.
@@ -465,6 +468,26 @@ FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV FPDFLink_GetRect(FPDF_PAGELINK link_page,
                                                      double* top,
                                                      double* right,
                                                      double* bottom);
+
+// Experimental API.
+// Function: FPDFLink_GetTextRange
+//          Fetch the start char index and char count for a link.
+// Parameters:
+//          link_page         -   Handle returned by FPDFLink_LoadWebLinks.
+//          link_index        -   Zero-based index for the link.
+//          start_char_index  -   pointer to int receiving the start char index
+//          char_count        -   pointer to int receiving the char count
+// Return Value:
+//          On success, return TRUE and fill in |start_char_index| and
+//          |char_count|. if |link_page| is invalid or if |link_index| does
+//          not correspond to a valid link, then return FALSE and the out
+//          parameters remain unmodified.
+//
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+FPDFLink_GetTextRange(FPDF_PAGELINK link_page,
+                      int link_index,
+                      int* start_char_index,
+                      int* char_count);
 
 // Function: FPDFLink_CloseWebLinks
 //          Release resources used by weblink feature.

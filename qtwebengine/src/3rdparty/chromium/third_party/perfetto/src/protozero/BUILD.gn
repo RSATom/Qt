@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import("../../gn/fuzzer.gni")
 import("../../gn/perfetto.gni")
 import("../../gn/proto_library.gni")
 import("../../gn/protozero_library.gni")
@@ -23,18 +24,25 @@ source_set("protozero") {
   ]
   deps = [
     "../../gn:default_deps",
-    "../../gn:gtest_prod_config",
-    "../base",
+    "../../include/perfetto/base",
+    "../../include/perfetto/ext/base",  # TODO(primiano): remove this
   ]
   sources = [
     "message.cc",
     "message_handle.cc",
     "proto_decoder.cc",
-    "proto_field_descriptor.cc",
     "scattered_heap_buffer.cc",
     "scattered_stream_null_delegate.cc",
     "scattered_stream_writer.cc",
   ]
+}
+
+if (!build_with_chromium) {
+  static_library("libprotozero") {
+    deps = [
+      ":protozero",
+    ]
+  }
 }
 
 source_set("unittests") {
@@ -44,7 +52,7 @@ source_set("unittests") {
     ":testing_messages_lite",
     ":testing_messages_zero",
     "../../gn:default_deps",
-    "../../gn:gtest_deps",
+    "../../gn:gtest_and_gmock",
     "../base",
     "../base:test_support",
   ]
@@ -81,4 +89,15 @@ proto_library("testing_messages_lite") {
   sources = testing_proto_sources
   proto_in_dir = perfetto_root_path
   proto_out_dir = perfetto_root_path
+}
+
+perfetto_fuzzer_test("protozero_decoder_fuzzer") {
+  sources = [
+    "proto_decoder_fuzzer.cc",
+  ]
+  deps = [
+    ":protozero",
+    "../../gn:default_deps",
+    "../base",
+  ]
 }

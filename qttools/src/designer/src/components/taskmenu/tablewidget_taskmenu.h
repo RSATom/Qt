@@ -46,7 +46,7 @@ class TableWidgetTaskMenu: public QDesignerTaskMenu
 {
     Q_OBJECT
 public:
-    explicit TableWidgetTaskMenu(QTableWidget *button, QObject *parent = 0);
+    explicit TableWidgetTaskMenu(QTableWidget *button, QObject *parent = nullptr);
     ~TableWidgetTaskMenu() override;
 
     QAction *preferredEditAction() const override;
@@ -64,7 +64,7 @@ private:
     QAction *m_editItemsAction;
 };
 
-typedef ExtensionFactory<QDesignerTaskMenuExtension, QTableWidget, TableWidgetTaskMenu> TableWidgetTaskMenuFactory;
+using TableWidgetTaskMenuFactory = ExtensionFactory<QDesignerTaskMenuExtension, QTableWidget, TableWidgetTaskMenu>;
 }  // namespace qdesigner_internal
 
 QT_END_NAMESPACE

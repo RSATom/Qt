@@ -19,17 +19,10 @@
 
 #include <functional>
 
-#include "perfetto/base/build_config.h"
 #include "perfetto/base/export.h"
-#include "perfetto/base/utils.h"
-#include "perfetto/base/watchdog.h"
 
 namespace perfetto {
 namespace base {
-
-// Maximum time a single task can take in a TaskRunner before the
-// program suicides.
-constexpr int64_t kWatchdogMillis = 30000;  // 30s
 
 // A generic interface to allow the library clients to interleave the execution
 // of the tracing internals in their runtime environment.
@@ -67,12 +60,12 @@ class PERFETTO_EXPORT TaskRunner {
   // thread.
   virtual void RemoveFileDescriptorWatch(int fd) = 0;
 
- protected:
-  static void RunTask(const std::function<void()>& task) {
-    Watchdog::Timer handle =
-        base::Watchdog::GetInstance()->CreateFatalTimer(kWatchdogMillis);
-    task();
-  }
+  // Checks if the current thread is the same thread where the TaskRunner's task
+  // run. This allows single threaded task runners (like the ones used in
+  // perfetto) to inform the caller that anything posted will run on the same
+  // thread/sequence. This can allow some callers to skip PostTask and instead
+  // directly execute the code. Can be called from any thread.
+  virtual bool RunsTasksOnCurrentThread() const = 0;
 };
 
 }  // namespace base

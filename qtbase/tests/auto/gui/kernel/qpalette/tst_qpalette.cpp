@@ -141,21 +141,20 @@ void tst_QPalette::copySemantics()
 
 void tst_QPalette::moveSemantics()
 {
-#ifdef Q_COMPILER_RVALUE_REFS
     QPalette src(Qt::red), dst;
     const QPalette control = src;
     QVERIFY(src != dst);
     QCOMPARE(src, control);
     QVERIFY(!dst.isCopyOf(src));
     QVERIFY(!dst.isCopyOf(control));
-    dst = qMove(src); // move assignment
+    dst = std::move(src); // move assignment
     QVERIFY(!dst.isCopyOf(src)); // isCopyOf() works on moved-from palettes, too
     QVERIFY(dst.isCopyOf(control));
     QCOMPARE(dst, control);
     src = control; // check moved-from 'src' can still be assigned to (doesn't crash)
     QVERIFY(src.isCopyOf(dst));
     QVERIFY(src.isCopyOf(control));
-    QPalette dst2(qMove(src)); // move construction
+    QPalette dst2(std::move(src)); // move construction
     QVERIFY(!src.isCopyOf(dst));
     QVERIFY(!src.isCopyOf(dst2));
     QVERIFY(!src.isCopyOf(control));
@@ -163,9 +162,6 @@ void tst_QPalette::moveSemantics()
     QVERIFY(dst2.isCopyOf(dst));
     QVERIFY(dst2.isCopyOf(control));
     // check moved-from 'src' can still be destroyed (doesn't crash)
-#else
-    QSKIP("Compiler doesn't support C++11 move semantics");
-#endif
 }
 
 void tst_QPalette::setBrush()

@@ -46,7 +46,7 @@ class PLATFORM_EXPORT ContentLayerClientImpl : public cc::ContentLayerClient,
 
   // cc::LayerClient
   std::unique_ptr<base::trace_event::TracedValue> TakeDebugInfo(
-      cc::Layer*) override;
+      const cc::Layer*) override;
   void DidChangeScrollbarsHiddenIfOverlay(bool) override {}
 
   bool Matches(const PaintChunk& paint_chunk) const {
@@ -73,6 +73,11 @@ class PLATFORM_EXPORT ContentLayerClientImpl : public cc::ContentLayerClient,
   RasterInvalidator& GetRasterInvalidator() { return raster_invalidator_; }
 
  private:
+  // Callback from raster_invalidator_.
+  void InvalidateRect(const IntRect& rect) {
+    cc_picture_layer_->SetNeedsDisplayRect(rect);
+  }
+
   base::Optional<PaintChunk::Id> id_;
   scoped_refptr<cc::PictureLayer> cc_picture_layer_;
   scoped_refptr<cc::DisplayItemList> cc_display_item_list_;
@@ -84,7 +89,7 @@ class PLATFORM_EXPORT ContentLayerClientImpl : public cc::ContentLayerClient,
   std::unique_ptr<JSONArray> paint_chunk_debug_data_;
 #endif
 
-  base::WeakPtrFactory<ContentLayerClientImpl> weak_ptr_factory_;
+  base::WeakPtrFactory<ContentLayerClientImpl> weak_ptr_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(ContentLayerClientImpl);
 };

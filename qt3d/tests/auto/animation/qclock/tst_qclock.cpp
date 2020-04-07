@@ -30,7 +30,6 @@
 #include <QtTest/QTest>
 #include <Qt3DAnimation/qclock.h>
 #include <Qt3DAnimation/private/qclock_p.h>
-#include <Qt3DCore/qpropertyupdatedchange.h>
 #include <Qt3DCore/qnodecreatedchange.h>
 #include <Qt3DCore/private/qnodecreatedchangegenerator_p.h>
 #include <QObject>
@@ -136,26 +135,21 @@ private Q_SLOTS:
 
         {
             // WHEN
-            clock.setPlaybackRate(10.5);
-            QCoreApplication::processEvents();
+            clock.setPlaybackRate(10.5f);
 
             // THEN
-            QCOMPARE(arbiter.events.size(), 1);
-            auto change = arbiter.events.first().staticCast<Qt3DCore::QPropertyUpdatedChange>();
-            QCOMPARE(change->propertyName(), "playbackRate");
-            QCOMPARE(change->type(), Qt3DCore::PropertyUpdated);
-            QCOMPARE(change->value().value<double>(), clock.playbackRate());
+            QCOMPARE(arbiter.dirtyNodes.size(), 1);
+            QCOMPARE(arbiter.dirtyNodes.front(), &clock);
 
-            arbiter.events.clear();
+            arbiter.dirtyNodes.clear();
         }
 
         {
             // WHEN
             clock.setPlaybackRate(10.5f);
-            QCoreApplication::processEvents();
 
             // THEN
-            QCOMPARE(arbiter.events.size(), 0);
+            QCOMPARE(arbiter.dirtyNodes.size(), 0);
         }
     }
 };

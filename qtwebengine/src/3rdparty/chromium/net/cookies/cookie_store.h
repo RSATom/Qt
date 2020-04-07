@@ -42,10 +42,14 @@ class CookieChangeDispatcher;
 class NET_EXPORT CookieStore {
  public:
   // Callback definitions.
-  typedef base::OnceCallback<void(const CookieList& cookies)>
+  typedef base::OnceCallback<void(const CookieList& cookies,
+                                  const CookieStatusList& excluded_list)>
       GetCookieListCallback;
-  typedef base::OnceCallback<void(bool success)> SetCookiesCallback;
+  typedef base::OnceCallback<void(
+      CanonicalCookie::CookieInclusionStatus status)>
+      SetCookiesCallback;
   typedef base::OnceCallback<void(uint32_t num_deleted)> DeleteCallback;
+  typedef base::OnceCallback<void(bool success)> SetCookieableSchemesCallback;
 
   virtual ~CookieStore();
 
@@ -62,14 +66,15 @@ class NET_EXPORT CookieStore {
                                          SetCookiesCallback callback) = 0;
 
   // Set the cookie on the cookie store.  |cookie.IsCanonical()| must
-  // be true.  |secure_source| indicates if the source of the setting
-  // may be considered secure (if from a URL, the scheme is
-  // cryptographic), and |modify_http_only| indicates if the source of
-  // the setting may modify http_only cookies.  The current time will
-  // be used in place of a null creation time.
+  // be true.  |source_scheme| denotes the scheme of the resource setting this.
+  //
+  // |options| is used to determine the context the operation is run in, and
+  // which cookies it can alter (e.g. http only, or same site).
+  //
+  // The current time will be used in place of a null creation time.
   virtual void SetCanonicalCookieAsync(std::unique_ptr<CanonicalCookie> cookie,
-                                       bool secure_source,
-                                       bool modify_http_only,
+                                       std::string source_scheme,
+                                       const CookieOptions& options,
                                        SetCookiesCallback callback) = 0;
 
   // Obtains a CookieList for the given |url| and |options|. The returned
@@ -94,11 +99,6 @@ class NET_EXPORT CookieStore {
   // the cookies as having been accessed. The returned cookies are ordered by
   // longest path, then by earliest creation date.
   virtual void GetAllCookiesAsync(GetCookieListCallback callback) = 0;
-
-  // Deletes all cookies that might apply to |url| that have |cookie_name|.
-  virtual void DeleteCookieAsync(const GURL& url,
-                                 const std::string& cookie_name,
-                                 base::OnceClosure callback) = 0;
 
   // Deletes one specific cookie. |cookie| must have been returned by a previous
   // query on this CookieStore. Invokes |callback| with 1 if a cookie was
@@ -137,20 +137,17 @@ class NET_EXPORT CookieStore {
   // The interface used to observe changes to this CookieStore's contents.
   virtual CookieChangeDispatcher& GetChangeDispatcher() = 0;
 
-  // Returns true if this cookie store is ephemeral, and false if it is backed
-  // by some sort of persistence layer.
-  // TODO(nharper): Remove this method once crbug.com/548423 has been closed.
-  virtual bool IsEphemeral() = 0;
-  void SetChannelIDServiceID(int id);
-  int GetChannelIDServiceID();
+  // Resets the list of cookieable schemes to the supplied schemes. Does nothing
+  // (and returns false) if called after first use of the instance (i.e. after
+  // the instance initialization process). Otherwise, this returns true to
+  // indicate success. CookieStores which do not support modifying cookieable
+  // schemes will always return false.
+  virtual void SetCookieableSchemes(const std::vector<std::string>& schemes,
+                                    SetCookieableSchemesCallback callback) = 0;
 
   // Reports the estimate of dynamically allocated memory in bytes.
   virtual void DumpMemoryStats(base::trace_event::ProcessMemoryDump* pmd,
                                const std::string& parent_absolute_name) const;
-
- protected:
-  CookieStore();
-  int channel_id_service_id_;
 };
 
 }  // namespace net

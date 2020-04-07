@@ -49,10 +49,11 @@ std::unique_ptr<Label> CreateLabelRange(
 
     result.reset(link);
   } else if (style_info.custom_font) {
-    result.reset(new Label(text, {style_info.custom_font.value()}));
+    result = std::make_unique<Label>(
+        text, Label::CustomFont{style_info.custom_font.value()});
   } else {
-    result.reset(new Label(text, text_context,
-                           style_info.text_style.value_or(default_style)));
+    result = std::make_unique<Label>(
+        text, text_context, style_info.text_style.value_or(default_style));
   }
   if (style_info.override_color != SK_ColorTRANSPARENT)
     result->SetEnabledColor(style_info.override_color);
@@ -91,7 +92,7 @@ StyledLabel::RangeStyleInfo::RangeStyleInfo() = default;
 StyledLabel::RangeStyleInfo::RangeStyleInfo(const RangeStyleInfo& copy) =
     default;
 
-StyledLabel::RangeStyleInfo::~RangeStyleInfo() {}
+StyledLabel::RangeStyleInfo::~RangeStyleInfo() = default;
 
 // static
 StyledLabel::RangeStyleInfo StyledLabel::RangeStyleInfo::CreateForLink() {
@@ -115,9 +116,6 @@ bool StyledLabel::StyleRange::operator<(
 
 // StyledLabel ----------------------------------------------------------------
 
-// static
-const char StyledLabel::kViewClassName[] = "StyledLabel";
-
 StyledLabel::StyledLabel(const base::string16& text,
                          StyledLabelListener* listener)
     : specified_line_height_(0),
@@ -130,13 +128,20 @@ StyledLabel::StyledLabel(const base::string16& text,
   base::TrimWhitespace(text, base::TRIM_TRAILING, &text_);
 }
 
-StyledLabel::~StyledLabel() {}
+StyledLabel::~StyledLabel() = default;
+
+const base::string16& StyledLabel::GetText() const {
+  return text_;
+}
 
 void StyledLabel::SetText(const base::string16& text) {
+  if (text_ == text)
+    return;
+
   text_ = text;
   style_ranges_.clear();
   RemoveAllChildViews(true);
-  PreferredSizeChanged();
+  OnPropertyChanged(&text_, kPropertyEffectsPreferredSizeChanged);
 }
 
 gfx::FontList StyledLabel::GetDefaultFontList() const {
@@ -162,12 +167,20 @@ void StyledLabel::AddCustomView(std::unique_ptr<View> custom_view) {
   custom_views_.insert(std::move(custom_view));
 }
 
+int StyledLabel::GetTextContext() const {
+  return text_context_;
+}
+
 void StyledLabel::SetTextContext(int text_context) {
   if (text_context_ == text_context)
     return;
 
   text_context_ = text_context;
-  PreferredSizeChanged();
+  OnPropertyChanged(&text_context_, kPropertyEffectsPreferredSizeChanged);
+}
+
+int StyledLabel::GetDefaultTextStyle() const {
+  return default_text_style_;
 }
 
 void StyledLabel::SetDefaultTextStyle(int text_style) {
@@ -175,12 +188,24 @@ void StyledLabel::SetDefaultTextStyle(int text_style) {
     return;
 
   default_text_style_ = text_style;
-  PreferredSizeChanged();
+  OnPropertyChanged(&default_text_style_, kPropertyEffectsPreferredSizeChanged);
+}
+
+int StyledLabel::GetLineHeight() const {
+  return specified_line_height_;
 }
 
 void StyledLabel::SetLineHeight(int line_height) {
+  if (specified_line_height_ == line_height)
+    return;
+
   specified_line_height_ = line_height;
-  PreferredSizeChanged();
+  OnPropertyChanged(&specified_line_height_,
+                    kPropertyEffectsPreferredSizeChanged);
+}
+
+SkColor StyledLabel::GetDisplayedOnBackgroundColor() const {
+  return displayed_on_background_color_;
 }
 
 void StyledLabel::SetDisplayedOnBackgroundColor(SkColor color) {
@@ -191,11 +216,24 @@ void StyledLabel::SetDisplayedOnBackgroundColor(SkColor color) {
   displayed_on_background_color_ = color;
   displayed_on_background_color_set_ = true;
 
-  for (int i = 0, count = child_count(); i < count; ++i) {
-    DCHECK((child_at(i)->GetClassName() == Label::kViewClassName) ||
-           (child_at(i)->GetClassName() == Link::kViewClassName));
-    static_cast<Label*>(child_at(i))->SetBackgroundColor(color);
+  for (View* child : children()) {
+    DCHECK((child->GetClassName() == Label::kViewClassName) ||
+           (child->GetClassName() == Link::kViewClassName));
+    static_cast<Label*>(child)->SetBackgroundColor(color);
   }
+  OnPropertyChanged(&displayed_on_background_color_, kPropertyEffectsNone);
+}
+
+bool StyledLabel::GetAutoColorReadabilityEnabled() const {
+  return auto_color_readability_enabled_;
+}
+
+void StyledLabel::SetAutoColorReadabilityEnabled(bool auto_color_readability) {
+  if (auto_color_readability_enabled_ == auto_color_readability)
+    return;
+
+  auto_color_readability_enabled_ = auto_color_readability;
+  OnPropertyChanged(&auto_color_readability, kPropertyEffectsNone);
 }
 
 void StyledLabel::SizeToFit(int max_width) {
@@ -205,17 +243,13 @@ void StyledLabel::SizeToFit(int max_width) {
   SetSize(CalculateAndDoLayout(max_width, true));
 }
 
-const char* StyledLabel::GetClassName() const {
-  return kViewClassName;
-}
-
 void StyledLabel::GetAccessibleNodeData(ui::AXNodeData* node_data) {
   if (text_context_ == style::CONTEXT_DIALOG_TITLE)
     node_data->role = ax::mojom::Role::kTitleBar;
   else
     node_data->role = ax::mojom::Role::kStaticText;
 
-  node_data->SetName(text());
+  node_data->SetName(GetText());
 }
 
 gfx::Size StyledLabel::CalculatePreferredSize() const {
@@ -526,5 +560,15 @@ void StyledLabel::AdvanceOneLine(int* line_number,
   }
   offset->set_x(0);
 }
+
+BEGIN_METADATA(StyledLabel)
+ADD_PROPERTY_METADATA(StyledLabel, base::string16, Text)
+ADD_PROPERTY_METADATA(StyledLabel, int, TextContext)
+ADD_PROPERTY_METADATA(StyledLabel, int, DefaultTextStyle)
+ADD_PROPERTY_METADATA(StyledLabel, int, LineHeight)
+ADD_PROPERTY_METADATA(StyledLabel, bool, AutoColorReadabilityEnabled)
+ADD_PROPERTY_METADATA(StyledLabel, SkColor, DisplayedOnBackgroundColor)
+METADATA_PARENT_CLASS(View)
+END_METADATA()
 
 }  // namespace views

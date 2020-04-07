@@ -53,7 +53,7 @@ private Q_SLOTS:
         const auto objectMode = qEnvironmentVariable("ObjectMode");
 
         qDebug() << "Starting test" << objectMode;
-        if (objectMode == QLatin1Literal("ObjectPointer")) {
+        if (objectMode == QLatin1String("ObjectPointer")) {
             QSignalSpy tracksSpy(m_rep->tracks(), &QAbstractItemModelReplica::initialized);
             QVERIFY(m_rep->subClass() != nullptr);
             QCOMPARE(m_rep->subClass()->myPOD(), initialValue);

@@ -17,7 +17,6 @@
 #include <vector>
 
 #include "base/base_export.h"
-#include "base/bit_cast.h"
 #include "base/compiler_specific.h"
 #include "base/stl_util.h"
 #include "base/strings/string16.h"
@@ -41,14 +40,9 @@ int vsnprintf(char* buffer, size_t size, const char* format, va_list arguments)
 
 // We separate the declaration from the implementation of this inline
 // function just so the PRINTF_FORMAT works.
-inline int snprintf(char* buffer,
-                    size_t size,
-                    _Printf_format_string_ const char* format,
-                    ...) PRINTF_FORMAT(3, 4);
-inline int snprintf(char* buffer,
-                    size_t size,
-                    _Printf_format_string_ const char* format,
-                    ...) {
+inline int snprintf(char* buffer, size_t size, const char* format, ...)
+    PRINTF_FORMAT(3, 4);
+inline int snprintf(char* buffer, size_t size, const char* format, ...) {
   va_list arguments;
   va_start(arguments, format);
   int result = vsnprintf(buffer, size, format, arguments);
@@ -234,28 +228,45 @@ BASE_EXPORT void TruncateUTF8ToByteSize(const std::string& input,
 #if defined(WCHAR_T_IS_UTF16)
 // Utility functions to access the underlying string buffer as a wide char
 // pointer.
-inline wchar_t* wdata(char16* str) {
-  return bit_cast<wchar_t*>(str);
+//
+// Note: These functions violate strict aliasing when char16 and wchar_t are
+// unrelated types. We thus pass -fno-strict-aliasing to the compiler on
+// non-Windows platforms [1], and rely on it being off in Clang's CL mode [2].
+//
+// [1] https://crrev.com/b9a0976622/build/config/compiler/BUILD.gn#244
+// [2]
+// https://github.com/llvm/llvm-project/blob/1e28a66/clang/lib/Driver/ToolChains/Clang.cpp#L3949
+inline wchar_t* as_writable_wcstr(char16* str) {
+  return reinterpret_cast<wchar_t*>(str);
 }
 
-inline wchar_t* wdata(string16& str) {
-  return bit_cast<wchar_t*>(data(str));
+inline wchar_t* as_writable_wcstr(string16& str) {
+  return reinterpret_cast<wchar_t*>(data(str));
 }
 
-inline const wchar_t* wdata(StringPiece16 str) {
-  return bit_cast<const wchar_t*>(str.data());
+inline const wchar_t* as_wcstr(const char16* str) {
+  return reinterpret_cast<const wchar_t*>(str);
 }
 
-// In case wchar_t is UTF-16 StringPiece16 and WStringPiece can be effieciently
-// converted into each other.
-// Note: These functions will only become useful once base::char16 is char16_t
-// on all platforms: https://crbug.com/911896
-inline StringPiece16 CastToStringPiece16(WStringPiece wide) {
-  return StringPiece16(bit_cast<const char16*>(wide.data()), wide.size());
+inline const wchar_t* as_wcstr(StringPiece16 str) {
+  return reinterpret_cast<const wchar_t*>(str.data());
 }
 
-inline WStringPiece CastToWStringPiece(StringPiece16 utf16) {
-  return WStringPiece(wdata(utf16), utf16.size());
+// Utility functions to access the underlying string buffer as a char16 pointer.
+inline char16* as_writable_u16cstr(wchar_t* str) {
+  return reinterpret_cast<char16*>(str);
+}
+
+inline char16* as_writable_u16cstr(std::wstring& str) {
+  return reinterpret_cast<char16*>(data(str));
+}
+
+inline const char16* as_u16cstr(const wchar_t* str) {
+  return reinterpret_cast<const char16*>(str);
+}
+
+inline const char16* as_u16cstr(WStringPiece str) {
+  return reinterpret_cast<const char16*>(str.data());
 }
 #endif  // defined(WCHAR_T_IS_UTF16)
 
@@ -361,7 +372,7 @@ BASE_EXPORT bool EndsWith(StringPiece16 str,
 // library versions will change based on locale).
 template <typename Char>
 inline bool IsAsciiWhitespace(Char c) {
-  return c == ' ' || c == '\r' || c == '\n' || c == '\t';
+  return c == ' ' || c == '\r' || c == '\n' || c == '\t' || c == '\f';
 }
 template <typename Char>
 inline bool IsAsciiAlpha(Char c) {
@@ -378,6 +389,10 @@ inline bool IsAsciiLower(Char c) {
 template <typename Char>
 inline bool IsAsciiDigit(Char c) {
   return c >= '0' && c <= '9';
+}
+template <typename Char>
+inline bool IsAsciiPrintable(Char c) {
+  return c >= ' ' && c <= '~';
 }
 
 template <typename Char>

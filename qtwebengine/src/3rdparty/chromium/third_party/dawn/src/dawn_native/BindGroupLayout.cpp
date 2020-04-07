@@ -30,8 +30,8 @@ namespace dawn_native {
         }
 
         std::bitset<kMaxBindingsPerGroup> bindingsSet;
-        for (uint32_t i = 0; i < descriptor->numBindings; ++i) {
-            auto& binding = descriptor->bindings[i];
+        for (uint32_t i = 0; i < descriptor->bindingCount; ++i) {
+            const BindGroupLayoutBinding& binding = descriptor->bindings[i];
             DAWN_TRY(ValidateShaderStageBit(binding.visibility));
             DAWN_TRY(ValidateBindingType(binding.type));
 
@@ -41,6 +41,28 @@ namespace dawn_native {
             if (bindingsSet[binding.binding]) {
                 return DAWN_VALIDATION_ERROR("some binding index was specified more than once");
             }
+
+            switch (binding.type) {
+                case dawn::BindingType::UniformBuffer:
+                case dawn::BindingType::StorageBuffer:
+                    break;
+                case dawn::BindingType::SampledTexture:
+                case dawn::BindingType::Sampler:
+                    if (binding.dynamic) {
+                        return DAWN_VALIDATION_ERROR("Samplers and textures cannot be dynamic");
+                    }
+                    break;
+                case dawn::BindingType::ReadonlyStorageBuffer:
+                    return DAWN_VALIDATION_ERROR("readonly storage buffers aren't supported (yet)");
+                case dawn::BindingType::StorageTexture:
+                    return DAWN_VALIDATION_ERROR("storage textures aren't supported (yet)");
+            }
+
+            if (binding.multisampled) {
+                return DAWN_VALIDATION_ERROR(
+                    "BindGroupLayoutBinding::multisampled must be false (for now)");
+            }
+
             bindingsSet.set(binding.binding);
         }
         return {};
@@ -49,6 +71,7 @@ namespace dawn_native {
     namespace {
         size_t HashBindingInfo(const BindGroupLayoutBase::LayoutBindingInfo& info) {
             size_t hash = Hash(info.mask);
+            HashCombine(&hash, info.dynamic, info.multisampled);
 
             for (uint32_t binding : IterateBitSet(info.mask)) {
                 HashCombine(&hash, info.visibilities[binding], info.types[binding]);
@@ -59,7 +82,7 @@ namespace dawn_native {
 
         bool operator==(const BindGroupLayoutBase::LayoutBindingInfo& a,
                         const BindGroupLayoutBase::LayoutBindingInfo& b) {
-            if (a.mask != b.mask) {
+            if (a.mask != b.mask || a.dynamic != b.dynamic || a.multisampled != b.multisampled) {
                 return false;
             }
 
@@ -80,38 +103,57 @@ namespace dawn_native {
                                              const BindGroupLayoutDescriptor* descriptor,
                                              bool blueprint)
         : ObjectBase(device), mIsBlueprint(blueprint) {
-        for (uint32_t i = 0; i < descriptor->numBindings; ++i) {
+        for (uint32_t i = 0; i < descriptor->bindingCount; ++i) {
             auto& binding = descriptor->bindings[i];
 
             uint32_t index = binding.binding;
             mBindingInfo.visibilities[index] = binding.visibility;
             mBindingInfo.types[index] = binding.type;
 
+            if (binding.dynamic) {
+                mBindingInfo.dynamic.set(index);
+                mDynamicBufferCount++;
+            }
+
+            mBindingInfo.multisampled.set(index, binding.multisampled);
+
             ASSERT(!mBindingInfo.mask[index]);
             mBindingInfo.mask.set(index);
         }
     }
 
+    BindGroupLayoutBase::BindGroupLayoutBase(DeviceBase* device, ObjectBase::ErrorTag tag)
+        : ObjectBase(device, tag), mIsBlueprint(true) {
+    }
+
     BindGroupLayoutBase::~BindGroupLayoutBase() {
         // Do not uncache the actual cached object if we are a blueprint
-        if (!mIsBlueprint) {
+        if (!mIsBlueprint && !IsError()) {
             GetDevice()->UncacheBindGroupLayout(this);
         }
     }
 
+    // static
+    BindGroupLayoutBase* BindGroupLayoutBase::MakeError(DeviceBase* device) {
+        return new BindGroupLayoutBase(device, ObjectBase::kError);
+    }
+
     const BindGroupLayoutBase::LayoutBindingInfo& BindGroupLayoutBase::GetBindingInfo() const {
+        ASSERT(!IsError());
         return mBindingInfo;
     }
 
-    // BindGroupLayoutCacheFuncs
-
-    size_t BindGroupLayoutCacheFuncs::operator()(const BindGroupLayoutBase* bgl) const {
-        return HashBindingInfo(bgl->GetBindingInfo());
+    size_t BindGroupLayoutBase::HashFunc::operator()(const BindGroupLayoutBase* bgl) const {
+        return HashBindingInfo(bgl->mBindingInfo);
     }
 
-    bool BindGroupLayoutCacheFuncs::operator()(const BindGroupLayoutBase* a,
-                                               const BindGroupLayoutBase* b) const {
-        return a->GetBindingInfo() == b->GetBindingInfo();
+    bool BindGroupLayoutBase::EqualityFunc::operator()(const BindGroupLayoutBase* a,
+                                                       const BindGroupLayoutBase* b) const {
+        return a->mBindingInfo == b->mBindingInfo;
+    }
+
+    uint32_t BindGroupLayoutBase::GetDynamicBufferCount() const {
+        return mDynamicBufferCount;
     }
 
 }  // namespace dawn_native

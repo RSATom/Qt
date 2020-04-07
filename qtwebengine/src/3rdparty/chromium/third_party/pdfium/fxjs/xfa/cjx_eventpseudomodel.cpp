@@ -23,11 +23,10 @@ void StringProperty(CFXJSE_Value* pReturn, WideString* wsValue, bool bSetting) {
     *wsValue = pReturn->ToWideString();
     return;
   }
-
   pReturn->SetString(wsValue->ToUTF8().AsStringView());
 }
 
-void InterProperty(CFXJSE_Value* pReturn, int32_t* iValue, bool bSetting) {
+void IntegerProperty(CFXJSE_Value* pReturn, int32_t* iValue, bool bSetting) {
   if (bSetting) {
     *iValue = pReturn->ToInteger();
     return;
@@ -109,9 +108,6 @@ void CJX_EventPseudoModel::newText(CFXJSE_Value* pValue,
     return;
 
   CFXJSE_Engine* pScriptContext = GetDocument()->GetScriptContext();
-  if (!pScriptContext)
-    return;
-
   CXFA_EventParam* pEventParam = pScriptContext->GetEventParam();
   if (!pEventParam)
     return;
@@ -177,9 +173,6 @@ CJS_Result CJX_EventPseudoModel::emit(
     CFX_V8* runtime,
     const std::vector<v8::Local<v8::Value>>& params) {
   CFXJSE_Engine* pScriptContext = GetDocument()->GetScriptContext();
-  if (!pScriptContext)
-    return CJS_Result::Success();
-
   CXFA_EventParam* pEventParam = pScriptContext->GetEventParam();
   if (!pEventParam)
     return CJS_Result::Success();
@@ -200,9 +193,6 @@ CJS_Result CJX_EventPseudoModel::reset(
     CFX_V8* runtime,
     const std::vector<v8::Local<v8::Value>>& params) {
   CFXJSE_Engine* pScriptContext = GetDocument()->GetScriptContext();
-  if (!pScriptContext)
-    return CJS_Result::Success();
-
   CXFA_EventParam* pEventParam = pScriptContext->GetEventParam();
   if (pEventParam)
     *pEventParam = CXFA_EventParam();
@@ -221,9 +211,6 @@ void CJX_EventPseudoModel::Property(CFXJSE_Value* pValue,
   }
 
   CFXJSE_Engine* pScriptContext = GetDocument()->GetScriptContext();
-  if (!pScriptContext)
-    return;
-
   CXFA_EventParam* pEventParam = pScriptContext->GetEventParam();
   if (!pEventParam)
     return;
@@ -236,7 +223,7 @@ void CJX_EventPseudoModel::Property(CFXJSE_Value* pValue,
       StringProperty(pValue, &pEventParam->m_wsChange, bSetting);
       break;
     case XFA_Event::CommitKey:
-      InterProperty(pValue, &pEventParam->m_iCommitKey, bSetting);
+      IntegerProperty(pValue, &pEventParam->m_iCommitKey, bSetting);
       break;
     case XFA_Event::FullText:
       StringProperty(pValue, &pEventParam->m_wsFullText, bSetting);
@@ -263,7 +250,7 @@ void CJX_EventPseudoModel::Property(CFXJSE_Value* pValue,
       BooleanProperty(pValue, &pEventParam->m_bReenter, bSetting);
       break;
     case XFA_Event::SelectionEnd:
-      InterProperty(pValue, &pEventParam->m_iSelEnd, bSetting);
+      IntegerProperty(pValue, &pEventParam->m_iSelEnd, bSetting);
 
       pEventParam->m_iSelEnd = std::max(0, pEventParam->m_iSelEnd);
       pEventParam->m_iSelEnd =
@@ -271,18 +258,15 @@ void CJX_EventPseudoModel::Property(CFXJSE_Value* pValue,
                    pEventParam->m_wsPrevText.GetLength());
       pEventParam->m_iSelStart =
           std::min(pEventParam->m_iSelStart, pEventParam->m_iSelEnd);
-
       break;
     case XFA_Event::SelectionStart:
-      InterProperty(pValue, &pEventParam->m_iSelStart, bSetting);
-
+      IntegerProperty(pValue, &pEventParam->m_iSelStart, bSetting);
       pEventParam->m_iSelStart = std::max(0, pEventParam->m_iSelStart);
       pEventParam->m_iSelStart =
           std::min(static_cast<size_t>(pEventParam->m_iSelStart),
                    pEventParam->m_wsPrevText.GetLength());
       pEventParam->m_iSelEnd =
           std::max(pEventParam->m_iSelStart, pEventParam->m_iSelEnd);
-
       break;
     case XFA_Event::Shift:
       BooleanProperty(pValue, &pEventParam->m_bShift, bSetting);

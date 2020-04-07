@@ -243,22 +243,16 @@ struct WebMediaTrackConstraintSet {
   StringConstraint group_id;
   // https://w3c.github.io/mediacapture-depth/#mediatrackconstraints
   StringConstraint video_kind;
-  DoubleConstraint depth_near;
-  DoubleConstraint depth_far;
-  DoubleConstraint focal_length_x;
-  DoubleConstraint focal_length_y;
   // Constraints not exposed in Blink at the moment, only through
   // the legacy name interface.
   StringConstraint media_stream_source;  // tab, screen, desktop, system
   BooleanConstraint render_to_associated_sink;
-  BooleanConstraint hotword_enabled;
   BooleanConstraint goog_echo_cancellation;
   BooleanConstraint goog_experimental_echo_cancellation;
   BooleanConstraint goog_auto_gain_control;
   BooleanConstraint goog_experimental_auto_gain_control;
   BooleanConstraint goog_noise_suppression;
   BooleanConstraint goog_highpass_filter;
-  BooleanConstraint goog_typing_noise_detection;
   BooleanConstraint goog_experimental_noise_suppression;
   BooleanConstraint goog_audio_mirroring;
   BooleanConstraint goog_da_echo_cancellation;

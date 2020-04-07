@@ -8,10 +8,13 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#include <algorithm>
+#include "p2p/client/basic_port_allocator.h"
+
 #include <memory>
 #include <ostream>  // no-presubmit-check TODO(webrtc:8982)
 
+#include "absl/algorithm/container.h"
+#include "absl/memory/memory.h"
 #include "p2p/base/basic_packet_socket_factory.h"
 #include "p2p/base/p2p_constants.h"
 #include "p2p/base/stun_port.h"
@@ -20,8 +23,8 @@
 #include "p2p/base/test_relay_server.h"
 #include "p2p/base/test_stun_server.h"
 #include "p2p/base/test_turn_server.h"
-#include "p2p/client/basic_port_allocator.h"
 #include "rtc_base/fake_clock.h"
+#include "rtc_base/fake_mdns_responder.h"
 #include "rtc_base/fake_network.h"
 #include "rtc_base/firewall_socket_server.h"
 #include "rtc_base/gunit.h"
@@ -41,10 +44,13 @@
 #include "rtc_base/thread.h"
 #include "rtc_base/virtual_socket_server.h"
 #include "system_wrappers/include/metrics.h"
+#include "test/gmock.h"
 #include "test/gtest.h"
 
 using rtc::IPAddress;
 using rtc::SocketAddress;
+using ::testing::Contains;
+using ::testing::Not;
 
 #define MAYBE_SKIP_IPV4                        \
   if (!rtc::HasIPv4Enabled()) {                \
@@ -142,7 +148,7 @@ std::ostream& operator<<(std::ostream& os,
   return os;
 }
 
-class BasicPortAllocatorTestBase : public testing::Test,
+class BasicPortAllocatorTestBase : public ::testing::Test,
                                    public sigslot::has_slots<> {
  public:
   BasicPortAllocatorTestBase()
@@ -310,9 +316,8 @@ class BasicPortAllocatorTestBase : public testing::Test,
                         const std::string& type,
                         ProtocolType protocol,
                         const SocketAddress& client_addr) {
-    return std::count_if(
-        ports.begin(), ports.end(),
-        [type, protocol, client_addr](PortInterface* port) {
+    return absl::c_count_if(
+        ports, [type, protocol, client_addr](PortInterface* port) {
           return port->Type() == type && port->GetProtocol() == protocol &&
                  port->Network()->GetBestIP() == client_addr.ipaddr();
         });
@@ -322,11 +327,11 @@ class BasicPortAllocatorTestBase : public testing::Test,
                              const std::string& type,
                              const std::string& proto,
                              const SocketAddress& addr) {
-    return std::count_if(candidates.begin(), candidates.end(),
-                         [type, proto, addr](const Candidate& c) {
-                           return c.type() == type && c.protocol() == proto &&
-                                  AddressMatch(c.address(), addr);
-                         });
+    return absl::c_count_if(
+        candidates, [type, proto, addr](const Candidate& c) {
+          return c.type() == type && c.protocol() == proto &&
+                 AddressMatch(c.address(), addr);
+        });
   }
 
   // Find a candidate and return it.
@@ -335,11 +340,11 @@ class BasicPortAllocatorTestBase : public testing::Test,
                             const std::string& proto,
                             const SocketAddress& addr,
                             Candidate* found) {
-    auto it = std::find_if(candidates.begin(), candidates.end(),
-                           [type, proto, addr](const Candidate& c) {
-                             return c.type() == type && c.protocol() == proto &&
-                                    AddressMatch(c.address(), addr);
-                           });
+    auto it =
+        absl::c_find_if(candidates, [type, proto, addr](const Candidate& c) {
+          return c.type() == type && c.protocol() == proto &&
+                 AddressMatch(c.address(), addr);
+        });
     if (it != candidates.end() && found) {
       *found = *it;
     }
@@ -361,14 +366,12 @@ class BasicPortAllocatorTestBase : public testing::Test,
       const std::string& proto,
       const SocketAddress& addr,
       const SocketAddress& related_addr) {
-    auto it =
-        std::find_if(candidates.begin(), candidates.end(),
-                     [type, proto, addr, related_addr](const Candidate& c) {
-                       return c.type() == type && c.protocol() == proto &&
-                              AddressMatch(c.address(), addr) &&
-                              AddressMatch(c.related_address(), related_addr);
-                     });
-    return it != candidates.end();
+    return absl::c_any_of(
+        candidates, [type, proto, addr, related_addr](const Candidate& c) {
+          return c.type() == type && c.protocol() == proto &&
+                 AddressMatch(c.address(), addr) &&
+                 AddressMatch(c.related_address(), related_addr);
+        });
   }
 
   static bool CheckPort(const rtc::SocketAddress& addr,
@@ -414,8 +417,7 @@ class BasicPortAllocatorTestBase : public testing::Test,
     ports_.push_back(port);
     // Make sure the new port is added to ReadyPorts.
     auto ready_ports = ses->ReadyPorts();
-    EXPECT_NE(ready_ports.end(),
-              std::find(ready_ports.begin(), ready_ports.end(), port));
+    EXPECT_THAT(ready_ports, Contains(port));
   }
   void OnPortsPruned(PortAllocatorSession* ses,
                      const std::vector<PortInterface*>& pruned_ports) {
@@ -425,8 +427,7 @@ class BasicPortAllocatorTestBase : public testing::Test,
     for (PortInterface* port : pruned_ports) {
       new_end = std::remove(ports_.begin(), new_end, port);
       // Make sure the pruned port is not in ReadyPorts.
-      EXPECT_EQ(ready_ports.end(),
-                std::find(ready_ports.begin(), ready_ports.end(), port));
+      EXPECT_THAT(ready_ports, Not(Contains(port)));
     }
     ports_.erase(new_end, ports_.end());
   }
@@ -442,9 +443,7 @@ class BasicPortAllocatorTestBase : public testing::Test,
     // Make sure the new candidates are added to Candidates.
     auto ses_candidates = ses->ReadyCandidates();
     for (const Candidate& candidate : candidates) {
-      EXPECT_NE(
-          ses_candidates.end(),
-          std::find(ses_candidates.begin(), ses_candidates.end(), candidate));
+      EXPECT_THAT(ses_candidates, Contains(candidate));
     }
   }
 
@@ -764,7 +763,7 @@ TEST_F(BasicPortAllocatorTest, TestIgnoreOnlyLoopbackNetworkByDefault) {
   EXPECT_TRUE_SIMULATED_WAIT(candidate_allocation_done_,
                              kDefaultAllocationTimeout, fake_clock);
   EXPECT_EQ(4U, candidates_.size());
-  for (Candidate candidate : candidates_) {
+  for (const Candidate& candidate : candidates_) {
     EXPECT_LT(candidate.address().ip(), 0x12345604U);
   }
 }
@@ -1270,7 +1269,7 @@ TEST_F(BasicPortAllocatorTest, TestGetAllPortsNoAdapters) {
 TEST_F(BasicPortAllocatorTest,
        TestDisableAdapterEnumerationWithoutNatRelayTransportOnly) {
   ResetWithStunServerNoNat(kStunAddr);
-  allocator().set_candidate_filter(CF_RELAY);
+  allocator().SetCandidateFilter(CF_RELAY);
   // Expect to see no ports and no candidates.
   CheckDisableAdapterEnumeration(0U, rtc::IPAddress(), rtc::IPAddress(),
                                  rtc::IPAddress(), rtc::IPAddress());
@@ -1531,7 +1530,7 @@ TEST_F(BasicPortAllocatorTest, TestSessionUsesOwnCandidateFilter) {
   AddInterface(kClientAddr);
   ASSERT_TRUE(CreateSession(ICE_CANDIDATE_COMPONENT_RTP));
   // Set candidate filter *after* creating the session. Should have no effect.
-  allocator().set_candidate_filter(CF_RELAY);
+  allocator().SetCandidateFilter(CF_RELAY);
   session_->StartGettingPorts();
   // 7 candidates and 4 ports is what we would normally get (see the
   // TestGetAllPorts* tests).
@@ -1550,7 +1549,7 @@ TEST_F(BasicPortAllocatorTest, TestCandidateFilterWithRelayOnly) {
   AddInterface(kClientAddr);
   // GTURN is not configured here.
   ResetWithTurnServersNoNat(kTurnUdpIntAddr, rtc::SocketAddress());
-  allocator().set_candidate_filter(CF_RELAY);
+  allocator().SetCandidateFilter(CF_RELAY);
   ASSERT_TRUE(CreateSession(ICE_CANDIDATE_COMPONENT_RTP));
   session_->StartGettingPorts();
   EXPECT_TRUE_SIMULATED_WAIT(candidate_allocation_done_,
@@ -1569,7 +1568,7 @@ TEST_F(BasicPortAllocatorTest, TestCandidateFilterWithRelayOnly) {
 TEST_F(BasicPortAllocatorTest, TestCandidateFilterWithHostOnly) {
   AddInterface(kClientAddr);
   allocator().set_flags(PORTALLOCATOR_ENABLE_SHARED_SOCKET);
-  allocator().set_candidate_filter(CF_HOST);
+  allocator().SetCandidateFilter(CF_HOST);
   ASSERT_TRUE(CreateSession(ICE_CANDIDATE_COMPONENT_RTP));
   session_->StartGettingPorts();
   EXPECT_TRUE_SIMULATED_WAIT(candidate_allocation_done_,
@@ -1587,7 +1586,7 @@ TEST_F(BasicPortAllocatorTest, TestCandidateFilterWithReflexiveOnly) {
   ResetWithStunServerAndNat(kStunAddr);
 
   allocator().set_flags(PORTALLOCATOR_ENABLE_SHARED_SOCKET);
-  allocator().set_candidate_filter(CF_REFLEXIVE);
+  allocator().SetCandidateFilter(CF_REFLEXIVE);
   ASSERT_TRUE(CreateSession(ICE_CANDIDATE_COMPONENT_RTP));
   session_->StartGettingPorts();
   EXPECT_TRUE_SIMULATED_WAIT(candidate_allocation_done_,
@@ -1606,7 +1605,7 @@ TEST_F(BasicPortAllocatorTest, TestCandidateFilterWithReflexiveOnly) {
 TEST_F(BasicPortAllocatorTest, TestCandidateFilterWithReflexiveOnlyAndNoNAT) {
   AddInterface(kClientAddr);
   allocator().set_flags(PORTALLOCATOR_ENABLE_SHARED_SOCKET);
-  allocator().set_candidate_filter(CF_REFLEXIVE);
+  allocator().SetCandidateFilter(CF_REFLEXIVE);
   ASSERT_TRUE(CreateSession(ICE_CANDIDATE_COMPONENT_RTP));
   session_->StartGettingPorts();
   EXPECT_TRUE_SIMULATED_WAIT(candidate_allocation_done_,
@@ -2137,7 +2136,7 @@ TEST_F(BasicPortAllocatorTest, TestSetCandidateFilterAfterCandidatesGathered) {
                            kDefaultAllocationTimeout, fake_clock);
   size_t initial_candidates_size = peeked_session->ReadyCandidates().size();
   size_t initial_ports_size = peeked_session->ReadyPorts().size();
-  allocator_->set_candidate_filter(CF_RELAY);
+  allocator_->SetCandidateFilter(CF_RELAY);
   // Assume that when TakePooledSession is called, the candidate filter will be
   // applied to the pooled session. This is tested by PortAllocatorTest.
   session_ =
@@ -2159,6 +2158,145 @@ TEST_F(BasicPortAllocatorTest, TestSetCandidateFilterAfterCandidatesGathered) {
     EXPECT_EQ(candidate.related_address(),
               rtc::EmptySocketAddressWithFamily(candidate.address().family()));
   }
+}
+
+// Test that candidates that do not match a previous candidate filter can be
+// surfaced if they match the new one after setting the filter value.
+TEST_F(BasicPortAllocatorTest,
+       SurfaceNewCandidatesAfterSetCandidateFilterToAddCandidateTypes) {
+  // We would still surface a host candidate if the IP is public, even though it
+  // is disabled by the candidate filter. See
+  // BasicPortAllocatorSession::CheckCandidateFilter. Use the private address so
+  // that the srflx candidate is not equivalent to the host candidate.
+  AddInterface(kPrivateAddr);
+  ResetWithStunServerAndNat(kStunAddr);
+
+  AddTurnServers(kTurnUdpIntAddr, rtc::SocketAddress());
+
+  allocator_->set_flags(allocator().flags() |
+                        PORTALLOCATOR_ENABLE_SHARED_SOCKET |
+                        PORTALLOCATOR_DISABLE_TCP);
+
+  allocator_->SetCandidateFilter(CF_NONE);
+  ASSERT_TRUE(CreateSession(ICE_CANDIDATE_COMPONENT_RTP));
+  session_->StartGettingPorts();
+  EXPECT_TRUE_SIMULATED_WAIT(candidate_allocation_done_,
+                             kDefaultAllocationTimeout, fake_clock);
+  EXPECT_TRUE(candidates_.empty());
+  EXPECT_TRUE(ports_.empty());
+
+  // Surface the relay candidate previously gathered but not signaled.
+  session_->SetCandidateFilter(CF_RELAY);
+  ASSERT_EQ_SIMULATED_WAIT(1u, candidates_.size(), kDefaultAllocationTimeout,
+                           fake_clock);
+  EXPECT_EQ(RELAY_PORT_TYPE, candidates_.back().type());
+  EXPECT_EQ(1u, ports_.size());
+
+  // Surface the srflx candidate previously gathered but not signaled.
+  session_->SetCandidateFilter(CF_RELAY | CF_REFLEXIVE);
+  ASSERT_EQ_SIMULATED_WAIT(2u, candidates_.size(), kDefaultAllocationTimeout,
+                           fake_clock);
+  EXPECT_EQ(STUN_PORT_TYPE, candidates_.back().type());
+  EXPECT_EQ(2u, ports_.size());
+
+  // Surface the srflx candidate previously gathered but not signaled.
+  session_->SetCandidateFilter(CF_ALL);
+  ASSERT_EQ_SIMULATED_WAIT(3u, candidates_.size(), kDefaultAllocationTimeout,
+                           fake_clock);
+  EXPECT_EQ(LOCAL_PORT_TYPE, candidates_.back().type());
+  EXPECT_EQ(2u, ports_.size());
+}
+
+// This is a similar test as
+// SurfaceNewCandidatesAfterSetCandidateFilterToAddCandidateTypes, and we
+// test the transitions for which the new filter value is not a super set of the
+// previous value.
+TEST_F(
+    BasicPortAllocatorTest,
+    SurfaceNewCandidatesAfterSetCandidateFilterToAllowDifferentCandidateTypes) {
+  // We would still surface a host candidate if the IP is public, even though it
+  // is disabled by the candidate filter. See
+  // BasicPortAllocatorSession::CheckCandidateFilter. Use the private address so
+  // that the srflx candidate is not equivalent to the host candidate.
+  AddInterface(kPrivateAddr);
+  ResetWithStunServerAndNat(kStunAddr);
+
+  AddTurnServers(kTurnUdpIntAddr, rtc::SocketAddress());
+
+  allocator_->set_flags(allocator().flags() |
+                        PORTALLOCATOR_ENABLE_SHARED_SOCKET |
+                        PORTALLOCATOR_DISABLE_TCP);
+
+  allocator_->SetCandidateFilter(CF_NONE);
+  ASSERT_TRUE(CreateSession(ICE_CANDIDATE_COMPONENT_RTP));
+  session_->StartGettingPorts();
+  EXPECT_TRUE_SIMULATED_WAIT(candidate_allocation_done_,
+                             kDefaultAllocationTimeout, fake_clock);
+  EXPECT_TRUE(candidates_.empty());
+  EXPECT_TRUE(ports_.empty());
+
+  // Surface the relay candidate previously gathered but not signaled.
+  session_->SetCandidateFilter(CF_RELAY);
+  EXPECT_EQ_SIMULATED_WAIT(1u, candidates_.size(), kDefaultAllocationTimeout,
+                           fake_clock);
+  EXPECT_EQ(RELAY_PORT_TYPE, candidates_.back().type());
+  EXPECT_EQ(1u, ports_.size());
+
+  // Surface the srflx candidate previously gathered but not signaled.
+  session_->SetCandidateFilter(CF_REFLEXIVE);
+  EXPECT_EQ_SIMULATED_WAIT(2u, candidates_.size(), kDefaultAllocationTimeout,
+                           fake_clock);
+  EXPECT_EQ(STUN_PORT_TYPE, candidates_.back().type());
+  EXPECT_EQ(2u, ports_.size());
+
+  // Surface the host candidate previously gathered but not signaled.
+  session_->SetCandidateFilter(CF_HOST);
+  EXPECT_EQ_SIMULATED_WAIT(3u, candidates_.size(), kDefaultAllocationTimeout,
+                           fake_clock);
+  EXPECT_EQ(LOCAL_PORT_TYPE, candidates_.back().type());
+  // We use a shared socket and cricket::UDPPort handles the srflx candidate.
+  EXPECT_EQ(2u, ports_.size());
+}
+
+// Test that after an allocation session has stopped getting ports, changing the
+// candidate filter to allow new types of gathered candidates does not surface
+// any candidate.
+TEST_F(BasicPortAllocatorTest,
+       NoCandidateSurfacedWhenUpdatingCandidateFilterIfSessionStopped) {
+  AddInterface(kPrivateAddr);
+  ResetWithStunServerAndNat(kStunAddr);
+
+  AddTurnServers(kTurnUdpIntAddr, rtc::SocketAddress());
+
+  allocator_->set_flags(allocator().flags() |
+                        PORTALLOCATOR_ENABLE_SHARED_SOCKET |
+                        PORTALLOCATOR_DISABLE_TCP);
+
+  allocator_->SetCandidateFilter(CF_NONE);
+  ASSERT_TRUE(CreateSession(ICE_CANDIDATE_COMPONENT_RTP));
+  session_->StartGettingPorts();
+  EXPECT_TRUE_SIMULATED_WAIT(candidate_allocation_done_,
+                             kDefaultAllocationTimeout, fake_clock);
+  auto test_invariants = [this]() {
+    EXPECT_TRUE(candidates_.empty());
+    EXPECT_TRUE(ports_.empty());
+  };
+
+  test_invariants();
+
+  session_->StopGettingPorts();
+
+  session_->SetCandidateFilter(CF_RELAY);
+  SIMULATED_WAIT(false, kDefaultAllocationTimeout, fake_clock);
+  test_invariants();
+
+  session_->SetCandidateFilter(CF_RELAY | CF_REFLEXIVE);
+  SIMULATED_WAIT(false, kDefaultAllocationTimeout, fake_clock);
+  test_invariants();
+
+  session_->SetCandidateFilter(CF_ALL);
+  SIMULATED_WAIT(false, kDefaultAllocationTimeout, fake_clock);
+  test_invariants();
 }
 
 TEST_F(BasicPortAllocatorTest, SetStunKeepaliveIntervalForPorts) {
@@ -2260,7 +2398,8 @@ TEST_F(BasicPortAllocatorTest, HostCandidateAddressIsReplacedByHostname) {
   AddTurnServers(kTurnUdpIntIPv6Addr, kTurnTcpIntIPv6Addr);
 
   ASSERT_EQ(&network_manager_, allocator().network_manager());
-  network_manager_.CreateMdnsResponder(rtc::Thread::Current());
+  network_manager_.set_mdns_responder(
+      absl::make_unique<webrtc::FakeMdnsResponder>(rtc::Thread::Current()));
   AddInterface(kClientAddr);
   ASSERT_TRUE(CreateSession(ICE_CANDIDATE_COMPONENT_RTP));
   session_->StartGettingPorts();

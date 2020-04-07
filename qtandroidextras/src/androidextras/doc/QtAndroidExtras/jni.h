@@ -43,7 +43,10 @@
 #define JNI_H
 
 struct JNIEnv_;
+struct JavaVM_;
 typedef JNIEnv_ JNIEnv;
+typedef JavaVM_ JavaVM;
 typedef int jclass;
+typedef char jobject;
 
 #endif

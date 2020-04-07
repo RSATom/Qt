@@ -17,25 +17,26 @@
 #include "base/single_thread_task_runner.h"
 #include "base/synchronization/lock.h"
 #include "content/common/content_export.h"
-#include "content/public/renderer/media_stream_audio_sink.h"
-#include "content/renderer/media/stream/media_stream_audio_level_calculator.h"
 #include "content/renderer/media/stream/media_stream_audio_processor.h"
 #include "media/base/audio_parameters.h"
 #include "media/base/audio_push_fifo.h"
+#include "third_party/blink/public/platform/modules/mediastream/media_stream_audio_level_calculator.h"
+#include "third_party/blink/public/platform/modules/mediastream/web_media_stream_audio_sink.h"
 #include "third_party/webrtc/api/media_stream_interface.h"
 #include "third_party/webrtc/pc/media_stream_track.h"
 
 namespace content {
 
-// Provides an implementation of the MediaStreamAudioSink which re-chunks audio
-// data into the 10ms chunks required by WebRTC and then delivers the audio to
-// one or more objects implementing the webrtc::AudioTrackSinkInterface.
+// Provides an implementation of the blink::WebMediaStreamAudioSink which
+// re-chunks audio data into the 10ms chunks required by WebRTC and then
+// delivers the audio to one or more objects implementing the
+// webrtc::AudioTrackSinkInterface.
 //
 // The inner class, Adapter, implements the webrtc::AudioTrackInterface and
 // manages one or more "WebRTC sinks" (i.e., instances of
 // webrtc::AudioTrackSinkInterface) which are added/removed on the WebRTC
 // signaling thread.
-class CONTENT_EXPORT WebRtcAudioSink : public MediaStreamAudioSink {
+class CONTENT_EXPORT WebRtcAudioSink : public blink::WebMediaStreamAudioSink {
  public:
   WebRtcAudioSink(
       const std::string& label,
@@ -53,7 +54,8 @@ class CONTENT_EXPORT WebRtcAudioSink : public MediaStreamAudioSink {
   // level. This is passed via the Adapter to libjingle. This method may only
   // be called once, before the audio data flow starts, and before any calls to
   // Adapter::GetSignalLevel() might be made.
-  void SetLevel(scoped_refptr<MediaStreamAudioLevelCalculator::Level> level);
+  void SetLevel(
+      scoped_refptr<blink::MediaStreamAudioLevelCalculator::Level> level);
 
   // Set the processor that applies signal processing on the data from the
   // source. This is passed via the Adapter to libjingle. This method may only
@@ -87,7 +89,7 @@ class CONTENT_EXPORT WebRtcAudioSink : public MediaStreamAudioSink {
       audio_processor_ = std::move(processor);
     }
     void set_level(
-        scoped_refptr<MediaStreamAudioLevelCalculator::Level> level) {
+        scoped_refptr<blink::MediaStreamAudioLevelCalculator::Level> level) {
       level_ = std::move(level);
     }
 
@@ -134,7 +136,7 @@ class CONTENT_EXPORT WebRtcAudioSink : public MediaStreamAudioSink {
     // Thread-safe accessor to current audio signal level. This may be null, if
     // not applicable to the current use case. This must be set before calls to
     // GetSignalLevel() are made.
-    scoped_refptr<MediaStreamAudioLevelCalculator::Level> level_;
+    scoped_refptr<blink::MediaStreamAudioLevelCalculator::Level> level_;
 
     // Lock that protects concurrent access to the |sinks_| list.
     base::Lock lock_;
@@ -146,7 +148,7 @@ class CONTENT_EXPORT WebRtcAudioSink : public MediaStreamAudioSink {
     DISALLOW_COPY_AND_ASSIGN(Adapter);
   };
 
-  // MediaStreamAudioSink implementation.
+  // blink::WebMediaStreamAudioSink implementation.
   void OnData(const media::AudioBus& audio_bus,
               base::TimeTicks estimated_capture_time) override;
   void OnSetFormat(const media::AudioParameters& params) override;

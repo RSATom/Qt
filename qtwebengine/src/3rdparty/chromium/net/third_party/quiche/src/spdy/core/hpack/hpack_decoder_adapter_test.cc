@@ -12,9 +12,6 @@
 #include <utility>
 #include <vector>
 
-#include "base/logging.h"
-#include "testing/gmock/include/gmock/gmock.h"
-#include "testing/gtest/include/gtest/gtest.h"
 #include "net/third_party/quiche/src/http2/hpack/decoder/hpack_decoder_state.h"
 #include "net/third_party/quiche/src/http2/hpack/decoder/hpack_decoder_tables.h"
 #include "net/third_party/quiche/src/http2/hpack/tools/hpack_block_builder.h"
@@ -24,8 +21,10 @@
 #include "net/third_party/quiche/src/spdy/core/hpack/hpack_output_stream.h"
 #include "net/third_party/quiche/src/spdy/core/spdy_test_utils.h"
 #include "net/third_party/quiche/src/spdy/platform/api/spdy_arraysize.h"
+#include "net/third_party/quiche/src/spdy/platform/api/spdy_logging.h"
 #include "net/third_party/quiche/src/spdy/platform/api/spdy_string.h"
 #include "net/third_party/quiche/src/spdy/platform/api/spdy_string_utils.h"
+#include "net/third_party/quiche/src/spdy/platform/api/spdy_test.h"
 
 using ::http2::HpackEntryType;
 using ::http2::HpackString;
@@ -135,7 +134,7 @@ class HpackDecoderAdapterTest
   }
 
   bool HandleControlFrameHeadersData(SpdyStringPiece str) {
-    VLOG(3) << "HandleControlFrameHeadersData:\n" << SpdyHexDump(str);
+    SPDY_VLOG(3) << "HandleControlFrameHeadersData:\n" << SpdyHexDump(str);
     bytes_passed_in_ += str.size();
     return decoder_.HandleControlFrameHeadersData(str.data(), str.size());
   }
@@ -259,13 +258,13 @@ class HpackDecoderAdapterTest
   size_t bytes_passed_in_;
 };
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     NoHandler,
     HpackDecoderAdapterTest,
     ::testing::Combine(::testing::Values(START_WITHOUT_HANDLER, NO_START),
                        ::testing::Bool()));
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     WithHandler,
     HpackDecoderAdapterTest,
     ::testing::Combine(::testing::Values(START_WITH_HANDLER),
@@ -330,6 +329,33 @@ TEST_P(HpackDecoderAdapterTest, HeaderTooLongToBuffer) {
 
   HandleControlFrameHeadersStart();
   EXPECT_FALSE(HandleControlFrameHeadersData(fragment));
+}
+
+// Verify that a header block that exceeds the maximum length is rejected.
+TEST_P(HpackDecoderAdapterTest, HeaderBlockTooLong) {
+  const SpdyString name = "some-key";
+  const SpdyString value = "some-value";
+  const size_t kMaxBufferSizeBytes = 1024;
+
+  HpackBlockBuilder hbb;
+  hbb.AppendLiteralNameAndValue(HpackEntryType::kIndexedLiteralHeader, false,
+                                name, false, value);
+  while (hbb.size() < kMaxBufferSizeBytes) {
+    hbb.AppendLiteralNameAndValue(HpackEntryType::kIndexedLiteralHeader, false,
+                                  "", false, "");
+  }
+  // With no limit on the maximum header block size, the decoder handles the
+  // entire block successfully.
+  HandleControlFrameHeadersStart();
+  EXPECT_TRUE(HandleControlFrameHeadersData(hbb.buffer()));
+  size_t total_bytes;
+  EXPECT_TRUE(HandleControlFrameHeadersComplete(&total_bytes));
+
+  // When a total byte limit is imposed, the decoder bails before the end of the
+  // block.
+  decoder_.set_max_header_block_bytes(kMaxBufferSizeBytes);
+  HandleControlFrameHeadersStart();
+  EXPECT_FALSE(HandleControlFrameHeadersData(hbb.buffer()));
 }
 
 // Decode with incomplete data in buffer.

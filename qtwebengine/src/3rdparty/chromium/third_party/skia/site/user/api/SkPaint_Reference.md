@@ -219,7 +219,7 @@ Constructs <a href='SkPaint_Reference#Paint'>Paint</a> with default values.
 | <a href='#Path_Effect'>Path_Effect</a> | nullptr |
 | <a href='undocumented#Shader'>Shader</a> | nullptr |
 | <a href='#SkPaint_Style'>Style</a> | <a href='#SkPaint_kFill_Style'>kFill_Style</a> |
-| <a href='#Text_Encoding'>Text_Encoding</a> | <a href='undocumented#kUTF8_SkTextEncoding'>kUTF8_SkTextEncoding</a> |
+| <a href='#Text_Encoding'>Text_Encoding</a> | <a href='undocumented#SkTextEncoding::kUTF8'>SkTextEncoding::kUTF8</a> |
 | <a href='undocumented#Typeface'>Typeface</a> | nullptr |
 | <a href='#Paint_Stroke_Cap'>Stroke_Cap</a> | <a href='#SkPaint_kButt_Cap'>kButt_Cap</a> |
 | <a href='#Paint_Stroke_Join'>Stroke_Join</a> | <a href='#SkPaint_kMiter_Join'>kMiter_Join</a> |
@@ -610,33 +610,6 @@ SkFontHinting::kNormal == paint.getHinting()
 ~~~~
 
 </fiddle-embed></div>
-
-<a name='Flags'></a>
-
-<a name='SkPaint_Flags'></a>
-
----
-
-<pre style="padding: 1em 1em 1em 1em;width: 62.5em; background-color: #f0f0f0">
-    enum <a href='#SkPaint_Flags'>Flags</a> {
-        <a href='#SkPaint_kAntiAlias_Flag'>kAntiAlias_Flag</a> = 0x01,
-        <a href='#SkPaint_kDither_Flag'>kDither_Flag</a> = 0x04,
-        <a href='#SkPaint_kFakeBoldText_Flag'>kFakeBoldText_Flag</a> = 0x20,
-        <a href='#SkPaint_kLinearText_Flag'>kLinearText_Flag</a> = 0x40,
-        <a href='#SkPaint_kSubpixelText_Flag'>kSubpixelText_Flag</a> = 0x80,
-        <a href='#SkPaint_kLCDRenderText_Flag'>kLCDRenderText_Flag</a> = 0x200,
-        <a href='#SkPaint_kEmbeddedBitmapText_Flag'>kEmbeddedBitmapText_Flag</a> = 0x400,
-        <a href='#SkPaint_kAutoHinting_Flag'>kAutoHinting_Flag</a> = 0x800,
-        <a href='#SkPaint_kAllFlags'>kAllFlags</a> = 0xFFFF,
-    };
-
-</pre>
-
-The bit values stored in <a href='#SkPaint_Flags'>Flags</a>.
-The default value for <a href='#SkPaint_Flags'>Flags</a>, normally zero, can be changed at compile time
-with a custom definition of <a href='undocumented#SkPaintDefaults_Flags'>SkPaintDefaults_Flags</a>.
-All flags can be read and written explicitly; <a href='#SkPaint_Flags'>Flags</a> allows manipulating
-multiple settings at once.
 
 ### Constants
 
@@ -3579,8 +3552,8 @@ the <a href='undocumented#Text'>text</a> encoding
 #### Example Output
 
 ~~~~
-kUTF8_SkTextEncoding == text encoding
-kGlyphID_SkTextEncoding == text encoding
+SkTextEncoding::kUTF8 == text encoding
+SkTextEncoding::kGlyphID == text encoding
 ~~~~
 
 </fiddle-embed></div>
@@ -3707,7 +3680,7 @@ Does not check <a href='#SkPaint_textToGlyphs_text'>text</a> for valid character
 If <a href='#SkPaint_textToGlyphs_byteLength'>byteLength</a> equals zero, returns zero.
 If <a href='#SkPaint_textToGlyphs_byteLength'>byteLength</a> includes a partial character, the partial character is ignored.
 
-If <a href='undocumented#SkTextEncoding'>SkTextEncoding</a> is <a href='undocumented#kUTF8_SkTextEncoding'>kUTF8_SkTextEncoding</a> and
+If <a href='undocumented#SkTextEncoding'>SkTextEncoding</a> is <a href='undocumented#SkTextEncoding::kUTF8'>SkTextEncoding::kUTF8</a> and
 <a href='#SkPaint_textToGlyphs_text'>text</a> contains an invalid UTF-8 sequence, zero is returned.
 
 ### Parameters
@@ -3781,7 +3754,7 @@ Returns true if all <a href='#SkPaint_containsText_text'>text</a> corresponds to
 Returns false if any characters in <a href='#SkPaint_containsText_text'>text</a> are not supported in
 <a href='undocumented#SkTypeface'>SkTypeface</a>.
 
-If <a href='undocumented#SkTextEncoding'>SkTextEncoding</a> is <a href='undocumented#kGlyphID_SkTextEncoding'>kGlyphID_SkTextEncoding</a>,
+If <a href='undocumented#SkTextEncoding'>SkTextEncoding</a> is <a href='undocumented#SkTextEncoding::kGlyphID'>SkTextEncoding::kGlyphID</a>,
 returns true if all <a href='undocumented#Glyph'>glyph</a> indices in <a href='#SkPaint_containsText_text'>text</a> are non-zero;
 does not check to see if <a href='#SkPaint_containsText_text'>text</a> contains valid <a href='undocumented#Glyph'>glyph</a> indices for <a href='undocumented#SkTypeface'>SkTypeface</a>.
 
@@ -3843,7 +3816,7 @@ void <a href='#SkPaint_glyphsToUnichars'>glyphsToUnichars</a>(const <a href='und
 Converts <a href='#SkPaint_glyphsToUnichars_glyphs'>glyphs</a> into <a href='#SkPaint_glyphsToUnichars_text'>text</a> if possible.
 <a href='undocumented#Glyph'>Glyph</a> values without direct Unicode equivalents are mapped to zero.
 Uses the <a href='undocumented#SkTypeface'>SkTypeface</a>, but is unaffected
-by <a href='undocumented#SkTextEncoding'>SkTextEncoding</a>; the <a href='#SkPaint_glyphsToUnichars_text'>text</a> values returned are equivalent to <a href='undocumented#kUTF32_SkTextEncoding'>kUTF32_SkTextEncoding</a>.
+by <a href='undocumented#SkTextEncoding'>SkTextEncoding</a>; the <a href='#SkPaint_glyphsToUnichars_text'>text</a> values returned are equivalent to <a href='undocumented#SkTextEncoding::kUTF32'>SkTextEncoding::kUTF32</a>.
 
 Only supported on platforms that use FreeType as the  <a href='SkFont_Reference#Font_Engine'>font engine</a>.
 

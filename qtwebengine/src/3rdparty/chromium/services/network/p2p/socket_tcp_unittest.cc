@@ -276,7 +276,7 @@ TEST_F(P2PSocketTcpTest, PacketIdIsPropagated) {
 
   const int32_t kRtcPacketId = 1234;
 
-  base::TimeTicks now = base::TimeTicks::Now();
+  int64_t now = rtc::TimeMillis();
 
   EXPECT_CALL(*fake_client_.get(),
               SendComplete(MatchSendPacketMetrics(kRtcPacketId, now)))
@@ -515,7 +515,7 @@ TEST(P2PSocketTcpWithPseudoTlsTest, Basic) {
 class P2PSocketTcpWithTlsTest
     : public testing::TestWithParam<std::tuple<net::IoMode, P2PSocketType>> {};
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     /* no prefix */,
     P2PSocketTcpWithTlsTest,
     ::testing::Combine(::testing::Values(net::SYNCHRONOUS, net::ASYNC),

@@ -9,21 +9,33 @@
 #include <vector>
 
 #include "base/base64.h"
+#include "base/bind.h"
+#include "base/command_line.h"
 #include "base/test/scoped_feature_list.h"
 #include "cc/test/fake_output_surface_client.h"
 #include "cc/test/pixel_test_utils.h"
+#include "components/viz/common/display/renderer_settings.h"
 #include "components/viz/common/frame_sinks/copy_output_request.h"
 #include "components/viz/common/frame_sinks/copy_output_result.h"
+#include "components/viz/common/frame_sinks/copy_output_util.h"
+#include "components/viz/service/display_embedder/skia_output_surface_dependency_impl.h"
 #include "components/viz/service/gl/gpu_service_impl.h"
+#include "components/viz/test/test_gpu_service_holder.h"
 #include "gpu/command_buffer/service/scheduler.h"
+#include "gpu/command_buffer/service/service_utils.h"
 #include "gpu/ipc/gpu_in_process_thread_service.h"
-#include "gpu/ipc/service/gpu_watchdog_thread.h"
-#include "mojo/public/cpp/bindings/strong_binding.h"
+#include "gpu/vulkan/buildflags.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
-#include "ui/gl/init/gl_factory.h"
+
+#if BUILDFLAG(ENABLE_VULKAN)
+#include "gpu/vulkan/tests/native_window.h"
+#include "gpu/vulkan/vulkan_implementation.h"
+#endif
 
 namespace viz {
+
+const gfx::Rect kSurfaceRect(0, 0, 100, 100);
 
 static void ExpectEquals(SkBitmap actual, SkBitmap expected) {
   EXPECT_EQ(actual.dimensions(), expected.dimensions());
@@ -32,7 +44,7 @@ static void ExpectEquals(SkBitmap actual, SkBitmap expected) {
   EXPECT_TRUE(actual_url == expected_url);
 }
 
-class SkiaOutputSurfaceImplTest : public testing::Test {
+class SkiaOutputSurfaceImplTest : public testing::TestWithParam<bool> {
  public:
   void CheckSyncTokenOnGpuThread(const gpu::SyncToken& sync_token);
   void CopyRequestCallbackOnGpuThread(const SkColor output_color,
@@ -44,26 +56,25 @@ class SkiaOutputSurfaceImplTest : public testing::Test {
   SkiaOutputSurfaceImplTest()
       : output_surface_client_(std::make_unique<cc::FakeOutputSurfaceClient>()),
         wait_(base::WaitableEvent::ResetPolicy::AUTOMATIC,
-              base::WaitableEvent::InitialState::NOT_SIGNALED) {}
+              base::WaitableEvent::InitialState::NOT_SIGNALED),
+        on_screen_(GetParam()) {}
   inline void SetUp() override { SetUpSkiaOutputSurfaceImpl(); }
   void TearDown() override;
   void BlockMainThread();
   void UnblockMainThread();
 
-  std::unique_ptr<base::Thread> gpu_thread_;
-  std::unique_ptr<SkiaOutputSurfaceImpl> output_surface_;
-  std::unique_ptr<GpuServiceImpl> gpu_service_;
+  GpuServiceImpl* gpu_service() { return gpu_service_holder_->gpu_service(); }
+
+  TestGpuServiceHolder* gpu_service_holder_;
+  std::unique_ptr<SkiaOutputSurface> output_surface_;
 
  private:
   void SetUpSkiaOutputSurfaceImpl();
-  void TearDownGpuServiceOnGpuThread();
-  void SetUpGpuServiceOnGpuThread();
 
-  std::unique_ptr<base::Thread> io_thread_;
-  scoped_refptr<gpu::CommandBufferTaskExecutor> task_executor_;
   std::unique_ptr<cc::FakeOutputSurfaceClient> output_surface_client_;
   std::unique_ptr<base::test::ScopedFeatureList> scoped_feature_list_;
   base::WaitableEvent wait_;
+  const bool on_screen_;
 };
 
 void SkiaOutputSurfaceImplTest::BlockMainThread() {
@@ -75,93 +86,40 @@ void SkiaOutputSurfaceImplTest::UnblockMainThread() {
   wait_.Signal();
 }
 
-void SkiaOutputSurfaceImplTest::SetUpGpuServiceOnGpuThread() {
-  ASSERT_TRUE(gpu_thread_->task_runner()->BelongsToCurrentThread());
-  gpu_service_ = std::make_unique<GpuServiceImpl>(
-      gpu::GPUInfo(), nullptr /* watchdog_thread */, io_thread_->task_runner(),
-      gpu::GpuFeatureInfo(), gpu::GpuPreferences(),
-      gpu::GPUInfo() /* gpu_info_for_hardware_gpu */,
-      gpu::GpuFeatureInfo() /* gpu_feature_info_for_hardware_gpu */,
-      nullptr /* vulkan_implementation */,
-      base::DoNothing() /* exit_callback */);
-
-  // Uses a null gpu_host here, because we don't want to receive any message.
-  std::unique_ptr<mojom::GpuHost> gpu_host;
-  mojom::GpuHostPtr gpu_host_proxy;
-  mojo::MakeStrongBinding(std::move(gpu_host),
-                          mojo::MakeRequest(&gpu_host_proxy));
-  gpu_service_->InitializeWithHost(
-      std::move(gpu_host_proxy), gpu::GpuProcessActivityFlags(),
-      gl::init::CreateOffscreenGLSurface(gfx::Size()),
-      nullptr /* sync_point_manager */, nullptr /* shutdown_event */);
-  task_executor_ = base::MakeRefCounted<gpu::GpuInProcessThreadService>(
-      gpu_thread_->task_runner(), gpu_service_->scheduler(),
-      gpu_service_->sync_point_manager(), gpu_service_->mailbox_manager(),
-      gpu_service_->share_group(),
-      gpu_service_->gpu_channel_manager()
-          ->default_offscreen_surface()
-          ->GetFormat(),
-      gpu_service_->gpu_feature_info(),
-      gpu_service_->gpu_channel_manager()->gpu_preferences(),
-      gpu_service_->shared_image_manager(),
-      gpu_service_->gpu_channel_manager()->program_cache());
-  UnblockMainThread();
-}
-
-void SkiaOutputSurfaceImplTest::TearDownGpuServiceOnGpuThread() {
-  task_executor_ = nullptr;
-  gpu_service_ = nullptr;
-  UnblockMainThread();
-}
-
 void SkiaOutputSurfaceImplTest::TearDown() {
-  output_surface_ = nullptr;
-
-  if (task_executor_) {
-    // Tear down the GPU service.
-    gpu_thread_->task_runner()->PostTask(
-        FROM_HERE,
-        base::BindOnce(
-            &SkiaOutputSurfaceImplTest::TearDownGpuServiceOnGpuThread,
-            base::Unretained(this)));
-    BlockMainThread();
-  }
-  io_thread_ = nullptr;
-  gpu_thread_ = nullptr;
-  scoped_feature_list_ = nullptr;
+  output_surface_.reset();
+  scoped_feature_list_.reset();
 }
 
 void SkiaOutputSurfaceImplTest::SetUpSkiaOutputSurfaceImpl() {
   // SkiaOutputSurfaceImplOnGpu requires UseSkiaRenderer.
-  const char enable_features[] = "UseSkiaRenderer";
+  const char enable_features[] = "VizDisplayCompositor,UseSkiaRenderer";
   const char disable_features[] = "";
   scoped_feature_list_ = std::make_unique<base::test::ScopedFeatureList>();
   scoped_feature_list_->InitFromCommandLine(enable_features, disable_features);
-
-  // Set up the GPU service.
-  gpu_thread_ = std::make_unique<base::Thread>("GPUMainThread");
-  ASSERT_TRUE(gpu_thread_->Start());
-  io_thread_ = std::make_unique<base::Thread>("GPUIOThread");
-  ASSERT_TRUE(io_thread_->Start());
-
-  gpu_thread_->task_runner()->PostTask(
-      FROM_HERE,
-      base::BindOnce(&SkiaOutputSurfaceImplTest::SetUpGpuServiceOnGpuThread,
-                     base::Unretained(this)));
-  BlockMainThread();
+  gpu_service_holder_ = TestGpuServiceHolder::GetInstance();
 
   // Set up the SkiaOutputSurfaceImpl.
-  output_surface_ = std::make_unique<SkiaOutputSurfaceImpl>(
-      gpu_service_.get(), gpu::kNullSurfaceHandle,
-      nullptr /* synthetic_begin_frame_source */,
-      false /*show_overdraw_feedback*/);
+  gpu::SurfaceHandle surface_handle_ = gpu::kNullSurfaceHandle;
+  if (on_screen_) {
+#if BUILDFLAG(ENABLE_VULKAN) && defined(USE_X11)
+    surface_handle_ = gpu::CreateNativeWindow(kSurfaceRect);
+#else
+    // TODO(backer): Support other platforms.
+    NOTREACHED();
+#endif
+  }
+  output_surface_ = SkiaOutputSurfaceImpl::Create(
+      std::make_unique<SkiaOutputSurfaceDependencyImpl>(gpu_service(),
+                                                        surface_handle_),
+      RendererSettings());
   output_surface_->BindToClient(output_surface_client_.get());
 }
 
 void SkiaOutputSurfaceImplTest::CheckSyncTokenOnGpuThread(
     const gpu::SyncToken& sync_token) {
   EXPECT_TRUE(
-      gpu_service_->sync_point_manager()->IsSyncTokenReleased(sync_token));
+      gpu_service()->sync_point_manager()->IsSyncTokenReleased(sync_token));
   UnblockMainThread();
 }
 
@@ -188,9 +146,18 @@ void SkiaOutputSurfaceImplTest::CopyRequestCallbackOnGpuThread(
   UnblockMainThread();
 }
 
-TEST_F(SkiaOutputSurfaceImplTest, SubmitPaint) {
-  output_surface_->Reshape(gfx::Size(100.0, 100.0), 1, gfx::ColorSpace(), true,
-                           false);
+INSTANTIATE_TEST_SUITE_P(SkiaOutputSurfaceImplTest,
+                         SkiaOutputSurfaceImplTest,
+#if BUILDFLAG(ENABLE_VULKAN) && defined(USE_X11)
+                         ::testing::Values(false, true)
+#else
+                         ::testing::Values(false)
+#endif
+);
+
+TEST_P(SkiaOutputSurfaceImplTest, SubmitPaint) {
+  output_surface_->Reshape(kSurfaceRect.size(), 1, gfx::ColorSpace(),
+                           /*has_alpha=*/false, /*use_stencil=*/false);
   SkCanvas* root_canvas = output_surface_->BeginPaintCurrentFrame();
   SkPaint paint;
   const SkColor output_color = SK_ColorRED;
@@ -199,7 +166,12 @@ TEST_F(SkiaOutputSurfaceImplTest, SubmitPaint) {
   SkRect rect = SkRect::MakeWH(output_rect.width(), output_rect.height());
   root_canvas->drawRect(rect, paint);
 
-  gpu::SyncToken sync_token = output_surface_->SubmitPaint();
+  bool on_finished_called = false;
+  base::OnceClosure on_finished =
+      base::BindOnce([](bool* result) { *result = true; }, &on_finished_called);
+
+  gpu::SyncToken sync_token =
+      output_surface_->SubmitPaint(std::move(on_finished));
   EXPECT_TRUE(sync_token.HasData());
   base::OnceClosure closure =
       base::BindOnce(&SkiaOutputSurfaceImplTest::CheckSyncTokenOnGpuThread,
@@ -207,10 +179,10 @@ TEST_F(SkiaOutputSurfaceImplTest, SubmitPaint) {
 
   std::vector<gpu::SyncToken> resource_sync_tokens;
   resource_sync_tokens.push_back(sync_token);
-  auto sequence_id = gpu_service_->skia_output_surface_sequence_id();
-  gpu_service_->scheduler()->ScheduleTask(gpu::Scheduler::Task(
-      sequence_id, std::move(closure), std::move(resource_sync_tokens)));
+  output_surface_->ScheduleGpuTaskForTesting(std::move(closure),
+                                             std::move(resource_sync_tokens));
   BlockMainThread();
+  EXPECT_TRUE(on_finished_called);
 
   // Copy the output
   const gfx::ColorSpace color_space = gfx::ColorSpace::CreateSRGB();
@@ -219,10 +191,26 @@ TEST_F(SkiaOutputSurfaceImplTest, SubmitPaint) {
       base::BindOnce(&SkiaOutputSurfaceImplTest::CopyRequestCallbackOnGpuThread,
                      base::Unretained(this), output_color, output_rect,
                      color_space));
-  request->set_result_task_runner(gpu_thread_->task_runner());
-  gfx::Rect result_rect = output_rect;
-  output_surface_->CopyOutput(0, output_rect, color_space, result_rect,
-                              std::move(request));
+  request->set_result_task_runner(
+      gpu_service_holder_->gpu_thread_task_runner());
+  copy_output::RenderPassGeometry geometry;
+  geometry.result_bounds = kSurfaceRect;
+  geometry.result_selection = output_rect;
+  geometry.sampling_bounds = kSurfaceRect;
+
+  if (gpu_service_holder_->is_vulkan_enabled()) {
+    // No flipping because Skia handles all co-ordinate transformation on the
+    // software readback path currently implemented for Vulkan.
+    geometry.readback_offset = geometry.readback_offset = gfx::Vector2d(0, 0);
+  } else {
+    // GLRendererCopier may need a vertical flip depending on output surface
+    // characteristics.
+    geometry.readback_offset =
+        output_surface_->capabilities().flipped_output_surface
+            ? geometry.readback_offset = gfx::Vector2d(0, 0)
+            : geometry.readback_offset = gfx::Vector2d(0, 90);
+  }
+  output_surface_->CopyOutput(0, geometry, color_space, std::move(request));
   BlockMainThread();
 }
 

@@ -45,7 +45,7 @@ QT_BEGIN_NAMESPACE
 /*!
     \qmltype GroupBox
     \inherits Frame
-    \instantiates QQuickGroupBox
+//!     \instantiates QQuickGroupBox
     \inqmlmodule QtQuick.Controls
     \since 5.7
     \ingroup qtquickcontrols2-containers
@@ -167,7 +167,7 @@ void QQuickGroupBox::setTitle(const QString &title)
         return;
 
     d->title = title;
-    setAccessibleName(title);
+    maybeSetAccessibleName(title);
     emit titleChanged();
 }
 
@@ -283,7 +283,7 @@ void QQuickGroupBox::accessibilityActiveChanged(bool active)
     QQuickFrame::accessibilityActiveChanged(active);
 
     if (active)
-        setAccessibleName(d->title);
+        maybeSetAccessibleName(d->title);
 }
 #endif
 

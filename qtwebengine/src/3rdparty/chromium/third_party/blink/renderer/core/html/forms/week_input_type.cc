@@ -35,7 +35,7 @@
 #include "third_party/blink/renderer/core/html/forms/html_input_element.h"
 #include "third_party/blink/renderer/core/html_names.h"
 #include "third_party/blink/renderer/core/input_type_names.h"
-#include "third_party/blink/renderer/platform/date_components.h"
+#include "third_party/blink/renderer/platform/text/date_components.h"
 #include "third_party/blink/renderer/platform/text/platform_locale.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
 
@@ -47,10 +47,6 @@ static const int kWeekDefaultStepBase =
     -259200000;  // The first day of 1970-W01.
 static const int kWeekDefaultStep = 1;
 static const int kWeekStepScaleFactor = 604800000;
-
-InputType* WeekInputType::Create(HTMLInputElement& element) {
-  return MakeGarbageCollected<WeekInputType>(element);
-}
 
 void WeekInputType::CountUsage() {
   CountUsageIfVisible(WebFeature::kInputTypeWeek);

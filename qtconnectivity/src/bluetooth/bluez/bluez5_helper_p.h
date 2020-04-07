@@ -97,7 +97,8 @@ private slots:
                            const QStringList &interfaces);
     void PropertiesChanged(const QString &interface,
                            const QVariantMap &changed_properties,
-                           const QStringList &invalidated_properties);
+                           const QStringList &invalidated_properties,
+                           const QDBusMessage &msg);
 
 private:
     void removeAdapterFromMonitoring(const QString &dbusPath);

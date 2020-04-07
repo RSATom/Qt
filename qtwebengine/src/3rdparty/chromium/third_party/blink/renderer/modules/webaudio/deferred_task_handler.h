@@ -101,9 +101,8 @@ class MODULES_EXPORT DeferredTaskHandler final
   void MarkAudioNodeOutputDirty(AudioNodeOutput*);
   void RemoveMarkedAudioNodeOutput(AudioNodeOutput*);
 
-  // In AudioNode::breakConnection() and deref(), a tryLock() is used for
-  // calling actual processing, but if it fails keep track here.
-  void AddDeferredBreakConnection(AudioHandler&);
+  // Break connections between nodes.  This is done on the audio thread with the
+  // graph lock.
   void BreakConnections();
 
   void AddRenderingOrphanHandler(scoped_refptr<AudioHandler>);
@@ -185,6 +184,14 @@ class MODULES_EXPORT DeferredTaskHandler final
     DeferredTaskHandler& handler_;
   };
 
+  HashSet<scoped_refptr<AudioHandler>>* GetActiveSourceHandlers() {
+    return &active_source_handlers_;
+  }
+
+  Vector<scoped_refptr<AudioHandler>>* GetFinishedSourceHandlers() {
+    return &finished_source_handlers_;
+  }
+
  private:
   explicit DeferredTaskHandler(scoped_refptr<base::SingleThreadTaskRunner>);
   void UpdateAutomaticPullNodes();
@@ -221,9 +228,6 @@ class MODULES_EXPORT DeferredTaskHandler final
   HashSet<AudioSummingJunction*> dirty_summing_junctions_;
   HashSet<AudioNodeOutput*> dirty_audio_node_outputs_;
 
-  // Only accessed in the audio thread.
-  Vector<AudioHandler*> deferred_break_connection_list_;
-
   Vector<scoped_refptr<AudioHandler>> rendering_orphan_handlers_;
   Vector<scoped_refptr<AudioHandler>> deletable_orphan_handlers_;
 
@@ -239,11 +243,27 @@ class MODULES_EXPORT DeferredTaskHandler final
   // accepted.
   bool accepts_tail_processing_ = true;
 
+  // When source nodes are started, we place the handlers here to keep track of
+  // these active sources.  We must call AudioHandler::makeConnection() when we
+  // add an AudioNode to this, and must call AudioHandler::breakConnection()
+  // when we remove an AudioNode from this.
+  //
+  // This can be accessed from either the main thread or the audio thread, so it
+  // must be protected by the graph lock.
+  HashSet<scoped_refptr<AudioHandler>> active_source_handlers_;
+
+  // When source nodes are finished, the handler is placed here to make a note
+  // of it.  At a render quantum boundary, these are used to break the
+  // connection and elements here are removed from |active_source_handlers_|.
+  //
+  // This must be accessed only from the audio thread.
+  Vector<scoped_refptr<AudioHandler>> finished_source_handlers_;
+
   scoped_refptr<base::SingleThreadTaskRunner> task_runner_;
 
   // Graph locking.
   RecursiveMutex context_graph_mutex_;
-  std::atomic<ThreadIdentifier> audio_thread_;
+  std::atomic<base::PlatformThreadId> audio_thread_;
 };
 
 }  // namespace blink

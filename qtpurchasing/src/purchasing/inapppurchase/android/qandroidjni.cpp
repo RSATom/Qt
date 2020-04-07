@@ -119,15 +119,23 @@ static JNINativeMethod methods[] = {
     {"purchaseFailed", "(JIILjava/lang/String;)V", (void *)purchaseFailed}
 };
 
-jint JNICALL JNI_OnLoad(JavaVM *vm, void *)
+JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *)
 {
+    static bool initialized = false;
+    if (initialized)
+        return JNI_VERSION_1_6;
+    initialized = true;
+
     JNIEnv *env;
-    if (vm->GetEnv(reinterpret_cast<void **>(&env), JNI_VERSION_1_4) != JNI_OK)
-        return JNI_FALSE;
+    if (vm->GetEnv(reinterpret_cast<void **>(&env), JNI_VERSION_1_6) != JNI_OK)
+        return JNI_ERR;
 
     jclass clazz = env->FindClass("org/qtproject/qt5/android/purchasing/QtInAppPurchase");
-    if (env->RegisterNatives(clazz, methods, sizeof(methods) / sizeof(methods[0])) < 0)
-        return JNI_FALSE;
+    if (!clazz)
+        return JNI_ERR;
 
-    return JNI_VERSION_1_4;
+    if (env->RegisterNatives(clazz, methods, sizeof(methods) / sizeof(methods[0])) < 0)
+        return JNI_ERR;
+
+    return JNI_VERSION_1_6;
 }

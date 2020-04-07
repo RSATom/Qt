@@ -24,18 +24,20 @@
 #include <string>
 
 #include "perfetto/base/logging.h"
-#include "perfetto/base/utils.h"
-#include "perfetto/base/weak_ptr.h"
-#include "perfetto/traced/traced.h"
+#include "perfetto/ext/base/utils.h"
+#include "perfetto/ext/base/weak_ptr.h"
+#include "perfetto/ext/traced/traced.h"
+#include "perfetto/ext/tracing/core/trace_packet.h"
+#include "perfetto/ext/tracing/ipc/producer_ipc_client.h"
 #include "perfetto/tracing/core/data_source_config.h"
 #include "perfetto/tracing/core/data_source_descriptor.h"
-#include "perfetto/tracing/core/ftrace_config.h"
 #include "perfetto/tracing/core/trace_config.h"
-#include "perfetto/tracing/core/trace_packet.h"
-#include "perfetto/tracing/ipc/producer_ipc_client.h"
 #include "src/traced/probes/android_log/android_log_data_source.h"
 #include "src/traced/probes/filesystem/inode_file_data_source.h"
+#include "src/traced/probes/ftrace/ftrace_config.h"
 #include "src/traced/probes/ftrace/ftrace_data_source.h"
+#include "src/traced/probes/metatrace/metatrace_data_source.h"
+#include "src/traced/probes/packages_list/packages_list_data_source.h"
 #include "src/traced/probes/power/android_power_data_source.h"
 #include "src/traced/probes/probes_data_source.h"
 #include "src/traced/probes/ps/process_stats_data_source.h"
@@ -52,7 +54,7 @@ namespace {
 constexpr uint32_t kInitialConnectionBackoffMs = 100;
 constexpr uint32_t kMaxConnectionBackoffMs = 30 * 1000;
 
-// Should be larger than FtraceController::kFlushTimeoutMs.
+// Should be larger than FtraceController::kControllerFlushTimeoutMs.
 constexpr uint32_t kFlushTimeoutMs = 1000;
 
 constexpr char kFtraceSourceName[] = "linux.ftrace";
@@ -61,6 +63,7 @@ constexpr char kInodeMapSourceName[] = "linux.inode_file_map";
 constexpr char kSysStatsSourceName[] = "linux.sys_stats";
 constexpr char kAndroidPowerSourceName[] = "android.power";
 constexpr char kAndroidLogSourceName[] = "android.log";
+constexpr char kPackagesListSourceName[] = "android.packages_list";
 
 }  // namespace.
 
@@ -94,6 +97,7 @@ void ProbesProducer::OnConnect() {
   {
     DataSourceDescriptor desc;
     desc.set_name(kProcessStatsSourceName);
+    desc.set_handles_incremental_state_clear(true);
     endpoint_->RegisterDataSource(desc);
   }
 
@@ -118,6 +122,18 @@ void ProbesProducer::OnConnect() {
   {
     DataSourceDescriptor desc;
     desc.set_name(kAndroidLogSourceName);
+    endpoint_->RegisterDataSource(desc);
+  }
+
+  {
+    DataSourceDescriptor desc;
+    desc.set_name(kPackagesListSourceName);
+    endpoint_->RegisterDataSource(desc);
+  }
+
+  {
+    DataSourceDescriptor desc;
+    desc.set_name(MetatraceDataSource::kDataSourceName);
     endpoint_->RegisterDataSource(desc);
   }
 }
@@ -172,6 +188,10 @@ void ProbesProducer::SetupDataSource(DataSourceInstanceID instance_id,
     data_source = CreateAndroidPowerDataSource(session_id, config);
   } else if (config.name() == kAndroidLogSourceName) {
     data_source = CreateAndroidLogDataSource(session_id, config);
+  } else if (config.name() == kPackagesListSourceName) {
+    data_source = CreatePackagesListDataSource(session_id, config);
+  } else if (config.name() == MetatraceDataSource::kDataSourceName) {
+    data_source = CreateMetatraceDataSource(session_id, config);
   }
 
   if (!data_source) {
@@ -230,8 +250,10 @@ std::unique_ptr<ProbesDataSource> ProbesProducer::CreateFtraceDataSource(
 
   PERFETTO_LOG("Ftrace setup (target_buf=%" PRIu32 ")", config.target_buffer());
   const BufferID buffer_id = static_cast<BufferID>(config.target_buffer());
+  FtraceConfig ftrace_config;
+  ftrace_config.ParseRawProto(config.ftrace_config_raw());
   std::unique_ptr<FtraceDataSource> data_source(new FtraceDataSource(
-      ftrace_->GetWeakPtr(), session_id, config.ftrace_config(),
+      ftrace_->GetWeakPtr(), session_id, std::move(ftrace_config),
       endpoint_->CreateTraceWriter(buffer_id)));
   if (!ftrace_->AddDataSource(data_source.get())) {
     PERFETTO_ELOG(
@@ -282,6 +304,14 @@ std::unique_ptr<ProbesDataSource> ProbesProducer::CreateAndroidLogDataSource(
                                endpoint_->CreateTraceWriter(buffer_id)));
 }
 
+std::unique_ptr<ProbesDataSource> ProbesProducer::CreatePackagesListDataSource(
+    TracingSessionID session_id,
+    const DataSourceConfig& config) {
+  auto buffer_id = static_cast<BufferID>(config.target_buffer());
+  return std::unique_ptr<ProbesDataSource>(new PackagesListDataSource(
+      config, session_id, endpoint_->CreateTraceWriter(buffer_id)));
+}
+
 std::unique_ptr<ProbesDataSource> ProbesProducer::CreateSysStatsDataSource(
     TracingSessionID session_id,
     const DataSourceConfig& config) {
@@ -289,6 +319,14 @@ std::unique_ptr<ProbesDataSource> ProbesProducer::CreateSysStatsDataSource(
   return std::unique_ptr<SysStatsDataSource>(
       new SysStatsDataSource(task_runner_, session_id,
                              endpoint_->CreateTraceWriter(buffer_id), config));
+}
+
+std::unique_ptr<ProbesDataSource> ProbesProducer::CreateMetatraceDataSource(
+    TracingSessionID session_id,
+    const DataSourceConfig& config) {
+  auto buffer_id = static_cast<BufferID>(config.target_buffer());
+  return std::unique_ptr<ProbesDataSource>(new MetatraceDataSource(
+      task_runner_, session_id, endpoint_->CreateTraceWriter(buffer_id)));
 }
 
 void ProbesProducer::StopDataSource(DataSourceInstanceID id) {
@@ -378,6 +416,19 @@ void ProbesProducer::OnFlushTimeout(FlushRequestID flush_request_id) {
   endpoint_->NotifyFlushComplete(flush_request_id);
 }
 
+void ProbesProducer::ClearIncrementalState(
+    const DataSourceInstanceID* data_source_ids,
+    size_t num_data_sources) {
+  for (size_t i = 0; i < num_data_sources; i++) {
+    DataSourceInstanceID ds_id = data_source_ids[i];
+    auto it = data_sources_.find(ds_id);
+    if (it == data_sources_.end() || !it->second->started)
+      continue;
+
+    it->second->ClearIncrementalState();
+  }
+}
+
 // This function is called by the FtraceController in batches, whenever it has
 // read one or more pages from one or more cpus and written that into the
 // userspace tracing buffer. If more than one ftrace data sources are active,
@@ -396,8 +447,13 @@ void ProbesProducer::OnFtraceDataWrittenIntoDataSourceBuffers() {
     if (it == session_data_sources_.end() || it->first != last_session_id) {
       bool has_inodes = metadata && !metadata->inode_and_device.empty();
       bool has_pids = metadata && !metadata->pids.empty();
+      bool has_rename_pids = metadata && !metadata->rename_pids.empty();
       if (has_inodes && inode_data_source)
         inode_data_source->OnInodes(metadata->inode_and_device);
+      // Ordering the rename pids before the seen pids is important so that any
+      // renamed processes get scraped in the OnPids call.
+      if (has_rename_pids && ps_data_source)
+        ps_data_source->OnRenamePids(metadata->rename_pids);
       if (has_pids && ps_data_source)
         ps_data_source->OnPids(metadata->pids);
       if (metadata)
@@ -432,6 +488,8 @@ void ProbesProducer::OnFtraceDataWrittenIntoDataSourceBuffers() {
       }
       case SysStatsDataSource::kTypeId:
       case AndroidLogDataSource::kTypeId:
+      case PackagesListDataSource::kTypeId:
+      case MetatraceDataSource::kTypeId:
         break;
       default:
         PERFETTO_DFATAL("Invalid data source.");

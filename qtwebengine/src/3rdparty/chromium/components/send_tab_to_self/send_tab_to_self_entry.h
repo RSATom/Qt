@@ -17,9 +17,14 @@ class SendTabToSelfSpecifics;
 
 namespace send_tab_to_self {
 
+constexpr base::TimeDelta kExpiryTime = base::TimeDelta::FromDays(10);
+
+class SendTabToSelfLocal;
+
 // A tab that is being shared. The URL is a unique identifier for an entry, as
 // such it should not be empty and is the only thing considered when comparing
 // entries.
+// The java version of this class: SendTabToSelfEntry.java
 class SendTabToSelfEntry {
  public:
   // Creates a SendTabToSelf entry. |url| and |title| are the main fields of the
@@ -31,7 +36,8 @@ class SendTabToSelfEntry {
                      const std::string& title,
                      base::Time shared_time,
                      base::Time original_navigation_time,
-                     const std::string& device_name);
+                     const std::string& device_name,
+                     const std::string& target_device_sync_cache_guid);
   ~SendTabToSelfEntry();
 
   // The unique random id for the entry.
@@ -44,13 +50,22 @@ class SendTabToSelfEntry {
   base::Time GetSharedTime() const;
   // The time that the tab was navigated to.
   base::Time GetOriginalNavigationTime() const;
-
   // The name of the device that originated the sent tab.
   const std::string& GetDeviceName() const;
+  // The cache guid of of the device that this tab is shared with.
+  const std::string& GetTargetDeviceSyncCacheGuid() const;
+  // The opened state of the entry.
+  bool IsOpened() const;
+  // Sets the opened state of the entry to true.
+  void MarkOpened();
+
+  // The state of this entry's notification: if it has been |dismissed|.
+  void SetNotificationDismissed(bool notification_dismissed);
+  bool GetNotificationDismissed() const;
 
   // Returns a protobuf encoding the content of this SendTabToSelfEntry for
-  // sync.
-  std::unique_ptr<sync_pb::SendTabToSelfSpecifics> AsProto() const;
+  // local storage.
+  SendTabToSelfLocal AsLocalProto() const;
 
   // Creates a SendTabToSelfEntry from the protobuf format.
   // If creation time is not set, it will be set to |now|.
@@ -58,13 +73,31 @@ class SendTabToSelfEntry {
       const sync_pb::SendTabToSelfSpecifics& pb_entry,
       base::Time now);
 
+  // Creates a SendTabToSelfEntry from the protobuf format.
+  // If creation time is not set, it will be set to |now|.
+  static std::unique_ptr<SendTabToSelfEntry> FromLocalProto(
+      const SendTabToSelfLocal& pb_entry,
+      base::Time now);
+
+  // Returns if the Entry has expired based on the |current_time|.
+  bool IsExpired(base::Time current_time) const;
+
+  // Creates a SendTabToSelfEntry consisting of only the required fields.
+  static std::unique_ptr<SendTabToSelfEntry> FromRequiredFields(
+      const std::string& guid,
+      const GURL& url,
+      const std::string& target_device_sync_cache_guid);
+
  private:
   std::string guid_;
   GURL url_;
   std::string title_;
   std::string device_name_;
+  std::string target_device_sync_cache_guid_;
   base::Time shared_time_;
   base::Time original_navigation_time_;
+  bool notification_dismissed_;
+  bool opened_;
 
   DISALLOW_COPY_AND_ASSIGN(SendTabToSelfEntry);
 };

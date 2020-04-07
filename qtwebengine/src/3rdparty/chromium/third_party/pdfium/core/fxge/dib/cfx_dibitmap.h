@@ -51,7 +51,7 @@ class CFX_DIBitmap : public CFX_DIBBase {
   bool LoadChannel(FXDIB_Channel destChannel, int value);
 
   bool MultiplyAlpha(int alpha);
-  bool MultiplyAlpha(const RetainPtr<CFX_DIBBase>& pAlphaMask);
+  bool MultiplyAlpha(const RetainPtr<CFX_DIBBase>& pSrcBitmap);
 
   bool TransferBitmap(int dest_left,
                       int dest_top,
@@ -82,8 +82,7 @@ class CFX_DIBitmap : public CFX_DIBBase {
                      int src_top,
                      BlendMode blend_type,
                      const CFX_ClipRgn* pClipRgn,
-                     bool bRgbByteOrder,
-                     int alpha_flag);
+                     bool bRgbByteOrder);
 
   bool CompositeRect(int dest_left,
                      int dest_top,

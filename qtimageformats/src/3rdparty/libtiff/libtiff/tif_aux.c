@@ -30,31 +30,28 @@
 #include "tiffiop.h"
 #include "tif_predict.h"
 #include <math.h>
+#include <float.h>
 
 uint32
 _TIFFMultiply32(TIFF* tif, uint32 first, uint32 second, const char* where)
 {
-	uint32 bytes = first * second;
-
-	if (second && bytes / second != first) {
+	if (second && first > TIFF_UINT32_MAX / second) {
 		TIFFErrorExt(tif->tif_clientdata, where, "Integer overflow in %s", where);
-		bytes = 0;
+		return 0;
 	}
 
-	return bytes;
+	return first * second;
 }
 
 uint64
 _TIFFMultiply64(TIFF* tif, uint64 first, uint64 second, const char* where)
 {
-	uint64 bytes = first * second;
-
-	if (second && bytes / second != first) {
+	if (second && first > TIFF_UINT64_MAX / second) {
 		TIFFErrorExt(tif->tif_clientdata, where, "Integer overflow in %s", where);
-		bytes = 0;
+		return 0;
 	}
 
-	return bytes;
+	return first * second;
 }
 
 tmsize_t
@@ -394,6 +391,15 @@ _TIFFUInt64ToDouble(uint64 ui64)
 		df += 18446744073709551616.0; /* adding 2**64 */
 		return (double)df;
 	}
+}
+
+float _TIFFClampDoubleToFloat( double val )
+{
+    if( val > FLT_MAX )
+        return FLT_MAX;
+    if( val < -FLT_MAX )
+        return -FLT_MAX;
+    return (float)val;
 }
 
 int _TIFFSeekOK(TIFF* tif, toff_t off)

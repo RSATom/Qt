@@ -1,1 +1,1 @@
-#include "../../src/quick/scenegraph/util/qsgtexture.h"
+#include "../../src/quick/scenegraph/coreapi/qsgtexture.h"

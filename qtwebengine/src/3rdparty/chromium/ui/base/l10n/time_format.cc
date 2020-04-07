@@ -140,7 +140,7 @@ base::string16 TimeFormat::DetailedWithMonthAndYear(
   DCHECK_GT(capacity, 1);
   base::string16 result;
   UErrorCode error = U_ZERO_ERROR;
-  time_string.extract(reinterpret_cast<UChar*>(base::WriteInto(&result, capacity)),
+  time_string.extract(static_cast<UChar*>(base::WriteInto(&result, capacity)),
                       capacity, error);
   DCHECK(U_SUCCESS(error));
   return result;

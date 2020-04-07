@@ -11,6 +11,7 @@
 #include "modules/audio_processing/echo_control_mobile_impl.h"
 
 #include <string.h>
+
 #include <cstdint>
 
 #include "modules/audio_processing/aecm/echo_control_mobile.h"
@@ -106,10 +107,6 @@ EchoControlMobileImpl::~EchoControlMobileImpl() {}
 
 void EchoControlMobileImpl::ProcessRenderAudio(
     rtc::ArrayView<const int16_t> packed_render_audio) {
-  if (!enabled_) {
-    return;
-  }
-
   RTC_DCHECK(stream_properties_);
 
   size_t buffer_index = 0;
@@ -158,10 +155,6 @@ size_t EchoControlMobileImpl::NumCancellersRequired(
 
 int EchoControlMobileImpl::ProcessCaptureAudio(AudioBuffer* audio,
                                                int stream_delay_ms) {
-  if (!enabled_) {
-    return AudioProcessing::kNoError;
-  }
-
   RTC_DCHECK(stream_properties_);
   RTC_DCHECK_GE(160, audio->num_frames_per_band());
   RTC_DCHECK_EQ(audio->num_channels(), stream_properties_->num_output_channels);
@@ -202,38 +195,11 @@ int EchoControlMobileImpl::ProcessCaptureAudio(AudioBuffer* audio,
   return AudioProcessing::kNoError;
 }
 
-int EchoControlMobileImpl::Enable(bool enable) {
-  // Ensure AEC and AECM are not both enabled.
-  RTC_DCHECK(stream_properties_);
-
-  if (enable &&
-      stream_properties_->sample_rate_hz > AudioProcessing::kSampleRate16kHz) {
-    return AudioProcessing::kBadSampleRateError;
-  }
-
-  if (enable && !enabled_) {
-    enabled_ = enable;  // Must be set before Initialize() is called.
-
-    // TODO(peah): Simplify once the Enable function has been removed from
-    // the public APM API.
-    Initialize(stream_properties_->sample_rate_hz,
-               stream_properties_->num_reverse_channels,
-               stream_properties_->num_output_channels);
-  } else {
-    enabled_ = enable;
-  }
-  return AudioProcessing::kNoError;
-}
-
-bool EchoControlMobileImpl::is_enabled() const {
-  return enabled_;
-}
-
 int EchoControlMobileImpl::set_routing_mode(RoutingMode mode) {
   if (MapSetting(mode) == -1) {
     return AudioProcessing::kBadParameterError;
   }
-    routing_mode_ = mode;
+  routing_mode_ = mode;
   return Configure();
 }
 
@@ -242,7 +208,7 @@ EchoControlMobileImpl::RoutingMode EchoControlMobileImpl::routing_mode() const {
 }
 
 int EchoControlMobileImpl::enable_comfort_noise(bool enable) {
-    comfort_noise_enabled_ = enable;
+  comfort_noise_enabled_ = enable;
   return Configure();
 }
 
@@ -255,10 +221,6 @@ void EchoControlMobileImpl::Initialize(int sample_rate_hz,
                                        size_t num_output_channels) {
   stream_properties_.reset(new StreamProperties(
       sample_rate_hz, num_reverse_channels, num_output_channels));
-
-  if (!enabled_) {
-    return;
-  }
 
   // AECM only supports 16 kHz or lower sample rates.
   RTC_DCHECK_LE(stream_properties_->sample_rate_hz,

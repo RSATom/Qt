@@ -4,7 +4,6 @@
 
 #include "third_party/blink/renderer/platform/graphics/paint/raster_invalidation_tracking.h"
 
-#include "SkImageFilter.h"
 #include "base/trace_event/traced_value.h"
 #include "third_party/blink/renderer/platform/geometry/geometry_as_json.h"
 #include "third_party/blink/renderer/platform/geometry/layout_rect.h"
@@ -14,6 +13,7 @@
 #include "third_party/blink/renderer/platform/instrumentation/tracing/trace_event.h"
 #include "third_party/blink/renderer/platform/runtime_enabled_features.h"
 #include "third_party/blink/renderer/platform/wtf/text/string_utf8_adaptor.h"
+#include "third_party/skia/include/core/SkImageFilter.h"
 
 namespace blink {
 
@@ -69,7 +69,7 @@ static bool CompareRasterInvalidationInfo(const RasterInvalidationInfo& a,
 
   // Then compare clientDebugName, in alphabetic order.
   int name_compare_result =
-      CodePointCompare(a.client_debug_name, b.client_debug_name);
+      CodeUnitCompare(a.client_debug_name, b.client_debug_name);
   if (name_compare_result != 0)
     return name_compare_result < 0;
 
@@ -80,9 +80,9 @@ void RasterInvalidationTracking::AsJSON(JSONObject* json) {
   if (!invalidations_.IsEmpty()) {
     std::sort(invalidations_.begin(), invalidations_.end(),
               &CompareRasterInvalidationInfo);
-    std::unique_ptr<JSONArray> paint_invalidations_json = JSONArray::Create();
+    auto paint_invalidations_json = std::make_unique<JSONArray>();
     for (auto& info : invalidations_) {
-      std::unique_ptr<JSONObject> info_json = JSONObject::Create();
+      auto info_json = std::make_unique<JSONObject>();
       info_json->SetString("object", info.client_debug_name);
       if (!info.rect.IsEmpty()) {
         if (info.rect == LayoutRect::InfiniteIntRect())
@@ -98,11 +98,9 @@ void RasterInvalidationTracking::AsJSON(JSONObject* json) {
   }
 
   if (!under_invalidations_.IsEmpty()) {
-    std::unique_ptr<JSONArray> under_paint_invalidations_json =
-        JSONArray::Create();
+    auto under_paint_invalidations_json = std::make_unique<JSONArray>();
     for (auto& under_paint_invalidation : under_invalidations_) {
-      std::unique_ptr<JSONObject> under_paint_invalidation_json =
-          JSONObject::Create();
+      auto under_paint_invalidation_json = std::make_unique<JSONObject>();
       under_paint_invalidation_json->SetDouble("x", under_paint_invalidation.x);
       under_paint_invalidation_json->SetDouble("y", under_paint_invalidation.y);
       under_paint_invalidation_json->SetString(

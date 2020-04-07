@@ -27,10 +27,11 @@
 #include "third_party/blink/renderer/core/frame/local_frame_view.h"
 #include "third_party/blink/renderer/core/frame/remote_frame.h"
 #include "third_party/blink/renderer/core/frame/remote_frame_view.h"
-#include "third_party/blink/renderer/core/frame/use_counter.h"
+#include "third_party/blink/renderer/core/page/chrome_client.h"
+#include "third_party/blink/renderer/core/page/create_window.h"
 #include "third_party/blink/renderer/core/page/page.h"
+#include "third_party/blink/renderer/platform/instrumentation/use_counter.h"
 #include "third_party/blink/renderer/platform/wtf/assertions.h"
-#include "third_party/blink/renderer/platform/wtf/text/cstring.h"
 #include "third_party/blink/renderer/platform/wtf/text/string_builder.h"
 
 using std::swap;
@@ -51,16 +52,16 @@ FrameTree::~FrameTree() = default;
 const AtomicString& FrameTree::GetName() const {
   // TODO(andypaicu): remove this once we have gathered the data
   if (experimental_set_nulled_name_) {
-    const LocalFrame* frame =
-        this_frame_->IsLocalFrame()
-            ? ToLocalFrame(this_frame_)
-            : (Top().IsLocalFrame() ? ToLocalFrame(&Top()) : nullptr);
+    auto* frame = DynamicTo<LocalFrame>(this_frame_.Get());
+    if (!frame)
+      frame = DynamicTo<LocalFrame>(&Top());
     if (frame) {
-      UseCounter::Count(frame,
+      UseCounter::Count(frame->GetDocument(),
                         WebFeature::kCrossOriginMainFrameNulledNameAccessed);
       if (!name_.IsEmpty()) {
         UseCounter::Count(
-            frame, WebFeature::kCrossOriginMainFrameNulledNonEmptyNameAccessed);
+            frame->GetDocument(),
+            WebFeature::kCrossOriginMainFrameNulledNonEmptyNameAccessed);
       }
     }
   }
@@ -85,8 +86,7 @@ void FrameTree::SetName(const AtomicString& name,
     if (name != name_) {
       // TODO(lukasza): https://crbug.com/660485: Eventually we need to also
       // support replication of name changes that originate in a *remote* frame.
-      DCHECK(this_frame_->IsLocalFrame());
-      ToLocalFrame(this_frame_)->Client()->DidChangeName(name);
+      To<LocalFrame>(this_frame_.Get())->Client()->DidChangeName(name);
     }
   }
 
@@ -178,9 +178,59 @@ unsigned FrameTree::ChildCount() const {
   return count;
 }
 
-Frame* FrameTree::Find(const AtomicString& name) const {
+Frame* FrameTree::FindFrameByName(const AtomicString& name) const {
   // Named frame lookup should always be relative to a local frame.
-  DCHECK(this_frame_->IsLocalFrame());
+  DCHECK(IsA<LocalFrame>(this_frame_.Get()));
+
+  Frame* frame = FindFrameForNavigationInternal(name, KURL());
+  if (frame && !To<LocalFrame>(this_frame_.Get())->CanNavigate(*frame))
+    frame = nullptr;
+  return frame;
+}
+
+FrameTree::FindResult FrameTree::FindOrCreateFrameForNavigation(
+    FrameLoadRequest& request,
+    const AtomicString& name) const {
+  // Named frame lookup should always be relative to a local frame.
+  DCHECK(IsA<LocalFrame>(this_frame_.Get()));
+  LocalFrame* current_frame = To<LocalFrame>(this_frame_.Get());
+
+  // A GetNavigationPolicy() value other than kNavigationPolicyCurrentTab at
+  // this point indicates that a user event modified the navigation policy
+  // (e.g., a ctrl-click). Let the user's action override any target attribute.
+  if (request.GetNavigationPolicy() != kNavigationPolicyCurrentTab)
+    return FindResult(current_frame, false);
+
+  const KURL& url = request.GetResourceRequest().Url();
+  Frame* frame = FindFrameForNavigationInternal(name, url);
+  bool new_window = false;
+  if (!frame) {
+    frame = CreateNewWindow(*current_frame, request, name);
+    new_window = true;
+    // CreateNewWindow() might have modified NavigationPolicy.
+    // Set it back now that the new window is known to be the right one.
+    request.SetNavigationPolicy(kNavigationPolicyCurrentTab);
+  } else if (!current_frame->CanNavigate(*frame, url)) {
+    frame = nullptr;
+  }
+
+  if (frame && !new_window) {
+    if (frame->GetPage() != current_frame->GetPage())
+      frame->GetPage()->GetChromeClient().Focus(current_frame);
+    // Focusing can fire onblur, so check for detach.
+    if (!frame->GetPage())
+      frame = nullptr;
+  }
+  return FindResult(frame, new_window);
+}
+
+Frame* FrameTree::FindFrameForNavigationInternal(const AtomicString& name,
+                                                 const KURL& url) const {
+  if (EqualIgnoringASCIICase(name, "_current")) {
+    UseCounter::Count(
+        blink::DynamicTo<blink::LocalFrame>(this_frame_.Get())->GetDocument(),
+        WebFeature::kTargetCurrent);
+  }
 
   if (EqualIgnoringASCIICase(name, "_self") ||
       EqualIgnoringASCIICase(name, "_current") || name.IsEmpty())
@@ -200,8 +250,10 @@ Frame* FrameTree::Find(const AtomicString& name) const {
   // Search subtree starting with this frame first.
   for (Frame* frame = this_frame_; frame;
        frame = frame->Tree().TraverseNext(this_frame_)) {
-    if (frame->Tree().GetName() == name)
+    if (frame->Tree().GetName() == name &&
+        To<LocalFrame>(this_frame_.Get())->CanNavigate(*frame, url)) {
       return frame;
+    }
   }
 
   // Search the entire tree for this page next.
@@ -213,8 +265,14 @@ Frame* FrameTree::Find(const AtomicString& name) const {
 
   for (Frame* frame = page->MainFrame(); frame;
        frame = frame->Tree().TraverseNext()) {
-    if (frame->Tree().GetName() == name)
+    // Skip descendants of this frame that were searched above to avoid
+    // showing duplicate console messages if a frame is found by name
+    // but access is blocked.
+    if (frame->Tree().GetName() == name &&
+        !frame->Tree().IsDescendantOf(this_frame_.Get()) &&
+        To<LocalFrame>(this_frame_.Get())->CanNavigate(*frame, url)) {
       return frame;
+    }
   }
 
   // Search the entire tree of each of the other pages in this namespace.
@@ -223,13 +281,15 @@ Frame* FrameTree::Find(const AtomicString& name) const {
       continue;
     for (Frame* frame = other_page->MainFrame(); frame;
          frame = frame->Tree().TraverseNext()) {
-      if (frame->Tree().GetName() == name)
+      if (frame->Tree().GetName() == name &&
+          To<LocalFrame>(this_frame_.Get())->CanNavigate(*frame, url)) {
         return frame;
+      }
     }
   }
 
   // Ask the embedder as a fallback.
-  return ToLocalFrame(this_frame_)->Client()->FindFrame(name);
+  return To<LocalFrame>(this_frame_.Get())->Client()->FindFrame(name);
 }
 
 bool FrameTree::IsDescendantOf(const Frame* ancestor) const {
@@ -286,7 +346,7 @@ void FrameTree::Trace(blink::Visitor* visitor) {
 
 }  // namespace blink
 
-#ifndef NDEBUG
+#if DCHECK_IS_ON()
 
 static void printIndent(int indent) {
   for (int i = 0; i < indent; ++i)
@@ -303,8 +363,8 @@ static void printFrames(const blink::Frame* frame,
     printIndent(indent);
   }
 
-  blink::LocalFrameView* view =
-      frame->IsLocalFrame() ? ToLocalFrame(frame)->View() : nullptr;
+  auto* local_frame = blink::DynamicTo<blink::LocalFrame>(frame);
+  blink::LocalFrameView* view = local_frame ? local_frame->View() : nullptr;
   printf("Frame %p %dx%d\n", frame, view ? view->Width() : 0,
          view ? view->Height() : 0);
   printIndent(indent);
@@ -312,14 +372,12 @@ static void printFrames(const blink::Frame* frame,
   printIndent(indent);
   printf("  frameView=%p\n", view);
   printIndent(indent);
-  printf("  document=%p\n",
-         frame->IsLocalFrame() ? ToLocalFrame(frame)->GetDocument() : nullptr);
+  printf("  document=%p\n", local_frame ? local_frame->GetDocument() : nullptr);
   printIndent(indent);
-  printf(
-      "  uri=%s\n\n",
-      frame->IsLocalFrame()
-          ? ToLocalFrame(frame)->GetDocument()->Url().GetString().Utf8().data()
-          : nullptr);
+  printf("  uri=%s\n\n",
+         local_frame
+             ? local_frame->GetDocument()->Url().GetString().Utf8().c_str()
+             : nullptr);
 
   for (blink::Frame* child = frame->Tree().FirstChild(); child;
        child = child->Tree().NextSibling())
@@ -335,4 +393,4 @@ void showFrameTree(const blink::Frame* frame) {
   printFrames(&frame->Tree().Top(), frame, 0);
 }
 
-#endif
+#endif  // DCHECK_IS_ON()

@@ -56,14 +56,13 @@ HttpServer::HttpServer(std::unique_ptr<ServerSocket> server_socket,
                        HttpServer::Delegate* delegate)
     : server_socket_(std::move(server_socket)),
       delegate_(delegate),
-      last_id_(0),
-      weak_ptr_factory_(this) {
+      last_id_(0) {
   DCHECK(server_socket_);
   // Start accepting connections in next run loop in case when delegate is not
   // ready to get callbacks.
   base::ThreadTaskRunnerHandle::Get()->PostTask(
-      FROM_HERE,
-      base::Bind(&HttpServer::DoAcceptLoop, weak_ptr_factory_.GetWeakPtr()));
+      FROM_HERE, base::BindOnce(&HttpServer::DoAcceptLoop,
+                                weak_ptr_factory_.GetWeakPtr()));
 }
 
 HttpServer::~HttpServer() = default;
@@ -73,7 +72,7 @@ void HttpServer::AcceptWebSocket(
     const HttpServerRequestInfo& request,
     NetworkTrafficAnnotationTag traffic_annotation) {
   HttpConnection* connection = FindConnection(connection_id);
-  if (connection == NULL)
+  if (connection == nullptr)
     return;
   DCHECK(connection->web_socket());
   connection->web_socket()->Accept(request, traffic_annotation);
@@ -81,10 +80,10 @@ void HttpServer::AcceptWebSocket(
 
 void HttpServer::SendOverWebSocket(
     int connection_id,
-    const std::string& data,
+    base::StringPiece data,
     NetworkTrafficAnnotationTag traffic_annotation) {
   HttpConnection* connection = FindConnection(connection_id);
-  if (connection == NULL)
+  if (connection == nullptr)
     return;
   DCHECK(connection->web_socket());
   connection->web_socket()->Send(data, traffic_annotation);
@@ -94,7 +93,7 @@ void HttpServer::SendRaw(int connection_id,
                          const std::string& data,
                          NetworkTrafficAnnotationTag traffic_annotation) {
   HttpConnection* connection = FindConnection(connection_id);
-  if (connection == NULL)
+  if (connection == nullptr)
     return;
 
   bool writing_in_progress = !connection->write_buf()->IsEmpty();
@@ -257,7 +256,7 @@ int HttpServer::HandleReadResult(HttpConnection* connection, int rv) {
         Close(connection->id());
         return ERR_CONNECTION_CLOSED;
       }
-      delegate_->OnWebSocketMessage(connection->id(), message);
+      delegate_->OnWebSocketMessage(connection->id(), std::move(message));
       if (HasClosedConnection(connection))
         return ERR_CONNECTION_CLOSED;
       continue;

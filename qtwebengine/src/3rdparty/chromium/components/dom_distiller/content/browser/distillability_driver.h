@@ -8,7 +8,7 @@
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "components/dom_distiller/content/browser/distillable_page_utils.h"
-#include "components/dom_distiller/content/common/distillability_service.mojom.h"
+#include "components/dom_distiller/content/common/mojom/distillability_service.mojom.h"
 #include "content/public/browser/web_contents_observer.h"
 #include "content/public/browser/web_contents_user_data.h"
 #include "mojo/public/cpp/bindings/strong_binding.h"
@@ -22,8 +22,7 @@ class DistillabilityDriver
       public content::WebContentsUserData<DistillabilityDriver> {
  public:
   ~DistillabilityDriver() override;
-  void CreateDistillabilityService(
-      mojom::DistillabilityServiceRequest request);
+  void CreateDistillabilityService(mojom::DistillabilityServiceRequest request);
 
   void SetDelegate(const DistillabilityDelegate& delegate);
 
@@ -46,7 +45,7 @@ class DistillabilityDriver
 
   service_manager::BinderRegistry frame_interfaces_;
 
-  base::WeakPtrFactory<DistillabilityDriver> weak_factory_;
+  base::WeakPtrFactory<DistillabilityDriver> weak_factory_{this};
 
   WEB_CONTENTS_USER_DATA_KEY_DECL();
 

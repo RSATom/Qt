@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <utility>
 
+#include "base/bind.h"
 #include "base/logging.h"
 #include "base/strings/string_util.h"
 #include "net/base/ip_endpoint.h"
@@ -45,7 +46,7 @@ class HostResolverMdnsTask::Transaction {
     DCHECK_EQ(ERR_IO_PENDING, results_.error());
     DCHECK(!async_transaction_);
 
-    // TODO(crbug.com/846423): Use |allow_cached_response| to set the
+    // TODO(crbug.com/926300): Use |allow_cached_response| to set the
     // QUERY_CACHE flag or not.
     int flags = MDnsTransaction::SINGLE_RESULT | MDnsTransaction::QUERY_CACHE |
                 MDnsTransaction::QUERY_NETWORK;
@@ -127,7 +128,7 @@ HostResolverMdnsTask::HostResolverMdnsTask(
     MDnsClient* mdns_client,
     const std::string& hostname,
     const std::vector<DnsQueryType>& query_types)
-    : mdns_client_(mdns_client), hostname_(hostname), weak_ptr_factory_(this) {
+    : mdns_client_(mdns_client), hostname_(hostname) {
   DCHECK(!query_types.empty());
   for (DnsQueryType query_type : query_types) {
     transactions_.emplace_back(query_type, this);
@@ -142,6 +143,7 @@ HostResolverMdnsTask::~HostResolverMdnsTask() {
 void HostResolverMdnsTask::Start(base::OnceClosure completion_closure) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DCHECK(!completion_closure_);
+  DCHECK(mdns_client_);
 
   completion_closure_ = std::move(completion_closure);
 

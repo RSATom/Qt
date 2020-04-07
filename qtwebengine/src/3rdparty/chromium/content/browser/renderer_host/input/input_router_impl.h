@@ -14,6 +14,7 @@
 #include "base/gtest_prod_util.h"
 #include "base/macros.h"
 #include "base/time/time.h"
+#include "build/build_config.h"
 #include "cc/input/touch_action.h"
 #include "content/browser/renderer_host/input/fling_scheduler.h"
 #include "content/browser/renderer_host/input/gesture_event_queue.h"
@@ -28,7 +29,8 @@
 #include "content/common/widget.mojom.h"
 #include "content/public/browser/native_web_keyboard_event.h"
 #include "content/public/common/input_event_ack_source.h"
-#include "mojo/public/cpp/bindings/binding.h"
+#include "mojo/public/cpp/bindings/pending_remote.h"
+#include "mojo/public/cpp/bindings/receiver.h"
 
 namespace ui {
 class LatencyInfo;
@@ -81,14 +83,22 @@ class CONTENT_EXPORT InputRouterImpl : public InputRouter,
   void SetFrameTreeNodeId(int frame_tree_node_id) override;
   void SetForceEnableZoom(bool enabled) override;
   base::Optional<cc::TouchAction> AllowedTouchAction() override;
-  void BindHost(mojom::WidgetInputHandlerHostRequest request,
-                bool frame_handler) override;
+  base::Optional<cc::TouchAction> ActiveTouchAction() override;
+  mojo::PendingRemote<mojom::WidgetInputHandlerHost> BindNewHost() override;
+  mojo::PendingRemote<mojom::WidgetInputHandlerHost> BindNewFrameHost()
+      override;
   void StopFling() override;
-  bool FlingCancellationIsDeferred() override;
   void OnSetTouchAction(cc::TouchAction touch_action) override;
   void ForceSetTouchActionAuto() override;
 
   // InputHandlerHost impl
+#if defined(OS_ANDROID)
+  void FallbackCursorModeLockCursor(bool left,
+                                    bool right,
+                                    bool up,
+                                    bool down) override;
+  void FallbackCursorModeSetCursorVisibility(bool visible) override;
+#endif
   void SetTouchActionFromMain(cc::TouchAction touch_action) override;
   void SetWhiteListedTouchAction(cc::TouchAction touch_action,
                                  uint32_t unique_touch_event_id,
@@ -104,9 +114,9 @@ class CONTENT_EXPORT InputRouterImpl : public InputRouter,
   void WaitForInputProcessed(base::OnceClosure callback) override;
 
   // Exposed so that tests can swap out the implementation and intercept calls.
-  mojo::Binding<mojom::WidgetInputHandlerHost>&
-  frame_host_binding_for_testing() {
-    return frame_host_binding_;
+  mojo::Receiver<mojom::WidgetInputHandlerHost>&
+  frame_host_receiver_for_testing() {
+    return frame_host_receiver_;
   }
 
   void ForceResetTouchActionForTest();
@@ -156,6 +166,7 @@ class CONTENT_EXPORT InputRouterImpl : public InputRouter,
       const blink::WebGestureEvent& gesture_event,
       const ui::LatencyInfo& latency_info) override;
   bool IsWheelScrollInProgress() override;
+  bool IsAutoscrollInProgress() override;
 
   // TouchpadPinchEventQueueClient
   void SendMouseWheelEventForPinchImmediately(
@@ -224,11 +235,6 @@ class CONTENT_EXPORT InputRouterImpl : public InputRouter,
   InputDispositionHandler* disposition_handler_;
   int frame_tree_node_id_;
 
-  // Whether there are any active flings in the renderer. As the fling
-  // end notification is asynchronous, we use a count rather than a boolean
-  // to avoid races in bookkeeping when starting a new fling.
-  int active_renderer_fling_count_;
-
   // Whether the TouchScrollStarted event has been sent for the current
   // gesture scroll yet.
   bool touch_scroll_started_sent_;
@@ -248,16 +254,16 @@ class CONTENT_EXPORT InputRouterImpl : public InputRouter,
   // Last touch position relative to screen. Used to compute movementX/Y.
   base::flat_map<int, gfx::Point> global_touch_position_;
 
-  // The host binding associated with the widget input handler from
+  // The host receiver associated with the widget input handler from
   // the widget.
-  mojo::Binding<mojom::WidgetInputHandlerHost> host_binding_;
+  mojo::Receiver<mojom::WidgetInputHandlerHost> host_receiver_{this};
 
-  // The host binding associated with the widget input handler from
+  // The host receiver associated with the widget input handler from
   // the frame.
-  mojo::Binding<mojom::WidgetInputHandlerHost> frame_host_binding_;
+  mojo::Receiver<mojom::WidgetInputHandlerHost> frame_host_receiver_{this};
 
   base::WeakPtr<InputRouterImpl> weak_this_;
-  base::WeakPtrFactory<InputRouterImpl> weak_ptr_factory_;
+  base::WeakPtrFactory<InputRouterImpl> weak_ptr_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(InputRouterImpl);
 };

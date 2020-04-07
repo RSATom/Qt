@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2019 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtWidgets module of the Qt Toolkit.
@@ -42,6 +42,7 @@
 
 #include <qstack.h>
 #include <qapplication.h>
+#include <private/qapplication_p.h>
 #include <qevent.h>
 #include <qdesktopwidget.h>
 #include <qdebug.h>
@@ -59,6 +60,8 @@
 #include <qdesktopservices.h>
 
 QT_BEGIN_NAMESPACE
+
+Q_LOGGING_CATEGORY(lcBrowser, "qt.text.browser")
 
 class QTextBrowserPrivate : public QTextEditPrivate
 {
@@ -83,6 +86,7 @@ public:
         int hpos;
         int vpos;
         int focusIndicatorPosition, focusIndicatorAnchor;
+        QTextDocument::ResourceType type = QTextDocument::UnknownResource;
     };
 
     HistoryEntry history(int i) const
@@ -119,6 +123,8 @@ public:
     bool openExternalLinks;
     bool openLinks;
 
+    QTextDocument::ResourceType currentType;
+
 #ifndef QT_NO_CURSOR
     QCursor oldCursor;
 #endif
@@ -134,7 +140,7 @@ public:
     void _q_activateAnchor(const QString &href);
     void _q_highlightLink(const QString &href);
 
-    void setSource(const QUrl &url);
+    void setSource(const QUrl &url, QTextDocument::ResourceType type);
 
     // re-imlemented from QTextEditPrivate
     virtual QUrl resolveUrl(const QUrl &url) const override;
@@ -271,7 +277,7 @@ void QTextBrowserPrivate::_q_highlightLink(const QString &anchor)
     }
 }
 
-void QTextBrowserPrivate::setSource(const QUrl &url)
+void QTextBrowserPrivate::setSource(const QUrl &url, QTextDocument::ResourceType type)
 {
     Q_Q(QTextBrowser);
 #ifndef QT_NO_CURSOR
@@ -288,20 +294,36 @@ void QTextBrowserPrivate::setSource(const QUrl &url)
     currentUrlWithoutFragment.setFragment(QString());
     QUrl newUrlWithoutFragment = currentURL.resolved(url);
     newUrlWithoutFragment.setFragment(QString());
+    QString fileName = url.fileName();
+    if (type == QTextDocument::UnknownResource) {
+#if QT_CONFIG(textmarkdownreader)
+        if (fileName.endsWith(QLatin1String(".md")) ||
+                fileName.endsWith(QLatin1String(".mkd")) ||
+                fileName.endsWith(QLatin1String(".markdown")))
+            type = QTextDocument::MarkdownResource;
+        else
+#endif
+            type = QTextDocument::HtmlResource;
+    }
+    currentType = type;
 
     if (url.isValid()
         && (newUrlWithoutFragment != currentUrlWithoutFragment || forceLoadOnSourceChange)) {
-        QVariant data = q->loadResource(QTextDocument::HtmlResource, resolveUrl(url));
+        QVariant data = q->loadResource(type, resolveUrl(url));
         if (data.type() == QVariant::String) {
             txt = data.toString();
         } else if (data.type() == QVariant::ByteArray) {
+            if (type == QTextDocument::HtmlResource) {
 #if QT_CONFIG(textcodec)
-            QByteArray ba = data.toByteArray();
-            QTextCodec *codec = Qt::codecForHtml(ba);
-            txt = codec->toUnicode(ba);
+                QByteArray ba = data.toByteArray();
+                QTextCodec *codec = Qt::codecForHtml(ba);
+                txt = codec->toUnicode(ba);
 #else
-            txt = data.toString();
+                txt = data.toString();
 #endif
+            } else {
+                txt = QString::fromUtf8(data.toByteArray());
+            }
         }
         if (Q_UNLIKELY(txt.isEmpty()))
             qWarning("QTextBrowser: No document for %s", url.toString().toLatin1().constData());
@@ -327,9 +349,21 @@ void QTextBrowserPrivate::setSource(const QUrl &url)
         home = url;
 
     if (doSetText) {
+        // Setting the base URL helps QTextDocument::resource() to find resources with relative paths.
+        // But don't set it unless it contains the document's path, because QTextBrowserPrivate::resolveUrl()
+        // can already deal with local files on the filesystem in case the base URL was not set.
+        QUrl baseUrl = currentURL.adjusted(QUrl::RemoveFilename);
+        if (!baseUrl.path().isEmpty())
+            q->document()->setBaseUrl(baseUrl);
+        q->document()->setMetaInformation(QTextDocument::DocumentUrl, currentURL.toString());
+        qCDebug(lcBrowser) << "loading" << currentURL << "base" << q->document()->baseUrl() << "type" << type << txt.size() << "chars";
+#if QT_CONFIG(textmarkdownreader)
+        if (type == QTextDocument::MarkdownResource)
+            q->QTextEdit::setMarkdown(txt);
+        else
+#endif
 #ifndef QT_NO_TEXTHTMLPARSER
         q->QTextEdit::setHtml(txt);
-        q->document()->setMetaInformation(QTextDocument::DocumentUrl, currentURL.toString());
 #else
         q->QTextEdit::setPlainText(txt);
 #endif
@@ -551,6 +585,7 @@ QTextBrowserPrivate::HistoryEntry QTextBrowserPrivate::createHistoryEntry() cons
 {
     HistoryEntry entry;
     entry.url = q_func()->source();
+    entry.type = q_func()->sourceType();
     entry.title = q_func()->documentTitle();
     entry.hpos = hbar->value();
     entry.vpos = vbar->value();
@@ -567,7 +602,7 @@ QTextBrowserPrivate::HistoryEntry QTextBrowserPrivate::createHistoryEntry() cons
 
 void QTextBrowserPrivate::restoreHistoryEntry(const HistoryEntry &entry)
 {
-    setSource(entry.url);
+    setSource(entry.url, entry.type);
     hbar->setValue(entry.hpos);
     vbar->setValue(entry.vpos);
     if (entry.focusIndicatorAnchor != -1 && entry.focusIndicatorPosition != -1) {
@@ -709,7 +744,13 @@ QTextBrowser::~QTextBrowser()
     document is displayed as a popup rather than as new document in
     the browser window itself. Otherwise, the document is displayed
     normally in the text browser with the text set to the contents of
-    the named document with setHtml().
+    the named document with \l QTextDocument::setHtml() or
+    \l QTextDocument::setMarkdown(), depending on whether the filename ends
+    with any of the known Markdown file extensions.
+
+    If you would like to avoid automatic type detection
+    and specify the type explicitly, call setSource() rather than
+    setting this property.
 
     By default, this property contains an empty URL.
 */
@@ -720,6 +761,23 @@ QUrl QTextBrowser::source() const
         return QUrl();
     else
         return d->stack.top().url;
+}
+
+/*!
+    \property QTextBrowser::sourceType
+    \brief the type of the displayed document
+
+    This is QTextDocument::UnknownResource if no document is displayed or if
+    the type of the source is unknown. Otherwise it holds the type that was
+    detected, or the type that was specified when setSource() was called.
+*/
+QTextDocument::ResourceType QTextBrowser::sourceType() const
+{
+    Q_D(const QTextBrowser);
+    if (d->stack.isEmpty())
+        return QTextDocument::UnknownResource;
+    else
+        return d->stack.top().type;
 }
 
 /*!
@@ -752,16 +810,46 @@ void QTextBrowser::reload()
     Q_D(QTextBrowser);
     QUrl s = d->currentURL;
     d->currentURL = QUrl();
-    setSource(s);
+    setSource(s, d->currentType);
 }
 
+#if QT_VERSION < QT_VERSION_CHECK(6,0,0)
 void QTextBrowser::setSource(const QUrl &url)
+{
+    setSource(url, QTextDocument::UnknownResource);
+}
+#endif
+
+/*!
+    Attempts to load the document at the given \a url with the specified \a type.
+
+    If \a type is \l {QTextDocument::UnknownResource}{UnknownResource}
+    (the default), the document type will be detected: that is, if the url ends
+    with an extension of \c{.md}, \c{.mkd} or \c{.markdown}, the document will be
+    loaded via \l QTextDocument::setMarkdown(); otherwise it will be loaded via
+    \l QTextDocument::setHtml(). This detection can be bypassed by specifying
+    the \a type explicitly.
+*/
+void QTextBrowser::setSource(const QUrl &url, QTextDocument::ResourceType type)
+{
+    doSetSource(url, type);
+}
+
+#if QT_VERSION >= QT_VERSION_CHECK(6,0,0)
+/*!
+    Attempts to load the document at the given \a url with the specified \a type.
+
+    setSource() calls doSetSource.  In Qt 5, setSource(const QUrl &url) was virtual.
+    In Qt 6, doSetSource() is virtual instead, so that it can be overridden in subclasses.
+*/
+#endif
+void QTextBrowser::doSetSource(const QUrl &url, QTextDocument::ResourceType type)
 {
     Q_D(QTextBrowser);
 
     const QTextBrowserPrivate::HistoryEntry historyEntry = d->createHistoryEntry();
 
-    d->setSource(url);
+    d->setSource(url, type);
 
     if (!url.isValid())
         return;
@@ -775,6 +863,7 @@ void QTextBrowser::setSource(const QUrl &url)
 
     QTextBrowserPrivate::HistoryEntry entry;
     entry.url = url;
+    entry.type = d->currentType;
     entry.title = documentTitle();
     entry.hpos = 0;
     entry.vpos = 0;
@@ -928,7 +1017,7 @@ void QTextBrowser::keyPressEvent(QKeyEvent *ev)
     Q_D(QTextBrowser);
     switch (ev->key()) {
     case Qt::Key_Select:
-        if (QApplication::keypadNavigationEnabled()) {
+        if (QApplicationPrivate::keypadNavigationEnabled()) {
             if (!hasEditFocus()) {
                 setEditFocus(true);
                 return;
@@ -943,7 +1032,7 @@ void QTextBrowser::keyPressEvent(QKeyEvent *ev)
         }
         break;
     case Qt::Key_Back:
-        if (QApplication::keypadNavigationEnabled()) {
+        if (QApplicationPrivate::keypadNavigationEnabled()) {
             if (hasEditFocus()) {
                 setEditFocus(false);
                 ev->accept();
@@ -953,7 +1042,7 @@ void QTextBrowser::keyPressEvent(QKeyEvent *ev)
         QTextEdit::keyPressEvent(ev);
         return;
     default:
-        if (QApplication::keypadNavigationEnabled() && !hasEditFocus()) {
+        if (QApplicationPrivate::keypadNavigationEnabled() && !hasEditFocus()) {
             ev->ignore();
             return;
         }
@@ -1086,6 +1175,7 @@ void QTextBrowser::paintEvent(QPaintEvent *e)
     \row    \li QTextDocument::HtmlResource  \li QString or QByteArray
     \row    \li QTextDocument::ImageResource \li QImage, QPixmap or QByteArray
     \row    \li QTextDocument::StyleSheetResource \li QString or QByteArray
+    \row    \li QTextDocument::MarkdownResource \li QString or QByteArray
     \endtable
 */
 QVariant QTextBrowser::loadResource(int /*type*/, const QUrl &name)

@@ -13,7 +13,7 @@
 #include "base/sequence_checker.h"
 #include "content/public/browser/browser_context.h"
 #include "mojo/public/cpp/bindings/binding_set.h"
-#include "third_party/blink/public/platform/modules/locks/lock_manager.mojom.h"
+#include "third_party/blink/public/mojom/locks/lock_manager.mojom.h"
 #include "url/origin.h"
 
 namespace content {
@@ -79,7 +79,7 @@ class LockManager : public base::RefCountedThreadSafe<LockManager>,
   std::map<url::Origin, OriginState> origins_;
 
   SEQUENCE_CHECKER(sequence_checker_);
-  base::WeakPtrFactory<LockManager> weak_ptr_factory_;
+  base::WeakPtrFactory<LockManager> weak_ptr_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(LockManager);
 };

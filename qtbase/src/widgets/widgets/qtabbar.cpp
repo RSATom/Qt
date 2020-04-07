@@ -65,12 +65,8 @@
 #endif
 
 #include "qdebug.h"
+#include "private/qapplication_p.h"
 #include "private/qtabbar_p.h"
-
-#if 0 // Used to be included in Qt4 for Q_WS_MAC
-#include <private/qt_mac_p.h>
-#include <private/qt_cocoa_helpers_mac_p.h>
-#endif
 
 QT_BEGIN_NAMESPACE
 
@@ -415,7 +411,7 @@ void QTabBarPrivate::init()
     QObject::connect(rightB, SIGNAL(clicked()), q, SLOT(_q_scrollTabs()));
     rightB->hide();
 #ifdef QT_KEYPAD_NAVIGATION
-    if (QApplication::keypadNavigationEnabled()) {
+    if (QApplicationPrivate::keypadNavigationEnabled()) {
         leftB->setFocusPolicy(Qt::NoFocus);
         rightB->setFocusPolicy(Qt::NoFocus);
         q->setFocusPolicy(Qt::NoFocus);
@@ -843,7 +839,7 @@ void QTabBarPrivate::refresh()
     // be safe in case a subclass is also handling move with the tabs
     if (pressedIndex != -1
         && movable
-        && QApplication::mouseButtons() == Qt::NoButton) {
+        && QGuiApplication::mouseButtons() == Qt::NoButton) {
         moveTabFinished(pressedIndex);
         if (!validIndex(pressedIndex))
             pressedIndex = -1;
@@ -1975,9 +1971,7 @@ void QTabBar::mousePressEvent(QMouseEvent *event)
         d->moveTabFinished(d->pressedIndex);
 
     d->pressedIndex = d->indexAtPos(event->pos());
-#if 0 // Used to be included in Qt4 for Q_WS_MAC
-    d->previousPressedIndex = d->pressedIndex;
-#endif
+
     if (d->validIndex(d->pressedIndex)) {
         QStyleOptionTabBarBase optTabBase;
         optTabBase.init(this);
@@ -2057,17 +2051,6 @@ void QTabBar::mouseMoveEvent(QMouseEvent *event)
 
             update();
         }
-#if 0 // Used to be included in Qt4 for Q_WS_MAC
-    } else if (!d->documentMode && event->buttons() == Qt::LeftButton && d->previousPressedIndex != -1) {
-        int newPressedIndex = d->indexAtPos(event->pos());
-        if (d->pressedIndex == -1 && d->previousPressedIndex == newPressedIndex) {
-            d->pressedIndex = d->previousPressedIndex;
-            update(tabRect(d->pressedIndex));
-        } else if(d->pressedIndex != newPressedIndex) {
-            d->pressedIndex = -1;
-            update(tabRect(d->previousPressedIndex));
-        }
-#endif
     }
 
     if (event->buttons() != Qt::LeftButton) {
@@ -2161,9 +2144,7 @@ void QTabBar::mouseReleaseEvent(QMouseEvent *event)
         event->ignore();
         return;
     }
-#if 0 // Used to be included in Qt4 for Q_WS_MAC
-    d->previousPressedIndex = -1;
-#endif
+
     if (d->movable && d->dragInProgress && d->validIndex(d->pressedIndex)) {
         int length = d->tabList[d->pressedIndex].dragOffset;
         int width = verticalTabs(d->shape)
@@ -2210,7 +2191,9 @@ void QTabBar::wheelEvent(QWheelEvent *event)
 {
 #ifndef Q_OS_MAC
     Q_D(QTabBar);
-    int offset = event->delta() > 0 ? -1 : 1;
+    int delta = (qAbs(event->angleDelta().x()) > qAbs(event->angleDelta().y()) ?
+                     event->angleDelta().x() : event->angleDelta().y());
+    int offset = delta > 0 ? -1 : 1;
     d->setCurrentNextEnabledIndex(offset);
     QWidget::wheelEvent(event);
 #else

@@ -5,12 +5,12 @@
  * found in the LICENSE file.
  */
 
-#include "SkTypeface_remote.h"
-#include "SkPaint.h"
-#include "SkRemoteGlyphCache.h"
-#include "SkStrike.h"
-#include "SkStrikeCache.h"
-#include "SkTraceEvent.h"
+#include "include/core/SkPaint.h"
+#include "src/core/SkRemoteGlyphCache.h"
+#include "src/core/SkStrike.h"
+#include "src/core/SkStrikeCache.h"
+#include "src/core/SkTraceEvent.h"
+#include "src/core/SkTypeface_remote.h"
 
 SkScalerContextProxy::SkScalerContextProxy(sk_sp<SkTypeface> tf,
                                            const SkScalerContextEffects& effects,
@@ -32,11 +32,6 @@ unsigned SkScalerContextProxy::generateGlyphCount()  {
     return 0;
 }
 
-uint16_t SkScalerContextProxy::generateCharToGlyph(SkUnichar) {
-    SK_ABORT("Should never be called.");
-    return 0;
-}
-
 bool SkScalerContextProxy::generateAdvance(SkGlyph* glyph) {
     return false;
 }
@@ -53,9 +48,9 @@ void SkScalerContextProxy::generateMetrics(SkGlyph* glyph) {
     // fallback before failing.
     if (fCache && fCache->belongsToCache(glyph)) {
         // First check the original cache, in case there is a sub-pixel pos mismatch.
-        if (const auto* fallback =
+        if (const SkGlyph* from =
                     fCache->getCachedGlyphAnySubPix(glyph->getGlyphID(), glyph->getPackedID())) {
-            fCache->initializeGlyphFromFallback(glyph, *fallback);
+            fCache->mergeGlyphAndImage(glyph->getPackedID(), *from);
             fDiscardableManager->notifyCacheMiss(
                     SkStrikeClient::CacheMissType::kGlyphMetricsFallback);
             return;

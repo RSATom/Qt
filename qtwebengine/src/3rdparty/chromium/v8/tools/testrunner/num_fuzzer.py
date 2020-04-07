@@ -4,6 +4,8 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+# for py2/py3 compatibility
+from __future__ import print_function
 
 import random
 import sys
@@ -30,6 +32,10 @@ DEFAULT_SUITES = ["mjsunit", "webkit", "benchmarks"]
 class NumFuzzer(base_runner.BaseTestRunner):
   def __init__(self, *args, **kwargs):
     super(NumFuzzer, self).__init__(*args, **kwargs)
+
+  @property
+  def framework_name(self):
+    return 'num_fuzzer'
 
   def _add_parser_options(self, parser):
     parser.add_option("--fuzzer-random-seed", default=0,
@@ -97,8 +103,8 @@ class NumFuzzer(base_runner.BaseTestRunner):
 
     if options.combine_tests:
       if options.combine_min > options.combine_max:
-        print ('min_group_size (%d) cannot be larger than max_group_size (%d)' %
-               options.min_group_size, options.max_group_size)
+        print(('min_group_size (%d) cannot be larger than max_group_size (%d)' %
+               options.min_group_size, options.max_group_size))
         raise base_runner.TestRunnerError()
 
     if options.variants != 'default':
@@ -127,14 +133,15 @@ class NumFuzzer(base_runner.BaseTestRunner):
     return variables
 
   def _do_execute(self, tests, args, options):
-    loader = LoadProc()
+    loader = LoadProc(tests)
     fuzzer_rng = random.Random(options.fuzzer_random_seed)
 
     combiner = self._create_combiner(fuzzer_rng, options)
     results = self._create_result_tracker(options)
     execproc = ExecutionProc(options.j)
     sigproc = self._create_signal_proc()
-    indicators = self._create_progress_indicators(options)
+    indicators = self._create_progress_indicators(
+      tests.test_count_estimate, options)
     procs = [
       loader,
       NameFilterProc(args) if args else None,
@@ -153,7 +160,7 @@ class NumFuzzer(base_runner.BaseTestRunner):
       execproc,
     ]
     self._prepare_procs(procs)
-    loader.load_tests(tests)
+    loader.load_initial_tests(initial_batch_size=float('inf'))
 
     # TODO(majeski): maybe some notification from loader would be better?
     if combiner:
@@ -166,7 +173,7 @@ class NumFuzzer(base_runner.BaseTestRunner):
     for indicator in indicators:
       indicator.finished()
 
-    print '>>> %d tests ran' % results.total
+    print('>>> %d tests ran' % results.total)
     if results.failed:
       return utils.EXIT_CODE_FAILURES
 

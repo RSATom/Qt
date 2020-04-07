@@ -12,6 +12,7 @@
 #include "net/base/backoff_entry.h"
 #include "net/base/net_export.h"
 #include "net/base/rand_callback.h"
+#include "net/reporting/reporting_cache.h"
 #include "net/reporting/reporting_policy.h"
 
 namespace base {
@@ -21,7 +22,6 @@ class TickClock;
 
 namespace net {
 
-class ReportingCache;
 class ReportingCacheObserver;
 class ReportingDelegate;
 class ReportingDeliveryAgent;
@@ -35,20 +35,22 @@ class URLRequestContext;
 // Wrapped by ReportingService, which provides the external interface.
 class NET_EXPORT ReportingContext {
  public:
+  // |request_context| and |store| should outlive the ReportingContext.
   static std::unique_ptr<ReportingContext> Create(
       const ReportingPolicy& policy,
-      URLRequestContext* request_context);
+      URLRequestContext* request_context,
+      ReportingCache::PersistentReportingStore* store);
 
   ~ReportingContext();
 
-  const ReportingPolicy& policy() { return policy_; }
+  const ReportingPolicy& policy() const { return policy_; }
 
-  base::Clock* clock() { return clock_; }
-  const base::TickClock* tick_clock() { return tick_clock_; }
+  const base::Clock& clock() const { return *clock_; }
+  const base::TickClock& tick_clock() const { return *tick_clock_; }
   ReportingUploader* uploader() { return uploader_.get(); }
-
   ReportingDelegate* delegate() { return delegate_.get(); }
   ReportingCache* cache() { return cache_.get(); }
+  ReportingCache::PersistentReportingStore* store() { return store_; }
   ReportingEndpointManager* endpoint_manager() {
     return endpoint_manager_.get();
   }
@@ -63,13 +65,21 @@ class NET_EXPORT ReportingContext {
   void NotifyCachedReportsUpdated();
   void NotifyCachedClientsUpdated();
 
+  // Returns whether the data in the cache is persisted across restarts in the
+  // PersistentReportingStore.
+  bool IsReportDataPersisted() const;
+  bool IsClientDataPersisted() const;
+
+  void OnShutdown();
+
  protected:
   ReportingContext(const ReportingPolicy& policy,
                    base::Clock* clock,
                    const base::TickClock* tick_clock,
                    const RandIntCallback& rand_callback,
                    std::unique_ptr<ReportingUploader> uploader,
-                   std::unique_ptr<ReportingDelegate> delegate);
+                   std::unique_ptr<ReportingDelegate> delegate,
+                   ReportingCache::PersistentReportingStore* store);
 
  private:
   ReportingPolicy policy_;
@@ -84,6 +94,8 @@ class NET_EXPORT ReportingContext {
   std::unique_ptr<ReportingDelegate> delegate_;
 
   std::unique_ptr<ReportingCache> cache_;
+
+  ReportingCache::PersistentReportingStore* const store_;
 
   // |endpoint_manager_| must come after |tick_clock_| and |cache_|.
   std::unique_ptr<ReportingEndpointManager> endpoint_manager_;

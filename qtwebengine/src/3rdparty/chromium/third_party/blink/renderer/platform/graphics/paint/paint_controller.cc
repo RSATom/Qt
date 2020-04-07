@@ -6,6 +6,7 @@
 
 #include <memory>
 #include "base/auto_reset.h"
+#include "base/metrics/histogram_macros.h"
 #include "third_party/blink/renderer/platform/graphics/logging_canvas.h"
 #include "third_party/blink/renderer/platform/graphics/paint/drawing_display_item.h"
 #include "third_party/blink/renderer/platform/instrumentation/tracing/trace_event.h"
@@ -131,6 +132,7 @@ bool PaintController::UseCachedSubsequenceIfPossible(
   }
 
   num_cached_new_items_ += markers->end - markers->start;
+  ++num_cached_new_subsequences_;
 
   if (RuntimeEnabledFeatures::PaintUnderInvalidationCheckingEnabled()) {
     DCHECK(!IsCheckingUnderInvalidation());
@@ -223,11 +225,10 @@ void PaintController::ProcessNewItem(DisplayItem& display_item) {
         new_display_item_list_);
     if (index != kNotFound) {
       ShowDebugData();
-      NOTREACHED()
-          << "DisplayItem " << display_item.AsDebugString().Utf8().data()
-          << " has duplicated id with previous "
-          << new_display_item_list_[index].AsDebugString().Utf8().data()
-          << " (index=" << index << ")";
+      NOTREACHED() << "DisplayItem " << display_item.AsDebugString().Utf8()
+                   << " has duplicated id with previous "
+                   << new_display_item_list_[index].AsDebugString().Utf8()
+                   << " (index=" << index << ")";
     }
     AddToIndicesByClientMap(display_item.Client(),
                             new_display_item_list_.size() - 1,
@@ -388,8 +389,7 @@ size_t PaintController::FindOutOfOrderCachedItemForward(
 #endif
     // Ensure our paint invalidation tests don't trigger the less performant
     // situation which should be rare.
-    LOG(WARNING) << "Can't find cached display item: " << id.client.DebugName()
-                 << " " << id.ToString();
+    DLOG(WARNING) << "Can't find cached display item: " << id;
   }
   return kNotFound;
 }
@@ -433,12 +433,11 @@ void PaintController::CopyCachedSubsequence(size_t begin_index,
     // Visual rect change should not happen in a cached subsequence.
     // However, because of different method of pixel snapping in different
     // paths, there are false positives. Just log an error.
-    if (cached_item->VisualRect() !=
-        FloatRect(cached_item->Client().VisualRect())) {
-      LOG(ERROR) << "Visual rect changed in a cached subsequence: "
-                 << cached_item->Client().DebugName()
-                 << " old=" << cached_item->VisualRect().ToString()
-                 << " new=" << cached_item->Client().VisualRect().ToString();
+    if (cached_item->VisualRect() != cached_item->Client().VisualRect()) {
+      DLOG(ERROR) << "Visual rect changed in a cached subsequence: "
+                  << cached_item->Client().DebugName()
+                  << " old=" << cached_item->VisualRect()
+                  << " new=" << cached_item->Client().VisualRect();
     }
 #endif
 
@@ -474,7 +473,11 @@ void PaintController::CommitNewDisplayItems() {
                "num_non_cached_new_items",
                (int)new_display_item_list_.size() - num_cached_new_items_);
 
+  if (usage_ == kMultiplePaints)
+    UpdateUMACounts();
+
   num_cached_new_items_ = 0;
+  num_cached_new_subsequences_ = 0;
 #if DCHECK_IS_ON()
   new_display_item_indices_by_client_.clear();
   new_paint_chunk_indices_by_client_.clear();
@@ -500,51 +503,59 @@ void PaintController::CommitNewDisplayItems() {
   new_display_item_list_ = DisplayItemList(0);
 
 #if DCHECK_IS_ON()
+  num_indexed_items_ = 0;
   num_sequential_matches_ = 0;
   num_out_of_order_matches_ = 0;
-  num_indexed_items_ = 0;
 #endif
 }
 
 void PaintController::FinishCycle() {
-  if (usage_ == kTransient)
-    return;
-
-  DCHECK(new_display_item_list_.IsEmpty());
-  DCHECK(new_paint_chunks_.IsInInitialState());
-
-  if (committed_) {
-    committed_ = false;
-
-    // Validate display item clients that have validly cached subsequence or
-    // display items in this PaintController.
-    for (auto& item : current_cached_subsequences_) {
-      if (item.key->IsCacheable())
-        item.key->Validate();
-    }
-    for (const auto& item : current_paint_artifact_->GetDisplayItemList()) {
-      const auto& client = item.Client();
-      client.ClearPartialInvalidationVisualRect();
-      if (client.IsCacheable())
-        client.Validate();
-    }
-    for (const auto& chunk : current_paint_artifact_->PaintChunks()) {
-      if (chunk.id.client.IsCacheable())
-        chunk.id.client.Validate();
-    }
-  }
-
-  current_paint_artifact_->FinishCycle();
-
+  if (usage_ != kTransient) {
 #if DCHECK_IS_ON()
-  if (VLOG_IS_ON(2)) {
-    LOG(ERROR) << "PaintController::FinishCycle() done";
-    if (VLOG_IS_ON(3))
-      ShowDebugDataWithRecords();
-    else
-      ShowDebugData();
-  }
+    DCHECK(new_display_item_list_.IsEmpty());
+    DCHECK(new_paint_chunks_.IsInInitialState());
 #endif
+
+    if (committed_) {
+      committed_ = false;
+
+      // Validate display item clients that have validly cached subsequence or
+      // display items in this PaintController.
+      for (auto& item : current_cached_subsequences_) {
+        if (item.key->IsCacheable())
+          item.key->Validate();
+      }
+      for (const auto& item : current_paint_artifact_->GetDisplayItemList()) {
+        const auto& client = item.Client();
+        client.ClearPartialInvalidationVisualRect();
+        if (client.IsCacheable())
+          client.Validate();
+      }
+      for (const auto& chunk : current_paint_artifact_->PaintChunks()) {
+        if (chunk.id.client.IsCacheable())
+          chunk.id.client.Validate();
+      }
+    }
+
+    current_paint_artifact_->FinishCycle();
+  }
+
+  if (VLOG_IS_ON(1)) {
+    // Only log for non-transient paint controllers. There is an additional
+    // paint controller used by BlinkGenPropertyTrees to collect foreign layers,
+    // and this can be logged by removing the "usage_ != kTransient" condition.
+    if (usage_ != kTransient) {
+      LOG(ERROR) << "PaintController::FinishCycle() completed";
+#if DCHECK_IS_ON()
+      if (VLOG_IS_ON(3))
+        ShowDebugDataWithPaintRecords();
+      else if (VLOG_IS_ON(2))
+        ShowDebugData();
+      else if (VLOG_IS_ON(1))
+        ShowCompactDebugData();
+#endif
+    }
+  }
 }
 
 void PaintController::ClearPropertyTreeChangedStateTo(
@@ -554,9 +565,9 @@ void PaintController::ClearPropertyTreeChangedStateTo(
   // Calling |ClearChangedTo| for every chunk is O(|property nodes|^2) and
   // could be optimized by caching which nodes that have already been cleared.
   for (const auto& chunk : current_paint_artifact_->PaintChunks()) {
-    chunk.properties.Transform()->ClearChangedTo(to.Transform());
-    chunk.properties.Clip()->ClearChangedTo(to.Clip());
-    chunk.properties.Effect()->ClearChangedTo(to.Effect());
+    chunk.properties.Transform().ClearChangedTo(&to.Transform());
+    chunk.properties.Clip().ClearChangedTo(&to.Clip());
+    chunk.properties.Effect().ClearChangedTo(&to.Effect());
   }
 }
 
@@ -616,11 +627,9 @@ void PaintController::ShowUnderInvalidationError(
                      .get();
   }
   LOG(INFO) << "new record:\n"
-            << (new_record ? RecordAsDebugString(*new_record).Utf8().data()
-                           : "None");
+            << (new_record ? RecordAsDebugString(*new_record).Utf8() : "None");
   LOG(INFO) << "old record:\n"
-            << (old_record ? RecordAsDebugString(*old_record).Utf8().data()
-                           : "None");
+            << (old_record ? RecordAsDebugString(*old_record).Utf8() : "None");
 
   ShowDebugData();
 #else
@@ -728,13 +737,53 @@ void PaintController::CheckDuplicatePaintChunkId(const PaintChunk::Id& id) {
       const auto& chunk = new_paint_chunks_.PaintChunkAt(index);
       if (chunk.id == id) {
         ShowDebugData();
-        DLOG(ERROR)  << "New paint chunk id " << id.ToString().Utf8().data()
-                     << " has duplicated id with previous chuck "
-                     << chunk.ToString().Utf8().data();
+        DLOG(ERROR)  << "New paint chunk id " << id
+                     << " has duplicated id with previous chuck " << chunk;
       }
     }
   }
 }
 #endif
+
+size_t PaintController::sum_num_items_ = 0;
+size_t PaintController::sum_num_cached_items_ = 0;
+size_t PaintController::sum_num_subsequences_ = 0;
+size_t PaintController::sum_num_cached_subsequences_ = 0;
+
+void PaintController::UpdateUMACounts() {
+  DCHECK_EQ(usage_, kMultiplePaints);
+  sum_num_items_ += new_display_item_list_.size();
+  sum_num_cached_items_ += num_cached_new_items_;
+  sum_num_subsequences_ += new_cached_subsequences_.size();
+  sum_num_cached_subsequences_ += num_cached_new_subsequences_;
+}
+
+void PaintController::UpdateUMACountsOnFullyCached() {
+  DCHECK_EQ(usage_, kMultiplePaints);
+  int num_items = GetDisplayItemList().size();
+  sum_num_items_ += num_items;
+  sum_num_cached_items_ += num_items;
+
+  int num_subsequences = current_cached_subsequences_.size();
+  sum_num_subsequences_ += num_subsequences;
+  sum_num_cached_subsequences_ += num_subsequences;
+}
+
+void PaintController::ReportUMACounts() {
+  if (sum_num_items_ == 0)
+    return;
+
+  UMA_HISTOGRAM_PERCENTAGE("Blink.Paint.CachedItemPercentage",
+                           sum_num_cached_items_ * 100 / sum_num_items_);
+  if (sum_num_subsequences_) {
+    UMA_HISTOGRAM_PERCENTAGE(
+        "Blink.Paint.CachedSubsequencePercentage",
+        sum_num_cached_subsequences_ * 100 / sum_num_subsequences_);
+  }
+  sum_num_items_ = 0;
+  sum_num_cached_items_ = 0;
+  sum_num_subsequences_ = 0;
+  sum_num_cached_subsequences_ = 0;
+}
 
 }  // namespace blink

@@ -5,12 +5,22 @@
  * found in the LICENSE file.
  */
 
-#include "gm.h"
-#include "sk_tool_utils.h"
-#include "SkColorPriv.h"
-#include "SkPath.h"
-#include "SkShader.h"
-#include "SkTextUtils.h"
+#include "gm/gm.h"
+#include "include/core/SkBlendMode.h"
+#include "include/core/SkCanvas.h"
+#include "include/core/SkColor.h"
+#include "include/core/SkFont.h"
+#include "include/core/SkPaint.h"
+#include "include/core/SkPath.h"
+#include "include/core/SkPoint.h"
+#include "include/core/SkRect.h"
+#include "include/core/SkScalar.h"
+#include "include/core/SkSize.h"
+#include "include/core/SkString.h"
+#include "include/core/SkTypeface.h"
+#include "include/core/SkTypes.h"
+#include "include/utils/SkTextUtils.h"
+#include "tools/ToolUtils.h"
 
 enum {
     kXfermodeCount = (int)SkBlendMode::kLastMode + 1 + 1,   // extra for arith
@@ -68,7 +78,7 @@ protected:
     }
 
     void onOnceBeforeDraw() override {
-        fLabelFont.setTypeface(sk_tool_utils::create_portable_typeface());
+        fLabelFont.setTypeface(ToolUtils::create_portable_typeface());
         fLabelFont.setSize(5 * kShapeSize/8);
         fLabelFont.setSubpixel(true);
 
@@ -141,8 +151,7 @@ protected:
                             canvas->save();
                             canvas->clipRect(clipRect);
                             if (kCheckerboard_Pass == drawingPass) {
-                                sk_tool_utils::draw_checkerboard(canvas, 0xffffffff, 0xffc6c3c6,
-                                        10);
+                                ToolUtils::draw_checkerboard(canvas, 0xffffffff, 0xffc6c3c6, 10);
                             } else {
                                 SkASSERT(kBackground_Pass == drawingPass);
                                 canvas->drawColor(kBGColor, SkBlendMode::kSrc);

@@ -329,9 +329,9 @@ export class Node {
       return;
     }
 
-    let index = this._renderPrimitives._instances.indexOf(primitive);
+    let index = this._renderPrimitives.indexOf(primitive);
     if (index > -1) {
-      this._renderPrimitives._instances.splice(index, 1);
+      this._renderPrimitives.splice(index, 1);
 
       index = primitive._instances.indexOf(this);
       if (index > -1) {
@@ -363,7 +363,7 @@ export class Node {
         if (primitive._min) {
           if (!localRay) {
             mat4.invert(tmpRayMatrix, this.worldMatrix);
-            mat4.multiply(tmpRayMatrix, tmpRayMatrix, ray.transformMatrix);
+            mat4.multiply(tmpRayMatrix, tmpRayMatrix, ray.matrix);
             localRay = new Ray(tmpRayMatrix);
           }
           let intersection = localRay.intersectsAABB(primitive._min, primitive._max);

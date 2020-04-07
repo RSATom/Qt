@@ -31,6 +31,7 @@
 #include <QCoreApplication>
 #include <QTcpServer>
 #include <QtTest/QtTest>
+#include <QTcpSocket>
 
 const QUrl registryUrl = QUrl(QStringLiteral("tcp://127.0.0.1:65212"));
 const QUrl extUrl = QUrl(QStringLiteral("exttcp://127.0.0.1:65213"));

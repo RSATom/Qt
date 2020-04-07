@@ -57,10 +57,11 @@ static bool isResolvableNumberLike(String16 query) {
 }  // namespace
 
 using protocol::Array;
-using protocol::Runtime::PropertyDescriptor;
-using protocol::Runtime::InternalPropertyDescriptor;
-using protocol::Runtime::RemoteObject;
 using protocol::Maybe;
+using protocol::Runtime::InternalPropertyDescriptor;
+using protocol::Runtime::PrivatePropertyDescriptor;
+using protocol::Runtime::PropertyDescriptor;
+using protocol::Runtime::RemoteObject;
 
 class InjectedScript::ProtocolPromiseHandler {
  public:
@@ -283,7 +284,7 @@ Response InjectedScript::getProperties(
   int sessionId = m_sessionId;
   v8::TryCatch tryCatch(isolate);
 
-  *properties = Array<PropertyDescriptor>::create();
+  *properties = v8::base::make_unique<Array<PropertyDescriptor>>();
   std::vector<PropertyMirror> mirrors;
   PropertyAccumulator accumulator(&mirrors);
   if (!ValueMirror::getProperties(context, object, ownProperties,
@@ -350,33 +351,60 @@ Response InjectedScript::getProperties(
       descriptor->setValue(std::move(remoteObject));
       descriptor->setWasThrown(true);
     }
-    (*properties)->addItem(std::move(descriptor));
+    (*properties)->emplace_back(std::move(descriptor));
   }
   return Response::OK();
 }
 
-Response InjectedScript::getInternalProperties(
+Response InjectedScript::getInternalAndPrivateProperties(
     v8::Local<v8::Value> value, const String16& groupName,
-    std::unique_ptr<protocol::Array<InternalPropertyDescriptor>>* result) {
-  *result = protocol::Array<InternalPropertyDescriptor>::create();
+    std::unique_ptr<protocol::Array<InternalPropertyDescriptor>>*
+        internalProperties,
+    std::unique_ptr<protocol::Array<PrivatePropertyDescriptor>>*
+        privateProperties) {
+  *internalProperties =
+      v8::base::make_unique<Array<InternalPropertyDescriptor>>();
+  *privateProperties =
+      v8::base::make_unique<Array<PrivatePropertyDescriptor>>();
+
+  if (!value->IsObject()) return Response::OK();
+
+  v8::Local<v8::Object> value_obj = value.As<v8::Object>();
+
   v8::Local<v8::Context> context = m_context->context();
   int sessionId = m_sessionId;
-  std::vector<InternalPropertyMirror> wrappers;
-  if (value->IsObject()) {
-    ValueMirror::getInternalProperties(m_context->context(),
-                                       value.As<v8::Object>(), &wrappers);
-  }
-  for (size_t i = 0; i < wrappers.size(); ++i) {
+  std::vector<InternalPropertyMirror> internalPropertiesWrappers;
+  ValueMirror::getInternalProperties(m_context->context(), value_obj,
+                                     &internalPropertiesWrappers);
+  for (const auto& internalProperty : internalPropertiesWrappers) {
     std::unique_ptr<RemoteObject> remoteObject;
-    Response response = wrappers[i].value->buildRemoteObject(
+    Response response = internalProperty.value->buildRemoteObject(
         m_context->context(), WrapMode::kNoPreview, &remoteObject);
     if (!response.isSuccess()) return response;
     response = bindRemoteObjectIfNeeded(sessionId, context,
-                                        wrappers[i].value->v8Value(), groupName,
-                                        remoteObject.get());
+                                        internalProperty.value->v8Value(),
+                                        groupName, remoteObject.get());
     if (!response.isSuccess()) return response;
-    (*result)->addItem(InternalPropertyDescriptor::create()
-                           .setName(wrappers[i].name)
+    (*internalProperties)
+        ->emplace_back(InternalPropertyDescriptor::create()
+                           .setName(internalProperty.name)
+                           .setValue(std::move(remoteObject))
+                           .build());
+  }
+  std::vector<PrivatePropertyMirror> privatePropertyWrappers =
+      ValueMirror::getPrivateProperties(m_context->context(), value_obj);
+  for (const auto& privateProperty : privatePropertyWrappers) {
+    std::unique_ptr<RemoteObject> remoteObject;
+    Response response = privateProperty.value->buildRemoteObject(
+        m_context->context(), WrapMode::kNoPreview, &remoteObject);
+    if (!response.isSuccess()) return response;
+    response = bindRemoteObjectIfNeeded(sessionId, context,
+                                        privateProperty.value->v8Value(),
+                                        groupName, remoteObject.get());
+    if (!response.isSuccess()) return response;
+    (*privateProperties)
+        ->emplace_back(PrivatePropertyDescriptor::create()
+                           .setName(privateProperty.name)
                            .setValue(std::move(remoteObject))
                            .build());
   }
@@ -461,7 +489,6 @@ std::unique_ptr<protocol::Runtime::RemoteObject> InjectedScript::wrapTable(
                              &limit, &limit, &preview);
   if (!preview) return nullptr;
 
-  Array<PropertyPreview>* columns = preview->getProperties();
   std::unordered_set<String16> selectedColumns;
   v8::Local<v8::Array> v8Columns;
   if (maybeColumns.ToLocal(&v8Columns)) {
@@ -474,18 +501,17 @@ std::unique_ptr<protocol::Runtime::RemoteObject> InjectedScript::wrapTable(
     }
   }
   if (!selectedColumns.empty()) {
-    for (size_t i = 0; i < columns->length(); ++i) {
-      ObjectPreview* columnPreview = columns->get(i)->getValuePreview(nullptr);
+    for (const std::unique_ptr<PropertyPreview>& column :
+         *preview->getProperties()) {
+      ObjectPreview* columnPreview = column->getValuePreview(nullptr);
       if (!columnPreview) continue;
 
-      std::unique_ptr<Array<PropertyPreview>> filtered =
-          Array<PropertyPreview>::create();
-      Array<PropertyPreview>* columns = columnPreview->getProperties();
-      for (size_t j = 0; j < columns->length(); ++j) {
-        PropertyPreview* property = columns->get(j);
+      auto filtered = v8::base::make_unique<Array<PropertyPreview>>();
+      for (const std::unique_ptr<PropertyPreview>& property :
+           *columnPreview->getProperties()) {
         if (selectedColumns.find(property->getName()) !=
             selectedColumns.end()) {
-          filtered->addItem(property->clone());
+          filtered->emplace_back(property->clone());
         }
       }
       columnPreview->setProperties(std::move(filtered));
@@ -585,7 +611,7 @@ Response InjectedScript::resolveCallArgument(
   if (callArgument->hasValue() || callArgument->hasUnserializableValue()) {
     String16 value;
     if (callArgument->hasValue()) {
-      value = "(" + callArgument->getValue(nullptr)->serialize() + ")";
+      value = "(" + callArgument->getValue(nullptr)->toJSONString() + ")";
     } else {
       String16 unserializableValue = callArgument->getUnserializableValue("");
       // Protect against potential identifier resolution for NaN and Infinity.

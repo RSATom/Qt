@@ -28,7 +28,9 @@
 #include "services/device/public/mojom/geolocation_context.mojom.h"
 #include "services/device/public/mojom/wake_lock.mojom.h"
 #include "services/metrics/public/cpp/ukm_source_id.h"
+#include "third_party/blink/public/common/frame/blocked_navigation_types.h"
 #include "third_party/blink/public/common/mediastream/media_stream_request.h"
+#include "third_party/blink/public/mojom/devtools/console_message.mojom.h"
 #include "ui/base/window_open_disposition.h"
 
 #if defined(OS_WIN)
@@ -103,18 +105,24 @@ class CONTENT_EXPORT RenderFrameHostDelegate {
   // Notification from the renderer host that a suspicious navigation of the
   // main frame has been blocked. Allows the delegate to provide some UI to let
   // the user know about the blocked navigation and give them the option to
-  // recover from it. The given URL is the blocked navigation target.
-  virtual void OnDidBlockFramebust(const GURL& url) {}
+  // recover from it.
+  // |blocked_url| is the blocked navigation target, |initiator_url| is the URL
+  // of the frame initiating the navigation, |reason| specifies why the
+  // navigation was blocked.
+  virtual void OnDidBlockNavigation(const GURL& blocked_url,
+                                    const GURL& initiator_url,
+                                    blink::NavigationBlockedReason reason) {}
 
   // Gets the last committed URL. See WebContents::GetLastCommittedURL for a
   // description of the semantics.
   virtual const GURL& GetMainFrameLastCommittedURL();
 
   // A message was added to to the console.
-  virtual bool DidAddMessageToConsole(int32_t level,
-                                      const base::string16& message,
-                                      int32_t line_no,
-                                      const base::string16& source_id);
+  virtual bool DidAddMessageToConsole(
+      blink::mojom::ConsoleMessageLevel log_level,
+      const base::string16& message,
+      int32_t line_no,
+      const base::string16& source_id);
 
   // Called when a RenderFrame for |render_frame_host| is created in the
   // renderer process. Use |RenderFrameDeleted| to listen for when this
@@ -176,6 +184,14 @@ class CONTENT_EXPORT RenderFrameHostDelegate {
   virtual void DidReceiveFirstUserActivation(
       RenderFrameHost* render_frame_host) {}
 
+  // The display style of the frame has changed.
+  virtual void DidChangeDisplayState(RenderFrameHost* render_frame_host,
+                                     bool is_display_none) {}
+
+  // The size of the frame has changed.
+  virtual void FrameSizeChanged(RenderFrameHost* render_frame_host,
+                                const gfx::Size& frame_size) {}
+
   // The onload handler in the frame has completed. Only called for the top-
   // level frame.
   virtual void DocumentOnLoadCompleted(RenderFrameHost* render_frame_host) {}
@@ -214,12 +230,13 @@ class CONTENT_EXPORT RenderFrameHostDelegate {
   // or MEDIA_DEVICE_VIDEO_CAPTURE.
   virtual bool CheckMediaAccessPermission(RenderFrameHost* render_frame_host,
                                           const url::Origin& security_origin,
-                                          blink::MediaStreamType type);
+                                          blink::mojom::MediaStreamType type);
 
   // Returns the ID of the default device for the given media device |type|.
   // If the returned value is an empty string, it means that there is no
   // default device for the given |type|.
-  virtual std::string GetDefaultMediaDeviceID(blink::MediaStreamType type);
+  virtual std::string GetDefaultMediaDeviceID(
+      blink::mojom::MediaStreamType type);
 
   // Get the accessibility mode for the WebContents that owns this frame.
   virtual ui::AXMode GetAccessibilityMode();
@@ -240,9 +257,6 @@ class CONTENT_EXPORT RenderFrameHostDelegate {
 
   // Gets the GeolocationContext associated with this delegate.
   virtual device::mojom::GeolocationContext* GetGeolocationContext();
-
-  // Gets the WakeLock that serves wake lock requests from the renderer.
-  virtual device::mojom::WakeLock* GetRendererWakeLock();
 
 #if defined(OS_ANDROID)
   // Gets an NFC implementation within the context of this delegate.
@@ -425,9 +439,15 @@ class CONTENT_EXPORT RenderFrameHostDelegate {
   // Notify observers if WebAudio AudioContext has started (or stopped) playing
   // audible sounds.
   virtual void AudioContextPlaybackStarted(RenderFrameHost* host,
-                                           int context_id){};
+                                           int context_id) {}
   virtual void AudioContextPlaybackStopped(RenderFrameHost* host,
-                                           int context_id){};
+                                           int context_id) {}
+
+  // Returns the main frame of the inner delegate that is attached to this
+  // delegate using |frame_tree_node|. Returns nullptr if no such inner delegate
+  // exists.
+  virtual RenderFrameHostImpl* GetMainFrameForInnerDelegate(
+      FrameTreeNode* frame_tree_node);
 
  protected:
   virtual ~RenderFrameHostDelegate() {}

@@ -32,7 +32,7 @@ class WebSurroundingTextTest : public testing::Test {
 };
 
 void WebSurroundingTextTest::SetUp() {
-  dummy_page_holder_ = DummyPageHolder::Create(IntSize(800, 600));
+  dummy_page_holder_ = std::make_unique<DummyPageHolder>(IntSize(800, 600));
 }
 
 void WebSurroundingTextTest::SetHTML(const String& content) {
@@ -384,9 +384,8 @@ TEST_F(WebSurroundingTextTest, SelectElementAndText) {
   EphemeralRange selection = Select(0);
   WebSurroundingText surrounding_text(selection, 100);
 
-  EXPECT_STREQ(
-      "\xEF\xBF\xBC\n57th Street and Lake Shore Drive\nChicago IL 60637",
-      surrounding_text.TextContent().Utf8().data());
+  EXPECT_EQ("\xEF\xBF\xBC\n57th Street and Lake Shore Drive\nChicago IL 60637",
+            surrounding_text.TextContent().Utf8());
   EXPECT_EQ(43u, surrounding_text.StartOffsetInTextContent());
   EXPECT_EQ(43u, surrounding_text.EndOffsetInTextContent());
 }

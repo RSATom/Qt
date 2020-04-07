@@ -57,13 +57,13 @@ Style {
 
     /*!
         \qmlmethod string MenuBarStyle::formatMnemonic(string text, bool underline = false)
-        Returns a formatted string to render mnemonics for a given menu item.
+        Returns a formatted string to render mnemonics for a given menu item \a text.
 
         The mnemonic character is prefixed by an ampersand in the original string.
 
-        Passing \c true for \c underline will underline the mnemonic character (e.g.,
+        Passing \c true for \e underline will underline the mnemonic character (e.g.,
         \c formatMnemonic("&File", true) will return \c "<u>F</u>ile"). Passing \c false
-        for \c underline will return the plain text form (e.g., \c formatMnemonic("&File", false)
+        for \a underline will return the plain text form (e.g., \c formatMnemonic("&File", false)
         will return \c "File").
 
         \sa Label

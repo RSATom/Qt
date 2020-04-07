@@ -6,8 +6,8 @@
 #define V8_SNAPSHOT_NATIVES_H_
 
 #include "include/v8.h"
-#include "src/objects.h"
-#include "src/vector.h"
+#include "src/utils/vector.h"
+#include "src/objects/objects.h"
 
 namespace v8 { class StartupData; }  // Forward declaration.
 
@@ -16,7 +16,6 @@ namespace internal {
 
 enum NativeType {
   EXTRAS,
-  TEST
 };
 
 // Extra handling for V8_EXPORT_PRIVATE in combination with USING_V8_SHARED
@@ -39,8 +38,7 @@ class V8_EXPORT_PRIVATE NativesCollection {
   static Vector<const char> GetScriptsSource();
 };
 
-typedef NativesCollection<EXTRAS> ExtraNatives;
-
+using ExtraNatives = NativesCollection<EXTRAS>;
 
 #ifdef V8_USE_EXTERNAL_STARTUP_DATA
 // Used for reading the natives at runtime. Implementation in natives-empty.cc

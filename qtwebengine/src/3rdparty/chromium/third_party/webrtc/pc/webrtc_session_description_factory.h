@@ -12,12 +12,14 @@
 #define PC_WEBRTC_SESSION_DESCRIPTION_FACTORY_H_
 
 #include <stdint.h>
+
 #include <memory>
 #include <queue>
 #include <string>
 
 #include "api/jsep.h"
 #include "api/peer_connection_interface.h"
+#include "api/scoped_refptr.h"
 #include "p2p/base/transport_description.h"
 #include "p2p/base/transport_description_factory.h"
 #include "pc/media_session.h"
@@ -27,9 +29,9 @@
 #include "rtc_base/message_queue.h"
 #include "rtc_base/rtc_certificate.h"
 #include "rtc_base/rtc_certificate_generator.h"
-#include "rtc_base/scoped_ref_ptr.h"
 #include "rtc_base/third_party/sigslot/sigslot.h"
 #include "rtc_base/thread.h"
+#include "rtc_base/unique_id_generator.h"
 
 namespace webrtc {
 
@@ -82,7 +84,8 @@ class WebRtcSessionDescriptionFactory : public rtc::MessageHandler,
       PeerConnectionInternal* pc,
       const std::string& session_id,
       std::unique_ptr<rtc::RTCCertificateGeneratorInterface> cert_generator,
-      const rtc::scoped_refptr<rtc::RTCCertificate>& certificate);
+      const rtc::scoped_refptr<rtc::RTCCertificate>& certificate,
+      rtc::UniqueRandomIdGenerator* ssrc_generator);
   virtual ~WebRtcSessionDescriptionFactory();
 
   static void CopyCandidatesFromSessionDescription(

@@ -32,14 +32,16 @@ class SVGMPathElement final : public SVGElement, public SVGURIReference {
   USING_GARBAGE_COLLECTED_MIXIN(SVGMPathElement);
 
  public:
-  DECLARE_NODE_FACTORY(SVGMPathElement);
-
   explicit SVGMPathElement(Document&);
   ~SVGMPathElement() override;
 
   SVGPathElement* PathElement();
 
   void TargetPathChanged();
+
+  const AttrNameToTrustedType& GetCheckedAttributeTypes() const override {
+    return SVGURIReference::GetCheckedAttributeTypes();
+  }
 
   void Trace(blink::Visitor*) override;
 

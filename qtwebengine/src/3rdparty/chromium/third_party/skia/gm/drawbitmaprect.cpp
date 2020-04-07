@@ -5,18 +5,33 @@
  * found in the LICENSE file.
  */
 
-#include "gm.h"
-#include "sk_tool_utils.h"
-#include "SkBlurMask.h"
-#include "SkBlurMaskFilter.h"
-#include "SkColorPriv.h"
-#include "SkGradientShader.h"
-#include "SkImage.h"
-#include "SkImage_Base.h"
-#include "SkMathPriv.h"
-#include "SkShader.h"
-#include "SkSurface.h"
-
+#include "gm/gm.h"
+#include "include/core/SkBitmap.h"
+#include "include/core/SkBlurTypes.h"
+#include "include/core/SkCanvas.h"
+#include "include/core/SkColor.h"
+#include "include/core/SkFilterQuality.h"
+#include "include/core/SkFont.h"
+#include "include/core/SkImage.h"
+#include "include/core/SkImageInfo.h"
+#include "include/core/SkMaskFilter.h"
+#include "include/core/SkMatrix.h"
+#include "include/core/SkPaint.h"
+#include "include/core/SkPoint.h"
+#include "include/core/SkRect.h"
+#include "include/core/SkRefCnt.h"
+#include "include/core/SkScalar.h"
+#include "include/core/SkShader.h"
+#include "include/core/SkSize.h"
+#include "include/core/SkString.h"
+#include "include/core/SkSurface.h"
+#include "include/core/SkTileMode.h"
+#include "include/core/SkTypeface.h"
+#include "include/core/SkTypes.h"
+#include "include/effects/SkGradientShader.h"
+#include "src/core/SkBlurMask.h"
+#include "src/core/SkMathPriv.h"
+#include "tools/ToolUtils.h"
 
 static SkBitmap make_chessbm(int w, int h) {
     SkBitmap bm;
@@ -35,7 +50,7 @@ static SkBitmap make_chessbm(int w, int h) {
 static sk_sp<SkImage> makebm(SkCanvas* origCanvas, SkBitmap* resultBM, int w, int h) {
     SkImageInfo info = SkImageInfo::MakeN32Premul(w, h);
 
-    auto surface(sk_tool_utils::makeSurface(origCanvas, info));
+    auto      surface(ToolUtils::makeSurface(origCanvas, info));
     SkCanvas* canvas = surface->getCanvas();
 
     canvas->clear(SK_ColorTRANSPARENT);
@@ -68,7 +83,7 @@ static sk_sp<SkImage> makebm(SkCanvas* origCanvas, SkBitmap* resultBM, int w, in
                         pt, radius,
                         colors, pos,
                         SK_ARRAY_COUNT(colors),
-                        SkShader::kRepeat_TileMode,
+                        SkTileMode::kRepeat,
                         0, &mat));
         canvas->drawRect(rect, paint);
         rect.inset(wScalar / 8, hScalar / 8);
@@ -163,7 +178,7 @@ protected:
         const int kPadX = 30;
         const int kPadY = 40;
         SkPaint paint;
-        paint.setAlpha(0x20);
+        paint.setAlphaf(0.125f);
         canvas->drawImageRect(fImage, SkRect::MakeIWH(gSize, gSize), &paint);
         canvas->translate(SK_Scalar1 * kPadX / 2,
                           SK_Scalar1 * kPadY / 2);
@@ -172,7 +187,7 @@ protected:
         blackPaint.setColor(SK_ColorBLACK);
         blackPaint.setAntiAlias(true);
 
-        SkFont font(sk_tool_utils::create_portable_typeface(), titleHeight);
+        SkFont font(ToolUtils::create_portable_typeface(), titleHeight);
 
         SkString title;
         title.printf("Bitmap size: %d x %d", gBmpSize, gBmpSize);

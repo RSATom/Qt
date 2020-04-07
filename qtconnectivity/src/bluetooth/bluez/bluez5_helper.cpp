@@ -380,8 +380,8 @@ bool QtBluezDiscoveryManager::registerDiscoveryInterest(const QString &adapterPa
 
     OrgFreedesktopDBusPropertiesInterface *propIface = new OrgFreedesktopDBusPropertiesInterface(
                 QStringLiteral("org.bluez"), adapterPath, QDBusConnection::systemBus());
-    connect(propIface, SIGNAL(PropertiesChanged(QString,QVariantMap,QStringList)),
-            SLOT(PropertiesChanged(QString,QVariantMap,QStringList)));
+    connect(propIface, &OrgFreedesktopDBusPropertiesInterface::PropertiesChanged,
+            this, &QtBluezDiscoveryManager::PropertiesChanged);
     data->propteryListener = propIface;
 
     OrgBluezAdapter1Interface iface(QStringLiteral("org.bluez"), adapterPath,
@@ -444,9 +444,10 @@ void QtBluezDiscoveryManager::InterfacesRemoved(const QDBusObjectPath &object_pa
 
 void QtBluezDiscoveryManager::PropertiesChanged(const QString &interface,
                                                 const QVariantMap &changed_properties,
-                                                const QStringList &invalidated_properties)
+                                                const QStringList &invalidated_properties,
+                                                const QDBusMessage &)
 {
-    Q_UNUSED(invalidated_properties);
+    Q_UNUSED(invalidated_properties)
 
     OrgFreedesktopDBusPropertiesInterface *propIface =
             qobject_cast<OrgFreedesktopDBusPropertiesInterface *>(sender());

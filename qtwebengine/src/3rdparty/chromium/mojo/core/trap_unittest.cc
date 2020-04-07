@@ -511,7 +511,7 @@ TEST_F(TrapTest, TrapDataPipeProducerWritable) {
   EXPECT_EQ(MOJO_RESULT_OK, MojoClose(t));
   EXPECT_EQ(MOJO_RESULT_OK, MojoClose(producer));
   EXPECT_EQ(MOJO_RESULT_OK, MojoClose(consumer));
-};
+}
 
 TEST_F(TrapTest, CloseWatchedDataPipeConsumerHandle) {
   constexpr size_t kTestPipeCapacity = 8;
@@ -1485,6 +1485,10 @@ TEST_F(TrapTest, TriggersRemoveEachOtherWithinEventHandlers) {
   ThreadedRunner runner(base::BindOnce(
       [](MojoHandle b) { WriteMessage(b, kTestMessageToA); }, b));
   runner.Start();
+
+  // To enforce that the two traps run concurrently, wait until the WriteMessage
+  // above has made a readable before firing the readable trap on b.
+  wait_for_a_to_notify.Wait();
 
   WriteMessage(a, kTestMessageToB);
 

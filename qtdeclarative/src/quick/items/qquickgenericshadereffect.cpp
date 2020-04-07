@@ -40,15 +40,32 @@
 #include <private/qquickgenericshadereffect_p.h>
 #include <private/qquickwindow_p.h>
 #include <private/qquickitem_p.h>
-#include <QSignalMapper>
 
 QT_BEGIN_NAMESPACE
 
-// The generic shader effect is used when the scenegraph backend indicates
-// SupportsShaderEffectNode. This, unlike the monolithic and interconnected (e.g.
-// with particles) OpenGL variant, passes most of the work to a scenegraph node
-// created via the adaptation layer, thus allowing different implementation in
-// the backends.
+namespace {
+class IntSignalMapper : public QObject
+{
+    Q_OBJECT
+
+    int value;
+public:
+    explicit IntSignalMapper(int v)
+        : QObject(nullptr), value(v) {}
+
+public Q_SLOTS:
+    void map() { emit mapped(value); }
+
+Q_SIGNALS:
+    void mapped(int);
+};
+} // unnamed namespace
+
+// The generic shader effect is used whenever on the RHI code path, or when the
+// scenegraph backend indicates SupportsShaderEffectNode. This, unlike the
+// monolithic and interconnected (e.g. with particles) OpenGL variant, passes
+// most of the work to a scenegraph node created via the adaptation layer, thus
+// allowing different implementation in the backends.
 
 QQuickGenericShaderEffect::QQuickGenericShaderEffect(QQuickShaderEffect *item, QObject *parent)
     : QObject(parent)
@@ -123,8 +140,8 @@ void QQuickGenericShaderEffect::setBlending(bool enable)
 
 QVariant QQuickGenericShaderEffect::mesh() const
 {
-    return m_mesh ? qVariantFromValue(static_cast<QObject *>(m_mesh))
-                  : qVariantFromValue(m_meshResolution);
+    return m_mesh ? QVariant::fromValue(static_cast<QObject *>(m_mesh))
+                  : QVariant::fromValue(m_meshResolution);
 }
 
 void QQuickGenericShaderEffect::setMesh(const QVariant &mesh)
@@ -254,6 +271,10 @@ QSGNode *QQuickGenericShaderEffect::handleUpdatePaintNode(QSGNode *oldNode, QQui
     if (!node) {
         QSGRenderContext *rc = QQuickWindowPrivate::get(m_item->window())->context;
         node = rc->sceneGraphContext()->createShaderEffectNode(rc, mgr);
+        if (!node) {
+            qWarning("No shader effect node");
+            return nullptr;
+        }
         m_dirty = QSGShaderEffectNode::DirtyShaderAll;
     }
 
@@ -445,7 +466,7 @@ bool QQuickGenericShaderEffect::updateShader(Shader shaderType, const QByteArray
             // provided and monitored like with an application-provided shader.
             QSGGuiThreadShaderEffectManager::ShaderInfo::Variable v;
             v.name = QByteArrayLiteral("source");
-            v.bindPoint = 0;
+            v.bindPoint = 0; // fake
             v.type = texturesSeparate ? QSGGuiThreadShaderEffectManager::ShaderInfo::Texture
                                       : QSGGuiThreadShaderEffectManager::ShaderInfo::Sampler;
             m_shaders[shaderType].shaderInfo.variables.append(v);
@@ -543,15 +564,10 @@ void QQuickGenericShaderEffect::updateShaderVars(Shader shaderType)
             if (!mp.hasNotifySignal())
                 qWarning("ShaderEffect: property '%s' does not have notification method", v.name.constData());
 
-            // Have a QSignalMapper that emits mapped() with an index+type on each property change notify signal.
+            // Have a IntSignalMapper that emits mapped() with an index+type on each property change notify signal.
             auto &sm(m_signalMappers[shaderType][i]);
-            if (!sm.mapper) {
-QT_WARNING_PUSH
-QT_WARNING_DISABLE_DEPRECATED
-                sm.mapper = new QSignalMapper;
-QT_WARNING_POP
-                sm.mapper->setMapping(m_item, i | (shaderType << 16));
-            }
+            if (!sm.mapper)
+                sm.mapper = new IntSignalMapper(i | (shaderType << 16));
             sm.active = true;
             const QByteArray signalName = '2' + mp.notifySignal().methodSignature();
             QObject::connect(m_item, signalName, sm.mapper, SLOT(map()));
@@ -559,7 +575,7 @@ QT_WARNING_POP
         } else {
             // Do not warn for dynamic properties.
             if (!m_item->property(v.name.constData()).isValid())
-                qWarning("ShaderEffect: '%s' does not have a matching property!", v.name.constData());
+                qWarning("ShaderEffect: '%s' does not have a matching property", v.name.constData());
         }
 
         vd.value = m_item->property(v.name.constData());
@@ -661,3 +677,4 @@ void QQuickGenericShaderEffect::markGeometryDirtyAndUpdateIfSupportsAtlas()
 QT_END_NAMESPACE
 
 #include "moc_qquickgenericshadereffect_p.cpp"
+#include "qquickgenericshadereffect.moc"

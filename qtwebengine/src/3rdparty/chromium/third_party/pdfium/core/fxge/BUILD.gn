@@ -24,11 +24,12 @@ jumbo_source_set("fxge") {
     "cfx_color.cpp",
     "cfx_color.h",
     "cfx_defaultrenderdevice.h",
-    "cfx_facecache.cpp",
-    "cfx_facecache.h",
+    "cfx_face.cpp",
+    "cfx_face.h",
     "cfx_folderfontinfo.cpp",
     "cfx_folderfontinfo.h",
     "cfx_font.cpp",
+    "cfx_font.h",
     "cfx_fontcache.cpp",
     "cfx_fontcache.h",
     "cfx_fontmapper.cpp",
@@ -37,6 +38,10 @@ jumbo_source_set("fxge") {
     "cfx_fontmgr.h",
     "cfx_gemodule.cpp",
     "cfx_gemodule.h",
+    "cfx_glyphbitmap.cpp",
+    "cfx_glyphbitmap.h",
+    "cfx_glyphcache.cpp",
+    "cfx_glyphcache.h",
     "cfx_graphstate.cpp",
     "cfx_graphstate.h",
     "cfx_graphstatedata.cpp",
@@ -49,12 +54,12 @@ jumbo_source_set("fxge") {
     "cfx_substfont.h",
     "cfx_unicodeencoding.cpp",
     "cfx_unicodeencoding.h",
-    "cttfontdesc.cpp",
-    "cttfontdesc.h",
     "dib/cfx_bitmapcomposer.cpp",
     "dib/cfx_bitmapcomposer.h",
     "dib/cfx_bitmapstorer.cpp",
     "dib/cfx_bitmapstorer.h",
+    "dib/cfx_cmyk_to_srgb.cpp",
+    "dib/cfx_cmyk_to_srgb.h",
     "dib/cfx_dibbase.cpp",
     "dib/cfx_dibbase.h",
     "dib/cfx_dibitmap.cpp",
@@ -96,10 +101,17 @@ jumbo_source_set("fxge") {
     "fx_font.h",
     "fx_freetype.h",
     "fx_ge_fontmap.cpp",
-    "fx_ge_text.cpp",
+    "render_defines.h",
     "renderdevicedriver_iface.cpp",
     "renderdevicedriver_iface.h",
+    "scoped_font_transform.cpp",
+    "scoped_font_transform.h",
+    "scoped_font_transform.h",
     "systemfontinfo_iface.h",
+    "text_char_pos.cpp",
+    "text_char_pos.h",
+    "text_glyph_pos.cpp",
+    "text_glyph_pos.h",
   ]
 
   configs += [
@@ -155,13 +167,14 @@ jumbo_source_set("fxge") {
     sources += [ "fx_ge_linux.cpp" ]
   }
 
-  if (is_mac) {
+  if (is_mac || is_ios) {
     sources += [
       "apple/apple_int.h",
       "apple/fx_apple_platform.cpp",
       "apple/fx_mac_imp.cpp",
       "apple/fx_quartz_device.cpp",
     ]
+    libs = [ "CoreGraphics.framework" ]
   }
 
   if (is_win) {
@@ -188,13 +201,15 @@ jumbo_source_set("fxge") {
 
 pdfium_unittest_source_set("unittests") {
   sources = [
+    "dib/cfx_cmyk_to_srgb_unittest.cpp",
     "dib/cfx_dibitmap_unittest.cpp",
     "dib/cstretchengine_unittest.cpp",
+    "fx_font_unittest.cpp",
   ]
   deps = [
     ":fxge",
+    "../fpdfapi/page",
     "../fpdfapi/parser",
-    "../fpdfapi/render",
   ]
   pdfium_root_dir = "../../"
 }

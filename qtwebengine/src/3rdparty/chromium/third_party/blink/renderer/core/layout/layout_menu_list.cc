@@ -54,10 +54,11 @@ LayoutMenuList::LayoutMenuList(Element* element)
 
 LayoutMenuList::~LayoutMenuList() = default;
 
-// FIXME: Instead of this hack we should add a ShadowRoot to <select> with no
-// insertion point to prevent children from rendering.
 bool LayoutMenuList::IsChildAllowed(LayoutObject* object,
                                     const ComputedStyle&) const {
+  // For a size=1 <select>, we only render the active option through the
+  // anonymous inner_block_ plus button_text_. We do not allow adding layout
+  // objects for options or optgroups.
   return object->IsAnonymous();
 }
 
@@ -75,7 +76,8 @@ void LayoutMenuList::UpdateInnerStyle() {
   scoped_refptr<ComputedStyle> inner_style =
       ComputedStyle::Clone(inner_block_->StyleRef());
   AdjustInnerStyle(*inner_style);
-  inner_block_->SetStyleInternal(std::move(inner_style));
+  inner_block_->SetModifiedStyleOutsideStyleRecalc(std::move(inner_style),
+                                                   ApplyStyleChanges::kNo);
   // LayoutMenuList::ControlClipRect() depends on inner_block_->ContentsSize().
   SetNeedsPaintPropertyUpdate();
   if (Layer())
@@ -90,12 +92,14 @@ void LayoutMenuList::CreateInnerBlock() {
   }
 
   // Create an anonymous block.
+  LegacyLayout legacy =
+      ForceLegacyLayout() ? LegacyLayout::kForce : LegacyLayout::kAuto;
   DCHECK(!FirstChild());
-  inner_block_ =
-      LayoutBlockFlow::CreateAnonymous(&GetDocument(), CreateInnerStyle());
+  inner_block_ = LayoutBlockFlow::CreateAnonymous(&GetDocument(),
+                                                  CreateInnerStyle(), legacy);
 
   button_text_ =
-      LayoutText::CreateEmptyAnonymous(GetDocument(), MutableStyle());
+      LayoutText::CreateEmptyAnonymous(GetDocument(), Style(), legacy);
   // We need to set the text explicitly though it was specified in the
   // constructor because LayoutText doesn't refer to the text
   // specified in the constructor in a case of re-transforming.
@@ -119,7 +123,7 @@ void LayoutMenuList::AdjustInnerStyle(ComputedStyle& inner_style) const {
   inner_style.SetFlexGrow(1);
   inner_style.SetFlexShrink(1);
   // min-width: 0; is needed for correct shrinking.
-  inner_style.SetMinWidth(Length(0, kFixed));
+  inner_style.SetMinWidth(Length::Fixed(0));
 
   // Use margin:auto instead of align-items:center to get safe centering, i.e.
   // when the content overflows, treat it the same as align-items: flex-start.
@@ -131,22 +135,21 @@ void LayoutMenuList::AdjustInnerStyle(ComputedStyle& inner_style) const {
     inner_style.SetAlignSelfPosition(ItemPosition::kFlexStart);
   }
 
-  Length padding_start = Length(
-      LayoutTheme::GetTheme().PopupInternalPaddingStart(StyleRef()), kFixed);
+  Length padding_start = Length::Fixed(
+      LayoutTheme::GetTheme().PopupInternalPaddingStart(StyleRef()));
   Length padding_end =
-      Length(LayoutTheme::GetTheme().PopupInternalPaddingEnd(
-                 GetFrameView()->GetChromeClient(), StyleRef()),
-             kFixed);
+      Length::Fixed(LayoutTheme::GetTheme().PopupInternalPaddingEnd(
+          GetFrameView()->GetChromeClient(), StyleRef()));
   inner_style.SetPaddingLeft(StyleRef().Direction() == TextDirection::kLtr
                                  ? padding_start
                                  : padding_end);
   inner_style.SetPaddingRight(StyleRef().Direction() == TextDirection::kLtr
                                   ? padding_end
                                   : padding_start);
-  inner_style.SetPaddingTop(Length(
-      LayoutTheme::GetTheme().PopupInternalPaddingTop(StyleRef()), kFixed));
-  inner_style.SetPaddingBottom(Length(
-      LayoutTheme::GetTheme().PopupInternalPaddingBottom(StyleRef()), kFixed));
+  inner_style.SetPaddingTop(Length::Fixed(
+      LayoutTheme::GetTheme().PopupInternalPaddingTop(StyleRef())));
+  inner_style.SetPaddingBottom(Length::Fixed(
+      LayoutTheme::GetTheme().PopupInternalPaddingBottom(StyleRef())));
   inner_style.SetTextAlign(StyleRef().IsLeftToRightDirection()
                                ? ETextAlign::kLeft
                                : ETextAlign::kRight);
@@ -193,7 +196,7 @@ void LayoutMenuList::StyleDidChange(StyleDifference diff,
   if (!inner_block_)
     CreateInnerBlock();
 
-  button_text_->SetStyle(MutableStyle());
+  button_text_->SetStyle(Style());
   UpdateInnerStyle();
   UpdateInnerBlockHeight();
 }
@@ -206,6 +209,11 @@ void LayoutMenuList::UpdateInnerBlockHeight() {
 }
 
 void LayoutMenuList::UpdateOptionsWidth() const {
+  if (ShouldApplySizeContainment()) {
+    options_width_ = 0;
+    return;
+  }
+
   float max_option_width = 0;
 
   for (auto* const option : SelectElement()->GetOptionList()) {
@@ -290,19 +298,19 @@ String LayoutMenuList::GetText() const {
   return button_text_ && !is_empty_ ? button_text_->GetText() : String();
 }
 
-LayoutRect LayoutMenuList::ControlClipRect(
-    const LayoutPoint& additional_offset) const {
+PhysicalRect LayoutMenuList::ControlClipRect(
+    const PhysicalOffset& additional_offset) const {
   // Clip to the intersection of the content box and the content box for the
   // inner box. This will leave room for the arrows which sit in the inner box
   // padding, and if the inner box ever spills out of the outer box, that will
   // get clipped too.
-  LayoutRect outer_box = PhysicalContentBoxRect();
-  outer_box.MoveBy(additional_offset);
+  PhysicalRect outer_box = PhysicalContentBoxRect();
+  outer_box.offset += additional_offset;
 
-  LayoutRect inner_box(
-      additional_offset + inner_block_->Location() +
-          LayoutSize(inner_block_->PaddingLeft(), inner_block_->PaddingTop()),
-      inner_block_->ContentSize());
+  PhysicalRect inner_box(additional_offset + inner_block_->PhysicalLocation() +
+                             PhysicalOffset(inner_block_->PaddingLeft(),
+                                            inner_block_->PaddingTop()),
+                         inner_block_->ContentSize());
 
   return Intersection(outer_box, inner_box);
 }

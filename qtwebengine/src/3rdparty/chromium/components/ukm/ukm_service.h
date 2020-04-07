@@ -9,6 +9,7 @@
 #include <memory>
 #include <vector>
 
+#include "base/gtest_prod_util.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/sequence_checker.h"
@@ -21,6 +22,7 @@
 
 class PrefRegistrySimple;
 class PrefService;
+FORWARD_DECLARE_TEST(ChromeMetricsServiceClientTest, TestRegisterUKMProviders);
 
 namespace metrics {
 class MetricsServiceClient;
@@ -80,7 +82,7 @@ class UkmService : public UkmRecorderImpl {
 
   // Registers the specified |provider| to provide additional metrics into the
   // UKM log. Should be called during MetricsService initialization only.
-  void RegisterMetricsProvider(
+  virtual void RegisterMetricsProvider(
       std::unique_ptr<metrics::MetricsProvider> provider);
 
   // Registers the names of all of the preferences used by UkmService in
@@ -94,7 +96,8 @@ class UkmService : public UkmRecorderImpl {
   friend ::metrics::UkmEGTestHelper;
   friend ::ukm::debug::UkmDebugDataExtractor;
   friend ::ukm::UkmUtilsForTest;
-
+  FRIEND_TEST_ALL_PREFIXES(::ChromeMetricsServiceClientTest,
+                           TestRegisterUKMProviders);
   // Starts metrics client initialization.
   void StartInitTask();
 
@@ -106,10 +109,10 @@ class UkmService : public UkmRecorderImpl {
   void RotateLog();
 
   // Constructs a new Report from available data and stores it in
-  // persisted_logs_.
+  // unsent_log_store_.
   void BuildAndStoreLog();
 
-  // Starts an upload of the next log from persisted_logs_.
+  // Starts an upload of the next log from unsent_log_store_.
   void StartScheduledUpload();
 
   // Called by log_uploader_ when the an upload is completed.
@@ -153,7 +156,7 @@ class UkmService : public UkmRecorderImpl {
 
   // Weak pointers factory used to post task on different threads. All weak
   // pointers managed by this factory have the same lifetime as UkmService.
-  base::WeakPtrFactory<UkmService> self_ptr_factory_;
+  base::WeakPtrFactory<UkmService> self_ptr_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(UkmService);
 };

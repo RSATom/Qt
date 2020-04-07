@@ -5,12 +5,13 @@
 #ifndef THIRD_PARTY_BLINK_PUBLIC_WEB_WEB_TEXT_CHECK_CLIENT_H_
 #define THIRD_PARTY_BLINK_PUBLIC_WEB_WEB_TEXT_CHECK_CLIENT_H_
 
+#include <memory>
+
 #include "third_party/blink/public/platform/web_string.h"
 #include "third_party/blink/public/platform/web_vector.h"
+#include "third_party/blink/public/web/web_text_checking_completion.h"
 
 namespace blink {
-
-class WebTextCheckingCompletion;
 
 class WebTextCheckClient {
  public:
@@ -24,15 +25,15 @@ class WebTextCheckClient {
   // error, then upon return misspelledLength is 0. If optional_suggestions
   // is given, then it will be filled with suggested words (not a cheap step).
   virtual void CheckSpelling(const WebString& text,
-                             int& misspelled_offset,
-                             int& misspelled_length,
+                             size_t& misspelled_offset,
+                             size_t& misspelled_length,
                              WebVector<WebString>* optional_suggestions) {}
 
   // Requests asynchronous spelling and grammar checking, whose result should be
   // returned by passed completion object.
   virtual void RequestCheckingOfText(
       const WebString& text_to_check,
-      WebTextCheckingCompletion* completion_callback) {}
+      std::unique_ptr<WebTextCheckingCompletion> completion_callback) {}
 
  protected:
   virtual ~WebTextCheckClient() = default;

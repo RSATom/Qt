@@ -24,7 +24,7 @@ namespace ui {
 
 class DrmCursor;
 class DrmDisplayHostMananger;
-class DrmOverlayManager;
+class DrmOverlayManagerHost;
 class GpuThreadObserver;
 
 class DrmGpuPlatformSupportHost : public GpuPlatformSupportHost,
@@ -39,9 +39,10 @@ class DrmGpuPlatformSupportHost : public GpuPlatformSupportHost,
       int host_id,
       scoped_refptr<base::SingleThreadTaskRunner> ui_runner,
       scoped_refptr<base::SingleThreadTaskRunner> send_runner,
-      const base::Callback<void(IPC::Message*)>& send_callback) override;
+      base::RepeatingCallback<void(IPC::Message*)> send_callback) override;
   void OnChannelDestroyed(int host_id) override;
   void OnGpuServiceLaunched(
+      int host_id,
       scoped_refptr<base::SingleThreadTaskRunner> ui_runner,
       scoped_refptr<base::SingleThreadTaskRunner> io_runner,
       GpuHostBindInterfaceCallback binder,
@@ -70,12 +71,13 @@ class DrmGpuPlatformSupportHost : public GpuPlatformSupportHost,
                             base::ScopedFD fd) override;
   bool GpuRemoveGraphicsDevice(const base::FilePath& path) override;
 
-  // Methods needed for DrmOverlayManager.
-  // Methods for DrmOverlayManager.
-  void RegisterHandlerForDrmOverlayManager(DrmOverlayManager* handler) override;
+  // Methods needed for DrmOverlayManagerHost.
+  // Methods for DrmOverlayManagerHost.
+  void RegisterHandlerForDrmOverlayManager(
+      DrmOverlayManagerHost* handler) override;
   void UnRegisterHandlerForDrmOverlayManager() override;
 
-  // Services needed by DrmOverlayManager
+  // Services needed by DrmOverlayManagerHost
   bool GpuCheckOverlayCapabilities(
       gfx::AcceleratedWidget widget,
       const OverlaySurfaceCandidateList& new_params) override;
@@ -123,10 +125,10 @@ class DrmGpuPlatformSupportHost : public GpuPlatformSupportHost,
 
   scoped_refptr<base::SingleThreadTaskRunner> ui_runner_;
   scoped_refptr<base::SingleThreadTaskRunner> send_runner_;
-  base::Callback<void(IPC::Message*)> send_callback_;
+  base::RepeatingCallback<void(IPC::Message*)> send_callback_;
 
   DrmDisplayHostManager* display_manager_;  // Not owned.
-  DrmOverlayManager* overlay_manager_;      // Not owned.
+  DrmOverlayManagerHost* overlay_manager_;  // Not owned.
 
   DrmCursor* const cursor_;  // Not owned.
   base::ObserverList<GpuThreadObserver>::Unchecked gpu_thread_observers_;
@@ -138,4 +140,4 @@ class DrmGpuPlatformSupportHost : public GpuPlatformSupportHost,
 
 }  // namespace ui
 
-#endif  // UI_OZONE_GPU_DRM_GPU_PLATFORM_SUPPORT_HOST_H_
+#endif  // UI_OZONE_PLATFORM_DRM_HOST_DRM_GPU_PLATFORM_SUPPORT_HOST_H_

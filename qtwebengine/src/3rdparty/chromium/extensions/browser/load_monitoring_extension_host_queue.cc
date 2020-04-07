@@ -31,8 +31,7 @@ LoadMonitoringExtensionHostQueue::LoadMonitoringExtensionHostQueue(
       num_queued_(0u),
       num_loaded_(0u),
       max_awaiting_loading_(0u),
-      max_active_loading_(0u),
-      weak_ptr_factory_(this) {}
+      max_active_loading_(0u) {}
 
 LoadMonitoringExtensionHostQueue::LoadMonitoringExtensionHostQueue(
     std::unique_ptr<ExtensionHostQueue> delegate)
@@ -49,8 +48,9 @@ void LoadMonitoringExtensionHostQueue::StartMonitoring() {
   }
   started_ = true;
   base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
-      FROM_HERE, base::Bind(&LoadMonitoringExtensionHostQueue::FinishMonitoring,
-                            weak_ptr_factory_.GetWeakPtr()),
+      FROM_HERE,
+      base::BindOnce(&LoadMonitoringExtensionHostQueue::FinishMonitoring,
+                     weak_ptr_factory_.GetWeakPtr()),
       monitor_time_);
 }
 

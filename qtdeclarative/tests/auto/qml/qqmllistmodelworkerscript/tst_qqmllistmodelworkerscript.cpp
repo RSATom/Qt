@@ -29,7 +29,7 @@
 #include <QtQuick/private/qquickitem_p.h>
 #include <QtQuick/private/qquicktext_p.h>
 #include <QtQml/private/qqmlengine_p.h>
-#include <QtQml/private/qqmllistmodel_p.h>
+#include <QtQmlModels/private/qqmllistmodel_p.h>
 #include <QtQml/private/qqmlexpression_p.h>
 #include <QQmlComponent>
 
@@ -162,7 +162,7 @@ QQuickItem *tst_qqmllistmodelworkerscript::createWorkerTest(QQmlEngine *eng, QQm
     QQuickItem *item = qobject_cast<QQuickItem*>(component->create());
     QQmlEngine::setContextForObject(model, eng->rootContext());
     if (item)
-        item->setProperty("model", qVariantFromValue(model));
+        item->setProperty("model", QVariant::fromValue(model));
     return item;
 }
 

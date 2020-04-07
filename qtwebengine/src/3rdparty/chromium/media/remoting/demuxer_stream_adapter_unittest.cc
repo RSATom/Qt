@@ -7,6 +7,7 @@
 #include <memory>
 #include <vector>
 
+#include "base/bind.h"
 #include "base/callback_helpers.h"
 #include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
@@ -34,8 +35,7 @@ class MockDemuxerStreamAdapter {
       const std::string& name,
       DemuxerStream* demuxer_stream,
       mojom::RemotingDataStreamSenderPtrInfo stream_sender_info,
-      mojo::ScopedDataPipeProducerHandle producer_handle)
-      : weak_factory_(this) {
+      mojo::ScopedDataPipeProducerHandle producer_handle) {
     rpc_broker_.reset(
         new RpcBroker(base::Bind(&MockDemuxerStreamAdapter::OnSendMessageToSink,
                                  weak_factory_.GetWeakPtr())));
@@ -103,7 +103,7 @@ class MockDemuxerStreamAdapter {
 
   std::vector<StopTrigger> errors_;
 
-  base::WeakPtrFactory<MockDemuxerStreamAdapter> weak_factory_;
+  base::WeakPtrFactory<MockDemuxerStreamAdapter> weak_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(MockDemuxerStreamAdapter);
 };

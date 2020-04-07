@@ -48,7 +48,7 @@ void InstanceIDDeleteTokenRequestHandler::BuildRequestBody(std::string* body){
   BuildFormEncoding(kSenderKey, authorized_entity_, body);
   BuildFormEncoding(kScopeKey, scope_, body);
   BuildFormEncoding(kExtraScopeKey, scope_, body);
-  BuildFormEncoding(kGMSVersionKey, base::IntToString(gcm_version_), body);
+  BuildFormEncoding(kGMSVersionKey, base::NumberToString(gcm_version_), body);
 }
 
 UnregistrationRequest::Status
@@ -61,19 +61,10 @@ InstanceIDDeleteTokenRequestHandler::ParseResponse(
 }
 
 void InstanceIDDeleteTokenRequestHandler::ReportUMAs(
-    UnregistrationRequest::Status status,
-    int retry_count,
-    base::TimeDelta complete_time) {
+    UnregistrationRequest::Status status) {
   UMA_HISTOGRAM_ENUMERATION("InstanceID.DeleteToken.RequestStatus",
                             status,
                             UnregistrationRequest::UNREGISTRATION_STATUS_COUNT);
-
-  // Other UMAs are only reported when the request succeeds.
-  if (status != UnregistrationRequest::SUCCESS)
-    return;
-
-  UMA_HISTOGRAM_COUNTS_1M("InstanceID.DeleteToken.RetryCount", retry_count);
-  UMA_HISTOGRAM_TIMES("InstanceID.DeleteToken.CompleteTime", complete_time);
 }
 
 }  // namespace gcm

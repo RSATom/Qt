@@ -32,10 +32,10 @@
 #include "third_party/blink/renderer/core/frame/dom_window.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/scroll/scrollable_area.h"
-#include "third_party/blink/renderer/platform/bindings/trace_wrapper_member.h"
 #include "third_party/blink/renderer/platform/heap/handle.h"
 #include "third_party/blink/renderer/platform/supplementable.h"
 #include "third_party/blink/renderer/platform/wtf/assertions.h"
+#include "third_party/blink/renderer/platform/wtf/casting.h"
 #include "third_party/blink/renderer/platform/wtf/forward.h"
 
 #include <memory>
@@ -61,7 +61,6 @@ class MessageEvent;
 class Modulator;
 class Navigator;
 class Screen;
-class ScriptedTaskQueueController;
 class ScriptPromise;
 class ScriptState;
 class ScrollToOptions;
@@ -99,16 +98,13 @@ class CORE_EXPORT LocalDOMWindow final : public DOMWindow,
   static Document* CreateDocument(const String& mime_type,
                                   const DocumentInit&,
                                   bool force_xhtml);
-  static LocalDOMWindow* Create(LocalFrame& frame) {
-    return MakeGarbageCollected<LocalDOMWindow>(frame);
-  }
 
   static LocalDOMWindow* From(const ScriptState*);
 
   explicit LocalDOMWindow(LocalFrame&);
   ~LocalDOMWindow() override;
 
-  LocalFrame* GetFrame() const { return ToLocalFrame(DOMWindow::GetFrame()); }
+  LocalFrame* GetFrame() const { return To<LocalFrame>(DOMWindow::GetFrame()); }
 
   void Trace(blink::Visitor*) override;
 
@@ -221,14 +217,14 @@ class CORE_EXPORT LocalDOMWindow final : public DOMWindow,
   // Acessibility Object Model
   ScriptPromise getComputedAccessibleNode(ScriptState*, Element*);
 
-  ScriptedTaskQueueController* taskQueue() const;
-
   // WebKit animation extensions
   int requestAnimationFrame(V8FrameRequestCallback*);
   int webkitRequestAnimationFrame(V8FrameRequestCallback*);
   void cancelAnimationFrame(int id);
+  int requestPostAnimationFrame(V8FrameRequestCallback*);
+  void cancelPostAnimationFrame(int id);
 
-  // https://html.spec.whatwg.org/#windoworworkerglobalscope-mixin
+  // https://html.spec.whatwg.org/C/#windoworworkerglobalscope-mixin
   void queueMicrotask(V8VoidFunction*);
 
   // Idle callback extensions
@@ -249,19 +245,19 @@ class CORE_EXPORT LocalDOMWindow final : public DOMWindow,
 
   bool isSecureContext() const;
 
-  DEFINE_ATTRIBUTE_EVENT_LISTENER(animationend, kAnimationend);
-  DEFINE_ATTRIBUTE_EVENT_LISTENER(animationiteration, kAnimationiteration);
-  DEFINE_ATTRIBUTE_EVENT_LISTENER(animationstart, kAnimationstart);
-  DEFINE_ATTRIBUTE_EVENT_LISTENER(search, kSearch);
-  DEFINE_ATTRIBUTE_EVENT_LISTENER(transitionend, kTransitionend);
+  DEFINE_ATTRIBUTE_EVENT_LISTENER(animationend, kAnimationend)
+  DEFINE_ATTRIBUTE_EVENT_LISTENER(animationiteration, kAnimationiteration)
+  DEFINE_ATTRIBUTE_EVENT_LISTENER(animationstart, kAnimationstart)
+  DEFINE_ATTRIBUTE_EVENT_LISTENER(search, kSearch)
+  DEFINE_ATTRIBUTE_EVENT_LISTENER(transitionend, kTransitionend)
 
-  DEFINE_ATTRIBUTE_EVENT_LISTENER(webkitanimationstart, kWebkitAnimationStart);
+  DEFINE_ATTRIBUTE_EVENT_LISTENER(webkitanimationstart, kWebkitAnimationStart)
   DEFINE_ATTRIBUTE_EVENT_LISTENER(webkitanimationiteration,
-                                  kWebkitAnimationIteration);
-  DEFINE_ATTRIBUTE_EVENT_LISTENER(webkitanimationend, kWebkitAnimationEnd);
-  DEFINE_ATTRIBUTE_EVENT_LISTENER(webkittransitionend, kWebkitTransitionEnd);
+                                  kWebkitAnimationIteration)
+  DEFINE_ATTRIBUTE_EVENT_LISTENER(webkitanimationend, kWebkitAnimationEnd)
+  DEFINE_ATTRIBUTE_EVENT_LISTENER(webkittransitionend, kWebkitTransitionEnd)
 
-  DEFINE_ATTRIBUTE_EVENT_LISTENER(orientationchange, kOrientationchange);
+  DEFINE_ATTRIBUTE_EVENT_LISTENER(orientationchange, kOrientationchange)
 
   void RegisterEventListenerObserver(EventListenerObserver*);
 
@@ -282,9 +278,8 @@ class CORE_EXPORT LocalDOMWindow final : public DOMWindow,
 
   void DispatchPostMessage(
       MessageEvent* event,
-      scoped_refptr<UserGestureToken> token,
       scoped_refptr<const SecurityOrigin> intended_target_origin,
-      std::unique_ptr<SourceLocation>);
+      std::unique_ptr<SourceLocation> location);
 
   void DispatchMessageEventWithOriginCheck(
       const SecurityOrigin* intended_target_origin,
@@ -344,7 +339,7 @@ class CORE_EXPORT LocalDOMWindow final : public DOMWindow,
   // Return the viewport size including scrollbars.
   IntSize GetViewportSize() const;
 
-  TraceWrapperMember<Document> document_;
+  Member<Document> document_;
   Member<DOMVisualViewport> visualViewport_;
   TaskRunnerTimer<LocalDOMWindow> unused_preloads_timer_;
 
@@ -359,14 +354,14 @@ class CORE_EXPORT LocalDOMWindow final : public DOMWindow,
   mutable Member<BarProp> scrollbars_;
   mutable Member<BarProp> statusbar_;
   mutable Member<BarProp> toolbar_;
-  mutable TraceWrapperMember<Navigator> navigator_;
+  mutable Member<Navigator> navigator_;
   mutable Member<StyleMedia> media_;
-  mutable TraceWrapperMember<CustomElementRegistry> custom_elements_;
+  mutable Member<CustomElementRegistry> custom_elements_;
   // We store reference to Modulator here to have it TraceWrapper-ed.
   // This is wrong, as Modulator is per-context, where as LocalDOMWindow is
   // shared among context. However, this *works* as Modulator is currently only
   // enabled in the main world,
-  TraceWrapperMember<Modulator> modulator_;
+  Member<Modulator> modulator_;
   Member<External> external_;
 
   String status_;
@@ -381,11 +376,12 @@ class CORE_EXPORT LocalDOMWindow final : public DOMWindow,
   mutable Member<TrustedTypePolicyFactory> trusted_types_;
 };
 
-DEFINE_TYPE_CASTS(LocalDOMWindow,
-                  DOMWindow,
-                  x,
-                  x->IsLocalDOMWindow(),
-                  x.IsLocalDOMWindow());
+template <>
+struct DowncastTraits<LocalDOMWindow> {
+  static bool AllowFrom(const DOMWindow& window) {
+    return window.IsLocalDOMWindow();
+  }
+};
 
 inline String LocalDOMWindow::status() const {
   return status_;

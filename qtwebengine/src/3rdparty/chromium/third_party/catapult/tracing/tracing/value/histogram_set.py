@@ -4,7 +4,8 @@
 
 import collections
 
-from tracing.value import histogram as histogram_module
+from tracing.value import histogram as histogram
+from tracing.value import histogram_deserializer
 from tracing.value.diagnostics import all_diagnostics
 from tracing.value.diagnostics import diagnostic
 from tracing.value.diagnostics import diagnostic_ref
@@ -17,9 +18,14 @@ class HistogramSet(object):
     for hist in histograms:
       self.AddHistogram(hist)
 
+  def CreateHistogram(self, name, unit, samples, **options):
+    hist = histogram.Histogram.Create(name, unit, samples, **options)
+    self.AddHistogram(hist)
+    return hist
+
   @property
   def shared_diagnostics(self):
-    return self._shared_diagnostics_by_guid.values()
+    return list(self._shared_diagnostics_by_guid.values())
 
   def RemoveOrphanedDiagnostics(self):
     orphans = set(self._shared_diagnostics_by_guid.keys())
@@ -53,8 +59,8 @@ class HistogramSet(object):
       hist.diagnostics[name] = diag
 
   def GetFirstHistogram(self):
-    for histogram in self._histograms:
-      return histogram
+    for hist in self._histograms:
+      return hist
 
   def GetHistogramsNamed(self, name):
     return [h for h in self if h.name == name]
@@ -77,21 +83,34 @@ class HistogramSet(object):
     for hist in self._histograms:
       yield hist
 
-  def ImportDicts(self, dicts):
-    for d in dicts:
-      if 'type' in d:
-        # TODO(benjhayden): Forget about TagMaps in 2019Q2.
-        if d['type'] == 'TagMap':
-          continue
+  def Deserialize(self, data):
+    for hist in histogram_deserializer.Deserialize(data):
+      self.AddHistogram(hist)
 
-        assert d['type'] in all_diagnostics.GetDiagnosticTypenames(), (
-            'Unrecognized shared diagnostic type ' + d['type'])
-        diag = diagnostic.Diagnostic.FromDict(d)
-        self._shared_diagnostics_by_guid[d['guid']] = diag
-      else:
-        hist = histogram_module.Histogram.FromDict(d)
-        hist.diagnostics.ResolveSharedDiagnostics(self)
-        self.AddHistogram(hist)
+  def ImportDicts(self, dicts):
+    # The new HistogramSet JSON format is an array of at least 3 arrays.
+    if isinstance(dicts, list) and dicts and isinstance(dicts[0], list):
+      self.Deserialize(dicts)
+      return
+
+    # The original HistogramSet JSON format was a flat array of objects.
+    for d in dicts:
+      self.ImportLegacyDict(d)
+
+  def ImportLegacyDict(self, d):
+    if 'type' in d:
+      # TODO(benjhayden): Forget about TagMaps in 2019Q2.
+      if d['type'] == 'TagMap':
+        return
+
+      assert d['type'] in all_diagnostics.GetDiagnosticTypenames(), (
+          'Unrecognized shared diagnostic type ' + d['type'])
+      diag = diagnostic.Diagnostic.FromDict(d)
+      self._shared_diagnostics_by_guid[d['guid']] = diag
+    else:
+      hist = histogram.Histogram.FromDict(d)
+      hist.diagnostics.ResolveSharedDiagnostics(self)
+      self.AddHistogram(hist)
 
   def AsDicts(self):
     dcts = []

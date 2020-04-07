@@ -345,6 +345,13 @@ void GraphicsHelperES2::deleteSync(void *)
     qWarning() << "Fences are not supported by OpenGL ES 2.0 (since OpenGL ES 3.0)";
 }
 
+void GraphicsHelperES2::rasterMode(GLenum faceMode, GLenum rasterMode)
+{
+    Q_UNUSED(faceMode);
+    Q_UNUSED(rasterMode);
+    qWarning() << "glPolyonMode is not supported with OpenGL ES";
+}
+
 void GraphicsHelperES2::blendEquation(GLenum mode)
 {
     m_funcs->glBlendEquation(mode);
@@ -394,6 +401,11 @@ void GraphicsHelperES2::depthMask(GLenum mode)
     m_funcs->glDepthMask(mode);
 }
 
+void GraphicsHelperES2::depthRange(GLdouble nearValue, GLdouble farValue)
+{
+    m_funcs->glDepthRangef(static_cast<float>(nearValue), static_cast<float>(farValue));
+}
+
 void GraphicsHelperES2::frontFace(GLenum mode)
 {
     m_funcs->glFrontFace(mode);
@@ -433,6 +445,21 @@ void GraphicsHelperES2::bindFrameBufferObject(GLuint frameBufferId, FBOBindMode 
     // For ES2 the spec states for target: The symbolic constant must be GL_FRAMEBUFFER
     // so mode is ignored and is always set to GL_FRAMEBUFFER
     m_funcs->glBindFramebuffer(GL_FRAMEBUFFER, frameBufferId);
+}
+
+void GraphicsHelperES2::bindImageTexture(GLuint imageUnit, GLuint texture,
+                                         GLint mipLevel, GLboolean layered,
+                                         GLint layer, GLenum access, GLenum format)
+{
+    Q_UNUSED(imageUnit)
+    Q_UNUSED(texture)
+    Q_UNUSED(mipLevel)
+    Q_UNUSED(layered)
+    Q_UNUSED(layer)
+    Q_UNUSED(access)
+    Q_UNUSED(format)
+    qWarning() << "Shader Images are not supported by ES 2.0 (since ES 3.1)";
+
 }
 
 GLuint GraphicsHelperES2::boundFrameBufferObject()

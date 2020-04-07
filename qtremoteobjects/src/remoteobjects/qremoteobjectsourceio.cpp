@@ -161,7 +161,7 @@ void QRemoteObjectSourceIo::onServerDisconnect(QObject *conn)
 
     qRODebug(this) << "OnServerDisconnect";
 
-    Q_FOREACH (QRemoteObjectRootSource *root, m_sourceRoots)
+    for (QRemoteObjectRootSource *root : qAsConst(m_sourceRoots))
         root->removeListener(connection);
 
     const QUrl location = m_registryMapping.value(connection);
@@ -220,7 +220,7 @@ void QRemoteObjectSourceIo::onServerRead(QObject *conn)
         {
             int call, index, serialId, propertyId;
             deserializeInvokePacket(connection->stream(), call, index, m_rxArgs, serialId, propertyId);
-            if (m_rxName == QStringLiteral("Registry") && !m_registryMapping.contains(connection)) {
+            if (m_rxName == QLatin1String("Registry") && !m_registryMapping.contains(connection)) {
                 const QRemoteObjectSourceLocation loc = m_rxArgs.first().value<QRemoteObjectSourceLocation>();
                 m_registryMapping[connection] = loc.second.hostUrl;
             }
@@ -313,7 +313,8 @@ void QRemoteObjectSourceIo::newConnection(IoDeviceBase *conn)
     conn->write(m_packet.array, m_packet.size);
 
     QRemoteObjectPackets::ObjectInfoList infos;
-    foreach (auto remoteObject, m_sourceRoots) {
+    infos.reserve(m_sourceRoots.size());
+    for (auto remoteObject : qAsConst(m_sourceRoots)) {
         infos << QRemoteObjectPackets::ObjectInfo{remoteObject->m_api->name(), remoteObject->m_api->typeName(), remoteObject->m_api->objectSignature()};
     }
     serializeObjectListPacket(m_packet, infos);

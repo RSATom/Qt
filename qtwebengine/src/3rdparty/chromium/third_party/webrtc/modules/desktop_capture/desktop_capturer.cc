@@ -8,12 +8,12 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#include <cstring>
-
 #include "modules/desktop_capture/desktop_capturer.h"
 
 #include <stdlib.h>
 #include <string.h>
+
+#include <cstring>
 #include <utility>
 
 #include "modules/desktop_capture/desktop_capture_options.h"
@@ -66,7 +66,7 @@ std::unique_ptr<DesktopCapturer> DesktopCapturer::CreateScreenCapturer(
   return capturer;
 }
 
-#if defined(WEBRTC_USE_PIPEWIRE) || defined(USE_X11)
+#if defined(WEBRTC_USE_PIPEWIRE) || defined(WEBRTC_USE_X11)
 bool DesktopCapturer::IsRunningUnderWayland() {
   const char* xdg_session_type = getenv("XDG_SESSION_TYPE");
   if (!xdg_session_type || strncmp(xdg_session_type, "wayland", 7) != 0)
@@ -77,6 +77,6 @@ bool DesktopCapturer::IsRunningUnderWayland() {
 
   return true;
 }
-#endif  // defined(WEBRTC_USE_PIPEWIRE) || defined(USE_X11)
+#endif  // defined(WEBRTC_USE_PIPEWIRE) || defined(WEBRTC_USE_X11)
 
 }  // namespace webrtc

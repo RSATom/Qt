@@ -59,7 +59,8 @@ int optVerboseLevel = 1;
 
 bool isBuildDirectory(Platform platform, const QString &dirName)
 {
-    return (platform & WindowsBased) && (dirName == QLatin1String("debug") || dirName == QLatin1String("release"));
+    return (platform.testFlag(Msvc) || platform.testFlag(ClangMsvc))
+        && (dirName == QLatin1String("debug") || dirName == QLatin1String("release"));
 }
 
 // Create a symbolic link by changing to the source directory to make sure the
@@ -112,7 +113,7 @@ QStringList findSharedLibraries(const QDir &directory, Platform platform,
     QString nameFilter = prefix;
     if (nameFilter.isEmpty())
         nameFilter += QLatin1Char('*');
-    if (debugMatchMode == MatchDebug && (platform & WindowsBased))
+    if (debugMatchMode == MatchDebug && platformHasDebugSuffix(platform))
         nameFilter += QLatin1Char('d');
     nameFilter += sharedLibrarySuffix(platform);
     QStringList result;
@@ -794,14 +795,16 @@ static inline MsvcDebugRuntimeResult checkMsvcDebugRuntime(const QStringList &de
     for (const QString &lib : dependentLibraries) {
         int pos = 0;
         if (lib.startsWith(QLatin1String("MSVCR"), Qt::CaseInsensitive)
-            || lib.startsWith(QLatin1String("MSVCP"), Qt::CaseInsensitive)) {
-            pos = 5;
-        } else if (lib.startsWith(QLatin1String("VCRUNTIME"), Qt::CaseInsensitive)) {
-            pos = 9;
+            || lib.startsWith(QLatin1String("MSVCP"), Qt::CaseInsensitive)
+            || lib.startsWith(QLatin1String("VCRUNTIME"), Qt::CaseInsensitive)) {
+            int lastDotPos = lib.lastIndexOf(QLatin1Char('.'));
+            pos = -1 == lastDotPos ? 0 : lastDotPos - 1;
         }
-        if (pos && lib.at(pos).isDigit()) {
-            for (++pos; lib.at(pos).isDigit(); ++pos)
-                ;
+
+        if (lib.contains(QLatin1String("_app"), Qt::CaseInsensitive))
+            pos -= 4;
+
+        if (pos) {
             return lib.at(pos).toLower() == QLatin1Char('d')
                 ? MsvcDebugRuntime : MsvcReleaseRuntime;
         }
@@ -930,7 +933,7 @@ QString findD3dCompiler(Platform platform, const QString &qtBinDir, unsigned wor
     const QString kitDir = QString::fromLocal8Bit(qgetenv("WindowsSdkDir"));
     if (!kitDir.isEmpty()) {
         QString redistDirPath = QDir::cleanPath(kitDir) + QStringLiteral("/Redist/D3D/");
-        if (platform & ArmBased) {
+        if (platform.testFlag(ArmBased)) {
             redistDirPath += QStringLiteral("arm");
         } else {
             redistDirPath += wordSize == 32 ? QStringLiteral("x86") : QStringLiteral("x64");
@@ -953,7 +956,7 @@ QString findD3dCompiler(Platform platform, const QString &qtBinDir, unsigned wor
             return fi.absoluteFilePath();
     }
     // Find the latest D3D compiler DLL in path (Windows 8.1 has d3dcompiler_47).
-    if (platform & IntelBased) {
+    if (platform.testFlag(IntelBased)) {
         QString errorMessage;
         unsigned detectedWordSize;
         for (const QString &candidate : qAsConst(candidateVersions)) {
@@ -991,18 +994,21 @@ bool patchQtCore(const QString &path, QString *errorMessage)
         std::wcout << "Patching " << QFileInfo(path).fileName() << "...\n";
 
     QFile file(path);
-    if (!file.open(QIODevice::ReadWrite)) {
+    if (!file.open(QIODevice::ReadOnly)) {
         *errorMessage = QString::fromLatin1("Unable to patch %1: %2").arg(
                     QDir::toNativeSeparators(path), file.errorString());
         return false;
     }
-    QByteArray content = file.readAll();
+    const QByteArray oldContent = file.readAll();
 
-    if (content.isEmpty()) {
+    if (oldContent.isEmpty()) {
         *errorMessage = QString::fromLatin1("Unable to patch %1: Could not read file content").arg(
                     QDir::toNativeSeparators(path));
         return false;
     }
+    file.close();
+
+    QByteArray content = oldContent;
 
     QByteArray prfxpath("qt_prfxpath=");
     int startPos = content.indexOf(prfxpath);
@@ -1023,11 +1029,13 @@ bool patchQtCore(const QString &path, QString *errorMessage)
     QByteArray replacement = QByteArray(endPos - startPos, char(0));
     replacement[0] = '.';
     content.replace(startPos, endPos - startPos, replacement);
+    if (content == oldContent)
+        return true;
 
-    if (!file.seek(0)
-            || (file.write(content) != content.size())) {
-        *errorMessage = QString::fromLatin1("Unable to patch %1: Could not write to file").arg(
-                    QDir::toNativeSeparators(path));
+    if (!file.open(QIODevice::WriteOnly)
+        || (file.write(content) != content.size())) {
+        *errorMessage = QString::fromLatin1("Unable to patch %1: Could not write to file: %2").arg(
+                    QDir::toNativeSeparators(path), file.errorString());
         return false;
     }
     return true;

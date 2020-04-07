@@ -7,8 +7,8 @@
 #include "ash/shell.h"
 #include "ash/wm/tablet_mode/tablet_mode_controller.h"
 #include "base/memory/singleton.h"
-#include "components/arc/arc_bridge_service.h"
 #include "components/arc/arc_browser_context_keyed_service_factory_base.h"
+#include "components/arc/session/arc_bridge_service.h"
 #include "ui/display/display.h"
 #include "ui/display/screen.h"
 
@@ -98,9 +98,8 @@ void ArcRotationLockBridge::SendRotationLockState() {
     DCHECK(found);
   }
 
-  bool in_tablet_mode = ash::Shell::Get()
-                            ->tablet_mode_controller()
-                            ->IsTabletModeWindowManagerEnabled();
+  bool in_tablet_mode =
+      ash::Shell::Get()->tablet_mode_controller()->InTabletMode();
   bool accelerometer_active = in_tablet_mode
                                   ? !ash::Shell::Get()
                                          ->screen_orientation_controller()

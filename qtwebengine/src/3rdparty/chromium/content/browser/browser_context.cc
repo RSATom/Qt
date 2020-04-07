@@ -25,6 +25,7 @@
 #include "base/macros.h"
 #include "base/memory/ptr_util.h"
 #include "base/memory/weak_ptr.h"
+#include "base/metrics/field_trial_params.h"
 #include "base/no_destructor.h"
 #include "base/rand_util.h"
 #include "base/supports_user_data.h"
@@ -35,10 +36,11 @@
 #include "build/build_config.h"
 #include "content/browser/blob_storage/chrome_blob_storage_context.h"
 #include "content/browser/browsing_data/browsing_data_remover_impl.h"
+#include "content/browser/child_process_security_policy_impl.h"
 #include "content/browser/content_service_delegate_impl.h"
 #include "content/browser/download/download_manager_impl.h"
-#include "content/browser/indexed_db/indexed_db_context_impl.h"
 #include "content/browser/loader/resource_dispatcher_host_impl.h"
+#include "content/browser/media/browser_feature_provider.h"
 #include "content/browser/permissions/permission_controller_impl.h"
 #include "content/browser/push_messaging/push_messaging_router.h"
 #include "content/browser/service_manager/common_browser_interfaces.h"
@@ -48,17 +50,20 @@
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/content_browser_client.h"
+#include "content/public/browser/indexed_db_context.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/shared_cors_origin_access_list.h"
 #include "content/public/browser/site_instance.h"
+#include "content/public/browser/system_connector.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/common/service_manager_connection.h"
 #include "content/public/common/service_names.mojom.h"
+#include "media/base/media_switches.h"
+#include "media/capabilities/in_memory_video_decode_stats_db_impl.h"
 #include "media/capabilities/video_decode_stats_db_impl.h"
 #include "media/mojo/services/video_decode_perf_history.h"
+#include "mojo/public/cpp/bindings/remote.h"
 #include "net/cookies/cookie_store.h"
-#include "net/ssl/channel_id_service.h"
-#include "net/ssl/channel_id_store.h"
 #include "net/url_request/url_request_context.h"
 #include "net/url_request/url_request_context_getter.h"
 #include "services/content/public/mojom/constants.mojom.h"
@@ -223,7 +228,7 @@ void SaveSessionStateOnIOThread(
 }
 
 void SaveSessionStateOnIndexedDBThread(
-    scoped_refptr<IndexedDBContextImpl> indexed_db_context) {
+    scoped_refptr<IndexedDBContext> indexed_db_context) {
   indexed_db_context->SetForceKeepSessionState();
 }
 
@@ -335,8 +340,8 @@ void BrowserContext::AsyncObliterateStoragePartition(
     BrowserContext* browser_context,
     const GURL& site,
     const base::Closure& on_gc_required) {
-  GetStoragePartitionMap(browser_context)->AsyncObliterate(site,
-                                                           on_gc_required);
+  GetStoragePartitionMap(browser_context)
+      ->AsyncObliterate(site, on_gc_required);
 }
 
 // static
@@ -348,8 +353,7 @@ void BrowserContext::GarbageCollectStoragePartitions(
       ->GarbageCollect(std::move(active_paths), done);
 }
 
-DownloadManager* BrowserContext::GetDownloadManager(
-    BrowserContext* context) {
+DownloadManager* BrowserContext::GetDownloadManager(BrowserContext* context) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   if (!context->GetUserData(kDownloadManagerKeyName)) {
     DownloadManager* download_manager = new DownloadManagerImpl(context);
@@ -427,8 +431,8 @@ StoragePartition* BrowserContext::GetStoragePartition(
 
   if (site_instance) {
     GetContentClient()->browser()->GetStoragePartitionConfigForSite(
-        browser_context, site_instance->GetSiteURL(), true,
-        &partition_domain, &partition_name, &in_memory);
+        browser_context, site_instance->GetSiteURL(), true, &partition_domain,
+        &partition_name, &in_memory);
   }
 
   return GetStoragePartitionFromConfig(browser_context, partition_domain,
@@ -509,12 +513,13 @@ void BrowserContext::DeliverPushMessage(
     BrowserContext* browser_context,
     const GURL& origin,
     int64_t service_worker_registration_id,
+    const std::string& message_id,
     base::Optional<std::string> payload,
-    const base::Callback<void(mojom::PushDeliveryStatus)>& callback) {
+    const base::Callback<void(blink::mojom::PushDeliveryStatus)>& callback) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   PushMessagingRouter::DeliverMessage(browser_context, origin,
                                       service_worker_registration_id,
-                                      std::move(payload), callback);
+                                      message_id, std::move(payload), callback);
 }
 
 // static
@@ -525,6 +530,14 @@ void BrowserContext::NotifyWillBeDestroyed(BrowserContext* browser_context) {
   if (browser_context->was_notify_will_be_destroyed_called_)
     return;
   browser_context->was_notify_will_be_destroyed_called_ = true;
+
+  // Stop the ServiceManagerConnection from handling any new incoming requests
+  // before we tear anything down. This prevents races at shutdown.
+  BrowserContextServiceManagerConnectionHolder* connection_holder =
+      static_cast<BrowserContextServiceManagerConnectionHolder*>(
+          browser_context->GetUserData(kServiceManagerConnection));
+  if (connection_holder)
+    connection_holder->service_manager_connection()->Stop();
 
   // Subclasses of BrowserContext may expect there to be no more
   // RenderProcessHosts using them by the time this function returns. We
@@ -537,9 +550,6 @@ void BrowserContext::NotifyWillBeDestroyed(BrowserContext* browser_context) {
   // because it's possible for someone to call
   // |GetServiceManagerConnectionFor()| between now and actual BrowserContext
   // destruction.
-  BrowserContextServiceManagerConnectionHolder* connection_holder =
-      static_cast<BrowserContextServiceManagerConnectionHolder*>(
-          browser_context->GetUserData(kServiceManagerConnection));
   if (connection_holder)
     connection_holder->DestroyRunningServices();
 
@@ -561,6 +571,14 @@ void BrowserContext::NotifyWillBeDestroyed(BrowserContext* browser_context) {
       host->DisableKeepAliveRefCount();
     }
   }
+
+  // Clean up any isolated origins and other security state associated with this
+  // BrowserContext.  This should be safe now that all RenderProcessHosts are
+  // destroyed, since future navigations or security decisions shouldn't ever
+  // need to consult these isolated origins and other security state.
+  ChildProcessSecurityPolicyImpl* policy =
+      ChildProcessSecurityPolicyImpl::GetInstance();
+  policy->RemoveStateForBrowserContext(*browser_context);
 }
 
 void BrowserContext::EnsureResourceContextInitialized(BrowserContext* context) {
@@ -588,7 +606,6 @@ void BrowserContext::SaveSessionState(BrowserContext* browser_context) {
 
   if (BrowserThread::IsThreadInitialized(BrowserThread::IO)) {
     scoped_refptr<net::URLRequestContextGetter> context_getter;
-    // Channel ID isn't supported with network service.
     if (!base::FeatureList::IsEnabled(network::features::kNetworkService))
       context_getter = storage_partition->GetURLRequestContext();
     base::PostTaskWithTraits(
@@ -606,16 +623,12 @@ void BrowserContext::SaveSessionState(BrowserContext* browser_context) {
           storage_partition->GetDOMStorageContext());
   dom_storage_context_proxy->SetForceKeepSessionState();
 
-  IndexedDBContextImpl* indexed_db_context_impl =
-      static_cast<IndexedDBContextImpl*>(
-        storage_partition->GetIndexedDBContext());
-  // No task runner in unit tests.
-  if (indexed_db_context_impl->TaskRunner()) {
-    indexed_db_context_impl->TaskRunner()->PostTask(
-        FROM_HERE,
-        base::BindOnce(&SaveSessionStateOnIndexedDBThread,
-                       base::WrapRefCounted(indexed_db_context_impl)));
-  }
+  scoped_refptr<IndexedDBContext> indexed_db_context =
+      storage_partition->GetIndexedDBContext();
+  IndexedDBContext* const indexed_db_context_ptr = indexed_db_context.get();
+  indexed_db_context_ptr->TaskRunner()->PostTask(
+      FROM_HERE, base::BindOnce(&SaveSessionStateOnIndexedDBThread,
+                                std::move(indexed_db_context)));
 }
 
 void BrowserContext::SetDownloadManagerForTesting(
@@ -625,9 +638,8 @@ void BrowserContext::SetDownloadManagerForTesting(
 }
 
 // static
-void BrowserContext::Initialize(
-    BrowserContext* browser_context,
-    const base::FilePath& path) {
+void BrowserContext::Initialize(BrowserContext* browser_context,
+                                const base::FilePath& path) {
   const base::Token new_group = base::Token::CreateRandom();
   ServiceInstanceGroupHolder* holder = static_cast<ServiceInstanceGroupHolder*>(
       browser_context->GetUserData(kServiceInstanceGroup));
@@ -642,26 +654,25 @@ void BrowserContext::Initialize(
       kServiceInstanceGroup,
       std::make_unique<ServiceInstanceGroupHolder>(new_group));
 
-  ServiceManagerConnection* service_manager_connection =
-      ServiceManagerConnection::GetForProcess();
-  if (service_manager_connection && base::ThreadTaskRunnerHandle::IsSet()) {
+  auto* system_connector = GetSystemConnector();
+  if (system_connector && base::ThreadTaskRunnerHandle::IsSet()) {
     // NOTE: Many unit tests create a TestBrowserContext without initializing
     // Mojo or the global service manager connection.
 
-    service_manager::mojom::ServicePtr service;
-    auto service_request = mojo::MakeRequest(&service);
+    mojo::PendingRemote<service_manager::mojom::Service> service;
+    auto service_receiver = service.InitWithNewPipeAndPassReceiver();
 
-    service_manager::mojom::PIDReceiverPtr pid_receiver;
+    mojo::Remote<service_manager::mojom::ProcessMetadata> metadata;
     service_manager::Identity identity(mojom::kBrowserServiceName, new_group,
                                        base::Token{},
                                        base::Token::CreateRandom());
-    service_manager_connection->GetConnector()->RegisterServiceInstance(
-        identity, std::move(service), mojo::MakeRequest(&pid_receiver));
-    pid_receiver->SetPID(base::GetCurrentProcId());
+    system_connector->RegisterServiceInstance(
+        identity, std::move(service), metadata.BindNewPipeAndPassReceiver());
+    metadata->SetPID(base::GetCurrentProcId());
 
     BrowserContextServiceManagerConnectionHolder* connection_holder =
         new BrowserContextServiceManagerConnectionHolder(
-            browser_context, std::move(service_request),
+            browser_context, std::move(service_receiver),
             base::SequencedTaskRunnerHandle::Get());
     browser_context->SetUserData(kServiceManagerConnection,
                                  base::WrapUnique(connection_holder));
@@ -767,7 +778,7 @@ std::unique_ptr<service_manager::Service> BrowserContext::HandleServiceRequest(
   return nullptr;
 }
 
-const std::string& BrowserContext::UniqueId() const {
+const std::string& BrowserContext::UniqueId() {
   return unique_id_;
 }
 
@@ -780,11 +791,23 @@ media::VideoDecodePerfHistory* BrowserContext::GetVideoDecodePerfHistory() {
   // occurs later upon first VideoDecodePerfHistory API request that requires DB
   // access. DB operations will not block the UI thread.
   if (!decode_history) {
-    std::unique_ptr<media::VideoDecodeStatsDBImpl> stats_db =
-        media::VideoDecodeStatsDBImpl::Create(
-            GetPath().Append(FILE_PATH_LITERAL("VideoDecodeStats")));
-    auto new_decode_history =
-        std::make_unique<media::VideoDecodePerfHistory>(std::move(stats_db));
+    const char kUseInMemoryDBParamName[] = "db_in_memory";
+    const bool kUseInMemoryDBDefault = false;
+    bool use_in_memory_db = base::GetFieldTrialParamByFeatureAsBool(
+        media::kMediaCapabilitiesWithParameters, kUseInMemoryDBParamName,
+        kUseInMemoryDBDefault);
+
+    std::unique_ptr<media::VideoDecodeStatsDB> stats_db;
+    if (use_in_memory_db) {
+      stats_db =
+          std::make_unique<media::InMemoryVideoDecodeStatsDBImpl>(nullptr);
+    } else {
+      stats_db = media::VideoDecodeStatsDBImpl::Create(
+          GetPath().Append(FILE_PATH_LITERAL("VideoDecodeStats")));
+    }
+
+    auto new_decode_history = std::make_unique<media::VideoDecodePerfHistory>(
+        std::move(stats_db), BrowserFeatureProvider::GetFactoryCB());
     decode_history = new_decode_history.get();
 
     SetUserData(kVideoDecodePerfHistoryId, std::move(new_decode_history));
@@ -807,12 +830,20 @@ void BrowserContext::SetCorsOriginAccessListForOrigin(
                   "with NetworkService to bypass CORS checks.";
 }
 
-const SharedCorsOriginAccessList*
-BrowserContext::GetSharedCorsOriginAccessList() const {
+SharedCorsOriginAccessList* BrowserContext::GetSharedCorsOriginAccessList() {
   // Need to return a valid instance regardless of CORS bypass supports.
   static const base::NoDestructor<scoped_refptr<SharedCorsOriginAccessList>>
       empty_list(SharedCorsOriginAccessList::Create());
   return empty_list->get();
+}
+
+NativeFileSystemPermissionContext*
+BrowserContext::GetNativeFileSystemPermissionContext() {
+  return nullptr;
+}
+
+ContentIndexProvider* BrowserContext::GetContentIndexProvider() {
+  return nullptr;
 }
 
 }  // namespace content

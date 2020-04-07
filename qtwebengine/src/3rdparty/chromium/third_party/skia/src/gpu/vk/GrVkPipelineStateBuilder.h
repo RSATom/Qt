@@ -8,14 +8,14 @@
 #ifndef GrVkPipelineStateBuilder_DEFINED
 #define GrVkPipelineStateBuilder_DEFINED
 
-#include "GrPipeline.h"
-#include "GrProgramDesc.h"
-#include "GrVkPipelineState.h"
-#include "GrVkUniformHandler.h"
-#include "GrVkVaryingHandler.h"
-#include "SkSLCompiler.h"
-#include "glsl/GrGLSLProgramBuilder.h"
-#include "vk/GrVkTypes.h"
+#include "include/gpu/vk/GrVkTypes.h"
+#include "src/gpu/GrPipeline.h"
+#include "src/gpu/GrProgramDesc.h"
+#include "src/gpu/glsl/GrGLSLProgramBuilder.h"
+#include "src/gpu/vk/GrVkPipelineState.h"
+#include "src/gpu/vk/GrVkUniformHandler.h"
+#include "src/gpu/vk/GrVkVaryingHandler.h"
+#include "src/sksl/SkSLCompiler.h"
 
 class GrVkGpu;
 class GrVkRenderPass;
@@ -38,6 +38,7 @@ public:
     class Desc : public GrProgramDesc {
     public:
         static bool Build(Desc*,
+                          GrRenderTarget*,
                           const GrPrimitiveProcessor&,
                           const GrPipeline&,
                           const GrStencilSettings&,
@@ -61,6 +62,7 @@ public:
     * @return true if generation was successful.
     */
     static GrVkPipelineState* CreatePipelineState(GrVkGpu*,
+                                                  GrRenderTarget*, GrSurfaceOrigin,
                                                   const GrPrimitiveProcessor&,
                                                   const GrTextureProxy* const primProcProxies[],
                                                   const GrPipeline&,
@@ -77,7 +79,7 @@ public:
     void finalizeFragmentSecondaryColor(GrShaderVar& outputColor) override;
 
 private:
-    GrVkPipelineStateBuilder(GrVkGpu*,
+    GrVkPipelineStateBuilder(GrVkGpu*, GrRenderTarget*, GrSurfaceOrigin,
                              const GrPipeline&,
                              const GrPrimitiveProcessor&,
                              const GrTextureProxy* const primProcProxies[],
@@ -89,21 +91,14 @@ private:
                                 Desc*);
 
     // returns number of shader stages
-    int loadShadersFromCache(const SkData& cached,
-                             VkShaderModule* outVertShaderModule,
-                             VkShaderModule* outFragShaderModule,
-                             VkShaderModule* outGeomShaderModule,
+    int loadShadersFromCache(const SkData& cached, VkShaderModule outShaderModules[],
                              VkPipelineShaderStageCreateInfo* outStageInfo);
 
-    void storeShadersInCache(const SkSL::String& vert,
-                             const SkSL::Program::Inputs& vertInputs,
-                             const SkSL::String& frag,
-                             const SkSL::Program::Inputs& fragInputs,
-                             const SkSL::String& geom,
-                             const SkSL::Program::Inputs& geomInputs);
+    void storeShadersInCache(const SkSL::String shaders[], const SkSL::Program::Inputs inputs[],
+                             bool isSkSL);
 
     bool createVkShaderModule(VkShaderStageFlagBits stage,
-                              const GrGLSLShaderBuilder& builder,
+                              const SkSL::String& sksl,
                               VkShaderModule* shaderModule,
                               VkPipelineShaderStageCreateInfo* stageInfo,
                               const SkSL::Program::Settings& settings,

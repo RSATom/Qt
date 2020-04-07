@@ -15,7 +15,11 @@ namespace content {
 // modify the response's mime type in the response head.
 class CONTENT_EXPORT MimeSniffingThrottle : public URLLoaderThrottle {
  public:
-  MimeSniffingThrottle();
+  // |task_runner| is used to bind the right task runner for handling incoming
+  // IPC in MimeSniffingLoader. |task_runner| is supposed to be bound to the
+  // current sequence.
+  explicit MimeSniffingThrottle(
+      scoped_refptr<base::SingleThreadTaskRunner> task_runner);
   ~MimeSniffingThrottle() override;
 
   // Implements URLLoaderThrottle.
@@ -28,7 +32,8 @@ class CONTENT_EXPORT MimeSniffingThrottle : public URLLoaderThrottle {
       const network::ResourceResponseHead& new_response_head);
 
  private:
-  base::WeakPtrFactory<MimeSniffingThrottle> weak_factory_;
+  scoped_refptr<base::SingleThreadTaskRunner> task_runner_;
+  base::WeakPtrFactory<MimeSniffingThrottle> weak_factory_{this};
 };
 
 }  // namespace content

@@ -14,16 +14,19 @@
 #include <unordered_set>
 #include <vector>
 
-#include "../private/SkTHash.h"
-#include "SkData.h"
-#include "SkDevice.h"
-#include "SkDrawLooper.h"
-#include "SkMakeUnique.h"
-#include "SkNoDrawCanvas.h"
-#include "SkRefCnt.h"
-#include "SkSerialProcs.h"
-#include "SkTypeface.h"
+#include "include/core/SkData.h"
+#include "include/core/SkDrawLooper.h"
+#include "include/core/SkRefCnt.h"
+#include "include/core/SkSerialProcs.h"
+#include "include/core/SkTypeface.h"
+#include "include/private/SkTHash.h"
+#include "include/utils/SkNoDrawCanvas.h"
+#include "src/core/SkDevice.h"
+#include "src/core/SkMakeUnique.h"
+#include "src/core/SkStrikeInterface.h"
+#include "src/core/SkTLazy.h"
 
+class Deserializer;
 class Serializer;
 enum SkAxisAlignment : uint32_t;
 class SkDescriptor;
@@ -61,13 +64,14 @@ public:
         int fMaxTextureSize = 0;
         size_t fMaxTextureBytes = 0u;
     };
+
     SkTextBlobCacheDiffCanvas(int width, int height, const SkSurfaceProps& props,
                               SkStrikeServer* strikeServer, Settings settings = Settings());
 
-    // TODO(khushalsagar): Remove once removed from chromium.
-    SkTextBlobCacheDiffCanvas(int width, int height, const SkMatrix& deviceMatrix,
-                              const SkSurfaceProps& props, SkStrikeServer* strikeserver,
+    SkTextBlobCacheDiffCanvas(int width, int height, const SkSurfaceProps& props,
+                              SkStrikeServer* strikeServer, sk_sp<SkColorSpace> colorSpace,
                               Settings settings = Settings());
+
     ~SkTextBlobCacheDiffCanvas() override;
 
 protected:
@@ -85,7 +89,7 @@ private:
 using SkDiscardableHandleId = uint32_t;
 
 // This class is not thread-safe.
-class SK_API SkStrikeServer {
+class SK_API SkStrikeServer final : public SkStrikeCacheInterface {
 public:
     // An interface used by the server to create handles for pinning SkStrike
     // entries on the remote client.
@@ -112,7 +116,7 @@ public:
     };
 
     explicit SkStrikeServer(DiscardableHandleManager* discardableHandleManager);
-    ~SkStrikeServer();
+    ~SkStrikeServer() override;
 
     // Serializes the typeface to be remoted using this server.
     sk_sp<SkData> serializeTypeface(SkTypeface*);
@@ -132,6 +136,10 @@ public:
                                         SkScalerContextFlags flags,
                                         SkScalerContextEffects* effects);
 
+    SkScopedStrike findOrCreateScopedStrike(const SkDescriptor& desc,
+                                            const SkScalerContextEffects& effects,
+                                            const SkTypeface& typeface) override;
+
     void setMaxEntriesInDescriptorMapForTesting(size_t count) {
         fMaxEntriesInDescriptorMap = count;
     }
@@ -141,6 +149,10 @@ private:
     static constexpr size_t kMaxEntriesInDescriptorMap = 2000u;
 
     void checkForDeletedEntries();
+
+    SkGlyphCacheState* getOrCreateCache(const SkDescriptor& desc,
+                                        const SkTypeface& typeface,
+                                        SkScalerContextEffects effects);
 
     SkDescriptorMap<std::unique_ptr<SkGlyphCacheState>> fRemoteGlyphStateMap;
     DiscardableHandleManager* const fDiscardableHandleManager;
@@ -183,6 +195,16 @@ public:
         virtual bool deleteHandle(SkDiscardableHandleId) = 0;
 
         virtual void notifyCacheMiss(CacheMissType) {}
+
+        struct ReadFailureData {
+            size_t memorySize;
+            size_t bytesRead;
+            uint64_t typefaceSize;
+            uint64_t strikeCount;
+            uint64_t glyphImagesCount;
+            uint64_t glyphPathsCount;
+        };
+        virtual void notifyReadFailure(const ReadFailureData& data) {}
     };
 
     explicit SkStrikeClient(sk_sp<DiscardableHandleManager>,
@@ -193,6 +215,8 @@ public:
     // Deserializes the typeface previously serialized using the SkStrikeServer. Returns null if the
     // data is invalid.
     sk_sp<SkTypeface> deserializeTypeface(const void* data, size_t length);
+
+    static bool ReadGlyph(SkTLazy<SkGlyph>& glyph, Deserializer* deserializer);
 
     // Deserializes the strike data from a SkStrikeServer. All messages generated
     // from a server when serializing the ops must be deserialized before the op

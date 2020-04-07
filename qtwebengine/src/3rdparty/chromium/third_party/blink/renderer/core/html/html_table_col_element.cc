@@ -37,11 +37,9 @@ namespace blink {
 
 using namespace html_names;
 
-inline HTMLTableColElement::HTMLTableColElement(const QualifiedName& tag_name,
-                                                Document& document)
+HTMLTableColElement::HTMLTableColElement(const QualifiedName& tag_name,
+                                         Document& document)
     : HTMLTablePartElement(tag_name, document), span_(kDefaultColSpan) {}
-
-DEFINE_ELEMENT_FACTORY_WITH_TAGNAME(HTMLTableColElement)
 
 bool HTMLTableColElement::IsPresentationAttribute(
     const QualifiedName& name) const {
@@ -55,7 +53,7 @@ void HTMLTableColElement::CollectStyleForPresentationAttribute(
     const AtomicString& value,
     MutableCSSPropertyValueSet* style) {
   if (name == kWidthAttr)
-    AddHTMLLengthToStyle(style, CSSPropertyWidth, value);
+    AddHTMLLengthToStyle(style, CSSPropertyID::kWidth, value);
   else
     HTMLTablePartElement::CollectStyleForPresentationAttribute(name, value,
                                                                style);

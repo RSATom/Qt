@@ -30,7 +30,6 @@
 #include "content/public/browser/web_contents_delegate.h"
 #include "content/public/common/bindings_policy.h"
 #include "content/public/common/origin_util.h"
-#include "content/public/common/renderer_preferences.h"
 #include "headless/lib/browser/headless_browser_context_impl.h"
 #include "headless/lib/browser/headless_browser_impl.h"
 #include "headless/lib/browser/headless_browser_main_parts.h"
@@ -38,6 +37,7 @@
 #include "headless/lib/browser/protocol/headless_handler.h"
 #include "headless/public/internal/headless_devtools_client_impl.h"
 #include "printing/buildflags/buildflags.h"
+#include "third_party/blink/public/mojom/renderer_preferences.mojom.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "ui/compositor/compositor.h"
 #include "ui/gfx/switches.h"
@@ -77,13 +77,15 @@ class HeadlessWebContentsImpl::Delegate : public content::WebContentsDelegate {
       content::WebContents* web_contents,
       content::SecurityStyleExplanations* security_style_explanations)
       override {
-    security_state::SecurityInfo security_info;
-    security_state::GetSecurityInfo(
-        security_state::GetVisibleSecurityState(web_contents),
-        false /* used_policy_installed_certificate */,
-        base::Bind(&content::IsOriginSecure), &security_info);
-    return security_state::GetSecurityStyle(security_info,
-                                            security_style_explanations);
+    std::unique_ptr<security_state::VisibleSecurityState>
+        visible_security_state =
+            security_state::GetVisibleSecurityState(web_contents);
+    return security_state::GetSecurityStyle(
+        security_state::GetSecurityLevel(
+            *visible_security_state.get(),
+            false /* used_policy_installed_certificate */,
+            base::BindRepeating(&content::IsOriginSecure)),
+        *visible_security_state.get(), security_style_explanations);
   }
 #endif  // !defined(CHROME_MULTIPLE_DLL_CHILD)
 
@@ -304,6 +306,8 @@ HeadlessWebContentsImpl::HeadlessWebContentsImpl(
 }
 
 HeadlessWebContentsImpl::~HeadlessWebContentsImpl() {
+  for (auto& observer : observers_)
+    observer.HeadlessWebContentsDestroyed();
   agent_host_->RemoveObserver(this);
   if (render_process_host_)
     render_process_host_->RemoveObserver(this);

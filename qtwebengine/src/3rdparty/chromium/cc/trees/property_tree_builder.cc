@@ -9,6 +9,7 @@
 #include <map>
 #include <set>
 
+#include "base/auto_reset.h"
 #include "cc/base/math_util.h"
 #include "cc/layers/layer.h"
 #include "cc/layers/layer_impl.h"
@@ -29,7 +30,6 @@ namespace cc {
 
 namespace {
 
-template <typename LayerType>
 struct DataForRecursion {
   int transform_tree_parent;
   int transform_tree_parent_fixed;
@@ -47,6 +47,7 @@ struct DataForRecursion {
   bool animation_axis_aligned_since_render_target;
   bool not_axis_aligned_since_last_clip;
   gfx::Transform compound_transform_since_render_target;
+  bool* subtree_has_rounded_corner;
 };
 
 template <typename LayerType>
@@ -88,29 +89,30 @@ class PropertyTreeBuilderContext {
  private:
   void BuildPropertyTreesInternal(
       LayerType* layer,
-      const DataForRecursion<LayerType>& data_from_parent) const;
+      const DataForRecursion& data_from_parent) const;
 
-  bool AddTransformNodeIfNeeded(
-      const DataForRecursion<LayerType>& data_from_ancestor,
-      LayerType* layer,
-      bool created_render_surface,
-      DataForRecursion<LayerType>* data_for_children) const;
+  bool AddTransformNodeIfNeeded(const DataForRecursion& data_from_ancestor,
+                                LayerType* layer,
+                                bool created_render_surface,
+                                DataForRecursion* data_for_children) const;
 
-  void AddClipNodeIfNeeded(
-      const DataForRecursion<LayerType>& data_from_ancestor,
-      LayerType* layer,
-      bool created_transform_node,
-      DataForRecursion<LayerType>* data_for_children) const;
+  void AddClipNodeIfNeeded(const DataForRecursion& data_from_ancestor,
+                           LayerType* layer,
+                           bool created_transform_node,
+                           DataForRecursion* data_for_children) const;
 
-  bool AddEffectNodeIfNeeded(
-      const DataForRecursion<LayerType>& data_from_ancestor,
-      LayerType* layer,
-      DataForRecursion<LayerType>* data_for_children) const;
+  bool AddEffectNodeIfNeeded(const DataForRecursion& data_from_ancestor,
+                             LayerType* layer,
+                             DataForRecursion* data_for_children) const;
 
-  void AddScrollNodeIfNeeded(
-      const DataForRecursion<LayerType>& data_from_ancestor,
-      LayerType* layer,
-      DataForRecursion<LayerType>* data_for_children) const;
+  void AddScrollNodeIfNeeded(const DataForRecursion& data_from_ancestor,
+                             LayerType* layer,
+                             DataForRecursion* data_for_children) const;
+
+  bool UpdateRenderSurfaceIfNeeded(int parent_effect_tree_id,
+                                   DataForRecursion* data_for_children,
+                                   bool subtree_has_rounded_corner,
+                                   bool created_transform_node) const;
 
   LayerType* root_layer_;
   const LayerType* page_scale_layer_;
@@ -178,12 +180,36 @@ static LayerImpl* ClipParent(LayerImpl* layer) {
   return layer->test_properties()->clip_parent;
 }
 
+static bool HasClipRect(Layer* layer) {
+  return !layer->clip_rect().IsEmpty();
+}
+
+static bool HasClipRect(LayerImpl* layer) {
+  return false;
+}
+
 static inline const FilterOperations& Filters(Layer* layer) {
   return layer->filters();
 }
 
 static inline const FilterOperations& Filters(LayerImpl* layer) {
   return layer->test_properties()->filters;
+}
+
+static bool IsFastRoundedCorner(Layer* layer) {
+  return layer->is_fast_rounded_corner();
+}
+
+static bool IsFastRoundedCorner(LayerImpl* layer) {
+  return false;
+}
+
+static bool HasRoundedCorner(Layer* layer) {
+  return layer->HasRoundedCorner();
+}
+
+static bool HasRoundedCorner(LayerImpl* layer) {
+  return !layer->test_properties()->rounded_corner_bounds.IsEmpty();
 }
 
 static PictureLayer* MaskLayer(Layer* layer) {
@@ -251,9 +277,13 @@ bool HasPotentiallyRunningTransformAnimation(const MutatorHost& host,
 }
 
 template <typename LayerType>
-bool HasOnlyTranslationTransforms(const MutatorHost& host, LayerType* layer) {
-  return host.HasOnlyTranslationTransforms(layer->element_id(),
-                                           layer->GetElementTypeForAnimation());
+void GetAnimationScales(const MutatorHost& host,
+                        LayerType* layer,
+                        float* maximum_scale,
+                        float* starting_scale) {
+  return host.GetAnimationScales(layer->element_id(),
+                                 layer->GetElementTypeForAnimation(),
+                                 maximum_scale, starting_scale);
 }
 
 template <typename LayerType>
@@ -272,21 +302,41 @@ bool HasAnyAnimationTargetingProperty(const MutatorHost& host,
 // -------------------------------------------------------------------
 
 template <typename LayerType>
-static int GetTransformParent(const DataForRecursion<LayerType>& data,
-                              LayerType* layer) {
+static int GetTransformParent(const DataForRecursion& data, LayerType* layer) {
   return PositionConstraint(layer).is_fixed_position()
              ? data.transform_tree_parent_fixed
              : data.transform_tree_parent;
 }
 
 template <typename LayerType>
-static bool LayerClipsSubtree(LayerType* layer) {
+static bool LayerClipsSubtreeToItsBounds(LayerType* layer) {
   return layer->masks_to_bounds() || MaskLayer(layer);
 }
 
 template <typename LayerType>
-static int GetScrollParentId(const DataForRecursion<LayerType>& data,
-                             LayerType* layer) {
+static bool LayerClipsSubtree(LayerType* layer) {
+  return LayerClipsSubtreeToItsBounds(layer) || HasRoundedCorner(layer) ||
+         HasClipRect(layer);
+}
+
+gfx::RectF EffectiveClipRect(Layer* layer) {
+  return layer->EffectiveClipRect();
+}
+
+gfx::RectF EffectiveClipRect(LayerImpl* layer) {
+  return gfx::RectF(gfx::PointF(), gfx::SizeF(layer->bounds()));
+}
+
+static gfx::RRectF RoundedCornerBounds(Layer* layer) {
+  return gfx::RRectF(EffectiveClipRect(layer), layer->corner_radii());
+}
+
+static gfx::RRectF RoundedCornerBounds(LayerImpl* layer) {
+  return layer->test_properties()->rounded_corner_bounds;
+}
+
+template <typename LayerType>
+static int GetScrollParentId(const DataForRecursion& data, LayerType* layer) {
   const bool inherits_scroll = !ScrollParent(layer);
   const int id = inherits_scroll ? data.scroll_tree_parent
                                  : ScrollParent(layer)->scroll_tree_index();
@@ -325,12 +375,18 @@ static inline bool HasLatestSequenceNumber(const LayerImpl*, int) {
   return true;
 }
 
+static inline void SetHasClipNode(Layer* layer, bool val) {
+  layer->SetHasClipNode(val);
+}
+
+static inline void SetHasClipNode(LayerImpl* layer, bool val) {}
+
 template <typename LayerType>
 void PropertyTreeBuilderContext<LayerType>::AddClipNodeIfNeeded(
-    const DataForRecursion<LayerType>& data_from_ancestor,
+    const DataForRecursion& data_from_ancestor,
     LayerType* layer,
     bool created_transform_node,
-    DataForRecursion<LayerType>* data_for_children) const {
+    DataForRecursion* data_for_children) const {
   const bool inherits_clip = !ClipParent(layer);
   // Sanity check the clip parent already built clip node before us.
   DCHECK(inherits_clip ||
@@ -346,8 +402,11 @@ void PropertyTreeBuilderContext<LayerType>::AddClipNodeIfNeeded(
     data_for_children->clip_tree_parent = parent_id;
   } else {
     ClipNode node;
-    node.clip = gfx::RectF(gfx::PointF() + layer->offset_to_transform_parent(),
-                           gfx::SizeF(layer->bounds()));
+    node.clip = EffectiveClipRect(layer);
+
+    // Move the clip bounds so that it is relative to the transform parent.
+    node.clip += layer->offset_to_transform_parent();
+
     node.transform_id = created_transform_node
                             ? data_for_children->transform_tree_parent
                             : GetTransformParent(data_from_ancestor, layer);
@@ -361,6 +420,7 @@ void PropertyTreeBuilderContext<LayerType>::AddClipNodeIfNeeded(
     data_for_children->clip_tree_parent = clip_tree_.Insert(node, parent_id);
   }
 
+  SetHasClipNode(layer, requires_node);
   layer->SetClipTreeIndex(data_for_children->clip_tree_parent);
 }
 
@@ -397,10 +457,10 @@ static inline bool ShouldFlattenTransform(LayerImpl* layer) {
 
 template <typename LayerType>
 bool PropertyTreeBuilderContext<LayerType>::AddTransformNodeIfNeeded(
-    const DataForRecursion<LayerType>& data_from_ancestor,
+    const DataForRecursion& data_from_ancestor,
     LayerType* layer,
     bool created_render_surface,
-    DataForRecursion<LayerType>* data_for_children) const {
+    DataForRecursion* data_for_children) const {
   const bool is_root = !LayerParent(layer);
   const bool is_page_scale_layer = layer == page_scale_layer_;
   const bool is_overscroll_elasticity_layer =
@@ -437,7 +497,8 @@ bool PropertyTreeBuilderContext<LayerType>::AddTransformNodeIfNeeded(
   bool requires_node = is_root || is_snapped || has_significant_transform ||
                        has_any_transform_animation || has_surface || is_fixed ||
                        is_page_scale_layer || is_overscroll_elasticity_layer ||
-                       is_sticky || is_at_boundary_of_3d_rendering_context;
+                       is_sticky || is_at_boundary_of_3d_rendering_context ||
+                       HasRoundedCorner(layer);
 
   int parent_index = TransformTree::kRootNodeId;
   int source_index = TransformTree::kRootNodeId;
@@ -527,10 +588,8 @@ bool PropertyTreeBuilderContext<LayerType>::AddTransformNodeIfNeeded(
 
   node->has_potential_animation = has_potentially_animated_transform;
   node->is_currently_animating = TransformIsAnimating(mutator_host_, layer);
-  if (has_potentially_animated_transform) {
-    node->has_only_translation_animations =
-        HasOnlyTranslationTransforms(mutator_host_, layer);
-  }
+  GetAnimationScales(mutator_host_, layer, &node->maximum_animation_scale,
+                     &node->starting_animation_scale);
 
   float post_local_scale_factor = 1.0f;
 
@@ -669,11 +728,11 @@ static inline bool CacheRenderSurface(LayerImpl* layer) {
   return layer->test_properties()->cache_render_surface;
 }
 
-static inline bool ForceRenderSurface(Layer* layer) {
+static inline bool ForceRenderSurfaceForTesting(Layer* layer) {
   return layer->force_render_surface_for_testing();
 }
 
-static inline bool ForceRenderSurface(LayerImpl* layer) {
+static inline bool ForceRenderSurfaceForTesting(LayerImpl* layer) {
   return layer->test_properties()->force_render_surface;
 }
 
@@ -758,12 +817,22 @@ static inline const FilterOperations& BackdropFilters(LayerImpl* layer) {
   return layer->test_properties()->backdrop_filters;
 }
 
-static inline const gfx::RectF& BackdropFilterBounds(Layer* layer) {
+static inline const base::Optional<gfx::RRectF>& BackdropFilterBounds(
+    Layer* layer) {
   return layer->backdrop_filter_bounds();
 }
 
-static inline const gfx::RectF& BackdropFilterBounds(LayerImpl* layer) {
+static inline const base::Optional<gfx::RRectF>& BackdropFilterBounds(
+    LayerImpl* layer) {
   return layer->test_properties()->backdrop_filter_bounds;
+}
+
+static inline ElementId BackdropMaskElementId(Layer* layer) {
+  return layer->backdrop_mask_element_id();
+}
+
+static inline ElementId BackdropMaskElementId(LayerImpl* layer) {
+  return layer->test_properties()->backdrop_mask_element_id;
 }
 
 static inline float BackdropFilterQuality(Layer* layer) {
@@ -790,6 +859,14 @@ static inline bool HasCopyRequest(LayerImpl* layer) {
   return !layer->test_properties()->copy_requests.empty();
 }
 
+static inline int MirrorCount(Layer* layer) {
+  return layer->mirror_count();
+}
+
+static inline int MirrorCount(LayerImpl* layer) {
+  return 0;
+}
+
 static inline bool PropertyChanged(Layer* layer) {
   return layer->subtree_property_changed();
 }
@@ -799,35 +876,40 @@ static inline bool PropertyChanged(LayerImpl* layer) {
 }
 
 template <typename LayerType>
-bool ShouldCreateRenderSurface(const MutatorHost& mutator_host,
-                               LayerType* layer,
-                               gfx::Transform current_transform,
-                               bool animation_axis_aligned) {
+RenderSurfaceReason ComputeRenderSurfaceReason(const MutatorHost& mutator_host,
+                                               LayerType* layer,
+                                               gfx::Transform current_transform,
+                                               bool animation_axis_aligned) {
   const bool preserves_2d_axis_alignment =
       current_transform.Preserves2dAxisAlignment() && animation_axis_aligned;
   const bool is_root = !LayerParent(layer);
   if (is_root)
-    return true;
+    return RenderSurfaceReason::kRoot;
 
   // If the layer uses a mask.
   if (MaskLayer(layer)) {
-    return true;
+    return RenderSurfaceReason::kMask;
   }
 
   // If the layer uses trilinear filtering.
   if (TrilinearFiltering(layer)) {
-    return true;
+    return RenderSurfaceReason::kTrilinearFiltering;
   }
 
   // If the layer uses a CSS filter.
-  if (!Filters(layer).IsEmpty() || !BackdropFilters(layer).IsEmpty()) {
-    return true;
+  if (!Filters(layer).IsEmpty()) {
+    return RenderSurfaceReason::kFilter;
+  }
+
+  // If the layer uses a CSS backdrop-filter.
+  if (!BackdropFilters(layer).IsEmpty()) {
+    return RenderSurfaceReason::kBackdropFilter;
   }
 
   // If the layer will use a CSS filter.  In this case, the animation
   // will start and add a filter to this layer, so it needs a surface.
   if (HasPotentiallyRunningFilterAnimation(mutator_host, layer)) {
-    return true;
+    return RenderSurfaceReason::kFilterAnimation;
   }
 
   int num_descendants_that_draw_content = NumDescendantsThatDrawContent(layer);
@@ -836,10 +918,12 @@ bool ShouldCreateRenderSurface(const MutatorHost& mutator_host,
   // parent (i.e. parent participates in a 3D rendering context).
   if (LayerIsInExisting3DRenderingContext(layer) &&
       ShouldFlattenTransform(layer) && num_descendants_that_draw_content > 0) {
-    TRACE_EVENT_INSTANT0(
-        "cc", "PropertyTreeBuilder::ShouldCreateRenderSurface flattening",
-        TRACE_EVENT_SCOPE_THREAD);
-    return true;
+    return RenderSurfaceReason::k3dTransformFlattening;
+  }
+
+  if (!IsFastRoundedCorner(layer) && HasRoundedCorner(layer) &&
+      num_descendants_that_draw_content > 1) {
+    return RenderSurfaceReason::kRoundedCorner;
   }
 
   // If the layer has blending.
@@ -847,20 +931,14 @@ bool ShouldCreateRenderSurface(const MutatorHost& mutator_host,
   // types of quads than viz::RenderPassDrawQuad. Layers having descendants that
   // draw content will still create a separate rendering surface.
   if (BlendMode(layer) != SkBlendMode::kSrcOver) {
-    TRACE_EVENT_INSTANT0(
-        "cc", "PropertyTreeBuilder::ShouldCreateRenderSurface blending",
-        TRACE_EVENT_SCOPE_THREAD);
-    return true;
+    return RenderSurfaceReason::kBlendMode;
   }
   // If the layer clips its descendants but it is not axis-aligned with respect
   // to its parent.
   bool layer_clips_external_content = LayerClipsSubtree(layer);
   if (layer_clips_external_content && !preserves_2d_axis_alignment &&
       num_descendants_that_draw_content > 0) {
-    TRACE_EVENT_INSTANT0(
-        "cc", "PropertyTreeBuilder::ShouldCreateRenderSurface clipping",
-        TRACE_EVENT_SCOPE_THREAD);
-    return true;
+    return RenderSurfaceReason::kClipAxisAlignment;
   }
 
   // If the layer has some translucency and does not have a preserves-3d
@@ -877,11 +955,8 @@ bool ShouldCreateRenderSurface(const MutatorHost& mutator_host,
       HasPotentiallyRunningOpacityAnimation(mutator_host, layer);
   if (may_have_transparency && ShouldFlattenTransform(layer) &&
       at_least_two_layers_in_subtree_draw_content) {
-    TRACE_EVENT_INSTANT0(
-        "cc", "PropertyTreeBuilder::ShouldCreateRenderSurface opacity",
-        TRACE_EVENT_SCOPE_THREAD);
     DCHECK(!is_root);
-    return true;
+    return RenderSurfaceReason::kOpacity;
   }
   // If the layer has isolation.
   // TODO(rosca): to be optimized - create separate rendering surface only when
@@ -889,25 +964,26 @@ bool ShouldCreateRenderSurface(const MutatorHost& mutator_host,
   // (layer has transparent background or descendants overflow).
   // https://code.google.com/p/chromium/issues/detail?id=301738
   if (IsRootForIsolatedGroup(layer)) {
-    TRACE_EVENT_INSTANT0(
-        "cc", "PropertyTreeBuilder::ShouldCreateRenderSurface isolation",
-        TRACE_EVENT_SCOPE_THREAD);
-    return true;
+    return RenderSurfaceReason::kRootOrIsolatedGroup;
   }
 
   // If we force it.
-  if (ForceRenderSurface(layer))
-    return true;
+  if (ForceRenderSurfaceForTesting(layer))
+    return RenderSurfaceReason::kTest;
 
   // If we cache it.
   if (CacheRenderSurface(layer))
-    return true;
+    return RenderSurfaceReason::kCache;
 
   // If we'll make a copy of the layer's contents.
   if (HasCopyRequest(layer))
-    return true;
+    return RenderSurfaceReason::kCopyRequest;
 
-  return false;
+  // If the layer is mirrored.
+  if (MirrorCount(layer))
+    return RenderSurfaceReason::kMirrored;
+
+  return RenderSurfaceReason::kNone;
 }
 
 static void TakeCopyRequests(
@@ -958,9 +1034,9 @@ bool UpdateSubtreeHasCopyRequestRecursive(LayerType* layer) {
 
 template <typename LayerType>
 bool PropertyTreeBuilderContext<LayerType>::AddEffectNodeIfNeeded(
-    const DataForRecursion<LayerType>& data_from_ancestor,
+    const DataForRecursion& data_from_ancestor,
     LayerType* layer,
-    DataForRecursion<LayerType>* data_for_children) const {
+    DataForRecursion* data_for_children) const {
   const bool is_root = !LayerParent(layer);
   const bool has_transparency = EffectiveOpacity(layer) != 1.f;
   const bool has_potential_opacity_animation =
@@ -971,10 +1047,12 @@ bool PropertyTreeBuilderContext<LayerType>::AddEffectNodeIfNeeded(
   data_for_children->animation_axis_aligned_since_render_target &=
       AnimationsPreserveAxisAlignment(mutator_host_, layer);
   data_for_children->compound_transform_since_render_target *= Transform(layer);
-  const bool should_create_render_surface = ShouldCreateRenderSurface(
+  auto render_surface_reason = ComputeRenderSurfaceReason(
       mutator_host_, layer,
       data_for_children->compound_transform_since_render_target,
       data_for_children->animation_axis_aligned_since_render_target);
+  bool should_create_render_surface =
+      render_surface_reason != RenderSurfaceReason::kNone;
 
   bool not_axis_aligned_since_last_clip =
       data_from_ancestor.not_axis_aligned_since_last_clip
@@ -989,7 +1067,7 @@ bool PropertyTreeBuilderContext<LayerType>::AddEffectNodeIfNeeded(
   bool requires_node =
       is_root || has_transparency || has_potential_opacity_animation ||
       has_potential_filter_animation || has_non_axis_aligned_clip ||
-      should_create_render_surface;
+      should_create_render_surface || HasRoundedCorner(layer);
 
   int parent_id = data_from_ancestor.effect_tree_parent;
 
@@ -1006,13 +1084,13 @@ bool PropertyTreeBuilderContext<LayerType>::AddEffectNodeIfNeeded(
   node->opacity = Opacity(layer);
   node->blend_mode = BlendMode(layer);
   node->unscaled_mask_target_size = layer->bounds();
-  node->has_render_surface = should_create_render_surface;
   node->cache_render_surface = CacheRenderSurface(layer);
   node->has_copy_request = HasCopyRequest(layer);
   node->filters = Filters(layer);
   node->backdrop_filters = BackdropFilters(layer);
   node->backdrop_filter_bounds = BackdropFilterBounds(layer);
   node->backdrop_filter_quality = BackdropFilterQuality(layer);
+  node->backdrop_mask_element_id = BackdropMaskElementId(layer);
   node->filters_origin = FiltersOrigin(layer);
   node->trilinear_filtering = TrilinearFiltering(layer);
   node->has_potential_opacity_animation = has_potential_opacity_animation;
@@ -1024,6 +1102,7 @@ bool PropertyTreeBuilderContext<LayerType>::AddEffectNodeIfNeeded(
   node->is_currently_animating_filter = FilterIsAnimating(mutator_host_, layer);
   node->effect_changed = PropertyChanged(layer);
   node->subtree_has_copy_request = SubtreeHasCopyRequest(layer);
+  node->render_surface_reason = render_surface_reason;
   node->closest_ancestor_with_cached_render_surface_id =
       CacheRenderSurface(layer)
           ? node_id
@@ -1036,13 +1115,21 @@ bool PropertyTreeBuilderContext<LayerType>::AddEffectNodeIfNeeded(
   if (MaskLayer(layer)) {
     node->mask_layer_id = MaskLayer(layer)->id();
     effect_tree_.AddMaskLayerId(node->mask_layer_id);
+    node->is_masked = true;
+  }
+
+  if (HasRoundedCorner(layer)) {
+    // This is currently in the local space of the layer and hence in an invalid
+    // space. Once we have the associated transform node for this effect node,
+    // we will update this to the transform node's coordinate space.
+    node->rounded_corner_bounds = RoundedCornerBounds(layer);
+    node->is_fast_rounded_corner = IsFastRoundedCorner(layer);
   }
 
   if (!is_root) {
-    // The effect node's transform id is used only when we create a render
-    // surface. So, we can leave the default value when we don't create a render
-    // surface.
-    if (should_create_render_surface) {
+    // Having a rounded corner or a render surface, both trigger the creation
+    // of a transform node.
+    if (should_create_render_surface || HasRoundedCorner(layer)) {
       // In this case, we will create a transform node, so it's safe to use the
       // next available id from the transform tree as this effect node's
       // transform id.
@@ -1087,6 +1174,48 @@ bool PropertyTreeBuilderContext<LayerType>::AddEffectNodeIfNeeded(
     data_for_children->animation_axis_aligned_since_render_target = true;
   }
   return should_create_render_surface;
+}
+
+template <typename LayerType>
+bool PropertyTreeBuilderContext<LayerType>::UpdateRenderSurfaceIfNeeded(
+    int parent_effect_tree_id,
+    DataForRecursion* data_for_children,
+    bool subtree_has_rounded_corner,
+    bool created_transform_node) const {
+  // No effect node was generated for this layer.
+  if (parent_effect_tree_id == data_for_children->effect_tree_parent) {
+    *data_for_children->subtree_has_rounded_corner = subtree_has_rounded_corner;
+    return false;
+  }
+
+  EffectNode* effect_node =
+      effect_tree_.Node(data_for_children->effect_tree_parent);
+  const bool has_rounded_corner = !effect_node->rounded_corner_bounds.IsEmpty();
+
+  // Having a rounded corner should trigger a transform node.
+  if (has_rounded_corner)
+    DCHECK(created_transform_node);
+
+  // If the subtree has a rounded corner and this node also has a rounded
+  // corner, then this node needs to have a render surface to prevent any
+  // intersections between the rrects. Since GL renderer can only handle a
+  // single rrect per quad at draw time, it would be unable to handle
+  // intersections thus resulting in artifacts.
+  if (subtree_has_rounded_corner && has_rounded_corner)
+    effect_node->render_surface_reason = RenderSurfaceReason::kRoundedCorner;
+
+  // Inform the parent that its subtree has rounded corners if one of the two
+  // scenario is true:
+  //   - The subtree rooted at this node has a rounded corner and this node
+  //     does not have a render surface.
+  //   - This node has a rounded corner.
+  // The parent may have a rounded corner and would want to create a render
+  // surface of its own to prevent blending artifacts due to intersecting
+  // rounded corners.
+  *data_for_children->subtree_has_rounded_corner =
+      (subtree_has_rounded_corner && !effect_node->HasRenderSurface()) ||
+      has_rounded_corner;
+  return effect_node->HasRenderSurface();
 }
 
 static inline bool UserScrollableHorizontal(Layer* layer) {
@@ -1138,9 +1267,9 @@ void SetHasTransformNode(LayerType* layer, bool val) {
 
 template <typename LayerType>
 void PropertyTreeBuilderContext<LayerType>::AddScrollNodeIfNeeded(
-    const DataForRecursion<LayerType>& data_from_ancestor,
+    const DataForRecursion& data_from_ancestor,
     LayerType* layer,
-    DataForRecursion<LayerType>* data_for_children) const {
+    DataForRecursion* data_for_children) const {
   int parent_id = GetScrollParentId(data_from_ancestor, layer);
 
   bool is_root = !LayerParent(layer);
@@ -1232,10 +1361,9 @@ void SetBackfaceVisibilityTransform(LayerType* layer,
 }
 
 template <typename LayerType>
-void SetSafeOpaqueBackgroundColor(
-    const DataForRecursion<LayerType>& data_from_ancestor,
-    LayerType* layer,
-    DataForRecursion<LayerType>* data_for_children) {
+void SetSafeOpaqueBackgroundColor(const DataForRecursion& data_from_ancestor,
+                                  LayerType* layer,
+                                  DataForRecursion* data_for_children) {
   SkColor background_color = layer->background_color();
   data_for_children->safe_opaque_background_color =
       SkColorGetA(background_color) == 255
@@ -1256,10 +1384,11 @@ static void SetLayerPropertyChangedForChild(LayerImpl* parent,
 template <typename LayerType>
 void PropertyTreeBuilderContext<LayerType>::BuildPropertyTreesInternal(
     LayerType* layer,
-    const DataForRecursion<LayerType>& data_from_parent) const {
+    const DataForRecursion& data_from_parent) const {
   layer->set_property_tree_sequence_number(property_trees_.sequence_number);
 
-  DataForRecursion<LayerType> data_for_children(data_from_parent);
+  DataForRecursion data_for_children(data_from_parent);
+  *data_for_children.subtree_has_rounded_corner = false;
 
   bool created_render_surface =
       AddEffectNodeIfNeeded(data_from_parent, layer, &data_for_children);
@@ -1285,11 +1414,14 @@ void PropertyTreeBuilderContext<LayerType>::BuildPropertyTreesInternal(
   data_for_children.not_axis_aligned_since_last_clip =
       !has_non_axis_aligned_clip;
 
+  bool subtree_has_rounded_corner = false;
   for (size_t i = 0; i < LayerChildren(layer).size(); ++i) {
     LayerType* current_child = LayerChildAt(layer, i);
     SetLayerPropertyChangedForChild(layer, current_child);
     if (!ScrollParent(current_child)) {
       BuildPropertyTreesInternal(current_child, data_for_children);
+      subtree_has_rounded_corner |=
+          *data_for_children.subtree_has_rounded_corner;
     }
   }
 
@@ -1299,10 +1431,15 @@ void PropertyTreeBuilderContext<LayerType>::BuildPropertyTreesInternal(
     LayerType* scroll_child = it->second;
     DCHECK_EQ(ScrollParent(scroll_child), layer);
     DCHECK(LayerParent(scroll_child));
-    data_for_children.effect_tree_parent =
-        LayerParent(scroll_child)->effect_tree_index();
+    base::AutoReset<int> auto_reset_effect_tree_parent(
+        &data_for_children.effect_tree_parent,
+        LayerParent(scroll_child)->effect_tree_index());
     BuildPropertyTreesInternal(scroll_child, data_for_children);
   }
+
+  created_render_surface = UpdateRenderSurfaceIfNeeded(
+      data_from_parent.effect_tree_parent, &data_for_children,
+      subtree_has_rounded_corner, created_transform_node);
 
   if (MaskLayer(layer)) {
     MaskLayer(layer)->set_property_tree_sequence_number(
@@ -1382,7 +1519,7 @@ void PropertyTreeBuilderContext<LayerType>::BuildPropertyTrees(
     return;
   }
 
-  DataForRecursion<LayerType> data_for_recursion;
+  DataForRecursion data_for_recursion;
   data_for_recursion.transform_tree_parent = TransformTree::kInvalidNodeId;
   data_for_recursion.transform_tree_parent_fixed =
       TransformTree::kInvalidNodeId;
@@ -1413,6 +1550,9 @@ void PropertyTreeBuilderContext<LayerType>::BuildPropertyTrees(
   root_clip.transform_id = TransformTree::kRootNodeId;
   data_for_recursion.clip_tree_parent =
       clip_tree_.Insert(root_clip, ClipTree::kRootNodeId);
+
+  bool subtree_has_rounded_corner;
+  data_for_recursion.subtree_has_rounded_corner = &subtree_has_rounded_corner;
 
   BuildPropertyTreesInternal(root_layer_, data_for_recursion);
   property_trees_.needs_rebuild = false;

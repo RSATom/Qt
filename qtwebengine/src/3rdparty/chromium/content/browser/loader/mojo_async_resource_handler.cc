@@ -23,14 +23,15 @@
 #include "net/base/mime_sniffer.h"
 #include "net/base/net_errors.h"
 #include "net/url_request/redirect_info.h"
+#include "services/network/public/cpp/constants.h"
 #include "services/network/public/cpp/resource_response.h"
 #include "services/network/public/cpp/url_loader_completion_status.h"
-#include "services/network/resource_scheduler.h"
+#include "services/network/resource_scheduler/resource_scheduler.h"
 
 namespace content {
 namespace {
 
-int g_allocation_size = MojoAsyncResourceHandler::kDefaultAllocationSize;
+int g_allocation_size = network::kDataPipeDefaultAllocationSize;
 
 // MimeTypeResourceHandler *implicitly* requires that the buffer size
 // returned from OnWillRead should be larger than certain size.
@@ -116,13 +117,13 @@ MojoAsyncResourceHandler::MojoAsyncResourceHandler(
                       mojo::SimpleWatcher::ArmingPolicy::MANUAL,
                       base::SequencedTaskRunnerHandle::Get()),
       url_loader_client_(std::move(url_loader_client)),
-      report_transfer_size_async_timer_(std::make_unique<base::OneShotTimer>()),
-      weak_factory_(this) {
+      report_transfer_size_async_timer_(
+          std::make_unique<base::OneShotTimer>()) {
   DCHECK(IsResourceTypeFrame(resource_type) ||
-         resource_type == RESOURCE_TYPE_SERVICE_WORKER ||
+         resource_type == ResourceType::kServiceWorker ||
          !(url_loader_options_ &
            network::mojom::kURLLoadOptionSendSSLInfoWithResponse));
-  DCHECK(resource_type == RESOURCE_TYPE_MAIN_FRAME ||
+  DCHECK(resource_type == ResourceType::kMainFrame ||
          !(url_loader_options_ &
            network::mojom::kURLLoadOptionSendSSLInfoForCertificateError));
   DCHECK(url_loader_client_);

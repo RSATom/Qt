@@ -71,7 +71,9 @@ public:
         QSharedDataPointer<QDesignerWidgetBoxWidgetData> m_data;
     };
 
-    typedef QList<Widget> WidgetList;
+#if QT_VERSION < QT_VERSION_CHECK(6,0,0)
+    using WidgetList = QList<Widget>;
+#endif
 
     class Category {
     public:
@@ -96,9 +98,9 @@ public:
         Type m_type;
         QList<Widget> m_widget_list;
     };
-    typedef QList<Category> CategoryList;
+    using CategoryList = QList<Category>;
 
-    explicit QDesignerWidgetBoxInterface(QWidget *parent = Q_NULLPTR, Qt::WindowFlags flags = Qt::WindowFlags());
+    explicit QDesignerWidgetBoxInterface(QWidget *parent = nullptr, Qt::WindowFlags flags = Qt::WindowFlags());
     virtual ~QDesignerWidgetBoxInterface();
 
     virtual int categoryCount() const = 0;

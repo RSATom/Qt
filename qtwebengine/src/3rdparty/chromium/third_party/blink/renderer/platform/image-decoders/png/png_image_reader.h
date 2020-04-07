@@ -30,7 +30,7 @@
 #include "third_party/blink/renderer/platform/geometry/int_rect.h"
 #include "third_party/blink/renderer/platform/image-decoders/image_frame.h"
 #include "third_party/blink/renderer/platform/platform_export.h"
-#include "third_party/blink/renderer/platform/wtf/allocator.h"
+#include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 #include "third_party/blink/renderer/platform/wtf/vector.h"
 
 #define PNG_SET_OPTION_SUPPORTED
@@ -82,7 +82,7 @@ class PLATFORM_EXPORT PNGImageReader final {
   // Number of complete frames parsed so far; includes frame 0 even if partial.
   size_t FrameCount() const { return frame_info_.size(); }
 
-  bool ParseCompleted() const { return parse_completed_; };
+  bool ParseCompleted() const { return parse_completed_; }
 
   bool FrameIsReceivedAtIndex(size_t index) const {
     if (!index)

@@ -7,8 +7,6 @@
 
 #include "src/objects/heap-object.h"
 
-#include "src/heap/heap-write-barrier-inl.h"
-
 // Has to be the last include (doesn't have include guards):
 #include "src/objects/object-macros.h"
 
@@ -20,19 +18,6 @@ HeapObject::HeapObject(Address ptr, AllowInlineSmiStorage allow_smi)
   SLOW_DCHECK(
       (allow_smi == AllowInlineSmiStorage::kAllowBeingASmi && IsSmi()) ||
       IsHeapObject());
-}
-
-HeapObject HeapObject::FromAddress(Address address) {
-  DCHECK_TAG_ALIGNED(address);
-  return HeapObject(address + kHeapObjectTag);
-}
-
-Heap* NeverReadOnlySpaceObject::GetHeap(const HeapObject object) {
-  return GetHeapFromWritableObject(object);
-}
-
-Isolate* NeverReadOnlySpaceObject::GetIsolate(const HeapObject object) {
-  return GetHeap(object)->isolate();
 }
 
 }  // namespace internal

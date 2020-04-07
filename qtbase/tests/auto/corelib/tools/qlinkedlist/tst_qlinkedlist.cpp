@@ -187,6 +187,7 @@ private slots:
     void countInt() const;
     void countMovable() const;
     void countComplex() const;
+    void cpp17ctad() const;
     void emptyInt() const;
     void emptyMovable() const;
     void emptyComplex() const;
@@ -592,6 +593,33 @@ void tst_QLinkedList::countComplex() const
     const int liveCount = Complex::getLiveCount();
     count<Complex>();
     QCOMPARE(liveCount, Complex::getLiveCount());
+}
+
+void tst_QLinkedList::cpp17ctad() const
+{
+#ifdef __cpp_deduction_guides
+#define QVERIFY_IS_LIST_OF(obj, Type) \
+    QVERIFY2((std::is_same<decltype(obj), QLinkedList<Type>>::value), \
+             QMetaType::typeName(qMetaTypeId<decltype(obj)::value_type>()))
+#define CHECK(Type, One, Two, Three) \
+    do { \
+        const Type v[] = {One, Two, Three}; \
+        QLinkedList v1 = {One, Two, Three}; \
+        QVERIFY_IS_LIST_OF(v1, Type); \
+        QLinkedList v2(v1.begin(), v1.end()); \
+        QVERIFY_IS_LIST_OF(v2, Type); \
+        QLinkedList v3(std::begin(v), std::end(v)); \
+        QVERIFY_IS_LIST_OF(v3, Type); \
+    } while (false) \
+    /*end*/
+    CHECK(int, 1, 2, 3);
+    CHECK(double, 1.0, 2.0, 3.0);
+    CHECK(QString, QStringLiteral("one"), QStringLiteral("two"), QStringLiteral("three"));
+#undef QVERIFY_IS_LIST_OF
+#undef CHECK
+#else
+    QSKIP("This test requires C++17 Constructor Template Argument Deduction support enabled in the compiler.");
+#endif
 }
 
 template<typename T>
@@ -1005,7 +1033,6 @@ void tst_QLinkedList::testSTLIteratorsComplex() const
 
 void tst_QLinkedList::initializeList() const
 {
-#ifdef Q_COMPILER_INITIALIZER_LISTS
     QLinkedList<int> v1 { 2, 3, 4 };
     QCOMPARE(v1, QLinkedList<int>() << 2 << 3 << 4);
     QCOMPARE(v1, (QLinkedList<int> { 2, 3, 4}));
@@ -1014,7 +1041,6 @@ void tst_QLinkedList::initializeList() const
     QLinkedList<QLinkedList<int>> v3;
     v3 << v1 << (QLinkedList<int>() << 1) << QLinkedList<int>() << v1;
     QCOMPARE(v3, v2);
-#endif
 }
 
 

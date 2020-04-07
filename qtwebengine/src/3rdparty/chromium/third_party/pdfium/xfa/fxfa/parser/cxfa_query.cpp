@@ -6,7 +6,7 @@
 
 #include "xfa/fxfa/parser/cxfa_query.h"
 
-#include "fxjs/xfa/cjx_query.h"
+#include "fxjs/xfa/cjx_node.h"
 #include "third_party/base/ptr_util.h"
 
 namespace {
@@ -14,7 +14,7 @@ namespace {
 const CXFA_Node::PropertyData kQueryPropertyData[] = {
     {XFA_Element::RecordSet, 1, 0},
     {XFA_Element::Select, 1, 0},
-    {XFA_Element::Unknown, 0, 0}};
+};
 
 const CXFA_Node::AttributeData kQueryAttributeData[] = {
     {XFA_Attribute::Id, XFA_AttributeType::CData, nullptr},
@@ -23,7 +23,7 @@ const CXFA_Node::AttributeData kQueryAttributeData[] = {
     {XFA_Attribute::CommandType, XFA_AttributeType::Enum,
      (void*)XFA_AttributeValue::Unknown},
     {XFA_Attribute::Usehref, XFA_AttributeType::CData, nullptr},
-    {XFA_Attribute::Unknown, XFA_AttributeType::Integer, nullptr}};
+};
 
 }  // namespace
 
@@ -35,6 +35,6 @@ CXFA_Query::CXFA_Query(CXFA_Document* doc, XFA_PacketType packet)
                 XFA_Element::Query,
                 kQueryPropertyData,
                 kQueryAttributeData,
-                pdfium::MakeUnique<CJX_Query>(this)) {}
+                pdfium::MakeUnique<CJX_Node>(this)) {}
 
 CXFA_Query::~CXFA_Query() = default;

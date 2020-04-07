@@ -9,12 +9,12 @@
 #include "src/builtins/builtins-constructor.h"
 #include "src/builtins/builtins-utils-gen.h"
 #include "src/builtins/builtins.h"
-#include "src/code-factory.h"
-#include "src/code-stub-assembler.h"
-#include "src/counters.h"
-#include "src/interface-descriptors.h"
-#include "src/macro-assembler.h"
-#include "src/objects-inl.h"
+#include "src/codegen/code-factory.h"
+#include "src/codegen/code-stub-assembler.h"
+#include "src/codegen/interface-descriptors.h"
+#include "src/codegen/macro-assembler.h"
+#include "src/logging/counters.h"
+#include "src/objects/objects-inl.h"
 
 namespace v8 {
 namespace internal {
@@ -54,7 +54,7 @@ TF_BUILTIN(ConstructWithSpread, CallOrConstructBuiltinsAssembler) {
   CallOrConstructWithSpread(target, new_target, spread, args_count, context);
 }
 
-typedef compiler::Node Node;
+using Node = compiler::Node;
 
 TF_BUILTIN(FastNewClosure, ConstructorBuiltinsAssembler) {
   Node* shared_function_info = Parameter(Descriptor::kSharedFunctionInfo);
@@ -71,7 +71,6 @@ TF_BUILTIN(FastNewClosure, ConstructorBuiltinsAssembler) {
     Node* const feedback_cell_map = LoadMap(feedback_cell);
     Label no_closures(this), one_closure(this), cell_done(this);
 
-    GotoIf(IsNoFeedbackCellMap(feedback_cell_map), &cell_done);
     GotoIf(IsNoClosuresCellMap(feedback_cell_map), &no_closures);
     GotoIf(IsOneClosureCellMap(feedback_cell_map), &one_closure);
     CSA_ASSERT(this, IsManyClosuresCellMap(feedback_cell_map),
@@ -148,54 +147,49 @@ TF_BUILTIN(FastNewClosure, ConstructorBuiltinsAssembler) {
 }
 
 TF_BUILTIN(FastNewObject, ConstructorBuiltinsAssembler) {
-  Node* context = Parameter(Descriptor::kContext);
-  Node* target = Parameter(Descriptor::kTarget);
-  Node* new_target = Parameter(Descriptor::kNewTarget);
+  TNode<Context> context = CAST(Parameter(Descriptor::kContext));
+  TNode<JSFunction> target = CAST(Parameter(Descriptor::kTarget));
+  TNode<JSReceiver> new_target = CAST(Parameter(Descriptor::kNewTarget));
 
   Label call_runtime(this);
 
-  Node* result = EmitFastNewObject(context, target, new_target, &call_runtime);
+  TNode<JSObject> result =
+      EmitFastNewObject(context, target, new_target, &call_runtime);
   Return(result);
 
   BIND(&call_runtime);
   TailCallRuntime(Runtime::kNewObject, context, target, new_target);
 }
 
-Node* ConstructorBuiltinsAssembler::EmitFastNewObject(Node* context,
-                                                      Node* target,
-                                                      Node* new_target) {
-  VARIABLE(var_obj, MachineRepresentation::kTagged);
+compiler::TNode<JSObject> ConstructorBuiltinsAssembler::EmitFastNewObject(
+    SloppyTNode<Context> context, SloppyTNode<JSFunction> target,
+    SloppyTNode<JSReceiver> new_target) {
+  TVARIABLE(JSObject, var_obj);
   Label call_runtime(this), end(this);
 
-  Node* result = EmitFastNewObject(context, target, new_target, &call_runtime);
-  var_obj.Bind(result);
+  var_obj = EmitFastNewObject(context, target, new_target, &call_runtime);
   Goto(&end);
 
   BIND(&call_runtime);
-  var_obj.Bind(CallRuntime(Runtime::kNewObject, context, target, new_target));
+  var_obj = CAST(CallRuntime(Runtime::kNewObject, context, target, new_target));
   Goto(&end);
 
   BIND(&end);
   return var_obj.value();
 }
 
-Node* ConstructorBuiltinsAssembler::EmitFastNewObject(Node* context,
-                                                      Node* target,
-                                                      Node* new_target,
-                                                      Label* call_runtime) {
-  CSA_ASSERT(this, HasInstanceType(target, JS_FUNCTION_TYPE));
-  CSA_ASSERT(this, IsJSReceiver(new_target));
-
+compiler::TNode<JSObject> ConstructorBuiltinsAssembler::EmitFastNewObject(
+    SloppyTNode<Context> context, SloppyTNode<JSFunction> target,
+    SloppyTNode<JSReceiver> new_target, Label* call_runtime) {
   // Verify that the new target is a JSFunction.
-  Label fast(this), end(this);
-  GotoIf(HasInstanceType(new_target, JS_FUNCTION_TYPE), &fast);
-  Goto(call_runtime);
-
-  BIND(&fast);
+  Label end(this);
+  TNode<JSFunction> new_target_func =
+      HeapObjectToJSFunctionWithPrototypeSlot(new_target, call_runtime);
+  // Fast path.
 
   // Load the initial map and verify that it's in fact a map.
   Node* initial_map =
-      LoadObjectField(new_target, JSFunction::kPrototypeOrInitialMapOffset);
+      LoadJSFunctionPrototypeOrInitialMap(new_target_func);
   GotoIf(TaggedIsSmi(initial_map), call_runtime);
   GotoIf(DoesntHaveInstanceType(initial_map, MAP_TYPE), call_runtime);
 
@@ -296,6 +290,8 @@ Node* ConstructorBuiltinsAssembler::EmitCreateRegExpLiteral(
     Node* feedback_vector, Node* slot, Node* pattern, Node* flags,
     Node* context) {
   Label call_runtime(this, Label::kDeferred), end(this);
+
+  GotoIf(IsUndefined(feedback_vector), &call_runtime);
 
   VARIABLE(result, MachineRepresentation::kTagged);
   TNode<Object> literal_site =
@@ -731,14 +727,13 @@ TF_BUILTIN(NumberConstructor, ConstructorBuiltinsAssembler) {
       TNode<JSFunction> target = LoadTargetFromFrame();
       Node* result =
           CallBuiltin(Builtins::kFastNewObject, context, target, new_target);
-      StoreObjectField(result, JSValue::kValueOffset, n_value);
+      StoreObjectField(result, JSPrimitiveWrapper::kValueOffset, n_value);
       args.PopAndReturn(result);
     }
   }
 }
 
-TF_BUILTIN(GenericConstructorLazyDeoptContinuation,
-           ConstructorBuiltinsAssembler) {
+TF_BUILTIN(GenericLazyDeoptContinuation, ConstructorBuiltinsAssembler) {
   Node* result = Parameter(Descriptor::kResult);
   Return(result);
 }
@@ -798,7 +793,7 @@ TF_BUILTIN(StringConstructor, ConstructorBuiltinsAssembler) {
 
       Node* result =
           CallBuiltin(Builtins::kFastNewObject, context, target, new_target);
-      StoreObjectField(result, JSValue::kValueOffset, s_value);
+      StoreObjectField(result, JSPrimitiveWrapper::kValueOffset, s_value);
       args.PopAndReturn(result);
     }
   }

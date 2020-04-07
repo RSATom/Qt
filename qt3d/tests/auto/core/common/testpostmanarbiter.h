@@ -28,7 +28,7 @@
 
 #include <Qt3DCore/private/qpostman_p.h>
 #include <Qt3DCore/private/qchangearbiter_p.h>
-#include <Qt3DCore/qpropertyupdatedchange.h>
+#include <Qt3DCore/private/qscenechange_p.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -66,8 +66,13 @@ public:
     Qt3DCore::QAbstractPostman *postman() const final;
 
     QVector<Qt3DCore::QSceneChangePtr> events;
+    QVector<Qt3DCore::QNode *> dirtyNodes;
+    QVector<Qt3DCore::NodeRelationshipChange> dirtySubNodes;
 
     void setArbiterOnNode(Qt3DCore::QNode *node);
+    void addDirtyFrontEndNode(Qt3DCore::QNode *node) final;
+    void addDirtyFrontEndNode(Qt3DCore::QNode *node, Qt3DCore::QNode *subNode, const char *property, Qt3DCore::ChangeFlag change) final;
+    void removeDirtyFrontEndNode(Qt3DCore::QNode *node) final;
 
 private:
     TestPostman *m_postman;

@@ -6,6 +6,7 @@
 // Arguments with prefixes ('--', '-', and on Windows, '/') are switches.
 // Switches will precede all other arguments without switch prefixes.
 // Switches can optionally have values, delimited by '=', e.g., "-switch=value".
+// If a switch is specified multiple times, only the last value is used.
 // An argument of "--" will terminate switch parsing during initialization,
 // interpreting subsequent tokens as non-switch arguments, regardless of prefix.
 
@@ -34,8 +35,10 @@ class BASE_EXPORT CommandLine {
 #if defined(OS_WIN)
   // The native command line string type.
   using StringType = string16;
+  using StringPieceType = base::StringPiece16;
 #elif defined(OS_POSIX) || defined(OS_FUCHSIA)
   using StringType = std::string;
+  using StringPieceType = base::StringPiece;
 #endif
 
   using CharType = StringType::value_type;
@@ -103,7 +106,7 @@ class BASE_EXPORT CommandLine {
   static bool InitializedForCurrentProcess();
 
 #if defined(OS_WIN)
-  static CommandLine FromString(const string16& command_line);
+  static CommandLine FromString(StringPiece16 command_line);
 #endif
 
   // Initialize from an argv vector.
@@ -184,8 +187,9 @@ class BASE_EXPORT CommandLine {
   void AppendSwitchASCII(const std::string& switch_string,
                          const std::string& value);
 
-  // Removes a switch.
-  void RemoveSwitch(const StringPiece& switch_string);
+  // Removes the switch that matches |switch_key_without_prefix|, regardless of
+  // prefix and value. If no such switch is present, this has no effect.
+  void RemoveSwitch(const base::StringPiece switch_key_without_prefix);
 
   // Copy a set of switches (and any values) from another command line.
   // Commonly used when launching a subprocess.
@@ -215,7 +219,7 @@ class BASE_EXPORT CommandLine {
 #if defined(OS_WIN)
   // Initialize by parsing the given command line string.
   // The program name is assumed to be the first item in the string.
-  void ParseFromString(const string16& command_line);
+  void ParseFromString(StringPiece16 command_line);
 #endif
 
  private:

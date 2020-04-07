@@ -33,7 +33,6 @@
 #include <Qt3DInput/private/qmousedevice_p.h>
 #include <QObject>
 #include <QSignalSpy>
-#include <Qt3DCore/qpropertyupdatedchange.h>
 #include <Qt3DCore/private/qnodecreatedchangegenerator_p.h>
 #include <Qt3DCore/qnodecreatedchange.h>
 #include "testpostmanarbiter.h"
@@ -161,25 +160,17 @@ private Q_SLOTS:
         {
             // WHEN
             mouseDevice.setSensitivity(0.7f);
-            QCoreApplication::processEvents();
-
             // THEN
-            QCOMPARE(arbiter.events.size(), 1);
-            auto change = arbiter.events.first().staticCast<Qt3DCore::QPropertyUpdatedChange>();
-            QCOMPARE(change->propertyName(), "sensitivity");
-            QCOMPARE(change->value().value<float>(), mouseDevice.sensitivity());
-            QCOMPARE(change->type(), Qt3DCore::PropertyUpdated);
-
-            arbiter.events.clear();
+            QCOMPARE(arbiter.dirtyNodes.size(), 1);
+            QCOMPARE(arbiter.dirtyNodes.front(), &mouseDevice);
         }
 
         {
             // WHEN
             mouseDevice.setSensitivity(0.7f);
-            QCoreApplication::processEvents();
 
-            // THEN
-            QCOMPARE(arbiter.events.size(), 0);
+            QCOMPARE(arbiter.dirtyNodes.size(), 1);
+            QCOMPARE(arbiter.dirtyNodes.front(), &mouseDevice);
         }
 
     }

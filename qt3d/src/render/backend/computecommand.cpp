@@ -53,6 +53,7 @@ ComputeCommand::ComputeCommand()
     : BackendNode(ReadWrite)
     , m_frameCount(0)
     , m_runType(QComputeCommand::Continuous)
+    , m_hasReachedFrameCount(false)
 {
     m_workGroups[0] = 1;
     m_workGroups[1] = 1;
@@ -71,38 +72,45 @@ void ComputeCommand::cleanup()
     m_workGroups[2] = 1;
     m_frameCount = 0;
     m_runType = QComputeCommand::Continuous;
+    m_hasReachedFrameCount = false;
 }
 
-void ComputeCommand::initializeFromPeer(const Qt3DCore::QNodeCreatedChangeBasePtr &change)
+void ComputeCommand::syncFromFrontEnd(const Qt3DCore::QNode *frontEnd, bool firstTime)
 {
-    const auto typedChange = qSharedPointerCast<Qt3DCore::QNodeCreatedChange<QComputeCommandData>>(change);
-    const auto &data = typedChange->data;
-    m_workGroups[0] = data.workGroupX;
-    m_workGroups[1] = data.workGroupY;
-    m_workGroups[2] = data.workGroupZ;
-    m_runType = data.runType;
-    m_frameCount = data.frameCount;
-    if (m_renderer != nullptr)
-        BackendNode::markDirty(AbstractRenderer::ComputeDirty);
-}
+    const QComputeCommand *node = qobject_cast<const QComputeCommand *>(frontEnd);
+    if (!node)
+        return;
 
-void ComputeCommand::sceneChangeEvent(const Qt3DCore::QSceneChangePtr &e)
-{
-    Qt3DCore::QPropertyUpdatedChangePtr propertyChange = qSharedPointerCast<Qt3DCore::QPropertyUpdatedChange>(e);
-    if (e->type() == Qt3DCore::PropertyUpdated) {
-        if (propertyChange->propertyName() == QByteArrayLiteral("workGroupX"))
-            m_workGroups[0] = propertyChange->value().toInt();
-        else if (propertyChange->propertyName() == QByteArrayLiteral("workGroupY"))
-            m_workGroups[1] = propertyChange->value().toInt();
-        else if (propertyChange->propertyName() == QByteArrayLiteral("workGroupZ"))
-            m_workGroups[2] = propertyChange->value().toInt();
-        else if (propertyChange->propertyName() == QByteArrayLiteral("frameCount"))
-            m_frameCount = propertyChange->value().toInt();
-        else if (propertyChange->propertyName() == QByteArrayLiteral("runType"))
-            m_runType = static_cast<QComputeCommand::RunType>(propertyChange->value().toInt());
+    BackendNode::syncFromFrontEnd(frontEnd, firstTime);
+
+    if (m_workGroups[0] != node->workGroupX()) {
+        m_workGroups[0] = node->workGroupX();
         markDirty(AbstractRenderer::ComputeDirty);
     }
-    BackendNode::sceneChangeEvent(e);
+    if (m_workGroups[1] != node->workGroupY()) {
+        m_workGroups[1] = node->workGroupY();
+        markDirty(AbstractRenderer::ComputeDirty);
+    }
+    if (m_workGroups[2] != node->workGroupZ()) {
+        m_workGroups[2] = node->workGroupZ();
+        markDirty(AbstractRenderer::ComputeDirty);
+    }
+    if (node->runType() != m_runType) {
+        m_runType = node->runType();
+        markDirty(AbstractRenderer::ComputeDirty);
+    }
+    const QComputeCommandPrivate *d = static_cast<const QComputeCommandPrivate *>(Qt3DCore::QNodePrivate::get(node));
+    // Check frame count only if frontend is enabled
+    // If disabled that means we might have disabled the frontend because
+    // framecount reached 0
+    if (d->m_enabled && d->m_frameCount != m_frameCount) {
+        m_frameCount = d->m_frameCount;
+        m_hasReachedFrameCount = m_frameCount <= 0;
+        markDirty(AbstractRenderer::ComputeDirty);
+    }
+
+    if (firstTime)
+        markDirty(AbstractRenderer::ComputeDirty);
 }
 
 // Called from buildComputeRenderCommands in a job
@@ -110,14 +118,19 @@ void ComputeCommand::updateFrameCount()
 {
     // Disable frontend node when reaching 0
     --m_frameCount;
-    if (m_frameCount <= 0) {
-        setEnabled(false);
-        auto e = Qt3DCore::QPropertyUpdatedChangePtr::create(peerId());
-        e->setDeliveryFlags(Qt3DCore::QSceneChange::DeliverToAll);
-        e->setPropertyName("enabled");
-        e->setValue(false);
-        notifyObservers(e);
-    }
+    if (m_frameCount <= 0)
+        m_hasReachedFrameCount = true;
+    // Backend will be disabled on the next sync
+}
+
+void ComputeCommand::resetHasReachedFrameCount()
+{
+    m_hasReachedFrameCount = false;
+}
+
+bool ComputeCommand::hasReachedFrameCount() const
+{
+    return m_hasReachedFrameCount;
 }
 
 } // Render

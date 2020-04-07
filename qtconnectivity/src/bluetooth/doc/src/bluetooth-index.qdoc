@@ -51,7 +51,7 @@ Currently, the API is supported on the following platforms:
     \li x
     \li x
     \li x
-    \li
+    \li x
 \row
     \li Bluetooth LE Central
     \li x
@@ -59,7 +59,7 @@ Currently, the API is supported on the following platforms:
     \li x
     \li x
     \li x
-    \li
+    \li x
 \row
     \li Bluetooth LE Peripheral
     \li x
@@ -78,10 +78,12 @@ Currently, the API is supported on the following platforms:
     \li
 \endtable
 
-Despite there not being a Win32 port yet, the UWP backend is automatically used
-if the win32 target platform supports the required UWP APIs. Minimal requirement is Windows 10 version 1507
-with slightly improved service discovery since Windows 10 version 1607. Therefore Windows 7 and 8.x
-targets are excluded.
+Qt 5.14 adds a native Win32 port supporting Classic Bluetooth on Windows 7 or newer,
+and Bluetooth LE on Windows 8 or newer. It must be enabled at build time by configuration
+option -native-win32-bluetooth. The UWP backend is used by default if this option is not
+set and the Win32 target platform supports the required UWP APIs (minimal requirement is
+Windows 10 version 1507, with slightly improved service discovery since Windows 10 version
+1607).
 
 \section1 Overview
 
@@ -115,7 +117,7 @@ import statement in your \c .qml file:
 \section2 Building Qt Bluetooth
 
 Despite the fact that the module can be built for all Qt platforms,
-the module is not ported to all of them. Not supported platforms such as Windows desktop
+the module is not ported to all of them. Not supported platforms
 employ a fake or dummy backend which is automatically selected when the
 platform is not supported. The dummy backend reports appropriate error messages
 and values which allow the Qt Bluetooth developer to detect at runtime that the
@@ -168,6 +170,9 @@ The \l QtBluetooth module exports the following
     \li qt.bluetooth.winrt
     \li Enables logging of the \l {Qt for UWP}{UWP (Universal Windows Platform)}
         implementation
+\row
+    \li qt.bluetooth.windows
+    \li Enables logging of the \l {Qt for Windows} {Win32} implementation
 \endtable
 
 Logging categories can be used to enable additional warning and debug output

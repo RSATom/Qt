@@ -63,7 +63,7 @@
 #if defined(OS_WIN)
 #include "ozone/gl_surface_wgl_qt.h"
 
-#include "gpu/ipc/service/direct_composition_surface_win.h"
+#include "ui/gl/direct_composition_surface_win.h"
 #include "ui/gl/vsync_provider_win.h"
 #endif
 
@@ -107,7 +107,7 @@ bool GLSurfaceQt::IsOffscreen()
     return true;
 }
 
-gfx::SwapResult GLSurfaceQt::SwapBuffers(const PresentationCallback &callback)
+gfx::SwapResult GLSurfaceQt::SwapBuffers(PresentationCallback callback)
 {
     LOG(ERROR) << "Attempted to call SwapBuffers on a pbuffer.";
     Q_UNREACHABLE();
@@ -140,7 +140,7 @@ bool InitializeGLOneOffPlatform()
 {
     VSyncProviderWin::InitializeOneOff();
 
-    if (GetGLImplementation() == kGLImplementationEGLGLES2)
+    if (GetGLImplementation() == kGLImplementationEGLGLES2 || GetGLImplementation() == kGLImplementationEGLANGLE)
         return GLSurfaceEGLQt::InitializeOneOff();
 
     if (GetGLImplementation() == kGLImplementationDesktopGL) {
@@ -173,6 +173,7 @@ CreateOffscreenGLSurfaceWithFormat(const gfx::Size& size, GLSurfaceFormat format
             return surface;
         break;
     }
+    case kGLImplementationEGLANGLE:
     case kGLImplementationEGLGLES2: {
         surface = new GLSurfaceEGLQt(size);
         if (surface->Initialize(format))
@@ -219,11 +220,24 @@ scoped_refptr<gl::GLSurface> ImageTransportSurface::CreateNativeSurface(base::We
     QT_NOT_USED
     return scoped_refptr<gl::GLSurface>();
 }
+} // namespace gpu
+
+namespace gl {
+
+bool DirectCompositionSurfaceWin::IsDirectCompositionSupported()
+{
+    return false;
+}
+
+bool DirectCompositionSurfaceWin::IsDecodeSwapChainSupported()
+{
+    return false;
+}
 
 bool DirectCompositionSurfaceWin::IsHDRSupported()
 {
     return false;
 }
-} // namespace gpu
+} // namespace gl
 #endif
 #endif // !defined(OS_MACOSX)

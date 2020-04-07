@@ -97,7 +97,7 @@ class Q_LOCATION_PRIVATE_EXPORT QDeclarativeGeoMap : public QQuickItem
     Q_PROPERTY(QList<QObject *> mapParameters READ mapParameters)
     Q_PROPERTY(QGeoServiceProvider::Error error READ error NOTIFY errorChanged)
     Q_PROPERTY(QString errorString READ errorString NOTIFY errorChanged)
-    Q_PROPERTY(QGeoShape visibleRegion READ visibleRegion WRITE setVisibleRegion)
+    Q_PROPERTY(QGeoShape visibleRegion READ visibleRegion WRITE setVisibleRegion NOTIFY visibleRegionChanged)
     Q_PROPERTY(bool copyrightsVisible READ copyrightsVisible WRITE setCopyrightsVisible NOTIFY copyrightsVisibleChanged)
     Q_PROPERTY(QColor color READ color WRITE setColor NOTIFY colorChanged)
     Q_PROPERTY(bool mapReady READ mapReady NOTIFY mapReadyChanged)
@@ -233,6 +233,7 @@ Q_SIGNALS:
     void mapReadyChanged(bool ready);
     Q_REVISION(11) void mapObjectsChanged();
     void visibleAreaChanged();
+    Q_REVISION(14) void visibleRegionChanged();
 
 protected:
     void mousePressEvent(QMouseEvent *event) override ;

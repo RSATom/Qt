@@ -54,14 +54,9 @@ class CORE_EXPORT Range final : public ScriptWrappable {
 
  public:
   static Range* Create(Document&);
-  static Range* Create(Document&,
-                       Node* start_container,
-                       unsigned start_offset,
-                       Node* end_container,
-                       unsigned end_offset);
-  static Range* Create(Document&, const Position&, const Position&);
 
   explicit Range(Document&);
+  Range(Document& owner_document, const Position& start, const Position& end);
   Range(Document&,
         Node* start_container,
         unsigned start_offset,
@@ -93,7 +88,7 @@ class CORE_EXPORT Range final : public ScriptWrappable {
               ExceptionState& = ASSERT_NO_EXCEPTION);
   void collapse(bool to_start);
   bool isPointInRange(Node* ref_node, unsigned offset, ExceptionState&) const;
-  short comparePoint(Node* ref_node, unsigned offset, ExceptionState&) const;
+  int16_t comparePoint(Node* ref_node, unsigned offset, ExceptionState&) const;
   enum CompareResults {
     NODE_BEFORE,
     NODE_AFTER,
@@ -101,17 +96,17 @@ class CORE_EXPORT Range final : public ScriptWrappable {
     NODE_INSIDE
   };
   enum CompareHow { kStartToStart, kStartToEnd, kEndToEnd, kEndToStart };
-  short compareBoundaryPoints(unsigned how,
-                              const Range* source_range,
-                              ExceptionState&) const;
-  static short compareBoundaryPoints(Node* container_a,
-                                     unsigned offset_a,
-                                     Node* container_b,
-                                     unsigned offset_b,
-                                     ExceptionState&);
-  static short compareBoundaryPoints(const RangeBoundaryPoint& boundary_a,
-                                     const RangeBoundaryPoint& boundary_b,
-                                     ExceptionState&);
+  int16_t compareBoundaryPoints(unsigned how,
+                                const Range* source_range,
+                                ExceptionState&) const;
+  static int16_t compareBoundaryPoints(Node* container_a,
+                                       unsigned offset_a,
+                                       Node* container_b,
+                                       unsigned offset_b,
+                                       ExceptionState&);
+  static int16_t compareBoundaryPoints(const RangeBoundaryPoint& boundary_a,
+                                       const RangeBoundaryPoint& boundary_b,
+                                       ExceptionState&);
   bool BoundaryPointsValid() const;
   bool intersectsNode(Node* ref_node, ExceptionState&);
   void deleteContents(ExceptionState&);
@@ -194,7 +189,7 @@ class CORE_EXPORT Range final : public ScriptWrappable {
                                              unsigned end_offset,
                                              ExceptionState&);
   static void ProcessNodes(ActionType,
-                           HeapVector<Member<Node>>&,
+                           NodeVector&,
                            Node* old_container,
                            Node* new_container,
                            ExceptionState&);
@@ -227,8 +222,8 @@ using RangeVector = HeapVector<Member<Range>>;
 
 }  // namespace blink
 
-#ifndef NDEBUG
-// Outside the WebCore namespace for ease of invocation from gdb.
+#if DCHECK_IS_ON()
+// Outside the blink namespace for ease of invocation from gdb.
 void showTree(const blink::Range*);
 #endif
 

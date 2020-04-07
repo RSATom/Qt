@@ -16,8 +16,7 @@ scoped_refptr<ImagePattern> ImagePattern::Create(scoped_refptr<Image> image,
 }
 
 ImagePattern::ImagePattern(scoped_refptr<Image> image, RepeatMode repeat_mode)
-    : Pattern(repeat_mode), tile_image_(image->PaintImageForCurrentFrame()) {
-}
+    : Pattern(repeat_mode), tile_image_(image->PaintImageForCurrentFrame()) {}
 
 sk_sp<PaintShader> ImagePattern::CreateShader(const SkMatrix& local_matrix) {
   if (!tile_image_) {
@@ -25,10 +24,8 @@ sk_sp<PaintShader> ImagePattern::CreateShader(const SkMatrix& local_matrix) {
   }
 
   return PaintShader::MakeImage(
-      tile_image_,
-      IsRepeatX() ? SkShader::kRepeat_TileMode : SkShader::kDecal_TileMode,
-      IsRepeatY() ? SkShader::kRepeat_TileMode : SkShader::kDecal_TileMode,
-      &local_matrix);
+      tile_image_, IsRepeatX() ? SkTileMode::kRepeat : SkTileMode::kDecal,
+      IsRepeatY() ? SkTileMode::kRepeat : SkTileMode::kDecal, &local_matrix);
 }
 
 bool ImagePattern::IsTextureBacked() const {

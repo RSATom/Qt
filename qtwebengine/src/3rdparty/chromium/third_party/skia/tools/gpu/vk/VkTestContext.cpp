@@ -5,13 +5,13 @@
  * found in the LICENSE file.
  */
 
-#include "VkTestContext.h"
+#include "tools/gpu/vk/VkTestContext.h"
 
 #ifdef SK_VULKAN
 
-#include "GrContext.h"
-#include "VkTestUtils.h"
-#include "vk/GrVkExtensions.h"
+#include "include/gpu/GrContext.h"
+#include "include/gpu/vk/GrVkExtensions.h"
+#include "tools/gpu/vk/VkTestUtils.h"
 
 namespace {
 
@@ -180,6 +180,7 @@ public:
                                                      features, &debugCallback)) {
                 sk_gpu_test::FreeVulkanFeaturesStructs(features);
                 delete features;
+                delete extensions;
                 return nullptr;
             }
             if (debugCallback != VK_NULL_HANDLE) {
@@ -226,8 +227,7 @@ protected:
             grVkDestroyDevice(fVk.fDevice, nullptr);
 #ifdef SK_ENABLE_VK_LAYERS
             if (fDebugCallback != VK_NULL_HANDLE) {
-                ACQUIRE_VK_PROC_LOCAL(DestroyDebugReportCallbackEXT, fVk.fInstance);
-                grVkDestroyDebugReportCallbackEXT(fVk.fInstance, fDebugCallback, nullptr);
+                fDestroyDebugReportCallbackEXT(fVk.fInstance, fDebugCallback, nullptr);
             }
 #endif
             grVkDestroyInstance(fVk.fInstance, nullptr);

@@ -5,10 +5,11 @@
 #include "third_party/blink/renderer/modules/webaudio/audio_worklet_thread.h"
 
 #include <memory>
+#include "base/synchronization/waitable_event.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/blink/public/platform/platform.h"
 #include "third_party/blink/public/platform/web_url_request.h"
-#include "third_party/blink/renderer/bindings/core/v8/script_module.h"
+#include "third_party/blink/renderer/bindings/core/v8/module_record.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_source_code.h"
 #include "third_party/blink/renderer/bindings/core/v8/source_location.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_cache_options.h"
@@ -24,13 +25,11 @@
 #include "third_party/blink/renderer/core/workers/worker_or_worklet_global_scope.h"
 #include "third_party/blink/renderer/core/workers/worker_reporting_proxy.h"
 #include "third_party/blink/renderer/core/workers/worklet_module_responses_map.h"
-#include "third_party/blink/renderer/platform/cross_thread_functional.h"
 #include "third_party/blink/renderer/platform/heap/handle.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource_loader_options.h"
 #include "third_party/blink/renderer/platform/testing/testing_platform_support.h"
 #include "third_party/blink/renderer/platform/testing/unit_test_helpers.h"
-#include "third_party/blink/renderer/platform/waitable_event.h"
-#include "third_party/blink/renderer/platform/web_thread_supporting_gc.h"
+#include "third_party/blink/renderer/platform/wtf/cross_thread_functional.h"
 #include "third_party/blink/renderer/platform/wtf/text/text_position.h"
 
 namespace blink {
@@ -40,9 +39,7 @@ class AudioWorkletThreadTest : public PageTestBase {
   void SetUp() override {
     AudioWorkletThread::EnsureSharedBackingThread();
     PageTestBase::SetUp(IntSize());
-    Document* document = &GetDocument();
-    document->SetURL(KURL("https://example.com/"));
-    document->UpdateSecurityOrigin(SecurityOrigin::Create(document->Url()));
+    NavigateTo(KURL("https://example.com/"));
     reporting_proxy_ = std::make_unique<WorkerReportingProxy>();
   }
 
@@ -53,7 +50,7 @@ class AudioWorkletThreadTest : public PageTestBase {
     thread->Start(
         std::make_unique<GlobalScopeCreationParams>(
             document->Url(), mojom::ScriptType::kModule,
-            OffMainThreadWorkerScriptFetchOption::kEnabled,
+            OffMainThreadWorkerScriptFetchOption::kEnabled, "AudioWorklet",
             document->UserAgent(), nullptr /* web_worker_fetch_context */,
             Vector<CSPHeaderAndType>(), document->GetReferrerPolicy(),
             document->GetSecurityOrigin(), document->IsSecureContext(),
@@ -70,24 +67,26 @@ class AudioWorkletThreadTest : public PageTestBase {
 
   // Attempts to run some simple script for |thread|.
   void CheckWorkletCanExecuteScript(WorkerThread* thread) {
-    WaitableEvent wait_event;
-    thread->GetWorkerBackingThread().BackingThread().PostTask(
+    base::WaitableEvent wait_event;
+    PostCrossThreadTask(
+        *thread->GetWorkerBackingThread().BackingThread().GetTaskRunner(),
         FROM_HERE,
-        CrossThreadBind(&AudioWorkletThreadTest::ExecuteScriptInWorklet,
-                        CrossThreadUnretained(this),
-                        CrossThreadUnretained(thread),
-                        CrossThreadUnretained(&wait_event)));
+        CrossThreadBindOnce(&AudioWorkletThreadTest::ExecuteScriptInWorklet,
+                            CrossThreadUnretained(this),
+                            CrossThreadUnretained(thread),
+                            CrossThreadUnretained(&wait_event)));
     wait_event.Wait();
   }
 
  private:
-  void ExecuteScriptInWorklet(WorkerThread* thread, WaitableEvent* wait_event) {
+  void ExecuteScriptInWorklet(WorkerThread* thread,
+                              base::WaitableEvent* wait_event) {
     ScriptState* script_state =
         thread->GlobalScope()->ScriptController()->GetScriptState();
     EXPECT_TRUE(script_state);
     ScriptState::Scope scope(script_state);
     KURL js_url("https://example.com/worklet.js");
-    ScriptModule module = ScriptModule::Compile(
+    ModuleRecord module = ModuleRecord::Compile(
         script_state->GetIsolate(), "var counter = 0; ++counter;", js_url,
         js_url, ScriptFetchOptions(), TextPosition::MinimumPosition(),
         ASSERT_NO_EXCEPTION);
@@ -115,7 +114,7 @@ TEST_F(AudioWorkletThreadTest, CreateSecondAndTerminateFirst) {
   // Create the first worklet and wait until it is initialized.
   std::unique_ptr<AudioWorkletThread> first_worklet =
       CreateAudioWorkletThread();
-  WebThreadSupportingGC* first_thread =
+  Thread* first_thread =
       &first_worklet->GetWorkerBackingThread().BackingThread();
   CheckWorkletCanExecuteScript(first_worklet.get());
   v8::Isolate* first_isolate = first_worklet->GetIsolate();
@@ -130,7 +129,7 @@ TEST_F(AudioWorkletThreadTest, CreateSecondAndTerminateFirst) {
 
   // Wait until the second worklet is initialized. Verify that the second
   // worklet is using the same thread and Isolate as the first worklet.
-  WebThreadSupportingGC* second_thread =
+  Thread* second_thread =
       &second_worklet->GetWorkerBackingThread().BackingThread();
   ASSERT_EQ(first_thread, second_thread);
 
@@ -150,8 +149,7 @@ TEST_F(AudioWorkletThreadTest, CreateSecondAndTerminateFirst) {
 TEST_F(AudioWorkletThreadTest, TerminateFirstAndCreateSecond) {
   // Create the first worklet, wait until it is initialized, and terminate it.
   std::unique_ptr<AudioWorkletThread> worklet = CreateAudioWorkletThread();
-  WebThreadSupportingGC* first_thread =
-      &worklet->GetWorkerBackingThread().BackingThread();
+  Thread* first_thread = &worklet->GetWorkerBackingThread().BackingThread();
   CheckWorkletCanExecuteScript(worklet.get());
 
   // We don't use terminateAndWait here to avoid forcible termination.
@@ -160,8 +158,7 @@ TEST_F(AudioWorkletThreadTest, TerminateFirstAndCreateSecond) {
 
   // Create the second worklet. The backing thread is same.
   worklet = CreateAudioWorkletThread();
-  WebThreadSupportingGC* second_thread =
-      &worklet->GetWorkerBackingThread().BackingThread();
+  Thread* second_thread = &worklet->GetWorkerBackingThread().BackingThread();
   EXPECT_EQ(first_thread, second_thread);
   CheckWorkletCanExecuteScript(worklet.get());
 

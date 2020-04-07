@@ -61,6 +61,7 @@ QT_BEGIN_NAMESPACE
 namespace Qt3DCore {
 
 class QAspectJob;
+class QAspectManager;
 
 #if QT_CONFIG(qt3d_profile_jobs)
 struct FrameHeader
@@ -107,8 +108,12 @@ class Q_3DCORE_PRIVATE_EXPORT QAspectJobPrivate
 {
 public:
     QAspectJobPrivate();
+    virtual ~QAspectJobPrivate();
 
     static QAspectJobPrivate *get(QAspectJob *job);
+    static const QAspectJobPrivate *get(const QAspectJob *job);
+
+    virtual void postFrame(QAspectManager *aspectManager);
 
     QVector<QWeakPointer<QAspectJob> > m_dependencies;
 #if QT_CONFIG(qt3d_profile_jobs)
@@ -117,6 +122,9 @@ public:
 };
 
 } // Qt3D
+
+#define Q_DJOB(Class) \
+    Class##Private *d = static_cast<Class##Private *>(Qt3DCore::QAspectJobPrivate::get(this))
 
 #if QT_CONFIG(qt3d_profile_jobs)
 

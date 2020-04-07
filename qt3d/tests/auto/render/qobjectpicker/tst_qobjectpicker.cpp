@@ -156,14 +156,11 @@ private Q_SLOTS:
                 QCoreApplication::processEvents();
 
                 // THEN
-                QCOMPARE(arbiter.events.size(), 1);
-                QCOMPARE(picker.priority(), 883);
-                auto change = arbiter.events.first().staticCast<Qt3DCore::QPropertyUpdatedChange>();
-                QCOMPARE(change->propertyName(), "priority");
-                QCOMPARE(change->value().value<int>(), picker.priority());
-                QCOMPARE(change->type(), Qt3DCore::PropertyUpdated);
+                QCOMPARE(arbiter.events.size(), 0);
+                QCOMPARE(arbiter.dirtyNodes.size(), 1);
+                QCOMPARE(arbiter.dirtyNodes.front(), &picker);
 
-                arbiter.events.clear();
+                arbiter.dirtyNodes.clear();
             }
 
             {
@@ -173,6 +170,7 @@ private Q_SLOTS:
 
                 // THEN
                 QCOMPARE(arbiter.events.size(), 0);
+                QCOMPARE(arbiter.dirtyNodes.size(), 0);
             }
         }
         {
@@ -182,14 +180,11 @@ private Q_SLOTS:
                 QCoreApplication::processEvents();
 
                 // THEN
-                QCOMPARE(arbiter.events.size(), 1);
-                QCOMPARE(picker.isDragEnabled(), true);
-                auto change = arbiter.events.first().staticCast<Qt3DCore::QPropertyUpdatedChange>();
-                QCOMPARE(change->propertyName(), "dragEnabled");
-                QCOMPARE(change->value().value<bool>(), picker.isDragEnabled());
-                QCOMPARE(change->type(), Qt3DCore::PropertyUpdated);
+                QCOMPARE(arbiter.events.size(), 0);
+                QCOMPARE(arbiter.dirtyNodes.size(), 1);
+                QCOMPARE(arbiter.dirtyNodes.front(), &picker);
 
-                arbiter.events.clear();
+                arbiter.dirtyNodes.clear();
             }
 
             {
@@ -199,6 +194,7 @@ private Q_SLOTS:
 
                 // THEN
                 QCOMPARE(arbiter.events.size(), 0);
+                QCOMPARE(arbiter.dirtyNodes.size(), 0);
             }
         }
         {
@@ -208,14 +204,11 @@ private Q_SLOTS:
                 QCoreApplication::processEvents();
 
                 // THEN
-                QCOMPARE(arbiter.events.size(), 1);
-                QCOMPARE(picker.isHoverEnabled(), true);
-                auto change = arbiter.events.first().staticCast<Qt3DCore::QPropertyUpdatedChange>();
-                QCOMPARE(change->propertyName(), "hoverEnabled");
-                QCOMPARE(change->value().value<bool>(), picker.isHoverEnabled());
-                QCOMPARE(change->type(), Qt3DCore::PropertyUpdated);
+                QCOMPARE(arbiter.events.size(), 0);
+                QCOMPARE(arbiter.dirtyNodes.size(), 1);
+                QCOMPARE(arbiter.dirtyNodes.front(), &picker);
 
-                arbiter.events.clear();
+                arbiter.dirtyNodes.clear();
             }
 
             {
@@ -225,6 +218,7 @@ private Q_SLOTS:
 
                 // THEN
                 QCOMPARE(arbiter.events.size(), 0);
+                QCOMPARE(arbiter.dirtyNodes.size(), 0);
             }
         }
     }
@@ -240,102 +234,25 @@ private Q_SLOTS:
         QTest::newRow("objectPicker_all_true") << objectPicker;
     }
 
-    // TODO: Avoid cloning here
-//    void checkCloning()
-//    {
-//        // GIVEN
-//        QFETCH(Qt3DRender::QObjectPicker *, objectPicker);
-
-//        // WHEN
-//        Qt3DRender::QObjectPicker *clone = static_cast<Qt3DRender::QObjectPicker *>(QNode::clone(objectPicker));
-//        QCoreApplication::processEvents();
-
-//        // THEN
-//        QVERIFY(clone != nullptr);
-//        QCOMPARE(objectPicker->id(), clone->id());
-//        QCOMPARE(objectPicker->isHoverEnabled(), clone->isHoverEnabled());
-//        QCOMPARE(objectPicker->isPressed(), clone->isPressed());
-//        QCOMPARE(objectPicker->containsMouse(), clone->containsMouse());
-//    }
-
     void checkPropertyUpdates()
     {
         // GIVEN
         TestArbiter arbiter;
+        Qt3DCore::QScene scene;
         QScopedPointer<Qt3DRender::QObjectPicker> objectPicker(new Qt3DRender::QObjectPicker());
         arbiter.setArbiterOnNode(objectPicker.data());
+        Qt3DCore::QNodePrivate::get(objectPicker.data())->setScene(&scene);
 
         // WHEN
         objectPicker->setHoverEnabled(true);
         QCoreApplication::processEvents();
 
         // THEN
-        QCOMPARE(arbiter.events.size(), 1);
-        Qt3DCore::QPropertyUpdatedChangePtr change = arbiter.events.last().staticCast<Qt3DCore::QPropertyUpdatedChange>();
-        QCOMPARE(change->propertyName(), "hoverEnabled");
-        QCOMPARE(change->value().toBool(), true);
-        QCOMPARE(change->type(), Qt3DCore::PropertyUpdated);
+        QCOMPARE(arbiter.events.size(), 0);
+        QCOMPARE(arbiter.dirtyNodes.size(), 1);
+        QCOMPARE(arbiter.dirtyNodes.front(), objectPicker.data());
 
-        arbiter.events.clear();
-    }
-
-    void checkBackendUpdates_data()
-    {
-        QTest::addColumn<QByteArray>("signalPrototype");
-        QTest::addColumn<QByteArray>("propertyName");
-        QTest::addColumn<bool>("requiresEvent");
-
-        QTest::newRow("clicked")
-                << QByteArray(SIGNAL(clicked(Qt3DRender::QPickEvent *)))
-                << QByteArrayLiteral("clicked")
-                << true;
-
-        QTest::newRow("pressed")
-                << QByteArray(SIGNAL(pressed(Qt3DRender::QPickEvent *)))
-                << QByteArrayLiteral("pressed")
-                << true;
-
-        QTest::newRow("released")
-                << QByteArray(SIGNAL(released(Qt3DRender::QPickEvent *)))
-                << QByteArrayLiteral("released")
-                << true;
-
-        QTest::newRow("entered")
-                << QByteArray(SIGNAL(entered()))
-                << QByteArrayLiteral("entered")
-                << false;
-
-        QTest::newRow("exited")
-                << QByteArray(SIGNAL(exited()))
-                << QByteArrayLiteral("exited")
-                << false;
-    }
-
-    void checkBackendUpdates()
-    {
-        // GIVEN
-        QFETCH(QByteArray, signalPrototype);
-        QFETCH(QByteArray, propertyName);
-        QFETCH(bool, requiresEvent);
-        QScopedPointer<MyObjectPicker> objectPicker(new MyObjectPicker());
-        QSignalSpy spy(objectPicker.data(), signalPrototype.constData());
-        Qt3DRender::QPickEventPtr event(new Qt3DRender::QPickEvent());
-
-        // WHEN
-        // Create Backend Change and distribute it to frontend node
-        Qt3DCore::QPropertyUpdatedChangePtr e(new Qt3DCore::QPropertyUpdatedChange(objectPicker->id()));
-        e->setPropertyName(propertyName.constData());
-        if (requiresEvent)
-        {
-            QVariant v;
-            v.setValue<Qt3DRender::QPickEventPtr>(event);
-            e->setValue(v);
-        }
-        objectPicker->sceneChangeEvent(e);
-
-        // THEN
-        // Check that the QObjectPicker triggers the expected signal
-        QCOMPARE(spy.count(), 1);
+        arbiter.dirtyNodes.clear();
     }
 };
 

@@ -1,13 +1,16 @@
-windows
-[linkLocal]
-linux
 [listenWhileListening:WithSocks5Proxy]
 linux
 windows
+[ipv6Server]
+windows-7sp1
+windows-10 msvc-2017
 [ipv6Server:WithoutProxy]
 windows
 osx
-[clientServerLoop:WithSocks5Proxy]
-linux
-[crashTests:WithSocks5Proxy]
-linux
+[eagainBlockingAccept]
+windows-7sp1
+windows-10
+[serverAddress]
+windows-7sp1
+windows-10
+

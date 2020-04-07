@@ -33,6 +33,7 @@ class FormActivityTabHelper
 
  private:
   friend class web::WebStateUserData<FormActivityTabHelper>;
+
   // TestFormActivityTabHelper can be used by tests that want to simulate form
   // events without loading page and executing JavaScript.
   // To trigger events, TestFormActivityTabHelper will access |observer_|.
@@ -56,10 +57,9 @@ class FormActivityTabHelper
                              web::WebFrame* sender_frame);
 
   // Handler for "form.*" JavaScript command. Dispatch to more specific handler.
-  bool OnFormCommand(const base::DictionaryValue& message,
+  void OnFormCommand(const base::DictionaryValue& message,
                      const GURL& url,
-                     bool has_user_gesture,
-                     bool form_in_main_frame,
+                     bool user_is_interacting,
                      web::WebFrame* sender_frame);
 
   // The WebState this instance is observing. Will be null after
@@ -68,6 +68,11 @@ class FormActivityTabHelper
 
   // The observers.
   base::ObserverList<FormActivityObserver>::Unchecked observers_;
+
+  // Subscription for JS message.
+  std::unique_ptr<web::WebState::ScriptCommandSubscription> subscription_;
+
+  WEB_STATE_USER_DATA_KEY_DECL();
 
   DISALLOW_COPY_AND_ASSIGN(FormActivityTabHelper);
 };

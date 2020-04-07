@@ -69,7 +69,7 @@ inline void DistributionPool::PopulateChildren(const ContainerNode& parent) {
       continue;
 
     if (IsActiveV0InsertionPoint(*child)) {
-      V0InsertionPoint* insertion_point = ToV0InsertionPoint(child);
+      auto* insertion_point = To<V0InsertionPoint>(child);
       for (wtf_size_t i = 0; i < insertion_point->DistributedNodesSize(); ++i)
         nodes_.push_back(insertion_point->DistributedNodeAt(i));
     } else {
@@ -116,10 +116,8 @@ inline DistributionPool::~DistributionPool() {
 
 inline void DistributionPool::DetachNonDistributedNodes() {
   for (wtf_size_t i = 0; i < nodes_.size(); ++i) {
-    if (distributed_[i])
-      continue;
-    if (nodes_[i]->GetLayoutObject())
-      nodes_[i]->LazyReattachIfAttached();
+    if (!distributed_[i])
+      nodes_[i]->RemovedFromFlatTree();
   }
 }
 
@@ -189,7 +187,7 @@ void ShadowRootV0::Distribute() {
             ShadowRootWhereNodeCanBeDistributedForV0(*shadow_insertion_point))
       shadow_root->SetNeedsDistributionRecalc();
   }
-  probe::didPerformElementShadowDistribution(&GetShadowRoot().host());
+  probe::DidPerformElementShadowDistribution(&GetShadowRoot().host());
 }
 
 void ShadowRootV0::DidDistributeNode(const Node* node,

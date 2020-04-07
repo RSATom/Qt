@@ -336,7 +336,9 @@ void tst_QStateMachine::transitionToRootState()
     TEST_ACTIVE_CHANGED(initialState, 1);
 
     machine.postEvent(new QEvent(QEvent::User));
-    QTest::ignoreMessage(QtWarningMsg, "Unrecoverable error detected in running state machine: No common ancestor for targets and source of transition from state 'initial'");
+    QTest::ignoreMessage(QtWarningMsg,
+                         "Unrecoverable error detected in running state machine: "
+                         "Child mode of state machine 'machine' is not 'ExclusiveStates'.");
     QCoreApplication::processEvents();
     QVERIFY(machine.configuration().isEmpty());
     QVERIFY(!machine.isRunning());
@@ -1061,7 +1063,8 @@ void tst_QStateMachine::transitionToStateNotInGraph()
     initialState->addTransition(&independentState);
 
     machine.start();
-    QTest::ignoreMessage(QtWarningMsg, "Unrecoverable error detected in running state machine: No common ancestor for targets and source of transition from state 'initialState'");
+    QTest::ignoreMessage(QtWarningMsg, "Unrecoverable error detected in running state machine: "
+                                       "Child mode of state machine '' is not 'ExclusiveStates'.");
     QCoreApplication::processEvents();
 
     QCOMPARE(machine.isRunning(), false);
@@ -1734,13 +1737,13 @@ protected:
         if (e->type() != QEvent::Type(QEvent::User+2))
             return false;
         StringEvent *se = static_cast<StringEvent*>(e);
-        return (m_value == se->value) && (!m_cond.isValid() || (m_cond.indexIn(m_value) != -1));
+        return (m_value == se->value) && (!m_cond.isValid() || m_cond.match(m_value).hasMatch());
     }
     virtual void onTransition(QEvent *) {}
 
 private:
     QString m_value;
-    QRegExp m_cond;
+    QRegularExpression m_cond;
 };
 
 class StringEventPoster : public QState
@@ -2099,6 +2102,8 @@ void tst_QStateMachine::parallelRootState()
     QSignalSpy finishedSpy(&machine, &QStateMachine::finished);
     QVERIFY(finishedSpy.isValid());
     machine.start();
+    QTest::ignoreMessage(QtWarningMsg, "Unrecoverable error detected in running state machine: "
+                                       "Child mode of state machine '' is not 'ExclusiveStates'.");
     QTRY_COMPARE(startedSpy.count(), 1);
     QCOMPARE(machine.configuration().size(), 4);
     QVERIFY(machine.configuration().contains(s1));
@@ -3310,14 +3315,15 @@ void tst_QStateMachine::targetStateWithNoParent()
     QVERIFY(runningSpy.isValid());
 
     machine.start();
-    QTest::ignoreMessage(QtWarningMsg, "Unrecoverable error detected in running state machine: No common ancestor for targets and source of transition from state 's1'");
+    QTest::ignoreMessage(QtWarningMsg, "Unrecoverable error detected in running state machine: "
+                                       "Child mode of state machine '' is not 'ExclusiveStates'.");
     TEST_ACTIVE_CHANGED(s1, 2);
     QTRY_COMPARE(startedSpy.count(), 1);
     QCOMPARE(machine.isRunning(), false);
     QCOMPARE(stoppedSpy.count(), 1);
     QCOMPARE(finishedSpy.count(), 0);
     TEST_RUNNING_CHANGED_STARTED_STOPPED;
-    QCOMPARE(machine.error(), QStateMachine::NoCommonAncestorForTransitionError);
+    QCOMPARE(machine.error(), QStateMachine::StateMachineChildModeSetToParallelError);
 }
 
 void tst_QStateMachine::targetStateDeleted()
@@ -6680,13 +6686,13 @@ void tst_QStateMachine::dontProcessSlotsWhenMachineIsNotRunning()
     } emitter;
 
     initialState.addTransition(&emitter, &Emitter::signalWithNoArg, &finalState);
-    QTimer::singleShot(0, [&]() {
-        metaObject()->invokeMethod(&emitter, "emitSignalWithNoArg");
-        metaObject()->invokeMethod(&emitter, "emitSignalWithNoArg");
-    });
     machine.addState(&initialState);
     machine.addState(&finalState);
     machine.setInitialState(&initialState);
+    connect(&machine, &QStateMachine::started, &emitter, [&]() {
+        metaObject()->invokeMethod(&emitter, "emitSignalWithNoArg");
+        metaObject()->invokeMethod(&emitter, "emitSignalWithNoArg");
+    });
     connect(&machine, &QStateMachine::finished, &emitter.thread, &QThread::quit);
     machine.start();
     QSignalSpy emittedSpy(&emitter, &SignalEmitter::signalWithNoArg);

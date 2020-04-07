@@ -8,17 +8,18 @@
 #ifndef GrPathRenderer_DEFINED
 #define GrPathRenderer_DEFINED
 
-#include "GrTypesPriv.h"
-#include "SkTArray.h"
-#include "SkRefCnt.h"
+#include "include/core/SkRefCnt.h"
+#include "include/private/GrTypesPriv.h"
+#include "include/private/SkTArray.h"
 
 class GrCaps;
 class GrClip;
-class GrContext;
 class GrFixedClip;
 class GrHardClip;
 class GrPaint;
+class GrRecordingContext;
 class GrRenderTargetContext;
+class GrRenderTargetProxy;
 class GrShape;
 class GrStyle;
 struct GrUserStencilSettings;
@@ -76,6 +77,7 @@ public:
         SkDEBUGCODE(CanDrawPathArgs() { memset(this, 0, sizeof(*this)); }) // For validation.
 
         const GrCaps*               fCaps;
+        const GrRenderTargetProxy*  fProxy;
         const SkIRect*              fClipConservativeBounds;
         const SkMatrix*             fViewMatrix;
         const GrShape*              fShape;
@@ -88,6 +90,7 @@ public:
 #ifdef SK_DEBUG
         void validate() const {
             SkASSERT(fCaps);
+            SkASSERT(fProxy);
             SkASSERT(fClipConservativeBounds);
             SkASSERT(fViewMatrix);
             SkASSERT(fShape);
@@ -106,7 +109,7 @@ public:
     }
 
     struct DrawPathArgs {
-        GrContext*                   fContext;
+        GrRecordingContext*          fContext;
         GrPaint&&                    fPaint;
         const GrUserStencilSettings* fUserStencilSettings;
         GrRenderTargetContext*       fRenderTargetContext;
@@ -140,13 +143,13 @@ public:
     struct StencilPathArgs {
         SkDEBUGCODE(StencilPathArgs() { memset(this, 0, sizeof(*this)); }) // For validation.
 
-        GrContext*             fContext;
+        GrRecordingContext*    fContext;
         GrRenderTargetContext* fRenderTargetContext;
         const GrHardClip*      fClip;
         const SkIRect*         fClipConservativeBounds;
         const SkMatrix*        fViewMatrix;
-        GrAAType               fAAType;
         const GrShape*         fShape;
+        GrAA                   fDoStencilMSAA;
 
         SkDEBUGCODE(void validate() const);
     };

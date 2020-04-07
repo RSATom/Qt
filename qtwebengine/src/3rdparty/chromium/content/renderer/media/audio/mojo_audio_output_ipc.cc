@@ -6,8 +6,10 @@
 
 #include <utility>
 
+#include "base/bind.h"
 #include "base/metrics/histogram_macros.h"
 #include "media/audio/audio_device_description.h"
+#include "media/mojo/interfaces/audio_output_stream.mojom.h"
 #include "mojo/public/cpp/bindings/callback_helpers.h"
 #include "mojo/public/cpp/system/platform_handle.h"
 
@@ -26,8 +28,7 @@ MojoAudioOutputIPC::MojoAudioOutputIPC(
     scoped_refptr<base::SingleThreadTaskRunner> io_task_runner)
     : factory_accessor_(std::move(factory_accessor)),
       binding_(this),
-      io_task_runner_(std::move(io_task_runner)),
-      weak_factory_(this) {}
+      io_task_runner_(std::move(io_task_runner)) {}
 
 MojoAudioOutputIPC::~MojoAudioOutputIPC() {
   DCHECK(!AuthorizationRequested() && !StreamCreationRequested())
@@ -39,7 +40,7 @@ MojoAudioOutputIPC::~MojoAudioOutputIPC() {
 
 void MojoAudioOutputIPC::RequestDeviceAuthorization(
     media::AudioOutputIPCDelegate* delegate,
-    int session_id,
+    const base::UnguessableToken& session_id,
     const std::string& device_id) {
   DCHECK(io_task_runner_->RunsTasksInCurrentSequence());
   DCHECK(delegate);
@@ -48,9 +49,9 @@ void MojoAudioOutputIPC::RequestDeviceAuthorization(
   DCHECK(!StreamCreationRequested());
   delegate_ = delegate;
 
-  // We wrap the callback in a ScopedCallbackRunner to detect the case when the
-  // mojo connection is terminated prior to receiving the response. In this
-  // case, the callback runner will be destructed and call
+  // We wrap the callback in a WrapCallbackWithDefaultInvokeIfNotRun to detect
+  // the case when the mojo connection is terminated prior to receiving the
+  // response. In this case, the callback runner will be destructed and call
   // ReceivedDeviceAuthorization with an error.
   DoRequestDeviceAuthorization(
       session_id, device_id,
@@ -75,7 +76,8 @@ void MojoAudioOutputIPC::CreateStream(
     // Since the delegate didn't explicitly request authorization, we shouldn't
     // send a callback to it.
     DoRequestDeviceAuthorization(
-        0, media::AudioDeviceDescription::kDefaultDeviceId,
+        /*session_id=*/base::UnguessableToken(),
+        media::AudioDeviceDescription::kDefaultDeviceId,
         base::BindOnce(&TrivialAuthorizedCallback));
   }
 
@@ -104,6 +106,12 @@ void MojoAudioOutputIPC::PauseStream() {
   expected_state_ = kPaused;
   if (stream_.is_bound())
     stream_->Pause();
+}
+
+void MojoAudioOutputIPC::FlushStream() {
+  DCHECK(io_task_runner_->RunsTasksInCurrentSequence());
+  if (stream_.is_bound())
+    stream_->Flush();
 }
 
 void MojoAudioOutputIPC::CloseStream() {
@@ -160,8 +168,8 @@ MojoAudioOutputIPC::MakeProviderRequest() {
   // Don't set a connection error handler.
   // There are three possible reasons for a connection error.
   // 1. The connection is broken before authorization was completed. In this
-  //    case, the ScopedCallbackRunner wrapping the callback will call the
-  //    callback with failure.
+  //    case, the WrapCallbackWithDefaultInvokeIfNotRun wrapping the callback
+  //    will call the callback with failure.
   // 2. The connection is broken due to authorization being denied. In this
   //    case, the callback was called with failure first, so the state of the
   //    stream provider is irrelevant.
@@ -172,7 +180,7 @@ MojoAudioOutputIPC::MakeProviderRequest() {
 }
 
 void MojoAudioOutputIPC::DoRequestDeviceAuthorization(
-    int session_id,
+    const base::UnguessableToken& session_id,
     const std::string& device_id,
     AuthorizationCB callback) {
   DCHECK(io_task_runner_->RunsTasksInCurrentSequence());
@@ -194,8 +202,11 @@ void MojoAudioOutputIPC::DoRequestDeviceAuthorization(
 
   static_assert(sizeof(int) == sizeof(int32_t),
                 "sizeof(int) == sizeof(int32_t)");
-  factory->RequestDeviceAuthorization(MakeProviderRequest(), session_id,
-                                      device_id, std::move(callback));
+  factory->RequestDeviceAuthorization(
+      MakeProviderRequest(),
+      session_id.is_empty() ? base::Optional<base::UnguessableToken>()
+                            : session_id,
+      device_id, std::move(callback));
 }
 
 void MojoAudioOutputIPC::ReceivedDeviceAuthorization(

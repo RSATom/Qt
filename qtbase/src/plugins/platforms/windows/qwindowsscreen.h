@@ -76,7 +76,7 @@ class QWindowsScreen : public QPlatformScreen
 {
 public:
 #ifndef QT_NO_CURSOR
-    typedef QScopedPointer<QPlatformCursor> CursorPtr;
+    using CursorPtr = QScopedPointer<QPlatformCursor>;
 #endif
 
     explicit QWindowsScreen(const QWindowsScreenData &data);
@@ -87,7 +87,7 @@ public:
     QImage::Format format() const override { return m_data.format; }
     QSizeF physicalSize() const override { return m_data.physicalSizeMM; }
     QDpi logicalDpi() const override { return m_data.dpi; }
-    qreal pixelDensity() const override;
+    QDpi logicalBaseDpi() const override { return QDpi(96, 96); };
     qreal devicePixelRatio() const override { return 1.0; }
     qreal refreshRate() const override { return m_data.refreshRateHz; }
     QString name() const override { return m_data.name; }
@@ -103,6 +103,8 @@ public:
     static bool setOrientationPreference(Qt::ScreenOrientation o);
 
     inline void handleChanges(const QWindowsScreenData &newData);
+
+    HMONITOR handle() const;
 
 #ifndef QT_NO_CURSOR
     QPlatformCursor *cursor() const override { return m_cursor.data(); }
@@ -125,7 +127,7 @@ private:
 class QWindowsScreenManager
 {
 public:
-    typedef QList<QWindowsScreen *> WindowsScreenList;
+    using WindowsScreenList = QList<QWindowsScreen *>;
 
     QWindowsScreenManager();
 

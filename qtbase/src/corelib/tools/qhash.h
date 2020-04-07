@@ -46,12 +46,10 @@
 #include <QtCore/qlist.h>
 #include <QtCore/qrefcount.h>
 #include <QtCore/qhashfunctions.h>
-
-#ifdef Q_COMPILER_INITIALIZER_LISTS
-#include <initializer_list>
-#endif
+#include <QtCore/qcontainertools_impl.h>
 
 #include <algorithm>
+#include <initializer_list>
 
 #if defined(Q_CC_MSVC)
 #pragma warning( push )
@@ -138,7 +136,7 @@ struct QHashDummyValue
 {
 };
 
-inline bool operator==(const QHashDummyValue & /* v1 */, const QHashDummyValue & /* v2 */)
+constexpr bool operator==(const QHashDummyValue &, const QHashDummyValue &) noexcept
 {
     return true;
 }
@@ -240,8 +238,7 @@ class QHash
     static inline int alignOfNode() { return qMax<int>(sizeof(void*), Q_ALIGNOF(Node)); }
 
 public:
-    inline QHash() Q_DECL_NOTHROW : d(const_cast<QHashData *>(&QHashData::shared_null)) { }
-#ifdef Q_COMPILER_INITIALIZER_LISTS
+    inline QHash() noexcept : d(const_cast<QHashData *>(&QHashData::shared_null)) { }
     inline QHash(std::initializer_list<std::pair<Key,T> > list)
         : d(const_cast<QHashData *>(&QHashData::shared_null))
     {
@@ -249,17 +246,36 @@ public:
         for (typename std::initializer_list<std::pair<Key,T> >::const_iterator it = list.begin(); it != list.end(); ++it)
             insert(it->first, it->second);
     }
-#endif
     QHash(const QHash &other) : d(other.d) { d->ref.ref(); if (!d->sharable) detach(); }
     ~QHash() { if (!d->ref.deref()) freeData(d); }
 
     QHash &operator=(const QHash &other);
-#ifdef Q_COMPILER_RVALUE_REFS
-    QHash(QHash &&other) Q_DECL_NOTHROW : d(other.d) { other.d = const_cast<QHashData *>(&QHashData::shared_null); }
-    QHash &operator=(QHash &&other) Q_DECL_NOTHROW
+    QHash(QHash &&other) noexcept : d(other.d) { other.d = const_cast<QHashData *>(&QHashData::shared_null); }
+    QHash &operator=(QHash &&other) noexcept
     { QHash moved(std::move(other)); swap(moved); return *this; }
+#ifdef Q_QDOC
+    template <typename InputIterator>
+    QHash(InputIterator f, InputIterator l);
+#else
+    template <typename InputIterator, QtPrivate::IfAssociativeIteratorHasKeyAndValue<InputIterator> = true>
+    QHash(InputIterator f, InputIterator l)
+        : QHash()
+    {
+        QtPrivate::reserveIfForwardIterator(this, f, l);
+        for (; f != l; ++f)
+            insert(f.key(), f.value());
+    }
+
+    template <typename InputIterator, QtPrivate::IfAssociativeIteratorHasFirstAndSecond<InputIterator> = true>
+    QHash(InputIterator f, InputIterator l)
+        : QHash()
+    {
+        QtPrivate::reserveIfForwardIterator(this, f, l);
+        for (; f != l; ++f)
+            insert(f->first, f->second);
+    }
 #endif
-    void swap(QHash &other) Q_DECL_NOTHROW { qSwap(d, other.d); }
+    void swap(QHash &other) noexcept { qSwap(d, other.d); }
 
     bool operator==(const QHash &other) const;
     bool operator!=(const QHash &other) const { return !(*this == other); }
@@ -473,7 +489,7 @@ public:
     inline const_key_value_iterator constKeyValueEnd() const { return const_key_value_iterator(end()); }
 
     QPair<iterator, iterator> equal_range(const Key &key);
-    QPair<const_iterator, const_iterator> equal_range(const Key &key) const Q_DECL_NOTHROW;
+    QPair<const_iterator, const_iterator> equal_range(const Key &key) const noexcept;
     iterator erase(iterator it) { return erase(const_iterator(it.i)); }
     iterator erase(const_iterator it);
 
@@ -512,11 +528,11 @@ private:
 
     static void duplicateNode(QHashData::Node *originalNode, void *newNode);
 
-    bool isValidIterator(const iterator &it) const Q_DECL_NOTHROW
+    bool isValidIterator(const iterator &it) const noexcept
     { return isValidNode(it.i); }
-    bool isValidIterator(const const_iterator &it) const Q_DECL_NOTHROW
+    bool isValidIterator(const const_iterator &it) const noexcept
     { return isValidNode(it.i); }
-    bool isValidNode(QHashData::Node *node) const Q_DECL_NOTHROW
+    bool isValidNode(QHashData::Node *node) const noexcept
     {
 #if defined(QT_DEBUG) && !defined(Q_HASH_NO_ITERATOR_DEBUG)
         while (node->next)
@@ -941,44 +957,32 @@ Q_OUTOFLINE_TEMPLATE typename QHash<Key, T>::Node **QHash<Key, T>::findNode(cons
 template <class Key, class T>
 Q_OUTOFLINE_TEMPLATE bool QHash<Key, T>::operator==(const QHash &other) const
 {
-    if (size() != other.size())
-        return false;
     if (d == other.d)
         return true;
+    if (size() != other.size())
+        return false;
 
     const_iterator it = begin();
 
     while (it != end()) {
         // Build two equal ranges for i.key(); one for *this and one for other.
         // For *this we can avoid a lookup via equal_range, as we know the beginning of the range.
-        auto thisEqualRangeEnd = it;
-        while (thisEqualRangeEnd != end() && it.key() == thisEqualRangeEnd.key())
-            ++thisEqualRangeEnd;
+        auto thisEqualRangeStart = it;
+        const Key &thisEqualRangeKey = it.key();
+        size_type n = 0;
+        do {
+            ++it;
+            ++n;
+        } while (it != end() && it.key() == thisEqualRangeKey);
 
-        const auto otherEqualRange = other.equal_range(it.key());
+        const auto otherEqualRange = other.equal_range(thisEqualRangeKey);
 
-        if (std::distance(it, thisEqualRangeEnd) != std::distance(otherEqualRange.first, otherEqualRange.second))
+        if (n != std::distance(otherEqualRange.first, otherEqualRange.second))
             return false;
 
         // Keys in the ranges are equal by construction; this checks only the values.
-        //
-        // When using the 3-arg std::is_permutation, MSVC will emit warning C4996,
-        // passing an unchecked iterator to a Standard Library algorithm. We don't
-        // want to suppress the warning, and we can't use stdext::make_checked_array_iterator
-        // because QHash::(const_)iterator does not work with size_t and thus will
-        // emit more warnings. Use the 4-arg std::is_permutation instead (which
-        // is supported since MSVC 2015).
-        //
-        // ### Qt 6: if C++14 library support is a mandated minimum, remove the ifdef for MSVC.
-        if (!std::is_permutation(it, thisEqualRangeEnd, otherEqualRange.first
-#ifdef Q_CC_MSVC
-                                 , otherEqualRange.second
-#endif
-                                 )) {
+        if (!qt_is_permutation(thisEqualRangeStart, it, otherEqualRange.first, otherEqualRange.second))
             return false;
-        }
-
-        it = thisEqualRangeEnd;
     }
 
     return true;
@@ -993,7 +997,7 @@ QPair<typename QHash<Key, T>::iterator, typename QHash<Key, T>::iterator> QHash<
 }
 
 template <class Key, class T>
-QPair<typename QHash<Key, T>::const_iterator, typename QHash<Key, T>::const_iterator> QHash<Key, T>::equal_range(const Key &akey) const Q_DECL_NOTHROW
+QPair<typename QHash<Key, T>::const_iterator, typename QHash<Key, T>::const_iterator> QHash<Key, T>::equal_range(const Key &akey) const noexcept
 {
     Node *node = *findNode(akey);
     const_iterator firstIt = const_iterator(node);
@@ -1020,23 +1024,39 @@ template <class Key, class T>
 class QMultiHash : public QHash<Key, T>
 {
 public:
-    QMultiHash() Q_DECL_NOTHROW {}
-#ifdef Q_COMPILER_INITIALIZER_LISTS
+    QMultiHash() noexcept {}
     inline QMultiHash(std::initializer_list<std::pair<Key,T> > list)
     {
         this->reserve(int(list.size()));
         for (typename std::initializer_list<std::pair<Key,T> >::const_iterator it = list.begin(); it != list.end(); ++it)
             insert(it->first, it->second);
     }
+#ifdef Q_QDOC
+    template <typename InputIterator>
+    QMultiHash(InputIterator f, InputIterator l);
+#else
+    template <typename InputIterator, QtPrivate::IfAssociativeIteratorHasKeyAndValue<InputIterator> = true>
+    QMultiHash(InputIterator f, InputIterator l)
+    {
+        QtPrivate::reserveIfForwardIterator(this, f, l);
+        for (; f != l; ++f)
+            insert(f.key(), f.value());
+    }
+
+    template <typename InputIterator, QtPrivate::IfAssociativeIteratorHasFirstAndSecond<InputIterator> = true>
+    QMultiHash(InputIterator f, InputIterator l)
+    {
+        QtPrivate::reserveIfForwardIterator(this, f, l);
+        for (; f != l; ++f)
+            insert(f->first, f->second);
+    }
 #endif
     // compiler-generated copy/move ctors/assignment operators are fine!
     // compiler-generated destructor is fine!
 
     QMultiHash(const QHash<Key, T> &other) : QHash<Key, T>(other) {}
-#ifdef Q_COMPILER_RVALUE_REFS
-    QMultiHash(QHash<Key, T> &&other) Q_DECL_NOTHROW : QHash<Key, T>(std::move(other)) {}
-#endif
-    void swap(QMultiHash &other) Q_DECL_NOTHROW { QHash<Key, T>::swap(other); } // prevent QMultiHash<->QHash swaps
+    QMultiHash(QHash<Key, T> &&other) noexcept : QHash<Key, T>(std::move(other)) {}
+    void swap(QMultiHash &other) noexcept { QHash<Key, T>::swap(other); } // prevent QMultiHash<->QHash swaps
 
     inline typename QHash<Key, T>::iterator replace(const Key &key, const T &value)
     { return QHash<Key, T>::insert(key, value); }
@@ -1130,7 +1150,7 @@ Q_DECLARE_MUTABLE_ASSOCIATIVE_ITERATOR(Hash)
 
 template <class Key, class T>
 uint qHash(const QHash<Key, T> &key, uint seed = 0)
-    Q_DECL_NOEXCEPT_EXPR(noexcept(qHash(std::declval<Key&>())) && noexcept(qHash(std::declval<T&>())))
+    noexcept(noexcept(qHash(std::declval<Key&>())) && noexcept(qHash(std::declval<T&>())))
 {
     QtPrivate::QHashCombineCommutative hash;
     for (auto it = key.begin(), end = key.end(); it != end; ++it) {
@@ -1143,7 +1163,7 @@ uint qHash(const QHash<Key, T> &key, uint seed = 0)
 
 template <class Key, class T>
 inline uint qHash(const QMultiHash<Key, T> &key, uint seed = 0)
-    Q_DECL_NOEXCEPT_EXPR(noexcept(qHash(std::declval<Key&>())) && noexcept(qHash(std::declval<T&>())))
+    noexcept(noexcept(qHash(std::declval<Key&>())) && noexcept(qHash(std::declval<T&>())))
 {
     const QHash<Key, T> &key2 = key;
     return qHash(key2, seed);

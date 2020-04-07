@@ -39,18 +39,21 @@ class VariationsServiceClient {
   GetURLLoaderFactory() = 0;
   virtual network_time::NetworkTimeTracker* GetNetworkTimeTracker() = 0;
 
-  // Gets the channel of the embedder.
-  virtual version_info::Channel GetChannel() = 0;
-
-  // Gets whether this platform supports experiments which retain their group
-  // assignments across runs.
-  // TODO(paulmiller): Remove this once https://crbug.com/866722 is resolved.
-  virtual bool GetSupportsPermanentConsistency();
-
   // Returns whether the embedder overrides the value of the restrict parameter.
   // |parameter| is an out-param that will contain the value of the restrict
   // parameter if true is returned.
   virtual bool OverridesRestrictParameter(std::string* parameter) = 0;
+
+  // Gets the channel to use for variations. The --fake-variations-channel
+  // override switch takes precedence over the embedder-provided channel.
+  // If that switch is not set, it will return the embedder-provided channel,
+  // (which could be UNKNOWN).
+  version_info::Channel GetChannelForVariations();
+
+ private:
+  // Gets the channel of the embedder. But all variations callers should use
+  // |GetChannelForVariations()| instead.
+  virtual version_info::Channel GetChannel() = 0;
 };
 
 }  // namespace variations

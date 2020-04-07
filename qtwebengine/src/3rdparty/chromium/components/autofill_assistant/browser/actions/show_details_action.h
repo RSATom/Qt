@@ -16,20 +16,13 @@ namespace autofill_assistant {
 // An action to show contextual information.
 class ShowDetailsAction : public Action {
  public:
-  explicit ShowDetailsAction(const ActionProto& proto);
+  explicit ShowDetailsAction(ActionDelegate* delegate,
+                             const ActionProto& proto);
   ~ShowDetailsAction() override;
 
  private:
   // Overrides Action:
-  void InternalProcessAction(ActionDelegate* delegate,
-                             ProcessActionCallback callback) override;
-  void OnUserResponse(ActionDelegate* delegate,
-                      const std::string& old_status_message,
-                      bool can_continue);
-  void OnActionProcessed(ProcessedActionStatusProto status);
-
-  ProcessActionCallback callback_;
-  base::WeakPtrFactory<ShowDetailsAction> weak_ptr_factory_;
+  void InternalProcessAction(ProcessActionCallback callback) override;
 
   DISALLOW_COPY_AND_ASSIGN(ShowDetailsAction);
 };

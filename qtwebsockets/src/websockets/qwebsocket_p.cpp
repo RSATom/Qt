@@ -113,6 +113,7 @@ QWebSocketPrivate::QWebSocketPrivate(const QString &origin, QWebSocketProtocol::
     m_defaultMaskGenerator(),
     m_handshakeState(NothingDoneState)
 {
+    m_pingTimer.start();
 }
 
 /*!
@@ -144,6 +145,7 @@ QWebSocketPrivate::QWebSocketPrivate(QTcpSocket *pTcpSocket, QWebSocketProtocol:
     m_defaultMaskGenerator(),
     m_handshakeState(NothingDoneState)
 {
+    m_pingTimer.start();
 }
 
 /*!
@@ -1097,9 +1099,6 @@ void QWebSocketPrivate::processStateChanged(QAbstractSocket::SocketState socketS
     Q_ASSERT(m_pSocket);
     Q_Q(QWebSocket);
     QAbstractSocket::SocketState webSocketState = this->state();
-    int port = 80;
-    if (m_request.url().scheme() == QStringLiteral("wss"))
-        port = 443;
 
     switch (socketState) {
     case QAbstractSocket::ConnectedState:
@@ -1118,11 +1117,10 @@ void QWebSocketPrivate::processStateChanged(QAbstractSocket::SocketState socketS
 
             const auto format = QUrl::RemoveScheme | QUrl::RemoveUserInfo
                                 | QUrl::RemovePath | QUrl::RemoveQuery
-                                | QUrl::RemoveFragment | QUrl::RemovePort;
+                                | QUrl::RemoveFragment;
             const QString host = m_request.url().toString(format).mid(2);
             const QString handshake = createHandShakeRequest(m_resourceName,
-                                                             host % QStringLiteral(":")
-                                                                  % QString::number(m_request.url().port(port)),
+                                                             host,
                                                              origin(),
                                                              QString(),
                                                              QString(),
@@ -1176,10 +1174,10 @@ void QWebSocketPrivate::processData()
     while (m_pSocket->bytesAvailable()) {
         if (state() == QAbstractSocket::ConnectingState) {
             if (!m_pSocket->canReadLine())
-                break;
+                return;
             processHandshake(m_pSocket);
-        } else {
-            m_dataProcessor.process(m_pSocket);
+        } else if (!m_dataProcessor.process(m_pSocket)) {
+            return;
         }
     }
 }

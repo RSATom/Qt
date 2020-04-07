@@ -74,6 +74,8 @@ private Q_SLOTS:
     void uriResolverSignature() const;
     void uriResolverDefaultValue() const;
     void uriResolver() const;
+
+    void unionCrash() const;
 };
 
 static QXmlSchema createValidSchema()
@@ -454,6 +456,27 @@ void tst_QXmlSchemaValidator::uriResolver() const
 
         QCOMPARE(validator.uriResolver(), static_cast<const QAbstractUriResolver *>(&resolver));
     }
+}
+
+void tst_QXmlSchemaValidator::unionCrash() const
+{
+    // Regression test for QTBUG-77620 (segfault on nullptr dereference).
+    const QString path = QFINDTESTDATA("testdata/");
+    QXmlSchema schema;
+
+    const QString filePath = path + QLatin1String("QTBUG-77620.xsd");
+
+    QFile file(filePath);
+    QVERIFY(file.open(QIODevice::ReadOnly));
+
+    schema.load(file.readAll(), QUrl(filePath));
+    QVERIFY2(schema.isValid(), "Schema should be found valid.");
+    // Validate instance
+    QXmlSchemaValidator validator(schema);
+    QEXPECT_FAIL("", "QTBUG-77620: " // Fixed crash, but not underlying problem:
+                 "the code fails to record the CUSTOM_KEY's primitive type as pattern_type", Continue);
+    QVERIFY2(validator.validate(QUrl(path + QLatin1String("QTBUG-77620.xml"))),
+             "Document should be found valid");
 }
 
 QTEST_MAIN(tst_QXmlSchemaValidator)

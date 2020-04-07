@@ -61,13 +61,13 @@ class CORE_EXPORT LayoutReplaced : public LayoutBox {
 
   bool HasReplacedLogicalHeight() const;
   // This function returns the local rect of the replaced content.
-  virtual LayoutRect ReplacedContentRect() const;
+  virtual PhysicalRect ReplacedContentRect() const;
 
   // This is used by a few special elements, e.g. <video>, <iframe> to ensure
   // a persistent sizing under different subpixel offset, because these
   // elements have a high cost to resize. The drawback is that we may overflow
   // or underflow the final content box by 1px.
-  static LayoutRect PreSnappedRectForPersistentSizing(LayoutRect);
+  static PhysicalRect PreSnappedRectForPersistentSizing(const PhysicalRect&);
 
   bool NeedsPreferredWidthsRecalculation() const override;
 
@@ -79,8 +79,9 @@ class CORE_EXPORT LayoutReplaced : public LayoutBox {
   static const int kDefaultHeight;
   bool CanHaveChildren() const override { return false; }
   virtual void PaintReplaced(const PaintInfo&,
-                             const LayoutPoint& paint_offset) const {}
-  LayoutRect LocalSelectionRect() const final;
+                             const PhysicalOffset& paint_offset) const {}
+
+  PhysicalRect LocalSelectionVisualRect() const final;
 
   bool HasObjectFit() const {
     return StyleRef().GetObjectFit() !=
@@ -97,6 +98,13 @@ class CORE_EXPORT LayoutReplaced : public LayoutBox {
   // This function is public only so we can call it when computing
   // intrinsic size in LayoutNG.
   virtual void ComputeIntrinsicSizingInfo(IntrinsicSizingInfo&) const;
+
+  // This callback is invoked whenever the intrinsic size changed.
+  //
+  // The intrinsic size can change due to the network (from the default
+  // intrinsic size [see above] to the actual intrinsic size) or to some
+  // CSS properties like 'zoom' or 'image-orientation'.
+  virtual void IntrinsicSizeChanged();
 
  protected:
   void WillBeDestroyed() override;
@@ -116,7 +124,7 @@ class CORE_EXPORT LayoutReplaced : public LayoutBox {
   // This function calculates the placement of the replaced contents. It takes
   // intrinsic size of the replaced contents, stretch to fit CSS content box
   // according to object-fit.
-  LayoutRect ComputeObjectFit(
+  PhysicalRect ComputeObjectFit(
       const LayoutSize* overridden_intrinsic_size = nullptr) const;
 
   LayoutUnit IntrinsicContentLogicalHeight() const override {
@@ -131,14 +139,7 @@ class CORE_EXPORT LayoutReplaced : public LayoutBox {
     intrinsic_size_ = intrinsic_size;
   }
 
-  // This callback is invoked whenever the intrinsic size changed.
-  //
-  // The intrinsic size can change due to the network (from the default
-  // intrinsic size [see above] to the actual intrinsic size) or to some
-  // CSS properties like 'zoom' or 'image-orientation'.
-  virtual void IntrinsicSizeChanged();
-
-  PositionWithAffinity PositionForPoint(const LayoutPoint&) const override;
+  PositionWithAffinity PositionForPoint(const PhysicalOffset&) const override;
 
   bool IsOfType(LayoutObjectType type) const override {
     return type == kLayoutObjectLayoutReplaced || LayoutBox::IsOfType(type);

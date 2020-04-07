@@ -34,7 +34,7 @@
 #include "base/memory/scoped_refptr.h"
 #include "third_party/blink/renderer/bindings/modules/v8/v8_rtc_peer_connection_error_callback.h"
 #include "third_party/blink/renderer/bindings/modules/v8/v8_rtc_session_description_callback.h"
-#include "third_party/blink/renderer/core/dom/context_lifecycle_observer.h"
+#include "third_party/blink/renderer/core/execution_context/context_lifecycle_observer.h"
 #include "third_party/blink/renderer/modules/peerconnection/rtc_session_description_enums.h"
 #include "third_party/blink/renderer/platform/heap/handle.h"
 #include "third_party/blink/renderer/platform/peerconnection/rtc_session_description_request.h"
@@ -79,15 +79,8 @@ class RTCSessionDescriptionRequestImpl final
   void Clear();
 
   RTCCreateSessionDescriptionOperation operation_;
-  // This request object is held by WebRTCPeerConnectionHandler, which doesn't
-  // support wrapper-tracing. Thus, this object holds the underlying callback
-  // functions as persistent handles. This is acceptable because the request
-  // object will be discarded in a limited time due to success, failure, or
-  // destruction of the execution context.
-  Member<V8PersistentCallbackFunction<V8RTCSessionDescriptionCallback>>
-      success_callback_;
-  Member<V8PersistentCallbackFunction<V8RTCPeerConnectionErrorCallback>>
-      error_callback_;
+  Member<V8RTCSessionDescriptionCallback> success_callback_;
+  Member<V8RTCPeerConnectionErrorCallback> error_callback_;
 
   Member<RTCPeerConnection> requester_;
 };

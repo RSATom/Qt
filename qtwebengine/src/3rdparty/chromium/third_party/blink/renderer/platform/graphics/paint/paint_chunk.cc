@@ -10,14 +10,15 @@
 namespace blink {
 
 struct SameSizeAsPaintChunk {
-  size_t begin;
-  size_t end;
+  size_t begin_index;
+  size_t end_index;
   PaintChunk::Id id;
   PropertyTreeState properties;
-  unsigned bools;
-  float extend;
   FloatRect bounds;
-  void* pointers[1];
+  float outset_for_raster_effects;
+  SkColor safe_opaque_background_color;
+  unsigned bools;  // known_to_be_opaque, is_cacheable, client_is_just_created
+  void* pointers[1];  // hit_test_data
 };
 
 static_assert(sizeof(PaintChunk) == sizeof(SameSizeAsPaintChunk),
@@ -25,23 +26,22 @@ static_assert(sizeof(PaintChunk) == sizeof(SameSizeAsPaintChunk),
 
 String PaintChunk::ToString() const {
   StringBuilder sb;
-  sb.Append("PaintChunk(");
-  sb.Append(String::Format(
-      "begin=%zu, end=%zu, id=%s cacheable=%d props=(%s) bounds=%s "
+  sb.AppendFormat(
+      "PaintChunk(begin=%zu, end=%zu, id=%s cacheable=%d props=(%s) bounds=%s "
       "known_to_be_opaque=%d",
-      begin_index, end_index, id.ToString().Utf8().data(), is_cacheable,
-      properties.ToString().Utf8().data(), bounds.ToString().Utf8().data(),
-      known_to_be_opaque));
+      begin_index, end_index, id.ToString().Utf8().c_str(), is_cacheable,
+      properties.ToString().Utf8().c_str(), bounds.ToString().Utf8().c_str(),
+      known_to_be_opaque);
   if (hit_test_data) {
     sb.Append(", hit_test_data=");
     sb.Append(hit_test_data->ToString());
   }
-  sb.Append(")");
+  sb.Append(')');
   return sb.ToString();
 }
 
 std::ostream& operator<<(std::ostream& os, const PaintChunk& chunk) {
-  return os << chunk.ToString().Utf8().data() << "\n";
+  return os << chunk.ToString().Utf8() << "\n";
 }
 
 }  // namespace blink

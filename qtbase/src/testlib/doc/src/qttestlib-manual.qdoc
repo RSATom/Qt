@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2019 The Qt Company Ltd.
 ** Copyright (C) 2016 Intel Corporation.
 ** Contact: https://www.qt.io/licensing/
 **
@@ -83,22 +83,42 @@
          \li Custom types can easily be added to the test data and test output.
     \endtable
 
+    You can use a Qt Creator wizard to create a project that contains Qt tests
+    and build and run them directly from Qt Creator. For more information, see
+    \l {Qt Creator: Running Autotests}{Running Autotests}.
+
     \section1 Creating a Test
 
     To create a test, subclass QObject and add one or more private slots to it. Each
     private slot is a test function in your test. QTest::qExec() can be used to execute
     all test functions in the test object.
 
-    In addition, there are four private slots that are \e not treated as test functions.
-    They will be executed by the testing framework and can be used to initialize and
-    clean up either the entire test or the current test function.
+    In addition, you can define the following private slots that are \e not
+    treated as test functions. When present, they will be executed by the
+    testing framework and can be used to initialize and clean up either the
+    entire test or the current test function.
 
     \list
     \li \c{initTestCase()} will be called before the first test function is executed.
+    \li \c{initTestCase_data()} will be called to create a global test data table.
     \li \c{cleanupTestCase()} will be called after the last test function was executed.
     \li \c{init()} will be called before each test function is executed.
     \li \c{cleanup()} will be called after every test function.
     \endlist
+
+    Use \c initTestCase() for preparing the test. Every test should leave the
+    system in a usable state, so it can be run repeatedly. Cleanup operations
+    should be handled in \c cleanupTestCase(), so they get run even if the test
+    fails.
+
+    Use \c init() for preparing a test function. Every test function should
+    leave the system in a usable state, so it can be run repeatedly. Cleanup
+    operations should be handled in \c cleanup(), so they get run even if the
+    test function fails and exits early.
+
+    Alternatively, you can use RAII (resource acquisition is initialization),
+    with cleanup operations called in destructors, to ensure they happen when
+    the test function returns and the object moves out of scope.
 
     If \c{initTestCase()} fails, no test function will be executed. If \c{init()} fails,
     the following test function will not be executed, the test will proceed to the next
@@ -107,10 +127,50 @@
     Example:
     \snippet code/doc_src_qtestlib.cpp 0
 
+    Finally, if the test class has a static public \c{void initMain()} method,
+    it is called by the QTEST_MAIN macros before the QApplication object
+    is instantiated. For example, this allows for setting application
+    attributes like Qt::AA_DisableHighDpiScaling. This was added in 5.14.
+
     For more examples, refer to the \l{Qt Test Tutorial}.
 
     \if !defined(qtforpython)
     \section1 Building a Test
+
+    You can build an executable that contains one test class that typically
+    tests one class of production code. However, usually you would want to
+    test several classes in a project by running one command.
+
+    See \l {Chapter 1: Writing a Unit Test}{Writing a Unit Test} for a step by
+    step explanation.
+
+    \section2 Building with CMake and CTest
+
+    You can use \l {Building with CMake and CTest} to create a test.
+    \l{https://cmake.org/cmake/help/latest/manual/ctest.1.html}{CTest} enables
+    you to include or exclude tests based on a regular expression that is
+    matched against the test name. You can further apply the \c LABELS property
+    to a test and CTest can then include or exclude tests based on those labels.
+    All labeled targets will be run when \c {test} target is called on the
+    command line.
+
+    There are several other advantages with CMake. For example, the result of
+    a test run can be published on a web server using CDash with virtually no
+    effort.
+
+    CTest scales to very different unit test frameworks, and works out of the
+    box with QTest.
+
+    The following is an example of a CMakeLists.txt file that specifies the
+    project name and the language used (here, \e mytest and C++), the Qt
+    modules required for building the test (Qt5Test), and the files that are
+    included in the test (\e tst_mytest.cpp).
+
+    \quotefile code/doc_src_cmakelists.txt
+
+    For more information about the options you have, see \l {Build with CMake}.
+
+    \section2 Building with qmake
 
     If you are using \c qmake as your build tool, just add the
     following to your project file:
@@ -125,14 +185,14 @@
     See the \l{Building a Testcase}{qmake manual} for
     more information about \c{make check}.
 
+    \section2 Building with Other Tools
+
     If you are using other build tools, make sure that you add the location
     of the Qt Test header files to your include path (usually \c{include/QtTest}
     under your Qt installation directory). If you are using a release build
     of Qt, link your test to the \c QtTest library. For debug builds, use
     \c{QtTest_debug}.
 
-    See \l {Chapter 1: Writing a Unit Test}{Writing a Unit Test} for a step by
-    step explanation.
     \endif
 
     \section1 Qt Test Command Line Arguments
@@ -301,9 +361,34 @@
     \section1 Creating a Benchmark
 
     To create a benchmark, follow the instructions for creating a test and then add a
-    QBENCHMARK macro to the test function that you want to benchmark.
+    \l QBENCHMARK macro or \l QTest::setBenchmarkResult() to the test function that
+    you want to benchmark. In the following code snippet, the macro is used:
 
     \snippet code/doc_src_qtestlib.cpp 12
+
+    A test function that measures performance should contain either a single
+    \c QBENCHMARK macro or a single call to \c setBenchmarkResult(). Multiple
+    occurrences make no sense, because only one performance result can be
+    reported per test function, or per data tag in a data-driven setup.
+
+    Avoid changing the test code that forms (or influences) the body of a
+    \c QBENCHMARK macro, or the test code that computes the value passed to
+    \c setBenchmarkResult(). Differences in successive performance results
+    should ideally be caused only by changes to the product you are testing.
+    Changes to the test code can potentially result in misleading report of
+    a change in performance. If you do need to change the test code, make
+    that clear in the commit message.
+
+    In a performance test function, the \c QBENCHMARK or \c setBenchmarkResult()
+    should be followed by a verification step using \l QCOMPARE(), \l QVERIFY(),
+    and so on. You can then flag a performance result as \e invalid if another
+    code path than the intended one was measured. A performance analysis tool
+    can use this information to filter out invalid results.
+    For example, an unexpected error condition will typically cause the program
+    to bail out prematurely from the normal program execution, and thus falsely
+    show a dramatic performance increase.
+
+    \section2 Selecting the Measurement Back-end
 
     The code inside the QBENCHMARK macro will be measured, and possibly also repeated
     several times in order to get an accurate measurement. This depends on the selected
@@ -353,18 +438,44 @@
     counters can be obtained by running any benchmark executable with the
     option \c -perfcounterlist.
 
-    \list
-    \li \b Notes:
+    \note
     \list
     \li Using the performance counter may require enabling access to non-privileged
         applications.
     \li Devices that do not support high-resolution timers default to
         one-millisecond granularity.
     \endlist
-    \endlist
 
     See \l {Chapter 5: Writing a Benchmark}{Writing a Benchmark} in the Qt Test
     Tutorial for more benchmarking examples.
+
+    \section1 Using Global Test Data
+
+    You can define \c{initTestCase_data()} to set up a global test data table.
+    Each test is run once for each row in the global test data table. When the
+    test function itself \l{Chapter 2: Data-driven Testing}{is data-driven},
+    it is run for each local data row, for each global data row. So, if there
+    are \c g rows in the global data table and \c d rows in the test's own
+    data-table, the number of runs of this test is \c g times \c d.
+
+    Global data is fetched from the table using the \l QFETCH_GLOBAL() macro.
+
+    The following are typical use cases for global test data:
+
+    \list
+        \li Selecting among the available database backends in QSql tests to run
+            every test against every database.
+        \li Doing all networking tests with and without SSL (HTTP versus HTTPS)
+            and proxying.
+        \li Testing a timer with a high precision clock and with a coarse one.
+        \li Selecting whether a parser shall read from a QByteArray or from a
+            QIODevice.
+    \endlist
+
+    For example, to test each number provided by \c {roundTripInt_data()} with
+    each locale provided by \c {initTestCase_data()}:
+
+    \snippet code/src_qtestlib_qtestcase.cpp 31
 */
 
 /*!
@@ -508,10 +619,9 @@
     QTest::newRow() function. Each set of data will become a
     separate row in the test table.
 
-    \l QTest::newRow() takes one argument: a name that will be
-    associated with the data set. If the test fails, the name will be
-    used in the test log, referencing the failed data. Then we
-    stream the data set into the new table row. First an arbitrary
+    \l QTest::newRow() takes one argument: a name that will be associated
+    with the data set and used in the test log to identify the data set.
+    Then we stream the data set into the new table row. First an arbitrary
     string, and then the expected result of applying the
     QString::toUpper() function to that string.
 
@@ -542,6 +652,10 @@
         \li "HELLO"
         \li HELLO
     \endtable
+
+    When data is streamed into the row, each datum is asserted to match
+    the type of the column whose value it supplies. If any assertion fails,
+    the test is aborted.
 
     \section1 Rewriting the Test Function
 

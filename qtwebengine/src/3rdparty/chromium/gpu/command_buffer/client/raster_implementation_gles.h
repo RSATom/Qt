@@ -33,11 +33,6 @@ class RASTER_EXPORT RasterImplementationGLES : public RasterInterface {
   void ShallowFlushCHROMIUM() override;
   void OrderingBarrierCHROMIUM() override;
 
-  // SyncTokens.
-  void GenUnverifiedSyncTokenCHROMIUM(GLbyte* sync_token) override;
-  void VerifySyncTokensCHROMIUM(GLbyte** sync_tokens, GLsizei count) override;
-  void WaitSyncTokenCHROMIUM(const GLbyte* sync_token) override;
-
   // Command buffer state.
   GLenum GetError() override;
   GLenum GetGraphicsResetStatusKHR() override;
@@ -65,7 +60,7 @@ class RASTER_EXPORT RasterImplementationGLES : public RasterInterface {
   void BeginRasterCHROMIUM(GLuint sk_color,
                            GLuint msaa_sample_count,
                            GLboolean can_use_lcd_text,
-                           const cc::RasterColorSpace& raster_color_space,
+                           const gfx::ColorSpace& color_space,
                            const GLbyte* mailbox) override;
   void RasterCHROMIUM(const cc::DisplayItemList* list,
                       cc::ImageProvider* provider,
@@ -74,7 +69,8 @@ class RASTER_EXPORT RasterImplementationGLES : public RasterInterface {
                       const gfx::Rect& playback_rect,
                       const gfx::Vector2dF& post_translate,
                       GLfloat post_scale,
-                      bool requires_clear) override;
+                      bool requires_clear,
+                      size_t* max_op_size_hint) override;
   void EndRasterCHROMIUM() override;
 
   // Image decode acceleration.
@@ -95,6 +91,12 @@ class RASTER_EXPORT RasterImplementationGLES : public RasterInterface {
   void TraceEndCHROMIUM() override;
 
   void SetActiveURLCHROMIUM(const char* url) override;
+
+  // InterfaceBase implementation.
+  void GenSyncTokenCHROMIUM(GLbyte* sync_token) override;
+  void GenUnverifiedSyncTokenCHROMIUM(GLbyte* sync_token) override;
+  void VerifySyncTokensCHROMIUM(GLbyte** sync_tokens, GLsizei count) override;
+  void WaitSyncTokenCHROMIUM(const GLbyte* sync_token) override;
 
  private:
   gles2::GLES2Interface* gl_;

@@ -12,6 +12,12 @@ import("//tools/v8_context_snapshot/v8_context_snapshot.gni")
 # To add tests for a new service, please define a "tests" source_set in the
 # service subdirectory and add it as a dependency here.
 test("services_unittests") {
+  # The tracing unittests require this for testing unwinding. See
+  # stack_unwinder_android_unittest.cc.
+  if (is_android && can_unwind_with_cfi_table && is_official_build) {
+    add_unwind_tables_in_apk = true
+  }
+
   # If your service does not run on iOS, its tests should go in the !iOS
   # section below. If you are unsure, contact blundell@chromium.org.
   deps = [
@@ -21,6 +27,10 @@ test("services_unittests") {
     "//services/network:tests",
     "//services/network/public/cpp:tests",
     "//services/test:run_all_unittests",
+  ]
+
+  data_deps = [
+    "//testing/buildbot/filters:services_unittests_filters",
   ]
 
   if (!is_ios) {
@@ -37,20 +47,10 @@ test("services_unittests") {
       "//services/resource_coordinator:tests",
       "//services/shape_detection:tests",
       "//services/tracing:tests",
-      "//services/viz",
       "//services/viz/privileged/interfaces:unit_tests",
       "//services/viz/public/cpp/compositing:tests",
+      "//services/viz/public/cpp/gpu:tests",
       "//services/viz/public/cpp/hit_test:tests",
-    ]
-  }
-
-  if (use_aura) {
-    deps += [
-      "//services/ws:tests",
-      "//services/ws/ime:tests",
-      "//services/ws/input_devices:tests",
-      "//services/ws/public/cpp/tests",
-      "//services/ws/public/mojom:tests",
     ]
   }
 
@@ -60,6 +60,7 @@ test("services_unittests") {
       "//services/device:java",
       "//services/identity:java",
       "//services/media_session/public/cpp/android:media_session_java",
+      "//services/tracing:tracing_test_helper_java",
 
       # Some tests make network requests.
       "//net/android:net_java",
@@ -79,11 +80,17 @@ test("services_unittests") {
     # standalone services must be added here.
     deps += [ "//services/video_capture:tests" ]
   }
+
+  if (is_fuchsia) {
+    # Enable the test HTTP server for use by NetworkServiceTestWithService.*
+    use_test_server = true
+  }
 }
 
 if (!is_ios) {
   test("services_perftests") {
     deps = [
+      "//services/device:perftests",
       "//services/test:run_all_unittests",
       "//services/viz/public/cpp/compositing:perftests",
     ]
@@ -117,7 +124,7 @@ if (is_android) {
       "//services/device/public/mojom:mojom_java",
       "//services/shape_detection:shape_detection_java",
       "//skia/public/interfaces:interfaces_java",
-      "//third_party/android_deps:android_support_annotations_java",
+      "//third_party/android_deps:com_android_support_support_annotations_java",
     ]
   }
 

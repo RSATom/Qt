@@ -17,8 +17,7 @@ class MockPasswordProtectionService : public PasswordProtectionService {
   MockPasswordProtectionService(
       const scoped_refptr<SafeBrowsingDatabaseManager>& database_manager,
       scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
-      history::HistoryService* history_service,
-      scoped_refptr<HostContentSettingsMap> content_setting_map);
+      history::HistoryService* history_service);
   ~MockPasswordProtectionService() override;
 
   // safe_browsing::PasswordProtectionService
@@ -30,6 +29,11 @@ class MockPasswordProtectionService : public PasswordProtectionService {
   MOCK_CONST_METHOD0(GetPasswordProtectionWarningTriggerPref,
                      PasswordProtectionTrigger());
   MOCK_CONST_METHOD0(GetCurrentContentAreaSize, gfx::Size());
+  MOCK_CONST_METHOD0(GetAccountInfo, AccountInfo());
+  MOCK_CONST_METHOD0(IsPrimaryAccountSyncing, bool());
+  MOCK_CONST_METHOD0(IsPrimaryAccountSignedIn, bool());
+  MOCK_CONST_METHOD0(IsPrimaryAccountGmail, bool());
+  MOCK_CONST_METHOD1(IsOtherGaiaAccountSignedIn, bool(const std::string&));
   MOCK_CONST_METHOD2(IsURLWhitelistedForPasswordEntry,
                      bool(const GURL&, RequestOutcome*));
 
@@ -37,26 +41,26 @@ class MockPasswordProtectionService : public PasswordProtectionService {
   MOCK_METHOD0(IsIncognito, bool());
   MOCK_METHOD0(IsHistorySyncEnabled, bool());
   MOCK_METHOD0(IsUnderAdvancedProtection, bool());
-  MOCK_METHOD0(OnPolicySpecifiedPasswordChanged, void());
+  MOCK_METHOD0(ReportPasswordChanged, void());
   MOCK_METHOD1(MaybeLogPasswordReuseDetectedEvent, void(content::WebContents*));
   MOCK_METHOD1(UserClickedThroughSBInterstitial, bool(content::WebContents*));
-  MOCK_METHOD2(ShowInterstitial,
-               void(content::WebContents*, ReusedPasswordType));
-  MOCK_METHOD3(IsPingingEnabled,
+  MOCK_METHOD2(ShowInterstitial, void(content::WebContents*, PasswordType));
+  MOCK_METHOD4(IsPingingEnabled,
                bool(LoginReputationClientRequest::TriggerType,
-                    ReusedPasswordType,
+                    PasswordType,
+                    const std::string&,
                     RequestOutcome*));
   MOCK_METHOD3(ShowModalWarning,
-               void(content::WebContents*,
-                    const std::string&,
-                    ReusedPasswordType));
+               void(content::WebContents*, const std::string&, PasswordType));
+  MOCK_METHOD4(
+      MaybeReportPasswordReuseDetected,
+      void(content::WebContents*, const std::string&, PasswordType, bool));
   MOCK_METHOD3(UpdateSecurityState,
                void(safe_browsing::SBThreatType,
-                    ReusedPasswordType,
+                    PasswordType,
                     content::WebContents*));
   MOCK_METHOD2(RemoveUnhandledSyncPasswordReuseOnURLsDeleted,
                void(bool, const history::URLRows&));
-  MOCK_METHOD2(OnPolicySpecifiedPasswordReuseDetected, void(const GURL&, bool));
   MOCK_METHOD3(FillReferrerChain,
                void(const GURL&,
                     SessionID,
@@ -66,14 +70,18 @@ class MockPasswordProtectionService : public PasswordProtectionService {
                     RequestOutcome,
                     const safe_browsing::LoginReputationClientResponse*));
   MOCK_METHOD3(CanShowInterstitial,
-               bool(RequestOutcome, ReusedPasswordType, const GURL&));
-  MOCK_METHOD4(
-      MaybeStartPasswordFieldOnFocusRequest,
-      void(content::WebContents*, const GURL&, const GURL&, const GURL&));
-  MOCK_METHOD5(MaybeStartProtectedPasswordEntryRequest,
+               bool(RequestOutcome, PasswordType, const GURL&));
+  MOCK_METHOD5(MaybeStartPasswordFieldOnFocusRequest,
                void(content::WebContents*,
                     const GURL&,
-                    ReusedPasswordType,
+                    const GURL&,
+                    const GURL&,
+                    const std::string&));
+  MOCK_METHOD6(MaybeStartProtectedPasswordEntryRequest,
+               void(content::WebContents*,
+                    const GURL&,
+                    const std::string&,
+                    PasswordType,
                     const std::vector<std::string>&,
                     bool));
 

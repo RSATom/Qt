@@ -34,7 +34,7 @@ bool AllowCrossRendererResourceLoad(const GURL& url,
 
   // This logic is performed for main frame requests in
   // ExtensionNavigationThrottle::WillStartRequest.
-  if (child_id != -1 || resource_type != content::RESOURCE_TYPE_MAIN_FRAME) {
+  if (child_id != -1 || resource_type != content::ResourceType::kMainFrame) {
     // Extensions with webview: allow loading certain resources by guest
     // renderers with privileged partition IDs as specified in owner's extension
     // the manifest file.
@@ -81,10 +81,10 @@ bool AllowCrossRendererResourceLoad(const GURL& url,
 
   // Navigating the main frame to an extension URL is allowed, even if not
   // explicitly listed as web_accessible_resource.
-  if (resource_type == content::RESOURCE_TYPE_MAIN_FRAME) {
+  if (resource_type == content::ResourceType::kMainFrame) {
     *allowed = true;
     return true;
-  } else if (resource_type == content::RESOURCE_TYPE_SUB_FRAME) {
+  } else if (resource_type == content::ResourceType::kSubFrame) {
     // When navigating in subframe, allow if it is the same origin
     // as the top-level frame. This can only be the case if the subframe
     // request is coming from the extension process.
@@ -150,22 +150,6 @@ bool AllowCrossRendererResourceLoadHelper(bool is_guest,
 bool AllowSpecialCaseExtensionURLInGuest(
     const Extension* extension,
     base::Optional<base::StringPiece> resource_path) {
-  // Exceptionally, the resource at path "/success.html" that belongs to the
-  // sign-in extension (loaded by chrome://chrome-signin) is accessible to
-  // WebViews that are not owned by that extension.
-  // This exception is required as in order to mark the end of the the sign-in
-  // flow, Gaia redirects to the following continue URL:
-  // "chrome-extension://mfffpogegjflfpflabcdkioaeobkgjik/success.html".
-  //
-  // TODO(http://crbug.com/688565) Remove this check once the sign-in
-  // extension is deprecated and removed.
-  bool is_signin_extension =
-      extension && extension->id() == "mfffpogegjflfpflabcdkioaeobkgjik";
-  if (is_signin_extension && (!resource_path.has_value() ||
-                              resource_path.value() == "/success.html")) {
-    return true;
-  }
-
   // Allow mobile setup web UI (chrome://mobilesetup) to embed resources from
   // the component mobile activation extension in a webview. This is needed
   // because the activation web UI relies on the activation extension to

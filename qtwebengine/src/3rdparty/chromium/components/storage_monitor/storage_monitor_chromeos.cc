@@ -6,6 +6,8 @@
 
 #include <utility>
 
+#include "base/bind.h"
+#include "base/bind_helpers.h"
 #include "base/files/file_path.h"
 #include "base/logging.h"
 #include "base/sequenced_task_runner.h"
@@ -209,7 +211,7 @@ void StorageMonitorCros::OnMountEvent(
 
   switch (event) {
     case DiskMountManager::MOUNTING: {
-      if (base::ContainsKey(mount_map_, mount_info.mount_path)) {
+      if (base::Contains(mount_map_, mount_info.mount_path)) {
         return;
       }
 
@@ -251,7 +253,7 @@ bool StorageMonitorCros::GetStorageInfoForPath(
     return false;
 
   base::FilePath current = path;
-  while (!base::ContainsKey(mount_map_, current.value()) &&
+  while (!base::Contains(mount_map_, current.value()) &&
          current != current.DirName()) {
     current = current.DirName();
   }
@@ -321,7 +323,7 @@ void StorageMonitorCros::AddMountedPath(
     bool has_dcim) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
 
-  if (base::ContainsKey(mount_map_, mount_info.mount_path)) {
+  if (base::Contains(mount_map_, mount_info.mount_path)) {
     // CheckExistingMountPoints() added the mount point information in the map
     // before the device attached handler is called. Therefore, an entry for
     // the device already exists in the map.
@@ -349,7 +351,7 @@ void StorageMonitorCros::AddFixedStorageDisk(const Disk& disk) {
   if (!GetFixedStorageInfo(disk, &info))
     return;
 
-  if (base::ContainsKey(mount_map_, disk.mount_path()))
+  if (base::Contains(mount_map_, disk.mount_path()))
     return;
 
   mount_map_.insert(std::make_pair(disk.mount_path(), info));

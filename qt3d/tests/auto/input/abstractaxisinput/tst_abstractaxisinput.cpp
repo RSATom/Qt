@@ -30,11 +30,9 @@
 #include <qbackendnodetester.h>
 #include <Qt3DCore/private/qnode_p.h>
 #include <Qt3DCore/private/qscene_p.h>
-#include <Qt3DCore/qpropertyupdatedchange.h>
 #include <Qt3DInput/private/abstractaxisinput_p.h>
 #include <Qt3DInput/QAbstractAxisInput>
 #include <Qt3DInput/private/qabstractaxisinput_p.h>
-#include <Qt3DCore/qpropertyupdatedchange.h>
 #include "testdevice.h"
 
 class DummyAxisInput : public Qt3DInput::QAbstractAxisInput
@@ -89,7 +87,7 @@ private Q_SLOTS:
         axisInput.setSourceDevice(&sourceDevice);
 
         // WHEN
-        simulateInitialization(&axisInput, &backendAxisInput);
+        simulateInitializationSync(&axisInput, &backendAxisInput);
 
         // THEN
         QCOMPARE(backendAxisInput.peerId(), axisInput.id());
@@ -114,7 +112,7 @@ private Q_SLOTS:
         axisInput.setSourceDevice(&sourceDevice);
 
         // WHEN
-        simulateInitialization(&axisInput, &backendAxisInput);
+        simulateInitializationSync(&axisInput, &backendAxisInput);
         backendAxisInput.cleanup();
 
         // THEN
@@ -125,23 +123,21 @@ private Q_SLOTS:
     void checkPropertyChanges()
     {
         // GIVEN
+        DummyAxisInput axisInput;
         DummyAxisInputBackend backendAxisInput;
+        simulateInitializationSync(&axisInput, &backendAxisInput);
 
         // WHEN
-        Qt3DCore::QPropertyUpdatedChangePtr updateChange(new Qt3DCore::QPropertyUpdatedChange(Qt3DCore::QNodeId()));
-        updateChange->setPropertyName("enabled");
-        updateChange->setValue(true);
-        backendAxisInput.sceneChangeEvent(updateChange);
+        axisInput.setEnabled(false);
+        backendAxisInput.syncFromFrontEnd(&axisInput, false);
 
         // THEN
-        QCOMPARE(backendAxisInput.isEnabled(), true);
+        QCOMPARE(backendAxisInput.isEnabled(), false);
 
         // WHEN
         TestDevice device;
-        updateChange = QSharedPointer<Qt3DCore::QPropertyUpdatedChange>::create(Qt3DCore::QNodeId());
-        updateChange->setPropertyName("sourceDevice");
-        updateChange->setValue(QVariant::fromValue(device.id()));
-        backendAxisInput.sceneChangeEvent(updateChange);
+        axisInput.setSourceDevice(&device);
+        backendAxisInput.syncFromFrontEnd(&axisInput, false);
 
         // THEN
         QCOMPARE(backendAxisInput.sourceDevice(), device.id());

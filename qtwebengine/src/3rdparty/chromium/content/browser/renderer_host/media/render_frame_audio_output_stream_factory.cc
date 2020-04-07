@@ -107,7 +107,7 @@ class RenderFrameAudioOutputStreamFactory::Core final
   // mojom::RendererAudioOutputStreamFactory implementation.
   void RequestDeviceAuthorization(
       media::mojom::AudioOutputStreamProviderRequest provider_request,
-      int32_t session_id,
+      const base::Optional<base::UnguessableToken>& session_id,
       const std::string& device_id,
       RequestDeviceAuthorizationCallback callback) final;
 
@@ -141,7 +141,7 @@ class RenderFrameAudioOutputStreamFactory::Core final
 
   // Weak pointers are used to cancel device authorizations that are in flight
   // while |this| is destructed.
-  base::WeakPtrFactory<Core> weak_ptr_factory_;
+  base::WeakPtrFactory<Core> weak_ptr_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(Core);
 };
@@ -183,8 +183,7 @@ RenderFrameAudioOutputStreamFactory::Core::Core(
     : process_id_(frame->GetProcess()->GetID()),
       frame_id_(frame->GetRoutingID()),
       authorization_handler_(audio_system, media_stream_manager, process_id_),
-      binding_(this),
-      weak_ptr_factory_(this) {
+      binding_(this) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
   ForwardingAudioStreamFactory::Core* tmp_factory =
@@ -215,14 +214,15 @@ void RenderFrameAudioOutputStreamFactory::Core::Init(
 
 void RenderFrameAudioOutputStreamFactory::Core::RequestDeviceAuthorization(
     media::mojom::AudioOutputStreamProviderRequest provider_request,
-    int32_t session_id,
+    const base::Optional<base::UnguessableToken>& session_id,
     const std::string& device_id,
     RequestDeviceAuthorizationCallback callback) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
   TRACE_EVENT2(
       "audio",
       "RenderFrameAudioOutputStreamFactory::RequestDeviceAuthorization",
-      "device id", device_id, "session_id", session_id);
+      "device id", device_id, "session_id",
+      session_id.value_or(base::UnguessableToken()).ToString());
 
   const base::TimeTicks auth_start_time = base::TimeTicks::Now();
 
@@ -233,7 +233,8 @@ void RenderFrameAudioOutputStreamFactory::Core::RequestDeviceAuthorization(
           std::move(provider_request), std::move(callback));
 
   authorization_handler_.RequestDeviceAuthorization(
-      frame_id_, session_id, device_id, std::move(completed_callback));
+      frame_id_, session_id.value_or(base::UnguessableToken()), device_id,
+      std::move(completed_callback));
 }
 
 void RenderFrameAudioOutputStreamFactory::Core::AuthorizationCompleted(

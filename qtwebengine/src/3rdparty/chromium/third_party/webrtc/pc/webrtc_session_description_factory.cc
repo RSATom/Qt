@@ -11,11 +11,12 @@
 #include "pc/webrtc_session_description_factory.h"
 
 #include <stddef.h>
-#include <algorithm>
+
 #include <string>
 #include <utility>
 #include <vector>
 
+#include "absl/algorithm/container.h"
 #include "absl/memory/memory.h"
 #include "absl/types/optional.h"
 #include "api/jsep.h"
@@ -31,6 +32,7 @@
 #include "rtc_base/string_encode.h"
 
 using cricket::MediaSessionOptions;
+using rtc::UniqueRandomIdGenerator;
 
 namespace webrtc {
 namespace {
@@ -40,16 +42,6 @@ static const char kFailedDueToSessionShutdown[] =
     " failed because the session was shut down";
 
 static const uint64_t kInitSessionVersion = 2;
-
-static bool CompareSenderOptions(const cricket::SenderOptions& sender1,
-                                 const cricket::SenderOptions& sender2) {
-  return sender1.track_id < sender2.track_id;
-}
-
-static bool SameId(const cricket::SenderOptions& sender1,
-                   const cricket::SenderOptions& sender2) {
-  return sender1.track_id == sender2.track_id;
-}
 
 // Check that each sender has a unique ID.
 static bool ValidMediaSessionOptions(
@@ -61,10 +53,15 @@ static bool ValidMediaSessionOptions(
                           media_description_options.sender_options.begin(),
                           media_description_options.sender_options.end());
   }
-  std::sort(sorted_senders.begin(), sorted_senders.end(), CompareSenderOptions);
-  std::vector<cricket::SenderOptions>::iterator it =
-      std::adjacent_find(sorted_senders.begin(), sorted_senders.end(), SameId);
-  return it == sorted_senders.end();
+  absl::c_sort(sorted_senders, [](const cricket::SenderOptions& sender1,
+                                  const cricket::SenderOptions& sender2) {
+    return sender1.track_id < sender2.track_id;
+  });
+  return absl::c_adjacent_find(sorted_senders,
+                               [](const cricket::SenderOptions& sender1,
+                                  const cricket::SenderOptions& sender2) {
+                                 return sender1.track_id == sender2.track_id;
+                               }) == sorted_senders.end();
 }
 
 enum {
@@ -131,9 +128,12 @@ WebRtcSessionDescriptionFactory::WebRtcSessionDescriptionFactory(
     PeerConnectionInternal* pc,
     const std::string& session_id,
     std::unique_ptr<rtc::RTCCertificateGeneratorInterface> cert_generator,
-    const rtc::scoped_refptr<rtc::RTCCertificate>& certificate)
+    const rtc::scoped_refptr<rtc::RTCCertificate>& certificate,
+    UniqueRandomIdGenerator* ssrc_generator)
     : signaling_thread_(signaling_thread),
-      session_desc_factory_(channel_manager, &transport_desc_factory_),
+      session_desc_factory_(channel_manager,
+                            &transport_desc_factory_,
+                            ssrc_generator),
       // RFC 4566 suggested a Network Time Protocol (NTP) format timestamp
       // as the session id and session version. To simplify, it should be fine
       // to just use a random number as session id and start version from

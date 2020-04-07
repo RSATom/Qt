@@ -43,7 +43,8 @@
 #include "third_party/blink/renderer/platform/wtf/forward.h"
 #include "third_party/blink/renderer/platform/wtf/text/text_encoding.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
-#include "third_party/blink/renderer/platform/wtf/typed_arrays/array_buffer_builder.h"
+#include "third_party/blink/renderer/platform/wtf/typed_arrays/array_buffer.h"
+#include "third_party/blink/renderer/platform/wtf/typed_arrays/array_buffer_contents.h"
 
 namespace blink {
 
@@ -75,9 +76,9 @@ class CORE_EXPORT FileReaderLoader : public mojom::blink::BlobReaderClient {
 
   // If client is given, do the loading asynchronously. Otherwise, load
   // synchronously.
-  static std::unique_ptr<FileReaderLoader> Create(ReadType,
-                                                  FileReaderLoaderClient*);
-  FileReaderLoader(ReadType, FileReaderLoaderClient*);
+  FileReaderLoader(ReadType,
+                   FileReaderLoaderClient*,
+                   scoped_refptr<base::SingleThreadTaskRunner>);
   ~FileReaderLoader() override;
 
   void Start(scoped_refptr<BlobDataHandle>);
@@ -85,6 +86,7 @@ class CORE_EXPORT FileReaderLoader : public mojom::blink::BlobReaderClient {
 
   DOMArrayBuffer* ArrayBufferResult();
   String StringResult();
+  WTF::ArrayBufferContents::DataHandle TakeDataHandle();
 
   // Returns the total bytes received. Bytes ignored by m_rawData won't be
   // counted.
@@ -154,7 +156,7 @@ class CORE_EXPORT FileReaderLoader : public mojom::blink::BlobReaderClient {
   WTF::TextEncoding encoding_;
   String data_type_;
 
-  std::unique_ptr<ArrayBufferBuilder> raw_data_;
+  WTF::ArrayBufferContents::DataHandle raw_data_;
   bool is_raw_data_converted_ = false;
 
   Persistent<DOMArrayBuffer> array_buffer_result_;
@@ -183,7 +185,9 @@ class CORE_EXPORT FileReaderLoader : public mojom::blink::BlobReaderClient {
   bool started_loading_ = false;
 #endif  // DCHECK_IS_ON()
 
-  base::WeakPtrFactory<FileReaderLoader> weak_factory_;
+  scoped_refptr<base::SingleThreadTaskRunner> task_runner_;
+
+  base::WeakPtrFactory<FileReaderLoader> weak_factory_{this};
 };
 
 }  // namespace blink

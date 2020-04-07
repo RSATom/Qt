@@ -12,6 +12,7 @@
 #define MODULES_AUDIO_PROCESSING_AEC3_ADAPTIVE_FIR_FILTER_H_
 
 #include <stddef.h>
+
 #include <array>
 #include <vector>
 
@@ -164,7 +165,6 @@ class AdaptiveFirFilter {
   void UpdateSize();
 
   ApmDataDumper* const data_dumper_;
-  const bool use_partial_filter_reset_;
   const Aec3Fft fft_;
   const Aec3Optimization optimization_;
   const size_t max_size_partitions_;

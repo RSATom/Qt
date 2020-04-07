@@ -100,12 +100,23 @@ interface DriveFsDelegate {
   OnHeartbeat();
 };
 
-// Next MinVersion: 2
+// Next MinVersion: 5
 struct DriveFsConfiguration {
   string user_email;
 
   [MinVersion=1]
   string? access_token;
+
+  [MinVersion=2]
+  bool enable_metrics = false;
+
+  // The directory name to use for lost and found within the user's My files
+  // directory.
+  [MinVersion=3]
+  string? lost_and_found_directory_name;
+
+  [MinVersion=4]
+  bool enable_experimental_mirroring = false;
 };
 
 enum AccessTokenStatus {
@@ -158,7 +169,7 @@ struct DriveError {
 
 // Next MinVersion: 2
 struct FileMetadata {
-  enum Type {
+  [Extensible] enum Type {
     // A regular file.
     kFile,
 

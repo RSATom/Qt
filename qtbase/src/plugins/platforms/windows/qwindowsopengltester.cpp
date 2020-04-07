@@ -83,7 +83,7 @@ static GpuDescription adapterIdentifierToGpuDescription(const D3DADAPTER_IDENTIF
 class QDirect3D9Handle
 {
 public:
-    Q_DISABLE_COPY(QDirect3D9Handle)
+    Q_DISABLE_COPY_MOVE(QDirect3D9Handle)
 
     QDirect3D9Handle();
     ~QDirect3D9Handle();
@@ -188,9 +188,9 @@ QDebug operator<<(QDebug d, const GpuDescription &gd)
 {
     QDebugStateSaver s(d);
     d.nospace();
-    d << hex << showbase << "GpuDescription(vendorId=" << gd.vendorId
+    d << Qt::hex << Qt::showbase << "GpuDescription(vendorId=" << gd.vendorId
       << ", deviceId=" << gd.deviceId << ", subSysId=" << gd.subSysId
-      << dec << noshowbase << ", revision=" << gd.revision
+      << Qt::dec << Qt::noshowbase << ", revision=" << gd.revision
       << ", driver: " << gd.driverName
       << ", version=" << gd.driverVersion << ", " << gd.description
       << gd.gpuSuitableScreen << ')';
@@ -207,11 +207,11 @@ QString GpuDescription::toString() const
         << "\n       Driver Name         : " << driverName
         << "\n    Driver Version         : " << driverVersion.toString()
         << "\n         Vendor ID         : 0x" << qSetPadChar(QLatin1Char('0'))
-        << uppercasedigits << hex << qSetFieldWidth(4) << vendorId
+        << Qt::uppercasedigits << Qt::hex << qSetFieldWidth(4) << vendorId
         << "\n         Device ID         : 0x" << qSetFieldWidth(4) << deviceId
         << "\n         SubSys ID         : 0x" << qSetFieldWidth(8) << subSysId
         << "\n       Revision ID         : 0x" << qSetFieldWidth(4) << revision
-        << dec;
+        << Qt::dec;
     if (!gpuSuitableScreen.isEmpty())
         str << "\nGL windows forced to screen: " << gpuSuitableScreen;
     return result;
@@ -457,7 +457,7 @@ bool QWindowsOpenGLTester::testDesktopGL()
 
         // Check the version. If we got 1.x then it's all hopeless and we can stop right here.
         typedef const GLubyte * (APIENTRY * GetString_t)(GLenum name);
-        GetString_t GetString = reinterpret_cast<GetString_t>(
+        auto GetString = reinterpret_cast<GetString_t>(
             reinterpret_cast<QFunctionPointer>(::GetProcAddress(lib, "glGetString")));
         if (GetString) {
             if (const char *versionStr = reinterpret_cast<const char *>(GetString(GL_VERSION))) {

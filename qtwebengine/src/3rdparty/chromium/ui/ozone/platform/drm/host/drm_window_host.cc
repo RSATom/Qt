@@ -11,11 +11,12 @@
 #include "ui/events/ozone/evdev/event_factory_evdev.h"
 #include "ui/events/ozone/events_ozone.h"
 #include "ui/events/platform/platform_event_source.h"
+#include "ui/ozone/platform/drm/common/drm_overlay_manager.h"
 #include "ui/ozone/platform/drm/host/drm_cursor.h"
 #include "ui/ozone/platform/drm/host/drm_display_host.h"
 #include "ui/ozone/platform/drm/host/drm_display_host_manager.h"
-#include "ui/ozone/platform/drm/host/drm_overlay_manager.h"
 #include "ui/ozone/platform/drm/host/drm_window_host_manager.h"
+#include "ui/ozone/platform/drm/host/gpu_thread_adapter.h"
 #include "ui/platform_window/platform_window_delegate.h"
 
 namespace ui {
@@ -56,7 +57,7 @@ void DrmWindowHost::Initialize() {
   delegate_->OnAcceleratedWidgetAvailable(widget_);
 }
 
-gfx::AcceleratedWidget DrmWindowHost::GetAcceleratedWidget() {
+gfx::AcceleratedWidget DrmWindowHost::GetAcceleratedWidget() const {
   return widget_;
 }
 
@@ -114,7 +115,15 @@ void DrmWindowHost::Restore() {
 }
 
 PlatformWindowState DrmWindowHost::GetPlatformWindowState() const {
-  return PlatformWindowState::PLATFORM_WINDOW_STATE_UNKNOWN;
+  return PlatformWindowState::kUnknown;
+}
+
+void DrmWindowHost::Activate() {
+  NOTIMPLEMENTED_LOG_ONCE();
+}
+
+void DrmWindowHost::Deactivate() {
+  NOTIMPLEMENTED_LOG_ONCE();
 }
 
 void DrmWindowHost::SetCursor(PlatformCursor cursor) {
@@ -131,10 +140,6 @@ void DrmWindowHost::ConfineCursorToBounds(const gfx::Rect& bounds) {
 
   cursor_confined_bounds_ = bounds;
   cursor_->CommitBoundsChange(widget_, bounds_, bounds);
-}
-
-PlatformImeController* DrmWindowHost::GetPlatformImeController() {
-  return nullptr;
 }
 
 void DrmWindowHost::SetRestoredBoundsInPixels(const gfx::Rect& bounds) {
@@ -218,7 +223,8 @@ void DrmWindowHost::SendBoundsChange() {
   cursor_->CommitBoundsChange(widget_, bounds_, GetCursorConfinedBounds());
   sender_->GpuWindowBoundsChanged(widget_, bounds_);
 
-  overlay_manager_->ResetCache();
+  if (overlay_manager_)
+    overlay_manager_->ResetCache();
 }
 
 }  // namespace ui

@@ -60,6 +60,7 @@ namespace Qt3DInput {
 namespace Input {
 
 class InputHandler;
+class LoadProxyDeviceJobPrivate;
 
 class Q_AUTOTEST_EXPORT LoadProxyDeviceJob : public Qt3DCore::QAspectJob
 {

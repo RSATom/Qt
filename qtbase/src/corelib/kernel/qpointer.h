@@ -54,20 +54,11 @@ class QPointer
 {
     Q_STATIC_ASSERT_X(!std::is_pointer<T>::value, "QPointer's template type must not be a pointer type");
 
-    template<typename U>
-    struct TypeSelector
-    {
-        typedef QObject Type;
-    };
-    template<typename U>
-    struct TypeSelector<const U>
-    {
-        typedef const QObject Type;
-    };
-    typedef typename TypeSelector<T>::Type QObjectType;
+    using QObjectType =
+        typename std::conditional<std::is_const<T>::value, const QObject, QObject>::type;
     QWeakPointer<QObjectType> wp;
 public:
-    inline QPointer() { }
+    QPointer() = default;
     inline QPointer(T *p) : wp(p, true) { }
     // compiler-generated copy/move ctor/assignment operators are fine!
     // compiler-generated dtor is fine!
@@ -77,13 +68,13 @@ public:
     ~QPointer();
 #endif
 
-    inline void swap(QPointer &other) { wp.swap(other.wp); }
+    inline void swap(QPointer &other) noexcept { wp.swap(other.wp); }
 
     inline QPointer<T> &operator=(T* p)
     { wp.assign(static_cast<QObjectType*>(p)); return *this; }
 
     inline T* data() const
-    { return static_cast<T*>( wp.data()); }
+    { return static_cast<T*>(wp.internalData()); }
     inline T* operator->() const
     { return data(); }
     inline T& operator*() const
@@ -143,8 +134,13 @@ template<typename T>
 QPointer<T>
 qPointerFromVariant(const QVariant &variant)
 {
-    return QPointer<T>(qobject_cast<T*>(QtSharedPointer::weakPointerFromVariant_internal(variant).data()));
+    const auto wp = QtSharedPointer::weakPointerFromVariant_internal(variant);
+    return QPointer<T>{qobject_cast<T*>(QtPrivate::EnableInternalData::internalData(wp))};
 }
+
+template <class T>
+inline void swap(QPointer<T> &p1, QPointer<T> &p2) noexcept
+{ p1.swap(p2); }
 
 QT_END_NAMESPACE
 

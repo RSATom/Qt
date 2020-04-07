@@ -17,12 +17,12 @@
 #include "base/callback_forward.h"
 #include "base/compiler_specific.h"
 #include "base/logging.h"
-#include "base/message_loop/message_loop.h"
 #include "base/metrics/histogram_base.h"
 #include "base/metrics/histogram_samples.h"
 #include "base/metrics/statistics_recorder.h"
 #include "base/run_loop.h"
 #include "base/stl_util.h"
+#include "base/test/scoped_task_environment.h"
 #include "base/values.h"
 #include "components/prefs/testing_pref_store.h"
 #include "mojo/public/cpp/bindings/binding_set.h"
@@ -245,7 +245,7 @@ std::unique_ptr<PrefHashStoreTransaction> MockPrefHashStore::BeginTransaction(
 std::string MockPrefHashStore::ComputeMac(const std::string& path,
                                           const base::Value* new_value) {
   return "atomic mac for: " + path;
-};
+}
 
 std::unique_ptr<base::DictionaryValue> MockPrefHashStore::ComputeSplitMacs(
     const std::string& path,
@@ -259,7 +259,7 @@ std::unique_ptr<base::DictionaryValue> MockPrefHashStore::ComputeSplitMacs(
                       base::Value("split mac for: " + path + "/" + it.key()));
   }
   return macs_dict;
-};
+}
 
 ValueState MockPrefHashStore::RecordCheckValue(const std::string& path,
                                                const base::Value* value,
@@ -364,7 +364,7 @@ std::vector<prefs::mojom::TrackedPreferenceMetadataPtr> GetConfiguration(
 
 class MockHashStoreContents : public HashStoreContents {
  public:
-  MockHashStoreContents(){};
+  MockHashStoreContents() {}
 
   // Returns the number of hashes stored.
   size_t stored_hashes_count() const { return dictionary_.size(); }
@@ -586,7 +586,7 @@ class PrefHashFilterTest : public testing::TestWithParam<EnforcementLevel>,
             std::move(temp_mock_external_validation_pref_hash_store),
             std::move(temp_mock_external_validation_hash_store_contents)),
         std::move(configuration), std::move(reset_on_load_observer),
-        &mock_validation_delegate_, base::size(kTestTrackedPrefs), true));
+        &mock_validation_delegate_, base::size(kTestTrackedPrefs)));
   }
 
   // Verifies whether a reset was reported by the PrefHashFiler. Also verifies
@@ -634,7 +634,7 @@ class PrefHashFilterTest : public testing::TestWithParam<EnforcementLevel>,
     reset_recorded_ = true;
   }
 
-  base::MessageLoop message_loop_;
+  base::test::ScopedTaskEnvironment scoped_task_environment_;
   MockValidationDelegate mock_validation_delegate_;
   mojo::BindingSet<prefs::mojom::ResetOnLoadObserver>
       reset_on_load_observer_bindings_;
@@ -715,42 +715,6 @@ TEST_P(PrefHashFilterTest, FilterTrackedPrefClearing) {
 
   ASSERT_EQ(1u, mock_pref_hash_store_->transactions_performed());
   VerifyRecordedReset(false);
-}
-
-TEST_P(PrefHashFilterTest, ReportSuperMacValidity) {
-  // Do this once just to force the histogram to be defined.
-  DoFilterOnLoad(false);
-
-  base::HistogramBase* histogram = base::StatisticsRecorder::FindHistogram(
-      "Settings.HashesDictionaryTrusted");
-  ASSERT_TRUE(histogram);
-
-  base::HistogramBase::Count initial_untrusted =
-      histogram->SnapshotSamples()->GetCount(0);
-  base::HistogramBase::Count initial_trusted =
-      histogram->SnapshotSamples()->GetCount(1);
-
-  Reset();
-
-  // Run with an invalid super MAC.
-  mock_pref_hash_store_->set_is_super_mac_valid_result(false);
-
-  DoFilterOnLoad(false);
-
-  // Verify that the invalidity was reported.
-  ASSERT_EQ(initial_untrusted + 1, histogram->SnapshotSamples()->GetCount(0));
-  ASSERT_EQ(initial_trusted, histogram->SnapshotSamples()->GetCount(1));
-
-  Reset();
-
-  // Run with a valid super MAC.
-  mock_pref_hash_store_->set_is_super_mac_valid_result(true);
-
-  DoFilterOnLoad(false);
-
-  // Verify that the validity was reported.
-  ASSERT_EQ(initial_untrusted + 1, histogram->SnapshotSamples()->GetCount(0));
-  ASSERT_EQ(initial_trusted + 1, histogram->SnapshotSamples()->GetCount(1));
 }
 
 TEST_P(PrefHashFilterTest, FilterSplitPrefUpdate) {
@@ -1364,7 +1328,7 @@ TEST_P(PrefHashFilterTest, ExternalValidationValueChanged) {
                 ValueState::UNCHANGED));
 }
 
-INSTANTIATE_TEST_CASE_P(PrefHashFilterTestInstance,
-                        PrefHashFilterTest,
-                        testing::Values(EnforcementLevel::NO_ENFORCEMENT,
-                                        EnforcementLevel::ENFORCE_ON_LOAD));
+INSTANTIATE_TEST_SUITE_P(PrefHashFilterTestInstance,
+                         PrefHashFilterTest,
+                         testing::Values(EnforcementLevel::NO_ENFORCEMENT,
+                                         EnforcementLevel::ENFORCE_ON_LOAD));

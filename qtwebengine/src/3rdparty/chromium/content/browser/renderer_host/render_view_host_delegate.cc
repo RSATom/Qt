@@ -61,8 +61,16 @@ bool RenderViewHostDelegate::HasPersistentVideo() const {
   return false;
 }
 
+bool RenderViewHostDelegate::IsSpatialNavigationDisabled() const {
+  return false;
+}
+
 RenderFrameHost* RenderViewHostDelegate::GetPendingMainFrame() {
   return nullptr;
+}
+
+bool RenderViewHostDelegate::IsPortal() const {
+  return false;
 }
 
 }  // namespace content

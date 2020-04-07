@@ -39,7 +39,7 @@
 
 #include "qqmlcustomparser_p.h"
 
-#include <private/qqmltypecompiler_p.h>
+#include <private/qv4compileddata_p.h>
 
 #include <QtCore/qdebug.h>
 
@@ -100,7 +100,12 @@ void QQmlCustomParser::clearErrors()
 */
 void QQmlCustomParser::error(const QV4::CompiledData::Location &location, const QString &description)
 {
-    exceptions << QQmlCompileError(location, description);
+    QQmlJS::DiagnosticMessage error;
+    error.line = location.line;
+    error.column = location.column;
+    error.message = description;
+
+    exceptions << error;
 }
 
 struct StaticQtMetaObject : public QObject

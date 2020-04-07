@@ -57,7 +57,6 @@ struct DowncastTraits {
   template <typename U>
   static bool AllowFrom(const U&) {
     static_assert(sizeof(U) == 0, "no downcast traits specialization for T");
-    return false;
   }
 };
 

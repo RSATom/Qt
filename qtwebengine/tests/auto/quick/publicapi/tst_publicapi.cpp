@@ -35,6 +35,7 @@
 #include <QtTest/QtTest>
 #include <QtWebEngine/QQuickWebEngineProfile>
 #include <QtWebEngine/QQuickWebEngineScript>
+#include <QtWebEngineCore/QWebEngineFindTextResult>
 #include <QtWebEngineCore/QWebEngineNotification>
 #include <QtWebEngineCore/QWebEngineQuotaRequest>
 #include <QtWebEngineCore/QWebEngineRegisterProtocolHandlerRequest>
@@ -80,10 +81,12 @@ static const QList<const QMetaObject *> typesToCheck = QList<const QMetaObject *
     << &QQuickWebEngineColorDialogRequest::staticMetaObject
     << &QQuickWebEngineFileDialogRequest::staticMetaObject
     << &QQuickWebEngineFormValidationMessageRequest::staticMetaObject
+    << &QQuickWebEngineTooltipRequest::staticMetaObject
     << &QQuickWebEngineContextMenuRequest::staticMetaObject
     << &QWebEngineQuotaRequest::staticMetaObject
     << &QWebEngineRegisterProtocolHandlerRequest::staticMetaObject
     << &QWebEngineNotification::staticMetaObject
+    << &QWebEngineFindTextResult::staticMetaObject
     ;
 
 static QList<const char *> knownEnumNames = QList<const char *>();
@@ -259,6 +262,12 @@ static const QStringList expectedAPI = QStringList()
     << "QQuickWebEngineDownloadItem.type --> DownloadType"
     << "QQuickWebEngineDownloadItem.typeChanged() --> void"
     << "QQuickWebEngineDownloadItem.view --> QQuickWebEngineView*"
+    << "QQuickWebEngineDownloadItem.url --> QUrl"
+    << "QQuickWebEngineDownloadItem.suggestedFileName --> QString"
+    << "QQuickWebEngineDownloadItem.downloadDirectory --> QString"
+    << "QQuickWebEngineDownloadItem.downloadDirectoryChanged() --> void"
+    << "QQuickWebEngineDownloadItem.downloadFileName --> QString"
+    << "QQuickWebEngineDownloadItem.downloadFileNameChanged() --> void"
     << "QQuickWebEngineFileDialogRequest.FileModeOpen --> FileMode"
     << "QQuickWebEngineFileDialogRequest.FileModeOpenMultiple --> FileMode"
     << "QQuickWebEngineFileDialogRequest.FileModeSave --> FileMode"
@@ -269,6 +278,8 @@ static const QStringList expectedAPI = QStringList()
     << "QQuickWebEngineFileDialogRequest.dialogAccept(QStringList) --> void"
     << "QQuickWebEngineFileDialogRequest.dialogReject() --> void"
     << "QQuickWebEngineFileDialogRequest.mode --> FileMode"
+    << "QWebEngineFindTextResult.numberOfMatches --> int"
+    << "QWebEngineFindTextResult.activeMatch --> int"
     << "QQuickWebEngineFormValidationMessageRequest.Hide --> RequestType"
     << "QQuickWebEngineFormValidationMessageRequest.Move --> RequestType"
     << "QQuickWebEngineFormValidationMessageRequest.Show --> RequestType"
@@ -277,6 +288,13 @@ static const QStringList expectedAPI = QStringList()
     << "QQuickWebEngineFormValidationMessageRequest.subText --> QString"
     << "QQuickWebEngineFormValidationMessageRequest.text --> QString"
     << "QQuickWebEngineFormValidationMessageRequest.type --> RequestType"
+    << "QQuickWebEngineTooltipRequest.Hide --> RequestType"
+    << "QQuickWebEngineTooltipRequest.Show --> RequestType"
+    << "QQuickWebEngineTooltipRequest.x --> int"
+    << "QQuickWebEngineTooltipRequest.y --> int"
+    << "QQuickWebEngineTooltipRequest.text --> QString"
+    << "QQuickWebEngineTooltipRequest.type --> RequestType"
+    << "QQuickWebEngineTooltipRequest.accepted --> bool"
     << "QQuickWebEngineFullScreenRequest.accept() --> void"
     << "QQuickWebEngineFullScreenRequest.origin --> QUrl"
     << "QQuickWebEngineFullScreenRequest.reject() --> void"
@@ -596,6 +614,9 @@ static const QStringList expectedAPI = QStringList()
     << "QQuickWebEngineView.LetterExtra --> PrintedPageSizeId"
     << "QQuickWebEngineView.LetterPlus --> PrintedPageSizeId"
     << "QQuickWebEngineView.LetterSmall --> PrintedPageSizeId"
+    << "QQuickWebEngineView.LifecycleState.Active --> LifecycleState"
+    << "QQuickWebEngineView.LifecycleState.Discarded --> LifecycleState"
+    << "QQuickWebEngineView.LifecycleState.Frozen --> LifecycleState"
     << "QQuickWebEngineView.LinkClickedNavigation --> NavigationType"
     << "QQuickWebEngineView.LoadFailedStatus --> LoadStatus"
     << "QQuickWebEngineView.LoadStartedStatus --> LoadStatus"
@@ -628,6 +649,7 @@ static const QStringList expectedAPI = QStringList()
     << "QQuickWebEngineView.Prc32K --> PrintedPageSizeId"
     << "QQuickWebEngineView.Prc32KBig --> PrintedPageSizeId"
     << "QQuickWebEngineView.Quarto --> PrintedPageSizeId"
+    << "QQuickWebEngineView.RedirectNavigation --> NavigationType"
     << "QQuickWebEngineView.Redo --> WebAction"
     << "QQuickWebEngineView.Reload --> WebAction"
     << "QQuickWebEngineView.ReloadAndBypassCache --> WebAction"
@@ -676,6 +698,7 @@ static const QStringList expectedAPI = QStringList()
     << "QQuickWebEngineView.findText(QString) --> void"
     << "QQuickWebEngineView.findText(QString,FindFlags) --> void"
     << "QQuickWebEngineView.findText(QString,FindFlags,QJSValue) --> void"
+    << "QQuickWebEngineView.findTextFinished(QWebEngineFindTextResult) --> void"
     << "QQuickWebEngineView.formValidationMessageRequested(QQuickWebEngineFormValidationMessageRequest*) --> void"
     << "QQuickWebEngineView.fullScreenCancelled() --> void"
     << "QQuickWebEngineView.fullScreenRequested(QQuickWebEngineFullScreenRequest) --> void"
@@ -692,6 +715,8 @@ static const QStringList expectedAPI = QStringList()
     << "QQuickWebEngineView.isFullScreenChanged() --> void"
     << "QQuickWebEngineView.javaScriptConsoleMessage(JavaScriptConsoleMessageLevel,QString,int,QString) --> void"
     << "QQuickWebEngineView.javaScriptDialogRequested(QQuickWebEngineJavaScriptDialogRequest*) --> void"
+    << "QQuickWebEngineView.lifecycleState --> LifecycleState"
+    << "QQuickWebEngineView.lifecycleStateChanged(LifecycleState) --> void"
     << "QQuickWebEngineView.linkHovered(QUrl) --> void"
     << "QQuickWebEngineView.loadHtml(QString) --> void"
     << "QQuickWebEngineView.loadHtml(QString,QUrl) --> void"
@@ -715,6 +740,8 @@ static const QStringList expectedAPI = QStringList()
     << "QQuickWebEngineView.quotaRequested(QWebEngineQuotaRequest) --> void"
     << "QQuickWebEngineView.recentlyAudible --> bool"
     << "QQuickWebEngineView.recentlyAudibleChanged(bool) --> void"
+    << "QQuickWebEngineView.recommendedState --> LifecycleState"
+    << "QQuickWebEngineView.recommendedStateChanged(LifecycleState) --> void"
     << "QQuickWebEngineView.registerProtocolHandlerRequested(QWebEngineRegisterProtocolHandlerRequest) --> void"
     << "QQuickWebEngineView.reload() --> void"
     << "QQuickWebEngineView.reloadAndBypassCache() --> void"
@@ -736,6 +763,7 @@ static const QStringList expectedAPI = QStringList()
 #endif
     << "QQuickWebEngineView.title --> QString"
     << "QQuickWebEngineView.titleChanged() --> void"
+    << "QQuickWebEngineView.tooltipRequested(QQuickWebEngineTooltipRequest*) --> void"
     << "QQuickWebEngineView.triggerWebAction(WebAction) --> void"
     << "QQuickWebEngineView.url --> QUrl"
     << "QQuickWebEngineView.urlChanged() --> void"
@@ -811,8 +839,9 @@ static void checkKnownType(const QByteArray &typeName)
 
 static void gatherAPI(const QString &prefix, const QMetaEnum &metaEnum, QStringList *output)
 {
+    const auto format = metaEnum.isScoped() ? "%1%3.%2 --> %3" : "%1%2 --> %3";
     for (int i = 0; i < metaEnum.keyCount(); ++i)
-        *output << QString::fromLatin1("%1%2 --> %3").arg(prefix).arg(metaEnum.key(i)).arg(metaEnum.name());
+        *output << QString::fromLatin1(format).arg(prefix).arg(metaEnum.key(i)).arg(metaEnum.name());
 }
 
 static void gatherAPI(const QString &prefix, const QMetaProperty &property, QStringList *output)

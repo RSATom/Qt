@@ -39,7 +39,7 @@
 #include <QtDataVisualization/q3dinputhandler.h>
 #include <QtDataVisualization/qcustom3ditem.h>
 #include <QtCore/QRandomGenerator>
-#include <QtCore/QTime>
+#include <QtCore/QElapsedTimer>
 #include <QtCore/qmath.h>
 
 using namespace QtDataVisualization;
@@ -354,7 +354,7 @@ void GraphModifier::flipViews()
 void GraphModifier::createMassiveArray()
 {
     const int arrayDimension = 1000;
-    QTime timer;
+    QElapsedTimer timer;
     timer.start();
 
     QStringList genericColumnLabels;
@@ -495,7 +495,7 @@ void GraphModifier::insertRow()
 
 void GraphModifier::insertRows()
 {
-    QTime timer;
+    QElapsedTimer timer;
     timer.start();
     QBarDataArray dataArray;
     QStringList labels;

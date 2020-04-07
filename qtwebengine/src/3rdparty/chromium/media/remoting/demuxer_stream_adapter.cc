@@ -53,9 +53,7 @@ DemuxerStreamAdapter::DemuxerStreamAdapter(
       pending_frame_is_eos_(false),
       media_status_(DemuxerStream::kOk),
       data_pipe_writer_(std::move(producer_handle)),
-      bytes_written_to_pipe_(0),
-      request_buffer_weak_factory_(this),
-      weak_factory_(this) {
+      bytes_written_to_pipe_(0) {
   DCHECK(main_task_runner_);
   DCHECK(media_task_runner_);
   DCHECK(media_task_runner_->BelongsToCurrentThread());
@@ -329,9 +327,9 @@ void DemuxerStreamAdapter::OnFrameWritten(bool success) {
 
   // Contiune to read decoder buffer until reaching |read_until_count_| or
   // end of stream.
-  media_task_runner_->PostTask(FROM_HERE,
-                               base::Bind(&DemuxerStreamAdapter::RequestBuffer,
-                                          weak_factory_.GetWeakPtr()));
+  media_task_runner_->PostTask(
+      FROM_HERE, base::BindOnce(&DemuxerStreamAdapter::RequestBuffer,
+                                weak_factory_.GetWeakPtr()));
 }
 
 void DemuxerStreamAdapter::SendReadAck() {

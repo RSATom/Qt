@@ -15,36 +15,37 @@
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
+#include "base/optional.h"
 #include "base/time/time.h"
 #include "base/timer/timer.h"
 #include "net/base/net_export.h"
+#include "net/base/proxy_server.h"
 #include "net/log/net_log_with_source.h"
 #include "net/socket/client_socket_pool.h"
-#include "net/socket/client_socket_pool_base.h"
-#include "net/socket/transport_client_socket_pool.h"
+#include "net/socket/connect_job.h"
+#include "net/socket/ssl_client_socket.h"
 
 namespace base {
 class DictionaryValue;
+namespace trace_event {
+class ProcessMemoryDump;
 }
+}  // namespace base
 
 namespace net {
 
-class ClientSocketFactory;
-class HostResolver;
-class NetLog;
-class WebSocketEndpointLockManager;
+struct CommonConnectJobParams;
+struct NetworkTrafficAnnotationTag;
 class WebSocketTransportConnectJob;
 
 class NET_EXPORT_PRIVATE WebSocketTransportClientSocketPool
-    : public TransportClientSocketPool {
+    : public ClientSocketPool {
  public:
   WebSocketTransportClientSocketPool(
       int max_sockets,
       int max_sockets_per_group,
-      HostResolver* host_resolver,
-      ClientSocketFactory* client_socket_factory,
-      WebSocketEndpointLockManager* websocket_endpoint_lock_manager,
-      NetLog* net_log);
+      const ProxyServer& proxy_server,
+      const CommonConnectJobParams* common_connect_job_params);
 
   ~WebSocketTransportClientSocketPool() override;
 
@@ -58,40 +59,50 @@ class NET_EXPORT_PRIVATE WebSocketTransportClientSocketPool
       WebSocketEndpointLockManager* websocket_endpoint_lock_manager);
 
   // ClientSocketPool implementation.
-  int RequestSocket(const std::string& group_name,
-                    const void* resolve_info,
-                    RequestPriority priority,
-                    const SocketTag& socket_tag,
-                    RespectLimits respect_limits,
-                    ClientSocketHandle* handle,
-                    CompletionOnceCallback callback,
-                    const NetLogWithSource& net_log) override;
-  void RequestSockets(const std::string& group_name,
-                      const void* params,
-                      int num_sockets,
-                      const NetLogWithSource& net_log) override;
-  void SetPriority(const std::string& group_name,
+  int RequestSocket(
+      const GroupId& group_id,
+      scoped_refptr<SocketParams> params,
+      const base::Optional<NetworkTrafficAnnotationTag>& proxy_annotation_tag,
+      RequestPriority priority,
+      const SocketTag& socket_tag,
+      RespectLimits respect_limits,
+      ClientSocketHandle* handle,
+      CompletionOnceCallback callback,
+      const ProxyAuthCallback& proxy_auth_callback,
+      const NetLogWithSource& net_log) override;
+  void RequestSockets(
+      const GroupId& group_id,
+      scoped_refptr<SocketParams> params,
+      const base::Optional<NetworkTrafficAnnotationTag>& proxy_annotation_tag,
+      int num_sockets,
+      const NetLogWithSource& net_log) override;
+  void SetPriority(const GroupId& group_id,
                    ClientSocketHandle* handle,
                    RequestPriority priority) override;
-  void CancelRequest(const std::string& group_name,
-                     ClientSocketHandle* handle) override;
-  void ReleaseSocket(const std::string& group_name,
+  void CancelRequest(const GroupId& group_id,
+                     ClientSocketHandle* handle,
+                     bool cancel_connect_job) override;
+  void ReleaseSocket(const GroupId& group_id,
                      std::unique_ptr<StreamSocket> socket,
-                     int id) override;
+                     int64_t generation) override;
   void FlushWithError(int error) override;
   void CloseIdleSockets() override;
-  void CloseIdleSocketsInGroup(const std::string& group_name) override;
+  void CloseIdleSocketsInGroup(const GroupId& group_id) override;
   int IdleSocketCount() const override;
-  int IdleSocketCountInGroup(const std::string& group_name) const override;
-  LoadState GetLoadState(const std::string& group_name,
+  size_t IdleSocketCountInGroup(const GroupId& group_id) const override;
+  LoadState GetLoadState(const GroupId& group_id,
                          const ClientSocketHandle* handle) const override;
   std::unique_ptr<base::DictionaryValue> GetInfoAsValue(
       const std::string& name,
-      const std::string& type,
-      bool include_nested_pools) const override;
+      const std::string& type) const override;
+  void DumpMemoryStats(
+      base::trace_event::ProcessMemoryDump* pmd,
+      const std::string& parent_dump_absolute_name) const override;
 
   // HigherLayeredPool implementation.
   bool IsStalled() const override;
+  void AddHigherLayeredPool(HigherLayeredPool* higher_pool) override;
+  void RemoveHigherLayeredPool(HigherLayeredPool* higher_pool) override;
 
  private:
   class ConnectJobDelegate : public ConnectJob::Delegate {
@@ -104,6 +115,10 @@ class NET_EXPORT_PRIVATE WebSocketTransportClientSocketPool
 
     // ConnectJob::Delegate implementation
     void OnConnectJobComplete(int result, ConnectJob* job) override;
+    void OnNeedsProxyAuth(const HttpResponseInfo& response,
+                          HttpAuthController* auth_controller,
+                          base::OnceClosure restart_with_auth_callback,
+                          ConnectJob* job) override;
 
     // Calls Connect() on |connect_job|, and takes ownership. Returns Connect's
     // return value.
@@ -130,18 +145,25 @@ class NET_EXPORT_PRIVATE WebSocketTransportClientSocketPool
   // Store the arguments from a call to RequestSocket() that has stalled so we
   // can replay it when there are available socket slots.
   struct StalledRequest {
-    StalledRequest(const scoped_refptr<SocketParams>& params,
-                   RequestPriority priority,
-                   ClientSocketHandle* handle,
-                   CompletionOnceCallback callback,
-                   const NetLogWithSource& net_log);
+    StalledRequest(
+        const GroupId& group_id,
+        const scoped_refptr<SocketParams>& params,
+        const base::Optional<NetworkTrafficAnnotationTag>& proxy_annotation_tag,
+        RequestPriority priority,
+        ClientSocketHandle* handle,
+        CompletionOnceCallback callback,
+        const ProxyAuthCallback& proxy_auth_callback,
+        const NetLogWithSource& net_log);
     StalledRequest(StalledRequest&& other);
     ~StalledRequest();
 
+    const GroupId group_id;
     const scoped_refptr<SocketParams> params;
+    const base::Optional<NetworkTrafficAnnotationTag> proxy_annotation_tag;
     const RequestPriority priority;
     ClientSocketHandle* const handle;
     CompletionOnceCallback callback;
+    ProxyAuthCallback proxy_auth_callback;
     const NetLogWithSource net_log;
   };
 
@@ -179,19 +201,17 @@ class NET_EXPORT_PRIVATE WebSocketTransportClientSocketPool
   void ActivateStalledRequest();
   bool DeleteStalledRequest(ClientSocketHandle* handle);
 
+  const ProxyServer proxy_server_;
+  const CommonConnectJobParams* const common_connect_job_params_;
   std::set<const ClientSocketHandle*> pending_callbacks_;
   PendingConnectsMap pending_connects_;
   StalledRequestQueue stalled_request_queue_;
   StalledRequestMap stalled_request_map_;
-  NetLog* const pool_net_log_;
-  ClientSocketFactory* const client_socket_factory_;
-  HostResolver* const host_resolver_;
-  WebSocketEndpointLockManager* websocket_endpoint_lock_manager_;
   const int max_sockets_;
   int handed_out_socket_count_;
   bool flushing_;
 
-  base::WeakPtrFactory<WebSocketTransportClientSocketPool> weak_factory_;
+  base::WeakPtrFactory<WebSocketTransportClientSocketPool> weak_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(WebSocketTransportClientSocketPool);
 };

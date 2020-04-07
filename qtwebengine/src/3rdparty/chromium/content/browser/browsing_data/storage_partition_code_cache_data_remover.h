@@ -10,30 +10,37 @@
 #include "base/callback.h"
 #include "base/macros.h"
 #include "base/sequenced_task_runner_helpers.h"
+#include "net/base/completion_once_callback.h"
+#include "url/gurl.h"
+
+namespace disk_cache {
+class Backend;
+}
 
 namespace content {
 
 class StoragePartition;
 class GeneratedCodeCacheContext;
 
-// Helper to remove http cache data from a StoragePartition. This class is
-// created on the UI thread and calls the provided callback and destroys itself
-// on the UI thread after the code caches are cleared. This class also takes a
-// reference to the generated_code_cache_context and is used in read-only mode
-// on both the UI / IO thread. Since this isn't modified, it is OK to access it
-// on both threads. The caches are actually cleared on the IO threads. When the
-// Remove function is called, it posts tasks on the IO thread to clear the code
-// caches. Once the the caches are cleared, the callback is called on the UI
-// thread.
+// Helper to remove code cache data from a StoragePartition. This class is
+// created on and acts on the UI thread.
 class StoragePartitionCodeCacheDataRemover {
  public:
   // Creates a StoragePartitionCodeCacheDataRemover that deletes all cache
   // entries.
   static StoragePartitionCodeCacheDataRemover* Create(
-      content::StoragePartition* storage_partition);
+      content::StoragePartition* storage_partition,
+      base::RepeatingCallback<bool(const GURL&)> url_predicate,
+      base::Time begin_time,
+      base::Time end_time);
 
   // Calls |done_callback| on UI thread upon completion and also destroys
   // itself on UI thread.
+  // This expects that either storage_partition with which this object was
+  // created is live till the end of operation or GeneratedCodeCacheContext
+  // is destroyed when the storage_partition is destroyed. This ensures the
+  // code cache and hence the backend is destroyed. If this is not guaranteed
+  // there could be a callback accessing the destroyed objects.
   void Remove(base::OnceClosure done_callback);
 
  private:
@@ -43,21 +50,25 @@ class StoragePartitionCodeCacheDataRemover {
   friend class base::DeleteHelper<StoragePartitionCodeCacheDataRemover>;
 
   explicit StoragePartitionCodeCacheDataRemover(
-      GeneratedCodeCacheContext* generated_code_cache_context);
+      GeneratedCodeCacheContext* generated_code_cache_context,
+      base::RepeatingCallback<bool(const GURL&)> url_predicate,
+      base::Time begin_time,
+      base::Time end_time);
 
   ~StoragePartitionCodeCacheDataRemover();
 
-  // Executed on UI thread.
-  void ClearedCodeCache();
-
-  // Executed on IO thread.
   void ClearJSCodeCache();
   void ClearWASMCodeCache(int rv);
+  void ClearCache(net::CompletionOnceCallback callback,
+                  disk_cache::Backend* backend);
   void DoneClearCodeCache(int rv);
 
   const scoped_refptr<GeneratedCodeCacheContext> generated_code_cache_context_;
 
   base::OnceClosure done_callback_;
+  base::Time begin_time_;
+  base::Time end_time_;
+  base::RepeatingCallback<bool(const GURL&)> url_predicate_;
 
   DISALLOW_COPY_AND_ASSIGN(StoragePartitionCodeCacheDataRemover);
 };

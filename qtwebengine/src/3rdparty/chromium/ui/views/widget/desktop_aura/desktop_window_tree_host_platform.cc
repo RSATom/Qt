@@ -4,6 +4,7 @@
 
 #include "ui/views/widget/desktop_aura/desktop_window_tree_host_platform.h"
 
+#include "base/bind.h"
 #include "base/time/time.h"
 #include "ui/aura/client/drag_drop_client.h"
 #include "ui/aura/client/transient_window_client.h"
@@ -49,9 +50,23 @@ ui::PlatformWindowInitProperties ConvertWidgetInitParamsToInitProperties(
   }
 
   properties.bounds = params.bounds;
+  properties.activatable =
+      params.activatable == Widget::InitParams::ACTIVATABLE_YES;
 
   if (params.parent && params.parent->GetHost())
     properties.parent_widget = params.parent->GetHost()->GetAcceleratedWidget();
+
+  switch (params.opacity) {
+    case Widget::InitParams::WindowOpacity::INFER_OPACITY:
+      properties.opacity = ui::PlatformWindowOpacity::kInferOpacity;
+      break;
+    case Widget::InitParams::WindowOpacity::OPAQUE_WINDOW:
+      properties.opacity = ui::PlatformWindowOpacity::kOpaqueWindow;
+      break;
+    case Widget::InitParams::WindowOpacity::TRANSLUCENT_WINDOW:
+      properties.opacity = ui::PlatformWindowOpacity::kTranslucentWindow;
+      break;
+  }
 
   return properties;
 }
@@ -118,8 +133,13 @@ std::unique_ptr<aura::client::DragDropClient>
 DesktopWindowTreeHostPlatform::CreateDragDropClient(
     DesktopNativeCursorManager* cursor_manager) {
   ui::WmDragHandler* drag_handler = ui::GetWmDragHandler(*(platform_window()));
-  return std::make_unique<DesktopDragDropClientOzone>(window(), cursor_manager,
-                                                      drag_handler);
+  std::unique_ptr<DesktopDragDropClientOzone> drag_drop_client =
+      std::make_unique<DesktopDragDropClientOzone>(window(), cursor_manager,
+                                                   drag_handler);
+  // Set a class property key, which allows |drag_drop_client| to be used for
+  // drop action.
+  SetWmDropHandler(platform_window(), drag_drop_client.get());
+  return std::move(drag_drop_client);
 }
 
 void DesktopWindowTreeHostPlatform::Close() {
@@ -141,6 +161,7 @@ void DesktopWindowTreeHostPlatform::Close() {
 
 void DesktopWindowTreeHostPlatform::CloseNow() {
   auto weak_ref = weak_factory_.GetWeakPtr();
+  SetWmDropHandler(platform_window(), nullptr);
   // Deleting the PlatformWindow may not result in OnClosed() being called, if
   // not behave as though it was.
   SetPlatformWindow(nullptr);
@@ -252,13 +273,7 @@ void DesktopWindowTreeHostPlatform::GetWindowPlacement(
 }
 
 gfx::Rect DesktopWindowTreeHostPlatform::GetWindowBoundsInScreen() const {
-  gfx::Rect bounds =
-      gfx::ConvertRectToDIP(device_scale_factor(), GetBoundsInPixels());
-  bounds += display::Screen::GetScreen()
-                ->GetDisplayNearestWindow(const_cast<aura::Window*>(window()))
-                .bounds()
-                .OffsetFromOrigin();
-  return bounds;
+  return gfx::ConvertRectToDIP(device_scale_factor(), GetBoundsInPixels());
 }
 
 gfx::Rect DesktopWindowTreeHostPlatform::GetClientAreaBoundsInScreen() const {
@@ -293,13 +308,11 @@ void DesktopWindowTreeHostPlatform::SetShape(
 }
 
 void DesktopWindowTreeHostPlatform::Activate() {
-  // TODO: needs PlatformWindow support.
-  NOTIMPLEMENTED_LOG_ONCE();
+  platform_window()->Activate();
 }
 
 void DesktopWindowTreeHostPlatform::Deactivate() {
-  // TODO: needs PlatformWindow support.
-  NOTIMPLEMENTED_LOG_ONCE();
+  platform_window()->Deactivate();
 }
 
 bool DesktopWindowTreeHostPlatform::IsActive() const {
@@ -320,26 +333,26 @@ void DesktopWindowTreeHostPlatform::Restore() {
 
 bool DesktopWindowTreeHostPlatform::IsMaximized() const {
   return platform_window()->GetPlatformWindowState() ==
-         ui::PlatformWindowState::PLATFORM_WINDOW_STATE_MAXIMIZED;
+         ui::PlatformWindowState::kMaximized;
 }
 
 bool DesktopWindowTreeHostPlatform::IsMinimized() const {
   return platform_window()->GetPlatformWindowState() ==
-         ui::PlatformWindowState::PLATFORM_WINDOW_STATE_MINIMIZED;
+         ui::PlatformWindowState::kMinimized;
 }
 
 bool DesktopWindowTreeHostPlatform::HasCapture() const {
   return platform_window()->HasCapture();
 }
 
-void DesktopWindowTreeHostPlatform::SetAlwaysOnTop(bool always_on_top) {
+void DesktopWindowTreeHostPlatform::SetZOrderLevel(ui::ZOrderLevel order) {
   // TODO: needs PlatformWindow support.
   NOTIMPLEMENTED_LOG_ONCE();
 }
 
-bool DesktopWindowTreeHostPlatform::IsAlwaysOnTop() const {
+ui::ZOrderLevel DesktopWindowTreeHostPlatform::GetZOrderLevel() const {
   // TODO: needs PlatformWindow support.
-  return false;
+  return ui::ZOrderLevel::kNormal;
 }
 
 void DesktopWindowTreeHostPlatform::SetVisibleOnAllWorkspaces(
@@ -406,7 +419,7 @@ void DesktopWindowTreeHostPlatform::SetFullscreen(bool fullscreen) {
 
 bool DesktopWindowTreeHostPlatform::IsFullscreen() const {
   return platform_window()->GetPlatformWindowState() ==
-         ui::PlatformWindowState::PLATFORM_WINDOW_STATE_FULLSCREEN;
+         ui::PlatformWindowState::kFullScreen;
 }
 
 void DesktopWindowTreeHostPlatform::SetOpacity(float opacity) {
@@ -506,8 +519,7 @@ void DesktopWindowTreeHostPlatform::OnWindowStateChanged(
   // Propagate minimization/restore to compositor to avoid drawing 'blank'
   // frames that could be treated as previews, which show content even if a
   // window is minimized.
-  bool visible =
-      new_state != ui::PlatformWindowState::PLATFORM_WINDOW_STATE_MINIMIZED;
+  bool visible = new_state != ui::PlatformWindowState::kMinimized;
   if (visible != compositor()->IsVisible()) {
     compositor()->SetVisible(visible);
     native_widget_delegate_->OnNativeWidgetVisibilityChanged(visible);
@@ -536,7 +548,6 @@ void DesktopWindowTreeHostPlatform::Relayout() {
     non_client_view->client_view()->InvalidateLayout();
     non_client_view->InvalidateLayout();
   }
-  widget->GetRootView()->Layout();
 }
 
 void DesktopWindowTreeHostPlatform::RemoveNonClientEventFilter() {

@@ -1525,11 +1525,14 @@ void XsdSchemaChecker::checkConstrainingFacets(const XsdFacet::Hash &facets, con
             const QXmlName primitiveTypeName = simpleType->primitiveType()->name(m_namePool);
             if (m_allowedAtomicFacets.contains(primitiveTypeName)) {
                 const QSet<XsdFacet::Type> allowedFacets = m_allowedAtomicFacets.value(primitiveTypeName);
-                QSet<XsdFacet::Type> availableFacets = facets.keys().toSet();
+
+                QSet<XsdFacet::Type> availableFacets;
+                for (auto it = facets.cbegin(), end = facets.cend(); it != end; ++it)
+                    availableFacets.insert(it.key());
 
                 if (!availableFacets.subtract(allowedFacets).isEmpty()) {
                     m_context->error(QtXmlPatterns::tr("Simple type contains not allowed facet %1.")
-                                                      .arg(formatKeyword(XsdFacet::typeName(availableFacets.toList().first()))),
+                                                      .arg(formatKeyword(XsdFacet::typeName(availableFacets.values().constFirst()))),
                                      XsdSchemaContext::XSDError, sourceLocation(simpleType));
                     return;
                 }

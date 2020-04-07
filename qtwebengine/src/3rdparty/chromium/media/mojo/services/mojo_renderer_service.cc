@@ -35,11 +35,9 @@ const int kTimeUpdateIntervalMs = 50;
 mojo::StrongBindingPtr<mojom::Renderer> MojoRendererService::Create(
     MojoCdmServiceContext* mojo_cdm_service_context,
     std::unique_ptr<media::Renderer> renderer,
-    const InitiateSurfaceRequestCB& initiate_surface_request_cb,
     mojo::InterfaceRequest<mojom::Renderer> request) {
   MojoRendererService* service =
-      new MojoRendererService(mojo_cdm_service_context, std::move(renderer),
-                              initiate_surface_request_cb);
+      new MojoRendererService(mojo_cdm_service_context, std::move(renderer));
 
   mojo::StrongBindingPtr<mojom::Renderer> binding =
       mojo::MakeStrongBinding<mojom::Renderer>(base::WrapUnique(service),
@@ -52,14 +50,11 @@ mojo::StrongBindingPtr<mojom::Renderer> MojoRendererService::Create(
 
 MojoRendererService::MojoRendererService(
     MojoCdmServiceContext* mojo_cdm_service_context,
-    std::unique_ptr<media::Renderer> renderer,
-    InitiateSurfaceRequestCB initiate_surface_request_cb)
+    std::unique_ptr<media::Renderer> renderer)
     : mojo_cdm_service_context_(mojo_cdm_service_context),
       state_(STATE_UNINITIALIZED),
       playback_rate_(0),
-      renderer_(std::move(renderer)),
-      initiate_surface_request_cb_(initiate_surface_request_cb),
-      weak_factory_(this) {
+      renderer_(std::move(renderer)) {
   DVLOG(1) << __func__;
   DCHECK(renderer_);
 
@@ -71,8 +66,7 @@ MojoRendererService::~MojoRendererService() = default;
 void MojoRendererService::Initialize(
     mojom::RendererClientAssociatedPtrInfo client,
     base::Optional<std::vector<mojom::DemuxerStreamPtrInfo>> streams,
-    const base::Optional<GURL>& media_url,
-    const base::Optional<GURL>& site_for_cookies,
+    mojom::MediaUrlParamsPtr media_url_params,
     InitializeCallback callback) {
   DVLOG(1) << __func__;
   DCHECK_EQ(state_, STATE_UNINITIALIZED);
@@ -80,7 +74,7 @@ void MojoRendererService::Initialize(
   client_.Bind(std::move(client));
   state_ = STATE_INITIALIZING;
 
-  if (media_url == base::nullopt) {
+  if (!media_url_params) {
     DCHECK(streams.has_value());
     media_resource_.reset(new MediaResourceShim(
         std::move(*streams), base::Bind(&MojoRendererService::OnStreamReady,
@@ -88,10 +82,11 @@ void MojoRendererService::Initialize(
     return;
   }
 
-  DCHECK(!media_url.value().is_empty());
-  DCHECK(site_for_cookies);
-  media_resource_.reset(new MediaUrlDemuxer(nullptr, media_url.value(),
-                                            site_for_cookies.value()));
+  DCHECK(!media_url_params->media_url.is_empty());
+  DCHECK(!media_url_params->site_for_cookies.is_empty());
+  media_resource_.reset(new MediaUrlDemuxer(
+      nullptr, media_url_params->media_url, media_url_params->site_for_cookies,
+      media_url_params->allow_credentials, media_url_params->is_hls));
   renderer_->Initialize(
       media_resource_.get(), this,
       base::Bind(&MojoRendererService::OnRendererInitializeDone, weak_this_,
@@ -167,9 +162,11 @@ void MojoRendererService::OnStatisticsUpdate(const PipelineStatistics& stats) {
   client_->OnStatisticsUpdate(stats);
 }
 
-void MojoRendererService::OnBufferingStateChange(BufferingState state) {
-  DVLOG(2) << __func__ << "(" << state << ")";
-  client_->OnBufferingStateChange(state);
+void MojoRendererService::OnBufferingStateChange(
+    BufferingState state,
+    BufferingStateChangeReason reason) {
+  DVLOG(2) << __func__ << "(" << state << ", " << reason << ")";
+  client_->OnBufferingStateChange(state, reason);
 }
 
 void MojoRendererService::OnWaiting(WaitingReason reason) {
@@ -192,14 +189,6 @@ void MojoRendererService::OnVideoConfigChange(
 void MojoRendererService::OnVideoNaturalSizeChange(const gfx::Size& size) {
   DVLOG(2) << __func__ << "(" << size.ToString() << ")";
   client_->OnVideoNaturalSizeChange(size);
-}
-
-void MojoRendererService::OnDurationChange(base::TimeDelta duration) {
-  client_->OnDurationChange(duration);
-}
-
-void MojoRendererService::OnRemotePlayStateChange(MediaStatus::State state) {
-  client_->OnRemotePlayStateChange(state);
 }
 
 void MojoRendererService::OnVideoOpacityChange(bool opaque) {
@@ -279,22 +268,4 @@ void MojoRendererService::OnCdmAttached(base::OnceCallback<void(bool)> callback,
 
   std::move(callback).Run(success);
 }
-
-void MojoRendererService::InitiateScopedSurfaceRequest(
-    InitiateScopedSurfaceRequestCallback callback) {
-  if (!initiate_surface_request_cb_) {
-    // |renderer_| is likely not of type MediaPlayerRenderer.
-    // This is an unexpected call, and the connection should be closed.
-    mojo::ReportBadMessage("Unexpected call to InitiateScopedSurfaceRequest.");
-
-    // This may cause |this| to be destructed.
-    DCHECK(bad_message_cb_);
-    bad_message_cb_.Run();
-
-    return;
-  }
-
-  std::move(callback).Run(initiate_surface_request_cb_.Run());
-}
-
 }  // namespace media

@@ -35,7 +35,7 @@
 #include "services/network/public/mojom/url_loader_factory.mojom-blink.h"
 #include "third_party/blink/renderer/platform/loader/fetch/fetch_initiator_info.h"
 #include "third_party/blink/renderer/platform/loader/fetch/integrity_metadata.h"
-#include "third_party/blink/renderer/platform/wtf/allocator.h"
+#include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
 
 namespace blink {
@@ -65,7 +65,7 @@ enum CorsHandlingByResourceFetcher {
 };
 
 // Was the request generated from a "parser-inserted" element?
-// https://html.spec.whatwg.org/multipage/scripting.html#parser-inserted
+// https://html.spec.whatwg.org/C/#parser-inserted
 enum ParserDisposition : uint8_t { kParserInserted, kNotParserInserted };
 
 enum CacheAwareLoadingEnabled : uint8_t {

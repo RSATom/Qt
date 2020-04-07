@@ -8,12 +8,15 @@
 #include <string>
 #include <utility>
 
+#include "base/bind.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/strings/stringprintf.h"
 #include "base/values.h"
 #include "chrome/browser/extensions/tab_helper.h"
+#include "chrome/browser/ui/webui/chromeos/cellular_setup/cellular_setup_dialog_launcher.h"
 #include "chrome/browser/ui/webui/chromeos/internet_config_dialog.h"
+#include "chrome/browser/ui/webui/chromeos/internet_detail_dialog.h"
 #include "chrome/browser/ui/webui/chromeos/network_element_localized_strings_provider.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/grit/browser_resources.h"
@@ -24,11 +27,14 @@
 #include "chromeos/network/network_state.h"
 #include "chromeos/network/network_state_handler.h"
 #include "chromeos/network/onc/onc_utils.h"
+#include "chromeos/services/network_config/public/mojom/constants.mojom.h"
 #include "components/device_event_log/device_event_log.h"
+#include "content/public/browser/browser_context.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_ui.h"
 #include "content/public/browser/web_ui_data_source.h"
 #include "content/public/browser/web_ui_message_handler.h"
+#include "services/service_manager/public/cpp/connector.h"
 #include "third_party/cros_system_api/dbus/service_constants.h"
 #include "ui/base/l10n/l10n_util.h"
 
@@ -36,8 +42,13 @@ namespace chromeos {
 
 namespace {
 
+constexpr char kAddNetwork[] = "addNetwork";
 constexpr char kGetNetworkProperties[] = "getShillNetworkProperties";
 constexpr char kGetDeviceProperties[] = "getShillDeviceProperties";
+constexpr char kOpenCellularActivationUi[] = "openCellularActivationUi";
+constexpr char kShowNetworkDetails[] = "showNetworkDetails";
+constexpr char kShowNetworkConfig[] = "showNetworkConfig";
+constexpr char kShowAddNewWifiNetworkDialog[] = "showAddNewWifi";
 
 bool GetServicePathFromGuid(const std::string& guid,
                             std::string* service_path) {
@@ -83,6 +94,10 @@ class NetworkConfigMessageHandler : public content::WebUIMessageHandler {
   // WebUIMessageHandler implementation.
   void RegisterMessages() override {
     web_ui()->RegisterMessageCallback(
+        kAddNetwork,
+        base::BindRepeating(&NetworkConfigMessageHandler::AddNetwork,
+                            base::Unretained(this)));
+    web_ui()->RegisterMessageCallback(
         kGetNetworkProperties,
         base::BindRepeating(
             &NetworkConfigMessageHandler::GetShillNetworkProperties,
@@ -93,8 +108,21 @@ class NetworkConfigMessageHandler : public content::WebUIMessageHandler {
             &NetworkConfigMessageHandler::GetShillDeviceProperties,
             base::Unretained(this)));
     web_ui()->RegisterMessageCallback(
-        "addNetwork",
-        base::BindRepeating(&NetworkConfigMessageHandler::AddNetwork,
+        kOpenCellularActivationUi,
+        base::BindRepeating(
+            &NetworkConfigMessageHandler::OpenCellularActivationUi,
+            base::Unretained(this)));
+    web_ui()->RegisterMessageCallback(
+        kShowNetworkDetails,
+        base::BindRepeating(&NetworkConfigMessageHandler::ShowNetworkDetails,
+                            base::Unretained(this)));
+    web_ui()->RegisterMessageCallback(
+        kShowNetworkConfig,
+        base::BindRepeating(&NetworkConfigMessageHandler::ShowNetworkConfig,
+                            base::Unretained(this)));
+    web_ui()->RegisterMessageCallback(
+        kShowAddNewWifiNetworkDialog,
+        base::BindRepeating(&NetworkConfigMessageHandler::ShowAddNewWifi,
                             base::Unretained(this)));
   }
 
@@ -162,6 +190,43 @@ class NetworkConfigMessageHandler : public content::WebUIMessageHandler {
             weak_ptr_factory_.GetWeakPtr()),
         base::Bind(&NetworkConfigMessageHandler::ErrorCallback,
                    weak_ptr_factory_.GetWeakPtr(), type, kGetDeviceProperties));
+  }
+
+  void OpenCellularActivationUi(const base::ListValue* arg_list) {
+    const NetworkState* cellular_network =
+        NetworkHandler::Get()->network_state_handler()->FirstNetworkByType(
+            NetworkTypePattern::Cellular());
+    if (cellular_network)
+      cellular_setup::OpenCellularSetupDialog(cellular_network->guid());
+
+    AllowJavascript();
+    CallJavascriptFunction(
+        base::StringPrintf("NetworkUI.%sResult", kOpenCellularActivationUi),
+        base::Value(cellular_network != nullptr));
+  }
+
+  void ShowNetworkDetails(const base::ListValue* arg_list) {
+    std::string guid;
+    if (!arg_list->GetString(0, &guid)) {
+      NOTREACHED();
+      return;
+    }
+
+    InternetDetailDialog::ShowDialog(guid);
+  }
+
+  void ShowNetworkConfig(const base::ListValue* arg_list) {
+    std::string guid;
+    if (!arg_list->GetString(0, &guid)) {
+      NOTREACHED();
+      return;
+    }
+
+    InternetConfigDialog::ShowDialogForNetworkId(guid);
+  }
+
+  void ShowAddNewWifi(const base::ListValue* arg_list) {
+    InternetConfigDialog::ShowDialogForNetworkType(::onc::network_type::kWiFi);
   }
 
   void GetShillDevicePropertiesSuccess(
@@ -262,10 +327,28 @@ void NetworkUI::GetLocalizedStrings(base::DictionaryValue* localized_strings) {
       l10n_util::GetStringUTF16(IDS_NETWORK_UI_FAVORITE_NETWORKS));
   localized_strings->SetString(
       "devicesLabel", l10n_util::GetStringUTF16(IDS_NETWORK_UI_DEVICES));
+
+  localized_strings->SetString(
+      "cellularActivationLabel",
+      l10n_util::GetStringUTF16(IDS_NETWORK_UI_NO_CELLULAR_ACTIVATION_LABEL));
+  localized_strings->SetString(
+      "cellularActivationButtonText",
+      l10n_util::GetStringUTF16(
+          IDS_NETWORK_UI_OPEN_CELLULAR_ACTIVATION_BUTTON_TEXT));
+  localized_strings->SetString(
+      "noCellularErrorText",
+      l10n_util::GetStringUTF16(IDS_NETWORK_UI_NO_CELLULAR_ERROR_TEXT));
+
+  localized_strings->SetString(
+      "addNewWifiLabel",
+      l10n_util::GetStringUTF16(IDS_NETWORK_UI_ADD_NEW_WIFI_LABEL));
+  localized_strings->SetString(
+      "addNewWifiButtonText",
+      l10n_util::GetStringUTF16(IDS_NETWORK_UI_ADD_NEW_WIFI_BUTTON_TEXT));
 }
 
 NetworkUI::NetworkUI(content::WebUI* web_ui)
-    : content::WebUIController(web_ui) {
+    : ui::MojoWebUIController(web_ui, /*enable_chrome_send=*/true) {
   web_ui->AddMessageHandler(std::make_unique<NetworkConfigMessageHandler>());
 
   // Enable extension API calls in the WebUI.
@@ -287,8 +370,17 @@ NetworkUI::NetworkUI(content::WebUI* web_ui)
 
   content::WebUIDataSource::Add(web_ui->GetWebContents()->GetBrowserContext(),
                                 html);
+  AddHandlerToRegistry(base::BindRepeating(&NetworkUI::BindCrosNetworkConfig,
+                                           base::Unretained(this)));
 }
 
 NetworkUI::~NetworkUI() {}
+
+void NetworkUI::BindCrosNetworkConfig(
+    network_config::mojom::CrosNetworkConfigRequest request) {
+  content::BrowserContext::GetConnectorFor(
+      web_ui()->GetWebContents()->GetBrowserContext())
+      ->BindInterface(network_config::mojom::kServiceName, std::move(request));
+}
 
 }  // namespace chromeos

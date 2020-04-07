@@ -6,6 +6,8 @@
 
 #include <utility>
 
+#include "base/bind.h"
+#include "base/bind_helpers.h"
 #include "base/run_loop.h"
 #include "base/threading/thread.h"
 #include "build/build_config.h"
@@ -17,6 +19,10 @@
 
 #if defined(USE_OZONE)
 #include "ui/ozone/public/ozone_platform.h"
+#endif
+
+#if defined(OS_ANDROID)
+#include "base/android/android_hardware_buffer_compat.h"
 #endif
 
 namespace viz {
@@ -93,12 +99,15 @@ class TestGpuService : public mojom::GpuService {
 
   void CreateArcProtectedBufferManager(
       arc::mojom::ProtectedBufferManagerRequest pbm_request) override {}
-#endif  // defined(OS_CHROMEOS)
+
   void CreateJpegDecodeAccelerator(
-      media::mojom::JpegDecodeAcceleratorRequest jda_request) override {}
+      chromeos_camera::mojom::MjpegDecodeAcceleratorRequest jda_request)
+      override {}
 
   void CreateJpegEncodeAccelerator(
-      media::mojom::JpegEncodeAcceleratorRequest jea_request) override {}
+      chromeos_camera::mojom::JpegEncodeAcceleratorRequest jea_request)
+      override {}
+#endif  // defined(OS_CHROMEOS)
 
   void CreateVideoEncodeAcceleratorProvider(
       media::mojom::VideoEncodeAcceleratorProviderRequest request) override {}
@@ -208,6 +217,9 @@ class HostGpuMemoryBufferManagerTest : public ::testing::Test {
     native_pixmap_supported =
         ui::OzonePlatform::GetInstance()->IsNativePixmapConfigSupported(
             gfx::BufferFormat::RGBA_8888, gfx::BufferUsage::GPU_READ);
+#elif defined(OS_ANDROID)
+    native_pixmap_supported =
+        base::AndroidHardwareBufferCompat::IsSupportAvailable();
 #elif defined(OS_MACOSX) || defined(OS_WIN)
     native_pixmap_supported = true;
 #endif

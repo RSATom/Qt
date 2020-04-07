@@ -32,10 +32,6 @@
 #include <Qt3DCore/qjoint.h>
 #include <Qt3DCore/private/qnode_p.h>
 #include <Qt3DCore/private/qscene_p.h>
-#include <Qt3DCore/qpropertyupdatedchange.h>
-#include <Qt3DCore/private/qpropertyupdatedchangebase_p.h>
-#include <Qt3DCore/qpropertynodeaddedchange.h>
-#include <Qt3DCore/qpropertynoderemovedchange.h>
 #include <QtGui/qmatrix4x4.h>
 #include <QtGui/qvector3d.h>
 #include <qbackendnodetester.h>
@@ -60,6 +56,7 @@ private Q_SLOTS:
         Joint backendJoint;
         backendJoint.setRenderer(&renderer);
         backendJoint.setJointManager(nodeManagers.jointManager());
+        backendJoint.setSkeletonManager(nodeManagers.skeletonManager());
         QJoint joint;
 
         joint.setTranslation(QVector3D(1.0f, 2.0f, 3.0f));
@@ -77,7 +74,7 @@ private Q_SLOTS:
         }
 
         // WHEN
-        simulateInitialization(&joint, &backendJoint);
+        simulateInitializationSync(&joint, &backendJoint);
 
         // THEN
         QCOMPARE(backendJoint.peerId(), joint.id());
@@ -100,6 +97,7 @@ private Q_SLOTS:
         Joint backendJoint;
         backendJoint.setRenderer(&renderer);
         backendJoint.setJointManager(nodeManagers.jointManager());
+        backendJoint.setSkeletonManager(nodeManagers.skeletonManager());
 
         // THEN
         QVERIFY(backendJoint.peerId().isNull());
@@ -128,7 +126,7 @@ private Q_SLOTS:
         }
 
         // WHEN
-        simulateInitialization(&joint, &backendJoint);
+        simulateInitializationSync(&joint, &backendJoint);
         backendJoint.cleanup();
 
         // THEN
@@ -151,43 +149,36 @@ private Q_SLOTS:
         backendJoint.setRenderer(&renderer);
         backendJoint.setJointManager(nodeManagers.jointManager());
         backendJoint.setSkeletonManager(nodeManagers.skeletonManager());
-        Qt3DCore::QPropertyUpdatedChangePtr updateChange;
+        QJoint joint;
+        simulateInitializationSync(&joint, &backendJoint);
 
         // WHEN
-        updateChange.reset(new Qt3DCore::QPropertyUpdatedChange(Qt3DCore::QNodeId()));
-        updateChange->setPropertyName("enabled");
-        updateChange->setValue(true);
-        backendJoint.sceneChangeEvent(updateChange);
+        joint.setEnabled(false);
+        backendJoint.syncFromFrontEnd(&joint, false);
 
         // THEN
-        QCOMPARE(backendJoint.isEnabled(), true);
+        QCOMPARE(backendJoint.isEnabled(), false);
 
         // WHEN
         const QVector3D newTranslation = QVector3D(1.0f, 2.0f, 3.0f);
-        updateChange.reset(new Qt3DCore::QPropertyUpdatedChange(Qt3DCore::QNodeId()));
-        updateChange->setPropertyName("translation");
-        updateChange->setValue(newTranslation);
-        backendJoint.sceneChangeEvent(updateChange);
+        joint.setTranslation(newTranslation);
+        backendJoint.syncFromFrontEnd(&joint, false);
 
         // THEN
         QCOMPARE(backendJoint.translation(), newTranslation);
 
         // WHEN
         const QQuaternion newRotation = QQuaternion::fromAxisAndAngle(1.0f, 0.0f, 0.0f, 45.0f);
-        updateChange.reset(new Qt3DCore::QPropertyUpdatedChange(Qt3DCore::QNodeId()));
-        updateChange->setPropertyName("rotation");
-        updateChange->setValue(newRotation);
-        backendJoint.sceneChangeEvent(updateChange);
+        joint.setRotation(newRotation);
+        backendJoint.syncFromFrontEnd(&joint, false);
 
         // THEN
         QCOMPARE(backendJoint.rotation(), newRotation);
 
         // WHEN
         const QVector3D newScale = QVector3D(1.5f, 2.5f, 3.5f);
-        updateChange.reset(new Qt3DCore::QPropertyUpdatedChange(Qt3DCore::QNodeId()));
-        updateChange->setPropertyName("scale");
-        updateChange->setValue(newScale);
-        backendJoint.sceneChangeEvent(updateChange);
+        joint.setScale(newScale);
+        backendJoint.syncFromFrontEnd(&joint, false);
 
         // THEN
         QCOMPARE(backendJoint.scale(), newScale);
@@ -195,44 +186,115 @@ private Q_SLOTS:
         // WHEN
         QMatrix4x4 newInverseBind;
         newInverseBind.scale(5.4f);
-        updateChange.reset(new Qt3DCore::QPropertyUpdatedChange(Qt3DCore::QNodeId()));
-        updateChange->setPropertyName("inverseBindMatrix");
-        updateChange->setValue(newInverseBind);
-        backendJoint.sceneChangeEvent(updateChange);
+        joint.setInverseBindMatrix(newInverseBind);
+        backendJoint.syncFromFrontEnd(&joint, false);
 
         // THEN
         QCOMPARE(backendJoint.inverseBindMatrix(), newInverseBind);
 
         // WHEN
         QVector<QJoint *> childJoints;
-        QPropertyNodeAddedChangePtr nodeAddedChange;
         for (int i = 0; i < 10; ++i) {
             const auto childJoint = new QJoint();
             childJoints.push_back(childJoint);
-
-            nodeAddedChange.reset(new QPropertyNodeAddedChange(QNodeId(), childJoint));
-            nodeAddedChange->setPropertyName("childJoint");
-            backendJoint.sceneChangeEvent(nodeAddedChange);
+            joint.addChildJoint(childJoint);
         }
+        backendJoint.syncFromFrontEnd(&joint, false);
+
+        // THEN
+        for (int i = 0; i < childJoints.size(); ++i)
+            QCOMPARE(backendJoint.childJointIds()[i], childJoints[i]->id());
+
+        for (int i = 0; i < 10; ++i) {
+            // WHEN
+            const auto childJoint = childJoints.takeLast();
+            joint.removeChildJoint(childJoint);
+            backendJoint.syncFromFrontEnd(&joint, false);
+
+            // THEN
+            for (int i = 0; i < childJoints.size(); ++i)
+                QCOMPARE(backendJoint.childJointIds()[i], childJoints[i]->id());
+        }
+    }
+
+    void checkDirectPropertyChanges()
+    {
+        // GIVEN
+        TestRenderer renderer;
+        NodeManagers nodeManagers;
+        renderer.setNodeManagers(&nodeManagers);
+        Joint backendJoint;
+        backendJoint.setRenderer(&renderer);
+        backendJoint.setJointManager(nodeManagers.jointManager());
+        backendJoint.setSkeletonManager(nodeManagers.skeletonManager());
+
+        QJoint joint;
+        simulateInitializationSync(&joint, &backendJoint);
+
+        // WHEN
+        joint.setEnabled(false);
+        backendJoint.syncFromFrontEnd(&joint, false);
+
+        // THEN
+        QCOMPARE(backendJoint.isEnabled(), false);
+
+        // WHEN
+        const QVector3D newTranslation = QVector3D(1.0f, 2.0f, 3.0f);
+        joint.setTranslation(newTranslation);
+        backendJoint.syncFromFrontEnd(&joint, false);
+
+        // THEN
+        QCOMPARE(backendJoint.translation(), newTranslation);
+
+        // WHEN
+        const QQuaternion newRotation = QQuaternion::fromAxisAndAngle(1.0f, 0.0f, 0.0f, 45.0f);
+        joint.setRotation(newRotation);
+        backendJoint.syncFromFrontEnd(&joint, false);
+
+        // THEN
+        QCOMPARE(backendJoint.rotation(), newRotation);
+
+        // WHEN
+        const QVector3D newScale = QVector3D(1.5f, 2.5f, 3.5f);
+        joint.setScale(newScale);
+        backendJoint.syncFromFrontEnd(&joint, false);
+
+        // THEN
+        QCOMPARE(backendJoint.scale(), newScale);
+
+        // WHEN
+        QMatrix4x4 newInverseBind;
+        newInverseBind.scale(5.4f);
+        joint.setInverseBindMatrix(newInverseBind);
+        backendJoint.syncFromFrontEnd(&joint, false);
+
+        // THEN
+        QCOMPARE(backendJoint.inverseBindMatrix(), newInverseBind);
+
+        // WHEN
+        QVector<QJoint *> childJoints;
+        for (int i = 0; i < 10; ++i) {
+            const auto childJoint = new QJoint();
+            joint.addChildJoint(childJoint);
+            childJoints.push_back(childJoint);
+        }
+        backendJoint.syncFromFrontEnd(&joint, false);
 
         // THEN
         for (int i = 0; i < childJoints.size(); ++i) {
             QCOMPARE(backendJoint.childJointIds()[i], childJoints[i]->id());
         }
 
-        QPropertyNodeRemovedChangePtr nodeRemovedChange;
         for (int i = 0; i < 10; ++i) {
             // WHEN
             const auto childJoint = childJoints.takeLast();
 
-            nodeRemovedChange.reset(new QPropertyNodeRemovedChange(QNodeId(), childJoint));
-            nodeRemovedChange->setPropertyName("childJoint");
-            backendJoint.sceneChangeEvent(nodeAddedChange);
+            joint.removeChildJoint(childJoint);
+            backendJoint.syncFromFrontEnd(&joint, false);
 
             // THEN
-            for (int i = 0; i < childJoints.size(); ++i) {
-                QCOMPARE(backendJoint.childJointIds()[i], childJoints[i]->id());
-            }
+            for (int j = 0; j < childJoints.size(); ++j)
+                QCOMPARE(backendJoint.childJointIds()[j], childJoints[j]->id());
         }
     }
 };

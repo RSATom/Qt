@@ -16,13 +16,14 @@
 #include "libANGLE/renderer/ProgramImpl.h"
 #include "libANGLE/renderer/vulkan/ContextVk.h"
 #include "libANGLE/renderer/vulkan/RendererVk.h"
+#include "libANGLE/renderer/vulkan/TransformFeedbackVk.h"
 #include "libANGLE/renderer/vulkan/vk_helpers.h"
 
 namespace rx
 {
 ANGLE_INLINE bool UseLineRaster(const ContextVk *contextVk, gl::PrimitiveMode mode)
 {
-    return contextVk->getFeatures().basicGLLineRasterization && gl::IsLineMode(mode);
+    return contextVk->getFeatures().basicGLLineRasterization.enabled && gl::IsLineMode(mode);
 }
 
 class ProgramVk : public ProgramImpl
@@ -32,9 +33,9 @@ class ProgramVk : public ProgramImpl
     ~ProgramVk() override;
     void destroy(const gl::Context *context) override;
 
-    angle::Result load(const gl::Context *context,
-                       gl::InfoLog &infoLog,
-                       gl::BinaryInputStream *stream) override;
+    std::unique_ptr<LinkEvent> load(const gl::Context *context,
+                                    gl::BinaryInputStream *stream,
+                                    gl::InfoLog &infoLog) override;
     void save(const gl::Context *context, gl::BinaryOutputStream *stream) override;
     void setBinaryRetrievableHint(bool retrievable) override;
     void setSeparable(bool separable) override;
@@ -105,8 +106,11 @@ class ProgramVk : public ProgramImpl
     // Also initializes the pipeline layout, descriptor set layouts, and used descriptor ranges.
 
     angle::Result updateUniforms(ContextVk *contextVk);
-    angle::Result updateTexturesDescriptorSet(ContextVk *contextVk,
-                                              vk::FramebufferHelper *framebuffer);
+    angle::Result updateTexturesDescriptorSet(ContextVk *contextVk);
+    angle::Result updateShaderResourcesDescriptorSet(ContextVk *contextVk,
+                                                     vk::CommandGraphResource *recorder);
+    angle::Result updateTransformFeedbackDescriptorSet(ContextVk *contextVk,
+                                                       vk::FramebufferHelper *framebuffer);
 
     angle::Result updateDescriptorSets(ContextVk *contextVk, vk::CommandBuffer *commandBuffer);
 
@@ -116,6 +120,13 @@ class ProgramVk : public ProgramImpl
     const vk::PipelineLayout &getPipelineLayout() const { return mPipelineLayout.get(); }
 
     bool hasTextures() const { return !mState.getSamplerBindings().empty(); }
+    bool hasUniformBuffers() const { return !mState.getUniformBlocks().empty(); }
+    bool hasStorageBuffers() const { return !mState.getShaderStorageBlocks().empty(); }
+    bool hasAtomicCounterBuffers() const { return !mState.getAtomicCounterBuffers().empty(); }
+    bool hasTransformFeedbackOutput() const
+    {
+        return !mState.getLinkedTransformFeedbackVaryings().empty();
+    }
 
     bool dirtyUniforms() const { return mDefaultUniformBlocksDirty.any(); }
 
@@ -127,13 +138,27 @@ class ProgramVk : public ProgramImpl
                                       vk::PipelineHelper **pipelineOut)
     {
         vk::ShaderProgramHelper *shaderProgram;
-        ANGLE_TRY(initShaders(contextVk, mode, &shaderProgram));
+        ANGLE_TRY(initGraphicsShaders(contextVk, mode, &shaderProgram));
         ASSERT(shaderProgram->isGraphicsProgram());
         RendererVk *renderer = contextVk->getRenderer();
         return shaderProgram->getGraphicsPipeline(
-            contextVk, &renderer->getRenderPassCache(), renderer->getPipelineCache(),
-            renderer->getCurrentQueueSerial(), mPipelineLayout.get(), desc, activeAttribLocations,
-            descPtrOut, pipelineOut);
+            contextVk, &contextVk->getRenderPassCache(), renderer->getPipelineCache(),
+            contextVk->getCurrentQueueSerial(), mPipelineLayout.get(), desc, activeAttribLocations,
+            mState.getAttributesTypeMask(), descPtrOut, pipelineOut);
+    }
+
+    angle::Result getComputePipeline(ContextVk *contextVk, vk::PipelineAndSerial **pipelineOut)
+    {
+        vk::ShaderProgramHelper *shaderProgram;
+        ANGLE_TRY(initComputeShader(contextVk, &shaderProgram));
+        ASSERT(!shaderProgram->isGraphicsProgram());
+        return shaderProgram->getComputePipeline(contextVk, mPipelineLayout.get(), pipelineOut);
+    }
+
+    // Used in testing only.
+    vk::DynamicDescriptorPool *getDynamicDescriptorPool(uint32_t poolIndex)
+    {
+        return &mDynamicDescriptorPools[poolIndex];
     }
 
   private:
@@ -143,50 +168,82 @@ class ProgramVk : public ProgramImpl
                             GLboolean transpose,
                             const GLfloat *value);
 
-    void reset(RendererVk *renderer);
+    void reset(ContextVk *contextVk);
     angle::Result allocateDescriptorSet(ContextVk *contextVk, uint32_t descriptorSetIndex);
+    angle::Result allocateDescriptorSetAndGetInfo(ContextVk *contextVk,
+                                                  uint32_t descriptorSetIndex,
+                                                  bool *newPoolAllocatedOut);
     angle::Result initDefaultUniformBlocks(const gl::Context *glContext);
+    void generateUniformLayoutMapping(gl::ShaderMap<sh::BlockLayoutMap> &layoutMap,
+                                      gl::ShaderMap<size_t> &requiredBufferSize);
+    void initDefaultUniformLayoutMapping(gl::ShaderMap<sh::BlockLayoutMap> &layoutMap);
+    angle::Result resizeUniformBlockMemory(ContextVk *contextVk,
+                                           gl::ShaderMap<size_t> &requiredBufferSize);
 
-    angle::Result updateDefaultUniformsDescriptorSet(ContextVk *contextVk);
+    void updateDefaultUniformsDescriptorSet(ContextVk *contextVk);
+    void updateTransformFeedbackDescriptorSetImpl(ContextVk *contextVk);
+    void updateBuffersDescriptorSet(ContextVk *contextVk,
+                                    vk::CommandGraphResource *recorder,
+                                    const std::vector<gl::InterfaceBlock> &blocks,
+                                    VkDescriptorType descriptorType);
+    void updateAtomicCounterBuffersDescriptorSet(ContextVk *contextVk,
+                                                 vk::CommandGraphResource *recorder);
 
     template <class T>
     void getUniformImpl(GLint location, T *v, GLenum entryPointType) const;
 
     template <typename T>
     void setUniformImpl(GLint location, GLsizei count, const T *v, GLenum entryPointType);
-    angle::Result linkImpl(const gl::Context *glContext,
-                           const gl::ProgramLinkedResources &resources,
-                           gl::InfoLog &infoLog);
+    angle::Result linkImpl(const gl::Context *glContext, gl::InfoLog &infoLog);
+    void linkResources(const gl::ProgramLinkedResources &resources);
 
+    void updateBindingOffsets();
+    uint32_t getUniformBlockBindingsOffset() const { return 0; }
+    uint32_t getStorageBlockBindingsOffset() const { return mStorageBlockBindingsOffset; }
+    uint32_t getAtomicCounterBufferBindingsOffset() const
+    {
+        return mAtomicCounterBufferBindingsOffset;
+    }
+
+    class ShaderInfo;
     ANGLE_INLINE angle::Result initShaders(ContextVk *contextVk,
-                                           gl::PrimitiveMode mode,
+                                           bool enableLineRasterEmulation,
+                                           ShaderInfo *shaderInfo,
                                            vk::ShaderProgramHelper **shaderProgramOut)
     {
-        if (UseLineRaster(contextVk, mode))
+        if (!shaderInfo->valid())
         {
-            if (!mLineRasterShaderInfo.valid())
-            {
-                ANGLE_TRY(mLineRasterShaderInfo.initShaders(contextVk, mVertexSource,
-                                                            mFragmentSource, true));
-            }
-
-            ASSERT(mLineRasterShaderInfo.valid());
-            *shaderProgramOut = &mLineRasterShaderInfo.getShaderProgram();
+            ANGLE_TRY(
+                shaderInfo->initShaders(contextVk, mShaderSources, enableLineRasterEmulation));
         }
-        else
-        {
-            if (!mDefaultShaderInfo.valid())
-            {
-                ANGLE_TRY(mDefaultShaderInfo.initShaders(contextVk, mVertexSource, mFragmentSource,
-                                                         false));
-            }
 
-            ASSERT(mDefaultShaderInfo.valid());
-            *shaderProgramOut = &mDefaultShaderInfo.getShaderProgram();
-        }
+        ASSERT(shaderInfo->valid());
+        *shaderProgramOut = &shaderInfo->getShaderProgram();
 
         return angle::Result::Continue;
     }
+
+    ANGLE_INLINE angle::Result initGraphicsShaders(ContextVk *contextVk,
+                                                   gl::PrimitiveMode mode,
+                                                   vk::ShaderProgramHelper **shaderProgramOut)
+    {
+        bool enableLineRasterEmulation = UseLineRaster(contextVk, mode);
+
+        ShaderInfo &shaderInfo =
+            enableLineRasterEmulation ? mLineRasterShaderInfo : mDefaultShaderInfo;
+
+        return initShaders(contextVk, enableLineRasterEmulation, &shaderInfo, shaderProgramOut);
+    }
+
+    ANGLE_INLINE angle::Result initComputeShader(ContextVk *contextVk,
+                                                 vk::ShaderProgramHelper **shaderProgramOut)
+    {
+        return initShaders(contextVk, false, &mDefaultShaderInfo, shaderProgramOut);
+    }
+
+    // Save and load implementation for GLES Program Binary support.
+    angle::Result loadShaderSource(ContextVk *contextVk, gl::BinaryInputStream *stream);
+    void saveShaderSource(gl::BinaryOutputStream *stream);
 
     // State for the default uniform blocks.
     struct DefaultUniformBlock final : private angle::NonCopyable
@@ -206,7 +263,8 @@ class ProgramVk : public ProgramImpl
 
     gl::ShaderMap<DefaultUniformBlock> mDefaultUniformBlocks;
     gl::ShaderBitSet mDefaultUniformBlocksDirty;
-    gl::ShaderMap<uint32_t> mUniformBlocksOffsets;
+
+    gl::ShaderVector<uint32_t> mDynamicBufferOffsets;
 
     // This is a special "empty" placeholder buffer for when a shader has no uniforms.
     // It is necessary because we want to keep a compatible pipeline layout in all cases,
@@ -215,7 +273,9 @@ class ProgramVk : public ProgramImpl
 
     // Descriptor sets for uniform blocks and textures for this program.
     std::vector<VkDescriptorSet> mDescriptorSets;
-    gl::RangeUI mUsedDescriptorSetRange;
+    vk::DescriptorSetLayoutArray<VkDescriptorSet> mEmptyDescriptorSets;
+
+    std::unordered_map<vk::TextureDescriptorDesc, VkDescriptorSet> mTextureDescriptorsCache;
 
     // We keep a reference to the pipeline and descriptor set layouts. This ensures they don't get
     // deleted while this program is in use.
@@ -224,7 +284,7 @@ class ProgramVk : public ProgramImpl
 
     // Keep bindings to the descriptor pools. This ensures the pools stay valid while the Program
     // is in use.
-    vk::DescriptorSetLayoutArray<vk::SharedDescriptorPoolBinding> mDescriptorPoolBindings;
+    vk::DescriptorSetLayoutArray<vk::RefCountedDescriptorPoolBinding> mDescriptorPoolBindings;
 
     class ShaderInfo final : angle::NonCopyable
     {
@@ -233,12 +293,15 @@ class ProgramVk : public ProgramImpl
         ~ShaderInfo();
 
         angle::Result initShaders(ContextVk *contextVk,
-                                  const std::string &vertexSource,
-                                  const std::string &fragmentSource,
+                                  const gl::ShaderMap<std::string> &shaderSources,
                                   bool enableLineRasterEmulation);
-        void release(RendererVk *renderer);
+        void release(ContextVk *contextVk);
 
-        ANGLE_INLINE bool valid() const { return mShaders[gl::ShaderType::Vertex].get().valid(); }
+        ANGLE_INLINE bool valid() const
+        {
+            return mShaders[gl::ShaderType::Vertex].get().valid() ||
+                   mShaders[gl::ShaderType::Compute].get().valid();
+        }
 
         vk::ShaderProgramHelper &getShaderProgram() { return mProgramHelper; }
 
@@ -251,8 +314,18 @@ class ProgramVk : public ProgramImpl
     ShaderInfo mLineRasterShaderInfo;
 
     // We keep the translated linked shader sources to use with shader draw call patching.
-    std::string mVertexSource;
-    std::string mFragmentSource;
+    gl::ShaderMap<std::string> mShaderSources;
+
+    // In their descriptor set, uniform buffers are placed first, then storage buffers, then atomic
+    // counter buffers.  These cached values contain the offsets where storage buffer and atomic
+    // counter buffer bindings start.
+    uint32_t mStorageBlockBindingsOffset;
+    uint32_t mAtomicCounterBufferBindingsOffset;
+
+    // Store descriptor pools here. We store the descriptors in the Program to facilitate descriptor
+    // cache management. It can also allow fewer descriptors for shaders which use fewer
+    // textures/buffers.
+    vk::DescriptorSetLayoutArray<vk::DynamicDescriptorPool> mDynamicDescriptorPools;
 };
 
 }  // namespace rx

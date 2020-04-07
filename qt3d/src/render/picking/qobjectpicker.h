@@ -77,6 +77,10 @@ public Q_SLOTS:
     void setDragEnabled(bool dragEnabled);
     Q_REVISION(13) void setPriority(int priority);
 
+protected:
+    // TODO Unused remove in Qt6
+    void sceneChangeEvent(const Qt3DCore::QSceneChangePtr &change) override;
+
 Q_SIGNALS:
     void pressed(Qt3DRender::QPickEvent *pick);
     void released(Qt3DRender::QPickEvent *pick);
@@ -89,9 +93,6 @@ Q_SIGNALS:
     void pressedChanged(bool pressed);
     void containsMouseChanged(bool containsMouse);
     Q_REVISION(13) void priorityChanged(int priority);
-
-protected:
-    void sceneChangeEvent(const Qt3DCore::QSceneChangePtr &change) override;
 
 private:
     Q_DECLARE_PRIVATE(QObjectPicker)

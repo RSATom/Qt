@@ -91,19 +91,15 @@ public:
         m_dragEnabled(0), m_echoMode(0), m_textDirty(0), m_selDirty(0),
         m_validInput(1), m_blinkStatus(0), m_blinkEnabled(false), m_blinkTimer(0), m_deleteAllTimer(0),
         m_ascent(0), m_maxLength(32767), m_lastCursorPos(-1),
-        m_tripleClickTimer(0), m_maskData(0), m_modifiedState(0), m_undoState(0),
+        m_tripleClickTimer(0), m_maskData(nullptr), m_modifiedState(0), m_undoState(0),
         m_selstart(0), m_selend(0), m_passwordEchoEditing(false)
         , m_passwordEchoTimer(0)
         , m_passwordMaskDelay(-1)
-#if 0 // Used to be included in Qt4 for Q_WS_MAC
-        , m_threadChecks(false)
-        , m_textLayoutThread(0)
- #endif
 #if defined(QT_BUILD_INTERNAL)
         , m_passwordMaskDelayOverride(-1)
 #endif
         , m_keyboardScheme(0)
-        , m_accessibleObject(0)
+        , m_accessibleObject(nullptr)
     {
         init(txt);
     }
@@ -221,7 +217,7 @@ public:
     void cursorWordBackward(bool mark) { moveCursor(m_textLayout.previousCursorPosition(m_cursor, QTextLayout::SkipWords), mark); }
 
     void home(bool mark) { moveCursor(0, mark); }
-    void end(bool mark) { moveCursor(text().length(), mark); }
+    void end(bool mark) { moveCursor(m_text.length(), mark); }
 
     int xToPos(int x, QTextLine::CursorPosition = QTextLine::CursorBetweenCharacters) const;
     QRect rectForPos(int pos) const;
@@ -404,24 +400,8 @@ public:
 
     QTextLayout *textLayout() const
     {
-#if 0 // Used to be included in Qt4 for Q_WS_MAC
-        if (m_threadChecks && QThread::currentThread() != m_textLayoutThread)
-            redoTextLayout();
-#endif
         return &m_textLayout;
     }
-
-#if 0 // Used to be included in Qt4 for Q_WS_MAC
-    void setThreadChecks(bool threadChecks)
-    {
-        m_threadChecks = threadChecks;
-    }
-
-    bool threadChecks() const
-    {
-        return m_threadChecks;
-    }
-#endif
 
 private:
     void init(const QString &txt);
@@ -534,10 +514,6 @@ private:
     }
 
     int redoTextLayout() const;
-#if 0 // Used to be included in Qt4 for Q_WS_MAC
-    bool m_threadChecks;
-    mutable QThread *m_textLayoutThread;
-#endif
 
 public:
 #if defined(QT_BUILD_INTERNAL)

@@ -26,7 +26,7 @@ namespace sampler {
 // (if used for profiling) the program counter and stack pointer for
 // the thread that created it.
 
-class Sampler {
+class V8_EXPORT_PRIVATE Sampler {
  public:
   static const int kMaxFramesCountLog2 = 8;
   static const unsigned kMaxFramesCount = (1u << kMaxFramesCountLog2) - 1;
@@ -48,6 +48,12 @@ class Sampler {
 
   // Whether the sampler is running (start has been called).
   bool IsActive() const { return active_.load(std::memory_order_relaxed); }
+
+  // Returns true and consumes the pending sample bit if a sample should be
+  // dispatched to this sampler.
+  bool ShouldRecordSample() {
+    return record_sample_.exchange(false, std::memory_order_relaxed);
+  }
 
   void DoSample();
 
@@ -73,19 +79,24 @@ class Sampler {
     active_.store(value, std::memory_order_relaxed);
   }
 
+  void SetShouldRecordSample() {
+    record_sample_.store(true, std::memory_order_relaxed);
+  }
+
   Isolate* isolate_;
   std::atomic_bool active_{false};
+  std::atomic_bool record_sample_{false};
   std::unique_ptr<PlatformData> data_;  // Platform specific data.
   DISALLOW_IMPLICIT_CONSTRUCTORS(Sampler);
 };
 
 #ifdef USE_SIGNALS
 
-typedef std::atomic_bool AtomicMutex;
+using AtomicMutex = std::atomic_bool;
 
 // A helper that uses an std::atomic_bool to create a lock that is obtained on
 // construction and released on destruction.
-class AtomicGuard {
+class V8_EXPORT_PRIVATE AtomicGuard {
  public:
   // Attempt to obtain the lock represented by |atomic|. |is_blocking|
   // determines whether we will block to obtain the lock, or only make one
@@ -107,9 +118,9 @@ class AtomicGuard {
 
 // SamplerManager keeps a list of Samplers per thread, and allows the caller to
 // take a sample for every Sampler on the current thread.
-class SamplerManager {
+class V8_EXPORT_PRIVATE SamplerManager {
  public:
-  typedef std::vector<Sampler*> SamplerList;
+  using SamplerList = std::vector<Sampler*>;
 
   // Add |sampler| to the map if it is not already present.
   void AddSampler(Sampler* sampler);

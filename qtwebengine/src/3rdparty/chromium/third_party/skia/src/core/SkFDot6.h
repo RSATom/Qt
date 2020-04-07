@@ -8,10 +8,10 @@
 #ifndef SkFDot6_DEFINED
 #define SkFDot6_DEFINED
 
-#include "SkFixed.h"
-#include "SkMath.h"
-#include "SkScalar.h"
-#include "SkTo.h"
+#include "include/core/SkMath.h"
+#include "include/core/SkScalar.h"
+#include "include/private/SkFixed.h"
+#include "include/private/SkTo.h"
 
 typedef int32_t SkFDot6;
 
@@ -68,7 +68,7 @@ inline SkFixed SkFDot6ToFixed(SkFDot6 x) {
 inline SkFixed SkFDot6Div(SkFDot6 a, SkFDot6 b) {
     SkASSERT(b != 0);
 
-    if (a == (int16_t)a) {
+    if (SkTFitsIn<int16_t>(a)) {
         return SkLeftShift(a, 16) / b;
     } else {
         return SkFixedDiv(a, b);

@@ -5,6 +5,7 @@
 #ifndef UI_OZONE_PLATFORM_DRM_GPU_DRM_WINDOW_H_
 #define UI_OZONE_PLATFORM_DRM_GPU_DRM_WINDOW_H_
 
+#include <memory>
 #include <vector>
 
 #include "base/macros.h"
@@ -58,11 +59,11 @@ class DrmWindow {
   void Shutdown();
 
   // Returns the accelerated widget associated with the window.
-  gfx::AcceleratedWidget GetAcceleratedWidget();
+  gfx::AcceleratedWidget GetAcceleratedWidget() const;
 
   // Returns the current controller the window is displaying on. Callers should
   // not cache the result as the controller may change as the window is moved.
-  HardwareDisplayController* GetController();
+  HardwareDisplayController* GetController() const;
 
   void SetController(HardwareDisplayController* controller);
 
@@ -85,7 +86,7 @@ class DrmWindow {
       const std::vector<OverlayCheck_Params>& overlay_params);
 
   // Returns the last buffer associated with this window.
-  const DrmOverlayPlane* GetLastModesetBuffer();
+  const DrmOverlayPlane* GetLastModesetBuffer() const;
 
  private:
   // Draw next frame in an animated cursor.

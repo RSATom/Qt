@@ -5,6 +5,8 @@
 '''Utilities used by GRIT.
 '''
 
+from __future__ import print_function
+
 import codecs
 import htmlentitydefs
 import os
@@ -436,7 +438,7 @@ def LanguageToCodepage(lang):
   if lang in _LANG_TO_CODEPAGE:
     return _LANG_TO_CODEPAGE[lang]
   else:
-    print "Not sure which codepage to use for %s, assuming cp1252" % lang
+    print("Not sure which codepage to use for %s, assuming cp1252" % lang)
     return 1252
 
 def NewClassInstance(class_name, class_type):
@@ -643,7 +645,7 @@ class TempDir(object):
       dir_path = os.path.split(file_path)[0]
       if not os.path.exists(dir_path):
         os.makedirs(dir_path)
-      with open(file_path, 'w') as f:
+      with open(file_path, 'wb') as f:
         f.write(file_data[name])
 
   def __enter__(self):

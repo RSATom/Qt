@@ -38,7 +38,6 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.regex.Pattern;
 
@@ -89,13 +88,13 @@ public class AccountManagerFacade {
             new AtomicReference<>();
     private final CountDownLatch mPopulateAccountCacheLatch = new CountDownLatch(1);
     private final CachedMetrics.TimesHistogramSample mPopulateAccountCacheWaitingTimeHistogram =
-            new CachedMetrics.TimesHistogramSample(
-                    "Signin.AndroidPopulateAccountCacheWaitingTime", TimeUnit.MILLISECONDS);
+            new CachedMetrics.TimesHistogramSample("Signin.AndroidPopulateAccountCacheWaitingTime");
 
     private final ArrayList<Runnable> mCallbacksWaitingForCachePopulation = new ArrayList<>();
 
     private int mUpdateTasksCounter;
     private final ArrayList<Runnable> mCallbacksWaitingForPendingUpdates = new ArrayList<>();
+    private ObservableValue<Boolean> mUpdatePendingState = new MutableObservableValue<>(true);
 
     /**
      * @param delegate the AccountManagerDelegate to use as a backend
@@ -520,7 +519,7 @@ public class AccountManagerFacade {
     @MainThread
     public void waitForPendingUpdates(Runnable callback) {
         ThreadUtils.assertOnUiThread();
-        if (!isUpdatePending()) {
+        if (!isUpdatePending().get()) {
             callback.run();
             return;
         }
@@ -532,9 +531,9 @@ public class AccountManagerFacade {
      * @return true if there are no pending updates, false otherwise
      */
     @MainThread
-    public boolean isUpdatePending() {
+    public ObservableValue<Boolean> isUpdatePending() {
         ThreadUtils.assertOnUiThread();
-        return mUpdateTasksCounter > 0;
+        return mUpdatePendingState;
     }
 
     private boolean hasFeature(Account account, String feature) {
@@ -634,19 +633,28 @@ public class AccountManagerFacade {
         }
     }
 
+    private void incrementUpdateCounter() {
+        assert mUpdateTasksCounter >= 0;
+        if (mUpdateTasksCounter++ > 0) return;
+
+        mUpdatePendingState.set(true);
+    }
+
     private void decrementUpdateCounter() {
+        assert mUpdateTasksCounter > 0;
         if (--mUpdateTasksCounter > 0) return;
 
         for (Runnable callback : mCallbacksWaitingForPendingUpdates) {
             callback.run();
         }
         mCallbacksWaitingForPendingUpdates.clear();
+        mUpdatePendingState.set(false);
     }
 
     private class InitializeTask extends AsyncTask<Void> {
         @Override
         protected void onPreExecute() {
-            ++mUpdateTasksCounter;
+            incrementUpdateCounter();
         }
 
         @Override
@@ -675,7 +683,7 @@ public class AccountManagerFacade {
     private class UpdateAccountRestrictionPatternsTask extends AsyncTask<PatternMatcher[]> {
         @Override
         protected void onPreExecute() {
-            ++mUpdateTasksCounter;
+            incrementUpdateCounter();
         }
 
         @Override
@@ -693,7 +701,7 @@ public class AccountManagerFacade {
     private class UpdateAccountsTask extends AsyncTask<AccountManagerResult<List<Account>>> {
         @Override
         protected void onPreExecute() {
-            ++mUpdateTasksCounter;
+            incrementUpdateCounter();
         }
 
         @Override

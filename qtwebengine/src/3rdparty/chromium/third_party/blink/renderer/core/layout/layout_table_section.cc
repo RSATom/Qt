@@ -28,7 +28,6 @@
 
 #include <algorithm>
 #include <limits>
-#include "third_party/blink/renderer/core/frame/use_counter.h"
 #include "third_party/blink/renderer/core/layout/hit_test_result.h"
 #include "third_party/blink/renderer/core/layout/layout_analyzer.h"
 #include "third_party/blink/renderer/core/layout/layout_table_cell.h"
@@ -38,6 +37,7 @@
 #include "third_party/blink/renderer/core/layout/subtree_layout_scope.h"
 #include "third_party/blink/renderer/core/paint/paint_layer.h"
 #include "third_party/blink/renderer/core/paint/table_section_painter.h"
+#include "third_party/blink/renderer/platform/instrumentation/use_counter.h"
 #include "third_party/blink/renderer/platform/runtime_enabled_features.h"
 #include "third_party/blink/renderer/platform/wtf/hash_set.h"
 
@@ -58,15 +58,15 @@ void LayoutTableSection::TableGridRow::UpdateLogicalHeightForCell(
   const Length& cell_logical_height = cell->StyleRef().LogicalHeight();
   if (cell_logical_height.IsPositive()) {
     switch (cell_logical_height.GetType()) {
-      case kPercent:
+      case Length::kPercent:
         // TODO(alancutter): Make this work correctly for calc lengths.
         if (!(logical_height.IsPercentOrCalc()) ||
             (logical_height.IsPercent() &&
              logical_height.Percent() < cell_logical_height.Percent()))
           logical_height = cell_logical_height;
         break;
-      case kFixed:
-        if (logical_height.GetType() < kPercent ||
+      case Length::kFixed:
+        if (logical_height.IsAuto() ||
             (logical_height.IsFixed() &&
              logical_height.Value() < cell_logical_height.Value()))
           logical_height = cell_logical_height;
@@ -810,7 +810,7 @@ void LayoutTableSection::UpdateBaselineForCell(LayoutTableCell* cell,
   }
 }
 
-int LayoutTableSection::VBorderSpacingBeforeFirstRow() const {
+int16_t LayoutTableSection::VBorderSpacingBeforeFirstRow() const {
   // We ignore the border-spacing on any non-top section, as it is already
   // included in the previous section's last row position.
   if (this != Table()->TopSection())
@@ -905,7 +905,7 @@ int LayoutTableSection::CalcRowLogicalHeight() {
         if (cell->HasOverrideLogicalHeight()) {
           cell->ClearIntrinsicPadding();
           cell->ClearOverrideSize();
-          cell->ForceChildLayout();
+          cell->ForceLayout();
         }
 
         if (cell->ResolvedRowSpan() == 1)
@@ -1140,24 +1140,13 @@ int LayoutTableSection::DistributeExtraLogicalHeightToRows(
   return extra_logical_height - remaining_extra_logical_height;
 }
 
-bool CellHasExplicitlySpecifiedHeight(const LayoutTableCell& cell) {
+static bool CellHasExplicitlySpecifiedHeight(const LayoutTableCell& cell) {
   if (cell.StyleRef().LogicalHeight().IsFixed())
     return true;
   LayoutBlock* cb = cell.ContainingBlock();
   if (cb->AvailableLogicalHeightForPercentageComputation() == -1)
     return false;
   return true;
-}
-
-static bool ShouldFlexCellChild(const LayoutTableCell& cell,
-                                LayoutObject* cell_descendant) {
-  if (!CellHasExplicitlySpecifiedHeight(cell))
-    return false;
-  if (cell_descendant->StyleRef().OverflowY() == EOverflow::kVisible ||
-      cell_descendant->StyleRef().OverflowY() == EOverflow::kHidden)
-    return true;
-  return cell_descendant->IsBox() &&
-         ToLayoutBox(cell_descendant)->ShouldBeConsideredAsReplaced();
 }
 
 void LayoutTableSection::LayoutRows() {
@@ -1177,7 +1166,7 @@ void LayoutTableSection::LayoutRows() {
   // Set the width of our section now.  The rows will also be this width.
   SetLogicalWidth(Table()->ContentLogicalWidth());
 
-  int vspacing = Table()->VBorderSpacing();
+  int16_t vspacing = Table()->VBorderSpacing();
   LayoutState state(*this);
 
   // Set the rows' location and size.
@@ -1394,19 +1383,6 @@ void LayoutTableSection::ComputeVisualOverflowFromDescendants() {
     for (auto* cell = row->FirstCell(); cell; cell = cell->NextCell()) {
       if (cell->HasSelfPaintingLayer())
         continue;
-      // Let the section's self visual overflow cover the cell's whole collapsed
-      // borders. This ensures correct raster invalidation on section border
-      // style change.
-      // TODO(wangxianzhu): When implementing row as DisplayItemClient of
-      // collapsed borders, the following logic should be replaced by
-      // invalidation of rows on section border style change. crbug.com/663208.
-      if (const auto* collapsed_borders = cell->GetCollapsedBorderValues()) {
-        LayoutRect rect = cell->RectForOverflowPropagation(
-            collapsed_borders->LocalVisualRect());
-        rect.MoveBy(cell->Location());
-        AddSelfVisualOverflow(rect);
-      }
-
       if (force_full_paint_ || !cell->HasVisualOverflow())
         continue;
 
@@ -1522,10 +1498,8 @@ void LayoutTableSection::Paint(const PaintInfo& paint_info) const {
 }
 
 LayoutRect LayoutTableSection::LogicalRectForWritingModeAndDirection(
-    const LayoutRect& rect) const {
-  LayoutRect table_aligned_rect(rect);
-
-  FlipForWritingMode(table_aligned_rect);
+    const PhysicalRect& rect) const {
+  LayoutRect table_aligned_rect = FlipForWritingMode(rect);
 
   if (!TableStyle().IsHorizontalWritingMode())
     table_aligned_rect = table_aligned_rect.TransposedRect();
@@ -1804,39 +1778,29 @@ void LayoutTableSection::SplitEffectiveColumn(unsigned pos, unsigned first) {
 }
 
 // Hit Testing
-bool LayoutTableSection::NodeAtPoint(
-    HitTestResult& result,
-    const HitTestLocation& location_in_container,
-    const LayoutPoint& accumulated_offset,
-    HitTestAction action) {
+bool LayoutTableSection::NodeAtPoint(HitTestResult& result,
+                                     const HitTestLocation& hit_test_location,
+                                     const PhysicalOffset& accumulated_offset,
+                                     HitTestAction action) {
   // If we have no children then we have nothing to do.
   if (!FirstRow())
     return false;
 
+  DCHECK(!HasOverflowClip());
+
   // Table sections cannot ever be hit tested.  Effectively they do not exist.
   // Just forward to our children always.
-  LayoutPoint adjusted_location = accumulated_offset + Location();
-
-  if (HasOverflowClip() &&
-      !location_in_container.Intersects(OverflowClipRect(adjusted_location)))
-    return false;
-
   if (HasVisuallyOverflowingCell()) {
     for (LayoutTableRow* row = LastRow(); row; row = row->PreviousRow()) {
-      // FIXME: We have to skip over inline flows, since they can show up inside
-      // table rows at the moment (a demoted inline <form> for example). If we
-      // ever implement a table-specific hit-test method (which we should do for
-      // performance reasons anyway), then we can remove this check.
-      if (!row->HasSelfPaintingLayer()) {
-        LayoutPoint child_point =
-            FlipForWritingModeForChild(row, adjusted_location);
-        if (row->NodeAtPoint(result, location_in_container, child_point,
-                             action)) {
-          UpdateHitTestResult(
-              result,
-              ToLayoutPoint(location_in_container.Point() - child_point));
-          return true;
-        }
+      if (row->HasSelfPaintingLayer())
+        continue;
+      PhysicalOffset row_accumulated_offset =
+          accumulated_offset + row->PhysicalLocation(this);
+      if (row->NodeAtPoint(result, hit_test_location, row_accumulated_offset,
+                           action)) {
+        UpdateHitTestResult(result,
+                            hit_test_location.Point() - accumulated_offset);
+        return true;
       }
     }
     return false;
@@ -1844,8 +1808,8 @@ bool LayoutTableSection::NodeAtPoint(
 
   RecalcCellsIfNeeded();
 
-  LayoutRect hit_test_rect = LayoutRect(location_in_container.BoundingBox());
-  hit_test_rect.MoveBy(-adjusted_location);
+  PhysicalRect hit_test_rect = hit_test_location.BoundingBox();
+  hit_test_rect.Move(-accumulated_offset);
 
   LayoutRect table_aligned_rect =
       LogicalRectForWritingModeAndDirection(hit_test_rect);
@@ -1867,12 +1831,12 @@ bool LayoutTableSection::NodeAtPoint(
       for (unsigned i = grid_cell.Cells().size(); i;) {
         --i;
         LayoutTableCell* cell = grid_cell.Cells()[i];
-        LayoutPoint cell_point =
-            FlipForWritingModeForChild(cell, adjusted_location);
+        PhysicalOffset cell_accumulated_offset =
+            accumulated_offset + cell->PhysicalLocation(this);
         if (static_cast<LayoutObject*>(cell)->NodeAtPoint(
-                result, location_in_container, cell_point, action)) {
-          UpdateHitTestResult(
-              result, location_in_container.Point() - ToLayoutSize(cell_point));
+                result, hit_test_location, cell_accumulated_offset, action)) {
+          UpdateHitTestResult(result,
+                              hit_test_location.Point() - accumulated_offset);
           return true;
         }
       }
@@ -1901,7 +1865,7 @@ void LayoutTableSection::SetLogicalPositionForCell(
     LayoutTableCell* cell,
     unsigned effective_column) const {
   LayoutPoint cell_location(0, row_pos_[cell->RowIndex()]);
-  int horizontal_border_spacing = Table()->HBorderSpacing();
+  int16_t horizontal_border_spacing = Table()->HBorderSpacing();
 
   if (!TableStyle().IsLeftToRightDirection()) {
     cell_location.SetX(LayoutUnit(
@@ -1922,54 +1886,40 @@ void LayoutTableSection::SetLogicalPositionForCell(
 void LayoutTableSection::RelayoutCellIfFlexed(LayoutTableCell& cell,
                                               int row_index,
                                               int row_height) {
-  // Force percent height children to lay themselves out again.
-  // This will cause these children to grow to fill the cell.
+  // Force percent height children to lay themselves out again now that the
+  // cell's final height is determined.
   // FIXME: There is still more work to do here to fully match WinIE (should
   // it become necessary to do so).  In quirks mode, WinIE behaves like we
   // do, but it will clip the cells that spill out of the table section.
   // strict mode, Mozilla and WinIE both regrow the table to accommodate the
   // new height of the cell (thus letting the percentages cause growth one
   // time only). We may also not be handling row-spanning cells correctly.
-  //
-  // Note also the oddity where replaced elements always flex, and yet blocks/
-  // tables do not necessarily flex. WinIE is crazy and inconsistent, and we
-  // can't hope to match the behavior perfectly, but we'll continue to refine it
-  // as we discover new bugs. :)
-  bool cell_children_flex = false;
-  bool flex_all_children = CellHasExplicitlySpecifiedHeight(cell) ||
-                           (!Table()->StyleRef().LogicalHeight().IsAuto() &&
-                            row_height != cell.LogicalHeight());
 
-  for (LayoutObject* child = cell.FirstChild(); child;
-       child = child->NextSibling()) {
-    if (!child->IsText() &&
-        child->StyleRef().LogicalHeight().IsPercentOrCalc() &&
-        (flex_all_children || ShouldFlexCellChild(cell, child)) &&
-        (!child->IsTable() || ToLayoutTable(child)->HasSections())) {
-      cell_children_flex = true;
-      break;
-    }
-  }
+  if (!CellHasExplicitlySpecifiedHeight(cell) &&
+      (Table()->StyleRef().LogicalHeight().IsAuto() ||
+       row_height == cell.LogicalHeight()))
+    return;
 
-  if (!cell_children_flex) {
-    if (TrackedLayoutBoxListHashSet* percent_height_descendants =
-            cell.PercentHeightDescendants()) {
-      for (auto* descendant : *percent_height_descendants) {
-        if (flex_all_children || ShouldFlexCellChild(cell, descendant)) {
-          cell_children_flex = true;
-          break;
-        }
+  bool any_child_needs_relayout = cell.HasPercentHeightDescendants();
+
+  if (!any_child_needs_relayout) {
+    for (LayoutObject* child = cell.FirstChild(); child;
+         child = child->NextSibling()) {
+      if (!child->IsText() &&
+          child->StyleRef().LogicalHeight().IsPercentOrCalc() &&
+          (!child->IsTable() || (!child->IsOutOfFlowPositioned() &&
+                                 ToLayoutTable(child)->HasSections()))) {
+        any_child_needs_relayout = true;
+        break;
       }
     }
   }
 
-  if (!cell_children_flex)
+  if (!any_child_needs_relayout)
     return;
 
-  // Alignment within a cell is based off the calculated height, which becomes
-  // irrelevant once the cell has been resized based off its percentage.
   cell.SetOverrideLogicalHeightFromRowHeight(LayoutUnit(row_height));
-  cell.ForceChildLayout();
+  cell.ForceLayout();
 
   // If the baseline moved, we may have to update the data for our row. Find
   // out the new baseline.
@@ -2050,7 +2000,7 @@ void LayoutTableSection::AdjustRowForPagination(LayoutTableRow& row_object,
       row_is_at_top_of_column =
           !offset_from_top_of_page ||
           offset_from_top_of_page <= OffsetForRepeatedHeader() ||
-          offset_from_top_of_page <= Table()->VBorderSpacing();
+          offset_from_top_of_page <= LayoutUnit(Table()->VBorderSpacing());
     }
 
     if (!row_is_at_top_of_column)

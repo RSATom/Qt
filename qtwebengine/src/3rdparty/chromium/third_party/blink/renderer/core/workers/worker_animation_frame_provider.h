@@ -29,13 +29,6 @@ class CORE_EXPORT WorkerAnimationFrameProvider
     : public GarbageCollectedFinalized<WorkerAnimationFrameProvider>,
       public BeginFrameProviderClient {
  public:
-  static WorkerAnimationFrameProvider* Create(
-      ExecutionContext* context,
-      const BeginFrameProviderParams& begin_frame_provider_params) {
-    return MakeGarbageCollected<WorkerAnimationFrameProvider>(
-        context, begin_frame_provider_params);
-  }
-
   WorkerAnimationFrameProvider(
       ExecutionContext* context,
       const BeginFrameProviderParams& begin_frame_provider_params);
@@ -66,7 +59,7 @@ class CORE_EXPORT WorkerAnimationFrameProvider
 
   Member<ExecutionContext> context_;
 
-  base::WeakPtrFactory<WorkerAnimationFrameProvider> weak_factory_;
+  base::WeakPtrFactory<WorkerAnimationFrameProvider> weak_factory_{this};
 };
 
 }  // namespace blink

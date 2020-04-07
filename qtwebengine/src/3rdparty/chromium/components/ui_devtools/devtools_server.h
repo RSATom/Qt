@@ -10,13 +10,13 @@
 #include "base/compiler_specific.h"
 #include "base/memory/weak_ptr.h"
 #include "base/single_thread_task_runner.h"
+#include "base/strings/string_piece_forward.h"
 #include "base/threading/thread.h"
 #include "components/ui_devtools/DOM.h"
 #include "components/ui_devtools/Forward.h"
 #include "components/ui_devtools/Protocol.h"
 #include "components/ui_devtools/devtools_client.h"
 #include "components/ui_devtools/devtools_export.h"
-#include "components/ui_devtools/string_util.h"
 #include "services/network/public/cpp/server/http_server.h"
 
 namespace ui_devtools {
@@ -63,7 +63,7 @@ class UI_DEVTOOLS_EXPORT UiDevToolsServer
                                int default_port);
 
   void AttachClient(std::unique_ptr<UiDevToolsClient> client);
-  void SendOverWebSocket(int connection_id, const String& message);
+  void SendOverWebSocket(int connection_id, base::StringPiece message);
 
   int port() const { return port_; }
 
@@ -82,7 +82,7 @@ class UI_DEVTOOLS_EXPORT UiDevToolsServer
   void OnWebSocketRequest(
       int connection_id,
       const network::server::HttpServerRequestInfo& info) override;
-  void OnWebSocketMessage(int connection_id, const std::string& data) override;
+  void OnWebSocketMessage(int connection_id, std::string data) override;
   void OnClose(int connection_id) override;
 
   using ClientsList = std::vector<std::unique_ptr<UiDevToolsClient>>;
@@ -101,7 +101,7 @@ class UI_DEVTOOLS_EXPORT UiDevToolsServer
   static UiDevToolsServer* devtools_server_;
 
   SEQUENCE_CHECKER(devtools_server_sequence_);
-  base::WeakPtrFactory<UiDevToolsServer> weak_ptr_factory_;
+  base::WeakPtrFactory<UiDevToolsServer> weak_ptr_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(UiDevToolsServer);
 };

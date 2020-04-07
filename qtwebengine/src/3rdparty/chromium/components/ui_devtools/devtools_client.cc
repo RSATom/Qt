@@ -4,6 +4,7 @@
 
 #include "components/ui_devtools/devtools_client.h"
 
+#include "components/ui_devtools/devtools_protocol_encoding.h"
 #include "components/ui_devtools/devtools_server.h"
 
 namespace ui_devtools {
@@ -33,7 +34,7 @@ void UiDevToolsClient::Dispatch(const std::string& data) {
   int call_id;
   std::string method;
   std::unique_ptr<protocol::Value> protocolCommand =
-      protocol::StringUtil::parseJSON(data);
+      protocol::StringUtil::parseMessage(data, false);
   if (dispatcher_.parseCommand(protocolCommand.get(), &call_id, &method)) {
     dispatcher_.dispatch(call_id, method, std::move(protocolCommand), data);
   }
@@ -56,17 +57,32 @@ void UiDevToolsClient::DisableAllAgents() {
     agent->Disable();
 }
 
+namespace {
+std::string SerializeToJSON(std::unique_ptr<protocol::Serializable> message) {
+  std::vector<uint8_t> cbor = message->serializeToBinary();
+  std::string json;
+  ::inspector_protocol_encoding::Status status =
+      ConvertCBORToJSON(::inspector_protocol_encoding::SpanFrom(cbor), &json);
+  LOG_IF(ERROR, !status.ok()) << status.ToASCIIString();
+  return json;
+}
+}  // namespace
+
 void UiDevToolsClient::sendProtocolResponse(
     int callId,
     std::unique_ptr<protocol::Serializable> message) {
-  if (connected())
-    server_->SendOverWebSocket(connection_id_, message->serialize());
+  if (connected()) {
+    server_->SendOverWebSocket(
+        connection_id_, base::StringPiece(SerializeToJSON(std::move(message))));
+  }
 }
 
 void UiDevToolsClient::sendProtocolNotification(
     std::unique_ptr<protocol::Serializable> message) {
-  if (connected())
-    server_->SendOverWebSocket(connection_id_, message->serialize());
+  if (connected()) {
+    server_->SendOverWebSocket(
+        connection_id_, base::StringPiece(SerializeToJSON(std::move(message))));
+  }
 }
 
 void UiDevToolsClient::flushProtocolNotifications() {

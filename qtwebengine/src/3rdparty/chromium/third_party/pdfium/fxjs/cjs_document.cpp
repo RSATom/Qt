@@ -15,6 +15,7 @@
 #include "core/fpdfapi/parser/cpdf_dictionary.h"
 #include "core/fpdfapi/parser/cpdf_name.h"
 #include "core/fpdfapi/parser/cpdf_string.h"
+#include "core/fpdfapi/render/cpdf_pagerendercache.h"
 #include "core/fpdfdoc/cpdf_interactiveform.h"
 #include "core/fpdfdoc/cpdf_nametree.h"
 #include "fpdfsdk/cpdfsdk_annotiteration.h"
@@ -23,6 +24,7 @@
 #include "fxjs/cjs_annot.h"
 #include "fxjs/cjs_app.h"
 #include "fxjs/cjs_delaydata.h"
+#include "fxjs/cjs_event_context.h"
 #include "fxjs/cjs_field.h"
 #include "fxjs/cjs_icon.h"
 #include "fxjs/js_resources.h"
@@ -507,6 +509,11 @@ CJS_Result CJS_Document::print(
   if (!m_pFormFillEnv)
     return CJS_Result::Failure(JSMessage::kBadObjectError);
 
+  CJS_EventRecorder* pHandler =
+      pRuntime->GetCurrentEventContext()->GetEventRecorder();
+  if (!pHandler->IsUserGesture())
+    return CJS_Result::Failure(JSMessage::kUserGestureRequiredError);
+
   m_pFormFillEnv->JS_docprint(bUI, nStart, nEnd, bSilent, bShrinkToFit,
                               bPrintAsImage, bReverse, bAnnotations);
   return CJS_Result::Success();
@@ -515,7 +522,6 @@ CJS_Result CJS_Document::print(
 // removes the specified field from the document.
 // comment:
 // note: if the filed name is not rational, adobe is dumb for it.
-
 CJS_Result CJS_Document::removeField(
     CJS_Runtime* pRuntime,
     const std::vector<v8::Local<v8::Value>>& params) {
@@ -525,12 +531,13 @@ CJS_Result CJS_Document::removeField(
     return CJS_Result::Failure(JSMessage::kBadObjectError);
 
   if (!(m_pFormFillEnv->GetPermissions(FPDFPERM_MODIFY) ||
-        m_pFormFillEnv->GetPermissions(FPDFPERM_ANNOT_FORM)))
+        m_pFormFillEnv->GetPermissions(FPDFPERM_ANNOT_FORM))) {
     return CJS_Result::Failure(JSMessage::kPermissionError);
+  }
 
   WideString sFieldName = pRuntime->ToWideString(params[0]);
   CPDFSDK_InteractiveForm* pInteractiveForm = GetSDKInteractiveForm();
-  std::vector<CPDFSDK_Annot::ObservedPtr> widgets;
+  std::vector<ObservedPtr<CPDFSDK_Annot>> widgets;
   pInteractiveForm->GetWidgets(sFieldName, &widgets);
   if (widgets.empty())
     return CJS_Result::Success();
@@ -540,13 +547,6 @@ CJS_Result CJS_Document::removeField(
     if (!pWidget)
       continue;
 
-    CFX_FloatRect rcAnnot = pWidget->GetRect();
-    --rcAnnot.left;
-    --rcAnnot.bottom;
-    ++rcAnnot.right;
-    ++rcAnnot.top;
-
-    std::vector<CFX_FloatRect> aRefresh(1, rcAnnot);
     IPDF_Page* pPage = pWidget->GetPage();
     ASSERT(pPage);
 
@@ -554,8 +554,14 @@ CJS_Result CJS_Document::removeField(
     // do not create one. We may be in the process of tearing down the document
     // and creating a new pageview at this point will cause bad things.
     CPDFSDK_PageView* pPageView = m_pFormFillEnv->GetPageView(pPage, false);
-    if (pPageView)
-      pPageView->UpdateRects(aRefresh);
+    if (!pPageView)
+      continue;
+
+    CFX_FloatRect rcAnnot = pWidget->GetRect();
+    rcAnnot.Inflate(1.0f, 1.0f, 1.0f, 1.0f);
+
+    std::vector<CFX_FloatRect> aRefresh(1, rcAnnot);
+    pPageView->UpdateRects(aRefresh);
   }
   m_pFormFillEnv->SetChangeMark();
   return CJS_Result::Success();
@@ -628,6 +634,11 @@ CJS_Result CJS_Document::submitForm(
     return CJS_Result::Failure(JSMessage::kParamError);
   if (!m_pFormFillEnv)
     return CJS_Result::Failure(JSMessage::kBadObjectError);
+
+  CJS_EventRecorder* pHandler =
+      pRuntime->GetCurrentEventContext()->GetEventRecorder();
+  if (!pHandler->IsUserGesture())
+    return CJS_Result::Failure(JSMessage::kUserGestureRequiredError);
 
   v8::Local<v8::Array> aFields;
   WideString strURL;
@@ -745,10 +756,10 @@ CJS_Result CJS_Document::get_info(CJS_Runtime* pRuntime) {
 
   // PutObjectProperty() calls below may re-enter JS and change info dict.
   auto pCopy = pDictionary->Clone();
-  CPDF_DictionaryLocker locker(ToDictionary(pCopy.get()));
+  CPDF_DictionaryLocker locker(ToDictionary(pCopy.Get()));
   for (const auto& it : locker) {
     const ByteString& bsKey = it.first;
-    CPDF_Object* pValueObj = it.second.get();
+    CPDF_Object* pValueObj = it.second.Get();
     if (pValueObj->IsString() || pValueObj->IsName()) {
       pRuntime->PutObjectProperty(
           pObj, bsKey.AsStringView(),
@@ -1299,12 +1310,13 @@ CJS_Result CJS_Document::getPageNthWord(
   if (!pPageDict)
     return CJS_Result::Failure(JSMessage::kBadObjectError);
 
-  auto page = pdfium::MakeRetain<CPDF_Page>(pDocument, pPageDict, true);
+  auto page = pdfium::MakeRetain<CPDF_Page>(pDocument, pPageDict);
+  page->SetRenderCache(pdfium::MakeUnique<CPDF_PageRenderCache>(page.Get()));
   page->ParseContent();
 
   int nWords = 0;
   WideString swRet;
-  for (auto& pPageObj : *page->GetPageObjectList()) {
+  for (auto& pPageObj : *page) {
     if (pPageObj->IsText()) {
       CPDF_TextObject* pTextObj = pPageObj->AsText();
       int nObjWords = CountWords(pTextObj);
@@ -1348,11 +1360,12 @@ CJS_Result CJS_Document::getPageNumWords(
   if (!pPageDict)
     return CJS_Result::Failure(JSMessage::kBadObjectError);
 
-  auto page = pdfium::MakeRetain<CPDF_Page>(pDocument, pPageDict, true);
+  auto page = pdfium::MakeRetain<CPDF_Page>(pDocument, pPageDict);
+  page->SetRenderCache(pdfium::MakeUnique<CPDF_PageRenderCache>(page.Get()));
   page->ParseContent();
 
   int nWords = 0;
-  for (auto& pPageObj : *page->GetPageObjectList()) {
+  for (auto& pPageObj : *page) {
     if (pPageObj->IsText())
       nWords += CountWords(pPageObj->AsText());
   }
@@ -1443,7 +1456,7 @@ CJS_Result CJS_Document::gotoNamedDest(
   std::vector<float> scrollPositionArray;
   if (arrayObject) {
     for (size_t i = 2; i < arrayObject->size(); i++)
-      scrollPositionArray.push_back(arrayObject->GetFloatAt(i));
+      scrollPositionArray.push_back(arrayObject->GetNumberAt(i));
   }
   pRuntime->BeginBlock();
   m_pFormFillEnv->DoGoToAction(dest.GetDestPageIndex(pDocument),

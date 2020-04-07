@@ -224,6 +224,14 @@ void PdfAccessibilityTree::Finish() {
 }
 
 void PdfAccessibilityTree::UpdateAXTreeDataFromSelection() {
+  tree_data_.sel_is_backward = false;
+  if (selection_start_page_index_ > selection_end_page_index_) {
+    tree_data_.sel_is_backward = true;
+  } else if (selection_start_page_index_ == selection_end_page_index_ &&
+             selection_start_char_index_ > selection_end_char_index_) {
+    tree_data_.sel_is_backward = true;
+  }
+
   FindNodeOffset(selection_start_page_index_, selection_start_char_index_,
                  &tree_data_.sel_anchor_object_id,
                  &tree_data_.sel_anchor_offset);
@@ -238,21 +246,17 @@ void PdfAccessibilityTree::FindNodeOffset(uint32_t page_index,
   *out_node_id = -1;
   *out_node_char_index = 0;
   ui::AXNode* root = tree_.root();
-  if (page_index >= static_cast<uint32_t>(root->child_count()))
+  if (page_index >= root->children().size())
     return;
-  ui::AXNode* page = root->ChildAtIndex(page_index);
+  ui::AXNode* page = root->children()[page_index];
 
   // Iterate over all paragraphs within this given page, and static text nodes
   // within each paragraph.
-  for (int i = 0; i < page->child_count(); i++) {
-    ui::AXNode* para = page->ChildAtIndex(i);
-    for (int j = 0; j < para->child_count(); j++) {
-      ui::AXNode* static_text = para->ChildAtIndex(j);
-
+  for (ui::AXNode* para : page->children()) {
+    for (ui::AXNode* static_text : para->children()) {
       // Look up the page-relative character index for this node from a map
       // we built while the document was initially built.
-      DCHECK(
-          base::ContainsKey(node_id_to_char_index_in_page_, static_text->id()));
+      DCHECK(base::Contains(node_id_to_char_index_in_page_, static_text->id()));
       uint32_t char_index = node_id_to_char_index_in_page_[static_text->id()];
       uint32_t len = static_text->data()
                          .GetStringAttribute(ax::mojom::StringAttribute::kName)
@@ -420,6 +424,7 @@ void PdfAccessibilityTree::AddWordStartsAndEnds(
 //
 
 bool PdfAccessibilityTree::GetTreeData(ui::AXTreeData* tree_data) const {
+  tree_data->sel_is_backward = tree_data_.sel_is_backward;
   tree_data->sel_anchor_object_id = tree_data_.sel_anchor_object_id;
   tree_data->sel_anchor_offset = tree_data_.sel_anchor_offset;
   tree_data->sel_focus_object_id = tree_data_.sel_focus_object_id;
@@ -442,12 +447,16 @@ int32_t PdfAccessibilityTree::GetId(const ui::AXNode* node) const {
 void PdfAccessibilityTree::GetChildren(
     const ui::AXNode* node,
     std::vector<const ui::AXNode*>* out_children) const {
-  for (int i = 0; i < node->child_count(); ++i)
-    out_children->push_back(node->ChildAtIndex(i));
+  *out_children = std::vector<const ui::AXNode*>(node->children().cbegin(),
+                                                 node->children().cend());
 }
 
 ui::AXNode* PdfAccessibilityTree::GetParent(const ui::AXNode* node) const {
   return node->parent();
+}
+
+bool PdfAccessibilityTree::IsIgnored(const ui::AXNode* node) const {
+  return node->data().HasState(ax::mojom::State::kIgnored);
 }
 
 bool PdfAccessibilityTree::IsValid(const ui::AXNode* node) const {

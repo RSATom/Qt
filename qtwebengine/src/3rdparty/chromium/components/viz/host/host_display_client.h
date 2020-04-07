@@ -32,9 +32,6 @@ class VIZ_HOST_EXPORT HostDisplayClient : public mojom::DisplayClient {
 
  private:
   // mojom::DisplayClient implementation:
-  void DidSwapAfterSnapshotRequestReceived(
-      const std::vector<ui::LatencyInfo>& latency_info) override;
-
 #if defined(OS_MACOSX)
   void OnDisplayReceivedCALayerParams(
       const gfx::CALayerParams& ca_layer_params) override;
@@ -43,6 +40,10 @@ class VIZ_HOST_EXPORT HostDisplayClient : public mojom::DisplayClient {
 #if defined(OS_WIN)
   void CreateLayeredWindowUpdater(
       mojom::LayeredWindowUpdaterRequest request) override;
+#endif
+
+#if defined(USE_X11)
+  void DidCompleteSwapWithNewSize(const gfx::Size& size) override;
 #endif
 
   mojo::Binding<mojom::DisplayClient> binding_;

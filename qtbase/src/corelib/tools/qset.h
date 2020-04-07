@@ -41,10 +41,9 @@
 #define QSET_H
 
 #include <QtCore/qhash.h>
-#ifdef Q_COMPILER_INITIALIZER_LISTS
-#include <initializer_list>
-#endif
+#include <QtCore/qcontainertools_impl.h>
 
+#include <initializer_list>
 #include <iterator>
 
 QT_BEGIN_NAMESPACE
@@ -56,19 +55,21 @@ class QSet
     typedef QHash<T, QHashDummyValue> Hash;
 
 public:
-    inline QSet() Q_DECL_NOTHROW {}
-#ifdef Q_COMPILER_INITIALIZER_LISTS
+    inline QSet() noexcept {}
     inline QSet(std::initializer_list<T> list)
+        : QSet(list.begin(), list.end()) {}
+    template <typename InputIterator, QtPrivate::IfIsInputIterator<InputIterator> = true>
+    inline QSet(InputIterator first, InputIterator last)
     {
-        reserve(int(list.size()));
-        for (typename std::initializer_list<T>::const_iterator it = list.begin(); it != list.end(); ++it)
-            insert(*it);
+        QtPrivate::reserveIfForwardIterator(this, first, last);
+        for (; first != last; ++first)
+            insert(*first);
     }
-#endif
+
     // compiler-generated copy/move ctor/assignment operators are fine!
     // compiler-generated destructor is fine!
 
-    inline void swap(QSet<T> &other) Q_DECL_NOTHROW { q_hash.swap(other.q_hash); }
+    inline void swap(QSet<T> &other) noexcept { q_hash.swap(other.q_hash); }
 
     inline bool operator==(const QSet<T> &other) const
         { return q_hash == other.q_hash; }
@@ -176,20 +177,20 @@ public:
     typedef std::reverse_iterator<const_iterator> const_reverse_iterator;
 
     inline iterator begin() { return q_hash.begin(); }
-    inline const_iterator begin() const Q_DECL_NOTHROW { return q_hash.begin(); }
-    inline const_iterator cbegin() const Q_DECL_NOTHROW { return q_hash.begin(); }
-    inline const_iterator constBegin() const Q_DECL_NOTHROW { return q_hash.constBegin(); }
+    inline const_iterator begin() const noexcept { return q_hash.begin(); }
+    inline const_iterator cbegin() const noexcept { return q_hash.begin(); }
+    inline const_iterator constBegin() const noexcept { return q_hash.constBegin(); }
     inline iterator end() { return q_hash.end(); }
-    inline const_iterator end() const Q_DECL_NOTHROW { return q_hash.end(); }
-    inline const_iterator cend() const Q_DECL_NOTHROW { return q_hash.end(); }
-    inline const_iterator constEnd() const Q_DECL_NOTHROW { return q_hash.constEnd(); }
+    inline const_iterator end() const noexcept { return q_hash.end(); }
+    inline const_iterator cend() const noexcept { return q_hash.end(); }
+    inline const_iterator constEnd() const noexcept { return q_hash.constEnd(); }
 
     reverse_iterator rbegin() { return reverse_iterator(end()); }
     reverse_iterator rend() { return reverse_iterator(begin()); }
-    const_reverse_iterator rbegin() const Q_DECL_NOTHROW { return const_reverse_iterator(end()); }
-    const_reverse_iterator rend() const Q_DECL_NOTHROW { return const_reverse_iterator(begin()); }
-    const_reverse_iterator crbegin() const Q_DECL_NOTHROW { return const_reverse_iterator(end()); }
-    const_reverse_iterator crend() const Q_DECL_NOTHROW { return const_reverse_iterator(begin()); }
+    const_reverse_iterator rbegin() const noexcept { return const_reverse_iterator(end()); }
+    const_reverse_iterator rend() const noexcept { return const_reverse_iterator(begin()); }
+    const_reverse_iterator crbegin() const noexcept { return const_reverse_iterator(end()); }
+    const_reverse_iterator crend() const noexcept { return const_reverse_iterator(begin()); }
 
     iterator erase(iterator i)
     { return erase(m2c(i)); }
@@ -244,30 +245,40 @@ public:
     inline QSet<T> operator-(const QSet<T> &other) const
         { QSet<T> result = *this; result -= other; return result; }
 
-    QList<T> toList() const;
-    inline QList<T> values() const { return toList(); }
-
+    QList<T> values() const;
+#if QT_DEPRECATED_SINCE(5, 14) && QT_VERSION < QT_VERSION_CHECK(6,0,0)
+    QT_DEPRECATED_X("Use values() instead.")
+    QList<T> toList() const { return values(); }
+    QT_DEPRECATED_X("Use QSet<T>(list.begin(), list.end()) instead.")
     static QSet<T> fromList(const QList<T> &list);
+#endif
 
 private:
     Hash q_hash;
 
-    static const_iterator m2c(iterator it) Q_DECL_NOTHROW
+    static const_iterator m2c(iterator it) noexcept
     { return const_iterator(typename Hash::const_iterator(it.i.i)); }
 
     bool isValidIterator(const iterator &i) const
     {
         return q_hash.isValidIterator(reinterpret_cast<const typename Hash::iterator&>(i));
     }
-    bool isValidIterator(const const_iterator &i) const Q_DECL_NOTHROW
+    bool isValidIterator(const const_iterator &i) const noexcept
     {
         return q_hash.isValidIterator(reinterpret_cast<const typename Hash::const_iterator&>(i));
     }
 };
 
+#if defined(__cpp_deduction_guides) && __cpp_deduction_guides >= 201606
+template <typename InputIterator,
+          typename ValueType = typename std::iterator_traits<InputIterator>::value_type,
+          QtPrivate::IfIsInputIterator<InputIterator> = true>
+QSet(InputIterator, InputIterator) -> QSet<ValueType>;
+#endif
+
 template <typename T>
 uint qHash(const QSet<T> &key, uint seed = 0)
-Q_DECL_NOEXCEPT_EXPR(noexcept(qHashRangeCommutative(key.begin(), key.end(), seed)))
+noexcept(noexcept(qHashRangeCommutative(key.begin(), key.end(), seed)))
 {
     return qHashRangeCommutative(key.begin(), key.end(), seed);
 }
@@ -280,11 +291,9 @@ Q_INLINE_TEMPLATE void QSet<T>::reserve(int asize) { q_hash.reserve(asize); }
 template <class T>
 Q_INLINE_TEMPLATE QSet<T> &QSet<T>::unite(const QSet<T> &other)
 {
-    QSet<T> copy(other);
-    typename QSet<T>::const_iterator i = copy.constEnd();
-    while (i != copy.constBegin()) {
-        --i;
-        insert(*i);
+    if (!q_hash.isSharedWith(other.q_hash)) {
+        for (const T &e : other)
+            insert(e);
     }
     return *this;
 }
@@ -302,11 +311,9 @@ Q_INLINE_TEMPLATE QSet<T> &QSet<T>::intersect(const QSet<T> &other)
         copy2 = *this;
         *this = copy1;
     }
-    typename QSet<T>::const_iterator i = copy1.constEnd();
-    while (i != copy1.constBegin()) {
-        --i;
-        if (!copy2.contains(*i))
-            remove(*i);
+    for (const auto &e : qAsConst(copy1)) {
+        if (!copy2.contains(e))
+            remove(e);
     }
     return *this;
 }
@@ -342,14 +349,11 @@ Q_INLINE_TEMPLATE bool QSet<T>::intersects(const QSet<T> &other) const
 template <class T>
 Q_INLINE_TEMPLATE QSet<T> &QSet<T>::subtract(const QSet<T> &other)
 {
-    if (&other == this) {
+    if (q_hash.isSharedWith(other.q_hash)) {
         clear();
     } else {
-        auto i = other.constEnd();
-        while (i != other.constBegin()) {
-            --i;
-            remove(*i);
-        }
+        for (const auto &e : other)
+            remove(e);
     }
     return *this;
 }
@@ -367,7 +371,7 @@ Q_INLINE_TEMPLATE bool QSet<T>::contains(const QSet<T> &other) const
 }
 
 template <typename T>
-Q_OUTOFLINE_TEMPLATE QList<T> QSet<T>::toList() const
+Q_OUTOFLINE_TEMPLATE QList<T> QSet<T>::values() const
 {
     QList<T> result;
     result.reserve(size());
@@ -379,6 +383,7 @@ Q_OUTOFLINE_TEMPLATE QList<T> QSet<T>::toList() const
     return result;
 }
 
+#if QT_DEPRECATED_SINCE(5, 14) && QT_VERSION < QT_VERSION_CHECK(6,0,0)
 template <typename T>
 Q_OUTOFLINE_TEMPLATE QSet<T> QList<T>::toSet() const
 {
@@ -400,9 +405,11 @@ QList<T> QList<T>::fromSet(const QSet<T> &set)
 {
     return set.toList();
 }
+#endif
 
 Q_DECLARE_SEQUENTIAL_ITERATOR(Set)
 
+#if !defined(QT_NO_JAVA_STYLE_ITERATORS)
 template <typename T>
 class QMutableSetIterator
 {
@@ -434,6 +441,7 @@ public:
     { while (c->constBegin() != i) if (*(n = --i) == t) return true;
       n = c->end(); return false;  }
 };
+#endif // QT_NO_JAVA_STYLE_ITERATORS
 
 QT_END_NAMESPACE
 

@@ -79,6 +79,7 @@ const char kPortalDetectionFailedPhaseProperty[] =
     "PortalDetectionFailedPhase";
 const char kPortalDetectionFailedStatusProperty[] =
     "PortalDetectionFailedStatus";
+const char kProbeUrlProperty[] = "ProbeUrl";
 const char kSavedIPConfigProperty[] = "SavedIPConfig";
 const char kStaticIPConfigProperty[] = "StaticIPConfig";
 const char kLinkMonitorDisableProperty[] = "LinkMonitorDisable";
@@ -95,7 +96,6 @@ const char kWifiHexSsid[] = "WiFi.HexSSID";
 const char kWifiFrequency[] = "WiFi.Frequency";
 const char kWifiHiddenSsid[] = "WiFi.HiddenSSID";
 const char kWifiPhyMode[] = "WiFi.PhyMode";
-const char kWifiAuthMode[] = "WiFi.AuthMode";
 const char kWifiChannelProperty[] = "WiFi.Channel";
 const char kWifiPreferredDeviceProperty[] = "WiFi.PreferredDevice";
 const char kWifiRoamThresholdProperty[] = "WiFi.RoamThreshold";
@@ -153,6 +153,7 @@ const char kArpGatewayProperty[] = "ArpGateway";
 const char kCountryProperty[] = "Country";
 const char kPortalHttpUrlProperty[] = "PortalHttpUrl";
 const char kPortalHttpsUrlProperty[] = "PortalHttpsUrl";
+const char kPortalFallbackUrlsStringProperty[] = "PortalFallbackUrlsString";
 const char kConnectionStateProperty[] = "ConnectionState";
 const char kClaimedDevicesProperty[] = "ClaimedDevices";
 
@@ -210,6 +211,9 @@ const char kStateAssociation[] = "association";
 const char kStateConfiguration[] = "configuration";
 const char kStateReady[] = "ready";
 const char kStatePortal[] = "portal";
+const char kStateNoConnectivity[] = "no-connectivity";
+const char kStateRedirectFound[] = "redirect-found";
+const char kStatePortalSuspected[] = "portal-suspected";
 const char kStateOffline[] = "offline";
 const char kStateOnline[] = "online";
 const char kStateDisconnect[] = "disconnect";
@@ -225,6 +229,7 @@ const char kPortalDetectionPhaseUnknown[] = "Unknown";
 const char kPortalDetectionStatusFailure[] = "Failure";
 const char kPortalDetectionStatusTimeout[] = "Timeout";
 const char kPortalDetectionStatusSuccess[] = "Success";
+const char kPortalDetectionStatusRedirect[] = "Redirect";
 
 // Flimflam property names for SIMLock status.
 const char kSIMLockStatusProperty[] = "Cellular.SIMLockStatus";
@@ -323,9 +328,6 @@ const char kProviderOpenVpn[] = "openvpn";
 const char kProviderThirdPartyVpn[] = "thirdpartyvpn";
 const char kProviderArcVpn[] = "arcvpn";
 
-// Flimflam VPN service properties
-const char kVPNDomainProperty[] = "VPN.Domain";
-
 // Flimflam monitored properties
 const char kMonitorPropertyChanged[] = "PropertyChanged";
 
@@ -340,7 +342,6 @@ const char kTypePPPoE[] = "pppoe";
 
 // Flimflam mode options.
 const char kModeManaged[] = "managed";
-const char kModeAdhoc[] = "adhoc";
 
 // Flimflam security options.
 const char kSecurityWpa[] = "wpa";
@@ -454,7 +455,6 @@ const char kTypeDHCP6[] = "dhcp6";
 const char kTypePPP[] = "ppp";
 
 // Flimflam error options.
-const char kError4WayTimeout[] = "4way-handshake-timeout";
 const char kErrorAaaFailed[] = "aaa-failed";
 const char kErrorActivationFailed[] = "activation-failed";
 const char kErrorBadPassphrase[] = "bad-passphrase";
@@ -547,7 +547,6 @@ const char kGetNetworksForGeolocation[] = "GetNetworksForGeolocation";
 const char kPerformTDLSOperationFunction[] = "PerformTDLSOperation";
 const char kRefreshFunction[] = "Refresh";
 const char kResetFunction[] = "Reset";
-const char kSetCarrierFunction[] = "SetCarrier";
 const char kSetPropertiesFunction[] = "SetProperties";
 const char kVerifyAndEncryptCredentialsFunction[] =
     "VerifyAndEncryptCredentials";
@@ -571,7 +570,6 @@ const char kProviderRequiresRoamingProperty[] =
 const char kPPPoEProperty[] = "Ethernet.PPPoE";
 const char kReceiveByteCountProperty[] = "ReceiveByteCount";
 const char kSIMPresentProperty[] = "Cellular.SIMPresent";
-const char kSupportedCarriersProperty[] = "Cellular.SupportedCarriers";
 const char kTransmitByteCountProperty[] = "TransmitByteCount";
 const char kWifiSupportedFrequenciesProperty[] = "WiFi.SupportedFrequencies";
 
@@ -593,7 +591,6 @@ const char kIgnoredDNSSearchPathsProperty[] = "IgnoredDNSSearchPaths";
 const char kLinkMonitorTechnologiesProperty[] =
     "LinkMonitorTechnologies";
 const char kNoAutoConnectTechnologiesProperty[] = "NoAutoConnectTechnologies";
-const char kPortalCheckIntervalProperty[] = "PortalCheckInterval";
 const char kProhibitedTechnologiesProperty[] = "ProhibitedTechnologies";
 const char kServiceCompleteListProperty[] = "ServiceCompleteList";
 const char kShortDNSTimeoutTechnologiesProperty[] =

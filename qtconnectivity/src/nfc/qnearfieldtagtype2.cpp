@@ -307,9 +307,7 @@ void QNearFieldTagType2::timerEvent(QTimerEvent *event)
 
     killTimer(event->timerId());
 
-    QMutableMapIterator<QNearFieldTarget::RequestId, SectorSelectState> i(d->m_pendingSectorSelectCommands);
-    while (i.hasNext()) {
-        i.next();
+    for (auto i = d->m_pendingSectorSelectCommands.begin(), end = d->m_pendingSectorSelectCommands.end(); i != end; ++i) {
 
         SectorSelectState &state = i.value();
 
@@ -318,8 +316,7 @@ void QNearFieldTagType2::timerEvent(QTimerEvent *event)
 
             setResponseForRequest(i.key(), true);
 
-            i.remove();
-
+            d->m_pendingSectorSelectCommands.erase(i);
             break;
         }
     }

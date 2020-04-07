@@ -14,18 +14,50 @@
 #include "components/viz/common/surfaces/surface_id.h"
 #include "components/viz/common/surfaces/surface_info.h"
 #include "content/common/frame_message_structs.h"
+#include "content/common/tab_switch_time_recorder.h"
 #include "ipc/ipc_mojo_message_helper.h"
 #include "ipc/ipc_mojo_param_traits.h"
 #include "net/base/ip_endpoint.h"
+#include "third_party/blink/public/common/feature_policy/feature_policy.h"
 #include "third_party/blink/public/common/messaging/message_port_channel.h"
 #include "third_party/blink/public/common/messaging/transferable_message.h"
 #include "third_party/blink/public/mojom/messaging/transferable_message.mojom.h"
 #include "ui/accessibility/ax_mode.h"
-#include "ui/base/ui_base_features.h"
 #include "ui/events/blink/web_input_event_traits.h"
-// #include "ui/gfx/ipc/geometry/gfx_param_traits.h"
+#include "ui/gfx/ipc/skia/gfx_skia_param_traits.h"
 
 namespace IPC {
+
+void ParamTraits<content::WebCursor>::Write(base::Pickle* m,
+                                            const param_type& p) {
+  WriteParam(m, p.info().type);
+  if (p.info().type == ui::CursorType::kCustom) {
+    WriteParam(m, p.info().hotspot);
+    WriteParam(m, p.info().image_scale_factor);
+    WriteParam(m, p.info().custom_image);
+  }
+}
+
+bool ParamTraits<content::WebCursor>::Read(const base::Pickle* m,
+                                           base::PickleIterator* iter,
+                                           param_type* r) {
+  content::CursorInfo info;
+  if (!ReadParam(m, iter, &info.type))
+    return false;
+
+  if (info.type == ui::CursorType::kCustom &&
+      (!ReadParam(m, iter, &info.hotspot) ||
+       !ReadParam(m, iter, &info.image_scale_factor) ||
+       !ReadParam(m, iter, &info.custom_image))) {
+    return false;
+  }
+
+  return r->SetInfo(info);
+}
+
+void ParamTraits<content::WebCursor>::Log(const param_type& p, std::string* l) {
+  l->append("<WebCursor>");
+}
 
 void ParamTraits<WebInputEventPointer>::Write(base::Pickle* m,
                                               const param_type& p) {
@@ -90,15 +122,64 @@ bool ParamTraits<blink::MessagePortChannel>::Read(const base::Pickle* m,
 void ParamTraits<blink::MessagePortChannel>::Log(const param_type& p,
                                                  std::string* l) {}
 
+void ParamTraits<blink::PolicyValue>::Write(base::Pickle* m,
+                                            const param_type& p) {
+  blink::mojom::PolicyValueType type = p.Type();
+  WriteParam(m, static_cast<int>(type));
+  switch (type) {
+    case blink::mojom::PolicyValueType::kBool:
+      WriteParam(m, p.BoolValue());
+      break;
+    case blink::mojom::PolicyValueType::kDecDouble:
+      WriteParam(m, p.DoubleValue());
+      break;
+    case blink::mojom::PolicyValueType::kNull:
+      break;
+  }
+}
+
+bool ParamTraits<blink::PolicyValue>::Read(const base::Pickle* m,
+                                           base::PickleIterator* iter,
+                                           param_type* r) {
+  int int_type;
+  if (!ReadParam(m, iter, &int_type))
+    return false;
+  blink::mojom::PolicyValueType type =
+      static_cast<blink::mojom::PolicyValueType>(int_type);
+  r->SetType(type);
+  switch (type) {
+    case blink::mojom::PolicyValueType::kBool: {
+      bool b;
+      if (!ReadParam(m, iter, &b))
+        return false;
+      r->SetBoolValue(b);
+      break;
+    }
+    case blink::mojom::PolicyValueType::kDecDouble: {
+      double d;
+      if (!ReadParam(m, iter, &d))
+        return false;
+      r->SetDoubleValue(d, type);
+      break;
+    }
+    case blink::mojom::PolicyValueType::kNull:
+      break;
+  }
+  return true;
+}
+
+void ParamTraits<blink::PolicyValue>::Log(const param_type& p, std::string* l) {
+}
+
 void ParamTraits<ui::AXMode>::Write(base::Pickle* m, const param_type& p) {
-  IPC::WriteParam(m, p.mode());
+  WriteParam(m, p.mode());
 }
 
 bool ParamTraits<ui::AXMode>::Read(const base::Pickle* m,
                                    base::PickleIterator* iter,
                                    param_type* r) {
   uint32_t value;
-  if (!IPC::ReadParam(m, iter, &value))
+  if (!ReadParam(m, iter, &value))
     return false;
   *r = ui::AXMode(value);
   return true;
@@ -149,8 +230,7 @@ void ParamTraits<scoped_refptr<storage::BlobHandle>>::Log(const param_type& p,
 void ParamTraits<content::FrameMsg_ViewChanged_Params>::Write(
     base::Pickle* m,
     const param_type& p) {
-  DCHECK(features::IsMultiProcessMash() ||
-         (p.frame_sink_id.has_value() && p.frame_sink_id->is_valid()));
+  DCHECK(p.frame_sink_id.is_valid());
   WriteParam(m, p.frame_sink_id);
 }
 
@@ -160,8 +240,7 @@ bool ParamTraits<content::FrameMsg_ViewChanged_Params>::Read(
     param_type* r) {
   if (!ReadParam(m, iter, &(r->frame_sink_id)))
     return false;
-  if (!features::IsMultiProcessMash() &&
-      (!r->frame_sink_id || !r->frame_sink_id->is_valid())) {
+  if (!r->frame_sink_id.is_valid()) {
     NOTREACHED();
     return false;
   }
@@ -214,6 +293,8 @@ void ParamTraits<scoped_refptr<base::RefCountedData<
   WriteParam(m, p->data.stream_channels);
   WriteParam(m, p->data.has_user_gesture);
   WriteParam(m, !!p->data.user_activation);
+  WriteParam(m, p->data.transfer_user_activation);
+  WriteParam(m, p->data.allow_autoplay);
   if (p->data.user_activation) {
     WriteParam(m, p->data.user_activation->has_been_active);
     WriteParam(m, p->data.user_activation->was_active);
@@ -244,7 +325,9 @@ bool ParamTraits<
       !ReadParam(m, iter, &(*r)->data.ports) ||
       !ReadParam(m, iter, &(*r)->data.stream_channels) ||
       !ReadParam(m, iter, &(*r)->data.has_user_gesture) ||
-      !ReadParam(m, iter, &has_activation)) {
+      !ReadParam(m, iter, &has_activation) ||
+      !ReadParam(m, iter, &(*r)->data.transfer_user_activation) ||
+      !ReadParam(m, iter, &(*r)->data.allow_autoplay)) {
     return false;
   }
 
@@ -430,6 +513,59 @@ void ParamTraits<viz::SurfaceInfo>::Log(const param_type& p, std::string* l) {
   l->append(", ");
   LogParam(p.size_in_pixels(), l);
   l->append(")");
+}
+
+void ParamTraits<net::SHA256HashValue>::Write(base::Pickle* m,
+                                              const param_type& p) {
+  m->WriteData(reinterpret_cast<const char*>(p.data), sizeof(p.data));
+}
+
+bool ParamTraits<net::SHA256HashValue>::Read(const base::Pickle* m,
+                                             base::PickleIterator* iter,
+                                             param_type* r) {
+  const char* data;
+  int data_length;
+  if (!iter->ReadData(&data, &data_length)) {
+    NOTREACHED();
+    return false;
+  }
+  if (data_length != sizeof(r->data)) {
+    NOTREACHED();
+    return false;
+  }
+  memcpy(r->data, data, sizeof(r->data));
+  return true;
+}
+
+void ParamTraits<net::SHA256HashValue>::Log(const param_type& p,
+                                            std::string* l) {
+  l->append("<SHA256HashValue>");
+}
+
+void ParamTraits<content::RecordTabSwitchTimeRequest>::Write(
+    base::Pickle* m,
+    const param_type& p) {
+  WriteParam(m, p.tab_switch_start_time);
+  WriteParam(m, p.destination_is_loaded);
+  WriteParam(m, p.destination_is_frozen);
+}
+
+bool ParamTraits<content::RecordTabSwitchTimeRequest>::Read(
+    const base::Pickle* m,
+    base::PickleIterator* iter,
+    param_type* r) {
+  if (!ReadParam(m, iter, &r->tab_switch_start_time) ||
+      !ReadParam(m, iter, &r->destination_is_loaded) ||
+      !ReadParam(m, iter, &r->destination_is_frozen)) {
+    return false;
+  }
+
+  return true;
+}
+
+void ParamTraits<content::RecordTabSwitchTimeRequest>::Log(const param_type& p,
+                                                           std::string* l) {
+  l->append("<content::RecordTabSwitchTimeRequest>");
 }
 
 }  // namespace IPC

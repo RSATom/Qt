@@ -41,9 +41,6 @@
 #include "qaction_p.h"
 
 #include <Qt3DInput/qabstractactioninput.h>
-#include <Qt3DCore/qpropertyupdatedchange.h>
-#include <Qt3DCore/qpropertynodeaddedchange.h>
-#include <Qt3DCore/qpropertynoderemovedchange.h>
 #include <Qt3DCore/qnodecreatedchange.h>
 
 #include <Qt3DCore/private/qnode_p.h>
@@ -121,11 +118,7 @@ void QAction::addInput(QAbstractActionInput *input)
         // Ensures proper bookkeeping
         d->registerDestructionHelper(input, &QAction::removeInput, d->m_inputs);
 
-        if (d->m_changeArbiter != nullptr) {
-            const auto change = Qt3DCore::QPropertyNodeAddedChangePtr::create(id(), input);
-            change->setPropertyName("input");
-            d->notifyObservers(change);
-        }
+        d->updateNode(input, "inputs", Qt3DCore::PropertyValueAdded);
     }
 }
 
@@ -137,11 +130,7 @@ void QAction::removeInput(QAbstractActionInput *input)
     Q_D(QAction);
     if (d->m_inputs.contains(input)) {
 
-        if (d->m_changeArbiter != nullptr) {
-            const auto change = Qt3DCore::QPropertyNodeRemovedChangePtr::create(id(), input);
-            change->setPropertyName("input");
-            d->notifyObservers(change);
-        }
+        d->updateNode(input, "inputs", Qt3DCore::PropertyValueRemoved);
 
         d->m_inputs.removeOne(input);
 
@@ -159,14 +148,9 @@ QVector<QAbstractActionInput *> QAction::inputs() const
     return d->m_inputs;
 }
 
-/*! \internal */
-void QAction::sceneChangeEvent(const Qt3DCore::QSceneChangePtr &change)
+// TODO Unused remove in Qt6
+void QAction::sceneChangeEvent(const Qt3DCore::QSceneChangePtr &)
 {
-    Q_D(QAction);
-    Qt3DCore::QPropertyUpdatedChangePtr e = qSharedPointerCast<Qt3DCore::QPropertyUpdatedChange>(change);
-    if (e->type() == Qt3DCore::PropertyUpdated && e->propertyName() == QByteArrayLiteral("active")) {
-        d->setActive(e->value().toBool());
-    }
 }
 
 Qt3DCore::QNodeCreatedChangeBasePtr QAction::createNodeCreationChange() const

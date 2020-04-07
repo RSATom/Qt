@@ -16,11 +16,6 @@
 #error \
     "Failed to include content/common/browser_plugin/browser_plugin_messages.h"
 #endif
-#undef CONTENT_COMMON_DOM_STORAGE_DOM_STORAGE_MESSAGES_H_
-#include "content/common/dom_storage/dom_storage_messages.h"
-#ifndef CONTENT_COMMON_DOM_STORAGE_DOM_STORAGE_MESSAGES_H_
-#error "Failed to include content/common/dom_storage/dom_storage_messages.h"
-#endif
 #undef CONTENT_COMMON_DRAG_MESSAGES_H_
 #include "content/common/drag_messages.h"
 #ifndef CONTENT_COMMON_DRAG_MESSAGES_H_
@@ -45,11 +40,6 @@
 #include "content/common/input_messages.h"
 #ifndef CONTENT_COMMON_INPUT_MESSAGES_H_
 #error "Failed to include content/common/input_messages.h"
-#endif
-#undef CONTENT_COMMON_MEDIA_AEC_DUMP_MESSAGES_H_
-#include "content/common/media/aec_dump_messages.h"
-#ifndef CONTENT_COMMON_MEDIA_AEC_DUMP_MESSAGES_H_
-#error "Failed to include content/common/media/aec_dump_messages.h"
 #endif
 #undef CONTENT_COMMON_MEDIA_MEDIA_PLAYER_DELEGATE_MESSAGES_H_
 #include "content/common/media/media_player_delegate_messages.h"
@@ -77,6 +67,11 @@
 #ifndef CONTENT_COMMON_TEXT_INPUT_CLIENT_MESSAGES_H_
 #error "Failed to include content/common/text_input_client_messages.h"
 #endif
+#undef CONTENT_COMMON_UNFREEZABLE_FRAME_MESSAGES_H_
+#include "content/common/unfreezable_frame_messages.h"
+#ifndef CONTENT_COMMON_UNFREEZABLE_FRAME_MESSAGES_H_
+#error "Failed to include content/common/unfreezable_frame_messages.h"
+#endif
 #undef CONTENT_COMMON_VIEW_MESSAGES_H_
 #include "content/common/view_messages.h"
 #ifndef CONTENT_COMMON_VIEW_MESSAGES_H_
@@ -100,10 +95,5 @@
 #include "content/common/gin_java_bridge_messages.h"
 #ifndef CONTENT_COMMON_GIN_JAVA_BRIDGE_MESSAGES_H_
 #error "Failed to include content/common/gin_java_bridge_messages.h"
-#endif
-#undef CONTENT_COMMON_MEDIA_MEDIA_PLAYER_MESSAGES_ANDROID_H_
-#include "content/common/media/media_player_messages_android.h"
-#ifndef CONTENT_COMMON_MEDIA_MEDIA_PLAYER_MESSAGES_ANDROID_H_
-#error "Failed to include content/common/media/media_player_messages_android.h"
 #endif
 #endif  // defined(OS_ANDROID)

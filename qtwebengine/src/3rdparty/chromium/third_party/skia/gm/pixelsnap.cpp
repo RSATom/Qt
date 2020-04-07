@@ -5,10 +5,20 @@
  * found in the LICENSE file.
  */
 
-#include "gm.h"
-#include "sk_tool_utils.h"
-
-#include "SkShader.h"
+#include "gm/gm.h"
+#include "include/core/SkCanvas.h"
+#include "include/core/SkColor.h"
+#include "include/core/SkFont.h"
+#include "include/core/SkPaint.h"
+#include "include/core/SkPoint.h"
+#include "include/core/SkRect.h"
+#include "include/core/SkScalar.h"
+#include "include/core/SkShader.h"
+#include "include/core/SkSize.h"
+#include "include/core/SkString.h"
+#include "include/core/SkTypeface.h"
+#include "include/core/SkTypes.h"
+#include "tools/ToolUtils.h"
 
 // This class of GMs test how edges/verts snap near rounding boundaries in device space without
 // anti-aliaing.
@@ -35,14 +45,13 @@ protected:
 
     void onDraw(SkCanvas* canvas) override {
         SkPaint bgPaint;
-        bgPaint.setShader(
-                sk_tool_utils::create_checkerboard_shader(0xFFAAAAAA, 0xFF777777, 1));
+        bgPaint.setShader(ToolUtils::create_checkerboard_shader(0xFFAAAAAA, 0xFF777777, 1));
         canvas->drawPaint(bgPaint);
 
         SkString offset;
         SkPaint labelPaint;
         labelPaint.setColor(SK_ColorWHITE);
-        SkFont font(sk_tool_utils::create_portable_typeface(), SkIntToScalar(kLabelTextSize));
+        SkFont  font(ToolUtils::create_portable_typeface(), SkIntToScalar(kLabelTextSize));
         SkPaint linePaint;
         linePaint.setColor(SK_ColorWHITE);
 

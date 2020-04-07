@@ -166,17 +166,6 @@ class OcclusionTrackerTest : public testing::Test {
     return layer_ptr;
   }
 
-  LayerImpl* CreateMaskLayer(LayerImpl* owning_layer, const gfx::Size& bounds) {
-    LayerTreeImpl* tree = host_->host_impl()->active_tree();
-    int id = next_layer_impl_id_++;
-    std::unique_ptr<TestContentLayerImpl> layer(
-        new TestContentLayerImpl(tree, id));
-    TestContentLayerImpl* layer_ptr = layer.get();
-    SetProperties(layer_ptr, identity_matrix, gfx::PointF(), bounds);
-    SetMask(owning_layer, std::move(layer));
-    return layer_ptr;
-  }
-
   TestContentLayerImpl* CreateDrawingSurface(LayerImpl* parent,
                                              const gfx::Transform& transform,
                                              const gfx::PointF& position,
@@ -214,7 +203,6 @@ class OcclusionTrackerTest : public testing::Test {
 
     LayerTreeHostCommon::CalcDrawPropsImplInputsForTesting inputs(
         root, root->bounds(), &render_surface_list_impl_);
-    inputs.can_adjust_raster_scales = true;
     LayerTreeHostCommon::CalculateDrawPropertiesForTesting(&inputs);
 
     layer_iterator_ = std::make_unique<EffectTreeLayerListIterator>(
@@ -352,7 +340,7 @@ class OcclusionTrackerTestIdentityTransforms : public OcclusionTrackerTest {
   }
 };
 
-ALL_OCCLUSIONTRACKER_TEST(OcclusionTrackerTestIdentityTransforms);
+ALL_OCCLUSIONTRACKER_TEST(OcclusionTrackerTestIdentityTransforms)
 
 class OcclusionTrackerTestRotatedChild : public OcclusionTrackerTest {
  protected:
@@ -386,7 +374,7 @@ class OcclusionTrackerTestRotatedChild : public OcclusionTrackerTest {
   }
 };
 
-ALL_OCCLUSIONTRACKER_TEST(OcclusionTrackerTestRotatedChild);
+ALL_OCCLUSIONTRACKER_TEST(OcclusionTrackerTestRotatedChild)
 
 class OcclusionTrackerTestTranslatedChild : public OcclusionTrackerTest {
  protected:
@@ -418,7 +406,7 @@ class OcclusionTrackerTestTranslatedChild : public OcclusionTrackerTest {
   }
 };
 
-ALL_OCCLUSIONTRACKER_TEST(OcclusionTrackerTestTranslatedChild);
+ALL_OCCLUSIONTRACKER_TEST(OcclusionTrackerTestTranslatedChild)
 
 class OcclusionTrackerTestChildInRotatedChild : public OcclusionTrackerTest {
  protected:
@@ -509,7 +497,7 @@ class OcclusionTrackerTestChildInRotatedChild : public OcclusionTrackerTest {
   }
 };
 
-ALL_OCCLUSIONTRACKER_TEST(OcclusionTrackerTestChildInRotatedChild);
+ALL_OCCLUSIONTRACKER_TEST(OcclusionTrackerTestChildInRotatedChild)
 
 class OcclusionTrackerTestScaledRenderSurface : public OcclusionTrackerTest {
  protected:
@@ -547,7 +535,7 @@ class OcclusionTrackerTestScaledRenderSurface : public OcclusionTrackerTest {
   }
 };
 
-ALL_OCCLUSIONTRACKER_TEST(OcclusionTrackerTestScaledRenderSurface);
+ALL_OCCLUSIONTRACKER_TEST(OcclusionTrackerTestScaledRenderSurface)
 
 class OcclusionTrackerTestVisitTargetTwoTimes : public OcclusionTrackerTest {
  protected:
@@ -604,7 +592,7 @@ class OcclusionTrackerTestVisitTargetTwoTimes : public OcclusionTrackerTest {
   }
 };
 
-ALL_OCCLUSIONTRACKER_TEST(OcclusionTrackerTestVisitTargetTwoTimes);
+ALL_OCCLUSIONTRACKER_TEST(OcclusionTrackerTestVisitTargetTwoTimes)
 
 class OcclusionTrackerTestSurfaceRotatedOffAxis : public OcclusionTrackerTest {
  protected:
@@ -652,7 +640,7 @@ class OcclusionTrackerTestSurfaceRotatedOffAxis : public OcclusionTrackerTest {
   }
 };
 
-ALL_OCCLUSIONTRACKER_TEST(OcclusionTrackerTestSurfaceRotatedOffAxis);
+ALL_OCCLUSIONTRACKER_TEST(OcclusionTrackerTestSurfaceRotatedOffAxis)
 
 class OcclusionTrackerTestSurfaceWithTwoOpaqueChildren
     : public OcclusionTrackerTest {
@@ -729,7 +717,7 @@ class OcclusionTrackerTestSurfaceWithTwoOpaqueChildren
   }
 };
 
-ALL_OCCLUSIONTRACKER_TEST(OcclusionTrackerTestSurfaceWithTwoOpaqueChildren);
+ALL_OCCLUSIONTRACKER_TEST(OcclusionTrackerTestSurfaceWithTwoOpaqueChildren)
 
 class OcclusionTrackerTestOverlappingSurfaceSiblings
     : public OcclusionTrackerTest {
@@ -783,7 +771,7 @@ class OcclusionTrackerTestOverlappingSurfaceSiblings
   }
 };
 
-ALL_OCCLUSIONTRACKER_TEST(OcclusionTrackerTestOverlappingSurfaceSiblings);
+ALL_OCCLUSIONTRACKER_TEST(OcclusionTrackerTestOverlappingSurfaceSiblings)
 
 class OcclusionTrackerTestOverlappingSurfaceSiblingsWithTwoTransforms
     : public OcclusionTrackerTest {
@@ -880,7 +868,7 @@ class OcclusionTrackerTestOverlappingSurfaceSiblingsWithTwoTransforms
 };
 
 ALL_OCCLUSIONTRACKER_TEST(
-    OcclusionTrackerTestOverlappingSurfaceSiblingsWithTwoTransforms);
+    OcclusionTrackerTestOverlappingSurfaceSiblingsWithTwoTransforms)
 
 class OcclusionTrackerTestFilters : public OcclusionTrackerTest {
  protected:
@@ -905,6 +893,11 @@ class OcclusionTrackerTestFilters : public OcclusionTrackerTest {
         parent, layer_transform, gfx::PointF(30.f, 30.f), gfx::Size(500, 500),
         true);
 
+    gfx::Transform rounded_corner_transform;
+    TestContentLayerImpl* rounded_corner_layer = this->CreateDrawingLayer(
+        parent, rounded_corner_transform, gfx::PointF(30.f, 30.f),
+        gfx::Size(500, 500), true);
+
     blur_layer->test_properties()->force_render_surface = true;
     FilterOperations filters;
     filters.Append(FilterOperation::CreateBlurFilter(10.f));
@@ -920,9 +913,18 @@ class OcclusionTrackerTestFilters : public OcclusionTrackerTest {
     filters.Append(FilterOperation::CreateOpacityFilter(0.5f));
     opacity_layer->test_properties()->filters = filters;
 
+    rounded_corner_layer->test_properties()->rounded_corner_bounds =
+        gfx::RRectF(1, 2, 3, 4, 5, 6);
+
     this->CalcDrawEtc(parent);
 
     TestOcclusionTrackerWithClip occlusion(gfx::Rect(0, 0, 1000, 1000));
+
+    // Rounded corners won't contribute to occlusion.
+    this->EnterLayer(rounded_corner_layer, &occlusion);
+    EXPECT_TRUE(occlusion.occlusion_from_outside_target().IsEmpty());
+    EXPECT_TRUE(occlusion.occlusion_from_inside_target().IsEmpty());
+    this->LeaveLayer(rounded_corner_layer, &occlusion);
 
     // Opacity layer won't contribute to occlusion.
     this->VisitLayer(opacity_layer, &occlusion);
@@ -971,7 +973,7 @@ class OcclusionTrackerTestFilters : public OcclusionTrackerTest {
   }
 };
 
-ALL_OCCLUSIONTRACKER_TEST(OcclusionTrackerTestFilters);
+ALL_OCCLUSIONTRACKER_TEST(OcclusionTrackerTestFilters)
 
 class OcclusionTrackerTestOpaqueContentsRegionEmpty
     : public OcclusionTrackerTest {
@@ -1001,7 +1003,7 @@ class OcclusionTrackerTestOpaqueContentsRegionEmpty
   }
 };
 
-ALL_OCCLUSIONTRACKER_TEST(OcclusionTrackerTestOpaqueContentsRegionEmpty);
+ALL_OCCLUSIONTRACKER_TEST(OcclusionTrackerTestOpaqueContentsRegionEmpty)
 
 class OcclusionTrackerTestOpaqueContentsRegionNonEmpty
     : public OcclusionTrackerTest {
@@ -1051,7 +1053,7 @@ class OcclusionTrackerTestOpaqueContentsRegionNonEmpty
   }
 };
 
-ALL_OCCLUSIONTRACKER_TEST(OcclusionTrackerTestOpaqueContentsRegionNonEmpty);
+ALL_OCCLUSIONTRACKER_TEST(OcclusionTrackerTestOpaqueContentsRegionNonEmpty)
 
 class OcclusionTrackerTestLayerBehindCameraDoesNotOcclude
     : public OcclusionTrackerTest {
@@ -1134,7 +1136,7 @@ class OcclusionTrackerTestSurfaceOcclusionTranslatesToParent
 };
 
 ALL_OCCLUSIONTRACKER_TEST(
-    OcclusionTrackerTestSurfaceOcclusionTranslatesToParent);
+    OcclusionTrackerTestSurfaceOcclusionTranslatesToParent)
 
 class OcclusionTrackerTestSurfaceOcclusionTranslatesWithClipping
     : public OcclusionTrackerTest {
@@ -1165,7 +1167,7 @@ class OcclusionTrackerTestSurfaceOcclusionTranslatesWithClipping
 };
 
 ALL_OCCLUSIONTRACKER_TEST(
-    OcclusionTrackerTestSurfaceOcclusionTranslatesWithClipping);
+    OcclusionTrackerTestSurfaceOcclusionTranslatesWithClipping)
 
 class OcclusionTrackerTestSurfaceChildOfSurface : public OcclusionTrackerTest {
  protected:
@@ -1253,7 +1255,7 @@ class OcclusionTrackerTestSurfaceChildOfSurface : public OcclusionTrackerTest {
   }
 };
 
-ALL_OCCLUSIONTRACKER_TEST(OcclusionTrackerTestSurfaceChildOfSurface);
+ALL_OCCLUSIONTRACKER_TEST(OcclusionTrackerTestSurfaceChildOfSurface)
 
 class OcclusionTrackerTestDontOccludePixelsNeededForBackdropFilter
     : public OcclusionTrackerTest {
@@ -1367,7 +1369,7 @@ class OcclusionTrackerTestDontOccludePixelsNeededForBackdropFilter
 };
 
 ALL_OCCLUSIONTRACKER_TEST(
-    OcclusionTrackerTestDontOccludePixelsNeededForBackdropFilter);
+    OcclusionTrackerTestDontOccludePixelsNeededForBackdropFilter)
 
 class OcclusionTrackerTestPixelsNeededForDropShadowBackdropFilter
     : public OcclusionTrackerTest {
@@ -1488,7 +1490,7 @@ class OcclusionTrackerTestPixelsNeededForDropShadowBackdropFilter
 };
 
 ALL_OCCLUSIONTRACKER_TEST(
-    OcclusionTrackerTestPixelsNeededForDropShadowBackdropFilter);
+    OcclusionTrackerTestPixelsNeededForDropShadowBackdropFilter)
 
 class OcclusionTrackerTestTwoBackdropFiltersReduceOcclusionTwice
     : public OcclusionTrackerTest {
@@ -1554,7 +1556,7 @@ class OcclusionTrackerTestTwoBackdropFiltersReduceOcclusionTwice
 };
 
 ALL_OCCLUSIONTRACKER_TEST(
-    OcclusionTrackerTestTwoBackdropFiltersReduceOcclusionTwice);
+    OcclusionTrackerTestTwoBackdropFiltersReduceOcclusionTwice)
 
 class OcclusionTrackerTestDontReduceOcclusionBelowBackdropFilter
     : public OcclusionTrackerTest {
@@ -1616,7 +1618,7 @@ class OcclusionTrackerTestDontReduceOcclusionBelowBackdropFilter
 };
 
 ALL_OCCLUSIONTRACKER_TEST(
-    OcclusionTrackerTestDontReduceOcclusionBelowBackdropFilter);
+    OcclusionTrackerTestDontReduceOcclusionBelowBackdropFilter)
 
 class OcclusionTrackerTestDontReduceOcclusionIfBackdropFilterIsOccluded
     : public OcclusionTrackerTest {
@@ -1681,7 +1683,7 @@ class OcclusionTrackerTestDontReduceOcclusionIfBackdropFilterIsOccluded
 };
 
 ALL_OCCLUSIONTRACKER_TEST(
-    OcclusionTrackerTestDontReduceOcclusionIfBackdropFilterIsOccluded);
+    OcclusionTrackerTestDontReduceOcclusionIfBackdropFilterIsOccluded)
 
 class OcclusionTrackerTestReduceOcclusionWhenBkgdFilterIsPartiallyOccluded
     : public OcclusionTrackerTest {
@@ -1756,7 +1758,7 @@ class OcclusionTrackerTestReduceOcclusionWhenBkgdFilterIsPartiallyOccluded
 };
 
 ALL_OCCLUSIONTRACKER_TEST(
-    OcclusionTrackerTestReduceOcclusionWhenBkgdFilterIsPartiallyOccluded);
+    OcclusionTrackerTestReduceOcclusionWhenBkgdFilterIsPartiallyOccluded)
 
 class OcclusionTrackerTestBlendModeDoesNotOcclude
     : public OcclusionTrackerTest {
@@ -1804,7 +1806,7 @@ class OcclusionTrackerTestBlendModeDoesNotOcclude
   }
 };
 
-ALL_OCCLUSIONTRACKER_TEST(OcclusionTrackerTestBlendModeDoesNotOcclude);
+ALL_OCCLUSIONTRACKER_TEST(OcclusionTrackerTestBlendModeDoesNotOcclude)
 
 class OcclusionTrackerTestMinimumTrackingSize : public OcclusionTrackerTest {
  protected:
@@ -1844,7 +1846,7 @@ class OcclusionTrackerTestMinimumTrackingSize : public OcclusionTrackerTest {
   }
 };
 
-ALL_OCCLUSIONTRACKER_TEST(OcclusionTrackerTestMinimumTrackingSize);
+ALL_OCCLUSIONTRACKER_TEST(OcclusionTrackerTestMinimumTrackingSize)
 
 class OcclusionTrackerTestScaledLayerIsClipped : public OcclusionTrackerTest {
  protected:

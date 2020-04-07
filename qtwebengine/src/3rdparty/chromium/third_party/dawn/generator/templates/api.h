@@ -21,6 +21,8 @@
 #include <stddef.h>
 #include <stdbool.h>
 
+const uint64_t DAWN_WHOLE_SIZE = 0xffffffffffffffffULL; // UINT64_MAX
+
 {% for type in by_category["object"] %}
     typedef struct {{as_cType(type.name)}}Impl* {{as_cType(type.name)}};
 {% endfor %}
@@ -48,13 +50,19 @@
 {% endfor %}
 
 // Custom types depending on the target language
-typedef uint64_t dawnCallbackUserdata;
-typedef void (*dawnDeviceErrorCallback)(const char* message, dawnCallbackUserdata userdata);
-typedef void (*dawnBuilderErrorCallback)(dawnBuilderErrorStatus status, const char* message, dawnCallbackUserdata userdata1, dawnCallbackUserdata userdata2);
-typedef void (*dawnBufferMapReadCallback)(dawnBufferMapAsyncStatus status, const void* data, dawnCallbackUserdata userdata);
-typedef void (*dawnBufferMapWriteCallback)(dawnBufferMapAsyncStatus status, void* data, dawnCallbackUserdata userdata);
-typedef void (*dawnFenceOnCompletionCallback)(dawnFenceCompletionStatus status,
-                                              dawnCallbackUserdata userdata);
+typedef void (*DawnDeviceErrorCallback)(const char* message, void* userdata);
+typedef void (*DawnBufferCreateMappedCallback)(DawnBufferMapAsyncStatus status,
+                                               DawnCreateBufferMappedResult result,
+                                               void* userdata);
+typedef void (*DawnBufferMapReadCallback)(DawnBufferMapAsyncStatus status,
+                                          const void* data,
+                                          uint64_t dataLength,
+                                          void* userdata);
+typedef void (*DawnBufferMapWriteCallback)(DawnBufferMapAsyncStatus status,
+                                           void* data,
+                                           uint64_t dataLength,
+                                           void* userdata);
+typedef void (*DawnFenceOnCompletionCallback)(DawnFenceCompletionStatus status, void* userdata);
 
 #ifdef __cplusplus
 extern "C" {
@@ -73,7 +81,7 @@ extern "C" {
 
 {% endfor %}
 
-struct dawnProcTable_s {
+struct DawnProcTable_s {
     {% for type in by_category["object"] %}
         {% for method in native_methods(type) %}
             {{as_cProc(type.name, method.name)}} {{as_varName(type.name, method.name)}};
@@ -81,12 +89,12 @@ struct dawnProcTable_s {
 
     {% endfor %}
 };
-typedef struct dawnProcTable_s dawnProcTable;
+typedef struct DawnProcTable_s DawnProcTable;
 
-// Stuff below is for convenience and will forward calls to a static dawnProcTable.
+// Stuff below is for convenience and will forward calls to a static DawnProcTable.
 
-// Set which dawnProcTable will be used
-DAWN_EXPORT void dawnSetProcs(const dawnProcTable* procs);
+// Set which DawnProcTable will be used
+DAWN_EXPORT void dawnSetProcs(const DawnProcTable* procs);
 
 {% for type in by_category["object"] %}
     // Methods of {{type.name.CamelCase()}}

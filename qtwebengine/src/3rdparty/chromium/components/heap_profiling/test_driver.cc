@@ -21,13 +21,13 @@
 #include "build/build_config.h"
 #include "components/heap_profiling/supervisor.h"
 #include "components/services/heap_profiling/public/cpp/controller.h"
-#include "components/services/heap_profiling/public/cpp/sampling_profiler_wrapper.h"
+#include "components/services/heap_profiling/public/cpp/profiling_client.h"
 #include "components/services/heap_profiling/public/cpp/settings.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/render_process_host.h"
+#include "content/public/browser/system_connector.h"
 #include "content/public/browser/tracing_controller.h"
-#include "content/public/common/service_manager_connection.h"
 
 namespace heap_profiling {
 
@@ -80,7 +80,7 @@ bool RenderersAreBeingProfiled(
         base::kNullProcessHandle)
       continue;
     base::ProcessId pid = iter.GetCurrentValue()->GetProcess().Pid();
-    if (base::ContainsValue(profiled_pids, pid)) {
+    if (base::Contains(profiled_pids, pid)) {
       return true;
     }
   }
@@ -559,7 +559,7 @@ TestDriver::TestDriver()
                           base::WaitableEvent::InitialState::NOT_SIGNALED) {
   partition_allocator_.init();
 }
-TestDriver::~TestDriver() {}
+TestDriver::~TestDriver() = default;
 
 bool TestDriver::RunTest(const Options& options) {
   options_ = options;
@@ -591,7 +591,6 @@ bool TestDriver::RunTest(const Options& options) {
   if (running_on_ui_thread_) {
     if (!CheckOrStartProfilingOnUIThreadWithNestedRunLoops())
       return false;
-    Supervisor::GetInstance()->SetKeepSmallAllocations(true);
     if (ShouldProfileRenderer())
       WaitForProfilingToStartForAllRenderersUIThread();
     if (ShouldProfileBrowser())
@@ -605,11 +604,6 @@ bool TestDriver::RunTest(const Options& options) {
     wait_for_ui_thread_.Wait();
     if (!initialization_success_)
       return false;
-    base::PostTaskWithTraits(
-        FROM_HERE, {content::BrowserThread::UI},
-        base::BindOnce(&TestDriver::SetKeepSmallAllocationsOnUIThreadAndSignal,
-                       base::Unretained(this)));
-    wait_for_ui_thread_.Wait();
     if (ShouldProfileRenderer()) {
       base::PostTaskWithTraits(
           FROM_HERE, {content::BrowserThread::UI},
@@ -631,7 +625,7 @@ bool TestDriver::RunTest(const Options& options) {
   }
 
   std::unique_ptr<base::Value> dump_json =
-      base::JSONReader::Read(serialized_trace_);
+      base::JSONReader::ReadDeprecated(serialized_trace_);
   if (!dump_json) {
     LOG(ERROR) << "Failed to deserialize trace.";
     return false;
@@ -667,12 +661,6 @@ void TestDriver::CheckOrStartProfilingOnUIThreadAndSignal() {
     wait_for_ui_thread_.Signal();
 }
 
-void TestDriver::SetKeepSmallAllocationsOnUIThreadAndSignal() {
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
-  Supervisor::GetInstance()->SetKeepSmallAllocations(true);
-  wait_for_ui_thread_.Signal();
-}
-
 bool TestDriver::CheckOrStartProfilingOnUIThreadWithAsyncSignalling() {
   DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
 
@@ -696,11 +684,9 @@ bool TestDriver::CheckOrStartProfilingOnUIThreadWithAsyncSignalling() {
     return true;
   }
 
-  content::ServiceManagerConnection* connection =
-      content::ServiceManagerConnection::GetForProcess();
-  if (!connection) {
-    LOG(ERROR) << "A ServiceManagerConnection was not available for the "
-                  "current process.";
+  service_manager::Connector* connector = content::GetSystemConnector();
+  if (!connector) {
+    LOG(ERROR) << "A system Connector is not available in this environment.";
     return false;
   }
 
@@ -722,7 +708,7 @@ bool TestDriver::CheckOrStartProfilingOnUIThreadWithAsyncSignalling() {
   uint32_t sampling_rate = options_.should_sample
                                ? (options_.sample_everything ? 2 : kSampleRate)
                                : 1;
-  Supervisor::GetInstance()->Start(connection, options_.mode,
+  Supervisor::GetInstance()->Start(connector, options_.mode,
                                    options_.stack_mode, sampling_rate,
                                    std::move(start_callback));
 
@@ -750,11 +736,9 @@ bool TestDriver::CheckOrStartProfilingOnUIThreadWithNestedRunLoops() {
     return true;
   }
 
-  content::ServiceManagerConnection* connection =
-      content::ServiceManagerConnection::GetForProcess();
-  if (!connection) {
-    LOG(ERROR) << "A ServiceManagerConnection was not available for the "
-                  "current process.";
+  service_manager::Connector* connector = content::GetSystemConnector();
+  if (!connector) {
+    LOG(ERROR) << "A system Connector is not available in this environment.";
     return false;
   }
 
@@ -775,7 +759,7 @@ bool TestDriver::CheckOrStartProfilingOnUIThreadWithNestedRunLoops() {
   uint32_t sampling_rate = options_.should_sample
                                ? (options_.sample_everything ? 2 : kSampleRate)
                                : 1;
-  Supervisor::GetInstance()->Start(connection, options_.mode,
+  Supervisor::GetInstance()->Start(connector, options_.mode,
                                    options_.stack_mode, sampling_rate,
                                    std::move(start_callback));
 
@@ -788,6 +772,10 @@ void TestDriver::MakeTestAllocations() {
   DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
 
   base::PlatformThread::SetName(kThreadName);
+
+  // Warm up the sampler. Once enabled it may need to see up to 1MB of
+  // allocations to start sampling.
+  leaks_.push_back(new char[base::PoissonAllocationSampler::kWarmupInterval]);
 
   // In sampling mode, only sampling allocations are relevant.
   if (!IsRecordingAllAllocations()) {

@@ -32,7 +32,6 @@
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/dom/document_fragment.h"
 #include "third_party/blink/renderer/core/dom/element_traversal.h"
-#include "third_party/blink/renderer/core/frame/use_counter.h"
 #include "third_party/blink/renderer/core/html/forms/html_form_control_element.h"
 #include "third_party/blink/renderer/core/html/forms/html_form_element.h"
 #include "third_party/blink/renderer/core/html/html_template_element.h"
@@ -51,6 +50,8 @@
 #include "third_party/blink/renderer/platform/bindings/exception_state.h"
 #include "third_party/blink/renderer/platform/bindings/runtime_call_stats.h"
 #include "third_party/blink/renderer/platform/bindings/v8_per_isolate_data.h"
+#include "third_party/blink/renderer/platform/heap/heap.h"
+#include "third_party/blink/renderer/platform/instrumentation/use_counter.h"
 #include "third_party/blink/renderer/platform/text/platform_locale.h"
 #include "third_party/blink/renderer/platform/wtf/text/character_names.h"
 
@@ -249,7 +250,7 @@ HTMLTreeBuilder::HTMLTreeBuilder(HTMLDocumentParser* parser,
   // http://www.whatwg.org/specs/web-apps/current-work/multipage/the-end.html#fragment-case
   // For efficiency, we skip step 4.2 ("Let root be a new html element with no
   // attributes") and instead use the DocumentFragment as a root node.
-  tree_.OpenElements()->PushRootNode(HTMLStackItem::Create(
+  tree_.OpenElements()->PushRootNode(MakeGarbageCollected<HTMLStackItem>(
       fragment, HTMLStackItem::kItemForDocumentFragmentNode));
 
   if (IsHTMLTemplateElement(*context_element))
@@ -265,7 +266,7 @@ void HTMLTreeBuilder::FragmentParsingContext::Init(DocumentFragment* fragment,
   DCHECK(fragment);
   DCHECK(!fragment->HasChildren());
   fragment_ = fragment;
-  context_element_stack_item_ = HTMLStackItem::Create(
+  context_element_stack_item_ = MakeGarbageCollected<HTMLStackItem>(
       context_element, HTMLStackItem::kItemForContextElement);
 }
 
@@ -459,7 +460,7 @@ static void MapLoweredLocalNameToName(PrefixedNameToQualifiedNameMap* map,
 }
 
 // "Any other start tag" bullet in
-// https://html.spec.whatwg.org/multipage/parsing.html#parsing-main-inforeign
+// https://html.spec.whatwg.org/C/#parsing-main-inforeign
 static void AdjustSVGTagNameCase(AtomicHTMLToken* token) {
   static PrefixedNameToQualifiedNameMap* case_map = nullptr;
   if (!case_map) {
@@ -490,12 +491,12 @@ static void AdjustAttributes(AtomicHTMLToken* token) {
   }
 }
 
-// https://html.spec.whatwg.org/multipage/parsing.html#adjust-svg-attributes
+// https://html.spec.whatwg.org/C/#adjust-svg-attributes
 static void AdjustSVGAttributes(AtomicHTMLToken* token) {
   AdjustAttributes<svg_names::GetAttrs, svg_names::kAttrsCount>(token);
 }
 
-// https://html.spec.whatwg.org/multipage/parsing.html#adjust-mathml-attributes
+// https://html.spec.whatwg.org/C/#adjust-mathml-attributes
 static void AdjustMathMLAttributes(AtomicHTMLToken* token) {
   AdjustAttributes<mathml_names::GetAttrs, mathml_names::kAttrsCount>(token);
 }
@@ -584,7 +585,7 @@ void HTMLTreeBuilder::ProcessStartTagForInBody(AtomicHTMLToken* token) {
     // a proper html element which is a quirk in Blink's implementation.
     DCHECK(!IsParsingTemplateContents());
     DCHECK(!IsParsingFragment() ||
-           ToDocumentFragment(tree_.OpenElements()->TopNode()));
+           To<DocumentFragment>(tree_.OpenElements()->TopNode()));
     DCHECK(IsParsingFragment() ||
            tree_.OpenElements()->Top() == tree_.OpenElements()->HtmlElement());
     tree_.InsertHTMLElement(token);
@@ -727,7 +728,7 @@ void HTMLTreeBuilder::ProcessStartTagForInBody(AtomicHTMLToken* token) {
     return;
   }
   if (token->GetName() == kInputTag) {
-    // Per spec https://html.spec.whatwg.org/#parsing-main-inbody,
+    // Per spec https://html.spec.whatwg.org/C/#parsing-main-inbody,
     // section "A start tag whose tag name is "input""
 
     Attribute* type_attribute = token->GetAttributeItem(kTypeAttr);
@@ -775,7 +776,7 @@ void HTMLTreeBuilder::ProcessStartTagForInBody(AtomicHTMLToken* token) {
     ProcessGenericRawTextStartTag(token);
     return;
   }
-  if (token->GetName() == kNoembedTag && options_.plugins_enabled) {
+  if (token->GetName() == kNoembedTag) {
     ProcessGenericRawTextStartTag(token);
     return;
   }
@@ -1461,7 +1462,7 @@ void HTMLTreeBuilder::CallTheAdoptionAgency(AtomicHTMLToken* token) {
     HTMLElementStack::ElementRecord* next_node = node->Next();
     HTMLElementStack::ElementRecord* last_node = furthest_block;
     // 9.1, 9.2, 9.3 and 9.11 are covered by the for() loop.
-    for (int i = 0; i < kInnerIterationLimit; ++i) {
+    for (int j = 0; j < kInnerIterationLimit; ++j) {
       // 9.4
       node = next_node;
       DCHECK(node);
@@ -2442,7 +2443,7 @@ void HTMLTreeBuilder::ProcessEndOfFile(AtomicHTMLToken* token) {
       }
       Element* el = tree_.OpenElements()->Top();
       if (IsHTMLTextAreaElement(el))
-        ToHTMLFormControlElement(el)->SetBlocksFormSubmission(true);
+        To<HTMLFormControlElement>(el)->SetBlocksFormSubmission(true);
       tree_.OpenElements()->Pop();
       DCHECK_NE(original_insertion_mode_, kTextMode);
       SetInsertionMode(original_insertion_mode_);
@@ -2690,6 +2691,13 @@ void HTMLTreeBuilder::ProcessTokenInForeignContent(AtomicHTMLToken* token) {
         if (ScriptingContentIsAllowed(tree_.GetParserContentPolicy()))
           script_to_process_ = tree_.CurrentElement();
         tree_.OpenElements()->Pop();
+        return;
+      }
+      if (token->GetName() == html_names::kBrTag ||
+          token->GetName() == html_names::kPTag) {
+        ParseError(token);
+        tree_.OpenElements()->PopUntilForeignContentScopeMarker();
+        ProcessEndTag(token);
         return;
       }
       if (!tree_.CurrentStackItem()->IsInHTMLNamespace()) {

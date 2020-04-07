@@ -26,7 +26,8 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_PLATFORM_FONTS_FONT_DESCRIPTION_H_
 #define THIRD_PARTY_BLINK_RENDERER_PLATFORM_FONTS_FONT_DESCRIPTION_H_
 
-#include "SkFontStyle.h"
+#include <unicode/uscript.h>
+
 #include "base/memory/scoped_refptr.h"
 #include "third_party/blink/renderer/platform/font_family_names.h"
 #include "third_party/blink/renderer/platform/fonts/font_cache_key.h"
@@ -41,10 +42,9 @@
 #include "third_party/blink/renderer/platform/fonts/text_rendering_mode.h"
 #include "third_party/blink/renderer/platform/fonts/typesetting_features.h"
 #include "third_party/blink/renderer/platform/text/layout_locale.h"
-#include "third_party/blink/renderer/platform/wtf/allocator.h"
+#include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 #include "third_party/blink/renderer/platform/wtf/math_extras.h"
-
-#include <unicode/uscript.h>
+#include "third_party/skia/include/core/SkFontStyle.h"
 
 namespace blink {
 
@@ -189,7 +189,7 @@ class PLATFORM_EXPORT FontDescription {
   VariantLigatures GetVariantLigatures() const;
   FontVariantNumeric VariantNumeric() const {
     return FontVariantNumeric::InitializeFromUnsigned(fields_.variant_numeric_);
-  };
+  }
   LigaturesState CommonLigaturesState() const {
     return static_cast<LigaturesState>(fields_.common_ligatures_state_);
   }

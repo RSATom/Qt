@@ -43,6 +43,9 @@
 // dependencies problem.
 #include "qbluetoothsocketbase_p.h"
 #include "qbluetoothsocket_osx_p.h"
+
+#include "osx/osxbtrfcommchannel_p.h"
+#include "osx/osxbtl2capchannel_p.h"
 #include "qbluetoothlocaldevice.h"
 #include "qbluetoothdeviceinfo.h"
 #include "osx/osxbtutility_p.h"
@@ -57,29 +60,293 @@
 
 QT_BEGIN_NAMESPACE
 
+namespace {
+
+using DarwinBluetooth::RetainPolicy;
+using ObjCL2CAPChannel = QT_MANGLE_NAMESPACE(OSXBTL2CAPChannel);
+using ObjCRFCOMMChannel = QT_MANGLE_NAMESPACE(OSXBTRFCOMMChannel);
+
+} // unnamed namespace
+
 QBluetoothSocketPrivate::QBluetoothSocketPrivate()
-  : writeChunk(std::numeric_limits<UInt16>::max()),
-    openMode(QIODevice::NotOpen), // That's what is set in public class' ctors.
-    state(QBluetoothSocket::UnconnectedState),
-    socketType(QBluetoothServiceInfo::UnknownProtocol),
-    socketError(QBluetoothSocket::NoSocketError),
-    isConnecting(false)
+  : writeChunk(std::numeric_limits<UInt16>::max())
 {
     q_ptr = nullptr;
 }
 
 QBluetoothSocketPrivate::~QBluetoothSocketPrivate()
 {
-    // "Empty" dtor to make a shared pointer happy (parametrized with
-    // incomplete type in the header file).
+}
+
+bool QBluetoothSocketPrivate::ensureNativeSocket(QBluetoothServiceInfo::Protocol type)
+{
+    // For now - very simplistic, we don't call it in this file, public class
+    // only calls it in a ctor, setting the protocol RFCOMM (in case of Android)
+    // or, indeed, doing, socket-related initialization in BlueZ backend.
+    Q_ASSERT(socketType == QBluetoothServiceInfo::UnknownProtocol);
+    socketType = type;
+    return type != QBluetoothServiceInfo::UnknownProtocol;
+}
+
+QString QBluetoothSocketPrivate::localName() const
+{
+    const QBluetoothLocalDevice device;
+    return device.name();
+}
+
+QBluetoothAddress QBluetoothSocketPrivate::localAddress() const
+{
+    const QBluetoothLocalDevice device;
+    return device.address();
+}
+
+quint16 QBluetoothSocketPrivate::localPort() const
+{
+    return 0;
+}
+
+QString QBluetoothSocketPrivate::peerName() const
+{
+    QT_BT_MAC_AUTORELEASEPOOL;
+
+    NSString *nsName = nil;
+    if (socketType == QBluetoothServiceInfo::RfcommProtocol) {
+        if (rfcommChannel)
+            nsName = [rfcommChannel.getAs<ObjCRFCOMMChannel>() peerName];
+    } else if (socketType == QBluetoothServiceInfo::L2capProtocol) {
+        if (l2capChannel)
+            nsName = [l2capChannel.getAs<ObjCL2CAPChannel>() peerName];
+    }
+
+    if (nsName)
+        return QString::fromNSString(nsName);
+
+    return QString();
+}
+
+QBluetoothAddress QBluetoothSocketPrivate::peerAddress() const
+{
+    BluetoothDeviceAddress addr = {};
+    if (socketType == QBluetoothServiceInfo::RfcommProtocol) {
+        if (rfcommChannel)
+            addr = [rfcommChannel.getAs<ObjCRFCOMMChannel>() peerAddress];
+    } else if (socketType == QBluetoothServiceInfo::L2capProtocol) {
+        if (l2capChannel)
+            addr = [l2capChannel.getAs<ObjCL2CAPChannel>() peerAddress];
+    }
+
+    return OSXBluetooth::qt_address(&addr);
+}
+
+quint16 QBluetoothSocketPrivate::peerPort() const
+{
+    if (socketType == QBluetoothServiceInfo::RfcommProtocol) {
+        if (rfcommChannel)
+            return [rfcommChannel.getAs<ObjCRFCOMMChannel>() getChannelID];
+    } else if (socketType == QBluetoothServiceInfo::L2capProtocol) {
+        if (l2capChannel)
+            return [l2capChannel.getAs<ObjCL2CAPChannel>() getPSM];
+    }
+
+    return 0;
+}
+
+void QBluetoothSocketPrivate::abort()
+{
+    // Can never be called while we're in connectToService:
+    Q_ASSERT_X(!isConnecting, Q_FUNC_INFO, "internal inconsistency - "
+               "still in connectToService()");
+
+    if (socketType == QBluetoothServiceInfo::RfcommProtocol)
+        rfcommChannel.reset();
+    else if (socketType == QBluetoothServiceInfo::L2capProtocol)
+        l2capChannel.reset();
+
+    Q_ASSERT(q_ptr);
+
+    q_ptr->setSocketState(QBluetoothSocket::UnconnectedState);
+    emit q_ptr->readChannelFinished();
+    emit q_ptr->disconnected();
+
+}
+
+void QBluetoothSocketPrivate::close()
+{
+    // Can never be called while we're in connectToService:
+    Q_ASSERT_X(!isConnecting, Q_FUNC_INFO, "internal inconsistency - "
+               "still in connectToService()");
+
+    if (!txBuffer.size())
+        abort();
+}
+
+
+qint64 QBluetoothSocketPrivate::writeData(const char *data, qint64 maxSize)
+{
+    Q_ASSERT_X(data, Q_FUNC_INFO, "invalid data (null)");
+    Q_ASSERT_X(maxSize > 0, Q_FUNC_INFO, "invalid data size");
+
+    if (state != QBluetoothSocket::ConnectedState) {
+        errorString = QCoreApplication::translate(SOCKET, SOC_NOWRITE);
+        q_ptr->setSocketError(QBluetoothSocket::OperationError);
+        return -1;
+    }
+
+    // We do not have a real socket API under the hood,
+    // IOBluetoothL2CAPChannel is buffered (writeAsync).
+
+    if (!txBuffer.size())
+        QMetaObject::invokeMethod(this, [this](){_q_writeNotify();}, Qt::QueuedConnection);
+
+    char *dst = txBuffer.reserve(int(maxSize));
+    std::copy(data, data + maxSize, dst);
+
+    return maxSize;
+}
+
+qint64 QBluetoothSocketPrivate::readData(char *data, qint64 maxSize)
+{
+    if (!data)
+        return 0;
+
+    if (state != QBluetoothSocket::ConnectedState) {
+        errorString = QCoreApplication::translate(SOCKET, SOC_NOREAD);
+        q_ptr->setSocketError(QBluetoothSocket::OperationError);
+        return -1;
+    }
+
+    if (!buffer.isEmpty())
+        return buffer.read(data, int(maxSize));
+
+    return 0;
+}
+
+qint64 QBluetoothSocketPrivate::bytesAvailable() const
+{
+    return buffer.size();
+}
+
+bool QBluetoothSocketPrivate::canReadLine() const
+{
+    return buffer.canReadLine();
+}
+
+qint64 QBluetoothSocketPrivate::bytesToWrite() const
+{
+    return txBuffer.size();
+}
+
+bool QBluetoothSocketPrivate::setSocketDescriptor(int socketDescriptor, QBluetoothServiceInfo::Protocol socketType,
+                                                  QBluetoothSocket::SocketState socketState, QIODevice::OpenMode openMode)
+{
+    Q_UNUSED(socketDescriptor)
+    Q_UNUSED(socketType)
+    Q_UNUSED(socketState)
+    Q_UNUSED(openMode)
+
+    qCWarning(QT_BT_OSX) << "setting a socket descriptor is not supported by IOBluetooth";
+    // Noop on macOS.
+    return true;
+}
+
+void QBluetoothSocketPrivate::connectToServiceHelper(const QBluetoothAddress &address, quint16 port,
+                                                     QIODevice::OpenMode openMode)
+{
+    Q_UNUSED(address)
+    Q_UNUSED(port)
+    Q_UNUSED(openMode)
+}
+
+void QBluetoothSocketPrivate::connectToService(const QBluetoothServiceInfo &service, QIODevice::OpenMode openMode)
+{
+    Q_ASSERT(q_ptr);
+
+    OSXBluetooth::qt_test_iobluetooth_runloop();
+
+    if (state!= QBluetoothSocket::UnconnectedState && state != QBluetoothSocket::ServiceLookupState) {
+        qCWarning(QT_BT_OSX)  << "called on a busy socket";
+        errorString = QCoreApplication::translate(SOCKET, SOC_CONNECT_IN_PROGRESS);
+        q_ptr->setSocketError(QBluetoothSocket::OperationError);
+        return;
+    }
+
+    // Report this problem early, potentially avoid device discovery:
+    if (service.socketProtocol() == QBluetoothServiceInfo::UnknownProtocol) {
+        qCWarning(QT_BT_OSX) << Q_FUNC_INFO << "cannot connect with 'UnknownProtocol' type";
+        errorString = QCoreApplication::translate(SOCKET, SOC_NETWORK_ERROR);
+        q_ptr->setSocketError(QBluetoothSocket::UnsupportedProtocolError);
+        return;
+    }
+
+    socketType = service.socketProtocol();
+
+    if (service.protocolServiceMultiplexer() > 0) {
+        connectToService(service.device().address(),
+                         quint16(service.protocolServiceMultiplexer()),
+                         openMode);
+    } else if (service.serverChannel() > 0) {
+        connectToService(service.device().address(),
+                         quint16(service.serverChannel()),
+                         openMode);
+    } else {
+        // Try service discovery.
+        if (service.serviceUuid().isNull()) {
+            qCWarning(QT_BT_OSX) << "No port, no PSM, and no "
+                                    "UUID provided, unable to connect";
+            return;
+        }
+
+        q_ptr->doDeviceDiscovery(service, openMode);
+    }
+}
+
+void QBluetoothSocketPrivate::connectToService(const QBluetoothAddress &address, const QBluetoothUuid &uuid,
+                                               QIODevice::OpenMode openMode)
+{
+    Q_ASSERT(q_ptr);
+
+    OSXBluetooth::qt_test_iobluetooth_runloop();
+
+    // Report this problem early, avoid device discovery:
+    if (socketType == QBluetoothServiceInfo::UnknownProtocol) {
+        qCWarning(QT_BT_OSX) << Q_FUNC_INFO << "cannot connect with 'UnknownProtocol' type";
+        errorString = QCoreApplication::translate(SOCKET, SOC_NETWORK_ERROR);
+        q_ptr->setSocketError(QBluetoothSocket::UnsupportedProtocolError);
+        return;
+    }
+
+    if (state != QBluetoothSocket::UnconnectedState) {
+        qCWarning(QT_BT_OSX) << "called on a busy socket";
+        errorString = QCoreApplication::translate(SOCKET, SOC_CONNECT_IN_PROGRESS);
+        q_ptr->setSocketError(QBluetoothSocket::OperationError);
+        return;
+    }
+
+    QBluetoothDeviceInfo device(address, QString(), QBluetoothDeviceInfo::MiscellaneousDevice);
+    QBluetoothServiceInfo service;
+    service.setDevice(device);
+    service.setServiceUuid(uuid);
+    q_ptr->doDeviceDiscovery(service, openMode);
 }
 
 void QBluetoothSocketPrivate::connectToService(const QBluetoothAddress &address, quint16 port,
                                                QIODevice::OpenMode mode)
 {
-    Q_ASSERT_X(state == QBluetoothSocket::ServiceLookupState
-               || state == QBluetoothSocket::UnconnectedState,
+    Q_ASSERT(q_ptr);
+
+    OSXBluetooth::qt_test_iobluetooth_runloop();
+
+    if (socketType == QBluetoothServiceInfo::UnknownProtocol) {
+        qCWarning(QT_BT_OSX) << Q_FUNC_INFO << "cannot connect with 'UnknownProtocol' type";
+        errorString = QCoreApplication::translate(SOCKET, SOC_NETWORK_ERROR);
+        q_ptr->setSocketError(QBluetoothSocket::UnsupportedProtocolError);
+        return;
+    }
+
+    Q_ASSERT_X(state == QBluetoothSocket::ServiceLookupState || state == QBluetoothSocket::UnconnectedState,
                Q_FUNC_INFO, "invalid state");
+
+    q_ptr->setOpenMode(mode);
 
     socketError = QBluetoothSocket::NoSocketError;
     errorString.clear();
@@ -100,15 +367,15 @@ void QBluetoothSocketPrivate::connectToService(const QBluetoothAddress &address,
     openMode = mode;
 
     if (socketType == QBluetoothServiceInfo::RfcommProtocol) {
-        rfcommChannel.reset([[ObjCRFCOMMChannel alloc] initWithDelegate:this]);
-        if (rfcommChannel.data())
-            status = [rfcommChannel connectAsyncToDevice:address withChannelID:port];
+        rfcommChannel.reset([[ObjCRFCOMMChannel alloc] initWithDelegate:this], RetainPolicy::noInitialRetain);
+        if (rfcommChannel)
+            status = [rfcommChannel.getAs<ObjCRFCOMMChannel>() connectAsyncToDevice:address withChannelID:port];
         else
             status = kIOReturnNoMemory;
     } else if (socketType == QBluetoothServiceInfo::L2capProtocol) {
-        l2capChannel.reset([[ObjCL2CAPChannel alloc] initWithDelegate:this]);
-        if (l2capChannel.data())
-            status = [l2capChannel connectAsyncToDevice:address withPSM:port];
+        l2capChannel.reset([[ObjCL2CAPChannel alloc] initWithDelegate:this], RetainPolicy::noInitialRetain);
+        if (l2capChannel)
+            status = [l2capChannel.getAs<ObjCL2CAPChannel>() connectAsyncToDevice:address withPSM:port];
         else
             status = kIOReturnNoMemory;
     }
@@ -148,104 +415,26 @@ void QBluetoothSocketPrivate::connectToService(const QBluetoothAddress &address,
     }
 }
 
-void QBluetoothSocketPrivate::close()
-{
-    // Can never be called while we're in connectToService:
-    Q_ASSERT_X(!isConnecting, Q_FUNC_INFO, "internal inconsistency - "
-               "still in connectToService()");
-
-    if (!txBuffer.size())
-        abort();
-}
-
-void QBluetoothSocketPrivate::abort()
-{
-    // Can never be called while we're in connectToService:
-    Q_ASSERT_X(!isConnecting, Q_FUNC_INFO, "internal inconsistency - "
-               "still in connectToService()");
-
-    if (socketType == QBluetoothServiceInfo::RfcommProtocol)
-        rfcommChannel.reset(nil);
-    else if (socketType == QBluetoothServiceInfo::L2capProtocol)
-        l2capChannel.reset(nil);
-}
-
-quint64 QBluetoothSocketPrivate::bytesAvailable() const
-{
-    return buffer.size();
-}
-
-QString QBluetoothSocketPrivate::peerName() const
-{
-    QT_BT_MAC_AUTORELEASEPOOL;
-
-    NSString *nsName = nil;
-    if (socketType == QBluetoothServiceInfo::RfcommProtocol) {
-        if (rfcommChannel.data())
-            nsName = [rfcommChannel peerName];
-    } else if (socketType == QBluetoothServiceInfo::L2capProtocol) {
-        if (l2capChannel.data())
-            nsName = [l2capChannel peerName];
-    }
-
-    if (nsName)
-        return QString::fromNSString(nsName);
-
-    return QString();
-}
-
-QBluetoothAddress QBluetoothSocketPrivate::peerAddress() const
-{
-    BluetoothDeviceAddress addr = {};
-    if (socketType == QBluetoothServiceInfo::RfcommProtocol) {
-        if (rfcommChannel.data())
-            addr = [rfcommChannel peerAddress];
-    } else if (socketType == QBluetoothServiceInfo::L2capProtocol) {
-        if (l2capChannel.data())
-            addr = [l2capChannel peerAddress];
-    }
-
-    return OSXBluetooth::qt_address(&addr);
-}
-
-quint16 QBluetoothSocketPrivate::peerPort() const
-{
-    if (socketType == QBluetoothServiceInfo::RfcommProtocol) {
-        if (rfcommChannel.data())
-            return [rfcommChannel getChannelID];
-    } else if (socketType == QBluetoothServiceInfo::L2capProtocol) {
-        if (l2capChannel.data())
-            return [l2capChannel getPSM];
-    }
-
-    return 0;
-}
-
-void QBluetoothSocketPrivate::_q_readNotify()
-{
-    // Noop.
-}
-
 void QBluetoothSocketPrivate::_q_writeNotify()
 {
     Q_ASSERT_X(socketType == QBluetoothServiceInfo::L2capProtocol
                || socketType == QBluetoothServiceInfo::RfcommProtocol,
                Q_FUNC_INFO, "invalid socket type");
-    Q_ASSERT_X(l2capChannel.data() || rfcommChannel.data(), Q_FUNC_INFO,
+    Q_ASSERT_X(l2capChannel || rfcommChannel, Q_FUNC_INFO,
                "invalid socket (no open channel)");
     Q_ASSERT_X(q_ptr, Q_FUNC_INFO, "invalid q_ptr (null)");
 
     if (txBuffer.size()) {
         const bool isL2CAP = socketType == QBluetoothServiceInfo::L2capProtocol;
         writeChunk.resize(isL2CAP ? std::numeric_limits<UInt16>::max() :
-                          [rfcommChannel getMTU]);
+                          [rfcommChannel.getAs<ObjCRFCOMMChannel>() getMTU]);
 
         const int size = txBuffer.read(writeChunk.data(), writeChunk.size());
         IOReturn status = kIOReturnError;
         if (!isL2CAP)
-            status = [rfcommChannel writeAsync:writeChunk.data() length:UInt16(size)];
+            status = [rfcommChannel.getAs<ObjCRFCOMMChannel>() writeAsync:writeChunk.data() length:UInt16(size)];
         else
-            status = [l2capChannel writeAsync:writeChunk.data() length:UInt16(size)];
+            status = [l2capChannel.getAs<ObjCL2CAPChannel>() writeAsync:writeChunk.data() length:UInt16(size)];
 
         if (status != kIOReturnSuccess) {
             errorString = QCoreApplication::translate(SOCKET, SOC_NETWORK_ERROR);
@@ -260,37 +449,39 @@ void QBluetoothSocketPrivate::_q_writeNotify()
         close();
 }
 
-bool QBluetoothSocketPrivate::setChannel(IOBluetoothRFCOMMChannel *channel)
+bool QBluetoothSocketPrivate::setRFCOMChannel(void *generic)
 {
     // A special case "constructor": on OS X we do not have a real listening socket,
     // instead a bluetooth server "listens" for channel open notifications and
     // creates (if asked by a user later) a "socket" object
     // for this connection. This function initializes
     // a "socket" from such an external channel (reported by a notification).
-
+    auto channel = static_cast<IOBluetoothRFCOMMChannel *>(generic);
     // It must be a newborn socket!
     Q_ASSERT_X(socketError == QBluetoothSocket::NoSocketError
                && state == QBluetoothSocket::UnconnectedState && !rfcommChannel && !l2capChannel,
                Q_FUNC_INFO, "unexpected socket state");
 
     openMode = QIODevice::ReadWrite;
-    rfcommChannel.reset([[ObjCRFCOMMChannel alloc] initWithDelegate:this channel:channel]);
-    if (rfcommChannel.data()) {// We do not handle errors, up to an external user.
+    rfcommChannel.reset([[ObjCRFCOMMChannel alloc] initWithDelegate:this channel:channel],
+                        RetainPolicy::noInitialRetain);
+    if (rfcommChannel) {// We do not handle errors, up to an external user.
         q_ptr->setOpenMode(QIODevice::ReadWrite);
         state = QBluetoothSocket::ConnectedState;
         socketType = QBluetoothServiceInfo::RfcommProtocol;
     }
 
-    return rfcommChannel.data();
+    return rfcommChannel;
 }
 
-bool QBluetoothSocketPrivate::setChannel(IOBluetoothL2CAPChannel *channel)
+bool QBluetoothSocketPrivate::setL2CAPChannel(void *generic)
 {
     // A special case "constructor": on OS X we do not have a real listening socket,
     // instead a bluetooth server "listens" for channel open notifications and
     // creates (if asked by a user later) a "socket" object
     // for this connection. This function initializes
     // a "socket" from such an external channel (reported by a notification).
+    auto channel = static_cast<IOBluetoothL2CAPChannel *>(generic);
 
     // It must be a newborn socket!
     Q_ASSERT_X(socketError == QBluetoothSocket::NoSocketError
@@ -298,16 +489,15 @@ bool QBluetoothSocketPrivate::setChannel(IOBluetoothL2CAPChannel *channel)
                Q_FUNC_INFO, "unexpected socket state");
 
     openMode = QIODevice::ReadWrite;
-    l2capChannel.reset([[ObjCL2CAPChannel alloc] initWithDelegate:this channel:channel]);
-    if (l2capChannel.data()) {// We do not handle errors, up to an external user.
+    l2capChannel.reset([[ObjCL2CAPChannel alloc] initWithDelegate:this channel:channel], RetainPolicy::noInitialRetain);
+    if (l2capChannel) {// We do not handle errors, up to an external user.
         q_ptr->setOpenMode(QIODevice::ReadWrite);
         state = QBluetoothSocket::ConnectedState;
         socketType = QBluetoothServiceInfo::L2capProtocol;
     }
 
-    return l2capChannel.data();
+    return l2capChannel;
 }
-
 
 void QBluetoothSocketPrivate::setChannelError(IOReturn errorCode)
 {
@@ -365,7 +555,7 @@ void QBluetoothSocketPrivate::readChannelData(void *data, std::size_t size)
     Q_ASSERT_X(q_ptr, Q_FUNC_INFO, "invalid q_ptr (null)");
 
     const char *src = static_cast<char *>(data);
-    char *dst = buffer.reserve(size);
+    char *dst = buffer.reserve(int(size));
     std::copy(src, src + size, dst);
 
     if (!isConnecting) {
@@ -378,450 +568,5 @@ void QBluetoothSocketPrivate::writeComplete()
 {
     _q_writeNotify();
 }
-
-qint64 QBluetoothSocketPrivate::writeData(const char *data, qint64 maxSize)
-{
-    Q_ASSERT_X(data, Q_FUNC_INFO, "invalid data (null)");
-    Q_ASSERT_X(maxSize > 0, Q_FUNC_INFO, "invalid data size");
-
-    if (state != QBluetoothSocket::ConnectedState) {
-        errorString = QCoreApplication::translate(SOCKET, SOC_NOWRITE);
-        q_ptr->setSocketError(QBluetoothSocket::OperationError);
-        return -1;
-    }
-
-    // We do not have a real socket API under the hood,
-    // IOBluetoothL2CAPChannel buffered (writeAsync).
-
-    if (!txBuffer.size())
-        QMetaObject::invokeMethod(this, "_q_writeNotify", Qt::QueuedConnection);
-
-    char *dst = txBuffer.reserve(maxSize);
-    std::copy(data, data + maxSize, dst);
-
-    return maxSize;
-}
-
-QBluetoothSocket::QBluetoothSocket(QBluetoothServiceInfo::Protocol socketType, QObject *parent)
-  : QIODevice(parent),
-    d_ptr(new QBluetoothSocketPrivate)
-{
-    d_ptr->q_ptr = this;
-    d_ptr->socketType = socketType;
-
-    setOpenMode(NotOpen);
-}
-
-QBluetoothSocket::QBluetoothSocket(QObject *parent)
-  : QIODevice(parent),
-    d_ptr(new QBluetoothSocketPrivate)
-{
-    d_ptr->q_ptr = this;
-    setOpenMode(NotOpen);
-}
-
-QBluetoothSocket::~QBluetoothSocket()
-{
-    delete d_ptr;
-}
-
-bool QBluetoothSocket::isSequential() const
-{
-    return true;
-}
-
-qint64 QBluetoothSocket::bytesAvailable() const
-{
-    return QIODevice::bytesAvailable() + d_ptr->bytesAvailable();
-}
-
-qint64 QBluetoothSocket::bytesToWrite() const
-{
-    return d_ptr->txBuffer.size();
-}
-
-void QBluetoothSocket::connectToService(const QBluetoothServiceInfo &service, OpenMode openMode)
-{
-    OSXBluetooth::qt_test_iobluetooth_runloop();
-
-    if (state() != UnconnectedState && state() != ServiceLookupState) {
-        qCWarning(QT_BT_OSX)  << "called on a busy socket";
-        d_ptr->errorString = QCoreApplication::translate(SOCKET, SOC_CONNECT_IN_PROGRESS);
-        setSocketError(OperationError);
-        return;
-    }
-
-    // Report this problem early, potentially avoid device discovery:
-    if (service.socketProtocol() == QBluetoothServiceInfo::UnknownProtocol) {
-        qCWarning(QT_BT_OSX) << Q_FUNC_INFO << "cannot connect with 'UnknownProtocol' type";
-        d_ptr->errorString = QCoreApplication::translate(SOCKET, SOC_NETWORK_ERROR);
-        setSocketError(QBluetoothSocket::UnsupportedProtocolError);
-        return;
-    }
-
-    d_ptr->socketType = service.socketProtocol();
-
-    if (service.protocolServiceMultiplexer() > 0) {
-        d_ptr->connectToService(service.device().address(),
-                                service.protocolServiceMultiplexer(),
-                                openMode);
-    } else if (service.serverChannel() > 0) {
-        d_ptr->connectToService(service.device().address(),
-                                service.serverChannel(), openMode);
-    } else {
-        // Try service discovery.
-        if (service.serviceUuid().isNull()) {
-            qCWarning(QT_BT_OSX) << "No port, no PSM, and no "
-                                    "UUID provided, unable to connect";
-            return;
-        }
-
-        doDeviceDiscovery(service, openMode);
-    }
-}
-
-void QBluetoothSocket::connectToService(const QBluetoothAddress &address, const QBluetoothUuid &uuid,
-                                        OpenMode openMode)
-{
-    OSXBluetooth::qt_test_iobluetooth_runloop();
-
-    // Report this problem early, avoid device discovery:
-    if (socketType() == QBluetoothServiceInfo::UnknownProtocol) {
-        qCWarning(QT_BT_OSX) << Q_FUNC_INFO << "cannot connect with 'UnknownProtocol' type";
-        d_ptr->errorString = QCoreApplication::translate(SOCKET, SOC_NETWORK_ERROR);
-        setSocketError(QBluetoothSocket::UnsupportedProtocolError);
-        return;
-    }
-
-    if (state() != QBluetoothSocket::UnconnectedState) {
-        qCWarning(QT_BT_OSX) << "called on a busy socket";
-        d_ptr->errorString = QCoreApplication::translate(SOCKET, SOC_CONNECT_IN_PROGRESS);
-        setSocketError(QBluetoothSocket::OperationError);
-        return;
-    }
-
-    QBluetoothDeviceInfo device(address, QString(), QBluetoothDeviceInfo::MiscellaneousDevice);
-    QBluetoothServiceInfo service;
-    service.setDevice(device);
-    service.setServiceUuid(uuid);
-    doDeviceDiscovery(service, openMode);
-}
-
-void QBluetoothSocket::connectToService(const QBluetoothAddress &address, quint16 port,
-                                        OpenMode openMode)
-{
-    OSXBluetooth::qt_test_iobluetooth_runloop();
-
-    if (socketType() == QBluetoothServiceInfo::UnknownProtocol) {
-        qCWarning(QT_BT_OSX) << Q_FUNC_INFO << "cannot connect with 'UnknownProtocol' type";
-        d_ptr->errorString = QCoreApplication::translate(SOCKET, SOC_NETWORK_ERROR);
-        setSocketError(QBluetoothSocket::UnsupportedProtocolError);
-        return;
-    }
-
-    if (state() != QBluetoothSocket::UnconnectedState) {
-        qCWarning(QT_BT_OSX) << "called on a busy socket";
-        d_ptr->errorString = QCoreApplication::translate(SOCKET, SOC_CONNECT_IN_PROGRESS);
-        setSocketError(OperationError);
-        return;
-    }
-
-    setOpenMode(openMode);
-    d_ptr->connectToService(address, port, openMode);
-}
-
-QBluetoothServiceInfo::Protocol QBluetoothSocket::socketType() const
-{
-    return d_ptr->socketType;
-}
-
-QBluetoothSocket::SocketState QBluetoothSocket::state() const
-{
-    return d_ptr->state;
-}
-
-QBluetoothSocket::SocketError QBluetoothSocket::error() const
-{
-    return d_ptr->socketError;
-}
-
-QString QBluetoothSocket::errorString() const
-{
-    return d_ptr->errorString;
-}
-
-void QBluetoothSocket::setSocketState(QBluetoothSocket::SocketState state)
-{
-    const SocketState oldState = d_ptr->state;
-    d_ptr->state = state;
-    if (oldState != d_ptr->state)
-        emit stateChanged(state);
-
-    if (state == ListeningState) {
-        // We can register for L2CAP/RFCOMM open notifications,
-        // that's different from 'listen' and is implemented
-        // in QBluetoothServer.
-        qCWarning(QT_BT_OSX) << "listening sockets are not supported";
-    }
-}
-
-bool QBluetoothSocket::canReadLine() const
-{
-    return d_ptr->buffer.canReadLine() || QIODevice::canReadLine();
-}
-
-void QBluetoothSocket::setSocketError(QBluetoothSocket::SocketError socketError)
-{
-    d_ptr->socketError = socketError;
-    emit error(socketError);
-}
-
-void QBluetoothSocket::doDeviceDiscovery(const QBluetoothServiceInfo &service, OpenMode openMode)
-{
-    OSXBluetooth::qt_test_iobluetooth_runloop();
-
-    setSocketState(ServiceLookupState);
-
-    if (d_ptr->discoveryAgent)
-        d_ptr->discoveryAgent->stop();
-
-    d_ptr->discoveryAgent.reset(new QBluetoothServiceDiscoveryAgent(this));
-    d_ptr->discoveryAgent->setRemoteAddress(service.device().address());
-
-    connect(d_ptr->discoveryAgent.data(), SIGNAL(serviceDiscovered(QBluetoothServiceInfo)),
-            this, SLOT(serviceDiscovered(QBluetoothServiceInfo)));
-    connect(d_ptr->discoveryAgent.data(), SIGNAL(finished()),
-            this, SLOT(discoveryFinished()));
-
-    d_ptr->openMode = openMode;
-
-    if (!service.serviceUuid().isNull())
-        d_ptr->discoveryAgent->setUuidFilter(service.serviceUuid());
-
-    if (!service.serviceClassUuids().isEmpty())
-        d_ptr->discoveryAgent->setUuidFilter(service.serviceClassUuids());
-
-    Q_ASSERT_X(!d_ptr->discoveryAgent->uuidFilter().isEmpty(), Q_FUNC_INFO,
-               "invalid service info");
-
-    d_ptr->discoveryAgent->start(QBluetoothServiceDiscoveryAgent::FullDiscovery);
-}
-
-void QBluetoothSocket::serviceDiscovered(const QBluetoothServiceInfo &service)
-{
-    if (service.protocolServiceMultiplexer() != 0 || service.serverChannel() != 0) {
-        d_ptr->discoveryAgent->stop();
-        connectToService(service, d_ptr->openMode);
-    }
-}
-
-void QBluetoothSocket::discoveryFinished()
-{
-    d_ptr->errorString = QCoreApplication::translate(SOCKET, SOC_SERVICE_NOT_FOUND);
-    setSocketState(UnconnectedState);
-    setSocketError(ServiceNotFoundError);
-}
-
-void QBluetoothSocket::abort()
-{
-    if (state() == UnconnectedState)
-        return;
-
-    setOpenMode(NotOpen);
-
-    if (state() == ServiceLookupState && d_ptr->discoveryAgent) {
-        d_ptr->discoveryAgent->disconnect();
-        d_ptr->discoveryAgent->stop();
-        d_ptr->discoveryAgent.reset();
-    }
-
-    setSocketState(QBluetoothSocket::ClosingState);
-    d_ptr->abort();
-
-    setSocketState(QBluetoothSocket::UnconnectedState);
-    emit readChannelFinished();
-    emit disconnected();
-}
-
-void QBluetoothSocket::disconnectFromService()
-{
-    close();
-}
-
-QString QBluetoothSocket::localName() const
-{
-    const QBluetoothLocalDevice device;
-    return device.name();
-}
-
-QBluetoothAddress QBluetoothSocket::localAddress() const
-{
-    const QBluetoothLocalDevice device;
-    return device.address();
-}
-
-quint16 QBluetoothSocket::localPort() const
-{
-    return 0;
-}
-
-QString QBluetoothSocket::peerName() const
-{
-    return d_ptr->peerName();
-}
-
-QBluetoothAddress QBluetoothSocket::peerAddress() const
-{
-    return d_ptr->peerAddress();
-}
-
-quint16 QBluetoothSocket::peerPort() const
-{
-    return d_ptr->peerPort();
-}
-
-qint64 QBluetoothSocket::writeData(const char *data, qint64 maxSize)
-{
-    if (!data || maxSize <= 0) {
-        d_ptr->errorString = QCoreApplication::translate(SOCKET, SOC_INVAL_DATASIZE);
-        setSocketError(QBluetoothSocket::OperationError);
-        return -1;
-    }
-
-    return d_ptr->writeData(data, maxSize);
-}
-
-qint64 QBluetoothSocketPrivate::readData(char *data, qint64 maxSize)
-{
-    if (state != QBluetoothSocket::ConnectedState) {
-        errorString = QCoreApplication::translate(SOCKET, SOC_NOREAD);
-        q_ptr->setSocketError(QBluetoothSocket::OperationError);
-        return -1;
-    }
-
-    if (!buffer.isEmpty())
-        return buffer.read(data, maxSize);
-
-    return 0;
-}
-
-qint64 QBluetoothSocket::readData(char *data, qint64 maxSize)
-{
-    return d_ptr->readData(data, maxSize);
-}
-
-void QBluetoothSocket::close()
-{
-    if (state() == UnconnectedState)
-        return;
-
-    setOpenMode(NotOpen);
-
-    if (state() == ServiceLookupState && d_ptr->discoveryAgent) {
-        d_ptr->discoveryAgent->disconnect();
-        d_ptr->discoveryAgent->stop();
-        d_ptr->discoveryAgent.reset();
-    }
-
-    setSocketState(ClosingState);
-
-    d_ptr->close();
-
-    setSocketState(UnconnectedState);
-    emit readChannelFinished();
-    emit disconnected();
-}
-
-bool QBluetoothSocket::setSocketDescriptor(int socketDescriptor, QBluetoothServiceInfo::Protocol socketType,
-                                           SocketState socketState, OpenMode openMode)
-{
-    Q_UNUSED(socketDescriptor)
-    Q_UNUSED(socketType)
-    Q_UNUSED(socketState)
-    Q_UNUSED(openMode)
-
-    // Noop on OS X.
-    return true;
-}
-
-int QBluetoothSocket::socketDescriptor() const
-{
-    return -1;
-}
-
-/* not supported on OS X */
-void QBluetoothSocket::setPreferredSecurityFlags(QBluetooth::SecurityFlags flags)
-{
-    Q_UNUSED(flags)
-}
-
-/* not supported on OS X - platform always uses encryption */
-QBluetooth::SecurityFlags QBluetoothSocket::preferredSecurityFlags() const
-{
-    return QBluetooth::Secure;
-}
-
-#ifndef QT_NO_DEBUG_STREAM
-
-QDebug operator<<(QDebug debug, QBluetoothSocket::SocketError error)
-{
-    switch (error) {
-    case QBluetoothSocket::UnknownSocketError:
-        debug << "QBluetoothSocket::UnknownSocketError";
-        break;
-    case QBluetoothSocket::HostNotFoundError:
-        debug << "QBluetoothSocket::HostNotFoundError";
-        break;
-    case QBluetoothSocket::RemoteHostClosedError:
-        debug << "QBluetoothSocket::RemoteHostClosedError";
-        break;
-    case QBluetoothSocket::ServiceNotFoundError:
-        debug << "QBluetoothSocket::ServiceNotFoundError";
-        break;
-    case QBluetoothSocket::NetworkError:
-        debug << "QBluetoothSocket::NetworkError";
-        break;
-    case QBluetoothSocket::UnsupportedProtocolError:
-        debug << "QBluetoothSocket::UnsupportedProtocolError";
-        break;
-    default:
-        debug << "QBluetoothSocket::SocketError(" << (int)error << ")";
-    }
-    return debug;
-}
-
-QDebug operator<<(QDebug debug, QBluetoothSocket::SocketState state)
-{
-    switch (state) {
-    case QBluetoothSocket::UnconnectedState:
-        debug << "QBluetoothSocket::UnconnectedState";
-        break;
-    case QBluetoothSocket::ConnectingState:
-        debug << "QBluetoothSocket::ConnectingState";
-        break;
-    case QBluetoothSocket::ConnectedState:
-        debug << "QBluetoothSocket::ConnectedState";
-        break;
-    case QBluetoothSocket::BoundState:
-        debug << "QBluetoothSocket::BoundState";
-        break;
-    case QBluetoothSocket::ClosingState:
-        debug << "QBluetoothSocket::ClosingState";
-        break;
-    case QBluetoothSocket::ListeningState:
-        debug << "QBluetoothSocket::ListeningState";
-        break;
-    case QBluetoothSocket::ServiceLookupState:
-        debug << "QBluetoothSocket::ServiceLookupState";
-        break;
-    default:
-        debug << "QBluetoothSocket::SocketState(" << (int)state << ")";
-    }
-    return debug;
-}
-
-#endif // QT_NO_DEBUG_STREAM
-
-#include "moc_qbluetoothsocket.cpp"
 
 QT_END_NAMESPACE

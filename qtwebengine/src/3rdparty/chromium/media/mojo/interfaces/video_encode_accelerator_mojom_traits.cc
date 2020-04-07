@@ -117,6 +117,38 @@ bool StructTraits<media::mojom::Vp8MetadataDataView, media::Vp8Metadata>::Read(
 }
 
 // static
+media::mojom::VideoEncodeAcceleratorConfig::StorageType
+EnumTraits<media::mojom::VideoEncodeAcceleratorConfig::StorageType,
+           media::VideoEncodeAccelerator::Config::StorageType>::
+    ToMojom(media::VideoEncodeAccelerator::Config::StorageType input) {
+  switch (input) {
+    case media::VideoEncodeAccelerator::Config::StorageType::kDmabuf:
+      return media::mojom::VideoEncodeAcceleratorConfig::StorageType::kDmabuf;
+    case media::VideoEncodeAccelerator::Config::StorageType::kShmem:
+      return media::mojom::VideoEncodeAcceleratorConfig::StorageType::kShmem;
+  }
+  NOTREACHED();
+  return media::mojom::VideoEncodeAcceleratorConfig::StorageType::kShmem;
+}
+
+// static
+bool EnumTraits<media::mojom::VideoEncodeAcceleratorConfig::StorageType,
+                media::VideoEncodeAccelerator::Config::StorageType>::
+    FromMojom(media::mojom::VideoEncodeAcceleratorConfig::StorageType input,
+              media::VideoEncodeAccelerator::Config::StorageType* output) {
+  switch (input) {
+    case media::mojom::VideoEncodeAcceleratorConfig::StorageType::kShmem:
+      *output = media::VideoEncodeAccelerator::Config::StorageType::kShmem;
+      return true;
+    case media::mojom::VideoEncodeAcceleratorConfig::StorageType::kDmabuf:
+      *output = media::VideoEncodeAccelerator::Config::StorageType::kDmabuf;
+      return true;
+  }
+  NOTREACHED();
+  return false;
+}
+
+// static
 media::mojom::VideoEncodeAcceleratorConfig::ContentType
 EnumTraits<media::mojom::VideoEncodeAcceleratorConfig::ContentType,
            media::VideoEncodeAccelerator::Config::ContentType>::
@@ -168,9 +200,20 @@ bool StructTraits<media::mojom::VideoEncodeAcceleratorConfigDataView,
   if (input.has_initial_framerate())
     initial_framerate = input.initial_framerate();
 
+  base::Optional<uint32_t> gop_length;
+  if (input.has_gop_length())
+    gop_length = input.gop_length();
+
   base::Optional<uint8_t> h264_output_level;
   if (input.has_h264_output_level())
     h264_output_level = input.h264_output_level();
+
+  base::Optional<media::VideoEncodeAccelerator::Config::StorageType>
+      storage_type;
+  if (input.has_storage_type()) {
+    if (!input.ReadStorageType(&storage_type))
+      return false;
+  }
 
   media::VideoEncodeAccelerator::Config::ContentType content_type;
   if (!input.ReadContentType(&content_type))
@@ -178,7 +221,8 @@ bool StructTraits<media::mojom::VideoEncodeAcceleratorConfigDataView,
 
   *output = media::VideoEncodeAccelerator::Config(
       input_format, input_visible_size, output_profile, input.initial_bitrate(),
-      initial_framerate, h264_output_level, base::nullopt, content_type);
+      initial_framerate, gop_length, h264_output_level, storage_type,
+      content_type);
   return true;
 }
 

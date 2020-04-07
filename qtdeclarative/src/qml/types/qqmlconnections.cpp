@@ -44,6 +44,7 @@
 #include <private/qqmlboundsignal_p.h>
 #include <qqmlcontext.h>
 #include <private/qqmlcontext_p.h>
+#include <private/qqmlvmemetaobject_p.h>
 #include <qqmlinfo.h>
 
 #include <QtCore/qdebug.h>
@@ -66,7 +67,7 @@ public:
     bool ignoreUnknownSignals;
     bool componentcomplete;
 
-    QQmlRefPointer<QV4::CompiledData::CompilationUnit> compilationUnit;
+    QQmlRefPointer<QV4::ExecutableCompilationUnit> compilationUnit;
     QList<const QV4::CompiledData::Binding *> bindings;
 };
 
@@ -105,7 +106,7 @@ public:
     \qml
     MouseArea {
         Connections {
-            onClicked: foo(parameters)
+            function onClicked(mouse) { foo(mouse) }
         }
     }
     \endqml
@@ -122,7 +123,7 @@ public:
     \qml
     Connections {
         target: area
-        onClicked: foo(parameters)
+        function onClicked(mouse) { foo(mouse) }
     }
     \endqml
 
@@ -231,13 +232,14 @@ void QQmlConnections::setIgnoreUnknownSignals(bool ignore)
     d->ignoreUnknownSignals = ignore;
 }
 
-void QQmlConnectionsParser::verifyBindings(const QQmlRefPointer<QV4::CompiledData::CompilationUnit> &compilationUnit, const QList<const QV4::CompiledData::Binding *> &props)
+void QQmlConnectionsParser::verifyBindings(const QQmlRefPointer<QV4::ExecutableCompilationUnit> &compilationUnit, const QList<const QV4::CompiledData::Binding *> &props)
 {
     for (int ii = 0; ii < props.count(); ++ii) {
         const QV4::CompiledData::Binding *binding = props.at(ii);
         const QString &propName = compilationUnit->stringAt(binding->propertyNameIndex);
 
-        if (!propName.startsWith(QLatin1String("on")) || (propName.length() < 3 || !propName.at(2).isUpper())) {
+        const bool thirdCharacterIsValid = (propName.length() >= 2) && (propName.at(2).isUpper() || propName.at(2) == '_');
+        if (!propName.startsWith(QLatin1String("on")) || !thirdCharacterIsValid) {
             error(props.at(ii), QQmlConnections::tr("Cannot assign to non-existent property \"%1\"").arg(propName));
             return;
         }
@@ -256,7 +258,7 @@ void QQmlConnectionsParser::verifyBindings(const QQmlRefPointer<QV4::CompiledDat
     }
 }
 
-void QQmlConnectionsParser::applyBindings(QObject *object, const QQmlRefPointer<QV4::CompiledData::CompilationUnit> &compilationUnit, const QList<const QV4::CompiledData::Binding *> &bindings)
+void QQmlConnectionsParser::applyBindings(QObject *object, const QQmlRefPointer<QV4::ExecutableCompilationUnit> &compilationUnit, const QList<const QV4::CompiledData::Binding *> &bindings)
 {
     QQmlConnectionsPrivate *p =
         static_cast<QQmlConnectionsPrivate *>(QObjectPrivate::get(object));
@@ -270,8 +272,76 @@ void QQmlConnections::connectSignals()
     if (!d->componentcomplete || (d->targetSet && !target()))
         return;
 
-    if (d->bindings.isEmpty())
+    if (d->bindings.isEmpty()) {
+        connectSignalsToMethods();
+    } else {
+#if QT_VERSION >= QT_VERSION_CHECK(5, 15, 0)
+        qmlWarning(this) << tr("Implicitly defined onFoo properties in Connections are deprecated. "
+                               "Use this syntax instead: function onFoo(<arguments>) { ... }");
+#endif
+        connectSignalsToBindings();
+    }
+}
+
+void QQmlConnections::connectSignalsToMethods()
+{
+    Q_D(QQmlConnections);
+
+    QObject *target = this->target();
+    QQmlData *ddata = QQmlData::get(this);
+    if (!ddata)
         return;
+
+    QV4::ExecutionEngine *engine = ddata->context->engine->handle();
+
+    QQmlContextData *ctxtdata = ddata->outerContext;
+    for (int i = ddata->propertyCache->methodOffset(),
+             end = ddata->propertyCache->methodOffset() + ddata->propertyCache->methodCount();
+         i < end;
+         ++i) {
+
+        QQmlPropertyData *handler = ddata->propertyCache->method(i);
+        if (!handler || !handler->isVMEFunction())
+            continue;
+
+        const QString propName = handler->name(this);
+
+        QQmlProperty prop(target, propName);
+        if (prop.isValid() && (prop.type() & QQmlProperty::SignalProperty)) {
+            int signalIndex = QQmlPropertyPrivate::get(prop)->signalIndex();
+            auto *signal = new QQmlBoundSignal(target, signalIndex, this, qmlEngine(this));
+            signal->setEnabled(d->enabled);
+
+            QV4::Scope scope(engine);
+            QV4::ScopedContext global(scope, engine->rootContext());
+
+            QQmlVMEMetaObject *vmeMetaObject = QQmlVMEMetaObject::get(this);
+            Q_ASSERT(vmeMetaObject); // the fact we found the property above should guarentee this
+
+            QV4::ScopedFunctionObject method(scope, vmeMetaObject->vmeMethod(handler->coreIndex()));
+
+            QQmlBoundSignalExpression *expression =
+                    ctxtdata ? new QQmlBoundSignalExpression(
+                                       target, signalIndex, ctxtdata, this,
+                                       method->as<QV4::FunctionObject>()->function())
+                             : nullptr;
+
+            signal->takeExpression(expression);
+            d->boundsignals += signal;
+        } else if (!d->ignoreUnknownSignals
+                   && propName.startsWith(QLatin1String("on")) && propName.length() > 2
+                   && propName.at(2).isUpper()) {
+            qmlWarning(this) << tr("Detected function \"%1\" in Connections element. "
+                                   "This is probably intended to be a signal handler but no "
+                                   "signal of the target matches the name.").arg(propName);
+        }
+    }
+}
+
+// TODO: Drop this as soon as we can
+void QQmlConnections::connectSignalsToBindings()
+{
+    Q_D(QQmlConnections);
     QObject *target = this->target();
     QQmlData *ddata = QQmlData::get(this);
     QQmlContextData *ctxtdata = ddata ? ddata->outerContext : nullptr;

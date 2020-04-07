@@ -6,6 +6,7 @@
 
 #include <stddef.h>
 
+#include <utility>
 #include <vector>
 
 #include "base/logging.h"
@@ -125,6 +126,11 @@ rtc::scoped_refptr<webrtc::MediaStreamTrackInterface> FakeRtpSender::track()
   return track_;
 }
 
+rtc::scoped_refptr<webrtc::DtlsTransportInterface>
+FakeRtpSender::dtls_transport() const {
+  return transport_;
+}
+
 uint32_t FakeRtpSender::ssrc() const {
   NOTIMPLEMENTED();
   return 0;
@@ -149,7 +155,7 @@ std::vector<webrtc::RtpEncodingParameters> FakeRtpSender::init_send_encodings()
   return {};
 }
 
-webrtc::RtpParameters FakeRtpSender::GetParameters() {
+webrtc::RtpParameters FakeRtpSender::GetParameters() const {
   NOTIMPLEMENTED();
   return webrtc::RtpParameters();
 }
@@ -175,6 +181,11 @@ FakeRtpReceiver::~FakeRtpReceiver() {}
 rtc::scoped_refptr<webrtc::MediaStreamTrackInterface> FakeRtpReceiver::track()
     const {
   return track_;
+}
+
+rtc::scoped_refptr<webrtc::DtlsTransportInterface>
+FakeRtpReceiver::dtls_transport() const {
+  return transport_;
 }
 
 std::vector<rtc::scoped_refptr<webrtc::MediaStreamInterface>>
@@ -214,6 +225,11 @@ void FakeRtpReceiver::SetObserver(
   NOTIMPLEMENTED();
 }
 
+void FakeRtpReceiver::SetJitterBufferMinimumDelay(
+    absl::optional<double> delay_seconds) {
+  NOTIMPLEMENTED();
+}
+
 std::vector<webrtc::RtpSource> FakeRtpReceiver::GetSources() const {
   NOTIMPLEMENTED();
   return std::vector<webrtc::RtpSource>();
@@ -221,8 +237,8 @@ std::vector<webrtc::RtpSource> FakeRtpReceiver::GetSources() const {
 
 FakeRtpTransceiver::FakeRtpTransceiver(
     cricket::MediaType media_type,
-    rtc::scoped_refptr<webrtc::RtpSenderInterface> sender,
-    rtc::scoped_refptr<webrtc::RtpReceiverInterface> receiver,
+    rtc::scoped_refptr<FakeRtpSender> sender,
+    rtc::scoped_refptr<FakeRtpReceiver> receiver,
     base::Optional<std::string> mid,
     bool stopped,
     webrtc::RtpTransceiverDirection direction,
@@ -230,7 +246,7 @@ FakeRtpTransceiver::FakeRtpTransceiver(
     : media_type_(media_type),
       sender_(std::move(sender)),
       receiver_(std::move(receiver)),
-      mid_(ToAbslOptional(mid)),
+      mid_(ToAbslOptional(std::move(mid))),
       stopped_(stopped),
       direction_(direction),
       current_direction_(ToAbslOptional(current_direction)) {}
@@ -277,6 +293,23 @@ void FakeRtpTransceiver::Stop() {
   NOTIMPLEMENTED();
 }
 
+void FakeRtpTransceiver::SetTransport(
+    rtc::scoped_refptr<webrtc::DtlsTransportInterface> transport) {
+  sender_->SetTransport(transport);
+  receiver_->SetTransport(transport);
+}
+
+FakeDtlsTransport::FakeDtlsTransport() {}
+
+rtc::scoped_refptr<webrtc::IceTransportInterface>
+FakeDtlsTransport::ice_transport() {
+  return nullptr;
+}
+
+webrtc::DtlsTransportInformation FakeDtlsTransport::Information() {
+  return webrtc::DtlsTransportInformation(webrtc::DtlsTransportState::kNew);
+}
+
 const char MockPeerConnectionImpl::kDummyOffer[] = "dummy offer";
 const char MockPeerConnectionImpl::kDummyAnswer[] = "dummy answer";
 
@@ -318,7 +351,7 @@ MockPeerConnectionImpl::AddTrack(
       return webrtc::RTCError(webrtc::RTCErrorType::INVALID_PARAMETER);
   }
   for (const auto& stream_id : stream_ids) {
-    if (!base::ContainsValue(local_stream_ids_, stream_id)) {
+    if (!base::Contains(local_stream_ids_, stream_id)) {
       stream_label_ = stream_id;
       local_stream_ids_.push_back(stream_id);
     }

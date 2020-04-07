@@ -13,7 +13,6 @@
 #include "base/single_thread_task_runner.h"
 #include "base/strings/string_util.h"
 #include "base/threading/thread_task_runner_handle.h"
-#include "components/data_use_measurement/core/data_use_user_data.h"
 #include "components/google/core/browser/google_pref_names.h"
 #include "components/google/core/common/google_switches.h"
 #include "components/google/core/common/google_util.h"
@@ -28,8 +27,6 @@ const char GoogleURLTracker::kDefaultGoogleHomepage[] =
     "https://www.google.com/";
 const char GoogleURLTracker::kSearchDomainCheckURL[] =
     "https://www.google.com/searchdomaincheck?format=domain&type=chrome";
-const base::Feature GoogleURLTracker::kNoSearchDomainCheck{
-    "NoSearchDomainCheck", base::FEATURE_DISABLED_BY_DEFAULT};
 
 GoogleURLTracker::GoogleURLTracker(
     std::unique_ptr<GoogleURLTrackerClient> client,
@@ -43,8 +40,7 @@ GoogleURLTracker::GoogleURLTracker(
               : client_->GetPrefs()->GetString(prefs::kLastKnownGoogleURL)),
       in_startup_sleep_(true),
       already_loaded_(false),
-      need_to_load_(false),
-      weak_ptr_factory_(this) {
+      need_to_load_(false) {
   network_connection_tracker_->AddNetworkConnectionObserver(this);
   client_->set_google_url_tracker(this);
 

@@ -59,6 +59,7 @@ namespace Animation {
 
 class Handler;
 class FindGraphJob;
+class LoadAnimationClipJobPrivate;
 
 class LoadAnimationClipJob : public Qt3DCore::QAspectJob
 {

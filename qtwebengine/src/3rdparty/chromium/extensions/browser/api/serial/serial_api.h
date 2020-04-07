@@ -91,7 +91,7 @@ class SerialConnectFunction : public SerialAsyncApiFunction {
 
 class SerialUpdateFunction : public SerialAsyncApiFunction {
  public:
-  DECLARE_EXTENSION_FUNCTION("serial.update", SERIAL_UPDATE);
+  DECLARE_EXTENSION_FUNCTION("serial.update", SERIAL_UPDATE)
 
   SerialUpdateFunction();
 
@@ -119,9 +119,11 @@ class SerialDisconnectFunction : public SerialAsyncApiFunction {
 
   // AsyncApiFunction:
   bool Prepare() override;
-  void Work() override;
+  void AsyncWorkStart() override;
 
  private:
+  void OnCloseComplete();
+
   std::unique_ptr<serial::Disconnect::Params> params_;
 };
 
@@ -165,7 +167,7 @@ class SerialGetInfoFunction : public SerialAsyncApiFunction {
 
 class SerialGetConnectionsFunction : public SerialAsyncApiFunction {
  public:
-  DECLARE_EXTENSION_FUNCTION("serial.getConnections", SERIAL_GETCONNECTIONS);
+  DECLARE_EXTENSION_FUNCTION("serial.getConnections", SERIAL_GETCONNECTIONS)
 
   SerialGetConnectionsFunction();
 

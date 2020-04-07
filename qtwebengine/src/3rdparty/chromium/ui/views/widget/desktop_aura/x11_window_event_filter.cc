@@ -4,7 +4,6 @@
 
 #include "ui/views/widget/desktop_aura/x11_window_event_filter.h"
 
-#include "services/ws/public/mojom/window_tree_constants.mojom.h"
 #include "ui/aura/client/aura_constants.h"
 #include "ui/aura/window.h"
 #include "ui/aura/window_delegate.h"
@@ -26,15 +25,15 @@ namespace {
 
 // These constants are defined in the Extended Window Manager Hints
 // standard...and aren't in any header that I can find.
-const int k_NET_WM_MOVERESIZE_SIZE_TOPLEFT =     0;
-const int k_NET_WM_MOVERESIZE_SIZE_TOP =         1;
-const int k_NET_WM_MOVERESIZE_SIZE_TOPRIGHT =    2;
-const int k_NET_WM_MOVERESIZE_SIZE_RIGHT =       3;
-const int k_NET_WM_MOVERESIZE_SIZE_BOTTOMRIGHT = 4;
-const int k_NET_WM_MOVERESIZE_SIZE_BOTTOM =      5;
-const int k_NET_WM_MOVERESIZE_SIZE_BOTTOMLEFT =  6;
-const int k_NET_WM_MOVERESIZE_SIZE_LEFT =        7;
-const int k_NET_WM_MOVERESIZE_MOVE =             8;
+constexpr int k_NET_WM_MOVERESIZE_SIZE_TOPLEFT = 0;
+constexpr int k_NET_WM_MOVERESIZE_SIZE_TOP = 1;
+constexpr int k_NET_WM_MOVERESIZE_SIZE_TOPRIGHT = 2;
+constexpr int k_NET_WM_MOVERESIZE_SIZE_RIGHT = 3;
+constexpr int k_NET_WM_MOVERESIZE_SIZE_BOTTOMRIGHT = 4;
+constexpr int k_NET_WM_MOVERESIZE_SIZE_BOTTOM = 5;
+constexpr int k_NET_WM_MOVERESIZE_SIZE_BOTTOMLEFT = 6;
+constexpr int k_NET_WM_MOVERESIZE_SIZE_LEFT = 7;
+constexpr int k_NET_WM_MOVERESIZE_MOVE = 8;
 
 }  // namespace
 
@@ -47,8 +46,7 @@ X11WindowEventFilter::X11WindowEventFilter(
       xwindow_(window_tree_host->AsWindowTreeHost()->GetAcceleratedWidget()),
       x_root_window_(DefaultRootWindow(xdisplay_)) {}
 
-X11WindowEventFilter::~X11WindowEventFilter() {
-}
+X11WindowEventFilter::~X11WindowEventFilter() = default;
 
 void X11WindowEventFilter::MaybeDispatchHostWindowDragMovement(
     int hittest,

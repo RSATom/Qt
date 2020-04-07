@@ -339,6 +339,23 @@ struct TCBPoint {
 };
 Q_DECLARE_TYPEINFO(TCBPoint, Q_PRIMITIVE_TYPE);
 
+QDataStream &operator<<(QDataStream &stream, const TCBPoint &point)
+{
+    stream << point._point
+           << point._t
+           << point._c
+           << point._b;
+    return stream;
+}
+
+QDataStream &operator>>(QDataStream &stream, TCBPoint &point)
+{
+    stream >> point._point
+           >> point._t
+           >> point._c
+           >> point._b;
+    return stream;
+}
 
 typedef QVector<TCBPoint> TCBPoints;
 
@@ -362,6 +379,34 @@ public:
     TCBPoints _tcbPoints;
 
 };
+
+QDataStream &operator<<(QDataStream &stream, QEasingCurveFunction *func)
+{
+    if (func) {
+        stream << func->_p;
+        stream << func->_a;
+        stream << func->_o;
+        if (stream.version() > QDataStream::Qt_5_12) {
+            stream << func->_bezierCurves;
+            stream << func->_tcbPoints;
+        }
+    }
+    return stream;
+}
+
+QDataStream &operator>>(QDataStream &stream, QEasingCurveFunction *func)
+{
+    if (func) {
+        stream >> func->_p;
+        stream >> func->_a;
+        stream >> func->_o;
+        if (stream.version() > QDataStream::Qt_5_12) {
+            stream >> func->_bezierCurves;
+            stream >> func->_tcbPoints;
+        }
+    }
+    return stream;
+}
 
 static QEasingCurve::EasingFunction curveToFunc(QEasingCurve::Type curve);
 
@@ -538,6 +583,13 @@ struct BezierEase : public QEasingCurveFunction
             qWarning("QEasingCurve: Invalid bezier curve");
             return x;
         }
+
+        // The bezier computation is not always precise on the endpoints, so handle explicitly
+        if (!(x > 0))
+            return 0;
+        if (!(x < 1))
+            return 1;
+
         SingleCubicBezier *singleCubicBezier = 0;
         getBezierSegment(singleCubicBezier, x);
 
@@ -862,6 +914,10 @@ struct TCBEase : public BezierEase
         return BezierEase::value(x);
     }
 
+    QEasingCurveFunction *copy() const override
+    {
+        return new TCBEase{*this};
+    }
 };
 
 struct ElasticEase : public QEasingCurveFunction
@@ -949,6 +1005,11 @@ struct BackEase : public QEasingCurveFunction
 
     qreal value(qreal t) override
     {
+        // The *Back() functions are not always precise on the endpoints, so handle explicitly
+        if (!(t > 0))
+            return 0;
+        if (!(t < 1))
+            return 1;
         qreal o = (_o < 0) ? qreal(1.70158) : _o;
         switch(_t) {
         case QEasingCurve::InBack:
@@ -1451,7 +1512,7 @@ QDebug operator<<(QDebug debug, const QEasingCurve &item)
 {
     QDebugStateSaver saver(debug);
     debug << "type:" << item.d_ptr->type
-          << "func:" << item.d_ptr->func;
+          << "func:" << reinterpret_cast<const void *>(item.d_ptr->func);
     if (item.d_ptr->config) {
         debug << QString::fromLatin1("period:%1").arg(item.d_ptr->config->_p, 0, 'f', 20)
               << QString::fromLatin1("amp:%1").arg(item.d_ptr->config->_a, 0, 'f', 20)
@@ -1480,9 +1541,7 @@ QDataStream &operator<<(QDataStream &stream, const QEasingCurve &easing)
     bool hasConfig = easing.d_ptr->config;
     stream << hasConfig;
     if (hasConfig) {
-        stream << easing.d_ptr->config->_p;
-        stream << easing.d_ptr->config->_a;
-        stream << easing.d_ptr->config->_o;
+        stream << easing.d_ptr->config;
     }
     return stream;
 }
@@ -1515,9 +1574,7 @@ QDataStream &operator>>(QDataStream &stream, QEasingCurve &easing)
     easing.d_ptr->config = nullptr;
     if (hasConfig) {
         QEasingCurveFunction *config = curveToFunctionObject(type);
-        stream >> config->_p;
-        stream >> config->_a;
-        stream >> config->_o;
+        stream >> config;
         easing.d_ptr->config = config;
     }
     return stream;

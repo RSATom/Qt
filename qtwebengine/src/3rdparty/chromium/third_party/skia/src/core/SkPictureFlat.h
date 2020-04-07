@@ -7,14 +7,14 @@
 #ifndef SkPictureFlat_DEFINED
 #define SkPictureFlat_DEFINED
 
-#include "SkCanvas.h"
-#include "SkChecksum.h"
-#include "SkReadBuffer.h"
-#include "SkWriteBuffer.h"
-#include "SkPaint.h"
-#include "SkPicture.h"
-#include "SkPtrRecorder.h"
-#include "SkTDynamicHash.h"
+#include "include/core/SkCanvas.h"
+#include "include/core/SkPaint.h"
+#include "include/core/SkPicture.h"
+#include "include/private/SkChecksum.h"
+#include "src/core/SkPtrRecorder.h"
+#include "src/core/SkReadBuffer.h"
+#include "src/core/SkTDynamicHash.h"
+#include "src/core/SkWriteBuffer.h"
 
 /*
  * Note: While adding new DrawTypes, it is necessary to add to the end of this list
@@ -41,16 +41,16 @@ enum DrawType {
     DRAW_PATH,
     DRAW_PICTURE,
     DRAW_POINTS,
-    DRAW_POS_TEXT,
-    DRAW_POS_TEXT_TOP_BOTTOM, // fast variant of DRAW_POS_TEXT
-    DRAW_POS_TEXT_H,
-    DRAW_POS_TEXT_H_TOP_BOTTOM, // fast variant of DRAW_POS_TEXT_H
+    DRAW_POS_TEXT_REMOVED_1_2019,
+    DRAW_POS_TEXT_TOP_BOTTOM_REMOVED_1_2019,
+    DRAW_POS_TEXT_H_REMOVED_1_2019,
+    DRAW_POS_TEXT_H_TOP_BOTTOM_REMOVED_1_2019,
     DRAW_RECT,
     DRAW_RRECT,
     DRAW_SPRITE_RETIRED_2015_REMOVED_2018,
-    DRAW_TEXT,
+    DRAW_TEXT_REMOVED_1_2019,
     DRAW_TEXT_ON_PATH_RETIRED_08_2018_REMOVED_10_2018,
-    DRAW_TEXT_TOP_BOTTOM,   // fast variant of DRAW_TEXT
+    DRAW_TEXT_TOP_BOTTOM_REMOVED_1_2019,
     DRAW_VERTICES_RETIRED_03_2017_REMOVED_01_2018,
     RESTORE,
     ROTATE,
@@ -97,13 +97,15 @@ enum DrawType {
 
     FLUSH,
 
-    DRAW_IMAGE_SET,
+    DRAW_EDGEAA_IMAGE_SET,
 
     SAVE_BEHIND,
 
-    DRAW_EDGEAA_RECT,
+    DRAW_EDGEAA_QUAD,
 
-    LAST_DRAWTYPE_ENUM = DRAW_EDGEAA_RECT,
+    DRAW_BEHIND_PAINT,
+
+    LAST_DRAWTYPE_ENUM = DRAW_BEHIND_PAINT,
 };
 
 enum DrawVertexFlags {

@@ -50,8 +50,9 @@ namespace Animation {
 
 BuildBlendTreesJob::BuildBlendTreesJob()
     : Qt3DCore::QAspectJob()
+     , m_handler(nullptr)
 {
-    SET_JOB_RUN_STAT_TYPE(this, JobTypes::BuildBlendTree, 0);
+    SET_JOB_RUN_STAT_TYPE(this, JobTypes::BuildBlendTree, 0)
 }
 
 void BuildBlendTreesJob::setBlendedClipAnimators(const QVector<HBlendedClipAnimator> &blendedClipAnimatorHandles)
@@ -86,7 +87,8 @@ void BuildBlendTreesJob::run()
         // Build the format for clip results that should be used by nodes in the blend
         // tree when used with this animator
         const ChannelMapper *mapper = m_handler->channelMapperManager()->lookupResource(blendClipAnimator->mapperId());
-        Q_ASSERT(mapper);
+        if (!mapper)
+            continue;
         const QVector<ChannelNameAndType> channelNamesAndTypes
                 = buildRequiredChannelsAndTypes(m_handler, mapper);
         const QVector<ComponentIndices> channelComponentIndices

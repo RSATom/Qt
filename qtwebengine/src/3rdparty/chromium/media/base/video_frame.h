@@ -14,18 +14,22 @@
 #include <vector>
 
 #include "base/callback.h"
+#include "base/hash/md5.h"
 #include "base/logging.h"
 #include "base/macros.h"
-#include "base/md5.h"
 #include "base/memory/aligned_memory.h"
 #include "base/memory/read_only_shared_memory_region.h"
+#include "base/memory/ref_counted.h"
 #include "base/memory/shared_memory.h"
 #include "base/memory/shared_memory_handle.h"
 #include "base/memory/unsafe_shared_memory_region.h"
+#include "base/optional.h"
 #include "base/synchronization/lock.h"
 #include "base/thread_annotations.h"
+#include "base/unguessable_token.h"
 #include "build/build_config.h"
 #include "gpu/command_buffer/common/mailbox_holder.h"
+#include "gpu/ipc/common/vulkan_ycbcr_info.h"
 #include "media/base/video_frame_layout.h"
 #include "media/base/video_frame_metadata.h"
 #include "media/base/video_types.h"
@@ -36,7 +40,11 @@
 #if defined(OS_MACOSX)
 #include <CoreVideo/CVPixelBuffer.h>
 #include "base/mac/scoped_cftyperef.h"
-#endif
+#endif  // defined(OS_MACOSX)
+
+#if defined(OS_LINUX)
+#include "base/files/scoped_file.h"
+#endif  // defined(OS_LINUX)
 
 namespace media {
 
@@ -117,6 +125,15 @@ class MEDIA_EXPORT VideoFrame : public base::RefCountedThreadSafe<VideoFrame> {
                                                const gfx::Rect& visible_rect,
                                                const gfx::Size& natural_size,
                                                base::TimeDelta timestamp);
+
+  // Used by Chromecast only.
+  // Create a new frame that doesn't contain any valid video content. This frame
+  // is meant to be sent to compositor to inform that the compositor should
+  // punch a transparent hole so the video underlay will be visible.
+  static scoped_refptr<VideoFrame> CreateVideoHoleFrame(
+      const base::UnguessableToken& overlay_plane_id,
+      const gfx::Size& natural_size,
+      base::TimeDelta timestamp);
 
   // Offers the same functionality as CreateFrame, and additionally zeroes out
   // the initial allocated buffers.
@@ -228,6 +245,17 @@ class MEDIA_EXPORT VideoFrame : public base::RefCountedThreadSafe<VideoFrame> {
       uint8_t* v_data,
       base::TimeDelta timestamp);
 
+  // Wraps external YUV data with VideoFrameLayout. The returned VideoFrame does
+  // not own the data passed in.
+  static scoped_refptr<VideoFrame> WrapExternalYuvDataWithLayout(
+      const VideoFrameLayout& layout,
+      const gfx::Rect& visible_rect,
+      const gfx::Size& natural_size,
+      uint8_t* y_data,
+      uint8_t* u_data,
+      uint8_t* v_data,
+      base::TimeDelta timestamp);
+
   // Wraps external YUVA data of the given parameters with a VideoFrame.
   // The returned VideoFrame does not own the data passed in.
   static scoped_refptr<VideoFrame> WrapExternalYuvaData(
@@ -281,7 +309,7 @@ class MEDIA_EXPORT VideoFrame : public base::RefCountedThreadSafe<VideoFrame> {
   // Wraps |frame|. |visible_rect| must be a sub rect within
   // frame->visible_rect().
   static scoped_refptr<VideoFrame> WrapVideoFrame(
-      const scoped_refptr<VideoFrame>& frame,
+      const VideoFrame& frame,
       VideoPixelFormat format,
       const gfx::Rect& visible_rect,
       const gfx::Size& natural_size);
@@ -346,7 +374,7 @@ class MEDIA_EXPORT VideoFrame : public base::RefCountedThreadSafe<VideoFrame> {
   // Used to keep a running hash of seen frames.  Expects an initialized MD5
   // context.  Calls MD5Update with the context and the contents of the frame.
   static void HashFrameForTesting(base::MD5Context* context,
-                                  const scoped_refptr<VideoFrame>& frame);
+                                  const VideoFrame& frame);
 
   // Returns true if |frame| is accesible mapped in the VideoFrame memory space.
   // static
@@ -375,8 +403,15 @@ class MEDIA_EXPORT VideoFrame : public base::RefCountedThreadSafe<VideoFrame> {
   VideoPixelFormat format() const { return layout_.format(); }
   StorageType storage_type() const { return storage_type_; }
 
+  // The full dimensions of the video frame data.
   const gfx::Size& coded_size() const { return layout_.coded_size(); }
+  // A subsection of [0, 0, coded_size().width(), coded_size.height()]. This
+  // can be set to "soft-apply" a cropping. It determines the pointers into
+  // the data returned by visible_data().
   const gfx::Rect& visible_rect() const { return visible_rect_; }
+  // Specifies that the |visible_rect| section of the frame is supposed to be
+  // scaled to this size when being presented. This can be used to represent
+  // anamorphic frames, or to "soft-apply" any custom scaling.
   const gfx::Size& natural_size() const { return natural_size_; }
 
   int stride(size_t plane) const {
@@ -404,6 +439,10 @@ class MEDIA_EXPORT VideoFrame : public base::RefCountedThreadSafe<VideoFrame> {
     DCHECK(IsValidPlane(plane, format()));
     DCHECK(IsMappable());
     return data_[plane];
+  }
+
+  const base::Optional<gpu::VulkanYCbCrInfo>& ycbcr_info() const {
+    return ycbcr_info_;
   }
 
   // Returns pointer to the data in the visible region of the frame, for
@@ -443,6 +482,10 @@ class MEDIA_EXPORT VideoFrame : public base::RefCountedThreadSafe<VideoFrame> {
 
   // Returns true if |frame| has DmaBufs.
   bool HasDmaBufs() const;
+
+  // Returns true if both VideoFrames are backed by DMABUF memory and point
+  // to the same set of DMABUFs, meaning that both frames use the same memory.
+  bool IsSameDmaBufsAs(const VideoFrame& frame) const;
 #endif
 
   void AddReadOnlySharedMemoryRegion(base::ReadOnlySharedMemoryRegion* region);
@@ -508,6 +551,11 @@ class MEDIA_EXPORT VideoFrame : public base::RefCountedThreadSafe<VideoFrame> {
 
   // Returns the number of bits per channel.
   size_t BitDepth() const;
+
+  // Provide the sampler conversion information for the frame.
+  void set_ycbcr_info(const base::Optional<gpu::VulkanYCbCrInfo>& ycbcr_info) {
+    ycbcr_info_ = ycbcr_info;
+  }
 
  protected:
   friend class base::RefCountedThreadSafe<VideoFrame>;
@@ -625,10 +673,17 @@ class MEDIA_EXPORT VideoFrame : public base::RefCountedThreadSafe<VideoFrame> {
   size_t shared_memory_offset_;
 
 #if defined(OS_LINUX)
+  class DmabufHolder;
+
   // Dmabufs for the frame, used when storage is STORAGE_DMABUFS. Size is either
   // equal or less than the number of planes of the frame. If it is less, then
   // the memory area represented by the last FD contains the remaining planes.
-  std::vector<base::ScopedFD> dmabuf_fds_;
+  // If a STORAGE_DMABUFS frame is wrapped into another, the wrapping frame
+  // will get an extra reference to the FDs (i.e. no duplication is involved).
+  // This makes it possible to test whether two VideoFrame instances point to
+  // the same DMABUF memory by testing for
+  // (&vf1->DmabufFds() == &vf2->DmabufFds()).
+  scoped_refptr<DmabufHolder> dmabuf_fds_;
 #endif
 
 #if defined(OS_MACOSX)
@@ -649,6 +704,9 @@ class MEDIA_EXPORT VideoFrame : public base::RefCountedThreadSafe<VideoFrame> {
   const int unique_id_;
 
   gfx::ColorSpace color_space_;
+
+  // Sampler conversion information which is used in vulkan context for android.
+  base::Optional<gpu::VulkanYCbCrInfo> ycbcr_info_;
 
   DISALLOW_IMPLICIT_CONSTRUCTORS(VideoFrame);
 };

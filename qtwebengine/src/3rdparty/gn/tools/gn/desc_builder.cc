@@ -55,6 +55,7 @@
 //   "walk_keys" : [ list of target walk keys ]
 //   "rebase" : true or false
 //   "output_conversion" : "string for output conversion"
+//   "response_file_contents": [ list of response file contents entries ]
 // }
 //
 // Optionally, if "what" is specified while generating description, two other
@@ -416,6 +417,16 @@ class TargetDescBuilder : public BaseDescBuilder {
 
         res->SetWithoutPathExpansion(variables::kArgs, std::move(args));
       }
+      if (what(variables::kResponseFileContents) &&
+          !target_->action_values().rsp_file_contents().list().empty()) {
+        auto rsp_file_contents = std::make_unique<base::ListValue>();
+        for (const auto& elem :
+             target_->action_values().rsp_file_contents().list())
+          rsp_file_contents->AppendString(elem.AsString());
+
+        res->SetWithoutPathExpansion(variables::kResponseFileContents,
+                                     std::move(rsp_file_contents));
+      }
       if (what(variables::kDepfile) &&
           !target_->action_values().depfile().empty()) {
         res->SetKey(variables::kDepfile,
@@ -634,8 +645,8 @@ class TargetDescBuilder : public BaseDescBuilder {
     auto dict = std::make_unique<base::DictionaryValue>();
     for (const auto& source : target_->sources()) {
       std::vector<OutputFile> outputs;
-      Toolchain::ToolType tool_type = Toolchain::TYPE_NONE;
-      if (target_->GetOutputFilesForSource(source, &tool_type, &outputs)) {
+      const char* tool_name = Tool::kToolNone;
+      if (target_->GetOutputFilesForSource(source, &tool_name, &outputs)) {
         auto list = std::make_unique<base::ListValue>();
         for (const auto& output : outputs)
           list->AppendString(output.value());

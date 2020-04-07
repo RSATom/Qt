@@ -1,1 +1,1 @@
-#include "../../src/corelib/tools/qtextboundaryfinder.h"
+#include "../../src/corelib/text/qtextboundaryfinder.h"

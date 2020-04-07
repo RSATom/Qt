@@ -8,13 +8,13 @@
 #include "base/macros.h"
 #include "base/memory/ptr_util.h"
 #include "base/run_loop.h"
+#include "base/test/gmock_callback_support.h"
 #include "base/test/test_message_loop.h"
 #include "base/threading/platform_thread.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/timer/elapsed_timer.h"
 #include "media/base/cdm_config.h"
 #include "media/base/cdm_context.h"
-#include "media/base/gmock_callback_support.h"
 #include "media/base/mock_filters.h"
 #include "media/base/test_helpers.h"
 #include "media/cdm/default_cdm_factory.h"
@@ -32,6 +32,8 @@
 #include "url/gurl.h"
 #include "url/origin.h"
 
+using ::base::test::RunCallback;
+using ::base::test::RunClosure;
 using ::testing::_;
 using ::testing::DoAll;
 using ::testing::Return;
@@ -68,7 +70,6 @@ class MojoRendererTest : public ::testing::Test {
     mojom::RendererPtr remote_renderer;
     renderer_binding_ = MojoRendererService::Create(
         &mojo_cdm_service_context_, std::move(mock_renderer),
-        MojoRendererService::InitiateSurfaceRequestCB(),
         mojo::MakeRequest(&remote_renderer));
 
     mojo_renderer_.reset(
@@ -95,7 +96,6 @@ class MojoRendererTest : public ::testing::Test {
   MOCK_METHOD1(OnInitialized, void(PipelineStatus));
   MOCK_METHOD0(OnFlushed, void());
   MOCK_METHOD1(OnCdmAttached, void(bool));
-  MOCK_METHOD1(OnSurfaceRequestToken, void(const base::UnguessableToken&));
 
   std::unique_ptr<StrictMock<MockDemuxerStream>> CreateStream(
       DemuxerStream::Type type) {
@@ -380,33 +380,22 @@ TEST_F(MojoRendererTest, GetMediaTime) {
   Destroy();
 }
 
-// When |initiate_surface_request_cb_| is not set, the client should not call
-// InitiateScopedSurfaceRequest(). Otherwise, it will cause the pipe to be
-// closed and MojoRendererService destroyed.
-TEST_F(MojoRendererTest, InitiateScopedSurfaceRequest) {
-  Initialize();
-  DCHECK(renderer_binding_);
-
-  EXPECT_CALL(renderer_client_, OnError(PIPELINE_ERROR_DECODE)).Times(1);
-
-  mojo_renderer_->InitiateScopedSurfaceRequest(base::Bind(
-      &MojoRendererTest::OnSurfaceRequestToken, base::Unretained(this)));
-  base::RunLoop().RunUntilIdle();
-
-  DCHECK(!renderer_binding_);
-}
-
 TEST_F(MojoRendererTest, OnBufferingStateChange) {
   Initialize();
   Play();
 
-  EXPECT_CALL(renderer_client_, OnBufferingStateChange(BUFFERING_HAVE_ENOUGH))
+  EXPECT_CALL(renderer_client_,
+              OnBufferingStateChange(BUFFERING_HAVE_ENOUGH,
+                                     BUFFERING_CHANGE_REASON_UNKNOWN))
       .Times(1);
-  remote_renderer_client_->OnBufferingStateChange(BUFFERING_HAVE_ENOUGH);
+  remote_renderer_client_->OnBufferingStateChange(
+      BUFFERING_HAVE_ENOUGH, BUFFERING_CHANGE_REASON_UNKNOWN);
 
-  EXPECT_CALL(renderer_client_, OnBufferingStateChange(BUFFERING_HAVE_NOTHING))
+  EXPECT_CALL(renderer_client_,
+              OnBufferingStateChange(BUFFERING_HAVE_NOTHING, DECODER_UNDERFLOW))
       .Times(1);
-  remote_renderer_client_->OnBufferingStateChange(BUFFERING_HAVE_NOTHING);
+  remote_renderer_client_->OnBufferingStateChange(BUFFERING_HAVE_NOTHING,
+                                                  DECODER_UNDERFLOW);
 
   base::RunLoop().RunUntilIdle();
 }

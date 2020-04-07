@@ -13,7 +13,7 @@ QMKSRC = $(SOURCE_PATH)\qmake
 !if "$(QMAKESPEC)" == "win32-icc"
 CXX               = icl
 LINKER            = xilink
-CFLAGS_EXTRA      = /Zc:forScope /Qstd=c++11 /O3
+CFLAGS_EXTRA      = /Zc:forScope /Qstd=c++11
 !elseif "$(QMAKESPEC)" == "win32-clang-msvc"
 CXX               = clang-cl
 LINKER            = lld-link
@@ -24,10 +24,8 @@ LINKER            = link
 CFLAGS_EXTRA      = /MP /wd4577 $(CFLAGS_CRT)
 !endif  # !win32-icc
 
-!if "$(QMAKESPEC)" != "win32-clang-msvc"
 CFLAGS_PCH        = -Yuqmake_pch.h -FIqmake_pch.h -Fpqmake_pch.pch
 PCH_OBJECT        = qmake_pch.obj
-!endif
 
 CFLAGS_BARE = -c -Fo./ -Fdqmake.pdb \
               -W2 -nologo -O2 \
@@ -71,8 +69,10 @@ QTOBJS= \
 	qfsfileengine_iterator.obj \
 	qarraydata.obj \
 	qbytearray.obj \
+	qbytearraylist.obj \
 	qvsnprintf.obj \
 	qbytearraymatcher.obj \
+	qcalendar.obj \
 	qdatetime.obj \
 	qdir.obj \
 	qdiriterator.obj \
@@ -85,12 +85,12 @@ QTOBJS= \
 	qfileinfo.obj \
 	qendian.obj \
 	qglobal.obj \
+	qgregoriancalendar.obj \
 	qhash.obj \
 	qiodevice.obj \
 	qringbuffer.obj \
 	qdebug.obj \
 	qlist.obj \
-	qlinkedlist.obj \
 	qlocale.obj \
 	qlocale_tools.obj \
 	qlocale_win.obj \
@@ -100,9 +100,9 @@ QTOBJS= \
 	qoperatingsystemversion.obj \
 	qoperatingsystemversion_win.obj \
 	qregexp.obj \
+	qromancalendar.obj \
 	qutfcodec.obj \
 	qstring.obj \
-	qstring_compat.obj \
 	qstringlist.obj \
 	qstringbuilder.obj \
 	qsystemerror.obj \
@@ -200,13 +200,16 @@ qmake_pch.obj:
 {$(SOURCE_PATH)\src\corelib\serialization}.cpp{}.obj::
 	$(CXX) $(CXXFLAGS) $<
 
+{$(SOURCE_PATH)\src\corelib\text}.cpp{}.obj::
+	$(CXX) $(CXXFLAGS) $<
+
+{$(SOURCE_PATH)\src\corelib\time}.cpp{}.obj::
+	$(CXX) $(CXXFLAGS) $<
+
 {$(SOURCE_PATH)\src\corelib\tools}.cpp{}.obj::
 	$(CXX) $(CXXFLAGS) $<
 
-# Make sure qstring_compat.obj and qlibraryinfo.obj aren't compiled with PCH enabled
-qstring_compat.obj: $(SOURCE_PATH)\src\corelib\tools\qstring_compat.cpp
-	$(CXX) -c $(CXXFLAGS_BARE) $(SOURCE_PATH)\src\corelib\tools\qstring_compat.cpp
-
+# Make sure qlibraryinfo.obj isn't compiled with PCH enabled
 qlibraryinfo.obj: $(SOURCE_PATH)\src\corelib\global\qlibraryinfo.cpp
         $(CXX) $(CXXFLAGS_BARE) -DQT_BUILD_QMAKE_BOOTSTRAP $(SOURCE_PATH)\src\corelib\global\qlibraryinfo.cpp
 

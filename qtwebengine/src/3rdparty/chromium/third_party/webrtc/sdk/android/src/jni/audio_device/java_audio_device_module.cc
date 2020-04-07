@@ -9,7 +9,7 @@
  */
 
 #include "absl/memory/memory.h"
-#include "sdk/android/generated_java_audio_jni/jni/JavaAudioDeviceModule_jni.h"
+#include "sdk/android/generated_java_audio_jni/JavaAudioDeviceModule_jni.h"
 #include "sdk/android/src/jni/audio_device/audio_record_jni.h"
 #include "sdk/android/src/jni/audio_device/audio_track_jni.h"
 #include "sdk/android/src/jni/jni_helpers.h"
@@ -23,13 +23,15 @@ static jlong JNI_JavaAudioDeviceModule_CreateAudioDeviceModule(
     const JavaParamRef<jobject>& j_audio_manager,
     const JavaParamRef<jobject>& j_webrtc_audio_record,
     const JavaParamRef<jobject>& j_webrtc_audio_track,
-    int sample_rate,
+    int input_sample_rate,
+    int output_sample_rate,
     jboolean j_use_stereo_input,
     jboolean j_use_stereo_output) {
   AudioParameters input_parameters;
   AudioParameters output_parameters;
-  GetAudioParameters(env, j_context, j_audio_manager, sample_rate,
-                     j_use_stereo_input, j_use_stereo_output, &input_parameters,
+  GetAudioParameters(env, j_context, j_audio_manager, input_sample_rate,
+                     output_sample_rate, j_use_stereo_input,
+                     j_use_stereo_output, &input_parameters,
                      &output_parameters);
   auto audio_input = absl::make_unique<AudioRecordJni>(
       env, input_parameters, kHighLatencyModeDelayEstimateInMilliseconds,

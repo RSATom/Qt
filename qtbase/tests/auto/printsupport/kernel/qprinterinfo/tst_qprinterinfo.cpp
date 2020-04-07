@@ -94,17 +94,16 @@ QString tst_QPrinterInfo::getDefaultPrinterFromSystem()
     command << "lpstat" << "-d";
     QString output = getOutputFromCommand(command);
 
-    QRegExp noDefaultReg("[^:]*no .*default");
-    int pos = noDefaultReg.indexIn(output);
-    if (pos >= 0) {
+    QRegularExpression noDefaultReg("[^:]*no .*default");
+    QRegularExpressionMatch match;
+    match = noDefaultReg.match(output);
+    if (match.hasMatch())
         return QString();
-    }
 
-    QRegExp defaultReg("default.*: *([a-zA-Z0-9_-]+)");
-    defaultReg.indexIn(output);
-    printer = defaultReg.cap(1);
+    QRegularExpression defaultReg("default.*: *([a-zA-Z0-9_-]+)");
+    match = defaultReg.match(output);
+    printer = match.captured(1);
 #endif // Q_OS_UNIX
-
     return printer;
 }
 
@@ -121,10 +120,12 @@ QStringList tst_QPrinterInfo::getPrintersFromSystem()
     QString output = getOutputFromCommand(command);
     QStringList list = output.split(QChar::fromLatin1('\n'));
 
-    QRegExp reg("^[Pp]rinter ([.a-zA-Z0-9-_@]+)");
+    QRegularExpression reg("^[Pp]rinter ([.a-zA-Z0-9-_@]+)");
+    QRegularExpressionMatch match;
     for (int c = 0; c < list.size(); ++c) {
-        if (reg.indexIn(list[c]) >= 0) {
-            QString printer = reg.cap(1);
+        match = reg.match(list[c]);
+        if (match.hasMatch()) {
+            QString printer = match.captured(1);
             ans << printer;
         }
     }
@@ -300,8 +301,13 @@ void tst_QPrinterInfo::testConstructors()
         QCOMPARE(copy1.supportsCustomPageSizes(), printers.at(i).supportsCustomPageSizes());
         QCOMPARE(copy1.minimumPhysicalPageSize(), printers.at(i).minimumPhysicalPageSize());
         QCOMPARE(copy1.maximumPhysicalPageSize(), printers.at(i).maximumPhysicalPageSize());
-        QCOMPARE(copy1.supportedPaperSizes(),     printers.at(i).supportedPaperSizes());
+        QCOMPARE(copy1.supportedPageSizes(),      printers.at(i).supportedPageSizes());
+#if QT_DEPRECATED_SINCE(5, 3)
+QT_WARNING_PUSH
+QT_WARNING_DISABLE_DEPRECATED
         QCOMPARE(copy1.supportedSizesWithNames(), printers.at(i).supportedSizesWithNames());
+QT_WARNING_POP
+#endif
         QCOMPARE(copy1.supportedResolutions(),    printers.at(i).supportedResolutions());
         QCOMPARE(copy1.defaultDuplexMode(),       printers.at(i).defaultDuplexMode());
         QCOMPARE(copy1.supportedDuplexModes(),    printers.at(i).supportedDuplexModes());
@@ -321,8 +327,13 @@ void tst_QPrinterInfo::testConstructors()
         QCOMPARE(copy2.supportsCustomPageSizes(), printers.at(i).supportsCustomPageSizes());
         QCOMPARE(copy2.minimumPhysicalPageSize(), printers.at(i).minimumPhysicalPageSize());
         QCOMPARE(copy2.maximumPhysicalPageSize(), printers.at(i).maximumPhysicalPageSize());
-        QCOMPARE(copy2.supportedPaperSizes(),     printers.at(i).supportedPaperSizes());
+        QCOMPARE(copy2.supportedPageSizes(),      printers.at(i).supportedPageSizes());
+#if QT_DEPRECATED_SINCE(5, 3)
+        QT_WARNING_PUSH
+        QT_WARNING_DISABLE_DEPRECATED
         QCOMPARE(copy2.supportedSizesWithNames(), printers.at(i).supportedSizesWithNames());
+        QT_WARNING_POP
+#endif
         QCOMPARE(copy2.supportedResolutions(),    printers.at(i).supportedResolutions());
         QCOMPARE(copy2.defaultDuplexMode(),       printers.at(i).defaultDuplexMode());
         QCOMPARE(copy2.supportedDuplexModes(),    printers.at(i).supportedDuplexModes());

@@ -8,12 +8,13 @@
 #ifndef GrVkUtil_DEFINED
 #define GrVkUtil_DEFINED
 
-#include "GrColor.h"
-#include "GrTypes.h"
-#include "GrVkInterface.h"
-#include "SkMacros.h"
-#include "ir/SkSLProgram.h"
-#include "vk/GrVkTypes.h"
+#include "include/gpu/GrTypes.h"
+#include "include/gpu/vk/GrVkTypes.h"
+#include "include/private/SkMacros.h"
+#include "src/gpu/GrColor.h"
+#include "src/gpu/GrDataUtils.h"
+#include "src/gpu/vk/GrVkInterface.h"
+#include "src/sksl/ir/SkSLProgram.h"
 
 class GrVkGpu;
 
@@ -37,15 +38,15 @@ bool GrVkFormatIsSupported(VkFormat);
 
 #ifdef SK_DEBUG
 /**
- * Returns true if the passed in VkFormat and GrPixelConfig are compatible with each other.
+ * Returns true if the passed in VkFormat and GrColorType are compatible with each other.
  */
-bool GrVkFormatPixelConfigPairIsValid(VkFormat, GrPixelConfig);
+bool GrVkFormatColorTypePairIsValid(VkFormat, GrColorType);
 #endif
 
 bool GrSampleCountToVkSampleCount(uint32_t samples, VkSampleCountFlagBits* vkSamples);
 
 bool GrCompileVkShaderModule(const GrVkGpu* gpu,
-                             const char* shaderString,
+                             const SkSL::String& shaderString,
                              VkShaderStageFlagBits stage,
                              VkShaderModule* shaderModule,
                              VkPipelineShaderStageCreateInfo* stageInfo,
@@ -58,5 +59,17 @@ bool GrInstallVkShaderModule(const GrVkGpu* gpu,
                              VkShaderStageFlagBits stage,
                              VkShaderModule* shaderModule,
                              VkPipelineShaderStageCreateInfo* stageInfo);
+
+size_t GrVkBytesPerFormat(VkFormat);
+
+/**
+ * Returns true if the format is compressed.
+ */
+bool GrVkFormatIsCompressed(VkFormat);
+
+/**
+ * Maps a vk format into the CompressionType enum if applicable.
+ */
+bool GrVkFormatToCompressionType(VkFormat vkFormat, SkImage::CompressionType* compressionType);
 
 #endif

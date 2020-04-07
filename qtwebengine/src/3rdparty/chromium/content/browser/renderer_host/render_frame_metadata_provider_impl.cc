@@ -14,8 +14,7 @@ RenderFrameMetadataProviderImpl::RenderFrameMetadataProviderImpl(
     FrameTokenMessageQueue* frame_token_message_queue)
     : task_runner_(task_runner),
       frame_token_message_queue_(frame_token_message_queue),
-      render_frame_metadata_observer_client_binding_(this),
-      weak_factory_(this) {}
+      render_frame_metadata_observer_client_binding_(this) {}
 
 RenderFrameMetadataProviderImpl::~RenderFrameMetadataProviderImpl() = default;
 
@@ -35,16 +34,37 @@ void RenderFrameMetadataProviderImpl::Bind(
   render_frame_metadata_observer_client_binding_.Bind(std::move(client_request),
                                                       task_runner_);
 
-  if (pending_report_all_frame_submission_.has_value()) {
-    ReportAllFrameSubmissionsForTesting(*pending_report_all_frame_submission_);
-    pending_report_all_frame_submission_.reset();
+#if defined(OS_ANDROID)
+  if (pending_report_all_root_scrolls_for_accessibility_.has_value()) {
+    ReportAllRootScrollsForAccessibility(
+        *pending_report_all_root_scrolls_for_accessibility_);
+    pending_report_all_root_scrolls_for_accessibility_.reset();
+  }
+#endif
+  if (pending_report_all_frame_submission_for_testing_.has_value()) {
+    ReportAllFrameSubmissionsForTesting(
+        *pending_report_all_frame_submission_for_testing_);
+    pending_report_all_frame_submission_for_testing_.reset();
   }
 }
+
+#if defined(OS_ANDROID)
+void RenderFrameMetadataProviderImpl::ReportAllRootScrollsForAccessibility(
+    bool enabled) {
+  if (!render_frame_metadata_observer_ptr_) {
+    pending_report_all_root_scrolls_for_accessibility_ = enabled;
+    return;
+  }
+
+  render_frame_metadata_observer_ptr_->ReportAllRootScrollsForAccessibility(
+      enabled);
+}
+#endif
 
 void RenderFrameMetadataProviderImpl::ReportAllFrameSubmissionsForTesting(
     bool enabled) {
   if (!render_frame_metadata_observer_ptr_) {
-    pending_report_all_frame_submission_ = enabled;
+    pending_report_all_frame_submission_for_testing_ = enabled;
     return;
   }
 
@@ -53,7 +73,7 @@ void RenderFrameMetadataProviderImpl::ReportAllFrameSubmissionsForTesting(
 }
 
 const cc::RenderFrameMetadata&
-RenderFrameMetadataProviderImpl::LastRenderFrameMetadata() const {
+RenderFrameMetadataProviderImpl::LastRenderFrameMetadata() {
   return last_render_frame_metadata_;
 }
 

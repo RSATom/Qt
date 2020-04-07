@@ -50,18 +50,36 @@
 
 #include "imageviewer.h"
 
-#include <QtWidgets>
+#include <QApplication>
+#include <QClipboard>
+#include <QColorSpace>
+#include <QDir>
+#include <QFileDialog>
+#include <QImageReader>
+#include <QImageWriter>
+#include <QLabel>
+#include <QMenuBar>
+#include <QMessageBox>
+#include <QMimeData>
+#include <QPainter>
+#include <QScreen>
+#include <QScrollArea>
+#include <QScrollBar>
+#include <QStandardPaths>
+#include <QStatusBar>
+
 #if defined(QT_PRINTSUPPORT_LIB)
-#include <QtPrintSupport/qtprintsupportglobal.h>
-#if QT_CONFIG(printdialog)
-#include <QPrintDialog>
-#endif
+#  include <QtPrintSupport/qtprintsupportglobal.h>
+
+#  if QT_CONFIG(printdialog)
+#    include <QPrintDialog>
+#  endif
 #endif
 
 //! [0]
 ImageViewer::ImageViewer(QWidget *parent)
-   : QMainWindow(parent), imageLabel(new QLabel),
-     scrollArea(new QScrollArea), scaleFactor(1)
+   : QMainWindow(parent), imageLabel(new QLabel)
+   , scrollArea(new QScrollArea)
 {
     imageLabel->setBackgroundRole(QPalette::Base);
     imageLabel->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Ignored);
@@ -106,6 +124,8 @@ bool ImageViewer::loadFile(const QString &fileName)
 void ImageViewer::setImage(const QImage &newImage)
 {
     image = newImage;
+    if (image.colorSpace().isValid())
+        image.convertToColorSpace(QColorSpace::SRgb);
     imageLabel->setPixmap(QPixmap::fromImage(image));
 //! [4]
     scaleFactor = 1.0;
@@ -182,7 +202,7 @@ void ImageViewer::print()
 //! [5] //! [6]
 {
     Q_ASSERT(imageLabel->pixmap());
-#if QT_CONFIG(printdialog)
+#if defined(QT_PRINTSUPPORT_LIB) && QT_CONFIG(printdialog)
 //! [6] //! [7]
     QPrintDialog dialog(&printer, this);
 //! [7] //! [8]

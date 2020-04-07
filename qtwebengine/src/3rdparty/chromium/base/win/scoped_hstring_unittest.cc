@@ -24,7 +24,7 @@ constexpr wchar_t kTestString2[] = L"456789";
 TEST(ScopedHStringTest, Init) {
   // ScopedHString requires WinRT core functions, which are not available in
   // older versions.
-  if (GetVersion() < VERSION_WIN8) {
+  if (GetVersion() < Version::WIN8) {
     EXPECT_FALSE(ScopedHString::ResolveCoreWinRTStringDelayload());
     return;
   }
@@ -33,8 +33,8 @@ TEST(ScopedHStringTest, Init) {
 
   ScopedHString hstring = ScopedHString::Create(kTestString1);
   std::string buffer = hstring.GetAsUTF8();
-  EXPECT_EQ(kTestString1, base::UTF8ToWide(buffer));
-  base::StringPiece16 contents = hstring.Get();
+  EXPECT_EQ(kTestString1, UTF8ToWide(buffer));
+  WStringPiece contents = hstring.Get();
   EXPECT_EQ(kTestString1, contents);
 
   hstring.reset();
@@ -46,7 +46,7 @@ TEST(ScopedHStringTest, Init) {
   EXPECT_TRUE(hstring2 == NULL);
 
   buffer = hstring.GetAsUTF8();
-  EXPECT_EQ(kTestString2, base::UTF8ToWide(buffer));
+  EXPECT_EQ(kTestString2, UTF8ToWide(buffer));
   contents = hstring.Get();
   EXPECT_EQ(kTestString2, contents);
 }

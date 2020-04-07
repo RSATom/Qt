@@ -67,7 +67,7 @@ class DeviceDiscoveryDialog : public QDialog
     Q_OBJECT
 
 public:
-    DeviceDiscoveryDialog(QWidget *parent = 0);
+    DeviceDiscoveryDialog(QWidget *parent = nullptr);
     ~DeviceDiscoveryDialog();
 
 public slots:

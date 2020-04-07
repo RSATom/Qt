@@ -50,7 +50,7 @@ struct HttpRequest;
 // The common use case for unit tests is below:
 //
 // void SetUp() {
-//   test_server_.reset(new EmbeddedTestServer());
+//   test_server_ = std::make_unique<EmbeddedTestServer>();
 //   test_server_->RegisterRequestHandler(
 //       base::Bind(&FooTest::HandleRequest, base::Unretained(this)));
 //   ASSERT_TRUE(test_server_.Start());
@@ -61,7 +61,7 @@ struct HttpRequest;
 //   if (absolute_url.path() != "/test")
 //     return std::unique_ptr<HttpResponse>();
 //
-//   std::unique_ptr<BasicHttpResponse> http_response(new BasicHttpResponse());
+//   auto http_response = std::make_unique<BasicHttpResponse>();
 //   http_response->set_code(net::HTTP_OK);
 //   http_response->set_content("hello");
 //   http_response->set_content_type("text/plain");
@@ -161,9 +161,7 @@ class EmbeddedTestServer {
   bool ShutdownAndWaitUntilComplete() WARN_UNUSED_RESULT;
 
   // Checks if the server has started listening for incoming connections.
-  bool Started() const {
-    return listen_socket_.get() != NULL;
-  }
+  bool Started() const { return listen_socket_.get() != nullptr; }
 
   static base::FilePath GetRootCertPemPath();
 
@@ -321,7 +319,7 @@ class EmbeddedTestServer {
   ServerCertificate cert_;
   std::unique_ptr<SSLServerContext> context_;
 
-  base::WeakPtrFactory<EmbeddedTestServer> weak_factory_;
+  base::WeakPtrFactory<EmbeddedTestServer> weak_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(EmbeddedTestServer);
 };

@@ -22,7 +22,6 @@
 #ifndef CANGJIETABLE_H
 #define CANGJIETABLE_H
 
-#include <QMap>
 #include <QChar>
 #include <QString>
 
@@ -36,11 +35,6 @@ class CangjieTable
     Q_DISABLE_COPY(CangjieTable)
     CangjieTable() {}
 
-    // Cangjie 25 letters with number-index starting from 1:
-    // 日月金木水火土竹戈十大中一弓人心手口尸廿山女田難卜
-    static const QMap<QChar, int> &letters();
-    static const int BASE_NUMBER;
-
 public:
 
     // Cangjie codes contain at most five letters. A cangjie code can be
@@ -53,7 +47,7 @@ public:
     /**
      * Returns {@code true} only if the given character is a valid cangjie letter.
      */
-    static bool isLetter(const QChar &c);
+    static bool isLetter(QChar c) noexcept;
 
     /**
      * Returns the primary index calculated by the first and last letter of
@@ -62,7 +56,7 @@ public:
      * @param code should not be null.
      * @return -1 for invalid code.
      */
-    static int getPrimaryIndex(const QString &code);
+    static int getPrimaryIndex(QStringView code) noexcept;
 
     /**
      * Returns the secondary index calculated by letters between the first and
@@ -71,7 +65,7 @@ public:
      * @param code should not be null.
      * @return -1 for invalid code.
      */
-    static int getSecondaryIndex(const QString &code);
+    static int getSecondaryIndex(QStringView code) noexcept;
 };
 
 }

@@ -101,9 +101,9 @@ private:
 // Contents of clipboard for formbuilder copy and paste operations
 // (Actions and widgets)
 struct QDESIGNER_SHARED_EXPORT FormBuilderClipboard {
-    typedef QList<QAction*> ActionList;
+    using ActionList = QList<QAction *>;
 
-    FormBuilderClipboard() {}
+    FormBuilderClipboard() = default;
     FormBuilderClipboard(QWidget *w);
 
     bool empty() const;
@@ -124,8 +124,8 @@ public:
 
     // A widget parent needs to be specified, otherwise, the widget factory cannot locate the form window via parent
     // and thus is not able to construct special widgets (QLayoutWidget).
-    virtual FormBuilderClipboard paste(DomUI *ui, QWidget *widgetParent, QObject *actionParent = 0) = 0;
-    virtual FormBuilderClipboard paste(QIODevice *dev, QWidget *widgetParent, QObject *actionParent = 0) = 0;
+    virtual FormBuilderClipboard paste(DomUI *ui, QWidget *widgetParent, QObject *actionParent = nullptr) = 0;
+    virtual FormBuilderClipboard paste(QIODevice *dev, QWidget *widgetParent, QObject *actionParent = nullptr) = 0;
 };
 
 } // namespace qdesigner_internal

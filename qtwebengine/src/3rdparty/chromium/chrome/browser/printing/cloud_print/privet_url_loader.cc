@@ -87,8 +87,7 @@ PrivetURLLoader::PrivetURLLoader(
       url_loader_factory_(url_loader_factory),
       traffic_annotation_(traffic_annotation),
       delegate_(delegate),
-      max_retries_(kPrivetMaxRetries),
-      weak_factory_(this) {}
+      max_retries_(kPrivetMaxRetries) {}
 
 PrivetURLLoader::~PrivetURLLoader() {}
 
@@ -155,8 +154,8 @@ void PrivetURLLoader::Try() {
   request->url = url_;
   request->method = request_type_;
   // Privet requests are relevant to hosts on local network only.
-  request->load_flags = net::LOAD_BYPASS_PROXY | net::LOAD_DISABLE_CACHE |
-                        net::LOAD_DO_NOT_SEND_COOKIES;
+  request->load_flags = net::LOAD_BYPASS_PROXY | net::LOAD_DISABLE_CACHE;
+  request->allow_credentials = false;
 
   std::string token = GetPrivetAccessToken();
   if (token.empty())
@@ -251,7 +250,7 @@ void PrivetURLLoader::OnDownloadedToString(
   }
 
   base::JSONReader json_reader(base::JSON_ALLOW_TRAILING_COMMAS);
-  std::unique_ptr<base::Value> value = json_reader.ReadToValue(*response_body);
+  base::Optional<base::Value> value = json_reader.ReadToValue(*response_body);
   if (!value || !value->is_dict()) {
     delegate_->OnError(0, JSON_PARSE_ERROR);
     return;
@@ -277,9 +276,10 @@ void PrivetURLLoader::OnDownloadedToString(
     is_error_response = true;
   }
 
-  delegate_->OnParsedJson(
-      response_code, *static_cast<const base::DictionaryValue*>(value.get()),
-      is_error_response);
+  std::unique_ptr<base::DictionaryValue> dict_value =
+      base::DictionaryValue::From(
+          base::Value::ToUniquePtrValue(std::move(*value)));
+  delegate_->OnParsedJson(response_code, *dict_value, is_error_response);
 }
 
 void PrivetURLLoader::OnDownloadedToFile(base::FilePath path) {

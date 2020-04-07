@@ -29,8 +29,8 @@
 
 using std::make_pair;
 
-DEFINE_UI_CLASS_PROPERTY_TYPE(ui::Shadow*);
-DEFINE_OWNED_UI_CLASS_PROPERTY_KEY(ui::Shadow, kShadowLayerKey, nullptr);
+DEFINE_UI_CLASS_PROPERTY_TYPE(ui::Shadow*)
+DEFINE_OWNED_UI_CLASS_PROPERTY_KEY(ui::Shadow, kShadowLayerKey, nullptr)
 
 namespace wm {
 
@@ -53,8 +53,7 @@ int GetShadowElevationForActiveState(aura::Window* window) {
 int GetShadowElevationForWindowLosingActive(aura::Window* losing_active,
                                             aura::Window* gaining_active) {
   if (gaining_active && GetHideOnDeactivate(gaining_active)) {
-    if (base::ContainsValue(GetTransientChildren(losing_active),
-                            gaining_active))
+    if (base::Contains(GetTransientChildren(losing_active), gaining_active))
       return kShadowElevationActiveWindow;
   }
   return kShadowElevationInactiveWindow;

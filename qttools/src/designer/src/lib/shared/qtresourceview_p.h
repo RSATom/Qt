@@ -55,7 +55,7 @@ class QDESIGNER_SHARED_EXPORT QtResourceView : public QWidget
 {
     Q_OBJECT
 public:
-    explicit QtResourceView(QDesignerFormEditorInterface *core, QWidget *parent = 0);
+    explicit QtResourceView(QDesignerFormEditorInterface *core, QWidget *parent = nullptr);
     ~QtResourceView();
 
     void setDragEnabled(bool dragEnabled);
@@ -77,21 +77,21 @@ public:
     enum ResourceType { ResourceImage, ResourceStyleSheet, ResourceOther };
     static QString encodeMimeData(ResourceType resourceType, const QString &path);
 
-    static bool decodeMimeData(const QMimeData *md, ResourceType *t = 0, QString *file = 0);
-    static bool decodeMimeData(const QString &text, ResourceType *t = 0, QString *file = 0);
+    static bool decodeMimeData(const QMimeData *md, ResourceType *t = nullptr, QString *file = nullptr);
+    static bool decodeMimeData(const QString &text, ResourceType *t = nullptr, QString *file = nullptr);
 
 signals:
     void resourceSelected(const QString &resource);
     void resourceActivated(const QString &resource);
 
 protected:
-    bool event(QEvent *event);
+    bool event(QEvent *event) override;
 
 private:
 
     QScopedPointer<class QtResourceViewPrivate> d_ptr;
     Q_DECLARE_PRIVATE(QtResourceView)
-    Q_DISABLE_COPY(QtResourceView)
+    Q_DISABLE_COPY_MOVE(QtResourceView)
     Q_PRIVATE_SLOT(d_func(), void slotResourceSetActivated(QtResourceSet *))
     Q_PRIVATE_SLOT(d_func(), void slotCurrentPathChanged(QTreeWidgetItem *))
     Q_PRIVATE_SLOT(d_func(), void slotCurrentResourceChanged(QListWidgetItem *))
@@ -109,7 +109,7 @@ class QDESIGNER_SHARED_EXPORT  QtResourceViewDialog : public QDialog
 {
     Q_OBJECT
 public:
-    explicit QtResourceViewDialog(QDesignerFormEditorInterface *core, QWidget *parent = 0);
+    explicit QtResourceViewDialog(QDesignerFormEditorInterface *core, QWidget *parent = nullptr);
     ~QtResourceViewDialog() override;
 
     QString selectedResource() const;
@@ -121,7 +121,7 @@ public:
 private:
     QScopedPointer<class QtResourceViewDialogPrivate> d_ptr;
     Q_DECLARE_PRIVATE(QtResourceViewDialog)
-    Q_DISABLE_COPY(QtResourceViewDialog)
+    Q_DISABLE_COPY_MOVE(QtResourceViewDialog)
     Q_PRIVATE_SLOT(d_func(), void slotResourceSelected(const QString &))
 };
 

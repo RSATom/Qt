@@ -21,7 +21,7 @@ class GLImageRefCountedMemoryTestDelegate : public GLImageTestDelegateBase {
  public:
   scoped_refptr<GLImage> CreateSolidColorImage(const gfx::Size& size,
                                                const uint8_t color[4]) const {
-    DCHECK_EQ(NumberOfPlanesForBufferFormat(format), 1u);
+    DCHECK_EQ(NumberOfPlanesForLinearBufferFormat(format), 1u);
     std::vector<uint8_t> data(gfx::BufferSizeForBufferFormat(size, format));
     scoped_refptr<base::RefCountedBytes> bytes(new base::RefCountedBytes(data));
     GLImageTestSupport::SetBufferDataToColor(
@@ -45,13 +45,13 @@ using GLImageTestTypes = testing::Types<
     GLImageRefCountedMemoryTestDelegate<gfx::BufferFormat::BGRX_8888>,
     GLImageRefCountedMemoryTestDelegate<gfx::BufferFormat::BGRA_8888>>;
 
-INSTANTIATE_TYPED_TEST_CASE_P(GLImageRefCountedMemory,
-                              GLImageTest,
-                              GLImageTestTypes);
+INSTANTIATE_TYPED_TEST_SUITE_P(GLImageRefCountedMemory,
+                               GLImageTest,
+                               GLImageTestTypes);
 
-INSTANTIATE_TYPED_TEST_CASE_P(GLImageRefCountedMemory,
-                              GLImageCopyTest,
-                              GLImageTestTypes);
+INSTANTIATE_TYPED_TEST_SUITE_P(GLImageRefCountedMemory,
+                               GLImageCopyTest,
+                               GLImageTestTypes);
 
 }  // namespace
 }  // namespace gl

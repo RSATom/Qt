@@ -14,6 +14,7 @@
 #include "components/autofill_assistant/browser/actions/action.h"
 #include "components/autofill_assistant/browser/script.h"
 #include "components/autofill_assistant/browser/service.pb.h"
+#include "components/autofill_assistant/browser/trigger_context.h"
 
 class GURL;
 
@@ -25,20 +26,8 @@ class ProtocolUtils {
   // |url|.
   static std::string CreateGetScriptsRequest(
       const GURL& url,
-      const std::map<std::string, std::string>& parameters,
+      const TriggerContext& trigger_context,
       const ClientContextProto& client_context);
-
-  using Scripts = std::map<Script*, std::unique_ptr<Script>>;
-  // Parse assistant scripts from the given |response|, which should not be an
-  // empty string.
-  //
-  // Parsed assistant scripts are returned through |scripts|, which should not
-  // be nullptr. Returned scripts are guaranteed to be fully initialized, and
-  // have a name, path and precondition.
-  //
-  // Return false if parse failed, otherwise return true.
-  static bool ParseScripts(const std::string& response,
-                           std::vector<std::unique_ptr<Script>>* scripts);
 
   // Convert |script_proto| to a script struct and if the script is valid, add
   // it to |scripts|.
@@ -52,13 +41,14 @@ class ProtocolUtils {
   static std::string CreateInitialScriptActionsRequest(
       const std::string& script_path,
       const GURL& url,
-      const std::map<std::string, std::string>& parameters,
+      const TriggerContext& trigger_context,
       const std::string& global_payload,
       const std::string& script_payload,
       const ClientContextProto& client_context);
 
   // Create request to get next sequence of actions for a script.
   static std::string CreateNextScriptActionsRequest(
+      const TriggerContext& trigger_context,
       const std::string& global_payload,
       const std::string& script_payload,
       const std::vector<ProcessedActionProto>& processed_actions,
@@ -73,7 +63,8 @@ class ProtocolUtils {
   // scripts. The bool |should_update_scripts| makes clear the destinction
   // between an empty list of |scripts| or the scripts field not even set in the
   // proto. Return false if parse failed, otherwise return true.
-  static bool ParseActions(const std::string& response,
+  static bool ParseActions(ActionDelegate* delegate,
+                           const std::string& response,
                            std::string* return_global_payload,
                            std::string* return_script_payload,
                            std::vector<std::unique_ptr<Action>>* actions,

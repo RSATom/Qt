@@ -23,6 +23,10 @@
         <source>&lt;img src=&quot;:/qt-project.org/shared/images/wrap.png&quot;&gt;&amp;nbsp;Search wrapped</source>
         <translation>&lt;img src=&quot;:/qt-project.org/shared/images/wrap.png&quot;&gt;&amp;nbsp;Поиск с начала</translation>
     </message>
+    <message>
+        <source>&amp;Find in Text...</source>
+        <translation>&amp;Найти в тексте...</translation>
+    </message>
 </context>
 <context>
     <name>AbstractItemEditor</name>
@@ -649,6 +653,10 @@
         <translation>Невозможно запустить %1.</translation>
     </message>
     <message>
+        <source>Unable to launch %1: %2</source>
+        <translation>Невозможно запустить %1: %2</translation>
+    </message>
+    <message>
         <source>%1 timed out.</source>
         <translation>%1 время ожидания истекло.</translation>
     </message>
@@ -969,6 +977,14 @@
     <message>
         <source>ID-based</source>
         <translation>На основе ID</translation>
+    </message>
+    <message>
+        <source>Connections</source>
+        <translation>Соединения</translation>
+    </message>
+    <message>
+        <source>Connect slots by name</source>
+        <translation>Соединять слоты по имени</translation>
     </message>
 </context>
 <context>
@@ -1381,6 +1397,14 @@ This indicates an inconsistency in the ui-file.</source>
         <translation>CTRL+SHIFT+S</translation>
     </message>
     <message>
+        <source>View &amp;C++ Code...</source>
+        <translation>Показать код &amp;C++...</translation>
+    </message>
+    <message>
+        <source>View &amp;Python Code...</source>
+        <translation>Показать код &amp;Python...</translation>
+    </message>
+    <message>
         <source>CTRL+R</source>
         <translation>CTRL+R</translation>
     </message>
@@ -1473,8 +1497,18 @@ Do you want to update the file location or generate a new form?</source>
         <translation>Выбрать новый файл</translation>
     </message>
     <message>
+        <source>Save Form</source>
+        <translation>Сохранение формы</translation>
+    </message>
+    <message>
         <source>Could not write file</source>
         <translation>Невозможно записать файл</translation>
+    </message>
+    <message>
+        <source>It was not possible to write the file %1 to disk.
+Reason: %2</source>
+        <translation>Невозможно записать файл %1 на диск.
+Причина: %2</translation>
     </message>
     <message>
         <source>&amp;Close Preview</source>
@@ -3259,6 +3293,10 @@ Do you want overwrite the template?</source>
 <context>
     <name>WidgetDataBase</name>
     <message>
+        <source>A custom widget plugin whose class name (%1) matches that of an existing class has been found.</source>
+        <translation>Обнаружен пользовательский модуль виджета, имя класса которого (%1) совпадает с уже имеющимся.</translation>
+    </message>
+    <message>
         <source>The file contains a custom widget &apos;%1&apos; whose base class (%2) differs from the current entry in the widget database (%3). The widget database is left unchanged.</source>
         <translation>Файл содержит пользовательский виджет «%1», базовый класс (%2) которого отличается от текущей записи в базе виджетов (%3). База виджетов оставлена без изменений.</translation>
     </message>
@@ -3466,10 +3504,6 @@ Do you want overwrite the template?</source>
         <translation>Копировать всё</translation>
     </message>
     <message>
-        <source>&amp;Find in Text...</source>
-        <translation>&amp;Найти в тексте...</translation>
-    </message>
-    <message>
         <source>A temporary form file could not be created in %1.</source>
         <translation>Не удалось создать временный файл формы в %1.</translation>
     </message>
@@ -3488,6 +3522,10 @@ Do you want overwrite the template?</source>
     <message>
         <source>Header Files (*.%1)</source>
         <translation>Заголовочные файлы (*.%1)</translation>
+    </message>
+    <message>
+        <source>%1 - [%2 Code]</source>
+        <translation>%1 - [Код %2]</translation>
     </message>
     <message>
         <source>The file %1 could not be opened: %2</source>
@@ -4531,12 +4569,12 @@ Please select another name.</source>
 <context>
     <name>qdesigner_internal::ObjectInspector</name>
     <message>
-        <source>Change Current Page</source>
-        <translation>Смена текущей страницы</translation>
+        <source>Filter</source>
+        <translation>Фильтр</translation>
     </message>
     <message>
-        <source>&amp;Find in Text...</source>
-        <translation>&amp;Найти в тексте...</translation>
+        <source>Change Current Page</source>
+        <translation>Смена текущей страницы</translation>
     </message>
 </context>
 <context>
@@ -5056,6 +5094,10 @@ Class: %2</source>
     <message>
         <source>Add Tool Bar</source>
         <translation>Добавить панель инструментов</translation>
+    </message>
+    <message>
+        <source>Add Tool Bar to Other Area</source>
+        <translation>Добавить панель в другую область</translation>
     </message>
     <message>
         <source>Create Status Bar</source>
@@ -5697,13 +5739,6 @@ Class: %2</source>
     <message>
         <source>Edit name</source>
         <translation>Изменить имя</translation>
-    </message>
-</context>
-<context>
-    <name>qdesigner_internal::WidgetDataBase</name>
-    <message>
-        <source>A custom widget plugin whose class name (%1) matches that of an existing class has been found.</source>
-        <translation>Обнаружен пользовательский модуль виджета, имя класса которого (%1) совпадает с уже имеющимся.</translation>
     </message>
 </context>
 <context>

@@ -76,13 +76,10 @@ public:
     QQuaternion rotation() const;
     QVector3D translation() const;
 
-    void sceneChangeEvent(const Qt3DCore::QSceneChangePtr &e) override;
-
-    void updateMatrix();
+    void syncFromFrontEnd(const Qt3DCore::QNode *frontEnd, bool firstTime) final;
 
 private:
-    void initializeFromPeer(const Qt3DCore::QNodeCreatedChangeBasePtr &change) final;
-
+    void updateMatrix();
     Matrix4x4 m_transformMatrix;
     QQuaternion m_rotation;
     QVector3D m_scale;

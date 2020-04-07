@@ -175,7 +175,7 @@ class RuntimeAPI : public BrowserContextKeyedAPI,
   bool did_read_delayed_restart_preferences_;
   bool was_last_restart_due_to_delayed_restart_api_;
 
-  base::WeakPtrFactory<RuntimeAPI> weak_ptr_factory_;
+  base::WeakPtrFactory<RuntimeAPI> weak_ptr_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(RuntimeAPI);
 };
@@ -292,8 +292,7 @@ class RuntimeRestartAfterDelayFunction : public UIThreadExtensionFunction {
 
 class RuntimeGetPlatformInfoFunction : public UIThreadExtensionFunction {
  public:
-  DECLARE_EXTENSION_FUNCTION("runtime.getPlatformInfo",
-                             RUNTIME_GETPLATFORMINFO);
+  DECLARE_EXTENSION_FUNCTION("runtime.getPlatformInfo", RUNTIME_GETPLATFORMINFO)
 
  protected:
   ~RuntimeGetPlatformInfoFunction() override {}

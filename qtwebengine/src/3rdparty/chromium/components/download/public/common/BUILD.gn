@@ -15,6 +15,7 @@ config("components_download_implementation") {
 
 component("public") {
   sources = [
+    "all_download_event_notifier.h",
     "auto_resumption_handler.cc",
     "auto_resumption_handler.h",
     "base_file.h",
@@ -38,6 +39,7 @@ component("public") {
     "download_item_impl_delegate.h",
     "download_job.h",
     "download_job_factory.h",
+    "download_path_reservation_tracker.h",
     "download_request_handle_interface.h",
     "download_response_handler.h",
     "download_save_info.cc",
@@ -58,6 +60,8 @@ component("public") {
     "parallel_download_configs.h",
     "rate_estimator.h",
     "resume_mode.h",
+    "simple_download_manager.h",
+    "simple_download_manager_coordinator.h",
     "stream_handle_input_stream.h",
     "url_download_handler_factory.h",
     "url_download_request_handle.h",
@@ -76,6 +80,7 @@ component("public") {
     "//base",
     "//components/download/database",
     "//components/download/internal/common:internal",
+    "//components/services/quarantine:quarantine",
     "//crypto",
     "//net",
     "//services/metrics/public/cpp:metrics_cpp",
@@ -96,7 +101,7 @@ if (is_android) {
 
     deps = [
       "//base:base_java",
-      "//third_party/android_deps:android_support_annotations_java",
+      "//third_party/android_deps:com_android_support_support_annotations_java",
     ]
   }
 
@@ -130,15 +135,24 @@ source_set("test_support") {
     "mock_download_item_impl.h",
     "mock_input_stream.cc",
     "mock_input_stream.h",
+    "mock_simple_download_manager.cc",
+    "mock_simple_download_manager.h",
   ]
 
   public_deps = [
     ":public",
     "//base",
     "//net",
+    "//services/service_manager/public/cpp:cpp",
     "//testing/gmock",
     "//url",
   ]
+
+  if (is_android) {
+    deps = [
+      "//components/download/internal/common:internal_java",
+    ]
+  }
 }
 
 source_set("unit_tests") {

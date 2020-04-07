@@ -1,56 +1,111 @@
-# Copyright 2017 The Chromium Authors. All rights reserved.
+# Copyright 2019 The Chromium Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-from .extended_attribute import ExtendedAttributeList
-from .utilities import assert_no_extra_args
+import exceptions
+from .argument import Argument
+from .common import WithCodeGeneratorInfo
+from .common import WithComponent
+from .common import WithDebugInfo
+from .common import WithExposure
+from .common import WithExtendedAttributes
+from .common import WithIdentifier
+from .common import WithOwner
+from .idl_member import IdlMember
+from .idl_type import IdlType
 
 
-# https://heycam.github.io/webidl/#idl-operations
-class Operation(object):
-    # https://www.w3.org/TR/WebIDL-1/#idl-special-operations
-    _SPECIAL_KEYWORDS = frozenset(['deleter', 'getter', 'setter', 'stringifier', 'serializer'])
+class Operation(IdlMember):
+    """https://heycam.github.io/webidl/#idl-operations
+    https://www.w3.org/TR/WebIDL-1/#idl-special-operations"""
 
-    def __init__(self, **kwargs):
-        self._identifier = kwargs.pop('identifier')
-        self._return_type = kwargs.pop('return_type')
-        self._arguments = tuple(kwargs.pop('arguments', []))
-        self._special_keywords = frozenset(kwargs.pop('special_keywords', []))
-        self._is_static = kwargs.pop('is_static', False)
-        self._extended_attribute_list = kwargs.pop('extended_attribute_list', ExtendedAttributeList())
-        assert_no_extra_args(kwargs)
+    class IR(WithIdentifier, WithExtendedAttributes, WithExposure,
+             WithCodeGeneratorInfo, WithComponent, WithDebugInfo):
+        def __init__(self,
+                     identifier,
+                     arguments,
+                     return_type,
+                     is_static=False,
+                     extended_attributes=None,
+                     exposures=None,
+                     code_generator_info=None,
+                     component=None,
+                     components=None,
+                     debug_info=None):
+            assert isinstance(arguments, (list, tuple)) and all(
+                isinstance(arg, Argument.IR) for arg in arguments)
+            assert isinstance(return_type, IdlType)
+            assert isinstance(is_static, bool)
 
-        if any(keyword not in Operation._SPECIAL_KEYWORDS for keyword in self._special_keywords):
-            raise ValueError('Unknown keyword is specified in special keywords')
+            WithIdentifier.__init__(self, identifier)
+            WithExtendedAttributes.__init__(self, extended_attributes)
+            WithExposure.__init__(self, exposures)
+            WithCodeGeneratorInfo.__init__(self, code_generator_info)
+            WithComponent.__init__(
+                self, component=component, components=components)
+            WithDebugInfo.__init__(self, debug_info)
 
-    @property
-    def identifier(self):
-        return self._identifier
+            self.arguments = list(arguments)
+            self.return_type = return_type
+            self.is_static = is_static
 
-    @property
-    def return_type(self):
-        return self._return_type
-
-    @property
-    def arguments(self):
-        return self._arguments
-
-    @property
-    def special_keywords(self):
-        return self._special_keywords
+        def make_copy(self):
+            return Operation.IR(
+                identifier=self.identifier,
+                arguments=map(Argument.IR.make_copy, self.arguments),
+                return_type=self.return_type,
+                is_static=self.is_static,
+                extended_attributes=self.extended_attributes.make_copy(),
+                code_generator_info=self.code_generator_info.make_copy(),
+                components=self.components,
+                debug_info=self.debug_info.make_copy())
 
     @property
     def is_static(self):
-        return self._is_static
+        """
+        Returns True if 'static' is specified.
+        @return bool
+        """
+        raise exceptions.NotImplementedError()
 
     @property
-    def extended_attribute_list(self):
-        return self._extended_attribute_list
+    def return_type(self):
+        """
+        Returns the type of return value.
+        @return IdlType
+        """
+        raise exceptions.NotImplementedError()
 
     @property
-    def is_regular(self):
-        return self.identifier and not self.is_static
+    def arguments(self):
+        """
+        Returns a list of arguments.
+        @return tuple(Argument)
+        """
+        raise exceptions.NotImplementedError()
 
     @property
-    def is_special(self):
-        return bool(self.special_keywords)
+    def overloaded_index(self):
+        """
+        Returns the index in the OperationGroup that |self| belongs to.
+        @return int
+        """
+        raise exceptions.NotImplementedError()
+
+
+class OperationGroup(WithIdentifier, WithCodeGeneratorInfo, WithOwner,
+                     WithComponent, WithDebugInfo):
+    """
+    OperationGroup class has all Operation's with a same identifier, even if the
+    operation is not overloaded. Then we can handle overloaded and
+    non-overloaded operations seamlessly.
+    From the ES bindings' view point, OperationGroup tells something for properties,
+    and Operation tells something for actual behaviors.
+    """
+
+    def operations(self):
+        """
+        Returns a list of operations whose identifier is |identifier()|
+        @return tuple(Operation)
+        """
+        raise exceptions.NotImplementedError()

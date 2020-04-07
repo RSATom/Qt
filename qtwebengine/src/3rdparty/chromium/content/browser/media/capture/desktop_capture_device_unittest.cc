@@ -11,13 +11,14 @@
 #include <string>
 #include <utility>
 
+#include "base/bind.h"
 #include "base/command_line.h"
 #include "base/macros.h"
-#include "base/message_loop/message_loop_current.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/synchronization/waitable_event.h"
 #include "base/test/test_mock_time_task_runner.h"
 #include "base/test/test_timeouts.h"
+#include "base/threading/thread_task_runner_handle.h"
 #include "base/time/tick_clock.h"
 #include "base/time/time.h"
 #include "media/capture/video/mock_video_capture_device_client.h"
@@ -217,10 +218,12 @@ class DesktopCaptureDeviceTest : public testing::Test {
   void CopyFrame(const uint8_t* frame,
                  int size,
                  const media::VideoCaptureFormat&,
-                 int,
-                 base::TimeTicks,
-                 base::TimeDelta,
-                 int) {
+                 const gfx::ColorSpace&,
+                 int /* clockwise_rotation */,
+                 bool /* flip_y */,
+                 base::TimeTicks /* reference_time */,
+                 base::TimeDelta /* timestamp */,
+                 int /* frame_feedback_id */) {
     ASSERT_TRUE(output_frame_);
     ASSERT_EQ(output_frame_->stride() * output_frame_->size().height(), size);
     memcpy(output_frame_->data(), frame, size);
@@ -268,7 +271,7 @@ TEST_F(DesktopCaptureDeviceTest, MAYBE_Capture) {
       CreateMockVideoCaptureDeviceClient());
   EXPECT_CALL(*client, OnError(_, _, _)).Times(0);
   EXPECT_CALL(*client, OnStarted());
-  EXPECT_CALL(*client, OnIncomingCapturedData(_, _, _, _, _, _, _))
+  EXPECT_CALL(*client, OnIncomingCapturedData(_, _, _, _, _, _, _, _, _))
       .WillRepeatedly(
           DoAll(SaveArg<1>(&frame_size), SaveArg<2>(&format),
                 InvokeWithoutArgs(&done_event, &base::WaitableEvent::Signal)));
@@ -307,7 +310,7 @@ TEST_F(DesktopCaptureDeviceTest, ScreenResolutionChangeConstantResolution) {
       CreateMockVideoCaptureDeviceClient());
   EXPECT_CALL(*client, OnError(_, _, _)).Times(0);
   EXPECT_CALL(*client, OnStarted());
-  EXPECT_CALL(*client, OnIncomingCapturedData(_, _, _, _, _, _, _))
+  EXPECT_CALL(*client, OnIncomingCapturedData(_, _, _, _, _, _, _, _, _))
       .WillRepeatedly(
           DoAll(WithArg<2>(Invoke(&format_checker,
                                   &FormatChecker::ExpectAcceptableSize)),
@@ -353,7 +356,7 @@ TEST_F(DesktopCaptureDeviceTest, ScreenResolutionChangeFixedAspectRatio) {
       CreateMockVideoCaptureDeviceClient());
   EXPECT_CALL(*client, OnError(_, _, _)).Times(0);
   EXPECT_CALL(*client, OnStarted());
-  EXPECT_CALL(*client, OnIncomingCapturedData(_, _, _, _, _, _, _))
+  EXPECT_CALL(*client, OnIncomingCapturedData(_, _, _, _, _, _, _, _, _))
       .WillRepeatedly(
           DoAll(WithArg<2>(Invoke(&format_checker,
                                   &FormatChecker::ExpectAcceptableSize)),
@@ -403,7 +406,7 @@ TEST_F(DesktopCaptureDeviceTest, ScreenResolutionChangeVariableResolution) {
       CreateMockVideoCaptureDeviceClient());
   EXPECT_CALL(*client, OnError(_, _, _)).Times(0);
   EXPECT_CALL(*client, OnStarted());
-  EXPECT_CALL(*client, OnIncomingCapturedData(_, _, _, _, _, _, _))
+  EXPECT_CALL(*client, OnIncomingCapturedData(_, _, _, _, _, _, _, _, _))
       .WillRepeatedly(
           DoAll(WithArg<2>(Invoke(&format_checker,
                                   &FormatChecker::ExpectAcceptableSize)),
@@ -455,7 +458,7 @@ TEST_F(DesktopCaptureDeviceTest, UnpackedFrame) {
       CreateMockVideoCaptureDeviceClient());
   EXPECT_CALL(*client, OnError(_, _, _)).Times(0);
   EXPECT_CALL(*client, OnStarted());
-  EXPECT_CALL(*client, OnIncomingCapturedData(_, _, _, _, _, _, _))
+  EXPECT_CALL(*client, OnIncomingCapturedData(_, _, _, _, _, _, _, _, _))
       .WillRepeatedly(
           DoAll(Invoke(this, &DesktopCaptureDeviceTest::CopyFrame),
                 SaveArg<1>(&frame_size),
@@ -504,7 +507,7 @@ TEST_F(DesktopCaptureDeviceTest, InvertedFrame) {
       CreateMockVideoCaptureDeviceClient());
   EXPECT_CALL(*client, OnError(_, _, _)).Times(0);
   EXPECT_CALL(*client, OnStarted());
-  EXPECT_CALL(*client, OnIncomingCapturedData(_, _, _, _, _, _, _))
+  EXPECT_CALL(*client, OnIncomingCapturedData(_, _, _, _, _, _, _, _, _))
       .WillRepeatedly(
           DoAll(Invoke(this, &DesktopCaptureDeviceTest::CopyFrame),
                 SaveArg<1>(&frame_size),
@@ -553,6 +556,7 @@ class DesktopCaptureDeviceThrottledTest : public DesktopCaptureDeviceTest {
         base::WaitableEvent::ResetPolicy::AUTOMATIC,
         base::WaitableEvent::InitialState::NOT_SIGNALED);
 
+    scoped_refptr<base::SingleThreadTaskRunner> message_loop_task_runner;
     scoped_refptr<base::TestMockTimeTaskRunner> task_runner;
     int nb_frames = 0;
 
@@ -561,21 +565,23 @@ class DesktopCaptureDeviceThrottledTest : public DesktopCaptureDeviceTest {
     EXPECT_CALL(*client, OnError(_, _, _)).Times(0);
     // On started is called from the capture thread.
     EXPECT_CALL(*client, OnStarted())
-        .WillOnce(InvokeWithoutArgs([this, &task_runner] {
+        .WillOnce(InvokeWithoutArgs([this, &task_runner,
+                                     &message_loop_task_runner] {
+          message_loop_task_runner = base::ThreadTaskRunnerHandle::Get();
           task_runner = new base::TestMockTimeTaskRunner(
               base::Time::Now(), base::TimeTicks::Now(),
               base::TestMockTimeTaskRunner::Type::kStandalone);
-
           capture_device_->SetMockTimeForTesting(
               task_runner, task_runner->GetMockTickClock());
         }));
 
-    EXPECT_CALL(*client, OnIncomingCapturedData(_, _, _, _, _, _, _))
+    EXPECT_CALL(*client, OnIncomingCapturedData(_, _, _, _, _, _, _, _, _))
         .WillRepeatedly(DoAll(
             WithArg<2>(
                 Invoke(&format_checker, &FormatChecker::ExpectAcceptableSize)),
-            WithArg<5>(Invoke([&done_event, &nb_frames, &task_runner]
-                              (base::TimeDelta timestamp) {
+            WithArg<7>(Invoke([&done_event, &nb_frames, &task_runner,
+                               &message_loop_task_runner](
+                                  base::TimeDelta timestamp) {
               ++nb_frames;
 
               // Simulate real device capture time. Indeed the time spent
@@ -595,17 +601,15 @@ class DesktopCaptureDeviceThrottledTest : public DesktopCaptureDeviceTest {
                 // 'PostNonNestable' is required to make sure the next one
                 // shot capture timer is already pushed when forwaring the
                 // virtual time by the next pending task delay.
-                base::MessageLoopCurrent::Get()
-                    ->task_runner()
-                    ->PostNonNestableTask(
-                        FROM_HERE,
-                        base::BindOnce(
-                            [](scoped_refptr<base::TestMockTimeTaskRunner>
-                                   task_runner) {
-                              task_runner->FastForwardBy(
-                                  task_runner->NextPendingTaskDelay());
-                            },
-                            task_runner));
+                message_loop_task_runner->PostNonNestableTask(
+                    FROM_HERE,
+                    base::BindOnce(
+                        [](scoped_refptr<base::TestMockTimeTaskRunner>
+                               task_runner) {
+                          task_runner->FastForwardBy(
+                              task_runner->NextPendingTaskDelay());
+                        },
+                        task_runner));
               }
             }))));
     media::VideoCaptureParams capture_params;
@@ -668,7 +672,7 @@ TEST_F(DesktopCaptureDeviceThrottledTest, Throttled80) {
 
   base::CommandLine::ForCurrentProcess()->AppendSwitchASCII(
       "--webrtc-max-cpu-consumption-percentage",
-      base::IntToString(max_cpu_consumption_percentage));
+      base::NumberToString(max_cpu_consumption_percentage));
 
   const double actual_framerate = CaptureFrames();
 

@@ -8,32 +8,38 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "base/cancelable_callback.h"
+#include <list>
+#include <memory>
+#include <set>
+#include <string>
+#include <vector>
+
 #include "base/containers/flat_set.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
 #include "ui/aura/scoped_window_targeter.h"
 #include "ui/aura/window_tree_host.h"
-#include "ui/base/cursor/cursor_loader_x11.h"
+#include "ui/base/x/x11_window.h"
 #include "ui/events/platform/platform_event_dispatcher.h"
-#include "ui/gfx/geometry/insets.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/size.h"
-#include "ui/gfx/x/x11.h"
+#include "ui/gfx/x/x11_types.h"
 #include "ui/views/views_export.h"
 #include "ui/views/widget/desktop_aura/desktop_window_tree_host.h"
 
 namespace gfx {
 class ImageSkia;
-class ImageSkiaRep;
 }
 
 namespace ui {
 enum class DomCode;
 class EventHandler;
 class KeyboardHook;
-class XScopedEventSelector;
+class KeyEvent;
+class MouseEvent;
+class TouchEvent;
+class ScrollEvent;
 }
 
 namespace views {
@@ -45,7 +51,8 @@ class X11DesktopWindowMoveClient;
 class VIEWS_EXPORT DesktopWindowTreeHostX11
     : public DesktopWindowTreeHost,
       public aura::WindowTreeHost,
-      public ui::PlatformEventDispatcher {
+      public ui::PlatformEventDispatcher,
+      public ui::XWindow::Delegate {
  public:
   DesktopWindowTreeHostX11(
       internal::NativeWidgetDelegate* native_widget_delegate,
@@ -86,10 +93,14 @@ class VIEWS_EXPORT DesktopWindowTreeHostX11
   static void CleanUpWindowList(void (*func)(aura::Window* window));
 
   // Disables event listening to make |dialog| modal.
-  std::unique_ptr<base::Closure> DisableEventListening();
+  base::OnceClosure DisableEventListening();
 
   // Returns a map of KeyboardEvent code to KeyboardEvent key values.
   base::flat_map<std::string, std::string> GetKeyboardLayoutMap() override;
+
+  // This must be called before the window is created, because the visual cannot
+  // be changed after.
+  void SetVisualId(VisualID visual_id);
 
  protected:
   // Overridden from DesktopWindowTreeHost:
@@ -127,8 +138,8 @@ class VIEWS_EXPORT DesktopWindowTreeHostX11
   bool IsMaximized() const override;
   bool IsMinimized() const override;
   bool HasCapture() const override;
-  void SetAlwaysOnTop(bool always_on_top) override;
-  bool IsAlwaysOnTop() const override;
+  void SetZOrderLevel(ui::ZOrderLevel order) override;
+  ui::ZOrderLevel GetZOrderLevel() const override;
   void SetVisibleOnAllWorkspaces(bool always_visible) override;
   bool IsVisibleOnAllWorkspaces() const override;
   bool SetWindowTitle(const base::string16& title) override;
@@ -165,10 +176,7 @@ class VIEWS_EXPORT DesktopWindowTreeHostX11
   void ShowImpl() override;
   void HideImpl() override;
   gfx::Rect GetBoundsInPixels() const override;
-  void SetBoundsInPixels(
-      const gfx::Rect& requested_bounds_in_pixels,
-      const viz::LocalSurfaceIdAllocation& local_surface_id_allocation =
-          viz::LocalSurfaceIdAllocation()) override;
+  void SetBoundsInPixels(const gfx::Rect& requested_bounds_in_pixels) override;
   gfx::Point GetLocationOnScreenInPixels() const override;
   void SetCapture() override;
   void ReleaseCapture() override;
@@ -185,6 +193,30 @@ class VIEWS_EXPORT DesktopWindowTreeHostX11
   void OnDisplayMetricsChanged(const display::Display& display,
                                uint32_t changed_metrics) override;
 
+  // Overridden from ui::XWindow::Delegate
+  void OnXWindowCreated() override;
+  void OnXWindowMapped() override;
+  void OnXWindowUnmapped() override;
+  void OnXWindowStateChanged() override;
+  void OnXWindowWorkspaceChanged() override;
+  void OnXWindowKeyEvent(ui::KeyEvent* key_event) override;
+  void OnXWindowMouseEvent(ui::MouseEvent* mouseev) override;
+  void OnXWindowTouchEvent(ui::TouchEvent* touch_event) override;
+  void OnXWindowScrollEvent(ui::ScrollEvent* scroll_event) override;
+  void OnXWindowSelectionEvent(XEvent* xev) override;
+  void OnXWindowDragDropEvent(XEvent* xev) override;
+  void OnXWindowChildCrossingEvent(XEvent* xev) override;
+  void OnXWindowRawKeyEvent(XEvent* xev) override;
+  void OnXWindowSizeChanged(const gfx::Size& size) override;
+  void OnXWindowCloseRequested() override;
+  void OnXWindowMoved(const gfx::Point& window_origin) override;
+  void OnXWindowDamageEvent(const gfx::Rect& damage_rect) override;
+  void OnXWindowLostPointerGrab() override;
+  void OnXWindowLostCapture() override;
+  void OnXWindowIsActiveChanged(bool active) override;
+  gfx::Size GetMinimumSizeForXWindow() override;
+  gfx::Size GetMaximumSizeForXWindow() override;
+
  private:
   friend class DesktopWindowTreeHostX11HighDPITest;
 
@@ -200,53 +232,6 @@ class VIEWS_EXPORT DesktopWindowTreeHostX11
   // window size to the monitor size causes the WM to set the EWMH for
   // fullscreen.
   gfx::Size AdjustSize(const gfx::Size& requested_size);
-
-  // If mapped, sends a message to the window manager to enable or disable the
-  // states |state1| and |state2|.  Otherwise, the states will be enabled or
-  // disabled on the next map.  It's the caller's responsibility to make sure
-  // atoms are set and unset in the appropriate pairs.  For example, if a caller
-  // sets (_NET_WM_STATE_MAXIMIZED_VERT, _NET_WM_STATE_MAXIMIZED_HORZ), it would
-  // be invalid to unset the maximized state by making two calls like
-  // (_NET_WM_STATE_MAXIMIZED_VERT, x11::None), (_NET_WM_STATE_MAXIMIZED_HORZ,
-  // x11::None).
-  void SetWMSpecState(bool enabled, XAtom state1, XAtom state2);
-
-  // Called when |xwindow_|'s _NET_WM_STATE property is updated.
-  void OnWMStateUpdated();
-
-  // Updates |window_properties_| with |new_window_properties|.
-  void UpdateWindowProperties(
-      const base::flat_set<XAtom>& new_window_properties);
-
-  // Called when |xwindow_|'s _NET_FRAME_EXTENTS property is updated.
-  void OnFrameExtentsUpdated();
-
-  // Record the activation state.
-  void BeforeActivationStateChanged();
-
-  // Handle the state change since BeforeActivationStateChanged().
-  void AfterActivationStateChanged();
-
-  // Called on an XEnterWindowEvent, XLeaveWindowEvent, XIEnterEvent, or an
-  // XILeaveEvent.
-  void OnCrossingEvent(bool enter,
-                       bool focus_in_window_or_ancestor,
-                       int mode,
-                       int detail);
-
-  // Called on an XFocusInEvent, XFocusOutEvent, XIFocusInEvent, or an
-  // XIFocusOutEvent.
-  void OnFocusEvent(bool focus_in, int mode, int detail);
-
-  // Makes a round trip to the X server to get the enclosing workspace for this
-  // window.
-  void UpdateWorkspace();
-
-  // Updates |xwindow_|'s minimum and maximum size.
-  void UpdateMinAndMaxSize();
-
-  // Updates |xwindow_|'s _NET_WM_USER_TIME if |xwindow_| is active.
-  void UpdateWMUserTime(const ui::PlatformEvent& event);
 
   // Sets whether the window's borders are provided by the window manager.
   void SetUseNativeFrame(bool use_native_frame);
@@ -267,10 +252,6 @@ class VIEWS_EXPORT DesktopWindowTreeHostX11
   // Resets the window region for the current widget bounds if necessary.
   void ResetWindowRegion();
 
-  // Serializes an image to the format used by _NET_WM_ICON.
-  void SerializeImageRepresentation(const gfx::ImageSkiaRep& rep,
-                                    std::vector<unsigned long>* data);
-
   // See comment for variable open_windows_.
   static std::list<XID>& open_windows();
 
@@ -286,7 +267,6 @@ class VIEWS_EXPORT DesktopWindowTreeHostX11
   bool CanDispatchEvent(const ui::PlatformEvent& event) override;
   uint32_t DispatchEvent(const ui::PlatformEvent& event) override;
 
-  void DelayedResize(const gfx::Size& size_in_pixels);
   void DelayedChangeFrameType(Widget::FrameType new_type);
 
   gfx::Rect ToDIPRect(const gfx::Rect& rect_in_pixels) const;
@@ -295,77 +275,26 @@ class VIEWS_EXPORT DesktopWindowTreeHostX11
   // Enables event listening after closing |dialog|.
   void EnableEventListening();
 
-  // Removes |delayed_resize_task_| from the task queue (if it's in
-  // the queue) and adds it back at the end of the queue.
-  void RestartDelayedResizeTask();
-
   // Set visibility and fire OnNativeWidgetVisibilityChanged() if it changed.
   void SetVisible(bool visible);
 
   // Accessor for DesktopNativeWidgetAura::content_window().
   aura::Window* content_window();
 
-  // X11 things
-  // The display and the native X window hosting the root window.
-  XDisplay* xdisplay_;
-  ::Window xwindow_;
-
-  // Events selected on |xwindow_|.
-  std::unique_ptr<ui::XScopedEventSelector> xwindow_events_;
-
-  // The native root window.
-  ::Window x_root_window_;
-
-  // Whether the window is mapped with respect to the X server.
-  bool window_mapped_in_server_;
-
-  // Whether the window is visible with respect to Aura.
-  bool window_mapped_in_client_;
-
-  // The bounds of |xwindow_|.
-  gfx::Rect bounds_in_pixels_;
-
-  // Whenever the bounds are set, we keep the previous set of bounds around so
-  // we can have a better chance of getting the real
-  // |restored_bounds_in_pixels_|. Window managers tend to send a Configure
-  // message with the maximized bounds, and then set the window maximized
-  // property. (We don't rely on this for when we request that the window be
-  // maximized, only when we detect that some other process has requested that
-  // we become the maximized window.)
-  gfx::Rect previous_bounds_in_pixels_;
+  // Callback for a swapbuffer after resize.
+  void OnCompleteSwapWithNewSize(const gfx::Size& size);
 
   // The bounds of our window before we were maximized.
   gfx::Rect restored_bounds_in_pixels_;
 
-  // |xwindow_|'s minimum size.
-  gfx::Size min_size_in_pixels_;
-
-  // |xwindow_|'s maximum size.
-  gfx::Size max_size_in_pixels_;
-
-  // The workspace containing |xwindow_|.  This will be base::nullopt when
-  // _NET_WM_DESKTOP is unset.
-  base::Optional<int> workspace_;
-
-  // The window manager state bits.
-  base::flat_set<XAtom> window_properties_;
-
   // Whether |xwindow_| was requested to be fullscreen via SetFullscreen().
-  bool is_fullscreen_;
+  bool is_fullscreen_ = false;
 
-  // True if the window should stay on top of most other windows.
-  bool is_always_on_top_;
+  // The z-order level of the window; the window exhibits "always on top"
+  // behavior if > 0.
+  ui::ZOrderLevel z_order_ = ui::ZOrderLevel::kNormal;
 
-  // True if the window has title-bar / borders provided by the window manager.
-  bool use_native_frame_;
-
-  // True if a Maximize() call should be done after mapping the window.
-  bool should_maximize_after_map_;
-
-  // Whether we used an ARGB visual for our window.
-  bool use_argb_visual_;
-
-  DesktopDragDropClientAuraX11* drag_drop_client_;
+  DesktopDragDropClientAuraX11* drag_drop_client_ = nullptr;
 
   std::unique_ptr<ui::EventHandler> x11_non_client_event_filter_;
   std::unique_ptr<X11DesktopWindowMoveClient> x11_window_move_client_;
@@ -378,21 +307,11 @@ class VIEWS_EXPORT DesktopWindowTreeHostX11
 
   // We can optionally have a parent which can order us to close, or own
   // children who we're responsible for closing when we CloseNow().
-  DesktopWindowTreeHostX11* window_parent_;
+  DesktopWindowTreeHostX11* window_parent_ = nullptr;
   std::set<DesktopWindowTreeHostX11*> window_children_;
 
   base::ObserverList<DesktopWindowTreeHostObserverX11>::Unchecked
       observer_list_;
-
-  // The window shape if the window is non-rectangular.
-  gfx::XScopedPtr<_XRegion, gfx::XObjectDeleter<_XRegion, int, XDestroyRegion>>
-      window_shape_;
-
-  // Whether |window_shape_| was set via SetShape().
-  bool custom_window_shape_;
-
-  // The size of the window manager provided borders (if any).
-  gfx::Insets native_window_frame_borders_in_pixels_;
 
   // The current DesktopWindowTreeHostX11 which has capture. Set synchronously
   // when capture is requested via SetCapture().
@@ -402,60 +321,23 @@ class VIEWS_EXPORT DesktopWindowTreeHostX11
   // destroyed.
   static std::list<XID>* open_windows_;
 
-  base::string16 window_title_;
-
-  // Whether we currently are flashing our frame. This feature is implemented
-  // by setting the urgency hint with the window manager, which can draw
-  // attention to the window or completely ignore the hint. We stop flashing
-  // the frame when |xwindow_| gains focus or handles a mouse button event.
-  bool urgency_hint_set_;
-
-  // Does |xwindow_| have the pointer grab (XI2 or normal)?
-  bool has_pointer_grab_;
-
-  bool activatable_;
-
-  // The focus-tracking state variables are as described in
-  // gtk/docs/focus_tracking.txt
-  //
-  // |xwindow_| is active iff:
-  //     (|has_window_focus_| || |has_pointer_focus_|) &&
-  //     !|ignore_keyboard_input_|
-
-  // Is the pointer in |xwindow_| or one of its children?
-  bool has_pointer_;
-
-  // Is |xwindow_| or one of its children focused?
-  bool has_window_focus_;
-
-  // (An ancestor window or the PointerRoot is focused) && |has_pointer_|.
-  // |has_pointer_focus_| == true is the odd case where we will receive keyboard
-  // input when |has_window_focus_| == false.  |has_window_focus_| and
-  // |has_pointer_focus_| are mutually exclusive.
-  bool has_pointer_focus_;
-
-  // X11 does not support defocusing windows; you can only focus a different
-  // window.  If we would like to be defocused, we just ignore keyboard input we
-  // no longer care about.
-  bool ignore_keyboard_input_;
-
-  // Used for tracking activation state in {Before|After}ActivationStateChanged.
-  bool was_active_;
-  bool had_pointer_;
-  bool had_pointer_grab_;
-  bool had_window_focus_;
+  // Cached value for SetVisible.  Not the same as the IsVisible public API.
+  bool is_compositor_set_visible_ = false;
 
   // Captures system key events when keyboard lock is requested.
   std::unique_ptr<ui::KeyboardHook> keyboard_hook_;
 
-  base::CancelableCallback<void()> delayed_resize_task_;
-
   std::unique_ptr<aura::ScopedWindowTargeter> targeter_for_modal_;
 
-  uint32_t modal_dialog_counter_;
+  uint32_t modal_dialog_counter_ = 0;
 
-  base::WeakPtrFactory<DesktopWindowTreeHostX11> close_widget_factory_;
-  base::WeakPtrFactory<DesktopWindowTreeHostX11> weak_factory_;
+  std::unique_ptr<CompositorObserver> compositor_observer_;
+
+  std::unique_ptr<ui::XWindow> x11_window_;
+
+  // The display and the native X window hosting the root window.
+  base::WeakPtrFactory<DesktopWindowTreeHostX11> close_widget_factory_{this};
+  base::WeakPtrFactory<DesktopWindowTreeHostX11> weak_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(DesktopWindowTreeHostX11);
 };

@@ -14,7 +14,7 @@
 #include "base/timer/timer.h"
 #include "content/common/content_export.h"
 #include "content/public/browser/bluetooth_chooser.h"
-#include "third_party/blink/public/platform/modules/bluetooth/web_bluetooth.mojom.h"
+#include "third_party/blink/public/mojom/bluetooth/web_bluetooth.mojom.h"
 
 namespace device {
 class BluetoothAdapter;
@@ -165,7 +165,8 @@ class CONTENT_EXPORT BluetoothDeviceChooserController final {
   // than we do.
   // Note: This should remain the last member so it'll be destroyed and
   // invalidate its weak pointers before any other members are destroyed.
-  base::WeakPtrFactory<BluetoothDeviceChooserController> weak_ptr_factory_;
+  base::WeakPtrFactory<BluetoothDeviceChooserController> weak_ptr_factory_{
+      this};
 };
 
 }  // namespace content

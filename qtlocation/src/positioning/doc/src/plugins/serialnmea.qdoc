@@ -1,0 +1,78 @@
+/****************************************************************************
+**
+** Copyright (C) 2019 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
+**
+** This file is part of the documentation of the Qt Toolkit.
+**
+** $QT_BEGIN_LICENSE:FDL$
+** Commercial License Usage
+** Licensees holding valid commercial Qt licenses may use this file in
+** accordance with the commercial license agreement provided with the
+** Software or, alternatively, in accordance with the terms contained in
+** a written agreement between you and The Qt Company. For licensing terms
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
+**
+** GNU Free Documentation License Usage
+** Alternatively, this file may be used under the terms of the GNU Free
+** Documentation License version 1.3 as published by the Free Software
+** Foundation and appearing in the file included in the packaging of
+** this file. Please review the following information to ensure
+** the GNU Free Documentation License version 1.3 requirements
+** will be met: https://www.gnu.org/licenses/fdl-1.3.html.
+** $QT_END_LICENSE$
+**
+****************************************************************************/
+
+/*!
+\page position-plugin-serialnmea.html
+\title Qt Positioning Serial NMEA plugin
+\ingroup QtPositioning-plugins
+
+\brief Reads the NMEA stream from a serial connection to provide position updates.
+
+\section1 Overview
+
+Included with Qt Location is a position plugin which parses NMEA sentences streamed
+over a serial port into position updates.
+
+This plugin can be loaded by using the provider name \b serialnmea.
+
+
+\section1 Parameters
+
+The following table lists parameters that \e can be passed to the serialnmea plugin.
+
+\table
+\header
+    \li Parameter
+    \li Description
+\row
+    \li serialnmea.serial_port
+    \li The serial port where the NMEA stream is coming.
+\endtable
+
+\section1 Parameter Usage Example
+
+The following examples show how to create a \b serialnmea PositionSource
+listening on a specific serial port
+
+\section2 QML
+
+\code
+PositionSource {
+    name: "serialnmea"
+    PluginParameter { name: "serialnmea.serial_port"; value: "tnt1" }
+}
+\endcode
+
+\section2 C++
+
+\code
+QVariantMap params;
+params["serialnmea.serial_port"] = "tnt1";
+QGeoPositionInfoSource *positionSource = QGeoPositionInfoSource::createSource("serialnmea", params, this);
+\endcode
+
+*/

@@ -8,15 +8,15 @@
 #include <utility>
 
 #include "src/base/lazy-instance.h"
-#include "src/base/platform/mutex.h"
 #include "src/base/template-utils.h"
 #include "src/debug/debug.h"
-#include "src/deoptimizer.h"
-#include "src/frames-inl.h"
-#include "src/locked-queue-inl.h"
-#include "src/log.h"
+#include "src/execution/frames-inl.h"
+#include "src/execution/vm-state-inl.h"
+#include "src/logging/counters.h"
+#include "src/logging/log.h"
 #include "src/profiler/cpu-profiler-inl.h"
-#include "src/vm-state-inl.h"
+#include "src/utils/locked-queue-inl.h"
+#include "src/wasm/wasm-engine.h"
 
 namespace v8 {
 namespace internal {
@@ -33,7 +33,9 @@ class CpuSampler : public sampler::Sampler {
     TickSample* sample = processor_->StartTickSample();
     if (sample == nullptr) return;
     Isolate* isolate = reinterpret_cast<Isolate*>(this->isolate());
-    sample->Init(isolate, regs, TickSample::kIncludeCEntryFrame, true);
+    sample->Init(isolate, regs, TickSample::kIncludeCEntryFrame,
+                 /* update_stats */ true,
+                 /* use_simulator_reg_state */ true, processor_->period());
     if (is_counting_samples_ && !sample->timestamp.IsNull()) {
       if (sample->state == JS) ++js_sample_count_;
       if (sample->state == EXTERNAL) ++external_sample_count_;
@@ -52,14 +54,17 @@ ProfilerEventsProcessor::ProfilerEventsProcessor(Isolate* isolate,
       running_(1),
       last_code_event_id_(0),
       last_processed_code_event_id_(0),
-      isolate_(isolate) {}
+      isolate_(isolate),
+      profiling_scope_(isolate) {}
 
 SamplingEventsProcessor::SamplingEventsProcessor(Isolate* isolate,
                                                  ProfileGenerator* generator,
-                                                 base::TimeDelta period)
+                                                 base::TimeDelta period,
+                                                 bool use_precise_sampling)
     : ProfilerEventsProcessor(isolate, generator),
       sampler_(new CpuSampler(isolate, this)),
-      period_(period) {
+      period_(period),
+      use_precise_sampling_(use_precise_sampling) {
   sampler_->Start();
 }
 
@@ -107,6 +112,10 @@ void ProfilerEventsProcessor::AddSample(TickSample sample) {
 
 void ProfilerEventsProcessor::StopSynchronously() {
   if (!base::Relaxed_AtomicExchange(&running_, 0)) return;
+  {
+    base::MutexGuard guard(&running_mutex_);
+    running_cond_.NotifyOne();
+  }
   Join();
 }
 
@@ -178,6 +187,7 @@ SamplingEventsProcessor::ProcessOneSample() {
 }
 
 void SamplingEventsProcessor::Run() {
+  base::MutexGuard guard(&running_mutex_);
   while (!!base::Relaxed_Load(&running_)) {
     base::TimeTicks nextSampleTime =
         base::TimeTicks::HighResolutionNow() + period_;
@@ -197,15 +207,29 @@ void SamplingEventsProcessor::Run() {
 
     if (nextSampleTime > now) {
 #if V8_OS_WIN
-      if (nextSampleTime - now < base::TimeDelta::FromMilliseconds(100)) {
+      if (use_precise_sampling_ &&
+          nextSampleTime - now < base::TimeDelta::FromMilliseconds(100)) {
         // Do not use Sleep on Windows as it is very imprecise, with up to 16ms
         // jitter, which is unacceptable for short profile intervals.
         while (base::TimeTicks::HighResolutionNow() < nextSampleTime) {
         }
       } else  // NOLINT
-#endif
+#else
+      USE(use_precise_sampling_);
+#endif  // V8_OS_WIN
       {
-        base::OS::Sleep(nextSampleTime - now);
+        // Allow another thread to interrupt the delay between samples in the
+        // event of profiler shutdown.
+        while (now < nextSampleTime &&
+               running_cond_.WaitFor(&running_mutex_, nextSampleTime - now)) {
+          // If true was returned, we got interrupted before the timeout
+          // elapsed. If this was not due to a change in running state, a
+          // spurious wakeup occurred (thus we should continue to wait).
+          if (!base::Relaxed_Load(&running_)) {
+            break;
+          }
+          now = base::TimeTicks::HighResolutionNow();
+        }
       }
     }
 
@@ -220,6 +244,16 @@ void SamplingEventsProcessor::Run() {
       result = ProcessOneSample();
     } while (result == OneSampleProcessed);
   } while (ProcessCodeEvent());
+}
+
+void SamplingEventsProcessor::SetSamplingInterval(base::TimeDelta period) {
+  if (period_ == period) return;
+  StopSynchronously();
+
+  period_ = period;
+  base::Relaxed_Store(&running_, 1);
+
+  StartSynchronously();
 }
 
 void* SamplingEventsProcessor::operator new(size_t size) {
@@ -286,19 +320,21 @@ class CpuProfilersManager {
   base::Mutex mutex_;
 };
 
-DEFINE_LAZY_LEAKY_OBJECT_GETTER(CpuProfilersManager, GetProfilersManager);
+DEFINE_LAZY_LEAKY_OBJECT_GETTER(CpuProfilersManager, GetProfilersManager)
 
 }  // namespace
 
-CpuProfiler::CpuProfiler(Isolate* isolate)
-    : CpuProfiler(isolate, new CpuProfilesCollection(isolate), nullptr,
-                  nullptr) {}
+CpuProfiler::CpuProfiler(Isolate* isolate, CpuProfilingNamingMode naming_mode)
+    : CpuProfiler(isolate, naming_mode, new CpuProfilesCollection(isolate),
+                  nullptr, nullptr) {}
 
-CpuProfiler::CpuProfiler(Isolate* isolate, CpuProfilesCollection* test_profiles,
+CpuProfiler::CpuProfiler(Isolate* isolate, CpuProfilingNamingMode naming_mode,
+                         CpuProfilesCollection* test_profiles,
                          ProfileGenerator* test_generator,
                          ProfilerEventsProcessor* test_processor)
     : isolate_(isolate),
-      sampling_interval_(base::TimeDelta::FromMicroseconds(
+      naming_mode_(naming_mode),
+      base_sampling_interval_(base::TimeDelta::FromMicroseconds(
           FLAG_cpu_profiler_sampling_interval)),
       profiles_(test_profiles),
       generator_(test_generator),
@@ -315,7 +351,12 @@ CpuProfiler::~CpuProfiler() {
 
 void CpuProfiler::set_sampling_interval(base::TimeDelta value) {
   DCHECK(!is_profiling_);
-  sampling_interval_ = value;
+  base_sampling_interval_ = value;
+}
+
+void CpuProfiler::set_use_precise_sampling(bool value) {
+  DCHECK(!is_profiling_);
+  use_precise_sampling_ = value;
 }
 
 void CpuProfiler::ResetProfiles() {
@@ -337,6 +378,17 @@ void CpuProfiler::CreateEntriesForRuntimeCallStats() {
   }
 }
 
+base::TimeDelta CpuProfiler::ComputeSamplingInterval() const {
+  return profiles_->GetCommonSamplingInterval();
+}
+
+void CpuProfiler::AdjustSamplingInterval() {
+  if (!processor_) return;
+
+  base::TimeDelta base_interval = ComputeSamplingInterval();
+  processor_->SetSamplingInterval(base_interval);
+}
+
 // static
 void CpuProfiler::CollectSample(Isolate* isolate) {
   GetProfilersManager()->CallCollectSample(isolate);
@@ -348,18 +400,17 @@ void CpuProfiler::CollectSample() {
   }
 }
 
-void CpuProfiler::StartProfiling(const char* title, bool record_samples,
-                                 ProfilingMode mode) {
-  if (profiles_->StartProfiling(title, record_samples, mode)) {
+void CpuProfiler::StartProfiling(const char* title,
+                                 CpuProfilingOptions options) {
+  if (profiles_->StartProfiling(title, options)) {
     TRACE_EVENT0("v8", "CpuProfiler::StartProfiling");
+    AdjustSamplingInterval();
     StartProcessorIfNotStarted();
   }
 }
 
-void CpuProfiler::StartProfiling(String title, bool record_samples,
-                                 ProfilingMode mode) {
-  StartProfiling(profiles_->GetName(title), record_samples, mode);
-  isolate_->debug()->feature_tracker()->Track(DebugFeatureTracker::kProfiler);
+void CpuProfiler::StartProfiling(String title, CpuProfilingOptions options) {
+  StartProfiling(profiles_->GetName(title), options);
 }
 
 void CpuProfiler::StartProcessorIfNotStarted() {
@@ -367,10 +418,8 @@ void CpuProfiler::StartProcessorIfNotStarted() {
     processor_->AddCurrentStack();
     return;
   }
+  isolate_->wasm_engine()->EnableCodeLogging(isolate_);
   Logger* logger = isolate_->logger();
-  // Disable logging when using the new implementation.
-  saved_is_logging_ = logger->is_logging();
-  logger->set_is_logging(false);
 
   bool codemap_needs_initialization = false;
   if (!generator_) {
@@ -378,14 +427,17 @@ void CpuProfiler::StartProcessorIfNotStarted() {
     codemap_needs_initialization = true;
     CreateEntriesForRuntimeCallStats();
   }
-  processor_.reset(new SamplingEventsProcessor(isolate_, generator_.get(),
-                                               sampling_interval_));
-  if (!profiler_listener_) {
-    profiler_listener_.reset(new ProfilerListener(isolate_, processor_.get()));
+  base::TimeDelta sampling_interval = ComputeSamplingInterval();
+  processor_.reset(new SamplingEventsProcessor(
+      isolate_, generator_.get(), sampling_interval, use_precise_sampling_));
+  if (profiler_listener_) {
+    profiler_listener_->set_observer(processor_.get());
+  } else {
+    profiler_listener_.reset(
+        new ProfilerListener(isolate_, processor_.get(), naming_mode_));
   }
   logger->AddCodeEventListener(profiler_listener_.get());
   is_profiling_ = true;
-  isolate_->set_is_profiling(true);
   // Enumerate stuff we already have in the heap.
   DCHECK(isolate_->heap()->HasBeenSetUp());
   if (codemap_needs_initialization) {
@@ -404,7 +456,9 @@ void CpuProfiler::StartProcessorIfNotStarted() {
 CpuProfile* CpuProfiler::StopProfiling(const char* title) {
   if (!is_profiling_) return nullptr;
   StopProcessorIfLastProfile(title);
-  return profiles_->StopProfiling(title);
+  CpuProfile* result = profiles_->StopProfiling(title);
+  AdjustSamplingInterval();
+  return result;
 }
 
 CpuProfile* CpuProfiler::StopProfiling(String title) {
@@ -419,11 +473,9 @@ void CpuProfiler::StopProcessorIfLastProfile(const char* title) {
 void CpuProfiler::StopProcessor() {
   Logger* logger = isolate_->logger();
   is_profiling_ = false;
-  isolate_->set_is_profiling(false);
   logger->RemoveCodeEventListener(profiler_listener_.get());
   processor_->StopSynchronously();
   processor_.reset();
-  logger->set_is_logging(saved_is_logging_);
 }
 
 
@@ -434,7 +486,7 @@ void CpuProfiler::LogBuiltins() {
     CodeEventsContainer evt_rec(CodeEventRecord::REPORT_BUILTIN);
     ReportBuiltinEventRecord* rec = &evt_rec.ReportBuiltinEventRecord_;
     Builtins::Name id = static_cast<Builtins::Name>(i);
-    rec->instruction_start = builtins->builtin(id)->InstructionStart();
+    rec->instruction_start = builtins->builtin(id).InstructionStart();
     rec->builtin_id = id;
     processor_->Enqueue(evt_rec);
   }

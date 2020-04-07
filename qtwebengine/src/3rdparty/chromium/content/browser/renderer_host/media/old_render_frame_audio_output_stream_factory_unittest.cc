@@ -18,6 +18,7 @@
 #include "content/public/test/test_browser_context.h"
 #include "content/public/test/test_browser_thread_bundle.h"
 #include "media/base/audio_parameters.h"
+#include "media/mojo/interfaces/audio_data_pipe.mojom.h"
 #include "mojo/public/cpp/bindings/binding.h"
 #include "mojo/public/cpp/system/platform_handle.h"
 #include "testing/gmock/include/gmock/gmock.h"
@@ -49,7 +50,6 @@ using AudioOutputStreamProviderRequest =
     mojo::InterfaceRequest<AudioOutputStreamProvider>;
 
 const int kStreamId = 0;
-const int kNoSessionId = 0;
 const int kRenderProcessId = 42;
 const int kRenderFrameId = 24;
 const int kSampleFrequency = 44100;
@@ -77,6 +77,7 @@ class MockAudioOutputDelegate : public media::AudioOutputDelegate {
   MOCK_METHOD0(GetStreamId, int());
   MOCK_METHOD0(OnPlayStream, void());
   MOCK_METHOD0(OnPauseStream, void());
+  MOCK_METHOD0(OnFlushStream, void());
   MOCK_METHOD1(OnSetVolume, void(double));
 
  private:
@@ -95,11 +96,11 @@ class MockContext : public RendererAudioOutputStreamFactoryContext {
 
   void RequestDeviceAuthorization(
       int render_frame_id,
-      int session_id,
+      const base::UnguessableToken& session_id,
       const std::string& device_id,
       AuthorizationCompletedCallback cb) const override {
     EXPECT_EQ(render_frame_id, kRenderFrameId);
-    EXPECT_EQ(session_id, 0);
+    EXPECT_TRUE(session_id.is_empty());
     if (auth_ok_) {
       base::ThreadTaskRunnerHandle::Get()->PostTask(
           FROM_HERE,
@@ -226,7 +227,7 @@ TEST(OldRenderFrameAudioOutputStreamFactoryTest, CreateStream) {
   media::AudioParameters params;
   std::string id;
   factory_ptr->RequestDeviceAuthorization(
-      mojo::MakeRequest(&provider), kNoSessionId, "default",
+      mojo::MakeRequest(&provider), base::nullopt, "default",
       base::BindOnce(&AuthCallback, base::Unretained(&status),
                      base::Unretained(&params), base::Unretained(&id)));
   base::RunLoop().RunUntilIdle();
@@ -269,7 +270,7 @@ TEST(OldRenderFrameAudioOutputStreamFactoryTest, NotAuthorized_Denied) {
   media::AudioParameters params;
   std::string id;
   factory_ptr->RequestDeviceAuthorization(
-      mojo::MakeRequest(&output_provider), kNoSessionId, "default",
+      mojo::MakeRequest(&output_provider), base::nullopt, "default",
       base::BindOnce(&AuthCallback, base::Unretained(&status),
                      base::Unretained(&params), base::Unretained(&id)));
   base::RunLoop().RunUntilIdle();
@@ -293,7 +294,7 @@ TEST(OldRenderFrameAudioOutputStreamFactoryTest,
   AudioOutputStreamFactoryPtr factory_ptr = factory_context->CreateFactory();
 
   factory_ptr->RequestDeviceAuthorization(
-      mojo::MakeRequest(&provider), kNoSessionId, "default",
+      mojo::MakeRequest(&provider), base::nullopt, "default",
       base::BindOnce([](media::OutputDeviceStatus status,
                         const media::AudioParameters& params,
                         const std::string& id) {}));
@@ -324,7 +325,7 @@ TEST(OldRenderFrameAudioOutputStreamFactoryTest, DelegateError_DeletesStream) {
   AudioOutputStreamFactoryPtr factory_ptr = factory_context->CreateFactory();
 
   factory_ptr->RequestDeviceAuthorization(
-      mojo::MakeRequest(&provider), kNoSessionId, "default",
+      mojo::MakeRequest(&provider), base::nullopt, "default",
       base::BindOnce([](media::OutputDeviceStatus status,
                         const media::AudioParameters& params,
                         const std::string& id) {}));

@@ -71,7 +71,7 @@ public:
     QPalette::ColorRole currentItemBackgroundRole() const;
     void setCurrentItemBackgroundRole(QPalette::ColorRole role);
 
-    bool eventFilter(QObject *watched, QEvent *event);
+    bool eventFilter(QObject *watched, QEvent *event) override;
     // Add context menu and return page submenu or 0.
 
     QMenu *addContextMenuActions(QMenu *popup) const;
@@ -94,7 +94,7 @@ private:
 // PropertySheet to handle the page properties
 class QDESIGNER_SHARED_EXPORT QToolBoxWidgetPropertySheet : public QDesignerPropertySheet {
 public:
-    explicit QToolBoxWidgetPropertySheet(QToolBox *object, QObject *parent = 0);
+    explicit QToolBoxWidgetPropertySheet(QToolBox *object, QObject *parent = nullptr);
 
     void setProperty(int index, const QVariant &value) override;
     QVariant property(int index) const override;
@@ -120,7 +120,7 @@ private:
     QMap<QWidget *, PageData> m_pageToData;
 };
 
-typedef QDesignerPropertySheetFactory<QToolBox, QToolBoxWidgetPropertySheet> QToolBoxWidgetPropertySheetFactory;
+using QToolBoxWidgetPropertySheetFactory = QDesignerPropertySheetFactory<QToolBox, QToolBoxWidgetPropertySheet>;
 
 QT_END_NAMESPACE
 

@@ -134,21 +134,13 @@ namespace qdesigner_internal {
     // comparing the lists of ObjectData. If it is the same, only the item data (class name [changed by promotion],
     // object name and icon) are checked and the existing items are updated.
 
-    ObjectData::ObjectData() :
-        m_parent(0),
-        m_object(0),
-        m_type(Object),
-        m_managedLayoutType(LayoutInfo::NoLayout)
-    {
-    }
+    ObjectData::ObjectData() = default;
 
     ObjectData::ObjectData(QObject *parent, QObject *object, const ModelRecursionContext &ctx) :
        m_parent(parent),
        m_object(object),
-       m_type(Object),
        m_className(QLatin1String(object->metaObject()->className())),
-       m_objectName(object->objectName()),
-       m_managedLayoutType(LayoutInfo::NoLayout)
+       m_objectName(object->objectName())
     {
 
         // 1) set entry
@@ -268,7 +260,7 @@ namespace qdesigner_internal {
         setItemsDisplayData(row, icons, ClassNameChanged|ObjectNameChanged|ClassIconChanged|TypeChanged|LayoutTypeChanged);
     }
 
-    typedef QList<ObjectData> ObjectModel;
+    using ObjectModel = QList<ObjectData>;
 
     // Recursive routine that creates the model by traversing the form window object tree.
     void createModelRecursion(const QDesignerFormWindowInterface *fwi,
@@ -277,22 +269,22 @@ namespace qdesigner_internal {
                               ObjectModel &model,
                               const ModelRecursionContext &ctx)
     {
-        typedef QList<QButtonGroup *> ButtonGroupList;
-        typedef QList<QAction *> ActionList;
+        using ButtonGroupList = QList<QButtonGroup *>;
+        using ActionList = QList<QAction *>;
 
         // 1) Create entry
         const ObjectData entry(parent, object, ctx);
         model.push_back(entry);
 
         // 2) recurse over widget children via container extension or children list
-        const QDesignerContainerExtension *containerExtension = 0;
+        const QDesignerContainerExtension *containerExtension = nullptr;
         if (entry.type() == ObjectData::ExtensionContainer) {
             containerExtension = qt_extension<QDesignerContainerExtension*>(fwi->core()->extensionManager(), object);
             Q_ASSERT(containerExtension);
             const int count = containerExtension->count();
             for (int i=0; i < count; ++i) {
                 QObject *page = containerExtension->widget(i);
-                Q_ASSERT(page != 0);
+                Q_ASSERT(page != nullptr);
                 createModelRecursion(fwi, object, page, model, ctx);
             }
         }
@@ -372,10 +364,10 @@ namespace qdesigner_internal {
 
     ObjectInspectorModel::UpdateResult ObjectInspectorModel::update(QDesignerFormWindowInterface *fw)
     {
-        QWidget *mainContainer = fw ? fw->mainContainer() : static_cast<QWidget*>(0);
+        QWidget *mainContainer = fw ? fw->mainContainer() : nullptr;
         if (!mainContainer) {
             clearItems();
-            m_formWindow = 0;
+            m_formWindow = nullptr;
             return NoForm;
         }
         m_formWindow = fw;
@@ -385,7 +377,7 @@ namespace qdesigner_internal {
 
         static const QString separator = QCoreApplication::translate("ObjectInspectorModel", "separator");
         const ModelRecursionContext ctx(fw->core(),  separator);
-        createModelRecursion(fw, 0, mainContainer, newModel, ctx);
+        createModelRecursion(fw, nullptr, mainContainer, newModel, ctx);
 
         if (newModel == m_model) {
             updateItemContents(m_model, newModel);
@@ -402,7 +394,7 @@ namespace qdesigner_internal {
         if (index.isValid())
             if (const QStandardItem *item = itemFromIndex(index))
                 return objectOfItem(item);
-        return 0;
+        return nullptr;
     }
 
     // Missing Qt API: get a row
@@ -450,7 +442,7 @@ namespace qdesigner_internal {
     {
         // Change text and icon. Keep a set of changed object
         // as for example actions might occur several times in the tree.
-        typedef QSet<QObject *> QObjectSet;
+        using QObjectSet = QSet<QObject *>;
 
         QObjectSet changedObjects;
 

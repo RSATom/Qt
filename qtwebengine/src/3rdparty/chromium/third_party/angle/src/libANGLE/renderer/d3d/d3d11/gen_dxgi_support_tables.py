@@ -6,8 +6,9 @@
 # gen_dxgi_support_tables.py:
 #  Code generation for the DXGI support tables. Determines which formats
 #  are natively support in D3D10+.
+#  NOTE: don't run this script directly. Run scripts/run_code_generation.py.
 #
-#  TODO: The "never supported" formats should not be combined with the
+#  NOTE: The "never supported" formats should not be combined with the
 #  "supported" and "optional" ones. At the moment, this does not cause
 #  any issues as ANGLE does not internally check for "never supported".
 #
@@ -167,7 +168,6 @@ const DXGISupport &GetDXGISupport(DXGI_FORMAT dxgiFormat, D3D_FEATURE_LEVEL feat
 }} // namespace rx
 """
 
-table_init = ""
 
 def do_format(format_data):
     table_data = {'9_3': '', '10_0': '', '10_1': '', '11_0': '', '11_1': ''}
@@ -271,43 +271,72 @@ def do_format(format_data):
             never = ' | '.join(sorted(never_supported))
             optional = ' | '.join(sorted(optional_for_fl))
 
-            if not always: always = '0'
-            if not never: never = '0'
-            if not optional: optional = '0'
+            if not always:
+                always = '0'
+            if not never:
+                never = '0'
+            if not optional:
+                optional = '0'
 
             table_data[feature_level] += '        case ' + format_name + ':\n'
             table_data[feature_level] += '        {\n'
-            table_data[feature_level] += '            static const DXGISupport info(' + always + ', ' + never + ', ' + optional + ');\n'
+            table_data[
+                feature_level] += '            static const DXGISupport info(' + always + ', ' + never + ', ' + optional + ');\n'
             table_data[feature_level] += '            return info;\n'
             table_data[feature_level] += '        }\n'
 
     return table_data
 
+
 def join_table_data(table_data_1, table_data_2):
-    return {'9_3':  table_data_1['9_3']  + table_data_2['9_3'],
-            '10_0': table_data_1['10_0'] + table_data_2['10_0'],
-            '10_1': table_data_1['10_1'] + table_data_2['10_1'],
-            '11_0': table_data_1['11_0'] + table_data_2['11_0'],
-            '11_1': table_data_1['11_1'] + table_data_2['11_1']}
+    return {
+        '9_3': table_data_1['9_3'] + table_data_2['9_3'],
+        '10_0': table_data_1['10_0'] + table_data_2['10_0'],
+        '10_1': table_data_1['10_1'] + table_data_2['10_1'],
+        '11_0': table_data_1['11_0'] + table_data_2['11_0'],
+        '11_1': table_data_1['11_1'] + table_data_2['11_1']
+    }
 
-with open('dxgi_support_data.json') as dxgi_file:
-    file_data = dxgi_file.read()
-    dxgi_file.close()
-    json_data = json.loads(file_data)
 
-    table_data = {'9_3': '', '10_0': '', '10_1': '', '11_0': '', '11_1': ''}
+def main():
 
-    for format_data in json_data:
-        table_data = join_table_data(table_data, do_format(format_data))
+    # auto_script parameters.
+    if len(sys.argv) > 1:
+        inputs = ['dxgi_support_data.json']
+        outputs = ['dxgi_support_table_autogen.cpp']
 
-    out_data = template.format(prefix=macro_prefix,
-                               table_data_9_3=table_data['9_3'],
-                               table_data_10_0=table_data['10_0'],
-                               table_data_10_1=table_data['10_1'],
-                               table_data_11_0=table_data['11_0'],
-                               table_data_11_1=table_data['11_1'])
+        if sys.argv[1] == 'inputs':
+            print ','.join(inputs)
+        elif sys.argv[1] == 'outputs':
+            print ','.join(outputs)
+        else:
+            print('Invalid script parameters')
+            return 1
+        return 0
 
-    with open('dxgi_support_table.cpp', 'wt') as out_file:
-        out_file.write(out_data)
-        out_file.close()
+    with open('dxgi_support_data.json') as dxgi_file:
+        file_data = dxgi_file.read()
+        dxgi_file.close()
+        json_data = json.loads(file_data)
 
+        table_data = {'9_3': '', '10_0': '', '10_1': '', '11_0': '', '11_1': ''}
+
+        for format_data in json_data:
+            table_data = join_table_data(table_data, do_format(format_data))
+
+        out_data = template.format(
+            prefix=macro_prefix,
+            table_data_9_3=table_data['9_3'],
+            table_data_10_0=table_data['10_0'],
+            table_data_10_1=table_data['10_1'],
+            table_data_11_0=table_data['11_0'],
+            table_data_11_1=table_data['11_1'])
+
+        with open('dxgi_support_table_autogen.cpp', 'wt') as out_file:
+            out_file.write(out_data)
+            out_file.close()
+    return 0
+
+
+if __name__ == '__main__':
+    sys.exit(main())

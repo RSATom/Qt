@@ -96,11 +96,13 @@ template("test") {
         "android_manifest",
         "android_manifest_dep",
         "enable_multidex",
+        "min_sdk_version",
         "proguard_configs",
         "proguard_enabled",
+        "target_sdk_version",
         "use_default_launcher",
-        "write_asset_list",
         "use_native_activity",
+        "write_asset_list",
       ]
 
       # Adds the unwind tables from unstripped binary as an asset file in the
@@ -135,12 +137,18 @@ template("test") {
         }
       }
       unittest_apk(_apk_target) {
-        forward_variables_from(invoker, _apk_specific_vars + [ "deps" ])
+        forward_variables_from(invoker, _apk_specific_vars)
         shared_library = ":$_library_target"
         apk_name = invoker.target_name
         if (defined(invoker.output_name)) {
           apk_name = invoker.output_name
           install_script_name = "install_${invoker.output_name}"
+        }
+
+        if (defined(invoker.deps)) {
+          deps = invoker.deps
+        } else {
+          deps = []
         }
 
         # Add the Java classes so that each target does not have to do it.
@@ -268,16 +276,17 @@ template("test") {
       ]
     }
 
+    fuchsia_package(_pkg_target) {
+      testonly = true
+      forward_variables_from(invoker, [ "manifest" ])
+      binary = ":$_exec_target"
+      package_name_override = _output_name
+    }
+
     executable(_exec_target) {
       forward_variables_from(invoker, "*")
       testonly = true
       output_name = _exec_target
-    }
-
-    fuchsia_package(_pkg_target) {
-      testonly = true
-      binary = ":$_exec_target"
-      package_name_override = _output_name
     }
   } else if (is_ios) {
     import("//build/config/ios/ios_sdk.gni")
@@ -347,6 +356,9 @@ template("test") {
         data = []
       }
 
+      # We use a special trigger script for CrOS hardware tests.
+      data += [ "//testing/trigger_scripts/chromeos_device_trigger.py" ]
+
       testonly = true
       output_name = target_name
       write_runtime_deps = _runtime_deps_file
@@ -360,68 +372,18 @@ template("test") {
         deps = []
       }
 
+      if (is_win) {
+        # Initializing CFG data during process creation is a significant
+        # bottleneck for large test binaries, and CFG is not needed for tests,
+        # so disable it. See https://crbug.com/950923 for details.
+        configs -= [ "//build/config/win:cfi_linker" ]
+      }
       testonly = true
       deps += [
         # Give tests the default manifest on Windows (a no-op elsewhere).
         "//build/win:default_exe_manifest",
       ]
     }
-  }
-}
-
-template("generated_script_test") {
-  # Invoker must define generator_script location which is used to generate
-  # the executable script. The generator_script will be invoked as follows:
-  # $ <generator_script> --script-output-path=<path to generate the executable>
-  #                      [extra args]
-  # For this template, it's expected to generate the executable script in bin/
-  # directory of the output directory.
-  assert(defined(invoker.generator_script), "Generator script must be defined")
-
-  # Invoker can add extra arguments to be passed to the generator script
-  # through defining |extra_args|.
-  _extra_args = []
-  if (defined(invoker.extra_args)) {
-    _extra_args += invoker.extra_args
-  }
-
-  _generator_script = invoker.generator_script
-  _gen_runner_target = "${target_name}__runner"
-  _target_name = target_name
-
-  action(_gen_runner_target) {
-    if (is_win) {
-      _target_executable = "run_${_target_name}.bat"
-    } else {
-      _target_executable = "run_${_target_name}"
-    }
-    _wrapper_dir = "${root_build_dir}/bin"
-    script = _generator_script
-    inputs = []
-    outputs = [
-      "$_wrapper_dir/$_target_executable",
-    ]
-    args = [
-      "--script-output-path",
-      rebase_path(outputs[0], root_build_dir),
-    ]
-    args += _extra_args
-  }
-
-  group(target_name) {
-    testonly = true
-    forward_variables_from(invoker,
-                           [
-                             "deps",
-                             "testonly",
-                             "data",
-                             "data_deps",
-                           ])
-
-    if (!defined(invoker.deps)) {
-      deps = []
-    }
-    deps += [ ":$_gen_runner_target" ]
   }
 }
 

@@ -49,6 +49,7 @@ QT_BEGIN_NAMESPACE
 namespace Qt3DCore {
 
 class QAspectJobPrivate;
+class QAspectManager;
 
 class Q_3DCORESHARED_EXPORT QAspectJob
 {

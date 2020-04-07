@@ -76,6 +76,9 @@ public:
                                               int channelNumber);
 
 private:
+    void resetController();
+    QCanBusDevice::CanBusStatus busStatus();
+
     SystecCanBackendPrivate * const d_ptr;
 };
 

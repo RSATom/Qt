@@ -6,6 +6,7 @@
 
 #include <Cocoa/Cocoa.h>
 
+#include "base/bind.h"
 #include "base/mac/mac_util.h"
 #include "base/task/post_task.h"
 #include "content/browser/renderer_host/render_widget_host_input_event_router.h"
@@ -53,8 +54,8 @@ class TextInputClientMacHelper {
     if (!BrowserThread::CurrentlyOn(BrowserThread::UI)) {
       base::PostTaskWithTraits(
           FROM_HERE, {BrowserThread::UI},
-          base::Bind(&TextInputClientMacHelper::OnResult,
-                     base::Unretained(this), string, point));
+          base::BindOnce(&TextInputClientMacHelper::OnResult,
+                         base::Unretained(this), string, point));
       return;
     }
     word_ = string;
@@ -254,7 +255,7 @@ void SendMacTouchpadPinchSequenceWithExpectedTarget(
     RenderWidgetHostViewBase*& router_touchpad_gesture_target,
     RenderWidgetHostViewBase* expected_target) {
   auto* root_view_mac = static_cast<RenderWidgetHostViewMac*>(root_view);
-  RenderWidgetHostViewCocoa* cocoa_view = root_view_mac->cocoa_view();
+  RenderWidgetHostViewCocoa* cocoa_view = root_view_mac->GetInProcessNSView();
 
   NSEvent* pinchBeginEvent =
       MockGestureEvent(NSEventTypeMagnify, 0, gesture_point.x(),

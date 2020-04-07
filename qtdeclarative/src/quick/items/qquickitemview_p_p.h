@@ -59,9 +59,9 @@ QT_REQUIRE_CONFIG(quick_itemview);
 #include "qquickitemviewfxitem_p_p.h"
 #include "qquickitemviewtransition_p.h"
 #include "qquickflickable_p_p.h"
-#include <QtQml/private/qqmlobjectmodel_p.h>
-#include <QtQml/private/qqmldelegatemodel_p.h>
-#include <QtQml/private/qqmlchangeset_p.h>
+#include <QtQmlModels/private/qqmlobjectmodel_p.h>
+#include <QtQmlModels/private/qqmldelegatemodel_p.h>
+#include <QtQmlModels/private/qqmlchangeset_p.h>
 
 
 QT_BEGIN_NAMESPACE
@@ -158,7 +158,7 @@ public:
     qreal contentStartOffset() const;
     int findLastVisibleIndex(int defaultValue = -1) const;
     FxViewItem *visibleItem(int modelIndex) const;
-    FxViewItem *firstVisibleItem() const;
+    FxViewItem *firstItemInView() const;
     int findLastIndexInView() const;
     int mapFromModel(int modelIndex) const;
 
@@ -190,6 +190,8 @@ public:
     qreal maxExtentForAxis(const AxisData &axisData, bool forXAxis) const;
     qreal calculatedMinExtent() const;
     qreal calculatedMaxExtent() const;
+
+    void applyDelegateChange();
 
     void applyPendingChanges();
     bool applyModelChanges(ChangeResult *insertionResult, ChangeResult *removalResult);
@@ -258,6 +260,12 @@ public:
     MovementReason moveReason;
 
     QList<FxViewItem *> visibleItems;
+    qreal firstVisibleItemPosition = 0;
+    void storeFirstVisibleItemPosition() {
+        if (!visibleItems.isEmpty()) {
+            firstVisibleItemPosition = visibleItems.constFirst()->position();
+        }
+    }
     int visibleIndex;
     int currentIndex;
     FxViewItem *currentItem;
@@ -308,6 +316,7 @@ public:
     bool inRequest : 1;
     bool runDelayedRemoveTransition : 1;
     bool delegateValidated : 1;
+    bool isClearing : 1;
 
 protected:
     virtual Qt::Orientation layoutOrientation() const = 0;

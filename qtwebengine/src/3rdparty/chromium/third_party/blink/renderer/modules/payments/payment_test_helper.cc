@@ -205,10 +205,16 @@ payments::mojom::blink::PaymentResponsePtr BuildPaymentResponseForTest() {
   return result;
 }
 
-void MakePaymentRequestOriginSecure(Document& document) {
-  document.SetSecurityOrigin(
-      SecurityOrigin::Create(KURL("https://www.example.com/")));
-  document.SetSecureContextStateForTesting(SecureContextState::kSecure);
+payments::mojom::blink::PaymentAddressPtr BuildPaymentAddressForTest() {
+  payments::mojom::blink::PaymentAddressPtr result =
+      payments::mojom::blink::PaymentAddress::New();
+  result->country = "US";
+  return result;
+}
+
+PaymentRequestV8TestingScope::PaymentRequestV8TestingScope()
+    : V8TestingScope(KURL("https://www.example.com/")) {
+  GetDocument().SetSecureContextStateForTesting(SecureContextState::kSecure);
 }
 
 PaymentRequestMockFunctionScope::PaymentRequestMockFunctionScope(

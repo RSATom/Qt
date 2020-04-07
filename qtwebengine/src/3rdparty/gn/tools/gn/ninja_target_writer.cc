@@ -12,9 +12,11 @@
 #include "tools/gn/err.h"
 #include "tools/gn/escape.h"
 #include "tools/gn/filesystem_utils.h"
+#include "tools/gn/general_tool.h"
 #include "tools/gn/ninja_action_target_writer.h"
 #include "tools/gn/ninja_binary_target_writer.h"
 #include "tools/gn/ninja_bundle_data_target_writer.h"
+#include "tools/gn/ninja_c_binary_target_writer.h"
 #include "tools/gn/ninja_copy_target_writer.h"
 #include "tools/gn/ninja_create_bundle_target_writer.h"
 #include "tools/gn/ninja_generated_file_target_writer.h"
@@ -26,7 +28,6 @@
 #include "tools/gn/substitution_writer.h"
 #include "tools/gn/target.h"
 #include "tools/gn/trace.h"
-#include "tools/gn/qmake_link_writer.h"
 
 NinjaTargetWriter::NinjaTargetWriter(const Target* target, std::ostream& out)
     : settings_(target->settings()),
@@ -92,17 +93,6 @@ std::string NinjaTargetWriter::RunAndWriteFile(const Target* target) {
     needs_file_write = true;
     NinjaBinaryTargetWriter writer(target, rules);
     writer.Run();
-    if(target->create_pri_file()){
-        base::FilePath pri_file(settings->build_settings()->GetFullPath(
-        SourceFile(settings->build_settings()->build_dir().value() +
-                    target->label().name() + ".pri")));
-        std::stringstream file;
-        QMakeLinkWriter pri_writer(&writer,target, file);
-        pri_writer.Run();
-        if (g_scheduler->verbose_logging())
-          g_scheduler->Log("Writing", FilePathToUTF8(pri_file));
-        WriteFileIfChanged(pri_file, file.str(), nullptr);
-    }
   } else {
     CHECK(0) << "Output type of target not handled.";
   }
@@ -131,11 +121,11 @@ std::string NinjaTargetWriter::RunAndWriteFile(const Target* target) {
   return rules.str();
 }
 
-void NinjaTargetWriter::WriteEscapedSubstitution(SubstitutionType type) {
+void NinjaTargetWriter::WriteEscapedSubstitution(const Substitution* type) {
   EscapeOptions opts;
   opts.mode = ESCAPE_NINJA;
 
-  out_ << kSubstitutionNinjaNames[type] << " = ";
+  out_ << type->ninja_name << " = ";
   EscapeStringToStream(
       out_, SubstitutionWriter::GetTargetSubstitution(target_, type), opts);
   out_ << std::endl;
@@ -145,44 +135,44 @@ void NinjaTargetWriter::WriteSharedVars(const SubstitutionBits& bits) {
   bool written_anything = false;
 
   // Target label.
-  if (bits.used[SUBSTITUTION_LABEL]) {
-    WriteEscapedSubstitution(SUBSTITUTION_LABEL);
+  if (bits.used.count(&SubstitutionLabel)) {
+    WriteEscapedSubstitution(&SubstitutionLabel);
     written_anything = true;
   }
 
   // Target label name
-  if (bits.used[SUBSTITUTION_LABEL_NAME]) {
-    WriteEscapedSubstitution(SUBSTITUTION_LABEL_NAME);
+  if (bits.used.count(&SubstitutionLabelName)) {
+    WriteEscapedSubstitution(&SubstitutionLabelName);
     written_anything = true;
   }
 
   // Root gen dir.
-  if (bits.used[SUBSTITUTION_ROOT_GEN_DIR]) {
-    WriteEscapedSubstitution(SUBSTITUTION_ROOT_GEN_DIR);
+  if (bits.used.count(&SubstitutionRootGenDir)) {
+    WriteEscapedSubstitution(&SubstitutionRootGenDir);
     written_anything = true;
   }
 
   // Root out dir.
-  if (bits.used[SUBSTITUTION_ROOT_OUT_DIR]) {
-    WriteEscapedSubstitution(SUBSTITUTION_ROOT_OUT_DIR);
+  if (bits.used.count(&SubstitutionRootOutDir)) {
+    WriteEscapedSubstitution(&SubstitutionRootOutDir);
     written_anything = true;
   }
 
   // Target gen dir.
-  if (bits.used[SUBSTITUTION_TARGET_GEN_DIR]) {
-    WriteEscapedSubstitution(SUBSTITUTION_TARGET_GEN_DIR);
+  if (bits.used.count(&SubstitutionTargetGenDir)) {
+    WriteEscapedSubstitution(&SubstitutionTargetGenDir);
     written_anything = true;
   }
 
   // Target out dir.
-  if (bits.used[SUBSTITUTION_TARGET_OUT_DIR]) {
-    WriteEscapedSubstitution(SUBSTITUTION_TARGET_OUT_DIR);
+  if (bits.used.count(&SubstitutionTargetOutDir)) {
+    WriteEscapedSubstitution(&SubstitutionTargetOutDir);
     written_anything = true;
   }
 
   // Target output name.
-  if (bits.used[SUBSTITUTION_TARGET_OUTPUT_NAME]) {
-    WriteEscapedSubstitution(SUBSTITUTION_TARGET_OUTPUT_NAME);
+  if (bits.used.count(&SubstitutionTargetOutputName)) {
+    WriteEscapedSubstitution(&SubstitutionTargetOutputName);
     written_anything = true;
   }
 
@@ -306,7 +296,7 @@ std::vector<OutputFile> NinjaTargetWriter::WriteInputDepsStampAndGetDep(
   out_ << "build ";
   path_output_.WriteFile(out_, input_stamp_file);
   out_ << ": " << GetNinjaRulePrefixForToolchain(settings_)
-       << Toolchain::ToolTypeToName(Toolchain::TYPE_STAMP);
+       << GeneralTool::kGeneralToolStamp;
   path_output_.WriteFiles(out_, outs);
 
   out_ << "\n";
@@ -329,7 +319,7 @@ void NinjaTargetWriter::WriteStampForTarget(
   path_output_.WriteFile(out_, stamp_file);
 
   out_ << ": " << GetNinjaRulePrefixForToolchain(settings_)
-       << Toolchain::ToolTypeToName(Toolchain::TYPE_STAMP);
+       << GeneralTool::kGeneralToolStamp;
   path_output_.WriteFiles(out_, files);
 
   if (!order_only_deps.empty()) {

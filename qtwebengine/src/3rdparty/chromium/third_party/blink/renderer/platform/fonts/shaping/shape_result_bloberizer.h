@@ -11,7 +11,7 @@
 #include "third_party/blink/renderer/platform/fonts/simple_font_data.h"
 #include "third_party/blink/renderer/platform/geometry/float_point.h"
 #include "third_party/blink/renderer/platform/platform_export.h"
-#include "third_party/blink/renderer/platform/wtf/allocator.h"
+#include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 #include "third_party/blink/renderer/platform/wtf/vector.h"
 #include "third_party/skia/include/core/SkTextBlob.h"
 
@@ -21,7 +21,6 @@ class Font;
 struct TextRunPaintInfo;
 
 class PLATFORM_EXPORT ShapeResultBloberizer {
-  WTF_MAKE_NONCOPYABLE(ShapeResultBloberizer);
   STACK_ALLOCATED();
 
  public:
@@ -139,6 +138,8 @@ class PLATFORM_EXPORT ShapeResultBloberizer {
 
   // Constructed blobs.
   BlobBuffer blobs_;
+
+  DISALLOW_COPY_AND_ASSIGN(ShapeResultBloberizer);
 };
 
 }  // namespace blink

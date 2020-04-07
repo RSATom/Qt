@@ -31,7 +31,6 @@
 #include "third_party/blink/renderer/core/script/script_runner.h"
 #include "third_party/blink/renderer/core/script/script_scheduling_type.h"
 #include "third_party/blink/renderer/platform/bindings/name_client.h"
-#include "third_party/blink/renderer/platform/bindings/trace_wrapper_member.h"
 #include "third_party/blink/renderer/platform/loader/fetch/integrity_metadata.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource_loader_options.h"
 #include "third_party/blink/renderer/platform/loader/fetch/script_fetch_options.h"
@@ -55,34 +54,34 @@ class CORE_EXPORT ScriptLoader final
   USING_GARBAGE_COLLECTED_MIXIN(ScriptLoader);
 
  public:
-  static ScriptLoader* Create(ScriptElementBase* element,
-                              bool created_by_parser,
-                              bool is_evaluated) {
-    return MakeGarbageCollected<ScriptLoader>(element, created_by_parser,
-                                              is_evaluated);
-  }
-
   ScriptLoader(ScriptElementBase*, bool created_by_parser, bool is_evaluated);
   ~ScriptLoader() override;
-  void Trace(blink::Visitor*) override;
+  void Trace(Visitor*) override;
   const char* NameInHeapSnapshot() const override { return "ScriptLoader"; }
 
   enum LegacyTypeSupport {
     kDisallowLegacyTypeInTypeAttribute,
     kAllowLegacyTypeInTypeAttribute
   };
+
+  // |out_is_import_map| is set separately from |out_script_type| in order
+  // to avoid adding import maps as a mojom::ScriptType enum, because import
+  // maps are processed quite differently from classic/module scripts.
+  //
+  // TODO(hiroshige, kouhei): Make the method signature simpler.
   static bool IsValidScriptTypeAndLanguage(
       const String& type_attribute_value,
       const String& language_attribute_value,
       LegacyTypeSupport support_legacy_types,
-      mojom::ScriptType& out_script_type);
+      mojom::ScriptType* out_script_type = nullptr,
+      bool* out_is_import_map = nullptr);
 
   static bool BlockForNoModule(mojom::ScriptType, bool nomodule);
 
-  static network::mojom::FetchCredentialsMode ModuleScriptCredentialsMode(
+  static network::mojom::CredentialsMode ModuleScriptCredentialsMode(
       CrossOriginAttributeValue);
 
-  // https://html.spec.whatwg.org/multipage/scripting.html#prepare-a-script
+  // https://html.spec.whatwg.org/C/#prepare-a-script
   bool PrepareScript(const TextPosition& script_start_position =
                          TextPosition::MinimumPosition(),
                      LegacyTypeSupport = kDisallowLegacyTypeInTypeAttribute);
@@ -97,6 +96,7 @@ class CORE_EXPORT ScriptLoader final
   bool WillExecuteWhenDocumentFinishedParsing() const {
     return will_execute_when_document_finished_parsing_;
   }
+  bool IsForceDeferred() const { return force_deferred_; }
   bool IsParserInserted() const { return parser_inserted_; }
   bool AlreadyStarted() const { return already_started_; }
   bool IsNonBlocking() const { return non_blocking_; }
@@ -120,16 +120,16 @@ class CORE_EXPORT ScriptLoader final
   bool IsScriptForEventSupported() const;
 
   // FetchClassicScript corresponds to Step 21.6 of
-  // https://html.spec.whatwg.org/multipage/scripting.html#prepare-a-script
+  // https://html.spec.whatwg.org/C/#prepare-a-script
   // and must NOT be called from outside of PendingScript().
   //
-  // https://html.spec.whatwg.org/multipage/webappapis.html#fetch-a-classic-script
+  // https://html.spec.whatwg.org/C/#fetch-a-classic-script
   void FetchClassicScript(const KURL&,
                           Document&,
                           const ScriptFetchOptions&,
                           CrossOriginAttributeValue,
                           const WTF::TextEncoding&);
-  // https://html.spec.whatwg.org/multipage/webappapis.html#fetch-a-module-script-tree
+  // https://html.spec.whatwg.org/C/#fetch-a-module-script-tree
   void FetchModuleScriptTree(const KURL&,
                              ResourceFetcher*,
                              Modulator*,
@@ -143,36 +143,30 @@ class CORE_EXPORT ScriptLoader final
 
   Member<ScriptElementBase> element_;
 
-  // https://html.spec.whatwg.org/multipage/scripting.html#script-processing-model
+  // https://html.spec.whatwg.org/C/#script-processing-model
   // "A script element has several associated pieces of state.":
 
-  // <spec
-  // href="https://html.spec.whatwg.org/multipage/scripting.html#already-started">
-  // ... Initially, script elements must have this flag unset ...</spec>
+  // <spec href="https://html.spec.whatwg.org/C/#already-started">... Initially,
+  // script elements must have this flag unset ...</spec>
   bool already_started_ = false;
 
-  // <spec
-  // href="https://html.spec.whatwg.org/multipage/scripting.html#parser-inserted">
-  // ... Initially, script elements must have this flag unset. ...</spec>
+  // <spec href="https://html.spec.whatwg.org/C/#parser-inserted">... Initially,
+  // script elements must have this flag unset. ...</spec>
   bool parser_inserted_ = false;
 
-  // <spec
-  // href="https://html.spec.whatwg.org/multipage/scripting.html#non-blocking">
-  // ... Initially, script elements must have this flag set. ...</spec>
+  // <spec href="https://html.spec.whatwg.org/C/#non-blocking">... Initially,
+  // script elements must have this flag set. ...</spec>
   bool non_blocking_ = true;
 
-  // <spec
-  // href="https://html.spec.whatwg.org/multipage/scripting.html#ready-to-be-parser-executed">
+  // <spec href="https://html.spec.whatwg.org/C/#ready-to-be-parser-executed">
   // ... Initially, script elements must have this flag unset ...</spec>
   bool ready_to_be_parser_executed_ = false;
 
-  // <spec
-  // href="https://html.spec.whatwg.org/multipage/scripting.html#concept-script-type">
-  // ... It is determined when the script is prepared, ...</spec>
+  // <spec href="https://html.spec.whatwg.org/C/#concept-script-type">... It is
+  // determined when the script is prepared, ...</spec>
   mojom::ScriptType script_type_ = mojom::ScriptType::kClassic;
 
-  // <spec
-  // href="https://html.spec.whatwg.org/multipage/scripting.html#concept-script-external">
+  // <spec href="https://html.spec.whatwg.org/C/#concept-script-external">
   // ... It is determined when the script is prepared, ...</spec>
   bool is_external_script_ = false;
 
@@ -181,18 +175,21 @@ class CORE_EXPORT ScriptLoader final
 
   bool will_execute_when_document_finished_parsing_;
 
+  // The script will be force deferred (https://crbug.com/976061).
+  bool force_deferred_;
+
   // A PendingScript is first created in PrepareScript() and stored in
   // |prepared_pending_script_|.
   // Later, TakePendingScript() is called, and its caller holds a reference
   // to the PendingScript instead and |prepared_pending_script_| is cleared.
-  TraceWrapperMember<PendingScript> prepared_pending_script_;
+  Member<PendingScript> prepared_pending_script_;
 
   // If the script is controlled by ScriptRunner, then
   // ScriptLoader::pending_script_ holds a reference to the PendingScript and
   // ScriptLoader is its client.
   // Otherwise, HTMLParserScriptRunner or XMLParserScriptRunner holds the
   // reference and |pending_script_| here is null.
-  TraceWrapperMember<PendingScript> pending_script_;
+  Member<PendingScript> pending_script_;
 
   // This is used only to keep the ScriptResource of a classic script alive
   // and thus to keep it on MemoryCache, even after script execution, as long

@@ -103,6 +103,9 @@ class CORE_EXPORT HTMLPlugInElement
   ParsedFeaturePolicy ConstructContainerPolicy(
       Vector<String>* /* messages */) const override;
 
+  bool IsImageType() const;
+  HTMLImageLoader* ImageLoader() const { return image_loader_.Get(); }
+
  protected:
   HTMLPlugInElement(const QualifiedName& tag_name,
                     Document&,
@@ -127,14 +130,13 @@ class CORE_EXPORT HTMLPlugInElement
   // if necessary.
   virtual LayoutEmbeddedContent* LayoutEmbeddedContentForJSBindings() const;
 
-  bool IsImageType() const;
   LayoutEmbeddedObject* GetLayoutEmbeddedObject() const;
   bool AllowedToLoadFrameURL(const String& url);
   bool RequestObject(const PluginParameters& plugin_params);
 
   void DispatchErrorEvent();
   bool IsErrorplaceholder();
-  void LazyReattachIfNeeded();
+  void ReattachOnPluginChangeIfNeeded();
 
   void SetUrl(const String& url) {
     url_ = url;
@@ -145,6 +147,10 @@ class CORE_EXPORT HTMLPlugInElement
     service_type_ = service_type;
     UpdateServiceTypeIfEmpty();
   }
+
+  // Set when the current view cannot be re-used on reattach. This is the case
+  // e.g. when attributes (e.g. src) change.
+  void SetDisposeView() { dispose_view_ = true; }
 
   String service_type_;
   String url_;
@@ -161,11 +167,11 @@ class CORE_EXPORT HTMLPlugInElement
   bool CanStartSelection() const override;
   bool WillRespondToMouseClickEvents() final;
   void DefaultEventHandler(Event&) final;
-  void DetachLayoutTree(const AttachContext& = AttachContext()) final;
+  void DetachLayoutTree(bool performing_reattach) final;
   void FinishParsingChildren() final;
 
   // Element overrides:
-  LayoutObject* CreateLayoutObject(const ComputedStyle&) override;
+  LayoutObject* CreateLayoutObject(const ComputedStyle&, LegacyLayout) override;
   bool SupportsFocus() const final { return true; }
   bool IsFocusableStyle() const final;
   bool IsKeyboardFocusable() const final;
@@ -200,12 +206,11 @@ class CORE_EXPORT HTMLPlugInElement
     kImage,
     kFrame,
     kPlugin,
+    kExternalPlugin,
   };
   ObjectContentType GetObjectContentType() const;
 
   void SetPersistedPlugin(WebPluginContainerImpl*);
-
-  bool RequestObjectInternal(const PluginParameters& plugin_params);
 
   void UpdateServiceTypeIfEmpty();
 
@@ -225,7 +230,9 @@ class CORE_EXPORT HTMLPlugInElement
   // being displayed.
   Member<WebPluginContainerImpl> persisted_plugin_;
 
-  bool handled_externally_ = false;
+  // True when the element has changed in such a way (new URL, for instance)
+  // that we cannot re-use the old view when re-attaching.
+  bool dispose_view_ = false;
 };
 
 inline bool IsHTMLPlugInElement(const HTMLElement& element) {

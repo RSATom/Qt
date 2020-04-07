@@ -39,9 +39,6 @@ class ServiceWorkerContextCoreTest : public testing::Test,
 
   ServiceWorkerContextCore* context() { return helper_->context(); }
 
-  TestBrowserThreadBundle thread_bundle_;
-  std::unique_ptr<EmbeddedWorkerTestHelper> helper_;
-
   // Runs until |registration| has an active version and it is activated.
   void RunUntilActivatedVersion(ServiceWorkerRegistration* registration) {
     if (registration->active_version() &&
@@ -127,6 +124,8 @@ class ServiceWorkerContextCoreTest : public testing::Test,
   }
 
  private:
+  TestBrowserThreadBundle thread_bundle_;
+  std::unique_ptr<EmbeddedWorkerTestHelper> helper_;
   GURL scope_for_wait_for_activated_;
   base::OnceClosure quit_closure_for_wait_for_activated_;
   bool is_observing_context_ = false;
@@ -159,7 +158,7 @@ TEST_F(ServiceWorkerContextCoreTest, FailureInfo) {
   context()->UpdateVersionFailureCount(kVersionId,
                                        blink::ServiceWorkerStatusCode::kOk);
   EXPECT_EQ(0, context()->GetVersionFailureCount(kVersionId));
-  EXPECT_FALSE(base::ContainsKey(context()->failure_counts_, kVersionId));
+  EXPECT_FALSE(base::Contains(context()->failure_counts_, kVersionId));
 }
 
 TEST_F(ServiceWorkerContextCoreTest, DeleteForOrigin) {

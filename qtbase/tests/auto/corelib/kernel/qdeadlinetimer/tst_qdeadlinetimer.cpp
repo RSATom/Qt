@@ -32,7 +32,7 @@
 #include <QtCore/QElapsedTimer>
 #include <QtTest/QtTest>
 
-#if QT_HAS_INCLUDE(<chrono>)
+#if __has_include(<chrono>)
 #  include <chrono>
 #endif
 
@@ -519,7 +519,7 @@ void tst_QDeadlineTimer::expire()
 
 void tst_QDeadlineTimer::stdchrono()
 {
-#if !QT_HAS_INCLUDE(<chrono>)
+#if !__has_include(<chrono>)
     QSKIP("std::chrono not found on this system");
 #else
     using namespace std::chrono;
@@ -573,46 +573,79 @@ void tst_QDeadlineTimer::stdchrono()
 
     QCOMPARE(deadline.remainingTimeAsDuration(), nanoseconds::zero());
 
+    /*
+        Call QTest::qSleep, and return true if the time actually slept is
+        within \a deviationPercent percent of the requested sleep time.
+        Otherwise, return false, in which case the test should to abort.
+    */
+    auto sleepHelper = [](int ms, int deviationPercent = 10) -> bool {
+        auto before = steady_clock::now();
+        QTest::qSleep(ms);
+        auto after = steady_clock::now();
+        auto diff = duration_cast<milliseconds>(after - before).count();
+        bool inRange = qAbs(diff - ms) < ms * deviationPercent/100.0;
+        if (!inRange)
+            qWarning() << "sleeping" << diff << "instead of" << ms << inRange;
+        return inRange;
+    };
+
     auto steady_before = steady_clock::now();
     auto system_before = system_clock::now();
 
-    QTest::qSleep(minResolution);
+    if (!sleepHelper(minResolution))
+        QSKIP("Slept too long");
     auto now = QDeadlineTimer::current(timerType);
-    QTest::qSleep(minResolution);
+    auto steady_reference = steady_clock::now();
+    auto system_reference = system_clock::now();
+    if (!sleepHelper(minResolution))
+        QSKIP("Slept too long");
 
+    auto sampling_start = steady_clock::now();
+    auto steady_deadline = now.deadline<steady_clock>();
+    auto system_deadline = now.deadline<system_clock>();
     auto steady_after = steady_clock::now();
     auto system_after = system_clock::now();
+    auto sampling_end = steady_clock::now();
+
+    auto sampling_diff = duration_cast<milliseconds>(sampling_end - sampling_start).count();
+    if (sampling_diff > minResolution/2) {
+        qWarning() << "Sampling clock took" << sampling_diff << "ms";
+        QSKIP("Sampling clock took too long, aborting test", Abort);
+    }
+    auto total_diff = duration_cast<milliseconds>(steady_after - steady_before).count();
+    if (total_diff >= 3*minResolution) {
+        qWarning() << "Measurement took" << total_diff << "ms";
+        QSKIP("Measurement took too long, aborting test", Abort);
+    }
 
     {
-        auto diff = duration_cast<milliseconds>(steady_after - now.deadline<steady_clock>());
-        QVERIFY2(diff.count() > minResolution/2, QByteArray::number(qint64(diff.count())));
-        QVERIFY2(diff.count() < 3*minResolution/2, QByteArray::number(qint64(diff.count())));
+        auto reference = duration_cast<milliseconds>(steady_after - steady_reference).count();
+        auto diff = duration_cast<milliseconds>(steady_after - steady_deadline).count();
+        QVERIFY2(diff > reference * 0.9 && diff < reference*1.1, QByteArray::number(qint64(diff)));
         QDeadlineTimer dt_after(steady_after, timerType);
         QVERIFY2(now < dt_after,
                  ("now = " + QLocale().toString(now.deadlineNSecs()) +
                  "; after = " + QLocale().toString(dt_after.deadlineNSecs())).toLatin1());
 
-        diff = duration_cast<milliseconds>(now.deadline<steady_clock>() - steady_before);
-        QVERIFY2(diff.count() > minResolution/2, QByteArray::number(qint64(diff.count())));
-        QVERIFY2(diff.count() < 3*minResolution/2, QByteArray::number(qint64(diff.count())));
+        reference = duration_cast<milliseconds>(steady_reference - steady_before).count();
+        diff = duration_cast<milliseconds>(steady_deadline - steady_before).count();
+        QVERIFY2(diff > reference * 0.9 && diff < reference*1.1, QByteArray::number(qint64(diff)));
         QDeadlineTimer dt_before(steady_before, timerType);
         QVERIFY2(now > dt_before,
                  ("now = " + QLocale().toString(now.deadlineNSecs()) +
                  "; before = " + QLocale().toString(dt_before.deadlineNSecs())).toLatin1());
     }
     {
-        auto diff = duration_cast<milliseconds>(system_after - now.deadline<system_clock>());
-        QVERIFY2(diff.count() > minResolution/2, QByteArray::number(qint64(diff.count())));
-        QVERIFY2(diff.count() < 3*minResolution/2, QByteArray::number(qint64(diff.count())));
-        QDeadlineTimer dt_after(system_after, timerType);
+        auto reference = duration_cast<milliseconds>(system_after - system_reference).count();
+        auto diff = duration_cast<milliseconds>(system_after - system_deadline).count();
+        QVERIFY2(diff > reference * 0.9 && diff < reference*1.1, QByteArray::number(qint64(diff)));        QDeadlineTimer dt_after(system_after, timerType);
         QVERIFY2(now < dt_after,
                  ("now = " + QLocale().toString(now.deadlineNSecs()) +
                  "; after = " + QLocale().toString(dt_after.deadlineNSecs())).toLatin1());
 
-        diff = duration_cast<milliseconds>(now.deadline<system_clock>() - system_before);
-        QVERIFY2(diff.count() > minResolution/2, QByteArray::number(qint64(diff.count())));
-        QVERIFY2(diff.count() < 3*minResolution/2, QByteArray::number(qint64(diff.count())));
-        QDeadlineTimer dt_before(system_before, timerType);
+        reference = duration_cast<milliseconds>(system_reference - system_before).count();
+        diff = duration_cast<milliseconds>(steady_deadline - steady_before).count();
+        QVERIFY2(diff > reference * 0.9 && diff < reference*1.1, QByteArray::number(qint64(diff)));        QDeadlineTimer dt_before(system_before, timerType);
         QVERIFY2(now > dt_before,
                  ("now = " + QLocale().toString(now.deadlineNSecs()) +
                  "; before = " + QLocale().toString(dt_before.deadlineNSecs())).toLatin1());

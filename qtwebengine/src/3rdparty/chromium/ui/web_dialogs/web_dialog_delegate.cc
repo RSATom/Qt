@@ -28,12 +28,17 @@ bool WebDialogDelegate::CanResizeDialog() const {
   return true;
 }
 
+bool WebDialogDelegate::OnDialogCloseRequested() {
+  return true;
+}
+
 void WebDialogDelegate::OnDialogCloseFromWebUI(
     const std::string& json_retval) {
   OnDialogClosed(json_retval);
 }
 
 bool WebDialogDelegate::HandleContextMenu(
+    content::RenderFrameHost* render_frame_host,
     const content::ContextMenuParams& params) {
   return false;
 }

@@ -76,7 +76,7 @@ public:
 
     mutable QMutex mutex;
 
-    QScopedPointer<QRemoteObjectPendingCallWatcherHelper> watcherHelper;
+    mutable QScopedPointer<QRemoteObjectPendingCallWatcherHelper> watcherHelper;
 };
 
 class QRemoteObjectPendingCallWatcherHelper: public QObject

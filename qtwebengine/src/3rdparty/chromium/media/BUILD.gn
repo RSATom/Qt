@@ -22,6 +22,8 @@ buildflag_header("media_buildflags") {
     "ENABLE_CBCS_ENCRYPTION_SCHEME=$enable_cbcs_encryption_scheme",
     "ENABLE_CDM_HOST_VERIFICATION=$enable_cdm_host_verification",
     "ENABLE_CDM_STORAGE_ID=$enable_cdm_storage_id",
+    "ENABLE_DAV1D_DECODER=$enable_dav1d_decoder",
+    "ENABLE_AV1_DECODER=$enable_av1_decoder",
     "ENABLE_DOLBY_VISION_DEMUXING=$enable_dolby_vision_demuxing",
     "ENABLE_FFMPEG=$media_use_ffmpeg",
     "ENABLE_FFMPEG_VIDEO_DECODERS=$enable_ffmpeg_video_decoders",
@@ -34,7 +36,6 @@ buildflag_header("media_buildflags") {
     "ENABLE_MEDIA_REMOTING_RPC=$enable_media_remoting_rpc",
     "ENABLE_MPEG_H_AUDIO_DEMUXING=$enable_mpeg_h_audio_demuxing",
     "ENABLE_MSE_MPEG2TS_STREAM_PARSER=$enable_mse_mpeg2ts_stream_parser",
-    "ENABLE_RUNTIME_MEDIA_RENDERER_SELECTION=$enable_runtime_media_renderer_selection",
     "ENABLE_WEBRTC=$enable_webrtc",
     "ENABLE_WEB_SPEECH=$enable_web_speech",
     "USE_PROPRIETARY_CODECS=$proprietary_codecs",
@@ -150,6 +151,7 @@ test("media_unittests") {
     "//media/learning:unit_tests",
     "//media/mojo:unit_tests",
     "//media/muxers:unit_tests",
+    "//media/parsers:unit_tests",
     "//media/renderers:unit_tests",
     "//media/test:pipeline_integration_tests",
     "//media/test:run_all_unittests",
@@ -313,18 +315,6 @@ if (proprietary_codecs) {
       ":media",
     ]
   }
-}
-
-fuzzer_test("media_vp8_parser_fuzzer") {
-  sources = [
-    "filters/vp8_parser_fuzzertest.cc",
-  ]
-  deps = [
-    ":test_support",
-    "//base",
-  ]
-  libfuzzer_options = [ "max_len = 400000" ]
-  dict = "test/vp8.dict"
 }
 
 fuzzer_test("media_vp9_parser_fuzzer") {

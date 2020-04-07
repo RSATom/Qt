@@ -14,8 +14,9 @@
 
 #include "base/strings/string16.h"
 #include "base/strings/string_split.h"
-#include "ui/accessibility/ax_enums.mojom.h"
+#include "ui/accessibility/ax_enums.mojom-shared.h"
 #include "ui/accessibility/ax_export.h"
+#include "ui/accessibility/ax_node_text_styles.h"
 #include "ui/accessibility/ax_relative_bounds.h"
 #include "ui/gfx/geometry/rect_f.h"
 
@@ -97,8 +98,8 @@ struct AX_EXPORT AXNodeData {
   //
   // Setting accessibility attributes.
   //
-  // Replaces an attribute if not present. This is safer than crashing via a
-  // DCHECK or doing nothing, because most likely that's what the caller would
+  // Replaces an attribute if present. This is safer than crashing via a DCHECK
+  // or doing nothing, because most likely replacing is what the caller would
   // have wanted or what existing code already assumes.
   //
 
@@ -124,6 +125,11 @@ struct AX_EXPORT AXNodeData {
   void RemoveStringListAttribute(ax::mojom::StringListAttribute attribute);
 
   //
+  // Text styles.
+  //
+  AXNodeTextStyles GetTextStyles() const;
+
+  //
   // Convenience functions.
   //
 
@@ -146,12 +152,16 @@ struct AX_EXPORT AXNodeData {
   bool HasState(ax::mojom::State state) const;
   bool HasAction(ax::mojom::Action action) const;
   bool HasTextStyle(ax::mojom::TextStyle text_style) const;
+  // aria-dropeffect is deprecated in WAI-ARIA 1.1.
+  bool HasDropeffect(ax::mojom::Dropeffect dropeffect) const;
 
   // Set or remove bits in the given enum's corresponding bitfield.
   ax::mojom::State AddState(ax::mojom::State state);
   ax::mojom::State RemoveState(ax::mojom::State state);
   ax::mojom::Action AddAction(ax::mojom::Action action);
   void AddTextStyle(ax::mojom::TextStyle text_style);
+  // aria-dropeffect is deprecated in WAI-ARIA 1.1.
+  void AddDropeffect(ax::mojom::Dropeffect dropeffect);
 
   // Helper functions to get or set some common int attributes with some
   // specific enum types. To remove an attribute, set it to None.
@@ -167,15 +177,29 @@ struct AX_EXPORT AXNodeData {
   void SetInvalidState(ax::mojom::InvalidState invalid_state);
   ax::mojom::NameFrom GetNameFrom() const;
   void SetNameFrom(ax::mojom::NameFrom name_from);
+  ax::mojom::DescriptionFrom GetDescriptionFrom() const;
+  void SetDescriptionFrom(ax::mojom::DescriptionFrom description_from);
   ax::mojom::TextPosition GetTextPosition() const;
   void SetTextPosition(ax::mojom::TextPosition text_position);
   ax::mojom::Restriction GetRestriction() const;
   void SetRestriction(ax::mojom::Restriction restriction);
+  ax::mojom::ListStyle GetListStyle() const;
+  void SetListStyle(ax::mojom::ListStyle list_style);
   ax::mojom::TextDirection GetTextDirection() const;
   void SetTextDirection(ax::mojom::TextDirection text_direction);
+  ax::mojom::ImageAnnotationStatus GetImageAnnotationStatus() const;
+  void SetImageAnnotationStatus(ax::mojom::ImageAnnotationStatus status);
+
+  // Helper to determine if |GetRestriction| is either ReadOnly or Disabled
+  bool IsReadOnlyOrDisabled() const;
 
   // Return a string representation of this data, for debugging.
   virtual std::string ToString() const;
+
+  // Return a string representation of |aria-dropeffect| values, for testing
+  // and debugging.
+  // aria-dropeffect is deprecated in WAI-ARIA 1.1.
+  std::string DropeffectBitfieldToString() const;
 
   // As much as possible this should behave as a simple, serializable,
   // copyable struct.

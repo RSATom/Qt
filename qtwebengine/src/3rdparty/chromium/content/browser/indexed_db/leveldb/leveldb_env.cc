@@ -11,15 +11,21 @@
 #include "content/browser/indexed_db/indexed_db_leveldb_operations.h"
 #include "content/browser/indexed_db/indexed_db_reporting.h"
 #include "content/browser/indexed_db/indexed_db_tracing.h"
+#include "content/browser/indexed_db/leveldb/transactional_leveldb_iterator_impl.h"
+#include "content/browser/indexed_db/leveldb/transactional_leveldb_transaction.h"
 #include "third_party/leveldatabase/leveldb_chrome.h"
 #include "third_party/leveldatabase/src/include/leveldb/filter_policy.h"
 
 namespace content {
-namespace {
 
-// Static member initialization.
-base::LazyInstance<content::LevelDBEnv>::Leaky g_leveldb_env =
-    LAZY_INSTANCE_INITIALIZER;
+LevelDBEnv::LevelDBEnv() : ChromiumEnv("LevelDBEnv.IDB") {}
+
+LevelDBEnv* LevelDBEnv::Get() {
+  static base::NoDestructor<LevelDBEnv> g_leveldb_env;
+  return g_leveldb_env.get();
+}
+
+namespace indexed_db {
 
 leveldb_env::Options GetLevelDBOptions(leveldb::Env* env,
                                        const leveldb::Comparator* comparator,
@@ -42,21 +48,35 @@ leveldb_env::Options GetLevelDBOptions(leveldb::Env* env,
   return options;
 }
 
-}  // namespace
+static LevelDBFactory::GetterCallback* s_ldb_factory_getter;
 
-LevelDBEnv::LevelDBEnv() : ChromiumEnv("LevelDBEnv.IDB") {}
-
-LevelDBEnv* LevelDBEnv::Get() {
-  return g_leveldb_env.Pointer();
+// static
+LevelDBFactory* LevelDBFactory::Get() {
+  static base::NoDestructor<DefaultLevelDBFactory> singleton;
+  if (s_ldb_factory_getter)
+    return (*s_ldb_factory_getter)();
+  return singleton.get();
 }
 
-namespace indexed_db {
+// static
+void LevelDBFactory::SetFactoryGetterForTesting(
+    LevelDBFactory::GetterCallback* cb) {
+  s_ldb_factory_getter = cb;
+}
+
+std::tuple<std::unique_ptr<leveldb::DB>, leveldb::Status>
+DefaultLevelDBFactory::OpenDB(const leveldb_env::Options& options,
+                              const std::string& name) {
+  std::unique_ptr<leveldb::DB> db;
+  leveldb::Status s = leveldb_env::OpenDB(options, name, &db);
+  return std::make_tuple(std::move(db), s);
+}
 
 std::tuple<scoped_refptr<LevelDBState>, leveldb::Status, bool /* disk_full*/>
-DefaultLevelDBFactory::OpenLevelDB(
+DefaultLevelDBFactory::OpenLevelDBState(
     const base::FilePath& file_name,
     const LevelDBComparator* idb_comparator,
-    const leveldb::Comparator* ldb_comparator) const {
+    const leveldb::Comparator* ldb_comparator) {
   // Please see docs/open_and_verify_leveldb_database.code2flow, and the
   // generated pdf (from https://code2flow.com).
   // The intended strategy here is to have this function match that flowchart,
@@ -77,7 +97,7 @@ DefaultLevelDBFactory::OpenLevelDB(
         GetLevelDBOptions(in_memory_env.get(), ldb_comparator,
                           /* default of 4MB */ 4 * kBytesInOneMegabyte,
                           /*paranoid_checks=*/false);
-    status = leveldb_env::OpenDB(in_memory_options, std::string(), &db);
+    std::tie(db, status) = OpenDB(in_memory_options, std::string());
     if (!status.ok()) {
       LOG(ERROR) << "Failed to open in-memory LevelDB database: "
                  << status.ToString();
@@ -98,7 +118,7 @@ DefaultLevelDBFactory::OpenLevelDB(
                         /*paranoid_checks=*/true);
 
   // ChromiumEnv assumes UTF8, converts back to FilePath before using.
-  status = leveldb_env::OpenDB(options, file_name.AsUTF8Unsafe(), &db);
+  std::tie(db, status) = OpenDB(options, file_name.AsUTF8Unsafe());
   if (!status.ok()) {
     ReportLevelDBError("WebCore.IndexedDB.LevelDBOpenErrors", status);
 
@@ -127,8 +147,23 @@ DefaultLevelDBFactory::OpenLevelDB(
                          status, false);
 }
 
+scoped_refptr<TransactionalLevelDBTransaction>
+DefaultLevelDBFactory::CreateLevelDBTransaction(
+    TransactionalLevelDBDatabase* db) {
+  return base::WrapRefCounted(new TransactionalLevelDBTransaction(db));
+}
+
+std::unique_ptr<TransactionalLevelDBIteratorImpl>
+DefaultLevelDBFactory::CreateIteratorImpl(
+    std::unique_ptr<leveldb::Iterator> iterator,
+    TransactionalLevelDBDatabase* db,
+    const leveldb::Snapshot* snapshot) {
+  return base::WrapUnique(
+      new TransactionalLevelDBIteratorImpl(std::move(iterator), db, snapshot));
+}
+
 leveldb::Status DefaultLevelDBFactory::DestroyLevelDB(
-    scoped_refptr<LevelDBState> level_db_state) const {
+    scoped_refptr<LevelDBState> level_db_state) {
   DCHECK(level_db_state);
   DCHECK(!level_db_state->in_memory_env() &&
          !level_db_state->database_path().empty())
@@ -145,16 +180,10 @@ leveldb::Status DefaultLevelDBFactory::DestroyLevelDB(
 }
 
 leveldb::Status DefaultLevelDBFactory::DestroyLevelDB(
-    const base::FilePath& path) const {
+    const base::FilePath& path) {
   leveldb_env::Options options;
   options.env = LevelDBEnv::Get();
   return leveldb::DestroyDB(path.AsUTF8Unsafe(), options);
-}
-
-// static
-DefaultLevelDBFactory* GetDefaultLevelDBFactory() {
-  static base::NoDestructor<DefaultLevelDBFactory> singleton;
-  return singleton.get();
 }
 
 }  // namespace indexed_db

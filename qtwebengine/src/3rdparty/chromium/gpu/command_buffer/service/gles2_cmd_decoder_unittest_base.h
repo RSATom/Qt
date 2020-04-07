@@ -11,7 +11,7 @@
 #include <array>
 #include <memory>
 
-#include "base/message_loop/message_loop.h"
+#include "base/test/scoped_task_environment.h"
 #include "gpu/command_buffer/client/client_test_helper.h"
 #include "gpu/command_buffer/common/gles2_cmd_format.h"
 #include "gpu/command_buffer/common/gles2_cmd_utils.h"
@@ -65,6 +65,7 @@ class GLES2DecoderTestBase : public ::testing::TestWithParam<bool>,
   void OnRescheduleAfterFinished() override;
   void OnSwapBuffers(uint64_t swap_id, uint32_t flags) override;
   void ScheduleGrContextCleanup() override {}
+  void HandleReturnData(base::span<const uint8_t> data) override {}
 
   // Template to call glGenXXX functions.
   template <typename T>
@@ -276,10 +277,6 @@ class GLES2DecoderTestBase : public ::testing::TestWithParam<bool>,
       GLuint client_id, GLuint service_id,
       GLuint vertex_shader_client_id, GLuint vertex_shader_service_id,
       GLuint fragment_shader_client_id, GLuint fragment_shader_service_id);
-
-  void SetupInitCapabilitiesExpectations(bool es3_capable);
-  void SetupInitStateExpectations(bool es3_capable);
-  void ExpectEnableDisable(GLenum cap, bool enable);
 
   // Setups up a shader for testing glUniform.
   void SetupShaderForUniform(GLenum uniform_type);
@@ -565,11 +562,6 @@ class GLES2DecoderTestBase : public ::testing::TestWithParam<bool>,
   static const GLint kMaxViewportWidth = 8192;
   static const GLint kMaxViewportHeight = 8192;
 
-  static const GLint kViewportX = 0;
-  static const GLint kViewportY = 0;
-  static const GLint kViewportWidth = kBackBufferWidth;
-  static const GLint kViewportHeight = kBackBufferHeight;
-
   static const GLuint kServiceAttrib0BufferId = 801;
   static const GLuint kServiceFixedAttribBufferId = 802;
 
@@ -803,11 +795,6 @@ class GLES2DecoderTestBase : public ::testing::TestWithParam<bool>,
   void AddExpectationsForVertexAttribManager();
   void SetupMockGLBehaviors();
 
-  void SetupInitStateManualExpectations(bool es3_capable);
-  void SetupInitStateManualExpectationsForWindowRectanglesEXT(GLenum mode,
-                                                              GLint count);
-  void SetupInitStateManualExpectationsForDoLineWidth(GLfloat width);
-
   GpuPreferences gpu_preferences_;
   MailboxManagerImpl mailbox_manager_;
   ShaderTranslatorCache shader_translator_cache_;
@@ -817,7 +804,7 @@ class GLES2DecoderTestBase : public ::testing::TestWithParam<bool>,
   SharedImageManager shared_image_manager_;
   scoped_refptr<ContextGroup> group_;
   MockGLStates gl_states_;
-  base::MessageLoop message_loop_;
+  base::test::ScopedTaskEnvironment scoped_task_environment_;
 
   MockCopyTextureResourceManager* copy_texture_manager_;     // not owned
   MockCopyTexImageResourceManager* copy_tex_image_blitter_;  // not owned
@@ -859,6 +846,7 @@ class GLES2DecoderPassthroughTestBase : public testing::Test,
   void OnRescheduleAfterFinished() override;
   void OnSwapBuffers(uint64_t swap_id, uint32_t flags) override;
   void ScheduleGrContextCleanup() override {}
+  void HandleReturnData(base::span<const uint8_t> data) override {}
 
   void SetUp() override;
   void TearDown() override;
@@ -1004,6 +992,7 @@ class GLES2DecoderPassthroughTestBase : public testing::Test,
     return &passthrough_discardable_manager_;
   }
   ContextGroup* group() { return group_.get(); }
+  FeatureInfo* feature_info() { return group_->feature_info(); }
 
   static const size_t kSharedBufferSize = 2048;
   static const uint32_t kSharedMemoryOffset = 132;

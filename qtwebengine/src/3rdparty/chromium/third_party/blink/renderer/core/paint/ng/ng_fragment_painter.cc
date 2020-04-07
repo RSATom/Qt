@@ -16,15 +16,15 @@
 namespace blink {
 
 void NGFragmentPainter::PaintOutline(const PaintInfo& paint_info,
-                                     const LayoutPoint& paint_offset) {
+                                     const PhysicalOffset& paint_offset) {
   DCHECK(ShouldPaintSelfOutline(paint_info.phase));
 
   if (!NGOutlineUtils::HasPaintedOutline(paint_fragment_.Style(),
                                          paint_fragment_.GetNode()))
     return;
 
-  Vector<LayoutRect> outline_rects;
-  paint_fragment_.AddSelfOutlineRect(
+  Vector<PhysicalRect> outline_rects;
+  paint_fragment_.AddSelfOutlineRects(
       &outline_rects, paint_offset,
       paint_fragment_.GetLayoutObject()
           ->OutlineRectsShouldIncludeBlockVisualOverflow());
@@ -40,8 +40,9 @@ void NGFragmentPainter::PaintOutline(const PaintInfo& paint_info,
   PaintOutlineRects(paint_info, outline_rects, paint_fragment_.Style());
 }
 
-void NGFragmentPainter::AddPDFURLRectIfNeeded(const PaintInfo& paint_info,
-                                              const LayoutPoint& paint_offset) {
+void NGFragmentPainter::AddPDFURLRectIfNeeded(
+    const PaintInfo& paint_info,
+    const PhysicalOffset& paint_offset) {
   DCHECK(paint_info.IsPrinting());
 
   // TODO(layout-dev): Should use break token when NG has its own tree building.
@@ -50,11 +51,11 @@ void NGFragmentPainter::AddPDFURLRectIfNeeded(const PaintInfo& paint_info,
       paint_fragment_.Style().Visibility() != EVisibility::kVisible)
     return;
 
-  KURL url = ToElement(paint_fragment_.GetNode())->HrefURL();
+  KURL url = To<Element>(paint_fragment_.GetNode())->HrefURL();
   if (!url.IsValid())
     return;
 
-  IntRect rect = PixelSnappedIntRect(paint_fragment_.VisualRect());
+  IntRect rect = paint_fragment_.VisualRect();
   if (rect.IsEmpty())
     return;
 
@@ -81,9 +82,6 @@ void NGFragmentPainter::AddPDFURLRectIfNeeded(const PaintInfo& paint_info,
 bool NGFragmentPainter::ShouldRecordHitTestData(
     const PaintInfo& paint_info,
     const NGPhysicalFragment& fragment) {
-  if (!RuntimeEnabledFeatures::PaintTouchActionRectsEnabled())
-    return false;
-
   // Hit test display items are only needed for compositing. This flag is used
   // for for printing and drag images which do not need hit testing.
   if (paint_info.GetGlobalPaintFlags() & kGlobalPaintFlattenCompositingLayers)
@@ -93,7 +91,7 @@ bool NGFragmentPainter::ShouldRecordHitTestData(
   if (fragment.Style().Visibility() != EVisibility::kVisible)
     return false;
 
-  auto touch_action = fragment.EffectiveWhitelistedTouchAction();
+  auto touch_action = fragment.EffectiveAllowedTouchAction();
   if (touch_action == TouchAction::kTouchActionAuto)
     return false;
 

@@ -97,7 +97,6 @@ class CONTENT_EXPORT MojoAsyncResourceHandler
       std::unique_ptr<base::OneShotTimer> timer);
   void OnWritableForTesting();
   static void SetAllocationSizeForTesting(size_t size);
-  static constexpr size_t kDefaultAllocationSize = 512 * 1024;
 
  protected:
   // These functions can be overriden only for tests.
@@ -182,7 +181,7 @@ class CONTENT_EXPORT MojoAsyncResourceHandler
   base::TimeTicks earliest_time_next_transfer_size_report_;
   int64_t reported_total_received_bytes_ = 0;
 
-  base::WeakPtrFactory<MojoAsyncResourceHandler> weak_factory_;
+  base::WeakPtrFactory<MojoAsyncResourceHandler> weak_factory_{this};
   DISALLOW_COPY_AND_ASSIGN(MojoAsyncResourceHandler);
 };
 

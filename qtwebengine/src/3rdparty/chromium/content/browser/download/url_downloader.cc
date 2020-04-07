@@ -4,6 +4,7 @@
 
 #include "content/browser/download/url_downloader.h"
 
+#include "base/bind.h"
 #include "base/callback_helpers.h"
 #include "base/location.h"
 #include "base/macros.h"
@@ -53,7 +54,7 @@ std::unique_ptr<UrlDownloader> UrlDownloader::BeginDownload(
   // |started_callback|.
   auto downloader = std::make_unique<UrlDownloader>(
       std::move(request), delegate, is_parallel_request,
-      params->request_origin(), params->follow_cross_origin_redirects(),
+      params->request_origin(), params->cross_origin_redirects(),
       params->download_source(), params->upload_callback());
   downloader->Start();
 
@@ -65,7 +66,7 @@ UrlDownloader::UrlDownloader(
     base::WeakPtr<download::UrlDownloadHandler::Delegate> delegate,
     bool is_parallel_request,
     const std::string& request_origin,
-    bool follow_cross_origin_redirects,
+    network::mojom::RedirectMode cross_origin_redirects,
     download::DownloadSource download_source,
     const download::DownloadUrlParameters::UploadProgressCallback&
         upload_callback)
@@ -76,9 +77,8 @@ UrlDownloader::UrlDownloader(
             is_parallel_request,
             request_origin,
             download_source),
-      follow_cross_origin_redirects_(follow_cross_origin_redirects),
-      upload_callback_(upload_callback),
-      weak_ptr_factory_(this) {}
+      cross_origin_redirects_(cross_origin_redirects),
+      upload_callback_(upload_callback) {}
 
 UrlDownloader::~UrlDownloader() = default;
 
@@ -108,7 +108,7 @@ void UrlDownloader::OnReceivedRedirect(net::URLRequest* request,
                                        bool* defer_redirect) {
   DVLOG(1) << __func__ << " , request url: " << request_->url().spec()
            << " ,redirect url:" << redirect_info.new_url;
-  if (follow_cross_origin_redirects_) {
+  if (cross_origin_redirects_ == network::mojom::RedirectMode::kFollow) {
     if (!DownloadRequestUtils::IsURLSafe(ChildProcessHost::kInvalidUniqueID,
                                          redirect_info.new_url)) {
       core_.OnWillAbort(

@@ -59,6 +59,20 @@ std::unique_ptr<protocol::Value> StringUtil::parseJSON(const String& string) {
 }
 
 // static
+ProtocolMessage StringUtil::jsonToMessage(const String& message) {
+  ProtocolMessage result;
+  result.json = message;
+  return result;
+}
+
+// static
+ProtocolMessage StringUtil::binaryToMessage(WebVector<uint8_t> message) {
+  ProtocolMessage result;
+  result.binary = std::move(message);
+  return result;
+}
+
+// static
 void StringUtil::builderAppendQuotedString(StringBuilder& builder,
                                            const String& str) {
   builder.Append('"');
@@ -76,11 +90,17 @@ void StringUtil::builderAppendQuotedString(StringBuilder& builder,
   builder.Append('"');
 }
 
+// static
+String StringUtil::fromUTF16LE(const uint16_t* data, size_t length) {
+  // Chromium doesn't support big endian architectures, so it's OK to cast here.
+  return String(reinterpret_cast<const UChar*>(data), length);
+}
+
 namespace {
 class BinaryBasedOnSharedBuffer : public Binary::Impl {
  public:
   explicit BinaryBasedOnSharedBuffer(scoped_refptr<SharedBuffer> buffer)
-      : buffer_(buffer) {}
+      : buffer_(std::move(buffer)) {}
 
   const uint8_t* data() const override {
     return reinterpret_cast<const uint8_t*>(buffer_->Data());
@@ -120,9 +140,7 @@ class BinaryBasedOnCachedData : public Binary::Impl {
 }  // namespace
 
 String Binary::toBase64() const {
-  return impl_ ? WTF::Base64Encode(reinterpret_cast<const char*>(impl_->data()),
-                                   impl_->size())
-               : String();
+  return impl_ ? Base64Encode(*impl_) : String();
 }
 
 // static
@@ -135,12 +153,20 @@ Binary Binary::fromBase64(const String& base64, bool* success) {
 
 // static
 Binary Binary::fromSharedBuffer(scoped_refptr<SharedBuffer> buffer) {
-  return Binary(base::AdoptRef(new BinaryBasedOnSharedBuffer(buffer)));
+  return Binary(
+      base::AdoptRef(new BinaryBasedOnSharedBuffer(std::move(buffer))));
 }
 
 // static
 Binary Binary::fromVector(Vector<uint8_t> in) {
   return Binary(base::AdoptRef(new BinaryBasedOnVector(std::move(in))));
+}
+
+// static
+Binary Binary::fromSpan(const uint8_t* data, size_t size) {
+  Vector<uint8_t> in;
+  in.Append(data, size);
+  return Binary::fromVector(std::move(in));
 }
 
 // static

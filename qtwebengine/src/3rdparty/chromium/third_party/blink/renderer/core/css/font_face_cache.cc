@@ -64,7 +64,8 @@ void FontFaceCache::AddFontFace(FontFace* font_face, bool css_connected) {
           font_face->GetFontSelectionCapabilities(), nullptr);
   if (segmented_font_face_result.is_new_entry) {
     segmented_font_face_result.stored_value->value =
-        CSSSegmentedFontFace::Create(font_face->GetFontSelectionCapabilities());
+        MakeGarbageCollected<CSSSegmentedFontFace>(
+            font_face->GetFontSelectionCapabilities());
   }
 
   segmented_font_face_result.stored_value->value->AddFontFace(font_face,
@@ -153,6 +154,11 @@ CSSSegmentedFontFace* FontFaceCache::Get(
       segmented_faces_.find(family);
   if (segmented_faces_for_family == segmented_faces_.end() ||
       segmented_faces_for_family->value->IsEmpty())
+    return nullptr;
+
+  // TODO(crbug.com/1021568): Prevent `system-ui` from matching. Per spec,
+  // generic family names should not match web fonts unless they are quoted.
+  if (family == font_family_names::kSystemUi)
     return nullptr;
 
   auto family_faces = segmented_faces_for_family->value;

@@ -8,37 +8,47 @@
 #include "base/macros.h"
 #include "third_party/blink/renderer/platform/heap/marking_visitor.h"
 
+namespace v8 {
+class EmbedderHeapTracer;
+}
+
 namespace blink {
 
 struct WrapperTypeInfo;
 
 // Marking visitor for unified heap garbage collections. Extends the regular
 // Oilpan marking visitor by also providing write barriers and visitation
-// methods that allow for announcing reachable objects to V8.
-class PLATFORM_EXPORT UnifiedHeapMarkingVisitor final : public MarkingVisitor {
+// methods that allow for announcing reachable objects to V8. Visitor can be
+// used from any thread.
+class PLATFORM_EXPORT UnifiedHeapMarkingVisitorBase : public MarkingVisitor {
  public:
-  static std::unique_ptr<UnifiedHeapMarkingVisitor> Create(ThreadState*,
-                                                           MarkingMode,
-                                                           v8::Isolate*);
-  // Write barriers for annotating a write during incremental marking.
-  static void WriteBarrier(v8::Isolate*,
-                           const TraceWrapperV8Reference<v8::Value>&);
-  static void WriteBarrier(v8::Isolate*,
-                           DOMWrapperMap<ScriptWrappable>*,
-                           ScriptWrappable*);
-  static void WriteBarrier(v8::Isolate*, const WrapperTypeInfo*, void*);
-
-  ~UnifiedHeapMarkingVisitor() override = default;
+  ~UnifiedHeapMarkingVisitorBase() override = default;
 
   // Visitation methods that announce reachable wrappers to V8.
   void Visit(const TraceWrapperV8Reference<v8::Value>&) final;
-  void Visit(DOMWrapperMap<ScriptWrappable>*, const ScriptWrappable*) final;
 
- private:
-  UnifiedHeapMarkingVisitor(ThreadState*, MarkingMode, v8::Isolate*);
+ protected:
+  UnifiedHeapMarkingVisitorBase(ThreadState*, MarkingMode, v8::Isolate*);
 
   v8::Isolate* const isolate_;
+  v8::EmbedderHeapTracer* const controller_;
 
+  DISALLOW_COPY_AND_ASSIGN(UnifiedHeapMarkingVisitorBase);
+};
+
+// Same as the base visitor with the difference that it is bound to main thread.
+// Also implements various sorts of write barriers that should only be called
+// from the main thread.
+class PLATFORM_EXPORT UnifiedHeapMarkingVisitor
+    : public UnifiedHeapMarkingVisitorBase {
+ public:
+  UnifiedHeapMarkingVisitor(ThreadState*, MarkingMode, v8::Isolate*);
+
+  // Write barriers for annotating a write during incremental marking.
+  static void WriteBarrier(const TraceWrapperV8Reference<v8::Value>&);
+  static void WriteBarrier(v8::Isolate*, const WrapperTypeInfo*, void*);
+
+ private:
   DISALLOW_COPY_AND_ASSIGN(UnifiedHeapMarkingVisitor);
 };
 

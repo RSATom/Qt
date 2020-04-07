@@ -26,6 +26,7 @@
 #include "public/fpdf_structtree.h"
 #include "public/fpdf_sysfontinfo.h"
 #include "public/fpdf_text.h"
+#include "public/fpdf_thumbnail.h"
 #include "public/fpdf_transformpage.h"
 #include "public/fpdfview.h"
 
@@ -44,17 +45,22 @@ int CheckPDFiumCApi() {
     CHK(FPDFAnnot_GetAttachmentPoints);
     CHK(FPDFAnnot_GetColor);
     CHK(FPDFAnnot_GetFlags);
+    CHK(FPDFAnnot_GetFontSize);
     CHK(FPDFAnnot_GetFormFieldAtPoint);
     CHK(FPDFAnnot_GetFormFieldFlags);
     CHK(FPDFAnnot_GetLinkedAnnot);
+    CHK(FPDFAnnot_GetNumberValue);
     CHK(FPDFAnnot_GetObject);
     CHK(FPDFAnnot_GetObjectCount);
+    CHK(FPDFAnnot_GetOptionCount);
+    CHK(FPDFAnnot_GetOptionLabel);
     CHK(FPDFAnnot_GetRect);
     CHK(FPDFAnnot_GetStringValue);
     CHK(FPDFAnnot_GetSubtype);
     CHK(FPDFAnnot_GetValueType);
     CHK(FPDFAnnot_HasAttachmentPoints);
     CHK(FPDFAnnot_HasKey);
+    CHK(FPDFAnnot_IsChecked);
     CHK(FPDFAnnot_IsObjectSupportedSubtype);
     CHK(FPDFAnnot_IsSupportedSubtype);
     CHK(FPDFAnnot_RemoveObject);
@@ -193,19 +199,12 @@ int CheckPDFiumCApi() {
     CHK(FPDFPath_Close);
     CHK(FPDFPath_CountSegments);
     CHK(FPDFPath_GetDrawMode);
-    CHK(FPDFPath_GetFillColor);
     CHK(FPDFPath_GetMatrix);
     CHK(FPDFPath_GetPathSegment);
-    CHK(FPDFPath_GetStrokeColor);
     CHK(FPDFPath_LineTo);
     CHK(FPDFPath_MoveTo);
     CHK(FPDFPath_SetDrawMode);
-    CHK(FPDFPath_SetFillColor);
-    CHK(FPDFPath_SetLineCap);
-    CHK(FPDFPath_SetLineJoin);
     CHK(FPDFPath_SetMatrix);
-    CHK(FPDFPath_SetStrokeColor);
-    CHK(FPDFPath_SetStrokeWidth);
     CHK(FPDFTextObj_GetFontName);
     CHK(FPDFTextObj_GetFontSize);
     CHK(FPDFTextObj_GetText);
@@ -213,7 +212,6 @@ int CheckPDFiumCApi() {
     CHK(FPDFText_GetTextRenderMode);
     CHK(FPDFText_LoadFont);
     CHK(FPDFText_LoadStandardFont);
-    CHK(FPDFText_SetFillColor);
     CHK(FPDFText_SetText);
     CHK(FPDF_CreateNewDocument);
 
@@ -238,6 +236,7 @@ int CheckPDFiumCApi() {
     CHK(FORM_ForceToKillFocus);
     CHK(FORM_GetFocusedText);
     CHK(FORM_GetSelectedText);
+    CHK(FORM_IsIndexSelected);
     CHK(FORM_OnAfterLoadPage);
     CHK(FORM_OnBeforeClosePage);
     CHK(FORM_OnChar);
@@ -254,6 +253,7 @@ int CheckPDFiumCApi() {
 #endif
     CHK(FORM_Redo);
     CHK(FORM_ReplaceSelection);
+    CHK(FORM_SetIndexSelected);
     CHK(FORM_Undo);
     CHK(FPDFDOC_ExitFormFillEnvironment);
     CHK(FPDFDOC_InitFormFillEnvironment);
@@ -313,6 +313,7 @@ int CheckPDFiumCApi() {
     CHK(FPDFLink_CountRects);
     CHK(FPDFLink_CountWebLinks);
     CHK(FPDFLink_GetRect);
+    CHK(FPDFLink_GetTextRange);
     CHK(FPDFLink_GetURL);
     CHK(FPDFLink_LoadWebLinks);
     CHK(FPDFText_ClosePage);
@@ -334,6 +335,11 @@ int CheckPDFiumCApi() {
     CHK(FPDFText_GetText);
     CHK(FPDFText_GetUnicode);
     CHK(FPDFText_LoadPage);
+
+    // fpdf_thumbnail.h
+    CHK(FPDFPage_GetDecodedThumbnailData);
+    CHK(FPDFPage_GetRawThumbnailData);
+    CHK(FPDFPage_GetThumbnailAsBitmap);
 
     // fpdf_transformpage.h
     CHK(FPDFPageObj_TransformClipPath);

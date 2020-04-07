@@ -12,6 +12,7 @@
 #include "base/sequence_checker.h"
 #include "base/synchronization/lock.h"
 #include "mojo/public/cpp/bindings/binding.h"
+#include "services/tracing/public/mojom/traced_process.mojom.h"
 #include "services/tracing/public/mojom/tracing.mojom.h"
 
 namespace tracing {
@@ -45,7 +46,8 @@ class COMPONENT_EXPORT(TRACING_CPP) TracedProcessImpl
 
   // tracing::mojom::TracedProcess:
   void ConnectToTracingService(
-      mojom::ConnectToTracingRequestPtr request) override;
+      mojom::ConnectToTracingRequestPtr request,
+      ConnectToTracingServiceCallback callback) override;
 
   // Lock protecting binding_.
   base::Lock lock_;

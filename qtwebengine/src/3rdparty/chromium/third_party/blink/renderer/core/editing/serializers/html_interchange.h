@@ -34,11 +34,6 @@ class Text;
 
 #define AppleInterchangeNewline "Apple-interchange-newline"
 
-enum EAnnotateForInterchange {
-  kDoNotAnnotateForInterchange,
-  kAnnotateForInterchange
-};
-
 String ConvertHTMLTextToInterchangeFormat(const String&, const Text&);
 
 }  // namespace blink

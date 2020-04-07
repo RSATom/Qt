@@ -41,7 +41,7 @@ DefaultCompositor::DefaultCompositor()
         add<SubCompositor>();
         auto *output = add<Output>();
         output->m_data.physicalSize = output->m_data.mode.physicalSizeForDpi(96);
-        add<Seat>(Seat::capability_pointer | Seat::capability_keyboard);
+        add<Seat>(Seat::capability_pointer | Seat::capability_keyboard | Seat::capability_touch);
         add<XdgWmBase>();
         add<Shm>();
         // TODO: other shells, viewporter, xdgoutput etc
@@ -58,13 +58,10 @@ DefaultCompositor::DefaultCompositor()
             });
         });
 
-        QObject::connect(get<XdgWmBase>(), &XdgWmBase::toplevelCreated, [&] (XdgToplevel *toplevel) {
-            // Needed because lambdas don't support Qt::DirectConnection
-            exec([&]{
-                if (m_config.autoConfigure)
-                    toplevel->sendCompleteConfigure();
-            });
-        });
+        QObject::connect(get<XdgWmBase>(), &XdgWmBase::toplevelCreated, get<XdgWmBase>(), [&] (XdgToplevel *toplevel) {
+            if (m_config.autoConfigure)
+                toplevel->sendCompleteConfigure();
+        }, Qt::DirectConnection);
     }
     Q_ASSERT(isClean());
 }

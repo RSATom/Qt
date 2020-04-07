@@ -4,6 +4,7 @@
 
 #include "extensions/browser/json_file_sanitizer.h"
 
+#include "base/bind.h"
 #include "base/files/file_util.h"
 #include "base/json/json_string_value_serializer.h"
 #include "base/task_runner_util.h"
@@ -49,9 +50,7 @@ std::unique_ptr<JsonFileSanitizer> JsonFileSanitizer::CreateAndStart(
 
 JsonFileSanitizer::JsonFileSanitizer(const std::set<base::FilePath>& file_paths,
                                      Callback callback)
-    : file_paths_(file_paths),
-      callback_(std::move(callback)),
-      weak_factory_(this) {}
+    : file_paths_(file_paths), callback_(std::move(callback)) {}
 
 JsonFileSanitizer::~JsonFileSanitizer() = default;
 

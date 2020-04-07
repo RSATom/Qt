@@ -101,10 +101,29 @@ QQuickWebView::QQuickWebView(QQuickItem *parent)
     connect(m_webView, &QWebView::loadingChanged, this, &QQuickWebView::onLoadingChanged);
     connect(m_webView, &QWebView::requestFocus, this, &QQuickWebView::onFocusRequest);
     connect(m_webView, &QWebView::javaScriptResult, this, &QQuickWebView::onRunJavaScriptResult);
+    connect(m_webView, &QWebView::httpUserAgentChanged, this, &QQuickWebView::httpUserAgentChanged);
 }
 
 QQuickWebView::~QQuickWebView()
 {
+}
+
+/*!
+  \qmlproperty url QtWebView::WebView::httpUserAgent
+  \since QtWebView 1.14
+  The user agent in use.
+
+  \note on WinRT, this property affects all WebViews of the application.
+*/
+
+void QQuickWebView::setHttpUserAgent(const QString &userAgent)
+{
+    m_webView->setHttpUserAgent(userAgent);
+}
+
+QString QQuickWebView::httpUserAgent() const
+{
+    return m_webView->httpUserAgent();
 }
 
 /*!

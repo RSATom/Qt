@@ -8,19 +8,20 @@
 #include <memory>
 #include <utility>
 
+#include "base/bind.h"
+#include "base/feature_list.h"
 #include "base/lazy_instance.h"
-#include "base/message_loop/message_loop.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/rand_util.h"
 #include "base/run_loop.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/stringprintf.h"
 #include "base/system/sys_info.h"
+#include "base/task/single_thread_task_executor.h"
 #include "base/threading/platform_thread.h"
 #include "base/timer/hi_res_timer_manager.h"
 #include "base/trace_event/trace_event.h"
 #include "build/build_config.h"
-#include "components/tracing/common/tracing_sampler_profiler.h"
 #include "components/viz/service/main/viz_main_impl.h"
 #include "content/common/content_constants_internal.h"
 #include "content/common/content_switches_internal.h"
@@ -34,6 +35,7 @@
 #include "content/public/gpu/content_gpu_client.h"
 #include "gpu/command_buffer/service/gpu_switches.h"
 #include "gpu/config/gpu_driver_bug_list.h"
+#include "gpu/config/gpu_finch_features.h"
 #include "gpu/config/gpu_info_collector.h"
 #include "gpu/config/gpu_preferences.h"
 #include "gpu/config/gpu_switches.h"
@@ -52,6 +54,10 @@
 #include "ui/gl/gl_switches.h"
 #include "ui/gl/gpu_switching_manager.h"
 #include "ui/gl/init/gl_factory.h"
+
+#ifndef TOOLKIT_QT
+#include "services/tracing/public/cpp/stack_sampling/tracing_sampler_profiler.h"
+#endif
 
 #if defined(OS_WIN)
 #include <windows.h>
@@ -91,10 +97,6 @@
 #include "services/service_manager/sandbox/mac/sandbox_mac.h"
 #endif
 
-#if defined(USE_OZONE)
-#include "ui/ozone/public/ozone_platform.h"
-#endif
-
 #if BUILDFLAG(USE_VAAPI)
 #include "media/gpu/vaapi/vaapi_wrapper.h"
 #endif
@@ -104,7 +106,7 @@ extern "C" {
 void _LSSetApplicationLaunchServicesServerConnectionStatus(
     uint64_t flags,
     bool (^connection_allowed)(CFDictionaryRef));
-};
+}
 #endif  // defined(OS_MACOSX)
 
 namespace content {
@@ -212,14 +214,11 @@ int GpuMain(const MainFunctionParams& parameters) {
   if (gpu_preferences.gpu_startup_dialog)
     WaitForDebugger("Gpu");
 
-#if defined(OS_WIN)
-  if (gpu_preferences.enable_trace_export_events_to_etw)
-    base::trace_event::TraceEventETWExport::EnableETWExport();
-#endif
-
   base::Time start_time = base::Time::Now();
 
 #if defined(OS_WIN)
+  base::trace_event::TraceEventETWExport::EnableETWExport();
+
   // Prevent Windows from displaying a modal dialog on failures like not being
   // able to load a DLL.
   SetErrorMode(
@@ -232,27 +231,32 @@ int GpuMain(const MainFunctionParams& parameters) {
   // COM callbacks.
   base::win::ScopedCOMInitializer com_initializer(
       base::win::ScopedCOMInitializer::kMTA);
+
+  if (base::FeatureList::IsEnabled(features::kGpuProcessHighPriorityWin))
+    ::SetPriorityClass(::GetCurrentProcess(), ABOVE_NORMAL_PRIORITY_CLASS);
 #endif
 
   logging::SetLogMessageHandler(GpuProcessLogMessageHandler);
 
   // We are experiencing what appear to be memory-stomp issues in the GPU
-  // process. These issues seem to be impacting the message loop and listeners
-  // registered to it. Create the message loop on the heap to guard against
+  // process. These issues seem to be impacting the task executor and listeners
+  // registered to it. Create the task executor on the heap to guard against
   // this.
   // TODO(ericrk): Revisit this once we assess its impact on crbug.com/662802
   // and crbug.com/609252.
-  std::unique_ptr<base::MessageLoop> main_message_loop;
+  std::unique_ptr<base::SingleThreadTaskExecutor> main_thread_task_executor;
   std::unique_ptr<ui::PlatformEventSource> event_source;
   if (command_line.HasSwitch(switches::kHeadless)) {
-    main_message_loop.reset(
-        new base::MessageLoop(base::MessageLoop::TYPE_DEFAULT));
+    main_thread_task_executor =
+        std::make_unique<base::SingleThreadTaskExecutor>(
+            base::MessagePump::Type::DEFAULT);
   } else {
 #if defined(OS_WIN)
     // The GpuMain thread should not be pumping Windows messages because no UI
     // is expected to run on this thread.
-    main_message_loop.reset(
-        new base::MessageLoop(base::MessageLoop::TYPE_DEFAULT));
+    main_thread_task_executor =
+        std::make_unique<base::SingleThreadTaskExecutor>(
+            base::MessagePump::Type::DEFAULT);
 #elif defined(USE_X11)
     // Depending on how Chrome is running there are multiple threads that can
     // make Xlib function calls. Call XInitThreads() here to be safe, even if
@@ -266,35 +270,43 @@ int GpuMain(const MainFunctionParams& parameters) {
     if (!gfx::GetXDisplay())
       return RESULT_CODE_GPU_DEAD_ON_ARRIVAL;
 #endif
-    main_message_loop.reset(new base::MessageLoop(base::MessageLoop::TYPE_UI));
+    main_thread_task_executor =
+        std::make_unique<base::SingleThreadTaskExecutor>(
+            base::MessagePump::Type::UI);
     event_source = ui::PlatformEventSource::CreateDefault();
 #elif defined(USE_OZONE)
-    // The MessageLoop type required depends on the Ozone platform selected at
+    // The MessagePump type required depends on the Ozone platform selected at
     // runtime.
-    main_message_loop.reset(new base::MessageLoop(
-        ui::OzonePlatform::EnsureInstance()->GetMessageLoopTypeForGpu()));
+    main_thread_task_executor =
+        std::make_unique<base::SingleThreadTaskExecutor>(
+            gpu_preferences.message_loop_type);
 #elif defined(OS_LINUX)
 #error "Unsupported Linux platform."
 #elif defined(OS_MACOSX)
     // Cross-process CoreAnimation requires a CFRunLoop to function at all, and
     // requires a NSRunLoop to not starve under heavy load. See:
     // https://crbug.com/312462#c51 and https://crbug.com/783298
-    std::unique_ptr<base::MessagePump> pump(new base::MessagePumpNSRunLoop());
-    main_message_loop.reset(new base::MessageLoop(std::move(pump)));
+    main_thread_task_executor =
+        std::make_unique<base::SingleThreadTaskExecutor>(
+            base::MessagePump::Type::NS_RUNLOOP);
 
     // Tell LaunchServices to continue without a connection to the daemon.
     _LSSetApplicationLaunchServicesServerConnectionStatus(0, nullptr);
 #else
-    main_message_loop.reset(
-        new base::MessageLoop(base::MessageLoop::TYPE_DEFAULT));
+    main_thread_task_executor =
+        std::make_unique<base::SingleThreadTaskExecutor>(
+            base::MessagePump::Type::DEFAULT);
 #endif
   }
 
   base::PlatformThread::SetName("CrGpuMain");
 
-#if defined(OS_ANDROID) || defined(OS_CHROMEOS)
-  // Set thread priority before sandbox initialization.
-  base::PlatformThread::SetCurrentThreadPriority(base::ThreadPriority::DISPLAY);
+#if !defined(OS_MACOSX)
+  if (base::FeatureList::IsEnabled(features::kGpuUseDisplayThreadPriority)) {
+    // Set thread priority before sandbox initialization.
+    base::PlatformThread::SetCurrentThreadPriority(
+        base::ThreadPriority::DISPLAY);
+  }
 #endif
 
   auto gpu_init = std::make_unique<gpu::GpuInit>();
@@ -324,12 +336,20 @@ int GpuMain(const MainFunctionParams& parameters) {
   logging::SetLogMessageHandler(nullptr);
   GetContentClient()->SetGpuInfo(gpu_init->gpu_info());
 
-  base::ThreadPriority io_thread_priority = base::ThreadPriority::NORMAL;
-#if defined(OS_ANDROID) || defined(OS_CHROMEOS)
-  io_thread_priority = base::ThreadPriority::DISPLAY;
-#endif
-
+  const base::ThreadPriority io_thread_priority =
+      base::FeatureList::IsEnabled(features::kGpuUseDisplayThreadPriority)
+          ? base::ThreadPriority::DISPLAY
+          : base::ThreadPriority::NORMAL;
+#if defined(OS_MACOSX)
+  // Increase the thread priority to get more reliable values in performance
+  // test of mac_os.
+  GpuProcess gpu_process(
+      (command_line.HasSwitch(switches::kUseHighGPUThreadPriorityForPerfTests)
+           ? base::ThreadPriority::REALTIME_AUDIO
+           : io_thread_priority));
+#else
   GpuProcess gpu_process(io_thread_priority);
+#endif
 
   auto* client = GetContentClient()->gpu();
   if (client)
@@ -345,9 +365,10 @@ int GpuMain(const MainFunctionParams& parameters) {
 
   gpu_process.set_main_thread(child_thread);
 
+#ifndef TOOLKIT_QT
   // Setup tracing sampler profiler as early as possible.
-  std::unique_ptr<tracing::TracingSamplerProfiler> tracing_sampler_profiler =
-      tracing::TracingSamplerProfiler::CreateOnMainThread();
+  tracing::TracingSamplerProfiler::CreateForCurrentThread();
+#endif
 
 #if defined(OS_ANDROID)
   base::trace_event::MemoryDumpManager::GetInstance()->RegisterDumpProvider(

@@ -64,14 +64,14 @@ bool memberFunctionListContains(QDesignerFormEditorInterface *core, QObject *obj
 // Members functions listed by class they were inherited from
 struct ClassMemberFunctions
 {
-    ClassMemberFunctions() {}
+    ClassMemberFunctions() = default;
     ClassMemberFunctions(const QString &_class_name);
 
     QString m_className;
     QStringList m_memberList;
 };
 
-typedef QList<ClassMemberFunctions> ClassesMemberFunctions;
+using ClassesMemberFunctions = QList<ClassMemberFunctions>;
 
 // Return classes and members in reverse class order to
 // populate of the combo of the ToolWindow.

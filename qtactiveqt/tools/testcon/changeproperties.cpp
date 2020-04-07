@@ -39,7 +39,7 @@
 QT_BEGIN_NAMESPACE
 
 ChangeProperties::ChangeProperties(QWidget *parent)
-: QDialog(parent), activex(0)
+: QDialog(parent), activex(nullptr)
 {
     setupUi(this);
 
@@ -60,9 +60,9 @@ void ChangeProperties::setControl(QAxWidget *ax)
 
 void ChangeProperties::on_listProperties_currentItemChanged(QTreeWidgetItem *current)
 {
-    editValue->setEnabled(current != 0);
-    buttonSet->setEnabled(current != 0);
-    valueLabel->setEnabled(current != 0);
+    editValue->setEnabled(current != nullptr);
+    buttonSet->setEnabled(current != nullptr);
+    valueLabel->setEnabled(current != nullptr);
 
     if (!current)
         return;

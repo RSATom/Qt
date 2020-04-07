@@ -38,11 +38,10 @@
 #include "third_party/blink/renderer/platform/heap/handle.h"
 #include "third_party/blink/renderer/platform/weborigin/kurl.h"
 #include "third_party/blink/renderer/platform/weborigin/referrer.h"
-#include "third_party/blink/renderer/platform/wtf/allocator.h"
+#include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 
 namespace blink {
 
-class Document;
 class EncodedFormData;
 class Event;
 class HTMLFormControlElement;
@@ -112,17 +111,14 @@ class FormSubmission : public GarbageCollectedFinalized<FormSubmission> {
 
   void Trace(blink::Visitor*);
 
-  FrameLoadRequest CreateFrameLoadRequest(Document* origin_document);
+  void Navigate();
 
   KURL RequestURL() const;
 
   SubmitMethod Method() const { return method_; }
   const KURL& Action() const { return action_; }
-  const AtomicString& Target() const { return target_; }
-  void ClearTarget() { target_ = g_null_atom; }
   HTMLFormElement* Form() const { return form_.Get(); }
   EncodedFormData* Data() const { return form_data_.get(); }
-  NavigationPolicy GetNavigationPolicy() const { return navigation_policy_; }
 
   const String& Result() const { return result_; }
 

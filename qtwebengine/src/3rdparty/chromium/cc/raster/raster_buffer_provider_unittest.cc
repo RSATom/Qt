@@ -11,9 +11,10 @@
 #include <limits>
 #include <vector>
 
+#include "base/bind.h"
+#include "base/bind_helpers.h"
 #include "base/cancelable_callback.h"
 #include "base/location.h"
-#include "base/macros.h"
 #include "base/run_loop.h"
 #include "base/single_thread_task_runner.h"
 #include "base/test/metrics/histogram_tester.h"
@@ -70,6 +71,8 @@ class TestRasterTaskImpl : public TileTask {
         id_(id),
         raster_buffer_(std::move(raster_buffer)),
         raster_source_(FakeRasterSource::CreateFilled(gfx::Size(1, 1))) {}
+  TestRasterTaskImpl(const TestRasterTaskImpl&) = delete;
+  TestRasterTaskImpl& operator=(const TestRasterTaskImpl&) = delete;
 
   // Overridden from Task:
   void RunOnWorkerThread() override {
@@ -96,8 +99,6 @@ class TestRasterTaskImpl : public TileTask {
   std::unique_ptr<RasterBuffer> raster_buffer_;
   scoped_refptr<RasterSource> raster_source_;
   GURL url_;
-
-  DISALLOW_COPY_AND_ASSIGN(TestRasterTaskImpl);
 };
 
 class BlockingTestRasterTaskImpl : public TestRasterTaskImpl {
@@ -113,6 +114,9 @@ class BlockingTestRasterTaskImpl : public TestRasterTaskImpl {
                            std::move(raster_buffer),
                            dependencies),
         lock_(lock) {}
+  BlockingTestRasterTaskImpl(const BlockingTestRasterTaskImpl&) = delete;
+  BlockingTestRasterTaskImpl& operator=(const BlockingTestRasterTaskImpl&) =
+      delete;
 
   // Overridden from Task:
   void RunOnWorkerThread() override {
@@ -125,8 +129,6 @@ class BlockingTestRasterTaskImpl : public TestRasterTaskImpl {
 
  private:
   base::Lock* lock_;
-
-  DISALLOW_COPY_AND_ASSIGN(BlockingTestRasterTaskImpl);
 };
 
 class RasterBufferProviderTest
@@ -514,7 +516,7 @@ TEST_P(RasterBufferProviderTest, MeasureGpuRasterDuration) {
   histogram_tester.ExpectTotalCount(histogram, 1);
 }
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     RasterBufferProviderTests,
     RasterBufferProviderTest,
     ::testing::Values(RASTER_BUFFER_PROVIDER_TYPE_ZERO_COPY,

@@ -15,86 +15,97 @@
 #ifndef DAWNNATIVE_BUFFER_H_
 #define DAWNNATIVE_BUFFER_H_
 
-#include "dawn_native/Builder.h"
 #include "dawn_native/Error.h"
 #include "dawn_native/Forward.h"
 #include "dawn_native/ObjectBase.h"
 
 #include "dawn_native/dawn_platform.h"
 
+#include <memory>
+
 namespace dawn_native {
 
     MaybeError ValidateBufferDescriptor(DeviceBase* device, const BufferDescriptor* descriptor);
 
     static constexpr dawn::BufferUsageBit kReadOnlyBufferUsages =
-        dawn::BufferUsageBit::MapRead | dawn::BufferUsageBit::TransferSrc |
+        dawn::BufferUsageBit::MapRead | dawn::BufferUsageBit::CopySrc |
         dawn::BufferUsageBit::Index | dawn::BufferUsageBit::Vertex | dawn::BufferUsageBit::Uniform;
 
-    static constexpr dawn::BufferUsageBit kWritableBufferUsages =
-        dawn::BufferUsageBit::MapWrite | dawn::BufferUsageBit::TransferDst |
-        dawn::BufferUsageBit::Storage;
+    static constexpr dawn::BufferUsageBit kWritableBufferUsages = dawn::BufferUsageBit::MapWrite |
+                                                                  dawn::BufferUsageBit::CopyDst |
+                                                                  dawn::BufferUsageBit::Storage;
 
     class BufferBase : public ObjectBase {
+        enum class BufferState {
+            Unmapped,
+            Mapped,
+            Destroyed,
+        };
+
       public:
         BufferBase(DeviceBase* device, const BufferDescriptor* descriptor);
         ~BufferBase();
 
-        uint32_t GetSize() const;
+        static BufferBase* MakeError(DeviceBase* device);
+        static BufferBase* MakeErrorMapped(DeviceBase* device,
+                                           uint64_t size,
+                                           uint8_t** mappedPointer);
+
+        uint64_t GetSize() const;
         dawn::BufferUsageBit GetUsage() const;
+
+        MaybeError MapAtCreation(uint8_t** mappedPointer);
 
         MaybeError ValidateCanUseInSubmitNow() const;
 
         // Dawn API
-        void SetSubData(uint32_t start, uint32_t count, const uint8_t* data);
-        void MapReadAsync(uint32_t start,
-                          uint32_t size,
-                          dawnBufferMapReadCallback callback,
-                          dawnCallbackUserdata userdata);
-        void MapWriteAsync(uint32_t start,
-                           uint32_t size,
-                           dawnBufferMapWriteCallback callback,
-                           dawnCallbackUserdata userdata);
+        void SetSubData(uint32_t start, uint32_t count, const void* data);
+        void MapReadAsync(DawnBufferMapReadCallback callback, void* userdata);
+        void MapWriteAsync(DawnBufferMapWriteCallback callback, void* userdata);
         void Unmap();
+        void Destroy();
 
       protected:
+        BufferBase(DeviceBase* device, ObjectBase::ErrorTag tag);
+
         void CallMapReadCallback(uint32_t serial,
-                                 dawnBufferMapAsyncStatus status,
-                                 const void* pointer);
-        void CallMapWriteCallback(uint32_t serial, dawnBufferMapAsyncStatus status, void* pointer);
+                                 DawnBufferMapAsyncStatus status,
+                                 const void* pointer,
+                                 uint32_t dataLength);
+        void CallMapWriteCallback(uint32_t serial,
+                                  DawnBufferMapAsyncStatus status,
+                                  void* pointer,
+                                  uint32_t dataLength);
+
+        void DestroyInternal();
 
       private:
-        virtual void SetSubDataImpl(uint32_t start, uint32_t count, const uint8_t* data) = 0;
-        virtual void MapReadAsyncImpl(uint32_t serial, uint32_t start, uint32_t size) = 0;
-        virtual void MapWriteAsyncImpl(uint32_t serial, uint32_t start, uint32_t size) = 0;
+        virtual MaybeError MapAtCreationImpl(uint8_t** mappedPointer) = 0;
+        virtual MaybeError SetSubDataImpl(uint32_t start, uint32_t count, const void* data);
+        virtual MaybeError MapReadAsyncImpl(uint32_t serial) = 0;
+        virtual MaybeError MapWriteAsyncImpl(uint32_t serial) = 0;
         virtual void UnmapImpl() = 0;
+        virtual void DestroyImpl() = 0;
+
+        virtual bool IsMapWritable() const = 0;
+        MaybeError CopyFromStagingBuffer();
 
         MaybeError ValidateSetSubData(uint32_t start, uint32_t count) const;
-        MaybeError ValidateMap(uint32_t start,
-                               uint32_t size,
-                               dawn::BufferUsageBit requiredUsage) const;
+        MaybeError ValidateMap(dawn::BufferUsageBit requiredUsage) const;
         MaybeError ValidateUnmap() const;
+        MaybeError ValidateDestroy() const;
 
-        uint32_t mSize;
+        uint64_t mSize = 0;
         dawn::BufferUsageBit mUsage = dawn::BufferUsageBit::None;
 
-        dawnBufferMapReadCallback mMapReadCallback = nullptr;
-        dawnBufferMapWriteCallback mMapWriteCallback = nullptr;
-        dawnCallbackUserdata mMapUserdata = 0;
+        DawnBufferMapReadCallback mMapReadCallback = nullptr;
+        DawnBufferMapWriteCallback mMapWriteCallback = nullptr;
+        void* mMapUserdata = 0;
         uint32_t mMapSerial = 0;
 
-        bool mIsMapped = false;
-    };
+        std::unique_ptr<StagingBufferBase> mStagingBuffer;
 
-    // This builder class is kept around purely for testing but should not be used.
-    class BufferBuilder : public Builder<BufferBase> {
-      public:
-        BufferBuilder(DeviceBase* device) : Builder(device) {
-            UNREACHABLE();
-        }
-
-        void SetSize(uint32_t) {
-            UNREACHABLE();
-        }
+        BufferState mState;
     };
 
 }  // namespace dawn_native

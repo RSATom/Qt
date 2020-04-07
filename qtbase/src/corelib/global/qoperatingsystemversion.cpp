@@ -299,6 +299,8 @@ int QOperatingSystemVersion::compare(const QOperatingSystemVersion &v1,
 
     Returns the current OS type without constructing a QOperatingSystemVersion instance.
 
+    \since 5.10
+
     \sa current()
 */
 
@@ -340,7 +342,6 @@ QString QOperatingSystemVersion::name() const
     }
 }
 
-#ifdef Q_COMPILER_INITIALIZER_LISTS
 /*!
     \fn bool QOperatingSystemVersion::isAnyOfType(std::initializer_list<OSType> types) const
 
@@ -355,7 +356,6 @@ bool QOperatingSystemVersion::isAnyOfType(std::initializer_list<OSType> types) c
     }
     return false;
 }
-#endif
 
 /*!
     \variable QOperatingSystemVersion::Windows7

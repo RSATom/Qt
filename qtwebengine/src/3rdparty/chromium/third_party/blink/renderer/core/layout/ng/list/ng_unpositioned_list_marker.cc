@@ -38,35 +38,33 @@ LayoutUnit NGUnpositionedListMarker::InlineOffset(
   return margins.first;
 }
 
-scoped_refptr<NGLayoutResult> NGUnpositionedListMarker::Layout(
+scoped_refptr<const NGLayoutResult> NGUnpositionedListMarker::Layout(
     const NGConstraintSpace& parent_space,
     const ComputedStyle& parent_style,
     FontBaseline baseline_type) const {
   DCHECK(marker_layout_object_);
   NGBlockNode marker_node(marker_layout_object_);
-  scoped_refptr<NGLayoutResult> marker_layout_result =
+  scoped_refptr<const NGLayoutResult> marker_layout_result =
       marker_node.LayoutAtomicInline(parent_space, parent_style, baseline_type,
                                      parent_space.UseFirstLineStyle());
-  DCHECK(marker_layout_result && marker_layout_result->PhysicalFragment());
+  DCHECK(marker_layout_result);
   return marker_layout_result;
 }
 
-bool NGUnpositionedListMarker::AddToBox(
+bool NGUnpositionedListMarker::CanAddToBox(
     const NGConstraintSpace& space,
     FontBaseline baseline_type,
     const NGPhysicalFragment& content,
-    NGLogicalOffset* content_offset,
-    NGBoxFragmentBuilder* container_builder,
-    const NGBoxStrut& border_scrollbar_padding) const {
+    NGLineHeightMetrics* content_metrics) const {
+  DCHECK(content_metrics);
+
   // Baselines from two different writing-mode cannot be aligned.
   if (UNLIKELY(space.GetWritingMode() != content.Style().GetWritingMode()))
     return false;
 
   // Compute the baseline of the child content.
-  NGLineHeightMetrics content_metrics;
   if (content.IsLineBox()) {
-    const NGPhysicalLineBoxFragment& line_box =
-        ToNGPhysicalLineBoxFragment(content);
+    const auto& line_box = To<NGPhysicalLineBoxFragment>(content);
 
     // If this child is an empty line-box, the list marker should be aligned
     // with the next non-empty line box produced. (This can occur with floats
@@ -74,33 +72,41 @@ bool NGUnpositionedListMarker::AddToBox(
     if (line_box.IsEmptyLineBox() && !line_box.BreakToken()->IsFinished())
       return false;
 
-    content_metrics = line_box.Metrics();
+    *content_metrics = line_box.Metrics();
   } else {
     NGBoxFragment content_fragment(space.GetWritingMode(), space.Direction(),
-                                   ToNGPhysicalBoxFragment(content));
-    content_metrics = content_fragment.BaselineMetricsWithoutSynthesize(
+                                   To<NGPhysicalBoxFragment>(content));
+    *content_metrics = content_fragment.BaselineMetricsWithoutSynthesize(
         {NGBaselineAlgorithmType::kFirstLine, baseline_type});
 
     // If this child content does not have any line boxes, the list marker
     // should be aligned to the first line box of next child.
     // https://github.com/w3c/csswg-drafts/issues/2417
-    if (content_metrics.IsEmpty())
+    if (content_metrics->IsEmpty())
       return false;
   }
+  return true;
+}
 
-  // Layout the list marker.
-  scoped_refptr<NGLayoutResult> marker_layout_result =
-      Layout(space, container_builder->Style(), baseline_type);
-  DCHECK(marker_layout_result && marker_layout_result->PhysicalFragment());
+void NGUnpositionedListMarker::AddToBox(
+    const NGConstraintSpace& space,
+    FontBaseline baseline_type,
+    const NGPhysicalFragment& content,
+    const NGBoxStrut& border_scrollbar_padding,
+    const NGLineHeightMetrics& content_metrics,
+    const NGLayoutResult& marker_layout_result,
+    LogicalOffset* content_offset,
+    NGBoxFragmentBuilder* container_builder) const {
+  DCHECK(!content_metrics.IsEmpty());
+
   const NGPhysicalBoxFragment& marker_physical_fragment =
-      ToNGPhysicalBoxFragment(*marker_layout_result->PhysicalFragment());
+      To<NGPhysicalBoxFragment>(marker_layout_result.PhysicalFragment());
 
   // Compute the inline offset of the marker.
   NGBoxFragment marker_fragment(space.GetWritingMode(), space.Direction(),
                                 marker_physical_fragment);
-  NGLogicalOffset marker_offset(
-      InlineOffset(marker_fragment.Size().inline_size),
-      content_offset->block_offset);
+  LogicalOffset marker_offset(InlineOffset(marker_fragment.Size().inline_size),
+                              content_offset->block_offset);
 
   // Adjust the block offset to align baselines of the marker and the content.
   NGLineHeightMetrics marker_metrics = marker_fragment.BaselineMetrics(
@@ -118,30 +124,25 @@ bool NGUnpositionedListMarker::AddToBox(
       marker_offset.block_offset);
 
   DCHECK(container_builder);
-  container_builder->AddChild(*marker_layout_result, marker_offset);
-
-  return true;
+  container_builder->AddChild(marker_physical_fragment, marker_offset);
 }
 
 LayoutUnit NGUnpositionedListMarker::AddToBoxWithoutLineBoxes(
     const NGConstraintSpace& space,
     FontBaseline baseline_type,
+    const NGLayoutResult& marker_layout_result,
     NGBoxFragmentBuilder* container_builder) const {
-  // Layout the list marker.
-  scoped_refptr<NGLayoutResult> marker_layout_result =
-      Layout(space, container_builder->Style(), baseline_type);
-  DCHECK(marker_layout_result && marker_layout_result->PhysicalFragment());
   const NGPhysicalBoxFragment& marker_physical_fragment =
-      ToNGPhysicalBoxFragment(*marker_layout_result->PhysicalFragment());
+      To<NGPhysicalBoxFragment>(marker_layout_result.PhysicalFragment());
 
   // When there are no line boxes, marker is top-aligned to the list item.
   // https://github.com/w3c/csswg-drafts/issues/2417
-  NGLogicalSize marker_size =
+  LogicalSize marker_size =
       marker_physical_fragment.Size().ConvertToLogical(space.GetWritingMode());
-  NGLogicalOffset offset(InlineOffset(marker_size.inline_size), LayoutUnit());
+  LogicalOffset offset(InlineOffset(marker_size.inline_size), LayoutUnit());
 
   DCHECK(container_builder);
-  container_builder->AddChild(*marker_layout_result, offset);
+  container_builder->AddChild(marker_physical_fragment, offset);
 
   return marker_size.block_size;
 }
@@ -154,19 +155,23 @@ LayoutUnit NGUnpositionedListMarker::ComputeIntrudedFloatOffset(
     const NGBoxStrut& border_scrollbar_padding,
     LayoutUnit marker_block_offset) const {
   DCHECK(container_builder);
+  // If the BFC block-offset isn't resolved, the intruded offset isn't
+  // available either.
+  if (!container_builder->BfcBlockOffset())
+    return LayoutUnit();
   // Because opportunity.rect is in the content area of LI, so origin_offset
   // should plus border_scrollbar_padding.inline_start, and available_size
   // should minus border_scrollbar_padding.
   NGBfcOffset origin_offset = {
       container_builder->BfcLineOffset() +
           border_scrollbar_padding.inline_start,
-      container_builder->BfcBlockOffset().value() + marker_block_offset};
+      *container_builder->BfcBlockOffset() + marker_block_offset};
   LayoutUnit available_size = container_builder->InlineSize() -
                               border_scrollbar_padding.inline_start -
                               border_scrollbar_padding.inline_end;
   NGLayoutOpportunity opportunity =
       space.ExclusionSpace().FindLayoutOpportunity(
-          origin_offset, available_size, NGLogicalSize());
+          origin_offset, available_size, LogicalSize());
   DCHECK(marker_layout_object_);
   const TextDirection direction = marker_layout_object_->StyleRef().Direction();
   if (direction == TextDirection::kLtr) {
@@ -179,7 +184,19 @@ LayoutUnit NGUnpositionedListMarker::ComputeIntrudedFloatOffset(
     return origin_offset.line_offset + available_size -
            opportunity.rect.LineEndOffset();
   }
-  return LayoutUnit(0);
+  return LayoutUnit();
 }
+
+#if DCHECK_IS_ON()
+// TODO: Currently we haven't supported ::marker, so the margin-top of marker
+// should always be zero. And this make us could resolve LI's BFC block-offset
+// in NGBlockLayoutAlgorithm::PositionOrPropagateListMarker and
+// NGBlockLayoutAlgorithm::PositionListMarkerWithoutLineBoxes without consider
+// marker's margin-top.
+void NGUnpositionedListMarker::CheckMargin() const {
+  DCHECK(marker_layout_object_);
+  DCHECK(marker_layout_object_->StyleRef().MarginBefore().IsZero());
+}
+#endif
 
 }  // namespace blink

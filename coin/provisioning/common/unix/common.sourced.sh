@@ -43,6 +43,7 @@ export PROVISIONING_ARCH
 export CMD_PKG_INSTALL
 export CMD_PKG_LOCALINSTALL
 export CMD_INSTALL
+export COIN_RUNS_IN_QT_COMPANY
 
 
 
@@ -65,14 +66,35 @@ fatal () {
     fi
 }
 
+# Takes one argument which should be the filename of this script. Returns true
+# if the script is being sourced, false if the script is being executed.
 is_script_executed () {
-   [ x"$(basename "$0")" = x"$1" ]
+    [ x"$(basename $(echo "$0" | sed s/^-//))" = x"$1" ]
 }
 
 
 is_script_executed  common.sourced.sh  \
     && fatal "Script common.sourced.sh should always be sourced, not executed"
 
+
+_detect_linux_OS_ID () {
+    if [ -f /etc/os-release ]
+    then
+        . /etc/os-release
+        PROVISIONING_OS_ID="$ID"
+    elif [ -f /etc/redhat-release ]
+    then
+         case "$(cat /etc/redhat-release)" in
+             "Red Hat Enterprise Linux"*)
+                 PROVISIONING_OS_ID="rhel"
+                 ;;
+             "CentOS Linux"*)
+                 PROVISIONING_OS_ID="centos"
+                 ;;
+             *) fatal "Unknown string in /etc/redhat-release" ;;
+         esac
+    fi
+}
 
 set_common_environment () {
     # Unfortunately we can't find the provisioning directory from a sourced
@@ -86,8 +108,7 @@ set_common_environment () {
     case "$uname_s" in
         Linux)
             PROVISIONING_OS=linux
-            . /etc/os-release
-            PROVISIONING_OS_ID="$ID"
+            _detect_linux_OS_ID
             case "$PROVISIONING_OS_ID" in
                 suse|sles|opensuse*)
                     CMD_PKG_INSTALL="sudo zypper -nq install"
@@ -123,6 +144,13 @@ set_common_environment () {
     esac
 
     CMD_INSTALL="sudo install"
+
+    COIN_RUNS_IN_QT_COMPANY=false
+    if  ping -c1 repo-clones.ci.qt.io  >/dev/null 2>&1
+    then
+        COIN_RUNS_IN_QT_COMPANY=true
+    fi
+
 }
 
 set_common_environment

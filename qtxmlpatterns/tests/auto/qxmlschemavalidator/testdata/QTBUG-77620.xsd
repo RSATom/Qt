@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
+  <xs:simpleType name="pattern_type">
+    <xs:restriction base="xs:string">
+      <xs:pattern value="CUSTOM_[0-9a-zA-Z]+" />
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="enum_type">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="KEY1" />
+      <xs:enumeration value="KEY2" />
+      <!-- Note: *no* matching entry for key "CUSTOM_KEY1" -->
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="union_type">
+    <xs:union memberTypes="enum_type pattern_type" />
+  </xs:simpleType>
+
+  <xs:element name="root">
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element name="item" maxOccurs="unbounded">
+          <xs:complexType>
+            <xs:attribute name="key" type="union_type" use="required" />
+          </xs:complexType>
+        </xs:element>
+      </xs:sequence>
+    </xs:complexType>
+    <xs:key name="primary_key">
+      <xs:selector xpath="./item" />
+      <xs:field xpath="@key" />
+    </xs:key>
+  </xs:element>
+</xs:schema>

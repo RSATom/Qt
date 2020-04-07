@@ -18,7 +18,7 @@ namespace blink {
 
 MediaControlPictureInPictureButtonElement::
     MediaControlPictureInPictureButtonElement(MediaControlsImpl& media_controls)
-    : MediaControlInputElement(media_controls, kMediaIgnore) {
+    : MediaControlInputElement(media_controls) {
   setType(input_type_names::kButton);
   setAttribute(html_names::kRoleAttr, "button");
 
@@ -67,6 +67,10 @@ bool MediaControlPictureInPictureButtonElement::HasOverflowButton() const {
   return true;
 }
 
+bool MediaControlPictureInPictureButtonElement::IsControlPanelButton() const {
+  return true;
+}
+
 const char* MediaControlPictureInPictureButtonElement::GetNameForHistograms()
     const {
   return IsOverflowElement() ? "PictureInPictureOverflowButton"
@@ -82,10 +86,13 @@ void MediaControlPictureInPictureButtonElement::DefaultEventHandler(
 
     DCHECK(MediaElement().IsHTMLVideoElement());
     HTMLVideoElement* video_element = &ToHTMLVideoElement(MediaElement());
-    if (PictureInPictureController::IsElementInPictureInPicture(video_element))
+    if (PictureInPictureController::IsElementInPictureInPicture(
+            video_element)) {
       controller.ExitPictureInPicture(video_element, nullptr);
-    else
-      controller.EnterPictureInPicture(video_element, nullptr);
+    } else {
+      controller.EnterPictureInPicture(video_element, nullptr /* options */,
+                                       nullptr /* promise */);
+    }
   }
 
   MediaControlInputElement::DefaultEventHandler(event);

@@ -35,13 +35,16 @@
 #include "chrome/grit/generated_resources.h"
 #include "components/autofill/core/common/autofill_prefs.h"
 #include "components/prefs/pref_service.h"
-#include "components/signin/core/browser/account_consistency_method.h"
 #include "components/signin/core/browser/signin_error_controller.h"
 #include "components/signin/core/browser/signin_header_helper.h"
-#include "components/signin/core/browser/signin_metrics.h"
-#include "components/signin/core/browser/signin_pref_names.h"
+#include "components/signin/public/base/signin_metrics.h"
+#include "components/signin/public/base/signin_pref_names.h"
+#include "components/signin/public/identity_manager/accounts_mutator.h"
+#include "components/signin/public/identity_manager/identity_manager.h"
+#include "components/signin/public/identity_manager/primary_account_mutator.h"
 #include "components/strings/grit/components_strings.h"
 #include "components/sync/base/passphrase_enums.h"
+#include "components/sync/base/user_selectable_type.h"
 #include "components/sync/driver/sync_service.h"
 #include "components/sync/driver/sync_service_utils.h"
 #include "components/sync/driver/sync_user_settings.h"
@@ -51,9 +54,6 @@
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_contents_delegate.h"
 #include "google_apis/gaia/gaia_auth_util.h"
-#include "services/identity/public/cpp/accounts_mutator.h"
-#include "services/identity/public/cpp/identity_manager.h"
-#include "services/identity/public/cpp/primary_account_mutator.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/webui/web_ui_util.h"
 
@@ -84,11 +84,19 @@ struct SyncConfigInfo {
 
   bool encrypt_all;
   bool sync_everything;
-  syncer::ModelTypeSet data_types;
+  syncer::UserSelectableTypeSet selected_types;
   bool payments_integration_enabled;
   std::string passphrase;
   bool set_new_passphrase;
 };
+
+bool IsSyncSubpage(const GURL& current_url) {
+  return (current_url == chrome::GetSettingsUrl(chrome::kSyncSetupSubPage)
+#if defined(OS_CHROMEOS)
+          || current_url == chrome::GetOSSettingsUrl(chrome::kSyncSetupSubPage)
+#endif  // defined(OS_CHROMEOS)
+  );
+}
 
 SyncConfigInfo::SyncConfigInfo()
     : encrypt_all(false),
@@ -99,7 +107,8 @@ SyncConfigInfo::SyncConfigInfo()
 SyncConfigInfo::~SyncConfigInfo() {}
 
 bool GetConfiguration(const std::string& json, SyncConfigInfo* config) {
-  std::unique_ptr<base::Value> parsed_value = base::JSONReader::Read(json);
+  std::unique_ptr<base::Value> parsed_value =
+      base::JSONReader::ReadDeprecated(json);
   base::DictionaryValue* result;
   if (!parsed_value || !parsed_value->GetAsDictionary(&result)) {
     DLOG(ERROR) << "GetConfiguration() not passed a Dictionary";
@@ -118,18 +127,16 @@ bool GetConfiguration(const std::string& json, SyncConfigInfo* config) {
     return false;
   }
 
-  syncer::ModelTypeNameMap type_names = syncer::GetUserSelectableTypeNameMap();
-
-  for (syncer::ModelTypeNameMap::const_iterator it = type_names.begin();
-       it != type_names.end(); ++it) {
-    std::string key_name = it->second + std::string("Synced");
+  for (syncer::UserSelectableType type : syncer::UserSelectableTypeSet::All()) {
+    std::string key_name =
+        syncer::GetUserSelectableTypeName(type) + std::string("Synced");
     bool sync_value;
     if (!result->GetBoolean(key_name, &sync_value)) {
       DLOG(ERROR) << "GetConfiguration() not passed a value for " << key_name;
       return false;
     }
     if (sync_value)
-      config->data_types.Put(it->first);
+      config->selected_types.Put(type);
   }
 
   // Encryption settings.
@@ -193,6 +200,55 @@ base::Value GetAccountValue(const AccountInfo& account) {
   return dictionary;
 }
 #endif  // BUILDFLAG(ENABLE_DICE_SUPPORT)
+
+base::string16 GetEnterPassphraseBody(syncer::PassphraseType passphrase_type,
+                                      base::Time passphrase_time) {
+  DCHECK(syncer::IsExplicitPassphrase(passphrase_type));
+  switch (passphrase_type) {
+    case syncer::PassphraseType::FROZEN_IMPLICIT_PASSPHRASE:
+      if (passphrase_time.is_null()) {
+        return GetStringUTF16(IDS_SYNC_ENTER_GOOGLE_PASSPHRASE_BODY);
+      }
+      return GetStringFUTF16(IDS_SYNC_ENTER_GOOGLE_PASSPHRASE_BODY_WITH_DATE,
+                             base::ASCIIToUTF16(chrome::kSyncErrorsHelpURL),
+                             base::TimeFormatShortDate(passphrase_time));
+    case syncer::PassphraseType::CUSTOM_PASSPHRASE:
+      if (passphrase_time.is_null()) {
+        return GetStringUTF16(IDS_SYNC_ENTER_PASSPHRASE_BODY);
+      }
+      return GetStringFUTF16(IDS_SYNC_ENTER_PASSPHRASE_BODY_WITH_DATE,
+                             base::ASCIIToUTF16(chrome::kSyncErrorsHelpURL),
+                             base::TimeFormatShortDate(passphrase_time));
+    case syncer::PassphraseType::IMPLICIT_PASSPHRASE:
+    case syncer::PassphraseType::KEYSTORE_PASSPHRASE:
+    case syncer::PassphraseType::PASSPHRASE_TYPE_SIZE:
+      break;
+  }
+  NOTREACHED();
+  return base::string16();
+}
+
+base::string16 GetFullEncryptionBody(syncer::PassphraseType passphrase_type,
+                                     base::Time passphrase_time) {
+  DCHECK(syncer::IsExplicitPassphrase(passphrase_type));
+  if (passphrase_time.is_null()) {
+    return GetStringUTF16(IDS_SYNC_FULL_ENCRYPTION_BODY_CUSTOM);
+  }
+  switch (passphrase_type) {
+    case syncer::PassphraseType::FROZEN_IMPLICIT_PASSPHRASE:
+      return GetStringFUTF16(IDS_SYNC_FULL_ENCRYPTION_BODY_GOOGLE_WITH_DATE,
+                             base::TimeFormatShortDate(passphrase_time));
+    case syncer::PassphraseType::CUSTOM_PASSPHRASE:
+      return GetStringFUTF16(IDS_SYNC_FULL_ENCRYPTION_BODY_CUSTOM_WITH_DATE,
+                             base::TimeFormatShortDate(passphrase_time));
+    case syncer::PassphraseType::IMPLICIT_PASSPHRASE:
+    case syncer::PassphraseType::KEYSTORE_PASSPHRASE:
+    case syncer::PassphraseType::PASSPHRASE_TYPE_SIZE:
+      break;
+  }
+  NOTREACHED();
+  return base::string16();
+}
 
 }  // namespace
 
@@ -287,7 +343,7 @@ void PeopleHandler::OnJavascriptAllowed() {
       prefs::kSigninAllowed,
       base::Bind(&PeopleHandler::UpdateSyncStatus, base::Unretained(this)));
 
-  identity::IdentityManager* identity_manager(
+  signin::IdentityManager* identity_manager(
       IdentityManagerFactory::GetInstance()->GetForProfile(profile_));
   if (identity_manager)
     identity_manager_observer_.Add(identity_manager);
@@ -295,7 +351,7 @@ void PeopleHandler::OnJavascriptAllowed() {
   // This is intentionally not using GetSyncService(), to go around the
   // Profile::IsSyncAllowed() check.
   syncer::SyncService* sync_service =
-      ProfileSyncServiceFactory::GetSyncServiceForProfile(profile_);
+      ProfileSyncServiceFactory::GetForProfile(profile_);
   if (sync_service)
     sync_service_observer_.Add(sync_service);
 }
@@ -332,12 +388,12 @@ void PeopleHandler::DisplayGaiaLoginInNewTabOrWindow(
     // then sign in again.
 
     identity_manager->GetPrimaryAccountMutator()->ClearPrimaryAccount(
-        identity::PrimaryAccountMutator::ClearAccountsAction::kDefault,
+        signin::PrimaryAccountMutator::ClearAccountsAction::kDefault,
         signin_metrics::USER_CLICKED_SIGNOUT_SETTINGS,
         signin_metrics::SignoutDelete::IGNORE_METRIC);
   }
 
-  // If the signin manager already has an authenticated username, this is a
+  // If the identity manager already has a primary account, this is a
   // re-auth scenario, and we need to ensure that the user signs in with the
   // same email address.
   if (identity_manager->HasPrimaryAccount()) {
@@ -421,7 +477,7 @@ void PeopleHandler::SyncStartupCompleted() {
 
 syncer::SyncService* PeopleHandler::GetSyncService() const {
   return profile_->IsSyncAllowed()
-             ? ProfileSyncServiceFactory::GetSyncServiceForProfile(profile_)
+             ? ProfileSyncServiceFactory::GetForProfile(profile_)
              : nullptr;
 }
 
@@ -447,8 +503,8 @@ void PeopleHandler::HandleSetDatatypes(const base::ListValue* args) {
     return;
   }
 
-  service->GetUserSettings()->SetChosenDataTypes(configuration.sync_everything,
-                                                 configuration.data_types);
+  service->GetUserSettings()->SetSelectedTypes(configuration.sync_everything,
+                                               configuration.selected_types);
 
   // Choosing data types to sync never fails.
   ResolveJavascriptCallback(*callback_id, base::Value(kConfigurePageStatus));
@@ -467,11 +523,11 @@ void PeopleHandler::HandleGetStoredAccounts(const base::ListValue* args) {
   ResolveJavascriptCallback(*callback_id, GetStoredAccountsList());
 }
 
-void PeopleHandler::OnAccountUpdated(const AccountInfo& info) {
+void PeopleHandler::OnExtendedAccountInfoUpdated(const AccountInfo& info) {
   FireWebUIListener("stored-accounts-updated", GetStoredAccountsList());
 }
 
-void PeopleHandler::OnAccountRemovedWithInfo(const AccountInfo& info) {
+void PeopleHandler::OnExtendedAccountInfoRemoved(const AccountInfo& info) {
   FireWebUIListener("stored-accounts-updated", GetStoredAccountsList());
 }
 
@@ -497,10 +553,11 @@ base::Value PeopleHandler::GetStoredAccountsList() {
     // If dice is disabled (and unified consent enabled), show only the primary
     // account.
     auto* identity_manager = IdentityManagerFactory::GetForProfile(profile_);
-    if (identity_manager->HasPrimaryAccount()) {
-      accounts_list.push_back(
-          GetAccountValue(identity_manager->GetPrimaryAccountInfo()));
-    }
+    base::Optional<AccountInfo> primary_account_info =
+        identity_manager->FindExtendedAccountInfoForAccount(
+            identity_manager->GetPrimaryAccountInfo());
+    if (primary_account_info.has_value())
+      accounts_list.push_back(GetAccountValue(primary_account_info.value()));
   }
 
   return accounts;
@@ -618,8 +675,12 @@ void PeopleHandler::HandleShowSetupUI(const base::ListValue* args) {
     if (service && !sync_blocker_)
       sync_blocker_ = service->GetSetupInProgressHandle();
 
-    // TODO(treib): Should we also call SetSyncRequested(true) here? That's what
-    // happens in the non-Unity code path.
+    // Mark Sync as requested by the user. It might already be requested, but
+    // it's not if this is either the first time the user is setting up Sync, or
+    // Sync was set up but then was reset via the dashboard. This also pokes the
+    // SyncService to start up immediately, i.e. bypass deferred startup.
+    if (service)
+      service->GetUserSettings()->SetSyncRequested(true);
 
     GetLoginUIService()->SetLoginUI(this);
 
@@ -627,6 +688,11 @@ void PeopleHandler::HandleShowSetupUI(const base::ListValue* args) {
     Observe(web_ui()->GetWebContents());
 
     PushSyncPrefs();
+
+    // Focus the web contents in case the location bar was focused before. This
+    // makes sure that page elements for resolving sync errors can be focused.
+    web_ui()->GetWebContents()->Focus();
+
     // Always let the page open when unified consent is enabled.
     return;
   }
@@ -662,13 +728,10 @@ void PeopleHandler::HandleShowSetupUI(const base::ListValue* args) {
 
   if (!service->IsEngineInitialized() ||
       !service->GetUserSettings()->IsSyncRequested()) {
-    // Requesting the sync service to start may trigger call to PushSyncPrefs.
-    // Setting up the startup tracker beforehand correctly signals the
-    // re-entrant call to early exit.
-    sync_startup_tracker_ = std::make_unique<SyncStartupTracker>(service, this);
     // SetSyncRequested(true) does two things:
-    // 1) If DISABLE_REASON_USER_CHOICE is set (meaning that Sync was reset via
-    //    the dashboard), clears it.
+    // 1) As the name says, it marks Sync as requested by the user (it might not
+    //    be requested yet because either this is the first time they're setting
+    //    it up, or Sync was reset via the dashboard).
     // 2) Pokes the sync service to start *immediately*, i.e. bypass deferred
     //    startup.
     // It's possible that both of these are already the case, i.e. the engine is
@@ -687,6 +750,12 @@ void PeopleHandler::HandleShowSetupUI(const base::ListValue* args) {
         SyncStartupTracker::SYNC_STARTUP_ERROR) {
       DisplaySpinner();
     }
+
+    // Finally, wait for the Sync engine to get initialized. Note that if it is
+    // already initialized (probably because Sync-the-transport was already
+    // running), then this will call us back immediately.
+    sync_startup_tracker_ = std::make_unique<SyncStartupTracker>(service, this);
+
     return;
   }
 
@@ -743,7 +812,7 @@ void PeopleHandler::HandleSignout(const base::ListValue* args) {
                          : signin_metrics::SignoutDelete::KEEPING;
 
       identity_manager->GetPrimaryAccountMutator()->ClearPrimaryAccount(
-          identity::PrimaryAccountMutator::ClearAccountsAction::kRemoveAll,
+          signin::PrimaryAccountMutator::ClearAccountsAction::kRemoveAll,
           signin_metrics::USER_CLICKED_SIGNOUT_SETTINGS, delete_metric);
     } else {
       DCHECK(!delete_profile)
@@ -765,12 +834,9 @@ void PeopleHandler::HandlePauseSync(const base::ListValue* args) {
   auto* identity_manager = IdentityManagerFactory::GetForProfile(profile_);
   DCHECK(identity_manager->HasPrimaryAccount());
 
-  AccountInfo primary_account_info = identity_manager->GetPrimaryAccountInfo();
-  identity_manager->GetAccountsMutator()->AddOrUpdateAccount(
-      primary_account_info.gaia, primary_account_info.email,
-      OAuth2TokenServiceDelegate::kInvalidRefreshToken,
-      primary_account_info.is_under_advanced_protection,
-      signin_metrics::SourceForRefreshTokenOperation::kSettings_PauseSync);
+  identity_manager->GetAccountsMutator()
+      ->InvalidateRefreshTokenForPrimaryAccount(
+          signin_metrics::SourceForRefreshTokenOperation::kSettings_PauseSync);
 }
 #endif
 
@@ -791,12 +857,12 @@ void PeopleHandler::CloseSyncSetup() {
   // Clear the sync startup tracker, since the setup wizard is being closed.
   sync_startup_tracker_.reset();
 
-  syncer::SyncService* sync_service = GetSyncService();
-
   // LoginUIService can be nullptr if page is brought up in incognito mode
   // (i.e. if the user is running in guest mode in cros and brings up settings).
   LoginUIService* service = GetLoginUIService();
   if (service) {
+    syncer::SyncService* sync_service = GetSyncService();
+
     // Don't log a cancel event if the sync setup dialog is being
     // automatically closed due to an auth error.
     if ((service->current_login_ui() == this) &&
@@ -819,11 +885,11 @@ void PeopleHandler::CloseSyncSetup() {
 #if !defined(OS_CHROMEOS)
           // Sign out the user on desktop Chrome if they click cancel during
           // initial setup.
-          if (sync_service->IsFirstSetupInProgress()) {
+          if (!sync_service->GetUserSettings()->IsFirstSetupComplete()) {
             IdentityManagerFactory::GetForProfile(profile_)
                 ->GetPrimaryAccountMutator()
                 ->ClearPrimaryAccount(
-                    identity::PrimaryAccountMutator::ClearAccountsAction::
+                    signin::PrimaryAccountMutator::ClearAccountsAction::
                         kDefault,
                     signin_metrics::ABORT_SIGNIN,
                     signin_metrics::SignoutDelete::IGNORE_METRIC);
@@ -848,16 +914,17 @@ void PeopleHandler::CloseSyncSetup() {
 }
 
 void PeopleHandler::InitializeSyncBlocker() {
-  if (!web_ui())
-    return;
+  DCHECK(web_ui());
   WebContents* web_contents = web_ui()->GetWebContents();
-  if (web_contents) {
-    syncer::SyncService* service = GetSyncService();
-    const GURL current_url = web_contents->GetVisibleURL();
-    if (service &&
-        current_url == chrome::GetSettingsUrl(chrome::kSyncSetupSubPage)) {
-      sync_blocker_ = service->GetSetupInProgressHandle();
-    }
+  if (!web_contents)
+    return;
+
+  syncer::SyncService* service = GetSyncService();
+  if (!service)
+    return;
+
+  if (IsSyncSubpage(web_contents->GetVisibleURL())) {
+    sync_blocker_ = service->GetSetupInProgressHandle();
   }
 }
 
@@ -872,12 +939,20 @@ void PeopleHandler::CloseUI() {
 }
 
 void PeopleHandler::OnPrimaryAccountSet(
-    const AccountInfo& primary_account_info) {
+    const CoreAccountInfo& primary_account_info) {
+  // After a primary account was set, the Sync setup will start soon. Grab a
+  // SetupInProgressHandle right now to avoid a temporary "missing Sync
+  // confirmation" error in the avatar menu. See crbug.com/928696.
+  syncer::SyncService* service = GetSyncService();
+  if (service && !sync_blocker_)
+    sync_blocker_ = service->GetSetupInProgressHandle();
+
   UpdateSyncStatus();
 }
 
 void PeopleHandler::OnPrimaryAccountCleared(
-    const AccountInfo& previous_primary_account_info) {
+    const CoreAccountInfo& previous_primary_account_info) {
+  sync_blocker_.reset();
   UpdateSyncStatus();
 }
 
@@ -893,18 +968,19 @@ void PeopleHandler::BeforeUnloadDialogCancelled() {
   // The before unload dialog is only shown during the first sync setup.
   DCHECK(IdentityManagerFactory::GetForProfile(profile_)->HasPrimaryAccount());
   syncer::SyncService* service = GetSyncService();
-  DCHECK(service && service->IsFirstSetupInProgress());
+  DCHECK(service && service->IsSetupInProgress() &&
+         !service->GetUserSettings()->IsFirstSetupComplete());
 
   base::RecordAction(
       base::UserMetricsAction("Signin_Signin_CancelAbortAdvancedSyncSettings"));
 }
 
-std::unique_ptr<base::DictionaryValue>
-PeopleHandler::GetSyncStatusDictionary() {
+std::unique_ptr<base::DictionaryValue> PeopleHandler::GetSyncStatusDictionary()
+    const {
   std::unique_ptr<base::DictionaryValue> sync_status(new base::DictionaryValue);
   if (profile_->IsGuestSession()) {
     // Cannot display signin status when running in guest mode on chromeos
-    // because there is no SigninManager.
+    // because there is no IdentityManager.
     sync_status->SetBoolean("signinAllowed", false);
     return sync_status;
   }
@@ -931,25 +1007,25 @@ PeopleHandler::GetSyncStatusDictionary() {
   // nuanced information, since GetSyncService() returns nullptr if anything
   // makes Profile::IsSyncAllowed() false.
   syncer::SyncService* service =
-      ProfileSyncServiceFactory::GetSyncServiceForProfile(profile_);
+      ProfileSyncServiceFactory::GetForProfile(profile_);
   bool disallowed_by_policy =
       service && service->HasDisableReason(
                      syncer::SyncService::DISABLE_REASON_ENTERPRISE_POLICY);
   sync_status->SetBoolean(
       "signinAllowed", profile_->GetPrefs()->GetBoolean(prefs::kSigninAllowed));
   sync_status->SetBoolean("syncSystemEnabled", (service != nullptr));
-  sync_status->SetBoolean("setupInProgress",
-                          service && !disallowed_by_policy &&
-                              service->IsFirstSetupInProgress() &&
-                              identity_manager->HasPrimaryAccount());
+  sync_status->SetBoolean(
+      "firstSetupInProgress",
+      service && !disallowed_by_policy && service->IsSetupInProgress() &&
+          !service->GetUserSettings()->IsFirstSetupComplete() &&
+          identity_manager->HasPrimaryAccount());
 
   base::string16 status_label;
   base::string16 link_label;
   sync_ui_util::ActionType action_type = sync_ui_util::NO_ACTION;
 
   bool status_has_error =
-      sync_ui_util::GetStatusLabels(profile_, service, identity_manager,
-                                    &status_label, &link_label,
+      sync_ui_util::GetStatusLabels(profile_, &status_label, &link_label,
                                     &action_type) == sync_ui_util::SYNC_ERROR;
   sync_status->SetString("statusText", status_label);
   sync_status->SetString("statusActionText", link_label);
@@ -983,8 +1059,6 @@ void PeopleHandler::PushSyncPrefs() {
   }
 
   configuring_sync_ = true;
-  DCHECK(service->IsEngineInitialized())
-      << "Cannot configure sync until the sync engine is initialized";
 
   // Setup args for the sync configure screen:
   //   syncAllDataTypes: true if the user wants to sync everything
@@ -995,83 +1069,48 @@ void PeopleHandler::PushSyncPrefs() {
   //   encryptAllData: true if user wants to encrypt all data (not just
   //       passwords)
   //   passphraseRequired: true if a passphrase is needed to start sync
-  //   passphraseTypeIsCustom: true if the passphrase type is custom
   //
   base::DictionaryValue args;
 
+  syncer::SyncUserSettings* sync_user_settings = service->GetUserSettings();
   // Tell the UI layer which data types are registered/enabled by the user.
-  const syncer::ModelTypeSet registered_types =
-      service->GetRegisteredDataTypes();
-  const syncer::ModelTypeSet preferred_types = service->GetPreferredDataTypes();
-  const syncer::ModelTypeSet enforced_types = service->GetForcedDataTypes();
-  syncer::ModelTypeNameMap type_names = syncer::GetUserSelectableTypeNameMap();
-  for (syncer::ModelTypeNameMap::const_iterator it = type_names.begin();
-       it != type_names.end(); ++it) {
-    syncer::ModelType sync_type = it->first;
-    const std::string key_name = it->second;
-    args.SetBoolean(key_name + "Registered", registered_types.Has(sync_type));
-    args.SetBoolean(key_name + "Synced", preferred_types.Has(sync_type));
-    args.SetBoolean(key_name + "Enforced", enforced_types.Has(sync_type));
-    // TODO(treib): How do we want to handle pref groups, i.e. when only some of
-    // the sync types behind a checkbox are force-enabled? crbug.com/403326
+  const syncer::UserSelectableTypeSet registered_types =
+      sync_user_settings->GetRegisteredSelectableTypes();
+  const syncer::UserSelectableTypeSet selected_types =
+      sync_user_settings->GetSelectedTypes();
+  const syncer::UserSelectableTypeSet enforced_types =
+      sync_user_settings->GetForcedTypes();
+  for (syncer::UserSelectableType type : syncer::UserSelectableTypeSet::All()) {
+    const std::string type_name = syncer::GetUserSelectableTypeName(type);
+    args.SetBoolean(type_name + "Registered", registered_types.Has(type));
+    args.SetBoolean(type_name + "Synced", selected_types.Has(type));
+    args.SetBoolean(type_name + "Enforced", enforced_types.Has(type));
   }
   args.SetBoolean("syncAllDataTypes",
-                  service->GetUserSettings()->IsSyncEverythingEnabled());
+                  sync_user_settings->IsSyncEverythingEnabled());
   args.SetBoolean(
       "paymentsIntegrationEnabled",
       autofill::prefs::IsPaymentsIntegrationEnabled(profile_->GetPrefs()));
   args.SetBoolean("encryptAllData",
-                  service->GetUserSettings()->IsEncryptEverythingEnabled());
+                  sync_user_settings->IsEncryptEverythingEnabled());
   args.SetBoolean("encryptAllDataAllowed",
-                  service->GetUserSettings()->IsEncryptEverythingAllowed());
+                  sync_user_settings->IsEncryptEverythingAllowed());
 
   // We call IsPassphraseRequired() here, instead of calling
   // IsPassphraseRequiredForDecryption(), because we want to show the passphrase
   // UI even if no encrypted data types are enabled.
   args.SetBoolean("passphraseRequired",
-                  service->GetUserSettings()->IsPassphraseRequired());
+                  sync_user_settings->IsPassphraseRequired());
 
-  // To distinguish between PassphraseType::FROZEN_IMPLICIT_PASSPHRASE and
-  // PassphraseType::CUSTOM_PASSPHRASE
-  // we only set passphraseTypeIsCustom for PassphraseType::CUSTOM_PASSPHRASE.
-  args.SetBoolean("passphraseTypeIsCustom",
-                  service->GetUserSettings()->GetPassphraseType() ==
-                      syncer::PassphraseType::CUSTOM_PASSPHRASE);
-  base::Time passphrase_time =
-      service->GetUserSettings()->GetExplicitPassphraseTime();
   syncer::PassphraseType passphrase_type =
-      service->GetUserSettings()->GetPassphraseType();
-  if (!passphrase_time.is_null()) {
-    base::string16 passphrase_time_str =
-        base::TimeFormatShortDate(passphrase_time);
+      sync_user_settings->GetPassphraseType();
+  if (syncer::IsExplicitPassphrase(passphrase_type)) {
+    base::Time passphrase_time =
+        sync_user_settings->GetExplicitPassphraseTime();
     args.SetString("enterPassphraseBody",
-                   GetStringFUTF16(IDS_SYNC_ENTER_PASSPHRASE_BODY_WITH_DATE,
-                                   passphrase_time_str));
-    args.SetString(
-        "enterGooglePassphraseBody",
-        GetStringFUTF16(IDS_SYNC_ENTER_GOOGLE_PASSPHRASE_BODY_WITH_DATE,
-                        passphrase_time_str));
-    switch (passphrase_type) {
-      case syncer::PassphraseType::FROZEN_IMPLICIT_PASSPHRASE:
-        args.SetString(
-            "fullEncryptionBody",
-            GetStringFUTF16(IDS_SYNC_FULL_ENCRYPTION_BODY_GOOGLE_WITH_DATE,
-                            passphrase_time_str));
-        break;
-      case syncer::PassphraseType::CUSTOM_PASSPHRASE:
-        args.SetString(
-            "fullEncryptionBody",
-            GetStringFUTF16(IDS_SYNC_FULL_ENCRYPTION_BODY_CUSTOM_WITH_DATE,
-                            passphrase_time_str));
-        break;
-      default:
-        args.SetString("fullEncryptionBody",
-                       GetStringUTF16(IDS_SYNC_FULL_ENCRYPTION_BODY_CUSTOM));
-        break;
-    }
-  } else if (passphrase_type == syncer::PassphraseType::CUSTOM_PASSPHRASE) {
+                   GetEnterPassphraseBody(passphrase_type, passphrase_time));
     args.SetString("fullEncryptionBody",
-                   GetStringUTF16(IDS_SYNC_FULL_ENCRYPTION_BODY_CUSTOM));
+                   GetFullEncryptionBody(passphrase_type, passphrase_time));
   }
 
   FireWebUIListener("sync-prefs-changed", args);
@@ -1086,13 +1125,23 @@ void PeopleHandler::UpdateSyncStatus() {
 }
 
 void PeopleHandler::MarkFirstSetupComplete() {
-  // Suppress the sign in promo once the user starts sync. This way the user
-  // doesn't see the sign in promo even if they sign out later on.
-  signin::SetUserSkippedPromo(profile_);
-
   syncer::SyncService* service = GetSyncService();
   // The sync service may be nullptr if it has been just disabled by policy.
-  if (!service || service->GetUserSettings()->IsFirstSetupComplete())
+  if (!service)
+    return;
+
+  // Sync is usually already requested at this point, but it might not be if
+  // Sync was reset from the dashboard while this page was open. (In most
+  // situations, resetting Sync also signs the user out of Chrome so this
+  // doesn't come up, but on ChromeOS or for managed (enterprise) accounts
+  // signout isn't possible.)
+  // Note that this has to happen *before* checking if first-time setup is
+  // already marked complete, because on some platforms (e.g. ChromeOS) that
+  // gets set automatically.
+  service->GetUserSettings()->SetSyncRequested(true);
+
+  // If the first-time setup is already complete, there's nothing else to do.
+  if (service->GetUserSettings()->IsFirstSetupComplete())
     return;
 
   unified_consent::metrics::RecordSyncSetupDataTypesHistrogam(
@@ -1100,7 +1149,6 @@ void PeopleHandler::MarkFirstSetupComplete() {
 
   // We're done configuring, so notify SyncService that it is OK to start
   // syncing.
-  sync_blocker_.reset();
   service->GetUserSettings()->SetFirstSetupComplete();
   FireWebUIListener("sync-settings-saved");
 }

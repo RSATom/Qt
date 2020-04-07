@@ -66,7 +66,7 @@ class ServiceDiscoveryDialog : public QDialog
     Q_OBJECT
 
 public:
-    ServiceDiscoveryDialog(const QString &name, const QBluetoothAddress &address, QWidget *parent = 0);
+    ServiceDiscoveryDialog(const QString &name, const QBluetoothAddress &address, QWidget *parent = nullptr);
     ~ServiceDiscoveryDialog();
 
 public slots:

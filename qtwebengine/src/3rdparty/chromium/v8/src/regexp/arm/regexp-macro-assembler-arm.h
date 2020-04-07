@@ -5,16 +5,15 @@
 #ifndef V8_REGEXP_ARM_REGEXP_MACRO_ASSEMBLER_ARM_H_
 #define V8_REGEXP_ARM_REGEXP_MACRO_ASSEMBLER_ARM_H_
 
-#include "src/arm/assembler-arm.h"
-#include "src/macro-assembler.h"
+#include "src/codegen/arm/assembler-arm.h"
+#include "src/codegen/macro-assembler.h"
 #include "src/regexp/regexp-macro-assembler.h"
 
 namespace v8 {
 namespace internal {
 
-
-#ifndef V8_INTERPRETED_REGEXP
-class RegExpMacroAssemblerARM: public NativeRegExpMacroAssembler {
+class V8_EXPORT_PRIVATE RegExpMacroAssemblerARM
+    : public NativeRegExpMacroAssembler {
  public:
   RegExpMacroAssemblerARM(Isolate* isolate, Zone* zone, Mode mode,
                           int registers_to_save);
@@ -210,9 +209,6 @@ class RegExpMacroAssemblerARM: public NativeRegExpMacroAssembler {
   Label check_preempt_label_;
   Label stack_overflow_label_;
 };
-
-#endif  // V8_INTERPRETED_REGEXP
-
 
 }  // namespace internal
 }  // namespace v8

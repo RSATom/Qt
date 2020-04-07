@@ -36,7 +36,7 @@ class CompositingModeReporterImpl;
 class RasterContextProvider;
 }
 
-namespace ws {
+namespace viz {
 class ContextProviderCommandBuffer;
 }
 
@@ -64,6 +64,9 @@ class VizProcessTransportFactory : public ui::ContextFactory,
       base::WeakPtr<ui::Compositor> compositor) override;
   scoped_refptr<viz::ContextProvider> SharedMainThreadContextProvider()
       override;
+  scoped_refptr<viz::RasterContextProvider>
+  SharedMainThreadRasterContextProvider() override;
+
   void RemoveCompositor(ui::Compositor* compositor) override;
   gpu::GpuMemoryBufferManager* GetGpuMemoryBufferManager() override;
   cc::TaskGraphRunner* GetTaskGraphRunner() override;
@@ -122,7 +125,7 @@ class VizProcessTransportFactory : public ui::ContextFactory,
 
   // ContextProvider used on the main thread. Shared by ui::Compositors and also
   // returned from GetSharedMainThreadContextProvider().
-  scoped_refptr<ws::ContextProviderCommandBuffer> main_context_provider_;
+  scoped_refptr<viz::ContextProviderCommandBuffer> main_context_provider_;
 
   std::unique_ptr<cc::SingleThreadTaskGraphRunner> task_graph_runner_;
 
@@ -131,7 +134,7 @@ class VizProcessTransportFactory : public ui::ContextFactory,
   std::unique_ptr<viz::VizCompositorThreadRunner> viz_compositor_thread_;
   ui::HostContextFactoryPrivate context_factory_private_;
 
-  base::WeakPtrFactory<VizProcessTransportFactory> weak_ptr_factory_;
+  base::WeakPtrFactory<VizProcessTransportFactory> weak_ptr_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(VizProcessTransportFactory);
 };

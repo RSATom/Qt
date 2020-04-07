@@ -51,6 +51,7 @@
 #include "third_party/blink/renderer/core/editing/visible_selection.h"
 #include "third_party/blink/renderer/core/editing/visible_units.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
+#include "third_party/blink/renderer/core/frame/settings.h"
 #include "third_party/blink/renderer/core/html/html_anchor_element.h"
 #include "third_party/blink/renderer/core/html/html_body_element.h"
 #include "third_party/blink/renderer/core/html/html_br_element.h"
@@ -62,9 +63,12 @@
 #include "third_party/blink/renderer/core/html/html_table_element.h"
 #include "third_party/blink/renderer/core/html_names.h"
 #include "third_party/blink/renderer/core/layout/layout_object.h"
+#include "third_party/blink/renderer/core/loader/empty_clients.h"
+#include "third_party/blink/renderer/core/page/page.h"
 #include "third_party/blink/renderer/platform/bindings/exception_state.h"
 #include "third_party/blink/renderer/platform/bindings/runtime_call_stats.h"
 #include "third_party/blink/renderer/platform/bindings/v8_per_isolate_data.h"
+#include "third_party/blink/renderer/platform/heap/heap.h"
 #include "third_party/blink/renderer/platform/weborigin/kurl.h"
 #include "third_party/blink/renderer/platform/wtf/std_lib_extras.h"
 #include "third_party/blink/renderer/platform/wtf/text/string_builder.h"
@@ -86,7 +90,7 @@ class AttributeChange {
 
   void Apply() { element_->setAttribute(name_, AtomicString(value_)); }
 
-  void Trace(blink::Visitor* visitor) { visitor->Trace(element_); }
+  void Trace(Visitor* visitor) { visitor->Trace(element_); }
 
  private:
   Member<Element> element_;
@@ -96,7 +100,7 @@ class AttributeChange {
 
 }  // namespace blink
 
-WTF_ALLOW_INIT_WITH_MEM_FUNCTIONS(blink::AttributeChange);
+WTF_ALLOW_INIT_WITH_MEM_FUNCTIONS(blink::AttributeChange)
 
 namespace blink {
 
@@ -135,7 +139,7 @@ static HTMLElement* AncestorToRetainStructureAndAppearanceForBlock(
     return Traversal<HTMLTableElement>::FirstAncestor(*common_ancestor_block);
 
   if (IsNonTableCellHTMLBlockElement(common_ancestor_block))
-    return ToHTMLElement(common_ancestor_block);
+    return To<HTMLElement>(common_ancestor_block);
 
   return nullptr;
 }
@@ -149,7 +153,7 @@ static inline HTMLElement* AncestorToRetainStructureAndAppearance(
 static inline HTMLElement*
 AncestorToRetainStructureAndAppearanceWithNoLayoutObject(
     const Node& common_ancestor) {
-  HTMLElement* common_ancestor_block = ToHTMLElement(EnclosingNodeOfType(
+  auto* common_ancestor_block = To<HTMLElement>(EnclosingNodeOfType(
       FirstPositionInOrBeforeNode(common_ancestor), IsHTMLBlockElement));
   return AncestorToRetainStructureAndAppearanceForBlock(common_ancestor_block);
 }
@@ -161,17 +165,17 @@ bool PropertyMissingOrEqualToNone(CSSPropertyValueSet* style,
   const CSSValue* value = style->GetPropertyCSSValue(property_id);
   if (!value)
     return true;
-  if (!value->IsIdentifierValue())
+  auto* identifier_value = DynamicTo<CSSIdentifierValue>(value);
+  if (!identifier_value)
     return false;
-  return ToCSSIdentifierValue(value)->GetValueID() == CSSValueNone;
+  return identifier_value->GetValueID() == CSSValueID::kNone;
 }
 
 template <typename Strategy>
 static HTMLElement* HighestAncestorToWrapMarkup(
     const PositionTemplate<Strategy>& start_position,
     const PositionTemplate<Strategy>& end_position,
-    EAnnotateForInterchange should_annotate,
-    Node* constraining_ancestor) {
+    const CreateMarkupOptions& options) {
   Node* first_node = start_position.NodeAsRangeFirstNode();
   // For compatibility reason, we use container node of start and end
   // positions rather than first node and last node in selection.
@@ -180,7 +184,7 @@ static HTMLElement* HighestAncestorToWrapMarkup(
                                *end_position.ComputeContainerNode());
   DCHECK(common_ancestor);
   HTMLElement* special_common_ancestor = nullptr;
-  if (should_annotate == kAnnotateForInterchange) {
+  if (options.ShouldAnnotateForInterchange()) {
     // Include ancestors that aren't completely inside the range but are
     // required to retain the structure and appearance of the copied markup.
     special_common_ancestor =
@@ -199,7 +203,7 @@ static HTMLElement* HighestAncestorToWrapMarkup(
           ContainerNode* ancestor = parent_list_node->parentNode();
           while (ancestor && !IsHTMLListElement(ancestor))
             ancestor = ancestor->parentNode();
-          special_common_ancestor = ToHTMLElement(ancestor);
+          special_common_ancestor = To<HTMLElement>(ancestor);
         }
       }
 
@@ -217,8 +221,18 @@ static HTMLElement* HighestAncestorToWrapMarkup(
   Node* check_ancestor =
       special_common_ancestor ? special_common_ancestor : common_ancestor;
   if (check_ancestor->GetLayoutObject()) {
-    HTMLElement* new_special_common_ancestor =
-        ToHTMLElement(HighestEnclosingNodeOfType(
+    // We want to constrain the ancestor to the enclosing block.
+    // Ex: <b><p></p></b> is an ill-formed html and we don't want to return <b>
+    // as the ancestor because paragraph element is the enclosing block of the
+    // start and end positions provided to this API.
+    // TODO(editing-dev): Make |HighestEnclosingNodeOfType| take const pointer
+    // to remove the |const_cast| below.
+    Node* constraining_ancestor =
+        options.ConstrainingAncestor()
+            ? const_cast<Node*>(options.ConstrainingAncestor())
+            : EnclosingBlock(check_ancestor);
+    auto* new_special_common_ancestor =
+        To<HTMLElement>(HighestEnclosingNodeOfType(
             Position::FirstPositionInNode(*check_ancestor),
             &IsPresentationalHTMLElement, kCanCrossEditingBoundary,
             constraining_ancestor));
@@ -255,10 +269,7 @@ class CreateMarkupAlgorithm {
   static String CreateMarkup(
       const PositionTemplate<Strategy>& start_position,
       const PositionTemplate<Strategy>& end_position,
-      EAnnotateForInterchange should_annotate = kDoNotAnnotateForInterchange,
-      ConvertBlocksToInlines = ConvertBlocksToInlines::kNotConvert,
-      EAbsoluteURLs should_resolve_urls = kDoNotResolveURLs,
-      Node* constraining_ancestor = nullptr);
+      const CreateMarkupOptions& options = CreateMarkupOptions());
 };
 
 // FIXME: Shouldn't we omit style info when annotate ==
@@ -269,10 +280,7 @@ template <typename Strategy>
 String CreateMarkupAlgorithm<Strategy>::CreateMarkup(
     const PositionTemplate<Strategy>& start_position,
     const PositionTemplate<Strategy>& end_position,
-    EAnnotateForInterchange should_annotate,
-    ConvertBlocksToInlines convert_blocks_to_inlines,
-    EAbsoluteURLs should_resolve_urls,
-    Node* constraining_ancestor) {
+    const CreateMarkupOptions& options) {
   if (start_position.IsNull() || end_position.IsNull())
     return g_empty_string;
 
@@ -294,33 +302,24 @@ String CreateMarkupAlgorithm<Strategy>::CreateMarkup(
       document->Lifecycle());
 
   HTMLElement* special_common_ancestor = HighestAncestorToWrapMarkup<Strategy>(
-      start_position, end_position, should_annotate, constraining_ancestor);
-  StyledMarkupSerializer<Strategy> serializer(
-      should_resolve_urls, should_annotate, start_position, end_position,
-      special_common_ancestor, convert_blocks_to_inlines);
+      start_position, end_position, options);
+  StyledMarkupSerializer<Strategy> serializer(start_position, end_position,
+                                              special_common_ancestor, options);
   return serializer.CreateMarkup();
 }
 
 String CreateMarkup(const Position& start_position,
                     const Position& end_position,
-                    EAnnotateForInterchange should_annotate,
-                    ConvertBlocksToInlines convert_blocks_to_inlines,
-                    EAbsoluteURLs should_resolve_urls,
-                    Node* constraining_ancestor) {
+                    const CreateMarkupOptions& options) {
   return CreateMarkupAlgorithm<EditingStrategy>::CreateMarkup(
-      start_position, end_position, should_annotate, convert_blocks_to_inlines,
-      should_resolve_urls, constraining_ancestor);
+      start_position, end_position, options);
 }
 
 String CreateMarkup(const PositionInFlatTree& start_position,
                     const PositionInFlatTree& end_position,
-                    EAnnotateForInterchange should_annotate,
-                    ConvertBlocksToInlines convert_blocks_to_inlines,
-                    EAbsoluteURLs should_resolve_urls,
-                    Node* constraining_ancestor) {
+                    const CreateMarkupOptions& options) {
   return CreateMarkupAlgorithm<EditingInFlatTreeStrategy>::CreateMarkup(
-      start_position, end_position, should_annotate, convert_blocks_to_inlines,
-      should_resolve_urls, constraining_ancestor);
+      start_position, end_position, options);
 }
 
 DocumentFragment* CreateFragmentFromMarkup(
@@ -330,7 +329,7 @@ DocumentFragment* CreateFragmentFromMarkup(
     ParserContentPolicy parser_content_policy) {
   // We use a fake body element here to trick the HTML parser to using the
   // InBody insertion mode.
-  HTMLBodyElement* fake_body = HTMLBodyElement::Create(document);
+  auto* fake_body = MakeGarbageCollected<HTMLBodyElement>(document);
   DocumentFragment* fragment = DocumentFragment::Create(document);
 
   fragment->ParseHTML(markup, fake_body, parser_content_policy);
@@ -350,12 +349,12 @@ static bool FindNodesSurroundingContext(DocumentFragment* fragment,
   if (!fragment->firstChild())
     return false;
   for (Node& node : NodeTraversal::StartsAt(*fragment->firstChild())) {
-    if (node.getNodeType() == Node::kCommentNode &&
-        ToComment(node).data() == kFragmentMarkerTag) {
+    auto* comment_node = DynamicTo<Comment>(node);
+    if (comment_node && comment_node->data() == kFragmentMarkerTag) {
       if (!node_before_context) {
-        node_before_context = &ToComment(node);
+        node_before_context = comment_node;
       } else {
-        node_after_context = &ToComment(node);
+        node_after_context = comment_node;
         return true;
       }
     }
@@ -414,7 +413,8 @@ DocumentFragment* CreateFragmentFromMarkupWithContext(
                                    node_after_context))
     return nullptr;
 
-  Document* tagged_document = Document::Create(DocumentInit::Create());
+  auto* tagged_document =
+      MakeGarbageCollected<Document>(DocumentInit::Create());
   tagged_document->SetContextFeatures(document.GetContextFeatures());
 
   Element* root = Element::Create(QualifiedName::Null(), tagged_document);
@@ -438,7 +438,7 @@ DocumentFragment* CreateFragmentFromMarkupWithContext(
   if (special_common_ancestor)
     fragment->AppendChild(special_common_ancestor);
   else
-    fragment->ParserTakeAllChildrenFrom(ToContainerNode(common_ancestor));
+    fragment->ParserTakeAllChildrenFrom(To<ContainerNode>(common_ancestor));
 
   TrimFragment(fragment, node_before_context, node_after_context);
 
@@ -446,14 +446,16 @@ DocumentFragment* CreateFragmentFromMarkupWithContext(
 }
 
 String CreateMarkup(const Node* node,
-                    EChildrenOnly children_only,
-                    EAbsoluteURLs should_resolve_urls) {
+                    ChildrenOnly children_only,
+                    AbsoluteURLs should_resolve_urls) {
   if (!node)
     return "";
 
-  MarkupAccumulator accumulator(should_resolve_urls);
-  return SerializeNodes<EditingStrategy>(accumulator, const_cast<Node&>(*node),
-                                         children_only);
+  MarkupAccumulator accumulator(should_resolve_urls,
+                                node->GetDocument().IsHTMLDocument()
+                                    ? SerializationType::kHTML
+                                    : SerializationType::kXML);
+  return accumulator.SerializeNodes<EditingStrategy>(*node, children_only);
 }
 
 static void FillContainerFromString(ContainerNode* paragraph,
@@ -461,7 +463,7 @@ static void FillContainerFromString(ContainerNode* paragraph,
   Document& document = paragraph->GetDocument();
 
   if (string.IsEmpty()) {
-    paragraph->AppendChild(HTMLBRElement::Create(document));
+    paragraph->AppendChild(MakeGarbageCollected<HTMLBRElement>(document));
     return;
   }
 
@@ -550,7 +552,7 @@ DocumentFragment* CreateFragmentFromText(const EphemeralRange& context,
       ShouldPreserveNewline(context)) {
     fragment->AppendChild(document.createTextNode(string));
     if (string.EndsWith('\n')) {
-      HTMLBRElement* element = HTMLBRElement::Create(document);
+      auto* element = MakeGarbageCollected<HTMLBRElement>(document);
       element->setAttribute(kClassAttr, AppleInterchangeNewline);
       fragment->AppendChild(element);
     }
@@ -580,11 +582,11 @@ DocumentFragment* CreateFragmentFromText(const EphemeralRange& context,
     Element* element = nullptr;
     if (s.IsEmpty() && i + 1 == num_lines) {
       // For last line, use the "magic BR" rather than a P.
-      element = HTMLBRElement::Create(document);
+      element = MakeGarbageCollected<HTMLBRElement>(document);
       element->setAttribute(kClassAttr, AppleInterchangeNewline);
     } else {
       if (use_clones_of_enclosing_block)
-        element = block->CloneWithoutChildren();
+        element = &block->CloneWithoutChildren();
       else
         element = CreateDefaultParagraphElement(document);
       FillContainerFromString(element, s);
@@ -638,7 +640,7 @@ DocumentFragment* CreateFragmentForTransformToFragment(
     // Unfortunately, that's an implementation detail of the parser. We achieve
     // that effect here by passing in a fake body element as context for the
     // fragment.
-    HTMLBodyElement* fake_body = HTMLBodyElement::Create(output_doc);
+    auto* fake_body = MakeGarbageCollected<HTMLBodyElement>(output_doc);
     fragment->ParseHTML(source_string, fake_body);
   } else if (source_mime_type == "text/plain") {
     fragment->ParserAppendChild(Text::Create(output_doc, source_string));
@@ -686,7 +688,7 @@ DocumentFragment* CreateContextualFragment(
     next_node = node->nextSibling();
     if (IsHTMLHtmlElement(*node) || IsHTMLHeadElement(*node) ||
         IsHTMLBodyElement(*node)) {
-      HTMLElement* element = ToHTMLElement(node);
+      auto* element = To<HTMLElement>(node);
       if (Node* first_child = element->firstChild())
         next_node = first_child;
       RemoveElementPreservingChildren(fragment, element);
@@ -731,22 +733,6 @@ void ReplaceChildrenWithText(ContainerNode* container,
 
   ChildListMutationScope mutation(*container_node);
 
-  // FIXME: This is wrong if containerNode->firstChild() has more than one ref!
-  // Example:
-  // <div>foo</div>
-  // <script>
-  // var oldText = div.firstChild;
-  // console.log(oldText.data); // foo
-  // div.innerText = "bar";
-  // console.log(oldText.data); // bar!?!
-  // </script>
-  // I believe this is an intentional benchmark cheat from years ago.
-  // We should re-visit if we actually want this still.
-  if (container_node->HasOneTextChild()) {
-    ToText(container_node->firstChild())->setData(text);
-    return;
-  }
-
   // NOTE: This method currently always creates a text node, even if that text
   // node will be empty.
   Text* text_node = Text::Create(container_node->GetDocument(), text);
@@ -765,14 +751,69 @@ void ReplaceChildrenWithText(ContainerNode* container,
 
 void MergeWithNextTextNode(Text* text_node, ExceptionState& exception_state) {
   DCHECK(text_node);
-  Node* next = text_node->nextSibling();
-  if (!next || !next->IsTextNode())
+  auto* text_next = DynamicTo<Text>(text_node->nextSibling());
+  if (!text_next)
     return;
 
-  Text* text_next = ToText(next);
   text_node->appendData(text_next->data());
   if (text_next->parentNode())  // Might have been removed by mutation event.
     text_next->remove(exception_state);
+}
+
+static Document* CreateStagingDocumentForMarkupSanitization() {
+  Page::PageClients page_clients;
+  FillWithEmptyClients(page_clients);
+  Page* page = Page::CreateNonOrdinary(page_clients);
+
+  page->GetSettings().SetScriptEnabled(false);
+  page->GetSettings().SetPluginsEnabled(false);
+  page->GetSettings().SetAcceleratedCompositingEnabled(false);
+
+  LocalFrame* frame = MakeGarbageCollected<LocalFrame>(
+      MakeGarbageCollected<EmptyLocalFrameClient>(), *page,
+      nullptr,  // FrameOwner*
+      nullptr,  // WindowAgentFactory*
+      nullptr   // InterfaceRegistry*
+  );
+  // Don't leak the actual viewport size to unsanitized markup
+  LocalFrameView* frame_view =
+      MakeGarbageCollected<LocalFrameView>(*frame, IntSize(800, 600));
+  frame->SetView(frame_view);
+  frame->Init();
+
+  Document* document = frame->GetDocument();
+  DCHECK(document);
+  DCHECK(document->IsHTMLDocument());
+  DCHECK(document->body());
+
+  document->SetIsForMarkupSanitization(true);
+
+  return document;
+}
+
+String SanitizeMarkupWithContext(const String& raw_markup,
+                                 unsigned fragment_start,
+                                 unsigned fragment_end) {
+  Document* staging_document = CreateStagingDocumentForMarkupSanitization();
+  Element* body = staging_document->body();
+
+  DocumentFragment* fragment = CreateFragmentFromMarkupWithContext(
+      *staging_document, raw_markup, fragment_start, fragment_end, KURL(),
+      kDisallowScriptingAndPluginContent);
+
+  body->appendChild(fragment);
+  staging_document->UpdateStyleAndLayout();
+
+  // This sanitizes stylesheets in the markup into element inline styles
+  String result = CreateMarkup(Position::FirstPositionInNode(*body),
+                               Position::LastPositionInNode(*body),
+                               CreateMarkupOptions::Builder()
+                                   .SetShouldAnnotateForInterchange(true)
+                                   .SetIsForMarkupSanitization(true)
+                                   .Build());
+
+  staging_document->GetPage()->WillBeDestroyed();
+  return result;
 }
 
 template class CORE_TEMPLATE_EXPORT CreateMarkupAlgorithm<EditingStrategy>;

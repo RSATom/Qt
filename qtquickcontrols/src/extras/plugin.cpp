@@ -73,7 +73,11 @@ QtQuickExtrasPlugin::QtQuickExtrasPlugin(QObject *parent) :
 void QtQuickExtrasPlugin::registerTypes(const char *uri)
 {
 #ifndef QT_STATIC
+# ifdef Q_OS_ANDROID
+    const QString prefix = QLatin1String("qrc:/android_rcc_bundle/qml/QtQuick/Extras");
+# else
     const QString prefix = baseUrl().toString();
+# endif // Q_OS_ANDROID
 #else
     const QString prefix = "qrc:/qt-project.org/imports/QtQuick/Extras";
 #endif

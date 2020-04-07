@@ -31,6 +31,9 @@
 # char arrays. It is used for embedded JavaScript code in the V8
 # library.
 
+# for py2/py3 compatibility
+from functools import reduce
+
 import os, re
 import optparse
 import textwrap
@@ -102,9 +105,9 @@ HEADER_TEMPLATE = """\
 // want to make changes to this file you should either change the
 // javascript source files or the GYP script.
 
-#include "src/v8.h"
+#include "src/init/v8.h"
 #include "src/snapshot/natives.h"
-#include "src/utils.h"
+#include "src/utils/utils.h"
 
 namespace v8 {
 namespace internal {
@@ -242,14 +245,17 @@ def BuildMetadata(sources, source_bytes, native_type):
   raw_sources = "".join(sources.modules)
 
   # The sources are expected to be ASCII-only.
-  assert not filter(lambda value: ord(value) >= 128, raw_sources)
+  try:
+    raw_sources.encode('ascii')
+  except UnicodeEncodeError:
+    assert False
 
   # Loop over modules and build up indices into the source blob:
   get_index_cases = []
   get_script_name_cases = []
   get_script_source_cases = []
   offset = 0
-  for i in xrange(len(sources.modules)):
+  for i in range(len(sources.modules)):
     native_name = "native %s.js" % sources.names[i]
     d = {
         "i": i,
@@ -290,15 +296,15 @@ def PutInt(blob_file, value):
   value_with_length = (value << 2) | (size - 1)
 
   byte_sequence = bytearray()
-  for i in xrange(size):
+  for i in range(size):
     byte_sequence.append(value_with_length & 255)
     value_with_length >>= 8;
   blob_file.write(byte_sequence)
 
 
 def PutStr(blob_file, value):
-  PutInt(blob_file, len(value));
-  blob_file.write(value);
+  PutInt(blob_file, len(value.encode()))
+  blob_file.write(value.encode())
 
 
 def WriteStartupBlob(sources, startup_blob):
@@ -312,7 +318,7 @@ def WriteStartupBlob(sources, startup_blob):
   output = open(startup_blob, "wb")
 
   PutInt(output, len(sources.names))
-  for i in xrange(len(sources.names)):
+  for i in range(len(sources.names)):
     PutStr(output, sources.names[i]);
     PutStr(output, sources.modules[i]);
 

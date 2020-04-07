@@ -5,18 +5,16 @@
  * found in the LICENSE file.
  */
 
-#include "Sample.h"
-#include "SkAnimTimer.h"
-#include "SkDrawable.h"
-#include "SkCanvas.h"
-#include "SkDrawable.h"
-#include "SkPath.h"
-#include "SkRandom.h"
-#include "SkRSXform.h"
-#include "SkString.h"
-#include "SkSurface.h"
-#include "SkTextUtils.h"
-#include "SkGradientShader.h"
+#include "include/core/SkCanvas.h"
+#include "include/core/SkDrawable.h"
+#include "include/core/SkPath.h"
+#include "include/core/SkRSXform.h"
+#include "include/core/SkString.h"
+#include "include/core/SkSurface.h"
+#include "include/effects/SkGradientShader.h"
+#include "include/utils/SkRandom.h"
+#include "include/utils/SkTextUtils.h"
+#include "samplecode/Sample.h"
 
 const SkBlendMode gModes[] = {
     SkBlendMode::kSrcOver,
@@ -86,7 +84,7 @@ public:
         const SkColor colors[] = { 0, c };
         fPaint.setShader(SkGradientShader::MakeRadial(SkPoint::Make(size/2, size/2), size/2,
                                                                      colors, nullptr, 2,
-                                                                     SkShader::kClamp_TileMode));
+                                                                     SkTileMode::kClamp));
         fBounds = SkRect::MakeWH(size, size);
     }
 
@@ -138,13 +136,7 @@ public:
     }
 
 protected:
-    bool onQuery(Sample::Event* evt) override {
-        if (Sample::TitleQ(*evt)) {
-            Sample::TitleR(evt, "XferDemo");
-            return true;
-        }
-        return this->INHERITED::onQuery(evt);
-    }
+    SkString name() override { return SkString("XferDemo"); }
 
     void onDrawContent(SkCanvas* canvas) override {
         for (int i = 0; i < N_Modes; ++i) {
@@ -168,11 +160,11 @@ protected:
         canvas->restore();
     }
 
-    Sample::Click* onFindClickHandler(SkScalar x, SkScalar y, unsigned) override {
+    Sample::Click* onFindClickHandler(SkScalar x, SkScalar y, ModifierKey) override {
         // Check mode buttons first
         for (int i = 0; i < N_Modes; ++i) {
             if (fModeButtons[i].hitTest(x, y)) {
-                Click* click = new Click(this);
+                Click* click = new Click();
                 click->fMeta.setS32("mode", i);
                 return click;
             }
@@ -184,13 +176,13 @@ protected:
                 break;
             }
         }
-        return fSelected ? new Click(this) : nullptr;
+        return fSelected ? new Click() : nullptr;
     }
 
     bool onClick(Click* click) override {
         int32_t mode;
         if (click->fMeta.findS32("mode", &mode)) {
-            if (fSelected && Click::kUp_State == click->fState) {
+            if (fSelected && InputState::kUp == click->fState) {
                 fSelected->fMode = gModes[mode];
             }
         } else {

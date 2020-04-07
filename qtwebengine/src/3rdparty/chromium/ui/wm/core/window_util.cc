@@ -4,6 +4,7 @@
 
 #include "ui/wm/core/window_util.h"
 
+#include "base/bind.h"
 #include "ui/aura/client/aura_constants.h"
 #include "ui/aura/window.h"
 #include "ui/compositor/dip_util.h"
@@ -46,8 +47,8 @@ void MirrorChildren(ui::Layer* to_mirror,
                     ui::Layer* parent,
                     bool sync_bounds) {
   for (auto* child : to_mirror->children()) {
-    child->set_sync_bounds(sync_bounds);
     ui::Layer* mirror = child->Mirror().release();
+    mirror->set_sync_bounds_with_source(sync_bounds);
     parent->Add(mirror);
     MirrorChildren(child, mirror, sync_bounds);
   }
@@ -218,37 +219,6 @@ bool HasTransientAncestor(const aura::Window* window,
     return true;
   return transient_parent ?
       HasTransientAncestor(transient_parent, ancestor) : false;
-}
-
-void SnapWindowToPixelBoundary(aura::Window* window) {
-  // TODO(malaykeshav): We want to snap each window layer to its parent window
-  // layer. See https://crbug.com/863268 for more info.
-
-  // Root window is already snapped by default.
-  if (window->IsRootWindow()) {
-    window->SetProperty(wm::kSnapChildrenToPixelBoundary, true);
-    return;
-  }
-
-  aura::Window* ancestor_window = window->parent();
-  while (ancestor_window) {
-    bool is_ancestor_window_snapped =
-        ancestor_window->GetProperty(wm::kSnapChildrenToPixelBoundary);
-
-    // Root windows are already snapped by default. Just mark them as snapped.
-    if (ancestor_window->IsRootWindow() && !is_ancestor_window_snapped) {
-      ancestor_window->SetProperty(wm::kSnapChildrenToPixelBoundary, true);
-      is_ancestor_window_snapped = true;
-    }
-
-    if (is_ancestor_window_snapped) {
-      window->SetProperty(wm::kSnapChildrenToPixelBoundary, true);
-      ui::SnapLayerToPhysicalPixelBoundary(ancestor_window->layer(),
-                                           window->layer());
-      return;
-    }
-    ancestor_window = ancestor_window->parent();
-  }
 }
 
 }  // namespace wm

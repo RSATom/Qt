@@ -49,12 +49,12 @@
 
 #include <string>
 
+#include "base/one_shot_event.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "build/build_config.h"
 #include "extensions/browser/extension_system.h"
 #include "extensions/common/extension_set.h"
-#include "extensions/common/one_shot_event.h"
 
 namespace extensions {
 
@@ -85,14 +85,13 @@ public:
 
     // ExtensionSystem implementation:
     void InitForRegularProfile(bool extensions_enabled) override;
-    void InitForIncognitoProfile() override;
     ExtensionService *extension_service() override;
     RuntimeData *runtime_data() override;
     ManagementPolicy *management_policy() override;
     ServiceWorkerManager *service_worker_manager() override;
     SharedUserScriptMaster *shared_user_script_master() override;
-    StateStore* state_store() override;
-    StateStore* rules_store() override;
+    StateStore *state_store() override;
+    StateStore *rules_store() override;
     scoped_refptr<ValueStoreFactory> store_factory() override;
     InfoMap *info_map() override;
     QuotaService *quota_service() override;
@@ -120,7 +119,7 @@ public:
 
     void Init(bool extensions_enabled);
 
-    const OneShotEvent &ready() const override { return ready_; }
+    const base::OneShotEvent &ready() const override { return ready_; }
 
 private:
     void OnExtensionRegisteredWithRequestContexts(scoped_refptr<const extensions::Extension> extension);
@@ -141,7 +140,7 @@ private:
 
     // For verifying the contents of extensions read from disk.
     scoped_refptr<ContentVerifier> content_verifier_;
-    OneShotEvent ready_;
+    base::OneShotEvent ready_;
 
     content::BrowserContext *browser_context_;
     scoped_refptr<ValueStoreFactory> store_factory_;

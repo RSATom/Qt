@@ -13,6 +13,8 @@
 // limitations under the License.
 
 import {fromNs} from '../../common/time';
+import {LIMIT} from '../../common/track_data';
+
 import {
   TrackController,
   trackControllerRegistry
@@ -56,7 +58,7 @@ class CpuFreqTrackController extends TrackController<Config, Data> {
       await this.query(`create view ${this.tableName('freq')}
           as select
             ts,
-            dur,
+            lead(ts) over (order by ts) - ts as dur,
             ref as cpu,
             name as freq_name,
             value as freq_value
@@ -69,7 +71,7 @@ class CpuFreqTrackController extends TrackController<Config, Data> {
       await this.query(`create view ${this.tableName('idle')}
         as select
           ts,
-          dur,
+          lead(ts) over (order by ts) - ts as dur,
           ref as cpu,
           name as idle_name,
           value as idle_value
@@ -85,7 +87,7 @@ class CpuFreqTrackController extends TrackController<Config, Data> {
 
       await this.query(`create virtual table ${this.tableName('span_activity')}
       using span_join(${this.tableName('freq_idle')} PARTITIONED cpu,
-                      ${this.tableName('window')} PARTITIONED cpu);`);
+                      ${this.tableName('window')});`);
 
       // TODO(taylori): Move the idle value processing to the TP.
       await this.query(`create view ${this.tableName('activity')}
@@ -105,17 +107,45 @@ class CpuFreqTrackController extends TrackController<Config, Data> {
       this.setup = true;
     }
 
-    const windowDur = Math.max(1, endNs - startNs);
+    const isQuantized = this.shouldSummarize(resolution);
+    // |resolution| is in s/px we want # ns for 10px window:
+    const bucketSizeNs = Math.round(resolution * 10 * 1e9);
+    let windowStartNs = startNs;
+    if (isQuantized) {
+      windowStartNs = Math.floor(windowStartNs / bucketSizeNs) * bucketSizeNs;
+    }
+    const windowDurNs = Math.max(1, endNs - windowStartNs);
 
     this.query(`update ${this.tableName('window')} set
       window_start = ${startNs},
-      window_dur = ${windowDur},
-      quantum = 0`);
+      window_dur = ${windowDurNs},
+      quantum = ${isQuantized ? bucketSizeNs : 0}`);
 
     // Cast as double to avoid problem where values are sometimes
     // doubles, sometimes longs.
-    const query = `select ts, dur, cast(idle as DOUBLE), freq
-      from ${this.tableName('activity')}`;
+    let query = `select ts, dur, cast(idle as DOUBLE), freq
+      from ${this.tableName('activity')} limit ${LIMIT}`;
+
+    if (isQuantized) {
+      query = `select
+        min(ts) as ts,
+        sum(dur) as dur,
+        case
+          when min(idle) = -1 then cast(-1 as DOUBLE)
+          else cast(0 as DOUBLE)
+        end as idle,
+        sum(weighted_freq)/sum(dur) as freq_avg,
+        quantum_ts
+        from (
+          select
+          ts,
+          dur,
+          quantum_ts,
+          freq*dur as weighted_freq,
+          idle
+          from ${this.tableName('activity')})
+        group by quantum_ts limit ${LIMIT}`;
+    }
 
     const freqResult = await this.query(query);
 
@@ -123,8 +153,10 @@ class CpuFreqTrackController extends TrackController<Config, Data> {
     const data: Data = {
       start,
       end,
-      maximumValue: this.maximumValue(),
       resolution,
+      length: numRows,
+      maximumValue: this.maximumValue(),
+      isQuantized,
       tsStarts: new Float64Array(numRows),
       tsEnds: new Float64Array(numRows),
       idles: new Int8Array(numRows),

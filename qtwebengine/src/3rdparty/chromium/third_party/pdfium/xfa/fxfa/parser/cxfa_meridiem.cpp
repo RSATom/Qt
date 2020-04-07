@@ -6,13 +6,17 @@
 
 #include "xfa/fxfa/parser/cxfa_meridiem.h"
 
+#include "fxjs/xfa/cjx_node.h"
+#include "third_party/base/ptr_util.h"
+
 CXFA_Meridiem::CXFA_Meridiem(CXFA_Document* doc, XFA_PacketType packet)
     : CXFA_Node(doc,
                 packet,
                 XFA_XDPPACKET_LocaleSet,
                 XFA_ObjectType::ContentNode,
                 XFA_Element::Meridiem,
-                nullptr,
-                nullptr) {}
+                {},
+                {},
+                pdfium::MakeUnique<CJX_Node>(this)) {}
 
 CXFA_Meridiem::~CXFA_Meridiem() = default;

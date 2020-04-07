@@ -25,15 +25,13 @@
 #include "third_party/blink/renderer/core/svg/properties/svg_animated_property.h"
 #include "third_party/blink/renderer/core/svg/svg_transform_list.h"
 #include "third_party/blink/renderer/core/svg_names.h"
+#include "third_party/blink/renderer/platform/heap/heap.h"
 
 namespace blink {
 
-inline SVGAnimateTransformElement::SVGAnimateTransformElement(
-    Document& document)
+SVGAnimateTransformElement::SVGAnimateTransformElement(Document& document)
     : SVGAnimateElement(svg_names::kAnimateTransformTag, document),
-      transform_type_(kSvgTransformUnknown) {}
-
-DEFINE_NODE_FACTORY(SVGAnimateTransformElement)
+      transform_type_(SVGTransformType::kUnknown) {}
 
 bool SVGAnimateTransformElement::HasValidTarget() {
   if (!SVGAnimateElement::HasValidTarget())
@@ -56,21 +54,21 @@ void SVGAnimateTransformElement::ResolveTargetProperty() {
   // is better added to the <animate> element since the <animateTransform>
   // element is deprecated and quirky. (We also reject this case via
   // hasValidAttributeType above.)
-  css_property_id_ = CSSPropertyInvalid;
+  css_property_id_ = CSSPropertyID::kInvalid;
 }
 
 SVGPropertyBase* SVGAnimateTransformElement::CreatePropertyForAnimation(
     const String& value) const {
   DCHECK(IsAnimatingSVGDom());
-  return SVGTransformList::Create(transform_type_, value);
+  return MakeGarbageCollected<SVGTransformList>(transform_type_, value);
 }
 
 void SVGAnimateTransformElement::ParseAttribute(
     const AttributeModificationParams& params) {
   if (params.name == svg_names::kTypeAttr) {
     transform_type_ = ParseTransformType(params.new_value);
-    if (transform_type_ == kSvgTransformMatrix)
-      transform_type_ = kSvgTransformUnknown;
+    if (transform_type_ == SVGTransformType::kMatrix)
+      transform_type_ = SVGTransformType::kUnknown;
     return;
   }
 

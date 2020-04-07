@@ -12,25 +12,27 @@
 #include <vector>
 
 #include "core/fpdfapi/page/cpdf_streamcontentparser.h"
-#include "core/fpdfapi/parser/cpdf_stream_acc.h"
 #include "core/fxcrt/maybe_owned.h"
 #include "core/fxcrt/unowned_ptr.h"
 
 class CPDF_AllStates;
+class CPDF_Array;
 class CPDF_Form;
 class CPDF_Page;
 class CPDF_PageObjectHolder;
+class CPDF_Stream;
 class CPDF_StreamAcc;
 class CPDF_Type3Char;
+class PauseIndicatorIface;
 
 class CPDF_ContentParser {
  public:
   explicit CPDF_ContentParser(CPDF_Page* pPage);
   CPDF_ContentParser(CPDF_Form* pForm,
-                     CPDF_AllStates* pGraphicStates,
+                     const CPDF_AllStates* pGraphicStates,
                      const CFX_Matrix* pParentMatrix,
                      CPDF_Type3Char* pType3Char,
-                     std::set<const uint8_t*>* parsedSet);
+                     std::set<const uint8_t*>* pParsedSet);
   ~CPDF_ContentParser();
 
   const CPDF_AllStates* GetCurStates() const {
@@ -53,6 +55,10 @@ class CPDF_ContentParser {
   Stage Parse();
   Stage CheckClip();
 
+  void HandlePageContentStream(CPDF_Stream* pStream);
+  bool HandlePageContentArray(CPDF_Array* pArray);
+  void HandlePageContentFailure();
+
   Stage m_CurrentStage;
   UnownedPtr<CPDF_PageObjectHolder> const m_pObjectHolder;
   UnownedPtr<CPDF_Type3Char> m_pType3Char;  // Only used when parsing forms.
@@ -65,9 +71,9 @@ class CPDF_ContentParser {
   uint32_t m_CurrentOffset = 0;
 
   // Only used when parsing pages.
-  std::unique_ptr<std::set<const uint8_t*>> m_parsedSet;
+  std::unique_ptr<std::set<const uint8_t*>> m_pParsedSet;
 
-  // |m_pParser| has a reference to |m_parsedSet|, so must be below and thus
+  // |m_pParser| has a reference to |m_pParsedSet|, so must be below and thus
   // destroyed first.
   std::unique_ptr<CPDF_StreamContentParser> m_pParser;
 };

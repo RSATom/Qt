@@ -517,7 +517,7 @@
     </message>
     <message>
         <source>No variable with name %1 exists</source>
-        <translation type="unfinished"></translation>
+        <translation>不存在名稱為 %1 的變數</translation>
     </message>
     <message>
         <source>Version %1 is not supported. The supported XQuery version is 1.0.</source>
@@ -549,7 +549,7 @@
     </message>
     <message>
         <source>The value of attribute %1 must be of type %2, which %3 isn&apos;t.</source>
-        <translation type="unfinished"></translation>
+        <translation>屬性值 %1 必須為 %2 類型，但 %3 不是。</translation>
     </message>
     <message>
         <source>It is not possible to redeclare prefix %1.</source>
@@ -581,7 +581,7 @@
     </message>
     <message>
         <source>A variable with name %1 has already been declared.</source>
-        <translation type="unfinished"></translation>
+        <translation>已經定義名稱為 %1 的變數。</translation>
     </message>
     <message>
         <source>No value is available for the external variable with name %1.</source>
@@ -613,7 +613,7 @@
     </message>
     <message>
         <source>An argument with name %1 has already been declared. Every argument name must be unique.</source>
-        <translation type="unfinished"></translation>
+        <translation>名稱為 %1 的參數已經定義。每個參數名稱必須是唯一的。</translation>
     </message>
     <message>
         <source>When function %1 is used for matching inside a pattern, the argument must be a variable reference or a string literal.</source>
@@ -665,7 +665,7 @@
     </message>
     <message>
         <source>No function with name %1 is available.</source>
-        <translation type="unfinished"></translation>
+        <translation>沒有可用的 %1 名稱函數</translation>
     </message>
     <message>
         <source>The namespace URI cannot be the empty string when binding to a prefix, %1.</source>
@@ -697,7 +697,7 @@
     </message>
     <message>
         <source>An attribute with name %1 has already appeared on this element.</source>
-        <translation type="unfinished"></translation>
+        <translation>名稱為 %1 的屬性已經出現在此元素上。</translation>
     </message>
     <message>
         <source>A direct element constructor is not well-formed. %1 is ended with %2.</source>

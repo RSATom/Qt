@@ -166,16 +166,16 @@ TEST_P(SingleLinkHeaderTest, Single) {
   LinkHeader& header = header_set[0];
   EXPECT_EQ(test_case.valid, header.Valid());
   if (test_case.valid) {
-    EXPECT_STREQ(test_case.url, header.Url().Ascii().data());
-    EXPECT_STREQ(test_case.rel, header.Rel().Ascii().data());
-    EXPECT_STREQ(test_case.as, header.As().Ascii().data());
-    EXPECT_STREQ(test_case.media, header.Media().Ascii().data());
+    EXPECT_EQ(test_case.url, header.Url().Ascii());
+    EXPECT_EQ(test_case.rel, header.Rel().Ascii());
+    EXPECT_EQ(test_case.as, header.As().Ascii());
+    EXPECT_EQ(test_case.media, header.Media().Ascii());
   }
 }
 
-INSTANTIATE_TEST_CASE_P(LinkHeaderTest,
-                        SingleLinkHeaderTest,
-                        testing::ValuesIn(g_single_test_cases));
+INSTANTIATE_TEST_SUITE_P(LinkHeaderTest,
+                         SingleLinkHeaderTest,
+                         testing::ValuesIn(g_single_test_cases));
 
 struct DoubleTestCase {
   const char* header_value;
@@ -209,17 +209,17 @@ TEST_P(DoubleLinkHeaderTest, Double) {
   ASSERT_EQ(2u, header_set.size());
   LinkHeader& header1 = header_set[0];
   LinkHeader& header2 = header_set[1];
-  EXPECT_STREQ(test_case.url, header1.Url().Ascii().data());
-  EXPECT_STREQ(test_case.rel, header1.Rel().Ascii().data());
+  EXPECT_EQ(test_case.url, header1.Url());
+  EXPECT_EQ(test_case.rel, header1.Rel());
   EXPECT_EQ(test_case.valid, header1.Valid());
-  EXPECT_STREQ(test_case.url2, header2.Url().Ascii().data());
-  EXPECT_STREQ(test_case.rel2, header2.Rel().Ascii().data());
+  EXPECT_EQ(test_case.url2, header2.Url());
+  EXPECT_EQ(test_case.rel2, header2.Rel());
   EXPECT_EQ(test_case.valid2, header2.Valid());
 }
 
-INSTANTIATE_TEST_CASE_P(LinkHeaderTest,
-                        DoubleLinkHeaderTest,
-                        testing::ValuesIn(g_double_test_cases));
+INSTANTIATE_TEST_SUITE_P(LinkHeaderTest,
+                         DoubleLinkHeaderTest,
+                         testing::ValuesIn(g_double_test_cases));
 
 struct CrossOriginTestCase {
   const char* header_value;
@@ -270,18 +270,18 @@ TEST_P(CrossOriginLinkHeaderTest, CrossOrigin) {
   LinkHeaderSet header_set(test_case.header_value);
   ASSERT_GE(header_set.size(), 1u);
   LinkHeader& header = header_set[0];
-  EXPECT_STREQ(test_case.url, header.Url().Ascii().data());
-  EXPECT_STREQ(test_case.rel, header.Rel().Ascii().data());
+  EXPECT_EQ(test_case.url, header.Url().Ascii());
+  EXPECT_EQ(test_case.rel, header.Rel().Ascii());
   EXPECT_EQ(test_case.valid, header.Valid());
   if (!test_case.crossorigin)
     EXPECT_TRUE(header.CrossOrigin().IsNull());
   else
-    EXPECT_STREQ(test_case.crossorigin, header.CrossOrigin().Ascii().data());
+    EXPECT_EQ(test_case.crossorigin, header.CrossOrigin().Ascii());
 }
 
-INSTANTIATE_TEST_CASE_P(LinkHeaderTest,
-                        CrossOriginLinkHeaderTest,
-                        testing::ValuesIn(g_cross_origin_test_cases));
+INSTANTIATE_TEST_SUITE_P(LinkHeaderTest,
+                         CrossOriginLinkHeaderTest,
+                         testing::ValuesIn(g_cross_origin_test_cases));
 
 }  // namespace
 }  // namespace blink

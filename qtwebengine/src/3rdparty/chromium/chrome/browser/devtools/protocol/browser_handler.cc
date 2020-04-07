@@ -7,6 +7,7 @@
 #include <set>
 #include <vector>
 
+#include "base/bind.h"
 #include "base/memory/ref_counted_memory.h"
 #include "base/task/post_task.h"
 #include "chrome/browser/devtools/chrome_devtools_manager_delegate.h"
@@ -99,6 +100,10 @@ Response FromProtocolPermissionType(
     *out_type = content::PermissionType::PAYMENT_HANDLER;
   } else if (type == protocol::Browser::PermissionTypeEnum::BackgroundFetch) {
     *out_type = content::PermissionType::BACKGROUND_FETCH;
+  } else if (type == protocol::Browser::PermissionTypeEnum::WakeLockScreen) {
+    *out_type = content::PermissionType::WAKE_LOCK_SCREEN;
+  } else if (type == protocol::Browser::PermissionTypeEnum::WakeLockSystem) {
+    *out_type = content::PermissionType::WAKE_LOCK_SYSTEM;
   } else {
     return Response::InvalidParams("Unknown permission type: " + type);
   }
@@ -228,8 +233,8 @@ Response BrowserHandler::Disable() {
   for (auto& browser_context_id : contexts_with_overridden_permissions_) {
     Profile* profile = nullptr;
     Maybe<std::string> context_id =
-        browser_context_id == "" ? Maybe<std::string>()
-                                 : Maybe<std::string>(browser_context_id);
+        browser_context_id.empty() ? Maybe<std::string>()
+                                   : Maybe<std::string>(browser_context_id);
     FindProfile(context_id, &profile);
     if (profile) {
       PermissionManager* permission_manager = PermissionManager::Get(profile);
@@ -251,10 +256,9 @@ Response BrowserHandler::GrantPermissions(
     return response;
 
   PermissionOverrides overrides;
-  for (size_t i = 0; i < permissions->length(); ++i) {
+  for (const std::string& permission : *permissions) {
     content::PermissionType type;
-    Response type_response =
-        FromProtocolPermissionType(permissions->get(i), &type);
+    Response type_response = FromProtocolPermissionType(permission, &type);
     if (!type_response.isSuccess())
       return type_response;
     overrides.insert(type);
@@ -288,7 +292,7 @@ protocol::Response BrowserHandler::SetDockTile(
   if (image.isJust())
     reps.emplace_back(image.fromJust().bytes(), 1);
   DevToolsDockTile::Update(label.fromMaybe(std::string()),
-                           reps.size() ? gfx::Image(reps) : gfx::Image());
+                           !reps.empty() ? gfx::Image(reps) : gfx::Image());
   return Response::OK();
 }
 

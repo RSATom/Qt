@@ -9,7 +9,7 @@
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/css/css_style_sheet.h"
 #include "third_party/blink/renderer/core/html/custom/custom_element_definition.h"
-#include "third_party/blink/renderer/platform/wtf/allocator.h"
+#include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 
 namespace blink {
 
@@ -18,7 +18,7 @@ class CustomElementRegistry;
 
 // Implement CustomElementDefinitionBuilder to provide
 // technology-specific steps for CustomElementRegistry.define.
-// https://html.spec.whatwg.org/multipage/scripting.html#dom-customelementsregistry-define
+// https://html.spec.whatwg.org/C/#dom-customelementsregistry-define
 class CORE_EXPORT CustomElementDefinitionBuilder {
   STACK_ALLOCATED();
 

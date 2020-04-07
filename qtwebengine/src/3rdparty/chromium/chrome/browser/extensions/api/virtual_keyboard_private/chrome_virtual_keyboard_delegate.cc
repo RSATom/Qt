@@ -8,9 +8,12 @@
 #include <string>
 #include <utility>
 
+#include "ash/public/cpp/keyboard/keyboard_switches.h"
+#include "ash/public/cpp/keyboard/keyboard_types.h"
 #include "base/bind.h"
 #include "base/command_line.h"
 #include "base/feature_list.h"
+#include "base/metrics/field_trial_params.h"
 #include "base/metrics/user_metrics.h"
 #include "base/metrics/user_metrics_action.h"
 #include "base/strings/string16.h"
@@ -23,7 +26,7 @@
 #include "chromeos/constants/chromeos_features.h"
 #include "components/user_manager/user_manager.h"
 #include "content/public/browser/browser_thread.h"
-#include "content/public/common/service_manager_connection.h"
+#include "content/public/browser/system_connector.h"
 #include "extensions/browser/event_router.h"
 #include "extensions/common/api/virtual_keyboard.h"
 #include "extensions/common/api/virtual_keyboard_private.h"
@@ -42,8 +45,6 @@
 #include "ui/events/keycodes/dom/dom_key.h"
 #include "ui/events/keycodes/dom/keycode_converter.h"
 #include "ui/events/keycodes/keyboard_code_conversion.h"
-#include "ui/keyboard/public/keyboard_controller_types.mojom.h"
-#include "ui/keyboard/public/keyboard_switches.h"
 
 namespace keyboard_api = extensions::api::virtual_keyboard_private;
 
@@ -57,18 +58,26 @@ std::string GenerateFeatureFlag(const std::string& feature, bool enabled) {
   return feature + (enabled ? "-enabled" : "-disabled");
 }
 
-keyboard::mojom::ContainerType ConvertKeyboardModeToContainerType(int mode) {
+keyboard::ContainerType ConvertKeyboardModeToContainerType(int mode) {
   switch (mode) {
     case keyboard_api::KEYBOARD_MODE_FULL_WIDTH:
-      return keyboard::mojom::ContainerType::kFullWidth;
+      return keyboard::ContainerType::kFullWidth;
     case keyboard_api::KEYBOARD_MODE_FLOATING:
-      return keyboard::mojom::ContainerType::kFloating;
-    case keyboard_api::KEYBOARD_MODE_FULLSCREEN:
-      return keyboard::mojom::ContainerType::kFullscreen;
+      return keyboard::ContainerType::kFloating;
   }
 
   NOTREACHED();
-  return keyboard::mojom::ContainerType::kFullWidth;
+  return keyboard::ContainerType::kFullWidth;
+}
+
+// Returns the ui::TextInputClient of the active InputMethod or nullptr.
+ui::TextInputClient* GetFocusedTextInputClient() {
+  ui::InputMethod* input_method =
+      ui::IMEBridge::Get()->GetInputContextHandler()->GetInputMethod();
+  if (!input_method)
+    return nullptr;
+
+  return input_method->GetTextInputClient();
 }
 
 const char kKeyDown[] = "keydown";
@@ -104,16 +113,12 @@ bool SendKeyEventImpl(const std::string& type,
 
   ui::KeyboardCode code = static_cast<ui::KeyboardCode>(key_code);
 
-  ui::InputMethod* input_method = host->GetInputMethod();
   if (code == ui::VKEY_UNKNOWN) {
     // Handling of special printable characters (e.g. accented characters) for
     // which there is no key code.
     if (event_type == ui::ET_KEY_RELEASED) {
-      if (!input_method)
-        return false;
-
       // This can be null if no text input field is focused.
-      ui::TextInputClient* tic = input_method->GetTextInputClient();
+      ui::TextInputClient* tic = GetFocusedTextInputClient();
 
       SendProcessKeyEvent(ui::ET_KEY_PRESSED, host);
 
@@ -134,7 +139,8 @@ bool SendKeyEventImpl(const std::string& type,
 
   // Indicate that the simulated key event is from the Virtual Keyboard.
   ui::Event::Properties properties;
-  properties[ui::kPropertyFromVK] = std::vector<uint8_t>();
+  properties[ui::kPropertyFromVK] =
+      std::vector<uint8_t>(ui::kPropertyFromVKSize);
   event.SetProperties(properties);
 
   ui::EventDispatchDetails details = aura::EventInjector().Inject(host, &event);
@@ -146,7 +152,7 @@ std::string GetKeyboardLayout() {
   // TODO(bshe): layout string is currently hard coded. We should use more
   // standard keyboard layouts.
   return ChromeKeyboardControllerClient::Get()->IsEnableFlagSet(
-             keyboard::mojom::KeyboardEnableFlag::kAccessibilityEnabled)
+             keyboard::KeyboardEnableFlag::kAccessibilityEnabled)
              ? "system-qwerty"
              : "qwerty";
 }
@@ -166,11 +172,10 @@ ChromeVirtualKeyboardDelegate::~ChromeVirtualKeyboardDelegate() {}
 void ChromeVirtualKeyboardDelegate::GetKeyboardConfig(
     OnKeyboardSettingsCallback on_settings_callback) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
-  if (!audio_system_)
-    audio_system_ = audio::CreateAudioSystem(
-        content::ServiceManagerConnection::GetForProcess()
-            ->GetConnector()
-            ->Clone());
+  if (!audio_system_) {
+    audio_system_ =
+        audio::CreateAudioSystem(content::GetSystemConnector()->Clone());
+  }
   audio_system_->HasInputDevices(
       base::BindOnce(&ChromeVirtualKeyboardDelegate::OnHasInputDevices,
                      weak_this_, std::move(on_settings_callback)));
@@ -190,18 +195,13 @@ bool ChromeVirtualKeyboardDelegate::HideKeyboard() {
 
   // Pass HIDE_REASON_MANUAL since calls to HideKeyboard as part of this API
   // would be user generated.
-  keyboard_client->HideKeyboard(ash::mojom::HideReason::kUser);
+  keyboard_client->HideKeyboard(ash::HideReason::kUser);
   return true;
 }
 
 bool ChromeVirtualKeyboardDelegate::InsertText(const base::string16& text) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
-  ui::InputMethod* input_method =
-      ui::IMEBridge::Get()->GetInputContextHandler()->GetInputMethod();
-  if (!input_method)
-    return false;
-
-  ui::TextInputClient* tic = input_method->GetTextInputClient();
+  ui::TextInputClient* tic = GetFocusedTextInputClient();
   if (!tic || tic->GetTextInputType() == ui::TEXT_INPUT_TYPE_NONE)
     return false;
 
@@ -253,7 +253,7 @@ bool ChromeVirtualKeyboardDelegate::ShowLanguageSettings() {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   auto* keyboard_client = ChromeKeyboardControllerClient::Get();
   if (keyboard_client->is_keyboard_enabled())
-    keyboard_client->HideKeyboard(ash::mojom::HideReason::kUser);
+    keyboard_client->HideKeyboard(ash::HideReason::kUser);
 
   base::RecordAction(base::UserMetricsAction("OpenLanguageOptionsDialog"));
   chrome::ShowSettingsSubPageForProfile(ProfileManager::GetActiveUserProfile(),
@@ -309,7 +309,7 @@ bool ChromeVirtualKeyboardDelegate::SetDraggableArea(
 }
 
 bool ChromeVirtualKeyboardDelegate::SetRequestedKeyboardState(int state_enum) {
-  using keyboard::mojom::KeyboardEnableFlag;
+  using keyboard::KeyboardEnableFlag;
   auto* client = ChromeKeyboardControllerClient::Get();
   keyboard_api::KeyboardState state =
       static_cast<keyboard_api::KeyboardState>(state_enum);
@@ -347,34 +347,26 @@ void ChromeVirtualKeyboardDelegate::OnHasInputDevices(
 
   // TODO(bshe): Consolidate a11y, hotrod and normal mode into a mode enum. See
   // crbug.com/529474.
-  results->SetBoolean(
-      "a11ymode",
-      keyboard_client->IsEnableFlagSet(
-          keyboard::mojom::KeyboardEnableFlag::kAccessibilityEnabled));
+  results->SetBoolean("a11ymode",
+                      keyboard_client->IsEnableFlagSet(
+                          keyboard::KeyboardEnableFlag::kAccessibilityEnabled));
   results->SetBoolean("hotrodmode", g_hotrod_keyboard_enabled);
   std::unique_ptr<base::ListValue> features(new base::ListValue());
 
+  // TODO(https://crbug.com/880659): Cleanup these flags after removing these
+  // flags from IME extension.
   features->AppendString(GenerateFeatureFlag("floatingkeyboard", true));
-  features->AppendString(GenerateFeatureFlag(
-      "gesturetyping", !base::CommandLine::ForCurrentProcess()->HasSwitch(
-                           keyboard::switches::kDisableGestureTyping)));
+  features->AppendString(GenerateFeatureFlag("gesturetyping", true));
   // TODO(https://crbug.com/890134): Implement gesture editing.
   features->AppendString(GenerateFeatureFlag("gestureediting", false));
-  features->AppendString(GenerateFeatureFlag(
-      "fullscreenhandwriting",
-      base::FeatureList::IsEnabled(
-          features::kEnableFullscreenHandwritingVirtualKeyboard)));
+  features->AppendString(GenerateFeatureFlag("fullscreenhandwriting", false));
   features->AppendString(GenerateFeatureFlag("virtualkeyboardmdui", true));
-  features->AppendString(GenerateFeatureFlag(
-      "imeservice", base::FeatureList::IsEnabled(
-                        chromeos::features::kImeServiceConnectable)));
+  features->AppendString(GenerateFeatureFlag("imeservice", true));
 
-  keyboard::mojom::KeyboardConfig config = keyboard_client->GetKeyboardConfig();
+  keyboard::KeyboardConfig config = keyboard_client->GetKeyboardConfig();
   // TODO(oka): Change this to use config.voice_input.
   features->AppendString(GenerateFeatureFlag(
-      "voiceinput", has_audio_input_devices && config.voice_input &&
-                        !base::CommandLine::ForCurrentProcess()->HasSwitch(
-                            keyboard::switches::kDisableVoiceInput)));
+      "voiceinput", has_audio_input_devices && config.voice_input));
   features->AppendString(
       GenerateFeatureFlag("autocomplete", config.auto_complete));
   features->AppendString(
@@ -385,6 +377,10 @@ void ChromeVirtualKeyboardDelegate::OnHasInputDevices(
   features->AppendString(GenerateFeatureFlag(
       "handwritinggesture",
       base::FeatureList::IsEnabled(features::kHandwritingGesture)));
+  features->AppendString(GenerateFeatureFlag(
+      "fstinputlogic",
+      base::FeatureList::IsEnabled(chromeos::features::kImeInputLogicFst)));
+
   results->Set("features", std::move(features));
 
   std::move(on_settings_callback).Run(std::move(results));
@@ -414,9 +410,9 @@ ChromeVirtualKeyboardDelegate::RestrictFeatures(
   const api::virtual_keyboard::FeatureRestrictions& restrictions =
       params.restrictions;
   api::virtual_keyboard::FeatureRestrictions update;
-  keyboard::mojom::KeyboardConfig current_config =
+  keyboard::KeyboardConfig current_config =
       ChromeKeyboardControllerClient::Get()->GetKeyboardConfig();
-  keyboard::mojom::KeyboardConfig config(current_config);
+  keyboard::KeyboardConfig config(current_config);
   if (restrictions.spell_check_enabled &&
       config.spell_check != *restrictions.spell_check_enabled) {
     update.spell_check_enabled =
@@ -448,7 +444,7 @@ ChromeVirtualKeyboardDelegate::RestrictFeatures(
     config.handwriting = *restrictions.handwriting_enabled;
   }
 
-  if (!config.Equals(current_config)) {
+  if (config != current_config) {
     ChromeKeyboardControllerClient::Get()->SetKeyboardConfig(config);
     // This reloads virtual keyboard even if it exists. This ensures virtual
     // keyboard gets the correct state through

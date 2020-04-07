@@ -523,9 +523,7 @@ void QTextOdfWriter::writeFormats(QXmlStreamWriter &writer, const QSet<int> &for
 {
     writer.writeStartElement(officeNS, QString::fromLatin1("automatic-styles"));
     QVector<QTextFormat> allStyles = m_document->allFormats();
-    QSetIterator<int> formatId(formats);
-    while(formatId.hasNext()) {
-        int formatIndex = formatId.next();
+    for (int formatIndex : formats) {
         QTextFormat textFormat = allStyles.at(formatIndex);
         switch (textFormat.type()) {
         case QTextFormat::CharFormat:
@@ -1057,7 +1055,7 @@ bool QTextOdfWriter::writeAll()
 
     // add objects for lists, frames and tables
     const QVector<QTextFormat> allFormats = m_document->allFormats();
-    const QList<int> copy = formats.toList();
+    const QList<int> copy = formats.values();
     for (auto index : copy) {
         QTextObject *object = m_document->objectForFormat(allFormats[index]);
         if (object) {

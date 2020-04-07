@@ -36,6 +36,8 @@
 
 class PrefService;
 class PrefRegistrySimple;
+FORWARD_DECLARE_TEST(ChromeMetricsServiceClientTest,
+                     TestRegisterMetricsServiceProviders);
 
 namespace base {
 class HistogramSamples;
@@ -125,7 +127,9 @@ class MetricsService : public base::HistogramFlattener {
 
 #if defined(OS_ANDROID) || defined(OS_IOS)
   // Called when the application is going into background mode.
-  void OnAppEnterBackground();
+  // If |keep_recording_in_background| is true, UMA is still recorded and
+  // reported while in the background.
+  void OnAppEnterBackground(bool keep_recording_in_background = false);
 
   // Called when the application is coming out of background mode.
   void OnAppEnterForeground();
@@ -384,12 +388,13 @@ class MetricsService : public base::HistogramFlattener {
   static ShutdownCleanliness clean_shutdown_status_;
 
   FRIEND_TEST_ALL_PREFIXES(MetricsServiceTest, IsPluginProcess);
-
+  FRIEND_TEST_ALL_PREFIXES(::ChromeMetricsServiceClientTest,
+                           TestRegisterMetricsServiceProviders);
   SEQUENCE_CHECKER(sequence_checker_);
 
   // Weak pointers factory used to post task on different threads. All weak
   // pointers managed by this factory have the same lifetime as MetricsService.
-  base::WeakPtrFactory<MetricsService> self_ptr_factory_;
+  base::WeakPtrFactory<MetricsService> self_ptr_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(MetricsService);
 };

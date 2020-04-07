@@ -43,9 +43,6 @@
 #include "qparameter.h"
 #include "qfilterkey.h"
 #include "qrenderstate.h"
-#include <Qt3DCore/qpropertyupdatedchange.h>
-#include <Qt3DCore/qpropertynodeaddedchange.h>
-#include <Qt3DCore/qpropertynoderemovedchange.h>
 #include <Qt3DCore/private/qnode_p.h>
 
 QT_BEGIN_NAMESPACE
@@ -231,12 +228,6 @@ void QRenderPass::setShaderProgram(QShaderProgram *shaderProgram)
     Q_D(QRenderPass);
     if (d->m_shader != shaderProgram) {
 
-        if (d->m_shader != nullptr && d->m_changeArbiter != nullptr) {
-            const auto change = QPropertyNodeRemovedChangePtr::create(id(), d->m_shader);
-            change->setPropertyName("shaderProgram");
-            d->notifyObservers(change);
-        }
-
         if (d->m_shader)
             d->unregisterDestructionHelper(d->m_shader);
 
@@ -283,11 +274,7 @@ void QRenderPass::addFilterKey(QFilterKey *filterKey)
         if (!filterKey->parent())
             filterKey->setParent(this);
 
-        if (d->m_changeArbiter != nullptr) {
-            const auto change = QPropertyNodeAddedChangePtr::create(id(), filterKey);
-            change->setPropertyName("filterKeys");
-            d->notifyObservers(change);
-        }
+        d->updateNode(filterKey, "filterKeys", Qt3DCore::PropertyValueAdded);
     }
 }
 
@@ -298,12 +285,9 @@ void QRenderPass::removeFilterKey(QFilterKey *filterKey)
 {
     Q_ASSERT(filterKey);
     Q_D(QRenderPass);
-    if (d->m_changeArbiter != nullptr) {
-        const auto change = QPropertyNodeRemovedChangePtr::create(id(), filterKey);
-        change->setPropertyName("filterKeys");
-        d->notifyObservers(change);
-    }
-    d->m_filterKeyList.removeOne(filterKey);
+    if (!d->m_filterKeyList.removeOne(filterKey))
+        return;
+    d->updateNode(filterKey, "filterKeys", Qt3DCore::PropertyValueRemoved);
     // Remove bookkeeping connection
     d->unregisterDestructionHelper(filterKey);
 }
@@ -339,11 +323,7 @@ void QRenderPass::addRenderState(QRenderState *state)
         if (!state->parent())
             state->setParent(this);
 
-        if (d->m_changeArbiter != nullptr) {
-            const auto change = QPropertyNodeAddedChangePtr::create(id(), state);
-            change->setPropertyName("renderState");
-            d->notifyObservers(change);
-        }
+        d->updateNode(state, "renderState", Qt3DCore::PropertyValueAdded);
     }
 }
 
@@ -354,12 +334,9 @@ void QRenderPass::removeRenderState(QRenderState *state)
 {
     Q_ASSERT(state);
     Q_D(QRenderPass);
-    if (d->m_changeArbiter != nullptr) {
-        const auto change = QPropertyNodeRemovedChangePtr::create(id(), state);
-        change->setPropertyName("renderState");
-        d->notifyObservers(change);
-    }
-    d->m_renderStates.removeOne(state);
+    if (!d->m_renderStates.removeOne(state))
+        return;
+    d->updateNode(state, "renderState", Qt3DCore::PropertyValueRemoved);
     // Remove bookkeeping connection
     d->unregisterDestructionHelper(state);
 }
@@ -394,11 +371,7 @@ void QRenderPass::addParameter(QParameter *parameter)
         if (!parameter->parent())
             parameter->setParent(this);
 
-        if (d->m_changeArbiter != nullptr) {
-            const auto change = QPropertyNodeAddedChangePtr::create(id(), parameter);
-            change->setPropertyName("parameter");
-            d->notifyObservers(change);
-        }
+        d->updateNode(parameter, "parameter", Qt3DCore::PropertyValueAdded);
     }
 }
 
@@ -409,12 +382,9 @@ void QRenderPass::removeParameter(QParameter *parameter)
 {
     Q_ASSERT(parameter);
     Q_D(QRenderPass);
-    if (d->m_changeArbiter != nullptr) {
-        const auto change = QPropertyNodeRemovedChangePtr::create(id(), parameter);
-        change->setPropertyName("parameter");
-        d->notifyObservers(change);
-    }
-    d->m_parameters.removeOne(parameter);
+    if (!d->m_parameters.removeOne(parameter))
+        return;
+    d->updateNode(parameter, "parameter", Qt3DCore::PropertyValueRemoved);
     // Remove bookkeeping connection
     d->unregisterDestructionHelper(parameter);
 }

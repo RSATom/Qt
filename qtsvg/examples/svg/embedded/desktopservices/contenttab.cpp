@@ -124,6 +124,7 @@ void ContentTab::keyPressEvent(QKeyEvent *event)
     switch (event->key()) {
     case Qt::Key_Select:
         openItem(currentItem());
+        Q_FALLTHROUGH();
     default:
         QListWidget::keyPressEvent(event);
         break;

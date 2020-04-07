@@ -58,7 +58,9 @@ private slots:
     void insertAndRemoveSubstitutions();
     void serialize_data();
     void serialize();
+#if QT_DEPRECATED_SINCE(5, 13)
     void lastResortFont();
+#endif
     void styleName();
     void defaultFamily_data();
     void defaultFamily();
@@ -299,6 +301,13 @@ void tst_QFont::resolve()
     font5.setFamilies(fontFamilies);
     font6 = font6.resolve(font5);
     QCOMPARE(font6.families(), fontFamilies);
+
+    QFont font7, font8;
+    font7.setFamily(QLatin1String("Helvetica"));
+    font8.setFamilies(fontFamilies);
+    font7 = font7.resolve(font8);
+    QCOMPARE(font7.families(), QStringList({"Helvetica", "Arial"}));
+    QCOMPARE(font7.family(), "Helvetica");
 }
 
 #ifndef QT_NO_WIDGETS
@@ -486,6 +495,7 @@ void tst_QFont::serialize()
     }
 }
 
+#if QT_DEPRECATED_SINCE(5, 13)
 // QFont::lastResortFont() may abort with qFatal() on QWS/QPA
 // if absolutely no font is found. Just as ducumented for QFont::lastResortFont().
 // This happens on our CI machines which run QWS autotests.
@@ -496,6 +506,7 @@ void tst_QFont::lastResortFont()
     QFont font;
     QVERIFY(!font.lastResortFont().isEmpty());
 }
+#endif
 
 void tst_QFont::styleName()
 {
@@ -537,10 +548,10 @@ void tst_QFont::defaultFamily_data()
     QTest::addColumn<QStringList>("acceptableFamilies");
 
     QTest::newRow("serif") << QFont::Serif << (QStringList() << "Times New Roman" << "Times" << "Droid Serif" << getPlatformGenericFont("serif").split(","));
-    QTest::newRow("monospace") << QFont::Monospace << (QStringList() << "Courier New" << "Monaco" << "Droid Sans Mono" << getPlatformGenericFont("monospace").split(","));
+    QTest::newRow("monospace") << QFont::Monospace << (QStringList() << "Courier New" << "Monaco" << "Menlo" << "Droid Sans Mono" << getPlatformGenericFont("monospace").split(","));
     QTest::newRow("cursive") << QFont::Cursive << (QStringList() << "Comic Sans MS" << "Apple Chancery" << "Roboto" << "Droid Sans" << getPlatformGenericFont("cursive").split(","));
     QTest::newRow("fantasy") << QFont::Fantasy << (QStringList() << "Impact" << "Zapfino"  << "Roboto" << "Droid Sans" << getPlatformGenericFont("fantasy").split(","));
-    QTest::newRow("sans-serif") << QFont::SansSerif << (QStringList() << "Arial" << "Lucida Grande" << "Roboto" << "Droid Sans" << "Segoe UI" << getPlatformGenericFont("sans-serif").split(","));
+    QTest::newRow("sans-serif") << QFont::SansSerif << (QStringList() << "Arial" << "Lucida Grande" << "Helvetica" << "Roboto" << "Droid Sans" << "Segoe UI" << getPlatformGenericFont("sans-serif").split(","));
 }
 
 void tst_QFont::defaultFamily()
@@ -630,37 +641,37 @@ void tst_QFont::sharing()
     QFont f;
     f.setStyleHint(QFont::Serif);
     f.exactMatch(); // loads engine
-    QCOMPARE(QFontPrivate::get(f)->ref.load(), 1);
+    QCOMPARE(QFontPrivate::get(f)->ref.loadRelaxed(), 1);
     QVERIFY(QFontPrivate::get(f)->engineData);
-    QCOMPARE(QFontPrivate::get(f)->engineData->ref.load(), 1 + refs_by_cache);
+    QCOMPARE(QFontPrivate::get(f)->engineData->ref.loadRelaxed(), 1 + refs_by_cache);
 
     QFont f2(f);
     QCOMPARE(QFontPrivate::get(f2), QFontPrivate::get(f));
-    QCOMPARE(QFontPrivate::get(f2)->ref.load(), 2);
+    QCOMPARE(QFontPrivate::get(f2)->ref.loadRelaxed(), 2);
     QVERIFY(QFontPrivate::get(f2)->engineData);
     QCOMPARE(QFontPrivate::get(f2)->engineData, QFontPrivate::get(f)->engineData);
-    QCOMPARE(QFontPrivate::get(f2)->engineData->ref.load(), 1 + refs_by_cache);
+    QCOMPARE(QFontPrivate::get(f2)->engineData->ref.loadRelaxed(), 1 + refs_by_cache);
 
     f2.setKerning(!f.kerning());
     QVERIFY(QFontPrivate::get(f2) != QFontPrivate::get(f));
-    QCOMPARE(QFontPrivate::get(f2)->ref.load(), 1);
+    QCOMPARE(QFontPrivate::get(f2)->ref.loadRelaxed(), 1);
     QVERIFY(QFontPrivate::get(f2)->engineData);
     QCOMPARE(QFontPrivate::get(f2)->engineData, QFontPrivate::get(f)->engineData);
-    QCOMPARE(QFontPrivate::get(f2)->engineData->ref.load(), 2 + refs_by_cache);
+    QCOMPARE(QFontPrivate::get(f2)->engineData->ref.loadRelaxed(), 2 + refs_by_cache);
 
     f2 = f;
     QCOMPARE(QFontPrivate::get(f2), QFontPrivate::get(f));
-    QCOMPARE(QFontPrivate::get(f2)->ref.load(), 2);
+    QCOMPARE(QFontPrivate::get(f2)->ref.loadRelaxed(), 2);
     QVERIFY(QFontPrivate::get(f2)->engineData);
     QCOMPARE(QFontPrivate::get(f2)->engineData, QFontPrivate::get(f)->engineData);
-    QCOMPARE(QFontPrivate::get(f2)->engineData->ref.load(), 1 + refs_by_cache);
+    QCOMPARE(QFontPrivate::get(f2)->engineData->ref.loadRelaxed(), 1 + refs_by_cache);
 
     if (f.pointSize() > 0)
         f2.setPointSize(f.pointSize() * 2 / 3);
     else
         f2.setPixelSize(f.pixelSize() * 2 / 3);
     QVERIFY(QFontPrivate::get(f2) != QFontPrivate::get(f));
-    QCOMPARE(QFontPrivate::get(f2)->ref.load(), 1);
+    QCOMPARE(QFontPrivate::get(f2)->ref.loadRelaxed(), 1);
     QVERIFY(!QFontPrivate::get(f2)->engineData);
     QVERIFY(QFontPrivate::get(f2)->engineData != QFontPrivate::get(f)->engineData);
 }

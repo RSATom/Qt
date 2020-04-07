@@ -5,21 +5,23 @@
  * found in the LICENSE file.
  */
 
-#include "GrYUVProvider.h"
-#include "GrClip.h"
-#include "GrColorSpaceXform.h"
-#include "GrContext.h"
-#include "GrContextPriv.h"
-#include "GrProxyProvider.h"
-#include "GrRenderTargetContext.h"
-#include "GrTextureProxy.h"
-#include "SkAutoMalloc.h"
-#include "SkCachedData.h"
-#include "SkRefCnt.h"
-#include "SkResourceCache.h"
-#include "SkYUVPlanesCache.h"
-#include "SkYUVAIndex.h"
-#include "effects/GrYUVtoRGBEffect.h"
+#include "src/gpu/GrYUVProvider.h"
+
+#include "include/core/SkRefCnt.h"
+#include "include/core/SkYUVAIndex.h"
+#include "include/private/GrRecordingContext.h"
+#include "src/core/SkAutoMalloc.h"
+#include "src/core/SkCachedData.h"
+#include "src/core/SkResourceCache.h"
+#include "src/core/SkYUVPlanesCache.h"
+#include "src/gpu/GrCaps.h"
+#include "src/gpu/GrClip.h"
+#include "src/gpu/GrColorSpaceXform.h"
+#include "src/gpu/GrProxyProvider.h"
+#include "src/gpu/GrRecordingContextPriv.h"
+#include "src/gpu/GrRenderTargetContext.h"
+#include "src/gpu/GrTextureProxy.h"
+#include "src/gpu/effects/GrYUVtoRGBEffect.h"
 
 sk_sp<SkCachedData> GrYUVProvider::getPlanes(SkYUVASizeInfo* size,
                                              SkYUVAIndex yuvaIndices[SkYUVAIndex::kIndexCount],
@@ -101,9 +103,9 @@ void GrYUVProvider::YUVGen_DataReleaseProc(const void*, void* data) {
     cachedData->unref();
 }
 
-sk_sp<GrTextureProxy> GrYUVProvider::refAsTextureProxy(GrContext* ctx,
-                                                       const GrBackendFormat& format,
+sk_sp<GrTextureProxy> GrYUVProvider::refAsTextureProxy(GrRecordingContext* ctx,
                                                        const GrSurfaceDesc& desc,
+                                                       GrColorType colorType,
                                                        SkColorSpace* srcColorSpace,
                                                        SkColorSpace* dstColorSpace) {
     SkYUVASizeInfo yuvSizeInfo;
@@ -147,19 +149,18 @@ sk_sp<GrTextureProxy> GrYUVProvider::refAsTextureProxy(GrContext* ctx,
         sk_sp<SkImage> yuvImage = SkImage::MakeFromRaster(pixmap, YUVGen_DataReleaseProc,
                                                           dataStoragePtr);
 
-        auto proxyProvider = ctx->contextPriv().proxyProvider();
-        yuvTextureProxies[i] = proxyProvider->createTextureProxy(yuvImage, kNone_GrSurfaceFlags,
-                                                                 1, SkBudgeted::kYes, fit);
+        auto proxyProvider = ctx->priv().proxyProvider();
+        yuvTextureProxies[i] = proxyProvider->createTextureProxy(yuvImage, GrRenderable::kNo, 1,
+                                                                 SkBudgeted::kYes, fit);
 
         SkASSERT(yuvTextureProxies[i]->width() == yuvSizeInfo.fSizes[i].fWidth);
         SkASSERT(yuvTextureProxies[i]->height() == yuvSizeInfo.fSizes[i].fHeight);
     }
 
     // TODO: investigate preallocating mip maps here
-    sk_sp<GrRenderTargetContext> renderTargetContext(
-        ctx->contextPriv().makeDeferredRenderTargetContext(
-            format, SkBackingFit::kExact, desc.fWidth, desc.fHeight, desc.fConfig, nullptr,
-            desc.fSampleCnt, GrMipMapped::kNo, kTopLeft_GrSurfaceOrigin));
+    sk_sp<GrRenderTargetContext> renderTargetContext(ctx->priv().makeDeferredRenderTargetContext(
+            SkBackingFit::kExact, desc.fWidth, desc.fHeight, colorType, nullptr, 1,
+            GrMipMapped::kNo, kTopLeft_GrSurfaceOrigin));
     if (!renderTargetContext) {
         return nullptr;
     }

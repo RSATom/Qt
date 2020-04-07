@@ -82,19 +82,21 @@ qtConfig(gstreamer_0_10) {
         qgstvideorenderersink.cpp
 }
 
-qtConfig(mirclient): {
-    qtConfig(opengles2):qtHaveModule(widgets) {
-        PRIVATE_HEADERS += qgstreamermirtexturerenderer_p.h
-        SOURCES += qgstreamermirtexturerenderer.cpp
-        QT += opengl quick
-        LIBS += -lEGL
-    }
-}
+qtConfig(gstreamer_gl): QMAKE_USE += gstreamer_gl
 
 qtConfig(gstreamer_app) {
     QMAKE_USE += gstreamer_app
     PRIVATE_HEADERS += qgstappsrc_p.h
     SOURCES += qgstappsrc.cpp
+}
+
+android {
+    LIBS_PRIVATE += \
+        -L$$(GSTREAMER_ROOT_ANDROID)/armv7/lib \
+        -Wl,--whole-archive \
+        -lgstapp-1.0 -lgstreamer-1.0 -lgstaudio-1.0 -lgsttag-1.0 -lgstvideo-1.0 -lgstbase-1.0 -lgstpbutils-1.0 \
+        -lgobject-2.0 -lgmodule-2.0 -lglib-2.0 -lffi -lintl -liconv -lorc-0.4 \
+        -Wl,--no-whole-archive
 }
 
 HEADERS += $$PRIVATE_HEADERS

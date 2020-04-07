@@ -39,6 +39,7 @@
 
 #include <qplatformdefs.h>
 #include <private/qabstractspinbox_p.h>
+#include <private/qapplication_p.h>
 #if QT_CONFIG(datetimeparser)
 #include <private/qdatetimeparser_p.h>
 #endif
@@ -253,7 +254,7 @@ QString QAbstractSpinBox::text() const
 
     All values are displayed with the prefix and suffix (if set), \e
     except for the special value, which only shows the special value
-    text. This special text is passed in the QSpinBox::valueChanged()
+    text. This special text is passed in the QSpinBox::textChanged()
     signal that passes a QString.
 
     To turn off the special-value text display, call this function
@@ -333,7 +334,7 @@ void QAbstractSpinBox::setReadOnly(bool enable)
     d->readOnly = enable;
     d->edit->setReadOnly(enable);
     QEvent event(QEvent::ReadOnlyChange);
-    QApplication::sendEvent(this, &event);
+    QCoreApplication::sendEvent(this, &event);
     update();
 }
 
@@ -343,18 +344,18 @@ void QAbstractSpinBox::setReadOnly(bool enable)
     \since 4.3
 
     If keyboard tracking is enabled (the default), the spinbox
-    emits the valueChanged() signal while the new value is being
-    entered from the keyboard.
+    emits the valueChanged() and textChanged() signals while the
+    new value is being entered from the keyboard.
 
     E.g. when the user enters the value 600 by typing 6, 0, and 0,
     the spinbox emits 3 signals with the values 6, 60, and 600
     respectively.
 
     If keyboard tracking is disabled, the spinbox doesn't emit the
-    valueChanged() signal while typing. It emits the signal later,
-    when the return key is pressed, when keyboard focus is lost, or
-    when other spinbox functionality is used, e.g. pressing an arrow
-    key.
+    valueChanged() and textChanged() signals while typing. It emits
+    the signals later, when the return key is pressed, when keyboard
+    focus is lost, or when other spinbox functionality is used, e.g.
+    pressing an arrow key.
 */
 
 bool QAbstractSpinBox::keyboardTracking() const
@@ -574,10 +575,10 @@ QAbstractSpinBox::StepEnabled QAbstractSpinBox::stepEnabled() const
     if (d->wrapping)
         return StepEnabled(StepUpEnabled | StepDownEnabled);
     StepEnabled ret = StepNone;
-    if (d->variantCompare(d->value, d->maximum) < 0) {
+    if (QAbstractSpinBoxPrivate::variantCompare(d->value, d->maximum) < 0) {
         ret |= StepUpEnabled;
     }
-    if (d->variantCompare(d->value, d->minimum) > 0) {
+    if (QAbstractSpinBoxPrivate::variantCompare(d->value, d->minimum) > 0) {
         ret |= StepDownEnabled;
     }
     return ret;
@@ -803,7 +804,7 @@ bool QAbstractSpinBox::event(QEvent *event)
 #ifdef QT_KEYPAD_NAVIGATION
     case QEvent::EnterEditFocus:
     case QEvent::LeaveEditFocus:
-        if (QApplication::keypadNavigationEnabled()) {
+        if (QApplicationPrivate::keypadNavigationEnabled()) {
             const bool b = d->edit->event(event);
             d->edit->setSelection(d->edit->displayText().size() - d->suffix.size(),0);
             if (event->type() == QEvent::LeaveEditFocus)
@@ -1025,7 +1026,7 @@ void QAbstractSpinBox::keyPressEvent(QKeyEvent *event)
     case Qt::Key_Up:
     case Qt::Key_Down: {
 #ifdef QT_KEYPAD_NAVIGATION
-        if (QApplication::keypadNavigationEnabled()) {
+        if (QApplicationPrivate::keypadNavigationEnabled()) {
             // Reserve up/down for nav - use left/right for edit.
             if (!hasEditFocus() && (event->key() == Qt::Key_Up
                                     || event->key() == Qt::Key_Down)) {
@@ -1061,13 +1062,13 @@ void QAbstractSpinBox::keyPressEvent(QKeyEvent *event)
 #ifdef QT_KEYPAD_NAVIGATION
     case Qt::Key_Left:
     case Qt::Key_Right:
-        if (QApplication::keypadNavigationEnabled() && !hasEditFocus()) {
+        if (QApplicationPrivate::keypadNavigationEnabled() && !hasEditFocus()) {
             event->ignore();
             return;
         }
         break;
     case Qt::Key_Back:
-        if (QApplication::keypadNavigationEnabled() && !hasEditFocus()) {
+        if (QApplicationPrivate::keypadNavigationEnabled() && !hasEditFocus()) {
             event->ignore();
             return;
         }
@@ -1085,7 +1086,7 @@ void QAbstractSpinBox::keyPressEvent(QKeyEvent *event)
 
 #ifdef QT_KEYPAD_NAVIGATION
     case Qt::Key_Select:
-        if (QApplication::keypadNavigationEnabled()) {
+        if (QApplicationPrivate::keypadNavigationEnabled()) {
             // Toggles between left/right moving cursor and inc/dec.
             setEditFocus(!hasEditFocus());
         }
@@ -1221,7 +1222,7 @@ void QAbstractSpinBox::focusOutEvent(QFocusEvent *event)
 
 #ifdef QT_KEYPAD_NAVIGATION
     // editingFinished() is already emitted on LeaveEditFocus
-    if (!QApplication::keypadNavigationEnabled())
+    if (!QApplicationPrivate::keypadNavigationEnabled())
 #endif
     emit editingFinished();
 }
@@ -1320,6 +1321,9 @@ void QAbstractSpinBox::contextMenuEvent(QContextMenuEvent *event)
     d->reset();
 
     QAction *selAll = new QAction(tr("&Select All"), menu);
+#if QT_CONFIG(shortcut)
+    selAll->setShortcut(QKeySequence::SelectAll);
+#endif
     menu->insertAction(d->edit->d_func()->selectAllAction,
                       selAll);
     menu->removeAction(d->edit->d_func()->selectAllAction);
@@ -1722,7 +1726,7 @@ void QAbstractSpinBox::initStyleOption(QStyleOptionSpinBox *option) const
         option->activeSubControls = d->hoverControl;
     }
 
-    option->stepEnabled = style()->styleHint(QStyle::SH_SpinControls_DisableOnBounds)
+    option->stepEnabled = style()->styleHint(QStyle::SH_SpinControls_DisableOnBounds, nullptr, this)
                       ? stepEnabled()
                       : (QAbstractSpinBox::StepDownEnabled|QAbstractSpinBox::StepUpEnabled);
 
@@ -2031,8 +2035,8 @@ QVariant operator+(const QVariant &arg1, const QVariant &arg2)
 #if QT_CONFIG(datetimeparser)
     case QVariant::DateTime: {
         QDateTime a2 = arg2.toDateTime();
-        QDateTime a1 = arg1.toDateTime().addDays(QDATETIMEEDIT_DATETIME_MIN.daysTo(a2));
-        a1.setTime(a1.time().addMSecs(QTime().msecsTo(a2.time())));
+        QDateTime a1 = arg1.toDateTime().addDays(QDATETIMEEDIT_DATE_MIN.daysTo(a2.date()));
+        a1.setTime(a1.time().addMSecs(a2.time().msecsSinceStartOfDay()));
         ret = QVariant(a1);
         break;
     }
@@ -2094,11 +2098,11 @@ QVariant operator*(const QVariant &arg1, double multiplier)
 #if QT_CONFIG(datetimeparser)
     case QVariant::DateTime: {
         double days = QDATETIMEEDIT_DATE_MIN.daysTo(arg1.toDateTime().date()) * multiplier;
-        int daysInt = (int)days;
+        const qint64 daysInt = qint64(days);
         days -= daysInt;
-        long msecs = (long)((QDATETIMEEDIT_TIME_MIN.msecsTo(arg1.toDateTime().time()) * multiplier)
-                            + (days * (24 * 3600 * 1000)));
-        ret = QDateTime(QDate().addDays(int(days)), QTime().addMSecs(msecs));
+        qint64 msecs = qint64(arg1.toDateTime().time().msecsSinceStartOfDay() * multiplier
+                              + days * (24 * 3600 * 1000));
+        ret = QDATETIMEEDIT_DATE_MIN.addDays(daysInt).startOfDay().addMSecs(msecs);
         break;
     }
 #endif // datetimeparser
@@ -2128,8 +2132,8 @@ double operator/(const QVariant &arg1, const QVariant &arg2)
     case QVariant::DateTime:
         a1 = QDATETIMEEDIT_DATE_MIN.daysTo(arg1.toDate());
         a2 = QDATETIMEEDIT_DATE_MIN.daysTo(arg2.toDate());
-        a1 += (double)QDATETIMEEDIT_TIME_MIN.msecsTo(arg1.toDateTime().time()) / (long)(3600 * 24 * 1000);
-        a2 += (double)QDATETIMEEDIT_TIME_MIN.msecsTo(arg2.toDateTime().time()) / (long)(3600 * 24 * 1000);
+        a1 += arg1.toDateTime().time().msecsSinceStartOfDay() / (36e5 * 24);
+        a2 += arg2.toDateTime().time().msecsSinceStartOfDay() / (36e5 * 24);
         break;
 #endif // datetimeparser
     default: break;

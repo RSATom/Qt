@@ -145,6 +145,8 @@ struct Q_SVG_PRIVATE_EXPORT QSvgExtraStates
     int fontWeight;
     Qt::FillRule fillRule;
     qreal strokeDashOffset;
+    int nestedUseLevel = 0;
+    int nestedUseCount = 0;
     bool vectorEffect; // true if pen is cosmetic
 };
 
@@ -346,7 +348,7 @@ public:
 
     void setFamily(const QString &family)
     {
-        m_qfont.setFamily(family);
+        m_qfont.setFamilies({family});
         m_familySet = 1;
     }
 

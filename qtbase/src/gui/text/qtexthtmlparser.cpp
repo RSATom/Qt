@@ -491,12 +491,19 @@ QTextHtmlParserNode::QTextHtmlParserNode()
       listStyle(QTextListFormat::ListStyleUndefined), imageWidth(-1), imageHeight(-1), tableBorder(0),
       tableCellRowSpan(1), tableCellColSpan(1), tableCellSpacing(2), tableCellPadding(0),
       borderBrush(Qt::darkGray), borderStyle(QTextFrameFormat::BorderStyle_Outset),
+      borderCollapse(false),
       userState(-1), cssListIndent(0), wsm(WhiteSpaceModeUndefined)
 {
     margin[QTextHtmlParser::MarginLeft] = 0;
     margin[QTextHtmlParser::MarginRight] = 0;
     margin[QTextHtmlParser::MarginTop] = 0;
     margin[QTextHtmlParser::MarginBottom] = 0;
+
+    for (int i = 0; i < 4; ++i) {
+        tableCellBorderStyle[i] = QTextFrameFormat::BorderStyle_None;
+        tableCellBorder[i] = 0;
+        tableCellBorderBrush[i] = Qt::NoBrush;
+    }
 }
 
 void QTextHtmlParser::dumpHtml()
@@ -649,7 +656,7 @@ void QTextHtmlParser::parseTag()
         parseExclamationTag();
         if (nodes.last().wsm != QTextHtmlParserNode::WhiteSpacePre
             && nodes.last().wsm != QTextHtmlParserNode::WhiteSpacePreWrap
-            && !textEditMode)
+                && !textEditMode)
             eatSpace();
         return;
     }
@@ -717,7 +724,8 @@ void QTextHtmlParser::parseTag()
     // in a white-space preserving environment strip off a initial newline
     // since the element itself already generates a newline
     if ((node->wsm == QTextHtmlParserNode::WhiteSpacePre
-         || node->wsm == QTextHtmlParserNode::WhiteSpacePreWrap)
+         || node->wsm == QTextHtmlParserNode::WhiteSpacePreWrap
+         || node->wsm == QTextHtmlParserNode::WhiteSpacePreLine)
         && node->isBlock()) {
         if (pos < len - 1 && txt.at(pos) == QLatin1Char('\n'))
             ++pos;
@@ -761,7 +769,8 @@ void QTextHtmlParser::parseCloseTag()
     // in a new block for elements following the <pre>
     // ...foo\n</pre><p>blah -> foo</pre><p>blah
     if ((at(p).wsm == QTextHtmlParserNode::WhiteSpacePre
-         || at(p).wsm == QTextHtmlParserNode::WhiteSpacePreWrap)
+         || at(p).wsm == QTextHtmlParserNode::WhiteSpacePreWrap
+         || at(p).wsm == QTextHtmlParserNode::WhiteSpacePreLine)
         && at(p).isBlock()) {
         if (at(last()).text.endsWith(QLatin1Char('\n')))
             nodes[last()].text.chop(1);
@@ -1125,6 +1134,7 @@ void QTextHtmlParserNode::initializeProperties(const QTextHtmlParserNode *parent
             margin[QTextHtmlParser::MarginBottom] = 12;
             margin[QTextHtmlParser::MarginLeft] = 40;
             margin[QTextHtmlParser::MarginRight] = 40;
+            blockFormat.setProperty(QTextFormat::BlockQuoteLevel, 1);
             break;
         case Html_dl:
             margin[QTextHtmlParser::MarginTop] = 8;
@@ -1166,6 +1176,25 @@ void QTextHtmlParserNode::applyCssDeclarations(const QVector<QCss::Declaration> 
     QCss::ValueExtractor extractor(declarations);
     extractor.extractBox(margin, padding);
 
+    if (id == Html_td || id == Html_th) {
+        QCss::BorderStyle cssStyles[4];
+        int cssBorder[4];
+        QSize cssRadii[4]; // unused
+        for (int i = 0; i < 4; ++i) {
+            cssStyles[i] = QCss::BorderStyle_None;
+            cssBorder[i] = 0;
+        }
+        // this will parse (and cache) "border-width" as a list so the
+        // QCss::BorderWidth parsing below which expects a single value
+        // will not work as expected - which in this case does not matter
+        // because tableBorder is not relevant for cells.
+        extractor.extractBorder(cssBorder, tableCellBorderBrush, cssStyles, cssRadii);
+        for (int i = 0; i < 4; ++i) {
+            tableCellBorderStyle[i] = static_cast<QTextFrameFormat::BorderStyle>(cssStyles[i] - 1);
+            tableCellBorder[i] = static_cast<qreal>(cssBorder[i]);
+        }
+    }
+
     for (int i = 0; i < declarations.count(); ++i) {
         const QCss::Declaration &decl = declarations.at(i);
         if (decl.d->values.isEmpty()) continue;
@@ -1180,8 +1209,14 @@ void QTextHtmlParserNode::applyCssDeclarations(const QVector<QCss::Declaration> 
             if (decl.styleValue() != QCss::BorderStyle_Unknown && decl.styleValue() != QCss::BorderStyle_Native)
                 borderStyle = static_cast<QTextFrameFormat::BorderStyle>(decl.styleValue() - 1);
             break;
-        case QCss::BorderWidth:
-            tableBorder = extractor.lengthValue(decl);
+        case QCss::BorderWidth: {
+            int borders[4];
+            extractor.lengthValues(decl, borders);
+            tableBorder = borders[0];
+            }
+            break;
+        case QCss::BorderCollapse:
+            borderCollapse = decl.borderCollapseValue();
             break;
         case QCss::Color: charFormat.setForeground(decl.colorValue()); break;
         case QCss::Float:
@@ -1277,6 +1312,7 @@ void QTextHtmlParserNode::applyCssDeclarations(const QVector<QCss::Declaration> 
             case QCss::Value_Pre: wsm = QTextHtmlParserNode::WhiteSpacePre; break;
             case QCss::Value_NoWrap: wsm = QTextHtmlParserNode::WhiteSpaceNoWrap; break;
             case QCss::Value_PreWrap: wsm = QTextHtmlParserNode::WhiteSpacePreWrap; break;
+            case QCss::Value_PreLine: wsm = QTextHtmlParserNode::WhiteSpacePreLine; break;
             default: break;
             }
             break;
@@ -1334,6 +1370,17 @@ void QTextHtmlParserNode::applyCssDeclarations(const QVector<QCss::Declaration> 
             default: break;
             }
             break;
+
+        case QCss::QtForegroundTextureCacheKey:
+        {
+            if (resourceProvider != nullptr && resourceProvider->docHandle() != nullptr) {
+                bool ok;
+                qint64 searchKey = decl.d->values.first().variant.toLongLong(&ok);
+                if (ok)
+                    applyForegroundImage(searchKey, resourceProvider);
+            }
+            break;
+        }
         default: break;
         }
     }
@@ -1365,6 +1412,37 @@ void QTextHtmlParserNode::applyCssDeclarations(const QVector<QCss::Declaration> 
 }
 
 #endif // QT_NO_CSSPARSER
+
+void QTextHtmlParserNode::applyForegroundImage(qint64 searchKey, const QTextDocument *resourceProvider)
+{
+    QTextDocumentPrivate *priv = resourceProvider->docHandle();
+    for (int i = 0; i < priv->formats.numFormats(); ++i) {
+        QTextCharFormat format = priv->formats.charFormat(i);
+        if (format.isValid()) {
+            QBrush brush = format.foreground();
+            if (brush.style() == Qt::TexturePattern) {
+                const bool isPixmap = qHasPixmapTexture(brush);
+
+                if (isPixmap && QCoreApplication::instance()->thread() != QThread::currentThread()) {
+                    qWarning("Can't apply QPixmap outside of GUI thread");
+                    return;
+                }
+
+                const qint64 cacheKey = isPixmap ? brush.texture().cacheKey() : brush.textureImage().cacheKey();
+                if (cacheKey == searchKey) {
+                    QBrush b;
+                    if (isPixmap)
+                        b.setTexture(brush.texture());
+                    else
+                        b.setTextureImage(brush.textureImage());
+                    b.setStyle(Qt::TexturePattern);
+                    charFormat.setForeground(b);
+                }
+            }
+        }
+    }
+
+}
 
 void QTextHtmlParserNode::applyBackgroundImage(const QString &url, const QTextDocument *resourceProvider)
 {
@@ -1564,6 +1642,10 @@ void QTextHtmlParser::applyAttributes(const QStringList &attributes)
                 } else if (key == QLatin1String("height")) {
                     node->imageHeight = -2; // register that there is a value for it.
                     setFloatAttribute(&node->imageHeight, value);
+                } else if (key == QLatin1String("alt")) {
+                    node->imageAlt = value;
+                } else if (key == QLatin1String("title")) {
+                    node->text = value;
                 }
                 break;
             case Html_tr:
@@ -1604,6 +1686,11 @@ void QTextHtmlParser::applyAttributes(const QStringList &attributes)
                     if (!c.isValid())
                         qWarning("QTextHtmlParser::applyAttributes: Unknown color name '%s'",value.toLatin1().constData());
                     node->charFormat.setBackground(c);
+                } else if (key == QLatin1String("bordercolor")) {
+                    QColor c; c.setNamedColor(value);
+                    if (!c.isValid())
+                        qWarning("QTextHtmlParser::applyAttributes: Unknown color name '%s'",value.toLatin1().constData());
+                    node->borderBrush = c;
                 } else if (key == QLatin1String("background")) {
                     node->applyBackgroundImage(value, resourceProvider);
                 } else if (key == QLatin1String("cellspacing")) {
@@ -1638,6 +1725,10 @@ void QTextHtmlParser::applyAttributes(const QStringList &attributes)
                     linkHref = value;
                 else if (key == QLatin1String("type"))
                     linkType = value;
+                break;
+            case Html_pre:
+                if (key == QLatin1String("class") && value.startsWith(QLatin1String("language-")))
+                    node->blockFormat.setProperty(QTextFormat::BlockCodeLanguage, value.mid(9));
                 break;
             default:
                 break;

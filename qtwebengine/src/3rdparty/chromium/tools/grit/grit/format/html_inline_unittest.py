@@ -5,6 +5,7 @@
 
 '''Unit tests for grit.format.html_inline'''
 
+from __future__ import print_function
 
 import os
 import re
@@ -641,6 +642,38 @@ class HtmlInlineUnittest(unittest.TestCase):
     result = html_inline.DoInline(
         tmp_dir.GetPath('index.html'),
         None)
+    resources = result.inlined_files
+    resources.add(tmp_dir.GetPath('index.html'))
+    self.failUnlessEqual(resources, source_resources)
+    self.failUnlessEqual(expected_inlined,
+                         util.FixLineEnd(result.inlined_data, '\n'))
+    tmp_dir.CleanUp()
+
+  def testImgSrcsetIgnoresI18n(self):
+    '''Tests that $i18n{...} strings are ignored when inlining.
+    '''
+
+    src_html = '''
+      <html>
+      <head></head>
+      <body>
+        <img srcset="$i18n{foo}">
+      </body>
+      </html>
+      '''
+
+    files = {
+      'index.html': src_html,
+    }
+
+    expected_inlined = src_html
+
+    source_resources = set()
+    tmp_dir = util.TempDir(files)
+    for filename in files:
+      source_resources.add(tmp_dir.GetPath(util.normpath(filename)))
+
+    result = html_inline.DoInline(tmp_dir.GetPath('index.html'), None)
     resources = result.inlined_files
     resources.add(tmp_dir.GetPath('index.html'))
     self.failUnlessEqual(resources, source_resources)

@@ -34,6 +34,7 @@ const char* const kValidSchemes[] = {
     content::kChromeUIScheme, extensions::kExtensionScheme,
     url::kFileSystemScheme,   url::kWsScheme,
     url::kWssScheme,          url::kDataScheme,
+    url::kQrcScheme,
 };
 
 const int kValidSchemeMasks[] = {
@@ -42,6 +43,7 @@ const int kValidSchemeMasks[] = {
     URLPattern::SCHEME_CHROMEUI,   URLPattern::SCHEME_EXTENSION,
     URLPattern::SCHEME_FILESYSTEM, URLPattern::SCHEME_WS,
     URLPattern::SCHEME_WSS,        URLPattern::SCHEME_DATA,
+    URLPattern::SCHEME_QRC,
 };
 
 static_assert(base::size(kValidSchemes) == base::size(kValidSchemeMasks),
@@ -176,8 +178,14 @@ URLPattern::URLPattern(int valid_schemes, base::StringPiece pattern)
 
 URLPattern::URLPattern(const URLPattern& other) = default;
 
+URLPattern::URLPattern(URLPattern&& other) = default;
+
 URLPattern::~URLPattern() {
 }
+
+URLPattern& URLPattern::operator=(const URLPattern& other) = default;
+
+URLPattern& URLPattern::operator=(URLPattern&& other) = default;
 
 bool URLPattern::operator<(const URLPattern& other) const {
   return GetAsString() < other.GetAsString();
@@ -782,7 +790,7 @@ bool URLPattern::MatchesSecurityOriginHelper(const GURL& test) const {
   if (scheme_ != url::kFileScheme && !MatchesHost(test))
     return false;
 
-  if (!MatchesPortPattern(base::IntToString(test.EffectiveIntPort())))
+  if (!MatchesPortPattern(base::NumberToString(test.EffectiveIntPort())))
     return false;
 
   return true;

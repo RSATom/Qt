@@ -56,7 +56,7 @@ namespace QTest
 
 inline static void qPrintMessage(const QByteArray &ba)
 {
-    QTestLog::info(ba.constData(), 0, 0);
+    QTestLog::info(ba.constData(), nullptr, 0);
 }
 
 Q_GLOBAL_STATIC(QList<QByteArray>, ignoreClasses)
@@ -87,7 +87,7 @@ static void qSignalDumperCallback(QObject *caller, int signal_index, void **argv
     str += objname.toLocal8Bit();
     if (!objname.isEmpty())
         str += ' ';
-    str += QByteArray::number(quintptr(caller), 16);
+    str += QByteArray::number(quintptr(caller), 16).rightJustified(8, '0');
 
     str += ") ";
     str += member.name();
@@ -105,7 +105,7 @@ static void qSignalDumperCallback(QObject *caller, int signal_index, void **argv
                 str += '@';
 
             quintptr addr = quintptr(*reinterpret_cast<void **>(argv[i + 1]));
-            str.append(QByteArray::number(addr, 16));
+            str.append(QByteArray::number(addr, 16).rightJustified(8, '0'));
         } else if (typeId != QMetaType::UnknownType) {
             Q_ASSERT(typeId != QMetaType::Void); // void parameter => metaobject is corrupt
             str.append(arg)
@@ -144,7 +144,7 @@ static void qSignalDumperCallbackSlot(QObject *caller, int method_index, void **
     str += objname.toLocal8Bit();
     if (!objname.isEmpty())
         str += ' ';
-    str += QByteArray::number(quintptr(caller), 16);
+    str += QByteArray::number(quintptr(caller), 16).rightJustified(8, '0');
 
     str += ") ";
     str += member.methodSignature();
@@ -169,14 +169,13 @@ static void qSignalDumperCallbackEndSignal(QObject *caller, int /*signal_index*/
 void QSignalDumper::startDump()
 {
     static QSignalSpyCallbackSet set = { QTest::qSignalDumperCallback,
-        QTest::qSignalDumperCallbackSlot, QTest::qSignalDumperCallbackEndSignal, 0 };
-    qt_register_signal_spy_callbacks(set);
+        QTest::qSignalDumperCallbackSlot, QTest::qSignalDumperCallbackEndSignal, nullptr };
+    qt_register_signal_spy_callbacks(&set);
 }
 
 void QSignalDumper::endDump()
 {
-    static QSignalSpyCallbackSet nset = { 0, 0, 0 ,0 };
-    qt_register_signal_spy_callbacks(nset);
+    qt_register_signal_spy_callbacks(nullptr);
 }
 
 void QSignalDumper::ignoreClass(const QByteArray &klass)

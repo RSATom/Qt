@@ -28,6 +28,7 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/values.h"
 #include "base/win/registry.h"
+#include "base/win/win_util.h"
 #include "components/onc/onc_constants.h"
 #include "components/wifi/network_properties.h"
 #include "third_party/libxml/chromium/libxml_utils.h"
@@ -845,17 +846,18 @@ void WiFiServiceImpl::OnWlanNotification(
           reinterpret_cast<PWLAN_CONNECTION_NOTIFICATION_DATA>(
               wlan_notification_data->pData);
       event_task_runner_->PostTask(
-          FROM_HERE, base::Bind(&WiFiServiceImpl::NotifyNetworkChanged,
-                                base::Unretained(this),
-                                GUIDFromSSID(wlan_connection_data->dot11Ssid)));
+          FROM_HERE,
+          base::BindOnce(&WiFiServiceImpl::NotifyNetworkChanged,
+                         base::Unretained(this),
+                         GUIDFromSSID(wlan_connection_data->dot11Ssid)));
       break;
     }
     case wlan_notification_acm_scan_complete:
     case wlan_notification_acm_interface_removal:
       event_task_runner_->PostTask(
           FROM_HERE,
-          base::Bind(&WiFiServiceImpl::OnNetworkScanCompleteOnMainThread,
-                     base::Unretained(this)));
+          base::BindOnce(&WiFiServiceImpl::OnNetworkScanCompleteOnMainThread,
+                         base::Unretained(this)));
       break;
   }
 }
@@ -941,10 +943,8 @@ void WiFiServiceImpl::WaitForNetworkConnect(const std::string& network_guid,
     // Continue waiting for network connection state change.
     task_runner_->PostDelayedTask(
         FROM_HERE,
-        base::Bind(&WiFiServiceImpl::WaitForNetworkConnect,
-                   base::Unretained(this),
-                   network_guid,
-                   ++attempt),
+        base::BindOnce(&WiFiServiceImpl::WaitForNetworkConnect,
+                       base::Unretained(this), network_guid, ++attempt),
         base::TimeDelta::FromMilliseconds(kAttemptDelayMs));
   }
 }
@@ -1138,10 +1138,7 @@ DWORD WiFiServiceImpl::ResetDHCP() {
 DWORD WiFiServiceImpl::FindAdapterIndexMapByGUID(
     const GUID& interface_guid,
     IP_ADAPTER_INDEX_MAP* adapter_index_map) {
-  base::string16 guid_string;
-  const int kGUIDSize = 39;
-  ::StringFromGUID2(
-      interface_guid, base::WriteInto(&guid_string, kGUIDSize), kGUIDSize);
+  const auto guid_string = base::win::String16FromGUID(interface_guid);
 
   ULONG buffer_length = 0;
   DWORD error = ::GetInterfaceInfo(nullptr, &buffer_length);
@@ -1806,7 +1803,8 @@ void WiFiServiceImpl::NotifyNetworkListChanged(const NetworkList& networks) {
   }
 
   event_task_runner_->PostTask(
-      FROM_HERE, base::Bind(network_list_changed_observer_, current_networks));
+      FROM_HERE,
+      base::BindOnce(network_list_changed_observer_, current_networks));
 }
 
 void WiFiServiceImpl::NotifyNetworkChanged(const std::string& network_guid) {
@@ -1814,7 +1812,8 @@ void WiFiServiceImpl::NotifyNetworkChanged(const std::string& network_guid) {
     DVLOG(1) << "NotifyNetworkChanged: " << network_guid;
     NetworkGuidList changed_networks(1, network_guid);
     event_task_runner_->PostTask(
-        FROM_HERE, base::Bind(networks_changed_observer_, changed_networks));
+        FROM_HERE,
+        base::BindOnce(networks_changed_observer_, changed_networks));
   }
 }
 

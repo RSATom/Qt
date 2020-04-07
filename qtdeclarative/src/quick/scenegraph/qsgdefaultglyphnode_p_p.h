@@ -57,7 +57,8 @@
 #include <QtQuick/qsgtexture.h>
 #include <QtQuick/qsggeometry.h>
 #include <qshareddata.h>
-#include <QtQuick/private/qsgtexture_p.h>
+#include <QtQuick/private/qsgplaintexture_p.h>
+#include <QtQuick/private/qsgrhitextureglyphcache_p.h>
 #include <qrawfont.h>
 #include <qmargins.h>
 
@@ -65,10 +66,13 @@ QT_BEGIN_NAMESPACE
 
 class QFontEngine;
 class Geometry;
+class QSGRenderContext;
+class QSGDefaultRenderContext;
+
 class QSGTextMaskMaterial: public QSGMaterial
 {
 public:
-    QSGTextMaskMaterial(const QVector4D &color, const QRawFont &font, QFontEngine::GlyphFormat glyphFormat = QFontEngine::Format_None);
+    QSGTextMaskMaterial(QSGRenderContext *rc, const QVector4D &color, const QRawFont &font, QFontEngine::GlyphFormat glyphFormat = QFontEngine::Format_None);
     virtual ~QSGTextMaskMaterial();
 
     QSGMaterialType *type() const override;
@@ -81,12 +85,12 @@ public:
 
     QSGTexture *texture() const { return m_texture; }
 
-    int cacheTextureWidth() const;
-    int cacheTextureHeight() const;
-
     bool ensureUpToDate();
 
-    QOpenGLTextureGlyphCache *glyphCache() const;
+    QTextureGlyphCache *glyphCache() const;
+    QOpenGLTextureGlyphCache *openglGlyphCache() const;
+    QSGRhiTextureGlyphCache *rhiGlyphCache() const;
+
     void populate(const QPointF &position,
                   const QVector<quint32> &glyphIndexes, const QVector<QPointF> &glyphPositions,
                   QSGGeometry *geometry, QRectF *boundingRect, QPointF *baseLine,
@@ -96,9 +100,11 @@ private:
     void init(QFontEngine::GlyphFormat glyphFormat);
     void updateCache(QFontEngine::GlyphFormat glyphFormat);
 
+    QSGDefaultRenderContext *m_rc;
     QSGPlainTexture *m_texture;
     QExplicitlySharedDataPointer<QFontEngineGlyphCache> m_glyphCache;
     QRawFont m_font;
+    QRhi *m_rhi;
     QVector4D m_color;
     QSize m_size;
 };
@@ -106,7 +112,7 @@ private:
 class QSGStyledTextMaterial : public QSGTextMaskMaterial
 {
 public:
-    QSGStyledTextMaterial(const QRawFont &font);
+    QSGStyledTextMaterial(QSGRenderContext *rc, const QRawFont &font);
     virtual ~QSGStyledTextMaterial() { }
 
     void setStyleShift(const QVector2D &shift) { m_styleShift = shift; }
@@ -118,7 +124,6 @@ public:
 
     QSGMaterialType *type() const override;
     QSGMaterialShader *createShader() const override;
-
     int compare(const QSGMaterial *other) const override;
 
 private:
@@ -129,7 +134,7 @@ private:
 class QSGOutlinedTextMaterial : public QSGStyledTextMaterial
 {
 public:
-    QSGOutlinedTextMaterial(const QRawFont &font);
+    QSGOutlinedTextMaterial(QSGRenderContext *rc, const QRawFont &font);
     ~QSGOutlinedTextMaterial() { }
 
     QSGMaterialType *type() const override;

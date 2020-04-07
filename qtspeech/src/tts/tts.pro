@@ -24,4 +24,4 @@ SOURCES = \
 ANDROID_BUNDLED_JAR_DEPENDENCIES = \
     jar/QtTextToSpeech.jar
 ANDROID_LIB_DEPENDENCIES = \
-    plugins/texttospeech/libqttexttospeech_android.so
+    plugins/texttospeech/libplugins_texttospeech_qttexttospeech_android.so

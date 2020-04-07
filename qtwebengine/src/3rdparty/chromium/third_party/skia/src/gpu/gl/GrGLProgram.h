@@ -9,16 +9,16 @@
 #ifndef GrGLProgram_DEFINED
 #define GrGLProgram_DEFINED
 
-#include "GrGLProgramDataManager.h"
-#include "glsl/GrGLSLProgramDataManager.h"
-#include "glsl/GrGLSLUniformHandler.h"
+#include "src/gpu/gl/GrGLProgramDataManager.h"
+#include "src/gpu/glsl/GrGLSLProgramDataManager.h"
+#include "src/gpu/glsl/GrGLSLUniformHandler.h"
 
 class GrGLSLFragmentProcessor;
 class GrGLSLPrimitiveProcessor;
 class GrGLSLXferProcessor;
 class GrPipeline;
 class GrPrimitiveProcessor;
-class GrRenderTargetProxy;
+class GrRenderTarget;
 class GrTextureProxy;
 
 /**
@@ -118,7 +118,8 @@ public:
      *
      * It is the caller's responsibility to ensure the program is bound before calling.
      */
-    void updateUniformsAndTextureBindings(const GrPrimitiveProcessor&, const GrPipeline&,
+    void updateUniformsAndTextureBindings(const GrRenderTarget*, GrSurfaceOrigin,
+                                          const GrPrimitiveProcessor&, const GrPipeline&,
                                           const GrTextureProxy* const primitiveProcessorTextures[]);
 
     void updatePrimitiveProcessorTextureBindings(const GrPrimitiveProcessor&,
@@ -144,7 +145,7 @@ private:
     void setFragmentData(const GrPipeline&, int* nextTexSamplerIdx);
 
     // Helper for setData() that sets the view matrix and loads the render target height uniform
-    void setRenderTargetState(const GrPrimitiveProcessor&, const GrRenderTargetProxy*);
+    void setRenderTargetState(const GrRenderTarget*, GrSurfaceOrigin, const GrPrimitiveProcessor&);
 
     // these reflect the current values of uniforms (GL uniform values travel with program)
     RenderTargetState fRenderTargetState;

@@ -8,13 +8,63 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
+#include "call/degraded_call.h"
+
 #include <utility>
 
 #include "absl/memory/memory.h"
-#include "call/degraded_call.h"
 #include "rtc_base/location.h"
 
 namespace webrtc {
+
+namespace {
+constexpr int64_t kDoNothingProcessIntervalMs = 5000;
+}  // namespace
+
+FakeNetworkPipeModule::~FakeNetworkPipeModule() = default;
+
+FakeNetworkPipeModule::FakeNetworkPipeModule(
+    Clock* clock,
+    std::unique_ptr<NetworkBehaviorInterface> network_behavior,
+    Transport* transport)
+    : pipe_(clock, std::move(network_behavior), transport) {}
+
+void FakeNetworkPipeModule::SendRtp(const uint8_t* packet,
+                                    size_t length,
+                                    const PacketOptions& options) {
+  pipe_.SendRtp(packet, length, options);
+  MaybeResumeProcess();
+}
+
+void FakeNetworkPipeModule::SendRtcp(const uint8_t* packet, size_t length) {
+  pipe_.SendRtcp(packet, length);
+  MaybeResumeProcess();
+}
+
+void FakeNetworkPipeModule::MaybeResumeProcess() {
+  rtc::CritScope cs(&process_thread_lock_);
+  if (!pending_process_ && pipe_.TimeUntilNextProcess() && process_thread_) {
+    process_thread_->WakeUp(nullptr);
+  }
+}
+
+int64_t FakeNetworkPipeModule::TimeUntilNextProcess() {
+  auto delay = pipe_.TimeUntilNextProcess();
+  rtc::CritScope cs(&process_thread_lock_);
+  pending_process_ = delay.has_value();
+  return delay.value_or(kDoNothingProcessIntervalMs);
+}
+
+void FakeNetworkPipeModule::ProcessThreadAttached(
+    ProcessThread* process_thread) {
+  rtc::CritScope cs(&process_thread_lock_);
+  process_thread_ = process_thread;
+}
+
+void FakeNetworkPipeModule::Process() {
+  pipe_.Process();
+}
+
 DegradedCall::DegradedCall(
     std::unique_ptr<Call> call,
     absl::optional<BuiltInNetworkBehaviorConfig> send_config,
@@ -72,8 +122,8 @@ VideoSendStream* DegradedCall::CreateVideoSendStream(
   if (send_config_ && !send_pipe_) {
     auto network = absl::make_unique<SimulatedNetwork>(*send_config_);
     send_simulated_network_ = network.get();
-    send_pipe_ = absl::make_unique<FakeNetworkPipe>(clock_, std::move(network),
-                                                    config.send_transport);
+    send_pipe_ = absl::make_unique<FakeNetworkPipeModule>(
+        clock_, std::move(network), config.send_transport);
     config.send_transport = this;
     send_process_thread_->RegisterModule(send_pipe_.get(), RTC_FROM_HERE);
   }
@@ -89,8 +139,8 @@ VideoSendStream* DegradedCall::CreateVideoSendStream(
   if (send_config_ && !send_pipe_) {
     auto network = absl::make_unique<SimulatedNetwork>(*send_config_);
     send_simulated_network_ = network.get();
-    send_pipe_ = absl::make_unique<FakeNetworkPipe>(clock_, std::move(network),
-                                                    config.send_transport);
+    send_pipe_ = absl::make_unique<FakeNetworkPipeModule>(
+        clock_, std::move(network), config.send_transport);
     config.send_transport = this;
     send_process_thread_->RegisterModule(send_pipe_.get(), RTC_FROM_HERE);
   }
@@ -144,12 +194,6 @@ DegradedCall::GetTransportControllerSend() {
 
 Call::Stats DegradedCall::GetStats() const {
   return call_->GetStats();
-}
-
-void DegradedCall::SetBitrateAllocationStrategy(
-    std::unique_ptr<rtc::BitrateAllocationStrategy>
-        bitrate_allocation_strategy) {
-  call_->SetBitrateAllocationStrategy(std::move(bitrate_allocation_strategy));
 }
 
 void DegradedCall::SignalChannelNetworkState(MediaType media,

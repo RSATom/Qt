@@ -8,19 +8,19 @@
 #ifndef SkMaskFilterBase_DEFINED
 #define SkMaskFilterBase_DEFINED
 
-#include "SkBlurTypes.h"
-#include "SkFlattenable.h"
-#include "SkMask.h"
-#include "SkMaskFilter.h"
-#include "SkNoncopyable.h"
-#include "SkPaint.h"
-#include "SkStrokeRec.h"
+#include "include/core/SkBlurTypes.h"
+#include "include/core/SkFlattenable.h"
+#include "include/core/SkMaskFilter.h"
+#include "include/core/SkPaint.h"
+#include "include/core/SkStrokeRec.h"
+#include "include/private/SkNoncopyable.h"
+#include "src/core/SkMask.h"
 
 class GrClip;
-class GrContext;
 struct GrFPArgs;
 class GrFragmentProcessor;
 class GrPaint;
+class GrRecordingContext;
 class GrRenderTarget;
 class GrRenderTargetContext;
 class GrResourceProvider;
@@ -108,7 +108,7 @@ public:
      *  Try to directly render the mask filter into the target. Returns true if drawing was
      *  successful. If false is returned then paint is unmodified.
      */
-    virtual bool directFilterMaskGPU(GrContext*,
+    virtual bool directFilterMaskGPU(GrRecordingContext*,
                                      GrRenderTargetContext*,
                                      GrPaint&& paint,
                                      const GrClip&,
@@ -122,7 +122,7 @@ public:
      * Implementations are free to get the GrContext from the src texture in order to create
      * additional textures and perform multiple passes.
      */
-    virtual sk_sp<GrTextureProxy> filterMaskGPU(GrContext*,
+    virtual sk_sp<GrTextureProxy> filterMaskGPU(GrRecordingContext*,
                                                 sk_sp<GrTextureProxy> srcProxy,
                                                 const SkMatrix& ctm,
                                                 const SkIRect& maskRect) const;

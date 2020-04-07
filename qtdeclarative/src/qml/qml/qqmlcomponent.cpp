@@ -51,8 +51,6 @@
 #include "qqmlincubator_p.h"
 #include <private/qqmljavascriptexpression_p.h>
 
-#include <private/qv8engine_p.h>
-
 #include <private/qv4functionobject_p.h>
 #include <private/qv4script_p.h>
 #include <private/qv4scopedvalue_p.h>
@@ -66,7 +64,6 @@
 #include <QThreadStorage>
 #include <QtCore/qdebug.h>
 #include <qqmlinfo.h>
-#include "qqmlmemoryprofiler_p.h"
 
 namespace {
     QThreadStorage<int> creationDepth;
@@ -74,7 +71,7 @@ namespace {
 
 QT_BEGIN_NAMESPACE
 
-class QQmlComponentExtension : public QV8Engine::Deletable
+class QQmlComponentExtension : public QV4::ExecutionEngine::Deletable
 {
 public:
     QQmlComponentExtension(QV4::ExecutionEngine *v4);
@@ -353,6 +350,32 @@ void QQmlComponentPrivate::clear()
     compilationUnit = nullptr;
 }
 
+QObject *QQmlComponentPrivate::doBeginCreate(QQmlComponent *q, QQmlContext *context)
+{
+    if (!engine) {
+        // ###Qt6: In Qt 6, it should be impossible for users to create a QQmlComponent without an engine, and we can remove this check
+        qWarning("QQmlComponent: Must provide an engine before calling create");
+        return nullptr;
+    }
+    if (!context)
+        context = engine->rootContext();
+    return q->beginCreate(context);
+}
+
+bool QQmlComponentPrivate::setInitialProperty(QObject *component, const QString& name, const QVariant &value)
+{
+    QQmlProperty prop(component, name);
+    auto privProp = QQmlPropertyPrivate::get(prop);
+    if (!prop.isValid() || !privProp->writeValueProperty(value, nullptr)) {
+        QQmlError error{};
+        error.setUrl(url);
+        error.setDescription(QLatin1String("Could not set property %1").arg(name));
+        state.errors.push_back(error);
+        return false;
+    } else
+        return true;
+}
+
 /*!
     \internal
 */
@@ -552,7 +575,8 @@ QQmlComponent::QQmlComponent(QQmlEngine *engine, const QString &fileName,
 /*!
     \internal
 */
-QQmlComponent::QQmlComponent(QQmlEngine *engine, QV4::CompiledData::CompilationUnit *compilationUnit, int start, QObject *parent)
+QQmlComponent::QQmlComponent(QQmlEngine *engine, QV4::ExecutableCompilationUnit *compilationUnit,
+                             int start, QObject *parent)
     : QQmlComponent(engine, parent)
 {
     Q_D(QQmlComponent);
@@ -781,20 +805,30 @@ QQmlComponent::QQmlComponent(QQmlComponentPrivate &dd, QObject *parent)
 QObject *QQmlComponent::create(QQmlContext *context)
 {
     Q_D(QQmlComponent);
-    QML_MEMORY_SCOPE_URL(url());
 
-    if (!d->engine) {
-        // ###Qt6: In Qt 6, it should be impossible for users to create a QQmlComponent without an engine, and we can remove this check
-        qWarning("QQmlComponent: Must provide an engine before calling create");
-        return nullptr;
-    }
-
-    if (!context)
-        context = d->engine->rootContext();
-
-    QObject *rv = beginCreate(context);
+    QObject *rv = d->doBeginCreate(this, context);
     if (rv)
         completeCreate();
+    return rv;
+}
+
+/*!
+    Create an object instance of this component, and initialize its toplevel
+    properties with \a initialProperties. \a context specifies the context
+    where the object instance is to be created.
+
+    \sa QQmlComponent::create
+    \since 5.14
+*/
+QObject *QQmlComponent::createWithInitialProperties(const QVariantMap& initialProperties, QQmlContext *context)
+{
+    Q_D(QQmlComponent);
+
+    QObject *rv = d->doBeginCreate(this, context);
+    if (rv) {
+        setInitialProperties(rv, initialProperties);
+        completeCreate();
+    }
     return rv;
 }
 
@@ -1068,6 +1102,26 @@ void QQmlComponent::create(QQmlIncubator &incubator, QQmlContext *context,
     p->subComponentToCreate = d->start;
 
     enginePriv->incubate(incubator, forContextData);
+}
+
+/*!
+   Set toplevel \a properties of the \a component.
+
+
+   This method provides advanced control over component instance creation.
+   In general, programmers should use
+   \l QQmlComponent::createWithInitialProperties to create a component.
+
+   Use this method after beginCreate and before completeCreate has been called.
+   If a provided property does not exist, a warning is issued.
+
+   \since 5.14
+*/
+void QQmlComponent::setInitialProperties(QObject *component, const QVariantMap &properties)
+{
+    Q_D(QQmlComponent);
+    for (auto it = properties.constBegin(); it != properties.constEnd(); ++it)
+        d->setInitialProperty(component, it.key(), it.value());
 }
 
 /*

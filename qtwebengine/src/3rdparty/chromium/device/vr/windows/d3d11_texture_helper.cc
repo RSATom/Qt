@@ -4,21 +4,64 @@
 
 #include "device/vr/windows/d3d11_texture_helper.h"
 #include "base/stl_util.h"
+#include "base/trace_event/common/trace_event_common.h"
+#include "base/trace_event/trace_event.h"
 #include "mojo/public/c/system/platform_handle.h"
 
 namespace {
 #include "device/vr/windows/flip_pixel_shader.h"
-#include "device/vr/windows/flip_vertex_shader.h"
+#include "device/vr/windows/geometry_shader.h"
+#include "device/vr/windows/vertex_shader.h"
 
 constexpr int kAcquireWaitMS = 2000;
 
-// 2 position, 2 texture.
-const size_t kElementsPerVertex = 4;
-constexpr size_t kSizeOfVertex = sizeof(float) * kElementsPerVertex;
+struct Vertex2D {
+  float x;
+  float y;
+  float u;
+  float v;
+
+  // Which texture in a texture array to output this triangle to?  If we only
+  // have a single texture bound as the render target, this is ignored.
+  int target;
+};
+
+constexpr size_t kSizeOfVertex = sizeof(Vertex2D);
 
 // 2 triangles per eye
 constexpr size_t kNumVerticesPerLayer = 12;
 }
+
+namespace {
+
+// This enum is used in TRACE_EVENTs.  Try to keep enum values the same to make
+// analysis easier across builds.
+enum ErrorLocation {
+  OverlayBlendState = 1,
+  ContentBlendState = 2,
+  SourceTimeout = 3,
+  OverlayTimeout = 4,
+  BindTarget = 5,
+  EnsureRenderTargetView = 6,
+  EnsureRenderTargetView2 = 7,
+  EnsureVS = 8,
+  EnsureGS = 9,
+  EnsurePS = 10,
+  InputLayout = 11,
+  VertexBuffer = 12,
+  Sampler = 13,
+  ShaderResource = 14,
+  OpenSource = 15,
+  OpenOverlay = 16,
+  CreateDevice = 17,
+};
+
+void TraceDXError(ErrorLocation location, HRESULT hr) {
+  TRACE_EVENT_INSTANT2("xr", "TraceDXError", TRACE_EVENT_SCOPE_THREAD,
+                       "ErrorLocation", location, "hr", hr);
+}
+
+}  // namespace
 
 namespace device {
 
@@ -40,6 +83,9 @@ void D3D11TextureHelper::SetSourceAndOverlayVisible(bool source_visible,
                                                     bool overlay_visible) {
   source_visible_ = source_visible;
   overlay_visible_ = overlay_visible;
+  TRACE_EVENT_INSTANT2("xr", "TextureHelper SetSourceAndOverlayVisible",
+                       TRACE_EVENT_SCOPE_THREAD, "source", source_visible,
+                       "overlay", overlay_visible);
 
   if (!source_visible_) {
     render_state_.source_.keyed_mutex_ = nullptr;
@@ -94,8 +140,10 @@ bool D3D11TextureHelper::EnsureOverlayBlendState() {
     HRESULT hr = render_state_.d3d11_device_->CreateBlendState(
         &blenddesc,
         render_state_.overlay_blend_state_.ReleaseAndGetAddressOf());
-    if (FAILED(hr))
+    if (FAILED(hr)) {
+      TraceDXError(ErrorLocation::OverlayBlendState, hr);
       return false;
+    }
   }
 
   if (render_state_.overlay_blend_state_ !=
@@ -116,8 +164,10 @@ bool D3D11TextureHelper::EnsureContentBlendState() {
     HRESULT hr = render_state_.d3d11_device_->CreateBlendState(
         &blenddesc,
         render_state_.content_blend_state_.ReleaseAndGetAddressOf());
-    if (FAILED(hr))
+    if (FAILED(hr)) {
+      TraceDXError(ErrorLocation::ContentBlendState, hr);
       return false;
+    }
   }
 
   if (render_state_.content_blend_state_ !=
@@ -149,6 +199,7 @@ bool D3D11TextureHelper::CompositeToBackBuffer() {
     if (FAILED(hr) || hr == WAIT_TIMEOUT || hr == WAIT_ABANDONED) {
       // We failed to acquire the lock.  We'll drop this frame, but subsequent
       // frames won't be affected.
+      TraceDXError(ErrorLocation::SourceTimeout, hr);
       return false;
     }
   }
@@ -158,7 +209,7 @@ bool D3D11TextureHelper::CompositeToBackBuffer() {
     if (FAILED(hr) || hr == WAIT_TIMEOUT || hr == WAIT_ABANDONED) {
       // We failed to acquire the lock.  We'll drop this frame, but subsequent
       // frames won't be affected.
-
+      TraceDXError(ErrorLocation::OverlayTimeout, hr);
       if (render_state_.source_.keyed_mutex_) {
         render_state_.source_.keyed_mutex_->ReleaseSync(0);
       }
@@ -167,6 +218,7 @@ bool D3D11TextureHelper::CompositeToBackBuffer() {
   }
 
   if (!BindTarget()) {
+    TraceDXError(ErrorLocation::BindTarget, hr);
     return false;
   }
 
@@ -197,34 +249,68 @@ bool D3D11TextureHelper::CompositeToBackBuffer() {
 
 bool D3D11TextureHelper::EnsureRenderTargetView() {
   if (!render_state_.render_target_view_) {
+    D3D11_TEXTURE2D_DESC desc;
+    render_state_.target_texture_->GetDesc(&desc);
+
+    if (desc.ArraySize > 1) {
+      HRESULT hr = render_state_.d3d11_device_->CreateRenderTargetView(
+          render_state_.target_texture_.Get(), nullptr,
+          &render_state_.render_target_view_);
+      if (FAILED(hr)) {
+        TraceDXError(ErrorLocation::EnsureRenderTargetView, hr);
+      }
+      return SUCCEEDED(hr);
+    }
+
     D3D11_RENDER_TARGET_VIEW_DESC render_target_view_desc;
-    render_target_view_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    // If the resource is unknown or typeless, use R8G8B8A8_UNORM, which is
+    // required for Oculus.  Otherwise, use the resource's native type.
+    render_target_view_desc.Format =
+        (desc.Format == DXGI_FORMAT_UNKNOWN ||
+         desc.Format == DXGI_FORMAT_R8G8B8A8_TYPELESS)
+            ? DXGI_FORMAT_R8G8B8A8_UNORM
+            : DXGI_FORMAT_UNKNOWN;
     render_target_view_desc.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2D;
     render_target_view_desc.Texture2D.MipSlice = 0;
     HRESULT hr = render_state_.d3d11_device_->CreateRenderTargetView(
         render_state_.target_texture_.Get(), &render_target_view_desc,
         &render_state_.render_target_view_);
-    if (FAILED(hr))
+    if (FAILED(hr)) {
+      TraceDXError(ErrorLocation::EnsureRenderTargetView2, hr);
       return false;
+    }
   }
   return true;
 }
 
 bool D3D11TextureHelper::EnsureShaders() {
-  if (!render_state_.flip_vertex_shader_) {
+  if (!render_state_.vertex_shader_) {
     HRESULT hr = render_state_.d3d11_device_->CreateVertexShader(
-        g_flip_vertex, _countof(g_flip_vertex), nullptr,
-        &render_state_.flip_vertex_shader_);
-    if (FAILED(hr))
+        g_vertex, _countof(g_vertex), nullptr, &render_state_.vertex_shader_);
+    if (FAILED(hr)) {
+      TraceDXError(ErrorLocation::EnsureVS, hr);
       return false;
+    }
+  }
+
+  if (!render_state_.geometry_shader_) {
+    HRESULT hr = render_state_.d3d11_device_->CreateGeometryShader(
+        g_geometry, _countof(g_geometry), nullptr,
+        &render_state_.geometry_shader_);
+    if (FAILED(hr)) {
+      TraceDXError(ErrorLocation::EnsureGS, hr);
+      return false;
+    }
   }
 
   if (!render_state_.flip_pixel_shader_) {
     HRESULT hr = render_state_.d3d11_device_->CreatePixelShader(
         g_flip_pixel, _countof(g_flip_pixel), nullptr,
         &render_state_.flip_pixel_shader_);
-    if (FAILED(hr))
+    if (FAILED(hr)) {
+      TraceDXError(ErrorLocation::EnsurePS, hr);
       return false;
+    }
   }
 
   return true;
@@ -237,12 +323,16 @@ bool D3D11TextureHelper::EnsureInputLayout() {
          D3D11_INPUT_PER_VERTEX_DATA, 0},
         {"TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0,
          D3D11_APPEND_ALIGNED_ELEMENT, D3D11_INPUT_PER_VERTEX_DATA, 0},
+        {"TEXCOORD", 1, DXGI_FORMAT_R32_UINT, 0, D3D11_APPEND_ALIGNED_ELEMENT,
+         D3D11_INPUT_PER_VERTEX_DATA, 0},
     };
     HRESULT hr = render_state_.d3d11_device_->CreateInputLayout(
-        vertex_desc, std::size(vertex_desc), g_flip_vertex,
-        _countof(g_flip_vertex), &render_state_.input_layout_);
-    if (FAILED(hr))
+        vertex_desc, base::size(vertex_desc), g_vertex, _countof(g_vertex),
+        &render_state_.input_layout_);
+    if (FAILED(hr)) {
+      TraceDXError(ErrorLocation::InputLayout, hr);
       return false;
+    }
   }
   return true;
 }
@@ -254,8 +344,10 @@ bool D3D11TextureHelper::EnsureVertexBuffer() {
                                           D3D11_BIND_VERTEX_BUFFER);
     HRESULT hr = render_state_.d3d11_device_->CreateBuffer(
         &vertex_buffer_desc, nullptr, &render_state_.vertex_buffer_);
-    if (FAILED(hr))
+    if (FAILED(hr)) {
+      TraceDXError(ErrorLocation::VertexBuffer, hr);
       return false;
+    }
   }
   return true;
 }
@@ -267,8 +359,10 @@ bool D3D11TextureHelper::EnsureSampler(LayerData& layer) {
     D3D11_SAMPLER_DESC sd = sampler_desc;
     HRESULT hr = render_state_.d3d11_device_->CreateSamplerState(
         &sd, layer.sampler_.GetAddressOf());
-    if (FAILED(hr))
+    if (FAILED(hr)) {
+      TraceDXError(ErrorLocation::Sampler, hr);
       return false;
+    }
   }
   return true;
 }
@@ -282,48 +376,57 @@ bool D3D11TextureHelper::BindTarget() {
   return true;
 }
 
-void PushVertRect(std::vector<float>& data,
+void PushVertRect(std::vector<Vertex2D>& data,
                   const gfx::RectF& rect,
-                  const gfx::RectF& uv) {
-  data.push_back(rect.x() * 2 - 1);
-  data.push_back(rect.y() * 2 - 1);
-  data.push_back(uv.x());
-  data.push_back(uv.y());
+                  const gfx::RectF& uv,
+                  int target) {
+  Vertex2D vert;
+  vert.target = target;
 
-  data.push_back(rect.x() * 2 - 1);
-  data.push_back((rect.y() + rect.height()) * 2 - 1);
-  data.push_back(uv.x());
-  data.push_back(uv.y() + uv.height());
+  vert.x = rect.x() * 2 - 1;
+  vert.y = rect.y() * 2 - 1;
+  vert.u = uv.x();
+  vert.v = uv.y();
+  data.push_back(vert);
 
-  data.push_back((rect.x() + rect.width()) * 2 - 1);
-  data.push_back((rect.y() + rect.height()) * 2 - 1);
-  data.push_back(uv.x() + uv.width());
-  data.push_back(uv.y() + uv.height());
+  vert.x = rect.x() * 2 - 1;
+  vert.y = (rect.y() + rect.height()) * 2 - 1;
+  vert.u = uv.x();
+  vert.v = uv.y() + uv.height();
+  data.push_back(vert);
 
-  data.push_back(rect.x() * 2 - 1);
-  data.push_back(rect.y() * 2 - 1);
-  data.push_back(uv.x());
-  data.push_back(uv.y());
+  vert.x = (rect.x() + rect.width()) * 2 - 1;
+  vert.y = (rect.y() + rect.height()) * 2 - 1;
+  vert.u = uv.x() + uv.width();
+  vert.v = uv.y() + uv.height();
+  data.push_back(vert);
 
-  data.push_back((rect.x() + rect.width()) * 2 - 1);
-  data.push_back((rect.y() + rect.height()) * 2 - 1);
-  data.push_back(uv.x() + uv.width());
-  data.push_back(uv.y() + uv.height());
+  vert.x = rect.x() * 2 - 1;
+  vert.y = rect.y() * 2 - 1;
+  vert.u = uv.x();
+  vert.v = uv.y();
+  data.push_back(vert);
 
-  data.push_back((rect.x() + rect.width()) * 2 - 1);
-  data.push_back(rect.y() * 2 - 1);
-  data.push_back(uv.x() + uv.width());
-  data.push_back(uv.y());
+  vert.x = (rect.x() + rect.width()) * 2 - 1;
+  vert.y = (rect.y() + rect.height()) * 2 - 1;
+  vert.u = uv.x() + uv.width();
+  vert.v = uv.y() + uv.height();
+  data.push_back(vert);
+
+  vert.x = (rect.x() + rect.width()) * 2 - 1;
+  vert.y = rect.y() * 2 - 1;
+  vert.u = uv.x() + uv.width();
+  vert.v = uv.y();
+  data.push_back(vert);
 }
 
 bool D3D11TextureHelper::UpdateVertexBuffer(LayerData& layer) {
-  std::vector<float> vertex_data;
-  PushVertRect(vertex_data, target_left_, layer.left_);
-  PushVertRect(vertex_data, target_right_, layer.right_);
+  std::vector<Vertex2D> vertex_data;
+  PushVertRect(vertex_data, target_left_, layer.left_, 0);
+  PushVertRect(vertex_data, target_right_, layer.right_, 1);
   render_state_.d3d11_device_context_->UpdateSubresource(
       render_state_.vertex_buffer_.Get(), 0, nullptr, vertex_data.data(),
-      sizeof(float) * kElementsPerVertex,
-      vertex_data.size() / kElementsPerVertex);
+      sizeof(Vertex2D), vertex_data.size());
   return true;
 }
 
@@ -333,7 +436,7 @@ bool D3D11TextureHelper::CompositeLayer(LayerData& layer) {
     return false;
 
   render_state_.d3d11_device_context_->VSSetShader(
-      render_state_.flip_vertex_shader_.Get(), nullptr, 0);
+      render_state_.vertex_shader_.Get(), nullptr, 0);
   render_state_.d3d11_device_context_->PSSetShader(
       render_state_.flip_pixel_shader_.Get(), nullptr, 0);
   render_state_.d3d11_device_context_->IASetInputLayout(
@@ -354,8 +457,10 @@ bool D3D11TextureHelper::CompositeLayer(LayerData& layer) {
   HRESULT hr = render_state_.d3d11_device_->CreateShaderResourceView(
       layer.source_texture_.Get(), &shader_resource_view_desc,
       layer.shader_resource_.ReleaseAndGetAddressOf());
-  if (FAILED(hr))
+  if (FAILED(hr)) {
+    TraceDXError(ErrorLocation::ShaderResource, hr);
     return false;
+  }
   render_state_.d3d11_device_context_->PSSetShaderResources(
       0, 1, layer.shader_resource_.GetAddressOf());
 
@@ -365,6 +470,10 @@ bool D3D11TextureHelper::CompositeLayer(LayerData& layer) {
   render_state_.d3d11_device_context_->RSSetViewports(1, &viewport);
   render_state_.d3d11_device_context_->IASetPrimitiveTopology(
       D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+
+  // TODO(billorr): Optimize to avoid the geometry shader when not needed.
+  render_state_.d3d11_device_context_->GSSetShader(
+      render_state_.geometry_shader_.Get(), nullptr, 0);
   render_state_.d3d11_device_context_->Draw(kNumVerticesPerLayer, 0);
   return true;
 }
@@ -373,6 +482,7 @@ bool D3D11TextureHelper::SetSourceTexture(
     base::win::ScopedHandle texture_handle,
     gfx::RectF left,
     gfx::RectF right) {
+  TRACE_EVENT0("xr", "SetSourceTexture");
   render_state_.source_.source_texture_ = nullptr;
   render_state_.source_.keyed_mutex_ = nullptr;
   render_state_.source_.left_ = left;
@@ -385,8 +495,10 @@ bool D3D11TextureHelper::SetSourceTexture(
       texture_handle.Get(),
       IID_PPV_ARGS(
           render_state_.source_.keyed_mutex_.ReleaseAndGetAddressOf()));
-  if (FAILED(hr))
+  if (FAILED(hr)) {
+    TraceDXError(ErrorLocation::OpenSource, hr);
     return false;
+  }
   hr = render_state_.source_.keyed_mutex_.CopyTo(
       render_state_.source_.source_texture_.ReleaseAndGetAddressOf());
   if (FAILED(hr)) {
@@ -413,8 +525,10 @@ bool D3D11TextureHelper::SetOverlayTexture(
       texture_handle.Get(),
       IID_PPV_ARGS(
           render_state_.overlay_.keyed_mutex_.ReleaseAndGetAddressOf()));
-  if (FAILED(hr))
+  if (FAILED(hr)) {
+    TraceDXError(ErrorLocation::OpenOverlay, hr);
     return false;
+  }
   hr = render_state_.overlay_.keyed_mutex_.CopyTo(
       render_state_.overlay_.source_texture_.ReleaseAndGetAddressOf());
   if (FAILED(hr)) {
@@ -432,6 +546,11 @@ bool D3D11TextureHelper::UpdateBackbufferSizes() {
   if (!render_state_.source_.source_texture_ &&
       !render_state_.overlay_.source_texture_)
     return false;
+
+  if (force_viewport_) {
+    target_size_ = default_size_;
+    return true;
+  }
 
   if (render_state_.source_.source_texture_ &&
       render_state_.overlay_.source_texture_) {
@@ -506,6 +625,16 @@ D3D11TextureHelper::GetBackbuffer() {
   return render_state_.target_texture_;
 }
 
+void D3D11TextureHelper::DiscardView() {
+  if (render_state_.render_target_view_ &&
+      render_state_.d3d11_device_context_) {
+    Microsoft::WRL::ComPtr<ID3D11DeviceContext1> context1;
+    if (SUCCEEDED(render_state_.d3d11_device_context_.As(&context1))) {
+      context1->DiscardView(render_state_.render_target_view_.Get());
+    }
+  }
+}
+
 void D3D11TextureHelper::SetBackbuffer(
     Microsoft::WRL::ComPtr<ID3D11Texture2D> back_buffer) {
   if (render_state_.target_texture_ != back_buffer) {
@@ -549,7 +678,7 @@ bool D3D11TextureHelper::EnsureInitialized() {
   render_state_ = {};
 
   D3D_FEATURE_LEVEL feature_levels[] = {D3D_FEATURE_LEVEL_11_1};
-  UINT flags = 0;
+  UINT flags = bgra_ ? D3D11_CREATE_DEVICE_BGRA_SUPPORT : 0;
   D3D_FEATURE_LEVEL feature_level_out = D3D_FEATURE_LEVEL_11_1;
 
   Microsoft::WRL::ComPtr<IDXGIAdapter> adapter = GetAdapter();
@@ -569,6 +698,7 @@ bool D3D11TextureHelper::EnsureInitialized() {
       render_state_.d3d11_device_context_ = nullptr;
     }
   }
+  TraceDXError(ErrorLocation::CreateDevice, hr);
   return SUCCEEDED(hr);
 }
 

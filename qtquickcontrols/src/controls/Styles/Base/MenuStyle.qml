@@ -98,13 +98,13 @@ Style {
 
     /*!
         \qmlmethod string MenuStyle::formatMnemonic(string text, bool underline = false)
-        Returns a rich-text string to render mnemonics for a given menu item.
+        Returns a rich-text string to render mnemonics for a given menu item \a text.
 
         The mnemonic character is prefixed by an ampersand in the original string.
 
-        Passing \c true for \c underline will underline the mnemonic character (e.g.,
+        Passing \c true for \a underline will underline the mnemonic character (e.g.,
         \c formatMnemonic("&Open...", true) will return \c "<u>O</u>pen..."). Passing \c false
-        for \c underline will return the plain text form (e.g., \c formatMnemonic("&Open...", false)
+        for \a underline will return the plain text form (e.g., \c formatMnemonic("&Open...", false)
         will return \c "Open...").
 
         \sa Label

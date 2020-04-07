@@ -23,7 +23,7 @@
 #include "base/strings/stringprintf.h"
 #include "base/synchronization/lock.h"
 #include "base/synchronization/waitable_event.h"
-#include "base/task/task_scheduler/task_scheduler.h"
+#include "base/task/thread_pool/thread_pool.h"
 #include "base/threading/thread.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "net/proxy_resolution/proxy_config.h"
@@ -292,7 +292,8 @@ class SyncConfigGetter : public ProxyConfigService::Observer {
 
     // Make sure the thread started.
     main_thread_.task_runner()->PostTask(
-        FROM_HERE, base::Bind(&SyncConfigGetter::Init, base::Unretained(this)));
+        FROM_HERE,
+        base::BindOnce(&SyncConfigGetter::Init, base::Unretained(this)));
     Wait();
   }
 
@@ -300,7 +301,7 @@ class SyncConfigGetter : public ProxyConfigService::Observer {
     // Clean up the main thread.
     main_thread_.task_runner()->PostTask(
         FROM_HERE,
-        base::Bind(&SyncConfigGetter::CleanUp, base::Unretained(this)));
+        base::BindOnce(&SyncConfigGetter::CleanUp, base::Unretained(this)));
     Wait();
   }
 
@@ -316,8 +317,8 @@ class SyncConfigGetter : public ProxyConfigService::Observer {
   ProxyConfigService::ConfigAvailability SyncGetLatestProxyConfig(
       ProxyConfigWithAnnotation* config) {
     main_thread_.task_runner()->PostTask(
-        FROM_HERE, base::Bind(&SyncConfigGetter::GetLatestConfigOnIOThread,
-                              base::Unretained(this)));
+        FROM_HERE, base::BindOnce(&SyncConfigGetter::GetLatestConfigOnIOThread,
+                                  base::Unretained(this)));
     Wait();
     *config = proxy_config_;
     return get_latest_config_result_;
@@ -1884,7 +1885,7 @@ TEST_F(ProxyConfigServiceLinuxTest, KDEFileChanged) {
   // Initialization posts a task to start watching kioslaverc file. Ensure that
   // registration has happened before modifying it or the file change won't be
   // observed.
-  base::TaskScheduler::GetInstance()->FlushForTesting();
+  base::ThreadPoolInstance::Get()->FlushForTesting();
 
   WriteFile(kioslaverc_,
             "[Proxy Settings]\nProxyType=2\n"

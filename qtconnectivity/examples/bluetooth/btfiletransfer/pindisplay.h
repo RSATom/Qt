@@ -64,7 +64,7 @@ class pinDisplay : public QDialog
     Q_OBJECT
 
 public:
-    explicit pinDisplay(QString title, QString pin, QWidget *parent = 0);
+    explicit pinDisplay(QString title, QString pin, QWidget *parent = nullptr);
     ~pinDisplay();
 
     void setOkCancel();

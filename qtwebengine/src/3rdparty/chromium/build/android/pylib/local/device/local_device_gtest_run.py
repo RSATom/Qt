@@ -194,10 +194,13 @@ class _ApkDelegate(object):
         device.ForceStop(self._package)
         raise
       # TODO(jbudorick): Remove this after resolving crbug.com/726880
-      logging.info(
-          '%s size on device: %s',
-          stdout_file.name, device.StatPath(stdout_file.name).get('st_size', 0))
-      return device.ReadFile(stdout_file.name).splitlines()
+      if device.PathExists(stdout_file.name):
+        logging.info('%s size on device: %s', stdout_file.name,
+                     device.StatPath(stdout_file.name).get('st_size', 0))
+        return device.ReadFile(stdout_file.name).splitlines()
+      else:
+        logging.info('%s does not exist?', stdout_file.name)
+        return []
 
   def PullAppFiles(self, device, files, directory):
     device_dir = device.GetApplicationDataDirectory(self._package)
@@ -411,7 +414,10 @@ class LocalDeviceGtestRun(local_device_test_run.LocalDeviceTestRun):
       if self._test_instance.wait_for_java_debugger:
         timeout = None
 
-      flags = list(self._test_instance.flags)
+      flags = [
+          f for f in self._test_instance.flags
+          if f not in ['--wait-for-debugger', '--wait-for-java-debugger']
+      ]
       flags.append('--gtest_list_tests')
 
       # TODO(crbug.com/726880): Remove retries when no longer necessary.
@@ -523,7 +529,8 @@ class LocalDeviceGtestRun(local_device_test_run.LocalDeviceTestRun):
             with logcat_monitor.LogcatMonitor(
                 device.adb,
                 filter_specs=local_device_environment.LOGCAT_FILTERS,
-                output_file=logcat_file.name) as logmon:
+                output_file=logcat_file.name,
+                check_error=False) as logmon:
               with contextlib_ext.Optional(
                   trace_event.trace(str(test)),
                   self._env.trace_output):

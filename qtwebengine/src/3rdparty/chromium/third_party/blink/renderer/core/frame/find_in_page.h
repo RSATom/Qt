@@ -5,15 +5,18 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_FRAME_FIND_IN_PAGE_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_FRAME_FIND_IN_PAGE_H_
 
-#include "mojo/public/cpp/bindings/associated_binding.h"
+#include "mojo/public/cpp/bindings/associated_receiver.h"
+#include "mojo/public/cpp/bindings/pending_associated_receiver.h"
+#include "mojo/public/cpp/bindings/pending_remote.h"
+#include "mojo/public/cpp/bindings/remote.h"
 #include "third_party/blink/public/mojom/frame/find_in_page.mojom-blink.h"
 #include "third_party/blink/public/platform/interface_registry.h"
 #include "third_party/blink/public/platform/web_common.h"
 #include "third_party/blink/public/web/web_local_frame.h"
 #include "third_party/blink/public/web/web_plugin_container.h"
 #include "third_party/blink/renderer/core/core_export.h"
-#include "third_party/blink/renderer/core/dom/context_lifecycle_observer.h"
 #include "third_party/blink/renderer/core/editing/finder/text_finder.h"
+#include "third_party/blink/renderer/core/execution_context/context_lifecycle_observer.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
 #include "third_party/blink/renderer/platform/heap/persistent.h"
 
@@ -28,11 +31,6 @@ class CORE_EXPORT FindInPage final
       public mojom::blink::FindInPage {
 
  public:
-  static FindInPage* Create(WebLocalFrameImpl& frame,
-                            InterfaceRegistry* interface_registry) {
-    return MakeGarbageCollected<FindInPage>(frame, interface_registry);
-  }
-
   FindInPage(WebLocalFrameImpl& frame, InterfaceRegistry* interface_registry);
 
   bool FindInternal(int identifier,
@@ -62,7 +60,7 @@ class CORE_EXPORT FindInPage final
             const String& search_text,
             mojom::blink::FindOptionsPtr) final;
 
-  void SetClient(mojom::blink::FindInPageClientPtr) final;
+  void SetClient(mojo::PendingRemote<mojom::blink::FindInPageClient>) final;
 
   void ActivateNearestFindResult(int request_id, const WebFloatPoint&) final;
 
@@ -93,7 +91,8 @@ class CORE_EXPORT FindInPage final
 
   WebPlugin* GetWebPluginForFind();
 
-  void BindToRequest(mojom::blink::FindInPageAssociatedRequest request);
+  void BindToReceiver(
+      mojo::PendingAssociatedReceiver<mojom::blink::FindInPage> receiver);
 
   void Dispose();
 
@@ -110,13 +109,13 @@ class CORE_EXPORT FindInPage final
 
   const Member<WebLocalFrameImpl> frame_;
 
-  mojom::blink::FindInPageClientPtr client_;
+  mojo::Remote<mojom::blink::FindInPageClient> client_;
 
-  mojo::AssociatedBinding<mojom::blink::FindInPage> binding_;
+  mojo::AssociatedReceiver<mojom::blink::FindInPage> receiver_{this};
 
   DISALLOW_COPY_AND_ASSIGN(FindInPage);
 };
 
 }  // namespace blink
 
-#endif
+#endif  // THIRD_PARTY_BLINK_RENDERER_CORE_FRAME_FIND_IN_PAGE_H_

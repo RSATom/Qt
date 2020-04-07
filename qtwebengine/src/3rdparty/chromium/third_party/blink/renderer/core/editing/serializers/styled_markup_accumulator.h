@@ -32,6 +32,7 @@
 
 #include "base/macros.h"
 #include "third_party/blink/renderer/core/editing/editing_style.h"
+#include "third_party/blink/renderer/core/editing/serializers/create_markup_options.h"
 #include "third_party/blink/renderer/core/editing/serializers/markup_formatter.h"
 #include "third_party/blink/renderer/core/editing/serializers/text_offset.h"
 #include "third_party/blink/renderer/platform/wtf/forward.h"
@@ -46,12 +47,10 @@ class StyledMarkupAccumulator final {
   STACK_ALLOCATED();
 
  public:
-  StyledMarkupAccumulator(EAbsoluteURLs,
-                          const TextOffset& start,
+  StyledMarkupAccumulator(const TextOffset& start,
                           const TextOffset& end,
                           Document*,
-                          EAnnotateForInterchange,
-                          ConvertBlocksToInlines);
+                          const CreateMarkupOptions& options);
 
   void AppendEndTag(const Element&);
   void AppendInterchangeNewline();
@@ -70,11 +69,15 @@ class StyledMarkupAccumulator final {
   void AppendElementWithInlineStyle(StringBuilder&,
                                     const Element&,
                                     EditingStyle*);
+  // Serialize a Node, without its children and its end tag.
   void AppendStartMarkup(Node&);
 
   bool ShouldAnnotate() const;
   bool ShouldConvertBlocksToInlines() const {
-    return convert_blocks_to_inlines_ == ConvertBlocksToInlines::kConvert;
+    return options_.ShouldConvertBlocksToInlines();
+  }
+  bool IsForMarkupSanitization() const {
+    return options_.IsForMarkupSanitization();
   }
 
  private:
@@ -82,15 +85,17 @@ class StyledMarkupAccumulator final {
   String StringValueForRange(const Text&);
 
   void AppendEndMarkup(StringBuilder&, const Element&);
+  void AppendAttribute(StringBuilder& result,
+                       const Element& element,
+                       const Attribute& attribute);
 
   MarkupFormatter formatter_;
   const TextOffset start_;
   const TextOffset end_;
   const Member<Document> document_;
-  const EAnnotateForInterchange should_annotate_;
+  const CreateMarkupOptions options_;
   StringBuilder result_;
   Vector<String> reversed_preceding_markup_;
-  const ConvertBlocksToInlines convert_blocks_to_inlines_;
 
   DISALLOW_COPY_AND_ASSIGN(StyledMarkupAccumulator);
 };

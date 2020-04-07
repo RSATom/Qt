@@ -13,10 +13,12 @@
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
 #include "third_party/blink/renderer/modules/crypto/crypto_key.h"
 #include "third_party/blink/renderer/modules/filesystem/dom_file_system.h"
+#include "third_party/blink/renderer/modules/imagecapture/point_2d.h"
 #include "third_party/blink/renderer/modules/peerconnection/rtc_certificate.h"
 #include "third_party/blink/renderer/modules/shapedetection/detected_barcode.h"
 #include "third_party/blink/renderer/modules/shapedetection/detected_face.h"
 #include "third_party/blink/renderer/modules/shapedetection/detected_text.h"
+#include "third_party/blink/renderer/modules/shapedetection/landmark.h"
 
 namespace blink {
 
@@ -41,7 +43,7 @@ ScriptWrappable* V8ScriptValueDeserializerForModules::ReadDOMObject(
               static_cast<int32_t>(mojom::blink::FileSystemType::kMaxValue) ||
           !ReadUTF8String(&name) || !ReadUTF8String(&root_url))
         return nullptr;
-      return DOMFileSystem::Create(
+      return MakeGarbageCollected<DOMFileSystem>(
           ExecutionContext::From(GetScriptState()), name,
           static_cast<mojom::blink::FileSystemType>(raw_type), KURL(root_url));
     }
@@ -68,6 +70,9 @@ ScriptWrappable* V8ScriptValueDeserializerForModules::ReadDOMObject(
       DOMRectReadOnly* bounding_box = ReadDOMRectReadOnly();
       if (!bounding_box)
         return nullptr;
+      // TODO(crbug.com/938663): add deserialization for |format|.
+      shape_detection::mojom::BarcodeFormat format =
+          shape_detection::mojom::BarcodeFormat::UNKNOWN;
       uint32_t corner_points_length;
       if (!ReadUint32(&corner_points_length))
         return nullptr;
@@ -78,7 +83,8 @@ ScriptWrappable* V8ScriptValueDeserializerForModules::ReadDOMObject(
           return nullptr;
         corner_points.push_back(point);
       }
-      return DetectedBarcode::Create(raw_value, bounding_box, corner_points);
+      return MakeGarbageCollected<DetectedBarcode>(raw_value, bounding_box,
+                                                   format, corner_points);
     }
     case kDetectedFaceTag: {
       DOMRectReadOnly* bounding_box = ReadDOMRectReadOnly();
@@ -94,7 +100,7 @@ ScriptWrappable* V8ScriptValueDeserializerForModules::ReadDOMObject(
           return nullptr;
         landmarks.push_back(landmark);
       }
-      return DetectedFace::Create(bounding_box, landmarks);
+      return MakeGarbageCollected<DetectedFace>(bounding_box, landmarks);
     }
     case kDetectedTextTag: {
       String raw_value;
@@ -113,7 +119,8 @@ ScriptWrappable* V8ScriptValueDeserializerForModules::ReadDOMObject(
           return nullptr;
         corner_points.push_back(point);
       }
-      return DetectedText::Create(raw_value, bounding_box, corner_points);
+      return MakeGarbageCollected<DetectedText>(raw_value, bounding_box,
+                                                corner_points);
     }
     default:
       break;
@@ -256,7 +263,7 @@ CryptoKey* V8ScriptValueDeserializerForModules::ReadCryptoKey() {
       uint32_t length_bytes;
       if (!ReadUint32(&raw_id) || !AlgorithmIdFromWireFormat(raw_id, &id) ||
           !ReadUint32(&length_bytes) ||
-          length_bytes > std::numeric_limits<unsigned short>::max() / 8u)
+          length_bytes > std::numeric_limits<uint16_t>::max() / 8u)
         return nullptr;
       algorithm = WebCryptoKeyAlgorithm::CreateAes(id, length_bytes * 8);
       key_type = kWebCryptoKeyTypeSecret;
@@ -346,7 +353,7 @@ CryptoKey* V8ScriptValueDeserializerForModules::ReadCryptoKey() {
           key))
     return nullptr;
 
-  return CryptoKey::Create(key);
+  return MakeGarbageCollected<CryptoKey>(key);
 }
 
 bool V8ScriptValueDeserializerForModules::ReadLandmark(Landmark* landmark) {

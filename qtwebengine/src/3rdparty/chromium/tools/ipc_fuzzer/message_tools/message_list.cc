@@ -47,7 +47,7 @@ static bool check_msgtable() {
   // Exclude test and other non-browser files from consideration.  Do not
   // include message files used inside the actual chrome browser in this list.
   exemptions.push_back(TestMsgStart);
-  exemptions.push_back(ShellMsgStart);
+  exemptions.push_back(BlinkTestMsgStart);
   exemptions.push_back(WebTestMsgStart);
   exemptions.push_back(CastCryptoMsgStart);   // Reserved for chromecast.
   exemptions.push_back(CastChannelMsgStart);  // Reserved for chromecast.
@@ -66,7 +66,6 @@ static bool check_msgtable() {
 #endif
 
 #if !defined(OS_ANDROID)
-  exemptions.push_back(JavaBridgeMsgStart);
   exemptions.push_back(MediaPlayerMsgStart);
   exemptions.push_back(EncryptedMediaMsgStart);
   exemptions.push_back(GinJavaBridgeMsgStart);
@@ -95,7 +94,7 @@ static bool check_msgtable() {
       result = false;
     }
     while (class_id > previous_class_id + 1) {
-      if (!base::ContainsValue(exemptions, previous_class_id + 1)) {
+      if (!base::Contains(exemptions, previous_class_id + 1)) {
         std::cout << "Missing message file for enum "
                   << class_id - (previous_class_id + 1)
                   <<  " before enum used by " << file_name << "\n";
@@ -110,7 +109,7 @@ static bool check_msgtable() {
   }
 
   while (LastIPCMsgStart > highest_class_id + 1) {
-    if (!base::ContainsValue(exemptions, highest_class_id + 1)) {
+    if (!base::Contains(exemptions, highest_class_id + 1)) {
       std::cout << "Missing message file for enum "
                 << LastIPCMsgStart - (highest_class_id + 1)
                 << " before enum LastIPCMsgStart\n";

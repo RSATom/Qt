@@ -11,11 +11,11 @@
 #ifndef MEDIA_BASE_VIDEO_BROADCASTER_H_
 #define MEDIA_BASE_VIDEO_BROADCASTER_H_
 
+#include "api/scoped_refptr.h"
 #include "api/video/video_frame_buffer.h"
 #include "api/video/video_source_interface.h"
 #include "media/base/video_source_base.h"
 #include "rtc_base/critical_section.h"
-#include "rtc_base/scoped_ref_ptr.h"
 #include "rtc_base/thread_annotations.h"
 #include "rtc_base/thread_checker.h"
 
@@ -60,6 +60,8 @@ class VideoBroadcaster : public VideoSourceBase,
 
   VideoSinkWants current_wants_ RTC_GUARDED_BY(sinks_and_wants_lock_);
   rtc::scoped_refptr<webrtc::VideoFrameBuffer> black_frame_buffer_;
+  bool previous_frame_sent_to_all_sinks_ RTC_GUARDED_BY(sinks_and_wants_lock_) =
+      true;
 };
 
 }  // namespace rtc

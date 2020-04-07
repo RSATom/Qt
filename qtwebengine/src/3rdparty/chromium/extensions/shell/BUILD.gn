@@ -52,9 +52,7 @@ source_set("app_shell_lib") {
     "//components/version_info",
     "//content",
     "//content/shell:content_shell_lib",
-    "//device/base",
     "//device/bluetooth",
-    "//device/usb",
     "//extensions:extensions_resources",
     "//extensions:shell_and_test_pak",
     "//extensions/browser",
@@ -67,10 +65,9 @@ source_set("app_shell_lib") {
     "//extensions/shell/browser/system_logs",
     "//extensions/shell/common/api",
     "//extensions/shell/common/api:extensions_features",
-    "//google_apis",
     "//third_party/blink/public:blink",
     "//ui/base",
-    "//ui/base/ime",
+    "//ui/base/ime/init",
   ]
 
   # TODO(michaelpg): remove Mac support and always use aura.
@@ -121,8 +118,6 @@ source_set("app_shell_lib") {
     "browser/shell_content_browser_client.h",
     "browser/shell_desktop_controller_mac.h",
     "browser/shell_desktop_controller_mac.mm",
-    "browser/shell_device_client.cc",
-    "browser/shell_device_client.h",
     "browser/shell_display_info_provider.cc",
     "browser/shell_display_info_provider.h",
     "browser/shell_extension_host_delegate.cc",
@@ -153,10 +148,6 @@ source_set("app_shell_lib") {
     "browser/shell_network_controller_chromeos.h",
     "browser/shell_network_delegate.cc",
     "browser/shell_network_delegate.h",
-    "browser/shell_oauth2_token_service.cc",
-    "browser/shell_oauth2_token_service.h",
-    "browser/shell_oauth2_token_service_delegate.cc",
-    "browser/shell_oauth2_token_service_delegate.h",
     "browser/shell_prefs.cc",
     "browser/shell_prefs.h",
     "browser/shell_special_storage_policy.cc",
@@ -227,9 +218,11 @@ source_set("app_shell_lib") {
       "browser/shell_screen.h",
     ]
     deps += [
-      "//chromeos:chromeos_constants",
       "//chromeos/audio",
+      "//chromeos/constants",
       "//chromeos/dbus",
+      "//chromeos/dbus/audio",
+      "//chromeos/dbus/power",
       "//chromeos/disks",
       "//chromeos/login/login_state",
       "//chromeos/network",
@@ -291,7 +284,6 @@ test("app_shell_unittests") {
     "browser/shell_content_browser_client_unittest.cc",
     "browser/shell_extension_loader_unittest.cc",
     "browser/shell_keep_alive_requester_unittest.cc",
-    "browser/shell_oauth2_token_service_unittest.cc",
     "browser/shell_prefs_unittest.cc",
     "browser/system_logs/shell_system_logs_fetcher_unittest.cc",
     "test/shell_test_extensions_browser_client.cc",
@@ -322,7 +314,6 @@ test("app_shell_unittests") {
     "//extensions/common",
     "//extensions/common/api",
     "//extensions/shell/browser/system_logs",
-    "//google_apis",
     "//testing/gtest",
     "//ui/gl:test_support",
     "//ui/platform_window",
@@ -346,6 +337,7 @@ test("app_shell_unittests") {
     deps += [
       "//ui/aura:test_support",
       "//ui/base:test_support",
+      "//ui/base/ime/init",
       "//ui/compositor:test_support",
     ]
   }
@@ -356,9 +348,11 @@ test("app_shell_unittests") {
       "browser/shell_screen_unittest.cc",
     ]
     deps += [
-      "//chromeos:chromeos_constants",
       "//chromeos/audio",
+      "//chromeos/constants",
       "//chromeos/dbus:test_support",
+      "//chromeos/dbus/audio",
+      "//chromeos/dbus/power",
     ]
   }
 
@@ -428,7 +422,7 @@ source_set("unit_tests") {
 
   if (is_chromeos) {
     deps += [
-      "//chromeos:chromeos_constants",
+      "//chromeos/constants",
       "//components/keyed_service/content",
     ]
   }

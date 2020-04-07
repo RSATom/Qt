@@ -4,6 +4,7 @@
 
 #include "storage/browser/blob/mojo_blob_reader.h"
 
+#include "base/bind.h"
 #include "base/trace_event/trace_event.h"
 #include "net/base/io_buffer.h"
 #include "services/network/public/cpp/net_adapters.h"
@@ -238,7 +239,7 @@ void MojoBlobReader::DidRead(bool completed_synchronously, int num_bytes) {
   response_body_stream_ = pending_write_->Complete(num_bytes);
   total_written_bytes_ += num_bytes;
   pending_write_ = nullptr;
-  if (num_bytes == 0) {
+  if (num_bytes == 0 || blob_reader_->remaining_bytes() == 0) {
     response_body_stream_.reset();  // This closes the data pipe.
     NotifyCompletedAndDeleteIfNeeded(net::OK);
     return;

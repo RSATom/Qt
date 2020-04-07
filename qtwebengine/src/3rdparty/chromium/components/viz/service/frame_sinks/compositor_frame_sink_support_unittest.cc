@@ -4,7 +4,9 @@
 
 #include "components/viz/service/frame_sinks/compositor_frame_sink_support.h"
 
+#include "base/bind.h"
 #include "base/stl_util.h"
+#include "base/test/simple_test_tick_clock.h"
 #include "components/viz/common/frame_sinks/copy_output_request.h"
 #include "components/viz/common/frame_sinks/copy_output_result.h"
 #include "components/viz/common/quads/compositor_frame.h"
@@ -13,6 +15,7 @@
 #include "components/viz/common/surfaces/surface_info.h"
 #include "components/viz/service/display_embedder/server_shared_bitmap_manager.h"
 #include "components/viz/service/frame_sinks/frame_sink_manager_impl.h"
+#include "components/viz/service/surfaces/surface.h"
 #include "components/viz/test/begin_frame_args_test.h"
 #include "components/viz/test/compositor_frame_helpers.h"
 #include "components/viz/test/fake_compositor_frame_sink_client.h"
@@ -41,7 +44,8 @@ constexpr bool kNeedsSyncPoints = true;
 constexpr FrameSinkId kArbitraryFrameSinkId(1, 1);
 constexpr FrameSinkId kAnotherArbitraryFrameSinkId(2, 2);
 
-const base::UnguessableToken kArbitraryToken = base::UnguessableToken::Create();
+const base::UnguessableToken kArbitraryToken =
+    base::UnguessableToken::Deserialize(1, 2);
 const base::UnguessableToken kArbitrarySourceId1 =
     base::UnguessableToken::Deserialize(0xdead, 0xbeef);
 const base::UnguessableToken kArbitrarySourceId2 =
@@ -94,6 +98,8 @@ class CompositorFrameSinkSupportTest : public testing::Test {
         frame_sync_token_(GenTestSyncToken(4)),
         consumer_sync_token_(GenTestSyncToken(5)) {
     manager_.SetLocalClient(&frame_sink_manager_client_);
+    now_src_ = std::make_unique<base::SimpleTestTickClock>();
+    manager_.surface_manager()->SetTickClockForTesting(now_src_.get());
     manager_.surface_manager()->AddObserver(&surface_observer_);
     manager_.RegisterFrameSinkId(kArbitraryFrameSinkId,
                                  true /* report_activation */);
@@ -227,6 +233,7 @@ class CompositorFrameSinkSupportTest : public testing::Test {
   }
 
  protected:
+  std::unique_ptr<base::SimpleTestTickClock> now_src_;
   ServerSharedBitmapManager shared_bitmap_manager_;
   FrameSinkManagerImpl manager_;
   MockFrameSinkManagerClient frame_sink_manager_client_;
@@ -578,12 +585,13 @@ TEST_F(CompositorFrameSinkSupportTest, MonotonicallyIncreasingLocalSurfaceIds) {
   auto support = std::make_unique<CompositorFrameSinkSupport>(
       &mock_client, &manager_, kAnotherArbitraryFrameSinkId, kIsRoot,
       kNeedsSyncPoints);
-  LocalSurfaceId local_surface_id1(6, 1, kArbitraryToken);
-  LocalSurfaceId local_surface_id2(6, 2, kArbitraryToken);
-  LocalSurfaceId local_surface_id3(7, 2, kArbitraryToken);
-  LocalSurfaceId local_surface_id4(5, 3, kArbitraryToken);
-  LocalSurfaceId local_surface_id5(8, 1, kArbitraryToken);
-  LocalSurfaceId local_surface_id6(9, 3, kArbitraryToken);
+  base::UnguessableToken embed_token = base::UnguessableToken::Create();
+  LocalSurfaceId local_surface_id1(6, 1, embed_token);
+  LocalSurfaceId local_surface_id2(6, 2, embed_token);
+  LocalSurfaceId local_surface_id3(7, 2, embed_token);
+  LocalSurfaceId local_surface_id4(5, 3, embed_token);
+  LocalSurfaceId local_surface_id5(8, 1, embed_token);
+  LocalSurfaceId local_surface_id6(9, 3, embed_token);
 
   // LocalSurfaceId1(6, 1)
   auto result = support->MaybeSubmitCompositorFrame(
@@ -597,49 +605,23 @@ TEST_F(CompositorFrameSinkSupportTest, MonotonicallyIncreasingLocalSurfaceIds) {
       mojom::CompositorFrameSink::SubmitCompositorFrameSyncCallback());
   EXPECT_EQ(SubmitResult::ACCEPTED, result);
 
-  // Since the Surface corresponding to |local_surface_id1| was not a dependency
-  // anywhere then the Surface corresponding to |local_surface_id2| will not
-  // activate until it becomes a dependency.
-  Surface* last_created_surface = support->GetLastCreatedSurfaceForTesting();
-  EXPECT_EQ(local_surface_id2,
-            last_created_surface->surface_id().local_surface_id());
-  EXPECT_FALSE(last_created_surface->HasActiveFrame());
-
-  SurfaceId surface_id2(kAnotherArbitraryFrameSinkId, local_surface_id2);
-  auto frame =
-      CompositorFrameBuilder()
-          .AddDefaultRenderPass()
-          .SetActivationDependencies({surface_id2})
-          .SetReferencedSurfaces({SurfaceRange(base::nullopt, surface_id2)})
-          .Build();
-  result = support_->MaybeSubmitCompositorFrame(
-      local_surface_id_, std::move(frame), base::nullopt, 0,
-      mojom::CompositorFrameSink::SubmitCompositorFrameSyncCallback());
-  EXPECT_EQ(SubmitResult::ACCEPTED, result);
-
-  // Submitting a CompositorFrame to the parent FrameSink with a dependency on
-  // |local_surface_id2| causes that Surface's CompositorFrame to activate.
-  EXPECT_TRUE(last_created_surface->HasActiveFrame());
-
   // LocalSurfaceId(7, 2): Parent-initiated synchronization.
   result = support->MaybeSubmitCompositorFrame(
       local_surface_id3, MakeDefaultCompositorFrame(), base::nullopt, 0,
       mojom::CompositorFrameSink::SubmitCompositorFrameSyncCallback());
   EXPECT_EQ(SubmitResult::ACCEPTED, result);
 
-  // LocalSurfaceId(5, 3): Surface Invariants Violation. Not monotonically
-  // increasing.
+  // LocalSurfaceId(5, 3): Submit rejected because not monotonically increasing.
   result = support->MaybeSubmitCompositorFrame(
       local_surface_id4, MakeDefaultCompositorFrame(), base::nullopt, 0,
       mojom::CompositorFrameSink::SubmitCompositorFrameSyncCallback());
-  EXPECT_EQ(SubmitResult::SURFACE_INVARIANTS_VIOLATION, result);
+  EXPECT_EQ(SubmitResult::SURFACE_ID_DECREASED, result);
 
-  // LocalSurfaceId(8, 1): Surface Invariants Violation. Not monotonically
-  // increasing.
+  // LocalSurfaceId(8, 1): Submit rejected because not monotonically increasing.
   result = support->MaybeSubmitCompositorFrame(
       local_surface_id5, MakeDefaultCompositorFrame(), base::nullopt, 0,
       mojom::CompositorFrameSink::SubmitCompositorFrameSyncCallback());
-  EXPECT_EQ(SubmitResult::SURFACE_INVARIANTS_VIOLATION, result);
+  EXPECT_EQ(SubmitResult::SURFACE_ID_DECREASED, result);
 
   // LocalSurfaceId(9, 3): Parent AND child-initiated synchronization.
   result = support->MaybeSubmitCompositorFrame(
@@ -873,21 +855,6 @@ TEST_F(CompositorFrameSinkSupportTest, SurfaceInfo) {
             surface_observer_.last_surface_info().size_in_pixels());
 }
 
-// Check that if a CompositorFrame is received with device scale factor of 0, we
-// don't create a Surface for it.
-TEST_F(CompositorFrameSinkSupportTest, ZeroDeviceScaleFactor) {
-  SurfaceId id(support_->frame_sink_id(), local_surface_id_);
-  auto frame = CompositorFrameBuilder()
-                   .AddDefaultRenderPass()
-                   .SetDeviceScaleFactor(0.f)
-                   .Build();
-  const auto result = support_->MaybeSubmitCompositorFrame(
-      local_surface_id_, std::move(frame), base::nullopt, 0,
-      mojom::CompositorFrameSink::SubmitCompositorFrameSyncCallback());
-  EXPECT_EQ(SubmitResult::SURFACE_INVARIANTS_VIOLATION, result);
-  EXPECT_FALSE(GetSurfaceForId(id));
-}
-
 // Check that if the size of a CompositorFrame doesn't match the size of the
 // Surface it's being submitted to, we skip the frame.
 TEST_F(CompositorFrameSinkSupportTest, FrameSizeMismatch) {
@@ -916,7 +883,7 @@ TEST_F(CompositorFrameSinkSupportTest, FrameSizeMismatch) {
       local_surface_id_, std::move(frame), base::nullopt, 0,
       mojom::CompositorFrameSink::SubmitCompositorFrameSyncCallback());
 
-  EXPECT_EQ(SubmitResult::SURFACE_INVARIANTS_VIOLATION, result);
+  EXPECT_EQ(SubmitResult::SIZE_MISMATCH, result);
 
   // All the resources in the rejected frame should have been returned.
   CheckReturnedResourcesMatchExpected(frame_resource_ids,
@@ -949,7 +916,7 @@ TEST_F(CompositorFrameSinkSupportTest, DeviceScaleFactorMismatch) {
   result = support_->MaybeSubmitCompositorFrame(
       local_surface_id_, std::move(frame), base::nullopt, 0,
       mojom::CompositorFrameSink::SubmitCompositorFrameSyncCallback());
-  EXPECT_EQ(SubmitResult::SURFACE_INVARIANTS_VIOLATION, result);
+  EXPECT_EQ(SubmitResult::SIZE_MISMATCH, result);
 }
 
 TEST_F(CompositorFrameSinkSupportTest, PassesOnBeginFrameAcks) {
@@ -1202,6 +1169,76 @@ TEST_F(CompositorFrameSinkSupportTest,
   EXPECT_CALL(frame_sink_manager_client_, OnFirstSurfaceActivation(_));
   EXPECT_CALL(frame_sink_manager_client_, OnFrameTokenChanged(_, frame_token));
   support_->SubmitCompositorFrame(local_surface_id, std::move(frame));
+}
+
+// This test verifies that it is not possible to reuse the same embed token in
+// two different frame sinks.
+TEST_F(CompositorFrameSinkSupportTest,
+       DisallowEmbedTokenReuseAcrossFrameSinks) {
+  auto result = support_->MaybeSubmitCompositorFrame(
+      local_surface_id_, MakeDefaultCompositorFrame(), base::nullopt, 0,
+      mojom::CompositorFrameSink::SubmitCompositorFrameSyncCallback());
+  EXPECT_EQ(SubmitResult::ACCEPTED, result);
+
+  // Create another sink and reuse the same embed token to submit a frame. The
+  // frame should be rejected.
+  MockCompositorFrameSinkClient mock_client;
+  auto support = std::make_unique<CompositorFrameSinkSupport>(
+      &mock_client, &manager_, kAnotherArbitraryFrameSinkId,
+      false /* not root frame sink */, kNeedsSyncPoints);
+  LocalSurfaceId local_surface_id(31232, local_surface_id_.embed_token());
+  result = support->MaybeSubmitCompositorFrame(
+      local_surface_id, MakeDefaultCompositorFrame(), base::nullopt, 0,
+      mojom::CompositorFrameSink::SubmitCompositorFrameSyncCallback());
+  EXPECT_EQ(SubmitResult::SURFACE_OWNED_BY_ANOTHER_CLIENT, result);
+}
+
+// This test verifies that the parent sequence number of the submitted
+// CompositorFrames can decrease as long as the embed token changes as well.
+TEST_F(CompositorFrameSinkSupportTest, SubmitAfterReparenting) {
+  LocalSurfaceId local_surface_id1(2, base::UnguessableToken::Create());
+  LocalSurfaceId local_surface_id2(1, base::UnguessableToken::Create());
+
+  ASSERT_NE(local_surface_id1.embed_token(), local_surface_id2.embed_token());
+
+  CompositorFrame frame =
+      CompositorFrameBuilder().AddDefaultRenderPass().Build();
+  SubmitResult result = support_->MaybeSubmitCompositorFrame(
+      local_surface_id1, std::move(frame), base::nullopt, 0,
+      mojom::CompositorFrameSink::SubmitCompositorFrameSyncCallback());
+  EXPECT_EQ(SubmitResult::ACCEPTED, result);
+
+  frame = CompositorFrameBuilder().AddDefaultRenderPass().Build();
+  result = support_->MaybeSubmitCompositorFrame(
+      local_surface_id2, std::move(frame), base::nullopt, 0,
+      mojom::CompositorFrameSink::SubmitCompositorFrameSyncCallback());
+
+  // Even though |local_surface_id2| has a smaller parent sequence number than
+  // |local_surface_id1|, the submit should still succeed because it has a
+  // different embed token.
+  EXPECT_EQ(SubmitResult::ACCEPTED, result);
+}
+
+// This test verifies that surfaces created with a new embed token are not
+// compared against the evicted parent sequence number of the previous embed
+// token.
+TEST_F(CompositorFrameSinkSupportTest, EvictThenReparent) {
+  LocalSurfaceId local_surface_id1(2, base::UnguessableToken::Create());
+  LocalSurfaceId local_surface_id2(1, base::UnguessableToken::Create());
+
+  ASSERT_NE(local_surface_id1.embed_token(), local_surface_id2.embed_token());
+
+  support_->EvictSurface(local_surface_id1);
+  CompositorFrame frame =
+      CompositorFrameBuilder().AddDefaultRenderPass().Build();
+  support_->SubmitCompositorFrame(local_surface_id2, std::move(frame));
+  manager_.surface_manager()->GarbageCollectSurfaces();
+
+  // Even though |local_surface_id2| has a smaller parent sequence number than
+  // |local_surface_id1|, it should not be evicted because it has a different
+  // embed token.
+  EXPECT_TRUE(
+      GetSurfaceForId(SurfaceId(support_->frame_sink_id(), local_surface_id2)));
 }
 
 }  // namespace viz

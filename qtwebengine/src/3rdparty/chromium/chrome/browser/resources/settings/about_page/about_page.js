@@ -29,6 +29,18 @@ Polymer({
       },
     },
 
+    /**
+     * Whether the browser/ChromeOS is managed by their organization
+     * through enterprise policies.
+     * @private
+     */
+    isManaged_: {
+      type: Boolean,
+      value: function() {
+        return loadTimeData.getBoolean('isManaged');
+      },
+    },
+
     // <if expr="chromeos">
     /** @private */
     hasCheckedForUpdates_: {
@@ -52,7 +64,25 @@ Polymer({
     },
 
     /** @private */
+    hasReleaseNotes_: {
+      type: Boolean,
+      value: false,
+    },
+
+    /** @private */
     showCrostini: Boolean,
+
+    /**
+     * When the SplitSettings feature is disabled, the about page shows the OS-
+     * specific parts. When SplitSettings is enabled, the OS-specific parts
+     * will only show up in chrome://os-settings/help.
+     * TODO(aee): remove after SplitSettings feature flag is removed.
+     * @private
+     */
+    showOsSettings_: {
+      type: Boolean,
+      value: () => loadTimeData.getBoolean('showOSSettings'),
+    },
 
     /** @private */
     showCrostiniLicense_: {
@@ -60,6 +90,12 @@ Polymer({
       value: false,
     },
     // </if>
+
+    /** @private */
+    hasInternetConnection_: {
+      type: Boolean,
+      value: false,
+    },
 
     // <if expr="_google_chrome and is_macosx">
     /** @private {!PromoteUpdaterStatus} */
@@ -131,7 +167,10 @@ Polymer({
     },
 
     /** @private */
-    showTPMFirmwareUpdateLineItem_: Boolean,
+    showTPMFirmwareUpdateLineItem_: {
+      type: Boolean,
+      value: false,
+    },
 
     /** @private */
     showTPMFirmwareUpdateDialog_: Boolean,
@@ -176,6 +215,10 @@ Polymer({
         settings.LifetimeBrowserProxyImpl.getInstance();
 
     // <if expr="chromeos">
+    if (!this.showOsSettings_) {
+      return;
+    }
+
     this.addEventListener('target-channel-changed', e => {
       this.targetChannel_ = e.detail;
     });
@@ -192,6 +235,14 @@ Polymer({
 
     this.aboutBrowserProxy_.getHasEndOfLife().then(result => {
       this.hasEndOfLife_ = result;
+    });
+
+    this.aboutBrowserProxy_.getEnabledReleaseNotes().then(result => {
+      this.hasReleaseNotes_ = result;
+    });
+
+    this.aboutBrowserProxy_.checkInternetConnection().then(result => {
+      this.hasInternetConnection_ = result;
     });
 
     // </if>
@@ -282,6 +333,11 @@ Polymer({
     // Stop the propagation of events, so that clicking on links inside
     // actionable items won't trigger action.
     event.stopPropagation();
+  },
+
+  /** @private */
+  onReleaseNotesTap_: function() {
+    this.aboutBrowserProxy_.launchReleaseNotes();
   },
 
   /** @private */
@@ -495,6 +551,11 @@ Polymer({
     return this.currentUpdateStatusEvent_.status == status;
   },
 
+  /** @private */
+  onManagementPageTap_: function() {
+    window.location.href = 'chrome://management';
+  },
+
   // <if expr="chromeos">
   /**
    * @return {boolean}
@@ -600,7 +661,8 @@ Polymer({
    * @private
    */
   shouldShowRegulatoryOrSafetyInfo_: function() {
-    return this.shouldShowSafetyInfo_() || this.shouldShowRegulatoryInfo_();
+    return this.showOsSettings_ &&
+        (this.shouldShowSafetyInfo_() || this.shouldShowRegulatoryInfo_());
   },
 
   /** @private */

@@ -5,10 +5,7 @@ PLUGIN_CLASS_NAME = QTextToSpeechPluginSpeechd
 load(qt_plugin)
 
 QT = core texttospeech
-
-CONFIG += link_pkgconfig
-packagesExist(speech-dispatcher): PKGCONFIG = speech-dispatcher
-config_speechd: LIBS += -lspeechd
+QT_FOR_CONFIG += texttospeech-private
 
 HEADERS += \
     qtexttospeech_speechd.h \
@@ -20,3 +17,5 @@ SOURCES += \
 
 OTHER_FILES += \
     speechd_plugin.json
+
+qtConfig(speechd): QMAKE_USE_PRIVATE += speechd

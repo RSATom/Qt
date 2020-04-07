@@ -53,7 +53,6 @@
 #if QT_CONFIG(rubberband)
 #include <qrubberband.h>
 #endif
-#include <qsignalmapper.h>
 #include <qstylepainter.h>
 #include <qstyleoption.h>
 #include <qtoolbutton.h>
@@ -325,13 +324,8 @@ bool QToolBarPrivate::mouseMoveEvent(QMouseEvent *event)
                 event->y() >= 0 && event->y() < q->height());
 
             startDrag(moving);
-            if (!moving && !wasDragging) {
-#if 0 // Used to be included in Qt4 for Q_WS_WIN
-                grabMouseWhileInWindow();
-#else
+            if (!moving && !wasDragging)
                 q->grabMouse();
-#endif
-            }
     }
 
     if (state->dragging) {
@@ -1172,7 +1166,7 @@ bool QToolBar::event(QEvent *event)
             // This is a workaround for loosing the mouse on Vista.
             QPoint pos = QCursor::pos();
             QMouseEvent fake(QEvent::MouseMove, mapFromGlobal(pos), pos, Qt::NoButton,
-                             QApplication::mouseButtons(), QApplication::keyboardModifiers());
+                             QGuiApplication::mouseButtons(), QGuiApplication::keyboardModifiers());
             d->mouseMoveEvent(&fake);
 #endif
         } else {

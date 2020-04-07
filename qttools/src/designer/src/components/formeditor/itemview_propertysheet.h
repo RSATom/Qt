@@ -46,8 +46,8 @@ class ItemViewPropertySheet: public QDesignerPropertySheet
     Q_OBJECT
     Q_INTERFACES(QDesignerPropertySheetExtension)
 public:
-    explicit ItemViewPropertySheet(QTreeView *treeViewObject, QObject *parent = 0);
-    explicit ItemViewPropertySheet(QTableView *tableViewObject, QObject *parent = 0);
+    explicit ItemViewPropertySheet(QTreeView *treeViewObject, QObject *parent = nullptr);
+    explicit ItemViewPropertySheet(QTableView *tableViewObject, QObject *parent = nullptr);
     ~ItemViewPropertySheet();
 
     QHash<QString,QString> propertyNameMap() const;
@@ -68,10 +68,8 @@ private:
     ItemViewPropertySheetPrivate *d;
 };
 
-typedef QDesignerPropertySheetFactory<QTreeView, ItemViewPropertySheet>
-                                      QTreeViewPropertySheetFactory;
-typedef QDesignerPropertySheetFactory<QTableView, ItemViewPropertySheet>
-                                      QTableViewPropertySheetFactory;
+using QTreeViewPropertySheetFactory = QDesignerPropertySheetFactory<QTreeView, ItemViewPropertySheet>;
+using QTableViewPropertySheetFactory = QDesignerPropertySheetFactory<QTableView, ItemViewPropertySheet>;
 }  // namespace qdesigner_internal
 
 QT_END_NAMESPACE

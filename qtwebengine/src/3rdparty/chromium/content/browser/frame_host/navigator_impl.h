@@ -42,8 +42,10 @@ class CONTENT_EXPORT NavigatorImpl : public Navigator {
   NavigationController* GetController() override;
   void DidFailProvisionalLoadWithError(
       RenderFrameHostImpl* render_frame_host,
-      const FrameHostMsg_DidFailProvisionalLoadWithError_Params& params)
-      override;
+      const GURL& url,
+      int error_code,
+      const base::string16& error_description,
+      bool showing_repost_interstitial) override;
   void DidFailLoadWithError(RenderFrameHostImpl* render_frame_host,
                             const GURL& url,
                             int error_code,
@@ -54,7 +56,7 @@ class CONTENT_EXPORT NavigatorImpl : public Navigator {
                    bool was_within_same_document) override;
   bool StartHistoryNavigationInNewSubframe(
       RenderFrameHostImpl* render_frame_host,
-      const GURL& default_url) override;
+      mojom::NavigationClientAssociatedPtrInfo* navigation_client) override;
   void Navigate(std::unique_ptr<NavigationRequest> request,
                 ReloadType reload_type,
                 RestoreType restore_type) override;
@@ -95,7 +97,9 @@ class CONTENT_EXPORT NavigatorImpl : public Navigator {
       mojom::BeginNavigationParamsPtr begin_params,
       scoped_refptr<network::SharedURLLoaderFactory> blob_url_loader_factory,
       mojom::NavigationClientAssociatedPtrInfo navigation_client,
-      blink::mojom::NavigationInitiatorPtr navigation_initiator) override;
+      blink::mojom::NavigationInitiatorPtr navigation_initiator,
+      scoped_refptr<PrefetchedSignedExchangeCache>
+          prefetched_signed_exchange_cache) override;
   void RestartNavigationAsCrossDocument(
       std::unique_ptr<NavigationRequest> navigation_request) override;
   void OnAbortNavigation(FrameTreeNode* frame_tree_node) override;
@@ -106,8 +110,6 @@ class CONTENT_EXPORT NavigatorImpl : public Navigator {
       const base::TimeTicks& renderer_before_unload_end_time) override;
   void CancelNavigation(FrameTreeNode* frame_tree_node,
                         bool inform_renderer) override;
-  void DiscardPendingEntryIfNeeded(int expected_pending_entry_id) override;
-
  private:
   // Holds data used to track browser side navigation metrics.
   struct NavigationMetricsData;
@@ -120,12 +122,12 @@ class CONTENT_EXPORT NavigatorImpl : public Navigator {
       const FrameHostMsg_DidCommitProvisionalLoad_Params& params,
       SiteInstance* site_instance);
 
-  // Called when a navigation has started in a main frame, to update the pending
-  // NavigationEntry if the controller does not currently have a
-  // browser-initiated one.
-  void DidStartMainFrameNavigation(const GURL& url,
-                                   SiteInstanceImpl* site_instance,
-                                   NavigationHandleImpl* navigation_handle);
+  // Called when a renderer initiated navigation has started. Returns the
+  // pending NavigationEntry to be used. Either null or a new one owned
+  // NavigationController.
+  NavigationEntryImpl* GetNavigationEntryForRendererInitiatedNavigation(
+                                   const CommonNavigationParams& common_params,
+                                   FrameTreeNode* frame_tree_node);
 
   // The NavigationController that will keep track of session history for all
   // RenderFrameHost objects using this NavigatorImpl.

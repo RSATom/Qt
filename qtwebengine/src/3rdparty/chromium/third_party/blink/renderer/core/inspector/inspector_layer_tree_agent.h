@@ -44,7 +44,6 @@ class Layer;
 
 namespace blink {
 
-class GraphicsContext;
 class InspectedFrames;
 class LayoutRect;
 class PictureSnapshot;
@@ -58,12 +57,6 @@ class CORE_EXPORT InspectorLayerTreeAgent final
     virtual bool IsInspectorLayer(const cc::Layer*) = 0;
   };
 
-  static InspectorLayerTreeAgent* Create(InspectedFrames* inspected_frames,
-                                         Client* client) {
-    return MakeGarbageCollected<InspectorLayerTreeAgent>(inspected_frames,
-                                                         client);
-  }
-
   InspectorLayerTreeAgent(InspectedFrames*, Client*);
   ~InspectorLayerTreeAgent() override;
   void Trace(blink::Visitor*) override;
@@ -72,7 +65,8 @@ class CORE_EXPORT InspectorLayerTreeAgent final
 
   // Called from InspectorInstrumentation
   void LayerTreeDidChange();
-  void DidPaint(const cc::Layer*, GraphicsContext&, const LayoutRect&);
+  void DidPaint(const cc::Layer*, const LayoutRect&);
+  void LayerTreePainted();
 
   // Called from the front-end.
   protocol::Response enable() override;

@@ -5,16 +5,16 @@
  * found in the LICENSE file.
  */
 
-#include "Sample.h"
-#include "SkAnimTimer.h"
-#include "SkCanvas.h"
-#include "SkPaint.h"
-#include "SkPath.h"
-#include "SkRandom.h"
-#include "SkStrike.h"
-#include "SkStrikeCache.h"
-#include "SkTaskGroup.h"
-#include "sk_tool_utils.h"
+#include "include/core/SkCanvas.h"
+#include "include/core/SkPaint.h"
+#include "include/core/SkPath.h"
+#include "include/utils/SkRandom.h"
+#include "samplecode/Sample.h"
+#include "src/core/SkStrike.h"
+#include "src/core/SkStrikeCache.h"
+#include "src/core/SkStrikeSpec.h"
+#include "src/core/SkTaskGroup.h"
+#include "tools/ToolUtils.h"
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // Static text from paths.
@@ -33,12 +33,13 @@ public:
 
     void onOnceBeforeDraw() final {
         SkFont defaultFont;
-        auto cache = SkStrikeCache::FindOrCreateStrikeWithNoDeviceExclusive(defaultFont);
+        SkStrikeSpec strikeSpec = SkStrikeSpec::MakeWithNoDevice(defaultFont);
+        auto cache = strikeSpec.findOrCreateExclusiveStrike();
         SkPath glyphPaths[52];
         for (int i = 0; i < 52; ++i) {
             // I and l are rects on OS X ...
             char c = "aQCDEFGH7JKLMNOPBRZTUVWXYSAbcdefghijk1mnopqrstuvwxyz"[i];
-            SkPackedGlyphID id(cache->unicharToGlyph(c));
+            SkPackedGlyphID id(defaultFont.unicharToGlyph(c));
             sk_ignore_unused_variable(cache->getScalerContext()->getPath(id, &glyphPaths[i]));
         }
 
@@ -52,19 +53,14 @@ public:
     }
     void onSizeChange() final { this->INHERITED::onSizeChange(); this->reset(); }
 
-    bool onQuery(Sample::Event* evt) final {
-        if (Sample::TitleQ(*evt)) {
-            Sample::TitleR(evt, this->getName());
-            return true;
-        }
-        SkUnichar unichar;
-        if (Sample::CharQ(*evt, &unichar)) {
+    SkString name() override { return SkString(this->getName()); }
+
+    bool onChar(SkUnichar unichar) override {
             if (unichar == 'X') {
                 fDoClip = !fDoClip;
                 return true;
             }
-        }
-        return this->INHERITED::onQuery(evt);
+            return false;
     }
 
     void onDrawContent(SkCanvas* canvas) override {
@@ -106,7 +102,7 @@ protected:
 
     Glyph      fGlyphs[kNumPaths];
     SkRandom   fRand{25};
-    SkPath     fClipPath = sk_tool_utils::make_star(SkRect{0,0,1,1}, 11, 3);
+    SkPath     fClipPath = ToolUtils::make_star(SkRect{0, 0, 1, 1}, 11, 3);
     bool       fDoClip = false;
 
     typedef Sample INHERITED;
@@ -167,15 +163,15 @@ public:
         fLastTick = 0;
     }
 
-    bool onAnimate(const SkAnimTimer& timer) final {
+    bool onAnimate(double nanos) final {
         fBackgroundAnimationTask.wait();
         this->swapAnimationBuffers();
 
-        const double tsec = timer.secs();
-        const double dt = fLastTick ? (timer.secs() - fLastTick) : 0;
+        const double tsec = 1e-9 * nanos;
+        const double dt = fLastTick ? (1e-9 * nanos - fLastTick) : 0;
         fBackgroundAnimationTask.add(std::bind(&MovingPathText::runAnimationTask, this, tsec,
                                                dt, this->width(), this->height()));
-        fLastTick = timer.secs();
+        fLastTick = 1e-9 * nanos;
         return true;
     }
 

@@ -14,7 +14,7 @@
 
 source_set("service") {
   public_deps = [
-    "../../../include/perfetto/traced",
+    "../../../include/perfetto/ext/traced",
   ]
   deps = [
     "../../../gn:default_deps",
@@ -23,6 +23,23 @@ source_set("service") {
     "../../tracing:ipc",
   ]
   sources = [
+    "lazy_producer.cc",
+    "lazy_producer.h",
     "service.cc",
+  ]
+}
+
+source_set("unittests") {
+  testonly = true
+  deps = [
+    ":service",
+    "../../../gn:default_deps",
+    "../../../gn:gtest_and_gmock",
+    "../../base",
+    "../../base:test_support",
+    "../../tracing",
+  ]
+  sources = [
+    "lazy_producer_unittest.cc",
   ]
 }

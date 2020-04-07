@@ -530,12 +530,11 @@ QSet<QString> getBinaryRPaths(const QString &path, bool resolve = true, QString 
 
     QString output = otool.readAllStandardOutput();
     QStringList outputLines = output.split("\n");
-    QStringListIterator i(outputLines);
 
-    while (i.hasNext()) {
-        if (i.next().contains("cmd LC_RPATH") && i.hasNext() &&
-        i.next().contains("cmdsize") && i.hasNext()) {
-            const QString &rpathCmd = i.next();
+    for (auto i = outputLines.cbegin(), end = outputLines.cend(); i != end; ++i) {
+        if (i->contains("cmd LC_RPATH") && ++i != end &&
+            i->contains("cmdsize") && ++i != end) {
+            const QString &rpathCmd = *i;
             int pathStart = rpathCmd.indexOf("path ");
             int pathEnd = rpathCmd.indexOf(" (");
             if (pathStart >= 0 && pathEnd >= 0 && pathStart < pathEnd) {
@@ -1294,7 +1293,7 @@ bool deployQmlImports(const QString &appBundlePath, DeploymentInfo deploymentInf
     // deployQmlImports can consider the module deployed if it has already
     // deployed one of its sub-module)
     QVariantList array = doc.array().toVariantList();
-    qSort(array.begin(), array.end(), importLessThan);
+    std::sort(array.begin(), array.end(), importLessThan);
 
     // deploy each import
     foreach (const QVariant &importValue, array) {

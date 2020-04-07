@@ -93,9 +93,7 @@ QExtensionManager::QExtensionManager(QObject *parent)
 /*!
   Destroys the extension manager
 */
-QExtensionManager::~QExtensionManager()
-{
-}
+QExtensionManager::~QExtensionManager() = default;
 
 /*!
     Register the extension specified by the given \a factory and
@@ -155,7 +153,7 @@ QObject *QExtensionManager::extension(QObject *object, const QString &iid) const
         if (QObject *ext = (*git)->extension(object, iid))
             return ext;
 
-    return 0;
+    return nullptr;
 }
 
 QT_END_NAMESPACE

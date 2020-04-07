@@ -44,7 +44,7 @@ void ReceiverWithPacketLoss::Setup(AudioCodingModule* acm,
 bool ReceiverWithPacketLoss::IncomingPacket() {
   if (!_rtpStream->EndOfFile()) {
     if (packet_counter_ == 0) {
-      _realPayloadSizeBytes = _rtpStream->Read(&_rtpInfo, _incomingPayload,
+      _realPayloadSizeBytes = _rtpStream->Read(&_rtpHeader, _incomingPayload,
                                                _payloadSizeBytes, &_nextTime);
       if (_realPayloadSizeBytes == 0) {
         if (_rtpStream->EndOfFile()) {
@@ -57,10 +57,10 @@ bool ReceiverWithPacketLoss::IncomingPacket() {
     }
 
     if (!PacketLost()) {
-      _acm->IncomingPacket(_incomingPayload, _realPayloadSizeBytes, _rtpInfo);
+      _acm->IncomingPacket(_incomingPayload, _realPayloadSizeBytes, _rtpHeader);
     }
     packet_counter_++;
-    _realPayloadSizeBytes = _rtpStream->Read(&_rtpInfo, _incomingPayload,
+    _realPayloadSizeBytes = _rtpStream->Read(&_rtpHeader, _incomingPayload,
                                              _payloadSizeBytes, &_nextTime);
     if (_realPayloadSizeBytes == 0 && _rtpStream->EndOfFile()) {
       packet_counter_ = 0;
@@ -147,7 +147,7 @@ void PacketLossTest::Perform() {
   rtpFile.WriteHeader();
   SenderWithFEC sender;
   sender.Setup(acm.get(), &rtpFile, in_file_name_, 120, send_format,
-                 expected_loss_rate_);
+               expected_loss_rate_);
   sender.Run();
   sender.Teardown();
   rtpFile.Close();
@@ -156,7 +156,7 @@ void PacketLossTest::Perform() {
   rtpFile.ReadHeader();
   ReceiverWithPacketLoss receiver;
   receiver.Setup(acm.get(), &rtpFile, "packetLoss_out", channels_, 15,
-                   actual_loss_rate_, burst_length_);
+                 actual_loss_rate_, burst_length_);
   receiver.Run();
   receiver.Teardown();
   rtpFile.Close();

@@ -8,7 +8,7 @@
 #include "base/macros.h"
 #include "base/memory/scoped_refptr.h"
 #include "third_party/blink/renderer/platform/platform_export.h"
-#include "third_party/blink/renderer/platform/wtf/allocator.h"
+#include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 #include "third_party/blink/renderer/platform/wtf/ref_counted.h"
 #include "third_party/blink/renderer/platform/wtf/text/atomic_string.h"
 #include "third_party/blink/renderer/platform/wtf/text/string_builder.h"
@@ -24,10 +24,10 @@ class FontTagValuePair {
 
  public:
   FontTagValuePair(const AtomicString& tag, T value)
-      : tag_(tag), value_(value){};
+      : tag_(tag), value_(value) {}
   bool operator==(const FontTagValuePair& other) const {
     return tag_ == other.tag_ && value_ == other.value_;
-  };
+  }
 
   const AtomicString& Tag() const { return tag_; }
   T Value() const { return value_; }
@@ -46,7 +46,7 @@ class FontSettings {
   const T& at(wtf_size_t index) const { return list_.at(index); }
   bool operator==(const FontSettings& other) const {
     return list_ == other.list_;
-  };
+  }
   String ToString() const {
     StringBuilder builder;
     wtf_size_t num_features = size();

@@ -8,10 +8,10 @@
 #ifndef SkMask_DEFINED
 #define SkMask_DEFINED
 
-#include "SkColorData.h"
-#include "SkMacros.h"
-#include "SkRect.h"
-#include "SkTemplates.h"
+#include "include/core/SkRect.h"
+#include "include/private/SkColorData.h"
+#include "include/private/SkMacros.h"
+#include "include/private/SkTemplates.h"
 
 #include <memory>
 
@@ -39,6 +39,8 @@ struct SkMask {
     SkIRect     fBounds;
     uint32_t    fRowBytes;
     Format      fFormat;
+
+    static bool IsValidFormat(uint8_t format) { return format < kCountMaskFormats; }
 
     /** Returns true if the mask is empty: i.e. it has an empty bounds.
      */

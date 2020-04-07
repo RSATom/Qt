@@ -32,6 +32,7 @@
 
 #include "third_party/blink/public/platform/platform.h"
 #include "third_party/blink/public/platform/web_security_origin.h"
+#include "third_party/blink/renderer/modules/webdatabase/web_database_host.h"
 #include "third_party/blink/renderer/platform/weborigin/security_origin.h"
 #include "third_party/blink/renderer/platform/wtf/std_lib_extras.h"
 #include "third_party/blink/renderer/platform/wtf/threading.h"
@@ -46,8 +47,8 @@ QuotaTracker& QuotaTracker::Instance() {
 void QuotaTracker::GetDatabaseSizeAndSpaceAvailableToOrigin(
     const SecurityOrigin* origin,
     const String& database_name,
-    unsigned long long* database_size,
-    unsigned long long* space_available) {
+    uint64_t* database_size,
+    uint64_t* space_available) {
   // Extra scope to unlock prior to potentially calling Platform.
   {
     MutexLocker lock_data(data_guard_);
@@ -59,13 +60,13 @@ void QuotaTracker::GetDatabaseSizeAndSpaceAvailableToOrigin(
   }
 
   // The embedder hasn't pushed this value to us, so we pull it as needed.
-  *space_available = Platform::Current()->DatabaseGetSpaceAvailableForOrigin(
-      WebSecurityOrigin(origin));
+  *space_available =
+      WebDatabaseHost::GetInstance().GetSpaceAvailableForOrigin(*origin);
 }
 
 void QuotaTracker::UpdateDatabaseSize(const SecurityOrigin* origin,
                                       const String& database_name,
-                                      unsigned long long database_size) {
+                                      uint64_t database_size) {
   MutexLocker lock_data(data_guard_);
   HashMap<String, SizeMap>::ValueType* it =
       database_sizes_.insert(origin->ToRawString(), SizeMap()).stored_value;

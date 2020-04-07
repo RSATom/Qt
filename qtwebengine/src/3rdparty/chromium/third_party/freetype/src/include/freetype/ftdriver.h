@@ -4,7 +4,7 @@
  *
  *   FreeType API for controlling driver modules (specification only).
  *
- * Copyright 2017-2018 by
+ * Copyright (C) 2017-2019 by
  * David Turner, Robert Wilhelm, and Werner Lemberg.
  *
  * This file is part of the FreeType project, and may only be used,
@@ -233,7 +233,7 @@ FT_BEGIN_HEADER
    *   achieve some level of glyph symmetry.  To enable reasonable
    *   performance (e.g., not having to run hinting on all glyphs just to get
    *   the widths) there was a bit in the head table indicating if the side
-   *   bearing was hinted, and additional tables, `hdmx` and `LTSH`, to cache
+   *   bearing was hinted, and additional tables, 'hdmx' and 'LTSH', to cache
    *   hinting widths across multiple sizes and device aspect ratios.
    *
    *   _Font Smoothing_
@@ -1070,7 +1070,7 @@ FT_BEGIN_HEADER
    *   coverages, this property sets the (auto-fitter) script to be used for
    *   the default (OpenType) script data of a font's GSUB table.  Features
    *   for the default script are intended for all scripts not explicitly
-   *   handled in GSUB; an example is a `dlig` feature, containing the
+   *   handled in GSUB; an example is a 'dlig' feature, containing the
    *   combination of the characters 'T', 'E', and 'L' to form a 'TEL'
    *   ligature.
    *

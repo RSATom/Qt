@@ -553,6 +553,7 @@ void tst_QPluginLoader::staticPlugins()
     QCOMPARE(metaData.value("version").toInt() / 0x100, QT_VERSION / 0x100);
     QCOMPARE(metaData.value("IID").toString(), "SomeIID");
     QCOMPARE(metaData.value("ExtraMetaData"), QJsonArray({ "StaticPlugin", "foo" }));
+    QCOMPARE(metaData.value("URI").toString(), "qt.test.pluginloader.staticplugin");
 }
 
 

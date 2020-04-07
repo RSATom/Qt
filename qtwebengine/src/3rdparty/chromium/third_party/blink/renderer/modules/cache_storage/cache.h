@@ -6,8 +6,8 @@
 #define THIRD_PARTY_BLINK_RENDERER_MODULES_CACHE_STORAGE_CACHE_H_
 
 #include <memory>
-#include "base/macros.h"
 
+#include "base/macros.h"
 #include "third_party/blink/public/mojom/cache_storage/cache_storage.mojom-blink.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise.h"
 #include "third_party/blink/renderer/core/fetch/global_fetch.h"
@@ -18,9 +18,26 @@
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
 #include "third_party/blink/renderer/platform/wtf/vector.h"
 
+namespace mojo {
+
+using blink::mojom::blink::CacheQueryOptions;
+using blink::mojom::blink::CacheQueryOptionsPtr;
+
+template <>
+struct TypeConverter<CacheQueryOptionsPtr, const blink::CacheQueryOptions*> {
+  static CacheQueryOptionsPtr Convert(const blink::CacheQueryOptions* input) {
+    CacheQueryOptionsPtr output = CacheQueryOptions::New();
+    output->ignore_search = input->ignoreSearch();
+    output->ignore_method = input->ignoreMethod();
+    output->ignore_vary = input->ignoreVary();
+    return output;
+  }
+};
+
+}  // namespace mojo
+
 namespace blink {
 
-class CacheStorage;
 class ExceptionState;
 class Response;
 class Request;
@@ -32,13 +49,7 @@ class MODULES_EXPORT Cache final : public ScriptWrappable {
   DEFINE_WRAPPERTYPEINFO();
 
  public:
-  static Cache* Create(GlobalFetch::ScopedFetcher*,
-                       CacheStorage*,
-                       mojom::blink::CacheStorageCacheAssociatedPtrInfo,
-                       scoped_refptr<base::SingleThreadTaskRunner>);
-
   Cache(GlobalFetch::ScopedFetcher*,
-        CacheStorage*,
         mojom::blink::CacheStorageCacheAssociatedPtrInfo,
         scoped_refptr<base::SingleThreadTaskRunner>);
 
@@ -70,8 +81,6 @@ class MODULES_EXPORT Cache final : public ScriptWrappable {
                      const CacheQueryOptions*,
                      ExceptionState&);
 
-  static mojom::blink::QueryParamsPtr ToQueryParams(const CacheQueryOptions*);
-
   void Trace(blink::Visitor*) override;
 
  private:
@@ -98,16 +107,13 @@ class MODULES_EXPORT Cache final : public ScriptWrappable {
                         const String& method_name,
                         const HeapVector<Member<Request>>&,
                         const HeapVector<Member<Response>>&,
-                        ExceptionState&);
+                        ExceptionState&,
+                        int64_t trace_id);
   ScriptPromise KeysImpl(ScriptState*,
                          const Request*,
                          const CacheQueryOptions*);
 
   Member<GlobalFetch::ScopedFetcher> scoped_fetcher_;
-  // Hold a reference to CacheStorage to keep |cache_ptr_| alive.
-  // This is required because |cache_ptr_| is associated with CacheStorage's
-  // mojo message pipe.
-  Member<CacheStorage> cache_storage_;
 
   mojom::blink::CacheStorageCacheAssociatedPtr cache_ptr_;
 

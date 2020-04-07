@@ -72,7 +72,7 @@ struct StructTraits<content::mojom::RenderFrameMetadataDataView,
     return metadata.top_controls_shown_ratio;
   }
 
-#if defined(OS_ANDROID)
+#if defined(OS_ANDROID) || defined(TOOLKIT_QT)
   static float bottom_controls_height(const cc::RenderFrameMetadata& metadata) {
     return metadata.bottom_controls_height;
   }

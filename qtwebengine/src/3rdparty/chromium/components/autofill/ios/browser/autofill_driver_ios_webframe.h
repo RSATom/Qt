@@ -6,7 +6,7 @@
 #define COMPONENTS_AUTOFILL_IOS_BROWSER_AUTOFILL_DRIVER_IOS_WEBFRAME_H_
 
 #include "components/autofill/ios/browser/autofill_driver_ios.h"
-#include "ios/web/public/web_state/web_frame_user_data.h"
+#include "ios/web/public/js_messaging/web_frame_user_data.h"
 #include "ios/web/public/web_state/web_state_user_data.h"
 
 namespace web {
@@ -47,11 +47,14 @@ class AutofillDriverIOSWebFrameFactory
       web::WebFrame* web_frame);
 
  private:
+  friend class web::WebStateUserData<AutofillDriverIOSWebFrameFactory>;
+
   web::WebState* web_state_ = nullptr;
   AutofillClient* client_ = nullptr;
   id<AutofillDriverIOSBridge> bridge_ = nil;
   std::string app_locale_;
   AutofillManager::AutofillDownloadManagerState enable_download_manager_;
+  WEB_STATE_USER_DATA_KEY_DECL();
 };
 
 // AutofillDriverIOSWebFrame will keep a refcountable AutofillDriverIOS. This is

@@ -9,10 +9,11 @@
 #include "ash/frame/non_client_frame_view_ash.h"
 #include "ash/public/cpp/shelf_types.h"
 #include "ash/public/cpp/shell_window_ids.h"
+#include "ash/public/cpp/window_pin_type.h"
 #include "ash/public/cpp/window_properties.h"
 #include "ash/public/cpp/window_state_type.h"
-#include "ash/public/interfaces/window_pin_type.mojom.h"
 #include "ash/shell.h"
+#include "ash/wm/desks/desks_util.h"
 #include "ash/wm/drag_window_resizer.h"
 #include "ash/wm/window_resizer.h"
 #include "ash/wm/window_state.h"
@@ -28,7 +29,6 @@
 #include "components/exo/shell_surface_util.h"
 #include "components/exo/surface.h"
 #include "components/exo/wm_helper.h"
-#include "services/ws/public/mojom/window_tree_constants.mojom.h"
 #include "third_party/skia/include/core/SkPath.h"
 #include "ui/accessibility/ax_node_data.h"
 #include "ui/aura/client/aura_constants.h"
@@ -42,7 +42,6 @@
 #include "ui/base/class_property.h"
 #include "ui/base/ui_base_features.h"
 #include "ui/compositor/compositor.h"
-#include "ui/compositor/dip_util.h"
 #include "ui/compositor_extra/shadow.h"
 #include "ui/display/display.h"
 #include "ui/display/screen.h"
@@ -90,10 +89,10 @@ class CustomFrameView : public ash::NonClientFrameViewAsh,
   CustomFrameView(views::Widget* widget,
                   ShellSurfaceBase* shell_surface,
                   bool enabled,
-                  bool client_controlled_move_resize)
+                  bool client_controlled)
       : NonClientFrameViewAsh(widget),
         shell_surface_(shell_surface),
-        client_controlled_move_resize_(client_controlled_move_resize) {
+        client_controlled_(client_controlled) {
     SetEnabled(enabled);
     SetVisible(enabled);
     if (!enabled)
@@ -111,23 +110,10 @@ class CustomFrameView : public ash::NonClientFrameViewAsh,
 
   // Overridden from ash::NonClientFrameViewAsh:
   void SetShouldPaintHeader(bool paint) override {
-    if (visible()) {
+    if (GetVisible()) {
       NonClientFrameViewAsh::SetShouldPaintHeader(paint);
       return;
     }
-  }
-
-  // Overridden from aura::WindowObserver:
-  void OnWindowBoundsChanged(aura::Window* window,
-                             const gfx::Rect& old_bounds,
-                             const gfx::Rect& new_bounds,
-                             ui::PropertyChangeReason reason) override {
-    // When window bounds are changed, we need to update the header view so that
-    // the window mask layer bounds can be set correctly in function
-    // SetShouldPaintHeader(). Note: this can be removed if the layer mask in
-    // CustomFrameView becomes unnecessary.
-    // TODO(oshima): Investigate if we can eliminate this.
-    NonClientFrameViewAsh::UpdateHeaderView();
   }
 
   void OnWindowDestroying(aura::Window* window) override {
@@ -137,46 +123,46 @@ class CustomFrameView : public ash::NonClientFrameViewAsh,
 
   // Overridden from views::NonClientFrameView:
   gfx::Rect GetBoundsForClientView() const override {
-    if (visible())
+    if (GetVisible())
       return ash::NonClientFrameViewAsh::GetBoundsForClientView();
     return bounds();
   }
   gfx::Rect GetWindowBoundsForClientBounds(
       const gfx::Rect& client_bounds) const override {
-    if (visible()) {
+    if (GetVisible()) {
       return ash::NonClientFrameViewAsh::GetWindowBoundsForClientBounds(
           client_bounds);
     }
     return client_bounds;
   }
   int NonClientHitTest(const gfx::Point& point) override {
-    if (visible() || !client_controlled_move_resize_)
+    if (GetVisible() || client_controlled_)
       return ash::NonClientFrameViewAsh::NonClientHitTest(point);
     return GetWidget()->client_view()->NonClientHitTest(point);
   }
   void GetWindowMask(const gfx::Size& size, SkPath* window_mask) override {
-    if (visible())
+    if (GetVisible())
       return ash::NonClientFrameViewAsh::GetWindowMask(size, window_mask);
   }
   void ResetWindowControls() override {
-    if (visible())
+    if (GetVisible())
       return ash::NonClientFrameViewAsh::ResetWindowControls();
   }
   void UpdateWindowIcon() override {
-    if (visible())
+    if (GetVisible())
       return ash::NonClientFrameViewAsh::ResetWindowControls();
   }
   void UpdateWindowTitle() override {
-    if (visible())
+    if (GetVisible())
       return ash::NonClientFrameViewAsh::UpdateWindowTitle();
   }
   void SizeConstraintsChanged() override {
-    if (visible())
+    if (GetVisible())
       return ash::NonClientFrameViewAsh::SizeConstraintsChanged();
   }
   gfx::Size GetMinimumSize() const override {
     gfx::Size minimum_size = shell_surface_->GetMinimumSize();
-    if (visible()) {
+    if (GetVisible()) {
       return ash::NonClientFrameViewAsh::GetWindowBoundsForClientBounds(
                  gfx::Rect(minimum_size))
           .size();
@@ -185,7 +171,7 @@ class CustomFrameView : public ash::NonClientFrameViewAsh,
   }
   gfx::Size GetMaximumSize() const override {
     gfx::Size maximum_size = shell_surface_->GetMaximumSize();
-    if (visible() && !maximum_size.IsEmpty()) {
+    if (GetVisible() && !maximum_size.IsEmpty()) {
       return ash::NonClientFrameViewAsh::GetWindowBoundsForClientBounds(
                  gfx::Rect(maximum_size))
           .size();
@@ -195,20 +181,15 @@ class CustomFrameView : public ash::NonClientFrameViewAsh,
 
  private:
   ShellSurfaceBase* const shell_surface_;
-  // TODO(oshima): Remove this once the transition to new drag/resize
-  // is complete. https://crbug.com/801666.
-  const bool client_controlled_move_resize_;
+  bool client_controlled_;
 
   DISALLOW_COPY_AND_ASSIGN(CustomFrameView);
 };
 
 class CustomWindowTargeter : public aura::WindowTargeter {
  public:
-  CustomWindowTargeter(views::Widget* widget,
-                       bool client_controlled_move_resize)
-      : widget_(widget),
-        client_controlled_move_resize_(client_controlled_move_resize) {}
-  ~CustomWindowTargeter() override {}
+  explicit CustomWindowTargeter(views::Widget* widget) : widget_(widget) {}
+  ~CustomWindowTargeter() override = default;
 
   // Overridden from aura::WindowTargeter:
   bool EventLocationInsideBounds(aura::Window* window,
@@ -248,14 +229,12 @@ class CustomWindowTargeter : public aura::WindowTargeter {
         !widget_->widget_delegate()->CanResize()) {
       return false;
     }
-
     // Use ash's resize handle detection logic if
-    // a) ClientControlledShellSurface uses server side resize or
+    // a) ClientControlledShellSurface
     // b) xdg shell is using the server side decoration.
-    if (ash::wm::GetWindowState(widget_->GetNativeWindow())
-                ->allow_set_bounds_direct()
-            ? client_controlled_move_resize_
-            : !widget_->non_client_view()->frame_view()->visible()) {
+    if (!ash::WindowState::Get(widget_->GetNativeWindow())
+             ->allow_set_bounds_direct() &&
+        !widget_->non_client_view()->frame_view()->GetVisible()) {
       return false;
     }
 
@@ -286,7 +265,6 @@ class CustomWindowTargeter : public aura::WindowTargeter {
   }
 
   views::Widget* const widget_;
-  const bool client_controlled_move_resize_;
 
   DISALLOW_COPY_AND_ASSIGN(CustomWindowTargeter);
 };
@@ -294,13 +272,13 @@ class CustomWindowTargeter : public aura::WindowTargeter {
 // A place holder to disable default implementation created by
 // ash::NonClientFrameViewAsh, which triggers immersive fullscreen etc, which
 // we don't need.
-class CustomWindowStateDelegate : public ash::wm::WindowStateDelegate {
+class CustomWindowStateDelegate : public ash::WindowStateDelegate {
  public:
   CustomWindowStateDelegate() {}
   ~CustomWindowStateDelegate() override {}
 
-  // Overridden from ash::wm::WindowStateDelegate:
-  bool ToggleFullscreen(ash::wm::WindowState* window_state) override {
+  // Overridden from ash::WindowStateDelegate:
+  bool ToggleFullscreen(ash::WindowState* window_state) override {
     return false;
   }
 
@@ -554,7 +532,8 @@ void ShellSurfaceBase::OnSurfaceCommit() {
   if (shadow_bounds_changed_)
     host_window()->AllocateLocalSurfaceId();
 
-  SurfaceTreeHost::OnSurfaceCommit();
+  DCHECK(presentation_callbacks().empty());
+  root_surface()->CommitSurfaceHierarchy(false);
 
   if (!OnPreWidgetCommit())
     return;
@@ -596,9 +575,15 @@ void ShellSurfaceBase::OnSetFrame(SurfaceFrameType frame_type) {
   }
   if (!widget_)
     return;
+
+  // Override redirect window can request NONE/SHADOW. The shadow
+  // will be updated in next commit.
+  if (!widget_->non_client_view() && !frame_enabled())
+    return;
+
   CustomFrameView* frame_view =
       static_cast<CustomFrameView*>(widget_->non_client_view()->frame_view());
-  if (frame_view->enabled() == frame_enabled())
+  if (frame_view->GetEnabled() == frame_enabled())
     return;
 
   frame_view->SetEnabled(frame_enabled());
@@ -673,7 +658,7 @@ bool ShellSurfaceBase::CanResize() const {
 
 bool ShellSurfaceBase::CanMaximize() const {
   // Shell surfaces in system modal container cannot be maximized.
-  if (container_ != ash::kShellWindowId_DefaultContainer)
+  if (!ash::desks_util::IsDeskContainerId(container_))
     return false;
 
   // Non-transient shell surfaces can be maximized.
@@ -726,18 +711,7 @@ views::View* ShellSurfaceBase::GetContentsView() {
 
 views::NonClientFrameView* ShellSurfaceBase::CreateNonClientFrameView(
     views::Widget* widget) {
-  aura::Window* window = widget_->GetNativeWindow();
-  // ShellSurfaces always use immersive mode.
-  window->SetProperty(ash::kImmersiveIsActive, true);
-  ash::wm::WindowState* window_state = ash::wm::GetWindowState(window);
-  if (!frame_enabled() && !window_state->HasDelegate()) {
-    window_state->SetDelegate(std::make_unique<CustomWindowStateDelegate>());
-  }
-  CustomFrameView* frame_view = new CustomFrameView(
-      widget, this, frame_enabled(), client_controlled_move_resize_);
-  if (has_frame_colors_)
-    frame_view->SetFrameColors(active_frame_color_, inactive_frame_color_);
-  return frame_view;
+  return CreateNonClientFrameViewInternal(widget, /*client_controlled=*/false);
 }
 
 bool ShellSurfaceBase::WidgetHasHitTestMask() const {
@@ -786,7 +760,12 @@ gfx::Size ShellSurfaceBase::CalculatePreferredSize() const {
   if (!geometry_.IsEmpty())
     return geometry_.size();
 
-  return host_window()->bounds().size();
+  // The root surface's content bounds should be used instead of the host window
+  // bounds because the host window bounds are not updated until the widget is
+  // committed, meaning that if we need to calculate the preferred size before
+  // then (e.g. in OnPreWidgetCommit()), then we need to use the root surface's
+  // to ensure that we're using the correct bounds' size.
+  return root_surface()->surface_hierarchy_content_bounds().size();
 }
 
 gfx::Size ShellSurfaceBase::GetMinimumSize() const {
@@ -857,25 +836,48 @@ bool ShellSurfaceBase::AcceleratorPressed(const ui::Accelerator& accelerator) {
 
 void ShellSurfaceBase::CreateShellSurfaceWidget(
     ui::WindowShowState show_state) {
-  DCHECK(enabled());
+  DCHECK(GetEnabled());
   DCHECK(!widget_);
 
+  // Sommelier sets the null application id for override redirect windows,
+  // which controls its bounds by itself.
+  bool emulate_x11_override_redirect =
+      !is_popup_ && parent_ && ash::desks_util::IsDeskContainerId(container_) &&
+      !application_id_.has_value();
+
+  if (emulate_x11_override_redirect) {
+    // override redirect is used for menu, tooltips etc, which should be placed
+    // above normal windows, but below lock screen. Specify the container here
+    // to avoid using parent_ in params.parent.
+    container_ = ash::kShellWindowId_ShelfBubbleContainer;
+    // X11 override redirect should not be activatable.
+    activatable_ = false;
+    DisableMovement();
+  }
+
   views::Widget::InitParams params;
-  params.type = is_popup_ ? views::Widget::InitParams::TYPE_POPUP
-                          : views::Widget::InitParams::TYPE_WINDOW;
+  params.type = emulate_x11_override_redirect
+                    ? views::Widget::InitParams::TYPE_MENU
+                    : (is_popup_ ? views::Widget::InitParams::TYPE_POPUP
+                                 : views::Widget::InitParams::TYPE_WINDOW);
   params.ownership = views::Widget::InitParams::NATIVE_WIDGET_OWNS_WIDGET;
   params.delegate = this;
   params.shadow_type = views::Widget::InitParams::SHADOW_TYPE_NONE;
   params.opacity = views::Widget::InitParams::TRANSLUCENT_WINDOW;
   params.show_state = show_state;
-  // Make shell surface a transient child if |parent_| has been set.
-  params.parent =
-      parent_ ? parent_
-              : ash::Shell::GetContainer(
-                    WMHelper::GetInstance()->GetRootWindowForNewWindows(),
-                    container_);
+  // Make shell surface a transient child if |parent_| has been set and
+  // container_ isn't specified.
+  if (ash::desks_util::IsDeskContainerId(container_) && parent_) {
+    params.parent = parent_;
+  } else {
+    params.parent = ash::Shell::GetContainer(
+        WMHelper::GetInstance()->GetRootWindowForNewWindows(), container_);
+  }
   params.bounds = gfx::Rect(origin_, gfx::Size());
   bool activatable = activatable_;
+  if (container_ == ash::kShellWindowId_SystemModalContainer)
+    activatable &= HasHitTestRegion();
+
   // ShellSurfaces in system modal container are only activatable if input
   // region is non-empty. See OnCommitSurface() for more details.
   if (container_ == ash::kShellWindowId_SystemModalContainer)
@@ -894,7 +896,7 @@ void ShellSurfaceBase::CreateShellSurfaceWidget(
   window->AddChild(host_window());
   // Works for both mash and non-mash. https://crbug.com/839521
   window->SetEventTargetingPolicy(
-      ws::mojom::EventTargetingPolicy::TARGET_AND_DESCENDANTS);
+      aura::EventTargetingPolicy::kTargetAndDescendants);
   InstallCustomWindowTargeter();
   SetShellApplicationId(window, application_id_);
   SetShellStartupId(window, startup_id_);
@@ -902,11 +904,12 @@ void ShellSurfaceBase::CreateShellSurfaceWidget(
 
   // Start tracking changes to window bounds and window state.
   window->AddObserver(this);
-  ash::wm::WindowState* window_state = ash::wm::GetWindowState(window);
+  ash::WindowState* window_state = ash::WindowState::Get(window);
   InitializeWindowState(window_state);
 
   // AutoHide shelf in fullscreen state.
-  window_state->SetHideShelfWhenFullscreen(false);
+  if (window_state)
+    window_state->SetHideShelfWhenFullscreen(false);
 
   // Fade visibility animations for non-activatable windows.
   if (!CanActivate()) {
@@ -923,12 +926,13 @@ void ShellSurfaceBase::CreateShellSurfaceWidget(
   }
 
   // Show widget next time Commit() is called.
-  pending_show_widget_ = true;
+  if (show_state != ui::SHOW_STATE_MINIMIZED)
+    pending_show_widget_ = true;
 }
 
 bool ShellSurfaceBase::IsResizing() const {
-  ash::wm::WindowState* window_state =
-      ash::wm::GetWindowState(widget_->GetNativeWindow());
+  ash::WindowState* window_state =
+      ash::WindowState::Get(widget_->GetNativeWindow());
   if (!window_state->is_dragged())
     return false;
   return window_state->drag_details() &&
@@ -940,7 +944,7 @@ void ShellSurfaceBase::UpdateWidgetBounds() {
   DCHECK(widget_);
 
   aura::Window* window = widget_->GetNativeWindow();
-  ash::wm::WindowState* window_state = ash::wm::GetWindowState(window);
+  ash::WindowState* window_state = ash::WindowState::Get(window);
   // Return early if the shell is currently managing the bounds of the widget.
   if (!window_state->allow_set_bounds_direct()) {
     // 1) When a window is either maximized/fullscreen/pinned.
@@ -971,11 +975,6 @@ void ShellSurfaceBase::UpdateSurfaceBounds() {
       root_surface_origin().OffsetFromOrigin(), 1.f / GetScale()));
 
   host_window()->SetBounds(gfx::Rect(origin, host_window()->bounds().size()));
-  // The host window might have not been added to the widget yet.
-  if (host_window()->parent()) {
-    ui::SnapLayerToPhysicalPixelBoundary(widget_->GetNativeWindow()->layer(),
-                                         host_window()->layer());
-  }
 }
 
 void ShellSurfaceBase::UpdateShadow() {
@@ -1040,8 +1039,24 @@ gfx::Rect ShellSurfaceBase::GetShadowBounds() const {
 
 void ShellSurfaceBase::InstallCustomWindowTargeter() {
   aura::Window* window = widget_->GetNativeWindow();
-  window->SetEventTargeter(std::make_unique<CustomWindowTargeter>(
-      widget_, client_controlled_move_resize_));
+  window->SetEventTargeter(std::make_unique<CustomWindowTargeter>(widget_));
+}
+
+views::NonClientFrameView* ShellSurfaceBase::CreateNonClientFrameViewInternal(
+    views::Widget* widget,
+    bool client_controlled) {
+  aura::Window* window = widget_->GetNativeWindow();
+  // ShellSurfaces always use immersive mode.
+  window->SetProperty(ash::kImmersiveIsActive, true);
+  ash::WindowState* window_state = ash::WindowState::Get(window);
+  if (!frame_enabled() && !window_state->HasDelegate()) {
+    window_state->SetDelegate(std::make_unique<CustomWindowStateDelegate>());
+  }
+  CustomFrameView* frame_view =
+      new CustomFrameView(widget, this, frame_enabled(), client_controlled);
+  if (has_frame_colors_)
+    frame_view->SetFrameColors(active_frame_color_, inactive_frame_color_);
+  return frame_view;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1049,24 +1064,6 @@ void ShellSurfaceBase::InstallCustomWindowTargeter() {
 
 float ShellSurfaceBase::GetScale() const {
   return 1.f;
-}
-
-void ShellSurfaceBase::SetParentWindow(aura::Window* parent) {
-  if (parent_) {
-    parent_->RemoveObserver(this);
-    if (widget_)
-      wm::RemoveTransientChild(parent_, widget_->GetNativeWindow());
-  }
-  parent_ = parent;
-  if (parent_) {
-    parent_->AddObserver(this);
-    if (widget_)
-      wm::AddTransientChild(parent_, widget_->GetNativeWindow());
-  }
-
-  // If |parent_| is set effects the ability to maximize the window.
-  if (widget_)
-    widget_->OnSizeConstraintsChanged();
 }
 
 void ShellSurfaceBase::StartCapture() {
@@ -1098,6 +1095,7 @@ void ShellSurfaceBase::CommitWidget() {
   }
 
   UpdateWidgetBounds();
+  SurfaceTreeHost::UpdateHostWindowBounds();
   UpdateShadow();
 
   // System modal container is used by clients to implement overlay
@@ -1108,7 +1106,7 @@ void ShellSurfaceBase::CommitWidget() {
     // Prevent window from being activated when hit test region is empty.
     bool activatable = activatable_ && HasHitTestRegion();
     if (activatable != CanActivate()) {
-      set_can_activate(activatable);
+      SetCanActivate(activatable);
       // Activate or deactivate window if activation state changed.
       if (activatable) {
         // Automatically activate only if the window is modal.

@@ -31,6 +31,9 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_BINDINGS_CORE_V8_SCRIPT_CONTROLLER_H_
 #define THIRD_PARTY_BLINK_RENDERER_BINDINGS_CORE_V8_SCRIPT_CONTROLLER_H_
 
+#include <memory>
+
+#include "base/macros.h"
 #include "third_party/blink/renderer/bindings/core/v8/sanitize_script_errors.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_source_location_type.h"
 #include "third_party/blink/renderer/bindings/core/v8/window_proxy_manager.h"
@@ -40,7 +43,6 @@
 #include "third_party/blink/renderer/platform/heap/handle.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource_loader_options.h"
 #include "third_party/blink/renderer/platform/loader/fetch/script_fetch_options.h"
-#include "third_party/blink/renderer/platform/wtf/noncopyable.h"
 #include "third_party/blink/renderer/platform/wtf/text/text_position.h"
 #include "third_party/blink/renderer/platform/wtf/vector.h"
 #include "v8/include/v8.h"
@@ -48,7 +50,6 @@
 namespace blink {
 
 class DOMWrapperWorld;
-class Element;
 class ExecutionContext;
 class KURL;
 class LocalFrame;
@@ -60,19 +61,11 @@ class SecurityOrigin;
 // LocalFrame::GetScriptController().
 class CORE_EXPORT ScriptController final
     : public GarbageCollected<ScriptController> {
-  WTF_MAKE_NONCOPYABLE(ScriptController);
-
  public:
   enum ExecuteScriptPolicy {
     kExecuteScriptWhenScriptsDisabled,
     kDoNotExecuteScriptWhenScriptsDisabled
   };
-
-  static ScriptController* Create(
-      LocalFrame& frame,
-      LocalWindowProxyManager& window_proxy_manager) {
-    return MakeGarbageCollected<ScriptController>(frame, window_proxy_manager);
-  }
 
   ScriptController(LocalFrame& frame,
                    LocalWindowProxyManager& window_proxy_manager)
@@ -120,19 +113,19 @@ class CORE_EXPORT ScriptController final
       const KURL& base_url,
       SanitizeScriptErrors sanitize_script_errors);
 
-  // Returns true if argument is a JavaScript URL.
-  bool ExecuteScriptIfJavaScriptURL(
-      const KURL&,
-      Element*,
-      ContentSecurityPolicyDisposition check_main_world_csp =
-          kCheckContentSecurityPolicy);
+  void ExecuteJavaScriptURL(const KURL&, ContentSecurityPolicyDisposition);
 
   // Creates a new isolated world for DevTools with the given human readable
   // |world_name| and returns it id or nullptr on failure.
   scoped_refptr<DOMWrapperWorld> CreateNewInspectorIsolatedWorld(
       const String& world_name);
 
+  // Disables eval for the main world.
   void DisableEval(const String& error_message);
+
+  // Disables eval for the given isolated |world_id|. This initializes the
+  // window proxy for the isolated world, if it's not yet initialized.
+  void DisableEvalForIsolatedWorld(int world_id, const String& error_message);
 
   TextPosition EventHandlerPosition() const;
 
@@ -144,9 +137,8 @@ class CORE_EXPORT ScriptController final
   void ClearForClose();
 
   // Registers a v8 extension to be available on webpages. Will only
-  // affect v8 contexts initialized after this call. Takes ownership of
-  // the v8::Extension object passed.
-  static void RegisterExtensionIfNeeded(v8::Extension*);
+  // affect v8 contexts initialized after this call.
+  static void RegisterExtensionIfNeeded(std::unique_ptr<v8::Extension>);
   static v8::ExtensionConfiguration ExtensionsFor(const ExecutionContext*);
 
  private:
@@ -156,6 +148,12 @@ class CORE_EXPORT ScriptController final
   }
   void EnableEval();
 
+  // Sets whether eval is enabled for the context corresponding to the given
+  // |world|. |error_message| is used only when |allow_eval| is false.
+  void SetEvalForWorld(DOMWrapperWorld& world,
+                       bool allow_eval,
+                       const String& error_message);
+
   v8::Local<v8::Value> EvaluateScriptInMainWorld(const ScriptSourceCode&,
                                                  const KURL& base_url,
                                                  SanitizeScriptErrors,
@@ -164,6 +162,8 @@ class CORE_EXPORT ScriptController final
 
   const Member<LocalFrame> frame_;
   const Member<LocalWindowProxyManager> window_proxy_manager_;
+
+  DISALLOW_COPY_AND_ASSIGN(ScriptController);
 };
 
 }  // namespace blink

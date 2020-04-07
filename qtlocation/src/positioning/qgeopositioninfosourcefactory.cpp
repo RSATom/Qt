@@ -84,4 +84,47 @@ QT_BEGIN_NAMESPACE
 QGeoPositionInfoSourceFactory::~QGeoPositionInfoSourceFactory()
 {}
 
+/*!
+  \class QGeoPositionInfoSourceFactoryV2
+  \inmodule QtPositioning
+  \since 5.14
+
+  \brief The QGeoPositionInfoSourceFactoryV2 class extends
+  QGeoPositionInfoSourceFactory, adding factory methods taking a parameters argument.
+
+  This interface has the priority over the older one with plugins implementing it,
+  when creating a positioning source (position, satellite or area monitor)
+*/
+
+/*!
+  \fn QGeoPositionInfoSource *QGeoPositionInfoSourceFactoryV2::positionInfoSourceWithParameters(QObject *parent, const QVariantMap &parameters)
+
+  Returns a new QGeoPositionInfoSource associated with this plugin
+  with parent \a parent, and using \a parameters as configuration parameters.
+  Can also return 0, in which case the plugin loader will use the factory with
+  the next highest priority.
+  */
+
+/*!
+  \fn QGeoSatelliteInfoSource *QGeoPositionInfoSourceFactoryV2::satelliteInfoSourceWithParameters(QObject *parent, const QVariantMap &parameters)
+
+  Returns a new QGeoSatelliteInfoSource associated with this plugin
+  with parent \a parent, and using \a parameters as configuration parameters.
+  Can also return 0, in which case the plugin loader will use the factory with
+  the next highest priority.
+  */
+
+/*!
+  \fn QGeoAreaMonitorSource *QGeoPositionInfoSourceFactoryV2::areaMonitorWithParameters(QObject *parent, const QVariantMap &parameters);
+
+  Returns a new QGeoAreaMonitorSource associated with this plugin with parent
+  \a parent, and using \a parameters as configuration parameters.
+  Can also return 0, in which case the plugin loader will use the factory with
+  the next highest priority.
+  */
+
+QGeoPositionInfoSourceFactoryV2::~QGeoPositionInfoSourceFactoryV2()
+{}
+
 QT_END_NAMESPACE
+

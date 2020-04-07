@@ -5,20 +5,20 @@
  * found in the LICENSE file.
  */
 
-#include "SkNormalMapSource.h"
+#include "src/core/SkNormalMapSource.h"
 
-#include "SkArenaAlloc.h"
-#include "SkLightingShader.h"
-#include "SkMatrix.h"
-#include "SkNormalSource.h"
-#include "SkReadBuffer.h"
-#include "SkWriteBuffer.h"
+#include "include/core/SkMatrix.h"
+#include "src/core/SkArenaAlloc.h"
+#include "src/core/SkNormalSource.h"
+#include "src/core/SkReadBuffer.h"
+#include "src/core/SkWriteBuffer.h"
+#include "src/shaders/SkLightingShader.h"
 
 #if SK_SUPPORT_GPU
-#include "GrCoordTransform.h"
-#include "glsl/GrGLSLFragmentProcessor.h"
-#include "glsl/GrGLSLFragmentShaderBuilder.h"
-#include "SkGr.h"
+#include "src/gpu/GrCoordTransform.h"
+#include "src/gpu/SkGr.h"
+#include "src/gpu/glsl/GrGLSLFragmentProcessor.h"
+#include "src/gpu/glsl/GrGLSLFragmentShaderBuilder.h"
 
 class NormalMapFP : public GrFragmentProcessor {
 public:
@@ -47,7 +47,7 @@ private:
             // add uniform
             const char* xformUniName = nullptr;
             fXformUni = uniformHandler->addUniform(kFragment_GrShaderFlag, kFloat2x2_GrSLType,
-                                                   kDefault_GrSLPrecision, "Xform", &xformUniName);
+                                                   "Xform", &xformUniName);
 
             SkString dstNormalColorName("dstNormalColor");
             this->emitChild(0, &dstNormalColorName, args);
@@ -56,7 +56,7 @@ private:
 
             // If there's no x & y components, return (0, 0, +/- 1) instead to avoid division by 0
             fragBuilder->codeAppend( "if (abs(normal.z) > 0.999) {");
-            fragBuilder->codeAppendf("    %s = normalize(float4(0.0, 0.0, normal.z, 0.0));",
+            fragBuilder->codeAppendf("    %s = normalize(half4(0.0, 0.0, half(normal.z), 0.0));",
                     args.fOutputColor);
             // Else, Normalizing the transformed X and Y, while keeping constant both Z and the
             // vector's angle in the XY plane. This maintains the "slope" for the surface while
@@ -70,8 +70,9 @@ private:
                                                  "( (transformed.x * transformed.x) "
                                                    "+ (transformed.y * transformed.y) )"
                                                  "/(1.0 - (normal.z * normal.z));");
-            fragBuilder->codeAppendf("    %s = float4(transformed*inversesqrt(scalingFactorSquared),"
-                                                   "normal.z, 0.0);",
+            fragBuilder->codeAppendf("    %s = half4(half2(transformed * "
+                                                          "inversesqrt(scalingFactorSquared)),"
+                                                    "half(normal.z), 0.0);",
                     args.fOutputColor);
             fragBuilder->codeAppend( "}");
         }
@@ -146,11 +147,15 @@ SkNormalSource::Provider* SkNormalMapSourceImpl::asProvider(const SkShaderBase::
         return nullptr;
     }
 
+    // Normals really aren't colors, so to ensure we can always make the context, we ignore
+    // the rec's colorspace
+    SkColorSpace* dstColorSpace = nullptr;
+
     // Overriding paint's alpha because we need the normal map's RGB channels to be unpremul'd
     SkPaint overridePaint {*(rec.fPaint)};
     overridePaint.setAlpha(0xFF);
     SkShaderBase::ContextRec overrideRec(overridePaint, *(rec.fMatrix), rec.fLocalMatrix,
-                                         rec.fDstColorType, rec.fDstColorSpace);
+                                         rec.fDstColorType, dstColorSpace);
 
     auto* context = as_SB(fMapShader)->makeContext(overrideRec, alloc);
     if (!context) {
@@ -162,7 +167,7 @@ SkNormalSource::Provider* SkNormalMapSourceImpl::asProvider(const SkShaderBase::
 
 bool SkNormalMapSourceImpl::computeNormTotalInverse(const SkShaderBase::ContextRec& rec,
                                                     SkMatrix* normTotalInverse) const {
-    SkMatrix total = SkMatrix::Concat(*rec.fMatrix, fMapShader->getLocalMatrix());
+    SkMatrix total = SkMatrix::Concat(*rec.fMatrix, as_SB(fMapShader)->getLocalMatrix());
     if (rec.fLocalMatrix) {
         total.preConcat(*rec.fLocalMatrix);
     }

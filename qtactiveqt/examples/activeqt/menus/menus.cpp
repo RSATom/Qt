@@ -60,7 +60,7 @@
 #include "filesave.xpm"
 
 QMenus::QMenus(QWidget *parent)
-    : QMainWindow(parent, 0) // QMainWindow's default flag is WType_TopLevel
+    : QMainWindow(parent, {}) // QMainWindow's default flag is WType_TopLevel
 {
     QAction *action;
 

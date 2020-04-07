@@ -11,17 +11,16 @@ source_set("sad_tab") {
     "sad_tab_view_controller.mm",
   ]
   deps = [
-    ":features",
     "//base",
     "//components/resources",
     "//components/strings",
     "//components/ui_metrics",
     "//ios/chrome/browser",
-    "//ios/chrome/browser/ui",
     "//ios/chrome/browser/ui/colors",
     "//ios/chrome/browser/ui/commands",
     "//ios/chrome/browser/ui/overscroll_actions",
     "//ios/chrome/browser/ui/util",
+    "//ios/chrome/common/ui_util",
     "//ios/third_party/material_components_ios",
     "//ios/third_party/material_roboto_font_loader_ios",
     "//ios/web",
@@ -32,23 +31,11 @@ source_set("sad_tab") {
   libs = [ "UIKit.framework" ]
 }
 
-source_set("features") {
-  sources = [
-    "features.cc",
-    "features.h",
-  ]
-  deps = [
-    "//base",
-  ]
-}
-
 source_set("coordinator") {
   configs += [ "//build/config/compiler:enable_arc" ]
   sources = [
     "sad_tab_coordinator.h",
     "sad_tab_coordinator.mm",
-    "sad_tab_legacy_coordinator.h",
-    "sad_tab_legacy_coordinator.mm",
   ]
   deps = [
     ":sad_tab",

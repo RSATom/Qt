@@ -258,6 +258,7 @@ class _Generator(object):
     if props:
       s = s + ': %s' % (',\n'.join(props))
     s = s + '\n{'
+
     for item in dicts:
       s = s + ('\n%s.Swap(&rhs.%s);' % (item, item))
     s = s + '\n}'
@@ -275,7 +276,7 @@ class _Generator(object):
       s = s + ('\n%s.Swap(&rhs.%s);' % (item, item))
     if additional_props != None:
       s = s + '\n  for (auto& x : rhs.additional_properties) {'
-      s = s + '\n    additional_properties.emplace(std::move(x.first) ,std::move( x.second));'
+      s = s + '\n    additional_properties.emplace(std::move(x.first), std::move(x.second));'
       s = s + '\n  }'
     s = s + '\n}'
     s = s + '\n#endif'
@@ -360,9 +361,9 @@ class _Generator(object):
                      'static_cast<const base::DictionaryValue*>(&value);')
         if self._generate_error_messages:
           c.Append('std::set<std::string> keys;')
-      for prop in type_.properties.itervalues():
+      for prop in type_.properties.values():
         c.Concat(self._InitializePropertyToDefault(prop, 'out'))
-      for prop in type_.properties.itervalues():
+      for prop in type_.properties.values():
         if self._generate_error_messages:
           c.Append('keys.insert("%s");' % (prop.name))
         c.Concat(self._GenerateTypePopulateProperty(prop, 'dict', 'out'))
@@ -711,7 +712,7 @@ class _Generator(object):
           ' || %(var)s.GetSize() > %(total)d) {')
     (c.Concat(self._GenerateError(
         '"expected %%(total)d arguments, got " '
-        '+ base::IntToString(%%(var)s.GetSize())'))
+        '+ base::NumberToString(%%(var)s.GetSize())'))
       .Append('return nullptr;')
       .Eblock('}')
       .Substitute({

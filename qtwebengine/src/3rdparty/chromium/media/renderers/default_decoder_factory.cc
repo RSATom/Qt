@@ -11,12 +11,10 @@
 #include "build/build_config.h"
 #include "build/buildflag.h"
 #include "media/base/decoder_factory.h"
-#include "media/base/media_log.h"
 #include "media/base/media_switches.h"
-#include "media/filters/gpu_video_decoder.h"
 #include "media/media_buildflags.h"
 #include "media/video/gpu_video_accelerator_factories.h"
-#include "third_party/libaom/av1_buildflags.h"
+#include "third_party/libaom/libaom_buildflags.h"
 
 #if !defined(OS_ANDROID)
 #include "media/filters/decrypting_audio_decoder.h"
@@ -27,8 +25,12 @@
 #include "media/filters/fuchsia/fuchsia_video_decoder.h"
 #endif
 
-#if BUILDFLAG(ENABLE_AV1_DECODER)
+#if BUILDFLAG(ENABLE_LIBAOM_DECODER)
 #include "media/filters/aom_video_decoder.h"
+#endif
+
+#if BUILDFLAG(ENABLE_DAV1D_DECODER)
+#include "media/filters/dav1d_video_decoder.h"
 #endif
 
 #if BUILDFLAG(ENABLE_FFMPEG)
@@ -55,10 +57,14 @@ void DefaultDecoderFactory::CreateAudioDecoders(
     scoped_refptr<base::SingleThreadTaskRunner> task_runner,
     MediaLog* media_log,
     std::vector<std::unique_ptr<AudioDecoder>>* audio_decoders) {
+  base::AutoLock auto_lock(shutdown_lock_);
+  if (is_shutdown_)
+    return;
+
 #if !defined(OS_ANDROID)
   // DecryptingAudioDecoder is only needed in External Clear Key testing to
   // cover the audio decrypt-and-decode path.
-  if (base::FeatureList::IsEnabled(media::kExternalClearKeyForTesting)) {
+  if (base::FeatureList::IsEnabled(kExternalClearKeyForTesting)) {
     audio_decoders->push_back(
         std::make_unique<DecryptingAudioDecoder>(task_runner, media_log));
   }
@@ -82,6 +88,10 @@ void DefaultDecoderFactory::CreateVideoDecoders(
     const RequestOverlayInfoCB& request_overlay_info_cb,
     const gfx::ColorSpace& target_color_space,
     std::vector<std::unique_ptr<VideoDecoder>>* video_decoders) {
+  base::AutoLock auto_lock(shutdown_lock_);
+  if (is_shutdown_)
+    return;
+
 #if !defined(OS_ANDROID)
   video_decoders->push_back(
       std::make_unique<DecryptingVideoDecoder>(task_runner, media_log));
@@ -89,25 +99,16 @@ void DefaultDecoderFactory::CreateVideoDecoders(
 
   // Perfer an external decoder since one will only exist if it is hardware
   // accelerated.
-  // Remember that |gpu_factories| will be null if HW video decode is turned
-  // off in chrome://flags.
-  if (gpu_factories) {
+  if (external_decoder_factory_ && gpu_factories &&
+      gpu_factories->IsGpuVideoAcceleratorEnabled()) {
     // |gpu_factories_| requires that its entry points be called on its
     // |GetTaskRunner()|. Since |pipeline_| will own decoders created from the
     // factories, require that their message loops are identical.
     DCHECK_EQ(gpu_factories->GetTaskRunner(), task_runner);
 
-    // MojoVideoDecoder replaces any VDA for this platform when it's enabled.
-    if (external_decoder_factory_ &&
-        base::FeatureList::IsEnabled(media::kMojoVideoDecoder)) {
-      external_decoder_factory_->CreateVideoDecoders(
-          task_runner, gpu_factories, media_log, request_overlay_info_cb,
-          target_color_space, video_decoders);
-    } else {
-      video_decoders->push_back(std::make_unique<GpuVideoDecoder>(
-          gpu_factories, request_overlay_info_cb, target_color_space,
-          media_log));
-    }
+    external_decoder_factory_->CreateVideoDecoders(
+        task_runner, gpu_factories, media_log, request_overlay_info_cb,
+        target_color_space, video_decoders);
   }
 
 #if defined(OS_FUCHSIA)
@@ -118,13 +119,22 @@ void DefaultDecoderFactory::CreateVideoDecoders(
   video_decoders->push_back(std::make_unique<OffloadingVpxVideoDecoder>());
 #endif
 
-#if BUILDFLAG(ENABLE_AV1_DECODER)
+#if BUILDFLAG(ENABLE_DAV1D_DECODER)
+  video_decoders->push_back(
+      std::make_unique<OffloadingDav1dVideoDecoder>(media_log));
+#elif BUILDFLAG(ENABLE_LIBAOM_DECODER)
   video_decoders->push_back(std::make_unique<AomVideoDecoder>(media_log));
 #endif
 
 #if BUILDFLAG(ENABLE_FFMPEG_VIDEO_DECODERS)
   video_decoders->push_back(std::make_unique<FFmpegVideoDecoder>(media_log));
 #endif
+}
+
+void DefaultDecoderFactory::Shutdown() {
+  base::AutoLock auto_lock(shutdown_lock_);
+  external_decoder_factory_.reset();
+  is_shutdown_ = true;
 }
 
 }  // namespace media

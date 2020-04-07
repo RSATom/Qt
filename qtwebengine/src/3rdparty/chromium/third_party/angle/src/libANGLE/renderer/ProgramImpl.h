@@ -35,7 +35,7 @@ namespace rx
 class LinkEvent : angle::NonCopyable
 {
   public:
-    virtual ~LinkEvent(){};
+    virtual ~LinkEvent() {}
 
     // Please be aware that these methods may be called under a gl::Context other
     // than the one where the LinkEvent was created.
@@ -75,9 +75,9 @@ class ProgramImpl : angle::NonCopyable
     virtual ~ProgramImpl() {}
     virtual void destroy(const gl::Context *context) {}
 
-    virtual angle::Result load(const gl::Context *context,
-                               gl::InfoLog &infoLog,
-                               gl::BinaryInputStream *stream)                     = 0;
+    virtual std::unique_ptr<LinkEvent> load(const gl::Context *context,
+                                            gl::BinaryInputStream *stream,
+                                            gl::InfoLog &infoLog)                 = 0;
     virtual void save(const gl::Context *context, gl::BinaryOutputStream *stream) = 0;
     virtual void setBinaryRetrievableHint(bool retrievable)                       = 0;
     virtual void setSeparable(bool separable)                                     = 0;

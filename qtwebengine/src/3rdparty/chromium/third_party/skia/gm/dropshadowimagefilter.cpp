@@ -5,12 +5,26 @@
  * found in the LICENSE file.
  */
 
-#include "gm.h"
-#include "sk_tool_utils.h"
-#include "SkColorFilter.h"
-#include "SkColorFilterImageFilter.h"
-#include "SkDropShadowImageFilter.h"
-#include "SkTextUtils.h"
+#include "gm/gm.h"
+#include "include/core/SkBitmap.h"
+#include "include/core/SkBlendMode.h"
+#include "include/core/SkCanvas.h"
+#include "include/core/SkColor.h"
+#include "include/core/SkColorFilter.h"
+#include "include/core/SkFont.h"
+#include "include/core/SkImageFilter.h"
+#include "include/core/SkPaint.h"
+#include "include/core/SkRect.h"
+#include "include/core/SkRefCnt.h"
+#include "include/core/SkScalar.h"
+#include "include/core/SkTypeface.h"
+#include "include/core/SkTypes.h"
+#include "include/effects/SkColorFilterImageFilter.h"
+#include "include/effects/SkDropShadowImageFilter.h"
+#include "include/utils/SkTextUtils.h"
+#include "tools/ToolUtils.h"
+
+#include <utility>
 
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -41,7 +55,7 @@ static void draw_text(SkCanvas* canvas, const SkRect& r, sk_sp<SkImageFilter> im
     paint.setColor(SK_ColorGREEN);
     paint.setAntiAlias(true);
 
-    SkFont font(sk_tool_utils::create_portable_typeface(), r.height()/2);
+    SkFont font(ToolUtils::create_portable_typeface(), r.height() / 2);
     canvas->save();
     canvas->clipRect(r);
     SkTextUtils::DrawString(canvas, "Text", r.centerX(), r.centerY(), font, paint, SkTextUtils::kCenter_Align);
@@ -74,8 +88,7 @@ DEF_SIMPLE_GM(dropshadowimagefilter, canvas, 400, 656) {
         draw_bitmap, draw_path, draw_paint, draw_text
     };
 
-    sk_sp<SkColorFilter> cf(SkColorFilter::MakeModeFilter(SK_ColorMAGENTA,
-                                                          SkBlendMode::kSrcIn));
+    sk_sp<SkColorFilter> cf(SkColorFilters::Blend(SK_ColorMAGENTA, SkBlendMode::kSrcIn));
     sk_sp<SkImageFilter> cfif(SkColorFilterImageFilter::Make(std::move(cf), nullptr));
     SkImageFilter::CropRect cropRect(SkRect::Make(SkIRect::MakeXYWH(10, 10, 44, 44)),
                                      SkImageFilter::CropRect::kHasAll_CropEdge);

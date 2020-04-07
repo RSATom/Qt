@@ -49,7 +49,7 @@ typedef struct DHAVStream {
     int64_t pts;
 } DHAVStream;
 
-static int dhav_probe(AVProbeData *p)
+static int dhav_probe(const AVProbeData *p)
 {
     if (!memcmp(p->buf, "DAHUA", 5))
         return AVPROBE_SCORE_MAX;
@@ -288,6 +288,8 @@ static int dhav_read_packet(AVFormatContext *s, AVPacket *pkt)
         }
         st->codecpar->width      = dhav->width;
         st->codecpar->height     = dhav->height;
+        st->avg_frame_rate.num   = dhav->frame_rate;
+        st->avg_frame_rate.den   = 1;
         st->priv_data = dst = av_mallocz(sizeof(DHAVStream));
         if (!st->priv_data)
             return AVERROR(ENOMEM);

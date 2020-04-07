@@ -4,7 +4,12 @@
 
 #include "services/network/public/cpp/url_request_mojom_traits.h"
 
+#include <vector>
+
 #include "base/logging.h"
+#include "mojo/public/cpp/base/file_mojom_traits.h"
+#include "mojo/public/cpp/base/file_path_mojom_traits.h"
+#include "mojo/public/cpp/base/time_mojom_traits.h"
 #include "mojo/public/cpp/base/unguessable_token_mojom_traits.h"
 #include "services/network/public/cpp/http_request_headers_mojom_traits.h"
 #include "services/network/public/cpp/network_ipc_param_traits.h"
@@ -151,30 +156,35 @@ bool StructTraits<
                                     network::ResourceRequest* out) {
   if (!data.ReadMethod(&out->method) || !data.ReadUrl(&out->url) ||
       !data.ReadSiteForCookies(&out->site_for_cookies) ||
+      !data.ReadFirstPartyUrl(&out->first_party_url) ||
       !data.ReadTopFrameOrigin(&out->top_frame_origin) ||
+      !data.ReadTrustedNetworkIsolationKey(
+          &out->trusted_network_isolation_key) ||
       !data.ReadRequestInitiator(&out->request_initiator) ||
       !data.ReadReferrer(&out->referrer) ||
       !data.ReadReferrerPolicy(&out->referrer_policy) ||
       !data.ReadHeaders(&out->headers) ||
-      !data.ReadRequestedWithHeader(&out->requested_with_header) ||
-      !data.ReadClientDataHeader(&out->client_data_header) ||
+      !data.ReadCorsExemptHeaders(&out->cors_exempt_headers) ||
       !data.ReadPriority(&out->priority) ||
       !data.ReadCorsPreflightPolicy(&out->cors_preflight_policy) ||
-      !data.ReadFetchRequestMode(&out->fetch_request_mode) ||
-      !data.ReadFetchCredentialsMode(&out->fetch_credentials_mode) ||
-      !data.ReadFetchRedirectMode(&out->fetch_redirect_mode) ||
+      !data.ReadMode(&out->mode) ||
+      !data.ReadCredentialsMode(&out->credentials_mode) ||
+      !data.ReadRedirectMode(&out->redirect_mode) ||
       !data.ReadFetchIntegrity(&out->fetch_integrity) ||
-      !data.ReadFetchFrameType(&out->fetch_frame_type) ||
       !data.ReadRequestBody(&out->request_body) ||
       !data.ReadThrottlingProfileId(&out->throttling_profile_id) ||
       !data.ReadCustomProxyPreCacheHeaders(
           &out->custom_proxy_pre_cache_headers) ||
       !data.ReadCustomProxyPostCacheHeaders(
           &out->custom_proxy_post_cache_headers) ||
-      !data.ReadFetchWindowId(&out->fetch_window_id)) {
+      !data.ReadFetchWindowId(&out->fetch_window_id) ||
+      !data.ReadDevtoolsRequestId(&out->devtools_request_id) ||
+      !data.ReadAppcacheHostId(&out->appcache_host_id)) {
     return false;
   }
 
+  out->update_network_isolation_key_on_redirect =
+      data.update_network_isolation_key_on_redirect();
   out->attach_same_site_cookies = data.attach_same_site_cookies();
   out->update_first_party_url_on_redirect =
       data.update_first_party_url_on_redirect();
@@ -183,12 +193,12 @@ bool StructTraits<
   out->allow_credentials = data.allow_credentials();
   out->plugin_child_id = data.plugin_child_id();
   out->resource_type = data.resource_type();
-  out->appcache_host_id = data.appcache_host_id();
   out->should_reset_appcache = data.should_reset_appcache();
   out->is_external_request = data.is_external_request();
-  out->service_worker_provider_id = data.service_worker_provider_id();
   out->originated_from_service_worker = data.originated_from_service_worker();
   out->skip_service_worker = data.skip_service_worker();
+  out->corb_detachable = data.corb_detachable();
+  out->corb_excluded = data.corb_excluded();
   out->fetch_request_context_type = data.fetch_request_context_type();
   out->keepalive = data.keepalive();
   out->has_user_gesture = data.has_user_gesture();
@@ -204,8 +214,10 @@ bool StructTraits<
   out->initiated_in_secure_context = data.initiated_in_secure_context();
   out->upgrade_if_insecure = data.upgrade_if_insecure();
   out->is_revalidating = data.is_revalidating();
-  out->custom_proxy_use_alternate_proxy_list =
-      data.custom_proxy_use_alternate_proxy_list();
+  out->should_also_use_factory_bound_origin_for_cors =
+      data.should_also_use_factory_bound_origin_for_cors();
+  out->is_signed_exchange_prefetch_cache_enabled =
+      data.is_signed_exchange_prefetch_cache_enabled();
   return true;
 }
 
@@ -219,6 +231,27 @@ bool StructTraits<network::mojom::URLRequestBodyDataView,
   body->set_identifier(data.identifier());
   body->set_contains_sensitive_info(data.contains_sensitive_info());
   *out = std::move(body);
+  return true;
+}
+
+bool StructTraits<network::mojom::DataElementDataView, network::DataElement>::
+    Read(network::mojom::DataElementDataView data, network::DataElement* out) {
+  if (!data.ReadPath(&out->path_) || !data.ReadFile(&out->file_) ||
+      !data.ReadBlobUuid(&out->blob_uuid_) ||
+      !data.ReadExpectedModificationTime(&out->expected_modification_time_)) {
+    return false;
+  }
+  if (data.type() == network::mojom::DataElementType::kBytes) {
+    if (!data.ReadBuf(&out->buf_))
+      return false;
+  }
+  out->type_ = data.type();
+  out->data_pipe_getter_ =
+      data.TakeDataPipeGetter<network::mojom::DataPipeGetterPtrInfo>();
+  out->chunked_data_pipe_getter_ = data.TakeChunkedDataPipeGetter<
+      network::mojom::ChunkedDataPipeGetterPtrInfo>();
+  out->offset_ = data.offset();
+  out->length_ = data.length();
   return true;
 }
 

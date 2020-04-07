@@ -276,7 +276,9 @@ void QXcbWindow::create()
 
     QXcbScreen *currentScreen = xcbScreen();
     QXcbScreen *platformScreen = parent() ? parentScreen() : initialScreen();
-    QRect rect = QHighDpi::toNativePixels(window()->geometry(), platformScreen);
+    QRect rect = parent()
+        ? QHighDpi::toNativeLocalPosition(window()->geometry(), platformScreen)
+        : QHighDpi::toNativePixels(window()->geometry(), platformScreen);
 
     if (type == Qt::Desktop) {
         m_window = platformScreen->root();
@@ -905,6 +907,8 @@ QXcbWindow::NetWmStates QXcbWindow::netWmStates()
             result |= NetWmStateStaysOnTop;
         if (statesEnd != std::find(states, statesEnd, atom(QXcbAtom::_NET_WM_STATE_DEMANDS_ATTENTION)))
             result |= NetWmStateDemandsAttention;
+        if (statesEnd != std::find(states, statesEnd, atom(QXcbAtom::_NET_WM_STATE_HIDDEN)))
+            result |= NetWmStateHidden;
     } else {
         qCDebug(lcQpaXcb, "getting net wm state (%x), empty\n", m_window);
     }
@@ -1076,6 +1080,9 @@ void QXcbWindow::setNetWmStateOnUnmappedWindow()
         states |= NetWmStateBelow;
     }
 
+    if (window()->windowStates() & Qt::WindowMinimized)
+        states |= NetWmStateHidden;
+
     if (window()->windowStates() & Qt::WindowFullScreen)
         states |= NetWmStateFullScreen;
 
@@ -1109,6 +1116,8 @@ void QXcbWindow::setNetWmStateOnUnmappedWindow()
         atoms.push_back(atom(QXcbAtom::_NET_WM_STATE_ABOVE));
     if (states & NetWmStateBelow && !atoms.contains(atom(QXcbAtom::_NET_WM_STATE_BELOW)))
         atoms.push_back(atom(QXcbAtom::_NET_WM_STATE_BELOW));
+    if (states & NetWmStateHidden && !atoms.contains(atom(QXcbAtom::_NET_WM_STATE_HIDDEN)))
+        atoms.push_back(atom(QXcbAtom::_NET_WM_STATE_HIDDEN));
     if (states & NetWmStateFullScreen && !atoms.contains(atom(QXcbAtom::_NET_WM_STATE_FULLSCREEN)))
         atoms.push_back(atom(QXcbAtom::_NET_WM_STATE_FULLSCREEN));
     if (states & NetWmStateMaximizedHorz && !atoms.contains(atom(QXcbAtom::_NET_WM_STATE_MAXIMIZED_HORZ)))
@@ -1398,6 +1407,8 @@ void QXcbWindow::propagateSizeHints()
     }
 
     xcb_icccm_set_wm_normal_hints(xcb_connection(), m_window, &hints);
+
+    m_sizeHintsScaleFactor = QHighDpiScaling::scaleAndOrigin(screen()).factor;
 }
 
 void QXcbWindow::requestActivateWindow()
@@ -1657,7 +1668,11 @@ bool QXcbWindow::requestSystemTrayWindowDock()
 bool QXcbWindow::handleNativeEvent(xcb_generic_event_t *event)
 {
     auto eventType = connection()->nativeInterface()->nativeEventType();
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+    qintptr result = 0; // Used only by MS Windows
+#else
     long result = 0; // Used only by MS Windows
+#endif
     return QWindowSystemInterface::handleNativeEvent(window(), eventType, event, &result);
 }
 
@@ -1785,6 +1800,9 @@ void QXcbWindow::handleConfigureNotifyEvent(const xcb_configure_notify_event_t *
     // will make the comparison later.
     QWindowSystemInterface::handleWindowScreenChanged(window(), newScreen->screen());
 
+    if (!qFuzzyCompare(QHighDpiScaling::scaleAndOrigin(newScreen).factor, m_sizeHintsScaleFactor))
+        propagateSizeHints();
+
     // Send the synthetic expose event on resize only when the window is shrinked,
     // because the "XCB_GRAVITY_NORTH_WEST" flag doesn't send it automatically.
     if (!m_oldWindowSize.isEmpty()
@@ -1904,7 +1922,7 @@ void QXcbWindow::handleButtonPressEvent(int event_x, int event_y, int root_x, in
             else if (detail == 7)
                 angleDelta.setX(-120);
             if (modifiers & Qt::AltModifier)
-                std::swap(angleDelta.rx(), angleDelta.ry());
+                angleDelta = angleDelta.transposed();
             QWindowSystemInterface::handleWheelEvent(window(), timestamp, local, global, QPoint(), angleDelta, modifiers);
 #if QT_CONFIG(xcb_xinput)
         }
@@ -2208,10 +2226,16 @@ void QXcbWindow::handlePropertyNotifyEvent(const xcb_property_notify_event_t *ev
                                    || (data[0] == XCB_ICCCM_WM_STATE_WITHDRAWN && m_minimized));
             }
         }
-        if (m_minimized)
-            newState = Qt::WindowMinimized;
 
         const NetWmStates states = netWmStates();
+        // _NET_WM_STATE_HIDDEN should be set by the Window Manager to indicate that a window would
+        // not be visible on the screen if its desktop/viewport were active and its coordinates were
+        // within the screen bounds. The canonical example is that minimized windows should be in
+        // the _NET_WM_STATE_HIDDEN state.
+        if (m_minimized && (!connection()->wmSupport()->isSupportedByWM(NetWmStateHidden)
+                            || states.testFlag(NetWmStateHidden)))
+            newState = Qt::WindowMinimized;
+
         if (states & NetWmStateFullScreen)
             newState |= Qt::WindowFullScreen;
         if ((states & NetWmStateMaximizedHorz) && (states & NetWmStateMaximizedVert))

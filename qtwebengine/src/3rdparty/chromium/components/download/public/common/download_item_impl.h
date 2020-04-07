@@ -126,6 +126,8 @@ class COMPONENTS_DOWNLOAD_EXPORT DownloadItemImpl
     // Target path of an in-progress download. We may be downloading to a
     // temporary or intermediate file (specified by |current_path|).  Once the
     // download completes, we will rename the file to |target_path|.
+    // |target_path| should be a valid file path on the system. On Android, this
+    // could be a content Uri.
     base::FilePath target_path;
 
     // Full path to the downloaded or downloading file. This is the path to the
@@ -227,6 +229,8 @@ class COMPONENTS_DOWNLOAD_EXPORT DownloadItemImpl
   void Remove() override;
   void OpenDownload() override;
   void ShowDownloadInShell() override;
+  void Rename(const base::FilePath& name,
+              RenameDownloadCallback callback) override;
   uint32_t GetId() const override;
   const std::string& GetGuid() const override;
   DownloadState GetState() const override;
@@ -357,6 +361,8 @@ class COMPONENTS_DOWNLOAD_EXPORT DownloadItemImpl
 
   void SetDelegate(DownloadItemImplDelegate* delegate);
 
+  void SetDownloadId(uint32_t download_id);
+
   const DownloadUrlParameters::RequestHeadersType& request_headers() const {
     return request_headers_;
   }
@@ -366,6 +372,8 @@ class COMPONENTS_DOWNLOAD_EXPORT DownloadItemImpl
   DownloadSource download_source() const { return download_source_; }
 
   uint64_t ukm_download_id() const { return ukm_download_id_; }
+
+  void SetAutoResumeCountForTesting(int32_t auto_resume_count);
 
  private:
   // Fine grained states of a download.
@@ -604,6 +612,9 @@ class COMPONENTS_DOWNLOAD_EXPORT DownloadItemImpl
   // resets |current_path_|.
   void ReleaseDownloadFile(bool destroy_file);
 
+  // Deletes the download file at |current_path_|.
+  void DeleteDownloadFile();
+
   // Check if a download is ready for completion.  The callback provided
   // may be called at some point in the future if an external entity
   // state has change s.t. this routine should be checked again.
@@ -636,6 +647,15 @@ class COMPONENTS_DOWNLOAD_EXPORT DownloadItemImpl
   // last_reason_ to be set, but doesn't require the download to be in
   // INTERRUPTED state.
   ResumeMode GetResumeMode() const;
+
+  // Whether strong validators are present.
+  bool HasStrongValidators() const;
+
+  DownloadItem::DownloadRenameResult RenameDownloadedFile(
+      const std::string& name);
+  void RenameDownloadedFileDone(RenameDownloadCallback callback,
+                                const base::FilePath& new_path,
+                                DownloadRenameResult result);
 
   static DownloadState InternalToExternalState(
       DownloadInternalState internal_state);
@@ -809,9 +829,12 @@ class COMPONENTS_DOWNLOAD_EXPORT DownloadItemImpl
   // UKM ID for reporting, default to 0 if uninitialized.
   uint64_t ukm_download_id_ = 0;
 
+  // Whether download has been resumed.
+  bool has_resumed_ = false;
+
   THREAD_CHECKER(thread_checker_);
 
-  base::WeakPtrFactory<DownloadItemImpl> weak_ptr_factory_;
+  base::WeakPtrFactory<DownloadItemImpl> weak_ptr_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(DownloadItemImpl);
 };

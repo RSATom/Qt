@@ -10,9 +10,11 @@
 #include <string>
 #include <utility>
 
+#include "base/bind.h"
 #include "base/logging.h"
 #include "base/memory/ref_counted.h"
 #include "base/sequenced_task_runner.h"
+#include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/sys_string_conversions.h"
 #include "base/strings/utf_string_conversions.h"
@@ -125,12 +127,11 @@ void BluetoothSocketWin::Connect(
 
   socket_thread()->task_runner()->PostTask(
       FROM_HERE,
-      base::Bind(
-          &BluetoothSocketWin::DoConnect,
-          this,
+      base::BindOnce(
+          &BluetoothSocketWin::DoConnect, this,
           base::Bind(&BluetoothSocketWin::PostSuccess, this, success_callback),
-          base::Bind(
-              &BluetoothSocketWin::PostErrorCompletion, this, error_callback)));
+          base::Bind(&BluetoothSocketWin::PostErrorCompletion, this,
+                     error_callback)));
 }
 
 void BluetoothSocketWin::Listen(scoped_refptr<BluetoothAdapter> adapter,
@@ -146,12 +147,8 @@ void BluetoothSocketWin::Listen(scoped_refptr<BluetoothAdapter> adapter,
   // TODO(xiyuan): Use |options.name|.
   socket_thread()->task_runner()->PostTask(
       FROM_HERE,
-      base::Bind(&BluetoothSocketWin::DoListen,
-                 this,
-                 uuid,
-                 rfcomm_channel,
-                 success_callback,
-                 error_callback));
+      base::BindOnce(&BluetoothSocketWin::DoListen, this, uuid, rfcomm_channel,
+                     success_callback, error_callback));
 }
 
 void BluetoothSocketWin::ResetData() {
@@ -170,18 +167,16 @@ void BluetoothSocketWin::Accept(
   DCHECK(ui_task_runner()->RunsTasksInCurrentSequence());
 
   socket_thread()->task_runner()->PostTask(
-      FROM_HERE,
-      base::Bind(&BluetoothSocketWin::DoAccept,
-                 this,
-                 success_callback,
-                 error_callback));
+      FROM_HERE, base::BindOnce(&BluetoothSocketWin::DoAccept, this,
+                                success_callback, error_callback));
 }
 
 void BluetoothSocketWin::DoConnect(
     const base::Closure& success_callback,
     const ErrorCompletionCallback& error_callback) {
   DCHECK(socket_thread()->task_runner()->RunsTasksInCurrentSequence());
-  base::ScopedBlockingCall scoped_blocking_call(base::BlockingType::MAY_BLOCK);
+  base::ScopedBlockingCall scoped_blocking_call(FROM_HERE,
+                                                base::BlockingType::MAY_BLOCK);
 
   if (tcp_socket()) {
     error_callback.Run(kSocketAlreadyConnected);
@@ -303,9 +298,11 @@ void BluetoothSocketWin::DoListen(
   reg_data->address_info.iSocketType = SOCK_STREAM;
   reg_data->address_info.iProtocol = BTHPROTO_RFCOMM;
 
-  base::string16 cannonical_uuid = L"{" + base::ASCIIToUTF16(
-      uuid.canonical_value()) + L"}";
-  if (!SUCCEEDED(CLSIDFromString(cannonical_uuid.c_str(), &reg_data->uuid))) {
+  base::string16 cannonical_uuid = STRING16_LITERAL("{") +
+                                   base::ASCIIToUTF16(uuid.canonical_value()) +
+                                   STRING16_LITERAL("}");
+  if (!SUCCEEDED(
+          CLSIDFromString(base::as_wcstr(cannonical_uuid), &reg_data->uuid))) {
     LOG(WARNING) << "Failed to start service: "
                  << ", invalid uuid=" << cannonical_uuid;
     PostErrorCompletion(error_callback, kInvalidUUID);
@@ -314,7 +311,7 @@ void BluetoothSocketWin::DoListen(
 
   reg_data->service.dwSize = sizeof(WSAQUERYSET);
   reg_data->service.lpszServiceInstanceName =
-      const_cast<LPWSTR>(reg_data->name.c_str());
+      base::as_writable_wcstr(reg_data->name);
   reg_data->service.lpServiceClassId = &reg_data->uuid;
   reg_data->service.dwNameSpace = NS_BTH;
   reg_data->service.dwNumberOfCsAddrs = 1;

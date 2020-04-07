@@ -32,12 +32,12 @@ const size_t kMaxClipboardWriteSize = 1000000;
 ui::ClipboardType ConvertClipboardType(uint32_t type) {
   switch (type) {
     case PP_FLASH_CLIPBOARD_TYPE_STANDARD:
-      return ui::CLIPBOARD_TYPE_COPY_PASTE;
+      return ui::ClipboardType::kCopyPaste;
     case PP_FLASH_CLIPBOARD_TYPE_SELECTION:
-      return ui::CLIPBOARD_TYPE_SELECTION;
+      return ui::ClipboardType::kSelection;
   }
   NOTREACHED();
-  return ui::CLIPBOARD_TYPE_COPY_PASTE;
+  return ui::ClipboardType::kCopyPaste;
 }
 
 // Functions to pack/unpack custom data from a pickle. See the header file for
@@ -296,7 +296,7 @@ int32_t PepperFlashClipboardMessageFilter::OnMsgWriteData(
   ui::Clipboard* clipboard = ui::Clipboard::GetForCurrentThread();
   ui::ClipboardType type = ConvertClipboardType(clipboard_type);
   // If no formats are passed in clear the clipboard.
-  if (formats.size() == 0) {
+  if (formats.empty()) {
     clipboard->Clear(type);
     return PP_OK;
   }
@@ -338,7 +338,7 @@ int32_t PepperFlashClipboardMessageFilter::OnMsgWriteData(
       break;
   }
 
-  if (custom_data_map.size() > 0) {
+  if (!custom_data_map.empty()) {
     base::Pickle pickle;
     WriteDataToPickle(custom_data_map, &pickle);
     scw.WritePickledData(pickle,

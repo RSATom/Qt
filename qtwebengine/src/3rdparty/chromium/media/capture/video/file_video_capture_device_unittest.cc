@@ -8,6 +8,7 @@
 #include <memory>
 #include <utility>
 
+#include "base/bind.h"
 #include "base/test/scoped_task_environment.h"
 #include "media/base/bind_to_current_loop.h"
 #include "media/base/test_data_util.h"
@@ -49,7 +50,8 @@ class MockImageCaptureClient {
 
 class FileVideoCaptureDeviceTest : public ::testing::Test {
  protected:
-  FileVideoCaptureDeviceTest() : client_(new MockVideoCaptureDeviceClient()) {}
+  FileVideoCaptureDeviceTest()
+      : client_(new NiceMockVideoCaptureDeviceClient()) {}
 
   void SetUp() override {
     EXPECT_CALL(*client_, OnError(_, _, _)).Times(0);
@@ -61,7 +63,7 @@ class FileVideoCaptureDeviceTest : public ::testing::Test {
 
   void TearDown() override { device_->StopAndDeAllocate(); }
 
-  std::unique_ptr<MockVideoCaptureDeviceClient> client_;
+  std::unique_ptr<NiceMockVideoCaptureDeviceClient> client_;
   MockImageCaptureClient image_capture_client_;
   std::unique_ptr<VideoCaptureDevice> device_;
   VideoCaptureFormat last_format_;

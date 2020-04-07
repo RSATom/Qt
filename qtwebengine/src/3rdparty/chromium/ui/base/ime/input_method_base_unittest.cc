@@ -8,9 +8,9 @@
 
 #include "base/gtest_prod_util.h"
 #include "base/macros.h"
-#include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
 #include "base/scoped_observer.h"
+#include "base/test/scoped_task_environment.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/base/ime/dummy_text_input_client.h"
 #include "ui/base/ime/input_method_observer.h"
@@ -21,19 +21,12 @@ namespace {
 
 class ClientChangeVerifier {
  public:
-  ClientChangeVerifier()
-     : previous_client_(NULL),
-       next_client_(NULL),
-       call_expected_(false),
-       on_will_change_focused_client_called_(false),
-       on_did_change_focused_client_called_(false),
-       on_text_input_state_changed_(false) {
-  }
+  ClientChangeVerifier() = default;
 
   // Expects that focused text input client will not be changed.
   void ExpectClientDoesNotChange() {
-    previous_client_ = NULL;
-    next_client_ = NULL;
+    previous_client_ = nullptr;
+    next_client_ = nullptr;
     call_expected_ = false;
     on_will_change_focused_client_called_ = false;
     on_did_change_focused_client_called_ = false;
@@ -89,7 +82,7 @@ class ClientChangeVerifier {
     EXPECT_FALSE(on_text_input_state_changed_);
 
     on_did_change_focused_client_called_ = true;
- }
+  }
 
   void OnTextInputStateChanged(const TextInputClient* client) {
     EXPECT_TRUE(call_expected_);
@@ -103,43 +96,33 @@ class ClientChangeVerifier {
     EXPECT_FALSE(on_text_input_state_changed_);
 
     on_text_input_state_changed_ = true;
- }
+  }
 
  private:
-  TextInputClient* previous_client_;
-  TextInputClient* next_client_;
-  bool call_expected_;
-  bool on_will_change_focused_client_called_;
-  bool on_did_change_focused_client_called_;
-  bool on_text_input_state_changed_;
+  TextInputClient* previous_client_ = nullptr;
+  TextInputClient* next_client_ = nullptr;
+  bool call_expected_ = false;
+  bool on_will_change_focused_client_called_ = false;
+  bool on_did_change_focused_client_called_ = false;
+  bool on_text_input_state_changed_ = false;
 
   DISALLOW_COPY_AND_ASSIGN(ClientChangeVerifier);
 };
 
 class InputMethodBaseTest : public testing::Test {
- protected:
-  InputMethodBaseTest() {
-  }
-  ~InputMethodBaseTest() override {}
-
-  void SetUp() override { message_loop_.reset(new base::MessageLoopForUI); }
-
-  void TearDown() override { message_loop_.reset(); }
-
  private:
-  std::unique_ptr<base::MessageLoop> message_loop_;
-  DISALLOW_COPY_AND_ASSIGN(InputMethodBaseTest);
+  base::test::ScopedTaskEnvironment scoped_task_environment_{
+      base::test::ScopedTaskEnvironment::MainThreadType::UI};
 };
 
 class MockInputMethodBase : public InputMethodBase {
  public:
-  // Note: this class does not take the ownership of |verifier|.
-  MockInputMethodBase(ClientChangeVerifier* verifier) : verifier_(verifier) {
-  }
-  ~MockInputMethodBase() override {}
+  explicit MockInputMethodBase(ClientChangeVerifier* verifier)
+      : InputMethodBase(nullptr), verifier_(verifier) {}
+  ~MockInputMethodBase() override = default;
 
  private:
-  // Overriden from InputMethod.
+  // InputMethod:
   ui::EventDispatchDetails DispatchKeyEvent(ui::KeyEvent*) override {
     return ui::EventDispatchDetails();
   }
@@ -148,7 +131,8 @@ class MockInputMethodBase : public InputMethodBase {
   void OnInputLocaleChanged() override {}
   bool IsInputLocaleCJK() const override { return false; }
   bool IsCandidatePopupOpen() const override { return false; }
-  // Overriden from InputMethodBase.
+
+  // InputMethodBase:
   void OnWillChangeFocusedClient(TextInputClient* focused_before,
                                  TextInputClient* focused) override {
     verifier_->OnWillChangeFocusedClient(focused_before, focused);
@@ -159,7 +143,8 @@ class MockInputMethodBase : public InputMethodBase {
     verifier_->OnDidChangeFocusedClient(focused_before, focused);
   }
 
-  ClientChangeVerifier* verifier_;
+  // Not owned.
+  ClientChangeVerifier* const verifier_;
 
   FRIEND_TEST_ALL_PREFIXES(InputMethodBaseTest, CandidateWindowEvents);
   DISALLOW_COPY_AND_ASSIGN(MockInputMethodBase);
@@ -167,11 +152,10 @@ class MockInputMethodBase : public InputMethodBase {
 
 class MockInputMethodObserver : public InputMethodObserver {
  public:
-  // Note: this class does not take the ownership of |verifier|.
   explicit MockInputMethodObserver(ClientChangeVerifier* verifier)
       : verifier_(verifier) {
   }
-  ~MockInputMethodObserver() override {}
+  ~MockInputMethodObserver() override = default;
 
  private:
   void OnFocus() override {}
@@ -183,7 +167,8 @@ class MockInputMethodObserver : public InputMethodObserver {
   void OnShowVirtualKeyboardIfEnabled() override {}
   void OnInputMethodDestroyed(const InputMethod* client) override {}
 
-  ClientChangeVerifier* verifier_;
+  // Not owned.
+  ClientChangeVerifier* const verifier_;
   DISALLOW_COPY_AND_ASSIGN(MockInputMethodObserver);
 };
 
@@ -209,10 +194,10 @@ TEST_F(InputMethodBaseTest, SetFocusedTextInputClient) {
   input_method.OnFocus();
 
   {
-    SCOPED_TRACE("Focus from NULL to 1st TextInputClient");
+    SCOPED_TRACE("Focus from nullptr to 1st TextInputClient");
 
-    ASSERT_EQ(NULL, input_method.GetTextInputClient());
-    verifier.ExpectClientChange(NULL, &text_input_client_1st);
+    ASSERT_EQ(nullptr, input_method.GetTextInputClient());
+    verifier.ExpectClientChange(nullptr, &text_input_client_1st);
     SetFocusedTextInputClient(&input_method, &text_input_client_1st);
     EXPECT_EQ(&text_input_client_1st, input_method.GetTextInputClient());
     verifier.Verify();
@@ -237,19 +222,19 @@ TEST_F(InputMethodBaseTest, SetFocusedTextInputClient) {
   }
 
   {
-    SCOPED_TRACE("Focus from 2nd TextInputClient to NULL");
+    SCOPED_TRACE("Focus from 2nd TextInputClient to nullptr");
 
     ASSERT_EQ(&text_input_client_2nd, input_method.GetTextInputClient());
-    verifier.ExpectClientChange(&text_input_client_2nd, NULL);
-    SetFocusedTextInputClient(&input_method, NULL);
-    EXPECT_EQ(NULL, input_method.GetTextInputClient());
+    verifier.ExpectClientChange(&text_input_client_2nd, nullptr);
+    SetFocusedTextInputClient(&input_method, nullptr);
+    EXPECT_EQ(nullptr, input_method.GetTextInputClient());
     verifier.Verify();
   }
 
   {
     SCOPED_TRACE("Redundant focus events must be ignored");
     verifier.ExpectClientDoesNotChange();
-    SetFocusedTextInputClient(&input_method, NULL);
+    SetFocusedTextInputClient(&input_method, nullptr);
     verifier.Verify();
   }
 }
@@ -269,7 +254,7 @@ TEST_F(InputMethodBaseTest, DetachTextInputClient) {
 
   // Initialize for the next test.
   {
-    verifier.ExpectClientChange(NULL, &text_input_client);
+    verifier.ExpectClientChange(nullptr, &text_input_client);
     input_method.SetFocusedTextInputClient(&text_input_client);
     verifier.Verify();
   }
@@ -290,9 +275,9 @@ TEST_F(InputMethodBaseTest, DetachTextInputClient) {
     ASSERT_EQ(&text_input_client, input_method.GetTextInputClient());
     input_method.OnBlur();
     input_method.OnFocus();
-    verifier.ExpectClientChange(&text_input_client, NULL);
+    verifier.ExpectClientChange(&text_input_client, nullptr);
     input_method.DetachTextInputClient(&text_input_client);
-    EXPECT_EQ(NULL, input_method.GetTextInputClient());
+    EXPECT_EQ(nullptr, input_method.GetTextInputClient());
     verifier.Verify();
   }
 }

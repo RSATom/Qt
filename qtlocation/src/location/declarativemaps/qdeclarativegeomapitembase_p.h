@@ -84,6 +84,7 @@ class Q_LOCATION_PRIVATE_EXPORT QDeclarativeGeoMapItemBase : public QQuickItem
     Q_OBJECT
 
     Q_PROPERTY(QGeoShape geoShape READ geoShape WRITE setGeoShape STORED false )
+    Q_PROPERTY(bool autoFadeIn READ autoFadeIn WRITE setAutoFadeIn REVISION 14)
 public:
     explicit QDeclarativeGeoMapItemBase(QQuickItem *parent = 0);
     virtual ~QDeclarativeGeoMapItemBase();
@@ -95,6 +96,9 @@ public:
     QGeoMap *map() { return map_; }
     virtual const QGeoShape &geoShape() const = 0;
     virtual void setGeoShape(const QGeoShape &shape) = 0;
+
+    bool autoFadeIn() const;
+    void setAutoFadeIn(bool fadeIn);
 
     QSGNode *updatePaintNode(QSGNode *, UpdatePaintNodeData *);
     virtual QSGNode *updateMapItemPaintNode(QSGNode *, UpdatePaintNodeData *);
@@ -135,6 +139,7 @@ private:
     QDeclarativeGeoMapItemGroup *parentGroup_;
 
     QScopedPointer<QDeclarativeGeoMapItemTransitionManager> m_transitionManager;
+    bool m_autoFadeIn = true;
 
     friend class QDeclarativeGeoMap;
     friend class QDeclarativeGeoMapItemView;

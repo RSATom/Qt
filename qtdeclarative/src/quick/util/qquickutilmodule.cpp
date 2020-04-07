@@ -99,10 +99,13 @@ void QQuickUtilModule::defineModule()
     qmlRegisterType<QQuickVector3dAnimation>("QtQuick",2,0,"Vector3dAnimation");
 
 #if QT_CONFIG(validator)
-    qmlRegisterType<QValidator>();
+    qmlRegisterAnonymousType<QValidator>("QtQuick", 2);
     qmlRegisterType<QQuickIntValidator>("QtQuick",2,0,"IntValidator");
     qmlRegisterType<QQuickDoubleValidator>("QtQuick",2,0,"DoubleValidator");
     qmlRegisterType<QRegExpValidator>("QtQuick",2,0,"RegExpValidator");
+#if QT_CONFIG(regularexpression)
+    qmlRegisterType<QRegularExpressionValidator>("QtQuick", 2, 14, "RegularExpressionValidator");
+#endif
 #endif
 
     qmlRegisterUncreatableType<QQuickAnimator>("QtQuick", 2, 2, "Animator", QQuickAbstractAnimation::tr("Animator is an abstract class"));
@@ -114,7 +117,7 @@ void QQuickUtilModule::defineModule()
 #if QT_CONFIG(quick_shadereffect) && QT_CONFIG(opengl)
     qmlRegisterType<QQuickUniformAnimator>("QtQuick", 2, 2, "UniformAnimator");
 #endif
-    qmlRegisterType<QQuickStateOperation>();
+    qmlRegisterAnonymousType<QQuickStateOperation>("QtQuick", 2);
 
     qmlRegisterCustomType<QQuickPropertyChanges>("QtQuick",2,0,"PropertyChanges", new QQuickPropertyChangesParser);
 
@@ -128,7 +131,7 @@ void QQuickUtilModule::defineModule()
 
 #if QT_CONFIG(shortcut)
     qmlRegisterType<QQuickShortcut>("QtQuick", 2, 5, "Shortcut");
-    qmlRegisterType<QQuickShortcut,1>("QtQuick", 2, 6, "Shortcut");
+    qmlRegisterType<QQuickShortcut,6>("QtQuick", 2, 6, "Shortcut");
 
     qmlRegisterType<QQuickShortcut,9>("QtQuick", 2, 9, "Shortcut");
 #endif

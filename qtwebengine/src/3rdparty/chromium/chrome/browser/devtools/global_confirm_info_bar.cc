@@ -6,6 +6,7 @@
 
 #include <utility>
 
+#include "base/bind.h"
 #include "base/macros.h"
 #include "base/stl_util.h"
 #include "base/threading/sequenced_task_runner_handle.h"
@@ -162,8 +163,7 @@ GlobalConfirmInfoBar::GlobalConfirmInfoBar(
     std::unique_ptr<ConfirmInfoBarDelegate> delegate)
     : delegate_(std::move(delegate)),
       browser_tab_strip_tracker_(this, nullptr, nullptr),
-      is_closing_(false),
-      weak_factory_(this) {
+      is_closing_(false) {
   browser_tab_strip_tracker_.Init();
 }
 
@@ -183,9 +183,8 @@ void GlobalConfirmInfoBar::OnTabStripModelChanged(
     const TabStripSelectionChange& selection) {
   if (change.type() != TabStripModelChange::kInserted)
     return;
-
-  for (const auto& delta : change.deltas())
-    MaybeAddInfoBar(delta.insert.contents);
+  for (const auto& contents : change.GetInsert()->contents)
+    MaybeAddInfoBar(contents.contents);
 }
 
 void GlobalConfirmInfoBar::TabChangedAt(content::WebContents* web_contents,
@@ -216,7 +215,7 @@ void GlobalConfirmInfoBar::MaybeAddInfoBar(content::WebContents* web_contents) {
       InfoBarService::FromWebContents(web_contents);
   // WebContents from the tab strip must have the infobar service.
   DCHECK(infobar_service);
-  if (ContainsKey(proxies_, infobar_service))
+  if (base::Contains(proxies_, infobar_service))
     return;
 
   std::unique_ptr<GlobalConfirmInfoBar::DelegateProxy> proxy(
@@ -238,8 +237,8 @@ void GlobalConfirmInfoBar::MaybeAddInfoBar(content::WebContents* web_contents) {
       is_closing_ = true;
 
       base::SequencedTaskRunnerHandle::Get()->PostTask(
-          FROM_HERE,
-          base::Bind(&GlobalConfirmInfoBar::Close, weak_factory_.GetWeakPtr()));
+          FROM_HERE, base::BindOnce(&GlobalConfirmInfoBar::Close,
+                                    weak_factory_.GetWeakPtr()));
     }
     return;
   }

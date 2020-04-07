@@ -48,12 +48,8 @@ private slots:
 #ifndef QT_NO_EXCEPTIONS
     void exceptions();
 #endif
-#ifdef Q_COMPILER_DECLTYPE
     void functor();
-#endif
-#ifdef Q_COMPILER_LAMBDA
     void lambda();
-#endif
 };
 
 void light()
@@ -126,23 +122,23 @@ public:
 class ANoExcept
 {
 public:
-    int member0() Q_DECL_NOTHROW { return 10; }
-    int member1(int in) Q_DECL_NOTHROW { return in; }
+    int member0() noexcept { return 10; }
+    int member1(int in) noexcept { return in; }
 
     typedef int result_type;
-    int operator()() Q_DECL_NOTHROW { return 10; }
-    int operator()(int in) Q_DECL_NOTHROW { return in; }
+    int operator()() noexcept { return 10; }
+    int operator()(int in) noexcept { return in; }
 };
 
 class AConstNoExcept
 {
 public:
-    int member0() const Q_DECL_NOTHROW { return 10; }
-    int member1(int in) const Q_DECL_NOTHROW { return in; }
+    int member0() const noexcept { return 10; }
+    int member1(int in) const noexcept { return in; }
 
     typedef int result_type;
-    int operator()() const Q_DECL_NOTHROW { return 10; }
-    int operator()(int in) const Q_DECL_NOTHROW { return in; }
+    int operator()() const noexcept { return 10; }
+    int operator()(int in) const noexcept { return in; }
 };
 
 void tst_QtConcurrentRun::returnValue()
@@ -510,17 +506,17 @@ void tst_QtConcurrentRun::recursive()
     int levels = 15;
 
     for (int i = 0; i < QThread::idealThreadCount(); ++i) {
-        count.store(0);
+        count.storeRelaxed(0);
         QThreadPool::globalInstance()->setMaxThreadCount(i);
         recursiveRun(levels);
-        QCOMPARE(count.load(), (int)std::pow(2.0, levels) - 1);
+        QCOMPARE(count.loadRelaxed(), (int)std::pow(2.0, levels) - 1);
     }
 
     for (int i = 0; i < QThread::idealThreadCount(); ++i) {
-        count.store(0);
+        count.storeRelaxed(0);
         QThreadPool::globalInstance()->setMaxThreadCount(i);
         recursiveResult(levels);
-        QCOMPARE(count.load(), (int)std::pow(2.0, levels) - 1);
+        QCOMPARE(count.loadRelaxed(), (int)std::pow(2.0, levels) - 1);
     }
 }
 
@@ -574,7 +570,7 @@ public:
     static QAtomicInt cancel;
     void run() override {
         int iter = 60;
-        while (--iter && !cancel.load())
+        while (--iter && !cancel.loadRelaxed())
             QThread::currentThread()->msleep(25);
     }
 };
@@ -642,13 +638,12 @@ void tst_QtConcurrentRun::exceptions()
         caught = true;
     }
 
-    SlowTask::cancel.store(true);
+    SlowTask::cancel.storeRelaxed(true);
 
     QVERIFY2(caught, "did not get exception");
 }
 #endif
 
-#ifdef Q_COMPILER_DECLTYPE
 // Compiler supports decltype
 struct Functor {
     int operator()() { return 42; }
@@ -706,9 +701,7 @@ void tst_QtConcurrentRun::functor()
         QtConcurrent::run(&pool, f, 1,2,3,4,5).waitForFinished();
     }
 }
-#endif
 
-#ifdef Q_COMPILER_LAMBDA
 // Compiler supports lambda
 void tst_QtConcurrentRun::lambda()
 {
@@ -717,14 +710,12 @@ void tst_QtConcurrentRun::lambda()
     QCOMPARE(QtConcurrent::run([](int a, double b){ return a + b; }, 12, 15).result(), double(12+15));
     QCOMPARE(QtConcurrent::run([](int a , int, int, int, int b){ return a + b; }, 1, 2, 3, 4, 5).result(), 1 + 5);
 
-#ifdef Q_COMPILER_INITIALIZER_LISTS
     {
         QString str { "Hello World Foo" };
         QFuture<QStringList> f1 = QtConcurrent::run([&](){ return str.split(' '); });
         auto r = f1.result();
         QCOMPARE(r, QStringList({"Hello", "World", "Foo"}));
     }
-#endif
 
     // and now with explicit pool:
     QThreadPool pool;
@@ -733,16 +724,13 @@ void tst_QtConcurrentRun::lambda()
     QCOMPARE(QtConcurrent::run(&pool, [](int a, double b){ return a + b; }, 12, 15).result(), double(12+15));
     QCOMPARE(QtConcurrent::run(&pool, [](int a , int, int, int, int b){ return a + b; }, 1, 2, 3, 4, 5).result(), 1 + 5);
 
-#ifdef Q_COMPILER_INITIALIZER_LISTS
     {
         QString str { "Hello World Foo" };
         QFuture<QStringList> f1 = QtConcurrent::run(&pool, [&](){ return str.split(' '); });
         auto r = f1.result();
         QCOMPARE(r, QStringList({"Hello", "World", "Foo"}));
     }
-#endif
 }
-#endif
 
 QTEST_MAIN(tst_QtConcurrentRun)
 #include "tst_qtconcurrentrun.moc"

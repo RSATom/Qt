@@ -59,9 +59,7 @@ TableWidgetTaskMenu::TableWidgetTaskMenu(QTableWidget *button, QObject *parent)
 }
 
 
-TableWidgetTaskMenu::~TableWidgetTaskMenu()
-{
-}
+TableWidgetTaskMenu::~TableWidgetTaskMenu() = default;
 
 QAction *TableWidgetTaskMenu::preferredEditAction() const
 {
@@ -79,7 +77,7 @@ void TableWidgetTaskMenu::editItems()
     if (m_formWindow.isNull())
         return;
 
-    Q_ASSERT(m_tableWidget != 0);
+    Q_ASSERT(m_tableWidget != nullptr);
 
     TableWidgetEditorDialog dlg(m_formWindow, m_tableWidget->window());
     TableWidgetContents oldCont = dlg.fillContentsFromTableWidget(m_tableWidget);

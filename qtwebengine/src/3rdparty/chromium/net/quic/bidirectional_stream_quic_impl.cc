@@ -15,8 +15,8 @@
 #include "net/http/http_util.h"
 #include "net/socket/next_proto.h"
 #include "net/spdy/spdy_http_utils.h"
-#include "net/third_party/quic/core/quic_connection.h"
-#include "net/third_party/quic/platform/api/quic_string_piece.h"
+#include "net/third_party/quiche/src/quic/core/quic_connection.h"
+#include "net/third_party/quiche/src/quic/platform/api/quic_string_piece.h"
 #include "net/third_party/quiche/src/spdy/core/spdy_header_block.h"
 #include "quic_http_stream.h"
 
@@ -54,8 +54,7 @@ BidirectionalStreamQuicImpl::BidirectionalStreamQuicImpl(
       closed_is_first_stream_(false),
       has_sent_headers_(false),
       send_request_headers_automatically_(true),
-      may_invoke_callbacks_(true),
-      weak_factory_(this) {}
+      may_invoke_callbacks_(true) {}
 
 BidirectionalStreamQuicImpl::~BidirectionalStreamQuicImpl() {
   if (stream_) {
@@ -95,17 +94,17 @@ void BidirectionalStreamQuicImpl::Start(
 
   if (rv != OK) {
     base::ThreadTaskRunnerHandle::Get()->PostTask(
-        FROM_HERE, base::Bind(&BidirectionalStreamQuicImpl::NotifyError,
-                              weak_factory_.GetWeakPtr(),
-                              session_->IsCryptoHandshakeConfirmed()
-                                  ? rv
-                                  : ERR_QUIC_HANDSHAKE_FAILED));
+        FROM_HERE, base::BindOnce(&BidirectionalStreamQuicImpl::NotifyError,
+                                  weak_factory_.GetWeakPtr(),
+                                  session_->IsCryptoHandshakeConfirmed()
+                                      ? rv
+                                      : ERR_QUIC_HANDSHAKE_FAILED));
     return;
   }
 
   base::ThreadTaskRunnerHandle::Get()->PostTask(
-      FROM_HERE, base::Bind(&BidirectionalStreamQuicImpl::OnStreamReady,
-                            weak_factory_.GetWeakPtr(), rv));
+      FROM_HERE, base::BindOnce(&BidirectionalStreamQuicImpl::OnStreamReady,
+                                weak_factory_.GetWeakPtr(), rv));
 }
 
 void BidirectionalStreamQuicImpl::SendRequestHeaders() {
@@ -113,8 +112,8 @@ void BidirectionalStreamQuicImpl::SendRequestHeaders() {
   int rv = WriteHeaders();
   if (rv < 0) {
     base::ThreadTaskRunnerHandle::Get()->PostTask(
-        FROM_HERE, base::Bind(&BidirectionalStreamQuicImpl::NotifyError,
-                              weak_factory_.GetWeakPtr(), rv));
+        FROM_HERE, base::BindOnce(&BidirectionalStreamQuicImpl::NotifyError,
+                                  weak_factory_.GetWeakPtr(), rv));
   }
 }
 
@@ -174,20 +173,20 @@ void BidirectionalStreamQuicImpl::SendvData(
   if (!stream_->IsOpen()) {
     LOG(ERROR) << "Trying to send data after stream has been closed.";
     base::ThreadTaskRunnerHandle::Get()->PostTask(
-        FROM_HERE, base::Bind(&BidirectionalStreamQuicImpl::NotifyError,
-                              weak_factory_.GetWeakPtr(), ERR_UNEXPECTED));
+        FROM_HERE, base::BindOnce(&BidirectionalStreamQuicImpl::NotifyError,
+                                  weak_factory_.GetWeakPtr(), ERR_UNEXPECTED));
     return;
   }
 
   std::unique_ptr<quic::QuicConnection::ScopedPacketFlusher> bundler(
-      session_->CreatePacketBundler(quic::QuicConnection::SEND_ACK_IF_PENDING));
+      session_->CreatePacketBundler());
   if (!has_sent_headers_) {
     DCHECK(!send_request_headers_automatically_);
     int rv = WriteHeaders();
     if (rv < 0) {
       base::ThreadTaskRunnerHandle::Get()->PostTask(
-          FROM_HERE, base::Bind(&BidirectionalStreamQuicImpl::NotifyError,
-                                weak_factory_.GetWeakPtr(), rv));
+          FROM_HERE, base::BindOnce(&BidirectionalStreamQuicImpl::NotifyError,
+                                    weak_factory_.GetWeakPtr(), rv));
       return;
     }
   }
@@ -199,8 +198,9 @@ void BidirectionalStreamQuicImpl::SendvData(
 
   if (rv != ERR_IO_PENDING) {
     base::ThreadTaskRunnerHandle::Get()->PostTask(
-        FROM_HERE, base::Bind(&BidirectionalStreamQuicImpl::OnSendDataComplete,
-                              weak_factory_.GetWeakPtr(), rv));
+        FROM_HERE,
+        base::BindOnce(&BidirectionalStreamQuicImpl::OnSendDataComplete,
+                       weak_factory_.GetWeakPtr(), rv));
   }
 }
 
@@ -209,15 +209,34 @@ NextProto BidirectionalStreamQuicImpl::GetProtocol() const {
 }
 
 int64_t BidirectionalStreamQuicImpl::GetTotalReceivedBytes() const {
-  if (stream_)
-    return headers_bytes_received_ + stream_->stream_bytes_read();
-  return headers_bytes_received_ + closed_stream_received_bytes_;
+  // When QPACK is enabled, headers are sent and received on the stream, so
+  // the headers bytes do not need to be accounted for independently.
+  int64_t total_received_bytes =
+      quic::VersionUsesQpack(session_->GetQuicVersion())
+          ? 0
+          : headers_bytes_received_;
+  if (stream_) {
+    DCHECK_LE(stream_->NumBytesConsumed(), stream_->stream_bytes_read());
+    // Only count the uniquely received bytes.
+    total_received_bytes += stream_->NumBytesConsumed();
+  } else {
+    total_received_bytes += closed_stream_received_bytes_;
+  }
+  return total_received_bytes;
 }
 
 int64_t BidirectionalStreamQuicImpl::GetTotalSentBytes() const {
-  if (stream_)
-    return headers_bytes_sent_ + stream_->stream_bytes_written();
-  return headers_bytes_sent_ + closed_stream_sent_bytes_;
+  // When QPACK is enabled, headers are sent and received on the stream, so
+  // the headers bytes do not need to be accounted for independently.
+  int64_t total_sent_bytes = quic::VersionUsesQpack(session_->GetQuicVersion())
+                                 ? 0
+                                 : headers_bytes_sent_;
+  if (stream_) {
+    total_sent_bytes += stream_->stream_bytes_written();
+  } else {
+    total_sent_bytes += closed_stream_sent_bytes_;
+  }
+  return total_sent_bytes;
 }
 
 bool BidirectionalStreamQuicImpl::GetLoadTimingInfo(
@@ -261,8 +280,9 @@ void BidirectionalStreamQuicImpl::OnStreamReady(int rv) {
   }
 
   base::ThreadTaskRunnerHandle::Get()->PostTask(
-      FROM_HERE, base::Bind(&BidirectionalStreamQuicImpl::ReadInitialHeaders,
-                            weak_factory_.GetWeakPtr()));
+      FROM_HERE,
+      base::BindOnce(&BidirectionalStreamQuicImpl::ReadInitialHeaders,
+                     weak_factory_.GetWeakPtr()));
 
   NotifyStreamReady();
 }
@@ -291,8 +311,9 @@ void BidirectionalStreamQuicImpl::OnReadInitialHeadersComplete(int rv) {
   negotiated_protocol_ = kProtoQUIC;
   connect_timing_ = session_->GetConnectTiming();
   base::ThreadTaskRunnerHandle::Get()->PostTask(
-      FROM_HERE, base::Bind(&BidirectionalStreamQuicImpl::ReadTrailingHeaders,
-                            weak_factory_.GetWeakPtr()));
+      FROM_HERE,
+      base::BindOnce(&BidirectionalStreamQuicImpl::ReadTrailingHeaders,
+                     weak_factory_.GetWeakPtr()));
   if (delegate_)
     delegate_->OnHeadersReceived(initial_headers_);
 }
@@ -369,8 +390,9 @@ void BidirectionalStreamQuicImpl::NotifyErrorImpl(int error,
     weak_factory_.InvalidateWeakPtrs();
     if (notify_delegate_later) {
       base::ThreadTaskRunnerHandle::Get()->PostTask(
-          FROM_HERE, base::Bind(&BidirectionalStreamQuicImpl::NotifyFailure,
-                                weak_factory_.GetWeakPtr(), delegate, error));
+          FROM_HERE,
+          base::BindOnce(&BidirectionalStreamQuicImpl::NotifyFailure,
+                         weak_factory_.GetWeakPtr(), delegate, error));
     } else {
       NotifyFailure(delegate, error);
       // |this| might be destroyed at this point.
@@ -392,8 +414,8 @@ void BidirectionalStreamQuicImpl::NotifyStreamReady() {
     int rv = WriteHeaders();
     if (rv < 0) {
       base::ThreadTaskRunnerHandle::Get()->PostTask(
-          FROM_HERE, base::Bind(&BidirectionalStreamQuicImpl::NotifyError,
-                                weak_factory_.GetWeakPtr(), rv));
+          FROM_HERE, base::BindOnce(&BidirectionalStreamQuicImpl::NotifyError,
+                                    weak_factory_.GetWeakPtr(), rv));
       return;
     }
   }

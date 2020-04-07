@@ -15,7 +15,6 @@
 #include "dawn_native/metal/BufferMTL.h"
 
 #include "dawn_native/metal/DeviceMTL.h"
-#include "dawn_native/metal/ResourceUploader.h"
 
 namespace dawn_native { namespace metal {
 
@@ -32,40 +31,51 @@ namespace dawn_native { namespace metal {
     }
 
     Buffer::~Buffer() {
-        [mMtlBuffer release];
-        mMtlBuffer = nil;
+        DestroyInternal();
     }
 
     id<MTLBuffer> Buffer::GetMTLBuffer() {
         return mMtlBuffer;
     }
 
-    void Buffer::OnMapCommandSerialFinished(uint32_t mapSerial, uint32_t offset, bool isWrite) {
+    void Buffer::OnMapCommandSerialFinished(uint32_t mapSerial, bool isWrite) {
         char* data = reinterpret_cast<char*>([mMtlBuffer contents]);
         if (isWrite) {
-            CallMapWriteCallback(mapSerial, DAWN_BUFFER_MAP_ASYNC_STATUS_SUCCESS, data + offset);
+            CallMapWriteCallback(mapSerial, DAWN_BUFFER_MAP_ASYNC_STATUS_SUCCESS, data, GetSize());
         } else {
-            CallMapReadCallback(mapSerial, DAWN_BUFFER_MAP_ASYNC_STATUS_SUCCESS, data + offset);
+            CallMapReadCallback(mapSerial, DAWN_BUFFER_MAP_ASYNC_STATUS_SUCCESS, data, GetSize());
         }
     }
 
-    void Buffer::SetSubDataImpl(uint32_t start, uint32_t count, const uint8_t* data) {
-        auto* uploader = ToBackend(GetDevice())->GetResourceUploader();
-        uploader->BufferSubData(mMtlBuffer, start, count, data);
+    bool Buffer::IsMapWritable() const {
+        // TODO(enga): Handle CPU-visible memory on UMA
+        return (GetUsage() & (dawn::BufferUsageBit::MapRead | dawn::BufferUsageBit::MapWrite)) != 0;
     }
 
-    void Buffer::MapReadAsyncImpl(uint32_t serial, uint32_t start, uint32_t) {
-        MapRequestTracker* tracker = ToBackend(GetDevice())->GetMapTracker();
-        tracker->Track(this, serial, start, false);
+    MaybeError Buffer::MapAtCreationImpl(uint8_t** mappedPointer) {
+        *mappedPointer = reinterpret_cast<uint8_t*>([mMtlBuffer contents]);
+        return {};
     }
 
-    void Buffer::MapWriteAsyncImpl(uint32_t serial, uint32_t start, uint32_t) {
+    MaybeError Buffer::MapReadAsyncImpl(uint32_t serial) {
         MapRequestTracker* tracker = ToBackend(GetDevice())->GetMapTracker();
-        tracker->Track(this, serial, start, true);
+        tracker->Track(this, serial, false);
+        return {};
+    }
+
+    MaybeError Buffer::MapWriteAsyncImpl(uint32_t serial) {
+        MapRequestTracker* tracker = ToBackend(GetDevice())->GetMapTracker();
+        tracker->Track(this, serial, true);
+        return {};
     }
 
     void Buffer::UnmapImpl() {
         // Nothing to do, Metal StorageModeShared buffers are always mapped.
+    }
+
+    void Buffer::DestroyImpl() {
+        [mMtlBuffer release];
+        mMtlBuffer = nil;
     }
 
     MapRequestTracker::MapRequestTracker(Device* device) : mDevice(device) {
@@ -77,12 +87,10 @@ namespace dawn_native { namespace metal {
 
     void MapRequestTracker::Track(Buffer* buffer,
                                   uint32_t mapSerial,
-                                  uint32_t offset,
                                   bool isWrite) {
         Request request;
         request.buffer = buffer;
         request.mapSerial = mapSerial;
-        request.offset = offset;
         request.isWrite = isWrite;
 
         mInflightRequests.Enqueue(std::move(request), mDevice->GetPendingCommandSerial());
@@ -90,8 +98,7 @@ namespace dawn_native { namespace metal {
 
     void MapRequestTracker::Tick(Serial finishedSerial) {
         for (auto& request : mInflightRequests.IterateUpTo(finishedSerial)) {
-            request.buffer->OnMapCommandSerialFinished(request.mapSerial, request.offset,
-                                                       request.isWrite);
+            request.buffer->OnMapCommandSerialFinished(request.mapSerial, request.isWrite);
         }
         mInflightRequests.ClearUpTo(finishedSerial);
     }

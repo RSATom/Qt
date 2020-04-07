@@ -25,14 +25,13 @@ SSLConfig::SSLConfig()
     : version_min(kDefaultSSLVersionMin),
       version_max(kDefaultSSLVersionMax),
       early_data_enabled(false),
-      version_interference_probe(false),
-      channel_id_enabled(false),
       false_start_enabled(true),
       require_ecdhe(false),
       ignore_certificate_errors(false),
       disable_cert_verification_network_fetches(false),
       send_client_cert(false),
-      renego_allowed_default(false) {}
+      renego_allowed_default(false),
+      privacy_mode(PRIVACY_MODE_DISABLED) {}
 
 SSLConfig::SSLConfig(const SSLConfig& other) = default;
 

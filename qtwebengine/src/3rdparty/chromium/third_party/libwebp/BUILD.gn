@@ -186,7 +186,7 @@ static_library("libwebp_dsp") {
     ":libwebp_webp",
   ]
   if (is_android) {
-    deps += [ "//third_party/android_tools:cpu_features" ]
+    deps += [ "//third_party/android_sdk:cpu_features" ]
   }
   if (current_cpu == "x86" || current_cpu == "x64") {
     defines = [
@@ -457,6 +457,7 @@ if (current_toolchain == host_toolchain) {
 
   source_set("imageio_util") {
     sources = [
+      "examples/unicode.h",
       "imageio/imageio_util.c",
       "imageio/imageio_util.h",
     ]
@@ -477,6 +478,7 @@ if (current_toolchain == host_toolchain) {
 
   source_set("imagedec") {
     sources = [
+      "examples/unicode.h",
       "imageio/image_dec.c",
       "imageio/image_dec.h",
       "imageio/jpegdec.c",
@@ -515,6 +517,7 @@ if (current_toolchain == host_toolchain) {
 
   source_set("imageenc") {
     sources = [
+      "examples/unicode.h",
       "imageio/image_enc.c",
       "imageio/image_enc.h",
     ]
@@ -538,6 +541,7 @@ if (current_toolchain == host_toolchain) {
     sources = [
       "examples/cwebp.c",
       "examples/stopwatch.h",
+      "examples/unicode.h",
     ]
 
     deps = [
@@ -562,6 +566,7 @@ if (current_toolchain == host_toolchain) {
     sources = [
       "examples/dwebp.c",
       "examples/stopwatch.h",
+      "examples/unicode.h",
     ]
 
     deps = [

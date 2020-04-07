@@ -16,6 +16,9 @@
 namespace shape_detection {
 
 BarcodeDetectionProviderMac::BarcodeDetectionProviderMac() = default;
+BarcodeDetectionProviderMac::BarcodeDetectionProviderMac(
+    std::unique_ptr<VisionAPIInterface> vision_api)
+    : vision_api_(std::move(vision_api)) {}
 
 BarcodeDetectionProviderMac::~BarcodeDetectionProviderMac() = default;
 
@@ -29,55 +32,52 @@ void BarcodeDetectionProviderMac::Create(
 void BarcodeDetectionProviderMac::CreateBarcodeDetection(
     mojom::BarcodeDetectionRequest request,
     mojom::BarcodeDetectorOptionsPtr options) {
-  // SDK 10.14 has troubles using the Vision Framework, fall back to CIDetector.
-  // TODO(crbug.com/921968) remove this extra case and use the Vision Framework.
-  if (@available(macOS 10.14, *)) {
-    mojo::MakeStrongBinding(std::make_unique<BarcodeDetectionImplMac>(),
-                            std::move(request));
-    return;
-  }
+  if (!vision_api_)
+    vision_api_ = VisionAPIInterface::Create();
 
   // Vision Framework needs at least MAC OS X 10.13.
   if (base::mac::IsAtLeastOS10_13()) {
-    auto impl =
-        std::make_unique<BarcodeDetectionImplMacVision>(std::move(options));
-    auto* impl_ptr = impl.get();
-    impl_ptr->SetBinding(
-        mojo::MakeStrongBinding(std::move(impl), std::move(request)));
-    return;
+    if (!BarcodeDetectionImplMacVision::IsBlockedMacOSVersion()) {
+      auto impl =
+          std::make_unique<BarcodeDetectionImplMacVision>(std::move(options));
+      auto* impl_ptr = impl.get();
+      impl_ptr->SetBinding(
+          mojo::MakeStrongBinding(std::move(impl), std::move(request)));
+      return;
+    }
   }
 
-  // CIDetector barcode detection needs at least MAC OS X 10.10.
-  if (base::mac::IsAtLeastOS10_10()) {
-    mojo::MakeStrongBinding(std::make_unique<BarcodeDetectionImplMac>(),
-                            std::move(request));
-  }
+  mojo::MakeStrongBinding(std::make_unique<BarcodeDetectionImplMac>(),
+                          std::move(request));
 }
 
 void BarcodeDetectionProviderMac::EnumerateSupportedFormats(
     EnumerateSupportedFormatsCallback callback) {
+  // If we have supported formats already cached, return them.
+  if (supported_formats_) {
+    DLOG_IF(WARNING, supported_formats_->empty())
+        << "Supported formats requested previously but error or none "
+        << "recognized.";
+
+    std::move(callback).Run(supported_formats_.value());
+    return;
+  }
+
+  if (!vision_api_)
+    vision_api_ = VisionAPIInterface::Create();
+
   // Vision Framework needs at least MAC OS X 10.13.
   if (base::mac::IsAtLeastOS10_13()) {
     // Vision recognizes more barcode symbologies than Core Image Framework.
-    std::move(callback).Run(
-        {mojom::BarcodeFormat::AZTEC, mojom::BarcodeFormat::CODE_128,
-         mojom::BarcodeFormat::CODE_39, mojom::BarcodeFormat::CODE_93,
-         mojom::BarcodeFormat::DATA_MATRIX, mojom::BarcodeFormat::EAN_13,
-         mojom::BarcodeFormat::EAN_8, mojom::BarcodeFormat::ITF,
-         mojom::BarcodeFormat::PDF417, mojom::BarcodeFormat::QR_CODE,
-         mojom::BarcodeFormat::UPC_E});
+    supported_formats_ = BarcodeDetectionImplMacVision::GetSupportedSymbologies(
+        vision_api_.get());
+    std::move(callback).Run(supported_formats_.value());
     return;
   }
 
-  // Barcode detection needs at least MAC OS X 10.10.
-  if (base::mac::IsAtLeastOS10_10()) {
-    // Mac implementation supports only one BarcodeFormat.
-    std::move(callback).Run({mojom::BarcodeFormat::QR_CODE});
-    return;
-  }
-
-  DLOG(ERROR) << "Platform not supported for Barcode Detection.";
-  std::move(callback).Run({});
+  supported_formats_ = std::vector<mojom::BarcodeFormat>(
+      BarcodeDetectionImplMac::GetSupportedSymbologies());
+  std::move(callback).Run(supported_formats_.value());
 }
 
 }  // namespace shape_detection

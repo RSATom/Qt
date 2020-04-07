@@ -133,7 +133,7 @@ QT_BEGIN_NAMESPACE
 
 struct QWindowsIntegrationPrivate
 {
-    Q_DISABLE_COPY(QWindowsIntegrationPrivate)
+    Q_DISABLE_COPY_MOVE(QWindowsIntegrationPrivate)
     explicit QWindowsIntegrationPrivate(const QStringList &paramList);
     ~QWindowsIntegrationPrivate();
 
@@ -217,6 +217,8 @@ static inline unsigned parseOptions(const QStringList &paramList,
             options |= QWindowsIntegration::NoNativeMenus;
         } else if (param == QLatin1String("nowmpointer")) {
             options |= QWindowsIntegration::DontUseWMPointer;
+        } else if (param == QLatin1String("reverse")) {
+            options |= QWindowsIntegration::RtlEnabled;
         } else {
             qWarning() << "Unknown option" << param;
         }
@@ -256,6 +258,8 @@ QWindowsIntegrationPrivate::QWindowsIntegrationPrivate(const QStringList &paramL
 
     m_context.initTouch(m_options);
     QPlatformCursor::setCapability(QPlatformCursor::OverrideCursor);
+
+    m_context.initPowerNotificationHandler();
 }
 
 QWindowsIntegrationPrivate::~QWindowsIntegrationPrivate()
@@ -322,15 +326,17 @@ bool QWindowsIntegration::hasCapability(QPlatformIntegration::Capability cap) co
 QPlatformWindow *QWindowsIntegration::createPlatformWindow(QWindow *window) const
 {
     if (window->type() == Qt::Desktop) {
-        QWindowsDesktopWindow *result = new QWindowsDesktopWindow(window);
+        auto *result = new QWindowsDesktopWindow(window);
         qCDebug(lcQpaWindows) << "Desktop window:" << window
-            << showbase << hex << result->winId() << noshowbase << dec << result->geometry();
+            << Qt::showbase << Qt::hex << result->winId() << Qt::noshowbase << Qt::dec << result->geometry();
         return result;
     }
 
     QWindowsWindowData requested;
     requested.flags = window->flags();
-    requested.geometry = QHighDpi::toNativePixels(window->geometry(), window);
+    requested.geometry = window->isTopLevel()
+        ? QHighDpi::toNativePixels(window->geometry(), window)
+        : QHighDpi::toNativeLocalPosition(window->geometry(), window);
     // Apply custom margins (see  QWindowsWindow::setCustomMargins())).
     const QVariant customMarginsV = window->property("_q_windowsCustomMargins");
     if (customMarginsV.isValid())
@@ -369,15 +375,15 @@ QPlatformWindow *QWindowsIntegration::createForeignWindow(QWindow *window, WId n
        qWarning("Windows QPA: Invalid foreign window ID %p.", hwnd);
        return nullptr;
     }
-    QWindowsForeignWindow *result = new QWindowsForeignWindow(window, hwnd);
+    auto *result = new QWindowsForeignWindow(window, hwnd);
     const QRect obtainedGeometry = result->geometry();
     QScreen *screen = nullptr;
     if (const QPlatformScreen *pScreen = result->screenForGeometry(obtainedGeometry))
         screen = pScreen->screen();
     if (screen && screen != window->screen())
         window->setScreen(screen);
-    qCDebug(lcQpaWindows) << "Foreign window:" << window << showbase << hex
-        << result->winId() << noshowbase << dec << obtainedGeometry << screen;
+    qCDebug(lcQpaWindows) << "Foreign window:" << window << Qt::showbase << Qt::hex
+        << result->winId() << Qt::noshowbase << Qt::dec << obtainedGeometry << screen;
     return result;
 }
 

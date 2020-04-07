@@ -33,7 +33,7 @@ static LayoutTextFragment* FirstLetterPartFor(
 class LayoutSelectionTestBase : public EditingTestBase {
  protected:
   static void PrintText(std::ostream& ostream, const Text& text) {
-    ostream << "'" << text.data().Utf8().data() << "'";
+    ostream << "'" << text.data().Utf8() << "'";
   }
 
   static void PrintLayoutTextInfo(const FrameSelection& selection,
@@ -43,7 +43,7 @@ class LayoutSelectionTestBase : public EditingTestBase {
     const auto fragments = NGPaintFragment::InlineFragmentsFor(&layout_text);
     if (fragments.IsInLayoutNGInlineFormattingContext()) {
       const unsigned text_start =
-          ToNGPhysicalTextFragment(fragments.begin()->PhysicalFragment())
+          To<NGPhysicalTextFragment>(fragments.begin()->PhysicalFragment())
               .StartOffset();
       for (const NGPaintFragment* fragment : fragments) {
         const LayoutSelectionStatus status =
@@ -81,10 +81,10 @@ class LayoutSelectionTestBase : public EditingTestBase {
                                  std::ostream& ostream,
                                  const Node& node,
                                  wtf_size_t depth) {
-    if (const Text* text = ToTextOrNull(node))
+    if (const Text* text = DynamicTo<Text>(node))
       PrintText(ostream, *text);
-    else if (const Element* element = ToElementOrNull(node))
-      ostream << element->tagName().Utf8().data();
+    else if (const auto* element = DynamicTo<Element>(node))
+      ostream << element->tagName().Utf8();
     else
       ostream << node;
 
@@ -96,7 +96,7 @@ class LayoutSelectionTestBase : public EditingTestBase {
     PrintLayoutObjectInfo(selection, ostream, layout_object);
     if (LayoutTextFragment* first_letter = FirstLetterPartFor(layout_object)) {
       ostream << std::endl
-              << RepeatString("  ", depth + 1).Utf8().data() << ":first-letter";
+              << RepeatString("  ", depth + 1).Utf8() << ":first-letter";
       PrintLayoutObjectInfo(selection, ostream, first_letter);
     }
   }
@@ -105,14 +105,14 @@ class LayoutSelectionTestBase : public EditingTestBase {
                                    std::ostream& ostream,
                                    const Node& node,
                                    wtf_size_t depth) {
-    ostream << RepeatString("  ", depth).Utf8().data();
+    ostream << RepeatString("  ", depth).Utf8();
     if (IsHTMLStyleElement(node)) {
       ostream << "<style> ";
       return;
     }
     PrintSelectionInfo(selection, ostream, node, depth);
     if (ShadowRoot* shadow_root = node.GetShadowRoot()) {
-      ostream << std::endl << RepeatString("  ", depth + 1).Utf8().data();
+      ostream << std::endl << RepeatString("  ", depth + 1).Utf8();
       ostream << "#shadow-root ";
       for (Node* child = shadow_root->firstChild(); child;
            child = child->nextSibling()) {
@@ -152,7 +152,7 @@ class LayoutSelectionTest : public ::testing::WithParamInterface<bool>,
   bool LayoutNGEnabled() const { return GetParam(); }
 };
 
-INSTANTIATE_TEST_CASE_P(All, LayoutSelectionTest, ::testing::Bool());
+INSTANTIATE_TEST_SUITE_P(All, LayoutSelectionTest, ::testing::Bool());
 
 TEST_P(LayoutSelectionTest, TraverseLayoutObject) {
   SetBodyContent("foo<br>bar");
@@ -777,11 +777,13 @@ TEST_P(LayoutSelectionTest, ClearByRemoveNode) {
 
   Node* baz = GetDocument().body()->lastChild();
   baz->remove();
+  GetDocument().UpdateStyleAndLayout();
+  Selection().CommitAppearanceIfNeeded();
   EXPECT_EQ(
       "BODY, Contain, NotInvalidate \n"
       "  'foo', Start(0,3), ShouldInvalidate \n"
       "  SPAN, Contain, NotInvalidate \n"
-      "    'bar', Inside(0,3), ShouldInvalidate ",
+      "    'bar', End(0,3), ShouldInvalidate ",
       DumpSelectionInfo());
 
   UpdateAllLifecyclePhasesForTest();
@@ -806,14 +808,15 @@ TEST_P(LayoutSelectionTest, ClearByRemoveLayoutObject) {
       "    'baz', End(0,3), ShouldInvalidate ",
       DumpSelectionInfo());
 
-  Element* span_baz = ToElement(GetDocument().body()->lastChild());
-  span_baz->SetInlineStyleProperty(CSSPropertyDisplay, CSSValueNone);
-  GetDocument().UpdateStyleAndLayoutTreeIgnorePendingStylesheets();
+  auto* span_baz = To<Element>(GetDocument().body()->lastChild());
+  span_baz->SetInlineStyleProperty(CSSPropertyID::kDisplay, CSSValueID::kNone);
+  GetDocument().UpdateStyleAndLayout();
+  Selection().CommitAppearanceIfNeeded();
   EXPECT_EQ(
       "BODY, Contain, NotInvalidate \n"
       "  'foo', Start(0,3), ShouldInvalidate \n"
       "  SPAN, Contain, NotInvalidate \n"
-      "    'bar', Inside(0,3), ShouldInvalidate \n"
+      "    'bar', End(0,3), ShouldInvalidate \n"
       "  SPAN, <null LayoutObject> \n"
       "    'baz', <null LayoutObject> ",
       DumpSelectionInfo());
@@ -851,12 +854,13 @@ TEST_P(LayoutSelectionTest, ClearBySlotChange) {
       GetDocument().body()->firstChild()->GetShadowRoot()->QuerySelector(
           "slot");
   slot->setAttribute("name", "s2");
-  GetDocument().UpdateStyleAndLayoutTreeIgnorePendingStylesheets();
+  GetDocument().UpdateStyleAndLayout();
+  Selection().CommitAppearanceIfNeeded();
   EXPECT_EQ(
       "BODY, Contain, NotInvalidate \n"
       "  DIV, Contain, NotInvalidate \n"
       "    #shadow-root \n"
-      "      'Foo', Start(0,3), ShouldInvalidate \n"
+      "      'Foo', StartAndEnd(0,3), ShouldInvalidate \n"
       "      SLOT, <null LayoutObject> \n"
       "    'baz', <null LayoutObject> \n"
       "    SPAN, <null LayoutObject> \n"
@@ -977,8 +981,8 @@ class NGLayoutSelectionTest
 
   const Text* GetFirstTextNode() {
     for (const Node& runner : NodeTraversal::StartsAt(*GetDocument().body())) {
-      if (runner.IsTextNode())
-        return &ToText(runner);
+      if (auto* text_node = DynamicTo<Text>(runner))
+        return text_node;
     }
     NOTREACHED();
     return nullptr;

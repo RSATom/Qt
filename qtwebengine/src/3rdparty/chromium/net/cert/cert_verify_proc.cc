@@ -12,7 +12,6 @@
 #include "base/metrics/histogram.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
-#include "base/sha1.h"
 #include "base/stl_util.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
@@ -20,15 +19,19 @@
 #include "base/time/time.h"
 #include "build/build_config.h"
 #include "crypto/sha2.h"
+#include "net/base/features.h"
 #include "net/base/net_errors.h"
 #include "net/base/registry_controlled_domains/registry_controlled_domain.h"
 #include "net/base/url_util.h"
 #include "net/cert/asn1_util.h"
+#include "net/cert/cert_net_fetcher.h"
 #include "net/cert/cert_status_flags.h"
 #include "net/cert/cert_verifier.h"
 #include "net/cert/cert_verify_result.h"
 #include "net/cert/crl_set.h"
 #include "net/cert/internal/ocsp.h"
+#include "net/cert/internal/parse_certificate.h"
+#include "net/cert/internal/revocation_checker.h"
 #include "net/cert/internal/signature_algorithm.h"
 #include "net/cert/known_roots.h"
 #include "net/cert/ocsp_revocation_status.h"
@@ -36,7 +39,13 @@
 #include "net/cert/x509_certificate.h"
 #include "net/cert/x509_util.h"
 #include "net/der/encode_values.h"
+#include "net/net_buildflags.h"
+#include "third_party/boringssl/src/include/openssl/pool.h"
 #include "url/url_canon.h"
+
+#if BUILDFLAG(BUILTIN_CERT_VERIFIER_FEATURE_SUPPORTED)
+#include "net/cert/cert_verify_proc_builtin.h"
+#endif
 
 #if defined(USE_NSS_CERTS)
 #include "net/cert/cert_verify_proc_nss.h"
@@ -101,7 +110,7 @@ void RecordPublicKeyHistogram(const char* chain_position,
                          CertTypeToString(cert_type));
   // Do not use UMA_HISTOGRAM_... macros here, as it caches the Histogram
   // instance and thus only works if |histogram_name| is constant.
-  base::HistogramBase* counter = NULL;
+  base::HistogramBase* counter = nullptr;
 
   // Histogram buckets are contingent upon the underlying algorithm being used.
   if (cert_type == X509Certificate::kPublicKeyTypeECDH ||
@@ -241,7 +250,7 @@ void BestEffortCheckOCSP(const std::string& raw_response,
 
   verify_result->revocation_status =
       CheckOCSP(raw_response, cert_der, issuer_der, base::Time::Now(),
-                kMaxOCSPLeafUpdateAge, &verify_result->response_status);
+                kMaxRevocationLeafUpdateAge, &verify_result->response_status);
 }
 
 // Records histograms indicating whether the certificate |cert|, which
@@ -306,35 +315,16 @@ void RecordTrustAnchorHistogram(const HashValueVector& spki_hashes,
   }
 }
 
-// Comparison functor used for binary searching whether a given HashValue,
-// which MUST be a SHA-256 hash, is contained with an array of SHA-256
-// hashes.
-struct HashToArrayComparator {
-  template <size_t N>
-  bool operator()(const uint8_t(&lhs)[N], const HashValue& rhs) const {
-    static_assert(N == crypto::kSHA256Length,
-                  "Only SHA-256 hashes are supported");
-    return memcmp(lhs, rhs.data(), crypto::kSHA256Length) < 0;
-  }
-
-  template <size_t N>
-  bool operator()(const HashValue& lhs, const uint8_t(&rhs)[N]) const {
-    static_assert(N == crypto::kSHA256Length,
-                  "Only SHA-256 hashes are supported");
-    return memcmp(lhs.data(), rhs, crypto::kSHA256Length) < 0;
-  }
-};
-
 bool AreSHA1IntermediatesAllowed() {
 #if defined(OS_WIN)
   // TODO(rsleevi): Remove this once https://crbug.com/588789 is resolved
   // for Windows 7/2008 users.
   // Note: This must be kept in sync with cert_verify_proc_unittest.cc
-  return base::win::GetVersion() < base::win::VERSION_WIN8;
+  return base::win::GetVersion() < base::win::Version::WIN8;
 #else
   return false;
 #endif
-};
+}
 
 // Sets the "has_*" boolean members in |verify_result| that correspond with
 // the the presence of |hash| somewhere in the certificate chain (excluding the
@@ -468,11 +458,18 @@ WARN_UNUSED_RESULT bool InspectSignatureAlgorithmsInChain(
 }  // namespace
 
 // static
-scoped_refptr<CertVerifyProc> CertVerifyProc::CreateDefault() {
+scoped_refptr<CertVerifyProc> CertVerifyProc::CreateDefault(
+    scoped_refptr<CertNetFetcher> cert_net_fetcher) {
+#if BUILDFLAG(BUILTIN_CERT_VERIFIER_FEATURE_SUPPORTED)
+  if (base::FeatureList::IsEnabled(features::kCertVerifierBuiltinFeature)) {
+    return CreateCertVerifyProcBuiltin(std::move(cert_net_fetcher),
+                                       /*system_trust_store_provider=*/nullptr);
+  }
+#endif
 #if defined(USE_NSS_CERTS)
   return new CertVerifyProcNSS();
 #elif defined(OS_ANDROID)
-  return new CertVerifyProcAndroid();
+  return new CertVerifyProcAndroid(std::move(cert_net_fetcher));
 #elif defined(OS_IOS)
   return new CertVerifyProcIOS();
 #elif defined(OS_MACOSX)
@@ -480,7 +477,8 @@ scoped_refptr<CertVerifyProc> CertVerifyProc::CreateDefault() {
 #elif defined(OS_WIN)
   return new CertVerifyProcWin();
 #elif defined(OS_FUCHSIA)
-  return CreateCertVerifyProcBuiltin();
+  return CreateCertVerifyProcBuiltin(std::move(cert_net_fetcher),
+                                     /*system_trust_store_provider=*/nullptr);
 #else
 #error Unsupported platform
 #endif
@@ -493,6 +491,7 @@ CertVerifyProc::~CertVerifyProc() = default;
 int CertVerifyProc::Verify(X509Certificate* cert,
                            const std::string& hostname,
                            const std::string& ocsp_response,
+                           const std::string& sct_list,
                            int flags,
                            CRLSet* crl_set,
                            const CertificateList& additional_trust_anchors,
@@ -503,18 +502,15 @@ int CertVerifyProc::Verify(X509Certificate* cert,
   // threads are not starved or deadlocked, the base::ScopedBlockingCall below
   // increments the thread pool capacity when this method takes too much time to
   // run.
-  base::ScopedBlockingCall scoped_blocking_call(base::BlockingType::MAY_BLOCK);
+  base::ScopedBlockingCall scoped_blocking_call(FROM_HERE,
+                                                base::BlockingType::MAY_BLOCK);
 
   verify_result->Reset();
   verify_result->verified_cert = cert;
 
-  if (IsBlacklisted(cert)) {
-    verify_result->cert_status |= CERT_STATUS_REVOKED;
-    return ERR_CERT_REVOKED;
-  }
-
-  int rv = VerifyInternal(cert, hostname, ocsp_response, flags, crl_set,
-                          additional_trust_anchors, verify_result);
+  DCHECK(crl_set);
+  int rv = VerifyInternal(cert, hostname, ocsp_response, sct_list, flags,
+                          crl_set, additional_trust_anchors, verify_result);
 
   // Check for mismatched signature algorithms and unknown signature algorithms
   // in the chain. Also fills in the has_* booleans for the digest algorithms
@@ -531,13 +527,6 @@ int CertVerifyProc::Verify(X509Certificate* cert,
 
   BestEffortCheckOCSP(ocsp_response, *verify_result->verified_cert,
                       &verify_result->ocsp_result);
-
-  // This check is done after VerifyInternal so that VerifyInternal can fill
-  // in the list of public key hashes.
-  if (IsPublicKeyBlacklisted(verify_result->public_key_hashes)) {
-    verify_result->cert_status |= CERT_STATUS_REVOKED;
-    rv = MapCertStatusToNetError(verify_result->cert_status);
-  }
 
   std::vector<std::string> dns_names, ip_addrs;
   cert->GetSubjectAltName(&dns_names, &ip_addrs);
@@ -638,42 +627,69 @@ int CertVerifyProc::Verify(X509Certificate* cert,
 }
 
 // static
-bool CertVerifyProc::IsBlacklisted(X509Certificate* cert) {
-  // CloudFlare revoked all certificates issued prior to April 2nd, 2014. Thus
-  // all certificates where the CN ends with ".cloudflare.com" with a prior
-  // issuance date are rejected.
-  //
-  // The old certs had a lifetime of five years, so this can be removed April
-  // 2nd, 2019.
-  const base::StringPiece cn(cert->subject().common_name);
-  static constexpr base::StringPiece kCloudflareCNSuffix(".cloudflare.com");
-  // April 2nd, 2014 UTC, expressed as seconds since the Unix Epoch.
-  static constexpr base::TimeDelta kCloudflareEpoch =
-      base::TimeDelta::FromSeconds(1396396800);
-
-  if (cn.ends_with(kCloudflareCNSuffix) &&
-      cert->valid_start() < (base::Time::UnixEpoch() + kCloudflareEpoch)) {
-    return true;
-  }
-
-  return false;
+void CertVerifyProc::LogNameNormalizationResult(
+    const std::string& histogram_suffix,
+    NameNormalizationResult result) {
+  base::UmaHistogramEnumeration(
+      std::string("Net.CertVerifier.NameNormalizationPrivateRoots") +
+          histogram_suffix,
+      result);
 }
 
 // static
-bool CertVerifyProc::IsPublicKeyBlacklisted(
-    const HashValueVector& public_key_hashes) {
-// Defines kBlacklistedSPKIs.
-#include "net/cert/cert_verify_proc_blacklist.inc"
-  for (const auto& hash : public_key_hashes) {
-    if (hash.tag() != HASH_VALUE_SHA256)
-      continue;
-    if (std::binary_search(std::begin(kBlacklistedSPKIs),
-                           std::end(kBlacklistedSPKIs), hash,
-                           HashToArrayComparator())) {
-      return true;
+void CertVerifyProc::LogNameNormalizationMetrics(
+    const std::string& histogram_suffix,
+    X509Certificate* verified_cert,
+    bool is_issued_by_known_root) {
+  if (is_issued_by_known_root)
+    return;
+
+  if (verified_cert->intermediate_buffers().empty()) {
+    LogNameNormalizationResult(histogram_suffix,
+                               NameNormalizationResult::kChainLengthOne);
+    return;
+  }
+
+  std::vector<CRYPTO_BUFFER*> der_certs;
+  der_certs.push_back(verified_cert->cert_buffer());
+  for (const auto& buf : verified_cert->intermediate_buffers())
+    der_certs.push_back(buf.get());
+
+  ParseCertificateOptions options;
+  options.allow_invalid_serial_numbers = true;
+
+  std::vector<der::Input> subjects;
+  std::vector<der::Input> issuers;
+
+  for (auto* buf : der_certs) {
+    der::Input tbs_certificate_tlv;
+    der::Input signature_algorithm_tlv;
+    der::BitString signature_value;
+    ParsedTbsCertificate tbs;
+    if (!ParseCertificate(
+            der::Input(CRYPTO_BUFFER_data(buf), CRYPTO_BUFFER_len(buf)),
+            &tbs_certificate_tlv, &signature_algorithm_tlv, &signature_value,
+            nullptr /* errors*/) ||
+        !ParseTbsCertificate(tbs_certificate_tlv, options, &tbs,
+                             nullptr /*errors*/)) {
+      LogNameNormalizationResult(histogram_suffix,
+                                 NameNormalizationResult::kError);
+      return;
+    }
+    subjects.push_back(tbs.subject_tlv);
+    issuers.push_back(tbs.issuer_tlv);
+  }
+
+  for (size_t i = 0; i < subjects.size() - 1; ++i) {
+    if (issuers[i] != subjects[i + 1]) {
+      LogNameNormalizationResult(histogram_suffix,
+                                 NameNormalizationResult::kNormalized);
+      return;
     }
   }
-  return false;
+
+  LogNameNormalizationResult(histogram_suffix,
+                             NameNormalizationResult::kByteEqual);
 }
 
 // CheckNameConstraints verifies that every name in |dns_names| is in one of

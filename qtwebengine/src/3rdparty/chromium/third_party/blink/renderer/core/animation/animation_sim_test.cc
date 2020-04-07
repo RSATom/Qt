@@ -3,7 +3,7 @@
 // found in the LICENSE file.
 
 #include "third_party/blink/public/web/web_script_source.h"
-#include "third_party/blink/renderer/core/animation/element_animation.h"
+#include "third_party/blink/renderer/core/animation/animatable.h"
 #include "third_party/blink/renderer/core/css/css_style_sheet.h"
 #include "third_party/blink/renderer/core/css/property_descriptor.h"
 #include "third_party/blink/renderer/core/css/property_registration.h"
@@ -12,6 +12,7 @@
 #include "third_party/blink/renderer/core/testing/sim/sim_compositor.h"
 #include "third_party/blink/renderer/core/testing/sim/sim_request.h"
 #include "third_party/blink/renderer/core/testing/sim/sim_test.h"
+#include "third_party/blink/renderer/platform/heap/heap.h"
 #include "third_party/blink/renderer/platform/testing/runtime_enabled_features_test_helpers.h"
 #include "third_party/blink/renderer/platform/wtf/time.h"
 
@@ -35,8 +36,6 @@ TEST_F(AnimationSimTest, CustomPropertyBaseComputedStyle) {
   ScopedCSSAdditiveAnimationsForTest css_additive_animation(true);
   ScopedStackedCSSPropertyAnimationsForTest stacked_css_property_animation(
       true);
-
-  WebView().GetPage()->Animator().Clock().DisableSyntheticTimeForTesting();
 
   SimRequest main_resource("https://example.com/", "text/html");
   LoadURL("https://example.com/");
@@ -66,16 +65,17 @@ TEST_F(AnimationSimTest, CustomPropertyBaseComputedStyle) {
   EXPECT_FALSE(exception_state.HadException());
 
   // target.animate({'--x': '100%'}, 1000);
-  StringKeyframe* keyframe = StringKeyframe::Create();
-  keyframe->SetCSSPropertyValue("--x", GetDocument().GetPropertyRegistry(),
-                                "100%", GetDocument().GetSecureContextMode(),
+  auto* keyframe = MakeGarbageCollected<StringKeyframe>();
+  keyframe->SetCSSPropertyValue("--x", "100%",
+                                GetDocument().GetSecureContextMode(),
                                 GetDocument().ElementSheet().Contents());
   StringKeyframeVector keyframes;
   keyframes.push_back(keyframe);
   Timing timing;
   timing.iteration_duration = AnimationTimeDelta::FromSecondsD(1);
-  ElementAnimation::animateInternal(
-      *target, StringKeyframeEffectModel::Create(keyframes), timing);
+  Animatable::animateInternal(
+      *target, MakeGarbageCollected<StringKeyframeEffectModel>(keyframes),
+      timing);
 
   // This sets the baseComputedStyle on the animation exit frame.
   Compositor().BeginFrame(1);
@@ -87,16 +87,17 @@ TEST_F(AnimationSimTest, CustomPropertyBaseComputedStyle) {
   EXPECT_FALSE(exception_state.HadException());
 
   // target.animate({'--x': '100%'}, 1000);
-  keyframe = StringKeyframe::Create();
-  keyframe->SetCSSPropertyValue("--x", GetDocument().GetPropertyRegistry(),
-                                "100%", GetDocument().GetSecureContextMode(),
+  keyframe = MakeGarbageCollected<StringKeyframe>();
+  keyframe->SetCSSPropertyValue("--x", "100%",
+                                GetDocument().GetSecureContextMode(),
                                 GetDocument().ElementSheet().Contents());
   keyframes.clear();
   keyframes.push_back(std::move(keyframe));
-  timing = Timing::Defaults();
+  timing = Timing();
   timing.iteration_duration = AnimationTimeDelta::FromSecondsD(1);
-  ElementAnimation::animateInternal(
-      *target, StringKeyframeEffectModel::Create(keyframes), timing);
+  Animatable::animateInternal(
+      *target, MakeGarbageCollected<StringKeyframeEffectModel>(keyframes),
+      timing);
 
   // This (previously) would not clear the existing baseComputedStyle and would
   // crash on the equality assertion in the exit frame when it tried to update

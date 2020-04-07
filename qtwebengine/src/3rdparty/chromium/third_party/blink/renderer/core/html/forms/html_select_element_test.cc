@@ -5,12 +5,14 @@
 #include "third_party/blink/renderer/core/html/forms/html_select_element.h"
 
 #include <memory>
+
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/frame/local_frame_view.h"
 #include "third_party/blink/renderer/core/html/forms/form_controller.h"
 #include "third_party/blink/renderer/core/html/forms/html_form_element.h"
 #include "third_party/blink/renderer/core/testing/page_test_base.h"
+#include "third_party/blink/renderer/platform/heap/heap.h"
 
 namespace blink {
 
@@ -385,8 +387,8 @@ TEST_F(HTMLSelectElementTest, DefaultToolTip) {
       ">Placeholder</option><optgroup><option>o2</option></optgroup></select>");
   HTMLSelectElement* select =
       ToHTMLSelectElement(GetDocument().body()->firstChild());
-  Element* option = ToElement(select->firstChild());
-  Element* optgroup = ToElement(option->nextSibling());
+  auto* option = To<Element>(select->firstChild());
+  auto* optgroup = To<Element>(option->nextSibling());
 
   EXPECT_EQ(String(), select->DefaultToolTip())
       << "defaultToolTip for SELECT without FORM and without required "
@@ -401,7 +403,7 @@ TEST_F(HTMLSelectElementTest, DefaultToolTip) {
   EXPECT_EQ(select->DefaultToolTip(), option->DefaultToolTip());
   EXPECT_EQ(select->DefaultToolTip(), optgroup->DefaultToolTip());
 
-  HTMLFormElement* form = HTMLFormElement::Create(GetDocument());
+  auto* form = MakeGarbageCollected<HTMLFormElement>(GetDocument());
   GetDocument().body()->AppendChild(form);
   form->AppendChild(select);
   EXPECT_EQ("<<ValidationValueMissingForSelect>>", select->DefaultToolTip())

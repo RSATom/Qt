@@ -93,19 +93,19 @@ public:
     QJsonDocument(const QJsonDocument &other);
     QJsonDocument &operator =(const QJsonDocument &other);
 
-    QJsonDocument(QJsonDocument &&other) Q_DECL_NOTHROW
+    QJsonDocument(QJsonDocument &&other) noexcept
         : d(other.d)
     {
         other.d = nullptr;
     }
 
-    QJsonDocument &operator =(QJsonDocument &&other) Q_DECL_NOTHROW
+    QJsonDocument &operator =(QJsonDocument &&other) noexcept
     {
         swap(other);
         return *this;
     }
 
-    void swap(QJsonDocument &other) Q_DECL_NOTHROW
+    void swap(QJsonDocument &other) noexcept
     {
         qSwap(d, other.d);
     }
@@ -146,7 +146,10 @@ public:
     void setObject(const QJsonObject &object);
     void setArray(const QJsonArray &array);
 
+#if QT_STRINGVIEW_LEVEL < 2
     const QJsonValue operator[](const QString &key) const;
+#endif
+    const QJsonValue operator[](QStringView key) const;
     const QJsonValue operator[](QLatin1String key) const;
     const QJsonValue operator[](int i) const;
 

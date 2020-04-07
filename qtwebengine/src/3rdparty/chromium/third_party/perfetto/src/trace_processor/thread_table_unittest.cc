@@ -15,14 +15,16 @@
  */
 
 #include "src/trace_processor/thread_table.h"
+
+#include "src/trace_processor/args_tracker.h"
 #include "src/trace_processor/event_tracker.h"
 #include "src/trace_processor/process_table.h"
 #include "src/trace_processor/process_tracker.h"
 #include "src/trace_processor/scoped_db.h"
 #include "src/trace_processor/trace_processor_context.h"
 
-#include "gmock/gmock.h"
-#include "gtest/gtest.h"
+#include <gmock/gmock.h>
+#include <gtest/gtest.h>
 
 namespace perfetto {
 namespace trace_processor {
@@ -36,6 +38,7 @@ class ThreadTableUnittest : public ::testing::Test {
     db_.reset(db);
 
     context_.storage.reset(new TraceStorage());
+    context_.args_tracker.reset(new ArgsTracker(&context_));
     context_.process_tracker.reset(new ProcessTracker(&context_));
     context_.event_tracker.reset(new EventTracker(&context_));
 
@@ -55,7 +58,10 @@ class ThreadTableUnittest : public ::testing::Test {
     return reinterpret_cast<const char*>(sqlite3_column_text(*stmt_, colId));
   }
 
-  ~ThreadTableUnittest() override { context_.storage->ResetStorage(); }
+  ~ThreadTableUnittest() override {
+    context_.args_tracker->Flush();
+    context_.storage->ResetStorage();
+  }
 
  protected:
   TraceProcessorContext context_;
@@ -69,15 +75,16 @@ TEST_F(ThreadTableUnittest, Select) {
   uint32_t prev_state = 32;
   static const char kThreadName1[] = "thread1";
   static const char kThreadName2[] = "thread2";
-  int32_t next_prio = 1024;
+  int32_t prio = 1024;
 
-  context_.event_tracker->PushSchedSwitch(cpu, timestamp, /*tid=*/1, prev_state,
-                                          /*tid=*/4, kThreadName1, next_prio);
+  context_.event_tracker->PushSchedSwitch(cpu, timestamp, /*tid=*/1,
+                                          kThreadName2, prio, prev_state,
+                                          /*tid=*/4, kThreadName1, prio);
   context_.event_tracker->PushSchedSwitch(cpu, timestamp + 1, /*tid=*/4,
-                                          prev_state, /*tid=*/1, kThreadName2,
-                                          next_prio);
+                                          kThreadName1, prio, prev_state,
+                                          /*tid=*/1, kThreadName2, prio);
 
-  context_.process_tracker->UpdateProcess(2, "test");
+  context_.process_tracker->SetProcessMetadata(2, base::nullopt, "test");
   context_.process_tracker->UpdateThread(4 /*tid*/, 2 /*pid*/);
   PrepareValidStatement("SELECT utid, upid, tid, name FROM thread where tid=4");
 
@@ -96,18 +103,19 @@ TEST_F(ThreadTableUnittest, SelectWhere) {
   uint32_t prev_state = 32;
   static const char kThreadName1[] = "thread1";
   static const char kThreadName2[] = "thread2";
-  int32_t next_prio = 1024;
+  int32_t prio = 1024;
 
-  context_.event_tracker->PushSchedSwitch(cpu, timestamp, /*tid=*/1, prev_state,
-                                          /*tid=*/4, kThreadName1, next_prio);
+  context_.event_tracker->PushSchedSwitch(cpu, timestamp, /*tid=*/1,
+                                          kThreadName2, prio, prev_state,
+                                          /*tid=*/4, kThreadName1, prio);
   context_.event_tracker->PushSchedSwitch(cpu, timestamp + 1, /*tid=*/4,
-                                          prev_state,
-                                          /*tid=*/1, kThreadName2, next_prio);
+                                          kThreadName1, prio, prev_state,
+                                          /*tid=*/1, kThreadName2, prio);
   context_.event_tracker->PushSchedSwitch(cpu, timestamp + 2, /*tid=*/1,
-                                          prev_state, /*tid=*/4, kThreadName1,
-                                          next_prio);
+                                          kThreadName2, prio, prev_state,
+                                          /*tid=*/4, kThreadName1, prio);
 
-  context_.process_tracker->UpdateProcess(2, "test");
+  context_.process_tracker->SetProcessMetadata(2, base::nullopt, "test");
   context_.process_tracker->UpdateThread(4 /*tid*/, 2 /*pid*/);
   context_.process_tracker->UpdateThread(1 /*tid*/, 2 /*pid*/);
   PrepareValidStatement(
@@ -128,18 +136,19 @@ TEST_F(ThreadTableUnittest, JoinWithProcess) {
   uint32_t prev_state = 32;
   static const char kThreadName1[] = "thread1";
   static const char kThreadName2[] = "thread2";
-  int32_t next_prio = 1024;
+  int32_t prio = 1024;
 
-  context_.event_tracker->PushSchedSwitch(cpu, timestamp, /*tid=*/1, prev_state,
-                                          /*tid=*/4, kThreadName1, next_prio);
+  context_.event_tracker->PushSchedSwitch(cpu, timestamp, /*tid=*/1,
+                                          kThreadName2, prio, prev_state,
+                                          /*tid=*/4, kThreadName1, prio);
   context_.event_tracker->PushSchedSwitch(cpu, timestamp + 1, /*tid=*/4,
-                                          prev_state,
-                                          /*tid=*/1, kThreadName2, next_prio);
+                                          kThreadName1, prio, prev_state,
+                                          /*tid=*/1, kThreadName2, prio);
 
   // Also create a process for which we haven't seen any thread.
-  context_.process_tracker->UpdateProcess(7, "pid7");
+  context_.process_tracker->SetProcessMetadata(7, base::nullopt, "pid7");
 
-  context_.process_tracker->UpdateProcess(2, "pid2");
+  context_.process_tracker->SetProcessMetadata(2, base::nullopt, "pid2");
   context_.process_tracker->UpdateThread(/*tid=*/4, /*pid=*/2);
 
   PrepareValidStatement(
@@ -156,7 +165,7 @@ TEST_F(ThreadTableUnittest, JoinWithProcess) {
   ASSERT_EQ(sqlite3_column_int(*stmt_, 1), 2 /* tid */);
   ASSERT_EQ(sqlite3_column_int(*stmt_, 4), 2 /* pid */);
   ASSERT_EQ(sqlite3_column_int(*stmt_, 3), 2 /* upid */);
-  ASSERT_STREQ(GetColumnAsText(2), "");  // No name seen for main thread.
+  ASSERT_EQ(GetColumnAsText(2), nullptr);  // No name seen for main thread.
   ASSERT_STREQ(GetColumnAsText(5), "pid2");
 
   // (2) A thread with tid=4.

@@ -72,6 +72,7 @@ private slots:
     void activeFocusOnClose1();
     void activeFocusOnClose2();
     void activeFocusOnClose3();
+    void activeFocusOnClosingSeveralPopups();
     void hover_data();
     void hover();
     void wheel_data();
@@ -82,6 +83,7 @@ private slots:
     void cursorShape();
     void componentComplete();
     void closeOnEscapeWithNestedPopups();
+    void closeOnEscapeWithVisiblePopup();
     void enabled();
     void orientation_data();
     void orientation();
@@ -91,6 +93,7 @@ private slots:
     void countChanged();
     void toolTipCrashOnClose();
     void setOverlayParentToNull();
+    void invisibleToolTipOpen();
 };
 
 void tst_QQuickPopup::initTestCase()
@@ -665,6 +668,54 @@ void tst_QQuickPopup::activeFocusOnClose3()
     QTRY_VERIFY(popup2->hasActiveFocus());
 }
 
+void tst_QQuickPopup::activeFocusOnClosingSeveralPopups()
+{
+    // Test that active focus isn't lost when multiple popup closing simultaneously
+    QQuickApplicationHelper helper(this, QStringLiteral("activeFocusOnClosingSeveralPopups.qml"));
+    QQuickApplicationWindow *window = helper.appWindow;
+    window->show();
+    window->requestActivate();
+    QVERIFY(QTest::qWaitForWindowActive(window));
+
+    QQuickItem *button = window->property("button").value<QQuickItem *>();
+    QVERIFY(button);
+
+    QQuickPopup *popup1 = window->property("popup1").value<QQuickPopup *>();
+    QVERIFY(popup1);
+
+    QQuickPopup *popup2 = window->property("popup2").value<QQuickPopup *>();
+    QVERIFY(popup2);
+
+    QCOMPARE(button->hasActiveFocus(), true);
+    popup1->open();
+    QTRY_VERIFY(popup1->isOpened());
+    QVERIFY(popup1->hasActiveFocus());
+    popup2->open();
+    QTRY_VERIFY(popup2->isOpened());
+    QVERIFY(popup2->hasActiveFocus());
+    QTRY_COMPARE(button->hasActiveFocus(), false);
+    // close the unfocused popup first
+    popup1->close();
+    popup2->close();
+    QTRY_VERIFY(!popup1->isVisible());
+    QTRY_VERIFY(!popup2->isVisible());
+    QTRY_COMPARE(button->hasActiveFocus(), true);
+
+    popup1->open();
+    QTRY_VERIFY(popup1->isOpened());
+    QVERIFY(popup1->hasActiveFocus());
+    popup2->open();
+    QTRY_VERIFY(popup2->isOpened());
+    QVERIFY(popup2->hasActiveFocus());
+    QTRY_COMPARE(button->hasActiveFocus(), false);
+    // close the focused popup first
+    popup2->close();
+    popup1->close();
+    QTRY_VERIFY(!popup1->isVisible());
+    QTRY_VERIFY(!popup2->isVisible());
+    QTRY_COMPARE(button->hasActiveFocus(), true);
+}
+
 void tst_QQuickPopup::hover_data()
 {
     QTest::addColumn<QString>("source");
@@ -904,6 +955,8 @@ void tst_QQuickPopup::cursorShape()
     // which is itself over an item with a different shape.
     QQuickApplicationHelper helper(this, QStringLiteral("cursor.qml"));
     QQuickApplicationWindow *window = helper.appWindow;
+    centerOnScreen(window);
+    moveMouseAway(window);
     window->show();
     QVERIFY(QTest::qWaitForWindowExposed(window));
 
@@ -1016,6 +1069,22 @@ void tst_QQuickPopup::closeOnEscapeWithNestedPopups()
     // Remove one by pressing the Escape key (the Shortcut should be activated).
     QTest::keyClick(window, Qt::Key_Escape);
     QCOMPARE(stackView->depth(), 1);
+}
+
+void tst_QQuickPopup::closeOnEscapeWithVisiblePopup()
+{
+    QQuickApplicationHelper helper(this, QStringLiteral("closeOnEscapeWithVisiblePopup.qml"));
+    QQuickWindow *window = helper.window;
+    window->show();
+    QVERIFY(QTest::qWaitForWindowActive(window));
+
+    QQuickPopup *popup = window->findChild<QQuickPopup *>("popup");
+    QVERIFY(popup);
+    QTRY_VERIFY(popup->isOpened());
+
+    QTRY_VERIFY(window->activeFocusItem());
+    QTest::keyClick(window, Qt::Key_Escape);
+    QTRY_VERIFY(!popup->isVisible());
 }
 
 void tst_QQuickPopup::enabled()
@@ -1197,9 +1266,11 @@ void tst_QQuickPopup::toolTipCrashOnClose()
 
     QQuickWindow *window = helper.window;
     window->show();
-    // TODO: Using ignoreMessage() fails in CI with macOS for release builds,
-    // so for now we let the warning through.
-//    QTest::ignoreMessage(QtWarningMsg, "ShaderEffectSource: 'recursive' must be set to true when rendering recursively.");
+    // The warning only occurs with debug builds for some reason.
+    // In any case, the warning is irrelevant, but using ShaderEffectSource is important, so we ignore it.
+#ifdef QT_DEBUG
+    QTest::ignoreMessage(QtWarningMsg, "ShaderEffectSource: 'recursive' must be set to true when rendering recursively.");
+#endif
     QVERIFY(QTest::qWaitForWindowActive(window));
 
     QTest::mouseMove(window, QPoint(window->width() / 2, window->height() / 2));
@@ -1215,9 +1286,9 @@ void tst_QQuickPopup::setOverlayParentToNull()
 
     QQuickWindow *window = helper.window;
     window->show();
-    // TODO: Using ignoreMessage() fails in CI with macOS for release builds,
-    // so for now we let the warning through.
-//    QTest::ignoreMessage(QtWarningMsg, "ShaderEffectSource: 'recursive' must be set to true when rendering recursively.");
+#ifdef QT_DEBUG
+    QTest::ignoreMessage(QtWarningMsg, "ShaderEffectSource: 'recursive' must be set to true when rendering recursively.");
+#endif
     QVERIFY(QTest::qWaitForWindowActive(window));
 
     QVERIFY(QMetaObject::invokeMethod(window, "nullifyOverlayParent"));
@@ -1227,6 +1298,33 @@ void tst_QQuickPopup::setOverlayParentToNull()
 
     QVERIFY(window->close());
     // While nullifying the overlay parent doesn't make much sense, it shouldn't crash.
+}
+
+void tst_QQuickPopup::invisibleToolTipOpen()
+{
+    QQuickApplicationHelper helper(this, "invisibleToolTipOpen.qml");
+
+    QQuickWindow *window = helper.window;
+    centerOnScreen(window);
+    moveMouseAway(window);
+    window->show();
+    QVERIFY(QTest::qWaitForWindowActive(window));
+
+    QQuickItem *mouseArea = qvariant_cast<QQuickItem *>(window->property("mouseArea"));
+    QVERIFY(mouseArea);
+    QObject *loader = qvariant_cast<QObject *>(window->property("loader"));
+    QVERIFY(loader);
+
+    QTest::mouseMove(window, QPoint(mouseArea->width() / 2, mouseArea->height() / 2));
+    QTRY_VERIFY(mouseArea->property("isToolTipVisible").toBool());
+
+    QSignalSpy componentLoadedSpy(loader, SIGNAL(loaded()));
+    QVERIFY(componentLoadedSpy.isValid());
+
+    loader->setProperty("active", true);
+    QTRY_COMPARE(componentLoadedSpy.count(), 1);
+
+    QTRY_VERIFY(mouseArea->property("isToolTipVisible").toBool());
 }
 
 QTEST_QUICKCONTROLS_MAIN(tst_QQuickPopup)

@@ -11,7 +11,6 @@
 #include "third_party/blink/renderer/core/dom/dom_exception.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/modules/vr/navigator_vr.h"
-#include "third_party/blink/renderer/modules/vr/vr_get_devices_callback.h"
 #include "third_party/blink/renderer/platform/wtf/assertions.h"
 
 namespace blink {
@@ -20,7 +19,11 @@ VRController::VRController(NavigatorVR* navigator_vr)
     : ContextLifecycleObserver(navigator_vr->GetDocument()),
       navigator_vr_(navigator_vr),
       display_synced_(false),
-      binding_(this) {
+      binding_(this),
+      feature_handle_for_scheduler_(
+          navigator_vr->GetDocument()->GetScheduler()->RegisterFeature(
+              SchedulingPolicy::Feature::kWebVR,
+              {SchedulingPolicy::RecordMetricsForBackForwardCache()})) {
   // See https://bit.ly/2S0zRAS for task types.
   scoped_refptr<base::SingleThreadTaskRunner> task_runner =
       navigator_vr->GetDocument()->GetTaskRunner(TaskType::kMiscPlatformAPI);
@@ -53,9 +56,9 @@ void VRController::GetDisplays(ScriptPromiseResolver* resolver) {
   }
 
   // Otherwise we're still waiting for the full list of displays to be populated
-  // so queue up the promise for resolution when onDisplaysSynced is called.
-  pending_get_devices_callbacks_.push_back(
-      std::make_unique<VRGetDevicesCallback>(resolver));
+  // so queue up the promise resolver for resolution when OnGetDisplays is
+  // called.
+  pending_promise_resolvers_.push_back(resolver);
 }
 
 void VRController::SetListeningForActivate(bool listening) {
@@ -90,7 +93,7 @@ void VRController::OnRequestDeviceReturned(
   device->GetImmersiveVRDisplayInfo(WTF::Bind(
       &VRController::OnImmersiveDisplayInfoReturned, WrapPersistent(this)));
 
-  display_ = MakeGarbageCollected<VRDisplay>(navigator_vr_, std::move(device));
+  display_ = VRDisplay::Create(navigator_vr_, std::move(device));
 
   if (pending_listening_for_activate_) {
     SetListeningForActivate(pending_listening_for_activate_);
@@ -164,17 +167,35 @@ void VRController::LogGetDisplayResult() {
 }
 
 void VRController::OnGetDisplays() {
-  while (!pending_get_devices_callbacks_.IsEmpty()) {
+  while (!pending_promise_resolvers_.IsEmpty()) {
     LogGetDisplayResult();
 
     HeapVector<Member<VRDisplay>> displays;
     if (display_)
       displays.push_back(display_);
 
-    std::unique_ptr<VRGetDevicesCallback> callback =
-        pending_get_devices_callbacks_.TakeFirst();
-    callback->OnSuccess(displays);
+    auto promise_resolver = pending_promise_resolvers_.TakeFirst();
+    OnGetDevicesSuccess(promise_resolver, displays);
   }
+}
+
+void VRController::OnGetDevicesSuccess(ScriptPromiseResolver* resolver,
+                                       VRDisplayVector displays) {
+  bool display_supports_presentation = false;
+  for (auto display : displays) {
+    if (display->capabilities()->canPresent()) {
+      display_supports_presentation = true;
+    }
+  }
+
+  if (display_supports_presentation) {
+    ExecutionContext* execution_context =
+        ExecutionContext::From(resolver->GetScriptState());
+    UseCounter::Count(execution_context,
+                      WebFeature::kVRGetDisplaysSupportsPresent);
+  }
+
+  resolver->Resolve(displays);
 }
 
 void VRController::ContextDestroyed(ExecutionContext*) {
@@ -200,6 +221,7 @@ void VRController::Dispose() {
 void VRController::Trace(blink::Visitor* visitor) {
   visitor->Trace(navigator_vr_);
   visitor->Trace(display_);
+  visitor->Trace(pending_promise_resolvers_);
 
   ContextLifecycleObserver::Trace(visitor);
 }

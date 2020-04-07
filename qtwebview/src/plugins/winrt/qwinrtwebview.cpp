@@ -54,6 +54,8 @@
 #include <windows.ui.xaml.controls.h>
 #include <windows.ui.xaml.markup.h>
 #include <windows.web.h>
+#include <urlmon.h>
+#include <WinInet.h>
 
 using namespace Microsoft::WRL;
 using namespace Microsoft::WRL::Wrappers;
@@ -371,6 +373,36 @@ QWinRTWebViewPrivate::~QWinRTWebViewPrivate()
         }
         return hr;
     });
+}
+
+QString QWinRTWebViewPrivate::httpUserAgent() const
+{
+#ifdef QT_WINRT_URLMKGETSESSIONOPTION_NOT_AVAILABLE
+    qWarning() << "Used Windows SDK version (" << QString::number(QT_UCRTVERSION) << ") does not "
+                  "support getting or setting of the user agent property from within UWP applications. Consider updating to a more recent Windows 10 "
+                  "SDK (16299 or above).";
+    return "";
+#else
+    char buffer[255];
+    unsigned long stringLength;
+    HRESULT hr = UrlMkGetSessionOption(0x10000001,&buffer,255,&stringLength,0);
+    Q_ASSERT_SUCCEEDED(hr);
+    return QString(buffer);
+#endif
+}
+
+void QWinRTWebViewPrivate::setHttpUserAgent(const QString &userAgent)
+{
+#ifdef QT_WINRT_URLMKSETSESSIONOPTION_NOT_AVAILABLE
+    Q_UNUSED(userAgent);
+    qWarning() << "Used Windows SDK version (" << QString::number(QT_UCRTVERSION) << ") does not "
+                  "support getting or setting of the user agent property from within UWP applications. Consider updating to a more recent Windows 10 "
+                  "SDK (16299 or above).";
+#else
+    HRESULT hr = UrlMkSetSessionOption(0x10000001,userAgent.toLocal8Bit().data(),userAgent.size(),0);
+    Q_ASSERT_SUCCEEDED(hr);
+    emit httpUserAgentChanged(userAgent);
+#endif
 }
 
 QUrl QWinRTWebViewPrivate::url() const

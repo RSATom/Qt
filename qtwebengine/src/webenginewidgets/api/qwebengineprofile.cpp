@@ -53,6 +53,7 @@
 #include "visited_links_manager_qt.h"
 #include "web_engine_settings.h"
 
+#include <QDir>
 #include <QtWebEngineCore/qwebengineurlscheme.h>
 
 QT_BEGIN_NAMESPACE
@@ -100,7 +101,7 @@ using QtWebEngineCore::ProfileAdapter;
     web pages not specifically created with another profile belong to.
 
     Implementing the QWebEngineUrlRequestInterceptor interface and registering the interceptor on a
-    profile by setRequestInterceptor() enables intercepting, blocking, and modifying URL
+    profile by setUrlRequestInterceptor() enables intercepting, blocking, and modifying URL
     requests (QWebEngineUrlRequestInfo) before they reach the networking stack of Chromium.
 
     A QWebEngineUrlSchemeHandler can be registered for a profile by installUrlSchemeHandler()
@@ -226,7 +227,10 @@ void QWebEngineProfilePrivate::downloadRequested(DownloadItemInfo &info)
     itemPrivate->downloadId = info.id;
     itemPrivate->downloadState = info.accepted ? QWebEngineDownloadItem::DownloadInProgress
                                                : QWebEngineDownloadItem::DownloadRequested;
-    itemPrivate->downloadPath = info.path;
+    itemPrivate->startTime = info.startTime;
+    itemPrivate->downloadDirectory = QFileInfo(info.path).path();
+    itemPrivate->downloadFileName = QFileInfo(info.path).fileName();
+    itemPrivate->suggestedFileName = info.suggestedFileName;
     itemPrivate->mimeType = info.mimeType;
     itemPrivate->savePageFormat = static_cast<QWebEngineDownloadItem::SavePageFormat>(info.savePageFormat);
     itemPrivate->type = static_cast<QWebEngineDownloadItem::DownloadType>(info.downloadType);
@@ -244,7 +248,7 @@ void QWebEngineProfilePrivate::downloadRequested(DownloadItemInfo &info)
 
     QWebEngineDownloadItem::DownloadState state = download->state();
 
-    info.path = download->path();
+    info.path = QDir(download->downloadDirectory()).filePath(download->downloadFileName());
     info.savePageFormat = static_cast<QtWebEngineCore::ProfileAdapterClient::SavePageFormat>(
                 download->savePageFormat());
     info.accepted = state != QWebEngineDownloadItem::DownloadCancelled;

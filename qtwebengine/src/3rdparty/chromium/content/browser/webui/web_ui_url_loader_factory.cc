@@ -226,14 +226,15 @@ class WebUIURLLoaderFactory : public network::mojom::URLLoaderFactory,
       : WebContentsObserver(WebContents::FromRenderFrameHost(rfh)),
         render_frame_host_(rfh),
         scheme_(scheme),
-        allowed_hosts_(std::move(allowed_hosts)) {}
+        allowed_hosts_(std::move(allowed_hosts)) {
+    DCHECK(render_frame_host_);
+  }
 
   ~WebUIURLLoaderFactory() override {}
 
-  network::mojom::URLLoaderFactoryPtr CreateBinding() {
-    network::mojom::URLLoaderFactoryPtr factory;
-    loader_factory_bindings_.AddBinding(this, mojo::MakeRequest(&factory));
-    return factory;
+  void AddBinding(mojo::PendingReceiver<network::mojom::URLLoaderFactory>
+                      factory_receiver) {
+    loader_factory_bindings_.AddBinding(this, std::move(factory_receiver));
   }
 
   // network::mojom::URLLoaderFactory implementation:
@@ -337,9 +338,10 @@ std::unique_ptr<network::mojom::URLLoaderFactory> CreateWebUIURLLoader(
                                                  std::move(allowed_hosts));
 }
 
-network::mojom::URLLoaderFactoryPtr CreateWebUIURLLoaderBinding(
+void CreateWebUIURLLoaderBinding(
     RenderFrameHost* render_frame_host,
-    const std::string& scheme) {
+    const std::string& scheme,
+    mojo::PendingReceiver<network::mojom::URLLoaderFactory> factory_receiver) {
   GlobalFrameRoutingId routing_id(render_frame_host->GetRoutingID(),
                                   render_frame_host->GetProcess()->GetID());
   if (g_web_ui_url_loader_factories.Get().find(routing_id) ==
@@ -349,7 +351,8 @@ network::mojom::URLLoaderFactoryPtr CreateWebUIURLLoaderBinding(
         std::make_unique<WebUIURLLoaderFactory>(render_frame_host, scheme,
                                                 base::flat_set<std::string>());
   }
-  return g_web_ui_url_loader_factories.Get()[routing_id]->CreateBinding();
+  g_web_ui_url_loader_factories.Get()[routing_id]->AddBinding(
+      std::move(factory_receiver));
 }
 
 }  // namespace content

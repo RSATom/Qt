@@ -6,7 +6,7 @@
 
 #include "src/base/adapters.h"
 #include "src/base/utils/random-number-generator.h"
-#include "src/isolate.h"
+#include "src/execution/isolate.h"
 
 namespace v8 {
 namespace internal {
@@ -298,7 +298,7 @@ int InstructionScheduler::GetInstructionFlags(const Instruction* instr) const {
     case kArchTailCallCodeObject:
     case kArchTailCallAddress:
     case kArchTailCallWasm:
-    case kArchDebugAbort:
+    case kArchAbortCSAAssert:
     case kArchDebugBreak:
       return kHasSideEffect;
 

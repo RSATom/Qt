@@ -65,13 +65,6 @@ class PopupMenuCSSFontSelector : public CSSFontSelector,
   USING_GARBAGE_COLLECTED_MIXIN(PopupMenuCSSFontSelector);
 
  public:
-  static PopupMenuCSSFontSelector* Create(
-      Document* document,
-      CSSFontSelector* owner_font_selector) {
-    return MakeGarbageCollected<PopupMenuCSSFontSelector>(document,
-                                                          owner_font_selector);
-  }
-
   PopupMenuCSSFontSelector(Document*, CSSFontSelector*);
   ~PopupMenuCSSFontSelector() override;
 
@@ -132,9 +125,11 @@ class InternalPopupMenu::ItemIterationContext {
     // <select> background color. On Linux, that makes the <option>
     // background color very dark, so by default, try to use a lighter
     // background color for <option>s.
-    if (LayoutTheme::GetTheme().SystemColor(CSSValueButtonface) ==
-        background_color_)
-      background_color_ = LayoutTheme::GetTheme().SystemColor(CSSValueMenu);
+    if (LayoutTheme::GetTheme().SystemColor(CSSValueID::kButtonface) ==
+        background_color_) {
+      background_color_ =
+          LayoutTheme::GetTheme().SystemColor(CSSValueID::kMenu);
+    }
 #endif
   }
 
@@ -207,11 +202,6 @@ class InternalPopupMenu::ItemIterationContext {
 
 // ----------------------------------------------------------------
 
-InternalPopupMenu* InternalPopupMenu::Create(ChromeClient* chrome_client,
-                                             HTMLSelectElement& owner_element) {
-  return MakeGarbageCollected<InternalPopupMenu>(chrome_client, owner_element);
-}
-
 InternalPopupMenu::InternalPopupMenu(ChromeClient* chrome_client,
                                      HTMLSelectElement& owner_element)
     : chrome_client_(chrome_client),
@@ -231,6 +221,10 @@ void InternalPopupMenu::Trace(Visitor* visitor) {
 
 void InternalPopupMenu::WriteDocument(SharedBuffer* data) {
   HTMLSelectElement& owner_element = *owner_element_;
+  // When writing the document, we ensure the ComputedStyle of the select
+  // element's items (see AddElementStyle). This requires a style-clean tree.
+  // See Element::EnsureComputedStyle for further explanation.
+  owner_element.GetDocument().UpdateStyleAndLayoutTree();
   IntRect anchor_rect_in_screen = chrome_client_->ViewportToScreen(
       owner_element.VisibleBoundsInVisualViewport(),
       owner_element.GetDocument().View());
@@ -339,7 +333,7 @@ void InternalPopupMenu::AddElementStyle(ItemIterationContext& context,
   }
   // Our UA stylesheet has font-weight:normal for OPTION.
   if (NormalWeightValue() != font_description.Weight()) {
-    AddProperty("fontWeight", String::Number(font_description.Weight()), data);
+    AddProperty("fontWeight", font_description.Weight().ToString(), data);
   }
   if (base_font.Family() != font_description.Family()) {
     PagePopupClient::AddString("fontFamily: [\n", data);
@@ -415,8 +409,9 @@ void InternalPopupMenu::AddSeparator(ItemIterationContext& context,
 
 void InternalPopupMenu::SelectFontsFromOwnerDocument(Document& document) {
   Document& owner_document = OwnerElement().GetDocument();
-  document.GetStyleEngine().SetFontSelector(PopupMenuCSSFontSelector::Create(
-      &document, owner_document.GetStyleEngine().GetFontSelector()));
+  document.GetStyleEngine().SetFontSelector(
+      MakeGarbageCollected<PopupMenuCSSFontSelector>(
+          &document, owner_document.GetStyleEngine().GetFontSelector()));
 }
 
 void InternalPopupMenu::SetValueAndClosePopup(int num_value,

@@ -96,8 +96,8 @@ void RateController::transfer()
     if (sockets.isEmpty())
         return;
 
-    int msecs = 1000;
-    if (!stopWatch.isNull())
+    qint64 msecs = 1000;
+    if (stopWatch.isValid())
         msecs = qMin(msecs, stopWatch.elapsed());
 
     qint64 bytesToWrite = (upLimit * msecs) / 1000;
@@ -123,11 +123,11 @@ void RateController::transfer()
         qint64 writeChunk = qMax<qint64>(1, bytesToWrite / pendingSockets.size());
         qint64 readChunk = qMax<qint64>(1, bytesToRead / pendingSockets.size());
 
-        QSetIterator<PeerWireClient *> it(pendingSockets);
-        while (it.hasNext() && (bytesToWrite > 0 || bytesToRead > 0)) {
-            PeerWireClient *socket = it.next();
+        for (auto it = pendingSockets.begin(), end = pendingSockets.end(); it != end && (bytesToWrite > 0 || bytesToRead > 0); /*erasing*/) {
+            auto current = it++;
+            PeerWireClient *socket = *current;
             if (socket->state() != QAbstractSocket::ConnectedState) {
-                pendingSockets.remove(socket);
+                pendingSockets.erase(current);
                 continue;
             }
 
@@ -156,7 +156,7 @@ void RateController::transfer()
             if (dataTransferred && socket->canTransferMore())
                 canTransferMore = true;
             else
-                pendingSockets.remove(socket);
+                pendingSockets.erase(current);
         }
     } while (canTransferMore && (bytesToWrite > 0 || bytesToRead > 0) && !pendingSockets.isEmpty());
 

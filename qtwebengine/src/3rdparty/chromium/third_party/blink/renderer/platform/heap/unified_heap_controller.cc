@@ -4,13 +4,14 @@
 
 #include "third_party/blink/renderer/platform/heap/unified_heap_controller.h"
 
-#include "third_party/blink/renderer/platform/bindings/active_script_wrappable_base.h"
+#include "third_party/blink/public/common/features.h"
 #include "third_party/blink/renderer/platform/bindings/script_wrappable.h"
 #include "third_party/blink/renderer/platform/bindings/wrapper_type_info.h"
 #include "third_party/blink/renderer/platform/heap/heap.h"
 #include "third_party/blink/renderer/platform/heap/heap_stats_collector.h"
 #include "third_party/blink/renderer/platform/heap/marking_visitor.h"
 #include "third_party/blink/renderer/platform/heap/thread_state.h"
+#include "third_party/blink/renderer/platform/runtime_enabled_features.h"
 
 namespace blink {
 
@@ -26,9 +27,20 @@ constexpr BlinkGC::StackState ToBlinkGCStackState(
 }  // namespace
 
 UnifiedHeapController::UnifiedHeapController(ThreadState* thread_state)
-    : thread_state_(thread_state) {}
+    : thread_state_(thread_state) {
+  if (base::FeatureList::IsEnabled(
+          blink::features::kBlinkHeapUnifiedGCScheduling))
+    thread_state->Heap().stats_collector()->RegisterObserver(this);
+}
 
-void UnifiedHeapController::TracePrologue() {
+UnifiedHeapController::~UnifiedHeapController() {
+  if (base::FeatureList::IsEnabled(
+          blink::features::kBlinkHeapUnifiedGCScheduling))
+    thread_state_->Heap().stats_collector()->UnregisterObserver(this);
+}
+
+void UnifiedHeapController::TracePrologue(
+    v8::EmbedderHeapTracer::TraceFlags v8_flags) {
   VLOG(2) << "UnifiedHeapController::TracePrologue";
   ThreadHeapStatsCollector::BlinkGCInV8Scope nested_scope(
       thread_state_->Heap().stats_collector());
@@ -36,12 +48,16 @@ void UnifiedHeapController::TracePrologue() {
   // Be conservative here as a new garbage collection gets started right away.
   thread_state_->FinishIncrementalMarkingIfRunning(
       BlinkGC::kHeapPointersOnStack, BlinkGC::kIncrementalMarking,
-      BlinkGC::kLazySweeping, thread_state_->current_gc_data_.reason);
+      BlinkGC::kConcurrentAndLazySweeping,
+      thread_state_->current_gc_data_.reason);
 
   // Reset any previously scheduled garbage collections.
   thread_state_->SetGCState(ThreadState::kNoGCScheduled);
-  // Start incremental marking with unified tracing.
-  thread_state_->IncrementalMarkingStart(BlinkGC::GCReason::kUnifiedHeapGC);
+  BlinkGC::GCReason gc_reason =
+      (v8_flags & v8::EmbedderHeapTracer::TraceFlags::kReduceMemory)
+          ? BlinkGC::GCReason::kUnifiedHeapForMemoryReductionGC
+          : BlinkGC::GCReason::kUnifiedHeapGC;
+  thread_state_->IncrementalMarkingStart(gc_reason);
 
   is_tracing_done_ = false;
 }
@@ -50,45 +66,35 @@ void UnifiedHeapController::EnterFinalPause(EmbedderStackState stack_state) {
   VLOG(2) << "UnifiedHeapController::EnterFinalPause";
   ThreadHeapStatsCollector::BlinkGCInV8Scope nested_scope(
       thread_state_->Heap().stats_collector());
-  ThreadHeapStatsCollector::Scope stats_scope(
-      thread_state_->Heap().stats_collector(),
-      ThreadHeapStatsCollector::kAtomicPhase);
-
-  // ActiveScriptWrappable may not have persistents keeping them alive but rely
-  // on explicit tracing to be kept alive.
-  // TODO(mlippautz): Move to root scanning after stabilizing unified garbage
-  // collection.
-  ActiveScriptWrappableBase::TraceActiveScriptWrappables(
-      isolate_, thread_state_->CurrentVisitor());
-
-  thread_state_->EnterAtomicPause();
-  thread_state_->EnterGCForbiddenScope();
-  thread_state_->AtomicPauseMarkPrologue(ToBlinkGCStackState(stack_state),
-                                         BlinkGC::kIncrementalMarking,
-                                         BlinkGC::GCReason::kUnifiedHeapGC);
+  thread_state_->AtomicPauseMarkPrologue(
+      ToBlinkGCStackState(stack_state), BlinkGC::kIncrementalMarking,
+      thread_state_->current_gc_data_.reason);
+  thread_state_->AtomicPauseMarkRoots(ToBlinkGCStackState(stack_state),
+                                      BlinkGC::kIncrementalMarking,
+                                      thread_state_->current_gc_data_.reason);
 }
 
-void UnifiedHeapController::TraceEpilogue() {
+void UnifiedHeapController::TraceEpilogue(
+    v8::EmbedderHeapTracer::TraceSummary* summary) {
   VLOG(2) << "UnifiedHeapController::TraceEpilogue";
-
   {
     ThreadHeapStatsCollector::BlinkGCInV8Scope nested_scope(
         thread_state_->Heap().stats_collector());
-    ThreadHeapStatsCollector::Scope stats_scope(
-        thread_state_->Heap().stats_collector(),
-        ThreadHeapStatsCollector::kAtomicPhase);
     thread_state_->AtomicPauseMarkEpilogue(BlinkGC::kIncrementalMarking);
-    thread_state_->LeaveAtomicPause();
-    thread_state_->LeaveGCForbiddenScope();
-    thread_state_->AtomicPauseSweepAndCompact(BlinkGC::kIncrementalMarking,
-                                              BlinkGC::kLazySweeping);
-  }
+    thread_state_->AtomicPauseSweepAndCompact(
+        BlinkGC::kIncrementalMarking, BlinkGC::kConcurrentAndLazySweeping);
 
-  if (!thread_state_->IsSweepingInProgress()) {
-    // Sweeping was finished during the atomic pause. Update statistics needs to
-    // run outside of the top-most stats scope.
-    thread_state_->UpdateStatisticsAfterSweeping();
+    if (base::FeatureList::IsEnabled(
+            blink::features::kBlinkHeapUnifiedGCScheduling)) {
+      ThreadHeapStatsCollector* const stats_collector =
+          thread_state_->Heap().stats_collector();
+      summary->allocated_size =
+          static_cast<size_t>(stats_collector->marked_bytes());
+      summary->time = stats_collector->marking_time_so_far().InMillisecondsF();
+    }
+    buffered_allocated_size_ = 0;
   }
+  thread_state_->AtomicPauseEpilogue();
 }
 
 void UnifiedHeapController::RegisterV8References(
@@ -116,13 +122,17 @@ void UnifiedHeapController::RegisterV8References(
 
 bool UnifiedHeapController::AdvanceTracing(double deadline_in_ms) {
   VLOG(2) << "UnifiedHeapController::AdvanceTracing";
-
+  ThreadHeapStatsCollector::BlinkGCInV8Scope nested_scope(
+      thread_state_->Heap().stats_collector());
   if (!thread_state_->in_atomic_pause()) {
+    ThreadHeapStatsCollector::Scope advance_tracing_scope(
+        thread_state_->Heap().stats_collector(),
+        ThreadHeapStatsCollector::kUnifiedMarkingStep);
     // V8 calls into embedder tracing from its own marking to ensure
     // progress. Oilpan will additionally schedule marking steps.
     ThreadState::AtomicPauseScope atomic_pause_scope(thread_state_);
-    TimeTicks deadline =
-        TimeTicks() + TimeDelta::FromMillisecondsD(deadline_in_ms);
+    base::TimeTicks deadline =
+        base::TimeTicks() + base::TimeDelta::FromMillisecondsD(deadline_in_ms);
     is_tracing_done_ = thread_state_->MarkPhaseAdvanceMarking(deadline);
     return is_tracing_done_;
   }
@@ -133,6 +143,60 @@ bool UnifiedHeapController::AdvanceTracing(double deadline_in_ms) {
 
 bool UnifiedHeapController::IsTracingDone() {
   return is_tracing_done_;
+}
+
+bool UnifiedHeapController::IsRootForNonTracingGCInternal(
+    const v8::TracedGlobal<v8::Value>& handle) {
+  const uint16_t class_id = handle.WrapperClassId();
+  // Stand-alone TracedGlobal reference or kCustomWrappableId. Keep as root as
+  // we don't know better.
+  if (class_id != WrapperTypeInfo::kNodeClassId &&
+      class_id != WrapperTypeInfo::kObjectClassId)
+    return true;
+
+  const v8::TracedGlobal<v8::Object>& traced = handle.As<v8::Object>();
+  if (ToWrapperTypeInfo(traced)->IsActiveScriptWrappable() &&
+      ToScriptWrappable(traced)->HasPendingActivity()) {
+    return true;
+  }
+
+  if (ToScriptWrappable(traced)->HasEventListeners()) {
+    return true;
+  }
+
+  return false;
+}
+
+bool UnifiedHeapController::IsRootForNonTracingGC(
+    const v8::TracedGlobal<v8::Value>& handle) {
+  return IsRootForNonTracingGCInternal(handle);
+}
+
+void UnifiedHeapController::ReportBufferedAllocatedSizeIfPossible() {
+  DCHECK(base::FeatureList::IsEnabled(
+      blink::features::kBlinkHeapUnifiedGCScheduling));
+  // Reported from a recursive sweeping call.
+  if (thread_state()->IsSweepingInProgress() &&
+      thread_state()->SweepForbidden()) {
+    return;
+  }
+
+  if (buffered_allocated_size_ < 0) {
+    DecreaseAllocatedSize(static_cast<size_t>(-buffered_allocated_size_));
+  } else {
+    IncreaseAllocatedSize(static_cast<size_t>(buffered_allocated_size_));
+  }
+  buffered_allocated_size_ = 0;
+}
+
+void UnifiedHeapController::IncreaseAllocatedObjectSize(size_t delta_bytes) {
+  buffered_allocated_size_ += static_cast<int64_t>(delta_bytes);
+  ReportBufferedAllocatedSizeIfPossible();
+}
+
+void UnifiedHeapController::DecreaseAllocatedObjectSize(size_t delta_bytes) {
+  buffered_allocated_size_ -= static_cast<int64_t>(delta_bytes);
+  ReportBufferedAllocatedSizeIfPossible();
 }
 
 }  // namespace blink

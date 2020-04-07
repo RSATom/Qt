@@ -4,7 +4,9 @@
 
 #include "third_party/blink/renderer/core/animation/length_interpolation_functions.h"
 
-#include "third_party/blink/renderer/core/css/css_calculation_value.h"
+#include "third_party/blink/renderer/core/css/css_math_expression_node.h"
+#include "third_party/blink/renderer/core/css/css_math_function_value.h"
+#include "third_party/blink/renderer/core/css/css_numeric_literal_value.h"
 #include "third_party/blink/renderer/core/css/css_primitive_value.h"
 #include "third_party/blink/renderer/core/css/css_to_length_conversion_data.h"
 #include "third_party/blink/renderer/platform/geometry/calculation_value.h"
@@ -48,19 +50,17 @@ bool CSSLengthNonInterpolableValue::HasPercentage(
 
 std::unique_ptr<InterpolableValue>
 LengthInterpolationFunctions::CreateInterpolablePixels(double pixels) {
-  std::unique_ptr<InterpolableList> interpolable_list =
-      CreateNeutralInterpolableValue();
+  auto interpolable_list = CreateNeutralInterpolableValue();
   interpolable_list->Set(CSSPrimitiveValue::kUnitTypePixels,
-                         InterpolableNumber::Create(pixels));
+                         std::make_unique<InterpolableNumber>(pixels));
   return std::move(interpolable_list);
 }
 
 InterpolationValue LengthInterpolationFunctions::CreateInterpolablePercent(
     double percent) {
-  std::unique_ptr<InterpolableList> interpolable_list =
-      CreateNeutralInterpolableValue();
+  auto interpolable_list = CreateNeutralInterpolableValue();
   interpolable_list->Set(CSSPrimitiveValue::kUnitTypePercentage,
-                         InterpolableNumber::Create(percent));
+                         std::make_unique<InterpolableNumber>(percent));
   return InterpolationValue(std::move(interpolable_list),
                             CSSLengthNonInterpolableValue::Create(true));
 }
@@ -68,32 +68,34 @@ InterpolationValue LengthInterpolationFunctions::CreateInterpolablePercent(
 std::unique_ptr<InterpolableList>
 LengthInterpolationFunctions::CreateNeutralInterpolableValue() {
   const size_t kLength = CSSPrimitiveValue::kLengthUnitTypeCount;
-  std::unique_ptr<InterpolableList> values = InterpolableList::Create(kLength);
+  auto values = std::make_unique<InterpolableList>(kLength);
   for (wtf_size_t i = 0; i < kLength; i++)
-    values->Set(i, InterpolableNumber::Create(0));
+    values->Set(i, std::make_unique<InterpolableNumber>(0));
   return values;
 }
 
 InterpolationValue LengthInterpolationFunctions::MaybeConvertCSSValue(
     const CSSValue& value) {
-  if (!value.IsPrimitiveValue())
+  const auto* primitive_value = DynamicTo<CSSPrimitiveValue>(value);
+  if (!primitive_value)
     return nullptr;
 
-  const CSSPrimitiveValue& primitive_value = ToCSSPrimitiveValue(value);
-  if (!primitive_value.IsLength() && !primitive_value.IsPercentage() &&
-      !primitive_value.IsCalculatedPercentageWithLength())
+  if (!primitive_value->IsLength() && !primitive_value->IsPercentage() &&
+      !primitive_value->IsCalculatedPercentageWithLength())
     return nullptr;
 
   CSSLengthArray length_array;
-  primitive_value.AccumulateLengthArray(length_array);
+  primitive_value->AccumulateLengthArray(length_array);
 
-  std::unique_ptr<InterpolableList> values =
-      InterpolableList::Create(CSSPrimitiveValue::kLengthUnitTypeCount);
-  for (wtf_size_t i = 0; i < CSSPrimitiveValue::kLengthUnitTypeCount; i++)
-    values->Set(i, InterpolableNumber::Create(length_array.values[i]));
+  auto values = std::make_unique<InterpolableList>(
+      CSSPrimitiveValue::kLengthUnitTypeCount);
+  for (wtf_size_t i = 0; i < CSSPrimitiveValue::kLengthUnitTypeCount; i++) {
+    values->Set(i,
+                std::make_unique<InterpolableNumber>(length_array.values[i]));
+  }
 
   bool has_percentage =
-      length_array.type_flags.Get(CSSPrimitiveValue::kUnitTypePercentage);
+      length_array.type_flags[CSSPrimitiveValue::kUnitTypePercentage];
   return InterpolationValue(
       std::move(values), CSSLengthNonInterpolableValue::Create(has_percentage));
 }
@@ -105,11 +107,12 @@ InterpolationValue LengthInterpolationFunctions::MaybeConvertLength(
     return nullptr;
 
   PixelsAndPercent pixels_and_percent = length.GetPixelsAndPercent();
-  std::unique_ptr<InterpolableList> values = CreateNeutralInterpolableValue();
-  values->Set(CSSPrimitiveValue::kUnitTypePixels,
-              InterpolableNumber::Create(pixels_and_percent.pixels / zoom));
+  auto values = CreateNeutralInterpolableValue();
+  values->Set(
+      CSSPrimitiveValue::kUnitTypePixels,
+      std::make_unique<InterpolableNumber>(pixels_and_percent.pixels / zoom));
   values->Set(CSSPrimitiveValue::kUnitTypePercentage,
-              InterpolableNumber::Create(pixels_and_percent.percent));
+              std::make_unique<InterpolableNumber>(pixels_and_percent.percent));
 
   return InterpolationValue(
       std::move(values),
@@ -131,6 +134,11 @@ bool LengthInterpolationFunctions::NonInterpolableValuesAreCompatible(
   DCHECK(IsCSSLengthNonInterpolableValue(a));
   DCHECK(IsCSSLengthNonInterpolableValue(b));
   return true;
+}
+
+bool LengthInterpolationFunctions::HasPercentage(
+    const NonInterpolableValue* non_interpolable_value) {
+  return CSSLengthNonInterpolableValue::HasPercentage(non_interpolable_value);
 }
 
 void LengthInterpolationFunctions::Composite(
@@ -196,10 +204,9 @@ Length LengthInterpolationFunctions::CreateLength(
         range));
   }
   if (has_percentage)
-    return Length(ClampToRange(percentage, range), kPercent);
-  return Length(
-      CSSPrimitiveValue::ClampToCSSLengthRange(ClampToRange(pixels, range)),
-      kFixed);
+    return Length::Percent(ClampToRange(percentage, range));
+  return Length::Fixed(
+      CSSPrimitiveValue::ClampToCSSLengthRange(ClampToRange(pixels, range)));
 }
 
 const CSSValue* LengthInterpolationFunctions::CreateCSSValue(
@@ -211,8 +218,8 @@ const CSSValue* LengthInterpolationFunctions::CreateCSSValue(
   bool has_percentage =
       CSSLengthNonInterpolableValue::HasPercentage(non_interpolable_value);
 
-  CSSCalcExpressionNode* root_node = nullptr;
-  CSSPrimitiveValue* first_value = nullptr;
+  CSSMathExpressionNode* root_node = nullptr;
+  CSSNumericLiteralValue* first_value = nullptr;
 
   for (wtf_size_t i = 0; i < CSSPrimitiveValue::kLengthUnitTypeCount; i++) {
     double value = ToInterpolableNumber(*interpolable_list.Get(i)).Value();
@@ -220,30 +227,31 @@ const CSSValue* LengthInterpolationFunctions::CreateCSSValue(
         (i != CSSPrimitiveValue::kUnitTypePercentage || !has_percentage)) {
       continue;
     }
-    CSSPrimitiveValue* current_value =
-        CSSPrimitiveValue::Create(value, IndexToUnitType(i));
+    CSSNumericLiteralValue* current_value =
+        CSSNumericLiteralValue::Create(value, IndexToUnitType(i));
 
     if (!first_value) {
       DCHECK(!root_node);
       first_value = current_value;
       continue;
     }
-    CSSCalcExpressionNode* current_node =
-        CSSCalcValue::CreateExpressionNode(current_value);
+    CSSMathExpressionNode* current_node =
+        CSSMathExpressionNumericLiteral::Create(current_value);
     if (!root_node) {
-      root_node = CSSCalcValue::CreateExpressionNode(first_value);
+      root_node = CSSMathExpressionNumericLiteral::Create(first_value);
     }
-    root_node =
-        CSSCalcValue::CreateExpressionNode(root_node, current_node, kCalcAdd);
+    root_node = CSSMathExpressionBinaryOperation::Create(
+        root_node, current_node, CSSMathOperator::kAdd);
   }
 
   if (root_node) {
-    return CSSPrimitiveValue::Create(CSSCalcValue::Create(root_node));
+    return CSSMathFunctionValue::Create(root_node);
   }
   if (first_value) {
     return first_value;
   }
-  return CSSPrimitiveValue::Create(0, CSSPrimitiveValue::UnitType::kPixels);
+  return CSSNumericLiteralValue::Create(0,
+                                        CSSPrimitiveValue::UnitType::kPixels);
 }
 
 }  // namespace blink

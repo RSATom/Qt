@@ -51,17 +51,6 @@ QT_BEGIN_NAMESPACE
 QCocoaBackingStore::QCocoaBackingStore(QWindow *window)
     : QRasterBackingStore(window)
 {
-    // Ideally this would be plumbed from the platform layer to QtGui, and
-    // the QBackingStore would be recreated, but we don't have that code yet,
-    // so at least make sure we invalidate our backingstore when the backing
-    // properties (color space e.g.) are changed.
-    NSView *view = static_cast<QCocoaWindow *>(window->handle())->view();
-    m_backingPropertiesObserver = QMacNotificationObserver(view.window,
-        NSWindowDidChangeBackingPropertiesNotification, [this]() {
-            qCDebug(lcQpaBackingStore) << "Backing properties for"
-                << this->window() << "did change";
-            backingPropertiesChanged();
-        });
 }
 
 QCFType<CGColorSpaceRef> QCocoaBackingStore::colorSpace() const
@@ -195,7 +184,7 @@ void QNSWindowBackingStore::flush(QWindow *window, const QRegion &region, const 
     // context is set up correctly (coordinate system, clipping, etc). Outside
     // of the normal display cycle there is no focused view, as explained above,
     // so we have to handle it manually. There's also a corner case inside the
-    // normal display cycle due to way QWidgetBackingStore composits native child
+    // normal display cycle due to way QWidgetRepaintManager composits native child
     // widgets, where we'll get a flush of a native child during the drawRect of
     // its parent/ancestor, and the parent/ancestor being the one locked by AppKit.
     // In this case we also need to lock and unlock focus manually.
@@ -341,11 +330,6 @@ void QNSWindowBackingStore::redrawRoundedBottomCorners(CGRect windowRect) const
 #endif
 }
 
-void QNSWindowBackingStore::backingPropertiesChanged()
-{
-    m_image = QImage();
-}
-
 // ----------------------------------------------------------------------------
 
 QCALayerBackingStore::QCALayerBackingStore(QWindow *window)
@@ -353,6 +337,18 @@ QCALayerBackingStore::QCALayerBackingStore(QWindow *window)
 {
     qCDebug(lcQpaBackingStore) << "Creating QCALayerBackingStore for" << window;
     m_buffers.resize(1);
+
+    // Ideally this would be plumbed from the platform layer to QtGui, and
+    // the QBackingStore would be recreated, but we don't have that code yet,
+    // so at least make sure we update our backingstore when the backing
+    // properties (color space e.g.) are changed.
+    NSView *view = static_cast<QCocoaWindow *>(window->handle())->view();
+    m_backingPropertiesObserver = QMacNotificationObserver(view.window,
+        NSWindowDidChangeBackingPropertiesNotification, [this]() {
+            qCDebug(lcQpaBackingStore) << "Backing properties for"
+                << this->window() << "did change";
+            backingPropertiesChanged();
+        });
 }
 
 QCALayerBackingStore::~QCALayerBackingStore()
@@ -560,17 +556,27 @@ void QCALayerBackingStore::flush(QWindow *flushedWindow, const QRegion &region, 
         flushedView.layer.contents = nil;
     }
 
-    qCInfo(lcQpaBackingStore) << "Flushing" << backBufferSurface
-         << "to" << flushedView.layer << "of" << flushedView;
+    if (flushedView == backingStoreView) {
+        qCInfo(lcQpaBackingStore) << "Flushing" << backBufferSurface
+            << "to" << flushedView.layer << "of" << flushedView;
+        flushedView.layer.contents = backBufferSurface;
+    } else {
+        auto subviewRect = [flushedView convertRect:flushedView.bounds toView:backingStoreView];
+        auto scale = flushedView.layer.contentsScale;
+        subviewRect = CGRectApplyAffineTransform(subviewRect, CGAffineTransformMakeScale(scale, scale));
 
-    flushedView.layer.contents = backBufferSurface;
+        // We make a copy of the image data up front, which means we don't
+        // need to mark the IOSurface as being in use. FIXME: Investigate
+        // if there's a cheaper way to get sub-image data to a layer.
+        m_buffers.back()->lock(QPlatformGraphicsBuffer::SWReadAccess);
+        QImage subImage = m_buffers.back()->asImage()->copy(QRectF::fromCGRect(subviewRect).toRect());
+        m_buffers.back()->unlock();
 
-    if (flushedView != backingStoreView) {
-        const CGSize backingStoreSize = backingStoreView.bounds.size;
-        flushedView.layer.contentsRect = CGRectApplyAffineTransform(
-            [flushedView convertRect:flushedView.bounds toView:backingStoreView],
-            // The contentsRect is in unit coordinate system
-            CGAffineTransformMakeScale(1.0 / backingStoreSize.width, 1.0 / backingStoreSize.height));
+        qCInfo(lcQpaBackingStore) << "Flushing" << subImage
+            << "to" << flushedView.layer << "of subview" << flushedView;
+        QCFType<CGImageRef> cgImage = CGImageCreateCopyWithColorSpace(
+            QCFType<CGImageRef>(subImage.toCGImage()), colorSpace());
+        flushedView.layer.contents = (__bridge id)static_cast<CGImageRef>(cgImage);
     }
 
     // Since we may receive multiple flushes before a new frame is started, we do not
@@ -611,8 +617,11 @@ QImage QCALayerBackingStore::toImage() const
 
 void QCALayerBackingStore::backingPropertiesChanged()
 {
-    m_buffers.clear();
-    m_buffers.resize(1);
+    qCDebug(lcQpaBackingStore) << "Updating color space of existing buffers";
+    for (auto &buffer : m_buffers) {
+        if (buffer)
+            buffer->setColorSpace(colorSpace());
+    }
 }
 
 QPlatformGraphicsBuffer *QCALayerBackingStore::graphicsBuffer() const
@@ -689,10 +698,11 @@ bool QCALayerBackingStore::prepareForFlush()
 
 QCALayerBackingStore::GraphicsBuffer::GraphicsBuffer(const QSize &size, qreal devicePixelRatio,
                                 const QPixelFormat &format, QCFType<CGColorSpaceRef> colorSpace)
-    : QIOSurfaceGraphicsBuffer(size, format, colorSpace)
+    : QIOSurfaceGraphicsBuffer(size, format)
     , dirtyRegion(0, 0, size.width() / devicePixelRatio, size.height() / devicePixelRatio)
     , m_devicePixelRatio(devicePixelRatio)
 {
+    setColorSpace(colorSpace);
 }
 
 QImage *QCALayerBackingStore::GraphicsBuffer::asImage()

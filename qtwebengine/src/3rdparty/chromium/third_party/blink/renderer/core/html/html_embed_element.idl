@@ -18,10 +18,11 @@
  * Boston, MA 02110-1301, USA.
  */
 
-// https://html.spec.whatwg.org/#the-embed-element
+// https://html.spec.whatwg.org/C/#the-embed-element
 
 // TODO(yukishiino): HTMLEmbedElement should not have [OverrideBuiltins].
 [
+    Exposed=Window,
     OverrideBuiltins,
     ActiveScriptWrappable,
     HTMLConstructor
@@ -33,7 +34,7 @@
     [CheckSecurity=ReturnValue, RaisesException] Document? getSVGDocument();
 
     // obsolete members
-    // https://html.spec.whatwg.org/#HTMLEmbedElement-partial
+    // https://html.spec.whatwg.org/C/#HTMLEmbedElement-partial
     [CEReactions, Reflect] attribute DOMString align;
     [CEReactions, Reflect] attribute DOMString name;
 

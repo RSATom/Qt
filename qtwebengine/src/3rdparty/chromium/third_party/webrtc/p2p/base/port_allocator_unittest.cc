@@ -8,10 +8,11 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
+#include "p2p/base/port_allocator.h"
+
 #include <memory>
 
 #include "p2p/base/fake_port_allocator.h"
-#include "p2p/base/port_allocator.h"
 #include "rtc_base/thread.h"
 #include "rtc_base/virtual_socket_server.h"
 #include "test/gtest.h"
@@ -24,7 +25,7 @@ static const char kIcePwd[] = "TESTICEPWD00000000000000";
 static const char kTurnUsername[] = "test";
 static const char kTurnPassword[] = "test";
 
-class PortAllocatorTest : public testing::Test, public sigslot::has_slots<> {
+class PortAllocatorTest : public ::testing::Test, public sigslot::has_slots<> {
  public:
   PortAllocatorTest()
       : vss_(new rtc::VirtualSocketServer()), main_(vss_.get()) {
@@ -100,7 +101,7 @@ TEST_F(PortAllocatorTest, TestDefaults) {
 // Call CreateSession and verify that the parameters passed in and the
 // candidate filter are applied as expected.
 TEST_F(PortAllocatorTest, CreateSession) {
-  allocator_->set_candidate_filter(cricket::CF_RELAY);
+  allocator_->SetCandidateFilter(cricket::CF_RELAY);
   auto session = CreateSession(kContentName, 1, kIceUfrag, kIcePwd);
   ASSERT_NE(nullptr, session);
   EXPECT_EQ(cricket::CF_RELAY, session->candidate_filter());
@@ -258,7 +259,7 @@ TEST_F(PortAllocatorTest, TakePooledSessionUpdatesIceParameters) {
 // session is taken. So a pooled session should gather candidates
 // unfiltered until it's returned by TakePooledSession.
 TEST_F(PortAllocatorTest, TakePooledSessionUpdatesCandidateFilter) {
-  allocator_->set_candidate_filter(cricket::CF_RELAY);
+  allocator_->SetCandidateFilter(cricket::CF_RELAY);
   SetConfigurationWithPoolSize(1);
   auto peeked_session = GetPooledSession();
   ASSERT_NE(nullptr, peeked_session);

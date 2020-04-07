@@ -32,18 +32,9 @@ source_set("unit_test") {
   deps = [
     ":test_interfaces",
     "//base",
+    "//base/test:test_support",
     "//mojo/public/cpp/bindings",
     "//testing/gtest",
-    "//ui/gfx/range",
-  ]
-}
-
-source_set("struct_traits") {
-  sources = [
-    "range_struct_traits.h",
-  ]
-  public_deps = [
-    ":mojo_shared_cpp_sources",
     "//ui/gfx/range",
   ]
 }

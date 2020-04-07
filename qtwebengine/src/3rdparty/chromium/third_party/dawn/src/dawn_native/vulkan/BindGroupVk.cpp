@@ -77,7 +77,8 @@ namespace dawn_native { namespace vulkan {
             write.dstBinding = bindingIndex;
             write.dstArrayElement = 0;
             write.descriptorCount = 1;
-            write.descriptorType = VulkanDescriptorType(layoutInfo.types[bindingIndex]);
+            write.descriptorType = VulkanDescriptorType(layoutInfo.types[bindingIndex],
+                                                        layoutInfo.dynamic[bindingIndex]);
 
             switch (layoutInfo.types[bindingIndex]) {
                 case dawn::BindingType::UniformBuffer:
@@ -87,7 +88,6 @@ namespace dawn_native { namespace vulkan {
                     writeBufferInfo[numWrites].buffer = ToBackend(binding.buffer)->GetHandle();
                     writeBufferInfo[numWrites].offset = binding.offset;
                     writeBufferInfo[numWrites].range = binding.size;
-
                     write.pBufferInfo = &writeBufferInfo[numWrites];
                 } break;
 
@@ -108,6 +108,7 @@ namespace dawn_native { namespace vulkan {
 
                     write.pImageInfo = &writeImageInfo[numWrites];
                 } break;
+
                 default:
                     UNREACHABLE();
             }

@@ -31,10 +31,6 @@ const char* GetNameForThreadType(WebThreadType thread_type) {
       return "File thread";
     case WebThreadType::kDatabaseThread:
       return "Database thread";
-    case WebThreadType::kWebAudioThread:
-      return "WebAudio thread";
-    case WebThreadType::kScriptStreamerThread:
-      return "ScriptStreamer thread";
     case WebThreadType::kOfflineAudioRenderThread:
       return "OfflineAudioRender thread";
     case WebThreadType::kReverbConvolutionBackgroundThread:
@@ -43,6 +39,10 @@ const char* GetNameForThreadType(WebThreadType thread_type) {
       return "HRTF database loader thread";
     case WebThreadType::kTestThread:
       return "test thread";
+    case WebThreadType::kAudioEncoderThread:
+      return "Audio encoder thread";
+    case WebThreadType::kVideoEncoderThread:
+      return "Video encoder thread";
     case WebThreadType::kCount:
       NOTREACHED();
       return nullptr;

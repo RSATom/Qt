@@ -220,6 +220,10 @@ void OpenSLESOutputStream::Close() {
   audio_manager_->ReleaseOutputStream(this);
 }
 
+// This stream is always used with sub second buffer sizes, where it's
+// sufficient to simply always flush upon Start().
+void OpenSLESOutputStream::Flush() {}
+
 void OpenSLESOutputStream::SetVolume(double volume) {
   DVLOG(2) << "OpenSLESOutputStream::SetVolume(" << volume << ")";
   DCHECK(thread_checker_.CalledOnValidThread());
@@ -432,7 +436,9 @@ void OpenSLESOutputStream::FillBufferQueueNoLock() {
         reinterpret_cast<int16_t*>(audio_data_[active_buffer_index_]));
   } else {
     DCHECK_EQ(sample_format_, kSampleFormatF32);
-    audio_bus_->ToInterleaved<Float32SampleTypeTraits>(
+
+    // We skip clipping since that occurs at the shared memory boundary.
+    audio_bus_->ToInterleaved<Float32SampleTypeTraitsNoClip>(
         frames_filled,
         reinterpret_cast<float*>(audio_data_[active_buffer_index_]));
   }

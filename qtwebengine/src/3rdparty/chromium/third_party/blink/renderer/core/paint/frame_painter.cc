@@ -12,7 +12,6 @@
 #include "third_party/blink/renderer/core/paint/paint_layer.h"
 #include "third_party/blink/renderer/core/paint/paint_layer_painter.h"
 #include "third_party/blink/renderer/core/paint/scrollbar_painter.h"
-#include "third_party/blink/renderer/core/probe/core_probes.h"
 #include "third_party/blink/renderer/platform/graphics/graphics_context.h"
 #include "third_party/blink/renderer/platform/graphics/graphics_layer.h"
 #include "third_party/blink/renderer/platform/graphics/paint/cull_rect.h"
@@ -68,7 +67,7 @@ void FramePainter::PaintContents(GraphicsContext& context,
   FramePaintTiming frame_paint_timing(context, &GetFrameView().GetFrame());
   TRACE_EVENT1("devtools.timeline,rail", "Paint", "data",
                inspector_paint_event::Data(
-                   layout_view, LayoutRect(cull_rect.Rect()), nullptr));
+                   layout_view, PhysicalRect(cull_rect.Rect()), nullptr));
 
   bool is_top_level_painter = !in_paint_contents_;
   in_paint_contents_ = true;
@@ -104,11 +103,6 @@ void FramePainter::PaintContents(GraphicsContext& context,
   layer_painter.Paint(context, cull_rect, updated_global_paint_flags,
                       root_layer_paint_flags);
 
-  if (root_layer->ContainsDirtyOverlayScrollbars()) {
-    layer_painter.PaintOverlayScrollbars(context, cull_rect,
-                                         updated_global_paint_flags);
-  }
-
   // Regions may have changed as a result of the visibility/z-index of element
   // changing.
   if (document->AnnotatedRegionsDirty())
@@ -120,9 +114,6 @@ void FramePainter::PaintContents(GraphicsContext& context,
     GetMemoryCache()->UpdateFramePaintTimestamp();
     in_paint_contents_ = false;
   }
-
-  probe::didPaint(layout_view->GetFrame(), nullptr, context,
-                  LayoutRect(cull_rect.Rect()));
 }
 
 const LocalFrameView& FramePainter::GetFrameView() {

@@ -21,7 +21,7 @@ const base::flat_set<std::string, std::less<>>& KnownUsernamePlaceholders() {
                      "3~15个字符,中文字符7个以内",
                      "benutzername",
                      "client id",
-                     "codice titolare"
+                     "codice titolare",
                      "digite seu cpf ou e-mail",
                      "ds logon username",
                      "email",
@@ -57,7 +57,7 @@ const base::flat_set<std::string, std::less<>>& KnownUsernamePlaceholders() {
                      "ååååmmddxxxx",
                      "아이디 or @이하 모두 입력",
                      "Имя",
-                     "Имя (логин)"
+                     "Имя (логин)",
                      "Логин",
                      "Логин...",
                      "Логин (e-mail)",

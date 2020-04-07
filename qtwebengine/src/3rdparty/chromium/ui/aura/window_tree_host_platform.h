@@ -42,9 +42,7 @@ class AURA_EXPORT WindowTreeHostPlatform : public WindowTreeHost,
   void ShowImpl() override;
   void HideImpl() override;
   gfx::Rect GetBoundsInPixels() const override;
-  void SetBoundsInPixels(const gfx::Rect& bounds,
-                         const viz::LocalSurfaceIdAllocation&
-                             local_surface_id_allocation) override;
+  void SetBoundsInPixels(const gfx::Rect& bounds) override;
   gfx::Point GetLocationOnScreenInPixels() const override;
   void SetCapture() override;
   void ReleaseCapture() override;
@@ -94,17 +92,16 @@ class AURA_EXPORT WindowTreeHostPlatform : public WindowTreeHost,
   gfx::AcceleratedWidget widget_;
   std::unique_ptr<ui::PlatformWindow> platform_window_;
   gfx::NativeCursor current_cursor_;
-  gfx::Rect bounds_;
+  gfx::Rect bounds_in_pixels_;
 
   std::unique_ptr<ui::KeyboardHook> keyboard_hook_;
 
-  // |pending_local_surface_id_allocation_|, and |pending_size_| are set when
-  // the PlatformWindow instance is requested to adopt a new size (in
-  // SetBoundsInPixels()). When the platform confirms the new size (by way of
-  // OnBoundsChanged() callback), the LocalSurfaceIdAllocation is set on the
-  // compositor, by WindowTreeHost.
-  viz::LocalSurfaceIdAllocation pending_local_surface_id_allocation_;
   gfx::Size pending_size_;
+
+  // Tracks how nested OnBoundsChanged() is. That is, on entering
+  // OnBoundsChanged() this is incremented and on leaving OnBoundsChanged() this
+  // is decremented.
+  int on_bounds_changed_recursion_depth_ = 0;
 
   DISALLOW_COPY_AND_ASSIGN(WindowTreeHostPlatform);
 };

@@ -177,7 +177,7 @@ constexpr const char kPrefGeometryCache[] = "geometry_cache";
 // A preference that indicates when an extension is last launched.
 constexpr const char kPrefLastLaunchTime[] = "last_launch_time";
 
-// Am installation parameter bundled with an extension.
+// An installation parameter bundled with an extension.
 constexpr const char kPrefInstallParam[] = "install_parameter";
 
 // A list of installed ids and a signature.
@@ -200,6 +200,14 @@ constexpr const char kPrefDNRRulesetChecksum[] = "dnr_ruleset_checksum";
 // List of match patterns representing the set of allowed pages for an
 // extension for the Declarative Net Request API.
 constexpr const char kPrefDNRAllowedPages[] = "dnr_whitelisted_pages";
+
+constexpr const char kPrefDNRDynamicRulesetChecksum[] =
+    "dnr_dynamic_ruleset_checksum";
+
+// A boolean preference that indicates whether the extension's icon should be
+// automatically badged to the matched action count for a tab. False by default.
+constexpr const char kPrefDNRUseActionCountAsBadgeText[] =
+    "dnr_use_action_count_as_badge_text";
 
 // Provider of write access to a dictionary storing extension prefs.
 class ScopedExtensionPrefUpdate : public prefs::ScopedDictionaryPrefUpdate {
@@ -319,7 +327,7 @@ ExtensionPrefs* ExtensionPrefs::Create(
     const base::FilePath& root_dir,
     ExtensionPrefValueMap* extension_pref_value_map,
     bool extensions_disabled,
-    const std::vector<ExtensionPrefsObserver*>& early_observers) {
+    const std::vector<EarlyExtensionPrefsObserver*>& early_observers) {
   return ExtensionPrefs::Create(
       browser_context, prefs, root_dir, extension_pref_value_map,
       extensions_disabled, early_observers, base::DefaultClock::GetInstance());
@@ -332,7 +340,7 @@ ExtensionPrefs* ExtensionPrefs::Create(
     const base::FilePath& root_dir,
     ExtensionPrefValueMap* extension_pref_value_map,
     bool extensions_disabled,
-    const std::vector<ExtensionPrefsObserver*>& early_observers,
+    const std::vector<EarlyExtensionPrefsObserver*>& early_observers,
     base::Clock* clock) {
   return new ExtensionPrefs(browser_context, pref_service, root_dir,
                             extension_pref_value_map, clock,
@@ -340,6 +348,9 @@ ExtensionPrefs* ExtensionPrefs::Create(
 }
 
 ExtensionPrefs::~ExtensionPrefs() {
+  for (auto& observer : observer_list_)
+    observer.OnExtensionPrefsWillBeDestroyed(this);
+  DCHECK(observer_list_.begin() == observer_list_.end());
 }
 
 // static
@@ -580,9 +591,9 @@ std::unique_ptr<const PermissionSet> ExtensionPrefs::ReadPrefAsPermissionSet(
       extension_id, JoinPrefs(pref_key, kPrefScriptableHosts),
       &scriptable_hosts, UserScript::ValidUserScriptSchemes());
 
-  return std::make_unique<PermissionSet>(std::move(apis),
-                                         std::move(manifest_permissions),
-                                         explicit_hosts, scriptable_hosts);
+  return std::make_unique<PermissionSet>(
+      std::move(apis), std::move(manifest_permissions),
+      std::move(explicit_hosts), std::move(scriptable_hosts));
 }
 
 // Set the API or Manifest permissions.
@@ -780,6 +791,22 @@ void ExtensionPrefs::ClearDisableReasons(const std::string& extension_id) {
                        DISABLE_REASON_CLEAR);
 }
 
+void ExtensionPrefs::ClearInapplicableDisableReasonsForComponentExtension(
+    const std::string& component_extension_id) {
+  static constexpr int kAllowDisableReasons =
+      disable_reason::DISABLE_RELOAD |
+      disable_reason::DISABLE_UNSUPPORTED_REQUIREMENT |
+      disable_reason::DISABLE_CORRUPTED;
+
+  // Some disable reasons incorrectly cause component extensions to never
+  // activate on load. See https://crbug.com/946839 for more details on why we
+  // do this.
+  ModifyDisableReasons(
+      component_extension_id,
+      kAllowDisableReasons & GetDisableReasons(component_extension_id),
+      DISABLE_REASON_REPLACE);
+}
+
 void ExtensionPrefs::ModifyDisableReasons(const std::string& extension_id,
                                           int reasons,
                                           DisableReasonChange change) {
@@ -876,7 +903,7 @@ void SaveInt64(prefs::DictionaryValueUpdate* dictionary,
   if (!dictionary)
     return;
 
-  std::string string_value = base::Int64ToString(value);
+  std::string string_value = base::NumberToString(value);
   dictionary->SetString(key, string_value);
 }
 
@@ -1106,6 +1133,17 @@ ExtensionIdList ExtensionPrefs::GetToolbarOrder() const {
 
 void ExtensionPrefs::SetToolbarOrder(const ExtensionIdList& extension_ids) {
   SetExtensionPrefFromContainer(pref_names::kToolbar, extension_ids);
+}
+
+ExtensionIdList ExtensionPrefs::GetPinnedExtensions() const {
+  ExtensionIdList id_list_out;
+  GetUserExtensionPrefIntoContainer(pref_names::kPinnedExtensions,
+                                    &id_list_out);
+  return id_list_out;
+}
+
+void ExtensionPrefs::SetPinnedExtensions(const ExtensionIdList& extension_ids) {
+  SetExtensionPrefFromContainer(pref_names::kPinnedExtensions, extension_ids);
 }
 
 void ExtensionPrefs::OnExtensionInstalled(
@@ -1389,7 +1427,7 @@ bool ExtensionPrefs::FinishDelayedInstallInfo(
 
   const base::Time install_time = clock_->Now();
   pending_install_dict->SetString(
-      kPrefInstallTime, base::Int64ToString(install_time.ToInternalValue()));
+      kPrefInstallTime, base::NumberToString(install_time.ToInternalValue()));
 
   // Commit the delayed install data.
   for (base::DictionaryValue::Iterator it(
@@ -1571,8 +1609,12 @@ base::Time ExtensionPrefs::GetLastLaunchTime(
 void ExtensionPrefs::SetLastLaunchTime(const std::string& extension_id,
                                        const base::Time& time) {
   DCHECK(crx_file::id_util::IdIsValid(extension_id));
-  ScopedExtensionPrefUpdate update(prefs_, extension_id);
-  SaveTime(update.Get().get(), kPrefLastLaunchTime, time);
+  {
+    ScopedExtensionPrefUpdate update(prefs_, extension_id);
+    SaveTime(update.Get().get(), kPrefLastLaunchTime, time);
+  }
+  for (auto& observer : observer_list_)
+    observer.OnExtensionLastLaunchTimeChanged(extension_id, time);
 }
 
 void ExtensionPrefs::ClearLastLaunchTimes() {
@@ -1616,7 +1658,6 @@ void ExtensionPrefs::RemoveObserver(ExtensionPrefsObserver* observer) {
 
 void ExtensionPrefs::InitPrefStore() {
   TRACE_EVENT0("browser,startup", "ExtensionPrefs::InitPrefStore")
-  SCOPED_UMA_HISTOGRAM_TIMER("Extensions.InitPrefStoreTime");
 
   // When this is called, the PrefService is initialized and provides access
   // to the user preferences stored in a JSON file.
@@ -1743,15 +1784,28 @@ void ExtensionPrefs::SetNeedsSync(const std::string& extension_id,
 }
 
 bool ExtensionPrefs::GetDNRRulesetChecksum(const ExtensionId& extension_id,
-                                           int* dnr_ruleset_checksum) const {
-  return ReadPrefAsInteger(extension_id, kPrefDNRRulesetChecksum,
-                           dnr_ruleset_checksum);
+                                           int* checksum) const {
+  return ReadPrefAsInteger(extension_id, kPrefDNRRulesetChecksum, checksum);
 }
 
 void ExtensionPrefs::SetDNRRulesetChecksum(const ExtensionId& extension_id,
-                                           int dnr_ruleset_checksum) {
+                                           int checksum) {
   UpdateExtensionPref(extension_id, kPrefDNRRulesetChecksum,
-                      std::make_unique<base::Value>(dnr_ruleset_checksum));
+                      std::make_unique<base::Value>(checksum));
+}
+
+bool ExtensionPrefs::GetDNRDynamicRulesetChecksum(
+    const ExtensionId& extension_id,
+    int* checksum) const {
+  return ReadPrefAsInteger(extension_id, kPrefDNRDynamicRulesetChecksum,
+                           checksum);
+}
+
+void ExtensionPrefs::SetDNRDynamicRulesetChecksum(
+    const ExtensionId& extension_id,
+    int checksum) {
+  UpdateExtensionPref(extension_id, kPrefDNRDynamicRulesetChecksum,
+                      std::make_unique<base::Value>(checksum));
 }
 
 void ExtensionPrefs::SetDNRAllowedPages(const ExtensionId& extension_id,
@@ -1767,6 +1821,20 @@ URLPatternSet ExtensionPrefs::GetDNRAllowedPages(
   return result;
 }
 
+bool ExtensionPrefs::GetDNRUseActionCountAsBadgeText(
+    const ExtensionId& extension_id) const {
+  return ReadPrefAsBooleanAndReturn(extension_id,
+                                    kPrefDNRUseActionCountAsBadgeText);
+}
+
+void ExtensionPrefs::SetDNRUseActionCountAsBadgeText(
+    const ExtensionId& extension_id,
+    bool use_action_count_as_badge_text) {
+  UpdateExtensionPref(
+      extension_id, kPrefDNRUseActionCountAsBadgeText,
+      std::make_unique<base::Value>(use_action_count_as_badge_text));
+}
+
 // static
 void ExtensionPrefs::SetRunAlertsInFirstRunForTest() {
   g_run_alerts_in_first_run_for_testing = true;
@@ -1776,6 +1844,9 @@ void ExtensionPrefs::ClearExternalUninstallForTesting(const ExtensionId& id) {
   DeleteExtensionPrefs(id);
 }
 
+const char ExtensionPrefs::kFakeObsoletePrefForTesting[] =
+    "__fake_obsolete_pref_for_testing";
+
 ExtensionPrefs::ExtensionPrefs(
     content::BrowserContext* browser_context,
     PrefService* prefs,
@@ -1783,7 +1854,7 @@ ExtensionPrefs::ExtensionPrefs(
     ExtensionPrefValueMap* extension_pref_value_map,
     base::Clock* clock,
     bool extensions_disabled,
-    const std::vector<ExtensionPrefsObserver*>& early_observers)
+    const std::vector<EarlyExtensionPrefsObserver*>& early_observers)
     : browser_context_(browser_context),
       prefs_(prefs),
       install_directory_(root_dir),
@@ -1795,7 +1866,7 @@ ExtensionPrefs::ExtensionPrefs(
   // Ensure that any early observers are watching before prefs are initialized.
   for (auto iter = early_observers.cbegin(); iter != early_observers.cend();
        ++iter) {
-    AddObserver(*iter);
+    (*iter)->OnExtensionPrefsAvailable(this);
   }
 
   InitPrefStore();
@@ -1819,12 +1890,14 @@ void ExtensionPrefs::RegisterProfilePrefs(
   registry->RegisterDictionaryPref(pref_names::kExtensions);
   registry->RegisterListPref(pref_names::kToolbar,
                              user_prefs::PrefRegistrySyncable::SYNCABLE_PREF);
+  registry->RegisterListPref(pref_names::kPinnedExtensions,
+                             user_prefs::PrefRegistrySyncable::SYNCABLE_PREF);
   registry->RegisterIntegerPref(pref_names::kToolbarSize, -1);
   registry->RegisterDictionaryPref(kExtensionsBlacklistUpdate);
   registry->RegisterListPref(pref_names::kInstallAllowList);
   registry->RegisterListPref(pref_names::kInstallDenyList);
   registry->RegisterDictionaryPref(pref_names::kInstallForceList);
-  registry->RegisterDictionaryPref(pref_names::kInstallLoginScreenAppList);
+  registry->RegisterDictionaryPref(pref_names::kLoginScreenExtensions);
   registry->RegisterListPref(pref_names::kAllowedTypes);
   registry->RegisterBooleanPref(pref_names::kStorageGarbageCollect, false);
   registry->RegisterListPref(pref_names::kAllowedInstallSites);
@@ -1837,7 +1910,7 @@ void ExtensionPrefs::RegisterProfilePrefs(
                                 true);
   registry->RegisterIntegerPref(kCorruptedDisableCount, 0);
   registry->RegisterBooleanPref(pref_names::kInsecureExtensionUpdatesEnabled,
-                                true);
+                                false);
 
 #if !defined(OS_MACOSX)
   registry->RegisterBooleanPref(pref_names::kAppFullscreenAllowed, true);
@@ -1899,7 +1972,7 @@ void ExtensionPrefs::PopulateExtensionInfoPrefs(
   extension_dict->SetBoolean(kPrefWasInstalledByOem,
                              extension->was_installed_by_oem());
   extension_dict->SetString(
-      kPrefInstallTime, base::Int64ToString(install_time.ToInternalValue()));
+      kPrefInstallTime, base::NumberToString(install_time.ToInternalValue()));
   if (install_flags & kInstallFlagIsBlacklistedForMalware)
     extension_dict->SetBoolean(kPrefBlacklist, true);
   if (dnr_ruleset_checksum)
@@ -1929,7 +2002,6 @@ void ExtensionPrefs::InitExtensionControlledPrefs(
     const ExtensionsInfo& extensions_info) {
   TRACE_EVENT0("browser,startup",
                "ExtensionPrefs::InitExtensionControlledPrefs")
-  SCOPED_UMA_HISTOGRAM_TIMER("Extensions.InitExtensionControlledPrefsTime");
 
   for (const auto& info : extensions_info) {
     const ExtensionId& extension_id = info->extension_id;
@@ -1970,10 +2042,9 @@ void ExtensionPrefs::LoadExtensionControlledPrefs(
   if (!source_dict->GetDictionary(key, &preferences))
     return;
 
-  for (base::DictionaryValue::Iterator iter(*preferences); !iter.IsAtEnd();
-       iter.Advance()) {
-    extension_pref_value_map_->SetExtensionPref(extension_id, iter.key(), scope,
-                                                iter.value().DeepCopy());
+  for (const auto& pair : preferences->DictItems()) {
+    extension_pref_value_map_->SetExtensionPref(extension_id, pair.first, scope,
+                                                pair.second.Clone());
   }
 }
 
@@ -2035,6 +2106,31 @@ void ExtensionPrefs::FinishExtensionInfoPrefs(
 
   for (auto& observer : observer_list_)
     observer.OnExtensionRegistered(extension_id, install_time, is_enabled);
+}
+
+void ExtensionPrefs::MigrateObsoleteExtensionPrefs() {
+  const base::Value* extensions_dictionary =
+      prefs_->GetDictionary(pref_names::kExtensions);
+  DCHECK(extensions_dictionary->is_dict());
+
+  // Please clean this list up periodically, removing any entries added more
+  // than a year ago (with the exception of the testing key).
+  constexpr const char* kObsoleteKeys[] = {
+      // Permanent testing-only key.
+      kFakeObsoletePrefForTesting,
+
+      // Added 2019-07.
+      "has_set_script_all_urls",
+  };
+
+  for (const auto& key_value : extensions_dictionary->DictItems()) {
+    if (!crx_file::id_util::IdIsValid(key_value.first))
+      continue;
+    ScopedExtensionPrefUpdate update(prefs_, key_value.first);
+    std::unique_ptr<prefs::DictionaryValueUpdate> inner_update = update.Get();
+    for (const char* key : kObsoleteKeys)
+      inner_update->Remove(key, nullptr);
+  }
 }
 
 }  // namespace extensions

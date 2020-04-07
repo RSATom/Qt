@@ -101,14 +101,8 @@ base::WeakPtr<BluetoothAdapterMac> BluetoothAdapterMac::CreateAdapterForTest(
 
 // static
 BluetoothUUID BluetoothAdapterMac::BluetoothUUIDWithCBUUID(CBUUID* uuid) {
-  // UUIDString only available OS X >= 10.10.
-  if (base::mac::IsAtLeastOS10_10()) {
-    std::string uuid_c_string = base::SysNSStringToUTF8([uuid UUIDString]);
-    return device::BluetoothUUID(uuid_c_string);
-  } else {
-    DCHECK(false);
-    return {};
-  }
+  std::string uuid_c_string = base::SysNSStringToUTF8([uuid UUIDString]);
+  return device::BluetoothUUID(uuid_c_string);
 }
 
 // static
@@ -124,7 +118,6 @@ std::string BluetoothAdapterMac::String(NSError* error) {
 BluetoothAdapterMac::BluetoothAdapterMac()
     : BluetoothAdapter(),
       classic_powered_(false),
-      num_discovery_sessions_(0),
       controller_state_function_(
           base::BindRepeating(&BluetoothAdapterMac::GetHostControllerState,
                               base::Unretained(this))),
@@ -136,29 +129,26 @@ BluetoothAdapterMac::BluetoothAdapterMac()
       device_paired_status_callback_(
           base::BindRepeating(&IsDeviceSystemPaired)),
       weak_ptr_factory_(this) {
-  if (IsLowEnergyAvailable()) {
-    low_energy_discovery_manager_.reset(
-        BluetoothLowEnergyDiscoveryManagerMac::Create(this));
-    low_energy_central_manager_delegate_.reset(
-        [[BluetoothLowEnergyCentralManagerDelegate alloc]
-            initWithDiscoveryManager:low_energy_discovery_manager_.get()
-                          andAdapter:this]);
-    low_energy_central_manager_.reset([[CBCentralManager alloc]
-        initWithDelegate:low_energy_central_manager_delegate_
-                   queue:dispatch_get_main_queue()]);
-    low_energy_discovery_manager_->SetCentralManager(
-        low_energy_central_manager_);
+  low_energy_discovery_manager_.reset(
+      BluetoothLowEnergyDiscoveryManagerMac::Create(this));
+  low_energy_central_manager_delegate_.reset(
+      [[BluetoothLowEnergyCentralManagerDelegate alloc]
+          initWithDiscoveryManager:low_energy_discovery_manager_.get()
+                        andAdapter:this]);
+  low_energy_central_manager_.reset([[CBCentralManager alloc]
+      initWithDelegate:low_energy_central_manager_delegate_
+                 queue:dispatch_get_main_queue()]);
+  low_energy_discovery_manager_->SetCentralManager(low_energy_central_manager_);
 
-    low_energy_advertisement_manager_.reset(
-        new BluetoothLowEnergyAdvertisementManagerMac());
-    low_energy_peripheral_manager_delegate_.reset(
-        [[BluetoothLowEnergyPeripheralManagerDelegate alloc]
-            initWithAdvertisementManager:low_energy_advertisement_manager_.get()
-                              andAdapter:this]);
-    low_energy_peripheral_manager_.reset([[CBPeripheralManager alloc]
-        initWithDelegate:low_energy_peripheral_manager_delegate_
-                   queue:dispatch_get_main_queue()]);
-  }
+  low_energy_advertisement_manager_.reset(
+      new BluetoothLowEnergyAdvertisementManagerMac());
+  low_energy_peripheral_manager_delegate_.reset(
+      [[BluetoothLowEnergyPeripheralManagerDelegate alloc]
+          initWithAdvertisementManager:low_energy_advertisement_manager_.get()
+                            andAdapter:this]);
+  low_energy_peripheral_manager_.reset([[CBPeripheralManager alloc]
+      initWithDelegate:low_energy_peripheral_manager_delegate_
+                 queue:dispatch_get_main_queue()]);
   DCHECK(classic_discovery_manager_);
 }
 
@@ -204,13 +194,8 @@ bool BluetoothAdapterMac::IsInitialized() const {
 }
 
 bool BluetoothAdapterMac::IsPresent() const {
-  bool is_present = !address_.empty();
-  if (IsLowEnergyAvailable()) {
-    is_present =
-        is_present || (GetCBManagerState(low_energy_central_manager_) !=
-                       CBCentralManagerStateUnsupported);
-  }
-  return is_present;
+  return !address_.empty() || (GetCBManagerState(low_energy_central_manager_) !=
+                               CBCentralManagerStateUnsupported);
 }
 
 bool BluetoothAdapterMac::IsPowered() const {
@@ -231,11 +216,8 @@ void BluetoothAdapterMac::SetDiscoverable(
 }
 
 bool BluetoothAdapterMac::IsDiscovering() const {
-  bool is_discovering = classic_discovery_manager_->IsDiscovering();
-  if (IsLowEnergyAvailable())
-    is_discovering =
-        is_discovering || low_energy_discovery_manager_->IsDiscovering();
-  return is_discovering;
+  return classic_discovery_manager_->IsDiscovering() ||
+         low_energy_discovery_manager_->IsDiscovering();
 }
 
 std::unordered_map<BluetoothDevice*, BluetoothDevice::UUIDSet>
@@ -306,7 +288,6 @@ void BluetoothAdapterMac::ClassicDeviceFound(IOBluetoothDevice* device) {
 void BluetoothAdapterMac::ClassicDiscoveryStopped(bool unexpected) {
   if (unexpected) {
     DVLOG(1) << "Discovery stopped unexpectedly";
-    num_discovery_sessions_ = 0;
     MarkDiscoverySessionsAsInactive();
   }
   for (auto& observer : observers_)
@@ -319,11 +300,6 @@ void BluetoothAdapterMac::DeviceConnected(IOBluetoothDevice* device) {
   DVLOG(1) << "Adapter registered a new connection from device with address: "
            << BluetoothClassicDeviceMac::GetDeviceAddress(device);
   ClassicDeviceAdded(device);
-}
-
-// static
-bool BluetoothAdapterMac::IsLowEnergyAvailable() {
-  return base::mac::IsAtLeastOS10_10();
 }
 
 bool BluetoothAdapterMac::SetPoweredImpl(bool powered) {
@@ -373,7 +349,6 @@ void BluetoothAdapterMac::UpdateKnownLowEnergyDevices(
 
 void BluetoothAdapterMac::SetCentralManagerForTesting(
     CBCentralManager* central_manager) {
-  CHECK(BluetoothAdapterMac::IsLowEnergyAvailable());
   central_manager.delegate = low_energy_central_manager_delegate_;
   low_energy_central_manager_.reset(central_manager,
                                     base::scoped_policy::RETAIN);
@@ -411,66 +386,64 @@ void BluetoothAdapterMac::SetGetDevicePairedStatusCallbackForTesting(
   device_paired_status_callback_ = std::move(device_paired_status_callback);
 }
 
-void BluetoothAdapterMac::AddDiscoverySession(
-    BluetoothDiscoveryFilter* discovery_filter,
-    const base::Closure& callback,
-    DiscoverySessionErrorCallback error_callback) {
-  DVLOG(1) << __func__;
-  if (num_discovery_sessions_ > 0) {
-    DCHECK(IsDiscovering());
-    num_discovery_sessions_++;
-    // We are already running a discovery session, notify the system if the
-    // filter has changed.
-    if (!StartDiscovery(discovery_filter)) {
-      // TODO: Provide a more precise error here.
+void BluetoothAdapterMac::UpdateFilter(
+    std::unique_ptr<BluetoothDiscoveryFilter> discovery_filter,
+    DiscoverySessionResultCallback callback) {
+  // In Mac the start scan handles all updates automatically
+  StartScanWithFilter(std::move(discovery_filter), std::move(callback));
+}
+
+void BluetoothAdapterMac::StartScanWithFilter(
+    std::unique_ptr<BluetoothDiscoveryFilter> discovery_filter,
+    DiscoverySessionResultCallback callback) {
+  // Default to dual discovery if |discovery_filter| is NULL.  IOBluetooth seems
+  // to allow starting low energy and classic discovery at once.
+  BluetoothTransport transport = BLUETOOTH_TRANSPORT_DUAL;
+  if (discovery_filter) {
+    transport = discovery_filter->GetTransport();
+  }
+
+  if ((transport & BLUETOOTH_TRANSPORT_CLASSIC) &&
+      !classic_discovery_manager_->IsDiscovering()) {
+    // We do not update the filter if already discovering.  This will all be
+    // deprecated soon though.
+    if (!classic_discovery_manager_->StartDiscovery()) {
+      DVLOG(1) << "Failed to add a classic discovery session";
       ui_task_runner_->PostTask(
           FROM_HERE,
-          base::BindOnce(std::move(error_callback),
+          base::BindOnce(std::move(callback), /*is_error=*/true,
                          UMABluetoothDiscoverySessionOutcome::UNKNOWN));
       return;
     }
-    ui_task_runner_->PostTask(FROM_HERE, callback);
-    return;
   }
-
-  DCHECK_EQ(0, num_discovery_sessions_);
-
-  if (!StartDiscovery(discovery_filter)) {
-    // TODO: Provide a more precise error here.
-    ui_task_runner_->PostTask(
-        FROM_HERE,
-        base::BindOnce(std::move(error_callback),
-                       UMABluetoothDiscoverySessionOutcome::UNKNOWN));
-    return;
+  if (transport & BLUETOOTH_TRANSPORT_LE) {
+    // Begin a low energy discovery session or update it if one is already
+    // running.
+    low_energy_discovery_manager_->StartDiscovery(BluetoothDevice::UUIDList());
   }
-
-  DVLOG(1) << "Added a discovery session";
-  num_discovery_sessions_++;
   for (auto& observer : observers_)
     observer.AdapterDiscoveringChanged(this, true);
-  ui_task_runner_->PostTask(FROM_HERE, callback);
+  DCHECK(callback);
+  ui_task_runner_->PostTask(
+      FROM_HERE, base::BindOnce(std::move(callback), /*is_error=*/false,
+                                UMABluetoothDiscoverySessionOutcome::SUCCESS));
 }
 
 void BluetoothAdapterMac::RemoveDiscoverySession(
     BluetoothDiscoveryFilter* discovery_filter,
     const base::Closure& callback,
     DiscoverySessionErrorCallback error_callback) {
+  // Logic to soon be moved into parent adapter class
   DVLOG(1) << __func__;
 
-  if (num_discovery_sessions_ > 1) {
+  if (NumDiscoverySessions() > 1) {
     // There are active sessions other than the one currently being removed.
     DCHECK(IsDiscovering());
-    num_discovery_sessions_--;
     callback.Run();
     return;
   }
 
-  if (num_discovery_sessions_ == 0) {
-    DVLOG(1) << "No active discovery sessions. Returning error.";
-    std::move(error_callback)
-        .Run(UMABluetoothDiscoverySessionOutcome::NOT_ACTIVE);
-    return;
-  }
+  DCHECK_EQ(NumDiscoverySessions(), 1);
 
   // Default to dual discovery if |discovery_filter| is NULL.
   BluetoothTransport transport = BLUETOOTH_TRANSPORT_DUAL;
@@ -487,16 +460,13 @@ void BluetoothAdapterMac::RemoveDiscoverySession(
     }
   }
   if (transport & BLUETOOTH_TRANSPORT_LE) {
-    if (IsLowEnergyAvailable()) {
-      low_energy_discovery_manager_->StopDiscovery();
-      for (const auto& device_id_object_pair : devices_) {
-        device_id_object_pair.second->ClearAdvertisementData();
-      }
+    low_energy_discovery_manager_->StopDiscovery();
+    for (const auto& device_id_object_pair : devices_) {
+      device_id_object_pair.second->ClearAdvertisementData();
     }
   }
 
   DVLOG(1) << "Discovery stopped";
-  num_discovery_sessions_--;
   callback.Run();
 }
 
@@ -529,9 +499,7 @@ bool BluetoothAdapterMac::StartDiscovery(
   if (transport & BLUETOOTH_TRANSPORT_LE) {
     // Begin a low energy discovery session or update it if one is already
     // running.
-    if (IsLowEnergyAvailable())
-      low_energy_discovery_manager_->StartDiscovery(
-          BluetoothDevice::UUIDList());
+    low_energy_discovery_manager_->StartDiscovery(BluetoothDevice::UUIDList());
   }
   return true;
 }
@@ -582,8 +550,8 @@ void BluetoothAdapterMac::PollAdapter() {
 
   ui_task_runner_->PostDelayedTask(
       FROM_HERE,
-      base::Bind(&BluetoothAdapterMac::PollAdapter,
-                 weak_ptr_factory_.GetWeakPtr()),
+      base::BindOnce(&BluetoothAdapterMac::PollAdapter,
+                     weak_ptr_factory_.GetWeakPtr()),
       base::TimeDelta::FromMilliseconds(kPollIntervalMs));
 }
 
@@ -609,10 +577,6 @@ void BluetoothAdapterMac::ClassicDeviceAdded(IOBluetoothDevice* device) {
 }
 
 bool BluetoothAdapterMac::IsLowEnergyPowered() const {
-  if (!IsLowEnergyAvailable()) {
-    return false;
-  }
-
   return GetCBManagerState(low_energy_central_manager_) ==
          CBCentralManagerStatePoweredOn;
 }

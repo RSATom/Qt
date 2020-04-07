@@ -121,10 +121,14 @@ std::vector<ScopedCupsOption> SettingsToCupsOptions(
                       settings.requested_media().vendor_id));  // paper size
   options.push_back(
       ConstructOption(kIppCopies,
-                      base::IntToString(settings.copies())));  // copies
+                      base::NumberToString(settings.copies())));  // copies
   options.push_back(
       ConstructOption(kIppCollate,
                       GetCollateString(settings.collate())));  // collate
+  if (!settings.pin_value().empty()) {
+    options.push_back(ConstructOption(kIppPin, settings.pin_value()));
+    options.push_back(ConstructOption(kIppPinEncryption, kPinEncryptionNone));
+  }
 
   return options;
 }
@@ -153,7 +157,8 @@ std::unique_ptr<PrintingContext> PrintingContext::Create(Delegate* delegate) {
 
 PrintingContextChromeos::PrintingContextChromeos(Delegate* delegate)
     : PrintingContext(delegate),
-      connection_(GURL(), HTTP_ENCRYPT_NEVER, true) {}
+      connection_(GURL(), HTTP_ENCRYPT_NEVER, true),
+      send_user_info_(false) {}
 
 PrintingContextChromeos::~PrintingContextChromeos() {
   ReleaseContext();
@@ -259,6 +264,9 @@ PrintingContext::Result PrintingContextChromeos::UpdatePrinterSettings(
   }
 
   SetPrintableArea(&settings_, media, true);
+  cups_options_ = SettingsToCupsOptions(settings_);
+  send_user_info_ = settings_.send_user_info();
+  username_ = send_user_info_ ? settings_.username() : std::string();
 
   return OK;
 }
@@ -283,12 +291,12 @@ PrintingContext::Result PrintingContextChromeos::NewDocument(
   DCHECK(!in_print_job_);
   in_print_job_ = true;
 
-  std::string converted_name = base::UTF16ToUTF8(document_name);
-  std::string title = base::UTF16ToUTF8(settings_.title());
-  std::vector<ScopedCupsOption> cups_options = SettingsToCupsOptions(settings_);
+  std::string converted_name;
+  if (send_user_info_)
+    converted_name = base::UTF16ToUTF8(document_name);
 
   std::vector<cups_option_t> options;
-  for (const ScopedCupsOption& option : cups_options) {
+  for (const ScopedCupsOption& option : cups_options_) {
     if (printer_->CheckOptionSupported(option->name, option->value)) {
       options.push_back(*(option.get()));
     } else {
@@ -297,7 +305,8 @@ PrintingContext::Result PrintingContextChromeos::NewDocument(
     }
   }
 
-  ipp_status_t create_status = printer_->CreateJob(&job_id_, title, options);
+  ipp_status_t create_status =
+      printer_->CreateJob(&job_id_, converted_name, username_, options);
 
   if (job_id_ == 0) {
     DLOG(WARNING) << "Creating cups job failed"
@@ -306,7 +315,8 @@ PrintingContext::Result PrintingContextChromeos::NewDocument(
   }
 
   // we only send one document, so it's always the last one
-  if (!printer_->StartDocument(job_id_, converted_name, true, options)) {
+  if (!printer_->StartDocument(job_id_, converted_name, true, username_,
+                               options)) {
     LOG(ERROR) << "Starting document failed";
     return OnError();
   }
@@ -347,7 +357,7 @@ PrintingContext::Result PrintingContextChromeos::DocumentDone() {
     return OnError();
   }
 
-  ipp_status_t job_status = printer_->CloseJob(job_id_);
+  ipp_status_t job_status = printer_->CloseJob(job_id_, username_);
   job_id_ = 0;
 
   if (job_status != IPP_STATUS_OK) {

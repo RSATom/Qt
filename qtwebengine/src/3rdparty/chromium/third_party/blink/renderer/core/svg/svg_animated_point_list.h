@@ -42,19 +42,10 @@ class SVGAnimatedPointList final
   USING_GARBAGE_COLLECTED_MIXIN(SVGAnimatedPointList);
 
  public:
-  static SVGAnimatedPointList* Create(
-      SVGElement* context_element,
-      const QualifiedName& attribute_name,
-      SVGPointList* initial_value,
-      CSSPropertyID css_property_id = CSSPropertyInvalid) {
-    return MakeGarbageCollected<SVGAnimatedPointList>(
-        context_element, attribute_name, initial_value, css_property_id);
-  }
-
   SVGAnimatedPointList(SVGElement* context_element,
                        const QualifiedName& attribute_name,
                        SVGPointList* initial_value,
-                       CSSPropertyID css_property_id)
+                       CSSPropertyID css_property_id = CSSPropertyID::kInvalid)
       : SVGAnimatedProperty<SVGPointList>(context_element,
                                           attribute_name,
                                           initial_value,

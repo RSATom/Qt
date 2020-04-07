@@ -67,7 +67,7 @@ class VIEWS_EXPORT DesktopScreenX11 : public display::Screen,
   friend class test::DesktopScreenX11TestApi;
 
   // Constructor used in tests.
-  DesktopScreenX11(const std::vector<display::Display>& test_displays);
+  explicit DesktopScreenX11(const std::vector<display::Display>& test_displays);
 
   // Removes |delayed_configuration_task_| from the task queue (if
   // it's in the queue) and adds it back at the end of the queue.
@@ -98,11 +98,11 @@ class VIEWS_EXPORT DesktopScreenX11 : public display::Screen,
 
   // The task to delay configuring outputs.  We delay updating the
   // display so we can coalesce events.
-  base::CancelableCallback<void()> delayed_configuration_task_;
+  base::CancelableOnceCallback<void()> delayed_configuration_task_;
 
   display::DisplayChangeNotifier change_notifier_;
 
-  base::WeakPtrFactory<DesktopScreenX11> weak_factory_;
+  base::WeakPtrFactory<DesktopScreenX11> weak_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(DesktopScreenX11);
 };

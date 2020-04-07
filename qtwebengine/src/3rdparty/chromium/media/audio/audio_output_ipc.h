@@ -71,9 +71,10 @@ class MEDIA_EXPORT AudioOutputIPC {
   // the default device.
   // Once the authorization process is complete, the implementation will
   // notify |delegate| by calling OnDeviceAuthorized().
-  virtual void RequestDeviceAuthorization(AudioOutputIPCDelegate* delegate,
-                                          int session_id,
-                                          const std::string& device_id) = 0;
+  virtual void RequestDeviceAuthorization(
+      AudioOutputIPCDelegate* delegate,
+      const base::UnguessableToken& session_id,
+      const std::string& device_id) = 0;
 
   // Sends a request to create an AudioOutputController object in the peer
   // process and configures it to use the specified audio |params| including
@@ -94,6 +95,10 @@ class MEDIA_EXPORT AudioOutputIPC {
   // Pauses an audio stream.  This should generate a call to
   // AudioOutputController::Pause().
   virtual void PauseStream() = 0;
+
+  // Flushes an audio stream. This should only be called when the stream is
+  // paused.
+  virtual void FlushStream() = 0;
 
   // Closes the audio stream which should shut down the corresponding
   // AudioOutputController in the peer process. Usage of an AudioOutputIPC must

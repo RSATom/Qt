@@ -60,6 +60,10 @@
 #if QT_CONFIG(winrt_btle_no_pairing)
 #include "qlowenergycontroller_winrt_new_p.h"
 #endif
+#elif defined(QT_WIN_BLUETOOTH)
+#include "qlowenergycontroller_win_p.h"
+#elif defined(Q_OS_DARWIN)
+#include "qlowenergycontroller_darwin_p.h"
 #else
 #include "qlowenergycontroller_p.h"
 #endif
@@ -157,6 +161,9 @@ Q_DECLARE_LOGGING_CATEGORY(QT_BT_WINRT)
                                         This value was introduced by Qt 5.7.
     \value RemoteHostClosedError        The remote device closed the connection.
                                         This value was introduced by Qt 5.10.
+    \value AuthorizationError           The local Bluetooth device closed the connection due to
+                                        insufficient authorization.
+                                        This value was introduced by Qt 5.14.
 */
 
 /*!
@@ -321,6 +328,12 @@ static QLowEnergyControllerPrivate *privateController(QLowEnergyController::Role
     qCDebug(QT_BT_WINRT) << "Using pre 15063 low energy controller";
     return new QLowEnergyControllerPrivateWinRT();
 #endif
+#elif defined(QT_WIN_BLUETOOTH)
+    Q_UNUSED(role);
+    return new QLowEnergyControllerPrivateWin32();
+#elif defined(Q_OS_DARWIN)
+    Q_UNUSED(role)
+    return new QLowEnergyControllerPrivateDarwin();
 #else
     Q_UNUSED(role);
     return new QLowEnergyControllerPrivateCommon();
@@ -344,6 +357,9 @@ QLowEnergyController::QLowEnergyController(
                             QObject *parent)
     : QObject(parent)
 {
+    // Note: a central created using this ctor is useless
+    // on Darwin - no way to use addresses when connecting.
+
     d_ptr = privateController(CentralRole);
 
     Q_D(QLowEnergyController);
@@ -373,11 +389,12 @@ QLowEnergyController::QLowEnergyController(
                             QObject *parent)
     : QObject(parent)
 {
-        d_ptr = privateController(CentralRole);
+    d_ptr = privateController(CentralRole);
 
     Q_D(QLowEnergyController);
     d->q_ptr = this;
     d->role = CentralRole;
+    d->deviceUuid = remoteDeviceInfo.deviceUuid();
     d->remoteDevice = remoteDeviceInfo.address();
     d->localAdapter = QBluetoothLocalDevice().address();
     d->addressType = QLowEnergyController::PublicAddress;
@@ -406,6 +423,8 @@ QLowEnergyController::QLowEnergyController(
                             QObject *parent)
     : QObject(parent)
 {
+    // Note: a central create using this ctor is useless on
+    // Darwin (CoreBluetooth does not work with addresses).
     d_ptr = privateController(CentralRole);
 
     Q_D(QLowEnergyController);
@@ -430,6 +449,29 @@ QLowEnergyController *QLowEnergyController::createCentral(const QBluetoothDevice
                                                           QObject *parent)
 {
     return new QLowEnergyController(remoteDevice, parent);
+}
+
+/*!
+    Returns a new instance of this class with \a parent.
+
+    The \a remoteDevice must contain the address of the remote Bluetooth Low
+    Energy device to which this object should attempt to connect later on.
+
+    The connection is established via \a localDevice. If \a localDevice is invalid,
+    the local default device is automatically selected. If \a localDevice specifies
+    a local device that is not a local Bluetooth adapter, \l error() is set to
+    \l InvalidBluetoothAdapterError once \l connectToDevice() is called.
+
+    Note that specifying the local device to be used for the connection is only
+    possible when using BlueZ. All other platforms do not support this feature.
+
+    \since 5.14
+ */
+QLowEnergyController *QLowEnergyController::createCentral(const QBluetoothAddress &remoteDevice,
+                                                          const QBluetoothAddress &localDevice,
+                                                          QObject *parent)
+{
+    return new QLowEnergyController(remoteDevice, localDevice, parent);
 }
 
 
@@ -511,7 +553,7 @@ QBluetoothAddress QLowEnergyController::remoteAddress() const
  */
 QBluetoothUuid QLowEnergyController::remoteDeviceUuid() const
 {
-    return  QBluetoothUuid();
+    return d_ptr->deviceUuid;
 }
 
 /*!

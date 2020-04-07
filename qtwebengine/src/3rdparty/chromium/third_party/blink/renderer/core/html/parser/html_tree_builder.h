@@ -52,22 +52,6 @@ class HTMLTreeBuilder final
   // editing code.
   // TODO(kouhei): Fix editing code to always invoke HTML parser on
   // HTMLDocument.
-  static HTMLTreeBuilder* Create(HTMLDocumentParser* parser,
-                                 Document& document,
-                                 ParserContentPolicy parser_content_policy,
-                                 const HTMLParserOptions& options) {
-    return MakeGarbageCollected<HTMLTreeBuilder>(
-        parser, document, parser_content_policy, options);
-  }
-  static HTMLTreeBuilder* Create(HTMLDocumentParser* parser,
-                                 DocumentFragment* fragment,
-                                 Element* context_element,
-                                 ParserContentPolicy parser_content_policy,
-                                 const HTMLParserOptions& options) {
-    return MakeGarbageCollected<HTMLTreeBuilder>(
-        parser, fragment, context_element, parser_content_policy, options);
-  }
-
   HTMLTreeBuilder(HTMLDocumentParser*,
                   Document&,
                   ParserContentPolicy,
@@ -242,7 +226,7 @@ class HTMLTreeBuilder final
     DISALLOW_COPY_AND_ASSIGN(FragmentParsingContext);
   };
 
-  // https://html.spec.whatwg.org/#frameset-ok-flag
+  // https://html.spec.whatwg.org/C/#frameset-ok-flag
   bool frameset_ok_;
 #if DCHECK_IS_ON()
   bool is_attached_ = true;

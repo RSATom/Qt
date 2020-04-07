@@ -32,136 +32,13 @@ bool DetectSaturation(rtc::ArrayView<const float> y) {
   return false;
 }
 
-bool UseShortDelayEstimatorWindow() {
-  return field_trial::IsEnabled("WebRTC-Aec3UseShortDelayEstimatorWindow");
-}
-
-bool EnableReverbBasedOnRender() {
-  return !field_trial::IsEnabled("WebRTC-Aec3ReverbBasedOnRenderKillSwitch");
-}
-
-bool EnableReverbModelling() {
-  return !field_trial::IsEnabled("WebRTC-Aec3ReverbModellingKillSwitch");
-}
-
-bool EnableUnityInitialRampupGain() {
-  return field_trial::IsEnabled("WebRTC-Aec3EnableUnityInitialRampupGain");
-}
-
-bool EnableUnityNonZeroRampupGain() {
-  return field_trial::IsEnabled("WebRTC-Aec3EnableUnityNonZeroRampupGain");
-}
-
-bool EnableLongReverb() {
-  return field_trial::IsEnabled("WebRTC-Aec3ShortReverbKillSwitch");
-}
-
-bool EnableNewFilterParams() {
-  return !field_trial::IsEnabled("WebRTC-Aec3NewFilterParamsKillSwitch");
-}
-
-bool EnableLegacyDominantNearend() {
-  return field_trial::IsEnabled("WebRTC-Aec3EnableLegacyDominantNearend");
-}
-
-bool UseLegacyNormalSuppressorTuning() {
-  return field_trial::IsEnabled("WebRTC-Aec3UseLegacyNormalSuppressorTuning");
-}
-
-bool ActivateStationarityProperties() {
-  return field_trial::IsEnabled("WebRTC-Aec3UseStationarityProperties");
-}
-
-bool ActivateStationarityPropertiesAtInit() {
-  return field_trial::IsEnabled("WebRTC-Aec3UseStationarityPropertiesAtInit");
-}
-
-bool EnableNewRenderBuffering() {
-  return !field_trial::IsEnabled("WebRTC-Aec3NewRenderBufferingKillSwitch");
-}
-
-bool UseEarlyDelayDetection() {
-  return !field_trial::IsEnabled("WebRTC-Aec3EarlyDelayDetectionKillSwitch");
-}
-
 // Method for adjusting config parameter dependencies..
 EchoCanceller3Config AdjustConfig(const EchoCanceller3Config& config) {
   EchoCanceller3Config adjusted_cfg = config;
-  const EchoCanceller3Config default_cfg;
 
-  if (!EnableReverbModelling()) {
-    adjusted_cfg.ep_strength.default_len = 0.f;
-  }
-
-  if (UseShortDelayEstimatorWindow()) {
-    adjusted_cfg.delay.num_filters =
-        std::min(adjusted_cfg.delay.num_filters, static_cast<size_t>(5));
-  }
-
-  bool use_new_render_buffering =
-      EnableNewRenderBuffering() && config.buffering.use_new_render_buffering;
-  // Old render buffering needs one more filter to cover the same delay.
-  if (!use_new_render_buffering) {
-    adjusted_cfg.delay.num_filters += 1;
-  }
-
-  if (EnableReverbBasedOnRender() == false) {
-    adjusted_cfg.ep_strength.reverb_based_on_render = false;
-  }
-
-  if (!EnableNewFilterParams()) {
-    adjusted_cfg.filter.main.leakage_diverged = 0.01f;
-    adjusted_cfg.filter.main.error_floor = 0.1f;
-    adjusted_cfg.filter.main.error_ceil = 1E10f;
-    adjusted_cfg.filter.main_initial.error_ceil = 1E10f;
-  }
-
-  if (EnableUnityInitialRampupGain() &&
-      adjusted_cfg.echo_removal_control.gain_rampup.initial_gain ==
-          default_cfg.echo_removal_control.gain_rampup.initial_gain) {
-    adjusted_cfg.echo_removal_control.gain_rampup.initial_gain = 1.f;
-  }
-
-  if (EnableUnityNonZeroRampupGain() &&
-      adjusted_cfg.echo_removal_control.gain_rampup.first_non_zero_gain ==
-          default_cfg.echo_removal_control.gain_rampup.first_non_zero_gain) {
-    adjusted_cfg.echo_removal_control.gain_rampup.first_non_zero_gain = 1.f;
-  }
-
-  if (EnableLongReverb()) {
-    adjusted_cfg.ep_strength.default_len = 0.88f;
-  }
-
-  if (EnableLegacyDominantNearend()) {
-    adjusted_cfg.suppressor.nearend_tuning =
-        EchoCanceller3Config::Suppressor::Tuning(
-            EchoCanceller3Config::Suppressor::MaskingThresholds(.2f, .3f, .3f),
-            EchoCanceller3Config::Suppressor::MaskingThresholds(.07f, .1f, .3f),
-            2.0f, 0.25f);
-  }
-
-  if (UseLegacyNormalSuppressorTuning()) {
-    adjusted_cfg.suppressor.normal_tuning =
-        EchoCanceller3Config::Suppressor::Tuning(
-            EchoCanceller3Config::Suppressor::MaskingThresholds(.2f, .3f, .3f),
-            EchoCanceller3Config::Suppressor::MaskingThresholds(.07f, .1f, .3f),
-            2.0f, 0.25f);
-
-    adjusted_cfg.suppressor.dominant_nearend_detection.enr_threshold = 0.1f;
-    adjusted_cfg.suppressor.dominant_nearend_detection.snr_threshold = 10.f;
-    adjusted_cfg.suppressor.dominant_nearend_detection.hold_duration = 25;
-  }
-
-  if (ActivateStationarityProperties()) {
-    adjusted_cfg.echo_audibility.use_stationary_properties = true;
-  }
-
-  if (ActivateStationarityPropertiesAtInit()) {
-    adjusted_cfg.echo_audibility.use_stationarity_properties_at_init = true;
-  }
-
-  if (!UseEarlyDelayDetection()) {
-    adjusted_cfg.delay.delay_selection_thresholds = {25, 25};
+  if (field_trial::IsEnabled("WebRTC-Aec3ShortHeadroomKillSwitch")) {
+    // Two blocks headroom.
+    adjusted_cfg.delay.delay_headroom_samples = kBlockSize * 2;
   }
 
   return adjusted_cfg;
@@ -347,16 +224,12 @@ int EchoCanceller3::instance_count_ = 0;
 EchoCanceller3::EchoCanceller3(const EchoCanceller3Config& config,
                                int sample_rate_hz,
                                bool use_highpass_filter)
-    : EchoCanceller3(AdjustConfig(config),
-                     sample_rate_hz,
-                     use_highpass_filter,
-                     std::unique_ptr<BlockProcessor>(
-                         EnableNewRenderBuffering() &&
-                                 config.buffering.use_new_render_buffering
-                             ? BlockProcessor::Create2(AdjustConfig(config),
-                                                       sample_rate_hz)
-                             : BlockProcessor::Create(AdjustConfig(config),
-                                                      sample_rate_hz))) {}
+    : EchoCanceller3(
+          AdjustConfig(config),
+          sample_rate_hz,
+          use_highpass_filter,
+          std::unique_ptr<BlockProcessor>(
+              BlockProcessor::Create(AdjustConfig(config), sample_rate_hz))) {}
 EchoCanceller3::EchoCanceller3(const EchoCanceller3Config& config,
                                int sample_rate_hz,
                                bool use_highpass_filter,

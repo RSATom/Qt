@@ -5,27 +5,27 @@
  * found in the LICENSE file.
  */
 
-#include "SkTypes.h"
+#include "include/core/SkTypes.h"
 
-#include "SkData.h"
-#include "SkFixed.h"
-#include "SkFontDescriptor.h"
-#include "SkFontHost_FreeType_common.h"
-#include "SkFontMgr.h"
-#include "SkFontMgr_android.h"
-#include "SkFontMgr_android_parser.h"
-#include "SkFontStyle.h"
-#include "SkMakeUnique.h"
-#include "SkOSFile.h"
-#include "SkPaint.h"
-#include "SkRefCnt.h"
-#include "SkString.h"
-#include "SkStream.h"
-#include "SkTArray.h"
-#include "SkTDArray.h"
-#include "SkTSearch.h"
-#include "SkTemplates.h"
-#include "SkTypefaceCache.h"
+#include "include/core/SkData.h"
+#include "include/core/SkFontMgr.h"
+#include "include/core/SkFontStyle.h"
+#include "include/core/SkPaint.h"
+#include "include/core/SkRefCnt.h"
+#include "include/core/SkStream.h"
+#include "include/core/SkString.h"
+#include "include/ports/SkFontMgr_android.h"
+#include "include/private/SkFixed.h"
+#include "include/private/SkTArray.h"
+#include "include/private/SkTDArray.h"
+#include "include/private/SkTemplates.h"
+#include "src/core/SkFontDescriptor.h"
+#include "src/core/SkMakeUnique.h"
+#include "src/core/SkOSFile.h"
+#include "src/core/SkTSearch.h"
+#include "src/core/SkTypefaceCache.h"
+#include "src/ports/SkFontHost_FreeType_common.h"
+#include "src/ports/SkFontMgr_android_parser.h"
 
 #include <algorithm>
 #include <limits>
@@ -90,9 +90,9 @@ public:
         desc->setStyle(this->fontStyle());
         *serialize = false;
     }
-    SkStreamAsset* onOpenStream(int* ttcIndex) const override {
+    std::unique_ptr<SkStreamAsset> onOpenStream(int* ttcIndex) const override {
         *ttcIndex = fIndex;
-        return this->makeStream().release();
+        return this->makeStream();
     }
     std::unique_ptr<SkFontData> onMakeFontData() const override {
         return skstd::make_unique<SkFontData>(this->makeStream(), fIndex,
@@ -143,9 +143,9 @@ public:
         *serialize = true;
     }
 
-    SkStreamAsset* onOpenStream(int* ttcIndex) const override {
+    std::unique_ptr<SkStreamAsset> onOpenStream(int* ttcIndex) const override {
         *ttcIndex = fData->getIndex();
-        return fData->getStream()->duplicate().release();
+        return fData->getStream()->duplicate();
     }
 
     std::unique_ptr<SkFontData> onMakeFontData() const override {

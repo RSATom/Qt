@@ -264,26 +264,28 @@ TEST_F(CompileCommandsTest, WinPrecompiledHeaders) {
   pch_settings.set_default_toolchain_label(toolchain()->label());
 
   // Declare a C++ compiler that supports PCH.
-  std::unique_ptr<Tool> cxx_tool = std::make_unique<Tool>();
+  std::unique_ptr<Tool> cxx = Tool::CreateTool(CTool::kCToolCxx);
+  CTool* cxx_tool = cxx->AsC();
   TestWithScope::SetCommandForTool(
       "c++ {{source}} {{cflags}} {{cflags_cc}} {{defines}} {{include_dirs}} "
       "-o {{output}}",
-      cxx_tool.get());
+      cxx_tool);
   cxx_tool->set_outputs(SubstitutionList::MakeForTest(
       "{{source_out_dir}}/{{target_output_name}}.{{source_name_part}}.o"));
-  cxx_tool->set_precompiled_header_type(Tool::PCH_MSVC);
-  pch_toolchain.SetTool(Toolchain::TYPE_CXX, std::move(cxx_tool));
+  cxx_tool->set_precompiled_header_type(CTool::PCH_MSVC);
+  pch_toolchain.SetTool(std::move(cxx));
 
   // Add a C compiler as well.
-  std::unique_ptr<Tool> cc_tool = std::make_unique<Tool>();
+  std::unique_ptr<Tool> cc = Tool::CreateTool(CTool::kCToolCc);
+  CTool* cc_tool = cc->AsC();
   TestWithScope::SetCommandForTool(
       "cc {{source}} {{cflags}} {{cflags_c}} {{defines}} {{include_dirs}} "
       "-o {{output}}",
-      cc_tool.get());
+      cc_tool);
   cc_tool->set_outputs(SubstitutionList::MakeForTest(
       "{{source_out_dir}}/{{target_output_name}}.{{source_name_part}}.o"));
-  cc_tool->set_precompiled_header_type(Tool::PCH_MSVC);
-  pch_toolchain.SetTool(Toolchain::TYPE_CC, std::move(cc_tool));
+  cc_tool->set_precompiled_header_type(CTool::PCH_MSVC);
+  pch_toolchain.SetTool(std::move(cc));
   pch_toolchain.ToolchainSetupComplete();
 
   // This target doesn't specify precompiled headers.
@@ -412,27 +414,29 @@ TEST_F(CompileCommandsTest, GCCPrecompiledHeaders) {
   pch_settings.set_default_toolchain_label(toolchain()->label());
 
   // Declare a C++ compiler that supports PCH.
-  std::unique_ptr<Tool> cxx_tool = std::make_unique<Tool>();
+  std::unique_ptr<Tool> cxx = Tool::CreateTool(CTool::kCToolCxx);
+  CTool* cxx_tool = cxx->AsC();
   TestWithScope::SetCommandForTool(
       "c++ {{source}} {{cflags}} {{cflags_cc}} {{defines}} {{include_dirs}} "
       "-o {{output}}",
-      cxx_tool.get());
+      cxx_tool);
   cxx_tool->set_outputs(SubstitutionList::MakeForTest(
       "{{source_out_dir}}/{{target_output_name}}.{{source_name_part}}.o"));
-  cxx_tool->set_precompiled_header_type(Tool::PCH_GCC);
-  pch_toolchain.SetTool(Toolchain::TYPE_CXX, std::move(cxx_tool));
+  cxx_tool->set_precompiled_header_type(CTool::PCH_GCC);
+  pch_toolchain.SetTool(std::move(cxx));
   pch_toolchain.ToolchainSetupComplete();
 
   // Add a C compiler as well.
-  std::unique_ptr<Tool> cc_tool = std::make_unique<Tool>();
+  std::unique_ptr<Tool> cc = Tool::CreateTool(CTool::kCToolCc);
+  CTool* cc_tool = cc->AsC();
   TestWithScope::SetCommandForTool(
       "cc {{source}} {{cflags}} {{cflags_c}} {{defines}} {{include_dirs}} "
       "-o {{output}}",
-      cc_tool.get());
+      cc_tool);
   cc_tool->set_outputs(SubstitutionList::MakeForTest(
       "{{source_out_dir}}/{{target_output_name}}.{{source_name_part}}.o"));
-  cc_tool->set_precompiled_header_type(Tool::PCH_GCC);
-  pch_toolchain.SetTool(Toolchain::TYPE_CC, std::move(cc_tool));
+  cc_tool->set_precompiled_header_type(CTool::PCH_GCC);
+  pch_toolchain.SetTool(std::move(cc));
   pch_toolchain.ToolchainSetupComplete();
 
   // This target doesn't specify precompiled headers.
@@ -587,4 +591,57 @@ TEST_F(CompileCommandsTest, EscapedFlags) {
       "]\n";
 #endif
   EXPECT_EQ(expected, out);
+}
+
+TEST_F(CompileCommandsTest, CompDBFilter) {
+  Err err;
+
+  std::vector<const Target*> targets;
+  Target target1(settings(), Label(SourceDir("//foo/"), "bar1"));
+  target1.set_output_type(Target::SOURCE_SET);
+  target1.sources().push_back(SourceFile("//foo/input1.c"));
+  target1.config_values().cflags_c().push_back("-DCONFIG=\"/config\"");
+  target1.SetToolchain(toolchain());
+  ASSERT_TRUE(target1.OnResolved(&err));
+  targets.push_back(&target1);
+
+  Target target2(settings(), Label(SourceDir("//foo/"), "bar2"));
+  target2.set_output_type(Target::SOURCE_SET);
+  target2.sources().push_back(SourceFile("//foo/input2.c"));
+  target2.config_values().cflags_c().push_back("-DCONFIG=\"/config\"");
+  target2.SetToolchain(toolchain());
+  ASSERT_TRUE(target2.OnResolved(&err));
+  targets.push_back(&target2);
+
+  Target target3(settings(), Label(SourceDir("//foo/"), "bar3"));
+  target3.set_output_type(Target::SOURCE_SET);
+  target3.sources().push_back(SourceFile("//foo/input3.c"));
+  target3.config_values().cflags_c().push_back("-DCONFIG=\"/config\"");
+  target3.SetToolchain(toolchain());
+  ASSERT_TRUE(target3.OnResolved(&err));
+  targets.push_back(&target3);
+
+  target1.private_deps().push_back(LabelTargetPair(&target2));
+  target1.private_deps().push_back(LabelTargetPair(&target3));
+
+  CompileCommandsWriter writer;
+
+  std::set<std::string> filter1;
+  std::vector<const Target*> test_results1 =
+      writer.FilterTargets(targets, filter1);
+  ASSERT_TRUE(test_results1.empty());
+
+  std::set<std::string> filter2;
+  filter2.insert(target1.label().name());
+  std::vector<const Target*> test_results2 =
+      writer.FilterTargets(targets, filter2);
+  ASSERT_EQ(test_results2, targets);
+
+  std::set<std::string> filter3;
+  filter3.insert(target2.label().name());
+  std::vector<const Target*> test_result3 =
+      writer.FilterTargets(targets, filter3);
+  std::vector<const Target*> expected_results3;
+  expected_results3.push_back(&target2);
+  ASSERT_EQ(test_result3, expected_results3);
 }

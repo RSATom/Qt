@@ -14,26 +14,31 @@ class CFX_FontMgr;
 
 class CFX_GEModule {
  public:
-  static CFX_GEModule* Get();
+  class PlatformIface {
+   public:
+    static std::unique_ptr<PlatformIface> Create();
+    virtual ~PlatformIface() {}
+
+    virtual void Init() = 0;
+  };
+
+  static void Create(const char** pUserFontPaths);
   static void Destroy();
+  static CFX_GEModule* Get();
 
-  void Init(const char** pUserFontPaths);
-  CFX_FontCache* GetFontCache();
-  CFX_FontMgr* GetFontMgr() { return m_pFontMgr.get(); }
-
-  void* GetPlatformData() { return m_pPlatformData; }
+  CFX_FontCache* GetFontCache() const { return m_pFontCache.get(); }
+  CFX_FontMgr* GetFontMgr() const { return m_pFontMgr.get(); }
+  PlatformIface* GetPlatform() const { return m_pPlatform.get(); }
+  const char** GetUserFontPaths() const { return m_pUserFontPaths; }
 
  private:
-  CFX_GEModule();
+  explicit CFX_GEModule(const char** pUserFontPaths);
   ~CFX_GEModule();
 
-  void InitPlatform();
-  void DestroyPlatform();
-
-  std::unique_ptr<CFX_FontCache> m_pFontCache;
-  std::unique_ptr<CFX_FontMgr> m_pFontMgr;
-  void* m_pPlatformData;
-  const char** m_pUserFontPaths;
+  std::unique_ptr<PlatformIface> const m_pPlatform;
+  std::unique_ptr<CFX_FontMgr> const m_pFontMgr;
+  std::unique_ptr<CFX_FontCache> const m_pFontCache;
+  const char** const m_pUserFontPaths;
 };
 
 #endif  // CORE_FXGE_CFX_GEMODULE_H_

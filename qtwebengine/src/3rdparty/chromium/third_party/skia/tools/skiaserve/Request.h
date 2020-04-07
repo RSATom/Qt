@@ -8,16 +8,16 @@
 #ifndef Request_DEFINED
 #define Request_DEFINED
 
-#include "SkTypes.h"
+#include "include/core/SkTypes.h"
 
-#include "GrContextFactory.h"
+#include "tools/gpu/GrContextFactory.h"
 
-#include "SkDebugCanvas.h"
-#include "SkPicture.h"
-#include "SkStream.h"
-#include "SkSurface.h"
+#include "include/core/SkPicture.h"
+#include "include/core/SkStream.h"
+#include "include/core/SkSurface.h"
+#include "tools/debugger/DebugCanvas.h"
 
-#include "UrlDataManager.h"
+#include "tools/UrlDataManager.h"
 
 namespace sk_gpu_test {
 class GrContextFactory;
@@ -60,7 +60,7 @@ struct Request {
     SkColor getPixel(int x, int y);
 
     UploadContext* fUploadContext;
-    std::unique_ptr<SkDebugCanvas> fDebugCanvas;
+    std::unique_ptr<DebugCanvas> fDebugCanvas;
     UrlDataManager fUrlDataManager;
 
 private:

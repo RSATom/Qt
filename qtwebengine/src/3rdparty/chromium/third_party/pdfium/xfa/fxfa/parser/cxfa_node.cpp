@@ -22,6 +22,7 @@
 #include "core/fxcrt/xml/cfx_xmlnode.h"
 #include "core/fxcrt/xml/cfx_xmltext.h"
 #include "core/fxge/dib/cfx_dibitmap.h"
+#include "core/fxge/fx_font.h"
 #include "fxjs/xfa/cfxjse_engine.h"
 #include "fxjs/xfa/cfxjse_value.h"
 #include "fxjs/xfa/cjx_node.h"
@@ -190,7 +191,6 @@
 #include "xfa/fxfa/parser/cxfa_keyusage.h"
 #include "xfa/fxfa/parser/cxfa_labelprinter.h"
 #include "xfa/fxfa/parser/cxfa_layout.h"
-#include "xfa/fxfa/parser/cxfa_layoutprocessor.h"
 #include "xfa/fxfa/parser/cxfa_level.h"
 #include "xfa/fxfa/parser/cxfa_line.h"
 #include "xfa/fxfa/parser/cxfa_linear.h"
@@ -329,6 +329,7 @@
 #include "xfa/fxfa/parser/cxfa_traversal.h"
 #include "xfa/fxfa/parser/cxfa_traverse.h"
 #include "xfa/fxfa/parser/cxfa_traversestrategy_xfacontainernode.h"
+#include "xfa/fxfa/parser/cxfa_traversestrategy_xfanode.h"
 #include "xfa/fxfa/parser/cxfa_type.h"
 #include "xfa/fxfa/parser/cxfa_typeface.h"
 #include "xfa/fxfa/parser/cxfa_typefaces.h"
@@ -381,68 +382,58 @@ constexpr uint8_t g_inv_base64[128] = {
     49,  50,  51,  255, 255, 255, 255, 255,
 };
 
-uint8_t* XFA_RemoveBase64Whitespace(const uint8_t* pStr, int32_t iLen) {
-  uint8_t* pCP;
-  int32_t i = 0, j = 0;
-  if (iLen == 0) {
-    iLen = strlen((char*)pStr);
-  }
-  pCP = FX_Alloc(uint8_t, iLen + 1);
-  for (; i < iLen; i++) {
-    if ((pStr[i] & 128) == 0) {
-      if (g_inv_base64[pStr[i]] != 0xFF || pStr[i] == '=') {
-        pCP[j++] = pStr[i];
-      }
-    }
-  }
-  pCP[j] = '\0';
-  return pCP;
+inline uint8_t GetInvBase64(uint8_t x) {
+  return (x & 128) == 0 ? g_inv_base64[x] : 255;
 }
 
-int32_t XFA_Base64Decode(const char* pStr, uint8_t* pOutBuffer) {
-  if (!pStr) {
-    return 0;
+std::vector<uint8_t> XFA_RemoveBase64Whitespace(
+    pdfium::span<const uint8_t> spStr) {
+  std::vector<uint8_t> result;
+  result.reserve(spStr.size());
+  for (uint8_t ch : spStr) {
+    if (GetInvBase64(ch) != 255 || ch == '=')
+      result.push_back(ch);
   }
-  uint8_t* pBuffer =
-      XFA_RemoveBase64Whitespace((uint8_t*)pStr, strlen((char*)pStr));
-  if (!pBuffer) {
-    return 0;
-  }
-  int32_t iLen = strlen((char*)pBuffer);
-  int32_t i = 0, j = 0;
+  return result;
+}
+
+std::vector<uint8_t> XFA_Base64Decode(const ByteString& bsStr) {
+  std::vector<uint8_t> result;
+  if (bsStr.IsEmpty())
+    return result;
+
+  std::vector<uint8_t> buffer = XFA_RemoveBase64Whitespace(bsStr.raw_span());
+  result.reserve(3 * (buffer.size() / 4));
+
   uint32_t dwLimb = 0;
-  for (; i + 3 < iLen; i += 4) {
-    if (pBuffer[i] == '=' || pBuffer[i + 1] == '=' || pBuffer[i + 2] == '=' ||
-        pBuffer[i + 3] == '=') {
-      if (pBuffer[i] == '=' || pBuffer[i + 1] == '=') {
+  for (size_t i = 0; i + 3 < buffer.size(); i += 4) {
+    if (buffer[i] == '=' || buffer[i + 1] == '=' || buffer[i + 2] == '=' ||
+        buffer[i + 3] == '=') {
+      if (buffer[i] == '=' || buffer[i + 1] == '=') {
         break;
       }
-      if (pBuffer[i + 2] == '=') {
-        dwLimb = ((uint32_t)g_inv_base64[pBuffer[i]] << 6) |
-                 ((uint32_t)g_inv_base64[pBuffer[i + 1]]);
-        pOutBuffer[j] = (uint8_t)(dwLimb >> 4) & 0xFF;
-        j++;
+      if (buffer[i + 2] == '=') {
+        dwLimb = ((uint32_t)g_inv_base64[buffer[i]] << 6) |
+                 ((uint32_t)g_inv_base64[buffer[i + 1]]);
+        result.push_back((uint8_t)(dwLimb >> 4) & 0xFF);
       } else {
-        dwLimb = ((uint32_t)g_inv_base64[pBuffer[i]] << 12) |
-                 ((uint32_t)g_inv_base64[pBuffer[i + 1]] << 6) |
-                 ((uint32_t)g_inv_base64[pBuffer[i + 2]]);
-        pOutBuffer[j] = (uint8_t)(dwLimb >> 10) & 0xFF;
-        pOutBuffer[j + 1] = (uint8_t)(dwLimb >> 2) & 0xFF;
-        j += 2;
+        dwLimb = ((uint32_t)g_inv_base64[buffer[i]] << 12) |
+                 ((uint32_t)g_inv_base64[buffer[i + 1]] << 6) |
+                 ((uint32_t)g_inv_base64[buffer[i + 2]]);
+        result.push_back((uint8_t)(dwLimb >> 10) & 0xFF);
+        result.push_back((uint8_t)(dwLimb >> 2) & 0xFF);
       }
     } else {
-      dwLimb = ((uint32_t)g_inv_base64[pBuffer[i]] << 18) |
-               ((uint32_t)g_inv_base64[pBuffer[i + 1]] << 12) |
-               ((uint32_t)g_inv_base64[pBuffer[i + 2]] << 6) |
-               ((uint32_t)g_inv_base64[pBuffer[i + 3]]);
-      pOutBuffer[j] = (uint8_t)(dwLimb >> 16) & 0xff;
-      pOutBuffer[j + 1] = (uint8_t)(dwLimb >> 8) & 0xff;
-      pOutBuffer[j + 2] = (uint8_t)(dwLimb)&0xff;
-      j += 3;
+      dwLimb = ((uint32_t)g_inv_base64[buffer[i]] << 18) |
+               ((uint32_t)g_inv_base64[buffer[i + 1]] << 12) |
+               ((uint32_t)g_inv_base64[buffer[i + 2]] << 6) |
+               ((uint32_t)g_inv_base64[buffer[i + 3]]);
+      result.push_back((uint8_t)(dwLimb >> 16) & 0xff);
+      result.push_back((uint8_t)(dwLimb >> 8) & 0xff);
+      result.push_back((uint8_t)(dwLimb)&0xff);
     }
   }
-  FX_Free(pBuffer);
-  return j;
+  return result;
 }
 
 FXCODEC_IMAGE_TYPE XFA_GetImageType(const WideString& wsType) {
@@ -484,21 +475,20 @@ RetainPtr<CFX_DIBitmap> XFA_LoadImageData(CXFA_FFDoc* pDoc,
     return nullptr;
 
   FXCODEC_IMAGE_TYPE type = XFA_GetImageType(pImage->GetContentType());
-  std::vector<uint8_t> buffer;
+  ByteString bsData;  // Must outlive |pImageFileRead|.
+  std::vector<uint8_t> buffer;  // Must outlive |pImageFileRead|.
   RetainPtr<IFX_SeekableReadStream> pImageFileRead;
   if (wsImage.GetLength() > 0) {
     XFA_AttributeValue iEncoding = pImage->GetTransferEncoding();
     if (iEncoding == XFA_AttributeValue::Base64) {
-      ByteString bsData = wsImage.ToUTF8();
-      buffer.resize(bsData.GetLength());
-      int32_t iRead = XFA_Base64Decode(bsData.c_str(), buffer.data());
-      if (iRead > 0) {
-        pImageFileRead = pdfium::MakeRetain<CFX_ReadOnlyMemoryStream>(
-            pdfium::make_span(buffer.data(), iRead));
-      }
+      bsData = wsImage.ToUTF8();
+      buffer = XFA_Base64Decode(bsData);
+      if (!buffer.empty())
+        pImageFileRead = pdfium::MakeRetain<CFX_ReadOnlyMemoryStream>(buffer);
     } else {
-      pImageFileRead = pdfium::MakeRetain<CFX_ReadOnlyMemoryStream>(
-          wsImage.ToDefANSI().AsRawSpan());
+      bsData = wsImage.ToDefANSI();
+      pImageFileRead =
+          pdfium::MakeRetain<CFX_ReadOnlyMemoryStream>(bsData.raw_span());
     }
   } else {
     WideString wsURL = wsHref;
@@ -634,8 +624,8 @@ void ReorderDataNodes(const std::set<CXFA_Node*>& sSet1,
           pBeforeNode = pLastNode->GetNextSibling();
         }
         for (auto* pCurNode : rgNodeArray1) {
-          pParentNode->RemoveChild(pCurNode, true);
-          pParentNode->InsertChild(pCurNode, pBeforeNode);
+          pParentNode->RemoveChildAndNotify(pCurNode, true);
+          pParentNode->InsertChildAndNotify(pCurNode, pBeforeNode);
         }
       }
     }
@@ -691,6 +681,132 @@ WideString FormatNumStr(const WideString& wsValue, LocaleIface* pLocale) {
     return pLocale->GetMinusSymbol() + wsOutput;
 
   return wsOutput;
+}
+
+CXFA_Node* FindFirstSiblingNamedInList(CXFA_Node* parent,
+                                       uint32_t dwNameHash,
+                                       uint32_t dwFilter);
+CXFA_Node* FindFirstSiblingOfClassInList(CXFA_Node* parent,
+                                         XFA_Element element,
+                                         uint32_t dwFilter);
+
+CXFA_Node* FindFirstSiblingNamed(CXFA_Node* parent, uint32_t dwNameHash) {
+  CXFA_Node* result = FindFirstSiblingNamedInList(parent, dwNameHash,
+                                                  XFA_NODEFILTER_Properties);
+  if (result)
+    return result;
+
+  return FindFirstSiblingNamedInList(parent, dwNameHash,
+                                     XFA_NODEFILTER_Children);
+}
+
+CXFA_Node* FindFirstSiblingNamedInList(CXFA_Node* parent,
+                                       uint32_t dwNameHash,
+                                       uint32_t dwFilter) {
+  for (CXFA_Node* child : parent->GetNodeListWithFilter(dwFilter)) {
+    if (child->GetNameHash() == dwNameHash)
+      return child;
+
+    CXFA_Node* result = FindFirstSiblingNamed(child, dwNameHash);
+    if (result)
+      return result;
+  }
+  return nullptr;
+}
+
+CXFA_Node* FindFirstSiblingOfClass(CXFA_Node* parent, XFA_Element element) {
+  CXFA_Node* result =
+      FindFirstSiblingOfClassInList(parent, element, XFA_NODEFILTER_Properties);
+  if (result)
+    return result;
+
+  return FindFirstSiblingOfClassInList(parent, element,
+                                       XFA_NODEFILTER_Children);
+}
+
+CXFA_Node* FindFirstSiblingOfClassInList(CXFA_Node* parent,
+                                         XFA_Element element,
+                                         uint32_t dwFilter) {
+  for (CXFA_Node* child : parent->GetNodeListWithFilter(dwFilter)) {
+    if (child->GetElementType() == element)
+      return child;
+
+    CXFA_Node* result = FindFirstSiblingOfClass(child, element);
+    if (result)
+      return result;
+  }
+  return nullptr;
+}
+
+WideString GetNameExpressionSinglePath(CXFA_Node* pNode) {
+  const bool bIsProperty = pNode->IsProperty();
+  const bool bIsClassIndex =
+      pNode->IsUnnamed() ||
+      (bIsProperty && pNode->GetElementType() != XFA_Element::PageSet);
+  const wchar_t* pszFormat;
+  WideString ws;
+  if (bIsClassIndex) {
+    pszFormat = L"#%ls[%zu]";
+    ws = WideString::FromASCII(pNode->GetClassName());
+  } else {
+    pszFormat = L"%ls[%zu]";
+    ws = pNode->JSObject()->GetCData(XFA_Attribute::Name);
+    ws.Replace(L".", L"\\.");
+  }
+
+  return WideString::Format(pszFormat, ws.c_str(),
+                            pNode->GetIndex(bIsProperty, bIsClassIndex));
+}
+
+void TraverseSiblings(CXFA_Node* parent,
+                      uint32_t dwNameHash,
+                      std::vector<CXFA_Node*>* pSiblings,
+                      bool bIsClassName,
+                      bool bIsFindProperty) {
+  ASSERT(parent);
+  ASSERT(pSiblings);
+
+  if (bIsFindProperty) {
+    for (CXFA_Node* child :
+         parent->GetNodeListWithFilter(XFA_NODEFILTER_Properties)) {
+      if (bIsClassName) {
+        if (child->GetClassHashCode() == dwNameHash)
+          pSiblings->push_back(child);
+      } else {
+        if (child->GetNameHash() == dwNameHash) {
+          if (child->GetElementType() != XFA_Element::PageSet &&
+              child->GetElementType() != XFA_Element::Extras &&
+              child->GetElementType() != XFA_Element::Items) {
+            pSiblings->push_back(child);
+          }
+        }
+      }
+      if (child->IsUnnamed() &&
+          child->GetElementType() == XFA_Element::PageSet) {
+        TraverseSiblings(child, dwNameHash, pSiblings, bIsClassName, false);
+      }
+    }
+    if (!pSiblings->empty())
+      return;
+  }
+  for (CXFA_Node* child :
+       parent->GetNodeListWithFilter(XFA_NODEFILTER_Children)) {
+    if (child->GetElementType() == XFA_Element::Variables)
+      continue;
+
+    if (bIsClassName) {
+      if (child->GetClassHashCode() == dwNameHash)
+        pSiblings->push_back(child);
+    } else {
+      if (child->GetNameHash() == dwNameHash)
+        pSiblings->push_back(child);
+    }
+
+    if (child->IsTransparent() &&
+        child->GetElementType() != XFA_Element::PageSet) {
+      TraverseSiblings(child, dwNameHash, pSiblings, bIsClassName, false);
+    }
+  }
 }
 
 }  // namespace
@@ -835,32 +951,16 @@ CXFA_Node::CXFA_Node(CXFA_Document* pDoc,
                      uint32_t validPackets,
                      XFA_ObjectType oType,
                      XFA_Element eType,
-                     const PropertyData* properties,
-                     const AttributeData* attributes,
-                     std::unique_ptr<CJX_Object> js_node)
-    : CXFA_Object(pDoc, oType, eType, std::move(js_node)),
+                     pdfium::span<const PropertyData> properties,
+                     pdfium::span<const AttributeData> attributes,
+                     std::unique_ptr<CJX_Object> js_object)
+    : CXFA_Object(pDoc, oType, eType, std::move(js_object)),
       m_Properties(properties),
       m_Attributes(attributes),
       m_ValidPackets(validPackets),
       m_ePacket(ePacket) {
   ASSERT(m_pDocument);
 }
-
-CXFA_Node::CXFA_Node(CXFA_Document* pDoc,
-                     XFA_PacketType ePacket,
-                     uint32_t validPackets,
-                     XFA_ObjectType oType,
-                     XFA_Element eType,
-                     const PropertyData* properties,
-                     const AttributeData* attributes)
-    : CXFA_Node(pDoc,
-                ePacket,
-                validPackets,
-                oType,
-                eType,
-                properties,
-                attributes,
-                pdfium::MakeUnique<CJX_Node>(this)) {}
 
 CXFA_Node::~CXFA_Node() = default;
 
@@ -877,36 +977,27 @@ CXFA_Node* CXFA_Node::Clone(bool bRecursive) {
       WideString wsName = JSObject()
                               ->TryAttribute(XFA_Attribute::Name, false)
                               .value_or(WideString());
-      auto* pCloneXMLElement = GetDocument()
-                                   ->GetNotify()
-                                   ->GetHDOC()
-                                   ->GetXMLDocument()
-                                   ->CreateNode<CFX_XMLElement>(wsName);
+      auto* pCloneXMLElement =
+          GetXMLDocument()->CreateNode<CFX_XMLElement>(wsName);
 
       WideString wsValue = JSObject()->GetCData(XFA_Attribute::Value);
       if (!wsValue.IsEmpty()) {
-        auto* text = GetDocument()
-                         ->GetNotify()
-                         ->GetHDOC()
-                         ->GetXMLDocument()
-                         ->CreateNode<CFX_XMLText>(wsValue);
-        pCloneXMLElement->AppendChild(text);
+        auto* text = GetXMLDocument()->CreateNode<CFX_XMLText>(wsValue);
+        pCloneXMLElement->AppendLastChild(text);
       }
 
       pCloneXML = pCloneXMLElement;
-
       pClone->JSObject()->SetEnum(XFA_Attribute::Contains,
                                   XFA_AttributeValue::Unknown, false);
     } else {
-      pCloneXML = xml_node_->Clone(
-          GetDocument()->GetNotify()->GetHDOC()->GetXMLDocument());
+      pCloneXML = xml_node_->Clone(GetXMLDocument());
     }
     pClone->SetXMLMappingNode(pCloneXML);
   }
   if (bRecursive) {
     for (CXFA_Node* pChild = GetFirstChild(); pChild;
          pChild = pChild->GetNextSibling()) {
-      pClone->InsertChild(pChild->Clone(bRecursive), nullptr);
+      pClone->InsertChildAndNotify(pChild->Clone(bRecursive), nullptr);
     }
   }
   pClone->SetFlagAndNotify(XFA_NodeFlag_Initialized);
@@ -915,7 +1006,7 @@ CXFA_Node* CXFA_Node::Clone(bool bRecursive) {
 }
 
 CXFA_Node* CXFA_Node::GetNextContainerSibling() const {
-  for (auto* pNode = next_sibling_; pNode; pNode = pNode->next_sibling_) {
+  for (auto* pNode = GetNextSibling(); pNode; pNode = pNode->GetNextSibling()) {
     if (pNode->GetObjectType() == XFA_ObjectType::ContainerNode)
       return pNode;
   }
@@ -923,7 +1014,7 @@ CXFA_Node* CXFA_Node::GetNextContainerSibling() const {
 }
 
 CXFA_Node* CXFA_Node::GetPrevContainerSibling() const {
-  for (auto* pNode = prev_sibling_; pNode; pNode = pNode->prev_sibling_) {
+  for (auto* pNode = GetPrevSibling(); pNode; pNode = pNode->GetPrevSibling()) {
     if (pNode->GetObjectType() == XFA_ObjectType::ContainerNode)
       return pNode;
   }
@@ -931,7 +1022,7 @@ CXFA_Node* CXFA_Node::GetPrevContainerSibling() const {
 }
 
 CXFA_Node* CXFA_Node::GetFirstContainerChild() const {
-  for (auto* pNode = first_child_; pNode; pNode = pNode->next_sibling_) {
+  for (auto* pNode = GetFirstChild(); pNode; pNode = pNode->GetNextSibling()) {
     if (pNode->GetObjectType() == XFA_ObjectType::ContainerNode)
       return pNode;
   }
@@ -939,7 +1030,7 @@ CXFA_Node* CXFA_Node::GetFirstContainerChild() const {
 }
 
 CXFA_Node* CXFA_Node::GetContainerParent() const {
-  for (auto* pNode = parent_; pNode; pNode = pNode->parent_) {
+  for (auto* pNode = GetParent(); pNode; pNode = pNode->GetParent()) {
     if (pNode->GetObjectType() == XFA_ObjectType::ContainerNode)
       return pNode;
   }
@@ -952,15 +1043,10 @@ bool CXFA_Node::IsValidInPacket(XFA_PacketType packet) const {
 
 const CXFA_Node::PropertyData* CXFA_Node::GetPropertyData(
     XFA_Element property) const {
-  if (m_Properties == nullptr)
-    return nullptr;
-
-  for (size_t i = 0;; ++i) {
-    const PropertyData* data = m_Properties + i;
-    if (data->property == XFA_Element::Unknown)
-      break;
-    if (data->property == property)
-      return data;
+  ASSERT(property != XFA_Element::Unknown);
+  for (const auto& prop : m_Properties) {
+    if (prop.property == property)
+      return &prop;
   }
   return nullptr;
 }
@@ -979,31 +1065,20 @@ uint8_t CXFA_Node::PropertyOccuranceCount(XFA_Element property) const {
   return data ? data->occurance_count : 0;
 }
 
-Optional<XFA_Element> CXFA_Node::GetFirstPropertyWithFlag(uint8_t flag) {
-  if (m_Properties == nullptr)
-    return {};
-
-  for (size_t i = 0;; ++i) {
-    const PropertyData* data = m_Properties + i;
-    if (data->property == XFA_Element::Unknown)
-      break;
-    if (data->flags & flag)
-      return {data->property};
+Optional<XFA_Element> CXFA_Node::GetFirstPropertyWithFlag(uint8_t flag) const {
+  for (const auto& prop : m_Properties) {
+    if (prop.flags & flag)
+      return prop.property;
   }
   return {};
 }
 
 const CXFA_Node::AttributeData* CXFA_Node::GetAttributeData(
     XFA_Attribute attr) const {
-  if (m_Attributes == nullptr)
-    return nullptr;
-
-  for (size_t i = 0;; ++i) {
-    const AttributeData* cur_attr = &m_Attributes[i];
-    if (cur_attr->attribute == XFA_Attribute::Unknown)
-      break;
-    if (cur_attr->attribute == attr)
-      return cur_attr;
+  ASSERT(attr != XFA_Attribute::Unknown);
+  for (const auto& cur_attr : m_Attributes) {
+    if (cur_attr.attribute == attr)
+      return &cur_attr;
   }
   return nullptr;
 }
@@ -1012,11 +1087,9 @@ bool CXFA_Node::HasAttribute(XFA_Attribute attr) const {
   return !!GetAttributeData(attr);
 }
 
-// Note: This Method assumes that i is a valid index ....
 XFA_Attribute CXFA_Node::GetAttribute(size_t i) const {
-  if (m_Attributes == nullptr)
-    return XFA_Attribute::Unknown;
-  return m_Attributes[i].attribute;
+  return i < m_Attributes.size() ? m_Attributes[i].attribute
+                                 : XFA_Attribute::Unknown;
 }
 
 XFA_AttributeType CXFA_Node::GetAttributeType(XFA_Attribute type) const {
@@ -1024,35 +1097,34 @@ XFA_AttributeType CXFA_Node::GetAttributeType(XFA_Attribute type) const {
   return data ? data->type : XFA_AttributeType::CData;
 }
 
-std::vector<CXFA_Node*> CXFA_Node::GetNodeList(uint32_t dwTypeFilter,
-                                               XFA_Element eTypeFilter) {
-  if (eTypeFilter != XFA_Element::Unknown) {
-    std::vector<CXFA_Node*> nodes;
-    for (CXFA_Node* pChild = first_child_; pChild;
-         pChild = pChild->next_sibling_) {
-      if (pChild->GetElementType() == eTypeFilter)
-        nodes.push_back(pChild);
-    }
-    return nodes;
+std::vector<CXFA_Node*> CXFA_Node::GetNodeListForType(XFA_Element eTypeFilter) {
+  std::vector<CXFA_Node*> nodes;
+  for (CXFA_Node* pChild = GetFirstChild(); pChild;
+       pChild = pChild->GetNextSibling()) {
+    if (pChild->GetElementType() == eTypeFilter)
+      nodes.push_back(pChild);
   }
+  return nodes;
+}
 
+std::vector<CXFA_Node*> CXFA_Node::GetNodeListWithFilter(
+    uint32_t dwTypeFilter) {
+  std::vector<CXFA_Node*> nodes;
   if (dwTypeFilter == (XFA_NODEFILTER_Children | XFA_NODEFILTER_Properties)) {
-    std::vector<CXFA_Node*> nodes;
-    for (CXFA_Node* pChild = first_child_; pChild;
-         pChild = pChild->next_sibling_)
+    for (CXFA_Node* pChild = GetFirstChild(); pChild;
+         pChild = pChild->GetNextSibling())
       nodes.push_back(pChild);
     return nodes;
   }
 
   if (dwTypeFilter == 0)
-    return std::vector<CXFA_Node*>();
+    return nodes;
 
   bool bFilterChildren = !!(dwTypeFilter & XFA_NODEFILTER_Children);
   bool bFilterProperties = !!(dwTypeFilter & XFA_NODEFILTER_Properties);
   bool bFilterOneOfProperties = !!(dwTypeFilter & XFA_NODEFILTER_OneOfProperty);
-  std::vector<CXFA_Node*> nodes;
-  for (CXFA_Node* pChild = first_child_; pChild;
-       pChild = pChild->next_sibling_) {
+  for (CXFA_Node* pChild = GetFirstChild(); pChild;
+       pChild = pChild->GetNextSibling()) {
     if (HasProperty(pChild->GetElementType())) {
       if (bFilterProperties) {
         nodes.push_back(pChild);
@@ -1072,17 +1144,16 @@ std::vector<CXFA_Node*> CXFA_Node::GetNodeList(uint32_t dwTypeFilter,
 
   if (!bFilterOneOfProperties || !nodes.empty())
     return nodes;
-  if (m_Properties == nullptr)
-    return nodes;
 
   Optional<XFA_Element> property =
       GetFirstPropertyWithFlag(XFA_PROPERTYFLAG_DefaultOneOf);
-  if (!property)
+  if (!property.has_value())
     return nodes;
 
-  CXFA_Node* pNewNode = m_pDocument->CreateNode(GetPacketType(), *property);
+  CXFA_Node* pNewNode =
+      m_pDocument->CreateNode(GetPacketType(), property.value());
   if (pNewNode) {
-    InsertChild(pNewNode, nullptr);
+    InsertChildAndNotify(pNewNode, nullptr);
     pNewNode->SetFlagAndNotify(XFA_NodeFlag_Initialized);
     nodes.push_back(pNewNode);
   }
@@ -1091,6 +1162,9 @@ std::vector<CXFA_Node*> CXFA_Node::GetNodeList(uint32_t dwTypeFilter,
 
 CXFA_Node* CXFA_Node::CreateSamePacketNode(XFA_Element eType) {
   CXFA_Node* pNode = m_pDocument->CreateNode(m_ePacket, eType);
+  if (!pNode)
+    return nullptr;
+
   pNode->SetFlagAndNotify(XFA_NodeFlag_Initialized);
   return pNode;
 }
@@ -1108,7 +1182,8 @@ CXFA_Node* CXFA_Node::CloneTemplateToForm(bool bRecursive) {
   if (bRecursive) {
     for (CXFA_Node* pChild = GetFirstChild(); pChild;
          pChild = pChild->GetNextSibling()) {
-      pClone->InsertChild(pChild->CloneTemplateToForm(bRecursive), nullptr);
+      pClone->InsertChildAndNotify(pChild->CloneTemplateToForm(bRecursive),
+                                   nullptr);
     }
   }
   pClone->SetFlagAndNotify(XFA_NodeFlag_Initialized);
@@ -1183,7 +1258,7 @@ int32_t CXFA_Node::RemoveBindItem(CXFA_Node* pFormNode) {
   return 0;
 }
 
-bool CXFA_Node::HasBindItem() {
+bool CXFA_Node::HasBindItem() const {
   return GetPacketType() == XFA_PacketType::Datasets && GetBindingNode();
 }
 
@@ -1210,7 +1285,7 @@ CXFA_Node* CXFA_Node::GetContainerNode() {
       return nullptr;
 
     CXFA_Node* pFieldNode = nullptr;
-    for (auto* pFormNode : *(pDataNode->GetBindItems())) {
+    for (auto* pFormNode : pDataNode->GetBindItemsCopy()) {
       if (!pFormNode || pFormNode->HasRemovedChildren())
         continue;
       pFieldNode = pFormNode->IsWidgetReady() ? pFormNode : nullptr;
@@ -1250,7 +1325,10 @@ LocaleIface* CXFA_Node::GetLocale() {
 }
 
 Optional<WideString> CXFA_Node::GetLocaleName() {
-  CXFA_Node* pForm = GetDocument()->GetXFAObject(XFA_HASHCODE_Form)->AsNode();
+  CXFA_Node* pForm = ToNode(GetDocument()->GetXFAObject(XFA_HASHCODE_Form));
+  if (!pForm)
+    return {};
+
   CXFA_Subform* pTopSubform =
       pForm->GetFirstChildByClass<CXFA_Subform>(XFA_Element::Subform);
   if (!pTopSubform)
@@ -1267,13 +1345,13 @@ Optional<WideString> CXFA_Node::GetLocaleName() {
   } while (pLocaleNode && pLocaleNode != pTopSubform);
 
   CXFA_Node* pConfig = ToNode(GetDocument()->GetXFAObject(XFA_HASHCODE_Config));
-  Optional<WideString> localeName = {
-      GetDocument()->GetLocaleMgr()->GetConfigLocaleName(pConfig)};
-  if (localeName && !localeName->IsEmpty())
-    return localeName;
+  WideString wsLocaleName =
+      GetDocument()->GetLocaleMgr()->GetConfigLocaleName(pConfig);
+  if (!wsLocaleName.IsEmpty())
+    return wsLocaleName;
 
   if (pTopSubform) {
-    localeName =
+    Optional<WideString> localeName =
         pTopSubform->JSObject()->TryCData(XFA_Attribute::Locale, false);
     if (localeName)
       return localeName;
@@ -1283,7 +1361,7 @@ Optional<WideString> CXFA_Node::GetLocaleName() {
   if (!pLocale)
     return {};
 
-  return {pLocale->GetName()};
+  return pLocale->GetName();
 }
 
 XFA_AttributeValue CXFA_Node::GetIntact() {
@@ -1338,6 +1416,19 @@ XFA_AttributeValue CXFA_Node::GetIntact() {
   }
 }
 
+WideString CXFA_Node::GetNameExpression() {
+  WideString wsName = GetNameExpressionSinglePath(this);
+  CXFA_Node* parent = GetParent();
+  while (parent) {
+    WideString wsParent = GetNameExpressionSinglePath(parent);
+    wsParent += L".";
+    wsParent += wsName;
+    wsName = std::move(wsParent);
+    parent = parent->GetParent();
+  }
+  return wsName;
+}
+
 CXFA_Node* CXFA_Node::GetDataDescriptionNode() {
   if (m_ePacket == XFA_PacketType::Datasets)
     return m_pAuxNode;
@@ -1376,7 +1467,7 @@ CXFA_Node* CXFA_Node::GetModelNode() {
 
 size_t CXFA_Node::CountChildren(XFA_Element eType, bool bOnlyChild) {
   size_t count = 0;
-  for (CXFA_Node* pNode = first_child_; pNode;
+  for (CXFA_Node* pNode = GetFirstChild(); pNode;
        pNode = pNode->GetNextSibling()) {
     if (pNode->GetElementType() != eType && eType != XFA_Element::Unknown)
       continue;
@@ -1389,9 +1480,9 @@ size_t CXFA_Node::CountChildren(XFA_Element eType, bool bOnlyChild) {
 
 CXFA_Node* CXFA_Node::GetChildInternal(size_t index,
                                        XFA_Element eType,
-                                       bool bOnlyChild) {
+                                       bool bOnlyChild) const {
   size_t count = 0;
-  for (CXFA_Node* pNode = first_child_; pNode;
+  for (CXFA_Node* pNode = GetFirstChild(); pNode;
        pNode = pNode->GetNextSibling()) {
     if (pNode->GetElementType() != eType && eType != XFA_Element::Unknown)
       continue;
@@ -1405,50 +1496,15 @@ CXFA_Node* CXFA_Node::GetChildInternal(size_t index,
   return nullptr;
 }
 
-void CXFA_Node::InsertChild(int32_t index, CXFA_Node* pNode) {
-  if (!pNode || pNode->parent_ != nullptr) {
-    PDFIUM_IMMEDIATE_CRASH();
-  }
+void CXFA_Node::InsertChildAndNotify(int32_t index, CXFA_Node* pNode) {
+  InsertChildAndNotify(pNode, GetNthChild(index));
+}
 
-  pNode->parent_ = this;
+void CXFA_Node::InsertChildAndNotify(CXFA_Node* pNode, CXFA_Node* pBeforeNode) {
+  CHECK(!pNode->GetParent());
+  CHECK(!pBeforeNode || pBeforeNode->GetParent() == this);
   pNode->ClearFlag(XFA_NodeFlag_HasRemovedChildren);
-
-  if (!first_child_) {
-    ASSERT(!last_child_);
-
-    pNode->prev_sibling_ = nullptr;
-    pNode->next_sibling_ = nullptr;
-    first_child_ = pNode;
-    last_child_ = pNode;
-    index = 0;
-  } else if (index == 0) {
-    pNode->prev_sibling_ = nullptr;
-    pNode->next_sibling_ = first_child_;
-    first_child_->prev_sibling_ = pNode;
-    first_child_ = pNode;
-  } else if (index < 0) {
-    pNode->prev_sibling_ = last_child_;
-    pNode->next_sibling_ = nullptr;
-    last_child_->next_sibling_ = pNode;
-    last_child_ = pNode;
-  } else {
-    CXFA_Node* pPrev = first_child_;
-    int32_t count = 0;
-    while (++count < index && pPrev->next_sibling_)
-      pPrev = pPrev->next_sibling_;
-
-    pNode->prev_sibling_ = pPrev;
-    pNode->next_sibling_ = pPrev->next_sibling_;
-    if (pPrev->next_sibling_)
-      pPrev->next_sibling_->prev_sibling_ = pNode;
-    pPrev->next_sibling_ = pNode;
-
-    // Move the last child pointer if needed.
-    if (pPrev == last_child_)
-      last_child_ = pNode;
-
-    index = count;
-  }
+  InsertBefore(pNode, pBeforeNode);
 
   CXFA_FFNotify* pNotify = m_pDocument->GetNotify();
   if (pNotify)
@@ -1458,66 +1514,28 @@ void CXFA_Node::InsertChild(int32_t index, CXFA_Node* pNode) {
     return;
 
   ASSERT(!pNode->xml_node_->GetParent());
-  xml_node_->InsertChildNode(pNode->xml_node_.Get(), index);
+  xml_node_->InsertBefore(pNode->xml_node_.Get(),
+                          pBeforeNode ? pBeforeNode->xml_node_.Get() : nullptr);
 }
 
-void CXFA_Node::InsertChild(CXFA_Node* pNode, CXFA_Node* pBeforeNode) {
-  if (pBeforeNode && pBeforeNode->parent_ != this) {
-    PDFIUM_IMMEDIATE_CRASH();
-  }
-
-  int32_t index = -1;
-  if (!first_child_ || pBeforeNode == first_child_) {
-    index = 0;
-  } else if (!pBeforeNode) {
-    index = -1;
-  } else {
-    index = 0;
-    CXFA_Node* prev = first_child_;
-    while (prev && prev != pBeforeNode) {
-      prev = prev->next_sibling_;
-      ++index;
-    }
-  }
-  InsertChild(index, pNode);
-}
-
-void CXFA_Node::RemoveChild(CXFA_Node* pNode, bool bNotify) {
-  if (!pNode || pNode->parent_ != this) {
-    PDFIUM_IMMEDIATE_CRASH();
-  }
+void CXFA_Node::RemoveChildAndNotify(CXFA_Node* pNode, bool bNotify) {
+  CHECK(pNode);
+  if (pNode->GetParent() != this)
+    return;
 
   pNode->SetFlag(XFA_NodeFlag_HasRemovedChildren);
-
-  if (first_child_ == pNode && last_child_ == pNode) {
-    first_child_ = nullptr;
-    last_child_ = nullptr;
-  } else if (first_child_ == pNode) {
-    first_child_ = pNode->next_sibling_;
-    first_child_->prev_sibling_ = nullptr;
-  } else if (last_child_ == pNode) {
-    last_child_ = pNode->prev_sibling_;
-    last_child_->next_sibling_ = nullptr;
-  } else {
-    CXFA_Node* pPrev = pNode->prev_sibling_;
-    pPrev->next_sibling_ = pNode->next_sibling_;
-    pPrev->next_sibling_->prev_sibling_ = pPrev;
-  }
-  pNode->next_sibling_ = nullptr;
-  pNode->prev_sibling_ = nullptr;
-  pNode->parent_ = nullptr;
-
+  TreeNode<CXFA_Node>::RemoveChild(pNode);
   OnRemoved(bNotify);
 
   if (!IsNeedSavingXMLNode() || !pNode->xml_node_)
     return;
 
   if (!pNode->IsAttributeInXML()) {
-    xml_node_->RemoveChildNode(pNode->xml_node_.Get());
+    xml_node_->RemoveChild(pNode->xml_node_.Get());
     return;
   }
 
-  ASSERT(pNode->xml_node_.Get() == xml_node_.Get());
+  ASSERT(pNode->xml_node_ == xml_node_);
   CFX_XMLElement* pXMLElement = ToXMLElement(pNode->xml_node_.Get());
   if (pXMLElement) {
     WideString wsAttributeName =
@@ -1529,19 +1547,11 @@ void CXFA_Node::RemoveChild(CXFA_Node* pNode, bool bNotify) {
                           ->TryAttribute(XFA_Attribute::Name, false)
                           .value_or(WideString());
 
-  auto* pNewXMLElement = GetDocument()
-                             ->GetNotify()
-                             ->GetHDOC()
-                             ->GetXMLDocument()
-                             ->CreateNode<CFX_XMLElement>(wsName);
+  auto* pNewXMLElement = GetXMLDocument()->CreateNode<CFX_XMLElement>(wsName);
   WideString wsValue = JSObject()->GetCData(XFA_Attribute::Value);
   if (!wsValue.IsEmpty()) {
-    auto* text = GetDocument()
-                     ->GetNotify()
-                     ->GetHDOC()
-                     ->GetXMLDocument()
-                     ->CreateNode<CFX_XMLText>(wsValue);
-    pNewXMLElement->AppendChild(text);
+    auto* text = GetXMLDocument()->CreateNode<CFX_XMLText>(wsValue);
+    pNewXMLElement->AppendLastChild(text);
   }
   pNode->xml_node_ = pNewXMLElement;
   pNode->JSObject()->SetEnum(XFA_Attribute::Contains,
@@ -1593,6 +1603,62 @@ CXFA_Node* CXFA_Node::GetNextSameClassSiblingInternal(XFA_Element eType) const {
   return nullptr;
 }
 
+CXFA_Node* CXFA_Node::GetOneChildNamed(WideStringView wsName) {
+  return FindFirstSiblingNamed(this, FX_HashCode_GetW(wsName, false));
+}
+
+CXFA_Node* CXFA_Node::GetOneChildOfClass(WideStringView wsClass) {
+  XFA_Element element = XFA_GetElementByName(wsClass);
+  if (element == XFA_Element::Unknown)
+    return nullptr;
+
+  return FindFirstSiblingOfClass(this, element);
+}
+
+std::vector<CXFA_Node*> CXFA_Node::GetSiblings(bool bIsClassName) {
+  std::vector<CXFA_Node*> siblings;
+  CXFA_Node* parent = GetParent();
+  if (!parent)
+    return siblings;
+  if (!parent->HasProperty(GetElementType())) {
+    parent = GetTransparentParent();
+    if (!parent)
+      return siblings;
+  }
+
+  uint32_t dwNameHash = bIsClassName ? GetClassHashCode() : GetNameHash();
+  TraverseSiblings(parent, dwNameHash, &siblings, bIsClassName, true);
+  return siblings;
+}
+
+size_t CXFA_Node::GetIndex(bool bIsProperty, bool bIsClassIndex) {
+  CXFA_Node* parent = GetParent();
+  if (!parent)
+    return 0;
+
+  if (!bIsProperty) {
+    parent = GetTransparentParent();
+    if (!parent)
+      return 0;
+  }
+  uint32_t dwHashName = bIsClassIndex ? GetClassHashCode() : GetNameHash();
+  std::vector<CXFA_Node*> siblings;
+  TraverseSiblings(parent, dwHashName, &siblings, bIsClassIndex, true);
+  for (size_t i = 0; i < siblings.size(); ++i) {
+    if (siblings[i] == this)
+      return i;
+  }
+  return 0;
+}
+
+size_t CXFA_Node::GetIndexByName() {
+  return GetIndex(IsProperty(), /*bIsClassIndex=*/false);
+}
+
+size_t CXFA_Node::GetIndexByClassName() {
+  return GetIndex(IsProperty(), /*bIsClassIndex=*/true);
+}
+
 CXFA_Node* CXFA_Node::GetInstanceMgrOfSubform() {
   CXFA_Node* pInstanceMgr = nullptr;
   if (m_ePacket == XFA_PacketType::Form) {
@@ -1630,7 +1696,7 @@ bool CXFA_Node::HasFlag(XFA_NodeFlag dwFlag) const {
   if (m_uNodeFlags & dwFlag)
     return true;
   if (dwFlag == XFA_NodeFlag_HasRemovedChildren)
-    return parent_ && parent_->HasFlag(dwFlag);
+    return GetParent() && GetParent()->HasFlag(dwFlag);
   return false;
 }
 
@@ -1659,7 +1725,7 @@ bool CXFA_Node::IsAttributeInXML() {
          XFA_AttributeValue::MetaData;
 }
 
-void CXFA_Node::OnRemoved(bool bNotify) {
+void CXFA_Node::OnRemoved(bool bNotify) const {
   if (!bNotify)
     return;
 
@@ -1675,17 +1741,13 @@ void CXFA_Node::UpdateNameHash() {
 
 CFX_XMLNode* CXFA_Node::CreateXMLMappingNode() {
   if (!xml_node_) {
-    xml_node_ = GetDocument()
-                    ->GetNotify()
-                    ->GetHDOC()
-                    ->GetXMLDocument()
-                    ->CreateNode<CFX_XMLElement>(
-                        JSObject()->GetCData(XFA_Attribute::Name));
+    xml_node_ = GetXMLDocument()->CreateNode<CFX_XMLElement>(
+        JSObject()->GetCData(XFA_Attribute::Name));
   }
   return xml_node_.Get();
 }
 
-bool CXFA_Node::IsNeedSavingXMLNode() {
+bool CXFA_Node::IsNeedSavingXMLNode() const {
   return xml_node_ && (GetPacketType() == XFA_PacketType::Datasets ||
                        GetElementType() == XFA_Element::Xfa);
 }
@@ -1765,7 +1827,7 @@ void CXFA_Node::InsertItem(CXFA_Node* pNewInstance,
 
     CXFA_Node* pNextSibling =
         iCount > 0 ? item->GetNextSibling() : GetNextSibling();
-    GetParent()->InsertChild(pNewInstance, pNextSibling);
+    GetParent()->InsertChildAndNotify(pNewInstance, pNextSibling);
     if (bMoveDataBindingNodes) {
       std::set<CXFA_Node*> sNew;
       std::set<CXFA_Node*> sAfter;
@@ -1800,7 +1862,7 @@ void CXFA_Node::InsertItem(CXFA_Node* pNewInstance,
       return;
     }
 
-    GetParent()->InsertChild(pNewInstance, pBeforeInstance);
+    GetParent()->InsertChildAndNotify(pNewInstance, pBeforeInstance);
     if (bMoveDataBindingNodes) {
       std::set<CXFA_Node*> sNew;
       std::set<CXFA_Node*> sBefore;
@@ -1833,7 +1895,7 @@ void CXFA_Node::InsertItem(CXFA_Node* pNewInstance,
 
 void CXFA_Node::RemoveItem(CXFA_Node* pRemoveInstance,
                            bool bRemoveDataBinding) {
-  GetParent()->RemoveChild(pRemoveInstance, true);
+  GetParent()->RemoveChildAndNotify(pRemoveInstance, true);
   if (!bRemoveDataBinding)
     return;
 
@@ -1847,7 +1909,7 @@ void CXFA_Node::RemoveItem(CXFA_Node* pRemoveInstance,
 
     if (pDataNode->RemoveBindItem(pFormNode) == 0) {
       if (CXFA_Node* pDataParent = pDataNode->GetParent()) {
-        pDataParent->RemoveChild(pDataNode, true);
+        pDataParent->RemoveChildAndNotify(pDataNode, true);
       }
     }
     pFormNode->SetBindingNode(nullptr);
@@ -1878,7 +1940,7 @@ CXFA_Node* CXFA_Node::CreateInstanceIfPossible(bool bDataMerge) {
       pTemplateNode, pFormParent, pDataScope, true, bDataMerge, true);
   if (pInstance) {
     pDocument->DataMerge_UpdateBindingRelations(pInstance);
-    pFormParent->RemoveChild(pInstance, true);
+    pFormParent->RemoveChildAndNotify(pInstance, true);
   }
   return pInstance;
 }
@@ -1935,10 +1997,6 @@ Optional<void*> CXFA_Node::GetDefaultValue(XFA_Attribute attr,
 
 void CXFA_Node::SendAttributeChangeMessage(XFA_Attribute eAttribute,
                                            bool bScriptModify) {
-  CXFA_LayoutProcessor* pLayoutPro = GetDocument()->GetLayoutProcessor();
-  if (!pLayoutPro)
-    return;
-
   CXFA_FFNotify* pNotify = GetDocument()->GetNotify();
   if (!pNotify)
     return;
@@ -2033,7 +2091,7 @@ void CXFA_Node::SendAttributeChangeMessage(XFA_Attribute eAttribute,
     case XFA_Element::Field:
     case XFA_Element::Subform:
     case XFA_Element::SubformSet:
-      pLayoutPro->AddChangedContainer(this);
+      pNotify->OnContainerChanged(this);
       pNotify->OnValueChanged(this, eAttribute, this, this);
       break;
     case XFA_Element::Sharptext:
@@ -2081,7 +2139,7 @@ void CXFA_Node::SendAttributeChangeMessage(XFA_Attribute eAttribute,
     pParent = pParent->GetParent();
 
   if (pParent)
-    pLayoutPro->AddChangedContainer(pParent);
+    pNotify->OnContainerChanged(pParent);
 }
 
 void CXFA_Node::SyncValue(const WideString& wsValue, bool bNotify) {
@@ -2097,7 +2155,7 @@ WideString CXFA_Node::GetRawValue() {
   return JSObject()->GetContent(false);
 }
 
-int32_t CXFA_Node::GetRotate() {
+int32_t CXFA_Node::GetRotate() const {
   Optional<int32_t> degrees =
       JSObject()->TryInteger(XFA_Attribute::Rotate, false);
   return degrees ? XFA_MapRotation(*degrees) / 90 * 90 : 0;
@@ -2153,7 +2211,7 @@ CXFA_Para* CXFA_Node::GetParaIfExists() const {
   return JSObject()->GetProperty<CXFA_Para>(0, XFA_Element::Para);
 }
 
-bool CXFA_Node::IsOpenAccess() {
+bool CXFA_Node::IsOpenAccess() const {
   for (auto* pNode = this; pNode; pNode = pNode->GetContainerParent()) {
     XFA_AttributeValue iAcc = pNode->JSObject()->GetEnum(XFA_Attribute::Access);
     if (iAcc != XFA_AttributeValue::Open)
@@ -2264,36 +2322,42 @@ CXFA_Node* CXFA_Node::GetExclGroupIfExists() {
   return pExcl;
 }
 
-int32_t CXFA_Node::ProcessEvent(CXFA_FFDocView* docView,
-                                XFA_AttributeValue iActivity,
-                                CXFA_EventParam* pEventParam) {
+XFA_EventError CXFA_Node::ProcessEvent(CXFA_FFDocView* pDocView,
+                                       XFA_AttributeValue iActivity,
+                                       CXFA_EventParam* pEventParam) {
   if (GetElementType() == XFA_Element::Draw)
-    return XFA_EVENTERROR_NotExist;
+    return XFA_EventError::kNotExist;
 
   std::vector<CXFA_Event*> eventArray =
       GetEventByActivity(iActivity, pEventParam->m_bIsFormReady);
   bool first = true;
-  int32_t iRet = XFA_EVENTERROR_NotExist;
+  XFA_EventError iRet = XFA_EventError::kNotExist;
   for (CXFA_Event* event : eventArray) {
-    int32_t result = ProcessEvent(docView, event, pEventParam);
-    if (first || result == XFA_EVENTERROR_Success)
+    XFA_EventError result =
+        ProcessEventInternal(pDocView, iActivity, event, pEventParam);
+    if (first || result == XFA_EventError::kSuccess)
       iRet = result;
     first = false;
   }
   return iRet;
 }
 
-int32_t CXFA_Node::ProcessEvent(CXFA_FFDocView* docView,
-                                CXFA_Event* event,
-                                CXFA_EventParam* pEventParam) {
+XFA_EventError CXFA_Node::ProcessEventInternal(CXFA_FFDocView* pDocView,
+                                               XFA_AttributeValue iActivity,
+                                               CXFA_Event* event,
+                                               CXFA_EventParam* pEventParam) {
   if (!event)
-    return XFA_EVENTERROR_NotExist;
+    return XFA_EventError::kNotExist;
 
   switch (event->GetEventType()) {
     case XFA_Element::Execute:
       break;
     case XFA_Element::Script:
-      return ExecuteScript(docView, event->GetScriptIfExists(), pEventParam);
+      if (iActivity == XFA_AttributeValue::DocClose) {
+        // Too late, scripting engine already gone.
+        return XFA_EventError::kNotExist;
+      }
+      return ExecuteScript(pDocView, event->GetScriptIfExists(), pEventParam);
     case XFA_Element::SignData:
       break;
     case XFA_Element::Submit: {
@@ -2302,54 +2366,55 @@ int32_t CXFA_Node::ProcessEvent(CXFA_FFDocView* docView,
 #ifdef PDF_XFA_ELEMENT_SUBMIT_ENABLED
       CXFA_Submit* submit = event->GetSubmitIfExists();
       if (!submit)
-        return XFA_EVENTERROR_NotExist;
-      return docView->GetDoc()->GetDocEnvironment()->Submit(docView->GetDoc(),
-                                                            submit);
+        return XFA_EventError::kNotExist;
+      return pDocView->GetDoc()->GetDocEnvironment()->Submit(pDocView->GetDoc(),
+                                                             submit);
 #else
-      return XFA_EVENTERROR_Disabled;
+      return XFA_EventError::kDisabled;
 #endif  // PDF_XFA_ELEMENT_SUBMIT_ENABLED
     }
     default:
       break;
   }
-  return XFA_EVENTERROR_NotExist;
+  return XFA_EventError::kNotExist;
 }
 
-int32_t CXFA_Node::ProcessCalculate(CXFA_FFDocView* docView) {
+XFA_EventError CXFA_Node::ProcessCalculate(CXFA_FFDocView* pDocView) {
   if (GetElementType() == XFA_Element::Draw)
-    return XFA_EVENTERROR_NotExist;
+    return XFA_EventError::kNotExist;
 
   CXFA_Calculate* calc = GetCalculateIfExists();
   if (!calc)
-    return XFA_EVENTERROR_NotExist;
+    return XFA_EventError::kNotExist;
   if (IsUserInteractive())
-    return XFA_EVENTERROR_Disabled;
+    return XFA_EventError::kDisabled;
 
   CXFA_EventParam EventParam;
   EventParam.m_eType = XFA_EVENT_Calculate;
-  int32_t iRet = ExecuteScript(docView, calc->GetScriptIfExists(), &EventParam);
-  if (iRet != XFA_EVENTERROR_Success)
+  XFA_EventError iRet =
+      ExecuteScript(pDocView, calc->GetScriptIfExists(), &EventParam);
+  if (iRet != XFA_EventError::kSuccess)
     return iRet;
 
   if (GetRawValue() != EventParam.m_wsResult) {
     SetValue(XFA_VALUEPICTURE_Raw, EventParam.m_wsResult);
-    UpdateUIDisplay(docView, nullptr);
+    UpdateUIDisplay(pDocView, nullptr);
   }
-  return XFA_EVENTERROR_Success;
+  return XFA_EventError::kSuccess;
 }
 
-void CXFA_Node::ProcessScriptTestValidate(CXFA_FFDocView* docView,
+void CXFA_Node::ProcessScriptTestValidate(CXFA_FFDocView* pDocView,
                                           CXFA_Validate* validate,
-                                          int32_t iRet,
+                                          XFA_EventError iRet,
                                           bool bRetValue,
                                           bool bVersionFlag) {
-  if (iRet != XFA_EVENTERROR_Success)
+  if (iRet != XFA_EventError::kSuccess)
     return;
   if (bRetValue)
     return;
 
   IXFA_AppProvider* pAppProvider =
-      docView->GetDoc()->GetApp()->GetAppProvider();
+      pDocView->GetDoc()->GetApp()->GetAppProvider();
   if (!pAppProvider)
     return;
 
@@ -2383,29 +2448,29 @@ void CXFA_Node::ProcessScriptTestValidate(CXFA_FFDocView* docView,
                        static_cast<uint32_t>(AlertButton::kOK));
 }
 
-int32_t CXFA_Node::ProcessFormatTestValidate(CXFA_FFDocView* docView,
-                                             CXFA_Validate* validate,
-                                             bool bVersionFlag) {
+XFA_EventError CXFA_Node::ProcessFormatTestValidate(CXFA_FFDocView* pDocView,
+                                                    CXFA_Validate* validate,
+                                                    bool bVersionFlag) {
   WideString wsPicture = validate->GetPicture();
   if (wsPicture.IsEmpty())
-    return XFA_EVENTERROR_NotExist;
+    return XFA_EventError::kNotExist;
 
   WideString wsRawValue = GetRawValue();
   if (wsRawValue.IsEmpty())
-    return XFA_EVENTERROR_Error;
+    return XFA_EventError::kError;
 
   LocaleIface* pLocale = GetLocale();
   if (!pLocale)
-    return XFA_EVENTERROR_NotExist;
+    return XFA_EventError::kNotExist;
 
   CXFA_LocaleValue lcValue = XFA_GetLocaleValue(this);
   if (lcValue.ValidateValue(lcValue.GetValue(), wsPicture, pLocale, nullptr))
-    return XFA_EVENTERROR_Success;
+    return XFA_EventError::kSuccess;
 
   IXFA_AppProvider* pAppProvider =
-      docView->GetDoc()->GetApp()->GetAppProvider();
+      pDocView->GetDoc()->GetApp()->GetAppProvider();
   if (!pAppProvider)
-    return XFA_EVENTERROR_NotExist;
+    return XFA_EventError::kNotExist;
 
   WideString wsFormatMsg = validate->GetFormatMessageText();
   WideString wsTitle = pAppProvider->GetAppTitle();
@@ -2415,7 +2480,7 @@ int32_t CXFA_Node::ProcessFormatTestValidate(CXFA_FFDocView* docView,
     pAppProvider->MsgBox(wsFormatMsg, wsTitle,
                          static_cast<uint32_t>(AlertIcon::kError),
                          static_cast<uint32_t>(AlertButton::kOK));
-    return XFA_EVENTERROR_Error;
+    return XFA_EventError::kError;
   }
 
   if (wsFormatMsg.IsEmpty())
@@ -2425,7 +2490,7 @@ int32_t CXFA_Node::ProcessFormatTestValidate(CXFA_FFDocView* docView,
     pAppProvider->MsgBox(wsFormatMsg, wsTitle,
                          static_cast<uint32_t>(AlertIcon::kWarning),
                          static_cast<uint32_t>(AlertButton::kOK));
-    return XFA_EVENTERROR_Error;
+    return XFA_EventError::kError;
   }
 
   if (pAppProvider->MsgBox(wsFormatMsg, wsTitle,
@@ -2435,42 +2500,42 @@ int32_t CXFA_Node::ProcessFormatTestValidate(CXFA_FFDocView* docView,
     SetFlag(XFA_NodeFlag_UserInteractive);
   }
 
-  return XFA_EVENTERROR_Error;
+  return XFA_EventError::kError;
 }
 
-int32_t CXFA_Node::ProcessNullTestValidate(CXFA_FFDocView* docView,
-                                           CXFA_Validate* validate,
-                                           int32_t iFlags,
-                                           bool bVersionFlag) {
+XFA_EventError CXFA_Node::ProcessNullTestValidate(CXFA_FFDocView* pDocView,
+                                                  CXFA_Validate* validate,
+                                                  int32_t iFlags,
+                                                  bool bVersionFlag) {
   if (!GetValue(XFA_VALUEPICTURE_Raw).IsEmpty())
-    return XFA_EVENTERROR_Success;
+    return XFA_EventError::kSuccess;
   if (m_bIsNull && m_bPreNull)
-    return XFA_EVENTERROR_Success;
+    return XFA_EventError::kSuccess;
 
   XFA_AttributeValue eNullTest = validate->GetNullTest();
   WideString wsNullMsg = validate->GetNullMessageText();
   if (iFlags & 0x01) {
-    int32_t iRet = XFA_EVENTERROR_Success;
+    XFA_EventError iRet = XFA_EventError::kSuccess;
     if (eNullTest != XFA_AttributeValue::Disabled)
-      iRet = XFA_EVENTERROR_Error;
+      iRet = XFA_EventError::kError;
 
-    if (!wsNullMsg.IsEmpty()) {
-      if (eNullTest != XFA_AttributeValue::Disabled) {
-        docView->m_arrNullTestMsg.push_back(wsNullMsg);
-        return XFA_EVENTERROR_Error;
-      }
-      return XFA_EVENTERROR_Success;
+    if (wsNullMsg.IsEmpty())
+      return iRet;
+
+    if (eNullTest != XFA_AttributeValue::Disabled) {
+      pDocView->m_arrNullTestMsg.push_back(wsNullMsg);
+      return XFA_EventError::kError;
     }
-    return iRet;
+    return XFA_EventError::kSuccess;
   }
   if (wsNullMsg.IsEmpty() && bVersionFlag &&
       eNullTest != XFA_AttributeValue::Disabled) {
-    return XFA_EVENTERROR_Error;
+    return XFA_EventError::kError;
   }
   IXFA_AppProvider* pAppProvider =
-      docView->GetDoc()->GetApp()->GetAppProvider();
+      pDocView->GetDoc()->GetApp()->GetAppProvider();
   if (!pAppProvider)
-    return XFA_EVENTERROR_NotExist;
+    return XFA_EventError::kNotExist;
 
   WideString wsCaptionName;
   WideString wsTitle = pAppProvider->GetAppTitle();
@@ -2483,11 +2548,11 @@ int32_t CXFA_Node::ProcessNullTestValidate(CXFA_FFDocView* docView,
       pAppProvider->MsgBox(wsNullMsg, wsTitle,
                            static_cast<uint32_t>(AlertIcon::kStatus),
                            static_cast<uint32_t>(AlertButton::kOK));
-      return XFA_EVENTERROR_Error;
+      return XFA_EventError::kError;
     }
     case XFA_AttributeValue::Warning: {
       if (IsUserInteractive())
-        return true;
+        return XFA_EventError::kSuccess;
 
       if (wsNullMsg.IsEmpty()) {
         wsCaptionName = GetValidateCaptionName(bVersionFlag);
@@ -2501,27 +2566,28 @@ int32_t CXFA_Node::ProcessNullTestValidate(CXFA_FFDocView* docView,
           static_cast<uint32_t>(AlertReturn::kYes)) {
         SetFlag(XFA_NodeFlag_UserInteractive);
       }
-      return XFA_EVENTERROR_Error;
+      return XFA_EventError::kError;
     }
     case XFA_AttributeValue::Disabled:
     default:
       break;
   }
-  return XFA_EVENTERROR_Success;
+  return XFA_EventError::kSuccess;
 }
 
-int32_t CXFA_Node::ProcessValidate(CXFA_FFDocView* docView, int32_t iFlags) {
+XFA_EventError CXFA_Node::ProcessValidate(CXFA_FFDocView* pDocView,
+                                          int32_t iFlags) {
   if (GetElementType() == XFA_Element::Draw)
-    return XFA_EVENTERROR_NotExist;
+    return XFA_EventError::kNotExist;
 
   CXFA_Validate* validate = GetValidateIfExists();
   if (!validate)
-    return XFA_EVENTERROR_NotExist;
+    return XFA_EventError::kNotExist;
 
   bool bInitDoc = validate->NeedsInitApp();
-  bool bStatus = docView->GetLayoutStatus() < XFA_DOCVIEW_LAYOUTSTATUS_End;
-  int32_t iFormat = 0;
-  int32_t iRet = XFA_EVENTERROR_NotExist;
+  bool bStatus = pDocView->GetLayoutStatus() < XFA_DOCVIEW_LAYOUTSTATUS_End;
+  XFA_EventError iFormat = XFA_EventError::kNotExist;
+  XFA_EventError iRet = XFA_EventError::kNotExist;
   CXFA_Script* script = validate->GetScriptIfExists();
   bool bRet = false;
   bool hasBoolResult = (bInitDoc || bStatus) && GetRawValue().IsEmpty();
@@ -2529,10 +2595,10 @@ int32_t CXFA_Node::ProcessValidate(CXFA_FFDocView* docView, int32_t iFlags) {
     CXFA_EventParam eParam;
     eParam.m_eType = XFA_EVENT_Validate;
     eParam.m_pTarget = this;
-    std::tie(iRet, bRet) = ExecuteBoolScript(docView, script, &eParam);
+    std::tie(iRet, bRet) = ExecuteBoolScript(pDocView, script, &eParam);
   }
 
-  XFA_VERSION version = docView->GetDoc()->GetXFADoc()->GetCurVersionMode();
+  XFA_VERSION version = pDocView->GetDoc()->GetXFADoc()->GetCurVersionMode();
   bool bVersionFlag = false;
   if (version < XFA_VERSION_208)
     bVersionFlag = true;
@@ -2540,19 +2606,20 @@ int32_t CXFA_Node::ProcessValidate(CXFA_FFDocView* docView, int32_t iFlags) {
   if (bInitDoc) {
     validate->ClearFlag(XFA_NodeFlag_NeedsInitApp);
   } else {
-    iFormat = ProcessFormatTestValidate(docView, validate, bVersionFlag);
+    iFormat = ProcessFormatTestValidate(pDocView, validate, bVersionFlag);
     if (!bVersionFlag) {
       bVersionFlag =
-          docView->GetDoc()->GetXFADoc()->HasFlag(XFA_DOCFLAG_Scripting);
+          pDocView->GetDoc()->GetXFADoc()->HasFlag(XFA_DOCFLAG_Scripting);
     }
-
-    iRet |= ProcessNullTestValidate(docView, validate, iFlags, bVersionFlag);
+    XFA_EventErrorAccumulate(
+        &iRet,
+        ProcessNullTestValidate(pDocView, validate, iFlags, bVersionFlag));
   }
+  if (iFormat != XFA_EventError::kSuccess && hasBoolResult)
+    ProcessScriptTestValidate(pDocView, validate, iRet, bRet, bVersionFlag);
 
-  if (iFormat != XFA_EVENTERROR_Success && hasBoolResult)
-    ProcessScriptTestValidate(docView, validate, iRet, bRet, bVersionFlag);
-
-  return iRet | iFormat;
+  XFA_EventErrorAccumulate(&iRet, iFormat);
+  return iRet;
 }
 
 WideString CXFA_Node::GetValidateCaptionName(bool bVersionFlag) {
@@ -2587,37 +2654,34 @@ WideString CXFA_Node::GetValidateMessage(bool bError, bool bVersionFlag) {
   return result;
 }
 
-int32_t CXFA_Node::ExecuteScript(CXFA_FFDocView* docView,
-                                 CXFA_Script* script,
-                                 CXFA_EventParam* pEventParam) {
-  bool bRet;
-  int32_t iRet;
-  std::tie(iRet, bRet) = ExecuteBoolScript(docView, script, pEventParam);
-  return iRet;
+XFA_EventError CXFA_Node::ExecuteScript(CXFA_FFDocView* pDocView,
+                                        CXFA_Script* script,
+                                        CXFA_EventParam* pEventParam) {
+  return ExecuteBoolScript(pDocView, script, pEventParam).first;
 }
 
-std::pair<int32_t, bool> CXFA_Node::ExecuteBoolScript(
-    CXFA_FFDocView* docView,
+std::pair<XFA_EventError, bool> CXFA_Node::ExecuteBoolScript(
+    CXFA_FFDocView* pDocView,
     CXFA_Script* script,
     CXFA_EventParam* pEventParam) {
   if (m_ExecuteRecursionDepth > kMaxExecuteRecursion)
-    return {XFA_EVENTERROR_Success, false};
+    return {XFA_EventError::kSuccess, false};
 
   ASSERT(pEventParam);
   if (!script)
-    return {XFA_EVENTERROR_NotExist, false};
+    return {XFA_EventError::kNotExist, false};
   if (script->GetRunAt() == XFA_AttributeValue::Server)
-    return {XFA_EVENTERROR_Disabled, false};
+    return {XFA_EventError::kDisabled, false};
 
   WideString wsExpression = script->GetExpression();
   if (wsExpression.IsEmpty())
-    return {XFA_EVENTERROR_NotExist, false};
+    return {XFA_EventError::kNotExist, false};
 
   CXFA_Script::Type eScriptType = script->GetContentType();
   if (eScriptType == CXFA_Script::Type::Unknown)
-    return {XFA_EVENTERROR_Success, false};
+    return {XFA_EventError::kSuccess, false};
 
-  CXFA_FFDoc* pDoc = docView->GetDoc();
+  CXFA_FFDoc* pDoc = pDocView->GetDoc();
   CFXJSE_Engine* pContext = pDoc->GetXFADoc()->GetScriptContext();
   pContext->SetEventParam(pEventParam);
   pContext->SetRunAtType(script->GetRunAt());
@@ -2637,24 +2701,24 @@ std::pair<int32_t, bool> CXFA_Node::ExecuteBoolScript(
                                pTmpRetValue.get(), this);
   }
 
-  int32_t iRet = XFA_EVENTERROR_Error;
+  XFA_EventError iRet = XFA_EventError::kError;
   if (bRet) {
-    iRet = XFA_EVENTERROR_Success;
+    iRet = XFA_EventError::kSuccess;
     if (pEventParam->m_eType == XFA_EVENT_Calculate ||
         pEventParam->m_eType == XFA_EVENT_InitCalculate) {
       if (!pTmpRetValue->IsUndefined()) {
         if (!pTmpRetValue->IsNull())
           pEventParam->m_wsResult = pTmpRetValue->ToWideString();
 
-        iRet = XFA_EVENTERROR_Success;
+        iRet = XFA_EventError::kSuccess;
       } else {
-        iRet = XFA_EVENTERROR_Error;
+        iRet = XFA_EventError::kError;
       }
       if (pEventParam->m_eType == XFA_EVENT_InitCalculate) {
-        if ((iRet == XFA_EVENTERROR_Success) &&
+        if ((iRet == XFA_EventError::kSuccess) &&
             (GetRawValue() != pEventParam->m_wsResult)) {
           SetValue(XFA_VALUEPICTURE_Raw, pEventParam->m_wsResult);
-          docView->AddValidateNode(this);
+          pDocView->AddValidateNode(this);
         }
       }
       for (CXFA_Node* pRefNode : refNodes) {
@@ -2798,7 +2862,7 @@ CXFA_Node* CXFA_Node::CreateUINodeIfNeeded(CXFA_Ui* ui, XFA_Element type) {
 void CXFA_Node::CreateValueNodeIfNeeded(CXFA_Value* value,
                                         CXFA_Node* pUIChild) {
   // Value nodes only have one child. If we have one already we're done.
-  if (value->GetFirstChild() != nullptr)
+  if (value->GetFirstChild())
     return;
 
   // Create the Value node for our UI if needed.
@@ -2893,7 +2957,7 @@ std::vector<CXFA_Event*> CXFA_Node::GetEventByActivity(
     XFA_AttributeValue iActivity,
     bool bIsFormReady) {
   std::vector<CXFA_Event*> events;
-  for (CXFA_Node* node : GetNodeList(0, XFA_Element::Event)) {
+  for (CXFA_Node* node : GetNodeListForType(XFA_Element::Event)) {
     auto* event = static_cast<CXFA_Event*>(node);
     if (event->GetActivity() != iActivity)
       continue;
@@ -3011,12 +3075,12 @@ void CXFA_Node::SetImageEdit(const WideString& wsContentType,
 }
 
 CXFA_FFWidget* CXFA_Node::GetNextWidget(CXFA_FFWidget* pWidget) {
-  return ToFFWidget(pWidget->GetNext());
+  return GetFFWidget(pWidget->GetLayoutItem()->GetNext());
 }
 
-void CXFA_Node::UpdateUIDisplay(CXFA_FFDocView* docView,
+void CXFA_Node::UpdateUIDisplay(CXFA_FFDocView* pDocView,
                                 CXFA_FFWidget* pExcept) {
-  CXFA_FFWidget* pWidget = docView->GetWidgetForNode(this);
+  CXFA_FFWidget* pWidget = pDocView->GetWidgetForNode(this);
   for (; pWidget; pWidget = GetNextWidget(pWidget)) {
     if (pWidget == pExcept || !pWidget->IsLoaded() ||
         (GetFFWidgetType() != XFA_FFWidgetType::kCheckButton &&
@@ -3467,11 +3531,11 @@ CFX_SizeF CXFA_Node::CalculateAccWidthAndHeight(CXFA_FFDoc* doc, float fWidth) {
   return sz;
 }
 
-bool CXFA_Node::FindSplitPos(CXFA_FFDocView* docView,
-                             int32_t iBlockIndex,
-                             float* pCalcHeight) {
+Optional<float> CXFA_Node::FindSplitPos(CXFA_FFDocView* pDocView,
+                                        size_t szBlockIndex,
+                                        float fCalcHeight) {
   if (GetFFWidgetType() == XFA_FFWidgetType::kSubform)
-    return false;
+    return pdfium::nullopt;
 
   switch (GetFFWidgetType()) {
     case XFA_FFWidgetType::kText:
@@ -3480,13 +3544,12 @@ bool CXFA_Node::FindSplitPos(CXFA_FFDocView* docView,
     case XFA_FFWidgetType::kPasswordEdit:
       break;
     default:
-      *pCalcHeight = 0;
-      return true;
+      return 0.0f;
   }
 
   float fTopInset = 0;
   float fBottomInset = 0;
-  if (iBlockIndex == 0) {
+  if (szBlockIndex == 0) {
     CXFA_Margin* margin = GetMarginIfExists();
     if (margin) {
       fTopInset = margin->GetTopInset();
@@ -3498,42 +3561,39 @@ bool CXFA_Node::FindSplitPos(CXFA_FFDocView* docView,
     fBottomInset += rtUIMargin.width;
   }
   if (GetFFWidgetType() == XFA_FFWidgetType::kText) {
-    float fHeight = *pCalcHeight;
-    if (iBlockIndex == 0) {
-      *pCalcHeight -= fTopInset;
-      *pCalcHeight = std::max(*pCalcHeight, 0.0f);
+    float fHeight = fCalcHeight;
+    if (szBlockIndex == 0) {
+      fCalcHeight -= fTopInset;
+      fCalcHeight = std::max(fCalcHeight, 0.0f);
     }
     CXFA_TextLayout* pTextLayout =
         m_pLayoutData->AsTextLayoutData()->GetTextLayout();
-    *pCalcHeight =
-        pTextLayout->DoLayout(iBlockIndex, *pCalcHeight, *pCalcHeight,
-                              m_pLayoutData->m_fWidgetHeight - fTopInset);
-    if (*pCalcHeight != 0) {
-      if (iBlockIndex == 0)
-        *pCalcHeight += fTopInset;
-      if (fabs(fHeight - *pCalcHeight) < kXFAWidgetPrecision)
-        return false;
+    fCalcHeight = pTextLayout->DoSplitLayout(
+        szBlockIndex, fCalcHeight, m_pLayoutData->m_fWidgetHeight - fTopInset);
+    if (fCalcHeight != 0) {
+      if (szBlockIndex == 0)
+        fCalcHeight += fTopInset;
+      if (fabs(fHeight - fCalcHeight) < kXFAWidgetPrecision)
+        return pdfium::nullopt;
     }
-    return true;
+    return fCalcHeight;
   }
 
   XFA_AttributeValue iCapPlacement = XFA_AttributeValue::Unknown;
   float fCapReserve = 0;
-  if (iBlockIndex == 0) {
+  if (szBlockIndex == 0) {
     CXFA_Caption* caption = GetCaptionIfExists();
     if (caption && !caption->IsHidden()) {
       iCapPlacement = caption->GetPlacementType();
       fCapReserve = caption->GetReserve();
     }
     if (iCapPlacement == XFA_AttributeValue::Top &&
-        *pCalcHeight < fCapReserve + fTopInset) {
-      *pCalcHeight = 0;
-      return true;
+        fCalcHeight < fCapReserve + fTopInset) {
+      return 0.0f;
     }
     if (iCapPlacement == XFA_AttributeValue::Bottom &&
         m_pLayoutData->m_fWidgetHeight - fCapReserve - fBottomInset) {
-      *pCalcHeight = 0;
-      return true;
+      return 0.0f;
     }
     if (iCapPlacement != XFA_AttributeValue::Top)
       fCapReserve = 0;
@@ -3545,31 +3605,31 @@ bool CXFA_Node::FindSplitPos(CXFA_FFDocView* docView,
     iLinesCount = 1;
   } else {
     if (!pFieldData->m_pTextOut) {
-      CFX_SizeF size =
-          CalculateAccWidthAndHeight(docView->GetDoc(), TryWidth().value_or(0));
+      CFX_SizeF size = CalculateAccWidthAndHeight(pDocView->GetDoc(),
+                                                  TryWidth().value_or(0));
       fHeight = size.height;
     }
 
     iLinesCount = pFieldData->m_pTextOut->GetTotalLines();
   }
   std::vector<float>* pFieldArray = &pFieldData->m_FieldSplitArray;
-  int32_t iFieldSplitCount = pdfium::CollectionSize<int32_t>(*pFieldArray);
-  if (iFieldSplitCount < (iBlockIndex * 3))
-    return false;
+  size_t szFieldSplitCount = pFieldArray->size();
+  if (szFieldSplitCount < szBlockIndex * 3)
+    return pdfium::nullopt;
 
-  for (int32_t i = 0; i < iBlockIndex * 3; i += 3) {
+  for (size_t i = 0; i < szBlockIndex * 3; i += 3) {
     iLinesCount -= (int32_t)(*pFieldArray)[i + 1];
     fHeight -= (*pFieldArray)[i + 2];
   }
   if (iLinesCount == 0)
-    return false;
+    return pdfium::nullopt;
 
   float fLineHeight = GetLineHeight();
   float fFontSize = GetFontSize();
   float fTextHeight = iLinesCount * fLineHeight - fLineHeight + fFontSize;
   float fSpaceAbove = 0;
   float fStartOffset = 0;
-  if (fHeight > 0.1f && iBlockIndex == 0) {
+  if (fHeight > 0.1f && szBlockIndex == 0) {
     fStartOffset = fTopInset;
     fHeight -= (fTopInset + fBottomInset);
     CXFA_Para* para = GetParaIfExists();
@@ -3595,17 +3655,18 @@ bool CXFA_Node::FindSplitPos(CXFA_FFDocView* docView,
     if (fStartOffset < 0.1f)
       fStartOffset = 0;
   }
-  for (int32_t i = iBlockIndex - 1; iBlockIndex > 0 && i < iBlockIndex; i++) {
+  if (szBlockIndex > 0) {
+    size_t i = szBlockIndex - 1;
     fStartOffset = (*pFieldArray)[i * 3] - (*pFieldArray)[i * 3 + 2];
     if (fStartOffset < 0.1f)
       fStartOffset = 0;
   }
-  if (iFieldSplitCount / 3 == (iBlockIndex + 1))
+  if (szFieldSplitCount / 3 == (szBlockIndex + 1))
     (*pFieldArray)[0] = fStartOffset;
   else
     pFieldArray->push_back(fStartOffset);
 
-  XFA_VERSION version = docView->GetDoc()->GetXFADoc()->GetCurVersionMode();
+  XFA_VERSION version = pDocView->GetDoc()->GetXFADoc()->GetCurVersionMode();
   bool bCanSplitNoContent = false;
   auto value = GetParent()->JSObject()->TryEnum(XFA_Attribute::Layout, true);
   XFA_AttributeValue eLayoutMode = value.value_or(XFA_AttributeValue::Position);
@@ -3620,82 +3681,76 @@ bool CXFA_Node::FindSplitPos(CXFA_FFDocView* docView,
        eLayoutMode == XFA_AttributeValue::Row ||
        eLayoutMode == XFA_AttributeValue::Table) &&
       version <= XFA_VERSION_208) {
-    if (fStartOffset < *pCalcHeight) {
-      bCanSplitNoContent = true;
-    } else {
-      *pCalcHeight = 0;
-      return true;
-    }
-  }
-  if (bCanSplitNoContent) {
-    if ((*pCalcHeight - fTopInset - fSpaceAbove < fLineHeight)) {
-      *pCalcHeight = 0;
-      return true;
-    }
-    if (fStartOffset + kXFAWidgetPrecision >= *pCalcHeight) {
-      if (iFieldSplitCount / 3 == (iBlockIndex + 1)) {
-        (*pFieldArray)[iBlockIndex * 3 + 1] = 0;
-        (*pFieldArray)[iBlockIndex * 3 + 2] = *pCalcHeight;
-      } else {
-        pFieldArray->push_back(0);
-        pFieldArray->push_back(*pCalcHeight);
-      }
-      return false;
-    }
-    if (*pCalcHeight - fStartOffset < fLineHeight) {
-      *pCalcHeight = fStartOffset;
-      if (iFieldSplitCount / 3 == (iBlockIndex + 1)) {
-        (*pFieldArray)[iBlockIndex * 3 + 1] = 0;
-        (*pFieldArray)[iBlockIndex * 3 + 2] = *pCalcHeight;
-      } else {
-        pFieldArray->push_back(0);
-        pFieldArray->push_back(*pCalcHeight);
-      }
-      return true;
-    }
-    float fTextNum =
-        *pCalcHeight + kXFAWidgetPrecision - fCapReserve - fStartOffset;
-    int32_t iLineNum =
-        (int32_t)((fTextNum + (fLineHeight - fFontSize)) / fLineHeight);
-    if (iLineNum >= iLinesCount) {
-      if (*pCalcHeight - fStartOffset - fTextHeight >= fFontSize) {
-        if (iFieldSplitCount / 3 == (iBlockIndex + 1)) {
-          (*pFieldArray)[iBlockIndex * 3 + 1] = iLinesCount;
-          (*pFieldArray)[iBlockIndex * 3 + 2] = *pCalcHeight;
-        } else {
-          pFieldArray->push_back(iLinesCount);
-          pFieldArray->push_back(*pCalcHeight);
-        }
-        return false;
-      }
-      if (fHeight - fStartOffset - fTextHeight < fFontSize) {
-        iLineNum -= 1;
-        if (iLineNum == 0) {
-          *pCalcHeight = 0;
-          return true;
-        }
-      } else {
-        iLineNum = (int32_t)(fTextNum / fLineHeight);
-      }
-    }
-    if (iLineNum > 0) {
-      float fSplitHeight = iLineNum * fLineHeight + fCapReserve + fStartOffset;
-      if (iFieldSplitCount / 3 == (iBlockIndex + 1)) {
-        (*pFieldArray)[iBlockIndex * 3 + 1] = iLineNum;
-        (*pFieldArray)[iBlockIndex * 3 + 2] = fSplitHeight;
-      } else {
-        pFieldArray->push_back(iLineNum);
-        pFieldArray->push_back(fSplitHeight);
-      }
-      if (fabs(fSplitHeight - *pCalcHeight) < kXFAWidgetPrecision)
-        return false;
+    if (fStartOffset >= fCalcHeight)
+      return 0.0f;
 
-      *pCalcHeight = fSplitHeight;
-      return true;
+    bCanSplitNoContent = true;
+  }
+  if (!bCanSplitNoContent ||
+      fCalcHeight - fTopInset - fSpaceAbove < fLineHeight) {
+    return 0.0f;
+  }
+
+  if (fStartOffset + kXFAWidgetPrecision >= fCalcHeight) {
+    if (szFieldSplitCount / 3 == (szBlockIndex + 1)) {
+      (*pFieldArray)[szBlockIndex * 3 + 1] = 0;
+      (*pFieldArray)[szBlockIndex * 3 + 2] = fCalcHeight;
+    } else {
+      pFieldArray->push_back(0);
+      pFieldArray->push_back(fCalcHeight);
+    }
+    return pdfium::nullopt;
+  }
+
+  if (fCalcHeight - fStartOffset < fLineHeight) {
+    fCalcHeight = fStartOffset;
+    if (szFieldSplitCount / 3 == (szBlockIndex + 1)) {
+      (*pFieldArray)[szBlockIndex * 3 + 1] = 0;
+      (*pFieldArray)[szBlockIndex * 3 + 2] = fCalcHeight;
+    } else {
+      pFieldArray->push_back(0);
+      pFieldArray->push_back(fCalcHeight);
+    }
+    return fCalcHeight;
+  }
+
+  float fTextNum =
+      fCalcHeight + kXFAWidgetPrecision - fCapReserve - fStartOffset;
+  int32_t iLineNum =
+      (int32_t)((fTextNum + (fLineHeight - fFontSize)) / fLineHeight);
+  if (iLineNum >= iLinesCount) {
+    if (fCalcHeight - fStartOffset - fTextHeight >= fFontSize) {
+      if (szFieldSplitCount / 3 == (szBlockIndex + 1)) {
+        (*pFieldArray)[szBlockIndex * 3 + 1] = iLinesCount;
+        (*pFieldArray)[szBlockIndex * 3 + 2] = fCalcHeight;
+      } else {
+        pFieldArray->push_back(iLinesCount);
+        pFieldArray->push_back(fCalcHeight);
+      }
+      return pdfium::nullopt;
+    }
+    if (fHeight - fStartOffset - fTextHeight < fFontSize) {
+      iLineNum -= 1;
+      if (iLineNum == 0)
+        return 0.0f;
+    } else {
+      iLineNum = (int32_t)(fTextNum / fLineHeight);
     }
   }
-  *pCalcHeight = 0;
-  return true;
+  if (iLineNum <= 0)
+    return 0.0f;
+
+  float fSplitHeight = iLineNum * fLineHeight + fCapReserve + fStartOffset;
+  if (szFieldSplitCount / 3 == (szBlockIndex + 1)) {
+    (*pFieldArray)[szBlockIndex * 3 + 1] = iLineNum;
+    (*pFieldArray)[szBlockIndex * 3 + 2] = fSplitHeight;
+  } else {
+    pFieldArray->push_back(iLineNum);
+    pFieldArray->push_back(fSplitHeight);
+  }
+  if (fabs(fSplitHeight - fCalcHeight) < kXFAWidgetPrecision)
+    return pdfium::nullopt;
+  return fSplitHeight;
 }
 
 void CXFA_Node::InitLayoutData() {
@@ -3740,7 +3795,7 @@ void CXFA_Node::StartTextLayout(CXFA_FFDoc* doc,
     pTextLayout->StartLayout(fWidth);
     fTextHeight = *pCalcHeight;
     fTextHeight = GetHeightWithoutMargin(fTextHeight);
-    pTextLayout->DoLayout(0, fTextHeight, -1, fTextHeight);
+    pTextLayout->DoLayout(fTextHeight);
     return;
   }
   if (*pCalcWidth > 0 && *pCalcHeight < 0) {
@@ -3765,7 +3820,7 @@ void CXFA_Node::StartTextLayout(CXFA_FFDoc* doc,
   }
   fTextHeight = m_pLayoutData->m_fWidgetHeight;
   fTextHeight = GetHeightWithoutMargin(fTextHeight);
-  pTextLayout->DoLayout(0, fTextHeight, -1, fTextHeight);
+  pTextLayout->DoLayout(fTextHeight);
   *pCalcHeight = m_pLayoutData->m_fWidgetHeight;
 }
 
@@ -3864,9 +3919,8 @@ bool CXFA_Node::IsRadioButton() {
 float CXFA_Node::GetCheckButtonSize() {
   CXFA_Node* pUIChild = GetUIChildNode();
   if (pUIChild) {
-    return pUIChild->JSObject()
-        ->GetMeasure(XFA_Attribute::Size)
-        .ToUnit(XFA_Unit::Pt);
+    return pUIChild->JSObject()->GetMeasureInUnit(XFA_Attribute::Size,
+                                                  XFA_Unit::Pt);
   }
   return CXFA_Measurement(10, XFA_Unit::Pt).ToUnit(XFA_Unit::Pt);
 }
@@ -4204,27 +4258,12 @@ std::vector<int32_t> CXFA_Node::GetSelectedItems() {
 }
 
 std::vector<WideString> CXFA_Node::GetSelectedItemsValue() {
-  std::vector<WideString> wsSelTextArray;
   WideString wsValue = GetRawValue();
-  if (IsChoiceListMultiSelect()) {
-    if (!wsValue.IsEmpty()) {
-      size_t iStart = 0;
-      size_t iLength = wsValue.GetLength();
-      auto iEnd = wsValue.Find(L'\n', iStart);
-      iEnd = (!iEnd.has_value()) ? iLength : iEnd;
-      while (iEnd >= iStart) {
-        wsSelTextArray.push_back(wsValue.Mid(iStart, iEnd.value() - iStart));
-        iStart = iEnd.value() + 1;
-        if (iStart >= iLength)
-          break;
-        iEnd = wsValue.Find(L'\n', iStart);
-        if (!iEnd.has_value())
-          wsSelTextArray.push_back(wsValue.Mid(iStart, iLength - iStart));
-      }
-    }
-  } else {
-    wsSelTextArray.push_back(wsValue);
-  }
+  if (IsChoiceListMultiSelect())
+    return fxcrt::Split(wsValue, L'\n');
+
+  std::vector<WideString> wsSelTextArray;
+  wsSelTextArray.push_back(wsValue);
   return wsSelTextArray;
 }
 
@@ -4314,7 +4353,7 @@ void CXFA_Node::ClearAllSelections() {
   }
 
   while (CXFA_Node* pChildNode = pBind->GetFirstChild())
-    pBind->RemoveChild(pChildNode, true);
+    pBind->RemoveChildAndNotify(pChildNode, true);
 }
 
 void CXFA_Node::InsertItem(const WideString& wsLabel,
@@ -4333,10 +4372,10 @@ void CXFA_Node::InsertItem(const WideString& wsLabel,
   }
   if (listitems.empty()) {
     CXFA_Node* pItems = CreateSamePacketNode(XFA_Element::Items);
-    InsertChild(-1, pItems);
+    InsertChildAndNotify(-1, pItems);
     InsertListTextItem(pItems, wsLabel, nIndex);
     CXFA_Node* pSaveItems = CreateSamePacketNode(XFA_Element::Items);
-    InsertChild(-1, pSaveItems);
+    InsertChildAndNotify(-1, pSaveItems);
     pSaveItems->JSObject()->SetBoolean(XFA_Attribute::Save, true, false);
     InsertListTextItem(pSaveItems, wsNewValue, nIndex);
   } else if (listitems.size() > 1) {
@@ -4354,7 +4393,7 @@ void CXFA_Node::InsertItem(const WideString& wsLabel,
     pNode->JSObject()->SetEnum(XFA_Attribute::Presence,
                                XFA_AttributeValue::Visible, false);
     CXFA_Node* pSaveItems = CreateSamePacketNode(XFA_Element::Items);
-    InsertChild(-1, pSaveItems);
+    InsertChildAndNotify(-1, pSaveItems);
     pSaveItems->JSObject()->SetBoolean(XFA_Attribute::Save, true, false);
     pSaveItems->JSObject()->SetEnum(XFA_Attribute::Presence,
                                     XFA_AttributeValue::Hidden, false);
@@ -4468,7 +4507,7 @@ bool CXFA_Node::DeleteItem(int32_t nIndex, bool bNotify, bool bScriptModify) {
 
     if (nIndex < 0) {
       while (CXFA_Node* pNode = pItems->GetFirstChild()) {
-        pItems->RemoveChild(pNode, true);
+        pItems->RemoveChildAndNotify(pNode, true);
       }
     } else {
       if (!bSetValue && pItems->JSObject()->GetBoolean(XFA_Attribute::Save)) {
@@ -4479,7 +4518,7 @@ bool CXFA_Node::DeleteItem(int32_t nIndex, bool bNotify, bool bScriptModify) {
       CXFA_Node* pNode = pItems->GetFirstChild();
       while (pNode) {
         if (i == nIndex) {
-          pItems->RemoveChild(pNode, true);
+          pItems->RemoveChildAndNotify(pNode, true);
           break;
         }
         i++;
@@ -4889,7 +4928,7 @@ void CXFA_Node::InsertListTextItem(CXFA_Node* pItems,
                                    const WideString& wsText,
                                    int32_t nIndex) {
   CXFA_Node* pText = pItems->CreateSamePacketNode(XFA_Element::Text);
-  pItems->InsertChild(nIndex, pText);
+  pItems->InsertChildAndNotify(nIndex, pText);
   pText->JSObject()->SetContent(wsText, wsText, false, false, false);
 }
 
@@ -4924,7 +4963,7 @@ WideString CXFA_Node::NumericLimit(const WideString& wsValue) {
           if (iTread != -1) {
             CFGAS_Decimal wsDeci = CFGAS_Decimal(wsValue.AsStringView());
             wsDeci.SetScale(iTread);
-            wsRet = wsDeci;
+            wsRet = wsDeci.ToWideString();
           }
           return wsRet;
         }
@@ -4938,6 +4977,17 @@ WideString CXFA_Node::NumericLimit(const WideString& wsValue) {
   return wsRet;
 }
 
+bool CXFA_Node::IsTransparent() const {
+  XFA_Element type = GetElementType();
+  return type == XFA_Element::SubformSet || type == XFA_Element::Area ||
+         type == XFA_Element::Proto || (IsUnnamed() && IsContainerNode());
+}
+
+bool CXFA_Node::IsProperty() const {
+  CXFA_Node* parent = GetParent();
+  return parent && parent->HasProperty(GetElementType());
+}
+
 bool CXFA_Node::PresenceRequiresSpace() const {
   auto value = JSObject()->TryEnum(XFA_Attribute::Presence, true);
   XFA_AttributeValue ePresence = value.value_or(XFA_AttributeValue::Visible);
@@ -4945,10 +4995,24 @@ bool CXFA_Node::PresenceRequiresSpace() const {
          ePresence == XFA_AttributeValue::Invisible;
 }
 
+void CXFA_Node::SetBindingNode(CXFA_Node* node) {
+  binding_nodes_.clear();
+  if (node)
+    binding_nodes_.emplace_back(node);
+}
+
+void CXFA_Node::SetNodeAndDescendantsUnused() {
+  CXFA_NodeIterator sIterator(this);
+  for (CXFA_Node* pNode = sIterator.GetCurrent(); pNode;
+       pNode = sIterator.MoveToNext()) {
+    pNode->SetFlag(XFA_NodeFlag_UnusedNode);
+  }
+}
+
 void CXFA_Node::SetToXML(const WideString& value) {
   auto* pNode = GetXMLMappingNode();
   switch (pNode->GetType()) {
-    case FX_XMLNODE_Element: {
+    case CFX_XMLNode::Type::kElement: {
       auto* elem = static_cast<CFX_XMLElement*>(pNode);
       if (IsAttributeInXML()) {
         elem->SetAttribute(JSObject()->GetCData(XFA_Attribute::QualifiedName),
@@ -4960,29 +5024,42 @@ void CXFA_Node::SetToXML(const WideString& value) {
       if (GetPacketType() == XFA_PacketType::Datasets) {
         for (CXFA_Node* pChildDataNode = GetFirstChild(); pChildDataNode;
              pChildDataNode = pChildDataNode->GetNextSibling()) {
-          if (!pChildDataNode->GetBindItems()->empty()) {
+          if (pChildDataNode->HasBindItems()) {
             bDeleteChildren = false;
             break;
           }
         }
       }
       if (bDeleteChildren)
-        elem->DeleteChildren();
+        elem->RemoveAllChildren();
 
-      auto* text = GetDocument()
-                       ->GetNotify()
-                       ->GetHDOC()
-                       ->GetXMLDocument()
-                       ->CreateNode<CFX_XMLText>(value);
-      elem->AppendChild(text);
+      auto* text = GetXMLDocument()->CreateNode<CFX_XMLText>(value);
+      elem->AppendLastChild(text);
       break;
     }
-    case FX_XMLNODE_Text:
+    case CFX_XMLNode::Type::kText:
       ToXMLText(GetXMLMappingNode())->SetText(value);
       break;
     default:
       NOTREACHED();
   }
+}
+
+CXFA_Node* CXFA_Node::GetTransparentParent() {
+  CXFA_Node* parent = GetParent();
+  while (parent) {
+    XFA_Element type = parent->GetElementType();
+    if (type == XFA_Element::Variables ||
+        (type != XFA_Element::SubformSet && !parent->IsUnnamed())) {
+      return parent;
+    }
+    parent = parent->GetParent();
+  }
+  return nullptr;
+}
+
+CFX_XMLDocument* CXFA_Node::GetXMLDocument() const {
+  return GetDocument()->GetNotify()->GetHDOC()->GetXMLDocument();
 }
 
 // static

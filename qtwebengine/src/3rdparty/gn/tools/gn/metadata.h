@@ -11,6 +11,8 @@
 #include "tools/gn/scope.h"
 #include "tools/gn/source_dir.h"
 
+extern const char kMetadata_Help[];
+
 // Metadata about a particular target.
 //
 // Metadata is a collection of keys and values relating to a particular target.
@@ -29,7 +31,6 @@ class Metadata {
  public:
   using Contents = Scope::KeyValueMap;
 
-  // Members must be set explicitly.
   Metadata() = default;
 
   const ParseNode* origin() const { return origin_; }
@@ -38,7 +39,7 @@ class Metadata {
   // The contents of this metadata varaiable.
   const Contents& contents() const { return contents_; }
   Contents& contents() { return contents_; }
-  void set_contents(Contents&& contents) { contents_.swap(contents); }
+  void set_contents(Contents&& contents) { contents_ = std::move(contents); }
 
   // The relative source directory to use when rebasing.
   const SourceDir& source_dir() const { return source_dir_; }
@@ -59,9 +60,29 @@ class Metadata {
                 Err* err) const;
 
  private:
-  const ParseNode* origin_;
+  const ParseNode* origin_ = nullptr;
   Contents contents_;
   SourceDir source_dir_;
+
+  std::pair<Value, bool> RebaseValue(const BuildSettings* settings,
+                                     const SourceDir& rebase_dir,
+                                     const Value& value,
+                                     Err* err) const;
+
+  std::pair<Value, bool> RebaseStringValue(const BuildSettings* settings,
+                                           const SourceDir& rebase_dir,
+                                           const Value& value,
+                                           Err* err) const;
+
+  std::pair<Value, bool> RebaseListValue(const BuildSettings* settings,
+                                         const SourceDir& rebase_dir,
+                                         const Value& value,
+                                         Err* err) const;
+
+  std::pair<Value, bool> RebaseScopeValue(const BuildSettings* settings,
+                                          const SourceDir& rebase_dir,
+                                          const Value& value,
+                                          Err* err) const;
 
   DISALLOW_COPY_AND_ASSIGN(Metadata);
 };

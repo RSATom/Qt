@@ -17,6 +17,7 @@
 #include "net/dns/dns_client.h"
 #include "net/dns/dns_config.h"
 #include "net/dns/dns_response.h"
+#include "net/dns/dns_util.h"
 #include "net/dns/public/dns_protocol.h"
 
 namespace net {
@@ -159,15 +160,19 @@ static const unsigned kT3RecordCount = base::size(kT3IpAddresses) + 3;
 class AddressSorter;
 class DnsClient;
 class IPAddress;
+class URLRequestContext;
 
+// Build a DNS response that includes address records.
 std::unique_ptr<DnsResponse> BuildTestDnsResponse(std::string name,
                                                   const IPAddress& ip);
-std::unique_ptr<DnsResponse> BuildTestDnsResponse(std::string name,
-                                                  const IPAddress& ip,
-                                                  std::string cannonname);
+std::unique_ptr<DnsResponse> BuildTestDnsResponseWithCname(
+    std::string name,
+    const IPAddress& ip,
+    std::string cannonname);
+
 // If |answer_name| is empty, |name| will be used for all answer records, as is
 // the normal behavior.
-std::unique_ptr<DnsResponse> BuildTestDnsResponse(
+std::unique_ptr<DnsResponse> BuildTestDnsTextResponse(
     std::string name,
     std::vector<std::vector<std::string>> text_records,
     std::string answer_name = "");
@@ -183,7 +188,7 @@ struct TestServiceRecord {
   std::string target;
 };
 
-std::unique_ptr<DnsResponse> BuildTestDnsResponse(
+std::unique_ptr<DnsResponse> BuildTestDnsServiceResponse(
     std::string name,
     std::vector<TestServiceRecord> service_records,
     std::string answer_name = "");
@@ -214,20 +219,22 @@ struct MockDnsClientRule {
   };
 
   // If |delay| is true, matching transactions will be delayed until triggered
-  // by the consumer.
-  MockDnsClientRule(const std::string& prefix_arg,
-                    uint16_t qtype_arg,
-                    Result result_arg,
-                    bool delay)
-      : result(std::move(result_arg)),
-        prefix(prefix_arg),
-        qtype(qtype_arg),
-        delay(delay) {}
+  // by the consumer. If |context| is non-null, it will only match transactions
+  // with the same context.
+  MockDnsClientRule(const std::string& prefix,
+                    uint16_t qtype,
+                    bool secure,
+                    Result result,
+                    bool delay,
+                    URLRequestContext* context = nullptr);
+  MockDnsClientRule(MockDnsClientRule&& rule);
 
   Result result;
   std::string prefix;
   uint16_t qtype;
+  bool secure;
   bool delay;
+  URLRequestContext* context;
 };
 
 typedef std::vector<MockDnsClientRule> MockDnsClientRuleList;

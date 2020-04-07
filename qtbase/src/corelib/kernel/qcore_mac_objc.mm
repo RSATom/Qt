@@ -211,6 +211,12 @@ QDebug operator<<(QDebug debug, const QMacAutoReleasePool *pool)
     debug << "QMacAutoReleasePool(" << (const void *)pool << ')';
     return debug;
 }
+
+QDebug operator<<(QDebug debug, const QCFString &string)
+{
+    debug << static_cast<QString>(string);
+    return debug;
+}
 #endif // !QT_NO_DEBUG_STREAM
 
 #ifdef Q_OS_MACOS
@@ -241,7 +247,7 @@ AppleApplication *qt_apple_sharedApplication()
         qWarning() << "accessing the shared" << [AppleApplication class]
             << "is not allowed in application extensions";
 
-        // In practice the application is actually available, but the the App
+        // In practice the application is actually available, but the App
         // review process will likely catch uses of it, so we return nil just
         // in case, unless we don't care about being App Store compliant.
 #if QT_CONFIG(appstore_compliant)
@@ -371,7 +377,7 @@ bool operator<(const KeyPair &entry, const Qt::Key &key)
 struct qtKey2CocoaKeySortLessThan
 {
     typedef bool result_type;
-    Q_DECL_CONSTEXPR result_type operator()(const KeyPair &entry1, const KeyPair &entry2) const Q_DECL_NOTHROW
+    Q_DECL_CONSTEXPR result_type operator()(const KeyPair &entry1, const KeyPair &entry2) const noexcept
     {
         return entry1.qtKey < entry2.qtKey;
     }

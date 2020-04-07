@@ -140,11 +140,11 @@ QThreadData *QThreadData::current(bool createIfNecessary)
         }
         threadData->deref();
         threadData->isAdopted = true;
-        threadData->threadId.store(reinterpret_cast<Qt::HANDLE>(quintptr(GetCurrentThreadId())));
+        threadData->threadId.storeRelaxed(reinterpret_cast<Qt::HANDLE>(quintptr(GetCurrentThreadId())));
 
 #ifndef Q_OS_WINRT
         if (!QCoreApplicationPrivate::theMainThread) {
-            QCoreApplicationPrivate::theMainThread = threadData->thread.load();
+            QCoreApplicationPrivate::theMainThread = threadData->thread.loadRelaxed();
         } else {
 #else
         // for winrt the main thread is set explicitly in QCoreApplication's constructor as the
@@ -186,9 +186,9 @@ void QThreadData::setMainThread()
         }
         threadData->deref();
         threadData->isAdopted = true;
-        threadData->threadId.store(reinterpret_cast<Qt::HANDLE>(quintptr(GetCurrentThreadId())));
+        threadData->threadId.storeRelaxed(reinterpret_cast<Qt::HANDLE>(quintptr(GetCurrentThreadId())));
     }
-    QCoreApplicationPrivate::theMainThread = threadData->thread.load();
+    QCoreApplicationPrivate::theMainThread = threadData->thread.loadRelaxed();
 }
 #endif
 
@@ -374,14 +374,14 @@ QAbstractEventDispatcher *QThreadPrivate::createEventDispatcher(QThreadData *dat
 
 #if QT_CONFIG(thread)
 
-unsigned int __stdcall QT_ENSURE_STACK_ALIGNED_FOR_SSE QThreadPrivate::start(void *arg) Q_DECL_NOEXCEPT
+unsigned int __stdcall QT_ENSURE_STACK_ALIGNED_FOR_SSE QThreadPrivate::start(void *arg) noexcept
 {
     QThread *thr = reinterpret_cast<QThread *>(arg);
     QThreadData *data = QThreadData::get2(thr);
 
     qt_create_tls();
     TlsSetValue(qt_current_thread_data_tls_index, data);
-    data->threadId.store(reinterpret_cast<Qt::HANDLE>(quintptr(GetCurrentThreadId())));
+    data->threadId.storeRelaxed(reinterpret_cast<Qt::HANDLE>(quintptr(GetCurrentThreadId())));
 
     QThread::setTerminationEnabled(false);
 
@@ -408,7 +408,7 @@ unsigned int __stdcall QT_ENSURE_STACK_ALIGNED_FOR_SSE QThreadPrivate::start(voi
     return 0;
 }
 
-void QThreadPrivate::finish(void *arg, bool lockAnyway) Q_DECL_NOEXCEPT
+void QThreadPrivate::finish(void *arg, bool lockAnyway) noexcept
 {
     QThread *thr = reinterpret_cast<QThread *>(arg);
     QThreadPrivate *d = thr->d_func();
@@ -423,7 +423,7 @@ void QThreadPrivate::finish(void *arg, bool lockAnyway) Q_DECL_NOEXCEPT
     QThreadStorageData::finish(tls_data);
     locker.relock();
 
-    QAbstractEventDispatcher *eventDispatcher = d->data->eventDispatcher.load();
+    QAbstractEventDispatcher *eventDispatcher = d->data->eventDispatcher.loadRelaxed();
     if (eventDispatcher) {
         d->data->eventDispatcher = 0;
         locker.unlock();
@@ -449,12 +449,12 @@ void QThreadPrivate::finish(void *arg, bool lockAnyway) Q_DECL_NOEXCEPT
  ** QThread
  *************************************************************************/
 
-Qt::HANDLE QThread::currentThreadId() Q_DECL_NOTHROW
+Qt::HANDLE QThread::currentThreadId() noexcept
 {
     return reinterpret_cast<Qt::HANDLE>(quintptr(GetCurrentThreadId()));
 }
 
-int QThread::idealThreadCount() Q_DECL_NOTHROW
+int QThread::idealThreadCount() noexcept
 {
     SYSTEM_INFO sysinfo;
 #ifndef Q_OS_WINRT

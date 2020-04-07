@@ -9,13 +9,13 @@
 
 #include "net/cert/x509_certificate.h"
 #include "net/cert/x509_util.h"
+#include "net/quic/platform/impl/quic_chromium_clock.h"
 #include "net/quic/quic_chromium_client_session.h"
 #include "net/quic/quic_http_stream.h"
 #include "net/quic/quic_stream_factory.h"
 #include "net/test/cert_test_util.h"
 #include "net/test/test_data_directory.h"
-#include "net/third_party/quic/core/crypto/quic_crypto_client_config.h"
-#include "net/third_party/quic/platform/impl/quic_chromium_clock.h"
+#include "net/third_party/quiche/src/quic/core/crypto/quic_crypto_client_config.h"
 
 using std::string;
 
@@ -101,6 +101,11 @@ void QuicStreamFactoryPeer::SetTaskRunner(
   factory->task_runner_ = task_runner;
 }
 
+void QuicStreamFactoryPeer::SetTickClock(QuicStreamFactory* factory,
+                                         const base::TickClock* tick_clock) {
+  factory->tick_clock_ = tick_clock;
+}
+
 quic::QuicTime::Delta QuicStreamFactoryPeer::GetPingTimeout(
     QuicStreamFactory* factory) {
   return factory->ping_timeout_;
@@ -108,13 +113,13 @@ quic::QuicTime::Delta QuicStreamFactoryPeer::GetPingTimeout(
 
 bool QuicStreamFactoryPeer::GetRaceCertVerification(
     QuicStreamFactory* factory) {
-  return factory->race_cert_verification_;
+  return factory->params_.race_cert_verification;
 }
 
 void QuicStreamFactoryPeer::SetRaceCertVerification(
     QuicStreamFactory* factory,
     bool race_cert_verification) {
-  factory->race_cert_verification_ = race_cert_verification;
+  factory->params_.race_cert_verification = race_cert_verification;
 }
 
 quic::QuicAsyncStatus QuicStreamFactoryPeer::StartCertVerifyJob(

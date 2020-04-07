@@ -12,9 +12,11 @@
 #include <tuple>
 #include <utility>
 
+#include "core/fpdfapi/edit/cpdf_contentstream_write_utils.h"
 #include "core/fpdfapi/edit/cpdf_pagecontentmanager.h"
 #include "core/fpdfapi/edit/cpdf_stringarchivestream.h"
-#include "core/fpdfapi/font/cpdf_font.h"
+#include "core/fpdfapi/font/cpdf_truetypefont.h"
+#include "core/fpdfapi/font/cpdf_type1font.h"
 #include "core/fpdfapi/page/cpdf_contentmarks.h"
 #include "core/fpdfapi/page/cpdf_docpagedata.h"
 #include "core/fpdfapi/page/cpdf_image.h"
@@ -32,17 +34,11 @@
 #include "core/fpdfapi/parser/cpdf_stream.h"
 #include "core/fpdfapi/parser/fpdf_parser_decode.h"
 #include "core/fpdfapi/parser/fpdf_parser_utility.h"
+#include "core/fxge/render_defines.h"
 #include "third_party/base/ptr_util.h"
 #include "third_party/base/stl_util.h"
-#include "third_party/skia_shared/SkFloatToDecimal.h"
 
 namespace {
-
-std::ostream& operator<<(std::ostream& ar, const CFX_Matrix& matrix) {
-  ar << matrix.a << " " << matrix.b << " " << matrix.c << " " << matrix.d << " "
-     << matrix.e << " " << matrix.f;
-  return ar;
-}
 
 bool GetColor(const CPDF_Color* pColor, float* rgb) {
   int intRGB[3];
@@ -61,7 +57,7 @@ bool GetColor(const CPDF_Color* pColor, float* rgb) {
 CPDF_PageContentGenerator::CPDF_PageContentGenerator(
     CPDF_PageObjectHolder* pObjHolder)
     : m_pObjHolder(pObjHolder), m_pDocument(pObjHolder->GetDocument()) {
-  for (const auto& pObj : *pObjHolder->GetPageObjectList()) {
+  for (const auto& pObj : *pObjHolder) {
     if (pObj)
       m_pageObjects.emplace_back(pObj.get());
   }
@@ -89,8 +85,7 @@ CPDF_PageContentGenerator::GenerateModifiedStreams() {
     if (pPageObj->IsDirty())
       all_dirty_streams.insert(pPageObj->GetContentStream());
   }
-  const std::set<int32_t>& marked_dirty_streams =
-      m_pObjHolder->GetDirtyStreams();
+  std::set<int32_t> marked_dirty_streams = m_pObjHolder->TakeDirtyStreams();
   all_dirty_streams.insert(marked_dirty_streams.begin(),
                            marked_dirty_streams.end());
 
@@ -145,9 +140,6 @@ CPDF_PageContentGenerator::GenerateModifiedStreams() {
     }
   }
 
-  // Clear dirty streams in m_pObjHolder
-  m_pObjHolder->ClearDirtyStreams();
-
   return streams;
 }
 
@@ -177,7 +169,7 @@ void CPDF_PageContentGenerator::UpdateContentStreams(
     if (buf->tellp() <= 0)
       page_content_manager.ScheduleRemoveStreamByIndex(stream_index);
     else
-      old_stream->SetDataFromStringstream(buf);
+      old_stream->SetDataFromStringstreamAndRemoveFilter(buf);
   }
 
   page_content_manager.ExecuteScheduledRemovals();
@@ -188,10 +180,11 @@ ByteString CPDF_PageContentGenerator::RealizeResource(
     const ByteString& bsType) const {
   ASSERT(pResource);
   if (!m_pObjHolder->m_pResources) {
-    m_pObjHolder->m_pResources = m_pDocument->NewIndirect<CPDF_Dictionary>();
-    m_pObjHolder->GetDict()->SetFor(
-        "Resources",
-        m_pObjHolder->m_pResources->MakeReference(m_pDocument.Get()));
+    m_pObjHolder->m_pResources.Reset(
+        m_pDocument->NewIndirect<CPDF_Dictionary>());
+    m_pObjHolder->GetDict()->SetNewFor<CPDF_Reference>(
+        "Resources", m_pDocument.Get(),
+        m_pObjHolder->m_pResources->GetObjNum());
   }
   CPDF_Dictionary* pResList = m_pObjHolder->m_pResources->GetDictFor(bsType);
   if (!pResList)
@@ -206,7 +199,8 @@ ByteString CPDF_PageContentGenerator::RealizeResource(
 
     idnum++;
   }
-  pResList->SetFor(name, pResource->MakeReference(m_pDocument.Get()));
+  pResList->SetNewFor<CPDF_Reference>(name, m_pDocument.Get(),
+                                      pResource->GetObjNum());
   return name;
 }
 
@@ -330,9 +324,10 @@ void CPDF_PageContentGenerator::ProcessImage(std::ostringstream* buf,
     pImage->ConvertStreamToIndirectObject();
 
   ByteString name = RealizeResource(pStream, "XObject");
-  if (bWasInline)
-    pImageObj->SetImage(
-        m_pDocument->GetPageData()->GetImage(pStream->GetObjNum()));
+  if (bWasInline) {
+    auto* pPageData = CPDF_DocPageData::FromDocument(m_pDocument.Get());
+    pImageObj->SetImage(pPageData->GetImage(pStream->GetObjNum()));
+  }
 
   *buf << "/" << PDF_NameEncode(name) << " Do Q\n";
 }
@@ -357,19 +352,13 @@ void CPDF_PageContentGenerator::ProcessPath(std::ostringstream* buf,
   const auto& pPoints = pPathObj->path().GetPoints();
   if (pPathObj->path().IsRect()) {
     CFX_PointF diff = pPoints[2].m_Point - pPoints[0].m_Point;
-    *buf << pPoints[0].m_Point.x << " " << pPoints[0].m_Point.y << " " << diff.x
-         << " " << diff.y << " re";
+    *buf << pPoints[0].m_Point << " " << diff << " re";
   } else {
     for (size_t i = 0; i < pPoints.size(); i++) {
       if (i > 0)
         *buf << " ";
 
-      char buffer[pdfium::skia::kMaximumSkFloatToDecimalLength];
-      unsigned size =
-          pdfium::skia::SkFloatToDecimal(pPoints[i].m_Point.x, buffer);
-      buf->write(buffer, size) << " ";
-      size = pdfium::skia::SkFloatToDecimal(pPoints[i].m_Point.y, buffer);
-      buf->write(buffer, size);
+      *buf << pPoints[i].m_Point;
 
       FXPT_TYPE pointType = pPoints[i].m_Type;
       if (pointType == FXPT_TYPE::MoveTo) {
@@ -385,9 +374,9 @@ void CPDF_PageContentGenerator::ProcessPath(std::ostringstream* buf,
           *buf << " h";
           break;
         }
-        *buf << " " << pPoints[i + 1].m_Point.x << " "
-             << pPoints[i + 1].m_Point.y << " " << pPoints[i + 2].m_Point.x
-             << " " << pPoints[i + 2].m_Point.y << " c";
+        *buf << " ";
+        *buf << pPoints[i + 1].m_Point << " ";
+        *buf << pPoints[i + 2].m_Point << " c";
         i += 2;
       }
       if (pPoints[i].m_CloseFigure)
@@ -426,7 +415,7 @@ void CPDF_PageContentGenerator::ProcessGraphics(std::ostringstream* buf,
   }
   float lineWidth = pPageObj->m_GraphState.GetLineWidth();
   if (lineWidth != 1.0f)
-    *buf << lineWidth << " w ";
+    WriteFloat(*buf, lineWidth) << " w ";
   CFX_GraphStateData::LineCap lineCap = pPageObj->m_GraphState.GetLineCap();
   if (lineCap != CFX_GraphStateData::LineCapButt)
     *buf << static_cast<int>(lineCap) << " J ";
@@ -448,7 +437,7 @@ void CPDF_PageContentGenerator::ProcessGraphics(std::ostringstream* buf,
   if (it != m_pObjHolder->m_GraphicsMap.end()) {
     name = it->second;
   } else {
-    auto gsDict = pdfium::MakeUnique<CPDF_Dictionary>();
+    auto gsDict = pdfium::MakeRetain<CPDF_Dictionary>();
     if (graphD.fillAlpha != 1.0f)
       gsDict->SetNewFor<CPDF_Number>("ca", graphD.fillAlpha);
 
@@ -459,7 +448,7 @@ void CPDF_PageContentGenerator::ProcessGraphics(std::ostringstream* buf,
       gsDict->SetNewFor<CPDF_Name>("BM",
                                    pPageObj->m_GeneralState.GetBlendMode());
     }
-    CPDF_Object* pDict = m_pDocument->AddIndirectObject(std::move(gsDict));
+    CPDF_Object* pDict = m_pDocument->AddIndirectObject(gsDict);
     name = RealizeResource(pDict, "ExtGState");
     m_pObjHolder->m_GraphicsMap[graphD] = name;
   }
@@ -487,11 +476,11 @@ ByteString CPDF_PageContentGenerator::GetOrCreateDefaultGraphics() const {
     return it->second;
 
   // Otherwise, create them.
-  auto gsDict = pdfium::MakeUnique<CPDF_Dictionary>();
+  auto gsDict = pdfium::MakeRetain<CPDF_Dictionary>();
   gsDict->SetNewFor<CPDF_Number>("ca", defaultGraphics.fillAlpha);
   gsDict->SetNewFor<CPDF_Number>("CA", defaultGraphics.strokeAlpha);
   gsDict->SetNewFor<CPDF_Name>("BM", "Normal");
-  CPDF_Object* pDict = m_pDocument->AddIndirectObject(std::move(gsDict));
+  CPDF_Object* pDict = m_pDocument->AddIndirectObject(gsDict);
   ByteString name = RealizeResource(pDict, "ExtGState");
   m_pObjHolder->m_GraphicsMap[defaultGraphics] = name;
   return name;
@@ -508,17 +497,22 @@ void CPDF_PageContentGenerator::ProcessText(std::ostringstream* buf,
   CPDF_Font* pFont = pTextObj->GetFont();
   if (!pFont)
     pFont = CPDF_Font::GetStockFont(m_pDocument.Get(), "Helvetica");
-  FontData fontD;
-  if (pFont->IsType1Font())
-    fontD.type = "Type1";
-  else if (pFont->IsTrueTypeFont())
-    fontD.type = "TrueType";
-  else if (pFont->IsCIDFont())
-    fontD.type = "Type0";
-  else
+
+  FontData data;
+  CPDF_FontEncoding* pEncoding = nullptr;
+  if (pFont->IsType1Font()) {
+    data.type = "Type1";
+    pEncoding = pFont->AsType1Font()->GetEncoding();
+  } else if (pFont->IsTrueTypeFont()) {
+    data.type = "TrueType";
+    pEncoding = pFont->AsTrueTypeFont()->GetEncoding();
+  } else if (pFont->IsCIDFont()) {
+    data.type = "Type0";
+  } else {
     return;
-  fontD.baseFont = pFont->GetBaseFont();
-  auto it = m_pObjHolder->m_FontsMap.find(fontD);
+  }
+  data.baseFont = pFont->GetBaseFont();
+  auto it = m_pObjHolder->m_FontsMap.find(data);
   ByteString dictName;
   if (it != m_pObjHolder->m_FontsMap.end()) {
     dictName = it->second;
@@ -526,17 +520,21 @@ void CPDF_PageContentGenerator::ProcessText(std::ostringstream* buf,
     CPDF_Object* pIndirectFont = pFont->GetFontDict();
     if (pIndirectFont->IsInline()) {
       // In this case we assume it must be a standard font
-      auto fontDict = pdfium::MakeUnique<CPDF_Dictionary>();
-      fontDict->SetNewFor<CPDF_Name>("Type", "Font");
-      fontDict->SetNewFor<CPDF_Name>("Subtype", fontD.type);
-      fontDict->SetNewFor<CPDF_Name>("BaseFont", fontD.baseFont);
-      pIndirectFont = m_pDocument->AddIndirectObject(std::move(fontDict));
+      auto pFontDict = pdfium::MakeRetain<CPDF_Dictionary>();
+      pFontDict->SetNewFor<CPDF_Name>("Type", "Font");
+      pFontDict->SetNewFor<CPDF_Name>("Subtype", data.type);
+      pFontDict->SetNewFor<CPDF_Name>("BaseFont", data.baseFont);
+      if (pEncoding) {
+        pFontDict->SetFor("Encoding",
+                          pEncoding->Realize(m_pDocument->GetByteStringPool()));
+      }
+      pIndirectFont = m_pDocument->AddIndirectObject(pFontDict);
     }
     dictName = RealizeResource(pIndirectFont, "Font");
-    m_pObjHolder->m_FontsMap[fontD] = dictName;
+    m_pObjHolder->m_FontsMap[data] = dictName;
   }
-  *buf << "/" << PDF_NameEncode(dictName) << " " << pTextObj->GetFontSize()
-       << " Tf ";
+  *buf << "/" << PDF_NameEncode(dictName) << " ";
+  WriteFloat(*buf, pTextObj->GetFontSize()) << " Tf ";
   ByteString text;
   for (uint32_t charcode : pTextObj->GetCharCodes()) {
     if (charcode != CPDF_Font::kInvalidCharCode)

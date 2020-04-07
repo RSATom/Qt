@@ -100,12 +100,12 @@ static PageScaleConstraints RunViewportTest(Page* page,
                                             int initial_width,
                                             int initial_height) {
   IntSize initial_viewport_size(initial_width, initial_height);
-  ToLocalFrame(page->MainFrame())
+  To<LocalFrame>(page->MainFrame())
       ->View()
       ->SetFrameRect(IntRect(IntPoint::Zero(), initial_viewport_size));
   ViewportDescription description = page->GetViewportDescription();
-  PageScaleConstraints constraints = description.Resolve(
-      FloatSize(initial_viewport_size), Length(980, blink::kFixed));
+  PageScaleConstraints constraints =
+      description.Resolve(FloatSize(initial_viewport_size), Length::Fixed(980));
 
   constraints.FitToContentsWidth(constraints.layout_size.Width(),
                                  initial_width);
@@ -2947,86 +2947,6 @@ TEST_F(ViewportTest, viewportLimitsAdjustedForUserScale) {
   EXPECT_NEAR(1.0f, constraints.minimum_scale, 0.01f);
 }
 
-TEST_F(ViewportTest, ViewportTriggersGpuRasterization) {
-  frame_test_helpers::WebViewHelper web_view_helper;
-
-  RegisterMockedHttpURLLoad(
-      "viewport/viewport-gpu-rasterization-disabled-without-viewport.html");
-  web_view_helper.InitializeAndLoad(
-      base_url_ +
-          "viewport/viewport-gpu-rasterization-disabled-without-viewport.html",
-      nullptr, nullptr, nullptr, SetViewportSettings);
-  web_view_helper.GetWebView()->MainFrameWidget()->Resize(WebSize(640, 480));
-  content::LayerTreeView* compositor = web_view_helper.GetLayerTreeView();
-  EXPECT_FALSE(compositor->layer_tree_host()->has_gpu_rasterization_trigger());
-  // Also test that setting enableViewport to false (as on desktop Chrome)
-  // supports GPU raster unconditionally.
-  web_view_helper.InitializeAndLoad(
-      base_url_ +
-      "viewport/viewport-gpu-rasterization-disabled-without-viewport.html");
-  web_view_helper.GetWebView()->MainFrameWidget()->Resize(WebSize(640, 480));
-  compositor = web_view_helper.GetLayerTreeView();
-  EXPECT_TRUE(compositor->layer_tree_host()->has_gpu_rasterization_trigger());
-
-  RegisterMockedHttpURLLoad("viewport/viewport-gpu-rasterization.html");
-  web_view_helper.InitializeAndLoad(
-      base_url_ + "viewport/viewport-gpu-rasterization.html", nullptr, nullptr,
-      nullptr, SetViewportSettings);
-  web_view_helper.GetWebView()->MainFrameWidget()->Resize(WebSize(640, 480));
-  compositor = web_view_helper.GetLayerTreeView();
-  EXPECT_TRUE(compositor->layer_tree_host()->has_gpu_rasterization_trigger());
-
-  RegisterMockedHttpURLLoad(
-      "viewport/viewport-gpu-rasterization-expanded-heuristics.html");
-  web_view_helper.InitializeAndLoad(
-      base_url_ +
-          "viewport/viewport-gpu-rasterization-expanded-heuristics.html",
-      nullptr, nullptr, nullptr, SetViewportSettings);
-  web_view_helper.GetWebView()->MainFrameWidget()->Resize(WebSize(640, 480));
-  compositor = web_view_helper.GetLayerTreeView();
-  EXPECT_TRUE(compositor->layer_tree_host()->has_gpu_rasterization_trigger());
-
-  RegisterMockedHttpURLLoad("viewport/viewport-1.html");
-  web_view_helper.InitializeAndLoad(base_url_ + "viewport/viewport-1.html",
-                                    nullptr, nullptr, nullptr,
-                                    SetViewportSettings);
-  web_view_helper.GetWebView()->MainFrameWidget()->Resize(WebSize(640, 480));
-  compositor = web_view_helper.GetLayerTreeView();
-  EXPECT_TRUE(compositor->layer_tree_host()->has_gpu_rasterization_trigger());
-
-  RegisterMockedHttpURLLoad("viewport/viewport-15.html");
-  web_view_helper.InitializeAndLoad(base_url_ + "viewport/viewport-15.html",
-                                    nullptr, nullptr, nullptr,
-                                    SetViewportSettings);
-  web_view_helper.GetWebView()->MainFrameWidget()->Resize(WebSize(640, 480));
-  compositor = web_view_helper.GetLayerTreeView();
-  EXPECT_TRUE(compositor->layer_tree_host()->has_gpu_rasterization_trigger());
-
-  RegisterMockedHttpURLLoad("viewport/viewport-130.html");
-  web_view_helper.InitializeAndLoad(base_url_ + "viewport/viewport-130.html",
-                                    nullptr, nullptr, nullptr,
-                                    SetViewportSettings);
-  web_view_helper.GetWebView()->MainFrameWidget()->Resize(WebSize(640, 480));
-  compositor = web_view_helper.GetLayerTreeView();
-  EXPECT_TRUE(compositor->layer_tree_host()->has_gpu_rasterization_trigger());
-
-  RegisterMockedHttpURLLoad("viewport/viewport-legacy-handheldfriendly.html");
-  web_view_helper.InitializeAndLoad(
-      base_url_ + "viewport/viewport-legacy-handheldfriendly.html", nullptr,
-      nullptr, nullptr, SetViewportSettings);
-  web_view_helper.GetWebView()->MainFrameWidget()->Resize(WebSize(640, 480));
-  compositor = web_view_helper.GetLayerTreeView();
-  EXPECT_TRUE(compositor->layer_tree_host()->has_gpu_rasterization_trigger());
-
-  RegisterMockedHttpURLLoad("viewport/viewport-legacy-mobileoptimized.html");
-  web_view_helper.InitializeAndLoad(
-      base_url_ + "viewport/viewport-legacy-handheldfriendly.html", nullptr,
-      nullptr, nullptr, SetViewportSettings);
-  web_view_helper.GetWebView()->MainFrameWidget()->Resize(WebSize(640, 480));
-  compositor = web_view_helper.GetLayerTreeView();
-  EXPECT_TRUE(compositor->layer_tree_host()->has_gpu_rasterization_trigger());
-}
-
 class ConsoleMessageWebFrameClient
     : public frame_test_helpers::TestWebFrameClient {
  public:
@@ -3079,8 +2999,8 @@ TEST_F(ViewportTest, viewportWarnings2) {
   EXPECT_EQ(1U, web_frame_client.messages.size());
   EXPECT_EQ(mojom::ConsoleMessageLevel::kWarning,
             web_frame_client.messages[0].level);
-  EXPECT_STREQ("The key \"wwidth\" is not recognized and ignored.",
-               web_frame_client.messages[0].text.Utf8().c_str());
+  EXPECT_EQ("The key \"wwidth\" is not recognized and ignored.",
+            web_frame_client.messages[0].text);
 
   EXPECT_EQ(980, constraints.layout_size.Width());
   EXPECT_EQ(1078, constraints.layout_size.Height());
@@ -3106,10 +3026,10 @@ TEST_F(ViewportTest, viewportWarnings3) {
   EXPECT_EQ(1U, web_frame_client.messages.size());
   EXPECT_EQ(mojom::ConsoleMessageLevel::kWarning,
             web_frame_client.messages[0].level);
-  EXPECT_STREQ(
+  EXPECT_EQ(
       "The value \"unrecognized-width\" for key \"width\" is invalid, and has "
       "been ignored.",
-      web_frame_client.messages[0].text.Utf8().c_str());
+      web_frame_client.messages[0].text);
 
   EXPECT_NEAR(980, constraints.layout_size.Width(), 0.01);
   EXPECT_NEAR(1078, constraints.layout_size.Height(), 0.01);
@@ -3135,10 +3055,10 @@ TEST_F(ViewportTest, viewportWarnings4) {
   EXPECT_EQ(1U, web_frame_client.messages.size());
   EXPECT_EQ(mojom::ConsoleMessageLevel::kWarning,
             web_frame_client.messages[0].level);
-  EXPECT_STREQ(
+  EXPECT_EQ(
       "The value \"123x456\" for key \"width\" was truncated to its numeric "
       "prefix.",
-      web_frame_client.messages[0].text.Utf8().c_str());
+      web_frame_client.messages[0].text);
 
   EXPECT_NEAR(123.0f, constraints.layout_size.Width(), 0.01);
   EXPECT_NEAR(135.3f, constraints.layout_size.Height(), 0.01);
@@ -3165,10 +3085,10 @@ TEST_F(ViewportTest, viewportWarnings5) {
 
   EXPECT_EQ(mojom::ConsoleMessageLevel::kWarning,
             web_frame_client.messages[0].level);
-  EXPECT_STREQ(
+  EXPECT_EQ(
       "Error parsing a meta element's content: ';' is not a valid key-value "
       "pair separator. Please use ',' instead.",
-      web_frame_client.messages[0].text.Utf8().c_str());
+      web_frame_client.messages[0].text);
 
   EXPECT_NEAR(320.0f, constraints.layout_size.Width(), 0.01);
   EXPECT_NEAR(352.0f, constraints.layout_size.Height(), 0.01);
@@ -3194,9 +3114,9 @@ TEST_F(ViewportTest, viewportWarnings6) {
   EXPECT_EQ(1U, web_frame_client.messages.size());
   EXPECT_EQ(mojom::ConsoleMessageLevel::kWarning,
             web_frame_client.messages[0].level);
-  EXPECT_STREQ(
+  EXPECT_EQ(
       "The value \"\" for key \"width\" is invalid, and has been ignored.",
-      web_frame_client.messages[0].text.Utf8().c_str());
+      web_frame_client.messages[0].text);
 
   EXPECT_NEAR(980, constraints.layout_size.Width(), 0.01);
   EXPECT_NEAR(1078, constraints.layout_size.Height(), 0.01);

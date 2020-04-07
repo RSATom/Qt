@@ -55,12 +55,6 @@
 
 #include <QtCore/qglobal.h>
 
-#if (defined(Q_OS_LINUX) || defined Q_OS_MACOS) && QT_CONFIG(process)
-#define QTESTLIB_USE_VALGRIND
-#else
-#undef QTESTLIB_USE_VALGRIND
-#endif
-
 #if defined(Q_OS_LINUX) && !defined(QT_LINUXBASE) && !defined(Q_OS_ANDROID)
 #define QTESTLIB_USE_PERF_EVENTS
 #else
@@ -70,7 +64,7 @@
 #include <QtTest/private/qbenchmarkmeasurement_p.h>
 #include <QtCore/QMap>
 #include <QtTest/qttestglobal.h>
-#ifdef QTESTLIB_USE_VALGRIND
+#if QT_CONFIG(valgrind)
 #include <QtTest/private/qbenchmarkvalgrind_p.h>
 #endif
 #ifdef QTESTLIB_USE_PERF_EVENTS
@@ -87,7 +81,7 @@ struct QBenchmarkContext
     QString slotName;
     QString tag; // from _data() function
 
-    int checkpointIndex;
+    int checkpointIndex = -1;
 
     QString toString() const
     {
@@ -95,7 +89,7 @@ struct QBenchmarkContext
                .arg(slotName, tag, QString::number(checkpointIndex));
     }
 
-    QBenchmarkContext() : checkpointIndex(-1) {}
+    QBenchmarkContext()  = default;
 };
 Q_DECLARE_TYPEINFO(QBenchmarkContext, Q_MOVABLE_TYPE);
 
@@ -103,19 +97,13 @@ class QBenchmarkResult
 {
 public:
     QBenchmarkContext context;
-    qreal value;
-    int iterations;
-    QTest::QBenchmarkMetric metric;
-    bool setByMacro;
-    bool valid;
+    qreal value = -1;
+    int iterations = -1;
+    QTest::QBenchmarkMetric metric = QTest::FramesPerSecond;
+    bool setByMacro = true;
+    bool valid = false;
 
-    QBenchmarkResult()
-    : value(-1)
-    , iterations(-1)
-    , metric(QTest::FramesPerSecond)
-    , setByMacro(true)
-    , valid(false)
-    { }
+    QBenchmarkResult() = default;
 
     QBenchmarkResult(
         const QBenchmarkContext &context, const qreal value, const int iterations,
@@ -153,17 +141,17 @@ public:
     QBenchmarkMeasurerBase *createMeasurer();
     int adjustMedianIterationCount();
 
-    QBenchmarkMeasurerBase *measurer;
+    QBenchmarkMeasurerBase *measurer = nullptr;
     QBenchmarkContext context;
-    int walltimeMinimum;
-    int iterationCount;
-    int medianIterationCount;
-    bool createChart;
-    bool verboseOutput;
+    int walltimeMinimum = -1;
+    int iterationCount = -1;
+    int medianIterationCount = -1;
+    bool createChart = false;
+    bool verboseOutput = false;
     QString callgrindOutFileBase;
-    int minimumTotal;
+    int minimumTotal = -1;
 private:
-    Mode mode_;
+    Mode mode_ = WallTime;
 };
 
 /*
@@ -190,9 +178,9 @@ public:
     void setResult(qreal value, QTest::QBenchmarkMetric metric, bool setByMacro = true);
 
     QBenchmarkResult result;
-    bool resultAccepted;
-    bool runOnce;
-    int iterationCount;
+    bool resultAccepted = false;
+    bool runOnce = false;
+    int iterationCount = -1;
 };
 
 // low-level API:

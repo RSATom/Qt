@@ -34,7 +34,7 @@ deps = {
     'condition': 'dawn_standalone',
   },
   'third_party/googletest': {
-    'url': '{chromium_git}/external/github.com/google/googletest@98a0d007d7092b72eea0e501bb9ad17908a1a036',
+    'url': '{chromium_git}/external/github.com/google/googletest@5ec7f0c4a113e2f18ac2c6cc7df51ad6afc24081',
     'condition': 'dawn_standalone',
   },
 
@@ -50,25 +50,25 @@ deps = {
 
   # SPIRV-Cross
   'third_party/spirv-cross': {
-    'url': '{chromium_git}/external/github.com/KhronosGroup/SPIRV-Cross@a7697446b12666da353bb2bdafa792d988fb268c',
+    'url': '{chromium_git}/external/github.com/KhronosGroup/SPIRV-Cross@53ab2144b90abede33be5161aec5dfc94ddc3caf',
     'condition': 'dawn_standalone',
   },
 
   # SPIRV compiler dependencies: SPIRV-Tools, SPIRV-headers, glslang and shaderc
   'third_party/SPIRV-Tools': {
-    'url': '{chromium_git}/external/github.com/KhronosGroup/SPIRV-Tools@dab634da93d39763bc5b526de9d25104a3bd3b65',
+    'url': '{chromium_git}/external/github.com/KhronosGroup/SPIRV-Tools@0c4feb643b89d1792b02f7cbef315e9d95633bd7',
     'condition': 'dawn_standalone',
   },
   'third_party/spirv-headers': {
-    'url': '{chromium_git}/external/github.com/KhronosGroup/SPIRV-Headers@7cb43009d543e90698dd300eb26dfd6d9a9bb100',
+    'url': '{chromium_git}/external/github.com/KhronosGroup/SPIRV-Headers@29c11140baaf9f7fdaa39a583672c556bf1795a1',
     'condition': 'dawn_standalone',
   },
   'third_party/glslang': {
-    'url': '{chromium_git}/external/github.com/KhronosGroup/glslang@0ac199df32687fe17b38cd2d0da64c3742e24fef',
+    'url': '{chromium_git}/external/github.com/KhronosGroup/glslang@8aa9a7bb8f74869ab9cfd2c9bd51cef1741004e7',
     'condition': 'dawn_standalone',
   },
   'third_party/shaderc': {
-    'url': '{chromium_git}/external/github.com/google/shaderc@ce7d92182b8cc9c72e99efb5fab1eae3c2084887',
+    'url': '{chromium_git}/external/github.com/google/shaderc@e9bb8f287417084d30c924026de9fa59dd32db41',
     'condition': 'dawn_standalone',
   },
 
@@ -78,11 +78,7 @@ deps = {
     'condition': 'dawn_standalone',
   },
 
-  # Dependencies for samples: stb and GLM
-  'third_party/stb': {
-    'url': '{github_git}/nothings/stb.git@c7110588a4d24c4bb5155c184fbb77dd90b3116e',
-    'condition': 'dawn_standalone',
-  },
+  # Dependencies for samples: GLM
   'third_party/glm': {
     'url': '{github_git}/g-truc/glm.git@06f084063fd6d9aa2ef6904517650700ae47b63d',
     'condition': 'dawn_standalone',

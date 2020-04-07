@@ -34,6 +34,9 @@ class HeapProfilingService
   explicit HeapProfilingService(service_manager::mojom::ServiceRequest request);
   ~HeapProfilingService() override;
 
+  static base::RepeatingCallback<void(service_manager::mojom::ServiceRequest)>
+  GetServiceFactory();
+
   // Lifescycle events that occur after the service has started to spinup.
   void OnStart() override;
   void OnBindInterface(const service_manager::BindSourceInfo& source_info,
@@ -43,10 +46,8 @@ class HeapProfilingService
   // ProfilingService implementation.
   void AddProfilingClient(base::ProcessId pid,
                           mojom::ProfilingClientPtr client,
-                          mojo::ScopedHandle pipe_receiver,
                           mojom::ProcessType process_type,
                           mojom::ProfilingParamsPtr params) override;
-  void SetKeepSmallAllocations(bool keep_small_allocations) override;
   void GetProfiledPids(GetProfiledPidsCallback callback) override;
 
   // HeapProfiler implementation.
@@ -73,10 +74,7 @@ class HeapProfilingService
 
   memory_instrumentation::mojom::HeapProfilerHelperPtr helper_;
   ConnectionManager connection_manager_;
-
-  bool keep_small_allocations_ = false;
-
-  // Must be last.
+  // Must be the last.
   base::WeakPtrFactory<HeapProfilingService> weak_factory_{this};
 };
 

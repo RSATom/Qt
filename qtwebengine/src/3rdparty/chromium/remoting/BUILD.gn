@@ -196,9 +196,7 @@ test("remoting_unittests") {
   }
 
   if (!is_chromeos) {
-    deps += [
-      "//remoting/client/display:unit_tests",
-    ]
+    deps += [ "//remoting/client/display:unit_tests" ]
   }
 }
 

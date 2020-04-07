@@ -5,7 +5,11 @@
 #ifndef COMPONENTS_VIZ_SERVICE_DISPLAY_SKIA_OUTPUT_SURFACE_H_
 #define COMPONENTS_VIZ_SERVICE_DISPLAY_SKIA_OUTPUT_SURFACE_H_
 
+#include <memory>
+#include <vector>
+
 #include "components/viz/common/resources/resource_format.h"
+#include "components/viz/service/display/external_use_client.h"
 #include "components/viz/service/display/output_surface.h"
 #include "third_party/skia/include/core/SkRefCnt.h"
 
@@ -14,7 +18,7 @@ class SkImage;
 
 namespace gfx {
 class ColorSpace;
-}
+}  // namespace gfx
 
 namespace viz {
 
@@ -22,14 +26,21 @@ class ContextLostObserver;
 class CopyOutputRequest;
 struct ResourceMetadata;
 
+namespace copy_output {
+struct RenderPassGeometry;
+}  // namespace copy_output
+
 // This class extends the OutputSurface for SkiaRenderer needs. In future, the
 // SkiaRenderer will be the only renderer. When other renderers are removed,
 // we will replace OutputSurface with SkiaOutputSurface, and remove all
 // OutputSurface's methods which are not useful for SkiaRenderer.
-class VIZ_SERVICE_EXPORT SkiaOutputSurface : public OutputSurface {
+class VIZ_SERVICE_EXPORT SkiaOutputSurface : public OutputSurface,
+                                             public ExternalUseClient {
  public:
   SkiaOutputSurface();
   ~SkiaOutputSurface() override;
+
+  SkiaOutputSurface* AsSkiaOutputSurface() override;
 
   // Begin painting the current frame. This method will create a
   // SkDeferredDisplayListRecorder and return a SkCanvas of it.
@@ -45,7 +56,8 @@ class VIZ_SERVICE_EXPORT SkiaOutputSurface : public OutputSurface {
   // |metadata| is satisfied. The SwapBuffers should take care of this by
   // scheduling a GPU task with all resource sync tokens recorded by
   // MakePromiseSkImage for the current frame.
-  virtual sk_sp<SkImage> MakePromiseSkImage(ResourceMetadata metadata) = 0;
+  virtual sk_sp<SkImage> MakePromiseSkImage(
+      const ResourceMetadata& metadata) = 0;
 
   // Make a promise SkImage from the given |metadata| and the |yuv_color_space|.
   // For YUV format, at least three resource metadatas should be provided.
@@ -55,20 +67,16 @@ class VIZ_SERVICE_EXPORT SkiaOutputSurface : public OutputSurface {
   // pixels from y panel, metadatas[1] contains pixels from u and v panels. If
   // has_alpha is true, the last item in metadatas contains alpha panel.
   virtual sk_sp<SkImage> MakePromiseSkImageFromYUV(
-      std::vector<ResourceMetadata> metadatas,
+      const std::vector<ResourceMetadata>& metadatas,
       SkYUVColorSpace yuv_color_space,
+      sk_sp<SkColorSpace> dst_color_space,
       bool has_alpha) = 0;
-
-  // Release SkImage created by MakePromiseSkImage on the thread on which
-  // it was fulfilled. SyncToken represents point after which SkImage is
-  // released.
-  virtual gpu::SyncToken QueueReleasePromiseSkImage(sk_sp<SkImage>&& image) = 0;
-
-  // Flush all the queued releases. No-op if none were queued.
-  virtual void FlushQueuedReleases() = 0;
 
   // Swaps the current backbuffer to the screen.
   virtual void SkiaSwapBuffers(OutputSurfaceFrame frame) = 0;
+
+  // Schedule overlay planes to be displayed
+  virtual void ScheduleOverlays(OverlayCandidateList overlays) = 0;
 
   // Begin painting a render pass. This method will create a
   // SkDeferredDisplayListRecorder and return a SkCanvas of it. The SkiaRenderer
@@ -78,7 +86,8 @@ class VIZ_SERVICE_EXPORT SkiaOutputSurface : public OutputSurface {
   virtual SkCanvas* BeginPaintRenderPass(const RenderPassId& id,
                                          const gfx::Size& size,
                                          ResourceFormat format,
-                                         bool mipmap) = 0;
+                                         bool mipmap,
+                                         sk_sp<SkColorSpace> color_space) = 0;
 
   // Finish painting the current frame or current render pass, depends on which
   // BeginPaint function is called last. This method will schedule a GPU task to
@@ -86,7 +95,10 @@ class VIZ_SERVICE_EXPORT SkiaOutputSurface : public OutputSurface {
   // a sync token which can be waited on in a command buffer to ensure the paint
   // operation is completed. This token is released when the GPU ops from
   // painting the render pass have been seen and processed by the GPU main.
-  virtual gpu::SyncToken SubmitPaint() = 0;
+  // Optionally the caller may specify |on_finished| callback to be called after
+  // the GPU has finished processing all submitted commands. The callback may be
+  // called on a different thread.
+  virtual gpu::SyncToken SubmitPaint(base::OnceClosure on_finished) = 0;
 
   // Make a promise SkImage from a render pass id. The render pass has been
   // painted with BeginPaintRenderPass and FinishPaintRenderPass. The format
@@ -96,7 +108,8 @@ class VIZ_SERVICE_EXPORT SkiaOutputSurface : public OutputSurface {
       const RenderPassId& id,
       const gfx::Size& size,
       ResourceFormat format,
-      bool mipmap) = 0;
+      bool mipmap,
+      sk_sp<SkColorSpace> color_space) = 0;
 
   // Remove cached resources generated by BeginPaintRenderPass and
   // FinishPaintRenderPass.
@@ -105,9 +118,8 @@ class VIZ_SERVICE_EXPORT SkiaOutputSurface : public OutputSurface {
   // Copy the output of the current frame if the |id| is zero, otherwise copy
   // the output of a cached SkSurface for the given |id|.
   virtual void CopyOutput(RenderPassId id,
-                          const gfx::Rect& copy_rect,
+                          const copy_output::RenderPassGeometry& geometry,
                           const gfx::ColorSpace& color_space,
-                          const gfx::Rect& result_rect,
                           std::unique_ptr<CopyOutputRequest> request) = 0;
 
   // Add context lost observer.
@@ -115,6 +127,11 @@ class VIZ_SERVICE_EXPORT SkiaOutputSurface : public OutputSurface {
 
   // Remove context lost observer.
   virtual void RemoveContextLostObserver(ContextLostObserver* observer) = 0;
+
+  // Only used for SkiaOutputSurfaceImpl unit tests.
+  virtual void ScheduleGpuTaskForTesting(
+      base::OnceClosure callback,
+      std::vector<gpu::SyncToken> sync_tokens) = 0;
 
  private:
   DISALLOW_COPY_AND_ASSIGN(SkiaOutputSurface);

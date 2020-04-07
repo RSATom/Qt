@@ -8,8 +8,8 @@
 #ifndef GrPathRendering_DEFINED
 #define GrPathRendering_DEFINED
 
-#include "SkPath.h"
-#include "GrPipeline.h"
+#include "include/core/SkPath.h"
+#include "src/gpu/GrPipeline.h"
 
 class GrGpu;
 class GrPath;
@@ -109,7 +109,8 @@ public:
 
     void stencilPath(const StencilPathArgs& args, const GrPath* path);
 
-    void drawPath(const GrPrimitiveProcessor& primProc,
+    void drawPath(GrRenderTarget*, GrSurfaceOrigin,
+                  const GrPrimitiveProcessor& primProc,
                   const GrPipeline& pipeline,
                   const GrPipeline::FixedDynamicState&,
                   const GrStencilSettings& stencilPassSettings,  // Cover pass settings in pipeline.
@@ -119,7 +120,8 @@ protected:
     GrPathRendering(GrGpu* gpu) : fGpu(gpu) { }
 
     virtual void onStencilPath(const StencilPathArgs&, const GrPath*) = 0;
-    virtual void onDrawPath(const GrPrimitiveProcessor&,
+    virtual void onDrawPath(GrRenderTarget*, GrSurfaceOrigin,
+                            const GrPrimitiveProcessor&,
                             const GrPipeline&,
                             const GrPipeline::FixedDynamicState&,
                             const GrStencilSettings&,

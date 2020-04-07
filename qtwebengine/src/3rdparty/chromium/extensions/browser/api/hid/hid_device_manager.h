@@ -7,6 +7,7 @@
 
 #include <map>
 #include <memory>
+#include <string>
 #include <vector>
 
 #include "base/macros.h"
@@ -77,6 +78,9 @@ class HidDeviceManager : public BrowserContextKeyedAPI,
   // the first API customer makes a request or registers an event listener.
   virtual void LazyInitialize();
 
+  void SetFakeHidManagerForTesting(
+      device::mojom::HidManagerPtr fake_hid_manager);
+
  private:
   friend class BrowserContextKeyedAPIFactory<HidDeviceManager>;
 
@@ -92,7 +96,6 @@ class HidDeviceManager : public BrowserContextKeyedAPI,
   // BrowserContextKeyedAPI:
   static const char* service_name() { return "HidDeviceManager"; }
   static const bool kServiceHasOwnInstanceInIncognito = true;
-  static const bool kServiceIsNULLWhileTesting = true;
 
   // EventRouter::Observer:
   void OnListenerAdded(const EventListenerInfo& details) override;
@@ -126,7 +129,7 @@ class HidDeviceManager : public BrowserContextKeyedAPI,
   int next_resource_id_ = 0;
   ResourceIdToDeviceInfoMap devices_;
   DeviceIdToResourceIdMap resource_ids_;
-  base::WeakPtrFactory<HidDeviceManager> weak_factory_;
+  base::WeakPtrFactory<HidDeviceManager> weak_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(HidDeviceManager);
 };

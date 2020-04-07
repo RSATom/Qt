@@ -48,7 +48,7 @@ namespace QPatternistSDK
      * @author Frans Englich <frans.englich@nokia.com>
      * @ingroup PatternistSDK
      */
-    class Q_PATTERNISTSDK_EXPORT ResultThreader : public QThread
+    class ResultThreader : public QThread
                                                 , public TestResultHandler
     {
     public:

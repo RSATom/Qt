@@ -779,6 +779,13 @@ void GLES2InterfaceStub::RenderbufferStorageMultisampleCHROMIUM(
     GLenum /* internalformat */,
     GLsizei /* width */,
     GLsizei /* height */) {}
+void GLES2InterfaceStub::RenderbufferStorageMultisampleAdvancedAMD(
+    GLenum /* target */,
+    GLsizei /* samples */,
+    GLsizei /* storageSamples */,
+    GLenum /* internalformat */,
+    GLsizei /* width */,
+    GLsizei /* height */) {}
 void GLES2InterfaceStub::RenderbufferStorageMultisampleEXT(
     GLenum /* target */,
     GLsizei /* samples */,
@@ -852,6 +859,37 @@ void GLES2InterfaceStub::BindImageTexture(GLuint /* unit */,
 void GLES2InterfaceStub::DispatchCompute(GLuint /* num_groups_x */,
                                          GLuint /* num_groups_y */,
                                          GLuint /* num_groups_z */) {}
+void GLES2InterfaceStub::DispatchComputeIndirect(GLintptr /* offset */) {}
+void GLES2InterfaceStub::GetProgramInterfaceiv(GLuint /* program */,
+                                               GLenum /* program_interface */,
+                                               GLenum /* pname */,
+                                               GLint* /* params */) {}
+GLuint GLES2InterfaceStub::GetProgramResourceIndex(
+    GLuint /* program */,
+    GLenum /* program_interface */,
+    const char* /* name */) {
+  return 0;
+}
+void GLES2InterfaceStub::GetProgramResourceName(GLuint /* program */,
+                                                GLenum /* program_interface */,
+                                                GLuint /* index */,
+                                                GLsizei /* bufsize */,
+                                                GLsizei* /* length */,
+                                                char* /* name */) {}
+void GLES2InterfaceStub::GetProgramResourceiv(GLuint /* program */,
+                                              GLenum /* program_interface */,
+                                              GLuint /* index */,
+                                              GLsizei /* prop_count */,
+                                              const GLenum* /* props */,
+                                              GLsizei /* bufsize */,
+                                              GLsizei* /* length */,
+                                              GLint* /* params */) {}
+GLint GLES2InterfaceStub::GetProgramResourceLocation(
+    GLuint /* program */,
+    GLenum /* program_interface */,
+    const char* /* name */) {
+  return 0;
+}
 void GLES2InterfaceStub::MemoryBarrierEXT(GLbitfield /* barriers */) {}
 void GLES2InterfaceStub::MemoryBarrierByRegion(GLbitfield /* barriers */) {}
 void GLES2InterfaceStub::SwapBuffers(GLuint64 /* swap_id */,
@@ -1011,13 +1049,6 @@ void GLES2InterfaceStub::DiscardFramebufferEXT(
     const GLenum* /* attachments */) {}
 void GLES2InterfaceStub::LoseContextCHROMIUM(GLenum /* current */,
                                              GLenum /* other */) {}
-void GLES2InterfaceStub::GenSyncTokenCHROMIUM(GLbyte* /* sync_token */) {}
-void GLES2InterfaceStub::GenUnverifiedSyncTokenCHROMIUM(
-    GLbyte* /* sync_token */) {}
-void GLES2InterfaceStub::VerifySyncTokensCHROMIUM(GLbyte** /* sync_tokens */,
-                                                  GLsizei /* count */) {}
-void GLES2InterfaceStub::WaitSyncTokenCHROMIUM(const GLbyte* /* sync_token */) {
-}
 void GLES2InterfaceStub::UnpremultiplyAndDitherCopyCHROMIUM(
     GLuint /* source_id */,
     GLuint /* dest_id */,
@@ -1046,6 +1077,7 @@ void GLES2InterfaceStub::ScheduleCALayerSharedStateCHROMIUM(
     GLfloat /* opacity */,
     GLboolean /* is_clipped */,
     const GLfloat* /* clip_rect */,
+    const GLfloat* /* rounded_corner_bounds */,
     GLint /* sorting_context_id */,
     const GLfloat* /* transform */) {}
 void GLES2InterfaceStub::ScheduleCALayerCHROMIUM(
@@ -1268,7 +1300,7 @@ void GLES2InterfaceStub::WaitGpuFenceCHROMIUM(GLuint /* gpu_fence_id */) {}
 void GLES2InterfaceStub::DestroyGpuFenceCHROMIUM(GLuint /* gpu_fence_id */) {}
 void GLES2InterfaceStub::InvalidateReadbackBufferShadowDataCHROMIUM(
     GLuint /* buffer_id */) {}
-void GLES2InterfaceStub::FramebufferTextureMultiviewLayeredANGLE(
+void GLES2InterfaceStub::FramebufferTextureMultiviewOVR(
     GLenum /* target */,
     GLenum /* attachment */,
     GLuint /* texture */,
@@ -1278,6 +1310,12 @@ void GLES2InterfaceStub::FramebufferTextureMultiviewLayeredANGLE(
 void GLES2InterfaceStub::MaxShaderCompilerThreadsKHR(GLuint /* count */) {}
 GLuint GLES2InterfaceStub::CreateAndTexStorage2DSharedImageCHROMIUM(
     const GLbyte* /* mailbox */) {
+  return 0;
+}
+GLuint
+GLES2InterfaceStub::CreateAndTexStorage2DSharedImageWithInternalFormatCHROMIUM(
+    const GLbyte* /* mailbox */,
+    GLenum /* internalformat */) {
   return 0;
 }
 void GLES2InterfaceStub::BeginSharedImageAccessDirectCHROMIUM(

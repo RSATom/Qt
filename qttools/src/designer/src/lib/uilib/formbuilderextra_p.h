@@ -111,7 +111,7 @@ public:
         QString addPageMethod;
         QString script;
         QString baseClass;
-        bool isContainer;
+        bool isContainer = false;
     };
 
     void clear();
@@ -147,8 +147,8 @@ public:
     // --- Hash used in creating button groups on demand. Store a map of name and pair of dom group and real group
     void registerButtonGroups(const DomButtonGroups *groups);
 
-    typedef QPair<DomButtonGroup *, QButtonGroup*> ButtonGroupEntry;
-    typedef QHash<QString, ButtonGroupEntry> ButtonGroupHash;
+    using ButtonGroupEntry = QPair<DomButtonGroup *, QButtonGroup*>;
+    using ButtonGroupHash = QHash<QString, ButtonGroupEntry>;
     const ButtonGroupHash &buttonGroups() const { return m_buttonGroups; }
     ButtonGroupHash &buttonGroups()  { return m_buttonGroups; }
 
@@ -191,19 +191,19 @@ private:
     void clearResourceBuilder();
     void clearTextBuilder();
 
-    typedef QHash<QLabel*, QString> BuddyHash;
+    using BuddyHash = QHash<QLabel*, QString>;
     BuddyHash m_buddies;
 
     QHash<QString, CustomWidgetData> m_customWidgetDataHash;
 
     ButtonGroupHash m_buttonGroups;
 
-    bool m_layoutWidget;
-    QResourceBuilder *m_resourceBuilder;
-    QTextBuilder *m_textBuilder;
+    bool m_layoutWidget = false;
+    QResourceBuilder *m_resourceBuilder = nullptr;
+    QTextBuilder *m_textBuilder = nullptr;
 
     QPointer<QWidget> m_parentWidget;
-    bool m_parentWidgetIsSet;
+    bool m_parentWidgetIsSet = false;
 };
 
 void uiLibWarning(const QString &message);
@@ -256,14 +256,14 @@ struct QDESIGNER_UILIB_EXPORT QFormBuilderStrings {
     const QString scriptWidgetVariable;
     const QString scriptChildWidgetsVariable;
 
-    typedef QPair<Qt::ItemDataRole, QString> RoleNName;
+    using RoleNName = QPair<Qt::ItemDataRole, QString>;
     QList<RoleNName> itemRoles;
     QHash<QString, Qt::ItemDataRole> treeItemRoleHash;
 
     // first.first is primary role, first.second is shadow role.
     // Shadow is used for either the translation source or the designer
     // representation of the string value.
-    typedef QPair<QPair<Qt::ItemDataRole, Qt::ItemDataRole>, QString> TextRoleNName;
+    using TextRoleNName = QPair<QPair<Qt::ItemDataRole, Qt::ItemDataRole>, QString>;
     QList<TextRoleNName> itemTextRoles;
     QHash<QString, QPair<Qt::ItemDataRole, Qt::ItemDataRole> > treeItemTextRoleHash;
 };

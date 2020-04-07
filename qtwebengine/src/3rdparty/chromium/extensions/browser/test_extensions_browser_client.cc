@@ -10,6 +10,7 @@
 #include "extensions/browser/extension_host_delegate.h"
 #include "extensions/browser/test_runtime_api_delegate.h"
 #include "extensions/browser/updater/null_extension_cache.h"
+#include "services/network/public/mojom/url_loader.mojom.h"
 #include "ui/base/l10n/l10n_util.h"
 
 #if defined(OS_CHROMEOS)
@@ -170,7 +171,7 @@ PrefService* TestExtensionsBrowserClient::GetPrefServiceForContext(
 
 void TestExtensionsBrowserClient::GetEarlyExtensionPrefsObservers(
     content::BrowserContext* context,
-    std::vector<ExtensionPrefsObserver*>* observers) const {}
+    std::vector<EarlyExtensionPrefsObserver*>* observers) const {}
 
 ProcessManagerDelegate* TestExtensionsBrowserClient::GetProcessManagerDelegate()
     const {
@@ -236,10 +237,6 @@ void TestExtensionsBrowserClient::BroadcastEventToRenderers(
     events::HistogramValue histogram_value,
     const std::string& event_name,
     std::unique_ptr<base::ListValue> args) {}
-
-net::NetLog* TestExtensionsBrowserClient::GetNetLog() {
-  return nullptr;
-}
 
 ExtensionCache* TestExtensionsBrowserClient::GetExtensionCache() {
   return extension_cache_.get();

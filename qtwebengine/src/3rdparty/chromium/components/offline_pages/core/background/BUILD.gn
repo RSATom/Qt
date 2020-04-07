@@ -8,8 +8,6 @@ if (is_android) {
 
 static_library("background_offliner") {
   sources = [
-    "add_request_task.cc",
-    "add_request_task.h",
     "change_requests_state_task.cc",
     "change_requests_state_task.h",
     "cleanup_task.cc",
@@ -32,6 +30,7 @@ static_library("background_offliner") {
     "mark_attempt_deferred_task.h",
     "mark_attempt_started_task.cc",
     "mark_attempt_started_task.h",
+    "offliner.cc",
     "offliner.h",
     "offliner_client.cc",
     "offliner_client.h",
@@ -98,7 +97,6 @@ static_library("test_support") {
     "//base",
     "//base/test:test_support",
     "//components/offline_items_collection/core/test_support",
-    "//components/offline_pages/core",
     "//net",
     "//services/network:test_support",
     "//services/network/public/cpp",
@@ -108,7 +106,6 @@ static_library("test_support") {
 source_set("unit_tests") {
   testonly = true
   sources = [
-    "add_request_task_unittest.cc",
     "change_requests_state_task_unittest.cc",
     "cleanup_task_unittest.cc",
     "get_requests_task_unittest.cc",

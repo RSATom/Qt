@@ -280,13 +280,18 @@ void QWindowsInputContext::showInputPanel()
     // with Windows 10 if the Windows IME is (re)enabled _after_ the caret is shown.
     if (m_caretCreated) {
         cursorRectChanged();
-        // We only call ShowCaret() on Windows 10 as in earlier versions the caret
-        // would actually be visible (QTBUG-74492) and the workaround for the
-        // Surface seems unnecessary there anyway. But leave it hidden for IME.
-        if (QOperatingSystemVersion::current() >= QOperatingSystemVersion::Windows10)
+        // We only call ShowCaret() on Windows 10 after 1703 as in earlier versions
+        // the caret would actually be visible (QTBUG-74492) and the workaround for
+        // the Surface seems unnecessary there anyway. But leave it hidden for IME.
+        // Only trigger the native OSK if the Qt OSK is not in use.
+        static bool imModuleEmpty = qEnvironmentVariableIsEmpty("QT_IM_MODULE");
+        if (imModuleEmpty
+                && QOperatingSystemVersion::current()
+                    >= QOperatingSystemVersion(QOperatingSystemVersion::Windows, 10, 0, 16299)) {
             ShowCaret(platformWindow->handle());
-        else
+        } else {
             HideCaret(platformWindow->handle());
+        }
         setWindowsImeEnabled(platformWindow, false);
         setWindowsImeEnabled(platformWindow, true);
     }
@@ -664,9 +669,9 @@ void QWindowsInputContext::handleInputLanguageChanged(WPARAM wparam, LPARAM lpar
     m_locale = qt_localeFromLCID(m_languageId);
     emitLocaleChanged();
 
-    qCDebug(lcQpaInputMethods) << __FUNCTION__ << hex << showbase
+    qCDebug(lcQpaInputMethods) << __FUNCTION__ << Qt::hex << Qt::showbase
         << oldLanguageId  << "->" << newLanguageId << "Character set:"
-        << DWORD(wparam) << dec << noshowbase << m_locale;
+        << DWORD(wparam) << Qt::dec << Qt::noshowbase << m_locale;
 }
 
 /*!
@@ -724,7 +729,7 @@ int QWindowsInputContext::reconvertString(RECONVERTSTRING *reconv)
     reconv->dwCompStrOffset = DWORD(startPos) * sizeof(ushort); // byte count.
     reconv->dwTargetStrLen = reconv->dwCompStrLen;
     reconv->dwTargetStrOffset = reconv->dwCompStrOffset;
-    ushort *pastReconv = reinterpret_cast<ushort *>(reconv + 1);
+    auto *pastReconv = reinterpret_cast<ushort *>(reconv + 1);
     std::copy(surroundingText.utf16(), surroundingText.utf16() + surroundingText.size(),
               QT_MAKE_UNCHECKED_ARRAY_ITERATOR(pastReconv));
     return memSize;

@@ -18,3 +18,10 @@ TESTDATA += certs
 DEFINES += SRCDIR=\\\"$$PWD/\\\"
 
 requires(qtConfig(private_tests))
+
+# DOCKERTODO: it's 'linux' because it requires cyrus, which
+# is linux-only for now ...
+linux {
+    CONFIG += unsupported/testserver
+    QT_TEST_SERVER_LIST = squid danted cyrus apache2 echo
+}

@@ -63,7 +63,6 @@ static_library("core") {
   ]
   deps = [
     "//base",
-    "//components/data_use_measurement/core",
     "//components/leveldb_proto",
     "//components/pref_registry",
     "//components/prefs",
@@ -171,7 +170,6 @@ if (is_android) {
       "android/java/src/org/chromium/components/dom_distiller/core/DomDistillerService.java",
       "android/java/src/org/chromium/components/dom_distiller/core/DomDistillerUrlUtils.java",
     ]
-    jni_package = "dom_distiller_core"
   }
 
   java_cpp_enum("distiller_type_java") {

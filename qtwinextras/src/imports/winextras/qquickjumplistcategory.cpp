@@ -61,13 +61,11 @@ QT_BEGIN_NAMESPACE
  */
 
 QQuickJumpListCategory::QQuickJumpListCategory(QObject *parent) :
-    QObject(parent), m_visible(true)
+    QObject(parent)
 {
 }
 
-QQuickJumpListCategory::~QQuickJumpListCategory()
-{
-}
+QQuickJumpListCategory::~QQuickJumpListCategory() = default;
 
 /*!
     \qmlproperty list<QtObject> JumpListCategory::data
@@ -75,7 +73,7 @@ QQuickJumpListCategory::~QQuickJumpListCategory()
  */
 QQmlListProperty<QObject> QQuickJumpListCategory::data()
 {
-    return QQmlListProperty<QObject>(this, this, &QQuickJumpListCategory::data_append, 0, 0, 0);
+    return QQmlListProperty<QObject>(this, this, &QQuickJumpListCategory::data_append, nullptr, nullptr, nullptr);
 }
 
 /*!
@@ -134,8 +132,8 @@ QList<QWinJumpListItem *> QQuickJumpListCategory::toItemList() const
 
 void QQuickJumpListCategory::data_append(QQmlListProperty<QObject> *property, QObject *object)
 {
-    if (QQuickJumpListItem *item = qobject_cast<QQuickJumpListItem *>(object)) {
-        QQuickJumpListCategory *category = static_cast<QQuickJumpListCategory *>(property->object);
+    if (auto *item = qobject_cast<QQuickJumpListItem *>(object)) {
+        auto *category = static_cast<QQuickJumpListCategory *>(property->object);
         category->m_items.append(item);
         emit category->itemsChanged();
     }

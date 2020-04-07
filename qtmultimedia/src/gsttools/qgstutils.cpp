@@ -1034,6 +1034,7 @@ struct VideoFormat
 static const VideoFormat qt_videoFormatLookup[] =
 {
     { QVideoFrame::Format_YUV420P, GST_VIDEO_FORMAT_I420 },
+    { QVideoFrame::Format_YUV422P, GST_VIDEO_FORMAT_Y42B },
     { QVideoFrame::Format_YV12   , GST_VIDEO_FORMAT_YV12 },
     { QVideoFrame::Format_UYVY   , GST_VIDEO_FORMAT_UYVY },
     { QVideoFrame::Format_YUYV   , GST_VIDEO_FORMAT_YUY2 },
@@ -1044,11 +1045,13 @@ static const VideoFormat qt_videoFormatLookup[] =
     { QVideoFrame::Format_RGB32 ,  GST_VIDEO_FORMAT_BGRx },
     { QVideoFrame::Format_BGR32 ,  GST_VIDEO_FORMAT_RGBx },
     { QVideoFrame::Format_ARGB32,  GST_VIDEO_FORMAT_BGRA },
+    { QVideoFrame::Format_ABGR32,  GST_VIDEO_FORMAT_RGBA },
     { QVideoFrame::Format_BGRA32,  GST_VIDEO_FORMAT_ARGB },
 #else
     { QVideoFrame::Format_RGB32 ,  GST_VIDEO_FORMAT_xRGB },
     { QVideoFrame::Format_BGR32 ,  GST_VIDEO_FORMAT_xBGR },
     { QVideoFrame::Format_ARGB32,  GST_VIDEO_FORMAT_ARGB },
+    { QVideoFrame::Format_ABGR32,  GST_VIDEO_FORMAT_ABGR },
     { QVideoFrame::Format_BGRA32,  GST_VIDEO_FORMAT_BGRA },
 #endif
     { QVideoFrame::Format_RGB24 ,  GST_VIDEO_FORMAT_RGB },
@@ -1086,6 +1089,7 @@ struct YuvFormat
 static const YuvFormat qt_yuvColorLookup[] =
 {
     { QVideoFrame::Format_YUV420P, GST_MAKE_FOURCC('I','4','2','0'), 8 },
+    { QVideoFrame::Format_YUV422P, GST_MAKE_FOURCC('Y','4','2','B'), 8 },
     { QVideoFrame::Format_YV12,    GST_MAKE_FOURCC('Y','V','1','2'), 8 },
     { QVideoFrame::Format_UYVY,    GST_MAKE_FOURCC('U','Y','V','Y'), 16 },
     { QVideoFrame::Format_YUYV,    GST_MAKE_FOURCC('Y','U','Y','2'), 16 },
@@ -1303,11 +1307,9 @@ void QGstUtils::setMetaData(GstElement *element, const QMap<QByteArray, QVariant
 
     gst_tag_setter_reset_tags(GST_TAG_SETTER(element));
 
-    QMapIterator<QByteArray, QVariant> it(data);
-    while (it.hasNext()) {
-        it.next();
+    for (auto it = data.cbegin(), end = data.cend(); it != end; ++it) {
         const QString tagName = QString::fromLatin1(it.key());
-        const QVariant tagValue = it.value();
+        const QVariant &tagValue = it.value();
 
         switch (tagValue.type()) {
             case QVariant::String:
@@ -1565,6 +1567,12 @@ QVariant QGstUtils::toGStreamerOrientation(const QVariant &value)
     }
 }
 #endif
+
+bool QGstUtils::useOpenGL()
+{
+    static bool result = qEnvironmentVariableIntValue("QT_GSTREAMER_USE_OPENGL_PLUGIN");
+    return result;
+}
 
 void qt_gst_object_ref_sink(gpointer object)
 {

@@ -449,8 +449,8 @@
 
     \value ItemSendsGeometryChanges The item enables itemChange()
     notifications for ItemPositionChange, ItemPositionHasChanged,
-    ItemMatrixChange, ItemTransformChange, ItemTransformHasChanged,
-    ItemRotationChange, ItemRotationHasChanged, ItemScaleChange, ItemScaleHasChanged,
+    ItemTransformChange, ItemTransformHasChanged, ItemRotationChange,
+    ItemRotationHasChanged, ItemScaleChange, ItemScaleHasChanged,
     ItemTransformOriginPointChange, and ItemTransformOriginPointHasChanged. For
     performance reasons, these notifications are disabled by default. You must
     enable this flag to receive notifications for position and transform
@@ -4550,6 +4550,8 @@ QTransform QGraphicsItem::itemTransform(const QGraphicsItem *other, bool *ok) co
 }
 
 #if QT_DEPRECATED_SINCE(5, 13)
+QT_WARNING_PUSH
+QT_WARNING_DISABLE_DEPRECATED
 /*!
     \obsolete
 
@@ -4588,6 +4590,7 @@ void QGraphicsItem::setMatrix(const QMatrix &matrix, bool combine)
     // Send post-notification.
     itemChange(ItemTransformHasChanged, QVariant::fromValue<QTransform>(newTransform));
 }
+QT_WARNING_POP
 #endif
 
 /*!
@@ -7566,19 +7569,6 @@ void QGraphicsItem::setInputMethodHints(Qt::InputMethodHints hints)
 */
 void QGraphicsItem::updateMicroFocus()
 {
-#if !defined(QT_NO_IM) && 0 /* Used to be included in Qt4 for Q_WS_X11 */
-    if (QWidget *fw = QApplication::focusWidget()) {
-        if (scene()) {
-            for (int i = 0 ; i < scene()->views().count() ; ++i) {
-                if (scene()->views().at(i) == fw) {
-                    if (qApp)
-                        QGuiApplication::inputMethod()->update(Qt::ImQueryAll);
-                    break;
-                }
-            }
-        }
-    }
-#endif
 }
 
 /*!
@@ -11536,9 +11526,14 @@ QDebug operator<<(QDebug debug, QGraphicsItem::GraphicsItemChange change)
     case QGraphicsItem::ItemFlagsHaveChanged:
         str = "ItemFlagsHaveChanged";
         break;
+#if QT_DEPRECATED_SINCE(5, 14)
+QT_WARNING_PUSH
+QT_WARNING_DISABLE_DEPRECATED
     case QGraphicsItem::ItemMatrixChange:
         str = "ItemMatrixChange";
         break;
+QT_WARNING_POP
+#endif
     case QGraphicsItem::ItemParentChange:
         str = "ItemParentChange";
         break;

@@ -25,7 +25,7 @@
 #include "internal.h"
 #include "rawdec.h"
 
-static int wsd_probe(AVProbeData *p)
+static int wsd_probe(const AVProbeData *p)
 {
     if (p->buf_size < 45 || memcmp(p->buf, "1bit", 4) ||
         !AV_RB32(p->buf + 36) || !p->buf[44] ||
@@ -137,7 +137,7 @@ static int wsd_read_header(AVFormatContext *s)
     if (!(channel_assign & 1)) {
         int i;
         for (i = 1; i < 32; i++)
-            if (channel_assign & (1 << i))
+            if ((channel_assign >> i) & 1)
                 st->codecpar->channel_layout |= wsd_to_av_channel_layoyt(s, i);
     }
 

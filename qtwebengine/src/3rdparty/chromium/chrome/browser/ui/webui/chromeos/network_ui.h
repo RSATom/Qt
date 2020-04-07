@@ -6,15 +6,17 @@
 #define CHROME_BROWSER_UI_WEBUI_CHROMEOS_NETWORK_UI_H_
 
 #include "base/macros.h"
-#include "content/public/browser/web_ui_controller.h"
+#include "chromeos/services/network_config/public/mojom/cros_network_config.mojom.h"
+#include "ui/webui/mojo_web_ui_controller.h"
 
 namespace base {
 class DictionaryValue;
-};
+}
 
 namespace chromeos {
 
-class NetworkUI : public content::WebUIController {
+// WebUI controller for chrome://network debugging page.
+class NetworkUI : public ui::MojoWebUIController {
  public:
   explicit NetworkUI(content::WebUI* web_ui);
   ~NetworkUI() override;
@@ -22,6 +24,9 @@ class NetworkUI : public content::WebUIController {
   static void GetLocalizedStrings(base::DictionaryValue* localized_strings);
 
  private:
+  void BindCrosNetworkConfig(
+      network_config::mojom::CrosNetworkConfigRequest request);
+
   DISALLOW_COPY_AND_ASSIGN(NetworkUI);
 };
 

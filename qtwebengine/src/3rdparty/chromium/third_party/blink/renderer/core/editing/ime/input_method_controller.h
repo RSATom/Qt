@@ -57,11 +57,9 @@ class CORE_EXPORT InputMethodController final
     kKeepSelection,
   };
 
-  static InputMethodController* Create(LocalFrame&);
-
   explicit InputMethodController(LocalFrame&);
   virtual ~InputMethodController();
-  void Trace(blink::Visitor*) override;
+  void Trace(Visitor*) override;
 
   // international text input composition
   bool HasComposition() const;
@@ -79,6 +77,9 @@ class CORE_EXPORT InputMethodController final
   bool CommitText(const String& text,
                   const Vector<ImeTextSpan>& ime_text_spans,
                   int relative_caret_position);
+
+  // Replaces the text in the specified range without changing the selection.
+  bool ReplaceText(const String&, PlainTextRange);
 
   // Inserts ongoing composing text; changes the selection to the end of
   // the inserting text if DoNotKeepSelection, or holds the selection if
@@ -169,6 +170,7 @@ class CORE_EXPORT InputMethodController final
       int selection_end,
       size_t text_length) const;
   int TextInputFlags() const;
+  ui::TextInputAction InputActionOfFocusedElement() const;
   WebTextInputMode InputModeOfFocusedElement() const;
 
   // Implements |DocumentShutdownObserver|.

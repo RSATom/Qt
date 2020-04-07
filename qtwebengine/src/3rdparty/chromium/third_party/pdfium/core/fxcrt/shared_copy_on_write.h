@@ -12,8 +12,11 @@
 
 namespace fxcrt {
 
-// A shared object with Copy on Write semantics that makes it appear as
-// if each one were independent.
+// A shared pointer to an object with Copy on Write semantics that makes it
+// appear as if all instances were independent. |ObjClass| must implement the
+// requirements of |Retainable| from retain_ptr.h, and must also provide a
+// Clone() method. Often this will just call MakeRetain<>(*this) but will need
+// to be virtual if |ObjClass| is subclassed.
 template <class ObjClass>
 class SharedCopyOnWrite {
  public:
@@ -24,7 +27,7 @@ class SharedCopyOnWrite {
 
   template <typename... Args>
   ObjClass* Emplace(Args... params) {
-    m_pObject.Reset(new ObjClass(params...));
+    m_pObject = pdfium::MakeRetain<ObjClass>(params...);
     return m_pObject.Get();
   }
 
@@ -42,7 +45,7 @@ class SharedCopyOnWrite {
     if (!m_pObject)
       return Emplace(params...);
     if (!m_pObject->HasOneRef())
-      m_pObject.Reset(new ObjClass(*m_pObject));
+      m_pObject = m_pObject->Clone();
     return m_pObject.Get();
   }
 

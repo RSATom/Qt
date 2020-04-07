@@ -22,6 +22,9 @@
 #include <stdlib.h>
 #include <string.h>  // For strerror.
 
+#include "perfetto/base/build_config.h"
+#include "perfetto/base/compiler.h"
+
 #if defined(NDEBUG) && !defined(DCHECK_ALWAYS_ON)
 #define PERFETTO_DCHECK_IS_ON() 0
 #else
@@ -34,10 +37,16 @@
 #define PERFETTO_DLOG_IS_ON() PERFETTO_FORCE_DLOG
 #endif
 
-#include "perfetto/base/build_config.h"
-#include "perfetto/base/utils.h"
-
-#if PERFETTO_BUILDFLAG(PERFETTO_OS_ANDROID)
+#if defined(PERFETTO_ANDROID_ASYNC_SAFE_LOG)
+#if !PERFETTO_BUILDFLAG(PERFETTO_OS_ANDROID) || \
+    !PERFETTO_BUILDFLAG(PERFETTO_ANDROID_BUILD)
+#error "Async-safe logging is limited to Android tree builds"
+#endif
+// For binaries which need a very lightweight logging implementation.
+// Note that this header is incompatible with android/log.h.
+#include <async_safe/log.h>
+#elif PERFETTO_BUILDFLAG(PERFETTO_OS_ANDROID)
+// Normal android logging.
 #include <android/log.h>
 #endif
 
@@ -75,7 +84,7 @@ enum LogLev { kLogDebug = 0, kLogInfo, kLogImportant, kLogError };
 #define PERFETTO_XLOG_STDERR(level, fmt, ...)                              \
   fprintf(stderr, "%-24.24s " fmt "\n",                                    \
           ::perfetto::base::Basename(__FILE__ "(" PERFETTO_LOG_LINE "):"), \
-          ##__VA_ARGS__)
+          __VA_ARGS__)
 #else
 constexpr const char* kLogFmt[] = {"\x1b[2m", "\x1b[39m", "\x1b[32m\x1b[1m",
                                    "\x1b[31m"};
@@ -87,9 +96,19 @@ constexpr const char* kLogFmt[] = {"\x1b[2m", "\x1b[39m", "\x1b[32m\x1b[1m",
           ##__VA_ARGS__)
 #endif
 
-// Let android log to both stderr and logcat. When part of the Android tree
-// stderr points to /dev/null so logcat is the only way to get some logging.
-#if PERFETTO_BUILDFLAG(PERFETTO_OS_ANDROID)
+#if PERFETTO_BUILDFLAG(PERFETTO_OS_ANDROID) && \
+    defined(PERFETTO_ANDROID_ASYNC_SAFE_LOG)
+#define PERFETTO_XLOG(level, fmt, ...)                                         \
+  do {                                                                         \
+    async_safe_format_log(                                                     \
+        (ANDROID_LOG_DEBUG + ::perfetto::base::LogLev::level), "perfetto",     \
+        "%s " fmt, ::perfetto::base::Basename(__FILE__ ":" PERFETTO_LOG_LINE), \
+        ##__VA_ARGS__);                                                        \
+  } while (0)
+#elif PERFETTO_BUILDFLAG(PERFETTO_OS_ANDROID)
+// Standard logging marco on Android - log to both stderr and logcat. When part
+// of the Android tree, stderr points to /dev/null so logcat is the only way to
+// get some logging.
 #define PERFETTO_XLOG(level, fmt, ...)                                         \
   do {                                                                         \
     __android_log_print(                                                       \
@@ -102,12 +121,39 @@ constexpr const char* kLogFmt[] = {"\x1b[2m", "\x1b[39m", "\x1b[32m\x1b[1m",
 #define PERFETTO_XLOG PERFETTO_XLOG_STDERR
 #endif
 
-#define PERFETTO_IMMEDIATE_CRASH() \
-  do {                             \
-    __builtin_trap();              \
-    __builtin_unreachable();       \
+#if PERFETTO_BUILDFLAG(PERFETTO_COMPILER_CLANG) || PERFETTO_BUILDFLAG(PERFETTO_COMPILER_GCC)
+#define PERFETTO_TRAP_SEQUENCE() __builtin_trap()
+#elif PERFETTO_BUILDFLAG(PERFETTO_COMPILER_MSVC)
+#define PERFETTO_TRAP_SEQUENCE() __debugbreak()
+#else
+#error Port
+#endif
+
+#if PERFETTO_BUILDFLAG(PERFETTO_COMPILER_CLANG) || PERFETTO_BUILDFLAG(PERFETTO_COMPILER_GCC)
+#define PERFETTO_IMMEDIATE_CRASH()    \
+  do {                                \
+    PERFETTO_TRAP_SEQUENCE();         \
+    __builtin_unreachable();          \
+  } while(false)
+#else
+// This is supporting non-chrome use of logging.h to build with MSVC.
+#define PERFETTO_IMMEDIATE_CRASH()  PERFETTO_TRAP_SEQUENCE()
+#endif
+
+#if PERFETTO_BUILDFLAG(PERFETTO_COMPILER_MSVC)
+#define CR_EXPAND_ARG(arg) arg
+#define PERFETTO_LOG(fmt, ...) CR_EXPAND_ARG(PERFETTO_XLOG(kLogInfo, fmt, __VA_ARGS__))
+#define PERFETTO_ILOG(fmt, ...) CR_EXPAND_ARG(PERFETTO_XLOG(kLogImportant, fmt, __VA_ARGS__))
+#define PERFETTO_ELOG(fmt, ...) CR_EXPAND_ARG(PERFETTO_XLOG(kLogError, fmt, __VA_ARGS__))
+#define PERFETTO_FATAL(fmt, ...)       \
+  do {                                 \
+    CR_EXPAND_ARG(PERFETTO_ELOG(fmt, __VA_ARGS__)); \
+    PERFETTO_IMMEDIATE_CRASH();        \
   } while (0)
 
+#define PERFETTO_PLOG(x, ...) \
+  CR_EXPAND_ARG(PERFETTO_ELOG(x " (errno: %d, %s)", ##__VA_ARGS__, errno, strerror(errno)))
+#else
 #define PERFETTO_LOG(fmt, ...) PERFETTO_XLOG(kLogInfo, fmt, ##__VA_ARGS__)
 #define PERFETTO_ILOG(fmt, ...) PERFETTO_XLOG(kLogImportant, fmt, ##__VA_ARGS__)
 #define PERFETTO_ELOG(fmt, ...) PERFETTO_XLOG(kLogError, fmt, ##__VA_ARGS__)
@@ -119,10 +165,14 @@ constexpr const char* kLogFmt[] = {"\x1b[2m", "\x1b[39m", "\x1b[32m\x1b[1m",
 
 #define PERFETTO_PLOG(x, ...) \
   PERFETTO_ELOG(x " (errno: %d, %s)", ##__VA_ARGS__, errno, strerror(errno))
+#endif
 
 #if PERFETTO_DLOG_IS_ON()
-
+#if PERFETTO_BUILDFLAG(PERFETTO_COMPILER_MSVC)
+#define PERFETTO_DLOG(fmt, ...) CR_EXPAND_ARG(PERFETTO_XLOG(kLogDebug, fmt, __VA_ARGS__))
+#else
 #define PERFETTO_DLOG(fmt, ...) PERFETTO_XLOG(kLogDebug, fmt, ##__VA_ARGS__)
+#endif // PERFETTO_BUILDFLAG(PERFETTO_COMPILER_MSVC)
 
 #define PERFETTO_DPLOG(x, ...) \
   PERFETTO_DLOG(x " (errno: %d, %s)", ##__VA_ARGS__, errno, strerror(errno))
@@ -136,6 +186,24 @@ constexpr const char* kLogFmt[] = {"\x1b[2m", "\x1b[39m", "\x1b[32m\x1b[1m",
 
 #if PERFETTO_DCHECK_IS_ON()
 
+#if PERFETTO_BUILDFLAG(PERFETTO_COMPILER_MSVC)
+#define PERFETTO_DCHECK(x)                           \
+  do {                                               \
+    if (PERFETTO_UNLIKELY(!(x))) {                   \
+      PERFETTO_ELOG("%s (errno: %d, %s)", "PERFETTO_CHECK(" #x ")", errno, strerror(errno)); \
+      PERFETTO_IMMEDIATE_CRASH();                    \
+    }                                                \
+  } while (0)
+
+#define PERFETTO_DFATAL(fmt, ...)      \
+  do {                                 \
+    CR_EXPAND_ARG(PERFETTO_ELOG(fmt, __VA_ARGS__)); \
+    PERFETTO_IMMEDIATE_CRASH();        \
+  } while (0)
+
+#define PERFETTO_DFATAL_OR_ELOG(...) PERFETTO_DFATAL(__VA_ARGS__)
+
+#else
 #define PERFETTO_DCHECK(x)                           \
   do {                                               \
     if (PERFETTO_UNLIKELY(!(x))) {                   \
@@ -149,6 +217,9 @@ constexpr const char* kLogFmt[] = {"\x1b[2m", "\x1b[39m", "\x1b[32m\x1b[1m",
     PERFETTO_PLOG(fmt, ##__VA_ARGS__); \
     PERFETTO_IMMEDIATE_CRASH();        \
   } while (0)
+#endif
+
+#define PERFETTO_DFATAL_OR_ELOG(...) PERFETTO_DFATAL(__VA_ARGS__)
 
 #else
 
@@ -157,6 +228,7 @@ constexpr const char* kLogFmt[] = {"\x1b[2m", "\x1b[39m", "\x1b[32m\x1b[1m",
   } while (false && (x))
 
 #define PERFETTO_DFATAL(...) ::perfetto::base::ignore_result(__VA_ARGS__)
+#define PERFETTO_DFATAL_OR_ELOG(...) PERFETTO_ELOG(__VA_ARGS__)
 
 #endif  // PERFETTO_DCHECK_IS_ON()
 
@@ -166,7 +238,7 @@ constexpr const char* kLogFmt[] = {"\x1b[2m", "\x1b[39m", "\x1b[32m\x1b[1m",
 #define PERFETTO_CHECK(x)                            \
   do {                                               \
     if (PERFETTO_UNLIKELY(!(x))) {                   \
-      PERFETTO_ELOG("%s", "PERFETTO_CHECK(" #x ")"); \
+      PERFETTO_PLOG("%s", "PERFETTO_CHECK(" #x ")"); \
       PERFETTO_IMMEDIATE_CRASH();                    \
     }                                                \
   } while (0)

@@ -6,7 +6,7 @@
 #define THIRD_PARTY_BLINK_RENDERER_MODULES_BACKGROUND_FETCH_SERVICE_WORKER_GLOBAL_SCOPE_BACKGROUND_FETCH_H_
 
 #include "third_party/blink/renderer/core/dom/events/event_target.h"
-#include "third_party/blink/renderer/platform/wtf/allocator.h"
+#include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 
 namespace blink {
 
@@ -15,13 +15,13 @@ class ServiceWorkerGlobalScopeBackgroundFetch {
 
  public:
   DEFINE_STATIC_ATTRIBUTE_EVENT_LISTENER(backgroundfetchsuccess,
-                                         kBackgroundfetchsuccess);
+                                         kBackgroundfetchsuccess)
   DEFINE_STATIC_ATTRIBUTE_EVENT_LISTENER(backgroundfetchfail,
-                                         kBackgroundfetchfail);
+                                         kBackgroundfetchfail)
   DEFINE_STATIC_ATTRIBUTE_EVENT_LISTENER(backgroundfetchabort,
-                                         kBackgroundfetchabort);
+                                         kBackgroundfetchabort)
   DEFINE_STATIC_ATTRIBUTE_EVENT_LISTENER(backgroundfetchclick,
-                                         kBackgroundfetchclick);
+                                         kBackgroundfetchclick)
 };
 
 }  // namespace blink

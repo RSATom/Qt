@@ -18,6 +18,7 @@
 #include "base/task_runner_util.h"
 #include "base/values.h"
 #include "components/favicon/core/favicon_service.h"
+#include "components/ntp_tiles/constants.h"
 #include "components/ntp_tiles/most_visited_sites.h"
 #include "components/ntp_tiles/pref_names.h"
 #include "components/ntp_tiles/webui/ntp_tiles_internals_message_handler_client.h"
@@ -58,10 +59,7 @@ NTPTilesInternalsMessageHandler::NTPTilesInternalsMessageHandler(
     favicon::FaviconService* favicon_service)
     : favicon_service_(favicon_service),
       client_(nullptr),
-      // 9 tiles are required for the custom links feature in order to balance
-      // the Most Visited rows (this is due to an additional "Add" button).
-      site_count_(9),
-      weak_ptr_factory_(this) {}
+      site_count_(ntp_tiles::kMaxNumMostVisited) {}
 
 NTPTilesInternalsMessageHandler::~NTPTilesInternalsMessageHandler() = default;
 
@@ -100,6 +98,7 @@ void NTPTilesInternalsMessageHandler::HandleRegisterForEvents(
     disabled.SetBoolean("topSites", false);
     disabled.SetBoolean("suggestionsService", false);
     disabled.SetBoolean("popular", false);
+    disabled.SetBoolean("customLinks", false);
     disabled.SetBoolean("whitelist", false);
     client_->CallJavascriptFunction(
         "chrome.ntp_tiles_internals.receiveSourceInfo", disabled);
@@ -208,6 +207,8 @@ void NTPTilesInternalsMessageHandler::SendSourceInfo() {
 
   value.SetBoolean("topSites",
                    most_visited_sites_->DoesSourceExist(TileSource::TOP_SITES));
+  value.SetBoolean("customLinks", most_visited_sites_->DoesSourceExist(
+                                      TileSource::CUSTOM_LINKS));
   value.SetBoolean("whitelist",
                    most_visited_sites_->DoesSourceExist(TileSource::WHITELIST));
 
@@ -257,6 +258,9 @@ void NTPTilesInternalsMessageHandler::SendTiles(
     entry->SetInteger("source", static_cast<int>(tile.source));
     entry->SetString("whitelistIconPath",
                      tile.whitelist_icon_path.LossyDisplayName());
+    if (tile.source == TileSource::CUSTOM_LINKS) {
+      entry->SetBoolean("fromMostVisited", tile.from_most_visited);
+    }
 
     auto icon_list = std::make_unique<base::ListValue>();
     for (const auto& entry : kIconTypesAndNames) {

@@ -44,12 +44,12 @@ namespace blink {
 namespace {
 
 PositionInFlatTree EndOfWordPositionInternal(const PositionInFlatTree& position,
-                                             EWordSide side) {
+                                             WordSide side) {
   class Finder final : public TextSegments::Finder {
     STACK_ALLOCATED();
 
    public:
-    Finder(EWordSide side) : side_(side) {}
+    Finder(WordSide side) : side_(side) {}
 
    private:
     Position Find(const String text, unsigned offset) final {
@@ -69,15 +69,14 @@ PositionInFlatTree EndOfWordPositionInternal(const PositionInFlatTree& position,
 
     static Position FindInternal(const String text, unsigned offset) {
       DCHECK_LE(offset, text.length());
-      TextBreakIterator* it =
-          WordBreakIterator(text.Characters16(), text.length());
+      TextBreakIterator* it = WordBreakIterator(text.Span16());
       const int result = it->following(offset);
       if (result == kTextBreakDone || result == 0)
         return Position();
       return Position::After(result - 1);
     }
 
-    const EWordSide side_;
+    const WordSide side_;
     bool is_first_time_ = true;
   } finder(side);
   return TextSegments::FindBoundaryForward(position, &finder);
@@ -93,8 +92,7 @@ PositionInFlatTree NextWordPositionInternal(
       DCHECK_LE(offset, text.length());
       if (offset == text.length() || text.length() == 0)
         return Position();
-      TextBreakIterator* it =
-          WordBreakIterator(text.Characters16(), text.length());
+      TextBreakIterator* it = WordBreakIterator(text.Span16());
       for (int runner = it->following(offset); runner != kTextBreakDone;
            runner = it->following(runner)) {
         // We stop searching when the character preceding the break is
@@ -104,7 +102,9 @@ PositionInFlatTree NextWordPositionInternal(
              text[runner - 1] == kLowLineCharacter))
           return Position::After(runner - 1);
       }
-      return Position::After(text.length() - 1);
+      if (text[text.length() - 1] != kNewlineCharacter)
+        return Position::After(text.length() - 1);
+      return Position();
     }
   } finder;
   return TextSegments::FindBoundaryForward(position, &finder);
@@ -120,8 +120,7 @@ PositionInFlatTree PreviousWordPositionInternal(
       DCHECK_LE(offset, text.length());
       if (!offset || text.length() == 0)
         return Position();
-      TextBreakIterator* it =
-          WordBreakIterator(text.Characters16(), text.length());
+      TextBreakIterator* it = WordBreakIterator(text.Span16());
       for (int runner = it->preceding(offset); runner != kTextBreakDone;
            runner = it->preceding(runner)) {
         // We stop searching when the character following the break is
@@ -138,12 +137,12 @@ PositionInFlatTree PreviousWordPositionInternal(
 
 PositionInFlatTree StartOfWordPositionInternal(
     const PositionInFlatTree& position,
-    EWordSide side) {
+    WordSide side) {
   class Finder final : public TextSegments::Finder {
     STACK_ALLOCATED();
 
    public:
-    Finder(EWordSide side) : side_(side) {}
+    Finder(WordSide side) : side_(side) {}
 
    private:
     Position Find(const String text, unsigned offset) final {
@@ -163,15 +162,14 @@ PositionInFlatTree StartOfWordPositionInternal(
 
     static Position FindInternal(const String text, unsigned offset) {
       DCHECK_LE(offset, text.length());
-      TextBreakIterator* it =
-          WordBreakIterator(text.Characters16(), text.length());
+      TextBreakIterator* it = WordBreakIterator(text.Span16());
       const int result = it->preceding(offset);
       if (result == kTextBreakDone)
         return Position();
       return Position::Before(result);
     }
 
-    const EWordSide side_;
+    const WordSide side_;
     bool is_first_time_ = true;
   } finder(side);
   return TextSegments::FindBoundaryBackward(position, &finder);
@@ -179,7 +177,7 @@ PositionInFlatTree StartOfWordPositionInternal(
 }  // namespace
 
 PositionInFlatTree EndOfWordPosition(const PositionInFlatTree& start,
-                                     EWordSide side) {
+                                     WordSide side) {
   return AdjustForwardPositionToAvoidCrossingEditingBoundaries(
              PositionInFlatTreeWithAffinity(
                  EndOfWordPositionInternal(start, side)),
@@ -187,19 +185,19 @@ PositionInFlatTree EndOfWordPosition(const PositionInFlatTree& start,
       .GetPosition();
 }
 
-Position EndOfWordPosition(const Position& position, EWordSide side) {
+Position EndOfWordPosition(const Position& position, WordSide side) {
   return ToPositionInDOMTree(
       EndOfWordPosition(ToPositionInFlatTree(position), side));
 }
 
-VisiblePosition EndOfWord(const VisiblePosition& position, EWordSide side) {
+VisiblePosition EndOfWord(const VisiblePosition& position, WordSide side) {
   return CreateVisiblePosition(
       EndOfWordPosition(position.DeepEquivalent(), side),
       TextAffinity::kUpstreamIfPossible);
 }
 
 VisiblePositionInFlatTree EndOfWord(const VisiblePositionInFlatTree& position,
-                                    EWordSide side) {
+                                    WordSide side) {
   return CreateVisiblePosition(
       EndOfWordPosition(position.DeepEquivalent(), side),
       TextAffinity::kUpstreamIfPossible);
@@ -239,25 +237,25 @@ PositionWithAffinity PreviousWordPosition(const Position& start) {
 }
 
 PositionInFlatTree StartOfWordPosition(const PositionInFlatTree& position,
-                                       EWordSide side) {
+                                       WordSide side) {
   const PositionInFlatTree start = StartOfWordPositionInternal(position, side);
   return AdjustBackwardPositionToAvoidCrossingEditingBoundaries(
              PositionInFlatTreeWithAffinity(start), position)
       .GetPosition();
 }
 
-Position StartOfWordPosition(const Position& position, EWordSide side) {
+Position StartOfWordPosition(const Position& position, WordSide side) {
   return ToPositionInDOMTree(
       StartOfWordPosition(ToPositionInFlatTree(position), side));
 }
 
-VisiblePosition StartOfWord(const VisiblePosition& position, EWordSide side) {
+VisiblePosition StartOfWord(const VisiblePosition& position, WordSide side) {
   return CreateVisiblePosition(
       StartOfWordPosition(position.DeepEquivalent(), side));
 }
 
 VisiblePositionInFlatTree StartOfWord(const VisiblePositionInFlatTree& position,
-                                      EWordSide side) {
+                                      WordSide side) {
   return CreateVisiblePosition(
       StartOfWordPosition(position.DeepEquivalent(), side));
 }

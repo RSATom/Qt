@@ -46,7 +46,7 @@ class ListWidgetTaskMenu: public QDesignerTaskMenu
 {
     Q_OBJECT
 public:
-    explicit ListWidgetTaskMenu(QListWidget *button, QObject *parent = 0);
+    explicit ListWidgetTaskMenu(QListWidget *button, QObject *parent = nullptr);
     ~ListWidgetTaskMenu() override;
 
     QAction *preferredEditAction() const override;
@@ -64,7 +64,7 @@ private:
     QAction *m_editItemsAction;
 };
 
-typedef ExtensionFactory<QDesignerTaskMenuExtension, QListWidget, ListWidgetTaskMenu> ListWidgetTaskMenuFactory;
+using ListWidgetTaskMenuFactory = ExtensionFactory<QDesignerTaskMenuExtension, QListWidget, ListWidgetTaskMenu>;
 }  // namespace qdesigner_internal
 
 QT_END_NAMESPACE

@@ -41,8 +41,6 @@
 #include "scene2devent_p.h"
 #include "scene2dsharedobject_p.h"
 
-#include <Qt3DCore/QPropertyUpdatedChange>
-
 QT_BEGIN_NAMESPACE
 
 using namespace Qt3DCore;
@@ -61,6 +59,7 @@ Scene2DSharedObject::Scene2DSharedObject(Scene2DManager *manager)
     , m_quickWindow(nullptr)
     , m_renderManager(manager)
     , m_surface(nullptr)
+    , m_renderThread(nullptr)
     , m_renderObject(nullptr)
     , m_disallowed(false)
     , m_quit(false)

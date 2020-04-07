@@ -33,9 +33,8 @@
 #include <type_traits>
 #include <vector>
 
+#include "perfetto/base/copyable_ptr.h"
 #include "perfetto/base/export.h"
-
-#include "perfetto/tracing/core/data_source_config.h"
 
 // Forward declarations for protobuf types.
 namespace perfetto {
@@ -44,25 +43,25 @@ class TraceConfig;
 class TraceConfig_BufferConfig;
 class TraceConfig_DataSource;
 class DataSourceConfig;
-class FtraceConfig;
 class ChromeConfig;
-class InodeFileConfig;
-class InodeFileConfig_MountPointMappingEntry;
-class ProcessStatsConfig;
-class SysStatsConfig;
-class HeapprofdConfig;
-class HeapprofdConfig_ContinuousDumpConfig;
-class AndroidPowerConfig;
-class AndroidLogConfig;
 class TestConfig;
 class TestConfig_DummyFields;
+class TraceConfig_BuiltinDataSource;
 class TraceConfig_ProducerConfig;
 class TraceConfig_StatsdMetadata;
 class TraceConfig_GuardrailOverrides;
+class TraceConfig_TriggerConfig;
+class TraceConfig_TriggerConfig_Trigger;
+class TraceConfig_IncrementalStateConfig;
+class TraceConfig_IncidentReportConfig;
 }  // namespace protos
 }  // namespace perfetto
 
 namespace perfetto {
+class TraceConfig;
+class DataSourceConfig;
+class ChromeConfig;
+class TestConfig;
 
 class PERFETTO_EXPORT TraceConfig {
  public:
@@ -71,6 +70,7 @@ class PERFETTO_EXPORT TraceConfig {
     enum FillPolicy {
       UNSPECIFIED = 0,
       RING_BUFFER = 1,
+      DISCARD = 2,
     };
     BufferConfig();
     ~BufferConfig();
@@ -78,7 +78,13 @@ class PERFETTO_EXPORT TraceConfig {
     BufferConfig& operator=(BufferConfig&&);
     BufferConfig(const BufferConfig&);
     BufferConfig& operator=(const BufferConfig&);
+    bool operator==(const BufferConfig&) const;
+    bool operator!=(const BufferConfig& other) const {
+      return !(*this == other);
+    }
 
+    // Raw proto decoding.
+    void ParseRawProto(const std::string&);
     // Conversion methods from/to the corresponding protobuf types.
     void FromProto(const perfetto::protos::TraceConfig_BufferConfig&);
     void ToProto(perfetto::protos::TraceConfig_BufferConfig*) const;
@@ -90,8 +96,8 @@ class PERFETTO_EXPORT TraceConfig {
     void set_fill_policy(FillPolicy value) { fill_policy_ = value; }
 
    private:
-    uint32_t size_kb_ = {};
-    FillPolicy fill_policy_ = {};
+    uint32_t size_kb_{};
+    FillPolicy fill_policy_{};
 
     // Allows to preserve unknown protobuf fields for compatibility
     // with future versions of .proto files.
@@ -106,13 +112,17 @@ class PERFETTO_EXPORT TraceConfig {
     DataSource& operator=(DataSource&&);
     DataSource(const DataSource&);
     DataSource& operator=(const DataSource&);
+    bool operator==(const DataSource&) const;
+    bool operator!=(const DataSource& other) const { return !(*this == other); }
 
+    // Raw proto decoding.
+    void ParseRawProto(const std::string&);
     // Conversion methods from/to the corresponding protobuf types.
     void FromProto(const perfetto::protos::TraceConfig_DataSource&);
     void ToProto(perfetto::protos::TraceConfig_DataSource*) const;
 
-    const DataSourceConfig& config() const { return config_; }
-    DataSourceConfig* mutable_config() { return &config_; }
+    const DataSourceConfig& config() const { return *config_; }
+    DataSourceConfig* mutable_config() { return config_.get(); }
 
     int producer_name_filter_size() const {
       return static_cast<int>(producer_name_filter_.size());
@@ -120,14 +130,60 @@ class PERFETTO_EXPORT TraceConfig {
     const std::vector<std::string>& producer_name_filter() const {
       return producer_name_filter_;
     }
+    std::vector<std::string>* mutable_producer_name_filter() {
+      return &producer_name_filter_;
+    }
+    void clear_producer_name_filter() { producer_name_filter_.clear(); }
     std::string* add_producer_name_filter() {
       producer_name_filter_.emplace_back();
       return &producer_name_filter_.back();
     }
 
    private:
-    DataSourceConfig config_ = {};
+    ::perfetto::base::CopyablePtr<DataSourceConfig> config_;
     std::vector<std::string> producer_name_filter_;
+
+    // Allows to preserve unknown protobuf fields for compatibility
+    // with future versions of .proto files.
+    std::string unknown_fields_;
+  };
+
+  class PERFETTO_EXPORT BuiltinDataSource {
+   public:
+    BuiltinDataSource();
+    ~BuiltinDataSource();
+    BuiltinDataSource(BuiltinDataSource&&) noexcept;
+    BuiltinDataSource& operator=(BuiltinDataSource&&);
+    BuiltinDataSource(const BuiltinDataSource&);
+    BuiltinDataSource& operator=(const BuiltinDataSource&);
+    bool operator==(const BuiltinDataSource&) const;
+    bool operator!=(const BuiltinDataSource& other) const {
+      return !(*this == other);
+    }
+
+    // Raw proto decoding.
+    void ParseRawProto(const std::string&);
+    // Conversion methods from/to the corresponding protobuf types.
+    void FromProto(const perfetto::protos::TraceConfig_BuiltinDataSource&);
+    void ToProto(perfetto::protos::TraceConfig_BuiltinDataSource*) const;
+
+    bool disable_clock_snapshotting() const {
+      return disable_clock_snapshotting_;
+    }
+    void set_disable_clock_snapshotting(bool value) {
+      disable_clock_snapshotting_ = value;
+    }
+
+    bool disable_trace_config() const { return disable_trace_config_; }
+    void set_disable_trace_config(bool value) { disable_trace_config_ = value; }
+
+    bool disable_system_info() const { return disable_system_info_; }
+    void set_disable_system_info(bool value) { disable_system_info_ = value; }
+
+   private:
+    bool disable_clock_snapshotting_{};
+    bool disable_trace_config_{};
+    bool disable_system_info_{};
 
     // Allows to preserve unknown protobuf fields for compatibility
     // with future versions of .proto files.
@@ -148,7 +204,13 @@ class PERFETTO_EXPORT TraceConfig {
     ProducerConfig& operator=(ProducerConfig&&);
     ProducerConfig(const ProducerConfig&);
     ProducerConfig& operator=(const ProducerConfig&);
+    bool operator==(const ProducerConfig&) const;
+    bool operator!=(const ProducerConfig& other) const {
+      return !(*this == other);
+    }
 
+    // Raw proto decoding.
+    void ParseRawProto(const std::string&);
     // Conversion methods from/to the corresponding protobuf types.
     void FromProto(const perfetto::protos::TraceConfig_ProducerConfig&);
     void ToProto(perfetto::protos::TraceConfig_ProducerConfig*) const;
@@ -163,9 +225,9 @@ class PERFETTO_EXPORT TraceConfig {
     void set_page_size_kb(uint32_t value) { page_size_kb_ = value; }
 
    private:
-    std::string producer_name_ = {};
-    uint32_t shm_size_kb_ = {};
-    uint32_t page_size_kb_ = {};
+    std::string producer_name_{};
+    uint32_t shm_size_kb_{};
+    uint32_t page_size_kb_{};
 
     // Allows to preserve unknown protobuf fields for compatibility
     // with future versions of .proto files.
@@ -180,7 +242,13 @@ class PERFETTO_EXPORT TraceConfig {
     StatsdMetadata& operator=(StatsdMetadata&&);
     StatsdMetadata(const StatsdMetadata&);
     StatsdMetadata& operator=(const StatsdMetadata&);
+    bool operator==(const StatsdMetadata&) const;
+    bool operator!=(const StatsdMetadata& other) const {
+      return !(*this == other);
+    }
 
+    // Raw proto decoding.
+    void ParseRawProto(const std::string&);
     // Conversion methods from/to the corresponding protobuf types.
     void FromProto(const perfetto::protos::TraceConfig_StatsdMetadata&);
     void ToProto(perfetto::protos::TraceConfig_StatsdMetadata*) const;
@@ -208,10 +276,10 @@ class PERFETTO_EXPORT TraceConfig {
     }
 
    private:
-    int64_t triggering_alert_id_ = {};
-    int32_t triggering_config_uid_ = {};
-    int64_t triggering_config_id_ = {};
-    int64_t triggering_subscription_id_ = {};
+    int64_t triggering_alert_id_{};
+    int32_t triggering_config_uid_{};
+    int64_t triggering_config_id_{};
+    int64_t triggering_subscription_id_{};
 
     // Allows to preserve unknown protobuf fields for compatibility
     // with future versions of .proto files.
@@ -226,7 +294,13 @@ class PERFETTO_EXPORT TraceConfig {
     GuardrailOverrides& operator=(GuardrailOverrides&&);
     GuardrailOverrides(const GuardrailOverrides&);
     GuardrailOverrides& operator=(const GuardrailOverrides&);
+    bool operator==(const GuardrailOverrides&) const;
+    bool operator!=(const GuardrailOverrides& other) const {
+      return !(*this == other);
+    }
 
+    // Raw proto decoding.
+    void ParseRawProto(const std::string&);
     // Conversion methods from/to the corresponding protobuf types.
     void FromProto(const perfetto::protos::TraceConfig_GuardrailOverrides&);
     void ToProto(perfetto::protos::TraceConfig_GuardrailOverrides*) const;
@@ -239,7 +313,181 @@ class PERFETTO_EXPORT TraceConfig {
     }
 
    private:
-    uint64_t max_upload_per_day_bytes_ = {};
+    uint64_t max_upload_per_day_bytes_{};
+
+    // Allows to preserve unknown protobuf fields for compatibility
+    // with future versions of .proto files.
+    std::string unknown_fields_;
+  };
+
+  class PERFETTO_EXPORT TriggerConfig {
+   public:
+    enum TriggerMode {
+      UNSPECIFIED = 0,
+      START_TRACING = 1,
+      STOP_TRACING = 2,
+    };
+
+    class PERFETTO_EXPORT Trigger {
+     public:
+      Trigger();
+      ~Trigger();
+      Trigger(Trigger&&) noexcept;
+      Trigger& operator=(Trigger&&);
+      Trigger(const Trigger&);
+      Trigger& operator=(const Trigger&);
+      bool operator==(const Trigger&) const;
+      bool operator!=(const Trigger& other) const { return !(*this == other); }
+
+      // Raw proto decoding.
+      void ParseRawProto(const std::string&);
+      // Conversion methods from/to the corresponding protobuf types.
+      void FromProto(
+          const perfetto::protos::TraceConfig_TriggerConfig_Trigger&);
+      void ToProto(perfetto::protos::TraceConfig_TriggerConfig_Trigger*) const;
+
+      const std::string& name() const { return name_; }
+      void set_name(const std::string& value) { name_ = value; }
+
+      const std::string& producer_name_regex() const {
+        return producer_name_regex_;
+      }
+      void set_producer_name_regex(const std::string& value) {
+        producer_name_regex_ = value;
+      }
+
+      uint32_t stop_delay_ms() const { return stop_delay_ms_; }
+      void set_stop_delay_ms(uint32_t value) { stop_delay_ms_ = value; }
+
+     private:
+      std::string name_{};
+      std::string producer_name_regex_{};
+      uint32_t stop_delay_ms_{};
+
+      // Allows to preserve unknown protobuf fields for compatibility
+      // with future versions of .proto files.
+      std::string unknown_fields_;
+    };
+
+    TriggerConfig();
+    ~TriggerConfig();
+    TriggerConfig(TriggerConfig&&) noexcept;
+    TriggerConfig& operator=(TriggerConfig&&);
+    TriggerConfig(const TriggerConfig&);
+    TriggerConfig& operator=(const TriggerConfig&);
+    bool operator==(const TriggerConfig&) const;
+    bool operator!=(const TriggerConfig& other) const {
+      return !(*this == other);
+    }
+
+    // Raw proto decoding.
+    void ParseRawProto(const std::string&);
+    // Conversion methods from/to the corresponding protobuf types.
+    void FromProto(const perfetto::protos::TraceConfig_TriggerConfig&);
+    void ToProto(perfetto::protos::TraceConfig_TriggerConfig*) const;
+
+    TriggerMode trigger_mode() const { return trigger_mode_; }
+    void set_trigger_mode(TriggerMode value) { trigger_mode_ = value; }
+
+    int triggers_size() const { return static_cast<int>(triggers_.size()); }
+    const std::vector<Trigger>& triggers() const { return triggers_; }
+    std::vector<Trigger>* mutable_triggers() { return &triggers_; }
+    void clear_triggers() { triggers_.clear(); }
+    Trigger* add_triggers() {
+      triggers_.emplace_back();
+      return &triggers_.back();
+    }
+
+    uint32_t trigger_timeout_ms() const { return trigger_timeout_ms_; }
+    void set_trigger_timeout_ms(uint32_t value) { trigger_timeout_ms_ = value; }
+
+   private:
+    TriggerMode trigger_mode_{};
+    std::vector<Trigger> triggers_;
+    uint32_t trigger_timeout_ms_{};
+
+    // Allows to preserve unknown protobuf fields for compatibility
+    // with future versions of .proto files.
+    std::string unknown_fields_;
+  };
+
+  class PERFETTO_EXPORT IncrementalStateConfig {
+   public:
+    IncrementalStateConfig();
+    ~IncrementalStateConfig();
+    IncrementalStateConfig(IncrementalStateConfig&&) noexcept;
+    IncrementalStateConfig& operator=(IncrementalStateConfig&&);
+    IncrementalStateConfig(const IncrementalStateConfig&);
+    IncrementalStateConfig& operator=(const IncrementalStateConfig&);
+    bool operator==(const IncrementalStateConfig&) const;
+    bool operator!=(const IncrementalStateConfig& other) const {
+      return !(*this == other);
+    }
+
+    // Raw proto decoding.
+    void ParseRawProto(const std::string&);
+    // Conversion methods from/to the corresponding protobuf types.
+    void FromProto(const perfetto::protos::TraceConfig_IncrementalStateConfig&);
+    void ToProto(perfetto::protos::TraceConfig_IncrementalStateConfig*) const;
+
+    uint32_t clear_period_ms() const { return clear_period_ms_; }
+    void set_clear_period_ms(uint32_t value) { clear_period_ms_ = value; }
+
+   private:
+    uint32_t clear_period_ms_{};
+
+    // Allows to preserve unknown protobuf fields for compatibility
+    // with future versions of .proto files.
+    std::string unknown_fields_;
+  };
+
+  enum CompressionType {
+    COMPRESSION_TYPE_UNSPECIFIED = 0,
+    COMPRESSION_TYPE_DEFLATE = 1,
+  };
+
+  class PERFETTO_EXPORT IncidentReportConfig {
+   public:
+    IncidentReportConfig();
+    ~IncidentReportConfig();
+    IncidentReportConfig(IncidentReportConfig&&) noexcept;
+    IncidentReportConfig& operator=(IncidentReportConfig&&);
+    IncidentReportConfig(const IncidentReportConfig&);
+    IncidentReportConfig& operator=(const IncidentReportConfig&);
+    bool operator==(const IncidentReportConfig&) const;
+    bool operator!=(const IncidentReportConfig& other) const {
+      return !(*this == other);
+    }
+
+    // Raw proto decoding.
+    void ParseRawProto(const std::string&);
+    // Conversion methods from/to the corresponding protobuf types.
+    void FromProto(const perfetto::protos::TraceConfig_IncidentReportConfig&);
+    void ToProto(perfetto::protos::TraceConfig_IncidentReportConfig*) const;
+
+    const std::string& destination_package() const {
+      return destination_package_;
+    }
+    void set_destination_package(const std::string& value) {
+      destination_package_ = value;
+    }
+
+    const std::string& destination_class() const { return destination_class_; }
+    void set_destination_class(const std::string& value) {
+      destination_class_ = value;
+    }
+
+    int32_t privacy_level() const { return privacy_level_; }
+    void set_privacy_level(int32_t value) { privacy_level_ = value; }
+
+    bool skip_dropbox() const { return skip_dropbox_; }
+    void set_skip_dropbox(bool value) { skip_dropbox_ = value; }
+
+   private:
+    std::string destination_package_{};
+    std::string destination_class_{};
+    int32_t privacy_level_{};
+    bool skip_dropbox_{};
 
     // Allows to preserve unknown protobuf fields for compatibility
     // with future versions of .proto files.
@@ -252,13 +500,19 @@ class PERFETTO_EXPORT TraceConfig {
   TraceConfig& operator=(TraceConfig&&);
   TraceConfig(const TraceConfig&);
   TraceConfig& operator=(const TraceConfig&);
+  bool operator==(const TraceConfig&) const;
+  bool operator!=(const TraceConfig& other) const { return !(*this == other); }
 
+  // Raw proto decoding.
+  void ParseRawProto(const std::string&);
   // Conversion methods from/to the corresponding protobuf types.
   void FromProto(const perfetto::protos::TraceConfig&);
   void ToProto(perfetto::protos::TraceConfig*) const;
 
   int buffers_size() const { return static_cast<int>(buffers_.size()); }
   const std::vector<BufferConfig>& buffers() const { return buffers_; }
+  std::vector<BufferConfig>* mutable_buffers() { return &buffers_; }
+  void clear_buffers() { buffers_.clear(); }
   BufferConfig* add_buffers() {
     buffers_.emplace_back();
     return &buffers_.back();
@@ -268,9 +522,18 @@ class PERFETTO_EXPORT TraceConfig {
     return static_cast<int>(data_sources_.size());
   }
   const std::vector<DataSource>& data_sources() const { return data_sources_; }
+  std::vector<DataSource>* mutable_data_sources() { return &data_sources_; }
+  void clear_data_sources() { data_sources_.clear(); }
   DataSource* add_data_sources() {
     data_sources_.emplace_back();
     return &data_sources_.back();
+  }
+
+  const BuiltinDataSource& builtin_data_sources() const {
+    return *builtin_data_sources_;
+  }
+  BuiltinDataSource* mutable_builtin_data_sources() {
+    return builtin_data_sources_.get();
   }
 
   uint32_t duration_ms() const { return duration_ms_; }
@@ -288,13 +551,15 @@ class PERFETTO_EXPORT TraceConfig {
 
   int producers_size() const { return static_cast<int>(producers_.size()); }
   const std::vector<ProducerConfig>& producers() const { return producers_; }
+  std::vector<ProducerConfig>* mutable_producers() { return &producers_; }
+  void clear_producers() { producers_.clear(); }
   ProducerConfig* add_producers() {
     producers_.emplace_back();
     return &producers_.back();
   }
 
-  const StatsdMetadata& statsd_metadata() const { return statsd_metadata_; }
-  StatsdMetadata* mutable_statsd_metadata() { return &statsd_metadata_; }
+  const StatsdMetadata& statsd_metadata() const { return *statsd_metadata_; }
+  StatsdMetadata* mutable_statsd_metadata() { return statsd_metadata_.get(); }
 
   bool write_into_file() const { return write_into_file_; }
   void set_write_into_file(bool value) { write_into_file_ = value; }
@@ -308,10 +573,10 @@ class PERFETTO_EXPORT TraceConfig {
   void set_max_file_size_bytes(uint64_t value) { max_file_size_bytes_ = value; }
 
   const GuardrailOverrides& guardrail_overrides() const {
-    return guardrail_overrides_;
+    return *guardrail_overrides_;
   }
   GuardrailOverrides* mutable_guardrail_overrides() {
-    return &guardrail_overrides_;
+    return guardrail_overrides_.get();
   }
 
   bool deferred_start() const { return deferred_start_; }
@@ -323,29 +588,91 @@ class PERFETTO_EXPORT TraceConfig {
   uint32_t flush_timeout_ms() const { return flush_timeout_ms_; }
   void set_flush_timeout_ms(uint32_t value) { flush_timeout_ms_ = value; }
 
-  bool disable_clock_snapshotting() const {
-    return disable_clock_snapshotting_;
+  uint32_t data_source_stop_timeout_ms() const {
+    return data_source_stop_timeout_ms_;
   }
-  void set_disable_clock_snapshotting(bool value) {
-    disable_clock_snapshotting_ = value;
+  void set_data_source_stop_timeout_ms(uint32_t value) {
+    data_source_stop_timeout_ms_ = value;
+  }
+
+  bool notify_traceur() const { return notify_traceur_; }
+  void set_notify_traceur(bool value) { notify_traceur_ = value; }
+
+  const TriggerConfig& trigger_config() const { return *trigger_config_; }
+  TriggerConfig* mutable_trigger_config() { return trigger_config_.get(); }
+
+  int activate_triggers_size() const {
+    return static_cast<int>(activate_triggers_.size());
+  }
+  const std::vector<std::string>& activate_triggers() const {
+    return activate_triggers_;
+  }
+  std::vector<std::string>* mutable_activate_triggers() {
+    return &activate_triggers_;
+  }
+  void clear_activate_triggers() { activate_triggers_.clear(); }
+  std::string* add_activate_triggers() {
+    activate_triggers_.emplace_back();
+    return &activate_triggers_.back();
+  }
+
+  const IncrementalStateConfig& incremental_state_config() const {
+    return *incremental_state_config_;
+  }
+  IncrementalStateConfig* mutable_incremental_state_config() {
+    return incremental_state_config_.get();
+  }
+
+  bool allow_user_build_tracing() const { return allow_user_build_tracing_; }
+  void set_allow_user_build_tracing(bool value) {
+    allow_user_build_tracing_ = value;
+  }
+
+  const std::string& unique_session_name() const {
+    return unique_session_name_;
+  }
+  void set_unique_session_name(const std::string& value) {
+    unique_session_name_ = value;
+  }
+
+  CompressionType compression_type() const { return compression_type_; }
+  void set_compression_type(CompressionType value) {
+    compression_type_ = value;
+  }
+
+  const IncidentReportConfig& incident_report_config() const {
+    return *incident_report_config_;
+  }
+  IncidentReportConfig* mutable_incident_report_config() {
+    return incident_report_config_.get();
   }
 
  private:
   std::vector<BufferConfig> buffers_;
   std::vector<DataSource> data_sources_;
-  uint32_t duration_ms_ = {};
-  bool enable_extra_guardrails_ = {};
-  LockdownModeOperation lockdown_mode_ = {};
+  ::perfetto::base::CopyablePtr<BuiltinDataSource> builtin_data_sources_;
+  uint32_t duration_ms_{};
+  bool enable_extra_guardrails_{};
+  LockdownModeOperation lockdown_mode_{};
   std::vector<ProducerConfig> producers_;
-  StatsdMetadata statsd_metadata_ = {};
-  bool write_into_file_ = {};
-  uint32_t file_write_period_ms_ = {};
-  uint64_t max_file_size_bytes_ = {};
-  GuardrailOverrides guardrail_overrides_ = {};
-  bool deferred_start_ = {};
-  uint32_t flush_period_ms_ = {};
-  uint32_t flush_timeout_ms_ = {};
-  bool disable_clock_snapshotting_ = {};
+  ::perfetto::base::CopyablePtr<StatsdMetadata> statsd_metadata_;
+  bool write_into_file_{};
+  uint32_t file_write_period_ms_{};
+  uint64_t max_file_size_bytes_{};
+  ::perfetto::base::CopyablePtr<GuardrailOverrides> guardrail_overrides_;
+  bool deferred_start_{};
+  uint32_t flush_period_ms_{};
+  uint32_t flush_timeout_ms_{};
+  uint32_t data_source_stop_timeout_ms_{};
+  bool notify_traceur_{};
+  ::perfetto::base::CopyablePtr<TriggerConfig> trigger_config_;
+  std::vector<std::string> activate_triggers_;
+  ::perfetto::base::CopyablePtr<IncrementalStateConfig>
+      incremental_state_config_;
+  bool allow_user_build_tracing_{};
+  std::string unique_session_name_{};
+  CompressionType compression_type_{};
+  ::perfetto::base::CopyablePtr<IncidentReportConfig> incident_report_config_;
 
   // Allows to preserve unknown protobuf fields for compatibility
   // with future versions of .proto files.

@@ -12,7 +12,6 @@
 #include "base/bind.h"
 #include "base/command_line.h"
 #include "base/macros.h"
-#include "base/sha1.h"
 #include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
@@ -21,7 +20,7 @@
 #include "extensions/common/extension_api.h"
 #include "extensions/common/features/feature_channel.h"
 #include "extensions/common/features/feature_provider.h"
-#include "extensions/common/features/feature_util.h"
+#include "extensions/common/manifest_handlers/background_info.h"
 #include "extensions/common/switches.h"
 
 using crx_file::id_util::HashedIdInHex;
@@ -85,6 +84,8 @@ std::string GetDisplayName(Manifest::Type type) {
       return "user script";
     case Manifest::TYPE_SHARED_MODULE:
       return "shared module";
+    case Manifest::TYPE_LOGIN_SCREEN_EXTENSION:
+      return "login screen extension";
     case Manifest::NUM_LOAD_TYPES:
       NOTREACHED();
   }
@@ -114,8 +115,6 @@ std::string GetDisplayName(Feature::Context context) {
       return "hosted app";
     case Feature::WEBUI_CONTEXT:
       return "webui";
-    case Feature::SERVICE_WORKER_CONTEXT:
-      return "service worker";
     case Feature::LOCK_SCREEN_EXTENSION_CONTEXT:
       return "lock screen app";
   }
@@ -188,10 +187,6 @@ bool IsCommandLineSwitchEnabled(base::CommandLine* command_line,
 }
 
 bool IsAllowlistedForTest(const HashedExtensionId& hashed_id) {
-  // TODO(jackhou): Delete the commandline allowlisting mechanism.
-  // Since it is only used it tests, ideally it should not be set via the
-  // commandline. At the moment the commandline is used as a mechanism to pass
-  // the id to the renderer process.
   const std::string& allowlisted_id = g_allowlist_info.Get().hashed_id;
   return !allowlisted_id.empty() && allowlisted_id == hashed_id.value();
 }
@@ -210,7 +205,11 @@ SimpleFeature::ScopedThreadUnsafeAllowlistForTest::
 }
 
 SimpleFeature::SimpleFeature()
-    : component_extensions_auto_granted_(true), is_internal_(false) {}
+    : component_extensions_auto_granted_(true),
+      is_internal_(false),
+      // TODO(crbug.com/979790): This will default to false once the transition
+      // to blocklisting unsupported APIs is complete.
+      disallow_for_service_workers_(true) {}
 
 SimpleFeature::~SimpleFeature() {}
 
@@ -252,7 +251,18 @@ Feature::Availability SimpleFeature::IsAvailableToContext(
       return manifest_availability;
   }
 
-  Availability context_availability = GetContextAvailability(context, url);
+  bool is_for_service_worker = false;
+  if (extension != nullptr && BackgroundInfo::IsServiceWorkerBased(extension) &&
+      url.is_valid()) {
+    const GURL script_url = extension->GetResourceURL(
+        BackgroundInfo::GetBackgroundServiceWorkerScript(extension));
+    if (script_url == url) {
+      is_for_service_worker = true;
+    }
+  }
+
+  Availability context_availability =
+      GetContextAvailability(context, url, is_for_service_worker);
   if (!context_availability.is_available())
     return context_availability;
 
@@ -434,7 +444,7 @@ bool SimpleFeature::IsIdInList(const HashedExtensionId& hashed_id,
   if (!IsValidHashedExtensionId(hashed_id))
     return false;
 
-  return base::ContainsValue(list, hashed_id.value());
+  return base::Contains(list, hashed_id.value());
 }
 
 bool SimpleFeature::MatchesManifestLocation(
@@ -457,14 +467,14 @@ bool SimpleFeature::MatchesSessionTypes(FeatureSessionType session_type) const {
   if (session_types_.empty())
     return true;
 
-  if (base::ContainsValue(session_types_, session_type))
+  if (base::Contains(session_types_, session_type))
     return true;
 
   // AUTOLAUNCHED_KIOSK session type is subset of KIOSK - accept auto-lauched
   // kiosk session if kiosk session is allowed. This is the only exception to
   // rejecting session type that is not present in |session_types_|
   return session_type == FeatureSessionType::AUTOLAUNCHED_KIOSK &&
-         base::ContainsValue(session_types_, FeatureSessionType::KIOSK);
+         base::Contains(session_types_, FeatureSessionType::KIOSK);
 }
 
 Feature::Availability SimpleFeature::CheckDependencies(
@@ -548,7 +558,7 @@ Feature::Availability SimpleFeature::GetEnvironmentAvailability(
     version_info::Channel channel,
     FeatureSessionType session_type) const {
   base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
-  if (!platforms_.empty() && !base::ContainsValue(platforms_, platform))
+  if (!platforms_.empty() && !base::Contains(platforms_, platform))
     return CreateAvailability(INVALID_PLATFORM);
 
   if (channel_ && *channel_ < GetCurrentChannel()) {
@@ -585,7 +595,7 @@ Feature::Availability SimpleFeature::GetManifestAvailability(
   Manifest::Type type_to_check =
       (type == Manifest::TYPE_USER_SCRIPT) ? Manifest::TYPE_EXTENSION : type;
   if (!extension_types_.empty() &&
-      !base::ContainsValue(extension_types_, type_to_check)) {
+      !base::Contains(extension_types_, type_to_check)) {
     return CreateAvailability(INVALID_TYPE, type);
   }
 
@@ -604,8 +614,10 @@ Feature::Availability SimpleFeature::GetManifestAvailability(
     return CreateAvailability(NOT_FOUND_IN_WHITELIST);
   }
 
-  if (location_ && !MatchesManifestLocation(location))
+  if (location_ && !MatchesManifestLocation(location) &&
+      !IsAllowlistedForTest(hashed_id)) {
     return CreateAvailability(INVALID_LOCATION);
+  }
 
   if (min_manifest_version_ && manifest_version < *min_manifest_version_)
     return CreateAvailability(INVALID_MIN_MANIFEST_VERSION);
@@ -618,12 +630,13 @@ Feature::Availability SimpleFeature::GetManifestAvailability(
 
 Feature::Availability SimpleFeature::GetContextAvailability(
     Feature::Context context,
-    const GURL& url) const {
+    const GURL& url,
+    bool is_for_service_worker) const {
   // TODO(lazyboy): This isn't quite right for Extension Service Worker
   // extension API calls, since there's no guarantee that the extension is
   // "active" in current renderer process when the API permission check is
   // done.
-  if (!contexts_.empty() && !base::ContainsValue(contexts_, context))
+  if (!contexts_.empty() && !base::Contains(contexts_, context))
     return CreateAvailability(INVALID_CONTEXT, context);
 
   // TODO(kalman): Consider checking |matches_| regardless of context type.
@@ -633,6 +646,9 @@ Feature::Availability SimpleFeature::GetContextAvailability(
       !matches_.MatchesURL(url)) {
     return CreateAvailability(INVALID_URL, url);
   }
+
+  if (is_for_service_worker && disallow_for_service_workers_)
+    return CreateAvailability(INVALID_CONTEXT);
 
   return CreateAvailability(IS_AVAILABLE);
 }

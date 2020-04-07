@@ -25,7 +25,6 @@
 #include "base/win/windows_version.h"
 #include "build/build_config.h"
 #include "ppapi/buildflags/buildflags.h"
-#include "skia/ext/fontmgr_default_win.h"
 #include "third_party/skia/include/core/SkFontMgr.h"
 #include "third_party/skia/include/core/SkRefCnt.h"
 #include "third_party/skia/include/ports/SkTypeface_win.h"
@@ -389,7 +388,7 @@ void PatchServiceManagerCalls() {
   if (is_patched)
     return;
   const char* service_provider_dll =
-      (base::win::GetVersion() >= base::win::VERSION_WIN8
+      (base::win::GetVersion() >= base::win::Version::WIN8
            ? "api-ms-win-service-management-l1-1-0.dll"
            : "advapi32.dll");
 

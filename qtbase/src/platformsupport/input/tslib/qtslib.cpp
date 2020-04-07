@@ -57,38 +57,22 @@ QTsLibMouseHandler::QTsLibMouseHandler(const QString &key,
                                        const QString &specification,
                                        QObject *parent)
     : QObject(parent),
-    m_notify(0), m_x(0), m_y(0), m_pressed(0), m_rawMode(false)
+    m_rawMode(!key.compare(QLatin1String("TslibRaw"), Qt::CaseInsensitive))
 {
     qCDebug(qLcTsLib) << "Initializing tslib plugin" << key << specification;
     setObjectName(QLatin1String("TSLib Mouse Handler"));
 
-    QByteArray device = qgetenv("TSLIB_TSDEVICE");
-
-    if (specification.startsWith(QLatin1String("/dev/")))
-        device = specification.toLocal8Bit();
-
-    if (device.isEmpty())
-        device = QByteArrayLiteral("/dev/input/event1");
-
-    m_dev = ts_open(device.constData(), 1);
+    m_dev = ts_setup(nullptr, 1);
     if (!m_dev) {
-        qErrnoWarning(errno, "ts_open() failed");
+        qErrnoWarning(errno, "ts_setup() failed");
         return;
     }
 
-    if (ts_config(m_dev))
-        qErrnoWarning(errno, "ts_config() failed");
-
-    m_rawMode = !key.compare(QLatin1String("TslibRaw"), Qt::CaseInsensitive);
-
-    int fd = ts_fd(m_dev);
-    if (fd >= 0) {
-        qCDebug(qLcTsLib) << "tslib device is" << device;
-        m_notify = new QSocketNotifier(fd, QSocketNotifier::Read, this);
-        connect(m_notify, &QSocketNotifier::activated, this, &QTsLibMouseHandler::readMouseData);
-    } else {
-        qErrnoWarning(errno, "tslib: Cannot open input device %s", device.constData());
-    }
+#ifdef TSLIB_VERSION_EVENTPATH /* also introduced in 1.15 */
+    qCDebug(qLcTsLib) << "tslib device is" << ts_get_eventpath(m_dev);
+#endif
+    m_notify = new QSocketNotifier(ts_fd(m_dev), QSocketNotifier::Read, this);
+    connect(m_notify, &QSocketNotifier::activated, this, &QTsLibMouseHandler::readMouseData);
 }
 
 QTsLibMouseHandler::~QTsLibMouseHandler()

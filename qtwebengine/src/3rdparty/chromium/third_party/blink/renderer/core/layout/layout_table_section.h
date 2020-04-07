@@ -117,7 +117,7 @@ class CORE_EXPORT LayoutTableSection final : public LayoutTableBoxComponent {
 
   void AddCell(LayoutTableCell*, LayoutTableRow*);
 
-  int VBorderSpacingBeforeFirstRow() const;
+  int16_t VBorderSpacingBeforeFirstRow() const;
   int CalcRowLogicalHeight();
   void LayoutRows();
   bool RecalcLayoutOverflow() final;
@@ -239,7 +239,7 @@ class CORE_EXPORT LayoutTableSection final : public LayoutTableBoxComponent {
 
   // Flip the rect so it aligns with the coordinates used by the rowPos and
   // columnPos vectors.
-  LayoutRect LogicalRectForWritingModeAndDirection(const LayoutRect&) const;
+  LayoutRect LogicalRectForWritingModeAndDirection(const PhysicalRect&) const;
 
   // Sets |rows| and |columns| to cover all cells needing repaint in
   // |damage_rect|.
@@ -260,11 +260,11 @@ class CORE_EXPORT LayoutTableSection final : public LayoutTableBoxComponent {
   // Whether a section has opaque background depends on many factors, e.g.
   // border spacing, border collapsing, missing cells, etc. For simplicity,
   // just conservatively assume all table sections are not opaque.
-  bool ForegroundIsKnownToBeOpaqueInRect(const LayoutRect&,
+  bool ForegroundIsKnownToBeOpaqueInRect(const PhysicalRect&,
                                          unsigned) const override {
     return false;
   }
-  bool BackgroundIsKnownToBeOpaqueInRect(const LayoutRect&) const override {
+  bool BackgroundIsKnownToBeOpaqueInRect(const PhysicalRect&) const override {
     return false;
   }
 
@@ -275,8 +275,8 @@ class CORE_EXPORT LayoutTableSection final : public LayoutTableBoxComponent {
       TransformState&,
       VisualRectFlags = kDefaultVisualRectFlags) const override;
 
-  bool IsRepeatingHeaderGroup() const { return is_repeating_header_group_; };
-  bool IsRepeatingFooterGroup() const { return is_repeating_footer_group_; };
+  bool IsRepeatingHeaderGroup() const { return is_repeating_header_group_; }
+  bool IsRepeatingFooterGroup() const { return is_repeating_footer_group_; }
 
   void UpdateLayout() override;
 
@@ -306,8 +306,8 @@ class CORE_EXPORT LayoutTableSection final : public LayoutTableBoxComponent {
  protected:
   void StyleDidChange(StyleDifference, const ComputedStyle* old_style) override;
   bool NodeAtPoint(HitTestResult&,
-                   const HitTestLocation& location_in_container,
-                   const LayoutPoint& accumulated_offset,
+                   const HitTestLocation&,
+                   const PhysicalOffset& accumulated_offset,
                    HitTestAction) override;
 
  private:

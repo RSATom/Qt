@@ -76,6 +76,7 @@ Scene3DSGMaterialShader::Scene3DSGMaterialShader()
     : QSGMaterialShader()
     , m_matrixId(-1)
     , m_opacityId(-1)
+    , m_visibleId(-1)
 {
 }
 
@@ -118,21 +119,25 @@ const char *Scene3DSGMaterialShader::fragmentShader() const
     if (ctx->format().version() >= qMakePair(3, 2) && ctx->format().profile() == QSurfaceFormat::CoreProfile) {
         return ""
                "#version 150 core                                   \n"
+               "uniform bool visible;                               \n"
                "uniform sampler2D source;                           \n"
                "uniform float qt_Opacity;                           \n"
                "in vec2 qt_TexCoord;                                \n"
                "out vec4 fragColor;                                 \n"
                "void main() {                                       \n"
-               "   vec4 p = texture(source, qt_TexCoord);         \n"
+               "   if (!visible) discard;                           \n"
+               "   vec4 p = texture(source, qt_TexCoord);           \n"
                "   float a = qt_Opacity * p.a;                      \n"
                "   fragColor = vec4(p.rgb * a, a);                  \n"
                "}";
     } else {
         return ""
+               "uniform bool visible;                                   \n"
                "uniform highp sampler2D source;                         \n"
                "uniform highp float qt_Opacity;                         \n"
                "varying highp vec2 qt_TexCoord;                         \n"
                "void main() {                                           \n"
+               "   if (!visible) discard;                               \n"
                "   highp vec4 p = texture2D(source, qt_TexCoord);       \n"
                "   highp float a = qt_Opacity * p.a;                    \n"
                "   gl_FragColor = vec4(p.rgb * a, a);                   \n"
@@ -144,6 +149,7 @@ void Scene3DSGMaterialShader::initialize()
 {
     m_matrixId = program()->uniformLocation("qt_Matrix");
     m_opacityId = program()->uniformLocation("qt_Opacity");
+    m_visibleId = program()->uniformLocation("visible");
 }
 
 void Scene3DSGMaterialShader::updateState(const RenderState &state, QSGMaterial *newEffect, QSGMaterial *oldEffect)
@@ -154,21 +160,26 @@ void Scene3DSGMaterialShader::updateState(const RenderState &state, QSGMaterial 
 
     QSGTexture *t = tx->texture();
 
-    bool npotSupported = const_cast<QOpenGLContext *>(state.context())
-            ->functions()->hasOpenGLFeature(QOpenGLFunctions::NPOTTextureRepeat);
-    if (!npotSupported) {
-        QSize size = t->textureSize();
-        const bool isNpot = !isPowerOfTwo(size.width()) || !isPowerOfTwo(size.height());
-        if (isNpot) {
-            t->setHorizontalWrapMode(QSGTexture::ClampToEdge);
-            t->setVerticalWrapMode(QSGTexture::ClampToEdge);
+    if (t != nullptr) {
+        bool npotSupported = const_cast<QOpenGLContext *>(state.context())
+                ->functions()->hasOpenGLFeature(QOpenGLFunctions::NPOTTextureRepeat);
+        if (!npotSupported) {
+            QSize size = t->textureSize();
+            const bool isNpot = !isPowerOfTwo(size.width()) || !isPowerOfTwo(size.height());
+            if (isNpot) {
+                t->setHorizontalWrapMode(QSGTexture::ClampToEdge);
+                t->setVerticalWrapMode(QSGTexture::ClampToEdge);
+            }
         }
+
+        if (oldTx == 0 || oldTx->texture()->textureId() != t->textureId())
+            t->bind();
+        else
+            t->updateBindOptions();
     }
 
-    if (oldTx == 0 || oldTx->texture()->textureId() != t->textureId())
-        t->bind();
-    else
-        t->updateBindOptions();
+    if (oldTx == nullptr || oldTx->visible() != tx->visible())
+        program()->setUniformValue(m_visibleId, tx->visible());
 
     if (state.isMatrixDirty())
         program()->setUniformValue(m_matrixId, state.combinedMatrix());

@@ -5,8 +5,9 @@
 #ifndef V8_REGEXP_REGEXP_MACRO_ASSEMBLER_H_
 #define V8_REGEXP_REGEXP_MACRO_ASSEMBLER_H_
 
-#include "src/label.h"
+#include "src/codegen/label.h"
 #include "src/regexp/regexp-ast.h"
+#include "src/regexp/regexp.h"
 
 namespace v8 {
 namespace internal {
@@ -192,9 +193,6 @@ class RegExpMacroAssembler {
   Zone* zone_;
 };
 
-
-#ifndef V8_INTERPRETED_REGEXP  // Avoid compiling unused code.
-
 class NativeRegExpMacroAssembler: public RegExpMacroAssembler {
  public:
   // Type of input string to generate code for.
@@ -209,18 +207,21 @@ class NativeRegExpMacroAssembler: public RegExpMacroAssembler {
   // FAILURE: Matching failed.
   // SUCCESS: Matching succeeded, and the output array has been filled with
   //        capture positions.
-  enum Result { RETRY = -2, EXCEPTION = -1, FAILURE = 0, SUCCESS = 1 };
+  enum Result {
+    FAILURE = RegExp::kInternalRegExpFailure,
+    SUCCESS = RegExp::kInternalRegExpSuccess,
+    EXCEPTION = RegExp::kInternalRegExpException,
+    RETRY = RegExp::kInternalRegExpRetry,
+  };
 
   NativeRegExpMacroAssembler(Isolate* isolate, Zone* zone);
   ~NativeRegExpMacroAssembler() override;
   bool CanReadUnaligned() override;
 
-  static Result Match(Handle<Code> regexp,
-                      Handle<String> subject,
-                      int* offsets_vector,
-                      int offsets_vector_length,
-                      int previous_index,
-                      Isolate* isolate);
+  // Returns a {Result} sentinel, or the number of successful matches.
+  static int Match(Handle<Code> regexp, Handle<String> subject,
+                   int* offsets_vector, int offsets_vector_length,
+                   int previous_index, Isolate* isolate);
 
   // Called from RegExp if the backtrack stack limit is hit.
   // Tries to expand the stack. Returns the new stack-pointer if
@@ -248,12 +249,13 @@ class NativeRegExpMacroAssembler: public RegExpMacroAssembler {
     return reinterpret_cast<Address>(&word_character_map[0]);
   }
 
-  static Result Execute(Code code, String input, int start_offset,
-                        const byte* input_start, const byte* input_end,
-                        int* output, int output_size, Isolate* isolate);
+  // Returns a {Result} sentinel, or the number of successful matches.
+  V8_EXPORT_PRIVATE static int Execute(Code code, String input,
+                                       int start_offset,
+                                       const byte* input_start,
+                                       const byte* input_end, int* output,
+                                       int output_size, Isolate* isolate);
 };
-
-#endif  // V8_INTERPRETED_REGEXP
 
 }  // namespace internal
 }  // namespace v8

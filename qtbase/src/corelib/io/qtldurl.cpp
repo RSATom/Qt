@@ -59,9 +59,9 @@ enum TLDMatchType {
 static bool containsTLDEntry(QStringView entry, TLDMatchType match)
 {
     const QStringView matchSymbols[] = {
-        QStringViewLiteral(""),
-        QStringViewLiteral("*"),
-        QStringViewLiteral("!"),
+        u"",
+        u"*",
+        u"!",
     };
     const auto symbol = matchSymbols[match];
     int index = qt_hash(entry, qt_hash(symbol)) % tldCount;
@@ -125,10 +125,10 @@ Q_CORE_EXPORT bool qIsEffectiveTLD(const QStringRef &domain)
         return true;
 
     const int dot = domain.indexOf(QLatin1Char('.'));
-    if (dot >= 0) {
-        if (containsTLDEntry(domain.mid(dot), SuffixMatch))   // 2
-            return !containsTLDEntry(domain, ExceptionMatch); // 3
-    }
+    if (dot < 0) // Actual TLD: may be effective if the subject of a wildcard rule:
+        return containsTLDEntry(QString(QLatin1Char('.') + domain), SuffixMatch);
+    if (containsTLDEntry(domain.mid(dot), SuffixMatch))   // 2
+        return !containsTLDEntry(domain, ExceptionMatch); // 3
     return false;
 }
 

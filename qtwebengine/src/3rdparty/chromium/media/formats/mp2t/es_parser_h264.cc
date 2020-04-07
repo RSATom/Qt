@@ -11,7 +11,6 @@
 #include "base/optional.h"
 #include "media/base/decrypt_config.h"
 #include "media/base/encryption_pattern.h"
-#include "media/base/encryption_scheme.h"
 #include "media/base/media_util.h"
 #include "media/base/stream_parser_buffer.h"
 #include "media/base/timestamp_constants.h"
@@ -485,10 +484,8 @@ bool EsParserH264::EmitFrame(int64_t access_unit_pos,
             DecryptConfig::CreateCbcsConfig(
                 base_decrypt_config->key_id(), base_decrypt_config->iv(),
                 subsamples,
-                base_decrypt_config->HasPattern()
-                    ? base_decrypt_config->encryption_pattern()
-                    : EncryptionPattern(kSampleAESEncryptBlocks,
-                                        kSampleAESSkipBlocks)));
+                EncryptionPattern(kSampleAESEncryptBlocks,
+                                  kSampleAESSkipBlocks)));
         break;
     }
   }
@@ -529,9 +526,9 @@ bool EsParserH264::UpdateVideoDecoderConfig(const H264SPS* sps,
   }
 
   VideoDecoderConfig video_decoder_config(
-      kCodecH264, profile, PIXEL_FORMAT_I420, VideoColorSpace::REC709(),
-      VIDEO_ROTATION_0, coded_size.value(), visible_rect.value(), natural_size,
-      EmptyExtraData(), scheme);
+      kCodecH264, profile, VideoDecoderConfig::AlphaMode::kIsOpaque,
+      VideoColorSpace::REC709(), kNoTransformation, coded_size.value(),
+      visible_rect.value(), natural_size, EmptyExtraData(), scheme);
 
   if (!video_decoder_config.IsValidConfig()) {
     DVLOG(1) << "Invalid video config: "

@@ -71,7 +71,7 @@ public:
     QCoreTextFontDatabase();
     ~QCoreTextFontDatabase();
     void populateFontDatabase() override;
-    bool populateFamilyAliases() override;
+    bool populateFamilyAliases(const QString &missingFamily) override;
     void populateFamily(const QString &familyName) override;
     void invalidate() override;
 
@@ -92,6 +92,7 @@ protected:
 
 private:
     void populateFromDescriptor(CTFontDescriptorRef font, const QString &familyName = QString());
+    static CFArrayRef fallbacksForFamily(const QString &family);
 
     mutable QString defaultFontName;
 

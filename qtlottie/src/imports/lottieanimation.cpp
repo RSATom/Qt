@@ -42,6 +42,7 @@
 #include <QMetaObject>
 #include <QLoggingCategory>
 #include <QThread>
+#include <QQmlFile>
 #include <math.h>
 
 #include <QtBodymovin/private/bmbase_p.h>
@@ -87,7 +88,7 @@ Q_LOGGING_CATEGORY(lcLottieQtBodymovinParser, "qt.lottieqt.bodymovin.parser");
     LottieAnimation {
         loops: 2
         quality: LottieAnimation.MediumQuality
-        source: ":/animation.json"
+        source: "animation.json"
         autoPlay: false
         onStatusChanged: {
             if (status === LottieAnimation.Ready) {
@@ -130,39 +131,6 @@ Q_LOGGING_CATEGORY(lcLottieQtBodymovinParser, "qt.lottieqt.bodymovin.parser");
 */
 
 /*!
-    \qmlproperty enumeration LottieAnimation::status
-
-    This property holds the current status of the LottieAnimation element.
-
-    \value LottieAnimation.Null
-           An initial value that is used when the status is not defined
-           (Default)
-
-    \value LottieAnimation.Loading
-           The player is loading a Bodymovin file
-
-    \value LottieAnimation.Ready
-           Loading has finished successfully and the player is ready to play
-           the animation
-
-    \value LottieAnimation.Error
-           An error occurred while loading the animation
-
-    For example, you could implement \c onStatusChanged signal
-    handler to monitor progress of loading an animation as follows:
-
-    \qml
-    LottieAnimation {
-        source: ":/animation.json"
-        autoPlay: false
-        onStatusChanged: {
-            if (status === LottieAnimation.Ready)
-                start();
-        }
-    \endqml
-*/
-
-/*!
     \qmlproperty bool LottieAnimation::autoPlay
 
     Defines whether the player will start playing animation automatically after
@@ -192,16 +160,11 @@ LottieAnimation::LottieAnimation(QQuickItem *parent)
     : QQuickPaintedItem(parent)
 {
     m_frameAdvance = new QTimer(this);
+    m_frameAdvance->setInterval(1000 / m_frameRate);
     m_frameAdvance->setSingleShot(false);
     connect (m_frameAdvance, &QTimer::timeout, this, &LottieAnimation::renderNextFrame);
 
     m_frameRenderThread = BatchRenderer::instance();
-
-    QByteArray cacheStr = qgetenv("QLOTTIE_RENDER_CACHE_SIZE");
-    bool ok = false;
-    int cacheSize = cacheStr.toInt(&ok);
-    if (ok)
-       m_frameRenderThread->setCacheSize(cacheSize);
 
     qRegisterMetaType<LottieAnimation*>();
 }
@@ -213,22 +176,14 @@ LottieAnimation::~LottieAnimation()
 
 void LottieAnimation::componentComplete()
 {
-    QQuickItem::componentComplete();
+    QQuickPaintedItem::componentComplete();
 
-    m_initialized = true;
-    if (m_source.length())
-        loadSource(m_source);
+    if (m_source.isValid())
+        load();
 }
 
 void LottieAnimation::paint(QPainter *painter)
 {
-    // TODO: Check does this have effect on output quality (or performance)
-    if (m_quality != LowQuality)
-        painter->setRenderHints(QPainter::Antialiasing);
-    if (m_quality == HighQuality)
-        painter->setRenderHints(QPainter::SmoothPixmapTransform);
-
-    LottieRasterRenderer renderer(painter);
     BMBase* bmTree = m_frameRenderThread->getFrame(this, m_currentFrame);
 
     if (!bmTree) {
@@ -236,6 +191,8 @@ void LottieAnimation::paint(QPainter *painter)
                                               "Cannot draw (Animator:" << static_cast<void*>(this) << ")";
         return;
     }
+
+    LottieRasterRenderer renderer(painter);
 
     qCDebug(lcLottieQtBodymovinRender) << static_cast<void*>(this) << "Start to paint frame"  << m_currentFrame;
 
@@ -261,26 +218,75 @@ void LottieAnimation::paint(QPainter *painter)
 }
 
 /*!
-    \qmlproperty string LottieAnimation::source
+    \qmlproperty enumeration LottieAnimation::status
 
-    The path of the Bodymovin asset that LottieAnimation plays.
+    This property holds the current status of the LottieAnimation element.
+
+    \value LottieAnimation.Null
+           An initial value that is used when the source is not defined
+           (Default)
+
+    \value LottieAnimation.Loading
+           The player is loading a Bodymovin file
+
+    \value LottieAnimation.Ready
+           Loading has finished successfully and the player is ready to play
+           the animation
+
+    \value LottieAnimation.Error
+           An error occurred while loading the animation
+
+    For example, you could implement \c onStatusChanged signal
+    handler to monitor progress of loading an animation as follows:
+
+    \qml
+    LottieAnimation {
+        source: "animation.json"
+        autoPlay: false
+        onStatusChanged: {
+            if (status === LottieAnimation.Ready)
+                start();
+        }
+    \endqml
+*/
+LottieAnimation::Status LottieAnimation::status() const
+{
+    return m_status;
+}
+
+void LottieAnimation::setStatus(LottieAnimation::Status status)
+{
+    if (Q_UNLIKELY(m_status == status))
+        return;
+
+    m_status = status;
+    emit statusChanged();
+}
+
+/*!
+    \qmlproperty url LottieAnimation::source
+
+    The source of the Bodymovin asset that LottieAnimation plays.
+
+    LottieAnimation can handle any URL scheme supported by Qt.
+    The URL may be absolute, or relative to the URL of the component.
 
     Setting the source property starts loading the animation asynchronously.
     To monitor progress of loading, connect to the \l status change signal.
 */
-QString LottieAnimation::source() const
+QUrl LottieAnimation::source() const
 {
     return m_source;
 }
 
-void LottieAnimation::setSource(const QString &source)
+void LottieAnimation::setSource(const QUrl &source)
 {
     if (m_source != source) {
         m_source = source;
         emit sourceChanged();
 
-        if (m_initialized)
-            loadSource(source);
+        if (isComponentComplete())
+            load();
     }
 }
 
@@ -297,6 +303,15 @@ int LottieAnimation::startFrame() const
     return m_startFrame;
 }
 
+void LottieAnimation::setStartFrame(int startFrame)
+{
+    if (Q_UNLIKELY(m_startFrame == startFrame))
+        return;
+
+    m_startFrame = startFrame;
+    emit startFrameChanged();
+}
+
 /*!
     \qmlproperty int LottieAnimation::endFrame
     \readonly
@@ -308,6 +323,15 @@ int LottieAnimation::startFrame() const
 int LottieAnimation::endFrame() const
 {
     return m_endFrame;
+}
+
+void LottieAnimation::setEndFrame(int endFrame)
+{
+    if (Q_UNLIKELY(m_endFrame == endFrame))
+        return;
+
+    m_endFrame = endFrame;
+    emit endFrameChanged();
 }
 
 int LottieAnimation::currentFrame() const
@@ -326,7 +350,7 @@ int LottieAnimation::currentFrame() const
 
     \qml
     LottieAnimation {
-        source: ":/animation.json"
+        source: "animation.json"
         onStatusChanged: {
             if (status === LottieAnimation.Ready)
                 frameRate = 60;
@@ -340,8 +364,18 @@ int LottieAnimation::frameRate() const
 
 void LottieAnimation::setFrameRate(int frameRate)
 {
+    if (Q_UNLIKELY(m_frameRate == frameRate || frameRate <= 0))
+        return;
+
     m_frameRate = frameRate;
+    emit frameRateChanged();
+
     m_frameAdvance->setInterval(1000 / m_frameRate);
+}
+
+void LottieAnimation::resetFrameRate()
+{
+    setFrameRate(m_animFrameRate);
 }
 
 /*!
@@ -357,7 +391,7 @@ void LottieAnimation::setFrameRate(int frameRate)
            used
 
     \value LottieAnimation.MediumQuality
-           Antialiasing is used but no smooth pixmap transformation algorithm
+           Smooth pixmap transformation algorithm is used but no antialiasing
            (Default)
 
     \value LottieAnimation.HighQuality
@@ -377,6 +411,8 @@ void LottieAnimation::setQuality(LottieAnimation::Quality quality)
             setRenderTarget(QQuickPaintedItem::FramebufferObject);
         else
             setRenderTarget(QQuickPaintedItem::Image);
+        setSmooth(quality != LowQuality);
+        setAntialiasing(quality == HighQuality);
         emit qualityChanged();
     }
 }
@@ -488,6 +524,7 @@ bool LottieAnimation::gotoAndPlay(const QString &frameMarker)
 void LottieAnimation::gotoAndStop(int frame)
 {
     gotoFrame(frame);
+    m_frameAdvance->stop();
     renderNextFrame();
 }
 
@@ -541,62 +578,56 @@ double LottieAnimation::getDuration(bool inFrames)
 */
 LottieAnimation::Direction LottieAnimation::direction() const
 {
-    if (m_direction < 0)
-        return Reverse;
-    else if (m_direction > 0)
-        return Forward;
-    else {
-        Q_UNREACHABLE();
-        return Forward;
-    }
+    return static_cast<Direction>(m_direction);
 }
 
-void LottieAnimation::setDirection(Direction direction)
+void LottieAnimation::setDirection(LottieAnimation::Direction direction)
 {
-    if (direction == Forward) {
-        m_direction = 1;
-        emit directionChanged();
-    } else if (direction == Reverse) {
-        m_direction = -1;
-        emit directionChanged();
-    }
+    if (Q_UNLIKELY(static_cast<Direction>(m_direction) == direction))
+        return;
+
+    m_direction = direction;
+    emit directionChanged();
+
+    m_frameRenderThread->gotoFrame(this, m_currentFrame);
 }
 
-bool LottieAnimation::loadSource(QString filename)
+void LottieAnimation::load()
 {
-    QFile sourceFile(filename);
-    if (!sourceFile.open(QIODevice::ReadOnly)) {
-        m_status = Error;
-        emit statusChanged();
-        return false;
+    setStatus(Loading);
+
+    m_file.reset(new QQmlFile(qmlEngine(this), m_source));
+    if (m_file->isLoading())
+        m_file->connectFinished(this, SLOT(loadFinished()));
+    else
+        loadFinished();
+}
+
+void LottieAnimation::loadFinished()
+{
+    if (Q_UNLIKELY(m_file->isError())) {
+        m_file.reset();
+        setStatus(Error);
+        return;
     }
 
-    m_status = Loading;
-    emit statusChanged();
+    Q_ASSERT(m_file->isReady());
+    const QByteArray json = m_file->dataByteArray();
+    m_file.reset();
 
-    QByteArray json = sourceFile.readAll();
-    parse(json);
-
-    setWidth(m_animWidth);
-    emit widthChanged();
-    setHeight(m_animHeight);
-    emit heightChanged();
-
-    sourceFile.close();
+    if (Q_UNLIKELY(parse(json) == -1)) {
+        setStatus(Error);
+        return;
+    }
 
     QMetaObject::invokeMethod(m_frameRenderThread, "registerAnimator", Q_ARG(LottieAnimation*, this));
-
-    m_frameAdvance->setInterval(1000 / m_frameRate);
 
     if (m_autoPlay)
         start();
 
     m_frameRenderThread->start();
 
-    m_status = Ready;
-    emit statusChanged();
-
-    return true;
+    setStatus(Ready);
 }
 
 QByteArray LottieAnimation::jsonSource() const
@@ -633,22 +664,23 @@ int LottieAnimation::parse(QByteArray jsonSource)
 {
     m_jsonSource = jsonSource;
 
-    QJsonDocument doc = QJsonDocument::fromJson(jsonSource);
-    QJsonObject rootObj = doc.object();
-
-    if (rootObj.empty()) {
-        m_status = Error;
+    QJsonParseError error;
+    QJsonDocument doc = QJsonDocument::fromJson(m_jsonSource, &error);
+    if (Q_UNLIKELY(error.error != QJsonParseError::NoError)) {
+        qCWarning(lcLottieQtBodymovinParser)
+            << "JSON parse error:" << error.errorString();
         return -1;
     }
 
-    m_startFrame = rootObj.value(QLatin1String("ip")).toVariant().toInt();
-    m_endFrame = rootObj.value(QLatin1String("op")).toVariant().toInt();
-    m_frameRate = rootObj.value(QLatin1String("fr")).toVariant().toInt();
+    QJsonObject rootObj = doc.object();
+    if (Q_UNLIKELY(rootObj.empty()))
+        return -1;
+
+    int startFrame = rootObj.value(QLatin1String("ip")).toVariant().toInt();
+    int endFrame = rootObj.value(QLatin1String("op")).toVariant().toInt();
+    m_animFrameRate = rootObj.value(QLatin1String("fr")).toVariant().toInt();
     m_animWidth = rootObj.value(QLatin1String("w")).toVariant().toReal();
     m_animHeight = rootObj.value(QLatin1String("h")).toVariant().toReal();
-
-    setWidth(m_animWidth);
-    setHeight(m_animHeight);
 
     QJsonArray markerArr = rootObj.value(QLatin1String("markers")).toArray();
     QJsonArray::const_iterator markerIt = markerArr.constBegin();
@@ -669,9 +701,11 @@ int LottieAnimation::parse(QByteArray jsonSource)
     if (rootObj.value(QLatin1String("chars")).toArray().count())
         qCWarning(lcLottieQtBodymovinParser) << "chars not supported";
 
-    emit frameRateChanged();
-    emit startFrameChanged();
-    emit endFrameChanged();
+    setWidth(m_animWidth);
+    setHeight(m_animHeight);
+    setStartFrame(startFrame);
+    setEndFrame(endFrame);
+    setFrameRate(m_animFrameRate);
 
     return 0;
 }

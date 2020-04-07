@@ -110,12 +110,10 @@ public:
     QOpenGLDebugMessage(const QOpenGLDebugMessage &debugMessage);
 
     QOpenGLDebugMessage &operator=(const QOpenGLDebugMessage &debugMessage);
-#ifdef Q_COMPILER_RVALUE_REFS
-    QOpenGLDebugMessage &operator=(QOpenGLDebugMessage &&other) Q_DECL_NOTHROW { swap(other); return *this; }
-#endif
+    QOpenGLDebugMessage &operator=(QOpenGLDebugMessage &&other) noexcept { swap(other); return *this; }
     ~QOpenGLDebugMessage();
 
-    void swap(QOpenGLDebugMessage &other) Q_DECL_NOTHROW { qSwap(d, other.d); }
+    void swap(QOpenGLDebugMessage &other) noexcept { qSwap(d, other.d); }
 
     Source source() const;
     Type type() const;

@@ -393,10 +393,20 @@ void tst_QQuickMouseArea::dragging()
     QTRY_COMPARE(blackRect->x(), 61.0);
     QCOMPARE(blackRect->y(), 61.0);
 
+    qreal relativeX = mouseRegion->mouseX();
+    qreal relativeY = mouseRegion->mouseY();
+    for (int i = 0; i < 20; i++) {
+        p += QPoint(1, 1);
+        QTest::mouseMove(&window, p);
+    }
+    QTRY_VERIFY(drag->active());
+    QTRY_COMPARE(mouseRegion->mouseX(), relativeX);
+    QCOMPARE(mouseRegion->mouseY(), relativeY);
+
     QTest::mouseRelease(&window, button, Qt::NoModifier, p);
     QTRY_VERIFY(!drag->active());
-    QTRY_COMPARE(blackRect->x(), 61.0);
-    QCOMPARE(blackRect->y(), 61.0);
+    QTRY_COMPARE(blackRect->x(), 81.0);
+    QCOMPARE(blackRect->y(), 81.0);
 }
 
 void tst_QQuickMouseArea::dragSmoothed()
@@ -1349,6 +1359,34 @@ void tst_QQuickMouseArea::hoverVisible()
     QCOMPARE(enteredSpy.count(), 1);
 
     QCOMPARE(QPointF(mouseTracker->mouseX(), mouseTracker->mouseY()), QPointF(11,33));
+
+    // QTBUG-77983
+    mouseTracker->setVisible(false);
+    mouseTracker->setEnabled(false);
+
+    QCOMPARE(mouseTracker->hovered(), false);
+    mouseTracker->setVisible(true);
+    // if the enabled property is false, the containsMouse property shouldn't become true
+    // when an invisible mousearea become visible
+    QCOMPARE(mouseTracker->hovered(), false);
+
+    mouseTracker->parentItem()->setEnabled(false);
+    mouseTracker->setVisible(false);
+    mouseTracker->setEnabled(true);
+
+    QCOMPARE(mouseTracker->hovered(), false);
+    mouseTracker->setVisible(true);
+    // if the parent item is not enabled, the containsMouse property will be false, even if
+    // the mousearea is enabled
+    QCOMPARE(mouseTracker->hovered(), false);
+
+    mouseTracker->parentItem()->setEnabled(true);
+    mouseTracker->setVisible(false);
+    mouseTracker->setEnabled(true);
+
+    QCOMPARE(mouseTracker->hovered(), false);
+    mouseTracker->setVisible(true);
+    QCOMPARE(mouseTracker->hovered(), true);
 }
 
 void tst_QQuickMouseArea::hoverAfterPress()
@@ -1509,7 +1547,7 @@ void tst_QQuickMouseArea::onWheel()
     QVERIFY(root != nullptr);
 
     QWheelEvent wheelEvent(QPoint(10, 32), QPoint(10, 32), QPoint(60, 20), QPoint(0, 120),
-                           0, Qt::Vertical,Qt::NoButton, Qt::ControlModifier);
+                           Qt::NoButton, Qt::ControlModifier, Qt::NoScrollPhase, false);
     QGuiApplication::sendEvent(&window, &wheelEvent);
 
     QCOMPARE(root->property("angleDeltaY").toInt(), 120);
@@ -1847,7 +1885,7 @@ void tst_QQuickMouseArea::nestedStopAtBounds()
     QTest::mouseMove(&view, position);
     axis += invert ? threshold : -threshold;
     QTest::mouseMove(&view, position);
-    QCOMPARE(outer->drag()->active(), true);
+    QTRY_COMPARE(outer->drag()->active(), true);
     QCOMPARE(inner->drag()->active(), false);
     QTest::mouseRelease(&view, Qt::LeftButton, Qt::NoModifier, position);
 

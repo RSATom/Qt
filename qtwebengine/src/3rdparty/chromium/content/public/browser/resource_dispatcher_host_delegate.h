@@ -25,7 +25,6 @@ struct ResourceResponse;
 namespace content {
 
 class AppCacheService;
-class NavigationData;
 class ResourceContext;
 class ResourceThrottle;
 struct StreamInfo;
@@ -94,10 +93,6 @@ class CONTENT_EXPORT ResourceDispatcherHostDelegate {
   // Deprecated.
   // TODO(maksims): Remove this once all the callers are modified.
   virtual void RequestComplete(net::URLRequest* url_request);
-
-  // Asks the embedder for NavigationData related to this request. It is only
-  // called for navigation requests.
-  virtual NavigationData* GetNavigationData(net::URLRequest* request) const;
 };
 
 }  // namespace content

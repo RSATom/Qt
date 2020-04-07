@@ -8,15 +8,18 @@
 #include <memory>
 
 #include "base/macros.h"
+#include "base/synchronization/waitable_event.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "third_party/blink/public/mojom/net/ip_address_space.mojom-blink.h"
 #include "third_party/blink/renderer/bindings/core/v8/source_location.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_cache_options.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_gc_controller.h"
+#include "third_party/blink/renderer/bindings/core/v8/worker_or_worklet_script_controller.h"
 #include "third_party/blink/renderer/core/frame/csp/content_security_policy.h"
 #include "third_party/blink/renderer/core/frame/settings.h"
 #include "third_party/blink/renderer/core/inspector/console_message.h"
 #include "third_party/blink/renderer/core/inspector/worker_devtools_params.h"
+#include "third_party/blink/renderer/core/origin_trials/origin_trial_context.h"
 #include "third_party/blink/renderer/core/script/script.h"
 #include "third_party/blink/renderer/core/workers/global_scope_creation_params.h"
 #include "third_party/blink/renderer/core/workers/parent_execution_context_task_runners.h"
@@ -26,13 +29,12 @@
 #include "third_party/blink/renderer/core/workers/worker_global_scope.h"
 #include "third_party/blink/renderer/core/workers/worker_reporting_proxy.h"
 #include "third_party/blink/renderer/core/workers/worker_thread.h"
-#include "third_party/blink/renderer/platform/cross_thread_functional.h"
 #include "third_party/blink/renderer/platform/heap/handle.h"
 #include "third_party/blink/renderer/platform/network/content_security_policy_parsers.h"
-#include "third_party/blink/renderer/platform/waitable_event.h"
-#include "third_party/blink/renderer/platform/web_thread_supporting_gc.h"
+#include "third_party/blink/renderer/platform/scheduler/public/post_cross_thread_task.h"
 #include "third_party/blink/renderer/platform/weborigin/kurl.h"
 #include "third_party/blink/renderer/platform/weborigin/security_origin.h"
+#include "third_party/blink/renderer/platform/wtf/cross_thread_functional.h"
 #include "third_party/blink/renderer/platform/wtf/forward.h"
 #include "third_party/blink/renderer/platform/wtf/time.h"
 #include "third_party/blink/renderer/platform/wtf/vector.h"
@@ -47,7 +49,9 @@ class FakeWorkerGlobalScope : public WorkerGlobalScope {
       WorkerThread* thread)
       : WorkerGlobalScope(std::move(creation_params),
                           thread,
-                          CurrentTimeTicks()) {}
+                          base::TimeTicks::Now()) {
+    ReadyToRunWorkerScript();
+  }
 
   ~FakeWorkerGlobalScope() override = default;
 
@@ -57,18 +61,42 @@ class FakeWorkerGlobalScope : public WorkerGlobalScope {
   }
 
   // WorkerGlobalScope
-  void ImportModuleScript(
+  void Initialize(const KURL& response_url,
+                  network::mojom::ReferrerPolicy response_referrer_policy,
+                  mojom::IPAddressSpace response_address_space,
+                  const Vector<CSPHeaderAndType>& response_csp_headers,
+                  const Vector<String>* response_origin_trial_tokens) override {
+    InitializeURL(response_url);
+    SetReferrerPolicy(response_referrer_policy);
+    SetAddressSpace(response_address_space);
+
+    // These should be called after SetAddressSpace() to correctly override the
+    // address space by the "treat-as-public-address" CSP directive.
+    InitContentSecurityPolicyFromVector(response_csp_headers);
+    BindContentSecurityPolicyToExecutionContext();
+
+    OriginTrialContext::AddTokens(this, response_origin_trial_tokens);
+
+    // This should be called after OriginTrialContext::AddTokens() to install
+    // origin trial features in JavaScript's global object.
+    ScriptController()->PrepareForEvaluation();
+  }
+  void FetchAndRunClassicScript(
+      const KURL& script_url,
+      const FetchClientSettingsObjectSnapshot& outside_settings_object,
+      WorkerResourceTimingNotifier& outside_resource_timing_notifier,
+      const v8_inspector::V8StackTraceId& stack_id) override {
+    NOTREACHED();
+  }
+  void FetchAndRunModuleScript(
       const KURL& module_url_record,
-      FetchClientSettingsObjectSnapshot* outside_settings_object,
-      network::mojom::FetchCredentialsMode) override {
+      const FetchClientSettingsObjectSnapshot& outside_settings_object,
+      WorkerResourceTimingNotifier& outside_resource_timing_notifier,
+      network::mojom::CredentialsMode) override {
     NOTREACHED();
   }
 
   void ExceptionThrown(ErrorEvent*) override {}
-
-  mojom::RequestContextType GetDestinationForMainScript() override {
-    return mojom::RequestContextType::WORKER;
-  }
 };
 
 class WorkerThreadForTest : public WorkerThread {
@@ -76,7 +104,7 @@ class WorkerThreadForTest : public WorkerThread {
   explicit WorkerThreadForTest(
       WorkerReportingProxy& mock_worker_reporting_proxy)
       : WorkerThread(mock_worker_reporting_proxy),
-        worker_backing_thread_(WorkerBackingThread::Create(
+        worker_backing_thread_(std::make_unique<WorkerBackingThread>(
             ThreadCreationParams(WebThreadType::kTestThread))) {}
 
   ~WorkerThreadForTest() override = default;
@@ -96,14 +124,15 @@ class WorkerThreadForTest : public WorkerThread {
         {"contentSecurityPolicy", kContentSecurityPolicyHeaderTypeReport}};
     auto creation_params = std::make_unique<GlobalScopeCreationParams>(
         script_url, mojom::ScriptType::kClassic,
-        OffMainThreadWorkerScriptFetchOption::kDisabled, "fake user agent",
+        OffMainThreadWorkerScriptFetchOption::kDisabled,
+        "fake global scope name", "fake user agent",
         nullptr /* web_worker_fetch_context */, headers,
         network::mojom::ReferrerPolicy::kDefault, security_origin,
         false /* starter_secure_context */,
         CalculateHttpsState(security_origin), worker_clients,
         mojom::IPAddressSpace::kLocal, nullptr,
         base::UnguessableToken::Create(),
-        std::make_unique<WorkerSettings>(Settings::Create().get()),
+        std::make_unique<WorkerSettings>(std::make_unique<Settings>().get()),
         kV8CacheOptionsDefault, nullptr /* worklet_module_responses_map */);
 
     Start(std::move(creation_params),
@@ -115,10 +144,11 @@ class WorkerThreadForTest : public WorkerThread {
   }
 
   void WaitForInit() {
-    WaitableEvent completion_event;
-    GetWorkerBackingThread().BackingThread().PostTask(
-        FROM_HERE, CrossThreadBind(&WaitableEvent::Signal,
-                                   CrossThreadUnretained(&completion_event)));
+    base::WaitableEvent completion_event;
+    PostCrossThreadTask(
+        *GetWorkerBackingThread().BackingThread().GetTaskRunner(), FROM_HERE,
+        CrossThreadBindOnce(&base::WaitableEvent::Signal,
+                            CrossThreadUnretained(&completion_event)));
     completion_event.Wait();
   }
 
@@ -160,7 +190,7 @@ class MockWorkerReportingProxy final : public WorkerReportingProxy {
   void WaitUntilScriptEvaluation() { script_evaluation_event_.Wait(); }
 
  private:
-  WaitableEvent script_evaluation_event_;
+  base::WaitableEvent script_evaluation_event_;
 };
 
 }  // namespace blink

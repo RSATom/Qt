@@ -12,7 +12,7 @@
 #include "third_party/blink/renderer/platform/geometry/float_rect.h"
 #include "third_party/blink/renderer/platform/geometry/layout_rect.h"
 #include "third_party/blink/renderer/platform/graphics/path.h"
-#include "third_party/blink/renderer/platform/wtf/allocator.h"
+#include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 
 namespace blink {
 
@@ -36,7 +36,7 @@ class AppliedDecorationPainter final {
         decoration_info_(decoration_info),
         decoration_(decoration),
         double_offset_(double_offset),
-        wavy_offset_factor_(wavy_offset_factor){};
+        wavy_offset_factor_(wavy_offset_factor) {}
 
   void Paint();
   FloatRect Bounds();

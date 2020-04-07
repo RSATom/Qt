@@ -31,6 +31,7 @@
 #include "third_party/blink/renderer/core/page/chrome_client_impl.h"
 #include "cc/trees/layer_tree_host.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/blink/public/common/feature_policy/feature_policy.h"
 #include "third_party/blink/public/platform/web_input_event.h"
 #include "third_party/blink/public/web/web_local_frame.h"
 #include "third_party/blink/public/web/web_local_frame_client.h"
@@ -60,8 +61,8 @@ class ViewCreatingClient : public frame_test_helpers::TestWebViewClient {
                       const WebWindowFeatures&,
                       const WebString& name,
                       WebNavigationPolicy,
-                      bool,
                       WebSandboxFlags,
+                      const FeaturePolicy::FeatureState&,
                       const SessionStorageNamespaceId&) override {
     return web_view_helper_.InitializeWithOpener(opener);
   }
@@ -88,12 +89,13 @@ class CreateWindowTest : public testing::Test {
 
 TEST_F(CreateWindowTest, CreateWindowFromPausedPage) {
   ScopedPagePauser pauser;
-  LocalFrame* frame = ToWebLocalFrameImpl(main_frame_)->GetFrame();
-  FrameLoadRequest request(frame->GetDocument());
+  LocalFrame* frame = To<WebLocalFrameImpl>(main_frame_)->GetFrame();
+  FrameLoadRequest request(frame->GetDocument(), ResourceRequest());
+  request.SetNavigationPolicy(kNavigationPolicyNewForegroundTab);
   WebWindowFeatures features;
   EXPECT_EQ(nullptr, chrome_client_impl_->CreateWindow(
-                         frame, request, features,
-                         kNavigationPolicyNewForegroundTab, kSandboxNone, ""));
+                         frame, request, "", features, WebSandboxFlags::kNone,
+                         FeaturePolicy::FeatureState(), ""));
 }
 
 class FakeColorChooserClient
@@ -109,7 +111,7 @@ class FakeColorChooserClient
     ColorChooserClient::Trace(visitor);
   }
 
-  USING_GARBAGE_COLLECTED_MIXIN(FakeColorChooserClient)
+  USING_GARBAGE_COLLECTED_MIXIN(FakeColorChooserClient);
 
   // ColorChooserClient
   void DidChooseColor(const Color& color) override {}
@@ -139,7 +141,7 @@ class FakeDateTimeChooserClient
     DateTimeChooserClient::Trace(visitor);
   }
 
-  USING_GARBAGE_COLLECTED_MIXIN(FakeDateTimeChooserClient)
+  USING_GARBAGE_COLLECTED_MIXIN(FakeDateTimeChooserClient);
 
   // DateTimeChooserClient
   Element& OwnerElement() const override { return *owner_element_; }
@@ -166,10 +168,11 @@ class PagePopupSuppressionTest : public testing::Test {
   }
 
   bool CanOpenDateTimeChooser() {
+    LocalFrame* frame = main_frame_->GetFrame();
     DateTimeChooserParameters params;
     params.locale = DefaultLanguage();
-    return !!chrome_client_impl_->OpenDateTimeChooser(date_time_chooser_client_,
-                                                      params);
+    return !!chrome_client_impl_->OpenDateTimeChooser(
+        frame, date_time_chooser_client_, params);
   }
 
   Settings* GetSettings() {
@@ -188,7 +191,7 @@ class PagePopupSuppressionTest : public testing::Test {
         frame->GetDocument()->documentElement());
     date_time_chooser_client_ = MakeGarbageCollected<FakeDateTimeChooserClient>(
         frame->GetDocument()->documentElement());
-    select_ = HTMLSelectElement::Create(*(frame->GetDocument()));
+    select_ = MakeGarbageCollected<HTMLSelectElement>(*(frame->GetDocument()));
   }
 
  protected:

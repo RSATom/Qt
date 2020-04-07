@@ -35,6 +35,7 @@
 
 #include <QtCore/qscopedpointer.h>
 #include <QtGui/qpa/qplatformwindow.h>
+#include <QtGui/qpa/qplatformoffscreensurface.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -70,6 +71,15 @@ private:
     Q_DISABLE_COPY(QWebGLWindow)
     Q_DECLARE_PRIVATE(QWebGLWindow)
     QScopedPointer<QWebGLWindowPrivate> d_ptr;
+};
+
+class QWebGLOffscreenSurface : public QPlatformOffscreenSurface
+{
+public:
+    QWebGLOffscreenSurface(QOffscreenSurface *offscreenSurface);
+
+    QSurfaceFormat format() const override;
+    bool isValid() const override;
 };
 
 QT_END_NAMESPACE

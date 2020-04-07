@@ -12,12 +12,14 @@
 #include "gpu/vulkan/vulkan_instance.h"
 #include "gpu/vulkan/vulkan_surface.h"
 #include "ui/gfx/gpu_fence.h"
+#include "ui/gfx/gpu_memory_buffer.h"
 
 namespace gpu {
 
 VulkanImplementationWin32::~VulkanImplementationWin32() = default;
 
-bool VulkanImplementationWin32::InitializeVulkanInstance() {
+bool VulkanImplementationWin32::InitializeVulkanInstance(bool using_surface) {
+  DCHECK(using_surface);
   std::vector<const char*> required_extensions = {
       VK_KHR_SURFACE_EXTENSION_NAME, VK_KHR_WIN32_SURFACE_EXTENSION_NAME};
 
@@ -55,8 +57,8 @@ bool VulkanImplementationWin32::InitializeVulkanInstance() {
   return true;
 }
 
-VkInstance VulkanImplementationWin32::GetVulkanInstance() {
-  return vulkan_instance_.vk_instance();
+VulkanInstance* VulkanImplementationWin32::GetVulkanInstance() {
+  return &vulkan_instance_;
 }
 
 std::unique_ptr<VulkanSurface> VulkanImplementationWin32::CreateViewSurface(
@@ -68,13 +70,14 @@ std::unique_ptr<VulkanSurface> VulkanImplementationWin32::CreateViewSurface(
       reinterpret_cast<HINSTANCE>(GetWindowLongPtr(window, GWLP_HINSTANCE));
   surface_create_info.hwnd = window;
   VkResult result = vkCreateWin32SurfaceKHR_(
-      GetVulkanInstance(), &surface_create_info, nullptr, &surface);
+      vulkan_instance_.vk_instance(), &surface_create_info, nullptr, &surface);
   if (VK_SUCCESS != result) {
     DLOG(ERROR) << "vkCreatWin32SurfaceKHR() failed: " << result;
     return nullptr;
   }
 
-  return std::make_unique<VulkanSurface>(GetVulkanInstance(), surface);
+  return std::make_unique<VulkanSurface>(vulkan_instance_.vk_instance(),
+                                         surface);
 }
 
 bool VulkanImplementationWin32::GetPhysicalDevicePresentationSupport(
@@ -101,6 +104,47 @@ VulkanImplementationWin32::ExportVkFenceToGpuFence(VkDevice vk_device,
                                                    VkFence vk_fence) {
   NOTREACHED();
   return nullptr;
+}
+
+VkSemaphore VulkanImplementationWin32::CreateExternalSemaphore(
+    VkDevice vk_device) {
+  NOTIMPLEMENTED();
+  return VK_NULL_HANDLE;
+}
+
+VkSemaphore VulkanImplementationWin32::ImportSemaphoreHandle(
+    VkDevice vk_device,
+    SemaphoreHandle handle) {
+  NOTIMPLEMENTED();
+  return VK_NULL_HANDLE;
+}
+
+SemaphoreHandle VulkanImplementationWin32::GetSemaphoreHandle(
+    VkDevice vk_device,
+    VkSemaphore vk_semaphore) {
+  return SemaphoreHandle();
+}
+
+VkExternalMemoryHandleTypeFlagBits
+VulkanImplementationWin32::GetExternalImageHandleType() {
+  return VK_EXTERNAL_MEMORY_HANDLE_TYPE_D3D11_TEXTURE_BIT;
+}
+
+bool VulkanImplementationWin32::CanImportGpuMemoryBuffer(
+    gfx::GpuMemoryBufferType memory_buffer_type) {
+  return false;
+}
+
+bool VulkanImplementationWin32::CreateImageFromGpuMemoryHandle(
+    VkDevice vk_device,
+    gfx::GpuMemoryBufferHandle gmb_handle,
+    gfx::Size size,
+    VkImage* vk_image,
+    VkImageCreateInfo* vk_image_info,
+    VkDeviceMemory* vk_device_memory,
+    VkDeviceSize* mem_allocation_size) {
+  NOTIMPLEMENTED();
+  return false;
 }
 
 }  // namespace gpu

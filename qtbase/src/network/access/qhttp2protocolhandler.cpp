@@ -40,6 +40,7 @@
 #include "qhttpnetworkconnection_p.h"
 #include "qhttp2protocolhandler_p.h"
 
+#include "http2/http2frames_p.h"
 #include "http2/bitstreams_p.h"
 
 #include <private/qnoncontiguousbytedevice_p.h>
@@ -50,6 +51,8 @@
 #include <QtCore/qdebug.h>
 #include <QtCore/qlist.h>
 #include <QtCore/qurl.h>
+
+#include <qhttp2configuration.h>
 
 #ifndef QT_NO_NETWORKPROXY
 #include <QtNetwork/qnetworkproxy.h>
@@ -174,30 +177,11 @@ QHttp2ProtocolHandler::QHttp2ProtocolHandler(QHttpNetworkConnectionChannel *chan
     Q_ASSERT(channel && m_connection);
     continuedFrames.reserve(20);
 
-    const ProtocolParameters params(m_connection->http2Parameters());
-    Q_ASSERT(params.validate());
-
-    maxSessionReceiveWindowSize = params.maxSessionReceiveWindowSize;
-
-    const RawSettings &data = params.settingsFrameData;
-    for (auto param = data.cbegin(), end = data.cend(); param != end; ++param) {
-        switch (param.key()) {
-        case Settings::INITIAL_WINDOW_SIZE_ID:
-            streamInitialReceiveWindowSize = param.value();
-            break;
-        case Settings::ENABLE_PUSH_ID:
-            pushPromiseEnabled = param.value();
-            break;
-        case Settings::HEADER_TABLE_SIZE_ID:
-        case Settings::MAX_CONCURRENT_STREAMS_ID:
-        case Settings::MAX_FRAME_SIZE_ID:
-        case Settings::MAX_HEADER_LIST_SIZE_ID:
-            // These other settings are just recommendations to our peer. We
-            // only check they are not crazy in ProtocolParameters::validate().
-        default:
-            break;
-        }
-    }
+    const auto h2Config = m_connection->http2Parameters();
+    maxSessionReceiveWindowSize = h2Config.sessionReceiveWindowSize();
+    pushPromiseEnabled = h2Config.serverPushEnabled();
+    streamInitialReceiveWindowSize = h2Config.streamReceiveWindowSize();
+    encoder.setCompressStrings(h2Config.huffmanCompressionEnabled());
 
     if (!channel->ssl && m_connection->connectionType() != QHttpNetworkConnection::ConnectionTypeHTTP2Direct) {
         // We upgraded from HTTP/1.1 to HTTP/2. channel->request was already sent
@@ -243,7 +227,8 @@ void QHttp2ProtocolHandler::_q_uploadDataReadyRead()
 
     auto data = qobject_cast<QNonContiguousByteDevice *>(sender());
     Q_ASSERT(data);
-    const qint32 streamID = data->property("HTTP2StreamID").toInt();
+    const qint32 streamID = streamIDs.value(data);
+    Q_ASSERT(streamID != 0);
     Q_ASSERT(activeStreams.contains(streamID));
     auto &stream = activeStreams[streamID];
 
@@ -258,12 +243,17 @@ void QHttp2ProtocolHandler::_q_uploadDataReadyRead()
 
 void QHttp2ProtocolHandler::_q_replyDestroyed(QObject *reply)
 {
-    const quint32 streamID = reply->property("HTTP2StreamID").toInt();
+    const quint32 streamID = streamIDs.take(reply);
     if (activeStreams.contains(streamID)) {
         sendRST_STREAM(streamID, CANCEL);
         markAsReset(streamID);
         deleteActiveStream(streamID);
     }
+}
+
+void QHttp2ProtocolHandler::_q_uploadDataDestroyed(QObject *uploadData)
+{
+    streamIDs.remove(uploadData);
 }
 
 void QHttp2ProtocolHandler::_q_readyRead()
@@ -441,20 +431,17 @@ bool QHttp2ProtocolHandler::sendClientPreface()
         return false;
 
     // 6.5 SETTINGS
-    const ProtocolParameters params(m_connection->http2Parameters());
-    Q_ASSERT(params.validate());
-    frameWriter.setOutboundFrame(params.settingsFrame());
+    frameWriter.setOutboundFrame(Http2::configurationToSettingsFrame(m_connection->http2Parameters()));
     Q_ASSERT(frameWriter.outboundFrame().payloadSize());
 
     if (!frameWriter.write(*m_socket))
         return false;
 
     sessionReceiveWindowSize = maxSessionReceiveWindowSize;
-    // ProtocolParameters::validate does not allow maxSessionReceiveWindowSize
-    // to be smaller than defaultSessionWindowSize, so everything is OK here with
-    // 'delta':
+    // We only send WINDOW_UPDATE for the connection if the size differs from the
+    // default 64 KB:
     const auto delta = maxSessionReceiveWindowSize - Http2::defaultSessionWindowSize;
-    if (!sendWINDOW_UPDATE(Http2::connectionStreamID, delta))
+    if (delta && !sendWINDOW_UPDATE(Http2::connectionStreamID, delta))
         return false;
 
     prefaceSent = true;
@@ -1088,7 +1075,7 @@ bool QHttp2ProtocolHandler::acceptSetting(Http2::Settings identifier, quint32 ne
     }
 
     if (identifier == Settings::MAX_FRAME_SIZE_ID) {
-        if (newValue < Http2::maxFrameSize || newValue > Http2::maxPayloadSize) {
+        if (newValue < Http2::minPayloadLimit || newValue > Http2::maxPayloadSize) {
             connectionError(PROTOCOL_ERROR, "SETTGINGS max frame size is out of range");
             return false;
         }
@@ -1295,7 +1282,7 @@ quint32 QHttp2ProtocolHandler::createNewStream(const HttpMessagePair &message, b
     replyPrivate->connection = m_connection;
     replyPrivate->connectionChannel = m_channel;
     reply->setSpdyWasUsed(true);
-    reply->setProperty("HTTP2StreamID", newStreamID);
+    streamIDs.insert(reply, newStreamID);
     connect(reply, SIGNAL(destroyed(QObject*)),
             this, SLOT(_q_replyDestroyed(QObject*)));
 
@@ -1307,7 +1294,9 @@ quint32 QHttp2ProtocolHandler::createNewStream(const HttpMessagePair &message, b
         if (auto src = newStream.data()) {
             connect(src, SIGNAL(readyRead()), this,
                     SLOT(_q_uploadDataReadyRead()), Qt::QueuedConnection);
-            src->setProperty("HTTP2StreamID", newStreamID);
+            connect(src, &QHttp2ProtocolHandler::destroyed,
+                    this, &QHttp2ProtocolHandler::_q_uploadDataDestroyed);
+            streamIDs.insert(src, newStreamID);
         }
     }
 
@@ -1350,14 +1339,13 @@ void QHttp2ProtocolHandler::markAsReset(quint32 streamID)
 quint32 QHttp2ProtocolHandler::popStreamToResume()
 {
     quint32 streamID = connectionStreamID;
-    const int nQ = sizeof suspendedStreams / sizeof suspendedStreams[0];
     using QNR = QHttpNetworkRequest;
-    const QNR::Priority ranks[nQ] = {QNR::HighPriority,
-                                     QNR::NormalPriority,
-                                     QNR::LowPriority};
+    const QNR::Priority ranks[] = {QNR::HighPriority,
+                                   QNR::NormalPriority,
+                                   QNR::LowPriority};
 
-    for (int i = 0; i < nQ; ++i) {
-        auto &queue = suspendedStreams[ranks[i]];
+    for (const QNR::Priority rank : ranks) {
+        auto &queue = suspendedStreams[rank];
         auto it = queue.begin();
         for (; it != queue.end(); ++it) {
             if (!activeStreams.contains(*it))
@@ -1378,9 +1366,7 @@ quint32 QHttp2ProtocolHandler::popStreamToResume()
 
 void QHttp2ProtocolHandler::removeFromSuspended(quint32 streamID)
 {
-    const int nQ = sizeof suspendedStreams / sizeof suspendedStreams[0];
-    for (int i = 0; i < nQ; ++i) {
-        auto &q = suspendedStreams[i];
+    for (auto &q : suspendedStreams) {
         q.erase(std::remove(q.begin(), q.end(), streamID), q.end());
     }
 }
@@ -1389,10 +1375,14 @@ void QHttp2ProtocolHandler::deleteActiveStream(quint32 streamID)
 {
     if (activeStreams.contains(streamID)) {
         auto &stream = activeStreams[streamID];
-        if (stream.reply())
+        if (stream.reply()) {
             stream.reply()->disconnect(this);
-        if (stream.data())
+            streamIDs.remove(stream.reply());
+        }
+        if (stream.data()) {
             stream.data()->disconnect(this);
+            streamIDs.remove(stream.data());
+        }
         activeStreams.remove(streamID);
     }
 

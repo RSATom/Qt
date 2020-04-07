@@ -8,14 +8,16 @@
 #ifndef GrCCPerFlushResources_DEFINED
 #define GrCCPerFlushResources_DEFINED
 
-#include "GrNonAtomicRef.h"
-#include "ccpr/GrCCAtlas.h"
-#include "ccpr/GrCCFiller.h"
-#include "ccpr/GrCCStroker.h"
-#include "ccpr/GrCCPathProcessor.h"
+#include "src/gpu/GrNonAtomicRef.h"
+#include "src/gpu/ccpr/GrCCAtlas.h"
+#include "src/gpu/ccpr/GrCCFiller.h"
+#include "src/gpu/ccpr/GrCCPathProcessor.h"
+#include "src/gpu/ccpr/GrCCStroker.h"
+#include "src/gpu/ccpr/GrStencilAtlasOp.h"
 
 class GrCCPathCache;
 class GrCCPathCacheEntry;
+class GrOctoBounds;
 class GrOnFlushResourceProvider;
 class GrShape;
 
@@ -65,26 +67,31 @@ struct GrCCPerFlushResourceSpecs {
  */
 class GrCCPerFlushResources : public GrNonAtomicRef<GrCCPerFlushResources> {
 public:
-    GrCCPerFlushResources(GrOnFlushResourceProvider*, const GrCCPerFlushResourceSpecs&);
+    GrCCPerFlushResources(
+            GrOnFlushResourceProvider*, GrCCAtlas::CoverageType,const GrCCPerFlushResourceSpecs&);
 
     bool isMapped() const { return SkToBool(fPathInstanceData); }
+
+    GrCCAtlas::CoverageType renderedPathCoverageType() const {
+        return fRenderedAtlasStack.coverageType();
+    }
 
     // Copies a coverage-counted path out of the given texture proxy, and into a cached, 8-bit,
     // literal coverage atlas. Updates the cache entry to reference the new atlas.
     void upgradeEntryToLiteralCoverageAtlas(GrCCPathCache*, GrOnFlushResourceProvider*,
-                                            GrCCPathCacheEntry*, GrCCPathProcessor::DoEvenOddFill);
+                                            GrCCPathCacheEntry*, GrFillRule);
 
     // These two methods render a path into a temporary coverage count atlas. See
     // GrCCPathProcessor::Instance for a description of the outputs.
     //
     // strokeDevWidth must be 0 for fills, 1 for hairlines, or the stroke width in device-space
     // pixels for non-hairline strokes (implicitly requiring a rigid-body transform).
-    GrCCAtlas* renderShapeInAtlas(const SkIRect& clipIBounds, const SkMatrix&, const GrShape&,
-                                  float strokeDevWidth, SkRect* devBounds, SkRect* devBounds45,
-                                  SkIRect* devIBounds, SkIVector* devToAtlasOffset);
-    const GrCCAtlas* renderDeviceSpacePathInAtlas(const SkIRect& clipIBounds, const SkPath& devPath,
-                                                  const SkIRect& devPathIBounds,
-                                                  SkIVector* devToAtlasOffset);
+    GrCCAtlas* renderShapeInAtlas(
+            const SkIRect& clipIBounds, const SkMatrix&, const GrShape&, float strokeDevWidth,
+            GrOctoBounds*, SkIRect* devIBounds, SkIVector* devToAtlasOffset);
+    const GrCCAtlas* renderDeviceSpacePathInAtlas(
+            const SkIRect& clipIBounds, const SkPath& devPath, const SkIRect& devPathIBounds,
+            GrFillRule fillRule, SkIVector* devToAtlasOffset);
 
     // Returns the index in instanceBuffer() of the next instance that will be added by
     // appendDrawPathInstance().
@@ -105,16 +112,33 @@ public:
     // Accessors used by draw calls, once the resources have been finalized.
     const GrCCFiller& filler() const { SkASSERT(!this->isMapped()); return fFiller; }
     const GrCCStroker& stroker() const { SkASSERT(!this->isMapped()); return fStroker; }
-    const GrBuffer* indexBuffer() const { SkASSERT(!this->isMapped()); return fIndexBuffer.get(); }
-    const GrBuffer* vertexBuffer() const { SkASSERT(!this->isMapped()); return fVertexBuffer.get();}
-    GrBuffer* instanceBuffer() const { SkASSERT(!this->isMapped()); return fInstanceBuffer.get(); }
+    sk_sp<const GrGpuBuffer> refIndexBuffer() const {
+        SkASSERT(!this->isMapped());
+        return fIndexBuffer;
+    }
+    sk_sp<const GrGpuBuffer> refVertexBuffer() const {
+        SkASSERT(!this->isMapped());
+        return fVertexBuffer;
+    }
+    sk_sp<const GrGpuBuffer> refInstanceBuffer() const {
+        SkASSERT(!this->isMapped());
+        return fInstanceBuffer;
+    }
+    sk_sp<const GrGpuBuffer> refStencilResolveBuffer() const {
+        SkASSERT(!this->isMapped());
+        return fStencilResolveBuffer;
+    }
 
 private:
     void recordCopyPathInstance(const GrCCPathCacheEntry&, const SkIVector& newAtlasOffset,
-                                GrCCPathProcessor::DoEvenOddFill, sk_sp<GrTextureProxy> srcProxy);
-    bool placeRenderedPathInAtlas(const SkIRect& clipIBounds, const SkIRect& pathIBounds,
-                                  GrScissorTest*, SkIRect* clippedPathIBounds,
-                                  SkIVector* devToAtlasOffset);
+                                GrFillRule, sk_sp<GrTextureProxy> srcProxy);
+    void placeRenderedPathInAtlas(
+            const SkIRect& clippedPathIBounds, GrScissorTest, SkIVector* devToAtlasOffset);
+
+    // In MSAA mode we record an additional instance per path that draws a rectangle on top of its
+    // corresponding path in the atlas and resolves stencil winding values to coverage.
+    void recordStencilResolveInstance(
+            const SkIRect& clippedPathIBounds, const SkIVector& devToAtlasOffset, GrFillRule);
 
     const SkAutoSTArray<32, SkPoint> fLocalDevPtsBuffer;
     GrCCFiller fFiller;
@@ -122,14 +146,15 @@ private:
     GrCCAtlasStack fCopyAtlasStack;
     GrCCAtlasStack fRenderedAtlasStack;
 
-    const sk_sp<const GrBuffer> fIndexBuffer;
-    const sk_sp<const GrBuffer> fVertexBuffer;
-    const sk_sp<GrBuffer> fInstanceBuffer;
+    const sk_sp<const GrGpuBuffer> fIndexBuffer;
+    const sk_sp<const GrGpuBuffer> fVertexBuffer;
+    const sk_sp<GrGpuBuffer> fInstanceBuffer;
 
     GrCCPathProcessor::Instance* fPathInstanceData = nullptr;
     int fNextCopyInstanceIdx;
     SkDEBUGCODE(int fEndCopyInstance);
     int fNextPathInstanceIdx;
+    int fBasePathInstanceIdx;
     SkDEBUGCODE(int fEndPathInstance);
 
     // Represents a range of copy-path instances that all share the same source proxy. (i.e. Draw
@@ -152,7 +177,20 @@ private:
     // than allocating new texture objects upon instantiation.
     SkSTArray<2, sk_sp<GrTexture>> fRecyclableAtlasTextures;
 
+    // Used in MSAA mode make an intermediate draw that resolves stencil winding values to coverage.
+    sk_sp<GrGpuBuffer> fStencilResolveBuffer;
+    GrStencilAtlasOp::ResolveRectInstance* fStencilResolveInstanceData = nullptr;
+    int fNextStencilResolveInstanceIdx = 0;
+    SkDEBUGCODE(int fEndStencilResolveInstance);
+
 public:
+#ifdef SK_DEBUG
+    void debugOnly_didReuseRenderedPath() {
+        if (GrCCAtlas::CoverageType::kA8_Multisample == this->renderedPathCoverageType()) {
+            --fEndStencilResolveInstance;
+        }
+    }
+#endif
     const GrTexture* testingOnly_frontCopyAtlasTexture() const;
     const GrTexture* testingOnly_frontRenderedAtlasTexture() const;
 };

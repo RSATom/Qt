@@ -46,14 +46,13 @@ TestWidget::TestWidget(QWidget *parent) :
     connect(ui->radioFlipAbove,   &QAbstractButton::clicked, this, &TestWidget::onFlip3DPolicyChanged);
     connect(ui->radioFlipBelow,   &QAbstractButton::clicked, this, &TestWidget::onFlip3DPolicyChanged);
     connect(ui->btnFrameReset,    &QAbstractButton::clicked, this, &TestWidget::onResetGlassFrameClicked);
-    typedef void(QSpinBox::*IntSignal)(int);
-    connect(ui->frameTop, static_cast<IntSignal>(&QSpinBox::valueChanged),
+    connect(ui->frameTop, QOverload<int>::of(&QSpinBox::valueChanged),
             this, &TestWidget::onGlassMarginsChanged);
-    connect(ui->frameRight, static_cast<IntSignal>(&QSpinBox::valueChanged),
+    connect(ui->frameRight, QOverload<int>::of(&QSpinBox::valueChanged),
             this, &TestWidget::onGlassMarginsChanged);
-    connect(ui->frameBottom, static_cast<IntSignal>(&QSpinBox::valueChanged),
+    connect(ui->frameBottom, QOverload<int>::of(&QSpinBox::valueChanged),
             this, &TestWidget::onGlassMarginsChanged);
-    connect(ui->frameLeft, static_cast<IntSignal>(&QSpinBox::valueChanged),
+    connect(ui->frameLeft, QOverload<int>::of(&QSpinBox::valueChanged),
             this, &TestWidget::onGlassMarginsChanged);
 }
 
@@ -77,7 +76,7 @@ void TestWidget::changeEvent(QEvent *e)
 bool TestWidget::event(QEvent *e)
 {
     if (e->type() == QWinEvent::CompositionChange) {
-        QWinCompositionChangeEvent *event = static_cast<QWinCompositionChangeEvent *>(e);
+        auto *event = static_cast<QWinCompositionChangeEvent *>(e);
         qDebug() << "Composition state change: " << event->isCompositionEnabled();
     } else if (e->type() == QWinEvent::ThemeChange) {
         qDebug() << "Theme change.";

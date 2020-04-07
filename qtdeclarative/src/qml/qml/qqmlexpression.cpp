@@ -45,8 +45,8 @@
 #include "qqmlcontext_p.h"
 #include "qqmlscriptstring_p.h"
 #include "qqmlbinding_p.h"
-#include <private/qv8engine_p.h>
 #include <private/qqmlsourcecoordinate_p.h>
+#include <private/qv4qmlcontext_p.h>
 
 #include <QtCore/qdebug.h>
 
@@ -352,7 +352,7 @@ QString QQmlExpression::sourceFile() const
 int QQmlExpression::lineNumber() const
 {
     Q_D(const QQmlExpression);
-    return qmlSourceCoordinate(d->line);
+    return qmlConvertSourceCoordinate<quint16, int>(d->line);
 }
 
 /*!
@@ -362,7 +362,7 @@ int QQmlExpression::lineNumber() const
 int QQmlExpression::columnNumber() const
 {
     Q_D(const QQmlExpression);
-    return qmlSourceCoordinate(d->column);
+    return qmlConvertSourceCoordinate<quint16, int>(d->column);
 }
 
 /*!
@@ -373,8 +373,8 @@ void QQmlExpression::setSourceLocation(const QString &url, int line, int column)
 {
     Q_D(QQmlExpression);
     d->url = url;
-    d->line = qmlSourceCoordinate(line);
-    d->column = qmlSourceCoordinate(column);
+    d->line = qmlConvertSourceCoordinate<int, quint16>(line);
+    d->column = qmlConvertSourceCoordinate<int, quint16>(column);
 }
 
 /*!

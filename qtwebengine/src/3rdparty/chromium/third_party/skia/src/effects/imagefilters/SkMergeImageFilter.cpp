@@ -5,15 +5,14 @@
  * found in the LICENSE file.
  */
 
-#include "SkMergeImageFilter.h"
+#include "include/effects/SkMergeImageFilter.h"
 
-#include "SkCanvas.h"
-#include "SkColorSpaceXformer.h"
-#include "SkReadBuffer.h"
-#include "SkSpecialImage.h"
-#include "SkSpecialSurface.h"
-#include "SkWriteBuffer.h"
-#include "SkValidationUtils.h"
+#include "include/core/SkCanvas.h"
+#include "src/core/SkReadBuffer.h"
+#include "src/core/SkSpecialImage.h"
+#include "src/core/SkSpecialSurface.h"
+#include "src/core/SkValidationUtils.h"
+#include "src/core/SkWriteBuffer.h"
 
 sk_sp<SkImageFilter> SkMergeImageFilter::Make(sk_sp<SkImageFilter>* const filters, int count,
                                                const CropRect* cropRect) {
@@ -92,21 +91,6 @@ sk_sp<SkSpecialImage> SkMergeImageFilter::onFilterImage(SkSpecialImage* source, 
     offset->fX = bounds.left();
     offset->fY = bounds.top();
     return surf->makeImageSnapshot();
-}
-
-sk_sp<SkImageFilter> SkMergeImageFilter::onMakeColorSpace(SkColorSpaceXformer* xformer) const {
-    SkSTArray<5, sk_sp<SkImageFilter>> inputs(this->countInputs());
-    bool changed = false;
-    for (int i = 0; i < this->countInputs(); i++) {
-        inputs.push_back(xformer->apply(this->getInput(i)));
-        changed |= (inputs[i].get() != this->getInput(i));
-    }
-
-    if (changed) {
-        return SkMergeImageFilter::Make(inputs.begin(), this->countInputs(),
-                                        this->getCropRectIfSet());
-    }
-    return this->refMe();
 }
 
 sk_sp<SkFlattenable> SkMergeImageFilter::CreateProc(SkReadBuffer& buffer) {

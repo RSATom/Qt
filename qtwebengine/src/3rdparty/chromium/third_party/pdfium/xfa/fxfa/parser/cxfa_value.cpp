@@ -6,8 +6,8 @@
 
 #include "xfa/fxfa/parser/cxfa_value.h"
 
+#include "fxjs/xfa/cjx_node.h"
 #include "fxjs/xfa/cjx_object.h"
-#include "fxjs/xfa/cjx_value.h"
 #include "third_party/base/ptr_util.h"
 #include "xfa/fxfa/parser/cxfa_arc.h"
 #include "xfa/fxfa/parser/cxfa_exdata.h"
@@ -31,7 +31,7 @@ const CXFA_Node::PropertyData kValuePropertyData[] = {
     {XFA_Element::Date, 1, XFA_PROPERTYFLAG_OneOf},
     {XFA_Element::Float, 1, XFA_PROPERTYFLAG_OneOf},
     {XFA_Element::Line, 1, XFA_PROPERTYFLAG_OneOf},
-    {XFA_Element::Unknown, 0, 0}};
+};
 
 const CXFA_Node::AttributeData kValueAttributeData[] = {
     {XFA_Attribute::Id, XFA_AttributeType::CData, nullptr},
@@ -39,7 +39,7 @@ const CXFA_Node::AttributeData kValueAttributeData[] = {
     {XFA_Attribute::Relevant, XFA_AttributeType::CData, nullptr},
     {XFA_Attribute::Usehref, XFA_AttributeType::CData, nullptr},
     {XFA_Attribute::Override, XFA_AttributeType::Boolean, (void*)0},
-    {XFA_Attribute::Unknown, XFA_AttributeType::Integer, nullptr}};
+};
 
 }  // namespace
 
@@ -51,7 +51,7 @@ CXFA_Value::CXFA_Value(CXFA_Document* doc, XFA_PacketType packet)
                 XFA_Element::Value,
                 kValuePropertyData,
                 kValueAttributeData,
-                pdfium::MakeUnique<CJX_Value>(this)) {}
+                pdfium::MakeUnique<CJX_Node>(this)) {}
 
 CXFA_Value::~CXFA_Value() = default;
 

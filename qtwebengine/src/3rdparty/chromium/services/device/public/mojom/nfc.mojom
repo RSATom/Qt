@@ -5,18 +5,23 @@
 module device.mojom;
 
 enum NFCErrorType {
-  SECURITY,
+  // No permssion.
+  NOT_ALLOWED,
+  // Operation is not supported by the NFC Adapter
   NOT_SUPPORTED,
-  DEVICE_DISABLED,
+  // No hardware support, no NFC adapter or the adapter is disabled,
+  // or the connection cannot be established.
+  NOT_READABLE,
   NOT_FOUND,
   INVALID_MESSAGE,
   OPERATION_CANCELLED,
   TIMER_EXPIRED,
   CANNOT_CANCEL,
+  // Transfer data error.
   IO_ERROR
 };
 
-enum NFCRecordType {
+enum NDEFRecordType {
   EMPTY,
   TEXT,
   URL,
@@ -33,12 +38,13 @@ enum NFCPushTarget {
   ANY
 };
 
-enum NFCWatchMode {
-  // Restricts scope of the watch operation. Only Web NFC messages must be
-  // used by matching algorithm.
-  WEBNFC_ONLY,
-  // Allows performing watch operation for all NFC messages. For example, NFC
-  // tags with valid NDEF messages.
+enum NDEFCompatibility {
+  // Allows all active and passive NFC devices, supported by the NFC standard.
+  NFC_FORUM,
+  // Allows vendor specific NFC tags (passive device) that require specific
+  // reader chips.
+  VENDOR,
+  // Allows all NDEF compatible devices that the reader chip can read.
   ANY
 };
 
@@ -46,24 +52,24 @@ struct NFCError {
   NFCErrorType error_type;
 };
 
-struct NFCRecord {
-  // The type of NFCRecord.
-  NFCRecordType record_type;
+struct NDEFRecord {
+  // The type of NDEFRecord.
+  NDEFRecordType record_type;
 
-  // Represents the IANA media type of the NFCRecord data field.
+  // Represents the IANA media type of the NDEFRecord data field.
   string? media_type;
 
-  // Payload of the NFCRecord.
+  // Payload of the NDEFRecord.
   array<uint8> data;
 };
 
-struct NFCMessage {
-  // The body of the NFCMessage is a collection of NFCRecord objects.
-  array<NFCRecord> data;
+struct NDEFMessage {
+  // The body of the NDEFMessage is a collection of NDEFRecord objects.
+  array<NDEFRecord> data;
 
   // The |url| field is an ASCII serialized origin, optionally followed by a URL
   // path. It represents Web NFC id, that can be used for matching Web NFC
-  // content with the filter specified by |url| field in NFCWatchOptions.
+  // content with the filter specified by |url| field in NFCReaderOptions.
   string? url;
 
   // Maximum size of NFC message that can be sent over IPC is 32KB.
@@ -80,28 +86,31 @@ struct NFCPushOptions {
   // If the property is true, the push operation will suspend active watchers
   // until its completion.
   bool ignore_read;
+
+  // Defines the accepted kinds of NFC devices.
+  NDEFCompatibility compatibility;
 };
 
-struct NFCRecordTypeFilter {
-  NFCRecordType record_type;
+struct NDEFRecordTypeFilter {
+  NDEFRecordType record_type;
 };
 
-struct NFCWatchOptions {
+struct NFCReaderOptions {
   // Defines filtering constraint for NFC messages with specified |url|.
   string? url;
 
   // Defines filtering constraint for NFC records with specified record type.
-  NFCRecordTypeFilter? record_filter;
+  NDEFRecordTypeFilter? record_filter;
 
   // Defines media type filtering constraint.
   string? media_type;
 
-  // Defines mode of watch operation.
-  NFCWatchMode mode;
+  // Defines the accepted kinds of NFC devices.
+  NDEFCompatibility compatibility;
 };
 
 interface NFC {
-  // NFCClient interface is used to notify |client| when NFCMessage matches one
+  // NFCClient interface is used to notify |client| when NDEFMessage matches one
   // or more pending watch operations.
   SetClient(NFCClient client);
 
@@ -109,14 +118,14 @@ interface NFC {
   // NFCPushOptions specify timeout and type of device where data should be
   // pushed. If timeout is defined and data is not pushed before timeout is
   // expired, callback with corresponding error is called.
-  Push(NFCMessage message, NFCPushOptions? options) => (NFCError? error);
+  Push(NDEFMessage message, NFCPushOptions? options) => (NFCError? error);
 
   // Cancels pending push request.
   CancelPush(NFCPushTarget target) => (NFCError? error);
 
   // Starts watching for nearby NFC devices with data that matches
-  // NFCWatchOptions filtering criteria. On success, watch id is returned.
-  Watch(NFCWatchOptions options) => (uint32 id, NFCError? error);
+  // NFCReaderOptions filtering criteria. On success, watch id is returned.
+  Watch(NFCReaderOptions options) => (uint32 id, NFCError? error);
 
   // Cancels watch operation with provided id.
   CancelWatch (uint32 id) => (NFCError? error);
@@ -133,5 +142,10 @@ interface NFC {
 };
 
 interface NFCClient {
-  OnWatch(array<uint32> watch_ids, NFCMessage message);
+  // Sends |message| to those readers that have registered |watch_ids| via
+  // NFC.Watch(), i.e. |message| matches their filtering criteria.
+  // |serial_number| is the serial number of the nfc device used for
+  // anti-collision and identification, or empty string in case none is
+  // available.
+  OnWatch(array<uint32> watch_ids, string? serial_number, NDEFMessage message);
 };

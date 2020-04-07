@@ -26,11 +26,10 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_PLATFORM_SUPPLEMENTABLE_H_
 #define THIRD_PARTY_BLINK_RENDERER_PLATFORM_SUPPLEMENTABLE_H_
 
-#include "third_party/blink/renderer/platform/bindings/trace_wrapper_member.h"
+#include "base/macros.h"
 #include "third_party/blink/renderer/platform/heap/handle.h"
 #include "third_party/blink/renderer/platform/wtf/assertions.h"
 #include "third_party/blink/renderer/platform/wtf/hash_map.h"
-#include "third_party/blink/renderer/platform/wtf/noncopyable.h"
 
 #if DCHECK_IS_ON()
 #include "third_party/blink/renderer/platform/wtf/threading.h"
@@ -158,8 +157,6 @@ class Supplement : public GarbageCollectedMixin {
 
 template <typename T>
 class Supplementable : public GarbageCollectedMixin {
-  WTF_MAKE_NONCOPYABLE(Supplementable);
-
  public:
   template <typename SupplementType>
   void ProvideSupplement(SupplementType* supplement) {
@@ -207,9 +204,8 @@ class Supplementable : public GarbageCollectedMixin {
   void Trace(blink::Visitor* visitor) override { visitor->Trace(supplements_); }
 
  protected:
-  using SupplementMap = HeapHashMap<const char*,
-                                    TraceWrapperMember<Supplement<T>>,
-                                    PtrHash<const char>>;
+  using SupplementMap =
+      HeapHashMap<const char*, Member<Supplement<T>>, PtrHash<const char>>;
   SupplementMap supplements_;
 
   Supplementable()
@@ -222,9 +218,11 @@ class Supplementable : public GarbageCollectedMixin {
 
 #if DCHECK_IS_ON()
  private:
-  ThreadIdentifier attached_thread_id_;
-  ThreadIdentifier creation_thread_id_;
+  base::PlatformThreadId attached_thread_id_;
+  base::PlatformThreadId creation_thread_id_;
 #endif
+
+  DISALLOW_COPY_AND_ASSIGN(Supplementable);
 };
 
 template <typename T>

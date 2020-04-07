@@ -6,7 +6,7 @@
 
 #include "xfa/fxfa/parser/cxfa_font.h"
 
-#include "fxjs/xfa/cjx_font.h"
+#include "fxjs/xfa/cjx_node.h"
 #include "third_party/base/ptr_util.h"
 #include "xfa/fxfa/parser/cxfa_fill.h"
 #include "xfa/fxfa/parser/cxfa_measurement.h"
@@ -16,7 +16,7 @@ namespace {
 const CXFA_Node::PropertyData kFontPropertyData[] = {
     {XFA_Element::Fill, 1, 0},
     {XFA_Element::Extras, 1, 0},
-    {XFA_Element::Unknown, 0, 0}};
+};
 
 const CXFA_Node::AttributeData kFontAttributeData[] = {
     {XFA_Attribute::Id, XFA_AttributeType::CData, nullptr},
@@ -48,7 +48,7 @@ const CXFA_Node::AttributeData kFontAttributeData[] = {
     {XFA_Attribute::Overline, XFA_AttributeType::Integer, (void*)0},
     {XFA_Attribute::GenericFamily, XFA_AttributeType::Enum,
      (void*)XFA_AttributeValue::Serif},
-    {XFA_Attribute::Unknown, XFA_AttributeType::Integer, nullptr}};
+};
 
 }  // namespace
 
@@ -61,14 +61,13 @@ CXFA_Font::CXFA_Font(CXFA_Document* doc, XFA_PacketType packet)
           XFA_Element::Font,
           kFontPropertyData,
           kFontAttributeData,
-          pdfium::MakeUnique<CJX_Font>(this)) {}
+          pdfium::MakeUnique<CJX_Node>(this)) {}
 
 CXFA_Font::~CXFA_Font() = default;
 
 float CXFA_Font::GetBaselineShift() const {
-  return JSObject()
-      ->GetMeasure(XFA_Attribute::BaselineShift)
-      .ToUnit(XFA_Unit::Pt);
+  return JSObject()->GetMeasureInUnit(XFA_Attribute::BaselineShift,
+                                      XFA_Unit::Pt);
 }
 
 float CXFA_Font::GetHorizontalScale() {
@@ -106,7 +105,7 @@ XFA_AttributeValue CXFA_Font::GetUnderlinePeriod() {
 }
 
 float CXFA_Font::GetFontSize() const {
-  return JSObject()->GetMeasure(XFA_Attribute::Size).ToUnit(XFA_Unit::Pt);
+  return JSObject()->GetMeasureInUnit(XFA_Attribute::Size, XFA_Unit::Pt);
 }
 
 WideString CXFA_Font::GetTypeface() {

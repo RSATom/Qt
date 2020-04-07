@@ -58,7 +58,8 @@ public Q_SLOTS: // METHODS
     }
 
 Q_SIGNALS: // SIGNALS
-    void PropertiesChanged(const QString &interface, const QVariantMap &changed_properties, const QStringList &invalidated_properties);
+    void PropertiesChanged(const QString &interface, const QVariantMap &changed_properties, const QStringList &invalidated_properties,
+                           const QDBusMessage &msg);
 };
 
 namespace org {

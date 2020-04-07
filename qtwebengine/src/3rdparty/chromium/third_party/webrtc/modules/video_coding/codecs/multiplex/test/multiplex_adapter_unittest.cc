@@ -9,6 +9,7 @@
  */
 
 #include <stddef.h>
+
 #include <cstdint>
 #include <memory>
 #include <utility>
@@ -16,6 +17,7 @@
 
 #include "absl/memory/memory.h"
 #include "absl/types/optional.h"
+#include "api/scoped_refptr.h"
 #include "api/test/mock_video_decoder_factory.h"
 #include "api/test/mock_video_encoder_factory.h"
 #include "api/video/encoded_image.h"
@@ -26,7 +28,6 @@
 #include "api/video_codecs/video_codec.h"
 #include "api/video_codecs/video_decoder.h"
 #include "api/video_codecs/video_encoder.h"
-#include "common_types.h"  // NOLINT(build/include)
 #include "common_video/include/video_frame_buffer.h"
 #include "common_video/libyuv/include/webrtc_libyuv.h"
 #include "media/base/media_constants.h"
@@ -40,13 +41,12 @@
 #include "modules/video_coding/include/video_error_codes.h"
 #include "rtc_base/keep_ref_until_done.h"
 #include "rtc_base/ref_counted_object.h"
-#include "rtc_base/scoped_ref_ptr.h"
 #include "test/gmock.h"
 #include "test/gtest.h"
 #include "test/video_codec_settings.h"
 
-using testing::_;
-using testing::Return;
+using ::testing::_;
+using ::testing::Return;
 
 namespace webrtc {
 
@@ -54,9 +54,9 @@ constexpr const char* kMultiplexAssociatedCodecName = cricket::kVp9CodecName;
 const VideoCodecType kMultiplexAssociatedCodecType =
     PayloadStringToCodecType(kMultiplexAssociatedCodecName);
 
-class TestMultiplexAdapter
-    : public VideoCodecUnitTest,
-      public testing::WithParamInterface<bool /* supports_augmenting_data */> {
+class TestMultiplexAdapter : public VideoCodecUnitTest,
+                             public ::testing::WithParamInterface<
+                                 bool /* supports_augmenting_data */> {
  public:
   TestMultiplexAdapter()
       : decoder_factory_(new webrtc::MockVideoDecoderFactory),
@@ -219,15 +219,13 @@ TEST_P(TestMultiplexAdapter, ConstructAndDestructEncoder) {
 
 TEST_P(TestMultiplexAdapter, EncodeDecodeI420Frame) {
   std::unique_ptr<VideoFrame> input_frame = CreateInputFrame(false);
-  EXPECT_EQ(WEBRTC_VIDEO_CODEC_OK,
-            encoder_->Encode(*input_frame, nullptr, nullptr));
+  EXPECT_EQ(WEBRTC_VIDEO_CODEC_OK, encoder_->Encode(*input_frame, nullptr));
   EncodedImage encoded_frame;
   CodecSpecificInfo codec_specific_info;
   ASSERT_TRUE(WaitForEncodedFrame(&encoded_frame, &codec_specific_info));
   EXPECT_EQ(kVideoCodecMultiplex, codec_specific_info.codecType);
 
-  EXPECT_EQ(WEBRTC_VIDEO_CODEC_OK,
-            decoder_->Decode(encoded_frame, false, &codec_specific_info, -1));
+  EXPECT_EQ(WEBRTC_VIDEO_CODEC_OK, decoder_->Decode(encoded_frame, false, -1));
   std::unique_ptr<VideoFrame> decoded_frame;
   absl::optional<uint8_t> decoded_qp;
   ASSERT_TRUE(WaitForDecodedFrame(&decoded_frame, &decoded_qp));
@@ -238,15 +236,13 @@ TEST_P(TestMultiplexAdapter, EncodeDecodeI420Frame) {
 
 TEST_P(TestMultiplexAdapter, EncodeDecodeI420AFrame) {
   std::unique_ptr<VideoFrame> yuva_frame = CreateInputFrame(true);
-  EXPECT_EQ(WEBRTC_VIDEO_CODEC_OK,
-            encoder_->Encode(*yuva_frame, nullptr, nullptr));
+  EXPECT_EQ(WEBRTC_VIDEO_CODEC_OK, encoder_->Encode(*yuva_frame, nullptr));
   EncodedImage encoded_frame;
   CodecSpecificInfo codec_specific_info;
   ASSERT_TRUE(WaitForEncodedFrame(&encoded_frame, &codec_specific_info));
   EXPECT_EQ(kVideoCodecMultiplex, codec_specific_info.codecType);
 
-  EXPECT_EQ(WEBRTC_VIDEO_CODEC_OK,
-            decoder_->Decode(encoded_frame, false, nullptr, 0));
+  EXPECT_EQ(WEBRTC_VIDEO_CODEC_OK, decoder_->Decode(encoded_frame, false, 0));
   std::unique_ptr<VideoFrame> decoded_frame;
   absl::optional<uint8_t> decoded_qp;
   ASSERT_TRUE(WaitForDecodedFrame(&decoded_frame, &decoded_qp));
@@ -264,8 +260,7 @@ TEST_P(TestMultiplexAdapter, EncodeDecodeI420AFrame) {
 
 TEST_P(TestMultiplexAdapter, CheckSingleFrameEncodedBitstream) {
   std::unique_ptr<VideoFrame> input_frame = CreateInputFrame(false);
-  EXPECT_EQ(WEBRTC_VIDEO_CODEC_OK,
-            encoder_->Encode(*input_frame, nullptr, nullptr));
+  EXPECT_EQ(WEBRTC_VIDEO_CODEC_OK, encoder_->Encode(*input_frame, nullptr));
   EncodedImage encoded_frame;
   CodecSpecificInfo codec_specific_info;
   ASSERT_TRUE(WaitForEncodedFrame(&encoded_frame, &codec_specific_info));
@@ -279,13 +274,12 @@ TEST_P(TestMultiplexAdapter, CheckSingleFrameEncodedBitstream) {
   const MultiplexImageComponent& component = unpacked_frame.image_components[0];
   EXPECT_EQ(0, component.component_index);
   EXPECT_NE(nullptr, component.encoded_image.data());
-  EXPECT_EQ(kVideoFrameKey, component.encoded_image._frameType);
+  EXPECT_EQ(VideoFrameType::kVideoFrameKey, component.encoded_image._frameType);
 }
 
 TEST_P(TestMultiplexAdapter, CheckDoubleFramesEncodedBitstream) {
   std::unique_ptr<VideoFrame> yuva_frame = CreateInputFrame(true);
-  EXPECT_EQ(WEBRTC_VIDEO_CODEC_OK,
-            encoder_->Encode(*yuva_frame, nullptr, nullptr));
+  EXPECT_EQ(WEBRTC_VIDEO_CODEC_OK, encoder_->Encode(*yuva_frame, nullptr));
   EncodedImage encoded_frame;
   CodecSpecificInfo codec_specific_info;
   ASSERT_TRUE(WaitForEncodedFrame(&encoded_frame, &codec_specific_info));
@@ -303,7 +297,8 @@ TEST_P(TestMultiplexAdapter, CheckDoubleFramesEncodedBitstream) {
         unpacked_frame.image_components[i];
     EXPECT_EQ(i, component.component_index);
     EXPECT_NE(nullptr, component.encoded_image.data());
-    EXPECT_EQ(kVideoFrameKey, component.encoded_image._frameType);
+    EXPECT_EQ(VideoFrameType::kVideoFrameKey,
+              component.encoded_image._frameType);
   }
 }
 
@@ -311,20 +306,21 @@ TEST_P(TestMultiplexAdapter, ImageIndexIncreases) {
   std::unique_ptr<VideoFrame> yuva_frame = CreateInputFrame(true);
   const size_t expected_num_encoded_frames = 3;
   for (size_t i = 0; i < expected_num_encoded_frames; ++i) {
-    EXPECT_EQ(WEBRTC_VIDEO_CODEC_OK,
-              encoder_->Encode(*yuva_frame, nullptr, nullptr));
+    EXPECT_EQ(WEBRTC_VIDEO_CODEC_OK, encoder_->Encode(*yuva_frame, nullptr));
     EncodedImage encoded_frame;
     CodecSpecificInfo codec_specific_info;
     ASSERT_TRUE(WaitForEncodedFrame(&encoded_frame, &codec_specific_info));
     const MultiplexImage& unpacked_frame =
         MultiplexEncodedImagePacker::Unpack(encoded_frame);
     EXPECT_EQ(i, unpacked_frame.image_index);
-    EXPECT_EQ(i ? kVideoFrameDelta : kVideoFrameKey, encoded_frame._frameType);
+    EXPECT_EQ(
+        i ? VideoFrameType::kVideoFrameDelta : VideoFrameType::kVideoFrameKey,
+        encoded_frame._frameType);
   }
 }
 
-INSTANTIATE_TEST_CASE_P(TestMultiplexAdapter,
-                        TestMultiplexAdapter,
-                        ::testing::Bool());
+INSTANTIATE_TEST_SUITE_P(TestMultiplexAdapter,
+                         TestMultiplexAdapter,
+                         ::testing::Bool());
 
 }  // namespace webrtc

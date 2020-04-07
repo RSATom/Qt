@@ -263,8 +263,7 @@ MockNetworkTransaction::MockNetworkTransaction(RequestPriority priority,
       sent_bytes_(0),
       socket_log_id_(NetLogSource::kInvalidId),
       done_reading_called_(false),
-      reading_(false),
-      weak_factory_(this) {}
+      reading_(false) {}
 
 MockNetworkTransaction::~MockNetworkTransaction() {
   // Use request_ as in ~HttpNetworkTransaction to make sure its valid and not
@@ -587,11 +586,11 @@ int MockNetworkLayer::CreateTransaction(
 }
 
 HttpCache* MockNetworkLayer::GetCache() {
-  return NULL;
+  return nullptr;
 }
 
 HttpNetworkSession* MockNetworkLayer::GetSession() {
-  return NULL;
+  return nullptr;
 }
 
 void MockNetworkLayer::SetClock(base::Clock* clock) {
@@ -611,10 +610,9 @@ base::Time MockNetworkLayer::Now() {
 int ReadTransaction(HttpTransaction* trans, std::string* result) {
   int rv;
 
-  TestCompletionCallback callback;
-
   std::string content;
   do {
+    TestCompletionCallback callback;
     scoped_refptr<IOBuffer> buf = base::MakeRefCounted<IOBuffer>(256);
     rv = trans->Read(buf.get(), 256, callback.callback());
     if (rv == ERR_IO_PENDING) {

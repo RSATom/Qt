@@ -9,10 +9,10 @@
 #include "components/favicon/core/favicon_url.h"
 #include "components/favicon/ios/favicon_url_util.h"
 #include "ios/web/public/browser_state.h"
-#include "ios/web/public/favicon_status.h"
-#include "ios/web/public/navigation_item.h"
-#include "ios/web/public/navigation_manager.h"
-#include "ios/web/public/web_state/navigation_context.h"
+#include "ios/web/public/favicon/favicon_status.h"
+#include "ios/web/public/navigation/navigation_context.h"
+#include "ios/web/public/navigation/navigation_item.h"
+#include "ios/web/public/navigation/navigation_manager.h"
 #include "ios/web/public/web_state/web_state.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
 #include "skia/ext/skia_utils_ios.h"
@@ -121,6 +121,7 @@ void WebFaviconDriver::OnFaviconUpdated(
   web::FaviconStatus& favicon_status = item->GetFavicon();
   favicon_status.valid = true;
   favicon_status.image = image;
+  favicon_status.url = icon_url;
 
   NotifyFaviconUpdatedObservers(notification_icon_type, icon_url,
                                 icon_url_changed, image);
@@ -181,5 +182,7 @@ void WebFaviconDriver::WebStateDestroyed(web::WebState* web_state) {
   web_state_->RemoveObserver(this);
   web_state_ = nullptr;
 }
+
+WEB_STATE_USER_DATA_KEY_IMPL(WebFaviconDriver)
 
 }  // namespace favicon

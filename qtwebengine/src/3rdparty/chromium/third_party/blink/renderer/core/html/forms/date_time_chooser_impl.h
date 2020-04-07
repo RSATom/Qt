@@ -45,10 +45,6 @@ class PagePopup;
 class CORE_EXPORT DateTimeChooserImpl final : public DateTimeChooser,
                                               public PagePopupClient {
  public:
-  static DateTimeChooserImpl* Create(ChromeClient*,
-                                     DateTimeChooserClient*,
-                                     const DateTimeChooserParameters&);
-
   DateTimeChooserImpl(ChromeClient*,
                       DateTimeChooserClient*,
                       const DateTimeChooserParameters&);
@@ -74,7 +70,8 @@ class CORE_EXPORT DateTimeChooserImpl final : public DateTimeChooser,
   Member<ChromeClient> chrome_client_;
   Member<DateTimeChooserClient> client_;
   PagePopup* popup_;
-  DateTimeChooserParameters parameters_;
+  // This pointer is valid only in the constructor.
+  const DateTimeChooserParameters* parameters_;
   std::unique_ptr<Locale> locale_;
 };
 

@@ -38,13 +38,13 @@ class CONTENT_EXPORT PepperNetworkMonitorHost
       network::NetworkConnectionTracker* network_connection_tracker);
 
   void GetAndSendNetworkList();
-  void SendNetworkList(std::unique_ptr<net::NetworkInterfaceList> list);
+  void SendNetworkList(const net::NetworkInterfaceList& list);
 
   ppapi::host::ReplyMessageContext reply_context_;
 
   network::NetworkConnectionTracker* network_connection_tracker_;
 
-  base::WeakPtrFactory<PepperNetworkMonitorHost> weak_factory_;
+  base::WeakPtrFactory<PepperNetworkMonitorHost> weak_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(PepperNetworkMonitorHost);
 };

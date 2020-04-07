@@ -11,6 +11,7 @@
 #include "modules/video_coding/utility/simulcast_rate_allocator.h"
 
 #include <stdio.h>
+
 #include <algorithm>
 #include <cstdint>
 #include <numeric>
@@ -18,7 +19,6 @@
 #include <tuple>
 #include <vector>
 
-#include "common_types.h"  // NOLINT(build/include)
 #include "rtc_base/checks.h"
 #include "rtc_base/experiments/rate_control_settings.h"
 #include "system_wrappers/include/field_trial.h"
@@ -58,11 +58,8 @@ float SimulcastRateAllocator::GetTemporalRateAllocation(int num_layers,
 
 SimulcastRateAllocator::SimulcastRateAllocator(const VideoCodec& codec)
     : codec_(codec),
-      hysteresis_factor_(codec.mode == VideoCodecMode::kScreensharing
-                             ? RateControlSettings::ParseFromFieldTrials()
-                                   .GetSimulcastScreenshareHysteresisFactor()
-                             : RateControlSettings::ParseFromFieldTrials()
-                                   .GetSimulcastVideoHysteresisFactor()) {}
+      hysteresis_factor_(RateControlSettings::ParseFromFieldTrials()
+                             .GetSimulcastHysteresisFactor(codec.mode)) {}
 
 SimulcastRateAllocator::~SimulcastRateAllocator() = default;
 
@@ -215,7 +212,8 @@ void SimulcastRateAllocator::DistributeAllocationToTemporalLayers(
     const bool conference_screenshare_mode =
         codec_.mode == VideoCodecMode::kScreensharing &&
         ((num_spatial_streams == 1 && num_temporal_streams == 2) ||  // Legacy.
-         (num_spatial_streams > 1 && simulcast_id == 0));  // Simulcast.
+         (num_spatial_streams > 1 && simulcast_id == 0 &&
+          num_temporal_streams == 2));  // Simulcast.
     if (conference_screenshare_mode) {
       // TODO(holmer): This is a "temporary" hack for screensharing, where we
       // interpret the startBitrate as the encoder target bitrate. This is

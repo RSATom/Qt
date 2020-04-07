@@ -36,7 +36,7 @@
 
 #include "qmapobjectview_p.h"
 #include "qmapobjectview_p_p.h"
-#include <QtQml/private/qqmldelegatemodel_p.h>
+#include <private/qqmldelegatemodel_p.h>
 #include <QtLocation/private/qgeomap_p.h>
 
 QT_BEGIN_NAMESPACE

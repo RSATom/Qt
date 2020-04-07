@@ -70,7 +70,7 @@ class QQuickThumbnailToolButton : public QObject
     Q_PROPERTY(bool flat READ isFlat WRITE setFlat NOTIFY flatChanged)
 
 public:
-    explicit QQuickThumbnailToolButton(QObject *parent = 0);
+    explicit QQuickThumbnailToolButton(QObject *parent = nullptr);
     ~QQuickThumbnailToolButton();
 
     void setIconSource(const QUrl &iconSource);

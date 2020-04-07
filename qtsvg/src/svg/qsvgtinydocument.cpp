@@ -60,6 +60,7 @@ QSvgTinyDocument::QSvgTinyDocument()
     : QSvgStructureNode(0)
     , m_widthPercent(false)
     , m_heightPercent(false)
+    , m_time(0)
     , m_animated(false)
     , m_animationDuration(0)
     , m_fps(30)
@@ -230,9 +231,8 @@ QSvgTinyDocument * QSvgTinyDocument::load(QXmlStreamReader *contents)
 
 void QSvgTinyDocument::draw(QPainter *p, const QRectF &bounds)
 {
-    if (m_time.isNull()) {
-        m_time.start();
-    }
+    if (m_time == 0)
+        m_time = QDateTime::currentMSecsSinceEpoch();
 
     if (displayMode() == QSvgNode::NoneMode)
         return;
@@ -269,9 +269,8 @@ void QSvgTinyDocument::draw(QPainter *p, const QString &id,
         qCDebug(lcSvgHandler, "Couldn't find node %s. Skipping rendering.", qPrintable(id));
         return;
     }
-    if (m_time.isNull()) {
-        m_time.start();
-    }
+    if (m_time == 0)
+        m_time = QDateTime::currentMSecsSinceEpoch();
 
     if (node->displayMode() == QSvgNode::NoneMode)
         return;
@@ -339,6 +338,7 @@ void QSvgTinyDocument::setHeight(int len, bool percent)
 void QSvgTinyDocument::setViewBox(const QRectF &rect)
 {
     m_viewBox = rect;
+    m_implicitViewBox = rect.isNull();
 }
 
 void QSvgTinyDocument::addSvgFont(QSvgFont *font)
@@ -376,7 +376,7 @@ QSvgFillStyleProperty *QSvgTinyDocument::namedStyle(const QString &id) const
 
 void QSvgTinyDocument::restartAnimation()
 {
-    m_time.restart();
+    m_time = QDateTime::currentMSecsSinceEpoch();
 }
 
 bool QSvgTinyDocument::animated() const
@@ -420,14 +420,38 @@ void QSvgTinyDocument::mapSourceToTarget(QPainter *p, const QRectF &targetRect, 
         source = viewBox();
 
     if (source != target && !source.isNull()) {
-        QTransform transform;
-        transform.scale(target.width() / source.width(),
-                  target.height() / source.height());
-        QRectF c2 = transform.mapRect(source);
-        p->translate(target.x() - c2.x(),
-                     target.y() - c2.y());
-        p->scale(target.width() / source.width(),
-                 target.height() / source.height());
+#if (QT_VERSION >= QT_VERSION_CHECK(5, 15, 0))
+        if (m_implicitViewBox || !preserveAspectRatio()) {
+            // Code path used when no view box is set, or IgnoreAspectRatio requested
+#endif
+            QTransform transform;
+            transform.scale(target.width() / source.width(),
+                            target.height() / source.height());
+            QRectF c2 = transform.mapRect(source);
+            p->translate(target.x() - c2.x(),
+                         target.y() - c2.y());
+            p->scale(target.width() / source.width(),
+                     target.height() / source.height());
+#if (QT_VERSION >= QT_VERSION_CHECK(5, 15, 0))
+        } else {
+            // Code path used when KeepAspectRatio is requested. This attempts to emulate the default values
+            // of the <preserveAspectRatio tag that's implicitly defined when <viewbox> is used.
+
+            // Scale the view box into the view port (target) by preserve the aspect ratio.
+            QSizeF viewBoxSize = source.size();
+            viewBoxSize.scale(target.width(), target.height(), Qt::KeepAspectRatio);
+
+            // Center the view box in the view port
+            p->translate(target.x() + (target.width() - viewBoxSize.width()) / 2,
+                         target.y() + (target.height() - viewBoxSize.height()) / 2);
+
+            p->scale(viewBoxSize.width() / source.width(),
+                     viewBoxSize.height() / source.height());
+
+            // Apply the view box translation if specified.
+            p->translate(-source.x(), -source.y());
+        }
+#endif
     }
 }
 
@@ -469,7 +493,7 @@ QMatrix QSvgTinyDocument::matrixForElement(const QString &id) const
 
 int QSvgTinyDocument::currentFrame() const
 {
-    double runningPercentage = qMin(m_time.elapsed()/double(m_animationDuration), 1.);
+    double runningPercentage = qMin(currentElapsed() / double(m_animationDuration), 1.);
 
     int totalFrames = m_fps * m_animationDuration;
 
@@ -482,8 +506,8 @@ void QSvgTinyDocument::setCurrentFrame(int frame)
     double framePercentage = frame/double(totalFrames);
     double timeForFrame = m_animationDuration * framePercentage; //in S
     timeForFrame *= 1000; //in ms
-    int timeToAdd = int(timeForFrame - m_time.elapsed());
-    m_time = m_time.addMSecs(timeToAdd);
+    int timeToAdd = int(timeForFrame - currentElapsed());
+    m_time += timeToAdd;
 }
 
 void QSvgTinyDocument::setFramesPerSecond(int num)

@@ -102,7 +102,16 @@ void tst_QSslSocket_onDemandCertificates_member::initTestCase_data()
 
 void tst_QSslSocket_onDemandCertificates_member::initTestCase()
 {
-    QVERIFY(QtNetworkSettings::verifyTestNetworkSettings());
+#ifdef QT_TEST_SERVER
+    QVERIFY(QtNetworkSettings::verifyConnection(QtNetworkSettings::socksProxyServerName(), 1080));
+    QVERIFY(QtNetworkSettings::verifyConnection(QtNetworkSettings::socksProxyServerName(), 1081));
+    QVERIFY(QtNetworkSettings::verifyConnection(QtNetworkSettings::httpProxyServerName(), 3128));
+    QVERIFY(QtNetworkSettings::verifyConnection(QtNetworkSettings::httpProxyServerName(), 3129));
+    QVERIFY(QtNetworkSettings::verifyConnection(QtNetworkSettings::httpProxyServerName(), 3130));
+#else
+    if (!QtNetworkSettings::verifyTestNetworkSettings())
+        QSKIP("No network test server available");
+#endif // QT_TEST_SERVER
 }
 
 void tst_QSslSocket_onDemandCertificates_member::init()
@@ -110,28 +119,29 @@ void tst_QSslSocket_onDemandCertificates_member::init()
     QFETCH_GLOBAL(bool, setProxy);
     if (setProxy) {
         QFETCH_GLOBAL(int, proxyType);
-        QString testServer = QHostInfo::fromName(QtNetworkSettings::serverName()).addresses().first().toString();
+        const auto socksAddr = QtNetworkSettings::socksProxyServerIp().toString();
+        const auto squidAddr = QtNetworkSettings::httpProxyServerIp().toString();
         QNetworkProxy proxy;
 
         switch (proxyType) {
         case Socks5Proxy:
-            proxy = QNetworkProxy(QNetworkProxy::Socks5Proxy, testServer, 1080);
+            proxy = QNetworkProxy(QNetworkProxy::Socks5Proxy, socksAddr, 1080);
             break;
 
         case Socks5Proxy | AuthBasic:
-            proxy = QNetworkProxy(QNetworkProxy::Socks5Proxy, testServer, 1081);
+            proxy = QNetworkProxy(QNetworkProxy::Socks5Proxy, socksAddr, 1081);
             break;
 
         case HttpProxy | NoAuth:
-            proxy = QNetworkProxy(QNetworkProxy::HttpProxy, testServer, 3128);
+            proxy = QNetworkProxy(QNetworkProxy::HttpProxy, squidAddr, 3128);
             break;
 
         case HttpProxy | AuthBasic:
-            proxy = QNetworkProxy(QNetworkProxy::HttpProxy, testServer, 3129);
+            proxy = QNetworkProxy(QNetworkProxy::HttpProxy, squidAddr, 3129);
             break;
 
         case HttpProxy | AuthNtlm:
-            proxy = QNetworkProxy(QNetworkProxy::HttpProxy, testServer, 3130);
+            proxy = QNetworkProxy(QNetworkProxy::HttpProxy, squidAddr, 3130);
             break;
         }
         QNetworkProxy::setApplicationProxy(proxy);
@@ -202,10 +212,23 @@ void tst_QSslSocket_onDemandCertificates_member::onDemandRootCertLoadingMemberMe
 {
     const QString host("www.qt.io");
 
+#if QT_DEPRECATED_SINCE(5, 5)
+    {
+        // not using any root certs -> should not work
+        QSslSocketPtr socket2 = newSocket();
+        this->socket = socket2.data();
+        socket2->setCaCertificates(QList<QSslCertificate>());
+        socket2->connectToHostEncrypted(host, 443);
+        QVERIFY(!waitForEncrypted(socket2.data()));
+    }
+#endif
+
     // not using any root certs -> should not work
     QSslSocketPtr socket2 = newSocket();
     this->socket = socket2.data();
-    socket2->setCaCertificates(QList<QSslCertificate>());
+    auto sslConfig = socket2->sslConfiguration();
+    sslConfig.setCaCertificates(QList<QSslCertificate>());
+    socket2->setSslConfiguration(sslConfig);
     socket2->connectToHostEncrypted(host, 443);
     QVERIFY(!waitForEncrypted(socket2.data()));
 
@@ -215,10 +238,23 @@ void tst_QSslSocket_onDemandCertificates_member::onDemandRootCertLoadingMemberMe
     socket->connectToHostEncrypted(host, 443);
     QVERIFY2(waitForEncrypted(socket.data()), qPrintable(socket->errorString()));
 
+#if QT_DEPRECATED_SINCE(5, 5)
+    {
+        // not using any root certs again -> should not work
+        QSslSocketPtr socket3 = newSocket();
+        this->socket = socket3.data();
+        socket3->setCaCertificates(QList<QSslCertificate>());
+        socket3->connectToHostEncrypted(host, 443);
+        QVERIFY(!waitForEncrypted(socket3.data()));
+    }
+#endif
+
     // not using any root certs again -> should not work
     QSslSocketPtr socket3 = newSocket();
     this->socket = socket3.data();
-    socket3->setCaCertificates(QList<QSslCertificate>());
+    sslConfig = socket3->sslConfiguration();
+    sslConfig.setCaCertificates(QList<QSslCertificate>());
+    socket3->setSslConfiguration(sslConfig);
     socket3->connectToHostEncrypted(host, 443);
     QVERIFY(!waitForEncrypted(socket3.data()));
 

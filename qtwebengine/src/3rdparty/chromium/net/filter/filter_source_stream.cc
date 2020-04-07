@@ -7,7 +7,6 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "base/callback_helpers.h"
 #include "base/logging.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/numerics/safe_conversions.h"
@@ -90,10 +89,6 @@ FilterSourceStream::SourceType FilterSourceStream::ParseEncodingType(
   }
 }
 
-void FilterSourceStream::ReportContentDecodingFailed(SourceType type) {
-  UMA_HISTOGRAM_ENUMERATION("Net.ContentDecodingFailed2", type, TYPE_MAX);
-}
-
 int FilterSourceStream::DoLoop(int result) {
   DCHECK_NE(STATE_NONE, next_state_);
 
@@ -162,9 +157,6 @@ int FilterSourceStream::DoFilterData() {
   DCHECK(bytes_output != 0 ||
          consumed_bytes == drainable_input_buffer_->BytesRemaining());
 
-  if (bytes_output == ERR_CONTENT_DECODING_FAILED) {
-    ReportContentDecodingFailed(type());
-  }
   // FilterData() is not allowed to return ERR_IO_PENDING.
   DCHECK_NE(ERR_IO_PENDING, bytes_output);
 
@@ -192,7 +184,7 @@ void FilterSourceStream::OnIOComplete(int result) {
   output_buffer_ = nullptr;
   output_buffer_size_ = 0;
 
-  base::ResetAndReturn(&callback_).Run(rv);
+  std::move(callback_).Run(rv);
 }
 
 bool FilterSourceStream::NeedMoreData() const {

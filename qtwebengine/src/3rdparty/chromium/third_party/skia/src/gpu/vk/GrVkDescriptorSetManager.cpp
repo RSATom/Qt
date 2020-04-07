@@ -5,12 +5,16 @@
 * found in the LICENSE file.
 */
 
-#include "GrVkDescriptorSetManager.h"
+#include "src/gpu/vk/GrVkDescriptorSetManager.h"
 
-#include "GrVkDescriptorPool.h"
-#include "GrVkDescriptorSet.h"
-#include "GrVkGpu.h"
-#include "GrVkUniformHandler.h"
+#include "src/gpu/vk/GrVkDescriptorPool.h"
+#include "src/gpu/vk/GrVkDescriptorSet.h"
+#include "src/gpu/vk/GrVkGpu.h"
+#include "src/gpu/vk/GrVkUniformHandler.h"
+
+#if defined(SK_ENABLE_SCOPED_LSAN_SUPPRESSIONS)
+#include <sanitizer/lsan_interface.h>
+#endif
 
 GrVkDescriptorSetManager* GrVkDescriptorSetManager::CreateUniformManager(GrVkGpu* gpu) {
     SkSTArray<2, uint32_t> visibilities;
@@ -227,6 +231,10 @@ GrVkDescriptorSetManager::DescriptorPoolManager::DescriptorPoolManager(
         // null.
         dsSamplerLayoutCreateInfo.pBindings = numBindings ? dsSamplerBindings.get() : nullptr;
 
+#if defined(SK_ENABLE_SCOPED_LSAN_SUPPRESSIONS)
+        // skia:8713
+        __lsan::ScopedDisabler lsanDisabler;
+#endif
         GR_VK_CALL_ERRCHECK(gpu->vkInterface(),
                             CreateDescriptorSetLayout(gpu->device(),
                                                       &dsSamplerLayoutCreateInfo,
@@ -258,6 +266,10 @@ GrVkDescriptorSetManager::DescriptorPoolManager::DescriptorPoolManager(
         uniformLayoutCreateInfo.bindingCount = 2;
         uniformLayoutCreateInfo.pBindings = dsUniBindings;
 
+#if defined(SK_ENABLE_SCOPED_LSAN_SUPPRESSIONS)
+        // skia:8713
+        __lsan::ScopedDisabler lsanDisabler;
+#endif
         GR_VK_CALL_ERRCHECK(gpu->vkInterface(), CreateDescriptorSetLayout(gpu->device(),
                                                                           &uniformLayoutCreateInfo,
                                                                           nullptr,

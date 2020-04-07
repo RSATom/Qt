@@ -43,7 +43,7 @@ Error ValidateConfig(const Display *display, const Config *config);
 Error ValidateContext(const Display *display, const gl::Context *context);
 Error ValidateImage(const Display *display, const Image *image);
 Error ValidateDevice(const Device *device);
-Error ValidateSync(const Device *device, const Sync *sync);
+Error ValidateSync(const Display *display, const Sync *sync);
 
 // Return the requested object only if it is valid (otherwise nullptr)
 const Thread *GetThreadIfValid(const Thread *thread);
@@ -85,6 +85,12 @@ Error ValidateCreatePbufferFromClientBuffer(Display *display,
 
 Error ValidateMakeCurrent(Display *display, Surface *draw, Surface *read, gl::Context *context);
 
+Error ValidateCreateImage(const Display *display,
+                          gl::Context *context,
+                          EGLenum target,
+                          EGLClientBuffer buffer,
+                          const AttributeMap &attributes);
+Error ValidateDestroyImage(const Display *display, const Image *image);
 Error ValidateCreateImageKHR(const Display *display,
                              gl::Context *context,
                              EGLenum target,
@@ -315,16 +321,29 @@ Error ValidateGetFrameTimestampsANDROID(const Display *display,
                                         const EGLint *timestamps,
                                         EGLnsecsANDROID *values);
 
+Error ValidateQueryStringiANGLE(const Display *display, EGLint name, EGLint index);
+
+Error ValidateQueryDisplayAttribEXT(const Display *display, const EGLint attribute);
+Error ValidateQueryDisplayAttribANGLE(const Display *display, const EGLint attribute);
+
+// EGL_ANDROID_get_native_client_buffer
+Error ValidateGetNativeClientBufferANDROID(const struct AHardwareBuffer *buffer);
+
+// EGL_ANDROID_native_fence_sync
+Error ValidateDupNativeFenceFDANDROID(const Display *display, const Sync *sync);
+
 }  // namespace egl
 
 #define ANGLE_EGL_TRY(THREAD, EXPR, FUNCNAME, LABELOBJECT)                               \
+    do                                                                                   \
     {                                                                                    \
         auto ANGLE_LOCAL_VAR = (EXPR);                                                   \
         if (ANGLE_LOCAL_VAR.isError())                                                   \
             return THREAD->setError(ANGLE_LOCAL_VAR, GetDebug(), FUNCNAME, LABELOBJECT); \
-    }
+    } while (0)
 
 #define ANGLE_EGL_TRY_RETURN(THREAD, EXPR, FUNCNAME, LABELOBJECT, RETVAL)         \
+    do                                                                            \
     {                                                                             \
         auto ANGLE_LOCAL_VAR = (EXPR);                                            \
         if (ANGLE_LOCAL_VAR.isError())                                            \
@@ -332,6 +351,6 @@ Error ValidateGetFrameTimestampsANDROID(const Display *display,
             THREAD->setError(ANGLE_LOCAL_VAR, GetDebug(), FUNCNAME, LABELOBJECT); \
             return RETVAL;                                                        \
         }                                                                         \
-    }
+    } while (0)
 
 #endif  // LIBANGLE_VALIDATIONEGL_H_

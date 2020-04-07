@@ -8,10 +8,10 @@
 #ifndef SkSGTrimEffect_DEFINED
 #define SkSGTrimEffect_DEFINED
 
-#include "SkSGGeometryNode.h"
+#include "modules/sksg/include/SkSGGeometryNode.h"
 
-#include "SkPath.h"
-#include "SkTrimPathEffect.h"
+#include "include/core/SkPath.h"
+#include "include/effects/SkTrimPathEffect.h"
 
 class SkCanvas;
 class SkPaint;
@@ -36,6 +36,7 @@ public:
 protected:
     void onClip(SkCanvas*, bool antiAlias) const override;
     void onDraw(SkCanvas*, const SkPaint&) const override;
+    bool onContains(const SkPoint&)        const override;
 
     SkRect onRevalidate(InvalidationController*, const SkMatrix&) override;
     SkPath onAsPath() const override;

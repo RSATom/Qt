@@ -22,7 +22,7 @@ TEST(CallConfigUtils, MarshalUnmarshalProcessSameObject) {
   VideoReceiveStream::Decoder decoder;
   decoder.payload_type = 10;
   decoder.video_format.name = "test";
-  decoder.video_format.parameters["99"] = 98;
+  decoder.video_format.parameters["99"] = "b";
   recv_config.decoders.push_back(decoder);
   recv_config.render_delay_ms = 10;
   recv_config.target_delay_ms = 15;
@@ -31,6 +31,7 @@ TEST(CallConfigUtils, MarshalUnmarshalProcessSameObject) {
   recv_config.rtp.rtcp_mode = RtcpMode::kCompound;
   recv_config.rtp.remb = false;
   recv_config.rtp.transport_cc = false;
+  recv_config.rtp.lntf.enabled = false;
   recv_config.rtp.nack.rtp_history_ms = 150;
   recv_config.rtp.red_payload_type = 50;
   recv_config.rtp.rtx_ssrc = 1000;
@@ -54,6 +55,7 @@ TEST(CallConfigUtils, MarshalUnmarshalProcessSameObject) {
   EXPECT_EQ(recv_config.rtp.rtcp_mode, unmarshaled_config.rtp.rtcp_mode);
   EXPECT_EQ(recv_config.rtp.remb, unmarshaled_config.rtp.remb);
   EXPECT_EQ(recv_config.rtp.transport_cc, unmarshaled_config.rtp.transport_cc);
+  EXPECT_EQ(recv_config.rtp.lntf.enabled, unmarshaled_config.rtp.lntf.enabled);
   EXPECT_EQ(recv_config.rtp.nack.rtp_history_ms,
             unmarshaled_config.rtp.nack.rtp_history_ms);
   EXPECT_EQ(recv_config.rtp.red_payload_type,

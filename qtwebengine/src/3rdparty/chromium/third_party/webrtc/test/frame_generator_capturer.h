@@ -13,6 +13,7 @@
 #include <memory>
 #include <string>
 
+#include "api/task_queue/task_queue_factory.h"
 #include "api/video/video_frame.h"
 #include "rtc_base/critical_section.h"
 #include "rtc_base/task_queue.h"
@@ -38,27 +39,10 @@ class FrameGeneratorCapturer : public TestVideoCapturer {
     virtual ~SinkWantsObserver() {}
   };
 
-  // |type| has the default value OutputType::I420. |num_squares| has the
-  // default value 10.
-  static FrameGeneratorCapturer* Create(
-      int width,
-      int height,
-      absl::optional<FrameGenerator::OutputType> type,
-      absl::optional<int> num_squares,
-      int target_fps,
-      Clock* clock);
-
-  static FrameGeneratorCapturer* CreateFromYuvFile(const std::string& file_name,
-                                                   size_t width,
-                                                   size_t height,
-                                                   int target_fps,
-                                                   Clock* clock);
-
-  static FrameGeneratorCapturer* CreateSlideGenerator(int width,
-                                                      int height,
-                                                      int frame_repeat_count,
-                                                      int target_fps,
-                                                      Clock* clock);
+  FrameGeneratorCapturer(Clock* clock,
+                         std::unique_ptr<FrameGenerator> frame_generator,
+                         int target_fps,
+                         TaskQueueFactory& task_queue_factory);
   virtual ~FrameGeneratorCapturer();
 
   void Start();
@@ -78,9 +62,6 @@ class FrameGeneratorCapturer : public TestVideoCapturer {
 
   int64_t first_frame_capture_time() const { return first_frame_capture_time_; }
 
-  FrameGeneratorCapturer(Clock* clock,
-                         std::unique_ptr<FrameGenerator> frame_generator,
-                         int target_fps);
   bool Init();
 
  private:

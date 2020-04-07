@@ -1,7 +1,7 @@
 {
     "module": "gui",
     "depends": [
-        "core",
+        "core-private",
         "network"
     ],
     "testDir": "../../config.tests",
@@ -28,9 +28,9 @@
             "lgmon": "boolean",
             "libinput": "boolean",
             "libjpeg": { "type": "enum", "values": [ "no", "qt", "system" ] },
+            "libmd4c": { "type": "enum", "values": [ "no", "qt", "system" ] },
             "libpng": { "type": "enum", "values": [ "no", "qt", "system" ] },
             "linuxfb": "boolean",
-            "mirclient": "boolean",
             "mtdev": "boolean",
             "opengl": { "type": "optionalString", "values": [ "no", "yes", "desktop", "es2", "dynamic" ] },
             "opengl-es-2": { "type": "void", "name": "opengl", "value": "es2" },
@@ -61,6 +61,7 @@
             "export": "",
             "headers": ["bcm_host.h"],
             "sources": [
+                { "type": "pkgConfig", "args": "bcm_host" },
                 { "type": "makeSpec", "spec": "BCM_HOST" }
             ]
         },
@@ -373,8 +374,20 @@
             },
             "headers": "jpeglib.h",
             "sources": [
+                { "type": "pkgConfig", "args": "libjpeg" },
                 { "libs": "-llibjpeg", "condition": "config.msvc" },
                 "-ljpeg"
+            ]
+        },
+        "libmd4c": {
+            "label": "libmd4c",
+            "test": {
+                "main": "md_parse(\"hello\", 5, nullptr, nullptr);"
+            },
+            "headers": "md4c.h",
+            "sources": [
+                { "type": "pkgConfig", "args": "md4c" },
+                { "libs": "-lmd4c" }
             ]
         },
         "libpng": {
@@ -393,20 +406,6 @@
             ],
             "use": [
                 { "lib": "zlib", "condition": "features.system-zlib" }
-            ]
-        },
-        "mirclient": {
-            "label": "Mir client libraries",
-            "test": {
-                "tail": "static void surfaceCreateCallback(MirSurface*, void*) {}",
-                "main": [
-                    "u_application_lifecycle_delegate_new();",
-                    "mir_surface_create(0, surfaceCreateCallback, 0);"
-                ]
-            },
-            "headers": [ "mir_toolkit/mir_client_library.h", "ubuntu/application/lifecycle_delegate.h", "EGL/egl.h" ],
-            "sources": [
-                { "type": "pkgConfig", "args": "egl mirclient ubuntu-platform-api libcontent-hub >= 0.2.0" }
             ]
         },
         "mtdev": {
@@ -491,7 +490,7 @@
         "tslib": {
             "label": "tslib",
             "test": {
-                "main": "ts_open(\"foo\", 0);"
+                "main": "ts_setup(nullptr, 0);"
             },
             "headers": "tslib.h",
             "sources": [
@@ -1297,13 +1296,6 @@
             ],
             "output": [ "privateFeature" ]
         },
-        "mirclient": {
-            "label": "Mir client",
-            "section": "Platform plugins",
-            "autoDetect": false,
-            "condition": "libs.mirclient && features.xkbcommon",
-            "output": [ "privateFeature" ]
-        },
         "mtdev": {
             "label": "mtdev",
             "condition": "libs.mtdev",
@@ -1367,9 +1359,14 @@
             "condition": "features.opengl-desktop || features.opengl-dynamic || features.opengles2",
             "output": [ "publicFeature", "feature" ]
         },
+        "vkgen": {
+            "label": "vkgen",
+            "condition": "features.xmlstreamreader",
+            "output": [ "privateFeature" ]
+        },
         "vulkan": {
             "label": "Vulkan",
-            "condition": "libs.vulkan",
+            "condition": "features.vkgen && libs.vulkan",
             "output": [ "publicFeature" ]
         },
         "openvg": {
@@ -1379,7 +1376,7 @@
         },
         "egl": {
             "label": "EGL",
-            "condition": "(features.opengl || features.openvg) && (features.angle || libs.egl)",
+            "condition": "(features.opengl || features.openvg) && (features.angle || libs.egl) && (features.dlopen || !config.unix || config.integrity)",
             "output": [ "privateFeature", "feature" ]
         },
         "egl_x11": {
@@ -1555,6 +1552,7 @@
         },
         "xcb-native-painting": {
             "label": "Native painting (experimental)",
+            "autoDetect": false,
             "emitIf": "features.xcb",
             "condition": "features.xcb-xlib && features.fontconfig && libs.xrender",
             "output": [ "privateFeature" ]
@@ -1605,6 +1603,28 @@
             "section": "Kernel",
             "output": [ "publicFeature", "feature" ]
         },
+        "textmarkdownreader": {
+            "label": "MarkdownReader",
+            "disable": "input.libmd4c == 'no'",
+            "enable": "input.libmd4c == 'system' || input.libmd4c == 'qt' || input.libmd4c == 'yes'",
+            "purpose": "Provides a Markdown (CommonMark and GitHub) reader",
+            "section": "Kernel",
+            "output": [ "publicFeature" ]
+        },
+        "system-textmarkdownreader": {
+            "label": "  Using system libmd4c",
+            "disable": "input.libmd4c == 'qt'",
+            "enable": "input.libmd4c == 'system'",
+            "section": "Kernel",
+            "condition": "libs.libmd4c",
+            "output": [ "publicFeature" ]
+        },
+        "textmarkdownwriter": {
+            "label": "MarkdownWriter",
+            "purpose": "Provides a Markdown (CommonMark) writer",
+            "section": "Kernel",
+            "output": [ "publicFeature" ]
+        },
         "textodfwriter": {
             "label": "OdfWriter",
             "purpose": "Provides an ODF writer.",
@@ -1647,7 +1667,7 @@
             "label": "QClipboard",
             "purpose": "Provides cut and paste operations.",
             "section": "Kernel",
-            "condition": "!config.integrity && !config.qnx",
+            "condition": "!config.integrity && !config.qnx && !config.rtems",
             "output": [ "publicFeature", "feature" ]
         },
         "wheelevent": {
@@ -1791,7 +1811,7 @@
             "label": "Multi process",
             "purpose": "Provides support for detecting the desktop environment, launching external processes and opening URLs.",
             "section": "Utilities",
-            "condition": "!config.integrity",
+            "condition": "!config.integrity && !config.rtems",
             "output": [ "privateFeature" ]
         },
         "whatsthis": {
@@ -1799,6 +1819,12 @@
             "purpose": "Supports displaying \"What's this\" help.",
             "section": "Widget Support",
             "output": [ "publicFeature", "feature" ]
+        },
+        "raster-64bit": {
+            "label": "QPainter - 64 bit raster",
+            "purpose": "Internal painting support for 64 bit (16 bpc) rasterization.",
+            "section": "Painting",
+            "output": [ "privateFeature" ]
         }
     },
 
@@ -1830,7 +1856,7 @@ or may depend on your system and XQuartz setup."
         },
         {
             "type": "warning",
-            "condition": "features.gui && config.linux && !config.android && !features.xcb && !features.eglfs && !features.directfb && !features.linuxfb && !features.mirclient",
+            "condition": "features.gui && config.linux && !config.android && !features.xcb && !features.eglfs && !features.directfb && !features.linuxfb",
             "message": "No QPA platform plugin enabled! This will
 produce a Qt that cannot run GUI applications.
 See \"Platform backends\" in the output of --help."
@@ -1875,6 +1901,12 @@ QMAKE_LIBDIR_OPENGL[_ES2] and QMAKE_LIBS_OPENGL[_ES2] in the mkspec for your pla
                     "section": "Image formats",
                     "entries": [
                         "gif", "ico", "jpeg", "system-jpeg", "png", "system-png"
+                    ]
+                },
+                {
+                    "section": "Text formats",
+                    "entries": [
+                        "texthtmlparser", "cssparser", "textodfwriter", "textmarkdownreader", "system-textmarkdownreader", "textmarkdownwriter"
                     ]
                 },
                 "egl",
@@ -1938,7 +1970,7 @@ QMAKE_LIBDIR_OPENGL[_ES2] and QMAKE_LIBS_OPENGL[_ES2] in the mkspec for your pla
                         "eglfs_openwfd", "eglfs_viv", "eglfs_viv_wl", "eglfs_rcar", "eglfs_egldevice", "eglfs_gbm", "eglfs_vsp2", "eglfs_mali", "eglfs_brcm", "eglfs_x11"
                     ]
                 },
-                "linuxfb", "vnc", "mirclient",
+                "linuxfb", "vnc",
                 {
                     "type": "feature",
                     "condition": "config.integrity",

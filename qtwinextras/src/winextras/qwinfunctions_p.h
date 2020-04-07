@@ -83,7 +83,7 @@ inline void qt_qstringToNullTerminated(const QString &src, wchar_t *dst)
 
 inline wchar_t *qt_qstringToNullTerminated(const QString &src)
 {
-    wchar_t *buffer = new wchar_t[src.length() + 1];
+    auto *buffer = new wchar_t[src.length() + 1];
     qt_qstringToNullTerminated(src, buffer);
     return buffer;
 }

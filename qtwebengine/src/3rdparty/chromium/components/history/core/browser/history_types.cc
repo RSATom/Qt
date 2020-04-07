@@ -34,10 +34,18 @@ VisitRow::~VisitRow() {
 
 // QueryResults ----------------------------------------------------------------
 
-QueryResults::QueryResults() : reached_beginning_(false) {
-}
+QueryResults::QueryResults() {}
 
 QueryResults::~QueryResults() {}
+
+QueryResults::QueryResults(QueryResults&& other) noexcept {
+  Swap(&other);
+}
+
+QueryResults& QueryResults::operator=(QueryResults&& other) noexcept {
+  Swap(&other);
+  return *this;
+}
 
 const size_t* QueryResults::MatchesForURL(const GURL& url,
                                           size_t* num_matches) const {
@@ -67,7 +75,7 @@ void QueryResults::SetURLResults(std::vector<URLResult>&& results) {
 
   // Recreate the map for the results_ has been replaced.
   url_to_results_.clear();
-  for(size_t i = 0; i < results_.size(); ++i)
+  for (size_t i = 0; i < results_.size(); ++i)
     AddURLUsageAtIndex(results_[i].url(), i);
 }
 
@@ -168,10 +176,17 @@ int QueryOptions::EffectiveMaxCount() const {
 
 // QueryURLResult -------------------------------------------------------------
 
-QueryURLResult::QueryURLResult() {}
+QueryURLResult::QueryURLResult() = default;
 
-QueryURLResult::~QueryURLResult() {
-}
+QueryURLResult::~QueryURLResult() = default;
+
+QueryURLResult::QueryURLResult(const QueryURLResult&) = default;
+
+QueryURLResult::QueryURLResult(QueryURLResult&&) noexcept = default;
+
+QueryURLResult& QueryURLResult::operator=(const QueryURLResult&) = default;
+
+QueryURLResult& QueryURLResult::operator=(QueryURLResult&&) noexcept = default;
 
 // MostVisitedURL --------------------------------------------------------------
 
@@ -383,7 +398,7 @@ DeletionInfo::DeletionInfo(const DeletionTimeRange& time_range,
   DCHECK(time_range_.IsValid() || !restrict_urls_.has_value());
   // If restrict_urls_ is defined, it should be non-empty.
   DCHECK(!restrict_urls_.has_value() || !restrict_urls_->empty());
-};
+}
 
 DeletionInfo::~DeletionInfo() = default;
 

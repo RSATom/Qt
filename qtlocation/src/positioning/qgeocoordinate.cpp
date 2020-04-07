@@ -320,8 +320,6 @@ bool QGeoCoordinate::operator==(const QGeoCoordinate &other) const
 
 /*!
     \fn bool QGeoCoordinate::operator!=(const QGeoCoordinate &other) const
-    \fn bool QGeoCoordinate::operator!=(const QGeoCoordinateObject &other) const
-    \fn bool QGeoCoordinate::operator!=(const QGeoCoordinateObject *other) const
 
     Returns \c true if latitude, longitude, or altitude of this
     coordinate are not identical to \a other.

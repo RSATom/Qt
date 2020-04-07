@@ -32,18 +32,18 @@
 #include "third_party/blink/renderer/core/html/forms/submit_input_type.h"
 
 #include "third_party/blink/renderer/core/dom/events/event.h"
-#include "third_party/blink/renderer/core/frame/use_counter.h"
 #include "third_party/blink/renderer/core/html/forms/form_data.h"
 #include "third_party/blink/renderer/core/html/forms/html_form_element.h"
 #include "third_party/blink/renderer/core/html/forms/html_input_element.h"
 #include "third_party/blink/renderer/core/input_type_names.h"
+#include "third_party/blink/renderer/platform/instrumentation/use_counter.h"
 #include "third_party/blink/renderer/platform/text/platform_locale.h"
 
 namespace blink {
 
-InputType* SubmitInputType::Create(HTMLInputElement& element) {
+SubmitInputType::SubmitInputType(HTMLInputElement& element)
+    : BaseButtonInputType(element) {
   UseCounter::Count(element.GetDocument(), WebFeature::kInputTypeSubmit);
-  return MakeGarbageCollected<SubmitInputType>(element);
 }
 
 const AtomicString& SubmitInputType::FormControlType() const {
@@ -64,8 +64,8 @@ bool SubmitInputType::SupportsRequired() const {
 void SubmitInputType::HandleDOMActivateEvent(Event& event) {
   if (GetElement().IsDisabledFormControl() || !GetElement().Form())
     return;
-  GetElement().Form()->PrepareForSubmission(
-      event, &GetElement());  // Event handlers can run.
+  // Event handlers can run.
+  GetElement().Form()->PrepareForSubmission(&event, &GetElement());
   event.SetDefaultHandled();
 }
 

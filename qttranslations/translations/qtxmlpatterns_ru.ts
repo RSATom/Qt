@@ -857,11 +857,15 @@
     </message>
     <message>
         <source>Variety of item type of %1 must be either atomic or union.</source>
-        <translation>Виды типов элементов %1 должны быть или атомарными, или объединениями.</translation>
+        <translation>Виды типов элементов %1 должны быть атомарными или объединениями.</translation>
     </message>
     <message>
         <source>Variety of member types of %1 must be atomic.</source>
         <translation>Виды внутренних типов %1 должны быть атомарными.</translation>
+    </message>
+    <message>
+        <source>Variety of member types of %1 must be atomic or union.</source>
+        <translation>Виды внутренних типов %1 должны быть атомарными или объединениями.</translation>
     </message>
     <message>
         <source>%1 is not allowed to derive from %2 by list as the latter defines it as final.</source>

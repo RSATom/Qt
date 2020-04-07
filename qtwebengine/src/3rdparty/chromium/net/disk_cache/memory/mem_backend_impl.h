@@ -84,7 +84,6 @@ class NET_EXPORT_PRIVATE MemBackendImpl final : public Backend {
   void SetPostCleanupCallback(base::OnceClosure cb);
 
   // Backend interface.
-  net::CacheType GetCacheType() const override;
   int32_t GetEntryCount() const override;
   net::Error OpenOrCreateEntry(const std::string& key,
                                net::RequestPriority request_priority,
@@ -150,7 +149,7 @@ class NET_EXPORT_PRIVATE MemBackendImpl final : public Backend {
 
   base::MemoryPressureListener memory_pressure_listener_;
 
-  base::WeakPtrFactory<MemBackendImpl> weak_factory_;
+  base::WeakPtrFactory<MemBackendImpl> weak_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(MemBackendImpl);
 };

@@ -1,47 +1,128 @@
 # See qtbase/src/testlib/qtestblacklist.cpp for format
-osx
 [authenticationCacheAfterCancel]
-windows
-[httpAbort]
-*
+windows-7sp1
+windows-10 msvc-2015
+[backgroundRequestInterruption]
+opensuse-leap
+windows-10 msvc-2015
+b2qt
+ubuntu
+osx
 [backgroundRequestInterruption:ftp, bg, nobg]
 *
 [getErrors:ftp-host]
 linux
 # QTBUG-71953
+[getFromHttp]
+* !android !winrt
 [getFromHttp:success-external]
 *
 [getFromHttpIntoBuffer]
-windows
+osx
 [getFromHttpIntoBuffer2]
-windows
+windows-10
 [headFromHttp]
-windows
-[ioGetFromHttpWithSocksProxy]
-windows
+windows-10 msvc-2017
 [ioPostToHttpFromSocket]
-windows
 # QTBUG-66247
+windows-7sp1
+windows-10 msvc-2017
+osx
 [ioHttpRedirect]
-windows
 # QTBUG-66602
+windows-10
 [ioHttpRedirectMultipartPost]
-*
 # QTBUG-66247
+b2qt
+windows-10 msvc-2015
+ubuntu
+rhel
 [ioHttpRedirectPolicy]
-*
-[ioHttpRedirectPostPut]
-linux
-windows
+opensuse-leap
+b2qt
+ubuntu
+windows-10
 [putToFtp]
-windows ci
-[putToFtpWithInvalidCredentials]
-windows ci
+windows-10
 [putWithServerClosingConnectionImmediately]
-windows
-[qtbug28035browserDoesNotLoadQtProjectOrgCorrectly]
-windows
-[getFromUnreachableIp]
-windows msvc-2017
-[ioHttpRedirectErrors:too-many-redirects]
-rhel-6.6 ci
+windows-7sp1
+windows-10
+osx
+[backgroundRequest]
+macos
+[connectToIPv6Address]
+macos
+[deleteFromHttp]
+macos
+[downloadProgress]
+macos
+[encrypted]
+macos
+[httpCanReadLine]
+macos
+[httpRecursiveCreation]
+osx
+[httpWithNoCredentialUsage]
+macos
+[ignoreSslErrorsList]
+osx
+[ignoreSslErrorsListWithSlot]
+osx
+[ioGetFromBuiltinHttp]
+osx
+[ioGetFromHttp]
+macos
+[ioPostToHttpFromFile]
+macos
+[ioPostToHttpFromSocketSynchronous]
+osx
+[ioPostToHttpUploadProgress]
+osx
+[ioPutToHttpFromFile]
+macos
+[lastModifiedHeaderForHttp]
+macos
+[multipartSkipIndices]
+macos
+[nestedEventLoops]
+osx
+[postToHttp]
+macos
+[postToHttpMultipart]
+macos
+[postToHttpSynchronous]
+macos
+[postToHttps]
+osx
+[postToHttpsMultipart]
+osx
+[postToHttpsSynchronous]
+osx
+[putGetDeleteGetFromHttp]
+macos
+[putToHttpSynchronous]
+macos
+[putToHttps]
+osx
+[putToHttpsSynchronous]
+osx
+[putWithRateLimiting]
+macos
+[qtbug13431replyThrottling]
+macos
+[receiveCookiesFromHttp]
+osx
+[receiveCookiesFromHttpSynchronous]
+osx
+[sendCookies]
+osx
+[sendCookiesSynchronous]
+osx
+[sendCustomRequestToHttp]
+macos
+[sslConfiguration]
+osx
+[synchronousRequest]
+osx
+[backgroundRequestConnectInBackground]
+osx

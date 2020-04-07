@@ -84,27 +84,90 @@ using InputTypeFactoryMap = HashMap<AtomicString, InputTypeFactoryFunction>;
 static std::unique_ptr<InputTypeFactoryMap> CreateInputTypeFactoryMap() {
   std::unique_ptr<InputTypeFactoryMap> map =
       std::make_unique<InputTypeFactoryMap>();
-  map->insert(input_type_names::kButton, ButtonInputType::Create);
-  map->insert(input_type_names::kCheckbox, CheckboxInputType::Create);
-  map->insert(input_type_names::kColor, ColorInputType::Create);
-  map->insert(input_type_names::kDate, DateInputType::Create);
-  map->insert(input_type_names::kDatetimeLocal, DateTimeLocalInputType::Create);
-  map->insert(input_type_names::kEmail, EmailInputType::Create);
-  map->insert(input_type_names::kFile, FileInputType::Create);
-  map->insert(input_type_names::kHidden, HiddenInputType::Create);
-  map->insert(input_type_names::kImage, ImageInputType::Create);
-  map->insert(input_type_names::kMonth, MonthInputType::Create);
-  map->insert(input_type_names::kNumber, NumberInputType::Create);
-  map->insert(input_type_names::kPassword, PasswordInputType::Create);
-  map->insert(input_type_names::kRadio, RadioInputType::Create);
-  map->insert(input_type_names::kRange, RangeInputType::Create);
-  map->insert(input_type_names::kReset, ResetInputType::Create);
-  map->insert(input_type_names::kSearch, SearchInputType::Create);
-  map->insert(input_type_names::kSubmit, SubmitInputType::Create);
-  map->insert(input_type_names::kTel, TelephoneInputType::Create);
-  map->insert(input_type_names::kTime, TimeInputType::Create);
-  map->insert(input_type_names::kUrl, URLInputType::Create);
-  map->insert(input_type_names::kWeek, WeekInputType::Create);
+  map->insert(input_type_names::kButton,
+              [](HTMLInputElement& element) -> InputType* {
+                return MakeGarbageCollected<ButtonInputType>(element);
+              });
+  map->insert(input_type_names::kCheckbox,
+              [](HTMLInputElement& element) -> InputType* {
+                return MakeGarbageCollected<CheckboxInputType>(element);
+              });
+  map->insert(input_type_names::kColor,
+              [](HTMLInputElement& element) -> InputType* {
+                return MakeGarbageCollected<ColorInputType>(element);
+              });
+  map->insert(input_type_names::kDate,
+              [](HTMLInputElement& element) -> InputType* {
+                return MakeGarbageCollected<DateInputType>(element);
+              });
+  map->insert(input_type_names::kDatetimeLocal,
+              [](HTMLInputElement& element) -> InputType* {
+                return MakeGarbageCollected<DateTimeLocalInputType>(element);
+              });
+  map->insert(input_type_names::kEmail,
+              [](HTMLInputElement& element) -> InputType* {
+                return MakeGarbageCollected<EmailInputType>(element);
+              });
+  map->insert(input_type_names::kFile,
+              [](HTMLInputElement& element) -> InputType* {
+                return MakeGarbageCollected<FileInputType>(element);
+              });
+  map->insert(input_type_names::kHidden,
+              [](HTMLInputElement& element) -> InputType* {
+                return MakeGarbageCollected<HiddenInputType>(element);
+              });
+  map->insert(input_type_names::kImage,
+              [](HTMLInputElement& element) -> InputType* {
+                return MakeGarbageCollected<ImageInputType>(element);
+              });
+  map->insert(input_type_names::kMonth,
+              [](HTMLInputElement& element) -> InputType* {
+                return MakeGarbageCollected<MonthInputType>(element);
+              });
+  map->insert(input_type_names::kNumber,
+              [](HTMLInputElement& element) -> InputType* {
+                return MakeGarbageCollected<NumberInputType>(element);
+              });
+  map->insert(input_type_names::kPassword,
+              [](HTMLInputElement& element) -> InputType* {
+                return MakeGarbageCollected<PasswordInputType>(element);
+              });
+  map->insert(input_type_names::kRadio,
+              [](HTMLInputElement& element) -> InputType* {
+                return MakeGarbageCollected<RadioInputType>(element);
+              });
+  map->insert(input_type_names::kRange,
+              [](HTMLInputElement& element) -> InputType* {
+                return MakeGarbageCollected<RangeInputType>(element);
+              });
+  map->insert(input_type_names::kReset,
+              [](HTMLInputElement& element) -> InputType* {
+                return MakeGarbageCollected<ResetInputType>(element);
+              });
+  map->insert(input_type_names::kSearch,
+              [](HTMLInputElement& element) -> InputType* {
+                return MakeGarbageCollected<SearchInputType>(element);
+              });
+  map->insert(input_type_names::kSubmit,
+              [](HTMLInputElement& element) -> InputType* {
+                return MakeGarbageCollected<SubmitInputType>(element);
+              });
+  map->insert(input_type_names::kTel,
+              [](HTMLInputElement& element) -> InputType* {
+                return MakeGarbageCollected<TelephoneInputType>(element);
+              });
+  map->insert(input_type_names::kTime,
+              [](HTMLInputElement& element) -> InputType* {
+                return MakeGarbageCollected<TimeInputType>(element);
+              });
+  map->insert(input_type_names::kUrl,
+              [](HTMLInputElement& element) -> InputType* {
+                return MakeGarbageCollected<URLInputType>(element);
+              });
+  map->insert(input_type_names::kWeek,
+              [](HTMLInputElement& element) -> InputType* {
+                return MakeGarbageCollected<WeekInputType>(element);
+              });
   // No need to register "text" because it is the default type.
   return map;
 }
@@ -119,13 +182,10 @@ InputType* InputType::Create(HTMLInputElement& element,
                              const AtomicString& type_name) {
   InputTypeFactoryFunction factory =
       type_name.IsEmpty() ? nullptr : FactoryMap()->at(type_name);
-  if (!factory)
-    factory = TextInputType::Create;
-  return factory(element);
-}
-
-InputType* InputType::CreateText(HTMLInputElement& element) {
-  return TextInputType::Create(element);
+  if (factory) {
+    return factory(element);
+  }
+  return MakeGarbageCollected<TextInputType>(element);
 }
 
 const AtomicString& InputType::NormalizeTypeName(
@@ -354,7 +414,7 @@ std::pair<String, String> InputType::ValidationMessage(
     return std::make_pair(TypeMismatchText(), g_empty_string);
 
   if (PatternMismatch(value)) {
-    // https://html.spec.whatwg.org/multipage/forms.html#attr-input-pattern
+    // https://html.spec.whatwg.org/C/#attr-input-pattern
     //   When an input element has a pattern attribute specified, authors
     //   should include a title attribute to give a description of the
     //   pattern. User agents may use the contents of this attribute, if it
@@ -520,21 +580,21 @@ void InputType::SetValue(const String& sanitized_value,
   // TextFieldInputType. That is to say, type=color, type=range, and temporal
   // input types.
   DCHECK_EQ(GetValueMode(), ValueMode::kValue);
-  if (event_behavior == kDispatchNoEvent)
+  if (event_behavior == TextFieldEventBehavior::kDispatchNoEvent)
     GetElement().SetNonAttributeValue(sanitized_value);
   else
     GetElement().SetNonAttributeValueByUserEdit(sanitized_value);
   if (!value_changed)
     return;
   switch (event_behavior) {
-    case kDispatchChangeEvent:
+    case TextFieldEventBehavior::kDispatchChangeEvent:
       GetElement().DispatchFormControlChangeEvent();
       break;
-    case kDispatchInputAndChangeEvent:
+    case TextFieldEventBehavior::kDispatchInputAndChangeEvent:
       GetElement().DispatchInputEvent();
       GetElement().DispatchFormControlChangeEvent();
       break;
-    case kDispatchNoEvent:
+    case TextFieldEventBehavior::kDispatchNoEvent:
       break;
   }
 }
@@ -675,7 +735,7 @@ void InputType::ApplyStep(const Decimal& current,
                           AnyStepHandling any_step_handling,
                           TextFieldEventBehavior event_behavior,
                           ExceptionState& exception_state) {
-  // https://html.spec.whatwg.org/multipage/forms.html#dom-input-stepup
+  // https://html.spec.whatwg.org/C/#dom-input-stepup
 
   StepRange step_range(CreateStepRange(any_step_handling));
   // 2. If the element has no allowed value step, then throw an
@@ -775,7 +835,8 @@ void InputType::StepUp(double n, ExceptionState& exception_state) {
     return;
   }
   const Decimal current = ParseToNumber(GetElement().value(), 0);
-  ApplyStep(current, n, kRejectAny, kDispatchNoEvent, exception_state);
+  ApplyStep(current, n, kRejectAny, TextFieldEventBehavior::kDispatchNoEvent,
+            exception_state);
 }
 
 void InputType::StepUpFromLayoutObject(int n) {
@@ -845,18 +906,21 @@ void InputType::StepUpFromLayoutObject(int n) {
       current = step_range.Minimum() - next_diff;
     if (current > step_range.Maximum() - next_diff)
       current = step_range.Maximum() - next_diff;
-    SetValueAsDecimal(current, kDispatchNoEvent, IGNORE_EXCEPTION_FOR_TESTING);
+    SetValueAsDecimal(current, TextFieldEventBehavior::kDispatchNoEvent,
+                      IGNORE_EXCEPTION_FOR_TESTING);
   }
   if ((sign > 0 && current < step_range.Minimum()) ||
       (sign < 0 && current > step_range.Maximum())) {
     SetValueAsDecimal(sign > 0 ? step_range.Minimum() : step_range.Maximum(),
-                      kDispatchChangeEvent, IGNORE_EXCEPTION_FOR_TESTING);
+                      TextFieldEventBehavior::kDispatchChangeEvent,
+                      IGNORE_EXCEPTION_FOR_TESTING);
     return;
   }
   if ((sign > 0 && current >= step_range.Maximum()) ||
       (sign < 0 && current <= step_range.Minimum()))
     return;
-  ApplyStep(current, n, kAnyIsDefaultStep, kDispatchChangeEvent,
+  ApplyStep(current, n, kAnyIsDefaultStep,
+            TextFieldEventBehavior::kDispatchChangeEvent,
             IGNORE_EXCEPTION_FOR_TESTING);
 }
 
@@ -905,9 +969,10 @@ StepRange InputType::CreateStepRange(
 void InputType::AddWarningToConsole(const char* message_format,
                                     const String& value) const {
   GetElement().GetDocument().AddConsoleMessage(ConsoleMessage::Create(
-      kRenderingMessageSource, kWarningMessageLevel,
+      mojom::ConsoleMessageSource::kRendering,
+      mojom::ConsoleMessageLevel::kWarning,
       String::Format(message_format,
-                     JSONValue::QuoteString(value).Utf8().data())));
+                     JSONValue::QuoteString(value).Utf8().c_str())));
 }
 
 }  // namespace blink

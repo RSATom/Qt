@@ -10,14 +10,16 @@
 #include <memory>
 #include <vector>
 
+#include "base/bind.h"
 #include "base/logging.h"
 #include "chrome/browser/chromeos/certificate_provider/certificate_provider_service.h"
 #include "chrome/browser/chromeos/certificate_provider/certificate_provider_service_factory.h"
+#include "chrome/browser/chromeos/certificate_provider/pin_dialog_manager.h"
 #include "chrome/common/extensions/api/certificate_provider.h"
 #include "chrome/common/extensions/api/certificate_provider_internal.h"
-#include "content/public/common/console_message_level.h"
 #include "net/cert/x509_certificate.h"
 #include "net/ssl/ssl_private_key.h"
+#include "third_party/blink/public/mojom/devtools/console_message.mojom.h"
 #include "third_party/boringssl/src/include/openssl/ssl.h"
 
 namespace api_cp = extensions::api::certificate_provider;
@@ -65,6 +67,7 @@ const char kCertificateProviderErrorTimeout[] =
 const char kCertificateProviderNoActiveDialog[] =
     "No active dialog from extension.";
 const char kCertificateProviderInvalidId[] = "Invalid signRequestId";
+const char kCertificateProviderInvalidAttemptsLeft[] = "Invalid attemptsLeft";
 const char kCertificateProviderOtherFlowInProgress[] = "Other flow in progress";
 const char kCertificateProviderPreviousDialogActive[] =
     "Previous request not finished";
@@ -124,7 +127,7 @@ bool CertificateProviderInternalReportCertificatesFunction::
         chromeos::certificate_provider::CertificateInfo* out_info) {
   const std::vector<uint8_t>& cert_der = info.certificate;
   if (cert_der.empty()) {
-    WriteToConsole(content::CONSOLE_MESSAGE_LEVEL_ERROR,
+    WriteToConsole(blink::mojom::ConsoleMessageLevel::kError,
                    kCertificateProviderErrorInvalidX509Cert);
     return false;
   }
@@ -136,7 +139,7 @@ bool CertificateProviderInternalReportCertificatesFunction::
   out_info->certificate = net::X509Certificate::CreateFromBytesUnsafeOptions(
       reinterpret_cast<const char*>(cert_der.data()), cert_der.size(), options);
   if (!out_info->certificate) {
-    WriteToConsole(content::CONSOLE_MESSAGE_LEVEL_ERROR,
+    WriteToConsole(blink::mojom::ConsoleMessageLevel::kError,
                    kCertificateProviderErrorInvalidX509Cert);
     return false;
   }
@@ -151,11 +154,11 @@ bool CertificateProviderInternalReportCertificatesFunction::
     case net::X509Certificate::kPublicKeyTypeRSA:
       break;
     case net::X509Certificate::kPublicKeyTypeECDSA:
-      WriteToConsole(content::CONSOLE_MESSAGE_LEVEL_ERROR,
+      WriteToConsole(blink::mojom::ConsoleMessageLevel::kError,
                      kCertificateProviderErrorECDSANotSupported);
       return false;
     default:
-      WriteToConsole(content::CONSOLE_MESSAGE_LEVEL_ERROR,
+      WriteToConsole(blink::mojom::ConsoleMessageLevel::kError,
                      kCertificateProviderErrorUnknownKeyType);
       return false;
   }
@@ -215,18 +218,18 @@ CertificateProviderStopPinRequestFunction::Run() {
   // the error and not allow any more input.
   chromeos::RequestPinView::RequestPinErrorType error_type =
       GetErrorTypeForView(params->details.error_type);
-  chromeos::PinDialogManager::StopPinRequestResponse update_response =
-      service->pin_dialog_manager()->UpdatePinDialog(
+  const chromeos::PinDialogManager::StopPinRequestResult stop_request_result =
+      service->pin_dialog_manager()->StopPinRequestWithError(
           extension()->id(), error_type,
-          false,  // Don't accept any input.
-          base::Bind(&CertificateProviderStopPinRequestFunction::DialogClosed,
-                     this));
-  switch (update_response) {
-    case chromeos::PinDialogManager::StopPinRequestResponse::NO_ACTIVE_DIALOG:
+          base::BindOnce(
+              &CertificateProviderStopPinRequestFunction::OnPinRequestStopped,
+              this));
+  switch (stop_request_result) {
+    case chromeos::PinDialogManager::StopPinRequestResult::kNoActiveDialog:
       return RespondNow(Error(kCertificateProviderNoActiveDialog));
-    case chromeos::PinDialogManager::StopPinRequestResponse::NO_USER_INPUT:
+    case chromeos::PinDialogManager::StopPinRequestResult::kNoUserInput:
       return RespondNow(Error(kCertificateProviderNoUserInput));
-    case chromeos::PinDialogManager::StopPinRequestResponse::STOPPED:
+    case chromeos::PinDialogManager::StopPinRequestResult::kSuccess:
       return RespondLater();
   }
 
@@ -234,8 +237,7 @@ CertificateProviderStopPinRequestFunction::Run() {
   return RespondLater();
 }
 
-void CertificateProviderStopPinRequestFunction::DialogClosed(
-    const base::string16& value) {
+void CertificateProviderStopPinRequestFunction::OnPinRequestStopped() {
   chromeos::CertificateProviderService* const service =
       chromeos::CertificateProviderServiceFactory::GetForBrowserContext(
           browser_context());
@@ -291,23 +293,27 @@ ExtensionFunction::ResponseAction CertificateProviderRequestPinFunction::Run() {
           browser_context());
   DCHECK(service);
 
-  int attempts_left =
-      params->details.attempts_left ? *params->details.attempts_left : -1;
-  chromeos::PinDialogManager::RequestPinResponse result =
-      service->pin_dialog_manager()->ShowPinDialog(
+  int attempts_left = -1;
+  if (params->details.attempts_left) {
+    if (*params->details.attempts_left < 0)
+      return RespondNow(Error(kCertificateProviderInvalidAttemptsLeft));
+    attempts_left = *params->details.attempts_left;
+  }
+
+  const chromeos::PinDialogManager::RequestPinResult result =
+      service->pin_dialog_manager()->RequestPin(
           extension()->id(), extension()->name(),
           params->details.sign_request_id, code_type, error_type, attempts_left,
-          base::Bind(&CertificateProviderRequestPinFunction::OnInputReceived,
-                     this));
+          base::BindOnce(
+              &CertificateProviderRequestPinFunction::OnInputReceived, this));
   switch (result) {
-    case chromeos::PinDialogManager::RequestPinResponse::SUCCESS:
+    case chromeos::PinDialogManager::RequestPinResult::kSuccess:
       return RespondLater();
-    case chromeos::PinDialogManager::RequestPinResponse::INVALID_ID:
+    case chromeos::PinDialogManager::RequestPinResult::kInvalidId:
       return RespondNow(Error(kCertificateProviderInvalidId));
-    case chromeos::PinDialogManager::RequestPinResponse::OTHER_FLOW_IN_PROGRESS:
+    case chromeos::PinDialogManager::RequestPinResult::kOtherFlowInProgress:
       return RespondNow(Error(kCertificateProviderOtherFlowInProgress));
-    case chromeos::PinDialogManager::RequestPinResponse::
-        DIALOG_DISPLAYED_ALREADY:
+    case chromeos::PinDialogManager::RequestPinResult::kDialogDisplayedAlready:
       return RespondNow(Error(kCertificateProviderPreviousDialogActive));
   }
 
@@ -316,7 +322,7 @@ ExtensionFunction::ResponseAction CertificateProviderRequestPinFunction::Run() {
 }
 
 void CertificateProviderRequestPinFunction::OnInputReceived(
-    const base::string16& value) {
+    const std::string& value) {
   std::unique_ptr<base::ListValue> create_results(new base::ListValue());
   chromeos::CertificateProviderService* const service =
       chromeos::CertificateProviderServiceFactory::GetForBrowserContext(
@@ -324,7 +330,7 @@ void CertificateProviderRequestPinFunction::OnInputReceived(
   DCHECK(service);
   if (!value.empty()) {
     api::certificate_provider::PinResponseDetails details;
-    details.user_input.reset(new std::string(value.begin(), value.end()));
+    details.user_input = std::make_unique<std::string>(value);
     create_results->Append(details.ToValue());
   }
 

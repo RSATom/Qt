@@ -4,12 +4,13 @@
 
 #include "content/browser/media/session/audio_focus_delegate.h"
 
+#include "base/bind.h"
 #include "base/no_destructor.h"
 #include "base/unguessable_token.h"
 #include "build/build_config.h"
 #include "content/browser/media/session/media_session_impl.h"
 #include "content/public/browser/browser_thread.h"
-#include "content/public/common/service_manager_connection.h"
+#include "content/public/browser/system_connector.h"
 #include "media/base/media_switches.h"
 #include "services/media_session/public/cpp/features.h"
 #include "services/media_session/public/mojom/audio_focus.mojom.h"
@@ -55,6 +56,8 @@ class AudioFocusDelegateDefault : public AudioFocusDelegate {
  private:
   // Finishes an async audio focus request.
   void FinishAudioFocusRequest(AudioFocusType type);
+  void FinishInitialAudioFocusRequest(AudioFocusType type,
+                                      const base::UnguessableToken& request_id);
 
   // Ensures that |audio_focus_ptr_| is connected.
   void EnsureServiceConnection();
@@ -113,8 +116,9 @@ AudioFocusDelegateDefault::RequestAudioFocus(AudioFocusType audio_focus_type) {
         mojo::MakeRequest(&request_client_ptr_), std::move(media_session),
         session_info_.Clone(), audio_focus_type,
         GetAudioFocusGroupId(media_session_),
-        base::BindOnce(&AudioFocusDelegateDefault::FinishAudioFocusRequest,
-                       base::Unretained(this), audio_focus_type));
+        base::BindOnce(
+            &AudioFocusDelegateDefault::FinishInitialAudioFocusRequest,
+            base::Unretained(this), audio_focus_type));
   }
 
   // Return delayed as we make the async call to request audio focus.
@@ -158,6 +162,12 @@ void AudioFocusDelegateDefault::FinishAudioFocusRequest(AudioFocusType type) {
   media_session_->FinishSystemAudioFocusRequest(type, true /* result */);
 }
 
+void AudioFocusDelegateDefault::FinishInitialAudioFocusRequest(
+    AudioFocusType type,
+    const base::UnguessableToken& request_id) {
+  FinishAudioFocusRequest(type);
+}
+
 void AudioFocusDelegateDefault::EnsureServiceConnection() {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
@@ -172,10 +182,8 @@ void AudioFocusDelegateDefault::EnsureServiceConnection() {
   audio_focus_ptr_.reset();
 
   // Connect to the Media Session service and bind |audio_focus_ptr_| to it.
-  service_manager::Connector* connector =
-      ServiceManagerConnection::GetForProcess()->GetConnector();
-  connector->BindInterface(media_session::mojom::kServiceName,
-                           mojo::MakeRequest(&audio_focus_ptr_));
+  GetSystemConnector()->BindInterface(media_session::mojom::kServiceName,
+                                      mojo::MakeRequest(&audio_focus_ptr_));
 
   audio_focus_ptr_->SetSourceName(kAudioFocusSourceName);
 }

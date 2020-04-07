@@ -7,6 +7,7 @@
 #ifndef CORE_FXCRT_FX_SYSTEM_H_
 #define CORE_FXCRT_FX_SYSTEM_H_
 
+#include "build/build_config.h"
 #include <assert.h>
 #include <math.h>
 #include <stdarg.h>
@@ -17,51 +18,28 @@
 #include <string.h>
 #include <wchar.h>
 
-// _FX_OS_ values:
-#define _FX_OS_WIN32_ 1
-#define _FX_OS_WIN64_ 2
-#define _FX_OS_LINUX_ 4
-#define _FX_OS_MACOSX_ 7
-#define _FX_OS_ANDROID_ 12
-#define _FX_OS_WASM_ 13
-
 // _FX_PLATFORM_ values;
-#define _FX_PLATFORM_WINDOWS_ 1  // _FX_OS_WIN32_ or _FX_OS_WIN64_.
-#define _FX_PLATFORM_LINUX_ 2    // _FX_OS_LINUX_ or _FX_OS_WASM_.
-#define _FX_PLATFORM_APPLE_ 3    // _FX_OS_MACOSX_ always.
-#define _FX_PLATFORM_ANDROID_ 4  // _FX_OS_ANDROID_ always.
+#define _FX_PLATFORM_WINDOWS_ 1
+#define _FX_PLATFORM_LINUX_ 2
+#define _FX_PLATFORM_APPLE_ 3
 
-#ifndef _FX_OS_
-#if defined(__ANDROID__)
-#define _FX_OS_ _FX_OS_ANDROID_
-#define _FX_PLATFORM_ _FX_PLATFORM_ANDROID_
-#elif defined(_WIN32)
-#define _FX_OS_ _FX_OS_WIN32_
+#if defined(_WIN32)
 #define _FX_PLATFORM_ _FX_PLATFORM_WINDOWS_
 #elif defined(_WIN64)
-#define _FX_OS_ _FX_OS_WIN64_
 #define _FX_PLATFORM_ _FX_PLATFORM_WINDOWS_
 #elif defined(__linux__)
-#define _FX_OS_ _FX_OS_LINUX_
 #define _FX_PLATFORM_ _FX_PLATFORM_LINUX_
 #elif defined(__APPLE__)
-#define _FX_OS_ _FX_OS_MACOSX_
 #define _FX_PLATFORM_ _FX_PLATFORM_APPLE_
 #elif defined(__asmjs__) || defined(__wasm__)
-#define _FX_OS_ _FX_OS_WASM_
 #define _FX_PLATFORM_ _FX_PLATFORM_LINUX_
-#endif
-#endif  // _FX_OS_
-
-#if !defined(_FX_OS_) || _FX_OS_ == 0
-#error Sorry, can not figure out target OS. Please specify _FX_OS_ macro.
 #endif
 
 #if defined(_MSC_VER) && _MSC_VER < 1900
 #error Sorry, VC++ 2015 or later is required to compile PDFium.
 #endif  // defined(_MSC_VER) && _MSC_VER < 1900
 
-#if _FX_OS_ == _FX_OS_WASM_ && defined(PDF_ENABLE_V8)
+#if defined(__wasm__) && defined(PDF_ENABLE_V8)
 #error Cannot compile v8 with wasm.
 #endif  // PDF_ENABLE_V8
 
@@ -71,7 +49,9 @@
 #endif  // _FX_PLATFORM_ == _FX_PLATFORM_WINDOWS_
 
 #if _FX_PLATFORM_ == _FX_PLATFORM_APPLE_
+#if !defined(OS_IOS)
 #include <Carbon/Carbon.h>
+#endif
 #include <libkern/OSAtomic.h>
 #endif  // _FX_PLATFORM_ == _FX_PLATFORM_APPLE_
 
@@ -101,12 +81,6 @@ extern "C" {
 #define ASSERT(a)
 #endif  // NDEBUG
 #endif  // ASSERT
-
-#if defined(__clang__) || defined(__GNUC__)
-#define PDFIUM_IMMEDIATE_CRASH() __builtin_trap()
-#else
-#define PDFIUM_IMMEDIATE_CRASH() ((void)(*(volatile char*)0 = 0))
-#endif  // defined(__clang__) || defined(__GNUC__)
 
 // M_PI not universally present on all platforms.
 #define FX_PI 3.1415926535897932384626433832795f
@@ -155,29 +129,19 @@ extern "C" {
 #if _FX_PLATFORM_ == _FX_PLATFORM_WINDOWS_
 #define FXSYS_GetACP GetACP
 #define FXSYS_itoa _itoa
+#define FXSYS_WideCharToMultiByte WideCharToMultiByte
+#define FXSYS_MultiByteToWideChar MultiByteToWideChar
 #define FXSYS_strlwr _strlwr
 #define FXSYS_strupr _strupr
 #define FXSYS_stricmp _stricmp
+#define FXSYS_wcsicmp _wcsicmp
+#define FXSYS_wcslwr _wcslwr
+#define FXSYS_wcsupr _wcsupr
 #define FXSYS_pow(a, b) (float)powf(a, b)
 size_t FXSYS_wcsftime(wchar_t* strDest,
                       size_t maxsize,
                       const wchar_t* format,
                       const struct tm* timeptr);
-#ifdef _NATIVE_WCHAR_T_DEFINED
-#define FXSYS_wcsicmp(str1, str2) _wcsicmp((wchar_t*)(str1), (wchar_t*)(str2))
-#define FXSYS_WideCharToMultiByte(p1, p2, p3, p4, p5, p6, p7, p8) \
-  WideCharToMultiByte(p1, p2, (const wchar_t*)(p3), p4, p5, p6, p7, p8)
-#define FXSYS_MultiByteToWideChar(p1, p2, p3, p4, p5, p6) \
-  MultiByteToWideChar(p1, p2, p3, p4, (wchar_t*)(p5), p6)
-#define FXSYS_wcslwr(str) _wcslwr((wchar_t*)(str))
-#define FXSYS_wcsupr(str) _wcsupr((wchar_t*)(str))
-#else  // _NATIVE_WCHAR_T_DEFINED
-#define FXSYS_wcsicmp _wcsicmp
-#define FXSYS_WideCharToMultiByte WideCharToMultiByte
-#define FXSYS_MultiByteToWideChar MultiByteToWideChar
-#define FXSYS_wcslwr _wcslwr
-#define FXSYS_wcsupr _wcsupr
-#endif  // _NATIVE_WCHAR_T_DEFINED
 
 #else  // _FX_PLATFORM_ == _FX_PLATFORM_WINDOWS_
 
@@ -199,7 +163,7 @@ int FXSYS_MultiByteToWideChar(uint32_t codepage,
                               int buflen);
 char* FXSYS_strlwr(char* str);
 char* FXSYS_strupr(char* str);
-int FXSYS_stricmp(const char*, const char*);
+int FXSYS_stricmp(const char* str1, const char* str2);
 int FXSYS_wcsicmp(const wchar_t* str1, const wchar_t* str2);
 wchar_t* FXSYS_wcslwr(wchar_t* str);
 wchar_t* FXSYS_wcsupr(wchar_t* str);
@@ -258,13 +222,5 @@ int FXSYS_round(float f);
 #endif
 
 #endif  // _FX_PLATFORM_ != _FX_PLATFORM_WINDOWS_
-
-// Prevent a function from ever being inlined, typically because we'd
-// like it to appear in stack traces.
-#if _FX_PLATFORM_ == _FX_PLATFORM_WINDOWS_
-#define NEVER_INLINE __declspec(noinline)
-#else  // _FX_PLATFORM_ == _FX_PLATFORM_WINDOWS_
-#define NEVER_INLINE __attribute__((__noinline__))
-#endif  // _FX_PLATFORM_ == _FX_PLATFORM_WINDOWS_
 
 #endif  // CORE_FXCRT_FX_SYSTEM_H_

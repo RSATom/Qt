@@ -218,6 +218,47 @@ void V8Initializer::Initialize(IsolateHolder::ScriptMode mode) {
     v8::V8::SetFlagsFromString(no_optimize, sizeof(no_optimize) - 1);
   }
 
+  if (!base::FeatureList::IsEnabled(features::kV8FlushBytecode)) {
+    static const char no_flush_bytecode[] = "--no-flush-bytecode";
+    v8::V8::SetFlagsFromString(no_flush_bytecode,
+                               sizeof(no_flush_bytecode) - 1);
+  }
+
+  if (!base::FeatureList::IsEnabled(features::kV8LazyFeedbackAllocation)) {
+    static const char no_lazy_feedback_allocation[] =
+        "--no-lazy-feedback-allocation";
+    v8::V8::SetFlagsFromString(no_lazy_feedback_allocation,
+                               sizeof(no_lazy_feedback_allocation) - 1);
+  }
+
+  if (!base::FeatureList::IsEnabled(features::kV8MemoryReducerForSmallHeaps)) {
+    static const char no_memory_reducer[] =
+        "--no-memory-reducer-for-small-heaps";
+    v8::V8::SetFlagsFromString(no_memory_reducer,
+                               sizeof(no_memory_reducer) - 1);
+  }
+
+  if (base::FeatureList::IsEnabled(features::kV8HugeMaxOldGenerationSize)) {
+    static const char huge_max_old_generation_size[] =
+        "--huge_max_old_generation_size";
+    v8::V8::SetFlagsFromString(huge_max_old_generation_size,
+                               sizeof(huge_max_old_generation_size) - 1);
+  }
+
+  if (base::FeatureList::IsEnabled(features::kV8GCBackgroundSchedule)) {
+    static const char gc_experiment_background_schedule[] =
+        "--gc_experiment_background_schedule";
+    v8::V8::SetFlagsFromString(gc_experiment_background_schedule,
+                               sizeof(gc_experiment_background_schedule) - 1);
+  }
+
+  if (base::FeatureList::IsEnabled(features::kV8GCLessCompaction)) {
+    static const char gc_experiment_less_compaction[] =
+        "--gc_experiment_less_compaction";
+    v8::V8::SetFlagsFromString(gc_experiment_less_compaction,
+                               sizeof(gc_experiment_less_compaction) - 1);
+  }
+
   if (IsolateHolder::kStrictMode == mode) {
     static const char use_strict[] = "--use_strict";
     v8::V8::SetFlagsFromString(use_strict, sizeof(use_strict) - 1);

@@ -25,16 +25,16 @@ namespace {
 using StorageEntryVector =
     leveldb_proto::ProtoDatabase<ContentStorageProto>::KeyEntryVector;
 
-// Statistics are logged to UMA with this string as part of histogram name. They
-// can all be found under LevelDB.*.FeedContentDatabase. Changing this needs to
-// synchronize with histograms.xml, AND will also become incompatible with older
-// browsers still reporting the previous values.
-const char kContentDatabaseUMAClientName[] = "FeedContentDatabase";
-
 const char kContentDatabaseFolder[] = "content";
 
 const size_t kDatabaseWriteBufferSizeBytes = 64 * 1024;                 // 64KB
 const size_t kDatabaseWriteBufferSizeBytesForLowEndDevice = 32 * 1024;  // 32KB
+
+leveldb::ReadOptions CreateReadOptions() {
+  leveldb::ReadOptions opts;
+  opts.fill_cache = false;
+  return opts;
+}
 
 bool DatabaseKeyFilter(const std::unordered_set<std::string>& key_set,
                        const std::string& key) {
@@ -46,47 +46,37 @@ bool DatabasePrefixFilter(const std::string& key_prefix,
   return base::StartsWith(key, key_prefix, base::CompareCase::SENSITIVE);
 }
 
-void ReportOperationResult(bool success) {
-  UMA_HISTOGRAM_BOOLEAN(
-      "ContentSuggestions.Feed.ContentStorage.OperationCommitSuccess", success);
-}
-
 }  // namespace
 
-FeedContentDatabase::FeedContentDatabase(const base::FilePath& database_folder)
-    : FeedContentDatabase(
-          database_folder,
-          leveldb_proto::ProtoDatabaseProvider::CreateUniqueDB<
-              ContentStorageProto>(base::CreateSequencedTaskRunnerWithTraits(
+FeedContentDatabase::FeedContentDatabase(
+    leveldb_proto::ProtoDatabaseProvider* proto_database_provider,
+    const base::FilePath& database_folder)
+    : FeedContentDatabase(proto_database_provider->GetDB<ContentStorageProto>(
+          leveldb_proto::ProtoDbType::FEED_CONTENT_DATABASE,
+          database_folder.AppendASCII(kContentDatabaseFolder),
+          base::CreateSequencedTaskRunnerWithTraits(
               {base::MayBlock(), base::TaskPriority::BEST_EFFORT,
                base::TaskShutdownBehavior::CONTINUE_ON_SHUTDOWN}))) {}
 
 FeedContentDatabase::FeedContentDatabase(
-    const base::FilePath& database_folder,
     std::unique_ptr<leveldb_proto::ProtoDatabase<ContentStorageProto>>
         storage_database)
-    : database_status_(UNINITIALIZED),
-      storage_database_(std::move(storage_database)),
-      weak_ptr_factory_(this) {
+    : database_status_(InitStatus::kNotInitialized),
+      storage_database_(std::move(storage_database)) {
   leveldb_env::Options options = leveldb_proto::CreateSimpleOptions();
-  if (base::SysInfo::IsLowEndDevice()) {
-    options.write_buffer_size = kDatabaseWriteBufferSizeBytesForLowEndDevice;
-  } else {
-    options.write_buffer_size = kDatabaseWriteBufferSizeBytes;
-  }
+  options.write_buffer_size = base::SysInfo::IsLowEndDevice()
+                                  ? kDatabaseWriteBufferSizeBytesForLowEndDevice
+                                  : kDatabaseWriteBufferSizeBytes;
 
-  base::FilePath storage_folder =
-      database_folder.AppendASCII(kContentDatabaseFolder);
   storage_database_->Init(
-      kContentDatabaseUMAClientName, storage_folder, options,
-      base::BindOnce(&FeedContentDatabase::OnDatabaseInitialized,
-                     weak_ptr_factory_.GetWeakPtr()));
+      options, base::BindOnce(&FeedContentDatabase::OnDatabaseInitialized,
+                              weak_ptr_factory_.GetWeakPtr()));
 }
 
 FeedContentDatabase::~FeedContentDatabase() = default;
 
 bool FeedContentDatabase::IsInitialized() const {
-  return INITIALIZED == database_status_;
+  return database_status_ == InitStatus::kOK;
 }
 
 void FeedContentDatabase::LoadContent(const std::vector<std::string>& keys,
@@ -97,6 +87,7 @@ void FeedContentDatabase::LoadContent(const std::vector<std::string>& keys,
 
   storage_database_->LoadEntriesWithFilter(
       base::BindRepeating(&DatabaseKeyFilter, std::move(key_set)),
+      CreateReadOptions(), /* target_prefix */ "",
       base::BindOnce(&FeedContentDatabase::OnLoadEntriesForLoadContent,
                      weak_ptr_factory_.GetWeakPtr(), base::TimeTicks::Now(),
                      std::move(callback)));
@@ -108,6 +99,7 @@ void FeedContentDatabase::LoadContentByPrefix(const std::string& prefix,
 
   storage_database_->LoadEntriesWithFilter(
       base::BindRepeating(&DatabasePrefixFilter, std::move(prefix)),
+      CreateReadOptions(), /* target_prefix */ "",
       base::BindOnce(&FeedContentDatabase::OnLoadEntriesForLoadContent,
                      weak_ptr_factory_.GetWeakPtr(), base::TimeTicks::Now(),
                      std::move(callback)));
@@ -240,17 +232,9 @@ void FeedContentDatabase::DeleteAllContent(
                      std::move(content_mutation), std::move(callback)));
 }
 
-void FeedContentDatabase::OnDatabaseInitialized(bool success) {
-  DCHECK_EQ(database_status_, UNINITIALIZED);
-
-  if (success) {
-    database_status_ = INITIALIZED;
-  } else {
-    database_status_ = INIT_FAILURE;
-    DVLOG(1) << "FeedContentDatabase init failed.";
-  }
-  UMA_HISTOGRAM_BOOLEAN("ContentSuggestions.Feed.ContentStorage.InitialSuccess",
-                        success);
+void FeedContentDatabase::OnDatabaseInitialized(InitStatus status) {
+  DCHECK_EQ(database_status_, InitStatus::kNotInitialized);
+  database_status_ = status;
 }
 
 void FeedContentDatabase::OnLoadEntriesForLoadContent(
@@ -258,21 +242,19 @@ void FeedContentDatabase::OnLoadEntriesForLoadContent(
     ContentLoadCallback callback,
     bool success,
     std::unique_ptr<std::vector<ContentStorageProto>> content) {
-  DVLOG_IF(1, !success) << "FeedContentDatabase load content failed.";
-  UMA_HISTOGRAM_BOOLEAN("ContentSuggestions.Feed.ContentStorage.LoadSuccess",
-                        success);
-
-  std::vector<KeyAndData> results;
-  for (const auto& proto : *content) {
-    DCHECK(proto.has_key());
-    DCHECK(proto.has_content_data());
-
-    results.emplace_back(proto.key(), proto.content_data());
-  }
-
   base::TimeDelta load_time = base::TimeTicks::Now() - start_time;
   UMA_HISTOGRAM_TIMES("ContentSuggestions.Feed.ContentStorage.LoadTime",
                       load_time);
+
+  std::vector<KeyAndData> results;
+  if (success) {
+    for (const auto& proto : *content) {
+      DCHECK(proto.has_key());
+      DCHECK(proto.has_content_data());
+
+      results.emplace_back(proto.key(), proto.content_data());
+    }
+  }
 
   std::move(callback).Run(success, std::move(results));
 }
@@ -282,10 +264,6 @@ void FeedContentDatabase::OnLoadKeysForLoadAllContentKeys(
     ContentKeyCallback callback,
     bool success,
     std::unique_ptr<std::vector<std::string>> keys) {
-  DVLOG_IF(1, !success) << "FeedContentDatabase load content keys failed.";
-  UMA_HISTOGRAM_BOOLEAN(
-      "ContentSuggestions.Feed.ContentStorage.LoadKeysSuccess", success);
-
   if (success) {
     // Typical usage has a max around 300(100 cards, 3 pieces of content per
     // card), could grow forever through heavy usage of dismiss. If typically
@@ -312,16 +290,12 @@ void FeedContentDatabase::OnOperationCommitted(
   // ContentStorage.java requires "In the event of a failure, processing is
   // halted immediately".
   if (!success) {
-    DVLOG(1) << "FeedContentDatabase committed failed.";
-    ReportOperationResult(false);
     std::move(callback).Run(success);
     return;
   }
 
   // All operations were committed successfully, call |callback|.
   if (content_mutation->Empty()) {
-    ReportOperationResult(true);
-
     base::TimeDelta commit_time =
         base::TimeTicks::Now() - content_mutation->GetStartTime();
     UMA_HISTOGRAM_TIMES(

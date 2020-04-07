@@ -24,9 +24,8 @@ source_set("startup_basic") {
   deps = [
     "//base",
     "//components/crash/core/common",
-    "//components/task_scheduler_util",
     "//ios/chrome/browser:chrome_paths",
-    "//ios/web/public/app",
+    "//ios/web/public/init",
     "//skia",
   ]
 
@@ -41,8 +40,6 @@ source_set("startup") {
     "client_registration.mm",
     "content_suggestions_scheduler_notifications.h",
     "content_suggestions_scheduler_notifications.mm",
-    "network_stack_setup.h",
-    "network_stack_setup.mm",
     "provider_registration.h",
     "provider_registration.mm",
   ]
@@ -53,19 +50,20 @@ source_set("startup") {
     ":startup_basic",
     "//base",
     "//components/ntp_snippets",
+    "//components/search_engines:search_engines",
+    "//ios/chrome/app",
     "//ios/chrome/browser",
     "//ios/chrome/browser/browser_state",
     "//ios/chrome/browser/first_run",
     "//ios/chrome/browser/net:net",
     "//ios/chrome/browser/ntp_snippets",
-    "//ios/chrome/browser/web",
     "//ios/chrome/browser/web:web_internal",
     "//ios/chrome/common",
     "//ios/chrome/common/app_group",
     "//ios/net",
     "//ios/public/provider/chrome/browser",
     "//ios/web",
-    "//ios/web/public/app",
+    "//ios/web/public/init",
     ios_provider_target,
   ]
 }
@@ -79,6 +77,7 @@ source_set("unit_tests") {
   deps = [
     ":startup",
     "//base",
+    "//ios/chrome/app",
     "//ios/chrome/browser",
     "//ios/chrome/common/app_group",
     "//testing/gtest",

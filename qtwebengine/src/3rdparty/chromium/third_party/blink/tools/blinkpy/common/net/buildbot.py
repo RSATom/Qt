@@ -176,6 +176,25 @@ class BuildBot(object):
             return None
         return WebTestResults.results_from_string(results_file)
 
+    def fetch_webdriver_test_results(self, build, master):
+        if not build.builder_name or not build.build_number or not master:
+            _log.debug('Builder name or build number or master is None')
+            return None
+
+        url = '%s/testfile?%s' % (TEST_RESULTS_SERVER, urllib.urlencode({
+            'builder': build.builder_name,
+            'buildnumber': build.build_number,
+            'name': 'full_results.json',
+            'testtype': 'webdriver_tests_suite (with patch)',
+            'master': master
+        }))
+
+        data = self.web.get_binary(url, return_none_on_404=True)
+        if not data:
+            _log.debug('Got 404 response from:\n%s', url)
+            return None
+        return WebTestResults.results_from_string(data)
+
 
 def current_build_link(host):
     """Returns a link to the current job if running on buildbot, or None."""

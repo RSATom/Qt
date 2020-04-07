@@ -5,10 +5,10 @@
  * found in the LICENSE file.
  */
 
-#include "GrGLSL.h"
-#include "GrShaderCaps.h"
+#include "src/gpu/GrShaderCaps.h"
+#include "src/gpu/glsl/GrGLSL.h"
 
-const char* GrGLSLTypeString(const GrShaderCaps* shaderCaps, GrSLType t) {
+const char* GrGLSLTypeString(GrSLType t) {
     switch (t) {
         case kVoid_GrSLType:
             return "void";

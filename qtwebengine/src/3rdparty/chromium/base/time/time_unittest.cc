@@ -14,6 +14,7 @@
 #include "base/logging.h"
 #include "base/stl_util.h"
 #include "base/strings/stringprintf.h"
+#include "base/test/gtest_util.h"
 #include "base/threading/platform_thread.h"
 #include "base/time/time_override.h"
 #include "build/build_config.h"
@@ -21,8 +22,6 @@
 
 #if defined(OS_ANDROID)
 #include "base/android/jni_android.h"
-#elif defined(OS_IOS)
-#include "base/ios/ios_util.h"
 #elif defined(OS_WIN)
 #include <windows.h>
 #endif
@@ -186,19 +185,6 @@ TEST_F(TimeTest, UTCTimeT) {
 
 // Test conversions to/from time_t and exploding/unexploding (local time).
 TEST_F(TimeTest, LocalTimeT) {
-#if defined(OS_IOS) && TARGET_OS_SIMULATOR
-  // The function CFTimeZoneCopySystem() fails to determine the system timezone
-  // when running iOS 11.0 simulator on an host running High Sierra and return
-  // the "GMT" timezone. This causes Time::LocalExplode and localtime_r values
-  // to differ by the local timezone offset. Disable the test if simulating
-  // iOS 10.0 as it is not possible to check the version of the host mac.
-  // TODO(crbug.com/782033): remove this once support for iOS pre-11.0 is
-  // dropped or when the bug in CFTimeZoneCopySystem() is fixed.
-  if (ios::IsRunningOnIOS10OrLater() && !ios::IsRunningOnIOS11OrLater()) {
-    return;
-  }
-#endif
-
   // C library time and exploded time.
   time_t now_t_1 = time(nullptr);
   struct tm tms;
@@ -826,6 +812,28 @@ TEST_F(TimeTest, NowOverride) {
   EXPECT_LT(build_time, subtle::TimeNowFromSystemTimeIgnoringOverride());
   EXPECT_GT(Time::Max(), subtle::TimeNowFromSystemTimeIgnoringOverride());
 }
+
+#if defined(OS_FUCHSIA)
+TEST(ZxTimeTest, ToFromConversions) {
+  Time unix_epoch = Time::UnixEpoch();
+  EXPECT_EQ(unix_epoch.ToZxTime(), 0);
+  EXPECT_EQ(Time::FromZxTime(6000000000),
+            unix_epoch + TimeDelta::FromSeconds(6));
+
+  TimeTicks ticks_now = TimeTicks::Now();
+  EXPECT_GE(ticks_now.ToZxTime(), 0);
+  TimeTicks ticks_later = ticks_now + TimeDelta::FromSeconds(2);
+  EXPECT_EQ((ticks_later.ToZxTime() - ticks_now.ToZxTime()), 2000000000);
+  EXPECT_EQ(TimeTicks::FromZxTime(3000000000),
+            TimeTicks() + TimeDelta::FromSeconds(3));
+
+  EXPECT_EQ(TimeDelta().ToZxDuration(), 0);
+  EXPECT_EQ(TimeDelta::FromZxDuration(0), TimeDelta());
+
+  EXPECT_EQ(TimeDelta::FromSeconds(2).ToZxDuration(), 2000000000);
+  EXPECT_EQ(TimeDelta::FromZxDuration(4000000000), TimeDelta::FromSeconds(4));
+}
+#endif  // defined(OS_FUCHSIA)
 
 TEST(TimeTicks, Deltas) {
   for (int index = 0; index < 50; index++) {
@@ -1540,6 +1548,62 @@ TEST(TimeDelta, Overflows) {
   TimeTicks ticks_now = TimeTicks::Now();
   EXPECT_EQ(-kOneSecond, (ticks_now - kOneSecond) - ticks_now);
   EXPECT_EQ(kOneSecond, (ticks_now + kOneSecond) - ticks_now);
+}
+
+TEST(TimeBase, AddSubDeltaSaturates) {
+  constexpr TimeTicks kLargeTimeTicks =
+      TimeTicks::FromInternalValue(std::numeric_limits<int64_t>::max() - 1);
+
+  constexpr TimeTicks kLargeNegativeTimeTicks =
+      TimeTicks::FromInternalValue(std::numeric_limits<int64_t>::min() + 1);
+
+  EXPECT_TRUE((kLargeTimeTicks + TimeDelta::Max()).is_max())
+      << (kLargeTimeTicks + TimeDelta::Max());
+  EXPECT_TRUE((kLargeNegativeTimeTicks + TimeDelta::Max()).is_max())
+      << (kLargeNegativeTimeTicks + TimeDelta::Max());
+  EXPECT_TRUE((kLargeTimeTicks - TimeDelta::Max()).is_min())
+      << (kLargeTimeTicks - TimeDelta::Max());
+  EXPECT_TRUE((kLargeNegativeTimeTicks - TimeDelta::Max()).is_min())
+      << (kLargeNegativeTimeTicks - TimeDelta::Max());
+  EXPECT_TRUE((TimeTicks() + TimeDelta::Max()).is_max())
+      << (TimeTicks() + TimeDelta::Max());
+  EXPECT_TRUE((TimeTicks() - TimeDelta::Max()).is_min())
+      << (TimeTicks() - TimeDelta::Max());
+  EXPECT_TRUE((TimeTicks::Now() + TimeDelta::Max()).is_max())
+      << (TimeTicks::Now() + TimeDelta::Max());
+  EXPECT_TRUE((TimeTicks::Now() - TimeDelta::Max()).is_min())
+      << (TimeTicks::Now() - TimeDelta::Max());
+
+  EXPECT_TRUE((kLargeTimeTicks + TimeDelta::Min()).is_min())
+      << (kLargeTimeTicks + TimeDelta::Min());
+  EXPECT_TRUE((kLargeNegativeTimeTicks + TimeDelta::Min()).is_min())
+      << (kLargeNegativeTimeTicks + TimeDelta::Min());
+  EXPECT_TRUE((kLargeTimeTicks - TimeDelta::Min()).is_max())
+      << (kLargeTimeTicks - TimeDelta::Min());
+  EXPECT_TRUE((kLargeNegativeTimeTicks - TimeDelta::Min()).is_max())
+      << (kLargeNegativeTimeTicks - TimeDelta::Min());
+  EXPECT_TRUE((TimeTicks() + TimeDelta::Min()).is_min())
+      << (TimeTicks() + TimeDelta::Min());
+  EXPECT_TRUE((TimeTicks() - TimeDelta::Min()).is_max())
+      << (TimeTicks() - TimeDelta::Min());
+  EXPECT_TRUE((TimeTicks::Now() + TimeDelta::Min()).is_min())
+      << (TimeTicks::Now() + TimeDelta::Min());
+  EXPECT_TRUE((TimeTicks::Now() - TimeDelta::Min()).is_max())
+      << (TimeTicks::Now() - TimeDelta::Min());
+}
+
+TEST(TimeBase, AddSubInfinities) {
+  // CHECK when adding opposite signs or subtracting same sign.
+  EXPECT_CHECK_DEATH({ TimeTicks::Min() + TimeDelta::Max(); });
+  EXPECT_CHECK_DEATH({ TimeTicks::Max() + TimeDelta::Min(); });
+  EXPECT_CHECK_DEATH({ TimeTicks::Min() - TimeDelta::Min(); });
+  EXPECT_CHECK_DEATH({ TimeTicks::Max() - TimeDelta::Max(); });
+
+  // Saturates when adding same sign or subtracting opposite signs.
+  EXPECT_TRUE((TimeTicks::Max() + TimeDelta::Max()).is_max());
+  EXPECT_TRUE((TimeTicks::Min() + TimeDelta::Min()).is_min());
+  EXPECT_TRUE((TimeTicks::Max() - TimeDelta::Min()).is_max());
+  EXPECT_TRUE((TimeTicks::Min() - TimeDelta::Max()).is_min());
 }
 
 constexpr TimeTicks TestTimeTicksConstexprCopyAssignment() {

@@ -54,9 +54,9 @@ void SimulatorMagnetometer::poll()
     QtMobility::QMagnetometerReadingData data = SensorsConnection::instance()->qtMagnetometerData;
     quint64 newTimestamp;
     if (!data.timestamp.isValid())
-        newTimestamp = QDateTime::currentMSecsSinceEpoch() / 1000;
+        newTimestamp = static_cast<quint64>(QDateTime::currentMSecsSinceEpoch()) / 1000;
     else
-        newTimestamp = data.timestamp.toTime_t();
+        newTimestamp = static_cast<quint64>(data.timestamp.toSecsSinceEpoch());
     if (m_reading.x() != data.x
         || m_reading.y() != data.y
         || m_reading.z() != data.z

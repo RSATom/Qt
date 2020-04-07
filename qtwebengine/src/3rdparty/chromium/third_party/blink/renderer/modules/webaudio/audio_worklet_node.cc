@@ -20,9 +20,9 @@
 #include "third_party/blink/renderer/platform/audio/audio_bus.h"
 #include "third_party/blink/renderer/platform/audio/audio_utilities.h"
 #include "third_party/blink/renderer/platform/bindings/exception_messages.h"
-#include "third_party/blink/renderer/platform/cross_thread_functional.h"
 #include "third_party/blink/renderer/platform/heap/persistent.h"
 #include "third_party/blink/renderer/platform/scheduler/public/post_cross_thread_task.h"
+#include "third_party/blink/renderer/platform/wtf/cross_thread_functional.h"
 
 namespace blink {
 
@@ -176,9 +176,9 @@ void AudioWorkletHandler::SetProcessorOnRenderThread(
   } else {
     PostCrossThreadTask(
         *main_thread_task_runner_, FROM_HERE,
-        CrossThreadBind(&AudioWorkletHandler::NotifyProcessorError,
-                        WrapRefCounted(this),
-                        AudioWorkletProcessorErrorState::kConstructionError));
+        CrossThreadBindOnce(
+            &AudioWorkletHandler::NotifyProcessorError, WrapRefCounted(this),
+            AudioWorkletProcessorErrorState::kConstructionError));
   }
 }
 
@@ -191,9 +191,8 @@ void AudioWorkletHandler::FinishProcessorOnRenderThread() {
   if (error_state == AudioWorkletProcessorErrorState::kProcessError) {
     PostCrossThreadTask(
         *main_thread_task_runner_, FROM_HERE,
-        CrossThreadBind(&AudioWorkletHandler::NotifyProcessorError,
-                        WrapRefCounted(this),
-                        error_state));
+        CrossThreadBindOnce(&AudioWorkletHandler::NotifyProcessorError,
+                            WrapRefCounted(this), error_state));
   }
 
   // TODO(hongchan): After this point, The handler has no more pending activity
@@ -226,7 +225,7 @@ AudioWorkletNode::AudioWorkletNode(
   for (const auto& param_info : param_info_list) {
     String param_name = param_info.Name().IsolatedCopy();
     AudioParam* audio_param = AudioParam::Create(
-        context, kParamTypeAudioWorklet,
+        context, Uuid(), AudioParamHandler::kParamTypeAudioWorklet,
         param_info.DefaultValue(), AudioParamHandler::AutomationRate::kAudio,
         AudioParamHandler::AutomationRateMode::kVariable, param_info.MinValue(),
         param_info.MaxValue());
@@ -259,11 +258,6 @@ AudioWorkletNode* AudioWorkletNode::Create(
     ExceptionState& exception_state) {
   DCHECK(IsMainThread());
 
-  if (context->IsContextClosed()) {
-    context->ThrowExceptionForClosedState(exception_state);
-    return nullptr;
-  }
-
   if (options->numberOfInputs() == 0 && options->numberOfOutputs() == 0) {
     exception_state.ThrowDOMException(
         DOMExceptionCode::kNotSupportedError,
@@ -289,7 +283,7 @@ AudioWorkletNode* AudioWorkletNode::Create(
           channel_count > BaseAudioContext::MaxNumberOfChannels()) {
         exception_state.ThrowDOMException(
             DOMExceptionCode::kNotSupportedError,
-            ExceptionMessages::IndexOutsideRange<unsigned long>(
+            ExceptionMessages::IndexOutsideRange<uint32_t>(
                 "channel count", channel_count, 1,
                 ExceptionMessages::kInclusiveBound,
                 BaseAudioContext::MaxNumberOfChannels(),
@@ -316,8 +310,8 @@ AudioWorkletNode* AudioWorkletNode::Create(
     return nullptr;
   }
 
-  MessageChannel* channel =
-      MessageChannel::Create(context->GetExecutionContext());
+  auto* channel =
+      MakeGarbageCollected<MessageChannel>(context->GetExecutionContext());
   MessagePortChannel processor_port_channel = channel->port2()->Disentangle();
 
   AudioWorkletNode* node = MakeGarbageCollected<AudioWorkletNode>(

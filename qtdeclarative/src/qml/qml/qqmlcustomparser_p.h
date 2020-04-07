@@ -51,10 +51,9 @@
 // We mean it.
 //
 
-#include "qqmlmetatype_p.h"
 #include "qqmlerror.h"
 #include "qqmlbinding_p.h"
-#include <private/qqmltypecompiler_p.h>
+#include <private/qv4compileddata_p.h>
 
 #include <QtCore/qbytearray.h>
 #include <QtCore/qxmlstream.h>
@@ -81,10 +80,10 @@ public:
     void clearErrors();
     Flags flags() const { return m_flags; }
 
-    virtual void verifyBindings(const QQmlRefPointer<QV4::CompiledData::CompilationUnit> &, const QList<const QV4::CompiledData::Binding *> &) = 0;
-    virtual void applyBindings(QObject *, const QQmlRefPointer<QV4::CompiledData::CompilationUnit> &, const QList<const QV4::CompiledData::Binding *> &) = 0;
+    virtual void verifyBindings(const QQmlRefPointer<QV4::ExecutableCompilationUnit> &, const QList<const QV4::CompiledData::Binding *> &) = 0;
+    virtual void applyBindings(QObject *, const QQmlRefPointer<QV4::ExecutableCompilationUnit> &, const QList<const QV4::CompiledData::Binding *> &) = 0;
 
-    QVector<QQmlCompileError> errors() const { return exceptions; }
+    QVector<QQmlJS::DiagnosticMessage> errors() const { return exceptions; }
 
 protected:
     void error(const QV4::CompiledData::Binding *binding, const QString& description)
@@ -98,7 +97,7 @@ protected:
     const QMetaObject *resolveType(const QString&) const;
 
 private:
-    QVector<QQmlCompileError> exceptions;
+    QVector<QQmlJS::DiagnosticMessage> exceptions;
     QQmlEnginePrivate *engine;
     const QQmlPropertyValidator *validator;
     Flags m_flags;

@@ -43,17 +43,21 @@
 #include <QObject>
 #include <qgeopositioninfosourcefactory.h>
 
-class QGeoPositionInfoSourceFactorySerialNmea : public QObject, public QGeoPositionInfoSourceFactory
+class QGeoPositionInfoSourceFactorySerialNmea : public QObject, public QGeoPositionInfoSourceFactoryV2
 {
     Q_OBJECT
     Q_PLUGIN_METADATA(IID "org.qt-project.qt.position.sourcefactory/5.0"
                       FILE "plugin.json")
-    Q_INTERFACES(QGeoPositionInfoSourceFactory)
+    Q_INTERFACES(QGeoPositionInfoSourceFactoryV2)
 
 public:
     QGeoPositionInfoSource *positionInfoSource(QObject *parent);
     QGeoSatelliteInfoSource *satelliteInfoSource(QObject *parent);
     QGeoAreaMonitorSource *areaMonitor(QObject *parent);
+
+    QGeoPositionInfoSource *positionInfoSourceWithParameters(QObject *parent, const QVariantMap &parameters);
+    QGeoSatelliteInfoSource *satelliteInfoSourceWithParameters(QObject *parent, const QVariantMap &parameters);
+    QGeoAreaMonitorSource *areaMonitorWithParameters(QObject *parent, const QVariantMap &parameters);
 };
 
 #endif

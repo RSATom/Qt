@@ -37,19 +37,21 @@
 #include "base/memory/scoped_refptr.h"
 #include "base/single_thread_task_runner.h"
 #include "mojo/public/cpp/bindings/strong_binding.h"
+#include "services/network/public/mojom/data_pipe_getter.mojom-blink.h"
+#include "third_party/blink/public/mojom/blob/blob.mojom-blink.h"
 #include "third_party/blink/public/mojom/blob/blob_registry.mojom-blink.h"
+#include "third_party/blink/public/mojom/blob/data_element.mojom-blink.h"
 #include "third_party/blink/public/platform/file_path_conversion.h"
 #include "third_party/blink/public/platform/interface_provider.h"
 #include "third_party/blink/public/platform/platform.h"
 #include "third_party/blink/renderer/platform/blob/blob_bytes_provider.h"
 #include "third_party/blink/renderer/platform/blob/blob_registry.h"
-#include "third_party/blink/renderer/platform/cross_thread_functional.h"
-#include "third_party/blink/renderer/platform/histogram.h"
+#include "third_party/blink/renderer/platform/instrumentation/histogram.h"
 #include "third_party/blink/renderer/platform/instrumentation/tracing/trace_event.h"
-#include "third_party/blink/renderer/platform/text/line_ending.h"
-#include "third_party/blink/renderer/platform/uuid.h"
-#include "third_party/blink/renderer/platform/wtf/text/cstring.h"
+#include "third_party/blink/renderer/platform/wtf/cross_thread_functional.h"
+#include "third_party/blink/renderer/platform/wtf/text/line_ending.h"
 #include "third_party/blink/renderer/platform/wtf/text/text_encoding.h"
+#include "third_party/blink/renderer/platform/wtf/uuid.h"
 #include "third_party/blink/renderer/platform/wtf/vector.h"
 
 namespace blink {
@@ -100,13 +102,17 @@ mojom::blink::BlobRegistry* GetThreadSpecificRegistry() {
 
 }  // namespace
 
-constexpr long long BlobData::kToEndOfFile;
+constexpr int64_t BlobData::kToEndOfFile;
 
 RawData::RawData() = default;
 
-std::unique_ptr<BlobData> BlobData::Create() {
-  return base::WrapUnique(
-      new BlobData(FileCompositionStatus::NO_UNKNOWN_SIZE_FILES));
+BlobData::BlobData(FileCompositionStatus composition)
+    : file_composition_(composition) {}
+
+BlobData::~BlobData() {}
+
+Vector<mojom::blink::DataElementPtr> BlobData::ReleaseElements() {
+  return std::move(elements_);
 }
 
 std::unique_ptr<BlobData> BlobData::CreateForFileWithUnknownSize(
@@ -114,7 +120,7 @@ std::unique_ptr<BlobData> BlobData::CreateForFileWithUnknownSize(
   std::unique_ptr<BlobData> data = base::WrapUnique(
       new BlobData(FileCompositionStatus::SINGLE_UNKNOWN_SIZE_FILE));
   data->elements_.push_back(DataElement::NewFile(DataElementFile::New(
-      WebStringToFilePath(path), 0, BlobData::kToEndOfFile, WTF::Time())));
+      WebStringToFilePath(path), 0, BlobData::kToEndOfFile, base::Time())));
   return data;
 }
 
@@ -125,7 +131,7 @@ std::unique_ptr<BlobData> BlobData::CreateForFileWithUnknownSize(
       new BlobData(FileCompositionStatus::SINGLE_UNKNOWN_SIZE_FILE));
   data->elements_.push_back(DataElement::NewFile(DataElementFile::New(
       WebStringToFilePath(path), 0, BlobData::kToEndOfFile,
-      WTF::Time::FromDoubleT(expected_modification_time))));
+      base::Time::FromDoubleT(expected_modification_time))));
   return data;
 }
 
@@ -137,7 +143,7 @@ std::unique_ptr<BlobData> BlobData::CreateForFileSystemURLWithUnknownSize(
   data->elements_.push_back(
       DataElement::NewFileFilesystem(DataElementFilesystemURL::New(
           file_system_url, 0, BlobData::kToEndOfFile,
-          WTF::Time::FromDoubleT(expected_modification_time))));
+          base::Time::FromDoubleT(expected_modification_time))));
   return data;
 }
 
@@ -163,8 +169,8 @@ void BlobData::AppendData(scoped_refptr<RawData> data) {
 }
 
 void BlobData::AppendFile(const String& path,
-                          long long offset,
-                          long long length,
+                          int64_t offset,
+                          int64_t length,
                           double expected_modification_time) {
   DCHECK_EQ(file_composition_, FileCompositionStatus::NO_UNKNOWN_SIZE_FILES)
       << "Blobs with a unknown-size file cannot have other items.";
@@ -178,12 +184,12 @@ void BlobData::AppendFile(const String& path,
     return;
   elements_.push_back(DataElement::NewFile(DataElementFile::New(
       WebStringToFilePath(path), offset, length,
-      WTF::Time::FromDoubleT(expected_modification_time))));
+      base::Time::FromDoubleT(expected_modification_time))));
 }
 
 void BlobData::AppendBlob(scoped_refptr<BlobDataHandle> data_handle,
-                          long long offset,
-                          long long length) {
+                          int64_t offset,
+                          int64_t length) {
   DCHECK_EQ(file_composition_, FileCompositionStatus::NO_UNKNOWN_SIZE_FILES)
       << "Blobs with a unknown-size file cannot have other items.";
   DCHECK(!data_handle->IsSingleUnknownSizeFile())
@@ -196,8 +202,8 @@ void BlobData::AppendBlob(scoped_refptr<BlobDataHandle> data_handle,
 }
 
 void BlobData::AppendFileSystemURL(const KURL& url,
-                                   long long offset,
-                                   long long length,
+                                   int64_t offset,
+                                   int64_t length,
                                    double expected_modification_time) {
   DCHECK_EQ(file_composition_, FileCompositionStatus::NO_UNKNOWN_SIZE_FILES)
       << "Blobs with a unknown-size file cannot have other items.";
@@ -207,14 +213,14 @@ void BlobData::AppendFileSystemURL(const KURL& url,
   elements_.push_back(
       DataElement::NewFileFilesystem(DataElementFilesystemURL::New(
           url, offset, length,
-          WTF::Time::FromDoubleT(expected_modification_time))));
+          base::Time::FromDoubleT(expected_modification_time))));
 }
 
 void BlobData::AppendText(const String& text,
                           bool do_normalize_line_endings_to_native) {
   DCHECK_EQ(file_composition_, FileCompositionStatus::NO_UNKNOWN_SIZE_FILES)
       << "Blobs with a unknown-size file cannot have other items.";
-  CString utf8_text = UTF8Encoding().Encode(text, WTF::kNoUnencodables);
+  std::string utf8_text = UTF8Encoding().Encode(text, WTF::kNoUnencodables);
 
   if (do_normalize_line_endings_to_native) {
     if (utf8_text.length() >
@@ -265,7 +271,7 @@ void BlobData::AppendDataInternal(base::span<const char> data,
   DCHECK_EQ(file_composition_, FileCompositionStatus::NO_UNKNOWN_SIZE_FILES)
       << "Blobs with a unknown-size file cannot have other items.";
   // Skip zero-byte items, as they don't matter for the contents of the blob.
-  if (data.size() == 0)
+  if (data.empty())
     return;
   bool should_embed_bytes = current_memory_population_ + data.size() <=
                             DataElementBytes::kMaximumEmbeddedDataSize;
@@ -301,16 +307,29 @@ void BlobData::AppendDataInternal(base::span<const char> data,
     last_bytes_provider_->AppendData(std::move(data));
 }
 
+// static
+scoped_refptr<BlobDataHandle> BlobDataHandle::Create(
+    const String& uuid,
+    const String& type,
+    uint64_t size,
+    mojom::blink::BlobPtrInfo blob_info) {
+  if (blob_info.is_valid()) {
+    return base::AdoptRef(
+        new BlobDataHandle(uuid, type, size, std::move(blob_info)));
+  }
+  return base::AdoptRef(new BlobDataHandle(uuid, type, size));
+}
+
 BlobDataHandle::BlobDataHandle()
-    : uuid_(CreateCanonicalUUIDString()),
+    : uuid_(WTF::CreateCanonicalUUIDString()),
       size_(0),
       is_single_unknown_size_file_(false) {
   GetThreadSpecificRegistry()->Register(MakeRequest(&blob_info_), uuid_, "", "",
                                         {});
 }
 
-BlobDataHandle::BlobDataHandle(std::unique_ptr<BlobData> data, long long size)
-    : uuid_(CreateCanonicalUUIDString()),
+BlobDataHandle::BlobDataHandle(std::unique_ptr<BlobData> data, uint64_t size)
+    : uuid_(WTF::CreateCanonicalUUIDString()),
       type_(data->ContentType().IsolatedCopy()),
       size_(size),
       is_single_unknown_size_file_(data->IsSingleUnknownSizeFile()) {
@@ -323,7 +342,7 @@ BlobDataHandle::BlobDataHandle(std::unique_ptr<BlobData> data, long long size)
 
 BlobDataHandle::BlobDataHandle(const String& uuid,
                                const String& type,
-                               long long size)
+                               uint64_t size)
     : uuid_(uuid.IsolatedCopy()),
       type_(IsValidBlobType(type) ? type.IsolatedCopy() : ""),
       size_(size),
@@ -335,7 +354,7 @@ BlobDataHandle::BlobDataHandle(const String& uuid,
 
 BlobDataHandle::BlobDataHandle(const String& uuid,
                                const String& type,
-                               long long size,
+                               uint64_t size,
                                BlobPtrInfo blob_info)
     : uuid_(uuid.IsolatedCopy()),
       type_(IsValidBlobType(type) ? type.IsolatedCopy() : ""),

@@ -4,24 +4,31 @@
 
 #include "content/browser/web_package/signed_exchange_cert_fetcher.h"
 
+#include "base/bind.h"
+#include "base/feature_list.h"
 #include "base/format_macros.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/numerics/safe_conversions.h"
 #include "base/strings/string_piece.h"
 #include "base/strings/stringprintf.h"
 #include "base/trace_event/trace_event.h"
+#include "content/browser/data_url_loader_factory.h"
 #include "content/browser/loader/resource_dispatcher_host_impl.h"
+#include "content/browser/loader/single_request_url_loader_factory.h"
 #include "content/browser/web_package/signed_exchange_consts.h"
 #include "content/browser/web_package/signed_exchange_devtools_proxy.h"
+#include "content/browser/web_package/signed_exchange_reporter.h"
 #include "content/browser/web_package/signed_exchange_utils.h"
 #include "content/common/throttling_url_loader.h"
 #include "content/public/common/resource_type.h"
 #include "content/public/common/url_loader_throttle.h"
 #include "ipc/ipc_message.h"
 #include "mojo/public/cpp/system/simple_watcher.h"
+#include "net/base/ip_endpoint.h"
 #include "net/base/load_flags.h"
 #include "net/http/http_status_code.h"
 #include "services/network/loader_util.h"
+#include "services/network/public/cpp/features.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
 
 namespace content {
@@ -75,6 +82,7 @@ SignedExchangeCertFetcher::CreateAndStart(
     bool force_fetch,
     CertificateCallback callback,
     SignedExchangeDevToolsProxy* devtools_proxy,
+    SignedExchangeReporter* reporter,
     const base::Optional<base::UnguessableToken>& throttling_profile_id) {
   TRACE_EVENT0(TRACE_DISABLED_BY_DEFAULT("loading"),
                "SignedExchangeCertFetcher::CreateAndStart");
@@ -82,7 +90,7 @@ SignedExchangeCertFetcher::CreateAndStart(
       new SignedExchangeCertFetcher(std::move(shared_url_loader_factory),
                                     std::move(throttles), cert_url, force_fetch,
                                     std::move(callback), devtools_proxy,
-                                    throttling_profile_id));
+                                    reporter, throttling_profile_id));
   cert_fetcher->Start();
   return cert_fetcher;
 }
@@ -95,23 +103,24 @@ SignedExchangeCertFetcher::SignedExchangeCertFetcher(
     bool force_fetch,
     CertificateCallback callback,
     SignedExchangeDevToolsProxy* devtools_proxy,
+    SignedExchangeReporter* reporter,
     const base::Optional<base::UnguessableToken>& throttling_profile_id)
     : shared_url_loader_factory_(std::move(shared_url_loader_factory)),
       throttles_(std::move(throttles)),
       resource_request_(std::make_unique<network::ResourceRequest>()),
       callback_(std::move(callback)),
-      devtools_proxy_(devtools_proxy) {
+      devtools_proxy_(devtools_proxy),
+      reporter_(reporter) {
   // TODO(https://crbug.com/803774): Revisit more ResourceRequest flags.
   resource_request_->url = cert_url;
   // |request_initiator| is used for cookie checks, but cert requests don't use
   // cookies. So just set an opaque Origin.
   resource_request_->request_initiator = url::Origin();
-  resource_request_->resource_type = RESOURCE_TYPE_SUB_RESOURCE;
+  resource_request_->resource_type =
+      static_cast<int>(ResourceType::kSubResource);
   // Cert requests should not send credential informartion, because the default
   // credentials mode of Fetch is "omit".
-  resource_request_->load_flags = net::LOAD_DO_NOT_SEND_AUTH_DATA |
-                                  net::LOAD_DO_NOT_SAVE_COOKIES |
-                                  net::LOAD_DO_NOT_SEND_COOKIES;
+  resource_request_->allow_credentials = false;
   resource_request_->headers.SetHeader(network::kAcceptHeader,
                                        kCertChainMimeType);
   if (force_fetch) {
@@ -134,6 +143,15 @@ void SignedExchangeCertFetcher::Start() {
     devtools_proxy_->CertificateRequestSent(*cert_request_id_,
                                             *resource_request_);
   }
+  // When NetworkService enabled, data URL is not handled by the passed
+  // URLRequestContext's SharedURLLoaderFactory.
+  if (base::FeatureList::IsEnabled(network::features::kNetworkService) &&
+      resource_request_->url.SchemeIs(url::kDataScheme)) {
+    shared_url_loader_factory_ =
+        base::MakeRefCounted<SingleRequestURLLoaderFactory>(
+            base::BindOnce(&SignedExchangeCertFetcher::OnDataURLRequest,
+                           base::Unretained(this)));
+  }
   url_loader_ = ThrottlingURLLoader::CreateLoaderAndStart(
       std::move(shared_url_loader_factory_), std::move(throttles_),
       0 /* routing_id */,
@@ -145,6 +163,8 @@ void SignedExchangeCertFetcher::Start() {
 void SignedExchangeCertFetcher::Abort() {
   TRACE_EVENT0(TRACE_DISABLED_BY_DEFAULT("loading"),
                "SignedExchangeCertFetcher::Abort");
+  MaybeNotifyCompletionToDevtools(
+      network::URLLoaderCompletionStatus(net::ERR_ABORTED));
   DCHECK(callback_);
   url_loader_ = nullptr;
   body_.reset();
@@ -187,6 +207,10 @@ void SignedExchangeCertFetcher::OnDataComplete() {
   body_.reset();
   handle_watcher_ = nullptr;
 
+  // Notify the completion to the devtools here because |this| may be deleted
+  // before OnComplete() is called.
+  MaybeNotifyCompletionToDevtools(network::URLLoaderCompletionStatus(net::OK));
+
   std::unique_ptr<SignedExchangeCertificateChain> cert_chain =
       SignedExchangeCertificateChain::Parse(
           base::as_bytes(base::make_span(body_string_)), devtools_proxy_);
@@ -212,6 +236,9 @@ void SignedExchangeCertFetcher::OnReceiveResponse(
     devtools_proxy_->CertificateResponseReceived(*cert_request_id_,
                                                  resource_request_->url, head);
   }
+
+  if (reporter_)
+    reporter_->set_cert_server_ip_address(head.remote_endpoint.address());
 
   // |headers| is null when loading data URL.
   if (head.headers && head.headers->response_code() != net::HTTP_OK) {
@@ -271,7 +298,7 @@ void SignedExchangeCertFetcher::OnUploadProgress(
 }
 
 void SignedExchangeCertFetcher::OnReceiveCachedMetadata(
-    const std::vector<uint8_t>& data) {
+    mojo_base::BigBuffer data) {
   // Cert fetching doesn't use cached metadata.
   NOTREACHED();
 }
@@ -299,12 +326,29 @@ void SignedExchangeCertFetcher::OnComplete(
     const network::URLLoaderCompletionStatus& status) {
   TRACE_EVENT0(TRACE_DISABLED_BY_DEFAULT("loading"),
                "SignedExchangeCertFetcher::OnComplete");
-  if (devtools_proxy_) {
-    DCHECK(cert_request_id_);
-    devtools_proxy_->CertificateRequestCompleted(*cert_request_id_, status);
-  }
+  MaybeNotifyCompletionToDevtools(status);
   if (!handle_watcher_)
     Abort();
+}
+
+void SignedExchangeCertFetcher::OnDataURLRequest(
+    const network::ResourceRequest& resource_request,
+    network::mojom::URLLoaderRequest url_loader_request,
+    network::mojom::URLLoaderClientPtr url_loader_client_ptr) {
+  data_url_loader_factory_ = std::make_unique<DataURLLoaderFactory>();
+  data_url_loader_factory_->CreateLoaderAndStart(
+      std::move(url_loader_request), 0, 0, 0, resource_request,
+      std::move(url_loader_client_ptr),
+      net::MutableNetworkTrafficAnnotationTag(kCertFetcherTrafficAnnotation));
+}
+
+void SignedExchangeCertFetcher::MaybeNotifyCompletionToDevtools(
+    const network::URLLoaderCompletionStatus& status) {
+  if (!devtools_proxy_ || has_notified_completion_to_devtools_)
+    return;
+  DCHECK(cert_request_id_);
+  devtools_proxy_->CertificateRequestCompleted(*cert_request_id_, status);
+  has_notified_completion_to_devtools_ = true;
 }
 
 // static

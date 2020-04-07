@@ -6,18 +6,19 @@
 
 #include <memory>
 
+#include "base/bind.h"
 #include "base/memory/ref_counted.h"
 #include "base/run_loop.h"
 #include "base/single_thread_task_runner.h"
 #include "base/test/scoped_task_environment.h"
 #include "build/build_config.h"
 #include "content/child/child_process.h"
-#include "content/renderer/media/stream/media_stream_audio_source.h"
 #include "content/renderer/media/webrtc/mock_peer_connection_dependency_factory.h"
 #include "content/renderer/media/webrtc/mock_peer_connection_impl.h"
 #include "content/renderer/media/webrtc/test/webrtc_stats_report_obtainer.h"
 #include "content/renderer/media/webrtc/webrtc_media_stream_track_adapter_map.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/blink/public/platform/modules/mediastream/media_stream_audio_source.h"
 #include "third_party/blink/public/platform/scheduler/test/renderer_scheduler_test_support.h"
 #include "third_party/blink/public/platform/web_media_stream_source.h"
 #include "third_party/blink/public/platform/web_media_stream_track.h"
@@ -70,7 +71,9 @@ class RTCRtpSenderTest : public ::testing::Test {
     web_source.Initialize(
         blink::WebString::FromUTF8(id), blink::WebMediaStreamSource::kTypeAudio,
         blink::WebString::FromUTF8("local_audio_track"), false);
-    MediaStreamAudioSource* audio_source = new MediaStreamAudioSource(true);
+    blink::MediaStreamAudioSource* audio_source =
+        new blink::MediaStreamAudioSource(
+            blink::scheduler::GetSingleThreadTaskRunnerForTesting(), true);
     // Takes ownership of |audio_source|.
     web_source.SetPlatformSource(base::WrapUnique(audio_source));
     blink::WebMediaStreamTrack web_track;
@@ -118,8 +121,7 @@ class RTCRtpSenderTest : public ::testing::Test {
   scoped_refptr<WebRTCStatsReportObtainer> CallGetStats() {
     scoped_refptr<WebRTCStatsReportObtainer> obtainer =
         new WebRTCStatsReportObtainer();
-    sender_->GetStats(obtainer->GetStatsCallbackWrapper(),
-                      blink::RTCStatsFilter::kIncludeOnlyStandardMembers);
+    sender_->GetStats(obtainer->GetStatsCallbackWrapper(), {});
     return obtainer;
   }
 
@@ -138,7 +140,7 @@ class RTCRtpSenderTest : public ::testing::Test {
   }
 
   // Code under test expects to be run in a process with an initialized
-  // ChildProcess, which requires TaskScheduler, and a main-thread MessageLoop,
+  // ChildProcess, which requires ThreadPool, and a main-thread MessageLoop,
   // which the ScopedTaskEnvironment also provides.
   base::test::ScopedTaskEnvironment task_environment_;
   ChildProcess child_process_;

@@ -778,8 +778,6 @@ TEST(AppCacheDatabaseTest, OriginUsage) {
 
   std::vector<AppCacheDatabase::CacheRecord> cache_records;
   EXPECT_EQ(0, db.GetOriginUsage(kOrigin));
-  EXPECT_TRUE(db.FindCachesForOrigin(kOrigin, &cache_records));
-  EXPECT_TRUE(cache_records.empty());
 
   AppCacheDatabase::GroupRecord group_record;
   group_record.group_id = 1;
@@ -825,17 +823,60 @@ TEST(AppCacheDatabaseTest, OriginUsage) {
 
   EXPECT_EQ(5001, db.GetOriginUsage(kOtherOrigin));
 
-  EXPECT_TRUE(db.FindCachesForOrigin(kOrigin, &cache_records));
-  EXPECT_EQ(2U, cache_records.size());
-  cache_records.clear();
-  EXPECT_TRUE(db.FindCachesForOrigin(kOtherOrigin, &cache_records));
-  EXPECT_EQ(1U, cache_records.size());
-
   std::map<url::Origin, int64_t> usage_map;
   EXPECT_TRUE(db.GetAllOriginUsage(&usage_map));
   EXPECT_EQ(2U, usage_map.size());
   EXPECT_EQ(1102, usage_map[kOrigin]);
   EXPECT_EQ(5001, usage_map[kOtherOrigin]);
+}
+
+TEST(AppCacheDatabaseTest, FindCachesForOrigin) {
+  const GURL kManifestUrl("http://blah/manifest");
+  const GURL kManifestUrl2("http://blah/manifest2");
+  const url::Origin kOrigin = url::Origin::Create(kManifestUrl);
+  const GURL kOtherOriginManifestUrl("http://other/manifest");
+  const url::Origin kOtherOrigin = url::Origin::Create(kOtherOriginManifestUrl);
+
+  const base::FilePath kEmptyPath;
+  AppCacheDatabase db(kEmptyPath);
+  EXPECT_TRUE(db.LazyOpen(true));
+
+  std::vector<AppCacheDatabase::CacheRecord> cache_records;
+  EXPECT_TRUE(db.FindCachesForOrigin(kOrigin, &cache_records));
+  EXPECT_TRUE(cache_records.empty());
+
+  // Create 2 Groups with the same origin, and 1 Group with a different origin.
+  AppCacheDatabase::GroupRecord group_record;
+  group_record.group_id = 1;
+  group_record.manifest_url = kManifestUrl;
+  group_record.origin = kOrigin;
+  EXPECT_TRUE(db.InsertGroup(&group_record));
+  group_record.group_id = 2;
+  group_record.manifest_url = kManifestUrl2;
+  group_record.origin = kOrigin;
+  EXPECT_TRUE(db.InsertGroup(&group_record));
+  group_record.group_id = 3;
+  group_record.manifest_url = kOtherOriginManifestUrl;
+  group_record.origin = kOtherOrigin;
+  EXPECT_TRUE(db.InsertGroup(&group_record));
+
+  // Add a Cache to each of the 3 Groups.
+  AppCacheDatabase::CacheRecord cache_record;
+  for (int i = 1; i < 4; ++i) {
+    cache_record.cache_id = i;
+    cache_record.group_id = i;
+    cache_record.online_wildcard = true;
+    cache_record.update_time = kZeroTime;
+    cache_record.cache_size = 100;
+    cache_record.padding_size = 1000;
+    EXPECT_TRUE(db.InsertCache(&cache_record));
+  }
+
+  EXPECT_TRUE(db.FindCachesForOrigin(kOrigin, &cache_records));
+  EXPECT_EQ(2U, cache_records.size());
+  cache_records.clear();
+  EXPECT_TRUE(db.FindCachesForOrigin(kOtherOrigin, &cache_records));
+  EXPECT_EQ(1U, cache_records.size());
 }
 
 TEST(AppCacheDatabaseTest, UpgradeSchemaForVersionsWithoutSupportedMigrations) {

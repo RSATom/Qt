@@ -6,8 +6,9 @@
 
 #include <memory>
 
-#include "mojo/public/cpp/bindings/associated_binding.h"
-#include "mojo/public/cpp/bindings/associated_interface_ptr.h"
+#include "mojo/public/cpp/bindings/associated_receiver.h"
+#include "mojo/public/cpp/bindings/associated_remote.h"
+#include "mojo/public/cpp/bindings/pending_associated_receiver.h"
 #include "services/device/public/mojom/screen_orientation.mojom-blink.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -30,6 +31,7 @@
 #include "third_party/blink/renderer/modules/screen_orientation/screen_orientation_controller_impl.h"
 #include "third_party/blink/renderer/modules/screen_orientation/web_lock_orientation_callback.h"
 #include "third_party/blink/renderer/platform/geometry/int_rect.h"
+#include "third_party/blink/renderer/platform/heap/heap.h"
 #include "third_party/blink/renderer/platform/testing/empty_web_media_player.h"
 #include "third_party/blink/renderer/platform/testing/runtime_enabled_features_test_helpers.h"
 #include "third_party/blink/renderer/platform/testing/unit_test_helpers.h"
@@ -62,7 +64,7 @@ class MockWebMediaPlayerForOrientationLockDelegate final
 class MockScreenOrientation final
     : public device::mojom::blink::ScreenOrientation {
  public:
-  MockScreenOrientation() : binding_(this) {}
+  MockScreenOrientation() = default;
 
   // device::mojom::blink::ScreenOrientation overrides:
   void LockOrientation(WebScreenOrientationLockType type,
@@ -72,31 +74,33 @@ class MockScreenOrientation final
     LockOrientation(type);
   }
 
-  void BindRequest(
-      device::mojom::blink::ScreenOrientationAssociatedRequest request) {
-    binding_.Bind(std::move(request));
+  void BindPendingReceiver(
+      mojo::PendingAssociatedReceiver<device::mojom::blink::ScreenOrientation>
+          pending_receiver) {
+    receiver_.Bind(std::move(pending_receiver));
   }
 
-  void Close() { binding_.Close(); }
+  void Close() { receiver_.reset(); }
 
   MOCK_METHOD0(UnlockOrientation, void());
 
   MOCK_METHOD1(LockOrientation, void(WebScreenOrientationLockType));
 
  private:
-  mojo::AssociatedBinding<device::mojom::blink::ScreenOrientation> binding_;
+  mojo::AssociatedReceiver<device::mojom::blink::ScreenOrientation> receiver_{
+      this};
 };
 
 void DidEnterFullscreen(Document* document) {
   DCHECK(document);
   Fullscreen::DidEnterFullscreen(*document);
-  document->ServiceScriptedAnimations(WTF::CurrentTimeTicks());
+  document->ServiceScriptedAnimations(base::TimeTicks::Now());
 }
 
 void DidExitFullscreen(Document* document) {
   DCHECK(document);
   Fullscreen::DidExitFullscreen(*document);
-  document->ServiceScriptedAnimations(WTF::CurrentTimeTicks());
+  document->ServiceScriptedAnimations(base::TimeTicks::Now());
 }
 
 class MockChromeClientForOrientationLockDelegate final
@@ -106,11 +110,12 @@ class MockChromeClientForOrientationLockDelegate final
   void InstallSupplements(LocalFrame& frame) override {
     EmptyChromeClient::InstallSupplements(frame);
     ScreenOrientationControllerImpl::ProvideTo(frame);
-    device::mojom::blink::ScreenOrientationAssociatedPtr screen_orientation;
-    ScreenOrientationClient().BindRequest(
-        mojo::MakeRequestAssociatedWithDedicatedPipe(&screen_orientation));
+    mojo::AssociatedRemote<device::mojom::blink::ScreenOrientation>
+        screen_orientation;
+    ScreenOrientationClient().BindPendingReceiver(
+        screen_orientation.BindNewEndpointAndPassDedicatedReceiverForTesting());
     ScreenOrientationControllerImpl::From(frame)
-        ->SetScreenOrientationAssociatedPtrForTests(
+        ->SetScreenOrientationAssociatedRemoteForTests(
             std::move(screen_orientation));
   }
   // The real ChromeClient::EnterFullscreen/ExitFullscreen implementation is
@@ -139,11 +144,6 @@ class MockChromeClientForOrientationLockDelegate final
 class StubLocalFrameClientForOrientationLockDelegate final
     : public EmptyLocalFrameClient {
  public:
-  static StubLocalFrameClientForOrientationLockDelegate* Create() {
-    return MakeGarbageCollected<
-        StubLocalFrameClientForOrientationLockDelegate>();
-  }
-
   std::unique_ptr<WebMediaPlayer> CreateWebMediaPlayer(
       HTMLMediaElement&,
       const WebMediaPlayerSource&,
@@ -172,7 +172,7 @@ class MediaControlsOrientationLockDelegateTest
   using DeviceOrientationType =
       MediaControlsOrientationLockDelegate::DeviceOrientationType;
 
-  static constexpr TimeDelta GetUnlockDelay() {
+  static constexpr base::TimeDelta GetUnlockDelay() {
     return MediaControlsOrientationLockDelegate::kLockToAnyDelay;
   }
 
@@ -185,7 +185,8 @@ class MediaControlsOrientationLockDelegateTest
     clients.chrome_client = chrome_client_.Get();
 
     SetupPageWithClients(
-        &clients, StubLocalFrameClientForOrientationLockDelegate::Create());
+        &clients,
+        MakeGarbageCollected<StubLocalFrameClientForOrientationLockDelegate>());
     previous_orientation_event_value_ =
         RuntimeEnabledFeatures::OrientationEventEnabled();
 
@@ -307,7 +308,7 @@ class MediaControlsOrientationLockAndRotateToFullscreenDelegateTest
 
     // Reset the <video> element now we've enabled the runtime feature.
     video_->parentElement()->RemoveChild(video_);
-    video_ = HTMLVideoElement::Create(GetDocument());
+    video_ = MakeGarbageCollected<HTMLVideoElement>(GetDocument());
     video_->setAttribute(html_names::kControlsAttr, g_empty_atom);
     // Most tests should call GetDocument().body()->AppendChild(&Video());
     // This is not done automatically, so that tests control timing of `Attach`,
@@ -437,13 +438,13 @@ TEST_F(MediaControlsOrientationLockDelegateTest, DelegateRequiresFlag) {
   // Same with flag off.
   ScopedVideoFullscreenOrientationLockForTest video_fullscreen_orientation_lock(
       false);
-  HTMLVideoElement* video = HTMLVideoElement::Create(GetDocument());
+  auto* video = MakeGarbageCollected<HTMLVideoElement>(GetDocument());
   GetDocument().body()->AppendChild(video);
   EXPECT_FALSE(HasDelegate(*video->GetMediaControls()));
 }
 
 TEST_F(MediaControlsOrientationLockDelegateTest, DelegateRequiresVideo) {
-  HTMLAudioElement* audio = HTMLAudioElement::Create(GetDocument());
+  auto* audio = MakeGarbageCollected<HTMLAudioElement>(GetDocument());
   GetDocument().body()->AppendChild(audio);
   EXPECT_FALSE(HasDelegate(*audio->GetMediaControls()));
 }
@@ -1421,7 +1422,8 @@ TEST_F(MediaControlsOrientationLockAndRotateToFullscreenDelegateTest,
   // delegate unlocks the screen orientation, so Android changes the screen
   // orientation back to portrait because it hasn't yet processed the device
   // orientation change to landscape.
-  constexpr TimeDelta kMinUnlockDelay = TimeDelta::FromMilliseconds(249);
+  constexpr base::TimeDelta kMinUnlockDelay =
+      base::TimeDelta::FromMilliseconds(249);
   static_assert(GetUnlockDelay() > kMinUnlockDelay,
                 "GetUnlockDelay() should significantly exceed kMinUnlockDelay");
   test::RunDelayedTasks(kMinUnlockDelay);

@@ -99,7 +99,8 @@ public:
         ApplicationStateChanged = 0x19,
         FlushEvents = 0x20,
         WindowScreenChanged = 0x21,
-        SafeAreaMarginsChanged = 0x22
+        SafeAreaMarginsChanged = 0x22,
+        ApplicationTermination = 0x23
     };
 
     class WindowSystemEvent {
@@ -123,11 +124,10 @@ public:
 
     class CloseEvent : public WindowSystemEvent {
     public:
-        explicit CloseEvent(QWindow *w, bool *a = 0)
-            : WindowSystemEvent(Close), window(w), accepted(a)
+        explicit CloseEvent(QWindow *w)
+            : WindowSystemEvent(Close), window(w)
             { }
         QPointer<QWindow> window;
-        bool *accepted;
     };
 
     class GeometryChangeEvent : public WindowSystemEvent {
@@ -398,7 +398,7 @@ public:
     class TabletEnterProximityEvent : public InputEvent {
     public:
         TabletEnterProximityEvent(ulong time, int device, int pointerType, qint64 uid)
-            : InputEvent(0, time, TabletEnterProximity, Qt::NoModifier),
+            : InputEvent(nullptr, time, TabletEnterProximity, Qt::NoModifier),
               device(device), pointerType(pointerType), uid(uid) { }
         int device;
         int pointerType;
@@ -408,7 +408,7 @@ public:
     class TabletLeaveProximityEvent : public InputEvent {
     public:
         TabletLeaveProximityEvent(ulong time, int device, int pointerType, qint64 uid)
-            : InputEvent(0, time, TabletLeaveProximity, Qt::NoModifier),
+            : InputEvent(nullptr, time, TabletLeaveProximity, Qt::NoModifier),
               device(device), pointerType(pointerType), uid(uid) { }
         int device;
         int pointerType;
@@ -474,7 +474,7 @@ public:
             for (int i = 0; i < impl.size(); ++i)
                 if (!(impl.at(i)->type & QWindowSystemInterfacePrivate::UserInputEvent))
                     return impl.takeAt(i);
-            return 0;
+            return nullptr;
         }
         bool nonUserInputEventsQueued()
         {
@@ -495,7 +495,7 @@ public:
                 if (impl.at(i)->type == t)
                     return impl.at(i);
             }
-            return 0;
+            return nullptr;
         }
         void remove(const WindowSystemEvent *e)
         {
@@ -529,6 +529,7 @@ public:
 
     static QWaitCondition eventsFlushed;
     static QMutex flushEventMutex;
+    static QMutex pointIdMapMutex;
     static QAtomicInt eventAccepted;
 
     static QList<QTouchEvent::TouchPoint>

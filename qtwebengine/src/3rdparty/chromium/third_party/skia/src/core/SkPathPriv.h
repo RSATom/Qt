@@ -8,15 +8,7 @@
 #ifndef SkPathPriv_DEFINED
 #define SkPathPriv_DEFINED
 
-#include "SkPath.h"
-
-#define SK_TREAT_COLINEAR_DIAGONAL_POINTS_AS_CONCAVE 0
-
-#if SK_TREAT_COLINEAR_DIAGONAL_POINTS_AS_CONCAVE
-    #define COLINEAR_DIAGONAL_CONVEXITY kConcave_Convexity
-#else
-    #define COLINEAR_DIAGONAL_CONVEXITY kConvex_Convexity
-#endif
+#include "include/core/SkPath.h"
 
 class SkPathPriv {
 public:
@@ -237,10 +229,6 @@ public:
         }
         return result;
     }
-
-    // For crbug.com/821353 and skbug.com/6886
-    static bool IsBadForDAA(const SkPath& path) { return path.fIsBadForDAA; }
-    static void SetIsBadForDAA(SkPath& path, bool isBadForDAA) { path.fIsBadForDAA = isBadForDAA; }
 
     /**
      *  Sometimes in the drawing pipeline, we have to perform math on path coordinates, even after

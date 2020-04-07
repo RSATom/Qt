@@ -49,10 +49,16 @@
 
     Note that the Object Push Profile is not supported on Android and Windows.
 
-    Note that parts of RFCOMM functionality cannot be configured by Qt on Windows.
-    A service's \l {ServiceClassIds} and \l {ProtocolDescriptorList} are filled automatically by
-    Windows. Therefore registering a service with custom values for these fields might not yield the
-    expected result on Windows.
+    \note Parts of RFCOMM functionality cannot be configured by Qt on
+    Windows. A service's \l {QBluetoothServiceInfo::}{ServiceClassIds} and
+    \l {QBluetoothServiceInfo::}{ProtocolDescriptorList} are filled
+    automatically. Therefore, registering a service with custom values for
+    these fields might not yield the expected result on Windows.
+
+    \note The Received Signal Strength Indicator (RSSI), as well as
+    the Manufacturer Specific Data advertised by Bluetooth LE devices are
+    not supported by the Win32 backend. Also, it is only possible to find
+    devices that have been previously paired through Windows Settings.
 
     The following sections describe how to use the Qt Bluetooth C++ API classes
     for the above use cases.

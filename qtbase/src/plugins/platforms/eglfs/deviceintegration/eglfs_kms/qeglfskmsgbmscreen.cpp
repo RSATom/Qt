@@ -161,7 +161,7 @@ gbm_surface *QEglFSKmsGbmScreen::createSurface(EGLConfig eglConfig)
         if (queryFromEgl) {
             EGLint native_format = -1;
             EGLBoolean success = eglGetConfigAttrib(display(), eglConfig, EGL_NATIVE_VISUAL_ID, &native_format);
-            qCDebug(qLcEglfsKmsDebug) << "Got native format" << hex << native_format << dec
+            qCDebug(qLcEglfsKmsDebug) << "Got native format" << Qt::hex << native_format << Qt::dec
                                       << "from eglGetConfigAttrib() with return code" << bool(success);
 
             if (success) {
@@ -344,6 +344,9 @@ void QEglFSKmsGbmScreen::flip()
             static int zpos = qEnvironmentVariableIntValue("QT_QPA_EGLFS_KMS_ZPOS");
             if (zpos)
                 drmModeAtomicAddProperty(request, op.eglfs_plane->id, op.eglfs_plane->zposPropertyId, zpos);
+            static uint blendOp = uint(qEnvironmentVariableIntValue("QT_QPA_EGLFS_KMS_BLEND_OP"));
+            if (blendOp)
+                drmModeAtomicAddProperty(request, op.eglfs_plane->id, op.eglfs_plane->blendOpPropertyId, blendOp);
         }
 #endif
     } else {

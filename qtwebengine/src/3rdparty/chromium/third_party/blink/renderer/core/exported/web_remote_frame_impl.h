@@ -11,7 +11,6 @@
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/frame/remote_frame.h"
 #include "third_party/blink/renderer/platform/heap/self_keep_alive.h"
-#include "third_party/blink/renderer/platform/wtf/compiler.h"
 
 namespace cc {
 class Layer;
@@ -26,6 +25,7 @@ enum class WebFrameLoadType;
 class WebView;
 struct WebRect;
 struct WebScrollIntoViewParams;
+class WindowAgentFactory;
 
 class CORE_EXPORT WebRemoteFrameImpl final
     : public GarbageCollectedFinalized<WebRemoteFrameImpl>,
@@ -35,6 +35,9 @@ class CORE_EXPORT WebRemoteFrameImpl final
   static WebRemoteFrameImpl* CreateMainFrame(WebView*,
                                              WebRemoteFrameClient*,
                                              WebFrame* opener = nullptr);
+  static WebRemoteFrameImpl* CreateForPortal(WebTreeScopeType,
+                                             WebRemoteFrameClient*,
+                                             const WebElement& portal_element);
 
   WebRemoteFrameImpl(WebTreeScopeType, WebRemoteFrameClient*);
   ~WebRemoteFrameImpl() override;
@@ -48,19 +51,17 @@ class CORE_EXPORT WebRemoteFrameImpl final
   // WebRemoteFrame methods:
   WebLocalFrame* CreateLocalChild(WebTreeScopeType,
                                   const WebString& name,
-                                  WebSandboxFlags,
+                                  const FramePolicy&,
                                   WebLocalFrameClient*,
                                   blink::InterfaceRegistry*,
                                   mojo::ScopedMessagePipeHandle,
                                   WebFrame* previous_sibling,
-                                  const ParsedFeaturePolicy&,
                                   const WebFrameOwnerProperties&,
                                   FrameOwnerElementType,
                                   WebFrame* opener) override;
   WebRemoteFrame* CreateRemoteChild(WebTreeScopeType,
                                     const WebString& name,
-                                    WebSandboxFlags,
-                                    const ParsedFeaturePolicy&,
+                                    const FramePolicy&,
                                     FrameOwnerElementType,
                                     WebRemoteFrameClient*,
                                     WebFrame* opener) override;
@@ -72,34 +73,39 @@ class CORE_EXPORT WebRemoteFrameImpl final
       bool is_potentially_trustworthy_opaque_origin) override;
   void SetReplicatedSandboxFlags(WebSandboxFlags) override;
   void SetReplicatedName(const WebString&) override;
-  void SetReplicatedFeaturePolicyHeader(
-      const ParsedFeaturePolicy& parsed_header) override;
+  void SetReplicatedFeaturePolicyHeaderAndOpenerPolicies(
+      const ParsedFeaturePolicy& parsed_header,
+      const FeaturePolicy::FeatureState&) override;
   void AddReplicatedContentSecurityPolicyHeader(
       const WebString& header_value,
       mojom::ContentSecurityPolicyType,
       WebContentSecurityPolicySource) override;
   void ResetReplicatedContentSecurityPolicy() override;
   void SetReplicatedInsecureRequestPolicy(WebInsecureRequestPolicy) override;
-  void SetReplicatedInsecureNavigationsSet(
-      const std::vector<unsigned>&) override;
+  void SetReplicatedInsecureNavigationsSet(const WebVector<unsigned>&) override;
   void ForwardResourceTimingToParent(const WebResourceTimingInfo&) override;
   void DispatchLoadEventForFrameOwner() override;
+  void SetNeedsOcclusionTracking(bool) override;
   void DidStartLoading() override;
   void DidStopLoading() override;
   bool IsIgnoredForHitTest() const override;
   void WillEnterFullscreen() override;
   void UpdateUserActivationState(UserActivationUpdateType) override;
+  void TransferUserActivationFrom(blink::WebRemoteFrame* source_frame) override;
   void ScrollRectToVisible(const WebRect&,
                            const WebScrollIntoViewParams&) override;
   void BubbleLogicalScroll(WebScrollDirection direction,
-                           WebScrollGranularity granularity) override;
+                           ScrollGranularity granularity) override;
   void IntrinsicSizingInfoChanged(const WebIntrinsicSizingInfo&) override;
   void SetHasReceivedUserGestureBeforeNavigation(bool value) override;
   v8::Local<v8::Object> GlobalProxy() const override;
   WebRect GetCompositingRect() override;
   void RenderFallbackContent() const override;
 
-  void InitializeCoreFrame(Page&, FrameOwner*, const AtomicString& name);
+  void InitializeCoreFrame(Page&,
+                           FrameOwner*,
+                           const AtomicString& name,
+                           WindowAgentFactory*);
   RemoteFrame* GetFrame() const { return frame_.Get(); }
 
   WebRemoteFrameClient* Client() const { return client_; }

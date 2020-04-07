@@ -20,6 +20,7 @@ static_library("test_config") {
   ]
   deps = [
     "//base",
+    "//base:clang_coverage_buildflags",
   ]
 }
 
@@ -30,10 +31,10 @@ static_library("test_support") {
     "../memory/fake_memory_pressure_monitor.h",
     "../task/sequence_manager/test/fake_task.cc",
     "../task/sequence_manager/test/fake_task.h",
-    "../task/sequence_manager/test/lazy_thread_controller_for_test.cc",
-    "../task/sequence_manager/test/lazy_thread_controller_for_test.h",
     "../task/sequence_manager/test/mock_time_domain.cc",
     "../task/sequence_manager/test/mock_time_domain.h",
+    "../task/sequence_manager/test/mock_time_message_pump.cc",
+    "../task/sequence_manager/test/mock_time_message_pump.h",
     "../task/sequence_manager/test/sequence_manager_for_test.cc",
     "../task/sequence_manager/test/sequence_manager_for_test.h",
     "../task/sequence_manager/test/test_task_queue.cc",
@@ -48,8 +49,11 @@ static_library("test_support") {
     "android/url_utils.h",
     "bind_test_util.cc",
     "bind_test_util.h",
+    "copy_only_int.cc",
     "copy_only_int.h",
-    "fuzzed_data_provider.h",
+    "do_nothing_promise.cc",
+    "do_nothing_promise.h",
+    "gmock_callback_support.h",
     "gtest_util.cc",
     "gtest_util.h",
     "gtest_xml_unittest_result_printer.cc",
@@ -92,6 +96,7 @@ static_library("test_support") {
     "perf_time_logger.h",
     "power_monitor_test_base.cc",
     "power_monitor_test_base.h",
+    "reached_code_profiler_android.cc",
     "scoped_command_line.cc",
     "scoped_command_line.h",
     "scoped_environment_variable_override.cc",
@@ -116,7 +121,6 @@ static_library("test_support") {
     "simple_test_tick_clock.h",
     "task_runner_test_template.cc",
     "task_runner_test_template.h",
-    "task_scheduler_test_helpers_android.cc",
     "test_discardable_memory_allocator.cc",
     "test_discardable_memory_allocator.h",
     "test_file_util.cc",
@@ -149,6 +153,7 @@ static_library("test_support") {
     "test_support_android.h",
     "test_support_ios.h",
     "test_support_ios.mm",
+    "thread_pool_test_helpers_android.cc",
     "thread_test_helper.cc",
     "thread_test_helper.h",
     "trace_event_analyzer.cc",
@@ -344,6 +349,31 @@ source_set("native_library_test_utils") {
   ]
 }
 
+# This shared library is dynamically loaded by ImmediateCrash unittests.
+shared_library("immediate_crash_test_helper") {
+  sources = [
+    "immediate_crash_test_helper.cc",
+  ]
+
+  # Note: the helper has a header-only dependency on //base/immediate_helper.h.
+  # However, the build rule intentionally omits an explicit //base dependency
+  # to avoid potential ODR violations and minimize the amount of code linked in.
+
+  # Try to minimize the risk of non-official builds generating different code.
+  if (!is_official_build) {
+    configs -= [ "//build/config/compiler:default_optimization" ]
+    configs += [ "//build/config/compiler:optimize_max" ]
+  }
+
+  # Disable sanitization: sanitized builds are assumed to be saner than normal,
+  # and can affect codegen in surprising ways, which breaks the tests.
+  configs -= [ "//build/config/sanitizers:default_sanitizer_flags" ]
+
+  if (is_android) {
+    configs -= [ "//build/config/android:hide_all_but_jni_onload" ]
+  }
+}
+
 # This shared library is dynamically loaded by NativeLibrary unittests.
 shared_library("test_shared_library") {
   testonly = true
@@ -375,9 +405,21 @@ if (is_linux) {
       "fontconfig_util_linux.cc",
       "fontconfig_util_linux.h",
     ]
+    data_deps = [
+      ":fonts_conf",
+    ]
     deps = [
       "//base",
       "//third_party/fontconfig",
+    ]
+  }
+
+  copy("fonts_conf") {
+    sources = [
+      "fonts.conf",
+    ]
+    outputs = [
+      "${root_build_dir}/etc/fonts/{{source_file_part}}",
     ]
   }
 
@@ -409,7 +451,9 @@ if (is_linux) {
       ]
     }
   }
+}
 
+if (is_fuchsia || is_linux) {
   shared_library("malloc_wrapper") {
     testonly = true
     sources = [
@@ -427,17 +471,16 @@ if (is_android) {
       "android/java/src/org/chromium/base/ContentUriTestUtils.java",
       "android/java/src/org/chromium/base/JavaHandlerThreadHelpers.java",
     ]
-    jni_package = "base"
   }
 
   generate_jni("test_support_jni_headers") {
     sources = [
       "android/java/src/org/chromium/base/MainReturnCodeResult.java",
       "android/java/src/org/chromium/base/MultiprocessTestClientLauncher.java",
-      "android/javatests/src/org/chromium/base/test/task/TaskSchedulerTestHelpers.java",
+      "android/javatests/src/org/chromium/base/test/ReachedCodeProfiler.java",
+      "android/javatests/src/org/chromium/base/test/task/ThreadPoolTestHelpers.java",
       "android/javatests/src/org/chromium/base/test/util/UrlUtils.java",
     ]
-    jni_package = "base"
   }
 
   android_library("test_support_java") {
@@ -446,11 +489,12 @@ if (is_android) {
       "//base:base_java",
       "//base:base_java_test_support",
       "//testing/android/native_test:native_main_runner_java",
-      "//third_party/android_deps:android_support_annotations_java",
+      "//third_party/android_deps:com_android_support_support_annotations_java",
       "//third_party/jsr-305:jsr_305_javalib",
     ]
     srcjar_deps = [ ":test_support_java_aidl" ]
     java_files = [
+      "android/java/src/org/chromium/base/GarbageCollectionTestUtils.java",
       "android/java/src/org/chromium/base/MainReturnCodeResult.java",
       "android/java/src/org/chromium/base/MultiprocessTestClientLauncher.java",
       "android/java/src/org/chromium/base/MultiprocessTestClientService.java",

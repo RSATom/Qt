@@ -5,26 +5,27 @@
  * found in the LICENSE file.
  */
 
-#include "SkImage_Lazy.h"
+#include "src/image/SkImage_Lazy.h"
 
-#include "SkBitmap.h"
-#include "SkBitmapCache.h"
-#include "SkCachedData.h"
-#include "SkData.h"
-#include "SkImageGenerator.h"
-#include "SkImagePriv.h"
-#include "SkNextID.h"
+#include "include/core/SkBitmap.h"
+#include "include/core/SkData.h"
+#include "include/core/SkImageGenerator.h"
+#include "src/core/SkBitmapCache.h"
+#include "src/core/SkCachedData.h"
+#include "src/core/SkImagePriv.h"
+#include "src/core/SkNextID.h"
 
 #if SK_SUPPORT_GPU
-#include "GrContext.h"
-#include "GrContextPriv.h"
-#include "GrGpuResourcePriv.h"
-#include "GrImageTextureMaker.h"
-#include "GrResourceKey.h"
-#include "GrProxyProvider.h"
-#include "GrSamplerState.h"
-#include "GrYUVProvider.h"
-#include "SkGr.h"
+#include "include/gpu/GrSamplerState.h"
+#include "include/private/GrRecordingContext.h"
+#include "include/private/GrResourceKey.h"
+#include "src/gpu/GrCaps.h"
+#include "src/gpu/GrGpuResourcePriv.h"
+#include "src/gpu/GrImageTextureMaker.h"
+#include "src/gpu/GrProxyProvider.h"
+#include "src/gpu/GrRecordingContextPriv.h"
+#include "src/gpu/GrYUVProvider.h"
+#include "src/gpu/SkGr.h"
 #endif
 
 // Ref-counted tuple(SkImageGenerator, SkMutex) which allows sharing one generator among N images
@@ -116,15 +117,14 @@ public:
 
 private:
     const sk_sp<SharedGenerator>& fSharedGenerator;
-    SkAutoExclusive               fAutoAquire;
+    SkAutoMutexExclusive          fAutoAquire;
 };
 
 ///////////////////////////////////////////////////////////////////////////////
 
 SkImage_Lazy::SkImage_Lazy(Validator* validator)
-        : INHERITED(validator->fInfo.width(), validator->fInfo.height(), validator->fUniqueID)
+        : INHERITED(validator->fInfo, validator->fUniqueID)
         , fSharedGenerator(std::move(validator->fSharedGenerator))
-        , fInfo(validator->fInfo)
         , fOrigin(validator->fOrigin) {
     SkASSERT(fSharedGenerator);
     fUniqueID = validator->fUniqueID;
@@ -192,7 +192,7 @@ bool SkImage_Lazy::getROPixels(SkBitmap* bitmap, SkImage::CachingHint chint) con
 
     if (SkImage::kAllow_CachingHint == chint) {
         SkPixmap pmap;
-        SkBitmapCache::RecPtr cacheRec = SkBitmapCache::Alloc(desc, fInfo, &pmap);
+        SkBitmapCache::RecPtr cacheRec = SkBitmapCache::Alloc(desc, this->imageInfo(), &pmap);
         if (!cacheRec ||
             !generate_pixels(ScopedGenerator(fSharedGenerator), pmap,
                              fOrigin.x(), fOrigin.y())) {
@@ -201,9 +201,9 @@ bool SkImage_Lazy::getROPixels(SkBitmap* bitmap, SkImage::CachingHint chint) con
         SkBitmapCache::Add(std::move(cacheRec), bitmap);
         this->notifyAddedToRasterCache();
     } else {
-        if (!bitmap->tryAllocPixels(fInfo) ||
-            !generate_pixels(ScopedGenerator(fSharedGenerator), bitmap->pixmap(),
-                             fOrigin.x(), fOrigin.y())) {
+        if (!bitmap->tryAllocPixels(this->imageInfo()) ||
+            !generate_pixels(ScopedGenerator(fSharedGenerator), bitmap->pixmap(), fOrigin.x(),
+                             fOrigin.y())) {
             return false;
         }
         bitmap->setImmutable();
@@ -237,7 +237,7 @@ bool SkImage_Lazy::onIsValid(GrContext* context) const {
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
 #if SK_SUPPORT_GPU
-sk_sp<GrTextureProxy> SkImage_Lazy::asTextureProxyRef(GrContext* context,
+sk_sp<GrTextureProxy> SkImage_Lazy::asTextureProxyRef(GrRecordingContext* context,
                                                       const GrSamplerState& params,
                                                       SkScalar scaleAdjust[2]) const {
     if (!context) {
@@ -249,26 +249,28 @@ sk_sp<GrTextureProxy> SkImage_Lazy::asTextureProxyRef(GrContext* context,
 }
 #endif
 
-sk_sp<SkImage> SkImage_Lazy::onMakeSubset(const SkIRect& subset) const {
-    SkASSERT(fInfo.bounds().contains(subset));
-    SkASSERT(fInfo.bounds() != subset);
+sk_sp<SkImage> SkImage_Lazy::onMakeSubset(GrRecordingContext* context,
+                                          const SkIRect& subset) const {
+    SkASSERT(this->bounds().contains(subset));
+    SkASSERT(this->bounds() != subset);
 
     const SkIRect generatorSubset = subset.makeOffset(fOrigin.x(), fOrigin.y());
-    const SkColorType colorType = fInfo.colorType();
-    Validator validator(fSharedGenerator, &generatorSubset, &colorType, fInfo.refColorSpace());
+    const SkColorType colorType = this->colorType();
+    Validator validator(fSharedGenerator, &generatorSubset, &colorType, this->refColorSpace());
     return validator ? sk_sp<SkImage>(new SkImage_Lazy(&validator)) : nullptr;
 }
 
-sk_sp<SkImage> SkImage_Lazy::onMakeColorTypeAndColorSpace(SkColorType targetCT,
+sk_sp<SkImage> SkImage_Lazy::onMakeColorTypeAndColorSpace(GrRecordingContext*,
+                                                          SkColorType targetCT,
                                                           sk_sp<SkColorSpace> targetCS) const {
-    SkAutoExclusive autoAquire(fOnMakeColorTypeAndSpaceMutex);
+    SkAutoMutexExclusive autoAquire(fOnMakeColorTypeAndSpaceMutex);
     if (fOnMakeColorTypeAndSpaceResult &&
         targetCT == fOnMakeColorTypeAndSpaceResult->colorType() &&
         SkColorSpace::Equals(targetCS.get(), fOnMakeColorTypeAndSpaceResult->colorSpace())) {
         return fOnMakeColorTypeAndSpaceResult;
     }
     const SkIRect generatorSubset =
-            SkIRect::MakeXYWH(fOrigin.x(), fOrigin.y(), fInfo.width(), fInfo.height());
+            SkIRect::MakeXYWH(fOrigin.x(), fOrigin.y(), this->width(), this->height());
     Validator validator(fSharedGenerator, &generatorSubset, &targetCT, targetCS);
     sk_sp<SkImage> result = validator ? sk_sp<SkImage>(new SkImage_Lazy(&validator)) : nullptr;
     if (result) {
@@ -363,7 +365,7 @@ sk_sp<SkCachedData> SkImage_Lazy::getPlanes(SkYUVASizeInfo* yuvaSizeInfo,
  *  4. Ask the generator to return RGB(A) data, which the GPU can convert
  */
 sk_sp<GrTextureProxy> SkImage_Lazy::lockTextureProxy(
-        GrContext* ctx,
+        GrRecordingContext* ctx,
         const GrUniqueKey& origKey,
         SkImage::CachingHint chint,
         bool willBeMipped,
@@ -389,7 +391,7 @@ sk_sp<GrTextureProxy> SkImage_Lazy::lockTextureProxy(
     GrUniqueKey key;
     this->makeCacheKeyFromOrigKey(origKey, &key);
 
-    GrProxyProvider* proxyProvider = ctx->contextPriv().proxyProvider();
+    GrProxyProvider* proxyProvider = ctx->priv().proxyProvider();
     sk_sp<GrTextureProxy> proxy;
 
     // 1. Check the cache for a pre-existing one
@@ -411,13 +413,13 @@ sk_sp<GrTextureProxy> SkImage_Lazy::lockTextureProxy(
                 SkImageGenerator::TexGenType::kCheap != generator->onCanGenerateTexture()) {
             return nullptr;
         }
-        if ((proxy = generator->generateTexture(ctx, fInfo, fOrigin, willBeMipped))) {
+        if ((proxy = generator->generateTexture(ctx, this->imageInfo(), fOrigin, willBeMipped))) {
             SK_HISTOGRAM_ENUMERATION("LockTexturePath", kNative_LockTexturePath,
                                      kLockTexturePathCount);
             set_key_on_proxy(proxyProvider, proxy.get(), nullptr, key);
             if (!willBeMipped || GrMipMapped::kYes == proxy->mipMapped()) {
                 *fUniqueKeyInvalidatedMessages.append() =
-                        new GrUniqueKeyInvalidatedMessage(key, ctx->uniqueID());
+                        new GrUniqueKeyInvalidatedMessage(key, ctx->priv().contextID());
                 return proxy;
             }
         }
@@ -425,12 +427,10 @@ sk_sp<GrTextureProxy> SkImage_Lazy::lockTextureProxy(
 
     // 3. Ask the generator to return YUV planes, which the GPU can convert. If we will be mipping
     //    the texture we fall through here and have the CPU generate the mip maps for us.
-    if (!proxy && !willBeMipped && !ctx->contextPriv().disableGpuYUVConversion()) {
-        const GrSurfaceDesc desc = GrImageInfoToSurfaceDesc(fInfo);
+    if (!proxy && !willBeMipped && !ctx->priv().options().fDisableGpuYUVConversion) {
+        const GrSurfaceDesc desc = GrImageInfoToSurfaceDesc(this->imageInfo());
 
-        SkColorType colorType = fInfo.colorType();
-        GrBackendFormat format =
-                ctx->contextPriv().caps()->getBackendFormatFromColorType(colorType);
+        SkColorType colorType = this->colorType();
 
         ScopedGenerator generator(fSharedGenerator);
         Generator_GrYUVProvider provider(generator);
@@ -440,17 +440,18 @@ sk_sp<GrTextureProxy> SkImage_Lazy::lockTextureProxy(
         // color space. To correct this, apply a color space conversion from the generator's color
         // space to this image's color space.
         SkColorSpace* generatorColorSpace = fSharedGenerator->fGenerator->getInfo().colorSpace();
-        SkColorSpace* thisColorSpace = fInfo.colorSpace();
+        SkColorSpace* thisColorSpace = this->colorSpace();
 
         // TODO: Update to create the mipped surface in the YUV generator and draw the base
         // layer directly into the mipped surface.
-        proxy = provider.refAsTextureProxy(ctx, format, desc, generatorColorSpace, thisColorSpace);
+        proxy = provider.refAsTextureProxy(ctx, desc, SkColorTypeToGrColorType(colorType),
+                                           generatorColorSpace, thisColorSpace);
         if (proxy) {
             SK_HISTOGRAM_ENUMERATION("LockTexturePath", kYUV_LockTexturePath,
                                      kLockTexturePathCount);
             set_key_on_proxy(proxyProvider, proxy.get(), nullptr, key);
             *fUniqueKeyInvalidatedMessages.append() =
-                    new GrUniqueKeyInvalidatedMessage(key, ctx->uniqueID());
+                    new GrUniqueKeyInvalidatedMessage(key, ctx->priv().contextID());
             return proxy;
         }
     }
@@ -458,18 +459,14 @@ sk_sp<GrTextureProxy> SkImage_Lazy::lockTextureProxy(
     // 4. Ask the generator to return RGB(A) data, which the GPU can convert
     SkBitmap bitmap;
     if (!proxy && this->getROPixels(&bitmap, chint)) {
-        if (willBeMipped) {
-            proxy = proxyProvider->createMipMapProxyFromBitmap(bitmap);
-        }
-        if (!proxy) {
-            proxy = GrUploadBitmapToTextureProxy(proxyProvider, bitmap);
-        }
+        proxy = proxyProvider->createProxyFromBitmap(bitmap, willBeMipped ? GrMipMapped::kYes
+                                                                          : GrMipMapped::kNo);
         if (proxy && (!willBeMipped || GrMipMapped::kYes == proxy->mipMapped())) {
             SK_HISTOGRAM_ENUMERATION("LockTexturePath", kRGBA_LockTexturePath,
                                      kLockTexturePathCount);
             set_key_on_proxy(proxyProvider, proxy.get(), nullptr, key);
             *fUniqueKeyInvalidatedMessages.append() =
-                    new GrUniqueKeyInvalidatedMessage(key, ctx->uniqueID());
+                    new GrUniqueKeyInvalidatedMessage(key, ctx->priv().contextID());
             return proxy;
         }
     }
@@ -482,7 +479,7 @@ sk_sp<GrTextureProxy> SkImage_Lazy::lockTextureProxy(
         SkASSERT(willBeMipped);
         SkASSERT(GrMipMapped::kNo == proxy->mipMapped());
         *fUniqueKeyInvalidatedMessages.append() =
-                new GrUniqueKeyInvalidatedMessage(key, ctx->uniqueID());
+                new GrUniqueKeyInvalidatedMessage(key, ctx->priv().contextID());
         if (auto mippedProxy = GrCopyBaseMipMapToTextureProxy(ctx, proxy.get())) {
             set_key_on_proxy(proxyProvider, mippedProxy.get(), proxy.get(), key);
             return mippedProxy;

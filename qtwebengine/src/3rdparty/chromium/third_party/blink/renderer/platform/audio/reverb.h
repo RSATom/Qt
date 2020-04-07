@@ -30,9 +30,10 @@
 #define THIRD_PARTY_BLINK_RENDERER_PLATFORM_AUDIO_REVERB_H_
 
 #include <memory>
+
+#include "base/macros.h"
 #include "third_party/blink/renderer/platform/audio/reverb_convolver.h"
-#include "third_party/blink/renderer/platform/wtf/allocator.h"
-#include "third_party/blink/renderer/platform/wtf/noncopyable.h"
+#include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 #include "third_party/blink/renderer/platform/wtf/vector.h"
 
 namespace blink {
@@ -44,7 +45,6 @@ class AudioBus;
 
 class PLATFORM_EXPORT Reverb {
   USING_FAST_MALLOC(Reverb);
-  WTF_MAKE_NONCOPYABLE(Reverb);
 
  public:
   enum { kMaxFrameSize = 256 };
@@ -69,7 +69,8 @@ class PLATFORM_EXPORT Reverb {
   void Initialize(AudioBus* impulse_response_buffer,
                   size_t render_slice_size,
                   size_t max_fft_size,
-                  bool use_background_threads);
+                  bool use_background_threads,
+                  float scale);
 
   size_t impulse_response_length_;
   // The actual number of channels in the response.  This can be less
@@ -80,6 +81,8 @@ class PLATFORM_EXPORT Reverb {
 
   // For "True" stereo processing
   scoped_refptr<AudioBus> temp_buffer_;
+
+  DISALLOW_COPY_AND_ASSIGN(Reverb);
 };
 
 }  // namespace blink

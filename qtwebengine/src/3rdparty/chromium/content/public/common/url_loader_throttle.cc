@@ -9,6 +9,8 @@
 namespace content {
 
 void URLLoaderThrottle::Delegate::SetPriority(net::RequestPriority priority) {}
+void URLLoaderThrottle::Delegate::UpdateDeferredRequestHeaders(
+    const net::HttpRequestHeaders& modified_request_headers) {}
 void URLLoaderThrottle::Delegate::UpdateDeferredResponseHead(
     const network::ResourceResponseHead& new_response_head) {}
 void URLLoaderThrottle::Delegate::PauseReadingBodyFromNet() {}
@@ -57,6 +59,10 @@ void URLLoaderThrottle::BeforeWillProcessResponse(
 void URLLoaderThrottle::WillOnCompleteWithError(
     const network::URLLoaderCompletionStatus& status,
     bool* defer) {}
+
+bool URLLoaderThrottle::makes_unsafe_redirect() {
+  return false;
+}
 
 URLLoaderThrottle::URLLoaderThrottle() {}
 

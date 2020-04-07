@@ -7,11 +7,15 @@
 #include <memory>
 #include <string>
 #include <utility>
+#include <vector>
 
+#include "base/bind_helpers.h"
 #include "base/json/json_reader.h"
+#include "base/strings/utf_string_conversions.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "base/test/simple_test_clock.h"
 #include "base/values.h"
+#include "build/build_config.h"
 #include "chrome/browser/browsing_data/browsing_data_flash_lso_helper.h"
 #include "chrome/browser/browsing_data/mock_browsing_data_cookie_helper.h"
 #include "chrome/browser/browsing_data/mock_browsing_data_local_storage_helper.h"
@@ -19,10 +23,12 @@
 #include "chrome/browser/content_settings/host_content_settings_map_factory.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/extensions/test_extension_system.h"
+#include "chrome/browser/history/history_service_factory.h"
 #include "chrome/browser/infobars/infobar_service.h"
 #include "chrome/browser/permissions/chooser_context_base.h"
 #include "chrome/browser/permissions/chooser_context_base_mock_permission_observer.h"
 #include "chrome/browser/permissions/permission_decision_auto_blocker.h"
+#include "chrome/browser/permissions/permission_uma_util.h"
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/webui/site_settings_helper.h"
@@ -35,18 +41,21 @@
 #include "components/content_settings/core/common/content_settings.h"
 #include "components/content_settings/core/common/content_settings_types.h"
 #include "components/content_settings/core/common/pref_names.h"
+#include "components/history/core/browser/history_service.h"
 #include "components/infobars/core/infobar.h"
 #include "components/sync_preferences/testing_pref_service_syncable.h"
+#include "components/ukm/test_ukm_recorder.h"
 #include "content/public/browser/navigation_controller.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/web_ui_data_source.h"
 #include "content/public/test/test_browser_thread_bundle.h"
 #include "content/public/test/test_web_ui.h"
-#include "device/usb/public/cpp/fake_usb_device_manager.h"
 #include "extensions/browser/extension_registry.h"
 #include "extensions/common/extension_builder.h"
 #include "ppapi/buildflags/buildflags.h"
+#include "services/device/public/cpp/test/fake_usb_device_manager.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "ui/base/text/bytes_formatting.h"
 
 #if defined(OS_CHROMEOS)
 #include "chrome/browser/chromeos/login/users/mock_user_manager.h"
@@ -177,6 +186,7 @@ class SiteSettingsHandlerTest : public testing::Test {
   }
 
   TestingProfile* profile() { return &profile_; }
+  TestingProfile* incognito_profile() { return incognito_profile_; }
   content::TestWebUI* web_ui() { return &web_ui_; }
   SiteSettingsHandler* handler() { return &handler_; }
 
@@ -267,8 +277,8 @@ class SiteSettingsHandlerTest : public testing::Test {
     ASSERT_TRUE(
         exception->GetString(site_settings::kDisplayName, &display_name));
     ASSERT_EQ(expected_display_name, display_name);
-    ASSERT_TRUE(exception->GetString(
-        site_settings::kEmbeddingOrigin, &embedding_origin));
+    ASSERT_TRUE(exception->GetString(site_settings::kEmbeddingOrigin,
+                                     &embedding_origin));
     ASSERT_EQ(expected_embedding, embedding_origin);
     ASSERT_TRUE(exception->GetString(site_settings::kSetting, &setting));
     ASSERT_EQ(content_settings::ContentSettingToString(expected_setting),
@@ -325,8 +335,8 @@ class SiteSettingsHandlerTest : public testing::Test {
     EXPECT_EQ(expected_reason, reason);
   }
 
-  void ValidateIncognitoExists(
-      bool expected_incognito, size_t expected_total_calls) {
+  void ValidateIncognitoExists(bool expected_incognito,
+                               size_t expected_total_calls) {
     EXPECT_EQ(expected_total_calls, web_ui()->call_data().size());
 
     const content::TestWebUI::CallData& data = *web_ui()->call_data().back();
@@ -342,7 +352,8 @@ class SiteSettingsHandlerTest : public testing::Test {
   }
 
   void ValidateZoom(const std::string& expected_host,
-      const std::string& expected_zoom, size_t expected_total_calls) {
+                    const std::string& expected_zoom,
+                    size_t expected_total_calls) {
     EXPECT_EQ(expected_total_calls, web_ui()->call_data().size());
 
     const content::TestWebUI::CallData& data = *web_ui()->call_data().back();
@@ -376,7 +387,7 @@ class SiteSettingsHandlerTest : public testing::Test {
     incognito_profile_ = TestingProfile::Builder().BuildIncognito(&profile_);
   }
 
-  void DestroyIncognitoProfile() {
+  virtual void DestroyIncognitoProfile() {
     content::NotificationService::current()->Notify(
         chrome::NOTIFICATION_PROFILE_DESTROYED,
         content::Source<Profile>(static_cast<Profile*>(incognito_profile_)),
@@ -416,10 +427,10 @@ class SiteSettingsHandlerTest : public testing::Test {
         std::move(container), profile()->GetExtensionSpecialStoragePolicy());
 
     mock_browsing_data_local_storage_helper->AddLocalStorageForOrigin(
-        GURL("https://www.example.com/"), 2);
+        url::Origin::Create(GURL("https://www.example.com/")), 2);
 
     mock_browsing_data_local_storage_helper->AddLocalStorageForOrigin(
-        GURL("https://www.google.com/"), 5);
+        url::Origin::Create(GURL("https://www.google.com/")), 50000000000);
     mock_browsing_data_local_storage_helper->Notify();
 
     mock_browsing_data_cookie_helper->AddCookieSamples(
@@ -491,7 +502,13 @@ TEST_F(SiteSettingsHandlerTest, GetAndSetDefault) {
                   site_settings::SiteSettingSource::kDefault, 3U);
 }
 
-TEST_F(SiteSettingsHandlerTest, GetAllSites) {
+// Flaky on CrOS and Linux. https://crbug.com/930481
+#if defined(OS_CHROMEOS) || defined(OS_LINUX)
+#define MAYBE_GetAllSites DISABLED_GetAllSites
+#else
+#define MAYBE_GetAllSites GetAllSites
+#endif
+TEST_F(SiteSettingsHandlerTest, MAYBE_GetAllSites) {
   base::ListValue get_all_sites_args;
   get_all_sites_args.AppendString(kCallbackId);
   base::Value category_list(base::Value::Type::LIST);
@@ -750,7 +767,7 @@ TEST_F(SiteSettingsHandlerTest, OnStorageFetched) {
   EXPECT_EQ("https://www.google.com/",
             origin_info->FindKey("origin")->GetString());
   EXPECT_EQ(0, origin_info->FindKey("engagement")->GetDouble());
-  EXPECT_EQ(5, origin_info->FindKey("usage")->GetDouble());
+  EXPECT_EQ(50000000000, origin_info->FindKey("usage")->GetDouble());
   EXPECT_EQ(0, origin_info->FindKey("numCookies")->GetDouble());
 
   ASSERT_TRUE(storage_and_cookie_list->GetDictionary(2, &site_group));
@@ -768,7 +785,7 @@ TEST_F(SiteSettingsHandlerTest, OnStorageFetched) {
             origin_info->FindKey("origin")->GetString());
   EXPECT_EQ(0, origin_info->FindKey("engagement")->GetDouble());
   EXPECT_EQ(0, origin_info->FindKey("usage")->GetDouble());
-  EXPECT_EQ(0, origin_info->FindKey("numCookies")->GetDouble());
+  EXPECT_EQ(1, origin_info->FindKey("numCookies")->GetDouble());
 }
 
 TEST_F(SiteSettingsHandlerTest, Origins) {
@@ -822,7 +839,63 @@ TEST_F(SiteSettingsHandlerTest, Origins) {
   ValidateNoOrigin(4U);
 }
 
+TEST_F(SiteSettingsHandlerTest, NotificationPermissionRevokeUkm) {
+  const std::string google("https://www.google.com");
+  ukm::TestAutoSetUkmRecorder ukm_recorder;
+  ASSERT_TRUE(profile()->CreateHistoryService(/* delete_file= */ true,
+                                              /* no_db= */ false));
+  auto* history_service = HistoryServiceFactory::GetForProfile(
+      profile(), ServiceAccessType::EXPLICIT_ACCESS);
+  history_service->AddPage(GURL(google), base::Time::Now(),
+                           history::SOURCE_BROWSED);
+  base::RunLoop origin_queried_waiter;
+  history_service->set_origin_queried_closure_for_testing(
+      origin_queried_waiter.QuitClosure());
+
+  {
+    base::ListValue set_notification_origin_args;
+    set_notification_origin_args.AppendString(google);
+    set_notification_origin_args.AppendString(google);
+    set_notification_origin_args.AppendString(kNotifications);
+    set_notification_origin_args.AppendString(
+        content_settings::ContentSettingToString(CONTENT_SETTING_ALLOW));
+    set_notification_origin_args.AppendBoolean(false /* incognito */);
+    handler()->HandleSetCategoryPermissionForPattern(
+        &set_notification_origin_args);
+  }
+
+  {
+    base::ListValue set_notification_origin_args;
+    set_notification_origin_args.AppendString(google);
+    set_notification_origin_args.AppendString(google);
+    set_notification_origin_args.AppendString(kNotifications);
+    set_notification_origin_args.AppendString(
+        content_settings::ContentSettingToString(CONTENT_SETTING_BLOCK));
+    set_notification_origin_args.AppendBoolean(false /* incognito */);
+    handler()->HandleSetCategoryPermissionForPattern(
+        &set_notification_origin_args);
+  }
+
+  origin_queried_waiter.Run();
+
+  auto entries = ukm_recorder.GetEntriesByName("Permission");
+  EXPECT_EQ(1u, entries.size());
+  auto* entry = entries.front();
+
+  ukm_recorder.ExpectEntrySourceHasUrl(entry, GURL(google));
+  EXPECT_EQ(*ukm_recorder.GetEntryMetric(entry, "Source"),
+            static_cast<int64_t>(PermissionSourceUI::SITE_SETTINGS));
+  EXPECT_EQ(*ukm_recorder.GetEntryMetric(entry, "PermissionType"),
+            static_cast<int64_t>(
+                ContentSettingsType::CONTENT_SETTINGS_TYPE_NOTIFICATIONS));
+  EXPECT_EQ(*ukm_recorder.GetEntryMetric(entry, "Action"),
+            static_cast<int64_t>(PermissionAction::REVOKED));
+}
+
 TEST_F(SiteSettingsHandlerTest, DefaultSettingSource) {
+  ASSERT_TRUE(profile()->CreateHistoryService(/* delete_file= */ true,
+                                              /* no_db= */ false));
+
   // Use a non-default port to verify the display name does not strip this off.
   const std::string google("https://www.google.com:183");
   ContentSettingSourceSetter source_setter(profile(),
@@ -1061,8 +1134,8 @@ TEST_F(SiteSettingsHandlerTest, ExceptionHelpers) {
                   .Build();
 
   std::unique_ptr<base::ListValue> exceptions(new base::ListValue);
-  site_settings::AddExceptionForHostedApp(
-      "[*.]google.com", *extension.get(), exceptions.get());
+  site_settings::AddExceptionForHostedApp("[*.]google.com", *extension.get(),
+                                          exceptions.get());
 
   const base::DictionaryValue* dictionary;
   CHECK(exceptions->GetDictionary(0, &dictionary));
@@ -1167,9 +1240,9 @@ class SiteSettingsHandlerInfobarTest : public BrowserWithTestWindowTest {
     handler()->AllowJavascript();
     web_ui()->ClearTrackedCalls();
 
-    window2_ = base::WrapUnique(CreateBrowserWindow());
-    browser2_ = base::WrapUnique(
-        CreateBrowser(profile(), browser()->type(), false, window2_.get()));
+    window2_ = CreateBrowserWindow();
+    browser2_ =
+        CreateBrowser(profile(), browser()->type(), false, window2_.get());
 
     extensions::TestExtensionSystem* extension_system =
         static_cast<extensions::TestExtensionSystem*>(
@@ -1433,9 +1506,9 @@ TEST_F(SiteSettingsHandlerTest, BlockAutoplay_Update) {
 
 namespace {
 
-const GURL kAndroidOrigin("https://android.com");
-const GURL kChromiumOrigin("https://chromium.org");
-const GURL kGoogleOrigin("https://google.com");
+const GURL kAndroidUrl("https://android.com");
+const GURL kChromiumUrl("https://chromium.org");
+const GURL kGoogleUrl("https://google.com");
 
 constexpr char kUsbPolicySetting[] = R"(
     [
@@ -1495,6 +1568,10 @@ class SiteSettingsHandlerChooserExceptionTest : public SiteSettingsHandlerTest {
         base::DoNothing::Once<std::vector<device::mojom::UsbDeviceInfoPtr>>());
     base::RunLoop().RunUntilIdle();
 
+    const auto kAndroidOrigin = url::Origin::Create(kAndroidUrl);
+    const auto kChromiumOrigin = url::Origin::Create(kChromiumUrl);
+    const auto kGoogleOrigin = url::Origin::Create(kGoogleUrl);
+
     // Add the user granted permissions for testing.
     // These two persistent device permissions should be lumped together with
     // the policy permissions, since they apply to the same device and URL.
@@ -1510,13 +1587,44 @@ class SiteSettingsHandlerChooserExceptionTest : public SiteSettingsHandlerTest {
                                            *user_granted_device_info_);
 
     // Add the policy granted permissions for testing.
-    auto policy_value = base::JSONReader::Read(kUsbPolicySetting);
+    auto policy_value = base::JSONReader::ReadDeprecated(kUsbPolicySetting);
     DCHECK(policy_value);
     profile()->GetPrefs()->Set(prefs::kManagedWebUsbAllowDevicesForUrls,
                                *policy_value);
 
     // Add the observer for permission changes.
     chooser_context->ChooserContextBase::AddObserver(&observer_);
+  }
+
+  void SetUpOffTheRecordUsbChooserContext() {
+    off_the_record_device_ = device_manager_.CreateAndAddDevice(
+        6353, 8765, "Google", "Contraption", "A9B8C7");
+
+    CreateIncognitoProfile();
+    auto* chooser_context =
+        UsbChooserContextFactory::GetForProfile(incognito_profile());
+    device::mojom::UsbDeviceManagerPtr device_manager_ptr;
+    device_manager_.AddBinding(mojo::MakeRequest(&device_manager_ptr));
+    chooser_context->SetDeviceManagerForTesting(std::move(device_manager_ptr));
+    chooser_context->GetDevices(
+        base::DoNothing::Once<std::vector<device::mojom::UsbDeviceInfoPtr>>());
+    base::RunLoop().RunUntilIdle();
+
+    const auto kAndroidOrigin = url::Origin::Create(kAndroidUrl);
+    const auto kChromiumOrigin = url::Origin::Create(kChromiumUrl);
+    chooser_context->GrantDevicePermission(kChromiumOrigin, kAndroidOrigin,
+                                           *off_the_record_device_);
+
+    // Add the observer for permission changes.
+    chooser_context->ChooserContextBase::AddObserver(&observer_);
+  }
+
+  void DestroyIncognitoProfile() override {
+    auto* chooser_context =
+        UsbChooserContextFactory::GetForProfile(incognito_profile());
+    chooser_context->ChooserContextBase::RemoveObserver(&observer_);
+
+    SiteSettingsHandlerTest::DestroyIncognitoProfile();
   }
 
   // Call SiteSettingsHandler::HandleGetChooserExceptionList for |chooser_type|
@@ -1559,15 +1667,22 @@ class SiteSettingsHandlerChooserExceptionTest : public SiteSettingsHandlerTest {
       const base::Value& exception,
       const std::string& requesting_origin,
       const std::string& embedding_origin) {
-    const base::Value* site_value = exception.FindKey(site_settings::kSites);
-    for (const auto& site : site_value->GetList()) {
-      const base::Value* origin_value = site.FindKey(site_settings::kOrigin);
-      if (origin_value->GetString() != requesting_origin)
+    const base::Value* sites = exception.FindListKey(site_settings::kSites);
+    if (!sites)
+      return false;
+
+    for (const auto& site : sites->GetList()) {
+      const std::string* origin = site.FindStringKey(site_settings::kOrigin);
+      if (!origin)
+        continue;
+      if (*origin != requesting_origin)
         continue;
 
-      const base::Value* embedding_origin_value =
-          site.FindKey(site_settings::kEmbeddingOrigin);
-      if (embedding_origin_value->GetString() == embedding_origin)
+      const std::string* exception_embedding_origin =
+          site.FindStringKey(site_settings::kEmbeddingOrigin);
+      if (!exception_embedding_origin)
+        continue;
+      if (*exception_embedding_origin == embedding_origin)
         return true;
     }
     return false;
@@ -1577,14 +1692,20 @@ class SiteSettingsHandlerChooserExceptionTest : public SiteSettingsHandlerTest {
   // chooser exception with |display_name| that contains a site exception for
   // |requesting_origin| and |embedding_origin|.
   bool ChooserExceptionContainsSiteException(
-      const base::Value& exception_list,
+      const base::Value& exceptions,
       const std::string& display_name,
       const std::string& requesting_origin,
       const std::string& embedding_origin) {
-    for (const auto& exception : exception_list.GetList()) {
-      const base::Value* display_name_value =
-          exception.FindKey(site_settings::kDisplayName);
-      if (display_name_value->GetString() == display_name) {
+    if (!exceptions.is_list())
+      return false;
+
+    for (const auto& exception : exceptions.GetList()) {
+      const std::string* exception_display_name =
+          exception.FindStringKey(site_settings::kDisplayName);
+      if (!exception_display_name)
+        continue;
+
+      if (*exception_display_name == display_name) {
         return ChooserExceptionContainsSiteException(
             exception, requesting_origin, embedding_origin);
       }
@@ -1592,8 +1713,9 @@ class SiteSettingsHandlerChooserExceptionTest : public SiteSettingsHandlerTest {
     return false;
   }
 
-  device::mojom::UsbDeviceInfoPtr persistent_device_info_;
   device::mojom::UsbDeviceInfoPtr ephemeral_device_info_;
+  device::mojom::UsbDeviceInfoPtr off_the_record_device_;
+  device::mojom::UsbDeviceInfoPtr persistent_device_info_;
   device::mojom::UsbDeviceInfoPtr user_granted_device_info_;
 
   MockPermissionObserver observer_;
@@ -1614,12 +1736,50 @@ TEST_F(SiteSettingsHandlerChooserExceptionTest,
 }
 
 TEST_F(SiteSettingsHandlerChooserExceptionTest,
+       HandleGetChooserExceptionListForUsbOffTheRecord) {
+  const std::string kUsbChooserGroupName =
+      site_settings::ContentSettingsTypeToGroupName(
+          CONTENT_SETTINGS_TYPE_USB_CHOOSER_DATA);
+  SetUpOffTheRecordUsbChooserContext();
+  web_ui()->ClearTrackedCalls();
+
+  // The objects returned by GetChooserExceptionListFromProfile should also
+  // include the incognito permissions. The two extra objects represent the
+  // "Widget" device and the policy permission for "Unknown product 0x162E from
+  // Google Inc.". The policy granted permission shows up here because the off
+  // the record profile does not have a user granted permission for the
+  // |persistent_device_info_|, so it cannot use the name of that device.
+  {
+    const base::Value& exceptions = GetChooserExceptionListFromWebUiCallData(
+        kUsbChooserGroupName, /*expected_total_calls=*/1u);
+    EXPECT_EQ(exceptions.GetList().size(), 7u);
+    for (const auto& exception : exceptions.GetList()) {
+      LOG(INFO) << exception.FindKey(site_settings::kDisplayName)->GetString();
+    }
+  }
+
+  // Destroy the off the record profile and check that the objects returned do
+  // not include incognito permissions anymore. The destruction of the profile
+  // causes the "onIncognitoStatusChanged" WebUIListener callback to fire.
+  DestroyIncognitoProfile();
+  EXPECT_EQ(web_ui()->call_data().size(), 2u);
+
+  {
+    const base::Value& exceptions = GetChooserExceptionListFromWebUiCallData(
+        kUsbChooserGroupName, /*expected_total_calls=*/3u);
+    EXPECT_EQ(exceptions.GetList().size(), 5u);
+  }
+}
+
+TEST_F(SiteSettingsHandlerChooserExceptionTest,
        HandleResetChooserExceptionForSiteForUsb) {
   const std::string kUsbChooserGroupName =
       site_settings::ContentSettingsTypeToGroupName(
           CONTENT_SETTINGS_TYPE_USB_CHOOSER_DATA);
-  const std::string kAndroidOriginStr = kAndroidOrigin.GetOrigin().spec();
-  const std::string kChromiumOriginStr = kChromiumOrigin.GetOrigin().spec();
+  const auto kAndroidOrigin = url::Origin::Create(kAndroidUrl);
+  const auto kChromiumOrigin = url::Origin::Create(kChromiumUrl);
+  const std::string kAndroidOriginStr = kAndroidUrl.GetOrigin().spec();
+  const std::string kChromiumOriginStr = kChromiumUrl.GetOrigin().spec();
 
   {
     const base::Value& exceptions = GetChooserExceptionListFromWebUiCallData(
@@ -1634,8 +1794,8 @@ TEST_F(SiteSettingsHandlerChooserExceptionTest,
   args.AppendString(kUsbChooserGroupName);
   args.AppendString(kAndroidOriginStr);
   args.AppendString(kChromiumOriginStr);
-  args.Append(
-      UsbChooserContext::DeviceInfoToDictValue(*persistent_device_info_));
+  args.Append(base::Value::ToUniquePtrValue(
+      UsbChooserContext::DeviceInfoToValue(*persistent_device_info_)));
 
   EXPECT_CALL(observer_, OnChooserObjectPermissionChanged(
                              CONTENT_SETTINGS_TYPE_USB_GUARD,
@@ -1666,8 +1826,8 @@ TEST_F(SiteSettingsHandlerChooserExceptionTest,
   args.AppendString(kUsbChooserGroupName);
   args.AppendString(kChromiumOriginStr);
   args.AppendString(kChromiumOriginStr);
-  args.Append(
-      UsbChooserContext::DeviceInfoToDictValue(*persistent_device_info_));
+  args.Append(base::Value::ToUniquePtrValue(
+      UsbChooserContext::DeviceInfoToValue(*persistent_device_info_)));
 
   {
     const base::Value& exceptions =
@@ -1714,8 +1874,8 @@ TEST_F(SiteSettingsHandlerChooserExceptionTest,
   args.AppendString(kUsbChooserGroupName);
   args.AppendString(kAndroidOriginStr);
   args.AppendString(kAndroidOriginStr);
-  args.Append(
-      UsbChooserContext::DeviceInfoToDictValue(*user_granted_device_info_));
+  args.Append(base::Value::ToUniquePtrValue(
+      UsbChooserContext::DeviceInfoToValue(*user_granted_device_info_)));
 
   {
     const base::Value& exceptions =
@@ -1791,5 +1951,21 @@ TEST_F(SiteSettingsHandlerTest, HandleClearEtldPlus1DataAndCookies) {
 
   storage_and_cookie_list = GetOnStorageFetchedSentListValue();
   EXPECT_EQ(0U, storage_and_cookie_list->GetSize());
+}
+
+TEST_F(SiteSettingsHandlerTest, HandleGetFormattedBytes) {
+  const double size = 120000000000;
+  base::ListValue get_args;
+  get_args.AppendString(kCallbackId);
+  get_args.AppendDouble(size);
+  handler()->HandleGetFormattedBytes(&get_args);
+
+  // Validate that this method can handle large data.
+  const content::TestWebUI::CallData& data = *web_ui()->call_data().back();
+  EXPECT_EQ("cr.webUIResponse", data.function_name());
+  EXPECT_EQ(kCallbackId, data.arg1()->GetString());
+  ASSERT_TRUE(data.arg2()->GetBool());
+  EXPECT_EQ(base::UTF16ToUTF8(ui::FormatBytes(int64_t(size))),
+            data.arg3()->GetString());
 }
 }  // namespace settings

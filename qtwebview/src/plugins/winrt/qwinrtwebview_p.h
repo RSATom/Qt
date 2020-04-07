@@ -75,6 +75,8 @@ public:
     explicit QWinRTWebViewPrivate(QObject *parent = nullptr);
     ~QWinRTWebViewPrivate() Q_DECL_OVERRIDE;
 
+    QString httpUserAgent() const Q_DECL_OVERRIDE;
+    void setHttpUserAgent(const QString &userAgent) Q_DECL_OVERRIDE;
     QUrl url() const Q_DECL_OVERRIDE;
     void setUrl(const QUrl &url) Q_DECL_OVERRIDE;
     bool canGoBack() const Q_DECL_OVERRIDE;

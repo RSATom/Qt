@@ -4,6 +4,8 @@
 
 #include <atk/atk.h>
 #include <map>
+#include <memory>
+#include <string>
 #include <utility>
 
 #include "base/environment.h"
@@ -14,7 +16,11 @@
 
 namespace {
 
-const char kAccessibilityEnabled[] = "ACCESSIBILITY_ENABLED";
+const char* kAccessibilityEnabledVariables[] = {
+    "ACCESSIBILITY_ENABLED",
+    "GNOME_ACCESSIBILITY",
+    "QT_ACCESSIBILITY",
+};
 
 }  // namespace
 
@@ -45,19 +51,17 @@ G_BEGIN_DECLS
 typedef struct _AtkUtilAuraLinux        AtkUtilAuraLinux;
 typedef struct _AtkUtilAuraLinuxClass   AtkUtilAuraLinuxClass;
 
-struct _AtkUtilAuraLinux
-{
+struct _AtkUtilAuraLinux {
   AtkUtil parent;
 };
 
-struct _AtkUtilAuraLinuxClass
-{
+struct _AtkUtilAuraLinuxClass {
   AtkUtilClass parent_class;
 };
 
 GType atk_util_auralinux_get_type();
 
-G_DEFINE_TYPE(AtkUtilAuraLinux, atk_util_auralinux, ATK_TYPE_UTIL);
+G_DEFINE_TYPE(AtkUtilAuraLinux, atk_util_auralinux, ATK_TYPE_UTIL)
 
 static void atk_util_auralinux_init(AtkUtilAuraLinux *ax_util) {
 }
@@ -99,7 +103,7 @@ static void atk_util_remove_key_event_listener(guint listener_id) {
 }
 
 static void atk_util_auralinux_class_init(AtkUtilAuraLinuxClass *klass) {
-  AtkUtilClass *atk_class;
+  AtkUtilClass* atk_class;
   gpointer data;
 
   data = g_type_class_peek(ATK_TYPE_UTIL);
@@ -127,10 +131,13 @@ AtkUtilAuraLinux* AtkUtilAuraLinux::GetInstance() {
 
 bool AtkUtilAuraLinux::ShouldEnableAccessibility() {
   std::unique_ptr<base::Environment> env(base::Environment::Create());
-  std::string enable_accessibility;
-  env->GetVar(kAccessibilityEnabled, &enable_accessibility);
-  if (enable_accessibility == "1" || PlatformShouldEnableAccessibility())
-    return true;
+  for (const auto* variable : kAccessibilityEnabledVariables) {
+    std::string enable_accessibility;
+    env->GetVar(variable, &enable_accessibility);
+    if (enable_accessibility == "1")
+      return true;
+  }
+
   return false;
 }
 
@@ -150,12 +157,14 @@ void AtkUtilAuraLinux::InitializeAsync() {
 
 void AtkUtilAuraLinux::InitializeForTesting() {
   std::unique_ptr<base::Environment> env(base::Environment::Create());
-  env->SetVar(kAccessibilityEnabled, "1");
+  env->SetVar(kAccessibilityEnabledVariables[0], "1");
 
   InitializeAsync();
 }
 
 // static
+// Disable CFI-icall since the key snooping function could be in another DSO.
+__attribute__((no_sanitize("cfi-icall")))
 DiscardAtkKeyEvent AtkUtilAuraLinux::HandleAtkKeyEvent(
     AtkKeyEventStruct* key_event) {
   DCHECK(key_event);

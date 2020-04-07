@@ -161,10 +161,6 @@ public:
     \l sourceItem while still handling input. For this, you can use
     the \l hideSource property.
 
-    \note If \l sourceItem is a \l Rectangle with border, by default half the
-    border width falls outside the texture. To get the whole border, you can
-    extend the \l sourceRect.
-
     \note The ShaderEffectSource relies on FBO multisampling support
     to antialias edges. If the underlying hardware does not support this,
     which is the case for most embedded graphics chips, edges rendered
@@ -750,7 +746,7 @@ QSGNode *QQuickShaderEffectSource::updatePaintNode(QSGNode *oldNode, UpdatePaint
 
     QSGInternalImageNode *node = static_cast<QSGInternalImageNode *>(oldNode);
     if (!node) {
-        node = d->sceneGraphContext()->createInternalImageNode();
+        node = d->sceneGraphContext()->createInternalImageNode(d->sceneGraphRenderContext());
         node->setFlag(QSGNode::UsePreprocess);
         node->setTexture(m_texture);
         QQuickShaderSourceAttachedNode *attached = new QQuickShaderSourceAttachedNode;

@@ -15,6 +15,7 @@
 #include "base/files/memory_mapped_file.h"
 #include "base/files/scoped_temp_dir.h"
 #include "base/memory/ptr_util.h"
+#include "base/memory/read_only_shared_memory_region.h"
 #include "base/pending_task.h"
 #include "base/process/process.h"
 #include "base/stl_util.h"
@@ -217,25 +218,19 @@ TEST_F(ActivityAnalyzerTest, GlobalAnalyzerConstruction) {
 }
 
 TEST_F(ActivityAnalyzerTest, GlobalAnalyzerFromSharedMemory) {
-  SharedMemoryHandle handle1;
-  SharedMemoryHandle handle2;
+  base::MappedReadOnlyRegion shm =
+      base::ReadOnlySharedMemoryRegion::Create(kMemorySize);
+  ASSERT_TRUE(shm.IsValid());
+  base::WritableSharedMemoryMapping rw_mapping = std::move(shm.mapping);
+  base::ReadOnlySharedMemoryMapping ro_mapping = shm.region.Map();
+  ASSERT_TRUE(ro_mapping.IsValid());
 
-  {
-    std::unique_ptr<SharedMemory> shmem(new SharedMemory());
-    ASSERT_TRUE(shmem->CreateAndMapAnonymous(kMemorySize));
-    handle1 = shmem->handle().Duplicate();
-    ASSERT_TRUE(handle1.IsValid());
-    handle2 = shmem->handle().Duplicate();
-    ASSERT_TRUE(handle2.IsValid());
-  }
-
-  GlobalActivityTracker::CreateWithSharedMemoryHandle(handle1, kMemorySize, 0,
-                                                      "", 3);
+  GlobalActivityTracker::CreateWithSharedMemory(std::move(rw_mapping), 0, "",
+                                                3);
   GlobalActivityTracker::Get()->process_data().SetString("foo", "bar");
 
   std::unique_ptr<GlobalActivityAnalyzer> analyzer =
-      GlobalActivityAnalyzer::CreateWithSharedMemoryHandle(handle2,
-                                                           kMemorySize);
+      GlobalActivityAnalyzer::CreateWithSharedMemory(std::move(ro_mapping));
 
   const int64_t pid = analyzer->GetFirstProcess();
   ASSERT_NE(0, pid);
@@ -299,22 +294,22 @@ TEST_F(ActivityAnalyzerTest, UserDataSnapshotTest) {
       const ActivityUserData::Snapshot& user_data =
           analyzer_snapshot.user_data_stack.at(1);
       EXPECT_EQ(8U, user_data.size());
-      ASSERT_TRUE(ContainsKey(user_data, "raw2"));
+      ASSERT_TRUE(Contains(user_data, "raw2"));
       EXPECT_EQ("foo2", user_data.at("raw2").Get().as_string());
-      ASSERT_TRUE(ContainsKey(user_data, "string2"));
+      ASSERT_TRUE(Contains(user_data, "string2"));
       EXPECT_EQ("bar2", user_data.at("string2").GetString().as_string());
-      ASSERT_TRUE(ContainsKey(user_data, "char2"));
+      ASSERT_TRUE(Contains(user_data, "char2"));
       EXPECT_EQ('2', user_data.at("char2").GetChar());
-      ASSERT_TRUE(ContainsKey(user_data, "int2"));
+      ASSERT_TRUE(Contains(user_data, "int2"));
       EXPECT_EQ(-2222, user_data.at("int2").GetInt());
-      ASSERT_TRUE(ContainsKey(user_data, "uint2"));
+      ASSERT_TRUE(Contains(user_data, "uint2"));
       EXPECT_EQ(2222U, user_data.at("uint2").GetUint());
-      ASSERT_TRUE(ContainsKey(user_data, "bool2"));
+      ASSERT_TRUE(Contains(user_data, "bool2"));
       EXPECT_FALSE(user_data.at("bool2").GetBool());
-      ASSERT_TRUE(ContainsKey(user_data, "ref2"));
+      ASSERT_TRUE(Contains(user_data, "ref2"));
       EXPECT_EQ(string2a, user_data.at("ref2").GetReference().data());
       EXPECT_EQ(sizeof(string2a), user_data.at("ref2").GetReference().size());
-      ASSERT_TRUE(ContainsKey(user_data, "sref2"));
+      ASSERT_TRUE(Contains(user_data, "sref2"));
       EXPECT_EQ(string2b, user_data.at("sref2").GetStringReference().data());
       EXPECT_EQ(strlen(string2b),
                 user_data.at("sref2").GetStringReference().size());
@@ -377,22 +372,22 @@ TEST_F(ActivityAnalyzerTest, GlobalUserDataTest) {
   DCHECK_EQ(pid, first_pid);
   const ActivityUserData::Snapshot& snapshot =
       global_analyzer.GetProcessDataSnapshot(pid);
-  ASSERT_TRUE(ContainsKey(snapshot, "raw"));
+  ASSERT_TRUE(Contains(snapshot, "raw"));
   EXPECT_EQ("foo", snapshot.at("raw").Get().as_string());
-  ASSERT_TRUE(ContainsKey(snapshot, "string"));
+  ASSERT_TRUE(Contains(snapshot, "string"));
   EXPECT_EQ("bar", snapshot.at("string").GetString().as_string());
-  ASSERT_TRUE(ContainsKey(snapshot, "char"));
+  ASSERT_TRUE(Contains(snapshot, "char"));
   EXPECT_EQ('9', snapshot.at("char").GetChar());
-  ASSERT_TRUE(ContainsKey(snapshot, "int"));
+  ASSERT_TRUE(Contains(snapshot, "int"));
   EXPECT_EQ(-9999, snapshot.at("int").GetInt());
-  ASSERT_TRUE(ContainsKey(snapshot, "uint"));
+  ASSERT_TRUE(Contains(snapshot, "uint"));
   EXPECT_EQ(9999U, snapshot.at("uint").GetUint());
-  ASSERT_TRUE(ContainsKey(snapshot, "bool"));
+  ASSERT_TRUE(Contains(snapshot, "bool"));
   EXPECT_TRUE(snapshot.at("bool").GetBool());
-  ASSERT_TRUE(ContainsKey(snapshot, "ref"));
+  ASSERT_TRUE(Contains(snapshot, "ref"));
   EXPECT_EQ(string1, snapshot.at("ref").GetReference().data());
   EXPECT_EQ(sizeof(string1), snapshot.at("ref").GetReference().size());
-  ASSERT_TRUE(ContainsKey(snapshot, "sref"));
+  ASSERT_TRUE(Contains(snapshot, "sref"));
   EXPECT_EQ(string2, snapshot.at("sref").GetStringReference().data());
   EXPECT_EQ(strlen(string2), snapshot.at("sref").GetStringReference().size());
 }

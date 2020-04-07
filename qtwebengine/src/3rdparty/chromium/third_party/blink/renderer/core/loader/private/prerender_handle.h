@@ -33,7 +33,7 @@
 
 #include "base/macros.h"
 #include "base/memory/scoped_refptr.h"
-#include "third_party/blink/renderer/core/dom/context_lifecycle_observer.h"
+#include "third_party/blink/renderer/core/execution_context/context_lifecycle_observer.h"
 #include "third_party/blink/renderer/platform/heap/handle.h"
 #include "third_party/blink/renderer/platform/weborigin/kurl.h"
 
@@ -46,6 +46,7 @@ class PrerenderClient;
 class PrerenderHandle final : public GarbageCollectedFinalized<PrerenderHandle>,
                               public ContextLifecycleObserver {
   USING_GARBAGE_COLLECTED_MIXIN(PrerenderHandle);
+  USING_PRE_FINALIZER(PrerenderHandle, Dispose);
 
  public:
   static PrerenderHandle* Create(Document&,
@@ -55,6 +56,7 @@ class PrerenderHandle final : public GarbageCollectedFinalized<PrerenderHandle>,
 
   PrerenderHandle(Document&, Prerender*);
   virtual ~PrerenderHandle();
+  void Dispose();
 
   void Cancel();
   const KURL& Url() const;
@@ -63,7 +65,6 @@ class PrerenderHandle final : public GarbageCollectedFinalized<PrerenderHandle>,
   void ContextDestroyed(ExecutionContext*) override;
 
   void Trace(blink::Visitor*) override;
-  EAGERLY_FINALIZE();
 
  private:
   void Detach();

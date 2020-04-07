@@ -58,7 +58,7 @@ void CustomInputHandler::mousePressEvent(QMouseEvent *event, const QPoint &mouse
 //! [1]
 void CustomInputHandler::wheelEvent(QWheelEvent *event)
 {
-    float delta = float(event->delta());
+    float delta = float(event->angleDelta().y());
 
     m_axisXMinValue += delta;
     m_axisXMaxValue -= delta;

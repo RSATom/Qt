@@ -37,6 +37,7 @@
 **
 ****************************************************************************/
 
+import QtQml 2.14 as Qml
 import QtQuick 2.4
 import QtQuick.Controls 1.3
 import QtQuick.Controls.Private 1.0
@@ -110,15 +111,17 @@ FocusScope {
         }
     }
 
-    Binding {
+    Qml.Binding {
         target: menu
         property: "__minimumWidth"
         value: button.width
+        restoreMode: Binding.RestoreBinding
     }
 
-    Binding {
+    Qml.Binding {
         target: menu
         property: "__visualItem"
         value: button
+        restoreMode: Binding.RestoreBinding
     }
 }

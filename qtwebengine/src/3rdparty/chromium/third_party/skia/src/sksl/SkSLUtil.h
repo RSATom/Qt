@@ -12,28 +12,23 @@
 #include <memory>
 #include "stdlib.h"
 #include "string.h"
-#include "assert.h"
-#include "SkSLString.h"
-#include "SkSLStringStream.h"
+#include "src/sksl/SkSLDefines.h"
+#include "src/sksl/SkSLLexer.h"
 
-#if !defined(SKSL_STANDALONE) && SK_SUPPORT_GPU
-#include "GrContextOptions.h"
-#include "GrShaderCaps.h"
-#endif
-
-#ifdef SKSL_STANDALONE
-#if defined(_WIN32) || defined(__SYMBIAN32__)
-#define SKSL_BUILD_FOR_WIN
-#endif
-#else
-#ifdef SK_BUILD_FOR_WIN
-#define SKSL_BUILD_FOR_WIN
-#endif // SK_BUILD_FOR_WIN
+#ifndef SKSL_STANDALONE
+#include "include/core/SkTypes.h"
+#if SK_SUPPORT_GPU
+#include "include/gpu/GrContextOptions.h"
+#include "src/gpu/GrShaderCaps.h"
+#endif // SK_SUPPORT_GPU
 #endif // SKSL_STANDALONE
 
 class GrShaderCaps;
 
 namespace SkSL {
+
+class OutputStream;
+class StringStream;
 
 #if defined(SKSL_STANDALONE) || !SK_SUPPORT_GPU
 
@@ -89,10 +84,6 @@ public:
         return false;
     }
 
-    bool dropsTileOnZeroDivide() const {
-        return false;
-    }
-
     bool flatInterpolationSupport() const {
         return true;
     }
@@ -105,11 +96,11 @@ public:
         return true;
     }
 
-    bool externalTextureSupport() const {
+    bool sampleVariablesSupport() const {
         return true;
     }
 
-    bool imageLoadStoreSupport() const {
+    bool externalTextureSupport() const {
         return true;
     }
 
@@ -146,10 +137,6 @@ public:
     }
 
     const char* fragCoordConventionsExtensionString() const {
-        return nullptr;
-    }
-
-    const char* imageLoadStoreExtensionString() const {
         return nullptr;
     }
 
@@ -333,7 +320,6 @@ public:
         result->fVersionDeclString = "#version 400";
         result->fExternalTextureSupport = true;
         result->fFBFetchSupport = false;
-        result->fDropsTileOnZeroDivide = true;
         result->fCanUseAnyFunctionInShader = false;
         return result;
     }
@@ -392,30 +378,15 @@ public:
 
 void write_stringstream(const StringStream& d, OutputStream& out);
 
-#if _MSC_VER
-#define NORETURN __declspec(noreturn)
-#else
-#define NORETURN __attribute__((__noreturn__))
-#endif
+// Returns true if op is '=' or any compound assignment operator ('+=', '-=', etc.)
+bool is_assignment(Token::Kind op);
+
+// Given a compound assignment operator, returns the non-assignment version of the operator (e.g.
+// '+=' becomes '+')
+Token::Kind remove_assignment(Token::Kind op);
 
 NORETURN void sksl_abort();
 
 } // namespace
-
-#ifdef SKSL_STANDALONE
-#define SkASSERT(x)
-#define SkAssertResult(x) x
-#define SkDEBUGCODE(x)
-#endif
-
-#define SKSL_WARN_UNUSED_RESULT __attribute__((warn_unused_result))
-
-#if defined(__clang__) || defined(__GNUC__)
-#define SKSL_PRINTF_LIKE(A, B) __attribute__((format(printf, (A), (B))))
-#else
-#define SKSL_PRINTF_LIKE(A, B)
-#endif
-
-#define ABORT(...) (printf(__VA_ARGS__), sksl_abort())
 
 #endif

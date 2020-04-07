@@ -35,6 +35,7 @@
 ****************************************************************************/
 
 #include <QtLocation/private/qdeclarativegeoserviceprovider_p.h>
+#include <QtPositioningQuick/private/qdeclarativepluginparameter_p.h>
 #include <QtLocation/private/qdeclarativegeomap_p.h>
 
 #include <QtLocation/private/qdeclarativegeoroute_p.h>
@@ -97,7 +98,7 @@ public:
             // 5.0 is silent and not advertised
 
             qmlRegisterType<QDeclarativeGeoServiceProvider          >(uri, major, minor, "Plugin");
-            qmlRegisterType<QDeclarativeGeoServiceProviderParameter >(uri, major, minor, "PluginParameter");
+            qmlRegisterType<QDeclarativePluginParameter >(uri, major, minor, "PluginParameter");
             qmlRegisterUncreatableType<QDeclarativeGeoServiceProviderRequirements>(uri, major, minor, "PluginRequirements",
                                         QStringLiteral("PluginRequirements is not intended instantiable by developer."));
             qmlRegisterType<QDeclarativeGeoMap                      >(uri, major, minor, "Map");
@@ -130,7 +131,7 @@ public:
             qmlRegisterType<QDeclarativePlaceUser                   >(uri, major, minor, "User");
             qmlRegisterType<QDeclarativeRectangleMapItem            >(uri, major, minor, "MapRectangle");
             qmlRegisterType<QDeclarativeCircleMapItem               >(uri, major, minor, "MapCircle");
-            qmlRegisterType<QDeclarativeMapLineProperties>();
+            qmlRegisterAnonymousType<QDeclarativeMapLineProperties  >(uri, major);
             qmlRegisterType<QDeclarativePolylineMapItem             >(uri, major, minor, "MapPolyline");
             qmlRegisterType<QDeclarativePolygonMapItem              >(uri, major, minor, "MapPolygon");
             qmlRegisterType<QDeclarativeRouteMapItem                >(uri, major, minor, "MapRoute");
@@ -176,7 +177,7 @@ public:
 
             // Register the 5.11 types
             minor = 11;
-            qmlRegisterType<QGeoMapObject>();
+            qmlRegisterAnonymousType<QGeoMapObject>(uri, major);
             qmlRegisterType<QDeclarativeGeoManeuver, 11>(uri, major, minor, "RouteManeuver");
             qmlRegisterType<QDeclarativeGeoMap, 11>(uri, major, minor, "Map");
             qmlRegisterUncreatableType<QDeclarativeGeoMapItemBase, 11>(uri, major, minor, "GeoMapItemBase",
@@ -199,6 +200,11 @@ public:
             qmlRegisterType<QDeclarativeGeoMap, 13>(uri, major, minor, "Map");
             qmlRegisterType<QDeclarativeGeoRoute, 13>(uri, major, minor, "Route");
             qmlRegisterType<QDeclarativeGeoRouteQuery, 13>(uri, major, minor, "RouteQuery");
+
+            minor = 14;
+            qmlRegisterType<QDeclarativeGeoMap, 14>(uri, major, minor, "Map");
+            qmlRegisterUncreatableType<QDeclarativeGeoMapItemBase, 14>(uri, major, minor, "GeoMapItemBase",
+                                        QStringLiteral("GeoMapItemBase is not intended instantiable by developer."));
 
             // Register the latest Qt version as QML type version
             qmlRegisterModule(uri, QT_VERSION_MAJOR, QT_VERSION_MINOR);

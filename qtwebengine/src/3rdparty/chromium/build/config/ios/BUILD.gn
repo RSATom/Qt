@@ -22,6 +22,7 @@ declare_args() {
   # That is not a limitation for now as Xcode mandates the presence of bitcode
   # only when building bitcode-enabled projects for real devices (ARM CPUs).
   enable_ios_bitcode = false
+  use_qt_fat_lib = false
 }
 
 # This is included by reference in the //build/config/compiler config that
@@ -46,11 +47,23 @@ config("compiler") {
       "-arch",
       "armv7",
     ]
+    if (use_qt_fat_lib) {
+      common_ios_flags += [
+        "-arch",
+        "i386",
+      ]
+    }
   } else if (current_cpu == "arm64") {
     common_ios_flags += [
       "-arch",
       "arm64",
     ]
+    if (use_qt_fat_lib) {
+      common_ios_flags += [
+        "-arch",
+        "x86_64",
+      ]
+    }
   }
 
   # This is here so that all files get recompiled after an Xcode update.
@@ -73,17 +86,30 @@ config("compiler") {
 # that is iOS-only. Please see that target for advice on what should go in
 # :runtime_library vs. :compiler.
 config("runtime_library") {
-  common_flags = [
-    "-isysroot",
-    sysroot,
-
-    "-stdlib=libc++",
-  ]
-
-  if (use_ios_simulator) {
-    common_flags += [ "-mios-simulator-version-min=$ios_deployment_target" ]
+  if (use_qt_fat_lib) {
+    common_flags = [
+      "-Xarch_arm64",
+      "-isysroot" + sysroot,
+      "-Xarch_x86_64",
+      "-isysroot" + additional_target_sysroot[0],
+      "-stdlib=libc++",
+    ]
+    common_flags += [ "-Xarch_x86_64","-mios-simulator-version-min=$ios_deployment_target" ]
+    common_flags += [ "-Xarch_arm64","-miphoneos-version-min=$ios_deployment_target" ]
   } else {
-    common_flags += [ "-miphoneos-version-min=$ios_deployment_target" ]
+
+    common_flags = [
+      "-isysroot",
+      sysroot,
+      "-stdlib=libc++",
+    ]
+
+    if (use_ios_simulator) {
+      common_flags += [ "-mios-simulator-version-min=$ios_deployment_target" ]
+    } else {
+      common_flags += [ "-miphoneos-version-min=$ios_deployment_target" ]
+    }
+
   }
 
   if (use_xcode_clang && enable_ios_bitcode && !use_ios_simulator) {

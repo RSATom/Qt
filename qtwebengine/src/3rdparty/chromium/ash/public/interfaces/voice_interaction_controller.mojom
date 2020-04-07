@@ -25,12 +25,8 @@ enum VoiceInteractionState {
 enum AssistantAllowedState {
   // Assistant feature is allowed.
   ALLOWED = 0,
-  // Disallowed because ARC++ is disallowed. There could be many specific
-  // reasones why ARC++ is disallowed. This enum is a catch all. Some enums
-  // below will show specific reasons.
-  DISALLOWED_BY_ARC_DISALLOWED,
-  // Disallowed because ARC++ is disabled by policy.
-  DISALLOWED_BY_ARC_POLICY,
+  // Disallowed because search and assistant is disabled by policy.
+  DISALLOWED_BY_POLICY,
   // Disallowed because user's locale is not compatible.
   DISALLOWED_BY_LOCALE,
   // Disallowed because the feature flag is off.
@@ -39,14 +35,16 @@ enum AssistantAllowedState {
   DISALLOWED_BY_NONPRIMARY_USER,
   // Disallowed because current user is supervised user.
   DISALLOWED_BY_SUPERVISED_USER,
-  // Disallowed because current user is child user.
-  DISALLOWED_BY_CHILD_USER,
   // Disallowed because incognito mode.
   DISALLOWED_BY_INCOGNITO,
   // Disallowed because the device is in demo mode.
   DISALLOWED_BY_DEMO_MODE,
   // Disallowed because the device is in public session.
-  DISALLOWED_BY_PUBLIC_SESSION
+  DISALLOWED_BY_PUBLIC_SESSION,
+  // Disallowed because the user's account type is currently not supported.
+  DISALLOWED_BY_ACCOUNT_TYPE,
+  // Disallowed because the device is in Kiosk mode.
+  DISALLOWED_BY_KIOSK_MODE
 };
 
 // Allows observing changes to voice interaction status and settings.
@@ -64,57 +62,24 @@ interface VoiceInteractionObserver {
   // Called when hotword listening is enabled/disabled.
   OnVoiceInteractionHotwordEnabled(bool enabled);
 
-  // Called when hotword is set to always on/only with power source.
-  OnVoiceInteractionHotwordAlwaysOn(bool always_on);
-
-  // Called when voice interaction setup flow completed.
-  OnVoiceInteractionSetupCompleted(bool completed);
-
   // Called when assistant feature allowed state has changed.
   OnAssistantFeatureAllowedChanged(AssistantAllowedState state);
+
+  // Called when Google Play Store is enabled/disabled.
+  OnArcPlayStoreEnabledChanged(bool enabled);
 
   // Called when locale is changed in pref. The locale is in the format can be
   // "en-US" or simply "en". When locale is not set in pref, it returns empty
   // string.
   OnLocaleChanged(string locale);
+
+  // Called when locked full screen state has changed.
+  OnLockedFullScreenStateChanged(bool enabled);
 };
 
 // Interface for ash client (Chrome) to connect to the voice interaction
 // controller, which notifies changes of voice interaction related flags.
 interface VoiceInteractionController {
-  // Called when the voice interaction state is changed.
-  NotifyStatusChanged(VoiceInteractionState state);
-
-  // Called when the voice interaction settings is enabled/disabled.
-  NotifySettingsEnabled(bool enabled);
-
-  // Called when the voice interaction context is enabled/disabled.
-  // If context is enabled the screenshot will be passed in voice
-  // interaction session.
-  NotifyContextEnabled(bool enabled);
-
-  // Called when the hotword listening is enabled/disabled.
-  NotifyHotwordEnabled(bool enabled);
-
-  // Called when the hotword is set to always on/only with power source.
-  NotifyHotwordAlwaysOn(bool enabled);
-
-  // Called when the voice interaction setup complete status is changed.
-  NotifySetupCompleted(bool completed);
-
-  // Notify if voice interaction feature is allowed or not. e.g. not allowed
-  // if disabled by policy.
-  NotifyFeatureAllowed(AssistantAllowedState state);
-
-  // Called when the notification is enabled/disabled.
-  NotifyNotificationEnabled(bool enabled);
-
-  // Called when the locale is changed.
-  NotifyLocaleChanged(string locale);
-
-  // Called when the launch with mic open state is changed.
-  NotifyLaunchWithMicOpen(bool launch_with_mic_open);
-
   // Add an observer.
   AddObserver(VoiceInteractionObserver observer);
 };

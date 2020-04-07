@@ -39,7 +39,7 @@
 
 #include "qv4qobjectwrapper_p.h"
 
-#include <private/qqmlpropertycache_p.h>
+#include <private/qqmlstaticmetaobject_p.h>
 #include <private/qqmlengine_p.h>
 #include <private/qqmlvmemetaobject_p.h>
 #include <private/qqmlbinding_p.h>
@@ -50,7 +50,6 @@
 #include <private/qqmlvaluetypewrapper_p.h>
 #include <private/qqmllistwrapper_p.h>
 #include <private/qqmlbuiltinfunctions_p.h>
-#include <private/qv8engine_p.h>
 
 #include <private/qv4arraybuffer_p.h>
 #include <private/qv4functionobject_p.h>
@@ -58,6 +57,7 @@
 #include <private/qv4variantobject_p.h>
 #include <private/qv4identifiertable_p.h>
 #include <private/qv4lookup_p.h>
+#include <private/qv4qmlcontext_p.h>
 
 #if QT_CONFIG(qml_sequence_object)
 #include <private/qv4sequenceobject_p.h>
@@ -81,7 +81,9 @@
 #include <QtCore/qtimer.h>
 #include <QtCore/qatomic.h>
 #include <QtCore/qmetaobject.h>
+#if QT_CONFIG(qml_itemmodel)
 #include <QtCore/qabstractitemmodel.h>
+#endif
 #include <QtCore/qloggingcategory.h>
 
 #include <vector>
@@ -165,10 +167,6 @@ static QV4::ReturnedValue loadProperty(QV4::ExecutionEngine *v4, QObject *object
         double v = 0;
         property.readProperty(object, &v);
         return QV4::Encode(v);
-    } else if (property.isV4Handle()) {
-        QQmlV4Handle handle;
-        property.readProperty(object, &handle);
-        return handle;
     } else if (property.propType() == qMetaTypeId<QJSValue>()) {
         QJSValue v;
         property.readProperty(object, &v);
@@ -768,6 +766,8 @@ struct QObjectWrapperOwnPropertyKeyIterator : ObjectOwnPropertyKeyIterator
     ~QObjectWrapperOwnPropertyKeyIterator() override = default;
     PropertyKey next(const QV4::Object *o, Property *pd = nullptr, PropertyAttributes *attrs = nullptr) override;
 
+private:
+    QSet<QByteArray> m_alreadySeen;
 };
 
 PropertyKey QObjectWrapperOwnPropertyKeyIterator::next(const QV4::Object *o, Property *pd, PropertyAttributes *attrs)
@@ -808,6 +808,11 @@ PropertyKey QObjectWrapperOwnPropertyKeyIterator::next(const QV4::Object *o, Pro
             ++propertyIndex;
             if (method.access() == QMetaMethod::Private || (preventDestruction && (index == deleteLaterIdx || index == destroyedIdx1 || index == destroyedIdx2)))
                 continue;
+            // filter out duplicates due to overloads:
+            if (m_alreadySeen.contains(method.name()))
+                continue;
+            else
+                m_alreadySeen.insert(method.name());
             ExecutionEngine *thatEngine = that->engine();
             Scope scope(thatEngine);
             ScopedString methodName(scope, thatEngine->newString(QString::fromUtf8(method.name())));
@@ -1193,15 +1198,14 @@ DEFINE_OBJECT_VTABLE(QObjectWrapper);
 
 namespace {
 
-template<typename A, typename B, typename C, typename D, typename E,
-         typename F, typename G, typename H>
-class MaxSizeOf8 {
+template<typename A, typename B, typename C, typename D, typename E, typename F, typename G>
+class MaxSizeOf7 {
     template<typename Z, typename X>
     struct SMax {
         char dummy[sizeof(Z) > sizeof(X) ? sizeof(Z) : sizeof(X)];
     };
 public:
-    static const size_t Size = sizeof(SMax<A, SMax<B, SMax<C, SMax<D, SMax<E, SMax<F, SMax<G, H> > > > > > >);
+    static const size_t Size = sizeof(SMax<A, SMax<B, SMax<C, SMax<D, SMax<E, SMax<F, G> > > > > >);
 };
 
 struct CallArgument {
@@ -1232,16 +1236,17 @@ private:
         std::vector<bool> *stdVectorBoolPtr;
         std::vector<QString> *stdVectorQStringPtr;
         std::vector<QUrl> *stdVectorQUrlPtr;
+#if QT_CONFIG(qml_itemmodel)
         std::vector<QModelIndex> *stdVectorQModelIndexPtr;
+#endif
 
-        char allocData[MaxSizeOf8<QVariant,
-                                QString,
-                                QList<QObject *>,
-                                QJSValue,
-                                QQmlV4Handle,
-                                QJsonArray,
-                                QJsonObject,
-                                QJsonValue>::Size];
+        char allocData[MaxSizeOf7<QVariant,
+                                  QString,
+                                  QList<QObject *>,
+                                  QJSValue,
+                                  QJsonArray,
+                                  QJsonObject,
+                                  QJsonValue>::Size];
         qint64 q_for_alignment;
     };
 
@@ -1252,7 +1257,6 @@ private:
         QVariant *qvariantPtr;
         QList<QObject *> *qlistPtr;
         QJSValue *qjsValuePtr;
-        QQmlV4Handle *handlePtr;
         QJsonArray *jsonArrayPtr;
         QJsonObject *jsonObjectPtr;
         QJsonValue *jsonValuePtr;
@@ -1271,7 +1275,8 @@ static QV4::ReturnedValue CallMethod(const QQmlObjectOrGadget &object, int index
         QVarLengthArray<CallArgument, 9> args(argCount + 1);
         args[0].initAsType(returnType);
         for (int ii = 0; ii < argCount; ++ii) {
-            if (!args[ii + 1].fromValue(argTypes[ii], engine, callArgs->args[ii])) {
+            if (!args[ii + 1].fromValue(argTypes[ii], engine,
+                                        callArgs->args[ii].asValue<QV4::Value>())) {
                 qWarning() << QString::fromLatin1("Could not convert argument %1 at").arg(ii);
                 const StackTrace stack = engine->stackTrace();
                 for (const StackFrame &frame : stack) {
@@ -1383,6 +1388,9 @@ static int MatchScore(const QV4::Value &actual, int conversionType)
     } else if (actual.as<QV4::RegExpObject>()) {
         switch (conversionType) {
         case QMetaType::QRegExp:
+#if QT_CONFIG(regularexpression)
+        case QMetaType::QRegularExpression:
+#endif
             return 0;
         default:
             return 10;
@@ -1613,8 +1621,10 @@ static QV4::ReturnedValue CallOverloaded(const QQmlObjectOrGadget &object, const
             continue; // We already have a better option
 
         int methodMatchScore = 0;
-        for (int ii = 0; ii < methodArgumentCount; ++ii)
-            methodMatchScore += MatchScore((v = callArgs->args[ii]), methodArgTypes[ii]);
+        for (int ii = 0; ii < methodArgumentCount; ++ii) {
+            methodMatchScore += MatchScore((v = QV4::Value::fromStaticValue(callArgs->args[ii])),
+                                           methodArgTypes[ii]);
+        }
 
         if (bestParameterScore > methodParameterScore || bestMatchScore > methodMatchScore) {
             best = *attempt;
@@ -1688,8 +1698,10 @@ void *CallArgument::dataPtr()
         return stdVectorQStringPtr;
     else if (type == qMetaTypeId<std::vector<QUrl>>())
         return stdVectorQUrlPtr;
+#if QT_CONFIG(qml_itemmodel)
     else if (type == qMetaTypeId<std::vector<QModelIndex>>())
         return stdVectorQModelIndexPtr;
+#endif
     else if (type != 0)
         return (void *)&allocData;
     return nullptr;
@@ -1721,9 +1733,6 @@ void CallArgument::initAsType(int callType)
     } else if (callType == qMetaTypeId<QList<QObject *> >()) {
         type = callType;
         qlistPtr = new (&allocData) QList<QObject *>();
-    } else if (callType == qMetaTypeId<QQmlV4Handle>()) {
-        type = callType;
-        handlePtr = new (&allocData) QQmlV4Handle;
     } else if (callType == QMetaType::QJsonArray) {
         type = callType;
         jsonArrayPtr = new (&allocData) QJsonArray();
@@ -1824,9 +1833,6 @@ bool CallArgument::fromValue(int callType, QV4::ExecutionEngine *engine, const Q
                     return false;
             }
         }
-    } else if (callType == qMetaTypeId<QQmlV4Handle>()) {
-        handlePtr = new (&allocData) QQmlV4Handle(value.asReturnedValue());
-        type = callType;
     } else if (callType == QMetaType::QJsonArray) {
         QV4::ScopedArrayObject a(scope, value);
         jsonArrayPtr = new (&allocData) QJsonArray(QV4::JsonObject::toJsonArray(a));
@@ -1846,7 +1852,10 @@ bool CallArgument::fromValue(int callType, QV4::ExecutionEngine *engine, const Q
                || callType == qMetaTypeId<std::vector<bool>>()
                || callType == qMetaTypeId<std::vector<QString>>()
                || callType == qMetaTypeId<std::vector<QUrl>>()
-               || callType == qMetaTypeId<std::vector<QModelIndex>>()) {
+#if QT_CONFIG(qml_itemmodel)
+               || callType == qMetaTypeId<std::vector<QModelIndex>>()
+#endif
+               ) {
         queryEngine = true;
         const QV4::Object* object = value.as<QV4::Object>();
         if (callType == qMetaTypeId<std::vector<int>>()) {
@@ -1864,9 +1873,11 @@ bool CallArgument::fromValue(int callType, QV4::ExecutionEngine *engine, const Q
         } else if (callType == qMetaTypeId<std::vector<QUrl>>()) {
             stdVectorQUrlPtr = nullptr;
             fromContainerValue<std::vector<QUrl>>(object, callType, &CallArgument::stdVectorQUrlPtr, queryEngine);
+#if QT_CONFIG(qml_itemmodel)
         } else if (callType == qMetaTypeId<std::vector<QModelIndex>>()) {
             stdVectorQModelIndexPtr = nullptr;
             fromContainerValue<std::vector<QModelIndex>>(object, callType, &CallArgument::stdVectorQModelIndexPtr, queryEngine);
+#endif
         }
 #endif
     } else if (QMetaType::typeFlags(callType)
@@ -1951,8 +1962,6 @@ QV4::ReturnedValue CallArgument::toValue(QV4::ExecutionEngine *engine)
             array->arrayPut(ii, (v = QV4::QObjectWrapper::wrap(scope.engine, list.at(ii))));
         array->setArrayLengthUnchecked(list.count());
         return array.asReturnedValue();
-    } else if (type == qMetaTypeId<QQmlV4Handle>()) {
-        return *handlePtr;
     } else if (type == QMetaType::QJsonArray) {
         return QV4::JsonObject::fromJsonArray(scope.engine, *jsonArrayPtr);
     } else if (type == QMetaType::QJsonObject) {
@@ -2258,8 +2267,10 @@ ReturnedValue QMetaObjectWrapper::callOverloadedConstructor(QV4::ExecutionEngine
             continue; // We already have a better option
 
         int methodMatchScore = 0;
-        for (int ii = 0; ii < methodArgumentCount; ++ii)
-            methodMatchScore += MatchScore((v = callArgs->args[ii]), methodArgTypes[ii]);
+        for (int ii = 0; ii < methodArgumentCount; ++ii) {
+            methodMatchScore += MatchScore((v = QV4::Value::fromStaticValue(callArgs->args[ii])),
+                                           methodArgTypes[ii]);
+        }
 
         if (bestParameterScore > methodParameterScore || bestMatchScore > methodMatchScore) {
             best = attempt;

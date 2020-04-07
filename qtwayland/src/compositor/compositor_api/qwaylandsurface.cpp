@@ -6,7 +6,7 @@
 **
 ** This file is part of the QtWaylandCompositor module of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL$
+** $QT_BEGIN_LICENSE:GPL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
@@ -15,24 +15,14 @@
 ** and conditions see https://www.qt.io/terms-conditions. For further
 ** information use the contact form at https://www.qt.io/contact-us.
 **
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 3 as published by the Free Software
-** Foundation and appearing in the file LICENSE.LGPL3 included in the
-** packaging of this file. Please review the following information to
-** ensure the GNU Lesser General Public License version 3 requirements
-** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
-**
 ** GNU General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU
-** General Public License version 2.0 or (at your option) the GNU General
-** Public license version 3 or any later version approved by the KDE Free
-** Qt Foundation. The licenses are as published by the Free Software
-** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** General Public License version 3 or (at your option) any later version
+** approved by the KDE Free Qt Foundation. The licenses are as published by
+** the Free Software Foundation and appearing in the file LICENSE.GPL3
 ** included in the packaging of this file. Please review the following
 ** information to ensure the GNU General Public License requirements will
-** be met: https://www.gnu.org/licenses/gpl-2.0.html and
-** https://www.gnu.org/licenses/gpl-3.0.html.
+** be met: https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
@@ -137,9 +127,9 @@ QWaylandSurfacePrivate::~QWaylandSurfacePrivate()
 
     bufferRef = QWaylandBufferRef();
 
-    foreach (QtWayland::FrameCallback *c, pendingFrameCallbacks)
+    for (QtWayland::FrameCallback *c : qAsConst(pendingFrameCallbacks))
         c->destroy();
-    foreach (QtWayland::FrameCallback *c, frameCallbacks)
+    for (QtWayland::FrameCallback *c : qAsConst(frameCallbacks))
         c->destroy();
 }
 
@@ -152,7 +142,8 @@ void QWaylandSurfacePrivate::removeFrameCallback(QtWayland::FrameCallback *callb
 void QWaylandSurfacePrivate::notifyViewsAboutDestruction()
 {
     Q_Q(QWaylandSurface);
-    foreach (QWaylandView *view, views) {
+    const auto viewsCopy = views; // Views will be removed from the list when marked as destroyed
+    for (QWaylandView *view : viewsCopy) {
         QWaylandViewPrivate::get(view)->markSurfaceAsDestroyed(q);
     }
     if (hasContent) {
@@ -391,7 +382,8 @@ QWaylandSurface::QWaylandSurface(QWaylandSurfacePrivate &dptr)
 QWaylandSurface::~QWaylandSurface()
 {
     Q_D(QWaylandSurface);
-    QWaylandCompositorPrivate::get(d->compositor)->unregisterSurface(this);
+    if (d->compositor)
+        QWaylandCompositorPrivate::get(d->compositor)->unregisterSurface(this);
     d->notifyViewsAboutDestruction();
 }
 
@@ -674,7 +666,7 @@ QWaylandCompositor *QWaylandSurface::compositor() const
 void QWaylandSurface::frameStarted()
 {
     Q_D(QWaylandSurface);
-    foreach (QtWayland::FrameCallback *c, d->frameCallbacks)
+    for (QtWayland::FrameCallback *c : qAsConst(d->frameCallbacks))
         c->canSend = true;
 }
 
@@ -707,10 +699,11 @@ bool QWaylandSurface::inputRegionContains(const QPoint &p) const
     return d->inputRegion.contains(p);
 }
 
-//TODO: Add appropriate \since version when this is made public.
 /*!
  * Returns \c true if the QWaylandSurface's input region contains the point \a position.
  * Otherwise returns \c false.
+ *
+ * \since 5.14
  */
 bool QWaylandSurface::inputRegionContains(const QPointF &position) const
 {
@@ -779,6 +772,31 @@ bool QWaylandSurface::isCursorSurface() const
 {
     Q_D(const QWaylandSurface);
     return d->isCursorSurface;
+}
+
+/*!
+ * \qmlproperty bool QtWaylandCompositor::WaylandSurface::inhibitsIdle
+ * \since 5.14
+ *
+ * This property holds whether this surface is intended to inhibit the idle
+ * behavior of the compositor such as screen blanking, locking and screen saving.
+ *
+ * \sa IdleInhibitManagerV1
+ */
+
+/*!
+ * \property QWaylandSurface::inhibitsIdle
+ * \since 5.14
+ *
+ * This property holds whether this surface is intended to inhibit the idle
+ * behavior of the compositor such as screen blanking, locking and screen saving.
+ *
+ * \sa QWaylandIdleInhibitManagerV1
+ */
+bool QWaylandSurface::inhibitsIdle() const
+{
+    Q_D(const QWaylandSurface);
+    return !d->idleInhibitors.isEmpty();
 }
 
 #if QT_CONFIG(im)

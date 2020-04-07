@@ -35,5 +35,10 @@ int main()
 
     bacmp(&anyTmp, &localTmp);
 
+    uint32_t field0 = 1;
+    uint16_t field1 = 1;
+
+    field0 = htonl(field0);
+    field1 = htons(field1);
     return 0;
 }

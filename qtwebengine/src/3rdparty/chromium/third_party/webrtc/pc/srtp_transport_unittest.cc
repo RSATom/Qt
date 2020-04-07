@@ -8,7 +8,10 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
+#include "pc/srtp_transport.h"
+
 #include <string.h>
+
 #include <set>
 #include <vector>
 
@@ -17,7 +20,6 @@
 #include "media/base/fake_rtp.h"
 #include "p2p/base/dtls_transport_internal.h"
 #include "p2p/base/fake_packet_transport.h"
-#include "pc/srtp_transport.h"
 #include "pc/test/rtp_transport_test_util.h"
 #include "pc/test/srtp_test_util.h"
 #include "rtc_base/async_packet_socket.h"
@@ -42,7 +44,7 @@ static const uint8_t kTestKeyGcm256_2[] =
     "rqponmlkjihgfedcbaZYXWVUTSRQPONMLKJIHGFEDCBA";
 static const int kTestKeyGcm256Len = 44;  // 256 bits key + 96 bits salt.
 
-class SrtpTransportTest : public testing::Test, public sigslot::has_slots<> {
+class SrtpTransportTest : public ::testing::Test, public sigslot::has_slots<> {
  protected:
   SrtpTransportTest() {
     bool rtcp_mux_enabled = true;
@@ -336,7 +338,7 @@ class SrtpTransportTest : public testing::Test, public sigslot::has_slots<> {
 
 class SrtpTransportTestWithExternalAuth
     : public SrtpTransportTest,
-      public testing::WithParamInterface<bool> {};
+      public ::testing::WithParamInterface<bool> {};
 
 TEST_P(SrtpTransportTestWithExternalAuth,
        SendAndRecvPacket_AES_CM_128_HMAC_SHA1_80) {
@@ -399,9 +401,9 @@ TEST_F(SrtpTransportTest,
 }
 
 // Run all tests both with and without external auth enabled.
-INSTANTIATE_TEST_CASE_P(ExternalAuth,
-                        SrtpTransportTestWithExternalAuth,
-                        ::testing::Values(true, false));
+INSTANTIATE_TEST_SUITE_P(ExternalAuth,
+                         SrtpTransportTestWithExternalAuth,
+                         ::testing::Values(true, false));
 
 // Test directly setting the params with bogus keys.
 TEST_F(SrtpTransportTest, TestSetParamsKeyTooShort) {

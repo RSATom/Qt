@@ -265,15 +265,15 @@ void QBluetoothTransferReplyBluez::sessionStarted(QDBusPendingCallWatcher *watch
     OrgFreedesktopDBusPropertiesInterface *properties = new OrgFreedesktopDBusPropertiesInterface(
                             QStringLiteral("org.bluez.obex"), path.path(),
                             QDBusConnection::sessionBus(), this);
-    connect(properties, SIGNAL(PropertiesChanged(QString,QVariantMap,QStringList)),
-            SLOT(sessionChanged(QString,QVariantMap,QStringList)));
+    connect(properties, &OrgFreedesktopDBusPropertiesInterface::PropertiesChanged,
+            this, &QBluetoothTransferReplyBluez::sessionChanged);
 
     watcher->deleteLater();
 }
 
 void QBluetoothTransferReplyBluez::sessionChanged(const QString &interface,
                                                   const QVariantMap &changed_properties,
-                                                  const QStringList &)
+                                                  const QStringList &, const QDBusMessage &)
 {
     if (changed_properties.contains(QStringLiteral("Transferred"))) {
         emit transferProgress(

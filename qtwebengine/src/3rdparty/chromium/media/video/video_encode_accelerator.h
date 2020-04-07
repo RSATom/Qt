@@ -71,6 +71,10 @@ class MEDIA_EXPORT VideoEncodeAccelerator {
   // Specification of an encoding profile supported by an encoder.
   struct MEDIA_EXPORT SupportedProfile {
     SupportedProfile();
+    SupportedProfile(VideoCodecProfile profile,
+                     const gfx::Size& max_resolution,
+                     uint32_t max_framerate_numerator = 0u,
+                     uint32_t max_framerate_denominator = 1u);
     ~SupportedProfile();
     VideoCodecProfile profile;
     gfx::Size max_resolution;
@@ -118,6 +122,7 @@ class MEDIA_EXPORT VideoEncodeAccelerator {
            VideoCodecProfile output_profile,
            uint32_t initial_bitrate,
            base::Optional<uint32_t> initial_framerate = base::nullopt,
+           base::Optional<uint32_t> gop_length = base::nullopt,
            base::Optional<uint8_t> h264_output_level = base::nullopt,
            base::Optional<StorageType> storage_type = base::nullopt,
            ContentType content_type = ContentType::kCamera);
@@ -143,6 +148,10 @@ class MEDIA_EXPORT VideoEncodeAccelerator {
     // Initial encoding framerate in frames per second. This is optional and
     // VideoEncodeAccelerator should use |kDefaultFramerate| if not given.
     base::Optional<uint32_t> initial_framerate;
+
+    // Group of picture length for encoded output stream, indicates the
+    // distance between two key frames, i.e. IPPPIPPP would be represent as 4.
+    base::Optional<uint32_t> gop_length;
 
     // Codec level of encoded output stream for H264 only. This value should
     // be aligned to the H264 standard definition of SPS.level_idc. The only
@@ -234,15 +243,14 @@ class MEDIA_EXPORT VideoEncodeAccelerator {
   // Parameters:
   //  |frame| is the VideoFrame that is to be encoded.
   //  |force_keyframe| forces the encoding of a keyframe for this frame.
-  virtual void Encode(const scoped_refptr<VideoFrame>& frame,
-                      bool force_keyframe) = 0;
+  virtual void Encode(scoped_refptr<VideoFrame> frame, bool force_keyframe) = 0;
 
   // Send a bitstream buffer to the encoder to be used for storing future
   // encoded output.  Each call here with a given |buffer| will cause the buffer
   // to be filled once, then returned with BitstreamBufferReady().
   // Parameters:
   //  |buffer| is the bitstream buffer to use for output.
-  virtual void UseOutputBitstreamBuffer(const BitstreamBuffer& buffer) = 0;
+  virtual void UseOutputBitstreamBuffer(BitstreamBuffer buffer) = 0;
 
   // Request a change to the encoding parameters. This is only a request,
   // fulfilled on a best-effort basis.

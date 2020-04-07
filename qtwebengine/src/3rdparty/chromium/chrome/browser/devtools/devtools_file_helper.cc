@@ -10,9 +10,9 @@
 #include "base/bind.h"
 #include "base/callback.h"
 #include "base/files/file_util.h"
+#include "base/hash/md5.h"
 #include "base/lazy_instance.h"
 #include "base/macros.h"
-#include "base/md5.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/task/post_task.h"
 #include "base/threading/sequenced_task_runner_handle.h"
@@ -145,24 +145,25 @@ std::string RegisterFileSystem(WebContents* web_contents,
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   CHECK(web_contents->GetURL().SchemeIs(content::kChromeDevToolsScheme));
   std::string root_name(kRootName);
-  std::string file_system_id = isolated_context()->RegisterFileSystemForPath(
-      storage::kFileSystemTypeNativeLocal, std::string(), path, &root_name);
+  storage::IsolatedContext::ScopedFSHandle file_system =
+      isolated_context()->RegisterFileSystemForPath(
+          storage::kFileSystemTypeNativeLocal, std::string(), path, &root_name);
 
   content::ChildProcessSecurityPolicy* policy =
       content::ChildProcessSecurityPolicy::GetInstance();
   RenderViewHost* render_view_host = web_contents->GetRenderViewHost();
   int renderer_id = render_view_host->GetProcess()->GetID();
-  policy->GrantReadFileSystem(renderer_id, file_system_id);
-  policy->GrantWriteFileSystem(renderer_id, file_system_id);
-  policy->GrantCreateFileForFileSystem(renderer_id, file_system_id);
-  policy->GrantDeleteFromFileSystem(renderer_id, file_system_id);
+  policy->GrantReadFileSystem(renderer_id, file_system.id());
+  policy->GrantWriteFileSystem(renderer_id, file_system.id());
+  policy->GrantCreateFileForFileSystem(renderer_id, file_system.id());
+  policy->GrantDeleteFromFileSystem(renderer_id, file_system.id());
 
   // We only need file level access for reading FileEntries. Saving FileEntries
   // just needs the file system to have read/write access, which is granted
   // above if required.
   if (!policy->CanReadFile(renderer_id, path))
     policy->GrantReadFile(renderer_id, path);
-  return file_system_id;
+  return file_system.id();
 }
 
 DevToolsFileHelper::FileSystem CreateFileSystemStruct(
@@ -217,8 +218,7 @@ DevToolsFileHelper::DevToolsFileHelper(WebContents* web_contents,
       profile_(profile),
       delegate_(delegate),
       file_task_runner_(
-          base::CreateSequencedTaskRunnerWithTraits({base::MayBlock()})),
-      weak_factory_(this) {
+          base::CreateSequencedTaskRunnerWithTraits({base::MayBlock()})) {
   pref_change_registrar_.Init(profile_->GetPrefs());
 }
 
@@ -240,8 +240,11 @@ void DevToolsFileHelper::Save(const std::string& url,
   base::FilePath initial_path;
 
   const base::Value* path_value;
-  if (file_map->Get(base::MD5String(url), &path_value))
-    base::GetValueAsFilePath(*path_value, &initial_path);
+  if (file_map->Get(base::MD5String(url), &path_value)) {
+    // Ignore base::GetValueAsFilePath() failure since we handle empty
+    // |initial_path| below.
+    ignore_result(base::GetValueAsFilePath(*path_value, &initial_path));
+  }
 
   if (initial_path.empty()) {
     GURL gurl(url);

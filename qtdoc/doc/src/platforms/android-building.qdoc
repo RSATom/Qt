@@ -83,7 +83,7 @@
     \endlist
 
 
-    \section2 Building Qt
+    \section2 Building Qt for Android on Linux
 
     \list 1
         \li If you have a commercially licensed Qt, install your license file. If you're using
@@ -118,11 +118,12 @@
         -android-ndk <path/to/ndk> -android-sdk <path/to/sdk> -no-warnings-are-errors
         \endcode
 
-        You also need to provide the \c{-android-arch} parameter which is necessary to specify the
-        Android architecture, such as armeabi-v71 (default), arm64-v8a, x86, or x86_64:
+        You may provide the \c{-android-abis} parameter to limit the
+        Android ABIs targeted, such as armeabi-v7a, arm64-v8a, x86, or x86_64:
         \code
-        -android-arch armeabi-v71
+        -android-abis armeabi-v7a,arm64-v8a
         \endcode
+        If the parameter is not specified, Qt is built for all supported ABIs.
 
         \li To build the parts of Qt you have now configured run the following command. \e{nproc} is
             optional, representing the number of parallel jobs your system can do.
@@ -155,6 +156,8 @@
         \li Install the latest JDK from
             \l{https://www.oracle.com/technetwork/java/javase/downloads/index.html}. Then, add the
             \e{<JDK_ROOT>} to \c PATH.
+            Alternatively, if you've installed Android Studio, you can use the JDK that's
+            included in your installation's \c jre folder.
         \li Install the Android NDK, r18b, from
             \l{https://developer.android.com/tools/sdk/ndk/index.html}. Extract it to
             \e{<ANDROID_NDK_PATH>}.
@@ -176,18 +179,18 @@
             set "ANDROID_BUILD_TOOLS_REVISION=21.1.2"
             set "ANDROID_NDK_PATH=<ANDROID_NDK_PATH>"
             set "ANDROID_TOOLCHAIN_VERSION=4.9"
-            \encode
+            \endcode
             Depending on which NDK you have downloaded, add its path:
             \code
             set "ANDROID_NDK_HOST=windows-x86_64"
-            \encdode
+            \endcode
             or
             \code
             set "ANDROID_NDK_HOST=windows"
             \endcode
     \endlist
 
-    \section2 Building Qt
+    \section2 Building Qt for Android on Windows
 
     \list
         \li If you have a commercially licensed Qt, install your license file. If you're using
@@ -202,13 +205,12 @@
             installed, for example: \c{C:\Qt\%VERSION%}. This install path must not contain any
             spaces or Windows-specific file system characters.
 
-        \li Run the following command. \e{<N>} is optional, representing the number of parallel
-            jobs your system can do.
+        \li Run the following command to configure Qt:
 
         \code
         configure.bat -prefix <path to install Qt to> -platform win32-g++ -opengl es2 -xplatform
-        android-g++ -android-ndk ANDROID_NDK_PATH -android-sdk ANDROID_SDK_ROOT -nomake tests
-        -nomake examples mingw32-make.exe -j<N>
+        android-clang -android-ndk %ANDROID_NDK_PATH% -android-sdk %ANDROID_SDK_ROOT% -nomake tests
+        -nomake examples
         \endcode
 
         \li To build the previously configured parts of Qt, run the following command:
@@ -216,6 +218,8 @@
         \code
         mingw32-make.exe -j<N>
         \endcode
+
+        \e{<N>} is optional, representing the number of parallel jobs your system can do.
 
         \li Now, to install Qt, run the following command:
 

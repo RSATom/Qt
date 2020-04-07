@@ -4,12 +4,13 @@
 
 #include "extensions/browser/zipfile_installer.h"
 
+#include "base/bind.h"
 #include "base/files/file_util.h"
 #include "base/path_service.h"
 #include "base/task/post_task.h"
 #include "base/task_runner_util.h"
 #include "components/services/unzip/public/cpp/unzip.h"
-#include "components/services/unzip/public/interfaces/unzipper.mojom.h"
+#include "components/services/unzip/public/mojom/unzipper.mojom.h"
 #include "extensions/browser/extension_file_task_runner.h"
 #include "extensions/common/constants.h"
 #include "extensions/common/manifest.h"
@@ -139,19 +140,19 @@ void ZipFileInstaller::ManifestRead(
 
   data_decoder::SafeJsonParser::Parse(
       connector_, *manifest_content,
-      base::Bind(&ZipFileInstaller::ManifestParsed, this, unzip_dir),
-      base::Bind(&ZipFileInstaller::ManifestParsingFailed, this));
+      base::BindOnce(&ZipFileInstaller::ManifestParsed, this, unzip_dir),
+      base::BindOnce(&ZipFileInstaller::ManifestParsingFailed, this));
 }
 
 void ZipFileInstaller::ManifestParsingFailed(const std::string& error) {
   ReportFailure(std::string(kExtensionHandlerFileUnzipError));
 }
 
-void ZipFileInstaller::ManifestParsed(
-    const base::FilePath& unzip_dir,
-    std::unique_ptr<base::Value> manifest_value) {
+void ZipFileInstaller::ManifestParsed(const base::FilePath& unzip_dir,
+                                      base::Value manifest_value) {
   std::unique_ptr<base::DictionaryValue> manifest_dictionary =
-      base::DictionaryValue::From(std::move(manifest_value));
+      base::DictionaryValue::From(
+          base::Value::ToUniquePtrValue(std::move(manifest_value)));
   if (!manifest_dictionary) {
     ReportFailure(std::string(kExtensionHandlerFileUnzipError));
     return;
@@ -202,7 +203,7 @@ bool ZipFileInstaller::ShouldExtractFile(bool is_theme,
     // Allow filenames with no extension.
     if (extension.empty())
       return true;
-    return base::ContainsValue(kAllowedThemeFiletypes, extension);
+    return base::Contains(kAllowedThemeFiletypes, extension);
   }
   return !base::FilePath::CompareEqualIgnoreCase(file_path.FinalExtension(),
                                                  FILE_PATH_LITERAL(".exe"));

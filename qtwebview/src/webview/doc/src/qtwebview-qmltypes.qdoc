@@ -38,11 +38,9 @@
   The QML type can be imported into your application using the following
   import statement:
 
-  \badcode
   \qml \QtMinorVersion
   import QtWebView 1.\1
   \endqml
-  \endcode
 
   \section1 QML Types
 */

@@ -5,15 +5,14 @@
  * found in the LICENSE file.
  */
 
-#include "gm.h"
-#include "Resources.h"
-#include "SkAnimCodecPlayer.h"
-#include "SkAnimTimer.h"
-#include "SkColor.h"
-#include "SkMakeUnique.h"
-#include "Skottie.h"
-#include "SkottieProperty.h"
-#include "SkottieUtils.h"
+#include "gm/gm.h"
+#include "include/core/SkColor.h"
+#include "include/utils/SkAnimCodecPlayer.h"
+#include "modules/skottie/include/Skottie.h"
+#include "modules/skottie/include/SkottieProperty.h"
+#include "modules/skottie/utils/SkottieUtils.h"
+#include "src/core/SkMakeUnique.h"
+#include "tools/Resources.h"
 
 #include <cmath>
 #include <vector>
@@ -61,22 +60,24 @@ protected:
         }
     }
 
-    void onDraw(SkCanvas* canvas) override {
+    DrawResult onDraw(SkCanvas* canvas, SkString* errorMsg) override {
         if (!fAnimation) {
-            return;
+            *errorMsg = "No animation";
+            return DrawResult::kFail;
         }
 
         auto dest = SkRect::MakeWH(kSize, kSize);
         fAnimation->render(canvas, &dest);
+        return DrawResult::kOk;
     }
 
-    bool onAnimate(const SkAnimTimer& timer) override {
+    bool onAnimate(double nanos) override {
         if (!fAnimation) {
             return false;
         }
 
         const auto duration = fAnimation->duration();
-        fAnimation->seek(std::fmod(timer.secs(), duration) / duration);
+        fAnimation->seek(std::fmod(1e-9 * nanos, duration) / duration);
         return true;
     }
 
@@ -112,26 +113,28 @@ protected:
         }
     }
 
-    void onDraw(SkCanvas* canvas) override {
+    DrawResult onDraw(SkCanvas* canvas, SkString* errorMsg) override {
         if (!fAnimation) {
-            return;
+            *errorMsg = "No animation";
+            return DrawResult::kFail;
         }
 
         auto dest = SkRect::MakeWH(kSize, kSize);
         fAnimation->render(canvas, &dest);
+        return DrawResult::kOk;
     }
 
-    bool onAnimate(const SkAnimTimer& timer) override {
+    bool onAnimate(double nanos) override {
         if (!fAnimation) {
             return false;
         }
 
         const auto duration = fAnimation->duration();
-        fAnimation->seek(std::fmod(timer.secs(), duration) / duration);
+        fAnimation->seek(std::fmod(1e-9 * nanos, duration) / duration);
         return true;
     }
 
-    bool onHandleKey(SkUnichar uni) override {
+    bool onChar(SkUnichar uni) override {
         static constexpr SkColor kColors[] = {
             SK_ColorBLACK,
             SK_ColorRED,
@@ -183,29 +186,31 @@ protected:
         }
     }
 
-    void onDraw(SkCanvas* canvas) override {
+    DrawResult onDraw(SkCanvas* canvas, SkString* errorMsg) override {
         if (!fAnimation) {
-            return;
+            *errorMsg = "No animation";
+            return DrawResult::kFail;
         }
 
         auto dest = SkRect::MakeWH(kSize, kSize);
         fAnimation->render(canvas, &dest);
+        return DrawResult::kOk;
     }
 
-    bool onAnimate(const SkAnimTimer& timer) override {
+    bool onAnimate(double nanos) override {
         if (!fAnimation) {
             return false;
         }
 
         const auto duration = fAnimation->duration();
-        fAnimation->seek(std::fmod(timer.secs(), duration) / duration);
+        fAnimation->seek(std::fmod(1e-9 * nanos, duration) / duration);
         return true;
     }
 
 private:
     class MultiFrameResourceProvider final : public skottie::ResourceProvider {
     public:
-        sk_sp<ImageAsset> loadImageAsset(const char[], const char[]) const override {
+        sk_sp<ImageAsset> loadImageAsset(const char[], const char[], const char[]) const override {
             return skottie_utils::MultiFrameImageAsset::Make(
                         GetResourceAsData("images/flightAnim.gif"));
         }

@@ -42,10 +42,6 @@
 #include "qtechnique.h"
 #include "qparameter.h"
 
-#include <Qt3DCore/qpropertyupdatedchange.h>
-#include <Qt3DCore/qpropertynodeaddedchange.h>
-#include <Qt3DCore/qpropertynoderemovedchange.h>
-
 QT_BEGIN_NAMESPACE
 
 using namespace Qt3DCore;
@@ -176,7 +172,7 @@ QEffect::QEffect(QEffectPrivate &dd, QNode *parent)
 */
 
 /*!
- * Adds \a parameter to the effect. It sends a QPropertyNodeAddedChange to the backend.
+ * Adds \a parameter to the effect. It sends an update to the backend.
  * The \a parameter will be used to set a corresponding uniform value in the shader used
  * by this effect.
  */
@@ -196,11 +192,7 @@ void QEffect::addParameter(QParameter *parameter)
         if (!parameter->parent())
             parameter->setParent(this);
 
-        if (d->m_changeArbiter != nullptr) {
-            const auto change = QPropertyNodeAddedChangePtr::create(id(), parameter);
-            change->setPropertyName("parameter");
-            d->notifyObservers(change);
-        }
+        d->updateNode(parameter, "parameter", Qt3DCore::PropertyValueAdded);
     }
 }
 
@@ -211,14 +203,11 @@ void QEffect::removeParameter(QParameter *parameter)
 {
     Q_D(QEffect);
 
-    if (parameter && d->m_changeArbiter != nullptr) {
-        const auto change = QPropertyNodeRemovedChangePtr::create(id(), parameter);
-        change->setPropertyName("parameter");
-        d->notifyObservers(change);
-    }
-    d->m_parameters.removeOne(parameter);
+    if (!d->m_parameters.removeOne(parameter))
+        return;
     // Remove bookkeeping connection
     d->unregisterDestructionHelper(parameter);
+    d->updateNode(parameter, "parameter", Qt3DCore::PropertyValueRemoved);
 }
 
 /*!
@@ -231,7 +220,7 @@ QVector<QParameter *> QEffect::parameters() const
 }
 
 /*!
- * Adds a new technique \a t to the effect. It sends a QPropertyNodeAddedChange to the backend.
+ * Adds a new technique \a t to the effect. It sends an update to the backend.
  */
 void QEffect::addTechnique(QTechnique *t)
 {
@@ -250,11 +239,7 @@ void QEffect::addTechnique(QTechnique *t)
         if (!t->parent())
             t->setParent(this);
 
-        if (d->m_changeArbiter != nullptr) {
-            const auto change = QPropertyNodeAddedChangePtr::create(id(), t);
-            change->setPropertyName("technique");
-            d->notifyObservers(change);
-        }
+        d->updateNode(t, "technique", Qt3DCore::PropertyValueAdded);
     }
 }
 
@@ -264,12 +249,9 @@ void QEffect::addTechnique(QTechnique *t)
 void QEffect::removeTechnique(QTechnique *t)
 {
     Q_D(QEffect);
-    if (t && d->m_changeArbiter != nullptr) {
-        const auto change = QPropertyNodeRemovedChangePtr::create(id(), t);
-        change->setPropertyName("technique");
-        d->notifyObservers(change);
-    }
-    d->m_techniques.removeOne(t);
+    if (!d->m_techniques.removeOne(t))
+        return;
+    d->updateNode(t, "technique", Qt3DCore::PropertyValueRemoved);
     // Remove bookkeeping connection
     d->unregisterDestructionHelper(t);
 }

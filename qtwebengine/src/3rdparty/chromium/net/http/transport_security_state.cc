@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "base/base64.h"
+#include "base/bind.h"
 #include "base/build_time.h"
 #include "base/containers/span.h"
 #include "base/json/json_writer.h"
@@ -217,7 +218,7 @@ std::string HashHost(const std::string& canonicalized_host) {
 bool HashesIntersect(const HashValueVector& a,
                      const HashValueVector& b) {
   for (const auto& hash : a) {
-    if (base::ContainsValue(b, hash))
+    if (base::Contains(b, hash))
       return true;
   }
   return false;

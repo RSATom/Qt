@@ -15,14 +15,6 @@ Polymer({
   ],
 
   properties: {
-    /** @private */
-    enableSiteSettings_: {
-      type: Boolean,
-      value: function() {
-        return loadTimeData.getBoolean('enableSiteSettings');
-      },
-    },
-
     /**
      * Some content types (like Location) do not allow the user to manually
      * edit the exception list from within Settings.
@@ -37,7 +29,10 @@ Polymer({
      * Site to display in the widget.
      * @type {!SiteException}
      */
-    model: Object,
+    model: {
+      type: Object,
+      observer: 'onModelChanged_',
+    },
 
     /**
      * If the site represented is part of a chooser exception, the chooser type
@@ -69,6 +64,12 @@ Polymer({
     showPolicyPrefIndicator_: {
       type: Boolean,
       computed: 'computeShowPolicyPrefIndicator_(model)',
+    },
+
+    /** @private */
+    allowNavigateToSiteDetail_: {
+      type: Boolean,
+      value: false,
     },
   },
 
@@ -113,11 +114,10 @@ Polymer({
 
   /**
    * A handler for selecting a site (by clicking on the origin).
-   * @param {!{model: !{item: !SiteException}}} event
    * @private
    */
-  onOriginTap_: function(event) {
-    if (!this.enableSiteSettings_) {
+  onOriginTap_: function() {
+    if (!this.allowNavigateToSiteDetail_) {
       return;
     }
     settings.navigateTo(
@@ -193,4 +193,15 @@ Polymer({
         'show-action-menu',
         {anchor: this.$.actionMenuButton, model: this.model});
   },
+
+  /** @private */
+  onModelChanged_: function() {
+    if (!this.model) {
+      this.allowNavigateToSiteDetail_ = false;
+      return;
+    }
+    this.browserProxy.isOriginValid(this.model.origin).then((valid) => {
+      this.allowNavigateToSiteDetail_ = valid;
+    });
+  }
 });

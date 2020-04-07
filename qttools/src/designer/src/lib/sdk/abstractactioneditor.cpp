@@ -69,9 +69,7 @@ QDesignerActionEditorInterface::QDesignerActionEditorInterface(QWidget *parent, 
 /*!
     Destroys the action editor interface.
 */
-QDesignerActionEditorInterface::~QDesignerActionEditorInterface()
-{
-}
+QDesignerActionEditorInterface::~QDesignerActionEditorInterface() = default;
 
 /*!
     Returns a pointer to \QD's current QDesignerFormEditorInterface
@@ -79,7 +77,7 @@ QDesignerActionEditorInterface::~QDesignerActionEditorInterface()
 */
 QDesignerFormEditorInterface *QDesignerActionEditorInterface::core() const
 {
-    return 0;
+    return nullptr;
 }
 
 /*!

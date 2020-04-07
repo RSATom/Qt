@@ -9,6 +9,7 @@
 #include "core/fpdfapi/parser/cpdf_array.h"
 #include "core/fpdfapi/parser/cpdf_dictionary.h"
 #include "core/fpdfapi/parser/cpdf_name.h"
+#include "core/fxge/fx_font.h"
 #include "core/fxge/fx_freetype.h"
 #include "third_party/base/numerics/safe_math.h"
 
@@ -53,7 +54,7 @@ int CPDF_SimpleFont::GlyphFromCharCode(uint32_t charcode, bool* pVertGlyph) {
 }
 
 void CPDF_SimpleFont::LoadCharMetrics(int charcode) {
-  if (!m_Font.GetFace())
+  if (!m_Font.GetFaceRec())
     return;
 
   if (charcode < 0 || charcode > 0xff) {
@@ -70,10 +71,10 @@ void CPDF_SimpleFont::LoadCharMetrics(int charcode) {
     }
     return;
   }
-  FXFT_Face face = m_Font.GetFace();
-  int err = FXFT_Load_Glyph(
-      face, glyph_index,
-      FXFT_LOAD_NO_SCALE | FXFT_LOAD_IGNORE_GLOBAL_ADVANCE_WIDTH);
+  FXFT_FaceRec* face = m_Font.GetFaceRec();
+  int err =
+      FT_Load_Glyph(face, glyph_index,
+                    FT_LOAD_NO_SCALE | FT_LOAD_IGNORE_GLOBAL_ADVANCE_WIDTH);
   if (err)
     return;
 
@@ -221,7 +222,7 @@ bool CPDF_SimpleFont::LoadCommon() {
   LoadPDFEncoding(!!m_pFontFile, m_Font.IsTTFont());
   LoadGlyphMap();
   m_CharNames.clear();
-  if (!m_Font.GetFace())
+  if (!m_Font.GetFaceRec())
     return true;
 
   if (FontStyleIsAllCaps(m_Flags)) {

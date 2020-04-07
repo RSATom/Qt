@@ -76,7 +76,7 @@ class IgnoreErrorsCertVerifierTest : public ::testing::Test {
   void SetUp() override {
     verifier_.set_whitelist(
         IgnoreErrorsCertVerifier::MakeWhitelist(MakeWhitelist()));
-  };
+  }
 
   // The wrapped CertVerifier. Defaults to returning ERR_CERT_INVALID. Owned by
   // |verifier_|.
@@ -94,7 +94,9 @@ static void GetNonWhitelistedTestCert(scoped_refptr<X509Certificate>* out) {
 
 static CertVerifier::RequestParams MakeRequestParams(
     const scoped_refptr<X509Certificate>& cert) {
-  return CertVerifier::RequestParams(cert, "example.com", 0, "");
+  return CertVerifier::RequestParams(cert, "example.com", /*flags=*/0,
+                                     /*ocsp_response=*/std::string(),
+                                     /*sct_list=*/std::string());
 }
 
 static void GetWhitelistedTestCert(scoped_refptr<X509Certificate>* out) {
@@ -190,8 +192,8 @@ TEST_P(IgnoreCertificateErrorsSPKIListFlagTest, TestUserDataDirSwitchRequired) {
   }
 }
 
-INSTANTIATE_TEST_CASE_P(WithUserDataDirSwitchPresent,
-                        IgnoreCertificateErrorsSPKIListFlagTest,
-                        ::testing::Bool());
+INSTANTIATE_TEST_SUITE_P(WithUserDataDirSwitchPresent,
+                         IgnoreCertificateErrorsSPKIListFlagTest,
+                         ::testing::Bool());
 
 }  // namespace network

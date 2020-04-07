@@ -17,7 +17,7 @@
 
 #include "base/compiler_specific.h"
 #include "base/containers/stack.h"
-#include "base/hash.h"
+#include "base/hash/hash.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/strings/string16.h"
@@ -26,20 +26,24 @@
 #include "components/sync/driver/model_associator.h"
 #include "components/sync/model/data_type_error_handler.h"
 
+class BookmarkUndoService;
 class GURL;
 
 namespace bookmarks {
 class BookmarkModel;
 class BookmarkNode;
-}
+}  // namespace bookmarks
+
+namespace favicon {
+class FaviconService;
+}  // namespace favicon
 
 namespace syncer {
 class BaseNode;
 class BaseTransaction;
-class SyncClient;
 class WriteTransaction;
 struct UserShare;
-}
+}  // namespace syncer
 
 namespace sync_bookmarks {
 
@@ -50,16 +54,22 @@ namespace sync_bookmarks {
 class BookmarkModelAssociator : public syncer::AssociatorInterface {
  public:
   static syncer::ModelType model_type() { return syncer::BOOKMARKS; }
+
   // |expect_mobile_bookmarks_folder| controls whether or not we
   // expect the mobile bookmarks permanent folder to be created.
   // Should be set to true only by mobile clients.
   BookmarkModelAssociator(
       bookmarks::BookmarkModel* bookmark_model,
-      syncer::SyncClient* sync_client,
+      BookmarkUndoService* bookmark_undo_service,
+      favicon::FaviconService* favicon_service,
       syncer::UserShare* user_share,
       std::unique_ptr<syncer::DataTypeErrorHandler> unrecoverable_error_handler,
       bool expect_mobile_bookmarks_folder);
   ~BookmarkModelAssociator() override;
+
+  bookmarks::BookmarkModel* GetBookmarkModel();
+  favicon::FaviconService* GetFaviconService();
+  BookmarkUndoService* GetBookmarkUndoService();
 
   // AssociatorInterface implementation.
   //
@@ -269,7 +279,7 @@ class BookmarkModelAssociator : public syncer::AssociatorInterface {
   // Helper method for creating a new native bookmark node.
   const bookmarks::BookmarkNode* CreateBookmarkNode(
       const bookmarks::BookmarkNode* parent_node,
-      int bookmark_index,
+      size_t bookmark_index,
       const syncer::BaseNode* sync_child_node,
       const GURL& url,
       Context* context,
@@ -282,9 +292,10 @@ class BookmarkModelAssociator : public syncer::AssociatorInterface {
   syncer::SyncError CheckModelSyncState(Context* context) const;
 
   base::ThreadChecker thread_checker_;
-  bookmarks::BookmarkModel* bookmark_model_;
-  syncer::SyncClient* sync_client_;
-  syncer::UserShare* user_share_;
+  bookmarks::BookmarkModel* const bookmark_model_;
+  BookmarkUndoService* const bookmark_undo_service_;
+  favicon::FaviconService* const favicon_service_;
+  syncer::UserShare* const user_share_;
   std::unique_ptr<syncer::DataTypeErrorHandler> unrecoverable_error_handler_;
   const bool expect_mobile_bookmarks_folder_;
   BookmarkIdToSyncIdMap id_map_;
@@ -295,7 +306,7 @@ class BookmarkModelAssociator : public syncer::AssociatorInterface {
   // Used to post PersistAssociation tasks to the current message loop and
   // guarantees no invocations can occur if |this| has been deleted. (This
   // allows this class to be non-refcounted).
-  base::WeakPtrFactory<BookmarkModelAssociator> weak_factory_;
+  base::WeakPtrFactory<BookmarkModelAssociator> weak_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(BookmarkModelAssociator);
 };

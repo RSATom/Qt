@@ -5,11 +5,12 @@
 #include "media/midi/midi_manager_android.h"
 
 #include "base/android/build_info.h"
+#include "base/bind.h"
 #include "base/feature_list.h"
 #include "base/metrics/field_trial_params.h"
 #include "base/strings/stringprintf.h"
-#include "jni/MidiManagerAndroid_jni.h"
 #include "media/midi/midi_device_android.h"
+#include "media/midi/midi_jni_headers/MidiManagerAndroid_jni.h"
 #include "media/midi/midi_manager_usb.h"
 #include "media/midi/midi_output_port_android.h"
 #include "media/midi/midi_service.h"
@@ -119,11 +120,7 @@ void MidiManagerAndroid::OnInitialized(
     JNIEnv* env,
     const JavaParamRef<jobject>& caller,
     const JavaParamRef<jobjectArray>& devices) {
-  jsize length = env->GetArrayLength(devices);
-
-  for (jsize i = 0; i < length; ++i) {
-    base::android::ScopedJavaLocalRef<jobject> raw_device(
-        env, env->GetObjectArrayElement(devices, i));
+  for (auto raw_device : devices.ReadElements<jobject>()) {
     AddDevice(std::make_unique<MidiDeviceAndroid>(env, raw_device, this));
   }
   service()->task_service()->PostBoundTask(

@@ -72,7 +72,7 @@ class QAxBase
     QDOC_PROPERTY(QString control READ control WRITE setControl)
 
 public:
-    typedef QMap<QString, QVariant> PropertyBag;
+    using PropertyBag = QMap<QString, QVariant>;
 
     explicit QAxBase(IUnknown *iface = nullptr);
     virtual ~QAxBase();

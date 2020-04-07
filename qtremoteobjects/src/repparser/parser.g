@@ -352,13 +352,13 @@ ASTFunction::ASTFunction(const QString &name, const QString &returnType)
 QString ASTFunction::paramsAsString(ParamsAsStringFormat format) const
 {
     QString str;
-    foreach (const ASTDeclaration &param, params) {
+    for (const ASTDeclaration &param : params) {
         QString paramStr = param.asString(format != Normalized);
         if (format == Normalized) {
             paramStr = QString::fromLatin1(::normalizeType(paramStr.toLatin1().constData()));
             str += paramStr + QLatin1Char(',');
         } else {
-            str += paramStr + QStringLiteral(", ");
+            str += paramStr + QLatin1String(", ");
         }
     }
 
@@ -370,9 +370,9 @@ QString ASTFunction::paramsAsString(ParamsAsStringFormat format) const
 QStringList ASTFunction::paramNames() const
 {
     QStringList names;
-    foreach (const ASTDeclaration &param, params) {
+    names.reserve(params.size());
+    for (const ASTDeclaration &param : params)
         names << param.name;
-    }
     return names;
 }
 
@@ -426,23 +426,23 @@ bool RepParser::parseModifierFlag(const QString &flag, ASTProperty::Modifier &mo
             modifier = ASTProperty::Constant;
             return true;
         } else {
-            setErrorString(QStringLiteral("Invalid property declaration: combination not allowed (%1)").arg(flag));
+            setErrorString(QLatin1String("Invalid property declaration: combination not allowed (%1)").arg(flag));
             return false;
         }
     }
     const QString &f = flags.at(0);
-    if (f == QStringLiteral("READONLY"))
+    if (f == QLatin1String("READONLY"))
         modifier = ASTProperty::ReadOnly;
-    else if (f == QStringLiteral("CONSTANT"))
+    else if (f == QLatin1String("CONSTANT"))
         modifier = ASTProperty::Constant;
-    else if (f == QStringLiteral("READPUSH"))
+    else if (f == QLatin1String("READPUSH"))
         modifier = ASTProperty::ReadPush;
-    else if (f == QStringLiteral("READWRITE"))
+    else if (f == QLatin1String("READWRITE"))
         modifier = ASTProperty::ReadWrite;
-    else if (f == QStringLiteral("SOURCEONLYSETTER"))
+    else if (f == QLatin1String("SOURCEONLYSETTER"))
         modifier = ASTProperty::SourceOnlySetter;
     else {
-        setErrorString(QStringLiteral("Invalid property declaration: flag %1 is unknown").arg(flag));
+        setErrorString(QLatin1String("Invalid property declaration: flag %1 is unknown").arg(flag));
         return false;
     }
 
@@ -500,7 +500,7 @@ bool RepParser::parseProperty(ASTClass &astClass, const QString &propertyDeclara
     }
 
     if (nameIndex == -1) {
-        setErrorString(QStringLiteral("PROP: Invalid property declaration: %1").arg(propertyDeclaration));
+        setErrorString(QLatin1String("PROP: Invalid property declaration: %1").arg(propertyDeclaration));
         return false;
     }
 
@@ -628,14 +628,13 @@ void RepParser::TypeParser::generateFunctionParameter(QString variableName, cons
 
 void RepParser::TypeParser::appendParams(ASTFunction &slot)
 {
-    Q_FOREACH (const ASTDeclaration &arg, arguments) {
+    for (const ASTDeclaration &arg : qAsConst(arguments))
         slot.params << arg;
-    }
 }
 
 void RepParser::TypeParser::appendPods(POD &pods)
 {
-    Q_FOREACH (const ASTDeclaration &arg, arguments) {
+    for (const ASTDeclaration &arg : qAsConst(arguments)) {
         PODAttribute attr;
         attr.type = arg.type;
         attr.name = arg.name;
@@ -773,7 +772,7 @@ EnumParam: enum_param;
         value = value.trimmed();
         if (value.isEmpty())
             param.value = ++m_astEnumValue;
-        else if (value.startsWith(QStringLiteral("0x"), Qt::CaseInsensitive))
+        else if (value.startsWith(QLatin1String("0x"), Qt::CaseInsensitive))
             param.value = m_astEnumValue = value.toInt(0,16);
         else
             param.value = m_astEnumValue = value.toInt();
@@ -823,13 +822,13 @@ Slot: slot;
         const QString argString = captured().value(QLatin1String("args")).trimmed();
 
         // compat code with old SLOT declaration: "SLOT(func(...))"
-        const bool hasWhitespace = returnTypeAndName.indexOf(QStringLiteral(" ")) != -1;
+        const bool hasWhitespace = returnTypeAndName.indexOf(u' ') != -1;
         if (!hasWhitespace) {
             qWarning() << "[repc] - Adding 'void' for unspecified return type on" << qPrintable(returnTypeAndName);
-            returnTypeAndName.prepend(QStringLiteral("void "));
+            returnTypeAndName.prepend(QLatin1String("void "));
         }
 
-        const int startOfFunctionName = returnTypeAndName.lastIndexOf(QStringLiteral(" ")) + 1;
+        const int startOfFunctionName = returnTypeAndName.lastIndexOf(u' ') + 1;
 
         ASTFunction slot;
         slot.returnType = returnTypeAndName.mid(0, startOfFunctionName-1);

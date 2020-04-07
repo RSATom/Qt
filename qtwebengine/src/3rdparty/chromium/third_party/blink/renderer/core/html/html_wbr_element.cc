@@ -37,12 +37,11 @@ namespace blink {
 
 using namespace html_names;
 
-inline HTMLWBRElement::HTMLWBRElement(Document& document)
+HTMLWBRElement::HTMLWBRElement(Document& document)
     : HTMLElement(kWbrTag, document) {}
 
-DEFINE_NODE_FACTORY(HTMLWBRElement)
-
-LayoutObject* HTMLWBRElement::CreateLayoutObject(const ComputedStyle& style) {
+LayoutObject* HTMLWBRElement::CreateLayoutObject(const ComputedStyle& style,
+                                                 LegacyLayout) {
   return new LayoutWordBreak(this);
 }
 

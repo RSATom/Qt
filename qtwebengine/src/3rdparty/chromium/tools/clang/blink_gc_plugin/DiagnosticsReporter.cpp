@@ -4,6 +4,8 @@
 
 #include "DiagnosticsReporter.h"
 
+#include "llvm/Support/ErrorHandling.h"
+
 using namespace clang;
 
 namespace {
@@ -46,9 +48,6 @@ const char kClassDoesNotRequireFinalization[] =
 
 const char kFinalizerAccessesFinalizedField[] =
     "[blink-gc] Finalizer %0 accesses potentially finalized field %1.";
-
-const char kFinalizerAccessesEagerlyFinalizedField[] =
-    "[blink-gc] Finalizer %0 accesses eagerly finalized field %1.";
 
 const char kRawPtrToGCManagedClassNote[] =
     "[blink-gc] Raw pointer field %0 to a GC managed class declared here:";
@@ -105,9 +104,6 @@ const char kMissingFinalizeDispatch[] =
 
 const char kFinalizedFieldNote[] =
     "[blink-gc] Potentially finalized field %0 declared here:";
-
-const char kEagerlyFinalizedFieldNote[] =
-    "[blink-gc] Field %0 having eagerly finalized value, declared here:";
 
 const char kUserDeclaredDestructorNote[] =
     "[blink-gc] User-declared destructor declared here:";
@@ -202,8 +198,6 @@ DiagnosticsReporter::DiagnosticsReporter(
       DiagnosticsEngine::Warning, kClassDoesNotRequireFinalization);
   diag_finalizer_accesses_finalized_field_ = diagnostic_.getCustomDiagID(
       getErrorLevel(), kFinalizerAccessesFinalizedField);
-  diag_finalizer_eagerly_finalized_field_ = diagnostic_.getCustomDiagID(
-      getErrorLevel(), kFinalizerAccessesEagerlyFinalizedField);
   diag_overridden_non_virtual_trace_ = diagnostic_.getCustomDiagID(
       getErrorLevel(), kOverriddenNonVirtualTrace);
   diag_missing_trace_dispatch_method_ = diagnostic_.getCustomDiagID(
@@ -260,8 +254,6 @@ DiagnosticsReporter::DiagnosticsReporter(
       DiagnosticsEngine::Note, kFieldContainsGCRootNote);
   diag_finalized_field_note_ = diagnostic_.getCustomDiagID(
       DiagnosticsEngine::Note, kFinalizedFieldNote);
-  diag_eagerly_finalized_field_note_ = diagnostic_.getCustomDiagID(
-      DiagnosticsEngine::Note, kEagerlyFinalizedFieldNote);
   diag_user_declared_destructor_note_ = diagnostic_.getCustomDiagID(
       DiagnosticsEngine::Note, kUserDeclaredDestructorNote);
   diag_user_declared_finalizer_note_ = diagnostic_.getCustomDiagID(
@@ -372,7 +364,7 @@ void DiagnosticsReporter::ClassContainsInvalidFields(
     } else if (error.second == CheckFieldsVisitor::kIteratorToGCManaged) {
       note = diag_iterator_to_gc_managed_collection_note_;
     } else {
-      assert(false && "Unknown field error");
+      llvm_unreachable("Unknown field error.");
     }
     NoteField(error.first, note);
   }
@@ -402,16 +394,10 @@ void DiagnosticsReporter::FinalizerAccessesFinalizedFields(
     CXXMethodDecl* dtor,
     const CheckFinalizerVisitor::Errors& errors) {
   for (auto& error : errors) {
-    bool as_eagerly_finalized = error.as_eagerly_finalized;
-    unsigned diag_error = as_eagerly_finalized ?
-                          diag_finalizer_eagerly_finalized_field_ :
-                          diag_finalizer_accesses_finalized_field_;
-    unsigned diag_note = as_eagerly_finalized ?
-                         diag_eagerly_finalized_field_note_ :
-                         diag_finalized_field_note_;
-    ReportDiagnostic(error.member->getBeginLoc(), diag_error)
+    ReportDiagnostic(error.member->getBeginLoc(),
+        diag_finalizer_accesses_finalized_field_)
         << dtor << error.field->field();
-    NoteField(error.field, diag_note);
+    NoteField(error.field, diag_finalized_field_note_);
   }
 }
 

@@ -405,7 +405,7 @@ ScrollView {
 
         This signal is emitted when the user clicks on a link embedded in the text.
         The link must be in rich text or HTML format and the
-        \a link string provides access to the particular link.
+        \e link string provides access to the particular link.
 
         The corresponding handler is \c onLinkActivated.
     */
@@ -417,7 +417,7 @@ ScrollView {
 
         This signal is emitted when the user hovers a link embedded in the text.
         The link must be in rich text or HTML format and the
-        \a link string provides access to the particular link.
+        \e link string provides access to the particular link.
 
         \sa hoveredLink
 
@@ -459,7 +459,7 @@ ScrollView {
     /*!
         \qmlmethod void TextArea::append(string text)
 
-        Appends \a string as a new line to the end of the text area.
+        Appends a string \a text as a new line to the end of the text area.
     */
     function append (string) {
         edit.append(string)
@@ -518,7 +518,7 @@ ScrollView {
     /*!
         \qmlmethod void TextArea::insert(int position, string text)
 
-        Inserts \a text into the TextArea at position.
+        Inserts \a text into the TextArea at \a position.
     */
     function insert(position, text) {
         edit.insert(position, text);

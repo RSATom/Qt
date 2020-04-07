@@ -17,25 +17,24 @@ const char kCupsAddAutoConfiguredPrinter[] = "CupsAddAutoConfiguredPrinter";
 const char kCupsRemovePrinter[] = "CupsRemovePrinter";
 const char kDumpDebugLogs[] = "DumpDebugLogs";
 const char kGetInterfaces[] = "GetInterfaces";
-const char kGetModemStatus[] = "GetModemStatus";
 const char kGetNetworkStatus[] = "GetNetworkStatus";
 const char kGetPerfOutput[] = "GetPerfOutput";
 const char kGetPerfOutputFd[] = "GetPerfOutputFd";
+const char kStopPerf[] = "StopPerf";
 const char kGetRoutes[] = "GetRoutes";
-const char kGetWiMaxStatus[] = "GetWiMaxStatus";
 const char kSetDebugMode[] = "SetDebugMode";
 const char kSystraceStart[] = "SystraceStart";
 const char kSystraceStop[] = "SystraceStop";
 const char kSystraceStatus[] = "SystraceStatus";
 const char kGetLog[] = "GetLog";
 const char kGetAllLogs[] = "GetAllLogs";
-const char kGetUserLogFiles[] = "GetUserLogFiles";
-const char kGetFeedbackLogs[] = "GetFeedbackLogs";
 const char kGetBigFeedbackLogs[] = "GetBigFeedbackLogs";
+const char kGetJournalLog[] = "GetJournalLog";
 const char kTestICMP[] = "TestICMP";
 const char kTestICMPWithOptions[] = "TestICMPWithOptions";
 const char kLogKernelTaskStates[] = "LogKernelTaskStates";
 const char kUploadCrashes[] = "UploadCrashes";
+const char kUploadSingleCrash[] = "UploadSingleCrash";
 const char kRemoveRootfsVerification[] = "RemoveRootfsVerification";
 const char kEnableChromeRemoteDebugging[] = "EnableChromeRemoteDebugging";
 const char kEnableBootFromUsb[] = "EnableBootFromUsb";
@@ -46,7 +45,12 @@ const char kQueryDevFeatures[] = "QueryDevFeatures";
 const char kSetOomScoreAdj[] = "SetOomScoreAdj";
 const char kStartVmConcierge[] = "StartVmConcierge";
 const char kStopVmConcierge[] = "StopVmConcierge";
+const char kStartVmPluginDispatcher[] = "StartVmPluginDispatcher";
+const char kStopVmPluginDispatcher[] = "StopVmPluginDispatcher";
 const char kSetRlzPingSent[] = "SetRlzPingSent";
+const char kSetU2fFlags[] = "SetU2fFlags";
+const char kGetU2fFlags[] = "GetU2fFlags";
+const char kSetSchedulerConfiguration[] = "SetSchedulerConfiguration";
 
 // Values.
 enum DevFeatureFlag {
@@ -71,6 +75,21 @@ enum CupsResult {
 
 // Debug log keys which should be substituted in the system info dialog.
 const char kIwlwifiDumpKey[] = "iwlwifi_dump";
+
+namespace scheduler_configuration {
+
+// Keys which should be given to SetSchedulerConfiguration.
+constexpr char kConservativeScheduler[] = "conservative";
+constexpr char kPerformanceScheduler[] = "performance";
+
+}  // namespace scheduler_configuration
+
+namespace u2f_flags {
+constexpr char kU2f[] = "u2f";
+constexpr char kG2f[] = "g2f";
+constexpr char kVerbose[] = "verbose";
+constexpr char kUserKeys[] = "user_keys";
+}  // namespace u2f_flags
 
 }  // namespace debugd
 

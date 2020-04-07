@@ -4,21 +4,26 @@
 
 #include "services/video_capture/device_media_to_mojo_adapter.h"
 
+#include "base/bind.h"
 #include "base/logging.h"
 #include "media/base/bind_to_current_loop.h"
-#include "media/capture/video/scoped_video_capture_jpeg_decoder.h"
 #include "media/capture/video/video_capture_buffer_pool_impl.h"
 #include "media/capture/video/video_capture_buffer_tracker_factory_impl.h"
-#include "media/capture/video/video_capture_jpeg_decoder_impl.h"
 #include "media/capture/video/video_frame_receiver_on_task_runner.h"
 #include "mojo/public/cpp/bindings/callback_helpers.h"
 #include "services/video_capture/receiver_mojo_to_media_adapter.h"
 
+#if defined(OS_CHROMEOS)
+#include "media/capture/video/chromeos/scoped_video_capture_jpeg_decoder.h"
+#include "media/capture/video/chromeos/video_capture_jpeg_decoder_impl.h"
+#endif  // defined(OS_CHROMEOS)
+
 namespace {
 
+#if defined(OS_CHROMEOS)
 std::unique_ptr<media::VideoCaptureJpegDecoder> CreateGpuJpegDecoder(
     scoped_refptr<base::SequencedTaskRunner> decoder_task_runner,
-    media::MojoJpegDecodeAcceleratorFactoryCB jpeg_decoder_factory_callback,
+    media::MojoMjpegDecodeAcceleratorFactoryCB jpeg_decoder_factory_callback,
     media::VideoCaptureJpegDecoder::DecodeDoneCB decode_done_cb,
     base::RepeatingCallback<void(const std::string&)> send_log_message_cb) {
   return std::make_unique<media::ScopedVideoCaptureJpegDecoder>(
@@ -27,15 +32,17 @@ std::unique_ptr<media::VideoCaptureJpegDecoder> CreateGpuJpegDecoder(
           std::move(decode_done_cb), std::move(send_log_message_cb)),
       decoder_task_runner);
 }
+#endif  // defined(OS_CHROMEOS)
 
 }  // anonymous namespace
 
 namespace video_capture {
 
+#if defined(OS_CHROMEOS)
 DeviceMediaToMojoAdapter::DeviceMediaToMojoAdapter(
     std::unique_ptr<service_manager::ServiceContextRef> service_ref,
     std::unique_ptr<media::VideoCaptureDevice> device,
-    media::MojoJpegDecodeAcceleratorFactoryCB jpeg_decoder_factory_callback,
+    media::MojoMjpegDecodeAcceleratorFactoryCB jpeg_decoder_factory_callback,
     scoped_refptr<base::SequencedTaskRunner> jpeg_decoder_task_runner)
     : service_ref_(std::move(service_ref)),
       device_(std::move(device)),
@@ -43,6 +50,15 @@ DeviceMediaToMojoAdapter::DeviceMediaToMojoAdapter(
       jpeg_decoder_task_runner_(std::move(jpeg_decoder_task_runner)),
       device_started_(false),
       weak_factory_(this) {}
+#else
+DeviceMediaToMojoAdapter::DeviceMediaToMojoAdapter(
+    std::unique_ptr<service_manager::ServiceContextRef> service_ref,
+    std::unique_ptr<media::VideoCaptureDevice> device)
+    : service_ref_(std::move(service_ref)),
+      device_(std::move(device)),
+      device_started_(false),
+      weak_factory_(this) {}
+#endif  // defined(OS_CHROMEOS)
 
 DeviceMediaToMojoAdapter::~DeviceMediaToMojoAdapter() {
   DCHECK(thread_checker_.CalledOnValidThread());
@@ -79,7 +95,7 @@ void DeviceMediaToMojoAdapter::Start(
   scoped_refptr<media::VideoCaptureBufferPool> buffer_pool(
       new media::VideoCaptureBufferPoolImpl(std::move(buffer_tracker_factory),
                                             max_buffer_pool_buffer_count()));
-
+#if defined(OS_CHROMEOS)
   auto device_client = std::make_unique<media::VideoCaptureDeviceClient>(
       requested_settings.buffer_type, std::move(media_receiver), buffer_pool,
       base::BindRepeating(
@@ -90,22 +106,13 @@ void DeviceMediaToMojoAdapter::Start(
               receiver_->GetWeakPtr())),
           media::BindToCurrentLoop(base::BindRepeating(
               &media::VideoFrameReceiver::OnLog, receiver_->GetWeakPtr()))));
+#else
+  auto device_client = std::make_unique<media::VideoCaptureDeviceClient>(
+      requested_settings.buffer_type, std::move(media_receiver), buffer_pool);
+#endif  // defined(OS_CHROMEOS)
 
   device_->AllocateAndStart(requested_settings, std::move(device_client));
   device_started_ = true;
-}
-
-void DeviceMediaToMojoAdapter::OnReceiverReportingUtilization(
-    int32_t frame_feedback_id,
-    double utilization) {
-  DCHECK(thread_checker_.CalledOnValidThread());
-  device_->OnUtilizationReport(frame_feedback_id, utilization);
-}
-
-void DeviceMediaToMojoAdapter::RequestRefreshFrame() {
-  if (!device_started_)
-    return;
-  device_->RequestRefreshFrame();
 }
 
 void DeviceMediaToMojoAdapter::MaybeSuspend() {
@@ -145,7 +152,7 @@ void DeviceMediaToMojoAdapter::TakePhoto(TakePhotoCallback callback) {
 
 void DeviceMediaToMojoAdapter::Stop() {
   DCHECK(thread_checker_.CalledOnValidThread());
-  if (device_started_ == false)
+  if (!device_started_)
     return;
   device_started_ = false;
   weak_factory_.InvalidateWeakPtrs();

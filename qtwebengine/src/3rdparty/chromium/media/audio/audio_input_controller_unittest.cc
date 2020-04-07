@@ -7,8 +7,9 @@
 #include <memory>
 
 #include "base/macros.h"
-#include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
+#include "base/test/scoped_task_environment.h"
+#include "base/timer/timer.h"
 #include "media/audio/audio_manager.h"
 #include "media/audio/fake_audio_input_stream.h"
 #include "media/audio/test_audio_thread.h"
@@ -143,7 +144,7 @@ class AudioInputControllerTest : public testing::TestWithParam<bool> {
     run_loop.Run();
   }
 
-  base::MessageLoop message_loop_;
+  base::test::ScopedTaskEnvironment scoped_task_environment_;
 
   // Parameterize tests to run AudioInputController either on audio thread
   // (synchronously), or on a different thread (non-blocking).
@@ -298,6 +299,6 @@ TEST_P(AudioInputControllerTest, SetVolume) {
   CloseAudioController();
 }
 
-INSTANTIATE_TEST_CASE_P(SyncAsync, AudioInputControllerTest, testing::Bool());
+INSTANTIATE_TEST_SUITE_P(SyncAsync, AudioInputControllerTest, testing::Bool());
 
 }  // namespace media

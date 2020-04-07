@@ -167,7 +167,6 @@ def isInChromiumBlacklist(file_path):
             or file_path.startswith('third_party/catapult/tracing/test_data/')
             or file_path.startswith('third_party/chromevox')
             or file_path.startswith('third_party/chromite')
-            or file_path.startswith('third_party/cld_3')
             or file_path.startswith('third_party/closure_compiler')
             or file_path.startswith('third_party/colorama')
             or file_path.startswith('third_party/depot_tools')
@@ -175,9 +174,11 @@ def isInChromiumBlacklist(file_path):
             or file_path.startswith('third_party/fuschsia-sdk/')
             or file_path.startswith('third_party/glslang/src/Test/')
             or file_path.startswith('third_party/google_')
+            or file_path.startswith('third_party/grpc/')
             or file_path.startswith('third_party/hunspell_dictionaries')
-            or (file_path.startswith('third_party/icu') and file_path.endswith('icudtl_dat.S'))
             or file_path.startswith('third_party/icu/android')
+            or file_path.startswith('third_party/icu/cast')
+            or file_path.startswith('third_party/icu/chromeos')
             or file_path.startswith('third_party/icu/ios')
             or file_path.startswith('third_party/instrumented_libraries')
             or file_path.startswith('third_party/jsr-305')
@@ -192,20 +193,20 @@ def isInChromiumBlacklist(file_path):
             or file_path.startswith('third_party/libwebm/source/webm_parser/fuzzing')
             or file_path.startswith('third_party/logilab')
             or file_path.startswith('third_party/markdown')
-            or (file_path.startswith('third_party/polymer') and
-                not file_path.startswith('third_party/polymer/v1_0/components-chromium/'))
             or file_path.startswith('third_party/openh264/src/res')
+            or file_path.startswith('third_party/openscreen/src/third_party/boringssl/')
             or file_path.startswith('third_party/pdfium/testing/resources')
             or file_path.startswith('third_party/pdfium/tools')
             or file_path.startswith('third_party/perl')
             or file_path.startswith('third_party/pylint')
             or file_path.startswith('third_party/sfntly/src/cpp/data/fonts')
             or file_path.startswith('third_party/sfntly/src/java')
+            or file_path.startswith('third_party/skia/docs/')
             or file_path.startswith('third_party/skia/infra')
             or file_path.startswith('third_party/sqlite/sqlite-src-')
             or file_path.startswith('third_party/speech-dispatcher')
             or file_path.startswith('third_party/spirv-cross/')
-            or file_path.startswith('third_party/swiftshader/third_party/llvm')
+            or file_path.startswith('third_party/swiftshader/third_party/')
             or file_path.startswith('third_party/wayland')
             or file_path.startswith('third_party/webgl')
             or file_path.startswith('third_party/webrtc/resources/')
@@ -232,6 +233,7 @@ def isInChromiumBlacklist(file_path):
         or ('/fuzz' in file_path and (
           '/fuzz/' in file_path
           or '/fuzzer/' in file_path
+          or '/fuzzers/' in file_path
           or '/fuzzing/' in file_path
         ))
         or ('/test' in file_path and (
@@ -243,6 +245,7 @@ def isInChromiumBlacklist(file_path):
             not file_path.endswith('mock_chrome_application_mac.h') and
             not file_path.endswith('perftimer.h') and
             not file_path.endswith('test-torque.tq') and
+            not file_path.endswith('fonts.conf') and
             not 'ozone' in file_path and
             not 'clang_coverage' in file_path and
             not 'crypto/test/trampoline' in file_path and

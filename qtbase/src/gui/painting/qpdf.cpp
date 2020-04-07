@@ -1570,12 +1570,14 @@ void QPdfEnginePrivate::writeHeader()
 {
     addXrefEntry(0,false);
 
-    static const QHash<QPdfEngine::PdfVersion, const char *> mapping {
-        {QPdfEngine::Version_1_4, "1.4"},
-        {QPdfEngine::Version_A1b, "1.4"},
-        {QPdfEngine::Version_1_6, "1.6"}
+    // Keep in sync with QPdfEngine::PdfVersion!
+    static const char mapping[][4] = {
+        "1.4", // Version_1_4
+        "1.4", // Version_A1b
+        "1.6", // Version_1_6
     };
-    const char *verStr = mapping.value(pdfVersion, "1.4");
+    static const size_t numMappings = sizeof mapping / sizeof *mapping;
+    const char *verStr = mapping[size_t(pdfVersion) < numMappings ? pdfVersion : 0];
 
     xprintf("%%PDF-%s\n", verStr);
     xprintf("%%\303\242\303\243\n");
@@ -1671,19 +1673,19 @@ int QPdfEnginePrivate::writeXmpMetaData()
     const QDateTime now = QDateTime::currentDateTime();
     const QDate date = now.date();
     const QTime time = now.time();
-
-    QString timeStr;
-    timeStr.sprintf("%d-%02d-%02dT%02d:%02d:%02d", date.year(), date.month(), date.day(),
-                                                   time.hour(), time.minute(), time.second());
+    const QString timeStr =
+            QString::asprintf("%d-%02d-%02dT%02d:%02d:%02d",
+                              date.year(), date.month(), date.day(),
+                              time.hour(), time.minute(), time.second());
 
     const int offset = now.offsetFromUtc();
     const int hours  = (offset / 60) / 60;
     const int mins   = (offset / 60) % 60;
     QString tzStr;
     if (offset < 0)
-        tzStr.sprintf("-%02d:%02d", -hours, -mins);
+        tzStr = QString::asprintf("-%02d:%02d", -hours, -mins);
     else if (offset > 0)
-        tzStr.sprintf("+%02d:%02d", hours , mins);
+        tzStr = QString::asprintf("+%02d:%02d", hours , mins);
     else
         tzStr = QLatin1String("Z");
 

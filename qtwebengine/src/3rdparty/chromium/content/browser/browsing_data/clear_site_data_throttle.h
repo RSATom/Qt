@@ -16,8 +16,8 @@
 #include "base/time/time.h"
 #include "content/public/browser/resource_request_info.h"
 #include "content/public/browser/resource_throttle.h"
-#include "content/public/common/console_message_level.h"
 #include "net/http/http_response_headers.h"
+#include "third_party/blink/public/mojom/devtools/console_message.mojom.h"
 #include "url/gurl.h"
 
 namespace net {
@@ -49,11 +49,12 @@ class CONTENT_EXPORT ClearSiteDataThrottle : public ResourceThrottle {
     struct Message {
       GURL url;
       std::string text;
-      ConsoleMessageLevel level;
+      blink::mojom::ConsoleMessageLevel level;
     };
 
-    typedef base::Callback<
-        void(WebContents*, ConsoleMessageLevel, const std::string&)>
+    typedef base::Callback<void(WebContents*,
+                                blink::mojom::ConsoleMessageLevel,
+                                const std::string&)>
         OutputFormattedMessageFunction;
 
     ConsoleMessagesDelegate();
@@ -62,7 +63,7 @@ class CONTENT_EXPORT ClearSiteDataThrottle : public ResourceThrottle {
     // Logs a |text| message from |url| with |level|.
     virtual void AddMessage(const GURL& url,
                             const std::string& text,
-                            ConsoleMessageLevel level);
+                            blink::mojom::ConsoleMessageLevel level);
 
     // Outputs stored messages to the console of WebContents identified by
     // |web_contents_getter|.
@@ -88,7 +89,7 @@ class CONTENT_EXPORT ClearSiteDataThrottle : public ResourceThrottle {
   ~ClearSiteDataThrottle() override;
 
   // ResourceThrottle implementation:
-  const char* GetNameForLogging() const override;
+  const char* GetNameForLogging() override;
   void WillRedirectRequest(const net::RedirectInfo& redirect_info,
                            bool* defer) override;
   void WillProcessResponse(bool* defer) override;
@@ -154,7 +155,7 @@ class CONTENT_EXPORT ClearSiteDataThrottle : public ResourceThrottle {
   base::TimeTicks clearing_started_;
 
   // Needed for asynchronous parsing and deletion tasks.
-  base::WeakPtrFactory<ClearSiteDataThrottle> weak_ptr_factory_;
+  base::WeakPtrFactory<ClearSiteDataThrottle> weak_ptr_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(ClearSiteDataThrottle);
 };

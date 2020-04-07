@@ -48,6 +48,7 @@
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/dom/element.h"
 #include "third_party/blink/renderer/core/dom/qualified_name.h"
+#include "third_party/blink/renderer/core/execution_context/agent.h"
 #include "third_party/blink/renderer/core/frame/local_dom_window.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/frame/local_frame_client.h"
@@ -61,11 +62,11 @@
 #include "third_party/blink/renderer/platform/bindings/v8_binding_macros.h"
 #include "third_party/blink/renderer/platform/bindings/v8_object_constructor.h"
 #include "third_party/blink/renderer/platform/instrumentation/tracing/traced_value.h"
+#include "third_party/blink/renderer/platform/scheduler/public/event_loop.h"
 #include "third_party/blink/renderer/platform/wtf/math_extras.h"
 #include "third_party/blink/renderer/platform/wtf/std_lib_extras.h"
 #include "third_party/blink/renderer/platform/wtf/text/atomic_string.h"
 #include "third_party/blink/renderer/platform/wtf/text/character_names.h"
-#include "third_party/blink/renderer/platform/wtf/text/cstring.h"
 #include "third_party/blink/renderer/platform/wtf/text/string_buffer.h"
 #include "third_party/blink/renderer/platform/wtf/text/string_builder.h"
 #include "third_party/blink/renderer/platform/wtf/text/string_hash.h"
@@ -117,32 +118,42 @@ static double EnforceRange(double x,
 }
 
 template <typename T>
+struct IntTypeNumberOfValues {
+  static constexpr unsigned value =
+      1 << (std::numeric_limits<T>::digits + std::is_signed<T>::value);
+};
+
+template <typename T>
 struct IntTypeLimits {};
 
 template <>
 struct IntTypeLimits<int8_t> {
-  static const int8_t kMinValue = -128;
-  static const int8_t kMaxValue = 127;
-  static const unsigned kNumberOfValues = 256;  // 2^8
+  static constexpr int8_t kMinValue = std::numeric_limits<int8_t>::min();
+  static constexpr int8_t kMaxValue = std::numeric_limits<int8_t>::max();
+  static constexpr unsigned kNumberOfValues =
+      IntTypeNumberOfValues<int8_t>::value;  // 2^8
 };
 
 template <>
 struct IntTypeLimits<uint8_t> {
-  static const uint8_t kMaxValue = 255;
-  static const unsigned kNumberOfValues = 256;  // 2^8
+  static constexpr uint8_t kMaxValue = std::numeric_limits<uint8_t>::max();
+  static constexpr unsigned kNumberOfValues =
+      IntTypeNumberOfValues<uint8_t>::value;  // 2^8
 };
 
 template <>
 struct IntTypeLimits<int16_t> {
-  static const short kMinValue = -32768;
-  static const short kMaxValue = 32767;
-  static const unsigned kNumberOfValues = 65536;  // 2^16
+  static constexpr int16_t kMinValue = std::numeric_limits<int16_t>::min();
+  static constexpr int16_t kMaxValue = std::numeric_limits<int16_t>::max();
+  static constexpr unsigned kNumberOfValues =
+      IntTypeNumberOfValues<int16_t>::value;  // 2^16
 };
 
 template <>
 struct IntTypeLimits<uint16_t> {
-  static const unsigned short kMaxValue = 65535;
-  static const unsigned kNumberOfValues = 65536;  // 2^16
+  static constexpr uint16_t kMaxValue = std::numeric_limits<uint16_t>::max();
+  static constexpr unsigned kNumberOfValues =
+      IntTypeNumberOfValues<uint16_t>::value;  // 2^16
 };
 
 template <typename T>
@@ -610,8 +621,8 @@ XPathNSResolver* ToXPathNSResolver(ScriptState* script_state,
   if (V8XPathNSResolver::HasInstance(value, script_state->GetIsolate())) {
     resolver = V8XPathNSResolver::ToImpl(v8::Local<v8::Object>::Cast(value));
   } else if (value->IsObject()) {
-    resolver =
-        V8CustomXPathNSResolver::Create(script_state, value.As<v8::Object>());
+    resolver = MakeGarbageCollected<V8CustomXPathNSResolver>(
+        script_state, value.As<v8::Object>());
   }
   return resolver;
 }
@@ -630,7 +641,7 @@ DOMWindow* ToDOMWindow(v8::Isolate* isolate, v8::Local<v8::Value> value) {
 LocalDOMWindow* ToLocalDOMWindow(v8::Local<v8::Context> context) {
   if (context.IsEmpty())
     return nullptr;
-  return ToLocalDOMWindow(
+  return To<LocalDOMWindow>(
       ToDOMWindow(context->GetIsolate(), context->Global()));
 }
 
@@ -914,6 +925,16 @@ Vector<String> GetOwnPropertyNames(v8::Isolate* isolate,
 
   return NativeValueTraits<IDLSequence<IDLString>>::NativeValue(
       isolate, property_names, exception_state);
+}
+
+v8::MicrotaskQueue* ToMicrotaskQueue(ExecutionContext* execution_context) {
+  if (!execution_context)
+    return nullptr;
+  return execution_context->GetMicrotaskQueue();
+}
+
+v8::MicrotaskQueue* ToMicrotaskQueue(ScriptState* script_state) {
+  return ToMicrotaskQueue(ExecutionContext::From(script_state));
 }
 
 }  // namespace blink

@@ -378,13 +378,10 @@ void QQuickCanvasItem::setContextType(const QString &contextType)
     this property will contain the current drawing context, otherwise null.
 */
 
-QQmlV4Handle QQuickCanvasItem::context() const
+QJSValue QQuickCanvasItem::context() const
 {
     Q_D(const QQuickCanvasItem);
-    if (d->context)
-        return QQmlV4Handle(d->context->v4value());
-
-    return QQmlV4Handle(QV4::Encode::null());
+    return d->context ? QJSValue(d->context->v4Engine(), d->context->v4value()) : QJSValue();
 }
 
 /*!
@@ -772,7 +769,8 @@ QSGNode *QQuickCanvasItem::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData
 
     QSGInternalImageNode *node = static_cast<QSGInternalImageNode *>(oldNode);
     if (!node) {
-        node = QQuickWindowPrivate::get(window())->context->sceneGraphContext()->createInternalImageNode();
+        QSGRenderContext *rc = QQuickWindowPrivate::get(window())->context;
+        node = rc->sceneGraphContext()->createInternalImageNode(rc);
         d->node = node;
     }
 

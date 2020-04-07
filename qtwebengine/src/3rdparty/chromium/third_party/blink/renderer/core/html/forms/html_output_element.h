@@ -40,8 +40,6 @@ class CORE_EXPORT HTMLOutputElement final : public HTMLFormControlElement {
   DEFINE_WRAPPERTYPEINFO();
 
  public:
-  static HTMLOutputElement* Create(Document&);
-
   explicit HTMLOutputElement(Document&);
   ~HTMLOutputElement() override;
 
@@ -73,7 +71,7 @@ class CORE_EXPORT HTMLOutputElement final : public HTMLFormControlElement {
 
   bool is_default_value_mode_;
   String default_value_;
-  TraceWrapperMember<DOMTokenList> tokens_;
+  Member<DOMTokenList> tokens_;
 };
 
 }  // namespace blink

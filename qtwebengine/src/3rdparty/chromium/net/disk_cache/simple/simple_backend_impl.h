@@ -41,15 +41,17 @@ namespace disk_cache {
 
 // SimpleBackendImpl is a new cache backend that stores entries in individual
 // files.
-// See http://www.chromium.org/developers/design-documents/network-stack/disk-cache/very-simple-backend
+// See
+// http://www.chromium.org/developers/design-documents/network-stack/disk-cache/very-simple-backend
 //
 // The SimpleBackendImpl provides safe iteration; mutating entries during
 // iteration cannot cause a crash. It is undefined whether entries created or
 // destroyed during the iteration will be included in any pre-existing
 // iterations.
 //
-// The non-static functions below must be called on the IO thread unless
-// otherwise stated.
+// The non-static functions below must be called on the source creation sequence
+// unless otherwise stated.  Historically the source creation sequence has been
+// the IO thread, but the simple backend may now be used from other sequences.
 
 class BackendCleanupTracker;
 class SimpleEntryImpl;
@@ -74,7 +76,6 @@ class NET_EXPORT_PRIVATE SimpleBackendImpl : public Backend,
 
   ~SimpleBackendImpl() override;
 
-  net::CacheType cache_type() const { return cache_type_; }
   SimpleIndex* index() { return index_.get(); }
 
   void SetWorkerPoolForTesting(scoped_refptr<base::TaskRunner> task_runner);
@@ -104,7 +105,6 @@ class NET_EXPORT_PRIVATE SimpleBackendImpl : public Backend,
                    CompletionOnceCallback callback) override;
 
   // Backend:
-  net::CacheType GetCacheType() const override;
   int32_t GetEntryCount() const override;
   net::Error OpenEntry(const std::string& key,
                        net::RequestPriority request_priority,
@@ -206,8 +206,8 @@ class NET_EXPORT_PRIVATE SimpleBackendImpl : public Backend,
                                            Int64CompletionOnceCallback callback,
                                            int result);
 
-  // Try to create the directory if it doesn't exist. This must run on the IO
-  // thread.
+  // Try to create the directory if it doesn't exist. This must run on the
+  // source creation sequence.
   static DiskStatResult InitCacheStructureOnDisk(const base::FilePath& path,
                                                  uint64_t suggested_max_size,
                                                  net::CacheType cache_type);
@@ -283,7 +283,6 @@ class NET_EXPORT_PRIVATE SimpleBackendImpl : public Backend,
   SimpleFileTracker* const file_tracker_;
 
   const base::FilePath path_;
-  const net::CacheType cache_type_;
   std::unique_ptr<SimpleIndex> index_;
 
   // This is only used for initial open (including potential format upgrade)

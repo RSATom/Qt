@@ -157,7 +157,7 @@ QBar3DSeries *Q3DBars::primarySeries() const
  * to the axes. If the newly added series has specified a selected bar, it will be highlighted and
  * any existing selection will be cleared. Only one added series can have an active selection.
  *
- * /sa seriesList(), primarySeries
+ * \sa seriesList(), primarySeries
  */
 void Q3DBars::addSeries(QBar3DSeries *series)
 {

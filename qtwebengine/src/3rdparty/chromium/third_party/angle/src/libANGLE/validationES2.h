@@ -121,6 +121,56 @@ ANGLE_INLINE bool ValidateVertexAttribPointer(Context *context,
 
     return true;
 }
+
+void RecordBindTextureTypeError(Context *context, TextureType target);
+
+ANGLE_INLINE bool ValidateBindTexture(Context *context, TextureType target, GLuint texture)
+{
+    if (!context->getStateCache().isValidBindTextureType(target))
+    {
+        RecordBindTextureTypeError(context, target);
+        return false;
+    }
+
+    if (texture == 0)
+    {
+        return true;
+    }
+
+    Texture *textureObject = context->getTexture(texture);
+    if (textureObject && textureObject->getType() != target)
+    {
+        context->validationError(GL_INVALID_OPERATION, err::kTextureTargetMismatch);
+        return false;
+    }
+
+    if (!context->getState().isBindGeneratesResourceEnabled() &&
+        !context->isTextureGenerated(texture))
+    {
+        context->validationError(GL_INVALID_OPERATION, err::kObjectNotGenerated);
+        return false;
+    }
+
+    return true;
+}
+
+// Validation of all Tex[Sub]Image2D parameters except TextureTarget.
+bool ValidateES2TexImageParametersBase(Context *context,
+                                       TextureTarget target,
+                                       GLint level,
+                                       GLenum internalformat,
+                                       bool isCompressed,
+                                       bool isSubImage,
+                                       GLint xoffset,
+                                       GLint yoffset,
+                                       GLsizei width,
+                                       GLsizei height,
+                                       GLint border,
+                                       GLenum format,
+                                       GLenum type,
+                                       GLsizei imageSize,
+                                       const void *pixels);
+
 }  // namespace gl
 
 #endif  // LIBANGLE_VALIDATION_ES2_H_

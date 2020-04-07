@@ -5,9 +5,9 @@
  * found in the LICENSE file.
  */
 
-#include "Sample.h"
-#include "SkCanvas.h"
-#include "SkPath.h"
+#include "include/core/SkCanvas.h"
+#include "include/core/SkPath.h"
+#include "samplecode/Sample.h"
 
 // Reproduces https://code.google.com/p/chromium/issues/detail?id=279014
 
@@ -20,13 +20,7 @@ public:
     StringArtView() : fAngle(0.305f) {}
 
 protected:
-    bool onQuery(Sample::Event* evt) override {
-        if (Sample::TitleQ(*evt)) {
-            Sample::TitleR(evt, "StringArt");
-            return true;
-        }
-        return this->INHERITED::onQuery(evt);
-    }
+    SkString name() override { return SkString("StringArt"); }
 
     void onDrawContent(SkCanvas* canvas) override {
         SkScalar angle = fAngle*SK_ScalarPI + SkScalarHalf(SK_ScalarPI);
@@ -56,7 +50,7 @@ protected:
         canvas->drawPath(path, paint);
     }
 
-    Sample::Click* onFindClickHandler(SkScalar x, SkScalar y, unsigned) override {
+    Sample::Click* onFindClickHandler(SkScalar x, SkScalar y, ModifierKey) override {
         fAngle = x/width();
         return nullptr;
     }

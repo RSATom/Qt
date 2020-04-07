@@ -8,6 +8,7 @@
 #include "third_party/blink/public/platform/web_blob_info.h"
 #include "third_party/blink/renderer/bindings/core/v8/serialization/unpacked_serialized_script_value.h"
 #include "third_party/blink/renderer/bindings/core/v8/to_v8_for_core.h"
+#include "third_party/blink/renderer/core/dom/dom_exception.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
 #include "third_party/blink/renderer/core/fileapi/blob.h"
 #include "third_party/blink/renderer/core/fileapi/file.h"
@@ -261,7 +262,7 @@ ScriptWrappable* V8ScriptValueDeserializer::ReadDOMObject(
       uint32_t length;
       if (!ReadUint32(&length))
         return nullptr;
-      FileList* file_list = FileList::Create();
+      auto* file_list = MakeGarbageCollected<FileList>();
       for (uint32_t i = 0; i < length; i++) {
         if (File* file = ReadFile())
           file_list->Append(file);
@@ -276,7 +277,7 @@ ScriptWrappable* V8ScriptValueDeserializer::ReadDOMObject(
       uint32_t length;
       if (!ReadUint32(&length))
         return nullptr;
-      FileList* file_list = FileList::Create();
+      auto* file_list = MakeGarbageCollected<FileList>();
       for (uint32_t i = 0; i < length; i++) {
         if (File* file = ReadFileIndex())
           file_list->Append(file);
@@ -499,7 +500,7 @@ ScriptWrappable* V8ScriptValueDeserializer::ReadDOMObject(
           index >= serialized_script_value_->MojoHandles().size()) {
         return nullptr;
       }
-      return MojoHandle::Create(
+      return MakeGarbageCollected<MojoHandle>(
           std::move(serialized_script_value_->MojoHandles()[index]));
     }
     case kOffscreenCanvasTransferTag: {
@@ -558,6 +559,15 @@ ScriptWrappable* V8ScriptValueDeserializer::ReadDOMObject(
         return nullptr;
 
       return MakeGarbageCollected<TransformStream>(readable, writable);
+    }
+    case kDOMExceptionTag: {
+      // See the serialization side for |stack_unused|.
+      String name, message, stack_unused;
+      if (!ReadUTF8String(&name) || !ReadUTF8String(&message) ||
+          !ReadUTF8String(&stack_unused)) {
+        return nullptr;
+      }
+      return DOMException::Create(name, message);
     }
     default:
       break;

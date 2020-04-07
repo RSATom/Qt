@@ -12,21 +12,25 @@
 
 #include <limits>
 
-#include <vulkan/vulkan.h>
-
+#include "common/FixedVector.h"
 #include "common/Optional.h"
 #include "common/PackedEnums.h"
 #include "common/debug.h"
 #include "libANGLE/Error.h"
 #include "libANGLE/Observer.h"
-#include "libANGLE/renderer/renderer_utils.h"
+#include "libANGLE/renderer/vulkan/SecondaryCommandBuffer.h"
+#include "libANGLE/renderer/vulkan/vk_wrapper.h"
 
 #define ANGLE_GL_OBJECTS_X(PROC) \
     PROC(Buffer)                 \
     PROC(Context)                \
     PROC(Framebuffer)            \
+    PROC(MemoryObject)           \
+    PROC(Query)                  \
     PROC(Program)                \
+    PROC(Semaphore)              \
     PROC(Texture)                \
+    PROC(TransformFeedback)      \
     PROC(VertexArray)
 
 #define ANGLE_PRE_DECLARE_OBJECT(OBJ) class OBJ;
@@ -34,7 +38,8 @@
 namespace egl
 {
 class Display;
-}
+class Image;
+}  // namespace egl
 
 namespace gl
 {
@@ -47,7 +52,7 @@ struct SwizzleState;
 struct VertexAttribute;
 class VertexBinding;
 
-ANGLE_GL_OBJECTS_X(ANGLE_PRE_DECLARE_OBJECT);
+ANGLE_GL_OBJECTS_X(ANGLE_PRE_DECLARE_OBJECT)
 }  // namespace gl
 
 #define ANGLE_PRE_DECLARE_VK_OBJECT(OBJ) class OBJ##Vk;
@@ -56,6 +61,7 @@ namespace rx
 {
 class CommandGraphResource;
 class DisplayVk;
+class ImageVk;
 class RenderTargetVk;
 class RendererVk;
 class RenderPassCache;
@@ -68,14 +74,17 @@ egl::Error ToEGL(Result result, rx::DisplayVk *displayVk, EGLint errorCode);
 
 namespace rx
 {
-ANGLE_GL_OBJECTS_X(ANGLE_PRE_DECLARE_VK_OBJECT);
+ANGLE_GL_OBJECTS_X(ANGLE_PRE_DECLARE_VK_OBJECT)
 
 const char *VulkanResultString(VkResult result);
+
+constexpr size_t kMaxVulkanLayers = 20;
+using VulkanLayerVector           = angle::FixedVector<const char *, kMaxVulkanLayers>;
+
 // Verify that validation layers are available.
 bool GetAvailableValidationLayers(const std::vector<VkLayerProperties> &layerProps,
                                   bool mustHaveLayers,
-                                  const char *const **enabledLayerNames,
-                                  uint32_t *enabledLayerCount);
+                                  VulkanLayerVector *enabledLayerNames);
 
 extern const char *g_VkLoaderLayersPathEnv;
 extern const char *g_VkICDPathEnv;
@@ -110,6 +119,14 @@ class Context : angle::NonCopyable
     RendererVk *const mRenderer;
 };
 
+#if ANGLE_USE_CUSTOM_VULKAN_CMD_BUFFERS
+using CommandBuffer = priv::SecondaryCommandBuffer;
+#else
+using CommandBuffer = priv::CommandBuffer;
+#endif
+
+using PrimaryCommandBuffer = priv::CommandBuffer;
+
 VkImageAspectFlags GetDepthStencilAspectFlags(const angle::Format &format);
 VkImageAspectFlags GetFormatAspectFlags(const angle::Format &format);
 VkImageAspectFlags GetDepthStencilAspectFlagsForCopy(bool copyDepth, bool copyStencil);
@@ -134,6 +151,12 @@ struct ImplTypeHelper<egl::Display>
     using ImplType = DisplayVk;
 };
 
+template <>
+struct ImplTypeHelper<egl::Image>
+{
+    using ImplType = ImageVk;
+};
+
 template <typename T>
 using GetImplType = typename ImplTypeHelper<T>::ImplType;
 
@@ -143,73 +166,28 @@ GetImplType<T> *GetImpl(const T *glObject)
     return GetImplAs<GetImplType<T>>(glObject);
 }
 
-// Unimplemented handle types:
-// Instance
-// PhysicalDevice
-// Device
-// Queue
-// DescriptorSet
-
-#define ANGLE_HANDLE_TYPES_X(FUNC) \
-    FUNC(Buffer)                   \
-    FUNC(BufferView)               \
-    FUNC(CommandBuffer)            \
-    FUNC(CommandPool)              \
-    FUNC(DescriptorPool)           \
-    FUNC(DescriptorSetLayout)      \
-    FUNC(DeviceMemory)             \
-    FUNC(Event)                    \
-    FUNC(Fence)                    \
-    FUNC(Framebuffer)              \
-    FUNC(Image)                    \
-    FUNC(ImageView)                \
-    FUNC(Pipeline)                 \
-    FUNC(PipelineCache)            \
-    FUNC(PipelineLayout)           \
-    FUNC(QueryPool)                \
-    FUNC(RenderPass)               \
-    FUNC(Sampler)                  \
-    FUNC(Semaphore)                \
-    FUNC(ShaderModule)
-
-#define ANGLE_COMMA_SEP_FUNC(TYPE) TYPE,
-
-enum class HandleType
-{
-    Invalid,
-    ANGLE_HANDLE_TYPES_X(ANGLE_COMMA_SEP_FUNC)
-};
-
-#undef ANGLE_COMMA_SEP_FUNC
-
-#define ANGLE_PRE_DECLARE_CLASS_FUNC(TYPE) class TYPE;
-ANGLE_HANDLE_TYPES_X(ANGLE_PRE_DECLARE_CLASS_FUNC)
-#undef ANGLE_PRE_DECLARE_CLASS_FUNC
-
-// Returns the HandleType of a Vk Handle.
-template <typename T>
-struct HandleTypeHelper;
-
-// clang-format off
-#define ANGLE_HANDLE_TYPE_HELPER_FUNC(TYPE)                     \
-template<> struct HandleTypeHelper<TYPE>                        \
-{                                                               \
-    constexpr static HandleType kHandleType = HandleType::TYPE; \
-};
-// clang-format on
-
-ANGLE_HANDLE_TYPES_X(ANGLE_HANDLE_TYPE_HELPER_FUNC)
-
-#undef ANGLE_HANDLE_TYPE_HELPER_FUNC
-
-class GarbageObject final
+class GarbageObjectBase
 {
   public:
     template <typename ObjectT>
-    GarbageObject(Serial serial, const ObjectT &object)
-        : mSerial(serial),
-          mHandleType(HandleTypeHelper<ObjectT>::kHandleType),
+    GarbageObjectBase(const ObjectT &object)
+        : mHandleType(HandleTypeHelper<ObjectT>::kHandleType),
           mHandle(reinterpret_cast<VkDevice>(object.getHandle()))
+    {}
+    GarbageObjectBase();
+
+    void destroy(VkDevice device);
+
+  private:
+    HandleType mHandleType;
+    VkDevice mHandle;
+};
+
+class GarbageObject final : public GarbageObjectBase
+{
+  public:
+    template <typename ObjectT>
+    GarbageObject(Serial serial, const ObjectT &object) : GarbageObjectBase(object), mSerial(serial)
     {}
 
     GarbageObject();
@@ -217,56 +195,13 @@ class GarbageObject final
     GarbageObject &operator=(const GarbageObject &other);
 
     bool destroyIfComplete(VkDevice device, Serial completedSerial);
-    void destroy(VkDevice device);
 
   private:
     // TODO(jmadill): Since many objects will have the same serial, it might be more efficient to
     // store the serial outside of the garbage object itself. We could index ranges of garbage
     // objects in the Renderer, using a circular buffer.
     Serial mSerial;
-    HandleType mHandleType;
-    VkDevice mHandle;
 };
-
-template <typename DerivedT, typename HandleT>
-class WrappedObject : angle::NonCopyable
-{
-  public:
-    HandleT getHandle() const { return mHandle; }
-    bool valid() const { return (mHandle != VK_NULL_HANDLE); }
-
-    const HandleT *ptr() const { return &mHandle; }
-
-    void dumpResources(Serial serial, std::vector<GarbageObject> *garbageQueue)
-    {
-        if (valid())
-        {
-            garbageQueue->emplace_back(serial, *static_cast<DerivedT *>(this));
-            mHandle = VK_NULL_HANDLE;
-        }
-    }
-
-  protected:
-    WrappedObject() : mHandle(VK_NULL_HANDLE) {}
-    ~WrappedObject() { ASSERT(!valid()); }
-
-    WrappedObject(WrappedObject &&other) : mHandle(other.mHandle)
-    {
-        other.mHandle = VK_NULL_HANDLE;
-    }
-
-    // Only works to initialize empty objects, since we don't have the device handle.
-    WrappedObject &operator=(WrappedObject &&other)
-    {
-        ASSERT(!valid());
-        std::swap(mHandle, other.mHandle);
-        return *this;
-    }
-
-    HandleT mHandle;
-};
-
-// TODO(jmadill): Inline all the methods in the wrapper classes. http://anglebug.com/3014
 
 class MemoryProperties final : angle::NonCopyable
 {
@@ -283,393 +218,6 @@ class MemoryProperties final : angle::NonCopyable
 
   private:
     VkPhysicalDeviceMemoryProperties mMemoryProperties;
-};
-
-class CommandPool final : public WrappedObject<CommandPool, VkCommandPool>
-{
-  public:
-    CommandPool();
-
-    void destroy(VkDevice device);
-
-    VkResult init(VkDevice device, const VkCommandPoolCreateInfo &createInfo);
-};
-
-class Pipeline final : public WrappedObject<Pipeline, VkPipeline>
-{
-  public:
-    Pipeline();
-    void destroy(VkDevice device);
-
-    VkResult initGraphics(VkDevice device,
-                          const VkGraphicsPipelineCreateInfo &createInfo,
-                          const PipelineCache &pipelineCacheVk);
-    VkResult initCompute(VkDevice device,
-                         const VkComputePipelineCreateInfo &createInfo,
-                         const PipelineCache &pipelineCacheVk);
-};
-
-// Helper class that wraps a Vulkan command buffer.
-class CommandBuffer : public WrappedObject<CommandBuffer, VkCommandBuffer>
-{
-  public:
-    CommandBuffer();
-
-    VkCommandBuffer releaseHandle();
-
-    // This is used for normal pool allocated command buffers. It reset the handle.
-    void destroy(VkDevice device);
-
-    // This is used in conjunction with VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT.
-    void destroy(VkDevice device, const CommandPool &commandPool);
-
-    VkResult init(VkDevice device, const VkCommandBufferAllocateInfo &createInfo);
-    void blitImage(const Image &srcImage,
-                   VkImageLayout srcImageLayout,
-                   const Image &dstImage,
-                   VkImageLayout dstImageLayout,
-                   uint32_t regionCount,
-                   VkImageBlit *pRegions,
-                   VkFilter filter);
-    using WrappedObject::operator=;
-
-    VkResult begin(const VkCommandBufferBeginInfo &info);
-
-    VkResult end();
-    VkResult reset();
-
-    void pipelineBarrier(VkPipelineStageFlags srcStageMask,
-                         VkPipelineStageFlags dstStageMask,
-                         VkDependencyFlags dependencyFlags,
-                         uint32_t memoryBarrierCount,
-                         const VkMemoryBarrier *memoryBarriers,
-                         uint32_t bufferMemoryBarrierCount,
-                         const VkBufferMemoryBarrier *bufferMemoryBarriers,
-                         uint32_t imageMemoryBarrierCount,
-                         const VkImageMemoryBarrier *imageMemoryBarriers);
-
-    void clearColorImage(const Image &image,
-                         VkImageLayout imageLayout,
-                         const VkClearColorValue &color,
-                         uint32_t rangeCount,
-                         const VkImageSubresourceRange *ranges);
-    void clearDepthStencilImage(const Image &image,
-                                VkImageLayout imageLayout,
-                                const VkClearDepthStencilValue &depthStencil,
-                                uint32_t rangeCount,
-                                const VkImageSubresourceRange *ranges);
-
-    void clearAttachments(uint32_t attachmentCount,
-                          const VkClearAttachment *attachments,
-                          uint32_t rectCount,
-                          const VkClearRect *rects);
-
-    void copyBuffer(const Buffer &srcBuffer,
-                    const Buffer &destBuffer,
-                    uint32_t regionCount,
-                    const VkBufferCopy *regions);
-
-    void copyBuffer(const VkBuffer &srcBuffer,
-                    const VkBuffer &destBuffer,
-                    uint32_t regionCount,
-                    const VkBufferCopy *regions);
-
-    void copyBufferToImage(VkBuffer srcBuffer,
-                           const Image &dstImage,
-                           VkImageLayout dstImageLayout,
-                           uint32_t regionCount,
-                           const VkBufferImageCopy *regions);
-    void copyImageToBuffer(const Image &srcImage,
-                           VkImageLayout srcImageLayout,
-                           VkBuffer dstBuffer,
-                           uint32_t regionCount,
-                           const VkBufferImageCopy *regions);
-    void copyImage(const Image &srcImage,
-                   VkImageLayout srcImageLayout,
-                   const Image &dstImage,
-                   VkImageLayout dstImageLayout,
-                   uint32_t regionCount,
-                   const VkImageCopy *regions);
-
-    void beginRenderPass(const VkRenderPassBeginInfo &beginInfo, VkSubpassContents subpassContents);
-    void endRenderPass();
-
-    void draw(uint32_t vertexCount,
-              uint32_t instanceCount,
-              uint32_t firstVertex,
-              uint32_t firstInstance)
-    {
-        ASSERT(valid());
-        vkCmdDraw(mHandle, vertexCount, instanceCount, firstVertex, firstInstance);
-    }
-
-    void drawIndexed(uint32_t indexCount,
-                     uint32_t instanceCount,
-                     uint32_t firstIndex,
-                     int32_t vertexOffset,
-                     uint32_t firstInstance)
-    {
-        ASSERT(valid());
-        vkCmdDrawIndexed(mHandle, indexCount, instanceCount, firstIndex, vertexOffset,
-                         firstInstance);
-    }
-
-    void dispatch(uint32_t groupCountX, uint32_t groupCountY, uint32_t groupCountZ)
-    {
-        ASSERT(valid());
-        vkCmdDispatch(mHandle, groupCountX, groupCountY, groupCountZ);
-    }
-
-    void bindPipeline(VkPipelineBindPoint pipelineBindPoint, const Pipeline &pipeline)
-    {
-        ASSERT(valid() && pipeline.valid());
-        vkCmdBindPipeline(mHandle, pipelineBindPoint, pipeline.getHandle());
-    }
-
-    void bindVertexBuffers(uint32_t firstBinding,
-                           uint32_t bindingCount,
-                           const VkBuffer *buffers,
-                           const VkDeviceSize *offsets)
-    {
-        ASSERT(valid());
-        vkCmdBindVertexBuffers(mHandle, firstBinding, bindingCount, buffers, offsets);
-    }
-
-    void bindIndexBuffer(const VkBuffer &buffer, VkDeviceSize offset, VkIndexType indexType);
-    void bindDescriptorSets(VkPipelineBindPoint bindPoint,
-                            const PipelineLayout &layout,
-                            uint32_t firstSet,
-                            uint32_t descriptorSetCount,
-                            const VkDescriptorSet *descriptorSets,
-                            uint32_t dynamicOffsetCount,
-                            const uint32_t *dynamicOffsets);
-
-    void executeCommands(uint32_t commandBufferCount, const CommandBuffer *commandBuffers);
-    void updateBuffer(const vk::Buffer &buffer,
-                      VkDeviceSize dstOffset,
-                      VkDeviceSize dataSize,
-                      const void *data);
-    void pushConstants(const PipelineLayout &layout,
-                       VkShaderStageFlags flag,
-                       uint32_t offset,
-                       uint32_t size,
-                       const void *data);
-
-    void setEvent(const vk::Event &event, VkPipelineStageFlags stageMask);
-    void resetEvent(const vk::Event &event, VkPipelineStageFlags stageMask);
-    void waitEvents(uint32_t eventCount,
-                    const VkEvent *events,
-                    VkPipelineStageFlags srcStageMask,
-                    VkPipelineStageFlags dstStageMask,
-                    uint32_t memoryBarrierCount,
-                    const VkMemoryBarrier *memoryBarriers,
-                    uint32_t bufferMemoryBarrierCount,
-                    const VkBufferMemoryBarrier *bufferMemoryBarriers,
-                    uint32_t imageMemoryBarrierCount,
-                    const VkImageMemoryBarrier *imageMemoryBarriers);
-
-    void resetQueryPool(VkQueryPool queryPool, uint32_t firstQuery, uint32_t queryCount);
-    void beginQuery(VkQueryPool queryPool, uint32_t query, VkQueryControlFlags flags);
-    void endQuery(VkQueryPool queryPool, uint32_t query);
-    void writeTimestamp(VkPipelineStageFlagBits pipelineStage,
-                        VkQueryPool queryPool,
-                        uint32_t query);
-
-    void setViewport(uint32_t firstViewport, uint32_t viewportCount, const VkViewport *viewports);
-    void setScissor(uint32_t firstScissor, uint32_t scissorCount, const VkRect2D *scissors);
-};
-
-class Image final : public WrappedObject<Image, VkImage>
-{
-  public:
-    Image();
-
-    // Use this method if the lifetime of the image is not controlled by ANGLE. (SwapChain)
-    void setHandle(VkImage handle);
-
-    // Called on shutdown when the helper class *doesn't* own the handle to the image resource.
-    void reset();
-
-    // Called on shutdown when the helper class *does* own the handle to the image resource.
-    void destroy(VkDevice device);
-
-    VkResult init(VkDevice device, const VkImageCreateInfo &createInfo);
-
-    void getMemoryRequirements(VkDevice device, VkMemoryRequirements *requirementsOut) const;
-    VkResult bindMemory(VkDevice device, const DeviceMemory &deviceMemory);
-
-    void getSubresourceLayout(VkDevice device,
-                              VkImageAspectFlagBits aspectMask,
-                              uint32_t mipLevel,
-                              uint32_t arrayLayer,
-                              VkSubresourceLayout *outSubresourceLayout) const;
-};
-
-class ImageView final : public WrappedObject<ImageView, VkImageView>
-{
-  public:
-    ImageView();
-    void destroy(VkDevice device);
-
-    VkResult init(VkDevice device, const VkImageViewCreateInfo &createInfo);
-};
-
-class Semaphore final : public WrappedObject<Semaphore, VkSemaphore>
-{
-  public:
-    Semaphore();
-    void destroy(VkDevice device);
-
-    VkResult init(VkDevice device);
-};
-
-class Framebuffer final : public WrappedObject<Framebuffer, VkFramebuffer>
-{
-  public:
-    Framebuffer();
-    void destroy(VkDevice device);
-
-    // Use this method only in necessary cases. (RenderPass)
-    void setHandle(VkFramebuffer handle);
-
-    VkResult init(VkDevice device, const VkFramebufferCreateInfo &createInfo);
-};
-
-class DeviceMemory final : public WrappedObject<DeviceMemory, VkDeviceMemory>
-{
-  public:
-    DeviceMemory();
-    void destroy(VkDevice device);
-
-    VkResult allocate(VkDevice device, const VkMemoryAllocateInfo &allocInfo);
-    VkResult map(VkDevice device,
-                 VkDeviceSize offset,
-                 VkDeviceSize size,
-                 VkMemoryMapFlags flags,
-                 uint8_t **mapPointer) const;
-    void unmap(VkDevice device) const;
-};
-
-class RenderPass final : public WrappedObject<RenderPass, VkRenderPass>
-{
-  public:
-    RenderPass();
-    void destroy(VkDevice device);
-
-    VkResult init(VkDevice device, const VkRenderPassCreateInfo &createInfo);
-};
-
-enum class StagingUsage
-{
-    Read,
-    Write,
-    Both,
-};
-
-class Buffer final : public WrappedObject<Buffer, VkBuffer>
-{
-  public:
-    Buffer();
-    void destroy(VkDevice device);
-
-    VkResult init(VkDevice device, const VkBufferCreateInfo &createInfo);
-    VkResult bindMemory(VkDevice device, const DeviceMemory &deviceMemory);
-    void getMemoryRequirements(VkDevice device, VkMemoryRequirements *memoryRequirementsOut);
-};
-
-class BufferView final : public WrappedObject<BufferView, VkBufferView>
-{
-  public:
-    BufferView();
-    void destroy(VkDevice device);
-
-    VkResult init(VkDevice device, const VkBufferViewCreateInfo &createInfo);
-};
-
-class ShaderModule final : public WrappedObject<ShaderModule, VkShaderModule>
-{
-  public:
-    ShaderModule();
-    void destroy(VkDevice device);
-
-    VkResult init(VkDevice device, const VkShaderModuleCreateInfo &createInfo);
-};
-
-class PipelineLayout final : public WrappedObject<PipelineLayout, VkPipelineLayout>
-{
-  public:
-    PipelineLayout();
-    void destroy(VkDevice device);
-
-    VkResult init(VkDevice device, const VkPipelineLayoutCreateInfo &createInfo);
-};
-
-class PipelineCache final : public WrappedObject<PipelineCache, VkPipelineCache>
-{
-  public:
-    PipelineCache();
-    void destroy(VkDevice device);
-
-    VkResult init(VkDevice device, const VkPipelineCacheCreateInfo &createInfo);
-    VkResult getCacheData(VkDevice device, size_t *cacheSize, void *cacheData);
-};
-
-class DescriptorSetLayout final : public WrappedObject<DescriptorSetLayout, VkDescriptorSetLayout>
-{
-  public:
-    DescriptorSetLayout();
-    void destroy(VkDevice device);
-
-    VkResult init(VkDevice device, const VkDescriptorSetLayoutCreateInfo &createInfo);
-};
-
-class DescriptorPool final : public WrappedObject<DescriptorPool, VkDescriptorPool>
-{
-  public:
-    DescriptorPool();
-    void destroy(VkDevice device);
-
-    VkResult init(VkDevice device, const VkDescriptorPoolCreateInfo &createInfo);
-
-    VkResult allocateDescriptorSets(VkDevice device,
-                                    const VkDescriptorSetAllocateInfo &allocInfo,
-                                    VkDescriptorSet *descriptorSetsOut);
-    VkResult freeDescriptorSets(VkDevice device,
-                                uint32_t descriptorSetCount,
-                                const VkDescriptorSet *descriptorSets);
-};
-
-class Sampler final : public WrappedObject<Sampler, VkSampler>
-{
-  public:
-    Sampler();
-    void destroy(VkDevice device);
-    VkResult init(VkDevice device, const VkSamplerCreateInfo &createInfo);
-};
-
-class Event final : public WrappedObject<Event, VkEvent>
-{
-  public:
-    Event();
-    void destroy(VkDevice device);
-    using WrappedObject::operator=;
-
-    VkResult init(VkDevice device, const VkEventCreateInfo &createInfo);
-    VkResult getStatus(VkDevice device) const;
-    VkResult set(VkDevice device) const;
-    VkResult reset(VkDevice device) const;
-};
-
-class Fence final : public WrappedObject<Fence, VkFence>
-{
-  public:
-    Fence();
-    void destroy(VkDevice device);
-    using WrappedObject::operator=;
-
-    VkResult init(VkDevice device, const VkFenceCreateInfo &createInfo);
-    VkResult getStatus(VkDevice device) const;
-    VkResult wait(VkDevice device, uint64_t timeout) const;
 };
 
 // Similar to StagingImage, for Buffers.
@@ -693,22 +241,6 @@ class StagingBuffer final : angle::NonCopyable
     Buffer mBuffer;
     DeviceMemory mDeviceMemory;
     size_t mSize;
-};
-
-class QueryPool final : public WrappedObject<QueryPool, VkQueryPool>
-{
-  public:
-    QueryPool();
-    void destroy(VkDevice device);
-
-    VkResult init(VkDevice device, const VkQueryPoolCreateInfo &createInfo);
-    VkResult getResults(VkDevice device,
-                        uint32_t firstQuery,
-                        uint32_t queryCount,
-                        size_t dataSize,
-                        void *data,
-                        VkDeviceSize stride,
-                        VkQueryResultFlags flags) const;
 };
 
 template <typename ObjT>
@@ -751,13 +283,21 @@ class ObjectAndSerial final : angle::NonCopyable
 angle::Result AllocateBufferMemory(vk::Context *context,
                                    VkMemoryPropertyFlags requestedMemoryPropertyFlags,
                                    VkMemoryPropertyFlags *memoryPropertyFlagsOut,
+                                   const void *extraAllocationInfo,
                                    Buffer *buffer,
                                    DeviceMemory *deviceMemoryOut);
 
 angle::Result AllocateImageMemory(vk::Context *context,
                                   VkMemoryPropertyFlags memoryPropertyFlags,
+                                  const void *extraAllocationInfo,
                                   Image *image,
                                   DeviceMemory *deviceMemoryOut);
+angle::Result AllocateImageMemoryWithRequirements(vk::Context *context,
+                                                  VkMemoryPropertyFlags memoryPropertyFlags,
+                                                  const VkMemoryRequirements &memoryRequirements,
+                                                  const void *extraAllocationInfo,
+                                                  Image *image,
+                                                  DeviceMemory *deviceMemoryOut);
 
 using ShaderAndSerial = ObjectAndSerial<ShaderModule>;
 
@@ -765,6 +305,8 @@ angle::Result InitShaderAndSerial(Context *context,
                                   ShaderAndSerial *shaderAndSerial,
                                   const uint32_t *shaderCode,
                                   size_t shaderCodeSize);
+
+gl::TextureType Get2DTextureType(uint32_t layerCount, GLint samples);
 
 enum class RecordingMode
 {
@@ -803,6 +345,7 @@ class RefCounted : angle::NonCopyable
 
     RefCounted(RefCounted &&copy) : mRefCount(copy.mRefCount), mObject(std::move(copy.mObject))
     {
+        ASSERT(this != &copy);
         copy.mRefCount = 0;
     }
 
@@ -868,20 +411,162 @@ class BindingPointer final : angle::NonCopyable
   private:
     RefCounted<T> *mRefCounted;
 };
+
+// Helper class to share ref-counted Vulkan objects.  Requires that T have a destroy method
+// that takes a VkDevice and returns void.
+template <typename T>
+class Shared final : angle::NonCopyable
+{
+  public:
+    Shared() : mRefCounted(nullptr) {}
+    ~Shared() { ASSERT(mRefCounted == nullptr); }
+
+    Shared(Shared &&other) { *this = std::move(other); }
+    Shared &operator=(Shared &&other)
+    {
+        ASSERT(this != &other);
+        mRefCounted       = other.mRefCounted;
+        other.mRefCounted = nullptr;
+        return *this;
+    }
+
+    void set(VkDevice device, RefCounted<T> *refCounted)
+    {
+        if (mRefCounted)
+        {
+            mRefCounted->releaseRef();
+            if (!mRefCounted->isReferenced())
+            {
+                mRefCounted->get().destroy(device);
+                SafeDelete(mRefCounted);
+            }
+        }
+
+        mRefCounted = refCounted;
+
+        if (mRefCounted)
+        {
+            mRefCounted->addRef();
+        }
+    }
+
+    void assign(VkDevice device, T &&newObject)
+    {
+        set(device, new RefCounted<T>(std::move(newObject)));
+    }
+
+    void copy(VkDevice device, const Shared<T> &other) { set(device, other.mRefCounted); }
+
+    void reset(VkDevice device) { set(device, nullptr); }
+
+    template <typename RecyclerT>
+    void resetAndRecycle(RecyclerT *recycler)
+    {
+        if (mRefCounted)
+        {
+            mRefCounted->releaseRef();
+            if (!mRefCounted->isReferenced())
+            {
+                ASSERT(mRefCounted->get().valid());
+                recycler->recyle(std::move(mRefCounted->get()));
+                SafeDelete(mRefCounted);
+            }
+
+            mRefCounted = nullptr;
+        }
+    }
+
+    bool isReferenced() const
+    {
+        // If reference is zero, the object should have been deleted.  I.e. if the object is not
+        // nullptr, it should have a reference.
+        ASSERT(!mRefCounted || mRefCounted->isReferenced());
+        return mRefCounted != nullptr;
+    }
+
+    T &get()
+    {
+        ASSERT(mRefCounted && mRefCounted->isReferenced());
+        return mRefCounted->get();
+    }
+    const T &get() const
+    {
+        ASSERT(mRefCounted && mRefCounted->isReferenced());
+        return mRefCounted->get();
+    }
+
+  private:
+    RefCounted<T> *mRefCounted;
+};
+
+template <typename T>
+class Recycler final : angle::NonCopyable
+{
+  public:
+    Recycler() = default;
+
+    void recyle(T &&garbageObject) { mObjectFreeList.emplace_back(std::move(garbageObject)); }
+
+    void fetch(VkDevice device, T *outObject)
+    {
+        ASSERT(!empty());
+        *outObject = std::move(mObjectFreeList.back());
+        mObjectFreeList.pop_back();
+    }
+
+    void destroy(VkDevice device)
+    {
+        for (T &object : mObjectFreeList)
+        {
+            object.destroy(device);
+        }
+    }
+
+    bool empty() const { return mObjectFreeList.empty(); }
+
+  private:
+    std::vector<T> mObjectFreeList;
+};
+
 }  // namespace vk
 
 // List of function pointers for used extensions.
 // VK_EXT_debug_utils
 extern PFN_vkCreateDebugUtilsMessengerEXT vkCreateDebugUtilsMessengerEXT;
 extern PFN_vkDestroyDebugUtilsMessengerEXT vkDestroyDebugUtilsMessengerEXT;
+extern PFN_vkCmdBeginDebugUtilsLabelEXT vkCmdBeginDebugUtilsLabelEXT;
+extern PFN_vkCmdEndDebugUtilsLabelEXT vkCmdEndDebugUtilsLabelEXT;
+extern PFN_vkCmdInsertDebugUtilsLabelEXT vkCmdInsertDebugUtilsLabelEXT;
 
 // VK_EXT_debug_report
 extern PFN_vkCreateDebugReportCallbackEXT vkCreateDebugReportCallbackEXT;
 extern PFN_vkDestroyDebugReportCallbackEXT vkDestroyDebugReportCallbackEXT;
 
+// VK_KHR_get_physical_device_properties2
+extern PFN_vkGetPhysicalDeviceProperties2KHR vkGetPhysicalDeviceProperties2KHR;
+
+// VK_KHR_external_semaphore_fd
+extern PFN_vkImportSemaphoreFdKHR vkImportSemaphoreFdKHR;
+
 // Lazily load entry points for each extension as necessary.
 void InitDebugUtilsEXTFunctions(VkInstance instance);
 void InitDebugReportEXTFunctions(VkInstance instance);
+void InitGetPhysicalDeviceProperties2KHRFunctions(VkInstance instance);
+
+#if defined(ANGLE_PLATFORM_FUCHSIA)
+// VK_FUCHSIA_imagepipe_surface
+extern PFN_vkCreateImagePipeSurfaceFUCHSIA vkCreateImagePipeSurfaceFUCHSIA;
+void InitImagePipeSurfaceFUCHSIAFunctions(VkInstance instance);
+#endif
+
+#if defined(ANGLE_PLATFORM_ANDROID)
+// VK_ANDROID_external_memory_android_hardware_buffer
+extern PFN_vkGetAndroidHardwareBufferPropertiesANDROID vkGetAndroidHardwareBufferPropertiesANDROID;
+extern PFN_vkGetMemoryAndroidHardwareBufferANDROID vkGetMemoryAndroidHardwareBufferANDROID;
+void InitExternalMemoryHardwareBufferANDROIDFunctions(VkInstance instance);
+#endif
+
+void InitExternalSemaphoreFdFunctions(VkInstance instance);
 
 namespace gl_vk
 {
@@ -894,6 +579,7 @@ VkCullModeFlags GetCullMode(const gl::RasterizerState &rasterState);
 VkFrontFace GetFrontFace(GLenum frontFace, bool invertCullFace);
 VkSampleCountFlagBits GetSamples(GLint sampleCount);
 VkComponentSwizzle GetSwizzle(const GLenum swizzle);
+VkCompareOp GetCompareOp(const GLenum compareFunc);
 
 constexpr angle::PackedEnumMap<gl::DrawElementsType, VkIndexType> kIndexTypeMap = {
     {gl::DrawElementsType::UnsignedByte, VK_INDEX_TYPE_UINT16},
@@ -901,11 +587,19 @@ constexpr angle::PackedEnumMap<gl::DrawElementsType, VkIndexType> kIndexTypeMap 
     {gl::DrawElementsType::UnsignedInt, VK_INDEX_TYPE_UINT32},
 };
 
+constexpr gl::ShaderMap<VkShaderStageFlagBits> kShaderStageMap = {
+    {gl::ShaderType::Vertex, VK_SHADER_STAGE_VERTEX_BIT},
+    {gl::ShaderType::Fragment, VK_SHADER_STAGE_FRAGMENT_BIT},
+    {gl::ShaderType::Geometry, VK_SHADER_STAGE_GEOMETRY_BIT},
+    {gl::ShaderType::Compute, VK_SHADER_STAGE_COMPUTE_BIT},
+};
+
 void GetOffset(const gl::Offset &glOffset, VkOffset3D *vkOffset);
 void GetExtent(const gl::Extents &glExtent, VkExtent3D *vkExtent);
 VkImageType GetImageType(gl::TextureType textureType);
 VkImageViewType GetImageViewType(gl::TextureType textureType);
 VkColorComponentFlags GetColorComponentFlags(bool red, bool green, bool blue, bool alpha);
+VkShaderStageFlags GetShaderStageFlags(gl::ShaderBitSet activeShaders);
 
 void GetViewport(const gl::Rectangle &viewport,
                  float nearPlane,
@@ -913,11 +607,17 @@ void GetViewport(const gl::Rectangle &viewport,
                  bool invertViewport,
                  GLint renderAreaHeight,
                  VkViewport *viewportOut);
-void GetScissor(const gl::State &glState,
-                bool invertViewport,
-                const gl::Rectangle &renderArea,
-                VkRect2D *scissorOut);
 }  // namespace gl_vk
+
+namespace vk_gl
+{
+// Find set bits in sampleCounts and add the corresponding sample count to the set.
+void AddSampleCounts(VkSampleCountFlags sampleCounts, gl::SupportedSampleSet *outSet);
+// Return the maximum sample count with a bit set in |sampleCounts|.
+GLuint GetMaxSampleCount(VkSampleCountFlags sampleCounts);
+// Return a supported sample count that's at least as large as the requested one.
+GLuint GetSampleCount(VkSampleCountFlags supportedCounts, GLuint requestedCount);
+}  // namespace vk_gl
 
 }  // namespace rx
 

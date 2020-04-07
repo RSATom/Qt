@@ -18,8 +18,6 @@
 #include "components/user_manager/user_info.h"
 #include "components/user_manager/user_manager_export.h"
 #include "components/user_manager/user_type.h"
-#include "third_party/skia/include/core/SkBitmap.h"
-#include "ui/gfx/image/image_skia.h"
 
 namespace chromeos {
 class ChromeUserManagerImpl;
@@ -29,6 +27,10 @@ class SupervisedUserManagerImpl;
 class UserAddingScreenTest;
 class UserImageManagerImpl;
 class UserSessionManager;
+}
+
+namespace gfx {
+class ImageSkia;
 }
 
 namespace policy {
@@ -161,14 +163,6 @@ class USER_MANAGER_EXPORT User : public UserInfo {
   // user's next sign-in.
   bool force_online_signin() const { return force_online_signin_; }
 
-  // Whether the user's session has completed initialization yet.
-  bool profile_ever_initialized() const { return profile_ever_initialized_; }
-
-  // Public so it can be called via tests.
-  void set_profile_ever_initialized(bool profile_ever_initialized) {
-    profile_ever_initialized_ = profile_ever_initialized;
-  }
-
   // True if the user's session can be locked (i.e. the user has a password with
   // which to unlock the session).
   bool can_lock() const;
@@ -289,7 +283,6 @@ class USER_MANAGER_EXPORT User : public UserInfo {
   std::unique_ptr<UserImage> user_image_;
   OAuthTokenStatus oauth_token_status_ = OAUTH_TOKEN_STATUS_UNKNOWN;
   bool force_online_signin_ = false;
-  bool profile_ever_initialized_ = false;
 
   // This is set to chromeos locale if account data has been downloaded.
   // (Or failed to download, but at least one download attempt finished).

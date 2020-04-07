@@ -8,16 +8,16 @@
 #include <iterator>
 
 #include "base/base64.h"
+#include "base/hash/sha1.h"
 #include "base/logging.h"
-#include "base/sha1.h"
 #include "base/time/time.h"
 #include "components/prefs/pref_registry_simple.h"
 #include "components/prefs/pref_service.h"
-#include "components/signin/core/browser/signin_metrics.h"
-#include "components/signin/core/browser/signin_pref_names.h"
+#include "components/signin/public/base/signin_metrics.h"
+#include "components/signin/public/base/signin_pref_names.h"
+#include "components/signin/public/identity_manager/accounts_in_cookie_jar_info.h"
 #include "google_apis/gaia/gaia_auth_util.h"
 #include "google_apis/gaia/google_service_auth_error.h"
-#include "services/identity/public/cpp/accounts_in_cookie_jar_info.h"
 
 using base::Time;
 using base::TimeDelta;
@@ -32,7 +32,7 @@ namespace {
 const char kSignedInHashPrefix[] = "i";
 const char kSignedOutHashPrefix[] = "o";
 
-bool AreSame(const AccountInfo& info, const ListedAccount& account) {
+bool AreSame(const CoreAccountInfo& info, const ListedAccount& account) {
   return info.account_id == account.id;
 }
 
@@ -43,7 +43,7 @@ const TimeDelta AccountInvestigator::kPeriodicReportingInterval =
 
 AccountInvestigator::AccountInvestigator(
     PrefService* pref_service,
-    identity::IdentityManager* identity_manager)
+    signin::IdentityManager* identity_manager)
     : pref_service_(pref_service), identity_manager_(identity_manager) {}
 
 AccountInvestigator::~AccountInvestigator() {}
@@ -73,31 +73,19 @@ void AccountInvestigator::Shutdown() {
   timer_.Stop();
 }
 
-void AccountInvestigator::OnAddAccountToCookieCompleted(
-    const std::string& account_id,
-    const GoogleServiceAuthError& error) {
-  // This hook isn't particularly useful for us. Most cookie jar changes fly by
-  // without invoking this method, and some sign ins cause this method can get
-  // called serveral times.
-}
-
 void AccountInvestigator::OnAccountsInCookieUpdated(
-    const identity::AccountsInCookieJarInfo& accounts_in_cookie_jar_info,
-    const GoogleServiceAuthError& error) {
-  OnGaiaAccountsInCookieUpdated(accounts_in_cookie_jar_info.signed_in_accounts,
-                                accounts_in_cookie_jar_info.signed_out_accounts,
-                                error);
-}
-
-void AccountInvestigator::OnGaiaAccountsInCookieUpdated(
-    const std::vector<ListedAccount>& signed_in_accounts,
-    const std::vector<ListedAccount>& signed_out_accounts,
+    const signin::AccountsInCookieJarInfo& accounts_in_cookie_jar_info,
     const GoogleServiceAuthError& error) {
   if (error != GoogleServiceAuthError::AuthErrorNone()) {
     // If we are pending periodic reporting, leave the flag set, and we will
     // continue next time the ListAccounts call succeeds.
     return;
   }
+
+  const std::vector<ListedAccount>& signed_in_accounts(
+      accounts_in_cookie_jar_info.signed_in_accounts);
+  const std::vector<ListedAccount>& signed_out_accounts(
+      accounts_in_cookie_jar_info.signed_out_accounts);
 
   // Handling this is tricky. We could be here because there was a change. We
   // could be here because we tried to do periodic reporting but there wasn't
@@ -147,12 +135,12 @@ std::string AccountInvestigator::HashAccounts(
   std::transform(std::begin(signed_in_accounts), std::end(signed_in_accounts),
                  std::back_inserter(sorted_ids),
                  [](const ListedAccount& account) {
-                   return std::string(kSignedInHashPrefix) + account.id;
+                   return std::string(kSignedInHashPrefix) + account.id.id;
                  });
   std::transform(std::begin(signed_out_accounts), std::end(signed_out_accounts),
                  std::back_inserter(sorted_ids),
                  [](const ListedAccount& account) {
-                   return std::string(kSignedOutHashPrefix) + account.id;
+                   return std::string(kSignedOutHashPrefix) + account.id.id;
                  });
   std::sort(sorted_ids.begin(), sorted_ids.end());
   std::ostringstream stream;
@@ -168,7 +156,7 @@ std::string AccountInvestigator::HashAccounts(
 
 // static
 AccountRelation AccountInvestigator::DiscernRelation(
-    const AccountInfo& info,
+    const CoreAccountInfo& info,
     const std::vector<ListedAccount>& signed_in_accounts,
     const std::vector<ListedAccount>& signed_out_accounts) {
   if (signed_in_accounts.empty() && signed_out_accounts.empty()) {

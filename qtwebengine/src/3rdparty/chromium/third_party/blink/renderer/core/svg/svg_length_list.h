@@ -44,11 +44,7 @@ class SVGLengthList final
  public:
   typedef SVGLengthListTearOff TearOffType;
 
-  static SVGLengthList* Create(SVGLengthMode mode = SVGLengthMode::kOther) {
-    return MakeGarbageCollected<SVGLengthList>(mode);
-  }
-
-  explicit SVGLengthList(SVGLengthMode);
+  explicit SVGLengthList(SVGLengthMode = SVGLengthMode::kOther);
   ~SVGLengthList() override;
 
   SVGParsingError SetValueAsString(const String&);

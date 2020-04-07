@@ -5,7 +5,7 @@
 #ifndef CC_TREES_MUTATOR_HOST_CLIENT_H_
 #define CC_TREES_MUTATOR_HOST_CLIENT_H_
 
-#include "cc/trees/element_id.h"
+#include "cc/paint/element_id.h"
 #include "cc/trees/property_animation_state.h"
 #include "cc/trees/target_property.h"
 
@@ -20,10 +20,17 @@ class FilterOperations;
 
 enum class ElementListType { ACTIVE, PENDING };
 
+enum class AnimationWorkletMutationState {
+  STARTED,
+  COMPLETED_WITH_UPDATE,
+  COMPLETED_NO_UPDATE,
+  CANCELED
+};
+
 class MutatorHostClient {
  public:
-  virtual bool IsElementInList(ElementId element_id,
-                               ElementListType list_type) const = 0;
+  virtual bool IsElementInPropertyTrees(ElementId element_id,
+                                        ElementListType list_type) const = 0;
 
   virtual void SetMutatorsNeedCommit() = 0;
   virtual void SetMutatorsNeedRebuildPropertyTrees() = 0;
@@ -31,6 +38,10 @@ class MutatorHostClient {
   virtual void SetElementFilterMutated(ElementId element_id,
                                        ElementListType list_type,
                                        const FilterOperations& filters) = 0;
+  virtual void SetElementBackdropFilterMutated(
+      ElementId element_id,
+      ElementListType list_type,
+      const FilterOperations& backdrop_filters) = 0;
   virtual void SetElementOpacityMutated(ElementId element_id,
                                         ElementListType list_type,
                                         float opacity) = 0;
@@ -49,9 +60,18 @@ class MutatorHostClient {
       const PropertyAnimationState& mask,
       const PropertyAnimationState& state) = 0;
 
+  virtual void AnimationScalesChanged(ElementId element_id,
+                                      ElementListType list_type,
+                                      float maximum_scale,
+                                      float starting_scale) = 0;
+
   virtual void ScrollOffsetAnimationFinished() = 0;
   virtual gfx::ScrollOffset GetScrollOffsetForAnimation(
       ElementId element_id) const = 0;
+
+  virtual void NotifyAnimationWorkletStateChange(
+      AnimationWorkletMutationState state,
+      ElementListType tree_type) = 0;
 };
 
 }  // namespace cc

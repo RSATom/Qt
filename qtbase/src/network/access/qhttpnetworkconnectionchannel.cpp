@@ -40,6 +40,7 @@
 
 #include "qhttpnetworkconnectionchannel_p.h"
 #include "qhttpnetworkconnection_p.h"
+#include "qhttp2configuration.h"
 #include "private/qnoncontiguousbytedevice_p.h"
 
 #include <qpair.h>
@@ -48,6 +49,7 @@
 #include <private/qhttp2protocolhandler_p.h>
 #include <private/qhttpprotocolhandler_p.h>
 #include <private/qspdyprotocolhandler_p.h>
+#include <private/http2protocol_p.h>
 
 #ifndef QT_NO_SSL
 #    include <private/qsslsocket_p.h>
@@ -58,6 +60,8 @@
 #ifndef QT_NO_BEARERMANAGEMENT
 #include "private/qnetworksession_p.h"
 #endif
+
+#include "private/qnetconmonitor_p.h"
 
 QT_BEGIN_NAMESPACE
 
@@ -902,6 +906,16 @@ void QHttpNetworkConnectionChannel::_q_connected()
 
     pipeliningSupported = QHttpNetworkConnectionChannel::PipeliningSupportUnknown;
 
+    if (QNetworkStatusMonitor::isEnabled()) {
+        auto connectionPrivate = connection->d_func();
+        if (!connectionPrivate->connectionMonitor.isMonitoring()) {
+            // Now that we have a pair of addresses, we can start monitoring the
+            // connection status to handle its loss properly.
+            if (connectionPrivate->connectionMonitor.setTargets(socket->localAddress(), socket->peerAddress()))
+                connectionPrivate->connectionMonitor.startMonitoring();
+        }
+    }
+
     // ### FIXME: if the server closes the connection unexpectedly, we shouldn't send the same broken request again!
     //channels[i].reconnectAttempts = 2;
     if (ssl || pendingEncrypt) { // FIXME: Didn't work properly with pendingEncrypt only, we should refactor this into an EncrypingState
@@ -938,9 +952,7 @@ void QHttpNetworkConnectionChannel::_q_connected()
             if (tryProtocolUpgrade) {
                 // Let's augment our request with some magic headers and try to
                 // switch to HTTP/2.
-                const Http2::ProtocolParameters params(connection->http2Parameters());
-                Q_ASSERT(params.validate());
-                params.addProtocolUpgradeHeaders(&request);
+                Http2::appendProtocolUpgradeHeaders(connection->http2Parameters(), &request);
             }
             sendRequest();
         }
@@ -1087,6 +1099,7 @@ void QHttpNetworkConnectionChannel::_q_error(QAbstractSocket::SocketError socket
 
         if (reply) {
             reply->d_func()->errorString = errorString;
+            reply->d_func()->httpErrorCode = errorCode;
             emit reply->finishedWithError(errorCode, errorString);
             reply = 0;
             if (protocolHandler)

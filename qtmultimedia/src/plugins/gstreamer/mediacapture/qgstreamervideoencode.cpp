@@ -195,11 +195,9 @@ GstElement *QGstreamerVideoEncode::createEncoder()
         }
 
         QMap<QString,QVariant> options = m_options.value(codec);
-        QMapIterator<QString,QVariant> it(options);
-        while (it.hasNext()) {
-            it.next();
-            QString option = it.key();
-            QVariant value = it.value();
+        for (auto it = options.cbegin(), end = options.cend(); it != end; ++it) {
+            const QString &option = it.key();
+            const QVariant &value = it.value();
 
             switch (value.type()) {
             case QVariant::Int:

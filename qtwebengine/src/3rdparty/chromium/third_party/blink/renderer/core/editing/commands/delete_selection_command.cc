@@ -46,6 +46,7 @@
 #include "third_party/blink/renderer/core/html/html_table_row_element.h"
 #include "third_party/blink/renderer/core/html_names.h"
 #include "third_party/blink/renderer/core/layout/layout_table_cell.h"
+#include "third_party/blink/renderer/platform/heap/heap.h"
 
 namespace blink {
 
@@ -60,7 +61,7 @@ static bool IsTableRowEmpty(Node* row) {
   if (!IsHTMLTableRowElement(row))
     return false;
 
-  row->GetDocument().UpdateStyleAndLayoutIgnorePendingStylesheets();
+  row->GetDocument().UpdateStyleAndLayout();
   for (Node* child = row->firstChild(); child; child = child->nextSibling()) {
     if (IsTableCell(child) && !IsTableCellEmpty(child))
       return false;
@@ -396,7 +397,7 @@ void DeleteSelectionCommand::SaveTypingStyleState() {
     return;
 
   // Figure out the typing style in effect before the delete is done.
-  typing_style_ = EditingStyle::Create(
+  typing_style_ = MakeGarbageCollected<EditingStyle>(
       selection_to_delete_.Start(), EditingStyle::kEditingPropertiesInEffect);
   typing_style_->RemoveStyleAddedByElement(
       EnclosingAnchorElement(selection_to_delete_.Start()));
@@ -407,7 +408,7 @@ void DeleteSelectionCommand::SaveTypingStyleState() {
   if (EnclosingNodeOfType(selection_to_delete_.Start(),
                           IsMailHTMLBlockquoteElement)) {
     delete_into_blockquote_style_ =
-        EditingStyle::Create(selection_to_delete_.End());
+        MakeGarbageCollected<EditingStyle>(selection_to_delete_.End());
     return;
   }
   delete_into_blockquote_style_ = nullptr;
@@ -440,7 +441,7 @@ bool DeleteSelectionCommand::HandleSpecialCaseBRDelete(
   // We detect the case where the start is an empty line consisting of BR not
   // wrapped in a block element.
   if (upstream_start_is_br && downstream_start_is_br) {
-    GetDocument().UpdateStyleAndLayoutIgnorePendingStylesheets();
+    GetDocument().UpdateStyleAndLayout();
     if (!(IsStartOfBlock(
               VisiblePosition::BeforeNode(*node_after_upstream_start)) &&
           IsEndOfBlock(
@@ -478,21 +479,10 @@ void DeleteSelectionCommand::RemoveNode(
       if (!node->hasChildren())
         return;
       // Search this non-editable region for editable regions to empty.
-      Node* child = node->firstChild();
-      while (child) {
-        Node* next_child = child->nextSibling();
-        RemoveNode(child, editing_state,
-                   should_assume_content_is_always_editable);
-        if (editing_state->IsAborted())
-          return;
-        // Bail if nextChild is no longer node's child.
-        if (next_child && next_child->parentNode() != node)
-          return;
-        child = next_child;
-      }
-
       // Don't remove editable regions that are inside non-editable ones, just
       // clear them.
+      RemoveAllChildrenIfPossible(To<ContainerNode>(node), editing_state,
+                                  should_assume_content_is_always_editable);
       return;
     }
   }
@@ -500,18 +490,13 @@ void DeleteSelectionCommand::RemoveNode(
   if (IsTableStructureNode(node) || IsRootEditableElement(*node)) {
     // Do not remove an element of table structure; remove its contents.
     // Likewise for the root editable element.
-    Node* child = node->firstChild();
-    while (child) {
-      Node* remove = child;
-      child = child->nextSibling();
-      RemoveNode(remove, editing_state,
-                 should_assume_content_is_always_editable);
-      if (editing_state->IsAborted())
-        return;
-    }
+    RemoveAllChildrenIfPossible(To<ContainerNode>(node), editing_state,
+                                should_assume_content_is_always_editable);
+    if (editing_state->IsAborted())
+      return;
 
     // Make sure empty cell has some height, if a placeholder can be inserted.
-    GetDocument().UpdateStyleAndLayoutIgnorePendingStylesheets();
+    GetDocument().UpdateStyleAndLayout();
     LayoutObject* r = node->GetLayoutObject();
     if (r && r->IsTableCell() && ToLayoutTableCell(r)->ContentHeight() <= 0) {
       Position first_editable_position = FirstEditablePositionInNode(node);
@@ -521,7 +506,7 @@ void DeleteSelectionCommand::RemoveNode(
     return;
   }
 
-  GetDocument().UpdateStyleAndLayoutIgnorePendingStylesheets();
+  GetDocument().UpdateStyleAndLayout();
   if (node == start_block_) {
     VisiblePosition previous = PreviousPositionOf(
         VisiblePosition::FirstPositionInNode(*start_block_.Get()));
@@ -619,9 +604,9 @@ void DeleteSelectionCommand::HandleGeneralDelete(EditingState* editing_state) {
       return;
   }
 
-  GetDocument().UpdateStyleAndLayoutIgnorePendingStylesheets();
-  if (start_offset >= CaretMaxOffset(start_node) && start_node->IsTextNode()) {
-    Text* text = ToText(start_node);
+  GetDocument().UpdateStyleAndLayout();
+  auto* text = DynamicTo<Text>(start_node);
+  if (start_offset >= CaretMaxOffset(start_node) && text) {
     if (text->length() > (unsigned)CaretMaxOffset(start_node))
       DeleteTextFromNode(text, CaretMaxOffset(start_node),
                          text->length() - CaretMaxOffset(start_node));
@@ -638,9 +623,8 @@ void DeleteSelectionCommand::HandleGeneralDelete(EditingState* editing_state) {
 
   if (start_node == downstream_end_.AnchorNode()) {
     if (downstream_end_.ComputeEditingOffset() - start_offset > 0) {
-      if (start_node->IsTextNode()) {
+      if (auto* text = DynamicTo<Text>(start_node)) {
         // in a text node that needs to be trimmed
-        Text* text = ToText(start_node);
         DeleteTextFromNode(
             text, start_offset,
             downstream_end_.ComputeOffsetInContainerNode() - start_offset);
@@ -653,7 +637,7 @@ void DeleteSelectionCommand::HandleGeneralDelete(EditingState* editing_state) {
         ending_position_ = upstream_start_;
       }
       // We should update layout to associate |start_node| to layout object.
-      GetDocument().UpdateStyleAndLayoutIgnorePendingStylesheets();
+      GetDocument().UpdateStyleAndLayout();
     }
 
     // The selection to delete is all in one node.
@@ -669,20 +653,19 @@ void DeleteSelectionCommand::HandleGeneralDelete(EditingState* editing_state) {
             downstream_end_.AnchorNode());
     // The selection to delete spans more than one node.
     Node* node(start_node);
-
+    auto* start_text_node = DynamicTo<Text>(start_node);
     if (start_offset > 0) {
-      if (start_node->IsTextNode()) {
+      if (start_text_node) {
         // in a text node that needs to be trimmed
-        Text* text = ToText(node);
-        DeleteTextFromNode(text, start_offset, text->length() - start_offset);
+        DeleteTextFromNode(start_text_node, start_offset,
+                           start_text_node->length() - start_offset);
         node = NodeTraversal::Next(*node);
       } else {
         node = NodeTraversal::ChildAt(*start_node, start_offset);
       }
-    } else if (start_node == upstream_end_.AnchorNode() &&
-               start_node->IsTextNode()) {
-      Text* text = ToText(upstream_end_.AnchorNode());
-      DeleteTextFromNode(text, 0, upstream_end_.ComputeOffsetInContainerNode());
+    } else if (start_node == upstream_end_.AnchorNode() && start_text_node) {
+      DeleteTextFromNode(start_text_node, 0,
+                         upstream_end_.ComputeOffsetInContainerNode());
     }
 
     // handle deleting all nodes that are completely selected
@@ -702,7 +685,7 @@ void DeleteSelectionCommand::HandleGeneralDelete(EditingState* editing_state) {
           return;
         node = next_node;
       } else {
-        GetDocument().UpdateStyleAndLayoutIgnorePendingStylesheets();
+        GetDocument().UpdateStyleAndLayout();
         Node& n = NodeTraversal::LastWithinOrSelf(*node);
         if (downstream_end_.AnchorNode() == n &&
             downstream_end_.ComputeEditingOffset() >= CaretMaxOffset(&n)) {
@@ -716,9 +699,9 @@ void DeleteSelectionCommand::HandleGeneralDelete(EditingState* editing_state) {
       }
     }
 
-    // TODO(editing-dev): Hoist updateStyleAndLayoutIgnorePendingStylesheets
+    // TODO(editing-dev): Hoist UpdateStyleAndLayout
     // to caller. See http://crbug.com/590369 for more details.
-    GetDocument().UpdateStyleAndLayoutIgnorePendingStylesheets();
+    GetDocument().UpdateStyleAndLayout();
 
     if (downstream_end_.AnchorNode() != start_node &&
         !upstream_start_.AnchorNode()->IsDescendantOf(
@@ -731,9 +714,8 @@ void DeleteSelectionCommand::HandleGeneralDelete(EditingState* editing_state) {
         // The node itself is fully selected, not just its contents.  Delete it.
         RemoveNode(downstream_end_.AnchorNode(), editing_state);
       } else {
-        if (downstream_end_.AnchorNode()->IsTextNode()) {
+        if (auto* text = DynamicTo<Text>(downstream_end_.AnchorNode())) {
           // in a text node that needs to be trimmed
-          Text* text = ToText(downstream_end_.AnchorNode());
           if (downstream_end_.ComputeEditingOffset() > 0) {
             DeleteTextFromNode(text, 0, downstream_end_.ComputeEditingOffset());
           }
@@ -769,28 +751,29 @@ void DeleteSelectionCommand::HandleGeneralDelete(EditingState* editing_state) {
 }
 
 void DeleteSelectionCommand::FixupWhitespace() {
-  GetDocument().UpdateStyleAndLayoutIgnorePendingStylesheets();
+  GetDocument().UpdateStyleAndLayout();
   if (leading_whitespace_.IsNotNull() &&
-      !IsRenderedCharacter(leading_whitespace_) &&
-      leading_whitespace_.AnchorNode()->IsTextNode()) {
-    Text* text_node = ToText(leading_whitespace_.AnchorNode());
-    DCHECK(!text_node->GetLayoutObject() ||
-           text_node->GetLayoutObject()->Style()->CollapseWhiteSpace())
-        << text_node;
-    ReplaceTextInNode(text_node,
-                      leading_whitespace_.ComputeOffsetInContainerNode(), 1,
-                      NonBreakingSpaceString());
+      !IsRenderedCharacter(leading_whitespace_)) {
+    if (auto* text_node = DynamicTo<Text>(leading_whitespace_.AnchorNode())) {
+      DCHECK(!text_node->GetLayoutObject() ||
+             text_node->GetLayoutObject()->Style()->CollapseWhiteSpace())
+          << text_node;
+      ReplaceTextInNode(text_node,
+                        leading_whitespace_.ComputeOffsetInContainerNode(), 1,
+                        NonBreakingSpaceString());
+    }
   }
+
   if (trailing_whitespace_.IsNotNull() &&
-      !IsRenderedCharacter(trailing_whitespace_) &&
-      trailing_whitespace_.AnchorNode()->IsTextNode()) {
-    Text* text_node = ToText(trailing_whitespace_.AnchorNode());
-    DCHECK(!text_node->GetLayoutObject() ||
-           text_node->GetLayoutObject()->Style()->CollapseWhiteSpace())
-        << text_node;
-    ReplaceTextInNode(text_node,
-                      trailing_whitespace_.ComputeOffsetInContainerNode(), 1,
-                      NonBreakingSpaceString());
+      !IsRenderedCharacter(trailing_whitespace_)) {
+    if (auto* text_node = DynamicTo<Text>(trailing_whitespace_.AnchorNode())) {
+      DCHECK(!text_node->GetLayoutObject() ||
+             text_node->GetLayoutObject()->Style()->CollapseWhiteSpace())
+          << text_node;
+      ReplaceTextInNode(text_node,
+                        trailing_whitespace_.ComputeOffsetInContainerNode(), 1,
+                        NonBreakingSpaceString());
+    }
   }
 }
 
@@ -828,7 +811,7 @@ void DeleteSelectionCommand::MergeParagraphs(EditingState* editing_state) {
   if (upstream_start_ == downstream_end_)
     return;
 
-  GetDocument().UpdateStyleAndLayoutIgnorePendingStylesheets();
+  GetDocument().UpdateStyleAndLayout();
 
   VisiblePosition start_of_paragraph_to_move =
       CreateVisiblePosition(downstream_end_);
@@ -858,11 +841,11 @@ void DeleteSelectionCommand::MergeParagraphs(EditingState* editing_state) {
       (starts_at_empty_line_ &&
        merge_destination.DeepEquivalent() !=
            start_of_paragraph_to_move.DeepEquivalent())) {
-    InsertNodeAt(HTMLBRElement::Create(GetDocument()), upstream_start_,
-                 editing_state);
+    InsertNodeAt(MakeGarbageCollected<HTMLBRElement>(GetDocument()),
+                 upstream_start_, editing_state);
     if (editing_state->IsAborted())
       return;
-    GetDocument().UpdateStyleAndLayoutIgnorePendingStylesheets();
+    GetDocument().UpdateStyleAndLayout();
     merge_destination = CreateVisiblePosition(upstream_start_);
     start_of_paragraph_to_move =
         CreateVisiblePosition(relocatable_start.GetPosition());
@@ -1088,7 +1071,7 @@ void DeleteSelectionCommand::DoApply(EditingState* editing_state) {
   // save this to later make the selection with
   TextAffinity affinity = selection_to_delete_.Affinity();
 
-  GetDocument().UpdateStyleAndLayoutIgnorePendingStylesheets();
+  GetDocument().UpdateStyleAndLayout();
 
   Position downstream_end =
       MostForwardCaretPosition(selection_to_delete_.End());
@@ -1138,7 +1121,7 @@ void DeleteSelectionCommand::DoApply(EditingState* editing_state) {
     return;
   if (br_result) {
     CalculateTypingStyleAfterDelete();
-    GetDocument().UpdateStyleAndLayoutIgnorePendingStylesheets();
+    GetDocument().UpdateStyleAndLayout();
     SelectionInDOMTree::Builder builder;
     builder.SetAffinity(affinity);
     if (ending_position_.IsNotNull())
@@ -1152,7 +1135,7 @@ void DeleteSelectionCommand::DoApply(EditingState* editing_state) {
     return;
   }
 
-  GetDocument().UpdateStyleAndLayoutIgnorePendingStylesheets();
+  GetDocument().UpdateStyleAndLayout();
 
   HandleGeneralDelete(editing_state);
   if (editing_state->IsAborted())
@@ -1169,7 +1152,7 @@ void DeleteSelectionCommand::DoApply(EditingState* editing_state) {
     return;
 
   if (!need_placeholder_ && root_will_stay_open_without_placeholder) {
-    GetDocument().UpdateStyleAndLayoutIgnorePendingStylesheets();
+    GetDocument().UpdateStyleAndLayout();
     VisiblePosition visual_ending = CreateVisiblePosition(ending_position_);
     bool has_placeholder =
         LineBreakExistsAtVisiblePosition(visual_ending) &&
@@ -1178,8 +1161,9 @@ void DeleteSelectionCommand::DoApply(EditingState* editing_state) {
                         !line_break_at_end_of_selection_to_delete;
   }
 
-  HTMLBRElement* placeholder =
-      need_placeholder_ ? HTMLBRElement::Create(GetDocument()) : nullptr;
+  auto* placeholder = need_placeholder_
+                          ? MakeGarbageCollected<HTMLBRElement>(GetDocument())
+                          : nullptr;
 
   if (placeholder) {
     if (options_.IsSanitizeMarkup()) {
@@ -1200,7 +1184,7 @@ void DeleteSelectionCommand::DoApply(EditingState* editing_state) {
 
   CalculateTypingStyleAfterDelete();
 
-  GetDocument().UpdateStyleAndLayoutIgnorePendingStylesheets();
+  GetDocument().UpdateStyleAndLayout();
 
   SelectionInDOMTree::Builder builder;
   builder.SetAffinity(affinity);
@@ -1252,7 +1236,7 @@ bool DeleteSelectionCommand::PreservesTypingStyle() const {
   return typing_style_;
 }
 
-void DeleteSelectionCommand::Trace(blink::Visitor* visitor) {
+void DeleteSelectionCommand::Trace(Visitor* visitor) {
   visitor->Trace(selection_to_delete_);
   visitor->Trace(upstream_start_);
   visitor->Trace(downstream_start_);

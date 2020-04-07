@@ -6,8 +6,11 @@
 #define BASE_MESSAGE_LOOP_MESSAGE_PUMP_H_
 
 #include "base/base_export.h"
+#include "base/logging.h"
 #include "base/message_loop/timer_slack.h"
 #include "base/sequence_checker.h"
+#include "base/time/time.h"
+#include "build/build_config.h"
 
 namespace base {
 
@@ -15,19 +18,112 @@ class TimeTicks;
 
 class BASE_EXPORT MessagePump {
  public:
+  // A MessagePump has a particular type, which indicates the set of
+  // asynchronous events it may process in addition to tasks and timers.
+  //
+  // TYPE_DEFAULT
+  //   This type of pump only supports tasks and timers.
+  //
+  // TYPE_UI
+  //   This type of pump also supports native UI events (e.g., Windows
+  //   messages).
+  //
+  // TYPE_IO
+  //   This type of pump also supports asynchronous IO.
+  //
+  // TYPE_JAVA
+  //   This type of pump is backed by a Java message handler which is
+  //   responsible for running the tasks added to the ML. This is only for use
+  //   on Android. TYPE_JAVA behaves in essence like TYPE_UI, except during
+  //   construction where it does not use the main thread specific pump factory.
+  //
+  // TYPE_NS_RUNLOOP
+  //   This type of pump is backed by a NSRunLoop. This is only for use on
+  //   OSX and IOS.
+  //
+  // UI_WITH_WM_QUIT_SUPPORT
+  //   This type of pump supports WM_QUIT messages in addition to other native
+  //   UI events. This is only for use on windows.
+  enum class Type {
+    DEFAULT,
+    UI,
+    CUSTOM,
+    IO,
+#if defined(OS_ANDROID)
+    JAVA,
+#endif  // defined(OS_ANDROID)
+#if defined(OS_MACOSX)
+    NS_RUNLOOP,
+#endif  // defined(OS_MACOSX)
+#if defined(OS_WIN)
+    UI_WITH_WM_QUIT_SUPPORT,
+#endif  // defined(OS_WIN)
+  };
+
+  using MessagePumpFactory = std::unique_ptr<MessagePump>();
+  // Uses the given base::MessagePumpFactory to override the default MessagePump
+  // implementation for 'Type::UI'. May only be called once.
+  static void OverrideMessagePumpForUIFactory(MessagePumpFactory* factory);
+
+  // Returns true if the MessagePumpForUI has been overidden.
+  static bool IsMessagePumpForUIFactoryOveridden();
+
+  // Creates the default MessagePump based on |type|. Caller owns return value.
+  static std::unique_ptr<MessagePump> Create(Type type);
+
   // Please see the comments above the Run method for an illustration of how
   // these delegate methods are used.
   class BASE_EXPORT Delegate {
    public:
     virtual ~Delegate() = default;
 
-    // Called before work performed internal to the message pump is executed.
-    virtual void BeforeDoInternalWork();
+    // Called before work performed internal to the message pump is executed,
+    // including waiting for a wake up. Currently only called on Windows.
+    // TODO(wittman): Implement for other platforms.
+    virtual void BeforeDoInternalWork() = 0;
+
+    struct NextWorkInfo {
+      // Helper to extract a TimeDelta for pumps that need a
+      // timeout-till-next-task.
+      TimeDelta remaining_delay() const {
+        DCHECK(!delayed_run_time.is_null() && !delayed_run_time.is_max());
+        DCHECK_GE(TimeTicks::Now(), recent_now);
+        return delayed_run_time - recent_now;
+      }
+
+      // Helper to verify if the next task is ready right away.
+      bool is_immediate() const { return delayed_run_time.is_null(); }
+
+      // The next PendingTask's |delayed_run_time|. is_null() if there's extra
+      // work to run immediately. is_max() if there are no more immediate nor
+      // delayed tasks.
+      TimeTicks delayed_run_time;
+
+      // A recent view of TimeTicks::Now(). Only valid if |next_task_run_time|
+      // isn't null nor max. MessagePump impls should use remaining_delay()
+      // instead of resampling Now() if they wish to sleep for a TimeDelta.
+      TimeTicks recent_now;
+    };
+
+    // The latest model of MessagePumps will invoke this instead of
+    // DoWork()/DoDelayedWork(). Executes an immediate task or a ripe delayed
+    // task. Returns a struct which indicates |delayed_run_time|. DoSomeWork()
+    // will be invoked again shortly if is_immediate(); it will be invoked after
+    // |delayed_run_time| (or ScheduleWork()) if there isn't immediate work and
+    // |!delayed_run_time.is_max()|; and it will not be invoked again until
+    // ScheduleWork() otherwise. Redundant/spurious invocations outside of those
+    // guarantees are not impossible however. DoIdleWork() will not be called so
+    // long as this returns a NextWorkInfo which is_immediate(). See design doc
+    // for details :
+    // https://docs.google.com/document/d/1no1JMli6F1r8gTF9KDIOvoWkUUZcXDktPf4A1IXYc3M/edit#
+    virtual NextWorkInfo DoSomeWork() = 0;
 
     // Called from within Run in response to ScheduleWork or when the message
     // pump would otherwise call DoDelayedWork.  Returns true to indicate that
     // work was done.  DoDelayedWork will still be called if DoWork returns
     // true, but DoIdleWork will not.
+    // Used in conjunction with DoDelayedWork() by old MessagePumps.
+    // TODO(gab): Migrate such pumps to DoSomeWork().
     virtual bool DoWork() = 0;
 
     // Called from within Run in response to ScheduleDelayedWork or when the
@@ -38,6 +134,8 @@ class BASE_EXPORT MessagePump {
     // |next_delayed_work_time| is null (per Time::is_null), then the queue of
     // future delayed work (timer events) is currently empty, and no additional
     // calls to this function need to be scheduled.
+    // Used in conjunction with DoWork() by old MessagePumps.
+    // TODO(gab): Migrate such pumps to DoSomeWork().
     virtual bool DoDelayedWork(TimeTicks* next_delayed_work_time) = 0;
 
     // Called from within Run just before the message pump goes to sleep.
@@ -114,17 +212,26 @@ class BASE_EXPORT MessagePump {
   // only be used on the thread that called Run.
   virtual void Quit() = 0;
 
-  // Schedule a DoWork callback to happen reasonably soon.  Does nothing if a
-  // DoWork callback is already scheduled. Once this call is made, DoWork should
-  // not be "starved" at least until it returns a value of false. Thread-safe
-  // (and callers should avoid holding a Lock at all cost while making this call
-  // as some platforms' priority boosting features have been observed to cause
-  // the caller to get descheduled : https://crbug.com/890978).
+  // Schedule a DoSomeWork callback to happen reasonably soon.  Does nothing if
+  // a DoSomeWork callback is already scheduled. Once this call is made,
+  // DoSomeWork is guaranteed to be called repeatedly at least until it returns
+  // a non-immediate NextWorkInfo (or, if this pump wasn't yet migrated,
+  // DoWork() will be called until it returns false). This call can be expensive
+  // and callers should attempt not to invoke it again before a non-immediate
+  // NextWorkInfo was returned from DoSomeWork(). Thread-safe (and callers
+  // should avoid holding a Lock at all cost while making this call as some
+  // platforms' priority boosting features have been observed to cause the
+  // caller to get descheduled : https://crbug.com/890978).
   virtual void ScheduleWork() = 0;
 
   // Schedule a DoDelayedWork callback to happen at the specified time,
-  // cancelling any pending DoDelayedWork callback.  This method may only be
-  // used on the thread that called Run.
+  // cancelling any pending DoDelayedWork callback. This method may only be used
+  // on the thread that called Run.
+  //
+  // This is mostly a no-op in the DoSomeWork() world but must still be invoked
+  // when the new |delayed_work_time| is sooner than the last one returned from
+  // DoSomeWork(). TODO(gab): Clarify this API once all pumps have been
+  // migrated.
   virtual void ScheduleDelayedWork(const TimeTicks& delayed_work_time) = 0;
 
   // Sets the timer slack to the specified value.

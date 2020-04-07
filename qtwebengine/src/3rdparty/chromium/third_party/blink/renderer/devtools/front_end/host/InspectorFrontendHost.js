@@ -222,6 +222,21 @@ Host.InspectorFrontendHostStub = class {
 
   /**
    * @override
+   * @param {string} histogramName
+   * @param {number} duration
+   */
+  recordPerformanceHistogram(histogramName, duration) {
+  }
+
+  /**
+   * @override
+   * @param {string} umaName
+   */
+  recordUserMetricsAction(umaName) {
+  }
+
+  /**
+   * @override
    */
   requestFileSystems() {
     this.events.dispatchEventToListeners(InspectorFrontendHostAPI.Events.FileSystemsLoaded, []);
@@ -462,6 +477,14 @@ Host.InspectorFrontendHostStub = class {
    */
   isHostedMode() {
     return true;
+  }
+
+  /**
+   * @override
+   * @param {function(!ExtensionDescriptor)} callback
+   */
+  setAddExtensionCallback(callback) {
+    // Extensions are not supported in hosted mode.
   }
 };
 

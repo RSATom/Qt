@@ -73,7 +73,7 @@ enum class QOcspRevocationReason
 };
 
 class QOcspResponse;
-Q_NETWORK_EXPORT uint qHash(const QOcspResponse &response, uint seed = 0);
+Q_NETWORK_EXPORT uint qHash(const QOcspResponse &response, uint seed = 0) noexcept;
 
 class QOcspResponsePrivate;
 class Q_NETWORK_EXPORT QOcspResponse
@@ -82,11 +82,11 @@ public:
 
     QOcspResponse();
     QOcspResponse(const QOcspResponse &other);
-    QOcspResponse(QOcspResponse && other)  Q_DECL_NOEXCEPT;
+    QOcspResponse(QOcspResponse && other)  noexcept;
     ~QOcspResponse();
 
     QOcspResponse &operator = (const QOcspResponse &other);
-    QOcspResponse &operator = (QOcspResponse &&other) Q_DECL_NOTHROW;
+    QOcspResponse &operator = (QOcspResponse &&other) noexcept;
 
     QOcspCertificateStatus certificateStatus() const;
     QOcspRevocationReason revocationReason() const;
@@ -94,13 +94,13 @@ public:
     class QSslCertificate responder() const;
     QSslCertificate subject() const;
 
-    void swap(QOcspResponse &other) Q_DECL_NOTHROW { d.swap(other.d); }
+    void swap(QOcspResponse &other) noexcept { d.swap(other.d); }
 
 private:
 
     friend class QSslSocketBackendPrivate;
     friend Q_NETWORK_EXPORT bool operator==(const QOcspResponse &lhs, const QOcspResponse &rhs);
-    friend Q_NETWORK_EXPORT uint qHash(const QOcspResponse &response, uint seed);
+    friend Q_NETWORK_EXPORT uint qHash(const QOcspResponse &response, uint seed) noexcept;
 
     QSharedDataPointer<QOcspResponsePrivate> d;
 };

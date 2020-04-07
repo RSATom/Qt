@@ -116,7 +116,7 @@ class NET_EXPORT_PRIVATE HttpAuthSSPI : public HttpNegotiateAuthSystem {
   ~HttpAuthSSPI() override;
 
   // HttpNegotiateAuthSystem implementation:
-  bool Init() override;
+  bool Init(const NetLogWithSource& net_log) override;
   bool NeedsIdentity() const override;
   bool AllowsExplicitCredentials() const override;
   HttpAuth::AuthorizationResult ParseChallenge(
@@ -125,8 +125,9 @@ class NET_EXPORT_PRIVATE HttpAuthSSPI : public HttpNegotiateAuthSystem {
                         const std::string& spn,
                         const std::string& channel_bindings,
                         std::string* auth_token,
+                        const NetLogWithSource& net_log,
                         CompletionOnceCallback callback) override;
-  void Delegate() override;
+  void SetDelegation(HttpAuth::DelegationType delegation_type) override;
 
  private:
   int OnFirstRound(const AuthCredentials* credentials);
@@ -147,7 +148,7 @@ class NET_EXPORT_PRIVATE HttpAuthSSPI : public HttpNegotiateAuthSystem {
   ULONG max_token_length_;
   CredHandle cred_;
   CtxtHandle ctxt_;
-  bool can_delegate_;
+  HttpAuth::DelegationType delegation_type_;
 };
 
 // Splits |combined| into domain and username.
@@ -155,14 +156,15 @@ class NET_EXPORT_PRIVATE HttpAuthSSPI : public HttpNegotiateAuthSystem {
 // will contain "bar".
 // If |combined| is of form "bar", |domain| will be empty and |user| will
 // contain "bar".
-// |domain| and |user| must be non-NULL.
+// |domain| and |user| must be non-nullptr.
 NET_EXPORT_PRIVATE void SplitDomainAndUser(const base::string16& combined,
                                            base::string16* domain,
                                            base::string16* user);
 
 // Determines the maximum token length in bytes for a particular SSPI package.
 //
-// |library| and |max_token_length| must be non-NULL pointers to valid objects.
+// |library| and |max_token_length| must be non-nullptr pointers to valid
+// objects.
 //
 // If the return value is OK, |*max_token_length| contains the maximum token
 // length in bytes.

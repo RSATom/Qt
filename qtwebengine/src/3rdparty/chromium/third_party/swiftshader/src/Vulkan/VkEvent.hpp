@@ -16,6 +16,8 @@
 #define VK_EVENT_HPP_
 
 #include "VkObject.hpp"
+#include <condition_variable>
+#include <mutex>
 
 namespace vk
 {
@@ -27,8 +29,6 @@ public:
 	{
 	}
 
-	~Event() = delete;
-
 	static size_t ComputeRequiredAllocationSize(const VkEventCreateInfo* pCreateInfo)
 	{
 		return 0;
@@ -36,26 +36,41 @@ public:
 
 	void signal()
 	{
+		std::unique_lock<std::mutex> lock(mutex);
 		status = VK_EVENT_SET;
+		lock.unlock();
+		condition.notify_all();
 	}
 
 	void reset()
 	{
+		std::unique_lock<std::mutex> lock(mutex);
 		status = VK_EVENT_RESET;
 	}
 
-	VkResult getStatus() const
+	VkResult getStatus()
 	{
-		return status;
+		std::unique_lock<std::mutex> lock(mutex);
+		auto result = status;
+		lock.unlock();
+		return result;
+	}
+
+	void wait()
+	{
+		std::unique_lock<std::mutex> lock(mutex);
+		condition.wait(lock, [this] { return status == VK_EVENT_SET; });
 	}
 
 private:
-	VkResult status = VK_EVENT_RESET;
+	VkResult status = VK_EVENT_RESET; // guarded by mutex
+	std::mutex mutex;
+	std::condition_variable condition;
 };
 
 static inline Event* Cast(VkEvent object)
 {
-	return reinterpret_cast<Event*>(object);
+	return Event::Cast(object);
 }
 
 } // namespace vk

@@ -143,10 +143,10 @@ void DSVideoDeviceControl::updateDevices()
             pEnum->Reset();
             // go through and find all video capture devices
             IMoniker* pMoniker = nullptr;
-            IMalloc *mallocInterface = 0;
+            IMalloc *mallocInterface = nullptr;
             CoGetMalloc(1, (LPMALLOC*)&mallocInterface);
             while (pEnum->Next(1, &pMoniker, nullptr) == S_OK) {
-                BSTR strName = 0;
+                BSTR strName = nullptr;
                 hr = pMoniker->GetDisplayName(nullptr, nullptr, &strName);
                 if (SUCCEEDED(hr)) {
                     QString output(QString::fromWCharArray(strName));
@@ -162,7 +162,7 @@ void DSVideoDeviceControl::updateDevices()
                         // Find the description
                         VARIANT varName;
                         varName.vt = VT_BSTR;
-                        hr = pPropBag->Read(L"FriendlyName", &varName, 0);
+                        hr = pPropBag->Read(L"FriendlyName", &varName, nullptr);
                         if (SUCCEEDED(hr)) {
                             output = QString::fromWCharArray(varName.bstrVal);
                         }

@@ -7,11 +7,11 @@
 
 #include "base/macros.h"
 #include "base/optional.h"
+#include "components/autofill/core/browser/logging/stub_log_manager.h"
 #include "components/password_manager/core/browser/password_manager_client.h"
 #include "components/password_manager/core/browser/password_manager_metrics_recorder.h"
 #include "components/password_manager/core/browser/password_manager_metrics_util.h"
 #include "components/password_manager/core/browser/stub_credentials_filter.h"
-#include "components/password_manager/core/browser/stub_log_manager.h"
 
 namespace password_manager {
 
@@ -32,6 +32,9 @@ class StubPasswordManagerClient : public PasswordManagerClient {
       bool has_generated_password,
       bool update_password) override;
   void HideManualFallbackForSaving() override;
+  void FocusedInputChanged(
+      password_manager::PasswordManagerDriver* driver,
+      autofill::mojom::FocusedFieldType focused_field_type) override;
   bool PromptUserToChooseCredentials(
       std::vector<std::unique_ptr<autofill::PasswordForm>> local_forms,
       const GURL& origin,
@@ -50,24 +53,27 @@ class StubPasswordManagerClient : public PasswordManagerClient {
   PasswordStore* GetPasswordStore() const override;
   const GURL& GetLastCommittedEntryURL() const override;
   const CredentialsFilter* GetStoreResultFilter() const override;
-  const LogManager* GetLogManager() const override;
-#if defined(SAFE_BROWSING_DB_LOCAL)
+  const autofill::LogManager* GetLogManager() const override;
+#if defined(FULL_SAFE_BROWSING)
   safe_browsing::PasswordProtectionService* GetPasswordProtectionService()
       const override;
   void CheckSafeBrowsingReputation(const GURL& form_action,
                                    const GURL& frame_url) override;
   void CheckProtectedPasswordEntry(
       metrics_util::PasswordType reused_password_type,
+      const std::string& username,
       const std::vector<std::string>& matching_domains,
       bool password_field_exists) override;
   void LogPasswordReuseDetectedEvent() override;
 #endif
   ukm::SourceId GetUkmSourceId() override;
   PasswordManagerMetricsRecorder* GetMetricsRecorder() override;
+  bool IsIsolationForPasswordSitesEnabled() const override;
+  bool IsNewTabPage() const override;
 
  private:
   const StubCredentialsFilter credentials_filter_;
-  StubLogManager log_manager_;
+  autofill::StubLogManager log_manager_;
   ukm::SourceId ukm_source_id_;
   base::Optional<PasswordManagerMetricsRecorder> metrics_recorder_;
 

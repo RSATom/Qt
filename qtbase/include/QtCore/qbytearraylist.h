@@ -1,1 +1,1 @@
-#include "../../src/corelib/tools/qbytearraylist.h"
+#include "../../src/corelib/text/qbytearraylist.h"

@@ -111,6 +111,7 @@ public:
     virtual bool visit(UiQualifiedId *) { return true; }
     virtual bool visit(UiEnumDeclaration *) { return true; }
     virtual bool visit(UiEnumMemberList *) { return true; }
+    virtual bool visit(UiVersionSpecifier *) { return true; }
 
     virtual void endVisit(UiProgram *) {}
     virtual void endVisit(UiImport *) {}
@@ -129,6 +130,7 @@ public:
     virtual void endVisit(UiQualifiedId *) {}
     virtual void endVisit(UiEnumDeclaration *) {}
     virtual void endVisit(UiEnumMemberList *) { }
+    virtual void endVisit(UiVersionSpecifier *) {}
 
     // QQmlJS
     virtual bool visit(ThisExpression *) { return true; }
@@ -400,6 +402,15 @@ public:
 
     virtual bool visit(DebuggerStatement *) { return true; }
     virtual void endVisit(DebuggerStatement *) {}
+
+    virtual bool visit(Type *) { return true; }
+    virtual void endVisit(Type *) {}
+
+    virtual bool visit(TypeArgumentList *) { return true; }
+    virtual void endVisit(TypeArgumentList *) {}
+
+    virtual bool visit(TypeAnnotation *) { return true; }
+    virtual void endVisit(TypeAnnotation *) {}
 
     virtual void throwRecursionDepthError() = 0;
 

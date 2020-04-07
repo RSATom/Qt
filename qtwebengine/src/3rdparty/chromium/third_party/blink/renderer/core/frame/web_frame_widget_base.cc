@@ -32,6 +32,9 @@
 #include "third_party/blink/renderer/core/page/focus_controller.h"
 #include "third_party/blink/renderer/core/page/page.h"
 #include "third_party/blink/renderer/core/page/pointer_lock_controller.h"
+#include "third_party/blink/renderer/platform/graphics/animation_worklet_mutator_dispatcher_impl.h"
+#include "third_party/blink/renderer/platform/graphics/compositor_mutator_client.h"
+#include "third_party/blink/renderer/platform/graphics/paint_worklet_paint_dispatcher.h"
 #include "third_party/blink/renderer/platform/wtf/assertions.h"
 
 namespace blink {
@@ -55,13 +58,12 @@ WebFrameWidgetBase::WebFrameWidgetBase(WebWidgetClient& client)
 WebFrameWidgetBase::~WebFrameWidgetBase() = default;
 
 void WebFrameWidgetBase::BindLocalRoot(WebLocalFrame& local_root) {
-  local_root_ = ToWebLocalFrameImpl(local_root);
+  local_root_ = To<WebLocalFrameImpl>(local_root);
   local_root_->SetFrameWidget(this);
-
-  Initialize();
 }
 
 void WebFrameWidgetBase::Close() {
+  mutator_dispatcher_ = nullptr;
   local_root_->SetFrameWidget(nullptr);
   local_root_ = nullptr;
   client_ = nullptr;
@@ -75,7 +77,7 @@ WebRect WebFrameWidgetBase::ComputeBlockBound(
     const gfx::Point& point_in_root_frame,
     bool ignore_clipping) const {
   HitTestLocation location(local_root_->GetFrameView()->ConvertFromRootFrame(
-      LayoutPoint(IntPoint(point_in_root_frame))));
+      PhysicalOffset(IntPoint(point_in_root_frame))));
   HitTestRequest::HitTestRequestType hit_type =
       HitTestRequest::kReadOnly | HitTestRequest::kActive |
       (ignore_clipping ? HitTestRequest::kIgnoreClipping : 0);
@@ -102,13 +104,6 @@ WebRect WebFrameWidgetBase::ComputeBlockBound(
     return frame->View()->ConvertToRootFrame(absolute_rect);
   }
   return WebRect();
-}
-
-void WebFrameWidgetBase::UpdateAllLifecyclePhasesAndCompositeForTesting(
-    bool do_raster) {
-  if (WebLayerTreeView* layer_tree_view = GetLayerTreeView()) {
-    layer_tree_view->UpdateAllLifecyclePhasesAndCompositeForTesting(do_raster);
-  }
 }
 
 WebDragOperation WebFrameWidgetBase::DragTargetDragEnter(
@@ -221,7 +216,7 @@ void WebFrameWidgetBase::DragSourceEndedAt(
   WebMouseEvent fake_mouse_move(
       WebInputEvent::kMouseMove, point_in_root_frame, screen_point,
       WebPointerProperties::Button::kLeft, 0, WebInputEvent::kNoModifiers,
-      CurrentTimeTicks());
+      base::TimeTicks::Now());
   fake_mouse_move.SetFrameScale(1);
   local_root_->GetFrame()->GetEventHandler().DragSourceEndedAt(
       fake_mouse_move, static_cast<DragOperation>(operation));
@@ -347,11 +342,10 @@ void WebFrameWidgetBase::RequestDecode(
     base::OnceCallback<void(bool)> callback) {
   // If we have a LayerTreeView, propagate the request, otherwise fail it since
   // otherwise it would remain in a unresolved and unrejected state.
-  if (WebLayerTreeView* layer_tree_view = GetLayerTreeView()) {
-    layer_tree_view->RequestDecode(image, std::move(callback));
-  } else {
+  // TODO(danakj): This should be based on |does_composite| instead.
+  if (!GetLayerTreeView())
     std::move(callback).Run(false);
-  }
+  Client()->RequestDecode(image, std::move(callback));
 }
 
 void WebFrameWidgetBase::Trace(blink::Visitor* visitor) {
@@ -368,12 +362,6 @@ void WebFrameWidgetBase::PointerLockMouseEvent(
       static_cast<const WebMouseEvent&>(input_event);
   WebMouseEvent transformed_event =
       TransformWebMouseEvent(local_root_->GetFrameView(), mouse_event);
-
-  LocalFrame* focusedFrame = FocusedLocalFrameInWidget();
-  if (focusedFrame) {
-    focusedFrame->GetEventHandler().ProcessPendingPointerCaptureForPointerLock(
-        transformed_event);
-  }
 
   std::unique_ptr<UserGestureIndicator> gesture_indicator;
   AtomicString event_type;
@@ -448,6 +436,36 @@ LocalFrame* WebFrameWidgetBase::FocusedLocalFrameInWidget() const {
 
 WebLocalFrame* WebFrameWidgetBase::FocusedWebLocalFrameInWidget() const {
   return WebLocalFrameImpl::FromFrame(FocusedLocalFrameInWidget());
+}
+
+base::WeakPtr<AnimationWorkletMutatorDispatcherImpl>
+WebFrameWidgetBase::EnsureCompositorMutatorDispatcher(
+    scoped_refptr<base::SingleThreadTaskRunner>* mutator_task_runner) {
+  if (!mutator_task_runner_) {
+    Client()->SetLayerTreeMutator(
+        AnimationWorkletMutatorDispatcherImpl::CreateCompositorThreadClient(
+            &mutator_dispatcher_, &mutator_task_runner_));
+  }
+
+  DCHECK(mutator_task_runner_);
+  *mutator_task_runner = mutator_task_runner_;
+  return mutator_dispatcher_;
+}
+
+base::WeakPtr<PaintWorkletPaintDispatcher>
+WebFrameWidgetBase::EnsureCompositorPaintDispatcher(
+    scoped_refptr<base::SingleThreadTaskRunner>* paint_task_runner) {
+  // We check paint_task_runner_ not paint_dispatcher_ because the dispatcher is
+  // a base::WeakPtr that should only be used on the compositor thread.
+  if (!paint_task_runner_) {
+    Client()->SetPaintWorkletLayerPainterClient(
+        PaintWorkletPaintDispatcher::CreateCompositorThreadPainter(
+            &paint_dispatcher_));
+    paint_task_runner_ = Thread::CompositorThread()->GetTaskRunner();
+  }
+  DCHECK(paint_task_runner_);
+  *paint_task_runner = paint_task_runner_;
+  return paint_dispatcher_;
 }
 
 }  // namespace blink

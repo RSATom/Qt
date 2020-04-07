@@ -4,6 +4,7 @@
 
 #include "content/browser/accessibility/browser_accessibility_auralinux.h"
 
+#include "content/browser/accessibility/browser_accessibility_manager.h"
 #include "ui/accessibility/platform/ax_platform_node_auralinux.h"
 
 namespace content {
@@ -39,19 +40,37 @@ BrowserAccessibilityAuraLinux::GetNativeViewAccessible() {
   return node_->GetNativeViewAccessible();
 }
 
-void BrowserAccessibilityAuraLinux::OnDataChanged() {
-  BrowserAccessibility::OnDataChanged();
-
-  DCHECK(node_);
-  node_->DataChanged();
-}
-
 void BrowserAccessibilityAuraLinux::UpdatePlatformAttributes() {
   GetNode()->UpdateHypertext();
 }
 
+void BrowserAccessibilityAuraLinux::OnDataChanged() {
+  BrowserAccessibility::OnDataChanged();
+  DCHECK(node_);
+  node_->EnsureAtkObjectIsValid();
+}
+
 bool BrowserAccessibilityAuraLinux::IsNative() const {
   return true;
+}
+
+base::string16 BrowserAccessibilityAuraLinux::GetText() const {
+  return GetHypertext();
+}
+
+base::string16 BrowserAccessibilityAuraLinux::GetHypertext() const {
+  return GetNode()->AXPlatformNodeAuraLinux::GetHypertext();
+}
+
+ui::AXPlatformNode* BrowserAccessibilityAuraLinux::GetFromNodeID(int32_t id) {
+  if (!instance_active())
+    return nullptr;
+
+  BrowserAccessibility* accessibility = manager_->GetFromID(id);
+  if (!accessibility)
+    return nullptr;
+
+  return ToBrowserAccessibilityAuraLinux(accessibility)->GetNode();
 }
 
 }  // namespace content

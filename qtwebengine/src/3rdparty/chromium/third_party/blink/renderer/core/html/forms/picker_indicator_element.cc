@@ -44,28 +44,21 @@ namespace blink {
 
 using namespace html_names;
 
-inline PickerIndicatorElement::PickerIndicatorElement(
+PickerIndicatorElement::PickerIndicatorElement(
     Document& document,
     PickerIndicatorOwner& picker_indicator_owner)
     : HTMLDivElement(document),
-      picker_indicator_owner_(&picker_indicator_owner) {}
-
-PickerIndicatorElement* PickerIndicatorElement::Create(
-    Document& document,
-    PickerIndicatorOwner& picker_indicator_owner) {
-  PickerIndicatorElement* element =
-      MakeGarbageCollected<PickerIndicatorElement>(document,
-                                                   picker_indicator_owner);
-  element->SetShadowPseudoId(AtomicString("-webkit-calendar-picker-indicator"));
-  element->setAttribute(kIdAttr, shadow_element_names::PickerIndicator());
-  return element;
+      picker_indicator_owner_(&picker_indicator_owner) {
+  SetShadowPseudoId(AtomicString("-webkit-calendar-picker-indicator"));
+  setAttribute(kIdAttr, shadow_element_names::PickerIndicator());
 }
 
 PickerIndicatorElement::~PickerIndicatorElement() {
   DCHECK(!chooser_);
 }
 
-LayoutObject* PickerIndicatorElement::CreateLayoutObject(const ComputedStyle&) {
+LayoutObject* PickerIndicatorElement::CreateLayoutObject(const ComputedStyle&,
+                                                         LegacyLayout) {
   return new LayoutDetailsMarker(this);
 }
 
@@ -126,7 +119,7 @@ void PickerIndicatorElement::OpenPopup() {
   if (!picker_indicator_owner_->SetupDateTimeChooserParameters(parameters))
     return;
   chooser_ = GetDocument().GetPage()->GetChromeClient().OpenDateTimeChooser(
-      this, parameters);
+      GetDocument().GetFrame(), this, parameters);
 }
 
 Element& PickerIndicatorElement::OwnerElement() const {
@@ -140,9 +133,9 @@ void PickerIndicatorElement::ClosePopup() {
   chooser_->EndChooser();
 }
 
-void PickerIndicatorElement::DetachLayoutTree(const AttachContext& context) {
+void PickerIndicatorElement::DetachLayoutTree(bool performing_reattach) {
   ClosePopup();
-  HTMLDivElement::DetachLayoutTree(context);
+  HTMLDivElement::DetachLayoutTree(performing_reattach);
 }
 
 AXObject* PickerIndicatorElement::PopupRootAXObject() const {

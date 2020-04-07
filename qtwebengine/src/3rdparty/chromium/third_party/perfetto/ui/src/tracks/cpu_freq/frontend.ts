@@ -14,7 +14,6 @@
 
 import {search} from '../../base/binary_search';
 import {assertTrue} from '../../base/logging';
-import {Actions} from '../../common/actions';
 import {TrackState} from '../../common/state';
 import {checkerboardExcept} from '../../frontend/checkerboard';
 import {hueForCpu} from '../../frontend/colorizer';
@@ -32,19 +31,12 @@ import {
 const MARGIN_TOP = 4.5;
 const RECT_HEIGHT = 30;
 
-function getCurResolution() {
-  // Truncate the resolution to the closest power of 10.
-  const resolution = globals.frontendLocalState.timeScale.deltaPxToDuration(1);
-  return Math.pow(10, Math.floor(Math.log10(resolution)));
-}
-
 class CpuFreqTrack extends Track<Config, Data> {
   static readonly kind = CPU_FREQ_TRACK_KIND;
   static create(trackState: TrackState): CpuFreqTrack {
     return new CpuFreqTrack(trackState);
   }
 
-  private reqPending = false;
   private mouseXpos = 0;
   private hoveredValue: number|undefined = undefined;
   private hoveredTs: number|undefined = undefined;
@@ -55,36 +47,14 @@ class CpuFreqTrack extends Track<Config, Data> {
     super(trackState);
   }
 
-  reqDataDeferred() {
-    const {visibleWindowTime} = globals.frontendLocalState;
-    const reqStart = visibleWindowTime.start - visibleWindowTime.duration;
-    const reqEnd = visibleWindowTime.end + visibleWindowTime.duration;
-    const reqRes = getCurResolution();
-    this.reqPending = false;
-    globals.dispatch(Actions.reqTrackData({
-      trackId: this.trackState.id,
-      start: reqStart,
-      end: reqEnd,
-      resolution: reqRes
-    }));
-  }
-
   renderCanvas(ctx: CanvasRenderingContext2D): void {
     // TODO: fonts and colors should come from the CSS and not hardcoded here.
     const {timeScale, visibleWindowTime} = globals.frontendLocalState;
     const data = this.data();
 
-    // If there aren't enough cached slices data in |data| request more to
-    // the controller.
-    const inRange = data !== undefined &&
-        (visibleWindowTime.start >= data.start &&
-         visibleWindowTime.end <= data.end);
-    if (!inRange || data === undefined ||
-        data.resolution !== getCurResolution()) {
-      if (!this.reqPending) {
-        this.reqPending = true;
-        setTimeout(() => this.reqDataDeferred(), 50);
-      }
+    if (this.shouldRequestData(
+            data, visibleWindowTime.start, visibleWindowTime.end)) {
+      globals.requestTrackData(this.trackState.id);
     }
     if (data === undefined) return;  // Can't possibly draw anything.
 
@@ -110,9 +80,13 @@ class CpuFreqTrack extends Track<Config, Data> {
     const yLabel = `${num} ${kUnits[unitGroup + 1]}Hz`;
 
     // Draw the CPU frequency graph.
-    const hue = hueForCpu(this.config.cpu); 
-    ctx.fillStyle = `hsl(${hue}, 45%, 70%)`;
-    ctx.strokeStyle = `hsl(${hue}, 45%, 55%)`;
+    const hue = hueForCpu(this.config.cpu);
+    let saturation = 45;
+    if (globals.frontendLocalState.hoveredUtid !== -1) {
+      saturation = 0;
+    }
+    ctx.fillStyle = `hsl(${hue}, ${saturation}%, 70%)`;
+    ctx.strokeStyle = `hsl(${hue}, ${saturation}%, 55%)`;
     ctx.beginPath();
     ctx.moveTo(lastX, lastY);
 
@@ -129,7 +103,7 @@ class CpuFreqTrack extends Track<Config, Data> {
     }
     // Find the end time for the last frequency event and then draw
     // down to zero to show that we do not have data after that point.
-    const endTime = data.tsEnds[data.freqKHz.length-1];
+    const endTime = data.tsEnds[data.freqKHz.length - 1];
     const finalX = Math.floor(timeScale.timeToPx(endTime));
     ctx.lineTo(finalX, lastY);
     ctx.lineTo(finalX, zeroY);
@@ -155,7 +129,10 @@ class CpuFreqTrack extends Track<Config, Data> {
     ctx.font = '10px Google Sans';
 
     if (this.hoveredValue !== undefined && this.hoveredTs !== undefined) {
-      const text = `freq: ${this.hoveredValue.toLocaleString()}kHz`;
+      let text = `Freq: ${this.hoveredValue.toLocaleString()}kHz`;
+      if (data.isQuantized) {
+        text = `Weighted avg freq: ${this.hoveredValue.toLocaleString()}kHz`;
+      }
 
       const width = ctx.measureText(text).width;
       ctx.fillStyle = `hsl(${hue}, 45%, 75%)`;
@@ -185,11 +162,12 @@ class CpuFreqTrack extends Track<Config, Data> {
       ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
       ctx.fillRect(this.mouseXpos + 5, MARGIN_TOP, width + 16, RECT_HEIGHT);
       ctx.fillStyle = 'hsl(200, 50%, 40%)';
-      const centerY = MARGIN_TOP + RECT_HEIGHT/2;
+      const centerY = MARGIN_TOP + RECT_HEIGHT / 2;
       ctx.fillText(text, this.mouseXpos + 10, centerY - 3);
       // Display idle value if current hover is idle.
       if (this.hoveredIdle !== undefined && this.hoveredIdle !== -1) {
-        const idle = `idle: ${this.hoveredIdle.toLocaleString()}`;
+        // Display the idle value +1 to be consistent with catapult.
+        const idle = `Idle: ${(this.hoveredIdle + 1).toLocaleString()}`;
         ctx.fillText(idle, this.mouseXpos + 10, centerY + 11);
       }
     }

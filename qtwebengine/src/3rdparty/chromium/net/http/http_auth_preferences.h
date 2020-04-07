@@ -13,6 +13,7 @@
 #include "base/macros.h"
 #include "build/build_config.h"
 #include "net/base/net_export.h"
+#include "net/http/http_auth.h"
 #include "url/gurl.h"
 
 namespace net {
@@ -34,8 +35,18 @@ class NET_EXPORT HttpAuthPreferences {
 #if defined(OS_ANDROID)
   virtual std::string AuthAndroidNegotiateAccountType() const;
 #endif
+#if defined(OS_CHROMEOS)
+  virtual bool AllowGssapiLibraryLoad() const;
+#endif
   virtual bool CanUseDefaultCredentials(const GURL& auth_origin) const;
-  virtual bool CanDelegate(const GURL& auth_origin) const;
+  virtual HttpAuth::DelegationType GetDelegationType(
+      const GURL& auth_origin) const;
+
+  void set_delegate_by_kdc_policy(bool delegate_by_kdc_policy) {
+    delegate_by_kdc_policy_ = delegate_by_kdc_policy;
+  }
+
+  bool delegate_by_kdc_policy() const { return delegate_by_kdc_policy_; }
 
   void set_negotiate_disable_cname_lookup(bool negotiate_disable_cname_lookup) {
     negotiate_disable_cname_lookup_ = negotiate_disable_cname_lookup;
@@ -51,6 +62,12 @@ class NET_EXPORT HttpAuthPreferences {
   }
 #endif
 
+#if defined(OS_CHROMEOS)
+  void set_allow_gssapi_library_load(bool allow_gssapi_library_load) {
+    allow_gssapi_library_load_ = allow_gssapi_library_load;
+  }
+#endif
+
   void SetServerWhitelist(const std::string& server_whitelist);
 
   void SetDelegateWhitelist(const std::string& delegate_whitelist);
@@ -63,6 +80,7 @@ class NET_EXPORT HttpAuthPreferences {
 #endif
 
  private:
+  bool delegate_by_kdc_policy_ = false;
   bool negotiate_disable_cname_lookup_ = false;
   bool negotiate_enable_port_ = false;
 
@@ -72,6 +90,10 @@ class NET_EXPORT HttpAuthPreferences {
 
 #if defined(OS_ANDROID)
   std::string auth_android_negotiate_account_type_;
+#endif
+
+#if defined(OS_CHROMEOS)
+  bool allow_gssapi_library_load_ = true;
 #endif
 
   std::unique_ptr<URLSecurityManager> security_manager_;

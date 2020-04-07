@@ -30,7 +30,7 @@
 #include <memory>
 #include "third_party/blink/renderer/platform/geometry/layout_size.h"
 #include "third_party/blink/renderer/platform/transforms/transformation_matrix.h"
-#include "third_party/blink/renderer/platform/wtf/allocator.h"
+#include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 
 namespace blink {
 
@@ -60,16 +60,15 @@ struct LayoutGeometryMapStep {
                         GeometryInfoFlags flags)
       : layout_object_(layout_object), flags_(flags) {}
   const LayoutObject* layout_object_;
-  LayoutSize offset_;
+  PhysicalOffset offset_;
   std::unique_ptr<TransformationMatrix>
       transform_;  // Includes offset if non-null.
-  LayoutSize offset_for_fixed_position_;
+  PhysicalOffset offset_for_fixed_position_;
   GeometryInfoFlags flags_;
 };
 
 }  // namespace blink
 
-WTF_ALLOW_MOVE_INIT_AND_COMPARE_WITH_MEM_FUNCTIONS(
-    blink::LayoutGeometryMapStep);
+WTF_ALLOW_MOVE_INIT_AND_COMPARE_WITH_MEM_FUNCTIONS(blink::LayoutGeometryMapStep)
 
 #endif  // THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_LAYOUT_GEOMETRY_MAP_STEP_H_

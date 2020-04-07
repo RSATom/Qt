@@ -10,6 +10,7 @@
 #include "core/fxge/android/cfpf_skiafont.h"
 #include "core/fxge/android/cfpf_skiafontmgr.h"
 #include "core/fxge/cfx_fontmapper.h"
+#include "core/fxge/fx_font.h"
 
 CFX_AndroidFontInfo::CFX_AndroidFontInfo() : m_pFontMgr(nullptr) {}
 CFX_AndroidFontInfo::~CFX_AndroidFontInfo() {}
@@ -54,11 +55,10 @@ void* CFX_AndroidFontInfo::GetFont(const char* face) {
 
 uint32_t CFX_AndroidFontInfo::GetFontData(void* hFont,
                                           uint32_t table,
-                                          uint8_t* buffer,
-                                          uint32_t size) {
+                                          pdfium::span<uint8_t> buffer) {
   if (!hFont)
     return 0;
-  return static_cast<CFPF_SkiaFont*>(hFont)->GetFontData(table, buffer, size);
+  return static_cast<CFPF_SkiaFont*>(hFont)->GetFontData(table, buffer);
 }
 
 bool CFX_AndroidFontInfo::GetFaceName(void* hFont, ByteString* name) {

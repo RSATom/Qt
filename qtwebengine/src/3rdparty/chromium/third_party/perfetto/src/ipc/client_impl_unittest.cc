@@ -21,14 +21,14 @@
 
 #include <string>
 
-#include "gmock/gmock.h"
-#include "gtest/gtest.h"
-#include "perfetto/base/file_utils.h"
-#include "perfetto/base/temp_file.h"
-#include "perfetto/base/unix_socket.h"
-#include "perfetto/base/utils.h"
-#include "perfetto/ipc/service_descriptor.h"
-#include "perfetto/ipc/service_proxy.h"
+#include <gmock/gmock.h>
+#include <gtest/gtest.h>
+#include "perfetto/ext/base/file_utils.h"
+#include "perfetto/ext/base/temp_file.h"
+#include "perfetto/ext/base/unix_socket.h"
+#include "perfetto/ext/base/utils.h"
+#include "perfetto/ext/ipc/service_descriptor.h"
+#include "perfetto/ext/ipc/service_proxy.h"
 #include "src/base/test/test_task_runner.h"
 #include "src/ipc/buffered_frame_deserializer.h"
 #include "src/ipc/test/test_socket.h"
@@ -350,7 +350,8 @@ TEST_F(ClientImplTest, ReceiveFileDescriptor) {
 
   base::TempFile tx_file = base::TempFile::CreateUnlinked();
   static constexpr char kFileContent[] = "shared file";
-  ASSERT_EQ(base::WriteAll(tx_file.fd(), kFileContent, sizeof(kFileContent)),
+  ASSERT_EQ(static_cast<size_t>(base::WriteAll(tx_file.fd(), kFileContent,
+                                               sizeof(kFileContent))),
             sizeof(kFileContent));
   host_->next_reply_fd = tx_file.fd();
 
@@ -395,7 +396,8 @@ TEST_F(ClientImplTest, SendFileDescriptor) {
 
   base::TempFile tx_file = base::TempFile::CreateUnlinked();
   static constexpr char kFileContent[] = "shared file";
-  ASSERT_EQ(base::WriteAll(tx_file.fd(), kFileContent, sizeof(kFileContent)),
+  ASSERT_EQ(static_cast<size_t>(base::WriteAll(tx_file.fd(), kFileContent,
+                                               sizeof(kFileContent))),
             sizeof(kFileContent));
   EXPECT_CALL(*host_method, OnInvoke(_, _))
       .WillOnce(Invoke(

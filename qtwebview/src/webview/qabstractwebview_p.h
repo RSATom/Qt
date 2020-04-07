@@ -70,6 +70,7 @@ Q_SIGNALS:
     void loadProgressChanged(int progress);
     void javaScriptResult(int id, const QVariant &result);
     void requestFocus(bool focus);
+    void httpUserAgentChanged(const QString &httpUserAgent);
 
 protected:
     explicit QAbstractWebView(QObject *p = 0) : QObject(p) { }

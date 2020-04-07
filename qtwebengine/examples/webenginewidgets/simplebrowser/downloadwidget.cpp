@@ -57,10 +57,15 @@
 DownloadWidget::DownloadWidget(QWebEngineDownloadItem *download, QWidget *parent)
     : QFrame(parent)
     , m_download(download)
-    , m_timeAdded(QTime::currentTime())
+    , m_timeAdded()
 {
+    m_timeAdded.start();
     setupUi(this);
+#if QT_VERSION >= QT_VERSION_CHECK(5, 14, 0)
+    m_dstName->setText(m_download->downloadFileName());
+#else
     m_dstName->setText(QFileInfo(m_download->path()).fileName());
+#endif
     m_srcUrl->setText(m_download->url().toDisplayString());
 
     connect(m_cancelButton, &QPushButton::clicked,

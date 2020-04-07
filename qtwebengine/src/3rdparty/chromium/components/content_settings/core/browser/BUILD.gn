@@ -66,6 +66,17 @@ jumbo_static_library("browser") {
     deps += [ "//media" ]
   }
 
+  if (!is_ios) {
+    sources += [
+      "cookie_settings_policy_handler.cc",
+      "cookie_settings_policy_handler.h",
+    ]
+    deps += [
+      "//components/policy:generated",
+      "//components/policy/core/browser",
+    ]
+  }
+
   configs += [
     "//build/config/compiler:no_size_t_to_int_warning",
     "//build/config/compiler:wexit_time_destructors",
@@ -76,6 +87,7 @@ jumbo_source_set("unit_tests") {
   testonly = true
   sources = [
     "content_settings_ephemeral_provider_unittest.cc",
+    "content_settings_pref_unittest.cc",
     "content_settings_registry_unittest.cc",
     "content_settings_rule_unittest.cc",
     "content_settings_utils_unittest.cc",
@@ -95,9 +107,21 @@ jumbo_source_set("unit_tests") {
     "//components/content_settings/core/test:test_support",
     "//components/pref_registry:pref_registry",
     "//components/prefs",
+    "//components/prefs:test_support",
     "//components/sync_preferences:test_support",
     "//extensions/buildflags",
+    "//ppapi/buildflags:buildflags",
+    "//testing/gmock",
     "//testing/gtest",
     "//url",
   ]
+
+  if (!is_ios) {
+    sources += [ "cookie_settings_policy_handler_unittest.cc" ]
+
+    deps += [
+      "//components/policy:generated",
+      "//components/policy/core/browser:test_support",
+    ]
+  }
 }

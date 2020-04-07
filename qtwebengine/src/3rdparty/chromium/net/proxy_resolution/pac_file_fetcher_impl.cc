@@ -4,6 +4,7 @@
 
 #include "net/proxy_resolution/pac_file_fetcher_impl.h"
 
+#include "base/bind.h"
 #include "base/compiler_specific.h"
 #include "base/location.h"
 #include "base/logging.h"
@@ -205,8 +206,8 @@ int PacFileFetcherImpl::Fetch(
 
   base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
       FROM_HERE,
-      base::Bind(&PacFileFetcherImpl::OnTimeout, weak_factory_.GetWeakPtr(),
-                 cur_request_id_),
+      base::BindOnce(&PacFileFetcherImpl::OnTimeout, weak_factory_.GetWeakPtr(),
+                     cur_request_id_),
       max_duration_);
 
   // Start the request.
@@ -255,7 +256,7 @@ void PacFileFetcherImpl::OnReceivedRedirect(URLRequest* request,
 }
 
 void PacFileFetcherImpl::OnAuthRequired(URLRequest* request,
-                                        AuthChallengeInfo* auth_info) {
+                                        const AuthChallengeInfo& auth_info) {
   DCHECK_EQ(request, cur_request_.get());
   // TODO(eroman): http://crbug.com/77366
   LOG(WARNING) << "Auth required to fetch PAC script, aborting.";
@@ -264,6 +265,7 @@ void PacFileFetcherImpl::OnAuthRequired(URLRequest* request,
 }
 
 void PacFileFetcherImpl::OnSSLCertificateError(URLRequest* request,
+                                               int net_error,
                                                const SSLInfo& ssl_info,
                                                bool fatal) {
   DCHECK_EQ(request, cur_request_.get());
@@ -274,7 +276,7 @@ void PacFileFetcherImpl::OnSSLCertificateError(URLRequest* request,
   }
   LOG(WARNING) << "SSL certificate error when fetching PAC script, aborting.";
   // Certificate errors are in same space as net errors.
-  result_code_ = MapCertStatusToNetError(ssl_info.cert_status);
+  result_code_ = net_error;
   request->Cancel();
 }
 
@@ -330,11 +332,10 @@ PacFileFetcherImpl::PacFileFetcherImpl(URLRequestContext* url_request_context,
       next_id_(0),
       cur_request_id_(0),
       result_code_(OK),
-      result_text_(NULL),
+      result_text_(nullptr),
       max_response_bytes_(kDefaultMaxResponseBytes),
       max_duration_(kDefaultMaxDuration),
-      allow_file_url_(allow_file_url),
-      weak_factory_(this) {
+      allow_file_url_(allow_file_url) {
   DCHECK(url_request_context);
 }
 
@@ -424,7 +425,7 @@ void PacFileFetcherImpl::ResetCurRequestState() {
   cur_request_id_ = 0;
   callback_.Reset();
   result_code_ = OK;
-  result_text_ = NULL;
+  result_text_ = nullptr;
   fetch_start_time_ = base::TimeTicks();
   fetch_time_to_first_byte_ = base::TimeTicks();
 }

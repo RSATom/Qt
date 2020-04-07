@@ -2,10 +2,10 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "base/bind.h"
 #include "base/run_loop.h"
 #include "base/scoped_observer.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/profiles/profile_attributes_storage.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/ui/browser.h"
@@ -13,8 +13,8 @@
 #include "chrome/browser/ui/browser_list_observer.h"
 #include "chrome/browser/ui/webui/profile_helper.h"
 #include "chrome/test/base/in_process_browser_test.h"
+#include "chrome/test/base/ui_test_utils.h"
 #include "content/public/browser/browsing_data_remover.h"
-#include "content/public/browser/notification_service.h"
 #include "content/public/test/browsing_data_remover_test_util.h"
 #include "content/public/test/test_utils.h"
 #include "content/public/test/test_web_ui.h"
@@ -79,7 +79,7 @@ IN_PROC_BROWSER_TEST_F(ProfileHelperTest, OpenNewWindowForProfile) {
 
   // Sanity checks.
   EXPECT_EQ(1u, browser_list->size());
-  EXPECT_TRUE(base::ContainsValue(*browser_list, original_browser));
+  EXPECT_TRUE(base::Contains(*browser_list, original_browser));
 
   // Opening existing browser profile shouldn't open additional browser windows.
   webui::OpenNewWindowForProfile(original_profile);
@@ -119,22 +119,16 @@ IN_PROC_BROWSER_TEST_F(ProfileHelperTest, DeleteSoleProfile) {
 
   BrowserList* browser_list = BrowserList::GetInstance();
   EXPECT_EQ(1u, browser_list->size());
-  EXPECT_TRUE(base::ContainsValue(*browser_list, original_browser));
+  EXPECT_TRUE(base::Contains(*browser_list, original_browser));
   EXPECT_EQ(1u, storage.GetNumberOfProfiles());
 
   // Original browser will be closed, and browser with the new profile created.
-  content::WindowedNotificationObserver open_observer(
-      chrome::NOTIFICATION_BROWSER_OPENED,
-      content::NotificationService::AllSources());
-  content::WindowedNotificationObserver close_observer(
-      chrome::NOTIFICATION_BROWSER_CLOSED, content::Source<Browser>(browser()));
   webui::DeleteProfileAtPath(original_browser->profile()->GetPath(),
                              ProfileMetrics::DELETE_PROFILE_SETTINGS);
-  open_observer.Wait();
-  close_observer.Wait();
+  ui_test_utils::WaitForBrowserToClose(original_browser);
 
   EXPECT_EQ(1u, browser_list->size());
-  EXPECT_FALSE(base::ContainsValue(*browser_list, original_browser));
+  EXPECT_FALSE(base::Contains(*browser_list, original_browser));
   EXPECT_EQ(1u, storage.GetNumberOfProfiles());
 }
 
@@ -146,22 +140,16 @@ IN_PROC_BROWSER_TEST_F(ProfileHelperTest, DeleteActiveProfile) {
 
   BrowserList* browser_list = BrowserList::GetInstance();
   EXPECT_EQ(1u, browser_list->size());
-  EXPECT_TRUE(base::ContainsValue(*browser_list, original_browser));
+  EXPECT_TRUE(base::Contains(*browser_list, original_browser));
   EXPECT_EQ(1u, storage.GetNumberOfProfiles());
 
   Profile* additional_profile = CreateProfile();
   EXPECT_EQ(2u, storage.GetNumberOfProfiles());
 
   // Original browser will be closed, and browser with the new profile created.
-  content::WindowedNotificationObserver open_observer(
-      chrome::NOTIFICATION_BROWSER_OPENED,
-      content::NotificationService::AllSources());
-  content::WindowedNotificationObserver close_observer(
-      chrome::NOTIFICATION_BROWSER_CLOSED, content::Source<Browser>(browser()));
   webui::DeleteProfileAtPath(original_browser->profile()->GetPath(),
                              ProfileMetrics::DELETE_PROFILE_SETTINGS);
-  open_observer.Wait();
-  close_observer.Wait();
+  ui_test_utils::WaitForBrowserToClose(original_browser);
 
   EXPECT_EQ(1u, browser_list->size());
   EXPECT_EQ(additional_profile, browser_list->get(0)->profile());
@@ -176,7 +164,7 @@ IN_PROC_BROWSER_TEST_F(ProfileHelperTest, DeleteInactiveProfile) {
 
   BrowserList* browser_list = BrowserList::GetInstance();
   EXPECT_EQ(1u, browser_list->size());
-  EXPECT_TRUE(base::ContainsValue(*browser_list, original_browser));
+  EXPECT_TRUE(base::Contains(*browser_list, original_browser));
   EXPECT_EQ(1u, storage.GetNumberOfProfiles());
 
   Profile* additional_profile = CreateProfile();
@@ -190,6 +178,6 @@ IN_PROC_BROWSER_TEST_F(ProfileHelperTest, DeleteInactiveProfile) {
   inhibitor.ContinueToCompletion();
 
   EXPECT_EQ(1u, browser_list->size());
-  EXPECT_TRUE(base::ContainsValue(*browser_list, original_browser));
+  EXPECT_TRUE(base::Contains(*browser_list, original_browser));
   EXPECT_EQ(1u, storage.GetNumberOfProfiles());
 }

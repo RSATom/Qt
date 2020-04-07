@@ -6,41 +6,93 @@
 #define NET_LOG_NET_LOG_WITH_SOURCE_H_
 
 #include "net/base/net_export.h"
+#include "net/log/net_log.h"
 #include "net/log/net_log_event_type.h"
-#include "net/log/net_log_parameters_callback.h"
 #include "net/log/net_log_source.h"
 #include "net/log/net_log_source_type.h"
 
 namespace net {
-
 class NetLog;
 
 // Helper that binds a Source to a NetLog, and exposes convenience methods to
 // output log messages without needing to pass in the source.
 class NET_EXPORT NetLogWithSource {
  public:
-  NetLogWithSource() : net_log_(NULL) {}
+  NetLogWithSource() : net_log_(nullptr) {}
   ~NetLogWithSource();
 
-  // Add a log entry to the NetLog for the bound source.
+  // Adds a log entry to the NetLog for the bound source.
   void AddEntry(NetLogEventType type, NetLogEventPhase phase) const;
+
+  // See "Materializing parameters" in net_log.h for details on |get_params|.
+  template <typename ParametersCallback>
   void AddEntry(NetLogEventType type,
                 NetLogEventPhase phase,
-                const NetLogParametersCallback& get_parameters) const;
+                const ParametersCallback& get_params) const {
+    // TODO(eroman): Should merge the nullity check with
+    // GetObserverCaptureModes() to reduce expanded code size.
+    if (net_log_)
+      net_log_->AddEntry(type, source_, phase, get_params);
+  }
 
   // Convenience methods that call AddEntry with a fixed "capture phase"
   // (begin, end, or none).
   void BeginEvent(NetLogEventType type) const;
+
+  // See "Materializing parameters" in net_log.h for details on |get_params|.
+  template <typename ParametersCallback>
   void BeginEvent(NetLogEventType type,
-                  const NetLogParametersCallback& get_parameters) const;
+                  const ParametersCallback& get_params) const {
+    AddEntry(type, NetLogEventPhase::BEGIN, get_params);
+  }
 
   void EndEvent(NetLogEventType type) const;
+
+  // See "Materializing parameters" in net_log.h for details on |get_params|.
+  template <typename ParametersCallback>
   void EndEvent(NetLogEventType type,
-                const NetLogParametersCallback& get_parameters) const;
+                const ParametersCallback& get_params) const {
+    AddEntry(type, NetLogEventPhase::END, get_params);
+  }
 
   void AddEvent(NetLogEventType type) const;
+
+  // See "Materializing parameters" in net_log.h for details on |get_params|.
+  template <typename ParametersCallback>
   void AddEvent(NetLogEventType type,
-                const NetLogParametersCallback& get_parameters) const;
+                const ParametersCallback& get_params) const {
+    AddEntry(type, NetLogEventPhase::NONE, get_params);
+  }
+
+  void AddEventWithStringParams(NetLogEventType type,
+                                base::StringPiece name,
+                                base::StringPiece value) const;
+
+  void AddEventWithIntParams(NetLogEventType type,
+                             base::StringPiece name,
+                             int value) const;
+
+  void BeginEventWithIntParams(NetLogEventType type,
+                               base::StringPiece name,
+                               int value) const;
+
+  void EndEventWithIntParams(NetLogEventType type,
+                             base::StringPiece name,
+                             int value) const;
+
+  void AddEventWithInt64Params(NetLogEventType type,
+                               base::StringPiece name,
+                               int64_t value) const;
+
+  void BeginEventWithStringParams(NetLogEventType type,
+                                  base::StringPiece name,
+                                  base::StringPiece value) const;
+
+  void AddEventReferencingSource(NetLogEventType type,
+                                 const NetLogSource& source) const;
+
+  void BeginEventReferencingSource(NetLogEventType type,
+                                   const NetLogSource& source) const;
 
   // Just like AddEvent, except |net_error| is a net error code.  A parameter
   // called "net_error" with the indicated value will be recorded for the event.
@@ -56,6 +108,11 @@ class NET_EXPORT NetLogWithSource {
   void EndEventWithNetErrorCode(NetLogEventType event_type,
                                 int net_error) const;
 
+  void AddEntryWithBoolParams(NetLogEventType type,
+                              NetLogEventPhase phase,
+                              base::StringPiece name,
+                              bool value) const;
+
   // Logs a byte transfer event to the NetLog.  Determines whether to log the
   // received bytes or not based on the current logging level.
   void AddByteTransferEvent(NetLogEventType event_type,
@@ -69,27 +126,15 @@ class NET_EXPORT NetLogWithSource {
   //  the case of NULL net_log.
   static NetLogWithSource Make(NetLog* net_log, NetLogSourceType source_type);
 
-  // TODO(eroman): Temporary until crbug.com/467797 is solved.
-  void CrashIfInvalid() const;
-
   const NetLogSource& source() const { return source_; }
   NetLog* net_log() const { return net_log_; }
 
  private:
-  // TODO(eroman): Temporary until crbug.com/467797 is solved.
-  enum Liveness {
-    ALIVE = 0xCA11AB13,
-    DEAD = 0xDEADBEEF,
-  };
-
   NetLogWithSource(const NetLogSource& source, NetLog* net_log)
       : source_(source), net_log_(net_log) {}
 
   NetLogSource source_;
   NetLog* net_log_;
-
-  // TODO(eroman): Temporary until crbug.com/467797 is solved.
-  Liveness liveness_ = ALIVE;
 };
 
 }  // namespace net

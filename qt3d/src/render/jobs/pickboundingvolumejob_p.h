@@ -66,7 +66,11 @@
 QT_BEGIN_NAMESPACE
 
 namespace Qt3DRender {
+
+class QViewport;
+
 namespace Render {
+class PickBoundingVolumeJobPrivate;
 
 namespace PickingUtils {
 typedef QVector<RayCasting::QCollisionQueryResult::Hit> HitList;
@@ -94,7 +98,8 @@ protected:
                             QPickEvent::Buttons eventButton,
                             int eventButtons,
                             int eventModifiers,
-                            bool allHitsRequested);
+                            bool allHitsRequested,
+                            Qt3DCore::QNodeId viewportNodeId);
 
 private:
     void clearPreviouslyHoveredPickers();

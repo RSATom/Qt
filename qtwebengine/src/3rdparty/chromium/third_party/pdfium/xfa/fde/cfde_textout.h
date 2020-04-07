@@ -11,7 +11,6 @@
 #include <memory>
 #include <vector>
 
-#include "core/fxge/cfx_renderdevice.h"
 #include "core/fxge/fx_dib.h"
 #include "third_party/base/span.h"
 #include "xfa/fde/cfde_data.h"
@@ -21,6 +20,7 @@ class CFDE_RenderDevice;
 class CFGAS_GEFont;
 class CFX_RenderDevice;
 class CFX_TxtBreak;
+class TextCharPos;
 
 struct FDE_TTOPIECE {
   FDE_TTOPIECE();
@@ -38,9 +38,9 @@ class CFDE_TextOut {
   static bool DrawString(CFX_RenderDevice* device,
                          FX_ARGB color,
                          const RetainPtr<CFGAS_GEFont>& pFont,
-                         pdfium::span<FXTEXT_CHARPOS> pCharPos,
+                         pdfium::span<TextCharPos> pCharPos,
                          float fFontSize,
-                         const CFX_Matrix* pMatrix);
+                         const CFX_Matrix& matrix);
 
   CFDE_TextOut();
   ~CFDE_TextOut();
@@ -114,7 +114,7 @@ class CFDE_TextOut {
   int32_t m_iCurLine = 0;
   int32_t m_iCurPiece = 0;
   int32_t m_iTotalLines = 0;
-  std::vector<FXTEXT_CHARPOS> m_CharPos;
+  std::vector<TextCharPos> m_CharPos;
 };
 
 #endif  // XFA_FDE_CFDE_TEXTOUT_H_

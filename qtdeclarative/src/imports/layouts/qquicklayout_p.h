@@ -119,7 +119,9 @@ protected slots:
     void invalidateSenderItem();
 
 private:
-    bool m_dirty;
+    unsigned m_dirty : 1;
+    unsigned m_inUpdatePolish : 1;
+    unsigned m_polishInsideUpdatePolish : 2;
 
     Q_DECLARE_PRIVATE(QQuickLayout)
 
@@ -131,7 +133,7 @@ class QQuickLayoutPrivate : public QQuickItemPrivate
 {
     Q_DECLARE_PUBLIC(QQuickLayout)
 public:
-    QQuickLayoutPrivate() : m_isReady(false), m_disableRearrange(true) {}
+    QQuickLayoutPrivate() : m_isReady(false), m_disableRearrange(true), m_hasItemChangeListeners(false) {}
 
 protected:
     unsigned m_isReady : 1;

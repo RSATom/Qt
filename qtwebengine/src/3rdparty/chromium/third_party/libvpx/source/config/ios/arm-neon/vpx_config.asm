@@ -1,9 +1,6 @@
 @ This file was created from a .asm file
 @  using the ads2gas_apple.pl script.
 
-	.set WIDE_REFERENCE, 0
-	.set ARCHITECTURE, 5
-	.set DO1STROUNDING, 0
 	.syntax unified
 .set ARCH_ARM ,  1
 .set ARCH_MIPS ,  0
@@ -86,9 +83,10 @@
 .set CONFIG_EXPERIMENTAL ,  0
 .set CONFIG_SIZE_LIMIT ,  1
 .set CONFIG_ALWAYS_ADJUST_BPM ,  0
+.set CONFIG_BITSTREAM_DEBUG ,  0
+.set CONFIG_MISMATCH_DEBUG ,  0
 .set CONFIG_FP_MB_STATS ,  0
 .set CONFIG_EMULATE_HARDWARE ,  0
 .set CONFIG_NON_GREEDY_MV ,  0
-.set CONFIG_ML_VAR_PARTITION ,  0
 .set DECODE_WIDTH_LIMIT ,  16384
 .set DECODE_HEIGHT_LIMIT ,  16384

@@ -28,6 +28,7 @@
 #include "third_party/blink/renderer/core/css/css_selector_list.h"
 #include "third_party/blink/renderer/core/css/media_list.h"
 #include "third_party/blink/renderer/platform/heap/handle.h"
+#include "third_party/blink/renderer/platform/wtf/casting.h"
 
 namespace blink {
 
@@ -46,6 +47,7 @@ class CORE_EXPORT StyleRuleBase
     kMedia,
     kFontFace,
     kPage,
+    kProperty,
     kKeyframes,
     kKeyframe,
     kNamespace,
@@ -63,6 +65,7 @@ class CORE_EXPORT StyleRuleBase
   bool IsNamespaceRule() const { return GetType() == kNamespace; }
   bool IsMediaRule() const { return GetType() == kMedia; }
   bool IsPageRule() const { return GetType() == kPage; }
+  bool IsPropertyRule() const { return GetType() == kProperty; }
   bool IsStyleRule() const { return GetType() == kStyle; }
   bool IsSupportsRule() const { return GetType() == kSupports; }
   bool IsViewportRule() const { return GetType() == kViewport; }
@@ -104,17 +107,6 @@ class CORE_EXPORT StyleRuleBase
 class CORE_EXPORT StyleRule : public StyleRuleBase {
  public:
   // Adopts the selector list
-  static StyleRule* Create(CSSSelectorList selector_list,
-                           CSSPropertyValueSet* properties) {
-    return MakeGarbageCollected<StyleRule>(std::move(selector_list),
-                                           properties);
-  }
-  static StyleRule* CreateLazy(CSSSelectorList selector_list,
-                               CSSLazyPropertyParser* lazy_property_parser) {
-    return MakeGarbageCollected<StyleRule>(std::move(selector_list),
-                                           lazy_property_parser);
-  }
-
   StyleRule(CSSSelectorList, CSSPropertyValueSet*);
   StyleRule(CSSSelectorList, CSSLazyPropertyParser*);
   StyleRule(const StyleRule&);
@@ -160,10 +152,6 @@ class CORE_EXPORT StyleRule : public StyleRuleBase {
 
 class CORE_EXPORT StyleRuleFontFace : public StyleRuleBase {
  public:
-  static StyleRuleFontFace* Create(CSSPropertyValueSet* properties) {
-    return MakeGarbageCollected<StyleRuleFontFace>(properties);
-  }
-
   StyleRuleFontFace(CSSPropertyValueSet*);
   StyleRuleFontFace(const StyleRuleFontFace&);
   ~StyleRuleFontFace();
@@ -183,13 +171,6 @@ class CORE_EXPORT StyleRuleFontFace : public StyleRuleBase {
 
 class StyleRulePage : public StyleRuleBase {
  public:
-  // Adopts the selector list
-  static StyleRulePage* Create(CSSSelectorList selector_list,
-                               CSSPropertyValueSet* properties) {
-    return MakeGarbageCollected<StyleRulePage>(std::move(selector_list),
-                                               properties);
-  }
-
   StyleRulePage(CSSSelectorList, CSSPropertyValueSet*);
   StyleRulePage(const StyleRulePage&);
   ~StyleRulePage();
@@ -211,6 +192,32 @@ class StyleRulePage : public StyleRuleBase {
  private:
   Member<CSSPropertyValueSet> properties_;  // Cannot be null.
   CSSSelectorList selector_list_;
+};
+
+class StyleRuleProperty : public StyleRuleBase {
+ public:
+  static StyleRuleProperty* Create(const String& name,
+                                   CSSPropertyValueSet* properties) {
+    return MakeGarbageCollected<StyleRuleProperty>(name, properties);
+  }
+
+  StyleRuleProperty(const String& name, CSSPropertyValueSet*);
+  StyleRuleProperty(const StyleRuleProperty&);
+  ~StyleRuleProperty();
+
+  const CSSPropertyValueSet& Properties() const { return *properties_; }
+  MutableCSSPropertyValueSet& MutableProperties();
+  const String& GetName() const { return name_; }
+
+  StyleRuleProperty* Copy() const {
+    return MakeGarbageCollected<StyleRuleProperty>(*this);
+  }
+
+  void TraceAfterDispatch(blink::Visitor*);
+
+ private:
+  String name_;
+  Member<CSSPropertyValueSet> properties_;
 };
 
 class CORE_EXPORT StyleRuleGroup : public StyleRuleBase {
@@ -251,12 +258,6 @@ class CORE_EXPORT StyleRuleCondition : public StyleRuleGroup {
 
 class CORE_EXPORT StyleRuleMedia : public StyleRuleCondition {
  public:
-  static StyleRuleMedia* Create(
-      scoped_refptr<MediaQuerySet> media,
-      HeapVector<Member<StyleRuleBase>>& adopt_rules) {
-    return MakeGarbageCollected<StyleRuleMedia>(media, adopt_rules);
-  }
-
   StyleRuleMedia(scoped_refptr<MediaQuerySet>,
                  HeapVector<Member<StyleRuleBase>>& adopt_rules);
   StyleRuleMedia(const StyleRuleMedia&);
@@ -275,14 +276,6 @@ class CORE_EXPORT StyleRuleMedia : public StyleRuleCondition {
 
 class StyleRuleSupports : public StyleRuleCondition {
  public:
-  static StyleRuleSupports* Create(
-      const String& condition_text,
-      bool condition_is_supported,
-      HeapVector<Member<StyleRuleBase>>& adopt_rules) {
-    return MakeGarbageCollected<StyleRuleSupports>(
-        condition_text, condition_is_supported, adopt_rules);
-  }
-
   StyleRuleSupports(const String& condition_text,
                     bool condition_is_supported,
                     HeapVector<Member<StyleRuleBase>>& adopt_rules);
@@ -304,12 +297,8 @@ class StyleRuleSupports : public StyleRuleCondition {
 
 class StyleRuleViewport : public StyleRuleBase {
  public:
-  static StyleRuleViewport* Create(CSSPropertyValueSet* properties) {
-    return MakeGarbageCollected<StyleRuleViewport>(properties);
-  }
-
-  StyleRuleViewport(CSSPropertyValueSet*);
-  StyleRuleViewport(const StyleRuleViewport&);
+  explicit StyleRuleViewport(CSSPropertyValueSet*);
+  explicit StyleRuleViewport(const StyleRuleViewport&);
   ~StyleRuleViewport();
 
   const CSSPropertyValueSet& Properties() const { return *properties_; }
@@ -328,10 +317,6 @@ class StyleRuleViewport : public StyleRuleBase {
 // This should only be used within the CSS Parser
 class StyleRuleCharset : public StyleRuleBase {
  public:
-  static StyleRuleCharset* Create() {
-    return MakeGarbageCollected<StyleRuleCharset>();
-  }
-
   StyleRuleCharset() : StyleRuleBase(kCharset) {}
   void TraceAfterDispatch(blink::Visitor* visitor) {
     StyleRuleBase::TraceAfterDispatch(visitor);
@@ -342,13 +327,6 @@ class StyleRuleCharset : public StyleRuleBase {
 
 class CORE_EXPORT StyleRuleFontFeatureValues : public StyleRuleBase {
  public:
-  static StyleRuleFontFeatureValues* Create(
-      const CSSValueList* font_family,
-      const CSSIdentifierValue* font_display) {
-    return MakeGarbageCollected<StyleRuleFontFeatureValues>(font_family,
-                                                            font_display);
-  }
-
   StyleRuleFontFeatureValues(const CSSValueList* font_family,
                              const CSSIdentifierValue* font_display);
   StyleRuleFontFeatureValues(const StyleRuleFontFeatureValues&) = default;
@@ -370,22 +348,66 @@ class CORE_EXPORT StyleRuleFontFeatureValues : public StyleRuleBase {
   Member<const CSSIdentifierValue> font_display_;
 };
 
-#define DEFINE_STYLE_RULE_TYPE_CASTS(Type)                \
-  DEFINE_TYPE_CASTS(StyleRule##Type, StyleRuleBase, rule, \
-                    rule->Is##Type##Rule(), rule.Is##Type##Rule())
+template <>
+struct DowncastTraits<StyleRule> {
+  static bool AllowFrom(const StyleRuleBase& rule) {
+    return rule.IsStyleRule();
+  }
+};
 
-DEFINE_TYPE_CASTS(StyleRule,
-                  StyleRuleBase,
-                  rule,
-                  rule->IsStyleRule(),
-                  rule.IsStyleRule());
-DEFINE_STYLE_RULE_TYPE_CASTS(FontFace);
-DEFINE_STYLE_RULE_TYPE_CASTS(Page);
-DEFINE_STYLE_RULE_TYPE_CASTS(Media);
-DEFINE_STYLE_RULE_TYPE_CASTS(Supports);
-DEFINE_STYLE_RULE_TYPE_CASTS(Viewport);
-DEFINE_STYLE_RULE_TYPE_CASTS(Charset);
-DEFINE_STYLE_RULE_TYPE_CASTS(FontFeatureValues);
+template <>
+struct DowncastTraits<StyleRuleFontFace> {
+  static bool AllowFrom(const StyleRuleBase& rule) {
+    return rule.IsFontFaceRule();
+  }
+};
+
+template <>
+struct DowncastTraits<StyleRulePage> {
+  static bool AllowFrom(const StyleRuleBase& rule) { return rule.IsPageRule(); }
+};
+
+template <>
+struct DowncastTraits<StyleRuleProperty> {
+  static bool AllowFrom(const StyleRuleBase& rule) {
+    return rule.IsPropertyRule();
+  }
+};
+
+template <>
+struct DowncastTraits<StyleRuleMedia> {
+  static bool AllowFrom(const StyleRuleBase& rule) {
+    return rule.IsMediaRule();
+  }
+};
+
+template <>
+struct DowncastTraits<StyleRuleSupports> {
+  static bool AllowFrom(const StyleRuleBase& rule) {
+    return rule.IsSupportsRule();
+  }
+};
+
+template <>
+struct DowncastTraits<StyleRuleViewport> {
+  static bool AllowFrom(const StyleRuleBase& rule) {
+    return rule.IsViewportRule();
+  }
+};
+
+template <>
+struct DowncastTraits<StyleRuleCharset> {
+  static bool AllowFrom(const StyleRuleBase& rule) {
+    return rule.IsCharsetRule();
+  }
+};
+
+template <>
+struct DowncastTraits<StyleRuleFontFeatureValues> {
+  static bool AllowFrom(const StyleRuleBase& rule) {
+    return rule.IsFontFeatureValuesRule();
+  }
+};
 
 }  // namespace blink
 

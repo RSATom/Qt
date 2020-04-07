@@ -33,6 +33,10 @@ const char kANGLEImplementationOpenGLNULLName[] = "gl-null";
 const char kANGLEImplementationOpenGLESNULLName[] = "gles-null";
 const char kANGLEImplementationVulkanNULLName[] = "vulkan-null";
 
+// The command decoder names that can be passed to --use-cmd-decoder.
+const char kCmdDecoderValidatingName[] = "validating";
+const char kCmdDecoderPassthroughName[] = "passthrough";
+
 }  // namespace gl
 
 namespace switches {
@@ -42,6 +46,11 @@ const char kDisableD3D11[]                  = "disable-d3d11";
 
 // Disables use of ES3 backend (use ES2 backend instead).
 const char kDisableES3GLContext[]           = "disable-es3-gl-context";
+
+// Disables use of ES3 backend at a lower level, for testing purposes.
+// This isn't guaranteed to work everywhere, so it's test-only.
+const char kDisableES3GLContextForTesting[] =
+    "disable-es3-gl-context-for-testing";
 
 // Stop the GPU from synchronizing presentation with vblank.
 const char kDisableGpuVsync[]               = "disable-gpu-vsync";
@@ -61,6 +70,18 @@ const char kEnableGPUServiceTracing[]       = "enable-gpu-service-tracing";
 //  gl: Desktop GL renderer, ES2 and ES3.
 //  gles: GLES renderer, ES2 and ES3.
 const char kUseANGLE[]                      = "use-angle";
+
+// Use the Pass-through command decoder, skipping all validation and state
+// tracking. Switch lives in ui/gl because it affects the GL binding
+// initialization on platforms that would otherwise not default to using
+// EGL bindings.
+const char kUseCmdDecoder[] = "use-cmd-decoder";
+
+// ANGLE features are defined per-backend in third_party/angle/include/platform
+// Enables specified comma separated ANGLE features if found.
+const char kEnableANGLEFeatures[] = "enable-angle-features";
+// Disables specified comma separated ANGLE features if found.
+const char kDisableANGLEFeatures[] = "disable-angle-features";
 
 // Select which implementation of GL the GPU process should use. Options are:
 //  desktop: whatever desktop OpenGL the user has installed (Linux and Mac
@@ -119,6 +140,7 @@ const char* const kGLSwitchesCopiedFromGpuProcessHost[] = {
     kDisableGpuVsync,
     kDisableD3D11,
     kDisableES3GLContext,
+    kDisableES3GLContextForTesting,
     kEnableGPUServiceLogging,
     kEnableGPUServiceTracing,
     kEnableSgiVideoSync,
@@ -140,23 +162,46 @@ const char kCreateDefaultGLContext[] = "create-default-gl-context";
 
 namespace features {
 
-// Allow putting a video swapchain underneath the main swapchain, so overlays
-// can be used even if there are controls on top of the video. This requires
-// the DirectCompositionOverlays feature to be enabled.
-const base::Feature kDirectCompositionUnderlays{
-    "DirectCompositionUnderlays", base::FEATURE_DISABLED_BY_DEFAULT};
-
 // Allow putting content with complex transforms (e.g. rotations) into an
 // overlay.
 const base::Feature kDirectCompositionComplexOverlays{
     "DirectCompositionComplexOverlays", base::FEATURE_DISABLED_BY_DEFAULT};
 
+// Use IDXGIOutput::WaitForVBlank() to drive begin frames.
+const base::Feature kDirectCompositionGpuVSync{
+    "DirectCompositionGpuVSync", base::FEATURE_DISABLED_BY_DEFAULT};
+
+// Use presentation feedback event queries (must be enabled) to limit latency.
+const base::Feature kDirectCompositionLowLatencyPresentation{
+    "DirectCompositionLowLatencyPresentation",
+    base::FEATURE_DISABLED_BY_DEFAULT};
+
 // Allow using overlays for non-root render passes.
 const base::Feature kDirectCompositionNonrootOverlays{
     "DirectCompositionNonrootOverlays", base::FEATURE_DISABLED_BY_DEFAULT};
 
+// Overrides preferred overlay format to NV12 instead of YUY2.
+const base::Feature kDirectCompositionPreferNV12Overlays{
+    "DirectCompositionPreferNV12Overlays", base::FEATURE_ENABLED_BY_DEFAULT};
+
+// Use per-present event queries to issue presentation feedback to clients.
+// Also needs DirectCompositionGpuVSync.
+const base::Feature kDirectCompositionPresentationFeedback{
+    "DirectCompositionPresentationFeedback", base::FEATURE_DISABLED_BY_DEFAULT};
+
+// Use decode swap chain created from compatible video decoder buffers.
+const base::Feature kDirectCompositionUseNV12DecodeSwapChain{
+    "DirectCompositionUseNV12DecodeSwapChain",
+    base::FEATURE_ENABLED_BY_DEFAULT};
+
 // Default to using ANGLE's OpenGL backend
 const base::Feature kDefaultANGLEOpenGL{"DefaultANGLEOpenGL",
                                         base::FEATURE_DISABLED_BY_DEFAULT};
+
+// Track current program's shaders at glUseProgram() call for crash report
+// purpose. Only effective on Windows because the attached shaders may only
+// be reliably retrieved with ANGLE backend.
+const base::Feature kTrackCurrentShaders{"TrackCurrentShaders",
+                                         base::FEATURE_DISABLED_BY_DEFAULT};
 
 }  // namespace features

@@ -8,12 +8,12 @@
 #ifndef GrTextBlobCache_DEFINED
 #define GrTextBlobCache_DEFINED
 
-#include "GrTextBlob.h"
-#include "SkMessageBus.h"
-#include "SkRefCnt.h"
-#include "SkTArray.h"
-#include "SkTextBlobPriv.h"
-#include "SkTHash.h"
+#include "include/core/SkRefCnt.h"
+#include "include/private/SkTArray.h"
+#include "include/private/SkTHash.h"
+#include "src/core/SkMessageBus.h"
+#include "src/core/SkTextBlobPriv.h"
+#include "src/gpu/text/GrTextBlob.h"
 
 class GrTextBlobCache {
 public:
@@ -33,16 +33,20 @@ public:
     }
     ~GrTextBlobCache();
 
-    sk_sp<GrTextBlob> makeBlob(const SkGlyphRunList& glyphRunList, GrColor color) {
-        return GrTextBlob::Make(glyphRunList.totalGlyphCount(), glyphRunList.size(), color);
+    sk_sp<GrTextBlob> makeBlob(const SkGlyphRunList& glyphRunList,
+                               GrColor color,
+                               GrStrikeCache* strikeCache) {
+        return GrTextBlob::Make(
+                glyphRunList.totalGlyphCount(), glyphRunList.size(), color, strikeCache);
     }
 
     sk_sp<GrTextBlob> makeCachedBlob(const SkGlyphRunList& glyphRunList,
                                      const GrTextBlob::Key& key,
                                      const SkMaskFilterBase::BlurRec& blurRec,
                                      const SkPaint& paint,
-                                     GrColor color) {
-        sk_sp<GrTextBlob> cacheBlob(makeBlob(glyphRunList, color));
+                                     GrColor color,
+                                     GrStrikeCache* strikeCache) {
+        sk_sp<GrTextBlob> cacheBlob(makeBlob(glyphRunList, color, strikeCache));
         cacheBlob->setupKey(key, blurRec, paint);
         this->add(cacheBlob);
         glyphRunList.temporaryShuntBlobNotifyAddedToCache(fUniqueID);

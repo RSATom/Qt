@@ -53,49 +53,49 @@ struct TestCase {
 
 constexpr static TestCase kCases[] = {
 
-    {true, autofill::PasswordForm::Scheme::SCHEME_HTML, false, true, true, true,
+    {true, autofill::PasswordForm::Scheme::kHtml, false, true, true, true,
      HttpCredentialType::kNoMatching},
-    {true, autofill::PasswordForm::Scheme::SCHEME_HTML, true, false, true, true,
+    {true, autofill::PasswordForm::Scheme::kHtml, true, false, true, true,
      HttpCredentialType::kNoMatching},
-    {true, autofill::PasswordForm::Scheme::SCHEME_HTML, true, true, false, true,
+    {true, autofill::PasswordForm::Scheme::kHtml, true, true, false, true,
      HttpCredentialType::kNoMatching},
-    {true, autofill::PasswordForm::Scheme::SCHEME_HTML, true, true, true, false,
+    {true, autofill::PasswordForm::Scheme::kHtml, true, true, true, false,
      HttpCredentialType::kConflicting},
-    {true, autofill::PasswordForm::Scheme::SCHEME_HTML, true, true, true, true,
+    {true, autofill::PasswordForm::Scheme::kHtml, true, true, true, true,
      HttpCredentialType::kEquivalent},
 
-    {false, autofill::PasswordForm::Scheme::SCHEME_HTML, false, true, true,
-     true, HttpCredentialType::kNoMatching},
-    {false, autofill::PasswordForm::Scheme::SCHEME_HTML, true, false, true,
-     true, HttpCredentialType::kNoMatching},
-    {false, autofill::PasswordForm::Scheme::SCHEME_HTML, true, true, false,
-     true, HttpCredentialType::kNoMatching},
-    {false, autofill::PasswordForm::Scheme::SCHEME_HTML, true, true, true,
-     false, HttpCredentialType::kConflicting},
-    {false, autofill::PasswordForm::Scheme::SCHEME_HTML, true, true, true, true,
+    {false, autofill::PasswordForm::Scheme::kHtml, false, true, true, true,
+     HttpCredentialType::kNoMatching},
+    {false, autofill::PasswordForm::Scheme::kHtml, true, false, true, true,
+     HttpCredentialType::kNoMatching},
+    {false, autofill::PasswordForm::Scheme::kHtml, true, true, false, true,
+     HttpCredentialType::kNoMatching},
+    {false, autofill::PasswordForm::Scheme::kHtml, true, true, true, false,
+     HttpCredentialType::kConflicting},
+    {false, autofill::PasswordForm::Scheme::kHtml, true, true, true, true,
      HttpCredentialType::kEquivalent},
 
-    {true, autofill::PasswordForm::Scheme::SCHEME_BASIC, false, true, true,
-     true, HttpCredentialType::kNoMatching},
-    {true, autofill::PasswordForm::Scheme::SCHEME_BASIC, true, false, true,
-     true, HttpCredentialType::kNoMatching},
-    {true, autofill::PasswordForm::Scheme::SCHEME_BASIC, true, true, false,
-     true, HttpCredentialType::kNoMatching},
-    {true, autofill::PasswordForm::Scheme::SCHEME_BASIC, true, true, true,
-     false, HttpCredentialType::kConflicting},
-    {true, autofill::PasswordForm::Scheme::SCHEME_BASIC, true, true, true, true,
+    {true, autofill::PasswordForm::Scheme::kBasic, false, true, true, true,
+     HttpCredentialType::kNoMatching},
+    {true, autofill::PasswordForm::Scheme::kBasic, true, false, true, true,
+     HttpCredentialType::kNoMatching},
+    {true, autofill::PasswordForm::Scheme::kBasic, true, true, false, true,
+     HttpCredentialType::kNoMatching},
+    {true, autofill::PasswordForm::Scheme::kBasic, true, true, true, false,
+     HttpCredentialType::kConflicting},
+    {true, autofill::PasswordForm::Scheme::kBasic, true, true, true, true,
      HttpCredentialType::kEquivalent},
 
-    {false, autofill::PasswordForm::Scheme::SCHEME_BASIC, false, true, true,
-     true, HttpCredentialType::kNoMatching},
-    {false, autofill::PasswordForm::Scheme::SCHEME_BASIC, true, false, true,
-     true, HttpCredentialType::kNoMatching},
-    {false, autofill::PasswordForm::Scheme::SCHEME_BASIC, true, true, false,
-     true, HttpCredentialType::kNoMatching},
-    {false, autofill::PasswordForm::Scheme::SCHEME_BASIC, true, true, true,
-     false, HttpCredentialType::kConflicting},
-    {false, autofill::PasswordForm::Scheme::SCHEME_BASIC, true, true, true,
-     true, HttpCredentialType::kEquivalent}};
+    {false, autofill::PasswordForm::Scheme::kBasic, false, true, true, true,
+     HttpCredentialType::kNoMatching},
+    {false, autofill::PasswordForm::Scheme::kBasic, true, false, true, true,
+     HttpCredentialType::kNoMatching},
+    {false, autofill::PasswordForm::Scheme::kBasic, true, true, false, true,
+     HttpCredentialType::kNoMatching},
+    {false, autofill::PasswordForm::Scheme::kBasic, true, true, true, false,
+     HttpCredentialType::kConflicting},
+    {false, autofill::PasswordForm::Scheme::kBasic, true, true, true, true,
+     HttpCredentialType::kEquivalent}};
 
 }  // namespace
 
@@ -166,9 +166,9 @@ TEST_P(HttpCredentialCleanerTest, ReportHttpMigrationMetrics) {
   https_form.scheme = test.http_form_scheme;
   if (!test.same_scheme) {
     https_form.scheme =
-        (http_form.scheme == autofill::PasswordForm::Scheme::SCHEME_BASIC
-             ? autofill::PasswordForm::Scheme::SCHEME_HTML
-             : autofill::PasswordForm::Scheme::SCHEME_BASIC);
+        (http_form.scheme == autofill::PasswordForm::Scheme::kBasic
+             ? autofill::PasswordForm::Scheme::kHtml
+             : autofill::PasswordForm::Scheme::kBasic);
   }
   store_->AddLogin(https_form);
 
@@ -177,7 +177,8 @@ TEST_P(HttpCredentialCleanerTest, ReportHttpMigrationMetrics) {
   network::mojom::NetworkContextPtr network_context_pipe;
   auto network_context = std::make_unique<network::NetworkContext>(
       nullptr, mojo::MakeRequest(&network_context_pipe),
-      request_context->GetURLRequestContext());
+      request_context->GetURLRequestContext(),
+      /*cors_exempt_header_list=*/std::vector<std::string>());
 
   if (test.is_hsts_enabled) {
     base::RunLoop run_loop;
@@ -228,7 +229,7 @@ TEST_P(HttpCredentialCleanerTest, ReportHttpMigrationMetrics) {
 
     // For no matching case https credentials were added and for an equivalent
     // case they already existed.
-    EXPECT_TRUE(base::ContainsKey(current_store, "https://example.org/"));
+    EXPECT_TRUE(base::Contains(current_store, "https://example.org/"));
   } else {
     // Hsts not enabled or credentials are have different passwords, so
     // nothing should change in the password store.
@@ -239,9 +240,9 @@ TEST_P(HttpCredentialCleanerTest, ReportHttpMigrationMetrics) {
   scoped_task_environment.RunUntilIdle();
 }
 
-INSTANTIATE_TEST_CASE_P(,
-                        HttpCredentialCleanerTest,
-                        ::testing::ValuesIn(kCases));
+INSTANTIATE_TEST_SUITE_P(,
+                         HttpCredentialCleanerTest,
+                         ::testing::ValuesIn(kCases));
 
 TEST(HttpCredentialCleaner, StartCleanUpTest) {
   for (bool should_start_clean_up : {false, true}) {
@@ -284,7 +285,8 @@ TEST(HttpCredentialCleaner, StartCleanUpTest) {
     network::mojom::NetworkContextPtr network_context_pipe;
     auto network_context = std::make_unique<network::NetworkContext>(
         nullptr, mojo::MakeRequest(&network_context_pipe),
-        request_context->GetURLRequestContext());
+        request_context->GetURLRequestContext(),
+        /*cors_exempt_header_list=*/std::vector<std::string>());
 
     MockCredentialsCleanerObserver observer;
     HttpCredentialCleaner cleaner(

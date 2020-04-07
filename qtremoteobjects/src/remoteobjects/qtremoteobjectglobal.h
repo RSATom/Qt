@@ -49,16 +49,9 @@ QT_BEGIN_NAMESPACE
 
 struct QRemoteObjectSourceLocationInfo
 {
-    QRemoteObjectSourceLocationInfo() {}
+    QRemoteObjectSourceLocationInfo() = default;
     QRemoteObjectSourceLocationInfo(const QString &typeName_, const QUrl &hostUrl_)
         : typeName(typeName_), hostUrl(hostUrl_) {}
-
-    QRemoteObjectSourceLocationInfo &operator=(const QRemoteObjectSourceLocationInfo &other)
-    {
-        typeName = other.typeName;
-        hostUrl = other.hostUrl;
-        return *this;
-    }
 
     inline bool operator==(const QRemoteObjectSourceLocationInfo &other) const Q_DECL_NOTHROW
     {

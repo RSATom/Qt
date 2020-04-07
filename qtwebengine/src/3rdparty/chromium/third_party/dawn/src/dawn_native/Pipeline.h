@@ -15,7 +15,6 @@
 #ifndef DAWNNATIVE_PIPELINE_H_
 #define DAWNNATIVE_PIPELINE_H_
 
-#include "dawn_native/Builder.h"
 #include "dawn_native/Forward.h"
 #include "dawn_native/ObjectBase.h"
 #include "dawn_native/PerStage.h"
@@ -29,34 +28,24 @@
 
 namespace dawn_native {
 
-    enum PushConstantType : uint8_t {
-        Int,
-        UInt,
-        Float,
-    };
+    MaybeError ValidatePipelineStageDescriptor(const DeviceBase* device,
+                                               const PipelineStageDescriptor* descriptor,
+                                               const PipelineLayoutBase* layout,
+                                               ShaderStage stage);
 
     class PipelineBase : public ObjectBase {
       public:
-        PipelineBase(DeviceBase* device, PipelineLayoutBase* layout, dawn::ShaderStageBit stages);
-
-        struct PushConstantInfo {
-            std::bitset<kMaxPushConstants> mask;
-            std::array<PushConstantType, kMaxPushConstants> types;
-        };
-        const PushConstantInfo& GetPushConstants(dawn::ShaderStage stage) const;
         dawn::ShaderStageBit GetStageMask() const;
-
         PipelineLayoutBase* GetLayout();
-        DeviceBase* GetDevice() const;
+        const PipelineLayoutBase* GetLayout() const;
 
       protected:
-        void ExtractModuleData(dawn::ShaderStage stage, ShaderModuleBase* module);
+        PipelineBase(DeviceBase* device, PipelineLayoutBase* layout, dawn::ShaderStageBit stages);
+        PipelineBase(DeviceBase* device, ObjectBase::ErrorTag tag);
 
       private:
         dawn::ShaderStageBit mStageMask;
         Ref<PipelineLayoutBase> mLayout;
-        PerStage<PushConstantInfo> mPushConstants;
-        DeviceBase* mDevice;
     };
 
 }  // namespace dawn_native

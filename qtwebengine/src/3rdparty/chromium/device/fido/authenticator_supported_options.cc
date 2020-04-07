@@ -13,63 +13,25 @@ namespace device {
 AuthenticatorSupportedOptions::AuthenticatorSupportedOptions() = default;
 AuthenticatorSupportedOptions::AuthenticatorSupportedOptions(
     const AuthenticatorSupportedOptions& other) = default;
-AuthenticatorSupportedOptions::AuthenticatorSupportedOptions(
-    AuthenticatorSupportedOptions&& other) = default;
 AuthenticatorSupportedOptions& AuthenticatorSupportedOptions::operator=(
     const AuthenticatorSupportedOptions& other) = default;
-AuthenticatorSupportedOptions& AuthenticatorSupportedOptions::operator=(
-    AuthenticatorSupportedOptions&& other) = default;
 AuthenticatorSupportedOptions::~AuthenticatorSupportedOptions() = default;
 
-AuthenticatorSupportedOptions&
-AuthenticatorSupportedOptions::SetSupportsResidentKey(
-    bool supports_resident_key) {
-  supports_resident_key_ = supports_resident_key;
-  return *this;
-}
-
-AuthenticatorSupportedOptions&
-AuthenticatorSupportedOptions::SetUserVerificationAvailability(
-    UserVerificationAvailability user_verification_availability) {
-  user_verification_availability_ = user_verification_availability;
-  return *this;
-}
-
-AuthenticatorSupportedOptions&
-AuthenticatorSupportedOptions::SetUserPresenceRequired(
-    bool user_presence_required) {
-  user_presence_required_ = user_presence_required;
-  return *this;
-}
-
-AuthenticatorSupportedOptions&
-AuthenticatorSupportedOptions::SetClientPinAvailability(
-    ClientPinAvailability client_pin_availability) {
-  client_pin_availability_ = client_pin_availability;
-  return *this;
-}
-
-AuthenticatorSupportedOptions&
-AuthenticatorSupportedOptions::SetIsPlatformDevice(bool is_platform_device) {
-  is_platform_device_ = is_platform_device;
-  return *this;
-}
-
-cbor::Value ConvertToCBOR(const AuthenticatorSupportedOptions& options) {
+cbor::Value AsCBOR(const AuthenticatorSupportedOptions& options) {
   cbor::Value::MapValue option_map;
-  option_map.emplace(cbor::Value(kResidentKeyMapKey), cbor::Value(options.supports_resident_key()));
-  option_map.emplace(cbor::Value(kUserPresenceMapKey), cbor::Value(options.user_presence_required()));
-  option_map.emplace(cbor::Value(kPlatformDeviceMapKey), cbor::Value(options.is_platform_device()));
+  option_map.emplace(cbor::Value(kResidentKeyMapKey), cbor::Value(options.supports_resident_key));
+  option_map.emplace(cbor::Value(kUserPresenceMapKey), cbor::Value(options.supports_user_presence));
+  option_map.emplace(cbor::Value(kPlatformDeviceMapKey), cbor::Value(options.is_platform_device));
 
   using UvAvailability =
       AuthenticatorSupportedOptions::UserVerificationAvailability;
 
-  switch (options.user_verification_availability()) {
+  switch (options.user_verification_availability) {
     case UvAvailability::kSupportedAndConfigured:
-      option_map.emplace(cbor::CBORValue(kUserVerificationMapKey), cbor::CBORValue(true));
+      option_map.emplace(cbor::Value(kUserVerificationMapKey), cbor::Value(true));
       break;
     case UvAvailability::kSupportedButNotConfigured:
-      option_map.emplace(cbor::CBORValue(kUserVerificationMapKey), cbor::CBORValue(false));
+      option_map.emplace(cbor::Value(kUserVerificationMapKey), cbor::Value(false));
       break;
     case UvAvailability::kNotSupported:
       break;
@@ -78,14 +40,46 @@ cbor::Value ConvertToCBOR(const AuthenticatorSupportedOptions& options) {
   using ClientPinAvailability =
       AuthenticatorSupportedOptions::ClientPinAvailability;
 
-  switch (options.client_pin_availability()) {
+  switch (options.client_pin_availability) {
     case ClientPinAvailability::kSupportedAndPinSet:
-      option_map.emplace(cbor::CBORValue(kClientPinMapKey), cbor::CBORValue(true));
+      option_map.emplace(cbor::Value(kClientPinMapKey), cbor::Value(true));
       break;
     case ClientPinAvailability::kSupportedButPinNotSet:
-      option_map.emplace(cbor::CBORValue(kClientPinMapKey), cbor::CBORValue(false));
+      option_map.emplace(cbor::Value(kClientPinMapKey), cbor::Value(false));
       break;
     case ClientPinAvailability::kNotSupported:
+      break;
+  }
+
+  if (options.supports_credential_management) {
+    option_map.emplace(kCredentialManagementMapKey, true);
+  }
+  if (options.supports_credential_management_preview) {
+    option_map.emplace(kCredentialManagementPreviewMapKey, true);
+  }
+
+  using BioEnrollmentAvailability =
+      AuthenticatorSupportedOptions::BioEnrollmentAvailability;
+
+  switch (options.bio_enrollment_availability) {
+    case BioEnrollmentAvailability::kSupportedAndProvisioned:
+      option_map.emplace(kBioEnrollmentMapKey, true);
+      break;
+    case BioEnrollmentAvailability::kSupportedButUnprovisioned:
+      option_map.emplace(kBioEnrollmentMapKey, false);
+      break;
+    case BioEnrollmentAvailability::kNotSupported:
+      break;
+  }
+
+  switch (options.bio_enrollment_availability_preview) {
+    case BioEnrollmentAvailability::kSupportedAndProvisioned:
+      option_map.emplace(kBioEnrollmentPreviewMapKey, true);
+      break;
+    case BioEnrollmentAvailability::kSupportedButUnprovisioned:
+      option_map.emplace(kBioEnrollmentPreviewMapKey, false);
+      break;
+    case BioEnrollmentAvailability::kNotSupported:
       break;
   }
 

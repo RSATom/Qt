@@ -20,12 +20,14 @@
 #include "components/viz/host/host_frame_sink_manager.h"
 #include "components/viz/service/display_embedder/server_shared_bitmap_manager.h"
 #include "components/viz/service/frame_sinks/frame_sink_manager_impl.h"
-#include "ui/base/ime/input_method_initializer.h"
+#include "mojo/core/embedder/embedder.h"
+#include "ui/base/ime/init/input_method_initializer.h"
 #include "ui/base/material_design/material_design_controller.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/base/ui_base_paths.h"
 #include "ui/compositor/test/in_process_context_factory.h"
 #include "ui/display/screen.h"
+#include "ui/gl/gl_switches.h"
 #include "ui/gl/init/gl_factory.h"
 #include "ui/views/examples/example_base.h"
 #include "ui/views/examples/examples_window.h"
@@ -54,12 +56,20 @@ base::LazyInstance<base::TestDiscardableMemoryAllocator>::DestructorAtExit
 
 int main(int argc, char** argv) {
 #if defined(OS_WIN)
-  ui::ScopedOleInitializer ole_initializer_;
+  ui::ScopedOleInitializer ole_initializer;
 #endif
 
   base::CommandLine::Init(argc, argv);
 
+  // Disabling Direct Composition works around the limitation that
+  // InProcessContextFactory doesn't work with Direct Composition, causing the
+  // window to not render. See http://crbug.com/936249.
+  base::CommandLine::ForCurrentProcess()->AppendSwitch(
+      switches::kDisableDirectComposition);
+
   base::AtExitManager at_exit;
+
+  mojo::core::Init();
 
 #if defined(USE_X11)
   // This demo uses InProcessContextFactory which uses X on a separate Gpu
@@ -97,11 +107,11 @@ int main(int argc, char** argv) {
   base::DiscardableMemoryAllocator::SetInstance(
       g_discardable_memory_allocator.Pointer());
 
-  base::PowerMonitor power_monitor(
-      base::WrapUnique(new base::PowerMonitorDeviceSource));
+  base::PowerMonitor::Initialize(
+      std::make_unique<base::PowerMonitorDeviceSource>());
 
 #if defined(OS_WIN)
-  gfx::win::MaybeInitializeDirectWrite();
+  gfx::win::InitializeDirectWrite();
 #endif
 
 #if defined(USE_AURA)
@@ -122,6 +132,9 @@ int main(int argc, char** argv) {
         views::CreateDesktopScreen());
     display::Screen::SetScreenInstance(desktop_screen.get());
 #endif
+
+    // This app isn't a test and shouldn't timeout.
+    base::RunLoop::ScopedDisableRunTimeoutForTest disable_timeout;
 
     base::RunLoop run_loop;
     views::examples::ShowExamplesWindow(run_loop.QuitClosure());

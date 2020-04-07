@@ -18,13 +18,12 @@
 #include <new>
 #include <utility>
 
-#include "base/logging.h"
-#include "base/macros.h"
 #include "net/third_party/quiche/src/spdy/core/spdy_alt_svc_wire_format.h"
 #include "net/third_party/quiche/src/spdy/core/spdy_bitmasks.h"
 #include "net/third_party/quiche/src/spdy/core/spdy_header_block.h"
 #include "net/third_party/quiche/src/spdy/platform/api/spdy_bug_tracker.h"
 #include "net/third_party/quiche/src/spdy/platform/api/spdy_export.h"
+#include "net/third_party/quiche/src/spdy/platform/api/spdy_logging.h"
 #include "net/third_party/quiche/src/spdy/platform/api/spdy_ptr_util.h"
 #include "net/third_party/quiche/src/spdy/platform/api/spdy_string.h"
 #include "net/third_party/quiche/src/spdy/platform/api/spdy_string_piece.h"
@@ -195,6 +194,15 @@ enum SpdyErrorCode : uint32_t {
   ERROR_CODE_INADEQUATE_SECURITY = 0xc,
   ERROR_CODE_HTTP_1_1_REQUIRED = 0xd,
   ERROR_CODE_MAX = ERROR_CODE_HTTP_1_1_REQUIRED
+};
+
+// Type of priority write scheduler.
+enum class WriteSchedulerType {
+  LIFO,  // Last added stream has the highest priority.
+  SPDY,  // Uses SPDY priorities described in
+         // https://www.chromium.org/spdy/spdy-protocol/spdy-protocol-draft3-1#TOC-2.3.3-Stream-priority.
+  HTTP2,  // Uses HTTP2 (tree-style) priority described in
+          // https://tools.ietf.org/html/rfc7540#section-5.3.
 };
 
 // A SPDY priority is a number between 0 and 7 (inclusive).
@@ -1014,7 +1022,7 @@ class SPDY_EXPORT_PRIVATE SpdyFrameVisitor {
   virtual void VisitAltSvc(const SpdyAltSvcIR& altsvc) = 0;
   virtual void VisitPriority(const SpdyPriorityIR& priority) = 0;
   virtual void VisitData(const SpdyDataIR& data) = 0;
-  virtual void VisitUnknown(const SpdyUnknownIR& unknown) {
+  virtual void VisitUnknown(const SpdyUnknownIR& /*unknown*/) {
     // TODO(birenroy): make abstract.
   }
 
@@ -1039,17 +1047,17 @@ class SPDY_EXPORT_PRIVATE SpdyFramerDebugVisitorInterface {
   // a list of name-value pairs.
   // |payload_len| is the uncompressed payload size.
   // |frame_len| is the compressed frame size.
-  virtual void OnSendCompressedFrame(SpdyStreamId stream_id,
-                                     SpdyFrameType type,
-                                     size_t payload_len,
-                                     size_t frame_len) {}
+  virtual void OnSendCompressedFrame(SpdyStreamId /*stream_id*/,
+                                     SpdyFrameType /*type*/,
+                                     size_t /*payload_len*/,
+                                     size_t /*frame_len*/) {}
 
   // Called when a frame containing a compressed payload of
   // name-value pairs is received.
   // |frame_len| is the compressed frame size.
-  virtual void OnReceiveCompressedFrame(SpdyStreamId stream_id,
-                                        SpdyFrameType type,
-                                        size_t frame_len) {}
+  virtual void OnReceiveCompressedFrame(SpdyStreamId /*stream_id*/,
+                                        SpdyFrameType /*type*/,
+                                        size_t /*frame_len*/) {}
 };
 
 // Calculates the number of bytes required to serialize a SpdyHeadersIR, not

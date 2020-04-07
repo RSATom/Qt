@@ -8,7 +8,6 @@
 
 #include <algorithm>
 
-#include "base/macros.h"
 #include "base/numerics/ranges.h"
 #include "cc/animation/animation_delegate.h"
 #include "cc/animation/animation_events.h"
@@ -38,39 +37,39 @@ ElementId CalculateTargetElementId(const ElementAnimations* element_animations,
 
 }  // namespace
 
-scoped_refptr<ElementAnimations> ElementAnimations::Create() {
-  return base::WrapRefCounted(new ElementAnimations());
+scoped_refptr<ElementAnimations> ElementAnimations::Create(
+    AnimationHost* host,
+    ElementId element_id) {
+  DCHECK(element_id);
+  DCHECK(host);
+  return base::WrapRefCounted(new ElementAnimations(host, element_id));
 }
 
-ElementAnimations::ElementAnimations()
-    : animation_host_(),
-      element_id_(),
+ElementAnimations::ElementAnimations(AnimationHost* host, ElementId element_id)
+    : animation_host_(host),
+      element_id_(element_id),
       has_element_in_active_list_(false),
       has_element_in_pending_list_(false),
-      needs_push_properties_(false) {}
+      needs_push_properties_(false),
+      active_maximum_scale_(kNotScaled),
+      active_starting_scale_(kNotScaled),
+      pending_maximum_scale_(kNotScaled),
+      pending_starting_scale_(kNotScaled) {
+  InitAffectedElementTypes();
+}
 
 ElementAnimations::~ElementAnimations() = default;
-
-void ElementAnimations::SetAnimationHost(AnimationHost* host) {
-  animation_host_ = host;
-}
-
-void ElementAnimations::SetElementId(ElementId element_id) {
-  element_id_ = element_id;
-}
 
 void ElementAnimations::InitAffectedElementTypes() {
   DCHECK(element_id_);
   DCHECK(animation_host_);
 
-  UpdateKeyframeEffectsTickingState(UpdateTickingType::FORCE);
-
   DCHECK(animation_host_->mutator_host_client());
-  if (animation_host_->mutator_host_client()->IsElementInList(
+  if (animation_host_->mutator_host_client()->IsElementInPropertyTrees(
           element_id_, ElementListType::ACTIVE)) {
     set_has_element_in_active_list(true);
   }
-  if (animation_host_->mutator_host_client()->IsElementInList(
+  if (animation_host_->mutator_host_client()->IsElementInPropertyTrees(
           element_id_, ElementListType::PENDING)) {
     set_has_element_in_pending_list(true);
   }
@@ -81,6 +80,7 @@ TargetProperties ElementAnimations::GetPropertiesMaskForAnimationState() {
   properties[TargetProperty::TRANSFORM] = true;
   properties[TargetProperty::OPACITY] = true;
   properties[TargetProperty::FILTER] = true;
+  properties[TargetProperty::BACKDROP_FILTER] = true;
   return properties;
 }
 
@@ -95,16 +95,15 @@ void ElementAnimations::ClearAffectedElementTypes(
 
   // This method may get called from AnimationHost dtor so it is possible for
   // mutator_host_client() to be null.
-  if (has_element_in_active_list() && animation_host()->mutator_host_client()) {
-    animation_host()->mutator_host_client()->ElementIsAnimatingChanged(
+  if (has_element_in_active_list() && animation_host_->mutator_host_client()) {
+    animation_host_->mutator_host_client()->ElementIsAnimatingChanged(
         element_id_map, ElementListType::ACTIVE, disabled_state_mask,
         disabled_state);
   }
   set_has_element_in_active_list(false);
 
-  if (has_element_in_pending_list() &&
-      animation_host()->mutator_host_client()) {
-    animation_host()->mutator_host_client()->ElementIsAnimatingChanged(
+  if (has_element_in_pending_list() && animation_host_->mutator_host_client()) {
+    animation_host_->mutator_host_client()->ElementIsAnimatingChanged(
         element_id_map, ElementListType::PENDING, disabled_state_mask,
         disabled_state);
   }
@@ -113,29 +112,28 @@ void ElementAnimations::ClearAffectedElementTypes(
   RemoveKeyframeEffectsFromTicking();
 }
 
-void ElementAnimations::ElementRegistered(ElementId element_id,
-                                          ElementListType list_type) {
+void ElementAnimations::ElementIdRegistered(ElementId element_id,
+                                            ElementListType list_type) {
   DCHECK_EQ(element_id_, element_id);
 
-  if (!has_element_in_any_list())
-    UpdateKeyframeEffectsTickingState(UpdateTickingType::FORCE);
+  bool had_element_in_any_list = has_element_in_any_list();
 
   if (list_type == ElementListType::ACTIVE)
     set_has_element_in_active_list(true);
   else
     set_has_element_in_pending_list(true);
+
+  if (!had_element_in_any_list)
+    UpdateKeyframeEffectsTickingState();
 }
 
-void ElementAnimations::ElementUnregistered(ElementId element_id,
-                                            ElementListType list_type) {
+void ElementAnimations::ElementIdUnregistered(ElementId element_id,
+                                              ElementListType list_type) {
   DCHECK_EQ(this->element_id(), element_id);
   if (list_type == ElementListType::ACTIVE)
     set_has_element_in_active_list(false);
   else
     set_has_element_in_pending_list(false);
-
-  if (!has_element_in_any_list())
-    RemoveKeyframeEffectsFromTicking();
 }
 
 void ElementAnimations::AddKeyframeEffect(KeyframeEffect* keyframe_effect) {
@@ -167,10 +165,9 @@ void ElementAnimations::PushPropertiesTo(
   element_animations_impl->UpdateClientAnimationState();
 }
 
-void ElementAnimations::UpdateKeyframeEffectsTickingState(
-    UpdateTickingType update_ticking_type) const {
+void ElementAnimations::UpdateKeyframeEffectsTickingState() const {
   for (auto& keyframe_effect : keyframe_effects_list_)
-    keyframe_effect.UpdateTickingState(update_ticking_type);
+    keyframe_effect.UpdateTickingState();
 }
 
 void ElementAnimations::RemoveKeyframeEffectsFromTicking() const {
@@ -213,15 +210,6 @@ void ElementAnimations::NotifyAnimationAborted(const AnimationEvent& event) {
   UpdateClientAnimationState();
 }
 
-bool ElementAnimations::HasOnlyTranslationTransforms(
-    ElementListType list_type) const {
-  for (auto& keyframe_effect : keyframe_effects_list_) {
-    if (!keyframe_effect.HasOnlyTranslationTransforms(list_type))
-      return false;
-  }
-  return true;
-}
-
 bool ElementAnimations::AnimationsPreserveAxisAlignment() const {
   for (auto& keyframe_effect : keyframe_effects_list_) {
     if (!keyframe_effect.AnimationsPreserveAxisAlignment())
@@ -230,38 +218,25 @@ bool ElementAnimations::AnimationsPreserveAxisAlignment() const {
   return true;
 }
 
-bool ElementAnimations::AnimationStartScale(ElementListType list_type,
-                                            float* start_scale) const {
-  *start_scale = 0.f;
-
+void ElementAnimations::GetAnimationScales(ElementListType list_type,
+                                           float* maximum_scale,
+                                           float* starting_scale) const {
+  *maximum_scale = kNotScaled;
+  *starting_scale = kNotScaled;
   for (auto& keyframe_effect : keyframe_effects_list_) {
-    float keyframe_effect_start_scale = 0.f;
-    bool success = keyframe_effect.AnimationStartScale(
-        list_type, &keyframe_effect_start_scale);
-    if (!success)
-      return false;
-    // Union: a maximum.
-    *start_scale = std::max(*start_scale, keyframe_effect_start_scale);
+    float keyframe_effect_maximum_scale = kNotScaled;
+    float keyframe_effect_starting_scale = kNotScaled;
+    bool success = keyframe_effect.GetAnimationScales(
+        list_type, &keyframe_effect_maximum_scale,
+        &keyframe_effect_starting_scale);
+    if (!success) {
+      *maximum_scale = kNotScaled;
+      *starting_scale = kNotScaled;
+      return;
+    }
+    *maximum_scale = std::max(*maximum_scale, keyframe_effect_maximum_scale);
+    *starting_scale = std::max(*starting_scale, keyframe_effect_starting_scale);
   }
-
-  return true;
-}
-
-bool ElementAnimations::MaximumTargetScale(ElementListType list_type,
-                                           float* max_scale) const {
-  *max_scale = 0.f;
-
-  for (auto& keyframe_effect : keyframe_effects_list_) {
-    float keyframe_effect_max_scale = 0.f;
-    bool success = keyframe_effect.MaximumTargetScale(
-        list_type, &keyframe_effect_max_scale);
-    if (!success)
-      return false;
-    // Union: a maximum.
-    *max_scale = std::max(*max_scale, keyframe_effect_max_scale);
-  }
-
-  return true;
 }
 
 bool ElementAnimations::ScrollOffsetAnimationWasInterrupted() const {
@@ -288,10 +263,24 @@ void ElementAnimations::NotifyClientFilterAnimated(
     const FilterOperations& filters,
     int target_property_id,
     KeyframeModel* keyframe_model) {
-  if (KeyframeModelAffectsActiveElements(keyframe_model))
-    OnFilterAnimated(ElementListType::ACTIVE, filters, keyframe_model);
-  if (KeyframeModelAffectsPendingElements(keyframe_model))
-    OnFilterAnimated(ElementListType::PENDING, filters, keyframe_model);
+  switch (keyframe_model->target_property_id()) {
+    case TargetProperty::BACKDROP_FILTER:
+      if (KeyframeModelAffectsActiveElements(keyframe_model))
+        OnBackdropFilterAnimated(ElementListType::ACTIVE, filters,
+                                 keyframe_model);
+      if (KeyframeModelAffectsPendingElements(keyframe_model))
+        OnBackdropFilterAnimated(ElementListType::PENDING, filters,
+                                 keyframe_model);
+      break;
+    case TargetProperty::FILTER:
+      if (KeyframeModelAffectsActiveElements(keyframe_model))
+        OnFilterAnimated(ElementListType::ACTIVE, filters, keyframe_model);
+      if (KeyframeModelAffectsPendingElements(keyframe_model))
+        OnFilterAnimated(ElementListType::PENDING, filters, keyframe_model);
+      break;
+    default:
+      NOTREACHED();
+  }
 }
 
 void ElementAnimations::NotifyClientTransformOperationsAnimated(
@@ -317,11 +306,19 @@ void ElementAnimations::NotifyClientScrollOffsetAnimated(
                            keyframe_model);
 }
 
+void ElementAnimations::InitClientAnimationState() {
+  // Clear current states so that UpdateClientAnimationState() will send all
+  // (instead of only changed) recalculated current states to the client.
+  pending_state_.Clear();
+  active_state_.Clear();
+  UpdateClientAnimationState();
+}
+
 void ElementAnimations::UpdateClientAnimationState() {
   if (!element_id())
     return;
-  DCHECK(animation_host());
-  if (!animation_host()->mutator_host_client())
+  DCHECK(animation_host_);
+  if (!animation_host_->mutator_host_client())
     return;
 
   PropertyAnimationState prev_pending = pending_state_;
@@ -351,16 +348,53 @@ void ElementAnimations::UpdateClientAnimationState() {
   DCHECK(active_state_.IsValid());
 
   PropertyToElementIdMap element_id_map = GetPropertyToElementIdMap();
+  ElementId transform_element_id = element_id_map[TargetProperty::TRANSFORM];
 
-  if (has_element_in_active_list() && prev_active != active_state_) {
-    PropertyAnimationState diff_active = prev_active ^ active_state_;
-    animation_host()->mutator_host_client()->ElementIsAnimatingChanged(
-        element_id_map, ElementListType::ACTIVE, diff_active, active_state_);
+  if (has_element_in_active_list()) {
+    if (prev_active != active_state_) {
+      PropertyAnimationState diff_active = prev_active ^ active_state_;
+      animation_host_->mutator_host_client()->ElementIsAnimatingChanged(
+          element_id_map, ElementListType::ACTIVE, diff_active, active_state_);
+    }
+
+    float maximum_scale = kNotScaled;
+    float starting_scale = kNotScaled;
+    if (transform_element_id) {
+      GetAnimationScales(ElementListType::ACTIVE, &maximum_scale,
+                         &starting_scale);
+    }
+    if (maximum_scale != active_maximum_scale_ ||
+        starting_scale != active_starting_scale_) {
+      animation_host_->mutator_host_client()->AnimationScalesChanged(
+          transform_element_id, ElementListType::ACTIVE, maximum_scale,
+          starting_scale);
+      active_maximum_scale_ = maximum_scale;
+      active_starting_scale_ = starting_scale;
+    }
   }
-  if (has_element_in_pending_list() && prev_pending != pending_state_) {
-    PropertyAnimationState diff_pending = prev_pending ^ pending_state_;
-    animation_host()->mutator_host_client()->ElementIsAnimatingChanged(
-        element_id_map, ElementListType::PENDING, diff_pending, pending_state_);
+
+  if (has_element_in_pending_list()) {
+    if (prev_pending != pending_state_) {
+      PropertyAnimationState diff_pending = prev_pending ^ pending_state_;
+      animation_host_->mutator_host_client()->ElementIsAnimatingChanged(
+          element_id_map, ElementListType::PENDING, diff_pending,
+          pending_state_);
+    }
+
+    float maximum_scale = kNotScaled;
+    float starting_scale = kNotScaled;
+    if (transform_element_id) {
+      GetAnimationScales(ElementListType::PENDING, &maximum_scale,
+                         &starting_scale);
+    }
+    if (maximum_scale != pending_maximum_scale_ ||
+        starting_scale != pending_starting_scale_) {
+      animation_host_->mutator_host_client()->AnimationScalesChanged(
+          transform_element_id, ElementListType::PENDING, maximum_scale,
+          starting_scale);
+      pending_maximum_scale_ = maximum_scale;
+      pending_starting_scale_ = starting_scale;
+    }
   }
 }
 
@@ -420,10 +454,22 @@ void ElementAnimations::OnFilterAnimated(ElementListType list_type,
                                          KeyframeModel* keyframe_model) {
   ElementId target_element_id = CalculateTargetElementId(this, keyframe_model);
   DCHECK(target_element_id);
-  DCHECK(animation_host());
-  DCHECK(animation_host()->mutator_host_client());
-  animation_host()->mutator_host_client()->SetElementFilterMutated(
+  DCHECK(animation_host_);
+  DCHECK(animation_host_->mutator_host_client());
+  animation_host_->mutator_host_client()->SetElementFilterMutated(
       target_element_id, list_type, filters);
+}
+
+void ElementAnimations::OnBackdropFilterAnimated(
+    ElementListType list_type,
+    const FilterOperations& backdrop_filters,
+    KeyframeModel* keyframe_model) {
+  ElementId target_element_id = CalculateTargetElementId(this, keyframe_model);
+  DCHECK(target_element_id);
+  DCHECK(animation_host_);
+  DCHECK(animation_host_->mutator_host_client());
+  animation_host_->mutator_host_client()->SetElementBackdropFilterMutated(
+      target_element_id, list_type, backdrop_filters);
 }
 
 void ElementAnimations::OnOpacityAnimated(ElementListType list_type,
@@ -431,9 +477,9 @@ void ElementAnimations::OnOpacityAnimated(ElementListType list_type,
                                           KeyframeModel* keyframe_model) {
   ElementId target_element_id = CalculateTargetElementId(this, keyframe_model);
   DCHECK(target_element_id);
-  DCHECK(animation_host());
-  DCHECK(animation_host()->mutator_host_client());
-  animation_host()->mutator_host_client()->SetElementOpacityMutated(
+  DCHECK(animation_host_);
+  DCHECK(animation_host_->mutator_host_client());
+  animation_host_->mutator_host_client()->SetElementOpacityMutated(
       target_element_id, list_type, opacity);
 }
 
@@ -442,9 +488,9 @@ void ElementAnimations::OnTransformAnimated(ElementListType list_type,
                                             KeyframeModel* keyframe_model) {
   ElementId target_element_id = CalculateTargetElementId(this, keyframe_model);
   DCHECK(target_element_id);
-  DCHECK(animation_host());
-  DCHECK(animation_host()->mutator_host_client());
-  animation_host()->mutator_host_client()->SetElementTransformMutated(
+  DCHECK(animation_host_);
+  DCHECK(animation_host_->mutator_host_client());
+  animation_host_->mutator_host_client()->SetElementTransformMutated(
       target_element_id, list_type, transform);
 }
 
@@ -454,16 +500,16 @@ void ElementAnimations::OnScrollOffsetAnimated(
     KeyframeModel* keyframe_model) {
   ElementId target_element_id = CalculateTargetElementId(this, keyframe_model);
   DCHECK(target_element_id);
-  DCHECK(animation_host());
-  DCHECK(animation_host()->mutator_host_client());
-  animation_host()->mutator_host_client()->SetElementScrollOffsetMutated(
+  DCHECK(animation_host_);
+  DCHECK(animation_host_->mutator_host_client());
+  animation_host_->mutator_host_client()->SetElementScrollOffsetMutated(
       target_element_id, list_type, scroll_offset);
 }
 
 gfx::ScrollOffset ElementAnimations::ScrollOffsetForAnimation() const {
-  if (animation_host()) {
-    DCHECK(animation_host()->mutator_host_client());
-    return animation_host()->mutator_host_client()->GetScrollOffsetForAnimation(
+  if (animation_host_) {
+    DCHECK(animation_host_->mutator_host_client());
+    return animation_host_->mutator_host_client()->GetScrollOffsetForAnimation(
         element_id());
   }
 
@@ -522,6 +568,24 @@ PropertyToElementIdMap ElementAnimations::GetPropertyToElementIdMap() const {
   }
 
   return PropertyToElementIdMap(std::move(entries));
+}
+
+unsigned int ElementAnimations::CountKeyframesForTesting() const {
+  unsigned int count = 0;
+  for (auto it = keyframe_effects_list_.begin();
+       it != keyframe_effects_list_.end(); it++)
+    count++;
+  return count;
+}
+
+KeyframeEffect* ElementAnimations::FirstKeyframeEffectForTesting() const {
+  DCHECK(keyframe_effects_list_.might_have_observers());
+  return &*keyframe_effects_list_.begin();
+}
+
+bool ElementAnimations::HasKeyframeEffectForTesting(
+    const KeyframeEffect* keyframe) const {
+  return keyframe_effects_list_.HasObserver(keyframe);
 }
 
 bool ElementAnimations::KeyframeModelAffectsActiveElements(

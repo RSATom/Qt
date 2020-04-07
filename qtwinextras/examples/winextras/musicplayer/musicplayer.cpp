@@ -140,6 +140,18 @@ bool MusicPlayer::event(QEvent *event)
 }
 //! [0]
 
+//! [7]
+void MusicPlayer::showEvent(QShowEvent *event)
+{
+    QWidget::showEvent(event);
+    if (!taskbarButton->window()) {
+        auto window = windowHandle();
+        taskbarButton->setWindow(window);
+        thumbnailToolBar->setWindow(window);
+    }
+}
+//! [7]
+
 static bool canHandleDrop(const QDropEvent *event)
 {
     const QList<QUrl> urls = event->mimeData()->urls();
@@ -383,7 +395,6 @@ void MusicPlayer::createJumpList()
 void MusicPlayer::createTaskbar()
 {
     taskbarButton = new QWinTaskbarButton(this);
-    taskbarButton->setWindow(windowHandle());
 
     taskbarProgress = taskbarButton->progress();
     connect(positionSlider, &QAbstractSlider::valueChanged, taskbarProgress, &QWinTaskbarProgress::setValue);
@@ -397,7 +408,6 @@ void MusicPlayer::createTaskbar()
 void MusicPlayer::createThumbnailToolBar()
 {
     thumbnailToolBar = new QWinThumbnailToolBar(this);
-    thumbnailToolBar->setWindow(windowHandle());
 
     playToolButton = new QWinThumbnailToolButton(thumbnailToolBar);
     playToolButton->setEnabled(false);

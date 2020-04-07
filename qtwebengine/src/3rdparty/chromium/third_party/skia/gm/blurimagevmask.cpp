@@ -5,18 +5,31 @@
  * found in the LICENSE file.
  */
 
-#include "SkBlurImageFilter.h"
-#include "SkMaskFilter.h"
-#include "gm.h"
-#include "sk_tool_utils.h"
+#include "gm/gm.h"
+#include "include/core/SkBlurTypes.h"
+#include "include/core/SkCanvas.h"
+#include "include/core/SkColor.h"
+#include "include/core/SkFont.h"
+#include "include/core/SkImage.h"
+#include "include/core/SkImageFilter.h"
+#include "include/core/SkMaskFilter.h"
+#include "include/core/SkPaint.h"
+#include "include/core/SkRect.h"
+#include "include/core/SkRefCnt.h"
+#include "include/core/SkString.h"
+#include "include/core/SkTypeface.h"
+#include "include/effects/SkBlurImageFilter.h"
+#include "tools/Resources.h"
+#include "tools/ToolUtils.h"
 
+#include <stdio.h>
 
 DEF_SIMPLE_GM(blurimagevmask, canvas, 700, 1200) {
     SkPaint paint;
     paint.setAntiAlias(true);
     paint.setColor(SK_ColorBLACK);
 
-    SkFont font(sk_tool_utils::create_portable_typeface(), 25);
+    SkFont font(ToolUtils::create_portable_typeface(), 25);
 
     const double sigmas[] = {3.0, 8.0, 16.0, 24.0, 32.0};
 
@@ -51,11 +64,11 @@ DEF_SIMPLE_GM(blurimagevmask, canvas, 700, 1200) {
 
 }
 
-#include "Resources.h"
-DEF_SIMPLE_GM(blur_image, canvas, 500, 500) {
+DEF_SIMPLE_GM_CAN_FAIL(blur_image, canvas, errorMsg, 500, 500) {
     auto image = GetResourceAsImage("images/mandrill_128.png");
     if (!image) {
-        return;
+        *errorMsg = "Could not load mandrill_128.png. Did you forget to set the resourcePath?";
+        return skiagm::DrawResult::kFail;
     }
 
     SkPaint paint;
@@ -67,4 +80,5 @@ DEF_SIMPLE_GM(blur_image, canvas, 500, 500) {
     canvas->drawImage(image, 10, 10, &paint);
     canvas->scale(1.01f, 1.01f);
     canvas->drawImage(image, 10 + image->width() + 10.f, 10, &paint);
+    return skiagm::DrawResult::kOk;
 }

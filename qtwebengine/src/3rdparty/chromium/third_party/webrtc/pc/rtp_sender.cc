@@ -16,6 +16,7 @@
 #include "api/audio_options.h"
 #include "api/media_stream_interface.h"
 #include "media/base/media_engine.h"
+#include "pc/peer_connection.h"
 #include "pc/stats_collector.h"
 #include "rtc_base/checks.h"
 #include "rtc_base/helpers.h"
@@ -41,8 +42,6 @@ bool UnimplementedRtpEncodingParameterHasValue(
   if (encoding_params.codec_payload_type.has_value() ||
       encoding_params.fec.has_value() || encoding_params.rtx.has_value() ||
       encoding_params.dtx.has_value() || encoding_params.ptime.has_value() ||
-      !encoding_params.rid.empty() ||
-      encoding_params.scale_resolution_down_by.has_value() ||
       encoding_params.scale_framerate_down_by.has_value() ||
       !encoding_params.dependency_rids.empty()) {
     return true;
@@ -68,20 +67,34 @@ bool PerSenderRtpEncodingParameterHasValue(
   return false;
 }
 
-// Attempt to attach the frame decryptor to the current media channel on the
-// correct worker thread only if both the media channel exists and a ssrc has
-// been allocated to the stream.
-void MaybeAttachFrameEncryptorToMediaChannel(
-    const uint32_t ssrc,
-    rtc::Thread* worker_thread,
-    rtc::scoped_refptr<webrtc::FrameEncryptorInterface> frame_encryptor,
-    cricket::MediaChannel* media_channel,
-    bool stopped) {
-  if (media_channel && frame_encryptor && ssrc && !stopped) {
-    worker_thread->Invoke<void>(RTC_FROM_HERE, [&] {
-      media_channel->SetFrameEncryptor(ssrc, frame_encryptor);
-    });
+void RemoveEncodingLayers(const std::vector<std::string>& rids,
+                          std::vector<RtpEncodingParameters>* encodings) {
+  RTC_DCHECK(encodings);
+  encodings->erase(
+      std::remove_if(encodings->begin(), encodings->end(),
+                     [&rids](const RtpEncodingParameters& encoding) {
+                       return absl::c_linear_search(rids, encoding.rid);
+                     }),
+      encodings->end());
+}
+
+RtpParameters RestoreEncodingLayers(
+    const RtpParameters& parameters,
+    const std::vector<std::string>& removed_rids,
+    const std::vector<RtpEncodingParameters>& all_layers) {
+  RTC_DCHECK_EQ(parameters.encodings.size() + removed_rids.size(),
+                all_layers.size());
+  RtpParameters result(parameters);
+  result.encodings.clear();
+  size_t index = 0;
+  for (const RtpEncodingParameters& encoding : all_layers) {
+    if (absl::c_linear_search(removed_rids, encoding.rid)) {
+      result.encodings.push_back(encoding);
+      continue;
+    }
+    result.encodings.push_back(parameters.encodings[index++]);
   }
+  return result;
 }
 
 }  // namespace
@@ -104,6 +117,265 @@ bool UnimplementedRtpParameterHasValue(const RtpParameters& parameters) {
     }
   }
   return false;
+}
+
+RtpSenderBase::RtpSenderBase(rtc::Thread* worker_thread,
+                             const std::string& id,
+                             SetStreamsObserver* set_streams_observer)
+    : worker_thread_(worker_thread),
+      id_(id),
+      set_streams_observer_(set_streams_observer) {
+  RTC_DCHECK(worker_thread);
+  init_parameters_.encodings.emplace_back();
+}
+
+void RtpSenderBase::SetFrameEncryptor(
+    rtc::scoped_refptr<FrameEncryptorInterface> frame_encryptor) {
+  frame_encryptor_ = std::move(frame_encryptor);
+  // Special Case: Set the frame encryptor to any value on any existing channel.
+  if (media_channel_ && ssrc_ && !stopped_) {
+    worker_thread_->Invoke<void>(RTC_FROM_HERE, [&] {
+      media_channel_->SetFrameEncryptor(ssrc_, frame_encryptor_);
+    });
+  }
+}
+
+void RtpSenderBase::SetMediaChannel(cricket::MediaChannel* media_channel) {
+  RTC_DCHECK(media_channel == nullptr ||
+             media_channel->media_type() == media_type());
+  media_channel_ = media_channel;
+}
+
+RtpParameters RtpSenderBase::GetParametersInternal() const {
+  if (stopped_) {
+    return RtpParameters();
+  }
+  if (!media_channel_ || !ssrc_) {
+    return init_parameters_;
+  }
+  return worker_thread_->Invoke<RtpParameters>(RTC_FROM_HERE, [&] {
+    RtpParameters result = media_channel_->GetRtpSendParameters(ssrc_);
+    RemoveEncodingLayers(disabled_rids_, &result.encodings);
+    return result;
+  });
+}
+
+RtpParameters RtpSenderBase::GetParameters() const {
+  RtpParameters result = GetParametersInternal();
+  last_transaction_id_ = rtc::CreateRandomUuid();
+  result.transaction_id = last_transaction_id_.value();
+  return result;
+}
+
+RTCError RtpSenderBase::SetParametersInternal(const RtpParameters& parameters) {
+  RTC_DCHECK(!stopped_);
+
+  if (UnimplementedRtpParameterHasValue(parameters)) {
+    LOG_AND_RETURN_ERROR(
+        RTCErrorType::UNSUPPORTED_PARAMETER,
+        "Attempted to set an unimplemented parameter of RtpParameters.");
+  }
+  if (!media_channel_ || !ssrc_) {
+    auto result = cricket::CheckRtpParametersInvalidModificationAndValues(
+        init_parameters_, parameters);
+    if (result.ok()) {
+      init_parameters_ = parameters;
+    }
+    return result;
+  }
+  return worker_thread_->Invoke<RTCError>(RTC_FROM_HERE, [&] {
+    RtpParameters rtp_parameters = parameters;
+    if (!disabled_rids_.empty()) {
+      // Need to add the inactive layers.
+      RtpParameters old_parameters =
+          media_channel_->GetRtpSendParameters(ssrc_);
+      rtp_parameters = RestoreEncodingLayers(parameters, disabled_rids_,
+                                             old_parameters.encodings);
+    }
+    return media_channel_->SetRtpSendParameters(ssrc_, rtp_parameters);
+  });
+}
+
+RTCError RtpSenderBase::SetParameters(const RtpParameters& parameters) {
+  TRACE_EVENT0("webrtc", "RtpSenderBase::SetParameters");
+  if (stopped_) {
+    LOG_AND_RETURN_ERROR(RTCErrorType::INVALID_STATE,
+                         "Cannot set parameters on a stopped sender.");
+  }
+  if (!last_transaction_id_) {
+    LOG_AND_RETURN_ERROR(
+        RTCErrorType::INVALID_STATE,
+        "Failed to set parameters since getParameters() has never been called"
+        " on this sender");
+  }
+  if (last_transaction_id_ != parameters.transaction_id) {
+    LOG_AND_RETURN_ERROR(
+        RTCErrorType::INVALID_MODIFICATION,
+        "Failed to set parameters since the transaction_id doesn't match"
+        " the last value returned from getParameters()");
+  }
+
+  RTCError result = SetParametersInternal(parameters);
+  last_transaction_id_.reset();
+  return result;
+}
+
+void RtpSenderBase::SetStreams(const std::vector<std::string>& stream_ids) {
+  set_stream_ids(stream_ids);
+  if (set_streams_observer_)
+    set_streams_observer_->OnSetStreams();
+}
+
+bool RtpSenderBase::SetTrack(MediaStreamTrackInterface* track) {
+  TRACE_EVENT0("webrtc", "RtpSenderBase::SetTrack");
+  if (stopped_) {
+    RTC_LOG(LS_ERROR) << "SetTrack can't be called on a stopped RtpSender.";
+    return false;
+  }
+  if (track && track->kind() != track_kind()) {
+    RTC_LOG(LS_ERROR) << "SetTrack with " << track->kind()
+                      << " called on RtpSender with " << track_kind()
+                      << " track.";
+    return false;
+  }
+
+  // Detach from old track.
+  if (track_) {
+    DetachTrack();
+    track_->UnregisterObserver(this);
+    RemoveTrackFromStats();
+  }
+
+  // Attach to new track.
+  bool prev_can_send_track = can_send_track();
+  // Keep a reference to the old track to keep it alive until we call SetSend.
+  rtc::scoped_refptr<MediaStreamTrackInterface> old_track = track_;
+  track_ = track;
+  if (track_) {
+    track_->RegisterObserver(this);
+    AttachTrack();
+  }
+
+  // Update channel.
+  if (can_send_track()) {
+    SetSend();
+    AddTrackToStats();
+  } else if (prev_can_send_track) {
+    ClearSend();
+  }
+  attachment_id_ = (track_ ? GenerateUniqueId() : 0);
+  return true;
+}
+
+void RtpSenderBase::SetSsrc(uint32_t ssrc) {
+  TRACE_EVENT0("webrtc", "RtpSenderBase::SetSsrc");
+  if (stopped_ || ssrc == ssrc_) {
+    return;
+  }
+  // If we are already sending with a particular SSRC, stop sending.
+  if (can_send_track()) {
+    ClearSend();
+    RemoveTrackFromStats();
+  }
+  ssrc_ = ssrc;
+  if (can_send_track()) {
+    SetSend();
+    AddTrackToStats();
+  }
+  if (!init_parameters_.encodings.empty()) {
+    worker_thread_->Invoke<void>(RTC_FROM_HERE, [&] {
+      RTC_DCHECK(media_channel_);
+      // Get the current parameters, which are constructed from the SDP.
+      // The number of layers in the SDP is currently authoritative to support
+      // SDP munging for Plan-B simulcast with "a=ssrc-group:SIM <ssrc-id>..."
+      // lines as described in RFC 5576.
+      // All fields should be default constructed and the SSRC field set, which
+      // we need to copy.
+      RtpParameters current_parameters =
+          media_channel_->GetRtpSendParameters(ssrc_);
+      RTC_DCHECK_GE(current_parameters.encodings.size(),
+                    init_parameters_.encodings.size());
+      for (size_t i = 0; i < init_parameters_.encodings.size(); ++i) {
+        init_parameters_.encodings[i].ssrc =
+            current_parameters.encodings[i].ssrc;
+        init_parameters_.encodings[i].rid = current_parameters.encodings[i].rid;
+        current_parameters.encodings[i] = init_parameters_.encodings[i];
+      }
+      current_parameters.degradation_preference =
+          init_parameters_.degradation_preference;
+      media_channel_->SetRtpSendParameters(ssrc_, current_parameters);
+      init_parameters_.encodings.clear();
+    });
+  }
+  // Attempt to attach the frame decryptor to the current media channel.
+  if (frame_encryptor_) {
+    SetFrameEncryptor(frame_encryptor_);
+  }
+}
+
+void RtpSenderBase::Stop() {
+  TRACE_EVENT0("webrtc", "RtpSenderBase::Stop");
+  // TODO(deadbeef): Need to do more here to fully stop sending packets.
+  if (stopped_) {
+    return;
+  }
+  if (track_) {
+    DetachTrack();
+    track_->UnregisterObserver(this);
+  }
+  if (can_send_track()) {
+    ClearSend();
+    RemoveTrackFromStats();
+  }
+  media_channel_ = nullptr;
+  set_streams_observer_ = nullptr;
+  stopped_ = true;
+}
+
+RTCError RtpSenderBase::DisableEncodingLayers(
+    const std::vector<std::string>& rids) {
+  if (stopped_) {
+    LOG_AND_RETURN_ERROR(RTCErrorType::INVALID_STATE,
+                         "Cannot disable encodings on a stopped sender.");
+  }
+
+  if (rids.empty()) {
+    return RTCError::OK();
+  }
+
+  // Check that all the specified layers exist and disable them in the channel.
+  RtpParameters parameters = GetParametersInternal();
+  for (const std::string& rid : rids) {
+    if (absl::c_none_of(parameters.encodings,
+                        [&rid](const RtpEncodingParameters& encoding) {
+                          return encoding.rid == rid;
+                        })) {
+      LOG_AND_RETURN_ERROR(RTCErrorType::INVALID_PARAMETER,
+                           "RID: " + rid + " does not refer to a valid layer.");
+    }
+  }
+
+  if (!media_channel_ || !ssrc_) {
+    RemoveEncodingLayers(rids, &init_parameters_.encodings);
+    // Invalidate any transaction upon success.
+    last_transaction_id_.reset();
+    return RTCError::OK();
+  }
+
+  for (RtpEncodingParameters& encoding : parameters.encodings) {
+    // Remain active if not in the disable list.
+    encoding.active &= absl::c_none_of(
+        rids,
+        [&encoding](const std::string& rid) { return encoding.rid == rid; });
+  }
+
+  RTCError result = SetParametersInternal(parameters);
+  if (result.ok()) {
+    disabled_rids_.insert(disabled_rids_.end(), rids.begin(), rids.end());
+    // Invalidate any transaction upon success.
+    last_transaction_id_.reset();
+  }
+  return result;
 }
 
 LocalAudioSinkAdapter::LocalAudioSinkAdapter() : sink_(nullptr) {}
@@ -132,19 +404,26 @@ void LocalAudioSinkAdapter::SetSink(cricket::AudioSource::Sink* sink) {
   sink_ = sink;
 }
 
+rtc::scoped_refptr<AudioRtpSender> AudioRtpSender::Create(
+    rtc::Thread* worker_thread,
+    const std::string& id,
+    StatsCollector* stats,
+    SetStreamsObserver* set_streams_observer) {
+  return rtc::scoped_refptr<AudioRtpSender>(
+      new rtc::RefCountedObject<AudioRtpSender>(worker_thread, id, stats,
+                                                set_streams_observer));
+}
+
 AudioRtpSender::AudioRtpSender(rtc::Thread* worker_thread,
                                const std::string& id,
-                               StatsCollector* stats)
-    : worker_thread_(worker_thread),
-      id_(id),
+                               StatsCollector* stats,
+                               SetStreamsObserver* set_streams_observer)
+    : RtpSenderBase(worker_thread, id, set_streams_observer),
       stats_(stats),
       dtmf_sender_proxy_(DtmfSenderProxy::Create(
           rtc::Thread::Current(),
           DtmfSender::Create(rtc::Thread::Current(), this))),
-      sink_adapter_(new LocalAudioSinkAdapter()) {
-  RTC_DCHECK(worker_thread);
-  init_parameters_.encodings.emplace_back();
-}
+      sink_adapter_(new LocalAudioSinkAdapter()) {}
 
 AudioRtpSender::~AudioRtpSender() {
   // For DtmfSender.
@@ -164,7 +443,7 @@ bool AudioRtpSender::CanInsertDtmf() {
     return false;
   }
   return worker_thread_->Invoke<bool>(
-      RTC_FROM_HERE, [&] { return media_channel_->CanInsertDtmf(); });
+      RTC_FROM_HERE, [&] { return voice_media_channel()->CanInsertDtmf(); });
 }
 
 bool AudioRtpSender::InsertDtmf(int code, int duration) {
@@ -177,7 +456,7 @@ bool AudioRtpSender::InsertDtmf(int code, int duration) {
     return false;
   }
   bool success = worker_thread_->Invoke<bool>(RTC_FROM_HERE, [&] {
-    return media_channel_->InsertDtmf(ssrc_, code, duration);
+    return voice_media_channel()->InsertDtmf(ssrc_, code, duration);
   });
   if (!success) {
     RTC_LOG(LS_ERROR) << "Failed to insert DTMF to channel.";
@@ -195,207 +474,39 @@ void AudioRtpSender::OnChanged() {
   if (cached_track_enabled_ != track_->enabled()) {
     cached_track_enabled_ = track_->enabled();
     if (can_send_track()) {
-      SetAudioSend();
+      SetSend();
     }
   }
 }
 
-bool AudioRtpSender::SetTrack(MediaStreamTrackInterface* track) {
-  TRACE_EVENT0("webrtc", "AudioRtpSender::SetTrack");
-  if (stopped_) {
-    RTC_LOG(LS_ERROR) << "SetTrack can't be called on a stopped RtpSender.";
-    return false;
-  }
-  if (track && track->kind() != MediaStreamTrackInterface::kAudioKind) {
-    RTC_LOG(LS_ERROR) << "SetTrack called on audio RtpSender with "
-                      << track->kind() << " track.";
-    return false;
-  }
-  AudioTrackInterface* audio_track = static_cast<AudioTrackInterface*>(track);
+void AudioRtpSender::DetachTrack() {
+  RTC_DCHECK(track_);
+  audio_track()->RemoveSink(sink_adapter_.get());
+}
 
-  // Detach from old track.
-  if (track_) {
-    track_->RemoveSink(sink_adapter_.get());
-    track_->UnregisterObserver(this);
-  }
+void AudioRtpSender::AttachTrack() {
+  RTC_DCHECK(track_);
+  cached_track_enabled_ = track_->enabled();
+  audio_track()->AddSink(sink_adapter_.get());
+}
 
+void AudioRtpSender::AddTrackToStats() {
   if (can_send_track() && stats_) {
-    stats_->RemoveLocalAudioTrack(track_.get(), ssrc_);
+    stats_->AddLocalAudioTrack(audio_track().get(), ssrc_);
   }
-
-  // Attach to new track.
-  bool prev_can_send_track = can_send_track();
-  // Keep a reference to the old track to keep it alive until we call
-  // SetAudioSend.
-  rtc::scoped_refptr<AudioTrackInterface> old_track = track_;
-  track_ = audio_track;
-  if (track_) {
-    cached_track_enabled_ = track_->enabled();
-    track_->RegisterObserver(this);
-    track_->AddSink(sink_adapter_.get());
-  }
-
-  // Update audio channel.
-  if (can_send_track()) {
-    SetAudioSend();
-    if (stats_) {
-      stats_->AddLocalAudioTrack(track_.get(), ssrc_);
-    }
-  } else if (prev_can_send_track) {
-    ClearAudioSend();
-  }
-  attachment_id_ = (track_ ? GenerateUniqueId() : 0);
-  return true;
 }
 
-RtpParameters AudioRtpSender::GetParameters() {
-  if (stopped_) {
-    return RtpParameters();
+void AudioRtpSender::RemoveTrackFromStats() {
+  if (can_send_track() && stats_) {
+    stats_->RemoveLocalAudioTrack(audio_track().get(), ssrc_);
   }
-  if (!media_channel_) {
-    RtpParameters result = init_parameters_;
-    last_transaction_id_ = rtc::CreateRandomUuid();
-    result.transaction_id = last_transaction_id_.value();
-    return result;
-  }
-  return worker_thread_->Invoke<RtpParameters>(RTC_FROM_HERE, [&] {
-    RtpParameters result = media_channel_->GetRtpSendParameters(ssrc_);
-    last_transaction_id_ = rtc::CreateRandomUuid();
-    result.transaction_id = last_transaction_id_.value();
-    return result;
-  });
-}
-
-RTCError AudioRtpSender::SetParameters(const RtpParameters& parameters) {
-  TRACE_EVENT0("webrtc", "AudioRtpSender::SetParameters");
-  if (stopped_) {
-    return RTCError(RTCErrorType::INVALID_STATE);
-  }
-  if (!last_transaction_id_) {
-    LOG_AND_RETURN_ERROR(
-        RTCErrorType::INVALID_STATE,
-        "Failed to set parameters since getParameters() has never been called"
-        " on this sender");
-  }
-  if (last_transaction_id_ != parameters.transaction_id) {
-    LOG_AND_RETURN_ERROR(
-        RTCErrorType::INVALID_MODIFICATION,
-        "Failed to set parameters since the transaction_id doesn't match"
-        " the last value returned from getParameters()");
-  }
-
-  if (UnimplementedRtpParameterHasValue(parameters)) {
-    LOG_AND_RETURN_ERROR(
-        RTCErrorType::UNSUPPORTED_PARAMETER,
-        "Attempted to set an unimplemented parameter of RtpParameters.");
-  }
-  if (!media_channel_) {
-    auto result = cricket::ValidateRtpParameters(init_parameters_, parameters);
-    if (result.ok()) {
-      init_parameters_ = parameters;
-    }
-    return result;
-  }
-  return worker_thread_->Invoke<RTCError>(RTC_FROM_HERE, [&] {
-    RTCError result = media_channel_->SetRtpSendParameters(ssrc_, parameters);
-    last_transaction_id_.reset();
-    return result;
-  });
 }
 
 rtc::scoped_refptr<DtmfSenderInterface> AudioRtpSender::GetDtmfSender() const {
   return dtmf_sender_proxy_;
 }
 
-void AudioRtpSender::SetFrameEncryptor(
-    rtc::scoped_refptr<FrameEncryptorInterface> frame_encryptor) {
-  frame_encryptor_ = std::move(frame_encryptor);
-  // Special Case: Set the frame encryptor to any value on any existing channel.
-  if (media_channel_ && ssrc_ && !stopped_) {
-    worker_thread_->Invoke<void>(RTC_FROM_HERE, [&] {
-      media_channel_->SetFrameEncryptor(ssrc_, frame_encryptor_);
-    });
-  }
-}
-
-rtc::scoped_refptr<FrameEncryptorInterface> AudioRtpSender::GetFrameEncryptor()
-    const {
-  return frame_encryptor_;
-}
-
-void AudioRtpSender::SetSsrc(uint32_t ssrc) {
-  TRACE_EVENT0("webrtc", "AudioRtpSender::SetSsrc");
-  if (stopped_ || ssrc == ssrc_) {
-    return;
-  }
-  // If we are already sending with a particular SSRC, stop sending.
-  if (can_send_track()) {
-    ClearAudioSend();
-    if (stats_) {
-      stats_->RemoveLocalAudioTrack(track_.get(), ssrc_);
-    }
-  }
-  ssrc_ = ssrc;
-  if (can_send_track()) {
-    SetAudioSend();
-    if (stats_) {
-      stats_->AddLocalAudioTrack(track_.get(), ssrc_);
-    }
-  }
-  if (!init_parameters_.encodings.empty()) {
-    worker_thread_->Invoke<void>(RTC_FROM_HERE, [&] {
-      RTC_DCHECK(media_channel_);
-      // Get the current parameters, which are constructed from the SDP.
-      // The number of layers in the SDP is currently authoritative to support
-      // SDP munging for Plan-B simulcast with "a=ssrc-group:SIM <ssrc-id>..."
-      // lines as described in RFC 5576.
-      // All fields should be default constructed and the SSRC field set, which
-      // we need to copy.
-      RtpParameters current_parameters =
-          media_channel_->GetRtpSendParameters(ssrc_);
-      for (size_t i = 0; i < init_parameters_.encodings.size(); ++i) {
-        init_parameters_.encodings[i].ssrc =
-            current_parameters.encodings[i].ssrc;
-        current_parameters.encodings[i] = init_parameters_.encodings[i];
-      }
-      current_parameters.degradation_preference =
-          init_parameters_.degradation_preference;
-      media_channel_->SetRtpSendParameters(ssrc_, current_parameters);
-      init_parameters_.encodings.clear();
-    });
-  }
-  // Each time there is an ssrc update.
-  MaybeAttachFrameEncryptorToMediaChannel(
-      ssrc_, worker_thread_, frame_encryptor_, media_channel_, stopped_);
-}
-
-void AudioRtpSender::Stop() {
-  TRACE_EVENT0("webrtc", "AudioRtpSender::Stop");
-  // TODO(deadbeef): Need to do more here to fully stop sending packets.
-  if (stopped_) {
-    return;
-  }
-  if (track_) {
-    track_->RemoveSink(sink_adapter_.get());
-    track_->UnregisterObserver(this);
-  }
-  if (can_send_track()) {
-    ClearAudioSend();
-    if (stats_) {
-      stats_->RemoveLocalAudioTrack(track_.get(), ssrc_);
-    }
-  }
-  media_channel_ = nullptr;
-  stopped_ = true;
-}
-
-void AudioRtpSender::SetMediaChannel(cricket::MediaChannel* media_channel) {
-  RTC_DCHECK(media_channel == nullptr ||
-             media_channel->media_type() == media_type());
-  media_channel_ = static_cast<cricket::VoiceMediaChannel*>(media_channel);
-}
-
-void AudioRtpSender::SetAudioSend() {
+void AudioRtpSender::SetSend() {
   RTC_DCHECK(!stopped_);
   RTC_DCHECK(can_send_track());
   if (!media_channel_) {
@@ -407,9 +518,9 @@ void AudioRtpSender::SetAudioSend() {
   // TODO(tommi): Remove this hack when we move CreateAudioSource out of
   // PeerConnection.  This is a bit of a strange way to apply local audio
   // options since it is also applied to all streams/channels, local or remote.
-  if (track_->enabled() && track_->GetSource() &&
-      !track_->GetSource()->remote()) {
-    options = track_->GetSource()->options();
+  if (track_->enabled() && audio_track()->GetSource() &&
+      !audio_track()->GetSource()->remote()) {
+    options = audio_track()->GetSource()->options();
   }
 #endif
 
@@ -417,15 +528,15 @@ void AudioRtpSender::SetAudioSend() {
   // to the worker thread or else it will deadlock.
   bool track_enabled = track_->enabled();
   bool success = worker_thread_->Invoke<bool>(RTC_FROM_HERE, [&] {
-    return media_channel_->SetAudioSend(ssrc_, track_enabled, &options,
-                                        sink_adapter_.get());
+    return voice_media_channel()->SetAudioSend(ssrc_, track_enabled, &options,
+                                               sink_adapter_.get());
   });
   if (!success) {
     RTC_LOG(LS_ERROR) << "SetAudioSend: ssrc is incorrect: " << ssrc_;
   }
 }
 
-void AudioRtpSender::ClearAudioSend() {
+void AudioRtpSender::ClearSend() {
   RTC_DCHECK(ssrc_ != 0);
   RTC_DCHECK(!stopped_);
   if (!media_channel_) {
@@ -434,19 +545,26 @@ void AudioRtpSender::ClearAudioSend() {
   }
   cricket::AudioOptions options;
   bool success = worker_thread_->Invoke<bool>(RTC_FROM_HERE, [&] {
-    return media_channel_->SetAudioSend(ssrc_, false, &options, nullptr);
+    return voice_media_channel()->SetAudioSend(ssrc_, false, &options, nullptr);
   });
   if (!success) {
     RTC_LOG(LS_WARNING) << "ClearAudioSend: ssrc is incorrect: " << ssrc_;
   }
 }
 
-VideoRtpSender::VideoRtpSender(rtc::Thread* worker_thread,
-                               const std::string& id)
-    : worker_thread_(worker_thread), id_(id) {
-  RTC_DCHECK(worker_thread);
-  init_parameters_.encodings.emplace_back();
+rtc::scoped_refptr<VideoRtpSender> VideoRtpSender::Create(
+    rtc::Thread* worker_thread,
+    const std::string& id,
+    SetStreamsObserver* set_streams_observer) {
+  return rtc::scoped_refptr<VideoRtpSender>(
+      new rtc::RefCountedObject<VideoRtpSender>(worker_thread, id,
+                                                set_streams_observer));
 }
+
+VideoRtpSender::VideoRtpSender(rtc::Thread* worker_thread,
+                               const std::string& id,
+                               SetStreamsObserver* set_streams_observer)
+    : RtpSenderBase(worker_thread, id, set_streams_observer) {}
 
 VideoRtpSender::~VideoRtpSender() {
   Stop();
@@ -455,106 +573,17 @@ VideoRtpSender::~VideoRtpSender() {
 void VideoRtpSender::OnChanged() {
   TRACE_EVENT0("webrtc", "VideoRtpSender::OnChanged");
   RTC_DCHECK(!stopped_);
-  if (cached_track_content_hint_ != track_->content_hint()) {
-    cached_track_content_hint_ = track_->content_hint();
+  if (cached_track_content_hint_ != video_track()->content_hint()) {
+    cached_track_content_hint_ = video_track()->content_hint();
     if (can_send_track()) {
-      SetVideoSend();
+      SetSend();
     }
   }
 }
 
-bool VideoRtpSender::SetTrack(MediaStreamTrackInterface* track) {
-  TRACE_EVENT0("webrtc", "VideoRtpSender::SetTrack");
-  if (stopped_) {
-    RTC_LOG(LS_ERROR) << "SetTrack can't be called on a stopped RtpSender.";
-    return false;
-  }
-  if (track && track->kind() != MediaStreamTrackInterface::kVideoKind) {
-    RTC_LOG(LS_ERROR) << "SetTrack called on video RtpSender with "
-                      << track->kind() << " track.";
-    return false;
-  }
-  VideoTrackInterface* video_track = static_cast<VideoTrackInterface*>(track);
-
-  // Detach from old track.
-  if (track_) {
-    track_->UnregisterObserver(this);
-  }
-
-  // Attach to new track.
-  bool prev_can_send_track = can_send_track();
-  // Keep a reference to the old track to keep it alive until we call
-  // SetVideoSend.
-  rtc::scoped_refptr<VideoTrackInterface> old_track = track_;
-  track_ = video_track;
-  if (track_) {
-    cached_track_content_hint_ = track_->content_hint();
-    track_->RegisterObserver(this);
-  }
-
-  // Update video channel.
-  if (can_send_track()) {
-    SetVideoSend();
-  } else if (prev_can_send_track) {
-    ClearVideoSend();
-  }
-  attachment_id_ = (track_ ? GenerateUniqueId() : 0);
-  return true;
-}
-
-RtpParameters VideoRtpSender::GetParameters() {
-  if (stopped_) {
-    return RtpParameters();
-  }
-  if (!media_channel_) {
-    RtpParameters result = init_parameters_;
-    last_transaction_id_ = rtc::CreateRandomUuid();
-    result.transaction_id = last_transaction_id_.value();
-    return result;
-  }
-  return worker_thread_->Invoke<RtpParameters>(RTC_FROM_HERE, [&] {
-    RtpParameters result = media_channel_->GetRtpSendParameters(ssrc_);
-    last_transaction_id_ = rtc::CreateRandomUuid();
-    result.transaction_id = last_transaction_id_.value();
-    return result;
-  });
-}
-
-RTCError VideoRtpSender::SetParameters(const RtpParameters& parameters) {
-  TRACE_EVENT0("webrtc", "VideoRtpSender::SetParameters");
-  if (stopped_) {
-    return RTCError(RTCErrorType::INVALID_STATE);
-  }
-  if (!last_transaction_id_) {
-    LOG_AND_RETURN_ERROR(
-        RTCErrorType::INVALID_STATE,
-        "Failed to set parameters since getParameters() has never been called"
-        " on this sender");
-  }
-  if (last_transaction_id_ != parameters.transaction_id) {
-    LOG_AND_RETURN_ERROR(
-        RTCErrorType::INVALID_MODIFICATION,
-        "Failed to set parameters since the transaction_id doesn't match"
-        " the last value returned from getParameters()");
-  }
-
-  if (UnimplementedRtpParameterHasValue(parameters)) {
-    LOG_AND_RETURN_ERROR(
-        RTCErrorType::UNSUPPORTED_PARAMETER,
-        "Attempted to set an unimplemented parameter of RtpParameters.");
-  }
-  if (!media_channel_) {
-    auto result = cricket::ValidateRtpParameters(init_parameters_, parameters);
-    if (result.ok()) {
-      init_parameters_ = parameters;
-    }
-    return result;
-  }
-  return worker_thread_->Invoke<RTCError>(RTC_FROM_HERE, [&] {
-    RTCError result = media_channel_->SetRtpSendParameters(ssrc_, parameters);
-    last_transaction_id_.reset();
-    return result;
-  });
+void VideoRtpSender::AttachTrack() {
+  RTC_DCHECK(track_);
+  cached_track_content_hint_ = video_track()->content_hint();
 }
 
 rtc::scoped_refptr<DtmfSenderInterface> VideoRtpSender::GetDtmfSender() const {
@@ -562,84 +591,7 @@ rtc::scoped_refptr<DtmfSenderInterface> VideoRtpSender::GetDtmfSender() const {
   return nullptr;
 }
 
-void VideoRtpSender::SetFrameEncryptor(
-    rtc::scoped_refptr<FrameEncryptorInterface> frame_encryptor) {
-  frame_encryptor_ = std::move(frame_encryptor);
-  // Special Case: Set the frame encryptor to any value on any existing channel.
-  if (media_channel_ && ssrc_ && !stopped_) {
-    worker_thread_->Invoke<void>(RTC_FROM_HERE, [&] {
-      media_channel_->SetFrameEncryptor(ssrc_, frame_encryptor_);
-    });
-  }
-}
-
-rtc::scoped_refptr<FrameEncryptorInterface> VideoRtpSender::GetFrameEncryptor()
-    const {
-  return frame_encryptor_;
-}
-
-void VideoRtpSender::SetSsrc(uint32_t ssrc) {
-  TRACE_EVENT0("webrtc", "VideoRtpSender::SetSsrc");
-  if (stopped_ || ssrc == ssrc_) {
-    return;
-  }
-  // If we are already sending with a particular SSRC, stop sending.
-  if (can_send_track()) {
-    ClearVideoSend();
-  }
-  ssrc_ = ssrc;
-  if (can_send_track()) {
-    SetVideoSend();
-  }
-  if (!init_parameters_.encodings.empty()) {
-    worker_thread_->Invoke<void>(RTC_FROM_HERE, [&] {
-      RTC_DCHECK(media_channel_);
-      // Get the current parameters, which are constructed from the SDP.
-      // The number of layers in the SDP is currently authoritative to support
-      // SDP munging for Plan-B simulcast with "a=ssrc-group:SIM <ssrc-id>..."
-      // lines as described in RFC 5576.
-      // All fields should be default constructed and the SSRC field set, which
-      // we need to copy.
-      RtpParameters current_parameters =
-          media_channel_->GetRtpSendParameters(ssrc_);
-      for (size_t i = 0; i < init_parameters_.encodings.size(); ++i) {
-        init_parameters_.encodings[i].ssrc =
-            current_parameters.encodings[i].ssrc;
-        current_parameters.encodings[i] = init_parameters_.encodings[i];
-      }
-      current_parameters.degradation_preference =
-          init_parameters_.degradation_preference;
-      media_channel_->SetRtpSendParameters(ssrc_, current_parameters);
-      init_parameters_.encodings.clear();
-    });
-  }
-  MaybeAttachFrameEncryptorToMediaChannel(
-      ssrc_, worker_thread_, frame_encryptor_, media_channel_, stopped_);
-}
-
-void VideoRtpSender::Stop() {
-  TRACE_EVENT0("webrtc", "VideoRtpSender::Stop");
-  // TODO(deadbeef): Need to do more here to fully stop sending packets.
-  if (stopped_) {
-    return;
-  }
-  if (track_) {
-    track_->UnregisterObserver(this);
-  }
-  if (can_send_track()) {
-    ClearVideoSend();
-  }
-  media_channel_ = nullptr;
-  stopped_ = true;
-}
-
-void VideoRtpSender::SetMediaChannel(cricket::MediaChannel* media_channel) {
-  RTC_DCHECK(media_channel == nullptr ||
-             media_channel->media_type() == media_type());
-  media_channel_ = static_cast<cricket::VideoMediaChannel*>(media_channel);
-}
-
-void VideoRtpSender::SetVideoSend() {
+void VideoRtpSender::SetSend() {
   RTC_DCHECK(!stopped_);
   RTC_DCHECK(can_send_track());
   if (!media_channel_) {
@@ -647,7 +599,7 @@ void VideoRtpSender::SetVideoSend() {
     return;
   }
   cricket::VideoOptions options;
-  VideoTrackSourceInterface* source = track_->GetSource();
+  VideoTrackSourceInterface* source = video_track()->GetSource();
   if (source) {
     options.is_screencast = source->is_screencast();
     options.video_noise_reduction = source->needs_denoising();
@@ -664,12 +616,12 @@ void VideoRtpSender::SetVideoSend() {
       break;
   }
   bool success = worker_thread_->Invoke<bool>(RTC_FROM_HERE, [&] {
-    return media_channel_->SetVideoSend(ssrc_, &options, track_);
+    return video_media_channel()->SetVideoSend(ssrc_, &options, video_track());
   });
   RTC_DCHECK(success);
 }
 
-void VideoRtpSender::ClearVideoSend() {
+void VideoRtpSender::ClearSend() {
   RTC_DCHECK(ssrc_ != 0);
   RTC_DCHECK(!stopped_);
   if (!media_channel_) {
@@ -680,7 +632,7 @@ void VideoRtpSender::ClearVideoSend() {
   // This the normal case when the underlying media channel has already been
   // deleted.
   worker_thread_->Invoke<bool>(RTC_FROM_HERE, [&] {
-    return media_channel_->SetVideoSend(ssrc_, nullptr, nullptr);
+    return video_media_channel()->SetVideoSend(ssrc_, nullptr, nullptr);
   });
 }
 

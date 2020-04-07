@@ -214,7 +214,7 @@ template <typename T>
 ReturnedValue atomicLoad(char *data)
 {
     typename QAtomicOps<T>::Type *mem = reinterpret_cast<typename QAtomicOps<T>::Type *>(data);
-    T val = QAtomicOps<T>::load(*mem);
+    T val = QAtomicOps<T>::loadRelaxed(*mem);
     return typeToValue(val);
 }
 
@@ -223,7 +223,7 @@ ReturnedValue atomicStore(char *data, Value v)
 {
     T value = valueToType<T>(v);
     typename QAtomicOps<T>::Type *mem = reinterpret_cast<typename QAtomicOps<T>::Type *>(data);
-    QAtomicOps<T>::store(*mem, value);
+    QAtomicOps<T>::storeRelaxed(*mem, value);
     return typeToValue(value);
 }
 
@@ -459,24 +459,23 @@ Heap::TypedArray *TypedArray::create(ExecutionEngine *e, Heap::TypedArray::Type 
 
 ReturnedValue TypedArray::virtualGet(const Managed *m, PropertyKey id, const Value *receiver, bool *hasProperty)
 {
-    uint index = id.asArrayIndex();
-    if (index == UINT_MAX && !id.isCanonicalNumericIndexString())
+    const bool isArrayIndex = id.isArrayIndex();
+    if (!isArrayIndex && !id.isCanonicalNumericIndexString())
         return Object::virtualGet(m, id, receiver, hasProperty);
-    // fall through, with index == UINT_MAX it'll do the right thing.
 
     Scope scope(static_cast<const Object *>(m)->engine());
     Scoped<TypedArray> a(scope, static_cast<const TypedArray *>(m));
     if (a->d()->buffer->isDetachedBuffer())
         return scope.engine->throwTypeError();
 
-    if (index >= a->length()) {
+    if (!isArrayIndex || id.asArrayIndex() >= a->length()) {
         if (hasProperty)
             *hasProperty = false;
         return Encode::undefined();
     }
 
     uint bytesPerElement = a->d()->type->bytesPerElement;
-    uint byteOffset = a->d()->byteOffset + index * bytesPerElement;
+    uint byteOffset = a->d()->byteOffset + id.asArrayIndex() * bytesPerElement;
     Q_ASSERT(byteOffset + bytesPerElement <= (uint)a->d()->buffer->byteLength());
 
     if (hasProperty)
@@ -486,27 +485,22 @@ ReturnedValue TypedArray::virtualGet(const Managed *m, PropertyKey id, const Val
 
 bool TypedArray::virtualHasProperty(const Managed *m, PropertyKey id)
 {
-    uint index = id.asArrayIndex();
-    if (index == UINT_MAX && !id.isCanonicalNumericIndexString())
+    const bool isArrayIndex = id.isArrayIndex();
+    if (!isArrayIndex && !id.isCanonicalNumericIndexString())
         return Object::virtualHasProperty(m, id);
-    // fall through, with index == UINT_MAX it'll do the right thing.
 
     const TypedArray *a = static_cast<const TypedArray *>(m);
     if (a->d()->buffer->isDetachedBuffer()) {
         a->engine()->throwTypeError();
         return false;
     }
-    if (index >= a->length())
-        return false;
-    return true;
+    return isArrayIndex && id.asArrayIndex() < a->length();
 }
 
 PropertyAttributes TypedArray::virtualGetOwnProperty(const Managed *m, PropertyKey id, Property *p)
 {
-    uint index = id.asArrayIndex();
-    if (index == UINT_MAX && !id.isCanonicalNumericIndexString())
+    if (!id.isArrayIndex() && !id.isCanonicalNumericIndexString())
         return Object::virtualGetOwnProperty(m, id, p);
-    // fall through, with index == UINT_MAX it'll do the right thing.
 
     bool hasProperty = false;
     ReturnedValue v = virtualGet(m, id, m, &hasProperty);
@@ -517,10 +511,9 @@ PropertyAttributes TypedArray::virtualGetOwnProperty(const Managed *m, PropertyK
 
 bool TypedArray::virtualPut(Managed *m, PropertyKey id, const Value &value, Value *receiver)
 {
-    uint index = id.asArrayIndex();
-    if (index == UINT_MAX && !id.isCanonicalNumericIndexString())
+    const bool isArrayIndex = id.isArrayIndex();
+    if (!isArrayIndex && !id.isCanonicalNumericIndexString())
         return Object::virtualPut(m, id, value, receiver);
-    // fall through, with index == UINT_MAX it'll do the right thing.
 
     ExecutionEngine *v4 = static_cast<Object *>(m)->engine();
     if (v4->hasException)
@@ -531,6 +524,10 @@ bool TypedArray::virtualPut(Managed *m, PropertyKey id, const Value &value, Valu
     if (a->d()->buffer->isDetachedBuffer())
         return scope.engine->throwTypeError();
 
+    if (!isArrayIndex)
+        return false;
+
+    const uint index = id.asArrayIndex();
     if (index >= a->length())
         return false;
 
@@ -547,11 +544,12 @@ bool TypedArray::virtualPut(Managed *m, PropertyKey id, const Value &value, Valu
 
 bool TypedArray::virtualDefineOwnProperty(Managed *m, PropertyKey id, const Property *p, PropertyAttributes attrs)
 {
-    uint index = id.asArrayIndex();
-    if (index == UINT_MAX && !id.isCanonicalNumericIndexString())
-        return Object::virtualDefineOwnProperty(m, id, p, attrs);
-    // fall through, with index == UINT_MAX it'll do the right thing.
+    if (!id.isArrayIndex()) {
+        return !id.isCanonicalNumericIndexString()
+                && Object::virtualDefineOwnProperty(m, id, p, attrs);
+    }
 
+    const uint index = id.asArrayIndex();
     TypedArray *a = static_cast<TypedArray *>(m);
     if (index >= a->length() || attrs.isAccessor())
         return false;
@@ -765,6 +763,7 @@ ReturnedValue IntrinsicTypedArrayPrototype::method_every(const FunctionObject *b
         arguments[1] = Value::fromDouble(k);
         arguments[2] = v;
         r = callback->call(that, arguments, 3);
+        CHECK_EXCEPTION();
         ok = r->toBoolean();
     }
     return Encode(ok);
@@ -864,6 +863,7 @@ ReturnedValue IntrinsicTypedArrayPrototype::method_filter(const FunctionObject *
         arguments[1] = Value::fromDouble(k);
         arguments[2] = instance;
         selected = callback->call(that, arguments, 3);
+        CHECK_EXCEPTION();
         if (selected->toBoolean()) {
             ++arguments;
             scope.alloc(1);
@@ -1203,6 +1203,7 @@ ReturnedValue IntrinsicTypedArrayPrototype::method_map(const FunctionObject *b, 
         arguments[1] = Value::fromDouble(k);
         arguments[2] = instance;
         mapped = callback->call(that, arguments, 3);
+        CHECK_EXCEPTION();
         a->put(k, mapped);
     }
     return a->asReturnedValue();
@@ -1252,6 +1253,7 @@ ReturnedValue IntrinsicTypedArrayPrototype::method_reduce(const FunctionObject *
             arguments[2] = Value::fromDouble(k);
             arguments[3] = instance;
             acc = callback->call(nullptr, arguments, 4);
+            CHECK_EXCEPTION();
         }
         ++k;
     }
@@ -1307,6 +1309,7 @@ ReturnedValue IntrinsicTypedArrayPrototype::method_reduceRight(const FunctionObj
             arguments[2] = Value::fromDouble(k - 1);
             arguments[3] = instance;
             acc = callback->call(nullptr, arguments, 4);
+            CHECK_EXCEPTION();
         }
         --k;
     }
@@ -1368,6 +1371,7 @@ ReturnedValue IntrinsicTypedArrayPrototype::method_some(const FunctionObject *b,
         arguments[1] = Value::fromDouble(k);
         arguments[2] = instance;
         result = callback->call(that, arguments, 3);
+        CHECK_EXCEPTION();
         if (result->toBoolean())
             return Encode(true);
     }
@@ -1418,7 +1422,8 @@ ReturnedValue IntrinsicTypedArrayPrototype::method_set(const FunctionObject *b, 
         if (scope.engine->hasException || l != len)
             return scope.engine->throwTypeError();
 
-        if (offset + l > a->length())
+        const uint aLength = a->length();
+        if (offset > aLength || l > aLength - offset)
             RETURN_RESULT(scope.engine->throwRangeError(QStringLiteral("TypedArray.set: out of range")));
 
         uint idx = 0;
@@ -1448,7 +1453,9 @@ ReturnedValue IntrinsicTypedArrayPrototype::method_set(const FunctionObject *b, 
         return scope.engine->throwTypeError();
 
     uint l = srcTypedArray->length();
-    if (offset + l > a->length())
+
+    const uint aLength = a->length();
+    if (offset > aLength || l > aLength - offset)
         RETURN_RESULT(scope.engine->throwRangeError(QStringLiteral("TypedArray.set: out of range")));
 
     char *dest = buffer->d()->data->data() + a->d()->byteOffset + offset*elementSize;
@@ -1595,7 +1602,7 @@ ReturnedValue IntrinsicTypedArrayPrototype::method_toLocaleString(const Function
             R += separator;
 
         v = instance->get(k);
-        v = Runtime::method_callElement(scope.engine, v, *scope.engine->id_toLocaleString(), nullptr, 0);
+        v = Runtime::CallElement::call(scope.engine, v, *scope.engine->id_toLocaleString(), nullptr, 0);
         s = v->toString(scope.engine);
         if (scope.hasException())
             return Encode::undefined();

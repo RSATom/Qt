@@ -56,11 +56,7 @@ config("bundled_icu_config") {
   if (icu_use_data_file) {
     defines += [ "ICU_UTIL_DATA_IMPL=ICU_UTIL_DATA_FILE" ]
   } else {
-    if (is_win) {
-      defines += [ "ICU_UTIL_DATA_IMPL=ICU_UTIL_DATA_SHARED" ]
-    } else {
-      defines += [ "ICU_UTIL_DATA_IMPL=ICU_UTIL_DATA_STATIC" ]
-    }
+    defines += [ "ICU_UTIL_DATA_IMPL=ICU_UTIL_DATA_STATIC" ]
   }
 
   if (is_win) {
@@ -78,6 +74,9 @@ config("icu_code") {
 
     # Only build encoding coverters and detectors necessary for HTML5.
     "UCONFIG_ONLY_HTML_CONVERSION=1",
+
+    # TODO(jshin): do we still need this?
+    "UCONFIG_USE_WINDOWS_LCID_MAPPING_API=0",
 
     # No dependency on the default platform encoding.
     # Will cut down the code size.
@@ -256,6 +255,10 @@ component("bundled_icui18n") {
     "source/i18n/fmtable.cpp",
     "source/i18n/fmtableimp.h",
     "source/i18n/format.cpp",
+    "source/i18n/formattedval_impl.h",
+    "source/i18n/formattedval_iterimpl.cpp",
+    "source/i18n/formattedval_sbimpl.cpp",
+    "source/i18n/formattedvalue.cpp",
     "source/i18n/fphdlimp.cpp",
     "source/i18n/fphdlimp.h",
     "source/i18n/fpositer.cpp",
@@ -324,6 +327,7 @@ component("bundled_icui18n") {
     "source/i18n/number_multiplier.cpp",
     "source/i18n/number_multiplier.h",
     "source/i18n/number_notation.cpp",
+    "source/i18n/number_output.cpp",
     "source/i18n/number_padding.cpp",
     "source/i18n/number_patternmodifier.cpp",
     "source/i18n/number_patternmodifier.h",
@@ -545,6 +549,7 @@ component("bundled_icui18n") {
     "source/i18n/unicode/fieldpos.h",
     "source/i18n/unicode/fmtable.h",
     "source/i18n/unicode/format.h",
+    "source/i18n/unicode/formattedvalue.h",
     "source/i18n/unicode/fpositer.h",
     "source/i18n/unicode/gender.h",
     "source/i18n/unicode/gregocal.h",
@@ -591,6 +596,7 @@ component("bundled_icui18n") {
     "source/i18n/unicode/udatpg.h",
     "source/i18n/unicode/ufieldpositer.h",
     "source/i18n/unicode/uformattable.h",
+    "source/i18n/unicode/uformattedvalue.h",
     "source/i18n/unicode/ugender.h",
     "source/i18n/unicode/ulistformatter.h",
     "source/i18n/unicode/ulocdata.h",
@@ -654,6 +660,7 @@ component("bundled_icuuc") {
     "source/common/bytestrie.cpp",
     "source/common/bytestrieiterator.cpp",
     "source/common/caniter.cpp",
+    "source/common/capi_helper.h",
     "source/common/characterproperties.cpp",
     "source/common/chariter.cpp",
     "source/common/charstr.cpp",
@@ -681,6 +688,7 @@ component("bundled_icuuc") {
     "source/common/icuplug.cpp",
     "source/common/icuplugimp.h",
     "source/common/loadednormalizer2impl.cpp",
+    "source/common/localebuilder.cpp",
     "source/common/localsvc.h",
     "source/common/locavailable.cpp",
     "source/common/locbased.cpp",
@@ -844,7 +852,7 @@ component("bundled_icuuc") {
     "source/common/uinvchar.cpp",
     "source/common/uinvchar.h",
     "source/common/uiter.cpp",
-    "source/common/ulayout_props_data.h",
+    "source/common/ulayout_props.h",
     "source/common/ulist.cpp",
     "source/common/ulist.h",
     "source/common/uloc.cpp",
@@ -961,6 +969,7 @@ component("bundled_icuuc") {
     "source/common/unicode/icudataver.h",
     "source/common/unicode/icuplug.h",
     "source/common/unicode/idna.h",
+    "source/common/unicode/localebuilder.h",
     "source/common/unicode/localpointer.h",
     "source/common/unicode/locdspnm.h",
     "source/common/unicode/locid.h",
@@ -1058,10 +1067,11 @@ component("bundled_icuuc") {
 
   public_configs = [ ":icu_config" ]
 
-  if (is_win || icu_use_data_file) {
+  if (icu_use_data_file) {
     sources += [ "source/stubdata/stubdata.cpp" ]
-    defines += [ "U_ICUDATAENTRY_IN_COMMON" ]
   }
+
+  defines += [ "U_ICUDATAENTRY_IN_COMMON" ]
 
   if (is_fuchsia) {
     # Fuchsia puts its own libicuuc.so in /system/lib where we need to put our
@@ -1083,9 +1093,12 @@ if (is_android && enable_java_templates) {
 # TODO(GYP): Gyp has considerations here for QNX and for the host toolchain
 #  that have not been ported over.
 if (is_android) {
-  data_dir = "android"
+# Use android_small for now to keep the size till we decide to switch to the new one.
+  data_dir = "android_small"
 } else if (is_ios) {
   data_dir = "ios"
+} else if (is_chromeos) {
+  data_dir = "chromeos"
 } else {
   data_dir = "common"
 }
@@ -1112,37 +1125,47 @@ if (icu_use_data_file) {
     }
   }
 } else {
+  data_assembly = "$target_gen_dir/${data_bundle_prefix}_dat.S"
+  inline_data_assembly = "$target_gen_dir/${data_bundle_prefix}_dat.cc"
+  action("make_data_assembly") {
+    script = "scripts/make_data_assembly.py"
+    inputs = [ "$data_dir/$data_bundle" ]
+    outputs = [ data_assembly ]
+    args = [
+      rebase_path(inputs[0], root_build_dir),
+      rebase_path(data_assembly, root_build_dir),
+    ]
+    # TODO(GYP): Gyp has considerations here for QNX and for the host
+    # toolchain that have not been ported over.
+    if (is_mac || is_ios) {
+      args += [ "--mac" ]
+    } else if (is_win) {
+      args += [ "--win" ]
+    }
+  }
+
   if (is_win) {
-    # On Windows the target DLL is pre-built so just use a copy rule.
-    # data_bundle and data_dir have to be used to avoid 'unused variable'
-    # error.
-    data_bundle = "icudt.dll"
-    data_dir = "windows"
-    copy("icudata") {
-      sources = [ "$data_dir/$data_bundle" ]
-      outputs = [ "$root_out_dir/$data_bundle" ]
-      data = outputs
+    action("make_inline_data_assembly") {
+      deps = [ ":make_data_assembly" ]
+      script = "scripts/asm_to_inline_asm.py"
+      inputs = [ data_assembly ]
+      outputs =  [ inline_data_assembly ]
+      args = rebase_path([
+        data_assembly,
+        inline_data_assembly,
+      ], root_build_dir)
     }
   } else {
-    data_assembly = "$target_gen_dir/${data_bundle_prefix}_dat.S"
-    action("make_data_assembly") {
-      script = "scripts/make_data_assembly.py"
-      inputs = [ "$data_dir/$data_bundle" ]
-      outputs = [ "$data_assembly" ]
-      args = [
-        rebase_path(inputs[0], root_build_dir),
-        rebase_path(data_assembly, root_build_dir),
-      ]
-      # TODO(GYP): Gyp has considerations here for QNX and for the host
-      # toolchain that have not been ported over.
-      if (is_mac || is_ios) {
-        args += [ "--mac" ]
-      }
-    }
+    not_needed([ "inline_data_assembly" ])
+  }
 
-    source_set("icudata") {
-      sources = [ "$data_assembly" ]
-      defines = [ "U_HIDE_DATA_SYMBOL" ]
+  source_set("icudata") {
+    defines = [ "U_HIDE_DATA_SYMBOL" ]
+    if (is_win) {
+      sources = [ inline_data_assembly ]
+      deps = [ ":make_inline_data_assembly", ]
+    } else {
+      sources = [ data_assembly ]
       deps = [ ":make_data_assembly", ]
     }
   }
@@ -1153,6 +1176,12 @@ config("system_icu_config") {
     "USING_SYSTEM_ICU=1",
     "ICU_UTIL_DATA_IMPL=ICU_UTIL_DATA_STATIC",
   ]
+
+  if (is_win) {
+    defines += [ "UCHAR_TYPE=wchar_t" ]
+  } else {
+    defines += [ "UCHAR_TYPE=uint16_t" ]
+  }
 }
 
 if (use_system_icu) {
@@ -1170,9 +1199,7 @@ shim_headers("icui18n_shim") {
   prefix = "unicode/"
   headers = [
     # This list can easily be updated using the command below:
-    # find third_party/icu/source/i18n/unicode \
-    # -iname '*.h' -printf '"%p",\n' | \
-    # sed -e 's|third_party/icu/source/i18n/unicode/||' | sort -u
+    # find third_party/icu/source/i18n/unicode -iname '*.h' -printf '%f\n' | sort -Vu | sed -e 's/.*/"&",/'
     "alphaindex.h",
     "basictz.h",
     "calendar.h",
@@ -1194,15 +1221,18 @@ shim_headers("icui18n_shim") {
     "fieldpos.h",
     "fmtable.h",
     "format.h",
+    "formattedvalue.h",
     "fpositer.h",
     "gender.h",
     "gregocal.h",
+    "listformatter.h",
     "measfmt.h",
     "measunit.h",
     "measure.h",
     "msgfmt.h",
     "nounit.h",
     "numberformatter.h",
+    "numberrangeformatter.h",
     "numfmt.h",
     "numsys.h",
     "plurfmt.h",
@@ -1238,11 +1268,14 @@ shim_headers("icui18n_shim") {
     "udatpg.h",
     "ufieldpositer.h",
     "uformattable.h",
+    "uformattedvalue.h",
     "ugender.h",
+    "ulistformatter.h",
     "ulocdata.h",
     "umsg.h",
     "unirepl.h",
     "unum.h",
+    "unumberformatter.h",
     "unumsys.h",
     "upluralrules.h",
     "uregex.h",
@@ -1261,9 +1294,7 @@ shim_headers("icuuc_shim") {
   prefix = "unicode/"
   headers = [
     # This list can easily be updated using the command below:
-    # find third_party/icu/source/common/unicode \
-    # -iname '*.h' -printf '"%p",\n' | \
-    # sed -e 's|third_party/icu/source/common/unicode/||' | sort -u
+    # find third_party/icu/source/common/unicode -iname '*.h' -printf '%f\n' | sort -Vu | sed -e 's/.*/"&",/'
     "appendable.h",
     "brkiter.h",
     "bytestream.h",
@@ -1283,6 +1314,7 @@ shim_headers("icuuc_shim") {
     "icudataver.h",
     "icuplug.h",
     "idna.h",
+    "localebuilder.h",
     "localpointer.h",
     "locdspnm.h",
     "locid.h",
@@ -1316,10 +1348,12 @@ shim_headers("icuuc_shim") {
     "uchriter.h",
     "uclean.h",
     "ucnv.h",
+    "ucnvsel.h",
     "ucnv_cb.h",
     "ucnv_err.h",
-    "ucnvsel.h",
     "uconfig.h",
+    "ucpmap.h",
+    "ucptrie.h",
     "ucurr.h",
     "udata.h",
     "udisplaycontext.h",
@@ -1330,6 +1364,7 @@ shim_headers("icuuc_shim") {
     "uloc.h",
     "umachine.h",
     "umisc.h",
+    "umutablecptrie.h",
     "unifilt.h",
     "unifunct.h",
     "unimatch.h",
@@ -1350,9 +1385,9 @@ shim_headers("icuuc_shim") {
     "ustringtrie.h",
     "utext.h",
     "utf.h",
+    "utf8.h",
     "utf16.h",
     "utf32.h",
-    "utf8.h",
     "utf_old.h",
     "utrace.h",
     "utypes.h",

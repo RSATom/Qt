@@ -46,10 +46,8 @@ namespace storage {
 
 namespace {
 
-QuotaClient* CreateQuotaClient(
-    FileSystemContext* context,
-    bool is_incognito) {
-  return new FileSystemQuotaClient(context, is_incognito);
+QuotaClient* CreateQuotaClient(FileSystemContext* context) {
+  return new FileSystemQuotaClient(context);
 }
 
 void DidGetMetadataForResolveURL(const base::FilePath& path,
@@ -101,11 +99,11 @@ int FileSystemContext::GetPermissionPolicy(FileSystemType type) {
     case kFileSystemTypeProvided:
     case kFileSystemTypeDeviceMediaAsFileStorage:
     case kFileSystemTypeDriveFs:
+    case kFileSystemTypeArcContent:
+    case kFileSystemTypeArcDocumentsProvider:
       return FILE_PERMISSION_USE_FILE_PERMISSION;
 
     case kFileSystemTypeRestrictedNativeLocal:
-    case kFileSystemTypeArcContent:
-    case kFileSystemTypeArcDocumentsProvider:
       return FILE_PERMISSION_READ_ONLY |
              FILE_PERMISSION_USE_FILE_PERMISSION;
 
@@ -148,7 +146,8 @@ FileSystemContext::FileSystemContext(
     const std::vector<URLRequestAutoMountHandler>& auto_mount_handlers,
     const base::FilePath& partition_path,
     const FileSystemOptions& options)
-    : env_override_(options.is_in_memory()
+    : base::RefCountedDeleteOnSequence<FileSystemContext>(io_task_runner),
+      env_override_(options.is_in_memory()
                         ? leveldb_chrome::NewMemEnv("FileSystem")
                         : nullptr),
       io_task_runner_(io_task_runner),
@@ -186,14 +185,13 @@ FileSystemContext::FileSystemContext(
   // Chrome OS the additional backend chromeos::FileSystemBackend handles these
   // types.
   isolated_backend_.reset(new IsolatedFileSystemBackend(
-      !base::ContainsKey(backend_map_, kFileSystemTypeNativeLocal),
-      !base::ContainsKey(backend_map_, kFileSystemTypeNativeForPlatformApp)));
+      !base::Contains(backend_map_, kFileSystemTypeNativeLocal),
+      !base::Contains(backend_map_, kFileSystemTypeNativeForPlatformApp)));
   RegisterBackend(isolated_backend_.get());
 
   if (quota_manager_proxy) {
     // Quota client assumes all backends have registered.
-    quota_manager_proxy->RegisterClient(CreateQuotaClient(
-            this, options.is_incognito()));
+    quota_manager_proxy->RegisterClient(CreateQuotaClient(this));
   }
 
   sandbox_backend_->Initialize(this);
@@ -472,7 +470,8 @@ FileSystemURL FileSystemContext::CreateCrackedFileSystemURL(
     const GURL& origin,
     FileSystemType type,
     const base::FilePath& path) const {
-  return CrackFileSystemURL(FileSystemURL(origin, type, path));
+  return CrackFileSystemURL(
+      FileSystemURL(url::Origin::Create(origin), type, path));
 }
 
 #if defined(OS_CHROMEOS)
@@ -485,12 +484,10 @@ bool FileSystemContext::CanServeURLRequest(const FileSystemURL& url) const {
   // We never support accessing files in isolated filesystems via an URL.
   if (url.mount_type() == kFileSystemTypeIsolated)
     return false;
-#if defined(OS_CHROMEOS)
   if (url.type() == kFileSystemTypeTemporary &&
       sandbox_backend_->enable_temporary_file_system_in_incognito()) {
     return true;
   }
-#endif
   return !is_incognito_ || !FileSystemContext::IsSandboxFileSystem(url.type());
 }
 
@@ -510,14 +507,6 @@ FileSystemContext::~FileSystemContext() {
   // TODO(crbug.com/823854) This is a leak. Delete env after the backends have
   // been deleted.
   env_override_.release();
-}
-
-void FileSystemContext::DeleteOnCorrectSequence() const {
-  if (!io_task_runner_->RunsTasksInCurrentSequence() &&
-      io_task_runner_->DeleteSoon(FROM_HERE, this)) {
-    return;
-  }
-  delete this;
 }
 
 FileSystemOperation* FileSystemContext::CreateFileSystemOperation(

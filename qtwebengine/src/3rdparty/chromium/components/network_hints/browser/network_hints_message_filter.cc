@@ -7,6 +7,7 @@
 #include <memory>
 #include <string>
 
+#include "base/bind.h"
 #include "base/logging.h"
 #include "base/macros.h"
 #include "components/network_hints/common/network_hints_common.h"
@@ -82,7 +83,7 @@ class DnsLookupRequest : public network::ResolveHostClientBase {
       int result,
       const base::Optional<net::AddressList>& resolved_addresses) override {
     VLOG(2) << __FUNCTION__ << ": " << hostname_ << ", result=" << result;
-    std::move(request_);
+    request_.reset();
   }
 
   mojo::Binding<network::mojom::ResolveHostClient> binding_;

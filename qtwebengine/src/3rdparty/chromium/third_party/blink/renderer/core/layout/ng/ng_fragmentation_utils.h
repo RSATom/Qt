@@ -5,9 +5,9 @@
 #ifndef NGFragmentationUtils_h
 #define NGFragmentationUtils_h
 
-#include "third_party/blink/renderer/core/layout/ng/ng_break_token.h"
+#include "third_party/blink/renderer/core/layout/ng/ng_block_break_token.h"
 #include "third_party/blink/renderer/core/layout/ng/ng_layout_input_node.h"
-#include "third_party/blink/renderer/core/layout/ng/ng_physical_fragment.h"
+#include "third_party/blink/renderer/core/layout/ng/ng_physical_container_fragment.h"
 #include "third_party/blink/renderer/core/style/computed_style_constants.h"
 #include "third_party/blink/renderer/platform/geometry/layout_unit.h"
 
@@ -34,7 +34,10 @@ inline bool IsFirstFragment(const NGConstraintSpace& constraint_space,
 
 // Return true if the specified fragment is the final fragment of some node.
 inline bool IsLastFragment(const NGPhysicalFragment& fragment) {
-  const auto* break_token = fragment.BreakToken();
+  if (!fragment.IsContainer())
+    return false;
+  const auto* break_token =
+      To<NGPhysicalContainerFragment>(fragment).BreakToken();
   return !break_token || break_token->IsFinished();
 }
 
@@ -62,6 +65,21 @@ bool IsForcedBreakValue(const NGConstraintSpace&, EBreakBetween);
 bool ShouldIgnoreBlockStartMargin(const NGConstraintSpace&,
                                   NGLayoutInputNode,
                                   const NGBreakToken*);
+
+// Return true if we're resuming layout after a previous break.
+inline bool IsResumingLayout(const NGBlockBreakToken* token) {
+  return token && !token->IsBreakBefore();
+}
+
+// Set up a child's constraint space builder for block fragmentation. The child
+// participates in the same fragmentation context as parent_space. If the child
+// establishes a new formatting context, new_bfc_block_offset must be set to the
+// offset from the parent block formatting context, or, if the parent formatting
+// context starts in a previous fragmentainer; the offset from the current
+// fragmentainer block-start.
+void SetupFragmentation(const NGConstraintSpace& parent_space,
+                        LayoutUnit new_bfc_block_offset,
+                        NGConstraintSpaceBuilder*);
 
 }  // namespace blink
 

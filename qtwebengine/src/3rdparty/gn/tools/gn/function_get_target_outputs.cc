@@ -26,30 +26,24 @@ const char kGetTargetOutputs_Help[] =
   defined execution order, and it obviously can't reference targets that are
   defined after the function call).
 
-  Only copy and action targets are supported. The outputs from binary targets
-  will depend on the toolchain definition which won't necessarily have been
-  loaded by the time a given line of code has run, and source sets and groups
-  have no useful output file.
+  Only copy, generated_file, and action targets are supported. The outputs from
+  binary targets will depend on the toolchain definition which won't
+  necessarily have been loaded by the time a given line of code has run, and
+  source sets and groups have no useful output file.
 
 Return value
 
   The names in the resulting list will be absolute file paths (normally like
   "//out/Debug/bar.exe", depending on the build directory).
 
-  action targets: this will just return the files specified in the "outputs"
-  variable of the target.
+  action, copy, and generated_file targets: this will just return the files
+  specified in the "outputs" variable of the target.
 
   action_foreach targets: this will return the result of applying the output
   template to the sources (see "gn help source_expansion"). This will be the
   same result (though with guaranteed absolute file paths), as
   process_file_template will return for those inputs (see "gn help
   process_file_template").
-
-  binary targets (executables, libraries): this will return a list of the
-  resulting binary file(s). The "main output" (the actual binary or library)
-  will always be the 0th element in the result. Depending on the platform and
-  output type, there may be other output files as well (like import libraries)
-  which will follow.
 
   source sets and groups: this will return a list containing the path of the
   "stamp" file that Ninja will produce once all outputs are generated. This
@@ -121,12 +115,15 @@ Value RunGetTargetOutputs(Scope* scope,
   std::vector<SourceFile> files;
   if (target->output_type() == Target::ACTION ||
       target->output_type() == Target::COPY_FILES ||
-      target->output_type() == Target::ACTION_FOREACH) {
+      target->output_type() == Target::ACTION_FOREACH ||
+      target->output_type() == Target::GENERATED_FILE) {
     target->action_values().GetOutputsAsSourceFiles(target, &files);
   } else {
     // Other types of targets are not supported.
-    *err = Err(args[0], "Target is not an action, action_foreach, or copy.",
-               "Only these target types are supported by get_target_outputs.");
+    *err =
+        Err(args[0],
+            "Target is not an action, action_foreach, generated_file, or copy.",
+            "Only these target types are supported by get_target_outputs.");
     return Value();
   }
 

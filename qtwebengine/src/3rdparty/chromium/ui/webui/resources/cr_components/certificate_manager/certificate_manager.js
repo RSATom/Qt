@@ -49,6 +49,16 @@ Polymer({
       },
     },
 
+    /**
+     * Indicates if certificate import is allowed by Chrome OS specific policy
+     * CertificateManagementAllowed.
+     * Value exists only for Chrome OS.
+     */
+    clientImportAllowed: {
+      type: Boolean,
+      value: true,
+    },
+
     /** @private */
     certificateTypeEnum_: {
       type: Object,
@@ -105,13 +115,26 @@ Polymer({
             loadTimeData.getBoolean('isKiosk');
       },
     },
+
+    /** @private {!Array<string>} */
+    tabNames_: {
+      type: Array,
+      computed: 'computeTabNames_(isKiosk_)',
+    },
   },
 
   /** @override */
   attached: function() {
     this.addWebUIListener('certificates-changed', this.set.bind(this));
+    this.addWebUIListener(
+        'certificates-model-ready', this.setClientImportAllowed.bind(this));
     certificate_manager.CertificatesBrowserProxyImpl.getInstance()
         .refreshCertificates();
+  },
+
+  /** @private */
+  setClientImportAllowed: function(allowed) {
+    this.clientImportAllowed = allowed;
   },
 
   /**
@@ -196,5 +219,22 @@ Polymer({
         cr.ui.focusWithoutInk(assert(this.activeDialogAnchor_));
       });
     });
+  },
+
+  /**
+   * @return {!Array<string>}
+   * @private
+   */
+  computeTabNames_: function() {
+    return [
+      loadTimeData.getString('certificateManagerYourCertificates'),
+      ...(this.isKiosk_ ?
+              [] :
+              [
+                loadTimeData.getString('certificateManagerServers'),
+                loadTimeData.getString('certificateManagerAuthorities'),
+              ]),
+      loadTimeData.getString('certificateManagerOthers'),
+    ];
   },
 });

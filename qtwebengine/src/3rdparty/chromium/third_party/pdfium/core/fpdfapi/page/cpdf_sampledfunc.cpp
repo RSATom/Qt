@@ -8,6 +8,8 @@
 
 #include "core/fpdfapi/parser/cpdf_array.h"
 #include "core/fpdfapi/parser/cpdf_dictionary.h"
+#include "core/fpdfapi/parser/cpdf_stream.h"
+#include "core/fpdfapi/parser/cpdf_stream_acc.h"
 #include "core/fxcrt/cfx_bitstream.h"
 #include "core/fxcrt/cfx_fixedbufgrow.h"
 #include "core/fxcrt/fx_safe_types.h"
@@ -65,8 +67,8 @@ bool CPDF_SampledFunc::v_Init(const CPDF_Object* pObj,
     m_EncodeInfo[i].sizes = size;
     nTotalSampleBits *= m_EncodeInfo[i].sizes;
     if (pEncode) {
-      m_EncodeInfo[i].encode_min = pEncode->GetFloatAt(i * 2);
-      m_EncodeInfo[i].encode_max = pEncode->GetFloatAt(i * 2 + 1);
+      m_EncodeInfo[i].encode_min = pEncode->GetNumberAt(i * 2);
+      m_EncodeInfo[i].encode_max = pEncode->GetNumberAt(i * 2 + 1);
     } else {
       m_EncodeInfo[i].encode_min = 0;
       m_EncodeInfo[i].encode_max =
@@ -87,8 +89,8 @@ bool CPDF_SampledFunc::v_Init(const CPDF_Object* pObj,
   m_DecodeInfo.resize(m_nOutputs);
   for (uint32_t i = 0; i < m_nOutputs; i++) {
     if (pDecode) {
-      m_DecodeInfo[i].decode_min = pDecode->GetFloatAt(2 * i);
-      m_DecodeInfo[i].decode_max = pDecode->GetFloatAt(2 * i + 1);
+      m_DecodeInfo[i].decode_min = pDecode->GetNumberAt(2 * i);
+      m_DecodeInfo[i].decode_max = pDecode->GetNumberAt(2 * i + 1);
     } else {
       m_DecodeInfo[i].decode_min = m_Ranges[i * 2];
       m_DecodeInfo[i].decode_max = m_Ranges[i * 2 + 1];
@@ -171,3 +173,9 @@ bool CPDF_SampledFunc::v_Call(const float* inputs, float* results) const {
   }
   return true;
 }
+
+#if defined _SKIA_SUPPORT_ || defined _SKIA_SUPPORT_PATHS_
+RetainPtr<CPDF_StreamAcc> CPDF_SampledFunc::GetSampleStream() const {
+  return m_pSampleStream;
+}
+#endif

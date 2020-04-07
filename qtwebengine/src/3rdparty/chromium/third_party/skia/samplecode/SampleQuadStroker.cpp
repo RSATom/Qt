@@ -5,32 +5,32 @@
  * found in the LICENSE file.
  */
 
-#include "Sample.h"
-#include "SkBlendMode.h"
-#include "SkCanvas.h"
-#include "SkColor.h"
-#include "SkFont.h"
-#include "SkGeometry.h"
-#include "SkImageInfo.h"
-#include "SkMatrix.h"
-#include "SkPaint.h"
-#include "SkPath.h"
-#include "SkPathMeasure.h"
-#include "SkPoint.h"
-#include "SkPointPriv.h"
-#include "SkRRect.h"
-#include "SkRect.h"
-#include "SkRefCnt.h"
-#include "SkScalar.h"
-#include "SkShader.h"
-#include "SkString.h"
-#include "SkStroke.h"
-#include "SkSurface.h"
-#include "SkTArray.h"
-#include "SkTemplates.h"
-#include "SkTextUtils.h"
-#include "SkTypes.h"
-#include "sk_tool_utils.h"
+#include "include/core/SkBlendMode.h"
+#include "include/core/SkCanvas.h"
+#include "include/core/SkColor.h"
+#include "include/core/SkFont.h"
+#include "include/core/SkImageInfo.h"
+#include "include/core/SkMatrix.h"
+#include "include/core/SkPaint.h"
+#include "include/core/SkPath.h"
+#include "include/core/SkPathMeasure.h"
+#include "include/core/SkPoint.h"
+#include "include/core/SkRRect.h"
+#include "include/core/SkRect.h"
+#include "include/core/SkRefCnt.h"
+#include "include/core/SkScalar.h"
+#include "include/core/SkShader.h"
+#include "include/core/SkString.h"
+#include "include/core/SkSurface.h"
+#include "include/core/SkTypes.h"
+#include "include/private/SkTArray.h"
+#include "include/private/SkTemplates.h"
+#include "include/utils/SkTextUtils.h"
+#include "samplecode/Sample.h"
+#include "src/core/SkGeometry.h"
+#include "src/core/SkPointPriv.h"
+#include "src/core/SkStroke.h"
+#include "tools/ToolUtils.h"
 
 #include <cfloat>
 
@@ -209,13 +209,10 @@ public:
     }
 
 protected:
-    bool onQuery(Sample::Event* evt) override {
-        if (Sample::TitleQ(*evt)) {
-            Sample::TitleR(evt, "QuadStroker");
-            return true;
-        }
-        SkUnichar uni;
-        if (fTextButton.fEnabled && Sample::CharQ(*evt, &uni)) {
+    SkString name() override { return SkString("QuadStroker"); }
+
+    bool onChar(SkUnichar uni) override {
+        if (fTextButton.fEnabled) {
             switch (uni) {
                 case ' ':
                     fText = "";
@@ -232,7 +229,7 @@ protected:
             }
             return true;
         }
-        return this->INHERITED::onQuery(evt);
+        return false;
     }
 
     void onSizeChange() override {
@@ -282,7 +279,7 @@ protected:
         fBounds.set(0, 0, SkIntToScalar(width * zoom), SkIntToScalar(height * zoom));
         fMatrix.setScale(SkIntToScalar(zoom), SkIntToScalar(zoom));
         fInverse.setScale(SK_Scalar1 / zoom, SK_Scalar1 / zoom);
-        fShader = sk_tool_utils::create_checkerboard_shader(0xFFCCCCCC, 0xFFFFFFFF, zoom);
+        fShader = ToolUtils::create_checkerboard_shader(0xFFCCCCCC, 0xFFFFFFFF, zoom);
 
         SkImageInfo info = SkImageInfo::MakeN32Premul(width, height);
         fMinSurface = SkSurface::MakeRaster(info);
@@ -509,7 +506,7 @@ protected:
         paint.setStyle(SkPaint::kFill_Style);
         SkFont font;
         font.setSize(25.0f);
-        SkTextUtils::Draw(canvas, &button.fLabel, 1, kUTF8_SkTextEncoding,
+        SkTextUtils::Draw(canvas, &button.fLabel, 1, SkTextEncoding::kUTF8,
                 button.fBounds.centerX(), button.fBounds.fBottom - 5,
                 font, paint, SkTextUtils::kCenter_Align);
     }
@@ -682,7 +679,7 @@ protected:
             path.reset();
             SkFont font;
             font.setSize(fTextSize);
-            SkTextUtils::GetPath(fText.c_str(), fText.size(), kUTF8_SkTextEncoding,
+            SkTextUtils::GetPath(fText.c_str(), fText.size(), SkTextEncoding::kUTF8,
                                  0, fTextSize, font, &path);
             setForText();
             draw_stroke(canvas, path, width * fWidthScale / fTextSize, fTextSize, true);
@@ -721,88 +718,88 @@ protected:
     class MyClick : public Click {
     public:
         int fIndex;
-        MyClick(Sample* target, int index) : Click(target), fIndex(index) {}
+        MyClick(int index) : fIndex(index) {}
     };
 
     virtual Sample::Click* onFindClickHandler(SkScalar x, SkScalar y,
-                                              unsigned modi) override {
+                                              ModifierKey modi) override {
         for (size_t i = 0; i < SK_ARRAY_COUNT(fPts); ++i) {
             if (hittest(fPts[i], x, y)) {
-                return new MyClick(this, (int)i);
+                return new MyClick((int)i);
             }
         }
         const SkRect& rectPt = SkRect::MakeXYWH(x, y, 1, 1);
         if (fWeightControl.contains(rectPt)) {
-            return new MyClick(this, (int) SK_ARRAY_COUNT(fPts) + 1);
+            return new MyClick((int) SK_ARRAY_COUNT(fPts) + 1);
         }
         if (fRadiusControl.contains(rectPt)) {
-            return new MyClick(this, (int) SK_ARRAY_COUNT(fPts) + 2);
+            return new MyClick((int) SK_ARRAY_COUNT(fPts) + 2);
         }
 #ifdef SK_DEBUG
         if (fErrorControl.contains(rectPt)) {
-            return new MyClick(this, (int) SK_ARRAY_COUNT(fPts) + 3);
+            return new MyClick((int) SK_ARRAY_COUNT(fPts) + 3);
         }
 #endif
         if (fWidthControl.contains(rectPt)) {
-            return new MyClick(this, (int) SK_ARRAY_COUNT(fPts) + 4);
+            return new MyClick((int) SK_ARRAY_COUNT(fPts) + 4);
         }
         if (fCubicButton.fBounds.contains(rectPt)) {
             fCubicButton.fEnabled ^= true;
-            return new MyClick(this, (int) SK_ARRAY_COUNT(fPts) + 5);
+            return new MyClick((int) SK_ARRAY_COUNT(fPts) + 5);
         }
         if (fConicButton.fBounds.contains(rectPt)) {
             fConicButton.fEnabled ^= true;
-            return new MyClick(this, (int) SK_ARRAY_COUNT(fPts) + 6);
+            return new MyClick((int) SK_ARRAY_COUNT(fPts) + 6);
         }
         if (fQuadButton.fBounds.contains(rectPt)) {
             fQuadButton.fEnabled ^= true;
-            return new MyClick(this, (int) SK_ARRAY_COUNT(fPts) + 7);
+            return new MyClick((int) SK_ARRAY_COUNT(fPts) + 7);
         }
         if (fArcButton.fBounds.contains(rectPt)) {
             fArcButton.fEnabled ^= true;
-            return new MyClick(this, (int) SK_ARRAY_COUNT(fPts) + 8);
+            return new MyClick((int) SK_ARRAY_COUNT(fPts) + 8);
         }
         if (fRRectButton.fBounds.contains(rectPt)) {
             fRRectButton.fEnabled ^= true;
-            return new MyClick(this, (int) SK_ARRAY_COUNT(fPts) + 9);
+            return new MyClick((int) SK_ARRAY_COUNT(fPts) + 9);
         }
         if (fCircleButton.fBounds.contains(rectPt)) {
             bool wasEnabled = fCircleButton.fEnabled;
             fCircleButton.fEnabled = !fCircleButton.fFill;
             fCircleButton.fFill = wasEnabled && !fCircleButton.fFill;
-            return new MyClick(this, (int) SK_ARRAY_COUNT(fPts) + 10);
+            return new MyClick((int) SK_ARRAY_COUNT(fPts) + 10);
         }
         if (fTextButton.fBounds.contains(rectPt)) {
             fTextButton.fEnabled ^= true;
-            return new MyClick(this, (int) SK_ARRAY_COUNT(fPts) + 11);
+            return new MyClick((int) SK_ARRAY_COUNT(fPts) + 11);
         }
-        return this->INHERITED::onFindClickHandler(x, y, modi);
+        return nullptr;
     }
 
-    static SkScalar MapScreenYtoValue(int y, const SkRect& control, SkScalar min,
+    static SkScalar MapScreenYtoValue(SkScalar y, const SkRect& control, SkScalar min,
             SkScalar max) {
-        return (SkIntToScalar(y) - control.fTop) / control.height() * (max - min) + min;
+        return (y - control.fTop) / control.height() * (max - min) + min;
     }
 
     bool onClick(Click* click) override {
         int index = ((MyClick*)click)->fIndex;
         if (index < (int) SK_ARRAY_COUNT(fPts)) {
-            fPts[index].offset(SkIntToScalar(click->fICurr.fX - click->fIPrev.fX),
-                               SkIntToScalar(click->fICurr.fY - click->fIPrev.fY));
+            fPts[index].offset(click->fCurr.fX - click->fPrev.fX,
+                               click->fCurr.fY - click->fPrev.fY);
         } else if (index == (int) SK_ARRAY_COUNT(fPts) + 1) {
-            fWeight = MapScreenYtoValue(click->fICurr.fY, fWeightControl, 0, 5);
+            fWeight = MapScreenYtoValue(click->fCurr.fY, fWeightControl, 0, 5);
         } else if (index == (int) SK_ARRAY_COUNT(fPts) + 2) {
-            fRadius = MapScreenYtoValue(click->fICurr.fY, fRadiusControl, 0, 500);
+            fRadius = MapScreenYtoValue(click->fCurr.fY, fRadiusControl, 0, 500);
         }
 #ifdef SK_DEBUG
         else if (index == (int) SK_ARRAY_COUNT(fPts) + 3) {
-            gDebugStrokerError = SkTMax(FLT_EPSILON, MapScreenYtoValue(click->fICurr.fY,
+            gDebugStrokerError = SkTMax(FLT_EPSILON, MapScreenYtoValue(click->fCurr.fY,
                     fErrorControl, kStrokerErrorMin, kStrokerErrorMax));
             gDebugStrokerErrorSet = true;
         }
 #endif
         else if (index == (int) SK_ARRAY_COUNT(fPts) + 4) {
-            fWidth = SkTMax(FLT_EPSILON, MapScreenYtoValue(click->fICurr.fY, fWidthControl,
+            fWidth = SkTMax(FLT_EPSILON, MapScreenYtoValue(click->fCurr.fY, fWidthControl,
                     kWidthMin, kWidthMax));
             fAnimate = fWidth <= kWidthMin;
         }

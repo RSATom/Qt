@@ -9,7 +9,7 @@
 
 #include "core/fxcrt/fx_string.h"
 #include "core/fxcrt/fx_system.h"
-#include "core/fxcrt/unowned_ptr.h"
+#include "core/fxcrt/retain_ptr.h"
 
 class CPDF_Document;
 class CPDF_Array;
@@ -17,11 +17,13 @@ class CPDF_Array;
 class CPDF_Dest {
  public:
   CPDF_Dest();
+  explicit CPDF_Dest(CPDF_Array* pArray);
   CPDF_Dest(const CPDF_Dest& that);
-  explicit CPDF_Dest(const CPDF_Array* pArray);
   ~CPDF_Dest();
 
+  CPDF_Array* GetArray() { return m_pArray.Get(); }
   const CPDF_Array* GetArray() const { return m_pArray.Get(); }
+
   ByteString GetRemoteName() const;
   int GetDestPageIndex(CPDF_Document* pDoc) const;
 
@@ -39,7 +41,7 @@ class CPDF_Dest {
               float* pZoom) const;
 
  private:
-  UnownedPtr<const CPDF_Array> const m_pArray;
+  RetainPtr<CPDF_Array> const m_pArray;
 };
 
 #endif  // CORE_FPDFDOC_CPDF_DEST_H_

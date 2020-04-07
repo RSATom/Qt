@@ -8,7 +8,9 @@
 
 #include <algorithm>
 
-#include "core/fxge/cfx_renderdevice.h"
+#include "build/build_config.h"
+#include "core/fxcrt/fx_safe_types.h"
+#include "core/fxge/text_char_pos.h"
 #include "third_party/base/stl_util.h"
 #include "xfa/fgas/font/cfgas_gefont.h"
 #include "xfa/fgas/layout/cfx_char.h"
@@ -78,7 +80,7 @@ void CFX_TxtBreak::AppendChar_Combination(CFX_Char* pCurChar) {
       }
     }
     int32_t iCharWidthOut;
-    if (m_pFont->GetCharWidth(wForm, &iCharWidthOut))
+    if (m_pFont && m_pFont->GetCharWidth(wForm, &iCharWidthOut))
       iCharWidth = iCharWidthOut;
     else
       iCharWidth = 0;
@@ -142,10 +144,11 @@ CFX_BreakType CFX_TxtBreak::AppendChar_Arabic(CFX_Char* pCurChar) {
       wForm = pdfium::arabic::GetFormChar(pLastChar, pPrevChar, pCurChar);
       bAlef = (wForm == 0xFEFF &&
                pLastChar->GetCharType() == FX_CHARTYPE::kArabicAlef);
-      int32_t iCharWidthOut;
-      m_pFont->GetCharWidth(wForm, &iCharWidthOut);
-      iCharWidth = iCharWidthOut;
-
+      if (m_pFont) {
+        int32_t iCharWidthOut = 0;
+        m_pFont->GetCharWidth(wForm, &iCharWidthOut);
+        iCharWidth = iCharWidthOut;
+      }
       if (wForm == 0xFEFF)
         iCharWidth = m_iDefChar;
 
@@ -154,7 +157,6 @@ CFX_BreakType CFX_TxtBreak::AppendChar_Arabic(CFX_Char* pCurChar) {
       iCharWidth /= 100;
 
       int32_t iCharWidthValid = iCharWidth.ValueOrDefault(0);
-
       pLastChar->m_iCharWidth = iCharWidthValid;
       iLineWidth += iCharWidthValid;
     }
@@ -163,14 +165,15 @@ CFX_BreakType CFX_TxtBreak::AppendChar_Arabic(CFX_Char* pCurChar) {
   m_eCharType = chartype;
   wForm = pdfium::arabic::GetFormChar(pCurChar, bAlef ? nullptr : pLastChar,
                                       nullptr);
-  FX_SAFE_INT32 iCharWidth;
+  FX_SAFE_INT32 iCharWidth = 0;
   if (m_bCombText) {
     iCharWidth = m_iCombWidth;
   } else {
-    int32_t iCharWidthOut;
-    m_pFont->GetCharWidth(wForm, &iCharWidthOut);
-    iCharWidth = iCharWidthOut;
-
+    if (m_pFont) {
+      int32_t iCharWidthOut = 0;
+      m_pFont->GetCharWidth(wForm, &iCharWidthOut);
+      iCharWidth = iCharWidthOut;
+    }
     if (wForm == 0xFEFF)
       iCharWidth = m_iDefChar;
 
@@ -182,8 +185,9 @@ CFX_BreakType CFX_TxtBreak::AppendChar_Arabic(CFX_Char* pCurChar) {
   int32_t iCharWidthValid = iCharWidth.ValueOrDefault(0);
   pCurChar->m_iCharWidth = iCharWidthValid;
   iLineWidth += iCharWidthValid;
+
   m_pCurLine->m_iArabicChars++;
-  if (!m_bSingleLine && iLineWidth > m_iLineWidth + m_iTolerance)
+  if (!m_bSingleLine && IsGreaterThanLineWidth(iLineWidth))
     return EndBreak(CFX_BreakType::Line);
   return CFX_BreakType::None;
 }
@@ -200,7 +204,7 @@ CFX_BreakType CFX_TxtBreak::AppendChar_Others(CFX_Char* pCurChar) {
     iCharWidth = m_iCombWidth;
   } else {
     int32_t iCharWidthOut;
-    if (m_pFont->GetCharWidth(wForm, &iCharWidthOut))
+    if (m_pFont && m_pFont->GetCharWidth(wForm, &iCharWidthOut))
       iCharWidth = iCharWidthOut;
     else
       iCharWidth = m_iDefChar;
@@ -216,7 +220,7 @@ CFX_BreakType CFX_TxtBreak::AppendChar_Others(CFX_Char* pCurChar) {
   pCurChar->m_iCharWidth = iCharWidthValid;
   iLineWidth += iCharWidthValid;
   if (!m_bSingleLine && chartype != FX_CHARTYPE::kSpace &&
-      iLineWidth > m_iLineWidth + m_iTolerance) {
+      IsGreaterThanLineWidth(iLineWidth)) {
     return EndBreak(CFX_BreakType::Line);
   }
 
@@ -233,8 +237,8 @@ CFX_BreakType CFX_TxtBreak::AppendChar(wchar_t wch) {
   CFX_BreakType dwRet1 = CFX_BreakType::None;
   if (chartype != FX_CHARTYPE::kCombination &&
       GetUnifiedCharType(m_eCharType) != GetUnifiedCharType(chartype) &&
-      m_eCharType != FX_CHARTYPE::kUnknown &&
-      m_pCurLine->m_iWidth > m_iLineWidth + m_iTolerance && !m_bSingleLine &&
+      m_eCharType != FX_CHARTYPE::kUnknown && !m_bSingleLine &&
+      IsGreaterThanLineWidth(m_pCurLine->m_iWidth) &&
       (m_eCharType != FX_CHARTYPE::kSpace ||
        chartype != FX_CHARTYPE::kControl)) {
     dwRet1 = EndBreak(CFX_BreakType::Line);
@@ -284,7 +288,7 @@ bool CFX_TxtBreak::EndBreak_SplitLine(CFX_BreakLine* pNextLine,
                                       bool bAllChars) {
   bool bDone = false;
   CFX_Char* pTC;
-  if (!m_bSingleLine && m_pCurLine->m_iWidth > m_iLineWidth + m_iTolerance) {
+  if (!m_bSingleLine && IsGreaterThanLineWidth(m_pCurLine->m_iWidth)) {
     pTC = m_pCurLine->GetChar(m_pCurLine->m_LineChars.size() - 1);
     switch (pTC->GetCharType()) {
       case FX_CHARTYPE::kTab:
@@ -657,7 +661,7 @@ struct FX_FORMCHAR {
 };
 
 size_t CFX_TxtBreak::GetDisplayPos(const Run* pTxtRun,
-                                   FXTEXT_CHARPOS* pCharPos) const {
+                                   TextCharPos* pCharPos) const {
   if (!pTxtRun || pTxtRun->iLength < 1)
     return 0;
 
@@ -842,7 +846,7 @@ size_t CFX_TxtBreak::GetDisplayPos(const Run* pTxtRun,
       }
       if (!bEmptyChar || (bEmptyChar && !bSkipSpace)) {
         pCharPos->m_GlyphIndex = pFont->GetGlyphIndex(wForm);
-#if _FX_PLATFORM_ == _FX_PLATFORM_APPLE_
+#if defined(OS_MACOSX)
         pCharPos->m_ExtGID = pCharPos->m_GlyphIndex;
 #endif
         // TODO(npm): change widths in this method to unsigned to avoid implicit

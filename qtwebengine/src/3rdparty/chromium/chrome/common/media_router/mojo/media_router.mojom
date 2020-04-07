@@ -90,7 +90,6 @@ struct CastMediaSink {
 enum RouteControllerType {
   kNone,
   kGeneric,
-  kHangouts,
   kMirroring
 };
 
@@ -235,9 +234,6 @@ struct MediaRouteProviderConfig {
 
   // If the MRP should enable Cast sink query.
   bool enable_cast_sink_query;
-
-  // If the Views dialog is being used.
-  bool use_views_dialog;
 
   // If Mirroring Service is being used.
   bool use_mirroring_service;
@@ -395,7 +391,8 @@ interface MediaRouteProvider {
   // If the operation was successful, |sent| is true; otherwise it is false.
   SendRouteBinaryMessage(string media_route_id, array<uint8> data);
 
-  // Starts querying for sinks capable of displaying |media_source|.
+  // Starts querying for sinks capable of displaying |media_source|. If
+  // |media_source| is empty, queries for all available sinks.
   StartObservingMediaSinks(string media_source);
 
   // Stops querying sinks for |media_source|.

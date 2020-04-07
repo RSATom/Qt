@@ -10,6 +10,10 @@
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/platform/wtf/ref_counted.h"
 
+namespace base {
+class Clock;
+}
+
 namespace blink {
 
 // A UserGestureToken represents the current state of a user gesture. It can be
@@ -17,37 +21,42 @@ namespace blink {
 // which propagates user gestures to the timer fire in certain situations).
 // Passing it to a UserGestureIndicator later on will cause it to be considered
 // as currently being processed.
+//
+// DEPRECATED: Use |UserActivationState| accessors in |Frame|.
 class CORE_EXPORT UserGestureToken : public RefCounted<UserGestureToken> {
   friend class UserGestureIndicator;
 
  public:
   enum Status { kNewGesture, kPossiblyExistingGesture };
-  enum TimeoutPolicy { kDefault, kOutOfProcess, kHasPaused };
+  enum TimeoutPolicy { kDefault, kHasPaused };
 
   ~UserGestureToken() = default;
 
-  // TODO(mustaq): The only user of this method is PepperPluginInstanceImpl.  We
-  // need to investigate the usecase closely.
-  bool HasGestures() const;
+  void SetClockForTesting(const base::Clock* clock) { clock_ = clock; }
+  void ResetTimestampForTesting() { ResetTimestamp(); }
 
  private:
+  FRIEND_TEST_ALL_PREFIXES(UserGestureIndicatorTest, Timeouts);
   UserGestureToken(Status);
 
   void TransferGestureTo(UserGestureToken*);
   bool ConsumeGesture();
   void SetTimeoutPolicy(TimeoutPolicy);
   void ResetTimestamp();
+  bool HasGestures() const;
   bool HasTimedOut() const;
   bool WasForwardedCrossProcess() const;
   void SetWasForwardedCrossProcess();
 
   size_t consumable_gestures_;
+  const base::Clock* clock_;
   double timestamp_;
   TimeoutPolicy timeout_policy_;
   bool was_forwarded_cross_process_;
   DISALLOW_COPY_AND_ASSIGN(UserGestureToken);
 };
 
+// DEPRECATED: Use |UserActivationState| accessors in |Frame|.
 class CORE_EXPORT UserGestureIndicator final {
   USING_FAST_MALLOC(UserGestureIndicator);
 

@@ -16,9 +16,12 @@ namespace nux {
 
 extern const base::Feature kNuxOnboardingFeature;
 
+extern const char kDefaultNewUserModules[];
+extern const char kDefaultReturningUserModules[];
+
 extern const base::FeatureParam<std::string> kNuxOnboardingNewUserModules;
 extern const base::FeatureParam<std::string> kNuxOnboardingReturningUserModules;
-extern const base::FeatureParam<bool> kNuxOnboardingShowEmailInterstitial;
+extern const base::FeatureParam<bool> kNuxOnboardingShowGoogleApp;
 
 }  // namespace nux
 

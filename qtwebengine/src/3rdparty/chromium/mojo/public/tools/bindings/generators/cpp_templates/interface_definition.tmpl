@@ -5,7 +5,7 @@
 {%- set proxy_name = interface.name ~ "Proxy" %}
 {%- set namespace_as_string = "%s"|format(namespace|replace(".","::")) %}
 
-{%- macro alloc_params(struct, params, message, description) %}
+{%- macro alloc_params(struct, params, message, method_number, is_response) %}
   mojo::internal::SerializationContext serialization_context;
   serialization_context.TakeHandlesFromMessage({{message}});
   bool success = true;
@@ -18,7 +18,7 @@
     ReportValidationErrorForMessage(
         {{message}},
         mojo::internal::VALIDATION_ERROR_DESERIALIZATION_FAILED,
-        "{{description}} deserializer");
+        {{class_name}}::Name_, {{method_number}}, {{is_response}});
     return false;
   }
 {%- endmacro %}
@@ -31,7 +31,7 @@ std::move(p_{{param.name}})
 {%- endmacro %}
 
 {#--- Begin #}
-const char {{class_name}}::Name_[] = "{{namespace}}.{{class_name}}";
+const char {{class_name}}::Name_[] = "{{module_namespace}}.{{class_name}}";
 
 {#--- Constants #}
 {%-  for constant in interface.constants %}
@@ -249,11 +249,11 @@ class {{class_name}}_{{method.name}}_ProxyToResponder {
 
 #if DCHECK_IS_ON()
   static void OnIsConnectedComplete(bool connected) {
-    DCHECK(!connected)
-        << "{{class_name}}::{{method.name}}Callback was destroyed without "
-        << "first either being run or its corresponding binding being closed. "
-        << "It is an error to drop response callbacks which still correspond "
-        << "to an open interface pipe.";
+//    DCHECK(!connected)
+//        << "{{class_name}}::{{method.name}}Callback was destroyed without "
+//        << "first either being run or its corresponding binding being closed. "
+//        << "It is an error to drop response callbacks which still correspond "
+//        << "to an open interface pipe.";
   }
 #endif
 
@@ -291,7 +291,7 @@ bool {{class_name}}_{{method.name}}_ForwardToCallback::Accept(
       message->SerializeIfNecessary();
     } else {
       if (!callback_.is_null())
-        context->Dispatch(&callback_);
+        context->Dispatch(message, &callback_);
       return true;
     }
   }
@@ -304,7 +304,7 @@ bool {{class_name}}_{{method.name}}_ForwardToCallback::Accept(
               message->mutable_payload());
 
 {%-     set desc = class_name~"::"~method.name~" response" %}
-  {{alloc_params(method.response_param_struct, "params", "message", desc)}}
+  {{alloc_params(method.response_param_struct, "params", "message", method.sequential_ordinal, "true")}}
   if (!callback_.is_null())
     std::move(callback_).Run({{pass_params(method.response_parameters)}});
   return true;
@@ -358,9 +358,9 @@ bool {{class_name}}_{{method.name}}_HandleSyncResponse::Accept(
       message->SerializeIfNecessary();
     } else {
       context->HandleSyncResponse(
-{%-       for param in method.response_parameters %}
+          message
+{%-       for param in method.response_parameters %},
           out_{{param.name}}_
-{%-         if not loop.last -%}, {% endif -%}
 {%-       endfor %});
       *result_ = true;
       mojo::internal::SyncMessageResponseSetup::SetCurrentSyncResponseMessage(
@@ -376,7 +376,7 @@ bool {{class_name}}_{{method.name}}_HandleSyncResponse::Accept(
           message->mutable_payload());
 
 {%-       set desc = class_name~"::"~method.name~" response" %}
-  {{alloc_params(method.response_param_struct, "params", "message", desc)}}
+  {{alloc_params(method.response_param_struct, "params", "message", method.sequential_ordinal, "true")}}
 
 {%-       for param in method.response_parameters %}
   *out_{{param.name}}_ = std::move(p_{{param.name}});
@@ -400,11 +400,16 @@ bool {{class_name}}StubDispatch::Accept(
   switch (message->header()->name) {
 {%-   for method in interface.methods %}
     case internal::k{{class_name}}_{{method.name}}_Name: {
-#if BUILDFLAG(MOJO_TRACE_ENABLED)
-  TRACE_EVENT1("mojom", "(Impl){{namespace_as_string}}::{{class_name}}::{{method.name}}",
-               "message", message->name());
-#endif
 {%-     if method.response_parameters == None %}
+#if BUILDFLAG(MOJO_TRACE_ENABLED)
+      TRACE_EVENT1(
+          "mojom",
+          "(Impl){{namespace_as_string}}::{{class_name}}::{{method.name}}",
+          "message", message->name());
+#endif
+      static constexpr uint32_t kMessageHash = base::MD5Hash32Constexpr(
+              "(Impl){{namespace_as_string}}::{{class_name}}::{{method.name}}");
+      base::TaskAnnotator::ScopedSetIpcHash scoped_ipc_hash(kMessageHash);
       mojo::internal::MessageDispatchContext context(message);
 {%-       if method|method_supports_lazy_serialization %}
       if (!message->is_serialized()) {
@@ -416,7 +421,7 @@ bool {{class_name}}StubDispatch::Accept(
           // Force serialization before dispatch in this case.
           message->SerializeIfNecessary();
         } else {
-          context->Dispatch(impl);
+          context->Dispatch(message, impl);
           return true;
         }
       }
@@ -428,10 +433,10 @@ bool {{class_name}}StubDispatch::Accept(
               message->mutable_payload());
 
 {%-       set desc = class_name~"::"~method.name %}
-      {{alloc_params(method.param_struct, "params", "message", desc)|
+      {{alloc_params(method.param_struct, "params", "message", method.sequential_ordinal, "false")|
           indent(4)}}
       // A null |impl| means no implementation was bound.
-      assert(impl);
+      DCHECK(impl);
       impl->{{method.name}}({{pass_params(method.parameters)}});
       return true;
 {%-     else %}
@@ -453,11 +458,16 @@ bool {{class_name}}StubDispatch::AcceptWithResponder(
   switch (message->header()->name) {
 {%-   for method in interface.methods %}
     case internal::k{{class_name}}_{{method.name}}_Name: {
-#if BUILDFLAG(MOJO_TRACE_ENABLED)
-  TRACE_EVENT1("mojom", "(Impl){{namespace_as_string}}::{{class_name}}::{{method.name}}",
-               "message", message->name());
-#endif
 {%-     if method.response_parameters != None %}
+#if BUILDFLAG(MOJO_TRACE_ENABLED)
+      TRACE_EVENT1(
+          "mojom",
+          "(Impl){{namespace_as_string}}::{{class_name}}::{{method.name}}",
+          "message", message->name());
+#endif
+      static constexpr uint32_t kMessageHash = base::MD5Hash32Constexpr(
+              "(Impl){{namespace_as_string}}::{{class_name}}::{{method.name}}");
+      base::TaskAnnotator::ScopedSetIpcHash scoped_ipc_hash(kMessageHash);
       mojo::internal::MessageDispatchContext context(message);
 {%-       if method|method_supports_lazy_serialization %}
       if (!message->is_serialized()) {
@@ -474,7 +484,7 @@ bool {{class_name}}StubDispatch::AcceptWithResponder(
                   message->request_id(),
                   message->has_flag(mojo::Message::kFlagIsSync),
                   std::move(responder));
-          context->Dispatch(impl, std::move(callback));
+          context->Dispatch(message, impl, std::move(callback));
           return true;
         }
       }
@@ -486,7 +496,7 @@ bool {{class_name}}StubDispatch::AcceptWithResponder(
                   message->mutable_payload());
 
 {%-       set desc = class_name~"::"~method.name %}
-      {{alloc_params(method.param_struct, "params", "message", desc)|
+      {{alloc_params(method.param_struct, "params", "message", method.sequential_ordinal, "false")|
           indent(4)}}
       {{class_name}}::{{method.name}}Callback callback =
           {{class_name}}_{{method.name}}_ProxyToResponder::CreateCallback(
@@ -494,7 +504,7 @@ bool {{class_name}}StubDispatch::AcceptWithResponder(
               message->has_flag(mojo::Message::kFlagIsSync),
               std::move(responder));
       // A null |impl| means no implementation was bound.
-      assert(impl);
+      DCHECK(impl);
       impl->{{method.name}}(
 {%- if method.parameters -%}{{pass_params(method.parameters)}}, {% endif -%}std::move(callback));
       return true;

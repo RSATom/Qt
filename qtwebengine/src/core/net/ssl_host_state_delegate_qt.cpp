@@ -67,19 +67,15 @@ bool CertPolicy::Check(const net::X509Certificate &cert, int error) const
     return false;
 }
 
-void CertPolicy::Allow(const net::X509Certificate& cert, int error)
+void CertPolicy::Allow(const net::X509Certificate &cert, int error)
 {
     net::SHA256HashValue fingerprint = cert.CalculateChainFingerprint256();
     m_allowed[fingerprint] |= error;
 }
 
-SSLHostStateDelegateQt::SSLHostStateDelegateQt()
-{
-}
+SSLHostStateDelegateQt::SSLHostStateDelegateQt() {}
 
-SSLHostStateDelegateQt::~SSLHostStateDelegateQt()
-{
-}
+SSLHostStateDelegateQt::~SSLHostStateDelegateQt() {}
 
 void SSLHostStateDelegateQt::AllowCert(const std::string &host, const net::X509Certificate &cert, int error)
 {
@@ -87,7 +83,7 @@ void SSLHostStateDelegateQt::AllowCert(const std::string &host, const net::X509C
 }
 
 // Clear all allow preferences.
-void SSLHostStateDelegateQt::Clear(const base::Callback<bool(const std::string&)>& host_filter)
+void SSLHostStateDelegateQt::Clear(const base::Callback<bool(const std::string &)> &host_filter)
 {
     if (host_filter.is_null()) {
         m_certPolicyforHost.clear();
@@ -107,9 +103,10 @@ void SSLHostStateDelegateQt::Clear(const base::Callback<bool(const std::string&)
 // Queries whether |cert| is allowed for |host| and |error|. Returns true in
 // |expired_previous_decision| if a previous user decision expired immediately
 // prior to this query, otherwise false.
-content::SSLHostStateDelegate::CertJudgment SSLHostStateDelegateQt::QueryPolicy(
-                                                       const std::string &host, const net::X509Certificate &cert,
-                                                       int error, bool */*expired_previous_decision*/)
+content::SSLHostStateDelegate::CertJudgment SSLHostStateDelegateQt::QueryPolicy(const std::string &host,
+                                                                                const net::X509Certificate &cert,
+                                                                                int error,
+                                                                                bool * /*expired_previous_decision*/)
 {
     return m_certPolicyforHost[host].Check(cert, error) ? SSLHostStateDelegate::ALLOWED : SSLHostStateDelegate::DENIED;
 }
@@ -120,7 +117,7 @@ void SSLHostStateDelegateQt::HostRanInsecureContent(const std::string &host, int
 }
 
 // Returns whether the specified host ran insecure content.
-bool SSLHostStateDelegateQt::DidHostRunInsecureContent(const std::string &host, int pid, InsecureContentType content_type) const
+bool SSLHostStateDelegateQt::DidHostRunInsecureContent(const std::string &host, int pid, InsecureContentType content_type)
 {
     return false;
 }
@@ -136,7 +133,7 @@ void SSLHostStateDelegateQt::RevokeUserAllowExceptions(const std::string &host)
 // |host|. This does not mean that *all* certificate errors are allowed, just
 // that there exists an exception. To see if a particular certificate and
 // error combination exception is allowed, use QueryPolicy().
-bool SSLHostStateDelegateQt::HasAllowException(const std::string &host) const
+bool SSLHostStateDelegateQt::HasAllowException(const std::string &host)
 {
     auto policy_iterator = m_certPolicyforHost.find(host);
     return policy_iterator != m_certPolicyforHost.end() &&

@@ -61,14 +61,12 @@ QRemoteObjectSourceLocations QRegistrySource::sourceLocations() const
 
 void QRegistrySource::removeServer(const QUrl &url)
 {
-    QVector<QString> results;
-    typedef QRemoteObjectSourceLocations::const_iterator CustomIterator;
-    const CustomIterator end = m_sourceLocations.constEnd();
-    for (CustomIterator it = m_sourceLocations.constBegin(); it != end; ++it)
+    for (auto it = m_sourceLocations.begin(), end = m_sourceLocations.end(); it != end; /* erasing */) {
         if (it.value().hostUrl == url)
-            results.push_back(it.key());
-    Q_FOREACH (const QString &res, results)
-        m_sourceLocations.remove(res);
+            it = m_sourceLocations.erase(it);
+        else
+            ++it;
+    }
 }
 
 void QRegistrySource::addSource(const QRemoteObjectSourceLocation &entry)

@@ -10,6 +10,7 @@
 
 #include "base/containers/flat_set.h"
 #include "base/containers/unique_ptr_adapters.h"
+#include "base/unguessable_token.h"
 #include "content/common/content_export.h"
 #include "content/common/media/renderer_audio_output_stream_factory.mojom.h"
 #include "content/public/browser/browser_thread.h"
@@ -42,7 +43,7 @@ class CONTENT_EXPORT OldRenderFrameAudioOutputStreamFactory
   // mojom::RendererAudioOutputStreamFactory implementation.
   void RequestDeviceAuthorization(
       media::mojom::AudioOutputStreamProviderRequest stream_provider,
-      int32_t session_id,
+      const base::Optional<base::UnguessableToken>& session_id,
       const std::string& device_id,
       RequestDeviceAuthorizationCallback callback) override;
 
@@ -71,7 +72,7 @@ class CONTENT_EXPORT OldRenderFrameAudioOutputStreamFactory
   int next_stream_id_ = 0;
 
   base::WeakPtrFactory<OldRenderFrameAudioOutputStreamFactory>
-      weak_ptr_factory_;
+      weak_ptr_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(OldRenderFrameAudioOutputStreamFactory);
 };

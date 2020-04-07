@@ -70,6 +70,7 @@ class LocalSurfaceIdAllocation;
 namespace content {
 
 class BrowserPluginGuestManager;
+class RenderFrameHostImpl;
 class RenderViewHostImpl;
 class RenderWidgetHost;
 class RenderWidgetHostImpl;
@@ -122,8 +123,9 @@ class CONTENT_EXPORT BrowserPluginGuest : public GuestHost,
   // initializes. If this guest cannot navigate without being attached to a
   // container, then this call is a no-op. For guest types that can be
   // navigated, this call adds the associated RenderWdigetHostViewGuest to the
-  // view hierachy and sets up the appropriate RendererPreferences so that this
-  // guest can navigate and resize offscreen.
+  // view hierarchy and sets up the appropriate
+  // blink::mojom::RendererPreferences so that this guest can navigate and
+  // resize offscreen.
   void Init();
 
   // Returns an InputEventShim if this BrowserPluginGuest needs to intercept
@@ -153,10 +155,6 @@ class CONTENT_EXPORT BrowserPluginGuest : public GuestHost,
   WebContentsImpl* CreateNewGuestWindow(
       const WebContents::CreateParams& params);
 
-  // Creates, if necessary, and returns the routing ID of a proxy for the guest
-  // in the owner's renderer process.
-  int GetGuestProxyRoutingID();
-
   // Returns the identifier that uniquely identifies a browser plugin guest
   // within an embedder.
   int browser_plugin_instance_id() const { return browser_plugin_instance_id_; }
@@ -176,6 +174,9 @@ class CONTENT_EXPORT BrowserPluginGuest : public GuestHost,
   // Returns the embedder's RenderWidgetHostView if it is available.
   // Returns nullptr otherwise.
   RenderWidgetHostView* GetOwnerRenderWidgetHostView();
+
+  // Returns the embedder frame.
+  RenderFrameHostImpl* GetEmbedderFrame() const;
 
   bool focused() const { return focused_; }
   bool visible() const { return guest_visible_; }
@@ -397,6 +398,10 @@ class CONTENT_EXPORT BrowserPluginGuest : public GuestHost,
 
   void SendTextInputTypeChangedToView(RenderWidgetHostViewBase* guest_rwhv);
 
+  // Creates, if necessary, and returns the routing ID of a render view for the
+  // guest in the owner's renderer process.
+  int GetGuestRenderViewRoutingID();
+
   // The last tooltip that was set with SetTooltipText().
   base::string16 current_tooltip_text_;
 
@@ -438,7 +443,7 @@ class CONTENT_EXPORT BrowserPluginGuest : public GuestHost,
 
   // The is the routing ID for a swapped out RenderView for the guest
   // WebContents in the embedder's process.
-  int guest_proxy_routing_id_;
+  int guest_render_view_routing_id_;
   // Last seen state of drag status update.
   blink::WebDragStatus last_drag_status_;
   // Whether or not our embedder has seen a SystemDragEnded() call.
@@ -467,7 +472,7 @@ class CONTENT_EXPORT BrowserPluginGuest : public GuestHost,
 
   // Weak pointer used to ask GeolocationPermissionContext about geolocation
   // permission.
-  base::WeakPtrFactory<BrowserPluginGuest> weak_ptr_factory_;
+  base::WeakPtrFactory<BrowserPluginGuest> weak_ptr_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(BrowserPluginGuest);
 };

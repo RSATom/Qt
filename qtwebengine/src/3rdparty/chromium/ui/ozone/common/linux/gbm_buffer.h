@@ -23,7 +23,6 @@ class GbmBuffer {
   virtual uint32_t GetFormat() const = 0;
   virtual uint64_t GetFormatModifier() const = 0;
   virtual uint32_t GetFlags() const = 0;
-  virtual size_t GetFdCount() const = 0;
   // TODO(reveman): This should not be needed once crbug.com/597932 is
   // fixed, as the size would be queried directly from the underlying bo.
   virtual gfx::Size GetSize() const = 0;
@@ -32,8 +31,8 @@ class GbmBuffer {
   virtual size_t GetNumPlanes() const = 0;
   virtual int GetPlaneFd(size_t plane) const = 0;
   virtual uint32_t GetPlaneHandle(size_t plane) const = 0;
-  virtual int GetPlaneStride(size_t plane) const = 0;
-  virtual int GetPlaneOffset(size_t plane) const = 0;
+  virtual uint32_t GetPlaneStride(size_t plane) const = 0;
+  virtual size_t GetPlaneOffset(size_t plane) const = 0;
   virtual size_t GetPlaneSize(size_t plane) const = 0;
   virtual uint32_t GetHandle() const = 0;
   virtual gfx::NativePixmapHandle ExportHandle() const = 0;

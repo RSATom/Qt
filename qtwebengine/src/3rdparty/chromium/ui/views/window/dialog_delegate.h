@@ -5,6 +5,8 @@
 #ifndef UI_VIEWS_WINDOW_DIALOG_DELEGATE_H_
 #define UI_VIEWS_WINDOW_DIALOG_DELEGATE_H_
 
+#include <memory>
+
 #include "base/compiler_specific.h"
 #include "base/macros.h"
 #include "base/strings/string16.h"
@@ -68,7 +70,7 @@ class VIEWS_EXPORT DialogDelegate : public WidgetDelegate {
 
   // Override this function to display an extra view adjacent to the buttons.
   // Overrides may construct the view; this will only be called once per dialog.
-  virtual View* CreateExtraView();
+  virtual std::unique_ptr<View> CreateExtraView();
 
   // Override this function to adjust the padding between the extra view and
   // the confirm/cancel buttons. Note that if there are no buttons, this will
@@ -78,7 +80,7 @@ class VIEWS_EXPORT DialogDelegate : public WidgetDelegate {
 
   // Override this function to display a footnote view below the buttons.
   // Overrides may construct the view; this will only be called once per dialog.
-  virtual View* CreateFootnoteView();
+  virtual std::unique_ptr<View> CreateFootnoteView();
 
   // For Dialog boxes, if there is a "Cancel" button or no dialog button at all,
   // this is called when the user presses the "Cancel" button.
@@ -101,6 +103,10 @@ class VIEWS_EXPORT DialogDelegate : public WidgetDelegate {
   // must remain open.
   virtual bool Close();
 
+  // Dialogs should not be draggable unless the dialog can be created with no
+  // parent browser window.
+  virtual bool IsDialogDraggable() const;
+
   // Updates the properties and appearance of |button| which has been created
   // for type |type|. Override to do special initialization above and beyond
   // the typical.
@@ -109,6 +115,9 @@ class VIEWS_EXPORT DialogDelegate : public WidgetDelegate {
   // Returns true if this dialog should snap the frame width based on the
   // LayoutProvider's snapping.
   virtual bool ShouldSnapFrameWidth() const;
+
+  // Returns whether the dialog should have round corners
+  virtual bool ShouldHaveRoundCorners() const;
 
   // Overridden from WidgetDelegate:
   View* GetInitiallyFocusedView() override;
@@ -142,15 +151,18 @@ class VIEWS_EXPORT DialogDelegate : public WidgetDelegate {
   ~DialogDelegate() override;
 
   // Overridden from WidgetDelegate:
-  ax::mojom::Role GetAccessibleWindowRole() const override;
+  ax::mojom::Role GetAccessibleWindowRole() override;
 
  private:
   // A flag indicating whether this dialog is able to use the custom frame
   // style for dialogs.
-  bool supports_custom_frame_;
+  bool supports_custom_frame_ = true;
 
   // The margins between the content and the inside of the border.
-  gfx::Insets margins_;
+  // TODO(crbug.com/733040): Most subclasses assume they must set their own
+  // margins explicitly, so we set them to 0 here for now to avoid doubled
+  // margins.
+  gfx::Insets margins_{0};
 
   // The time the dialog is created.
   base::TimeTicks creation_time_;

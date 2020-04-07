@@ -8,24 +8,28 @@
 #include <vector>
 
 #include "base/logging.h"
+#include "build/build_config.h"
 #include "media/mojo/common/mojo_shared_buffer_video_frame.h"
 #include "mojo/public/cpp/base/time_mojom_traits.h"
 #include "mojo/public/cpp/base/values_mojom_traits.h"
+#include "mojo/public/cpp/system/handle.h"
+#include "mojo/public/cpp/system/platform_handle.h"
+#include "ui/gfx/mojo/color_space_mojom_traits.h"
 
 namespace mojo {
 
 namespace {
 
 media::mojom::VideoFrameDataPtr MakeVideoFrameData(
-    const scoped_refptr<media::VideoFrame>& input) {
+    const media::VideoFrame* input) {
   if (input->metadata()->IsTrue(media::VideoFrameMetadata::END_OF_STREAM)) {
     return media::mojom::VideoFrameData::NewEosData(
         media::mojom::EosVideoFrameData::New());
   }
 
   if (input->storage_type() == media::VideoFrame::STORAGE_MOJO_SHARED_BUFFER) {
-    media::MojoSharedBufferVideoFrame* mojo_frame =
-        static_cast<media::MojoSharedBufferVideoFrame*>(input.get());
+    const media::MojoSharedBufferVideoFrame* mojo_frame =
+        static_cast<const media::MojoSharedBufferVideoFrame*>(input);
 
     // TODO(https://crbug.com/803136): This should duplicate as READ_ONLY, but
     // can't because there is no guarantee that the input handle is sharable as
@@ -45,6 +49,23 @@ media::mojom::VideoFrameDataPtr MakeVideoFrameData(
             mojo_frame->PlaneOffset(media::VideoFrame::kVPlane)));
   }
 
+#if defined(OS_LINUX)
+  if (input->storage_type() == media::VideoFrame::STORAGE_DMABUFS) {
+    std::vector<mojo::ScopedHandle> dmabuf_fds;
+
+    const size_t num_planes = media::VideoFrame::NumPlanes(input->format());
+    dmabuf_fds.reserve(num_planes);
+    for (size_t i = 0; i < num_planes; i++) {
+      const int dmabuf_fd = HANDLE_EINTR(dup(input->DmabufFds()[i].get()));
+      dmabuf_fds.emplace_back(mojo::WrapPlatformFile(dmabuf_fd));
+      DCHECK(dmabuf_fds.back().is_valid());
+    }
+
+    return media::mojom::VideoFrameData::NewDmabufData(
+        media::mojom::DmabufVideoFrameData::New(std::move(dmabuf_fds)));
+  }
+#endif
+
   if (input->HasTextures()) {
     std::vector<gpu::MailboxHolder> mailbox_holder(
         media::VideoFrame::kMaxPlanes);
@@ -52,7 +73,8 @@ media::mojom::VideoFrameDataPtr MakeVideoFrameData(
     for (size_t i = 0; i < num_planes; i++)
       mailbox_holder[i] = input->mailbox_holder(i);
     return media::mojom::VideoFrameData::NewMailboxData(
-        media::mojom::MailboxVideoFrameData::New(std::move(mailbox_holder)));
+        media::mojom::MailboxVideoFrameData::New(
+            std::move(mailbox_holder), std::move(input->ycbcr_info())));
   }
 
   NOTREACHED() << "Unsupported VideoFrame conversion";
@@ -65,7 +87,7 @@ media::mojom::VideoFrameDataPtr MakeVideoFrameData(
 media::mojom::VideoFrameDataPtr StructTraits<media::mojom::VideoFrameDataView,
                                              scoped_refptr<media::VideoFrame>>::
     data(const scoped_refptr<media::VideoFrame>& input) {
-  return media::mojom::VideoFrameDataPtr(MakeVideoFrameData(input));
+  return media::mojom::VideoFrameDataPtr(MakeVideoFrameData(input.get()));
 }
 
 // static
@@ -120,6 +142,47 @@ bool StructTraits<media::mojom::VideoFrameDataView,
         shared_buffer_data.u_offset(), shared_buffer_data.v_offset(),
         shared_buffer_data.y_stride(), shared_buffer_data.u_stride(),
         shared_buffer_data.v_stride(), timestamp);
+#if defined(OS_LINUX)
+  } else if (data.is_dmabuf_data()) {
+    media::mojom::DmabufVideoFrameDataDataView dmabuf_data;
+    data.GetDmabufDataDataView(&dmabuf_data);
+
+    std::vector<mojo::ScopedHandle> dmabuf_fds_data;
+    if (!dmabuf_data.ReadDmabufFds(&dmabuf_fds_data))
+      return false;
+
+    const size_t num_planes = media::VideoFrame::NumPlanes(format);
+    std::vector<int> strides =
+        media::VideoFrame::ComputeStrides(format, coded_size);
+    if (num_planes != strides.size())
+      return false;
+    if (num_planes != dmabuf_fds_data.size())
+      return false;
+
+    std::vector<media::VideoFrameLayout::Plane> planes(num_planes);
+    for (size_t i = 0; i < num_planes; i++) {
+      planes[i].stride = strides[i];
+      planes[i].offset = 0;
+      planes[i].size = static_cast<size_t>(
+          media::VideoFrame::PlaneSize(format, i, coded_size).GetArea());
+    }
+
+    auto layout = media::VideoFrameLayout::CreateWithPlanes(format, coded_size,
+                                                            std::move(planes));
+    if (!layout)
+      return false;
+
+    std::vector<base::ScopedFD> dmabuf_fds;
+    dmabuf_fds.reserve(num_planes);
+    for (size_t i = 0; i < num_planes; i++) {
+      base::PlatformFile platform_file;
+      mojo::UnwrapPlatformFile(std::move(dmabuf_fds_data[i]), &platform_file);
+      dmabuf_fds.emplace_back(platform_file);
+      DCHECK(dmabuf_fds.back().is_valid());
+    }
+    frame = media::VideoFrame::WrapExternalDmabufs(
+        *layout, visible_rect, natural_size, std::move(dmabuf_fds), timestamp);
+#endif
   } else if (data.is_mailbox_data()) {
     media::mojom::MailboxVideoFrameDataDataView mailbox_data;
     data.GetMailboxDataDataView(&mailbox_data);
@@ -132,9 +195,14 @@ bool StructTraits<media::mojom::VideoFrameDataView,
     for (size_t i = 0; i < media::VideoFrame::kMaxPlanes; i++)
       mailbox_holder_array[i] = mailbox_holder[i];
 
+    base::Optional<gpu::VulkanYCbCrInfo> ycbcr_info;
+    if (!mailbox_data.ReadYcbcrData(&ycbcr_info))
+      return false;
+
     frame = media::VideoFrame::WrapNativeTextures(
         format, mailbox_holder_array, media::VideoFrame::ReleaseMailboxCB(),
         coded_size, visible_rect, natural_size, timestamp);
+    frame->set_ycbcr_info(ycbcr_info);
   } else {
     // TODO(sandersd): Switch on the union tag to avoid this ugliness?
     NOTREACHED();

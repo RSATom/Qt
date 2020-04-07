@@ -61,9 +61,10 @@ class CPDF_TextState {
  private:
   class TextData final : public Retainable {
    public:
-    TextData();
-    TextData(const TextData& src);
-    ~TextData() override;
+    template <typename T, typename... Args>
+    friend RetainPtr<T> pdfium::MakeRetain(Args&&... args);
+
+    RetainPtr<TextData> Clone() const;
 
     void SetFont(CPDF_Font* pFont);
     float GetFontSizeV() const;
@@ -81,6 +82,10 @@ class CPDF_TextState {
     float m_CTM[4];
 
    private:
+    TextData();
+    TextData(const TextData& that);
+    ~TextData() override;
+
     void ReleaseFont();
   };
 

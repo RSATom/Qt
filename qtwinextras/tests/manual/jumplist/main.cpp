@@ -51,8 +51,10 @@ static bool associateFileType()
 
     regApplications.beginGroup("SupportedTypes");
     QMimeDatabase mimeDatabase;
-    foreach (const QString &t, TestWidget::supportedMimeTypes()) {
-        foreach (const QString &s, mimeDatabase.mimeTypeForName(t).suffixes())
+    const auto types = TestWidget::supportedMimeTypes();
+    for (const QString &t : types) {
+        const auto suffixes = mimeDatabase.mimeTypeForName(t).suffixes();
+        for (const QString &s : suffixes)
             regApplications.setValue('.' + s, QString());
     }
     regApplications.endGroup();

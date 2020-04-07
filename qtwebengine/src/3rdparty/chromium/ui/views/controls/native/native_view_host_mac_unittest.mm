@@ -27,12 +27,18 @@ class TestViewsHostable : public ui::ViewsHostableView {
  private:
   // ui::ViewsHostableView:
   void ViewsHostableAttach(ui::ViewsHostableView::Host* host) override {
-    parent_accessibility_element_ = host->GetAccessibilityElement();
   }
   void ViewsHostableDetach() override { parent_accessibility_element_ = nil; }
   void ViewsHostableSetBounds(const gfx::Rect& bounds_in_window) override {}
   void ViewsHostableSetVisible(bool visible) override {}
   void ViewsHostableMakeFirstResponder() override {}
+  void ViewsHostableSetParentAccessible(
+      gfx::NativeViewAccessible parent_accessibility_element) override {
+    parent_accessibility_element_ = parent_accessibility_element;
+  }
+  gfx::NativeViewAccessible ViewsHostableGetAccessibilityElement() override {
+    return nil;
+  }
 
   id parent_accessibility_element_ = nil;
 };
@@ -48,7 +54,7 @@ namespace views {
 
 class NativeViewHostMacTest : public test::NativeViewHostTestBase {
  public:
-  NativeViewHostMacTest() {}
+  NativeViewHostMacTest() = default;
 
   // testing::Test:
   void TearDown() override {
@@ -120,6 +126,8 @@ TEST_F(NativeViewHostMacTest, Attach) {
   EXPECT_TRUE([native_view_ superview]);
   EXPECT_TRUE([native_view_ window]);
 
+  // Layout() is normally async, call it now to ensure bounds have been applied.
+  host()->Layout();
   // Expect the top-left to be 10 pixels below the titlebar.
   int bottom = toplevel()->GetClientAreaBoundsInScreen().height() - 10 - 60;
   EXPECT_NSEQ(NSMakeRect(10, bottom, 80, 60), [native_view_ frame]);
@@ -192,6 +200,9 @@ TEST_F(NativeViewHostMacTest, NativeViewHidden) {
   host()->SetVisible(true);
   EXPECT_TRUE([native_view_ isHidden]);  // Stays hidden.
   host()->Attach(native_view_.get());
+  // Layout() updates visibility, and is normally async, call it now to ensure
+  // visibility updated.
+  host()->Layout();
   EXPECT_FALSE([native_view_ isHidden]);  // Made visible when attached.
 
   EXPECT_TRUE([native_view_ superview]);

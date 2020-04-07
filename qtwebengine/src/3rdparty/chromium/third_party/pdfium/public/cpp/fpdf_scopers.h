@@ -29,6 +29,10 @@ using ScopedFPDFAvail =
 using ScopedFPDFBitmap =
     std::unique_ptr<std::remove_pointer<FPDF_BITMAP>::type, FPDFBitmapDeleter>;
 
+using ScopedFPDFClipPath =
+    std::unique_ptr<std::remove_pointer<FPDF_CLIPPATH>::type,
+                    FPDFClipPathDeleter>;
+
 using ScopedFPDFDocument =
     std::unique_ptr<std::remove_pointer<FPDF_DOCUMENT>::type,
                     FPDFDocumentDeleter>;
@@ -54,6 +58,10 @@ using ScopedFPDFPageObject =
 using ScopedFPDFStructTree =
     std::unique_ptr<std::remove_pointer<FPDF_STRUCTTREE>::type,
                     FPDFStructTreeDeleter>;
+
+using ScopedFPDFTextFind =
+    std::unique_ptr<std::remove_pointer<FPDF_SCHHANDLE>::type,
+                    FPDFTextFindDeleter>;
 
 using ScopedFPDFTextPage =
     std::unique_ptr<std::remove_pointer<FPDF_TEXTPAGE>::type,

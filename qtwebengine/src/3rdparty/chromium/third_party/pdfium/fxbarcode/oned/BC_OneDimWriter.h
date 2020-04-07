@@ -18,7 +18,7 @@
 class CFX_Font;
 class CFX_PathData;
 class CFX_RenderDevice;
-class FXTEXT_CHARPOS;
+class TextCharPos;
 
 class CBC_OneDimWriter : public CBC_Writer {
  public:
@@ -64,12 +64,12 @@ class CBC_OneDimWriter : public CBC_Writer {
                        const CFX_Matrix* matrix,
                        const ByteString str,
                        float geWidth,
-                       FXTEXT_CHARPOS* pCharPos,
+                       TextCharPos* pCharPos,
                        float locX,
                        float locY,
                        int32_t barWidth);
   void CalcTextInfo(const ByteString& text,
-                    FXTEXT_CHARPOS* charPos,
+                    TextCharPos* charPos,
                     CFX_Font* cFont,
                     float geWidth,
                     int32_t fontSize,
@@ -80,7 +80,7 @@ class CBC_OneDimWriter : public CBC_Writer {
                         int32_t patternLength,
                         bool startColor);
 
-  void RenderVerticalBars(int32_t outputX, int32_t width, int32_t height);
+  void RenderVerticalBars(int32_t outputX, int32_t width);
 
   bool m_bPrintChecksum = true;
   bool m_bCalcChecksum = false;

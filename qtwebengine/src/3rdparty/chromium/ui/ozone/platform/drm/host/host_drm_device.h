@@ -5,6 +5,8 @@
 #ifndef UI_OZONE_PLATFORM_DRM_HOST_HOST_DRM_DEVICE_H_
 #define UI_OZONE_PLATFORM_DRM_HOST_HOST_DRM_DEVICE_H_
 
+#include <memory>
+
 #include "base/callback.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
@@ -24,7 +26,7 @@ class DisplaySnapshot;
 
 namespace ui {
 class DrmDisplayHostManager;
-class DrmOverlayManager;
+class DrmOverlayManagerHost;
 class GpuThreadObserver;
 class DrmDeviceConnector;
 class HostCursorProxy;
@@ -36,24 +38,16 @@ class HostDrmDevice : public base::RefCountedThreadSafe<HostDrmDevice>,
  public:
   explicit HostDrmDevice(DrmCursor* cursor);
 
-  // Start the DRM service. Runs the |OnDrmServiceStartedCallback| when the
-  // service has launched and initiates the remaining startup.
-  void AsyncStartDrmDevice(const DrmDeviceConnector& connector);
-
   // Blocks until the DRM service has come up. Use this entry point only when
   // supporting launch of the service where the ozone UI and GPU
   // reponsibilities are performed by the same underlying thread.
   void BlockingStartDrmDevice();
 
   void ProvideManagers(DrmDisplayHostManager* display_manager,
-                       DrmOverlayManager* overlay_manager);
+                       DrmOverlayManagerHost* overlay_manager);
 
-  void OnGpuServiceLaunched(ui::ozone::mojom::DrmDevicePtr drm_device_ptr,
-                            ui::ozone::mojom::DeviceCursorPtr cursor_ptr_ui,
-                            ui::ozone::mojom::DeviceCursorPtr cursor_ptr_io);
-
-  void OnGpuServiceLaunchedCompositor(
-      ui::ozone::mojom::DrmDevicePtr drm_device_ptr_compositor);
+  void OnGpuServiceLaunched(
+      ui::ozone::mojom::DrmDevicePtrInfo drm_device_ptr_info);
 
   // Invoked by DrmDeviceConnector on loss of GPU service.
   void OnGpuServiceLost();
@@ -75,8 +69,9 @@ class HostDrmDevice : public base::RefCountedThreadSafe<HostDrmDevice>,
                             base::ScopedFD fd) override;
   bool GpuRemoveGraphicsDevice(const base::FilePath& path) override;
 
-  // Services needed for DrmOverlayManager.
-  void RegisterHandlerForDrmOverlayManager(DrmOverlayManager* handler) override;
+  // Services needed for DrmOverlayManagerHost.
+  void RegisterHandlerForDrmOverlayManager(
+      DrmOverlayManagerHost* handler) override;
   void UnRegisterHandlerForDrmOverlayManager() override;
   bool GpuCheckOverlayCapabilities(
       gfx::AcceleratedWidget widget,
@@ -116,7 +111,7 @@ class HostDrmDevice : public base::RefCountedThreadSafe<HostDrmDevice>,
   void BindInterfaceDeviceCursor(
       ui::ozone::mojom::DeviceCursorPtr* cursor_ptr) const;
 
-  void OnDrmServiceStartedCallback(bool success);
+  void OnDrmServiceStarted();
 
   // TODO(rjkroege): Get rid of the need for this method in a subsequent CL.
   void PollForSingleThreadReady(int previous_delay);
@@ -144,24 +139,14 @@ class HostDrmDevice : public base::RefCountedThreadSafe<HostDrmDevice>,
   // Mojo implementation of the DrmDevice. Will be bound on the "main" thread.
   ui::ozone::mojom::DrmDevicePtr drm_device_ptr_;
 
-  // When running under mus, this is the UI thread specific DrmDevice ptr for
-  // use by the compositor.
-  // TODO(rjkroege): When mash is removed, this code can also be removed.
-  ui::ozone::mojom::DrmDevicePtr drm_device_ptr_compositor_;
-
   DrmDisplayHostManager* display_manager_;  // Not owned.
-  DrmOverlayManager* overlay_manager_;      // Not owned.
+  DrmOverlayManagerHost* overlay_manager_;  // Not owned.
   DrmCursor* const cursor_;                 // Not owned.
 
   std::unique_ptr<HostCursorProxy> cursor_proxy_;
 
   THREAD_CHECKER(on_io_thread_);  // Needs to be rebound as is allocated on the
-                                  // window server  thread.
-  THREAD_CHECKER(on_window_server_thread_);
-  // When running under mus, some entry points are used from the mus thread
-  // and some are used from the ui thread. In general. In that case, the
-  // on_ui_thread_ and on_window_server_thread_ will differ. In particular,
-  // entry points used by the compositor use the ui thread.
+                                  // UI thread.
   THREAD_CHECKER(on_ui_thread_);
 
   bool connected_ = false;

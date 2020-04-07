@@ -8,7 +8,6 @@
 #include <utility>
 
 #include "testing/gtest/include/gtest/gtest.h"
-#include "third_party/blink/public/platform/modules/service_worker/web_service_worker_clients_info.h"
 #include "third_party/blink/public/platform/modules/service_worker/web_service_worker_provider.h"
 #include "third_party/blink/public/platform/web_url.h"
 #include "third_party/blink/renderer/bindings/core/v8/dictionary.h"
@@ -26,6 +25,7 @@
 #include "third_party/blink/renderer/platform/bindings/script_state.h"
 #include "third_party/blink/renderer/platform/weborigin/kurl.h"
 #include "third_party/blink/renderer/platform/weborigin/security_origin.h"
+#include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
 #include "v8/include/v8.h"
 
@@ -188,11 +188,7 @@ class ServiceWorkerContainerTest : public PageTestBase {
   }
 
   void SetPageURL(const String& url) {
-    // For URL completion.
-    GetDocument().SetURL(KURL(NullURL(), url));
-
-    // The basis for security checks.
-    GetDocument().SetSecurityOrigin(SecurityOrigin::CreateFromString(url));
+    NavigateTo(KURL(NullURL(), url));
 
     if (url.StartsWith("https://") || url.StartsWith("http://localhost/")) {
       GetDocument().SetSecureContextStateForTesting(
@@ -276,6 +272,8 @@ TEST_F(ServiceWorkerContainerTest, GetRegistration_CrossOriginURLIsRejected) {
 }
 
 class StubWebServiceWorkerProvider {
+  DISALLOW_NEW();
+
  public:
   StubWebServiceWorkerProvider()
       : register_call_count_(0),

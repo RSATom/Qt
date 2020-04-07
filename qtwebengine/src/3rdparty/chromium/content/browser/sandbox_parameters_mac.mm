@@ -24,9 +24,14 @@
 #include "content/public/common/pepper_plugin_info.h"
 #include "sandbox/mac/seatbelt_exec.h"
 #include "services/service_manager/sandbox/mac/sandbox_mac.h"
+#include "services/service_manager/sandbox/sandbox_type.h"
 #include "services/service_manager/sandbox/switches.h"
 
 namespace content {
+
+#if defined(TOOLKIT_QT)
+std::string getQtPrefix();
+#endif
 
 namespace {
 
@@ -45,11 +50,21 @@ std::string GetOSVersion() {
   return std::to_string(final_os_version);
 }
 
-}  // namespace
+// Retrieves the users shared cache and adds it to the profile.
+void AddDarwinUserCache(sandbox::SeatbeltExecClient* client) {
+  char dir_path[PATH_MAX + 1];
 
-#if defined(TOOLKIT_QT)
-std::string getQtPrefix();
-#endif
+  size_t rv = confstr(_CS_DARWIN_USER_CACHE_DIR, dir_path, sizeof(dir_path));
+  PCHECK(rv != 0);
+  CHECK(client->SetParameter(
+      "DARWIN_USER_CACHE_DIR",
+      service_manager::SandboxMac::GetCanonicalPath(base::FilePath(dir_path))
+          .value()));
+}
+
+// All of the below functions populate the |client| with the parameters that the
+// sandbox needs to resolve information that cannot be known at build time, such
+// as the user's home directory.
 
 void SetupCommonSandboxParameters(sandbox::SeatbeltExecClient* client) {
   const base::CommandLine* command_line =
@@ -114,17 +129,10 @@ void SetupCommonSandboxParameters(sandbox::SeatbeltExecClient* client) {
 void SetupNetworkSandboxParameters(sandbox::SeatbeltExecClient* client) {
   SetupCommonSandboxParameters(client);
 
-  char dir_path[PATH_MAX + 1];
-
-  size_t rv = confstr(_CS_DARWIN_USER_CACHE_DIR, dir_path, sizeof(dir_path));
-  PCHECK(rv != 0);
-  CHECK(client->SetParameter(
-      "DARWIN_USER_CACHE_DIR",
-      service_manager::SandboxMac::GetCanonicalPath(base::FilePath(dir_path))
-          .value()));
-
   std::vector<base::FilePath> storage_paths =
       GetContentClient()->browser()->GetNetworkContextsParentDirectory();
+
+  AddDarwinUserCache(client);
 
   CHECK(client->SetParameter("NETWORK_SERVICE_STORAGE_PATHS_COUNT",
                              base::NumberToString(storage_paths.size())));
@@ -177,6 +185,40 @@ void SetupCDMSandboxParameters(sandbox::SeatbeltExecClient* client) {
 void SetupUtilitySandboxParameters(sandbox::SeatbeltExecClient* client,
                                    const base::CommandLine& command_line) {
   SetupCommonSandboxParameters(client);
+}
+
+}  // namespace
+
+void SetupSandboxParameters(service_manager::SandboxType sandbox_type,
+                            const base::CommandLine& command_line,
+                            sandbox::SeatbeltExecClient* client) {
+  switch (sandbox_type) {
+    case service_manager::SANDBOX_TYPE_AUDIO:
+    case service_manager::SANDBOX_TYPE_NACL_LOADER:
+    case service_manager::SANDBOX_TYPE_PDF_COMPOSITOR:
+    case service_manager::SANDBOX_TYPE_RENDERER:
+      SetupCommonSandboxParameters(client);
+      break;
+    case service_manager::SANDBOX_TYPE_GPU:
+      SetupCommonSandboxParameters(client);
+      AddDarwinUserCache(client);
+      break;
+    case service_manager::SANDBOX_TYPE_CDM:
+      SetupCDMSandboxParameters(client);
+      break;
+    case service_manager::SANDBOX_TYPE_NETWORK:
+      SetupNetworkSandboxParameters(client);
+      break;
+    case service_manager::SANDBOX_TYPE_PPAPI:
+      SetupPPAPISandboxParameters(client);
+      break;
+    case service_manager::SANDBOX_TYPE_PROFILING:
+    case service_manager::SANDBOX_TYPE_UTILITY:
+      SetupUtilitySandboxParameters(client, command_line);
+      break;
+    default:
+      CHECK(false) << "Unhandled parameters for sandbox_type " << sandbox_type;
+  }
 }
 
 }  // namespace content

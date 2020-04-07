@@ -20,15 +20,16 @@
 
 namespace dawn_native {
 
-    dawnProcTable GetProcsAutogen();
+    DawnProcTable GetProcsAutogen();
 
-    dawnProcTable GetProcs() {
+    DawnProcTable GetProcs() {
         return GetProcsAutogen();
     }
 
-    const PCIInfo& GetPCIInfo(dawnDevice device) {
-        DeviceBase* deviceBase = reinterpret_cast<DeviceBase*>(device);
-        return deviceBase->GetPCIInfo();
+    std::vector<const char*> GetTogglesUsed(DawnDevice device) {
+        const dawn_native::DeviceBase* deviceBase =
+            reinterpret_cast<const dawn_native::DeviceBase*>(device);
+        return deviceBase->GetTogglesUsed();
     }
 
     // Adapter
@@ -46,12 +47,20 @@ namespace dawn_native {
         return mImpl->GetBackendType();
     }
 
+    DeviceType Adapter::GetDeviceType() const {
+        return mImpl->GetDeviceType();
+    }
+
     const PCIInfo& Adapter::GetPCIInfo() const {
         return mImpl->GetPCIInfo();
     }
 
-    dawnDevice Adapter::CreateDevice() {
-        return reinterpret_cast<dawnDevice>(mImpl->CreateDevice());
+    Adapter::operator bool() const {
+        return mImpl != nullptr;
+    }
+
+    DawnDevice Adapter::CreateDevice(const DeviceDescriptor* deviceDescriptor) {
+        return reinterpret_cast<DawnDevice>(mImpl->CreateDevice(deviceDescriptor));
     }
 
     // AdapterDiscoverOptionsBase
@@ -84,6 +93,26 @@ namespace dawn_native {
             adapters.push_back({adapter.get()});
         }
         return adapters;
+    }
+
+    const ToggleInfo* Instance::GetToggleInfo(const char* toggleName) {
+        return mImpl->GetToggleInfo(toggleName);
+    }
+
+    void Instance::EnableBackendValidation(bool enableBackendValidation) {
+        mImpl->EnableBackendValidation(enableBackendValidation);
+    }
+
+    bool Instance::IsBackendValidationEnabled() const {
+        return mImpl->IsBackendValidationEnabled();
+    }
+
+    void Instance::EnableBeginCaptureOnStartup(bool beginCaptureOnStartup) {
+        mImpl->EnableBeginCaptureOnStartup(beginCaptureOnStartup);
+    }
+
+    bool Instance::IsBeginCaptureOnStartupEnabled() const {
+        return mImpl->IsBeginCaptureOnStartupEnabled();
     }
 
 }  // namespace dawn_native

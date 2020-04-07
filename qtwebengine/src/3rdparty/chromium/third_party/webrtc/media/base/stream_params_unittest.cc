@@ -14,12 +14,14 @@
 
 #include "media/base/test_utils.h"
 #include "rtc_base/arraysize.h"
+#include "test/gmock.h"
 #include "test/gtest.h"
+
+using ::testing::Each;
+using ::testing::Ne;
 
 static const uint32_t kSsrcs1[] = {1};
 static const uint32_t kSsrcs2[] = {1, 2};
-static const uint32_t kSsrcs3[] = {1, 2, 3};
-static const uint32_t kRtxSsrcs3[] = {4, 5, 6};
 
 static cricket::StreamParams CreateStreamParamsWithSsrcGroup(
     const std::string& semantics,
@@ -229,95 +231,71 @@ TEST(StreamParams, ToString) {
       sp.ToString().c_str());
 }
 
-TEST(StreamParams, TestIsOneSsrcStream_LegacyStream) {
-  EXPECT_TRUE(
-      cricket::IsOneSsrcStream(cricket::StreamParams::CreateLegacy(13)));
-}
-
-TEST(StreamParams, TestIsOneSsrcStream_SingleRtxStream) {
+TEST(StreamParams, TestGenerateSsrcs_SingleStreamWithRtxAndFlex) {
+  rtc::UniqueRandomIdGenerator generator;
   cricket::StreamParams stream;
-  stream.add_ssrc(13);
-  EXPECT_TRUE(stream.AddFidSsrc(13, 14));
-  EXPECT_TRUE(cricket::IsOneSsrcStream(stream));
+  stream.GenerateSsrcs(1, true, true, &generator);
+  uint32_t primary_ssrc = stream.first_ssrc();
+  ASSERT_NE(0u, primary_ssrc);
+  uint32_t rtx_ssrc = 0;
+  uint32_t flex_ssrc = 0;
+  EXPECT_EQ(3u, stream.ssrcs.size());
+  EXPECT_TRUE(stream.GetFidSsrc(primary_ssrc, &rtx_ssrc));
+  EXPECT_NE(0u, rtx_ssrc);
+  EXPECT_TRUE(stream.GetFecFrSsrc(primary_ssrc, &flex_ssrc));
+  EXPECT_NE(0u, flex_ssrc);
+  EXPECT_FALSE(stream.has_ssrc_group(cricket::kSimSsrcGroupSemantics));
+  EXPECT_TRUE(stream.has_ssrc_group(cricket::kFidSsrcGroupSemantics));
+  EXPECT_TRUE(stream.has_ssrc_group(cricket::kFecFrSsrcGroupSemantics));
 }
 
-TEST(StreamParams, TestIsOneSsrcStream_SingleFlexfecStream) {
+TEST(StreamParams, TestGenerateSsrcs_SingleStreamWithRtx) {
+  rtc::UniqueRandomIdGenerator generator;
   cricket::StreamParams stream;
-  stream.add_ssrc(13);
-  EXPECT_TRUE(stream.AddFecFrSsrc(13, 14));
-  EXPECT_TRUE(cricket::IsOneSsrcStream(stream));
+  stream.GenerateSsrcs(1, true, false, &generator);
+  uint32_t primary_ssrc = stream.first_ssrc();
+  ASSERT_NE(0u, primary_ssrc);
+  uint32_t rtx_ssrc = 0;
+  uint32_t flex_ssrc = 0;
+  EXPECT_EQ(2u, stream.ssrcs.size());
+  EXPECT_TRUE(stream.GetFidSsrc(primary_ssrc, &rtx_ssrc));
+  EXPECT_NE(0u, rtx_ssrc);
+  EXPECT_FALSE(stream.GetFecFrSsrc(primary_ssrc, &flex_ssrc));
+  EXPECT_EQ(0u, flex_ssrc);
+  EXPECT_FALSE(stream.has_ssrc_group(cricket::kSimSsrcGroupSemantics));
+  EXPECT_TRUE(stream.has_ssrc_group(cricket::kFidSsrcGroupSemantics));
 }
 
-TEST(StreamParams, TestIsOneSsrcStream_SingleFlexfecAndRtxStream) {
+TEST(StreamParams, TestGenerateSsrcs_SingleStreamWithFlex) {
+  rtc::UniqueRandomIdGenerator generator;
   cricket::StreamParams stream;
-  stream.add_ssrc(13);
-  EXPECT_TRUE(stream.AddFecFrSsrc(13, 14));
-  EXPECT_TRUE(stream.AddFidSsrc(13, 15));
-  EXPECT_TRUE(cricket::IsOneSsrcStream(stream));
+  stream.GenerateSsrcs(1, false, true, &generator);
+  uint32_t primary_ssrc = stream.first_ssrc();
+  ASSERT_NE(0u, primary_ssrc);
+  uint32_t rtx_ssrc = 0;
+  uint32_t flex_ssrc = 0;
+  EXPECT_EQ(2u, stream.ssrcs.size());
+  EXPECT_FALSE(stream.GetFidSsrc(primary_ssrc, &rtx_ssrc));
+  EXPECT_EQ(0u, rtx_ssrc);
+  EXPECT_TRUE(stream.GetFecFrSsrc(primary_ssrc, &flex_ssrc));
+  EXPECT_NE(0u, flex_ssrc);
+  EXPECT_FALSE(stream.has_ssrc_group(cricket::kSimSsrcGroupSemantics));
+  EXPECT_TRUE(stream.has_ssrc_group(cricket::kFecFrSsrcGroupSemantics));
 }
 
-TEST(StreamParams, TestIsOneSsrcStream_SimulcastStream) {
-  EXPECT_FALSE(cricket::IsOneSsrcStream(
-      cricket::CreateSimStreamParams("cname", MAKE_VECTOR(kSsrcs2))));
-  EXPECT_FALSE(cricket::IsOneSsrcStream(
-      cricket::CreateSimStreamParams("cname", MAKE_VECTOR(kSsrcs3))));
-}
-
-TEST(StreamParams, TestIsOneSsrcStream_SimRtxStream) {
-  cricket::StreamParams stream = cricket::CreateSimWithRtxStreamParams(
-      "cname", MAKE_VECTOR(kSsrcs3), MAKE_VECTOR(kRtxSsrcs3));
-  EXPECT_FALSE(cricket::IsOneSsrcStream(stream));
-}
-
-TEST(StreamParams, TestIsSimulcastStream_LegacyStream) {
-  EXPECT_FALSE(
-      cricket::IsSimulcastStream(cricket::StreamParams::CreateLegacy(13)));
-}
-
-TEST(StreamParams, TestIsSimulcastStream_SingleRtxStream) {
+TEST(StreamParams, TestGenerateSsrcs_SimulcastLayersAndRtx) {
+  const size_t kNumStreams = 3;
+  rtc::UniqueRandomIdGenerator generator;
   cricket::StreamParams stream;
-  stream.add_ssrc(13);
-  EXPECT_TRUE(stream.AddFidSsrc(13, 14));
-  EXPECT_FALSE(cricket::IsSimulcastStream(stream));
-}
-
-TEST(StreamParams, TestIsSimulcastStream_SimulcastStream) {
-  EXPECT_TRUE(cricket::IsSimulcastStream(
-      cricket::CreateSimStreamParams("cname", MAKE_VECTOR(kSsrcs2))));
-  EXPECT_TRUE(cricket::IsSimulcastStream(
-      cricket::CreateSimStreamParams("cname", MAKE_VECTOR(kSsrcs3))));
-}
-
-TEST(StreamParams, TestIsSimulcastStream_SimRtxStream) {
-  cricket::StreamParams stream = cricket::CreateSimWithRtxStreamParams(
-      "cname", MAKE_VECTOR(kSsrcs3), MAKE_VECTOR(kRtxSsrcs3));
-  EXPECT_TRUE(cricket::IsSimulcastStream(stream));
-}
-
-TEST(StreamParams, TestIsSimulcastStream_InvalidStreams) {
-  // stream1 has extra non-sim, non-fid ssrc.
-  cricket::StreamParams stream1 = cricket::CreateSimWithRtxStreamParams(
-      "cname", MAKE_VECTOR(kSsrcs3), MAKE_VECTOR(kRtxSsrcs3));
-  stream1.add_ssrc(25);
-  EXPECT_FALSE(cricket::IsSimulcastStream(stream1));
-
-  // stream2 has invalid fid-group (no primary).
-  cricket::StreamParams stream2;
-  stream2.add_ssrc(13);
-  EXPECT_TRUE(stream2.AddFidSsrc(13, 14));
-  stream2.ssrcs.erase(
-      std::remove(stream2.ssrcs.begin(), stream2.ssrcs.end(), 13u),
-      stream2.ssrcs.end());
-  EXPECT_FALSE(cricket::IsSimulcastStream(stream2));
-
-  // stream3 has two SIM groups.
-  cricket::StreamParams stream3 =
-      cricket::CreateSimStreamParams("cname", MAKE_VECTOR(kSsrcs2));
-  std::vector<uint32_t> sim_ssrcs = MAKE_VECTOR(kRtxSsrcs3);
-  cricket::SsrcGroup sg(cricket::kSimSsrcGroupSemantics, sim_ssrcs);
-  for (size_t i = 0; i < sim_ssrcs.size(); i++) {
-    stream3.add_ssrc(sim_ssrcs[i]);
-  }
-  stream3.ssrc_groups.push_back(sg);
-  EXPECT_FALSE(cricket::IsSimulcastStream(stream3));
+  stream.GenerateSsrcs(kNumStreams, true, false, &generator);
+  EXPECT_EQ(kNumStreams * 2, stream.ssrcs.size());
+  std::vector<uint32_t> primary_ssrcs, rtx_ssrcs;
+  stream.GetPrimarySsrcs(&primary_ssrcs);
+  EXPECT_EQ(kNumStreams, primary_ssrcs.size());
+  EXPECT_THAT(primary_ssrcs, Each(Ne(0u)));
+  stream.GetFidSsrcs(primary_ssrcs, &rtx_ssrcs);
+  EXPECT_EQ(kNumStreams, rtx_ssrcs.size());
+  EXPECT_THAT(rtx_ssrcs, Each(Ne(0u)));
+  EXPECT_TRUE(stream.has_ssrc_group(cricket::kSimSsrcGroupSemantics));
+  EXPECT_TRUE(stream.has_ssrc_group(cricket::kFidSsrcGroupSemantics));
 }

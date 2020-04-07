@@ -5,11 +5,13 @@
 #include <utility>
 #include <vector>
 
+#include "base/bind.h"
 #include "base/memory/read_only_shared_memory_region.h"
 #include "base/test/scoped_task_environment.h"
 #include "content/browser/devtools/devtools_video_consumer.h"
 #include "content/public/test/test_utils.h"
 #include "media/base/limits.h"
+#include "media/capture/mojom/video_capture_types.mojom.h"
 #include "mojo/public/cpp/base/shared_memory_utils.h"
 #include "mojo/public/cpp/bindings/binding.h"
 #include "testing/gmock/include/gmock/gmock.h"
@@ -143,7 +145,7 @@ class MockDevToolsVideoFrameReceiver {
   MOCK_METHOD1(OnFrameFromVideoConsumerMock,
                void(scoped_refptr<media::VideoFrame> frame));
 
-  MockDevToolsVideoFrameReceiver() : weak_factory_(this) {}
+  MockDevToolsVideoFrameReceiver() {}
 
   scoped_refptr<media::VideoFrame> TakeFrameAt(int i) {
     return std::move(frames_[i]);
@@ -162,12 +164,12 @@ class MockDevToolsVideoFrameReceiver {
 
  private:
   std::vector<scoped_refptr<media::VideoFrame>> frames_;
-  base::WeakPtrFactory<MockDevToolsVideoFrameReceiver> weak_factory_;
+  base::WeakPtrFactory<MockDevToolsVideoFrameReceiver> weak_factory_{this};
 };
 
 class DevToolsVideoConsumerTest : public testing::Test {
  public:
-  DevToolsVideoConsumerTest() : weak_factory_(this) {}
+  DevToolsVideoConsumerTest() {}
 
   void SetUp() override {
     consumer_ = receiver_.CreateDevToolsVideoConsumer();
@@ -185,7 +187,7 @@ class DevToolsVideoConsumerTest : public testing::Test {
         nullptr);
 
     consumer_->OnFrameCaptured(std::move(data), std::move(info),
-                               gfx::Rect(kResolution), gfx::Rect(kResolution),
+                               gfx::Rect(kResolution),
                                std::move(callbacks_ptr));
   }
 
@@ -232,7 +234,7 @@ class DevToolsVideoConsumerTest : public testing::Test {
   }
 
   base::test::ScopedTaskEnvironment task_environment_;
-  base::WeakPtrFactory<DevToolsVideoConsumerTest> weak_factory_;
+  base::WeakPtrFactory<DevToolsVideoConsumerTest> weak_factory_{this};
 };
 
 // Tests that the OnFrameFromVideoConsumer callbacks is called when

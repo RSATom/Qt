@@ -28,9 +28,11 @@
 #define DRM_FORMAT_ABGR8888 FOURCC('A', 'B', '2', '4')
 #define DRM_FORMAT_XRGB8888 FOURCC('X', 'R', '2', '4')
 #define DRM_FORMAT_XBGR8888 FOURCC('X', 'B', '2', '4')
-#define DRM_FORMAT_ABGR2101010 FOURCC('A', 'B', '3', '0')
+#define DRM_FORMAT_XBGR2101010 FOURCC('X', 'B', '3', '0')
+#define DRM_FORMAT_XRGB2101010 FOURCC('X', 'R', '3', '0')
 #define DRM_FORMAT_YVU420 FOURCC('Y', 'V', '1', '2')
 #define DRM_FORMAT_NV12 FOURCC('N', 'V', '1', '2')
+#define DRM_FORMAT_P010 FOURCC('P', '0', '1', '0')
 
 namespace gl {
 namespace {
@@ -51,6 +53,7 @@ unsigned GetInternalFormatFromFormat(gfx::BufferFormat format) {
     case gfx::BufferFormat::RGBA_8888:
       return GL_RGBA;
     case gfx::BufferFormat::RGBX_1010102:
+    case gfx::BufferFormat::BGRX_1010102:
       return GL_RGB10_A2_EXT;
     case gfx::BufferFormat::BGRA_8888:
       return GL_BGRA_EXT;
@@ -59,10 +62,11 @@ unsigned GetInternalFormatFromFormat(gfx::BufferFormat format) {
     case gfx::BufferFormat::YUV_420_BIPLANAR:
       return GL_RGB_YCBCR_420V_CHROMIUM;
     case gfx::BufferFormat::RGBA_4444:
-    case gfx::BufferFormat::BGRX_1010102:
     case gfx::BufferFormat::RGBA_F16:
     case gfx::BufferFormat::UYVY_422:
       return GL_NONE;
+    case gfx::BufferFormat::P010:
+      return GL_RGB_YCBCR_P010_CHROMIUM;
   }
 
   NOTREACHED();
@@ -88,15 +92,16 @@ EGLint FourCC(gfx::BufferFormat format) {
     case gfx::BufferFormat::BGRX_8888:
       return DRM_FORMAT_XRGB8888;
     case gfx::BufferFormat::RGBX_1010102:
-      // We should use here DRM_FORMAT_XBGR2101010 format, but EGL on Intel
-      // doesn't support it for scanout, see https://crbug.com/776093#c14.
-      return DRM_FORMAT_ABGR2101010;
+      return DRM_FORMAT_XBGR2101010;
+    case gfx::BufferFormat::BGRX_1010102:
+      return DRM_FORMAT_XRGB2101010;
     case gfx::BufferFormat::YVU_420:
       return DRM_FORMAT_YVU420;
     case gfx::BufferFormat::YUV_420_BIPLANAR:
       return DRM_FORMAT_NV12;
+    case gfx::BufferFormat::P010:
+      return DRM_FORMAT_P010;
     case gfx::BufferFormat::RGBA_4444:
-    case gfx::BufferFormat::BGRX_1010102:
     case gfx::BufferFormat::RGBA_F16:
     case gfx::BufferFormat::UYVY_422:
       NOTREACHED();
@@ -121,9 +126,7 @@ gfx::BufferFormat GetBufferFormatFromFourCCFormat(int format) {
       return gfx::BufferFormat::BGRA_8888;
     case DRM_FORMAT_XRGB8888:
       return gfx::BufferFormat::BGRX_8888;
-    case DRM_FORMAT_ABGR2101010:
-      // We should support DRM_FORMAT_XBGR2101010 format instead, but EGL on
-      // Intel doesn't support it for scanout, see https://crbug.com/776093#c14.
+    case DRM_FORMAT_XBGR2101010:
       return gfx::BufferFormat::RGBX_1010102;
     case DRM_FORMAT_RGB565:
       return gfx::BufferFormat::BGR_565;
@@ -131,6 +134,8 @@ gfx::BufferFormat GetBufferFormatFromFourCCFormat(int format) {
       return gfx::BufferFormat::YUV_420_BIPLANAR;
     case DRM_FORMAT_YVU420:
       return gfx::BufferFormat::YVU_420;
+    case DRM_FORMAT_P010:
+      return gfx::BufferFormat::P010;
     default:
       NOTREACHED();
       return gfx::BufferFormat::BGRA_8888;
@@ -150,7 +155,7 @@ GLImageNativePixmap::GLImageNativePixmap(const gfx::Size& size,
 
 GLImageNativePixmap::~GLImageNativePixmap() {}
 
-bool GLImageNativePixmap::Initialize(gfx::NativePixmap* pixmap) {
+bool GLImageNativePixmap::Initialize(scoped_refptr<gfx::NativePixmap> pixmap) {
   DCHECK(!pixmap_);
   if (GetInternalFormatFromFormat(format_) == GL_NONE) {
     LOG(ERROR) << "Unsupported format: " << gfx::BufferFormatToString(format_);
@@ -173,23 +178,20 @@ bool GLImageNativePixmap::Initialize(gfx::NativePixmap* pixmap) {
     bool has_dma_buf_import_modifier = gl::GLSurfaceEGL::HasEGLExtension(
         "EGL_EXT_image_dma_buf_import_modifiers");
 
-    for (size_t attrs_plane = 0;
-         attrs_plane <
-         gfx::NumberOfPlanesForBufferFormat(pixmap->GetBufferFormat());
+    for (size_t attrs_plane = 0; attrs_plane < pixmap->GetNumberOfPlanes();
          ++attrs_plane) {
       attrs.push_back(EGL_DMA_BUF_PLANE0_FD_EXT + attrs_plane * 3);
 
       size_t pixmap_plane = attrs_plane;
 
-      attrs.push_back(pixmap->GetDmaBufFd(
-          pixmap_plane < pixmap->GetDmaBufFdCount() ? pixmap_plane : 0));
+      attrs.push_back(pixmap->GetDmaBufFd(pixmap_plane));
       attrs.push_back(EGL_DMA_BUF_PLANE0_OFFSET_EXT + attrs_plane * 3);
       attrs.push_back(pixmap->GetDmaBufOffset(pixmap_plane));
       attrs.push_back(EGL_DMA_BUF_PLANE0_PITCH_EXT + attrs_plane * 3);
       attrs.push_back(pixmap->GetDmaBufPitch(pixmap_plane));
+      uint64_t modifier = pixmap->GetBufferFormatModifier();
       if (has_dma_buf_import_modifier &&
-          pixmap->GetDmaBufModifier(0) != gfx::NativePixmapPlane::kNoModifier) {
-        uint64_t modifier = pixmap->GetDmaBufModifier(pixmap_plane);
+          modifier != gfx::NativePixmapHandle::kNoModifier) {
         DCHECK(attrs_plane < base::size(kLinuxDrmModifiers));
         attrs.push_back(kLinuxDrmModifiers[attrs_plane]);
         attrs.push_back(modifier & 0xffffffff);
@@ -262,13 +264,6 @@ gfx::NativePixmapHandle GLImageNativePixmap::ExportHandle() {
   }
 
   gfx::BufferFormat format = GetBufferFormatFromFourCCFormat(fourcc);
-  if (num_planes > 0 && static_cast<size_t>(num_planes) !=
-                            gfx::NumberOfPlanesForBufferFormat(format)) {
-    LOG(ERROR) << "Invalid number of planes: " << num_planes
-               << " for format: " << gfx::BufferFormatToString(format);
-    return gfx::NativePixmapHandle();
-  }
-
   if (format != format_) {
     // A driver has returned a format different than what has been requested.
     // This can happen if RGBX is implemented using RGBA. Otherwise there is
@@ -300,8 +295,8 @@ gfx::NativePixmapHandle GLImageNativePixmap::ExportHandle() {
     return gfx::NativePixmapHandle();
   }
 
-  gfx::NativePixmapHandle handle;
-
+  gfx::NativePixmapHandle handle{};
+  handle.modifier = modifiers;
   for (int i = 0; i < num_planes; ++i) {
     // Sanity check. In principle all the fds are meant to be valid when
     // eglExportDMABUFImageMESA succeeds.
@@ -311,15 +306,8 @@ gfx::NativePixmapHandle GLImageNativePixmap::ExportHandle() {
       return gfx::NativePixmapHandle();
     }
 
-    // scoped_fd.release() transfers ownership to the caller so it will not
-    // call close when going out of scope. base::FileDescriptor never closes
-    // the fd when going out of scope. The auto_close flag is just a hint for
-    // the user. When true it means the user has ownership of it so they are
-    // responsible for closing the fd.
-    handle.fds.emplace_back(
-        base::FileDescriptor(scoped_fd.release(), true /* auto_close */));
     handle.planes.emplace_back(strides[i], offsets[i], 0 /* size opaque */,
-                               modifiers);
+                               std::move(scoped_fd));
   }
 
   return handle;

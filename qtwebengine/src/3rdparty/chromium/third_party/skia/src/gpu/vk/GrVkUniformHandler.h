@@ -8,12 +8,12 @@
 #ifndef GrVkUniformHandler_DEFINED
 #define GrVkUniformHandler_DEFINED
 
-#include "GrAllocator.h"
-#include "GrSamplerState.h"
-#include "GrShaderVar.h"
-#include "GrVkSampler.h"
-#include "glsl/GrGLSLUniformHandler.h"
-#include "vk/GrVkTypes.h"
+#include "include/gpu/GrSamplerState.h"
+#include "include/gpu/vk/GrVkTypes.h"
+#include "src/gpu/GrAllocator.h"
+#include "src/gpu/GrShaderVar.h"
+#include "src/gpu/glsl/GrGLSLUniformHandler.h"
+#include "src/gpu/vk/GrVkSampler.h"
 
 class GrVkUniformHandler : public GrGLSLUniformHandler {
 public:
@@ -64,7 +64,6 @@ private:
 
     UniformHandle internalAddUniformArray(uint32_t visibility,
                                           GrSLType type,
-                                          GrSLPrecision precision,
                                           const char* name,
                                           bool mangleName,
                                           int arrayCount,
@@ -72,12 +71,13 @@ private:
 
     SamplerHandle addSampler(const GrTexture* texture,
                              const GrSamplerState&,
+                             const GrSwizzle&,
                              const char* name,
                              const GrShaderCaps*) override;
 
     int numSamplers() const { return fSamplers.count(); }
-    const GrShaderVar& samplerVariable(SamplerHandle handle) const override {
-        return fSamplers[handle.toIndex()].fVariable;
+    const char* samplerVariable(SamplerHandle handle) const override {
+        return fSamplers[handle.toIndex()].fVariable.c_str();
     }
     GrSwizzle samplerSwizzle(SamplerHandle handle) const override {
         return fSamplerSwizzles[handle.toIndex()];

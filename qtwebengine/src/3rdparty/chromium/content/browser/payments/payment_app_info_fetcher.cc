@@ -7,8 +7,10 @@
 #include <utility>
 
 #include "base/base64.h"
+#include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/task/post_task.h"
+#include "components/payments/content/icon/icon_size.h"
 #include "content/browser/frame_host/render_frame_host_impl.h"
 #include "content/browser/service_worker/service_worker_context_wrapper.h"
 #include "content/browser/web_contents/web_contents_impl.h"
@@ -16,8 +18,8 @@
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/global_routing_id.h"
 #include "content/public/browser/manifest_icon_downloader.h"
-#include "content/public/common/console_message_level.h"
 #include "third_party/blink/public/common/manifest/manifest_icon_selector.h"
+#include "third_party/blink/public/mojom/devtools/console_message.mojom.h"
 #include "ui/gfx/codec/png_codec.h"
 #include "url/origin.h"
 
@@ -113,7 +115,7 @@ void PaymentAppInfoFetcher::SelfDeleteFetcher::Start(
         WebContents::FromRenderFrameHost(top_level_render_frame_host));
     if (!top_level_web_content) {
       top_level_render_frame_host->AddMessageToConsole(
-          content::CONSOLE_MESSAGE_LEVEL_ERROR,
+          blink::mojom::ConsoleMessageLevel::kError,
           "Unable to find the web page for \"" + context_url.spec() +
               "\" to fetch payment handler manifest (for name and icon).");
       continue;
@@ -121,7 +123,7 @@ void PaymentAppInfoFetcher::SelfDeleteFetcher::Start(
 
     if (top_level_web_content->IsHidden()) {
       top_level_render_frame_host->AddMessageToConsole(
-          content::CONSOLE_MESSAGE_LEVEL_ERROR,
+          blink::mojom::ConsoleMessageLevel::kError,
           "Unable to fetch payment handler manifest (for name and icon) for "
           "\"" +
               context_url.spec() + "\" from a hidden top level web page \"" +
@@ -132,7 +134,7 @@ void PaymentAppInfoFetcher::SelfDeleteFetcher::Start(
     if (!url::IsSameOriginWith(context_url,
                                top_level_web_content->GetLastCommittedURL())) {
       top_level_render_frame_host->AddMessageToConsole(
-          content::CONSOLE_MESSAGE_LEVEL_ERROR,
+          blink::mojom::ConsoleMessageLevel::kError,
           "Unable to fetch payment handler manifest (for name and icon) for "
           "\"" +
               context_url.spec() +
@@ -147,7 +149,7 @@ void PaymentAppInfoFetcher::SelfDeleteFetcher::Start(
     top_level_web_content->GetManifest(
         base::BindOnce(&PaymentAppInfoFetcher::SelfDeleteFetcher::
                            FetchPaymentAppManifestCallback,
-                       base::Unretained(this)));
+                       weak_ptr_factory_.GetWeakPtr()));
     return;
   }
 
@@ -237,13 +239,6 @@ void PaymentAppInfoFetcher::SelfDeleteFetcher::FetchPaymentAppManifestCallback(
                       &(fetched_payment_app_info_->name));
   }
 
-  // TODO(gogerald): Choose appropriate icon size dynamically on different
-  // platforms.
-  // Here we choose a large ideal icon size to be big enough for all platforms.
-  // Note that we only scale down for this icon size but not scale up.
-  const int kPaymentAppIdealIconSize = 0xFFFF;
-  const int kPaymentAppMinimumIconSize = 0;
-
   if (manifest.icons.empty()) {
     WarnIfPossible(
         "Unable to download the payment handler's icon, because the web app "
@@ -255,8 +250,23 @@ void PaymentAppInfoFetcher::SelfDeleteFetcher::FetchPaymentAppManifestCallback(
     return;
   }
 
+  WebContents* web_contents = web_contents_helper_->web_contents();
+  if (!web_contents) {
+    LOG(WARNING) << "Unable to download the payment handler's icon because no "
+                    "renderer was found, possibly because the page was closed "
+                    "or navigated away during installation. User may not "
+                    "recognize this payment handler in UI, because it will be "
+                    "labeled only by its name and origin.";
+    RunCallbackAndDestroy();
+    return;
+  }
+  gfx::NativeView native_view = web_contents->GetNativeView();
+
   icon_url_ = blink::ManifestIconSelector::FindBestMatchingIcon(
-      manifest.icons, kPaymentAppIdealIconSize, kPaymentAppMinimumIconSize,
+      manifest.icons,
+      payments::IconSizeCalculator::IdealIconHeight(native_view),
+      payments::IconSizeCalculator::MinimumIconHeight(),
+      ManifestIconDownloader::kMaxWidthToHeightRatio,
       blink::Manifest::ImageResource::Purpose::ANY);
   if (!icon_url_.is_valid()) {
     WarnIfPossible(
@@ -269,21 +279,13 @@ void PaymentAppInfoFetcher::SelfDeleteFetcher::FetchPaymentAppManifestCallback(
     return;
   }
 
-  if (!web_contents_helper_->web_contents()) {
-    LOG(WARNING) << "Unable to download the payment handler's icon because no "
-                    "renderer was found, possibly because the page was closed "
-                    "or navigated away during installation. User may not "
-                    "recognize this payment handler in UI, because it will be "
-                    "labeled only by its name and origin.";
-    RunCallbackAndDestroy();
-    return;
-  }
-
   bool can_download = ManifestIconDownloader::Download(
-      web_contents_helper_->web_contents(), icon_url_, kPaymentAppIdealIconSize,
-      kPaymentAppMinimumIconSize,
-      base::Bind(&PaymentAppInfoFetcher::SelfDeleteFetcher::OnIconFetched,
-                 base::Unretained(this)));
+      web_contents, icon_url_,
+      payments::IconSizeCalculator::IdealIconHeight(native_view),
+      payments::IconSizeCalculator::MinimumIconHeight(),
+      base::BindOnce(&PaymentAppInfoFetcher::SelfDeleteFetcher::OnIconFetched,
+                     weak_ptr_factory_.GetWeakPtr()),
+      false /* square_only */);
   // |can_download| is false only if web contents are  null or the icon URL is
   // not valid. Both of these conditions are manually checked above, so
   // |can_download| should never be false. The manual checks above are necessary
@@ -322,7 +324,7 @@ void PaymentAppInfoFetcher::SelfDeleteFetcher::WarnIfPossible(
 
   if (web_contents_helper_->web_contents()) {
     web_contents_helper_->web_contents()->GetMainFrame()->AddMessageToConsole(
-        CONSOLE_MESSAGE_LEVEL_WARNING, message);
+        blink::mojom::ConsoleMessageLevel::kWarning, message);
   } else {
     LOG(WARNING) << message;
   }

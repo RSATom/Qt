@@ -21,9 +21,10 @@
 #include "base/sequence_checker.h"
 #include "base/time/time.h"
 #include "content/common/content_export.h"
-#include "content/common/service_worker/service_worker_types.h"
 #include "third_party/blink/public/common/origin_trials/trial_token_validator.h"
 #include "third_party/blink/public/common/service_worker/service_worker_status_code.h"
+#include "third_party/blink/public/mojom/service_worker/service_worker_registration.mojom.h"
+#include "third_party/blink/public/mojom/web_feature/web_feature.mojom.h"
 #include "url/gurl.h"
 #include "url/origin.h"
 
@@ -78,10 +79,11 @@ class CONTENT_EXPORT ServiceWorkerDatabase {
     bool is_active;
     bool has_fetch_handler;
     base::Time last_update_check;
+    base::Time script_response_time;
     base::Optional<blink::TrialTokenValidator::FeatureToTokensMap>
         origin_trial_tokens;
     blink::mojom::NavigationPreloadState navigation_preload_state;
-    std::set<uint32_t> used_features;
+    std::set<blink::mojom::WebFeature> used_features;
 
     // Not populated until ServiceWorkerStorage::StoreRegistration is called.
     int64_t resources_total_size_bytes;
@@ -92,15 +94,32 @@ class CONTENT_EXPORT ServiceWorkerDatabase {
   };
 
   struct ResourceRecord {
+    // Represents an error state. Each enum instance should be a negative
+    // value.  This is just temporary for debugging.
+    // TODO(hayato): Remove this once we fix crbug.com/946719.
+    enum class ErrorState : int64_t {
+      // We don't use -1 here to catch an untracked usage of -1 as an error
+      // code.
+      kStartedCaching = -2,
+      kFinishedCachingNoBytesWritten = -3,
+      kFinishedCachingNoContext = -4,
+    };
+
     int64_t resource_id;
     GURL url;
-    // Signed so we can store -1 to specify an unknown or error state.  When
-    // stored to the database, this value should always be >= 0.
+    // Signed so we can store ErrorState. When stored to the database, this
+    // value should always be >= 0.
     int64_t size_bytes;
 
     ResourceRecord() : resource_id(-1), size_bytes(0) {}
     ResourceRecord(int64_t id, GURL url, int64_t size_bytes)
-        : resource_id(id), url(url), size_bytes(size_bytes) {}
+        : resource_id(id), url(url), size_bytes(size_bytes) {
+      DCHECK_GE(size_bytes, 0);
+    }
+    ResourceRecord(int64_t id, GURL url, ErrorState error_state)
+        : resource_id(id),
+          url(url),
+          size_bytes(static_cast<int64_t>(error_state)) {}
   };
 
   // Reads next available ids from the database. Returns OK if they are
@@ -240,11 +259,18 @@ class CONTENT_EXPORT ServiceWorkerDatabase {
       const std::string& user_data_name,
       std::vector<std::pair<int64_t, std::string>>* user_data);
 
-  // Reads user data for all registrations that have data with |user_data_name|
-  // from the database. Returns OK if they are successfully read or not found.
+  // Reads user data for all registrations that have data with
+  // |user_data_name_prefix| from the database. Returns OK if they are
+  // successfully read or not found.
   Status ReadUserDataForAllRegistrationsByKeyPrefix(
       const std::string& user_data_name_prefix,
       std::vector<std::pair<int64_t, std::string>>* user_data);
+
+  // Deletes user data for all registrations that have data with
+  // |user_data_name_prefix| from the database. Returns OK if all are
+  // successfully deleted or not found in the database.
+  Status DeleteUserDataForAllRegistrationsByKeyPrefix(
+      const std::string& user_data_name_prefix);
 
   // Resources should belong to one of following resource lists: uncommitted,
   // committed and purgeable.
@@ -422,6 +448,7 @@ class CONTENT_EXPORT ServiceWorkerDatabase {
   FRIEND_TEST_ALL_PREFIXES(ServiceWorkerDatabaseTest,
                            UserData_UninitializedDatabase);
   FRIEND_TEST_ALL_PREFIXES(ServiceWorkerDatabaseTest, DestroyDatabase);
+  FRIEND_TEST_ALL_PREFIXES(ServiceWorkerDatabaseTest, InvalidWebFeature);
 
   DISALLOW_COPY_AND_ASSIGN(ServiceWorkerDatabase);
 };

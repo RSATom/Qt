@@ -74,6 +74,7 @@
             "type": "action",
             "actionId": "network.toggle-recording",
             "iconClass": "largeicon-start-recording",
+            "toggleable": true,
             "toggledIconClass": "largeicon-stop-recording",
             "toggleWithRedColor": true,
             "contextTypes": [
@@ -182,6 +183,7 @@
         "persistence"
     ],
     "scripts": [
+        "BinaryResourceView.js",
         "BlockedURLsPane.js",
         "EventSourceMessagesView.js",
         "HARWriter.js",
@@ -207,6 +209,7 @@
         "NetworkPanel.js"
     ],
     "resources": [
+        "binaryResourceView.css",
         "blockedURLsPane.css",
         "eventSourceMessagesView.css",
         "networkConfigView.css",

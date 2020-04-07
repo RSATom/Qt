@@ -189,15 +189,7 @@ do {\
     return;\
 } while (false)
 
-#ifdef Q_COMPILER_VARIADIC_MACROS
-
 #define QSKIP(statement, ...) QSKIP_INTERNAL(statement)
-
-#else
-
-#define QSKIP(statement) QSKIP_INTERNAL(statement)
-
-#endif
 
 #define QEXPECT_FAIL(dataIndex, comment, mode)\
 do {\
@@ -344,7 +336,7 @@ namespace QTest
     template <typename T>
     inline void addColumn(const char *name, T * = nullptr)
     {
-        typedef std::is_same<T, const char*> QIsSameTConstChar;
+        using QIsSameTConstChar = std::is_same<T, const char*>;
         Q_STATIC_ASSERT_X(!QIsSameTConstChar::value, "const char* is not allowed as a test data format.");
         addColumnInternal(qMetaTypeId<T>(), name);
     }
@@ -370,6 +362,40 @@ namespace QTest
 
     Q_TESTLIB_EXPORT bool qCompare(double const &t1, double const &t2,
                     const char *actual, const char *expected, const char *file, int line);
+
+    Q_TESTLIB_EXPORT bool qCompare(int t1, int t2, const char *actual, const char *expected,
+                                   const char *file, int line);
+
+    Q_TESTLIB_EXPORT bool qCompare(unsigned t1, unsigned t2, const char *actual, const char *expected,
+                                   const char *file, int line);
+
+    Q_TESTLIB_EXPORT bool qCompare(QStringView t1, QStringView t2,
+                                   const char *actual, const char *expected,
+                                   const char *file, int line);
+    Q_TESTLIB_EXPORT bool qCompare(QStringView t1, const QLatin1String &t2,
+                                   const char *actual, const char *expected,
+                                   const char *file, int line);
+    Q_TESTLIB_EXPORT bool qCompare(const QLatin1String &t1, QStringView t2,
+                                   const char *actual, const char *expected,
+                                   const char *file, int line);
+    inline bool qCompare(const QString &t1, const QString &t2,
+                         const char *actual, const char *expected,
+                         const char *file, int line)
+    {
+        return qCompare(QStringView(t1), QStringView(t2), actual, expected, file, line);
+    }
+    inline bool qCompare(const QString &t1, const QLatin1String &t2,
+                         const char *actual, const char *expected,
+                         const char *file, int line)
+    {
+        return qCompare(QStringView(t1), t2, actual, expected, file, line);
+    }
+    inline bool qCompare(const QLatin1String &t1, const QString &t2,
+                         const char *actual, const char *expected,
+                         const char *file, int line)
+    {
+        return qCompare(t1, QStringView(t2), actual, expected, file, line);
+    }
 
     inline bool compare_ptr_helper(const volatile void *t1, const volatile void *t2, const char *actual,
                                    const char *expected, const char *file, int line)

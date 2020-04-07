@@ -57,7 +57,7 @@ import QtQuick.Controls.Styles 1.0
 import QtQuick.Dialogs 1.2
 import QtQuick.Layouts 1.0
 import QtQuick.Window 2.1
-import QtWebEngine 1.9
+import QtWebEngine 1.10
 
 ApplicationWindow {
     id: browserWindow
@@ -72,6 +72,10 @@ ApplicationWindow {
 
     // Make sure the Qt.WindowFullscreenButtonHint is set on OS X.
     Component.onCompleted: flags = flags | Qt.WindowFullscreenButtonHint
+
+    onCurrentWebViewChanged: {
+        findBar.reset();
+    }
 
     // Create a styleItem to determine the platform.
     // When using style "mac", ToolButtons are not supposed to accept focus.
@@ -129,6 +133,10 @@ ApplicationWindow {
         }
     }
     Action {
+        shortcut: StandardKey.Quit
+        onTriggered: browserWindow.close()
+    }
+    Action {
         shortcut: "Escape"
         onTriggered: {
             if (currentWebView.state == "FullScreen") {
@@ -136,6 +144,9 @@ ApplicationWindow {
                 fullScreenNotification.hide();
                 currentWebView.triggerWebAction(WebEngineView.ExitFullScreen);
             }
+
+            if (findBar.visible)
+                findBar.visible = false;
         }
     }
     Action {
@@ -186,6 +197,21 @@ ApplicationWindow {
     Action {
         shortcut: StandardKey.Forward
         onTriggered: currentWebView.triggerWebAction(WebEngineView.Forward)
+    }
+    Action {
+        shortcut: StandardKey.Find
+        onTriggered: {
+            if (!findBar.visible)
+                findBar.visible = true;
+        }
+    }
+    Action {
+        shortcut: StandardKey.FindNext
+        onTriggered: findBar.findNext()
+    }
+    Action {
+        shortcut: StandardKey.FindPrevious
+        onTriggered: findBar.findPrevious()
     }
 
     toolBar: ToolBar {
@@ -246,7 +272,7 @@ ApplicationWindow {
                         id: faviconImage
                         width: 16; height: 16
                         sourceSize: Qt.size(width, height)
-                        source: currentWebView && currentWebView.icon
+                        source: currentWebView && currentWebView.icon ? currentWebView.icon : ''
                     }
                     style: TextFieldStyle {
                         padding {
@@ -373,9 +399,23 @@ ApplicationWindow {
             var tab = addTab("", tabComponent);
             // We must do this first to make sure that tab.active gets set so that tab.item gets instantiated immediately.
             tab.active = true;
-            tab.title = Qt.binding(function() { return tab.item.title });
+            tab.title = Qt.binding(function() { return tab.item.title ? tab.item.title : 'New Tab' });
             tab.item.profile = profile;
             return tab;
+        }
+
+        function indexOfView(view) {
+            for (let i = 0; i < tabs.count; ++i)
+                if (tabs.getTab(i).item == view)
+                    return i
+            return -1
+        }
+
+        function removeView(index) {
+            if (tabs.count > 1)
+                tabs.removeTab(index)
+            else
+                browserWindow.close();
         }
 
         anchors.top: parent.top
@@ -425,7 +465,7 @@ ApplicationWindow {
                             color: control.hovered ? "#ccc" : tabRectangle.color
                             Text {text: "x" ; anchors.centerIn: parent ; color: "gray"}
                         }}
-                    onClicked: tabs.removeTab(styleData.index);
+                    onClicked: tabs.removeView(styleData.index)
                 }
             }
         }
@@ -542,15 +582,23 @@ ApplicationWindow {
                     reloadTimer.running = true;
                 }
 
-                onWindowCloseRequested: {
-                    if (tabs.count == 1)
-                        browserWindow.close();
-                    else
-                        tabs.removeTab(tabs.currentIndex);
-                }
+                onWindowCloseRequested: tabs.removeView(tabs.indexOfView(webEngineView))
 
                 onSelectClientCertificate: function(selection) {
                     selection.certificates[0].select();
+                }
+
+                onFindTextFinished: function(result) {
+                    if (!findBar.visible)
+                        findBar.visible = true;
+
+                    findBar.numberOfMatches = result.numberOfMatches;
+                    findBar.activeMatch = result.activeMatch;
+                }
+
+                onLoadingChanged: function(loadRequest) {
+                    if (loadRequest.status == WebEngineView.LoadStartedStatus)
+                        findBar.reset();
                 }
 
                 Timer {
@@ -624,6 +672,28 @@ ApplicationWindow {
         downloadView.append(download);
         download.accept();
     }
+
+    FindBar {
+        id: findBar
+        visible: false
+        anchors.right: parent.right
+        anchors.rightMargin: 10
+        anchors.top: parent.top
+
+        onFindNext: {
+            if (text)
+                currentWebView && currentWebView.findText(text);
+            else if (!visible)
+                visible = true;
+        }
+        onFindPrevious: {
+            if (text)
+                currentWebView && currentWebView.findText(text, WebEngineView.FindBackward);
+            else if (!visible)
+                visible = true;
+        }
+    }
+
 
     Rectangle {
         id: statusBubble

@@ -17,7 +17,7 @@
 #include "ui/views/controls/textfield/textfield.h"
 #include "ui/views/examples/example_combobox_model.h"
 #include "ui/views/layout/fill_layout.h"
-#include "ui/views/view_properties.h"
+#include "ui/views/view_class_properties.h"
 
 namespace views {
 namespace examples {
@@ -36,8 +36,8 @@ constexpr gfx::Size kLayoutExampleDefaultChildSize(180, 90);
 // 25%.
 class FullPanel : public View {
  public:
-  FullPanel() {}
-  ~FullPanel() override {}
+  FullPanel() = default;
+  ~FullPanel() override = default;
 
   // View
   void Layout() override;
@@ -47,9 +47,9 @@ class FullPanel : public View {
 };
 
 void FullPanel::Layout() {
-  DCHECK_EQ(child_count(), 2);
-  View* left_panel = child_at(0);
-  View* right_panel = child_at(1);
+  DCHECK_EQ(2u, children().size());
+  View* left_panel = children()[0];
+  View* right_panel = children()[1];
   gfx::Rect bounds = GetContentsBounds();
   left_panel->SetBounds(bounds.x(), bounds.y(), (bounds.width() * 75) / 100,
                         bounds.height());
@@ -61,9 +61,9 @@ void FullPanel::Layout() {
 
 LayoutExampleBase::ChildPanel::ChildPanel(LayoutExampleBase* example,
                                           const gfx::Size& preferred_size)
-    : View(), example_(example), preferred_size_(preferred_size) {
+    : example_(example), preferred_size_(preferred_size) {
   SetBorder(CreateSolidBorder(1, SK_ColorGRAY));
-  for (unsigned i = 0; i < sizeof(margin_) / sizeof(margin_[0]); ++i)
+  for (size_t i = 0; i < base::size(margin_); ++i)
     margin_[i] = CreateTextfield();
   flex_ = CreateTextfield();
   flex_->SetText(base::ASCIIToUTF16(""));
@@ -86,7 +86,7 @@ void LayoutExampleBase::ChildPanel::Layout() {
   const int kSpacing = 2;
   if (selected_) {
     gfx::Rect client = GetContentsBounds();
-    for (unsigned i = 0; i < sizeof(margin_) / sizeof(margin_[0]); ++i) {
+    for (size_t i = 0; i < base::size(margin_); ++i) {
       gfx::Point pos;
       Textfield* textfield = margin_[i];
       switch (i) {
@@ -120,12 +120,9 @@ void LayoutExampleBase::ChildPanel::SetSelected(bool value) {
     selected_ = value;
     SetBorder(CreateSolidBorder(1, selected_ ? SK_ColorBLACK : SK_ColorGRAY));
     if (selected_ && parent()) {
-      for (int i = 0; i < parent()->child_count(); ++i) {
-        View* child = parent()->child_at(i);
-        if (child != this && child->GetGroup() == GetGroup()) {
-          ChildPanel* child_panel = static_cast<ChildPanel*>(child);
-          child_panel->SetSelected(false);
-        }
+      for (View* child : parent()->children()) {
+        if (child != this && child->GetGroup() == GetGroup())
+          static_cast<ChildPanel*>(child)->SetSelected(false);
       }
     }
     for (Textfield* textfield : margin_)
@@ -148,7 +145,7 @@ void LayoutExampleBase::ChildPanel::ContentsChanged(
     const base::string16& new_contents) {
   const gfx::Insets margins = LayoutExampleBase::TextfieldsToInsets(margin_);
   if (!margins.IsEmpty())
-    this->SetProperty(kMarginsKey, new gfx::Insets(margins));
+    this->SetProperty(kMarginsKey, margins);
   else
     this->ClearProperty(kMarginsKey);
   example_->RefreshLayoutPanel(sender == flex_);
@@ -167,7 +164,7 @@ Textfield* LayoutExampleBase::ChildPanel::CreateTextfield() {
 
 LayoutExampleBase::LayoutExampleBase(const char* title) : ExampleBase(title) {}
 
-LayoutExampleBase::~LayoutExampleBase() {}
+LayoutExampleBase::~LayoutExampleBase() = default;
 
 Combobox* LayoutExampleBase::CreateCombobox(const base::string16& label_text,
                                             const char* const* items,
@@ -263,14 +260,13 @@ void LayoutExampleBase::CreateExampleView(View* container) {
 
   int vertical_pos = kLayoutExampleVerticalSpacing;
   int horizontal_pos = kLayoutExampleLeftPadding;
-  add_button_ =
+  auto add_button =
       MdTextButton::CreateSecondaryUiButton(this, base::ASCIIToUTF16("Add"));
-  add_button_->SetPosition(gfx::Point(horizontal_pos, vertical_pos));
-  add_button_->SizeToPreferredSize();
-  control_panel_->AddChildView(add_button_);
+  add_button->SetPosition(gfx::Point(horizontal_pos, vertical_pos));
+  add_button->SizeToPreferredSize();
+  add_button_ = control_panel_->AddChildView(std::move(add_button));
   horizontal_pos += add_button_->width() + kLayoutExampleVerticalSpacing;
-  for (unsigned i = 0;
-       i < sizeof(child_panel_size_) / sizeof(child_panel_size_[0]); ++i) {
+  for (size_t i = 0; i < base::size(child_panel_size_); ++i) {
     child_panel_size_[i] =
         CreateRawTextfield(vertical_pos, true, &horizontal_pos);
     child_panel_size_[i]->SetY(
@@ -278,9 +274,9 @@ void LayoutExampleBase::CreateExampleView(View* container) {
         (add_button_->height() - child_panel_size_[i]->height()) / 2);
   }
   child_panel_size_[0]->SetText(
-      base::IntToString16(kLayoutExampleDefaultChildSize.width()));
+      base::NumberToString16(kLayoutExampleDefaultChildSize.width()));
   child_panel_size_[1]->SetText(
-      base::IntToString16(kLayoutExampleDefaultChildSize.height()));
+      base::NumberToString16(kLayoutExampleDefaultChildSize.height()));
 
   CreateAdditionalControls(add_button_->y() + add_button_->height() +
                            kLayoutExampleVerticalSpacing);
@@ -313,7 +309,7 @@ void LayoutExampleBase::ButtonPressedImpl(Button* sender) {}
 void LayoutExampleBase::RefreshLayoutPanel(bool update_layout) {
   if (update_layout)
     UpdateLayoutManager();
-  layout_panel_->Layout();
+  layout_panel_->InvalidateLayout();
   layout_panel_->SchedulePaint();
 }
 

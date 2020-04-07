@@ -5,12 +5,21 @@
  * found in the LICENSE file.
  */
 
-#include "gm.h"
-#include "sk_tool_utils.h"
-
-#include "SkCanvas.h"
-#include "SkSurface.h"
-#include "SkTextBlob.h"
+#include "gm/gm.h"
+#include "include/core/SkCanvas.h"
+#include "include/core/SkFont.h"
+#include "include/core/SkImageInfo.h"
+#include "include/core/SkPaint.h"
+#include "include/core/SkRect.h"
+#include "include/core/SkRefCnt.h"
+#include "include/core/SkScalar.h"
+#include "include/core/SkSize.h"
+#include "include/core/SkString.h"
+#include "include/core/SkSurface.h"
+#include "include/core/SkSurfaceProps.h"
+#include "include/core/SkTextBlob.h"
+#include "include/core/SkTypeface.h"
+#include "tools/ToolUtils.h"
 
 // This tests that we don't try to reuse textblobs from the GPU textblob cache across pixel geometry
 // changes when we have LCD.  crbug/486744
@@ -31,18 +40,18 @@ protected:
     void onDraw(SkCanvas* canvas) override {
         const char text[] = "Hamburgefons";
 
-        SkFont font(sk_tool_utils::create_portable_typeface(), 20);
+        SkFont font(ToolUtils::create_portable_typeface(), 20);
         font.setEdging(SkFont::Edging::kSubpixelAntiAlias);
 
         SkTextBlobBuilder builder;
 
-        sk_tool_utils::add_to_text_blob(&builder, text, font, 10, 10);
+        ToolUtils::add_to_text_blob(&builder, text, font, 10, 10);
 
         sk_sp<SkTextBlob> blob(builder.make());
 
         SkImageInfo info = SkImageInfo::MakeN32Premul(200, 200);
         SkSurfaceProps props(0, kUnknown_SkPixelGeometry);
-        auto surface = sk_tool_utils::makeSurface(canvas, info, &props);
+        auto           surface = ToolUtils::makeSurface(canvas, info, &props);
         SkCanvas* c = surface->getCanvas();
 
         // LCD text on white background

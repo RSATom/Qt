@@ -5,11 +5,11 @@
 * found in the LICENSE file.
 */
 
-#include "GrVkMemory.h"
+#include "src/gpu/vk/GrVkMemory.h"
 
-#include "GrVkGpu.h"
-#include "GrVkUtil.h"
-#include "vk/GrVkMemoryAllocator.h"
+#include "include/gpu/vk/GrVkMemoryAllocator.h"
+#include "src/gpu/vk/GrVkGpu.h"
+#include "src/gpu/vk/GrVkUtil.h"
 
 using AllocationPropertyFlags = GrVkMemoryAllocator::AllocationPropertyFlags;
 using BufferUsage = GrVkMemoryAllocator::BufferUsage;
@@ -84,7 +84,7 @@ void GrVkMemory::FreeBufferMemory(const GrVkGpu* gpu, GrVkBuffer::Type type,
     }
 }
 
-const VkDeviceSize kMaxSmallImageSize = 16 * 1024;
+const VkDeviceSize kMaxSmallImageSize = 256 * 1024;
 
 bool GrVkMemory::AllocAndBindImageMemory(const GrVkGpu* gpu,
                                          VkImage image,
@@ -98,7 +98,10 @@ bool GrVkMemory::AllocAndBindImageMemory(const GrVkGpu* gpu,
     GR_VK_CALL(gpu->vkInterface(), GetImageMemoryRequirements(gpu->device(), image, &memReqs));
 
     AllocationPropertyFlags propFlags;
-    if (memReqs.size > kMaxSmallImageSize || gpu->vkCaps().shouldAlwaysUseDedicatedImageMemory()) {
+    if (gpu->protectedContext()) {
+        propFlags = AllocationPropertyFlags::kProtected;
+    } else if (memReqs.size > kMaxSmallImageSize ||
+               gpu->vkCaps().shouldAlwaysUseDedicatedImageMemory()) {
         propFlags = AllocationPropertyFlags::kDedicatedAllocation;
     } else {
         propFlags = AllocationPropertyFlags::kNone;

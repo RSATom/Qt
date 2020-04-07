@@ -113,7 +113,6 @@ Polymer({
    */
   onClose_: function(event) {
     this.close();
-    this.fire('networks-changed');
     event.stopPropagation();
   },
 
@@ -122,9 +121,15 @@ Polymer({
    * @private
    */
   getDialogTitle_: function() {
+    // If no properties are available yet, wait until they are set as part of
+    // open().
+    if (!this.managedProperties_) {
+      return '';
+    }
+
     const name = /** @type {string} */ (
         CrOnc.getActiveValue(this.managedProperties_.Name));
-    if (name) {
+    if (name && !this.showConnect) {
       return this.i18n('internetConfigName', HTMLEscape(name));
     }
     const type = this.i18n('OncType' + this.managedProperties_.Type);

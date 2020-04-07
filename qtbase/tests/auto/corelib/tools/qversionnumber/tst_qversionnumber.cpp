@@ -260,12 +260,10 @@ void tst_QVersionNumber::constructorExplicit()
 
     QCOMPARE(v5.segments(), v6.segments());
 
-#ifdef Q_COMPILER_INITIALIZER_LISTS
     QVersionNumber v7(4, 5, 6);
     QVersionNumber v8 = {4, 5, 6};
 
     QCOMPARE(v7.segments(), v8.segments());
-#endif
 }
 
 void tst_QVersionNumber::constructorCopy_data()
@@ -436,7 +434,7 @@ void tst_QVersionNumber::normalized()
     QFETCH(QVersionNumber, expected);
 
     QCOMPARE(version.normalized(), expected);
-    QCOMPARE(qMove(version).normalized(), expected);
+    QCOMPARE(std::move(version).normalized(), expected);
 }
 
 void tst_QVersionNumber::isNormalized_data()
@@ -586,30 +584,28 @@ void tst_QVersionNumber::serialize()
 
 void tst_QVersionNumber::moveSemantics()
 {
-#ifdef Q_COMPILER_RVALUE_REFS
     // QVersionNumber(QVersionNumber &&)
     {
         QVersionNumber v1(1, 2, 3);
-        QVersionNumber v2 = qMove(v1);
+        QVersionNumber v2 = std::move(v1);
         QCOMPARE(v2, QVersionNumber(1, 2, 3));
     }
     // QVersionNumber &operator=(QVersionNumber &&)
     {
         QVersionNumber v1(1, 2, 3);
         QVersionNumber v2;
-        v2 = qMove(v1);
+        v2 = std::move(v1);
         QCOMPARE(v2, QVersionNumber(1, 2, 3));
     }
     // QVersionNumber(QVector<int> &&)
     {
         QVector<int> segments = QVector<int>() << 1 << 2 << 3;
         QVersionNumber v1(segments);
-        QVersionNumber v2(qMove(segments));
+        QVersionNumber v2(std::move(segments));
         QVERIFY(!v1.isNull());
         QVERIFY(!v2.isNull());
         QCOMPARE(v1, v2);
     }
-#endif
 #ifdef Q_COMPILER_REF_QUALIFIERS
     // normalized()
     {
@@ -620,7 +616,7 @@ void tst_QVersionNumber::moveSemantics()
         QVERIFY(!v.isNull());
         QVERIFY(!nv.isNull());
         QVERIFY(nv.isNormalized());
-        nv = qMove(v).normalized();
+        nv = std::move(v).normalized();
         QVERIFY(!nv.isNull());
         QVERIFY(nv.isNormalized());
     }
@@ -632,12 +628,9 @@ void tst_QVersionNumber::moveSemantics()
         segments = v.segments();
         QVERIFY(!v.isNull());
         QVERIFY(!segments.empty());
-        segments = qMove(v).segments();
+        segments = std::move(v).segments();
         QVERIFY(!segments.empty());
     }
-#endif
-#if !defined(Q_COMPILER_RVALUE_REFS) && !defined(Q_COMPILER_REF_QUALIFIERS)
-    QSKIP("This test requires C++11 move semantics support in the compiler.");
 #endif
 }
 

@@ -41,6 +41,8 @@ class COMPONENT_EXPORT(MOJO_CPP_PLATFORM) PlatformChannel {
   using HandlePassingInfo = base::HandlesToInheritVector;
 #elif defined(OS_FUCHSIA)
   using HandlePassingInfo = base::HandlesToTransferVector;
+#elif defined(OS_MACOSX) && !defined(OS_IOS)
+  using HandlePassingInfo = base::MachPortsForRendezvous;
 #elif defined(OS_POSIX)
   using HandlePassingInfo = base::FileHandleMappingVector;
 #else

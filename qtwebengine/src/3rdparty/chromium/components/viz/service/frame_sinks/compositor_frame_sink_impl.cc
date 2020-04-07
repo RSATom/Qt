@@ -6,6 +6,8 @@
 
 #include <utility>
 
+#include "base/bind.h"
+#include "base/bind_helpers.h"
 #include "components/viz/service/frame_sinks/frame_sink_manager_impl.h"
 
 namespace viz {
@@ -86,9 +88,9 @@ void CompositorFrameSinkImpl::DidNotProduceFrame(
 }
 
 void CompositorFrameSinkImpl::DidAllocateSharedBitmap(
-    mojo::ScopedSharedBufferHandle buffer,
+    base::ReadOnlySharedMemoryRegion region,
     const SharedBitmapId& id) {
-  if (!support_->DidAllocateSharedBitmap(std::move(buffer), id)) {
+  if (!support_->DidAllocateSharedBitmap(std::move(region), id)) {
     DLOG(ERROR) << "DidAllocateSharedBitmap failed for duplicate "
                 << "SharedBitmapId";
     compositor_frame_sink_binding_.Close();

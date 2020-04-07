@@ -34,17 +34,16 @@
 #include "components/viz/common/gpu/context_provider.h"
 #include "components/viz/common/resources/resource_format.h"
 #include "components/viz/common/resources/resource_settings.h"
-#include "components/viz/common/surfaces/parent_local_surface_id_allocator.h"
 #include "components/viz/common/switches.h"
 #include "components/viz/host/host_frame_sink_manager.h"
 #include "components/viz/host/renderer_settings_creation.h"
 #include "components/viz/service/frame_sinks/frame_sink_manager_impl.h"
+#include "services/viz/privileged/interfaces/compositing/vsync_parameter_observer.mojom.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "ui/base/ui_base_features.h"
 #include "ui/base/ui_base_switches.h"
 #include "ui/compositor/compositor_observer.h"
 #include "ui/compositor/compositor_switches.h"
-#include "ui/compositor/compositor_vsync_manager.h"
 #include "ui/compositor/dip_util.h"
 #include "ui/compositor/external_begin_frame_client.h"
 #include "ui/compositor/layer.h"
@@ -76,7 +75,6 @@ Compositor::Compositor(
       context_factory_private_(context_factory_private),
       frame_sink_id_(frame_sink_id),
       task_runner_(task_runner),
-      vsync_manager_(new CompositorVSyncManager()),
       external_begin_frame_client_(external_begin_frame_client),
       force_software_compositor_(force_software_compositor),
       layer_animator_collection_(this),
@@ -84,8 +82,7 @@ Compositor::Compositor(
       lock_manager_(task_runner),
       trace_environment_name_(trace_environment_name
                                   ? trace_environment_name
-                                  : kDefaultTraceEnvironmentName),
-      context_creation_weak_ptr_factory_(this) {
+                                  : kDefaultTraceEnvironmentName) {
   if (context_factory_private) {
     auto* host_frame_sink_manager =
         context_factory_private_->GetHostFrameSinkManager();
@@ -204,6 +201,10 @@ Compositor::Compositor(
     settings.enable_latency_recovery = false;
   }
 
+  if (base::FeatureList::IsEnabled(
+          features::kCompositorThreadedScrollbarScrolling)) {
+    settings.compositor_threaded_scrollbar_scrolling = true;
+  }
   animation_host_ = cc::AnimationHost::CreateMainInstance();
 
   cc::LayerTreeHost::InitParams params;
@@ -226,6 +227,9 @@ Compositor::Compositor(
 
   host_->SetHasGpuRasterizationTrigger(features::IsUiGpuRasterizationEnabled());
   host_->SetRootLayer(root_web_layer_);
+
+  // This shouldn't be done in the constructor in order to match Widget.
+  // See: http://crbug.com/956264.
   host_->SetVisible(true);
 
   if (command_line->HasSwitch(switches::kUISlowAnimations)) {
@@ -294,8 +298,8 @@ void Compositor::SetLayerTreeFrameSink(
   // to match the Compositor's.
   if (context_factory_private_) {
     context_factory_private_->SetDisplayVisible(this, host_->IsVisible());
-    context_factory_private_->SetDisplayColorSpace(this, blending_color_space_,
-                                                   output_color_space_);
+    context_factory_private_->SetDisplayColorSpace(this, output_color_space_,
+                                                   sdr_white_level_);
     context_factory_private_->SetDisplayColorMatrix(this,
                                                     display_color_matrix_);
   }
@@ -371,6 +375,7 @@ void Compositor::SetScaleAndSize(
   bool device_scale_factor_changed = device_scale_factor_ != scale;
   device_scale_factor_ = scale;
 
+#if DCHECK_IS_ON()
   if (size_ != size_in_pixel && local_surface_id_allocation.IsValid()) {
     // A new LocalSurfaceId must be set when the compositor size changes.
     DCHECK_NE(
@@ -379,6 +384,7 @@ void Compositor::SetScaleAndSize(
     DCHECK_NE(local_surface_id_allocation,
               host_->local_surface_id_allocation_from_parent());
   }
+#endif  // DECHECK_IS_ON()
 
   if (!size_in_pixel.IsEmpty()) {
     bool size_changed = size_ != size_in_pixel;
@@ -401,16 +407,27 @@ void Compositor::SetScaleAndSize(
   }
 }
 
-void Compositor::SetDisplayColorSpace(const gfx::ColorSpace& color_space) {
-  if (output_color_space_ == color_space)
+void Compositor::SetDisplayColorSpace(const gfx::ColorSpace& color_space,
+                                      float sdr_white_level) {
+  gfx::ColorSpace output_color_space = color_space;
+
+#if defined(OS_WIN)
+  if (color_space.IsHDR()) {
+    bool transparent = SkColorGetA(host_->background_color()) != SK_AlphaOPAQUE;
+    // Ensure output color space for HDR is linear if we need alpha blending.
+    if (transparent)
+      output_color_space = gfx::ColorSpace::CreateSCRGBLinear();
+  }
+#endif  // OS_WIN
+
+  if (output_color_space_ == output_color_space &&
+      sdr_white_level_ == sdr_white_level) {
     return;
-  output_color_space_ = color_space;
-  blending_color_space_ = output_color_space_.GetBlendingColorSpace();
-  // Do all ui::Compositor rasterization to sRGB because UI resources will not
-  // have their color conversion results cached, and will suffer repeated
-  // image color conversions.
-  // https://crbug.com/769677
-  host_->SetRasterColorSpace(gfx::ColorSpace::CreateSRGB());
+  }
+
+  output_color_space_ = output_color_space;
+  sdr_white_level_ = sdr_white_level;
+  host_->SetRasterColorSpace(output_color_space_.GetRasterColorSpace());
   // Always force the ui::Compositor to re-draw all layers, because damage
   // tracking bugs result in black flashes.
   // https://crbug.com/804430
@@ -421,13 +438,18 @@ void Compositor::SetDisplayColorSpace(const gfx::ColorSpace& color_space) {
   // updated then.
   // TODO(fsamuel): Get rid of this.
   if (context_factory_private_) {
-    context_factory_private_->SetDisplayColorSpace(this, blending_color_space_,
-                                                   output_color_space_);
+    context_factory_private_->SetDisplayColorSpace(this, output_color_space_,
+                                                   sdr_white_level_);
   }
 }
 
 void Compositor::SetBackgroundColor(SkColor color) {
   host_->set_background_color(color);
+
+  // Update color space based on whether background color is transparent.
+  if (output_color_space_.IsHDR())
+    SetDisplayColorSpace(output_color_space_, sdr_white_level_);
+
   ScheduleDraw();
 }
 
@@ -482,7 +504,14 @@ void Compositor::SetDisplayVSyncParameters(base::TimeTicks timebase,
     context_factory_private_->SetDisplayVSyncParameters(this, timebase,
                                                         interval);
   }
-  vsync_manager_->UpdateVSyncParameters(timebase, interval);
+}
+
+void Compositor::AddVSyncParameterObserver(
+    viz::mojom::VSyncParameterObserverPtr observer) {
+  if (context_factory_private_) {
+    context_factory_private_->AddVSyncParameterObserver(this,
+                                                        std::move(observer));
+  }
 }
 
 void Compositor::SetAcceleratedWidget(gfx::AcceleratedWidget widget) {
@@ -512,10 +541,6 @@ gfx::AcceleratedWidget Compositor::widget() const {
   return widget_;
 }
 
-scoped_refptr<CompositorVSyncManager> Compositor::vsync_manager() const {
-  return vsync_manager_;
-}
-
 void Compositor::AddObserver(CompositorObserver* observer) {
   observer_list_.AddObserver(observer);
 }
@@ -543,6 +568,16 @@ bool Compositor::HasAnimationObserver(
   return animation_observer_list_.HasObserver(observer);
 }
 
+void Compositor::DidUpdateLayers() {
+  // Dump property trees and layers if run with:
+  //   --vmodule=*ui/compositor*=3
+  VLOG(3) << "After updating layers:\n"
+          << "property trees:\n"
+          << host_->property_trees()->ToString() << "\n"
+          << "cc::Layers:\n"
+          << host_->LayersAsString();
+}
+
 void Compositor::BeginMainFrame(const viz::BeginFrameArgs& args) {
   DCHECK(!IsLocked());
   for (auto& observer : animation_observer_list_)
@@ -562,7 +597,7 @@ static void SendDamagedRectsRecursive(ui::Layer* layer) {
     SendDamagedRectsRecursive(child);
 }
 
-void Compositor::UpdateLayerTreeHost(bool record_main_frame_metrics) {
+void Compositor::UpdateLayerTreeHost() {
   if (!root_layer())
     return;
   SendDamagedRectsRecursive(root_layer());
@@ -604,12 +639,6 @@ void Compositor::DidPresentCompositorFrame(
                                    trace_environment_name_);
 }
 
-void Compositor::DidGenerateLocalSurfaceIdAllocation(
-    const viz::LocalSurfaceIdAllocation& allocation) {
-  for (auto& observer : observer_list_)
-    observer.DidGenerateLocalSurfaceIdAllocation(this, allocation);
-}
-
 void Compositor::DidSubmitCompositorFrame() {
   base::TimeTicks start_time = base::TimeTicks::Now();
   for (auto& observer : observer_list_)
@@ -630,6 +659,13 @@ void Compositor::OnFrameTokenChanged(uint32_t frame_token) {
   // TODO(yiyix, fsamuel): Implement frame token propagation for Compositor.
   NOTREACHED();
 }
+
+#if defined(USE_X11)
+void Compositor::OnCompleteSwapWithNewSize(const gfx::Size& size) {
+  for (auto& observer : observer_list_)
+    observer.OnCompositingCompleteSwapWithNewSize(this, size);
+}
+#endif
 
 void Compositor::SetOutputIsSecure(bool output_is_secure) {
   if (context_factory_private_)

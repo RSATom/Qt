@@ -5,17 +5,16 @@
  * found in the LICENSE file.
  */
 
-#include "SkSGGradient.h"
+#include "modules/sksg/include/SkSGGradient.h"
 
-#include "SkGradientShader.h"
-#include "SkPaint.h"
+#include "include/core/SkPaint.h"
+#include "include/effects/SkGradientShader.h"
 
 namespace sksg {
 
-void Gradient::onApplyToPaint(SkPaint* paint) const {
+sk_sp<SkShader> Gradient::onRevalidateShader() {
     if (fColorStops.empty()) {
-        paint->setShader(nullptr);
-        return;
+        return nullptr;
     }
 
     std::vector<SkColor>  colors;
@@ -31,7 +30,7 @@ void Gradient::onApplyToPaint(SkPaint* paint) const {
     }
 
     // TODO: detect even stop distributions, pass null for positions.
-    paint->setShader(this->onMakeShader(colors, positions));
+    return this->onMakeShader(colors, positions);
 }
 
 sk_sp<SkShader> LinearGradient::onMakeShader(const std::vector<SkColor>& colors,

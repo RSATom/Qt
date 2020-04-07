@@ -15,12 +15,14 @@
  *
  * Note that <cr-dialog> wrapper itself always has 0x0 dimensions, and
  * specifying width/height on <cr-dialog> directly will have no effect on the
- * internal native <dialog>. Instead use the --cr-dialog-native mixin to specify
+ * internal native <dialog>. Instead use cr-dialog::part(dialog) to specify
  * width/height (as well as other available mixins to style other parts of the
  * dialog contents).
  */
 Polymer({
   is: 'cr-dialog',
+
+  behaviors: [CrContainerShadowBehavior],
 
   properties: {
     open: {
@@ -113,10 +115,10 @@ Polymer({
   attached: function() {
     const mutationObserverCallback = function() {
       if (this.$.dialog.open) {
-        this.addIntersectionObserver_();
+        this.enableShadowBehavior(true);
         this.addKeydownListener_();
       } else {
-        this.removeIntersectionObserver_();
+        this.enableShadowBehavior(false);
         this.removeKeydownListener_();
       }
     }.bind(this);
@@ -137,56 +139,10 @@ Polymer({
 
   /** @override */
   detached: function() {
-    this.removeIntersectionObserver_();
     this.removeKeydownListener_();
     if (this.mutationObserver_) {
       this.mutationObserver_.disconnect();
       this.mutationObserver_ = null;
-    }
-  },
-
-  /** @private */
-  addIntersectionObserver_: function() {
-    if (this.intersectionObserver_) {
-      return;
-    }
-
-    const bodyContainer = this.$$('.body-container');
-
-    const bottomMarker = this.$.bodyBottomMarker;
-    const topMarker = this.$.bodyTopMarker;
-
-    const callback = function(entries) {
-      // In some rare cases, there could be more than one entry per observed
-      // element, in which case the last entry's result stands.
-      for (let i = 0; i < entries.length; i++) {
-        const target = entries[i].target;
-        assert(target == bottomMarker || target == topMarker);
-
-        const classToToggle =
-            target == bottomMarker ? 'bottom-scrollable' : 'top-scrollable';
-
-        bodyContainer.classList.toggle(
-            classToToggle, entries[i].intersectionRatio == 0);
-      }
-    };
-
-    this.intersectionObserver_ = new IntersectionObserver(
-        callback,
-        /** @type {IntersectionObserverInit} */ ({
-          root: bodyContainer,
-          rootMargin: '1px 0px',
-          threshold: 0,
-        }));
-    this.intersectionObserver_.observe(bottomMarker);
-    this.intersectionObserver_.observe(topMarker);
-  },
-
-  /** @private */
-  removeIntersectionObserver_: function() {
-    if (this.intersectionObserver_) {
-      this.intersectionObserver_.disconnect();
-      this.intersectionObserver_ = null;
     }
   },
 
@@ -300,11 +256,6 @@ Polymer({
     return this.$.dialog;
   },
 
-  /** @return {!PaperIconButtonElement} */
-  getCloseButton: function() {
-    return this.$.close;
-  },
-
   /**
    * @param {!Event} e
    * @private
@@ -314,11 +265,17 @@ Polymer({
       return;
     }
 
-    // Accept Enter keys from either the dialog, or a child input element.
-    if (e.target != this && e.target.tagName != 'CR-INPUT') {
+    // Accept Enter keys from either the dialog, or a child input or cr-input
+    // element (but consider that the event may have been retargeted).
+    const origTarget = e.composedPath()[0];
+    const accept = e.target == this || origTarget.tagName == 'CR-INPUT' ||
+        (origTarget.tagName == 'INPUT' &&
+         // <cr-input> can only be text-like; apply the same limit to <input> so
+         // that e.g. enter on a checkbox does not submit the dialog.
+         ['text', 'password', 'number', 'search'].includes(origTarget.type));
+    if (!accept) {
       return;
     }
-
     const actionButton =
         this.querySelector('.action-button:not([disabled]):not([hidden])');
     if (actionButton) {
@@ -370,5 +327,9 @@ Polymer({
     // Prevent any text from being selected within the dialog when clicking in
     // the backdrop area.
     e.preventDefault();
+  },
+
+  focus() {
+    this.$$('.title-container').focus();
   },
 });

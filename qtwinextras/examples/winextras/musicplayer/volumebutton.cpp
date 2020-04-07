@@ -77,7 +77,7 @@ VolumeButton::VolumeButton(QWidget *parent) :
     popupLayout->addWidget(slider);
     popupLayout->addWidget(label);
 
-    QWidgetAction *action = new QWidgetAction(this);
+    auto *action = new QWidgetAction(this);
     action->setDefaultWidget(popup);
 
     menu = new QMenu(this);

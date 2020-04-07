@@ -39,7 +39,7 @@
     <name>DefaultFileDialog</name>
     <message>
         <source>Go up to the folder containing this one</source>
-        <translation>Vés a la carpeta que contingui aquest</translation>
+        <translation>Vés a la carpeta que el contingui</translation>
     </message>
     <message>
         <source>Remove favorite</source>
@@ -98,7 +98,7 @@
     </message>
     <message>
         <source>Weight</source>
-        <translation>Tipus</translation>
+        <translation>Gruix</translation>
     </message>
     <message>
         <source>Size</source>
@@ -106,7 +106,7 @@
     </message>
     <message>
         <source>Font Family</source>
-        <translation>Família de tipus de lletra</translation>
+        <translation>Família del tipus de lletra</translation>
     </message>
     <message>
         <source>Thin</source>

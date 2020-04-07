@@ -12,10 +12,10 @@
 #include <set>
 #include <string>
 
+#include "src/execution/isolate.h"
 #include "src/heap/factory.h"
-#include "src/isolate.h"
-#include "src/objects.h"
 #include "src/objects/managed.h"
+#include "src/objects/objects.h"
 #include "unicode/uversion.h"
 
 // Has to be the last include (doesn't have include guards):
@@ -30,16 +30,16 @@ namespace internal {
 
 class JSSegmenter : public JSObject {
  public:
-  // Initializes segmenter object with properties derived from input
-  // locales and options.
-  V8_WARN_UNUSED_RESULT static MaybeHandle<JSSegmenter> Initialize(
-      Isolate* isolate, Handle<JSSegmenter> segmenter_holder,
-      Handle<Object> locales, Handle<Object> options);
+  // Creates segmenter object with properties derived from input locales and
+  // options.
+  V8_WARN_UNUSED_RESULT static MaybeHandle<JSSegmenter> New(
+      Isolate* isolate, Handle<Map> map, Handle<Object> locales,
+      Handle<Object> options);
 
   V8_WARN_UNUSED_RESULT static Handle<JSObject> ResolvedOptions(
       Isolate* isolate, Handle<JSSegmenter> segmenter_holder);
 
-  static std::set<std::string> GetAvailableLocales();
+  V8_EXPORT_PRIVATE static const std::set<std::string>& GetAvailableLocales();
 
   Handle<String> GranularityAsString() const;
 
@@ -56,8 +56,7 @@ class JSSegmenter : public JSObject {
   enum class Granularity {
     GRAPHEME,  // for character-breaks
     WORD,      // for word-breaks
-    SENTENCE,  // for sentence-breaks
-    COUNT
+    SENTENCE   // for sentence-breaks
   };
   inline void set_granularity(Granularity granularity);
   inline Granularity granularity() const;
@@ -78,16 +77,8 @@ class JSSegmenter : public JSObject {
   DECL_VERIFIER(JSSegmenter)
 
   // Layout description.
-#define JS_SEGMENTER_FIELDS(V)            \
-  V(kJSSegmenterOffset, kTaggedSize)      \
-  V(kLocaleOffset, kTaggedSize)           \
-  V(kICUBreakIteratorOffset, kTaggedSize) \
-  V(kFlagsOffset, kTaggedSize)            \
-  /* Header size. */                      \
-  V(kSize, 0)
-
-  DEFINE_FIELD_OFFSET_CONSTANTS(JSObject::kHeaderSize, JS_SEGMENTER_FIELDS)
-#undef JS_SEGMENTER_FIELDS
+  DEFINE_FIELD_OFFSET_CONSTANTS(JSObject::kHeaderSize,
+                                TORQUE_GENERATED_JSSEGMENTER_FIELDS)
 
  private:
   static Granularity GetGranularity(const char* str);

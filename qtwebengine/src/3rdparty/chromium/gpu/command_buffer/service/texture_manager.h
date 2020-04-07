@@ -32,13 +32,27 @@ namespace gl {
 class ProgressReporter;
 }
 
+namespace media {
+class SharedImageVideo;
+}
+
 namespace gpu {
 class DecoderContext;
+class ExternalVkImageBacking;
+class ExternalVkImageGlRepresentation;
 class ServiceDiscardableManager;
 class SharedImageBackingGLTexture;
 class SharedImageBackingFactoryGLTexture;
 class SharedImageBackingAHB;
 class SharedImageRepresentationGLTexture;
+class SharedImageRepresentationGLTextureAHB;
+class SharedImageRepresentationSkiaGLAHB;
+class SharedImageBackingIOSurface;
+class SharedImageRepresentationGLTextureIOSurface;
+class SharedImageRepresentationSkiaIOSurface;
+class SharedImageBackingDXGISwapChain;
+class StreamTexture;
+class SwapChainFactoryDXGI;
 
 namespace gles2 {
 class GLStreamTextureImage;
@@ -59,6 +73,15 @@ class GPU_GLES2_EXPORT TexturePassthrough final
       public base::SupportsWeakPtr<TexturePassthrough> {
  public:
   TexturePassthrough(GLuint service_id, GLenum target);
+  TexturePassthrough(GLuint service_id,
+                     GLenum target,
+                     GLenum internal_format,
+                     GLsizei width,
+                     GLsizei height,
+                     GLsizei depth,
+                     GLint border,
+                     GLenum format,
+                     GLenum type);
 
   // TextureBase implementation:
   TextureBase::Type GetType() const override;
@@ -71,6 +94,12 @@ class GPU_GLES2_EXPORT TexturePassthrough final
 
   void SetLevelImage(GLenum target, GLint level, gl::GLImage* image);
   gl::GLImage* GetLevelImage(GLenum target, GLint level) const;
+
+  void SetStreamLevelImage(GLenum target,
+                           GLint level,
+                           GLStreamTextureImage* stream_texture_image,
+                           GLuint service_id);
+  GLStreamTextureImage* GetStreamLevelImage(GLenum target, GLint level) const;
 
   // Return true if and only if the decoder should BindTexImage / CopyTexImage
   // us before sampling.
@@ -86,7 +115,17 @@ class GPU_GLES2_EXPORT TexturePassthrough final
   ~TexturePassthrough() override;
 
  private:
+  bool LevelInfoExists(GLenum target, GLint level, size_t* out_face_idx) const;
+
+  void SetLevelImageInternal(GLenum target,
+                             GLint level,
+                             gl::GLImage* image,
+                             GLStreamTextureImage* stream_texture_image,
+                             GLuint service_id);
+
   friend class base::RefCounted<TexturePassthrough>;
+
+  GLuint owned_service_id_ = 0;
 
   bool have_context_;
   bool is_bind_pending_ = false;
@@ -94,7 +133,26 @@ class GPU_GLES2_EXPORT TexturePassthrough final
   size_t estimated_size_ = 0;
 
   // Bound images divided into faces and then levels
-  std::vector<std::vector<scoped_refptr<gl::GLImage>>> level_images_;
+  struct LevelInfo {
+    LevelInfo();
+    LevelInfo(const LevelInfo& rhs);
+    ~LevelInfo();
+
+    GLenum internal_format = 0;
+    GLsizei width = 0;
+    GLsizei height = 0;
+    GLsizei depth = 0;
+    GLint border = 0;
+    GLenum format = 0;
+    GLenum type = 0;
+
+    scoped_refptr<gl::GLImage> image;
+    scoped_refptr<GLStreamTextureImage> stream_texture_image;
+  };
+
+  LevelInfo* GetLevelInfo(GLenum target, GLint level);
+
+  std::vector<std::vector<LevelInfo>> level_images_;
 
   DISALLOW_COPY_AND_ASSIGN(TexturePassthrough);
 };
@@ -253,7 +311,9 @@ class GPU_GLES2_EXPORT Texture final : public TextureBase {
   // Set the ImageState for the image bound to the given level.
   void SetLevelImageState(GLenum target, GLint level, ImageState state);
 
-  bool CompatibleWithSamplerUniformType(GLenum type) const;
+  bool CompatibleWithSamplerUniformType(
+      GLenum type,
+      const SamplerState& sampler_state) const;
 
   // Get the image associated with a particular level. Returns NULL if level
   // does not exist.
@@ -300,11 +360,19 @@ class GPU_GLES2_EXPORT Texture final : public TextureBase {
     --framebuffer_attachment_count_;
   }
 
-  void SetImmutable(bool immutable);
+  // |immutable| indicates that the GPU clients cannot modify the format or
+  // dimensions of the texture object. This is an artificial restriction imposed
+  // by the GPU service on its clients. |immutable_storage| indicates that the
+  // storage for the texture is allocated using glTexStorage* functions and it
+  // is equivalent to the definition of immutability as defined in OpenGL
+  // specifications.
+  void SetImmutable(bool immutable, bool immutable_storage);
 
   bool IsImmutable() const {
     return immutable_;
   }
+
+  bool HasImmutableStorage() const { return immutable_storage_; }
 
   // Return 0 if it's not immutable.
   GLint GetImmutableLevels() const;
@@ -364,9 +432,21 @@ class GPU_GLES2_EXPORT Texture final : public TextureBase {
  private:
   friend class MailboxManagerSync;
   friend class MailboxManagerTest;
+  friend class gpu::ExternalVkImageBacking;
+  friend class gpu::ExternalVkImageGlRepresentation;
+  friend class media::SharedImageVideo;
   friend class gpu::SharedImageBackingGLTexture;
   friend class gpu::SharedImageBackingFactoryGLTexture;
   friend class gpu::SharedImageBackingAHB;
+  friend class gpu::SharedImageRepresentationGLTextureAHB;
+  friend class gpu::SharedImageRepresentationSkiaGLAHB;
+  friend class gpu::SharedImageBackingIOSurface;
+  friend class gpu::SharedImageBackingDXGISwapChain;
+  friend class gpu::SwapChainFactoryDXGI;
+  friend class gpu::SharedImageRepresentationGLTextureIOSurface;
+  friend class gpu::SharedImageRepresentationSkiaIOSurface;
+  friend class gpu::StreamTexture;
+  friend class AbstractTextureImplOnSharedContext;
   friend class TextureDefinition;
   friend class TextureManager;
   friend class TextureRef;
@@ -667,6 +747,10 @@ class GPU_GLES2_EXPORT Texture final : public TextureBase {
   // or dimensions of the texture object can be made.
   bool immutable_ = false;
 
+  // Indicates that the storage for the texture is allocated using glTexStorage*
+  // functions.
+  bool immutable_storage_ = false;
+
   // Whether or not this texture has images.
   bool has_images_ = false;
 
@@ -940,15 +1024,15 @@ class GPU_GLES2_EXPORT TextureManager
   bool ClearRenderableLevels(DecoderContext* decoder, TextureRef* ref);
 
   // Clear a specific level.
-  bool ClearTextureLevel(DecoderContext* decoder,
-                         TextureRef* ref,
-                         GLenum target,
-                         GLint level);
+  static bool ClearTextureLevel(DecoderContext* decoder,
+                                TextureRef* ref,
+                                GLenum target,
+                                GLint level);
 
-  bool ClearTextureLevel(DecoderContext* decoder,
-                         Texture* texture,
-                         GLenum target,
-                         GLint level);
+  static bool ClearTextureLevel(DecoderContext* decoder,
+                                Texture* texture,
+                                GLenum target,
+                                GLint level);
 
   // Creates a new texture info.
   TextureRef* CreateTexture(GLuint client_id, GLuint service_id);
@@ -1016,7 +1100,11 @@ class GPU_GLES2_EXPORT TextureManager
       case GL_SAMPLER_2D_RECT_ARB:
         return black_texture_ids_[kRectangleARB];
       default:
-        NOTREACHED();
+        // The above covers ES 2, but ES 3 has many more sampler types. Rather
+        // than create a texture for all of them, just use the 0 texture, which
+        // should always be incomplete, and rely on the driver to return black
+        // when sampling it. Hopefully ES 3 drivers are better about actually
+        // returning black when sampling an incomplete texture.
         return 0;
     }
   }
@@ -1174,7 +1262,8 @@ class GPU_GLES2_EXPORT TextureManager
       const gles2::FeatureInfo* feature_info,
       GLenum format);
   static GLenum AdjustTexInternalFormat(const gles2::FeatureInfo* feature_info,
-                                        GLenum format);
+                                        GLenum format,
+                                        GLenum type);
   static GLenum AdjustTexFormat(const gles2::FeatureInfo* feature_info,
                                 GLenum format);
 

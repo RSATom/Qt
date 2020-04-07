@@ -8,7 +8,7 @@
 #include "build/build_config.h"
 #include "chrome/browser/signin/scoped_account_consistency.h"
 #include "chrome/test/base/testing_profile.h"
-#include "components/signin/core/browser/signin_buildflags.h"
+#include "components/signin/public/base/signin_buildflags.h"
 #include "content/public/test/test_browser_thread_bundle.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -31,8 +31,11 @@ TEST(IdentityApiTest, DiceAllAccountsExtensions) {
 
   {
     ScopedAccountConsistencyDiceMigration scoped_dice_migration;
-    TestingProfile profile;
-    IdentityAPI api(&profile);
+    TestingProfile::Builder profile_builder;
+    // The profile is not a new profile to prevent automatic migration.
+    profile_builder.OverrideIsNewProfile(false);
+    std::unique_ptr<TestingProfile> profile = profile_builder.Build();
+    IdentityAPI api(profile.get());
     EXPECT_TRUE(api.AreExtensionsRestrictedToPrimaryAccount());
     api.Shutdown();
   }

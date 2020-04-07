@@ -93,7 +93,7 @@ class FakeVideoCaptureDevice : public VideoCaptureDevice {
 
   // FakeVideoCaptureDevice post tasks to itself for frame construction and
   // needs to deal with asynchronous StopAndDeallocate().
-  base::WeakPtrFactory<FakeVideoCaptureDevice> weak_factory_;
+  base::WeakPtrFactory<FakeVideoCaptureDevice> weak_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(FakeVideoCaptureDevice);
 };
@@ -102,9 +102,9 @@ class FakeVideoCaptureDevice : public VideoCaptureDevice {
 // This is a separate struct because read-access to it is shared with several
 // collaborating classes.
 struct FakeDeviceState {
-  FakeDeviceState(float zoom,
-                  float exposure_time,
-                  float focus_distance,
+  FakeDeviceState(double zoom,
+                  double exposure_time,
+                  double focus_distance,
                   float frame_rate,
                   VideoPixelFormat pixel_format)
       : zoom(zoom),
@@ -117,10 +117,10 @@ struct FakeDeviceState {
                                           : mojom::MeteringMode::CONTINUOUS;
   }
 
-  uint32_t zoom;
-  uint32_t exposure_time;
+  double zoom;
+  double exposure_time;
   mojom::MeteringMode exposure_mode;
-  uint32_t focus_distance;
+  double focus_distance;
   mojom::MeteringMode focus_mode;
   VideoCaptureFormat format;
 };

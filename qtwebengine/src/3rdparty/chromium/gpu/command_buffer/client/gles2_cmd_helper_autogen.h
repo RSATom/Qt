@@ -2270,6 +2270,19 @@ void RenderbufferStorageMultisampleCHROMIUM(GLenum target,
   }
 }
 
+void RenderbufferStorageMultisampleAdvancedAMD(GLenum target,
+                                               GLsizei samples,
+                                               GLsizei storageSamples,
+                                               GLenum internalformat,
+                                               GLsizei width,
+                                               GLsizei height) {
+  gles2::cmds::RenderbufferStorageMultisampleAdvancedAMD* c =
+      GetCmdSpace<gles2::cmds::RenderbufferStorageMultisampleAdvancedAMD>();
+  if (c) {
+    c->Init(target, samples, storageSamples, internalformat, width, height);
+  }
+}
+
 void RenderbufferStorageMultisampleEXT(GLenum target,
                                        GLsizei samples,
                                        GLenum internalformat,
@@ -2470,6 +2483,81 @@ void DispatchCompute(GLuint num_groups_x,
   gles2::cmds::DispatchCompute* c = GetCmdSpace<gles2::cmds::DispatchCompute>();
   if (c) {
     c->Init(num_groups_x, num_groups_y, num_groups_z);
+  }
+}
+
+void DispatchComputeIndirect(GLintptr offset) {
+  gles2::cmds::DispatchComputeIndirect* c =
+      GetCmdSpace<gles2::cmds::DispatchComputeIndirect>();
+  if (c) {
+    c->Init(offset);
+  }
+}
+
+void GetProgramInterfaceiv(GLuint program,
+                           GLenum program_interface,
+                           GLenum pname,
+                           uint32_t params_shm_id,
+                           uint32_t params_shm_offset) {
+  gles2::cmds::GetProgramInterfaceiv* c =
+      GetCmdSpace<gles2::cmds::GetProgramInterfaceiv>();
+  if (c) {
+    c->Init(program, program_interface, pname, params_shm_id,
+            params_shm_offset);
+  }
+}
+
+void GetProgramResourceIndex(GLuint program,
+                             GLenum program_interface,
+                             uint32_t name_bucket_id,
+                             uint32_t index_shm_id,
+                             uint32_t index_shm_offset) {
+  gles2::cmds::GetProgramResourceIndex* c =
+      GetCmdSpace<gles2::cmds::GetProgramResourceIndex>();
+  if (c) {
+    c->Init(program, program_interface, name_bucket_id, index_shm_id,
+            index_shm_offset);
+  }
+}
+
+void GetProgramResourceName(GLuint program,
+                            GLenum program_interface,
+                            GLuint index,
+                            uint32_t name_bucket_id,
+                            uint32_t result_shm_id,
+                            uint32_t result_shm_offset) {
+  gles2::cmds::GetProgramResourceName* c =
+      GetCmdSpace<gles2::cmds::GetProgramResourceName>();
+  if (c) {
+    c->Init(program, program_interface, index, name_bucket_id, result_shm_id,
+            result_shm_offset);
+  }
+}
+
+void GetProgramResourceiv(GLuint program,
+                          GLenum program_interface,
+                          GLuint index,
+                          uint32_t props_bucket_id,
+                          uint32_t params_shm_id,
+                          uint32_t params_shm_offset) {
+  gles2::cmds::GetProgramResourceiv* c =
+      GetCmdSpace<gles2::cmds::GetProgramResourceiv>();
+  if (c) {
+    c->Init(program, program_interface, index, props_bucket_id, params_shm_id,
+            params_shm_offset);
+  }
+}
+
+void GetProgramResourceLocation(GLuint program,
+                                GLenum program_interface,
+                                uint32_t name_bucket_id,
+                                uint32_t location_shm_id,
+                                uint32_t location_shm_offset) {
+  gles2::cmds::GetProgramResourceLocation* c =
+      GetCmdSpace<gles2::cmds::GetProgramResourceLocation>();
+  if (c) {
+    c->Init(program, program_interface, name_bucket_id, location_shm_id,
+            location_shm_offset);
   }
 }
 
@@ -2803,14 +2891,6 @@ void LoseContextCHROMIUM(GLenum current, GLenum other) {
       GetCmdSpace<gles2::cmds::LoseContextCHROMIUM>();
   if (c) {
     c->Init(current, other);
-  }
-}
-
-void InsertFenceSyncCHROMIUM(GLuint64 release_count) {
-  gles2::cmds::InsertFenceSyncCHROMIUM* c =
-      GetCmdSpace<gles2::cmds::InsertFenceSyncCHROMIUM>();
-  if (c) {
-    c->Init(release_count);
   }
 }
 
@@ -3452,14 +3532,14 @@ void SetReadbackBufferShadowAllocationINTERNAL(GLuint buffer_id,
   }
 }
 
-void FramebufferTextureMultiviewLayeredANGLE(GLenum target,
-                                             GLenum attachment,
-                                             GLuint texture,
-                                             GLint level,
-                                             GLint baseViewIndex,
-                                             GLsizei numViews) {
-  gles2::cmds::FramebufferTextureMultiviewLayeredANGLE* c =
-      GetCmdSpace<gles2::cmds::FramebufferTextureMultiviewLayeredANGLE>();
+void FramebufferTextureMultiviewOVR(GLenum target,
+                                    GLenum attachment,
+                                    GLuint texture,
+                                    GLint level,
+                                    GLint baseViewIndex,
+                                    GLsizei numViews) {
+  gles2::cmds::FramebufferTextureMultiviewOVR* c =
+      GetCmdSpace<gles2::cmds::FramebufferTextureMultiviewOVR>();
   if (c) {
     c->Init(target, attachment, texture, level, baseViewIndex, numViews);
   }
@@ -3474,6 +3554,7 @@ void MaxShaderCompilerThreadsKHR(GLuint count) {
 }
 
 void CreateAndTexStorage2DSharedImageINTERNALImmediate(GLuint texture,
+                                                       GLenum internalformat,
                                                        const GLbyte* mailbox) {
   const uint32_t size = gles2::cmds::
       CreateAndTexStorage2DSharedImageINTERNALImmediate::ComputeSize();
@@ -3481,7 +3562,7 @@ void CreateAndTexStorage2DSharedImageINTERNALImmediate(GLuint texture,
       GetImmediateCmdSpaceTotalSize<
           gles2::cmds::CreateAndTexStorage2DSharedImageINTERNALImmediate>(size);
   if (c) {
-    c->Init(texture, mailbox);
+    c->Init(texture, internalformat, mailbox);
   }
 }
 

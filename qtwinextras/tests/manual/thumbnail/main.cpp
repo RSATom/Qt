@@ -104,7 +104,7 @@ MainWindow::MainWindow()
 void MainWindow::initThumbnailToolBar()
 {
     m_thumbnailToolBar->setWindow(windowHandle());
-    QWinThumbnailToolButton *testButton = new QWinThumbnailToolButton(m_thumbnailToolBar);
+    auto *testButton = new QWinThumbnailToolButton(m_thumbnailToolBar);
     testButton->setToolTip("Test");
     testButton->setIcon(style()->standardIcon(QStyle::SP_ComputerIcon));
     connect(testButton, &QWinThumbnailToolButton::clicked, this, &MainWindow::testButtonClicked);

@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2019 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtGui module of the Qt Toolkit.
@@ -70,6 +70,12 @@
 #include <private/qabstracttextdocumentlayout_p.h>
 #include "qpagedpaintdevice.h"
 #include "private/qpagedpaintdevice_p.h"
+#if QT_CONFIG(textmarkdownreader)
+#include <private/qtextmarkdownimporter_p.h>
+#endif
+#if QT_CONFIG(textmarkdownwriter)
+#include <private/qtextmarkdownwriter_p.h>
+#endif
 
 #include <limits.h>
 
@@ -341,7 +347,19 @@ QTextDocument *QTextDocument::clone(QObject *parent) const
 {
     Q_D(const QTextDocument);
     QTextDocument *doc = new QTextDocument(parent);
-    QTextCursor(doc).insertFragment(QTextDocumentFragment(this));
+    if (isEmpty()) {
+        const QTextCursor thisCursor(const_cast<QTextDocument *>(this));
+
+        const auto blockFormat = thisCursor.blockFormat();
+        if (blockFormat.isValid() && !blockFormat.isEmpty())
+            QTextCursor(doc).setBlockFormat(blockFormat);
+
+        const auto blockCharFormat = thisCursor.blockCharFormat();
+        if (blockCharFormat.isValid() && !blockCharFormat.isEmpty())
+            QTextCursor(doc).setBlockCharFormat(blockCharFormat);
+    } else {
+        QTextCursor(doc).insertFragment(QTextDocumentFragment(this));
+    }
     doc->rootFrame()->setFrameFormat(rootFrame()->frameFormat());
     QTextDocumentPrivate *priv = doc->d_func();
     priv->title = d->title;
@@ -885,6 +903,9 @@ int QTextDocument::lineCount() const
   \since 4.5
 
   Returns the number of characters of this document.
+
+  \note As a QTextDocument always contains at least one
+  QChar::ParagraphSeparator, this method will return at least 1.
 
   \sa blockCount(), characterAt()
  */
@@ -1964,18 +1985,18 @@ void QTextDocument::print(QPagedPaintDevice *printer) const
     QRectF body = QRectF(QPointF(0, 0), d->pageSize);
     QPointF pageNumberPos;
 
+    qreal sourceDpiX = qt_defaultDpiX();
+    qreal sourceDpiY = qt_defaultDpiY();
+    const qreal dpiScaleX = qreal(printer->logicalDpiX()) / sourceDpiX;
+    const qreal dpiScaleY = qreal(printer->logicalDpiY()) / sourceDpiY;
+
     if (documentPaginated) {
-        qreal sourceDpiX = qt_defaultDpi();
-        qreal sourceDpiY = sourceDpiX;
 
         QPaintDevice *dev = doc->documentLayout()->paintDevice();
         if (dev) {
             sourceDpiX = dev->logicalDpiX();
             sourceDpiY = dev->logicalDpiY();
         }
-
-        const qreal dpiScaleX = qreal(printer->logicalDpiX()) / sourceDpiX;
-        const qreal dpiScaleY = qreal(printer->logicalDpiY()) / sourceDpiY;
 
         // scale to dpi
         p.scale(dpiScaleX, dpiScaleY);
@@ -2005,15 +2026,21 @@ void QTextDocument::print(QPagedPaintDevice *printer) const
         // copy the custom object handlers
         layout->d_func()->handlers = documentLayout()->d_func()->handlers;
 
-        int dpiy = p.device()->logicalDpiY();
-        int margin = (int) ((2/2.54)*dpiy); // 2 cm margins
+        // 2 cm margins, scaled to device in QTextDocumentLayoutPrivate::layoutFrame
+        const int horizontalMargin = int((2/2.54)*sourceDpiX);
+        const int verticalMargin = int((2/2.54)*sourceDpiY);
         QTextFrameFormat fmt = doc->rootFrame()->frameFormat();
-        fmt.setMargin(margin);
+        fmt.setLeftMargin(horizontalMargin);
+        fmt.setRightMargin(horizontalMargin);
+        fmt.setTopMargin(verticalMargin);
+        fmt.setBottomMargin(verticalMargin);
         doc->rootFrame()->setFrameFormat(fmt);
 
+        // pageNumberPos must be in device coordinates, so scale to device here
+        const int dpiy = p.device()->logicalDpiY();
         body = QRectF(0, 0, printer->width(), printer->height());
-        pageNumberPos = QPointF(body.width() - margin,
-                                body.height() - margin
+        pageNumberPos = QPointF(body.width() - horizontalMargin * dpiScaleX,
+                                body.height() - verticalMargin * dpiScaleY
                                 + QFontMetrics(doc->defaultFont(), p.device()).ascent()
                                 + 5 * dpiy / 72.0);
         clonedDoc->setPageSize(body.size());
@@ -2061,8 +2088,9 @@ void QTextDocument::print(QPagedPaintDevice *printer) const
     \enum QTextDocument::ResourceType
 
     This enum describes the types of resources that can be loaded by
-    QTextDocument's loadResource() function.
+    QTextDocument's loadResource() function or by QTextBrowser::setSource().
 
+    \value UnknownResource No resource is loaded, or the resource type is not known.
     \value HtmlResource  The resource contains HTML.
     \value ImageResource The resource contains image data.
                          Currently supported data types are QVariant::Pixmap and
@@ -2072,10 +2100,11 @@ void QTextDocument::print(QPagedPaintDevice *printer) const
                          The icon needs to be converted to one of the supported types first,
                          for example using QIcon::pixmap.
     \value StyleSheetResource The resource contains CSS.
+    \value MarkdownResource The resource contains Markdown.
     \value UserResource  The first available value for user defined
                          resource types.
 
-    \sa loadResource()
+    \sa loadResource(), QTextBrowser::sourceType()
 */
 
 /*!
@@ -2271,6 +2300,15 @@ QTextHtmlExporter::QTextHtmlExporter(const QTextDocument *_doc)
     defaultCharFormat.clearProperty(QTextFormat::TextUnderlineStyle);
 }
 
+static QStringList resolvedFontFamilies(const QTextCharFormat &format)
+{
+    QStringList fontFamilies = format.fontFamilies().toStringList();
+    const QString mainFontFamily = format.fontFamily();
+    if (!mainFontFamily.isEmpty() && !fontFamilies.contains(mainFontFamily))
+        fontFamilies.append(mainFontFamily);
+    return fontFamilies;
+}
+
 /*!
     Returns the document in HTML format. The conversion may not be
     perfect, especially for complex documents, due to the limitations
@@ -2299,11 +2337,7 @@ QString QTextHtmlExporter::toHtml(const QByteArray &encoding, ExportMode mode)
     if (mode == ExportEntireDocument) {
         html += QLatin1String(" style=\"");
 
-        QStringList fontFamilies = defaultCharFormat.fontFamilies().toStringList();
-        if (!fontFamilies.isEmpty())
-            emitFontFamily(fontFamilies);
-        else
-            emitFontFamily(defaultCharFormat.fontFamily());
+        emitFontFamily(resolvedFontFamilies(defaultCharFormat));
 
         if (defaultCharFormat.hasProperty(QTextFormat::FontPointSize)) {
             html += QLatin1String(" font-size:");
@@ -2365,13 +2399,9 @@ bool QTextHtmlExporter::emitCharFormatStyle(const QTextCharFormat &format)
     bool attributesEmitted = false;
 
     {
-        const QStringList families = format.fontFamilies().toStringList();
-        const QString family = format.fontFamily();
-        if (!families.isEmpty() && families != defaultCharFormat.fontFamilies().toStringList()) {
+        const QStringList families = resolvedFontFamilies(format);
+        if (!families.isEmpty() && families != resolvedFontFamilies(defaultCharFormat)) {
             emitFontFamily(families);
-            attributesEmitted = true;
-        } else if (!family.isEmpty() && family != defaultCharFormat.fontFamily()) {
-            emitFontFamily(family);
             attributesEmitted = true;
         }
     }
@@ -2471,9 +2501,19 @@ bool QTextHtmlExporter::emitCharFormatStyle(const QTextCharFormat &format)
 
     if (format.foreground() != defaultCharFormat.foreground()
         && format.foreground().style() != Qt::NoBrush) {
-        html += QLatin1String(" color:");
-        html += colorValue(format.foreground().color());
-        html += QLatin1Char(';');
+        QBrush brush = format.foreground();
+        if (brush.style() == Qt::TexturePattern) {
+            const bool isPixmap = qHasPixmapTexture(brush);
+            const qint64 cacheKey = isPixmap ? brush.texture().cacheKey() : brush.textureImage().cacheKey();
+
+            html += QLatin1String(" -qt-fg-texture-cachekey:");
+            html += QString::number(cacheKey);
+            html += QLatin1String(";");
+        } else {
+            html += QLatin1String(" color:");
+            html += colorValue(brush.color());
+            html += QLatin1Char(';');
+        }
         attributesEmitted = true;
     }
 
@@ -2576,51 +2616,43 @@ void QTextHtmlExporter::emitFloatStyle(QTextFrameFormat::Position pos, StyleMode
         html += QLatin1Char('\"');
 }
 
+static QLatin1String richtextBorderStyleToHtmlBorderStyle(QTextFrameFormat::BorderStyle style)
+{
+    switch (style) {
+    case QTextFrameFormat::BorderStyle_None:
+        return QLatin1String("none");
+    case QTextFrameFormat::BorderStyle_Dotted:
+        return QLatin1String("dotted");
+    case QTextFrameFormat::BorderStyle_Dashed:
+        return QLatin1String("dashed");
+    case QTextFrameFormat::BorderStyle_Solid:
+        return QLatin1String("solid");
+    case QTextFrameFormat::BorderStyle_Double:
+        return QLatin1String("double");
+    case QTextFrameFormat::BorderStyle_DotDash:
+        return QLatin1String("dot-dash");
+    case QTextFrameFormat::BorderStyle_DotDotDash:
+        return QLatin1String("dot-dot-dash");
+    case QTextFrameFormat::BorderStyle_Groove:
+        return QLatin1String("groove");
+    case QTextFrameFormat::BorderStyle_Ridge:
+        return QLatin1String("ridge");
+    case QTextFrameFormat::BorderStyle_Inset:
+        return QLatin1String("inset");
+    case QTextFrameFormat::BorderStyle_Outset:
+        return QLatin1String("outset");
+    default:
+        Q_UNREACHABLE();
+    };
+    return QLatin1String("");
+}
+
 void QTextHtmlExporter::emitBorderStyle(QTextFrameFormat::BorderStyle style)
 {
     Q_ASSERT(style <= QTextFrameFormat::BorderStyle_Outset);
 
     html += QLatin1String(" border-style:");
-
-    switch (style) {
-    case QTextFrameFormat::BorderStyle_None:
-        html += QLatin1String("none");
-        break;
-    case QTextFrameFormat::BorderStyle_Dotted:
-        html += QLatin1String("dotted");
-        break;
-    case QTextFrameFormat::BorderStyle_Dashed:
-        html += QLatin1String("dashed");
-        break;
-    case QTextFrameFormat::BorderStyle_Solid:
-        html += QLatin1String("solid");
-        break;
-    case QTextFrameFormat::BorderStyle_Double:
-        html += QLatin1String("double");
-        break;
-    case QTextFrameFormat::BorderStyle_DotDash:
-        html += QLatin1String("dot-dash");
-        break;
-    case QTextFrameFormat::BorderStyle_DotDotDash:
-        html += QLatin1String("dot-dot-dash");
-        break;
-    case QTextFrameFormat::BorderStyle_Groove:
-        html += QLatin1String("groove");
-        break;
-    case QTextFrameFormat::BorderStyle_Ridge:
-        html += QLatin1String("ridge");
-        break;
-    case QTextFrameFormat::BorderStyle_Inset:
-        html += QLatin1String("inset");
-        break;
-    case QTextFrameFormat::BorderStyle_Outset:
-        html += QLatin1String("outset");
-        break;
-    default:
-        Q_ASSERT(false);
-        break;
-    };
-
+    html += richtextBorderStyleToHtmlBorderStyle(style);
     html += QLatin1Char(';');
 }
 
@@ -2631,20 +2663,6 @@ void QTextHtmlExporter::emitPageBreakPolicy(QTextFormat::PageBreakFlags policy)
 
     if (policy & QTextFormat::PageBreak_AlwaysAfter)
         html += QLatin1String(" page-break-after:always;");
-}
-
-void QTextHtmlExporter::emitFontFamily(const QString &family)
-{
-    html += QLatin1String(" font-family:");
-
-    QLatin1String quote("\'");
-    if (family.contains(QLatin1Char('\'')))
-        quote = QLatin1String("&quot;");
-
-    html += quote;
-    html += family.toHtmlEscaped();
-    html += quote;
-    html += QLatin1Char(';');
 }
 
 void QTextHtmlExporter::emitFontFamily(const QStringList &families)
@@ -2732,6 +2750,12 @@ void QTextHtmlExporter::emitFragment(const QTextFragment &fragment)
 
             if (imgFmt.hasProperty(QTextFormat::ImageName))
                 emitAttribute("src", imgFmt.name());
+
+            if (imgFmt.hasProperty(QTextFormat::ImageAltText))
+                emitAttribute("alt", imgFmt.stringProperty(QTextFormat::ImageAltText));
+
+            if (imgFmt.hasProperty(QTextFormat::ImageTitle))
+                emitAttribute("title", imgFmt.stringProperty(QTextFormat::ImageTitle));
 
             if (imgFmt.hasProperty(QTextFormat::ImageWidth))
                 emitAttribute("width", QString::number(imgFmt.width()));
@@ -3181,6 +3205,33 @@ void QTextHtmlExporter::emitTable(const QTextTable *table)
             if (cellFormat.hasProperty(QTextFormat::TableCellBottomPadding))
                 styleString += QLatin1String(" padding-bottom:") + QString::number(cellFormat.bottomPadding()) + QLatin1Char(';');
 
+            if (cellFormat.hasProperty(QTextFormat::TableCellTopBorder))
+                styleString += QLatin1String(" border-top:") + QString::number(cellFormat.topBorder()) + QLatin1String("px;");
+            if (cellFormat.hasProperty(QTextFormat::TableCellRightBorder))
+                styleString += QLatin1String(" border-right:") + QString::number(cellFormat.rightBorder()) + QLatin1String("px;");
+            if (cellFormat.hasProperty(QTextFormat::TableCellBottomBorder))
+                styleString += QLatin1String(" border-bottom:") + QString::number(cellFormat.bottomBorder()) + QLatin1String("px;");
+            if (cellFormat.hasProperty(QTextFormat::TableCellLeftBorder))
+                styleString += QLatin1String(" border-left:") + QString::number(cellFormat.leftBorder()) + QLatin1String("px;");
+
+            if (cellFormat.hasProperty(QTextFormat::TableCellTopBorderBrush))
+                styleString += QLatin1String(" border-top-color:") + cellFormat.topBorderBrush().color().name() + QLatin1Char(';');
+            if (cellFormat.hasProperty(QTextFormat::TableCellRightBorderBrush))
+                styleString += QLatin1String(" border-right-color:") + cellFormat.rightBorderBrush().color().name() + QLatin1Char(';');
+            if (cellFormat.hasProperty(QTextFormat::TableCellBottomBorderBrush))
+                styleString += QLatin1String(" border-bottom-color:") + cellFormat.bottomBorderBrush().color().name() + QLatin1Char(';');
+            if (cellFormat.hasProperty(QTextFormat::TableCellLeftBorderBrush))
+                styleString += QLatin1String(" border-left-color:") + cellFormat.leftBorderBrush().color().name() + QLatin1Char(';');
+
+            if (cellFormat.hasProperty(QTextFormat::TableCellTopBorderStyle))
+                styleString += QLatin1String(" border-top-style:") + richtextBorderStyleToHtmlBorderStyle(cellFormat.topBorderStyle()) + QLatin1Char(';');
+            if (cellFormat.hasProperty(QTextFormat::TableCellRightBorderStyle))
+                styleString += QLatin1String(" border-right-style:") + richtextBorderStyleToHtmlBorderStyle(cellFormat.rightBorderStyle()) + QLatin1Char(';');
+            if (cellFormat.hasProperty(QTextFormat::TableCellBottomBorderStyle))
+                styleString += QLatin1String(" border-bottom-style:") + richtextBorderStyleToHtmlBorderStyle(cellFormat.bottomBorderStyle()) + QLatin1Char(';');
+            if (cellFormat.hasProperty(QTextFormat::TableCellLeftBorderStyle))
+                styleString += QLatin1String(" border-left-style:") + richtextBorderStyleToHtmlBorderStyle(cellFormat.leftBorderStyle()) + QLatin1Char(';');
+
             if (!styleString.isEmpty())
                 html += QLatin1String(" style=\"") + styleString + QLatin1Char('\"');
 
@@ -3287,6 +3338,9 @@ void QTextHtmlExporter::emitFrameStyle(const QTextFrameFormat &format, FrameType
                     QString::number(format.leftMargin()),
                     QString::number(format.rightMargin()));
 
+    if (format.property(QTextFormat::TableBorderCollapse).toBool())
+        html += QLatin1String(" border-collapse:collapse;");
+
     if (html.length() == originalHtmlLength) // nothing emitted?
         html.chop(styleAttribute.size());
     else
@@ -3315,6 +3369,62 @@ QString QTextDocument::toHtml(const QByteArray &encoding) const
     return QTextHtmlExporter(this).toHtml(encoding);
 }
 #endif // QT_NO_TEXTHTMLPARSER
+
+/*!
+    \since 5.14
+    Returns a string containing a Markdown representation of the document with
+    the given \a features, or an empty string if writing fails for any reason.
+
+    \sa setMarkdown
+*/
+#if QT_CONFIG(textmarkdownwriter)
+QString QTextDocument::toMarkdown(QTextDocument::MarkdownFeatures features) const
+{
+    QString ret;
+    QTextStream s(&ret);
+    QTextMarkdownWriter w(s, features);
+    if (w.writeAll(this))
+        return ret;
+    return QString();
+}
+#endif
+
+/*!
+    \since 5.14
+    Replaces the entire contents of the document with the given
+    Markdown-formatted text in the \a markdown string, with the given
+    \a features supported.  By default, all supported GitHub-style
+    Markdown features are included; pass \c MarkdownDialectCommonMark
+    for a more basic parse.
+
+    The Markdown formatting is respected as much as possible; for example,
+    "*bold* text" will produce text where the first word has a font weight that
+    gives it an emphasized appearance.
+
+    Parsing of HTML included in the \a markdown string is handled in the same
+    way as in \l setHtml; however, Markdown formatting inside HTML blocks is
+    not supported.
+
+    Some features of the parser can be enabled or disabled via the \a features
+    argument:
+
+    \value MarkdownNoHTML
+           Any HTML tags in the Markdown text will be discarded
+    \value MarkdownDialectCommonMark
+           The parser supports only the features standardized by CommonMark
+    \value MarkdownDialectGitHub
+           The parser supports the GitHub dialect
+
+    The default is \c MarkdownDialectGitHub.
+
+    The undo/redo history is reset when this function is called.
+*/
+#if QT_CONFIG(textmarkdownreader)
+void QTextDocument::setMarkdown(const QString &markdown, QTextDocument::MarkdownFeatures features)
+{
+    QTextMarkdownImporter(features).import(this, markdown);
+}
+#endif
 
 /*!
     Returns a vector of text formats for all the formats used in the document.

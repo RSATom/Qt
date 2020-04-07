@@ -14,8 +14,8 @@
   * Example usage:
 
   gn gen out/coverage \\
-      --args='use_clang_coverage=true is_component_build=false \\
-              dcheck_always_on=true'
+      --args="use_clang_coverage=true is_component_build=false\\
+              is_debug=false dcheck_always_on=true"
   gclient runhooks
   python tools/code_coverage/coverage.py crypto_unittests url_unittests \\
       -b out/coverage -o out/report -c 'out/coverage/crypto_unittests' \\
@@ -62,7 +62,7 @@
   For more options, please refer to tools/code_coverage/coverage.py -h.
 
   For an overview of how code coverage works in Chromium, please refer to
-  https://chromium.googlesource.com/chromium/src/+/master/docs/code_coverage.md
+  https://chromium.googlesource.com/chromium/src/+/master/docs/testing/code_coverage.md
 """
 
 from __future__ import print_function
@@ -166,6 +166,7 @@ def _ConfigureLLVMCoverageTools(args):
                                 'both \'%s\' and \'%s\' exist.') % (
                                     LLVM_COV_PATH, LLVM_PROFDATA_PATH)
 
+
 def _GetPathWithLLVMSymbolizerDir():
   """Add llvm-symbolizer directory to path for symbolized stacks."""
   path = os.getenv('PATH')
@@ -188,7 +189,6 @@ def _GetTargetOS():
 def _IsIOS():
   """Returns true if the target_os specified in args.gn file is ios"""
   return _GetTargetOS() == 'ios'
-
 
 
 def _GeneratePerFileLineByLineCoverageInHtml(binary_paths, profdata_file_path,
@@ -799,6 +799,16 @@ def _SetupOutputDir():
   os.makedirs(coverage_utils.GetCoverageReportRootDirPath(OUTPUT_DIR))
 
 
+def _SetMacXcodePath():
+  """Set DEVELOPER_DIR to the path to hermetic Xcode.app on Mac OS X."""
+  if sys.platform != 'darwin':
+    return
+
+  xcode_path = os.path.join(SRC_ROOT_PATH, 'build', 'mac_files', 'Xcode.app')
+  if os.path.exists(xcode_path):
+    os.environ['DEVELOPER_DIR'] = xcode_path
+
+
 def _ParseCommandArguments():
   """Adds and parses relevant arguments for tool comands.
 
@@ -986,8 +996,19 @@ def Main():
     profdata_file_path = args.profdata_file
     binary_paths = _GetBinaryPathsFromTargets(args.targets, args.build_dir)
 
+  # If the checkout uses the hermetic xcode binaries, then otool must be
+  # directly invoked. The indirection via /usr/bin/otool won't work unless
+  # there's an actual system install of Xcode.
+  otool_path = None
+  if sys.platform == 'darwin':
+    hermetic_otool_path = os.path.join(
+        SRC_ROOT_PATH, 'build', 'mac_files', 'xcode_binaries', 'Contents',
+        'Developer', 'Toolchains', 'XcodeDefault.xctoolchain', 'usr', 'bin',
+        'otool')
+    if os.path.exists(hermetic_otool_path):
+      otool_path = hermetic_otool_path
   binary_paths.extend(
-      coverage_utils.GetSharedLibraries(binary_paths, BUILD_DIR))
+      coverage_utils.GetSharedLibraries(binary_paths, BUILD_DIR, otool_path))
 
   logging.info('Generating code coverage report in html (this can take a while '
                'depending on size of target!).')

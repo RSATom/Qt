@@ -8,8 +8,10 @@
 #include <utility>
 
 #include "base/auto_reset.h"
+#include "base/bind.h"
+#include "base/bind_helpers.h"
 #include "base/logging.h"
-
+#include "base/threading/thread_task_runner_handle.h"
 #include "net/base/net_errors.h"
 #include "net/disk_cache/disk_cache.h"
 #include "net/http/http_cache_transaction.h"
@@ -48,7 +50,7 @@ HttpCache::Writers::TransactionInfo::TransactionInfo(const TransactionInfo&) =
     default;
 
 HttpCache::Writers::Writers(HttpCache* cache, HttpCache::ActiveEntry* entry)
-    : cache_(cache), entry_(entry), weak_factory_(this) {}
+    : cache_(cache), entry_(entry) {}
 
 HttpCache::Writers::~Writers() = default;
 
@@ -359,7 +361,7 @@ int HttpCache::Writers::DoLoop(int result) {
   // Save the callback as |this| may be destroyed when |cache_callback_| is run.
   // Note that |callback_| is intentionally reset even if it is not run.
   CompletionOnceCallback callback = std::move(callback_);
-  read_buf_ = NULL;
+  read_buf_ = nullptr;
   DCHECK(!all_writers_.empty() || cache_callback_);
   if (cache_callback_)
     std::move(cache_callback_).Run();

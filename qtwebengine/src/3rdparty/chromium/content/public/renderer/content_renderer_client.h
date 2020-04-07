@@ -17,11 +17,12 @@
 #include "base/memory/ref_counted.h"
 #include "base/optional.h"
 #include "base/strings/string16.h"
-#include "base/task/task_scheduler/task_scheduler.h"
+#include "base/task/thread_pool/thread_pool.h"
 #include "build/build_config.h"
 #include "content/public/common/content_client.h"
 #include "content/public/renderer/url_loader_throttle_provider.h"
 #include "content/public/renderer/websocket_handshake_throttle_provider.h"
+#include "media/base/audio_parameters.h"
 #include "media/base/supported_types.h"
 #include "services/service_manager/public/mojom/service.mojom.h"
 #include "third_party/blink/public/platform/web_content_settings_client.h"
@@ -44,12 +45,13 @@ class WebFrame;
 class WebLocalFrame;
 class WebPlugin;
 class WebPrescientNetworking;
+class WebServiceWorkerContextProxy;
 class WebSpeechSynthesizer;
 class WebSpeechSynthesizerClient;
+class WebMediaStreamRendererFactory;
 class WebThemeEngine;
 class WebURL;
 class WebURLRequest;
-class WebURLResponse;
 struct WebPluginParams;
 struct WebURLError;
 }  // namespace blink
@@ -60,7 +62,6 @@ class KeySystemProperties;
 
 namespace content {
 class BrowserPluginDelegate;
-class MediaStreamRendererFactory;
 class RenderFrame;
 class RenderView;
 struct WebPluginInfo;
@@ -86,22 +87,27 @@ class CONTENT_EXPORT ContentRendererClient {
   // none.
   virtual SkBitmap* GetSadWebViewBitmap();
 
-  // Returns true if the embedder renders the contents of the |plugin_element|
-  // in a cross-process frame using MimeHandlerView.
-  virtual bool MaybeCreateMimeHandlerView(
+  // Returns true if the embedder renders the contents of the |plugin_element|,
+  // using external handlers, in a cross-process frame.
+  virtual bool IsPluginHandledExternally(
       RenderFrame* embedder_frame,
       const blink::WebElement& plugin_element,
       const GURL& original_url,
-      const std::string& original_mime_type,
-      int32_t instance_id_to_use);
+      const std::string& original_mime_type);
 
-  // Allows the embedder to override creating a plugin. If it returns true, then
-  // |plugin| will contain the created plugin, although it could be NULL. If it
-  // returns false, the content layer will create the plugin.
-  virtual bool OverrideCreatePlugin(
-      RenderFrame* render_frame,
-      const blink::WebPluginParams& params,
-      blink::WebPlugin** plugin);
+  // Returns a scriptable object which implements custom javascript API for the
+  // given element. This is used for external plugin handlers for providing
+  // custom API such as|postMessage| for <embed> and <object>.
+  virtual v8::Local<v8::Object> GetScriptableObject(
+      const blink::WebElement& plugin_element,
+      v8::Isolate* isolate);
+
+  // Allows the embedder to override creating a plugin. If it returns true,
+  // then |plugin| will contain the created plugin, although it could be
+  // NULL. If it returns false, the content layer will create the plugin.
+  virtual bool OverrideCreatePlugin(RenderFrame* render_frame,
+                                    const blink::WebPluginParams& params,
+                                    blink::WebPlugin** plugin);
 
   // Creates a replacement plugin that is shown when the plugin at |file_path|
   // couldn't be loaded. This allows the embedder to show a custom placeholder.
@@ -137,6 +143,7 @@ class CONTENT_EXPORT ContentRendererClient {
   // Note that |error_html| may be not written to in certain cases
   // (lack of information on the error code) so the caller should take care to
   // initialize it with a safe default before the call.
+  // TODO(dgozman): |ignoring_cache| is always false in these two methods.
   virtual void PrepareErrorPage(content::RenderFrame* render_frame,
                                 const blink::WebURLError& error,
                                 const std::string& http_method,
@@ -242,9 +249,8 @@ class CONTENT_EXPORT ContentRendererClient {
                               const blink::WebURLRequest& request);
 
   // See blink::Platform.
-  virtual unsigned long long VisitedLinkHash(const char* canonical_url,
-                                             size_t length);
-  virtual bool IsLinkVisited(unsigned long long link_hash);
+  virtual uint64_t VisitedLinkHash(const char* canonical_url, size_t length);
+  virtual bool IsLinkVisited(uint64_t link_hash);
   virtual blink::WebPrescientNetworking* GetPrescientNetworking();
   virtual bool IsPrerenderingFrame(const RenderFrame* render_frame);
 
@@ -258,8 +264,8 @@ class CONTENT_EXPORT ContentRendererClient {
   // language.
   virtual bool IsOriginIsolatedPepperPlugin(const base::FilePath& plugin_path);
 
-  // Allows an embedder to provide a MediaStreamRendererFactory.
-  virtual std::unique_ptr<MediaStreamRendererFactory>
+  // Allows an embedder to provide a blink::WebMediaStreamRendererFactory.
+  virtual std::unique_ptr<blink::WebMediaStreamRendererFactory>
   CreateMediaStreamRendererFactory();
 
   // Allows embedder to register the key system(s) it supports by populating
@@ -307,13 +313,6 @@ class CONTENT_EXPORT ContentRendererClient {
   // metric. See: https://www.chromium.org/developers/design-documents/rappor
   virtual void RecordRapporURL(const std::string& metric, const GURL& url) {}
 
-  // Gives the embedder a chance to add properties to the context menu.
-  // Currently only called when the context menu is for an image.
-  virtual void AddImageContextMenuProperties(
-      const blink::WebURLResponse& response,
-      bool is_image_in_context_a_placeholder_image,
-      std::map<std::string, std::string>* properties) {}
-
   // Notifies that a document element has been inserted in the frame's document.
   // This may be called multiple times for the same document. This method may
   // invalidate the frame.
@@ -331,10 +330,18 @@ class CONTENT_EXPORT ContentRendererClient {
   // started.
   virtual void SetRuntimeFeaturesDefaultsBeforeBlinkInitialization() {}
 
+  // Notifies that a service worker context is going to be initialized. No
+  // meaningful task has run on the worker thread at this point. This
+  // function is called from the worker thread.
+  virtual void WillInitializeServiceWorkerContextOnWorkerThread() {}
+
   // Notifies that a service worker context has been created. This function
   // is called from the worker thread.
+  // |context_proxy| is valid until
+  // WillDestroyServiceWorkerContextOnWorkerThread() is called.
   virtual void DidInitializeServiceWorkerContextOnWorkerThread(
-      v8::Local<v8::Context> context,
+      blink::WebServiceWorkerContextProxy* context_proxy,
+      v8::Local<v8::Context> v8_context,
       int64_t service_worker_version_id,
       const GURL& service_worker_scope,
       const GURL& script_url) {}
@@ -382,29 +389,14 @@ class CONTENT_EXPORT ContentRendererClient {
   // An empty URL is returned if the URL is not overriden.
   virtual GURL OverrideFlashEmbedWithHTML(const GURL& url);
 
-  // Provides parameters for initializing the global task scheduler. Default
-  // params are used if this returns nullptr.
-  virtual std::unique_ptr<base::TaskScheduler::InitParams>
-  GetTaskSchedulerInitParams();
-
   // Whether the renderer allows idle media players to be automatically
   // suspended after a period of inactivity.
   virtual bool IsIdleMediaSuspendEnabled();
 
-  // Called when a resource at |url| is loaded using an otherwise-valid legacy
-  // Symantec certificate that will be distrusted in future. Allows the embedder
-  // to override the message that is added to the console to inform developers
-  // that their certificate will be distrusted in future. If the method returns
-  // true, then |*console_message| will be printed to the console; otherwise a
-  // generic mesage will be used.
-  virtual bool OverrideLegacySymantecCertConsoleMessage(
-      const GURL& url,
-      std::string* console_messsage);
-
   // Returns true to suppress the warning for deprecated TLS versions.
   //
   // This is a workaround for an outdated test server used by Blink tests on
-  // macOS. See https://crbug.com/905831.
+  // macOS. See https://crbug.com/936515.
   virtual bool SuppressLegacyTLSVersionConsoleMessage();
 
   // Asks the embedder to bind |service_request| to its renderer-side service
@@ -412,6 +404,9 @@ class CONTENT_EXPORT ContentRendererClient {
   virtual void CreateRendererService(
       service_manager::mojom::ServiceRequest service_request) {}
 
+  // Allows the embedder to return a (possibly null) URLLoaderThrottleProvider
+  // for a frame or worker. For frames this is called on the main thread, and
+  // for workers it's called on the worker thread.
   virtual std::unique_ptr<URLLoaderThrottleProvider>
   CreateURLLoaderThrottleProvider(URLLoaderThrottleProviderType provider_type);
 
@@ -427,6 +422,17 @@ class CONTENT_EXPORT ContentRendererClient {
   // The user agent string is given from the browser process. This is called at
   // most once.
   virtual void DidSetUserAgent(const std::string& user_agent);
+
+  // Returns true if |url| still requires native HTML imports. Used for Web UI
+  // pages.
+  // TODO(https://crbug.com/937747): Remove this function, when all WebUIs have
+  // been migrated to use the HTML Imports Polyfill.
+  virtual bool RequiresHtmlImports(const GURL& url);
+
+  // Optionally returns audio renderer algorithm parameters.
+  virtual base::Optional<::media::AudioRendererAlgorithmParameters>
+  GetAudioRendererAlgorithmParameters(
+      ::media::AudioParameters audio_parameters);
 };
 
 }  // namespace content

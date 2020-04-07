@@ -70,7 +70,7 @@ public:
 
     QWinTaskbarProgress *progress() const;
 
-    bool eventFilter(QObject *, QEvent *);
+    bool eventFilter(QObject *, QEvent *) override;
 
 public Q_SLOTS:
     void setOverlayIcon(const QIcon &icon);

@@ -382,6 +382,7 @@ private:
     QScxmlInternal::StateMachineInfoProxy *m_infoSignalProxy;
 
     QHash<int, int> m_stateIndexToSignalIndex;
+    QHash<QString, int> m_stateNameToSignalIndex;
 };
 
 QT_END_NAMESPACE

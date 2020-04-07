@@ -4,6 +4,8 @@
 
 #include "ui/views/window/non_client_view.h"
 
+#include <memory>
+
 #include "ui/accessibility/ax_node_data.h"
 #include "ui/base/hit_test.h"
 #include "ui/gfx/geometry/rect_conversions.h"
@@ -13,22 +15,19 @@
 #include "ui/views/widget/widget.h"
 #include "ui/views/window/client_view.h"
 
+#if defined(OS_WIN)
+#include "ui/display/win/screen_win.h"
+#endif
+
 namespace views {
-
-// static
-const char NonClientFrameView::kViewClassName[] =
-    "ui/views/window/NonClientFrameView";
-
-const char NonClientView::kViewClassName[] =
-    "ui/views/window/NonClientView";
 
 // The frame view and the client view are always at these specific indices,
 // because the RootView message dispatch sends messages to items higher in the
 // z-order first and we always want the client view to have first crack at
 // handling mouse messages.
-static const int kFrameViewIndex = 0;
-static const int kClientViewIndex = 1;
-// The overlay view is always on top (index == child_count() - 1).
+static constexpr int kFrameViewIndex = 0;
+static constexpr int kClientViewIndex = 1;
+// The overlay view is always on top (view == children().back()).
 
 ////////////////////////////////////////////////////////////////////////////////
 // NonClientFrameView, default implementations:
@@ -38,14 +37,22 @@ bool NonClientFrameView::GetClientMask(const gfx::Size& size,
   return false;
 }
 
+#if defined(OS_WIN)
+gfx::Point NonClientFrameView::GetSystemMenuScreenPixelLocation() const {
+  gfx::Point point(GetMirroredXInView(GetBoundsForClientView().x()),
+                   GetSystemMenuY());
+  View::ConvertPointToScreen(this, &point);
+  point = display::win::ScreenWin::DIPToScreenPoint(point);
+  // The native system menu seems to overlap the titlebar by 1 px.  Match that.
+  return point - gfx::Vector2d(0, 1);
+}
+#endif
+
 ////////////////////////////////////////////////////////////////////////////////
 // NonClientView, public:
 
-NonClientView::NonClientView()
-    : client_view_(nullptr),
-      overlay_view_(nullptr) {
-  SetEventTargeter(
-      std::unique_ptr<views::ViewTargeter>(new views::ViewTargeter(this)));
+NonClientView::NonClientView() {
+  SetEventTargeter(std::make_unique<views::ViewTargeter>(this));
 }
 
 NonClientView::~NonClientView() {
@@ -88,7 +95,7 @@ void NonClientView::UpdateFrame() {
   Widget* widget = GetWidget();
   SetFrameView(widget->CreateNonClientFrameView());
   widget->ThemeChanged();
-  Layout();
+  InvalidateLayout();
   SchedulePaint();
 }
 
@@ -175,15 +182,14 @@ void NonClientView::Layout() {
   if (frame_view_->GetClientMask(client_view_->size(), &client_clip))
     client_view_->set_clip_path(client_clip);
 
-  if (overlay_view_ && overlay_view_->visible())
+  if (overlay_view_ && overlay_view_->GetVisible())
     overlay_view_->SetBoundsRect(GetLocalBounds());
 }
 
 void NonClientView::ViewHierarchyChanged(
     const ViewHierarchyChangedDetails& details) {
-  // Add our two child views here as we are added to the Widget so that if we
-  // are subsequently resized all the parent-child relationships are
-  // established.
+  // Add our child views here as we are added to the Widget so that if we are
+  // subsequently resized all the parent-child relationships are established.
   if (details.is_add && GetWidget() && details.child == this) {
     AddChildViewAt(frame_view_.get(), kFrameViewIndex);
     AddChildViewAt(client_view_, kClientViewIndex);
@@ -195,10 +201,6 @@ void NonClientView::ViewHierarchyChanged(
 void NonClientView::GetAccessibleNodeData(ui::AXNodeData* node_data) {
   node_data->role = ax::mojom::Role::kClient;
   node_data->SetName(accessible_name_);
-}
-
-const char* NonClientView::GetClassName() const {
-  return kViewClassName;
 }
 
 View* NonClientView::GetTooltipHandlerForPoint(const gfx::Point& point) {
@@ -246,16 +248,17 @@ View* NonClientView::TargetForRect(View* root, const gfx::Rect& rect) {
   return ViewTargeterDelegate::TargetForRect(root, rect);
 }
 
+BEGIN_METADATA(NonClientView)
+METADATA_PARENT_CLASS(View)
+END_METADATA()
+
 ////////////////////////////////////////////////////////////////////////////////
 // NonClientFrameView, public:
 
-NonClientFrameView::~NonClientFrameView() {
-}
+NonClientFrameView::~NonClientFrameView() = default;
 
 bool NonClientFrameView::ShouldPaintAsActive() const {
-  return  GetWidget()->IsAlwaysRenderAsActive() ||
-         (active_state_override_ ? *active_state_override_
-                                 : GetWidget()->IsActive());
+  return GetWidget()->ShouldPaintAsActive();
 }
 
 int NonClientFrameView::GetHTComponentForFrame(const gfx::Point& point,
@@ -307,28 +310,21 @@ int NonClientFrameView::GetHTComponentForFrame(const gfx::Point& point,
   return can_resize ? component : HTBORDER;
 }
 
-void NonClientFrameView::ActivationChanged(bool active) {
-}
+void NonClientFrameView::PaintAsActiveChanged(bool active) {}
 
 void NonClientFrameView::GetAccessibleNodeData(ui::AXNodeData* node_data) {
   node_data->role = ax::mojom::Role::kClient;
 }
 
-const char* NonClientFrameView::GetClassName() const {
-  return kViewClassName;
-}
-
-void NonClientFrameView::OnNativeThemeChanged(const ui::NativeTheme* theme) {
+void NonClientFrameView::OnThemeChanged() {
   SchedulePaint();
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 // NonClientFrameView, protected:
 
-NonClientFrameView::NonClientFrameView()
-    : active_state_override_(nullptr) {
-  SetEventTargeter(
-      std::unique_ptr<views::ViewTargeter>(new views::ViewTargeter(this)));
+NonClientFrameView::NonClientFrameView() {
+  SetEventTargeter(std::make_unique<views::ViewTargeter>(this));
 }
 
 // ViewTargeterDelegate:
@@ -340,5 +336,18 @@ bool NonClientFrameView::DoesIntersectRect(const View* target,
   // the client view.
   return !GetWidget()->client_view()->bounds().Intersects(rect);
 }
+
+////////////////////////////////////////////////////////////////////////////////
+// NonClientFrameView, private:
+
+#if defined(OS_WIN)
+int NonClientFrameView::GetSystemMenuY() const {
+  return GetBoundsForClientView().y();
+}
+#endif
+
+BEGIN_METADATA(NonClientFrameView)
+METADATA_PARENT_CLASS(View)
+END_METADATA()
 
 }  // namespace views

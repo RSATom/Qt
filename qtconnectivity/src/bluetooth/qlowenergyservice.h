@@ -136,6 +136,7 @@ private:
     friend class QLowEnergyControllerPrivate;
     friend class QLowEnergyControllerPrivateBluez;
     friend class QLowEnergyControllerPrivateAndroid;
+    friend class QLowEnergyControllerPrivateDarwin;
     QLowEnergyService(QSharedPointer<QLowEnergyServicePrivate> p,
                       QObject *parent = nullptr);
 };

@@ -41,6 +41,7 @@
 #include <private/renderer_p.h>
 #include <private/resourceaccessor_p.h>
 #include <private/nodemanagers_p.h>
+#include <Qt3DCore/private/qbackendnode_p.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -51,6 +52,12 @@ namespace Render {
 
 BackendNode::BackendNode(Mode mode)
     : QBackendNode(mode)
+    , m_renderer(nullptr)
+{
+}
+
+BackendNode::BackendNode(Qt3DCore::QBackendNodePrivate &dd)
+    : QBackendNode(dd)
     , m_renderer(nullptr)
 {
 }
@@ -79,6 +86,13 @@ QSharedPointer<RenderBackendResourceAccessor> BackendNode::resourceAccessor()
 {
     Render::Renderer *r = static_cast<Render::Renderer *>(renderer());
     return r->nodeManagers()->resourceAccessor();
+}
+
+void BackendNode::syncFromFrontEnd(const Qt3DCore::QNode *frontEnd, bool firstTime)
+{
+    Q_UNUSED(firstTime);
+
+    d_ptr->setEnabled(frontEnd->isEnabled());
 }
 
 } // namespace Render

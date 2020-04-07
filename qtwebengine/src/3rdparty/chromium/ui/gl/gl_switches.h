@@ -37,18 +37,25 @@ GL_EXPORT extern const char kANGLEImplementationOpenGLNULLName[];
 GL_EXPORT extern const char kANGLEImplementationOpenGLESNULLName[];
 GL_EXPORT extern const char kANGLEImplementationVulkanNULLName[];
 
+GL_EXPORT extern const char kCmdDecoderValidatingName[];
+GL_EXPORT extern const char kCmdDecoderPassthroughName[];
+
 }  // namespace gl
 
 namespace switches {
 
 GL_EXPORT extern const char kDisableD3D11[];
 GL_EXPORT extern const char kDisableES3GLContext[];
+GL_EXPORT extern const char kDisableES3GLContextForTesting[];
 GL_EXPORT extern const char kDisableGpuVsync[];
 GL_EXPORT extern const char kEnableGPUServiceLogging[];
 GL_EXPORT extern const char kEnableGPUServiceTracing[];
 GL_EXPORT extern const char kGpuNoContextLost[];
 
 GL_EXPORT extern const char kUseANGLE[];
+GL_EXPORT extern const char kUseCmdDecoder[];
+GL_EXPORT extern const char kEnableANGLEFeatures[];
+GL_EXPORT extern const char kDisableANGLEFeatures[];
 GL_EXPORT extern const char kUseGL[];
 GL_EXPORT extern const char kTestGLLib[];
 GL_EXPORT extern const char kUseGpuInTests[];
@@ -69,11 +76,15 @@ GL_EXPORT extern const char kCreateDefaultGLContext[];
 }  // namespace switches
 
 namespace features {
-
-GL_EXPORT extern const base::Feature kDirectCompositionUnderlays;
 GL_EXPORT extern const base::Feature kDirectCompositionComplexOverlays;
+GL_EXPORT extern const base::Feature kDirectCompositionGpuVSync;
+GL_EXPORT extern const base::Feature kDirectCompositionLowLatencyPresentation;
 GL_EXPORT extern const base::Feature kDirectCompositionNonrootOverlays;
+GL_EXPORT extern const base::Feature kDirectCompositionPreferNV12Overlays;
+GL_EXPORT extern const base::Feature kDirectCompositionPresentationFeedback;
+GL_EXPORT extern const base::Feature kDirectCompositionUseNV12DecodeSwapChain;
 GL_EXPORT extern const base::Feature kDefaultANGLEOpenGL;
+extern const base::Feature kTrackCurrentShaders;
 
 }  // namespace features
 

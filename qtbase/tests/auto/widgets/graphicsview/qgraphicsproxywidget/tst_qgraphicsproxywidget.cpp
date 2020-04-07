@@ -89,6 +89,7 @@ private slots:
     void focusNextPrevChild();
     void focusOutEvent_data();
     void focusOutEvent();
+    void focusProxy_QTBUG_51856();
     void hoverEnterLeaveEvent_data();
     void hoverEnterLeaveEvent();
     void hoverMoveEvent_data();
@@ -330,7 +331,7 @@ public:
     {
         // Make sure QGraphicsProxyWidget::paint does not modify the render hints set on the painter.
         painter->setRenderHints(QPainter::Antialiasing | QPainter::SmoothPixmapTransform
-                                | QPainter::NonCosmeticDefaultPen | QPainter::TextAntialiasing);
+                                | QPainter::TextAntialiasing);
         const QPainter::RenderHints oldRenderHints = painter->renderHints();
         QGraphicsProxyWidget::paint(painter, option, widget);
         QCOMPARE(painter->renderHints(), oldRenderHints);
@@ -463,14 +464,13 @@ void tst_QGraphicsProxyWidget::setWidget()
         QCOMPARE(proxy->focusPolicy(), Qt::WheelFocus);
         QVERIFY(proxy->acceptDrops());
         QCOMPARE(proxy->acceptHoverEvents(), true); // to get widget enter events
-        int left, top, right, bottom;
-        widget->getContentsMargins(&left, &top, &right, &bottom);
+        const QMarginsF margins = QMarginsF{widget->contentsMargins()};
         qreal rleft, rtop, rright, rbottom;
         proxy->getContentsMargins(&rleft, &rtop, &rright, &rbottom);
-        QCOMPARE((qreal)left, rleft);
-        QCOMPARE((qreal)top, rtop);
-        QCOMPARE((qreal)right, rright);
-        QCOMPARE((qreal)bottom, rbottom);
+        QCOMPARE(margins.left(), rleft);
+        QCOMPARE(margins.top(), rtop);
+        QCOMPARE(margins.right(), rright);
+        QCOMPARE(margins.bottom(), rbottom);
     } else {
         // proxy shouldn't mess with the widget if it can't insert it.
         QCOMPARE(proxy->widget(), nullptr);
@@ -862,6 +862,75 @@ void tst_QGraphicsProxyWidget::focusOutEvent()
             QCOMPARE(proxy->paintCount, 0);
             */
         }
+    }
+}
+
+void tst_QGraphicsProxyWidget::focusProxy_QTBUG_51856()
+{
+    // QSpinBox has an internal QLineEdit; this QLineEdit has the spinbox
+    // as its focus proxy.
+    struct FocusedSpinBox : QSpinBox
+    {
+        int focusCount = 0;
+
+        bool event(QEvent *event) override
+        {
+            switch (event->type()) {
+            case QEvent::FocusIn:
+                ++focusCount;
+                break;
+            case QEvent::FocusOut:
+                --focusCount;
+                break;
+            default:
+                break;
+            }
+            return QSpinBox::event(event);
+        }
+    };
+
+    QGraphicsScene scene;
+    QGraphicsView view(&scene);
+    SubQGraphicsProxyWidget *proxy = new SubQGraphicsProxyWidget;
+    scene.addItem(proxy);
+    view.show();
+    view.raise();
+    view.activateWindow();
+    QVERIFY(QTest::qWaitForWindowActive(&view));
+
+    FocusedSpinBox *spinBox = new FocusedSpinBox;
+
+    proxy->setWidget(spinBox);
+    proxy->show();
+    proxy->setFocus();
+    QVERIFY(proxy->hasFocus());
+    QEXPECT_FAIL("", "Widget should have focus but doesn't", Continue);
+    QVERIFY(spinBox->hasFocus());
+    QEXPECT_FAIL("", "Widget should have focus but doesn't", Continue);
+    QCOMPARE(spinBox->focusCount, 1);
+
+    enum { Count = 10 };
+
+    for (int i = 0; i < Count; ++i) {
+        for (int clickCount = 0; clickCount < Count; ++clickCount) {
+            auto proxyCenter = proxy->boundingRect().center();
+            auto proxyCenterInScene = proxy->mapToScene(proxyCenter);
+            auto proxyCenterInView = view.mapFromScene(proxyCenterInScene);
+
+            QTest::mouseClick(view.viewport(), Qt::LeftButton, {}, proxyCenterInView);
+            QTRY_COMPARE(spinBox->focusCount, 1);
+        }
+
+        QLineEdit *edit = new QLineEdit(&view);
+        edit->show();
+        QTRY_VERIFY(edit->isVisible());
+        edit->setFocus();
+        QTRY_VERIFY(edit->hasFocus());
+        QTRY_VERIFY(!proxy->hasFocus());
+        QTRY_COMPARE(proxy->focusOut, i + 1);
+        QTRY_VERIFY(!spinBox->hasFocus());
+        QTRY_COMPARE(spinBox->focusCount, 0);
+        delete edit;
     }
 }
 
@@ -2769,9 +2838,6 @@ void tst_QGraphicsProxyWidget::windowOpacity()
     // disabled on platforms without alpha channel support in QPixmap (e.g.,
     // X11 without XRender).
     int paints = 0;
-#if 0 // Used to be included in Qt4 for Q_WS_X11
-    paints = !X11->use_xrender;
-#endif
     QTRY_COMPARE(eventSpy.counts[QEvent::UpdateRequest], 0);
     QTRY_COMPARE(eventSpy.counts[QEvent::Paint], paints);
 

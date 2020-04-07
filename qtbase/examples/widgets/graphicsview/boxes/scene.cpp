@@ -48,44 +48,14 @@
 **
 ****************************************************************************/
 
-#include <QDebug>
 #include "scene.h"
-#include <QtCore/QRandomGenerator>
-#include <QtGui/qmatrix4x4.h>
-#include <QtGui/qvector3d.h>
+
+#include <QMatrix4x4>
+#include <QRandomGenerator>
+#include <QVector3D>
 #include <qmath.h>
 
 #include "3rdparty/fbm.h"
-
-void checkGLErrors(const QString& prefix)
-{
-    switch (glGetError()) {
-    case GL_NO_ERROR:
-        //qDebug() << prefix << tr("No error.");
-        break;
-    case GL_INVALID_ENUM:
-        qDebug() << prefix << QObject::tr("Invalid enum.");
-        break;
-    case GL_INVALID_VALUE:
-        qDebug() << prefix << QObject::tr("Invalid value.");
-        break;
-    case GL_INVALID_OPERATION:
-        qDebug() << prefix << QObject::tr("Invalid operation.");
-        break;
-    case GL_STACK_OVERFLOW:
-        qDebug() << prefix << QObject::tr("Stack overflow.");
-        break;
-    case GL_STACK_UNDERFLOW:
-        qDebug() << prefix << QObject::tr("Stack underflow.");
-        break;
-    case GL_OUT_OF_MEMORY:
-        qDebug() << prefix << QObject::tr("Out of memory.");
-        break;
-    default:
-        qDebug() << prefix << QObject::tr("Unknown error.");
-        break;
-    }
-}
 
 //============================================================================//
 //                                  ColorEdit                                 //
@@ -126,12 +96,8 @@ void ColorEdit::mousePressEvent(QMouseEvent *event)
 {
     if (event->button() == Qt::LeftButton) {
         QColor color(m_color);
-        QColorDialog dialog(color, 0);
+        QColorDialog dialog(color, nullptr);
         dialog.setOption(QColorDialog::ShowAlphaChannel, true);
-// The ifdef block is a workaround for the beta, TODO: remove when bug 238525 is fixed
-#if 0 // Used to be included in Qt4 for Q_WS_MAC
-        dialog.setOption(QColorDialog::DontUseNativeDialog, true);
-#endif
         dialog.move(280, 120);
         if (dialog.exec() == QDialog::Rejected)
             return;
@@ -183,17 +149,6 @@ void FloatEdit::editDone()
 //============================================================================//
 //                           TwoSidedGraphicsWidget                           //
 //============================================================================//
-
-TwoSidedGraphicsWidget::TwoSidedGraphicsWidget(QGraphicsScene *scene)
-    : QObject(scene)
-    , m_current(0)
-    , m_angle(0)
-    , m_delta(0)
-{
-    for (int i = 0; i < 2; ++i)
-        m_proxyWidgets[i] = 0;
-}
-
 void TwoSidedGraphicsWidget::setWidget(int index, QWidget *widget)
 {
     if (index < 0 || index >= 2)
@@ -205,8 +160,7 @@ void TwoSidedGraphicsWidget::setWidget(int index, QWidget *widget)
     GraphicsWidget *proxy = new GraphicsWidget;
     proxy->setWidget(widget);
 
-    if (m_proxyWidgets[index])
-        delete m_proxyWidgets[index];
+    delete m_proxyWidgets[index];
     m_proxyWidgets[index] = proxy;
 
     proxy->setCacheMode(QGraphicsItem::ItemCoordinateCache);
@@ -223,7 +177,7 @@ QWidget *TwoSidedGraphicsWidget::widget(int index)
     if (index < 0 || index >= 2)
     {
         qWarning("TwoSidedGraphicsWidget::widget: Index out of bounds, index == %d", index);
-        return 0;
+        return nullptr;
     }
     return m_proxyWidgets[index]->widget();
 }
@@ -293,7 +247,7 @@ void GraphicsWidget::paint(QPainter *painter, const QStyleOptionGraphicsItem *op
 //============================================================================//
 
 RenderOptionsDialog::RenderOptionsDialog()
-    : QDialog(0, Qt::CustomizeWindowHint | Qt::WindowTitleHint)
+    : QDialog(nullptr, Qt::CustomizeWindowHint | Qt::WindowTitleHint)
 {
     setWindowOpacity(0.75);
     setWindowTitle(tr("Options (double click to flip)"));
@@ -427,7 +381,7 @@ void RenderOptionsDialog::mouseDoubleClickEvent(QMouseEvent *event)
 //============================================================================//
 
 ItemDialog::ItemDialog()
-    : QDialog(0, Qt::CustomizeWindowHint | Qt::WindowTitleHint)
+    : QDialog(nullptr, Qt::CustomizeWindowHint | Qt::WindowTitleHint)
 {
     setWindowTitle(tr("Items (double click to flip)"));
     setWindowOpacity(0.75);
@@ -491,10 +445,10 @@ Scene::Scene(int width, int height, int maxTextureSize)
     , m_currentTexture(0)
     , m_dynamicCubemap(false)
     , m_updateAllCubemaps(true)
-    , m_box(0)
-    , m_vertexShader(0)
-    , m_environmentShader(0)
-    , m_environmentProgram(0)
+    , m_box(nullptr)
+    , m_vertexShader(nullptr)
+    , m_environmentShader(nullptr)
+    , m_environmentProgram(nullptr)
 {
     setSceneRect(0, 0, width, height);
 
@@ -533,8 +487,6 @@ Scene::Scene(int width, int height, int maxTextureSize)
     m_timer->setInterval(20);
     connect(m_timer, &QTimer::timeout, this, [this](){ update(); });
     m_timer->start();
-
-    m_time.start();
 }
 
 Scene::~Scene()
@@ -570,9 +522,8 @@ void Scene::initGL()
 
     const int NOISE_SIZE = 128; // for a different size, B and BM in fbm.c must also be changed
     m_noise = new GLTexture3D(NOISE_SIZE, NOISE_SIZE, NOISE_SIZE);
-    QRgb *data = new QRgb[NOISE_SIZE * NOISE_SIZE * NOISE_SIZE];
-    memset(data, 0, NOISE_SIZE * NOISE_SIZE * NOISE_SIZE * sizeof(QRgb));
-    QRgb *p = data;
+    QVector<QRgb> data(NOISE_SIZE * NOISE_SIZE * NOISE_SIZE, QRgb(0));
+    QRgb *p = data.data();
     float pos[3];
     for (int k = 0; k < NOISE_SIZE; ++k) {
         pos[2] = k * (0x20 / (float)NOISE_SIZE);
@@ -587,8 +538,7 @@ void Scene::initGL()
             }
         }
     }
-    m_noise->load(NOISE_SIZE, NOISE_SIZE, NOISE_SIZE, data);
-    delete[] data;
+    m_noise->load(NOISE_SIZE, NOISE_SIZE, NOISE_SIZE, data.data());
 
     m_mainCubemap = new GLRenderTargetCube(512);
 
@@ -640,7 +590,7 @@ void Scene::initGL()
         m_renderOptions->addShader(file.baseName());
 
         program->bind();
-        m_cubemaps << ((program->uniformLocation("env") != -1) ? new GLRenderTargetCube(qMin(256, m_maxTextureSize)) : 0);
+        m_cubemaps << ((program->uniformLocation("env") != -1) ? new GLRenderTargetCube(qMin(256, m_maxTextureSize)) : nullptr);
         program->release();
     }
 

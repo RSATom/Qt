@@ -32,7 +32,7 @@ class InterstitialPageImpl;
 class NavigationControllerImpl;
 class NavigationEntry;
 class NavigationRequest;
-class NavigatorTestWithBrowserSideNavigation;
+class NavigatorTest;
 class RenderFrameHostManagerTest;
 class RenderFrameProxyHost;
 class RenderViewHost;
@@ -203,32 +203,28 @@ class CONTENT_EXPORT RenderFrameHostManager
   // there is no current one.
   RenderWidgetHostView* GetRenderWidgetHostView() const;
 
-  // Returns whether this manager belongs to a FrameTreeNode that belongs to an
-  // inner WebContents.
-  bool ForInnerDelegate();
+  // Returns whether this manager is a main frame and belongs to a FrameTreeNode
+  // that belongs to an inner WebContents.
+  bool IsMainFrameForInnerDelegate();
 
-  // Returns the RenderWidgetHost of the outer WebContents (if any) that can be
-  // used to fetch the last keyboard event.
-  // TODO(lazyboy): This can be removed once input events are sent directly to
-  // remote frames.
-  RenderWidgetHostImpl* GetOuterRenderWidgetHostForKeyboardInput();
-
-  // Return the FrameTreeNode for the frame in the outer WebContents (if any)
-  // that contains the inner WebContents.
+  // If this is a RenderFrameHostManager for a main frame, this method returns
+  // the FrameTreeNode for the frame in the outer WebContents (if any) that
+  // contains the inner WebContents.
   FrameTreeNode* GetOuterDelegateNode();
 
   // Return a proxy for this frame in the parent frame's SiteInstance.  Returns
   // nullptr if this is a main frame or if such a proxy does not exist (for
-  // example, if this frame is same-site with its parent).
+  // example, if this frame is same-site with its parent OR if this frame will
+  // be deleted soon and we are just waiting for the frame's unload handler).
   RenderFrameProxyHost* GetProxyToParent();
 
-  // Returns the proxy to inner WebContents in the outer WebContents's
-  // SiteInstance. Returns nullptr if this WebContents isn't part of inner/outer
-  // relationship.
+  // If this is a RenderFrameHostManager for a main frame, returns the proxy to
+  // inner WebContents in the outer WebContents's SiteInstance. Returns nullptr
+  // if this WebContents isn't part of inner/outer relationship.
   RenderFrameProxyHost* GetProxyToOuterDelegate();
 
-  // Removes the FrameTreeNode in the outer WebContents that represents this
-  // FrameTreeNode.
+  // If this is a RenderFrameHostManager for a main frame, removes the
+  // FrameTreeNode in the outer WebContents that represents this FrameTreeNode.
   // TODO(lazyboy): This does not belong to RenderFrameHostManager, move it to
   // somehwere else.
   void RemoveOuterDelegateFrame();
@@ -253,10 +249,15 @@ class CONTENT_EXPORT RenderFrameHostManager
   // which one so we tell both.
   void SetIsLoading(bool is_loading);
 
-  // Confirms whether we should close the page. This is called before a
-  // tab/window is closed to allow the appropriate renderer to approve or deny
-  // the request.  |proceed| indicates whether the user chose to proceed.
-  // |proceed_time| is the time when the request was allowed to proceed.
+  // Confirms whether we should close the page. |proceed| indicates whether the
+  // user chose to proceed. |proceed_time| is the time when the request was
+  // allowed to proceed. This is called in one of the two *distinct* scenarios
+  // below:
+  //   1- The tab/window is closed after allowing the appropriate renderer to
+  //      show the beforeunload prompt.
+  //   2- The FrameTreeNode is being prepared for attaching an inner Delegate,
+  //      in which case beforeunload is triggered in the current frame. This
+  //      only happens for child frames.
   void OnBeforeUnloadACK(bool proceed, const base::TimeTicks& proceed_time);
 
   // Determines whether a navigation to |dest_url| may be completed using an
@@ -287,17 +288,12 @@ class CONTENT_EXPORT RenderFrameHostManager
   void DidChangeOpener(int opener_routing_id,
                        SiteInstance* source_site_instance);
 
-  // Creates and initializes a RenderFrameHost. If |view_routing_id_ptr|
-  // is not nullptr it will be set to the routing id of the view associated with
-  // the frame.
-  std::unique_ptr<RenderFrameHostImpl> CreateRenderFrame(
-      SiteInstance* instance,
-      bool hidden,
-      int* view_routing_id_ptr);
+  // Creates and initializes a RenderFrameHost.
+  std::unique_ptr<RenderFrameHostImpl> CreateRenderFrame(SiteInstance* instance,
+                                                         bool hidden);
 
-  // Helper method to create and initialize a RenderFrameProxyHost and return
-  // its routing id.
-  int CreateRenderFrameProxy(SiteInstance* instance);
+  // Helper method to create and initialize a RenderFrameProxyHost.
+  void CreateRenderFrameProxy(SiteInstance* instance);
 
   // Creates proxies for a new child frame at FrameTreeNode |child| in all
   // SiteInstances for which the current frame has proxies.  This method is
@@ -453,7 +449,7 @@ class CONTENT_EXPORT RenderFrameHostManager
   void SetRWHViewForInnerContents(RenderWidgetHostView* child_rwhv);
 
   // Returns the number of RenderFrameProxyHosts for this frame.
-  int GetProxyCount();
+  size_t GetProxyCount();
 
   // Sends an IPC message to every process in the FrameTree. This should only be
   // called in the top-level RenderFrameHostManager.  |instance_to_skip|, if
@@ -480,6 +476,14 @@ class CONTENT_EXPORT RenderFrameHostManager
   // more details, see the comment on FrameTreeNode::user_activation_state_.
   void UpdateUserActivationState(blink::UserActivationUpdateType update_type);
 
+  // When a frame transfers user activation to another frame via postMessage,
+  // this is used to inform proxies of the target frame (via IPC) about the
+  // transfer, namely that |source_rfh| is transferring user activation to this
+  // frame.  Note that the IPC isn't sent to |source_rfh|'s process, since it
+  // already knows about the transfer, and it also isn't sent to this frame's
+  // RenderFrame, since that will be handled as part of postMessage.
+  void TransferUserActivationFrom(RenderFrameHostImpl* source_rfh);
+
   void OnSetHasReceivedUserGestureBeforeNavigation(bool value);
 
   // Sets up the necessary state for a new RenderViewHost.  If |proxy| is not
@@ -501,8 +505,26 @@ class CONTENT_EXPORT RenderFrameHostManager
   // Helper to initialize the RenderFrame if it's not initialized.
   void InitializeRenderFrameIfNecessary(RenderFrameHostImpl* render_frame_host);
 
+  // Prepares the FrameTreeNode for attaching an inner WebContents. This step
+  // may involve replacing |current_frame_host()| with a new RenderFrameHost
+  // in the same SiteInstance as the parent frame. Calling this method will
+  // dispatch beforeunload event if necessary.
+  void PrepareForInnerDelegateAttach(
+      RenderFrameHost::PrepareForInnerWebContentsAttachCallback callback);
+
+  // When true the FrameTreeNode is preparing a RenderFrameHost for attaching an
+  // inner Delegate. During this phase new navigation requests are ignored.
+  bool is_attaching_inner_delegate() const {
+    return attach_to_inner_delegate_state_ != AttachToInnerDelegateState::NONE;
+  }
+
+  // Called by the delegate at the end of the attaching process.
+  void set_attach_complete() {
+    attach_to_inner_delegate_state_ = AttachToInnerDelegateState::ATTACHED;
+  }
+
  private:
-  friend class NavigatorTestWithBrowserSideNavigation;
+  friend class NavigatorTest;
   friend class RenderFrameHostManagerTest;
   friend class RenderFrameHostTester;
   friend class TestWebContents;
@@ -512,6 +534,16 @@ class CONTENT_EXPORT RenderFrameHostManager
     UNRELATED,
     // A SiteInstance in the same browsing instance as the current.
     RELATED,
+  };
+
+  enum class AttachToInnerDelegateState {
+    // There is no inner delegate attached through FrameTreeNode and no
+    // attaching is in progress.
+    NONE,
+    // A frame is being prepared for attaching.
+    PREPARE_FRAME,
+    // An inner delegate attached to the delegate of this manager.
+    ATTACHED
   };
 
   // Stores information regarding a SiteInstance targeted at a specific URL to
@@ -543,8 +575,10 @@ class CONTENT_EXPORT RenderFrameHostManager
   };
 
   // Create a RenderFrameProxyHost owned by this object.
-  RenderFrameProxyHost* CreateRenderFrameProxyHost(SiteInstance* site_instance,
-                                                   RenderViewHostImpl* rvh);
+  RenderFrameProxyHost* CreateRenderFrameProxyHost(
+      SiteInstance* site_instance,
+      scoped_refptr<RenderViewHostImpl> rvh);
+
   // Delete a RenderFrameProxyHost owned by this object.
   void DeleteRenderFrameProxyHost(SiteInstance* site_instance);
 
@@ -577,9 +611,9 @@ class CONTENT_EXPORT RenderFrameHostManager
   // Returns the SiteInstance to use for the navigation.
   scoped_refptr<SiteInstance> GetSiteInstanceForNavigation(
       const GURL& dest_url,
-      SiteInstance* source_instance,
-      SiteInstance* dest_instance,
-      SiteInstance* candidate_instance,
+      SiteInstanceImpl* source_instance,
+      SiteInstanceImpl* dest_instance,
+      SiteInstanceImpl* candidate_instance,
       ui::PageTransition transition,
       bool is_failure,
       bool dest_is_restore,
@@ -638,7 +672,7 @@ class CONTENT_EXPORT RenderFrameHostManager
   // description, it is returned as is.
   scoped_refptr<SiteInstance> ConvertToSiteInstance(
       const SiteInstanceDescriptor& descriptor,
-      SiteInstance* candidate_instance);
+      SiteInstanceImpl* candidate_instance);
 
   // Returns true if |candidate| is currently on the same web site as dest_url.
   bool IsCurrentlySameSite(RenderFrameHostImpl* candidate,
@@ -748,6 +782,18 @@ class CONTENT_EXPORT RenderFrameHostManager
   // RenderWidget know about page focus.
   void EnsureRenderFrameHostPageFocusConsistent();
 
+  // When current RenderFrameHost is not in its parent SiteInstance, this method
+  // will destroy the frame and replace it with a new RenderFrameHost in the
+  // parent frame's SiteInstance. Either way, this will eventually invoke
+  // |attach_inner_delegate_callback_| with a pointer to |render_frame_host_|
+  // which is then safe for use with WebContents::AttachToOuterWebContentsFrame.
+  void CreateNewFrameForInnerDelegateAttachIfNecessary();
+
+  // Called when the result of preparing the FrameTreeNode for attaching an
+  // inner delegate is known. When successful, |render_frame_host_| can be used
+  // for attaching the inner Delegate.
+  void NotifyPrepareForInnerDelegateAttachComplete(bool success);
+
   // For use in creating RenderFrameHosts.
   FrameTreeNode* frame_tree_node_;
 
@@ -776,7 +822,14 @@ class CONTENT_EXPORT RenderFrameHostManager
   // it.
   std::unique_ptr<RenderFrameHostImpl> speculative_render_frame_host_;
 
-  base::WeakPtrFactory<RenderFrameHostManager> weak_factory_;
+  // This callback is used when attaching an inner Delegate to |delegate_|
+  // through |frame_tree_node_|.
+  RenderFrameHost::PrepareForInnerWebContentsAttachCallback
+      attach_inner_delegate_callback_;
+  AttachToInnerDelegateState attach_to_inner_delegate_state_ =
+      AttachToInnerDelegateState::NONE;
+
+  base::WeakPtrFactory<RenderFrameHostManager> weak_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(RenderFrameHostManager);
 };

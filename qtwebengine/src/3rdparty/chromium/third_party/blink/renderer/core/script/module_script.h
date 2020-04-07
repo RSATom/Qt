@@ -5,7 +5,7 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_SCRIPT_MODULE_SCRIPT_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_SCRIPT_MODULE_SCRIPT_H_
 
-#include "third_party/blink/renderer/bindings/core/v8/script_module.h"
+#include "third_party/blink/renderer/bindings/core/v8/module_record.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_value.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/script/modulator.h"
@@ -14,44 +14,20 @@
 #include "third_party/blink/renderer/platform/bindings/parkable_string.h"
 #include "third_party/blink/renderer/platform/bindings/trace_wrapper_v8_reference.h"
 #include "third_party/blink/renderer/platform/heap/handle.h"
+#include "third_party/blink/renderer/platform/loader/fetch/cached_metadata_handler.h"
 #include "third_party/blink/renderer/platform/weborigin/kurl.h"
 #include "third_party/blink/renderer/platform/weborigin/kurl_hash.h"
 #include "third_party/blink/renderer/platform/wtf/hash_map.h"
 #include "third_party/blink/renderer/platform/wtf/text/text_position.h"
+#include "v8/include/v8.h"
 
 namespace blink {
 
 // ModuleScript is a model object for the "module script" spec concept.
-// https://html.spec.whatwg.org/multipage/webappapis.html#module-script
-class CORE_EXPORT ModuleScript final : public Script, public NameClient {
+// https://html.spec.whatwg.org/C/#module-script
+class CORE_EXPORT ModuleScript : public Script {
  public:
-  // https://html.spec.whatwg.org/multipage/webappapis.html#creating-a-module-script
-  static ModuleScript* Create(
-      const ParkableString& source_text,
-      Modulator*,
-      const KURL& source_url,
-      const KURL& base_url,
-      const ScriptFetchOptions&,
-      const TextPosition& start_position = TextPosition::MinimumPosition());
-
-  // Mostly corresponds to Create() but accepts ScriptModule as the argument
-  // and allows null ScriptModule.
-  static ModuleScript* CreateForTest(
-      Modulator*,
-      ScriptModule,
-      const KURL& base_url,
-      const ScriptFetchOptions& = ScriptFetchOptions());
-
-  ModuleScript(Modulator* settings_object,
-               ScriptModule record,
-               const KURL& source_url,
-               const KURL& base_url,
-               const ScriptFetchOptions&,
-               const ParkableString& source_text,
-               const TextPosition& start_position);
-  ~ModuleScript() override = default;
-
-  ScriptModule Record() const;
+  ModuleRecord Record() const;
   bool HasEmptyRecord() const;
 
   // Note: ParseError-related methods should only be used from ModuleTreeLinker
@@ -68,43 +44,43 @@ class CORE_EXPORT ModuleScript final : public Script, public NameClient {
   bool HasErrorToRethrow() const { return !error_to_rethrow_.IsEmpty(); }
   ScriptValue CreateErrorToRethrow() const;
 
-  const TextPosition& StartPosition() const { return start_position_; }
-
   // Resolves a module specifier with the module script's base URL.
   KURL ResolveModuleSpecifier(const String& module_request,
-                              String* failure_reason = nullptr);
+                              String* failure_reason = nullptr) const;
 
-  void Trace(blink::Visitor*) override;
-  const char* NameInHeapSnapshot() const override { return "ModuleScript"; }
+  void Trace(Visitor*) override;
+
+  virtual void ProduceCache() {}
+
+ protected:
+  ModuleScript(Modulator*,
+               ModuleRecord,
+               const KURL& source_url,
+               const KURL& base_url,
+               const ScriptFetchOptions&);
+
+  const KURL& SourceURL() const { return source_url_; }
+  Modulator* SettingsObject() const { return settings_object_; }
 
  private:
-  static ModuleScript* CreateInternal(const ParkableString& source_text,
-                                      Modulator*,
-                                      ScriptModule,
-                                      const KURL& source_url,
-                                      const KURL& base_url,
-                                      const ScriptFetchOptions&,
-                                      const TextPosition&);
-
   mojom::ScriptType GetScriptType() const override {
     return mojom::ScriptType::kModule;
   }
-  void RunScript(LocalFrame*, const SecurityOrigin*) const override;
-  String InlineSourceTextForCSP() const override;
+  void RunScript(LocalFrame*, const SecurityOrigin*) override;
+  void RunScriptOnWorker(WorkerGlobalScope&) override;
 
-  friend class ModulatorImplBase;
   friend class ModuleTreeLinkerTestModulator;
 
-  // https://html.spec.whatwg.org/multipage/webappapis.html#settings-object
+  // https://html.spec.whatwg.org/C/#settings-object
   Member<Modulator> settings_object_;
 
-  // https://html.spec.whatwg.org/multipage/webappapis.html#concept-script-record
+  // https://html.spec.whatwg.org/C/#concept-script-record
   // TODO(keishi): Visitor only defines a trace method for v8::Value so this
   // needs to be cast.
   GC_PLUGIN_IGNORE("757708")
   TraceWrapperV8Reference<v8::Module> record_;
 
-  // https://html.spec.whatwg.org/multipage/webappapis.html#concept-script-parse-error
+  // https://html.spec.whatwg.org/C/#concept-script-parse-error
   //
   // |record_|, |parse_error_| and |error_to_rethrow_| are wrapper traced and
   // kept alive via one or more of following reference graphs:
@@ -126,7 +102,7 @@ class CORE_EXPORT ModuleScript final : public Script, public NameClient {
   //   Document -> ScriptRunner -> ScriptLoader -> ModulePendingScript
   //   -> ModulePendingScriptTreeClient -> ModuleScript.
   // All the classes/references on the graphs above should be
-  // TraceWrapperMember<>/etc.,
+  // Member<>/etc.,
   //
   // A parse error and an error to rethrow belong to a script, not to a
   // |parse_error_| and |error_to_rethrow_| should belong to a script (i.e.
@@ -141,14 +117,10 @@ class CORE_EXPORT ModuleScript final : public Script, public NameClient {
   //   will require moderate code changes (e.g. to move compilation timing).
   TraceWrapperV8Reference<v8::Value> parse_error_;
 
-  // https://html.spec.whatwg.org/multipage/webappapis.html#concept-script-error-to-rethrow
+  // https://html.spec.whatwg.org/C/#concept-script-error-to-rethrow
   TraceWrapperV8Reference<v8::Value> error_to_rethrow_;
 
-  // For CSP check.
-  const ParkableString source_text_;
-
-  const TextPosition start_position_;
-  HashMap<String, KURL> specifier_to_url_cache_;
+  mutable HashMap<String, KURL> specifier_to_url_cache_;
   KURL source_url_;
 };
 

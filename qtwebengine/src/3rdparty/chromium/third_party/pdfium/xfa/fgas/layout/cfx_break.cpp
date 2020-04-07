@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <vector>
 
+#include "core/fxcrt/fx_safe_types.h"
 #include "third_party/base/stl_util.h"
 #include "xfa/fgas/font/cfgas_gefont.h"
 
@@ -80,6 +81,12 @@ void CFX_Break::SetBreakStatus() {
   CFX_Char* tc = m_pCurLine->GetChar(m_pCurLine->m_LineChars.size() - 1);
   if (tc->m_dwStatus == CFX_BreakType::None)
     tc->m_dwStatus = CFX_BreakType::Piece;
+}
+
+bool CFX_Break::IsGreaterThanLineWidth(int32_t width) const {
+  FX_SAFE_INT32 line_width = m_iLineWidth;
+  line_width += m_iTolerance;
+  return line_width.IsValid() && width > line_width.ValueOrDie();
 }
 
 FX_CHARTYPE CFX_Break::GetUnifiedCharType(FX_CHARTYPE chartype) const {

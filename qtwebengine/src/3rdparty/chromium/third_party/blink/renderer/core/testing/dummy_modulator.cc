@@ -5,38 +5,39 @@
 #include "third_party/blink/renderer/core/testing/dummy_modulator.h"
 
 #include "third_party/blink/renderer/bindings/core/v8/script_value.h"
-#include "third_party/blink/renderer/core/script/script_module_resolver.h"
+#include "third_party/blink/renderer/core/script/module_record_resolver.h"
 
 namespace blink {
 
 namespace {
 
-class EmptyScriptModuleResolver final : public ScriptModuleResolver {
+class EmptyModuleRecordResolver final : public ModuleRecordResolver {
  public:
-  EmptyScriptModuleResolver() = default;
+  EmptyModuleRecordResolver() = default;
 
   // We ignore {Unr,R}egisterModuleScript() calls caused by
   // ModuleScript::CreateForTest().
-  void RegisterModuleScript(ModuleScript*) override {}
-  void UnregisterModuleScript(ModuleScript*) override {}
+  void RegisterModuleScript(const ModuleScript*) override {}
+  void UnregisterModuleScript(const ModuleScript*) override {}
 
-  ModuleScript* GetHostDefined(const ScriptModule&) const override {
+  const ModuleScript* GetModuleScriptFromModuleRecord(
+      const ModuleRecord&) const override {
     NOTREACHED();
     return nullptr;
   }
 
-  ScriptModule Resolve(const String& specifier,
-                       const ScriptModule& referrer,
+  ModuleRecord Resolve(const String& specifier,
+                       const ModuleRecord& referrer,
                        ExceptionState&) override {
     NOTREACHED();
-    return ScriptModule();
+    return ModuleRecord();
   }
 };
 
 }  // namespace
 
 DummyModulator::DummyModulator()
-    : resolver_(MakeGarbageCollected<EmptyScriptModuleResolver>()) {}
+    : resolver_(MakeGarbageCollected<EmptyModuleRecordResolver>()) {}
 
 DummyModulator::~DummyModulator() = default;
 
@@ -50,18 +51,32 @@ ScriptState* DummyModulator::GetScriptState() {
   return nullptr;
 }
 
+V8CacheOptions DummyModulator::GetV8CacheOptions() const {
+  return kV8CacheOptionsDefault;
+}
+
 bool DummyModulator::IsScriptingDisabled() const {
   return false;
 }
 
-ScriptModuleResolver* DummyModulator::GetScriptModuleResolver() {
+bool DummyModulator::BuiltInModuleInfraEnabled() const {
+  return false;
+}
+
+bool DummyModulator::BuiltInModuleEnabled(blink::layered_api::Module) const {
+  return false;
+}
+
+void DummyModulator::BuiltInModuleUseCount(blink::layered_api::Module) const {}
+
+ModuleRecordResolver* DummyModulator::GetModuleRecordResolver() {
   return resolver_.Get();
 }
 
 base::SingleThreadTaskRunner* DummyModulator::TaskRunner() {
   NOTREACHED();
   return nullptr;
-};
+}
 
 void DummyModulator::FetchTree(const KURL&,
                                ResourceFetcher*,
@@ -110,25 +125,37 @@ void DummyModulator::ResolveDynamically(const String&,
   NOTREACHED();
 }
 
+void DummyModulator::RegisterImportMap(const ImportMap*) {
+  NOTREACHED();
+}
+
+bool DummyModulator::IsAcquiringImportMaps() const {
+  NOTREACHED();
+  return true;
+}
+
+void DummyModulator::ClearIsAcquiringImportMaps() {
+  NOTREACHED();
+}
+
 ModuleImportMeta DummyModulator::HostGetImportMetaProperties(
-    ScriptModule) const {
+    ModuleRecord) const {
   NOTREACHED();
   return ModuleImportMeta(String());
 }
 
-ScriptValue DummyModulator::InstantiateModule(ScriptModule) {
+ScriptValue DummyModulator::InstantiateModule(ModuleRecord) {
   NOTREACHED();
   return ScriptValue();
 }
 
-Vector<Modulator::ModuleRequest> DummyModulator::ModuleRequestsFromScriptModule(
-    ScriptModule) {
+Vector<Modulator::ModuleRequest> DummyModulator::ModuleRequestsFromModuleRecord(
+    ModuleRecord) {
   NOTREACHED();
   return Vector<ModuleRequest>();
 }
 
-ScriptValue DummyModulator::ExecuteModule(const ModuleScript*,
-                                          CaptureEvalErrorFlag) {
+ScriptValue DummyModulator::ExecuteModule(ModuleScript*, CaptureEvalErrorFlag) {
   NOTREACHED();
   return ScriptValue();
 }

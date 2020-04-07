@@ -33,45 +33,29 @@
 
 #include <memory>
 
+#include "base/macros.h"
 #include "base/optional.h"
 #include "base/single_thread_task_runner.h"
-#include "services/network/public/mojom/request_context_frame_type.mojom-shared.h"
-#include "third_party/blink/public/mojom/fetch/fetch_api_request.mojom-shared.h"
-#include "third_party/blink/public/mojom/service_worker/service_worker_object.mojom-blink.h"
-#include "third_party/blink/public/platform/code_cache_loader.h"
-#include "third_party/blink/public/platform/platform.h"
+#include "third_party/blink/public/mojom/fetch/fetch_api_request.mojom-blink.h"
+#include "third_party/blink/public/mojom/loader/request_context_frame_type.mojom-blink.h"
 #include "third_party/blink/public/platform/resource_request_blocked_reason.h"
-#include "third_party/blink/public/platform/scheduler/web_resource_loading_task_runner_handle.h"
-#include "third_party/blink/public/platform/web_feature.mojom-blink.h"
-#include "third_party/blink/public/platform/web_loading_behavior_flag.h"
-#include "third_party/blink/public/platform/web_url_loader.h"
-#include "third_party/blink/public/platform/web_url_request.h"
 #include "third_party/blink/renderer/platform/heap/handle.h"
 #include "third_party/blink/renderer/platform/loader/fetch/fetch_initiator_info.h"
 #include "third_party/blink/renderer/platform/loader/fetch/fetch_parameters.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource_load_priority.h"
-#include "third_party/blink/renderer/platform/loader/fetch/resource_load_scheduler.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource_request.h"
 #include "third_party/blink/renderer/platform/network/content_security_policy_parsers.h"
 #include "third_party/blink/renderer/platform/platform_export.h"
-#include "third_party/blink/renderer/platform/scheduler/public/frame_scheduler.h"
 #include "third_party/blink/renderer/platform/weborigin/security_violation_reporting_policy.h"
 #include "third_party/blink/renderer/platform/wtf/forward.h"
-#include "third_party/blink/renderer/platform/wtf/noncopyable.h"
 
 namespace blink {
 
 enum class ResourceType : uint8_t;
 class ClientHintsPreferences;
 class KURL;
-class PlatformProbeSink;
-class ResourceError;
-class ResourceFetcherProperties;
-class ResourceResponse;
 class ResourceTimingInfo;
 class WebScopedVirtualTimePauser;
-
-enum FetchResourceType { kFetchMainResource, kFetchSubresource };
 
 // The FetchContext is an interface for performing context specific processing
 // in response to events in the ResourceFetcher. The ResourceFetcher or its job
@@ -82,25 +66,18 @@ enum FetchResourceType { kFetchMainResource, kFetchSubresource };
 // the ResourceFetcher via this interface.
 class PLATFORM_EXPORT FetchContext
     : public GarbageCollectedFinalized<FetchContext> {
-  WTF_MAKE_NONCOPYABLE(FetchContext);
-
  public:
-  FetchContext();
+  FetchContext() = default;
 
-  static FetchContext& NullInstance();
+  static FetchContext& NullInstance() {
+    return *MakeGarbageCollected<FetchContext>();
+  }
 
   virtual ~FetchContext() = default;
 
-  // Binds |fetcher| to |this|.
-  void Bind(ResourceFetcher* fetcher);
-  // Unbinds the fetcher.
-  void Unbind() { fetcher_ = nullptr; }
+  virtual void Trace(blink::Visitor*) {}
 
-  virtual void Trace(blink::Visitor*);
-
-  virtual void AddAdditionalRequestHeaders(ResourceRequest&, FetchResourceType);
-
-  const ResourceFetcherProperties& GetResourceFetcherProperties() const;
+  virtual void AddAdditionalRequestHeaders(ResourceRequest&);
 
   // Returns the cache policy for the resource. ResourceRequest is not passed as
   // a const reference as a header needs to be added for doc.write blocking
@@ -110,67 +87,17 @@ class PLATFORM_EXPORT FetchContext
       ResourceType,
       FetchParameters::DeferOption) const;
 
-  virtual void DispatchDidChangeResourcePriority(unsigned long identifier,
-                                                 ResourceLoadPriority,
-                                                 int intra_priority_value);
-
   // This internally dispatches WebLocalFrameClient::WillSendRequest and hooks
   // request interceptors like ServiceWorker and ApplicationCache.
   // This may modify the request.
   // |virtual_time_pauser| is an output parameter. PrepareRequest may
   // create a new WebScopedVirtualTimePauser and set it to
   // |virtual_time_pauser|.
-  enum class RedirectType { kForRedirect, kNotForRedirect };
+  // This is called on initial and every redirect request.
   virtual void PrepareRequest(ResourceRequest&,
+                              const FetchInitiatorInfo&,
                               WebScopedVirtualTimePauser& virtual_time_pauser,
-                              RedirectType);
-
-  // The last callback before a request is actually sent to the browser process.
-  // TODO(https://crbug.com/632580): make this take const ResourceRequest&.
-  virtual void DispatchWillSendRequest(
-      unsigned long identifier,
-      ResourceRequest&,
-      const ResourceResponse& redirect_response,
-      ResourceType,
-      const FetchInitiatorInfo& = FetchInitiatorInfo());
-  enum class ResourceResponseType { kNotFromMemoryCache, kFromMemoryCache };
-  // |request| and |resource| are provided separately because when it's from
-  // the memory cache |request| and |resource->GetResourceRequest()| don't
-  // match. |response| may not yet be set to |resource| when this function is
-  // called.
-  virtual void DispatchDidReceiveResponse(unsigned long identifier,
-                                          const ResourceRequest& request,
-                                          const ResourceResponse& response,
-                                          Resource* resource,
-                                          ResourceResponseType);
-  virtual void DispatchDidReceiveData(unsigned long identifier,
-                                      const char* data,
-                                      uint64_t data_length);
-  virtual void DispatchDidReceiveEncodedData(unsigned long identifier,
-                                             size_t encoded_data_length);
-  virtual void DispatchDidDownloadToBlob(unsigned long identifier,
-                                         BlobDataHandle*);
-  virtual void DispatchDidFinishLoading(unsigned long identifier,
-                                        TimeTicks finish_time,
-                                        int64_t encoded_data_length,
-                                        int64_t decoded_body_length,
-                                        bool should_report_corb_blocking);
-  virtual void DispatchDidFail(const KURL&,
-                               unsigned long identifier,
-                               const ResourceError&,
-                               int64_t encoded_data_length,
-                               bool is_internal_request);
-
-  bool ShouldLoadNewResource(ResourceType) const;
-
-  // Called when a resource load is first requested, which may not be when the
-  // load actually begins.
-  virtual void RecordLoadingActivity(const ResourceRequest&,
-                                     ResourceType,
-                                     const AtomicString& fetch_initiator_name);
-
-  virtual void DidLoadResource(Resource*);
-  virtual void DidObserveLoadingBehavior(WebLoadingBehaviorFlag);
+                              ResourceType);
 
   virtual void AddResourceTiming(const ResourceTimingInfo&);
   virtual bool AllowImage(bool, const KURL&) const { return false; }
@@ -192,9 +119,6 @@ class PLATFORM_EXPORT FetchContext
     return ResourceRequestBlockedReason::kOther;
   }
 
-  virtual void CountUsage(mojom::WebFeature) const = 0;
-  virtual void CountDeprecation(mojom::WebFeature) const = 0;
-
   // Populates the ResourceRequest using the given values and information
   // stored in the FetchContext implementation. Used by ResourceFetcher to
   // prepare a ResourceRequest instance at the start of resource loading.
@@ -203,60 +127,27 @@ class PLATFORM_EXPORT FetchContext
                                        const FetchParameters::ResourceWidth&,
                                        ResourceRequest&);
 
-  PlatformProbeSink* GetPlatformProbeSink() const {
-    return platform_probe_sink_;
-  }
-
-  virtual std::unique_ptr<WebURLLoader> CreateURLLoader(
-      const ResourceRequest&,
-      const ResourceLoaderOptions&) {
-    NOTREACHED();
-    return nullptr;
-  }
-
-  // Create a default code cache loader to fetch data from code caches.
-  virtual std::unique_ptr<CodeCacheLoader> CreateCodeCacheLoader() {
-    return Platform::Current()->CreateCodeCacheLoader();
-  }
-
-  // Obtains FrameScheduler instance that is used in the attached frame.
-  // May return nullptr if a frame is not attached or detached.
-  virtual FrameScheduler* GetFrameScheduler() const { return nullptr; }
-
   // Called when the underlying context is detached. Note that some
   // FetchContexts continue working after detached (e.g., for fetch() operations
   // with "keepalive" specified).
   // Returns a "detached" fetch context which cannot be null.
-  virtual FetchContext* Detach() { return &NullInstance(); }
-
-  // Returns the updated priority of the resource based on the experiments that
-  // may be currently enabled.
-  virtual ResourceLoadPriority ModifyPriorityForExperiments(
-      ResourceLoadPriority priority) const {
-    return priority;
+  virtual FetchContext* Detach() {
+    return MakeGarbageCollected<FetchContext>();
   }
 
-  // Returns if the |resource_url| is identified as ad.
-  virtual bool IsAdResource(const KURL& resource_url,
-                            ResourceType type,
-                            mojom::RequestContextType request_context) const {
+  // Determine if the request is on behalf of an advertisement. If so, return
+  // true.
+  virtual bool CalculateIfAdSubresource(const ResourceRequest& resource_request,
+                                        ResourceType type) {
     return false;
   }
 
-  // Called when IdlenessDetector emits its network idle signal.
-  virtual void DispatchNetworkQuiet() {}
-
- protected:
-  // The following methods are needed to make FetchContext cleanup smoother.
-  // Do not use these functions for other purposes.
-  // TODO(yhirano): Remove these.
-  virtual bool IsDetached() const { return false; }
-  scoped_refptr<base::SingleThreadTaskRunner> GetLoadingTaskRunner();
-  ResourceFetcher* GetFetcher() { return fetcher_; }
+  virtual WebURLRequest::PreviewsState previews_state() const {
+    return WebURLRequest::kPreviewsUnspecified;
+  }
 
  private:
-  Member<PlatformProbeSink> platform_probe_sink_;
-  Member<ResourceFetcher> fetcher_;
+  DISALLOW_COPY_AND_ASSIGN(FetchContext);
 };
 
 }  // namespace blink

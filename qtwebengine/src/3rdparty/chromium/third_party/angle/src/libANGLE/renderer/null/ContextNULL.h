@@ -128,7 +128,7 @@ class ContextNULL : public ContextImpl
                                              const GLfloat *transformValues) override;
 
     // Device loss
-    GLenum getResetStatus() override;
+    gl::GraphicsResetStatus getResetStatus() override;
 
     // Vendor and description strings.
     std::string getVendorString() const override;
@@ -140,7 +140,7 @@ class ContextNULL : public ContextImpl
     void popGroupMarker() override;
 
     // KHR_debug
-    void pushDebugGroup(GLenum source, GLuint id, GLsizei length, const char *message) override;
+    void pushDebugGroup(GLenum source, GLuint id, const std::string &message) override;
     void popDebugGroup() override;
 
     // State sync with dirty bits.
@@ -197,6 +197,12 @@ class ContextNULL : public ContextImpl
     ProgramPipelineImpl *createProgramPipeline(const gl::ProgramPipelineState &data) override;
 
     std::vector<PathImpl *> createPaths(GLsizei range) override;
+
+    // Memory object creation.
+    MemoryObjectImpl *createMemoryObject() override;
+
+    // Semaphore creation.
+    SemaphoreImpl *createSemaphore() override;
 
     angle::Result dispatchCompute(const gl::Context *context,
                                   GLuint numGroupsX,

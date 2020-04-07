@@ -80,6 +80,7 @@ class QQuickWebEngineSettings;
 class QQuickWebEngineFaviconProvider;
 class QQuickWebEngineProfilePrivate;
 class QQuickWebEngineTouchHandleProvider;
+class QWebEngineFindTextResult;
 
 QQuickWebEngineView::WebAction editorActionForKeyEvent(QKeyEvent* event);
 
@@ -101,12 +102,15 @@ public:
     QtWebEngineCore::RenderWidgetHostViewQtDelegate* CreateRenderWidgetHostViewQtDelegate(QtWebEngineCore::RenderWidgetHostViewQtDelegateClient *client) override;
     QtWebEngineCore::RenderWidgetHostViewQtDelegate* CreateRenderWidgetHostViewQtDelegateForPopup(QtWebEngineCore::RenderWidgetHostViewQtDelegateClient *client) override;
     void initializationFinished() override;
+    void lifecycleStateChanged(LifecycleState state) override;
+    void recommendedStateChanged(LifecycleState state) override;
+    void visibleChanged(bool visible) override;
     void titleChanged(const QString&) override;
-    void urlChanged(const QUrl&) override;
+    void urlChanged() override;
     void iconChanged(const QUrl&) override;
     void loadProgressChanged(int progress) override;
     void didUpdateTargetURL(const QUrl&) override;
-    void selectionChanged() override { }
+    void selectionChanged() override;
     void recentlyAudibleChanged(bool recentlyAudible) override;
     QRectF viewportRect() const override;
     QColor backgroundColor() const override;
@@ -130,7 +134,6 @@ public:
     void didRunJavaScript(quint64, const QVariant&) override;
     void didFetchDocumentMarkup(quint64, const QString&) override { }
     void didFetchDocumentInnerText(quint64, const QString&) override { }
-    void didFindText(quint64, int) override;
     void didPrintPage(quint64 requestId, QSharedPointer<QByteArray>) override;
     void didPrintPageToPdf(const QString &filePath, bool success) override;
     bool passOnFocus(bool reverse) override;
@@ -167,6 +170,7 @@ public:
     QtWebEngineCore::WebContentsAdapter *webContentsAdapter() override;
     void printRequested() override;
     void widgetChanged(QtWebEngineCore::RenderWidgetHostViewQtDelegate *newWidgetBase) override;
+    void findTextFinished(const QWebEngineFindTextResult &result) override;
 
     void updateAction(QQuickWebEngineView::WebAction) const;
     void adoptWebContents(QtWebEngineCore::WebContentsAdapter *webContents);
@@ -230,7 +234,9 @@ class QQuickWebEngineViewAccessible : public QAccessibleObject
 {
 public:
     QQuickWebEngineViewAccessible(QQuickWebEngineView *o);
+    bool isValid() const override;
     QAccessibleInterface *parent() const override;
+    QAccessibleInterface *focusChild() const override;
     int childCount() const override;
     QAccessibleInterface *child(int index) const override;
     int indexOfChild(const QAccessibleInterface*) const override;

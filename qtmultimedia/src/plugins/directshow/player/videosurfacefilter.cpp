@@ -47,6 +47,8 @@
 #include <QtCore/qloggingcategory.h>
 #include <qabstractvideosurface.h>
 
+#include <mutex>
+
 #include <initguid.h>
 
 QT_BEGIN_NAMESPACE
@@ -154,7 +156,7 @@ HRESULT VideoSurfaceInputPin::Disconnect()
 HRESULT VideoSurfaceInputPin::EndOfStream()
 {
     QMutexLocker lock(&m_videoSurfaceFilter->m_mutex);
-    QMutexLocker renderLock(&m_videoSurfaceFilter->m_renderMutex);
+    const std::lock_guard<QRecursiveMutex> renderLocker(m_videoSurfaceFilter->m_renderMutex);
 
     HRESULT hr = DirectShowInputPin::EndOfStream();
     if (hr != S_OK)
@@ -167,7 +169,7 @@ HRESULT VideoSurfaceInputPin::BeginFlush()
 {
     QMutexLocker lock(&m_videoSurfaceFilter->m_mutex);
     {
-        QMutexLocker renderLock(&m_videoSurfaceFilter->m_renderMutex);
+        const std::lock_guard<QRecursiveMutex> renderLocker(m_videoSurfaceFilter->m_renderMutex);
         DirectShowInputPin::BeginFlush();
         m_videoSurfaceFilter->BeginFlush();
     }
@@ -179,7 +181,7 @@ HRESULT VideoSurfaceInputPin::BeginFlush()
 HRESULT VideoSurfaceInputPin::EndFlush()
 {
     QMutexLocker lock(&m_videoSurfaceFilter->m_mutex);
-    QMutexLocker renderLock(&m_videoSurfaceFilter->m_renderMutex);
+    const std::lock_guard<QRecursiveMutex> renderLocker(m_videoSurfaceFilter->m_renderMutex);
 
     HRESULT hr = m_videoSurfaceFilter->EndFlush();
     if (SUCCEEDED(hr))
@@ -207,7 +209,7 @@ HRESULT VideoSurfaceInputPin::Receive(IMediaSample *pMediaSample)
         if (m_videoSurfaceFilter->state() != State_Stopped && !m_flushing && !m_inErrorState) {
             m_videoSurfaceFilter->NotifyEvent(EC_ERRORABORT, hr, 0);
             {
-                QMutexLocker renderLocker(&m_videoSurfaceFilter->m_renderMutex);
+                const std::lock_guard<QRecursiveMutex> renderLocker(m_videoSurfaceFilter->m_renderMutex);
                 if (m_videoSurfaceFilter->m_running && !m_videoSurfaceFilter->m_EOSDelivered)
                     m_videoSurfaceFilter->notifyEOS();
             }
@@ -222,20 +224,9 @@ HRESULT VideoSurfaceInputPin::Receive(IMediaSample *pMediaSample)
 VideoSurfaceFilter::VideoSurfaceFilter(QAbstractVideoSurface *surface, DirectShowEventLoop *loop, QObject *parent)
     : QObject(parent)
     , m_loop(loop)
-    , m_pin(nullptr)
     , m_surface(surface)
-    , m_bytesPerLine(0)
-    , m_surfaceStarted(false)
-    , m_renderMutex(QMutex::Recursive)
-    , m_running(false)
-    , m_pendingSample(nullptr)
-    , m_pendingSampleEndTime(0)
     , m_renderEvent(CreateEvent(nullptr, FALSE, FALSE, nullptr))
     , m_flushEvent(CreateEvent(nullptr, TRUE, FALSE, nullptr))
-    , m_adviseCookie(0)
-    , m_EOS(false)
-    , m_EOSDelivered(false)
-    , m_EOSTimer(0)
 {
     supportedFormatsChanged();
     connect(surface, &QAbstractVideoSurface::supportedFormatsChanged,
@@ -376,7 +367,7 @@ HRESULT VideoSurfaceFilter::Run(REFERENCE_TIME tStart)
         allocator->Release();
     }
 
-    QMutexLocker renderLocker(&m_renderMutex);
+    const std::lock_guard<QRecursiveMutex> renderLocker(m_renderMutex);
 
     m_running = true;
 
@@ -453,7 +444,7 @@ HRESULT VideoSurfaceFilter::Stop()
 
 HRESULT VideoSurfaceFilter::EndOfStream()
 {
-    QMutexLocker renderLocker(&m_renderMutex);
+    const std::lock_guard<QRecursiveMutex> renderLocker(m_renderMutex);
 
     qCDebug(qLcRenderFilter, "EndOfStream");
 
@@ -509,7 +500,7 @@ HRESULT VideoSurfaceFilter::Receive(IMediaSample *pMediaSample)
         }
 
         {
-            QMutexLocker locker(&m_renderMutex);
+            const std::lock_guard<QRecursiveMutex> locker(m_renderMutex);
 
             if (m_pendingSample || m_EOS)
                 return E_UNEXPECTED;
@@ -553,13 +544,13 @@ HRESULT VideoSurfaceFilter::Receive(IMediaSample *pMediaSample)
         return S_OK;
     }
 
-    QMutexLocker renderLock(&m_renderMutex);
+    std::unique_lock<QRecursiveMutex> renderLocker(m_renderMutex);
 
     // Flush or pause might have happened just before the lock
     if (m_pendingSample && m_running) {
-        renderLock.unlock();
+        renderLocker.unlock();
         renderPendingSample();
-        renderLock.relock();
+        renderLocker.lock();
     } else {
         qCDebug(qLcRenderFilter, "  discarding sample (%p)", pMediaSample);
     }
@@ -612,7 +603,7 @@ void VideoSurfaceFilter::unscheduleSample()
 
 void VideoSurfaceFilter::clearPendingSample()
 {
-    QMutexLocker locker(&m_renderMutex);
+    const std::lock_guard<QRecursiveMutex> locker(m_renderMutex);
     if (m_pendingSample) {
         qCDebug(qLcRenderFilter, "clearPendingSample");
         m_pendingSample->Release();
@@ -628,7 +619,7 @@ void QT_WIN_CALLBACK EOSTimerCallback(UINT, UINT, DWORD_PTR dwUser, DWORD_PTR, D
 
 void VideoSurfaceFilter::onEOSTimerTimeout()
 {
-    QMutexLocker locker(&m_renderMutex);
+    const std::lock_guard<QRecursiveMutex> locker(m_renderMutex);
 
     if (m_EOSTimer) {
         m_EOSTimer = 0;
@@ -638,7 +629,7 @@ void VideoSurfaceFilter::onEOSTimerTimeout()
 
 void VideoSurfaceFilter::checkEOS()
 {
-    QMutexLocker locker(&m_renderMutex);
+    const std::lock_guard<QRecursiveMutex> locker(m_renderMutex);
 
     if (!m_EOS || m_EOSDelivered || m_EOSTimer)
         return;
@@ -673,7 +664,7 @@ void VideoSurfaceFilter::checkEOS()
 
 void VideoSurfaceFilter::notifyEOS()
 {
-    QMutexLocker locker(&m_renderMutex);
+    const std::lock_guard<QRecursiveMutex> locker(m_renderMutex);
 
     if (!m_running)
         return;
@@ -689,7 +680,7 @@ void VideoSurfaceFilter::resetEOS()
 {
     resetEOSTimer();
 
-    QMutexLocker locker(&m_renderMutex);
+    const std::lock_guard<QRecursiveMutex> locker(m_renderMutex);
 
     if (m_EOS)
         qCDebug(qLcRenderFilter, "resetEOS (delivered=%s)", m_EOSDelivered ? "true" : "false");
@@ -713,11 +704,10 @@ bool VideoSurfaceFilter::startSurface()
         m_loop->postEvent(this, new QEvent(QEvent::Type(StartSurface)));
         m_waitSurface.wait(&m_mutex);
         return m_surfaceStarted;
-    } else {
-        m_surfaceStarted = m_surface->start(m_surfaceFormat);
-        qCDebug(qLcRenderFilter, "startSurface %s", m_surfaceStarted ? "succeeded" : "failed");
-        return m_surfaceStarted;
     }
+    m_surfaceStarted = m_surface->start(m_surfaceFormat);
+    qCDebug(qLcRenderFilter, "startSurface %s", m_surfaceStarted ? "succeeded" : "failed");
+    return m_surfaceStarted;
 }
 
 void VideoSurfaceFilter::stopSurface()
@@ -741,12 +731,11 @@ bool VideoSurfaceFilter::restartSurface()
         m_loop->postEvent(this, new QEvent(QEvent::Type(RestartSurface)));
         m_waitSurface.wait(&m_mutex);
         return m_surfaceStarted;
-    } else {
-        m_surface->stop();
-        m_surfaceStarted = m_surface->start(m_surfaceFormat);
-        qCDebug(qLcRenderFilter, "restartSurface %s", m_surfaceStarted ? "succeeded" : "failed");
-        return m_surfaceStarted;
     }
+    m_surface->stop();
+    m_surfaceStarted = m_surface->start(m_surfaceFormat);
+    qCDebug(qLcRenderFilter, "restartSurface %s", m_surfaceStarted ? "succeeded" : "failed");
+    return m_surfaceStarted;
 }
 
 void VideoSurfaceFilter::flushSurface()
@@ -766,7 +755,7 @@ void VideoSurfaceFilter::renderPendingSample()
         m_loop->postEvent(this, new QEvent(QEvent::Type(RenderSample)));
         m_waitSurface.wait(&m_mutex);
     } else {
-        QMutexLocker locker(&m_renderMutex);
+        const std::lock_guard<QRecursiveMutex> locker(m_renderMutex);
         if (!m_pendingSample)
             return;
 

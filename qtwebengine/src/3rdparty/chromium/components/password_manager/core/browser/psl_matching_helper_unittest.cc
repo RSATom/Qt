@@ -68,7 +68,7 @@ TEST(PSLMatchingUtilsTest, GetMatchResultNormalCredentials) {
     form.origin = GURL(data.form_origin);
     form.signon_realm = form.origin.GetOrigin().spec();
     PasswordStore::FormDigest digest(
-        autofill::PasswordForm::SCHEME_HTML,
+        autofill::PasswordForm::Scheme::kHtml,
         GURL(data.digest_origin).GetOrigin().spec(), GURL(data.digest_origin));
 
     EXPECT_EQ(data.match_result, GetMatchResult(form, digest))
@@ -119,7 +119,7 @@ TEST(PSLMatchingUtilsTest, GetMatchResultPSL) {
     form.origin = GURL(data.form_origin);
     form.signon_realm = form.origin.GetOrigin().spec();
     PasswordStore::FormDigest digest(
-        autofill::PasswordForm::SCHEME_HTML,
+        autofill::PasswordForm::Scheme::kHtml,
         GURL(data.digest_origin).GetOrigin().spec(), GURL(data.digest_origin));
 
     EXPECT_EQ(data.match_result, GetMatchResult(form, digest))
@@ -183,7 +183,7 @@ TEST(PSLMatchingUtilsTest, GetMatchResultFederated) {
                         form.federation_origin.host();
 
     PasswordStore::FormDigest digest(
-        autofill::PasswordForm::SCHEME_HTML,
+        autofill::PasswordForm::Scheme::kHtml,
         GURL(data.digest_origin).GetOrigin().spec(), GURL(data.digest_origin));
 
     EXPECT_EQ(data.match_result, GetMatchResult(form, digest))
@@ -254,7 +254,7 @@ TEST(PSLMatchingUtilsTest, GetMatchResultFederatedPSL) {
                         form.federation_origin.host();
 
     PasswordStore::FormDigest digest(
-        autofill::PasswordForm::SCHEME_HTML,
+        autofill::PasswordForm::Scheme::kHtml,
         GURL(data.digest_origin).GetOrigin().spec(), GURL(data.digest_origin));
 
     EXPECT_EQ(data.match_result, GetMatchResult(form, digest))
@@ -479,7 +479,7 @@ TEST(PSLMatchingUtilsTest,
   for (int chr = 0; chr <= 255; ++chr) {
     const auto percent_encoded = base::StringPrintf("http://a%%%02Xb.hu/", chr);
     const GURL url(percent_encoded);
-    if (isalnum(chr) || base::ContainsValue(kExpectedNonAlnumChars, chr)) {
+    if (isalnum(chr) || base::Contains(kExpectedNonAlnumChars, chr)) {
       ASSERT_TRUE(url.is_valid());
       const auto percent_decoded = base::StringPrintf(
           "http://a%cb.hu/", base::ToLowerASCII(static_cast<char>(chr)));

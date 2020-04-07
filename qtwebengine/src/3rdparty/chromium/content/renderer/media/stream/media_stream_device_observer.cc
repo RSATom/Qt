@@ -8,12 +8,13 @@
 
 #include <utility>
 
+#include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/logging.h"
 #include "content/child/child_thread_impl.h"
 #include "content/public/common/service_names.mojom.h"
 #include "content/public/renderer/render_frame.h"
-#include "content/renderer/media/stream/media_stream_dispatcher_eventhandler.h"
+#include "third_party/blink/public/platform/modules/mediastream/media_stream_dispatcher_eventhandler.h"
 #include "url/origin.h"
 
 namespace content {
@@ -37,14 +38,22 @@ bool RemoveStreamDeviceFromArray(const blink::MediaStreamDevice& device,
 struct MediaStreamDeviceObserver::Stream {
   Stream() {}
   ~Stream() {}
-  base::WeakPtr<MediaStreamDispatcherEventHandler> handler;
+  base::WeakPtr<blink::MediaStreamDispatcherEventHandler> handler;
   blink::MediaStreamDevices audio_devices;
   blink::MediaStreamDevices video_devices;
 };
 
+// static
+const base::UnguessableToken& MediaStreamDeviceObserver::NoSessionId() {
+  static const base::NoDestructor<base::UnguessableToken> fake_session_id(
+      base::UnguessableToken::Deserialize(0xFFFFFFFFFFFFFFFFU,
+                                          0xFFFFFFFFFFFFFFFFU));
+  return *fake_session_id;
+}
+
 MediaStreamDeviceObserver::MediaStreamDeviceObserver(RenderFrame* render_frame)
     : RenderFrameObserver(render_frame), binding_(this) {
-  registry_.AddInterface(base::Bind(
+  registry_.AddInterface(base::BindRepeating(
       &MediaStreamDeviceObserver::BindMediaStreamDeviceObserverRequest,
       base::Unretained(this)));
 }
@@ -56,7 +65,7 @@ MediaStreamDeviceObserver::GetNonScreenCaptureDevices() {
   blink::MediaStreamDevices video_devices;
   for (const auto& stream_it : label_stream_map_) {
     for (const auto& video_device : stream_it.second.video_devices) {
-      if (!IsScreenCaptureMediaType(video_device.type))
+      if (!blink::IsScreenCaptureMediaType(video_device.type))
         video_devices.push_back(video_device);
     }
   }
@@ -86,7 +95,7 @@ void MediaStreamDeviceObserver::OnDeviceStopped(
     return;
   }
   Stream* stream = &it->second;
-  if (IsAudioInputMediaType(device.type))
+  if (blink::IsAudioInputMediaType(device.type))
     RemoveStreamDeviceFromArray(device, &stream->audio_devices);
   else
     RemoveStreamDeviceFromArray(device, &stream->video_devices);
@@ -128,11 +137,11 @@ void MediaStreamDeviceObserver::OnDeviceChanged(
 
   // Update device list only for device changing. Removing device will be
   // handled in its own callback.
-  if (old_device.type != blink::MEDIA_NO_SERVICE &&
-      new_device.type != blink::MEDIA_NO_SERVICE) {
+  if (old_device.type != blink::mojom::MediaStreamType::NO_SERVICE &&
+      new_device.type != blink::mojom::MediaStreamType::NO_SERVICE) {
     if (RemoveStreamDeviceFromArray(old_device, &stream->audio_devices) ||
         RemoveStreamDeviceFromArray(old_device, &stream->video_devices)) {
-      if (IsAudioInputMediaType(new_device.type))
+      if (blink::IsAudioInputMediaType(new_device.type))
         stream->audio_devices.push_back(new_device);
       else
         stream->video_devices.push_back(new_device);
@@ -149,7 +158,8 @@ void MediaStreamDeviceObserver::AddStream(
     const std::string& label,
     const blink::MediaStreamDevices& audio_devices,
     const blink::MediaStreamDevices& video_devices,
-    const base::WeakPtr<MediaStreamDispatcherEventHandler>& event_handler) {
+    const base::WeakPtr<blink::MediaStreamDispatcherEventHandler>&
+        event_handler) {
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
 
   Stream stream;
@@ -166,9 +176,9 @@ void MediaStreamDeviceObserver::AddStream(
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
 
   Stream stream;
-  if (IsAudioInputMediaType(device.type))
+  if (blink::IsAudioInputMediaType(device.type))
     stream.audio_devices.push_back(device);
-  else if (IsVideoInputMediaType(device.type))
+  else if (blink::IsVideoInputMediaType(device.type))
     stream.video_devices.push_back(device);
   else
     NOTREACHED();
@@ -211,24 +221,26 @@ void MediaStreamDeviceObserver::RemoveStreamDevice(
   DCHECK(device_found);
 }
 
-int MediaStreamDeviceObserver::audio_session_id(const std::string& label) {
+base::UnguessableToken MediaStreamDeviceObserver::audio_session_id(
+    const std::string& label) {
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
 
   auto it = label_stream_map_.find(label);
   if (it == label_stream_map_.end() || it->second.audio_devices.empty())
-    return blink::MediaStreamDevice::kNoId;
+    return NoSessionId();
 
-  return it->second.audio_devices[0].session_id;
+  return it->second.audio_devices[0].session_id();
 }
 
-int MediaStreamDeviceObserver::video_session_id(const std::string& label) {
+base::UnguessableToken MediaStreamDeviceObserver::video_session_id(
+    const std::string& label) {
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
 
   auto it = label_stream_map_.find(label);
   if (it == label_stream_map_.end() || it->second.video_devices.empty())
-    return blink::MediaStreamDevice::kNoId;
+    return NoSessionId();
 
-  return it->second.video_devices[0].session_id;
+  return it->second.video_devices[0].session_id();
 }
 
 }  // namespace content

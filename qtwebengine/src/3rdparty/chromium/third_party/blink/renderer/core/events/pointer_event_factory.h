@@ -9,7 +9,7 @@
 #include "third_party/blink/public/platform/web_pointer_properties.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/events/pointer_event.h"
-#include "third_party/blink/renderer/platform/wtf/allocator.h"
+#include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 #include "third_party/blink/renderer/platform/wtf/hash_map.h"
 
 namespace blink {
@@ -36,10 +36,10 @@ class CORE_EXPORT PointerEventFactory {
                        LocalDOMWindow* view);
 
   PointerEvent* CreatePointerCancelEvent(const PointerId pointer_id,
-                                         TimeTicks platfrom_time_stamp);
+                                         base::TimeTicks platfrom_time_stamp);
 
-  // For creating raw move events in chorded button case.
-  PointerEvent* CreatePointerRawMoveEvent(PointerEvent*);
+  // For creating raw update events in chorded button case.
+  PointerEvent* CreatePointerRawUpdateEvent(PointerEvent*);
 
   // For creating capture events (i.e got/lostpointercapture).
   PointerEvent* CreatePointerCaptureEvent(PointerEvent*, const AtomicString&);
@@ -78,6 +78,7 @@ class CORE_EXPORT PointerEventFactory {
   bool IsPrimary(const WebPointerProperties&) const;
 
   static const PointerId kMouseId;
+  static const PointerId kInvalidId;
 
   // Removes pointer_id from the map.
   void RemoveLastPosition(const PointerId pointer_id);
@@ -86,9 +87,21 @@ class CORE_EXPORT PointerEventFactory {
   // Otherwise it returns the PositionInScreen of the given events, so we will
   // get movement = 0 when there is no last position.
   FloatPoint GetLastPointerPosition(PointerId pointer_id,
-                                    const WebPointerProperties& event) const;
+                                    const WebPointerProperties& event,
+                                    WebInputEvent::Type event_type) const;
+
+  void SetLastPosition(PointerId pointer_id,
+                       const FloatPoint& position_in_screen,
+                       WebInputEvent::Type event_type);
 
  private:
+  // We use int64_t to cover the whole range for PointerId with no
+  // deleted hash value.
+  template <typename T>
+  using PointerIdKeyMap = HashMap<int64_t,
+                                  T,
+                                  WTF::IntHash<int64_t>,
+                                  WTF::UnsignedWithZeroKeyHashTraits<int64_t>>;
   typedef struct IncomingId : public std::pair<int, int> {
     IncomingId() = default;
     IncomingId(WebPointerProperties::PointerType pointer_type, int raw_id)
@@ -132,10 +145,6 @@ class CORE_EXPORT PointerEventFactory {
       const Vector<WebPointerEvent>& event_list,
       LocalDOMWindow* view);
 
-  void SetLastPosition(PointerId pointer_id, const WebPointerProperties& event);
-
-  static const PointerId kInvalidId;
-
   PointerId current_id_;
   HashMap<IncomingId,
           PointerId,
@@ -143,11 +152,7 @@ class CORE_EXPORT PointerEventFactory {
           WTF::PairHashTraits<WTF::UnsignedWithZeroKeyHashTraits<int>,
                               WTF::UnsignedWithZeroKeyHashTraits<int>>>
       pointer_incoming_id_mapping_;
-  HashMap<PointerId,
-          PointerAttributes,
-          WTF::IntHash<PointerId>,
-          WTF::UnsignedWithZeroKeyHashTraits<PointerId>>
-      pointer_id_mapping_;
+  PointerIdKeyMap<PointerAttributes> pointer_id_mapping_;
   int primary_id_[static_cast<int>(
                       WebPointerProperties::PointerType::kLastEntry) +
                   1];
@@ -155,11 +160,8 @@ class CORE_EXPORT PointerEventFactory {
                     WebPointerProperties::PointerType::kLastEntry) +
                 1];
 
-  HashMap<PointerId,
-          FloatPoint,
-          WTF::IntHash<PointerId>,
-          WTF::UnsignedWithZeroKeyHashTraits<PointerId>>
-      pointer_id_last_position_mapping_;
+  PointerIdKeyMap<FloatPoint> pointer_id_last_position_mapping_;
+  PointerIdKeyMap<FloatPoint> pointerrawupdate_last_position_mapping_;
 };
 
 }  // namespace blink

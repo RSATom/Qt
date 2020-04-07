@@ -18,14 +18,11 @@
 #include "base/trace_event/trace_log.h"
 #include "base/values.h"
 #include "build/build_config.h"
-#include "services/tracing/public/cpp/tracing_features.h"
-
-#if (defined(OS_ANDROID) || defined(OS_LINUX) || defined(OS_MACOSX) || \
-     defined(OS_WIN) || defined(OS_FUCHSIA)) && !defined(TOOLKIT_QT)
-#define PERFETTO_AVAILABLE
-#include "services/tracing/public/cpp/perfetto/producer_client.h"
+#include "services/tracing/public/cpp/perfetto/perfetto_traced_process.h"
 #include "services/tracing/public/cpp/perfetto/trace_event_data_source.h"
-#endif
+#include "services/tracing/public/cpp/stack_sampling/tracing_sampler_profiler.h"
+#include "services/tracing/public/cpp/trace_event_args_whitelist.h"
+#include "services/tracing/public/cpp/tracing_features.h"
 
 namespace {
 
@@ -45,11 +42,24 @@ TraceEventAgent::TraceEventAgent()
     : BaseAgent(kTraceEventLabel,
                 mojom::TraceDataType::ARRAY,
                 base::trace_event::TraceLog::GetInstance()->process_id()),
-      enabled_tracing_modes_(0) {
+      enabled_tracing_modes_(0),
+      weak_ptr_factory_(this) {
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
-#if defined(PERFETTO_AVAILABLE)
-  ProducerClient::Get()->AddDataSource(TraceEventDataSource::GetInstance());
-#endif
+
+  // These filters are used by TraceLog in the legacy tracing system and JSON
+  // exporter (only in tracing service) in perfetto bcakend.
+  if (base::trace_event::TraceLog::GetInstance()
+          ->GetArgumentFilterPredicate()
+          .is_null()) {
+    base::trace_event::TraceLog::GetInstance()->SetArgumentFilterPredicate(
+        base::BindRepeating(&IsTraceEventArgsWhitelisted));
+    base::trace_event::TraceLog::GetInstance()->SetMetadataFilterPredicate(
+        base::BindRepeating(&IsMetadataWhitelisted));
+  }
+
+  PerfettoTracedProcess::Get()->AddDataSource(
+      TraceEventDataSource::GetInstance());
+  TracingSamplerProfiler::RegisterDataSource();
 }
 
 TraceEventAgent::~TraceEventAgent() = default;
@@ -66,21 +76,13 @@ void TraceEventAgent::AddMetadataGeneratorFunction(
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
   metadata_generator_functions_.push_back(generator);
 
-#if defined(PERFETTO_AVAILABLE)
-  // Instantiate and register the metadata data source on the first
-  // call.
-  static TraceEventMetadataSource* metadata_source = []() {
-    static base::NoDestructor<TraceEventMetadataSource> instance;
-    ProducerClient::Get()->AddDataSource(instance.get());
-    return instance.get();
-  }();
-
-  metadata_source->AddGeneratorFunction(generator);
-#endif
+  TraceEventMetadataSource::GetInstance()->AddGeneratorFunction(generator);
 }
 
 void TraceEventAgent::StartTracing(const std::string& config,
-                                   base::TimeTicks coordinator_time) {
+                                   base::TimeTicks coordinator_time,
+                                   StartTracingCallback callback) {
+  DCHECK(!IsBoundForTesting() || !TracingUsesPerfettoBackend());
   DCHECK(!recorder_);
 #if defined(__native_client__)
   // NaCl and system times are offset by a bit, so subtract some time from
@@ -95,9 +97,11 @@ void TraceEventAgent::StartTracing(const std::string& config,
     enabled_tracing_modes_ |= base::trace_event::TraceLog::FILTERING_MODE;
   base::trace_event::TraceLog::GetInstance()->SetEnabled(
       trace_config, enabled_tracing_modes_);
+  std::move(callback).Run(true);
 }
 
 void TraceEventAgent::StopAndFlush(mojom::RecorderPtr recorder) {
+  DCHECK(!IsBoundForTesting() || !TracingUsesPerfettoBackend());
   DCHECK(!recorder_);
 
   recorder_ = std::move(recorder);
@@ -116,6 +120,7 @@ void TraceEventAgent::StopAndFlush(mojom::RecorderPtr recorder) {
 
 void TraceEventAgent::RequestBufferStatus(
     RequestBufferStatusCallback callback) {
+  DCHECK(!IsBoundForTesting() || !TracingUsesPerfettoBackend());
   base::trace_event::TraceLogStatus status =
       base::trace_event::TraceLog::GetInstance()->GetStatus();
   std::move(callback).Run(status.event_capacity, status.event_count);

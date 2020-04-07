@@ -76,8 +76,10 @@ class QQuickWebEngineNavigationRequest;
 class QQuickWebEngineNewViewRequest;
 class QQuickWebEngineProfile;
 class QQuickWebEngineSettings;
+class QQuickWebEngineTooltipRequest;
 class QQuickWebEngineFormValidationMessageRequest;
 class QQuickWebEngineViewPrivate;
+class QWebEngineFindTextResult;
 class QWebEngineQuotaRequest;
 class QWebEngineRegisterProtocolHandlerRequest;
 
@@ -104,10 +106,11 @@ private:
     const bool m_toggleOn;
 };
 
-#define LATEST_WEBENGINEVIEW_REVISION 9
+#define LATEST_WEBENGINEVIEW_REVISION 10
 
 class Q_WEBENGINE_PRIVATE_EXPORT QQuickWebEngineView : public QQuickItem {
     Q_OBJECT
+    Q_CLASSINFO("RegisterEnumClassesUnscoped", "false")
     Q_PROPERTY(QUrl url READ url WRITE setUrl NOTIFY urlChanged FINAL)
     Q_PROPERTY(QUrl icon READ icon NOTIFY iconChanged FINAL)
     Q_PROPERTY(bool loading READ isLoading NOTIFY loadingChanged FINAL)
@@ -135,6 +138,9 @@ class Q_WEBENGINE_PRIVATE_EXPORT QQuickWebEngineView : public QQuickItem {
 #if QT_CONFIG(webengine_testsupport)
     Q_PROPERTY(QQuickWebEngineTestSupport *testSupport READ testSupport WRITE setTestSupport NOTIFY testSupportChanged FINAL)
 #endif
+
+    Q_PROPERTY(LifecycleState lifecycleState READ lifecycleState WRITE setLifecycleState NOTIFY lifecycleStateChanged REVISION 10 FINAL)
+    Q_PROPERTY(LifecycleState recommendedState READ recommendedState NOTIFY recommendedStateChanged REVISION 10 FINAL)
 
 public:
     QQuickWebEngineView(QQuickItem *parent = 0);
@@ -172,7 +178,8 @@ public:
         FormSubmittedNavigation,
         BackForwardNavigation,
         ReloadNavigation,
-        OtherNavigation
+        OtherNavigation,
+        RedirectNavigation,
     };
     Q_ENUM(NavigationType)
 
@@ -459,6 +466,14 @@ public:
     };
     Q_ENUM(PrintedPageOrientation)
 
+    // must match WebContentsAdapterClient::LifecycleState
+    enum class LifecycleState {
+        Active,
+        Frozen,
+        Discarded,
+    };
+    Q_ENUM(LifecycleState)
+
     // QmlParserStatus
     void componentComplete() override;
 
@@ -489,6 +504,11 @@ public:
     QQuickWebEngineView *inspectedView() const;
     void setDevToolsView(QQuickWebEngineView *);
     QQuickWebEngineView *devToolsView() const;
+
+    LifecycleState lifecycleState() const;
+    void setLifecycleState(LifecycleState state);
+
+    LifecycleState recommendedState() const;
 
 public Q_SLOTS:
     void runJavaScript(const QString&, const QJSValue & = QJSValue());
@@ -552,6 +572,10 @@ Q_SIGNALS:
     Q_REVISION(7) void registerProtocolHandlerRequested(const QWebEngineRegisterProtocolHandlerRequest &request);
     Q_REVISION(8) void printRequested();
     Q_REVISION(9) void selectClientCertificate(QQuickWebEngineClientCertificateSelection *clientCertSelection);
+    Q_REVISION(10) void tooltipRequested(QQuickWebEngineTooltipRequest *request);
+    Q_REVISION(10) void lifecycleStateChanged(LifecycleState state);
+    Q_REVISION(10) void recommendedStateChanged(LifecycleState state);
+    Q_REVISION(10) void findTextFinished(const QWebEngineFindTextResult &result);
 
 #if QT_CONFIG(webengine_testsupport)
     void testSupportChanged();

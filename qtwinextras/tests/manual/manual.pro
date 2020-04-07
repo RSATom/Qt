@@ -3,5 +3,6 @@ qtHaveModule(widgets) {
     SUBDIRS += \
         dwmfeatures \
         jumplist \
-        thumbnail
+        thumbnail \
+        imageconversion
 }

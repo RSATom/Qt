@@ -8,11 +8,11 @@
 #ifndef SkColorSpace_DEFINED
 #define SkColorSpace_DEFINED
 
-#include "../private/SkFixed.h"
-#include "../private/SkOnce.h"
-#include "../../third_party/skcms/skcms.h"
-#include "SkMatrix44.h"
-#include "SkRefCnt.h"
+#include "include/core/SkMatrix44.h"
+#include "include/core/SkRefCnt.h"
+#include "include/private/SkFixed.h"
+#include "include/private/SkOnce.h"
+#include "include/third_party/skcms/skcms.h"
 #include <memory>
 
 class SkData;
@@ -37,25 +37,6 @@ struct SK_API SkColorSpacePrimaries {
     bool toXYZD50(skcms_Matrix3x3* toXYZD50) const;
 };
 
-/**
- *  Contains the coefficients for a common transfer function equation, specified as
- *  a transformation from a curved space to linear.
- *
- *  LinearVal = sign(InputVal) * (  C*|InputVal| + F       ), for 0.0f <= |InputVal| <  D
- *  LinearVal = sign(InputVal) * ( (A*|InputVal| + B)^G + E), for D    <= |InputVal|
- *
- *  Function must be positive and increasing.
- */
-struct SK_API SkColorSpaceTransferFn {
-    float fG;
-    float fA;
-    float fB;
-    float fC;
-    float fD;
-    float fE;
-    float fF;
-};
-
 namespace SkNamedTransferFn {
 
 // Like SkNamedGamut::kSRGB, keeping this bitwise exactly the same as skcms makes things fastest.
@@ -68,6 +49,8 @@ static constexpr skcms_TransferFunction k2Dot2 =
 static constexpr skcms_TransferFunction kLinear =
     { 1.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f };
 
+static constexpr skcms_TransferFunction kRec2020 =
+    {2.22222f, 0.909672f, 0.0903276f, 0.222222f, 0.0812429f, 0, 0};
 }
 
 namespace SkNamedGamut {
@@ -124,13 +107,6 @@ public:
      */
     static sk_sp<SkColorSpace> MakeSRGBLinear();
 
-    // DEPRECATED
-    // Keeping this around until Android stops using it.
-    enum Gamut {
-        kSRGB_Gamut,
-        kDCIP3_D65_Gamut,
-    };
-
     /**
      *  Create an SkColorSpace from a transfer function and a row-major 3x3 transformation to XYZ.
      */
@@ -163,8 +139,6 @@ public:
      *
      *  If not, returns false.
      */
-    bool isNumericalTransferFn(SkColorSpaceTransferFn* fn) const;
-
     bool isNumericalTransferFn(skcms_TransferFunction* fn) const;
 
     /**

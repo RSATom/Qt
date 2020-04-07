@@ -15,6 +15,7 @@
 #include "content/browser/dom_storage/session_storage_namespace_impl.h"
 #include "content/common/content_export.h"
 #include "content/common/render_message_filter.mojom.h"
+#include "content/common/widget.mojom.h"
 #include "net/base/load_states.h"
 
 class GURL;
@@ -22,6 +23,12 @@ class GURL;
 namespace IPC {
 class Message;
 }
+
+namespace blink {
+namespace mojom {
+class RendererPreferences;
+}
+}  // namespace blink
 
 namespace gfx {
 class Rect;
@@ -39,7 +46,6 @@ class RenderViewHostDelegateView;
 class SessionStorageNamespace;
 class SiteInstance;
 class WebContents;
-struct RendererPreferences;
 
 //
 // RenderViewHostDelegate
@@ -104,7 +110,7 @@ class CONTENT_EXPORT RenderViewHostDelegate {
 
   // Return a dummy RendererPreferences object that will be used by the renderer
   // associated with the owning RenderViewHost.
-  virtual RendererPreferences GetRendererPrefs(
+  virtual blink::mojom::RendererPreferences GetRendererPrefs(
       BrowserContext* browser_context) const = 0;
 
   // Notification from the renderer host that blocked UI event occurred.
@@ -178,6 +184,9 @@ class CONTENT_EXPORT RenderViewHostDelegate {
   // Whether the WebContents as a persistent video.
   virtual bool HasPersistentVideo() const;
 
+  // Whether spatial navigation is permitted.
+  virtual bool IsSpatialNavigationDisabled() const;
+
   // Returns the RenderFrameHost for a pending or speculative main frame
   // navigation for the page.  Returns nullptr if there is no such navigation.
   virtual RenderFrameHost* GetPendingMainFrame();
@@ -188,6 +197,9 @@ class CONTENT_EXPORT RenderViewHostDelegate {
   // The RenderView has issued a draw command, signaling the it
   // has been visually updated.
   virtual void DidCommitAndDrawCompositorFrame(RenderViewHostImpl* source) {}
+
+  // Returns true if the render view is rendering a portal.
+  virtual bool IsPortal() const;
 
  protected:
   virtual ~RenderViewHostDelegate() {}

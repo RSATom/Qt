@@ -21,6 +21,7 @@
 #include "base/single_thread_task_runner.h"
 #include "base/time/time.h"
 #include "content/common/content_export.h"
+#include "content/public/common/previews_state.h"
 #include "content/public/common/resource_load_info.mojom.h"
 #include "content/public/common/resource_type.h"
 #include "content/public/common/url_loader_throttle.h"
@@ -90,7 +91,7 @@ class CONTENT_EXPORT ResourceDispatcher {
   // |timeout| is used to abort the sync request on timeouts. TimeDelta::Max()
   // is interpreted as no-timeout.
   // If |download_to_blob_registry| is not null, it is used to redirect the
-  // download to a blob, using StartAsync's |pass_response_pipe_to_peer| flag.
+  // download to a blob.
   virtual void StartSync(
       std::unique_ptr<network::ResourceRequest> request,
       int routing_id,
@@ -109,11 +110,6 @@ class CONTENT_EXPORT ResourceDispatcher {
   // |routing_id| is used to associated the bridge with a frame's network
   // context.
   //
-  // If |pass_response_pipe_to_peer| is true, the raw datapipe containing the
-  // response body is passed on to |peer| without any extra processing. If it
-  // is set to false instead OnReceivedData is called on the |peer| whenever a
-  // chunk of data is available.
-  //
   // You need to pass a non-null |loading_task_runner| to specify task queue to
   // execute loading tasks on.
   virtual int StartAsync(
@@ -122,13 +118,11 @@ class CONTENT_EXPORT ResourceDispatcher {
       scoped_refptr<base::SingleThreadTaskRunner> loading_task_runner,
       const net::NetworkTrafficAnnotationTag& traffic_annotation,
       bool is_sync,
-      bool pass_response_pipe_to_peer,
       std::unique_ptr<RequestPeer> peer,
       scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
       std::vector<std::unique_ptr<URLLoaderThrottle>> throttles,
       std::unique_ptr<NavigationResponseOverrideParameters>
-          response_override_params,
-      base::OnceClosure* continue_navigation_function);
+          response_override_params);
 
   // Removes a request from the |pending_requests_| list, returning true if the
   // request was found and removed.
@@ -207,6 +201,7 @@ class CONTENT_EXPORT ResourceDispatcher {
     // it's not completed. Used both to distinguish completion from
     // cancellation, and to log histograms.
     int net_error = net::ERR_IO_PENDING;
+    PreviewsState previews_state = PreviewsTypes::PREVIEWS_UNSPECIFIED;
 
     // These stats will be sent to the browser process.
     mojom::ResourceLoadInfoPtr resource_load_info;
@@ -227,8 +222,7 @@ class CONTENT_EXPORT ResourceDispatcher {
   // Message response handlers, called by the message handler for this process.
   void OnUploadProgress(int request_id, int64_t position, int64_t size);
   void OnReceivedResponse(int request_id, const network::ResourceResponseHead&);
-  void OnReceivedCachedMetadata(int request_id,
-                                const std::vector<uint8_t>& data);
+  void OnReceivedCachedMetadata(int request_id, base::span<const uint8_t> data);
   void OnReceivedRedirect(
       int request_id,
       const net::RedirectInfo& redirect_info,
@@ -253,7 +247,7 @@ class CONTENT_EXPORT ResourceDispatcher {
 
   base::WaitableEvent* terminate_sync_load_event_ = nullptr;
 
-  base::WeakPtrFactory<ResourceDispatcher> weak_factory_;
+  base::WeakPtrFactory<ResourceDispatcher> weak_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(ResourceDispatcher);
 };

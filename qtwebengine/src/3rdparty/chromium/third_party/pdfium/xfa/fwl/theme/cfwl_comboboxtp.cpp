@@ -6,6 +6,7 @@
 
 #include "xfa/fwl/theme/cfwl_comboboxtp.h"
 
+#include "core/fxge/render_defines.h"
 #include "xfa/fwl/cfwl_combobox.h"
 #include "xfa/fwl/cfwl_themebackground.h"
 #include "xfa/fwl/cfwl_widget.h"
@@ -13,9 +14,9 @@
 #include "xfa/fxgraphics/cxfa_gecolor.h"
 #include "xfa/fxgraphics/cxfa_gepath.h"
 
-CFWL_ComboBoxTP::CFWL_ComboBoxTP() {}
+CFWL_ComboBoxTP::CFWL_ComboBoxTP() = default;
 
-CFWL_ComboBoxTP::~CFWL_ComboBoxTP() {}
+CFWL_ComboBoxTP::~CFWL_ComboBoxTP() = default;
 
 void CFWL_ComboBoxTP::DrawBackground(const CFWL_ThemeBackground& pParams) {
   switch (pParams.m_iPart) {
@@ -48,23 +49,9 @@ void CFWL_ComboBoxTP::DrawBackground(const CFWL_ThemeBackground& pParams) {
       DrawDropDownButton(pParams, pParams.m_dwStates, pParams.m_matrix);
       break;
     }
-    case CFWL_Part::StretchHandler: {
-      DrawStretchHandler(pParams, 0, pParams.m_matrix);
-      break;
-    }
     default:
       break;
   }
-}
-
-void CFWL_ComboBoxTP::DrawStretchHandler(const CFWL_ThemeBackground& pParams,
-                                         uint32_t dwStates,
-                                         const CFX_Matrix& matrix) {
-  CXFA_GEPath path;
-  path.AddRectangle(pParams.m_rtPart.left, pParams.m_rtPart.top,
-                    pParams.m_rtPart.width - 1, pParams.m_rtPart.height);
-  pParams.m_pGraphics->SetFillColor(CXFA_GEColor(ArgbEncode(0xff, 0xff, 0, 0)));
-  pParams.m_pGraphics->FillPath(&path, FXFILL_WINDING, &pParams.m_matrix);
 }
 
 void CFWL_ComboBoxTP::DrawDropDownButton(const CFWL_ThemeBackground& pParams,

@@ -44,15 +44,9 @@ class PaintLayerPainterTest : public PaintControllerPaintTest {
         ->GraphicsLayerBacking(&GetLayoutView())
         ->GetPaintController();
   }
-
- private:
-  void SetUp() override {
-    PaintControllerPaintTest::SetUp();
-    EnableCompositing();
-  }
 };
 
-INSTANTIATE_PAINT_TEST_CASE_P(PaintLayerPainterTest);
+INSTANTIATE_PAINT_TEST_SUITE_P(PaintLayerPainterTest);
 
 TEST_P(PaintLayerPainterTest, CachedSubsequence) {
   SetBodyInnerHTML(R"HTML(
@@ -139,7 +133,7 @@ TEST_P(PaintLayerPainterTest, CachedSubsequence) {
 
   check_chunks();
 
-  ToHTMLElement(content1.GetNode())
+  To<HTMLElement>(content1.GetNode())
       ->setAttribute(html_names::kStyleAttr,
                      "position: absolute; width: 100px; height: 100px; "
                      "background-color: green");
@@ -192,18 +186,20 @@ TEST_P(PaintLayerPainterTest, CachedSubsequenceOnCullRectChange) {
   )HTML");
   InvalidateAll(RootPaintController());
 
-  DisplayItemClient& container1 =
+  const DisplayItemClient& container1 =
       *GetDisplayItemClientFromElementId("container1");
-  DisplayItemClient& content1 = *GetDisplayItemClientFromElementId("content1");
-  DisplayItemClient& container2 =
+  const DisplayItemClient& content1 =
+      *GetDisplayItemClientFromElementId("content1");
+  const DisplayItemClient& container2 =
       *GetDisplayItemClientFromElementId("container2");
-  DisplayItemClient& content2a =
+  const DisplayItemClient& content2a =
       *GetDisplayItemClientFromElementId("content2a");
-  DisplayItemClient& content2b =
+  const DisplayItemClient& content2b =
       *GetDisplayItemClientFromElementId("content2b");
-  DisplayItemClient& container3 =
+  const DisplayItemClient& container3 =
       *GetDisplayItemClientFromElementId("container3");
-  DisplayItemClient& content3 = *GetDisplayItemClientFromElementId("content3");
+  const DisplayItemClient& content3 =
+      *GetDisplayItemClientFromElementId("content3");
 
   GetDocument().View()->UpdateAllLifecyclePhasesExceptPaint();
   Paint(IntRect(0, 0, 400, 300));
@@ -287,12 +283,14 @@ TEST_P(PaintLayerPainterTest,
   // PaintResult of all subsequences will be MayBeClippedByCullRect.
   Paint(IntRect(0, 0, 50, 300));
 
-  DisplayItemClient& container1 =
+  const DisplayItemClient& container1 =
       *GetDisplayItemClientFromElementId("container1");
-  DisplayItemClient& content1 = *GetDisplayItemClientFromElementId("content1");
-  DisplayItemClient& container2 =
+  const DisplayItemClient& content1 =
+      *GetDisplayItemClientFromElementId("content1");
+  const DisplayItemClient& container2 =
       *GetDisplayItemClientFromElementId("container2");
-  DisplayItemClient& content2 = *GetDisplayItemClientFromElementId("content2");
+  const DisplayItemClient& content2 =
+      *GetDisplayItemClientFromElementId("content2");
 
   const auto& background_display_item_client = ViewScrollingBackgroundClient();
   EXPECT_THAT(RootPaintController().GetDisplayItemList(),
@@ -303,7 +301,7 @@ TEST_P(PaintLayerPainterTest,
                           IsSameId(&container2, kBackgroundType),
                           IsSameId(&content2, kBackgroundType)));
 
-  ToHTMLElement(GetElementById("content1"))
+  To<HTMLElement>(GetElementById("content1"))
       ->setAttribute(html_names::kStyleAttr,
                      "position: absolute; width: 100px; height: 100px; "
                      "background-color: green");
@@ -458,7 +456,7 @@ TEST_P(PaintLayerPainterTest, PaintPhaseOutline) {
   )HTML");
   LayoutObject& outline_div =
       *GetDocument().getElementById("outline")->GetLayoutObject();
-  ToHTMLElement(outline_div.GetNode())
+  To<HTMLElement>(outline_div.GetNode())
       ->setAttribute(html_names::kStyleAttr, style_without_outline);
   UpdateAllLifecyclePhasesForTest();
 
@@ -479,7 +477,7 @@ TEST_P(PaintLayerPainterTest, PaintPhaseOutline) {
 
   // Outline on the self-painting-layer node itself doesn't affect
   // PaintPhaseDescendantOutlines.
-  ToHTMLElement(self_painting_layer_object.GetNode())
+  To<HTMLElement>(self_painting_layer_object.GetNode())
       ->setAttribute(html_names::kStyleAttr,
                      "position: absolute; outline: 1px solid green");
   UpdateAllLifecyclePhasesForTest();
@@ -491,7 +489,7 @@ TEST_P(PaintLayerPainterTest, PaintPhaseOutline) {
 
   // needsPaintPhaseDescendantOutlines should be set when any descendant on the
   // same layer has outline.
-  ToHTMLElement(outline_div.GetNode())
+  To<HTMLElement>(outline_div.GetNode())
       ->setAttribute(html_names::kStyleAttr, style_with_outline);
   GetDocument().View()->UpdateAllLifecyclePhasesExceptPaint();
   EXPECT_TRUE(self_painting_layer.NeedsPaintPhaseDescendantOutlines());
@@ -503,7 +501,7 @@ TEST_P(PaintLayerPainterTest, PaintPhaseOutline) {
 
   // needsPaintPhaseDescendantOutlines should be reset when no outline is
   // actually painted.
-  ToHTMLElement(outline_div.GetNode())
+  To<HTMLElement>(outline_div.GetNode())
       ->setAttribute(html_names::kStyleAttr, style_without_outline);
   UpdateAllLifecyclePhasesForTest();
   EXPECT_TRUE(self_painting_layer.NeedsPaintPhaseDescendantOutlines());
@@ -525,7 +523,7 @@ TEST_P(PaintLayerPainterTest, PaintPhaseFloat) {
   )HTML");
   LayoutObject& float_div =
       *GetDocument().getElementById("float")->GetLayoutObject();
-  ToHTMLElement(float_div.GetNode())
+  To<HTMLElement>(float_div.GetNode())
       ->setAttribute(html_names::kStyleAttr, style_without_float);
   UpdateAllLifecyclePhasesForTest();
 
@@ -546,7 +544,7 @@ TEST_P(PaintLayerPainterTest, PaintPhaseFloat) {
 
   // needsPaintPhaseFloat should be set when any descendant on the same layer
   // has float.
-  ToHTMLElement(float_div.GetNode())
+  To<HTMLElement>(float_div.GetNode())
       ->setAttribute(html_names::kStyleAttr, style_with_float);
   GetDocument().View()->UpdateAllLifecyclePhasesExceptPaint();
   EXPECT_TRUE(self_painting_layer.NeedsPaintPhaseFloat());
@@ -558,7 +556,7 @@ TEST_P(PaintLayerPainterTest, PaintPhaseFloat) {
 
   // needsPaintPhaseFloat should be reset when there is no float actually
   // painted.
-  ToHTMLElement(float_div.GetNode())
+  To<HTMLElement>(float_div.GetNode())
       ->setAttribute(html_names::kStyleAttr, style_without_float);
   UpdateAllLifecyclePhasesForTest();
   EXPECT_TRUE(self_painting_layer.NeedsPaintPhaseFloat());
@@ -627,7 +625,7 @@ TEST_P(PaintLayerPainterTest, PaintPhaseBlockBackground) {
   )HTML");
   LayoutObject& background_div =
       *GetDocument().getElementById("background")->GetLayoutObject();
-  ToHTMLElement(background_div.GetNode())
+  To<HTMLElement>(background_div.GetNode())
       ->setAttribute(html_names::kStyleAttr, style_without_background);
   UpdateAllLifecyclePhasesForTest();
 
@@ -649,7 +647,7 @@ TEST_P(PaintLayerPainterTest, PaintPhaseBlockBackground) {
 
   // Background on the self-painting-layer node itself doesn't affect
   // PaintPhaseDescendantBlockBackgrounds.
-  ToHTMLElement(self_painting_layer_object.GetNode())
+  To<HTMLElement>(self_painting_layer_object.GetNode())
       ->setAttribute(html_names::kStyleAttr,
                      "position: absolute; background: green");
   UpdateAllLifecyclePhasesForTest();
@@ -662,7 +660,7 @@ TEST_P(PaintLayerPainterTest, PaintPhaseBlockBackground) {
 
   // needsPaintPhaseDescendantBlockBackgrounds should be set when any descendant
   // on the same layer has Background.
-  ToHTMLElement(background_div.GetNode())
+  To<HTMLElement>(background_div.GetNode())
       ->setAttribute(html_names::kStyleAttr, style_with_background);
   GetDocument().View()->UpdateAllLifecyclePhasesExceptPaint();
   EXPECT_TRUE(self_painting_layer.NeedsPaintPhaseDescendantBlockBackgrounds());
@@ -675,7 +673,7 @@ TEST_P(PaintLayerPainterTest, PaintPhaseBlockBackground) {
 
   // needsPaintPhaseDescendantBlockBackgrounds should be reset when no outline
   // is actually painted.
-  ToHTMLElement(background_div.GetNode())
+  To<HTMLElement>(background_div.GetNode())
       ->setAttribute(html_names::kStyleAttr, style_without_background);
   UpdateAllLifecyclePhasesForTest();
   EXPECT_TRUE(self_painting_layer.NeedsPaintPhaseDescendantBlockBackgrounds());
@@ -704,7 +702,7 @@ TEST_P(PaintLayerPainterTest, PaintPhasesUpdateOnLayerAddition) {
   EXPECT_TRUE(html_layer.NeedsPaintPhaseFloat());
   EXPECT_TRUE(html_layer.NeedsPaintPhaseDescendantBlockBackgrounds());
 
-  ToHTMLElement(layer_div.GetNode())
+  To<HTMLElement>(layer_div.GetNode())
       ->setAttribute(html_names::kStyleAttr, "position: relative");
   UpdateAllLifecyclePhasesForTest();
   ASSERT_TRUE(layer_div.HasLayer());
@@ -739,7 +737,7 @@ TEST_P(PaintLayerPainterTest, PaintPhasesUpdateOnBecomingSelfPainting) {
   EXPECT_TRUE(html_layer.NeedsPaintPhaseDescendantOutlines());
   EXPECT_TRUE(html_layer.NeedsPaintPhaseDescendantBlockBackgrounds());
 
-  ToHTMLElement(layer_div.GetNode())
+  To<HTMLElement>(layer_div.GetNode())
       ->setAttribute(
           html_names::kStyleAttr,
           "width: 100px; height: 100px; overflow: hidden; position: relative");
@@ -779,7 +777,7 @@ TEST_P(PaintLayerPainterTest, PaintPhasesUpdateOnBecomingNonSelfPainting) {
   EXPECT_FALSE(html_layer.NeedsPaintPhaseDescendantOutlines());
   EXPECT_FALSE(html_layer.NeedsPaintPhaseDescendantBlockBackgrounds());
 
-  ToHTMLElement(layer_div.GetNode())
+  To<HTMLElement>(layer_div.GetNode())
       ->setAttribute(html_names::kStyleAttr,
                      "width: 100px; height: 100px; overflow: hidden");
   UpdateAllLifecyclePhasesForTest();
@@ -826,7 +824,7 @@ TEST_P(PaintLayerPainterTest,
   EXPECT_TRUE(layer.IsSelfPaintingLayer());
   EXPECT_FALSE(layer.NeedsPaintPhaseDescendantBlockBackgrounds());
 
-  ToHTMLElement(table.GetNode())
+  To<HTMLElement>(table.GetNode())
       ->setAttribute(html_names::kStyleAttr,
                      "position: relative; border-collapse: collapse");
   UpdateAllLifecyclePhasesForTest();
@@ -978,7 +976,7 @@ TEST_P(PaintLayerPainterTest,
 
 using PaintLayerPainterTestCAP = PaintLayerPainterTest;
 
-INSTANTIATE_CAP_TEST_CASE_P(PaintLayerPainterTestCAP);
+INSTANTIATE_CAP_TEST_SUITE_P(PaintLayerPainterTestCAP);
 
 TEST_P(PaintLayerPainterTestCAP, SimpleCullRect) {
   SetBodyInnerHTML(R"HTML(

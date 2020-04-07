@@ -19,8 +19,6 @@ DEFINES += \
     QT_NO_FOREACH \
     QT_NO_CAST_FROM_ASCII
 
-DEFINES -= QT_EVAL
-
 SOURCES += \
            ../../corelib/codecs/qlatincodec.cpp \
            ../../corelib/codecs/qtextcodec.cpp \
@@ -44,6 +42,7 @@ SOURCES += \
            ../../corelib/io/qfsfileengine.cpp \
            ../../corelib/io/qfsfileengine_iterator.cpp \
            ../../corelib/io/qiodevice.cpp \
+           ../../corelib/io/qipaddress.cpp \
            ../../corelib/io/qfiledevice.cpp \
            ../../corelib/io/qresource.cpp \
            ../../corelib/io/qtemporarydir.cpp \
@@ -52,11 +51,17 @@ SOURCES += \
            ../../corelib/io/qstandardpaths.cpp \
            ../../corelib/io/qloggingcategory.cpp \
            ../../corelib/io/qloggingregistry.cpp \
+           ../../corelib/io/qurl.cpp \
+           ../../corelib/io/qurlidna.cpp \
+           ../../corelib/io/qurlquery.cpp \
+           ../../corelib/io/qurlrecode.cpp \
            ../../corelib/kernel/qcoreapplication.cpp \
            ../../corelib/kernel/qcoreglobaldata.cpp \
            ../../corelib/kernel/qmetatype.cpp \
            ../../corelib/kernel/qvariant.cpp \
            ../../corelib/kernel/qsystemerror.cpp \
+           ../../corelib/kernel/qsharedmemory.cpp \
+           ../../corelib/kernel/qsystemsemaphore.cpp \
            ../../corelib/plugin/quuid.cpp \
            ../../corelib/serialization/qdatastream.cpp \
            ../../corelib/serialization/qjson.cpp \
@@ -69,36 +74,46 @@ SOURCES += \
            ../../corelib/serialization/qtextstream.cpp \
            ../../corelib/serialization/qxmlutils.cpp \
            ../../corelib/serialization/qxmlstream.cpp \
-           ../../corelib/tools/qbitarray.cpp \
-           ../../corelib/tools/qbytearray.cpp \
+           ../../corelib/text/qbytearray.cpp \
+           ../../corelib/text/qbytearraylist.cpp \
+           ../../corelib/text/qbytearraymatcher.cpp \
+           ../../corelib/text/qlocale.cpp \
+           ../../corelib/text/qlocale_tools.cpp \
+           ../../corelib/text/qregexp.cpp \
+           ../../corelib/text/qstring.cpp \
+           ../../corelib/text/qstringbuilder.cpp \
+           ../../corelib/text/qstring_compat.cpp \
+           ../../corelib/text/qstringlist.cpp \
+           ../../corelib/text/qstringview.cpp \
+           ../../corelib/text/qvsnprintf.cpp \
+           ../../corelib/time/qcalendar.cpp \
+           ../../corelib/time/qdatetime.cpp \
+           ../../corelib/time/qgregoriancalendar.cpp \
+           ../../corelib/time/qromancalendar.cpp \
            ../../corelib/tools/qarraydata.cpp \
-           ../../corelib/tools/qbytearraymatcher.cpp \
+           ../../corelib/tools/qbitarray.cpp \
            ../../corelib/tools/qcommandlineparser.cpp \
            ../../corelib/tools/qcommandlineoption.cpp \
            ../../corelib/tools/qcryptographichash.cpp \
-           ../../corelib/tools/qdatetime.cpp \
            ../../corelib/tools/qhash.cpp \
            ../../corelib/tools/qlist.cpp \
-           ../../corelib/tools/qlinkedlist.cpp \
-           ../../corelib/tools/qlocale.cpp \
-           ../../corelib/tools/qlocale_tools.cpp \
            ../../corelib/tools/qmap.cpp \
-           ../../corelib/tools/qregexp.cpp \
            ../../corelib/tools/qringbuffer.cpp \
            ../../corelib/tools/qpoint.cpp \
            ../../corelib/tools/qrect.cpp \
            ../../corelib/tools/qsize.cpp \
            ../../corelib/tools/qline.cpp \
-           ../../corelib/tools/qstring.cpp \
-           ../../corelib/tools/qstringbuilder.cpp \
-           ../../corelib/tools/qstring_compat.cpp \
-           ../../corelib/tools/qstringlist.cpp \
            ../../corelib/tools/qversionnumber.cpp \
-           ../../corelib/tools/qvsnprintf.cpp \
            ../../xml/dom/qdom.cpp \
            ../../xml/sax/qxml.cpp
 
 unix:SOURCES += ../../corelib/kernel/qcore_unix.cpp \
+                ../../corelib/kernel/qsharedmemory_posix.cpp \
+                ../../corelib/kernel/qsharedmemory_systemv.cpp \
+                ../../corelib/kernel/qsharedmemory_unix.cpp \
+                ../../corelib/kernel/qsystemsemaphore_posix.cpp \
+                ../../corelib/kernel/qsystemsemaphore_systemv.cpp \
+                ../../corelib/kernel/qsystemsemaphore_unix.cpp \
                 ../../corelib/io/qfilesystemengine_unix.cpp \
                 ../../corelib/io/qfilesystemiterator_unix.cpp \
                 ../../corelib/io/qfsfileengine_unix.cpp
@@ -108,12 +123,16 @@ win32:SOURCES += ../../corelib/global/qoperatingsystemversion_win.cpp \
                  ../../corelib/io/qfilesystemiterator_win.cpp \
                  ../../corelib/io/qfsfileengine_win.cpp \
                  ../../corelib/kernel/qcoreapplication_win.cpp \
+                 ../../corelib/kernel/qsharedmemory_win.cpp \
+                 ../../corelib/kernel/qsystemsemaphore_win.cpp \
                  ../../corelib/plugin/qsystemlibrary.cpp \
+                 ../../corelib/kernel/qwinregistry.cpp \
 
 mac {
     SOURCES += \
         ../../corelib/kernel/qcoreapplication_mac.cpp \
         ../../corelib/kernel/qcore_mac.cpp
+
     OBJECTIVE_SOURCES += \
         ../../corelib/global/qoperatingsystemversion_darwin.mm \
         ../../corelib/kernel/qcore_mac_objc.mm \

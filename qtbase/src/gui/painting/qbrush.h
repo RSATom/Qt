@@ -79,11 +79,9 @@ public:
 
     ~QBrush();
     QBrush &operator=(const QBrush &brush);
-#ifdef Q_COMPILER_RVALUE_REFS
-    inline QBrush &operator=(QBrush &&other) Q_DECL_NOEXCEPT
+    inline QBrush &operator=(QBrush &&other) noexcept
     { qSwap(d, other.d); return *this; }
-#endif
-    inline void swap(QBrush &other) Q_DECL_NOEXCEPT
+    inline void swap(QBrush &other) noexcept
     { qSwap(d, other.d); }
 
     operator QVariant() const;
@@ -161,7 +159,7 @@ inline Qt::BrushStyle QBrush::style() const { return d->style; }
 inline const QColor &QBrush::color() const { return d->color; }
 inline const QMatrix &QBrush::matrix() const { return d->transform.toAffine(); }
 inline QTransform QBrush::transform() const { return d->transform; }
-inline bool QBrush::isDetached() const { return d->ref.load() == 1; }
+inline bool QBrush::isDetached() const { return d->ref.loadRelaxed() == 1; }
 
 
 /*******************************************************************************
@@ -373,11 +371,14 @@ public:
         GagarinView = 178,
         FabledSunset = 179,
         PerfectBlue = 180,
+
+        NumPresets
     };
     Q_ENUM(Preset)
 
     QGradient();
     QGradient(Preset);
+    ~QGradient();
 
     Type type() const { return m_type; }
 
@@ -431,6 +432,7 @@ public:
     QLinearGradient();
     QLinearGradient(const QPointF &start, const QPointF &finalStop);
     QLinearGradient(qreal xStart, qreal yStart, qreal xFinalStop, qreal yFinalStop);
+    ~QLinearGradient();
 
     QPointF start() const;
     void setStart(const QPointF &start);
@@ -454,6 +456,8 @@ public:
 
     QRadialGradient(const QPointF &center, qreal centerRadius, const QPointF &focalPoint, qreal focalRadius);
     QRadialGradient(qreal cx, qreal cy, qreal centerRadius, qreal fx, qreal fy, qreal focalRadius);
+
+    ~QRadialGradient();
 
     QPointF center() const;
     void setCenter(const QPointF &center);
@@ -480,6 +484,7 @@ public:
     QConicalGradient();
     QConicalGradient(const QPointF &center, qreal startAngle);
     QConicalGradient(qreal cx, qreal cy, qreal startAngle);
+    ~QConicalGradient();
 
     QPointF center() const;
     void setCenter(const QPointF &center);

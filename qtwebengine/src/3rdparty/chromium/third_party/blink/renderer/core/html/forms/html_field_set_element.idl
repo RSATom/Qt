@@ -17,9 +17,11 @@
  * Boston, MA 02110-1301, USA.
  */
 
-// https://html.spec.whatwg.org/#the-fieldset-element
-[HTMLConstructor]
-interface HTMLFieldSetElement : HTMLElement {
+// https://html.spec.whatwg.org/C/#the-fieldset-element
+[
+    Exposed=Window,
+    HTMLConstructor
+] interface HTMLFieldSetElement : HTMLElement {
     [CEReactions, Reflect] attribute boolean disabled;
     [ImplementedAs=formOwner] readonly attribute HTMLFormElement? form;
     [CEReactions, Reflect] attribute DOMString name;

@@ -1,1 +1,1 @@
-#include "../../src/corelib/tools/qchar.h"
+#include "../../src/corelib/text/qchar.h"

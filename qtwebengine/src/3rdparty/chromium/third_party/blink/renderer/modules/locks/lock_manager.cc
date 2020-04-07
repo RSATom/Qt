@@ -5,22 +5,24 @@
 #include "third_party/blink/renderer/modules/locks/lock_manager.h"
 
 #include <algorithm>
+
 #include "mojo/public/cpp/bindings/associated_binding.h"
 #include "mojo/public/cpp/bindings/binding.h"
 #include "services/service_manager/public/cpp/interface_provider.h"
+#include "third_party/blink/public/platform/task_type.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise_resolver.h"
 #include "third_party/blink/renderer/bindings/modules/v8/v8_lock_granted_callback.h"
 #include "third_party/blink/renderer/core/dom/abort_signal.h"
 #include "third_party/blink/renderer/core/dom/dom_exception.h"
-#include "third_party/blink/renderer/core/frame/use_counter.h"
 #include "third_party/blink/renderer/modules/locks/lock.h"
 #include "third_party/blink/renderer/modules/locks/lock_info.h"
 #include "third_party/blink/renderer/modules/locks/lock_manager_snapshot.h"
 #include "third_party/blink/renderer/platform/bindings/microtask.h"
 #include "third_party/blink/renderer/platform/bindings/name_client.h"
 #include "third_party/blink/renderer/platform/bindings/script_state.h"
-#include "third_party/blink/renderer/platform/bindings/trace_wrapper_member.h"
+#include "third_party/blink/renderer/platform/heap/heap.h"
 #include "third_party/blink/renderer/platform/heap/persistent.h"
+#include "third_party/blink/renderer/platform/instrumentation/use_counter.h"
 #include "third_party/blink/renderer/platform/weborigin/security_origin.h"
 #include "third_party/blink/renderer/platform/wtf/functional.h"
 #include "third_party/blink/renderer/platform/wtf/vector.h"
@@ -55,8 +57,7 @@ class LockManager::LockRequestImpl final
     : public GarbageCollectedFinalized<LockRequestImpl>,
       public NameClient,
       public mojom::blink::LockRequest {
-  WTF_MAKE_NONCOPYABLE(LockRequestImpl);
-  EAGERLY_FINALIZE();
+  USING_PRE_FINALIZER(LockManager::LockRequestImpl, Dispose);
 
  public:
   LockRequestImpl(V8LockGrantedCallback* callback,
@@ -69,14 +70,19 @@ class LockManager::LockRequestImpl final
         resolver_(resolver),
         name_(name),
         mode_(mode),
-        // See https://bit.ly/2S0zRAS for task types.
-        binding_(this,
-                 std::move(request),
-                 manager->GetExecutionContext()->GetTaskRunner(
-                     TaskType::kMiscPlatformAPI)),
+        binding_(
+            this,
+            std::move(request),
+            manager->GetExecutionContext()->GetTaskRunner(TaskType::kWebLocks)),
         manager_(manager) {}
 
   ~LockRequestImpl() override = default;
+
+  void Dispose() {
+    // This Impl might still be bound to a LockRequest, so we close
+    // the binding before destroying the object.
+    binding_.Close();
+  }
 
   void Trace(blink::Visitor* visitor) {
     visitor->Trace(resolver_);
@@ -103,14 +109,12 @@ class LockManager::LockRequestImpl final
     if (!resolver_->GetScriptState()->ContextIsValid())
       return;
 
-    resolver_->Reject(
-        DOMException::Create(DOMExceptionCode::kAbortError, reason));
+    resolver_->Reject(MakeGarbageCollected<DOMException>(
+        DOMExceptionCode::kAbortError, reason));
   }
 
   void Failed() override {
-    // Ensure a local reference to the callback's wrapper is retained, as it
-    // can no longer be traced once removed from |manager_|'s list.
-    auto* callback = ToV8PersistentCallbackFunction(callback_.Release());
+    auto* callback = callback_.Release();
 
     manager_->RemovePendingRequest(this);
     binding_.Close();
@@ -137,9 +141,7 @@ class LockManager::LockRequestImpl final
     mojom::blink::LockHandleAssociatedPtr handle;
     handle.Bind(std::move(handle_info));
 
-    // Ensure a local reference to the callback's wrapper is retained, as it
-    // can no longer be traced once removed from |manager_|'s list.
-    auto* callback = ToV8PersistentCallbackFunction(callback_.Release());
+    auto* callback = callback_.Release();
 
     manager_->RemovePendingRequest(this);
     binding_.Close();
@@ -169,7 +171,7 @@ class LockManager::LockRequestImpl final
 
  private:
   // Callback passed by script; invoked when the lock is granted.
-  TraceWrapperMember<V8LockGrantedCallback> callback_;
+  Member<V8LockGrantedCallback> callback_;
 
   // Rejects if the request was aborted, otherwise resolves/rejects with
   // |callback_|'s result.
@@ -187,6 +189,8 @@ class LockManager::LockRequestImpl final
   // registered. If the context is destroyed then |manager_| will dispose of
   // |this| which terminates the request on the service side.
   Member<LockManager> manager_;
+
+  DISALLOW_COPY_AND_ASSIGN(LockRequestImpl);
 };
 
 LockManager::LockManager(ExecutionContext* context)
@@ -224,8 +228,10 @@ ScriptPromise LockManager::request(ScriptState* script_state,
   }
 
   if (!service_.get()) {
-    if (auto* provider = context->GetInterfaceProvider())
-      provider->GetInterface(mojo::MakeRequest(&service_));
+    if (auto* provider = context->GetInterfaceProvider()) {
+      provider->GetInterface(mojo::MakeRequest(
+          &service_, context->GetTaskRunner(TaskType::kMiscPlatformAPI)));
+    }
     if (!service_.get()) {
       exception_state.ThrowTypeError("Service not available.");
       return ScriptPromise();
@@ -293,7 +299,7 @@ ScriptPromise LockManager::request(ScriptState* script_state,
                              ? mojom::blink::LockManager::WaitMode::NO_WAIT
                              : mojom::blink::LockManager::WaitMode::WAIT;
 
-  ScriptPromiseResolver* resolver = ScriptPromiseResolver::Create(script_state);
+  auto* resolver = MakeGarbageCollected<ScriptPromiseResolver>(script_state);
   ScriptPromise promise = resolver->Promise();
 
   mojom::blink::LockRequestAssociatedPtrInfo request_info;
@@ -341,15 +347,17 @@ ScriptPromise LockManager::query(ScriptState* script_state,
   }
 
   if (!service_.get()) {
-    if (auto* provider = context->GetInterfaceProvider())
-      provider->GetInterface(mojo::MakeRequest(&service_));
+    if (auto* provider = context->GetInterfaceProvider()) {
+      provider->GetInterface(mojo::MakeRequest(
+          &service_, context->GetTaskRunner(TaskType::kMiscPlatformAPI)));
+    }
     if (!service_.get()) {
       exception_state.ThrowTypeError("Service not available.");
       return ScriptPromise();
     }
   }
 
-  ScriptPromiseResolver* resolver = ScriptPromiseResolver::Create(script_state);
+  auto* resolver = MakeGarbageCollected<ScriptPromiseResolver>(script_state);
   ScriptPromise promise = resolver->Promise();
 
   service_->QueryState(WTF::Bind(

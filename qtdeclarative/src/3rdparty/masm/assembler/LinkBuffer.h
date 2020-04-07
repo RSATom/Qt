@@ -315,13 +315,12 @@ inline typename LinkBufferBase<MacroAssembler, ExecutableOffsetCalculator>::Code
     va_start(argList, format);
     WTF::dataLogFV(format, argList);
     va_end(argList);
-    dataLogF(":\n");
 
     dataLogF(
 #if OS(WINDOWS)
-                "    Code at [0x%p, 0x%p):\n",
+                ":    Code at [0x%p, 0x%p):",
 #else
-                "    Code at [%p, %p):\n",
+                ":    Code at [%p, %p):",
 #endif
                 result.code().executableAddress(), static_cast<char*>(result.code().executableAddress()) + result.size());
     disassemble(result.code(), m_size, "    ", WTF::dataFile());
@@ -374,7 +373,7 @@ public:
     }
 };
 
-#if CPU(ARM_THUMB2) || CPU(ARM64) || defined(V4_BOOTSTRAP)
+#if CPU(ARM_THUMB2) || CPU(ARM64)
 
 template <typename T>
 struct BranchCompactingExecutableOffsetCalculator {
@@ -509,7 +508,7 @@ inline void BranchCompactingLinkBuffer<MacroAssembler>::linkCode(void* ownerUID,
     m_executableMemory->shrink(m_size);
 }
 
-#if CPU(ARM_THUMB2) || defined(V4_BOOTSTRAP)
+#if CPU(ARM_THUMB2)
 template <>
 class LinkBuffer<JSC::MacroAssembler<MacroAssemblerARMv7>> : public BranchCompactingLinkBuffer<JSC::MacroAssembler<MacroAssemblerARMv7>>
 {
@@ -520,7 +519,7 @@ public:
 };
 #endif
 
-#if CPU(ARM64) || defined(V4_BOOTSTRAP)
+#if CPU(ARM64)
 template <>
 class LinkBuffer<JSC::MacroAssembler<MacroAssemblerARM64>> : public BranchCompactingLinkBuffer<JSC::MacroAssembler<MacroAssemblerARM64>>
 {

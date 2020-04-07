@@ -208,6 +208,9 @@ private:
     static bool notifyInternal2(QObject *receiver, QEvent *);
     static bool forwardEvent(QObject *receiver, QEvent *event, QEvent *originatingEvent = nullptr);
 #endif
+#if QT_CONFIG(library)
+    static QStringList libraryPathsLocked();
+#endif
 
     static QCoreApplication *self;
 
@@ -227,6 +230,7 @@ private:
 #endif
     friend Q_CORE_EXPORT QString qAppName();
     friend class QClassFactory;
+    friend class QCommandLineParserPrivate;
 };
 
 #ifdef QT_NO_DEPRECATED

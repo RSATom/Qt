@@ -5,6 +5,7 @@
 #include "raw_input_gamepad_device_win.h"
 
 #include "base/stl_util.h"
+#include "device/gamepad/gamepad_blocklist.h"
 #include "device/gamepad/gamepad_data_fetcher.h"
 
 namespace device {
@@ -30,25 +31,6 @@ const uint32_t kPowerUsageNumber = 0x30;
 const uint32_t kSearchUsageNumber = 0x0221;
 const uint32_t kHomeUsageNumber = 0x0223;
 const uint32_t kBackUsageNumber = 0x0224;
-
-// Vendor IDs.
-const uint32_t kVendorOculus = 0x2833;
-const uint32_t kVendorBlue = 0xb58e;
-const uint32_t kVendorMicrosoft = 0x045e;
-
-// Product IDs.
-const uint32_t kProductSurfacePro2017Keyboard = 0x0922;
-
-struct VendorProductPair {
-  const uint16_t vendor;
-  const uint16_t product;
-} kFilteredDevices[] = {
-    // The Surface Pro 2017's detachable keyboard is a composite device with
-    // several HID sub-devices. Filter out the keyboard's device ID to avoid
-    // treating these sub-devices as gamepads.
-    {kVendorMicrosoft, kProductSurfacePro2017Keyboard},
-};
-const size_t kFilteredDevicesLen = base::size(kFilteredDevices);
 
 // The fetcher will collect all HID usages from the Button usage page and any
 // additional usages listed below.
@@ -232,17 +214,9 @@ bool RawInputGamepadDeviceWin::QueryDeviceInfo() {
   if (!IsGamepadUsageId(usage_))
     return false;
 
-  // This is terrible, but the Oculus Rift and some Blue Yeti microphones seem
-  // to think they are gamepads. Filter out any such devices. Oculus Touch is
-  // handled elsewhere.
-  if (vendor_id_ == kVendorOculus || vendor_id_ == kVendorBlue)
+  // Filter out devices that have gamepad-like HID usages but aren't gamepads.
+  if (GamepadIsExcluded(vendor_id_, product_id_))
     return false;
-
-  for (size_t i = 0; i < kFilteredDevicesLen; ++i) {
-    const auto& filter = kFilteredDevices[i];
-    if (vendor_id_ == filter.vendor && product_id_ == filter.product)
-      return false;
-  }
 
   // Fetch the device's |name_| (RIDI_DEVICENAME).
   if (!QueryDeviceName())
@@ -256,6 +230,11 @@ bool RawInputGamepadDeviceWin::QueryDeviceInfo() {
   // prefer known gamepads when there is contention.
   std::wstring pci_prefix = L"\\\\?\\HID#VEN_";
   if (!name_.compare(0, pci_prefix.size(), pci_prefix))
+    return false;
+
+  // Filter out the virtual digitizer, which was observed after remote desktop.
+  // See https://crbug.com/961774 for details.
+  if (name_ == L"\\\\?\\VIRTUAL_DIGITIZER")
     return false;
 
   // Fetch the human-friendly |product_string_|, if available.

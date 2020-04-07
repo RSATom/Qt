@@ -6,12 +6,15 @@
 
 #include "xfa/fxfa/parser/cxfa_encryptionlevel.h"
 
+#include "fxjs/xfa/cjx_node.h"
+#include "third_party/base/ptr_util.h"
+
 namespace {
 
 const CXFA_Node::AttributeData kEncryptionLevelAttributeData[] = {
     {XFA_Attribute::Desc, XFA_AttributeType::CData, nullptr},
     {XFA_Attribute::Lock, XFA_AttributeType::Integer, (void*)0},
-    {XFA_Attribute::Unknown, XFA_AttributeType::Integer, nullptr}};
+};
 
 }  // namespace
 
@@ -22,7 +25,8 @@ CXFA_EncryptionLevel::CXFA_EncryptionLevel(CXFA_Document* doc,
                 XFA_XDPPACKET_Config,
                 XFA_ObjectType::ContentNode,
                 XFA_Element::EncryptionLevel,
-                nullptr,
-                kEncryptionLevelAttributeData) {}
+                {},
+                kEncryptionLevelAttributeData,
+                pdfium::MakeUnique<CJX_Node>(this)) {}
 
 CXFA_EncryptionLevel::~CXFA_EncryptionLevel() = default;

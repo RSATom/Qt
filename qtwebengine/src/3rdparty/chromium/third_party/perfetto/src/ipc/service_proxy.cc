@@ -14,14 +14,14 @@
  * limitations under the License.
  */
 
-#include "perfetto/ipc/service_proxy.h"
+#include "perfetto/ext/ipc/service_proxy.h"
 
 #include <utility>
 
-#include "google/protobuf/message_lite.h"
+#include <google/protobuf/message_lite.h>
 #include "perfetto/base/logging.h"
-#include "perfetto/base/weak_ptr.h"
-#include "perfetto/ipc/service_descriptor.h"
+#include "perfetto/ext/base/weak_ptr.h"
+#include "perfetto/ext/ipc/service_descriptor.h"
 #include "src/ipc/client_impl.h"
 
 namespace perfetto {
@@ -33,7 +33,7 @@ ServiceProxy::ServiceProxy(EventListener* event_listener)
 ServiceProxy::~ServiceProxy() {
   if (client_ && connected())
     client_->UnbindService(service_id_);
-};
+}
 
 void ServiceProxy::InitializeBinding(
     base::WeakPtr<Client> client,

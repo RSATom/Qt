@@ -4,10 +4,10 @@
  * Use of this source code is governed by a BSD-style license that can be
  * found in the LICENSE file.
  */
-#include "Sample.h"
-#include "SkBitmap.h"
-#include "SkCanvas.h"
-#include "SkShader.h"
+#include "include/core/SkBitmap.h"
+#include "include/core/SkCanvas.h"
+#include "include/core/SkShader.h"
+#include "samplecode/Sample.h"
 
 static void make_bitmap(SkBitmap* bm) {
     const int W = 100;
@@ -31,11 +31,11 @@ static void make_bitmap(SkBitmap* bm) {
     canvas.drawLine(0, 0, SkIntToScalar(W), 0, paint);
 }
 
-static void make_paint(SkPaint* paint, SkShader::TileMode tm) {
+static void make_paint(SkPaint* paint, SkTileMode tm) {
     SkBitmap bm;
     make_bitmap(&bm);
 
-    paint->setShader(SkShader::MakeBitmapShader(bm, tm, tm));
+    paint->setShader(bm.makeShader(tm, tm));
 }
 
 class RepeatTileView : public Sample {
@@ -45,17 +45,11 @@ public:
     }
 
 protected:
-    bool onQuery(Sample::Event* evt) override {
-        if (Sample::TitleQ(*evt)) {
-            Sample::TitleR(evt, "RepeatTile");
-            return true;
-        }
-        return this->INHERITED::onQuery(evt);
-    }
+    SkString name() override { return SkString("RepeatTile"); }
 
     void onDrawContent(SkCanvas* canvas) override {
         SkPaint paint;
-        make_paint(&paint, SkShader::kRepeat_TileMode);
+        make_paint(&paint, SkTileMode::kRepeat);
 
 //        canvas->scale(SK_Scalar1*2, SK_Scalar1);
         canvas->translate(SkIntToScalar(100), SkIntToScalar(100));

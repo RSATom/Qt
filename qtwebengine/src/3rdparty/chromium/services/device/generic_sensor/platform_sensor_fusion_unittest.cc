@@ -4,6 +4,7 @@
 
 #include <memory>
 
+#include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
@@ -29,7 +30,6 @@ class PlatformSensorFusionTest : public testing::Test {
  public:
   PlatformSensorFusionTest() {
     provider_ = std::make_unique<FakePlatformSensorProvider>();
-    PlatformSensorProvider::SetProviderForTesting(provider_.get());
   }
 
  protected:

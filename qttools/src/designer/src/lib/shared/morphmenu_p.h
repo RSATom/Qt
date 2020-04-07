@@ -52,12 +52,12 @@ namespace qdesigner_internal {
 
 /* Conveniene morph menu that acts on a single widget. */
 class QDESIGNER_SHARED_EXPORT MorphMenu : public QObject {
-    Q_DISABLE_COPY(MorphMenu)
+    Q_DISABLE_COPY_MOVE(MorphMenu)
     Q_OBJECT
 public:
-    typedef QList<QAction *> ActionList;
+    using ActionList = QList<QAction *>;
 
-    explicit MorphMenu(QObject *parent = 0);
+    explicit MorphMenu(QObject *parent = nullptr);
 
     void populate(QWidget *w, QDesignerFormWindowInterface *fw, ActionList& al);
     void populate(QWidget *w, QDesignerFormWindowInterface *fw, QMenu& m);
@@ -68,10 +68,10 @@ private slots:
 private:
     bool populateMenu(QWidget *w, QDesignerFormWindowInterface *fw);
 
-    QAction *m_subMenuAction;
-    QMenu *m_menu;
-    QWidget *m_widget;
-    QDesignerFormWindowInterface *m_formWindow;
+    QAction *m_subMenuAction = nullptr;
+    QMenu *m_menu = nullptr;
+    QWidget *m_widget = nullptr;
+    QDesignerFormWindowInterface *m_formWindow = nullptr;
 };
 
 } // namespace qdesigner_internal

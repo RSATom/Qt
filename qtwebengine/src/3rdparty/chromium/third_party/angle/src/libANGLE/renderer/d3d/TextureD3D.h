@@ -66,6 +66,14 @@ class TextureD3D : public TextureImpl
                                         const gl::Extents &size,
                                         bool fixedSampleLocations) override;
 
+    angle::Result setStorageExternalMemory(const gl::Context *context,
+                                           gl::TextureType type,
+                                           size_t levels,
+                                           GLenum internalFormat,
+                                           const gl::Extents &size,
+                                           gl::MemoryObject *memoryObject,
+                                           GLuint64 offset) override;
+
     bool isImmutable() const { return mImmutable; }
 
     virtual angle::Result getRenderTarget(const gl::Context *context,
@@ -160,7 +168,7 @@ class TextureD3D : public TextureImpl
 
     angle::Result releaseTexStorage(const gl::Context *context);
 
-    GLuint getBaseLevel() const { return mBaseLevel; };
+    GLuint getBaseLevel() const { return mBaseLevel; }
 
     virtual void markAllImagesDirty() = 0;
 

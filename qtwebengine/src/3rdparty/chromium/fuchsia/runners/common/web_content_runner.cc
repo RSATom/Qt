@@ -8,31 +8,50 @@
 #include <lib/fidl/cpp/binding_set.h>
 #include <utility>
 
+#include "base/bind.h"
 #include "base/files/file.h"
-#include "base/fuchsia/component_context.h"
+#include "base/files/file_util.h"
 #include "base/fuchsia/file_utils.h"
 #include "base/fuchsia/fuchsia_logging.h"
 #include "base/fuchsia/scoped_service_binding.h"
 #include "base/fuchsia/service_directory.h"
+#include "base/fuchsia/service_directory_client.h"
+#include "base/fuchsia/startup_context.h"
 #include "base/logging.h"
+#include "fuchsia/runners/buildflags.h"
 #include "fuchsia/runners/common/web_component.h"
 #include "url/gurl.h"
 
-// static
-chromium::web::ContextPtr WebContentRunner::CreateDefaultWebContext() {
+namespace {
+
+fidl::InterfaceHandle<fuchsia::io::Directory> OpenDirectoryOrFail(
+    const base::FilePath& path) {
+  auto directory = base::fuchsia::OpenDirectory(path);
+  CHECK(directory) << "Failed to open " << path;
+  return directory;
+}
+
+fuchsia::web::ContextPtr CreateWebContextWithDataDirectory(
+    fidl::InterfaceHandle<fuchsia::io::Directory> data_directory) {
   auto web_context_provider =
-      base::fuchsia::ComponentContext::GetDefault()
-          ->ConnectToService<chromium::web::ContextProvider>();
+      base::fuchsia::ServiceDirectoryClient::ForCurrentProcess()
+          ->ConnectToService<fuchsia::web::ContextProvider>();
 
-  chromium::web::CreateContextParams create_params;
+  fuchsia::web::CreateContextParams create_params;
 
-  // Clone /svc to the context.
-  create_params.service_directory =
-      zx::channel(base::fuchsia::GetHandleFromFile(
-          base::File(base::FilePath("/svc"),
-                     base::File::FLAG_OPEN | base::File::FLAG_READ)));
+  // Pass /svc and /data to the context.
+  create_params.set_service_directory(OpenDirectoryOrFail(
+      base::FilePath(base::fuchsia::kServiceDirectoryPath)));
+  if (data_directory)
+    create_params.set_data_directory(std::move(data_directory));
 
-  chromium::web::ContextPtr web_context;
+  // Set |remote_debugging_port| on the context, if set.
+  if (BUILDFLAG(ENABLE_REMOTE_DEBUGGING_ON_PORT) != 0) {
+    create_params.set_remote_debugging_port(
+        BUILDFLAG(ENABLE_REMOTE_DEBUGGING_ON_PORT));
+  }
+
+  fuchsia::web::ContextPtr web_context;
   web_context_provider->Create(std::move(create_params),
                                web_context.NewRequest());
   web_context.set_error_handler([](zx_status_t status) {
@@ -44,19 +63,25 @@ chromium::web::ContextPtr WebContentRunner::CreateDefaultWebContext() {
   return web_context;
 }
 
+}  // namespace
+
+// static
+fuchsia::web::ContextPtr WebContentRunner::CreateDefaultWebContext() {
+  return CreateWebContextWithDataDirectory(OpenDirectoryOrFail(
+      base::FilePath(base::fuchsia::kPersistedDataDirectoryPath)));
+}
+
+// static
+fuchsia::web::ContextPtr WebContentRunner::CreateIncognitoWebContext() {
+  return CreateWebContextWithDataDirectory(
+      fidl::InterfaceHandle<fuchsia::io::Directory>());
+}
+
 WebContentRunner::WebContentRunner(
     base::fuchsia::ServiceDirectory* service_directory,
-    chromium::web::ContextPtr context,
-    base::OnceClosure on_idle_closure)
-    : context_(std::move(context)),
-      service_binding_(service_directory, this),
-      on_idle_closure_(std::move(on_idle_closure)) {
+    fuchsia::web::ContextPtr context)
+    : context_(std::move(context)), service_binding_(service_directory, this) {
   DCHECK(context_);
-  DCHECK(on_idle_closure_);
-
-  // Signal that we're idle if the service manager connection is dropped.
-  service_binding_.SetOnLastClientCallback(base::BindOnce(
-      &WebContentRunner::RunOnIdleClosureIfValid, base::Unretained(this)));
 }
 
 WebContentRunner::~WebContentRunner() = default;
@@ -72,9 +97,12 @@ void WebContentRunner::StartComponent(
     return;
   }
 
-  RegisterComponent(WebComponent::ForUrlRequest(this, std::move(url),
-                                                std::move(startup_info),
-                                                std::move(controller_request)));
+  std::unique_ptr<WebComponent> component = std::make_unique<WebComponent>(
+      this,
+      std::make_unique<base::fuchsia::StartupContext>(std::move(startup_info)),
+      std::move(controller_request));
+  component->LoadUrl(url, std::vector<fuchsia::net::http::Header>());
+  RegisterComponent(std::move(component));
 }
 
 void WebContentRunner::GetWebComponentForTest(
@@ -88,9 +116,6 @@ void WebContentRunner::GetWebComponentForTest(
 
 void WebContentRunner::DestroyComponent(WebComponent* component) {
   components_.erase(components_.find(component));
-
-  if (components_.empty())
-    RunOnIdleClosureIfValid();
 }
 
 void WebContentRunner::RegisterComponent(
@@ -98,12 +123,5 @@ void WebContentRunner::RegisterComponent(
   if (web_component_test_callback_) {
     std::move(web_component_test_callback_).Run(component.get());
   }
-  if (component) {
-    components_.insert(std::move(component));
-  }
-}
-
-void WebContentRunner::RunOnIdleClosureIfValid() {
-  if (on_idle_closure_)
-    std::move(on_idle_closure_).Run();
+  components_.insert(std::move(component));
 }

@@ -6,6 +6,7 @@
 
 #include <string>
 
+#include "base/bind.h"
 #include "base/logging.h"
 #include "base/optional.h"
 #include "base/synchronization/waitable_event.h"
@@ -97,7 +98,6 @@ void SyncLoadContext::StartAsyncWithWaitableEvent(
     base::WaitableEvent* abort_event,
     base::TimeDelta timeout,
     blink::mojom::BlobRegistryPtrInfo download_to_blob_registry) {
-  bool download_to_blob = download_to_blob_registry.is_valid();
   auto* context = new SyncLoadContext(
       request.get(), std::move(url_loader_factory_info), response,
       redirect_or_response_event, abort_event, timeout,
@@ -105,10 +105,8 @@ void SyncLoadContext::StartAsyncWithWaitableEvent(
   context->request_id_ = context->resource_dispatcher_->StartAsync(
       std::move(request), routing_id, std::move(loading_task_runner),
       traffic_annotation, true /* is_sync */,
-      download_to_blob /* pass_response_pipe_to_peer */,
       base::WrapUnique(context), context->url_loader_factory_,
-      std::move(throttles), nullptr /* navigation_response_override_params */,
-      nullptr /* continue_for_navigation */);
+      std::move(throttles), nullptr /* navigation_response_override_params */);
 }
 
 SyncLoadContext::SyncLoadContext(
@@ -213,14 +211,6 @@ void SyncLoadContext::OnStartLoadingResponseBody(
   body_watcher_.ArmOrNotify();
 }
 
-void SyncLoadContext::OnReceivedData(std::unique_ptr<ReceivedData> data) {
-  if (mode_ == Mode::kInitial)
-    mode_ = Mode::kNonDataPipe;
-  DCHECK_EQ(Mode::kNonDataPipe, mode_);
-  DCHECK(!Completed());
-  response_->data.append(data->payload(), data->length());
-}
-
 void SyncLoadContext::OnTransferSizeUpdated(int transfer_size_diff) {}
 
 void SyncLoadContext::OnCompletedRequest(
@@ -308,6 +298,7 @@ void SyncLoadContext::OnTimeout() {
 void SyncLoadContext::CompleteRequest() {
   DCHECK(blob_finished_ || (mode_ != Mode::kBlob));
   DCHECK(!body_handle_.is_valid());
+  body_watcher_.Cancel();
   signals_->SignalRedirectOrResponseComplete();
   signals_ = nullptr;
   response_ = nullptr;

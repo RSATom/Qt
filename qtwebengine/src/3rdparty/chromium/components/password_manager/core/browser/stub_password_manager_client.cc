@@ -29,6 +29,10 @@ void StubPasswordManagerClient::ShowManualFallbackForSaving(
 
 void StubPasswordManagerClient::HideManualFallbackForSaving() {}
 
+void StubPasswordManagerClient::FocusedInputChanged(
+    password_manager::PasswordManagerDriver* driver,
+    autofill::mojom::FocusedFieldType focused_field_type) {}
+
 bool StubPasswordManagerClient::PromptUserToChooseCredentials(
     std::vector<std::unique_ptr<autofill::PasswordForm>> local_forms,
     const GURL& origin,
@@ -68,11 +72,11 @@ const CredentialsFilter* StubPasswordManagerClient::GetStoreResultFilter()
   return &credentials_filter_;
 }
 
-const LogManager* StubPasswordManagerClient::GetLogManager() const {
+const autofill::LogManager* StubPasswordManagerClient::GetLogManager() const {
   return &log_manager_;
 }
 
-#if defined(SAFE_BROWSING_DB_LOCAL)
+#if defined(FULL_SAFE_BROWSING)
 safe_browsing::PasswordProtectionService*
 StubPasswordManagerClient::GetPasswordProtectionService() const {
   return nullptr;
@@ -84,6 +88,7 @@ void StubPasswordManagerClient::CheckSafeBrowsingReputation(
 
 void StubPasswordManagerClient::CheckProtectedPasswordEntry(
     metrics_util::PasswordType reused_password_type,
+    const std::string& username,
     const std::vector<std::string>& matching_domains,
     bool password_field_exists) {}
 
@@ -100,6 +105,14 @@ StubPasswordManagerClient::GetMetricsRecorder() {
     metrics_recorder_.emplace(GetUkmSourceId(), GetMainFrameURL());
   }
   return base::OptionalOrNullptr(metrics_recorder_);
+}
+
+bool StubPasswordManagerClient::IsIsolationForPasswordSitesEnabled() const {
+  return false;
+}
+
+bool StubPasswordManagerClient::IsNewTabPage() const {
+  return false;
 }
 
 }  // namespace password_manager

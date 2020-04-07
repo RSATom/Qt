@@ -48,11 +48,9 @@ jumbo_source_set("font") {
     "../cmaps",
     "../parser",
   ]
-  allow_circular_includes_from = [
-    "../../fxge",
-    "../cmaps",
-    "../parser",
-  ]
+  if (is_mac) {
+    libs = [ "CoreFoundation.framework" ]
+  }
   visibility = [ "../../../*" ]
 }
 
@@ -60,13 +58,14 @@ pdfium_unittest_source_set("unittests") {
   sources = [
     "cpdf_cidfont_unittest.cpp",
     "cpdf_cmapparser_unittest.cpp",
-    "cpdf_fontencoding_unittest.cpp",
     "cpdf_tounicodemap_unittest.cpp",
   ]
   deps = [
     ":font",
     "../../fpdfapi",
+    "../page",
     "../parser",
+    "../render",
   ]
   pdfium_root_dir = "../../../"
 }

@@ -41,6 +41,8 @@
 
 QT_BEGIN_NAMESPACE
 
+class QQmlFile;
+
 class BMBase;
 class BMLayer;
 class BatchRenderer;
@@ -48,11 +50,11 @@ class BatchRenderer;
 class LottieAnimation : public QQuickPaintedItem
 {
     Q_OBJECT
-    Q_PROPERTY(QString source READ source WRITE setSource NOTIFY sourceChanged)
-    Q_PROPERTY(int frameRate READ frameRate WRITE setFrameRate NOTIFY frameRateChanged)
+    Q_PROPERTY(QUrl source READ source WRITE setSource NOTIFY sourceChanged)
+    Q_PROPERTY(int frameRate READ frameRate WRITE setFrameRate RESET resetFrameRate NOTIFY frameRateChanged)
     Q_PROPERTY(int startFrame READ startFrame NOTIFY startFrameChanged)
     Q_PROPERTY(int endFrame READ endFrame NOTIFY endFrameChanged)
-    Q_PROPERTY(Status status MEMBER m_status NOTIFY statusChanged)
+    Q_PROPERTY(Status status READ status WRITE setStatus NOTIFY statusChanged)
     Q_PROPERTY(Quality quality READ quality WRITE setQuality NOTIFY qualityChanged)
     Q_PROPERTY(bool autoPlay MEMBER m_autoPlay NOTIFY autoPlayChanged)
     Q_PROPERTY(int loops MEMBER m_loops NOTIFY loopsChanged)
@@ -65,7 +67,7 @@ public:
     enum Quality{LowQuality, MediumQuality, HighQuality};
     Q_ENUM(Quality)
 
-    enum Direction{Forward = 1, Reverse};
+    enum Direction{Forward = 1, Reverse = -1};
     Q_ENUM(Direction)
 
     enum LoopCount{Infinite = -1};
@@ -74,15 +76,16 @@ public:
     explicit LottieAnimation(QQuickItem *parent = nullptr);
     ~LottieAnimation() override;
 
-    void componentComplete() override;
-
     void paint(QPainter *painter) override;
 
-    QString source() const;
-    void setSource(const QString &source);
+    Status status() const;
+
+    QUrl source() const;
+    void setSource(const QUrl &source);
 
     int frameRate() const;
     void setFrameRate(int frameRate);
+    void resetFrameRate();
 
     Quality quality() const;
     void setQuality(Quality quality);
@@ -121,10 +124,19 @@ signals:
     void endFrameChanged();
 
 protected slots:
+    void loadFinished();
+
     void renderNextFrame();
 
 protected:
-    bool loadSource(QString filename);
+    void componentComplete() override;
+
+    void setStatus(Status status);
+
+    void setStartFrame(int startFrame);
+    void setEndFrame(int endFrame);
+
+    void load();
 
     virtual int parse(QByteArray jsonSource);
 
@@ -135,24 +147,25 @@ protected:
     Status m_status = Null;
     int m_startFrame = 0;
     int m_endFrame = 0;
-    int m_frameRate = 30;
     int m_currentFrame = 0;
+    int m_frameRate = 30;
+    int m_animFrameRate = 30;
     qreal m_animWidth = 0;
     qreal m_animHeight = 0;
     QHash<QString, int> m_markers;
-    QString m_source;
+    QUrl m_source;
+    QScopedPointer<QQmlFile> m_file;
     QTimer *m_frameAdvance = nullptr;
 
     void gotoFrame(int frame);
     void reset();
 
 private:
-    bool m_initialized = false;
     Quality m_quality = MediumQuality;
     bool m_autoPlay = true;
     int m_loops = 1;
     int m_currentLoop = 0;
-    int m_direction = 1;
+    int m_direction = Forward;
     QByteArray m_jsonSource;
 };
 

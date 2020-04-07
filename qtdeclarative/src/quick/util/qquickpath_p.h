@@ -290,7 +290,7 @@ class Q_QUICK_PRIVATE_EXPORT QQuickPathArc : public QQuickCurve
     Q_PROPERTY(qreal radiusY READ radiusY WRITE setRadiusY NOTIFY radiusYChanged)
     Q_PROPERTY(bool useLargeArc READ useLargeArc WRITE setUseLargeArc NOTIFY useLargeArcChanged)
     Q_PROPERTY(ArcDirection direction READ direction WRITE setDirection NOTIFY directionChanged)
-    Q_PROPERTY(qreal xAxisRotation READ xAxisRotation WRITE setXAxisRotation NOTIFY xAxisRotationChanged REVISION 2)
+    Q_PROPERTY(qreal xAxisRotation READ xAxisRotation WRITE setXAxisRotation NOTIFY xAxisRotationChanged REVISION 9)
 
 public:
     QQuickPathArc(QObject *parent=nullptr)
@@ -321,7 +321,7 @@ Q_SIGNALS:
     void radiusYChanged();
     void useLargeArcChanged();
     void directionChanged();
-    Q_REVISION(2) void xAxisRotationChanged();
+    Q_REVISION(9) void xAxisRotationChanged();
 
 private:
     qreal _radiusX = 0;
@@ -424,6 +424,52 @@ private:
     qreal _value = 0;
 };
 
+class Q_QUICK_PRIVATE_EXPORT QQuickPathPolyline : public QQuickCurve
+{
+    Q_OBJECT
+    Q_PROPERTY(QPointF start READ start NOTIFY startChanged)
+    Q_PROPERTY(QVariant path READ path WRITE setPath NOTIFY pathChanged)
+public:
+    QQuickPathPolyline(QObject *parent=nullptr);
+
+    QVariant path() const;
+    void setPath(const QVariant &path);
+    void setPath(const QVector<QPointF> &path);
+    QPointF start() const;
+    void addToPath(QPainterPath &path, const QQuickPathData &data) override;
+
+Q_SIGNALS:
+    void pathChanged();
+    void startChanged();
+
+private:
+    QVector<QPointF> m_path;
+};
+
+class Q_QUICK_PRIVATE_EXPORT QQuickPathMultiline : public QQuickCurve
+{
+    Q_OBJECT
+    Q_PROPERTY(QPointF start READ start NOTIFY startChanged)
+    Q_PROPERTY(QVariant paths READ paths WRITE setPaths NOTIFY pathsChanged)
+public:
+    QQuickPathMultiline(QObject *parent=nullptr);
+
+    QVariant paths() const;
+    void setPaths(const QVariant &paths);
+    void setPaths(const QVector<QVector<QPointF>> &paths);
+    QPointF start() const;
+    void addToPath(QPainterPath &path, const QQuickPathData &) override;
+
+Q_SIGNALS:
+    void pathsChanged();
+    void startChanged();
+
+private:
+    QPointF absolute(const QPointF &relative) const;
+
+    QVector<QVector<QPointF>> m_paths;
+};
+
 struct QQuickCachedBezier
 {
     QQuickCachedBezier() {}
@@ -445,6 +491,7 @@ class Q_QUICK_PRIVATE_EXPORT QQuickPath : public QObject, public QQmlParserStatu
     Q_PROPERTY(qreal startX READ startX WRITE setStartX NOTIFY startXChanged)
     Q_PROPERTY(qreal startY READ startY WRITE setStartY NOTIFY startYChanged)
     Q_PROPERTY(bool closed READ isClosed NOTIFY changed)
+    Q_PROPERTY(QSizeF scale READ scale WRITE setScale NOTIFY scaleChanged REVISION 14)
     Q_CLASSINFO("DefaultProperty", "pathElements")
     Q_INTERFACES(QQmlParserStatus)
 public:
@@ -466,14 +513,18 @@ public:
     QPainterPath path() const;
     QStringList attributes() const;
     qreal attributeAt(const QString &, qreal) const;
-    QPointF pointAt(qreal) const;
+    Q_REVISION(14) Q_INVOKABLE QPointF pointAtPercent(qreal t) const;
     QPointF sequentialPointAt(qreal p, qreal *angle = nullptr) const;
     void invalidateSequentialHistory() const;
+
+    QSizeF scale() const;
+    void setScale(const QSizeF &scale);
 
 Q_SIGNALS:
     void changed();
     void startXChanged();
     void startYChanged();
+    Q_REVISION(14) void scaleChanged();
 
 protected:
     QQuickPath(QQuickPathPrivate &dd, QObject *parent = nullptr);
@@ -540,6 +591,7 @@ QML_DECLARE_TYPE(QQuickPathArc)
 QML_DECLARE_TYPE(QQuickPathAngleArc)
 QML_DECLARE_TYPE(QQuickPathSvg)
 QML_DECLARE_TYPE(QQuickPathPercent)
+QML_DECLARE_TYPE(QQuickPathPolyline)
 QML_DECLARE_TYPE(QQuickPath)
 
 #endif // QQUICKPATH_H

@@ -31,6 +31,7 @@ class NinjaToolchainWriter {
 
  private:
   FRIEND_TEST_ALL_PREFIXES(NinjaToolchainWriter, WriteToolRule);
+  FRIEND_TEST_ALL_PREFIXES(NinjaToolchainWriter, WriteToolRuleWithLauncher);
 
   NinjaToolchainWriter(const Settings* settings,
                        const Toolchain* toolchain,
@@ -40,12 +41,14 @@ class NinjaToolchainWriter {
   void Run(const std::vector<NinjaWriter::TargetRulePair>& extra_rules);
 
   void WriteRules();
-  void WriteToolRule(Toolchain::ToolType type,
-                     const Tool* tool,
-                     const std::string& rule_prefix);
+  void WriteToolRule(Tool* tool, const std::string& rule_prefix);
   void WriteRulePattern(const char* name,
                         const SubstitutionPattern& pattern,
                         const EscapeOptions& options);
+  void WriteCommandRulePattern(const char* name,
+                               const std::string& launcher,
+                               const SubstitutionPattern& command,
+                               const EscapeOptions& options);
 
   const Settings* settings_;
   const Toolchain* toolchain_;

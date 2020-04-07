@@ -17,7 +17,21 @@ source_set("factory") {
   ]
 
   public_deps = [
-    "//components/services/pdf_compositor/public/interfaces",
+    "//components/services/pdf_compositor/public/mojom",
+    "//services/service_manager/public/cpp",
+  ]
+}
+
+source_set("manifest") {
+  sources = [
+    "manifest.cc",
+    "manifest.h",
+  ]
+
+  deps = [
+    "//base",
+    "//components/services/pdf_compositor/public/mojom",
+    "//components/strings",
     "//services/service_manager/public/cpp",
   ]
 }

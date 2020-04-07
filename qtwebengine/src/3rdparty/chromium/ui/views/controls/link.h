@@ -26,7 +26,7 @@ class LinkListener;
 ////////////////////////////////////////////////////////////////////////////////
 class VIEWS_EXPORT Link : public Label {
  public:
-  static const char kViewClassName[];
+  METADATA_HEADER(Link);
 
   // The padding for the focus ring border when rendering a focused Link with
   // FocusStyle::RING.
@@ -56,7 +56,6 @@ class VIEWS_EXPORT Link : public Label {
   // Label:
   void PaintFocusRing(gfx::Canvas* canvas) const override;
   gfx::Insets GetInsets() const override;
-  const char* GetClassName() const override;
   gfx::NativeCursor GetCursor(const ui::MouseEvent& event) override;
   bool CanProcessEventsWithinSubtree() const override;
   bool OnMousePressed(const ui::MouseEvent& event) override;
@@ -67,12 +66,11 @@ class VIEWS_EXPORT Link : public Label {
   void OnGestureEvent(ui::GestureEvent* event) override;
   bool SkipDefaultKeyEventProcessing(const ui::KeyEvent& event) override;
   void GetAccessibleNodeData(ui::AXNodeData* node_data) override;
-  void OnEnabledChanged() override;
   void OnFocus() override;
   void OnBlur() override;
   void SetFontList(const gfx::FontList& font_list) override;
   void SetText(const base::string16& text) override;
-  void OnNativeThemeChanged(const ui::NativeTheme* theme) override;
+  void OnThemeChanged() override;
   void SetEnabledColor(SkColor color) override;
   bool IsSelectionSupported() const override;
 
@@ -104,6 +102,8 @@ class VIEWS_EXPORT Link : public Label {
   // The color when the link is neither pressed nor disabled.
   SkColor requested_enabled_color_;
   bool requested_enabled_color_set_;
+
+  PropertyChangedSubscription enabled_changed_subscription_;
 
   DISALLOW_COPY_AND_ASSIGN(Link);
 };

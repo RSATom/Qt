@@ -40,6 +40,38 @@ viz_component("resource_format_utils") {
   ]
 }
 
+if (is_mac) {
+  viz_component("metal_context_provider") {
+    output_name = "viz_metal_context_provider"
+
+    defines = [ "VIZ_METAL_CONTEXT_PROVIDER_IMPLEMENTATION" ]
+
+    sources = [
+      "gpu/metal_api_proxy.h",
+      "gpu/metal_api_proxy.mm",
+      "gpu/metal_context_provider.h",
+      "gpu/metal_context_provider.mm",
+      "viz_metal_context_provider_export.h",
+    ]
+
+    public_deps = [
+      "//skia",
+    ]
+
+    deps = [
+      "//base",
+      "//components/crash/core/common:crash_key",
+      "//ui/gfx",
+      "//ui/gl",
+    ]
+
+    libs = [
+      "Metal.framework",
+      "Foundation.framework",
+    ]
+  }
+}
+
 if (enable_vulkan) {
   viz_component("vulkan_context_provider") {
     output_name = "viz_vulkan_context_provider"
@@ -69,6 +101,7 @@ if (enable_vulkan) {
       "//base",
       "//gpu/vulkan",
       "//gpu/vulkan:buildflags",
+      "//ui/gfx",
     ]
   }
 }
@@ -81,8 +114,11 @@ viz_component("common") {
   sources = [
     "constants.cc",
     "constants.h",
+    "display/overlay_strategy.cc",
+    "display/overlay_strategy.h",
     "display/renderer_settings.cc",
     "display/renderer_settings.h",
+    "display/update_vsync_parameters_callback.h",
     "features.cc",
     "features.h",
     "frame_sinks/begin_frame_args.cc",
@@ -97,6 +133,8 @@ viz_component("common") {
     "frame_sinks/copy_output_util.h",
     "frame_sinks/delay_based_time_source.cc",
     "frame_sinks/delay_based_time_source.h",
+    "frame_timing_details.h",
+    "frame_timing_details_map.h",
     "gl_helper.cc",
     "gl_helper.h",
     "gl_helper_scaling.cc",
@@ -112,6 +150,7 @@ viz_component("common") {
     "gpu/context_lost_reason.h",
     "gpu/context_provider.cc",
     "gpu/context_provider.h",
+    "gpu/gpu_vsync_callback.h",
     "gpu/raster_context_provider.cc",
     "gpu/raster_context_provider.h",
     "hit_test/aggregated_hit_test_region.h",
@@ -152,6 +191,8 @@ viz_component("common") {
     "quads/texture_draw_quad.h",
     "quads/tile_draw_quad.cc",
     "quads/tile_draw_quad.h",
+    "quads/video_hole_draw_quad.cc",
+    "quads/video_hole_draw_quad.h",
     "quads/yuv_video_draw_quad.cc",
     "quads/yuv_video_draw_quad.h",
     "resources/bitmap_allocation.cc",
@@ -196,6 +237,8 @@ viz_component("common") {
     "traced_value.cc",
     "traced_value.h",
     "viz_common_export.h",
+    "viz_utils.cc",
+    "viz_utils.h",
   ]
 
   deps = [
@@ -209,7 +252,9 @@ viz_component("common") {
     "//gpu/command_buffer/client:gles2_interface",
     "//gpu/command_buffer/client:raster",
     "//gpu/command_buffer/client:raster_interface",
+    "//gpu/ipc/common:common",
     "//gpu/vulkan:buildflags",
+    "//mojo/public/cpp/base",
     "//mojo/public/cpp/system",
     "//third_party/libyuv",
     "//ui/gfx",
@@ -229,6 +274,10 @@ viz_component("common") {
     deps += [ "//ui/base" ]
   }
 
+  if (is_android) {
+    deps += [ "//gpu/config" ]
+  }
+
   if (is_chromecast) {
     defines += [ "IS_CHROMECAST" ]
   }
@@ -243,6 +292,9 @@ viz_component("common") {
   if (enable_vulkan) {
     public_deps += [ ":vulkan_context_provider" ]
   }
+  if (is_mac) {
+    public_deps += [ ":metal_context_provider" ]
+  }
 }
 
 viz_source_set("unit_tests") {
@@ -250,6 +302,7 @@ viz_source_set("unit_tests") {
   never_build_jumbo = true
   testonly = true
   sources = [
+    "display/overlay_strategy_unittest.cc",
     "frame_sinks/begin_frame_args_unittest.cc",
     "frame_sinks/begin_frame_source_unittest.cc",
     "frame_sinks/copy_output_util_unittest.cc",
@@ -266,7 +319,6 @@ viz_source_set("unit_tests") {
     "gpu/context_cache_controller_unittest.cc",
     "quads/draw_quad_unittest.cc",
     "quads/render_pass_unittest.cc",
-    "resources/platform_color_unittest.cc",
     "resources/resource_sizes_unittest.cc",
     "surfaces/child_local_surface_id_allocator_unittest.cc",
     "surfaces/local_surface_id_unittest.cc",
@@ -311,6 +363,7 @@ viz_test("viz_benchmark") {
     "//base",
     "//base/test:test_support",
     "//components/test:run_all_unittests",
+    "//components/viz/test:test_support",
     "//gpu/command_buffer/client",
     "//gpu/command_buffer/client:gles2_implementation",
     "//gpu/ipc:gl_in_process_context",

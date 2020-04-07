@@ -39,7 +39,7 @@ class DocuWindow : public QMainWindow
 {
     Q_OBJECT
 public:
-    DocuWindow(const QString& docu, QWidget *parent = 0);
+    DocuWindow(const QString& docu, QWidget *parent = nullptr);
 
 public slots:
     void save();

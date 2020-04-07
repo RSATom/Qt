@@ -56,9 +56,8 @@
 
 #include <Qt3DCore/private/qaspectjobproviderinterface_p.h>
 #include <Qt3DCore/private/qbackendnode_p.h>
-#include <Qt3DCore/private/qbackendnodefactory_p.h>
-#include <Qt3DCore/private/qsceneobserverinterface_p.h>
 #include <Qt3DCore/private/qt3dcore_global_p.h>
+#include <Qt3DCore/private/qscenechange_p.h>
 #include <QtCore/private/qobject_p.h>
 
 #include <QMutex>
@@ -102,49 +101,77 @@ private:
 
 } // Debug
 
+struct NodeTreeChange
+{
+    enum NodeTreeChangeType {
+        Added = 0,
+        Removed = 1
+    };
+    Qt3DCore::QNodeId id;
+    const QMetaObject *metaObj;
+    NodeTreeChangeType type;
+    Qt3DCore::QNode *node;
+};
+
 class Q_3DCORE_PRIVATE_EXPORT QAbstractAspectPrivate
         : public QObjectPrivate
-        , public QBackendNodeFactory
-        , public QSceneObserverInterface
         , public QAspectJobProviderInterface
 {
 public:
     QAbstractAspectPrivate();
     ~QAbstractAspectPrivate();
 
-    void setRootAndCreateNodes(QEntity *rootObject, const QVector<Qt3DCore::QNodeCreatedChangeBasePtr> &changes);
+    void setRootAndCreateNodes(QEntity *rootObject, const QVector<NodeTreeChange> &nodesTreeChanges);
 
     QServiceLocator *services() const;
     QAbstractAspectJobManager *jobManager() const;
 
     QVector<QAspectJobPtr> jobsToExecute(qint64 time) override;
+    void jobsDone() override;
 
-    QBackendNode *createBackendNode(const QNodeCreatedChangeBasePtr &change) const override;
-    void clearBackendNode(const QNodeDestroyedChangePtr &change) const;
-
-    void sceneNodeAdded(Qt3DCore::QSceneChangePtr &e) override;
-    void sceneNodeRemoved(Qt3DCore::QSceneChangePtr &e) override;
+    QBackendNode *createBackendNode(const NodeTreeChange &change) const;
+    void clearBackendNode(const NodeTreeChange &change) const;
+    void syncDirtyFrontEndNodes(const QVector<QNode *> &nodes);
+    void syncDirtyFrontEndSubNodes(const QVector<NodeRelationshipChange> &nodes);
+    virtual void syncDirtyFrontEndNode(QNode *node, QBackendNode *backend, bool firstTime) const;
+    void sendPropertyMessages(QNode *node, QBackendNode *backend) const;
 
     virtual void onEngineAboutToShutdown();
 
-    // TODO: Make these public in 5.8
+    // TODO: Make public at some point
+    template<class Frontend, bool supportsSyncing>
+    void registerBackendType(const QBackendNodeMapperPtr &functor);
+    void registerBackendType(const QMetaObject &obj, const QBackendNodeMapperPtr &functor, bool supportsSyncing);
     template<class Frontend>
     void unregisterBackendType();
     void unregisterBackendType(const QMetaObject &mo);
 
     Q_DECLARE_PUBLIC(QAbstractAspect)
 
+    enum NodeMapperInfo {
+        DefaultMapper = 0,
+        SupportsSyncing = 1 << 0
+    };
+    using BackendNodeMapperAndInfo = QPair<QBackendNodeMapperPtr, NodeMapperInfo>;
+    BackendNodeMapperAndInfo mapperForNode(const QMetaObject *metaObj) const;
+
     QEntity *m_root;
     QNodeId m_rootId;
     QAspectManager *m_aspectManager;
     QAbstractAspectJobManager *m_jobManager;
     QChangeArbiter *m_arbiter;
-    QHash<const QMetaObject*, QBackendNodeMapperPtr> m_backendCreatorFunctors;
+    QHash<const QMetaObject*, BackendNodeMapperAndInfo> m_backendCreatorFunctors;
     QMutex m_singleShotMutex;
     QVector<QAspectJobPtr> m_singleShotJobs;
 
     static QAbstractAspectPrivate *get(QAbstractAspect *aspect);
 };
+
+template<class Frontend, bool supportsSyncing>
+void QAbstractAspectPrivate::registerBackendType(const QBackendNodeMapperPtr &functor)
+{
+    registerBackendType(Frontend::staticMetaObject, functor, supportsSyncing);
+}
 
 template<class Frontend>
 void QAbstractAspectPrivate::unregisterBackendType()

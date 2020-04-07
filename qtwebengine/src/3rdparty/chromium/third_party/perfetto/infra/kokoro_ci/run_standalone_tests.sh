@@ -25,7 +25,11 @@ echo PERFETTO_TEST_GN_ARGS: ${PERFETTO_TEST_GN_ARGS}
 
 OUT_PATH="out/dist"
 
+if [[ "$PERFETTO_TEST_GN_ARGS" =~ "android" ]]; then
+tools/install-build-deps
+else
 tools/install-build-deps --no-android
+fi
 
 pip install --quiet --user protobuf
 
@@ -42,4 +46,7 @@ ${OUT_PATH}/perfetto_unittests
 ${OUT_PATH}/perfetto_integrationtests
 
 BENCHMARK_FUNCTIONAL_TEST_ONLY=true ${OUT_PATH}/perfetto_benchmarks
-tools/diff_test_trace_processor.py ${OUT_PATH}/trace_processor_shell
+tools/diff_test_trace_processor.py \
+  --test-type=queries ${OUT_PATH}/trace_processor_shell
+tools/diff_test_trace_processor.py \
+  --test-type=metrics ${OUT_PATH}/trace_processor_shell

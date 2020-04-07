@@ -53,7 +53,8 @@ class MODULES_EXPORT ServiceWorker final
       public mojom::blink::ServiceWorkerObject {
   DEFINE_WRAPPERTYPEINFO();
   USING_GARBAGE_COLLECTED_MIXIN(ServiceWorker);
-
+  USING_PRE_FINALIZER(ServiceWorker, Dispose);
+  
  public:
   static ServiceWorker* From(ExecutionContext*,
                              mojom::blink::ServiceWorkerObjectInfoPtr);
@@ -61,12 +62,20 @@ class MODULES_EXPORT ServiceWorker final
   // and use the above From() everywhere instead of this one.
   static ServiceWorker* From(ExecutionContext*, WebServiceWorkerObjectInfo);
 
+  static ServiceWorker* Create(ExecutionContext* context,
+                               WebServiceWorkerObjectInfo info) {
+    ServiceWorker* worker =
+        MakeGarbageCollected<ServiceWorker>(context, std::move(info));
+    worker->UpdateStateIfNeeded();
+    return worker;
+  }
+
   ServiceWorker(ExecutionContext*, WebServiceWorkerObjectInfo);
   ~ServiceWorker() override;
   void Trace(blink::Visitor*) override;
 
-  // Eager finalization needed to promptly release owned WebServiceWorker.
-  EAGERLY_FINALIZE();
+  // Pre-finalization needed to promptly release owned WebServiceWorker.
+  void Dispose();
 
   void postMessage(ScriptState*,
                    const ScriptValue& message,
@@ -79,7 +88,7 @@ class MODULES_EXPORT ServiceWorker final
 
   String scriptURL() const;
   String state() const;
-  DEFINE_ATTRIBUTE_EVENT_LISTENER(statechange, kStatechange);
+  DEFINE_ATTRIBUTE_EVENT_LISTENER(statechange, kStatechange)
 
   ServiceWorker* ToServiceWorker() override { return this; }
 
@@ -95,7 +104,8 @@ class MODULES_EXPORT ServiceWorker final
   ScriptPromise InternalsTerminate(ScriptState*);
 
  private:
-  // PausableObject overrides.
+  // ContextLifecycleStateObserver overrides.
+  void ContextLifecycleStateChanged(mojom::FrameLifecycleState state) override;
   void ContextDestroyed(ExecutionContext*) override;
 
   bool was_stopped_;

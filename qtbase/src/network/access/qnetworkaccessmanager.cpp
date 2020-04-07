@@ -70,6 +70,7 @@
 #include "QtNetwork/private/qauthenticator_p.h"
 #include "QtNetwork/qsslconfiguration.h"
 #include "QtNetwork/qnetworkconfigmanager.h"
+#include "QtNetwork/private/http2protocol_p.h"
 
 #if QT_CONFIG(http)
 #include "qhttpmultipart.h"
@@ -89,6 +90,8 @@
 #ifdef Q_OS_WASM
 #include "qnetworkreplywasmimpl_p.h"
 #endif
+
+#include "qnetconmonitor_p.h"
 
 QT_BEGIN_NAMESPACE
 
@@ -486,18 +489,26 @@ QNetworkAccessManager::QNetworkAccessManager(QObject *parent)
     qRegisterMetaType<QNetworkReply::NetworkError>();
     qRegisterMetaType<QSharedPointer<char> >();
 
-#ifndef QT_NO_BEARERMANAGEMENT
     Q_D(QNetworkAccessManager);
-    // if a session is required, we track online state through
-    // the QNetworkSession's signals if a request is already made.
-    // we need to track current accessibility state by default
-    //
-    connect(&d->networkConfigurationManager, SIGNAL(onlineStateChanged(bool)),
-            SLOT(_q_onlineStateChanged(bool)));
-    connect(&d->networkConfigurationManager, SIGNAL(configurationChanged(QNetworkConfiguration)),
-            SLOT(_q_configurationChanged(QNetworkConfiguration)));
 
-#endif
+    if (QNetworkStatusMonitor::isEnabled()) {
+        connect(&d->statusMonitor, SIGNAL(onlineStateChanged(bool)),
+                SLOT(_q_onlineStateChanged(bool)));
+#ifdef QT_NO_BEARERMANAGEMENT
+        d->networkAccessible = d->statusMonitor.isNetworkAccessible();
+#else
+        d->networkAccessible = d->statusMonitor.isNetworkAccessible() ? Accessible : NotAccessible;
+    } else {
+        // if a session is required, we track online state through
+        // the QNetworkSession's signals if a request is already made.
+        // we need to track current accessibility state by default
+        //
+        connect(&d->networkConfigurationManager, SIGNAL(onlineStateChanged(bool)),
+                SLOT(_q_onlineStateChanged(bool)));
+        connect(&d->networkConfigurationManager, SIGNAL(configurationChanged(QNetworkConfiguration)),
+                SLOT(_q_configurationChanged(QNetworkConfiguration)));
+#endif // QT_NO_BEARERMANAGEMENT
+    }
 }
 
 /*!
@@ -1030,6 +1041,7 @@ QNetworkReply *QNetworkAccessManager::deleteResource(const QNetworkRequest &requ
 void QNetworkAccessManager::setConfiguration(const QNetworkConfiguration &config)
 {
     Q_D(QNetworkAccessManager);
+
     d->networkConfiguration = config;
     d->customNetworkConfiguration = true;
     d->createSession(config);
@@ -1048,7 +1060,7 @@ QNetworkConfiguration QNetworkAccessManager::configuration() const
     Q_D(const QNetworkAccessManager);
 
     QSharedPointer<QNetworkSession> session(d->getNetworkSession());
-    if (session) {
+    if (session && !d->statusMonitor.isEnabled()) {
         return session->configuration();
     } else {
         return d->networkConfigurationManager.defaultConfiguration();
@@ -1075,7 +1087,7 @@ QNetworkConfiguration QNetworkAccessManager::activeConfiguration() const
     Q_D(const QNetworkAccessManager);
 
     QSharedPointer<QNetworkSession> networkSession(d->getNetworkSession());
-    if (networkSession) {
+    if (networkSession && !d->statusMonitor.isEnabled()) {
         return d->networkConfigurationManager.configurationFromIdentifier(
             networkSession->sessionProperty(QLatin1String("ActiveConfiguration")).toString());
     } else {
@@ -1113,6 +1125,12 @@ void QNetworkAccessManager::setNetworkAccessible(QNetworkAccessManager::NetworkA
 QNetworkAccessManager::NetworkAccessibility QNetworkAccessManager::networkAccessible() const
 {
     Q_D(const QNetworkAccessManager);
+
+    if (d->statusMonitor.isEnabled()) {
+        if (!d->statusMonitor.isMonitoring())
+            d->statusMonitor.start();
+        return d->networkAccessible;
+    }
 
     if (d->customNetworkConfiguration && d->networkConfiguration.state().testFlag(QNetworkConfiguration::Undefined))
         return UnknownAccessibility;
@@ -1161,7 +1179,6 @@ QSharedPointer<QNetworkSession> QNetworkAccessManagerPrivate::getNetworkSession(
 }
 
 #endif // QT_NO_BEARERMANAGEMENT
-
 
 #ifndef QT_NO_SSL
 /*!
@@ -1387,6 +1404,11 @@ QNetworkReply *QNetworkAccessManager::createRequest(QNetworkAccessManager::Opera
         req.setAttribute(QNetworkRequest::RedirectPolicyAttribute, redirectPolicy());
     }
 
+    if (autoDeleteReplies()
+        && req.attribute(QNetworkRequest::AutoDeleteReplyOnFinishAttribute).isNull()) {
+        req.setAttribute(QNetworkRequest::AutoDeleteReplyOnFinishAttribute, true);
+    }
+
     bool isLocalFile = req.url().isLocalFile();
     QString scheme = req.url().scheme();
 
@@ -1435,35 +1457,57 @@ QNetworkReply *QNetworkAccessManager::createRequest(QNetworkAccessManager::Opera
         }
     }
 
+    if (d->statusMonitor.isEnabled()) {
+        // See the code in ctor - QNetworkStatusMonitor allows us to
+        // immediately set 'networkAccessible' even before we start
+        // the monitor.
+#ifdef QT_NO_BEARERMANAGEMENT
+        if (!d->networkAccessible
+#else
+        if (d->networkAccessible == NotAccessible
+#endif // QT_NO_BEARERMANAGEMENT
+            && !isLocalFile) {
+            QHostAddress dest;
+            QString host = req.url().host().toLower();
+            if (!(dest.setAddress(host) && dest.isLoopback())
+                 && host != QLatin1String("localhost")
+                 && host != QHostInfo::localHostName().toLower()) {
+                return new QDisabledNetworkReply(this, req, op);
+            }
+        }
+
+        if (!d->statusMonitor.isMonitoring() && !d->statusMonitor.start())
+            qWarning(lcNetMon, "failed to start network status monitoring");
+    } else {
 #ifndef QT_NO_BEARERMANAGEMENT
-
-    // Return a disabled network reply if network access is disabled.
-    // Except if the scheme is empty or file:// or if the host resolves to a loopback address.
-    if (d->networkAccessible == NotAccessible && !isLocalFile) {
-        QHostAddress dest;
-        QString host = req.url().host().toLower();
-        if (!(dest.setAddress(host) && dest.isLoopback()) && host != QLatin1String("localhost")
+        // Return a disabled network reply if network access is disabled.
+        // Except if the scheme is empty or file:// or if the host resolves to a loopback address.
+        if (d->networkAccessible == NotAccessible && !isLocalFile) {
+            QHostAddress dest;
+            QString host = req.url().host().toLower();
+            if (!(dest.setAddress(host) && dest.isLoopback()) && host != QLatin1String("localhost")
                 && host != QHostInfo::localHostName().toLower()) {
-            return new QDisabledNetworkReply(this, req, op);
+                return new QDisabledNetworkReply(this, req, op);
+            }
         }
-    }
 
-    if (!d->networkSessionStrongRef && (d->initializeSession || !d->networkConfiguration.identifier().isEmpty())) {
-        if (!d->networkConfiguration.identifier().isEmpty()) {
-            if ((d->networkConfiguration.state() & QNetworkConfiguration::Defined)
-                    && d->networkConfiguration != d->networkConfigurationManager.defaultConfiguration())
-                d->createSession(d->networkConfigurationManager.defaultConfiguration());
-            else
-                d->createSession(d->networkConfiguration);
+        if (!d->networkSessionStrongRef && (d->initializeSession || !d->networkConfiguration.identifier().isEmpty())) {
+            if (!d->networkConfiguration.identifier().isEmpty()) {
+                if ((d->networkConfiguration.state() & QNetworkConfiguration::Defined)
+                        && d->networkConfiguration != d->networkConfigurationManager.defaultConfiguration())
+                    d->createSession(d->networkConfigurationManager.defaultConfiguration());
+                else
+                    d->createSession(d->networkConfiguration);
 
-        } else {
-            if (d->networkSessionRequired)
-                d->createSession(d->networkConfigurationManager.defaultConfiguration());
-            else
-                d->initializeSession = false;
+            } else {
+                if (d->networkSessionRequired)
+                    d->createSession(d->networkConfigurationManager.defaultConfiguration());
+                else
+                    d->initializeSession = false;
+            }
         }
-    }
 #endif
+    }
 
     QNetworkRequest request = req;
     if (!request.header(QNetworkRequest::ContentLengthHeader).isValid() &&
@@ -1510,8 +1554,10 @@ QNetworkReply *QNetworkAccessManager::createRequest(QNetworkAccessManager::Opera
 #endif
         QNetworkReplyHttpImpl *reply = new QNetworkReplyHttpImpl(this, request, op, outgoingData);
 #ifndef QT_NO_BEARERMANAGEMENT
-        connect(this, SIGNAL(networkSessionConnected()),
-                reply, SLOT(_q_networkSessionConnected()));
+        if (!d->statusMonitor.isEnabled()) {
+            connect(this, SIGNAL(networkSessionConnected()),
+                    reply, SLOT(_q_networkSessionConnected()));
+        }
 #endif
         return reply;
     }
@@ -1520,7 +1566,9 @@ QNetworkReply *QNetworkAccessManager::createRequest(QNetworkAccessManager::Opera
     // first step: create the reply
     QNetworkReplyImpl *reply = new QNetworkReplyImpl(this);
 #ifndef QT_NO_BEARERMANAGEMENT
-    if (!isLocalFile) {
+    // NETMONTODO: network reply impl must be augmented to use the same monitoring
+    // capabilities as http network reply impl does. Once it does: uncomment the condition below
+    if (!isLocalFile /*&& !d->statusMonitor.isEnabled()*/) {
         connect(this, SIGNAL(networkSessionConnected()),
                 reply, SLOT(_q_networkSessionConnected()));
     }
@@ -1631,13 +1679,50 @@ void QNetworkAccessManager::clearConnectionCache()
     QNetworkAccessManagerPrivate::clearConnectionCache(this);
 }
 
+
+/*!
+    \since 5.14
+
+    Returns the true if QNetworkAccessManager is currently configured
+    to automatically delete QNetworkReplies, false otherwise.
+
+    \sa setAutoDeleteReplies,
+    QNetworkRequest::AutoDeleteReplyOnFinishAttribute
+*/
+bool QNetworkAccessManager::autoDeleteReplies() const
+{
+    return d_func()->autoDeleteReplies;
+}
+
+/*!
+    \since 5.14
+
+    Enables or disables automatic deletion of \l {QNetworkReply} {QNetworkReplies}.
+
+    Setting \a shouldAutoDelete to true is the same as setting the
+    QNetworkRequest::AutoDeleteReplyOnFinishAttribute attribute to
+    true on all \e{future} \l {QNetworkRequest} {QNetworkRequests}
+    passed to this instance of QNetworkAccessManager unless the
+    attribute was already explicitly set on the QNetworkRequest.
+
+    \sa autoDeleteReplies,
+    QNetworkRequest::AutoDeleteReplyOnFinishAttribute
+*/
+void QNetworkAccessManager::setAutoDeleteReplies(bool shouldAutoDelete)
+{
+    d_func()->autoDeleteReplies = shouldAutoDelete;
+}
+
 void QNetworkAccessManagerPrivate::_q_replyFinished()
 {
     Q_Q(QNetworkAccessManager);
 
     QNetworkReply *reply = qobject_cast<QNetworkReply *>(q->sender());
-    if (reply)
+    if (reply) {
         emit q->finished(reply);
+        if (reply->request().attribute(QNetworkRequest::AutoDeleteReplyOnFinishAttribute, false).toBool())
+            QMetaObject::invokeMethod(reply, [reply] { reply->deleteLater(); }, Qt::QueuedConnection);
+    }
 
 #ifndef QT_NO_BEARERMANAGEMENT
     // If there are no active requests, release our reference to the network session.
@@ -1989,7 +2074,13 @@ void QNetworkAccessManagerPrivate::_q_networkSessionStateChanged(QNetworkSession
 
 void QNetworkAccessManagerPrivate::_q_onlineStateChanged(bool isOnline)
 {
-   Q_Q(QNetworkAccessManager);
+    Q_Q(QNetworkAccessManager);
+
+    if (statusMonitor.isEnabled()) {
+        networkAccessible = isOnline ? QNetworkAccessManager::Accessible : QNetworkAccessManager::NotAccessible;
+        return;
+    }
+
 
    // if the user set a config, we only care whether this one is active.
     // Otherwise, this QNAM is online if there is an online config.
@@ -2019,6 +2110,9 @@ void QNetworkAccessManagerPrivate::_q_onlineStateChanged(bool isOnline)
 
 void QNetworkAccessManagerPrivate::_q_configurationChanged(const QNetworkConfiguration &configuration)
 {
+    if (statusMonitor.isEnabled())
+        return;
+
     const QString id = configuration.identifier();
     if (configuration.state().testFlag(QNetworkConfiguration::Active)) {
         if (!onlineConfigurations.contains(id)) {
@@ -2051,6 +2145,9 @@ void QNetworkAccessManagerPrivate::_q_configurationChanged(const QNetworkConfigu
 
 void QNetworkAccessManagerPrivate::_q_networkSessionFailed(QNetworkSession::SessionError)
 {
+    if (statusMonitor.isEnabled())
+        return;
+
     const auto cfgs = networkConfigurationManager.allConfigurations();
     for (const QNetworkConfiguration &cfg : cfgs) {
         if (cfg.state().testFlag(QNetworkConfiguration::Active)) {
@@ -2060,6 +2157,13 @@ void QNetworkAccessManagerPrivate::_q_networkSessionFailed(QNetworkSession::Sess
             return;
         }
     }
+}
+
+#else
+
+void QNetworkAccessManagerPrivate::_q_onlineStateChanged(bool isOnline)
+{
+    networkAccessible = isOnline;
 }
 
 #endif // QT_NO_BEARERMANAGEMENT

@@ -29,6 +29,7 @@
 #include "av1/common/seg_common.h"
 
 #include "av1/encoder/encodemv.h"
+#include "av1/encoder/encode_strategy.h"
 #include "av1/encoder/random.h"
 #include "av1/encoder/ratectrl.h"
 
@@ -558,13 +559,11 @@ static int get_gf_active_quality(const RATE_CONTROL *const rc, int q,
                             arfgf_low_motion_minq, arfgf_high_motion_minq);
 }
 
-#if REDUCE_LAST_ALT_BOOST
 static int get_gf_high_motion_quality(int q, aom_bit_depth_t bit_depth) {
   int *arfgf_high_motion_minq;
   ASSIGN_MINQ_TABLE(bit_depth, arfgf_high_motion_minq);
   return arfgf_high_motion_minq[q];
 }
-#endif
 
 static int calc_active_worst_quality_one_pass_vbr(const AV1_COMP *cpi) {
   const RATE_CONTROL *const rc = &cpi->rc;
@@ -965,12 +964,8 @@ static int rc_pick_q_and_bounds_two_pass(const AV1_COMP *cpi, int width,
   const int bit_depth = cm->seq_params.bit_depth;
   ASSIGN_MINQ_TABLE(bit_depth, inter_minq);
 
-#if CUSTOMIZED_GF
   const int is_intrl_arf_boost =
       gf_group->update_type[gf_group->index] == INTNL_ARF_UPDATE;
-#else
-  const int is_intrl_arf_boost = cpi->refresh_alt2_ref_frame;
-#endif  // CUSTOMIZED_GF
 
   if (frame_is_intra_only(cm)) {
     if (rc->frames_to_key == 1 && oxcf->rc_mode == AOM_Q) {
@@ -1053,17 +1048,14 @@ static int rc_pick_q_and_bounds_two_pass(const AV1_COMP *cpi, int width,
       // Constrained quality use slightly lower active best.
       active_best_quality = active_best_quality * 15 / 16;
 
-#if USE_SYMM_MULTI_LAYER && MULTI_LVL_BOOST_VBR_CQ
       if (gf_group->update_type[gf_group->index] == ARF_UPDATE ||
           (is_intrl_arf_boost && !cpi->new_bwdref_update_rule)) {
-#if REDUCE_LAST_ALT_BOOST
         if (gf_group->update_type[gf_group->index] == ARF_UPDATE) {
           const int min_boost = get_gf_high_motion_quality(q, bit_depth);
           const int boost = min_boost - active_best_quality;
 
           active_best_quality = min_boost - (int)(boost * rc->arf_boost_factor);
         }
-#endif  // REDUCE_LAST_ALT_BOOST
         *arf_q = active_best_quality;
       } else if (cpi->new_bwdref_update_rule && is_intrl_arf_boost) {
         assert(rc->arf_q >= 0);  // Ensure it is set to a valid value.
@@ -1074,7 +1066,6 @@ static int rc_pick_q_and_bounds_two_pass(const AV1_COMP *cpi, int width,
           ++this_height;
         }
       }
-#endif  // USE_SYMM_MULTI_LAYER && MULTI_LVL_BOOST_VBR_CQ
     } else if (oxcf->rc_mode == AOM_Q) {
       if (!cpi->refresh_alt_ref_frame && !is_intrl_arf_boost) {
         active_best_quality = cq_level;
@@ -1082,17 +1073,14 @@ static int rc_pick_q_and_bounds_two_pass(const AV1_COMP *cpi, int width,
         if (gf_group->update_type[gf_group->index] == ARF_UPDATE) {
           active_best_quality = get_gf_active_quality(rc, q, bit_depth);
           *arf_q = active_best_quality;
-#if REDUCE_LAST_ALT_BOOST
           const int min_boost = get_gf_high_motion_quality(q, bit_depth);
           const int boost = min_boost - active_best_quality;
 
           active_best_quality = min_boost - (int)(boost * rc->arf_boost_factor);
-#endif
         } else {
           assert(rc->arf_q >= 0);  // Ensure it is set to a valid value.
           active_best_quality = rc->arf_q;
         }
-#if USE_SYMM_MULTI_LAYER
         if (cpi->new_bwdref_update_rule && is_intrl_arf_boost) {
           int this_height = gf_group_pyramid_level(cpi);
           while (this_height < gf_group->pyramid_height) {
@@ -1100,24 +1088,18 @@ static int rc_pick_q_and_bounds_two_pass(const AV1_COMP *cpi, int width,
             ++this_height;
           }
         } else {
-#endif
           // Modify best quality for second level arfs. For mode AOM_Q this
           // becomes the baseline frame q.
           if (gf_group->rf_level[gf_group->index] == GF_ARF_LOW)
             active_best_quality = (active_best_quality + cq_level + 1) / 2;
-#if USE_SYMM_MULTI_LAYER
         }
-#endif
       }
     } else {
       active_best_quality = get_gf_active_quality(rc, q, bit_depth);
-#if REDUCE_LAST_ALT_BOOST
       const int min_boost = get_gf_high_motion_quality(q, bit_depth);
       const int boost = min_boost - active_best_quality;
 
       active_best_quality = min_boost - (int)(boost * rc->arf_boost_factor);
-#endif
-#if USE_SYMM_MULTI_LAYER
       if (cpi->new_bwdref_update_rule && is_intrl_arf_boost) {
         int this_height = gf_group_pyramid_level(cpi);
         while (this_height < gf_group->pyramid_height) {
@@ -1126,7 +1108,6 @@ static int rc_pick_q_and_bounds_two_pass(const AV1_COMP *cpi, int width,
           ++this_height;
         }
       }
-#endif
     }
   } else {
     if (oxcf->rc_mode == AOM_Q) {
@@ -1293,16 +1274,12 @@ static void update_alt_ref_frame_stats(AV1_COMP *cpi) {
 
 static void update_golden_frame_stats(AV1_COMP *cpi) {
   RATE_CONTROL *const rc = &cpi->rc;
-#if CUSTOMIZED_GF
   const TWO_PASS *const twopass = &cpi->twopass;
   const GF_GROUP *const gf_group = &twopass->gf_group;
   const int is_intrnl_arf =
       cpi->oxcf.pass == 2
           ? gf_group->update_type[gf_group->index] == INTNL_ARF_UPDATE
           : cpi->refresh_alt2_ref_frame;
-#else
-  const int is_intnl_arf = cpi->refresh_alt2_ref_frame;
-#endif
 
   // Update the Golden frame usage counts.
   // NOTE(weitinglin): If we use show_existing_frame for an OVERLAY frame,
@@ -1328,127 +1305,6 @@ static void update_golden_frame_stats(AV1_COMP *cpi) {
   }
 }
 
-// Define the reference buffers that will be updated post encode.
-void av1_configure_buffer_updates(AV1_COMP *cpi) {
-  TWO_PASS *const twopass = &cpi->twopass;
-
-  // NOTE(weitinglin): Should we define another function to take care of
-  // cpi->rc.is_$Source_Type to make this function as it is in the comment?
-
-  cpi->rc.is_src_frame_alt_ref = 0;
-  cpi->rc.is_bwd_ref_frame = 0;
-  cpi->rc.is_last_bipred_frame = 0;
-  cpi->rc.is_bipred_frame = 0;
-  cpi->rc.is_src_frame_ext_arf = 0;
-
-  switch (twopass->gf_group.update_type[twopass->gf_group.index]) {
-    case KF_UPDATE:
-      cpi->refresh_last_frame = 1;
-      cpi->refresh_golden_frame = 1;
-      cpi->refresh_bwd_ref_frame = 1;
-      cpi->refresh_alt2_ref_frame = 1;
-      cpi->refresh_alt_ref_frame = 1;
-      break;
-
-    case LF_UPDATE:
-      cpi->refresh_last_frame = 1;
-      cpi->refresh_golden_frame = 0;
-      cpi->refresh_bwd_ref_frame = 0;
-      cpi->refresh_alt2_ref_frame = 0;
-      cpi->refresh_alt_ref_frame = 0;
-      break;
-
-    case GF_UPDATE:
-      // TODO(zoeliu): To further investigate whether 'refresh_last_frame' is
-      //               needed.
-      cpi->refresh_last_frame = 1;
-      cpi->refresh_golden_frame = 1;
-      cpi->refresh_bwd_ref_frame = 0;
-      cpi->refresh_alt2_ref_frame = 0;
-      cpi->refresh_alt_ref_frame = 0;
-      break;
-
-    case OVERLAY_UPDATE:
-      cpi->refresh_last_frame = 0;
-      cpi->refresh_golden_frame = 1;
-      cpi->refresh_bwd_ref_frame = 0;
-      cpi->refresh_alt2_ref_frame = 0;
-      cpi->refresh_alt_ref_frame = 0;
-
-      cpi->rc.is_src_frame_alt_ref = 1;
-      break;
-
-    case ARF_UPDATE:
-      cpi->refresh_last_frame = 0;
-      cpi->refresh_golden_frame = 0;
-      // NOTE: BWDREF does not get updated along with ALTREF_FRAME.
-      cpi->refresh_bwd_ref_frame = 0;
-      cpi->refresh_alt2_ref_frame = 0;
-      cpi->refresh_alt_ref_frame = 1;
-      break;
-
-    case BRF_UPDATE:
-      cpi->refresh_last_frame = 0;
-      cpi->refresh_golden_frame = 0;
-      cpi->refresh_bwd_ref_frame = 1;
-      cpi->refresh_alt2_ref_frame = 0;
-      cpi->refresh_alt_ref_frame = 0;
-
-      cpi->rc.is_bwd_ref_frame = 1;
-      break;
-
-    case LAST_BIPRED_UPDATE:
-      cpi->refresh_last_frame = 1;
-      cpi->refresh_golden_frame = 0;
-      cpi->refresh_bwd_ref_frame = 0;
-      cpi->refresh_alt2_ref_frame = 0;
-      cpi->refresh_alt_ref_frame = 0;
-
-      cpi->rc.is_last_bipred_frame = 1;
-      break;
-
-    case BIPRED_UPDATE:
-      cpi->refresh_last_frame = 1;
-      cpi->refresh_golden_frame = 0;
-      cpi->refresh_bwd_ref_frame = 0;
-      cpi->refresh_alt2_ref_frame = 0;
-      cpi->refresh_alt_ref_frame = 0;
-
-      cpi->rc.is_bipred_frame = 1;
-      break;
-
-    case INTNL_OVERLAY_UPDATE:
-      cpi->refresh_last_frame = 1;
-      cpi->refresh_golden_frame = 0;
-      cpi->refresh_bwd_ref_frame = 0;
-      cpi->refresh_alt2_ref_frame = 0;
-      cpi->refresh_alt_ref_frame = 0;
-
-      cpi->rc.is_src_frame_alt_ref = 1;
-      cpi->rc.is_src_frame_ext_arf = 1;
-      break;
-
-    case INTNL_ARF_UPDATE:
-      cpi->refresh_last_frame = 0;
-      cpi->refresh_golden_frame = 0;
-#if USE_SYMM_MULTI_LAYER
-      if (cpi->new_bwdref_update_rule == 1) {
-        cpi->refresh_bwd_ref_frame = 1;
-        cpi->refresh_alt2_ref_frame = 0;
-      } else {
-#endif
-        cpi->refresh_bwd_ref_frame = 0;
-        cpi->refresh_alt2_ref_frame = 1;
-#if USE_SYMM_MULTI_LAYER
-      }
-#endif
-      cpi->refresh_alt_ref_frame = 0;
-      break;
-
-    default: assert(0); break;
-  }
-}
-
 void av1_estimate_qp_gop(AV1_COMP *cpi) {
   AV1_COMMON *const cm = &cpi->common;
   int gop_length = cpi->rc.baseline_gf_interval;
@@ -1463,30 +1319,28 @@ void av1_estimate_qp_gop(AV1_COMP *cpi) {
 
     cpi->twopass.gf_group.index = idx;
     rc_set_frame_target(cpi, target_rate, cm->width, cm->height);
-    av1_configure_buffer_updates(cpi);
+    av1_configure_buffer_updates(
+        cpi, cpi->twopass.gf_group.update_type[cpi->twopass.gf_group.index]);
     tpl_frame->base_qindex = rc_pick_q_and_bounds_two_pass(
         cpi, cm->width, cm->height, &bottom_index, &top_index, &arf_q);
     tpl_frame->base_qindex = AOMMAX(tpl_frame->base_qindex, 1);
   }
   // Reset the actual index and frame update
   cpi->twopass.gf_group.index = gf_index;
-  av1_configure_buffer_updates(cpi);
+  av1_configure_buffer_updates(
+      cpi, cpi->twopass.gf_group.update_type[cpi->twopass.gf_group.index]);
 }
 
 void av1_rc_postencode_update(AV1_COMP *cpi, uint64_t bytes_used) {
   const AV1_COMMON *const cm = &cpi->common;
   const CurrentFrame *const current_frame = &cm->current_frame;
   RATE_CONTROL *const rc = &cpi->rc;
-#if CUSTOMIZED_GF
   const TWO_PASS *const twopass = &cpi->twopass;
   const GF_GROUP *const gf_group = &twopass->gf_group;
   const int is_intrnl_arf =
       cpi->oxcf.pass == 2
           ? gf_group->update_type[gf_group->index] == INTNL_ARF_UPDATE
           : cpi->refresh_alt2_ref_frame;
-#else
-  const int is_intrnl_arf = cpi->refresh_alt2_ref_frame;
-#endif
 
   const int qindex = cm->base_qindex;
 
@@ -1618,7 +1472,8 @@ static int calc_iframe_target_size_one_pass_vbr(const AV1_COMP *const cpi) {
   return av1_rc_clamp_iframe_target_size(cpi, target);
 }
 
-void av1_rc_get_one_pass_vbr_params(AV1_COMP *cpi) {
+void av1_rc_get_one_pass_vbr_params(AV1_COMP *cpi,
+                                    EncodeFrameParams *const frame_params) {
   AV1_COMMON *const cm = &cpi->common;
   RATE_CONTROL *const rc = &cpi->rc;
   CurrentFrame *const current_frame = &cm->current_frame;
@@ -1632,44 +1487,41 @@ void av1_rc_get_one_pass_vbr_params(AV1_COMP *cpi) {
       (current_frame->frame_number == 0 ||
        (cpi->frame_flags & FRAMEFLAGS_KEY) || rc->frames_to_key == 0 ||
        (cpi->oxcf.auto_key && 0))) {
-    current_frame->frame_type = KEY_FRAME;
+    frame_params->frame_type = KEY_FRAME;
     rc->this_key_frame_forced =
         current_frame->frame_number != 0 && rc->frames_to_key == 0;
     rc->frames_to_key = cpi->oxcf.key_freq;
     rc->kf_boost = DEFAULT_KF_BOOST;
     rc->source_alt_ref_active = 0;
   } else {
-    current_frame->frame_type = INTER_FRAME;
+    frame_params->frame_type = INTER_FRAME;
     if (sframe_enabled) {
       if (altref_enabled) {
         if (sframe_mode == 1) {
           // sframe_mode == 1: insert sframe if it matches altref frame.
 
           if (current_frame->frame_number % sframe_dist == 0 &&
-              current_frame->frame_type != KEY_FRAME &&
               current_frame->frame_number != 0 && cpi->refresh_alt_ref_frame) {
-            current_frame->frame_type = S_FRAME;
+            frame_params->frame_type = S_FRAME;
           }
         } else {
           // sframe_mode != 1: if sframe will be inserted at the next available
           // altref frame
 
           if (current_frame->frame_number % sframe_dist == 0 &&
-              current_frame->frame_type != KEY_FRAME &&
               current_frame->frame_number != 0) {
             rc->sframe_due = 1;
           }
 
           if (rc->sframe_due && cpi->refresh_alt_ref_frame) {
-            current_frame->frame_type = S_FRAME;
+            frame_params->frame_type = S_FRAME;
             rc->sframe_due = 0;
           }
         }
       } else {
         if (current_frame->frame_number % sframe_dist == 0 &&
-            current_frame->frame_type != KEY_FRAME &&
             current_frame->frame_number != 0) {
-          current_frame->frame_type = S_FRAME;
+          frame_params->frame_type = S_FRAME;
         }
       }
     }
@@ -1692,7 +1544,7 @@ void av1_rc_get_one_pass_vbr_params(AV1_COMP *cpi) {
   if (cpi->oxcf.aq_mode == CYCLIC_REFRESH_AQ)
     av1_cyclic_refresh_update_parameters(cpi);
 
-  if (current_frame->frame_type == KEY_FRAME)
+  if (frame_params->frame_type == KEY_FRAME)
     target = calc_iframe_target_size_one_pass_vbr(cpi);
   else
     target = calc_pframe_target_size_one_pass_vbr(cpi);
@@ -1758,7 +1610,8 @@ static int calc_iframe_target_size_one_pass_cbr(const AV1_COMP *cpi) {
   return av1_rc_clamp_iframe_target_size(cpi, target);
 }
 
-void av1_rc_get_one_pass_cbr_params(AV1_COMP *cpi) {
+void av1_rc_get_one_pass_cbr_params(AV1_COMP *cpi,
+                                    EncodeFrameParams *const frame_params) {
   AV1_COMMON *const cm = &cpi->common;
   RATE_CONTROL *const rc = &cpi->rc;
   CurrentFrame *const current_frame = &cm->current_frame;
@@ -1767,14 +1620,14 @@ void av1_rc_get_one_pass_cbr_params(AV1_COMP *cpi) {
   if ((current_frame->frame_number == 0 ||
        (cpi->frame_flags & FRAMEFLAGS_KEY) || rc->frames_to_key == 0 ||
        (cpi->oxcf.auto_key && 0))) {
-    current_frame->frame_type = KEY_FRAME;
+    frame_params->frame_type = KEY_FRAME;
     rc->this_key_frame_forced =
         current_frame->frame_number != 0 && rc->frames_to_key == 0;
     rc->frames_to_key = cpi->oxcf.key_freq;
     rc->kf_boost = DEFAULT_KF_BOOST;
     rc->source_alt_ref_active = 0;
   } else {
-    current_frame->frame_type = INTER_FRAME;
+    frame_params->frame_type = INTER_FRAME;
   }
   if (rc->frames_till_gf_update_due == 0) {
     if (cpi->oxcf.aq_mode == CYCLIC_REFRESH_AQ)
@@ -1795,7 +1648,7 @@ void av1_rc_get_one_pass_cbr_params(AV1_COMP *cpi) {
   if (cpi->oxcf.aq_mode == CYCLIC_REFRESH_AQ)
     av1_cyclic_refresh_update_parameters(cpi);
 
-  if (current_frame->frame_type == KEY_FRAME)
+  if (frame_params->frame_type == KEY_FRAME)
     target = calc_iframe_target_size_one_pass_cbr(cpi);
   else
     target = calc_pframe_target_size_one_pass_cbr(cpi);

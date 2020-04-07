@@ -136,7 +136,8 @@ void QWebGLIntegration::initialize()
 void QWebGLIntegration::destroy()
 {
     Q_D(QWebGLIntegration);
-    foreach (QWindow *w, qGuiApp->topLevelWindows())
+    const auto tlws = qGuiApp->topLevelWindows();
+    for (QWindow *w : tlws)
         w->destroy();
 
     QWindowSystemInterface::handleScreenRemoved(d->screen);
@@ -250,6 +251,12 @@ QPlatformWindow *QWebGLIntegration::createPlatformWindow(QWindow *window) const
     });
     qCDebug(lcWebGL, "Created platform window %p for: %p", platformWindow, window);
     return platformWindow;
+}
+
+QPlatformOffscreenSurface *QWebGLIntegration::createPlatformOffscreenSurface(QOffscreenSurface *surface) const
+{
+    qCDebug(lcWebGL, "New offscreen surface %p", surface);
+    return new QWebGLOffscreenSurface(surface);
 }
 
 QPlatformOpenGLContext *QWebGLIntegration::createPlatformOpenGLContext(QOpenGLContext *context)
@@ -486,10 +493,10 @@ void QWebGLIntegrationPrivate::handleMouse(const ClientData &clientData, const Q
     QPointF globalPos(object.value("clientX").toDouble(),
                       object.value("clientY").toDouble());
     auto buttons = static_cast<Qt::MouseButtons>(object.value("buttons").toInt());
-    auto time = object.value("time").toDouble();
+    auto time = object.value("time").toString();
     auto platformWindow = findWindow(clientData, winId);
     QWindowSystemInterface::handleMouseEvent(platformWindow->window(),
-                                             static_cast<ulong>(time),
+                                             time.toULong(),
                                              localPos,
                                              globalPos,
                                              Qt::MouseButtons(buttons),
@@ -528,11 +535,11 @@ void QWebGLIntegrationPrivate::handleTouch(const ClientData &clientData, const Q
     const auto winId = object.value("name").toInt(-1);
     Q_ASSERT(winId != -1);
     auto window = findWindow(clientData, winId)->window();
-    const auto time = object.value("time").toDouble();
+    const auto time = object.value("time").toString();
     const auto eventType = object.value("event").toString();
     if (eventType == QStringLiteral("touchcancel")) {
         QWindowSystemInterface::handleTouchCancelEvent(window,
-                                                       time,
+                                                       time.toULong(),
                                                        touchDevice,
                                                        Qt::NoModifier);
     } else {
@@ -578,7 +585,7 @@ void QWebGLIntegrationPrivate::handleTouch(const ClientData &clientData, const Q
         }
 
         QWindowSystemInterface::handleTouchEvent(window,
-                                                 time,
+                                                 time.toULong(),
                                                  touchDevice,
                                                  points,
                                                  Qt::NoModifier);

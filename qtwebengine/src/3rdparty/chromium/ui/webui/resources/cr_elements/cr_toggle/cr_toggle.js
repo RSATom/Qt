@@ -38,12 +38,12 @@ Polymer({
   },
 
   listeners: {
-    'pointerdown': 'onPointerDown_',
-    'pointerup': 'onPointerUp_',
-    'click': 'onTap_',
-    'keypress': 'onKeyPress_',
-    'focus': 'onFocus_',
-    'blur': 'onBlur_',
+    blur: 'hideRipple_',
+    click: 'onClick_',
+    focus: 'onFocus_',
+    keypress: 'onKeyPress_',
+    pointerdown: 'onPointerDown_',
+    pointerup: 'onPointerUp_',
   },
 
   /** @private {?Function} */
@@ -65,21 +65,22 @@ Polymer({
 
   /** @override */
   attached: function() {
-    let direction = this.matches(':host-context([dir=rtl]) cr-toggle') ? -1 : 1;
+    const direction =
+        this.matches(':host-context([dir=rtl]) cr-toggle') ? -1 : 1;
 
     this.boundPointerMove_ = (e) => {
       // Prevent unwanted text selection to occur while moving the pointer, this
       // is important.
       e.preventDefault();
 
-      let diff = e.clientX - this.pointerDownX_;
+      const diff = e.clientX - this.pointerDownX_;
       if (Math.abs(diff) < this.MOVE_THRESHOLD_PX) {
         return;
       }
 
       this.handledInPointerMove_ = true;
 
-      let shouldToggle = (diff * direction < 0 && this.checked) ||
+      const shouldToggle = (diff * direction < 0 && this.checked) ||
           (diff * direction > 0 && !this.checked);
       if (shouldToggle) {
         this.toggleState_(false);
@@ -100,19 +101,18 @@ Polymer({
 
   /** @private */
   onFocus_: function() {
-    this.ensureRipple();
-    this.$$('paper-ripple').holdDown = true;
+    this.getRipple().showAndHoldDown();
   },
 
   /** @private */
-  onBlur_: function() {
-    this.ensureRipple();
-    this.$$('paper-ripple').holdDown = false;
+  hideRipple_: function() {
+    this.getRipple().clear();
   },
 
   /** @private */
-  onPointerUp_: function(e) {
+  onPointerUp_: function() {
     this.removeEventListener('pointermove', this.boundPointerMove_);
+    this.hideRipple_();
   },
 
   /**
@@ -133,8 +133,11 @@ Polymer({
     this.addEventListener('pointermove', this.boundPointerMove_);
   },
 
-  /** @private */
-  onTap_: function(e) {
+  /**
+   * @param {!Event} e
+   * @private
+   */
+  onClick_: function(e) {
     // Prevent |click| event from bubbling. It can cause parents of this
     // elements to erroneously re-toggle this control.
     e.stopPropagation();
@@ -165,8 +168,7 @@ Polymer({
     this.checked = !this.checked;
 
     if (!fromKeyboard) {
-      this.ensureRipple();
-      this.$$('paper-ripple').holdDown = false;
+      this.hideRipple_();
     }
 
     this.fire('change', this.checked);
@@ -183,18 +185,10 @@ Polymer({
     }
   },
 
-  /** @private */
-  onButtonFocus_: function() {
-    // Forward 'focus' to the enclosing element, so that a subsequent 'Space'
-    // keystroke does not trigger both 'keypress' and 'click' which would toggle
-    // the state twice erroneously.
-    this.focus();
-  },
-
   // customize the element's ripple
   _createRipple: function() {
     this._rippleContainer = this.$.knob;
-    let ripple = Polymer.PaperRippleBehavior._createRipple();
+    const ripple = Polymer.PaperRippleBehavior._createRipple();
     ripple.id = 'ink';
     ripple.setAttribute('recenters', '');
     ripple.classList.add('circle', 'toggle-ink');

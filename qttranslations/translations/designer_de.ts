@@ -636,8 +636,8 @@
         <translation>Qt Designer</translation>
     </message>
     <message>
-        <source>Unable to launch %1.</source>
-        <translation>%1 konnte nicht gestartet werden.</translation>
+        <source>Unable to launch %1: %2</source>
+        <translation>%1 konnte nicht gestartet werden: %2</translation>
     </message>
     <message>
         <source>%1 timed out.</source>
@@ -972,6 +972,14 @@
     <message>
         <source>ID-based</source>
         <translation>ID-basiert</translation>
+    </message>
+    <message>
+        <source>Connections</source>
+        <translation>Verbindungen</translation>
+    </message>
+    <message>
+        <source>Connect slots by name</source>
+        <translation>Slots automatisch nach Name verbinden</translation>
     </message>
 </context>
 <context>
@@ -1414,14 +1422,16 @@ This indicates an inconsistency in the ui-file.</source>
         <translation>Designer-UI-Dateien (*.%1);;Alle Dateien (*)</translation>
     </message>
     <message>
-        <source>%1 already exists.
-Do you want to replace it?</source>
-        <translation>Die Datei %1 existiert bereits.
-Möchten Sie sie überschreiben?</translation>
-    </message>
-    <message>
         <source>Saved %1.</source>
         <translation>Das Formular %1 wurde gespeichert...</translation>
+    </message>
+    <message>
+        <source>View &amp;C++ Code...</source>
+        <translation>&amp;C++-Code anzeigen...</translation>
+    </message>
+    <message>
+        <source>View &amp;Python Code...</source>
+        <translation>&amp;Python-Code anzeigen...</translation>
     </message>
     <message>
         <source>&amp;Recent Forms</source>
@@ -1464,6 +1474,10 @@ Möchten Sie einen anderen Namen eingeben oder ein neues Formular erzeugen?</tra
     <message>
         <source>Could not open file</source>
         <translation>Die Datei konnte nicht geöffnet werden</translation>
+    </message>
+    <message>
+        <source>Save Form</source>
+        <translation>Formular speichern</translation>
     </message>
     <message>
         <source>The backup file %1 could not be written.</source>
@@ -1514,12 +1528,10 @@ Would you like to retry or select a different file?</source>
 Möchten Sie es noch einmal versuchen oder eine andere Datei auswählen?</translation>
     </message>
     <message>
-        <source>It was not possible to write the entire file %1 to disk.
-Reason:%2
-Would you like to retry?</source>
-        <translation>Die Datei %1 konnte nicht vollständig geschrieben werden:
-%2
-Möchten Sie es noch einmal versuchen?</translation>
+        <source>It was not possible to write the file %1 to disk.
+Reason: %2</source>
+        <translation>Die Datei %1 konnte nicht geschrieben werden.
+Grund: %2</translation>
     </message>
     <message>
         <source>Image files (*.%1)</source>
@@ -1560,10 +1572,6 @@ Möchten Sie es noch einmal versuchen?</translation>
     <message>
         <source>&amp;Close</source>
         <translation>&amp;Schließen</translation>
-    </message>
-    <message>
-        <source>View &amp;Code...</source>
-        <translation>&amp;Code anzeigen...</translation>
     </message>
     <message>
         <source>Save Form As</source>
@@ -3258,10 +3266,6 @@ Möchten Sie sie überschreiben?</translation>
 <context>
     <name>WidgetDataBase</name>
     <message>
-        <source>A custom widget plugin whose class name (%1) matches that of an existing class has been found.</source>
-        <translation>Es wurde ein Plugin gefunden, das ein benutzerdefiniertes Widget enthält, dessen Klassenname (%1) einer existierenden Klasse entspricht.</translation>
-    </message>
-    <message>
         <source>The file contains a custom widget &apos;%1&apos; whose base class (%2) differs from the current entry in the widget database (%3). The widget database is left unchanged.</source>
         <translation>Die Datei enthält ein benutzerdefiniertes Widget &apos;%1&apos; dessen Basisklasse (%2) nicht mit dem Eintrag in der Widget-Datenbank übereinstimmt. Die Widget-Datenbank wird nicht geändert.</translation>
     </message>
@@ -3475,16 +3479,12 @@ Möchten Sie sie überschreiben?</translation>
         <translation>Die temporäre Formulardatei %1 konnte nicht geschrieben werden.</translation>
     </message>
     <message>
-        <source>%1 - [Code]</source>
-        <translation>%1 - [Code]</translation>
+        <source>%1 - [%2 Code]</source>
+        <translation>%1 - [%2 Code]</translation>
     </message>
     <message>
         <source>Save Code</source>
         <translation>Code speichern</translation>
-    </message>
-    <message>
-        <source>Header Files (*.%1)</source>
-        <translation>Include-Dateien  (*.%1)</translation>
     </message>
     <message>
         <source>The file %1 could not be opened: %2</source>
@@ -5079,6 +5079,10 @@ Klasse: %2</translation>
         <translation>Unten</translation>
     </message>
     <message>
+        <source>Add Tool Bar to Other Area</source>
+        <translation>ToolBar zu anderem Bereich hinzufügen</translation>
+    </message>
+    <message>
         <source>Set Minimum Width</source>
         <translation>Minimalbreite festlegen</translation>
     </message>
@@ -5689,6 +5693,13 @@ Klasse: %2</translation>
     <message>
         <source>Edit name</source>
         <translation>Namen ändern</translation>
+    </message>
+</context>
+<context>
+    <name>qdesigner_internal::WidgetDataBase</name>
+    <message>
+        <source>A custom widget plugin whose class name (%1) matches that of an existing class has been found.</source>
+        <translation>Es wurde ein Plugin gefunden, das ein benutzerdefiniertes Widget enthält, dessen Klassenname (%1) einer existierenden Klasse entspricht.</translation>
     </message>
 </context>
 <context>

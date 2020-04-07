@@ -5,6 +5,8 @@
 #ifndef UI_BASE_CLIPBOARD_CLIPBOARD_FORMAT_TYPE_H_
 #define UI_BASE_CLIPBOARD_CLIPBOARD_FORMAT_TYPE_H_
 
+#include <map>
+#include <memory>
 #include <string>
 
 #include "base/component_export.h"
@@ -24,6 +26,7 @@ class NSString;
 namespace ui {
 
 // Platform neutral holder for native data representation of a clipboard type.
+// Copyable and assignable, since this is an opaque value type.
 struct COMPONENT_EXPORT(BASE_CLIPBOARD_TYPES) ClipboardFormatType {
   ClipboardFormatType();
   ~ClipboardFormatType();
@@ -60,7 +63,9 @@ struct COMPONENT_EXPORT(BASE_CLIPBOARD_TYPES) ClipboardFormatType {
   static const ClipboardFormatType& GetTextHtmlType();
   static const ClipboardFormatType& GetCFHDropType();
   static const ClipboardFormatType& GetFileDescriptorType();
+  static const ClipboardFormatType& GetFileDescriptorWType();
   static const ClipboardFormatType& GetFileContentZeroType();
+  static const ClipboardFormatType& GetFileContentAtIndexType(LONG index);
   static const ClipboardFormatType& GetIDListType();
 #endif
 
@@ -88,7 +93,7 @@ struct COMPONENT_EXPORT(BASE_CLIPBOARD_TYPES) ClipboardFormatType {
   friend class base::NoDestructor<ClipboardFormatType>;
 
   // Platform-specific glue used internally by the ClipboardFormatType struct.
-  // Each platform should define,at least one of each of the following:
+  // Each platform should define at least one of each of the following:
   // 1. A constructor that wraps that native clipboard format descriptor.
   // 2. An accessor to retrieve the wrapped descriptor.
   // 3. A data member to hold the wrapped descriptor.
@@ -98,6 +103,18 @@ struct COMPONENT_EXPORT(BASE_CLIPBOARD_TYPES) ClipboardFormatType {
 #if defined(OS_WIN) && !defined(TOOLKIT_QT)
   explicit ClipboardFormatType(UINT native_format);
   ClipboardFormatType(UINT native_format, LONG index);
+  ClipboardFormatType(UINT native_format, LONG index, DWORD tymed);
+
+  // When there are multiple files in the data store and they are described
+  // using a file group descriptor, the file contents are retrieved by
+  // requesting the CFSTR_FILECONTENTS clipboard format type and also providing
+  // an index into the data (the first file corresponds to index 0). This
+  // function returns a map of index to CFSTR_FILECONTENTS clipboard format
+  // type.
+  static std::map<LONG, ClipboardFormatType>& GetFileContentTypeMap();
+
+  // FORMATETC:
+  // https://docs.microsoft.com/en-us/windows/desktop/com/the-formatetc-structure
   FORMATETC data_;
 #elif defined(USE_AURA) || defined(OS_ANDROID) || defined(OS_FUCHSIA) || defined(TOOLKIT_QT)
   explicit ClipboardFormatType(const std::string& native_format);
@@ -108,8 +125,6 @@ struct COMPONENT_EXPORT(BASE_CLIPBOARD_TYPES) ClipboardFormatType {
 #else
 #error No ClipboardFormatType definition.
 #endif
-
-  // Copyable and assignable, since this is essentially an opaque value type.
 };
 
 }  // namespace ui

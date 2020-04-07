@@ -10,11 +10,11 @@
 #include "third_party/blink/renderer/bindings/core/v8/script_function.h"
 #include "third_party/blink/renderer/bindings/core/v8/to_v8_for_core.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
-#include "third_party/blink/renderer/core/frame/use_counter.h"
 #include "third_party/blink/renderer/core/frame/web_feature.h"
 #include "third_party/blink/renderer/platform/bindings/to_v8.h"
 #include "third_party/blink/renderer/platform/bindings/v8_binding.h"
 #include "third_party/blink/renderer/platform/bindings/v8_throw_exception.h"
+#include "third_party/blink/renderer/platform/instrumentation/use_counter.h"
 #include "third_party/blink/renderer/platform/runtime_enabled_features.h"
 #include "v8/include/v8.h"
 
@@ -136,8 +136,13 @@ void AddOriginals(ScriptState* script_state, v8::Local<v8::Object> binding) {
   // Most Worklets don't have MessagePort. In this case, serialization will
   // fail. AudioWorklet has MessagePort but no DOMException, so it can't use
   // serialization for now.
-  if (message_port->IsUndefined() || dom_exception->IsUndefined())
+  if (message_port->IsUndefined() || dom_exception->IsUndefined()) {
+    // Allow V8 Extras JavaScript to safely detect that MessagePort is not
+    // available. Without this, lookups of MessagePort_postMessage will follow
+    // the prototype chain.
+    Bind("MessagePort_postMessage", v8::Undefined(isolate));
     return;
+  }
 
   v8::Local<v8::Value> event_target_prototype =
       GetPrototype(ObjectGet(global, "EventTarget"));

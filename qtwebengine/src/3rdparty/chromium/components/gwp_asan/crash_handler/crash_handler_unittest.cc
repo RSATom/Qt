@@ -4,9 +4,12 @@
 
 #include "components/gwp_asan/crash_handler/crash_handler.h"
 
+#include <map>
+#include <memory>
 #include <string>
 #include <vector>
 
+#include "base/bind_helpers.h"
 #include "base/command_line.h"
 #include "base/files/file_path.h"
 #include "base/files/scoped_temp_dir.h"
@@ -25,6 +28,7 @@
 #include "third_party/crashpad/crashpad/client/annotation.h"
 #include "third_party/crashpad/crashpad/client/crash_report_database.h"
 #include "third_party/crashpad/crashpad/client/crashpad_client.h"
+#include "third_party/crashpad/crashpad/client/crashpad_info.h"
 #include "third_party/crashpad/crashpad/handler/handler_main.h"
 #include "third_party/crashpad/crashpad/snapshot/minidump/process_snapshot_minidump.h"
 #include "third_party/crashpad/crashpad/tools/tool_support.h"
@@ -34,11 +38,9 @@ namespace internal {
 
 namespace {
 
-class GwpAsanTest : public testing::Test {};
-
 constexpr size_t kAllocationSize = 902;
 constexpr int kSuccess = 0;
-constexpr size_t kTotalPages = AllocatorState::kGpaMaxPages;
+constexpr size_t kTotalPages = AllocatorState::kMaxSlots;
 
 int HandlerMainAdaptor(int argc, char* argv[]) {
   crashpad::UserStreamDataSources user_stream_data_sources;
@@ -75,21 +77,39 @@ MULTIPROCESS_TEST_MAIN(CrashpadHandler) {
 
 // Child process that launches the crashpad handler and then crashes.
 MULTIPROCESS_TEST_MAIN(CrashingProcess) {
+#if defined(OS_MACOSX)
+  // Disable the system crash reporter from inspecting this crash (it is slow
+  // and causes test timeouts.)
+  crashpad::CrashpadInfo::GetCrashpadInfo()
+      ->set_system_crash_reporter_forwarding(crashpad::TriState::kDisabled);
+#endif
+
   base::NoDestructor<GuardedPageAllocator> gpa;
-  gpa->Init(AllocatorState::kGpaMaxPages, kTotalPages);
+  gpa->Init(AllocatorState::kMaxMetadata, AllocatorState::kMaxMetadata,
+            kTotalPages, base::DoNothing(), false);
 
   base::CommandLine* cmd_line = base::CommandLine::ForCurrentProcess();
   base::FilePath directory = cmd_line->GetSwitchValuePath("directory");
   CHECK(!directory.empty());
   std::string test_name = cmd_line->GetSwitchValueASCII("test-name");
   CHECK(!test_name.empty());
+  std::string allocator = cmd_line->GetSwitchValueASCII("allocator");
 
-  static char gpa_addr_buf[32];
-  snprintf(gpa_addr_buf, sizeof(gpa_addr_buf), "%zx",
-           gpa->GetCrashKeyAddress());
+  const char* annotation_name;
+  if (allocator == "malloc") {
+    annotation_name = kMallocCrashKey;
+  } else if (allocator == "partitionalloc") {
+    annotation_name = kPartitionAllocCrashKey;
+  } else {
+    LOG(ERROR) << "Unknown allocator";
+    return kSuccess;
+  }
+
+  std::string gpa_addr = gpa->GetCrashKey();
   static crashpad::Annotation gpa_annotation(
-      crashpad::Annotation::Type::kString, kGpaCrashKey, gpa_addr_buf);
-  gpa_annotation.SetSize(strlen(gpa_addr_buf));
+      crashpad::Annotation::Type::kString, annotation_name,
+      const_cast<char*>(gpa_addr.c_str()));
+  gpa_annotation.SetSize(gpa_addr.size());
 
   base::FilePath metrics_dir(FILE_PATH_LITERAL(""));
   std::map<std::string, std::string> annotations;
@@ -128,6 +148,29 @@ MULTIPROCESS_TEST_MAIN(CrashingProcess) {
       ((unsigned char*)ptr)[i] = 0;
   } else if (test_name == "UnrelatedException") {
     __builtin_trap();
+  } else if (test_name == "FreeInvalidAddress") {
+    void* ptr = gpa->Allocate(kAllocationSize);
+    uintptr_t bad_address = reinterpret_cast<uintptr_t>(ptr) + 1;
+    gpa->Deallocate(reinterpret_cast<void*>(bad_address));
+  } else if (test_name == "MissingMetadata") {
+    // Consume all allocations/metadata
+    void* ptrs[AllocatorState::kMaxMetadata];
+    for (size_t i = 0; i < AllocatorState::kMaxMetadata; i++)
+      ptrs[i] = gpa->Allocate(1);
+
+    gpa->Deallocate(ptrs[0]);
+
+    // Take the remaining metadata slot with an allocation on a different page.
+    while (1) {
+      void* new_alloc = gpa->Allocate(1);
+      if (new_alloc != ptrs[0])
+        break;
+      gpa->Deallocate(new_alloc);
+    }
+
+    // Cause a crash accessing an allocation that no longer has metadata
+    // associated with it.
+    *(uint8_t*)(ptrs[0]) = 0;
   } else {
     LOG(ERROR) << "Unknown test name " << test_name;
   }
@@ -136,16 +179,25 @@ MULTIPROCESS_TEST_MAIN(CrashingProcess) {
   return kSuccess;
 }
 
-class CrashHandlerTest : public base::MultiProcessTest {
+class CrashHandlerTest : public base::MultiProcessTest,
+                         public testing::WithParamInterface<const char*> {
  protected:
+  CrashHandlerTest() : allocator_(GetParam()) {}
+
   // Launch a child process and wait for it to crash. Set |gwp_asan_found_| if a
   // GWP-ASan data was found and if so, read it into |proto_|.
   void SetUp() final {
     base::ScopedTempDir database_dir;
     ASSERT_TRUE(database_dir.CreateUniqueTempDir());
-    ASSERT_TRUE(runTestProcess(
-        database_dir.GetPath(),
-        ::testing::UnitTest::GetInstance()->current_test_info()->name()));
+
+    // Remove the parameterized test suffix from the test name.
+    std::string test_name(
+        testing::UnitTest::GetInstance()->current_test_info()->name());
+    size_t separator = test_name.find("/");
+    ASSERT_NE(separator, std::string::npos);
+    test_name.erase(separator);
+
+    ASSERT_TRUE(runTestProcess(database_dir.GetPath(), test_name.c_str()));
 
     bool minidump_found;
     readGwpAsanStreamFromCrash(database_dir.GetPath(), &minidump_found,
@@ -162,6 +214,7 @@ class CrashHandlerTest : public base::MultiProcessTest {
         base::GetMultiProcessTestChildBaseCommandLine();
     cmd_line.AppendSwitchPath("directory", database_dir);
     cmd_line.AppendSwitchASCII("test-name", test_name);
+    cmd_line.AppendSwitchASCII("allocator", allocator_);
 
     base::LaunchOptions options;
 #if defined(OS_WIN)
@@ -171,8 +224,8 @@ class CrashHandlerTest : public base::MultiProcessTest {
         base::SpawnMultiProcessTestChild("CrashingProcess", cmd_line, options);
 
     int exit_code = -1;
-    EXPECT_TRUE(process.WaitForExitWithTimeout(
-        TestTimeouts::action_max_timeout(), &exit_code));
+    EXPECT_TRUE(WaitForMultiprocessTestChildExit(
+        process, TestTimeouts::action_max_timeout(), &exit_code));
     EXPECT_NE(exit_code, kSuccess);
 
     return (exit_code != kSuccess);
@@ -226,13 +279,15 @@ class CrashHandlerTest : public base::MultiProcessTest {
 
     EXPECT_TRUE(proto_.has_allocation());
     EXPECT_TRUE(proto_.allocation().has_thread_id());
-    EXPECT_NE(proto_.allocation().thread_id(), base::kInvalidThreadId);
+    EXPECT_NE(proto_.allocation().thread_id(),
+              static_cast<uint64_t>(base::kInvalidThreadId));
     EXPECT_GT(proto_.allocation().stack_trace_size(), 0);
 
     EXPECT_EQ(proto_.has_deallocation(), has_deallocation);
     if (has_deallocation) {
       EXPECT_TRUE(proto_.deallocation().has_thread_id());
-      EXPECT_NE(proto_.deallocation().thread_id(), base::kInvalidThreadId);
+      EXPECT_NE(proto_.deallocation().thread_id(),
+                static_cast<uint64_t>(base::kInvalidThreadId));
       EXPECT_EQ(proto_.allocation().thread_id(),
                 proto_.deallocation().thread_id());
       EXPECT_GT(proto_.deallocation().stack_trace_size(), 0);
@@ -243,9 +298,21 @@ class CrashHandlerTest : public base::MultiProcessTest {
     EXPECT_EQ(proto_.region_start() & (base::GetPageSize() - 1), 0U);
     EXPECT_EQ(proto_.region_size(),
               base::GetPageSize() * (2 * kTotalPages + 1));
+
+    EXPECT_TRUE(proto_.has_missing_metadata());
+    EXPECT_FALSE(proto_.missing_metadata());
+
+    EXPECT_TRUE(proto_.has_allocator());
+    if (allocator_ == "malloc")
+      EXPECT_EQ(proto_.allocator(), Crash_Allocator_MALLOC);
+    else if (allocator_ == "partitionalloc")
+      EXPECT_EQ(proto_.allocator(), Crash_Allocator_PARTITIONALLOC);
+    else
+      ASSERT_TRUE(false) << "Unknown allocator name";
   }
 
   gwp_asan::Crash proto_;
+  std::string allocator_;
   bool gwp_asan_found_;
 };
 
@@ -256,29 +323,55 @@ class CrashHandlerTest : public base::MultiProcessTest {
 #define MAYBE_DISABLED(name) name
 #endif  // defined(ADDRESS_SANITIZER) && defined(OS_WIN)
 
-TEST_F(CrashHandlerTest, MAYBE_DISABLED(UseAfterFree)) {
+TEST_P(CrashHandlerTest, MAYBE_DISABLED(UseAfterFree)) {
   ASSERT_TRUE(gwp_asan_found_);
   checkProto(Crash_ErrorType_USE_AFTER_FREE, true);
 }
 
-TEST_F(CrashHandlerTest, MAYBE_DISABLED(DoubleFree)) {
+TEST_P(CrashHandlerTest, MAYBE_DISABLED(DoubleFree)) {
   ASSERT_TRUE(gwp_asan_found_);
   checkProto(Crash_ErrorType_DOUBLE_FREE, true);
 }
 
-TEST_F(CrashHandlerTest, MAYBE_DISABLED(Underflow)) {
+TEST_P(CrashHandlerTest, MAYBE_DISABLED(Underflow)) {
   ASSERT_TRUE(gwp_asan_found_);
   checkProto(Crash_ErrorType_BUFFER_UNDERFLOW, false);
 }
 
-TEST_F(CrashHandlerTest, MAYBE_DISABLED(Overflow)) {
+TEST_P(CrashHandlerTest, MAYBE_DISABLED(Overflow)) {
   ASSERT_TRUE(gwp_asan_found_);
   checkProto(Crash_ErrorType_BUFFER_OVERFLOW, false);
 }
 
-TEST_F(CrashHandlerTest, MAYBE_DISABLED(UnrelatedException)) {
+TEST_P(CrashHandlerTest, MAYBE_DISABLED(FreeInvalidAddress)) {
+  ASSERT_TRUE(gwp_asan_found_);
+  checkProto(Crash_ErrorType_FREE_INVALID_ADDRESS, false);
+  EXPECT_TRUE(proto_.has_free_invalid_address());
+}
+
+TEST_P(CrashHandlerTest, MAYBE_DISABLED(MissingMetadata)) {
+  ASSERT_TRUE(gwp_asan_found_);
+
+  ASSERT_TRUE(proto_.has_missing_metadata());
+  EXPECT_TRUE(proto_.missing_metadata());
+
+  EXPECT_FALSE(proto_.has_error_type());
+  EXPECT_FALSE(proto_.has_allocation_address());
+  EXPECT_FALSE(proto_.has_allocation_size());
+  EXPECT_FALSE(proto_.has_allocation());
+  EXPECT_FALSE(proto_.has_deallocation());
+  EXPECT_FALSE(proto_.has_free_invalid_address());
+  EXPECT_TRUE(proto_.has_region_start());
+  EXPECT_TRUE(proto_.has_region_size());
+}
+
+TEST_P(CrashHandlerTest, MAYBE_DISABLED(UnrelatedException)) {
   ASSERT_FALSE(gwp_asan_found_);
 }
+
+INSTANTIATE_TEST_SUITE_P(VaryAllocator,
+                         CrashHandlerTest,
+                         testing::Values("malloc", "partitionalloc"));
 
 }  // namespace
 

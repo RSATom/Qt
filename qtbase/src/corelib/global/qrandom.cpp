@@ -98,7 +98,7 @@ enum {
 struct QRandomGenerator::SystemGenerator
 {
 #if QT_CONFIG(getentropy)
-    static qsizetype fillBuffer(void *buffer, qsizetype count) Q_DECL_NOTHROW
+    static qsizetype fillBuffer(void *buffer, qsizetype count) noexcept
     {
         // getentropy can read at most 256 bytes, so break the reading
         qsizetype read = 0;
@@ -150,7 +150,7 @@ struct QRandomGenerator::SystemGenerator
 #endif
     static void closeDevice()
     {
-        int fd = self().fdp1.load() - 1;
+        int fd = self().fdp1.loadRelaxed() - 1;
         if (fd >= 0)
             qt_safe_close(fd);
     }
@@ -168,13 +168,13 @@ struct QRandomGenerator::SystemGenerator
     }
 
 #elif defined(Q_OS_WIN) && !defined(Q_OS_WINRT)
-    qsizetype fillBuffer(void *buffer, qsizetype count) Q_DECL_NOTHROW
+    qsizetype fillBuffer(void *buffer, qsizetype count) noexcept
     {
         auto RtlGenRandom = SystemFunction036;
         return RtlGenRandom(buffer, ULONG(count)) ? count: 0;
     }
 #elif defined(Q_OS_WINRT)
-    qsizetype fillBuffer(void *, qsizetype) Q_DECL_NOTHROW
+    qsizetype fillBuffer(void *, qsizetype) noexcept
     {
         // always use the fallback
         return 0;
@@ -183,7 +183,7 @@ struct QRandomGenerator::SystemGenerator
 
     static SystemGenerator &self();
     typedef quint32 result_type;
-    void generate(quint32 *begin, quint32 *end) Q_DECL_NOEXCEPT_EXPR(FillBufferNoexcept);
+    void generate(quint32 *begin, quint32 *end) noexcept(FillBufferNoexcept);
 
     // For std::mersenne_twister_engine implementations that use something
     // other than quint32 (unsigned int) to fill their buffers.
@@ -206,7 +206,7 @@ struct QRandomGenerator::SystemGenerator
 
 #if defined(Q_OS_WIN)
 static void fallback_update_seed(unsigned) {}
-static void fallback_fill(quint32 *ptr, qsizetype left) Q_DECL_NOTHROW
+static void fallback_fill(quint32 *ptr, qsizetype left) noexcept
 {
     // on Windows, rand_s is a high-quality random number generator
     // and it requires no seeding
@@ -218,14 +218,14 @@ static void fallback_fill(quint32 *ptr, qsizetype left) Q_DECL_NOTHROW
 }
 #elif QT_CONFIG(getentropy)
 static void fallback_update_seed(unsigned) {}
-static void fallback_fill(quint32 *, qsizetype) Q_DECL_NOTHROW
+static void fallback_fill(quint32 *, qsizetype) noexcept
 {
     // no fallback necessary, getentropy cannot fail under normal circumstances
     Q_UNREACHABLE();
 }
 #elif defined(Q_OS_BSD4) && !defined(__GLIBC__)
 static void fallback_update_seed(unsigned) {}
-static void fallback_fill(quint32 *ptr, qsizetype left) Q_DECL_NOTHROW
+static void fallback_fill(quint32 *ptr, qsizetype left) noexcept
 {
     // BSDs have arc4random(4) and these work even in chroot(2)
     arc4random_buf(ptr, left * sizeof(*ptr));
@@ -244,7 +244,7 @@ Q_NEVER_INLINE
 #ifdef Q_CC_GNU
 __attribute__((cold))   // this function is pretty big, so optimize for size
 #endif
-static void fallback_fill(quint32 *ptr, qsizetype left) Q_DECL_NOTHROW
+static void fallback_fill(quint32 *ptr, qsizetype left) noexcept
 {
     quint32 scratch[12];    // see element count below
     quint32 *end = scratch;
@@ -274,7 +274,7 @@ static void fallback_fill(quint32 *ptr, qsizetype left) Q_DECL_NOTHROW
     *end++ = quint32(nsecs);    // 5
 #endif
 
-    if (quint32 v = seed.load())
+    if (quint32 v = seed.loadRelaxed())
         *end++ = v; // 6
 
 #if QT_CONFIG(getauxval)
@@ -318,22 +318,22 @@ static void fallback_fill(quint32 *ptr, qsizetype left) Q_DECL_NOTHROW
 #endif
 
 Q_NEVER_INLINE void QRandomGenerator::SystemGenerator::generate(quint32 *begin, quint32 *end)
-    Q_DECL_NOEXCEPT_EXPR(FillBufferNoexcept)
+    noexcept(FillBufferNoexcept)
 {
     quint32 *buffer = begin;
     qsizetype count = end - begin;
 
-    if (Q_UNLIKELY(uint(qt_randomdevice_control) & SetRandomData)) {
-        uint value = uint(qt_randomdevice_control) & RandomDataMask;
+    if (Q_UNLIKELY(uint(qt_randomdevice_control.loadAcquire()) & SetRandomData)) {
+        uint value = uint(qt_randomdevice_control.loadAcquire()) & RandomDataMask;
         std::fill_n(buffer, count, value);
         return;
     }
 
     qsizetype filled = 0;
-    if (qHasHwrng() && (uint(qt_randomdevice_control) & SkipHWRNG) == 0)
+    if (qHasHwrng() && (uint(qt_randomdevice_control.loadAcquire()) & SkipHWRNG) == 0)
         filled += qRandomCpu(buffer, count);
 
-    if (filled != count && (uint(qt_randomdevice_control) & SkipSystemRNG) == 0) {
+    if (filled != count && (uint(qt_randomdevice_control.loadAcquire()) & SkipSystemRNG) == 0) {
         qsizetype bytesFilled =
                 fillBuffer(buffer + filled, (count - filled) * qsizetype(sizeof(*buffer)));
         filled += bytesFilled / qsizetype(sizeof(*buffer));
@@ -1139,7 +1139,7 @@ QRandomGenerator &QRandomGenerator::operator=(const QRandomGenerator &other)
     return *this;
 }
 
-QRandomGenerator::QRandomGenerator(std::seed_seq &sseq) Q_DECL_NOTHROW
+QRandomGenerator::QRandomGenerator(std::seed_seq &sseq) noexcept
     : type(MersenneTwister)
 {
     Q_ASSERT(this != system());
@@ -1194,7 +1194,7 @@ void QRandomGenerator::_fillRange(void *buffer, void *bufferEnd)
     quint32 *begin = static_cast<quint32 *>(buffer);
     quint32 *end = static_cast<quint32 *>(bufferEnd);
 
-    if (type == SystemRNG || Q_UNLIKELY(uint(qt_randomdevice_control) & (UseSystemRNG|SetRandomData)))
+    if (type == SystemRNG || Q_UNLIKELY(uint(qt_randomdevice_control.loadAcquire()) & (UseSystemRNG|SetRandomData)))
         return SystemGenerator::self().generate(begin, end);
 
     SystemAndGlobalGenerators::PRNGLocker lock(this);
@@ -1295,7 +1295,7 @@ void qsrand(uint seed)
     \note This function is deprecated. In new applications, use
     QRandomGenerator instead.
 
-    \sa qrand(), QRandomGenerator
+    \sa qsrand(), QRandomGenerator
 */
 int qrand()
 {

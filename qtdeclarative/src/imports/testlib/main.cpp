@@ -37,6 +37,7 @@
 **
 ****************************************************************************/
 
+#include <private/qv4scopedvalue_p.h>
 #include <QtQml/qqmlextensionplugin.h>
 #include <QtQml/qqml.h>
 #include <QtQml/qjsvalue.h>
@@ -80,7 +81,7 @@ Q_SIGNALS:
 
 public Q_SLOTS:
 
-    QQmlV4Handle typeName(const QVariant& v) const
+    QJSValue typeName(const QVariant& v) const
     {
         QString name(v.typeName());
         if (v.canConvert<QObject*>()) {
@@ -97,27 +98,23 @@ public Q_SLOTS:
 
         QQmlEngine *engine = qmlEngine(this);
         QV4::ExecutionEngine *v4 = engine->handle();
-        QV4::Scope scope(v4);
-        QV4::ScopedValue s(scope, v4->newString(name));
-        return QQmlV4Handle(s);
+        return QJSValue(v4, v4->newString(name)->asReturnedValue());
     }
 
     bool compare(const QVariant& act, const QVariant& exp) const {
         return act == exp;
     }
 
-    QQmlV4Handle callerFile(int frameIndex = 0) const
+    QJSValue callerFile(int frameIndex = 0) const
     {
         QQmlEngine *engine = qmlEngine(this);
         QV4::ExecutionEngine *v4 = engine->handle();
         QV4::Scope scope(v4);
 
         QVector<QV4::StackFrame> stack = v4->stackTrace(frameIndex + 2);
-        if (stack.size() > frameIndex + 1) {
-            QV4::ScopedValue s(scope, v4->newString(stack.at(frameIndex + 1).source));
-            return QQmlV4Handle(s);
-        }
-        return QQmlV4Handle();
+        return (stack.size() > frameIndex + 1)
+                ? QJSValue(v4, v4->newString(stack.at(frameIndex + 1).source)->asReturnedValue())
+                : QJSValue();
     }
     int callerLine(int frameIndex = 0) const
     {
@@ -153,7 +150,7 @@ public:
         qmlRegisterType<QuickTestEvent>(uri,1,0,"TestEvent");
         qmlRegisterType<QuickTestEvent>(uri,1,2,"TestEvent");
         qmlRegisterType<QuickTestUtil>(uri,1,0,"TestUtil");
-        qmlRegisterType<QQuickTouchEventSequence>();
+        qmlRegisterAnonymousType<QQuickTouchEventSequence>(uri, 1);
 
         // Auto-increment the import to stay in sync with ALL future QtQuick minor versions from 5.11 onward
         qmlRegisterModule(uri, 1, QT_VERSION_MINOR);

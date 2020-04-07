@@ -124,7 +124,7 @@ TEST(VideoCodecTestLibvpx, ChangeBitrateVP9) {
   std::vector<RateControlThresholds> rc_thresholds = {
       {5, 2, 0, 1, 0.5, 0.1, 0, 1},
       {15, 3, 0, 1, 0.5, 0.1, 0, 0},
-      {10, 2, 0, 1, 0.5, 0.1, 0, 0}};
+      {11, 2, 0, 1, 0.5, 0.1, 0, 0}};
 
   std::vector<QualityThresholds> quality_thresholds = {
       {34, 33, 0.90, 0.88}, {38, 35, 0.95, 0.91}, {35, 34, 0.93, 0.90}};
@@ -153,7 +153,7 @@ TEST(VideoCodecTestLibvpx, ChangeFramerateVP9) {
 
   // Quality should be higher for lower framerates for the same content.
   std::vector<QualityThresholds> quality_thresholds = {
-      {33, 32, 0.89, 0.87}, {33.5, 32, 0.90, 0.86}, {33.5, 31.5, 0.90, 0.85}};
+      {33, 32, 0.88, 0.86}, {33.5, 32, 0.90, 0.86}, {33.5, 31.5, 0.90, 0.85}};
 
   fixture->RunTest(rate_profiles, &rc_thresholds, &quality_thresholds, nullptr);
 }
@@ -291,8 +291,8 @@ TEST(VideoCodecTestLibvpx, MAYBE_ChangeFramerateVP8) {
       {10, 2, 10, 1, 0.3, 0.2, 0, 0}};
 #else
   std::vector<RateControlThresholds> rc_thresholds = {
-      {10, 2, 20, 1, 0.3, 0.1, 0, 1},
-      {5, 2, 5, 1, 0.3, 0.1, 0, 0},
+      {10, 2, 20, 1, 0.3, 0.15, 0, 1},
+      {5, 2, 5, 1, 0.3, 0.15, 0, 0},
       {4, 2, 1, 1, 0.3, 0.2, 0, 0}};
 #endif
 
@@ -323,7 +323,7 @@ TEST(VideoCodecTestLibvpx, MAYBE_TemporalLayersVP8) {
 
 #if defined(WEBRTC_ARCH_ARM) || defined(WEBRTC_ARCH_ARM64)
   std::vector<RateControlThresholds> rc_thresholds = {
-      {10, 1, 2, 1, 0.2, 0.1, 0, 1}, {12, 2, 3, 1, 0.2, 0.1, 0, 1}};
+      {10, 1, 2.1, 1, 0.2, 0.1, 0, 1}, {12, 2, 3, 1, 0.2, 0.1, 0, 1}};
 #else
   std::vector<RateControlThresholds> rc_thresholds = {
       {5, 1, 0, 1, 0.2, 0.1, 0, 1}, {10, 2, 0, 1, 0.2, 0.1, 0, 1}};
@@ -358,7 +358,7 @@ TEST(VideoCodecTestLibvpx, MAYBE_MultiresVP8) {
   std::vector<RateProfile> rate_profiles = {{1500, 30, 0}};
 #if defined(WEBRTC_ARCH_ARM) || defined(WEBRTC_ARCH_ARM64)
   std::vector<RateControlThresholds> rc_thresholds = {
-      {3.5, 1.04, 6, 0.18, 0.14, 0.07, 0, 1}};
+      {4.1, 1.04, 6, 0.18, 0.14, 0.08, 0, 1}};
 #else
   std::vector<RateControlThresholds> rc_thresholds = {
       {5, 1, 5, 1, 0.3, 0.1, 0, 1}};

@@ -7,7 +7,7 @@
 #include "cc/base/math_util.h"
 #include "cc/input/main_thread_scrolling_reason.h"
 #include "cc/layers/layer.h"
-#include "cc/trees/element_id.h"
+#include "cc/paint/element_id.h"
 #include "cc/trees/property_tree.h"
 
 #include "base/trace_event/traced_value.h"
@@ -62,6 +62,9 @@ void ScrollNode::AsValueInto(base::trace_event::TracedValue* value) const {
   value->SetBoolean("should_flatten", should_flatten);
   value->SetBoolean("user_scrollable_horizontal", user_scrollable_horizontal);
   value->SetBoolean("user_scrollable_vertical", user_scrollable_vertical);
+
+  value->SetBoolean("scrolls_inner_viewport", scrolls_inner_viewport);
+  value->SetBoolean("scrolls_outer_viewport", scrolls_outer_viewport);
 
   element_id.AddToTracedValue(value);
   value->SetInteger("transform_id", transform_id);

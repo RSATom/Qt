@@ -177,7 +177,7 @@ void MaintainingReader<TokenLookupClass, LookupKey>::validateElement(const Looku
                 {
                     QString translationString;
 
-                    QList<typename TokenLookupClass::NodeName> all(desc.requiredAttributes.toList() + desc.optionalAttributes.toList());
+                    QList<typename TokenLookupClass::NodeName> all(desc.requiredAttributes.values() + desc.optionalAttributes.values());
                     const int totalCount = all.count();
                     QStringList allowed;
 

@@ -4,6 +4,7 @@
 
 #include "third_party/blink/renderer/modules/gamepad/gamepad_dispatcher.h"
 
+#include "device/gamepad/public/cpp/gamepads.h"
 #include "third_party/blink/public/platform/interface_provider.h"
 #include "third_party/blink/public/platform/platform.h"
 #include "third_party/blink/renderer/modules/gamepad/gamepad_shared_memory_reader.h"
@@ -12,12 +13,6 @@
 namespace blink {
 
 using device::mojom::blink::GamepadHapticsManager;
-
-GamepadDispatcher& GamepadDispatcher::Instance() {
-  DEFINE_STATIC_LOCAL(Persistent<GamepadDispatcher>, gamepad_dispatcher,
-                      (MakeGarbageCollected<GamepadDispatcher>()));
-  return *gamepad_dispatcher;
-}
 
 void GamepadDispatcher::SampleGamepads(device::Gamepads& gamepads) {
   if (reader_) {
@@ -43,14 +38,16 @@ void GamepadDispatcher::ResetVibrationActuator(
                                                    std::move(callback));
 }
 
-GamepadDispatcher::GamepadDispatcher() = default;
+GamepadDispatcher::GamepadDispatcher(
+    scoped_refptr<base::SingleThreadTaskRunner> task_runner)
+    : task_runner_(std::move(task_runner)) {}
 
 GamepadDispatcher::~GamepadDispatcher() = default;
 
 void GamepadDispatcher::InitializeHaptics() {
   if (!gamepad_haptics_manager_) {
     Platform::Current()->GetInterfaceProvider()->GetInterface(
-        mojo::MakeRequest(&gamepad_haptics_manager_));
+        mojo::MakeRequest(&gamepad_haptics_manager_, task_runner_));
   }
 }
 
@@ -86,9 +83,7 @@ void GamepadDispatcher::DispatchDidConnectOrDisconnectGamepad(
 
 void GamepadDispatcher::StartListening(LocalFrame* frame) {
   if (!reader_) {
-    // TODO(crbug.com/850619): ensure a valid frame is passed
-    if (!frame)
-      return;
+    DCHECK(frame);
     reader_ = std::make_unique<GamepadSharedMemoryReader>(*frame);
   }
   reader_->Start(this);

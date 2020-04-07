@@ -7,6 +7,7 @@
 #include <memory>
 #include <utility>
 
+#include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/command_line.h"
 #include "base/logging.h"
@@ -14,7 +15,6 @@
 #include "components/viz/common/surfaces/parent_local_surface_id_allocator.h"
 #include "components/viz/service/frame_sinks/frame_sink_manager_impl.h"
 #include "components/viz/service/surfaces/surface.h"
-#include "components/viz/service/surfaces/surface_hittest.h"
 #include "components/viz/service/surfaces/surface_manager.h"
 #include "content/browser/browser_plugin/browser_plugin_guest.h"
 #include "content/browser/compositor/surface_utils.h"
@@ -32,7 +32,6 @@
 #include "content/public/common/use_zoom_for_dsf_policy.h"
 #include "gpu/ipc/common/gpu_messages.h"
 #include "skia/ext/platform_canvas.h"
-#include "ui/base/ui_base_features.h"
 #include "ui/base/ui_base_switches_util.h"
 #include "ui/events/base_event_utils.h"
 #include "ui/gfx/geometry/dip_util.h"
@@ -109,8 +108,7 @@ RenderWidgetHostViewGuest::RenderWidgetHostViewGuest(
     : RenderWidgetHostViewChildFrame(widget_host),
       // |guest| is NULL during test.
       guest_(guest ? guest->AsWeakPtr() : base::WeakPtr<BrowserPluginGuest>()),
-      platform_view_(platform_view),
-      weak_ptr_factory_(this) {
+      platform_view_(platform_view) {
   // In tests |guest_| and therefore |owner| can be null.
   auto* owner = GetOwnerRenderWidgetHostView();
   if (owner)
@@ -157,7 +155,7 @@ void RenderWidgetHostViewGuest::Show() {
     // the renderer.
     SendSurfaceInfoToEmbedder();
   }
-  host()->WasShown(false /* record_presentation_time */);
+  host()->WasShown(base::nullopt /* record_tab_switch_time_request */);
 }
 
 void RenderWidgetHostViewGuest::Hide() {
@@ -181,7 +179,7 @@ void RenderWidgetHostViewGuest::Focus() {
     guest_->SetFocus(host(), true, blink::kWebFocusTypeNone);
 }
 
-bool RenderWidgetHostViewGuest::HasFocus() const {
+bool RenderWidgetHostViewGuest::HasFocus() {
   if (!guest_)
     return false;
   return guest_->focused();
@@ -220,7 +218,7 @@ void RenderWidgetHostViewGuest::PreProcessTouchEvent(
   }
 }
 
-gfx::Rect RenderWidgetHostViewGuest::GetViewBounds() const {
+gfx::Rect RenderWidgetHostViewGuest::GetViewBounds() {
   if (!guest_)
     return gfx::Rect();
 
@@ -239,10 +237,8 @@ gfx::Rect RenderWidgetHostViewGuest::GetBoundsInRootWindow() {
 gfx::PointF RenderWidgetHostViewGuest::TransformPointToRootCoordSpaceF(
     const gfx::PointF& point) {
   viz::SurfaceId surface_id = GetCurrentSurfaceId();
-  // LocalSurfaceId is not needed in Viz hit-test.
-  if (!guest_ || (!use_viz_hit_test_ && !surface_id.is_valid())) {
+  if (!guest_)
     return point;
-  }
 
   RenderWidgetHostViewBase* root_rwhv = GetRootView(this);
   if (!root_rwhv)
@@ -259,31 +255,6 @@ gfx::PointF RenderWidgetHostViewGuest::TransformPointToRootCoordSpaceF(
   return transformed_point;
 }
 
-bool RenderWidgetHostViewGuest::TransformPointToLocalCoordSpaceLegacy(
-    const gfx::PointF& point,
-    const viz::SurfaceId& original_surface,
-    gfx::PointF* transformed_point) {
-  viz::SurfaceId surface_id = GetCurrentSurfaceId();
-  *transformed_point = point;
-  if (!guest_ || !surface_id.is_valid())
-    return false;
-
-  if (original_surface == surface_id)
-    return true;
-
-  *transformed_point = gfx::ConvertPointToPixel(GetDeviceScaleFactor(), point);
-  viz::SurfaceHittest hittest(nullptr,
-                              GetFrameSinkManager()->surface_manager());
-  if (!hittest.TransformPointToTargetSurface(original_surface, surface_id,
-                                             transformed_point)) {
-    return false;
-  }
-
-  *transformed_point =
-      gfx::ConvertPointToDIP(GetDeviceScaleFactor(), *transformed_point);
-  return true;
-}
-
 gfx::PointF RenderWidgetHostViewGuest::TransformRootPointToViewCoordSpace(
     const gfx::PointF& point) {
   RenderWidgetHostViewBase* root_rwhv = GetRootView(this);
@@ -298,15 +269,13 @@ gfx::PointF RenderWidgetHostViewGuest::TransformRootPointToViewCoordSpace(
   return transformed_point;
 }
 
-void RenderWidgetHostViewGuest::RenderProcessGone(
-    base::TerminationStatus status,
-    int error_code) {
+void RenderWidgetHostViewGuest::RenderProcessGone() {
   // The |platform_view_| gets destroyed before we get here if this view
   // is for an InterstitialPage.
   if (platform_view_)
-    platform_view_->RenderProcessGone(status, error_code);
+    platform_view_->RenderProcessGone();
 
-  RenderWidgetHostViewChildFrame::RenderProcessGone(status, error_code);
+  RenderWidgetHostViewChildFrame::RenderProcessGone();
 }
 
 void RenderWidgetHostViewGuest::Destroy() {
@@ -321,7 +290,7 @@ void RenderWidgetHostViewGuest::Destroy() {
   RenderWidgetHostViewChildFrame::Destroy();
 }
 
-gfx::Size RenderWidgetHostViewGuest::GetCompositorViewportPixelSize() const {
+gfx::Size RenderWidgetHostViewGuest::GetCompositorViewportPixelSize() {
   gfx::Size size;
   if (guest_) {
     size = gfx::ScaleToCeiledSize(guest_->frame_rect().size(),
@@ -360,14 +329,6 @@ void RenderWidgetHostViewGuest::OnDidUpdateVisualPropertiesComplete(
 
 void RenderWidgetHostViewGuest::OnAttached() {
   RegisterFrameSinkId();
-#if defined(USE_AURA)
-  if (features::IsMultiProcessMash()) {
-    aura::Env::GetInstance()->ScheduleEmbed(
-        GetWindowTreeClientFromRenderer(),
-        base::BindOnce(&RenderWidgetHostViewGuest::OnGotEmbedToken,
-                       weak_ptr_factory_.GetWeakPtr()));
-  }
-#endif
   SendSurfaceInfoToEmbedder();
 }
 
@@ -393,7 +354,7 @@ void RenderWidgetHostViewGuest::InitAsFullscreen(
   NOTREACHED();
 }
 
-gfx::NativeView RenderWidgetHostViewGuest::GetNativeView() const {
+gfx::NativeView RenderWidgetHostViewGuest::GetNativeView() {
   if (!guest_)
     return gfx::NativeView();
 
@@ -582,7 +543,7 @@ RenderWidgetHostViewGuest::GetOwnerRenderWidgetHostView() const {
 
 void RenderWidgetHostViewGuest::MaybeSendSyntheticTapGestureForTest(
     const blink::WebFloatPoint& position,
-    const blink::WebFloatPoint& screen_position) const {
+    const blink::WebFloatPoint& screen_position) {
   MaybeSendSyntheticTapGesture(GetOwnerRenderWidgetHostView(), position,
                                screen_position);
 }
@@ -592,7 +553,7 @@ void RenderWidgetHostViewGuest::MaybeSendSyntheticTapGestureForTest(
 void RenderWidgetHostViewGuest::MaybeSendSyntheticTapGesture(
     RenderWidgetHostViewBase* owner_view,
     const blink::WebFloatPoint& position,
-    const blink::WebFloatPoint& screen_position) const {
+    const blink::WebFloatPoint& screen_position) {
   DCHECK(owner_view);
   if (!HasFocus()) {
     // We need to convert the position of the event into the coordinate frame
@@ -606,7 +567,7 @@ void RenderWidgetHostViewGuest::MaybeSendSyntheticTapGesture(
     blink::WebGestureEvent gesture_tap_event(
         blink::WebGestureEvent::kGestureTapDown,
         blink::WebInputEvent::kNoModifiers, ui::EventTimeForNow(),
-        blink::kWebGestureDeviceTouchscreen);
+        blink::WebGestureDevice::kTouchscreen);
     gesture_tap_event.SetPositionInWidget(point_in_owner);
     gesture_tap_event.SetPositionInScreen(screen_position);
     // The touch action may not be set yet because this is still at the
@@ -697,7 +658,7 @@ InputEventAckState RenderWidgetHostViewGuest::FilterInputEvent(
   return INPUT_EVENT_ACK_STATE_NOT_CONSUMED;
 }
 
-void RenderWidgetHostViewGuest::GetScreenInfo(ScreenInfo* screen_info) const {
+void RenderWidgetHostViewGuest::GetScreenInfo(ScreenInfo* screen_info) {
   DCHECK(screen_info);
   if (guest_)
     *screen_info = guest_->screen_info();
@@ -798,24 +759,12 @@ void RenderWidgetHostViewGuest::OnHandleInputEvent(
     // sure other plugins would behave appropriately (i.e. return 'false').
     if (gesture_event.GetType() == blink::WebInputEvent::kGestureScrollUpdate &&
         gesture_event.data.scroll_update.inertial_phase ==
-            blink::WebGestureEvent::kMomentumPhase) {
+            blink::WebGestureEvent::InertialPhaseState::kMomentum) {
       return;
     }
     host()->ForwardGestureEvent(gesture_event);
     return;
   }
 }
-
-#if defined(USE_AURA)
-void RenderWidgetHostViewGuest::OnGotEmbedToken(
-    const base::UnguessableToken& token) {
-  if (!guest_)
-    return;
-
-  guest_->SendMessageToEmbedder(
-      std::make_unique<BrowserPluginMsg_SetMusEmbedToken>(
-          guest_->browser_plugin_instance_id(), token));
-}
-#endif
 
 }  // namespace content

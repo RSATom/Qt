@@ -5,14 +5,27 @@
  * found in the LICENSE file.
  */
 
-#include "gm.h"
-#include "SkSurface.h"
-#include "sk_tool_utils.h"
+#include "gm/gm.h"
+#include "include/core/SkBitmap.h"
+#include "include/core/SkBlendMode.h"
+#include "include/core/SkCanvas.h"
+#include "include/core/SkColor.h"
+#include "include/core/SkImage.h"
+#include "include/core/SkImageInfo.h"
+#include "include/core/SkPaint.h"
+#include "include/core/SkRect.h"
+#include "include/core/SkRefCnt.h"
+#include "include/core/SkScalar.h"
+#include "include/core/SkSize.h"
+#include "include/core/SkString.h"
+#include "include/core/SkSurface.h"
+#include "include/private/SkMalloc.h"
+#include "tools/ToolUtils.h"
 
 static sk_sp<SkSurface> make_surface(SkCanvas* root, int N, int padLeft, int padTop,
                                      int padRight, int padBottom) {
     SkImageInfo info = SkImageInfo::MakeN32Premul(N + padLeft + padRight, N + padTop + padBottom);
-    return sk_tool_utils::makeSurface(root, info);
+    return ToolUtils::makeSurface(root, info);
 }
 
 static sk_sp<SkImage> make_image(SkCanvas* root, int* xDivs, int* yDivs, int padLeft, int padTop,
@@ -339,7 +352,7 @@ DEF_GM( return new LatticeGM2; )
 
 // Code paths that incorporate the paint color when drawing the lattice (using an alpha image)
 DEF_SIMPLE_GM_BG(lattice_alpha, canvas, 120, 120, SK_ColorWHITE) {
-    auto surface = sk_tool_utils::makeSurface(canvas, SkImageInfo::MakeA8(100, 100));
+    auto surface = ToolUtils::makeSurface(canvas, SkImageInfo::MakeA8(100, 100));
     surface->getCanvas()->clear(0);
     surface->getCanvas()->drawCircle(50, 50, 50, SkPaint());
     auto image = surface->makeImageSnapshot();

@@ -8,6 +8,8 @@
 #include <stdint.h>
 
 #include <algorithm>
+#include <utility>
+#include <vector>
 
 #include "base/atomic_sequence_num.h"
 #include "base/location.h"
@@ -21,8 +23,8 @@
 #include "cc/layers/layer_impl.h"
 #include "cc/layers/picture_layer.h"
 #include "cc/tiles/frame_viewer_instrumentation.h"
+#include "cc/trees/clip_node.h"
 #include "cc/trees/draw_property_utils.h"
-#include "cc/trees/effect_node.h"
 #include "cc/trees/layer_tree_host.h"
 #include "cc/trees/layer_tree_impl.h"
 #include "cc/trees/mutator_host.h"
@@ -45,7 +47,7 @@ Layer::Inputs::Inputs(int layer_id)
       opacity(1.f),
       blend_mode(SkBlendMode::kSrcOver),
       is_root_for_isolated_group(false),
-      hit_testable_without_draws_content(false),
+      hit_testable(false),
       contents_opaque(false),
       is_drawable(false),
       double_sided(true),
@@ -54,6 +56,8 @@ Layer::Inputs::Inputs(int layer_id)
       use_parent_backface_visibility(false),
       background_color(0),
       backdrop_filter_quality(1.0f),
+      corner_radii({0, 0, 0, 0}),
+      is_fast_rounded_corner(false),
       scrollable(false),
       is_scrollbar(false),
       user_scrollable_horizontal(true),
@@ -67,7 +71,8 @@ Layer::Inputs::Inputs(int layer_id)
       has_will_change_transform_hint(false),
       trilinear_filtering(false),
       hide_layer_and_subtree(false),
-      overscroll_behavior(OverscrollBehavior::kOverscrollBehaviorTypeAuto) {}
+      overscroll_behavior(OverscrollBehavior::kOverscrollBehaviorTypeAuto),
+      mirror_count(0) {}
 
 Layer::Inputs::~Inputs() = default;
 
@@ -97,6 +102,7 @@ Layer::Layer()
       may_contain_video_(false),
       needs_show_scrollbars_(false),
       has_transform_node_(false),
+      has_clip_node_(false),
       subtree_has_copy_request_(false),
       safe_opaque_background_color_(0),
       compositing_reasons_(0),
@@ -209,6 +215,9 @@ bool Layer::IsPropertyChangeAllowed() const {
   return !layer_tree_host_->in_paint_layer_contents();
 }
 
+void Layer::CaptureContent(const gfx::Rect& rect,
+                           std::vector<NodeId>* content) {}
+
 sk_sp<SkPicture> Layer::GetPicture() const {
   return nullptr;
 }
@@ -267,6 +276,27 @@ void Layer::RemoveChildOrDependent(Layer* child) {
   }
 }
 
+void Layer::ReorderChildren(LayerList* new_children_order) {
+#if DCHECK_IS_ON()
+  base::flat_set<Layer*> children_set;
+  for (const auto& child : *new_children_order) {
+    DCHECK_EQ(child->parent(), this);
+    children_set.insert(child.get());
+  }
+  for (const auto& child : inputs_.children)
+    DCHECK_GT(children_set.count(child.get()), 0u);
+#endif
+  inputs_.children = std::move(*new_children_order);
+
+  // We do not need to call SetSubtreePropertyChanged for each child here
+  // since SetSubtreePropertyChanged includes SetNeedsPushProperties, but this
+  // change is not included in properties pushing.
+  for (const auto& child : inputs_.children)
+    child->subtree_property_changed_ = true;
+
+  SetNeedsFullTreeSync();
+}
+
 void Layer::ReplaceChild(Layer* reference, scoped_refptr<Layer> new_layer) {
   DCHECK(reference);
   DCHECK_EQ(reference->parent(), this);
@@ -300,9 +330,10 @@ void Layer::SetBounds(const gfx::Size& size) {
   if (!layer_tree_host_)
     return;
 
-  // Both bounds clipping and mask clipping can result in new areas of subtrees
-  // being exposed on a bounds change. Ensure the damaged areas are updated.
-  if (masks_to_bounds() || inputs_.mask_layer.get()) {
+  // Rounded corner clipping, bounds clipping and mask clipping can result in
+  // new areas of subtrees being exposed on a bounds change. Ensure the damaged
+  // areas are updated.
+  if (masks_to_bounds() || inputs_.mask_layer.get() || HasRoundedCorner()) {
     SetSubtreePropertyChanged();
     SetPropertyTreesNeedRebuild();
   }
@@ -483,8 +514,13 @@ void Layer::SetSafeOpaqueBackgroundColor(SkColor background_color) {
 }
 
 SkColor Layer::SafeOpaqueBackgroundColor() const {
-  if (contents_opaque())
+  if (contents_opaque()) {
+    // TODO(936906): We should uncomment this DCHECK, since the
+    // |safe_opaque_background_color_| could be transparent if it is never set
+    // (the default is 0). But to do that, one test needs to be fixed.
+    // DCHECK_EQ(SkColorGetA(safe_opaque_background_color_), SK_AlphaOPAQUE);
     return safe_opaque_background_color_;
+  }
   SkColor color = background_color();
   if (SkColorGetA(color) == 255)
     color = SK_ColorTRANSPARENT;
@@ -501,10 +537,63 @@ void Layer::SetMasksToBounds(bool masks_to_bounds) {
   SetSubtreePropertyChanged();
 }
 
+void Layer::SetClipRect(const gfx::Rect& clip_rect) {
+  DCHECK(IsPropertyChangeAllowed());
+  if (inputs_.clip_rect == clip_rect)
+    return;
+  inputs_.clip_rect = clip_rect;
+
+  // If the clip bounds have been cleared, the property trees needs a rebuild.
+  const bool force_rebuild = clip_rect.IsEmpty() || !has_clip_node_;
+
+  SetSubtreePropertyChanged();
+  if (clip_tree_index() != ClipTree::kInvalidNodeId && !force_rebuild) {
+    PropertyTrees* property_trees = layer_tree_host_->property_trees();
+    gfx::RectF effective_clip_rect = EffectiveClipRect();
+    if (ClipNode* node = property_trees->clip_tree.Node(clip_tree_index())) {
+      node->clip = effective_clip_rect;
+      node->clip += offset_to_transform_parent();
+      property_trees->clip_tree.set_needs_update(true);
+    }
+    if (HasRoundedCorner() &&
+        effect_tree_index() != EffectTree::kInvalidNodeId) {
+      if (EffectNode* node =
+              property_trees->effect_tree.Node(effect_tree_index())) {
+        node->rounded_corner_bounds =
+            gfx::RRectF(effective_clip_rect, corner_radii());
+        node->effect_changed = true;
+        property_trees->effect_tree.set_needs_update(true);
+      }
+    }
+  } else {
+    SetPropertyTreesNeedRebuild();
+  }
+  SetNeedsCommit();
+}
+
+gfx::RectF Layer::EffectiveClipRect() {
+  // If this does not have a clip rect set, then the subtree is clipped by
+  // the bounds.
+  const gfx::RectF layer_bounds = gfx::RectF(gfx::SizeF(bounds()));
+  if (clip_rect().IsEmpty())
+    return layer_bounds;
+
+  const gfx::RectF clip_rect_f(clip_rect());
+
+  // Layer needs to clip to its bounds as well apply a clip rect. Intersect the
+  // two to get the effective clip.
+  if (masks_to_bounds() || mask_layer() || filters().HasFilterThatMovesPixels())
+    return gfx::IntersectRects(layer_bounds, clip_rect_f);
+
+  // Clip rect is the only clip effecting the layer.
+  return clip_rect_f;
+}
+
 void Layer::SetMaskLayer(PictureLayer* mask_layer) {
   DCHECK(IsPropertyChangeAllowed());
   if (inputs_.mask_layer.get() == mask_layer)
     return;
+  DCHECK(!layer_tree_host_ || !layer_tree_host_->IsUsingLayerLists());
   if (inputs_.mask_layer.get()) {
     DCHECK_EQ(this, inputs_.mask_layer->parent());
     inputs_.mask_layer->RemoveFromParent();
@@ -517,15 +606,8 @@ void Layer::SetMaskLayer(PictureLayer* mask_layer) {
     inputs_.mask_layer->RemoveFromParent();
     DCHECK(!inputs_.mask_layer->parent());
     inputs_.mask_layer->SetParent(this);
-    if (inputs_.filters.IsEmpty() && inputs_.backdrop_filters.IsEmpty() &&
-        (!layer_tree_host_ ||
-         layer_tree_host_->GetSettings().enable_mask_tiling)) {
-      inputs_.mask_layer->SetLayerMaskType(
-          Layer::LayerMaskType::MULTI_TEXTURE_MASK);
-    } else {
-      inputs_.mask_layer->SetLayerMaskType(
-          Layer::LayerMaskType::SINGLE_TEXTURE_MASK);
-    }
+    inputs_.mask_layer->SetLayerMaskType(
+        Layer::LayerMaskType::SINGLE_TEXTURE_MASK);
   }
   SetSubtreePropertyChanged();
   SetNeedsFullTreeSync();
@@ -536,10 +618,6 @@ void Layer::SetFilters(const FilterOperations& filters) {
   if (inputs_.filters == filters)
     return;
   inputs_.filters = filters;
-  if (inputs_.mask_layer && !filters.IsEmpty()) {
-    inputs_.mask_layer->SetLayerMaskType(
-        Layer::LayerMaskType::SINGLE_TEXTURE_MASK);
-  }
   SetSubtreePropertyChanged();
   SetPropertyTreesNeedRebuild();
   SetNeedsCommit();
@@ -551,20 +629,17 @@ void Layer::SetBackdropFilters(const FilterOperations& filters) {
     return;
   inputs_.backdrop_filters = filters;
 
-  // We will not set the mask type to MULTI_TEXTURE_MASK if the mask layer's
-  // filters are removed, because we do not want to reraster if the filters are
-  // being animated.
-  if (inputs_.mask_layer && !filters.IsEmpty()) {
-    inputs_.mask_layer->SetLayerMaskType(
-        Layer::LayerMaskType::SINGLE_TEXTURE_MASK);
-  }
   SetSubtreePropertyChanged();
   SetPropertyTreesNeedRebuild();
   SetNeedsCommit();
 }
 
-void Layer::SetBackdropFilterBounds(const gfx::RectF& backdrop_filter_bounds) {
+void Layer::SetBackdropFilterBounds(const gfx::RRectF& backdrop_filter_bounds) {
   inputs_.backdrop_filter_bounds = backdrop_filter_bounds;
+}
+
+void Layer::ClearBackdropFilterBounds() {
+  inputs_.backdrop_filter_bounds.reset();
 }
 
 void Layer::SetBackdropFilterQuality(const float quality) {
@@ -579,6 +654,43 @@ void Layer::SetFiltersOrigin(const gfx::PointF& filters_origin) {
   SetSubtreePropertyChanged();
   SetPropertyTreesNeedRebuild();
   SetNeedsCommit();
+}
+
+void Layer::SetRoundedCorner(const gfx::RoundedCornersF& corner_radii) {
+  DCHECK(IsPropertyChangeAllowed());
+  if (inputs_.corner_radii == corner_radii)
+    return;
+
+  inputs_.corner_radii = corner_radii;
+  SetSubtreePropertyChanged();
+  SetNeedsCommit();
+  PropertyTrees* property_trees = layer_tree_host_->property_trees();
+  EffectNode* node = nullptr;
+  if (effect_tree_index() != EffectTree::kInvalidNodeId &&
+      (node = property_trees->effect_tree.Node(effect_tree_index()))) {
+    node->rounded_corner_bounds =
+        gfx::RRectF(EffectiveClipRect(), corner_radii);
+    node->effect_changed = true;
+    property_trees->effect_tree.set_needs_update(true);
+  } else {
+    SetPropertyTreesNeedRebuild();
+  }
+}
+
+void Layer::SetIsFastRoundedCorner(bool enable) {
+  DCHECK(IsPropertyChangeAllowed());
+  if (inputs_.is_fast_rounded_corner == enable)
+    return;
+  inputs_.is_fast_rounded_corner = enable;
+
+  // If this layer does not have a rounded corner, then modifying this flag is
+  // going to have no effect.
+  if (!HasRoundedCorner())
+    return;
+
+  SetSubtreePropertyChanged();
+  SetNeedsCommit();
+  SetPropertyTreesNeedRebuild();
 }
 
 void Layer::SetOpacity(float opacity) {
@@ -680,13 +792,17 @@ void Layer::SetIsRootForIsolatedGroup(bool root) {
   SetNeedsCommit();
 }
 
-void Layer::SetHitTestableWithoutDrawsContent(bool should_hit_test) {
+void Layer::SetHitTestable(bool should_hit_test) {
   DCHECK(IsPropertyChangeAllowed());
-  if (inputs_.hit_testable_without_draws_content == should_hit_test)
+  if (inputs_.hit_testable == should_hit_test)
     return;
-  inputs_.hit_testable_without_draws_content = should_hit_test;
+  inputs_.hit_testable = should_hit_test;
   SetPropertyTreesNeedRebuild();
   SetNeedsCommit();
+}
+
+bool Layer::HitTestable() const {
+  return inputs_.hit_testable;
 }
 
 void Layer::SetContentsOpaque(bool opaque) {
@@ -1071,6 +1187,23 @@ void Layer::SetCacheRenderSurface(bool cache) {
   SetNeedsCommit();
 }
 
+RenderSurfaceReason Layer::GetRenderSurfaceReason() const {
+  if (!layer_tree_host_)
+    return RenderSurfaceReason::kNone;
+  PropertyTrees* property_trees = layer_tree_host_->property_trees();
+  DCHECK(!property_trees->needs_rebuild);
+  EffectNode* effect_node =
+      property_trees->effect_tree.Node(this->effect_tree_index());
+
+  // Effect node can also be the effect node of an ancestor layer.
+  // Check if this effect node was created for this layer specifically.
+  if (!effect_node ||
+      (parent_ && this->effect_tree_index() == parent_->effect_tree_index())) {
+    return RenderSurfaceReason::kNone;
+  }
+  return effect_node->render_surface_reason;
+}
+
 void Layer::SetForceRenderSurfaceForTesting(bool force) {
   DCHECK(IsPropertyChangeAllowed());
   if (force_render_surface_for_testing_ == force)
@@ -1175,6 +1308,7 @@ void Layer::SetOffsetToTransformParent(gfx::Vector2dF offset) {
     return;
   offset_to_transform_parent_ = offset;
   SetNeedsPushProperties();
+  SetSubtreePropertyChanged();
 }
 
 void Layer::InvalidatePropertyTreesIndices() {
@@ -1199,9 +1333,22 @@ void Layer::SetShouldFlattenTransform(bool should_flatten) {
   SetSubtreePropertyChanged();
 }
 
+#if DCHECK_IS_ON()
+std::string Layer::DebugName() const {
+  if (inputs_.client) {
+    if (auto debug_info = inputs_.client->TakeDebugInfo(this))
+      return debug_info->ToBaseValue()->FindKey("layer_name")->GetString();
+  }
+  return "";
+}
+#endif
+
 std::string Layer::ToString() const {
   return base::StringPrintf(
       "layer_id: %d\n"
+#if DCHECK_IS_ON()
+      "  name: %s\n"
+#endif
       "  Bounds: %s\n"
       "  ElementId: %s\n"
       "  OffsetToTransformParent: %s\n"
@@ -1211,7 +1358,11 @@ std::string Layer::ToString() const {
       "  effect_tree_index: %d\n"
       "  scroll_tree_index: %d\n"
       "  transform_tree_index: %d\n",
-      id(), bounds().ToString().c_str(), element_id().ToString().c_str(),
+      id(),
+#if DCHECK_IS_ON()
+      DebugName().c_str(),
+#endif
+      bounds().ToString().c_str(), element_id().ToString().c_str(),
       offset_to_transform_parent().ToString().c_str(),
       position().ToString().c_str(), scrollable(), clip_tree_index(),
       effect_tree_index(), scroll_tree_index(), transform_tree_index());
@@ -1265,6 +1416,11 @@ void Layer::SetNeedsDisplayRect(const gfx::Rect& dirty_rect) {
 }
 
 bool Layer::DescendantIsFixedToContainerLayer() const {
+  // Because position constraints are not set when using layer lists (see:
+  // Layer::SetPositionConstraint), this should only be called when not using
+  // layer lists.
+  DCHECK(!layer_tree_host_ || !layer_tree_host_->IsUsingLayerLists());
+
   for (size_t i = 0; i < inputs_.children.size(); ++i) {
     if (inputs_.children[i]->inputs_.position_constraint.is_fixed_position() ||
         inputs_.children[i]->DescendantIsFixedToContainerLayer())
@@ -1286,6 +1442,11 @@ bool Layer::IsResizedByBrowserControls() const {
 }
 
 void Layer::SetIsContainerForFixedPositionLayers(bool container) {
+  // |inputs_.is_container_for_fixed_position_layers| is only used by the cc
+  // property tree builder to build property trees and is not needed when using
+  // layer lists.
+  DCHECK(!layer_tree_host_ || !layer_tree_host_->IsUsingLayerLists());
+
   if (inputs_.is_container_for_fixed_position_layers == container)
     return;
   inputs_.is_container_for_fixed_position_layers = container;
@@ -1301,6 +1462,10 @@ void Layer::SetIsContainerForFixedPositionLayers(bool container) {
 }
 
 void Layer::SetPositionConstraint(const LayerPositionConstraint& constraint) {
+  // Position constraints are only used by the cc property tree builder to build
+  // property trees and are not needed when using layer lists.
+  DCHECK(!layer_tree_host_ || !layer_tree_host_->IsUsingLayerLists());
+
   DCHECK(IsPropertyChangeAllowed());
   if (inputs_.position_constraint == constraint)
     return;
@@ -1315,6 +1480,7 @@ void Layer::SetStickyPositionConstraint(
   if (inputs_.sticky_position_constraint == constraint)
     return;
   inputs_.sticky_position_constraint = constraint;
+  SetSubtreePropertyChanged();
   SetPropertyTreesNeedRebuild();
   SetNeedsCommit();
 }
@@ -1348,8 +1514,7 @@ void Layer::PushPropertiesTo(LayerImpl* layer) {
   layer->SetScrollTreeIndex(scroll_tree_index());
   layer->SetOffsetToTransformParent(offset_to_transform_parent_);
   layer->SetDrawsContent(DrawsContent());
-  layer->SetHitTestableWithoutDrawsContent(
-      hit_testable_without_draws_content());
+  layer->SetHitTestable(HitTestable());
   // subtree_property_changed_ is propagated to all descendants while building
   // property trees. So, it is enough to check it only for the current layer.
   if (subtree_property_changed_)
@@ -1358,6 +1523,7 @@ void Layer::PushPropertiesTo(LayerImpl* layer) {
   layer->SetMasksToBounds(inputs_.masks_to_bounds);
   layer->SetNonFastScrollableRegion(inputs_.non_fast_scrollable_region);
   layer->SetTouchActionRegion(inputs_.touch_action_region);
+  layer->SetMirrorCount(inputs_.mirror_count);
   // TODO(sunxd): Pass the correct region for wheel event handlers, see
   // https://crbug.com/841364.
   EventListenerProperties mouse_wheel_props =
@@ -1520,6 +1686,10 @@ void Layer::OnFilterAnimated(const FilterOperations& filters) {
   inputs_.filters = filters;
 }
 
+void Layer::OnBackdropFilterAnimated(const FilterOperations& backdrop_filters) {
+  inputs_.backdrop_filters = backdrop_filters;
+}
+
 void Layer::OnOpacityAnimated(float opacity) {
   inputs_.opacity = opacity;
 }
@@ -1545,6 +1715,27 @@ void Layer::SetTrilinearFiltering(bool trilinear_filtering) {
   // it flattens transforms.
   SetSubtreePropertyChanged();
   SetNeedsCommit();
+}
+
+void Layer::IncrementMirrorCount() {
+  SetMirrorCount(mirror_count() + 1);
+}
+
+void Layer::DecrementMirrorCount() {
+  SetMirrorCount(mirror_count() - 1);
+}
+
+void Layer::SetMirrorCount(int mirror_count) {
+  if (inputs_.mirror_count == mirror_count)
+    return;
+
+  DCHECK_LE(0, mirror_count);
+  bool was_mirrored = inputs_.mirror_count > 0;
+  inputs_.mirror_count = mirror_count;
+  bool is_mirrored = inputs_.mirror_count > 0;
+  if (was_mirrored != is_mirrored)
+    SetPropertyTreesNeedRebuild();
+  SetNeedsPushProperties();
 }
 
 ElementListType Layer::GetElementTypeForAnimation() const {

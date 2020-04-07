@@ -4,21 +4,18 @@
 
 #include "ui/message_center/views/message_view.h"
 
-#include "base/feature_list.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
 #include "ui/accessibility/ax_enums.mojom.h"
 #include "ui/accessibility/ax_node_data.h"
 #include "ui/base/l10n/l10n_util.h"
-#include "ui/base/models/simple_menu_model.h"
-#include "ui/compositor/paint_recorder.h"
 #include "ui/compositor/scoped_layer_animation_settings.h"
 #include "ui/gfx/canvas.h"
+#include "ui/gfx/color_palette.h"
 #include "ui/gfx/image/image_skia_operations.h"
 #include "ui/gfx/shadow_util.h"
 #include "ui/gfx/shadow_value.h"
 #include "ui/message_center/message_center.h"
-#include "ui/message_center/public/cpp/features.h"
 #include "ui/message_center/public/cpp/message_center_constants.h"
 #include "ui/message_center/views/notification_background_painter.h"
 #include "ui/message_center/views/notification_control_buttons_view.h"
@@ -29,6 +26,8 @@
 #include "ui/views/controls/image_view.h"
 #include "ui/views/controls/scroll_view.h"
 #include "ui/views/focus/focus_manager.h"
+#include "ui/views/style/platform_style.h"
+#include "ui/views/view_class_properties.h"
 #include "ui/views/widget/widget.h"
 
 #if defined(OS_WIN)
@@ -75,13 +74,14 @@ const char MessageView::kViewClassName[] = "MessageView";
 MessageView::MessageView(const Notification& notification)
     : notification_id_(notification.id()), slide_out_controller_(this, this) {
   SetFocusBehavior(FocusBehavior::ALWAYS);
+  focus_ring_ = views::FocusRing::Install(this);
+
+  // TODO(amehfooz): Remove explicit color setting after native theme changes.
+  focus_ring_->SetColor(gfx::kGoogleBlue500);
 
   // Paint to a dedicated layer to make the layer non-opaque.
   SetPaintToLayer();
   layer()->SetFillsBoundsOpaquely(false);
-
-  focus_painter_ = views::Painter::CreateSolidFocusPainter(
-      kFocusBorderColor, gfx::Insets(0, 0, 1, 1));
 
   UpdateWithNotification(notification);
 
@@ -130,6 +130,10 @@ void MessageView::CloseSwipeControl() {
   slide_out_controller_.CloseSwipeControl();
 }
 
+void MessageView::SlideOutAndClose(int direction) {
+  slide_out_controller_.SlideOutAndClose(direction);
+}
+
 void MessageView::SetExpanded(bool expanded) {
   // Not implemented by default.
 }
@@ -154,10 +158,39 @@ void MessageView::SetManuallyExpandedOrCollapsed(bool value) {
 }
 
 void MessageView::UpdateCornerRadius(int top_radius, int bottom_radius) {
+  SetCornerRadius(top_radius, bottom_radius);
   SetBackground(views::CreateBackgroundFromPainter(
       std::make_unique<NotificationBackgroundPainter>(top_radius,
                                                       bottom_radius)));
   SchedulePaint();
+}
+
+void MessageView::UpdateFocusHighlight() {
+  gfx::Rect rect(GetBoundsInScreen().size());
+  // Shrink focus ring size by -kFocusHaloInset on each side to draw
+  // them on top of the notifications. We need to do this because TrayBubbleView
+  // has a layer that masks to bounds due to which the focus ring can not extend
+  // outside the view. This is not required on the bottom most notification's
+  // bottom side.
+  int inset = -views::PlatformStyle::kFocusHaloInset;
+  int bottom_inset = bottom_radius_ == 0 ? inset : 0;
+  rect.Inset(gfx::Insets(inset, inset, bottom_inset, inset));
+
+  int top_radius = std::max(0, top_radius_ - inset);
+  int bottom_radius = std::max(0, bottom_radius_ - inset);
+  SkScalar radii[8] = {top_radius,    top_radius,      // top-left
+                       top_radius,    top_radius,      // top-right
+                       bottom_radius, bottom_radius,   // bottom-right
+                       bottom_radius, bottom_radius};  // bottom-left
+
+  auto path = std::make_unique<SkPath>();
+  path->addRoundRect(gfx::RectToSkRect(rect), radii);
+  SetProperty(views::kHighlightPathKey, path.release());
+}
+
+void MessageView::OnBoundsChanged(const gfx::Rect& previous_bounds) {
+  views::InkDropHostView::OnBoundsChanged(previous_bounds);
+  UpdateFocusHighlight();
 }
 
 void MessageView::OnContainerAnimationStarted() {
@@ -219,29 +252,16 @@ bool MessageView::OnKeyReleased(const ui::KeyEvent& event) {
   return true;
 }
 
-void MessageView::PaintChildren(const views::PaintInfo& paint_info) {
-  views::View::PaintChildren(paint_info);
-
-  // Paint focus ring on top of all the children.
-  ui::PaintRecorder recorder(paint_info.context(), size());
-  views::Painter::PaintFocusPainter(this, recorder.canvas(),
-                                    focus_painter_.get());
-}
-
 void MessageView::OnPaint(gfx::Canvas* canvas) {
   if (ShouldShowAeroShadowBorder()) {
     // If the border is shadow, paint border first.
     OnPaintBorder(canvas);
+    // Clip at the border so we don't paint over it.
+    canvas->ClipRect(GetContentsBounds());
     OnPaintBackground(canvas);
   } else {
     views::View::OnPaint(canvas);
   }
-}
-
-void MessageView::OnFocus() {
-  views::View::OnFocus();
-  // We paint a focus indicator.
-  SchedulePaint();
 }
 
 void MessageView::OnBlur() {
@@ -302,24 +322,31 @@ ui::Layer* MessageView::GetSlideOutLayer() {
 }
 
 void MessageView::OnSlideStarted() {
-  for (auto* observer : slide_observers_) {
-    observer->OnSlideStarted(notification_id_);
+  for (auto& observer : slide_observers_) {
+    observer.OnSlideStarted(notification_id_);
   }
 }
 
 void MessageView::OnSlideChanged(bool in_progress) {
-  for (auto* observer : slide_observers_) {
-    observer->OnSlideChanged(notification_id_);
+  for (auto& observer : slide_observers_) {
+    observer.OnSlideChanged(notification_id_);
   }
 }
 
 void MessageView::AddSlideObserver(MessageView::SlideObserver* observer) {
-  slide_observers_.push_back(observer);
+  slide_observers_.AddObserver(observer);
+}
+
+void MessageView::RemoveSlideObserver(MessageView::SlideObserver* observer) {
+  slide_observers_.RemoveObserver(observer);
 }
 
 void MessageView::OnSlideOut() {
   MessageCenter::Get()->RemoveNotification(notification_id_,
                                            true /* by_user */);
+
+  for (auto& observer : slide_observers_)
+    observer.OnSlideOut(notification_id_);
 }
 
 void MessageView::OnWillChangeFocus(views::View* before, views::View* now) {}
@@ -378,6 +405,11 @@ void MessageView::DisableSlideForcibly(bool disable) {
 
 void MessageView::SetSlideButtonWidth(int control_button_width) {
   slide_out_controller_.SetSwipeControlWidth(control_button_width);
+}
+
+void MessageView::SetCornerRadius(int top_radius, int bottom_radius) {
+  top_radius_ = top_radius;
+  bottom_radius_ = bottom_radius;
 }
 
 void MessageView::OnCloseButtonPressed() {

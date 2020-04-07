@@ -11,6 +11,7 @@
 #include <utility>
 #include <vector>
 
+#include "base/bind.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
@@ -61,8 +62,8 @@
 #include "extensions/browser/pref_names.h"
 #endif
 
+using blink::mojom::ConsoleMessageLevel;
 using content::BrowserContext;
-using content::ConsoleMessageLevel;
 using content::WebContents;
 using web_modal::WebContentsModalDialogHost;
 using web_modal::WebContentsModalDialogManager;
@@ -243,8 +244,7 @@ AppWindow::AppWindow(BrowserContext* context,
     : browser_context_(context),
       extension_id_(extension->id()),
       session_id_(SessionID::NewUnique()),
-      app_delegate_(app_delegate),
-      image_loader_ptr_factory_(this) {
+      app_delegate_(app_delegate) {
   ExtensionsBrowserClient* client = ExtensionsBrowserClient::Get();
   CHECK(!client->IsGuestSession(context) || context->IsOffTheRecord())
       << "Only off the record window may be opened in the guest mode.";
@@ -354,7 +354,7 @@ void AppWindow::RequestMediaAccessPermission(
 bool AppWindow::CheckMediaAccessPermission(
     content::RenderFrameHost* render_frame_host,
     const GURL& security_origin,
-    blink::MediaStreamType type) {
+    blink::mojom::MediaStreamType type) {
   DCHECK_EQ(web_contents(),
             content::WebContents::FromRenderFrameHost(render_frame_host)
                 ->GetOutermostWebContents());
@@ -443,9 +443,10 @@ bool AppWindow::TakeFocus(WebContents* source, bool reverse) {
   return app_delegate_->TakeFocus(source, reverse);
 }
 
-gfx::Size AppWindow::EnterPictureInPicture(content::WebContents* web_contents,
-                                           const viz::SurfaceId& surface_id,
-                                           const gfx::Size& natural_size) {
+content::PictureInPictureResult AppWindow::EnterPictureInPicture(
+    content::WebContents* web_contents,
+    const viz::SurfaceId& surface_id,
+    const gfx::Size& natural_size) {
   return app_delegate_->EnterPictureInPicture(web_contents, surface_id,
                                               natural_size);
 }
@@ -468,42 +469,30 @@ void AppWindow::RenderViewCreated(content::RenderViewHost* render_view_host) {
   app_delegate_->RenderViewCreated(render_view_host);
 }
 
-void AppWindow::SetOnFirstCommitOrWindowClosedCallback(
-    FirstCommitOrWindowClosedCallback callback) {
-  DCHECK(on_first_commit_or_window_closed_callback_.is_null());
-  on_first_commit_or_window_closed_callback_ = std::move(callback);
+void AppWindow::AddOnDidFinishFirstNavigationCallback(
+    DidFinishFirstNavigationCallback callback) {
+  on_did_finish_first_navigation_callbacks_.push_back(std::move(callback));
 }
 
-void AppWindow::OnReadyToCommitFirstNavigation() {
-  // Execute renderer-side setup now that there is a renderer process assigned
-  // to the navigation. We must wait until this point in time in the navigation.
-  if (on_first_commit_or_window_closed_callback_.is_null())
-    return;
-  // It is important that the callback executes after the calls to
-  // WebContentsObserver::ReadyToCommitNavigation have been processed. The
-  // CommitNavigation IPC that will properly set up the renderer will only be
-  // sent after these, and it must be sent before the callback gets to run,
-  // hence the use of PostTask.
-  base::ThreadTaskRunnerHandle::Get()->PostTask(
-      FROM_HERE,
-      base::BindOnce(std::move(on_first_commit_or_window_closed_callback_),
-                     true /* ready_to_commit */));
+void AppWindow::OnDidFinishFirstNavigation() {
+  did_finish_first_navigation_ = true;
+  std::vector<DidFinishFirstNavigationCallback> callbacks;
+  std::swap(callbacks, on_did_finish_first_navigation_callbacks_);
+  for (auto&& callback : callbacks)
+    std::move(callback).Run(true /* did_finish */);
 }
 
 void AppWindow::OnNativeClose() {
   AppWindowRegistry::Get(browser_context_)->RemoveAppWindow(this);
 
-  // Dispatch "OnClosed" event by default.
-  bool send_onclosed = true;
-
-  // Run pending |on_first_commit_or_window_closed_callback_| so that
+  // Run pending |on_did_finish_first_navigation_callback_| so that
   // AppWindowCreateFunction can respond with an error properly.
-  if (!on_first_commit_or_window_closed_callback_.is_null()) {
-    std::move(on_first_commit_or_window_closed_callback_)
-        .Run(false /* ready_to_commit */);
-
-    send_onclosed = false;  // No "OnClosed" event on window creation error.
-  }
+  std::vector<DidFinishFirstNavigationCallback> callbacks;
+  std::swap(callbacks, on_did_finish_first_navigation_callbacks_);
+  // No "OnClosed" event on window creation error.
+  const bool send_onclosed = callbacks.empty();
+  for (auto&& callback : callbacks)
+    std::move(callback).Run(false /* did_finish */);
 
   if (app_window_contents_) {
     WebContentsModalDialogManager* modal_dialog_manager =
@@ -740,7 +729,9 @@ void AppWindow::SetAlwaysOnTop(bool always_on_top) {
        ExtensionsBrowserClient::Get()->IsScreensaverInDemoMode(
            extension_id())) &&
       !IntersectsWithTaskbar()) {
-    native_app_window_->SetAlwaysOnTop(always_on_top);
+    native_app_window_->SetZOrderLevel(always_on_top
+                                           ? ui::ZOrderLevel::kFloatingWindow
+                                           : ui::ZOrderLevel::kNormal);
   }
 
   OnNativeWindowChanged();
@@ -865,19 +856,24 @@ bool AppWindow::IntersectsWithTaskbar() const {
 
 void AppWindow::UpdateNativeAlwaysOnTop() {
   DCHECK(cached_always_on_top_);
-  bool is_on_top = native_app_window_->IsAlwaysOnTop();
+  bool is_on_top =
+      native_app_window_->GetZOrderLevel() == ui::ZOrderLevel::kFloatingWindow;
   bool fullscreen = IsFullscreen();
   bool intersects_taskbar = IntersectsWithTaskbar();
 
   if (is_on_top && (fullscreen || intersects_taskbar)) {
     // When entering fullscreen or overlapping the taskbar, ensure windows are
     // not always-on-top.
-    native_app_window_->SetAlwaysOnTop(false);
+    native_app_window_->SetZOrderLevel(ui::ZOrderLevel::kNormal);
   } else if (!is_on_top && !fullscreen && !intersects_taskbar) {
     // When exiting fullscreen and moving away from the taskbar, reinstate
     // always-on-top.
-    native_app_window_->SetAlwaysOnTop(true);
+    native_app_window_->SetZOrderLevel(ui::ZOrderLevel::kFloatingWindow);
   }
+}
+
+void AppWindow::ActivateContents(WebContents* contents) {
+  native_app_window_->Activate();
 }
 
 void AppWindow::CloseContents(WebContents* contents) {
@@ -947,13 +943,13 @@ void AppWindow::ToggleFullscreenModeForTab(content::WebContents* source,
   SetFullscreen(FULLSCREEN_TYPE_HTML_API, enter_fullscreen);
 }
 
-bool AppWindow::IsFullscreenForTabOrPending(const content::WebContents* source)
-    const {
+bool AppWindow::IsFullscreenForTabOrPending(
+    const content::WebContents* source) {
   return IsHtmlApiFullscreen();
 }
 
 blink::WebDisplayMode AppWindow::GetDisplayMode(
-    const content::WebContents* source) const {
+    const content::WebContents* source) {
   return IsFullscreen() ? blink::kWebDisplayModeFullscreen
                         : blink::kWebDisplayModeStandalone;
 }

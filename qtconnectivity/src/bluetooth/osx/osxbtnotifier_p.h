@@ -96,7 +96,6 @@ Q_SIGNALS:
     void CBManagerError(QLowEnergyController::Error error);
     void CBManagerError(const QBluetoothUuid &serviceUuid, QLowEnergyController::Error error);
     void CBManagerError(const QBluetoothUuid &serviceUuid, QLowEnergyService::ServiceError error);
-
 };
 
 }

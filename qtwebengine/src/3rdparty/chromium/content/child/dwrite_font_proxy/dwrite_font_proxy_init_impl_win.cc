@@ -9,13 +9,14 @@
 #include "base/bind.h"
 #include "base/callback.h"
 #include "base/debug/alias.h"
+#include "base/trace_event/trace_event.h"
 #include "base/win/iat_patch_function.h"
 #include "base/win/windows_version.h"
 #include "content/child/dwrite_font_proxy/dwrite_font_proxy_win.h"
 #include "content/child/dwrite_font_proxy/font_fallback_win.h"
 #include "content/child/font_warmup_win.h"
 #include "content/public/common/service_names.mojom.h"
-#include "skia/ext/fontmgr_default_win.h"
+#include "skia/ext/fontmgr_default.h"
 #include "third_party/blink/public/web/win/web_font_rendering.h"
 #include "third_party/skia/include/core/SkFontMgr.h"
 #include "third_party/skia/include/ports/SkTypeface_win.h"
@@ -48,6 +49,7 @@ void CreateDirectWriteFactory(IDWriteFactory** factory) {
 }  // namespace
 
 void InitializeDWriteFontProxy(service_manager::Connector* connector) {
+  TRACE_EVENT0("dwrite,fonts", "InitializeDWriteFontProxy");
   mswr::ComPtr<IDWriteFactory> factory;
 
   CreateDirectWriteFactory(&factory);
@@ -57,7 +59,7 @@ void InitializeDWriteFontProxy(service_manager::Connector* connector) {
     if (g_connection_callback_override) {
       dwrite_font_proxy = g_connection_callback_override->Run();
     } else if (connector) {
-      connector->BindInterface(mojom::kBrowserServiceName,
+      connector->BindInterface(mojom::kSystemServiceName,
                                mojo::MakeRequest(&dwrite_font_proxy));
     }
     // If |connector| is not provided, the connection to the browser will be
@@ -78,7 +80,7 @@ void InitializeDWriteFontProxy(service_manager::Connector* connector) {
       factory.Get(), g_font_collection, g_font_fallback);
   blink::WebFontRendering::SetSkiaFontManager(skia_font_manager);
 
-  SetDefaultSkiaFactory(std::move(skia_font_manager));
+  skia::OverrideDefaultSkFontMgr(std::move(skia_font_manager));
 
   // When IDWriteFontFallback is not available (prior to Win8.1) Skia will
   // still attempt to use DirectWrite to determine fallback fonts (in
@@ -92,7 +94,7 @@ void InitializeDWriteFontProxy(service_manager::Connector* connector) {
   // qtwebengine does not supply manifest file, version of windows is always reported as
   // windows 8
   DCHECK_EQ(fallback_available,
-            base::win::GetVersion() > base::win::VERSION_WIN8);
+            base::win::GetVersion() > base::win::Version::WIN8);
 #endif
   blink::WebFontRendering::SetUseSkiaFontFallback(fallback_available);
 }

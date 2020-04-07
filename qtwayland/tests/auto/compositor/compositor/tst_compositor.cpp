@@ -29,6 +29,7 @@
 #include "mockclient.h"
 #include "mockseat.h"
 #include "mockpointer.h"
+#include "mockxdgoutputv1.h"
 #include "testcompositor.h"
 #include "testkeyboardgrabber.h"
 #include "testseat.h"
@@ -47,8 +48,12 @@
 #include <QtWaylandCompositor/QWaylandResource>
 #include <QtWaylandCompositor/QWaylandKeymap>
 #include <QtWaylandCompositor/QWaylandViewporter>
+#include <QtWaylandCompositor/QWaylandIdleInhibitManagerV1>
+#include <QtWaylandCompositor/QWaylandXdgOutputManagerV1>
 #include <qwayland-xdg-shell.h>
 #include <qwayland-ivi-application.h>
+#include <QtWaylandCompositor/private/qwaylandoutput_p.h>
+#include <QtWaylandCompositor/private/qwaylandsurface_p.h>
 
 #include <QtTest/QtTest>
 
@@ -73,12 +78,14 @@ private slots:
     void singleClient();
     void multipleClients();
     void geometry();
+    void availableGeometry();
     void modes();
     void comparingModes();
     void sizeFollowsWindow();
     void mapSurface();
     void mapSurfaceHiDpi();
     void frameCallback();
+    void pixelFormats();
     void outputs();
     void customSurface();
 
@@ -110,10 +117,19 @@ private slots:
     void viewportDestinationNoSurfaceError();
     void viewportSourceNoSurfaceError();
     void viewportHiDpi();
+
+    void idleInhibit();
+
+    void xdgOutput();
+
+private:
+    QTemporaryDir m_tmpRuntimeDir;
 };
 
 void tst_WaylandCompositor::init() {
-    qputenv("XDG_RUNTIME_DIR", ".");
+    // We need to set a test specific runtime dir so we don't conflict with other tests'
+    // compositors by accident.
+    qputenv("XDG_RUNTIME_DIR", m_tmpRuntimeDir.path().toLocal8Bit());
 }
 
 void tst_WaylandCompositor::singleClient()
@@ -367,6 +383,22 @@ void tst_WaylandCompositor::geometry()
     QTRY_COMPARE(client.refreshRate, 60000);
 }
 
+void tst_WaylandCompositor::availableGeometry()
+{
+    TestCompositor compositor;
+    compositor.create();
+
+    QWaylandOutputMode mode(QSize(1024, 768), 60000);
+    compositor.defaultOutput()->addMode(mode, true);
+    compositor.defaultOutput()->setCurrentMode(mode);
+
+    MockClient client;
+
+    QRect availableGeometry(50, 100, 850, 600);
+    compositor.defaultOutput()->setAvailableGeometry(availableGeometry);
+    QCOMPARE(compositor.defaultOutput()->availableGeometry(), availableGeometry);
+}
+
 void tst_WaylandCompositor::modes()
 {
     TestCompositor compositor;
@@ -513,8 +545,13 @@ void tst_WaylandCompositor::mapSurfaceHiDpi()
     QObject::connect(waylandSurface, &QWaylandSurface::hasContentChanged, verifyComittedState);
     QSignalSpy hasContentSpy(waylandSurface, SIGNAL(hasContentChanged()));
 
+#if QT_DEPRECATED_SINCE(5, 13)
     QObject::connect(waylandSurface, &QWaylandSurface::sizeChanged, verifyComittedState);
     QSignalSpy sizeSpy(waylandSurface, SIGNAL(sizeChanged()));
+#endif
+
+    QObject::connect(waylandSurface, &QWaylandSurface::bufferSizeChanged, verifyComittedState);
+    QSignalSpy bufferSizeSpy(waylandSurface, SIGNAL(bufferSizeChanged()));
 
     QObject::connect(waylandSurface, &QWaylandSurface::destinationSizeChanged, verifyComittedState);
     QSignalSpy destinationSizeSpy(waylandSurface, SIGNAL(destinationSizeChanged()));
@@ -538,7 +575,10 @@ void tst_WaylandCompositor::mapSurfaceHiDpi()
     wl_surface_commit(surface);
 
     QTRY_COMPARE(hasContentSpy.count(), 1);
+#if QT_DEPRECATED_SINCE(5, 13)
     QTRY_COMPARE(sizeSpy.count(), 1);
+#endif
+    QTRY_COMPARE(bufferSizeSpy.count(), 1);
     QTRY_COMPARE(destinationSizeSpy.count(), 1);
     QTRY_COMPARE(bufferScaleSpy.count(), 1);
     QTRY_COMPARE(offsetSpy.count(), 1);
@@ -561,27 +601,27 @@ static void registerFrameCallback(wl_surface *surface, int *counter)
     wl_callback_add_listener(wl_surface_frame(surface), &frameCallbackListener, counter);
 }
 
+class BufferView : public QWaylandView
+{
+public:
+    void bufferCommitted(const QWaylandBufferRef &ref, const QRegion &damage) override
+    {
+        Q_UNUSED(damage);
+        bufferRef = ref;
+    }
+
+    QImage image() const
+    {
+        if (bufferRef.isNull() || !bufferRef.isSharedMemory())
+            return QImage();
+        return bufferRef.image();
+    }
+
+    QWaylandBufferRef bufferRef;
+};
+
 void tst_WaylandCompositor::frameCallback()
 {
-    class BufferView : public QWaylandView
-    {
-    public:
-        void bufferCommitted(const QWaylandBufferRef &ref, const QRegion &damage) override
-        {
-            Q_UNUSED(damage);
-            bufferRef = ref;
-        }
-
-        QImage image() const
-        {
-            if (bufferRef.isNull() || !bufferRef.isSharedMemory())
-                return QImage();
-            return bufferRef.image();
-        }
-
-        QWaylandBufferRef bufferRef;
-    };
-
     TestCompositor compositor;
     compositor.create();
 
@@ -618,6 +658,35 @@ void tst_WaylandCompositor::frameCallback()
 
         QTRY_COMPARE(frameCounter, i + 1);
     }
+
+    wl_surface_destroy(surface);
+}
+
+void tst_WaylandCompositor::pixelFormats()
+{
+    TestCompositor compositor;
+    compositor.create();
+
+    MockClient client;
+
+    wl_surface *surface = client.createSurface();
+    QTRY_COMPARE(compositor.surfaces.size(), 1);
+    QWaylandSurface *waylandSurface = compositor.surfaces.at(0);
+    BufferView* view = new BufferView;
+    view->setSurface(waylandSurface);
+    view->setOutput(compositor.defaultOutput());
+
+    QSize size(32, 32);
+    ShmBuffer buffer(size, client.shm); // Will be WL_SHM_FORMAT_ARGB8888;
+    wl_surface_attach(surface, buffer.handle, 0, 0);
+    wl_surface_damage(surface, 0, 0, size.width(), size.height());
+    wl_surface_commit(surface);
+
+    QTRY_COMPARE(waylandSurface->hasContent(), true);
+
+    // According to https://lists.freedesktop.org/archives/wayland-devel/2017-August/034791.html
+    // all RGB formats with alpha are premultiplied. Verify it here:
+    QCOMPARE(view->image().format(), QImage::Format_ARGB32_Premultiplied);
 
     wl_surface_destroy(surface);
 }
@@ -715,9 +784,8 @@ void tst_WaylandCompositor::seatCreation()
     // The compositor will create the default input device
     QTRY_VERIFY(seat->isInitialized());
 
-    QList<QMouseEvent *> allEvents;
-    allEvents += seat->createMouseEvents(5);
-    foreach (QMouseEvent *me, allEvents) {
+    const QList<QMouseEvent *> allEvents = seat->createMouseEvents(5);
+    for (QMouseEvent *me : allEvents) {
         compositor.seatFor(me);
     }
 
@@ -845,6 +913,11 @@ void tst_WaylandCompositor::inputRegion()
     QVERIFY(!waylandSurface->inputRegionContains(QPoint(0, 0)));
     QVERIFY(!waylandSurface->inputRegionContains(QPoint(1, 6)));
     QVERIFY(!waylandSurface->inputRegionContains(QPoint(4, 2)));
+
+    QVERIFY(!waylandSurface->inputRegionContains(QPointF(0.99, 1.99)));
+    QVERIFY(waylandSurface->inputRegionContains(QPointF(1, 2)));
+    QVERIFY(waylandSurface->inputRegionContains(QPointF(3.99, 4.99)));
+    QVERIFY(!waylandSurface->inputRegionContains(QPointF(4, 5)));
 
     // Setting a nullptr input region means we want all events
     wl_surface_set_input_region(surface, nullptr);
@@ -1698,6 +1771,104 @@ void tst_WaylandCompositor::viewportHiDpi()
 
     wp_viewport_destroy(viewport);
     wl_surface_destroy(surface);
+}
+
+class IdleInhibitCompositor : public TestCompositor
+{
+    Q_OBJECT
+public:
+    IdleInhibitCompositor() : idleInhibitManager(this) {}
+    QWaylandIdleInhibitManagerV1 idleInhibitManager;
+};
+
+void tst_WaylandCompositor::idleInhibit()
+{
+    IdleInhibitCompositor compositor;
+    compositor.create();
+    MockClient client;
+    QTRY_VERIFY(client.idleInhibitManager);
+
+    auto *surface = client.createSurface();
+    QVERIFY(surface);
+    QTRY_COMPARE(compositor.surfaces.size(), 1);
+
+    QWaylandSurface *waylandSurface = compositor.surfaces.at(0);
+    auto *waylandSurfacePrivate =
+            QWaylandSurfacePrivate::get(waylandSurface);
+    QVERIFY(waylandSurfacePrivate);
+
+    QSignalSpy changedSpy(waylandSurface, SIGNAL(inhibitsIdleChanged()));
+
+    QCOMPARE(waylandSurface->inhibitsIdle(), false);
+
+    auto *idleInhibitor = client.createIdleInhibitor(surface);
+    QVERIFY(idleInhibitor);
+    QTRY_COMPARE(waylandSurfacePrivate->idleInhibitors.size(), 1);
+    QCOMPARE(waylandSurface->inhibitsIdle(), true);
+    QTRY_COMPARE(changedSpy.count(), 1);
+}
+
+class XdgOutputCompositor : public TestCompositor
+{
+    Q_OBJECT
+public:
+    XdgOutputCompositor() : xdgOutputManager(this) {}
+    QWaylandXdgOutputManagerV1 xdgOutputManager;
+};
+
+void tst_WaylandCompositor::xdgOutput()
+{
+    XdgOutputCompositor compositor;
+    compositor.create();
+
+    QWaylandOutputMode mode(QSize(1024, 768), 60000);
+    compositor.defaultOutput()->addMode(mode, true);
+    compositor.defaultOutput()->setCurrentMode(mode);
+
+    MockClient client;
+    QTRY_VERIFY(client.xdgOutputManager);
+    QTRY_COMPARE(client.m_outputs.size(), 1);
+
+    auto *wlOutput = client.m_outputs.first();
+    QVERIFY(wlOutput);
+
+    // Output is not associated yet
+    QCOMPARE(QWaylandOutputPrivate::get(compositor.defaultOutput())->xdgOutput.isNull(), true);
+
+    // Create xdg-output on the server
+    auto *xdgOutputServer = new QWaylandXdgOutputV1(compositor.defaultOutput(), &compositor.xdgOutputManager);
+    QVERIFY(xdgOutputServer);
+    xdgOutputServer->setName(QStringLiteral("OUTPUT1"));
+    xdgOutputServer->setDescription(QStringLiteral("This is a test output"));
+
+    // Create it on the client
+    auto *xdgOutput = client.createXdgOutput(wlOutput);
+    QVERIFY(xdgOutput);
+    QVERIFY(client.m_xdgOutputs.contains(wlOutput));
+
+    // Now it should be associated
+    QCOMPARE(QWaylandOutputPrivate::get(compositor.defaultOutput())->xdgOutput.isNull(), false);
+
+    // Verify initial values
+    QTRY_COMPARE(xdgOutput->name, "OUTPUT1");
+    QTRY_COMPARE(xdgOutput->logicalPosition, QPoint());
+    QTRY_COMPARE(xdgOutput->logicalSize, QSize());
+
+    // Change properties
+    xdgOutputServer->setName(QStringLiteral("OUTPUT2"));
+    xdgOutputServer->setDescription(QStringLiteral("New description"));
+    xdgOutputServer->setLogicalPosition(QPoint(100, 100));
+    xdgOutputServer->setLogicalSize(QSize(1000, 1000));
+    compositor.flushClients();
+
+    // Name and description can't be changed after initialization,
+    // so we expect them to be the same
+    // TODO: With protocol version 3 the description will be allowed to change,
+    // but we implement version 2 now
+    QTRY_COMPARE(xdgOutput->name, "OUTPUT1");
+    QTRY_COMPARE(xdgOutput->description, "This is a test output");
+    QTRY_COMPARE(xdgOutput->logicalPosition, QPoint(100, 100));
+    QTRY_COMPARE(xdgOutput->logicalSize, QSize(1000, 1000));
 }
 
 #include <tst_compositor.moc>

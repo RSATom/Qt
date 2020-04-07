@@ -7,10 +7,10 @@
 #include "content/browser/frame_host/render_frame_host_impl.h"
 #include "content/browser/renderer_host/render_widget_host_view_base.h"
 #include "content/browser/web_contents/web_contents_impl.h"
+#include "content/public/android/content_jni_headers/DialogOverlayImpl_jni.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/web_contents_delegate.h"
 #include "gpu/ipc/common/gpu_surface_tracker.h"
-#include "jni/DialogOverlayImpl_jni.h"
 #include "ui/android/view_android_observer.h"
 #include "ui/android/window_android.h"
 
@@ -256,8 +256,9 @@ static jint JNI_DialogOverlayImpl_RegisterSurface(
     const JavaParamRef<jobject>& surface) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   return gpu::GpuSurfaceTracker::Get()->AddSurfaceForNativeWidget(
-      gpu::GpuSurfaceTracker::SurfaceRecord(gfx::kNullAcceleratedWidget,
-                                            surface.obj()));
+      gpu::GpuSurfaceTracker::SurfaceRecord(
+          gfx::kNullAcceleratedWidget, surface.obj(),
+          false /* can_be_used_with_surface_control */));
 }
 
 static void JNI_DialogOverlayImpl_UnregisterSurface(
@@ -271,8 +272,10 @@ static ScopedJavaLocalRef<jobject>
 JNI_DialogOverlayImpl_LookupSurfaceForTesting(
     JNIEnv* env,
     jint surfaceId) {
+  bool can_be_used_with_surface_control = false;
   gl::ScopedJavaSurface surface =
-      gpu::GpuSurfaceTracker::Get()->AcquireJavaSurface(surfaceId);
+      gpu::GpuSurfaceTracker::Get()->AcquireJavaSurface(
+          surfaceId, &can_be_used_with_surface_control);
   return ScopedJavaLocalRef<jobject>(surface.j_surface());
 }
 

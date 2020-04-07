@@ -32,7 +32,7 @@
         "id": "ExtensionType",
         "description": "The type of this extension, app, or theme.",
         "type": "string",
-        "enum": ["extension", "hosted_app", "packaged_app", "legacy_packaged_app", "theme"]
+        "enum": ["extension", "hosted_app", "packaged_app", "legacy_packaged_app", "theme", "login_screen_extension"]
       },
       {
         "id": "ExtensionInstallType",
@@ -160,7 +160,7 @@
             }
           }
         }
-      }
+     }
     ],
     "functions": [
       {
@@ -422,6 +422,18 @@
                 "$ref": "ExtensionInfo"
               }
             ]
+          }
+        ]
+      },
+      {
+        "name": "installReplacementWebApp",
+        "description": "Prompts the user to install the replacement web app from the manifest.",
+        "parameters": [
+          {
+            "name": "callback",
+            "type": "function",
+            "optional": true,
+            "parameters":  []
           }
         ]
       }

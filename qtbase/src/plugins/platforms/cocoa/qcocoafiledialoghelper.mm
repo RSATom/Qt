@@ -51,7 +51,6 @@
 #include "qt_mac_p.h"
 #include "qcocoahelpers.h"
 #include "qcocoaeventdispatcher.h"
-#include <qregexp.h>
 #include <qbuffer.h>
 #include <qdebug.h>
 #include <qstringlist.h>
@@ -76,27 +75,6 @@ QT_FORWARD_DECLARE_CLASS(QWindow)
 QT_USE_NAMESPACE
 
 typedef QSharedPointer<QFileDialogOptions> SharedPointerFileDialogOptions;
-
-@interface QT_MANGLE_NAMESPACE(QNSOpenSavePanelDelegate)
-    : NSObject<NSOpenSavePanelDelegate>
-
-- (NSString *)strip:(const QString &)label;
-- (BOOL)panel:(id)sender shouldEnableURL:(NSURL *)url;
-- (void)filterChanged:(id)sender;
-- (void)showModelessPanel;
-- (BOOL)runApplicationModalPanel;
-- (void)showWindowModalSheet:(QWindow *)docWidget;
-- (void)updateProperties;
-- (QStringList)acceptableExtensionsForSave;
-- (QString)removeExtensions:(const QString &)filter;
-- (void)createTextField;
-- (void)createPopUpButton:(const QString &)selectedFilter hideDetails:(BOOL)hideDetails;
-- (QStringList)findStrippedFilterWithVisualFilterName:(QString)name;
-- (void)createAccessory;
-
-@end
-
-QT_NAMESPACE_ALIAS_OBJC_CLASS(QNSOpenSavePanelDelegate);
 
 @implementation QNSOpenSavePanelDelegate {
     @public
@@ -215,7 +193,7 @@ static QString strippedText(QString s)
         NSString *filepath = info.filePath().toNSString();
         NSURL *url = [NSURL fileURLWithPath:filepath isDirectory:info.isDir()];
         bool selectable = (mOptions->acceptMode() == QFileDialogOptions::AcceptSave)
-            || [self panel:nil shouldEnableURL:url];
+            || [self panel:mOpenPanel shouldEnableURL:url];
 
         [self updateProperties];
         [mSavePanel setNameFieldStringValue:selectable ? info.fileName().toNSString() : @""];
@@ -234,7 +212,7 @@ static QString strippedText(QString s)
     NSString *filepath = info.filePath().toNSString();
     NSURL *url = [NSURL fileURLWithPath:filepath isDirectory:info.isDir()];
     bool selectable = (mOptions->acceptMode() == QFileDialogOptions::AcceptSave)
-        || [self panel:nil shouldEnableURL:url];
+        || [self panel:mSavePanel shouldEnableURL:url];
 
     [mSavePanel setDirectoryURL: [NSURL fileURLWithPath:mCurrentDir]];
     [mSavePanel setNameFieldStringValue:selectable ? info.fileName().toNSString() : @""];
@@ -264,7 +242,7 @@ static QString strippedText(QString s)
     NSString *filepath = info.filePath().toNSString();
     NSURL *url = [NSURL fileURLWithPath:filepath isDirectory:info.isDir()];
     bool selectable = (mOptions->acceptMode() == QFileDialogOptions::AcceptSave)
-        || [self panel:nil shouldEnableURL:url];
+        || [self panel:mSavePanel shouldEnableURL:url];
 
     [self updateProperties];
     [mSavePanel setDirectoryURL: [NSURL fileURLWithPath:mCurrentDir]];

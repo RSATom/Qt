@@ -30,14 +30,14 @@ namespace {
 class MockURLRequestJob : public URLRequestJob {
  public:
   MockURLRequestJob(URLRequest* request, NetworkDelegate* network_delegate)
-      : URLRequestJob(request, network_delegate), weak_factory_(this) {}
+      : URLRequestJob(request, network_delegate) {}
 
   void Start() override {
     // Start reading asynchronously so that all error reporting and data
     // callbacks happen as they would for network requests.
     base::ThreadTaskRunnerHandle::Get()->PostTask(
-        FROM_HERE,
-        base::Bind(&MockURLRequestJob::StartAsync, weak_factory_.GetWeakPtr()));
+        FROM_HERE, base::BindOnce(&MockURLRequestJob::StartAsync,
+                                  weak_factory_.GetWeakPtr()));
   }
 
  protected:
@@ -48,7 +48,7 @@ class MockURLRequestJob : public URLRequestJob {
     NotifyHeadersComplete();
   }
 
-  base::WeakPtrFactory<MockURLRequestJob> weak_factory_;
+  base::WeakPtrFactory<MockURLRequestJob> weak_factory_{this};
 };
 
 class DummyProtocolHandler : public URLRequestJobFactory::ProtocolHandler {

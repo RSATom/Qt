@@ -89,8 +89,8 @@ void LayoutImageResource::ResetAnimation() {
   layout_object_->SetShouldDoFullPaintInvalidation();
 }
 
-bool LayoutImageResource::ImageHasRelativeSize() const {
-  return cached_image_ && cached_image_->GetImage()->HasRelativeSize();
+bool LayoutImageResource::HasIntrinsicSize() const {
+  return !cached_image_ || cached_image_->GetImage()->HasIntrinsicSize();
 }
 
 FloatSize LayoutImageResource::ImageSize(float multiplier) const {
@@ -98,7 +98,7 @@ FloatSize LayoutImageResource::ImageSize(float multiplier) const {
     return FloatSize();
   FloatSize size(cached_image_->IntrinsicSize(
       LayoutObject::ShouldRespectImageOrientation(layout_object_)));
-  if (multiplier != 1 && !ImageHasRelativeSize()) {
+  if (multiplier != 1 && HasIntrinsicSize()) {
     // Don't let images that have a width/height >= 1 shrink below 1 when
     // zoomed.
     FloatSize minimum_size(size.Width() > 0 ? 1 : 0, size.Height() > 0 ? 1 : 0);
@@ -169,10 +169,9 @@ scoped_refptr<Image> LayoutImageResource::GetImage(
     return image;
 
   KURL url;
-  Node* node = layout_object_->GetNode();
-  if (node && node->IsElementNode()) {
-    const AtomicString& url_string = ToElement(node)->ImageSourceURL();
-    url = node->GetDocument().CompleteURL(url_string);
+  if (auto* element = DynamicTo<Element>(layout_object_->GetNode())) {
+    const AtomicString& url_string = element->ImageSourceURL();
+    url = element->GetDocument().CompleteURL(url_string);
   }
   return SVGImageForContainer::Create(
       ToSVGImage(image), container_size,

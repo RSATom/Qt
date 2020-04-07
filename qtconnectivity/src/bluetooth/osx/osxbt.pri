@@ -1,8 +1,15 @@
-SOURCES += osx/uistrings.cpp osx/osxbtnotifier.cpp
-PRIVATE_HEADERS += osx/uistrings_p.h \
-                   osx/osxbtgcdtimer_p.h
+SOURCES += osx/uistrings.cpp \
+           osx/osxbtnotifier.cpp \
+           osx/btdelegates.cpp
 
-OBJECTIVE_SOURCES += osx/osxbtgcdtimer.mm
+PRIVATE_HEADERS += osx/uistrings_p.h \
+                   osx/osxbtgcdtimer_p.h \
+                   osx/btraii_p.h \
+                   osx/btdelegates_p.h
+
+
+OBJECTIVE_SOURCES += osx/osxbtgcdtimer.mm \
+                     osx/btraii.mm
 #QMAKE_CXXFLAGS_WARN_ON += -Wno-nullability-completeness
 
 CONFIG(osx) {
@@ -13,7 +20,6 @@ CONFIG(osx) {
                        osx/osxbtsdpinquiry_p.h \
                        osx/osxbtrfcommchannel_p.h \
                        osx/osxbtl2capchannel_p.h \
-                       osx/osxbtchanneldelegate_p.h \
                        osx/osxbtservicerecord_p.h \
                        osx/osxbtsocketlistener_p.h \
                        osx/osxbtobexsession_p.h \
@@ -30,7 +36,6 @@ CONFIG(osx) {
                          osx/osxbtsdpinquiry.mm \
                          osx/osxbtrfcommchannel.mm \
                          osx/osxbtl2capchannel.mm \
-                         osx/osxbtchanneldelegate.mm \
                          osx/osxbtservicerecord.mm \
                          osx/osxbtsocketlistener.mm \
                          osx/osxbtobexsession.mm \

@@ -4,6 +4,7 @@
 
 #include "components/mirroring/service/udp_socket_client.h"
 
+#include "base/bind.h"
 #include "base/callback.h"
 #include "net/base/address_family.h"
 #include "net/traffic_annotation/network_traffic_annotation.h"
@@ -55,8 +56,7 @@ UdpSocketClient::UdpSocketClient(const net::IPEndPoint& remote_endpoint,
       binding_(this),
       bytes_sent_(0),
       allow_sending_(false),
-      num_packets_pending_receive_(0),
-      weak_factory_(this) {
+      num_packets_pending_receive_(0) {
   DCHECK(network_context_);
 }
 

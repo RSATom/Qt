@@ -366,17 +366,17 @@ QVariant TestClass::extension(Extension extension,
             }
             return sum;
         } else if (m_callableMode == CallableReturnsArgument) {
-            return qVariantFromValue(ctx->argument(0));
+            return QVariant::fromValue(ctx->argument(0));
         } else if (m_callableMode == CallableReturnsInvalidVariant) {
             return QVariant();
         } else if (m_callableMode == CallableReturnsGlobalObject) {
-            return qVariantFromValue(engine()->globalObject());
+            return QVariant::fromValue(engine()->globalObject());
         } else if (m_callableMode == CallableReturnsThisObject) {
-            return qVariantFromValue(ctx->thisObject());
+            return QVariant::fromValue(ctx->thisObject());
         } else if (m_callableMode == CallableReturnsCallee) {
-            return qVariantFromValue(ctx->callee());
+            return QVariant::fromValue(ctx->callee());
         } else if (m_callableMode == CallableReturnsArgumentsObject) {
-            return qVariantFromValue(ctx->argumentsObject());
+            return QVariant::fromValue(ctx->argumentsObject());
         } else if (m_callableMode == CallableInitializesThisObject) {
             engine()->newQObject(ctx->thisObject(), engine());
             return QVariant();

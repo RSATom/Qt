@@ -1,7 +1,7 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
-** Copyright (C) 2018 Intel Corporation.
+** Copyright (C) 2018 The Qt Company Ltd.
+** Copyright (C) 2019 Intel Corporation.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the test suite of the Qt Toolkit.
@@ -55,6 +55,10 @@ private slots:
     void checkStructure();
     void searchPath_data();
     void searchPath();
+#if QT_DEPRECATED_SINCE(5, 13)
+    void searchPath_deprecated_data();
+    void searchPath_deprecated();
+#endif
     void doubleSlashInRoot();
     void setLocale();
     void lastModified();
@@ -420,6 +424,58 @@ void tst_QResourceEngine::checkStructure()
 
 void tst_QResourceEngine::searchPath_data()
 {
+    auto searchPath = QFileInfo(QFINDTESTDATA("testqrc")).canonicalFilePath();
+
+    QTest::addColumn<QString>("searchPathPrefix");
+    QTest::addColumn<QString>("searchPath");
+    QTest::addColumn<QString>("file");
+    QTest::addColumn<QByteArray>("expected");
+
+    QTest::newRow("no_search_path")
+            << QString()
+            << QString()
+            << ":search_file.txt"
+            << QByteArray("root\n");
+    QTest::newRow("path1")
+            << "searchpath1"
+            << searchPath
+            << "searchpath1:searchpath1/search_file.txt"
+            << QByteArray("path1\n");
+    QTest::newRow("no_search_path2")
+            << QString()
+            << QString()
+            << ":/search_file.txt"
+            << QByteArray("root\n");
+    QTest::newRow("path2")
+            << "searchpath2"
+            << searchPath + "/searchpath2"
+            << "searchpath2:search_file.txt"
+            << QByteArray("path2\n");
+}
+
+void tst_QResourceEngine::searchPath()
+{
+    QFETCH(QString, searchPathPrefix);
+    QFETCH(QString, searchPath);
+    QFETCH(QString, file);
+    QFETCH(QByteArray, expected);
+
+    if (!searchPath.isEmpty())
+        QDir::addSearchPath(searchPathPrefix, searchPath);
+    QFile qf(file);
+    QVERIFY(qf.open(QFile::ReadOnly));
+    QByteArray actual = qf.readAll();
+
+    actual.replace('\r', "");
+
+    QCOMPARE(actual, expected);
+    qf.close();
+}
+
+#if QT_DEPRECATED_SINCE(5, 13)
+
+void tst_QResourceEngine::searchPath_deprecated_data()
+{
     QTest::addColumn<QString>("searchPath");
     QTest::addColumn<QString>("file");
     QTest::addColumn<QByteArray>("expected");
@@ -438,7 +494,7 @@ void tst_QResourceEngine::searchPath_data()
                          << QByteArray("path2\n");
 }
 
-void tst_QResourceEngine::searchPath()
+void tst_QResourceEngine::searchPath_deprecated()
 {
     QFETCH(QString, searchPath);
     QFETCH(QString, file);
@@ -455,6 +511,8 @@ void tst_QResourceEngine::searchPath()
     QCOMPARE(actual, expected);
     qf.close();
 }
+
+#endif
 
 void tst_QResourceEngine::checkUnregisterResource_data()
 {
@@ -505,15 +563,15 @@ void tst_QResourceEngine::setLocale()
     // default constructed QResource gets the default locale
     QResource resource;
     resource.setFileName("aliasdir/aliasdir.txt");
-    QVERIFY(!resource.isCompressed());
+    QCOMPARE(resource.compressionAlgorithm(), QResource::NoCompression);
 
     // change the default locale and make sure it doesn't affect the resource
     QLocale::setDefault(QLocale("de_CH"));
-    QVERIFY(!resource.isCompressed());
+    QCOMPARE(resource.compressionAlgorithm(), QResource::NoCompression);
 
     // then explicitly set the locale on qresource
     resource.setLocale(QLocale("de_CH"));
-    QVERIFY(resource.isCompressed());
+    QVERIFY(resource.compressionAlgorithm() != QResource::NoCompression);
 
     // the reset the default locale back
     QLocale::setDefault(QLocale::system());

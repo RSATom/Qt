@@ -14,12 +14,12 @@
 #include "base/message_loop/message_pump_win.h"
 #elif defined(OS_IOS)
 #include "base/message_loop/message_pump_io_ios.h"
+#elif defined(OS_MACOSX)
+#include "base/message_loop/message_pump_kqueue.h"
 #elif defined(OS_NACL_SFI)
 #include "base/message_loop/message_pump_default.h"
 #elif defined(OS_FUCHSIA)
 #include "base/message_loop/message_pump_fuchsia.h"
-#elif defined(USE_GLIB)
-#include "base/message_loop/message_pump_glib.h"
 #elif defined(OS_POSIX)
 #include "base/message_loop/message_pump_libevent.h"
 #endif
@@ -31,12 +31,12 @@ namespace base {
 using MessagePumpForIO = MessagePumpForIO;
 #elif defined(OS_IOS)
 using MessagePumpForIO = MessagePumpIOSForIO;
+#elif defined(OS_MACOSX)
+using MessagePumpForIO = MessagePumpKqueue;
 #elif defined(OS_NACL_SFI)
 using MessagePumpForIO = MessagePumpDefault;
 #elif defined(OS_FUCHSIA)
 using MessagePumpForIO = MessagePumpFuchsia;
-#elif defined(USE_GLIB)
-using MessagePumpForIO = MessagePumpGlib;
 #elif defined(OS_POSIX)
 using MessagePumpForIO = MessagePumpLibevent;
 #else

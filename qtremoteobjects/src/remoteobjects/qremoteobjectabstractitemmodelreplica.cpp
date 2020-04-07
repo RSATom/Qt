@@ -151,9 +151,8 @@ inline void removeIndexFromRow(const QModelIndex &index, const QVector<int> &rol
         if (roles.isEmpty()) {
             entry.data.clear();
         } else {
-            Q_FOREACH (int role, roles) {
+            for (int role : roles)
                 entry.data.remove(role);
-            }
         }
     }
 }
@@ -403,7 +402,7 @@ void QAbstractItemModelReplicaImplementation::handleSizeDone(QRemoteObjectPendin
 
     if (size.width() != parentItem->columnCount) {
         const int columnCount = std::max(0, parentItem->columnCount);
-        Q_ASSERT_X(size.width() >= parentItem->columnCount, __FUNCTION__, qPrintable(QStringLiteral("The column count should only shrink in columnsRemoved!!")));
+        Q_ASSERT_X(size.width() >= parentItem->columnCount, __FUNCTION__, "The column count should only shrink in columnsRemoved!!");
         parentItem->columnCount = size.width();
         if (size.width() > columnCount) {
             Q_ASSERT(size.width() > 0);
@@ -414,7 +413,7 @@ void QAbstractItemModelReplicaImplementation::handleSizeDone(QRemoteObjectPendin
         }
     }
 
-    Q_ASSERT_X(size.height() >= parentItem->rowCount, __FUNCTION__, qPrintable(QStringLiteral("The new size and the current size should match!!")));
+    Q_ASSERT_X(size.height() >= parentItem->rowCount, __FUNCTION__, "The new size and the current size should match!!");
     if (!parentItem->rowCount) {
         if (size.height() > 0) {
             q->beginInsertRows(parent, 0, size.height() - 1);
@@ -571,7 +570,7 @@ void QAbstractItemModelReplicaImplementation::fetchPendingData()
 
     std::vector<RequestedData> finalRequests;
     RequestedData curData;
-    Q_FOREACH (const RequestedData &data, m_requestedData) {
+    for (const RequestedData &data : qExchange(m_requestedData, {})) {
         qCDebug(QT_REMOTEOBJECT_MODELS) << Q_FUNC_INFO << "REQUESTED start=" << data.start << "end=" << data.end << "roles=" << data.roles;
 
         Q_ASSERT(!data.start.isEmpty());
@@ -601,7 +600,7 @@ void QAbstractItemModelReplicaImplementation::fetchPendingData()
             const ModelIndex resEnd(std::max(curIndEnd.row, dataIndEnd.row), std::max(curIndEnd.column, dataIndEnd.column));
             QVector<int> roles = curData.roles;
             if (!curData.roles.isEmpty()) {
-                Q_FOREACH (int role, data.roles) {
+                for (int role : data.roles) {
                     if (!curData.roles.contains(role))
                         roles.append(role);
                 }
@@ -645,7 +644,6 @@ void QAbstractItemModelReplicaImplementation::fetchPendingData()
         m_pendingRequests.push_back(watcher);
         connect(watcher, &RowWatcher::finished, this, &QAbstractItemModelReplicaImplementation::requestedData);
     }
-    m_requestedData.clear();
 }
 
 void QAbstractItemModelReplicaImplementation::onModelReset()
@@ -673,7 +671,7 @@ void QAbstractItemModelReplicaImplementation::fetchPendingHeaderData()
     QVector<int> roles;
     QVector<int> sections;
     QVector<Qt::Orientation> orientations;
-    Q_FOREACH (const RequestedHeaderData &data, m_requestedHeaderData) {
+    for (const RequestedHeaderData &data : qAsConst(m_requestedHeaderData)) {
         roles.push_back(data.role);
         sections.push_back(data.section);
         orientations.push_back(data.orientation);

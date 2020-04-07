@@ -36,7 +36,7 @@
 class TestMime : public QWinMime
 {
 public:
-    TestMime(bool verbose = false) : formatsForMimeCalled(false), m_verbose(verbose) {}
+    TestMime(bool verbose = false) : m_verbose(verbose) {}
 
     bool canConvertFromMime(const FORMATETC &, const QMimeData *mimeData) const Q_DECL_OVERRIDE
     {
@@ -81,7 +81,7 @@ public:
         return QString();
     }
 
-    mutable bool formatsForMimeCalled;
+    mutable bool formatsForMimeCalled = false;
 
 private:
     const bool m_verbose;

@@ -761,8 +761,8 @@ qint64 QSslSocket::bytesAvailable() const
 {
     Q_D(const QSslSocket);
     if (d->mode == UnencryptedMode)
-        return QIODevice::bytesAvailable() + (d->plainSocket ? d->plainSocket->bytesAvailable() : 0);
-    return QIODevice::bytesAvailable();
+        return QAbstractSocket::bytesAvailable() + (d->plainSocket ? d->plainSocket->bytesAvailable() : 0);
+    return QAbstractSocket::bytesAvailable();
 }
 
 /*!
@@ -818,8 +818,8 @@ bool QSslSocket::canReadLine() const
 {
     Q_D(const QSslSocket);
     if (d->mode == UnencryptedMode)
-        return QIODevice::canReadLine() || (d->plainSocket && d->plainSocket->canReadLine());
-    return QIODevice::canReadLine();
+        return QAbstractSocket::canReadLine() || (d->plainSocket && d->plainSocket->canReadLine());
+    return QAbstractSocket::canReadLine();
 }
 
 /*!
@@ -849,8 +849,8 @@ bool QSslSocket::atEnd() const
 {
     Q_D(const QSslSocket);
     if (d->mode == UnencryptedMode)
-        return QIODevice::atEnd() && (!d->plainSocket || d->plainSocket->atEnd());
-    return QIODevice::atEnd();
+        return QAbstractSocket::atEnd() && (!d->plainSocket || d->plainSocket->atEnd());
+    return QAbstractSocket::atEnd();
 }
 
 /*!
@@ -924,7 +924,7 @@ QSslConfiguration QSslSocket::sslConfiguration() const
 
     // create a deep copy of our configuration
     QSslConfigurationPrivate *copy = new QSslConfigurationPrivate(d->configuration);
-    copy->ref.store(0);              // the QSslConfiguration constructor refs up
+    copy->ref.storeRelaxed(0);              // the QSslConfiguration constructor refs up
     copy->sessionCipher = d->sessionCipher();
     copy->sessionProtocol = d->sessionProtocol();
 
@@ -1209,12 +1209,21 @@ void QSslSocket::setPrivateKey(const QSslKey &key)
 void QSslSocket::setPrivateKey(const QString &fileName, QSsl::KeyAlgorithm algorithm,
                                QSsl::EncodingFormat format, const QByteArray &passPhrase)
 {
-    Q_D(QSslSocket);
     QFile file(fileName);
-    if (file.open(QIODevice::ReadOnly)) {
-        d->configuration.privateKey = QSslKey(file.readAll(), algorithm,
-                                              format, QSsl::PrivateKey, passPhrase);
+    if (!file.open(QIODevice::ReadOnly)) {
+        qCWarning(lcSsl, "QSslSocket::setPrivateKey: Couldn't open file for reading");
+        return;
     }
+
+    QSslKey key(file.readAll(), algorithm, format, QSsl::PrivateKey, passPhrase);
+    if (key.isNull()) {
+        qCWarning(lcSsl, "QSslSocket::setPrivateKey: "
+                         "The specified file does not contain a valid key");
+        return;
+    }
+
+    Q_D(QSslSocket);
+    d->configuration.privateKey = key;
 }
 
 /*!
@@ -1503,7 +1512,7 @@ bool QSslSocket::addDefaultCaCertificates(const QString &path, QSsl::EncodingFor
     SSL socket's CA certificate database is initialized to the default
     CA certificate database.
 
-    \sa QSslConfiguration::defaultCaCertificates(), addCaCertificates()
+    \sa addCaCertificates()
 */
 void QSslSocket::addDefaultCaCertificate(const QSslCertificate &certificate)
 {
@@ -2369,7 +2378,7 @@ void QSslConfigurationPrivate::deepCopyDefaultConfiguration(QSslConfigurationPri
     if (!global)
         return;
 
-    ptr->ref.store(1);
+    ptr->ref.storeRelaxed(1);
     ptr->peerCertificate = global->peerCertificate;
     ptr->peerCertificateChain = global->peerCertificateChain;
     ptr->localCertificateChain = global->localCertificateChain;

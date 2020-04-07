@@ -27,7 +27,6 @@
 #include "net/http/http_transaction_test_util.h"
 #include "net/log/net_log_event_type.h"
 #include "net/log/test_net_log.h"
-#include "net/log/test_net_log_entry.h"
 #include "net/log/test_net_log_util.h"
 #include "net/net_buildflags.h"
 #include "net/socket/next_proto.h"
@@ -50,7 +49,7 @@
 
 #if defined(OS_ANDROID)
 #include "base/android/jni_android.h"
-#include "jni/AndroidNetworkLibraryTestUtil_jni.h"
+#include "net/net_test_jni_headers/AndroidNetworkLibraryTestUtil_jni.h"
 #endif
 
 using net::test::IsError;
@@ -231,7 +230,6 @@ TEST(URLRequestHttpJobWithProxy, TestFailureWithoutProxy) {
 
   EXPECT_THAT(delegate.request_status(), IsError(ERR_CONNECTION_RESET));
   EXPECT_EQ(ProxyServer::Direct(), request->proxy_server());
-  EXPECT_FALSE(request->was_fetched_via_proxy());
   EXPECT_EQ(0, request->received_response_content_length());
   EXPECT_EQ(CountWriteBytes(writes), request->GetTotalSentBytes());
   EXPECT_EQ(CountReadBytes(reads), request->GetTotalReceivedBytes());
@@ -283,7 +281,6 @@ TEST(URLRequestHttpJobWithProxy, TestSuccessfulWithOneProxy) {
   // When request fails due to proxy connection errors, the proxy server should
   // still be set on the |request|.
   EXPECT_EQ(proxy_server, request->proxy_server());
-  EXPECT_FALSE(request->was_fetched_via_proxy());
   EXPECT_EQ(0, request->received_response_content_length());
   EXPECT_EQ(CountWriteBytes(writes), request->GetTotalSentBytes());
   EXPECT_EQ(0, request->GetTotalReceivedBytes());
@@ -336,7 +333,6 @@ TEST(URLRequestHttpJobWithProxy,
 
   EXPECT_THAT(delegate.request_status(), IsOk());
   EXPECT_EQ(ProxyServer::Direct(), request->proxy_server());
-  EXPECT_FALSE(request->was_fetched_via_proxy());
   EXPECT_EQ(12, request->received_response_content_length());
   EXPECT_EQ(CountWriteBytes(writes), request->GetTotalSentBytes());
   EXPECT_EQ(CountReadBytes(reads), request->GetTotalReceivedBytes());
@@ -916,9 +912,9 @@ TEST_F(URLRequestHttpJobWithMockSocketsTest,
   }
 
   for (int priority = 0; priority < net::NUM_PRIORITIES; ++priority) {
-    histograms.ExpectTotalCount(
-        "Net.HttpJob.TotalTimeSuccess.Priority" + base::IntToString(priority),
-        priority + 1);
+    histograms.ExpectTotalCount("Net.HttpJob.TotalTimeSuccess.Priority" +
+                                    base::NumberToString(priority),
+                                priority + 1);
   }
 }
 
@@ -1384,16 +1380,11 @@ TEST_F(URLRequestHttpJobTest, HSTSInternalRedirectTest) {
     d.RunUntilComplete();
 
     if (test.upgrade_expected) {
-      net::TestNetLogEntry::List entries;
-      net_log_.GetEntries(&entries);
-      int redirects = 0;
+      auto entries = net_log_.GetEntriesWithType(
+          net::NetLogEventType::URL_REQUEST_REDIRECT_JOB);
+      int redirects = entries.size();
       for (const auto& entry : entries) {
-        if (entry.type == net::NetLogEventType::URL_REQUEST_REDIRECT_JOB) {
-          redirects++;
-          std::string value;
-          EXPECT_TRUE(entry.GetStringValue("reason", &value));
-          EXPECT_EQ("HSTS", value);
-        }
+        EXPECT_EQ("HSTS", GetStringValueFromParams(entry, "reason"));
       }
       EXPECT_EQ(1, redirects);
       EXPECT_EQ(1, d.received_redirect_count());

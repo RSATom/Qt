@@ -3,6 +3,7 @@
     "depends": [
         "gui"
     ],
+    "condition": "module.gui",
     "testDir": "../../config.tests",
 
     "commandline": {
@@ -55,7 +56,8 @@
                 { "type": "pkgConfig",
                   "args": "gstreamer-1.0 gstreamer-base-1.0 gstreamer-audio-1.0 gstreamer-video-1.0 gstreamer-pbutils-1.0" },
                 { "libs": "-lgstreamer-1.0 -lgstbase-1.0 -lgstaudio-1.0 -lgstvideo-1.0 -lgstpbutils-1.0 -lglib-2.0 -lgobject-2.0",
-                  "condition": "config.win32 || config.macos" }
+                  "condition": "config.win32 || config.macos" },
+                { "libs": "", "condition": "config.android && input.gstreamer != ''" }
             ]
         },
         "gstreamer_app_0_10": {
@@ -74,7 +76,8 @@
             "use": "gstreamer_1_0",
             "sources": [
                 { "type": "pkgConfig", "args": "gstreamer-app-1.0" },
-                { "libs": "-lgstapp-1.0", "condition": "config.win32 || config.macos" }
+                { "libs": "-lgstapp-1.0", "condition": "config.win32 || config.macos" },
+                { "libs": "", "condition": "config.android && input.gstreamer != ''" }
             ]
         },
         "gstreamer_photography_0_10": {
@@ -93,6 +96,17 @@
             "use": "gstreamer_1_0",
             "sources": [
                 { "libs": "-lgstphotography-1.0" }
+            ]
+        },
+        "gstreamer_gl_1_0": {
+            "label": "GStreamer OpenGL 1.0",
+            "export": "gstreamer_gl",
+            "test":  {
+                "include": "gst/gl/gl.h"
+            },
+            "use": "gstreamer_1_0",
+            "sources": [
+                { "type": "pkgConfig", "args": "gstreamer-gl-1.0" }
             ]
         },
         "gstreamer_imxcommon": {
@@ -239,6 +253,11 @@
         "gstreamer_photography": {
             "label": "GStreamer Photography",
             "condition": "(features.gstreamer_1_0 && libs.gstreamer_photography_1_0) || (features.gstreamer_0_10 && libs.gstreamer_photography_0_10)",
+            "output": [ "privateFeature" ]
+        },
+        "gstreamer_gl": {
+            "label": "GStreamer OpenGL",
+            "condition": "features.opengl && features.gstreamer_1_0 && libs.gstreamer_gl_1_0",
             "output": [ "privateFeature" ]
         },
         "gstreamer_imxcommon": {

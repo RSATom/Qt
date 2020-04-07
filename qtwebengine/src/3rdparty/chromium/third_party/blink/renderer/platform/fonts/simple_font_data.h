@@ -24,8 +24,6 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_PLATFORM_FONTS_SIMPLE_FONT_DATA_H_
 #define THIRD_PARTY_BLINK_RENDERER_PLATFORM_FONTS_SIMPLE_FONT_DATA_H_
 
-#include <SkFont.h>
-
 #include <memory>
 #include <utility>
 
@@ -42,6 +40,7 @@
 #include "third_party/blink/renderer/platform/geometry/float_rect.h"
 #include "third_party/blink/renderer/platform/platform_export.h"
 #include "third_party/blink/renderer/platform/wtf/text/string_hash.h"
+#include "third_party/skia/include/core/SkFont.h"
 
 #if defined(OS_MACOSX)
 #include "third_party/blink/renderer/platform/fonts/glyph_metrics_map.h"
@@ -178,16 +177,14 @@ class PLATFORM_EXPORT SimpleFontData : public FontData {
 
   struct DerivedFontData {
     USING_FAST_MALLOC(DerivedFontData);
-    WTF_MAKE_NONCOPYABLE(DerivedFontData);
 
    public:
-    static std::unique_ptr<DerivedFontData> Create();
+    DerivedFontData() = default;
 
     scoped_refptr<SimpleFontData> small_caps;
     scoped_refptr<SimpleFontData> emphasis_mark;
 
-   private:
-    DerivedFontData() = default;
+    DISALLOW_COPY_AND_ASSIGN(DerivedFontData);
   };
 
   mutable std::unique_ptr<DerivedFontData> derived_font_data_;

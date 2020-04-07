@@ -15,6 +15,7 @@
 #include "base/test/scoped_task_environment.h"
 #include "base/unguessable_token.h"
 #include "media/base/audio_parameters.h"
+#include "media/mojo/interfaces/audio_data_pipe.mojom.h"
 #include "media/mojo/interfaces/audio_output_stream.mojom.h"
 #include "mojo/public/cpp/bindings/binding.h"
 #include "mojo/public/cpp/bindings/interface_request.h"
@@ -109,9 +110,10 @@ class MockStreamFactory : public audio::FakeStreamFactory {
 
  private:
   void CreateOutputStream(
-      media::mojom::AudioOutputStreamRequest stream_request,
-      media::mojom::AudioOutputStreamObserverAssociatedPtrInfo observer_info,
-      media::mojom::AudioLogPtr log,
+      mojo::PendingReceiver<media::mojom::AudioOutputStream> stream_receiver,
+      mojo::PendingAssociatedRemote<media::mojom::AudioOutputStreamObserver>
+          observer,
+      mojo::PendingRemote<media::mojom::AudioLog> log,
       const std::string& output_device_id,
       const media::AudioParameters& params,
       const base::UnguessableToken& group_id,
@@ -123,9 +125,9 @@ class MockStreamFactory : public audio::FakeStreamFactory {
     EXPECT_TRUE(stream_request_data_->params.Equals(params));
     EXPECT_EQ(stream_request_data_->group_id, group_id);
     stream_request_data_->requested = true;
-    stream_request_data_->stream_request = std::move(stream_request);
-    stream_request_data_->observer_info = std::move(observer_info);
-    stream_request_data_->log = std::move(log);
+    stream_request_data_->stream_request = std::move(stream_receiver);
+    stream_request_data_->observer_info = std::move(observer);
+    stream_request_data_->log.Bind(std ::move(log));
     stream_request_data_->created_callback = std::move(created_callback);
   }
 
@@ -156,7 +158,7 @@ struct TestEnvironment {
   StrictMock<MockAudioOutputStreamProviderClient> provider_client;
   std::unique_ptr<AudioOutputStreamBroker> broker;
   MockStreamFactory stream_factory;
-  audio::mojom::StreamFactoryPtr factory_ptr = stream_factory.MakePtr();
+  audio::mojom::StreamFactoryPtr factory_ptr{stream_factory.MakeRemote()};
 };
 
 }  // namespace

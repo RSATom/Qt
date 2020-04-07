@@ -5,13 +5,13 @@
  * found in the LICENSE file.
  */
 
-#include "SkSGText.h"
+#include "modules/sksg/include/SkSGText.h"
 
-#include "SkCanvas.h"
-#include "SkPaint.h"
-#include "SkPath.h"
-#include "SkTArray.h"
-#include "SkTypeface.h"
+#include "include/core/SkCanvas.h"
+#include "include/core/SkPaint.h"
+#include "include/core/SkPath.h"
+#include "include/core/SkTypeface.h"
+#include "include/private/SkTArray.h"
 
 namespace sksg {
 
@@ -57,7 +57,7 @@ SkRect Text::onRevalidate(InvalidationController*, const SkMatrix&) {
     //  1) SkTextBlob has some trouble computing accurate bounds with alignment.
     //  2) SkPaint::Align is slated for deprecation.
 
-    fBlob = SkTextBlob::MakeFromText(fText.c_str(), fText.size(), font, kUTF8_SkTextEncoding);
+    fBlob = SkTextBlob::MakeFromText(fText.c_str(), fText.size(), font, SkTextEncoding::kUTF8);
     if (!fBlob) {
         return SkRect::MakeEmpty();
     }
@@ -71,6 +71,10 @@ SkRect Text::onRevalidate(InvalidationController*, const SkMatrix&) {
 void Text::onDraw(SkCanvas* canvas, const SkPaint& paint) const {
     const auto aligned_pos = this->alignedPosition(this->bounds().width());
     canvas->drawTextBlob(fBlob, aligned_pos.x(), aligned_pos.y(), paint);
+}
+
+bool Text::onContains(const SkPoint& p) const {
+    return this->asPath().contains(p.x(), p.y());
 }
 
 SkPath Text::onAsPath() const {
@@ -92,11 +96,16 @@ TextBlob::TextBlob(sk_sp<SkTextBlob> blob)
 TextBlob::~TextBlob() = default;
 
 SkRect TextBlob::onRevalidate(InvalidationController*, const SkMatrix&) {
-    return fBlob ? fBlob->bounds() : SkRect::MakeEmpty();
+    return fBlob ? fBlob->bounds().makeOffset(fPosition.x(), fPosition.y())
+                 : SkRect::MakeEmpty();
 }
 
 void TextBlob::onDraw(SkCanvas* canvas, const SkPaint& paint) const {
     canvas->drawTextBlob(fBlob, fPosition.x(), fPosition.y(), paint);
+}
+
+bool TextBlob::onContains(const SkPoint& p) const {
+    return this->asPath().contains(p.x(), p.y());
 }
 
 SkPath TextBlob::onAsPath() const {

@@ -112,6 +112,23 @@ void QLowEnergyControllerPrivateBluezDBus::devicePropertiesChanged(
                 }
             }
         }
+
+        if (changedProperties.contains(QStringLiteral("UUIDs"))) {
+            const QStringList newUuidStringList = changedProperties.value(QStringLiteral("UUIDs")).toStringList();
+            QVector<QBluetoothUuid> newUuidList;
+            for (const QString &uuidString : newUuidStringList)
+                newUuidList.append(QBluetoothUuid(uuidString));
+
+            for (const QBluetoothUuid &uuid : serviceList.keys()) {
+                if (!newUuidList.contains(uuid)) {
+                    qCDebug(QT_BT_BLUEZ) << __func__ << "Service" << uuid << "has been removed";
+                    QSharedPointer<QLowEnergyServicePrivate> service = serviceList.take(uuid);
+                    service->setController(nullptr);
+                    dbusServices.remove(uuid);
+                }
+            }
+        }
+
     } else if (interface == QStringLiteral("org.bluez.Battery1")) {
         qCDebug(QT_BT_BLUEZ) << "######" << interface << changedProperties;
         if (changedProperties.contains(QStringLiteral("Percentage"))) {
@@ -268,9 +285,13 @@ void QLowEnergyControllerPrivateBluezDBus::connectToDeviceHelper()
             const QVariantMap &ifaceValues = jt.value();
 
             if (iface == QStringLiteral("org.bluez.Device1")) {
-                if (remoteDevice.toString() == ifaceValues.value(QStringLiteral("Address")).toString()) {
-                    devicePath = it.key().path();
-                    break;
+                if (remoteDevice.toString() == ifaceValues.value(QStringLiteral("Address")).toString())
+                {
+                    const QVariant adapterForCurrentDevice = ifaceValues.value(QStringLiteral("Adapter"));
+                    if (qvariant_cast<QDBusObjectPath>(adapterForCurrentDevice).path() == hostAdapterPath) {
+                        devicePath = it.key().path();
+                        break;
+                    }
                 }
             }
         }
@@ -830,7 +851,7 @@ void QLowEnergyControllerPrivateBluezDBus::onCharWriteFinished(QDBusPendingCallW
             updateValueOfCharacteristic(nextJob.handle, nextJob.value, false);
 
         QLowEnergyCharacteristic ch(service, nextJob.handle);
-        // write without respone implies zero feedback
+        // write without response implies zero feedback
         if (nextJob.writeMode == QLowEnergyService::WriteWithResponse) {
             qCDebug(QT_BT_BLUEZ) << "Written Char:" << charData.uuid << nextJob.value.toHex();
             emit service->characteristicWritten(ch, nextJob.value);
@@ -950,7 +971,12 @@ void QLowEnergyControllerPrivateBluezDBus::scheduleNextJob()
             if (charData.uuid != QBluetoothUuid(gattChar.characteristic->uUID()))
                 continue;
 
-            QDBusPendingReply<> reply = gattChar.characteristic->WriteValue(nextJob.value, QVariantMap());
+            QVariantMap options;
+            // The "type" option only works with BlueZ >= 5.50, older versions always write with response
+            options[QStringLiteral("type")] = nextJob.writeMode == QLowEnergyService::WriteWithoutResponse ?
+                QStringLiteral("command") : QStringLiteral("request");
+            QDBusPendingReply<> reply = gattChar.characteristic->WriteValue(nextJob.value, options);
+
             QDBusPendingCallWatcher* watcher = new QDBusPendingCallWatcher(reply, this);
             connect(watcher, &QDBusPendingCallWatcher::finished,
                     this, &QLowEnergyControllerPrivateBluezDBus::onCharWriteFinished);

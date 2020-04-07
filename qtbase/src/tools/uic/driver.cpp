@@ -30,6 +30,8 @@
 #include "uic.h"
 #include "ui4.h"
 
+#include <language.h>
+
 #include <qfileinfo.h>
 #include <qdebug.h>
 
@@ -51,18 +53,43 @@ static inline QString actionClass()      { return QStringLiteral("QAction"); }
 static inline QString buttonGroupClass() { return QStringLiteral("QButtonGroup"); }
 
 template <class DomClass>
+Driver::DomObjectHashConstIt<DomClass>
+    Driver::findByAttributeNameIt(const DomObjectHash<DomClass> &domHash,
+                                  const QString &name) const
+{
+    const auto end = domHash.cend();
+    for (auto it = domHash.cbegin(); it != end; ++it) {
+        if (it.key()->attributeName() == name)
+            return it;
+    }
+    return end;
+}
+
+template <class DomClass>
+const DomClass *Driver::findByAttributeName(const DomObjectHash<DomClass> &domHash,
+                                            const QString &name) const
+{
+    auto it = findByAttributeNameIt(domHash, name);
+    return it != domHash.cend() ? it.key() : nullptr;
+}
+
+template <class DomClass>
 QString Driver::findOrInsert(DomObjectHash<DomClass> *domHash, const DomClass *dom,
-                             const QString &className)
+                             const QString &className, bool isMember)
 {
     auto it = domHash->find(dom);
-    if (it == domHash->end())
-        it = domHash->insert(dom, this->unique(dom->attributeName(), className));
+    if (it == domHash->end()) {
+        const QString name = this->unique(dom->attributeName(), className);
+        it = domHash->insert(dom, isMember ? language::self + name : name);
+    }
     return it.value();
 }
 
 QString Driver::findOrInsertWidget(const DomWidget *ui_widget)
 {
-    return findOrInsert(&m_widgets, ui_widget, ui_widget->attributeClass());
+    // Top level is passed into setupUI(), everything else is a member variable
+    const bool isMember = !m_widgets.isEmpty();
+    return findOrInsert(&m_widgets, ui_widget, ui_widget->attributeClass(), isMember);
 }
 
 QString Driver::findOrInsertSpacer(const DomSpacer *ui_spacer)
@@ -111,11 +138,7 @@ QString Driver::findOrInsertButtonGroup(const DomButtonGroup *ui_group)
 // Find a group by its non-uniqified name
 const DomButtonGroup *Driver::findButtonGroup(const QString &attributeName) const
 {
-    for (auto it = m_buttonGroups.cbegin(), end = m_buttonGroups.cend(); it != end; ++it) {
-        if (it.key()->attributeName() == attributeName)
-            return it.key();
-    }
-    return nullptr;
+    return findByAttributeName(m_buttonGroups, attributeName);
 }
 
 
@@ -233,7 +256,7 @@ bool Driver::uic(const QString &fileName, DomUI *ui, QTextStream *out)
 
     QTextStream *oldOutput = m_output;
 
-    m_output = out != 0 ? out : &m_stdout;
+    m_output = out != nullptr ? out : &m_stdout;
 
     Uic tool(this);
     const bool result = tool.write(ui);
@@ -286,19 +309,25 @@ bool Driver::uic(const QString &fileName, QTextStream *out)
     return rtn;
 }
 
-const DomWidget *Driver::widgetByName(const QString &name) const
+const DomWidget *Driver::widgetByName(const QString &attributeName) const
 {
-    return m_widgets.key(name);
+    return findByAttributeName(m_widgets, attributeName);
 }
 
-const DomActionGroup *Driver::actionGroupByName(const QString &name) const
+QString Driver::widgetVariableName(const QString &attributeName) const
 {
-    return m_actionGroups.key(name);
+    auto it = findByAttributeNameIt(m_widgets, attributeName);
+    return it != m_widgets.cend() ? it.value() : QString();
 }
 
-const DomAction *Driver::actionByName(const QString &name) const
+const DomActionGroup *Driver::actionGroupByName(const QString &attributeName) const
 {
-    return m_actions.key(name);
+    return findByAttributeName(m_actionGroups, attributeName);
+}
+
+const DomAction *Driver::actionByName(const QString &attributeName) const
+{
+    return findByAttributeName(m_actions, attributeName);
 }
 
 QT_END_NAMESPACE

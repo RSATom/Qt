@@ -6,6 +6,7 @@
 
 #include <stddef.h>
 
+#include "base/bind.h"
 #include "base/callback.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/strings/utf_string_conversions.h"
@@ -240,15 +241,6 @@ void CryptotokenPrivateCanAppIdGetAttestationFunction::Complete(bool result) {
   RecordAttestationEvent(result ? U2FAttestationPromptResult::kAllowed
                                 : U2FAttestationPromptResult::kBlocked);
   Respond(OneArgument(std::make_unique<base::Value>(result)));
-}
-
-CryptotokenPrivateCanProxyToWebAuthnFunction::
-    CryptotokenPrivateCanProxyToWebAuthnFunction() {}
-
-ExtensionFunction::ResponseAction
-CryptotokenPrivateCanProxyToWebAuthnFunction::Run() {
-  return RespondNow(OneArgument(std::make_unique<base::Value>(
-      base::FeatureList::IsEnabled(device::kWebAuthProxyCryptotoken))));
 }
 
 }  // namespace api

@@ -10,6 +10,7 @@
 
 #include <cmath>
 
+#include "build/build_config.h"
 #include "core/fxcrt/fx_extension.h"
 #include "core/fxcrt/fx_system.h"
 #include "fpdfsdk/cpdfsdk_helpers.h"
@@ -35,12 +36,12 @@ double GetLocalTZA() {
   time_t t = 0;
   FXSYS_time(&t);
   FXSYS_localtime(&t);
-#if _FX_PLATFORM_ == _FX_PLATFORM_WINDOWS_
+#if defined(OS_WIN)
   // In gcc 'timezone' is a global variable declared in time.h. In VC++, that
   // variable was removed in VC++ 2015, with _get_timezone replacing it.
   long timezone = 0;
   _get_timezone(&timezone);
-#endif  // _FX_PLATFORM_ == _FX_PLATFORM_WINDOWS_
+#endif
   return (double)(-(timezone * 1000));
 }
 
@@ -164,6 +165,14 @@ int DateFromTime(double t) {
   }
 }
 
+size_t FindSubWordLength(const WideString& str, size_t nStart) {
+  pdfium::span<const wchar_t> data = str.span();
+  size_t i = nStart;
+  while (i < data.size() && std::iswalnum(data[i]))
+    ++i;
+  return i - nStart;
+}
+
 }  // namespace
 
 const wchar_t* const kMonths[12] = {L"Jan", L"Feb", L"Mar", L"Apr",
@@ -174,6 +183,9 @@ const wchar_t* const kFullMonths[12] = {L"January", L"February", L"March",
                                         L"April",   L"May",      L"June",
                                         L"July",    L"August",   L"September",
                                         L"October", L"November", L"December"};
+
+static constexpr size_t KMonthAbbreviationLength = 3;  // Anything in |kMonths|.
+static constexpr size_t kLongestFullMonthLength = 9;   // September
 
 double FX_GetDateTime() {
   if (!FSDK_IsSandBoxPolicyEnabled(FPDF_POLICY_MACHINETIME_ACCESS))
@@ -286,23 +298,6 @@ int FX_ParseStringInteger(const WideString& str,
 
   *pSkip = nSkip;
   return nRet;
-}
-
-WideString FX_ParseStringString(const WideString& str,
-                                size_t nStart,
-                                size_t* pSkip) {
-  WideString swRet;
-  swRet.Reserve(str.GetLength());
-  for (size_t i = nStart; i < str.GetLength(); ++i) {
-    wchar_t c = str[i];
-    if (!std::iswalnum(c))
-      break;
-
-    swRet += c;
-  }
-
-  *pSkip = swRet.GetLength();
-  return swRet;
 }
 
 ConversionStatus FX_ParseDateUsingFormat(const WideString& value,
@@ -443,15 +438,18 @@ ConversionStatus FX_ParseDateUsingFormat(const WideString& value,
         } else if (remaining == 2 || format[i + 3] != c) {
           switch (c) {
             case 'm': {
-              WideString sMonth = FX_ParseStringString(value, j, &nSkip);
               bool bFind = false;
-              for (int m = 0; m < 12; m++) {
-                if (sMonth.CompareNoCase(kMonths[m]) == 0) {
-                  nMonth = m + 1;
-                  i += 3;
-                  j += nSkip;
-                  bFind = true;
-                  break;
+              nSkip = FindSubWordLength(value, j);
+              if (nSkip == KMonthAbbreviationLength) {
+                WideString sMonth = value.Mid(j, KMonthAbbreviationLength);
+                for (size_t m = 0; m < FX_ArraySize(kMonths); ++m) {
+                  if (sMonth.CompareNoCase(kMonths[m]) == 0) {
+                    nMonth = m + 1;
+                    i += 3;
+                    j += nSkip;
+                    bFind = true;
+                    break;
+                  }
                 }
               }
 
@@ -477,20 +475,20 @@ ConversionStatus FX_ParseDateUsingFormat(const WideString& value,
               break;
             case 'm': {
               bool bFind = false;
-
-              WideString sMonth = FX_ParseStringString(value, j, &nSkip);
-              sMonth.MakeLower();
-
-              for (int m = 0; m < 12; m++) {
-                WideString sFullMonths = WideString(kFullMonths[m]);
-                sFullMonths.MakeLower();
-
-                if (sFullMonths.Contains(sMonth.c_str())) {
-                  nMonth = m + 1;
-                  i += 4;
-                  j += nSkip;
-                  bFind = true;
-                  break;
+              nSkip = FindSubWordLength(value, j);
+              if (nSkip <= kLongestFullMonthLength) {
+                WideString sMonth = value.Mid(j, nSkip);
+                sMonth.MakeLower();
+                for (size_t m = 0; m < FX_ArraySize(kFullMonths); ++m) {
+                  WideString sFullMonths = WideString(kFullMonths[m]);
+                  sFullMonths.MakeLower();
+                  if (sFullMonths.Contains(sMonth.c_str())) {
+                    nMonth = m + 1;
+                    i += 4;
+                    j += nSkip;
+                    bFind = true;
+                    break;
+                  }
                 }
               }
 

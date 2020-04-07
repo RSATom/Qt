@@ -108,17 +108,8 @@ Q_STATIC_ASSERT(sizeof(pthread_t) <= sizeof(Qt::HANDLE));
 
 enum { ThreadPriorityResetFlag = 0x80000000 };
 
-#if defined(Q_OS_LINUX) && defined(__GLIBC__) && (defined(Q_CC_GNU) || defined(Q_CC_INTEL)) && !defined(QT_LINUXBASE)
-/* LSB doesn't have __thread, https://lsbbugs.linuxfoundation.org/show_bug.cgi?id=993 */
-#define HAVE_TLS
-#endif
-#if defined(Q_CC_XLC) || defined (Q_CC_SUN)
-#define HAVE_TLS
-#endif
 
-#ifdef HAVE_TLS
-static __thread QThreadData *currentThreadData = 0;
-#endif
+static thread_local QThreadData *currentThreadData = 0;
 
 static pthread_once_t current_thread_data_once = PTHREAD_ONCE_INIT;
 static pthread_key_t current_thread_data_key;
@@ -138,7 +129,7 @@ static void destroy_current_thread_data(void *p)
     pthread_setspecific(current_thread_data_key, p);
     QThreadData *data = static_cast<QThreadData *>(p);
     if (data->isAdopted) {
-        QThread *thread = data->thread;
+        QThread *thread = data->thread.loadAcquire();
         Q_ASSERT(thread);
         QThreadPrivate *thread_p = static_cast<QThreadPrivate *>(QObjectPrivate::get(thread));
         Q_ASSERT(!thread_p->finished);
@@ -179,28 +170,19 @@ Q_DESTRUCTOR_FUNCTION(destroy_current_thread_data_key)
 // Utility functions for getting, setting and clearing thread specific data.
 static QThreadData *get_thread_data()
 {
-#ifdef HAVE_TLS
     return currentThreadData;
-#else
-    pthread_once(&current_thread_data_once, create_current_thread_data_key);
-    return reinterpret_cast<QThreadData *>(pthread_getspecific(current_thread_data_key));
-#endif
 }
 
 static void set_thread_data(QThreadData *data)
 {
-#ifdef HAVE_TLS
     currentThreadData = data;
-#endif
     pthread_once(&current_thread_data_once, create_current_thread_data_key);
     pthread_setspecific(current_thread_data_key, data);
 }
 
 static void clear_thread_data()
 {
-#ifdef HAVE_TLS
     currentThreadData = 0;
-#endif
     pthread_setspecific(current_thread_data_key, 0);
 }
 
@@ -249,9 +231,9 @@ QThreadData *QThreadData::current(bool createIfNecessary)
         }
         data->deref();
         data->isAdopted = true;
-        data->threadId.store(to_HANDLE(pthread_self()));
-        if (!QCoreApplicationPrivate::theMainThread)
-            QCoreApplicationPrivate::theMainThread = data->thread.load();
+        data->threadId.storeRelaxed(to_HANDLE(pthread_self()));
+        if (!QCoreApplicationPrivate::theMainThread.loadAcquire())
+            QCoreApplicationPrivate::theMainThread.storeRelease(data->thread.loadRelaxed());
     }
     return data;
 }
@@ -282,7 +264,7 @@ QAbstractEventDispatcher *QThreadPrivate::createEventDispatcher(QThreadData *dat
     else
         return new QEventDispatcherUNIX;
 #elif !defined(QT_NO_GLIB)
-    const bool isQtMainThread = data->thread == QCoreApplicationPrivate::mainThread();
+    const bool isQtMainThread = data->thread.loadAcquire() == QCoreApplicationPrivate::mainThread();
     if (qEnvironmentVariableIsEmpty("QT_NO_GLIB")
         && (isQtMainThread || qEnvironmentVariableIsEmpty("QT_NO_THREADED_GLIB"))
         && QEventDispatcherGlib::versionSupported())
@@ -331,7 +313,7 @@ void *QThreadPrivate::start(void *arg)
                 thr->d_func()->setPriority(QThread::Priority(thr->d_func()->priority & ~ThreadPriorityResetFlag));
             }
 
-            data->threadId.store(to_HANDLE(pthread_self()));
+            data->threadId.storeRelaxed(to_HANDLE(pthread_self()));
             set_thread_data(data);
 
             data->ref();
@@ -401,7 +383,7 @@ void QThreadPrivate::finish(void *arg)
         QThreadStorageData::finish((void **)data);
         locker.relock();
 
-        QAbstractEventDispatcher *eventDispatcher = d->data->eventDispatcher.load();
+        QAbstractEventDispatcher *eventDispatcher = d->data->eventDispatcher.loadRelaxed();
         if (eventDispatcher) {
             d->data->eventDispatcher = 0;
             locker.unlock();
@@ -439,7 +421,7 @@ void QThreadPrivate::finish(void *arg)
  ** QThread
  *************************************************************************/
 
-Qt::HANDLE QThread::currentThreadId() Q_DECL_NOTHROW
+Qt::HANDLE QThread::currentThreadId() noexcept
 {
     // requires a C cast here otherwise we run into trouble on AIX
     return to_HANDLE(pthread_self());
@@ -454,7 +436,7 @@ Qt::HANDLE QThread::currentThreadId() Q_DECL_NOTHROW
 int QThreadPrivate::idealThreadCount = 1;
 #endif
 
-int QThread::idealThreadCount() Q_DECL_NOTHROW
+int QThread::idealThreadCount() noexcept
 {
     int cores = 1;
 
@@ -714,8 +696,7 @@ void QThread::start(Priority priority)
 #endif // _POSIX_THREAD_ATTR_STACKSIZE
 
         if (code) {
-            qWarning("QThread::start: Thread stack size error: %s",
-                     qPrintable(qt_error_string(code)));
+            qErrnoWarning(code, "QThread::start: Thread stack size error");
 
             // we failed to set the stacksize, and as the documentation states,
             // the thread will fail to run...
@@ -741,16 +722,16 @@ void QThread::start(Priority priority)
 #endif
         code = pthread_create(&threadId, &attr, QThreadPrivate::start, this);
     }
-    d->data->threadId.store(to_HANDLE(threadId));
+    d->data->threadId.storeRelaxed(to_HANDLE(threadId));
 
     pthread_attr_destroy(&attr);
 
     if (code) {
-        qWarning("QThread::start: Thread creation error: %s", qPrintable(qt_error_string(code)));
+        qErrnoWarning(code, "QThread::start: Thread creation error");
 
         d->running = false;
         d->finished = false;
-        d->data->threadId.store(nullptr);
+        d->data->threadId.storeRelaxed(nullptr);
     }
 }
 
@@ -760,13 +741,12 @@ void QThread::terminate()
     Q_D(QThread);
     QMutexLocker locker(&d->mutex);
 
-    if (!d->data->threadId.load())
+    if (!d->data->threadId.loadRelaxed())
         return;
 
-    int code = pthread_cancel(from_HANDLE<pthread_t>(d->data->threadId.load()));
+    int code = pthread_cancel(from_HANDLE<pthread_t>(d->data->threadId.loadRelaxed()));
     if (code) {
-        qWarning("QThread::start: Thread termination error: %s",
-                 qPrintable(qt_error_string((code))));
+        qErrnoWarning(code, "QThread::start: Thread termination error");
     }
 #endif
 }
@@ -776,7 +756,7 @@ bool QThread::wait(unsigned long time)
     Q_D(QThread);
     QMutexLocker locker(&d->mutex);
 
-    if (from_HANDLE<pthread_t>(d->data->threadId.load()) == pthread_self()) {
+    if (from_HANDLE<pthread_t>(d->data->threadId.loadRelaxed()) == pthread_self()) {
         qWarning("QThread::wait: Thread tried to wait on itself");
         return false;
     }
@@ -818,7 +798,7 @@ void QThreadPrivate::setPriority(QThread::Priority threadPriority)
     int sched_policy;
     sched_param param;
 
-    if (pthread_getschedparam(from_HANDLE<pthread_t>(data->threadId.load()), &sched_policy, &param) != 0) {
+    if (pthread_getschedparam(from_HANDLE<pthread_t>(data->threadId.loadRelaxed()), &sched_policy, &param) != 0) {
         // failed to get the scheduling policy, don't bother setting
         // the priority
         qWarning("QThread::setPriority: Cannot get scheduler parameters");
@@ -834,15 +814,15 @@ void QThreadPrivate::setPriority(QThread::Priority threadPriority)
     }
 
     param.sched_priority = prio;
-    int status = pthread_setschedparam(from_HANDLE<pthread_t>(data->threadId.load()), sched_policy, &param);
+    int status = pthread_setschedparam(from_HANDLE<pthread_t>(data->threadId.loadRelaxed()), sched_policy, &param);
 
 # ifdef SCHED_IDLE
     // were we trying to set to idle priority and failed?
     if (status == -1 && sched_policy == SCHED_IDLE && errno == EINVAL) {
         // reset to lowest priority possible
-        pthread_getschedparam(from_HANDLE<pthread_t>(data->threadId.load()), &sched_policy, &param);
+        pthread_getschedparam(from_HANDLE<pthread_t>(data->threadId.loadRelaxed()), &sched_policy, &param);
         param.sched_priority = sched_get_priority_min(sched_policy);
-        pthread_setschedparam(from_HANDLE<pthread_t>(data->threadId.load()), sched_policy, &param);
+        pthread_setschedparam(from_HANDLE<pthread_t>(data->threadId.loadRelaxed()), sched_policy, &param);
     }
 # else
     Q_UNUSED(status);

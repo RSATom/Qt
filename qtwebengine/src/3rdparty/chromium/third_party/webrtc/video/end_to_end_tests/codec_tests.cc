@@ -27,11 +27,22 @@
 #include "test/gtest.h"
 
 namespace webrtc {
+namespace {
+enum : int {  // The first valid value is 1.
+  kColorSpaceExtensionId = 1,
+  kVideoRotationExtensionId,
+};
+}  // namespace
 
 class CodecEndToEndTest : public test::CallTest,
-                          public testing::WithParamInterface<std::string> {
+                          public ::testing::WithParamInterface<std::string> {
  public:
-  CodecEndToEndTest() : field_trial_(GetParam()) {}
+  CodecEndToEndTest() : field_trial_(GetParam()) {
+    RegisterRtpExtension(
+        RtpExtension(RtpExtension::kColorSpaceUri, kColorSpaceExtensionId));
+    RegisterRtpExtension(RtpExtension(RtpExtension::kVideoRotationUri,
+                                      kVideoRotationExtensionId));
+  }
 
  private:
   test::ScopedFieldTrials field_trial_;
@@ -110,10 +121,11 @@ class CodecObserver : public test::EndToEndTest,
   int frame_counter_;
 };
 
-INSTANTIATE_TEST_CASE_P(GenericDescriptor,
-                        CodecEndToEndTest,
-                        ::testing::Values("WebRTC-GenericDescriptor/Disabled/",
-                                          "WebRTC-GenericDescriptor/Enabled/"));
+INSTANTIATE_TEST_SUITE_P(
+    GenericDescriptor,
+    CodecEndToEndTest,
+    ::testing::Values("WebRTC-GenericDescriptor/Disabled/",
+                      "WebRTC-GenericDescriptor/Enabled/"));
 
 TEST_P(CodecEndToEndTest, SendsAndReceivesVP8) {
   test::FunctionVideoEncoderFactory encoder_factory(
@@ -221,15 +233,18 @@ TEST_P(CodecEndToEndTest, SendsAndReceivesMultiplexVideoRotation90) {
 
 #if defined(WEBRTC_USE_H264)
 class EndToEndTestH264 : public test::CallTest,
-                         public testing::WithParamInterface<std::string> {
+                         public ::testing::WithParamInterface<std::string> {
  public:
-  EndToEndTestH264() : field_trial_(GetParam()) {}
+  EndToEndTestH264() : field_trial_(GetParam()) {
+    RegisterRtpExtension(RtpExtension(RtpExtension::kVideoRotationUri,
+                                      kVideoRotationExtensionId));
+  }
 
  private:
   test::ScopedFieldTrials field_trial_;
 };
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     SpsPpsIdrIsKeyframe,
     EndToEndTestH264,
     ::testing::Values("WebRTC-SpsPpsIdrIsH264Keyframe/Disabled/",

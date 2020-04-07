@@ -18,10 +18,12 @@
  * Boston, MA 02110-1301, USA.
  */
 
-// https://html.spec.whatwg.org/#the-pre-element
-[HTMLConstructor]
-interface HTMLPreElement : HTMLElement {
+// https://html.spec.whatwg.org/C/#the-pre-element
+[
+    HTMLConstructor,
+    Exposed=Window
+] interface HTMLPreElement : HTMLElement {
     // obsolete members
-    // https://html.spec.whatwg.org/#HTMLPreElement-partial
+    // https://html.spec.whatwg.org/C/#HTMLPreElement-partial
     [CEReactions, Reflect] attribute long width;
 };

@@ -42,7 +42,7 @@ class QDESIGNER_EXTENSION_EXPORT QExtensionManager: public QObject, public QAbst
     Q_OBJECT
     Q_INTERFACES(QAbstractExtensionManager)
 public:
-    explicit QExtensionManager(QObject *parent = Q_NULLPTR);
+    explicit QExtensionManager(QObject *parent = nullptr);
     ~QExtensionManager();
 
     void registerExtensions(QAbstractExtensionFactory *factory, const QString &iid = QString()) override;
@@ -51,7 +51,7 @@ public:
     QObject *extension(QObject *object, const QString &iid) const override;
 
 private:
-    typedef QList<QAbstractExtensionFactory*> FactoryList;
+    using FactoryList = QList<QAbstractExtensionFactory *>;
     typedef QHash<QString, FactoryList> FactoryMap;
     FactoryMap m_extensions;
     FactoryList m_globalExtension;

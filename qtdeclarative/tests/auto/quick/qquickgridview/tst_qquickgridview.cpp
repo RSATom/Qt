@@ -40,7 +40,7 @@
 #include <QtQuick/private/qquickitemview_p_p.h>
 #include <QtQuick/private/qquickgridview_p.h>
 #include <QtQuick/private/qquicktext_p.h>
-#include <QtQml/private/qqmllistmodel_p.h>
+#include <QtQmlModels/private/qqmllistmodel_p.h>
 #include "../../shared/util.h"
 #include "../shared/viewtestutil.h"
 #include "../shared/visualtestutil.h"
@@ -6433,11 +6433,13 @@ QList<int> tst_QQuickGridView::toIntList(const QVariantList &list)
 
 void tst_QQuickGridView::matchIndexLists(const QVariantList &indexLists, const QList<int> &expectedIndexes)
 {
+    const QSet<int> expectedIndexSet(expectedIndexes.cbegin(), expectedIndexes.cend());
     for (int i=0; i<indexLists.count(); i++) {
-        QSet<int> current = indexLists[i].value<QList<int> >().toSet();
-        if (current != expectedIndexes.toSet())
+        const auto &currentList = indexLists[i].value<QList<int> >();
+        const QSet<int> current(currentList.cbegin(), currentList.cend());
+        if (current != expectedIndexSet)
             qDebug() << "Cannot match actual targets" << current << "with expected" << expectedIndexes;
-        QCOMPARE(current, expectedIndexes.toSet());
+        QCOMPARE(current, expectedIndexSet);
     }
 }
 

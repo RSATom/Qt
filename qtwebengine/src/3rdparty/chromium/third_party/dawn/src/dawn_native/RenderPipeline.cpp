@@ -15,63 +15,104 @@
 #include "dawn_native/RenderPipeline.h"
 
 #include "common/BitSetIterator.h"
+#include "common/HashUtils.h"
+#include "dawn_native/Commands.h"
 #include "dawn_native/Device.h"
-#include "dawn_native/InputState.h"
-#include "dawn_native/RenderPassDescriptor.h"
-#include "dawn_native/Texture.h"
 #include "dawn_native/ValidationUtils_autogen.h"
 
 namespace dawn_native {
     // Helper functions
     namespace {
 
-        MaybeError ValidatePipelineStageDescriptor(const PipelineStageDescriptor* descriptor,
-                                                   const PipelineLayoutBase* layout,
-                                                   dawn::ShaderStage stage) {
-            if (descriptor->entryPoint != std::string("main")) {
-                return DAWN_VALIDATION_ERROR("Entry point must be \"main\"");
+        MaybeError ValidateVertexAttributeDescriptor(
+            const VertexAttributeDescriptor* attribute,
+            uint64_t vertexBufferStride,
+            std::bitset<kMaxVertexAttributes>* attributesSetMask) {
+            DAWN_TRY(ValidateVertexFormat(attribute->format));
+
+            if (attribute->shaderLocation >= kMaxVertexAttributes) {
+                return DAWN_VALIDATION_ERROR("Setting attribute out of bounds");
             }
-            if (descriptor->module->GetExecutionModel() != stage) {
-                return DAWN_VALIDATION_ERROR("Setting module with wrong stages");
+
+            // No underflow is possible because the max vertex format size is smaller than
+            // kMaxVertexAttributeEnd.
+            ASSERT(kMaxVertexAttributeEnd >= VertexFormatSize(attribute->format));
+            if (attribute->offset > kMaxVertexAttributeEnd - VertexFormatSize(attribute->format)) {
+                return DAWN_VALIDATION_ERROR("Setting attribute offset out of bounds");
             }
-            if (!descriptor->module->IsCompatibleWithPipelineLayout(layout)) {
-                return DAWN_VALIDATION_ERROR("Stage not compatible with layout");
+
+            // No overflow is possible because the offset is already validated to be less
+            // than kMaxVertexAttributeEnd.
+            ASSERT(attribute->offset < kMaxVertexAttributeEnd);
+            if (vertexBufferStride > 0 &&
+                attribute->offset + VertexFormatSize(attribute->format) > vertexBufferStride) {
+                return DAWN_VALIDATION_ERROR("Setting attribute offset out of bounds");
             }
+
+            if ((*attributesSetMask)[attribute->shaderLocation]) {
+                return DAWN_VALIDATION_ERROR("Setting already set attribute");
+            }
+
+            attributesSetMask->set(attribute->shaderLocation);
             return {};
         }
 
-        MaybeError ValidateAttachmentsStateDescriptor(
-            const AttachmentsStateDescriptor* descriptor) {
-            if (descriptor->numColorAttachments > kMaxColorAttachments) {
-                return DAWN_VALIDATION_ERROR("Color attachments number exceeds maximum");
+        MaybeError ValidateVertexBufferDescriptor(
+            const VertexBufferDescriptor* buffer,
+            std::bitset<kMaxVertexAttributes>* attributesSetMask) {
+            DAWN_TRY(ValidateInputStepMode(buffer->stepMode));
+            if (buffer->stride > kMaxVertexBufferStride) {
+                return DAWN_VALIDATION_ERROR("Setting input stride out of bounds");
             }
 
-            if (descriptor->numColorAttachments == 0 && !descriptor->hasDepthStencilAttachment) {
-                return DAWN_VALIDATION_ERROR("Should have at least one attachment");
+            for (uint32_t i = 0; i < buffer->attributeCount; ++i) {
+                DAWN_TRY(ValidateVertexAttributeDescriptor(&buffer->attributes[i], buffer->stride,
+                                                           attributesSetMask));
             }
 
-            if (descriptor->hasDepthStencilAttachment) {
-                dawn::TextureFormat format = descriptor->depthStencilAttachment->format;
-                DAWN_TRY(ValidateTextureFormat(format));
-
-                if (!IsDepthStencilRenderableTextureFormat(format)) {
-                    return DAWN_VALIDATION_ERROR(
-                        "Depth stencil format must be depth-stencil renderable");
-                }
-            }
-
-            for (uint32_t i = 0; i < descriptor->numColorAttachments; ++i) {
-                dawn::TextureFormat format = descriptor->colorAttachments[i]->format;
-                DAWN_TRY(ValidateTextureFormat(format));
-
-                if (!IsColorRenderableTextureFormat(format)) {
-                    return DAWN_VALIDATION_ERROR("Color format must be color renderable");
-                }
-            }
             return {};
         }
 
-        MaybeError ValidateBlendStateDescriptor(const BlendStateDescriptor* descriptor) {
+        MaybeError ValidateVertexInputDescriptor(
+            const VertexInputDescriptor* descriptor,
+            std::bitset<kMaxVertexAttributes>* attributesSetMask) {
+            if (descriptor->nextInChain != nullptr) {
+                return DAWN_VALIDATION_ERROR("nextInChain must be nullptr");
+            }
+            DAWN_TRY(ValidateIndexFormat(descriptor->indexFormat));
+
+            if (descriptor->bufferCount > kMaxVertexBuffers) {
+                return DAWN_VALIDATION_ERROR("Vertex Inputs number exceeds maximum");
+            }
+
+            uint32_t totalAttributesNum = 0;
+            for (uint32_t i = 0; i < descriptor->bufferCount; ++i) {
+                DAWN_TRY(
+                    ValidateVertexBufferDescriptor(&descriptor->buffers[i], attributesSetMask));
+                totalAttributesNum += descriptor->buffers[i].attributeCount;
+            }
+
+            // Every vertex attribute has a member called shaderLocation, and there are some
+            // requirements for shaderLocation: 1) >=0, 2) values are different across different
+            // attributes, 3) can't exceed kMaxVertexAttributes. So it can ensure that total
+            // attribute number never exceed kMaxVertexAttributes.
+            ASSERT(totalAttributesNum <= kMaxVertexAttributes);
+
+            return {};
+        }
+
+        MaybeError ValidateRasterizationStateDescriptor(
+            const RasterizationStateDescriptor* descriptor) {
+            if (descriptor->nextInChain != nullptr) {
+                return DAWN_VALIDATION_ERROR("nextInChain must be nullptr");
+            }
+            DAWN_TRY(ValidateFrontFace(descriptor->frontFace));
+            DAWN_TRY(ValidateCullMode(descriptor->cullMode));
+            return {};
+        }
+
+        MaybeError ValidateColorStateDescriptor(const DeviceBase* device,
+                                                const ColorStateDescriptor* descriptor) {
             if (descriptor->nextInChain != nullptr) {
                 return DAWN_VALIDATION_ERROR("nextInChain must be nullptr");
             }
@@ -81,184 +122,607 @@ namespace dawn_native {
             DAWN_TRY(ValidateBlendOperation(descriptor->colorBlend.operation));
             DAWN_TRY(ValidateBlendFactor(descriptor->colorBlend.srcFactor));
             DAWN_TRY(ValidateBlendFactor(descriptor->colorBlend.dstFactor));
-            DAWN_TRY(ValidateColorWriteMask(descriptor->colorWriteMask));
+            DAWN_TRY(ValidateColorWriteMask(descriptor->writeMask));
+
+            const Format* format;
+            DAWN_TRY_ASSIGN(format, device->GetInternalFormat(descriptor->format));
+            if (!format->IsColor() || !format->isRenderable) {
+                return DAWN_VALIDATION_ERROR("Color format must be color renderable");
+            }
+
             return {};
         }
 
         MaybeError ValidateDepthStencilStateDescriptor(
+            const DeviceBase* device,
             const DepthStencilStateDescriptor* descriptor) {
             if (descriptor->nextInChain != nullptr) {
                 return DAWN_VALIDATION_ERROR("nextInChain must be nullptr");
             }
             DAWN_TRY(ValidateCompareFunction(descriptor->depthCompare));
-            DAWN_TRY(ValidateCompareFunction(descriptor->front.compare));
-            DAWN_TRY(ValidateStencilOperation(descriptor->front.stencilFailOp));
-            DAWN_TRY(ValidateStencilOperation(descriptor->front.depthFailOp));
-            DAWN_TRY(ValidateStencilOperation(descriptor->front.passOp));
-            DAWN_TRY(ValidateCompareFunction(descriptor->back.compare));
-            DAWN_TRY(ValidateStencilOperation(descriptor->back.stencilFailOp));
-            DAWN_TRY(ValidateStencilOperation(descriptor->back.depthFailOp));
-            DAWN_TRY(ValidateStencilOperation(descriptor->back.passOp));
+            DAWN_TRY(ValidateCompareFunction(descriptor->stencilFront.compare));
+            DAWN_TRY(ValidateStencilOperation(descriptor->stencilFront.failOp));
+            DAWN_TRY(ValidateStencilOperation(descriptor->stencilFront.depthFailOp));
+            DAWN_TRY(ValidateStencilOperation(descriptor->stencilFront.passOp));
+            DAWN_TRY(ValidateCompareFunction(descriptor->stencilBack.compare));
+            DAWN_TRY(ValidateStencilOperation(descriptor->stencilBack.failOp));
+            DAWN_TRY(ValidateStencilOperation(descriptor->stencilBack.depthFailOp));
+            DAWN_TRY(ValidateStencilOperation(descriptor->stencilBack.passOp));
+
+            const Format* format;
+            DAWN_TRY_ASSIGN(format, device->GetInternalFormat(descriptor->format));
+            if (!format->HasDepthOrStencil() || !format->isRenderable) {
+                return DAWN_VALIDATION_ERROR(
+                    "Depth stencil format must be depth-stencil renderable");
+            }
+
             return {};
         }
 
     }  // anonymous namespace
 
-    MaybeError ValidateRenderPipelineDescriptor(DeviceBase* device,
+    // Helper functions
+    size_t IndexFormatSize(dawn::IndexFormat format) {
+        switch (format) {
+            case dawn::IndexFormat::Uint16:
+                return sizeof(uint16_t);
+            case dawn::IndexFormat::Uint32:
+                return sizeof(uint32_t);
+            default:
+                UNREACHABLE();
+        }
+    }
+
+    uint32_t VertexFormatNumComponents(dawn::VertexFormat format) {
+        switch (format) {
+            case dawn::VertexFormat::UChar4:
+            case dawn::VertexFormat::Char4:
+            case dawn::VertexFormat::UChar4Norm:
+            case dawn::VertexFormat::Char4Norm:
+            case dawn::VertexFormat::UShort4:
+            case dawn::VertexFormat::Short4:
+            case dawn::VertexFormat::UShort4Norm:
+            case dawn::VertexFormat::Short4Norm:
+            case dawn::VertexFormat::Half4:
+            case dawn::VertexFormat::Float4:
+            case dawn::VertexFormat::UInt4:
+            case dawn::VertexFormat::Int4:
+                return 4;
+            case dawn::VertexFormat::Float3:
+            case dawn::VertexFormat::UInt3:
+            case dawn::VertexFormat::Int3:
+                return 3;
+            case dawn::VertexFormat::UChar2:
+            case dawn::VertexFormat::Char2:
+            case dawn::VertexFormat::UChar2Norm:
+            case dawn::VertexFormat::Char2Norm:
+            case dawn::VertexFormat::UShort2:
+            case dawn::VertexFormat::Short2:
+            case dawn::VertexFormat::UShort2Norm:
+            case dawn::VertexFormat::Short2Norm:
+            case dawn::VertexFormat::Half2:
+            case dawn::VertexFormat::Float2:
+            case dawn::VertexFormat::UInt2:
+            case dawn::VertexFormat::Int2:
+                return 2;
+            case dawn::VertexFormat::Float:
+            case dawn::VertexFormat::UInt:
+            case dawn::VertexFormat::Int:
+                return 1;
+            default:
+                UNREACHABLE();
+        }
+    }
+
+    size_t VertexFormatComponentSize(dawn::VertexFormat format) {
+        switch (format) {
+            case dawn::VertexFormat::UChar2:
+            case dawn::VertexFormat::UChar4:
+            case dawn::VertexFormat::Char2:
+            case dawn::VertexFormat::Char4:
+            case dawn::VertexFormat::UChar2Norm:
+            case dawn::VertexFormat::UChar4Norm:
+            case dawn::VertexFormat::Char2Norm:
+            case dawn::VertexFormat::Char4Norm:
+                return sizeof(char);
+            case dawn::VertexFormat::UShort2:
+            case dawn::VertexFormat::UShort4:
+            case dawn::VertexFormat::UShort2Norm:
+            case dawn::VertexFormat::UShort4Norm:
+            case dawn::VertexFormat::Short2:
+            case dawn::VertexFormat::Short4:
+            case dawn::VertexFormat::Short2Norm:
+            case dawn::VertexFormat::Short4Norm:
+            case dawn::VertexFormat::Half2:
+            case dawn::VertexFormat::Half4:
+                return sizeof(uint16_t);
+            case dawn::VertexFormat::Float:
+            case dawn::VertexFormat::Float2:
+            case dawn::VertexFormat::Float3:
+            case dawn::VertexFormat::Float4:
+                return sizeof(float);
+            case dawn::VertexFormat::UInt:
+            case dawn::VertexFormat::UInt2:
+            case dawn::VertexFormat::UInt3:
+            case dawn::VertexFormat::UInt4:
+            case dawn::VertexFormat::Int:
+            case dawn::VertexFormat::Int2:
+            case dawn::VertexFormat::Int3:
+            case dawn::VertexFormat::Int4:
+                return sizeof(int32_t);
+            default:
+                UNREACHABLE();
+        }
+    }
+
+    size_t VertexFormatSize(dawn::VertexFormat format) {
+        return VertexFormatNumComponents(format) * VertexFormatComponentSize(format);
+    }
+
+    MaybeError ValidateRenderPipelineDescriptor(const DeviceBase* device,
                                                 const RenderPipelineDescriptor* descriptor) {
         if (descriptor->nextInChain != nullptr) {
             return DAWN_VALIDATION_ERROR("nextInChain must be nullptr");
         }
 
-        if (descriptor->layout == nullptr) {
-            return DAWN_VALIDATION_ERROR("Layout must not be null");
-        }
+        DAWN_TRY(device->ValidateObject(descriptor->layout));
 
-        if (descriptor->inputState == nullptr) {
+        if (descriptor->vertexInput == nullptr) {
             return DAWN_VALIDATION_ERROR("Input state must not be null");
         }
 
-        if (descriptor->depthStencilState == nullptr) {
-            return DAWN_VALIDATION_ERROR("Depth stencil state must not be null");
-        }
-
-        for (uint32_t i = 0; i < descriptor->numBlendStates; ++i) {
-            DAWN_TRY(ValidateBlendStateDescriptor(&descriptor->blendStates[i]));
-        }
-
-        DAWN_TRY(ValidateIndexFormat(descriptor->indexFormat));
+        std::bitset<kMaxVertexAttributes> attributesSetMask;
+        DAWN_TRY(ValidateVertexInputDescriptor(descriptor->vertexInput, &attributesSetMask));
         DAWN_TRY(ValidatePrimitiveTopology(descriptor->primitiveTopology));
-        DAWN_TRY(ValidatePipelineStageDescriptor(descriptor->vertexStage, descriptor->layout,
-                                                 dawn::ShaderStage::Vertex));
-        DAWN_TRY(ValidatePipelineStageDescriptor(descriptor->fragmentStage, descriptor->layout,
-                                                 dawn::ShaderStage::Fragment));
-        DAWN_TRY(ValidateAttachmentsStateDescriptor(descriptor->attachmentsState));
+        DAWN_TRY(ValidatePipelineStageDescriptor(device, descriptor->vertexStage,
+                                                 descriptor->layout, ShaderStage::Vertex));
+        DAWN_TRY(ValidatePipelineStageDescriptor(device, descriptor->fragmentStage,
+                                                 descriptor->layout, ShaderStage::Fragment));
 
-        if ((descriptor->vertexStage->module->GetUsedVertexAttributes() &
-             ~descriptor->inputState->GetAttributesSetMask())
+        if (descriptor->rasterizationState) {
+            DAWN_TRY(ValidateRasterizationStateDescriptor(descriptor->rasterizationState));
+        }
+
+        if ((descriptor->vertexStage->module->GetUsedVertexAttributes() & ~attributesSetMask)
                 .any()) {
             return DAWN_VALIDATION_ERROR(
                 "Pipeline vertex stage uses inputs not in the input state");
         }
 
-        if (descriptor->sampleCount != 1) {
-            return DAWN_VALIDATION_ERROR("Sample count must be one");
+        if (!IsValidSampleCount(descriptor->sampleCount)) {
+            return DAWN_VALIDATION_ERROR("Sample count is not supported");
         }
 
-        if (descriptor->numBlendStates > kMaxColorAttachments) {
-            return DAWN_VALIDATION_ERROR("Blend states number exceeds maximum");
+        if (descriptor->colorStateCount > kMaxColorAttachments) {
+            return DAWN_VALIDATION_ERROR("Color States number exceeds maximum");
         }
 
-        if (descriptor->attachmentsState->numColorAttachments != descriptor->numBlendStates) {
-            return DAWN_VALIDATION_ERROR("Each color attachment should have blend state");
+        if (descriptor->colorStateCount == 0 && !descriptor->depthStencilState) {
+            return DAWN_VALIDATION_ERROR("Should have at least one attachment");
         }
 
-        DAWN_TRY(ValidateDepthStencilStateDescriptor(descriptor->depthStencilState));
+        for (uint32_t i = 0; i < descriptor->colorStateCount; ++i) {
+            DAWN_TRY(ValidateColorStateDescriptor(device, descriptor->colorStates[i]));
+        }
+
+        if (descriptor->depthStencilState) {
+            DAWN_TRY(ValidateDepthStencilStateDescriptor(device, descriptor->depthStencilState));
+        }
+
+        if (descriptor->sampleMask != 0xFFFFFFFF) {
+            return DAWN_VALIDATION_ERROR("sampleMask must be 0xFFFFFFFF (for now)");
+        }
+
+        if (descriptor->alphaToCoverageEnabled) {
+            return DAWN_VALIDATION_ERROR("alphaToCoverageEnabled isn't supported (yet)");
+        }
 
         return {};
     }
 
     bool StencilTestEnabled(const DepthStencilStateDescriptor* mDepthStencilState) {
-        return mDepthStencilState->back.compare != dawn::CompareFunction::Always ||
-               mDepthStencilState->back.stencilFailOp != dawn::StencilOperation::Keep ||
-               mDepthStencilState->back.depthFailOp != dawn::StencilOperation::Keep ||
-               mDepthStencilState->back.passOp != dawn::StencilOperation::Keep ||
-               mDepthStencilState->front.compare != dawn::CompareFunction::Always ||
-               mDepthStencilState->front.stencilFailOp != dawn::StencilOperation::Keep ||
-               mDepthStencilState->front.depthFailOp != dawn::StencilOperation::Keep ||
-               mDepthStencilState->front.passOp != dawn::StencilOperation::Keep;
+        return mDepthStencilState->stencilBack.compare != dawn::CompareFunction::Always ||
+               mDepthStencilState->stencilBack.failOp != dawn::StencilOperation::Keep ||
+               mDepthStencilState->stencilBack.depthFailOp != dawn::StencilOperation::Keep ||
+               mDepthStencilState->stencilBack.passOp != dawn::StencilOperation::Keep ||
+               mDepthStencilState->stencilFront.compare != dawn::CompareFunction::Always ||
+               mDepthStencilState->stencilFront.failOp != dawn::StencilOperation::Keep ||
+               mDepthStencilState->stencilFront.depthFailOp != dawn::StencilOperation::Keep ||
+               mDepthStencilState->stencilFront.passOp != dawn::StencilOperation::Keep;
+    }
+
+    bool BlendEnabled(const ColorStateDescriptor* mColorState) {
+        return mColorState->alphaBlend.operation != dawn::BlendOperation::Add ||
+               mColorState->alphaBlend.srcFactor != dawn::BlendFactor::One ||
+               mColorState->alphaBlend.dstFactor != dawn::BlendFactor::Zero ||
+               mColorState->colorBlend.operation != dawn::BlendOperation::Add ||
+               mColorState->colorBlend.srcFactor != dawn::BlendFactor::One ||
+               mColorState->colorBlend.dstFactor != dawn::BlendFactor::Zero;
     }
 
     // RenderPipelineBase
 
     RenderPipelineBase::RenderPipelineBase(DeviceBase* device,
-                                           const RenderPipelineDescriptor* descriptor)
+                                           const RenderPipelineDescriptor* descriptor,
+                                           bool blueprint)
         : PipelineBase(device,
                        descriptor->layout,
                        dawn::ShaderStageBit::Vertex | dawn::ShaderStageBit::Fragment),
-          mDepthStencilState(*descriptor->depthStencilState),
-          mIndexFormat(descriptor->indexFormat),
-          mInputState(descriptor->inputState),
+          mVertexInput(*descriptor->vertexInput),
+          mHasDepthStencilAttachment(descriptor->depthStencilState != nullptr),
           mPrimitiveTopology(descriptor->primitiveTopology),
-          mHasDepthStencilAttachment(descriptor->attachmentsState->hasDepthStencilAttachment) {
-        if (mHasDepthStencilAttachment) {
-            mDepthStencilFormat = descriptor->attachmentsState->depthStencilAttachment->format;
-        }
-        ExtractModuleData(dawn::ShaderStage::Vertex, descriptor->vertexStage->module);
-        ExtractModuleData(dawn::ShaderStage::Fragment, descriptor->fragmentStage->module);
+          mSampleCount(descriptor->sampleCount),
+          mSampleMask(descriptor->sampleMask),
+          mAlphaToCoverageEnabled(descriptor->alphaToCoverageEnabled),
+          mVertexModule(descriptor->vertexStage->module),
+          mVertexEntryPoint(descriptor->vertexStage->entryPoint),
+          mFragmentModule(descriptor->fragmentStage->module),
+          mFragmentEntryPoint(descriptor->fragmentStage->entryPoint),
+          mIsBlueprint(blueprint) {
+        for (uint32_t slot = 0; slot < mVertexInput.bufferCount; ++slot) {
+            if (mVertexInput.buffers[slot].attributeCount == 0) {
+                continue;
+            }
 
-        for (uint32_t i = 0; i < descriptor->attachmentsState->numColorAttachments; ++i) {
+            mInputsSetMask.set(slot);
+            mInputInfos[slot].stride = mVertexInput.buffers[slot].stride;
+            mInputInfos[slot].stepMode = mVertexInput.buffers[slot].stepMode;
+
+            uint32_t location = 0;
+            for (uint32_t i = 0; i < mVertexInput.buffers[slot].attributeCount; ++i) {
+                location = mVertexInput.buffers[slot].attributes[i].shaderLocation;
+                mAttributesSetMask.set(location);
+                mAttributeInfos[location].shaderLocation = location;
+                mAttributeInfos[location].inputSlot = slot;
+                mAttributeInfos[location].offset = mVertexInput.buffers[slot].attributes[i].offset;
+                mAttributeInfos[location].format = mVertexInput.buffers[slot].attributes[i].format;
+            }
+        }
+
+        if (descriptor->rasterizationState != nullptr) {
+            mRasterizationState = *descriptor->rasterizationState;
+        } else {
+            mRasterizationState = RasterizationStateDescriptor();
+        }
+
+        if (mHasDepthStencilAttachment) {
+            mDepthStencilState = *descriptor->depthStencilState;
+        } else {
+            // These default values below are useful for backends to fill information.
+            // The values indicate that depth and stencil test are disabled when backends
+            // set their own depth stencil states/descriptors according to the values in
+            // mDepthStencilState.
+            mDepthStencilState.depthCompare = dawn::CompareFunction::Always;
+            mDepthStencilState.depthWriteEnabled = false;
+            mDepthStencilState.stencilBack.compare = dawn::CompareFunction::Always;
+            mDepthStencilState.stencilBack.failOp = dawn::StencilOperation::Keep;
+            mDepthStencilState.stencilBack.depthFailOp = dawn::StencilOperation::Keep;
+            mDepthStencilState.stencilBack.passOp = dawn::StencilOperation::Keep;
+            mDepthStencilState.stencilFront.compare = dawn::CompareFunction::Always;
+            mDepthStencilState.stencilFront.failOp = dawn::StencilOperation::Keep;
+            mDepthStencilState.stencilFront.depthFailOp = dawn::StencilOperation::Keep;
+            mDepthStencilState.stencilFront.passOp = dawn::StencilOperation::Keep;
+            mDepthStencilState.stencilReadMask = 0xff;
+            mDepthStencilState.stencilWriteMask = 0xff;
+        }
+
+        for (uint32_t i = 0; i < descriptor->colorStateCount; ++i) {
             mColorAttachmentsSet.set(i);
-            mBlendStates[i] = descriptor->blendStates[i];
-            mColorAttachmentFormats[i] = descriptor->attachmentsState->colorAttachments[i]->format;
+            mColorStates[i] = *descriptor->colorStates[i];
         }
 
         // TODO(cwallez@chromium.org): Check against the shader module that the correct color
         // attachment are set?
     }
 
-    const BlendStateDescriptor* RenderPipelineBase::GetBlendStateDescriptor(
-        uint32_t attachmentSlot) {
-        ASSERT(attachmentSlot < mBlendStates.size());
-        return &mBlendStates[attachmentSlot];
+    RenderPipelineBase::RenderPipelineBase(DeviceBase* device, ObjectBase::ErrorTag tag)
+        : PipelineBase(device, tag) {
     }
 
-    const DepthStencilStateDescriptor* RenderPipelineBase::GetDepthStencilStateDescriptor() {
+    // static
+    RenderPipelineBase* RenderPipelineBase::MakeError(DeviceBase* device) {
+        return new RenderPipelineBase(device, ObjectBase::kError);
+    }
+
+    RenderPipelineBase::~RenderPipelineBase() {
+        // Do not uncache the actual cached object if we are a blueprint
+        if (!mIsBlueprint && !IsError()) {
+            GetDevice()->UncacheRenderPipeline(this);
+        }
+    }
+
+    const VertexInputDescriptor* RenderPipelineBase::GetVertexInputDescriptor() const {
+        ASSERT(!IsError());
+        return &mVertexInput;
+    }
+
+    const std::bitset<kMaxVertexAttributes>& RenderPipelineBase::GetAttributesSetMask() const {
+        ASSERT(!IsError());
+        return mAttributesSetMask;
+    }
+
+    const VertexAttributeInfo& RenderPipelineBase::GetAttribute(uint32_t location) const {
+        ASSERT(!IsError());
+        ASSERT(mAttributesSetMask[location]);
+        return mAttributeInfos[location];
+    }
+
+    const std::bitset<kMaxVertexBuffers>& RenderPipelineBase::GetInputsSetMask() const {
+        ASSERT(!IsError());
+        return mInputsSetMask;
+    }
+
+    const VertexBufferInfo& RenderPipelineBase::GetInput(uint32_t slot) const {
+        ASSERT(!IsError());
+        ASSERT(mInputsSetMask[slot]);
+        return mInputInfos[slot];
+    }
+
+    const ColorStateDescriptor* RenderPipelineBase::GetColorStateDescriptor(
+        uint32_t attachmentSlot) const {
+        ASSERT(!IsError());
+        ASSERT(attachmentSlot < mColorStates.size());
+        return &mColorStates[attachmentSlot];
+    }
+
+    const DepthStencilStateDescriptor* RenderPipelineBase::GetDepthStencilStateDescriptor() const {
+        ASSERT(!IsError());
         return &mDepthStencilState;
     }
 
-    dawn::IndexFormat RenderPipelineBase::GetIndexFormat() const {
-        return mIndexFormat;
-    }
-
-    InputStateBase* RenderPipelineBase::GetInputState() {
-        return mInputState.Get();
-    }
-
     dawn::PrimitiveTopology RenderPipelineBase::GetPrimitiveTopology() const {
+        ASSERT(!IsError());
         return mPrimitiveTopology;
     }
 
+    dawn::CullMode RenderPipelineBase::GetCullMode() const {
+        ASSERT(!IsError());
+        return mRasterizationState.cullMode;
+    }
+
+    dawn::FrontFace RenderPipelineBase::GetFrontFace() const {
+        ASSERT(!IsError());
+        return mRasterizationState.frontFace;
+    }
+
     std::bitset<kMaxColorAttachments> RenderPipelineBase::GetColorAttachmentsMask() const {
+        ASSERT(!IsError());
         return mColorAttachmentsSet;
     }
 
     bool RenderPipelineBase::HasDepthStencilAttachment() const {
+        ASSERT(!IsError());
         return mHasDepthStencilAttachment;
     }
 
     dawn::TextureFormat RenderPipelineBase::GetColorAttachmentFormat(uint32_t attachment) const {
-        return mColorAttachmentFormats[attachment];
+        ASSERT(!IsError());
+        return mColorStates[attachment].format;
     }
 
     dawn::TextureFormat RenderPipelineBase::GetDepthStencilFormat() const {
+        ASSERT(!IsError());
         ASSERT(mHasDepthStencilAttachment);
-        return mDepthStencilFormat;
+        return mDepthStencilState.format;
     }
 
-    bool RenderPipelineBase::IsCompatibleWith(const RenderPassDescriptorBase* renderPass) const {
+    uint32_t RenderPipelineBase::GetSampleCount() const {
+        ASSERT(!IsError());
+        return mSampleCount;
+    }
+
+    MaybeError RenderPipelineBase::ValidateCompatibleWith(
+        const BeginRenderPassCmd* renderPass) const {
+        ASSERT(!IsError());
         // TODO(cwallez@chromium.org): This is called on every SetPipeline command. Optimize it for
         // example by caching some "attachment compatibility" object that would make the
         // compatibility check a single pointer comparison.
 
-        if (renderPass->GetColorAttachmentMask() != mColorAttachmentsSet) {
-            return false;
+        if (renderPass->colorAttachmentsSet != mColorAttachmentsSet) {
+            return DAWN_VALIDATION_ERROR(
+                "Pipeline doesn't have same color attachments set as renderPass");
         }
 
         for (uint32_t i : IterateBitSet(mColorAttachmentsSet)) {
-            if (renderPass->GetColorAttachment(i).view->GetTexture()->GetFormat() !=
-                mColorAttachmentFormats[i]) {
+            if (renderPass->colorAttachments[i].view->GetFormat().format !=
+                mColorStates[i].format) {
+                return DAWN_VALIDATION_ERROR(
+                    "Pipeline color attachment format doesn't match renderPass");
+            }
+        }
+
+        if (renderPass->hasDepthStencilAttachment != mHasDepthStencilAttachment) {
+            return DAWN_VALIDATION_ERROR(
+                "Pipeline depth stencil attachment doesn't match renderPass");
+        }
+
+        if (mHasDepthStencilAttachment &&
+            (renderPass->depthStencilAttachment.view->GetFormat().format !=
+             mDepthStencilState.format)) {
+            return DAWN_VALIDATION_ERROR(
+                "Pipeline depth stencil attachment format doesn't match renderPass");
+        }
+
+        if (renderPass->sampleCount != mSampleCount) {
+            return DAWN_VALIDATION_ERROR("Pipeline sample count doesn't match renderPass");
+        }
+
+        return {};
+    }
+
+    std::bitset<kMaxVertexAttributes> RenderPipelineBase::GetAttributesUsingInput(
+        uint32_t slot) const {
+        ASSERT(!IsError());
+        return attributesUsingInput[slot];
+    }
+
+    size_t RenderPipelineBase::HashFunc::operator()(const RenderPipelineBase* pipeline) const {
+        size_t hash = 0;
+
+        // Hash modules and layout
+        HashCombine(&hash, pipeline->GetLayout());
+        HashCombine(&hash, pipeline->mVertexModule.Get(), pipeline->mFragmentEntryPoint);
+        HashCombine(&hash, pipeline->mFragmentModule.Get(), pipeline->mFragmentEntryPoint);
+
+        // Hash attachments
+        HashCombine(&hash, pipeline->mColorAttachmentsSet);
+        for (uint32_t i : IterateBitSet(pipeline->mColorAttachmentsSet)) {
+            const ColorStateDescriptor& desc = *pipeline->GetColorStateDescriptor(i);
+            HashCombine(&hash, desc.format, desc.writeMask);
+            HashCombine(&hash, desc.colorBlend.operation, desc.colorBlend.srcFactor,
+                        desc.colorBlend.dstFactor);
+            HashCombine(&hash, desc.alphaBlend.operation, desc.alphaBlend.srcFactor,
+                        desc.alphaBlend.dstFactor);
+        }
+
+        if (pipeline->mHasDepthStencilAttachment) {
+            const DepthStencilStateDescriptor& desc = pipeline->mDepthStencilState;
+            HashCombine(&hash, desc.format, desc.depthWriteEnabled, desc.depthCompare);
+            HashCombine(&hash, desc.stencilReadMask, desc.stencilWriteMask);
+            HashCombine(&hash, desc.stencilFront.compare, desc.stencilFront.failOp,
+                        desc.stencilFront.depthFailOp, desc.stencilFront.passOp);
+            HashCombine(&hash, desc.stencilBack.compare, desc.stencilBack.failOp,
+                        desc.stencilBack.depthFailOp, desc.stencilBack.passOp);
+        }
+
+        // Hash vertex input state
+        HashCombine(&hash, pipeline->mAttributesSetMask);
+        for (uint32_t i : IterateBitSet(pipeline->mAttributesSetMask)) {
+            const VertexAttributeInfo& desc = pipeline->GetAttribute(i);
+            HashCombine(&hash, desc.shaderLocation, desc.inputSlot, desc.offset, desc.format);
+        }
+
+        HashCombine(&hash, pipeline->mInputsSetMask);
+        for (uint32_t i : IterateBitSet(pipeline->mInputsSetMask)) {
+            const VertexBufferInfo& desc = pipeline->GetInput(i);
+            HashCombine(&hash, desc.stride, desc.stepMode);
+        }
+
+        HashCombine(&hash, pipeline->mVertexInput.indexFormat);
+
+        // Hash rasterization state
+        {
+            const RasterizationStateDescriptor& desc = pipeline->mRasterizationState;
+            HashCombine(&hash, desc.frontFace, desc.cullMode);
+            HashCombine(&hash, desc.depthBias, desc.depthBiasSlopeScale, desc.depthBiasClamp);
+        }
+
+        // Hash other state
+        HashCombine(&hash, pipeline->mSampleCount, pipeline->mPrimitiveTopology,
+                    pipeline->mSampleMask, pipeline->mAlphaToCoverageEnabled);
+
+        return hash;
+    }
+
+    bool RenderPipelineBase::EqualityFunc::operator()(const RenderPipelineBase* a,
+                                                      const RenderPipelineBase* b) const {
+        // Check modules and layout
+        if (a->GetLayout() != b->GetLayout() || a->mVertexModule.Get() != b->mVertexModule.Get() ||
+            a->mVertexEntryPoint != b->mVertexEntryPoint ||
+            a->mFragmentModule.Get() != b->mFragmentModule.Get() ||
+            a->mFragmentEntryPoint != b->mFragmentEntryPoint) {
+            return false;
+        }
+
+        // Check attachments
+        if (a->mColorAttachmentsSet != b->mColorAttachmentsSet ||
+            a->mHasDepthStencilAttachment != b->mHasDepthStencilAttachment) {
+            return false;
+        }
+
+        for (uint32_t i : IterateBitSet(a->mColorAttachmentsSet)) {
+            const ColorStateDescriptor& descA = *a->GetColorStateDescriptor(i);
+            const ColorStateDescriptor& descB = *b->GetColorStateDescriptor(i);
+            if (descA.format != descB.format || descA.writeMask != descB.writeMask) {
+                return false;
+            }
+            if (descA.colorBlend.operation != descB.colorBlend.operation ||
+                descA.colorBlend.srcFactor != descB.colorBlend.srcFactor ||
+                descA.colorBlend.dstFactor != descB.colorBlend.dstFactor) {
+                return false;
+            }
+            if (descA.alphaBlend.operation != descB.alphaBlend.operation ||
+                descA.alphaBlend.srcFactor != descB.alphaBlend.srcFactor ||
+                descA.alphaBlend.dstFactor != descB.alphaBlend.dstFactor) {
                 return false;
             }
         }
 
-        if (renderPass->HasDepthStencilAttachment() != mHasDepthStencilAttachment) {
+        if (a->mHasDepthStencilAttachment) {
+            const DepthStencilStateDescriptor& descA = a->mDepthStencilState;
+            const DepthStencilStateDescriptor& descB = b->mDepthStencilState;
+            if (descA.format != descB.format ||
+                descA.depthWriteEnabled != descB.depthWriteEnabled ||
+                descA.depthCompare != descB.depthCompare) {
+                return false;
+            }
+            if (descA.stencilReadMask != descB.stencilReadMask ||
+                descA.stencilWriteMask != descB.stencilWriteMask) {
+                return false;
+            }
+            if (descA.stencilFront.compare != descB.stencilFront.compare ||
+                descA.stencilFront.failOp != descB.stencilFront.failOp ||
+                descA.stencilFront.depthFailOp != descB.stencilFront.depthFailOp ||
+                descA.stencilFront.passOp != descB.stencilFront.passOp) {
+                return false;
+            }
+            if (descA.stencilBack.compare != descB.stencilBack.compare ||
+                descA.stencilBack.failOp != descB.stencilBack.failOp ||
+                descA.stencilBack.depthFailOp != descB.stencilBack.depthFailOp ||
+                descA.stencilBack.passOp != descB.stencilBack.passOp) {
+                return false;
+            }
+        }
+
+        // Check vertex input state
+        if (a->mAttributesSetMask != b->mAttributesSetMask) {
             return false;
         }
 
-        if (mHasDepthStencilAttachment &&
-            (renderPass->GetDepthStencilAttachment().view->GetTexture()->GetFormat() !=
-             mDepthStencilFormat)) {
+        for (uint32_t i : IterateBitSet(a->mAttributesSetMask)) {
+            const VertexAttributeInfo& descA = a->GetAttribute(i);
+            const VertexAttributeInfo& descB = b->GetAttribute(i);
+            if (descA.shaderLocation != descB.shaderLocation ||
+                descA.inputSlot != descB.inputSlot || descA.offset != descB.offset ||
+                descA.format != descB.format) {
+                return false;
+            }
+        }
+
+        if (a->mInputsSetMask != b->mInputsSetMask) {
+            return false;
+        }
+
+        for (uint32_t i : IterateBitSet(a->mInputsSetMask)) {
+            const VertexBufferInfo& descA = a->GetInput(i);
+            const VertexBufferInfo& descB = b->GetInput(i);
+            if (descA.stride != descB.stride || descA.stepMode != descB.stepMode) {
+                return false;
+            }
+        }
+
+        if (a->mVertexInput.indexFormat != b->mVertexInput.indexFormat) {
+            return false;
+        }
+
+        // Check rasterization state
+        {
+            const RasterizationStateDescriptor& descA = a->mRasterizationState;
+            const RasterizationStateDescriptor& descB = b->mRasterizationState;
+            if (descA.frontFace != descB.frontFace || descA.cullMode != descB.cullMode) {
+                return false;
+            }
+            if (descA.depthBias != descB.depthBias ||
+                descA.depthBiasSlopeScale != descB.depthBiasSlopeScale ||
+                descA.depthBiasClamp != descB.depthBiasClamp) {
+                return false;
+            }
+        }
+
+        // Check other state
+        if (a->mSampleCount != b->mSampleCount || a->mPrimitiveTopology != b->mPrimitiveTopology ||
+            a->mSampleMask != b->mSampleMask ||
+            a->mAlphaToCoverageEnabled != b->mAlphaToCoverageEnabled) {
             return false;
         }
 

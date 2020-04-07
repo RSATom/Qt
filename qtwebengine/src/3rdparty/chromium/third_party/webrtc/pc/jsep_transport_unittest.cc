@@ -8,6 +8,8 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
+#include "pc/jsep_transport.h"
+
 #include <memory>
 #include <tuple>
 #include <utility>
@@ -16,7 +18,6 @@
 #include "media/base/fake_rtp.h"
 #include "p2p/base/fake_dtls_transport.h"
 #include "p2p/base/fake_ice_transport.h"
-#include "pc/jsep_transport.h"
 #include "rtc_base/gunit.h"
 
 namespace cricket {
@@ -40,7 +41,7 @@ struct NegotiateRoleParams {
   SdpType remote_type;
 };
 
-class JsepTransport2Test : public testing::Test, public sigslot::has_slots<> {
+class JsepTransport2Test : public ::testing::Test, public sigslot::has_slots<> {
  protected:
   std::unique_ptr<webrtc::SrtpTransport> CreateSdesTransport(
       rtc::PacketTransportInternal* rtp_packet_transport,
@@ -71,15 +72,15 @@ class JsepTransport2Test : public testing::Test, public sigslot::has_slots<> {
                                                       SrtpMode srtp_mode) {
     auto ice = absl::make_unique<FakeIceTransport>(kTransportName,
                                                    ICE_CANDIDATE_COMPONENT_RTP);
-    auto rtp_dtls_transport =
-        absl::make_unique<FakeDtlsTransport>(std::move(ice));
+    auto rtp_dtls_transport = absl::make_unique<FakeDtlsTransport>(ice.get());
 
+    std::unique_ptr<FakeIceTransport> rtcp_ice;
     std::unique_ptr<FakeDtlsTransport> rtcp_dtls_transport;
     if (!rtcp_mux_enabled) {
-      ice = absl::make_unique<FakeIceTransport>(kTransportName,
-                                                ICE_CANDIDATE_COMPONENT_RTCP);
+      rtcp_ice = absl::make_unique<FakeIceTransport>(
+          kTransportName, ICE_CANDIDATE_COMPONENT_RTCP);
       rtcp_dtls_transport =
-          absl::make_unique<FakeDtlsTransport>(std::move(ice));
+          absl::make_unique<FakeDtlsTransport>(rtcp_ice.get());
     }
 
     std::unique_ptr<webrtc::RtpTransport> unencrypted_rtp_transport;
@@ -105,10 +106,14 @@ class JsepTransport2Test : public testing::Test, public sigslot::has_slots<> {
     // more logic that require unit tests. Note that creation of media_transport
     // is covered in jseptransportcontroller_unittest.
     auto jsep_transport = absl::make_unique<JsepTransport>(
-        kTransportName, /*local_certificate=*/nullptr,
-        std::move(unencrypted_rtp_transport), std::move(sdes_transport),
-        std::move(dtls_srtp_transport), std::move(rtp_dtls_transport),
-        std::move(rtcp_dtls_transport), /*media_transport=*/nullptr);
+        kTransportName, /*local_certificate=*/nullptr, std::move(ice),
+        std::move(rtcp_ice), std::move(unencrypted_rtp_transport),
+        std::move(sdes_transport), std::move(dtls_srtp_transport),
+        /*datagram_rtp_transport=*/nullptr, std::move(rtp_dtls_transport),
+        std::move(rtcp_dtls_transport),
+        /*datagram_dtls_transport=*/nullptr,
+        /*media_transport=*/nullptr,
+        /*datagram_transport=*/nullptr);
 
     signal_rtcp_mux_active_received_ = false;
     jsep_transport->SignalRtcpMuxActive.connect(
@@ -156,7 +161,7 @@ class JsepTransport2Test : public testing::Test, public sigslot::has_slots<> {
 // The parameterized tests cover both cases when RTCP mux is enable and
 // disabled.
 class JsepTransport2WithRtcpMux : public JsepTransport2Test,
-                                  public testing::WithParamInterface<bool> {};
+                                  public ::testing::WithParamInterface<bool> {};
 
 // This test verifies the ICE parameters are properly applied to the transports.
 TEST_P(JsepTransport2WithRtcpMux, SetIceParameters) {
@@ -638,9 +643,9 @@ TEST_P(JsepTransport2WithRtcpMux, InvalidDtlsRoleNegotiation) {
   }
 }
 
-INSTANTIATE_TEST_CASE_P(JsepTransport2Test,
-                        JsepTransport2WithRtcpMux,
-                        testing::Bool());
+INSTANTIATE_TEST_SUITE_P(JsepTransport2Test,
+                         JsepTransport2WithRtcpMux,
+                         ::testing::Bool());
 
 // Test that a reoffer in the opposite direction is successful as long as the
 // role isn't changing. Doesn't test every possible combination like the test
@@ -1231,7 +1236,7 @@ TEST_P(JsepTransport2HeaderExtensionTest, EncryptedHeaderExtensionNegotiation) {
   TestSendRecvPacketWithEncryptedHeaderExtension();
 }
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     JsepTransport2Test,
     JsepTransport2HeaderExtensionTest,
     ::testing::Values(

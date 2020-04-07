@@ -65,7 +65,7 @@ class QAxAggregated
 {
     friend class QAxServerBase;
     friend class QAxClientSite;
-    Q_DISABLE_COPY(QAxAggregated)
+    Q_DISABLE_COPY_MOVE(QAxAggregated)
 public:
     virtual long queryInterface(const QUuid &iid, void **iface) = 0;
 

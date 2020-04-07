@@ -4,8 +4,7 @@
 
 #include "third_party/blink/renderer/platform/testing/testing_platform_support_with_web_rtc.h"
 
-#include <memory>
-#include <vector>
+#include <utility>
 
 #include "third_party/blink/public/platform/web_media_stream.h"
 #include "third_party/blink/public/platform/web_media_stream_source.h"
@@ -16,6 +15,7 @@
 #include "third_party/blink/public/platform/web_rtc_session_description.h"
 #include "third_party/blink/public/platform/web_rtc_stats.h"
 #include "third_party/blink/public/platform/web_vector.h"
+#include "third_party/webrtc/api/stats/rtc_stats.h"
 
 namespace blink {
 
@@ -29,7 +29,7 @@ class DummyRtpSenderInternal
   static uintptr_t last_id_;
 
  public:
-  DummyRtpSenderInternal(WebMediaStreamTrack track)
+  explicit DummyRtpSenderInternal(WebMediaStreamTrack track)
       : id_(++last_id_), track_(std::move(track)) {}
 
   uintptr_t id() const { return id_; }
@@ -45,18 +45,26 @@ uintptr_t DummyRtpSenderInternal::last_id_ = 0;
 
 class DummyWebRTCRtpSender : public WebRTCRtpSender {
  public:
-  DummyWebRTCRtpSender(WebMediaStreamTrack track)
+  explicit DummyWebRTCRtpSender(WebMediaStreamTrack track)
       : internal_(new DummyRtpSenderInternal(std::move(track))) {}
   DummyWebRTCRtpSender(const DummyWebRTCRtpSender& other)
       : internal_(other.internal_) {}
   ~DummyWebRTCRtpSender() override {}
 
-  scoped_refptr<DummyRtpSenderInternal> internal() const { return internal_; };
+  scoped_refptr<DummyRtpSenderInternal> internal() const { return internal_; }
 
   std::unique_ptr<WebRTCRtpSender> ShallowCopy() const override {
     return nullptr;
   }
   uintptr_t Id() const override { return internal_->id(); }
+  rtc::scoped_refptr<webrtc::DtlsTransportInterface> DtlsTransport() override {
+    return nullptr;
+  }
+  webrtc::DtlsTransportInformation DtlsTransportInformation() override {
+    static const webrtc::DtlsTransportInformation dummy(
+        webrtc::DtlsTransportState::kNew);
+    return dummy;
+  }
   WebMediaStreamTrack Track() const override { return internal_->track(); }
   WebVector<WebString> StreamIds() const override {
     return std::vector<WebString>({WebString::FromUTF8("DummyStringId")});
@@ -71,8 +79,10 @@ class DummyWebRTCRtpSender : public WebRTCRtpSender {
   void SetParameters(blink::WebVector<webrtc::RtpEncodingParameters>,
                      webrtc::DegradationPreference,
                      WebRTCVoidRequest) override {}
-  void GetStats(std::unique_ptr<blink::WebRTCStatsReportCallback>,
-                blink::RTCStatsFilter) override {}
+  void GetStats(WebRTCStatsReportCallback,
+                const WebVector<webrtc::NonStandardGroupId>&) override {}
+  void SetStreams(
+      const blink::WebVector<blink::WebString>& stream_ids) override {}
 
  private:
   scoped_refptr<DummyRtpSenderInternal> internal_;
@@ -83,7 +93,7 @@ class DummyWebRTCRtpReceiver : public WebRTCRtpReceiver {
   static uintptr_t last_id_;
 
  public:
-  DummyWebRTCRtpReceiver(WebMediaStreamSource::Type type)
+  explicit DummyWebRTCRtpReceiver(WebMediaStreamSource::Type type)
       : id_(++last_id_), track_() {
     if (type == WebMediaStreamSource::Type::kTypeAudio) {
       WebMediaStreamSource web_source;
@@ -110,6 +120,14 @@ class DummyWebRTCRtpReceiver : public WebRTCRtpReceiver {
     return nullptr;
   }
   uintptr_t Id() const override { return id_; }
+  rtc::scoped_refptr<webrtc::DtlsTransportInterface> DtlsTransport() override {
+    return nullptr;
+  }
+  webrtc::DtlsTransportInformation DtlsTransportInformation() override {
+    static const webrtc::DtlsTransportInformation dummy(
+        webrtc::DtlsTransportState::kNew);
+    return dummy;
+  }
   const WebMediaStreamTrack& Track() const override { return track_; }
   WebVector<WebString> StreamIds() const override {
     return WebVector<WebString>();
@@ -117,11 +135,14 @@ class DummyWebRTCRtpReceiver : public WebRTCRtpReceiver {
   WebVector<std::unique_ptr<WebRTCRtpSource>> GetSources() override {
     return WebVector<std::unique_ptr<WebRTCRtpSource>>();
   }
-  void GetStats(std::unique_ptr<blink::WebRTCStatsReportCallback>,
-                RTCStatsFilter) override {}
+  void GetStats(WebRTCStatsReportCallback,
+                const WebVector<webrtc::NonStandardGroupId>&) override {}
   std::unique_ptr<webrtc::RtpParameters> GetParameters() const override {
     return nullptr;
   }
+
+  void SetJitterBufferMinimumDelay(
+      base::Optional<double> delay_seconds) override {}
 
  private:
   const uintptr_t id_;
@@ -226,14 +247,14 @@ bool MockWebRTCPeerConnectionHandler::Initialize(
   return true;
 }
 
-std::vector<std::unique_ptr<WebRTCRtpTransceiver>>
+WebVector<std::unique_ptr<WebRTCRtpTransceiver>>
 MockWebRTCPeerConnectionHandler::CreateOffer(
     const WebRTCSessionDescriptionRequest&,
     const WebMediaConstraints&) {
   return {};
 }
 
-std::vector<std::unique_ptr<WebRTCRtpTransceiver>>
+WebVector<std::unique_ptr<WebRTCRtpTransceiver>>
 MockWebRTCPeerConnectionHandler::CreateOffer(
     const WebRTCSessionDescriptionRequest&,
     const WebRTCOfferOptions&) {
@@ -286,7 +307,7 @@ MockWebRTCPeerConnectionHandler::PendingRemoteDescription() {
 
 const webrtc::PeerConnectionInterface::RTCConfiguration&
 MockWebRTCPeerConnectionHandler::GetConfiguration() const {
-  static webrtc::PeerConnectionInterface::RTCConfiguration configuration;
+  static const webrtc::PeerConnectionInterface::RTCConfiguration configuration;
   return configuration;
 }
 
@@ -295,11 +316,13 @@ webrtc::RTCErrorType MockWebRTCPeerConnectionHandler::SetConfiguration(
   return webrtc::RTCErrorType::NONE;
 }
 
+void MockWebRTCPeerConnectionHandler::RestartIce() {}
+
 void MockWebRTCPeerConnectionHandler::GetStats(const WebRTCStatsRequest&) {}
 
 void MockWebRTCPeerConnectionHandler::GetStats(
-    std::unique_ptr<WebRTCStatsReportCallback>,
-    blink::RTCStatsFilter) {}
+    blink::WebRTCStatsReportCallback,
+    const WebVector<webrtc::NonStandardGroupId>&) {}
 
 webrtc::RTCErrorOr<std::unique_ptr<WebRTCRtpTransceiver>>
 MockWebRTCPeerConnectionHandler::AddTransceiverWithTrack(
@@ -352,7 +375,8 @@ MockWebRTCPeerConnectionHandler::RemoveTrack(WebRTCRtpSender* sender) {
   return std::unique_ptr<WebRTCRtpTransceiver>(std::move(copy));
 }
 
-WebRTCDataChannelHandler* MockWebRTCPeerConnectionHandler::CreateDataChannel(
+scoped_refptr<webrtc::DataChannelInterface>
+MockWebRTCPeerConnectionHandler::CreateDataChannel(
     const WebString& label,
     const WebRTCDataChannelInit&) {
   return nullptr;
@@ -360,14 +384,23 @@ WebRTCDataChannelHandler* MockWebRTCPeerConnectionHandler::CreateDataChannel(
 
 void MockWebRTCPeerConnectionHandler::Stop() {}
 
-WebString MockWebRTCPeerConnectionHandler::Id() const {
-  return WebString();
-}
-
 webrtc::PeerConnectionInterface*
 MockWebRTCPeerConnectionHandler::NativePeerConnection() {
   return nullptr;
 }
+
+void MockWebRTCPeerConnectionHandler::
+    RunSynchronousOnceClosureOnSignalingThread(base::OnceClosure closure,
+                                               const char* trace_event_name) {}
+
+void MockWebRTCPeerConnectionHandler::
+    RunSynchronousRepeatingClosureOnSignalingThread(
+        const base::RepeatingClosure& closure,
+        const char* trace_event_name) {}
+
+void MockWebRTCPeerConnectionHandler::TrackIceConnectionStateChange(
+    WebRTCPeerConnectionHandler::IceConnectionStateVersion version,
+    webrtc::PeerConnectionInterface::IceConnectionState state) {}
 
 std::unique_ptr<WebRTCPeerConnectionHandler>
 TestingPlatformSupportWithWebRTC::CreateRTCPeerConnectionHandler(

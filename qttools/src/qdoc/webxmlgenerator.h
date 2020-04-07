@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2017 The Qt Company Ltd.
+** Copyright (C) 2019 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the tools applications of the Qt Toolkit.
@@ -34,8 +34,8 @@
 #include "htmlgenerator.h"
 #include "qdocindexfiles.h"
 
-#include <QtCore/qxmlstream.h>
 #include <QtCore/qscopedpointer.h>
+#include <QtCore/qxmlstream.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -43,7 +43,6 @@ class WebXMLGenerator : public HtmlGenerator, public IndexSectionWriter
 {
 public:
     explicit WebXMLGenerator() {}
-    ~WebXMLGenerator() {}
 
     void initializeGenerator(const Config &config) override;
     void terminateGenerator() override;
@@ -60,20 +59,18 @@ protected:
     QString fileExtension() const override;
 
     virtual const Atom *addAtomElements(QXmlStreamWriter &writer, const Atom *atom,
-                                 const Node *relative, CodeMarker *marker);
+                                        const Node *relative, CodeMarker *marker);
     virtual void generateIndexSections(QXmlStreamWriter &writer, Node *node);
 
-
 private:
-    const QPair<QString,QString> anchorForNode(const Node *node);
-    void generateAnnotatedList(QXmlStreamWriter &writer, const Node *relative, const NodeMap &nodeMap);
-    void generateAnnotatedList(QXmlStreamWriter &writer, const Node *relative, const NodeList &nodeList);
-    void generateFullName(QXmlStreamWriter &writer, const Node *node,
-                          const Node *relative);
+    void generateAnnotatedList(QXmlStreamWriter &writer, const Node *relative,
+                               const NodeMap &nodeMap);
+    void generateAnnotatedList(QXmlStreamWriter &writer, const Node *relative,
+                               const NodeList &nodeList);
     void generateRelations(QXmlStreamWriter &writer, const Node *node);
     void startLink(QXmlStreamWriter &writer, const Atom *atom, const Node *node,
                    const QString &link);
-    QString targetType(const Node *node);
+    void endLink(QXmlStreamWriter &writer);
 
     bool inLink;
     bool inContents;

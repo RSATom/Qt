@@ -15,9 +15,10 @@
 #include "chrome/browser/printing/cloud_print/cloud_print_printer_list.h"
 #include "chrome/browser/printing/cloud_print/privet_device_lister.h"
 #include "chrome/browser/printing/cloud_print/privet_http.h"
+#include "components/prefs/pref_member.h"
+#include "components/signin/public/identity_manager/identity_manager.h"
 #include "content/public/browser/web_ui_message_handler.h"
 #include "printing/buildflags/buildflags.h"
-#include "services/identity/public/cpp/identity_manager.h"
 
 #if BUILDFLAG(ENABLE_PRINT_PREVIEW) && !defined(OS_CHROMEOS)
 #define CLOUD_PRINT_CONNECTOR_UI_AVAILABLE
@@ -44,7 +45,7 @@ class LocalDiscoveryUIHandler
       public cloud_print::PrivetRegisterOperation::Delegate,
       public cloud_print::PrivetDeviceLister::Delegate,
       public cloud_print::CloudPrintPrinterList::Delegate,
-      public identity::IdentityManager::Observer {
+      public signin::IdentityManager::Observer {
  public:
   // Class used to set a URLLoaderFactory that should be used when making
   // network requests. Create one instance of this object with the
@@ -90,10 +91,11 @@ class LocalDiscoveryUIHandler
       const cloud_print::CloudPrintPrinterList::DeviceList& devices) override;
   void OnDeviceListUnavailable() override;
 
-  // identity::IdentityManager::Observer implementation.
-  void OnPrimaryAccountSet(const AccountInfo& primary_account_info) override;
+  // signin::IdentityManager::Observer implementation.
+  void OnPrimaryAccountSet(
+      const CoreAccountInfo& primary_account_info) override;
   void OnPrimaryAccountCleared(
-      const AccountInfo& previous_primary_account_info) override;
+      const CoreAccountInfo& previous_primary_account_info) override;
 
  private:
   using DeviceDescriptionMap =
@@ -117,8 +119,10 @@ class LocalDiscoveryUIHandler
   // tab.
   void HandleOpenCloudPrintURL(const base::ListValue* args);
 
+#if !defined(OS_CHROMEOS)
   // For showing sync login UI.
   void HandleShowSyncUI(const base::ListValue* args);
+#endif
 
   // For when the IP address of the printer has been resolved for registration.
   void StartRegisterHTTP(

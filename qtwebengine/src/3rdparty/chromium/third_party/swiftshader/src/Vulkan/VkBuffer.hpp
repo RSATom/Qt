@@ -20,21 +20,26 @@
 namespace vk
 {
 
+class DeviceMemory;
+
 class Buffer : public Object<Buffer, VkBuffer>
 {
 public:
 	Buffer(const VkBufferCreateInfo* pCreateInfo, void* mem);
-	~Buffer() = delete;
 	void destroy(const VkAllocationCallbacks* pAllocator);
 
 	static size_t ComputeRequiredAllocationSize(const VkBufferCreateInfo* pCreateInfo);
 
 	const VkMemoryRequirements getMemoryRequirements() const;
-	void bind(VkDeviceMemory pDeviceMemory, VkDeviceSize pMemoryOffset);
+	void bind(DeviceMemory* pDeviceMemory, VkDeviceSize pMemoryOffset);
 	void copyFrom(const void* srcMemory, VkDeviceSize size, VkDeviceSize offset);
 	void copyTo(void* dstMemory, VkDeviceSize size, VkDeviceSize offset) const;
 	void copyTo(Buffer* dstBuffer, const VkBufferCopy& pRegion) const;
+	void fill(VkDeviceSize dstOffset, VkDeviceSize fillSize, uint32_t data);
+	void update(VkDeviceSize dstOffset, VkDeviceSize dataSize, const void* pData);
 	void* getOffsetPointer(VkDeviceSize offset) const;
+	inline VkDeviceSize getSize() const { return size; }
+	uint8_t* end() const;
 
 private:
 	void*                 memory = nullptr;
@@ -48,7 +53,7 @@ private:
 
 static inline Buffer* Cast(VkBuffer object)
 {
-	return reinterpret_cast<Buffer*>(object);
+	return Buffer::Cast(object);
 }
 
 } // namespace vk

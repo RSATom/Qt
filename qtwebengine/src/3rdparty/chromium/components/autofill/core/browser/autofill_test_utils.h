@@ -10,8 +10,8 @@
 #include <vector>
 
 #include "components/autofill/core/browser/autofill_field.h"
-#include "components/autofill/core/browser/autofill_profile.h"
-#include "components/autofill/core/browser/credit_card.h"
+#include "components/autofill/core/browser/data_model/autofill_profile.h"
+#include "components/autofill/core/browser/data_model/credit_card.h"
 #include "components/autofill/core/browser/field_types.h"
 #include "components/autofill/core/browser/proto/server.pb.h"
 
@@ -112,9 +112,6 @@ AutofillProfile GetIncompleteProfile2();
 // Returns a verified profile full of dummy info.
 AutofillProfile GetVerifiedProfile();
 
-// Returns a verified profile full of dummy info, different to the above.
-AutofillProfile GetVerifiedProfile2();
-
 // Returns a server profile full of dummy info.
 AutofillProfile GetServerProfile();
 
@@ -127,11 +124,12 @@ CreditCard GetCreditCard();
 // Returns a credit card full of dummy info, different to the above.
 CreditCard GetCreditCard2();
 
-// Returns a verified credit card full of dummy info.
-CreditCard GetVerifiedCreditCard();
+// Returns an expired credit card full of fake info.
+CreditCard GetExpiredCreditCard();
 
-// Returns a verified credit card full of dummy info, different to the above.
-CreditCard GetVerifiedCreditCard2();
+// Returns an incomplete credit card full of fake info with card holder's name
+// missing.
+CreditCard GetIncompleteCreditCard();
 
 // Returns a masked server card full of dummy info.
 CreditCard GetMaskedServerCard();
@@ -216,7 +214,7 @@ void InitializePossibleTypesAndValidities(
     std::vector<ServerFieldTypeValidityStatesMap>&
         possible_field_types_validities,
     const std::vector<ServerFieldType>& possible_type,
-    const std::vector<AutofillProfile::ValidityState>& validity_state = {});
+    const std::vector<AutofillDataModel::ValidityState>& validity_state = {});
 
 // Fills the upload |field| with the information passed by parameter. If the
 // value of a const char* parameter is NULL, the corresponding attribute won't

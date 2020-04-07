@@ -9,8 +9,10 @@
 #include "cc/trees/layer_tree_settings.h"
 #include "components/viz/client/client_resource_provider.h"
 #include "components/viz/client/shared_bitmap_reporter.h"
+#include "third_party/blink/public/platform/web_vector.h"
 #include "third_party/blink/public/platform/web_video_frame_submitter.h"
 #include "third_party/blink/renderer/platform/platform_export.h"
+#include "third_party/blink/renderer/platform/wtf/vector.h"
 
 namespace media {
 class VideoFrame;
@@ -19,6 +21,7 @@ class VideoResourceUpdater;
 
 namespace viz {
 class RenderPass;
+class RasterContextProvider;
 }
 
 namespace blink {
@@ -37,7 +40,8 @@ class PLATFORM_EXPORT VideoFrameResourceProvider {
 
   virtual ~VideoFrameResourceProvider();
 
-  virtual void Initialize(viz::ContextProvider*, viz::SharedBitmapReporter*);
+  virtual void Initialize(viz::RasterContextProvider* media_context_provider,
+                          viz::SharedBitmapReporter* shared_bitmap_reporter);
   virtual void AppendQuads(viz::RenderPass*,
                            scoped_refptr<media::VideoFrame>,
                            media::VideoRotation,
@@ -51,15 +55,15 @@ class PLATFORM_EXPORT VideoFrameResourceProvider {
   bool IsInitialized() { return resource_updater_.get(); }
 
   virtual void PrepareSendToParent(
-      const std::vector<viz::ResourceId>& resource_ids,
-      std::vector<viz::TransferableResource>* transferable_resources);
+      const WebVector<viz::ResourceId>& resource_ids,
+      WebVector<viz::TransferableResource>* transferable_resources);
   virtual void ReceiveReturnsFromParent(
-      const std::vector<viz::ReturnedResource>& transferable_resources);
+      const Vector<viz::ReturnedResource>& transferable_resources);
 
  private:
   const cc::LayerTreeSettings settings_;
 
-  viz::ContextProvider* context_provider_;
+  viz::RasterContextProvider* context_provider_;
   std::unique_ptr<viz::ClientResourceProvider> resource_provider_;
   std::unique_ptr<media::VideoResourceUpdater> resource_updater_;
   bool use_sync_primitives_ = false;

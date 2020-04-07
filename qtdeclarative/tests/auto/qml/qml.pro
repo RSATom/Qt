@@ -70,6 +70,7 @@ PRIVATETESTS += \
     qqmltranslation \
     qqmlimport \
     qqmlobjectmodel \
+    qqmltablemodel \
     qv4assembler \
     qv4mm \
     qv4identifiertable \
@@ -104,7 +105,3 @@ qtConfig(private_tests): \
 qtNomakeTools( \
     qmlplugindump \
 )
-
-QtConfig(qml_tracing) {
-    PRIVATETESTS += v4traced
-}

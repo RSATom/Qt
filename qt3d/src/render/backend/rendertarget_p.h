@@ -76,13 +76,26 @@ public:
 
     QVector<Qt3DCore::QNodeId> renderOutputs() const;
 
-    void sceneChangeEvent(const Qt3DCore::QSceneChangePtr &e) override;
+    void syncFromFrontEnd(const Qt3DCore::QNode *frontEnd, bool firstTime) override;
 
 private:
-    void initializeFromPeer(const Qt3DCore::QNodeCreatedChangeBasePtr &change) final;
-
     QVector<Qt3DCore::QNodeId> m_renderOutputs;
 };
+
+class Q_AUTOTEST_EXPORT RenderTargetFunctor : public Qt3DCore::QBackendNodeMapper
+{
+public:
+    explicit RenderTargetFunctor(AbstractRenderer *renderer,
+                                 RenderTargetManager *manager);
+    Qt3DCore::QBackendNode *create(const Qt3DCore::QNodeCreatedChangeBasePtr &change) const final;
+    Qt3DCore::QBackendNode *get(Qt3DCore::QNodeId id) const final;
+    void destroy(Qt3DCore::QNodeId id) const final;
+
+private:
+    AbstractRenderer *m_renderer;
+    RenderTargetManager *m_renderTargetManager;
+};
+
 
 } // namespace Render
 

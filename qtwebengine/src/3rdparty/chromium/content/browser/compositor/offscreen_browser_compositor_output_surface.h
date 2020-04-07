@@ -14,11 +14,10 @@
 #include "base/memory/weak_ptr.h"
 #include "build/build_config.h"
 #include "content/browser/compositor/browser_compositor_output_surface.h"
-#include "gpu/vulkan/buildflags.h"
 #include "ui/latency/latency_info.h"
 #include "ui/latency/latency_tracker.h"
 
-namespace ws {
+namespace viz {
 class ContextProviderCommandBuffer;
 }
 
@@ -29,10 +28,7 @@ class OffscreenBrowserCompositorOutputSurface
     : public BrowserCompositorOutputSurface {
  public:
   OffscreenBrowserCompositorOutputSurface(
-      scoped_refptr<ws::ContextProviderCommandBuffer> context,
-      const UpdateVSyncParametersCallback& update_vsync_parameters_callback,
-      std::unique_ptr<viz::CompositorOverlayCandidateValidator>
-          overlay_candidate_validator);
+      scoped_refptr<viz::ContextProviderCommandBuffer> context);
 
   ~OffscreenBrowserCompositorOutputSurface() override;
 
@@ -57,10 +53,6 @@ class OffscreenBrowserCompositorOutputSurface
   // BrowserCompositorOutputSurface implementation.
   void OnReflectorChanged() override;
 
-#if BUILDFLAG(ENABLE_VULKAN)
-  gpu::VulkanSurface* GetVulkanSurface() override;
-#endif
-
   unsigned UpdateGpuFence() override;
 
   void OnSwapBuffersComplete(const std::vector<ui::LatencyInfo>& latency_info);
@@ -72,7 +64,7 @@ class OffscreenBrowserCompositorOutputSurface
   std::unique_ptr<ReflectorTexture> reflector_texture_;
   ui::LatencyTracker latency_tracker_;
   base::WeakPtrFactory<OffscreenBrowserCompositorOutputSurface>
-      weak_ptr_factory_;
+      weak_ptr_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(OffscreenBrowserCompositorOutputSurface);
 };

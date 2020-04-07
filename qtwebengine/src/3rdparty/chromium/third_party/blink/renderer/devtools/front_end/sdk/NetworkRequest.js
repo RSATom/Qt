@@ -459,6 +459,13 @@ SDK.NetworkRequest = class extends Common.Object {
     return !!this._fromMemoryCache && !this._transferSize;
   }
 
+  /**
+   * @return {boolean}
+   */
+  fromPrefetchCache() {
+    return !!this._fromPrefetchCache;
+  }
+
   setFromMemoryCache() {
     this._fromMemoryCache = true;
     delete this._timing;
@@ -468,11 +475,17 @@ SDK.NetworkRequest = class extends Common.Object {
     this._fromDiskCache = true;
   }
 
+  setFromPrefetchCache() {
+    this._fromPrefetchCache = true;
+  }
+
   /**
+   * Returns true if the request was intercepted by a service worker and it
+   * provided its own response.
    * @return {boolean}
    */
   get fetchedViaServiceWorker() {
-    return this._fetchedViaServiceWorker;
+    return !!this._fetchedViaServiceWorker;
   }
 
   /**
@@ -480,6 +493,18 @@ SDK.NetworkRequest = class extends Common.Object {
    */
   set fetchedViaServiceWorker(x) {
     this._fetchedViaServiceWorker = x;
+  }
+
+  /**
+   * Returns true if the request was sent by a service worker.
+   * @return {boolean}
+   */
+  initiatedByServiceWorker() {
+    const networkManager = SDK.NetworkManager.forRequest(this);
+    if (!networkManager)
+      return false;
+    return networkManager.target().type() === SDK.Target.Type.Worker && !!networkManager.target().parentTarget() &&
+        networkManager.target().parentTarget().type() === SDK.Target.Type.ServiceWorker;
   }
 
   /**
@@ -552,6 +577,9 @@ SDK.NetworkRequest = class extends Common.Object {
   _parseNameAndPathFromURL() {
     if (this._parsedURL.isDataURL()) {
       this._name = this._parsedURL.dataURLDisplayName();
+      this._path = '';
+    } else if (this._parsedURL.isBlobURL()) {
+      this._name = this._parsedURL.url;
       this._path = '';
     } else if (this._parsedURL.isAboutBlank()) {
       this._name = this._parsedURL.url;
@@ -1178,8 +1206,8 @@ SDK.NetworkRequest = class extends Common.Object {
    * @param {string} errorMessage
    * @param {number} time
    */
-  addFrameError(errorMessage, time) {
-    this._addFrame({
+  addProtocolFrameError(errorMessage, time) {
+    this.addFrame({
       type: SDK.NetworkRequest.WebSocketFrameType.Error,
       text: errorMessage,
       time: this.pseudoWallTime(time),
@@ -1193,9 +1221,9 @@ SDK.NetworkRequest = class extends Common.Object {
    * @param {number} time
    * @param {boolean} sent
    */
-  addFrame(response, time, sent) {
+  addProtocolFrame(response, time, sent) {
     const type = sent ? SDK.NetworkRequest.WebSocketFrameType.Send : SDK.NetworkRequest.WebSocketFrameType.Receive;
-    this._addFrame({
+    this.addFrame({
       type: type,
       text: response.payloadData,
       time: this.pseudoWallTime(time),
@@ -1207,7 +1235,7 @@ SDK.NetworkRequest = class extends Common.Object {
   /**
    * @param {!SDK.NetworkRequest.WebSocketFrame} frame
    */
-  _addFrame(frame) {
+  addFrame(frame) {
     this._frames.push(frame);
     this.dispatchEventToListeners(SDK.NetworkRequest.Events.WebsocketFrameAdded, frame);
   }

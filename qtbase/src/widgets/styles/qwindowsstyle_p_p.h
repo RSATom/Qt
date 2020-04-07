@@ -69,17 +69,17 @@ public:
     enum { InvalidMetric = -23576 };
 
     QWindowsStylePrivate();
-    static int pixelMetricFromSystemDp(QStyle::PixelMetric pm, const QStyleOption *option = 0, const QWidget *widget = 0);
+    static int pixelMetricFromSystemDp(QStyle::PixelMetric pm, const QStyleOption *option = nullptr, const QWidget *widget = nullptr);
     static int fixedPixelMetric(QStyle::PixelMetric pm);
-    static qreal devicePixelRatio(const QWidget *widget = 0)
+    static qreal devicePixelRatio(const QWidget *widget = nullptr)
         { return widget ? widget->devicePixelRatioF() : QWindowsStylePrivate::appDevicePixelRatio(); }
     static qreal nativeMetricScaleFactor(const QWidget *widget = nullptr);
 
     bool hasSeenAlt(const QWidget *widget) const;
     bool altDown() const { return alt_down; }
-    bool alt_down;
+    bool alt_down = false;
     QList<const QWidget *> seenAlt;
-    int menuBarTimer;
+    int menuBarTimer = 0;
 
     QColor inactiveCaptionText;
     QColor activeCaptionColor;

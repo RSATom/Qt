@@ -41,7 +41,6 @@
 #include "qabstractclipanimator_p.h"
 #include <Qt3DAnimation/qchannelmapper.h>
 #include <Qt3DAnimation/qclock.h>
-#include <Qt3DAnimation/private/qanimationcallbacktrigger_p.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -123,16 +122,9 @@ QAbstractClipAnimator::QAbstractClipAnimator(QAbstractClipAnimatorPrivate &dd, Q
 {
 }
 
-/*! \internal */
-void QAbstractClipAnimator::sceneChangeEvent(const Qt3DCore::QSceneChangePtr &change)
+// TODO Unused remove in Qt6
+void QAbstractClipAnimator::sceneChangeEvent(const Qt3DCore::QSceneChangePtr &)
 {
-    if (change->type() == Qt3DCore::CallbackTriggered) {
-        QAnimationCallbackTriggerPtr callbackTrigger = qSharedPointerCast<Qt3DAnimation::QAnimationCallbackTrigger>(change);
-        if (callbackTrigger->callback())
-            callbackTrigger->callback()->valueChanged(callbackTrigger->value());
-    } else {
-        QComponent::sceneChangeEvent(change);
-    }
 }
 
 QAbstractClipAnimator::~QAbstractClipAnimator()

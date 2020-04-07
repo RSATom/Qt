@@ -61,8 +61,7 @@ WebCacheManager* WebCacheManager::GetInstance() {
 }
 
 WebCacheManager::WebCacheManager()
-    : global_size_limit_(GetDefaultGlobalSizeLimit()),
-      weak_factory_(this) {
+    : global_size_limit_(GetDefaultGlobalSizeLimit()) {
   registrar_.Add(this, content::NOTIFICATION_RENDERER_PROCESS_CREATED,
                  content::NotificationService::AllBrowserContextsAndSources());
   registrar_.Add(this, content::NOTIFICATION_RENDERER_PROCESS_CLOSED,
@@ -309,10 +308,11 @@ void WebCacheManager::EnactStrategy(const AllocationStrategy& strategy) {
 
       // Find the WebCachePtr by renderer process id.
       auto it = web_cache_services_.find(allocation->first);
-      DCHECK(it != web_cache_services_.end());
-      const mojom::WebCachePtr& service = it->second;
-      DCHECK(service);
-      service->SetCacheCapacity(capacity);
+      if (it != web_cache_services_.end()) {
+        const mojom::WebCachePtr& service = it->second;
+        DCHECK(service);
+        service->SetCacheCapacity(capacity);
+      }
     }
     ++allocation;
   }
@@ -334,10 +334,11 @@ void WebCacheManager::ClearRendererCache(
     if (host) {
       // Find the WebCachePtr by renderer process id.
       auto it = web_cache_services_.find(*iter);
-      DCHECK(it != web_cache_services_.end());
-      const mojom::WebCachePtr& service = it->second;
-      DCHECK(service);
-      service->ClearCache(occasion == ON_NAVIGATION);
+      if (it != web_cache_services_.end()) {
+        const mojom::WebCachePtr& service = it->second;
+        DCHECK(service);
+        service->ClearCache(occasion == ON_NAVIGATION);
+      }
     }
   }
 }

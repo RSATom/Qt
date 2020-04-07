@@ -28,6 +28,7 @@
 
 #include <QtTest/QtTest>
 #include <QtQml/qqmlengine.h>
+#include <QtQml/qqmlfile.h>
 #include <QtQml/qqmlnetworkaccessmanagerfactory.h>
 #include <QtQuick/qquickview.h>
 #include <QtQuick/qquickitem.h>
@@ -35,6 +36,7 @@
 #include <QtCore/qprocess.h>
 #endif
 #include <QtQml/private/qqmlengine_p.h>
+#include <QtQml/private/qqmltypedata_p.h>
 #include <QtQml/private/qqmltypeloader_p.h>
 #include "../../shared/testhttpserver.h"
 #include "../../shared/util.h"
@@ -57,6 +59,8 @@ private slots:
     void multiSingletonModule();
     void implicitComponentModule();
     void qrcRootPathUrl();
+    void implicitImport();
+    void compositeSingletonCycle();
 };
 
 void tst_QQMLTypeLoader::testLoadComplete()
@@ -431,7 +435,7 @@ void tst_QQMLTypeLoader::redirect()
     component.loadUrl(server.urlString("/Load.qml"), QQmlComponent::Asynchronous);
     QTRY_VERIFY2(component.isReady(), qPrintable(component.errorString()));
 
-    QObject *object = component.create();
+    QScopedPointer<QObject> object {component.create()};
     QTRY_COMPARE(object->property("xy").toInt(), 323232);
 }
 
@@ -509,6 +513,33 @@ void tst_QQMLTypeLoader::qrcRootPathUrl()
     QQmlEngine engine;
     QQmlComponent component(&engine, testFileUrl("qrcRootPath.qml"));
     QCOMPARE(component.status(), QQmlComponent::Ready);
+}
+
+void tst_QQMLTypeLoader::implicitImport()
+{
+    QQmlEngine engine;
+    engine.addImportPath(testFile("imports"));
+    QQmlComponent component(&engine, testFileUrl("implicitimporttest.qml"));
+    QVERIFY2(component.isReady(), qPrintable(component.errorString()));
+    QScopedPointer<QObject> obj(component.create());
+    QVERIFY(!obj.isNull());
+}
+
+void tst_QQMLTypeLoader::compositeSingletonCycle()
+{
+    TestHTTPServer server;
+    QVERIFY2(server.listen(), qPrintable(server.errorString()));
+    QVERIFY(server.serveDirectory(dataDirectory()));
+
+    QQmlEngine engine;
+    QQmlComponent component(&engine);
+    engine.addImportPath(server.baseUrl().toString());
+    component.loadUrl(server.urlString("Com/Orga/Handlers/Handler.qml"), QQmlComponent::Asynchronous);
+    QTRY_VERIFY2(component.isReady(), qPrintable(component.errorString()));
+
+    QScopedPointer<QObject> object {component.create()};
+    QVERIFY(object);
+    QCOMPARE(qvariant_cast<QColor>(object->property("color")), QColorConstants::Black);
 }
 
 QTEST_MAIN(tst_QQMLTypeLoader)

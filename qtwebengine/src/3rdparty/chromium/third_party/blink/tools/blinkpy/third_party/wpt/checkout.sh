@@ -8,8 +8,8 @@ DIR=$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )
 cd $DIR
 
 TARGET_DIR=$DIR/wpt
-REMOTE_REPO="https://chromium.googlesource.com/external/github.com/web-platform-tests/wpt.git"
-WPT_HEAD=f759f0b3a8cb7457adbf30dc0734d3a158ce4990
+REMOTE_REPO="https://github.com/web-platform-tests/wpt.git"
+WPT_HEAD=3fb0150bb0a53b5a6630e8eda7f43bf75d8a6bbe
 
 function clone {
   # Remove existing repo if already exists.

@@ -80,13 +80,13 @@
             "label": "Linux dma-buf Buffer Sharing",
             "type": "compile",
             "test": "dmabuf_server_buffer",
-            "use": "egl"
+            "use": "egl drm"
         },
         "dmabuf-client-buffer": {
             "label": "Linux Client dma-buf Buffer Sharing",
             "type": "compile",
             "test": "dmabuf_client_buffer",
-            "use": "egl"
+            "use": "egl drm"
         },
         "vulkan-server-buffer": {
             "label": "Vulkan Buffer Sharing",
@@ -145,14 +145,9 @@
             "condition": "features.wayland-server && features.opengl && features.egl && tests.dmabuf-client-buffer",
             "output": [ "privateFeature" ]
         },
-        "wayland-compositor-texture-sharing-experimental" : {
-            "label": "Texture sharing (experimental)",
-            "autoDetect": "false",
-            "output": [ "privateFeature" ]
-        },
         "wayland-vulkan-server-buffer": {
             "label": "Vulkan-based server buffer integration",
-            "condition": "features.wayland-server && features.opengl && features.egl && tests.vulkan-server-buffer && features.wayland-compositor-texture-sharing-experimental",
+            "condition": "features.wayland-server && features.opengl && features.egl && tests.vulkan-server-buffer",
             "output": [ "privateFeature" ]
         },
         "wayland-shm-emulation-server-buffer": {

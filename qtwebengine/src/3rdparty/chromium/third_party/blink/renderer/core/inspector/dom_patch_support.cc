@@ -30,7 +30,6 @@
 
 #include "third_party/blink/renderer/core/inspector/dom_patch_support.h"
 
-#include <memory>
 #include "base/memory/scoped_refptr.h"
 #include "third_party/blink/public/platform/platform.h"
 #include "third_party/blink/renderer/core/dom/attribute.h"
@@ -45,16 +44,15 @@
 #include "third_party/blink/renderer/core/html/html_document.h"
 #include "third_party/blink/renderer/core/html/html_head_element.h"
 #include "third_party/blink/renderer/core/html/parser/html_document_parser.h"
-#include "third_party/blink/renderer/core/inspector/add_string_to_digestor.h"
 #include "third_party/blink/renderer/core/inspector/dom_editor.h"
 #include "third_party/blink/renderer/core/inspector/inspector_history.h"
 #include "third_party/blink/renderer/core/xml/parser/xml_document_parser.h"
 #include "third_party/blink/renderer/platform/bindings/exception_state.h"
 #include "third_party/blink/renderer/platform/crypto.h"
+#include "third_party/blink/renderer/platform/heap/heap.h"
 #include "third_party/blink/renderer/platform/wtf/deque.h"
 #include "third_party/blink/renderer/platform/wtf/hash_traits.h"
 #include "third_party/blink/renderer/platform/wtf/text/base64.h"
-#include "third_party/blink/renderer/platform/wtf/text/cstring.h"
 
 namespace blink {
 
@@ -65,18 +63,19 @@ void DOMPatchSupport::PatchDocument(const String& markup) {
   Document* new_document = nullptr;
   DocumentInit init = DocumentInit::Create();
   if (GetDocument().IsHTMLDocument())
-    new_document = HTMLDocument::Create(init);
+    new_document = MakeGarbageCollected<HTMLDocument>(init);
   else if (GetDocument().IsSVGDocument())
     new_document = XMLDocument::CreateSVG(init);
   else if (GetDocument().IsXHTMLDocument())
     new_document = XMLDocument::CreateXHTML(init);
   else if (GetDocument().IsXMLDocument())
-    new_document = XMLDocument::Create(init);
+    new_document = MakeGarbageCollected<XMLDocument>(init);
 
   DCHECK(new_document);
   new_document->SetContextFeatures(GetDocument().GetContextFeatures());
   if (!GetDocument().IsHTMLDocument()) {
-    DocumentParser* parser = XMLDocumentParser::Create(*new_document, nullptr);
+    DocumentParser* parser =
+        MakeGarbageCollected<XMLDocumentParser>(*new_document, nullptr);
     parser->Append(markup);
     parser->Finish();
     parser->Detach();
@@ -117,7 +116,7 @@ Node* DOMPatchSupport::PatchNode(Node* node,
   // root children, as it provides an equivalent parsing context.
   if (target_node->IsShadowRoot())
     target_node = GetDocument().body();
-  Element* target_element = ToElement(target_node);
+  auto* target_element = To<Element>(target_node);
 
   // FIXME: This code should use one of createFragment* in Serialization.h
   if (GetDocument().IsHTMLDocument())
@@ -185,12 +184,12 @@ bool DOMPatchSupport::InnerPatchNode(Digest* old_digest,
       return false;
   }
 
-  if (!old_node->IsElementNode())
+  auto* old_element = DynamicTo<Element>(old_node);
+  if (!old_element)
     return true;
 
   // Patch attributes
-  Element* old_element = ToElement(old_node);
-  Element* new_element = ToElement(new_node);
+  auto* new_element = To<Element>(new_node);
   if (old_digest->attrs_sha1_ != new_digest->attrs_sha1_) {
     // FIXME: Create a function in Element for removing all properties. Take in
     // account whether did/willModifyAttribute are important.
@@ -435,47 +434,43 @@ DOMPatchSupport::Digest* DOMPatchSupport::CreateDigest(
     Node* node,
     UnusedNodesMap* unused_nodes_map) {
   Digest* digest = MakeGarbageCollected<Digest>(node);
-
-  std::unique_ptr<WebCryptoDigestor> digestor =
-      CreateDigestor(kHashAlgorithmSha1);
+  Digestor digestor(kHashAlgorithmSha1);
   DigestValue digest_result;
 
   Node::NodeType node_type = node->getNodeType();
-  digestor->Consume(reinterpret_cast<const unsigned char*>(&node_type),
-                    sizeof(node_type));
-  AddStringToDigestor(digestor.get(), node->nodeName());
-  AddStringToDigestor(digestor.get(), node->nodeValue());
+  digestor.Update(
+      {reinterpret_cast<const uint8_t*>(&node_type), sizeof(node_type)});
+  digestor.UpdateUtf8(node->nodeName());
+  digestor.UpdateUtf8(node->nodeValue());
 
-  if (node->IsElementNode()) {
-    Element& element = ToElement(*node);
-    Node* child = element.firstChild();
+  if (auto* element = DynamicTo<Element>(node)) {
+    Node* child = element->firstChild();
     while (child) {
       Digest* child_info = CreateDigest(child, unused_nodes_map);
-      AddStringToDigestor(digestor.get(), child_info->sha1_);
+      digestor.UpdateUtf8(child_info->sha1_);
       child = child->nextSibling();
       digest->children_.push_back(child_info);
     }
 
-    AttributeCollection attributes = element.AttributesWithoutUpdate();
+    AttributeCollection attributes = element->AttributesWithoutUpdate();
     if (!attributes.IsEmpty()) {
-      std::unique_ptr<WebCryptoDigestor> attrs_digestor =
-          CreateDigestor(kHashAlgorithmSha1);
+      Digestor attrs_digestor(kHashAlgorithmSha1);
       for (auto& attribute : attributes) {
-        AddStringToDigestor(attrs_digestor.get(),
-                            attribute.GetName().ToString());
-        AddStringToDigestor(attrs_digestor.get(),
-                            attribute.Value().GetString());
+        attrs_digestor.UpdateUtf8(attribute.GetName().ToString());
+        attrs_digestor.UpdateUtf8(attribute.Value().GetString());
       }
-      FinishDigestor(attrs_digestor.get(), digest_result);
+
+      attrs_digestor.Finish(digest_result);
+      DCHECK(!attrs_digestor.has_failed());
       digest->attrs_sha1_ =
-          Base64Encode(reinterpret_cast<const char*>(digest_result.data()), 10);
-      AddStringToDigestor(digestor.get(), digest->attrs_sha1_);
-      digest_result.clear();
+          Base64Encode(base::make_span(digest_result).first<10>());
+      digestor.UpdateUtf8(digest->attrs_sha1_);
     }
   }
-  FinishDigestor(digestor.get(), digest_result);
-  digest->sha1_ =
-      Base64Encode(reinterpret_cast<const char*>(digest_result.data()), 10);
+
+  digestor.Finish(digest_result);
+  DCHECK(!digestor.has_failed());
+  digest->sha1_ = Base64Encode(base::make_span(digest_result).first<10>());
 
   if (unused_nodes_map)
     unused_nodes_map->insert(digest->sha1_, digest);

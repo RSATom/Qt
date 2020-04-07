@@ -7,8 +7,8 @@
 
 #include "third_party/blink/public/mojom/serial/serial.mojom-blink.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise.h"
-#include "third_party/blink/renderer/core/dom/context_lifecycle_observer.h"
 #include "third_party/blink/renderer/core/dom/events/event_target.h"
+#include "third_party/blink/renderer/core/execution_context/context_lifecycle_observer.h"
 #include "third_party/blink/renderer/platform/bindings/script_wrappable.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
 #include "third_party/blink/renderer/platform/heap/handle.h"
@@ -28,19 +28,23 @@ class Serial final : public EventTargetWithInlineData,
   USING_GARBAGE_COLLECTED_MIXIN(Serial);
 
  public:
-  static Serial* Create(ExecutionContext& executionContext);
-
   explicit Serial(ExecutionContext&);
 
   // EventTarget
   ExecutionContext* GetExecutionContext() const override;
   const AtomicString& InterfaceName() const override;
 
-  DEFINE_ATTRIBUTE_EVENT_LISTENER(connect, kConnect);
-  DEFINE_ATTRIBUTE_EVENT_LISTENER(disconnect, kDisconnect);
+  // ContextLifecycleObserver
+  void ContextDestroyed(ExecutionContext*) override;
+
+  // Web-exposed interfaces
+  DEFINE_ATTRIBUTE_EVENT_LISTENER(connect, kConnect)
+  DEFINE_ATTRIBUTE_EVENT_LISTENER(disconnect, kDisconnect)
   ScriptPromise getPorts(ScriptState*);
   ScriptPromise requestPort(ScriptState*, const SerialPortRequestOptions*);
 
+  void GetPort(const base::UnguessableToken& token,
+               device::mojom::blink::SerialPortRequest request);
   void Trace(Visitor*) override;
 
  private:

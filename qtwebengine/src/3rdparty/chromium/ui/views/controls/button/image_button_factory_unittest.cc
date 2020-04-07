@@ -7,6 +7,7 @@
 #include "components/vector_icons/vector_icons.h"
 #include "ui/gfx/color_palette.h"
 #include "ui/gfx/color_utils.h"
+#include "ui/native_theme/native_theme.h"
 #include "ui/views/animation/test/ink_drop_host_view_test_api.h"
 #include "ui/views/controls/button/button.h"
 #include "ui/views/controls/button/image_button.h"
@@ -14,28 +15,29 @@
 
 namespace views {
 
-typedef ViewsTestBase ImageButtonFactoryTest;
+using ImageButtonFactoryTest = ViewsTestBase;
 
 TEST_F(ImageButtonFactoryTest, CreateVectorImageButton) {
-  ImageButton* button = CreateVectorImageButton(nullptr);
+  auto button = CreateVectorImageButton(nullptr);
   EXPECT_EQ(ImageButton::ALIGN_CENTER, button->h_alignment_);
   EXPECT_EQ(ImageButton::ALIGN_MIDDLE, button->v_alignment_);
-  delete button;
 }
 
 TEST_F(ImageButtonFactoryTest, SetImageFromVectorIcon) {
-  ImageButton* button = CreateVectorImageButton(nullptr);
-  SetImageFromVectorIcon(button, vector_icons::kCloseRoundedIcon, SK_ColorRED);
+  auto button = CreateVectorImageButton(nullptr);
+  SetImageFromVectorIcon(button.get(), vector_icons::kCloseRoundedIcon,
+                         SK_ColorRED);
   EXPECT_FALSE(button->GetImage(Button::STATE_NORMAL).isNull());
   EXPECT_FALSE(button->GetImage(Button::STATE_DISABLED).isNull());
   EXPECT_EQ(color_utils::DeriveDefaultIconColor(SK_ColorRED),
             button->GetInkDropBaseColor());
-
-  // Default to GoogleGrey900.
-  SetImageFromVectorIcon(button, vector_icons::kCloseRoundedIcon);
-  EXPECT_EQ(color_utils::DeriveDefaultIconColor(gfx::kGoogleGrey900),
-            button->GetInkDropBaseColor());
-  delete button;
 }
 
-}  // views
+TEST_F(ImageButtonFactoryTest, SetImageFromVectorIcon_Default) {
+  auto button = CreateVectorImageButton(nullptr);
+  SetImageFromVectorIcon(button.get(), vector_icons::kCloseRoundedIcon);
+  EXPECT_EQ(button->GetNativeTheme()->GetSystemColor(
+                ui::NativeTheme::kColorId_DefaultIconColor),
+            button->GetInkDropBaseColor());
+}
+}  // namespace views

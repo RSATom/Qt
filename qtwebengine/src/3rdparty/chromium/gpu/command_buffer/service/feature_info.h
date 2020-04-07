@@ -102,6 +102,7 @@ class GPU_GLES2_EXPORT FeatureInfo : public base::RefCounted<FeatureInfo> {
     bool chromium_image_ycbcr_422 = false;
     bool chromium_image_xr30 = false;
     bool chromium_image_xb30 = false;
+    bool chromium_image_ycbcr_p010 = false;
     bool emulate_primitive_restart_fixed_index = false;
     bool ext_render_buffer_format_bgra8888 = false;
     bool ext_multisample_compatibility = false;
@@ -134,12 +135,16 @@ class GPU_GLES2_EXPORT FeatureInfo : public base::RefCounted<FeatureInfo> {
     bool unpremultiply_and_dither_copy = false;
     bool separate_stencil_ref_mask_writemask = false;
     bool mesa_framebuffer_flip_y = false;
-    bool angle_multiview = false;
+    bool ovr_multiview2 = false;
     bool khr_parallel_shader_compile = false;
     bool android_surface_control = false;
     bool khr_robust_buffer_access_behavior = false;
     bool webgl_multi_draw = false;
     bool webgl_multi_draw_instanced = false;
+    bool nv_internalformat_sample_query = false;
+    bool amd_framebuffer_multisample_advanced = false;
+    bool ext_float_blend = false;
+    bool chromium_completion_query = false;
   };
 
   FeatureInfo();
@@ -198,6 +203,7 @@ class GPU_GLES2_EXPORT FeatureInfo : public base::RefCounted<FeatureInfo> {
   void EnableCHROMIUMTextureStorageImage();
   void EnableCHROMIUMColorBufferFloatRGBA();
   void EnableCHROMIUMColorBufferFloatRGB();
+  void EnableEXTFloatBlend();
   void EnableEXTColorBufferFloat();
   void EnableEXTColorBufferHalfFloat();
   void EnableOESTextureFloatLinear();
@@ -217,6 +223,10 @@ class GPU_GLES2_EXPORT FeatureInfo : public base::RefCounted<FeatureInfo> {
 
   bool oes_texture_half_float_linear_available() const {
     return oes_texture_half_float_linear_available_;
+  }
+
+  bool is_passthrough_cmd_decoder() const {
+    return is_passthrough_cmd_decoder_;
   }
 
  private:

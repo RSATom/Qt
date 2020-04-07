@@ -16,9 +16,8 @@
 
 #include "src/profiling/memory/unwinding.h"
 
-// TODO(fmayer): Maybe replace this with
-//   https://android.googlesource.com/platform/system/core/+/master/demangle/
-#include <cxxabi.h>
+#include <sys/types.h>
+#include <unistd.h>
 
 #include <unwindstack/MachineArm.h>
 #include <unwindstack/MachineArm64.h>
@@ -45,17 +44,26 @@
 
 #include <procinfo/process_map.h>
 
-#include "perfetto/base/file_utils.h"
 #include "perfetto/base/logging.h"
-#include "perfetto/base/scoped_file.h"
-#include "perfetto/base/string_utils.h"
+#include "perfetto/base/task_runner.h"
+#include "perfetto/ext/base/file_utils.h"
+#include "perfetto/ext/base/scoped_file.h"
+#include "perfetto/ext/base/string_utils.h"
+#include "perfetto/ext/base/thread_task_runner.h"
+
+#include "src/profiling/memory/utils.h"
 #include "src/profiling/memory/wire_protocol.h"
 
 namespace perfetto {
 namespace profiling {
 namespace {
 
-size_t kMaxFrames = 1000;
+constexpr size_t kMaxFrames = 1000;
+
+// We assume average ~300us per unwind. If we handle up to 1000 unwinds, this
+// makes sure other tasks get to be run at least every 300ms if the unwinding
+// saturates this thread.
+constexpr size_t kUnwindBatchSize = 1000;
 
 #pragma GCC diagnostic push
 // We do not care about deterministic destructor order.
@@ -94,15 +102,6 @@ std::unique_ptr<unwindstack::Regs> CreateFromRawData(unwindstack::ArchEnum arch,
   return ret;
 }
 
-void MaybeDemangle(std::string* name) {
-  int ignored;
-  char* data = abi::__cxa_demangle(name->c_str(), nullptr, nullptr, &ignored);
-  if (data) {
-    *name = data;
-    free(data);
-  }
-}
-
 }  // namespace
 
 StackOverlayMemory::StackOverlayMemory(std::shared_ptr<unwindstack::Memory> mem,
@@ -124,12 +123,10 @@ size_t StackOverlayMemory::Read(uint64_t addr, void* dst, size_t size) {
 FDMemory::FDMemory(base::ScopedFile mem_fd) : mem_fd_(std::move(mem_fd)) {}
 
 size_t FDMemory::Read(uint64_t addr, void* dst, size_t size) {
-  if (lseek(*mem_fd_, static_cast<off_t>(addr), SEEK_SET) == -1)
-    return 0;
-
-  ssize_t rd = read(*mem_fd_, dst, size);
+  ssize_t rd = ReadAtOffsetClobberSeekPos(*mem_fd_, dst, size,
+                                          static_cast<off64_t>(addr));
   if (rd == -1) {
-    PERFETTO_DPLOG("read");
+    PERFETTO_DPLOG("read of %zu at offset %" PRIu64, size, addr);
     return 0;
   }
   return static_cast<size_t>(rd);
@@ -149,20 +146,20 @@ bool FileDescriptorMaps::Parse() {
     return false;
   return android::procinfo::ReadMapFileContent(
       &content[0], [&](uint64_t start, uint64_t end, uint16_t flags,
-                       uint64_t pgoff, const char* name) {
+                       uint64_t pgoff, ino_t, const char* name) {
         // Mark a device map in /dev/ and not in /dev/ashmem/ specially.
         if (strncmp(name, "/dev/", 5) == 0 &&
             strncmp(name + 5, "ashmem/", 7) != 0) {
           flags |= unwindstack::MAPS_FLAGS_DEVICE_MAP;
         }
-        maps_.push_back(
-            new unwindstack::MapInfo(nullptr, start, end, pgoff, flags, name));
+        unwindstack::MapInfo* prev_map =
+            maps_.empty() ? nullptr : maps_.back().get();
+        maps_.emplace_back(
+            new unwindstack::MapInfo(prev_map, start, end, pgoff, flags, name));
       });
 }
 
 void FileDescriptorMaps::Reset() {
-  for (unwindstack::MapInfo* info : maps_)
-    delete info;
   maps_.clear();
 }
 
@@ -171,12 +168,13 @@ bool DoUnwind(WireMessage* msg, UnwindingMetadata* metadata, AllocRecord* out) {
   std::unique_ptr<unwindstack::Regs> regs(
       CreateFromRawData(alloc_metadata->arch, alloc_metadata->register_data));
   if (regs == nullptr) {
+    PERFETTO_DLOG("Unable to construct unwindstack::Regs");
     unwindstack::FrameData frame_data{};
     frame_data.function_name = "ERROR READING REGISTERS";
     frame_data.map_name = "ERROR";
 
     out->frames.emplace_back(frame_data, "");
-    PERFETTO_DLOG("regs");
+    out->error = true;
     return false;
   }
   uint8_t* stack = reinterpret_cast<uint8_t*>(msg->payload);
@@ -195,7 +193,9 @@ bool DoUnwind(WireMessage* msg, UnwindingMetadata* metadata, AllocRecord* out) {
   uint8_t error_code = 0;
   for (int attempt = 0; attempt < 2; ++attempt) {
     if (attempt > 0) {
+      PERFETTO_DLOG("Reparsing maps");
       metadata->ReparseMaps();
+      out->reparsed_map = true;
 #if PERFETTO_BUILDFLAG(PERFETTO_ANDROID_BUILD)
       unwinder.SetJitDebug(metadata->jit_debug.get(), regs->Arch());
       unwinder.SetDexFiles(metadata->dex_files.get(), regs->Arch());
@@ -206,7 +206,8 @@ bool DoUnwind(WireMessage* msg, UnwindingMetadata* metadata, AllocRecord* out) {
     if (error_code != unwindstack::ERROR_INVALID_MAP)
       break;
   }
-  for (unwindstack::FrameData fd : unwinder.frames()) {
+  std::vector<unwindstack::FrameData> frames = unwinder.ConsumeFrames();
+  for (unwindstack::FrameData& fd : frames) {
     std::string build_id;
     if (fd.map_name != "") {
       unwindstack::MapInfo* map_info = metadata->maps.Find(fd.pc);
@@ -214,65 +215,188 @@ bool DoUnwind(WireMessage* msg, UnwindingMetadata* metadata, AllocRecord* out) {
         build_id = map_info->GetBuildID();
     }
 
-    if (base::EndsWith(fd.map_name, ".so"))
-      MaybeDemangle(&fd.function_name);
     out->frames.emplace_back(std::move(fd), std::move(build_id));
   }
 
   if (error_code != 0) {
+    PERFETTO_DLOG("Unwinding error %" PRIu8, error_code);
     unwindstack::FrameData frame_data{};
     frame_data.function_name = "ERROR " + std::to_string(error_code);
     frame_data.map_name = "ERROR";
 
     out->frames.emplace_back(frame_data, "");
-    PERFETTO_DLOG("unwinding failed %" PRIu8, error_code);
+    out->error = true;
   }
-
   return true;
 }
 
-bool HandleUnwindingRecord(UnwindingRecord* rec, BookkeepingRecord* out) {
-  WireMessage msg;
-  if (!ReceiveWireMessage(reinterpret_cast<char*>(rec->data.get()), rec->size,
-                          &msg))
-    return false;
-  if (msg.record_type == RecordType::Malloc) {
-    std::shared_ptr<UnwindingMetadata> metadata = rec->metadata.lock();
-    if (!metadata) {
-      // Process has already gone away.
-      return false;
+void UnwindingWorker::OnDisconnect(base::UnixSocket* self) {
+  // TODO(fmayer): Maybe try to drain shmem one last time.
+  auto it = client_data_.find(self->peer_pid());
+  if (it == client_data_.end()) {
+    PERFETTO_DFATAL_OR_ELOG("Disconnected unexpected socket.");
+    return;
+  }
+  ClientData& client_data = it->second;
+  SharedRingBuffer& shmem = client_data.shmem;
+
+  // Currently, these stats are used to determine whether the application
+  // disconnected due to an error condition (i.e. buffer overflow) or
+  // volutarily. Because a buffer overflow leads to an immediate disconnect, we
+  // do not need these stats when heapprofd tears down the tracing session.
+  //
+  // TODO(fmayer): We should make it that normal disconnects also go through
+  // this code path, so we can write other stats to the result. This will also
+  // allow us to free the bookkeeping data earlier for processes that exit
+  // during the session. See TODO in
+  // HeapprofdProducer::HandleSocketDisconnected.
+  SharedRingBuffer::Stats stats = {};
+  {
+    auto lock = shmem.AcquireLock(ScopedSpinlock::Mode::Try);
+    if (lock.locked())
+      stats = shmem.GetStats(lock);
+    else
+      PERFETTO_ELOG("Failed to log shmem to get stats.");
+  }
+  DataSourceInstanceID ds_id = client_data.data_source_instance_id;
+  pid_t peer_pid = self->peer_pid();
+  client_data_.erase(it);
+  // The erase invalidates the self pointer.
+  self = nullptr;
+  delegate_->PostSocketDisconnected(ds_id, peer_pid, stats);
+}
+
+void UnwindingWorker::OnDataAvailable(base::UnixSocket* self) {
+  // Drain buffer to clear the notification.
+  char recv_buf[kUnwindBatchSize];
+  self->Receive(recv_buf, sizeof(recv_buf));
+  HandleUnwindBatch(self->peer_pid());
+}
+
+void UnwindingWorker::HandleUnwindBatch(pid_t peer_pid) {
+  auto it = client_data_.find(peer_pid);
+  if (it == client_data_.end()) {
+    // This can happen if the client disconnected before the buffer was fully
+    // handled.
+    PERFETTO_DLOG("Unexpected data.");
+    return;
+  }
+
+  ClientData& client_data = it->second;
+  SharedRingBuffer& shmem = client_data.shmem;
+  SharedRingBuffer::Buffer buf;
+
+  size_t i;
+  bool repost_task = false;
+  for (i = 0; i < kUnwindBatchSize; ++i) {
+    uint64_t reparses_before = client_data.metadata.reparses;
+    buf = shmem.BeginRead();
+    if (!buf)
+      break;
+    HandleBuffer(buf, &client_data.metadata,
+                 client_data.data_source_instance_id,
+                 client_data.sock->peer_pid(), delegate_);
+    shmem.EndRead(std::move(buf));
+    // Reparsing takes time, so process the rest in a new batch to avoid timing
+    // out.
+    // TODO(fmayer): Do not special case blocking mode.
+    if (client_data.client_config.block_client &&
+        reparses_before < client_data.metadata.reparses) {
+      repost_task = true;
+      break;
     }
+  }
 
-    out->alloc_record.alloc_metadata = *msg.alloc_header;
-    out->pid = rec->pid;
-    out->record_type = BookkeepingRecord::Type::Malloc;
-    DoUnwind(&msg, metadata.get(), &out->alloc_record);
-    return true;
+  // Always repost if we have gone through the whole batch.
+  if (i == kUnwindBatchSize)
+    repost_task = true;
+
+  if (repost_task) {
+    thread_task_runner_.get()->PostTask(
+        [this, peer_pid] { HandleUnwindBatch(peer_pid); });
+  }
+}
+
+// static
+void UnwindingWorker::HandleBuffer(const SharedRingBuffer::Buffer& buf,
+                                   UnwindingMetadata* unwinding_metadata,
+                                   DataSourceInstanceID data_source_instance_id,
+                                   pid_t peer_pid,
+                                   Delegate* delegate) {
+  WireMessage msg;
+  // TODO(fmayer): standardise on char* or uint8_t*.
+  // char* has stronger guarantees regarding aliasing.
+  // see https://timsong-cpp.github.io/cppwp/n3337/basic.lval#10.8
+  if (!ReceiveWireMessage(reinterpret_cast<char*>(buf.data), buf.size, &msg)) {
+    PERFETTO_DFATAL_OR_ELOG("Failed to receive wire message.");
+    return;
+  }
+
+  if (msg.record_type == RecordType::Malloc) {
+    AllocRecord rec;
+    rec.alloc_metadata = *msg.alloc_header;
+    rec.pid = peer_pid;
+    rec.data_source_instance_id = data_source_instance_id;
+    auto start_time_us = base::GetWallTimeNs() / 1000;
+    DoUnwind(&msg, unwinding_metadata, &rec);
+    rec.unwinding_time_us = static_cast<uint64_t>(
+        ((base::GetWallTimeNs() / 1000) - start_time_us).count());
+    delegate->PostAllocRecord(std::move(rec));
   } else if (msg.record_type == RecordType::Free) {
-    out->record_type = BookkeepingRecord::Type::Free;
-    out->pid = rec->pid;
-    // We need to keep this alive, because msg.free_header is a pointer into
-    // this.
-    out->free_record.free_data = std::move(rec->data);
-    out->free_record.metadata = msg.free_header;
-    return true;
+    FreeRecord rec;
+    rec.pid = peer_pid;
+    rec.data_source_instance_id = data_source_instance_id;
+    // We need to copy this, so we can return the memory to the shmem buffer.
+    memcpy(&rec.free_batch, msg.free_header, sizeof(*msg.free_header));
+    delegate->PostFreeRecord(std::move(rec));
   } else {
-    PERFETTO_DFATAL("Invalid record type.");
-    return false;
+    PERFETTO_DFATAL_OR_ELOG("Invalid record type.");
   }
 }
 
-void UnwindingMainLoop(BoundedQueue<UnwindingRecord>* input_queue,
-                       BoundedQueue<BookkeepingRecord>* output_queue) {
-  for (;;) {
-    UnwindingRecord rec;
-    if (!input_queue->Get(&rec))
-      return;
-    BookkeepingRecord out;
-    if (HandleUnwindingRecord(&rec, &out))
-      output_queue->Add(std::move(out));
-  }
+void UnwindingWorker::PostHandoffSocket(HandoffData handoff_data) {
+  // Even with C++14, this cannot be moved, as std::function has to be
+  // copyable, which HandoffData is not.
+  HandoffData* raw_data = new HandoffData(std::move(handoff_data));
+  // We do not need to use a WeakPtr here because the task runner will not
+  // outlive its UnwindingWorker.
+  thread_task_runner_.get()->PostTask([this, raw_data] {
+    HandoffData data = std::move(*raw_data);
+    delete raw_data;
+    HandleHandoffSocket(std::move(data));
+  });
 }
+
+void UnwindingWorker::HandleHandoffSocket(HandoffData handoff_data) {
+  auto sock = base::UnixSocket::AdoptConnected(
+      handoff_data.sock.ReleaseFd(), this, this->thread_task_runner_.get(),
+      base::SockType::kStream);
+  pid_t peer_pid = sock->peer_pid();
+
+  UnwindingMetadata metadata(peer_pid, std::move(handoff_data.maps_fd),
+                             std::move(handoff_data.mem_fd));
+  ClientData client_data{
+      handoff_data.data_source_instance_id,
+      std::move(sock),
+      std::move(metadata),
+      std::move(handoff_data.shmem),
+      std::move(handoff_data.client_config),
+  };
+  client_data_.emplace(peer_pid, std::move(client_data));
+}
+
+void UnwindingWorker::PostDisconnectSocket(pid_t pid) {
+  // We do not need to use a WeakPtr here because the task runner will not
+  // outlive its UnwindingWorker.
+  thread_task_runner_.get()->PostTask(
+      [this, pid] { HandleDisconnectSocket(pid); });
+}
+
+void UnwindingWorker::HandleDisconnectSocket(pid_t pid) {
+  client_data_.erase(pid);
+}
+
+UnwindingWorker::Delegate::~Delegate() = default;
 
 }  // namespace profiling
 }  // namespace perfetto

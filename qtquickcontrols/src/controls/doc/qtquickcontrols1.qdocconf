@@ -81,3 +81,5 @@ navigation.landingpage = "Qt Quick Controls 1"
 navigation.qmltypespage = "Qt Quick Controls 1 QML Types"
 
 tagfile                 = qtquickcontrols1.tags
+
+macro.deprecationwarning = "\\warning The Qt Quick Controls 1 module is deprecated since Qt 5.12. Use the latest \\l{Qt Quick Controls} module instead."

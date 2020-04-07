@@ -13,15 +13,14 @@
 #include <utility>
 #include <vector>
 
+#include "base/feature_list.h"
 #include "base/macros.h"
 #include "base/memory/shared_memory.h"
 #include "base/process/process_handle.h"
 #include "base/run_loop.h"
-#include "base/test/scoped_feature_list.h"
 #include "base/test/scoped_task_environment.h"
 #include "content/common/appcache_interfaces.h"
 #include "content/public/common/content_features.h"
-#include "content/public/renderer/fixed_received_data.h"
 #include "content/public/renderer/request_peer.h"
 #include "content/public/renderer/resource_dispatcher_delegate.h"
 #include "content/renderer/loader/navigation_response_override_parameters.h"
@@ -35,12 +34,14 @@
 #include "services/network/public/cpp/resource_response.h"
 #include "services/network/public/cpp/url_loader_completion_status.h"
 #include "services/network/public/cpp/weak_wrapper_shared_url_loader_factory.h"
-#include "services/network/public/mojom/request_context_frame_type.mojom.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/blink/public/common/features.h"
 #include "third_party/blink/public/platform/scheduler/test/renderer_scheduler_test_support.h"
 #include "url/gurl.h"
 
 namespace content {
+
+namespace {
 
 static constexpr char kTestPageUrl[] = "http://www.google.com/";
 static constexpr char kTestPageHeaders[] =
@@ -50,6 +51,27 @@ static constexpr char kTestPageCharset[] = "";
 static constexpr char kTestPageContents[] =
     "<html><head><title>Google</title></head><body><h1>Google</h1></body></"
     "html>";
+
+constexpr size_t kDataPipeCapacity = 4096;
+
+std::string ReadOneChunk(mojo::ScopedDataPipeConsumerHandle* handle) {
+  char buffer[kDataPipeCapacity];
+  uint32_t read_bytes = kDataPipeCapacity;
+  MojoResult result =
+      (*handle)->ReadData(buffer, &read_bytes, MOJO_READ_DATA_FLAG_NONE);
+  if (result != MOJO_RESULT_OK)
+    return "";
+  return std::string(buffer, read_bytes);
+}
+
+std::string GetRequestPeerContextBody(TestRequestPeer::Context* context) {
+  if (context->body_handle) {
+    context->data += ReadOneChunk(&context->body_handle);
+  }
+  return context->data;
+}
+
+}  // namespace
 
 // Sets up the message sender override for the unit test.
 class ResourceDispatcherTest : public testing::Test,
@@ -95,10 +117,9 @@ class ResourceDispatcherTest : public testing::Test,
     request->url = GURL(kTestPageUrl);
     request->site_for_cookies = GURL(kTestPageUrl);
     request->referrer_policy = Referrer::GetDefaultReferrerPolicy();
-    request->resource_type = RESOURCE_TYPE_SUB_RESOURCE;
+    request->resource_type = static_cast<int>(ResourceType::kSubResource);
     request->priority = net::LOW;
-    request->fetch_request_mode = network::mojom::FetchRequestMode::kNoCors;
-    request->fetch_frame_type = network::mojom::RequestContextFrameType::kNone;
+    request->mode = network::mojom::RequestMode::kNoCors;
 
     const RequestExtraData extra_data;
     extra_data.CopyToResourceRequest(request.get());
@@ -116,13 +137,21 @@ class ResourceDispatcherTest : public testing::Test,
     int request_id = dispatcher()->StartAsync(
         std::move(request), 0,
         blink::scheduler::GetSingleThreadTaskRunnerForTesting(),
-        TRAFFIC_ANNOTATION_FOR_TESTS, false, false, std::move(peer),
+        TRAFFIC_ANNOTATION_FOR_TESTS, false, std::move(peer),
         base::MakeRefCounted<network::WeakWrapperSharedURLLoaderFactory>(this),
         std::vector<std::unique_ptr<URLLoaderThrottle>>(),
-        nullptr /* navigation_response_override_params */,
-        nullptr /* continue_navigation_function */);
+        nullptr /* navigation_response_override_params */);
     peer_context->request_id = request_id;
     return request_id;
+  }
+
+  static MojoCreateDataPipeOptions DataPipeOptions() {
+    MojoCreateDataPipeOptions options;
+    options.struct_size = sizeof(MojoCreateDataPipeOptions);
+    options.flags = MOJO_CREATE_DATA_PIPE_FLAG_NONE;
+    options.element_num_bytes = 1;
+    options.capacity_num_bytes = kDataPipeCapacity;
+    return options;
   }
 
  protected:
@@ -148,12 +177,7 @@ class TestResourceDispatcherDelegate : public ResourceDispatcherDelegate {
   TestResourceDispatcherDelegate() {}
   ~TestResourceDispatcherDelegate() override {}
 
-  std::unique_ptr<RequestPeer> OnRequestComplete(
-      std::unique_ptr<RequestPeer> current_peer,
-      ResourceType resource_type,
-      int error_code) override {
-    return current_peer;
-  }
+  void OnRequestComplete() override {}
 
   std::unique_ptr<RequestPeer> OnReceivedResponse(
       std::unique_ptr<RequestPeer> current_peer,
@@ -181,20 +205,16 @@ class TestResourceDispatcherDelegate : public ResourceDispatcherDelegate {
     }
 
     void OnStartLoadingResponseBody(
-        mojo::ScopedDataPipeConsumerHandle body) override {}
-
-    void OnReceivedData(std::unique_ptr<ReceivedData> data) override {
-      data_.append(data->payload(), data->length());
+        mojo::ScopedDataPipeConsumerHandle body) override {
+      body_handle_ = std::move(body);
     }
+
     void OnTransferSizeUpdated(int transfer_size_diff) override {}
 
     void OnCompletedRequest(
         const network::URLLoaderCompletionStatus& status) override {
       original_peer_->OnReceivedResponse(response_info_);
-      if (!data_.empty()) {
-        original_peer_->OnReceivedData(
-            std::make_unique<FixedReceivedData>(data_.data(), data_.size()));
-      }
+      original_peer_->OnStartLoadingResponseBody(std::move(body_handle_));
       original_peer_->OnCompletedRequest(status);
     }
     scoped_refptr<base::TaskRunner> GetTaskRunner() override {
@@ -204,7 +224,7 @@ class TestResourceDispatcherDelegate : public ResourceDispatcherDelegate {
    private:
     std::unique_ptr<RequestPeer> original_peer_;
     network::ResourceResponseInfo response_info_;
-    std::string data_;
+    mojo::ScopedDataPipeConsumerHandle body_handle_;
 
     DISALLOW_COPY_AND_ASSIGN(WrapperPeer);
   };
@@ -230,7 +250,7 @@ TEST_F(ResourceDispatcherTest, DelegateTest) {
   // The wrapper eats all messages until RequestComplete message is sent.
   CallOnReceiveResponse(client.get());
 
-  mojo::DataPipe data_pipe;
+  mojo::DataPipe data_pipe(DataPipeOptions());
   client->OnStartLoadingResponseBody(std::move(data_pipe.consumer_handle));
 
   uint32_t size = strlen(kTestPageContents);
@@ -256,7 +276,7 @@ TEST_F(ResourceDispatcherTest, DelegateTest) {
   base::RunLoop().RunUntilIdle();
 
   EXPECT_TRUE(peer_context.received_response);
-  EXPECT_EQ(kTestPageContents, peer_context.data);
+  EXPECT_EQ(kTestPageContents, GetRequestPeerContextBody(&peer_context));
   EXPECT_TRUE(peer_context.complete);
 }
 
@@ -276,7 +296,7 @@ TEST_F(ResourceDispatcherTest, CancelDuringCallbackWithWrapperPeer) {
   dispatcher()->set_delegate(&delegate);
 
   CallOnReceiveResponse(client.get());
-  mojo::DataPipe data_pipe;
+  mojo::DataPipe data_pipe(DataPipeOptions());
   client->OnStartLoadingResponseBody(std::move(data_pipe.consumer_handle));
   uint32_t size = strlen(kTestPageContents);
   auto result = data_pipe.producer_handle->WriteData(kTestPageContents, &size,
@@ -303,7 +323,7 @@ TEST_F(ResourceDispatcherTest, CancelDuringCallbackWithWrapperPeer) {
   EXPECT_TRUE(peer_context.received_response);
   // Request should have been cancelled with no additional messages.
   EXPECT_TRUE(peer_context.cancelled);
-  EXPECT_EQ("", peer_context.data);
+  EXPECT_EQ("", GetRequestPeerContextBody(&peer_context));
   EXPECT_FALSE(peer_context.complete);
 }
 

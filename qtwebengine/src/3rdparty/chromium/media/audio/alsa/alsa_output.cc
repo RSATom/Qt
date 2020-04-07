@@ -171,8 +171,7 @@ AlsaPcmOutputStream::AlsaPcmOutputStream(const std::string& device_name,
       volume_(1.0f),
       source_callback_(NULL),
       audio_bus_(AudioBus::Create(params)),
-      tick_clock_(base::DefaultTickClock::GetInstance()),
-      weak_factory_(this) {
+      tick_clock_(base::DefaultTickClock::GetInstance()) {
   DCHECK(manager_->GetTaskRunner()->BelongsToCurrentThread());
   DCHECK_EQ(audio_bus_->frames() * bytes_per_frame_, packet_size_);
 
@@ -336,6 +335,10 @@ void AlsaPcmOutputStream::Stop() {
 
   TransitionTo(kIsStopped);
 }
+
+// This stream is always used with sub second buffer sizes, where it's
+// sufficient to simply always flush upon Start().
+void AlsaPcmOutputStream::Flush() {}
 
 void AlsaPcmOutputStream::SetVolume(double volume) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
@@ -538,10 +541,10 @@ void AlsaPcmOutputStream::ScheduleNextWrite(bool source_exhausted) {
     next_fill_time = base::TimeDelta::FromMilliseconds(10);
   }
 
-  task_runner_->PostDelayedTask(
-      FROM_HERE,
-      base::Bind(&AlsaPcmOutputStream::WriteTask, weak_factory_.GetWeakPtr()),
-      next_fill_time);
+  task_runner_->PostDelayedTask(FROM_HERE,
+                                base::BindOnce(&AlsaPcmOutputStream::WriteTask,
+                                               weak_factory_.GetWeakPtr()),
+                                next_fill_time);
 }
 
 std::string AlsaPcmOutputStream::FindDeviceForChannels(uint32_t channels) {

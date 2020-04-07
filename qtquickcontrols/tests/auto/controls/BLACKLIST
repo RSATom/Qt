@@ -1,0 +1,3 @@
+# QTBUG-79161
+[Tests_TableView::test_headervisible]
+macos

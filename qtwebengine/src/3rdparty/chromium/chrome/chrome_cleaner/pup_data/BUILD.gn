@@ -14,7 +14,8 @@ source_set("pup_data_base") {
   ]
 
   deps = [
-    "//base:base",
+    ":test_uws",
+    "//base",
     "//chrome/chrome_cleaner/chrome_utils:force_installed_extension",
     "//chrome/chrome_cleaner/os:common_os",
     "//chrome/chrome_cleaner/proto:shared_pup_enums_proto",
@@ -35,7 +36,7 @@ source_set("cleaner_pup_util") {
 
   deps = [
     ":pup_data_base",
-    "//base:base",
+    "//base",
     "//chrome/chrome_cleaner/constants:uws_id",
     "//chrome/chrome_cleaner/os:cleaner_os",
     "//chrome/chrome_cleaner/os:common_os",
@@ -43,18 +44,6 @@ source_set("cleaner_pup_util") {
 
   public_deps = [
     "//chrome/chrome_cleaner/logging/proto:shared_data_proto",
-  ]
-}
-
-source_set("dummy_signatures") {
-  # This is not testonly because the real engine will be linked with these
-  # signatures when the private internal signatures are not available.
-  sources = [
-    "dummy_signatures.cc",
-  ]
-
-  deps = [
-    ":pup_data_base",
   ]
 }
 
@@ -70,6 +59,8 @@ source_set("dynamic_pup") {
 }
 
 source_set("test_uws") {
+  # This is not testonly because the full executable is expected to detect test
+  # UwS.
   sources = [
     "test_uws.cc",
     "test_uws.h",
@@ -94,13 +85,14 @@ source_set("unittest_sources") {
     ":cleaner_pup_util",
     ":dynamic_pup",
     ":pup_data_base",
-    "//base:base",
+    "//base",
     "//base/test:test_support",
     "//chrome/chrome_cleaner/os:common_os",
     "//chrome/chrome_cleaner/proto:shared_pup_enums_proto",
     "//chrome/chrome_cleaner/strings",
     "//chrome/chrome_cleaner/test:test_pup_data",
     "//chrome/chrome_cleaner/test:test_util",
+    "//chrome/chrome_cleaner/test:test_uws_catalog",
     "//testing/gmock",
     "//testing/gtest",
   ]

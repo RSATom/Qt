@@ -68,7 +68,8 @@ public:
         NetWmStateMaximizedVert = 0x10,
         NetWmStateModal = 0x20,
         NetWmStateStaysOnTop = 0x40,
-        NetWmStateDemandsAttention = 0x80
+        NetWmStateDemandsAttention = 0x80,
+        NetWmStateHidden = 0x100
     };
 
     Q_DECLARE_FLAGS(NetWmStates, NetWmState)
@@ -166,7 +167,7 @@ public:
     bool needsSync() const;
 
     void postSyncWindowRequest();
-    void clearSyncWindowRequest() { m_pendingSyncRequest = 0; }
+    void clearSyncWindowRequest() { m_pendingSyncRequest = nullptr; }
 
     QXcbScreen *xcbScreen() const;
 
@@ -280,6 +281,8 @@ protected:
 
     QXcbSyncWindowRequest *m_pendingSyncRequest = nullptr;
     int m_swapInterval = -1;
+
+    qreal m_sizeHintsScaleFactor = 1.0;
 };
 
 class QXcbForeignWindow : public QXcbWindow

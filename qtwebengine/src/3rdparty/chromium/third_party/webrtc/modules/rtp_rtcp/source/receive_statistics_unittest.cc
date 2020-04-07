@@ -8,10 +8,11 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
+#include "modules/rtp_rtcp/include/receive_statistics.h"
+
 #include <memory>
 #include <vector>
 
-#include "modules/rtp_rtcp/include/receive_statistics.h"
 #include "modules/rtp_rtcp/source/rtp_packet_received.h"
 #include "rtc_base/random.h"
 #include "system_wrappers/include/clock.h"
@@ -383,7 +384,7 @@ TEST_F(ReceiveStatisticsTest, LossComputationWithSequenceNumberWrapping) {
 
 TEST_F(ReceiveStatisticsTest, StreamRestartDoesntCountAsLoss) {
   RtcpStatistics statistics;
-  receive_statistics_->SetMaxReorderingThreshold(200);
+  receive_statistics_->SetMaxReorderingThreshold(kSsrc1, 200);
 
   packet1_.SetSequenceNumber(0);
   receive_statistics_->OnRtpPacket(packet1_);
@@ -407,7 +408,7 @@ TEST_F(ReceiveStatisticsTest, StreamRestartDoesntCountAsLoss) {
 
 TEST_F(ReceiveStatisticsTest, CountsLossAfterStreamRestart) {
   RtcpStatistics statistics;
-  receive_statistics_->SetMaxReorderingThreshold(200);
+  receive_statistics_->SetMaxReorderingThreshold(kSsrc1, 200);
 
   packet1_.SetSequenceNumber(0);
   receive_statistics_->OnRtpPacket(packet1_);
@@ -428,7 +429,7 @@ TEST_F(ReceiveStatisticsTest, CountsLossAfterStreamRestart) {
 
 TEST_F(ReceiveStatisticsTest, StreamCanRestartAtSequenceNumberWrapAround) {
   RtcpStatistics statistics;
-  receive_statistics_->SetMaxReorderingThreshold(200);
+  receive_statistics_->SetMaxReorderingThreshold(kSsrc1, 200);
 
   packet1_.SetSequenceNumber(0xffff - 401);
   receive_statistics_->OnRtpPacket(packet1_);
@@ -449,7 +450,7 @@ TEST_F(ReceiveStatisticsTest, StreamCanRestartAtSequenceNumberWrapAround) {
 
 TEST_F(ReceiveStatisticsTest, StreamRestartNeedsTwoConsecutivePackets) {
   RtcpStatistics statistics;
-  receive_statistics_->SetMaxReorderingThreshold(200);
+  receive_statistics_->SetMaxReorderingThreshold(kSsrc1, 200);
 
   packet1_.SetSequenceNumber(400);
   receive_statistics_->OnRtpPacket(packet1_);
@@ -494,7 +495,7 @@ TEST_F(ReceiveStatisticsTest, WrapsAroundExtendedHighestSequenceNumber) {
   EXPECT_EQ(0x10001u, statistics.extended_highest_sequence_number);
 
   // Receive a couple packets then wrap around again.
-  receive_statistics_->SetMaxReorderingThreshold(200);
+  receive_statistics_->SetMaxReorderingThreshold(kSsrc1, 200);
   for (int i = 10; i < 0xffff; i += 150) {
     packet1_.SetSequenceNumber(i);
     receive_statistics_->OnRtpPacket(packet1_);
@@ -603,6 +604,19 @@ TEST_F(ReceiveStatisticsTest, RtpCallbacks) {
   expected.fec.header_bytes = kHeaderLength;
   expected.fec.packets = 1;
   callback.Matches(5, kSsrc1, expected);
+}
+
+TEST_F(ReceiveStatisticsTest, LastPacketReceivedTimestamp) {
+  RtpTestCallback callback;
+  receive_statistics_ = ReceiveStatistics::Create(&clock_, nullptr, &callback);
+
+  clock_.AdvanceTimeMilliseconds(42);
+  receive_statistics_->OnRtpPacket(packet1_);
+  EXPECT_EQ(42, callback.stats_.last_packet_received_timestamp_ms);
+
+  clock_.AdvanceTimeMilliseconds(3);
+  receive_statistics_->OnRtpPacket(packet1_);
+  EXPECT_EQ(45, callback.stats_.last_packet_received_timestamp_ms);
 }
 
 TEST_F(ReceiveStatisticsTest, RtpCallbacksFecFirst) {

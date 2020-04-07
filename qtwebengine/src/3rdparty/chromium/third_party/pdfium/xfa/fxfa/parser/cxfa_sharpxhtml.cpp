@@ -6,11 +6,14 @@
 
 #include "xfa/fxfa/parser/cxfa_sharpxhtml.h"
 
+#include "fxjs/xfa/cjx_node.h"
+#include "third_party/base/ptr_util.h"
+
 namespace {
 
 const CXFA_Node::AttributeData kSharpxHTMLAttributeData[] = {
     {XFA_Attribute::Value, XFA_AttributeType::CData, nullptr},
-    {XFA_Attribute::Unknown, XFA_AttributeType::Integer, nullptr}};
+};
 
 }  // namespace
 
@@ -22,7 +25,8 @@ CXFA_SharpxHTML::CXFA_SharpxHTML(CXFA_Document* doc, XFA_PacketType packet)
                  XFA_XDPPACKET_SourceSet | XFA_XDPPACKET_Form),
                 XFA_ObjectType::NodeV,
                 XFA_Element::SharpxHTML,
-                nullptr,
-                kSharpxHTMLAttributeData) {}
+                {},
+                kSharpxHTMLAttributeData,
+                pdfium::MakeUnique<CJX_Node>(this)) {}
 
 CXFA_SharpxHTML::~CXFA_SharpxHTML() = default;

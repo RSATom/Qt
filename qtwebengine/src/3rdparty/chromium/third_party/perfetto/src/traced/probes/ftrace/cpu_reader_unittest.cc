@@ -18,13 +18,13 @@
 
 #include <sys/stat.h>
 
-#include "gmock/gmock.h"
-#include "gtest/gtest.h"
+#include <gmock/gmock.h>
+#include <gtest/gtest.h>
 #include "src/traced/probes/ftrace/event_info.h"
 #include "src/traced/probes/ftrace/proto_translation_table.h"
 
 #include "perfetto/base/build_config.h"
-#include "perfetto/base/utils.h"
+#include "perfetto/ext/base/utils.h"
 #include "perfetto/protozero/proto_utils.h"
 #include "perfetto/protozero/scattered_heap_buffer.h"
 #include "perfetto/protozero/scattered_stream_writer.h"
@@ -900,6 +900,33 @@ TEST_F(CpuReaderTableTest, ParseAllFields) {
               Contains(Pair(98u, kUserspaceBlockDeviceId)));
   EXPECT_THAT(metadata.inode_and_device,
               Contains(Pair(99u, k64BitUserspaceBlockDeviceId)));
+}
+
+TEST(CpuReaderTest, TaskRenameEvent) {
+  BundleProvider bundle_provider(base::kPageSize);
+
+  BinaryWriter writer;
+  ProtoTranslationTable* table = GetTable("android_seed_N2F62_3.10.49");
+
+  constexpr uint32_t kTaskRenameId = 19;
+
+  writer.Write<int32_t>(1001);             // Common field.
+  writer.Write<int32_t>(9999);             // Common pid
+  writer.Write<int32_t>(9999);             // Pid
+  writer.WriteFixedString(16, "Hello");    // Old Comm
+  writer.WriteFixedString(16, "Goodbye");  // New Comm
+  writer.Write<uint64_t>(10);              // flags
+  writer.Write<int16_t>(10);               // oom_score_adj
+
+  auto input = writer.GetCopy();
+  auto length = writer.written();
+  FtraceMetadata metadata{};
+
+  ASSERT_TRUE(CpuReader::ParseEvent(kTaskRenameId, input.get(),
+                                    input.get() + length, table,
+                                    bundle_provider.writer(), &metadata));
+  EXPECT_THAT(metadata.rename_pids, Contains(9999));
+  EXPECT_THAT(metadata.pids, Contains(9999));
 }
 
 TEST(CpuReaderTest, TranslateBlockDeviceIDToUserspace) {

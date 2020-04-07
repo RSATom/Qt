@@ -361,7 +361,7 @@ TEST(RuleSetTest, SelectorIndexLimit) {
   builder.Append("b,span {}");
 
   TestStyleSheet sheet;
-  sheet.AddCSSRules(builder.ToString().Ascii().data());
+  sheet.AddCSSRules(builder.ToString());
   const RuleSet& rule_set = sheet.GetRuleSet();
   const HeapVector<Member<const RuleData>>* rules = rule_set.TagRules("b");
   ASSERT_EQ(1u, rules->size());
@@ -392,7 +392,7 @@ TEST(RuleSetTest, RuleDataPositionLimit) {
 }
 
 TEST(RuleSetTest, RuleCountNotIncreasedByInvalidRuleData) {
-  RuleSet* rule_set = RuleSet::Create();
+  auto* rule_set = MakeGarbageCollected<RuleSet>();
   EXPECT_EQ(0u, rule_set->RuleCount());
 
   AddRuleFlags flags = kRuleHasNoSpecialState;

@@ -14,7 +14,7 @@
 
 // This is a stripped down and specialized version of WebVR-UI
 // (https://github.com/googlevr/webvr-ui) that takes out most of the state
-// management in favor of providing a simple way of listing available devices
+// management in favor of providing a simple way of requesting entry into WebXR
 // for the needs of the sample pages. Functionality like beginning sessions
 // is intentionally left out so that the sample pages can demonstrate them more
 // clearly.
@@ -260,6 +260,14 @@ const generateCSS = (options, fontSize=18)=> {
     button.${cssPrefix}-button[disabled=true] > .${cssPrefix}-logo > .${cssPrefix}-svg-error {
         display:initial;
     }
+
+    /*
+    * warning
+    */
+    div.webxrWarning {
+      color: #f00;
+      font-weight: bold;
+    }
   `);
 };
 
@@ -286,6 +294,7 @@ class EnterXRButton {
    * @param {string} [options.corners] set to 'round', 'square' or pixel value representing the corner radius
    * @param {string} [options.disabledOpacity] set opacity of button dom when disabled
    * @param {string} [options.cssprefix] set to change the css prefix from default 'webvr-ui'
+   * @param {array} [options.supportedSessionTypes] if set the button will keep it's own state updated with device changes
    */
   constructor(options) {
     options = options || {};
@@ -306,10 +315,11 @@ class EnterXRButton {
     options.onEndSession = options.onEndSession || (function() {});
 
     options.injectCSS = options.injectCSS !== false;
+    options.supportedSessionTypes = options.supportedSessionTypes || [];
 
     this.options = options;
 
-    this.device = null;
+    this._enabled = false;
     this.session = null;
 
     // Pass in your own domElement if you really dont want to use ours
@@ -322,17 +332,31 @@ class EnterXRButton {
     this.__forceDisabled = false;
     this.__setDisabledAttribute(true);
     this.setTitle(this.options.textXRNotFoundTitle);
+
+    if (options.supportedSessionTypes.length > 0 && navigator.xr) {
+      navigator.xr.addEventListener('devicechange', () => this.__onDeviceChange());
+
+      // Force a call now in case the initial event from the page load was missed.
+      this.__onDeviceChange();
+    }
   }
 
   /**
-   * Sets the XRDevice this button is associated with.
-   * @param {XRDevice} device
-   * @return {EnterXRButton}
+   * Sets the enabled state of this button.
+   * @param {boolean} enabled
    */
-  setDevice(device) {
-    this.device = device;
+  set enabled(enabled) {
+    this._enabled = enabled;
     this.__updateButtonState();
     return this;
+  }
+
+  /**
+   * Gets the enabled state of this button.
+   * @return {boolean}
+   */
+  get enabled() {
+    return this._enabled;
   }
 
   /**
@@ -415,6 +439,23 @@ class EnterXRButton {
   }
 
   /**
+   * Add the button to the document header. WebXR is only available in secure
+   * contexts, so include a warning message above the button when using an
+   * insecure context.
+   * @return {EnterXRButton}
+   */
+  addToHeader() {
+    if (!window.isSecureContext) {
+      let warning_elem = document.createElement("div");
+      warning_elem.setAttribute("class", "webxrWarning");
+      warning_elem.innerText = "WebXR unavailable due to insecure context";
+      document.querySelector('header').appendChild(warning_elem);
+    }
+    document.querySelector('header').appendChild(this.domElement);
+    return this;
+  }
+
+  /**
    * clean up object for garbage collection
    */
   remove() {
@@ -443,8 +484,8 @@ class EnterXRButton {
   __onXRButtonClick() {
     if (this.session) {
       this.options.onEndSession(this.session);
-    } else if (this.device) {
-      this.options.onRequestSession(this.device);
+    } else if (this._enabled) {
+      this.options.onRequestSession();
     }
   }
 
@@ -457,7 +498,7 @@ class EnterXRButton {
       this.setTitle(this.options.textExitXRTitle);
       this.setTooltip('Exit XR presentation');
       this.__setDisabledAttribute(false);
-    } else if (this.device) {
+    } else if (this._enabled) {
       this.setTitle(this.options.textEnterXRTitle);
       this.setTooltip('Enter XR');
       this.__setDisabledAttribute(false);
@@ -467,6 +508,31 @@ class EnterXRButton {
       this.__setDisabledAttribute(true);
     }
   }
+
+  /**
+   * Handles a device change event
+   * @private
+   */
+  __onDeviceChange(attempt) {
+    if (attempt === undefined) {
+      attempt = 0;
+    }
+
+    if (attempt < this.options.supportedSessionTypes.length) {
+      let sessionMode = this.options.supportedSessionTypes[attempt];
+      navigator.xr.supportsSession(sessionMode).then(() => {
+        this.enabled = true;
+      }, (err) => {
+        attempt++;
+        if (attempt < this.options.supportedSessionTypes.length) {
+          this.__onDeviceChange(attempt);
+        } else {
+          this.enabled = false;
+        }
+      });
+    }
+  }
+
 }
 
 /**

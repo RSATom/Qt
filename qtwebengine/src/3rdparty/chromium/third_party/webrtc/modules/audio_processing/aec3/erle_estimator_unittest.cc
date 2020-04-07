@@ -8,10 +8,11 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
+#include "modules/audio_processing/aec3/erle_estimator.h"
+
 #include <cmath>
 
 #include "api/array_view.h"
-#include "modules/audio_processing/aec3/erle_estimator.h"
 #include "modules/audio_processing/aec3/render_delay_buffer.h"
 #include "modules/audio_processing/aec3/vector_buffer.h"
 #include "rtc_base/random.h"
@@ -86,8 +87,8 @@ void FormNearendFrame(rtc::ArrayView<float> x,
 
 void GetFilterFreq(std::vector<std::array<float, kFftLengthBy2Plus1>>&
                        filter_frequency_response,
-                   size_t delay_headroom_blocks) {
-  RTC_DCHECK_GE(filter_frequency_response.size(), delay_headroom_blocks);
+                   size_t delay_headroom_samples) {
+  const size_t delay_headroom_blocks = delay_headroom_samples / kBlockSize;
   for (auto& block_freq_resp : filter_frequency_response) {
     block_freq_resp.fill(0.f);
   }
@@ -108,9 +109,9 @@ TEST(ErleEstimator, VerifyErleIncreaseAndHold) {
   std::vector<std::array<float, kFftLengthBy2Plus1>> filter_frequency_response(
       config.filter.main.length_blocks);
   std::unique_ptr<RenderDelayBuffer> render_delay_buffer(
-      RenderDelayBuffer::Create2(config, 3));
+      RenderDelayBuffer::Create(config, 3));
 
-  GetFilterFreq(filter_frequency_response, config.delay.delay_headroom_blocks);
+  GetFilterFreq(filter_frequency_response, config.delay.delay_headroom_samples);
 
   ErleEstimator estimator(0, config);
 
@@ -152,9 +153,9 @@ TEST(ErleEstimator, VerifyErleTrackingOnOnsets) {
       config.filter.main.length_blocks);
 
   std::unique_ptr<RenderDelayBuffer> render_delay_buffer(
-      RenderDelayBuffer::Create2(config, 3));
+      RenderDelayBuffer::Create(config, 3));
 
-  GetFilterFreq(filter_frequency_response, config.delay.delay_headroom_blocks);
+  GetFilterFreq(filter_frequency_response, config.delay.delay_headroom_samples);
 
   ErleEstimator estimator(0, config);
 

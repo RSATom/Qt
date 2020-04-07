@@ -41,11 +41,7 @@ class SVGInteger final : public SVGPropertyHelper<SVGInteger> {
   typedef void TearOffType;
   typedef int PrimitiveType;
 
-  static SVGInteger* Create(int value = 0) {
-    return MakeGarbageCollected<SVGInteger>(value);
-  }
-
-  explicit SVGInteger(int);
+  explicit SVGInteger(int = 0);
 
   virtual SVGInteger* Clone() const;
 

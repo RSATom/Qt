@@ -23,6 +23,7 @@
 #include "media/cast/cast_environment.h"
 #include "media/cast/net/cast_transport_defines.h"
 #include "media/mojo/interfaces/video_encode_accelerator.mojom.h"
+#include "services/network/public/mojom/network_context.mojom.h"
 
 namespace media {
 class AudioInputDevice;
@@ -35,9 +36,9 @@ namespace gpu {
 class GpuChannelHost;
 }  // namespace gpu
 
-namespace ws {
+namespace viz {
 class Gpu;
-}  // namespace ws
+}  // namespace viz
 
 namespace mirroring {
 
@@ -62,7 +63,7 @@ class COMPONENT_EXPORT(MIRRORING_SERVICE) Session final
           mojom::ResourceProviderPtr resource_provider,
           mojom::CastMessageChannelPtr outbound_channel,
           mojom::CastMessageChannelRequest inbound_channel,
-          std::unique_ptr<ws::Gpu> gpu);
+          std::unique_ptr<viz::Gpu> gpu);
 
   ~Session() override;
 
@@ -172,12 +173,12 @@ class COMPONENT_EXPORT(MIRRORING_SERVICE) Session final
   std::unique_ptr<AudioCapturingCallback> audio_capturing_callback_;
   scoped_refptr<media::AudioInputDevice> audio_input_device_;
   std::unique_ptr<MediaRemoter> media_remoter_;
-  std::unique_ptr<ws::Gpu> gpu_;
+  std::unique_ptr<viz::Gpu> gpu_;
   scoped_refptr<gpu::GpuChannelHost> gpu_channel_host_;
   gpu::VideoEncodeAcceleratorSupportedProfiles supported_profiles_;
   media::mojom::VideoEncodeAcceleratorProviderPtr vea_provider_;
 
-  base::WeakPtrFactory<Session> weak_factory_;
+  base::WeakPtrFactory<Session> weak_factory_{this};
 };
 
 }  // namespace mirroring

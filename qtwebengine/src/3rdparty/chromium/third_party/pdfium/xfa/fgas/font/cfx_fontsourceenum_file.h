@@ -9,12 +9,13 @@
 
 #include <vector>
 
+#include "build/build_config.h"
 #include "core/fxcrt/fx_stream.h"
 #include "core/fxcrt/fx_string.h"
 #include "core/fxcrt/fx_system.h"
 #include "core/fxcrt/retain_ptr.h"
 
-#if _FX_PLATFORM_ == _FX_PLATFORM_WINDOWS_
+#if defined(OS_WIN)
 #error "Not used on Windows"
 #endif
 
@@ -31,10 +32,10 @@ class CFX_FontSourceEnum_File {
   struct HandleParentPath {
     HandleParentPath() = default;
     HandleParentPath(const HandleParentPath& x) {
-      pFileHandle = x.pFileHandle;
+      pFolderHandle = x.pFolderHandle;
       bsParentPath = x.bsParentPath;
     }
-    FX_FileHandle* pFileHandle;
+    FX_FolderHandle* pFolderHandle;
     ByteString bsParentPath;
   };
 

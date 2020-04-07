@@ -7,45 +7,41 @@
 
 #include <vector>
 
+#include "base/message_loop/message_loop.h"
 #include "gpu/config/gpu_preferences.h"
 #include "gpu/ipc/common/gpu_preferences.mojom.h"
+#include "mojo/public/cpp/base/message_loop_type_mojom_traits.h"
 #include "ui/gfx/mojo/buffer_types_struct_traits.h"
 
 namespace mojo {
 
 template <>
-struct EnumTraits<gpu::mojom::VpxDecodeVendors,
-                  gpu::GpuPreferences::VpxDecodeVendors> {
-  static gpu::mojom::VpxDecodeVendors ToMojom(
-      gpu::GpuPreferences::VpxDecodeVendors vpx) {
-    switch (vpx) {
-      case gpu::GpuPreferences::VPX_VENDOR_NONE:
-        return gpu::mojom::VpxDecodeVendors::VPX_VENDOR_NONE;
-      case gpu::GpuPreferences::VPX_VENDOR_MICROSOFT:
-        return gpu::mojom::VpxDecodeVendors::VPX_VENDOR_MICROSOFT;
-      case gpu::GpuPreferences::VPX_VENDOR_AMD:
-        return gpu::mojom::VpxDecodeVendors::VPX_VENDOR_AMD;
-      case gpu::GpuPreferences::VPX_VENDOR_ALL:
-        return gpu::mojom::VpxDecodeVendors::VPX_VENDOR_ALL;
+struct EnumTraits<gpu::mojom::VulkanImplementationName,
+                  gpu::VulkanImplementationName> {
+  static gpu::mojom::VulkanImplementationName ToMojom(
+      gpu::VulkanImplementationName input) {
+    switch (input) {
+      case gpu::VulkanImplementationName::kNone:
+        return gpu::mojom::VulkanImplementationName::kNone;
+      case gpu::VulkanImplementationName::kNative:
+        return gpu::mojom::VulkanImplementationName::kNative;
+      case gpu::VulkanImplementationName::kSwiftshader:
+        return gpu::mojom::VulkanImplementationName::kSwiftshader;
     }
     NOTREACHED();
-    return gpu::mojom::VpxDecodeVendors::VPX_VENDOR_NONE;
+    return gpu::mojom::VulkanImplementationName::kNone;
   }
-
-  static bool FromMojom(gpu::mojom::VpxDecodeVendors input,
-                        gpu::GpuPreferences::VpxDecodeVendors* out) {
+  static bool FromMojom(gpu::mojom::VulkanImplementationName input,
+                        gpu::VulkanImplementationName* out) {
     switch (input) {
-      case gpu::mojom::VpxDecodeVendors::VPX_VENDOR_NONE:
-        *out = gpu::GpuPreferences::VPX_VENDOR_NONE;
+      case gpu::mojom::VulkanImplementationName::kNone:
+        *out = gpu::VulkanImplementationName::kNone;
         return true;
-      case gpu::mojom::VpxDecodeVendors::VPX_VENDOR_MICROSOFT:
-        *out = gpu::GpuPreferences::VPX_VENDOR_MICROSOFT;
+      case gpu::mojom::VulkanImplementationName::kNative:
+        *out = gpu::VulkanImplementationName::kNative;
         return true;
-      case gpu::mojom::VpxDecodeVendors::VPX_VENDOR_AMD:
-        *out = gpu::GpuPreferences::VPX_VENDOR_AMD;
-        return true;
-      case gpu::mojom::VpxDecodeVendors::VPX_VENDOR_ALL:
-        *out = gpu::GpuPreferences::VPX_VENDOR_ALL;
+      case gpu::mojom::VulkanImplementationName::kSwiftshader:
+        *out = gpu::VulkanImplementationName::kSwiftshader;
         return true;
     }
     return false;
@@ -56,8 +52,6 @@ template <>
 struct StructTraits<gpu::mojom::GpuPreferencesDataView, gpu::GpuPreferences> {
   static bool Read(gpu::mojom::GpuPreferencesDataView prefs,
                    gpu::GpuPreferences* out) {
-    out->single_process = prefs.single_process();
-    out->in_process_gpu = prefs.in_process_gpu();
     out->disable_accelerated_video_decode =
         prefs.disable_accelerated_video_decode();
     out->disable_accelerated_video_encode =
@@ -65,9 +59,6 @@ struct StructTraits<gpu::mojom::GpuPreferencesDataView, gpu::GpuPreferences> {
     out->gpu_startup_dialog = prefs.gpu_startup_dialog();
     out->disable_gpu_watchdog = prefs.disable_gpu_watchdog();
     out->gpu_sandbox_start_early = prefs.gpu_sandbox_start_early();
-    if (!prefs.ReadEnableAcceleratedVpxDecode(
-            &out->enable_accelerated_vpx_decode))
-      return false;
     out->enable_low_latency_dxva = prefs.enable_low_latency_dxva();
     out->enable_zero_copy_dxgi_video = prefs.enable_zero_copy_dxgi_video();
     out->enable_nv12_dxgi_video = prefs.enable_nv12_dxgi_video();
@@ -76,8 +67,6 @@ struct StructTraits<gpu::mojom::GpuPreferencesDataView, gpu::GpuPreferences> {
     out->disable_software_rasterizer = prefs.disable_software_rasterizer();
     out->log_gpu_control_list_decisions =
         prefs.log_gpu_control_list_decisions();
-    out->enable_trace_export_events_to_etw =
-        prefs.enable_trace_export_events_to_etw();
     out->compile_shader_always_succeeds =
         prefs.compile_shader_always_succeeds();
     out->disable_gl_error_limit = prefs.disable_gl_error_limit();
@@ -98,7 +87,6 @@ struct StructTraits<gpu::mojom::GpuPreferencesDataView, gpu::GpuPreferences> {
         prefs.enable_threaded_texture_mailboxes();
     out->gl_shader_interm_output = prefs.gl_shader_interm_output();
     out->emulate_shader_precision = prefs.emulate_shader_precision();
-    out->max_active_webgl_contexts = prefs.max_active_webgl_contexts();
     out->enable_android_surface_control =
         prefs.enable_android_surface_control();
     out->enable_gpu_service_logging = prefs.enable_gpu_service_logging();
@@ -123,23 +111,21 @@ struct StructTraits<gpu::mojom::GpuPreferencesDataView, gpu::GpuPreferences> {
     out->enable_oop_rasterization = prefs.enable_oop_rasterization();
     out->disable_oop_rasterization = prefs.disable_oop_rasterization();
     out->enable_oop_rasterization_ddl = prefs.enable_oop_rasterization_ddl();
-    out->enable_raster_to_sk_image = prefs.enable_raster_to_sk_image();
-    out->enable_passthrough_raster_decoder =
-        prefs.enable_passthrough_raster_decoder();
     out->watchdog_starts_backgrounded = prefs.watchdog_starts_backgrounded();
-    out->enable_vulkan = prefs.enable_vulkan();
+    if (!prefs.ReadUseVulkan(&out->use_vulkan))
+      return false;
+    out->disable_vulkan_surface = prefs.disable_vulkan_surface();
+    out->disable_vulkan_fallback_to_gl_for_testing =
+        prefs.disable_vulkan_fallback_to_gl_for_testing();
+    out->enable_metal = prefs.enable_metal();
     out->enable_gpu_benchmarking_extension =
         prefs.enable_gpu_benchmarking_extension();
     out->enable_webgpu = prefs.enable_webgpu();
+    if (!prefs.ReadMessageLoopType(&out->message_loop_type))
+      return false;
     return true;
   }
 
-  static bool single_process(const gpu::GpuPreferences& prefs) {
-    return prefs.single_process;
-  }
-  static bool in_process_gpu(const gpu::GpuPreferences& prefs) {
-    return prefs.in_process_gpu;
-  }
   static bool disable_accelerated_video_decode(
       const gpu::GpuPreferences& prefs) {
     return prefs.disable_accelerated_video_decode;
@@ -156,11 +142,6 @@ struct StructTraits<gpu::mojom::GpuPreferencesDataView, gpu::GpuPreferences> {
   }
   static bool gpu_sandbox_start_early(const gpu::GpuPreferences& prefs) {
     return prefs.gpu_sandbox_start_early;
-  }
-
-  static gpu::GpuPreferences::VpxDecodeVendors enable_accelerated_vpx_decode(
-      const gpu::GpuPreferences& prefs) {
-    return prefs.enable_accelerated_vpx_decode;
   }
   static bool enable_low_latency_dxva(const gpu::GpuPreferences& prefs) {
     return prefs.enable_low_latency_dxva;
@@ -180,10 +161,6 @@ struct StructTraits<gpu::mojom::GpuPreferencesDataView, gpu::GpuPreferences> {
   }
   static bool log_gpu_control_list_decisions(const gpu::GpuPreferences& prefs) {
     return prefs.log_gpu_control_list_decisions;
-  }
-  static bool enable_trace_export_events_to_etw(
-      const gpu::GpuPreferences& prefs) {
-    return prefs.enable_trace_export_events_to_etw;
   }
   static bool compile_shader_always_succeeds(const gpu::GpuPreferences& prefs) {
     return prefs.compile_shader_always_succeeds;
@@ -235,9 +212,6 @@ struct StructTraits<gpu::mojom::GpuPreferencesDataView, gpu::GpuPreferences> {
   static bool emulate_shader_precision(const gpu::GpuPreferences& prefs) {
     return prefs.emulate_shader_precision;
   }
-  static uint32_t max_active_webgl_contexts(const gpu::GpuPreferences& prefs) {
-    return prefs.max_active_webgl_contexts;
-  }
   static bool enable_android_surface_control(const gpu::GpuPreferences& prefs) {
     return prefs.enable_android_surface_control;
   }
@@ -274,18 +248,22 @@ struct StructTraits<gpu::mojom::GpuPreferencesDataView, gpu::GpuPreferences> {
   static bool enable_oop_rasterization_ddl(const gpu::GpuPreferences& prefs) {
     return prefs.enable_oop_rasterization_ddl;
   }
-  static bool enable_raster_to_sk_image(const gpu::GpuPreferences& prefs) {
-    return prefs.enable_raster_to_sk_image;
-  }
-  static bool enable_passthrough_raster_decoder(
-      const gpu::GpuPreferences& prefs) {
-    return prefs.enable_passthrough_raster_decoder;
-  }
   static bool watchdog_starts_backgrounded(const gpu::GpuPreferences& prefs) {
     return prefs.watchdog_starts_backgrounded;
   }
-  static bool enable_vulkan(const gpu::GpuPreferences& prefs) {
-    return prefs.enable_vulkan;
+  static gpu::VulkanImplementationName use_vulkan(
+      const gpu::GpuPreferences& prefs) {
+    return prefs.use_vulkan;
+  }
+  static bool disable_vulkan_surface(const gpu::GpuPreferences& prefs) {
+    return prefs.disable_vulkan_surface;
+  }
+  static bool disable_vulkan_fallback_to_gl_for_testing(
+      const gpu::GpuPreferences& prefs) {
+    return prefs.disable_vulkan_fallback_to_gl_for_testing;
+  }
+  static bool enable_metal(const gpu::GpuPreferences& prefs) {
+    return prefs.enable_metal;
   }
   static bool enable_gpu_benchmarking_extension(
       const gpu::GpuPreferences& prefs) {
@@ -293,6 +271,10 @@ struct StructTraits<gpu::mojom::GpuPreferencesDataView, gpu::GpuPreferences> {
   }
   static bool enable_webgpu(const gpu::GpuPreferences& prefs) {
     return prefs.enable_webgpu;
+  }
+  static base::MessageLoop::Type message_loop_type(
+      const gpu::GpuPreferences& prefs) {
+    return prefs.message_loop_type;
   }
 };
 

@@ -7,12 +7,13 @@
 #include "ash/accessibility/accessibility_delegate.h"
 #include "ash/frame/non_client_frame_view_ash.h"
 #include "ash/public/cpp/shell_window_ids.h"
+#include "ash/public/cpp/test/shell_test_api.h"
 #include "ash/shell.h"
-#include "ash/shell_test_api.h"
 #include "ash/wm/window_state.h"
 #include "ash/wm/wm_event.h"
 #include "ash/wm/workspace/workspace_window_resizer.h"
 #include "ash/wm/workspace_controller_test_api.h"
+#include "base/bind.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "components/exo/buffer.h"
@@ -37,26 +38,25 @@
 #include "ui/events/base_event_utils.h"
 #include "ui/events/event.h"
 #include "ui/views/widget/widget.h"
+#include "ui/wm/core/shadow_types.h"
 #include "ui/wm/core/window_util.h"
 
 namespace exo {
-namespace {
 
 using ShellSurfaceTest = test::ExoTestBase;
 
 bool HasBackdrop() {
-  ash::WorkspaceController* wc =
-      ash::ShellTestApi(ash::Shell::Get()).workspace_controller();
+  ash::WorkspaceController* wc = ash::ShellTestApi().workspace_controller();
   return !!ash::WorkspaceControllerTestApi(wc).GetBackdropWindow();
 }
 
 uint32_t ConfigureFullscreen(uint32_t serial,
                              const gfx::Size& size,
-                             ash::mojom::WindowStateType state_type,
+                             ash::WindowStateType state_type,
                              bool resizing,
                              bool activated,
                              const gfx::Vector2d& origin_offset) {
-  EXPECT_EQ(ash::mojom::WindowStateType::FULLSCREEN, state_type);
+  EXPECT_EQ(ash::WindowStateType::kFullscreen, state_type);
   return serial;
 }
 
@@ -166,14 +166,14 @@ TEST_F(ShellSurfaceTest, Maximize) {
   EXPECT_TRUE(shell_surface->GetWidget()->IsMaximized());
 
   // Toggle maximize.
-  ash::wm::WMEvent maximize_event(ash::wm::WM_EVENT_TOGGLE_MAXIMIZE);
+  ash::WMEvent maximize_event(ash::WM_EVENT_TOGGLE_MAXIMIZE);
   aura::Window* window = shell_surface->GetWidget()->GetNativeWindow();
 
-  ash::wm::GetWindowState(window)->OnWMEvent(&maximize_event);
+  ash::WindowState::Get(window)->OnWMEvent(&maximize_event);
   EXPECT_FALSE(shell_surface->GetWidget()->IsMaximized());
   EXPECT_FALSE(HasBackdrop());
 
-  ash::wm::GetWindowState(window)->OnWMEvent(&maximize_event);
+  ash::WindowState::Get(window)->OnWMEvent(&maximize_event);
   EXPECT_TRUE(shell_surface->GetWidget()->IsMaximized());
   EXPECT_FALSE(HasBackdrop());
 }
@@ -229,6 +229,26 @@ TEST_F(ShellSurfaceTest, Restore) {
   EXPECT_EQ(
       buffer_size.ToString(),
       shell_surface->GetWidget()->GetWindowBoundsInScreen().size().ToString());
+}
+
+TEST_F(ShellSurfaceTest, HostWindowBoundsUpdatedAfterCommitWidget) {
+  gfx::Size buffer_size(256, 256);
+  std::unique_ptr<Buffer> buffer(
+      new Buffer(exo_test_helper()->CreateGpuMemoryBuffer(buffer_size)));
+  std::unique_ptr<Surface> surface(new Surface);
+  std::unique_ptr<ShellSurface> shell_surface(new ShellSurface(surface.get()));
+
+  surface->Attach(buffer.get());
+  shell_surface->SurfaceTreeHost::OnSurfaceCommit();
+  shell_surface->root_surface()->SetSurfaceHierarchyContentBoundsForTest(
+      gfx::Rect(0, 0, 50, 50));
+
+  // Host Window Bounds size before committing.
+  EXPECT_EQ(gfx::Rect(0, 0, 0, 0), shell_surface->host_window()->bounds());
+  EXPECT_TRUE(shell_surface->OnPreWidgetCommit());
+  shell_surface->CommitWidget();
+  // CommitWidget should update the Host Window Bounds.
+  EXPECT_EQ(gfx::Rect(0, 0, 50, 50), shell_surface->host_window()->bounds());
 }
 
 TEST_F(ShellSurfaceTest, SetFullscreen) {
@@ -287,7 +307,7 @@ TEST_F(ShellSurfaceTest, SetApplicationId) {
   EXPECT_EQ("pre-widget-id", *GetShellApplicationId(window));
   shell_surface->SetApplicationId("test");
   EXPECT_EQ("test", *GetShellApplicationId(window));
-  EXPECT_FALSE(ash::wm::GetWindowState(window)->allow_set_bounds_direct());
+  EXPECT_FALSE(ash::WindowState::Get(window)->allow_set_bounds_direct());
 
   shell_surface->SetApplicationId(nullptr);
   EXPECT_EQ(nullptr, GetShellApplicationId(window));
@@ -304,7 +324,7 @@ TEST_F(ShellSurfaceTest, EmulateOverrideRedirect) {
   surface->Attach(buffer.get());
   surface->Commit();
   aura::Window* window = shell_surface->GetWidget()->GetNativeWindow();
-  EXPECT_FALSE(ash::wm::GetWindowState(window)->allow_set_bounds_direct());
+  EXPECT_FALSE(ash::WindowState::Get(window)->allow_set_bounds_direct());
 
   // Only surface with no app id with parent surface is considered
   // override redirect.
@@ -317,7 +337,23 @@ TEST_F(ShellSurfaceTest, EmulateOverrideRedirect) {
   child_surface->Commit();
   aura::Window* child_window =
       child_shell_surface->GetWidget()->GetNativeWindow();
-  EXPECT_TRUE(ash::wm::GetWindowState(child_window)->allow_set_bounds_direct());
+
+  // The window will not have a window state, thus will no be managed by window
+  // manager.
+  EXPECT_TRUE(ash::WindowState::Get(child_window)->allow_set_bounds_direct());
+  EXPECT_EQ(ash::kShellWindowId_ShelfBubbleContainer,
+            child_window->parent()->id());
+
+  // NONE/SHADOW frame type should work on override redirect.
+  child_surface->SetFrame(SurfaceFrameType::SHADOW);
+  child_surface->Commit();
+  EXPECT_EQ(wm::kShadowElevationMenuOrTooltip,
+            wm::GetShadowElevationConvertDefault(child_window));
+
+  child_surface->SetFrame(SurfaceFrameType::NONE);
+  child_surface->Commit();
+  EXPECT_EQ(wm::kShadowElevationNone,
+            wm::GetShadowElevationConvertDefault(child_window));
 }
 
 TEST_F(ShellSurfaceTest, SetStartupId) {
@@ -472,11 +508,11 @@ TEST_F(ShellSurfaceTest, SurfaceDestroyedCallback) {
 }
 
 uint32_t Configure(gfx::Size* suggested_size,
-                   ash::mojom::WindowStateType* has_state_type,
+                   ash::WindowStateType* has_state_type,
                    bool* is_resizing,
                    bool* is_active,
                    const gfx::Size& size,
-                   ash::mojom::WindowStateType state_type,
+                   ash::WindowStateType state_type,
                    bool resizing,
                    bool activated,
                    const gfx::Vector2d& origin_offset) {
@@ -491,8 +527,7 @@ TEST_F(ShellSurfaceTest, ConfigureCallback) {
   // Must be before shell_surface so it outlives it, for shell_surface's
   // destructor calls Configure() referencing these 4 variables.
   gfx::Size suggested_size;
-  ash::mojom::WindowStateType has_state_type =
-      ash::mojom::WindowStateType::NORMAL;
+  ash::WindowStateType has_state_type = ash::WindowStateType::kNormal;
   bool is_resizing = false;
   bool is_active = false;
 
@@ -521,7 +556,7 @@ TEST_F(ShellSurfaceTest, ConfigureCallback) {
 
   EXPECT_FALSE(shell_surface->GetWidget());
   EXPECT_TRUE(suggested_size.IsEmpty());
-  EXPECT_EQ(ash::mojom::WindowStateType::NORMAL, has_state_type);
+  EXPECT_EQ(ash::WindowStateType::kNormal, has_state_type);
 
   gfx::Size buffer_size(64, 64);
   std::unique_ptr<Buffer> buffer(
@@ -533,7 +568,7 @@ TEST_F(ShellSurfaceTest, ConfigureCallback) {
       display::Screen::GetScreen()->GetPrimaryDisplay().work_area();
   EXPECT_TRUE(shell_surface->GetWidget());
   EXPECT_EQ(maximized_bounds.size(), suggested_size);
-  EXPECT_EQ(ash::mojom::WindowStateType::MAXIMIZED, has_state_type);
+  EXPECT_EQ(ash::WindowStateType::kMaximized, has_state_type);
   shell_surface->Restore();
   shell_surface->AcknowledgeConfigure(0);
   // It should be restored to the original geometry size.
@@ -543,7 +578,7 @@ TEST_F(ShellSurfaceTest, ConfigureCallback) {
   shell_surface->AcknowledgeConfigure(0);
   EXPECT_EQ(CurrentContext()->bounds().size().ToString(),
             suggested_size.ToString());
-  EXPECT_EQ(ash::mojom::WindowStateType::FULLSCREEN, has_state_type);
+  EXPECT_EQ(ash::WindowStateType::kFullscreen, has_state_type);
   shell_surface->SetFullscreen(false);
   shell_surface->AcknowledgeConfigure(0);
   EXPECT_EQ(geometry.size(), shell_surface->CalculatePreferredSize());
@@ -579,18 +614,18 @@ TEST_F(ShellSurfaceTest, ToggleFullscreen) {
   EXPECT_EQ(CurrentContext()->bounds().width(),
             shell_surface->GetWidget()->GetWindowBoundsInScreen().width());
 
-  ash::wm::WMEvent event(ash::wm::WM_EVENT_TOGGLE_FULLSCREEN);
+  ash::WMEvent event(ash::WM_EVENT_TOGGLE_FULLSCREEN);
   aura::Window* window = shell_surface->GetWidget()->GetNativeWindow();
 
   // Enter fullscreen mode.
-  ash::wm::GetWindowState(window)->OnWMEvent(&event);
+  ash::WindowState::Get(window)->OnWMEvent(&event);
 
   EXPECT_FALSE(HasBackdrop());
   EXPECT_EQ(CurrentContext()->bounds().ToString(),
             shell_surface->GetWidget()->GetWindowBoundsInScreen().ToString());
 
   // Leave fullscreen mode.
-  ash::wm::GetWindowState(window)->OnWMEvent(&event);
+  ash::WindowState::Get(window)->OnWMEvent(&event);
   EXPECT_FALSE(HasBackdrop());
 
   // Check that shell surface is maximized.
@@ -634,11 +669,11 @@ TEST_F(ShellSurfaceTest, CycleSnap) {
   EXPECT_EQ(buffer_size,
             shell_surface->GetWidget()->GetWindowBoundsInScreen().size());
 
-  ash::wm::WMEvent event(ash::wm::WM_EVENT_CYCLE_SNAP_LEFT);
+  ash::WMEvent event(ash::WM_EVENT_CYCLE_SNAP_LEFT);
   aura::Window* window = shell_surface->GetWidget()->GetNativeWindow();
 
   // Enter snapped mode.
-  ash::wm::GetWindowState(window)->OnWMEvent(&event);
+  ash::WindowState::Get(window)->OnWMEvent(&event);
 
   EXPECT_EQ(CurrentContext()->bounds().width() / 2,
             shell_surface->GetWidget()->GetWindowBoundsInScreen().width());
@@ -649,6 +684,41 @@ TEST_F(ShellSurfaceTest, CycleSnap) {
   // Commit shouldn't change widget bounds when snapped.
   EXPECT_EQ(CurrentContext()->bounds().width() / 2,
             shell_surface->GetWidget()->GetWindowBoundsInScreen().width());
+}
+
+TEST_F(ShellSurfaceTest, Transient) {
+  gfx::Size buffer_size(256, 256);
+
+  std::unique_ptr<Buffer> parent_buffer(
+      new Buffer(exo_test_helper()->CreateGpuMemoryBuffer(buffer_size)));
+  std::unique_ptr<Surface> parent_surface(new Surface);
+  parent_surface->Attach(parent_buffer.get());
+  std::unique_ptr<ShellSurface> parent_shell_surface(
+      new ShellSurface(parent_surface.get()));
+  parent_surface->Commit();
+
+  std::unique_ptr<Buffer> child_buffer(
+      new Buffer(exo_test_helper()->CreateGpuMemoryBuffer(buffer_size)));
+  std::unique_ptr<Surface> child_surface(new Surface);
+  child_surface->Attach(child_buffer.get());
+  std::unique_ptr<ShellSurface> child_shell_surface(
+      new ShellSurface(child_surface.get()));
+  // Importantly, a transient window has an associated application.
+  child_surface->SetApplicationId("fake_app_id");
+  child_surface->SetParent(parent_surface.get(), gfx::Point(50, 50));
+  child_surface->Commit();
+
+  aura::Window* parent_window =
+      parent_shell_surface->GetWidget()->GetNativeWindow();
+  aura::Window* child_window =
+      child_shell_surface->GetWidget()->GetNativeWindow();
+  ASSERT_TRUE(parent_window && child_window);
+
+  // The visibility of transient windows is controlled by the parent.
+  parent_window->Hide();
+  EXPECT_FALSE(child_window->IsVisible());
+  parent_window->Show();
+  EXPECT_TRUE(child_window->IsVisible());
 }
 
 TEST_F(ShellSurfaceTest, Popup) {
@@ -732,5 +802,4 @@ TEST_F(ShellSurfaceTest, Popup) {
   }
 }
 
-}  // namespace
 }  // namespace exo

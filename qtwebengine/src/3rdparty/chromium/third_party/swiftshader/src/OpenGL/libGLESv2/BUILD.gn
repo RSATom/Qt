@@ -62,6 +62,7 @@ config("swiftshader_libGLESv2_private_config") {
 
 swiftshader_static_library("swiftshader_libGLESv2_static") {
   deps = [
+    "../../OpenGL/common:swiftshader_opengl_common",
     "../../OpenGL/compiler:swiftshader_opengl_compiler",
     "../../Reactor:swiftshader_reactor",
     "../../Renderer:swiftshader_renderer",
@@ -124,8 +125,15 @@ swiftshader_shared_library("swiftshader_libGLESv2") {
   ]
 
   if (is_mac) {
-    ldflags = [ "-Wl,-install_name,@rpath/libswiftshader_libGLESv2.dylib" ]
+    ldflags = [
+      "-Wl,-install_name,@rpath/libswiftshader_libGLESv2.dylib",
+      "-Wl,-exported_symbols_list," +
+          rebase_path("libGLESv2.exports", root_build_dir),
+    ]
   } else if (is_linux) {
+    inputs = [
+      "libGLESv2.lds",
+    ]
     ldflags = [ "-Wl,--version-script=" +
                 rebase_path("libGLESv2.lds", root_build_dir) ]
   }

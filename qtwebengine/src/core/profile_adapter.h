@@ -124,7 +124,6 @@ public:
 
     QString httpCachePath() const;
     QString cookiesPath() const;
-    QString channelIdPath() const;
 
     QString httpUserAgent() const;
     void setHttpUserAgent(const QString &userAgent);
@@ -213,6 +212,8 @@ public:
     {   return m_ephemeralNotifications; }
     QHash<QByteArray, QSharedPointer<UserNotificationController>> &persistentNotifications()
     {   return m_persistentNotifications; }
+
+    QString determineDownloadPath(const QString &downloadDirectory, const QString &suggestedFilename, const time_t &startTime);
 
 private:
     void updateCustomUrlSchemeHandlers();

@@ -15,10 +15,12 @@
 #include <vector>
 
 #include "base/base_switches.h"
+#include "base/bind.h"
 #include "base/build_time.h"
 #include "base/command_line.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
+#include "base/strings/pattern.h"
 #include "base/strings/stringprintf.h"
 #include "base/system/sys_info.h"
 #include "base/trace_event/trace_event.h"
@@ -53,23 +55,6 @@ enum VariationsSeedExpiry {
   VARIATIONS_SEED_EXPIRY_ENUM_SIZE,
 };
 
-// Set of different possible values to report for the
-// Variations.LoadPermanentConsistencyCountryResult histogram. Values are
-// persisted to logs, and should therefore never be renumbered nor reused.
-enum LoadPermanentConsistencyCountryResult {
-  LOAD_COUNTRY_NO_PREF_NO_SEED = 0,
-  LOAD_COUNTRY_NO_PREF_HAS_SEED,
-  LOAD_COUNTRY_INVALID_PREF_NO_SEED,
-  LOAD_COUNTRY_INVALID_PREF_HAS_SEED,
-  LOAD_COUNTRY_HAS_PREF_NO_SEED_VERSION_EQ,
-  LOAD_COUNTRY_HAS_PREF_NO_SEED_VERSION_NEQ,
-  LOAD_COUNTRY_HAS_BOTH_VERSION_EQ_COUNTRY_EQ,
-  LOAD_COUNTRY_HAS_BOTH_VERSION_EQ_COUNTRY_NEQ,
-  LOAD_COUNTRY_HAS_BOTH_VERSION_NEQ_COUNTRY_EQ,
-  LOAD_COUNTRY_HAS_BOTH_VERSION_NEQ_COUNTRY_NEQ,
-  LOAD_COUNTRY_MAX,
-};
-
 // Gets current form factor and converts it from enum DeviceFormFactor to enum
 // Study_FormFactor.
 Study::FormFactor GetCurrentFormFactor() {
@@ -98,26 +83,31 @@ base::Time GetReferenceDateForExpiryChecks(PrefService* local_state) {
   return reference_date;
 }
 
-// Wrapper around channel checking, used to enable channel mocking for
-// testing. If a fake channel flag is provided, it will take precedence.
-// Otherwise, this will return the current browser channel (which could be
-// UNKNOWN).
-Study::Channel GetChannelForVariations(version_info::Channel product_channel) {
-  const std::string forced_channel =
-      base::CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
-          switches::kFakeVariationsChannel);
-  if (!forced_channel.empty()) {
-    if (forced_channel == "stable")
-      return Study::STABLE;
-    if (forced_channel == "beta")
-      return Study::BETA;
-    if (forced_channel == "dev")
-      return Study::DEV;
-    if (forced_channel == "canary")
-      return Study::CANARY;
-    DVLOG(1) << "Invalid channel provided: " << forced_channel;
-  }
+// TODO(b/957197): Improve how we handle OS versions.
+// Add os_version.h and os_version_<platform>.cc that handle retrieving and
+// parsing OS versions. Then get rid of all the platform-dependent code here.
+base::Version GetOSVersion() {
+  base::Version ret;
 
+#if defined(OS_WIN)
+  std::string win_version = base::SysInfo::OperatingSystemVersion();
+  base::ReplaceSubstringsAfterOffset(&win_version, 0, " SP", ".");
+  ret = base::Version(win_version);
+  DCHECK(ret.IsValid()) << win_version;
+#else
+  // Every other OS is supported by OperatingSystemVersionNumbers
+  int major, minor, build;
+  base::SysInfo::OperatingSystemVersionNumbers(&major, &minor, &build);
+  ret = base::Version(base::StringPrintf("%d.%d.%d", major, minor, build));
+  DCHECK(ret.IsValid());
+#endif
+
+  return ret;
+}
+
+// Just maps one set of enum values to another. Nothing to see here.
+Study::Channel ConvertProductChannelToStudyChannel(
+    version_info::Channel product_channel) {
   switch (product_channel) {
     case version_info::Channel::CANARY:
       return Study::CANARY;
@@ -249,7 +239,9 @@ VariationsFieldTrialCreator::GetClientFilterableStateForVersion(
   state->locale = application_locale_;
   state->reference_date = GetReferenceDateForExpiryChecks(local_state());
   state->version = version;
-  state->channel = GetChannelForVariations(client_->GetChannel());
+  state->os_version = GetOSVersion();
+  state->channel =
+      ConvertProductChannelToStudyChannel(client_->GetChannelForVariations());
   state->form_factor = GetCurrentFormFactor();
   state->platform = GetPlatform();
   state->hardware_class = GetShortHardwareClass();
@@ -260,8 +252,6 @@ VariationsFieldTrialCreator::GetClientFilterableStateForVersion(
   // evaluated, that field trial would not be able to apply for this case.
   state->is_low_end_device = base::SysInfo::IsLowEndDevice();
 #endif
-  state->supports_permanent_consistency =
-      client_->GetSupportsPermanentConsistency();
   state->session_consistency_country = GetLatestCountry();
   state->permanent_consistency_country = LoadPermanentConsistencyCountry(
       version, state->session_consistency_country);
@@ -279,6 +269,16 @@ std::string VariationsFieldTrialCreator::LoadPermanentConsistencyCountry(
           switches::kVariationsOverrideCountry);
   if (!override_country.empty())
     return override_country;
+
+  const std::string permanent_overridden_country =
+      local_state()->GetString(prefs::kVariationsPermanentOverriddenCountry);
+
+  if (!permanent_overridden_country.empty()) {
+    base::UmaHistogramEnumeration(
+        "Variations.LoadPermanentConsistencyCountryResult",
+        LOAD_COUNTRY_HAS_PERMANENT_OVERRIDDEN_COUNTRY, LOAD_COUNTRY_MAX);
+    return permanent_overridden_country;
+  }
 
   const base::ListValue* list_value =
       local_state()->GetList(prefs::kVariationsPermanentConsistencyCountry);
@@ -353,6 +353,12 @@ void VariationsFieldTrialCreator::StorePermanentCountry(
                      new_list_value);
 }
 
+void VariationsFieldTrialCreator::StoreVariationsOverriddenCountry(
+    const std::string& country) {
+  local_state()->SetString(prefs::kVariationsPermanentOverriddenCountry,
+                           country);
+}
+
 void VariationsFieldTrialCreator::OverrideVariationsPlatform(
     Study::Platform platform_override) {
   has_platform_override_ = true;
@@ -382,9 +388,11 @@ std::string VariationsFieldTrialCreator::GetShortHardwareClass() {
     board.resize(index);
 
   return base::ToUpperASCII(board);
+#elif defined(OS_ANDROID)
+  return base::SysInfo::HardwareModelName();
 #else
   return std::string();
-#endif  // OS_CHROMEOS
+#endif
 }
 
 bool VariationsFieldTrialCreator::LoadSeed(VariationsSeed* seed,
@@ -507,7 +515,12 @@ bool VariationsFieldTrialCreator::SetupFieldTrials(
   if (!command_line->HasSwitch(switches::kDisableFieldTrialTestingConfig) &&
       !command_line->HasSwitch(::switches::kForceFieldTrials) &&
       !command_line->HasSwitch(switches::kVariationsServerURL)) {
-    AssociateDefaultFieldTrialConfig(feature_list.get(), GetPlatform());
+    // Note that passing base::Unretained(this) below is safe because the
+    // callback is executed synchronously.
+    AssociateDefaultFieldTrialConfig(
+        base::BindRepeating(&VariationsFieldTrialCreator::OverrideUIString,
+                            base::Unretained(this)),
+        GetPlatform(), feature_list.get());
     used_testing_config = true;
   }
 #endif  // BUILDFLAG(FIELDTRIAL_TESTING_ENABLED)

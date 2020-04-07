@@ -79,7 +79,7 @@ namespace {
 
         const int index =  promotedWidgetDataBaseIndex(widgetDataBase, className, errorMessage);
         if (index == -1)
-            return 0;
+            return nullptr;
         return widgetDataBase->item(index);
     }
 
@@ -166,7 +166,7 @@ namespace qdesigner_internal {
 
     QList<QDesignerWidgetDataBaseItemInterface *> QDesignerPromotion::promotionBaseClasses() const
     {
-        typedef QMap<QString, QDesignerWidgetDataBaseItemInterface *> SortedDatabaseItemMap;
+        using SortedDatabaseItemMap = QMap<QString, QDesignerWidgetDataBaseItemInterface *>;
         SortedDatabaseItemMap sortedDatabaseItemMap;
 
         QDesignerWidgetDataBaseInterface *widgetDataBase = m_core->widgetDataBase();
@@ -202,9 +202,9 @@ namespace qdesigner_internal {
 
     QDesignerPromotion::PromotedClasses QDesignerPromotion::promotedClasses()  const
     {
-        typedef QMap<QString, QDesignerWidgetDataBaseItemInterface *> ClassNameItemMap;
+        using ClassNameItemMap = QMap<QString, QDesignerWidgetDataBaseItemInterface *>;
         // A map containing base classes and their promoted classes.
-        typedef QMap<QString, ClassNameItemMap> BaseClassPromotedMap;
+        using BaseClassPromotedMap = QMap<QString, ClassNameItemMap>;
 
         BaseClassPromotedMap baseClassPromotedMap;
 

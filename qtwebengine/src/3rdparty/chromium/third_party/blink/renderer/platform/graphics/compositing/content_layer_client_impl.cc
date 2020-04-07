@@ -5,6 +5,7 @@
 #include "third_party/blink/renderer/platform/graphics/compositing/content_layer_client_impl.h"
 
 #include <memory>
+#include "base/bind.h"
 #include "base/optional.h"
 #include "base/trace_event/traced_value.h"
 #include "cc/paint/paint_flags.h"
@@ -24,11 +25,10 @@ namespace blink {
 
 ContentLayerClientImpl::ContentLayerClientImpl()
     : cc_picture_layer_(cc::PictureLayer::Create(this)),
-      raster_invalidator_([this](const IntRect& rect) {
-        cc_picture_layer_->SetNeedsDisplayRect(rect);
-      }),
-      layer_state_(nullptr, nullptr, nullptr),
-      weak_ptr_factory_(this) {
+      raster_invalidator_(
+          base::BindRepeating(&ContentLayerClientImpl::InvalidateRect,
+                              base::Unretained(this))),
+      layer_state_(PropertyTreeState::Uninitialized()) {
   cc_picture_layer_->SetLayerClient(weak_ptr_factory_.GetWeakPtr());
 }
 
@@ -41,12 +41,12 @@ static int GetTransformId(const TransformPaintPropertyNode* transform,
   if (!transform)
     return 0;
 
-  auto it = context.transform_id_map.find(transform);
-  if (it != context.transform_id_map.end())
-    return it->value;
+  auto transform_lookup_result = context.transform_id_map.find(transform);
+  if (transform_lookup_result != context.transform_id_map.end())
+    return transform_lookup_result->value;
 
   int parent_id = GetTransformId(transform->Parent(), context);
-  if (transform->Matrix().IsIdentity() && !transform->RenderingContextId()) {
+  if (transform->IsIdentity() && !transform->RenderingContextId()) {
     context.transform_id_map.Set(transform, parent_id);
     return parent_id;
   }
@@ -54,33 +54,35 @@ static int GetTransformId(const TransformPaintPropertyNode* transform,
   int transform_id = context.next_transform_id++;
   context.transform_id_map.Set(transform, transform_id);
 
-  auto json = JSONObject::Create();
+  auto json = std::make_unique<JSONObject>();
   json->SetInteger("id", transform_id);
   if (parent_id)
     json->SetInteger("parent", parent_id);
 
-  if (!transform->Matrix().IsIdentity())
-    json->SetArray("transform", TransformAsJSONArray(transform->Matrix()));
+  if (!transform->IsIdentity())
+    json->SetArray("transform", TransformAsJSONArray(transform->SlowMatrix()));
 
-  if (!transform->Matrix().IsIdentityOrTranslation())
+  if (!transform->IsIdentityOr2DTranslation() &&
+      !transform->Matrix().IsIdentityOrTranslation())
     json->SetArray("origin", PointAsJSONArray(transform->Origin()));
 
   if (!transform->FlattensInheritedTransform())
     json->SetBoolean("flattenInheritedTransform", false);
 
   if (auto rendering_context = transform->RenderingContextId()) {
-    auto it = context.rendering_context_map.find(rendering_context);
+    auto context_lookup_result =
+        context.rendering_context_map.find(rendering_context);
     int rendering_id = context.rendering_context_map.size() + 1;
-    if (it == context.rendering_context_map.end())
+    if (context_lookup_result == context.rendering_context_map.end())
       context.rendering_context_map.Set(rendering_context, rendering_id);
     else
-      rendering_id = it->value;
+      rendering_id = context_lookup_result->value;
 
     json->SetInteger("renderingContext", rendering_id);
   }
 
   if (!context.transforms_json)
-    context.transforms_json = JSONArray::Create();
+    context.transforms_json = std::make_unique<JSONArray>();
   context.transforms_json->PushObject(std::move(json));
 
   return transform_id;
@@ -89,7 +91,7 @@ static int GetTransformId(const TransformPaintPropertyNode* transform,
 // This is the CAP version of GraphicsLayer::LayerAsJSONInternal().
 std::unique_ptr<JSONObject> ContentLayerClientImpl::LayerAsJSON(
     LayerAsJSONContext& context) const {
-  std::unique_ptr<JSONObject> json = JSONObject::Create();
+  auto json = std::make_unique<JSONObject>();
   json->SetString("name", debug_name_);
 
   if (context.flags & kLayerTreeIncludesDebugInfo)
@@ -129,7 +131,7 @@ std::unique_ptr<JSONObject> ContentLayerClientImpl::LayerAsJSON(
       raster_invalidator_.GetTracking())
     raster_invalidator_.GetTracking()->AsJSON(json.get());
 
-  if (int transform_id = GetTransformId(layer_state_.Transform(), context))
+  if (int transform_id = GetTransformId(&layer_state_.Transform(), context))
     json->SetInteger("transform", transform_id);
 
 #if DCHECK_IS_ON()
@@ -144,7 +146,7 @@ std::unique_ptr<JSONObject> ContentLayerClientImpl::LayerAsJSON(
 }
 
 std::unique_ptr<base::trace_event::TracedValue>
-ContentLayerClientImpl::TakeDebugInfo(cc::Layer* layer) {
+ContentLayerClientImpl::TakeDebugInfo(const cc::Layer* layer) {
   DCHECK_EQ(layer, cc_picture_layer_.get());
   auto traced_value = std::make_unique<base::trace_event::TracedValue>();
   traced_value->SetString("layer_name",
@@ -156,29 +158,6 @@ ContentLayerClientImpl::TakeDebugInfo(cc::Layer* layer) {
   // TODO(wangxianzhu): Do we need compositing_reasons,
   // squashing_disallowed_reasons and owner_node_id?
   return traced_value;
-}
-
-static SkColor DisplayItemBackgroundColor(const DisplayItem& item) {
-  if (item.GetType() != DisplayItem::kBoxDecorationBackground &&
-      item.GetType() != DisplayItem::kDocumentBackground)
-    return SK_ColorTRANSPARENT;
-
-  const auto& drawing_item = static_cast<const DrawingDisplayItem&>(item);
-  const auto record = drawing_item.GetPaintRecord();
-  if (!record)
-    return SK_ColorTRANSPARENT;
-
-  for (cc::PaintOpBuffer::Iterator it(record.get()); it; ++it) {
-    const auto* op = *it;
-    if (op->GetType() == cc::PaintOpType::DrawRect ||
-        op->GetType() == cc::PaintOpType::DrawRRect) {
-      const auto& flags = static_cast<const cc::PaintOpWithFlags*>(op)->flags;
-      // Skip op with looper which may modify the color.
-      if (!flags.getLooper() && flags.getStyle() == cc::PaintFlags::kFill_Style)
-        return flags.getColor();
-    }
-  }
-  return SK_ColorTRANSPARENT;
 }
 
 scoped_refptr<cc::PictureLayer> ContentLayerClientImpl::UpdateCcPictureLayer(
@@ -196,24 +175,37 @@ scoped_refptr<cc::PictureLayer> ContentLayerClientImpl::UpdateCcPictureLayer(
   const auto& display_item_list = paint_artifact->GetDisplayItemList();
 
 #if DCHECK_IS_ON()
-  paint_chunk_debug_data_ = JSONArray::Create();
+  paint_chunk_debug_data_ = std::make_unique<JSONArray>();
   for (const auto& chunk : paint_chunks) {
-    auto json = JSONObject::Create();
+    auto json = std::make_unique<JSONObject>();
     json->SetString("data", chunk.ToString());
     json->SetArray("displayItems",
                    paint_artifact->GetDisplayItemList().SubsequenceAsJSON(
                        chunk.begin_index, chunk.end_index,
-                       DisplayItemList::kShownOnlyDisplayItemTypes));
+                       DisplayItemList::kShowOnlyDisplayItemTypes));
     paint_chunk_debug_data_->PushObject(std::move(json));
   }
 #endif
+
+  // The raster invalidator will only handle invalidations within a cc::Layer so
+  // we need this invalidation if the layer's properties have changed.
+  if (layer_state != layer_state_)
+    cc_picture_layer_->SetSubtreePropertyChanged();
 
   raster_invalidator_.Generate(paint_artifact, paint_chunks, layer_bounds,
                                layer_state);
   layer_state_ = layer_state;
 
+  // Note: cc::Layer API assumes the layer bounds start at (0, 0), but the
+  // bounding box of a paint chunk does not necessarily start at (0, 0) (and
+  // could even be negative). Internally the generated layer translates the
+  // paint chunk to align the bounding box to (0, 0) and we set the layer's
+  // offset_to_transform_parent with the origin of the paint chunk here.
+  cc_picture_layer_->SetOffsetToTransformParent(
+      layer_bounds.OffsetFromOrigin());
   cc_picture_layer_->SetBounds(layer_bounds.size());
   cc_picture_layer_->SetIsDrawable(true);
+  cc_picture_layer_->SetHitTestable(true);
 
   base::Optional<RasterUnderInvalidationCheckingParams> params;
   if (RuntimeEnabledFeatures::PaintUnderInvalidationCheckingEnabled()) {
@@ -226,11 +218,14 @@ scoped_refptr<cc::PictureLayer> ContentLayerClientImpl::UpdateCcPictureLayer(
       display_item_list, cc::DisplayItemList::kTopLevelDisplayItemList,
       base::OptionalOrNullptr(params));
 
-  if (paint_chunks[0].size()) {
-    cc_picture_layer_->SetBackgroundColor(DisplayItemBackgroundColor(
-        display_item_list[paint_chunks[0].begin_index]));
-  }
-
+  cc_picture_layer_->SetSafeOpaqueBackgroundColor(
+      paint_chunks[0].safe_opaque_background_color);
+  // TODO(masonfreed): We don't need to set the background color here; only the
+  // safe opaque background color matters. But making that change would require
+  // rebaselining 787 tests to remove the "background_color" property from the
+  // layer dumps.
+  cc_picture_layer_->SetBackgroundColor(
+      paint_chunks[0].safe_opaque_background_color);
   return cc_picture_layer_;
 }
 

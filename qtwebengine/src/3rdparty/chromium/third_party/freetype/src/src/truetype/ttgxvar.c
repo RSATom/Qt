@@ -4,7 +4,7 @@
  *
  *   TrueType GX Font Variation loader
  *
- * Copyright 2004-2018 by
+ * Copyright (C) 2004-2019 by
  * David Turner, Robert Wilhelm, Werner Lemberg, and George Williams.
  *
  * This file is part of the FreeType project, and may only be used,
@@ -68,12 +68,16 @@
 
 
   /* some macros we need */
-#define FT_fdot14ToFixed( x )                \
-        ( (FT_Fixed)( (FT_ULong)(x) << 2 ) )
-#define FT_intToFixed( i )                    \
-        ( (FT_Fixed)( (FT_ULong)(i) << 16 ) )
-#define FT_fixedToInt( x )                                   \
-        ( (FT_Short)( ( (FT_UInt32)(x) + 0x8000U ) >> 16 ) )
+#define FT_fdot14ToFixed( x )                  \
+          ( (FT_Fixed)( (FT_ULong)(x) << 2 ) )
+#define FT_intToFixed( i )                      \
+          ( (FT_Fixed)( (FT_ULong)(i) << 16 ) )
+#define FT_fdot6ToFixed( i )                    \
+          ( (FT_Fixed)( (FT_ULong)(i) << 10 ) )
+#define FT_fixedToInt( x )                          \
+          ( (FT_Short)( ( (x) + 0x8000U ) >> 16 ) )
+#define FT_fixedToFdot6( x )                    \
+          ( (FT_Pos)( ( (x) + 0x200 ) >> 10 ) )
 
 
   /**************************************************************************
@@ -397,9 +401,10 @@
 
       for ( j = 0; j < segment->pairCount; j++ )
       {
-        /* convert to Fixed */
-        segment->correspondence[j].fromCoord = FT_GET_SHORT() * 4;
-        segment->correspondence[j].toCoord   = FT_GET_SHORT() * 4;
+        segment->correspondence[j].fromCoord =
+          FT_fdot14ToFixed( FT_GET_SHORT() );
+        segment->correspondence[j].toCoord =
+          FT_fdot14ToFixed( FT_GET_SHORT() );
 
         FT_TRACE5(( "    mapping %.5f to %.5f\n",
                     segment->correspondence[j].fromCoord / 65536.0,
@@ -1325,6 +1330,9 @@
   {
     GX_Blend  blend = face->blend;
     GX_Value  value, limit;
+    FT_Short  mvar_hasc_delta = 0;
+    FT_Short  mvar_hdsc_delta = 0;
+    FT_Short  mvar_hlgp_delta = 0;
 
 
     if ( !( face->variation_support & TT_FACE_FLAG_VAR_MVAR ) )
@@ -1359,6 +1367,14 @@
         /* since we handle both signed and unsigned values as FT_Short, */
         /* ensure proper overflow arithmetic                            */
         *p = (FT_Short)( value->unmodified + (FT_Short)delta );
+
+        /* Treat hasc, hdsc and hlgp specially, see below. */
+        if ( value->tag == MVAR_TAG_HASC )
+          mvar_hasc_delta = (FT_Short)delta;
+        else if ( value->tag == MVAR_TAG_HDSC )
+          mvar_hdsc_delta = (FT_Short)delta;
+        else if ( value->tag == MVAR_TAG_HLGP )
+          mvar_hlgp_delta = (FT_Short)delta;
       }
     }
 
@@ -1366,25 +1382,40 @@
     {
       FT_Face  root = &face->root;
 
+      /*
+       * Apply the deltas of hasc, hdsc and hlgp to the FT_Face's ascender,
+       * descender and height attributes, no matter how they were originally
+       * computed.
+       *
+       * (Code that ignores those and accesses the font's metrics values
+       * directly is already served by the delta application code above.)
+       *
+       * The MVAR table supports variations for both typo and win metrics.
+       * According to Behdad Esfahbod, the thinking of the working group was
+       * that no one uses win metrics anymore for setting line metrics (the
+       * specification even calls these metrics "horizontal clipping
+       * ascent/descent", probably for their role on the Windows platform in
+       * computing clipping boxes), and new fonts should use typo metrics, so
+       * typo deltas should be applied to whatever sfnt_load_face decided the
+       * line metrics should be.
+       *
+       * Before, the following led to different line metrics between default
+       * outline and instances, visible when e.g. the default outlines were
+       * used as the regular face and instances for everything else:
+       *
+       * 1. sfnt_load_face applied the hhea metrics by default.
+       * 2. This code later applied the typo metrics by default, regardless of
+       *    whether they were actually changed or the font had the OS/2 table's
+       *    fsSelection's bit 7 (USE_TYPO_METRICS) set.
+       */
+      FT_Short  current_line_gap = root->height - root->ascender +
+                                   root->descender;
 
-      if ( face->os2.version != 0xFFFFU )
-      {
-        if ( face->os2.sTypoAscender || face->os2.sTypoDescender )
-        {
-          root->ascender  = face->os2.sTypoAscender;
-          root->descender = face->os2.sTypoDescender;
 
-          root->height = root->ascender - root->descender +
-                         face->os2.sTypoLineGap;
-        }
-        else
-        {
-          root->ascender  =  (FT_Short)face->os2.usWinAscent;
-          root->descender = -(FT_Short)face->os2.usWinDescent;
-
-          root->height = root->ascender - root->descender;
-        }
-      }
+      root->ascender  = root->ascender + mvar_hasc_delta;
+      root->descender = root->descender + mvar_hdsc_delta;
+      root->height    = root->ascender - root->descender +
+                        current_line_gap + mvar_hlgp_delta;
 
       root->underline_position  = face->postscript.underlinePosition -
                                   face->postscript.underlineThickness / 2;
@@ -1590,7 +1621,7 @@
         for ( j = 0; j < (FT_UInt)gvar_head.axisCount; j++ )
         {
           blend->tuplecoords[i * gvar_head.axisCount + j] =
-            FT_GET_SHORT() * 4;                 /* convert to FT_Fixed */
+            FT_fdot14ToFixed( FT_GET_SHORT() );
           FT_TRACE5(( "%.5f ",
             blend->tuplecoords[i * gvar_head.axisCount + j] / 65536.0 ));
         }
@@ -3028,7 +3059,7 @@
     if ( instance_index > num_instances )
       goto Exit;
 
-    if ( instance_index > 0 && mmvar->namedstyle )
+    if ( instance_index > 0 )
     {
       FT_Memory     memory = face->root.memory;
       SFNT_Service  sfnt   = (SFNT_Service)face->sfnt;
@@ -3054,7 +3085,12 @@
                                  mmvar->num_axis,
                                  named_style->coords );
       if ( error )
+      {
+        /* internal error code -1 means `no change' */
+        if ( error == -1 )
+          error = FT_Err_Ok;
         goto Exit;
+      }
     }
     else
       error = TT_Set_Var_Design( face, 0, NULL );
@@ -3075,6 +3111,21 @@
   /*****                                                               *****/
   /*************************************************************************/
   /*************************************************************************/
+
+
+  static FT_Error
+  tt_cvt_ready_iterator( FT_ListNode  node,
+                         void*        user )
+  {
+    TT_Size  size = (TT_Size)node->data;
+
+    FT_UNUSED( user );
+
+
+    size->cvt_ready = -1;
+
+    return FT_Err_Ok;
+  }
 
 
   /**************************************************************************
@@ -3106,6 +3157,8 @@
   {
     FT_Error   error;
     FT_Memory  memory = stream->memory;
+
+    FT_Face  root = &face->root;
 
     FT_ULong  table_start;
     FT_ULong  table_len;
@@ -3235,8 +3288,7 @@
       if ( tupleIndex & GX_TI_EMBEDDED_TUPLE_COORD )
       {
         for ( j = 0; j < blend->num_axis; j++ )
-          tuple_coords[j] = FT_GET_SHORT() * 4;  /* convert from        */
-                                                 /* short frac to fixed */
+          tuple_coords[j] = FT_fdot14ToFixed( FT_GET_SHORT() );
       }
       else if ( ( tupleIndex & GX_TI_TUPLE_INDEX_MASK ) >= blend->tuplecount )
       {
@@ -3267,9 +3319,9 @@
       if ( tupleIndex & GX_TI_INTERMEDIATE_TUPLE )
       {
         for ( j = 0; j < blend->num_axis; j++ )
-          im_start_coords[j] = FT_GET_SHORT() * 4;
+          im_start_coords[j] = FT_fdot14ToFixed( FT_GET_SHORT() );
         for ( j = 0; j < blend->num_axis; j++ )
-          im_end_coords[j] = FT_GET_SHORT() * 4;
+          im_end_coords[j] = FT_fdot14ToFixed( FT_GET_SHORT() );
       }
 
       apply = ft_var_apply_tuple( blend,
@@ -3334,9 +3386,9 @@
           {
             FT_TRACE7(( "      %d: %f -> %f\n",
                         j,
-                        ( FT_intToFixed( face->cvt[j] ) +
+                        ( FT_fdot6ToFixed( face->cvt[j] ) +
                           old_cvt_delta ) / 65536.0,
-                        ( FT_intToFixed( face->cvt[j] ) +
+                        ( FT_fdot6ToFixed( face->cvt[j] ) +
                           cvt_deltas[j] ) / 65536.0 ));
             count++;
           }
@@ -3376,9 +3428,9 @@
           {
             FT_TRACE7(( "      %d: %f -> %f\n",
                         pindex,
-                        ( FT_intToFixed( face->cvt[pindex] ) +
+                        ( FT_fdot6ToFixed( face->cvt[pindex] ) +
                           old_cvt_delta ) / 65536.0,
-                        ( FT_intToFixed( face->cvt[pindex] ) +
+                        ( FT_fdot6ToFixed( face->cvt[pindex] ) +
                           cvt_deltas[pindex] ) / 65536.0 ));
             count++;
           }
@@ -3403,7 +3455,7 @@
     FT_TRACE5(( "\n" ));
 
     for ( i = 0; i < face->cvt_size; i++ )
-      face->cvt[i] += FT_fixedToInt( cvt_deltas[i] );
+      face->cvt[i] += FT_fixedToFdot6( cvt_deltas[i] );
 
   FExit:
     FT_FRAME_EXIT();
@@ -3415,6 +3467,12 @@
     FT_FREE( im_start_coords );
     FT_FREE( im_end_coords );
     FT_FREE( cvt_deltas );
+
+    /* iterate over all FT_Size objects and set `cvt_ready' to -1 */
+    /* to trigger rescaling of all CVT values                     */
+    FT_List_Iterate( &root->sizes_list,
+                     tt_cvt_ready_iterator,
+                     NULL );
 
     return error;
   }
@@ -3643,6 +3701,11 @@
    *   outline ::
    *     The outline to change.
    *
+   * @Output:
+   *   unrounded ::
+   *     An array with `n_points' elements that is filled with unrounded
+   *     point coordinates (in 26.6 format).
+   *
    * @Return:
    *   FreeType error code.  0 means success.
    */
@@ -3650,6 +3713,7 @@
   TT_Vary_Apply_Glyph_Deltas( TT_Face      face,
                               FT_UInt      glyph_index,
                               FT_Outline*  outline,
+                              FT_Vector*   unrounded,
                               FT_UInt      n_points )
   {
     FT_Error   error;
@@ -3690,6 +3754,12 @@
 
     if ( !face->doblend || !blend )
       return FT_THROW( Invalid_Argument );
+
+    for ( i = 0; i < n_points; i++ )
+    {
+      unrounded[i].x = INT_TO_F26DOT6( outline->points[i].x );
+      unrounded[i].y = INT_TO_F26DOT6( outline->points[i].y );
+    }
 
     if ( glyph_index >= blend->gv_glyphcnt      ||
          blend->glyphoffsets[glyph_index] ==
@@ -3781,8 +3851,7 @@
       if ( tupleIndex & GX_TI_EMBEDDED_TUPLE_COORD )
       {
         for ( j = 0; j < blend->num_axis; j++ )
-          tuple_coords[j] = FT_GET_SHORT() * 4;   /* convert from        */
-                                                  /* short frac to fixed */
+          tuple_coords[j] = FT_fdot14ToFixed( FT_GET_SHORT() );
       }
       else if ( ( tupleIndex & GX_TI_TUPLE_INDEX_MASK ) >= blend->tuplecount )
       {
@@ -3802,9 +3871,9 @@
       if ( tupleIndex & GX_TI_INTERMEDIATE_TUPLE )
       {
         for ( j = 0; j < blend->num_axis; j++ )
-          im_start_coords[j] = FT_GET_SHORT() * 4;
+          im_start_coords[j] = FT_fdot14ToFixed( FT_GET_SHORT() );
         for ( j = 0; j < blend->num_axis; j++ )
-          im_end_coords[j] = FT_GET_SHORT() * 4;
+          im_end_coords[j] = FT_fdot14ToFixed( FT_GET_SHORT() );
       }
 
       apply = ft_var_apply_tuple( blend,
@@ -4038,6 +4107,9 @@
 
     for ( i = 0; i < n_points; i++ )
     {
+      unrounded[i].x += FT_fixedToFdot6( point_deltas_x[i] );
+      unrounded[i].y += FT_fixedToFdot6( point_deltas_y[i] );
+
       outline->points[i].x += FT_fixedToInt( point_deltas_x[i] );
       outline->points[i].y += FT_fixedToInt( point_deltas_y[i] );
     }

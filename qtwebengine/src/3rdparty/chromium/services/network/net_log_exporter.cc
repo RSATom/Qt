@@ -4,6 +4,7 @@
 
 #include "services/network/net_log_exporter.h"
 
+#include "base/bind.h"
 #include "base/callback.h"
 #include "base/command_line.h"
 #include "base/files/file_path.h"
@@ -12,11 +13,9 @@
 #include "base/task/post_task.h"
 #include "base/task/task_traits.h"
 #include "base/values.h"
-#include "mojo/public/cpp/bindings/type_converter.h"
 #include "net/log/file_net_log_observer.h"
 #include "net/log/net_log_util.h"
 #include "net/url_request/url_request_context.h"
-#include "services/network/net_log_capture_mode_type_converter.h"
 #include "services/network/network_context.h"
 #include "services/network/network_service.h"
 #include "services/network/public/cpp/network_switches.h"
@@ -41,7 +40,7 @@ NetLogExporter::~NetLogExporter() {
 
 void NetLogExporter::Start(base::File destination,
                            base::Value extra_constants,
-                           mojom::NetLogCaptureMode capture_mode,
+                           net::NetLogCaptureMode capture_mode,
                            uint64_t max_file_size,
                            StartCallback callback) {
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
@@ -57,9 +56,6 @@ void NetLogExporter::Start(base::File destination,
   // be carefully controlled.
   destination_ = std::move(destination);
 
-  net::NetLogCaptureMode net_capture_mode =
-      mojo::ConvertTo<net::NetLogCaptureMode>(capture_mode);
-
   state_ = STATE_WAITING_DIR;
   static_assert(kUnlimitedFileSize == net::FileNetLogObserver::kNoLimit,
                 "Inconsistent unbounded size constants");
@@ -73,11 +69,11 @@ void NetLogExporter::Start(base::File destination,
         // Note: this a static method which takes a weak pointer as an argument,
         // so it will run if |this| is deleted.
         base::BindOnce(&NetLogExporter::StartWithScratchDirOrCleanup,
-                       AsWeakPtr(), std::move(extra_constants),
-                       net_capture_mode, max_file_size, std::move(callback)));
+                       AsWeakPtr(), std::move(extra_constants), capture_mode,
+                       max_file_size, std::move(callback)));
   } else {
-    StartWithScratchDir(std::move(extra_constants), net_capture_mode,
-                        max_file_size, std::move(callback), base::FilePath());
+    StartWithScratchDir(std::move(extra_constants), capture_mode, max_file_size,
+                        std::move(callback), base::FilePath());
   }
 }
 

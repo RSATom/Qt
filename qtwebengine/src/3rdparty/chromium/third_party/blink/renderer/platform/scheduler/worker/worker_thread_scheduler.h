@@ -8,12 +8,9 @@
 #include "base/macros.h"
 #include "base/message_loop/message_loop.h"
 #include "base/single_thread_task_runner.h"
-#include "base/task/sequence_manager/task_time_observer.h"
 #include "components/scheduling_metrics/task_duration_metric_reporter.h"
 #include "third_party/blink/public/platform/web_thread_type.h"
 #include "third_party/blink/renderer/platform/scheduler/common/idle_helper.h"
-#include "third_party/blink/renderer/platform/scheduler/common/idle_memory_reclaimer.h"
-#include "third_party/blink/renderer/platform/scheduler/common/thread_load_tracker.h"
 #include "third_party/blink/renderer/platform/scheduler/public/frame_scheduler.h"
 #include "third_party/blink/renderer/platform/scheduler/public/frame_status.h"
 #include "third_party/blink/renderer/platform/scheduler/worker/non_main_thread_scheduler_impl.h"
@@ -42,14 +39,14 @@ class TaskQueueThrottler;
 class WakeUpBudgetPool;
 class CPUTimeBudgetPool;
 
-class PLATFORM_EXPORT WorkerThreadScheduler
-    : public NonMainThreadSchedulerImpl,
-      public IdleHelper::Delegate,
-      public base::sequence_manager::TaskTimeObserver {
+class PLATFORM_EXPORT WorkerThreadScheduler : public NonMainThreadSchedulerImpl,
+                                              public IdleHelper::Delegate {
  public:
+  // |sequence_manager| and |proxy| must remain valid for the entire lifetime of
+  // this object.
   WorkerThreadScheduler(
       WebThreadType thread_type,
-      std::unique_ptr<base::sequence_manager::SequenceManager> sequence_manager,
+      base::sequence_manager::SequenceManager* sequence_manager,
       WorkerSchedulerProxy* proxy);
   ~WorkerThreadScheduler() override;
 
@@ -62,7 +59,8 @@ class PLATFORM_EXPORT WorkerThreadScheduler
   void AddTaskObserver(base::MessageLoop::TaskObserver* task_observer) override;
   void RemoveTaskObserver(
       base::MessageLoop::TaskObserver* task_observer) override;
-  void AddRAILModeObserver(WebRAILModeObserver*) override {}
+  void AddRAILModeObserver(RAILModeObserver*) override {}
+  void RemoveRAILModeObserver(RAILModeObserver const*) override {}
   void Shutdown() override;
 
   // ThreadSchedulerImpl implementation:
@@ -70,15 +68,11 @@ class PLATFORM_EXPORT WorkerThreadScheduler
 
   // NonMainThreadSchedulerImpl implementation:
   scoped_refptr<NonMainThreadTaskQueue> DefaultTaskQueue() override;
-  void OnTaskCompleted(NonMainThreadTaskQueue* worker_task_queue,
-                       const base::sequence_manager::Task& task,
-                       const base::sequence_manager::TaskQueue::TaskTiming&
-                           task_timing) override;
-
-  // TaskTimeObserver implementation:
-  void WillProcessTask(base::TimeTicks start_time) override;
-  void DidProcessTask(base::TimeTicks start_time,
-                      base::TimeTicks end_time) override;
+  void OnTaskCompleted(
+      NonMainThreadTaskQueue* worker_task_queue,
+      const base::sequence_manager::Task& task,
+      base::sequence_manager::TaskQueue::TaskTiming* task_timing,
+      base::sequence_manager::LazyNow* lazy_now) override;
 
   SchedulerHelper* GetSchedulerHelperForTesting();
   base::TimeTicks CurrentIdleTaskDeadlineForTesting() const;
@@ -126,9 +120,12 @@ class PLATFORM_EXPORT WorkerThreadScheduler
 
   void SetCPUTimeBudgetPoolForTesting(CPUTimeBudgetPool* cpu_time_budget_pool);
 
-  std::unordered_set<WorkerScheduler*>& GetWorkerSchedulersForTesting();
+  HashSet<WorkerScheduler*>& GetWorkerSchedulersForTesting();
 
+  void SetUkmTaskSamplingRateForTest(double rate);
   void SetUkmRecorderForTest(std::unique_ptr<ukm::UkmRecorder> ukm_recorder);
+
+  virtual void PerformMicrotaskCheckpoint();
 
  private:
   void MaybeStartLongIdlePeriod();
@@ -140,10 +137,7 @@ class PLATFORM_EXPORT WorkerThreadScheduler
 
   const WebThreadType thread_type_;
   IdleHelper idle_helper_;
-  IdleMemoryReclaimer idle_memory_reclaimer_;
-  ThreadLoadTracker load_tracker_;
   bool initialized_;
-  base::TimeTicks thread_start_time_;
   scoped_refptr<NonMainThreadTaskQueue> control_task_queue_;
   scoped_refptr<base::SingleThreadTaskRunner> v8_task_runner_;
   scoped_refptr<base::SingleThreadTaskRunner> compositor_task_runner_;
@@ -156,7 +150,7 @@ class PLATFORM_EXPORT WorkerThreadScheduler
   TraceableVariableController traceable_variable_controller_;
 
   // Worker schedulers associated with this thread.
-  std::unordered_set<WorkerScheduler*> worker_schedulers_;
+  HashSet<WorkerScheduler*> worker_schedulers_;
 
   std::unique_ptr<TaskQueueThrottler> task_queue_throttler_;
   // Owned by |task_queue_throttler_|.

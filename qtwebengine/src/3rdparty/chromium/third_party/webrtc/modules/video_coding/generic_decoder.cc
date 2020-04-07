@@ -11,6 +11,7 @@
 #include "modules/video_coding/generic_decoder.h"
 
 #include <stddef.h>
+
 #include <algorithm>
 
 #include "api/video/video_timing.h"
@@ -25,10 +26,7 @@ namespace webrtc {
 
 VCMDecodedFrameCallback::VCMDecodedFrameCallback(VCMTiming* timing,
                                                  Clock* clock)
-    : _clock(clock),
-      _timing(timing),
-      _timestampMap(kDecoderFrameMemoryLength),
-      _lastReceivedPictureID(0) {
+    : _clock(clock), _timing(timing), _timestampMap(kDecoderFrameMemoryLength) {
   ntp_offset_ =
       _clock->CurrentNtpInMilliseconds() - _clock->TimeInMilliseconds();
 }
@@ -37,7 +35,7 @@ VCMDecodedFrameCallback::~VCMDecodedFrameCallback() {}
 
 void VCMDecodedFrameCallback::SetUserReceiveCallback(
     VCMReceiveCallback* receiveCallback) {
-  RTC_DCHECK(construction_thread_.CalledOnValidThread());
+  RTC_DCHECK(construction_thread_.IsCurrent());
   RTC_DCHECK((!_receiveCallback && receiveCallback) ||
              (_receiveCallback && !receiveCallback));
   _receiveCallback = receiveCallback;
@@ -83,12 +81,15 @@ void VCMDecodedFrameCallback::Decoded(VideoFrame& decodedImage,
     return;
   }
 
+  decodedImage.set_ntp_time_ms(frameInfo->ntp_time_ms);
+  decodedImage.set_packet_infos(frameInfo->packet_infos);
+  decodedImage.set_rotation(frameInfo->rotation);
+
   const int64_t now_ms = _clock->TimeInMilliseconds();
   if (!decode_time_ms) {
     decode_time_ms = now_ms - frameInfo->decodeStartTimeMs;
   }
-  _timing->StopDecodeTimer(decodedImage.timestamp(), *decode_time_ms, now_ms,
-                           frameInfo->renderTimeMs);
+  _timing->StopDecodeTimer(*decode_time_ms, now_ms);
 
   // Report timing information.
   TimingFrameInfo timing_frame_info;
@@ -116,7 +117,6 @@ void VCMDecodedFrameCallback::Decoded(VideoFrame& decodedImage,
           1;
     }
 
-
     timing_frame_info.capture_time_ms = capture_time_ms - sender_delta_ms;
     timing_frame_info.encode_start_ms =
         frameInfo->timing.encode_start_ms - sender_delta_ms;
@@ -143,23 +143,8 @@ void VCMDecodedFrameCallback::Decoded(VideoFrame& decodedImage,
 
   decodedImage.set_timestamp_us(frameInfo->renderTimeMs *
                                 rtc::kNumMicrosecsPerMillisec);
-  decodedImage.set_rotation(frameInfo->rotation);
-  _receiveCallback->FrameToRender(decodedImage, qp, frameInfo->content_type);
-}
-
-int32_t VCMDecodedFrameCallback::ReceivedDecodedReferenceFrame(
-    const uint64_t pictureId) {
-  return _receiveCallback->ReceivedDecodedReferenceFrame(pictureId);
-}
-
-int32_t VCMDecodedFrameCallback::ReceivedDecodedFrame(
-    const uint64_t pictureId) {
-  _lastReceivedPictureID = pictureId;
-  return 0;
-}
-
-uint64_t VCMDecodedFrameCallback::LastReceivedPictureID() const {
-  return _lastReceivedPictureID;
+  _receiveCallback->FrameToRender(decodedImage, qp, *decode_time_ms,
+                                  frameInfo->content_type);
 }
 
 void VCMDecodedFrameCallback::OnDecoderImplementationName(
@@ -217,10 +202,14 @@ int32_t VCMGenericDecoder::Decode(const VCMEncodedFrame& frame, int64_t nowMs) {
   _frameInfos[_nextFrameInfoIdx].renderTimeMs = frame.RenderTimeMs();
   _frameInfos[_nextFrameInfoIdx].rotation = frame.rotation();
   _frameInfos[_nextFrameInfoIdx].timing = frame.video_timing();
+  _frameInfos[_nextFrameInfoIdx].ntp_time_ms =
+      frame.EncodedImage().ntp_time_ms_;
+  _frameInfos[_nextFrameInfoIdx].packet_infos = frame.PacketInfos();
+
   // Set correctly only for key frames. Thus, use latest key frame
   // content type. If the corresponding key frame was lost, decode will fail
   // and content type will be ignored.
-  if (frame.FrameType() == kVideoFrameKey) {
+  if (frame.FrameType() == VideoFrameType::kVideoFrameKey) {
     _frameInfos[_nextFrameInfoIdx].content_type = frame.contentType();
     _last_keyframe_content_type = frame.contentType();
   } else {
@@ -230,7 +219,7 @@ int32_t VCMGenericDecoder::Decode(const VCMEncodedFrame& frame, int64_t nowMs) {
 
   _nextFrameInfoIdx = (_nextFrameInfoIdx + 1) % kDecoderFrameMemoryLength;
   int32_t ret = decoder_->Decode(frame.EncodedImage(), frame.MissingFrame(),
-                                 frame.CodecSpecific(), frame.RenderTimeMs());
+                                 frame.RenderTimeMs());
 
   _callback->OnDecoderImplementationName(decoder_->ImplementationName());
   if (ret < WEBRTC_VIDEO_CODEC_OK) {

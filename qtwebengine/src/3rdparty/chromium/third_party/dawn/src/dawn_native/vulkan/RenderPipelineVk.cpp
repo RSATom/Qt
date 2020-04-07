@@ -16,16 +16,93 @@
 
 #include "dawn_native/vulkan/DeviceVk.h"
 #include "dawn_native/vulkan/FencedDeleter.h"
-#include "dawn_native/vulkan/InputStateVk.h"
 #include "dawn_native/vulkan/PipelineLayoutVk.h"
 #include "dawn_native/vulkan/RenderPassCache.h"
-#include "dawn_native/vulkan/RenderPassDescriptorVk.h"
 #include "dawn_native/vulkan/ShaderModuleVk.h"
+#include "dawn_native/vulkan/TextureVk.h"
 #include "dawn_native/vulkan/UtilsVulkan.h"
 
 namespace dawn_native { namespace vulkan {
 
     namespace {
+
+        VkVertexInputRate VulkanInputRate(dawn::InputStepMode stepMode) {
+            switch (stepMode) {
+                case dawn::InputStepMode::Vertex:
+                    return VK_VERTEX_INPUT_RATE_VERTEX;
+                case dawn::InputStepMode::Instance:
+                    return VK_VERTEX_INPUT_RATE_INSTANCE;
+                default:
+                    UNREACHABLE();
+            }
+        }
+
+        VkFormat VulkanVertexFormat(dawn::VertexFormat format) {
+            switch (format) {
+                case dawn::VertexFormat::UChar2:
+                    return VK_FORMAT_R8G8_UINT;
+                case dawn::VertexFormat::UChar4:
+                    return VK_FORMAT_R8G8B8A8_UINT;
+                case dawn::VertexFormat::Char2:
+                    return VK_FORMAT_R8G8_SINT;
+                case dawn::VertexFormat::Char4:
+                    return VK_FORMAT_R8G8B8A8_SINT;
+                case dawn::VertexFormat::UChar2Norm:
+                    return VK_FORMAT_R8G8_UNORM;
+                case dawn::VertexFormat::UChar4Norm:
+                    return VK_FORMAT_R8G8B8A8_UNORM;
+                case dawn::VertexFormat::Char2Norm:
+                    return VK_FORMAT_R8G8_SNORM;
+                case dawn::VertexFormat::Char4Norm:
+                    return VK_FORMAT_R8G8B8A8_SNORM;
+                case dawn::VertexFormat::UShort2:
+                    return VK_FORMAT_R16G16_UINT;
+                case dawn::VertexFormat::UShort4:
+                    return VK_FORMAT_R16G16B16A16_UINT;
+                case dawn::VertexFormat::Short2:
+                    return VK_FORMAT_R16G16_SINT;
+                case dawn::VertexFormat::Short4:
+                    return VK_FORMAT_R16G16B16A16_SINT;
+                case dawn::VertexFormat::UShort2Norm:
+                    return VK_FORMAT_R16G16_UNORM;
+                case dawn::VertexFormat::UShort4Norm:
+                    return VK_FORMAT_R16G16B16A16_UNORM;
+                case dawn::VertexFormat::Short2Norm:
+                    return VK_FORMAT_R16G16_SNORM;
+                case dawn::VertexFormat::Short4Norm:
+                    return VK_FORMAT_R16G16B16A16_SNORM;
+                case dawn::VertexFormat::Half2:
+                    return VK_FORMAT_R16G16_SFLOAT;
+                case dawn::VertexFormat::Half4:
+                    return VK_FORMAT_R16G16B16A16_SFLOAT;
+                case dawn::VertexFormat::Float:
+                    return VK_FORMAT_R32_SFLOAT;
+                case dawn::VertexFormat::Float2:
+                    return VK_FORMAT_R32G32_SFLOAT;
+                case dawn::VertexFormat::Float3:
+                    return VK_FORMAT_R32G32B32_SFLOAT;
+                case dawn::VertexFormat::Float4:
+                    return VK_FORMAT_R32G32B32A32_SFLOAT;
+                case dawn::VertexFormat::UInt:
+                    return VK_FORMAT_R32_UINT;
+                case dawn::VertexFormat::UInt2:
+                    return VK_FORMAT_R32G32_UINT;
+                case dawn::VertexFormat::UInt3:
+                    return VK_FORMAT_R32G32B32_UINT;
+                case dawn::VertexFormat::UInt4:
+                    return VK_FORMAT_R32G32B32A32_UINT;
+                case dawn::VertexFormat::Int:
+                    return VK_FORMAT_R32_SINT;
+                case dawn::VertexFormat::Int2:
+                    return VK_FORMAT_R32G32_SINT;
+                case dawn::VertexFormat::Int3:
+                    return VK_FORMAT_R32G32B32_SINT;
+                case dawn::VertexFormat::Int4:
+                    return VK_FORMAT_R32G32B32A32_SINT;
+                default:
+                    UNREACHABLE();
+            }
+        }
 
         VkPrimitiveTopology VulkanPrimitiveTopology(dawn::PrimitiveTopology topology) {
             switch (topology) {
@@ -41,6 +118,42 @@ namespace dawn_native { namespace vulkan {
                     return VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP;
                 default:
                     UNREACHABLE();
+            }
+        }
+
+        bool ShouldEnablePrimitiveRestart(dawn::PrimitiveTopology topology) {
+            // Primitive restart is always enabled in WebGPU but Vulkan validation rules ask that
+            // primitive restart be only enabled on primitive topologies that support restarting.
+            switch (topology) {
+                case dawn::PrimitiveTopology::PointList:
+                case dawn::PrimitiveTopology::LineList:
+                case dawn::PrimitiveTopology::TriangleList:
+                    return false;
+                case dawn::PrimitiveTopology::LineStrip:
+                case dawn::PrimitiveTopology::TriangleStrip:
+                    return true;
+                default:
+                    UNREACHABLE();
+            }
+        }
+
+        VkFrontFace VulkanFrontFace(dawn::FrontFace face) {
+            switch (face) {
+                case dawn::FrontFace::CCW:
+                    return VK_FRONT_FACE_COUNTER_CLOCKWISE;
+                case dawn::FrontFace::CW:
+                    return VK_FRONT_FACE_CLOCKWISE;
+            }
+        }
+
+        VkCullModeFlagBits VulkanCullMode(dawn::CullMode mode) {
+            switch (mode) {
+                case dawn::CullMode::None:
+                    return VK_CULL_MODE_NONE;
+                case dawn::CullMode::Front:
+                    return VK_CULL_MODE_FRONT_BIT;
+                case dawn::CullMode::Back:
+                    return VK_CULL_MODE_BACK_BIT;
             }
         }
 
@@ -112,17 +225,17 @@ namespace dawn_native { namespace vulkan {
             return static_cast<VkColorComponentFlagBits>(mask);
         }
 
-        VkPipelineColorBlendAttachmentState ComputeBlendDesc(
-            const BlendStateDescriptor* descriptor) {
+        VkPipelineColorBlendAttachmentState ComputeColorDesc(
+            const ColorStateDescriptor* descriptor) {
             VkPipelineColorBlendAttachmentState attachment;
-            attachment.blendEnable = descriptor->blendEnabled ? VK_TRUE : VK_FALSE;
+            attachment.blendEnable = BlendEnabled(descriptor) ? VK_TRUE : VK_FALSE;
             attachment.srcColorBlendFactor = VulkanBlendFactor(descriptor->colorBlend.srcFactor);
             attachment.dstColorBlendFactor = VulkanBlendFactor(descriptor->colorBlend.dstFactor);
             attachment.colorBlendOp = VulkanBlendOperation(descriptor->colorBlend.operation);
             attachment.srcAlphaBlendFactor = VulkanBlendFactor(descriptor->alphaBlend.srcFactor);
             attachment.dstAlphaBlendFactor = VulkanBlendFactor(descriptor->alphaBlend.dstFactor);
             attachment.alphaBlendOp = VulkanBlendOperation(descriptor->alphaBlend.operation);
-            attachment.colorWriteMask = VulkanColorWriteMask(descriptor->colorWriteMask);
+            attachment.colorWriteMask = VulkanColorWriteMask(descriptor->writeMask);
             return attachment;
         }
 
@@ -171,15 +284,17 @@ namespace dawn_native { namespace vulkan {
             depthStencilState.stencilTestEnable =
                 StencilTestEnabled(descriptor) ? VK_TRUE : VK_FALSE;
 
-            depthStencilState.front.failOp = VulkanStencilOp(descriptor->front.stencilFailOp);
-            depthStencilState.front.passOp = VulkanStencilOp(descriptor->front.passOp);
-            depthStencilState.front.depthFailOp = VulkanStencilOp(descriptor->front.depthFailOp);
-            depthStencilState.front.compareOp = ToVulkanCompareOp(descriptor->front.compare);
+            depthStencilState.front.failOp = VulkanStencilOp(descriptor->stencilFront.failOp);
+            depthStencilState.front.passOp = VulkanStencilOp(descriptor->stencilFront.passOp);
+            depthStencilState.front.depthFailOp =
+                VulkanStencilOp(descriptor->stencilFront.depthFailOp);
+            depthStencilState.front.compareOp = ToVulkanCompareOp(descriptor->stencilFront.compare);
 
-            depthStencilState.back.failOp = VulkanStencilOp(descriptor->back.stencilFailOp);
-            depthStencilState.back.passOp = VulkanStencilOp(descriptor->back.passOp);
-            depthStencilState.back.depthFailOp = VulkanStencilOp(descriptor->back.depthFailOp);
-            depthStencilState.back.compareOp = ToVulkanCompareOp(descriptor->back.compare);
+            depthStencilState.back.failOp = VulkanStencilOp(descriptor->stencilBack.failOp);
+            depthStencilState.back.passOp = VulkanStencilOp(descriptor->stencilBack.passOp);
+            depthStencilState.back.depthFailOp =
+                VulkanStencilOp(descriptor->stencilBack.depthFailOp);
+            depthStencilState.back.compareOp = ToVulkanCompareOp(descriptor->stencilBack.compare);
 
             // Dawn doesn't have separate front and back stencil masks.
             depthStencilState.front.compareMask = descriptor->stencilReadMask;
@@ -198,10 +313,6 @@ namespace dawn_native { namespace vulkan {
 
     RenderPipeline::RenderPipeline(Device* device, const RenderPipelineDescriptor* descriptor)
         : RenderPipelineBase(device, descriptor) {
-        // Eventually a bunch of the structures that need to be chained in the create info will be
-        // held by objects such as the BlendState. They aren't implemented yet so we initialize
-        // everything here.
-
         VkPipelineShaderStageCreateInfo shaderStages[2];
         {
             shaderStages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
@@ -221,13 +332,18 @@ namespace dawn_native { namespace vulkan {
             shaderStages[1].pName = descriptor->fragmentStage->entryPoint;
         }
 
+        std::array<VkVertexInputBindingDescription, kMaxVertexBuffers> mBindings;
+        std::array<VkVertexInputAttributeDescription, kMaxVertexAttributes> mAttributes;
+        const VertexInputDescriptor* vertexInput = GetVertexInputDescriptor();
+        VkPipelineVertexInputStateCreateInfo vertexInputCreateInfo =
+            ComputeVertexInputDesc(vertexInput, &mBindings, &mAttributes);
+
         VkPipelineInputAssemblyStateCreateInfo inputAssembly;
         inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
         inputAssembly.pNext = nullptr;
         inputAssembly.flags = 0;
         inputAssembly.topology = VulkanPrimitiveTopology(GetPrimitiveTopology());
-        // Primitive restart is always enabled in Dawn (because of Metal)
-        inputAssembly.primitiveRestartEnable = VK_TRUE;
+        inputAssembly.primitiveRestartEnable = ShouldEnablePrimitiveRestart(GetPrimitiveTopology());
 
         // A dummy viewport/scissor info. The validation layers force use to provide at least one
         // scissor and one viewport here, even if we choose to make them dynamic.
@@ -259,8 +375,8 @@ namespace dawn_native { namespace vulkan {
         rasterization.depthClampEnable = VK_FALSE;
         rasterization.rasterizerDiscardEnable = VK_FALSE;
         rasterization.polygonMode = VK_POLYGON_MODE_FILL;
-        rasterization.cullMode = VK_CULL_MODE_NONE;
-        rasterization.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+        rasterization.cullMode = VulkanCullMode(GetCullMode());
+        rasterization.frontFace = VulkanFrontFace(GetFrontFace());
         rasterization.depthBiasEnable = VK_FALSE;
         rasterization.depthBiasConstantFactor = 0.0f;
         rasterization.depthBiasClamp = 0.0f;
@@ -271,7 +387,7 @@ namespace dawn_native { namespace vulkan {
         multisample.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
         multisample.pNext = nullptr;
         multisample.flags = 0;
-        multisample.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+        multisample.rasterizationSamples = VulkanSampleCount(GetSampleCount());
         multisample.sampleShadingEnable = VK_FALSE;
         multisample.minSampleShading = 0.0f;
         multisample.pSampleMask = nullptr;
@@ -282,11 +398,11 @@ namespace dawn_native { namespace vulkan {
             ComputeDepthStencilDesc(GetDepthStencilStateDescriptor());
 
         // Initialize the "blend state info" that will be chained in the "create info" from the data
-        // pre-computed in the BlendState
+        // pre-computed in the ColorState
         std::array<VkPipelineColorBlendAttachmentState, kMaxColorAttachments> colorBlendAttachments;
         for (uint32_t i : IterateBitSet(GetColorAttachmentsMask())) {
-            const BlendStateDescriptor* descriptor = GetBlendStateDescriptor(i);
-            colorBlendAttachments[i] = ComputeBlendDesc(descriptor);
+            const ColorStateDescriptor* descriptor = GetColorStateDescriptor(i);
+            colorBlendAttachments[i] = ComputeColorDesc(descriptor);
         }
         VkPipelineColorBlendStateCreateInfo colorBlend;
         colorBlend.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
@@ -325,13 +441,15 @@ namespace dawn_native { namespace vulkan {
             RenderPassCacheQuery query;
 
             for (uint32_t i : IterateBitSet(GetColorAttachmentsMask())) {
-                query.SetColor(i, GetColorAttachmentFormat(i), dawn::LoadOp::Load);
+                query.SetColor(i, GetColorAttachmentFormat(i), dawn::LoadOp::Load, false);
             }
 
             if (HasDepthStencilAttachment()) {
                 query.SetDepthStencil(GetDepthStencilFormat(), dawn::LoadOp::Load,
                                       dawn::LoadOp::Load);
             }
+
+            query.SetSampleCount(GetSampleCount());
 
             renderPass = device->GetRenderPassCache()->GetRenderPass(query);
         }
@@ -344,7 +462,7 @@ namespace dawn_native { namespace vulkan {
         createInfo.flags = 0;
         createInfo.stageCount = 2;
         createInfo.pStages = shaderStages;
-        createInfo.pVertexInputState = ToBackend(GetInputState())->GetCreateInfo();
+        createInfo.pVertexInputState = &vertexInputCreateInfo;
         createInfo.pInputAssemblyState = &inputAssembly;
         createInfo.pTessellationState = nullptr;
         createInfo.pViewportState = &viewport;
@@ -363,6 +481,49 @@ namespace dawn_native { namespace vulkan {
                                                &createInfo, nullptr, &mHandle) != VK_SUCCESS) {
             ASSERT(false);
         }
+    }
+
+    VkPipelineVertexInputStateCreateInfo RenderPipeline::ComputeVertexInputDesc(
+        const VertexInputDescriptor* vertexInput,
+        std::array<VkVertexInputBindingDescription, kMaxVertexBuffers>* mBindings,
+        std::array<VkVertexInputAttributeDescription, kMaxVertexAttributes>* mAttributes) {
+        // Fill in the "binding info" that will be chained in the create info
+        uint32_t bindingCount = 0;
+        for (uint32_t i : IterateBitSet(GetInputsSetMask())) {
+            const auto& bindingInfo = GetInput(i);
+
+            auto& bindingDesc = (*mBindings)[bindingCount];
+            bindingDesc.binding = i;
+            bindingDesc.stride = bindingInfo.stride;
+            bindingDesc.inputRate = VulkanInputRate(bindingInfo.stepMode);
+
+            bindingCount++;
+        }
+
+        // Fill in the "attribute info" that will be chained in the create info
+        uint32_t attributeCount = 0;
+        for (uint32_t i : IterateBitSet(GetAttributesSetMask())) {
+            const auto& attributeInfo = GetAttribute(i);
+
+            auto& attributeDesc = (*mAttributes)[attributeCount];
+            attributeDesc.location = i;
+            attributeDesc.binding = attributeInfo.inputSlot;
+            attributeDesc.format = VulkanVertexFormat(attributeInfo.format);
+            attributeDesc.offset = attributeInfo.offset;
+
+            attributeCount++;
+        }
+
+        // Build the create info
+        VkPipelineVertexInputStateCreateInfo mCreateInfo;
+        mCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+        mCreateInfo.pNext = nullptr;
+        mCreateInfo.flags = 0;
+        mCreateInfo.vertexBindingDescriptionCount = bindingCount;
+        mCreateInfo.pVertexBindingDescriptions = &(*mBindings)[0];
+        mCreateInfo.vertexAttributeDescriptionCount = attributeCount;
+        mCreateInfo.pVertexAttributeDescriptions = &(*mAttributes)[0];
+        return mCreateInfo;
     }
 
     RenderPipeline::~RenderPipeline() {

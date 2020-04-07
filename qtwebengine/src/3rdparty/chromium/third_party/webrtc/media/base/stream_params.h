@@ -47,13 +47,15 @@
 #define MEDIA_BASE_STREAM_PARAMS_H_
 
 #include <stddef.h>
-#include <algorithm>
+
 #include <cstdint>
 #include <string>
 #include <vector>
 
+#include "absl/algorithm/container.h"
 #include "media/base/rid_description.h"
 #include "rtc_base/constructor_magic.h"
+#include "rtc_base/unique_id_generator.h"
 
 namespace cricket {
 
@@ -113,7 +115,7 @@ struct StreamParams {
   }
   bool has_ssrcs() const { return !ssrcs.empty(); }
   bool has_ssrc(uint32_t ssrc) const {
-    return std::find(ssrcs.begin(), ssrcs.end(), ssrc) != ssrcs.end();
+    return absl::c_linear_search(ssrcs, ssrc);
   }
   void add_ssrc(uint32_t ssrc) { ssrcs.push_back(ssrc); }
   bool has_ssrc_groups() const { return !ssrc_groups.empty(); }
@@ -121,10 +123,9 @@ struct StreamParams {
     return (get_ssrc_group(semantics) != NULL);
   }
   const SsrcGroup* get_ssrc_group(const std::string& semantics) const {
-    for (std::vector<SsrcGroup>::const_iterator it = ssrc_groups.begin();
-         it != ssrc_groups.end(); ++it) {
-      if (it->has_semantics(semantics)) {
-        return &(*it);
+    for (const SsrcGroup& ssrc_group : ssrc_groups) {
+      if (ssrc_group.has_semantics(semantics)) {
+        return &ssrc_group;
       }
     }
     return NULL;
@@ -153,6 +154,14 @@ struct StreamParams {
   bool GetFecFrSsrc(uint32_t primary_ssrc, uint32_t* fecfr_ssrc) const {
     return GetSecondarySsrc(kFecFrSsrcGroupSemantics, primary_ssrc, fecfr_ssrc);
   }
+
+  // Convenience function to populate the StreamParams with the requested number
+  // of SSRCs along with accompanying FID and FEC-FR ssrcs if requested.
+  // SSRCs are generated using the given generator.
+  void GenerateSsrcs(int num_layers,
+                     bool generate_fid,
+                     bool generate_fec_fr,
+                     rtc::UniqueRandomIdGenerator* ssrc_generator);
 
   // Convenience to get all the SIM SSRCs if there are SIM ssrcs, or
   // the first SSRC otherwise.
@@ -240,62 +249,16 @@ struct StreamSelector {
 
 typedef std::vector<StreamParams> StreamParamsVec;
 
-// A collection of audio and video and data streams. Most of the
-// methods are merely for convenience. Many of these methods are keyed
-// by ssrc, which is the source identifier in the RTP spec
-// (http://tools.ietf.org/html/rfc3550).
-// TODO(pthatcher):  Add basic unit test for these.
-// See https://code.google.com/p/webrtc/issues/detail?id=4107
-struct MediaStreams {
- public:
-  MediaStreams();
-  ~MediaStreams();
-  void CopyFrom(const MediaStreams& sources);
-
-  bool empty() const {
-    return audio_.empty() && video_.empty() && data_.empty();
-  }
-
-  std::vector<StreamParams>* mutable_audio() { return &audio_; }
-  std::vector<StreamParams>* mutable_video() { return &video_; }
-  std::vector<StreamParams>* mutable_data() { return &data_; }
-  const std::vector<StreamParams>& audio() const { return audio_; }
-  const std::vector<StreamParams>& video() const { return video_; }
-  const std::vector<StreamParams>& data() const { return data_; }
-
-  // Gets a stream, returning true if found.
-  bool GetAudioStream(const StreamSelector& selector, StreamParams* stream);
-  bool GetVideoStream(const StreamSelector& selector, StreamParams* stream);
-  bool GetDataStream(const StreamSelector& selector, StreamParams* stream);
-  // Adds a stream.
-  void AddAudioStream(const StreamParams& stream);
-  void AddVideoStream(const StreamParams& stream);
-  void AddDataStream(const StreamParams& stream);
-  // Removes a stream, returning true if found and removed.
-  bool RemoveAudioStream(const StreamSelector& selector);
-  bool RemoveVideoStream(const StreamSelector& selector);
-  bool RemoveDataStream(const StreamSelector& selector);
-
- private:
-  std::vector<StreamParams> audio_;
-  std::vector<StreamParams> video_;
-  std::vector<StreamParams> data_;
-
-  RTC_DISALLOW_COPY_AND_ASSIGN(MediaStreams);
-};
-
 template <class Condition>
 const StreamParams* GetStream(const StreamParamsVec& streams,
                               Condition condition) {
-  StreamParamsVec::const_iterator found =
-      std::find_if(streams.begin(), streams.end(), condition);
+  auto found = absl::c_find_if(streams, condition);
   return found == streams.end() ? nullptr : &(*found);
 }
 
 template <class Condition>
 StreamParams* GetStream(StreamParamsVec& streams, Condition condition) {
-  StreamParamsVec::iterator found =
-      std::find_if(streams.begin(), streams.end(), condition);
+  auto found = absl::c_find_if(streams, condition);
   return found == streams.end() ? nullptr : &(*found);
 }
 
@@ -361,16 +324,6 @@ inline bool RemoveStreamByIds(StreamParamsVec* streams,
     return sp.groupid == groupid && sp.id == id;
   });
 }
-
-// Checks if |sp| defines parameters for a single primary stream. There may
-// be an RTX stream or a FlexFEC stream (or both) associated with the primary
-// stream. Leaving as non-static so we can test this function.
-bool IsOneSsrcStream(const StreamParams& sp);
-
-// Checks if |sp| defines parameters for one Simulcast stream. There may be RTX
-// streams associated with the simulcast streams. Leaving as non-static so we
-// can test this function.
-bool IsSimulcastStream(const StreamParams& sp);
 
 }  // namespace cricket
 

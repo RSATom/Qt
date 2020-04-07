@@ -29,10 +29,6 @@ source_set("video") {
     "h264_poc.h",
     "half_float_maker.cc",
     "half_float_maker.h",
-    "jpeg_decode_accelerator.cc",
-    "jpeg_decode_accelerator.h",
-    "jpeg_encode_accelerator.cc",
-    "jpeg_encode_accelerator.h",
     "picture.cc",
     "picture.h",
     "supported_video_decoder_config.cc",
@@ -57,6 +53,7 @@ source_set("video") {
   ]
 
   deps = [
+    "//gpu/command_buffer/client",
     "//gpu/command_buffer/common",
     "//media/base",
     "//third_party/libyuv",
@@ -94,7 +91,7 @@ static_library("test_support") {
     "//gpu/command_buffer/client:gles2_interface",
     "//gpu/command_buffer/common",
     "//media/base:test_support",
-    "//services/ws/public/cpp/gpu",
+    "//services/viz/public/cpp/gpu",
     "//testing/gmock",
     "//ui/gfx",
   ]
@@ -118,6 +115,7 @@ source_set("unit_tests") {
   deps = [
     "//base",
     "//base/test:test_support",
+    "//components/viz/test:test_support",
     "//gpu:test_support",
     "//gpu/command_buffer/client:gles2_interface",
     "//gpu/command_buffer/common",

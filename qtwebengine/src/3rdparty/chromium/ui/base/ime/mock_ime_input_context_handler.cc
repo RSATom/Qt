@@ -4,6 +4,7 @@
 
 #include "ui/base/ime/mock_ime_input_context_handler.h"
 
+#include "base/strings/utf_string_conversions.h"
 #include "ui/base/ime/composition_text.h"
 #include "ui/base/ime/input_method.h"
 
@@ -32,6 +33,18 @@ void MockIMEInputContextHandler::UpdateCompositionText(
   last_update_composition_arg_.is_visible = visible;
 }
 
+#if defined(OS_CHROMEOS)
+bool MockIMEInputContextHandler::SetCompositionRange(
+    uint32_t before,
+    uint32_t after,
+    const std::vector<ui::ImeTextSpan>& text_spans) {
+  // TODO(shend): Make this work with before, after and different text contents.
+  last_update_composition_arg_.composition_text.text =
+      base::UTF8ToUTF16(last_commit_text_);
+  return true;
+}
+#endif
+
 void MockIMEInputContextHandler::DeleteSurroundingText(int32_t offset,
                                                        uint32_t length) {
   ++delete_surrounding_text_call_count_;
@@ -58,4 +71,11 @@ void MockIMEInputContextHandler::SendKeyEvent(KeyEvent* event) {
 InputMethod* MockIMEInputContextHandler::GetInputMethod() {
   return nullptr;
 }
+
+void MockIMEInputContextHandler::ConfirmCompositionText() {
+  CommitText(
+      base::UTF16ToUTF8(last_update_composition_arg_.composition_text.text));
+  last_update_composition_arg_.composition_text.text = base::string16();
+}
+
 }  // namespace ui

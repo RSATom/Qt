@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2019 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the tools applications of the Qt Toolkit.
@@ -41,60 +41,59 @@ class CppCodeParser : public CodeParser
 {
     Q_DECLARE_TR_FUNCTIONS(QDoc::CppCodeParser)
 
-    struct ExtraFuncData {
-        Aggregate* root; // Used as the parent.
+    struct ExtraFuncData
+    {
+        Aggregate *root; // Used as the parent.
         Node::NodeType type; // The node type: Function, etc.
         bool isAttached; // If true, the method is attached.
-        bool isMacro;    // If true, we are parsing a macro signature.
-        ExtraFuncData() : root(nullptr), type(Node::Function), isAttached(false), isMacro(false) { }
-        ExtraFuncData(Aggregate* r, Node::NodeType t, bool a)
-          : root(r), type(t), isAttached(a), isMacro(false) { }
+        bool isMacro; // If true, we are parsing a macro signature.
+        ExtraFuncData() : root(nullptr), type(Node::Function), isAttached(false), isMacro(false) {}
+        ExtraFuncData(Aggregate *r, Node::NodeType t, bool a)
+            : root(r), type(t), isAttached(a), isMacro(false)
+        {
+        }
     };
 
 public:
     CppCodeParser();
-    ~CppCodeParser() = default;
 
-    void initializeParser(const Config& config) override;
+    void initializeParser(const Config &config) override;
     void terminateParser() override;
     QString language() override { return QStringLiteral("Cpp"); }
     QStringList headerFileNameFilter() override;
     QStringList sourceFileNameFilter() override;
     FunctionNode *parseMacroArg(const Location &location, const QString &macroArg);
-    FunctionNode *parseOtherFuncArg(const QString &topic, const Location &location, const QString &funcArg);
+    FunctionNode *parseOtherFuncArg(const QString &topic, const Location &location,
+                                    const QString &funcArg);
     static bool isJSMethodTopic(const QString &t);
     static bool isQMLMethodTopic(const QString &t);
     static bool isJSPropertyTopic(const QString &t);
     static bool isQMLPropertyTopic(const QString &t);
 
 protected:
-    static const QSet<QString>& topicCommands();
-    static const QSet<QString>& metaCommands();
-    virtual Node* processTopicCommand(const Doc& doc,
-                                      const QString& command,
-                                      const ArgLocPair& arg);
+    static const QSet<QString> &topicCommands();
+    static const QSet<QString> &metaCommands();
+    virtual Node *processTopicCommand(const Doc &doc, const QString &command,
+                                      const ArgLocPair &arg);
     void processQmlProperties(const Doc &doc, NodeList &nodes, DocList &docs);
-    bool splitQmlPropertyArg(const QString& arg,
-                             QString& type,
-                             QString& module,
-                             QString& element,
-                             QString& name,
-                             const Location& location);
-    void processMetaCommand(const Doc &doc, const QString &command, const ArgLocPair &argLocPair, Node *node);
+    bool splitQmlPropertyArg(const QString &arg, QString &type, QString &module, QString &element,
+                             QString &name, const Location &location);
+    void processMetaCommand(const Doc &doc, const QString &command, const ArgLocPair &argLocPair,
+                            Node *node);
     void processMetaCommands(const Doc &doc, Node *node);
     void processMetaCommands(NodeList &nodes, DocList &docs);
     void processTopicArgs(const Doc &doc, const QString &topic, NodeList &nodes, DocList &docs);
     bool hasTooManyTopics(const Doc &doc) const;
 
- private:
+private:
     void setExampleFileLists(PageNode *pn);
 
- protected:
-    typedef bool (Node::*NodeTypeTestFunc) () const;
+protected:
+    typedef bool (Node::*NodeTypeTestFunc)() const;
     QMap<QString, NodeTypeTestFunc> nodeTypeTestFuncMap_;
     QMap<QString, Node::NodeType> nodeTypeMap_;
 
- private:
+private:
     static QStringList exampleFiles;
     static QStringList exampleDirs;
     static QSet<QString> excludeDirs;

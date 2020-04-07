@@ -6,6 +6,7 @@
 
 #include <string>
 
+#include "base/bind.h"
 #include "base/memory/ref_counted_memory.h"
 #include "base/stl_util.h"
 #include "base/strings/string16.h"
@@ -15,7 +16,6 @@
 #include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chrome_notification_types.h"
-#include "chrome/browser/extensions/extension_util.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/signin/identity_manager_factory.h"
 #include "chrome/browser/themes/theme_properties.h"
@@ -26,6 +26,7 @@
 #include "chrome/browser/ui/webui/app_launcher_login_handler.h"
 #include "chrome/browser/ui/webui/ntp/app_launcher_handler.h"
 #include "chrome/common/buildflags.h"
+#include "chrome/common/chrome_features.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/grit/browser_resources.h"
@@ -35,13 +36,13 @@
 #include "components/bookmarks/common/bookmark_pref_names.h"
 #include "components/google/core/common/google_util.h"
 #include "components/prefs/pref_service.h"
+#include "components/signin/public/identity_manager/identity_manager.h"
 #include "components/strings/grit/components_strings.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/render_process_host.h"
 #include "extensions/common/extension.h"
 #include "extensions/common/extension_urls.h"
-#include "services/identity/public/cpp/identity_manager.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/base/template_expressions.h"
@@ -50,6 +51,7 @@
 #include "ui/base/webui/web_ui_util.h"
 #include "ui/gfx/animation/animation.h"
 #include "ui/gfx/color_utils.h"
+#include "ui/native_theme/native_theme.h"
 
 #if defined(OS_CHROMEOS)
 #include "chrome/browser/chromeos/policy/browser_policy_connector_chromeos.h"
@@ -112,10 +114,10 @@ std::string GetNewTabBackgroundCSS(const ui::ThemeProvider& theme_provider,
     int offset = GetLayoutConstant(BOOKMARK_BAR_NTP_HEIGHT);
 
     if (alignment & ThemeProperties::ALIGN_LEFT)
-      return "left " + base::IntToString(-offset) + "px";
+      return "left " + base::NumberToString(-offset) + "px";
     else if (alignment & ThemeProperties::ALIGN_RIGHT)
-      return "right " + base::IntToString(-offset) + "px";
-    return "center " + base::IntToString(-offset) + "px";
+      return "right " + base::NumberToString(-offset) + "px";
+    return "center " + base::NumberToString(-offset) + "px";
   }
 
   return ThemeProperties::AlignmentToString(alignment);
@@ -133,7 +135,9 @@ std::string GetNewTabBackgroundTilingCSS(
 }  // namespace
 
 NTPResourceCache::NTPResourceCache(Profile* profile)
-    : profile_(profile), is_swipe_tracking_from_scroll_events_enabled_(false) {
+    : profile_(profile),
+      is_swipe_tracking_from_scroll_events_enabled_(false),
+      theme_observer_(this) {
   registrar_.Add(this, chrome::NOTIFICATION_BROWSER_THEME_CHANGED,
                  content::Source<ThemeService>(
                      ThemeServiceFactory::GetForProfile(profile)));
@@ -146,9 +150,9 @@ NTPResourceCache::NTPResourceCache(Profile* profile)
   profile_pref_change_registrar_.Add(bookmarks::prefs::kShowBookmarkBar,
                                      callback);
   profile_pref_change_registrar_.Add(prefs::kNtpShownPage, callback);
-  profile_pref_change_registrar_.Add(prefs::kSignInPromoShowNTPBubble,
-                                     callback);
   profile_pref_change_registrar_.Add(prefs::kHideWebStoreIcon, callback);
+
+  theme_observer_.Add(ui::NativeTheme::GetInstanceForNativeUi());
 }
 
 NTPResourceCache::~NTPResourceCache() {}
@@ -229,6 +233,11 @@ void NTPResourceCache::Observe(int type,
   Invalidate();
 }
 
+void NTPResourceCache::OnNativeThemeUpdated(ui::NativeTheme* updated_theme) {
+  DCHECK_EQ(updated_theme, ui::NativeTheme::GetInstanceForNativeUi());
+  Invalidate();
+}
+
 void NTPResourceCache::OnPreferenceChanged() {
   // A change occurred to one of the preferences we care about, so flush the
   // cache.
@@ -243,6 +252,7 @@ void NTPResourceCache::Invalidate() {
   new_tab_html_ = nullptr;
   new_tab_incognito_css_ = nullptr;
   new_tab_css_ = nullptr;
+  new_tab_guest_html_ = nullptr;
 }
 
 void NTPResourceCache::CreateNewTabIncognitoHTML() {
@@ -390,6 +400,8 @@ void NTPResourceCache::CreateNewTabHTML() {
                            GetLocalizedString(IDS_APP_CONTEXT_MENU_SHOW_INFO));
   load_time_data.SetString("appcreateshortcut",
                            GetLocalizedString(IDS_NEW_TAB_APP_CREATE_SHORTCUT));
+  load_time_data.SetString("appinstalllocally",
+                           GetLocalizedString(IDS_NEW_TAB_APP_INSTALL_LOCALLY));
   load_time_data.SetString("appDefaultPageName",
                            GetLocalizedString(IDS_APP_DEFAULT_PAGE_NAME));
   load_time_data.SetString(
@@ -438,17 +450,10 @@ void NTPResourceCache::CreateNewTabHTML() {
   load_time_data.SetBoolean("showWebStoreIcon",
                             !prefs->GetBoolean(prefs::kHideWebStoreIcon));
 
-  load_time_data.SetBoolean("enableNewBookmarkApps",
-                            extensions::util::IsNewBookmarkAppsEnabled());
-
-  load_time_data.SetBoolean("canHostedAppsOpenInWindows",
-                            extensions::util::CanHostedAppsOpenInWindows());
-
   load_time_data.SetBoolean("canShowAppInfoDialog",
                             CanShowAppInfoDialog());
 
   AppLauncherHandler::GetLocalizedValues(profile_, &load_time_data);
-  AppLauncherLoginHandler::GetLocalizedValues(profile_, &load_time_data);
 
   webui::SetLoadTimeDataDefaults(app_locale, &load_time_data);
 
@@ -536,6 +541,8 @@ void NTPResourceCache::CreateNewTabCSS() {
   // Colors.
   substitutions["colorBackground"] =
       color_utils::SkColorToRgbaString(color_background);
+  substitutions["colorLink"] = color_utils::SkColorToRgbString(
+      GetThemeColor(tp, ThemeProperties::COLOR_NTP_LINK));
   substitutions["backgroundBarDetached"] = GetNewTabBackgroundCSS(tp, false);
   substitutions["backgroundBarAttached"] = GetNewTabBackgroundCSS(tp, true);
   substitutions["backgroundTiling"] = GetNewTabBackgroundTilingCSS(tp);

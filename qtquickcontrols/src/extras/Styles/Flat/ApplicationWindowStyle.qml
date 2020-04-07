@@ -36,7 +36,7 @@
 ** $QT_END_LICENSE$
 **
 ****************************************************************************/
-import QtQuick 2.2
+import QtQuick 2.14
 import QtQuick.Controls 1.2
 import QtQuick.Controls.Styles 1.4 as Base
 import QtQuick.Controls.Styles.Flat 1.0
@@ -103,12 +103,13 @@ Base.ApplicationWindowStyle {
                 items: control.menuBar ? control.menuBar.menus : []
             }
 
-            Binding {
+            Qml.Binding {
                 target: control.toolBar
                 property: "__menu"
                 value: proxyMenu.items.length > 1 ? proxyMenu :
                        proxyMenu.items.length === 1 ? proxyMenu.items[0] : null
                 when: hasToolBar
+                restoreMode: Binding.RestoreBinding
             }
         }
     }

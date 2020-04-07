@@ -1,8 +1,6 @@
 #ifndef _RAR_SCANTREE_
 #define _RAR_SCANTREE_
 
-namespace third_party_unrar {
-
 enum SCAN_DIRS 
 { 
   SCAN_SKIPDIRS,     // Skip directories, but recurse for files if recursion mode is enabled.
@@ -66,7 +64,7 @@ class ScanTree
     ScanTree(StringList *FileMasks,RECURSE_MODE Recurse,bool GetLinks,SCAN_DIRS GetDirs);
     ~ScanTree();
     SCAN_CODE GetNext(FindData *FindData);
-    size_t GetSpecPathLength() {return SpecPathLength;};
+    size_t GetSpecPathLength() {return SpecPathLength;}
     int GetErrors() {return Errors;};
     void SetErrArcName(const wchar *Name) {wcsncpyz(ErrArcName,Name,ASIZE(ErrArcName));}
     void SetCommandData(CommandData *Cmd) {ScanTree::Cmd=Cmd;}
@@ -76,7 +74,5 @@ class ScanTree
       ErrDirSpecPathLength=Lengths;
     }
 };
-
-}  // namespace third_party_unrar
 
 #endif

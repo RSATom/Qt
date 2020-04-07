@@ -50,6 +50,7 @@ METADATA_TOOL_PREFIX = 'tool_prefix'  # Path relative to SRC_ROOT.
 
 # New sections should also be added to the SuperSize UI.
 SECTION_BSS = '.bss'
+SECTION_BSS_REL_RO = '.bss.rel.ro'
 SECTION_DATA = '.data'
 SECTION_DATA_REL_RO = '.data.rel.ro'
 SECTION_DATA_REL_RO_LOCAL = '.data.rel.ro.local'
@@ -58,6 +59,7 @@ SECTION_DEX_METHOD = '.dex.method'
 SECTION_OTHER = '.other'
 SECTION_PAK_NONTRANSLATED = '.pak.nontranslated'
 SECTION_PAK_TRANSLATIONS = '.pak.translations'
+SECTION_PART_END = '.part.end'
 SECTION_RODATA = '.rodata'
 SECTION_TEXT = '.text'
 # Used by SymbolGroup when they contain a mix of sections.
@@ -71,11 +73,18 @@ DEX_SECTIONS = (
 )
 NATIVE_SECTIONS = (
     SECTION_BSS,
+    SECTION_BSS_REL_RO,
     SECTION_DATA,
     SECTION_DATA_REL_RO,
     SECTION_DATA_REL_RO_LOCAL,
+    SECTION_PART_END,
     SECTION_RODATA,
     SECTION_TEXT,
+)
+BSS_SECTIONS = (
+    SECTION_BSS,
+    SECTION_BSS_REL_RO,
+    SECTION_PART_END,
 )
 PAK_SECTIONS = (
     SECTION_PAK_NONTRANSLATED,
@@ -84,12 +93,14 @@ PAK_SECTIONS = (
 
 SECTION_NAME_TO_SECTION = {
     SECTION_BSS: 'b',
+    SECTION_BSS_REL_RO: 'b',
     SECTION_DATA: 'd',
     SECTION_DATA_REL_RO_LOCAL: 'R',
     SECTION_DATA_REL_RO: 'R',
     SECTION_DEX: 'x',
     SECTION_DEX_METHOD: 'm',
     SECTION_OTHER: 'o',
+    SECTION_PART_END: 'b',
     SECTION_PAK_NONTRANSLATED: 'P',
     SECTION_PAK_TRANSLATIONS: 'p',
     SECTION_RODATA: 'r',
@@ -320,7 +331,7 @@ class BaseSymbol(object):
     return '{%s}' % ','.join(parts)
 
   def IsBss(self):
-    return self.section_name == SECTION_BSS
+    return self.section_name in BSS_SECTIONS
 
   def IsDex(self):
     return self.section_name in DEX_SECTIONS
@@ -349,6 +360,14 @@ class BaseSymbol(object):
 
   def IsStringLiteral(self):
     return self.full_name == STRING_LITERAL_NAME
+
+  # Used for diffs to know whether or not it is accurate to consider two symbols
+  # with the same name as being the same.
+  def IsNameUnique(self):
+    return not (self.IsStringLiteral() or  # "string literal"
+                self.IsOverhead() or  # "Overhead: APK File"
+                self.full_name.startswith('*') or  # "** outlined symbol"
+                '.' in self.full_name)  # ".L__unnamed_1195"
 
   def IterLeafSymbols(self):
     yield self
@@ -645,8 +664,10 @@ class SymbolGroup(BaseSymbol):
 
   @property
   def flags(self):
-    first = self._symbols[0].flags if self else 0
-    return first if all(s.flags == first for s in self._symbols) else 0
+    ret = 0
+    for s in self._symbols:
+      ret |= s.flags
+    return ret
 
   @property
   def object_path(self):
@@ -802,6 +823,9 @@ class SymbolGroup(BaseSymbol):
 
   def WhereIsTemplate(self):
     return self.Filter(lambda s: s.template_name is not s.name)
+
+  def WhereHasFlag(self, flag):
+    return self.Filter(lambda s: s.flags & flag)
 
   def WhereHasComponent(self):
     return self.Filter(lambda s: s.component)
@@ -974,7 +998,9 @@ class SymbolGroup(BaseSymbol):
       diff_status = None
       if symbol.IsDelta():
         diff_status = symbol.diff_status
-      return (symbol.object_path, name, diff_status)
+      if symbol.object_path or symbol.full_name.startswith('**'):
+        return (symbol.object_path, name, diff_status)
+      return (symbol.address, name, diff_status)
 
     # Use a custom factory to fill in name & template_name.
     def group_factory(token, symbols):
@@ -1121,7 +1147,7 @@ class DeltaSymbolGroup(SymbolGroup):
     ret = [0, 0, 0, 0]
     for sym in self:
       ret[sym.diff_status] += 1
-    return ret
+    return tuple(ret)
 
   def CountUniqueSymbols(self):
     """Returns (num_unique_before_symbols, num_unique_after_symbols)."""

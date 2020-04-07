@@ -82,9 +82,7 @@ class PRINTING_EXPORT PrintSettings {
   }
   // Media properties requested by the user. Translated into device media by the
   // platform specific layers.
-  const RequestedMedia& requested_media() const {
-    return requested_media_;
-  }
+  const RequestedMedia& requested_media() const { return requested_media_; }
 
   // Set printer printable area in in device units.
   // Some platforms already provide flipped area. Set |landscape_needs_flip|
@@ -126,7 +124,7 @@ class PRINTING_EXPORT PrintSettings {
   int device_units_per_inch() const {
 #if defined(OS_MACOSX)
     return 72;
-#else  // defined(OS_MACOSX)
+#else   // defined(OS_MACOSX)
     return dpi();
 #endif  // defined(OS_MACOSX)
   }
@@ -175,7 +173,7 @@ class PRINTING_EXPORT PrintSettings {
   bool printer_is_textonly() const {
     return printer_type_ == PrinterType::TYPE_TEXTONLY;
   }
-  bool printer_is_xps() const { return printer_type_ == PrinterType::TYPE_XPS;}
+  bool printer_is_xps() const { return printer_type_ == PrinterType::TYPE_XPS; }
   bool printer_is_ps2() const {
     return printer_type_ == PrinterType::TYPE_POSTSCRIPT_LEVEL2;
   }
@@ -191,6 +189,19 @@ class PRINTING_EXPORT PrintSettings {
   void set_pages_per_sheet(int pages_per_sheet) {
     pages_per_sheet_ = pages_per_sheet;
   }
+
+#if defined(OS_CHROMEOS)
+  void set_send_user_info(bool send_user_info) {
+    send_user_info_ = send_user_info;
+  }
+  bool send_user_info() const { return send_user_info_; }
+
+  void set_username(const std::string& username) { username_ = username; }
+  const std::string& username() const { return username_; }
+
+  void set_pin_value(const std::string& pin_value) { pin_value_ = pin_value; }
+  const std::string& pin_value() const { return pin_value_; }
+#endif
 
   // Cookie generator. It is used to initialize PrintedDocument with its
   // associated PrintSettings, to be sure that each generated PrintedPage is
@@ -270,6 +281,20 @@ class PRINTING_EXPORT PrintSettings {
 
   // Number of pages per sheet.
   int pages_per_sheet_;
+
+#if defined(OS_CHROMEOS)
+  // Whether to send user info.
+  bool send_user_info_;
+
+  // Username if it's required by the printer.
+  std::string username_;
+
+  // Job title if it's required by the printer.
+  std::string job_title_;
+
+  // PIN code entered by the user.
+  std::string pin_value_;
+#endif
 };
 
 }  // namespace printing

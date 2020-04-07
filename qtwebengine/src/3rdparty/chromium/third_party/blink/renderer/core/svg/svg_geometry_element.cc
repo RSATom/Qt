@@ -37,19 +37,16 @@
 #include "third_party/blink/renderer/core/svg/svg_point_tear_off.h"
 #include "third_party/blink/renderer/core/svg_names.h"
 #include "third_party/blink/renderer/platform/graphics/stroke_data.h"
+#include "third_party/blink/renderer/platform/heap/heap.h"
 
 namespace blink {
 
 class SVGAnimatedPathLength final : public SVGAnimatedNumber {
  public:
-  static SVGAnimatedPathLength* Create(SVGGeometryElement* context_element) {
-    return MakeGarbageCollected<SVGAnimatedPathLength>(context_element);
-  }
-
   explicit SVGAnimatedPathLength(SVGGeometryElement* context_element)
       : SVGAnimatedNumber(context_element,
                           svg_names::kPathLengthAttr,
-                          SVGNumber::Create()) {}
+                          MakeGarbageCollected<SVGNumber>()) {}
 
   SVGParsingError AttributeChanged(const String& value) override {
     SVGParsingError parse_status = SVGAnimatedNumber::AttributeChanged(value);
@@ -63,7 +60,7 @@ SVGGeometryElement::SVGGeometryElement(const QualifiedName& tag_name,
                                        Document& document,
                                        ConstructionType construction_type)
     : SVGGraphicsElement(tag_name, document, construction_type),
-      path_length_(SVGAnimatedPathLength::Create(this)) {
+      path_length_(MakeGarbageCollected<SVGAnimatedPathLength>(this)) {
   AddToPropertyMap(path_length_);
 }
 
@@ -84,7 +81,7 @@ void SVGGeometryElement::Trace(blink::Visitor* visitor) {
 }
 
 bool SVGGeometryElement::isPointInFill(SVGPointTearOff* point) const {
-  GetDocument().UpdateStyleAndLayoutIgnorePendingStylesheets();
+  GetDocument().UpdateStyleAndLayoutForNode(this);
 
   // FIXME: Eventually we should support isPointInFill for display:none
   // elements.
@@ -98,7 +95,7 @@ bool SVGGeometryElement::isPointInFill(SVGPointTearOff* point) const {
 }
 
 bool SVGGeometryElement::isPointInStroke(SVGPointTearOff* point) const {
-  GetDocument().UpdateStyleAndLayoutIgnorePendingStylesheets();
+  GetDocument().UpdateStyleAndLayoutForNode(this);
 
   // FIXME: Eventually we should support isPointInStroke for display:none
   // elements.
@@ -135,7 +132,7 @@ Path SVGGeometryElement::ToClipPath() const {
 }
 
 float SVGGeometryElement::getTotalLength() {
-  GetDocument().UpdateStyleAndLayoutIgnorePendingStylesheets();
+  GetDocument().UpdateStyleAndLayoutForNode(this);
 
   if (!GetLayoutObject())
     return 0;
@@ -143,7 +140,7 @@ float SVGGeometryElement::getTotalLength() {
 }
 
 SVGPointTearOff* SVGGeometryElement::getPointAtLength(float length) {
-  GetDocument().UpdateStyleAndLayoutIgnorePendingStylesheets();
+  GetDocument().UpdateStyleAndLayoutForNode(this);
 
   FloatPoint point;
   if (GetLayoutObject()) {
@@ -217,7 +214,8 @@ void SVGGeometryElement::GeometryAttributeChanged() {
   }
 }
 
-LayoutObject* SVGGeometryElement::CreateLayoutObject(const ComputedStyle&) {
+LayoutObject* SVGGeometryElement::CreateLayoutObject(const ComputedStyle&,
+                                                     LegacyLayout) {
   // By default, any subclass is expected to do path-based drawing.
   return new LayoutSVGPath(this);
 }

@@ -4,10 +4,9 @@
 
 #include "third_party/blink/renderer/core/html/html_slot_element.h"
 
-#include <array>
-
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/blink/renderer/core/css/style_engine.h"
+#include "third_party/blink/renderer/core/dom/node_computed_style.h"
 #include "third_party/blink/renderer/core/dom/shadow_root.h"
 #include "third_party/blink/renderer/core/testing/dummy_page_holder.h"
 
@@ -15,21 +14,22 @@ namespace blink {
 
 namespace {
 constexpr int kTableSize = 16;
-using Seq = std::vector<char>;
+using Seq = Vector<char>;
 using Backtrack = std::pair<size_t, size_t>;
 }
 
 class HTMLSlotElementTest : public testing::Test {
  protected:
-  HTMLSlotElementTest() = default;
+  HTMLSlotElementTest()
+      : lcs_table_(kTableSize), backtrack_table_(kTableSize) {}
   Seq LongestCommonSubsequence(const Seq& seq1, const Seq& seq2);
-  std::array<std::array<size_t, kTableSize>, kTableSize> lcs_table_;
-  std::array<std::array<Backtrack, kTableSize>, kTableSize> backtrack_table_;
+  Vector<HTMLSlotElement::LCSArray<size_t, kTableSize>, kTableSize> lcs_table_;
+  Vector<HTMLSlotElement::LCSArray<Backtrack, kTableSize>, kTableSize>
+      backtrack_table_;
 };
 
-std::vector<char> HTMLSlotElementTest::LongestCommonSubsequence(
-    const Seq& seq1,
-    const Seq& seq2) {
+Vector<char> HTMLSlotElementTest::LongestCommonSubsequence(const Seq& seq1,
+                                                           const Seq& seq2) {
   HTMLSlotElement::FillLongestCommonSubsequenceDynamicProgrammingTable(
       seq1, seq2, lcs_table_, backtrack_table_);
   Seq lcs;
@@ -134,7 +134,7 @@ TEST_F(HTMLSlotElementTest, TableSizeLimit) {
 class HTMLSlotElementReattachTest : public testing::Test {
  protected:
   void SetUp() final {
-    dummy_page_holder_ = DummyPageHolder::Create(IntSize(800, 600));
+    dummy_page_holder_ = std::make_unique<DummyPageHolder>(IntSize(800, 600));
   }
   Document& GetDocument() { return dummy_page_holder_->GetDocument(); }
 
@@ -156,17 +156,17 @@ TEST_F(HTMLSlotElementReattachTest, RecalcAssignedNodeStyleForReattach) {
   shadow_root.SetInnerHTMLFromString(
       R"HTML(<span><slot /></span>)HTML");
 
-  Element& shadow_span = *ToElement(shadow_root.firstChild());
+  auto* shadow_span = To<Element>(shadow_root.firstChild());
   GetDocument().View()->UpdateAllLifecyclePhases(
       DocumentLifecycle::LifecycleUpdateReason::kTest);
 
-  shadow_span.setAttribute(html_names::kStyleAttr, "display:block");
+  shadow_span->setAttribute(html_names::kStyleAttr, "display:block");
 
   GetDocument().Lifecycle().AdvanceTo(DocumentLifecycle::kInStyleRecalc);
-  GetDocument().GetStyleEngine().RecalcStyle(kNoChange);
+  GetDocument().GetStyleEngine().RecalcStyle({});
 
-  EXPECT_TRUE(shadow_span.GetNonAttachedStyle());
-  EXPECT_TRUE(span.GetNonAttachedStyle());
+  EXPECT_TRUE(shadow_span->GetComputedStyle());
+  EXPECT_TRUE(span.GetComputedStyle());
 }
 
 }  // namespace blink

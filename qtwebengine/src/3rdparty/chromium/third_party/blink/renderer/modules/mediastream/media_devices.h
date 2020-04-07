@@ -9,8 +9,8 @@
 #include "mojo/public/cpp/bindings/binding.h"
 #include "third_party/blink/public/mojom/mediastream/media_devices.mojom-blink.h"
 #include "third_party/blink/renderer/bindings/core/v8/active_script_wrappable.h"
-#include "third_party/blink/renderer/core/dom/context_lifecycle_observer.h"
 #include "third_party/blink/renderer/core/dom/events/event_target.h"
+#include "third_party/blink/renderer/core/execution_context/context_lifecycle_observer.h"
 #include "third_party/blink/renderer/modules/event_target_modules.h"
 #include "third_party/blink/renderer/modules/mediastream/media_device_info.h"
 #include "third_party/blink/renderer/modules/mediastream/user_media_request.h"
@@ -37,8 +37,6 @@ class MODULES_EXPORT MediaDevices final
   USING_PRE_FINALIZER(MediaDevices, Dispose);
 
  public:
-  static MediaDevices* Create(ExecutionContext*);
-
   explicit MediaDevices(ExecutionContext*);
   ~MediaDevices() override;
 
@@ -92,7 +90,7 @@ class MODULES_EXPORT MediaDevices final
 
   void Trace(blink::Visitor*) override;
 
-  DEFINE_ATTRIBUTE_EVENT_LISTENER(devicechange, kDevicechange);
+  DEFINE_ATTRIBUTE_EVENT_LISTENER(devicechange, kDevicechange)
 
  protected:
   // EventTarget overrides.
@@ -110,7 +108,8 @@ class MODULES_EXPORT MediaDevices final
   void Dispose();
   void DevicesEnumerated(ScriptPromiseResolver*,
                          Vector<Vector<mojom::blink::MediaDeviceInfoPtr>>,
-                         Vector<mojom::blink::VideoInputDeviceCapabilitiesPtr>);
+                         Vector<mojom::blink::VideoInputDeviceCapabilitiesPtr>,
+                         Vector<mojom::blink::AudioInputDeviceCapabilitiesPtr>);
   void OnDispatcherHostConnectionError();
   const mojom::blink::MediaDevicesDispatcherHostPtr& GetDispatcherHost(
       LocalFrame*);

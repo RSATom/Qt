@@ -8,12 +8,12 @@
 #ifndef GrStrikeCache_DEFINED
 #define GrStrikeCache_DEFINED
 
-#include "GrDrawOpAtlas.h"
-#include "GrGlyph.h"
-#include "SkArenaAlloc.h"
-#include "SkMasks.h"
-#include "SkStrike.h"
-#include "SkTDynamicHash.h"
+#include "src/codec/SkMasks.h"
+#include "src/core/SkArenaAlloc.h"
+#include "src/core/SkStrike.h"
+#include "src/core/SkTDynamicHash.h"
+#include "src/gpu/GrDrawOpAtlas.h"
+#include "src/gpu/GrGlyph.h"
 
 class GrAtlasManager;
 class GrGpu;
@@ -31,28 +31,28 @@ public:
     GrTextStrike(const SkDescriptor& fontScalerKey);
 
     GrGlyph* getGlyph(const SkGlyph& skGlyph) {
-        GrGlyph* glyph = fCache.find(skGlyph.getPackedID());
-        if (!glyph) {
-            glyph = this->generateGlyph(skGlyph);
+        GrGlyph* grGlyph = fCache.find(skGlyph.getPackedID());
+        if (grGlyph == nullptr) {
+            grGlyph = fAlloc.make<GrGlyph>(skGlyph);
+            fCache.add(grGlyph);
         }
-        return glyph;
+        return grGlyph;
     }
 
     // This variant of the above function is called by GrAtlasTextOp. At this point, it is possible
     // that the maskformat of the glyph differs from what we expect.  In these cases we will just
     // draw a clear square.
     // skbug:4143 crbug:510931
-    GrGlyph* getGlyph(SkPackedGlyphID packed,
-                      SkStrike* cache) {
-        GrGlyph* glyph = fCache.find(packed);
-        if (!glyph) {
+    GrGlyph* getGlyph(SkPackedGlyphID packed, SkStrike* skStrike) {
+        GrGlyph* grGlyph = fCache.find(packed);
+        if (grGlyph == nullptr) {
             // We could return this to the caller, but in practice it adds code complexity for
             // potentially little benefit(ie, if the glyph is not in our font cache, then its not
             // in the atlas and we're going to be doing a texture upload anyways).
-            const SkGlyph& skGlyph = GrToSkGlyph(cache, packed);
-            glyph = this->generateGlyph(skGlyph);
+            grGlyph = fAlloc.make<GrGlyph>(*skStrike->glyph(packed));
+            fCache.add(grGlyph);
         }
-        return glyph;
+        return grGlyph;
     }
 
     // returns true if glyph successfully added to texture atlas, false otherwise.  If the glyph's
@@ -88,12 +88,6 @@ private:
     int fAtlasedGlyphs{0};
     bool fIsAbandoned{false};
 
-    static const SkGlyph& GrToSkGlyph(SkStrike* cache, SkPackedGlyphID id) {
-        return cache->getGlyphIDMetrics(id.code(), id.getSubXFixed(), id.getSubYFixed());
-    }
-
-    GrGlyph* generateGlyph(const SkGlyph&);
-
     friend class GrStrikeCache;
 };
 
@@ -112,10 +106,10 @@ public:
     // another client of the cache may cause the strike to be purged while it is still reffed.
     // Therefore, the caller must check GrTextStrike::isAbandoned() if there are other
     // interactions with the cache since the strike was received.
-    sk_sp<GrTextStrike> getStrike(const SkStrike* cache) {
-        sk_sp<GrTextStrike> strike = sk_ref_sp(fCache.find(cache->getDescriptor()));
+    sk_sp<GrTextStrike> getStrike(const SkDescriptor& desc) {
+        sk_sp<GrTextStrike> strike = sk_ref_sp(fCache.find(desc));
         if (!strike) {
-            strike = this->generateStrike(cache);
+            strike = this->generateStrike(desc);
         }
         return strike;
     }
@@ -127,9 +121,9 @@ public:
     static void HandleEviction(GrDrawOpAtlas::AtlasID, void*);
 
 private:
-    sk_sp<GrTextStrike> generateStrike(const SkStrike* cache) {
+    sk_sp<GrTextStrike> generateStrike(const SkDescriptor& desc) {
         // 'fCache' get the construction ref
-        sk_sp<GrTextStrike> strike = sk_ref_sp(new GrTextStrike(cache->getDescriptor()));
+        sk_sp<GrTextStrike> strike = sk_ref_sp(new GrTextStrike(desc));
         fCache.add(strike.get());
         return strike;
     }

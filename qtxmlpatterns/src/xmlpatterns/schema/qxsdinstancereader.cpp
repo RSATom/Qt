@@ -149,7 +149,10 @@ QString XsdInstanceReader::attribute(const QXmlName &name) const
 
 QSet<QXmlName> XsdInstanceReader::attributeNames() const
 {
-    return m_cachedAttributes.keys().toSet();
+    QSet<QXmlName> result;
+    for (auto it = m_cachedAttributes.cbegin(), end = m_cachedAttributes.cend(); it != end; ++it)
+        result.insert(it.key());
+    return result;
 }
 
 QString XsdInstanceReader::text() const

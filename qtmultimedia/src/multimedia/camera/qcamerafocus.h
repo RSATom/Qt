@@ -152,15 +152,19 @@ Q_SIGNALS:
     void maximumOpticalZoomChanged(qreal);
     void maximumDigitalZoomChanged(qreal);
 
+protected:
+    ~QCameraFocus();
+
 private:
     friend class QCamera;
     friend class QCameraPrivate;
     QCameraFocus(QCamera *camera);
-    ~QCameraFocus();
 
     Q_DISABLE_COPY(QCameraFocus)
     Q_DECLARE_PRIVATE(QCameraFocus)
-    QCameraFocusPrivate *d_ptr;
+#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
+    QCameraFocusPrivate *d_ptr_deprecated;
+#endif
 };
 
 Q_DECLARE_OPERATORS_FOR_FLAGS(QCameraFocus::FocusModes)

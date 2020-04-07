@@ -22,16 +22,14 @@ namespace trace_processor {
 StorageTable::StorageTable() = default;
 StorageTable::~StorageTable() = default;
 
-base::Optional<Table::Schema> StorageTable::Init(int, const char* const*) {
+util::Status StorageTable::Init(int, const char* const*, Schema* schema) {
   schema_ = CreateStorageSchema();
-  return schema_.ToTableSchema();
+  *schema = schema_.ToTableSchema();
+  return util::OkStatus();
 }
 
-std::unique_ptr<Table::Cursor> StorageTable::CreateCursor(
-    const QueryConstraints& qc,
-    sqlite3_value** argv) {
-  return std::unique_ptr<Cursor>(
-      new Cursor(CreateBestRowIterator(qc, argv), schema_.mutable_columns()));
+std::unique_ptr<Table::Cursor> StorageTable::CreateCursor() {
+  return std::unique_ptr<Cursor>(new Cursor(this));
 }
 
 std::unique_ptr<RowIterator> StorageTable::CreateBestRowIterator(
@@ -47,6 +45,11 @@ std::unique_ptr<RowIterator> StorageTable::CreateBestRowIterator(
 
   // Create the range iterator and if we are sorted, just return it.
   auto index = CreateRangeIterator(cs, argv);
+  if (!index.error().empty()) {
+    SetErrorMessage(sqlite3_mprintf(index.error().c_str()));
+    return nullptr;
+  }
+
   if (is_ordered)
     return index.ToRowIterator(is_desc);
 
@@ -89,6 +92,9 @@ FilteredRowIndex StorageTable::CreateRangeIterator(
 
     const auto& schema_col = schema_.GetColumn(static_cast<size_t>(c.iColumn));
     schema_col.Filter(c.op, value, &index);
+
+    if (!index.error().empty())
+      break;
   }
   return index;
 }
@@ -103,7 +109,7 @@ std::pair<bool, bool> StorageTable::IsOrdered(
 
   const auto& ob = obs[0];
   auto col = static_cast<size_t>(ob.iColumn);
-  return std::make_pair(schema_.GetColumn(col).IsNaturallyOrdered(), ob.desc);
+  return std::make_pair(schema_.GetColumn(col).HasOrdering(), ob.desc);
 }
 
 std::vector<QueryConstraints::OrderBy> StorageTable::RemoveRedundantOrderBy(
@@ -150,9 +156,27 @@ std::vector<uint32_t> StorageTable::CreateSortedIndexVector(
   return sorted_rows;
 }
 
-StorageTable::Cursor::Cursor(std::unique_ptr<RowIterator> iterator,
-                             std::vector<std::unique_ptr<StorageColumn>>* cols)
-    : iterator_(std::move(iterator)), columns_(std::move(cols)) {}
+bool StorageTable::HasEqConstraint(const QueryConstraints& qc,
+                                   const std::string& col_name) {
+  size_t c_idx = schema().ColumnIndexFromName(col_name);
+  auto fn = [c_idx](const QueryConstraints::Constraint& c) {
+    return c.iColumn == static_cast<int>(c_idx) && sqlite_utils::IsOpEq(c.op);
+  };
+  const auto& cs = qc.constraints();
+  return std::find_if(cs.begin(), cs.end(), fn) != cs.end();
+}
+
+StorageTable::Cursor::Cursor(StorageTable* table)
+    : Table::Cursor(table), table_(table) {}
+
+int StorageTable::Cursor::Filter(const QueryConstraints& qc,
+                                 sqlite3_value** argv) {
+  iterator_ = table_->CreateBestRowIterator(qc, argv);
+  if (!iterator_)
+    return SQLITE_ERROR;
+  columns_ = table_->schema_.mutable_columns();
+  return SQLITE_OK;
+}
 
 int StorageTable::Cursor::Next() {
   iterator_->NextRow();

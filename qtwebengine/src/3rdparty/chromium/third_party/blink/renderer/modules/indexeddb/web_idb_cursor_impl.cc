@@ -6,11 +6,9 @@
 
 #include <stddef.h>
 
-#include <string>
-#include <vector>
-
 #include "base/single_thread_task_runner.h"
 #include "mojo/public/cpp/bindings/strong_associated_binding.h"
+#include "third_party/blink/public/platform/modules/indexeddb/web_idb_database_exception.h"
 #include "third_party/blink/renderer/modules/indexeddb/idb_key_range.h"
 #include "third_party/blink/renderer/modules/indexeddb/indexed_db_dispatcher.h"
 #include "third_party/blink/renderer/platform/wtf/functional.h"
@@ -29,8 +27,7 @@ WebIDBCursorImpl::WebIDBCursorImpl(
       used_prefetches_(0),
       pending_onsuccess_callbacks_(0),
       prefetch_amount_(kMinPrefetchAmount),
-      task_runner_(task_runner),
-      weak_factory_(this) {
+      task_runner_(task_runner) {
   cursor_.Bind(std::move(cursor_info), std::move(task_runner));
   IndexedDBDispatcher::RegisterCursor(this);
 }
@@ -51,6 +48,9 @@ void WebIDBCursorImpl::Advance(uint32_t count, WebIDBCallbacks* callbacks_ptr) {
   }
   ResetPrefetchCache();
 
+  // Reset all cursor prefetch caches except for this cursor.
+  IndexedDBDispatcher::ResetCursorPrefetchCaches(transaction_id_, this);
+
   callbacks->SetState(weak_factory_.GetWeakPtr(), transaction_id_);
   cursor_->Advance(count,
                    WTF::Bind(&WebIDBCursorImpl::AdvanceCallback,
@@ -59,23 +59,38 @@ void WebIDBCursorImpl::Advance(uint32_t count, WebIDBCallbacks* callbacks_ptr) {
 
 void WebIDBCursorImpl::AdvanceCallback(
     std::unique_ptr<WebIDBCallbacks> callbacks,
-    mojom::blink::IDBErrorPtr error,
-    mojom::blink::IDBCursorValuePtr cursor_value) {
-  if (error) {
-    callbacks->Error(error->error_code, error->error_message);
+    mojom::blink::IDBCursorResultPtr result) {
+  if (result->is_error_result()) {
+    callbacks->Error(result->get_error_result()->error_code,
+                     std::move(result->get_error_result()->error_message));
     callbacks.reset();
     return;
   }
 
-  if (!cursor_value) {
+  if (result->is_empty() && result->get_empty()) {
     callbacks->SuccessValue(nullptr);
     callbacks.reset();
     return;
+  } else if (result->is_empty()) {
+    callbacks->Error(blink::kWebIDBDatabaseExceptionUnknownError,
+                     "Invalid response");
+    callbacks.reset();
+    return;
   }
 
-  callbacks->SuccessCursorContinue(std::move(cursor_value->key),
-                                   std::move(cursor_value->primary_key),
-                                   std::move(cursor_value->value));
+  if (result->get_values()->keys.size() != 1u ||
+      result->get_values()->primary_keys.size() != 1u ||
+      result->get_values()->values.size() != 1u) {
+    callbacks->Error(blink::kWebIDBDatabaseExceptionUnknownError,
+                     "Invalid response");
+    callbacks.reset();
+    return;
+  }
+
+  callbacks->SuccessCursorContinue(
+      std::move(result->get_values()->keys[0]),
+      std::move(result->get_values()->primary_keys[0]),
+      std::move(result->get_values()->values[0]));
   callbacks.reset();
 }
 
@@ -102,7 +117,8 @@ void WebIDBCursorImpl::CursorContinue(const IDBKey* key,
 
       callbacks->SetState(weak_factory_.GetWeakPtr(), transaction_id_);
       cursor_->Prefetch(prefetch_amount_,
-                        GetCallbacksProxy(std::move(callbacks)));
+                        WTF::Bind(&WebIDBCursorImpl::PrefetchCallback,
+                                  WTF::Unretained(this), std::move(callbacks)));
 
       // Increase prefetch_amount_ exponentially.
       prefetch_amount_ *= 2;
@@ -116,9 +132,88 @@ void WebIDBCursorImpl::CursorContinue(const IDBKey* key,
     ResetPrefetchCache();
   }
 
+  // Reset all cursor prefetch caches except for this cursor.
+  IndexedDBDispatcher::ResetCursorPrefetchCaches(transaction_id_, this);
   callbacks->SetState(weak_factory_.GetWeakPtr(), transaction_id_);
-  cursor_->CursorContinue(IDBKey::Clone(key), IDBKey::Clone(primary_key),
-                          GetCallbacksProxy(std::move(callbacks)));
+  cursor_->CursorContinue(
+      IDBKey::Clone(key), IDBKey::Clone(primary_key),
+      WTF::Bind(&WebIDBCursorImpl::CursorContinueCallback,
+                WTF::Unretained(this), std::move(callbacks)));
+}
+
+void WebIDBCursorImpl::CursorContinueCallback(
+    std::unique_ptr<WebIDBCallbacks> callbacks,
+    mojom::blink::IDBCursorResultPtr result) {
+  if (result->is_error_result()) {
+    callbacks->Error(result->get_error_result()->error_code,
+                     std::move(result->get_error_result()->error_message));
+    callbacks.reset();
+    return;
+  }
+
+  if (result->is_empty() && result->get_empty()) {
+    callbacks->SuccessValue(nullptr);
+    callbacks.reset();
+    return;
+  } else if (result->is_empty()) {
+    callbacks->Error(blink::kWebIDBDatabaseExceptionUnknownError,
+                     "Invalid response");
+    callbacks.reset();
+    return;
+  }
+
+  if (result->get_values()->keys.size() != 1u ||
+      result->get_values()->primary_keys.size() != 1u ||
+      result->get_values()->values.size() != 1u) {
+    callbacks->Error(blink::kWebIDBDatabaseExceptionUnknownError,
+                     "Invalid response");
+    callbacks.reset();
+    return;
+  }
+
+  callbacks->SuccessCursorContinue(
+      std::move(result->get_values()->keys[0]),
+      std::move(result->get_values()->primary_keys[0]),
+      std::move(result->get_values()->values[0]));
+  callbacks.reset();
+}
+
+void WebIDBCursorImpl::PrefetchCallback(
+    std::unique_ptr<WebIDBCallbacks> callbacks,
+    mojom::blink::IDBCursorResultPtr result) {
+  if (result->is_error_result()) {
+    callbacks->Error(result->get_error_result()->error_code,
+                     std::move(result->get_error_result()->error_message));
+    callbacks.reset();
+    return;
+  }
+
+  if (result->is_empty() && result->get_empty()) {
+    callbacks->SuccessValue(nullptr);
+    callbacks.reset();
+    return;
+  } else if (result->is_empty()) {
+    callbacks->Error(blink::kWebIDBDatabaseExceptionUnknownError,
+                     "Invalid response");
+    callbacks.reset();
+    return;
+  }
+
+  if (result->get_values()->keys.size() !=
+          result->get_values()->primary_keys.size() ||
+      result->get_values()->keys.size() !=
+          result->get_values()->values.size()) {
+    callbacks->Error(blink::kWebIDBDatabaseExceptionUnknownError,
+                     "Invalid response");
+    callbacks.reset();
+    return;
+  }
+
+  callbacks->SuccessCursorPrefetch(
+      std::move(result->get_values()->keys),
+      std::move(result->get_values()->primary_keys),
+      std::move(result->get_values()->values));
+  callbacks.reset();
 }
 
 void WebIDBCursorImpl::PostSuccessHandlerCallback() {
@@ -152,7 +247,7 @@ void WebIDBCursorImpl::SetPrefetchData(
   pending_onsuccess_callbacks_ = 0;
 }
 
-void WebIDBCursorImpl::CachedAdvance(unsigned long count,
+void WebIDBCursorImpl::CachedAdvance(uint32_t count,
                                      WebIDBCallbacks* callbacks) {
   DCHECK_GE(prefetch_keys_.size(), count);
   DCHECK_EQ(prefetch_primary_keys_.size(), prefetch_keys_.size());

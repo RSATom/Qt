@@ -12,7 +12,7 @@
 #include "third_party/blink/renderer/core/dom/events/event.h"
 #include "third_party/blink/renderer/core/dom/events/event_target.h"
 #include "third_party/blink/renderer/platform/bindings/v8_private_property.h"
-#include "third_party/blink/renderer/platform/instance_counters.h"
+#include "third_party/blink/renderer/platform/instrumentation/instance_counters.h"
 
 namespace blink {
 
@@ -76,7 +76,7 @@ void JSBasedEventListener::Invoke(
     // order, which says it should be done in step 10. There is no behavioral
     // difference but the advantage that we can use listener's |ScriptState|
     // after it get compiled.
-    // https://html.spec.whatwg.org/multipage/webappapis.html#event-handler-value
+    // https://html.spec.whatwg.org/C/#event-handler-value
     v8::Local<v8::Value> listener = GetListenerObject(*event->currentTarget());
 
     if (listener.IsEmpty() || !listener->IsObject())

@@ -5,6 +5,7 @@
 #include "third_party/blink/renderer/core/script/fetch_client_settings_object_impl.h"
 
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
+#include "third_party/blink/renderer/core/execution_context/security_context.h"
 
 namespace blink {
 
@@ -14,7 +15,12 @@ FetchClientSettingsObjectImpl::FetchClientSettingsObjectImpl(
   DCHECK(execution_context_->IsContextThread());
 }
 
-const KURL& FetchClientSettingsObjectImpl::BaseURL() const {
+const KURL& FetchClientSettingsObjectImpl::GlobalObjectUrl() const {
+  DCHECK(execution_context_->IsContextThread());
+  return execution_context_->Url();
+}
+
+const KURL& FetchClientSettingsObjectImpl::BaseUrl() const {
   DCHECK(execution_context_->IsContextThread());
   return execution_context_->BaseURL();
 }
@@ -59,6 +65,25 @@ FetchClientSettingsObjectImpl::MimeTypeCheckForClassicWorkerScript() const {
   // Nested workers is a new feature (enabled by default in M69) and there is no
   // backward compatibility issue.
   return AllowedByNosniff::MimeTypeCheck::kStrict;
+}
+
+mojom::IPAddressSpace FetchClientSettingsObjectImpl::GetAddressSpace() const {
+  return execution_context_->GetSecurityContext().AddressSpace();
+}
+
+WebInsecureRequestPolicy
+FetchClientSettingsObjectImpl::GetInsecureRequestsPolicy() const {
+  return execution_context_->GetSecurityContext().GetInsecureRequestPolicy();
+}
+
+const FetchClientSettingsObject::InsecureNavigationsSet&
+FetchClientSettingsObjectImpl::GetUpgradeInsecureNavigationsSet() const {
+  return execution_context_->GetSecurityContext()
+      .InsecureNavigationsToUpgrade();
+}
+
+bool FetchClientSettingsObjectImpl::GetMixedAutoUpgradeOptOut() const {
+  return execution_context_->GetSecurityContext().GetMixedAutoUpgradeOptOut();
 }
 
 void FetchClientSettingsObjectImpl::Trace(Visitor* visitor) {

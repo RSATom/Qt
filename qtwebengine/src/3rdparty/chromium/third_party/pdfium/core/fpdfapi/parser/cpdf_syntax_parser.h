@@ -10,7 +10,7 @@
 #include <memory>
 #include <vector>
 
-#include "core/fpdfapi/cpdf_modulemgr.h"
+#include "core/fpdfapi/parser/cpdf_stream.h"
 #include "core/fxcrt/string_pool_template.h"
 #include "core/fxcrt/weak_ptr.h"
 
@@ -43,12 +43,10 @@ class CPDF_SyntaxParser {
   FX_FILESIZE GetPos() const { return m_Pos; }
   void SetPos(FX_FILESIZE pos);
 
-  std::unique_ptr<CPDF_Object> GetObjectBody(
-      CPDF_IndirectObjectHolder* pObjList);
+  RetainPtr<CPDF_Object> GetObjectBody(CPDF_IndirectObjectHolder* pObjList);
 
-  std::unique_ptr<CPDF_Object> GetIndirectObject(
-      CPDF_IndirectObjectHolder* pObjList,
-      ParseType parse_type);
+  RetainPtr<CPDF_Object> GetIndirectObject(CPDF_IndirectObjectHolder* pObjList,
+                                           ParseType parse_type);
 
   ByteString GetKeyword();
   void ToNextLine();
@@ -95,12 +93,11 @@ class CPDF_SyntaxParser {
   unsigned int ReadEOLMarkers(FX_FILESIZE pos);
   FX_FILESIZE FindWordPos(ByteStringView word);
   FX_FILESIZE FindStreamEndPos();
-  std::unique_ptr<CPDF_Stream> ReadStream(
-      std::unique_ptr<CPDF_Dictionary> pDict);
+  RetainPtr<CPDF_Stream> ReadStream(RetainPtr<CPDF_Dictionary> pDict);
 
   bool IsPositionRead(FX_FILESIZE pos) const;
 
-  std::unique_ptr<CPDF_Object> GetObjectBodyInternal(
+  RetainPtr<CPDF_Object> GetObjectBodyInternal(
       CPDF_IndirectObjectHolder* pObjList,
       ParseType parse_type);
 
@@ -116,7 +113,7 @@ class CPDF_SyntaxParser {
   FX_FILESIZE m_BufOffset = 0;
   uint32_t m_WordSize = 0;
   uint8_t m_WordBuffer[257];
-  uint32_t m_ReadBufferSize = CPDF_ModuleMgr::kFileBufSize;
+  uint32_t m_ReadBufferSize = CPDF_Stream::kFileBufSize;
 };
 
 #endif  // CORE_FPDFAPI_PARSER_CPDF_SYNTAX_PARSER_H_

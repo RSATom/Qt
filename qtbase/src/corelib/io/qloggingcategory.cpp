@@ -179,7 +179,7 @@ static void setBoolLane(QBasicAtomicInt *atomic, bool enable, int shift)
     The \c QtProject/qtlogging.ini file is looked up in all directories returned
     by QStandardPaths::GenericConfigLocation.
 
-    Set the \c QT_LOGGING_DEBUG environment variable to find out where you logging
+    Set the \c QT_LOGGING_DEBUG environment variable to find out where your logging
     rules are loaded from.
 
     \section2 Installing a Custom Filter
@@ -205,8 +205,8 @@ static void setBoolLane(QBasicAtomicInt *atomic, bool enable, int shift)
     \note \a category must be kept valid during the lifetime of this object.
 */
 QLoggingCategory::QLoggingCategory(const char *category)
-    : d(0),
-      name(0)
+    : d(nullptr),
+      name(nullptr)
 {
     init(category, QtDebugMsg);
 }
@@ -222,15 +222,15 @@ QLoggingCategory::QLoggingCategory(const char *category)
     \since 5.4
 */
 QLoggingCategory::QLoggingCategory(const char *category, QtMsgType enableForLevel)
-    : d(0),
-      name(0)
+    : d(nullptr),
+      name(nullptr)
 {
     init(category, enableForLevel);
 }
 
 void QLoggingCategory::init(const char *category, QtMsgType severityLevel)
 {
-    enabled.store(0x01010101);   // enabledDebug = enabledWarning = enabledCritical = true;
+    enabled.storeRelaxed(0x01010101);   // enabledDebug = enabledWarning = enabledCritical = true;
 
     if (category)
         name = category;
@@ -333,10 +333,10 @@ void QLoggingCategory::setEnabled(QtMsgType type, bool enable)
 {
     switch (type) {
 #ifdef Q_ATOMIC_INT8_IS_SUPPORTED
-    case QtDebugMsg: bools.enabledDebug.store(enable); break;
-    case QtInfoMsg: bools.enabledInfo.store(enable); break;
-    case QtWarningMsg: bools.enabledWarning.store(enable); break;
-    case QtCriticalMsg: bools.enabledCritical.store(enable); break;
+    case QtDebugMsg: bools.enabledDebug.storeRelaxed(enable); break;
+    case QtInfoMsg: bools.enabledInfo.storeRelaxed(enable); break;
+    case QtWarningMsg: bools.enabledWarning.storeRelaxed(enable); break;
+    case QtCriticalMsg: bools.enabledCritical.storeRelaxed(enable); break;
 #else
     case QtDebugMsg: setBoolLane(&enabled, enable, DebugShift); break;
     case QtInfoMsg: setBoolLane(&enabled, enable, InfoShift); break;

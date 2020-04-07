@@ -8,20 +8,21 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
+#include "p2p/base/regathering_controller.h"
+
 #include <map>
 #include <memory>
 #include <string>
 #include <vector>
 
+#include "api/scoped_refptr.h"
 #include "p2p/base/fake_port_allocator.h"
 #include "p2p/base/mock_ice_transport.h"
 #include "p2p/base/p2p_constants.h"
 #include "p2p/base/port.h"
-#include "p2p/base/regathering_controller.h"
 #include "p2p/base/stun_server.h"
 #include "rtc_base/gunit.h"
 #include "rtc_base/ref_counted_object.h"
-#include "rtc_base/scoped_ref_ptr.h"
 #include "rtc_base/socket_address.h"
 #include "rtc_base/thread.h"
 #include "rtc_base/virtual_socket_server.h"
@@ -44,7 +45,7 @@ const char kIcePwd[] = "TESTICEPWD00000000000000";
 
 namespace webrtc {
 
-class RegatheringControllerTest : public testing::Test,
+class RegatheringControllerTest : public ::testing::Test,
                                   public sigslot::has_slots<> {
  public:
   RegatheringControllerTest()

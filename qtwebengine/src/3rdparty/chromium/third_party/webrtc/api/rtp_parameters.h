@@ -12,6 +12,7 @@
 #define API_RTP_PARAMETERS_H_
 
 #include <stdint.h>
+
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -50,6 +51,7 @@ enum class FecMechanism {
 // Used in RtcpFeedback struct.
 enum class RtcpFeedbackType {
   CCM,
+  LNTF,  // "goog-lntf"
   NACK,
   REMB,  // "goog-remb"
   TRANSPORT_CC,
@@ -79,15 +81,15 @@ enum class DegradationPreference {
   // Don't take any actions based on over-utilization signals. Not part of the
   // web API.
   DISABLED,
-  // On over-use, request lower frame rate, possibly causing frame drops.
-  MAINTAIN_FRAMERATE,
   // On over-use, request lower resolution, possibly causing down-scaling.
+  MAINTAIN_FRAMERATE,
+  // On over-use, request lower frame rate, possibly causing frame drops.
   MAINTAIN_RESOLUTION,
   // Try to strike a "pleasing" balance between frame rate or resolution.
   BALANCED,
 };
 
-extern const double kDefaultBitratePriority;
+RTC_EXPORT extern const double kDefaultBitratePriority;
 
 struct RtcpFeedback {
   RtcpFeedbackType type = RtcpFeedbackType::CCM;
@@ -138,8 +140,7 @@ struct RtpCodecCapability {
   // TODO(deadbeef): Not implemented.
   absl::optional<int> max_ptime;
 
-  // Preferred packetization time for an RtpReceiver or RtpSender of this
-  // codec.
+  // Preferred packetization time for an RtpReceiver or RtpSender of this codec.
   // TODO(deadbeef): Not implemented.
   absl::optional<int> ptime;
 
@@ -154,8 +155,8 @@ struct RtpCodecCapability {
   // Corresponds to "a=fmtp" parameters in SDP.
   //
   // Contrary to ORTC, these parameters are named using all lowercase strings.
-  // This helps make the mapping to SDP simpler, if an application is using
-  // SDP. Boolean values are represented by the string "1".
+  // This helps make the mapping to SDP simpler, if an application is using SDP.
+  // Boolean values are represented by the string "1".
   std::unordered_map<std::string, std::string> parameters;
 
   // Codec-specific parameters that may optionally be signaled to the remote
@@ -173,9 +174,9 @@ struct RtpCodecCapability {
   // TODO(deadbeef): Not implemented.
   int max_spatial_layer_extensions = 0;
 
-  // Whether the implementation can send/receive SVC layers with distinct
-  // SSRCs. Always false for audio codecs. True for video codecs that support
-  // scalable video coding with MRST.
+  // Whether the implementation can send/receive SVC layers with distinct SSRCs.
+  // Always false for audio codecs. True for video codecs that support scalable
+  // video coding with MRST.
   // TODO(deadbeef): Not implemented.
   bool svc_multi_stream_support = false;
 
@@ -258,52 +259,49 @@ struct RtpExtension {
   // Header extension for audio levels, as defined in:
   // http://tools.ietf.org/html/draft-ietf-avtext-client-to-mixer-audio-level-03
   static const char kAudioLevelUri[];
-  static const int kAudioLevelDefaultId;
 
   // Header extension for RTP timestamp offset, see RFC 5450 for details:
   // http://tools.ietf.org/html/rfc5450
   static const char kTimestampOffsetUri[];
-  static const int kTimestampOffsetDefaultId;
 
   // Header extension for absolute send time, see url for details:
   // http://www.webrtc.org/experiments/rtp-hdrext/abs-send-time
   static const char kAbsSendTimeUri[];
-  static const int kAbsSendTimeDefaultId;
+
+  // Header extension for absolute capture time, see url for details:
+  // http://www.webrtc.org/experiments/rtp-hdrext/abs-capture-time
+  static const char kAbsoluteCaptureTimeUri[];
 
   // Header extension for coordination of video orientation, see url for
   // details:
   // http://www.etsi.org/deliver/etsi_ts/126100_126199/126114/12.07.00_60/ts_126114v120700p.pdf
   static const char kVideoRotationUri[];
-  static const int kVideoRotationDefaultId;
 
   // Header extension for video content type. E.g. default or screenshare.
   static const char kVideoContentTypeUri[];
-  static const int kVideoContentTypeDefaultId;
 
   // Header extension for video timing.
   static const char kVideoTimingUri[];
-  static const int kVideoTimingDefaultId;
 
   // Header extension for video frame marking.
   static const char kFrameMarkingUri[];
-  static const int kFrameMarkingDefaultId;
 
   // Experimental codec agnostic frame descriptor.
+  static const char kGenericFrameDescriptorUri00[];
+  static const char kGenericFrameDescriptorUri01[];
+  // TODO(bugs.webrtc.org/10243): Remove once dependencies have been updated.
   static const char kGenericFrameDescriptorUri[];
-  static const int kGenericFrameDescriptorDefaultId;
 
   // Header extension for transport sequence number, see url for details:
   // http://www.ietf.org/id/draft-holmer-rmcat-transport-wide-cc-extensions
   static const char kTransportSequenceNumberUri[];
-  static const int kTransportSequenceNumberDefaultId;
+  static const char kTransportSequenceNumberV2Uri[];
 
   static const char kPlayoutDelayUri[];
-  static const int kPlayoutDelayDefaultId;
 
   // Header extension for identifying media section within a transport.
   // https://tools.ietf.org/html/draft-ietf-mmusic-sdp-bundle-negotiation-49#section-15
   static const char kMidUri[];
-  static const int kMidDefaultId;
 
   // Encryption of Header Extensions, see RFC 6904 for details:
   // https://tools.ietf.org/html/rfc6904
@@ -311,15 +309,12 @@ struct RtpExtension {
 
   // Header extension for color space information.
   static const char kColorSpaceUri[];
-  static const int kColorSpaceDefaultId;
 
   // Header extension for RIDs and Repaired RIDs
   // https://tools.ietf.org/html/draft-ietf-avtext-rid-09
   // https://tools.ietf.org/html/draft-ietf-mmusic-rid-15
   static const char kRidUri[];
-  static const int kRidDefaultId;
   static const char kRepairedRidUri[];
-  static const int kRepairedRidDefaultId;
 
   // Inclusive min and max IDs for two-byte header extensions and one-byte
   // header extensions, per RFC8285 Section 4.2-4.3.
@@ -372,7 +367,7 @@ struct RtpRtxParameters {
   bool operator!=(const RtpRtxParameters& o) const { return !(*this == o); }
 };
 
-struct RtpEncodingParameters {
+struct RTC_EXPORT RtpEncodingParameters {
   RtpEncodingParameters();
   RtpEncodingParameters(const RtpEncodingParameters&);
   ~RtpEncodingParameters();
@@ -461,11 +456,10 @@ struct RtpEncodingParameters {
   // supported by the codec implementation).
   // TODO(asapersson): Different number of temporal layers are not supported
   // per simulcast layer.
-  // Not supported for screencast.
+  // Screencast support is experimental.
   absl::optional<int> num_temporal_layers;
 
   // For video, scale the resolution down by this factor.
-  // TODO(deadbeef): Not implemented.
   absl::optional<double> scale_resolution_down_by;
 
   // Scale the framerate down by this factor.
@@ -482,7 +476,6 @@ struct RtpEncodingParameters {
 
   // Value to use for RID RTP header extension.
   // Called "encodingId" in ORTC.
-  // TODO(deadbeef): Not implemented.
   std::string rid;
 
   // RIDs of encodings on which this layer depends.
@@ -557,8 +550,8 @@ struct RtpCodecParameters {
   // Corresponds to "a=fmtp" parameters in SDP.
   //
   // Contrary to ORTC, these parameters are named using all lowercase strings.
-  // This helps make the mapping to SDP simpler, if an application is using
-  // SDP. Boolean values are represented by the string "1".
+  // This helps make the mapping to SDP simpler, if an application is using SDP.
+  // Boolean values are represented by the string "1".
   std::unordered_map<std::string, std::string> parameters;
 
   bool operator==(const RtpCodecParameters& o) const {
@@ -570,10 +563,9 @@ struct RtpCodecParameters {
   bool operator!=(const RtpCodecParameters& o) const { return !(*this == o); }
 };
 
-// RtpCapabilities is used to represent the static capabilities of an
-// endpoint. An application can use these capabilities to construct an
-// RtpParameters.
-struct RtpCapabilities {
+// RtpCapabilities is used to represent the static capabilities of an endpoint.
+// An application can use these capabilities to construct an RtpParameters.
+struct RTC_EXPORT RtpCapabilities {
   RtpCapabilities();
   ~RtpCapabilities();
 

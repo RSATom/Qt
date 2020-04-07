@@ -1,5 +1,6 @@
 TARGET = qttexttospeech_flite
 QT = core multimedia texttospeech
+QT_FOR_CONFIG += texttospeech-private
 
 PLUGIN_TYPE = texttospeech
 PLUGIN_CLASS_NAME = QTextToSpeechEngineFlite
@@ -20,6 +21,5 @@ SOURCES += \
 OTHER_FILES += \
     flite_plugin.json
 
-LIBS += -lflite_cmu_us_kal16 -lflite_usenglish -lflite_cmulex -lflite
-
-config_flite_alsa: LIBS += -lasound
+QMAKE_USE_PRIVATE += flite
+qtConfig(flite_alsa): QMAKE_USE_PRIVATE += flite_alsa

@@ -8,12 +8,14 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
+#include "rtc_base/signal_thread.h"
+
 #include <memory>
 
+#include "absl/memory/memory.h"
 #include "rtc_base/constructor_magic.h"
 #include "rtc_base/gunit.h"
-#include "rtc_base/signal_thread.h"
-#include "rtc_base/socket_server.h"
+#include "rtc_base/null_socket_server.h"
 #include "rtc_base/thread.h"
 #include "test/gtest.h"
 
@@ -23,7 +25,7 @@ namespace {
 // 10 seconds.
 static const int kTimeout = 10000;
 
-class SignalThreadTest : public testing::Test, public sigslot::has_slots<> {
+class SignalThreadTest : public ::testing::Test, public sigslot::has_slots<> {
  public:
   class SlowSignalThread : public SignalThread {
    public:
@@ -129,7 +131,9 @@ class SignalThreadTest : public testing::Test, public sigslot::has_slots<> {
 class OwnerThread : public Thread, public sigslot::has_slots<> {
  public:
   explicit OwnerThread(SignalThreadTest* harness)
-      : harness_(harness), has_run_(false) {}
+      : Thread(absl::make_unique<NullSocketServer>()),
+        harness_(harness),
+        has_run_(false) {}
 
   ~OwnerThread() override { Stop(); }
 

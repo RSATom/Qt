@@ -96,6 +96,9 @@ class CONTENT_EXPORT NavigationControllerAndroid {
       JNIEnv* env,
       const base::android::JavaParamRef<jobject>& obj,
       int index);
+  base::android::ScopedJavaLocalRef<jobject> GetVisibleEntry(
+      JNIEnv* env,
+      const base::android::JavaParamRef<jobject>& /* obj */);
   base::android::ScopedJavaLocalRef<jobject> GetPendingEntry(
       JNIEnv* env,
       const base::android::JavaParamRef<jobject>& /* obj */);
@@ -126,6 +129,10 @@ class CONTENT_EXPORT NavigationControllerAndroid {
                          jint index,
                          const base::android::JavaParamRef<jstring>& jkey,
                          const base::android::JavaParamRef<jstring>& jvalue);
+  jboolean IsEntryMarkedToBeSkipped(
+      JNIEnv* env,
+      const base::android::JavaParamRef<jobject>& obj,
+      jint index);
 
  private:
   NavigationControllerImpl* navigation_controller_;

@@ -109,8 +109,14 @@ public:
             m_useResources = false;
 #endif
 #endif
+#ifdef Q_OS_ANDROID
+        const QString prefix = QLatin1String("qrc:/android_rcc_bundle/qml/");
+#else
+        const QString prefix = QLatin1String("qrc:/");
+#endif
+
         QQuickAbstractDialog::m_decorationComponentUrl = m_useResources ?
-            QUrl("qrc:/QtQuick/Dialogs/qml/DefaultWindowDecoration.qml") :
+            QUrl(prefix + QString("QtQuick/Dialogs/qml/DefaultWindowDecoration.qml")) :
 #ifndef QT_STATIC
             QUrl::fromLocalFile(qmlDir.filePath(QString("qml/DefaultWindowDecoration.qml")));
 #else
@@ -165,7 +171,7 @@ public:
             // @uri QtQuick.Dialogs.AbstractDialog
             qmlRegisterType<QQuickDialog1>(uri, 1, 2, "AbstractDialog"); // implementation wrapper
             QUrl dialogQmlPath = m_useResources ?
-                QUrl("qrc:/QtQuick/Dialogs/DefaultDialogWrapper.qml") :
+                QUrl(prefix + QString("QtQuick/Dialogs/DefaultDialogWrapper.qml")) :
 #ifndef QT_STATIC
                 QUrl::fromLocalFile(qmlDir.filePath("DefaultDialogWrapper.qml"));
 #else
@@ -209,6 +215,12 @@ protected:
                 mobileTouchPlatform = true;
 #endif
 
+#ifdef Q_OS_ANDROID
+        const QString prefix = QLatin1String("qrc:/android_rcc_bundle/qml/");
+#else
+        const QString prefix = QLatin1String("qrc:/");
+#endif
+
         // If there is a qmldir and we have a QApplication instance (as opposed to a
         // widget-free QGuiApplication), and this isn't a mobile touch-based platform,
         // assume that the widget-based dialog will work.  Otherwise an application developer
@@ -217,7 +229,7 @@ protected:
         if (!mobileTouchPlatform && hasTopLevelWindows && widgetsDir.exists("qmldir") &&
                 QCoreApplication::instance()->inherits("QApplication")) {
             QUrl dialogQmlPath =  m_useResources ?
-                QUrl(QString("qrc:/QtQuick/Dialogs/Widget%1.qml").arg(qmlName)) :
+                QUrl(prefix + QString("QtQuick/Dialogs/Widget%1.qml").arg(qmlName)) :
 #ifndef QT_STATIC
                     QUrl::fromLocalFile(qmlDir.filePath(QString("Widget%1.qml").arg(qmlName)));
 #else
@@ -235,12 +247,17 @@ protected:
     template <class WrapperType>
     void registerQmlImplementation(const QDir &qmlDir, const char *qmlName, const char *uri , int versionMajor, int versionMinor)
     {
+#ifdef Q_OS_ANDROID
+        const QString prefix = QLatin1String("qrc:/android_rcc_bundle/qml/");
+#else
+        const QString prefix = QLatin1String("qrc:/");
+#endif
         qCDebug(lcRegistration) << "Register QML version for" << qmlName << "with uri:" << uri;
 
         QByteArray abstractTypeName = QByteArray("Abstract") + qmlName;
         qmlRegisterType<WrapperType>(uri, versionMajor, versionMinor, abstractTypeName);
         QUrl dialogQmlPath =  m_useResources ?
-                    QUrl(QString("qrc:/QtQuick/Dialogs/Default%1.qml").arg(qmlName)) :
+                    QUrl(prefix + QString("QtQuick/Dialogs/Default%1.qml").arg(qmlName)) :
 #ifndef QT_STATIC
                     QUrl::fromLocalFile(qmlDir.filePath(QString("Default%1.qml").arg(qmlName)));
 #else

@@ -36,8 +36,7 @@ URLRequestFileDirJob::URLRequestFileDirJob(URLRequest* request,
       list_complete_(false),
       wrote_header_(false),
       read_pending_(false),
-      read_buffer_length_(0),
-      weak_factory_(this) {}
+      read_buffer_length_(0) {}
 
 void URLRequestFileDirJob::StartAsync() {
   base::PostTaskWithTraitsAndReplyWithResult(
@@ -52,8 +51,8 @@ void URLRequestFileDirJob::Start() {
   // Start reading asynchronously so that all error reporting and data
   // callbacks happen as they would for network requests.
   base::ThreadTaskRunnerHandle::Get()->PostTask(
-      FROM_HERE, base::Bind(&URLRequestFileDirJob::StartAsync,
-                            weak_factory_.GetWeakPtr()));
+      FROM_HERE, base::BindOnce(&URLRequestFileDirJob::StartAsync,
+                                weak_factory_.GetWeakPtr()));
 }
 
 void URLRequestFileDirJob::Kill() {

@@ -5,16 +5,18 @@
  * found in the LICENSE file.
  */
 
-#include "GrTestUtils.h"
-#include "GrColorSpaceInfo.h"
-#include "GrProcessorUnitTest.h"
-#include "GrStyle.h"
-#include "SkDashPathPriv.h"
-#include "SkMakeUnique.h"
-#include "SkMatrix.h"
-#include "SkPath.h"
-#include "SkRectPriv.h"
-#include "SkRRect.h"
+#include "src/gpu/GrTestUtils.h"
+
+#include "include/core/SkMatrix.h"
+#include "include/core/SkPath.h"
+#include "include/core/SkRRect.h"
+#include "include/gpu/GrContext.h"
+#include "src/core/SkMakeUnique.h"
+#include "src/core/SkRectPriv.h"
+#include "src/gpu/GrColorSpaceInfo.h"
+#include "src/gpu/GrProcessorUnitTest.h"
+#include "src/gpu/GrStyle.h"
+#include "src/utils/SkDashPathPriv.h"
 
 #if GR_TEST_UTILS
 
@@ -335,11 +337,11 @@ sk_sp<GrColorSpaceXform> TestColorXform(SkRandom* random) {
 }
 
 TestAsFPArgs::TestAsFPArgs(GrProcessorTestData* d)
-    : fViewMatrixStorage(TestMatrix(d->fRandom))
-    , fColorSpaceInfoStorage(skstd::make_unique<GrColorSpaceInfo>(TestColorSpace(d->fRandom),
-                                                                  kRGBA_8888_GrPixelConfig))
-    , fArgs(d->context(), &fViewMatrixStorage, kNone_SkFilterQuality, fColorSpaceInfoStorage.get())
-{}
+        : fViewMatrixStorage(TestMatrix(d->fRandom))
+        , fColorSpaceInfoStorage(skstd::make_unique<GrColorSpaceInfo>(
+                  GrColorType::kRGBA_8888, kPremul_SkAlphaType, TestColorSpace(d->fRandom)))
+        , fArgs(d->context(), &fViewMatrixStorage, kNone_SkFilterQuality,
+                fColorSpaceInfoStorage.get()) {}
 
 TestAsFPArgs::~TestAsFPArgs() {}
 

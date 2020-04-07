@@ -8,6 +8,7 @@
 
 #include "base/callback.h"
 #include "base/macros.h"
+#include "net/base/ip_endpoint.h"
 #include "net/http/http_request_headers.h"
 #include "net/http/http_response_headers.h"
 #include "net/log/net_log_with_source.h"
@@ -61,6 +62,7 @@ class WebSocketStreamCreateTestBase::TestConnectDelegate
   void OnSSLCertificateError(
       std::unique_ptr<WebSocketEventInterface::SSLErrorCallbacks>
           ssl_error_callbacks,
+      int net_error,
       const SSLInfo& ssl_info,
       bool fatal) override {
     owner_->ssl_error_callbacks_ = std::move(ssl_error_callbacks);
@@ -68,13 +70,13 @@ class WebSocketStreamCreateTestBase::TestConnectDelegate
     owner_->ssl_fatal_ = fatal;
   }
 
-  int OnAuthRequired(scoped_refptr<AuthChallengeInfo> auth_info,
+  int OnAuthRequired(const AuthChallengeInfo& auth_info,
                      scoped_refptr<HttpResponseHeaders> response_headers,
-                     const HostPortPair& host_port_pair,
+                     const IPEndPoint& remote_endpoint,
                      base::OnceCallback<void(const AuthCredentials*)> callback,
                      base::Optional<AuthCredentials>* credentials) override {
     owner_->run_loop_waiting_for_on_auth_required_.Quit();
-    owner_->auth_challenge_info_ = std::move(auth_info);
+    owner_->auth_challenge_info_ = auth_info;
     *credentials = owner_->auth_credentials_;
     owner_->on_auth_required_callback_ = std::move(callback);
     return owner_->on_auth_required_rv_;

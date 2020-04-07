@@ -10,7 +10,7 @@
 #include "third_party/blink/renderer/platform/graphics/paint/paint_chunk.h"
 #include "third_party/blink/renderer/platform/graphics/paint/paint_chunk_subset.h"
 #include "third_party/blink/renderer/platform/platform_export.h"
-#include "third_party/blink/renderer/platform/wtf/allocator.h"
+#include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 #include "third_party/blink/renderer/platform/wtf/vector.h"
 
 namespace cc {
@@ -35,6 +35,8 @@ class PaintChunkSubset;
 // Unless its dangerous accessors are used, it promises to be in a reasonable
 // state (e.g. chunk bounding boxes computed).
 class PLATFORM_EXPORT PaintArtifact final : public RefCounted<PaintArtifact> {
+  USING_FAST_MALLOC(PaintArtifact);
+
  public:
   static scoped_refptr<PaintArtifact> Create(DisplayItemList,
                                              Vector<PaintChunk>);

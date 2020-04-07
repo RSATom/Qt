@@ -14,21 +14,23 @@
  * limitations under the License.
  */
 
-#include "perfetto/base/unix_task_runner.h"
+#include "perfetto/ext/base/unix_task_runner.h"
 
-#include "gtest/gtest.h"
+#include <gtest/gtest.h>
 #include "perfetto/base/build_config.h"
-#include "perfetto/base/scoped_file.h"
+#include "perfetto/ext/base/scoped_file.h"
 
 #if PERFETTO_BUILDFLAG(PERFETTO_OS_ANDROID) && \
     !PERFETTO_BUILDFLAG(PERFETTO_EMBEDDER_BUILD)
-#include "perfetto/base/android_task_runner.h"
+#include "perfetto/ext/base/android_task_runner.h"
 #endif
 
 #include <thread>
 
-#include "perfetto/base/file_utils.h"
-#include "perfetto/base/pipe.h"
+#include "perfetto/ext/base/file_utils.h"
+#include "perfetto/ext/base/pipe.h"
+#include "perfetto/ext/base/utils.h"
+#include "src/base/test/gtest_test_suite.h"
 
 namespace perfetto {
 namespace base {
@@ -46,7 +48,8 @@ using TaskRunnerTypes = ::testing::Types<AndroidTaskRunner, UnixTaskRunner>;
 #else
 using TaskRunnerTypes = ::testing::Types<UnixTaskRunner>;
 #endif
-TYPED_TEST_CASE(TaskRunnerTest, TaskRunnerTypes);
+
+TYPED_TEST_SUITE(TaskRunnerTest, TaskRunnerTypes);
 
 struct TestPipe : Pipe {
   TestPipe() : Pipe(Pipe::Create()) {
@@ -356,6 +359,22 @@ TYPED_TEST(TaskRunnerTest, IsIdleForTesting) {
     task_runner.Quit();
   });
   task_runner.Run();
+}
+
+TYPED_TEST(TaskRunnerTest, RunsTasksOnCurrentThread) {
+  auto& main_tr = this->task_runner;
+
+  EXPECT_TRUE(main_tr.RunsTasksOnCurrentThread());
+  std::thread thread([&main_tr] {
+    typename std::remove_reference<decltype(main_tr)>::type second_tr;
+    second_tr.PostTask([&main_tr, &second_tr] {
+      EXPECT_FALSE(main_tr.RunsTasksOnCurrentThread());
+      EXPECT_TRUE(second_tr.RunsTasksOnCurrentThread());
+      second_tr.Quit();
+    });
+    second_tr.Run();
+  });
+  thread.join();
 }
 
 }  // namespace

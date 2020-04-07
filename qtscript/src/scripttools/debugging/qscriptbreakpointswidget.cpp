@@ -70,7 +70,7 @@ public:
         system = QLatin1String("mac");
 #else
         hboxLayout->setSpacing(6);
-        hboxLayout->setMargin(0);
+        hboxLayout->setContentsMargins(0, 0, 0, 0);
 #endif
 
         toolClose = new QToolButton(this);
@@ -311,7 +311,7 @@ QScriptBreakpointsWidget::QScriptBreakpointsWidget(QWidget *parent)
 #endif
 
     QVBoxLayout *vbox = new QVBoxLayout(this);
-    vbox->setMargin(0);
+    vbox->setContentsMargins(0, 0, 0, 0);
 #ifndef QT_NO_TOOLBAR
     vbox->addWidget(toolBar);
 #endif

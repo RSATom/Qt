@@ -62,7 +62,7 @@ public class QtActivityLoader extends QtLoader {
     protected void downloadUpgradeMinistro(String msg) {
         AlertDialog.Builder downloadDialog = new AlertDialog.Builder(m_activity);
         downloadDialog.setMessage(msg);
-        downloadDialog.setPositiveButton(android.R.string.yes, new DialogInterface.OnClickListener() {
+        downloadDialog.setPositiveButton(android.R.string.ok, new DialogInterface.OnClickListener() {
             @Override
             public void onClick(DialogInterface dialogInterface, int i) {
                 try {
@@ -76,7 +76,7 @@ public class QtActivityLoader extends QtLoader {
             }
         });
 
-        downloadDialog.setNegativeButton(android.R.string.no, new DialogInterface.OnClickListener() {
+        downloadDialog.setNegativeButton(android.R.string.cancel, new DialogInterface.OnClickListener() {
             @Override
             public void onClick(DialogInterface dialogInterface, int i) {
                 m_activity.finish();
@@ -129,23 +129,6 @@ public class QtActivityLoader extends QtLoader {
         } catch (Exception e) {
             e.printStackTrace();
             finish();
-            return;
-        }
-
-        if (Build.VERSION.SDK_INT < 21) {
-            // fatal error, show the error and quit
-            AlertDialog errorDialog = new AlertDialog.Builder(m_activity).create();
-            if (m_contextInfo.metaData.containsKey("android.app.unsupported_android_version"))
-                errorDialog.setMessage(m_contextInfo.metaData.getString("android.app.unsupported_android_version"));
-            else
-                errorDialog.setMessage("Unsupported Android version.");
-            errorDialog.setButton(m_activity.getResources().getString(android.R.string.ok), new DialogInterface.OnClickListener() {
-                @Override
-                public void onClick(DialogInterface dialog, int which) {
-                    finish();
-                }
-            });
-            errorDialog.show();
             return;
         }
 

@@ -12,6 +12,7 @@
 #include "third_party/blink/renderer/modules/peerconnection/adapters/ice_transport_adapter.h"
 #include "third_party/blink/renderer/modules/peerconnection/adapters/ice_transport_adapter_cross_thread_factory.h"
 #include "third_party/blink/renderer/platform/scheduler/public/frame_scheduler.h"
+#include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 #include "third_party/webrtc/p2p/base/p2p_transport_channel.h"
 
 namespace rtc {
@@ -40,6 +41,8 @@ class QuicTransportProxy;
 // client should call all methods from the proxy thread and all callbacks will
 // be run on the proxy thread.
 class IceTransportProxy final {
+  USING_FAST_MALLOC(IceTransportProxy);
+
  public:
   // Delegate for receiving callbacks from the ICE implementation. These all run
   // on the proxy thread.
@@ -50,7 +53,7 @@ class IceTransportProxy final {
     virtual void OnGatheringStateChanged(cricket::IceGatheringState new_state) {
     }
     virtual void OnCandidateGathered(const cricket::Candidate& candidate) {}
-    virtual void OnStateChanged(cricket::IceTransportState new_state) {}
+    virtual void OnStateChanged(webrtc::IceTransportState new_state) {}
     virtual void OnSelectedCandidatePairChanged(
         const std::pair<cricket::Candidate, cricket::Candidate>&
             selected_candidate_pair) {}
@@ -72,14 +75,13 @@ class IceTransportProxy final {
   scoped_refptr<base::SingleThreadTaskRunner> host_thread() const;
 
   // These methods are proxied to an IceTransportAdapter instance.
-  void StartGathering(
-      const cricket::IceParameters& local_parameters,
-      const cricket::ServerAddresses& stun_servers,
-      const std::vector<cricket::RelayServerConfig>& turn_servers,
-      IceTransportPolicy policy);
+  void StartGathering(const cricket::IceParameters& local_parameters,
+                      const cricket::ServerAddresses& stun_servers,
+                      const WebVector<cricket::RelayServerConfig>& turn_servers,
+                      IceTransportPolicy policy);
   void Start(const cricket::IceParameters& remote_parameters,
              cricket::IceRole role,
-             const std::vector<cricket::Candidate>& initial_remote_candidates);
+             const Vector<cricket::Candidate>& initial_remote_candidates);
   void HandleRemoteRestart(const cricket::IceParameters& new_remote_parameters);
   void AddRemoteCandidate(const cricket::Candidate& candidate);
 
@@ -97,7 +99,7 @@ class IceTransportProxy final {
   friend class IceTransportHost;
   void OnGatheringStateChanged(cricket::IceGatheringState new_state);
   void OnCandidateGathered(const cricket::Candidate& candidate);
-  void OnStateChanged(cricket::IceTransportState new_state);
+  void OnStateChanged(webrtc::IceTransportState new_state);
   void OnSelectedCandidatePairChanged(
       const std::pair<cricket::Candidate, cricket::Candidate>&
           selected_candidate_pair);
@@ -113,13 +115,13 @@ class IceTransportProxy final {
   // This handle notifies scheduler about an active connection associated
   // with a frame. Handle should be destroyed when connection is closed.
   // This should have the same lifetime as |proxy_|.
-  std::unique_ptr<FrameScheduler::ActiveConnectionHandle>
-      connection_handle_for_scheduler_;
+  FrameScheduler::SchedulingAffectingFeatureHandle
+      feature_handle_for_scheduler_;
 
   THREAD_CHECKER(thread_checker_);
 
   // Must be the last member.
-  base::WeakPtrFactory<IceTransportProxy> weak_ptr_factory_;
+  base::WeakPtrFactory<IceTransportProxy> weak_ptr_factory_{this};
 };
 
 }  // namespace blink

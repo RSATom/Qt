@@ -57,7 +57,7 @@ class QDESIGNER_SHARED_EXPORT QDesignerWidgetBox : public QDesignerWidgetBoxInte
 public:
     enum LoadMode { LoadMerge, LoadReplace, LoadCustomWidgetsOnly };
 
-    explicit QDesignerWidgetBox(QWidget *parent = 0, Qt::WindowFlags flags = 0);
+    explicit QDesignerWidgetBox(QWidget *parent = nullptr, Qt::WindowFlags flags = nullptr);
 
     LoadMode loadMode() const;
     void setLoadMode(LoadMode lm);
@@ -79,7 +79,7 @@ public:
     static DomUI *xmlToUi(const QString &name, const QString &xml, bool insertFakeTopLevel);
 
 private:
-    LoadMode m_loadMode;
+    LoadMode m_loadMode = LoadMerge;
 };
 }  // namespace qdesigner_internal
 

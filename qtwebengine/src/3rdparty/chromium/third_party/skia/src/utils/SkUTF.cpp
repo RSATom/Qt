@@ -1,7 +1,7 @@
 // Copyright 2018 Google LLC.
 // Use of this source code is governed by a BSD-style license that can be found in the LICENSE file.
 
-#include "SkUTF.h"
+#include "src/utils/SkUTF.h"
 
 #include <climits>
 
@@ -153,7 +153,7 @@ SkUnichar SkUTF::NextUTF8(const char** ptr, const char* end) {
 
 SkUnichar SkUTF::NextUTF16(const uint16_t** ptr, const uint16_t* end) {
     if (!ptr || !end ) {
-        return next_fail(ptr, end);
+        return -1;
     }
     const uint16_t* src = *ptr;
     if (!src || src + 1 > end || !is_align2(intptr_t(src))) {

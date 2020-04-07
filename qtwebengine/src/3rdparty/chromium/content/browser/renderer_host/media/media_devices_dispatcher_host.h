@@ -40,6 +40,7 @@ class CONTENT_EXPORT MediaDevicesDispatcherHost
                         bool request_video_input,
                         bool request_audio_output,
                         bool request_video_input_capabilities,
+                        bool request_audio_input_capabilities,
                         EnumerateDevicesCallback client_callback) override;
   void GetVideoInputCapabilities(
       GetVideoInputCapabilitiesCallback client_callback) override;
@@ -125,7 +126,7 @@ class CONTENT_EXPORT MediaDevicesDispatcherHost
 
   std::vector<uint32_t> subscription_ids_;
 
-  base::WeakPtrFactory<MediaDevicesDispatcherHost> weak_factory_;
+  base::WeakPtrFactory<MediaDevicesDispatcherHost> weak_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(MediaDevicesDispatcherHost);
 };

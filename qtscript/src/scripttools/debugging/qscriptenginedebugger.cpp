@@ -591,7 +591,7 @@ QMainWindow *QScriptEngineDebugger::standardWindow() const
 
     QWidget *central = new QWidget();
     QVBoxLayout *vbox = new QVBoxLayout(central);
-    vbox->setMargin(0);
+    vbox->setContentsMargins(0, 0, 0, 0);
     vbox->addWidget(widget(CodeWidget));
     vbox->addWidget(widget(CodeFinderWidget));
     widget(CodeFinderWidget)->hide();

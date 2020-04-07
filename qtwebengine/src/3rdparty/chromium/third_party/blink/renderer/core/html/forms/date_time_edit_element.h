@@ -30,8 +30,8 @@
 #include "third_party/blink/public/platform/web_focus_type.h"
 #include "third_party/blink/renderer/core/html/forms/date_time_field_element.h"
 #include "third_party/blink/renderer/core/html/forms/step_range.h"
-#include "third_party/blink/renderer/platform/date_components.h"
-#include "third_party/blink/renderer/platform/wtf/allocator.h"
+#include "third_party/blink/renderer/platform/text/date_components.h"
+#include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 
 namespace blink {
 
@@ -81,8 +81,6 @@ class DateTimeEditElement final : public HTMLDivElement,
     LayoutParameters(Locale& locale, const StepRange& step_range)
         : locale(locale), step_range(step_range) {}
   };
-
-  static DateTimeEditElement* Create(Document&, EditControlOwner&);
 
   DateTimeEditElement(Document&, EditControlOwner&);
   ~DateTimeEditElement() override;
@@ -162,6 +160,13 @@ DEFINE_TYPE_CASTS(DateTimeEditElement,
                   element,
                   element->IsDateTimeEditElement(),
                   element.IsDateTimeEditElement());
+
+template <>
+struct DowncastTraits<DateTimeEditElement> {
+  static bool AllowFrom(const Element& element) {
+    return element.IsDateTimeEditElement();
+  }
+};
 
 }  // namespace blink
 

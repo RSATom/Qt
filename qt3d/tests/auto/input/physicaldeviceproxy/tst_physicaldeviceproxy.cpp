@@ -32,9 +32,7 @@
 #include <Qt3DInput/private/qabstractphysicaldeviceproxy_p_p.h>
 #include <Qt3DInput/private/physicaldeviceproxy_p.h>
 #include <Qt3DInput/private/inputmanagers_p.h>
-#include <Qt3DCore/qpropertyupdatedchange.h>
 #include <Qt3DCore/private/qbackendnode_p.h>
-#include <Qt3DCore/private/qpropertyupdatedchangebase_p.h>
 #include "qbackendnodetester.h"
 #include "testdeviceproxy.h"
 #include "testpostmanarbiter.h"
@@ -69,7 +67,7 @@ private Q_SLOTS:
             // WHEN
             Qt3DInput::Input::PhysicalDeviceProxy backendPhysicalDeviceProxy;
             backendPhysicalDeviceProxy.setManager(&manager);
-            simulateInitialization(&PhysicalDeviceProxy, &backendPhysicalDeviceProxy);
+            simulateInitializationSync(&PhysicalDeviceProxy, &backendPhysicalDeviceProxy);
 
             // THEN
             QCOMPARE(backendPhysicalDeviceProxy.isEnabled(), true);
@@ -83,7 +81,7 @@ private Q_SLOTS:
             Qt3DInput::Input::PhysicalDeviceProxy backendPhysicalDeviceProxy;
             backendPhysicalDeviceProxy.setManager(&manager);
             PhysicalDeviceProxy.setEnabled(false);
-            simulateInitialization(&PhysicalDeviceProxy, &backendPhysicalDeviceProxy);
+            simulateInitializationSync(&PhysicalDeviceProxy, &backendPhysicalDeviceProxy);
 
             // THEN
             QCOMPARE(backendPhysicalDeviceProxy.peerId(), PhysicalDeviceProxy.id());
@@ -100,34 +98,13 @@ private Q_SLOTS:
 
         // WHEN
         backendPhysicalDeviceProxy.setManager(&manager);
-        simulateInitialization(&deviceProxy, &backendPhysicalDeviceProxy);
+        simulateInitializationSync(&deviceProxy, &backendPhysicalDeviceProxy);
 
         // THEN
         QCOMPARE(backendPhysicalDeviceProxy.deviceName(), QStringLiteral("TestProxy"));
         const QVector<Qt3DCore::QNodeId> pendingWrappers = manager.takePendingProxiesToLoad();
         QCOMPARE(pendingWrappers.size(), 1);
         QCOMPARE(pendingWrappers.first(), deviceProxy.id());
-    }
-
-    void checkDeviceLoadedNotification()
-    {
-        // GIVEN
-        Qt3DInput::Input::PhysicalDeviceProxy backendPhysicalDeviceProxy;
-        TestPhysicalDevice physicalDevice;
-        TestArbiter arbiter;
-
-        // WHEN
-        Qt3DCore::QBackendNodePrivate::get(&backendPhysicalDeviceProxy)->setArbiter(&arbiter);
-
-        backendPhysicalDeviceProxy.setDevice(&physicalDevice);
-
-        // THEN
-        QCOMPARE(arbiter.events.count(), 1);
-        Qt3DCore::QPropertyUpdatedChangePtr change = arbiter.events.first().staticCast<Qt3DCore::QPropertyUpdatedChange>();
-        QCOMPARE(change->propertyName(), "device");
-        QCOMPARE(change->value().value<Qt3DInput::QAbstractPhysicalDevice *>(), &physicalDevice);
-        QCOMPARE(change->subjectId(), backendPhysicalDeviceProxy.peerId());
-        QCOMPARE(backendPhysicalDeviceProxy.physicalDeviceId(), physicalDevice.id());
     }
 
     void checkCleanupState()
@@ -139,7 +116,7 @@ private Q_SLOTS:
 
         // WHEN
         backendPhysicalDeviceProxy.setManager(&manager);
-        simulateInitialization(&deviceProxy, &backendPhysicalDeviceProxy);
+        simulateInitializationSync(&deviceProxy, &backendPhysicalDeviceProxy);
 
         backendPhysicalDeviceProxy.cleanup();
 

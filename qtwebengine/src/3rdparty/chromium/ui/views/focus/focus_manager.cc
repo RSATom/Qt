@@ -10,6 +10,7 @@
 #include "base/auto_reset.h"
 #include "base/i18n/rtl.h"
 #include "base/logging.h"
+#include "build/build_config.h"
 #include "ui/base/accelerators/accelerator.h"
 #include "ui/base/ime/input_method.h"
 #include "ui/base/ime/text_input_client.h"
@@ -19,7 +20,7 @@
 #include "ui/views/focus/focus_search.h"
 #include "ui/views/focus/widget_focus_manager.h"
 #include "ui/views/view.h"
-#include "ui/views/view_properties.h"
+#include "ui/views/view_class_properties.h"
 #include "ui/views/view_tracker.h"
 #include "ui/views/widget/root_view.h"
 #include "ui/views/widget/widget.h"
@@ -159,9 +160,9 @@ bool FocusManager::RotatePaneFocus(Direction direction,
 
   // Count the number of panes and set the default index if no pane
   // is initially focused.
-  int count = static_cast<int>(panes.size());
-  if (count == 0)
+  if (panes.empty())
     return false;
+  int count = int{panes.size()};
 
   // Initialize |index| to an appropriate starting index if nothing is
   // focused initially.
@@ -170,12 +171,12 @@ bool FocusManager::RotatePaneFocus(Direction direction,
   // Check to see if a pane already has focus and update the index accordingly.
   const views::View* focused_view = GetFocusedView();
   if (focused_view) {
-    for (int i = 0; i < count; i++) {
-      if (panes[i] && panes[i]->Contains(focused_view)) {
-        index = i;
-        break;
-      }
-    }
+    const auto i = std::find_if(panes.cbegin(), panes.cend(),
+                                [focused_view](const auto* pane) {
+                                  return pane && pane->Contains(focused_view);
+                                });
+    if (i != panes.cend())
+      index = i - panes.cbegin();
   }
 
   // Rotate focus.
@@ -197,7 +198,7 @@ bool FocusManager::RotatePaneFocus(Direction direction,
     views::View* pane = panes[index];
     DCHECK(pane);
 
-    if (!pane->visible())
+    if (!pane->GetVisible())
       continue;
 
     pane->RequestFocus();

@@ -4,6 +4,7 @@
 
 #include "ui/base/ime/win/on_screen_keyboard_display_manager_input_pane.h"
 
+#include "base/bind.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/task/post_task.h"
 #include "base/win/com_init_util.h"
@@ -181,7 +182,7 @@ OnScreenKeyboardDisplayManagerInputPane::
               main_task_runner_)),
       is_keyboard_visible_(false),
       weak_factory_(this) {
-  DCHECK_GE(base::win::GetVersion(), base::win::VERSION_WIN10_RS1);
+  DCHECK_GE(base::win::GetVersion(), base::win::Version::WIN10_RS1);
   DCHECK(main_task_runner_->BelongsToCurrentThread());
 
   // We post the initiation of |virtual_keyboard_input_pane_| to the background

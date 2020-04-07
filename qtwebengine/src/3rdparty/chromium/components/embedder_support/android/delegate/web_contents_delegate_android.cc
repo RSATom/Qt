@@ -10,6 +10,7 @@
 #include "base/android/jni_array.h"
 #include "base/android/jni_string.h"
 #include "components/embedder_support/android/delegate/color_chooser_android.h"
+#include "components/embedder_support/android/web_contents_delegate_jni_headers/WebContentsDelegateAndroid_jni.h"
 #include "content/public/browser/color_chooser.h"
 #include "content/public/browser/global_request_id.h"
 #include "content/public/browser/invalidate_type.h"
@@ -20,7 +21,7 @@
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/referrer.h"
 #include "content/public/common/resource_request_body_android.h"
-#include "jni/WebContentsDelegateAndroid_jni.h"
+#include "third_party/blink/public/common/frame/blocked_navigation_types.h"
 #include "ui/base/window_open_disposition.h"
 #include "ui/gfx/geometry/rect.h"
 #include "url/gurl.h"
@@ -253,30 +254,30 @@ void WebContentsDelegateAndroid::SetContentsBounds(WebContents* source,
 
 bool WebContentsDelegateAndroid::DidAddMessageToConsole(
     WebContents* source,
-    int32_t level,
+    blink::mojom::ConsoleMessageLevel log_level,
     const base::string16& message,
     int32_t line_no,
     const base::string16& source_id) {
   JNIEnv* env = AttachCurrentThread();
   ScopedJavaLocalRef<jobject> obj = GetJavaDelegate(env);
   if (obj.is_null())
-    return WebContentsDelegate::DidAddMessageToConsole(source, level, message,
-                                                       line_no, source_id);
+    return WebContentsDelegate::DidAddMessageToConsole(
+        source, log_level, message, line_no, source_id);
   ScopedJavaLocalRef<jstring> jmessage(ConvertUTF16ToJavaString(env, message));
   ScopedJavaLocalRef<jstring> jsource_id(
       ConvertUTF16ToJavaString(env, source_id));
   int jlevel = WEB_CONTENTS_DELEGATE_LOG_LEVEL_DEBUG;
-  switch (level) {
-    case logging::LOG_VERBOSE:
+  switch (log_level) {
+    case blink::mojom::ConsoleMessageLevel::kVerbose:
       jlevel = WEB_CONTENTS_DELEGATE_LOG_LEVEL_DEBUG;
       break;
-    case logging::LOG_INFO:
+    case blink::mojom::ConsoleMessageLevel::kInfo:
       jlevel = WEB_CONTENTS_DELEGATE_LOG_LEVEL_LOG;
       break;
-    case logging::LOG_WARNING:
+    case blink::mojom::ConsoleMessageLevel::kWarning:
       jlevel = WEB_CONTENTS_DELEGATE_LOG_LEVEL_WARNING;
       break;
-    case logging::LOG_ERROR:
+    case blink::mojom::ConsoleMessageLevel::kError:
       jlevel = WEB_CONTENTS_DELEGATE_LOG_LEVEL_ERROR;
       break;
     default:
@@ -367,7 +368,7 @@ void WebContentsDelegateAndroid::ExitFullscreenModeForTab(
 }
 
 bool WebContentsDelegateAndroid::IsFullscreenForTabOrPending(
-    const WebContents* web_contents) const {
+    const WebContents* web_contents) {
   JNIEnv* env = AttachCurrentThread();
   ScopedJavaLocalRef<jobject> obj = GetJavaDelegate(env);
   if (obj.is_null())
@@ -375,11 +376,13 @@ bool WebContentsDelegateAndroid::IsFullscreenForTabOrPending(
   return Java_WebContentsDelegateAndroid_isFullscreenForTabOrPending(env, obj);
 }
 
-void WebContentsDelegateAndroid::OnDidBlockFramebust(
+void WebContentsDelegateAndroid::OnDidBlockNavigation(
     content::WebContents* web_contents,
-    const GURL& url) {}
+    const GURL& initiator_url,
+    const GURL& blocked_url,
+    blink::NavigationBlockedReason reason) {}
 
-int WebContentsDelegateAndroid::GetTopControlsHeight() const {
+int WebContentsDelegateAndroid::GetTopControlsHeight() {
   JNIEnv* env = AttachCurrentThread();
   ScopedJavaLocalRef<jobject> obj = GetJavaDelegate(env);
   if (obj.is_null())
@@ -387,7 +390,7 @@ int WebContentsDelegateAndroid::GetTopControlsHeight() const {
   return Java_WebContentsDelegateAndroid_getTopControlsHeight(env, obj);
 }
 
-int WebContentsDelegateAndroid::GetBottomControlsHeight() const {
+int WebContentsDelegateAndroid::GetBottomControlsHeight() {
   JNIEnv* env = AttachCurrentThread();
   ScopedJavaLocalRef<jobject> obj = GetJavaDelegate(env);
   if (obj.is_null())
@@ -396,7 +399,7 @@ int WebContentsDelegateAndroid::GetBottomControlsHeight() const {
 }
 
 bool WebContentsDelegateAndroid::DoBrowserControlsShrinkRendererSize(
-    const content::WebContents* contents) const {
+    const content::WebContents* contents) {
   JNIEnv* env = AttachCurrentThread();
   ScopedJavaLocalRef<jobject> obj = GetJavaDelegate(env);
   if (obj.is_null())

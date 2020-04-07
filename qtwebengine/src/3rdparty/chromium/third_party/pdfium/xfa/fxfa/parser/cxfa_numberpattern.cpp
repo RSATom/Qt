@@ -6,12 +6,15 @@
 
 #include "xfa/fxfa/parser/cxfa_numberpattern.h"
 
+#include "fxjs/xfa/cjx_node.h"
+#include "third_party/base/ptr_util.h"
+
 namespace {
 
 const CXFA_Node::AttributeData kNumberPatternAttributeData[] = {
     {XFA_Attribute::Name, XFA_AttributeType::Enum,
      (void*)XFA_AttributeValue::Numeric},
-    {XFA_Attribute::Unknown, XFA_AttributeType::Integer, nullptr}};
+};
 
 }  // namespace
 
@@ -22,7 +25,8 @@ CXFA_NumberPattern::CXFA_NumberPattern(CXFA_Document* doc,
                 XFA_XDPPACKET_LocaleSet,
                 XFA_ObjectType::ContentNode,
                 XFA_Element::NumberPattern,
-                nullptr,
-                kNumberPatternAttributeData) {}
+                {},
+                kNumberPatternAttributeData,
+                pdfium::MakeUnique<CJX_Node>(this)) {}
 
 CXFA_NumberPattern::~CXFA_NumberPattern() = default;

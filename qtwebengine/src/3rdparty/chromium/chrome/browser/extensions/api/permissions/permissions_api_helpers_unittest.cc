@@ -9,12 +9,15 @@
 #include <memory>
 #include <utility>
 
+#include "base/json/json_reader.h"
 #include "base/macros.h"
 #include "base/values.h"
 #include "chrome/browser/extensions/permissions_test_util.h"
 #include "chrome/common/extensions/api/permissions.h"
 #include "extensions/common/extension.h"
 #include "extensions/common/permissions/permission_set.h"
+#include "extensions/common/permissions/permissions_info.h"
+#include "extensions/common/permissions/usb_device_permission.h"
 #include "extensions/common/url_pattern_set.h"
 #include "extensions/common/user_script.h"
 #include "testing/gmock/include/gmock/gmock.h"
@@ -44,9 +47,9 @@ TEST(ExtensionPermissionsAPIHelpers, Pack) {
        URLPattern(UserScript::ValidUserScriptSchemes(), "http://d.com/*")});
 
   // Pack the permission set to value and verify its contents.
-  std::unique_ptr<Permissions> pack_result(
-      PackPermissionSet(PermissionSet(std::move(apis), ManifestPermissionSet(),
-                                      explicit_hosts, scriptable_hosts)));
+  std::unique_ptr<Permissions> pack_result(PackPermissionSet(
+      PermissionSet(std::move(apis), ManifestPermissionSet(),
+                    std::move(explicit_hosts), std::move(scriptable_hosts))));
   ASSERT_TRUE(pack_result);
   ASSERT_TRUE(pack_result->permissions);
   EXPECT_THAT(*pack_result->permissions,
@@ -75,9 +78,9 @@ TEST(ExtensionPermissionsAPIHelpers, Unpack_Basic) {
   optional_apis.insert(APIPermission::kTab);
   URLPatternSet optional_explicit_hosts(
       {URLPattern(Extension::kValidHostPermissionSchemes, "http://a.com/*")});
-  PermissionSet optional_permissions(std::move(optional_apis),
-                                     ManifestPermissionSet(),
-                                     optional_explicit_hosts, URLPatternSet());
+  PermissionSet optional_permissions(
+      std::move(optional_apis), ManifestPermissionSet(),
+      std::move(optional_explicit_hosts), URLPatternSet());
 
   // Origins shouldn't have to be present.
   {
@@ -229,11 +232,11 @@ TEST(ExtensionPermissionsAPIHelpers, Unpack_HostSeparation) {
   });
 
   PermissionSet required_permissions(
-      APIPermissionSet(), ManifestPermissionSet(), required_explicit_hosts,
-      required_scriptable_hosts);
-  PermissionSet optional_permissions(APIPermissionSet(),
-                                     ManifestPermissionSet(),
-                                     optional_explicit_hosts, URLPatternSet());
+      APIPermissionSet(), ManifestPermissionSet(),
+      std::move(required_explicit_hosts), std::move(required_scriptable_hosts));
+  PermissionSet optional_permissions(
+      APIPermissionSet(), ManifestPermissionSet(),
+      std::move(optional_explicit_hosts), URLPatternSet());
 
   Permissions permissions_object;
   permissions_object.origins =
@@ -352,6 +355,178 @@ TEST(ExtensionPermissionsAPIHelpers, Unpack_WildcardSchemes) {
   ASSERT_TRUE(unpack_result) << error;
   EXPECT_THAT(GetPatternsAsStrings(unpack_result->optional_explicit_hosts),
               testing::ElementsAre(kWildcardSchemePattern));
+}
+
+// Tests that unpacking <all_urls> correctly includes or omits the file:-scheme.
+TEST(ExtensionPermissionsAPIHelpers, Unpack_FileSchemes_AllUrls) {
+  // Without file access, <all_urls> should be parsed, but the resulting pattern
+  // should not include file:-scheme access.
+  {
+    const int kNonFileSchemes =
+        Extension::kValidHostPermissionSchemes & ~URLPattern::SCHEME_FILE;
+    URLPattern all_urls(kNonFileSchemes, URLPattern::kAllUrlsPattern);
+    PermissionSet required_permissions(
+        APIPermissionSet(), ManifestPermissionSet(), URLPatternSet({all_urls}),
+        URLPatternSet());
+
+    Permissions permissions_object;
+    permissions_object.origins = std::make_unique<std::vector<std::string>>(
+        std::vector<std::string>({URLPattern::kAllUrlsPattern}));
+
+    constexpr bool kHasFileAccess = false;
+    std::string error;
+    std::unique_ptr<UnpackPermissionSetResult> unpack_result =
+        UnpackPermissionSet(permissions_object, required_permissions,
+                            PermissionSet(), kHasFileAccess, &error);
+    ASSERT_TRUE(unpack_result) << error;
+
+    EXPECT_THAT(GetPatternsAsStrings(unpack_result->required_explicit_hosts),
+                testing::ElementsAre(URLPattern::kAllUrlsPattern));
+    EXPECT_FALSE(
+        unpack_result->required_explicit_hosts.begin()->valid_schemes() &
+        URLPattern::SCHEME_FILE);
+    EXPECT_THAT(
+        GetPatternsAsStrings(unpack_result->restricted_file_scheme_patterns),
+        testing::IsEmpty());
+  }
+
+  // With file access, <all_urls> should be parsed and include file:-scheme
+  // access.
+  {
+    URLPattern all_urls(Extension::kValidHostPermissionSchemes,
+                        URLPattern::kAllUrlsPattern);
+    PermissionSet required_permissions(
+        APIPermissionSet(), ManifestPermissionSet(), URLPatternSet({all_urls}),
+        URLPatternSet());
+
+    Permissions permissions_object;
+    permissions_object.origins = std::make_unique<std::vector<std::string>>(
+        std::vector<std::string>({URLPattern::kAllUrlsPattern}));
+
+    std::string error;
+    constexpr bool kHasFileAccess = true;
+    std::unique_ptr<UnpackPermissionSetResult> unpack_result =
+        UnpackPermissionSet(permissions_object, required_permissions,
+                            PermissionSet(), kHasFileAccess, &error);
+    ASSERT_TRUE(unpack_result) << error;
+
+    EXPECT_THAT(GetPatternsAsStrings(unpack_result->required_explicit_hosts),
+                testing::ElementsAre(URLPattern::kAllUrlsPattern));
+    EXPECT_TRUE(
+        unpack_result->required_explicit_hosts.begin()->valid_schemes() &
+        URLPattern::SCHEME_FILE);
+    EXPECT_THAT(
+        GetPatternsAsStrings(unpack_result->restricted_file_scheme_patterns),
+        testing::IsEmpty());
+  }
+}
+
+// Tests that unpacking a pattern that explicitly specifies the file:-scheme is
+// properly placed into the |restricted_file_scheme_patterns| set.
+TEST(ExtensionPermissionsAPIHelpers, Unpack_FileSchemes_Specific) {
+  constexpr char kFilePattern[] = "file:///*";
+
+  // Without file access, the file:-scheme pattern should be populated into
+  // |restricted_file_scheme_patterns|.
+  {
+    URLPattern file_pattern(Extension::kValidHostPermissionSchemes,
+                            kFilePattern);
+    PermissionSet required_permissions(
+        APIPermissionSet(), ManifestPermissionSet(),
+        URLPatternSet({file_pattern}), URLPatternSet());
+
+    Permissions permissions_object;
+    permissions_object.origins = std::make_unique<std::vector<std::string>>(
+        std::vector<std::string>({kFilePattern}));
+
+    std::string error;
+    constexpr bool kHasFileAccess = false;
+    std::unique_ptr<UnpackPermissionSetResult> unpack_result =
+        UnpackPermissionSet(permissions_object, required_permissions,
+                            PermissionSet(), kHasFileAccess, &error);
+    ASSERT_TRUE(unpack_result) << error;
+
+    EXPECT_THAT(GetPatternsAsStrings(unpack_result->required_explicit_hosts),
+                testing::IsEmpty());
+    EXPECT_THAT(
+        GetPatternsAsStrings(unpack_result->restricted_file_scheme_patterns),
+        testing::ElementsAre(kFilePattern));
+    EXPECT_TRUE(unpack_result->restricted_file_scheme_patterns.begin()
+                    ->valid_schemes() &
+                URLPattern::SCHEME_FILE);
+  }
+
+  // With file access, the file:-scheme pattern should be populated into
+  // |required_explicit_hosts| (since it's not restricted).
+  {
+    URLPattern file_pattern(Extension::kValidHostPermissionSchemes,
+                            kFilePattern);
+    PermissionSet required_permissions(
+        APIPermissionSet(), ManifestPermissionSet(),
+        URLPatternSet({file_pattern}), URLPatternSet());
+
+    Permissions permissions_object;
+    permissions_object.origins = std::make_unique<std::vector<std::string>>(
+        std::vector<std::string>({kFilePattern}));
+
+    std::string error;
+    constexpr bool kHasFileAccess = true;
+    std::unique_ptr<UnpackPermissionSetResult> unpack_result =
+        UnpackPermissionSet(permissions_object, required_permissions,
+                            PermissionSet(), kHasFileAccess, &error);
+    ASSERT_TRUE(unpack_result) << error;
+
+    EXPECT_THAT(GetPatternsAsStrings(unpack_result->required_explicit_hosts),
+                testing::ElementsAre(kFilePattern));
+    EXPECT_TRUE(
+        unpack_result->required_explicit_hosts.begin()->valid_schemes() &
+        URLPattern::SCHEME_FILE);
+    EXPECT_THAT(
+        GetPatternsAsStrings(unpack_result->restricted_file_scheme_patterns),
+        testing::IsEmpty());
+  }
+}
+
+// Tests that unpacking a UsbDevicePermission with a list of USB device IDs
+// preserves the device list in the result object.
+TEST(ExtensionPermissionsAPIHelpers, Unpack_UsbDevicePermission) {
+  constexpr char kDeviceListJson[] = R"([{"productId":2,"vendorId":1}])";
+  constexpr char kUsbDevicesPermissionJson[] =
+      R"(usbDevices|[{"productId":2,"vendorId":1}])";
+
+  auto device_list = base::JSONReader::Read(kDeviceListJson);
+  ASSERT_TRUE(device_list) << "Failed to parse device list JSON.";
+
+  auto usb_device_permission = std::make_unique<UsbDevicePermission>(
+      PermissionsInfo::GetInstance()->GetByID(APIPermission::ID::kUsbDevice));
+  std::string error;
+  std::vector<std::string> unhandled_permissions;
+  bool from_value_result = usb_device_permission->FromValue(
+      &device_list.value(), &error, &unhandled_permissions);
+  ASSERT_TRUE(from_value_result);
+  EXPECT_TRUE(unhandled_permissions.empty());
+
+  APIPermissionSet api_permission_set;
+  api_permission_set.insert(usb_device_permission->Clone());
+  PermissionSet optional_permissions(std::move(api_permission_set),
+                                     ManifestPermissionSet(), URLPatternSet(),
+                                     URLPatternSet());
+
+  Permissions permissions_object;
+  permissions_object.permissions = std::make_unique<std::vector<std::string>>(
+      std::vector<std::string>({kUsbDevicesPermissionJson}));
+  constexpr bool kHasFileAccess = false;
+  std::unique_ptr<UnpackPermissionSetResult> unpack_result =
+      UnpackPermissionSet(permissions_object, PermissionSet(),
+                          optional_permissions, kHasFileAccess, &error);
+
+  ASSERT_TRUE(unpack_result) << error;
+
+  ASSERT_EQ(1U, unpack_result->optional_apis.size());
+  EXPECT_EQ(APIPermission::ID::kUsbDevice,
+            unpack_result->optional_apis.begin()->id());
+  EXPECT_TRUE(unpack_result->optional_apis.begin()->Contains(
+      usb_device_permission.get()));
 }
 
 }  // namespace extensions

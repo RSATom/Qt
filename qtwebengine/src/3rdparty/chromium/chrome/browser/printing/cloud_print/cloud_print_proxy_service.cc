@@ -52,9 +52,7 @@ std::string ReadCloudPrintSetupProxyList(const base::FilePath& path) {
 }  // namespace
 
 CloudPrintProxyService::CloudPrintProxyService(Profile* profile)
-    : profile_(profile),
-      weak_factory_(this) {
-}
+    : profile_(profile) {}
 
 CloudPrintProxyService::~CloudPrintProxyService() {
 }
@@ -81,7 +79,7 @@ void CloudPrintProxyService::Initialize() {
   pref_change_registrar_.Init(profile_->GetPrefs());
   pref_change_registrar_.Add(
       prefs::kCloudPrintProxyEnabled,
-      base::Bind(
+      base::BindRepeating(
           base::IgnoreResult(
               &CloudPrintProxyService::ApplyCloudPrintConnectorPolicy),
           base::Unretained(this)));
@@ -90,8 +88,8 @@ void CloudPrintProxyService::Initialize() {
 void CloudPrintProxyService::RefreshStatusFromService() {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   InvokeServiceTask(
-      base::Bind(&CloudPrintProxyService::RefreshCloudPrintProxyStatus,
-                 weak_factory_.GetWeakPtr()));
+      base::BindOnce(&CloudPrintProxyService::RefreshCloudPrintProxyStatus,
+                     weak_factory_.GetWeakPtr()));
 }
 
 void CloudPrintProxyService::EnableForUserWithRobot(
@@ -117,8 +115,8 @@ void CloudPrintProxyService::DisableForUser() {
                             ServiceProcessControl::SERVICE_EVENT_DISABLE,
                             ServiceProcessControl::SERVICE_EVENT_MAX);
   InvokeServiceTask(
-      base::Bind(&CloudPrintProxyService::DisableCloudPrintProxy,
-                 weak_factory_.GetWeakPtr()));
+      base::BindOnce(&CloudPrintProxyService::DisableCloudPrintProxy,
+                     weak_factory_.GetWeakPtr()));
 }
 
 bool CloudPrintProxyService::ApplyCloudPrintConnectorPolicy() {
@@ -243,11 +241,10 @@ cloud_print::mojom::CloudPrint& CloudPrintProxyService::GetCloudPrintProxy() {
 void CloudPrintProxyService::OnReadCloudPrintSetupProxyList(
     PrintersCallback callback,
     const std::string& printers_json) {
-  std::unique_ptr<base::Value> list_value =
-      base::ListValue::From(base::JSONReader::Read(printers_json));
+  base::Optional<base::Value> value = base::JSONReader::Read(printers_json);
   std::vector<std::string> printers;
-  if (list_value) {
-    for (const auto& element : list_value->GetList()) {
+  if (value && value->is_list()) {
+    for (const auto& element : value->GetList()) {
       if (element.is_string())
         printers.push_back(element.GetString());
     }

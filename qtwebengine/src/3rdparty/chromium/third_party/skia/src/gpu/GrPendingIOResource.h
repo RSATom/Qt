@@ -8,9 +8,42 @@
 #ifndef GrPendingIOResource_DEFINED
 #define GrPendingIOResource_DEFINED
 
-#include "GrGpuResource.h"
-#include "SkNoncopyable.h"
-#include "SkRefCnt.h"
+#include "include/core/SkRefCnt.h"
+#include "include/gpu/GrGpuResource.h"
+#include "include/private/SkNoncopyable.h"
+#include "src/gpu/GrSurfaceProxy.h"
+
+class GrProxyPendingIO : SkNoncopyable {
+public:
+    GrProxyPendingIO() = default;
+    GrProxyPendingIO(GrSurfaceProxy* resource) { this->reset(resource); }
+    ~GrProxyPendingIO() { this->reset(nullptr); }
+
+    void reset(GrSurfaceProxy* resource = nullptr) {
+        if (resource == fResource) {
+            return;
+        }
+
+        if (fResource) {
+            fResource->unref();
+        }
+
+        fResource = resource;
+        if (fResource) {
+            fResource->ref();
+        }
+    }
+
+    explicit operator bool() const { return SkToBool(fResource); }
+
+    GrSurfaceProxy* get() const { return fResource; }
+    GrSurfaceProxy* operator->() const { return fResource; }
+
+private:
+    bool operator==(const GrProxyPendingIO& other) const = delete;
+
+    GrSurfaceProxy* fResource = nullptr;
+};
 
 /**
  * Helper for owning a pending read, write, read-write on a GrGpuResource. It never owns a regular
@@ -19,9 +52,16 @@
 template <typename T, GrIOType IO_TYPE>
 class GrPendingIOResource : SkNoncopyable {
 public:
-    GrPendingIOResource(T* resource = nullptr) : fResource(nullptr) { this->reset(resource); }
-
+    GrPendingIOResource() = default;
+    GrPendingIOResource(T* resource) { this->reset(resource); }
+    GrPendingIOResource(sk_sp<T> resource) { *this = std::move(resource); }
     GrPendingIOResource(const GrPendingIOResource& that) : GrPendingIOResource(that.get()) {}
+    ~GrPendingIOResource() { this->release(); }
+
+    GrPendingIOResource& operator=(sk_sp<T> resource) {
+        this->reset(resource.get());
+        return *this;
+    }
 
     void reset(T* resource = nullptr) {
         if (resource) {
@@ -42,13 +82,13 @@ public:
         fResource = resource;
     }
 
-    ~GrPendingIOResource() { this->release(); }
-
     explicit operator bool() const { return SkToBool(fResource); }
 
     bool operator==(const GrPendingIOResource& other) const { return fResource == other.fResource; }
 
     T* get() const { return fResource; }
+    T* operator*() const { return *fResource; }
+    T* operator->() const { return fResource; }
 
 private:
     void release() {
@@ -68,7 +108,7 @@ private:
         }
     }
 
-    T* fResource;
+    T* fResource = nullptr;
 };
 
 #endif

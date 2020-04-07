@@ -118,6 +118,21 @@ std::string SuggestionAnswerImageLineToString(
 namespace mojo {
 
 template <>
+struct TypeConverter<std::vector<mojom::ACMatchClassificationPtr>,
+                     AutocompleteMatch::ACMatchClassifications> {
+  static std::vector<mojom::ACMatchClassificationPtr> Convert(
+      const AutocompleteMatch::ACMatchClassifications& input) {
+    std::vector<mojom::ACMatchClassificationPtr> array;
+    for (auto classification : input) {
+      auto item = mojom::ACMatchClassification::New(classification.offset,
+                                                    classification.style);
+      array.push_back(std::move(item));
+    }
+    return array;
+  }
+};
+
+template <>
 struct TypeConverter<std::vector<mojom::AutocompleteAdditionalInfoPtr>,
                      AutocompleteMatch::AdditionalInfo> {
   static std::vector<mojom::AutocompleteAdditionalInfoPtr> Convert(
@@ -149,15 +164,16 @@ struct TypeConverter<mojom::AutocompleteMatchPtr, AutocompleteMatch> {
     result->inline_autocompletion =
         base::UTF16ToUTF8(input.inline_autocompletion);
     result->destination_url = input.destination_url.spec();
+    result->stripped_destination_url = input.stripped_destination_url.spec();
     result->image = input.ImageUrl().spec().c_str();
     result->contents = base::UTF16ToUTF8(input.contents);
-    // At this time, we're not bothering to send along the long vector that
-    // represent contents classification.  i.e., for each character, what
-    // type of text it is.
+    result->contents_class =
+        mojo::ConvertTo<std::vector<mojom::ACMatchClassificationPtr>>(
+            input.contents_class);
     result->description = base::UTF16ToUTF8(input.description);
-    // At this time, we're not bothering to send along the long vector that
-    // represents description classification.  i.e., for each character, what
-    // type of text it is.
+    result->description_class =
+        mojo::ConvertTo<std::vector<mojom::ACMatchClassificationPtr>>(
+            input.description_class);
     if (input.answer) {
       result->answer =
           SuggestionAnswerImageLineToString(input.answer->first_line()) +
@@ -217,8 +233,10 @@ void OmniboxPageHandler::OnResultChanged(bool default_match_changed) {
   OnOmniboxResultChanged(default_match_changed, controller_.get());
 }
 
-void OmniboxPageHandler::OnOmniboxQuery(AutocompleteController* controller) {
-  page_->HandleNewAutocompleteQuery(controller == controller_.get());
+void OmniboxPageHandler::OnOmniboxQuery(AutocompleteController* controller,
+                                        const base::string16& input_text) {
+  page_->HandleNewAutocompleteQuery(controller == controller_.get(),
+                                    base::UTF16ToUTF8(input_text));
 }
 
 void OmniboxPageHandler::OnOmniboxResultChanged(
@@ -394,7 +412,7 @@ void OmniboxPageHandler::StartOmniboxQuery(const std::string& input_string,
     input_.set_keyword_mode_entry_method(metrics::OmniboxEventProto::TAB);
   input_.set_from_omnibox_focus(zero_suggest);
 
-  OnOmniboxQuery(controller_.get());
+  OnOmniboxQuery(controller_.get(), input_.text());
   controller_->Start(input_);
 }
 

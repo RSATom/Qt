@@ -49,7 +49,8 @@
 #include <Qt3DCore/private/qabstractaspectjobmanager_p.h>
 #include <Qt3DCore/private/qpostman_p.h>
 #include <Qt3DCore/private/qscene_p.h>
-#include <Qt3DCore/private/qsceneobserverinterface_p.h>
+
+#include <mutex>
 
 QT_BEGIN_NAMESPACE
 
@@ -76,7 +77,6 @@ namespace Qt3DCore {
 */
 QChangeArbiter::QChangeArbiter(QObject *parent)
     : QObject(parent)
-    , m_mutex(QMutex::Recursive)
     , m_jobManager(nullptr)
     , m_postman(nullptr)
     , m_scene(nullptr)
@@ -116,12 +116,8 @@ void QChangeArbiter::distributeQueueChanges(QChangeQueue *changeQueue)
         if (change.isNull())
             continue;
 
-        if (change->type() == NodeCreated) {
-            for (QSceneObserverInterface *observer : qAsConst(m_sceneObservers))
-                observer->sceneNodeAdded(change);
-        } else if (change->type() == NodeDeleted) {
-            for (QSceneObserverInterface *observer : qAsConst(m_sceneObservers))
-                observer->sceneNodeRemoved(change);
+        if (change->type() == NodeCreated || change->type() == NodeDeleted) {
+            Q_ASSERT(false); // messages no longer used
         }
 
         const QNodeId nodeId = change->subjectId();
@@ -151,31 +147,31 @@ QThreadStorage<QChangeArbiter::QChangeQueue *> *QChangeArbiter::tlsChangeQueue()
 
 void QChangeArbiter::appendChangeQueue(QChangeArbiter::QChangeQueue *queue)
 {
-    QMutexLocker locker(&m_mutex);
+    const std::lock_guard<QRecursiveMutex> locker(m_mutex);;
     m_changeQueues.append(queue);
 }
 
 void QChangeArbiter::removeChangeQueue(QChangeArbiter::QChangeQueue *queue)
 {
-    QMutexLocker locker(&m_mutex);
+    const std::lock_guard<QRecursiveMutex> locker(m_mutex);;
     m_changeQueues.removeOne(queue);
 }
 
 void QChangeArbiter::appendLockingChangeQueue(QChangeArbiter::QChangeQueue *queue)
 {
-    QMutexLocker locker(&m_mutex);
+    const std::lock_guard<QRecursiveMutex> locker(m_mutex);;
     m_lockingChangeQueues.append(queue);
 }
 
 void QChangeArbiter::removeLockingChangeQueue(QChangeArbiter::QChangeQueue *queue)
 {
-    QMutexLocker locker(&m_mutex);
+    const std::lock_guard<QRecursiveMutex> locker(m_mutex);;
     m_lockingChangeQueues.removeOne(queue);
 }
 
 void QChangeArbiter::syncChanges()
 {
-    QMutexLocker locker(&m_mutex);
+    const std::lock_guard<QRecursiveMutex> locker(m_mutex);;
     for (QChangeArbiter::QChangeQueue *changeQueue : qAsConst(m_changeQueues))
         distributeQueueChanges(changeQueue);
 
@@ -202,21 +198,14 @@ void QChangeArbiter::registerObserver(QObserverInterface *observer,
                                       QNodeId nodeId,
                                       ChangeFlags changeFlags)
 {
-    QMutexLocker locker(&m_mutex);
+    const std::lock_guard<QRecursiveMutex> locker(m_mutex);;
     QObserverList &observerList = m_nodeObservations[nodeId];
     observerList.append(QObserverPair(changeFlags, observer));
 }
 
-// Called from the QAspectThread context, no need to lock
-void QChangeArbiter::registerSceneObserver(QSceneObserverInterface *observer)
-{
-    if (!m_sceneObservers.contains(observer))
-        m_sceneObservers << observer;
-}
-
 void QChangeArbiter::unregisterObserver(QObserverInterface *observer, QNodeId nodeId)
 {
-    QMutexLocker locker(&m_mutex);
+    const std::lock_guard<QRecursiveMutex> locker(m_mutex);;
     const auto it = m_nodeObservations.find(nodeId);
     if (it != m_nodeObservations.end()) {
         QObserverList &observers = it.value();
@@ -229,13 +218,6 @@ void QChangeArbiter::unregisterObserver(QObserverInterface *observer, QNodeId no
     }
 }
 
-// Called from the QAspectThread context, no need to lock
-void QChangeArbiter::unregisterSceneObserver(QSceneObserverInterface *observer)
-{
-    if (observer != nullptr)
-        m_sceneObservers.removeOne(observer);
-}
-
 void QChangeArbiter::sceneChangeEvent(const QSceneChangePtr &e)
 {
     //    qCDebug(ChangeArbiter) << Q_FUNC_INFO << QThread::currentThread();
@@ -244,21 +226,57 @@ void QChangeArbiter::sceneChangeEvent(const QSceneChangePtr &e)
     QChangeQueue *localChangeQueue = m_tlsChangeQueue.localData();
     localChangeQueue->push_back(e);
 
+    emit receivedChange();
+
     //    qCDebug(ChangeArbiter) << "Change queue for thread" << QThread::currentThread() << "now contains" << localChangeQueue->count() << "items";
 }
 
 void QChangeArbiter::sceneChangeEventWithLock(const QSceneChangePtr &e)
 {
-    QMutexLocker locker(&m_mutex);
+    const std::lock_guard<QRecursiveMutex> locker(m_mutex);;
     sceneChangeEvent(e);
 }
 
 void QChangeArbiter::sceneChangeEventWithLock(const QSceneChangeList &e)
 {
-    QMutexLocker locker(&m_mutex);
+    const std::lock_guard<QRecursiveMutex> locker(m_mutex);;
     QChangeQueue *localChangeQueue = m_tlsChangeQueue.localData();
     qCDebug(ChangeArbiter) << Q_FUNC_INFO << "Handles " << e.size() << " changes at once";
     localChangeQueue->insert(localChangeQueue->end(), e.begin(), e.end());
+
+    emit receivedChange();
+}
+
+void QChangeArbiter::addDirtyFrontEndNode(QNode *node)
+{
+    if (!m_dirtyFrontEndNodes.contains(node)) {
+        m_dirtyFrontEndNodes += node;
+        emit receivedChange();
+    }
+}
+
+void QChangeArbiter::addDirtyFrontEndNode(QNode *node, QNode *subNode, const char *property, ChangeFlag change)
+{
+    addDirtyFrontEndNode(node);
+    m_dirtySubNodeChanges.push_back({node, subNode, change, property});
+}
+
+void QChangeArbiter::removeDirtyFrontEndNode(QNode *node)
+{
+    m_dirtyFrontEndNodes.removeOne(node);
+    m_dirtySubNodeChanges.erase(std::remove_if(m_dirtySubNodeChanges.begin(), m_dirtySubNodeChanges.end(), [node](const NodeRelationshipChange &elt) {
+                                    return elt.node == node || elt.subNode == node;
+                                }), m_dirtySubNodeChanges.end());
+}
+
+QVector<QNode *> QChangeArbiter::takeDirtyFrontEndNodes()
+{
+    return std::move(m_dirtyFrontEndNodes);
+}
+
+QVector<NodeRelationshipChange> QChangeArbiter::takeDirtyFrontEndSubNodes()
+{
+    return std::move(m_dirtySubNodeChanges);
 }
 
 // Either we have the postman or we could make the QChangeArbiter agnostic to the postman

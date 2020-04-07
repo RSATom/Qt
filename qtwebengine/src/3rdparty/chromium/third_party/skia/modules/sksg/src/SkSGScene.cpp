@@ -5,13 +5,13 @@
  * found in the LICENSE file.
  */
 
-#include "SkSGScene.h"
+#include "modules/sksg/include/SkSGScene.h"
 
-#include "SkCanvas.h"
-#include "SkMatrix.h"
-#include "SkPaint.h"
-#include "SkSGInvalidationController.h"
-#include "SkSGRenderNode.h"
+#include "include/core/SkCanvas.h"
+#include "include/core/SkMatrix.h"
+#include "include/core/SkPaint.h"
+#include "modules/sksg/include/SkSGInvalidationController.h"
+#include "modules/sksg/include/SkSGRenderNode.h"
 
 namespace sksg {
 
@@ -42,29 +42,22 @@ Scene::Scene(sk_sp<RenderNode> root, AnimatorList&& animators)
 Scene::~Scene() = default;
 
 void Scene::render(SkCanvas* canvas) const {
-    InvalidationController ic;
-    fRoot->revalidate(&ic, SkMatrix::I());
+    // Ensure the SG is revalidated.
+    // Note: this is a no-op if the scene has already been revalidated - e.g. in animate().
+    fRoot->revalidate(nullptr, SkMatrix::I());
     fRoot->render(canvas);
-
-    if (fShowInval) {
-        SkPaint fill, stroke;
-        fill.setAntiAlias(true);
-        fill.setColor(0x40ff0000);
-        stroke.setAntiAlias(true);
-        stroke.setColor(0xffff0000);
-        stroke.setStyle(SkPaint::kStroke_Style);
-
-        for (const auto& r : ic) {
-            canvas->drawRect(r, fill);
-            canvas->drawRect(r, stroke);
-        }
-    }
 }
 
-void Scene::animate(float t) {
+void Scene::animate(float t, InvalidationController* ic) {
     for (const auto& anim : fAnimators) {
         anim->tick(t);
     }
+
+    fRoot->revalidate(ic, SkMatrix::I());
+}
+
+const RenderNode* Scene::nodeAt(const SkPoint& p) const {
+    return fRoot->nodeAt(p);
 }
 
 } // namespace sksg

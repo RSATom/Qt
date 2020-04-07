@@ -14,9 +14,8 @@ namespace content {
 
 class NavigationEntry;
 
-// Provides the details for a NOTIFICATION_NAV_ENTRY_COMMITTED notification.
-// TODO(brettw) this mostly duplicates ProvisionalLoadDetails, it would be
-// nice to unify these somehow.
+// Provides the details of a committed navigation entry for the
+// WebContentsObserver::NavigationEntryCommitted() notification.
 struct CONTENT_EXPORT LoadCommittedDetails {
   // By default, the entry will be filled according to a new main frame
   // navigation.
@@ -76,9 +75,8 @@ struct EntryChangedDetails {
 
 // Details sent for NOTIFY_NAV_LIST_PRUNED.
 struct PrunedDetails {
-  // If true, count items were removed from the front of the list, otherwise
-  // count items were removed from the back of the list.
-  bool from_front;
+  // Index starting which |count| entries were removed.
+  int index;
 
   // Number of items removed.
   int count;

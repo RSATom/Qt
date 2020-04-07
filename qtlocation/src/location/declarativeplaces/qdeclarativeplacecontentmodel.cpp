@@ -149,10 +149,7 @@ void QDeclarativePlaceContentModel::initializeCollection(int totalCount, const Q
     int initialCount = m_contentCount;
     clearData();
 
-    QMapIterator<int, QPlaceContent> i(collection);
-    while (i.hasNext()) {
-        i.next();
-
+    for (auto i = collection.cbegin(), end = collection.cend(); i != end; ++i) {
         const QPlaceContent &content = i.value();
         if (content.type() != m_type)
             continue;
@@ -317,11 +314,9 @@ void QDeclarativePlaceContentModel::fetchFinished()
         QPlaceContent::Collection contents = reply->content();
 
         //find out which indexes are new and which ones have changed.
-        QMapIterator<int, QPlaceContent> it(contents);
         QList<int> changedIndexes;
         QList<int> newIndexes;
-        while (it.hasNext()) {
-            it.next();
+        for (auto it = contents.cbegin(), end = contents.cend(); it != end; ++it) {
             if (!m_content.contains(it.key()))
                 newIndexes.append(it.key());
             else if (it.value() != m_content.value(it.key()))
@@ -330,14 +325,14 @@ void QDeclarativePlaceContentModel::fetchFinished()
 
         //insert new indexes in blocks where within each
         //block, the indexes are consecutive.
-        QListIterator<int> newIndexesIter(newIndexes);
         int startIndex = -1;
-        while (newIndexesIter.hasNext()) {
-            int currentIndex = newIndexesIter.next();
+        for (auto it = newIndexes.cbegin(), end = newIndexes.cend(); it != end; ++it) {
+            int currentIndex = *it;
             if (startIndex == -1)
                 startIndex = currentIndex;
 
-            if (!newIndexesIter.hasNext() || (newIndexesIter.hasNext() && (newIndexesIter.peekNext() > (currentIndex + 1)))) {
+            auto next = std::next(it);
+            if (next == end || *next > (currentIndex + 1)) {
                 beginInsertRows(QModelIndex(),startIndex,currentIndex);
                 for (int i = startIndex; i <= currentIndex; ++i) {
                     const QPlaceContent &content = contents.value(i);
@@ -360,13 +355,13 @@ void QDeclarativePlaceContentModel::fetchFinished()
         //modify changed indexes in blocks where within each
         //block, the indexes are consecutive.
         startIndex = -1;
-        QListIterator<int> changedIndexesIter(changedIndexes);
-        while (changedIndexesIter.hasNext()) {
-            int currentIndex = changedIndexesIter.next();
+        for (auto it = changedIndexes.cbegin(), end = changedIndexes.cend(); it != end; ++it) {
+            int currentIndex = *it;
             if (startIndex == -1)
                 startIndex = currentIndex;
 
-            if (!changedIndexesIter.hasNext() || (changedIndexesIter.hasNext() && changedIndexesIter.peekNext() > (currentIndex + 1))) {
+            auto next = std::next(it);
+            if (next == end || *next > (currentIndex + 1)) {
                 for (int i = startIndex; i <= currentIndex; ++i) {
                     const QPlaceContent &content = contents.value(i);
                     m_content.insert(i, content);

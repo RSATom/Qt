@@ -15,6 +15,7 @@
 #ifndef DAWNNATIVE_PROGRAMMABLEPASSENCODER_H_
 #define DAWNNATIVE_PROGRAMMABLEPASSENCODER_H_
 
+#include "dawn_native/CommandEncoder.h"
 #include "dawn_native/Error.h"
 #include "dawn_native/ObjectBase.h"
 
@@ -28,26 +29,24 @@ namespace dawn_native {
     // Base class for shared functionality between ComputePassEncoder and RenderPassEncoder.
     class ProgrammablePassEncoder : public ObjectBase {
       public:
-        ProgrammablePassEncoder(DeviceBase* device,
-                                CommandBufferBuilder* topLevelBuilder,
-                                CommandAllocator* allocator);
+        ProgrammablePassEncoder(DeviceBase* device, EncodingContext* encodingContext);
 
-        void EndPass();
+        void InsertDebugMarker(const char* groupLabel);
+        void PopDebugGroup();
+        void PushDebugGroup(const char* groupLabel);
 
-        void SetBindGroup(uint32_t groupIndex, BindGroupBase* group);
-        void SetPushConstants(dawn::ShaderStageBit stages,
-                              uint32_t offset,
-                              uint32_t count,
-                              const void* data);
+        void SetBindGroup(uint32_t groupIndex,
+                          BindGroupBase* group,
+                          uint32_t dynamicOffsetCount,
+                          const uint64_t* dynamicOffsets);
 
       protected:
-        MaybeError ValidateCanRecordCommands() const;
+        // Construct an "error" programmable pass encoder.
+        ProgrammablePassEncoder(DeviceBase* device,
+                                EncodingContext* encodingContext,
+                                ErrorTag errorTag);
 
-        // The allocator is borrowed from the top level builder. Keep a reference to the builder
-        // to make sure the allocator isn't freed.
-        Ref<CommandBufferBuilder> mTopLevelBuilder = nullptr;
-        // mAllocator is cleared at the end of the pass so it acts as a tag that EndPass was called
-        CommandAllocator* mAllocator = nullptr;
+        EncodingContext* mEncodingContext = nullptr;
     };
 
 }  // namespace dawn_native

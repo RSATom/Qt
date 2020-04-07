@@ -65,6 +65,12 @@ class WebAutofillClient {
   virtual void DidCompleteFocusChangeInFrame() {}
   virtual void DidReceiveLeftMouseDownOrGestureTapInNode(const WebNode&) {}
 
+  // Asks the client to show the touch to fill UI for the given control element.
+  // Returns whether the touch to fill UI was actually shown.
+  virtual bool TryToShowTouchToFill(const WebFormControlElement&) {
+    return false;
+  }
+
  protected:
   virtual ~WebAutofillClient() = default;
 };

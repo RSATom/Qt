@@ -54,6 +54,7 @@ QWebView::QWebView(QObject *p)
     connect(d, &QAbstractWebView::urlChanged, this, &QWebView::onUrlChanged);
     connect(d, &QAbstractWebView::loadingChanged, this, &QWebView::onLoadingChanged);
     connect(d, &QAbstractWebView::loadProgressChanged, this, &QWebView::onLoadProgressChanged);
+    connect(d, &QAbstractWebView::httpUserAgentChanged, this, &QWebView::onHttpUserAgentChanged);
     connect(d, &QAbstractWebView::requestFocus, this, &QWebView::requestFocus);
     connect(d, &QAbstractWebView::javaScriptResult,
             this, &QWebView::javaScriptResult);
@@ -61,6 +62,19 @@ QWebView::QWebView(QObject *p)
 
 QWebView::~QWebView()
 {
+}
+
+QString QWebView::httpUserAgent() const
+{
+    if (m_httpUserAgent.isEmpty()){
+        m_httpUserAgent = d->httpUserAgent();
+    }
+    return m_httpUserAgent;
+}
+
+void QWebView::setHttpUserAgent(const QString &userAgent)
+{
+    return d->setHttpUserAgent(userAgent);
 }
 
 QUrl QWebView::url() const
@@ -193,7 +207,14 @@ void QWebView::onLoadingChanged(const QWebViewLoadRequestPrivate &loadRequest)
 
     onUrlChanged(loadRequest.m_url);
     Q_EMIT loadingChanged(loadRequest);
+}
 
+void QWebView::onHttpUserAgentChanged(const QString &userAgent)
+{
+    if (m_httpUserAgent == userAgent)
+        return;
+    m_httpUserAgent = userAgent;
+    Q_EMIT httpUserAgentChanged();
 }
 
 void QWebView::init()

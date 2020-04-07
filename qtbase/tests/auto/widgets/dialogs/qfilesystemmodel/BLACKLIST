@@ -1,13 +1,16 @@
 winrt
+[sort]
+winrt
 [sort:QFileDialog usage]
 ubuntu
 b2qt
 [specialFiles]
-ubuntu
 b2qt
 [dirsBeforeFiles]
-ubuntu
+winrt
 b2qt
-windows
+ubuntu
+windows-10
 rhel
-suse-leap
+[drives]
+winrt

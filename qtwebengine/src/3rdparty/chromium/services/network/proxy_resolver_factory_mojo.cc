@@ -5,7 +5,9 @@
 #include "services/network/proxy_resolver_factory_mojo.h"
 
 #include <set>
+#include <string>
 #include <utility>
+#include <vector>
 
 #include "base/bind.h"
 #include "base/callback.h"
@@ -18,6 +20,8 @@
 #include "base/task_runner.h"
 #include "base/values.h"
 #include "mojo/public/cpp/bindings/binding.h"
+#include "mojo/public/cpp/bindings/pending_remote.h"
+#include "net/base/ip_address.h"
 #include "net/base/load_states.h"
 #include "net/base/net_errors.h"
 #include "net/log/net_log.h"
@@ -27,6 +31,7 @@
 #include "net/proxy_resolution/pac_file_data.h"
 #include "net/proxy_resolution/pac_library.h"
 #include "net/proxy_resolution/proxy_info.h"
+#include "net/proxy_resolution/proxy_resolve_dns_operation.h"
 #include "net/proxy_resolution/proxy_resolver.h"
 #include "net/proxy_resolution/proxy_resolver_error_observer.h"
 #include "services/network/mojo_host_resolver_impl.h"
@@ -36,13 +41,10 @@ namespace network {
 
 namespace {
 
-std::unique_ptr<base::Value> NetLogErrorCallback(
-    int line_number,
-    const std::string* message,
-    net::NetLogCaptureMode /* capture_mode */) {
-  std::unique_ptr<base::DictionaryValue> dict(new base::DictionaryValue());
-  dict->SetInteger("line_number", line_number);
-  dict->SetString("message", *message);
+base::Value NetLogErrorParams(int line_number, const std::string& message) {
+  base::DictionaryValue dict;
+  dict.SetInteger("line_number", line_number);
+  dict.SetString("message", message);
   return std::move(dict);
 }
 
@@ -52,7 +54,7 @@ void DoMyIpAddressOnWorker(
     bool is_ex,
     proxy_resolver::mojom::HostResolverRequestClientPtrInfo client_info) {
   // Resolve the list of IP addresses.
-  net::IPAddressList my_ip_addresses =
+  std::vector<net::IPAddress> my_ip_addresses =
       is_ex ? net::PacMyIpAddressEx() : net::PacMyIpAddress();
 
   proxy_resolver::mojom::HostResolverRequestClientPtr client;
@@ -68,11 +70,7 @@ void DoMyIpAddressOnWorker(
   if (my_ip_addresses.empty())
     my_ip_addresses.push_back(net::IPAddress::IPv4Localhost());
 
-  // Convert to a net::AddressList.
-  net::AddressList list;
-  for (const auto& ip : my_ip_addresses)
-    list.push_back(net::IPEndPoint(ip, 80));
-  client->ReportResult(net::OK, list);
+  client->ReportResult(net::OK, my_ip_addresses);
 }
 
 // A mixin that forwards logging to (Bound)NetLog and ProxyResolverErrorObserver
@@ -92,21 +90,21 @@ class ClientMixin : public ClientInterface {
 
   // Overridden from ClientInterface:
   void Alert(const std::string& message) override {
-    auto callback = net::NetLog::StringCallback("message", &message);
-    net_log_with_source_.AddEvent(net::NetLogEventType::PAC_JAVASCRIPT_ALERT,
-                                  callback);
+    net_log_with_source_.AddEventWithStringParams(
+        net::NetLogEventType::PAC_JAVASCRIPT_ALERT, "message", message);
     if (net_log_)
-      net_log_->AddGlobalEntry(net::NetLogEventType::PAC_JAVASCRIPT_ALERT,
-                               callback);
+      net_log_->AddGlobalEntryWithStringParams(
+          net::NetLogEventType::PAC_JAVASCRIPT_ALERT, "message", message);
   }
 
   void OnError(int32_t line_number, const std::string& message) override {
-    auto callback = base::Bind(&NetLogErrorCallback, line_number, &message);
-    net_log_with_source_.AddEvent(net::NetLogEventType::PAC_JAVASCRIPT_ERROR,
-                                  callback);
+    net_log_with_source_.AddEvent(
+        net::NetLogEventType::PAC_JAVASCRIPT_ERROR,
+        [&] { return NetLogErrorParams(line_number, message); });
     if (net_log_)
-      net_log_->AddGlobalEntry(net::NetLogEventType::PAC_JAVASCRIPT_ERROR,
-                               callback);
+      net_log_->AddGlobalEntry(net::NetLogEventType::PAC_JAVASCRIPT_ERROR, [&] {
+        return NetLogErrorParams(line_number, message);
+      });
     if (error_observer_) {
       error_observer_->OnPACScriptError(line_number,
                                         base::UTF8ToUTF16(message));
@@ -116,18 +114,24 @@ class ClientMixin : public ClientInterface {
   // TODO(eroman): Split the client interfaces so ResolveDns() does not also
   // carry the myIpAddress(Ex) requests.
   void ResolveDns(
-      std::unique_ptr<net::HostResolver::RequestInfo> request_info,
-      proxy_resolver::mojom::HostResolverRequestClientPtr client) override {
-    if (request_info->is_my_ip_address()) {
-      bool is_ex =
-          request_info->address_family() == net::ADDRESS_FAMILY_UNSPECIFIED;
+      const std::string& hostname,
+      net::ProxyResolveDnsOperation operation,
+      mojo::PendingRemote<proxy_resolver::mojom::HostResolverRequestClient>
+          client) override {
+    bool is_ex = operation == net::ProxyResolveDnsOperation::DNS_RESOLVE_EX ||
+                 operation == net::ProxyResolveDnsOperation::MY_IP_ADDRESS_EX;
 
+    if (operation == net::ProxyResolveDnsOperation::MY_IP_ADDRESS ||
+        operation == net::ProxyResolveDnsOperation::MY_IP_ADDRESS_EX) {
       GetMyIpAddressTaskRuner()->PostTask(
-          FROM_HERE, base::BindOnce(&DoMyIpAddressOnWorker, is_ex,
-                                    client.PassInterface()));
+          FROM_HERE,
+          base::BindOnce(&DoMyIpAddressOnWorker, is_ex, std::move(client)));
     } else {
       // Request was for dnsResolve() or dnsResolveEx().
-      host_resolver_.Resolve(std::move(request_info), std::move(client));
+      host_resolver_.Resolve(
+          hostname, is_ex,
+          proxy_resolver::mojom::HostResolverRequestClientPtr(
+              std::move(client)));
     }
   }
 
@@ -252,8 +256,8 @@ ProxyResolverMojo::Job::Job(ProxyResolverMojo* resolver,
       results_(results),
       callback_(std::move(callback)),
       binding_(this) {
-  proxy_resolver::mojom::ProxyResolverRequestClientPtr client;
-  binding_.Bind(mojo::MakeRequest(&client));
+  mojo::PendingRemote<proxy_resolver::mojom::ProxyResolverRequestClient> client;
+  binding_.Bind(client.InitWithNewPipeAndPassReceiver());
   resolver->mojo_proxy_resolver_ptr_->GetProxyForUrl(url_, std::move(client));
   binding_.set_connection_error_handler(base::Bind(
       &ProxyResolverMojo::Job::OnConnectionError, base::Unretained(this)));
@@ -360,8 +364,10 @@ class ProxyResolverFactoryMojo::Job
         callback_(std::move(callback)),
         binding_(this),
         error_observer_(std::move(error_observer)) {
-    proxy_resolver::mojom::ProxyResolverFactoryRequestClientPtr client;
-    binding_.Bind(mojo::MakeRequest(&client));
+    mojo::PendingRemote<
+        proxy_resolver::mojom::ProxyResolverFactoryRequestClient>
+        client;
+    binding_.Bind(client.InitWithNewPipeAndPassReceiver());
     factory_->mojo_proxy_factory_->CreateResolver(
         base::UTF16ToUTF8(pac_script->utf16()),
         mojo::MakeRequest(&resolver_ptr_), std::move(client));
@@ -405,8 +411,7 @@ ProxyResolverFactoryMojo::ProxyResolverFactoryMojo(
       mojo_proxy_factory_(std::move(mojo_proxy_factory)),
       host_resolver_(host_resolver),
       error_observer_factory_(error_observer_factory),
-      net_log_(net_log),
-      weak_ptr_factory_(this) {}
+      net_log_(net_log) {}
 
 ProxyResolverFactoryMojo::~ProxyResolverFactoryMojo() = default;
 

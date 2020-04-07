@@ -307,7 +307,8 @@ bool QQuickPointerDeviceHandler::wantsPointerEvent(QQuickPointerEvent *event)
         return false;
     // HoverHandler sets acceptedButtons to Qt::NoButton to indicate that button state is irrelevant.
     if (event->device()->pointerType() != QQuickPointerDevice::Finger && acceptedButtons() != Qt::NoButton &&
-            (event->buttons() & acceptedButtons()) == 0 && (event->button() & acceptedButtons()) == 0)
+            (event->buttons() & acceptedButtons()) == 0 && (event->button() & acceptedButtons()) == 0
+            && !event->asPointerScrollEvent())
         return false;
     return true;
 }

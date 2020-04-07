@@ -30,11 +30,11 @@
 #include "third_party/blink/renderer/core/dom/flat_tree_traversal.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/frame/local_frame_view.h"
-#include "third_party/blink/renderer/core/frame/use_counter.h"
 #include "third_party/blink/renderer/core/fullscreen/fullscreen.h"
 #include "third_party/blink/renderer/core/html/forms/html_form_control_element.h"
 #include "third_party/blink/renderer/core/html/html_frame_owner_element.h"
 #include "third_party/blink/renderer/platform/bindings/exception_state.h"
+#include "third_party/blink/renderer/platform/instrumentation/use_counter.h"
 
 namespace blink {
 
@@ -54,11 +54,10 @@ static void SetFocusForDialog(HTMLDialogElement* dialog) {
                ? FlatTreeTraversal::NextSkippingChildren(*node, dialog)
                : FlatTreeTraversal::Next(*node, dialog);
 
-    if (!node->IsElementNode())
+    auto* element = DynamicTo<Element>(node);
+    if (!element)
       continue;
-    Element* element = ToElement(node);
-    if (element->IsFormControlElement()) {
-      HTMLFormControlElement* control = ToHTMLFormControlElement(node);
+    if (auto* control = DynamicTo<HTMLFormControlElement>(node)) {
       if (control->IsAutofocusable() && control->IsFocusable()) {
         control->focus();
         return;
@@ -95,7 +94,7 @@ static void InertSubtreesChanged(Document& document) {
   document.ClearAXObjectCache();
 }
 
-inline HTMLDialogElement::HTMLDialogElement(Document& document)
+HTMLDialogElement::HTMLDialogElement(Document& document)
     : HTMLElement(kDialogTag, document),
       centering_mode_(kNotCentered),
       centered_position_(0),
@@ -103,10 +102,8 @@ inline HTMLDialogElement::HTMLDialogElement(Document& document)
   UseCounter::Count(document, WebFeature::kDialogElement);
 }
 
-DEFINE_NODE_FACTORY(HTMLDialogElement)
-
 void HTMLDialogElement::close(const String& return_value) {
-  // https://html.spec.whatwg.org/#close-the-dialog
+  // https://html.spec.whatwg.org/C/#close-the-dialog
 
   if (!FastHasAttribute(kOpenAttr))
     return;
@@ -125,7 +122,7 @@ void HTMLDialogElement::close(const String& return_value) {
 
 void HTMLDialogElement::ForceLayoutForCentering() {
   centering_mode_ = kNeedsCentering;
-  GetDocument().UpdateStyleAndLayoutIgnorePendingStylesheets();
+  GetDocument().UpdateStyleAndLayout();
   if (centering_mode_ == kNeedsCentering)
     SetNotCentered();
 }
@@ -143,7 +140,7 @@ void HTMLDialogElement::show() {
 
   // The layout must be updated here because setFocusForDialog calls
   // Element::isFocusable, which requires an up-to-date layout.
-  GetDocument().UpdateStyleAndLayoutIgnorePendingStylesheets();
+  GetDocument().UpdateStyleAndLayout();
 
   SetFocusForDialog(this);
 }

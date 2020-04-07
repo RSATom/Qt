@@ -10,12 +10,15 @@
 #include <vector>
 
 #include "base/logging.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/stl_util.h"
 #include "base/strings/string_piece.h"
 #include "base/threading/scoped_blocking_call.h"
 #include "base/values.h"
 #include "build/build_config.h"
+#include "build/buildflag.h"
 #include "components/crash/core/common/crash_keys.h"
+#include "components/printing/browser/printing_buildflags.h"
 #include "components/printing/common/cloud_print_cdd_conversion.h"
 #include "printing/backend/print_backend.h"
 #include "printing/backend/print_backend_consts.h"
@@ -28,19 +31,37 @@
 #include "ui/base/l10n/l10n_util.h"
 #endif
 
+#if BUILDFLAG(PRINT_MEDIA_L10N_ENABLED)
+#include "components/printing/browser/print_media_l10n.h"
+#endif
+
 namespace printing {
 
 const char kPrinter[] = "printer";
 
 namespace {
 
+#if BUILDFLAG(PRINT_MEDIA_L10N_ENABLED)
+// Iterate on the Papers of a given printer |info| and set the
+// display_name members, localizing where possible.
+void PopulateAllPaperDisplayNames(PrinterSemanticCapsAndDefaults* info) {
+  info->default_paper.display_name =
+      LocalizePaperDisplayName(info->default_paper.vendor_id);
+  for (PrinterSemanticCapsAndDefaults::Paper& paper : info->papers) {
+    paper.display_name = LocalizePaperDisplayName(paper.vendor_id);
+  }
+}
+#endif  // BUILDFLAG(PRINT_MEDIA_L10N_ENABLED)
+
 // Returns a dictionary representing printer capabilities as CDD.  Returns
 // an empty dictionary if a dictionary could not be generated.
 base::Value GetPrinterCapabilitiesOnBlockingPoolThread(
     const std::string& device_name,
     const PrinterSemanticCapsAndDefaults::Papers& additional_papers,
+    bool has_secure_protocol,
     scoped_refptr<PrintBackend> print_backend) {
-  base::ScopedBlockingCall scoped_blocking_call(base::BlockingType::MAY_BLOCK);
+  base::ScopedBlockingCall scoped_blocking_call(FROM_HERE,
+                                                base::BlockingType::MAY_BLOCK);
   DCHECK(!device_name.empty());
   scoped_refptr<PrintBackend> backend =
       print_backend ? print_backend
@@ -61,10 +82,20 @@ base::Value GetPrinterCapabilitiesOnBlockingPoolThread(
     return base::Value(base::Value::Type::DICTIONARY);
   }
 
+#if BUILDFLAG(PRINT_MEDIA_L10N_ENABLED)
+  PopulateAllPaperDisplayNames(&info);
+#endif
   info.papers.insert(info.papers.end(), additional_papers.begin(),
                      additional_papers.end());
+#if defined(OS_CHROMEOS)
+  if (!has_secure_protocol)
+    info.pin_supported = false;
+#endif  // defined(OS_CHROMEOS)
+
   return cloud_print::PrinterSemanticCapsAndDefaultsToCdd(info);
 }
+
+}  // namespace
 
 #if defined(OS_WIN)
 std::string GetUserFriendlyName(const std::string& printer_name) {
@@ -87,55 +118,33 @@ std::string GetUserFriendlyName(const std::string& printer_name) {
 }
 #endif
 
-}  // namespace
-
-std::pair<std::string, std::string> GetPrinterNameAndDescription(
-    const PrinterBasicInfo& printer) {
-#if defined(OS_MACOSX) || defined(OS_CHROMEOS)
-  // On Mac, |printer.printer_description| specifies the printer name and
-  // |printer.printer_name| specifies the device name / printer queue name.
-  // Chrome OS emulates the Mac behavior.
-  const std::string& real_name = printer.printer_description;
-  std::string real_description;
-  const auto it = printer.options.find(kDriverNameTagName);
-  if (it != printer.options.end())
-    real_description = it->second;
-  return std::make_pair(real_name, real_description);
-#elif defined(OS_WIN)
-  return std::make_pair(GetUserFriendlyName(printer.printer_name),
-                        printer.printer_description);
-#else
-  return std::make_pair(printer.printer_name, printer.printer_description);
-#endif
-}
-
 base::Value GetSettingsOnBlockingPool(
     const std::string& device_name,
     const PrinterBasicInfo& basic_info,
     const PrinterSemanticCapsAndDefaults::Papers& additional_papers,
+    bool has_secure_protocol,
     scoped_refptr<PrintBackend> print_backend) {
-  base::ScopedBlockingCall scoped_blocking_call(base::BlockingType::MAY_BLOCK);
-
-  const auto printer_name_description =
-      GetPrinterNameAndDescription(basic_info);
+  SCOPED_UMA_HISTOGRAM_TIMER("Printing.PrinterCapabilities");
+  base::ScopedBlockingCall scoped_blocking_call(FROM_HERE,
+                                                base::BlockingType::MAY_BLOCK);
 
   base::Value printer_info(base::Value::Type::DICTIONARY);
   printer_info.SetKey(kSettingDeviceName, base::Value(device_name));
   printer_info.SetKey(kSettingPrinterName,
-                      base::Value(printer_name_description.first));
+                      base::Value(basic_info.display_name));
   printer_info.SetKey(kSettingPrinterDescription,
-                      base::Value(printer_name_description.second));
+                      base::Value(basic_info.printer_description));
   printer_info.SetKey(
       kCUPSEnterprisePrinter,
-      base::Value(
-          base::ContainsKey(basic_info.options, kCUPSEnterprisePrinter) &&
-          basic_info.options.at(kCUPSEnterprisePrinter) == kValueTrue));
+      base::Value(base::Contains(basic_info.options, kCUPSEnterprisePrinter) &&
+                  basic_info.options.at(kCUPSEnterprisePrinter) == kValueTrue));
 
   base::Value printer_info_capabilities(base::Value::Type::DICTIONARY);
   printer_info_capabilities.SetKey(kPrinter, std::move(printer_info));
   printer_info_capabilities.SetKey(
-      kSettingCapabilities, GetPrinterCapabilitiesOnBlockingPoolThread(
-                                device_name, additional_papers, print_backend));
+      kSettingCapabilities,
+      GetPrinterCapabilitiesOnBlockingPoolThread(
+          device_name, additional_papers, has_secure_protocol, print_backend));
   return printer_info_capabilities;
 }
 

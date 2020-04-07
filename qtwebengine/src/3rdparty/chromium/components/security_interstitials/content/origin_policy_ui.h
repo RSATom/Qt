@@ -7,26 +7,39 @@
 
 #include <memory>
 
+#include <string>
 #include "base/macros.h"
 #include "base/optional.h"
 #include "base/strings/string16.h"
 
 class GURL;
-namespace url {
-class Origin;
-}  // namespace url
+
 namespace content {
-enum class OriginPolicyErrorReason;
+class NavigationHandle;
+class WebContents;
 }  // namespace content
 
+namespace network {
+enum class OriginPolicyState;
+}
+
 namespace security_interstitials {
+class SecurityInterstitialPage;
 
 // A helper class to build the error page for Origin Policy errors.
 class OriginPolicyUI {
  public:
-  static base::Optional<std::string> GetErrorPage(
-      content::OriginPolicyErrorReason error_reason,
-      const url::Origin& origin,
+  // Create the error page for the given NavigationHandle.
+  // This is intended to implement the ContentBrowserClient interface.
+  static base::Optional<std::string> GetErrorPageAsHTML(
+      network::OriginPolicyState error_reason,
+      content::NavigationHandle* handle);
+
+  // Create the error page instance for the given WebContents + URL.
+  // This is intended for use by debug functions (like chrome:://interstitials).
+  static SecurityInterstitialPage* GetBlockingPage(
+      network::OriginPolicyState error_reason,
+      content::WebContents* web_contents,
       const GURL& url);
 };
 

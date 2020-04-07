@@ -10,6 +10,7 @@
 // users' preferences, and FeatureList.
 
 #include <stdint.h>
+#include <string>
 
 namespace aura {
 class Window;
@@ -25,6 +26,9 @@ class User;
 
 namespace arc {
 
+// Name of the crosvm instance when ARCVM is enabled.
+constexpr char kArcVmName[] = "arcvm";
+
 // Returns true if ARC is installed and the current device is officially
 // supported to run ARC.
 // Note that, to run ARC practically, it is necessary to meet more conditions,
@@ -38,6 +42,11 @@ bool IsArcAvailable();
 
 // Returns true if ARC VM is enabled.
 bool IsArcVmEnabled();
+
+// These two methods used for testing only add and remove the arcvm flag so that
+// IsArcVmEnabled() returns the corresponding result.
+void EnableArcVmForTesting();
+void DisableArcVmForTesting();
 
 // Returns true if ARC should always start within the primary user session
 // (opted in user or not), and other supported mode such as guest and Kiosk
@@ -104,6 +113,13 @@ bool IsArcOptInVerificationDisabled();
 // Returns true if the |window|'s aura::client::kAppType is ARC_APP. When
 // |window| is nullptr, returns false.
 bool IsArcAppWindow(const aura::Window* window);
+
+constexpr int kNoTaskId = -1;
+constexpr int kSystemWindowTaskId = 0;
+// Returns the task id given by the exo shell's application id, or |kNoTaskId|
+// if not an ARC window.
+int GetWindowTaskId(const aura::Window* window);
+int GetTaskIdFromWindowAppId(const std::string& app_id);
 
 // Returns true if ARC app icons are forced to cache.
 bool IsArcForceCacheAppIcon();

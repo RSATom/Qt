@@ -52,8 +52,9 @@
 //
 
 #include "qqmljsglobal_p.h"
-#include "qqmljsmemorypool_p.h"
 #include "qqmljssourcelocation_p.h"
+
+#include <private/qqmljsmemorypool_p.h>
 
 #include <QtCore/qstring.h>
 #include <QtCore/qset.h>
@@ -89,28 +90,6 @@ public:
         Q_UNUSED(line);
         Q_UNUSED(column);
     }
-};
-
-
-class QML_PARSER_EXPORT DiagnosticMessage
-{
-public:
-    enum Kind { Hint, Warning, Error };
-
-    DiagnosticMessage() {}
-
-    DiagnosticMessage(Kind kind, const AST::SourceLocation &loc, const QString &message)
-        : kind(kind), loc(loc), message(message) {}
-
-    bool isWarning() const
-    { return kind == Warning; }
-
-    bool isError() const
-    { return kind == Error; }
-
-    Kind kind = Error;
-    AST::SourceLocation loc;
-    QString message;
 };
 
 class QML_PARSER_EXPORT Engine

@@ -6,6 +6,7 @@
 
 #include <memory>
 
+#include "base/bind.h"
 #include "base/logging.h"
 #include "base/metrics/histogram_macros.h"
 #include "chrome/browser/gcm/instance_id/instance_id_profile_service_factory.h"
@@ -60,10 +61,7 @@ ExtensionFunction::ResponseAction InstanceIDApiFunction::Run() {
         "chrome.instanceID not supported in incognito mode"));
   }
 
-  bool isInstanceIDEnabled = IsEnabled();
-  UMA_HISTOGRAM_BOOLEAN("InstanceID.Enabled", isInstanceIDEnabled);
-
-  if (!isInstanceIDEnabled) {
+  if (!IsEnabled()) {
     return RespondNow(Error(
         InstanceIDResultToError(instance_id::InstanceID::DISABLED)));
   }

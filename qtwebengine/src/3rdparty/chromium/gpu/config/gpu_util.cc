@@ -51,10 +51,24 @@ GpuFeatureStatus GetAndroidSurfaceControlFeatureStatus(
   if (!gpu_preferences.enable_android_surface_control)
     return kGpuFeatureStatusDisabled;
 
-  if (!gl::SurfaceControl::IsSupported())
+  DCHECK(gl::SurfaceControl::IsSupported());
+  return kGpuFeatureStatusEnabled;
+#endif
+}
+
+GpuFeatureStatus GetMetalFeatureStatus(
+    const std::set<int>& blacklisted_features,
+    const GpuPreferences& gpu_preferences) {
+#if defined(OS_MACOSX)
+  if (blacklisted_features.count(GPU_FEATURE_TYPE_METAL))
+    return kGpuFeatureStatusBlacklisted;
+
+  if (!gpu_preferences.enable_metal)
     return kGpuFeatureStatusDisabled;
 
   return kGpuFeatureStatusEnabled;
+#else
+  return kGpuFeatureStatusDisabled;
 #endif
 }
 
@@ -82,6 +96,13 @@ GpuFeatureStatus GetOopRasterizationFeatureStatus(
     const base::CommandLine& command_line,
     const GpuPreferences& gpu_preferences,
     const GPUInfo& gpu_info) {
+#if defined(OS_WIN)
+  // On Windows, using the validating decoder causes a lot of errors.  This
+  // could be fixed independently, but validating decoder is going away.
+  // See: http://crbug.com/949773.
+  if (!gpu_info.passthrough_cmd_decoder)
+    return kGpuFeatureStatusDisabled;
+#endif
   // OOP rasterization requires GPU rasterization, so if blacklisted or
   // disabled, report the same.
   auto status =
@@ -92,10 +113,6 @@ GpuFeatureStatus GetOopRasterizationFeatureStatus(
   // If we can't create a GrContext for whatever reason, don't enable oop
   // rasterization.
   if (!gpu_info.oop_rasterization_supported)
-    return kGpuFeatureStatusDisabled;
-
-  if (gpu_preferences.use_passthrough_cmd_decoder &&
-      !gpu_preferences.enable_passthrough_raster_decoder)
     return kGpuFeatureStatusDisabled;
 
   if (gpu_preferences.disable_oop_rasterization)
@@ -232,6 +249,10 @@ void AppendWorkaroundsToCommandLine(const GpuFeatureInfo& gpu_feature_info,
   if (gpu_feature_info.IsWorkaroundEnabled(DISABLE_ES3_GL_CONTEXT)) {
     command_line->AppendSwitch(switches::kDisableES3GLContext);
   }
+  if (gpu_feature_info.IsWorkaroundEnabled(
+          DISABLE_ES3_GL_CONTEXT_FOR_TESTING)) {
+    command_line->AppendSwitch(switches::kDisableES3GLContextForTesting);
+  }
 #if defined(OS_WIN)
   if (gpu_feature_info.IsWorkaroundEnabled(DISABLE_DIRECT_COMPOSITION)) {
     command_line->AppendSwitch(switches::kDisableDirectComposition);
@@ -287,6 +308,8 @@ GpuFeatureInfo ComputeGpuFeatureInfoWithHardwareAccelerationDisabled() {
       kGpuFeatureStatusDisabled;
   gpu_feature_info.status_values[GPU_FEATURE_TYPE_ANDROID_SURFACE_CONTROL] =
       kGpuFeatureStatusDisabled;
+  gpu_feature_info.status_values[GPU_FEATURE_TYPE_METAL] =
+      kGpuFeatureStatusDisabled;
 #if DCHECK_IS_ON()
   for (int ii = 0; ii < NUMBER_OF_GPU_FEATURE_TYPES; ++ii) {
     DCHECK_NE(kGpuFeatureStatusUndefined, gpu_feature_info.status_values[ii]);
@@ -321,6 +344,8 @@ GpuFeatureInfo ComputeGpuFeatureInfoWithNoGpu() {
       kGpuFeatureStatusDisabled;
   gpu_feature_info.status_values[GPU_FEATURE_TYPE_ANDROID_SURFACE_CONTROL] =
       kGpuFeatureStatusDisabled;
+  gpu_feature_info.status_values[GPU_FEATURE_TYPE_METAL] =
+      kGpuFeatureStatusDisabled;
 #if DCHECK_IS_ON()
   for (int ii = 0; ii < NUMBER_OF_GPU_FEATURE_TYPES; ++ii) {
     DCHECK_NE(kGpuFeatureStatusUndefined, gpu_feature_info.status_values[ii]);
@@ -354,6 +379,8 @@ GpuFeatureInfo ComputeGpuFeatureInfoForSwiftShader() {
   gpu_feature_info.status_values[GPU_FEATURE_TYPE_OOP_RASTERIZATION] =
       kGpuFeatureStatusDisabled;
   gpu_feature_info.status_values[GPU_FEATURE_TYPE_ANDROID_SURFACE_CONTROL] =
+      kGpuFeatureStatusDisabled;
+  gpu_feature_info.status_values[GPU_FEATURE_TYPE_METAL] =
       kGpuFeatureStatusDisabled;
 #if DCHECK_IS_ON()
   for (int ii = 0; ii < NUMBER_OF_GPU_FEATURE_TYPES; ++ii) {
@@ -430,6 +457,8 @@ GpuFeatureInfo ComputeGpuFeatureInfo(const GPUInfo& gpu_info,
   gpu_feature_info.status_values[GPU_FEATURE_TYPE_ANDROID_SURFACE_CONTROL] =
       GetAndroidSurfaceControlFeatureStatus(blacklisted_features,
                                             gpu_preferences);
+  gpu_feature_info.status_values[GPU_FEATURE_TYPE_METAL] =
+      GetMetalFeatureStatus(blacklisted_features, gpu_preferences);
 #if DCHECK_IS_ON()
   for (int ii = 0; ii < NUMBER_OF_GPU_FEATURE_TYPES; ++ii) {
     DCHECK_NE(kGpuFeatureStatusUndefined, gpu_feature_info.status_values[ii]);
@@ -496,57 +525,6 @@ GpuFeatureInfo ComputeGpuFeatureInfo(const GPUInfo& gpu_info,
   // TODO(zmo): Find a better way to communicate these settings to bindings
   // initialization than commandline switches.
   AppendWorkaroundsToCommandLine(gpu_feature_info, command_line);
-
-  if (gpu_feature_info.IsWorkaroundEnabled(MAX_MSAA_SAMPLE_COUNT_4)) {
-    gpu_feature_info.webgl_preferences.msaa_sample_count = 4;
-  }
-
-  if (command_line->HasSwitch(switches::kWebglMSAASampleCount)) {
-    std::string sample_count =
-        command_line->GetSwitchValueASCII(switches::kWebglMSAASampleCount);
-    uint32_t count;
-    if (base::StringToUint(sample_count, &count)) {
-      gpu_feature_info.webgl_preferences.msaa_sample_count = count;
-    }
-  }
-
-  if (command_line->HasSwitch(switches::kWebglAntialiasingMode)) {
-    std::string mode =
-        command_line->GetSwitchValueASCII(switches::kWebglAntialiasingMode);
-    if (mode == "none") {
-      gpu_feature_info.webgl_preferences.anti_aliasing_mode =
-          kAntialiasingModeNone;
-    } else if (mode == "explicit") {
-      gpu_feature_info.webgl_preferences.anti_aliasing_mode =
-          kAntialiasingModeMSAAExplicitResolve;
-    } else if (mode == "implicit") {
-      gpu_feature_info.webgl_preferences.anti_aliasing_mode =
-          kAntialiasingModeMSAAImplicitResolve;
-    } else if (mode == "screenspace") {
-      gpu_feature_info.webgl_preferences.anti_aliasing_mode =
-          kAntialiasingModeScreenSpaceAntialiasing;
-    } else {
-      gpu_feature_info.webgl_preferences.anti_aliasing_mode =
-          kAntialiasingModeUnspecified;
-    }
-  }
-
-// Set default context limits for WebGL.
-#if defined(OS_ANDROID)
-  gpu_feature_info.webgl_preferences.max_active_webgl_contexts = 8u;
-#else
-  gpu_feature_info.webgl_preferences.max_active_webgl_contexts = 16u;
-#endif
-  gpu_feature_info.webgl_preferences.max_active_webgl_contexts_on_worker = 4u;
-
-  uint32_t override_val = gpu_preferences.max_active_webgl_contexts;
-  if (override_val) {
-    // It shouldn't be common for users to override this. If they do,
-    // just override both values.
-    gpu_feature_info.webgl_preferences.max_active_webgl_contexts = override_val;
-    gpu_feature_info.webgl_preferences.max_active_webgl_contexts_on_worker =
-        override_val;
-  }
 
   return gpu_feature_info;
 }
@@ -624,7 +602,7 @@ bool InitializeGLThreadSafe(base::CommandLine* command_line,
       return false;
     }
   }
-  CollectContextGraphicsInfo(out_gpu_info, gpu_preferences);
+  CollectContextGraphicsInfo(out_gpu_info);
   *out_gpu_feature_info = ComputeGpuFeatureInfo(*out_gpu_info, gpu_preferences,
                                                 command_line, nullptr);
   if (!out_gpu_feature_info->disabled_extensions.empty()) {

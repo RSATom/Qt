@@ -26,6 +26,7 @@
 #include <memory>
 
 #include "base/macros.h"
+#include "third_party/blink/public/platform/web_text_autosizer_page_info.h"
 #include "third_party/blink/public/web/web_window_features.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/frame/deprecation.h"
@@ -44,8 +45,11 @@
 #include "third_party/blink/renderer/platform/wtf/hash_set.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
 
-namespace blink {
+namespace cc {
+class AnimationHost;
+}
 
+namespace blink {
 class AutoscrollController;
 class BrowserControls;
 class ChromeClient;
@@ -102,7 +106,8 @@ class CORE_EXPORT Page final : public GarbageCollectedFinalized<Page>,
     DISALLOW_COPY_AND_ASSIGN(PageClients);
   };
 
-  static Page* Create(PageClients& page_clients);
+  // Any pages not owned by a web view should be created using this method.
+  static Page* CreateNonOrdinary(PageClients& pages_clients);
 
   // An "ordinary" page is a fully-featured page owned by a web view.
   static Page* CreateOrdinary(PageClients&, Page* opener);
@@ -125,7 +130,7 @@ class CORE_EXPORT Page final : public GarbageCollectedFinalized<Page>,
 
   // Returns pages related to the current browsing context (excluding the
   // current page).  See also
-  // https://html.spec.whatwg.org/multipage/browsers.html#unit-of-related-browsing-contexts
+  // https://html.spec.whatwg.org/C/#unit-of-related-browsing-contexts
   HeapVector<Member<Page>> RelatedPages();
 
   static void PlatformColorsChanged();
@@ -224,15 +229,12 @@ class CORE_EXPORT Page final : public GarbageCollectedFinalized<Page>,
 
   // Pausing is used to implement the "Optionally, pause while waiting for
   // the user to acknowledge the message" step of simple dialog processing:
-  // https://html.spec.whatwg.org/multipage/webappapis.html#simple-dialogs
+  // https://html.spec.whatwg.org/C/#simple-dialogs
   //
-  // Per https://html.spec.whatwg.org/multipage/webappapis.html#pause, no loads
+  // Per https://html.spec.whatwg.org/C/#pause, no loads
   // are allowed to start/continue in this state, and all background processing
   // is also paused.
   bool Paused() const { return paused_; }
-  // This function is public to be used for suspending/resuming Page's tasks.
-  // Refer to |WebContentImpl::PausePageScheduledTasks| and
-  // http://crbug.com/822564 for more details.
   void SetPaused(bool);
 
   void SetPageScaleFactor(float);
@@ -289,7 +291,9 @@ class CORE_EXPORT Page final : public GarbageCollectedFinalized<Page>,
 
   void Trace(blink::Visitor*) override;
 
-  void LayerTreeViewInitialized(WebLayerTreeView&, LocalFrameView*);
+  void LayerTreeViewInitialized(WebLayerTreeView&,
+                                cc::AnimationHost&,
+                                LocalFrameView*);
   void WillCloseLayerTreeView(WebLayerTreeView&, LocalFrameView*);
 
   void WillBeDestroyed();
@@ -301,14 +305,26 @@ class CORE_EXPORT Page final : public GarbageCollectedFinalized<Page>,
   PageScheduler* GetPageScheduler() const;
 
   // PageScheduler::Delegate implementation.
+  bool IsOrdinary() const override;
   void ReportIntervention(const String& message) override;
   bool RequestBeginMainFrameNotExpected(bool new_state) override;
   void SetLifecycleState(PageLifecycleState) override;
+  bool LocalMainFrameNetworkIsAlmostIdle() const override;
 
   void AddAutoplayFlags(int32_t flags);
   void ClearAutoplayFlags();
 
   int32_t AutoplayFlags() const;
+
+  void SetInsidePortal(bool inside_portal);
+  bool InsidePortal() const;
+
+  void SetTextAutosizePageInfo(const WebTextAutosizerPageInfo& page_info) {
+    web_text_autosizer_page_info_ = page_info;
+  }
+  const WebTextAutosizerPageInfo& TextAutosizerPageInfo() const {
+    return web_text_autosizer_page_info_;
+  }
 
  private:
   friend class ScopedPagePauser;
@@ -322,6 +338,8 @@ class CORE_EXPORT Page final : public GarbageCollectedFinalized<Page>,
   void NotifyPluginsChanged() const;
 
   void SetPageScheduler(std::unique_ptr<PageScheduler>);
+
+  void UpdateHasRelatedPages();
 
   // Typically, the main frame and Page should both be owned by the embedder,
   // which must call Page::willBeDestroyed() prior to destroying Page. This
@@ -379,6 +397,8 @@ class CORE_EXPORT Page final : public GarbageCollectedFinalized<Page>,
 
   bool is_hidden_;
 
+  bool is_ordinary_;
+
   PageLifecycleState page_lifecycle_state_;
 
   bool is_cursor_visible_;
@@ -396,9 +416,18 @@ class CORE_EXPORT Page final : public GarbageCollectedFinalized<Page>,
   Member<Page> next_related_page_;
   Member<Page> prev_related_page_;
 
+  // A handle to notify the scheduler whether this page has other related
+  // pages or not.
+  FrameScheduler::SchedulingAffectingFeatureHandle has_related_pages_;
+
   std::unique_ptr<PageScheduler> page_scheduler_;
 
   int32_t autoplay_flags_;
+
+  // Accessed by frames to determine whether to expose the PortalHost object.
+  bool inside_portal_ = false;
+
+  WebTextAutosizerPageInfo web_text_autosizer_page_info_;
 
   DISALLOW_COPY_AND_ASSIGN(Page);
 };

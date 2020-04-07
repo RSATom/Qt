@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2019 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the documentation of the Qt Toolkit.
@@ -48,7 +48,7 @@
 
     \snippet code/doc_src_qsignalspy.cpp 1
 
-    \b {Note:} Non-standard data types need to be registered, using
+    \note Non-standard data types need to be registered, using
     the qRegisterMetaType() function, before you can create a
     QSignalSpy. For example:
 
@@ -57,6 +57,18 @@
     To retrieve the instance, you can use qvariant_cast:
 
     \snippet code/doc_src_qsignalspy.cpp 3
+
+    \section1 Verifying Signal Emissions
+
+    The QSignalSpy class provides an elegant mechanism for capturing the list
+    of signals emitted by an object. However, you should verify its validity
+    after construction. The constructor does a number of sanity checks, such as
+    verifying that the signal to be spied upon actually exists. To make the
+    diagnosis of test failures easier, the results of these checks should be
+    checked by calling \c QVERIFY(spy.isValid()) before proceeding further with
+    a test.
+
+    \sa QVERIFY()
  */
 
 /*! \fn QSignalSpy::QSignalSpy(const QObject *object, const char *signal)
@@ -84,6 +96,28 @@
 
     Example:
     \snippet code/doc_src_qsignalspy.cpp 6
+*/
+
+/*! \fn QSignalSpy::QSignalSpy(const QObject *obj, const QMetaMethod &signal)
+    \since 5.14
+
+    Constructs a new QSignalSpy that listens for emissions of the \a signal
+    from the QObject \a obj. If QSignalSpy is not able to listen for a
+    valid signal (for example, because \a obj is \nullptr or \a signal does
+    not denote a valid signal of \a obj), an explanatory warning message
+    will be output using qWarning() and subsequent calls to \c isValid() will
+    return false.
+
+    This constructor is convenient to use when Qt's meta-object system is
+    heavily used in a test.
+
+    Basic usage example:
+    \snippet code/doc_src_qsignalspy.cpp 7
+
+    Imagine we need to check whether all properties of the QWindow class
+    that represent minimum and maximum dimensions are properly writable.
+    The following example demonstrates one of the approaches:
+    \snippet code/doc_src_qsignalspy.cpp 8
 */
 
 /*! \fn QSignalSpy::isValid() const

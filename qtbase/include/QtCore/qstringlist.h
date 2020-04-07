@@ -1,1 +1,1 @@
-#include "../../src/corelib/tools/qstringlist.h"
+#include "../../src/corelib/text/qstringlist.h"

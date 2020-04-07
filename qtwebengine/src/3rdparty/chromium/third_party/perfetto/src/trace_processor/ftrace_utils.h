@@ -18,10 +18,11 @@
 #define SRC_TRACE_PROCESSOR_FTRACE_UTILS_H_
 
 #include <stddef.h>
-
 #include <array>
 
-#include "perfetto/base/optional.h"
+#include "perfetto/base/logging.h"
+#include "perfetto/ext/base/string_view.h"
+#include "perfetto/ext/base/string_writer.h"
 
 namespace perfetto {
 namespace trace_processor {
@@ -49,21 +50,28 @@ class TaskState {
     kParked = 512,
     kNoLoad = 1024,
 
-    kMaxState = 2048,
+    // kMaxState is used by sched switch to show a task was kernel preempted.
+    // The difficult thing is that in newer kernels a task_new state is added
+    // and kMaxState increases to 4096. Without the kernel version and the
+    // mapping of this to the correct version of this enum we cannot be
+    // accurate. Since task_new is rare we ignore it for now.
+    kTaskNewOrMaxState = 2048,
+    kMaxState = 4096,
     kValid = 0x8000,
   };
 
   TaskState() = default;
-  explicit TaskState(uint16_t raw_state) : state_(raw_state | kValid) {}
+  explicit TaskState(uint16_t raw_state);
   explicit TaskState(const char* state_str);
 
   // Returns if this TaskState has a valid representation.
   bool is_valid() const { return state_ & kValid; }
 
   // Returns the string representation of this (valid) TaskState. This array
-  // is null terminated.
+  // is null terminated. |seperator| specifies if a separator should be printed
+  // between the atoms (default: \0 meaning no separator).
   // Note: This function CHECKs that |is_valid()| is true.
-  TaskStateStr ToString() const;
+  TaskStateStr ToString(char separator = '\0') const;
 
   // Returns the raw state this class was created from.
   uint16_t raw_state() const {
@@ -72,14 +80,26 @@ class TaskState {
   }
 
   // Returns if this TaskState is runnable.
-  bool is_runnable() const { return (state_ & (kMaxState - 1)) == 0; }
+  bool is_runnable() const {
+    return ((state_ & (kMaxState - 1)) == 0) ||
+           ((state_ & (kTaskNewOrMaxState - 1)) == 0);
+  }
 
   // Returns whether kernel preemption caused the exit state.
-  bool is_kernel_preempt() const { return state_ & kMaxState; }
+  bool is_kernel_preempt() const {
+    return state_ & kTaskNewOrMaxState || state_ & kMaxState;
+  }
 
  private:
   uint16_t state_ = 0;
 };
+
+void FormatSystracePrefix(int64_t timestamp,
+                          uint32_t cpu,
+                          uint32_t pid,
+                          uint32_t tgid,
+                          base::StringView name,
+                          base::StringWriter* writer);
 
 }  // namespace ftrace_utils
 }  // namespace trace_processor

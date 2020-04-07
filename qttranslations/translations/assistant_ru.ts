@@ -417,8 +417,8 @@ Reason:
         <translation>Название фильтра:</translation>
     </message>
     <message>
-        <source>Add Filter Name</source>
-        <translation>Добавление фильтра</translation>
+        <source>Add Filter</source>
+        <translation>Добавить фильтр</translation>
     </message>
 </context>
 <context>
@@ -504,13 +504,6 @@ Reason:
     <message>
         <source>&amp;Find</source>
         <translation>&amp;Поиск</translation>
-    </message>
-</context>
-<context>
-    <name>HelpEngineWrapper</name>
-    <message>
-        <source>Unfiltered</source>
-        <translation>Вся документация</translation>
     </message>
 </context>
 <context>
@@ -790,6 +783,10 @@ Reason:
         <translation>О %1</translation>
     </message>
     <message>
+        <source>Unfiltered</source>
+        <translation>Вся документация</translation>
+    </message>
+    <message>
         <source>Updating search index</source>
         <translation>Обновление индекса полнотекстового поиска</translation>
     </message>
@@ -806,7 +803,62 @@ Reason:
     </message>
 </context>
 <context>
+    <name>OptionsWidget</name>
+    <message>
+        <source>No Option</source>
+        <translation>Нет параметра</translation>
+    </message>
+    <message>
+        <source>Invalid Option</source>
+        <translation>Неверный параметр</translation>
+    </message>
+</context>
+<context>
     <name>PreferencesDialog</name>
+    <message>
+        <source>No Component</source>
+        <translation>Нет компонента</translation>
+    </message>
+    <message>
+        <source>Invalid Component</source>
+        <translation>Неверный компонент</translation>
+    </message>
+    <message>
+        <source>No Version</source>
+        <translation>Нет версии</translation>
+    </message>
+    <message>
+        <source>Invalid Version</source>
+        <translation>Неверная версия</translation>
+    </message>
+    <message>
+        <source>Filter Exists</source>
+        <translation>Фильтр уже существует</translation>
+    </message>
+    <message>
+        <source>The filter &quot;%1&quot; already exists.</source>
+        <translation>Фильтр «%1» уже существует.</translation>
+    </message>
+    <message>
+        <source>Add Filter</source>
+        <translation>Добавить фильтр</translation>
+    </message>
+    <message>
+        <source>New Filter</source>
+        <translation>Новый фильтр</translation>
+    </message>
+    <message>
+        <source>Rename Filter</source>
+        <translation>Переименовать фильтр</translation>
+    </message>
+    <message>
+        <source>Remove Filter</source>
+        <translation>Удалить фильтр</translation>
+    </message>
+    <message>
+        <source>Are you sure you want to remove the &quot;%1&quot; filter?</source>
+        <translation>Удалить фильтр «%1»?</translation>
+    </message>
     <message>
         <source>Add Documentation</source>
         <translation>Добавить документацию</translation>
@@ -814,30 +866,6 @@ Reason:
     <message>
         <source>Qt Compressed Help Files (*.qch)</source>
         <translation>Сжатые файлы справки Qt (*.qch)</translation>
-    </message>
-    <message>
-        <source>The namespace %1 is already registered!</source>
-        <translation>Пространство имён «%1» уже зарегистрировано!</translation>
-    </message>
-    <message>
-        <source>The specified file is not a valid Qt Help File!</source>
-        <translation>Указанный файл не является корректным файлом справки Qt!</translation>
-    </message>
-    <message>
-        <source>Remove Documentation</source>
-        <translation>Удалить документацию</translation>
-    </message>
-    <message>
-        <source>Some documents currently opened in Assistant reference the documentation you are attempting to remove. Removing the documentation will close those documents.</source>
-        <translation>Некоторые открытые в Qt Assistant документы ссылаются на документацию, которую вы пытаетесь удалить. Её удаление приведёт к закрытию этих документов.</translation>
-    </message>
-    <message>
-        <source>Cancel</source>
-        <translation>Отмена</translation>
-    </message>
-    <message>
-        <source>OK</source>
-        <translation>Удалить</translation>
     </message>
     <message>
         <source>Use custom settings</source>
@@ -939,16 +967,16 @@ Reason:
         <translation>&lt;Фильтр&gt;</translation>
     </message>
     <message>
-        <source>Attributes:</source>
-        <translation>Атрибуты:</translation>
+        <source>Components:</source>
+        <translation>Компоненты:</translation>
     </message>
     <message>
-        <source>1</source>
-        <translation>1</translation>
+        <source>Versions:</source>
+        <translation>Версии:</translation>
     </message>
     <message>
-        <source>Add</source>
-        <translation>Добавить</translation>
+        <source>Rename...</source>
+        <translation>Переименовать...</translation>
     </message>
 </context>
 <context>

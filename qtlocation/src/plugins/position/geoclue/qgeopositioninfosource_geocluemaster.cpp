@@ -142,7 +142,7 @@ void QGeoPositionInfoSourceGeoclueMaster::updatePosition(PositionFields fields, 
     if (fields & Altitude)
         coordinate.setAltitude(altitude);
 
-    m_lastPosition = QGeoPositionInfo(coordinate, QDateTime::fromTime_t(timestamp));
+    m_lastPosition = QGeoPositionInfo(coordinate, QDateTime::fromSecsSinceEpoch(timestamp));
 
     m_lastPositionFromSatellite = accuracy.level() == Accuracy::Detailed;
 

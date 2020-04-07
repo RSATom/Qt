@@ -13,10 +13,14 @@
 #include "base/stl_util.h"
 #include "base/values.h"
 #include "chrome/browser/content_settings/host_content_settings_map_factory.h"
+#include "chrome/browser/hid/hid_chooser_context.h"
+#include "chrome/browser/hid/hid_chooser_context_factory.h"
 #include "chrome/browser/permissions/chooser_context_base.h"
 #include "chrome/browser/permissions/permission_manager.h"
 #include "chrome/browser/permissions/permission_result.h"
 #include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/serial/serial_chooser_context.h"
+#include "chrome/browser/serial/serial_chooser_context_factory.h"
 #include "chrome/browser/usb/usb_chooser_context.h"
 #include "chrome/browser/usb/usb_chooser_context_factory.h"
 #include "chrome/common/pref_names.h"
@@ -34,7 +38,6 @@ namespace site_settings {
 
 constexpr char kAppName[] = "appName";
 constexpr char kAppId[] = "appId";
-constexpr char kObjectName[] = "objectName";
 
 namespace {
 
@@ -51,6 +54,8 @@ typedef std::map<std::pair<GURL, std::string>, OneOriginObjects>
 
 // Chooser data group names.
 const char kUsbChooserDataGroupType[] = "usb-devices-data";
+const char kSerialChooserDataGroupType[] = "serial-ports-data";
+const char kHidChooserDataGroupType[] = "hid-devices-data";
 
 const ContentSettingsTypeNameEntry kContentSettingsTypeGroupNames[] = {
     // The following ContentSettingsTypes have UI in Content Settings
@@ -80,6 +85,11 @@ const ContentSettingsTypeNameEntry kContentSettingsTypeGroupNames[] = {
     {CONTENT_SETTINGS_TYPE_USB_GUARD, "usb-devices"},
     {CONTENT_SETTINGS_TYPE_USB_CHOOSER_DATA, kUsbChooserDataGroupType},
     {CONTENT_SETTINGS_TYPE_IDLE_DETECTION, "idle-detection"},
+    {CONTENT_SETTINGS_TYPE_SERIAL_GUARD, "serial-ports"},
+    {CONTENT_SETTINGS_TYPE_SERIAL_CHOOSER_DATA, kSerialChooserDataGroupType},
+    {CONTENT_SETTINGS_TYPE_BLUETOOTH_SCANNING, "bluetooth-scanning"},
+    {CONTENT_SETTINGS_TYPE_HID_GUARD, "hid-devices"},
+    {CONTENT_SETTINGS_TYPE_HID_CHOOSER_DATA, kHidChooserDataGroupType},
 
     // Add new content settings here if a corresponding Javascript string
     // representation for it is not required. Note some exceptions do have UI in
@@ -105,6 +115,10 @@ const ContentSettingsTypeNameEntry kContentSettingsTypeGroupNames[] = {
     {CONTENT_SETTINGS_TYPE_PLUGINS_DATA, nullptr},
     {CONTENT_SETTINGS_TYPE_BACKGROUND_FETCH, nullptr},
     {CONTENT_SETTINGS_TYPE_INTENT_PICKER_DISPLAY, nullptr},
+    {CONTENT_SETTINGS_TYPE_PERIODIC_BACKGROUND_SYNC, nullptr},
+    {CONTENT_SETTINGS_TYPE_WAKE_LOCK_SCREEN, nullptr},
+    {CONTENT_SETTINGS_TYPE_WAKE_LOCK_SYSTEM, nullptr},
+    {CONTENT_SETTINGS_TYPE_LEGACY_COOKIE_ACCESS, nullptr},
 };
 static_assert(base::size(kContentSettingsTypeGroupNames) ==
                   // ContentSettingsType starts at -1, so add 1 here.
@@ -238,8 +252,21 @@ ChooserContextBase* GetUsbChooserContext(Profile* profile) {
   return UsbChooserContextFactory::GetForProfile(profile);
 }
 
+ChooserContextBase* GetSerialChooserContext(Profile* profile) {
+  return SerialChooserContextFactory::GetForProfile(profile);
+}
+
+ChooserContextBase* GetHidChooserContext(Profile* profile) {
+  return HidChooserContextFactory::GetForProfile(profile);
+}
+
 const ChooserTypeNameEntry kChooserTypeGroupNames[] = {
-    {&GetUsbChooserContext, kUsbChooserDataGroupType},
+    {&GetUsbChooserContext, &UsbChooserContext::GetObjectName,
+     kUsbChooserDataGroupType},
+    {&GetSerialChooserContext, &SerialChooserContext::GetObjectName,
+     kSerialChooserDataGroupType},
+    {&GetHidChooserContext, &HidChooserContext::GetObjectName,
+     kHidChooserDataGroupType},
 };
 
 }  // namespace
@@ -402,7 +429,7 @@ void GetExceptionsFromHostContentSettingsMap(
     // Off-the-record HostContentSettingsMap contains incognito content settings
     // as well as normal content settings. Here, we use the incongnito settings
     // only.
-    if (map->is_incognito() && !i->incognito)
+    if (map->IsOffTheRecord() && !i->incognito)
       continue;
 
     if (filter && i->primary_pattern.ToString() != *filter)
@@ -581,155 +608,25 @@ const ChooserTypeNameEntry* ChooserTypeFromGroupName(const std::string& name) {
 }
 
 // Create a DictionaryValue* that will act as a data source for a single row
-// in a chooser permission exceptions table.
-std::unique_ptr<base::DictionaryValue> GetChooserExceptionForPage(
-    const GURL& requesting_origin,
-    const GURL& embedding_origin,
-    const std::string& provider_name,
-    bool incognito,
-    const std::string& name,
-    const base::DictionaryValue* object) {
-  std::unique_ptr<base::DictionaryValue> exception(new base::DictionaryValue());
-
-  std::string setting_string =
-      content_settings::ContentSettingToString(CONTENT_SETTING_DEFAULT);
-  DCHECK(!setting_string.empty());
-
-  exception->SetString(kSetting, setting_string);
-  exception->SetString(kOrigin, requesting_origin.spec());
-  exception->SetString(kDisplayName, requesting_origin.spec());
-  exception->SetString(kEmbeddingOrigin, embedding_origin.spec());
-  exception->SetString(kSource, provider_name);
-  exception->SetBoolean(kIncognito, incognito);
-  if (object) {
-    exception->SetString(kObjectName, name);
-    exception->Set(kObject, object->CreateDeepCopy());
-  }
-  return exception;
-}
-
-void GetChooserExceptionsFromProfile(Profile* profile,
-                                     bool incognito,
-                                     const ChooserTypeNameEntry& chooser_type,
-                                     base::ListValue* exceptions) {
-  if (incognito) {
-    if (!profile->HasOffTheRecordProfile())
-      return;
-    profile = profile->GetOffTheRecordProfile();
-  }
-
-  ChooserContextBase* chooser_context = chooser_type.get_context(profile);
-  ContentSettingsType content_type =
-      ContentSettingsTypeFromGroupName(std::string(chooser_type.name));
-  std::vector<std::unique_ptr<ChooserContextBase::Object>> objects =
-      chooser_context->GetAllGrantedObjects();
-  AllOriginObjects all_origin_objects;
-  for (const auto& object : objects) {
-    // Skip policy controlled objects until they are ready to be displayed.
-    // TODO(https://crbug.com/854329): Include policy controlled objects
-    // when the UI is capable of displaying them properly as policy controlled
-    // objects.
-    if (object->source ==
-        content_settings::SettingSource::SETTING_SOURCE_POLICY) {
-      continue;
-    }
-
-    std::string name = chooser_context->GetObjectName(object->value);
-    std::string source = GetSourceStringForChooserException(
-        profile, content_type, object->source);
-
-    // It is safe for this structure to hold references into |objects| because
-    // they are both destroyed at the end of this function.
-    all_origin_objects[make_pair(object->requesting_origin, source)]
-                      [object->embedding_origin]
-                          .insert(make_pair(name, &object->value));
-  }
-
-  // Keep the exceptions sorted by provider so they will be displayed in
-  // precedence order.
-  std::vector<std::unique_ptr<base::DictionaryValue>>
-      all_provider_exceptions[HostContentSettingsMap::NUM_PROVIDER_TYPES];
-
-  for (const auto& all_origin_objects_entry : all_origin_objects) {
-    const GURL& requesting_origin = all_origin_objects_entry.first.first;
-    const std::string& source = all_origin_objects_entry.first.second;
-    const OneOriginObjects& one_origin_objects =
-        all_origin_objects_entry.second;
-
-    auto& this_provider_exceptions = all_provider_exceptions
-        [HostContentSettingsMap::GetProviderTypeFromSource(source)];
-
-    // Add entries for any non-embedded origins.
-    bool has_embedded_entries = false;
-    for (const auto& one_origin_objects_entry : one_origin_objects) {
-      const GURL& embedding_origin = one_origin_objects_entry.first;
-      const SortedObjects& sorted_objects = one_origin_objects_entry.second;
-
-      // Skip the embedded settings which will be added below.
-      if (requesting_origin != embedding_origin) {
-        has_embedded_entries = true;
-        continue;
-      }
-
-      for (const auto& sorted_objects_entry : sorted_objects) {
-        this_provider_exceptions.push_back(GetChooserExceptionForPage(
-            requesting_origin, embedding_origin, source, incognito,
-            sorted_objects_entry.first, sorted_objects_entry.second));
-      }
-    }
-
-    if (has_embedded_entries) {
-      // Add a "parent" entry that simply acts as a heading for all entries
-      // where |requesting_origin| has been embedded.
-      this_provider_exceptions.push_back(GetChooserExceptionForPage(
-          requesting_origin, requesting_origin, source, incognito,
-          std::string(), nullptr));
-
-      // Add the "children" for any embedded settings.
-      for (const auto& one_origin_objects_entry : one_origin_objects) {
-        const GURL& embedding_origin = one_origin_objects_entry.first;
-        const SortedObjects& sorted_objects = one_origin_objects_entry.second;
-
-        // Skip the non-embedded setting which we already added above.
-        if (requesting_origin == embedding_origin)
-          continue;
-
-        for (const auto& sorted_objects_entry : sorted_objects) {
-          this_provider_exceptions.push_back(GetChooserExceptionForPage(
-              requesting_origin, embedding_origin, source, incognito,
-              sorted_objects_entry.first, sorted_objects_entry.second));
-        }
-      }
-    }
-  }
-
-  for (auto& one_provider_exceptions : all_provider_exceptions) {
-    for (auto& exception : one_provider_exceptions)
-      exceptions->Append(std::move(exception));
-  }
-}
-
-// Create a DictionaryValue* that will act as a data source for a single row
 // in a chooser permission exceptions table. The chooser permission will contain
 // a list of site exceptions that correspond to the exception.
-std::unique_ptr<base::DictionaryValue> CreateChooserExceptionObject(
+base::Value CreateChooserExceptionObject(
     const std::string& display_name,
     const base::Value& object,
     const std::string& chooser_type,
-    const ChooserExceptionDetails& chooser_exception_details,
-    bool incognito) {
-  auto exception = std::make_unique<base::DictionaryValue>();
+    const ChooserExceptionDetails& chooser_exception_details) {
+  base::Value exception(base::Value::Type::DICTIONARY);
 
   std::string setting_string =
       content_settings::ContentSettingToString(CONTENT_SETTING_DEFAULT);
   DCHECK(!setting_string.empty());
 
-  exception->SetString(kDisplayName, display_name);
-  exception->SetKey(kObject, object.Clone());
-  exception->SetString(kChooserType, chooser_type);
+  exception.SetStringKey(kDisplayName, display_name);
+  exception.SetKey(kObject, object.Clone());
+  exception.SetStringKey(kChooserType, chooser_type);
 
   // Order the sites by the provider precedence order.
-  std::vector<std::unique_ptr<base::Value>>
+  std::vector<base::Value>
       all_provider_sites[HostContentSettingsMap::NUM_PROVIDER_TYPES];
   for (const auto& details : chooser_exception_details) {
     const GURL& requesting_origin = details.first.first;
@@ -739,69 +636,73 @@ std::unique_ptr<base::DictionaryValue> CreateChooserExceptionObject(
         all_provider_sites[HostContentSettingsMap::GetProviderTypeFromSource(
             source)];
 
-    for (const GURL& embedding_origin : details.second) {
-      auto site = std::make_unique<base::DictionaryValue>();
+    for (const auto& embedding_origin_incognito_pair : details.second) {
+      const GURL& embedding_origin = embedding_origin_incognito_pair.first;
+      const bool incognito = embedding_origin_incognito_pair.second;
+      base::Value site(base::Value::Type::DICTIONARY);
 
-      site->SetString(kOrigin, requesting_origin.spec());
-      site->SetString(kDisplayName, requesting_origin.spec());
-      site->SetString(kEmbeddingOrigin, embedding_origin.is_empty()
-                                            ? std::string()
-                                            : embedding_origin.spec());
-      site->SetString(kSetting, setting_string);
-      site->SetString(kSource, source);
-      site->SetBoolean(kIncognito, incognito);
+      site.SetStringKey(kOrigin, requesting_origin.spec());
+      site.SetStringKey(kDisplayName, requesting_origin.spec());
+      site.SetStringKey(kEmbeddingOrigin, embedding_origin.is_empty()
+                                              ? std::string()
+                                              : embedding_origin.spec());
+      site.SetStringKey(kSetting, setting_string);
+      site.SetStringKey(kSource, source);
+      site.SetBoolKey(kIncognito, incognito);
       this_provider_sites.push_back(std::move(site));
     }
   }
 
-  auto sites = std::make_unique<base::ListValue>();
+  base::Value sites(base::Value::Type::LIST);
   for (auto& one_provider_sites : all_provider_sites) {
     for (auto& site : one_provider_sites) {
-      sites->Append(std::move(site));
+      sites.GetList().push_back(std::move(site));
     }
   }
 
-  exception->SetList(kSites, std::move(sites));
+  exception.SetKey(kSites, std::move(sites));
   return exception;
 }
 
-std::unique_ptr<base::ListValue> GetChooserExceptionListFromProfile(
+base::Value GetChooserExceptionListFromProfile(
     Profile* profile,
-    bool incognito,
     const ChooserTypeNameEntry& chooser_type) {
-  auto exceptions = std::make_unique<base::ListValue>();
-
-  // TODO(https://crbug.com/927372): Combine the off the record permissions with
-  // the main profile permissions so that the UI is able to display them.
-  if (incognito) {
-    if (!profile->HasOffTheRecordProfile())
-      return exceptions;
-    profile = profile->GetOffTheRecordProfile();
-  }
-
-  ChooserContextBase* chooser_context = chooser_type.get_context(profile);
+  base::Value exceptions(base::Value::Type::LIST);
   ContentSettingsType content_type =
       ContentSettingsTypeFromGroupName(std::string(chooser_type.name));
+
+  ChooserContextBase* chooser_context = chooser_type.get_context(profile);
   std::vector<std::unique_ptr<ChooserContextBase::Object>> objects =
       chooser_context->GetAllGrantedObjects();
+
+  if (profile->HasOffTheRecordProfile()) {
+    Profile* incognito_profile = profile->GetOffTheRecordProfile();
+    ChooserContextBase* incognito_chooser_context =
+        chooser_type.get_context(incognito_profile);
+    std::vector<std::unique_ptr<ChooserContextBase::Object>> incognito_objects =
+        incognito_chooser_context->GetAllGrantedObjects();
+    objects.insert(objects.end(),
+                   std::make_move_iterator(incognito_objects.begin()),
+                   std::make_move_iterator(incognito_objects.end()));
+  }
+
   AllChooserObjects all_chooser_objects;
-
   for (const auto& object : objects) {
-    if (object->incognito == incognito) {
-      std::string name = chooser_context->GetObjectName(object->value);
-      auto& chooser_exception_details =
-          all_chooser_objects[std::make_pair(name, object->value.Clone())];
+    std::string name = chooser_type.get_object_name(object->value);
+    auto& chooser_exception_details =
+        all_chooser_objects[std::make_pair(name, object->value.Clone())];
 
-      std::string source = GetSourceStringForChooserException(
-          profile, content_type, object->source);
+    std::string source = GetSourceStringForChooserException(
+        profile, content_type, object->source);
 
-      const auto requesting_origin_source_pair =
-          std::make_pair(object->requesting_origin, source);
-      auto& embedding_origin_set =
-          chooser_exception_details[requesting_origin_source_pair];
+    const auto requesting_origin_source_pair =
+        std::make_pair(object->requesting_origin, source);
+    auto& embedding_origin_incognito_pair_set =
+        chooser_exception_details[requesting_origin_source_pair];
 
-      embedding_origin_set.insert(object->embedding_origin);
-    }
+    const auto embedding_origin_incognito_pair =
+        std::make_pair(object->embedding_origin, object->incognito);
+    embedding_origin_incognito_pair_set.insert(embedding_origin_incognito_pair);
   }
 
   for (const auto& all_chooser_objects_entry : all_chooser_objects) {
@@ -809,8 +710,8 @@ std::unique_ptr<base::ListValue> GetChooserExceptionListFromProfile(
     const base::Value& object = all_chooser_objects_entry.first.second;
     const ChooserExceptionDetails& chooser_exception_details =
         all_chooser_objects_entry.second;
-    exceptions->Append(CreateChooserExceptionObject(
-        name, object, chooser_type.name, chooser_exception_details, incognito));
+    exceptions.GetList().push_back(CreateChooserExceptionObject(
+        name, object, chooser_type.name, chooser_exception_details));
   }
 
   return exceptions;

@@ -64,7 +64,7 @@ public:
     BlendedClipAnimator();
 
     void cleanup();
-    void sceneChangeEvent(const Qt3DCore::QSceneChangePtr &e) override;
+    void syncFromFrontEnd(const Qt3DCore::QNode *frontEnd, bool firstTime) override;
 
     Qt3DCore::QNodeId blendTreeRootId() const;
     Qt3DCore::QNodeId mapperId() const { return m_mapperId; }
@@ -92,9 +92,6 @@ public:
     void setMappingData(const QVector<MappingData> &mappingData) { m_mappingData = mappingData; }
     QVector<MappingData> mappingData() const { return m_mappingData; }
 
-    void sendPropertyChanges(const QVector<Qt3DCore::QSceneChangePtr> &changes);
-    void sendCallbacks(const QVector<AnimationCallbackAndValue> &callbacks);
-
     void animationClipMarkedDirty() { setDirty(Handler::BlendedClipAnimatorDirty); }
 
     qint64 nsSincePreviousFrame(qint64 currentGlobalTimeNS);
@@ -112,7 +109,6 @@ public:
     }
 
 private:
-    void initializeFromPeer(const Qt3DCore::QNodeCreatedChangeBasePtr &change) final;
     Qt3DCore::QNodeId m_blendTreeRootId;
     Qt3DCore::QNodeId m_mapperId;
     Qt3DCore::QNodeId m_clockId;

@@ -55,9 +55,10 @@
 #include <QRandomGenerator>
 #include <QtConcurrent/QtConcurrentRun>
 
+#include <mutex>
+
 HangmanGame::HangmanGame(QObject *parent)
     : QObject(parent)
-    , m_lock(QMutex::Recursive)
     , m_vowelsUnlocked(false)
 {
     connect(this, &HangmanGame::vowelBought, this, &HangmanGame::registerLetterBought);
@@ -228,7 +229,7 @@ void HangmanGame::registerLetterBought(const QChar &letter)
 
 void HangmanGame::chooseRandomWord()
 {
-    QMutexLocker locker(&m_lock);
+    const std::lock_guard<QRecursiveMutex> locker(m_lock);
     if (m_wordList.isEmpty())
         return;
 
@@ -238,7 +239,7 @@ void HangmanGame::chooseRandomWord()
 
 void HangmanGame::initWordList()
 {
-    QMutexLocker locker(&m_lock);
+    const std::lock_guard<QRecursiveMutex> locker(m_lock);
     QFile file(":/enable2.txt");
     if (file.open(QIODevice::ReadOnly)) {
         QByteArray allData = file.readAll();

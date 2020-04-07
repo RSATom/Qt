@@ -34,10 +34,10 @@
 
 QT_USE_NAMESPACE
 
-class QGeoServiceProviderFactoryTest: public QObject, public QGeoServiceProviderFactory
+class QGeoServiceProviderFactoryTest: public QObject, public QGeoServiceProviderFactoryV2
 {
     Q_OBJECT
-    Q_INTERFACES(QGeoServiceProviderFactory)
+    Q_INTERFACES(QGeoServiceProviderFactoryV2)
     Q_PLUGIN_METADATA(IID "org.qt-project.qt.geoservice.serviceproviderfactory/5.0"
                       FILE "geotestplugin.json")
 

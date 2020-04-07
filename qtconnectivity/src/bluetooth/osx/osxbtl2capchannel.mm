@@ -37,10 +37,10 @@
 **
 ****************************************************************************/
 
-#include "osxbtchanneldelegate_p.h"
 #include "osxbtl2capchannel_p.h"
 #include "qbluetoothaddress.h"
 #include "osxbtutility_p.h"
+#include "btdelegates_p.h"
 
 #include <QtCore/qloggingcategory.h>
 #include <QtCore/qdebug.h>
@@ -49,13 +49,13 @@ QT_USE_NAMESPACE
 
 @implementation QT_MANGLE_NAMESPACE(OSXBTL2CAPChannel)
 {
-    QT_PREPEND_NAMESPACE(OSXBluetooth)::ChannelDelegate *delegate;
+    QT_PREPEND_NAMESPACE(DarwinBluetooth)::ChannelDelegate *delegate;
     IOBluetoothDevice *device;
     IOBluetoothL2CAPChannel *channel;
     bool connected;
 }
 
-- (id)initWithDelegate:(OSXBluetooth::ChannelDelegate *)aDelegate
+- (id)initWithDelegate:(DarwinBluetooth::ChannelDelegate *)aDelegate
 {
     Q_ASSERT_X(aDelegate, Q_FUNC_INFO, "invalid delegate (null)");
 
@@ -69,7 +69,7 @@ QT_USE_NAMESPACE
     return self;
 }
 
-- (id)initWithDelegate:(QT_PREPEND_NAMESPACE(OSXBluetooth::ChannelDelegate) *)aDelegate
+- (id)initWithDelegate:(QT_PREPEND_NAMESPACE(DarwinBluetooth::ChannelDelegate) *)aDelegate
       channel:(IOBluetoothL2CAPChannel *)aChannel
 {
     // This type of channel does not require connect, it's created with

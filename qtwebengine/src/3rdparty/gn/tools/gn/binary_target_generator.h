@@ -22,6 +22,7 @@ class BinaryTargetGenerator : public TargetGenerator {
 
  protected:
   void DoRun() override;
+  bool FillSources() override;
 
  private:
   bool FillCompleteStaticLib();
@@ -29,8 +30,8 @@ class BinaryTargetGenerator : public TargetGenerator {
   bool FillOutputName();
   bool FillOutputPrefixOverride();
   bool FillOutputDir();
-  bool FillOutputExtension();
   bool FillAllowCircularIncludesFrom();
+  bool ValidateSources();
 
   Target::OutputType output_type_;
 

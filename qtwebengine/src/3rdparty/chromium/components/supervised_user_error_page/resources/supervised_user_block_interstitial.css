@@ -3,45 +3,44 @@
    found in the LICENSE file. */
 
 body {
-  background-color: #f7f7f7;
-  color: #646464;
-}
-
-a {
-  color: #585858;
+  --avatar-stroke-color: var(--google-gray-50);
+  --custodian-name-color: #202124;
+  --custodian-email-color: #5f6368;
+  background-color: var(--quiet-background-color);
+  color: var(--text-color);
 }
 
 button {
+  background: var(--primary-button-fill-color);
   border: 0;
-  border-radius: 2px;
+  border-radius: 4px;
   box-sizing: border-box;
-  color: #fff;
+  color: var(--primary-button-text-color);
   cursor: pointer;
-  float: right;
-  font-family: Roboto;
+  font-family: 'Google Sans', Roboto, sans-serif;
   font-size: 14px;
-  font-weight: 500;
+  line-height: 16pt;
   margin: 0;
-  padding: 10px 24px;
+  padding: 8px 16px;
   transition: box-shadow 200ms cubic-bezier(0.4, 0, 0.2, 1);
   user-select: none;
+}
+
+button:active {
+  background: var(--primary-button-fill-color-active)
+  outline: 0;
 }
 
 [dir='rtl'] button {
   float: left;
 }
 
-.primary-button {
-  background: rgb(66, 133, 244);
+.ask-permission-button {
+  float: right;
 }
 
-.primary-button:active {
-  background: rgb(50, 102, 213);
-  outline: 0;
-}
-
-button:hover {
-  box-shadow: 0 1px 3px rgba(0, 0, 0, .50);
+.go-back-button {
+  float: left;
 }
 
 #details {
@@ -62,30 +61,26 @@ button:hover {
 }
 
 .details-button {
-  background: inherit;
-  border: 0;
+  background: var(--secondary-button-fill-color);
+  border: 1px solid var(--secondary-button-border-color);
+  color: var(--secondary-button-text-color);
   float: none;
   margin: 0;
-  padding: 10px 0;
-  text-transform: uppercase;
+  padding: 8px 16px;
 }
 
 .details-button:hover {
-  box-shadow: inherit;
-  text-decoration: underline;
+  background: var(--secondary-button-hover-fill-color);
+  border-color: var(--secondary-button-hover-border-color);
+  text-decoration: none;
 }
 
 h1 {
-  color: #333;
+  color: var(--heading-color);
   font-size: 1.6em;
   font-weight: normal;
   line-height: 1.25em;
   margin-bottom: 16px;
-}
-
-h2 {
-  font-size: 1.2em;
-  font-weight: normal;
 }
 
 html {
@@ -103,11 +98,26 @@ html {
 
 .main-frame-blocked {
   box-sizing: border-box;
-  font-size: 1em;
-  line-height: 1.6em;
   margin: 100px auto 0;
   max-width: 600px;
   width: 100%;
+}
+
+/* "Ask your Parent" title */
+.main-frame-blocked h1 {
+  color: var(--heading-color);
+  font-family: 'Google Sans', Roboto, sans-serif;
+  font-size: 24px;
+  font-weight: normal;
+  line-height: 32px;
+}
+
+/* "You need permission..." message */
+.main-frame-blocked p {
+  color: var(--text-color);
+  font-family: Roboto;
+  font-size: 16px;
+  font-weight: normal;
 }
 
 #main-message > p:not([hidden]) {
@@ -126,25 +136,25 @@ html {
 }
 
 .small-link {
-  color: rgba(66, 133, 244, 100);
+  color: var(--small-link-color);
   font-family: Roboto;
   font-size: 15px;
   font-weight: 500;
 }
 
 .avatar-img {
-  border: 3px solid rgb(251, 251, 251);
+  border: 3px solid var(--avatar-stroke-color);
   border-radius: 50%;
   content: -webkit-image-set(
       url(default_100_percent/logo_avatar_circle_blue_color.png) 1x,
       url(default_200_percent/logo_avatar_circle_blue_color.png) 2x);
-  height: 45px;
+  height: 36px;
   margin-bottom: 5px;
   margin-right: 15px;
   margin-top: 5px;
   position: relative;
   user-select: none;
-  width: 45px;
+  width: 36px;
 }
 
 #feedback {
@@ -154,20 +164,22 @@ html {
 .custodian-information {
   align-items: center;
   display: flex;
-  font-size: 15px;
+  font-family: Roboto;
   font-weight: 400;
   line-height: normal;
   margin-top: 14px;
 }
 
 .custodian-name {
-  color: rgba(0, 0, 0, 0.87);
-  padding: 1px 0;
+  color: var(--custodian-name-color);
+  font-size: 16px;
+  line-height: 24px;
 }
 
 .custodian-email {
-  color: rgb(0, 0, 0, 0.54);
-  padding: 1px 0;
+  color: var(--custodian-email-color);
+  font-size: 14px;
+  line-height: 20px;
 }
 
 
@@ -242,9 +254,9 @@ html {
        (min-width: 421px) and (max-width: 736px) and (min-height: 240px) and
        (max-height: 420px) and (orientation:landscape) {
   body .button-container {
-    background: #f7f7f7;
+    background: var(--background-color);
     bottom: 0;
-    box-shadow: 0 -22px 40px rgb(247, 247, 247);
+    box-shadow: 0 -22px 40px var(--background-color);
     left: 0;
     margin: 0;
     max-width: 736px;
@@ -294,15 +306,6 @@ html {
     opacity: 1;
     padding-top: 40px;
     transition: opacity 250ms cubic-bezier(0.4, 0, 0.2, 1);
-  }
-
-  #details[hidden],
-  #information-container[hidden] {
-    display: block;
-    height: 0;
-    opacity: 0;
-    overflow: hidden;
-    transition: none;
   }
 
   .details-button {
@@ -521,5 +524,13 @@ html {
   .button-container {
     padding-left: 0;
     padding-right: 0;
+  }
+}
+
+@media (prefers-color-scheme: dark) {
+  body.supervised-user-block {
+    --avatar-stroke-color: var(--google-blue-100);
+    --custodian-name-color: var(--google-gray-500);
+    --custodian-email-color: var(--google-gray-500);
   }
 }

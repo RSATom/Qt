@@ -9,15 +9,15 @@
 #ifndef GrVkTypes_DEFINED
 #define GrVkTypes_DEFINED
 
-#include "SkTypes.h"
-#include "GrVkVulkan.h"
+#include "include/core/SkTypes.h"
+#include "include/gpu/vk/GrVkVulkan.h"
 
 #ifndef VK_VERSION_1_1
 #error Skia requires the use of Vulkan 1.1 headers
 #endif
 
 #include <functional>
-#include "GrTypes.h"
+#include "include/gpu/GrTypes.h"
 
 typedef intptr_t GrVkBackendMemory;
 
@@ -135,6 +135,7 @@ struct GrVkImageInfo {
     VkFormat                 fFormat;
     uint32_t                 fLevelCount;
     uint32_t                 fCurrentQueueFamily;
+    GrProtected              fProtected;
     GrVkYcbcrConversionInfo  fYcbcrConversionInfo;
 
     GrVkImageInfo()
@@ -145,11 +146,17 @@ struct GrVkImageInfo {
             , fFormat(VK_FORMAT_UNDEFINED)
             , fLevelCount(0)
             , fCurrentQueueFamily(VK_QUEUE_FAMILY_IGNORED)
+            , fProtected(GrProtected::kNo)
             , fYcbcrConversionInfo() {}
 
-    GrVkImageInfo(VkImage image, GrVkAlloc alloc, VkImageTiling imageTiling, VkImageLayout layout,
-                  VkFormat format, uint32_t levelCount,
-                  uint32_t currentQueueFamily = VK_QUEUE_FAMILY_IGNORED,
+    GrVkImageInfo(VkImage image,
+                  GrVkAlloc alloc,
+                  VkImageTiling imageTiling,
+                  VkImageLayout layout,
+                  VkFormat format,
+                  uint32_t levelCount,
+                  uint32_t currentQueueFamily,
+                  GrProtected isProtected,
                   GrVkYcbcrConversionInfo ycbcrConversionInfo = GrVkYcbcrConversionInfo())
             : fImage(image)
             , fAlloc(alloc)
@@ -158,7 +165,20 @@ struct GrVkImageInfo {
             , fFormat(format)
             , fLevelCount(levelCount)
             , fCurrentQueueFamily(currentQueueFamily)
+            , fProtected(isProtected)
             , fYcbcrConversionInfo(ycbcrConversionInfo) {}
+
+    // Temporary until Chrome is updated to use above constructor
+    GrVkImageInfo(VkImage image, GrVkAlloc alloc,
+                  VkImageTiling imageTiling,
+                  VkImageLayout layout,
+                  VkFormat format,
+                  uint32_t levelCount,
+                  uint32_t currentQueueFamily = VK_QUEUE_FAMILY_IGNORED,
+                  GrVkYcbcrConversionInfo ycbcrConversionInfo = GrVkYcbcrConversionInfo(),
+                  GrProtected isProtected = GrProtected::kNo)
+            : GrVkImageInfo(image, alloc, imageTiling, layout, format, levelCount,
+                            currentQueueFamily, isProtected, ycbcrConversionInfo) {}
 
     GrVkImageInfo(const GrVkImageInfo& info, VkImageLayout layout)
             : fImage(info.fImage)
@@ -168,6 +188,7 @@ struct GrVkImageInfo {
             , fFormat(info.fFormat)
             , fLevelCount(info.fLevelCount)
             , fCurrentQueueFamily(info.fCurrentQueueFamily)
+            , fProtected(info.fProtected)
             , fYcbcrConversionInfo(info.fYcbcrConversionInfo) {}
 
     // This gives a way for a client to update the layout of the Image if they change the layout
@@ -179,7 +200,7 @@ struct GrVkImageInfo {
         return fImage == that.fImage && fAlloc == that.fAlloc &&
                fImageTiling == that.fImageTiling && fImageLayout == that.fImageLayout &&
                fFormat == that.fFormat && fLevelCount == that.fLevelCount &&
-               fCurrentQueueFamily == that.fCurrentQueueFamily &&
+               fCurrentQueueFamily == that.fCurrentQueueFamily && fProtected == that.fProtected &&
                fYcbcrConversionInfo == that.fYcbcrConversionInfo;
     }
 };
@@ -210,6 +231,8 @@ using GrVkGetProc = std::function<PFN_vkVoidFunction(
  * to render offscreen textures which will be sampled in draws added to the passed in
  * VkCommandBuffer. If this is done the SkDrawable is in charge of adding the required memory
  * barriers to the queue for the sampled images since the Skia backend will not do this.
+ *
+ * The VkImage is informational only and should not be used or modified in any ways.
  */
 struct GrVkDrawableInfo {
     VkCommandBuffer fSecondaryCommandBuffer;
@@ -217,6 +240,7 @@ struct GrVkDrawableInfo {
     VkRenderPass    fCompatibleRenderPass;
     VkFormat        fFormat;
     VkRect2D*       fDrawBounds;
+    VkImage         fImage;
 };
 
 #endif

@@ -18,7 +18,6 @@
 #include "base/optional.h"
 #include "base/time/time.h"
 #include "components/viz/common/surfaces/frame_sink_id.h"
-#include "components/viz/common/surfaces/local_surface_id.h"
 #include "ui/aura/aura_export.h"
 #include "ui/aura/window.h"
 #include "ui/base/cursor/cursor.h"
@@ -51,7 +50,6 @@ namespace test {
 class WindowTreeHostTestApi;
 }
 
-class Env;
 class ScopedKeyboardHook;
 class WindowEventDispatcher;
 class WindowTreeHostObserver;
@@ -66,11 +64,9 @@ class AURA_EXPORT WindowTreeHost : public ui::internal::InputMethodDelegate,
  public:
   ~WindowTreeHost() override;
 
-  // Creates a new WindowTreeHost with the specified |properties| and an
-  // optional |env|. If |env| is null, the default Env::GetInstance() is used.
+  // Creates a new WindowTreeHost with the specified |properties|.
   static std::unique_ptr<WindowTreeHost> Create(
-      ui::PlatformWindowInitProperties properties,
-      Env* env = nullptr);
+      ui::PlatformWindowInitProperties properties);
 
   // Returns the WindowTreeHost for the specified accelerated widget, or NULL
   // if there is none associated.
@@ -176,9 +172,7 @@ class AURA_EXPORT WindowTreeHost : public ui::internal::InputMethodDelegate,
   void SetSharedInputMethod(ui::InputMethod* input_method);
 
   // Overridden from ui::internal::InputMethodDelegate:
-  ui::EventDispatchDetails DispatchKeyEventPostIME(
-      ui::KeyEvent* event,
-      base::OnceCallback<void(bool)> ack_callback) final;
+  ui::EventDispatchDetails DispatchKeyEventPostIME(ui::KeyEvent* event) final;
 
   // Overridden from ui::EventSource:
   ui::EventSink* GetEventSink() override;
@@ -204,12 +198,7 @@ class AURA_EXPORT WindowTreeHost : public ui::internal::InputMethodDelegate,
   // the old bounds, because SetBoundsInPixels() can take effect asynchronously,
   // depending on the platform. The |local_surface_id| takes effect when (and
   // if) the new size is confirmed (potentially asynchronously) by the platform.
-  // If |local_surface_id| is invalid, then a new LocalSurfaceId is allocated
-  // when the size change takes effect.
-  virtual void SetBoundsInPixels(
-      const gfx::Rect& bounds_in_pixels,
-      const viz::LocalSurfaceIdAllocation& local_surface_id_allocation =
-          viz::LocalSurfaceIdAllocation()) = 0;
+  virtual void SetBoundsInPixels(const gfx::Rect& bounds_in_pixels) = 0;
   virtual gfx::Rect GetBoundsInPixels() const = 0;
 
   // Sets the OS capture to the root window.
@@ -248,6 +237,12 @@ class AURA_EXPORT WindowTreeHost : public ui::internal::InputMethodDelegate,
   // observers of the change.
   virtual void SetNativeWindowOcclusionState(Window::OcclusionState state);
 
+  Window::OcclusionState GetNativeWindowOcclusionState() {
+    return occlusion_state_;
+  }
+
+  bool holding_pointer_moves() const { return holding_pointer_moves_; }
+
  protected:
   friend class ScopedKeyboardHook;
   friend class TestScreen;  // TODO(beng): see if we can remove/consolidate.
@@ -279,10 +274,7 @@ class AURA_EXPORT WindowTreeHost : public ui::internal::InputMethodDelegate,
   virtual gfx::Point GetLocationOnScreenInPixels() const = 0;
 
   void OnHostMovedInPixels(const gfx::Point& new_location_in_pixels);
-  void OnHostResizedInPixels(
-      const gfx::Size& new_size_in_pixels,
-      const viz::LocalSurfaceIdAllocation& local_surface_id_allocation =
-          viz::LocalSurfaceIdAllocation());
+  void OnHostResizedInPixels(const gfx::Size& new_size_in_pixels);
   void OnHostWorkspaceChanged();
   void OnHostDisplayChanged();
   void OnHostCloseRequested();
@@ -335,7 +327,7 @@ class AURA_EXPORT WindowTreeHost : public ui::internal::InputMethodDelegate,
                             const gfx::Point& host_location);
 
   // Overrided from CompositorObserver:
-  void OnCompositingDidCommit(ui::Compositor* compositor) override;
+  void OnCompositingEnded(ui::Compositor* compositor) override;
   void OnCompositingChildResizing(ui::Compositor* compositor) override;
   void OnCompositingShuttingDown(ui::Compositor* compositor) override;
 
@@ -385,7 +377,7 @@ class AURA_EXPORT WindowTreeHost : public ui::internal::InputMethodDelegate,
   // Set to true if this WindowTreeHost is currently holding pointer moves.
   bool holding_pointer_moves_ = false;
 
-  base::WeakPtrFactory<WindowTreeHost> weak_factory_;
+  base::WeakPtrFactory<WindowTreeHost> weak_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(WindowTreeHost);
 };

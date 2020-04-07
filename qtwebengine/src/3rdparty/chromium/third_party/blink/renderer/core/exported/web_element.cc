@@ -41,6 +41,7 @@
 #include "third_party/blink/renderer/core/html_names.h"
 #include "third_party/blink/renderer/platform/bindings/exception_state.h"
 #include "third_party/blink/renderer/platform/graphics/image.h"
+#include "third_party/blink/renderer/platform/wtf/casting.h"
 #include "third_party/blink/renderer/platform/wtf/text/atomic_string.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
 
@@ -81,7 +82,7 @@ bool WebElement::HasHTMLTagName(const WebString& tag_name) const {
   // createElementNS(xhtmlNS, 'INPUT') HTMLUnknownElement INPUT    INPUT
   const Element* element = ConstUnwrap<Element>();
   return html_names::xhtmlNamespaceURI == element->namespaceURI() &&
-         element->localName() == String(tag_name).DeprecatedLower();
+         element->localName() == String(tag_name).LowerASCII();
 }
 
 bool WebElement::HasAttribute(const WebString& attr_name) const {
@@ -144,10 +145,6 @@ WebNode WebElement::ShadowRoot() const {
   return WebNode(root);
 }
 
-bool WebElement::HasNonEmptyLayoutSize() const {
-  return ConstUnwrap<Element>()->HasNonEmptyLayoutSize();
-}
-
 WebRect WebElement::BoundsInViewport() const {
   return ConstUnwrap<Element>()->BoundsInViewport();
 }
@@ -168,7 +165,7 @@ void WebElement::RequestFullscreen() {
 
 WebElement::WebElement(Element* elem) : WebNode(elem) {}
 
-DEFINE_WEB_NODE_TYPE_CASTS(WebElement, IsElementNode());
+DEFINE_WEB_NODE_TYPE_CASTS(WebElement, IsElementNode())
 
 WebElement& WebElement::operator=(Element* elem) {
   private_ = elem;
@@ -176,7 +173,7 @@ WebElement& WebElement::operator=(Element* elem) {
 }
 
 WebElement::operator Element*() const {
-  return ToElement(private_.Get());
+  return blink::To<Element>(private_.Get());
 }
 
 }  // namespace blink

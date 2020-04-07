@@ -7,7 +7,7 @@
 
 #include "base/callback.h"
 #include "base/optional.h"
-#include "content/common/navigation_subresource_loader_params.h"
+#include "content/browser/navigation_subresource_loader_params.h"
 #include "mojo/public/cpp/bindings/binding.h"
 #include "net/url_request/redirect_info.h"
 #include "services/network/public/cpp/weak_wrapper_shared_url_loader_factory.h"
@@ -28,11 +28,12 @@ class WorkerScriptLoaderFactory;
 // NetworkService (PlzWorker):
 // This is an implementation of the URLLoaderClient for web worker's main script
 // fetch. The loader and client bounded with this class are to be unbound and
-// forwarded to the renderer process on OnReceiveResponse, and the resource
-// loader in the renderer process will take them over.
+// forwarded to the renderer process on OnStartLoadingResponseBody, and the
+// resource loader in the renderer process will take them over.
 //
 // WorkerScriptFetcher deletes itself when the ownership of the loader and
-// client is passed to the renderer, or on failure. It lives on the IO thread.
+// client is passed to the renderer, or on failure. It lives on the IO or UI
+// thread.
 class WorkerScriptFetcher : public network::mojom::URLLoaderClient {
  public:
   using CreateAndStartCallback =
@@ -65,7 +66,7 @@ class WorkerScriptFetcher : public network::mojom::URLLoaderClient {
   void OnUploadProgress(int64_t current_position,
                         int64_t total_size,
                         OnUploadProgressCallback callback) override;
-  void OnReceiveCachedMetadata(const std::vector<uint8_t>& data) override;
+  void OnReceiveCachedMetadata(mojo_base::BigBuffer data) override;
   void OnTransferSizeUpdated(int32_t transfer_size_diff) override;
   void OnStartLoadingResponseBody(
       mojo::ScopedDataPipeConsumerHandle body) override;
@@ -90,6 +91,7 @@ class WorkerScriptFetcher : public network::mojom::URLLoaderClient {
 
   std::vector<net::RedirectInfo> redirect_infos_;
   std::vector<network::ResourceResponseHead> redirect_response_heads_;
+  network::ResourceResponseHead response_head_;
 };
 
 }  // namespace content

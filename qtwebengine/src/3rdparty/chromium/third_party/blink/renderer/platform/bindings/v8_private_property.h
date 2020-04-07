@@ -12,7 +12,7 @@
 #include "third_party/blink/renderer/platform/bindings/v8_binding_macros.h"
 #include "third_party/blink/renderer/platform/bindings/v8_per_isolate_data.h"
 #include "third_party/blink/renderer/platform/platform_export.h"
-#include "third_party/blink/renderer/platform/wtf/allocator.h"
+#include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 #include "v8/include/v8.h"
 
 namespace blink {
@@ -22,34 +22,37 @@ class ScriptWrappable;
 // TODO(peria): Remove properties just to keep V8 objects alive.
 // e.g. IDBCursor.Request.
 // Apply |X| for each pair of (InterfaceName, PrivateKeyName).
-#define V8_PRIVATE_PROPERTY_FOR_EACH(X)               \
-  X(CustomElement, Document)                          \
-  X(CustomElement, IsInterfacePrototypeObject)        \
-  X(CustomElement, NamespaceURI)                      \
-  X(CustomElement, TagName)                           \
-  X(CustomElement, Type)                              \
-  X(CustomElementLifecycle, AttachedCallback)         \
-  X(CustomElementLifecycle, AttributeChangedCallback) \
-  X(CustomElementLifecycle, CreatedCallback)          \
-  X(CustomElementLifecycle, DetachedCallback)         \
-  X(DOMException, Error)                              \
-  X(Global, Event)                                    \
-  X(IDBCursor, Request)                               \
-  X(IntersectionObserver, Callback)                   \
-  X(MessageChannel, Port1)                            \
-  X(MessageChannel, Port2)                            \
-  X(MessageEvent, CachedData)                         \
-  X(MutationObserver, Callback)                       \
-  X(NamedConstructor, Initialized)                    \
-  X(PopStateEvent, State)                             \
-  X(SameObject, DetectedBarcodeCornerPoints)          \
-  X(SameObject, DetectedFaceLandmarks)                \
-  X(SameObject, NotificationActions)                  \
-  X(SameObject, NotificationData)                     \
-  X(SameObject, NotificationVibrate)                  \
-  X(SameObject, PerformanceLongTaskTimingAttribution) \
-  X(SameObject, PushManagerSupportedContentEncodings) \
-  SCRIPT_PROMISE_PROPERTIES(X, Promise)               \
+#define V8_PRIVATE_PROPERTY_FOR_EACH(X)                 \
+  X(CustomElement, Document)                            \
+  X(CustomElement, IsInterfacePrototypeObject)          \
+  X(CustomElement, NamespaceURI)                        \
+  X(CustomElement, TagName)                             \
+  X(CustomElement, Type)                                \
+  X(CustomElementLifecycle, AttachedCallback)           \
+  X(CustomElementLifecycle, AttributeChangedCallback)   \
+  X(CustomElementLifecycle, CreatedCallback)            \
+  X(CustomElementLifecycle, DetachedCallback)           \
+  X(DOMException, Error)                                \
+  X(Global, Event)                                      \
+  X(IDBCursor, Request)                                 \
+  X(IntersectionObserver, Callback)                     \
+  X(MessageChannel, Port1)                              \
+  X(MessageChannel, Port2)                              \
+  X(MessageEvent, CachedData)                           \
+  X(MutationObserver, Callback)                         \
+  X(NamedConstructor, Initialized)                      \
+  X(PopStateEvent, State)                               \
+  X(SameObject, DetectedBarcodeCornerPoints)            \
+  X(SameObject, DetectedFaceLandmarks)                  \
+  X(SameObject, NotificationActions)                    \
+  X(SameObject, NotificationData)                       \
+  X(SameObject, NotificationVibrate)                    \
+  X(SameObject, PerformanceLongTaskTimingAttribution)   \
+  X(SameObject, PerformanceObserverSupportedEntryTypes) \
+  X(SameObject, PushManagerSupportedContentEncodings)   \
+  X(SameObject, XRPresentationContextCanvas)            \
+  X(SameObject, XRWebGLLayerContext)                    \
+  SCRIPT_PROMISE_PROPERTIES(X, Promise)                 \
   SCRIPT_PROMISE_PROPERTIES(X, Resolver)
 
 // The getter's name for a private property.
@@ -67,26 +70,28 @@ class ScriptWrappable;
 // Provides access to V8's private properties.
 //
 // Usage 1) Fast path to use a pre-registered symbol.
-//   auto private = V8PrivateProperty::getMessageEventCachedData(isolate);
+//   auto private_property = V8PrivateProperty::GetDOMExceptionError(isolate);
 //   v8::Local<v8::Object> object = ...;
 //   v8::Local<v8::Value> value;
-//   if (!private.GetOrUndefined(object).ToLocal(&value)) return;
+//   if (!private_property.GetOrUndefined(object).ToLocal(&value)) return;
 //   value = ...;
-//   private.set(object, value);
+//   private_property.set(object, value);
 //
 // Usage 2) Slow path to create a global private symbol.
-//   const char symbolName[] = "Interface#PrivateKeyName";
-//   auto private = V8PrivateProperty::createSymbol(isolate, symbolName);
+//   const char symbol_name[] = "Interface#PrivateKeyName";
+//   auto private_property =
+//       V8PrivateProperty::GetSymbol(isolate, symbol_name);
 //   ...
 class PLATFORM_EXPORT V8PrivateProperty {
   USING_FAST_MALLOC(V8PrivateProperty);
-  WTF_MAKE_NONCOPYABLE(V8PrivateProperty);
 
  public:
   enum CachedAccessorSymbol : unsigned {
     kNoCachedAccessor = 0,
     kWindowDocumentCachedAccessor,
   };
+
+  V8PrivateProperty() = default;
 
   // Provides fast access to V8's private properties.
   //
@@ -141,10 +146,6 @@ class PLATFORM_EXPORT V8PrivateProperty {
     v8::Isolate* isolate_;
   };
 
-  static std::unique_ptr<V8PrivateProperty> Create() {
-    return base::WrapUnique(new V8PrivateProperty());
-  }
-
 #define V8_PRIVATE_PROPERTY_DEFINE_GETTER(InterfaceName, KeyName)              \
   static Symbol V8_PRIVATE_PROPERTY_GETTER_NAME(/* // NOLINT */                \
                                                 InterfaceName, KeyName)(       \
@@ -188,7 +189,7 @@ class PLATFORM_EXPORT V8PrivateProperty {
         return GetWindowDocumentCachedAccessor(isolate);
       case kNoCachedAccessor:
         break;
-    };
+    }
     NOTREACHED();
     return GetSymbol(isolate, "unexpected cached accessor");
   }
@@ -198,8 +199,6 @@ class PLATFORM_EXPORT V8PrivateProperty {
   }
 
  private:
-  V8PrivateProperty() = default;
-
   static v8::Local<v8::Private> CreateV8Private(v8::Isolate*,
                                                 const char* symbol);
   // TODO(peria): Remove this method. We should not use v8::Private::ForApi().
@@ -217,6 +216,8 @@ class PLATFORM_EXPORT V8PrivateProperty {
   // a snapshot, and it cannot be a v8::Eternal<> due to V8 serializer's
   // requirement.
   ScopedPersistent<v8::Private> symbol_window_document_cached_accessor_;
+
+  DISALLOW_COPY_AND_ASSIGN(V8PrivateProperty);
 };
 
 }  // namespace blink

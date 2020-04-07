@@ -12,6 +12,7 @@
 #include "ui/views/controls/menu/menu_runner.h"
 
 namespace views {
+class MenuButtonController;
 
 namespace internal {
 
@@ -26,7 +27,7 @@ class MenuRunnerImplInterface {
   static MenuRunnerImplInterface* Create(
       ui::MenuModel* menu_model,
       int32_t run_types,
-      const base::Closure& on_menu_closed_callback);
+      base::RepeatingClosure on_menu_closed_callback);
 
   // Returns true if we're in a nested run loop running the menu.
   virtual bool IsRunning() const = 0;
@@ -35,13 +36,11 @@ class MenuRunnerImplInterface {
   virtual void Release() = 0;
 
   // Runs the menu. See MenuRunner::RunMenuAt for more details.
-  virtual void RunMenuAt(
-      Widget* parent,
-      MenuButton* button,
-      const gfx::Rect& bounds,
-      MenuAnchorPosition anchor,
-      int32_t run_types,
-      base::flat_set<int> alerted_commands = base::flat_set<int>()) = 0;
+  virtual void RunMenuAt(Widget* parent,
+                         MenuButtonController* button_controller,
+                         const gfx::Rect& bounds,
+                         MenuAnchorPosition anchor,
+                         int32_t run_types) = 0;
 
   // Hides and cancels the menu.
   virtual void Cancel() = 0;
@@ -51,7 +50,7 @@ class MenuRunnerImplInterface {
 
  protected:
   // Call Release() to delete.
-  virtual ~MenuRunnerImplInterface() {}
+  virtual ~MenuRunnerImplInterface() = default;
 };
 
 }  // namespace internal

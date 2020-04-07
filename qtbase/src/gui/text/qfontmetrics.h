@@ -76,12 +76,10 @@ public:
     ~QFontMetrics();
 
     QFontMetrics &operator=(const QFontMetrics &);
-#ifdef Q_COMPILER_RVALUE_REFS
-    inline QFontMetrics &operator=(QFontMetrics &&other) Q_DECL_NOEXCEPT
+    inline QFontMetrics &operator=(QFontMetrics &&other) noexcept
     { qSwap(d, other.d); return *this; }
-#endif
 
-    void swap(QFontMetrics &other) Q_DECL_NOEXCEPT
+    void swap(QFontMetrics &other) noexcept
     { qSwap(d, other.d); }
 
     int ascent() const;
@@ -137,6 +135,8 @@ public:
     int strikeOutPos() const;
     int lineWidth() const;
 
+    qreal fontDpi() const;
+
     bool operator==(const QFontMetrics &other) const;
     inline bool operator !=(const QFontMetrics &other) const { return !operator==(other); }
 
@@ -172,12 +172,10 @@ public:
 
     QFontMetricsF &operator=(const QFontMetricsF &);
     QFontMetricsF &operator=(const QFontMetrics &);
-#ifdef Q_COMPILER_RVALUE_REFS
-    inline QFontMetricsF &operator=(QFontMetricsF &&other)
+    inline QFontMetricsF &operator=(QFontMetricsF &&other) noexcept
     { qSwap(d, other.d); return *this; }
-#endif
 
-    void swap(QFontMetricsF &other) { qSwap(d, other.d); }
+    void swap(QFontMetricsF &other) noexcept { qSwap(d, other.d); }
 
     qreal ascent() const;
     qreal capHeight() const;
@@ -219,6 +217,8 @@ public:
     qreal overlinePos() const;
     qreal strikeOutPos() const;
     qreal lineWidth() const;
+
+    qreal fontDpi() const;
 
     bool operator==(const QFontMetricsF &other) const;
     inline bool operator !=(const QFontMetricsF &other) const { return !operator==(other); }

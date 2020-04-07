@@ -12,9 +12,10 @@
 
 namespace blink {
 
+class HTMLElement;
 class HTMLVideoElement;
+class PictureInPictureOptions;
 class ScriptPromiseResolver;
-struct PictureInPictureControlInfo;
 
 // PictureInPictureController allows to know if Picture-in-Picture is allowed
 // for a video element in Blink outside of modules/ module. It
@@ -47,19 +48,22 @@ class CORE_EXPORT PictureInPictureController
     kDisabledBySystem,
     kDisabledByFeaturePolicy,
     kDisabledByAttribute,
+    kInvalidWidthOrHeightOption,
   };
 
-  // Enter Picture-in-Picture for a video element and resolve promise if any.
-  virtual void EnterPictureInPicture(HTMLVideoElement*,
+  // Enter Picture-in-Picture for an element with options if any and resolve
+  // promise if any.
+  virtual void EnterPictureInPicture(HTMLElement*,
+                                     PictureInPictureOptions*,
                                      ScriptPromiseResolver*) = 0;
 
   // Exit Picture-in-Picture for a video element and resolve promise if any.
   virtual void ExitPictureInPicture(HTMLVideoElement*,
                                     ScriptPromiseResolver*) = 0;
 
-  // Returns whether a given video element in a document associated with the
+  // Returns whether a given element in a document associated with the
   // controller is allowed to request Picture-in-Picture.
-  virtual Status IsElementAllowed(const HTMLVideoElement&) const = 0;
+  virtual Status IsElementAllowed(const HTMLElement&) const = 0;
 
   // Should be called when an element has exited Picture-in-Picture.
   virtual void OnExitedPictureInPicture(ScriptPromiseResolver*) = 0;
@@ -73,17 +77,8 @@ class CORE_EXPORT PictureInPictureController
   virtual void RemoveFromAutoPictureInPictureElementsList(
       HTMLVideoElement*) = 0;
 
-  // Should be called when a custom control on a video element in
-  // Picture-in-Picture is clicked. |control_id| is the identifier for its
-  // custom control. This is defined by the site that calls the web API.
-  virtual void OnPictureInPictureControlClicked(
-      const WebString& control_id) = 0;
-
-  // Assign custom controls to be added to the Picture-in-Picture window.
-  virtual void SetPictureInPictureCustomControls(
-      HTMLVideoElement*,
-      const std::vector<PictureInPictureControlInfo>&) = 0;
-
+  // Notifies that one of the states used by Picture-in-Picture has changed.
+  virtual void OnPictureInPictureStateChange() = 0;
 
   void Trace(blink::Visitor*) override;
 

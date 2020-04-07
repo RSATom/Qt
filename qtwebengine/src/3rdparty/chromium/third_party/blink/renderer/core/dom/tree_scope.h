@@ -64,8 +64,7 @@ class CORE_EXPORT TreeScope : public GarbageCollectedMixin {
 
   TreeScope* ParentTreeScope() const { return parent_tree_scope_; }
 
-  bool IsInclusiveOlderSiblingShadowRootOrAncestorTreeScopeOf(
-      const TreeScope&) const;
+  bool IsInclusiveAncestorTreeScopeOf(const TreeScope&) const;
 
   Element* AdjustedFocusedElement() const;
   // Finds a retargeted element to the given argument, when the retargeted
@@ -99,7 +98,7 @@ class CORE_EXPORT TreeScope : public GarbageCollectedMixin {
 
   DOMSelection* GetSelection() const;
 
-  Element* Retarget(const Element& target) const;
+  Element& Retarget(const Element& target) const;
 
   Element* AdjustedFocusedElementInternal(const Element& target) const;
 
@@ -124,7 +123,7 @@ class CORE_EXPORT TreeScope : public GarbageCollectedMixin {
   }
 
   bool IsInclusiveAncestorOf(const TreeScope&) const;
-  unsigned short ComparePosition(const TreeScope&) const;
+  uint16_t ComparePosition(const TreeScope&) const;
 
   const TreeScope* CommonAncestorTreeScope(const TreeScope& other) const;
   TreeScope* CommonAncestorTreeScope(TreeScope& other);

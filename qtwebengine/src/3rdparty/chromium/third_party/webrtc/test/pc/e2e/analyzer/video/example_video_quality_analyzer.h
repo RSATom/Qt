@@ -12,16 +12,17 @@
 #define TEST_PC_E2E_ANALYZER_VIDEO_EXAMPLE_VIDEO_QUALITY_ANALYZER_H_
 
 #include <atomic>
+#include <map>
 #include <set>
 #include <string>
 
+#include "api/test/video_quality_analyzer_interface.h"
 #include "api/video/encoded_image.h"
 #include "api/video/video_frame.h"
 #include "rtc_base/critical_section.h"
-#include "test/pc/e2e/api/video_quality_analyzer_interface.h"
 
 namespace webrtc {
-namespace test {
+namespace webrtc_pc_e2e {
 
 // This class is an example implementation of
 // webrtc::VideoQualityAnalyzerInterface and calculates simple metrics
@@ -32,7 +33,7 @@ class ExampleVideoQualityAnalyzer : public VideoQualityAnalyzerInterface {
   ExampleVideoQualityAnalyzer();
   ~ExampleVideoQualityAnalyzer() override;
 
-  void Start(int max_threads_count) override;
+  void Start(std::string test_case_name, int max_threads_count) override;
   uint16_t OnFrameCaptured(const std::string& stream_label,
                            const VideoFrame& frame) override;
   void OnFramePreEncode(const VideoFrame& frame) override;
@@ -48,12 +49,15 @@ class ExampleVideoQualityAnalyzer : public VideoQualityAnalyzerInterface {
   void OnEncoderError(const VideoFrame& frame, int32_t error_code) override;
   void OnDecoderError(uint16_t frame_id, int32_t error_code) override;
   void Stop() override;
+  std::string GetStreamLabel(uint16_t frame_id) override;
 
   uint64_t frames_captured() const;
-  uint64_t frames_sent() const;
+  uint64_t frames_pre_encoded() const;
+  uint64_t frames_encoded() const;
   uint64_t frames_received() const;
-  uint64_t frames_dropped() const;
+  uint64_t frames_decoded() const;
   uint64_t frames_rendered() const;
+  uint64_t frames_dropped() const;
 
  private:
   // When peer A captured the frame it will come into analyzer's OnFrameCaptured
@@ -66,15 +70,18 @@ class ExampleVideoQualityAnalyzer : public VideoQualityAnalyzerInterface {
   // need to keep them to correctly determine dropped frames and also correctly
   // process frame id overlap.
   std::set<uint16_t> frames_in_flight_ RTC_GUARDED_BY(lock_);
+  std::map<uint16_t, std::string> frames_to_stream_label_ RTC_GUARDED_BY(lock_);
   uint16_t next_frame_id_ RTC_GUARDED_BY(lock_) = 0;
   uint64_t frames_captured_ RTC_GUARDED_BY(lock_) = 0;
-  uint64_t frames_sent_ RTC_GUARDED_BY(lock_) = 0;
+  uint64_t frames_pre_encoded_ RTC_GUARDED_BY(lock_) = 0;
+  uint64_t frames_encoded_ RTC_GUARDED_BY(lock_) = 0;
   uint64_t frames_received_ RTC_GUARDED_BY(lock_) = 0;
-  uint64_t frames_dropped_ RTC_GUARDED_BY(lock_) = 0;
+  uint64_t frames_decoded_ RTC_GUARDED_BY(lock_) = 0;
   uint64_t frames_rendered_ RTC_GUARDED_BY(lock_) = 0;
+  uint64_t frames_dropped_ RTC_GUARDED_BY(lock_) = 0;
 };
 
-}  // namespace test
+}  // namespace webrtc_pc_e2e
 }  // namespace webrtc
 
 #endif  // TEST_PC_E2E_ANALYZER_VIDEO_EXAMPLE_VIDEO_QUALITY_ANALYZER_H_

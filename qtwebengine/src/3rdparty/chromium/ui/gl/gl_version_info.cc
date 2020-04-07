@@ -18,6 +18,8 @@ bool DesktopCoreCommonCheck(
            major_version > 3));
 }
 
+static bool disable_es3_for_testing = false;
+
 }  // namespace
 
 namespace gl {
@@ -58,11 +60,28 @@ void GLVersionInfo::Initialize(const char* version_str,
     is_d3d = renderer_string.find("Direct3D") != std::string::npos;
     // (is_d3d should only be possible if is_angle is true.)
     DCHECK(!is_d3d || is_angle);
+    if (is_angle && driver_vendor == "ANGLE")
+      ExtractDriverVendorANGLE(renderer_str);
   }
   is_desktop_core_profile =
       DesktopCoreCommonCheck(is_es, major_version, minor_version) &&
       !gfx::HasExtension(extensions, "GL_ARB_compatibility");
   is_es3_capable = IsES3Capable(extensions);
+
+  // Post-fixup in case the user requested disabling ES3 capability
+  // for testing purposes.
+  if (disable_es3_for_testing) {
+    is_es3_capable = false;
+    if (is_es) {
+      major_version = 2;
+      minor_version = 0;
+      is_es2 = true;
+      is_es3 = false;
+    } else {
+      major_version = 3;
+      minor_version = 0;
+    }
+  }
 }
 
 void GLVersionInfo::ParseVersionString(const char* version_str) {
@@ -164,6 +183,21 @@ void GLVersionInfo::ParseVersionString(const char* version_str) {
   }
 }
 
+void GLVersionInfo::ExtractDriverVendorANGLE(const char* renderer_str) {
+  DCHECK(renderer_str);
+  DCHECK(is_angle);
+  DCHECK_EQ("ANGLE", driver_vendor);
+  base::StringPiece rstr(renderer_str);
+  DCHECK(base::StartsWith(rstr, "ANGLE (", base::CompareCase::SENSITIVE));
+  rstr = rstr.substr(sizeof("ANGLE (") - 1);
+  if (base::StartsWith(rstr, "NVIDIA ", base::CompareCase::SENSITIVE))
+    driver_vendor = "ANGLE (NVIDIA)";
+  else if (base::StartsWith(rstr, "Radeon ", base::CompareCase::SENSITIVE))
+    driver_vendor = "ANGLE (AMD)";
+  else if (base::StartsWith(rstr, "Intel(R) ", base::CompareCase::SENSITIVE))
+    driver_vendor = "ANGLE (Intel)";
+}
+
 bool GLVersionInfo::IsES3Capable(const gfx::ExtensionSet& extensions) const {
   // Version ES3 capable without extensions needed.
   if (IsAtLeastGLES(3, 0) || IsAtLeastGL(4, 2)) {
@@ -192,6 +226,10 @@ bool GLVersionInfo::IsES3Capable(const gfx::ExtensionSet& extensions) const {
   // TODO(cwallez) check for texture related extensions. See crbug.com/623577
 
   return (has_transform_feedback && has_tex_storage);
+}
+
+void GLVersionInfo::DisableES3ForTesting() {
+  disable_es3_for_testing = true;
 }
 
 }  // namespace gl

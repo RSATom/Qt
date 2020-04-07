@@ -53,9 +53,12 @@ String BaseTemporalInputType::BadInputText() const {
 }
 
 InputTypeView* BaseTemporalInputType::CreateView() {
-  if (RuntimeEnabledFeatures::InputMultipleFieldsUIEnabled())
-    return MultipleFieldsTemporalInputTypeView::Create(GetElement(), *this);
-  return ChooserOnlyTemporalInputTypeView::Create(GetElement(), *this);
+  if (RuntimeEnabledFeatures::InputMultipleFieldsUIEnabled()) {
+    return MakeGarbageCollected<MultipleFieldsTemporalInputTypeView>(
+        GetElement(), *this);
+  }
+  return MakeGarbageCollected<ChooserOnlyTemporalInputTypeView>(GetElement(),
+                                                                *this);
 }
 
 InputType::ValueMode BaseTemporalInputType::GetValueMode() const {
@@ -106,7 +109,8 @@ String BaseTemporalInputType::RangeUnderflowText(const Decimal& minimum) const {
 }
 
 Decimal BaseTemporalInputType::DefaultValueForStepUp() const {
-  return Decimal::FromDouble(ConvertToLocalTime(CurrentTimeMS()));
+  return Decimal::FromDouble(
+      ConvertToLocalTime(base::Time::Now().ToDoubleT() * 1000.0));
 }
 
 bool BaseTemporalInputType::IsSteppable() const {

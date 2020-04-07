@@ -97,6 +97,7 @@ Q_SIGNALS:
 protected:
     explicit QLevelOfDetail(QLevelOfDetailPrivate &dd, Qt3DCore::QNode *parent = nullptr);
     Qt3DCore::QNodeCreatedChangeBasePtr createNodeCreationChange() const override;
+    // TODO Unused remove in Qt6
     void sceneChangeEvent(const Qt3DCore::QSceneChangePtr &change) override;
 
 private:

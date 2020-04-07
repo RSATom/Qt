@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <memory>
 #include <string>
 
 #include "base/logging.h"
@@ -25,7 +26,7 @@ namespace {
 
 // In DP, the amount to round the corners of the progress bar (both bg and
 // fg, aka slice).
-const int kCornerRadius = 3;
+constexpr int kCornerRadius = 3;
 
 // Adds a rectangle to the path. The corners will be rounded if there is room.
 void AddPossiblyRoundRectToPath(const gfx::Rect& rectangle,
@@ -41,17 +42,13 @@ void AddPossiblyRoundRectToPath(const gfx::Rect& rectangle,
 
 }  // namespace
 
-// static
-const char ProgressBar::kViewClassName[] = "ProgressBar";
-
 ProgressBar::ProgressBar(int preferred_height, bool allow_round_corner)
     : preferred_height_(preferred_height),
       allow_round_corner_(allow_round_corner) {
   EnableCanvasFlippingForRTLUI(true);
 }
 
-ProgressBar::~ProgressBar() {
-}
+ProgressBar::~ProgressBar() = default;
 
 void ProgressBar::GetAccessibleNodeData(ui::AXNodeData* node_data) {
   node_data->role = ax::mojom::Role::kProgressIndicator;
@@ -63,10 +60,6 @@ gfx::Size ProgressBar::CalculatePreferredSize() const {
   gfx::Insets insets = GetInsets();
   pref_size.Enlarge(insets.width(), insets.height());
   return pref_size;
-}
-
-const char* ProgressBar::GetClassName() const {
-  return kViewClassName;
 }
 
 void ProgressBar::OnPaint(gfx::Canvas* canvas) {
@@ -111,7 +104,7 @@ void ProgressBar::SetValue(double value) {
 
   current_value_ = adjusted_value;
   if (IsIndeterminate()) {
-    indeterminate_bar_animation_.reset(new gfx::LinearAnimation(this));
+    indeterminate_bar_animation_ = std::make_unique<gfx::LinearAnimation>(this);
     indeterminate_bar_animation_->SetDuration(base::TimeDelta::FromSeconds(2));
     indeterminate_bar_animation_->Start();
   } else {
@@ -211,5 +204,9 @@ void ProgressBar::OnPaintIndeterminate(gfx::Canvas* canvas) {
   slice_flags.setColor(GetForegroundColor());
   canvas->DrawPath(slice_path, slice_flags);
 }
+
+BEGIN_METADATA(ProgressBar)
+METADATA_PARENT_CLASS(View)
+END_METADATA()
 
 }  // namespace views

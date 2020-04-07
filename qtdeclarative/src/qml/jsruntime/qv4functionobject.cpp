@@ -59,10 +59,10 @@
 #include "private/qqmlbuiltinfunctions_p.h"
 #include <private/qv4jscall_p.h>
 #include <private/qv4vme_moth_p.h>
+#include <private/qv4alloca_p.h>
 
 #include <QtCore/QDebug>
 #include <algorithm>
-#include "qv4alloca_p.h"
 #include "qv4profiling_p.h"
 
 using namespace QV4;
@@ -135,13 +135,13 @@ void Heap::FunctionObject::setFunction(Function *f)
 {
     if (f) {
         function = f;
-        function->compilationUnit->addref();
+        function->executableCompilationUnit()->addref();
     }
 }
 void Heap::FunctionObject::destroy()
 {
     if (function)
-        function->compilationUnit->release();
+        function->executableCompilationUnit()->release();
     Object::destroy();
 }
 
@@ -229,7 +229,7 @@ void Heap::FunctionCtor::init(QV4::ExecutionContext *scope)
 }
 
 // 15.3.2
-QQmlRefPointer<CompiledData::CompilationUnit> FunctionCtor::parse(ExecutionEngine *engine, const Value *argv, int argc, Type t)
+QQmlRefPointer<ExecutableCompilationUnit> FunctionCtor::parse(ExecutionEngine *engine, const Value *argv, int argc, Type t)
 {
     QString arguments;
     QString body;
@@ -273,14 +273,15 @@ QQmlRefPointer<CompiledData::CompilationUnit> FunctionCtor::parse(ExecutionEngin
     if (engine->hasException)
         return nullptr;
 
-    return cg.generateCompilationUnit();
+    return ExecutableCompilationUnit::create(cg.generateCompilationUnit());
 }
 
 ReturnedValue FunctionCtor::virtualCallAsConstructor(const FunctionObject *f, const Value *argv, int argc, const Value *newTarget)
 {
     ExecutionEngine *engine = f->engine();
 
-    QQmlRefPointer<CompiledData::CompilationUnit> compilationUnit = parse(engine, argv, argc, Type_Function);
+    QQmlRefPointer<ExecutableCompilationUnit> compilationUnit
+            = parse(engine, argv, argc, Type_Function);
     if (engine->hasException)
         return Encode::undefined();
 
@@ -357,13 +358,19 @@ ReturnedValue FunctionPrototype::method_apply(const QV4::FunctionObject *b, cons
         return v4->throwTypeError();
     thisObject = argc ? argv : nullptr;
     if (argc < 2 || argv[1].isNullOrUndefined())
-        return f->call(thisObject, argv, 0);
+        return checkedResult(v4, f->call(thisObject, argv, 0));
 
     Object *arr = argv[1].objectValue();
     if (!arr)
         return v4->throwTypeError();
 
-    uint len = arr->getLength();
+    const qint64 len64 = arr->getLength();
+    if (len64 < 0ll || len64 > qint64(std::numeric_limits<int>::max()))
+        return v4->throwRangeError(QStringLiteral("Invalid array length."));
+    if (len64 > qint64(v4->jsStackLimit - v4->jsStackTop))
+        return v4->throwRangeError(QStringLiteral("Array too large for apply()."));
+
+    const uint len = uint(len64);
 
     Scope scope(v4);
     Value *arguments = scope.alloc<Scope::Uninitialized>(len);
@@ -391,13 +398,14 @@ ReturnedValue FunctionPrototype::method_apply(const QV4::FunctionObject *b, cons
         }
     }
 
-    return f->call(thisObject, arguments, len);
+    return checkedResult(v4, f->call(thisObject, arguments, len));
 }
 
 ReturnedValue FunctionPrototype::method_call(const QV4::FunctionObject *b, const Value *thisObject, const Value *argv, int argc)
 {
+    QV4::ExecutionEngine *v4 = b->engine();
     if (!thisObject->isFunctionObject())
-        return b->engine()->throwTypeError();
+        return v4->throwTypeError();
 
     const FunctionObject *f = static_cast<const FunctionObject *>(thisObject);
 
@@ -406,7 +414,7 @@ ReturnedValue FunctionPrototype::method_call(const QV4::FunctionObject *b, const
         ++argv;
         --argc;
     }
-    return f->call(thisObject, argv, argc);
+    return checkedResult(v4, f->call(thisObject, argv, argc));
 }
 
 ReturnedValue FunctionPrototype::method_bind(const FunctionObject *b, const Value *thisObject, const Value *argv, int argc)
@@ -706,12 +714,12 @@ void Heap::BoundFunction::init(QV4::ExecutionContext *scope, QV4::FunctionObject
 
 ReturnedValue BoundFunction::virtualCall(const FunctionObject *fo, const Value *, const Value *argv, int argc)
 {
-    const BoundFunction *f = static_cast<const BoundFunction *>(fo);
-    Scope scope(f->engine());
-
-    if (scope.hasException())
+    QV4::ExecutionEngine *v4 = fo->engine();
+    if (v4->hasException)
         return Encode::undefined();
 
+    const BoundFunction *f = static_cast<const BoundFunction *>(fo);
+    Scope scope(v4);
     Scoped<MemberData> boundArgs(scope, f->boundArgs());
     ScopedFunctionObject target(scope, f->target());
     JSCallData jsCallData(scope, (boundArgs ? boundArgs->size() : 0) + argc);
@@ -722,7 +730,7 @@ ReturnedValue BoundFunction::virtualCall(const FunctionObject *fo, const Value *
         argp += boundArgs->size();
     }
     memcpy(argp, argv, argc*sizeof(Value));
-    return target->call(jsCallData);
+    return checkedResult(v4, target->call(jsCallData));
 }
 
 ReturnedValue BoundFunction::virtualCallAsConstructor(const FunctionObject *fo, const Value *argv, int argc, const Value *)

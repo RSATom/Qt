@@ -42,7 +42,7 @@ QT_BEGIN_NAMESPACE
 
 /*!
     \qmltype Plugin
-    \instantiates QDeclarativeGeoServiceProvider
+    //! \instantiates QDeclarativeGeoServiceProvider
     \inqmlmodule QtLocation
     \ingroup qml-QtLocation5-common
     \since QtLocation 5.5
@@ -124,7 +124,7 @@ void QDeclarativeGeoServiceProvider::setName(const QString &name)
     \internal
 */
 bool QDeclarativeGeoServiceProvider::parametersReady() {
-    for (const QDeclarativeGeoServiceProviderParameter *p: qAsConst(parameters_)) {
+    for (const QDeclarativePluginParameter *p: qAsConst(parameters_)) {
         if (!p->isInitialized())
             return false;
     }
@@ -179,9 +179,9 @@ void QDeclarativeGeoServiceProvider::componentComplete()
 {
     complete_ = true;
 
-    for (QDeclarativeGeoServiceProviderParameter *p: qAsConst(parameters_)) {
+    for (QDeclarativePluginParameter *p: qAsConst(parameters_)) {
         if (!p->isInitialized()) {
-            connect(p, &QDeclarativeGeoServiceProviderParameter::initialized,
+            connect(p, &QDeclarativePluginParameter::initialized,
                     this, &QDeclarativeGeoServiceProvider::tryAttach);
         }
     }
@@ -192,7 +192,8 @@ void QDeclarativeGeoServiceProvider::componentComplete()
             || required_->mappingRequirements() != NoMappingFeatures
             || required_->routingRequirements() != NoRoutingFeatures
             || required_->geocodingRequirements() != NoGeocodingFeatures
-            || required_->placesRequirements() != NoPlacesFeatures) {
+            || required_->placesRequirements() != NoPlacesFeatures
+            || required_->navigationRequirements() != NoNavigationFeatures) {
 
         QStringList providers = QGeoServiceProvider::availableServiceProviders();
 
@@ -602,9 +603,9 @@ void QDeclarativeGeoServiceProvider::setLocales(const QStringList &locales)
 
     This property holds the list of plugin parameters.
 */
-QQmlListProperty<QDeclarativeGeoServiceProviderParameter> QDeclarativeGeoServiceProvider::parameters()
+QQmlListProperty<QDeclarativePluginParameter> QDeclarativeGeoServiceProvider::parameters()
 {
-    return QQmlListProperty<QDeclarativeGeoServiceProviderParameter>(this,
+    return QQmlListProperty<QDeclarativePluginParameter>(this,
             0,
             parameter_append,
             parameter_count,
@@ -615,7 +616,7 @@ QQmlListProperty<QDeclarativeGeoServiceProviderParameter> QDeclarativeGeoService
 /*!
     \internal
 */
-void QDeclarativeGeoServiceProvider::parameter_append(QQmlListProperty<QDeclarativeGeoServiceProviderParameter> *prop, QDeclarativeGeoServiceProviderParameter *parameter)
+void QDeclarativeGeoServiceProvider::parameter_append(QQmlListProperty<QDeclarativePluginParameter> *prop, QDeclarativePluginParameter *parameter)
 {
     QDeclarativeGeoServiceProvider *p = static_cast<QDeclarativeGeoServiceProvider *>(prop->object);
     p->parameters_.append(parameter);
@@ -626,7 +627,7 @@ void QDeclarativeGeoServiceProvider::parameter_append(QQmlListProperty<QDeclarat
 /*!
     \internal
 */
-int QDeclarativeGeoServiceProvider::parameter_count(QQmlListProperty<QDeclarativeGeoServiceProviderParameter> *prop)
+int QDeclarativeGeoServiceProvider::parameter_count(QQmlListProperty<QDeclarativePluginParameter> *prop)
 {
     return static_cast<QDeclarativeGeoServiceProvider *>(prop->object)->parameters_.count();
 }
@@ -634,7 +635,7 @@ int QDeclarativeGeoServiceProvider::parameter_count(QQmlListProperty<QDeclarativ
 /*!
     \internal
 */
-QDeclarativeGeoServiceProviderParameter *QDeclarativeGeoServiceProvider::parameter_at(QQmlListProperty<QDeclarativeGeoServiceProviderParameter> *prop, int index)
+QDeclarativePluginParameter *QDeclarativeGeoServiceProvider::parameter_at(QQmlListProperty<QDeclarativePluginParameter> *prop, int index)
 {
     return static_cast<QDeclarativeGeoServiceProvider *>(prop->object)->parameters_[index];
 }
@@ -642,7 +643,7 @@ QDeclarativeGeoServiceProviderParameter *QDeclarativeGeoServiceProvider::paramet
 /*!
     \internal
 */
-void QDeclarativeGeoServiceProvider::parameter_clear(QQmlListProperty<QDeclarativeGeoServiceProviderParameter> *prop)
+void QDeclarativeGeoServiceProvider::parameter_clear(QQmlListProperty<QDeclarativePluginParameter> *prop)
 {
     QDeclarativeGeoServiceProvider *p = static_cast<QDeclarativeGeoServiceProvider *>(prop->object);
     p->parameters_.clear();
@@ -658,7 +659,7 @@ QVariantMap QDeclarativeGeoServiceProvider::parameterMap() const
     QVariantMap map;
 
     for (int i = 0; i < parameters_.size(); ++i) {
-        QDeclarativeGeoServiceProviderParameter *parameter = parameters_.at(i);
+        QDeclarativePluginParameter *parameter = parameters_.at(i);
         map.insert(parameter->name(), parameter->value());
     }
 
@@ -673,7 +674,8 @@ QDeclarativeGeoServiceProviderRequirements::QDeclarativeGeoServiceProviderRequir
       mapping_(QDeclarativeGeoServiceProvider::NoMappingFeatures),
       routing_(QDeclarativeGeoServiceProvider::NoRoutingFeatures),
       geocoding_(QDeclarativeGeoServiceProvider::NoGeocodingFeatures),
-      places_(QDeclarativeGeoServiceProvider::NoPlacesFeatures)
+      places_(QDeclarativeGeoServiceProvider::NoPlacesFeatures),
+      navigation_(QDeclarativeGeoServiceProvider::NoNavigationFeatures)
 {
 }
 
@@ -769,6 +771,27 @@ void QDeclarativeGeoServiceProviderRequirements::setPlacesRequirements(const QDe
 /*!
     \internal
 */
+QDeclarativeGeoServiceProvider::NavigationFeatures QDeclarativeGeoServiceProviderRequirements::navigationRequirements() const
+{
+    return navigation_;
+}
+
+/*!
+    \internal
+*/
+void QDeclarativeGeoServiceProviderRequirements::setNavigationRequirements(const QDeclarativeGeoServiceProvider::NavigationFeatures &features)
+{
+    if (navigation_ == features)
+        return;
+
+    navigation_ = features;
+    emit navigationRequirementsChanged(navigation_);
+    emit requirementsChanged();
+}
+
+/*!
+    \internal
+*/
 bool QDeclarativeGeoServiceProviderRequirements::matches(const QGeoServiceProvider *provider) const
 {
     QGeoServiceProvider::MappingFeatures mapping =
@@ -817,13 +840,25 @@ bool QDeclarativeGeoServiceProviderRequirements::matches(const QGeoServiceProvid
             return false;
     }
 
+    QGeoServiceProvider::NavigationFeatures navigation =
+            static_cast<QGeoServiceProvider::NavigationFeatures>(int(navigation_));
+
+    if (navigation == QGeoServiceProvider::AnyNavigationFeatures) {
+        if (provider->navigationFeatures() == QGeoServiceProvider::NoNavigationFeatures)
+            return false;
+    } else {
+        if ((provider->navigationFeatures() & navigation) != navigation)
+            return false;
+    }
+
     return true;
 }
 
 bool QDeclarativeGeoServiceProviderRequirements::operator == (const QDeclarativeGeoServiceProviderRequirements &rhs) const
 {
     return (mapping_ == rhs.mapping_ && routing_ == rhs.routing_
-            && geocoding_ == rhs.geocoding_ && places_ == rhs.places_);
+            && geocoding_ == rhs.geocoding_ && places_ == rhs.places_
+            && navigation_ == rhs.navigation_);
 }
 
 /*******************************************************************************
@@ -831,21 +866,25 @@ bool QDeclarativeGeoServiceProviderRequirements::operator == (const QDeclarative
 
 /*!
     \qmltype PluginParameter
-    \instantiates QDeclarativeGeoServiceProviderParameter
+    //! \instantiates QDeclarativePluginParameter
     \inqmlmodule QtLocation
     \ingroup qml-QtLocation5-common
     \since QtLocation 5.5
 
-    \brief The PluginParameter type describes a parameter to a \l Plugin.
+    \brief The PluginParameter type describes a parameter for a plugin, either
+    geo service \l Plugin, or \l{Qt Positioning plugins}{position Plugin}.
 
     The PluginParameter object is used to provide a parameter of some kind
-    to a Plugin. Typically these parameters contain details like an application
-    token for access to a service, or a proxy server to use for network access.
+    to a plugin. Typically these parameters contain details like an application
+    token for access to a service, or a proxy server to use for network access,
+    or the serial port to which a serial GPS receiver is connected.
 
-    To set such a parameter, declare a PluginParameter inside a \l Plugin
-    object, and give it \l{name} and \l{value} properties. A list of valid
+    To set such a parameter, declare a PluginParameter inside an element that accepts
+    plugin parameters as configuration objects, such as a \l Plugin object, or a
+    \l PositionSource object, and give it \l{name} and \l{value} properties. A list of valid
     parameter names for each plugin is available from the
-    \l {Qt Location#Plugin References and Parameters}{plugin reference pages}.
+    \l {Qt Location#Plugin References and Parameters}{plugin reference pages} for geoservice plugins,
+    and \l {Qt Positioning plugins#Default plugins} for position plugins.
 
     \section2 Example Usage
 
@@ -861,33 +900,12 @@ bool QDeclarativeGeoServiceProviderRequirements::operator == (const QDeclarative
     \endcode
 */
 
-QDeclarativeGeoServiceProviderParameter::QDeclarativeGeoServiceProviderParameter(QObject *parent)
-    : QObject(parent) {}
-
-QDeclarativeGeoServiceProviderParameter::~QDeclarativeGeoServiceProviderParameter() {}
-
 /*!
     \qmlproperty string PluginParameter::name
 
     This property holds the name of the plugin parameter as a single formatted string.
     This property is a write-once property.
 */
-void QDeclarativeGeoServiceProviderParameter::setName(const QString &name)
-{
-    if (!name_.isEmpty() || name.isEmpty())
-        return;
-
-    name_ = name;
-
-    emit nameChanged(name_);
-    if (value_.isValid())
-        emit initialized();
-}
-
-QString QDeclarativeGeoServiceProviderParameter::name() const
-{
-    return name_;
-}
 
 /*!
     \qmlproperty QVariant PluginParameter::value
@@ -895,29 +913,9 @@ QString QDeclarativeGeoServiceProviderParameter::name() const
     This property holds the value of the plugin parameter which support different types of values (variant).
     This property is a write-once property.
 */
-void QDeclarativeGeoServiceProviderParameter::setValue(const QVariant &value)
-{
-    if (value_.isValid() || !value.isValid() || value.isNull())
-        return;
-
-    value_ = value;
-
-    emit valueChanged(value_);
-    if (!name_.isEmpty())
-        emit initialized();
-}
-
-QVariant QDeclarativeGeoServiceProviderParameter::value() const
-{
-    return value_;
-}
-
-bool QDeclarativeGeoServiceProviderParameter::isInitialized() const
-{
-    return !name_.isEmpty() && value_.isValid();
-}
 
 /*******************************************************************************
+ *  Implementation now in positioningquick
 *******************************************************************************/
 
 QT_END_NAMESPACE

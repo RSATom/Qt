@@ -7,14 +7,16 @@ INCLUDEPATH += ../3rdparty/clipper
 INCLUDEPATH += ../3rdparty/clip2tri
 
 QMAKE_DOCS = $$PWD/doc/qtpositioning.qdocconf
-OTHER_FILES += configure.json doc/src/*.qdoc   # show .qdoc files in Qt Creator
+OTHER_FILES += configure.json doc/src/*.qdoc doc/src/plugins/*.qdoc   # show .qdoc files in Qt Creator
 
 ANDROID_BUNDLED_JAR_DEPENDENCIES = \
     jar/QtPositioning.jar:org.qtproject.qt5.android.positioning.QtPositioning
-ANDROID_PERMISSIONS = \
+ANDROID_PERMISSIONS += \
     android.permission.ACCESS_FINE_LOCATION
+ANDROID_FEATURES += \
+    android.hardware.location.gps
 ANDROID_LIB_DEPENDENCIES = \
-    plugins/position/libqtposition_android.so
+    plugins/position/libplugins_position_qtposition_android.so
 MODULE_WINRT_CAPABILITIES_DEVICE += \
     location
 MODULE_PLUGIN_TYPES = \
@@ -59,6 +61,8 @@ PRIVATE_HEADERS += \
                     qgeopolygon_p.h \
                     qgeocoordinateobject_p.h \
                     qgeopositioninfo_p.h \
+                    qgeosatelliteinfo_p.h \
+                    qgeosatelliteinfosource_p.h \
                     qclipperutils_p.h
 
 SOURCES += \
@@ -88,7 +92,6 @@ SOURCES += \
             qgeocoordinateobject.cpp
 
 HEADERS += $$PUBLIC_HEADERS $$PRIVATE_HEADERS
-
 
 load(qt_module)
 

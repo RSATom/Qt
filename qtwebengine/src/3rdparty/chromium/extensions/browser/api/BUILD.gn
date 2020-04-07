@@ -46,6 +46,7 @@ source_set("api") {
     "//extensions/browser/api/app_runtime",
     "//extensions/browser/api/app_window",
     "//extensions/browser/api/audio",
+    "//extensions/browser/api/automation_internal",
     "//extensions/browser/api/bluetooth",
     "//extensions/browser/api/bluetooth_low_energy",
     "//extensions/browser/api/bluetooth_socket",
@@ -105,7 +106,6 @@ source_set("api") {
   deps += [
     "//components/onc",
     "//components/storage_monitor",
-    "//device/base",
     "//device/bluetooth",
   ]
 
@@ -144,7 +144,10 @@ source_set("api") {
     deps += [
       "//chromeos",
       "//chromeos/dbus",
-      "//chromeos/dbus:media_perception_proto",
+      "//chromeos/dbus/media_analytics",
+      "//chromeos/dbus/media_analytics:media_perception_proto",
+      "//chromeos/dbus/permission_broker",
+      "//chromeos/dbus/upstart",
       "//chromeos/login/login_state",
       "//chromeos/services/media_perception/public/mojom",
       "//chromeos/services/media_perception/public/mojom:mojom_js_data_deps",
@@ -157,6 +160,7 @@ source_set("api") {
       "//extensions/browser/api/bluetooth_low_energy",
       "//extensions/browser/api/bluetooth_socket",
       "//extensions/browser/api/cast_channel",
+      "//extensions/browser/api/feedback_private",
       "//extensions/browser/api/system_cpu",
       "//extensions/browser/api/system_display",
       "//extensions/browser/api/system_info",

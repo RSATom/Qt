@@ -52,10 +52,18 @@
 #include "padnavigator.h"
 #include "splashitem.h"
 
+#include <QEventTransition>
+#include <QGraphicsProxyWidget>
+#include <QGraphicsRotation>
+#include <QHistoryState>
+#include <QKeyEventTransition>
+#include <QParallelAnimationGroup>
+#include <QPropertyAnimation>
+#include <QSequentialAnimationGroup>
+#include <QStateMachine>
+
 #ifndef QT_NO_OPENGL
-#include <QtOpenGL>
-#else
-#include <QtWidgets>
+#include <QOpenGLWidget>
 #endif
 
 //! [0]
@@ -134,24 +142,16 @@ PadNavigator::PadNavigator(const QSize &size, QWidget *parent)
     // Flip animation setup
     QPropertyAnimation *smoothFlipRotation = new QPropertyAnimation(flipRotation, "angle");
     QPropertyAnimation *smoothFlipScale = new QPropertyAnimation(pad, "scale");
-    QPropertyAnimation *smoothFlipXRotation = new QPropertyAnimation(xRotation, "angle");
-    QPropertyAnimation *smoothFlipYRotation = new QPropertyAnimation(yRotation, "angle");
     QParallelAnimationGroup *flipAnimation = new QParallelAnimationGroup(this);
     smoothFlipScale->setDuration(500);
     smoothFlipRotation->setDuration(500);
-    smoothFlipXRotation->setDuration(500);
-    smoothFlipYRotation->setDuration(500);
     smoothFlipScale->setEasingCurve(QEasingCurve::InOutQuad);
     smoothFlipRotation->setEasingCurve(QEasingCurve::InOutQuad);
-    smoothFlipXRotation->setEasingCurve(QEasingCurve::InOutQuad);
-    smoothFlipYRotation->setEasingCurve(QEasingCurve::InOutQuad);
     smoothFlipScale->setKeyValueAt(0, qvariant_cast<qreal>(1.0));
     smoothFlipScale->setKeyValueAt(0.5, qvariant_cast<qreal>(0.7));
     smoothFlipScale->setKeyValueAt(1, qvariant_cast<qreal>(1.0));
     flipAnimation->addAnimation(smoothFlipRotation);
     flipAnimation->addAnimation(smoothFlipScale);
-    flipAnimation->addAnimation(smoothFlipXRotation);
-    flipAnimation->addAnimation(smoothFlipYRotation);
 //! [7]
 
 //! [8]

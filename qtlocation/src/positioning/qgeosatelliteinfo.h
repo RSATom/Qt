@@ -63,6 +63,7 @@ public:
 
     QGeoSatelliteInfo();
     QGeoSatelliteInfo(const QGeoSatelliteInfo &other);
+    QGeoSatelliteInfo(QGeoSatelliteInfoPrivate &dd);
     ~QGeoSatelliteInfo();
 
     QGeoSatelliteInfo &operator=(const QGeoSatelliteInfo &other);
@@ -96,6 +97,7 @@ private:
     friend Q_POSITIONING_EXPORT QDataStream &operator>>(QDataStream &stream, QGeoSatelliteInfo &info);
 #endif
     QGeoSatelliteInfoPrivate *d;
+    friend class QGeoSatelliteInfoPrivate;
 };
 
 #ifndef QT_NO_DEBUG_STREAM

@@ -4,8 +4,8 @@
 
 #include <stddef.h>
 
-#include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
+#include "base/test/scoped_task_environment.h"
 #include "gpu/config/gpu_info.h"
 #include "media/mojo/clients/mojo_video_encode_accelerator.h"
 #include "media/mojo/interfaces/video_encode_accelerator.mojom.h"
@@ -165,13 +165,14 @@ class MojoVideoEncodeAcceleratorTest : public ::testing::Test {
 
     const VideoEncodeAccelerator::Config config(
         PIXEL_FORMAT_I420, kInputVisibleSize, kOutputProfile, kInitialBitrate,
-        base::nullopt, base::nullopt, base::nullopt, kContentType);
+        base::nullopt, base::nullopt, base::nullopt, base::nullopt,
+        kContentType);
     EXPECT_TRUE(mojo_vea()->Initialize(config, mock_vea_client));
     base::RunLoop().RunUntilIdle();
   }
 
  private:
-  const base::MessageLoop message_loop_;
+  base::test::ScopedTaskEnvironment scoped_task_environment_;
 
   // This member holds on to the mock implementation of the "service" side.
   mojo::StrongBindingPtr<mojom::VideoEncodeAccelerator> mojo_vea_binding_;
@@ -201,13 +202,14 @@ TEST_F(MojoVideoEncodeAcceleratorTest, EncodeOneFrame) {
   const int32_t kBitstreamBufferId = 17;
   {
     const int32_t kShMemSize = 10;
-    base::SharedMemory shmem;
-    shmem.CreateAnonymous(kShMemSize);
+    auto shmem = base::UnsafeSharedMemoryRegion::Create(kShMemSize);
     EXPECT_CALL(*mock_mojo_vea(),
                 DoUseOutputBitstreamBuffer(kBitstreamBufferId, _));
-    mojo_vea()->UseOutputBitstreamBuffer(
-        BitstreamBuffer(kBitstreamBufferId, shmem.handle(), kShMemSize,
-                        0 /* offset */, base::TimeDelta()));
+    mojo_vea()->UseOutputBitstreamBuffer(BitstreamBuffer(
+        kBitstreamBufferId,
+        base::UnsafeSharedMemoryRegion::TakeHandleForSerialization(
+            std::move(shmem)),
+        kShMemSize, 0 /* offset */, base::TimeDelta()));
     base::RunLoop().RunUntilIdle();
   }
 

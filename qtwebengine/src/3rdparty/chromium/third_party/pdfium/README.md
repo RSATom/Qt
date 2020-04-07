@@ -2,9 +2,10 @@
 
 ## Prerequisites
 
-Get the chromium depot tools via the instructions at
-http://www.chromium.org/developers/how-tos/install-depot-tools (this provides
-the gclient utility needed below).
+Get the Chromium depot\_tools via the
+[instructions](https://www.chromium.org/developers/how-tos/install-depot-tools).
+This provides the gclient utility needed below and many other tools needed for
+PDFium development.
 
 Also install Python, Subversion, and Git and make sure they're in your path.
 
@@ -14,13 +15,14 @@ Also install Python, Subversion, and Git and make sure they're in your path.
 PDFium uses the same build tool as Chromium:
 
 #### Open source contributors
-Please refer to [Chromium's Visual Studio set up](https://chromium.googlesource.com/chromium/src/+/master/docs/windows_build_instructions.md#visual-studio)
+Please refer to
+[Chromium's Visual Studio set up](https://chromium.googlesource.com/chromium/src/+/master/docs/windows_build_instructions.md#visual-studio)
 for requirements and instructions on build environment configuration.
 
 Run `set DEPOT_TOOLS_WIN_TOOLCHAIN=0`, or set that variable in your global
 environment.
 
-Compilation is done through ninja, **not** Visual Studio.
+Compilation is done through Ninja, **not** Visual Studio.
 
 ### CPU Architectures supported
 
@@ -63,7 +65,8 @@ gclient sync
 cd pdfium
 ```
 
-Additional build dependencies need to be installed by running:
+Additional build dependencies need to be installed by running the following from
+the `pdfium` directory.
 
 ```
 ./build/install-build-deps.sh
@@ -71,8 +74,7 @@ Additional build dependencies need to be installed by running:
 
 ## Generate the build files
 
-We use GN to generate the build files and
-[Ninja](http://martine.github.io/ninja/)
+We use GN to generate the build files and [Ninja](https://ninja-build.org/)
 to execute the build files.  Both of these are included with the
 depot\_tools checkout.
 
@@ -84,6 +86,8 @@ default. Also note that the XFA feature requires JavaScript.
 
 Configuration is done by executing `gn args <directory>` to configure the build.
 This will launch an editor in which you can set the following arguments.
+By convention, `<directory>` should be named `out/foo`, and some tools / test
+support code only works if one follows this convention.
 A typical `<directory>` name is `out/Debug`.
 
 ```
@@ -98,7 +102,7 @@ pdf_use_skia_paths = false
 pdf_enable_xfa = true  # Set false to remove XFA support (implies JS support).
 pdf_enable_v8 = true  # Set false to remove Javascript support.
 pdf_is_standalone = true  # Set for a non-embedded build.
-is_component_build = false # Disable component build (must be false)
+is_component_build = false # Disable component build (Though it should work)
 
 clang_use_chrome_plugins = false  # Currently must be false.
 ```
@@ -123,9 +127,10 @@ You can build the entire product (which includes a few unit tests) by running:
 ## Running the sample program
 
 The pdfium\_test program supports reading, parsing, and rasterizing the pages of
-a .pdf file to .ppm or .png output image files (windows supports two other
+a .pdf file to .ppm or .png output image files (Windows supports two other
 formats). For example: `<directory>/pdfium_test --ppm path/to/myfile.pdf`. Note
 that this will write output images to `path/to/myfile.pdf.<n>.ppm`.
+Run `pdfium_test --help` to see all the options.
 
 ## Testing
 
@@ -142,6 +147,56 @@ differences on the various platforms. These tests are reliable on the bots. If
 you see failures, it can be a good idea to run the tests on the tip-of-tree
 checkout to see if the same failures appear.
 
+### Pixel Tests
+
+If your change affects rendering, a pixel test should be added. Simply add a
+`.in` or `.pdf` file in `testing/resources/pixel` and the pixel runner will
+pick it up at the next run.
+
+Make sure that your test case doesn't have any copyright issues. It should also
+be a minimal test case focusing on the bug that renders the same way in many
+PDF viewers. Try to avoid binary data in streams by using the `ASCIIHexDecode`
+simply because it makes the PDF more readable in a text editor.
+
+To try out your new test, you can call the `run_pixel_tests.py` script:
+
+```bash
+$ ./testing/tools/run_pixel_tests.py your_new_file.in
+```
+
+To generate the expected image, you can use the `make_expected.sh` script:
+
+```bash
+$ ./testing/tools/make_expected.sh your_new_file.pdf
+```
+
+Please make sure to have `optipng` installed which optimized the file size of
+the resulting png.
+
+### `.in` files
+
+`.in` files are PDF template files. PDF files contain many byte offsets that
+have to be kept correct or the file won't be valid. The template makes this
+easier by replacing the byte offsets with certain keywords.
+
+This saves space and also allows an easy way to reduce the test case to the
+essentials as you can simply remove everything that is not necessary.
+
+A simple example can be found [here](https://pdfium.googlesource.com/pdfium/+/refs/heads/master/testing/resources/rectangles.in).
+
+To transform this into a PDF, you can use the `fixup_pdf_template.py` tool:
+
+```bash
+$ ./testing/tools/fixup_pdf_template.py your_file.in
+```
+
+This will create a `your_file.pdf` in the same directory as `your_file.in`.
+
+There is no official style guide for the .in file, but a consistent style is
+preferred simply to help with readability. If possible, object numbers should
+be consecutive and `/Type` and `/SubType` should be on top of a dictionary to
+make object identification easier.
+
 ## Embedding PDFium in your own projects
 
 The public/ directory contains header files for the APIs available for use by
@@ -155,6 +210,11 @@ should not directly call these routines.
 Code coverage reports for PDFium can be generated in Linux development
 environments. Details can be found [here](/docs/code-coverage.md).
 
+Chromium provides code coverage reports for PDFium
+[here](https://chromium-coverage.appspot.com/). PDFium is located in
+`third_party/pdfium` in Chromium's source code.
+This includes code coverage from PDFium's fuzzers.
+
 ## Profiling
 
 Valgrind and other profiling tools do not work correctly with the standard build
@@ -164,8 +224,8 @@ correctly appear.
 
 ## Waterfall
 
-The current health of the source tree can be found at
-https://ci.chromium.org/p/pdfium/g/main/console
+The current health of the source tree can be found
+[here](https://ci.chromium.org/p/pdfium/g/main/console).
 
 ## Community
 
@@ -180,19 +240,23 @@ Note, the Reviews and Bugs lists are typically read-only.
 ## Bugs
 
  We use this
-[bug tracker](https://code.google.com/p/pdfium/issues/list), but for security
-bugs, please use [Chromium's security bug template]
-(https://code.google.com/p/chromium/issues/entry?template=Security%20Bug)
+[bug tracker](https://bugs.chromium.org/p/pdfium/issues/list), but for security
+bugs, please use
+[Chromium's security bug template](https://bugs.chromium.org/p/chromium/issues/entry?template=Security%20Bug)
 and add the "Cr-Internals-Plugins-PDF" label.
 
 ## Contributing code
 
 For contributing code, we will follow
-[Chromium's process](http://dev.chromium.org/developers/contributing-code)
+[Chromium's process](https://chromium.googlesource.com/chromium/src/+/master/docs/contributing.md)
 as much as possible. The main exceptions are:
 
 1. Code has to conform to the existing style and not Chromium/Google style.
-2. PDFium uses a different tool for code reviews, and credentials for
-the tool need to be generated before uploading a CL.
+2. PDFium uses a different Gerrit instance for code reviews, and credentials for
+this Gerrit instance need to be generated before uploading changes.
 3. PDFium is currently holding at C++11 compatibility, rejecting features that
 are only present in C++14 (onto which Chromium is now slowly moving).
+
+Before submitting a fix for a bug, it can help if you create an issue in the
+bug tracker. This allows easier discussion about the problem and also helps
+with statistics tracking.

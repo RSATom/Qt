@@ -8,16 +8,17 @@
 #ifndef GrDebugMarkerOp_DEFINED
 #define GrDebugMarkerOp_DEFINED
 
-#include "GrOp.h"
-#include "GrRenderTargetProxy.h"
+#include "src/gpu/GrRenderTargetProxy.h"
+#include "src/gpu/ops/GrOp.h"
 
 class GrOpFlushState;
+class GrRecordingContext;
 
 class GrDebugMarkerOp final : public GrOp {
 public:
     DEFINE_OP_CLASS_ID
 
-    static std::unique_ptr<GrOp> Make(GrContext*,
+    static std::unique_ptr<GrOp> Make(GrRecordingContext*,
                                       GrRenderTargetProxy*,
                                       const SkString&);
 

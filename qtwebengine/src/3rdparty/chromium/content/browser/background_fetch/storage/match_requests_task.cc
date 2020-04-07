@@ -4,17 +4,21 @@
 
 #include "content/browser/background_fetch/storage/match_requests_task.h"
 
+#include <memory>
+
 #include "base/barrier_closure.h"
+#include "base/bind.h"
 #include "content/browser/background_fetch/background_fetch_data_manager.h"
 #include "content/browser/background_fetch/storage/database_helpers.h"
+#include "content/browser/cache_storage/cache_storage.h"
 #include "content/browser/cache_storage/cache_storage_manager.h"
 #include "content/browser/service_worker/service_worker_context_wrapper.h"
 #include "content/common/service_worker/service_worker_utils.h"
 #include "services/network/public/cpp/cors/cors.h"
+#include "third_party/blink/public/common/cache_storage/cache_storage_utils.h"
 #include "third_party/blink/public/mojom/fetch/fetch_api_request.mojom.h"
 
 namespace content {
-
 namespace background_fetch {
 
 MatchRequestsTask::MatchRequestsTask(
@@ -25,21 +29,28 @@ MatchRequestsTask::MatchRequestsTask(
     : DatabaseTask(host),
       registration_id_(registration_id),
       match_params_(std::move(match_params)),
-      callback_(std::move(callback)),
-      weak_factory_(this) {}
+      callback_(std::move(callback)) {}
 
 MatchRequestsTask::~MatchRequestsTask() = default;
 
 void MatchRequestsTask::Start() {
+  int64_t trace_id = blink::cache_storage::CreateTraceId();
+  TRACE_EVENT_WITH_FLOW0("CacheStorage", "MatchRequestsTask::Start",
+                         TRACE_ID_GLOBAL(trace_id), TRACE_EVENT_FLAG_FLOW_OUT);
   CacheStorageHandle cache_storage = GetOrOpenCacheStorage(registration_id_);
   cache_storage.value()->OpenCache(
-      /* cache_name= */ registration_id_.unique_id(),
+      /* cache_name= */ registration_id_.unique_id(), trace_id,
       base::BindOnce(&MatchRequestsTask::DidOpenCache,
-                     weak_factory_.GetWeakPtr()));
+                     weak_factory_.GetWeakPtr(), trace_id));
 }
 
-void MatchRequestsTask::DidOpenCache(CacheStorageCacheHandle handle,
+void MatchRequestsTask::DidOpenCache(int64_t trace_id,
+                                     CacheStorageCacheHandle handle,
                                      blink::mojom::CacheStorageError error) {
+  TRACE_EVENT_WITH_FLOW0("CacheStorage", "MatchRequestsTask::DidOpenCache",
+                         TRACE_ID_GLOBAL(trace_id),
+                         TRACE_EVENT_FLAG_FLOW_IN | TRACE_EVENT_FLAG_FLOW_OUT);
+
   if (error != blink::mojom::CacheStorageError::kSuccess) {
     SetStorageErrorAndFinish(BackgroundFetchStorageError::kCacheStorageError);
     return;
@@ -56,27 +67,32 @@ void MatchRequestsTask::DidOpenCache(CacheStorageCacheHandle handle,
     request = blink::mojom::FetchAPIRequest::New();
   }
 
-  auto query_params = match_params_->cloned_cache_query_params();
-  if (!query_params)
-    query_params = blink::mojom::QueryParams::New();
+  auto query_options = match_params_->cloned_cache_query_options();
+  if (!query_options)
+    query_options = blink::mojom::CacheQueryOptions::New();
 
   // Ignore the search params since we added query params to make the URL
   // unique.
-  query_params->ignore_search = true;
+  query_options->ignore_search = true;
 
   // Ignore the method since Cache Storage assumes the request being matched
   // against is a GET.
-  query_params->ignore_method = true;
+  query_options->ignore_method = true;
 
   handle_.value()->GetAllMatchedEntries(
-      std::move(request), std::move(query_params),
+      std::move(request), std::move(query_options), trace_id,
       base::BindOnce(&MatchRequestsTask::DidGetAllMatchedEntries,
-                     weak_factory_.GetWeakPtr()));
+                     weak_factory_.GetWeakPtr(), trace_id));
 }
 
 void MatchRequestsTask::DidGetAllMatchedEntries(
+    int64_t trace_id,
     blink::mojom::CacheStorageError error,
     std::vector<CacheStorageCache::CacheEntry> entries) {
+  TRACE_EVENT_WITH_FLOW0("CacheStorage",
+                         "MatchRequestsTask::DidGetAllMatchedEntries",
+                         TRACE_ID_GLOBAL(trace_id), TRACE_EVENT_FLAG_FLOW_IN);
+
   if (error != blink::mojom::CacheStorageError::kSuccess) {
     SetStorageErrorAndFinish(BackgroundFetchStorageError::kCacheStorageError);
     return;
@@ -123,15 +139,15 @@ bool MatchRequestsTask::ShouldMatchRequest(
     return true;
 
   // Ignore the request if the methods don't match.
-  if ((!match_params_->cache_query_params() ||
-       !match_params_->cache_query_params()->ignore_method) &&
+  if ((!match_params_->cache_query_options() ||
+       !match_params_->cache_query_options()->ignore_method) &&
       request->method != match_params_->request_to_match()->method) {
     return false;
   }
 
   // Ignore the request if the queries don't match.
-  if ((!match_params_->cache_query_params() ||
-       !match_params_->cache_query_params()->ignore_search) &&
+  if ((!match_params_->cache_query_options() ||
+       !match_params_->cache_query_options()->ignore_search) &&
       request->url.query() != match_params_->request_to_match()->url.query()) {
     return false;
   }
@@ -151,8 +167,7 @@ void MatchRequestsTask::FinishWithError(
 
 std::string MatchRequestsTask::HistogramName() const {
   return "MatchRequestsTask";
-};
+}
 
 }  // namespace background_fetch
-
 }  // namespace content

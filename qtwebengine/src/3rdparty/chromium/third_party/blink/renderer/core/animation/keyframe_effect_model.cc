@@ -35,15 +35,14 @@
 
 #include "third_party/blink/renderer/core/animation/animation_effect.h"
 #include "third_party/blink/renderer/core/animation/compositor_animations.h"
-#include "third_party/blink/renderer/core/animation/css/css_animatable_value_factory.h"
 #include "third_party/blink/renderer/core/css/css_property_equality.h"
 #include "third_party/blink/renderer/core/css/property_registry.h"
 #include "third_party/blink/renderer/core/css/resolver/style_resolver.h"
 #include "third_party/blink/renderer/core/dom/document.h"
-#include "third_party/blink/renderer/core/frame/use_counter.h"
 #include "third_party/blink/renderer/core/style/computed_style.h"
 #include "third_party/blink/renderer/platform/animation/animation_utilities.h"
 #include "third_party/blink/renderer/platform/geometry/float_box.h"
+#include "third_party/blink/renderer/platform/instrumentation/use_counter.h"
 #include "third_party/blink/renderer/platform/transforms/transformation_matrix.h"
 #include "third_party/blink/renderer/platform/wtf/text/string_hash.h"
 
@@ -88,8 +87,7 @@ bool KeyframeEffectModelBase::Sample(
   last_iteration_ = iteration;
   last_fraction_ = fraction;
   last_iteration_duration_ = iteration_duration;
-  interpolation_effect_->GetActiveInterpolations(
-      fraction, iteration_duration.InSecondsF(), result);
+  interpolation_effect_->GetActiveInterpolations(fraction, result);
   return changed;
 }
 
@@ -233,8 +231,8 @@ bool KeyframeEffectModelBase::SnapshotCompositorKeyFrames(
     if (!should_snapshot_keyframe_callback(*keyframe))
       continue;
 
-    updated |= keyframe->PopulateAnimatableValue(property, element,
-                                                 computed_style, parent_style);
+    updated |= keyframe->PopulateCompositorKeyframeValue(
+        property, element, computed_style, parent_style);
   }
   return updated;
 }

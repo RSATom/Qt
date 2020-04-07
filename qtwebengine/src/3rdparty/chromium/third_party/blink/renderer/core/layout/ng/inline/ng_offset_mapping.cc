@@ -4,13 +4,14 @@
 
 #include "third_party/blink/renderer/core/layout/ng/inline/ng_offset_mapping.h"
 
+#include <algorithm>
 #include "third_party/blink/renderer/core/dom/node.h"
+#include "third_party/blink/renderer/core/dom/node_computed_style.h"
 #include "third_party/blink/renderer/core/dom/text.h"
 #include "third_party/blink/renderer/core/editing/editing_utilities.h"
 #include "third_party/blink/renderer/core/editing/ephemeral_range.h"
 #include "third_party/blink/renderer/core/editing/position.h"
 #include "third_party/blink/renderer/core/layout/layout_text_fragment.h"
-#include "third_party/blink/renderer/core/layout/ng/inline/ng_caret_navigator.h"
 #include "third_party/blink/renderer/core/layout/ng/inline/ng_inline_node.h"
 #include "third_party/blink/renderer/core/layout/ng/ng_block_node.h"
 #include "third_party/blink/renderer/platform/text/character.h"
@@ -24,17 +25,19 @@ bool CanUseNGOffsetMapping(const LayoutObject& object) {
   return object.IsLayoutBlockFlow() && !object.IsLayoutFlowThread();
 }
 
-// Returns true if |node| has style 'display:inline' and can have descendants
-// in the inline layout.
-bool IsNonAtomicInline(const Node& node) {
-  const LayoutObject* layout_object = node.GetLayoutObject();
-  return layout_object && layout_object->IsInline() &&
-         !layout_object->IsText() && !layout_object->IsAtomicInlineLevel();
-}
-
 Position CreatePositionForOffsetMapping(const Node& node, unsigned dom_offset) {
-  if (node.IsTextNode())
-    return Position(&node, dom_offset);
+  if (auto* text_node = DynamicTo<Text>(node)) {
+    // 'text-transform' may make the rendered text length longer than the
+    // original text node, in which case we clamp the offset to avoid crashing.
+    // TODO(crbug.com/750990): Support 'text-transform' to remove this hack.
+#if DCHECK_IS_ON()
+    // Ensures that the clamping hack kicks in only with text-transform.
+    if (node.ComputedStyleRef().TextTransform() == ETextTransform::kNone)
+      DCHECK_LE(dom_offset, text_node->length());
+#endif
+    const unsigned clamped_offset = std::min(dom_offset, text_node->length());
+    return Position(&node, clamped_offset);
+  }
   // For non-text-anchored position, the offset must be either 0 or 1.
   DCHECK_LE(dom_offset, 1u);
   return dom_offset ? Position::AfterNode(node) : Position::BeforeNode(node);
@@ -42,13 +45,13 @@ Position CreatePositionForOffsetMapping(const Node& node, unsigned dom_offset) {
 
 std::pair<const Node&, unsigned> ToNodeOffsetPair(const Position& position) {
   DCHECK(NGOffsetMapping::AcceptsPosition(position)) << position;
-  if (position.AnchorNode()->IsTextNode()) {
+  if (auto* text_node = DynamicTo<Text>(position.AnchorNode())) {
     if (position.IsOffsetInAnchor())
       return {*position.AnchorNode(), position.OffsetInContainerNode()};
     if (position.IsBeforeAnchor())
       return {*position.AnchorNode(), 0};
     DCHECK(position.IsAfterAnchor());
-    return {*position.AnchorNode(), ToText(position.AnchorNode())->length()};
+    return {*position.AnchorNode(), text_node->length()};
   }
   if (position.IsBeforeAnchor())
     return {*position.AnchorNode(), 0};
@@ -85,22 +88,57 @@ LayoutBlockFlow* NGOffsetMapping::GetInlineFormattingContextOf(
 }
 
 NGOffsetMappingUnit::NGOffsetMappingUnit(NGOffsetMappingUnitType type,
-                                         const Node& node,
+                                         const LayoutObject& layout_object,
                                          unsigned dom_start,
                                          unsigned dom_end,
                                          unsigned text_content_start,
                                          unsigned text_content_end)
     : type_(type),
-      owner_(&node),
+      layout_object_(&layout_object),
       dom_start_(dom_start),
       dom_end_(dom_end),
       text_content_start_(text_content_start),
-      text_content_end_(text_content_end) {}
+      text_content_end_(text_content_end) {
+  AssertValid();
+}
+
+void NGOffsetMappingUnit::AssertValid() const {
+#if ENABLE_SECURITY_ASSERT
+  SECURITY_DCHECK(dom_start_ <= dom_end_) << dom_start_ << " vs. " << dom_end_;
+  SECURITY_DCHECK(text_content_start_ <= text_content_end_)
+      << text_content_start_ << " vs. " << text_content_end_;
+  if (layout_object_->IsText() &&
+      !ToLayoutText(*layout_object_).IsWordBreak()) {
+    const LayoutText& layout_text = ToLayoutText(*layout_object_);
+    const unsigned text_start =
+        AssociatedNode() ? layout_text.TextStartOffset() : 0;
+    const unsigned text_end = text_start + layout_text.TextLength();
+    SECURITY_DCHECK(dom_end_ >= text_start)
+        << dom_end_ << " vs. " << text_start;
+    SECURITY_DCHECK(dom_end_ <= text_end) << dom_end_ << " vs. " << text_end;
+  } else {
+    SECURITY_DCHECK(dom_start_ == 0) << dom_start_;
+    SECURITY_DCHECK(dom_end_ == 1) << dom_end_;
+  }
+#endif
+}
 
 NGOffsetMappingUnit::~NGOffsetMappingUnit() = default;
 
+const Node* NGOffsetMappingUnit::AssociatedNode() const {
+  if (const auto* text_fragment = ToLayoutTextFragmentOrNull(layout_object_))
+    return text_fragment->AssociatedTextNode();
+  return layout_object_->GetNode();
+}
+
+const Node& NGOffsetMappingUnit::GetOwner() const {
+  const Node* const node = AssociatedNode();
+  DCHECK(node) << layout_object_;
+  return *node;
+}
+
 bool NGOffsetMappingUnit::Concatenate(const NGOffsetMappingUnit& other) {
-  if (owner_ != other.owner_)
+  if (layout_object_ != other.layout_object_)
     return false;
   if (type_ != other.type_ || type_ == NGOffsetMappingUnitType::kExpanded)
     return false;
@@ -110,7 +148,7 @@ bool NGOffsetMappingUnit::Concatenate(const NGOffsetMappingUnit& other) {
     return false;
   // Don't merge first letter and remaining text
   if (const LayoutTextFragment* text_fragment =
-          ToLayoutTextFragmentOrNull(owner_->GetLayoutObject())) {
+          ToLayoutTextFragmentOrNull(layout_object_)) {
     // TODO(layout-dev): Fix offset calculation for text-transform
     if (text_fragment->IsRemainingTextLayoutObject() &&
         other.dom_start_ == text_fragment->TextStartOffset())
@@ -177,7 +215,9 @@ bool NGOffsetMapping::AcceptsPosition(const Position& position) {
   if (!position.IsBeforeAnchor() && !position.IsAfterAnchor())
     return false;
   const LayoutObject* layout_object = position.AnchorNode()->GetLayoutObject();
-  return layout_object && layout_object->IsInline();
+  if (!layout_object || !layout_object->IsInline())
+    return false;
+  return layout_object->IsText() || layout_object->IsAtomicInlineLevel();
 }
 
 // static
@@ -189,7 +229,7 @@ const NGOffsetMapping* NGOffsetMapping::GetFor(const Position& position) {
   LayoutBlockFlow* context = NGInlineFormattingContextOf(position);
   if (!context)
     return nullptr;
-  return NGInlineNode::GetOffsetMapping(context, nullptr);
+  return NGInlineNode::GetOffsetMapping(context);
 }
 
 // static
@@ -202,7 +242,7 @@ const NGOffsetMapping* NGOffsetMapping::GetFor(
   LayoutBlockFlow* context = layout_object->ContainingNGBlockFlow();
   if (!context)
     return nullptr;
-  return NGInlineNode::GetOffsetMapping(context, nullptr);
+  return NGInlineNode::GetOffsetMapping(context);
 }
 
 // static
@@ -212,33 +252,37 @@ LayoutBlockFlow* NGOffsetMapping::GetInlineFormattingContextOf(
        runner = runner->Parent()) {
     if (!CanUseNGOffsetMapping(*runner))
       continue;
-    return ToLayoutBlockFlow(runner);
+    return To<LayoutBlockFlow>(runner);
   }
   return nullptr;
 }
 
-NGOffsetMapping::NGOffsetMapping(NGOffsetMapping&& other)
-    : NGOffsetMapping(std::move(other.units_),
-                      std::move(other.ranges_),
-                      other.text_,
-                      std::move(other.caret_navigator_)) {}
-
-NGOffsetMapping::NGOffsetMapping(
-    UnitVector&& units,
-    RangeMap&& ranges,
-    String text,
-    std::unique_ptr<NGCaretNavigator> caret_navigator)
-    : units_(std::move(units)),
-      ranges_(std::move(ranges)),
-      text_(text),
-      caret_navigator_(std::move(caret_navigator)) {}
+NGOffsetMapping::NGOffsetMapping(UnitVector&& units,
+                                 RangeMap&& ranges,
+                                 String text)
+    : units_(std::move(units)), ranges_(std::move(ranges)), text_(text) {
+#if ENABLE_SECURITY_ASSERT
+  for (const auto& unit : units_) {
+    SECURITY_DCHECK(unit.TextContentStart() <= text.length())
+        << unit.TextContentStart() << "<=" << text.length();
+    SECURITY_DCHECK(unit.TextContentEnd() <= text.length())
+        << unit.TextContentEnd() << "<=" << text.length();
+    unit.AssertValid();
+  }
+  for (const auto& pair : ranges) {
+    SECURITY_DCHECK(pair.value.first < units_.size())
+        << pair.value.first << "<" << units_.size();
+    SECURITY_DCHECK(pair.value.second < units_.size())
+        << pair.value.second << "<" << units_.size();
+  }
+#endif
+}
 
 NGOffsetMapping::~NGOffsetMapping() = default;
 
 const NGOffsetMappingUnit* NGOffsetMapping::GetMappingUnitForPosition(
     const Position& position) const {
   DCHECK(NGOffsetMapping::AcceptsPosition(position));
-  DCHECK(!IsNonAtomicInline(*position.AnchorNode())) << position;
   const auto node_and_offset = ToNodeOffsetPair(position);
   const Node& node = node_and_offset.first;
   const unsigned offset = node_and_offset.second;
@@ -258,7 +302,7 @@ const NGOffsetMappingUnit* NGOffsetMapping::GetMappingUnitForPosition(
   return unit;
 }
 
-NGMappingUnitRange NGOffsetMapping::GetMappingUnitsForDOMRange(
+NGOffsetMapping::UnitVector NGOffsetMapping::GetMappingUnitsForDOMRange(
     const EphemeralRange& range) const {
   DCHECK(NGOffsetMapping::AcceptsPosition(range.StartPosition()));
   DCHECK(NGOffsetMapping::AcceptsPosition(range.EndPosition()));
@@ -271,15 +315,9 @@ NGMappingUnitRange NGOffsetMapping::GetMappingUnitsForDOMRange(
   unsigned range_end;
   std::tie(range_start, range_end) = ranges_.at(&node);
 
-  if (IsNonAtomicInline(node)) {
-    if (start_offset == end_offset)
-      return {};
-    return {units_.begin() + range_start, units_.begin() + range_end};
-  }
-
   if (range_start == range_end || units_[range_start].DOMStart() > end_offset ||
       units_[range_end - 1].DOMEnd() < start_offset)
-    return {};
+    return UnitVector();
 
   // Find the first unit where unit.dom_end >= start_offset
   const NGOffsetMappingUnit* result_begin = std::lower_bound(
@@ -295,22 +333,56 @@ NGMappingUnitRange NGOffsetMapping::GetMappingUnitsForDOMRange(
                          return offset < unit.DOMStart();
                        });
 
-  return {result_begin, result_end};
+  UnitVector result;
+  for (const auto& unit : base::make_span(result_begin, result_end)) {
+    // If the unit isn't fully within the range, create a new unit that's
+    // within the range.
+    const unsigned clamped_start = std::max(unit.DOMStart(), start_offset);
+    const unsigned clamped_end = std::min(unit.DOMEnd(), end_offset);
+    DCHECK_LE(clamped_start, clamped_end);
+    const unsigned clamped_text_content_start =
+        unit.ConvertDOMOffsetToTextContent(clamped_start);
+    const unsigned clamped_text_content_end =
+        unit.ConvertDOMOffsetToTextContent(clamped_end);
+    result.emplace_back(unit.GetType(), unit.GetLayoutObject(), clamped_start,
+                        clamped_end, clamped_text_content_start,
+                        clamped_text_content_end);
+  }
+  return result;
 }
 
-NGMappingUnitRange NGOffsetMapping::GetMappingUnitsForNode(
+base::span<const NGOffsetMappingUnit> NGOffsetMapping::GetMappingUnitsForNode(
     const Node& node) const {
   const auto it = ranges_.find(&node);
   if (it == ranges_.end()) {
     NOTREACHED() << node;
-    return NGMappingUnitRange();
+    return {};
   }
-  return {units_.begin() + it->value.first, units_.begin() + it->value.second};
+  return base::make_span(units_.begin() + it->value.first,
+                         units_.begin() + it->value.second);
 }
 
-NGMappingUnitRange NGOffsetMapping::GetMappingUnitsForTextContentOffsetRange(
-    unsigned start,
-    unsigned end) const {
+base::span<const NGOffsetMappingUnit>
+NGOffsetMapping::GetMappingUnitsForLayoutObject(
+    const LayoutObject& layout_object) const {
+  const auto* begin =
+      std::find_if(units_.begin(), units_.end(),
+                   [&layout_object](const NGOffsetMappingUnit& unit) {
+                     return unit.GetLayoutObject() == layout_object;
+                   });
+  DCHECK_NE(begin, units_.end());
+  const auto* end =
+      std::find_if(std::next(begin), units_.end(),
+                   [&layout_object](const NGOffsetMappingUnit& unit) {
+                     return unit.GetLayoutObject() != layout_object;
+                   });
+  DCHECK_LT(begin, end);
+  return base::make_span(begin, end);
+}
+
+base::span<const NGOffsetMappingUnit>
+NGOffsetMapping::GetMappingUnitsForTextContentOffsetRange(unsigned start,
+                                                          unsigned end) const {
   DCHECK_LE(start, end);
   if (units_.front().TextContentStart() >= end ||
       units_.back().TextContentEnd() <= start)
@@ -331,22 +403,12 @@ NGMappingUnitRange NGOffsetMapping::GetMappingUnitsForTextContentOffsetRange(
                        [](unsigned offset, const NGOffsetMappingUnit& unit) {
                          return offset <= unit.TextContentStart();
                        });
-  return {result_begin, result_end};
+  return base::make_span(result_begin, result_end);
 }
 
 base::Optional<unsigned> NGOffsetMapping::GetTextContentOffset(
     const Position& position) const {
   DCHECK(NGOffsetMapping::AcceptsPosition(position)) << position;
-  if (IsNonAtomicInline(*position.AnchorNode())) {
-    auto iter = ranges_.find(position.AnchorNode());
-    if (iter == ranges_.end())
-      return base::nullopt;
-    DCHECK_NE(iter->value.first, iter->value.second) << position;
-    if (position.IsBeforeAnchor())
-      return units_[iter->value.first].TextContentStart();
-    return units_[iter->value.second - 1].TextContentEnd();
-  }
-
   const NGOffsetMappingUnit* unit = GetMappingUnitForPosition(position);
   if (!unit)
     return base::nullopt;
@@ -356,7 +418,6 @@ base::Optional<unsigned> NGOffsetMapping::GetTextContentOffset(
 Position NGOffsetMapping::StartOfNextNonCollapsedContent(
     const Position& position) const {
   DCHECK(NGOffsetMapping::AcceptsPosition(position)) << position;
-  DCHECK(!IsNonAtomicInline(*position.AnchorNode())) << position;
   const NGOffsetMappingUnit* unit = GetMappingUnitForPosition(position);
   if (!unit)
     return Position();
@@ -364,7 +425,7 @@ Position NGOffsetMapping::StartOfNextNonCollapsedContent(
   const auto node_and_offset = ToNodeOffsetPair(position);
   const Node& node = node_and_offset.first;
   const unsigned offset = node_and_offset.second;
-  while (unit != units_.end() && unit->GetOwner() == node) {
+  while (unit != units_.end() && unit->AssociatedNode() == node) {
     if (unit->DOMEnd() > offset &&
         unit->GetType() != NGOffsetMappingUnitType::kCollapsed) {
       const unsigned result = std::max(offset, unit->DOMStart());
@@ -378,7 +439,6 @@ Position NGOffsetMapping::StartOfNextNonCollapsedContent(
 Position NGOffsetMapping::EndOfLastNonCollapsedContent(
     const Position& position) const {
   DCHECK(NGOffsetMapping::AcceptsPosition(position)) << position;
-  DCHECK(!IsNonAtomicInline(*position.AnchorNode())) << position;
   const NGOffsetMappingUnit* unit = GetMappingUnitForPosition(position);
   if (!unit)
     return Position();
@@ -386,7 +446,7 @@ Position NGOffsetMapping::EndOfLastNonCollapsedContent(
   const auto node_and_offset = ToNodeOffsetPair(position);
   const Node& node = node_and_offset.first;
   const unsigned offset = node_and_offset.second;
-  while (unit->GetOwner() == node) {
+  while (unit->AssociatedNode() == node) {
     if (unit->DOMStart() < offset &&
         unit->GetType() != NGOffsetMappingUnitType::kCollapsed) {
       const unsigned result = std::min(offset, unit->DOMEnd());
@@ -402,7 +462,6 @@ Position NGOffsetMapping::EndOfLastNonCollapsedContent(
 bool NGOffsetMapping::IsBeforeNonCollapsedContent(
     const Position& position) const {
   DCHECK(NGOffsetMapping::AcceptsPosition(position));
-  DCHECK(!IsNonAtomicInline(*position.AnchorNode())) << position;
   const NGOffsetMappingUnit* unit = GetMappingUnitForPosition(position);
   const unsigned offset = ToNodeOffsetPair(position).second;
   return unit && offset < unit->DOMEnd() &&
@@ -412,7 +471,6 @@ bool NGOffsetMapping::IsBeforeNonCollapsedContent(
 bool NGOffsetMapping::IsAfterNonCollapsedContent(
     const Position& position) const {
   DCHECK(NGOffsetMapping::AcceptsPosition(position));
-  DCHECK(!IsNonAtomicInline(*position.AnchorNode())) << position;
   const auto node_and_offset = ToNodeOffsetPair(position);
   const Node& node = node_and_offset.first;
   const unsigned offset = node_and_offset.second;
@@ -429,7 +487,6 @@ bool NGOffsetMapping::IsAfterNonCollapsedContent(
 base::Optional<UChar> NGOffsetMapping::GetCharacterBefore(
     const Position& position) const {
   DCHECK(NGOffsetMapping::AcceptsPosition(position));
-  DCHECK(!IsNonAtomicInline(*position.AnchorNode())) << position;
   base::Optional<unsigned> text_content_offset = GetTextContentOffset(position);
   if (!text_content_offset || !*text_content_offset)
     return base::nullopt;
@@ -446,18 +503,23 @@ Position NGOffsetMapping::GetFirstPosition(unsigned offset) const {
                          return unit.TextContentEnd() < offset;
                        });
   DCHECK_NE(result, units_.end());
-  if (result->TextContentStart() > offset)
-    return {};
+  // Skip CSS generated content, e.g. "content" property in ::before/::after.
+  while (!result->AssociatedNode()) {
+    result = std::next(result);
+    if (result == units_.end() || result->TextContentStart() > offset)
+      return {};
+  }
   const Node& node = result->GetOwner();
   const unsigned dom_offset =
       result->ConvertTextContentToFirstDOMOffset(offset);
   return CreatePositionForOffsetMapping(node, dom_offset);
 }
 
-Position NGOffsetMapping::GetLastPosition(unsigned offset) const {
+const NGOffsetMappingUnit* NGOffsetMapping::GetLastMappingUnit(
+    unsigned offset) const {
   // Find the last unit where |unit.TextContentStart() <= offset|
   if (units_.IsEmpty() || units_.front().TextContentStart() > offset)
-    return {};
+    return nullptr;
   const NGOffsetMappingUnit* result =
       std::upper_bound(units_.begin(), units_.end(), offset,
                        [](unsigned offset, const NGOffsetMappingUnit& unit) {
@@ -466,20 +528,25 @@ Position NGOffsetMapping::GetLastPosition(unsigned offset) const {
   DCHECK_NE(result, units_.begin());
   result = std::prev(result);
   if (result->TextContentEnd() < offset)
+    return nullptr;
+  return result;
+}
+
+Position NGOffsetMapping::GetLastPosition(unsigned offset) const {
+  const NGOffsetMappingUnit* result = GetLastMappingUnit(offset);
+  if (!result)
     return {};
+  // Skip CSS generated content, e.g. "content" property in ::before/::after.
+  while (!result->AssociatedNode()) {
+    if (result == units_.begin())
+      return {};
+    result = std::prev(result);
+    if (result->TextContentEnd() < offset)
+      return {};
+  }
   const Node& node = result->GetOwner();
   const unsigned dom_offset = result->ConvertTextContentToLastDOMOffset(offset);
   return CreatePositionForOffsetMapping(node, dom_offset);
-}
-
-PositionWithAffinity NGOffsetMapping::GetPositionWithAffinity(
-    const NGCaretNavigator::Position& position) const {
-  if (position.IsBeforeCharacter()) {
-    return PositionWithAffinity(GetLastPosition(position.index),
-                                TextAffinity::kDownstream);
-  }
-  return PositionWithAffinity(GetLastPosition(position.index + 1),
-                              TextAffinity::kUpstream);
 }
 
 bool NGOffsetMapping::HasBidiControlCharactersOnly(unsigned start,

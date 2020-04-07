@@ -11,8 +11,7 @@
 #include "base/gtest_prod_util.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
-#include "base/task/task_scheduler/task_scheduler.h"
-#include "base/timer/timer.h"
+#include "base/task/thread_pool/thread_pool.h"
 #include "build/build_config.h"
 #include "content/browser/browser_process_sub_thread.h"
 #include "content/public/browser/browser_main_runner.h"
@@ -33,21 +32,11 @@ class Env;
 
 namespace base {
 class CommandLine;
-class FilePath;
 class HighResolutionTimerManager;
 class MemoryPressureMonitor;
-class MessageLoop;
-class PowerMonitor;
 class SingleThreadTaskRunner;
 class SystemMonitor;
-namespace trace_event {
-class TraceEventSystemStatsMonitor;
-}  // namespace trace_event
 }  // namespace base
-
-namespace discardable_memory {
-class DiscardableSharedMemoryManager;
-}
 
 namespace gpu {
 class GpuChannelEstablishFactory;
@@ -81,12 +70,18 @@ namespace net {
 class NetworkChangeNotifier;
 }  // namespace net
 
+#if defined(OS_MACOSX)
+namespace now_playing {
+class RemoteCommandCenterDelegate;
+}  // namespace now_playing
+#endif
+
 namespace viz {
 class CompositingModeReporterImpl;
 class FrameSinkManagerImpl;
 class HostFrameSinkManager;
 class ServerSharedBitmapManager;
-}
+}  // namespace viz
 
 namespace content {
 class BrowserMainParts;
@@ -98,10 +93,9 @@ class MediaStreamManager;
 class ResourceDispatcherHostImpl;
 class SaveFileManager;
 class ScreenlockMonitor;
-class ServiceManagerContext;
+class SmsProvider;
 class SpeechRecognitionManagerImpl;
 class StartupTaskRunner;
-class SwapMetricsDriver;
 class TracingControllerImpl;
 struct MainFunctionParams;
 
@@ -129,11 +123,11 @@ class CONTENT_EXPORT BrowserMainLoop {
 
   static media::AudioManager* GetAudioManager();
 
-  // The TaskScheduler instance must exist but not to be started when building
+  // The ThreadPoolInstance must exist but not to be started when building
   // BrowserMainLoop.
   explicit BrowserMainLoop(
       const MainFunctionParams& parameters,
-      std::unique_ptr<base::TaskScheduler::ScopedExecutionFence> fence);
+      std::unique_ptr<base::ThreadPoolInstance::ScopedExecutionFence> fence);
   virtual ~BrowserMainLoop();
 
   void Init();
@@ -175,30 +169,22 @@ class CONTENT_EXPORT BrowserMainLoop {
   media::UserInputMonitor* user_input_monitor() const {
     return user_input_monitor_.get();
   }
-  net::NetworkChangeNotifier* network_change_notifier() const {
-    return network_change_notifier_.get();
-  }
   MediaKeysListenerManagerImpl* media_keys_listener_manager() const {
     return media_keys_listener_manager_.get();
   }
 
 #if defined(OS_CHROMEOS)
+  // Only expose this on ChromeOS since it's only needed there. On Android this
+  // be null if this process started in reduced mode.
+  net::NetworkChangeNotifier* network_change_notifier() const {
+    return network_change_notifier_.get();
+  }
   KeyboardMicRegistration* keyboard_mic_registration() {
     return &keyboard_mic_registration_;
   }
 #endif
 
-  discardable_memory::DiscardableSharedMemoryManager*
-  discardable_shared_memory_manager() const {
-    return discardable_shared_memory_manager_.get();
-  }
   midi::MidiService* midi_service() const { return midi_service_.get(); }
-
-  base::FilePath GetStartupTraceFileName() const;
-
-  const base::FilePath& startup_trace_file() const {
-    return startup_trace_file_;
-  }
 
   // Returns the task runner for tasks that that are critical to producing a new
   // CompositorFrame on resize. On Mac this will be the task runner provided by
@@ -210,6 +196,12 @@ class CONTENT_EXPORT BrowserMainLoop {
 
 #if defined(OS_ANDROID)
   void SynchronouslyFlushStartupTasks();
+
+  // |enabled| Whether or not CreateStartupTasks() posts any tasks. This is
+  // useful because some javatests want to test native task posting without the
+  // whole browser loaded. In that scenario tasks posted by CreateStartupTasks()
+  // may crash if run.
+  static void EnableStartupTasks(bool enabled);
 #endif  // OS_ANDROID
 
 #if !defined(OS_ANDROID)
@@ -231,18 +223,22 @@ class CONTENT_EXPORT BrowserMainLoop {
   void GetCompositingModeReporter(
       viz::mojom::CompositingModeReporterRequest request);
 
-  void StopStartupTracingTimer();
-
 #if defined(OS_MACOSX) && !defined(OS_IOS)
   media::DeviceMonitorMac* device_monitor_mac() const {
     return device_monitor_mac_.get();
   }
 #endif
 
+  SmsProvider* GetSmsProvider();
+  void SetSmsProviderForTesting(std::unique_ptr<SmsProvider>);
+
   BrowserMainParts* parts() { return parts_.get(); }
 
  private:
   FRIEND_TEST_ALL_PREFIXES(BrowserMainLoopTest, CreateThreadsInSingleProcess);
+  FRIEND_TEST_ALL_PREFIXES(
+      BrowserMainLoopTest,
+      PostTaskToIOThreadBeforeThreadCreationDoesNotRunTask);
 
   void InitializeMainThread();
 
@@ -263,8 +259,6 @@ class CONTENT_EXPORT BrowserMainLoop {
   void MainMessageLoopRun();
 
   void InitializeMojo();
-  void InitStartupTracingForDuration();
-  void EndStartupTracing();
 
   void InitializeAudio();
 
@@ -287,7 +281,6 @@ class CONTENT_EXPORT BrowserMainLoop {
   //   PostCreateThreads()
   //   BrowserThreadsStarted()
   //     InitializeMojo()
-  //     InitStartupTracingForDuration()
   //   PreMainMessageLoopRun()
 
   // Members initialized on construction ---------------------------------------
@@ -299,28 +292,31 @@ class CONTENT_EXPORT BrowserMainLoop {
   // BrowserMainLoop::CreateThreads() as things initialized before it require an
   // initialize-once happens-before relationship with all eventual content tasks
   // running on other threads. This ScopedExecutionFence ensures that no tasks
-  // posted to TaskScheduler gets to run before CreateThreads(); satisfying this
-  // requirement even though the TaskScheduler is created and started before
-  // content is entered.
-  std::unique_ptr<base::TaskScheduler::ScopedExecutionFence>
+  // posted to ThreadPool gets to run before CreateThreads(); satisfying this
+  // requirement even though the ThreadPoolInstance is created and started
+  // before content is entered.
+  std::unique_ptr<base::ThreadPoolInstance::ScopedExecutionFence>
       scoped_execution_fence_;
 
+  // BEST_EFFORT tasks are not allowed to run between //content initialization
+  // and startup completion.
+  //
+  // TODO(fdoray): Move this to a more elaborate class that prevents BEST_EFFORT
+  // tasks from running when resources are needed to respond to user actions.
+  base::Optional<base::ThreadPoolInstance::ScopedBestEffortExecutionFence>
+      scoped_best_effort_execution_fence_;
+
   // Members initialized in |MainMessageLoopStart()| ---------------------------
-  std::unique_ptr<base::MessageLoop> main_message_loop_;
 
   // Members initialized in |PostMainMessageLoopStart()| -----------------------
   std::unique_ptr<BrowserProcessSubThread> io_thread_;
   std::unique_ptr<base::SystemMonitor> system_monitor_;
-  std::unique_ptr<base::PowerMonitor> power_monitor_;
   std::unique_ptr<base::HighResolutionTimerManager> hi_res_timer_manager_;
   std::unique_ptr<net::NetworkChangeNotifier> network_change_notifier_;
   std::unique_ptr<ScreenlockMonitor> screenlock_monitor_;
 
   // Per-process listener for online state changes.
   std::unique_ptr<BrowserOnlineStateObserver> online_state_observer_;
-
-  std::unique_ptr<base::trace_event::TraceEventSystemStatsMonitor>
-      system_stats_monitor_;
 
 #if defined(USE_AURA)
   std::unique_ptr<aura::Env> env_;
@@ -330,12 +326,6 @@ class CONTENT_EXPORT BrowserMainLoop {
   // Android implementation of ScreenOrientationDelegate
   std::unique_ptr<ScreenOrientationDelegate> screen_orientation_delegate_;
 #endif
-
-  // Members initialized in |InitStartupTracingForDuration()| ------------------
-  base::FilePath startup_trace_file_;
-
-  // This timer initiates trace file saving.
-  base::OneShotTimer startup_trace_timer_;
 
   // Members initialized in |Init()| -------------------------------------------
   // Destroy |parts_| before |main_message_loop_| (required) and before other
@@ -352,18 +342,25 @@ class CONTENT_EXPORT BrowserMainLoop {
   // Members initialized in |PreCreateThreads()| -------------------------------
   // Torn down in ShutdownThreadsAndCleanUp.
   std::unique_ptr<base::MemoryPressureMonitor> memory_pressure_monitor_;
-  std::unique_ptr<SwapMetricsDriver> swap_metrics_driver_;
 #if defined(USE_X11)
   std::unique_ptr<internal::GpuDataManagerVisualProxy>
       gpu_data_manager_visual_proxy_;
 #endif
 
-  ServiceManagerContext* service_manager_context_ = nullptr;
-  std::unique_ptr<ServiceManagerContext> owned_service_manager_context_;
+  // If provided to the BrowserMainLoop (see StartupDataImpl), this closure
+  // is run during shutdown, prior to IO thread destruction, and should do
+  // whatever work is necessary to tear down the ServiceManager if one is
+  // running. Must be provided if a ServiceManager is initialized and running on
+  // the IO thread.
+  base::OnceClosure service_manager_shutdown_closure_;
 
   // Members initialized in |BrowserThreadsStarted()| --------------------------
   std::unique_ptr<mojo::core::ScopedIPCSupport> mojo_ipc_support_;
   std::unique_ptr<MediaKeysListenerManagerImpl> media_keys_listener_manager_;
+#if defined(OS_MACOSX)
+  std::unique_ptr<now_playing::RemoteCommandCenterDelegate>
+      remote_command_center_delegate_;
+#endif
 
   // |user_input_monitor_| has to outlive |audio_manager_|, so declared first.
   std::unique_ptr<media::UserInputMonitor> user_input_monitor_;
@@ -385,6 +382,8 @@ class CONTENT_EXPORT BrowserMainLoop {
   std::unique_ptr<SpeechRecognitionManagerImpl> speech_recognition_manager_;
 #endif
 
+  std::unique_ptr<SmsProvider> sms_provider_;
+
 #if defined(OS_WIN)
   std::unique_ptr<media::SystemMessageWindowWin> system_message_window_;
 #elif defined(OS_LINUX) && defined(USE_UDEV)
@@ -396,8 +395,6 @@ class CONTENT_EXPORT BrowserMainLoop {
   std::unique_ptr<LoaderDelegateImpl> loader_delegate_;
   std::unique_ptr<ResourceDispatcherHostImpl> resource_dispatcher_host_;
   std::unique_ptr<MediaStreamManager> media_stream_manager_;
-  std::unique_ptr<discardable_memory::DiscardableSharedMemoryManager>
-      discardable_shared_memory_manager_;
   scoped_refptr<SaveFileManager> save_file_manager_;
   std::unique_ptr<content::TracingControllerImpl> tracing_controller_;
   scoped_refptr<responsiveness::Watcher> responsiveness_watcher_;

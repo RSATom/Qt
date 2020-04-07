@@ -236,7 +236,7 @@ void XsdElement::addSubstitutionGroup(const XsdElement::Ptr &element)
 
 XsdElement::List XsdElement::substitutionGroups() const
 {
-    return m_substitutionGroups.toList();
+    return m_substitutionGroups.values();
 }
 
 QT_END_NAMESPACE

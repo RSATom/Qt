@@ -296,7 +296,9 @@ struct QGradientData
 #define GRADIENT_STOPTABLE_SIZE 1024
 #define GRADIENT_STOPTABLE_SIZE_SHIFT 10
 
+#if QT_CONFIG(raster_64bit)
     const QRgba64 *colorTable64; //[GRADIENT_STOPTABLE_SIZE];
+#endif
     const QRgb *colorTable32; //[GRADIENT_STOPTABLE_SIZE];
 
     uint alphaColor : 1;
@@ -328,7 +330,7 @@ struct QTextureData
 
 struct QSpanData
 {
-    QSpanData() : tempImage(0) {}
+    QSpanData() : tempImage(nullptr) {}
     ~QSpanData() { delete tempImage; }
 
     QRasterBuffer *rasterBuffer;
@@ -402,11 +404,13 @@ static inline uint qt_gradient_pixel(const QGradientData *data, qreal pos)
     return data->colorTable32[qt_gradient_clamp(data, ipos)];
 }
 
+#if QT_CONFIG(raster_64bit)
 static inline const QRgba64& qt_gradient_pixel64(const QGradientData *data, qreal pos)
 {
     int ipos = int(pos * (GRADIENT_STOPTABLE_SIZE - 1) + qreal(0.5));
     return data->colorTable64[qt_gradient_clamp(data, ipos)];
 }
+#endif
 
 static inline qreal qRadialDeterminant(qreal a, qreal b, qreal c)
 {
@@ -667,6 +671,8 @@ static Q_ALWAYS_INLINE void blend_pixel(quint32 &dst, const quint32 src)
 
 static Q_ALWAYS_INLINE void blend_pixel(quint32 &dst, const quint32 src, const int const_alpha)
 {
+    if (const_alpha == 255)
+        return blend_pixel(dst, src);
     if (src != 0) {
         const quint32 s = BYTE_MUL(src, const_alpha);
         dst = s + BYTE_MUL(dst, qAlpha(~s));

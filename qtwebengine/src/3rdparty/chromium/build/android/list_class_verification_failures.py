@@ -16,14 +16,15 @@ import exceptions
 import logging
 import os
 import re
-import sys
 
 import devil_chromium
 from devil.android import device_errors
 from devil.android import device_temp_file
 from devil.android import device_utils
+from devil.android.ndk import abis
 from devil.android.sdk import version_codes
 from devil.android.tools import script_common
+from devil.utils import logging_common
 from py_utils import tempfile_ext
 
 STATUSES = [
@@ -73,7 +74,7 @@ class UnsupportedDeviceError(Exception):
 def _GetFormattedArch(device):
   abi = device.product_cpu_abi
   # Some architectures don't map 1:1 with the folder names.
-  return {'arm64-v8a': 'arm64', 'armeabi-v7a': 'arm'}.get(abi, abi)
+  return {abis.ARM_64: 'arm64', abis.ARM: 'arm'}.get(abi, abi)
 
 
 def PathToDexForPlatformVersion(device, package_name):
@@ -94,7 +95,8 @@ def PathToDexForPlatformVersion(device, package_name):
   if version_codes.LOLLIPOP <= sdk_level <= version_codes.LOLLIPOP_MR1:
     # Of the form "com.example.foo-\d", where \d is some digit (usually 1 or 2)
     package_with_suffix = os.path.basename(os.path.dirname(path_to_apk))
-    dalvik_prefix = '/data/dalvik-cache/arm'
+    arch = _GetFormattedArch(device)
+    dalvik_prefix = '/data/dalvik-cache/{arch}'.format(arch=arch)
     odex_file = '{prefix}/data@app@{package}@base.apk@classes.dex'.format(
         prefix=dalvik_prefix,
         package=package_with_suffix)
@@ -112,7 +114,7 @@ def PathToDexForPlatformVersion(device, package_name):
     raise DeviceOSError(
         'Unable to find odex file: you must run dex2oat on debuggable apps '
         'on >= P after installation.')
-  raise DeviceOSError('Unable to find odex file')
+  raise DeviceOSError('Unable to find odex file ' + odex_file)
 
 
 def _AdbOatDumpForPackage(device, package_name, out_file):
@@ -217,7 +219,6 @@ def RealMain(mapping, device_arg, package, status, hide_summary, workdir):
 
 
 def main():
-  devil_chromium.Initialize()
   parser = argparse.ArgumentParser(description="""
 List Java classes in an APK which fail ART class verification.
 """)
@@ -257,18 +258,11 @@ List Java classes in an APK which fail ART class verification.
 
   script_common.AddEnvironmentArguments(parser)
   script_common.AddDeviceArguments(parser)
+  logging_common.AddLoggingArguments(parser)
 
-  parser.add_argument('--verbose', '-v', default=False, action='store_true')
-  parser.add_argument('--quiet', '-q', default=False, action='store_true')
   args = parser.parse_args()
-  script_common.InitializeEnvironment(args)
-
-  if args.verbose:
-    logging.basicConfig(stream=sys.stderr, level=logging.INFO)
-  elif args.quiet:
-    logging.basicConfig(stream=sys.stderr, level=logging.ERROR)
-  else:
-    logging.basicConfig(stream=sys.stderr, level=logging.WARN)
+  devil_chromium.Initialize(adb_path=args.adb_path)
+  logging_common.InitializeLogging(args)
 
   if args.workdir:
     if not os.path.isdir(args.workdir):

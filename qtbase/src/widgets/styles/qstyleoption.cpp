@@ -151,7 +151,7 @@ QT_BEGIN_NAMESPACE
 
 QStyleOption::QStyleOption(int version, int type)
     : version(version), type(type), state(QStyle::State_None),
-      direction(QApplication::layoutDirection()), fontMetrics(QFont()), styleObject(0)
+      direction(QGuiApplication::layoutDirection()), fontMetrics(QFont()), styleObject(0)
 {
 }
 
@@ -198,11 +198,6 @@ void QStyleOption::init(const QWidget *widget)
         state |= QStyle::State_Active;
     if (widget->isWindow())
         state |= QStyle::State_Window;
-#if 0 // Used to be included in Qt4 for Q_WS_MAC
-    extern bool qt_mac_can_clickThrough(const QWidget *w); //qwidget_mac.cpp
-    if (!(state & QStyle::State_Active) && !qt_mac_can_clickThrough(widget))
-        state &= ~QStyle::State_Enabled;
-#endif
     switch (QStyleHelper::widgetSizePolicy(widget)) {
     case QStyleHelper::SizeSmall:
         state |= QStyle::State_Small;
@@ -1458,7 +1453,7 @@ QStyleOptionTab::QStyleOptionTab(int version)
     \value None A normal tab button.
     \value HasFrame The tab button is positioned on a tab frame
 
-    \sa features
+    \sa QStyleOptionToolBar::features
 */
 
 /*!
@@ -1635,7 +1630,7 @@ QStyleOptionProgressBar::QStyleOptionProgressBar(int version)
     the default orentation is Qt::Horizontal
 
     \deprecated
-    Use the QStyle::State_Horizontal flag instead (in the the QStyleOption::state member).
+    Use the QStyle::State_Horizontal flag instead (in the QStyleOption::state member).
 
     \sa QProgressBar::orientation
 */
@@ -1765,7 +1760,7 @@ QStyleOptionMenuItem::QStyleOptionMenuItem(int version)
     \value Exclusive The item is an exclusive check item (like a radio button).
     \value NonExclusive The item is a non-exclusive check item (like a check box).
 
-    \sa checkType, QAction::checkable, QAction::checked, QActionGroup::exclusive
+    \sa checkType, QAction::checkable, QAction::checked, QActionGroup::exclusionPolicy
 */
 
 /*!

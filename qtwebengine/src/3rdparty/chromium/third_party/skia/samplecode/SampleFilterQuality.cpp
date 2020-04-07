@@ -5,18 +5,18 @@
  * found in the LICENSE file.
  */
 
-#include "Resources.h"
-#include "Sample.h"
-#include "SkAnimTimer.h"
-#include "SkCanvas.h"
-#include "SkInterpolator.h"
-#include "SkFont.h"
-#include "SkGradientShader.h"
-#include "SkData.h"
-#include "SkPath.h"
-#include "SkSurface.h"
-#include "SkRandom.h"
-#include "SkTime.h"
+#include "include/core/SkCanvas.h"
+#include "include/core/SkData.h"
+#include "include/core/SkFont.h"
+#include "include/core/SkPath.h"
+#include "include/core/SkSurface.h"
+#include "include/core/SkTime.h"
+#include "include/effects/SkGradientShader.h"
+#include "include/utils/SkInterpolator.h"
+#include "include/utils/SkRandom.h"
+#include "samplecode/Sample.h"
+#include "tools/Resources.h"
+#include "tools/timer/TimeUtils.h"
 
 static sk_sp<SkSurface> make_surface(SkCanvas* canvas, const SkImageInfo& info) {
     auto surface = canvas->makeSurface(info);
@@ -166,13 +166,9 @@ public:
     }
 
 protected:
-    bool onQuery(Sample::Event* evt) override {
-        if (Sample::TitleQ(*evt)) {
-            Sample::TitleR(evt, "FilterQuality");
-            return true;
-        }
-        SkUnichar uni;
-        if (Sample::CharQ(*evt, &uni)) {
+    SkString name() override { return SkString("FilterQuality"); }
+
+    bool onChar(SkUnichar uni) override {
             switch (uni) {
                 case '1': fAngle.inc(-ANGLE_DELTA); return true;
                 case '2': fAngle.inc( ANGLE_DELTA); return true;
@@ -181,8 +177,7 @@ protected:
                 case '5': fShowFatBits = !fShowFatBits; return true;
                 default: break;
             }
-        }
-        return this->INHERITED::onQuery(evt);
+            return false;
     }
 
     void drawTheImage(SkCanvas* canvas, const SkISize& size, SkFilterQuality filter,
@@ -283,8 +278,8 @@ protected:
         canvas->drawString(SkStringPrintf("%.8g", trans[1]     ), textX, 250, font, paint);
     }
 
-    bool onAnimate(const SkAnimTimer& timer) override {
-        fCurrTime = timer.msec();
+    bool onAnimate(double nanos) override {
+        fCurrTime = TimeUtils::NanosToMSec(nanos);
         return true;
     }
 

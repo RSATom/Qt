@@ -48,12 +48,29 @@
 **
 ****************************************************************************/
 
-#include <QtWidgets>
-
+#include "mainwindow.h"
 #include "iconpreviewarea.h"
 #include "iconsizespinbox.h"
 #include "imagedelegate.h"
-#include "mainwindow.h"
+
+#include <QApplication>
+#include <QButtonGroup>
+#include <QCheckBox>
+#include <QFileDialog>
+#include <QHeaderView>
+#include <QFormLayout>
+#include <QGridLayout>
+#include <QGroupBox>
+#include <QImageReader>
+#include <QLabel>
+#include <QMenuBar>
+#include <QMessageBox>
+#include <QRadioButton>
+#include <QScreen>
+#include <QStandardPaths>
+#include <QStyleFactory>
+#include <QTableWidget>
+#include <QWindow>
 
 //! [40]
 enum { OtherSize = QStyle::PM_CustomBase };
@@ -514,8 +531,8 @@ void MainWindow::checkCurrentStyle()
     const QList<QAction *> actions = styleActionGroup->actions();
     for (QAction *action : actions) {
         const QString styleName = action->data().toString();
-        QScopedPointer<QStyle> candidate(QStyleFactory::create(styleName));
-        Q_ASSERT(!candidate.isNull());
+        const std::unique_ptr<QStyle> candidate{QStyleFactory::create(styleName)};
+        Q_ASSERT(candidate);
         if (candidate->metaObject()->className()
                 == QApplication::style()->metaObject()->className()) {
             action->trigger();

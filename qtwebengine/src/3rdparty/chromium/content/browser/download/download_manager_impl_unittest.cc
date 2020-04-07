@@ -95,7 +95,7 @@ class MockDownloadManagerDelegate : public DownloadManagerDelegate {
   MOCK_METHOD5(ChooseSavePath, void(
       WebContents*, const base::FilePath&, const base::FilePath::StringType&,
       bool, const SavePackagePathPickedCallback&));
-  MOCK_CONST_METHOD0(ApplicationClientIdForFileScanning, std::string());
+  MOCK_METHOD0(ApplicationClientIdForFileScanning, std::string());
 };
 
 MockDownloadManagerDelegate::MockDownloadManagerDelegate() {}
@@ -383,7 +383,8 @@ TestInProgressManager::TestInProgressManager()
           nullptr,
           base::FilePath(),
           download::InProgressDownloadManager::IsOriginSecureCallback(),
-          base::BindRepeating(&URLAlwaysSafe)) {}
+          base::BindRepeating(&URLAlwaysSafe),
+          nullptr) {}
 
 void TestInProgressManager::AddDownloadItem(
     std::unique_ptr<download::DownloadItemImpl> item) {
@@ -526,7 +527,7 @@ class DownloadManagerTest : public testing::Test {
   }
 
   void OnInProgressDownloadManagerInitialized() {
-    download_manager_->OnInProgressDownloadManagerInitialized();
+    download_manager_->OnDownloadsInitialized();
   }
 
   void OnHistoryDBInitialized() {
@@ -764,12 +765,19 @@ TEST_F(DownloadManagerTest, OnInProgressDownloadsLoaded) {
   EXPECT_CALL(GetMockObserver(), OnDownloadCreated(download_manager_.get(), _))
       .WillOnce(Return());
   OnInProgressDownloadManagerInitialized();
-  ASSERT_FALSE(download_manager_->GetDownloadByGuid(kGuid));
+  ASSERT_TRUE(download_manager_->GetDownloadByGuid(kGuid));
+  std::vector<download::DownloadItem*> vector;
+  download_manager_->GetAllDownloads(&vector);
+  ASSERT_EQ(0u, vector.size());
 
+  EXPECT_CALL(GetMockDownloadManagerDelegate(), GetNextId(_))
+      .WillOnce(RunCallback<0>(1));
   OnHistoryDBInitialized();
   ASSERT_TRUE(download_manager_->GetDownloadByGuid(kGuid));
   download::DownloadItem* download =
       download_manager_->GetDownloadByGuid(kGuid);
+  download_manager_->GetAllDownloads(&vector);
+  ASSERT_EQ(1u, vector.size());
   download->Remove();
   ASSERT_FALSE(download_manager_->GetDownloadByGuid(kGuid));
 }

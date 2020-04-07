@@ -1,9 +1,13 @@
 {
     "module": "quick",
     "depends": [
+        "core-private",
         "qml-private",
-        "gui-private"
+        "gui",
+        "gui-private",
+        "qmlmodels-private"
     ],
+    "condition": "module.gui",
     "testDir": "../../config.tests",
 
     "commandline": {
@@ -112,6 +116,7 @@
             "label": "TableView item",
             "purpose": "Provides the TableView item.",
             "section": "Qt Quick",
+            "condition": "features.qml-table-model",
             "output": [
                 "privateFeature"
             ]
@@ -129,7 +134,7 @@
             "label": "Path support",
             "purpose": "Provides Path elements.",
             "section": "Qt Quick",
-            "condition": "features.quick-shadereffect",
+            "condition": "module.gui",
             "output": [
                 "privateFeature"
             ]
@@ -177,6 +182,18 @@
             "section": "Qt Quick",
             "output": [
                 "privateFeature"
+            ]
+        },
+        "quick-draganddrop": {
+            "label": "Drag & Drop",
+            "purpose": "Drag and drop support for Qt Quick",
+            "section": "Qt Quick",
+            "condition": [
+                "features.draganddrop",
+                "features.regularexpression"
+            ],
+            "output": [
+                "publicFeature"
             ]
         }
     },

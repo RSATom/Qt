@@ -25,11 +25,11 @@ TEST_F(WaylandClientPerfTests, Simple) {
   exo::wayland::clients::Simple client;
   EXPECT_TRUE(client.Init(params));
 
-  client.Run(kWarmUpFrames, nullptr);
+  client.Run(kWarmUpFrames, false, nullptr);
 
   exo::wayland::clients::Simple::PresentationFeedback feedback;
   auto start_time = base::Time::Now();
-  client.Run(kTestFrames, &feedback);
+  client.Run(kTestFrames, false, &feedback);
   auto time_delta = base::Time::Now() - start_time;
   float fps = kTestFrames / time_delta.InSecondsF();
   perf_test::PrintResult("WaylandClientPerfTests", "", "SimpleFrameRate", fps,
@@ -56,9 +56,9 @@ class WaylandClientBlurPerfTests
   DISALLOW_COPY_AND_ASSIGN(WaylandClientBlurPerfTests);
 };
 
-INSTANTIATE_TEST_CASE_P(,
-                        WaylandClientBlurPerfTests,
-                        testing::Values(4.0, 15.0));
+INSTANTIATE_TEST_SUITE_P(,
+                         WaylandClientBlurPerfTests,
+                         testing::Values(4.0, 15.0));
 
 TEST_P(WaylandClientBlurPerfTests, BlurSigma) {
   const int kWarmUpFrames = 20;

@@ -220,8 +220,6 @@ static bool isRasterSurface(QWindow *window)
     to the backingstore's top level window.
 
     You should call this function after ending painting with endPaint().
-
-    \sa QWindow::transientParent()
 */
 void QBackingStore::flush(const QRegion &region, QWindow *window, const QPoint &offset)
 {
@@ -283,7 +281,7 @@ QSize QBackingStore::size() const
 bool QBackingStore::scroll(const QRegion &area, int dx, int dy)
 {
     // Disable scrolling for non-integer scroll deltas. For this case
-    // the the existing rendered pixels can't be re-used, and we return
+    // the existing rendered pixels can't be re-used, and we return
     // false to signal that a repaint is needed.
     const qreal nativeDx = QHighDpi::toNativePixels(qreal(dx), d_ptr->window);
     const qreal nativeDy = QHighDpi::toNativePixels(qreal(dy), d_ptr->window);

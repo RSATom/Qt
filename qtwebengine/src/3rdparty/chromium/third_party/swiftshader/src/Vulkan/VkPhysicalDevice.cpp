@@ -13,8 +13,11 @@
 // limitations under the License.
 
 #include "VkPhysicalDevice.hpp"
-#include "VkConfig.h"
 
+#include "VkConfig.h"
+#include "Pipeline/SpirvShader.hpp" // sw::SIMD::Width
+
+#include <limits>
 #include <cstring>
 
 namespace vk
@@ -28,61 +31,61 @@ const VkPhysicalDeviceFeatures& PhysicalDevice::getFeatures() const
 {
 	static const VkPhysicalDeviceFeatures features
 	{
-		true,  // robustBufferAccess
-		false, // fullDrawIndexUint32
-		false, // imageCubeArray
-		false, // independentBlend
-		false, // geometryShader
-		false, // tessellationShader
-		false, // sampleRateShading
-		false, // dualSrcBlend
-		false, // logicOp
-		false, // multiDrawIndirect
-		false, // drawIndirectFirstInstance
-		false, // depthClamp
-		false, // depthBiasClamp
-		false, // fillModeNonSolid
-		false, // depthBounds
-		false, // wideLines
-		false, // largePoints
-		false, // alphaToOne
-		false, // multiViewport
-		false, // samplerAnisotropy
-		true,  // textureCompressionETC2
-		false, // textureCompressionASTC_LDR
-		false, // textureCompressionBC
-		false, // occlusionQueryPrecise
-		false, // pipelineStatisticsQuery
-		false, // vertexPipelineStoresAndAtomics
-		false, // fragmentStoresAndAtomics
-		false, // shaderTessellationAndGeometryPointSize
-		false, // shaderImageGatherExtended
-		false, // shaderStorageImageExtendedFormats
-		false, // shaderStorageImageMultisample
-		false, // shaderStorageImageReadWithoutFormat
-		false, // shaderStorageImageWriteWithoutFormat
-		false, // shaderUniformBufferArrayDynamicIndexing
-		false, // shaderSampledImageArrayDynamicIndexing
-		false, // shaderStorageBufferArrayDynamicIndexing
-		false, // shaderStorageImageArrayDynamicIndexing
-		false, // shaderClipDistance
-		false, // shaderCullDistance
-		false, // shaderFloat64
-		false, // shaderInt64
-		false, // shaderInt16
-		false, // shaderResourceResidency
-		false, // shaderResourceMinLod
-		false, // sparseBinding
-		false, // sparseResidencyBuffer
-		false, // sparseResidencyImage2D
-		false, // sparseResidencyImage3D
-		false, // sparseResidency2Samples
-		false, // sparseResidency4Samples
-		false, // sparseResidency8Samples
-		false, // sparseResidency16Samples
-		false, // sparseResidencyAliased
-		false, // variableMultisampleRate
-		false, // inheritedQueries
+		VK_TRUE,   // robustBufferAccess
+		VK_FALSE,  // fullDrawIndexUint32
+		VK_FALSE,  // imageCubeArray
+		VK_FALSE,  // independentBlend
+		VK_FALSE,  // geometryShader
+		VK_FALSE,  // tessellationShader
+		VK_FALSE,  // sampleRateShading
+		VK_FALSE,  // dualSrcBlend
+		VK_FALSE,  // logicOp
+		VK_TRUE,   // multiDrawIndirect
+		VK_TRUE,   // drawIndirectFirstInstance
+		VK_FALSE,  // depthClamp
+		VK_FALSE,  // depthBiasClamp
+		VK_FALSE,  // fillModeNonSolid
+		VK_FALSE,  // depthBounds
+		VK_FALSE,  // wideLines
+		VK_FALSE,  // largePoints
+		VK_FALSE,  // alphaToOne
+		VK_FALSE,  // multiViewport
+		VK_FALSE,  // samplerAnisotropy
+		VK_TRUE,   // textureCompressionETC2
+		VK_FALSE,  // textureCompressionASTC_LDR
+		VK_FALSE,  // textureCompressionBC
+		VK_FALSE,  // occlusionQueryPrecise
+		VK_FALSE,  // pipelineStatisticsQuery
+		VK_FALSE,  // vertexPipelineStoresAndAtomics
+		VK_FALSE,  // fragmentStoresAndAtomics
+		VK_FALSE,  // shaderTessellationAndGeometryPointSize
+		VK_FALSE,  // shaderImageGatherExtended
+		VK_FALSE,  // shaderStorageImageExtendedFormats
+		VK_FALSE,  // shaderStorageImageMultisample
+		VK_FALSE,  // shaderStorageImageReadWithoutFormat
+		VK_FALSE,  // shaderStorageImageWriteWithoutFormat
+		VK_FALSE,  // shaderUniformBufferArrayDynamicIndexing
+		VK_FALSE,  // shaderSampledImageArrayDynamicIndexing
+		VK_FALSE,  // shaderStorageBufferArrayDynamicIndexing
+		VK_FALSE,  // shaderStorageImageArrayDynamicIndexing
+		VK_FALSE,  // shaderClipDistance
+		VK_FALSE,  // shaderCullDistance
+		VK_FALSE,  // shaderFloat64
+		VK_FALSE,  // shaderInt64
+		VK_FALSE,  // shaderInt16
+		VK_FALSE,  // shaderResourceResidency
+		VK_FALSE,  // shaderResourceMinLod
+		VK_FALSE,  // sparseBinding
+		VK_FALSE,  // sparseResidencyBuffer
+		VK_FALSE,  // sparseResidencyImage2D
+		VK_FALSE,  // sparseResidencyImage3D
+		VK_FALSE,  // sparseResidency2Samples
+		VK_FALSE,  // sparseResidency4Samples
+		VK_FALSE,  // sparseResidency8Samples
+		VK_FALSE,  // sparseResidency16Samples
+		VK_FALSE,  // sparseResidencyAliased
+		VK_FALSE,  // variableMultisampleRate
+		VK_FALSE,  // inheritedQueries
 	};
 
 	return features;
@@ -90,7 +93,7 @@ const VkPhysicalDeviceFeatures& PhysicalDevice::getFeatures() const
 
 void PhysicalDevice::getFeatures(VkPhysicalDeviceSamplerYcbcrConversionFeatures* features) const
 {
-	features->samplerYcbcrConversion = VK_FALSE;
+	features->samplerYcbcrConversion = VK_TRUE;
 }
 
 void PhysicalDevice::getFeatures(VkPhysicalDevice16BitStorageFeatures* features) const
@@ -126,6 +129,11 @@ void PhysicalDevice::getFeatures(VkPhysicalDeviceProtectedMemoryFeatures* featur
 	features->protectedMemory = VK_FALSE;
 }
 
+void PhysicalDevice::getFeatures(VkPhysicalDeviceShaderDrawParameterFeatures* features) const
+{
+	features->shaderDrawParameters = VK_FALSE;
+}
+
 VkSampleCountFlags PhysicalDevice::getSampleCounts() const
 {
 	return VK_SAMPLE_COUNT_1_BIT | VK_SAMPLE_COUNT_4_BIT;
@@ -137,20 +145,20 @@ const VkPhysicalDeviceLimits& PhysicalDevice::getLimits() const
 
 	static const VkPhysicalDeviceLimits limits =
 	{
-		(1 << vk::MAX_IMAGE_LEVELS_1D), // maxImageDimension1D
-		(1 << vk::MAX_IMAGE_LEVELS_2D), // maxImageDimension2D
-		(1 << vk::MAX_IMAGE_LEVELS_3D), // maxImageDimension3D
-		(1 << vk::MAX_IMAGE_LEVELS_CUBE), // maxImageDimensionCube
-		(1 << vk::MAX_IMAGE_ARRAY_LAYERS), // maxImageArrayLayers
+		1 << (vk::MAX_IMAGE_LEVELS_1D - 1), // maxImageDimension1D
+		1 << (vk::MAX_IMAGE_LEVELS_2D - 1), // maxImageDimension2D
+		1 << (vk::MAX_IMAGE_LEVELS_3D - 1), // maxImageDimension3D
+		1 << (vk::MAX_IMAGE_LEVELS_CUBE - 1), // maxImageDimensionCube
+		vk::MAX_IMAGE_ARRAY_LAYERS, // maxImageArrayLayers
 		65536, // maxTexelBufferElements
 		16384, // maxUniformBufferRange
 		(1ul << 27), // maxStorageBufferRange
-		128, // maxPushConstantsSize
+		vk::MAX_PUSH_CONSTANT_SIZE, // maxPushConstantsSize
 		4096, // maxMemoryAllocationCount
 		4000, // maxSamplerAllocationCount
 		131072, // bufferImageGranularity
 		0, // sparseAddressSpaceSize (unsupported)
-		4, // maxBoundDescriptorSets
+		MAX_BOUND_DESCRIPTOR_SETS, // maxBoundDescriptorSets
 		16, // maxPerStageDescriptorSamplers
 		12, // maxPerStageDescriptorUniformBuffers
 		4, // maxPerStageDescriptorStorageBuffers
@@ -160,9 +168,9 @@ const VkPhysicalDeviceLimits& PhysicalDevice::getLimits() const
 		128, // maxPerStageResources
 		96, // maxDescriptorSetSamplers
 		72, // maxDescriptorSetUniformBuffers
-		8, // maxDescriptorSetUniformBuffersDynamic
+		MAX_DESCRIPTOR_SET_UNIFORM_BUFFERS_DYNAMIC, // maxDescriptorSetUniformBuffersDynamic
 		24, // maxDescriptorSetStorageBuffers
-		4, // maxDescriptorSetStorageBuffersDynamic
+		MAX_DESCRIPTOR_SET_STORAGE_BUFFERS_DYNAMIC, // maxDescriptorSetStorageBuffersDynamic
 		96, // maxDescriptorSetSampledImages
 		24, // maxDescriptorSetStorageImages
 		4, // maxDescriptorSetInputAttachments
@@ -197,16 +205,16 @@ const VkPhysicalDeviceLimits& PhysicalDevice::getLimits() const
 		4, // mipmapPrecisionBits
 		UINT32_MAX, // maxDrawIndexedIndexValue
 		UINT32_MAX, // maxDrawIndirectCount
-		2, // maxSamplerLodBias
+		std::numeric_limits<float>::infinity(), // maxSamplerLodBias (no clamping takes place)
 		16, // maxSamplerAnisotropy
 		16, // maxViewports
 		{ 4096, 4096 }, // maxViewportDimensions[2]
 		{ -8192, 8191 }, // viewportBoundsRange[2]
 		0, // viewportSubPixelBits
 		64, // minMemoryMapAlignment
-		256, // minTexelBufferOffsetAlignment
-		256, // minUniformBufferOffsetAlignment
-		256, // minStorageBufferOffsetAlignment
+		vk::MIN_TEXEL_BUFFER_OFFSET_ALIGNMENT, // minTexelBufferOffsetAlignment
+		vk::MIN_UNIFORM_BUFFER_OFFSET_ALIGNMENT, // minUniformBufferOffsetAlignment
+		vk::MIN_STORAGE_BUFFER_OFFSET_ALIGNMENT, // minStorageBufferOffsetAlignment
 		-8, // minTexelOffset
 		7, // maxTexelOffset
 		-8, // minTexelGatherOffset
@@ -228,18 +236,18 @@ const VkPhysicalDeviceLimits& PhysicalDevice::getLimits() const
 		sampleCounts, // sampledImageStencilSampleCounts
 		VK_SAMPLE_COUNT_1_BIT, // storageImageSampleCounts (unsupported)
 		1, // maxSampleMaskWords
-		false, // timestampComputeAndGraphics
+		VK_FALSE, // timestampComputeAndGraphics
 		60, // timestampPeriod
 		8, // maxClipDistances
 		8, // maxCullDistances
 		8, // maxCombinedClipAndCullDistances
 		2, // discreteQueuePriorities
-		{ 1.0, 64.0 }, // pointSizeRange[2]
+		{ 1.0, vk::MAX_POINT_SIZE }, // pointSizeRange[2]
 		{ 1.0, 1.0 }, // lineWidthRange[2] (unsupported)
 		0.0, // pointSizeGranularity (unsupported)
 		0.0, // lineWidthGranularity (unsupported)
-		false, // strictLines
-		true, // standardSampleLocations
+		VK_FALSE,  // strictLines
+		VK_TRUE,   // standardSampleLocations
 		64, // optimalBufferCopyOffsetAlignment
 		64, // optimalBufferCopyRowPitchAlignment
 		256, // nonCoherentAtomSize
@@ -260,7 +268,7 @@ const VkPhysicalDeviceProperties& PhysicalDevice::getProperties() const
 		SWIFTSHADER_DEVICE_NAME, // deviceName
 		SWIFTSHADER_UUID, // pipelineCacheUUID
 		getLimits(), // limits
-		{ 0 } // sparseProperties
+		{} // sparseProperties
 	};
 
 	return properties;
@@ -281,7 +289,7 @@ void PhysicalDevice::getProperties(VkPhysicalDeviceIDProperties* properties) con
 
 void PhysicalDevice::getProperties(VkPhysicalDeviceMaintenance3Properties* properties) const
 {
-	properties->maxMemoryAllocationSize = 1 << 31;
+	properties->maxMemoryAllocationSize = 1u << 31;
 	properties->maxPerSetDescriptors = 1024;
 }
 
@@ -303,10 +311,50 @@ void PhysicalDevice::getProperties(VkPhysicalDeviceProtectedMemoryProperties* pr
 
 void PhysicalDevice::getProperties(VkPhysicalDeviceSubgroupProperties* properties) const
 {
-	properties->subgroupSize = 1;
+	properties->subgroupSize = sw::SIMD::Width;
 	properties->supportedStages = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT;
 	properties->supportedOperations = VK_SUBGROUP_FEATURE_BASIC_BIT;
 	properties->quadOperationsInAllStages = VK_FALSE;
+}
+
+void PhysicalDevice::getProperties(const VkExternalMemoryHandleTypeFlagBits* handleType, VkExternalImageFormatProperties* properties) const
+{
+	properties->externalMemoryProperties.compatibleHandleTypes = 0;
+	properties->externalMemoryProperties.exportFromImportedHandleTypes = 0;
+	properties->externalMemoryProperties.externalMemoryFeatures = 0;
+}
+
+void PhysicalDevice::getProperties(VkSamplerYcbcrConversionImageFormatProperties* properties) const
+{
+	properties->combinedImageSamplerDescriptorCount = 1;  // Need only one descriptor for YCbCr sampling.
+}
+
+#ifdef __ANDROID__
+void PhysicalDevice::getProperties(VkPhysicalDevicePresentationPropertiesANDROID* properties) const
+{
+	properties->sharedImage = VK_FALSE;
+}
+#endif
+
+void PhysicalDevice::getProperties(const VkPhysicalDeviceExternalBufferInfo* pExternalBufferInfo, VkExternalBufferProperties* pExternalBufferProperties) const
+{
+	pExternalBufferProperties->externalMemoryProperties.compatibleHandleTypes = 0;
+	pExternalBufferProperties->externalMemoryProperties.exportFromImportedHandleTypes = 0;
+	pExternalBufferProperties->externalMemoryProperties.externalMemoryFeatures = 0;
+}
+
+void PhysicalDevice::getProperties(const VkPhysicalDeviceExternalFenceInfo* pExternalFenceInfo, VkExternalFenceProperties* pExternalFenceProperties) const
+{
+	pExternalFenceProperties->compatibleHandleTypes = 0;
+	pExternalFenceProperties->exportFromImportedHandleTypes = 0;
+	pExternalFenceProperties->externalFenceFeatures = 0;
+}
+
+void PhysicalDevice::getProperties(const VkPhysicalDeviceExternalSemaphoreInfo* pExternalSemaphoreInfo, VkExternalSemaphoreProperties* pExternalSemaphoreProperties) const
+{
+	pExternalSemaphoreProperties->compatibleHandleTypes = 0;
+	pExternalSemaphoreProperties->exportFromImportedHandleTypes = 0;
+	pExternalSemaphoreProperties->externalSemaphoreFeatures = 0;
 }
 
 bool PhysicalDevice::hasFeatures(const VkPhysicalDeviceFeatures& requestedFeatures) const
@@ -327,7 +375,7 @@ bool PhysicalDevice::hasFeatures(const VkPhysicalDeviceFeatures& requestedFeatur
 	return true;
 }
 
-void PhysicalDevice::getFormatProperties(VkFormat format, VkFormatProperties* pFormatProperties) const
+void PhysicalDevice::getFormatProperties(Format format, VkFormatProperties* pFormatProperties) const
 {
 	pFormatProperties->linearTilingFeatures = 0; // Unsupported format
 	pFormatProperties->optimalTilingFeatures = 0; // Unsupported format
@@ -335,12 +383,15 @@ void PhysicalDevice::getFormatProperties(VkFormat format, VkFormatProperties* pF
 
 	switch(format)
 	{
+		// Formats which can be sampled *and* filtered
 	case VK_FORMAT_B4G4R4A4_UNORM_PACK16:
 	case VK_FORMAT_R5G6B5_UNORM_PACK16:
 	case VK_FORMAT_A1R5G5B5_UNORM_PACK16:
 	case VK_FORMAT_R8_UNORM:
+	case VK_FORMAT_R8_SRGB:
 	case VK_FORMAT_R8_SNORM:
 	case VK_FORMAT_R8G8_UNORM:
+	case VK_FORMAT_R8G8_SRGB:
 	case VK_FORMAT_R8G8_SNORM:
 	case VK_FORMAT_R8G8B8A8_UNORM:
 	case VK_FORMAT_R8G8B8A8_SNORM:
@@ -356,9 +407,21 @@ void PhysicalDevice::getFormatProperties(VkFormat format, VkFormatProperties* pF
 	case VK_FORMAT_R16G16B16A16_SFLOAT:
 	case VK_FORMAT_B10G11R11_UFLOAT_PACK32:
 	case VK_FORMAT_E5B9G9R9_UFLOAT_PACK32:
+	case VK_FORMAT_ETC2_R8G8B8_UNORM_BLOCK:
+	case VK_FORMAT_ETC2_R8G8B8_SRGB_BLOCK:
+	case VK_FORMAT_ETC2_R8G8B8A1_UNORM_BLOCK:
+	case VK_FORMAT_ETC2_R8G8B8A1_SRGB_BLOCK:
+	case VK_FORMAT_ETC2_R8G8B8A8_UNORM_BLOCK:
+	case VK_FORMAT_ETC2_R8G8B8A8_SRGB_BLOCK:
+	case VK_FORMAT_EAC_R11_UNORM_BLOCK:
+	case VK_FORMAT_EAC_R11_SNORM_BLOCK:
+	case VK_FORMAT_EAC_R11G11_UNORM_BLOCK:
+	case VK_FORMAT_EAC_R11G11_SNORM_BLOCK:
 		pFormatProperties->optimalTilingFeatures |=
 			VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT;
 		// Fall through
+
+		// Formats which can be sampled, but don't support filtering
 	case VK_FORMAT_R8_UINT:
 	case VK_FORMAT_R8_SINT:
 	case VK_FORMAT_R8G8_UINT:
@@ -386,22 +449,22 @@ void PhysicalDevice::getFormatProperties(VkFormat format, VkFormatProperties* pF
 	case VK_FORMAT_D16_UNORM:
 	case VK_FORMAT_D32_SFLOAT:
 		pFormatProperties->optimalTilingFeatures |=
+			VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT |
 			VK_FORMAT_FEATURE_BLIT_SRC_BIT |
 			VK_FORMAT_FEATURE_TRANSFER_SRC_BIT |
 			VK_FORMAT_FEATURE_TRANSFER_DST_BIT;
-		// Fall through
-	case VK_FORMAT_ETC2_R8G8B8_UNORM_BLOCK:
-	case VK_FORMAT_ETC2_R8G8B8_SRGB_BLOCK:
-	case VK_FORMAT_ETC2_R8G8B8A1_UNORM_BLOCK:
-	case VK_FORMAT_ETC2_R8G8B8A1_SRGB_BLOCK:
-	case VK_FORMAT_ETC2_R8G8B8A8_UNORM_BLOCK:
-	case VK_FORMAT_ETC2_R8G8B8A8_SRGB_BLOCK:
-	case VK_FORMAT_EAC_R11_UNORM_BLOCK:
-	case VK_FORMAT_EAC_R11_SNORM_BLOCK:
-	case VK_FORMAT_EAC_R11G11_UNORM_BLOCK:
-	case VK_FORMAT_EAC_R11G11_SNORM_BLOCK:
+		break;
+
+		// YCbCr formats:
+	case VK_FORMAT_G8_B8_R8_3PLANE_420_UNORM:
+	case VK_FORMAT_G8_B8R8_2PLANE_420_UNORM:
 		pFormatProperties->optimalTilingFeatures |=
-			VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT;
+			VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT |
+			VK_FORMAT_FEATURE_TRANSFER_SRC_BIT |
+			VK_FORMAT_FEATURE_TRANSFER_DST_BIT |
+			VK_FORMAT_FEATURE_COSITED_CHROMA_SAMPLES_BIT;
+		break;
+	default:
 		break;
 	}
 
@@ -437,6 +500,8 @@ void PhysicalDevice::getFormatProperties(VkFormat format, VkFormatProperties* pF
 	case VK_FORMAT_A8B8G8R8_SINT_PACK32:
 		pFormatProperties->bufferFeatures |=
 			VK_FORMAT_FEATURE_STORAGE_TEXEL_BUFFER_BIT;
+		break;
+	default:
 		break;
 	}
 
@@ -493,6 +558,8 @@ void PhysicalDevice::getFormatProperties(VkFormat format, VkFormatProperties* pF
 		pFormatProperties->optimalTilingFeatures |=
 			VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT;
 		break;
+	default:
+		break;
 	}
 
 	switch(format)
@@ -545,6 +612,8 @@ void PhysicalDevice::getFormatProperties(VkFormat format, VkFormatProperties* pF
 		pFormatProperties->bufferFeatures |=
 			VK_FORMAT_FEATURE_VERTEX_BUFFER_BIT;
 		break;
+	default:
+		break;
 	}
 
 	switch(format)
@@ -590,53 +659,86 @@ void PhysicalDevice::getFormatProperties(VkFormat format, VkFormatProperties* pF
 		pFormatProperties->bufferFeatures |=
 			VK_FORMAT_FEATURE_UNIFORM_TEXEL_BUFFER_BIT;
 		break;
+	default:
+		break;
+	}
+
+	if(pFormatProperties->optimalTilingFeatures)
+	{
+		pFormatProperties->linearTilingFeatures = VK_FORMAT_FEATURE_TRANSFER_SRC_BIT |
+		                                          VK_FORMAT_FEATURE_TRANSFER_DST_BIT;
 	}
 }
 
-void PhysicalDevice::getImageFormatProperties(VkFormat format, VkImageType type, VkImageTiling tiling,
+void PhysicalDevice::getImageFormatProperties(Format format, VkImageType type, VkImageTiling tiling,
                                               VkImageUsageFlags usage, VkImageCreateFlags flags,
-	                                          VkImageFormatProperties* pImageFormatProperties) const
+                                              VkImageFormatProperties* pImageFormatProperties) const
 {
-	pImageFormatProperties->maxArrayLayers = 1 << vk::MAX_IMAGE_ARRAY_LAYERS;
+	pImageFormatProperties->sampleCounts = VK_SAMPLE_COUNT_1_BIT;
+	pImageFormatProperties->maxArrayLayers = vk::MAX_IMAGE_ARRAY_LAYERS;
+	pImageFormatProperties->maxExtent.depth = 1;
 
 	switch(type)
 	{
 	case VK_IMAGE_TYPE_1D:
 		pImageFormatProperties->maxMipLevels = vk::MAX_IMAGE_LEVELS_1D;
-		pImageFormatProperties->maxExtent.width = 1 << vk::MAX_IMAGE_LEVELS_1D;
+		pImageFormatProperties->maxExtent.width = 1 << (vk::MAX_IMAGE_LEVELS_1D - 1);
 		pImageFormatProperties->maxExtent.height = 1;
-		pImageFormatProperties->maxExtent.depth = 1;
 		break;
 	case VK_IMAGE_TYPE_2D:
 		if(flags & VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT)
 		{
 			pImageFormatProperties->maxMipLevels = vk::MAX_IMAGE_LEVELS_CUBE;
-			pImageFormatProperties->maxExtent.width = 1 << vk::MAX_IMAGE_LEVELS_CUBE;
-			pImageFormatProperties->maxExtent.height = 1 << vk::MAX_IMAGE_LEVELS_CUBE;
-			pImageFormatProperties->maxExtent.depth = 1;
+			pImageFormatProperties->maxExtent.width = 1 << (vk::MAX_IMAGE_LEVELS_CUBE - 1);
+			pImageFormatProperties->maxExtent.height = 1 << (vk::MAX_IMAGE_LEVELS_CUBE - 1);
 		}
 		else
 		{
 			pImageFormatProperties->maxMipLevels = vk::MAX_IMAGE_LEVELS_2D;
-			pImageFormatProperties->maxExtent.width = 1 << vk::MAX_IMAGE_LEVELS_2D;
-			pImageFormatProperties->maxExtent.height = 1 << vk::MAX_IMAGE_LEVELS_2D;
-			pImageFormatProperties->maxExtent.depth = 1;
+			pImageFormatProperties->maxExtent.width = 1 << (vk::MAX_IMAGE_LEVELS_2D - 1);
+			pImageFormatProperties->maxExtent.height = 1 << (vk::MAX_IMAGE_LEVELS_2D - 1);
+
+			VkFormatProperties props;
+			getFormatProperties(format, &props);
+			auto features = tiling == VK_IMAGE_TILING_LINEAR ? props.linearTilingFeatures : props.optimalTilingFeatures;
+			if (features & (VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BIT | VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT))
+			{
+				// Only renderable formats make sense for multisample
+				pImageFormatProperties->sampleCounts = getSampleCounts();
+			}
 		}
 		break;
 	case VK_IMAGE_TYPE_3D:
 		pImageFormatProperties->maxMipLevels = vk::MAX_IMAGE_LEVELS_3D;
-		pImageFormatProperties->maxExtent.width = 1 << vk::MAX_IMAGE_LEVELS_3D;
-		pImageFormatProperties->maxExtent.height = 1 << vk::MAX_IMAGE_LEVELS_3D;
-		pImageFormatProperties->maxExtent.depth = 1 << vk::MAX_IMAGE_LEVELS_3D;
+		pImageFormatProperties->maxExtent.width = 1 << (vk::MAX_IMAGE_LEVELS_3D - 1);
+		pImageFormatProperties->maxExtent.height = 1 << (vk::MAX_IMAGE_LEVELS_3D - 1);
+		pImageFormatProperties->maxExtent.depth = 1 << (vk::MAX_IMAGE_LEVELS_3D - 1);
+		pImageFormatProperties->maxArrayLayers = 1;		// no 3D + layers
 		break;
 	default:
-		UNREACHABLE(type);
+		UNREACHABLE("VkImageType: %d", int(type));
 		break;
 	}
 
-	pImageFormatProperties->maxResourceSize = 1 << 31; // Minimum value for maxResourceSize
-	pImageFormatProperties->sampleCounts = getSampleCounts();
+	pImageFormatProperties->maxResourceSize = 1u << 31; // Minimum value for maxResourceSize
 
+	// "Images created with tiling equal to VK_IMAGE_TILING_LINEAR have further restrictions on their limits and capabilities
+	//  compared to images created with tiling equal to VK_IMAGE_TILING_OPTIMAL."
+	if(tiling == VK_IMAGE_TILING_LINEAR)
+	{
+		pImageFormatProperties->maxMipLevels = 1;
+		pImageFormatProperties->maxArrayLayers = 1;
+		pImageFormatProperties->sampleCounts = VK_SAMPLE_COUNT_1_BIT;
+	}
+
+	// "Images created with a format from one of those listed in Formats requiring sampler Y'CbCr conversion for VK_IMAGE_ASPECT_COLOR_BIT image views
+	//  have further restrictions on their limits and capabilities compared to images created with other formats."
+	if(format.isYcbcrFormat())
+	{
+		pImageFormatProperties->maxMipLevels = 1;
+		pImageFormatProperties->maxArrayLayers = 1;
+		pImageFormatProperties->sampleCounts = VK_SAMPLE_COUNT_1_BIT;
+	}
 }
 
 uint32_t PhysicalDevice::getQueueFamilyPropertyCount() const

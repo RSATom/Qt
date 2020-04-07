@@ -137,6 +137,8 @@ void QLowEnergyControllerPrivateAndroid::init()
                 this, &QLowEnergyControllerPrivateAndroid::descriptorWritten);
         connect(hub, &LowEnergyNotificationHub::characteristicChanged,
                 this, &QLowEnergyControllerPrivateAndroid::characteristicChanged);
+        connect(hub, &LowEnergyNotificationHub::serviceError,
+                this, &QLowEnergyControllerPrivateAndroid::serviceError);
     }
 }
 

@@ -17,6 +17,7 @@
 #include <vector>
 
 #include "api/peer_connection_interface.h"
+#include "api/sctp_transport_interface.h"
 #include "test/gmock.h"
 
 namespace webrtc {
@@ -74,6 +75,8 @@ class MockPeerConnectionInterface
                void(rtc::scoped_refptr<RtpReceiverInterface>,
                     rtc::scoped_refptr<RTCStatsCollectorCallback>));
   MOCK_METHOD0(ClearStatsCache, void());
+  MOCK_CONST_METHOD0(GetSctpTransport,
+                     rtc::scoped_refptr<SctpTransportInterface>());
   MOCK_METHOD2(
       CreateDataChannel,
       rtc::scoped_refptr<DataChannelInterface>(const std::string&,
@@ -114,14 +117,11 @@ class MockPeerConnectionInterface
                bool(const std::vector<cricket::Candidate>&));
   MOCK_METHOD1(SetBitrate, RTCError(const BitrateSettings&));
   MOCK_METHOD1(SetBitrate, RTCError(const BitrateParameters&));
-  MOCK_METHOD1(SetBitrateAllocationStrategy,
-               void(std::unique_ptr<rtc::BitrateAllocationStrategy>));
   MOCK_METHOD1(SetAudioPlayout, void(bool));
   MOCK_METHOD1(SetAudioRecording, void(bool));
   MOCK_METHOD0(signaling_state, SignalingState());
   MOCK_METHOD0(ice_connection_state, IceConnectionState());
   MOCK_METHOD0(ice_gathering_state, IceGatheringState());
-  MOCK_METHOD2(StartRtcEventLog, bool(rtc::PlatformFile, int64_t));
   MOCK_METHOD2(StartRtcEventLog,
                bool(std::unique_ptr<RtcEventLogOutput>, int64_t));
   MOCK_METHOD0(StopRtcEventLog, void());

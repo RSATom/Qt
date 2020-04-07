@@ -13,11 +13,11 @@
 #include <utility>
 #include <vector>
 
-#include "base/logging.h"
 #include "net/third_party/quiche/src/http2/platform/api/http2_containers.h"
 #include "net/third_party/quiche/src/spdy/core/spdy_protocol.h"
 #include "net/third_party/quiche/src/spdy/core/write_scheduler.h"
 #include "net/third_party/quiche/src/spdy/platform/api/spdy_bug_tracker.h"
+#include "net/third_party/quiche/src/spdy/platform/api/spdy_logging.h"
 #include "net/third_party/quiche/src/spdy/platform/api/spdy_macros.h"
 #include "net/third_party/quiche/src/spdy/platform/api/spdy_string.h"
 #include "net/third_party/quiche/src/spdy/platform/api/spdy_string_utils.h"
@@ -45,7 +45,9 @@ class PriorityWriteScheduler : public WriteScheduler<StreamIdType> {
   using typename WriteScheduler<StreamIdType>::StreamPrecedenceType;
 
   // Creates scheduler with no streams.
-  PriorityWriteScheduler() = default;
+  PriorityWriteScheduler() : PriorityWriteScheduler(kHttp2RootStreamId) {}
+  explicit PriorityWriteScheduler(StreamIdType root_stream_id)
+      : root_stream_id_(root_stream_id) {}
 
   void RegisterStream(StreamIdType stream_id,
                       const StreamPrecedenceType& precedence) override {
@@ -55,12 +57,12 @@ class PriorityWriteScheduler : public WriteScheduler<StreamIdType> {
     // parent_id not used here, but may as well validate it.  However,
     // parent_id may legitimately not be registered yet--see b/15676312.
     StreamIdType parent_id = precedence.parent_id();
-    SPDY_DVLOG_IF(
-        1, parent_id != kHttp2RootStreamId && !StreamRegistered(parent_id))
+    SPDY_DVLOG_IF(1,
+                  parent_id != root_stream_id_ && !StreamRegistered(parent_id))
         << "Parent stream " << parent_id << " not registered";
 
-    if (stream_id == kHttp2RootStreamId) {
-      SPDY_BUG << "Stream " << kHttp2RootStreamId << " already registered";
+    if (stream_id == root_stream_id_) {
+      SPDY_BUG << "Stream " << root_stream_id_ << " already registered";
       return;
     }
     StreamInfo stream_info = {precedence.spdy3_priority(), stream_id, false};
@@ -92,7 +94,7 @@ class PriorityWriteScheduler : public WriteScheduler<StreamIdType> {
       StreamIdType stream_id) const override {
     auto it = stream_infos_.find(stream_id);
     if (it == stream_infos_.end()) {
-      DVLOG(1) << "Stream " << stream_id << " not registered";
+      SPDY_DVLOG(1) << "Stream " << stream_id << " not registered";
       return StreamPrecedenceType(kV3LowestPriority);
     }
     return StreamPrecedenceType(it->second.priority);
@@ -106,14 +108,14 @@ class PriorityWriteScheduler : public WriteScheduler<StreamIdType> {
     // parent_id not used here, but may as well validate it.  However,
     // parent_id may legitimately not be registered yet--see b/15676312.
     StreamIdType parent_id = precedence.parent_id();
-    SPDY_DVLOG_IF(
-        1, parent_id != kHttp2RootStreamId && !StreamRegistered(parent_id))
+    SPDY_DVLOG_IF(1,
+                  parent_id != root_stream_id_ && !StreamRegistered(parent_id))
         << "Parent stream " << parent_id << " not registered";
 
     auto it = stream_infos_.find(stream_id);
     if (it == stream_infos_.end()) {
       // TODO(mpw): add to stream_infos_ on demand--see b/15676312.
-      DVLOG(1) << "Stream " << stream_id << " not registered";
+      SPDY_DVLOG(1) << "Stream " << stream_id << " not registered";
       return;
     }
     StreamInfo& stream_info = it->second;
@@ -132,7 +134,7 @@ class PriorityWriteScheduler : public WriteScheduler<StreamIdType> {
   }
 
   std::vector<StreamIdType> GetStreamChildren(
-      StreamIdType stream_id) const override {
+      StreamIdType /*stream_id*/) const override {
     return std::vector<StreamIdType>();
   }
 
@@ -256,6 +258,8 @@ class PriorityWriteScheduler : public WriteScheduler<StreamIdType> {
   // Returns the number of ready streams.
   size_t NumReadyStreams() const override { return num_ready_streams_; }
 
+  size_t NumRegisteredStreams() const override { return stream_infos_.size(); }
+
   SpdyString DebugString() const override {
     return SpdyStrCat(
         "PriorityWriteScheduler {num_streams=", stream_infos_.size(),
@@ -263,10 +267,10 @@ class PriorityWriteScheduler : public WriteScheduler<StreamIdType> {
   }
 
   // Returns true if a stream is ready.
-  bool IsStreamReady(StreamIdType stream_id) const {
+  bool IsStreamReady(StreamIdType stream_id) const override {
     auto it = stream_infos_.find(stream_id);
     if (it == stream_infos_.end()) {
-      DLOG(INFO) << "Stream " << stream_id << " not registered";
+      SPDY_DLOG(INFO) << "Stream " << stream_id << " not registered";
       return false;
     }
     return it->second.ready;
@@ -315,6 +319,7 @@ class PriorityWriteScheduler : public WriteScheduler<StreamIdType> {
   PriorityInfo priority_infos_[kV3LowestPriority + 1];
   // StreamInfos for all registered streams.
   StreamInfoMap stream_infos_;
+  StreamIdType root_stream_id_;
 };
 
 }  // namespace spdy

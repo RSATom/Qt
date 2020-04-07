@@ -5,16 +5,15 @@
 #ifndef UI_OZONE_PLATFORM_SCENIC_SCENIC_WINDOW_MANAGER_H_
 #define UI_OZONE_PLATFORM_SCENIC_SCENIC_WINDOW_MANAGER_H_
 
+#include <fuchsia/ui/scenic/cpp/fidl.h>
 #include <stdint.h>
 #include <memory>
 
-#include <fuchsia/ui/viewsv1/cpp/fidl.h>
-
+#include "base/component_export.h"
 #include "base/containers/id_map.h"
 #include "base/macros.h"
 #include "base/threading/thread_checker.h"
 #include "ui/gfx/native_widget_types.h"
-#include "ui/ozone/ozone_export.h"
 #include "ui/ozone/platform/scenic/scenic_screen.h"
 #include "ui/ozone/public/surface_factory_ozone.h"
 
@@ -29,17 +28,16 @@ class ScenicWindow;
 //
 // TODO(sergeyu): Consider updating AcceleratedWidget to store ScenicWindow*
 // which would remove the need for the IDMap.
-class OZONE_EXPORT ScenicWindowManager {
+class COMPONENT_EXPORT(OZONE) ScenicWindowManager {
  public:
   ScenicWindowManager();
   ~ScenicWindowManager();
 
   std::unique_ptr<PlatformScreen> CreateScreen();
 
-  // ViewManager and Scenic services that are used by ScenicWindow. Both
-  // interfaces are initialized lazily on the first call and they don't change
-  // afterwards. ScenicWindowManager keeps the ownership.
-  fuchsia::ui::viewsv1::ViewManager* GetViewManager();
+  // Scenic interface that is used by ScenicWindow instances. The interface
+  // is initialized lazily on the first call and it don't change afterwards.
+  // ScenicWindowManager keeps the ownership.
   fuchsia::ui::scenic::Scenic* GetScenic();
 
   // Called by ScenicWindow when a new window instance is created. Returns
@@ -58,7 +56,6 @@ class OZONE_EXPORT ScenicWindowManager {
 
   base::WeakPtr<ScenicScreen> screen_;
 
-  fuchsia::ui::viewsv1::ViewManagerPtr view_manager_;
   fuchsia::ui::scenic::ScenicPtr scenic_;
 
   DISALLOW_COPY_AND_ASSIGN(ScenicWindowManager);

@@ -27,8 +27,8 @@ namespace {
 
 void OnExtractFeaturesJsResult(const DistillablePageDetector* detector,
                                base::Callback<void(bool)> callback,
-                               const base::Value* result) {
-  callback.Run(detector->Classify(CalculateDerivedFeaturesFromJSON(result)));
+                               base::Value result) {
+  callback.Run(detector->Classify(CalculateDerivedFeaturesFromJSON(&result)));
 }
 
 }  // namespace
@@ -43,12 +43,11 @@ void IsDistillablePageForDetector(content::WebContents* web_contents,
     return;
   }
   std::string extract_features_js =
-      ui::ResourceBundle::GetSharedInstance()
-          .GetRawDataResource(IDR_EXTRACT_PAGE_FEATURES_JS)
-          .as_string();
+      ui::ResourceBundle::GetSharedInstance().DecompressDataResource(
+          IDR_EXTRACT_PAGE_FEATURES_JS);
   RunIsolatedJavaScript(
       main_frame, extract_features_js,
-      base::Bind(OnExtractFeaturesJsResult, detector, callback));
+      base::BindOnce(OnExtractFeaturesJsResult, detector, callback));
 }
 
 void SetDelegate(content::WebContents* web_contents,

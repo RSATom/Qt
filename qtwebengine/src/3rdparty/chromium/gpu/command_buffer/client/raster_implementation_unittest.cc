@@ -14,6 +14,7 @@
 
 #include <memory>
 
+#include "base/bind.h"
 #include "base/compiler_specific.h"
 #include "base/stl_util.h"
 #include "cc/paint/raw_memory_transfer_cache_entry.h"
@@ -522,7 +523,7 @@ TEST_F(RasterImplementationTest, GenUnverifiedSyncTokenCHROMIUM) {
   EXPECT_EQ(GL_INVALID_VALUE, CheckError());
 
   const void* commands = GetPut();
-  cmds::InsertFenceSyncCHROMIUM insert_fence_sync;
+  cmd::InsertFenceSync insert_fence_sync;
   insert_fence_sync.Init(kFenceSync);
 
   EXPECT_CALL(*gpu_control_, GenerateFenceSyncRelease())
@@ -672,7 +673,7 @@ TEST_F(RasterImplementationTest, WaitSyncTokenCHROMIUM) {
   GLbyte* sync_token_data = sync_token.GetData();
 
   struct Cmds {
-    cmds::InsertFenceSyncCHROMIUM insert_fence_sync;
+    cmd::InsertFenceSync insert_fence_sync;
   };
   Cmds expected;
   expected.insert_fence_sync.Init(kFenceSync);

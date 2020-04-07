@@ -4,10 +4,13 @@
 
 #include "third_party/blink/renderer/platform/graphics/begin_frame_provider.h"
 
+#include "base/bind.h"
 #include "base/single_thread_task_runner.h"
+#include "services/viz/public/interfaces/compositing/frame_timing_details.mojom-blink.h"
 #include "third_party/blink/public/platform/interface_provider.h"
 #include "third_party/blink/public/platform/platform.h"
 #include "third_party/blink/renderer/platform/scheduler/public/thread_scheduler.h"
+#include "ui/gfx/mojo/presentation_feedback.mojom-blink.h"
 
 namespace blink {
 
@@ -20,8 +23,7 @@ BeginFrameProvider::BeginFrameProvider(
       efs_binding_(this),
       frame_sink_id_(begin_frame_provider_params.frame_sink_id),
       parent_frame_sink_id_(begin_frame_provider_params.parent_frame_sink_id),
-      begin_frame_client_(client),
-      weak_factory_(this) {}
+      begin_frame_client_(client) {}
 
 void BeginFrameProvider::ResetCompositorFrameSink() {
   compositor_frame_sink_.reset();
@@ -93,7 +95,7 @@ void BeginFrameProvider::RequestBeginFrame() {
 
 void BeginFrameProvider::OnBeginFrame(
     const viz::BeginFrameArgs& args,
-    WTF::HashMap<uint32_t, ::gfx::mojom::blink::PresentationFeedbackPtr>) {
+    WTF::HashMap<uint32_t, ::viz::mojom::blink::FrameTimingDetailsPtr>) {
   // If there was no need for a BeginFrame, just skip it.
   if (needs_begin_frame_ && requested_needs_begin_frame_) {
     requested_needs_begin_frame_ = false;

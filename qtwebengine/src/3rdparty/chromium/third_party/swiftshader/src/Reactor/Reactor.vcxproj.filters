@@ -18,13 +18,10 @@
     <ClCompile Include="Routine.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="LLVMRoutineManager.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="LLVMRoutine.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="LLVMReactor.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="LLVMReactorDebugInfo.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="CPUID.cpp">
@@ -37,6 +34,9 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="Thread.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="Reactor.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
@@ -53,10 +53,10 @@
     <ClInclude Include="Routine.hpp">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="LLVMRoutineManager.hpp">
+    <ClInclude Include="LLVMReactor.hpp">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="LLVMRoutine.hpp">
+    <ClInclude Include="LLVMReactorDebugInfo.hpp">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="CPUID.hpp">
@@ -72,6 +72,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="Thread.hpp">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="Traits.hpp">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

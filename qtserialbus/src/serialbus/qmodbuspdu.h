@@ -101,7 +101,7 @@ public:
     bool isException() const { return m_code & ExceptionByte; }
 
     qint16 size() const { return dataSize() + 1; }
-    qint16 dataSize() const { return m_data.size(); }
+    qint16 dataSize() const { return qint16(m_data.size()); }
 
     FunctionCode functionCode() const {
         return FunctionCode(quint8(m_code) &~ ExceptionByte);
@@ -141,18 +141,21 @@ private:
         enum { value = std::is_same<T, T1>::value || IsType<T, Ts...>::value };
     };
 
+    template <typename T>
+    using is_pod = std::integral_constant<bool, std::is_trivial<T>::value && std::is_standard_layout<T>::value>;
+
     template <typename T> void encode(QDataStream *stream, const T &t) {
-        static_assert(std::is_pod<T>::value, "Only POD types supported.");
+        static_assert(is_pod<T>::value, "Only POD types supported.");
         static_assert(IsType<T, quint8, quint16>::value, "Only quint8 and quint16 supported.");
         (*stream) << t;
     }
     template <typename T> void decode(QDataStream *stream, T &t) const {
-        static_assert(std::is_pod<T>::value, "Only POD types supported.");
+        static_assert(is_pod<T>::value, "Only POD types supported.");
         static_assert(IsType<T, quint8 *, quint16 *>::value, "Only quint8* and quint16* supported.");
         (*stream) >> *t;
     }
     template <typename T> void encode(QDataStream *stream, const QVector<T> &vector) {
-        static_assert(std::is_pod<T>::value, "Only POD types supported.");
+        static_assert(is_pod<T>::value, "Only POD types supported.");
         static_assert(IsType<T, quint8, quint16>::value, "Only quint8 and quint16 supported.");
         for (int i = 0; i < vector.count(); ++i)
             (*stream) << vector[i];

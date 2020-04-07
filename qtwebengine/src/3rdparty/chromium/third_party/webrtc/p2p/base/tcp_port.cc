@@ -67,9 +67,10 @@
 #include "p2p/base/tcp_port.h"
 
 #include <errno.h>
-#include <algorithm>
+
 #include <vector>
 
+#include "absl/algorithm/container.h"
 #include "p2p/base/p2p_constants.h"
 #include "rtc_base/checks.h"
 #include "rtc_base/ip_address.h"
@@ -97,7 +98,6 @@ TCPPort::TCPPort(rtc::Thread* thread,
            max_port,
            username,
            password),
-      incoming_only_(false),
       allow_listen_(allow_listen),
       socket_(NULL),
       error_(0) {
@@ -131,10 +131,6 @@ Connection* TCPPort::CreateConnection(const Candidate& address,
 
   // We can't accept TCP connections incoming on other ports
   if (origin == ORIGIN_OTHER_PORT)
-    return NULL;
-
-  // Check if we are allowed to make outgoing TCP connections
-  if (incoming_only_ && (origin == ORIGIN_MESSAGE))
     return NULL;
 
   // We don't know how to act as an ssl server yet
@@ -357,13 +353,10 @@ TCPConnection::TCPConnection(TCPPort* port,
     RTC_LOG(LS_VERBOSE) << ToString() << ": socket ipaddr: "
                         << socket_->GetLocalAddress().ToString()
                         << ", port() Network:" << port->Network()->ToString();
-    const std::vector<rtc::InterfaceAddress>& desired_addresses =
-        port_->Network()->GetIPs();
-    RTC_DCHECK(std::find_if(desired_addresses.begin(), desired_addresses.end(),
-                            [this](const rtc::InterfaceAddress& addr) {
-                              return socket_->GetLocalAddress().ipaddr() ==
-                                     addr;
-                            }) != desired_addresses.end());
+    RTC_DCHECK(absl::c_any_of(
+        port_->Network()->GetIPs(), [this](const rtc::InterfaceAddress& addr) {
+          return socket_->GetLocalAddress().ipaddr() == addr;
+        }));
     ConnectSocketSignals(socket);
   }
 }
@@ -444,12 +437,10 @@ void TCPConnection::OnConnect(rtc::AsyncPacketSocket* socket) {
   // Note that, aside from minor differences in log statements, this logic is
   // identical to that in TurnPort.
   const rtc::SocketAddress& socket_address = socket->GetLocalAddress();
-  const std::vector<rtc::InterfaceAddress>& desired_addresses =
-      port_->Network()->GetIPs();
-  if (std::find_if(desired_addresses.begin(), desired_addresses.end(),
-                   [socket_address](const rtc::InterfaceAddress& addr) {
-                     return socket_address.ipaddr() == addr;
-                   }) != desired_addresses.end()) {
+  if (absl::c_any_of(port_->Network()->GetIPs(),
+                     [socket_address](const rtc::InterfaceAddress& addr) {
+                       return socket_address.ipaddr() == addr;
+                     })) {
     RTC_LOG(LS_VERBOSE) << ToString() << ": Connection established to "
                         << socket->GetRemoteAddress().ToSensitiveString();
   } else {

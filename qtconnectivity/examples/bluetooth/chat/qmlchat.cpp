@@ -62,6 +62,7 @@
 int main(int argc, char *argv[])
 {
     //QLoggingCategory::setFilterRules(QStringLiteral("qt.bluetooth* = true"));
+    QGuiApplication::setAttribute(Qt::AA_EnableHighDpiScaling);
     QGuiApplication application(argc, argv);
 
     QList<QBluetoothHostInfo> infos = QBluetoothLocalDevice::allDevices();

@@ -5,24 +5,24 @@
 * found in the LICENSE file.
 */
 
-#include "GrVkCommandBuffer.h"
+#include "src/gpu/vk/GrVkCommandBuffer.h"
 
-#include "GrVkCommandPool.h"
-#include "GrVkGpu.h"
-#include "GrVkFramebuffer.h"
-#include "GrVkImage.h"
-#include "GrVkImageView.h"
-#include "GrVkIndexBuffer.h"
-#include "GrVkPipeline.h"
-#include "GrVkPipelineState.h"
-#include "GrVkRenderPass.h"
-#include "GrVkRenderTarget.h"
-#include "GrVkPipelineLayout.h"
-#include "GrVkPipelineState.h"
-#include "GrVkTransferBuffer.h"
-#include "GrVkUtil.h"
-#include "GrVkVertexBuffer.h"
-#include "SkRect.h"
+#include "include/core/SkRect.h"
+#include "src/gpu/vk/GrVkCommandPool.h"
+#include "src/gpu/vk/GrVkFramebuffer.h"
+#include "src/gpu/vk/GrVkGpu.h"
+#include "src/gpu/vk/GrVkImage.h"
+#include "src/gpu/vk/GrVkImageView.h"
+#include "src/gpu/vk/GrVkIndexBuffer.h"
+#include "src/gpu/vk/GrVkPipeline.h"
+#include "src/gpu/vk/GrVkPipelineLayout.h"
+#include "src/gpu/vk/GrVkPipelineState.h"
+#include "src/gpu/vk/GrVkPipelineState.h"
+#include "src/gpu/vk/GrVkRenderPass.h"
+#include "src/gpu/vk/GrVkRenderTarget.h"
+#include "src/gpu/vk/GrVkTransferBuffer.h"
+#include "src/gpu/vk/GrVkUtil.h"
+#include "src/gpu/vk/GrVkVertexBuffer.h"
 
 void GrVkCommandBuffer::invalidateState() {
     for (auto& boundInputBuffer : fBoundInputBuffers) {
@@ -42,6 +42,7 @@ void GrVkCommandBuffer::invalidateState() {
 }
 
 void GrVkCommandBuffer::freeGPUData(GrVkGpu* gpu) const {
+    TRACE_EVENT0("skia.gpu", TRACE_FUNC);
     SkASSERT(!fIsActive);
     for (int i = 0; i < fTrackedResources.count(); ++i) {
         fTrackedResources[i]->notifyRemovedFromCommandBuffer();
@@ -88,6 +89,7 @@ void GrVkCommandBuffer::abandonGPUData() const {
 }
 
 void GrVkCommandBuffer::releaseResources(GrVkGpu* gpu) {
+    TRACE_EVENT0("skia.gpu", TRACE_FUNC);
     SkDEBUGCODE(fResourcesReleased = true;)
     SkASSERT(!fIsActive);
     for (int i = 0; i < fTrackedResources.count(); ++i) {
@@ -128,11 +130,12 @@ void GrVkCommandBuffer::releaseResources(GrVkGpu* gpu) {
 ////////////////////////////////////////////////////////////////////////////////
 
 void GrVkCommandBuffer::pipelineBarrier(const GrVkGpu* gpu,
+                                        const GrVkResource* resource,
                                         VkPipelineStageFlags srcStageMask,
                                         VkPipelineStageFlags dstStageMask,
                                         bool byRegion,
                                         BarrierType barrierType,
-                                        void* barrier) const {
+                                        void* barrier) {
     SkASSERT(!this->isWrapped());
     SkASSERT(fIsActive);
     // For images we can have barriers inside of render passes but they require us to add more
@@ -140,43 +143,81 @@ void GrVkCommandBuffer::pipelineBarrier(const GrVkGpu* gpu,
     // never have buffer barriers inside of a render pass. For now we will just assert that we are
     // not in a render pass.
     SkASSERT(!fActiveRenderPass);
-    VkDependencyFlags dependencyFlags = byRegion ? VK_DEPENDENCY_BY_REGION_BIT : 0;
 
-    switch (barrierType) {
-        case kMemory_BarrierType: {
-            const VkMemoryBarrier* barrierPtr = reinterpret_cast<VkMemoryBarrier*>(barrier);
-            GR_VK_CALL(gpu->vkInterface(), CmdPipelineBarrier(fCmdBuffer, srcStageMask,
-                                                              dstStageMask, dependencyFlags,
-                                                              1, barrierPtr,
-                                                              0, nullptr,
-                                                              0, nullptr));
-            break;
+    if (barrierType == kBufferMemory_BarrierType) {
+        const VkBufferMemoryBarrier* barrierPtr = reinterpret_cast<VkBufferMemoryBarrier*>(barrier);
+        fBufferBarriers.push_back(*barrierPtr);
+    } else {
+        SkASSERT(barrierType == kImageMemory_BarrierType);
+        const VkImageMemoryBarrier* barrierPtr = reinterpret_cast<VkImageMemoryBarrier*>(barrier);
+        // We need to check if we are adding a pipeline barrier that covers part of the same
+        // subresource range as a barrier that is already in current batch. If it does, then we must
+        // submit the first batch because the vulkan spec does not define a specific ordering for
+        // barriers submitted in the same batch.
+        // TODO: Look if we can gain anything by merging barriers together instead of submitting
+        // the old ones.
+        for (int i = 0; i < fImageBarriers.count(); ++i) {
+            VkImageMemoryBarrier& currentBarrier = fImageBarriers[i];
+            if (barrierPtr->image == currentBarrier.image) {
+                const VkImageSubresourceRange newRange = barrierPtr->subresourceRange;
+                const VkImageSubresourceRange oldRange = currentBarrier.subresourceRange;
+                SkASSERT(newRange.aspectMask == oldRange.aspectMask);
+                SkASSERT(newRange.baseArrayLayer == oldRange.baseArrayLayer);
+                SkASSERT(newRange.layerCount == oldRange.layerCount);
+                uint32_t newStart = newRange.baseMipLevel;
+                uint32_t newEnd = newRange.baseMipLevel + newRange.levelCount - 1;
+                uint32_t oldStart = oldRange.baseMipLevel;
+                uint32_t oldEnd = oldRange.baseMipLevel + oldRange.levelCount - 1;
+                if (SkTMax(newStart, oldStart) <= SkTMin(newEnd, oldEnd)) {
+                    this->submitPipelineBarriers(gpu);
+                    break;
+                }
+            }
         }
-
-        case kBufferMemory_BarrierType: {
-            const VkBufferMemoryBarrier* barrierPtr =
-                                                 reinterpret_cast<VkBufferMemoryBarrier*>(barrier);
-            GR_VK_CALL(gpu->vkInterface(), CmdPipelineBarrier(fCmdBuffer, srcStageMask,
-                                                              dstStageMask, dependencyFlags,
-                                                              0, nullptr,
-                                                              1, barrierPtr,
-                                                              0, nullptr));
-            break;
-        }
-
-        case kImageMemory_BarrierType: {
-            const VkImageMemoryBarrier* barrierPtr =
-                                                  reinterpret_cast<VkImageMemoryBarrier*>(barrier);
-            GR_VK_CALL(gpu->vkInterface(), CmdPipelineBarrier(fCmdBuffer, srcStageMask,
-                                                              dstStageMask, dependencyFlags,
-                                                              0, nullptr,
-                                                              0, nullptr,
-                                                              1, barrierPtr));
-            break;
-        }
+        fImageBarriers.push_back(*barrierPtr);
     }
+    fBarriersByRegion |= byRegion;
 
+    fSrcStageMask = fSrcStageMask | srcStageMask;
+    fDstStageMask = fDstStageMask | dstStageMask;
+
+    fHasWork = true;
+    if (resource) {
+        this->addResource(resource);
+    }
 }
+
+void GrVkCommandBuffer::submitPipelineBarriers(const GrVkGpu* gpu) {
+    SkASSERT(fIsActive);
+
+    // Currently we never submit a pipeline barrier without at least one memory barrier.
+    if (fBufferBarriers.count() || fImageBarriers.count()) {
+        // For images we can have barriers inside of render passes but they require us to add more
+        // support in subpasses which need self dependencies to have barriers inside them. Also, we
+        // can never have buffer barriers inside of a render pass. For now we will just assert that
+        // we are not in a render pass.
+        SkASSERT(!fActiveRenderPass);
+        SkASSERT(!this->isWrapped());
+        SkASSERT(fSrcStageMask && fDstStageMask);
+
+        VkDependencyFlags dependencyFlags = fBarriersByRegion ? VK_DEPENDENCY_BY_REGION_BIT : 0;
+        GR_VK_CALL(gpu->vkInterface(), CmdPipelineBarrier(
+                fCmdBuffer, fSrcStageMask, fDstStageMask, dependencyFlags, 0, nullptr,
+                fBufferBarriers.count(), fBufferBarriers.begin(),
+                fImageBarriers.count(), fImageBarriers.begin()));
+        fBufferBarriers.reset();
+        fImageBarriers.reset();
+        fBarriersByRegion = false;
+        fSrcStageMask = 0;
+        fDstStageMask = 0;
+    }
+    SkASSERT(!fBufferBarriers.count());
+    SkASSERT(!fImageBarriers.count());
+    SkASSERT(!fBarriersByRegion);
+    SkASSERT(!fSrcStageMask);
+    SkASSERT(!fDstStageMask);
+}
+
 
 void GrVkCommandBuffer::bindInputBuffer(GrVkGpu* gpu, uint32_t binding,
                                         const GrVkVertexBuffer* vbuffer) {
@@ -193,7 +234,7 @@ void GrVkCommandBuffer::bindInputBuffer(GrVkGpu* gpu, uint32_t binding,
                                                             &vkBuffer,
                                                             &offset));
         fBoundInputBuffers[binding] = vkBuffer;
-        addResource(vbuffer->resource());
+        this->addResource(vbuffer->resource());
     }
 }
 
@@ -208,7 +249,7 @@ void GrVkCommandBuffer::bindIndexBuffer(GrVkGpu* gpu, const GrVkIndexBuffer* ibu
                                                           ibuffer->offset(),
                                                           VK_INDEX_TYPE_UINT16));
         fBoundIndexBuffer = vkBuffer;
-        addResource(ibuffer->resource());
+        this->addResource(ibuffer->resource());
     }
 }
 
@@ -216,11 +257,14 @@ void GrVkCommandBuffer::clearAttachments(const GrVkGpu* gpu,
                                          int numAttachments,
                                          const VkClearAttachment* attachments,
                                          int numRects,
-                                         const VkClearRect* clearRects) const {
+                                         const VkClearRect* clearRects) {
     SkASSERT(fIsActive);
     SkASSERT(fActiveRenderPass);
     SkASSERT(numAttachments > 0);
     SkASSERT(numRects > 0);
+
+    this->addingWork(gpu);
+
 #ifdef SK_DEBUG
     for (int i = 0; i < numAttachments; ++i) {
         if (attachments[i].aspectMask == VK_IMAGE_ASPECT_COLOR_BIT) {
@@ -297,9 +341,10 @@ void GrVkCommandBuffer::drawIndexed(const GrVkGpu* gpu,
                                     uint32_t instanceCount,
                                     uint32_t firstIndex,
                                     int32_t vertexOffset,
-                                    uint32_t firstInstance) const {
+                                    uint32_t firstInstance) {
     SkASSERT(fIsActive);
     SkASSERT(fActiveRenderPass);
+    this->addingWork(gpu);
     GR_VK_CALL(gpu->vkInterface(), CmdDrawIndexed(fCmdBuffer,
                                                   indexCount,
                                                   instanceCount,
@@ -312,9 +357,10 @@ void GrVkCommandBuffer::draw(const GrVkGpu* gpu,
                              uint32_t vertexCount,
                              uint32_t instanceCount,
                              uint32_t firstVertex,
-                             uint32_t firstInstance) const {
+                             uint32_t firstInstance) {
     SkASSERT(fIsActive);
     SkASSERT(fActiveRenderPass);
+    this->addingWork(gpu);
     GR_VK_CALL(gpu->vkInterface(), CmdDraw(fCmdBuffer,
                                            vertexCount,
                                            instanceCount,
@@ -359,6 +405,11 @@ void GrVkCommandBuffer::setBlendConstants(const GrVkGpu* gpu,
         GR_VK_CALL(gpu->vkInterface(), CmdSetBlendConstants(fCmdBuffer, blendConstants));
         memcpy(fCachedBlendConstant, blendConstants, 4 * sizeof(float));
     }
+}
+
+void GrVkCommandBuffer::addingWork(const GrVkGpu* gpu) {
+    this->submitPipelineBarriers(gpu);
+    fHasWork = true;
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -406,6 +457,9 @@ void GrVkPrimaryCommandBuffer::begin(const GrVkGpu* gpu) {
 void GrVkPrimaryCommandBuffer::end(GrVkGpu* gpu) {
     SkASSERT(fIsActive);
     SkASSERT(!fActiveRenderPass);
+
+    this->submitPipelineBarriers(gpu);
+
     GR_VK_CALL_ERRCHECK(gpu->vkInterface(), EndCommandBuffer(fCmdBuffer));
     for (int i = 0; i < fTrackedRecordingResources.count(); ++i) {
         fTrackedRecordingResources[i]->unref(gpu);
@@ -413,6 +467,7 @@ void GrVkPrimaryCommandBuffer::end(GrVkGpu* gpu) {
     fTrackedRecordingResources.rewind();
     this->invalidateState();
     fIsActive = false;
+    fHasWork = false;
 }
 
 void GrVkPrimaryCommandBuffer::beginRenderPass(const GrVkGpu* gpu,
@@ -424,6 +479,8 @@ void GrVkPrimaryCommandBuffer::beginRenderPass(const GrVkGpu* gpu,
     SkASSERT(fIsActive);
     SkASSERT(!fActiveRenderPass);
     SkASSERT(renderPass->isCompatible(target));
+
+    this->addingWork(gpu);
 
     VkRenderPassBeginInfo beginInfo;
     VkRect2D renderArea;
@@ -451,6 +508,7 @@ void GrVkPrimaryCommandBuffer::beginRenderPass(const GrVkGpu* gpu,
 void GrVkPrimaryCommandBuffer::endRenderPass(const GrVkGpu* gpu) {
     SkASSERT(fIsActive);
     SkASSERT(fActiveRenderPass);
+    this->addingWork(gpu);
     GR_VK_CALL(gpu->vkInterface(), CmdEndRenderPass(fCmdBuffer));
     fActiveRenderPass = nullptr;
 }
@@ -465,6 +523,8 @@ void GrVkPrimaryCommandBuffer::executeCommands(const GrVkGpu* gpu,
     SkASSERT(!buffer->fIsActive);
     SkASSERT(fActiveRenderPass);
     SkASSERT(fActiveRenderPass->isCompatible(*buffer->fActiveRenderPass));
+
+    this->addingWork(gpu);
 
     GR_VK_CALL(gpu->vkInterface(), CmdExecuteCommands(fCmdBuffer, 1, &buffer->fCmdBuffer));
     buffer->ref();
@@ -483,11 +543,20 @@ static void submit_to_queue(const GrVkInterface* interface,
                             uint32_t commandBufferCount,
                             const VkCommandBuffer* commandBuffers,
                             uint32_t signalCount,
-                            const VkSemaphore* signalSemaphores) {
+                            const VkSemaphore* signalSemaphores,
+                            GrProtected protectedContext) {
+    VkProtectedSubmitInfo protectedSubmitInfo;
+    if (protectedContext == GrProtected::kYes) {
+        memset(&protectedSubmitInfo, 0, sizeof(VkProtectedSubmitInfo));
+        protectedSubmitInfo.sType = VK_STRUCTURE_TYPE_PROTECTED_SUBMIT_INFO;
+        protectedSubmitInfo.pNext = nullptr;
+        protectedSubmitInfo.protectedSubmit = VK_TRUE;
+    }
+
     VkSubmitInfo submitInfo;
     memset(&submitInfo, 0, sizeof(VkSubmitInfo));
     submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-    submitInfo.pNext = nullptr;
+    submitInfo.pNext = protectedContext == GrProtected::kYes ? &protectedSubmitInfo : nullptr;
     submitInfo.waitSemaphoreCount = waitCount;
     submitInfo.pWaitSemaphores = waitSemaphores;
     submitInfo.pWaitDstStageMask = waitStages;
@@ -524,11 +593,10 @@ void GrVkPrimaryCommandBuffer::submitToQueue(
     if (0 == signalCount && 0 == waitCount) {
         // This command buffer has no dependent semaphores so we can simply just submit it to the
         // queue with no worries.
-        submit_to_queue(gpu->vkInterface(), queue, fSubmitFence, 0, nullptr, nullptr,
-                        1, &fCmdBuffer, 0, nullptr);
+        submit_to_queue(gpu->vkInterface(), queue, fSubmitFence, 0, nullptr, nullptr, 1,
+                        &fCmdBuffer, 0, nullptr,
+                        gpu->protectedContext() ? GrProtected::kYes : GrProtected::kNo);
     } else {
-        GrVkSemaphore::Resource::AcquireMutex();
-
         SkTArray<VkSemaphore> vkSignalSems(signalCount);
         for (int i = 0; i < signalCount; ++i) {
             if (signalSemaphores[i]->shouldSignal()) {
@@ -546,23 +614,16 @@ void GrVkPrimaryCommandBuffer::submitToQueue(
                 vkWaitStages.push_back(VK_PIPELINE_STAGE_ALL_COMMANDS_BIT);
             }
         }
-        submit_to_queue(gpu->vkInterface(), queue, fSubmitFence,
-                        vkWaitSems.count(), vkWaitSems.begin(), vkWaitStages.begin(),
-                        1, &fCmdBuffer,
-                        vkSignalSems.count(), vkSignalSems.begin());
-        // Since shouldSignal/Wait do not require a mutex to be held, we must make sure that we mark
-        // the semaphores after we've submitted. Thus in the worst case another submit grabs the
-        // mutex and then realizes it doesn't need to submit the semaphore. We will never end up
-        // where a semaphore doesn't think it needs to be submitted (cause of querying
-        // shouldSignal/Wait), but it should need to.
+        submit_to_queue(gpu->vkInterface(), queue, fSubmitFence, vkWaitSems.count(),
+                        vkWaitSems.begin(), vkWaitStages.begin(), 1, &fCmdBuffer,
+                        vkSignalSems.count(), vkSignalSems.begin(),
+                        gpu->protectedContext() ? GrProtected::kYes : GrProtected::kNo);
         for (int i = 0; i < signalCount; ++i) {
             signalSemaphores[i]->markAsSignaled();
         }
         for (int i = 0; i < waitCount; ++i) {
             waitSemaphores[i]->markAsWaited();
         }
-
-        GrVkSemaphore::Resource::ReleaseMutex();
     }
 
     if (GrVkGpu::kForce_SyncQueue == sync) {
@@ -574,13 +635,15 @@ void GrVkPrimaryCommandBuffer::submitToQueue(
         }
         SkASSERT(!err);
 
+        fFinishedProcs.reset();
+
         // Destroy the fence
         GR_VK_CALL(gpu->vkInterface(), DestroyFence(gpu->device(), fSubmitFence, nullptr));
         fSubmitFence = VK_NULL_HANDLE;
     }
 }
 
-bool GrVkPrimaryCommandBuffer::finished(const GrVkGpu* gpu) const {
+bool GrVkPrimaryCommandBuffer::finished(const GrVkGpu* gpu) {
     SkASSERT(!fIsActive);
     if (VK_NULL_HANDLE == fSubmitFence) {
         return true;
@@ -603,10 +666,15 @@ bool GrVkPrimaryCommandBuffer::finished(const GrVkGpu* gpu) const {
     return false;
 }
 
+void GrVkPrimaryCommandBuffer::addFinishedProc(sk_sp<GrRefCntedCallback> finishedProc) {
+    fFinishedProcs.push_back(std::move(finishedProc));
+}
+
 void GrVkPrimaryCommandBuffer::onReleaseResources(GrVkGpu* gpu) {
     for (int i = 0; i < fSecondaryCommandBuffers.count(); ++i) {
         fSecondaryCommandBuffers[i]->releaseResources(gpu);
     }
+    fFinishedProcs.reset();
 }
 
 void GrVkPrimaryCommandBuffer::recycleSecondaryCommandBuffers() {
@@ -626,6 +694,7 @@ void GrVkPrimaryCommandBuffer::copyImage(const GrVkGpu* gpu,
                                          const VkImageCopy* copyRegions) {
     SkASSERT(fIsActive);
     SkASSERT(!fActiveRenderPass);
+    this->addingWork(gpu);
     this->addResource(srcImage->resource());
     this->addResource(dstImage->resource());
     GR_VK_CALL(gpu->vkInterface(), CmdCopyImage(fCmdBuffer,
@@ -649,6 +718,7 @@ void GrVkPrimaryCommandBuffer::blitImage(const GrVkGpu* gpu,
                                          VkFilter filter) {
     SkASSERT(fIsActive);
     SkASSERT(!fActiveRenderPass);
+    this->addingWork(gpu);
     this->addResource(srcResource);
     this->addResource(dstResource);
     GR_VK_CALL(gpu->vkInterface(), CmdBlitImage(fCmdBuffer,
@@ -688,6 +758,7 @@ void GrVkPrimaryCommandBuffer::copyImageToBuffer(const GrVkGpu* gpu,
                                                  const VkBufferImageCopy* copyRegions) {
     SkASSERT(fIsActive);
     SkASSERT(!fActiveRenderPass);
+    this->addingWork(gpu);
     this->addResource(srcImage->resource());
     this->addResource(dstBuffer->resource());
     GR_VK_CALL(gpu->vkInterface(), CmdCopyImageToBuffer(fCmdBuffer,
@@ -706,6 +777,7 @@ void GrVkPrimaryCommandBuffer::copyBufferToImage(const GrVkGpu* gpu,
                                                  const VkBufferImageCopy* copyRegions) {
     SkASSERT(fIsActive);
     SkASSERT(!fActiveRenderPass);
+    this->addingWork(gpu);
     this->addResource(srcBuffer->resource());
     this->addResource(dstImage->resource());
     GR_VK_CALL(gpu->vkInterface(), CmdCopyBufferToImage(fCmdBuffer,
@@ -724,6 +796,7 @@ void GrVkPrimaryCommandBuffer::copyBuffer(GrVkGpu* gpu,
                                           const VkBufferCopy* regions) {
     SkASSERT(fIsActive);
     SkASSERT(!fActiveRenderPass);
+    this->addingWork(gpu);
 #ifdef SK_DEBUG
     for (uint32_t i = 0; i < regionCount; ++i) {
         const VkBufferCopy& region = regions[i];
@@ -754,6 +827,7 @@ void GrVkPrimaryCommandBuffer::updateBuffer(GrVkGpu* gpu,
     // TODO: handle larger transfer sizes
     SkASSERT(dataSize <= 65536);
     SkASSERT(0 == (dataSize & 0x03));    // four byte aligned
+    this->addingWork(gpu);
     this->addResource(dstBuffer->resource());
     GR_VK_CALL(gpu->vkInterface(), CmdUpdateBuffer(fCmdBuffer,
                                                    dstBuffer->buffer(),
@@ -769,6 +843,7 @@ void GrVkPrimaryCommandBuffer::clearColorImage(const GrVkGpu* gpu,
                                                const VkImageSubresourceRange* subRanges) {
     SkASSERT(fIsActive);
     SkASSERT(!fActiveRenderPass);
+    this->addingWork(gpu);
     this->addResource(image->resource());
     GR_VK_CALL(gpu->vkInterface(), CmdClearColorImage(fCmdBuffer,
                                                       image->image(),
@@ -785,6 +860,7 @@ void GrVkPrimaryCommandBuffer::clearDepthStencilImage(const GrVkGpu* gpu,
                                                       const VkImageSubresourceRange* subRanges) {
     SkASSERT(fIsActive);
     SkASSERT(!fActiveRenderPass);
+    this->addingWork(gpu);
     this->addResource(image->resource());
     GR_VK_CALL(gpu->vkInterface(), CmdClearDepthStencilImage(fCmdBuffer,
                                                              image->image(),
@@ -802,6 +878,7 @@ void GrVkPrimaryCommandBuffer::resolveImage(GrVkGpu* gpu,
     SkASSERT(fIsActive);
     SkASSERT(!fActiveRenderPass);
 
+    this->addingWork(gpu);
     this->addResource(srcImage.resource());
     this->addResource(dstImage.resource());
 
@@ -900,4 +977,5 @@ void GrVkSecondaryCommandBuffer::end(GrVkGpu* gpu) {
     }
     this->invalidateState();
     fIsActive = false;
+    fHasWork = false;
 }

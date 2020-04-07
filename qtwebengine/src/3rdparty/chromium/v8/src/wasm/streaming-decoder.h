@@ -9,7 +9,7 @@
 #include <vector>
 
 #include "src/base/macros.h"
-#include "src/vector.h"
+#include "src/utils/vector.h"
 #include "src/wasm/compilation-environment.h"
 #include "src/wasm/wasm-constants.h"
 #include "src/wasm/wasm-result.h"
@@ -36,7 +36,7 @@ class V8_EXPORT_PRIVATE StreamingProcessor {
 
   // Process the start of the code section. Returns true if the processing
   // finished successfully and the decoding should continue.
-  virtual bool ProcessCodeSectionHeader(size_t num_functions, uint32_t offset,
+  virtual bool ProcessCodeSectionHeader(int num_functions, uint32_t offset,
                                         std::shared_ptr<WireBytesStorage>) = 0;
 
   // Process a function body. Returns true if the processing finished
@@ -227,7 +227,7 @@ class V8_EXPORT_PRIVATE StreamingDecoder {
     }
   }
 
-  void StartCodeSection(size_t num_functions,
+  void StartCodeSection(int num_functions,
                         std::shared_ptr<WireBytesStorage> wire_bytes_storage) {
     if (!ok()) return;
     // The offset passed to {ProcessCodeSectionHeader} is an error offset and
@@ -256,14 +256,14 @@ class V8_EXPORT_PRIVATE StreamingDecoder {
 
   uint32_t module_offset() const { return module_offset_; }
 
-  bool deserializing() const { return !compiled_module_bytes_.is_empty(); }
+  bool deserializing() const { return !compiled_module_bytes_.empty(); }
 
   std::unique_ptr<StreamingProcessor> processor_;
   std::unique_ptr<DecodingState> state_;
   std::vector<std::shared_ptr<SectionBuffer>> section_buffers_;
+  bool code_section_processed_ = false;
   uint32_t module_offset_ = 0;
   size_t total_size_ = 0;
-  uint8_t next_section_id_ = kFirstSectionInModule;
 
   // Caching support.
   ModuleCompiledCallback module_compiled_callback_ = nullptr;

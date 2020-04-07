@@ -25,7 +25,7 @@ class ScriptExecutionCallbackHelper : public WebScriptExecutionCallback {
 
  private:
   void Completed(const WebVector<v8::Local<v8::Value>>& values) override {
-    if (!values.IsEmpty() && !values[0].IsEmpty() && values[0]->IsString()) {
+    if (!values.empty() && !values[0].IsEmpty() && values[0]->IsString()) {
       result_ = ToCoreString(v8::Local<v8::String>::Cast(values[0]));
     }
   }
@@ -51,10 +51,11 @@ class VirtualTimeTest : public SimTest {
   }
 
   void TearDown() override {
-    // The SimTest destructor calls runPendingTasks. This is a problem because
+    // SimTest::TearDown() calls RunPendingTasks. This is a problem because
     // if there are any repeating tasks, advancing virtual time will cause the
     // runloop to busy loop. Disabling virtual time here fixes that.
     WebView().Scheduler()->DisableVirtualTimeForTesting();
+    SimTest::TearDown();
   }
 
   void StopVirtualTimeAndExitRunLoop() {
@@ -70,7 +71,7 @@ class VirtualTimeTest : public SimTest {
         FROM_HERE,
         WTF::Bind(&VirtualTimeTest::StopVirtualTimeAndExitRunLoop,
                   WTF::Unretained(this)),
-        TimeDelta::FromMillisecondsD(delay_ms));
+        base::TimeDelta::FromMillisecondsD(delay_ms));
     test::EnterRunLoop();
   }
 };

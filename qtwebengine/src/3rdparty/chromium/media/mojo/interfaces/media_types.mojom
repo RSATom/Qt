@@ -5,6 +5,7 @@
 module media.mojom;
 
 import "gpu/ipc/common/mailbox_holder.mojom";
+import "gpu/ipc/common/vulkan_ycbcr_info.mojom";
 import "mojo/public/mojom/base/time.mojom";
 import "mojo/public/mojom/base/values.mojom";
 import "ui/gfx/geometry/mojo/geometry.mojom";
@@ -17,6 +18,8 @@ enum AudioCodec;
 // See media/base/buffering_state.h for descriptions.
 [Native]
 enum BufferingState;
+[Native]
+enum BufferingStateChangeReason;
 
 // See media/base/channel_layout.h for descriptions.
 [Native]
@@ -58,9 +61,15 @@ enum VideoCodecProfile;
 [Native]
 enum VideoPixelFormat;
 
-// See media/base/video_rotation.h for descriptions.
+// See media/base/video_transformation.h for descriptions.
 [Native]
 enum VideoRotation;
+
+// See media/base/video_transformation.h for descriptions.
+struct VideoTransformation {
+  VideoRotation rotation;
+  bool mirrored;
+};
 
 // See media/base/waiting.h for descriptions.
 [Native]
@@ -155,8 +164,8 @@ struct AudioDecoderConfig {
 struct VideoDecoderConfig {
   VideoCodec codec;
   VideoCodecProfile profile;
-  VideoPixelFormat format;
-  VideoRotation video_rotation;
+  bool has_alpha;
+  VideoTransformation transformation;
   gfx.mojom.Size coded_size;
   gfx.mojom.Rect visible_rect;
   gfx.mojom.Size natural_size;
@@ -265,6 +274,7 @@ struct VideoFrame {
 union VideoFrameData {
   EosVideoFrameData eos_data;
   SharedBufferVideoFrameData shared_buffer_data;
+  DmabufVideoFrameData dmabuf_data;
   MailboxVideoFrameData mailbox_data;
 };
 
@@ -288,10 +298,17 @@ struct SharedBufferVideoFrameData {
   uint64 v_offset;
 };
 
+// This defines video frame data stored in dmabuf.
+struct DmabufVideoFrameData {
+  // Size depends on media::VideoFrame::NumPlanes with frame format.
+  array<handle> dmabuf_fds;
+};
+
 // This defines video frame data stored in texture mailboxes.
 struct MailboxVideoFrameData {
   // Size must be kept in sync with media::VideoFrame::kMaxPlanes.
   array<gpu.mojom.MailboxHolder, 4> mailbox_holder;
+  gpu.mojom.VulkanYCbCrInfo? ycbcr_data;
 };
 
 struct PipelineStatistics {
@@ -311,6 +328,10 @@ struct PredictionFeatures {
     VideoCodecProfile profile;
     gfx.mojom.Size video_size;
     int32 frames_per_sec = 0;
+    // Name of the key system used for EME playbacks.
+    string key_system;
+    // Indicates when CDM will use HW secure decoding for EME playbacks.
+    bool use_hw_secure_codecs = false;
 };
 
 // Target values for MediaCapabilities predictions.
@@ -321,3 +342,9 @@ struct PredictionTargets {
   uint32 frames_power_efficient = 0;
 };
 
+// See media/base/pipeline/status.h for descriptions.
+struct PipelineDecoderInfo {
+  string decoder_name;
+  bool is_platform_decoder = false;
+  bool is_decrypting_demuxer_stream = false;
+};

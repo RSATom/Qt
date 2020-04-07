@@ -17,7 +17,7 @@
 #ifndef SRC_PERFETTO_CMD_RATE_LIMITER_H_
 #define SRC_PERFETTO_CMD_RATE_LIMITER_H_
 
-#include "perfetto/base/time.h"
+#include "perfetto/ext/base/time.h"
 #include "src/perfetto_cmd/perfetto_cmd_state.pb.h"
 
 namespace perfetto {
@@ -27,6 +27,7 @@ class RateLimiter {
   struct Args {
     bool is_dropbox = false;
     bool ignore_guardrails = false;
+    bool allow_user_build_tracing = false;
     base::TimeSeconds current_time = base::TimeSeconds(0);
     uint64_t max_upload_bytes_override = 0;
   };

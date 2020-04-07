@@ -117,7 +117,7 @@ QGeoPolygon::QGeoPolygon()
 }
 
 /*!
-    Constructs a new geo \a polygon from the coordinates specified
+    Constructs a new geo polygon from the coordinates specified
     in \a path.
 */
 QGeoPolygon::QGeoPolygon(const QList<QGeoCoordinate> &path)

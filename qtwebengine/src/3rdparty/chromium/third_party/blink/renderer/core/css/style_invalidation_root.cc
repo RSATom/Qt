@@ -12,11 +12,11 @@ namespace blink {
 Element* StyleInvalidationRoot::RootElement() const {
   Node* root_node = GetRootNode();
   DCHECK(root_node);
-  if (root_node->IsShadowRoot())
-    return &ToShadowRoot(root_node)->host();
+  if (auto* shadow_root = DynamicTo<ShadowRoot>(root_node))
+    return &shadow_root->host();
   if (root_node->IsDocumentNode())
     return root_node->GetDocument().documentElement();
-  return ToElement(root_node);
+  return To<Element>(root_node);
 }
 
 #if DCHECK_IS_ON()

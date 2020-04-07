@@ -6,6 +6,7 @@
 
 #include <stdint.h>
 
+#include "base/bind.h"
 #include "base/memory/ptr_util.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/single_thread_task_runner.h"
@@ -19,12 +20,13 @@
 #include "media/base/decoder_buffer.h"
 #include "media/base/media_util.h"
 #include "media/base/mock_media_log.h"
+#include "media/base/simple_sync_token_client.h"
 #include "media/base/video_codecs.h"
 #include "media/base/video_frame.h"
-#include "media/base/video_rotation.h"
+#include "media/base/video_transformation.h"
 #include "media/base/video_types.h"
-#include "media/gpu/fake_command_buffer_helper.h"
 #include "media/gpu/ipc/service/picture_buffer_manager.h"
+#include "media/gpu/test/fake_command_buffer_helper.h"
 #include "media/video/mock_video_decode_accelerator.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -51,25 +53,6 @@ scoped_refptr<DecoderBuffer> CreateDecoderBuffer(base::TimeDelta timestamp) {
   buffer->set_timestamp(timestamp);
   return buffer;
 }
-
-// TODO(sandersd): Should be part of //media, as it is used by
-// MojoVideoDecoderService (production code) as well.
-class StaticSyncTokenClient : public VideoFrame::SyncTokenClient {
- public:
-  explicit StaticSyncTokenClient(const gpu::SyncToken& sync_token)
-      : sync_token_(sync_token) {}
-
-  void GenerateSyncToken(gpu::SyncToken* sync_token) final {
-    *sync_token = sync_token_;
-  }
-
-  void WaitSyncToken(const gpu::SyncToken& sync_token) final {}
-
- private:
-  gpu::SyncToken sync_token_;
-
-  DISALLOW_COPY_AND_ASSIGN(StaticSyncTokenClient);
-};
 
 VideoDecodeAccelerator::SupportedProfiles GetSupportedProfiles() {
   VideoDecodeAccelerator::SupportedProfiles profiles;
@@ -158,10 +141,10 @@ class VdaVideoDecoderTest : public testing::TestWithParam<bool> {
         .WillOnce(Return(GetParam()));
     EXPECT_CALL(init_cb_, Run(true));
     InitializeWithConfig(VideoDecoderConfig(
-        kCodecVP9, VP9PROFILE_PROFILE0, PIXEL_FORMAT_I420,
-        VideoColorSpace::REC709(), VIDEO_ROTATION_0, gfx::Size(1920, 1088),
-        gfx::Rect(1920, 1080), gfx::Size(1920, 1080), EmptyExtraData(),
-        Unencrypted()));
+        kCodecVP9, VP9PROFILE_PROFILE0,
+        VideoDecoderConfig::AlphaMode::kIsOpaque, VideoColorSpace::REC709(),
+        kNoTransformation, gfx::Size(1920, 1088), gfx::Rect(1920, 1080),
+        gfx::Size(1920, 1080), EmptyExtraData(), Unencrypted()));
     RunUntilIdle();
   }
 
@@ -278,7 +261,7 @@ class VdaVideoDecoderTest : public testing::TestWithParam<bool> {
     gpu::SyncToken sync_token(gpu::GPU_IO,
                               gpu::CommandBufferId::FromUnsafeValue(1),
                               next_release_count_++);
-    StaticSyncTokenClient sync_token_client(sync_token);
+    SimpleSyncTokenClient sync_token_client(sync_token);
     video_frame->UpdateReleaseSyncToken(&sync_token_client);
     return sync_token;
   }
@@ -334,21 +317,21 @@ TEST_P(VdaVideoDecoderTest, Initialize) {
 }
 
 TEST_P(VdaVideoDecoderTest, Initialize_UnsupportedSize) {
-  InitializeWithConfig(
-      VideoDecoderConfig(kCodecVP9, VP9PROFILE_PROFILE0, PIXEL_FORMAT_I420,
-                         VideoColorSpace::REC601(), VIDEO_ROTATION_0,
-                         gfx::Size(320, 240), gfx::Rect(320, 240),
-                         gfx::Size(320, 240), EmptyExtraData(), Unencrypted()));
+  InitializeWithConfig(VideoDecoderConfig(
+      kCodecVP9, VP9PROFILE_PROFILE0, VideoDecoderConfig::AlphaMode::kIsOpaque,
+      VideoColorSpace::REC601(), kNoTransformation, gfx::Size(320, 240),
+      gfx::Rect(320, 240), gfx::Size(320, 240), EmptyExtraData(),
+      Unencrypted()));
   EXPECT_CALL(init_cb_, Run(false));
   RunUntilIdle();
 }
 
 TEST_P(VdaVideoDecoderTest, Initialize_UnsupportedCodec) {
   InitializeWithConfig(VideoDecoderConfig(
-      kCodecH264, H264PROFILE_BASELINE, PIXEL_FORMAT_I420,
-      VideoColorSpace::REC709(), VIDEO_ROTATION_0, gfx::Size(1920, 1088),
-      gfx::Rect(1920, 1080), gfx::Size(1920, 1080), EmptyExtraData(),
-      Unencrypted()));
+      kCodecH264, H264PROFILE_BASELINE,
+      VideoDecoderConfig::AlphaMode::kIsOpaque, VideoColorSpace::REC709(),
+      kNoTransformation, gfx::Size(1920, 1088), gfx::Rect(1920, 1080),
+      gfx::Size(1920, 1080), EmptyExtraData(), Unencrypted()));
   EXPECT_CALL(init_cb_, Run(false));
   RunUntilIdle();
 }
@@ -356,8 +339,8 @@ TEST_P(VdaVideoDecoderTest, Initialize_UnsupportedCodec) {
 TEST_P(VdaVideoDecoderTest, Initialize_RejectedByVda) {
   EXPECT_CALL(*vda_, Initialize(_, vdavd_.get())).WillOnce(Return(false));
   InitializeWithConfig(VideoDecoderConfig(
-      kCodecVP9, VP9PROFILE_PROFILE0, PIXEL_FORMAT_I420,
-      VideoColorSpace::REC709(), VIDEO_ROTATION_0, gfx::Size(1920, 1088),
+      kCodecVP9, VP9PROFILE_PROFILE0, VideoDecoderConfig::AlphaMode::kIsOpaque,
+      VideoColorSpace::REC709(), kNoTransformation, gfx::Size(1920, 1088),
       gfx::Rect(1920, 1080), gfx::Size(1920, 1080), EmptyExtraData(),
       Unencrypted()));
   EXPECT_CALL(init_cb_, Run(false));
@@ -439,8 +422,8 @@ TEST_P(VdaVideoDecoderTest, Decode_Output_MaintainsAspect) {
   EXPECT_CALL(*vda_, TryToSetupDecodeOnSeparateThread(_, _))
       .WillOnce(Return(GetParam()));
   InitializeWithConfig(VideoDecoderConfig(
-      kCodecVP9, VP9PROFILE_PROFILE0, PIXEL_FORMAT_I420,
-      VideoColorSpace::REC709(), VIDEO_ROTATION_0, gfx::Size(640, 480),
+      kCodecVP9, VP9PROFILE_PROFILE0, VideoDecoderConfig::AlphaMode::kIsOpaque,
+      VideoColorSpace::REC709(), kNoTransformation, gfx::Size(640, 480),
       gfx::Rect(640, 480), gfx::Size(1280, 480), EmptyExtraData(),
       Unencrypted()));
   EXPECT_CALL(init_cb_, Run(true));
@@ -474,8 +457,8 @@ TEST_P(VdaVideoDecoderTest, Flush) {
   NotifyFlushDone();
 }
 
-INSTANTIATE_TEST_CASE_P(VdaVideoDecoder,
-                        VdaVideoDecoderTest,
-                        ::testing::Values(false, true));
+INSTANTIATE_TEST_SUITE_P(VdaVideoDecoder,
+                         VdaVideoDecoderTest,
+                         ::testing::Values(false, true));
 
 }  // namespace media

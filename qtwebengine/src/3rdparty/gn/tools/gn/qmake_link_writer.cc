@@ -43,7 +43,7 @@
 
 #include "tools/gn/qmake_link_writer.h"
 #include "tools/gn/deps_iterator.h"
-#include "tools/gn/ninja_binary_target_writer.h"
+#include "tools/gn/ninja_c_binary_target_writer.h"
 #include "tools/gn/ninja_target_command_util.h"
 #include "tools/gn/output_file.h"
 #include "tools/gn/settings.h"
@@ -52,7 +52,7 @@
 #include "base/logging.h"
 #include "base/strings/string_util.h"
 
-QMakeLinkWriter::QMakeLinkWriter(const NinjaBinaryTargetWriter* writer, const Target* target, std::ostream& out)
+QMakeLinkWriter::QMakeLinkWriter(const NinjaCBinaryTargetWriter* writer, const Target* target, std::ostream& out)
     : target_(target),
       nwriter_(writer),
       out_(out),
@@ -99,18 +99,18 @@ void QMakeLinkWriter::Run() {
   object_files.reserve(target_->sources().size());
 
   for (const auto& source : target_->sources()) {
-    Toolchain::ToolType tool_type = Toolchain::TYPE_NONE;
+    const char* tool_type = nullptr;
     if (!target_->GetOutputFilesForSource(source, &tool_type, &tool_outputs)) {
-      if (GetSourceFileType(source) == SOURCE_DEF)
+      if (source.type() == SourceFile::SOURCE_DEF)
         other_files.push_back(source);
       continue;  // No output for this source.
     }
     object_files.push_back(tool_outputs[0].AsSourceFile(settings->build_settings()));
   }
   if (target_->config_values().has_precompiled_headers()) {
-    const Tool* tool = target_->toolchain()->GetTool(Toolchain::TYPE_CXX);
-    if (tool && tool->precompiled_header_type() == Tool::PCH_MSVC) {
-      GetPCHOutputFiles(target_, Toolchain::TYPE_CXX, &tool_outputs);
+    const CTool* tool = target_->toolchain()->GetTool(CTool::kCToolCxx)->AsC();
+    if (tool && tool->precompiled_header_type() == CTool::PCH_MSVC) {
+      GetPCHOutputFiles(target_, CTool::kCToolCxx, &tool_outputs);
       if (!tool_outputs.empty())
         object_files.push_back(tool_outputs[0].AsSourceFile(settings->build_settings()));
     }
@@ -198,7 +198,7 @@ void QMakeLinkWriter::Run() {
 
   // library dirs
   const OrderedSet<SourceDir> all_lib_dirs = target_->all_lib_dirs();
-  const Tool* tool = target_->toolchain()->GetToolForTargetFinalOutput(target_);
+  const CTool* tool = target_->toolchain()->GetToolForTargetFinalOutput(target_)->AsC();
 
   if (!all_lib_dirs.empty()) {
     out_ << "NINJA_LIB_DIRS =";

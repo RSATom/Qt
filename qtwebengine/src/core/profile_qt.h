@@ -45,6 +45,7 @@
 #include "content/public/browser/resource_context.h"
 #include "extensions/buildflags/buildflags.h"
 #include "net/url_request/url_request_context.h"
+#include "pref_service_adapter.h"
 #include "profile_io_data_qt.h"
 #include <QtGlobal>
 
@@ -75,13 +76,10 @@ public:
     base::FilePath GetCachePath() const;
 
     // BrowserContext implementation:
-    base::FilePath GetPath() const override;
-    bool IsOffTheRecord() const override;
+    base::FilePath GetPath() override;
+    bool IsOffTheRecord() override;
 
     net::URLRequestContextGetter *CreateMediaRequestContext() override;
-    net::URLRequestContextGetter *CreateMediaRequestContextForStoragePartition(
-            const base::FilePath &partition_path,
-            bool in_memory) override;
     content::ResourceContext *GetResourceContext() override;
     content::DownloadManagerDelegate *GetDownloadManagerDelegate() override;
     content::BrowserPluginGuestManager *GetGuestManager() override;
@@ -89,10 +87,6 @@ public:
     content::PushMessagingService *GetPushMessagingService() override;
     content::SSLHostStateDelegate *GetSSLHostStateDelegate() override;
     net::URLRequestContextGetter *CreateRequestContext(
-            content::ProtocolHandlerMap *protocol_handlers,
-            content::URLRequestInterceptorScopedVector request_interceptors) override;
-    net::URLRequestContextGetter *CreateRequestContextForStoragePartition(
-            const base::FilePath &partition_path, bool in_memory,
             content::ProtocolHandlerMap *protocol_handlers,
             content::URLRequestInterceptorScopedVector request_interceptors) override;
     std::unique_ptr<content::ZoomLevelDelegate> CreateZoomLevelDelegate(
@@ -106,7 +100,8 @@ public:
                                           std::vector<network::mojom::CorsOriginPatternPtr> allow_patterns,
                                           std::vector<network::mojom::CorsOriginPatternPtr> block_patterns,
                                           base::OnceClosure closure) override;
-    const content::SharedCorsOriginAccessList* GetSharedCorsOriginAccessList() const override;
+    content::SharedCorsOriginAccessList *GetSharedCorsOriginAccessList() override;
+    std::string GetMediaDeviceIDSalt() override;
 
     // Profile implementation:
     PrefService *GetPrefs() override;
@@ -116,28 +111,37 @@ public:
 
     ProfileAdapter *profileAdapter() { return m_profileAdapter; }
 
+    content::PlatformNotificationService *platformNotificationService();
+
 #if QT_CONFIG(webengine_spellchecker)
     void FailedToLoadDictionary(const std::string &language) override;
-    void setSpellCheckLanguages(const QStringList &languages);
-    QStringList spellCheckLanguages() const;
-    void setSpellCheckEnabled(bool enabled);
-    bool isSpellCheckEnabled() const;
 #endif
 #if BUILDFLAG(ENABLE_EXTENSIONS)
     extensions::ExtensionSystemQt* GetExtensionSystem();
 #endif // defined(ENABLE_EXTENSIONS)
 
+    // Build/Re-build the preference service. Call when updating the storage
+    // data path.
+    void setupPrefService();
+
+    PrefServiceAdapter &prefServiceAdapter();
+
+    const PrefServiceAdapter &prefServiceAdapter() const;
+
 private:
     friend class ContentBrowserClientQt;
+    friend class ProfileIODataQt;
     friend class WebContentsAdapter;
     scoped_refptr<net::URLRequestContextGetter> m_urlRequestContextGetter;
     std::unique_ptr<BrowsingDataRemoverDelegateQt> m_removerDelegate;
     std::unique_ptr<PermissionManagerQt> m_permissionManager;
     std::unique_ptr<SSLHostStateDelegateQt> m_sslHostStateDelegate;
-    std::unique_ptr<PrefService> m_prefService;
     scoped_refptr<content::SharedCorsOriginAccessList> m_sharedCorsOriginAccessList;
     std::unique_ptr<ProfileIODataQt> m_profileIOData;
+    std::unique_ptr<content::PlatformNotificationService> m_platformNotificationService;
     ProfileAdapter *m_profileAdapter;
+    PrefServiceAdapter m_prefServiceAdapter;
+
     friend class ProfileAdapter;
 #if BUILDFLAG(ENABLE_EXTENSIONS)
     extensions::ExtensionSystemQt *m_extensionSystem;

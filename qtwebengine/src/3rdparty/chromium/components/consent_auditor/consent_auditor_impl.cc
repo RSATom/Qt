@@ -46,7 +46,7 @@ std::unique_ptr<sync_pb::UserConsentSpecifics> CreateUserConsentSpecifics(
 
 ConsentAuditorImpl::ConsentAuditorImpl(
     PrefService* pref_service,
-    std::unique_ptr<syncer::ConsentSyncBridge> consent_sync_bridge,
+    std::unique_ptr<ConsentSyncBridge> consent_sync_bridge,
     const std::string& app_version,
     const std::string& app_locale,
     base::Clock* clock)
@@ -115,18 +115,6 @@ void ConsentAuditorImpl::RecordSyncConsent(
   sync_pb::UserConsentTypes::SyncConsent* sync_consent =
       specifics->mutable_sync_consent();
   sync_consent->CopyFrom(consent);
-  consent_sync_bridge_->RecordConsent(std::move(specifics));
-}
-
-void ConsentAuditorImpl::RecordUnifiedConsent(
-    const std::string& account_id,
-    const sync_pb::UserConsentTypes::UnifiedConsent& consent) {
-  std::unique_ptr<sync_pb::UserConsentSpecifics> specifics =
-      CreateUserConsentSpecifics(account_id, app_locale_, clock_);
-
-  sync_pb::UserConsentTypes::UnifiedConsent* unified_consent =
-      specifics->mutable_unified_consent();
-  unified_consent->CopyFrom(consent);
   consent_sync_bridge_->RecordConsent(std::move(specifics));
 }
 

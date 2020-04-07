@@ -31,8 +31,8 @@
 #include "net/quic/quic_http_utils.h"
 #include "net/spdy/bidirectional_stream_spdy_impl.h"
 #include "net/spdy/spdy_http_stream.h"
-#include "net/third_party/quic/core/quic_packets.h"
-#include "net/third_party/quic/core/quic_server_id.h"
+#include "net/third_party/quiche/src/quic/core/quic_packets.h"
+#include "net/third_party/quiche/src/quic/core/quic_server_id.h"
 #include "net/third_party/quiche/src/spdy/core/spdy_alt_svc_wire_format.h"
 #include "url/gurl.h"
 #include "url/scheme_host_port.h"
@@ -75,11 +75,12 @@ void HttpStreamFactory::ProcessAlternativeServices(
       continue;
     }
     // Check if QUIC version is supported. Filter supported QUIC versions.
-    quic::QuicTransportVersionVector advertised_versions;
+    quic::ParsedQuicVersionVector advertised_versions;
     if (protocol == kProtoQUIC && !alternative_service_entry.version.empty()) {
       advertised_versions = FilterSupportedAltSvcVersions(
-          alternative_service_entry, session->params().quic_supported_versions,
-          session->params().support_ietf_format_quic_altsvc);
+          alternative_service_entry,
+          session->params().quic_params.supported_versions,
+          session->params().quic_params.support_ietf_format_quic_altsvc);
       if (advertised_versions.empty())
         continue;
     }
@@ -217,14 +218,12 @@ const HostMappingRules* HttpStreamFactory::GetHostMappingRules() const {
 }
 
 void HttpStreamFactory::OnJobControllerComplete(JobController* controller) {
-  for (auto it = job_controller_set_.begin(); it != job_controller_set_.end();
-       ++it) {
-    if (it->get() == controller) {
-      job_controller_set_.erase(it);
-      return;
-    }
+  auto it = job_controller_set_.find(controller);
+  if (it != job_controller_set_.end()) {
+    job_controller_set_.erase(it);
+  } else {
+    NOTREACHED();
   }
-  NOTREACHED();
 }
 
 HttpStreamFactory::PreconnectingProxyServer::PreconnectingProxyServer(
@@ -258,8 +257,8 @@ bool HttpStreamFactory::OnInitConnection(const JobController& controller,
   PreconnectingProxyServer preconnecting_proxy_server(proxy_info.proxy_server(),
                                                       privacy_mode);
 
-  if (base::ContainsKey(preconnecting_proxy_servers_,
-                        preconnecting_proxy_server)) {
+  if (base::Contains(preconnecting_proxy_servers_,
+                     preconnecting_proxy_server)) {
     UMA_HISTOGRAM_EXACT_LINEAR("Net.PreconnectSkippedToProxyServers", 1, 2);
     // Skip preconnect to the proxy server since we are already preconnecting
     // (probably via some other job). See https://crbug.com/682041 for details.

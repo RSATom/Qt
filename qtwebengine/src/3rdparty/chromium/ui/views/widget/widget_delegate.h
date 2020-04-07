@@ -32,9 +32,7 @@ class VIEWS_EXPORT WidgetDelegate {
   WidgetDelegate();
 
   // Sets the return value of CanActivate(). Default is true.
-  void set_can_activate(bool can_activate) {
-    can_activate_ = can_activate;
-  }
+  void SetCanActivate(bool can_activate);
 
   // Called whenever the widget's position changes.
   virtual void OnWidgetMove();
@@ -55,6 +53,10 @@ class VIEWS_EXPORT WidgetDelegate {
   // ClientView.
   virtual bool OnCloseRequested(Widget::ClosedReason close_reason);
 
+  // Called when the widget transitions from a state in which it should render
+  // as active to one in which it should render as inactive or vice-versa.
+  virtual void OnPaintAsActiveChanged(bool paint_as_active);
+
   // Returns the view that should have the focus when the widget is shown.  If
   // NULL no view is focused.
   virtual View* GetInitiallyFocusedView();
@@ -71,9 +73,6 @@ class VIEWS_EXPORT WidgetDelegate {
   // Returns true if the window can be minimized.
   virtual bool CanMinimize() const;
 
-  // Returns a bitmask of ws::mojom::kResizeBehavior values.
-  virtual int32_t GetResizeBehavior() const;
-
   // Returns true if the window can be activated.
   virtual bool CanActivate() const;
 
@@ -81,7 +80,7 @@ class VIEWS_EXPORT WidgetDelegate {
   // ui::MODAL_TYPE_NONE (not modal).
   virtual ui::ModalType GetModalType() const;
 
-  virtual ax::mojom::Role GetAccessibleWindowRole() const;
+  virtual ax::mojom::Role GetAccessibleWindowRole();
 
   // Returns the title to be read with screen readers.
   virtual base::string16 GetAccessibleWindowTitle() const;
@@ -213,8 +212,7 @@ class VIEWS_EXPORT WidgetDelegate {
 // view's hierarchy and is expected to be deleted on DeleteDelegate call.
 class VIEWS_EXPORT WidgetDelegateView : public WidgetDelegate, public View {
  public:
-  // Internal class name.
-  static const char kViewClassName[];
+  METADATA_HEADER(WidgetDelegateView);
 
   WidgetDelegateView();
   ~WidgetDelegateView() override;
@@ -224,9 +222,6 @@ class VIEWS_EXPORT WidgetDelegateView : public WidgetDelegate, public View {
   Widget* GetWidget() override;
   const Widget* GetWidget() const override;
   views::View* GetContentsView() override;
-
-  // View:
-  const char* GetClassName() const override;
 
  private:
   DISALLOW_COPY_AND_ASSIGN(WidgetDelegateView);

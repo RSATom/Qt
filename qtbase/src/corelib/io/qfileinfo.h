@@ -67,11 +67,9 @@ public:
     ~QFileInfo();
 
     QFileInfo &operator=(const QFileInfo &fileinfo);
-#ifdef Q_COMPILER_RVALUE_REFS
-    QFileInfo &operator=(QFileInfo &&other) Q_DECL_NOTHROW { swap(other); return *this; }
-#endif
+    QFileInfo &operator=(QFileInfo &&other) noexcept { swap(other); return *this; }
 
-    void swap(QFileInfo &other) Q_DECL_NOTHROW
+    void swap(QFileInfo &other) noexcept
     { qSwap(d_ptr, other.d_ptr); }
 
     bool operator==(const QFileInfo &fileinfo) const;
@@ -113,6 +111,8 @@ public:
     bool isFile() const;
     bool isDir() const;
     bool isSymLink() const;
+    bool isSymbolicLink() const;
+    bool isShortcut() const;
     bool isRoot() const;
     bool isBundle() const;
 

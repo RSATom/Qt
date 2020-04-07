@@ -4,6 +4,7 @@
 
 #include <utility>
 
+#include "base/bind.h"
 #include "base/location.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
@@ -63,8 +64,7 @@ class AndroidDeviceManager::AndroidWebSocket::WebSocketImpl {
         weak_socket_(weak_socket),
         socket_(std::move(socket)),
         encoder_(net::WebSocketEncoder::CreateClient(extensions)),
-        response_buffer_(body_head),
-        weak_factory_(this) {
+        response_buffer_(body_head) {
     thread_checker_.DetachFromThread();
   }
 
@@ -75,7 +75,7 @@ class AndroidDeviceManager::AndroidWebSocket::WebSocketImpl {
     scoped_refptr<net::IOBuffer> buffer =
         base::MakeRefCounted<net::IOBuffer>(kBufferSize);
 
-    if (response_buffer_.size() > 0)
+    if (!response_buffer_.empty())
       ProcessResponseBuffer(buffer);
     else
       Read(buffer);
@@ -183,7 +183,7 @@ class AndroidDeviceManager::AndroidWebSocket::WebSocketImpl {
   base::ThreadChecker thread_checker_;
   DISALLOW_COPY_AND_ASSIGN(WebSocketImpl);
 
-  base::WeakPtrFactory<WebSocketImpl> weak_factory_;
+  base::WeakPtrFactory<WebSocketImpl> weak_factory_{this};
 };
 
 AndroidDeviceManager::AndroidWebSocket::AndroidWebSocket(
@@ -193,8 +193,7 @@ AndroidDeviceManager::AndroidWebSocket::AndroidWebSocket(
     Delegate* delegate)
     : device_(device),
       socket_impl_(nullptr, base::OnTaskRunnerDeleter(device->task_runner_)),
-      delegate_(delegate),
-      weak_factory_(this) {
+      delegate_(delegate) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   DCHECK(delegate_);
   DCHECK(device_);

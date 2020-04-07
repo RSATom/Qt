@@ -141,6 +141,11 @@ QGeoRouteLeg QAbstractNavigator::currentRouteLeg() const
     return QGeoRouteLeg();
 }
 
+QList<QGeoRoute> QAbstractNavigator::alternativeRoutes() const
+{
+    return QList<QGeoRoute>();
+}
+
 int QAbstractNavigator::currentSegment() const
 {
     return 0;

@@ -9,7 +9,9 @@
 
 #include "base/json/json_reader.h"
 #include "base/strings/stringprintf.h"
+#include "base/test/scoped_feature_list.h"
 #include "base/test/test_mock_time_task_runner.h"
+#include "base/threading/thread_task_runner_handle.h"
 #include "base/time/tick_clock.h"
 #include "base/time/time.h"
 #include "base/values.h"
@@ -17,12 +19,18 @@
 #include "components/ntp_snippets/ntp_snippets_constants.h"
 #include "components/ntp_snippets/remote/request_params.h"
 #include "components/prefs/testing_pref_service.h"
-#include "components/variations/variations_params_manager.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
 #include "services/network/public/cpp/weak_wrapper_shared_url_loader_factory.h"
 #include "services/network/test/test_url_loader_factory.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
+
+// TODO(crbug.com/961023): Fix memory leaks in tests and re-enable on LSAN.
+#ifdef LEAK_SANITIZER
+#define MAYBE_BuildRequestAuthenticated DISABLED_BuildRequestAuthenticated
+#else
+#define MAYBE_BuildRequestAuthenticated BuildRequestAuthenticated
+#endif
 
 namespace ntp_snippets {
 
@@ -37,7 +45,8 @@ using testing::NotNull;
 using testing::StrEq;
 
 MATCHER_P(EqualsJSON, json, "equals JSON") {
-  std::unique_ptr<base::Value> expected = base::JSONReader::Read(json);
+  std::unique_ptr<base::Value> expected =
+      base::JSONReader::ReadDeprecated(json);
   if (!expected) {
     *result_listener << "INTERNAL ERROR: couldn't parse expected JSON";
     return false;
@@ -45,8 +54,9 @@ MATCHER_P(EqualsJSON, json, "equals JSON") {
 
   std::string err_msg;
   int err_line, err_col;
-  std::unique_ptr<base::Value> actual = base::JSONReader::ReadAndReturnError(
-      arg, base::JSON_PARSE_RFC, nullptr, &err_msg, &err_line, &err_col);
+  std::unique_ptr<base::Value> actual =
+      base::JSONReader::ReadAndReturnErrorDeprecated(
+          arg, base::JSON_PARSE_RFC, nullptr, &err_msg, &err_line, &err_col);
   if (!actual) {
     *result_listener << "input:" << err_line << ":" << err_col << ": "
                      << "parse error: " << err_msg;
@@ -60,15 +70,16 @@ MATCHER_P(EqualsJSON, json, "equals JSON") {
 class JsonRequestTest : public testing::Test {
  public:
   JsonRequestTest()
-      : params_manager_(
-            ntp_snippets::kArticleSuggestionsFeature.name,
-            {{"send_top_languages", "true"}, {"send_user_class", "true"}},
-            {ntp_snippets::kArticleSuggestionsFeature.name}),
-        pref_service_(std::make_unique<TestingPrefServiceSimple>()),
+      : pref_service_(std::make_unique<TestingPrefServiceSimple>()),
         mock_task_runner_(new base::TestMockTimeTaskRunner()),
+        mock_runner_handle_(
+            std::make_unique<base::ThreadTaskRunnerHandle>(mock_task_runner_)),
         test_shared_loader_factory_(
             base::MakeRefCounted<network::WeakWrapperSharedURLLoaderFactory>(
                 &test_url_loader_factory_)) {
+    scoped_feature_list_.InitAndEnableFeatureWithParameters(
+        kArticleSuggestionsFeature,
+        {{"send_top_languages", "true"}, {"send_user_class", "true"}});
     language::UrlLanguageHistogram::RegisterProfilePrefs(
         pref_service_->registry());
   }
@@ -94,17 +105,29 @@ class JsonRequestTest : public testing::Test {
     return builder;
   }
 
+  std::unique_ptr<base::test::ScopedFeatureList> ForceOptionalImagesSupport(
+      bool supported) {
+    auto feature_list = std::make_unique<base::test::ScopedFeatureList>();
+    if (supported) {
+      feature_list->InitWithFeatures({kOptionalImagesEnabledFeature}, {});
+    } else {
+      feature_list->InitWithFeatures({}, {kOptionalImagesEnabledFeature});
+    }
+    return feature_list;
+  }
+
  private:
-  variations::testing::VariationParamsManager params_manager_;
+  base::test::ScopedFeatureList scoped_feature_list_;
   std::unique_ptr<TestingPrefServiceSimple> pref_service_;
   scoped_refptr<base::TestMockTimeTaskRunner> mock_task_runner_;
+  std::unique_ptr<base::ThreadTaskRunnerHandle> mock_runner_handle_;
   network::TestURLLoaderFactory test_url_loader_factory_;
   scoped_refptr<network::SharedURLLoaderFactory> test_shared_loader_factory_;
 
   DISALLOW_COPY_AND_ASSIGN(JsonRequestTest);
 };
 
-TEST_F(JsonRequestTest, BuildRequestAuthenticated) {
+TEST_F(JsonRequestTest, MAYBE_BuildRequestAuthenticated) {
   JsonRequest::Builder builder = CreateMinimalBuilder();
   RequestParams params;
   params.excluded_ids = {"1234567890"};
@@ -146,6 +169,58 @@ TEST_F(JsonRequestTest, BuildRequestUnauthenticated) {
                          "  \"excludedSuggestionIds\": [],"
                          "  \"userActivenessClass\": \"ACTIVE_NTP_USER\""
                          "}"));
+}
+
+TEST_F(JsonRequestTest, BuildRequestDisplayCapabilityDisabledByFeature) {
+  auto optional_images_feature_list = ForceOptionalImagesSupport(false);
+
+  JsonRequest::Builder builder;
+  builder.SetOptionalImagesCapability(true);
+
+  EXPECT_THAT(builder.PreviewRequestHeadersForTesting(),
+              StrEq("Content-Type: application/json; charset=UTF-8\r\n"
+                    "\r\n"));
+
+  // The JSON should not contain any mention of displayCapability.
+  EXPECT_THAT(builder.PreviewRequestBodyForTesting(),
+              EqualsJSON("{"
+                         "  \"excludedSuggestionIds\": [],"
+                         "  \"priority\": \"BACKGROUND_PREFETCH\""
+                         "}"));
+}
+
+TEST_F(JsonRequestTest, BuildRequestDisplayCapabilityUnspecified) {
+  auto optional_images_feature_list = ForceOptionalImagesSupport(true);
+
+  JsonRequest::Builder builder;
+  builder.SetOptionalImagesCapability(false);
+
+  EXPECT_THAT(builder.PreviewRequestHeadersForTesting(),
+              StrEq("Content-Type: application/json; charset=UTF-8\r\n"
+                    "\r\n"));
+  EXPECT_THAT(builder.PreviewRequestBodyForTesting(),
+              EqualsJSON("{"
+                         "  \"excludedSuggestionIds\": [],"
+                         "  \"priority\": \"BACKGROUND_PREFETCH\""
+                         "}"));
+}
+
+TEST_F(JsonRequestTest, BuildRequestOptionalImages) {
+  auto optional_images_feature_list = ForceOptionalImagesSupport(true);
+
+  JsonRequest::Builder builder;
+  builder.SetOptionalImagesCapability(true);
+
+  EXPECT_THAT(builder.PreviewRequestHeadersForTesting(),
+              StrEq("Content-Type: application/json; charset=UTF-8\r\n"
+                    "\r\n"));
+  EXPECT_THAT(
+      builder.PreviewRequestBodyForTesting(),
+      EqualsJSON("{"
+                 "  \"displayCapability\": \"CAPABILITY_OPTIONAL_IMAGES\","
+                 "  \"excludedSuggestionIds\": [],"
+                 "  \"priority\": \"BACKGROUND_PREFETCH\""
+                 "}"));
 }
 
 TEST_F(JsonRequestTest, ShouldNotTruncateExcludedIdsList) {

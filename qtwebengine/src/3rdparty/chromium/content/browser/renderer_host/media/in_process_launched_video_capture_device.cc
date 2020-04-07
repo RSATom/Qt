@@ -4,6 +4,9 @@
 
 #include "content/browser/renderer_host/media/in_process_launched_video_capture_device.h"
 
+#include <utility>
+
+#include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/metrics/histogram_macros.h"
 #include "content/public/browser/browser_thread.h"
@@ -21,7 +24,7 @@ void StopAndReleaseDeviceOnDeviceThread(media::VideoCaptureDevice* device,
   device->StopAndDeAllocate();
   DVLOG(3) << "StopAndReleaseDeviceOnDeviceThread";
   delete device;
-  base::ResetAndReturn(&done_cb).Run();
+  std::move(done_cb).Run();
 }
 
 }  // anonymous namespace
@@ -48,7 +51,7 @@ InProcessLaunchedVideoCaptureDevice::~InProcessLaunchedVideoCaptureDevice() {
 }
 
 void InProcessLaunchedVideoCaptureDevice::GetPhotoState(
-    media::VideoCaptureDevice::GetPhotoStateCallback callback) const {
+    media::VideoCaptureDevice::GetPhotoStateCallback callback) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
   // Unretained() is safe to use here because |device| would be null if it
   // was scheduled for shutdown and destruction, and because this task is
@@ -157,7 +160,7 @@ void InProcessLaunchedVideoCaptureDevice::
   desktop_device->SetNotificationWindowId(window_id);
   VLOG(2) << "Screen capture notification window passed on device thread.";
 #endif
-  base::ResetAndReturn(&done_cb).Run();
+  std::move(done_cb).Run();
 }
 
 }  // namespace content

@@ -38,11 +38,12 @@ TEST(DomDistillerPageFeaturesTest, TestCalculateDerivedFeatures) {
           "components/test/data/dom_distiller/derived_features.json"),
       &expected_output_data));
 
-  std::unique_ptr<base::Value> input_json = base::JSONReader::Read(input_data);
+  std::unique_ptr<base::Value> input_json =
+      base::JSONReader::ReadDeprecated(input_data);
   ASSERT_TRUE(input_json);
 
   std::unique_ptr<base::Value> expected_output_json =
-      base::JSONReader::Read(expected_output_data);
+      base::JSONReader::ReadDeprecated(expected_output_data);
   ASSERT_TRUE(expected_output_json);
 
   base::ListValue* input_entries;
@@ -100,15 +101,14 @@ TEST(DomDistillerPageFeaturesTest, TestCalculateDerivedFeatures) {
 }
 
 std::vector<double> DeriveFromPath(const GURL& url) {
-  return CalculateDerivedFeatures(
-    false, // bool openGraph
-    url,   // const GURL& url
-    0,     // unsigned elementCount
-    0,     // unsigned anchorCount
-    0,     // unsigned formCount
-    0,     // double mozScore
-    0,     // double mozScoreAllSqrt
-    0      // double mozScoreAllLinear
+  return CalculateDerivedFeatures(false,  // bool openGraph
+                                  url,    // const GURL& url
+                                  0,      // unsigned elementCount
+                                  0,      // unsigned anchorCount
+                                  0,      // unsigned formCount
+                                  0,      // double mozScore
+                                  0,      // double mozScoreAllSqrt
+                                  0       // double mozScoreAllLinear
   );
 }
 
@@ -191,4 +191,4 @@ TEST(DomDistillerPageFeaturesTest, TestPath4) {
   EXPECT_EQ(0, lround(derived[13]));
   EXPECT_EQ(9, lround(derived[14]));
 }
-}
+}  // namespace dom_distiller

@@ -6,11 +6,11 @@
 
 #include <utility>
 
+#include "base/bind.h"
 #include "base/logging.h"
 #include "base/memory/ptr_util.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
-#include "components/data_use_measurement/core/data_use_user_data.h"
 #include "components/safe_browsing/db/v4_protocol_manager_util.h"
 #include "content/public/browser/browser_thread.h"
 #include "google_apis/google_api_keys.h"
@@ -91,11 +91,7 @@ PingManager::~PingManager() {}
 void PingManager::OnURLLoaderComplete(
     network::SimpleURLLoader* source,
     std::unique_ptr<std::string> response_body) {
-  auto it = std::find_if(
-      safebrowsing_reports_.begin(), safebrowsing_reports_.end(),
-      [source](const std::unique_ptr<network::SimpleURLLoader>& ptr) {
-        return ptr.get() == source;
-      });
+  auto it = safebrowsing_reports_.find(source);
   DCHECK(it != safebrowsing_reports_.end());
   safebrowsing_reports_.erase(it);
 }

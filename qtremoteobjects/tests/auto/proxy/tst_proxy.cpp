@@ -221,8 +221,15 @@ void ProxyTest::testProxy()
         if (!useProxy)
             QCOMPARE(rep->tracks()->availableRoles(), QVector<int>{Qt::DisplayRole});
         else {
-            QCOMPARE(QSet<int>::fromList(rep->tracks()->availableRoles().toList()),
-                     QSet<int>::fromList(model.roleNames().keys()));
+            const auto &availableRolesVec = rep->tracks()->availableRoles();
+            QSet<int> availableRoles;
+            for (int r : availableRolesVec)
+                availableRoles.insert(r);
+            const auto &rolesHash = model.roleNames();
+            QSet<int> roles;
+            for (auto it = rolesHash.cbegin(), end = rolesHash.cend(); it != end; ++it)
+                roles.insert(it.key());
+            QCOMPARE(availableRoles, roles);
         }
         QSignalSpy dataSpy(rep->tracks(), SIGNAL(dataChanged(QModelIndex,QModelIndex,QVector<int>)));
         QVector<QModelIndex> pending;
@@ -290,8 +297,15 @@ void ProxyTest::testProxy()
         if (!useProxy)
             QCOMPARE(tracksReplica->availableRoles(), QVector<int>{Qt::DisplayRole});
         else {
-            QCOMPARE(QSet<int>::fromList(tracksReplica->availableRoles().toList()),
-                     QSet<int>::fromList(model.roleNames().keys()));
+            const auto &availableRolesVec = tracksReplica->availableRoles();
+            QSet<int> availableRoles;
+            for (int r : availableRolesVec)
+                availableRoles.insert(r);
+            const auto &rolesHash = model.roleNames();
+            QSet<int> roles;
+            for (auto it = rolesHash.cbegin(), end = rolesHash.cend(); it != end; ++it)
+                roles.insert(it.key());
+            QCOMPARE(availableRoles, roles);
         }
         QTRY_COMPARE(tracksReplica->isInitialized(), true);
         QSignalSpy dataSpy(tracksReplica, SIGNAL(dataChanged(QModelIndex,QModelIndex,QVector<int>)));

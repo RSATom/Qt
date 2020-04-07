@@ -243,7 +243,7 @@ QDebug operator<<(QDebug d, const PIXELFORMATDESCRIPTOR &pd)
     QDebugStateSaver saver(d);
     d.nospace();
     d << "PIXELFORMATDESCRIPTOR "
-        << "dwFlags=" << hex << showbase << pd.dwFlags << dec << noshowbase;
+        << "dwFlags=" << Qt::hex << Qt::showbase << pd.dwFlags << Qt::dec << Qt::noshowbase;
     if (pd.dwFlags & PFD_DRAW_TO_WINDOW) d << " PFD_DRAW_TO_WINDOW";
     if (pd.dwFlags & PFD_DRAW_TO_BITMAP) d << " PFD_DRAW_TO_BITMAP";
     if (pd.dwFlags & PFD_SUPPORT_GDI) d << " PFD_SUPPORT_GDI";
@@ -631,10 +631,10 @@ static int choosePixelFormat(HDC hdc,
         nsp << __FUNCTION__;
         if (sampleBuffersRequested)
             nsp << " samples=" << iAttributes[samplesValuePosition];
-        nsp << " Attributes: " << hex << showbase;
+        nsp << " Attributes: " << Qt::hex << Qt::showbase;
         for (int ii = 0; ii < i; ++ii)
             nsp << iAttributes[ii] << ',';
-        nsp << noshowbase << dec << "\n    obtained px #" << pixelFormat
+        nsp << Qt::noshowbase << Qt::dec << "\n    obtained px #" << pixelFormat
             << " of " << numFormats << "\n    " << *obtainedPfd;
         qCDebug(lcQpaGl) << message;
     } // Debug
@@ -784,7 +784,7 @@ static HGLRC createContext(const QOpenGLStaticContext &staticContext,
     if (!result) {
         QString message;
         QDebug(&message).nospace() << __FUNCTION__ << ": wglCreateContextAttribsARB() failed (GL error code: 0x"
-            << hex << staticContext.opengl32.glGetError() << dec << ") for format: " << format << ", shared context: " << shared;
+            << Qt::hex << staticContext.opengl32.glGetError() << Qt::dec << ") for format: " << format << ", shared context: " << shared;
         qErrnoWarning("%s", qPrintable(message));
     }
     return result;
@@ -912,7 +912,7 @@ void QWindowsOpenGLContextFormat::apply(QSurfaceFormat *format) const
 
 class QOpenGLTemporaryContext
 {
-    Q_DISABLE_COPY(QOpenGLTemporaryContext)
+    Q_DISABLE_COPY_MOVE(QOpenGLTemporaryContext)
 public:
     QOpenGLTemporaryContext();
     ~QOpenGLTemporaryContext();
@@ -1028,7 +1028,7 @@ QOpenGLStaticContext *QOpenGLStaticContext::create(bool softwareRendering)
     QScopedPointer<QOpenGLTemporaryContext> temporaryContext;
     if (!QOpenGLStaticContext::opengl32.wglGetCurrentContext())
         temporaryContext.reset(new QOpenGLTemporaryContext);
-    QOpenGLStaticContext *result = new QOpenGLStaticContext;
+    auto *result = new QOpenGLStaticContext;
     qCDebug(lcQpaGl) << __FUNCTION__ << *result;
     return result;
 }
@@ -1070,7 +1070,7 @@ QWindowsGLContext::QWindowsGLContext(QOpenGLStaticContext *staticContext,
             qWarning("QWindowsGLContext: Requires a QWGLNativeContext");
             return;
         }
-        QWGLNativeContext handle = nativeHandle.value<QWGLNativeContext>();
+        auto handle = nativeHandle.value<QWGLNativeContext>();
         HGLRC wglcontext = handle.context();
         HWND wnd = handle.window();
         if (!wglcontext || !wnd) {
@@ -1308,7 +1308,7 @@ bool QWindowsGLContext::makeCurrent(QPlatformSurface *surface)
     Q_ASSERT(surface->surface()->supportsOpenGL());
 
     // Do we already have a DC entry for that window?
-    QWindowsWindow *window = static_cast<QWindowsWindow *>(surface);
+    auto *window = static_cast<QWindowsWindow *>(surface);
     window->aboutToMakeCurrent();
     const HWND hwnd = window->handle();
     if (const QOpenGLContextData *contextData = findByHWND(m_windowContexts, hwnd)) {
@@ -1377,7 +1377,7 @@ QFunctionPointer QWindowsGLContext::getProcAddress(const char *procName)
     // Even though we use QFunctionPointer, it does not mean the function can be called.
     // It will need to be cast to the proper function type with the correct calling
     // convention. QFunctionPointer is nothing more than a glorified void* here.
-    QFunctionPointer procAddress = reinterpret_cast<QFunctionPointer>(QOpenGLStaticContext::opengl32.wglGetProcAddress(procName));
+    auto procAddress = reinterpret_cast<QFunctionPointer>(QOpenGLStaticContext::opengl32.wglGetProcAddress(procName));
 
     // We support AllGLFunctionsQueryable, which means this function must be able to
     // return a function pointer even for functions that are in GL.h and exported

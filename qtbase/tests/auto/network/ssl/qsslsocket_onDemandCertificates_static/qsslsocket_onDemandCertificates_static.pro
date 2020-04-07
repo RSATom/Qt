@@ -16,3 +16,9 @@ win32 {
 DEFINES += SRCDIR=\\\"$$PWD/\\\"
 
 requires(qtConfig(private_tests))
+
+#DOCKERTODO Linux, docker is disabled on macOS and Windows.
+linux {
+    CONFIG += unsupported/testserver
+    QT_TEST_SERVER_LIST = squid danted
+}

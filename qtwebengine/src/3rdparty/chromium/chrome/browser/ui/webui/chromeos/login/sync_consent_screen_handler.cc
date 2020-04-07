@@ -12,8 +12,6 @@
 
 namespace {
 
-const char kJsScreenPath[] = "login.SyncConsentScreen";
-
 // This helper function gets strings from WebUI and a set of known string
 // resource ids, and converts strings back to IDs. It CHECKs if string is not
 // found in resources.
@@ -57,9 +55,12 @@ void GetConsentIDs(const std::unordered_set<int>& known_ids,
 
 namespace chromeos {
 
-SyncConsentScreenHandler::SyncConsentScreenHandler()
-    : BaseScreenHandler(kScreenId) {
-  set_call_js_prefix(kJsScreenPath);
+constexpr StaticOobeScreenId SyncConsentScreenView::kScreenId;
+
+SyncConsentScreenHandler::SyncConsentScreenHandler(
+    JSCallsContainer* js_calls_container)
+    : BaseScreenHandler(kScreenId, js_calls_container) {
+  set_user_acted_method_path("login.SyncConsentScreen.userActed");
 }
 
 SyncConsentScreenHandler::~SyncConsentScreenHandler() {}

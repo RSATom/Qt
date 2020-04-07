@@ -30,18 +30,20 @@
 #include <qbackendnodetester.h>
 #include <Qt3DRender/private/attribute_p.h>
 #include <Qt3DRender/qbuffer.h>
-#include <Qt3DCore/qpropertyupdatedchange.h>
 #include "testrenderer.h"
 
 class tst_Attribute : public Qt3DCore::QBackendNodeTester
 {
     Q_OBJECT
+
 private Q_SLOTS:
 
     void checkPeerPropertyMirroring()
     {
         // GIVEN
+        TestRenderer renderer;
         Qt3DRender::Render::Attribute renderAttribute;
+        renderAttribute.setRenderer(&renderer);
 
         Qt3DRender::QAttribute attribute;
         attribute.setAttributeType(Qt3DRender::QAttribute::IndexAttribute);
@@ -59,7 +61,7 @@ private Q_SLOTS:
         attribute.setBuffer(&buffer);
 
         // WHEN
-        simulateInitialization(&attribute, &renderAttribute);
+        simulateInitializationSync(&attribute, &renderAttribute);
 
         // THEN
         QCOMPARE(renderAttribute.peerId(), attribute.id());
@@ -111,7 +113,7 @@ private Q_SLOTS:
         attribute.setBuffer(&buffer);
 
         // WHEN
-        simulateInitialization(&attribute, &renderAttribute);
+        simulateInitializationSync(&attribute, &renderAttribute);
         renderAttribute.cleanup();
 
         // THEN
@@ -130,17 +132,20 @@ private Q_SLOTS:
     void checkPropertyChanges()
     {
         // GIVEN
+        Qt3DRender::QAttribute attribute;
         TestRenderer renderer;
         Qt3DRender::Render::Attribute renderAttribute;
         renderAttribute.setRenderer(&renderer);
+        simulateInitializationSync(&attribute, &renderAttribute);
+        renderAttribute.cleanup();
+        renderer.resetDirty();
 
         QVERIFY(!renderAttribute.isDirty());
+        QVERIFY(!renderer.dirtyBits());
 
         // WHEN
-        Qt3DCore::QPropertyUpdatedChangePtr updateChange(new Qt3DCore::QPropertyUpdatedChange(Qt3DCore::QNodeId()));
-        updateChange->setValue(static_cast<int>(Qt3DRender::QAttribute::Int));
-        updateChange->setPropertyName("vertexBaseType");
-        renderAttribute.sceneChangeEvent(updateChange);
+        attribute.setVertexBaseType(Qt3DRender::QAttribute::Int);
+        renderAttribute.syncFromFrontEnd(&attribute, false);
 
         // THEN
         QCOMPARE(renderAttribute.vertexBaseType(), Qt3DRender::QAttribute::Int);
@@ -153,10 +158,8 @@ private Q_SLOTS:
         QVERIFY(!renderer.dirtyBits());
 
         // WHEN
-        updateChange = QSharedPointer<Qt3DCore::QPropertyUpdatedChange>::create(Qt3DCore::QNodeId());
-        updateChange->setValue(3);
-        updateChange->setPropertyName("vertexSize");
-        renderAttribute.sceneChangeEvent(updateChange);
+        attribute.setVertexSize(3);
+        renderAttribute.syncFromFrontEnd(&attribute, false);
 
         // THEN
         QCOMPARE(renderAttribute.vertexSize(), 3U);
@@ -168,10 +171,8 @@ private Q_SLOTS:
         QVERIFY(!renderAttribute.isDirty());
 
         // WHEN
-        updateChange = QSharedPointer<Qt3DCore::QPropertyUpdatedChange>::create(Qt3DCore::QNodeId());
-        updateChange->setValue(static_cast<int>(Qt3DRender::QAttribute::IndexAttribute));
-        updateChange->setPropertyName("attributeType");
-        renderAttribute.sceneChangeEvent(updateChange);
+        attribute.setAttributeType(Qt3DRender::QAttribute::IndexAttribute);
+        renderAttribute.syncFromFrontEnd(&attribute, false);
 
         // THEN
         QCOMPARE(renderAttribute.attributeType(), Qt3DRender::QAttribute::IndexAttribute);
@@ -183,10 +184,8 @@ private Q_SLOTS:
         QVERIFY(!renderAttribute.isDirty());
 
         // WHEN
-        updateChange = QSharedPointer<Qt3DCore::QPropertyUpdatedChange>::create(Qt3DCore::QNodeId());
-        updateChange->setValue(static_cast<int>(Qt3DRender::QAttribute::DrawIndirectAttribute));
-        updateChange->setPropertyName("attributeType");
-        renderAttribute.sceneChangeEvent(updateChange);
+        attribute.setAttributeType(Qt3DRender::QAttribute::DrawIndirectAttribute);
+        renderAttribute.syncFromFrontEnd(&attribute, false);
 
         // THEN
         QCOMPARE(renderAttribute.attributeType(), Qt3DRender::QAttribute::DrawIndirectAttribute);
@@ -198,10 +197,8 @@ private Q_SLOTS:
         QVERIFY(!renderAttribute.isDirty());
 
         // WHEN
-        updateChange = QSharedPointer<Qt3DCore::QPropertyUpdatedChange>::create(Qt3DCore::QNodeId());
-        updateChange->setValue(1340);
-        updateChange->setPropertyName("count");
-        renderAttribute.sceneChangeEvent(updateChange);
+        attribute.setCount(1340);
+        renderAttribute.syncFromFrontEnd(&attribute, false);
 
         // THEN
         QCOMPARE(renderAttribute.count(), 1340U);
@@ -213,10 +210,8 @@ private Q_SLOTS:
         QVERIFY(!renderAttribute.isDirty());
 
         // WHEN
-        updateChange = QSharedPointer<Qt3DCore::QPropertyUpdatedChange>::create(Qt3DCore::QNodeId());
-        updateChange->setValue(QStringLiteral("L88"));
-        updateChange->setPropertyName("name");
-        renderAttribute.sceneChangeEvent(updateChange);
+        attribute.setName(QStringLiteral("L88"));
+        renderAttribute.syncFromFrontEnd(&attribute, false);
 
         // THEN
         QCOMPARE(renderAttribute.name(), QStringLiteral("L88"));
@@ -228,10 +223,8 @@ private Q_SLOTS:
         QVERIFY(!renderAttribute.isDirty());
 
         // WHEN
-        updateChange = QSharedPointer<Qt3DCore::QPropertyUpdatedChange>::create(Qt3DCore::QNodeId());
-        updateChange->setValue(555);
-        updateChange->setPropertyName("byteOffset");
-        renderAttribute.sceneChangeEvent(updateChange);
+        attribute.setByteOffset(555U);
+        renderAttribute.syncFromFrontEnd(&attribute, false);
 
         // THEN
         QCOMPARE(renderAttribute.byteOffset(), 555U);
@@ -243,10 +236,8 @@ private Q_SLOTS:
         QVERIFY(!renderAttribute.isDirty());
 
         // WHEN
-        updateChange = QSharedPointer<Qt3DCore::QPropertyUpdatedChange>::create(Qt3DCore::QNodeId());
-        updateChange->setValue(454);
-        updateChange->setPropertyName("byteStride");
-        renderAttribute.sceneChangeEvent(updateChange);
+        attribute.setByteStride(454);
+        renderAttribute.syncFromFrontEnd(&attribute, false);
 
         // THEN
         QCOMPARE(renderAttribute.byteStride(), 454U);
@@ -258,10 +249,8 @@ private Q_SLOTS:
         QVERIFY(!renderAttribute.isDirty());
 
         // WHEN
-        updateChange = QSharedPointer<Qt3DCore::QPropertyUpdatedChange>::create(Qt3DCore::QNodeId());
-        updateChange->setValue(1450);
-        updateChange->setPropertyName("divisor");
-        renderAttribute.sceneChangeEvent(updateChange);
+        attribute.setDivisor(1450);
+        renderAttribute.syncFromFrontEnd(&attribute, false);
 
         // THEN
         QCOMPARE(renderAttribute.divisor(), 1450U);
@@ -273,14 +262,12 @@ private Q_SLOTS:
         QVERIFY(!renderAttribute.isDirty());
 
         // WHEN
-        updateChange = QSharedPointer<Qt3DCore::QPropertyUpdatedChange>::create(Qt3DCore::QNodeId());
-        Qt3DCore::QNodeId bufferId = Qt3DCore::QNodeId::createId();
-        updateChange->setValue(QVariant::fromValue(bufferId));
-        updateChange->setPropertyName("buffer");
-        renderAttribute.sceneChangeEvent(updateChange);
+        auto buffer = new Qt3DRender::QBuffer();
+        attribute.setBuffer(buffer);
+        renderAttribute.syncFromFrontEnd(&attribute, false);
 
         // THEN
-        QCOMPARE(renderAttribute.bufferId(), bufferId);
+        QCOMPARE(renderAttribute.bufferId(), buffer->id());
         QVERIFY(renderAttribute.isDirty());
         QVERIFY(renderer.dirtyBits() != 0);
 

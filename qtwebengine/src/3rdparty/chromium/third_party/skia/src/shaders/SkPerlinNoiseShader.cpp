@@ -5,27 +5,27 @@
  * found in the LICENSE file.
  */
 
-#include "SkPerlinNoiseShader.h"
+#include "include/effects/SkPerlinNoiseShader.h"
 
-#include "SkArenaAlloc.h"
-#include "SkColorFilter.h"
-#include "SkMakeUnique.h"
-#include "SkReadBuffer.h"
-#include "SkShader.h"
-#include "SkString.h"
-#include "SkUnPreMultiply.h"
-#include "SkWriteBuffer.h"
+#include "include/core/SkColorFilter.h"
+#include "include/core/SkShader.h"
+#include "include/core/SkString.h"
+#include "include/core/SkUnPreMultiply.h"
+#include "src/core/SkArenaAlloc.h"
+#include "src/core/SkMakeUnique.h"
+#include "src/core/SkReadBuffer.h"
+#include "src/core/SkWriteBuffer.h"
 
 #if SK_SUPPORT_GPU
-#include "GrContext.h"
-#include "GrContextPriv.h"
-#include "GrCoordTransform.h"
-#include "SkGr.h"
-#include "effects/GrConstColorProcessor.h"
-#include "glsl/GrGLSLFragmentProcessor.h"
-#include "glsl/GrGLSLFragmentShaderBuilder.h"
-#include "glsl/GrGLSLProgramDataManager.h"
-#include "glsl/GrGLSLUniformHandler.h"
+#include "include/private/GrRecordingContext.h"
+#include "src/gpu/GrCoordTransform.h"
+#include "src/gpu/GrRecordingContextPriv.h"
+#include "src/gpu/SkGr.h"
+#include "src/gpu/effects/generated/GrConstColorProcessor.h"
+#include "src/gpu/glsl/GrGLSLFragmentProcessor.h"
+#include "src/gpu/glsl/GrGLSLFragmentShaderBuilder.h"
+#include "src/gpu/glsl/GrGLSLProgramDataManager.h"
+#include "src/gpu/glsl/GrGLSLUniformHandler.h"
 #endif
 
 static const int kBlockSize = 256;
@@ -654,6 +654,7 @@ SkPMColor SkPerlinNoiseShaderImpl::PerlinNoiseShaderContext::shade(
 #ifdef SK_ENABLE_LEGACY_SHADERCONTEXT
 SkShaderBase::Context* SkPerlinNoiseShaderImpl::onMakeContext(const ContextRec& rec,
                                                               SkArenaAlloc* alloc) const {
+    // should we pay attention to rec's device-colorspace?
     return alloc->make<PerlinNoiseShaderContext>(*this, rec);
 }
 #endif
@@ -1015,7 +1016,7 @@ void GrGLPerlinNoise::emitCode(EmitArgs& args) {
     }
 
     // There are rounding errors if the floor operation is not performed here
-    fragBuilder->codeAppendf("\n\t\thalf2 %s = floor(%s.xy) * %s;",
+    fragBuilder->codeAppendf("\n\t\thalf2 %s = half2(floor(%s.xy) * %s);",
                              noiseVec, vCoords.c_str(), baseFrequencyUni);
 
     // Clear the color accumulator
@@ -1292,10 +1293,10 @@ void GrGLImprovedPerlinNoise::emitCode(EmitArgs& args) {
         GrShaderVar("p", kHalf3_GrSLType)
     };
     SkString gradFuncName;
-    SkString gradCode("return dot(");
+    SkString gradCode("return half(dot(");
     fragBuilder->appendTextureLookup(&gradCode, args.fTexSamplers[1], "float2(fract(x / 16.0), 0.0)",
                                      kHalf2_GrSLType);
-    gradCode.append(".rgb * 255.0 - float3(1.0), p);");
+    gradCode.append(".rgb * 255.0 - float3(1.0), p));");
     fragBuilder->emitFunction(kHalf_GrSLType, "grad", SK_ARRAY_COUNT(gradArgs), gradArgs,
                               gradCode.c_str(), &gradFuncName);
 
@@ -1363,7 +1364,7 @@ void GrGLImprovedPerlinNoise::emitCode(EmitArgs& args) {
     fragBuilder->emitFunction(kHalf_GrSLType, "noiseOctaves", SK_ARRAY_COUNT(noiseOctavesArgs),
                               noiseOctavesArgs, noiseOctavesCode.c_str(), &noiseOctavesFuncName);
 
-    fragBuilder->codeAppendf("half2 coords = %s * %s;", vCoords.c_str(), baseFrequencyUni);
+    fragBuilder->codeAppendf("half2 coords = half2(%s * %s);", vCoords.c_str(), baseFrequencyUni);
     fragBuilder->codeAppendf("half r = %s(half3(coords, %s));", noiseOctavesFuncName.c_str(),
                              zUni);
     fragBuilder->codeAppendf("half g = %s(half3(coords, %s + 0000.0));",
@@ -1423,7 +1424,7 @@ std::unique_ptr<GrFragmentProcessor> SkPerlinNoiseShaderImpl::asFragmentProcesso
     m.setTranslateX(-localMatrix->getTranslateX() + SK_Scalar1);
     m.setTranslateY(-localMatrix->getTranslateY() + SK_Scalar1);
 
-    auto proxyProvider = args.fContext->contextPriv().proxyProvider();
+    auto proxyProvider = args.fContext->priv().proxyProvider();
     if (fType == kImprovedNoise_Type) {
         // Need to assert that the textures we'll create are power of 2 so a copy isn't needed.
         // We also know that we will not be using mipmaps. If things things weren't true we should

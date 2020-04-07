@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2019 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the tools applications of the Qt Toolkit.
@@ -29,65 +29,68 @@
 #ifndef SECTIONS_H
 #define SECTIONS_H
 
-#include <qpair.h>
 #include "node.h"
+
+#include <QtCore/qpair.h>
 
 QT_BEGIN_NAMESPACE
 
-typedef QMultiMap<QString, Node*> MemberMap; // the string is the member signature
-typedef QPair<const QmlTypeNode*, MemberMap> ClassMap;    // the node is the QML type
-typedef QList<ClassMap*> ClassMapList;
+typedef QMultiMap<QString, Node *> MemberMap; // the string is the member signature
+typedef QPair<const QmlTypeNode *, MemberMap> ClassMap; // the node is the QML type
+typedef QVector<ClassMap *> ClassMapList;
 
 typedef QPair<QStringList, NodeVector> KeysAndNodes;
-typedef QPair<const QmlTypeNode*, KeysAndNodes> ClassKeysNodes;
-typedef QList<ClassKeysNodes*> ClassKeysNodesList;
+typedef QPair<const QmlTypeNode *, KeysAndNodes> ClassKeysNodes;
+typedef QVector<ClassKeysNodes *> ClassKeysNodesList;
 
 class Section
 {
- public:
+public:
     enum Style { Summary, Details, AllMembers, Accessors };
     enum Status { Obsolete, Active };
 
- public:
-    Section() : style_(Details), status_(Active), aggregate_(nullptr) { }
+public:
+    Section() : style_(Details), status_(Active), aggregate_(nullptr) {}
     Section(Style style, Status status);
     ~Section();
 
-    void init(const QString& title) {
+    void init(const QString &title) { title_ = title; }
+    void init(const QString &singular, const QString &plural)
+    {
+        singular_ = singular;
+        plural_ = plural;
+    }
+    void init(const QString &title, const QString &singular, const QString &plural)
+    {
         title_ = title;
+        divClass_.clear();
+        singular_ = singular;
+        plural_ = plural;
     }
-    void init(const QString& singular,
-              const QString& plural) {
-        singular_ = singular; plural_ = plural;
-    }
-    void init(const QString& title,
-              const QString& singular,
-              const QString& plural) {
-        title_ = title; divClass_.clear(); singular_= singular; plural_ = plural;
-    }
-    void init(const QString& title,
-              const QString& divClass,
-              const QString& singular,
-              const QString& plural) {
-        title_ = title; divClass_ = divClass; singular_= singular; plural_ = plural;
+    void init(const QString &title, const QString &divClass, const QString &singular,
+              const QString &plural)
+    {
+        title_ = title;
+        divClass_ = divClass;
+        singular_ = singular;
+        plural_ = plural;
     }
 
     void insert(Node *node);
-    void insert(const QString& key, Node *node) { memberMap_.insertMulti(key, node); }
-    bool insertReimplementedMember(Node* node);
+    void insert(const QString &key, Node *node) { memberMap_.insertMulti(key, node); }
+    bool insertReimplementedMember(Node *node);
 
     ClassMap *newClassMap(const Aggregate *aggregate);
     void add(ClassMap *classMap, Node *n);
-    void appendMember(Node* node) { members_.append(node); }
-    void appendReimplementedMember(Node* node) { reimplementedMembers_.append(node); }
+    void appendMember(Node *node) { members_.append(node); }
+    void appendReimplementedMember(Node *node) { reimplementedMembers_.append(node); }
 
     void clear();
     void reduce();
-    bool isEmpty() const {
-        return (memberMap_.isEmpty() &&
-                inheritedMembers_.isEmpty() &&
-                reimplementedMemberMap_.isEmpty() &&
-                classMapList_.isEmpty());
+    bool isEmpty() const
+    {
+        return (memberMap_.isEmpty() && inheritedMembers_.isEmpty()
+                && reimplementedMemberMap_.isEmpty() && classMapList_.isEmpty());
     }
 
     Style style() const { return style_; }
@@ -100,19 +103,19 @@ class Section
     const QStringList &keys(Status t) const { return (t == Obsolete ? obsoleteKeys_ : keys_); }
     const NodeVector &members() const { return members_; }
     const NodeVector &reimplementedMembers() const { return reimplementedMembers_; }
-    const QList<QPair<Aggregate*, int> > &inheritedMembers() const { return inheritedMembers_; }
+    const QVector<QPair<Aggregate *, int>> &inheritedMembers() const { return inheritedMembers_; }
     ClassKeysNodesList &classKeysNodesList() { return classKeysNodesList_; }
     const NodeVector &obsoleteMembers() const { return obsoleteMembers_; }
     void appendMembers(const NodeVector &nv) { members_.append(nv); }
     const Aggregate *aggregate() const { return aggregate_; }
     void setAggregate(Aggregate *t) { aggregate_ = t; }
 
- private:
-    QString sortName(const Node *node, const QString* name = nullptr);
+private:
+    QString sortName(const Node *node, const QString *name = nullptr);
 
- private:
-    Style   style_;
-    Status  status_;
+private:
+    Style style_;
+    Status status_;
     QString title_;
     QString divClass_;
     QString singular_;
@@ -124,7 +127,7 @@ class Section
     NodeVector members_;
     NodeVector obsoleteMembers_;
     NodeVector reimplementedMembers_;
-    QList<QPair<Aggregate *, int> > inheritedMembers_;
+    QVector<QPair<Aggregate *, int>> inheritedMembers_;
     ClassKeysNodesList classKeysNodesList_;
 
     QMultiMap<QString, Node *> memberMap_;
@@ -134,11 +137,11 @@ class Section
 };
 
 typedef QVector<Section> SectionVector;
-typedef QVector<const Section*> SectionPtrVector;
+typedef QVector<const Section *> SectionPtrVector;
 
 class Sections
 {
- public:
+public:
     enum VectorIndex {
         AllMembers = 0,
         PublicTypes = 0,
@@ -197,7 +200,7 @@ class Sections
     };
 
     Sections(Aggregate *aggregate);
-    Sections(const NodeMultiMap& nsmap);
+    Sections(const NodeMultiMap &nsmap);
     ~Sections();
 
     void initSections();
@@ -227,16 +230,16 @@ class Sections
 
     Aggregate *aggregate() const { return aggregate_; }
 
- private:
-    void stdRefPageSwitch(SectionVector &v, Node *n);
+private:
+    void stdRefPageSwitch(SectionVector &v, Node *n, Node *t = nullptr);
     void distributeNodeInSummaryVector(SectionVector &sv, Node *n);
     void distributeNodeInDetailsVector(SectionVector &dv, Node *n);
     void distributeQmlNodeInDetailsVector(SectionVector &dv, Node *n);
-    void distributeQmlNodeInSummaryVector(SectionVector &sv, Node *n);
+    void distributeQmlNodeInSummaryVector(SectionVector &sv, Node *n, bool sharing = false);
     void initAggregate(SectionVector &v, Aggregate *aggregate);
 
- private:
-    Aggregate   *aggregate_;
+private:
+    Aggregate *aggregate_;
 
     static SectionVector stdSummarySections_;
     static SectionVector stdDetailsSections_;
@@ -246,7 +249,6 @@ class Sections
     static SectionVector stdQmlTypeDetailsSections_;
     static SectionVector sinceSections_;
     static SectionVector allMembers_;
-
 };
 
 QT_END_NAMESPACE

@@ -283,8 +283,11 @@ Qt::LayoutDirection QQuickGridLayoutBase::layoutDirection() const
 void QQuickGridLayoutBase::setLayoutDirection(Qt::LayoutDirection dir)
 {
     Q_D(QQuickGridLayoutBase);
+    if (d->m_layoutDirection == dir)
+        return;
     d->m_layoutDirection = dir;
     invalidate();
+    emit layoutDirectionChanged();
 }
 
 Qt::LayoutDirection QQuickGridLayoutBase::effectiveLayoutDirection() const
@@ -466,6 +469,16 @@ void QQuickGridLayoutBase::rearrange(const QSizeF &size)
     if (!isReady())
         return;
 
+    const auto refCounter = qScopeGuard([&d] {
+        --(d->m_recurRearrangeCounter);
+    });
+    if (d->m_recurRearrangeCounter++ == 2) {
+        // allow a recursive depth of two in order to respond to height-for-width
+        // (e.g QQuickText changes implicitHeight when its width gets changed)
+        qWarning() << "Qt Quick Layouts: Detected recursive rearrange. Aborting after two iterations.";
+        return;
+    }
+
     d->m_rearranging = true;
     quickLayoutDebug() << objectName() << "QQuickGridLayoutBase::rearrange()" << size;
     Qt::LayoutDirection visualDir = effectiveLayoutDirection();
@@ -524,6 +537,7 @@ void QQuickGridLayout::setColumnSpacing(qreal spacing)
 
     d->engine.setSpacing(spacing, Qt::Horizontal);
     invalidate();
+    emit columnSpacingChanged();
 }
 
 /*!
@@ -546,6 +560,7 @@ void QQuickGridLayout::setRowSpacing(qreal spacing)
 
     d->engine.setSpacing(spacing, Qt::Vertical);
     invalidate();
+    emit rowSpacingChanged();
 }
 
 /*!
@@ -640,6 +655,7 @@ void QQuickGridLayout::insertLayoutItems()
     int &nextColumn = nextCellPos[0];
     int &nextRow = nextCellPos[1];
 
+    const QSize gridSize(columns(), rows());
     const int flowOrientation = flow();
     int &flowColumn = nextCellPos[flowOrientation];
     int &flowRow = nextCellPos[1 - flowOrientation];
@@ -672,8 +688,21 @@ void QQuickGridLayout::insertLayoutItems()
                 // the unspecified component of the cell position should default to 0
                 // The getters do this for us, as they will return 0 for an
                 // unset (or negative) value.
-                row = info->row();
-                column = info->column();
+                // In addition, if \a rows is less than Layout.row, treat Layout.row as if it was not set
+                // This will basically make it find the next available cell (potentially wrapping to
+                // the next line). Likewise for an invalid Layout.column
+
+                if (gridSize.height() >= 0 && row >= gridSize.height()) {
+                    qmlWarning(child) << QString::fromLatin1("Layout: row (%1) should be less than the number of rows (%2)").arg(info->row()).arg(rows());
+                } else {
+                    row = info->row();
+                }
+
+                if (gridSize.width() >= 0 && info->column() >= gridSize.width()) {
+                    qmlWarning(child) << QString::fromLatin1("Layout: column (%1) should be less than the number of columns (%2)").arg(info->column()).arg(columns());
+                } else {
+                    column = info->column();
+                }
             }
             rowSpan = info->rowSpan();
             columnSpan = info->columnSpan();
@@ -817,6 +846,7 @@ void QQuickLinearLayout::setSpacing(qreal space)
 
     d->engine.setSpacing(space, Qt::Horizontal | Qt::Vertical);
     invalidate();
+    emit spacingChanged();
 }
 
 void QQuickLinearLayout::insertLayoutItems()

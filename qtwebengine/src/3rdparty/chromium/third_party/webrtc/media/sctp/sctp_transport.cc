@@ -18,17 +18,16 @@ enum PreservedErrno {
 };
 }  // namespace
 
-#include "media/sctp/sctp_transport.h"
-
 #include <stdarg.h>
 #include <stdio.h>
 
-#include <algorithm>
 #include <memory>
 
+#include "absl/algorithm/container.h"
 #include "media/base/codec.h"
 #include "media/base/media_constants.h"
 #include "media/base/stream_params.h"
+#include "media/sctp/sctp_transport.h"
 #include "p2p/base/dtls_transport_internal.h"  // For PF_NORMAL
 #include "rtc_base/arraysize.h"
 #include "rtc_base/copy_on_write_buffer.h"
@@ -36,6 +35,7 @@ enum PreservedErrno {
 #include "rtc_base/helpers.h"
 #include "rtc_base/logging.h"
 #include "rtc_base/numerics/safe_conversions.h"
+#include "rtc_base/string_utils.h"
 #include "rtc_base/thread_checker.h"
 #include "rtc_base/trace_event.h"
 #include "usrsctplib/usrsctp.h"
@@ -45,9 +45,6 @@ namespace {
 // The biggest SCTP packet. Starting from a 'safe' wire MTU value of 1280,
 // take off 80 bytes for DTLS/TURN/TCP/IP overhead.
 static constexpr size_t kSctpMtu = 1200;
-
-// The size of the SCTP association send buffer. 256kB, the usrsctp default.
-static constexpr int kSendBufferSize = 256 * 1024;
 
 // Set the initial value of the static SCTP Data Engines reference count.
 int g_usrsctp_usage_count = 0;
@@ -185,7 +182,7 @@ class SctpTransport::UsrSctpWrapper {
     // This is harmless, but we should find out when the library default
     // changes.
     int send_size = usrsctp_sysctl_get_sctp_sendspace();
-    if (send_size != kSendBufferSize) {
+    if (send_size != kSctpSendBufferSize) {
       RTC_LOG(LS_ERROR) << "Got different send size than expected: "
                         << send_size;
     }
@@ -327,7 +324,7 @@ class SctpTransport::UsrSctpWrapper {
       // callback. Larger messages (originating from other implementations) will
       // still be delivered in chunks.
       if (!(flags & MSG_EOR) &&
-          (transport->partial_message_.size() < kSendBufferSize)) {
+          (transport->partial_message_.size() < kSctpSendBufferSize)) {
         return 1;
       }
 
@@ -383,9 +380,8 @@ SctpTransport::SctpTransport(rtc::Thread* network_thread,
                              rtc::PacketTransportInternal* transport)
     : network_thread_(network_thread),
       transport_(transport),
-      was_ever_writable_(transport->writable()) {
+      was_ever_writable_(transport ? transport->writable() : false) {
   RTC_DCHECK(network_thread_);
-  RTC_DCHECK(transport_);
   RTC_DCHECK_RUN_ON(network_thread_);
   ConnectTransportSignals();
 }
@@ -411,7 +407,9 @@ void SctpTransport::SetDtlsTransport(rtc::PacketTransportInternal* transport) {
   }
 }
 
-bool SctpTransport::Start(int local_sctp_port, int remote_sctp_port) {
+bool SctpTransport::Start(int local_sctp_port,
+                          int remote_sctp_port,
+                          int max_message_size) {
   RTC_DCHECK_RUN_ON(network_thread_);
   if (local_sctp_port == -1) {
     local_sctp_port = kSctpDefaultPort;
@@ -419,6 +417,20 @@ bool SctpTransport::Start(int local_sctp_port, int remote_sctp_port) {
   if (remote_sctp_port == -1) {
     remote_sctp_port = kSctpDefaultPort;
   }
+  if (max_message_size > kSctpSendBufferSize) {
+    RTC_LOG(LS_ERROR) << "Max message size of " << max_message_size
+                      << " is larger than send bufffer size "
+                      << kSctpSendBufferSize;
+    return false;
+  }
+  if (max_message_size < 1) {
+    RTC_LOG(LS_ERROR) << "Max message size of " << max_message_size
+                      << " is too small";
+    return false;
+  }
+  // We allow changing max_message_size with a second Start() call,
+  // but not changing the port numbers.
+  max_message_size_ = max_message_size;
   if (started_) {
     if (local_sctp_port != local_port_ || remote_sctp_port != remote_port_) {
       RTC_LOG(LS_ERROR)
@@ -538,6 +550,11 @@ bool SctpTransport::SendData(const SendDataParams& params,
     }
   }
 
+  if (payload.size() > static_cast<size_t>(max_message_size_)) {
+    RTC_LOG(LS_ERROR) << "Attempting to send message of size " << payload.size()
+                      << " which is larger than limit " << max_message_size_;
+    return false;
+  }
   // We don't fragment.
   send_res = usrsctp_sendv(
       sock_, payload.data(), static_cast<size_t>(payload.size()), NULL, 0, &spa,
@@ -658,9 +675,9 @@ bool SctpTransport::OpenSctpSocket() {
 
   UsrSctpWrapper::IncrementUsrSctpUsageCount();
 
-  // If kSendBufferSize isn't reflective of reality, we log an error, but we
-  // still have to do something reasonable here.  Look up what the buffer's
-  // real size is and set our threshold to something reasonable.
+  // If kSctpSendBufferSize isn't reflective of reality, we log an error, but we
+  // still have to do something reasonable here.  Look up what the buffer's real
+  // size is and set our threshold to something reasonable.
   static const int kSendThreshold = usrsctp_sysctl_get_sctp_sendspace() / 2;
 
   sock_ = usrsctp_socket(
@@ -779,8 +796,8 @@ bool SctpTransport::SendQueuedStreamResets() {
 
   // Figure out how many streams need to be reset. We need to do this so we can
   // allocate the right amount of memory for the sctp_reset_streams structure.
-  size_t num_streams = std::count_if(
-      stream_status_by_sid_.begin(), stream_status_by_sid_.end(),
+  size_t num_streams = absl::c_count_if(
+      stream_status_by_sid_,
       [](const std::map<uint32_t, StreamStatus>::value_type& stream) {
         return stream.second.need_outgoing_reset();
       });
@@ -1029,7 +1046,12 @@ void SctpTransport::OnNotificationAssocChange(const sctp_assoc_change& change) {
   RTC_DCHECK_RUN_ON(network_thread_);
   switch (change.sac_state) {
     case SCTP_COMM_UP:
-      RTC_LOG(LS_VERBOSE) << "Association change SCTP_COMM_UP";
+      RTC_LOG(LS_VERBOSE) << "Association change SCTP_COMM_UP, stream # is "
+                          << change.sac_outbound_streams << " outbound, "
+                          << change.sac_inbound_streams << " inbound.";
+      max_outbound_streams_ = change.sac_outbound_streams;
+      max_inbound_streams_ = change.sac_inbound_streams;
+      SignalAssociationChangeCommunicationUp();
       break;
     case SCTP_COMM_LOST:
       RTC_LOG(LS_INFO) << "Association change SCTP_COMM_LOST";

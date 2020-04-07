@@ -10,15 +10,16 @@
 
 #include "pc/peer_connection_factory.h"
 
+#include <memory>
 #include <utility>
 #include <vector>
 
 #include "absl/memory/memory.h"
 #include "api/fec_controller.h"
-#include "api/media_constraints_interface.h"
 #include "api/media_stream_proxy.h"
 #include "api/media_stream_track_proxy.h"
 #include "api/media_transport_interface.h"
+#include "api/network_state_predictor.h"
 #include "api/peer_connection_factory_proxy.h"
 #include "api/peer_connection_proxy.h"
 #include "api/turn_customizer.h"
@@ -26,68 +27,20 @@
 #include "logging/rtc_event_log/rtc_event_log.h"
 #include "media/base/rtp_data_engine.h"
 #include "media/sctp/sctp_transport.h"
-#include "pc/rtp_parameters_conversion.h"
-#include "rtc_base/bind.h"
-#include "rtc_base/checks.h"
-// Adding 'nogncheck' to disable the gn include headers check to support modular
-// WebRTC build targets.
-// TODO(zhihuang): This wouldn't be necessary if the interface and
-// implementation of the media engine were in separate build targets.
-#include "media/engine/webrtc_media_engine.h"           // nogncheck
-#include "modules/audio_device/include/audio_device.h"  // nogncheck
 #include "p2p/base/basic_packet_socket_factory.h"
 #include "p2p/client/basic_port_allocator.h"
 #include "pc/audio_track.h"
 #include "pc/local_audio_source.h"
 #include "pc/media_stream.h"
 #include "pc/peer_connection.h"
-#include "pc/video_capturer_track_source.h"
+#include "pc/rtp_parameters_conversion.h"
 #include "pc/video_track.h"
+#include "rtc_base/bind.h"
+#include "rtc_base/checks.h"
+#include "rtc_base/system/file_wrapper.h"
 #include "system_wrappers/include/field_trial.h"
 
 namespace webrtc {
-
-rtc::scoped_refptr<PeerConnectionFactoryInterface>
-CreateModularPeerConnectionFactory(
-    rtc::Thread* network_thread,
-    rtc::Thread* worker_thread,
-    rtc::Thread* signaling_thread,
-    std::unique_ptr<cricket::MediaEngineInterface> media_engine,
-    std::unique_ptr<CallFactoryInterface> call_factory,
-    std::unique_ptr<RtcEventLogFactoryInterface> event_log_factory) {
-  PeerConnectionFactoryDependencies dependencies;
-  dependencies.network_thread = network_thread;
-  dependencies.worker_thread = worker_thread;
-  dependencies.signaling_thread = signaling_thread;
-  dependencies.media_engine = std::move(media_engine);
-  dependencies.call_factory = std::move(call_factory);
-  dependencies.event_log_factory = std::move(event_log_factory);
-  return CreateModularPeerConnectionFactory(std::move(dependencies));
-}
-
-rtc::scoped_refptr<PeerConnectionFactoryInterface>
-CreateModularPeerConnectionFactory(
-    rtc::Thread* network_thread,
-    rtc::Thread* worker_thread,
-    rtc::Thread* signaling_thread,
-    std::unique_ptr<cricket::MediaEngineInterface> media_engine,
-    std::unique_ptr<CallFactoryInterface> call_factory,
-    std::unique_ptr<RtcEventLogFactoryInterface> event_log_factory,
-    std::unique_ptr<FecControllerFactoryInterface> fec_controller_factory,
-    std::unique_ptr<NetworkControllerFactoryInterface>
-        network_controller_factory) {
-  PeerConnectionFactoryDependencies dependencies;
-  dependencies.network_thread = network_thread;
-  dependencies.worker_thread = worker_thread;
-  dependencies.signaling_thread = signaling_thread;
-  dependencies.media_engine = std::move(media_engine);
-  dependencies.call_factory = std::move(call_factory);
-  dependencies.event_log_factory = std::move(event_log_factory);
-  dependencies.fec_controller_factory = std::move(fec_controller_factory);
-  dependencies.network_controller_factory =
-      std::move(network_controller_factory);
-  return CreateModularPeerConnectionFactory(std::move(dependencies));
-}
 
 rtc::scoped_refptr<PeerConnectionFactoryInterface>
 CreateModularPeerConnectionFactory(
@@ -109,41 +62,22 @@ CreateModularPeerConnectionFactory(
 }
 
 PeerConnectionFactory::PeerConnectionFactory(
-    rtc::Thread* network_thread,
-    rtc::Thread* worker_thread,
-    rtc::Thread* signaling_thread,
-    std::unique_ptr<cricket::MediaEngineInterface> media_engine,
-    std::unique_ptr<webrtc::CallFactoryInterface> call_factory,
-    std::unique_ptr<RtcEventLogFactoryInterface> event_log_factory)
-    : PeerConnectionFactory(network_thread,
-                            worker_thread,
-                            signaling_thread,
-                            std::move(media_engine),
-                            std::move(call_factory),
-                            std::move(event_log_factory),
-                            nullptr,
-                            nullptr) {}
-
-PeerConnectionFactory::PeerConnectionFactory(
-    rtc::Thread* network_thread,
-    rtc::Thread* worker_thread,
-    rtc::Thread* signaling_thread,
-    std::unique_ptr<cricket::MediaEngineInterface> media_engine,
-    std::unique_ptr<webrtc::CallFactoryInterface> call_factory,
-    std::unique_ptr<RtcEventLogFactoryInterface> event_log_factory,
-    std::unique_ptr<FecControllerFactoryInterface> fec_controller_factory,
-    std::unique_ptr<NetworkControllerFactoryInterface>
-        network_controller_factory)
+    PeerConnectionFactoryDependencies dependencies)
     : wraps_current_thread_(false),
-      network_thread_(network_thread),
-      worker_thread_(worker_thread),
-      signaling_thread_(signaling_thread),
-      media_engine_(std::move(media_engine)),
-      call_factory_(std::move(call_factory)),
-      event_log_factory_(std::move(event_log_factory)),
-      fec_controller_factory_(std::move(fec_controller_factory)),
+      network_thread_(dependencies.network_thread),
+      worker_thread_(dependencies.worker_thread),
+      signaling_thread_(dependencies.signaling_thread),
+      task_queue_factory_(std::move(dependencies.task_queue_factory)),
+      media_engine_(std::move(dependencies.media_engine)),
+      call_factory_(std::move(dependencies.call_factory)),
+      event_log_factory_(std::move(dependencies.event_log_factory)),
+      fec_controller_factory_(std::move(dependencies.fec_controller_factory)),
+      network_state_predictor_factory_(
+          std::move(dependencies.network_state_predictor_factory)),
       injected_network_controller_factory_(
-          std::move(network_controller_factory)) {
+          std::move(dependencies.network_controller_factory)),
+      media_transport_factory_(
+          std::move(dependencies.media_transport_factory)) {
   if (!network_thread_) {
     owned_network_thread_ = rtc::Thread::CreateWithSocketServer();
     owned_network_thread_->SetName("pc_network_thread", nullptr);
@@ -167,24 +101,6 @@ PeerConnectionFactory::PeerConnectionFactory(
       wraps_current_thread_ = true;
     }
   }
-
-  // TODO(deadbeef): Currently there is no way to create an external adm in
-  // libjingle source tree. So we can 't currently assert if this is NULL.
-  // RTC_DCHECK(default_adm != NULL);
-}
-
-PeerConnectionFactory::PeerConnectionFactory(
-    PeerConnectionFactoryDependencies dependencies)
-    : PeerConnectionFactory(
-          dependencies.network_thread,
-          dependencies.worker_thread,
-          dependencies.signaling_thread,
-          std::move(dependencies.media_engine),
-          std::move(dependencies.call_factory),
-          std::move(dependencies.event_log_factory),
-          std::move(dependencies.fec_controller_factory),
-          std::move(dependencies.network_controller_factory)) {
-  media_transport_factory_ = std::move(dependencies.media_transport_factory);
 }
 
 PeerConnectionFactory::~PeerConnectionFactory() {
@@ -293,33 +209,9 @@ PeerConnectionFactory::CreateAudioSource(const cricket::AudioOptions& options) {
   return source;
 }
 
-rtc::scoped_refptr<VideoTrackSourceInterface>
-PeerConnectionFactory::CreateVideoSource(
-    std::unique_ptr<cricket::VideoCapturer> capturer,
-    const MediaConstraintsInterface* constraints) {
+bool PeerConnectionFactory::StartAecDump(FILE* file, int64_t max_size_bytes) {
   RTC_DCHECK(signaling_thread_->IsCurrent());
-  rtc::scoped_refptr<VideoTrackSourceInterface> source(
-      VideoCapturerTrackSource::Create(worker_thread_, std::move(capturer),
-                                       constraints, false));
-  return VideoTrackSourceProxy::Create(signaling_thread_, worker_thread_,
-                                       source);
-}
-
-rtc::scoped_refptr<VideoTrackSourceInterface>
-PeerConnectionFactory::CreateVideoSource(
-    std::unique_ptr<cricket::VideoCapturer> capturer) {
-  RTC_DCHECK(signaling_thread_->IsCurrent());
-  rtc::scoped_refptr<VideoTrackSourceInterface> source(
-      VideoCapturerTrackSource::Create(worker_thread_, std::move(capturer),
-                                       false));
-  return VideoTrackSourceProxy::Create(signaling_thread_, worker_thread_,
-                                       source);
-}
-
-bool PeerConnectionFactory::StartAecDump(rtc::PlatformFile file,
-                                         int64_t max_size_bytes) {
-  RTC_DCHECK(signaling_thread_->IsCurrent());
-  return channel_manager_->StartAecDump(file, max_size_bytes);
+  return channel_manager_->StartAecDump(FileWrapper(file), max_size_bytes);
 }
 
 void PeerConnectionFactory::StopAecDump() {
@@ -427,20 +319,6 @@ cricket::ChannelManager* PeerConnectionFactory::channel_manager() {
   return channel_manager_.get();
 }
 
-rtc::Thread* PeerConnectionFactory::signaling_thread() {
-  // This method can be called on a different thread when the factory is
-  // created in CreatePeerConnectionFactory().
-  return signaling_thread_;
-}
-
-rtc::Thread* PeerConnectionFactory::worker_thread() {
-  return worker_thread_;
-}
-
-rtc::Thread* PeerConnectionFactory::network_thread() {
-  return network_thread_;
-}
-
 std::unique_ptr<RtcEventLog> PeerConnectionFactory::CreateRtcEventLog_w() {
   RTC_DCHECK_RUN_ON(worker_thread_);
 
@@ -471,6 +349,9 @@ std::unique_ptr<Call> PeerConnectionFactory::CreateCall_w(
   call_config.bitrate_config.max_bitrate_bps = kMaxBandwidthBps;
 
   call_config.fec_controller_factory = fec_controller_factory_.get();
+  call_config.task_queue_factory = task_queue_factory_.get();
+  call_config.network_state_predictor_factory =
+      network_state_predictor_factory_.get();
 
   if (field_trial::IsEnabled("WebRTC-Bwe-InjectedCongestionController")) {
     RTC_LOG(LS_INFO) << "Using injected network controller factory";

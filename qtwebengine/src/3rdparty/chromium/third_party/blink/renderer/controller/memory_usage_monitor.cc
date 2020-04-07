@@ -11,13 +11,12 @@
 namespace blink {
 
 namespace {
-constexpr TimeDelta kPingInterval = TimeDelta::FromSeconds(1);
+constexpr base::TimeDelta kPingInterval = base::TimeDelta::FromSeconds(1);
 }
 
-MemoryUsageMonitor::MemoryUsageMonitor()
-    : timer_(Thread::MainThread()->GetTaskRunner(),
-             this,
-             &MemoryUsageMonitor::TimerFired) {}
+MemoryUsageMonitor::MemoryUsageMonitor() {
+  timer_.SetTaskRunner(Thread::MainThread()->GetTaskRunner());
+}
 
 void MemoryUsageMonitor::AddObserver(Observer* observer) {
   StartMonitoringIfNeeded();
@@ -28,10 +27,16 @@ void MemoryUsageMonitor::RemoveObserver(Observer* observer) {
   observers_.RemoveObserver(observer);
 }
 
+bool MemoryUsageMonitor::HasObserver(Observer* observer) {
+  return observers_.HasObserver(observer);
+}
+
 void MemoryUsageMonitor::StartMonitoringIfNeeded() {
-  if (timer_.IsActive())
+  if (timer_.IsRunning())
     return;
-  timer_.StartRepeating(kPingInterval, FROM_HERE);
+  timer_.Start(FROM_HERE, kPingInterval,
+               WTF::BindRepeating(&MemoryUsageMonitor::TimerFired,
+                                  WTF::Unretained(this)));
 }
 
 void MemoryUsageMonitor::StopMonitoring() {
@@ -57,12 +62,11 @@ void MemoryUsageMonitor::GetV8MemoryUsage(MemoryUsage& usage) {
 }
 
 void MemoryUsageMonitor::GetBlinkMemoryUsage(MemoryUsage& usage) {
-  usage.blink_gc_bytes = ProcessHeap::TotalAllocatedObjectSize() +
-                         ProcessHeap::TotalMarkedObjectSize();
+  usage.blink_gc_bytes = ProcessHeap::TotalAllocatedObjectSize();
   usage.partition_alloc_bytes = WTF::Partitions::TotalSizeOfCommittedPages();
 }
 
-void MemoryUsageMonitor::TimerFired(TimerBase*) {
+void MemoryUsageMonitor::TimerFired() {
   MemoryUsage usage = GetCurrentMemoryUsage();
   for (auto& observer : observers_)
     observer.OnMemoryPing(usage);

@@ -51,7 +51,7 @@ base::Optional<NetworkProperties> GetParsedNetworkProperty(
 class NetworkPropertiesManager::PrefManager {
  public:
   PrefManager(base::Clock* clock, PrefService* pref_service)
-      : clock_(clock), pref_service_(pref_service), ui_weak_ptr_factory_(this) {
+      : clock_(clock), pref_service_(pref_service) {
     DCHECK(clock_);
     DictionaryPrefUpdate update(pref_service_, prefs::kNetworkProperties);
     base::DictionaryValue* properties_dict = update.Get();
@@ -175,7 +175,7 @@ class NetworkPropertiesManager::PrefManager {
   SEQUENCE_CHECKER(sequence_checker_);
 
   // Used to get |weak_ptr_| to self on the UI thread.
-  base::WeakPtrFactory<PrefManager> ui_weak_ptr_factory_;
+  base::WeakPtrFactory<PrefManager> ui_weak_ptr_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(PrefManager);
 };
@@ -237,9 +237,6 @@ void NetworkPropertiesManager::OnChangeInNetworkID(
   if (it != network_properties_container_.end()) {
     network_properties_ = it->second;
     cached_entry_found = true;
-    if (params::ShouldDiscardCanaryCheckResult())
-      network_properties_.set_secure_proxy_disallowed_by_carrier(false);
-
   } else {
     // Reset to default state.
     network_properties_.Clear();
@@ -289,9 +286,6 @@ NetworkPropertiesManager::ConvertDictionaryValueToParsedPrefs(
         GetParsedNetworkProperty(it.second);
     if (!network_properties)
       continue;
-    if (params::ShouldDiscardCanaryCheckResult())
-      network_properties->set_secure_proxy_disallowed_by_carrier(false);
-
     read_prefs.emplace(std::make_pair(it.first, network_properties.value()));
   }
 
@@ -300,6 +294,7 @@ NetworkPropertiesManager::ConvertDictionaryValueToParsedPrefs(
 
 bool NetworkPropertiesManager::IsSecureProxyAllowed(bool is_core_proxy) const {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  DCHECK(is_core_proxy);
   return !network_properties_.secure_proxy_disallowed_by_carrier() &&
          !network_properties_.has_captive_portal() &&
          !HasWarmupURLProbeFailed(true, is_core_proxy);
@@ -308,6 +303,7 @@ bool NetworkPropertiesManager::IsSecureProxyAllowed(bool is_core_proxy) const {
 bool NetworkPropertiesManager::IsInsecureProxyAllowed(
     bool is_core_proxy) const {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  DCHECK(is_core_proxy);
   return !HasWarmupURLProbeFailed(false, is_core_proxy);
 }
 
@@ -338,6 +334,7 @@ void NetworkPropertiesManager::SetIsCaptivePortal(bool is_captive_portal) {
 bool NetworkPropertiesManager::HasWarmupURLProbeFailed(
     bool secure_proxy,
     bool is_core_proxy) const {
+  DCHECK(is_core_proxy);
   if (secure_proxy && is_core_proxy) {
     return network_properties_.secure_proxy_flags()
         .disallowed_due_to_warmup_probe_failure();
@@ -362,6 +359,7 @@ void NetworkPropertiesManager::SetHasWarmupURLProbeFailed(
     bool secure_proxy,
     bool is_core_proxy,
     bool warmup_url_probe_failed) {
+  DCHECK(is_core_proxy);
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
   if (secure_proxy && is_core_proxy) {

@@ -18,15 +18,15 @@
 #define SRC_TRACE_PROCESSOR_SQLITE_UTILS_H_
 
 #include <math.h>
-#include <sqlite3.h>
 
 #include <functional>
 #include <limits>
 #include <string>
 
 #include "perfetto/base/logging.h"
-#include "perfetto/base/optional.h"
+#include "perfetto/ext/base/optional.h"
 #include "src/trace_processor/scoped_db.h"
+#include "src/trace_processor/sqlite.h"
 #include "src/trace_processor/table.h"
 
 namespace perfetto {
@@ -34,6 +34,7 @@ namespace trace_processor {
 namespace sqlite_utils {
 
 const auto kSqliteStatic = reinterpret_cast<sqlite3_destructor_type>(0);
+const auto kSqliteTransient = reinterpret_cast<sqlite3_destructor_type>(-1);
 
 template <typename T>
 using is_numeric =
@@ -89,6 +90,10 @@ inline bool IsOpIsNull(int op) {
   return op == SQLITE_INDEX_CONSTRAINT_ISNULL;
 }
 
+inline bool IsOpIsNotNull(int op) {
+  return op == SQLITE_INDEX_CONSTRAINT_ISNOTNULL;
+}
+
 template <typename T>
 T ExtractSqliteValue(sqlite3_value* value);
 
@@ -127,46 +132,68 @@ inline double ExtractSqliteValue(sqlite3_value* value) {
   return sqlite3_value_double(value);
 }
 
+template <>
+inline bool ExtractSqliteValue(sqlite3_value* value) {
+  auto type = sqlite3_value_type(value);
+  PERFETTO_DCHECK(type == SQLITE_INTEGER);
+  return static_cast<bool>(sqlite3_value_int(value));
+}
+
 // Do not add a uint64_t version of ExtractSqliteValue. You should not be using
 // uint64_t at all given that SQLite doesn't support it.
 
 template <>
-inline std::string ExtractSqliteValue(sqlite3_value* value) {
+inline const char* ExtractSqliteValue(sqlite3_value* value) {
   auto type = sqlite3_value_type(value);
   PERFETTO_DCHECK(type == SQLITE_TEXT);
-  const auto* extracted =
-      reinterpret_cast<const char*>(sqlite3_value_text(value));
-  return std::string(extracted);
+  return reinterpret_cast<const char*>(sqlite3_value_text(value));
 }
 
-template <typename T, typename sqlite_utils::is_numeric<T>* = nullptr>
-std::function<bool(T)> CreateNumericPredicate(int op, sqlite3_value* value) {
-  switch (op) {
-    case SQLITE_INDEX_CONSTRAINT_ISNULL:
-      return [](T) { return false; };
-    case SQLITE_INDEX_CONSTRAINT_ISNOTNULL:
-      return [](T) { return true; };
+template <>
+inline std::string ExtractSqliteValue(sqlite3_value* value) {
+  return ExtractSqliteValue<const char*>(value);
+}
+
+template <typename T>
+class NumericPredicate {
+ public:
+  NumericPredicate(int op, T constant) : op_(op), constant_(constant) {}
+
+  PERFETTO_ALWAYS_INLINE bool operator()(T other) const {
+    switch (op_) {
+      case SQLITE_INDEX_CONSTRAINT_ISNULL:
+        return false;
+      case SQLITE_INDEX_CONSTRAINT_ISNOTNULL:
+        return true;
+      case SQLITE_INDEX_CONSTRAINT_EQ:
+      case SQLITE_INDEX_CONSTRAINT_IS:
+        return std::equal_to<T>()(other, constant_);
+      case SQLITE_INDEX_CONSTRAINT_NE:
+      case SQLITE_INDEX_CONSTRAINT_ISNOT:
+        return std::not_equal_to<T>()(other, constant_);
+      case SQLITE_INDEX_CONSTRAINT_GE:
+        return std::greater_equal<T>()(other, constant_);
+      case SQLITE_INDEX_CONSTRAINT_GT:
+        return std::greater<T>()(other, constant_);
+      case SQLITE_INDEX_CONSTRAINT_LE:
+        return std::less_equal<T>()(other, constant_);
+      case SQLITE_INDEX_CONSTRAINT_LT:
+        return std::less<T>()(other, constant_);
+      default:
+        PERFETTO_FATAL("For GCC");
+    }
   }
 
-  T val = ExtractSqliteValue<T>(value);
-  switch (op) {
-    case SQLITE_INDEX_CONSTRAINT_EQ:
-    case SQLITE_INDEX_CONSTRAINT_IS:
-      return [val](T f) { return std::equal_to<T>()(f, val); };
-    case SQLITE_INDEX_CONSTRAINT_NE:
-    case SQLITE_INDEX_CONSTRAINT_ISNOT:
-      return [val](T f) { return std::not_equal_to<T>()(f, val); };
-    case SQLITE_INDEX_CONSTRAINT_GE:
-      return [val](T f) { return f >= val; };
-    case SQLITE_INDEX_CONSTRAINT_GT:
-      return [val](T f) { return f > val; };
-    case SQLITE_INDEX_CONSTRAINT_LE:
-      return [val](T f) { return f <= val; };
-    case SQLITE_INDEX_CONSTRAINT_LT:
-      return [val](T f) { return f < val; };
-    default:
-      PERFETTO_FATAL("For GCC");
-  }
+ private:
+  int op_;
+  T constant_;
+};
+
+template <typename T, typename sqlite_utils::is_numeric<T>* = nullptr>
+NumericPredicate<T> CreateNumericPredicate(int op, sqlite3_value* value) {
+  T extracted =
+      IsOpIsNull(op) || IsOpIsNotNull(op) ? 0 : ExtractSqliteValue<T>(value);
+  return NumericPredicate<T>(op, extracted);
 }
 
 inline std::function<bool(const char*)> CreateStringPredicate(
@@ -342,6 +369,11 @@ inline void ReportSqliteResult(sqlite3_context* ctx, uint32_t value) {
 }
 
 template <>
+inline void ReportSqliteResult(sqlite3_context* ctx, bool value) {
+  sqlite3_result_int(ctx, value);
+}
+
+template <>
 inline void ReportSqliteResult(sqlite3_context* ctx, double value) {
   sqlite3_result_double(ctx, value);
 }
@@ -410,6 +442,8 @@ inline std::vector<Table::Column> GetColumnsForTable(
       type = Table::ColumnType::kString;
     } else if (strcmp(raw_type, "DOUBLE") == 0) {
       type = Table::ColumnType::kDouble;
+    } else if (strcmp(raw_type, "BOOLEAN") == 0) {
+      type = Table::ColumnType::kBool;
     } else if (!*raw_type) {
       PERFETTO_DLOG("Unknown column type for %s %s", raw_table_name.c_str(),
                     name);

@@ -5,7 +5,6 @@
 import("//build/config/ios/rules.gni")
 import("//ios/build/config.gni")
 import("//mojo/public/tools/bindings/mojom.gni")
-import("//services/service_manager/public/service_manifest.gni")
 import("//tools/grit/grit_rule.gni")
 import("//tools/grit/repack.gni")
 
@@ -68,15 +67,12 @@ source_set("shell") {
     "//ios/net",
     "//ios/web",
     "//ios/web/public",
-    "//ios/web/public/app",
+    "//ios/web/public/init",
     "//net",
     "//net:extras",
     "//services/service_manager/public/cpp",
-    "//services/test/echo:lib",
-    "//services/test/echo:manifest",
-    "//services/test/echo/public/mojom",
     "//services/test/user_id:lib",
-    "//services/test/user_id:manifest",
+    "//services/test/user_id/public/cpp:manifest",
     "//services/test/user_id/public/mojom",
     "//ui/base",
   ]

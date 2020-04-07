@@ -36,7 +36,7 @@
 QT_BEGIN_NAMESPACE
 
 AmbientProperties::AmbientProperties(QWidget *parent)
-: QDialog(parent), container(0)
+: QDialog(parent), container(nullptr)
 {
     setupUi(this);
 

@@ -15,9 +15,8 @@
 #include "base/memory/ref_counted.h"
 #include "base/single_thread_task_runner.h"
 #include "media/video/gpu_video_accelerator_factories.h"
-#include "media/video/video_decode_accelerator.h"
 #include "media/video/video_encode_accelerator.h"
-#include "services/ws/public/cpp/gpu/context_provider_command_buffer.h"
+#include "services/viz/public/cpp/gpu/context_provider_command_buffer.h"
 #include "testing/gmock/include/gmock/gmock.h"
 
 namespace base {
@@ -28,7 +27,7 @@ namespace media {
 
 class MockGpuVideoAcceleratorFactories : public GpuVideoAcceleratorFactories {
  public:
-  explicit MockGpuVideoAcceleratorFactories(gpu::gles2::GLES2Interface* gles2);
+  explicit MockGpuVideoAcceleratorFactories(gpu::SharedImageInterface* sii);
   ~MockGpuVideoAcceleratorFactories() override;
 
   bool IsGpuVideoAcceleratorEnabled() override;
@@ -36,38 +35,23 @@ class MockGpuVideoAcceleratorFactories : public GpuVideoAcceleratorFactories {
   MOCK_METHOD0(GetChannelToken, base::UnguessableToken());
   MOCK_METHOD0(GetCommandBufferRouteId, int32_t());
 
-  MOCK_METHOD1(IsDecoderConfigSupported, bool(const VideoDecoderConfig&));
-  MOCK_METHOD3(CreateVideoDecoder,
-               std::unique_ptr<media::VideoDecoder>(MediaLog*,
-                                                    const RequestOverlayInfoCB&,
-                                                    const gfx::ColorSpace&));
+  MOCK_METHOD2(IsDecoderConfigSupported,
+               bool(VideoDecoderImplementation, const VideoDecoderConfig&));
+  MOCK_METHOD3(
+      CreateVideoDecoder,
+      std::unique_ptr<media::VideoDecoder>(MediaLog*,
+                                           VideoDecoderImplementation,
+                                           const RequestOverlayInfoCB&));
 
-  // CreateVideo{Decode,Encode}Accelerator returns scoped_ptr, which the mocking
-  // framework does not want.  Trampoline them.
-  MOCK_METHOD0(DoCreateVideoDecodeAccelerator, VideoDecodeAccelerator*());
+  // CreateVideoEncodeAccelerator returns scoped_ptr, which the mocking
+  // framework does not want. Trampoline it.
   MOCK_METHOD0(DoCreateVideoEncodeAccelerator, VideoEncodeAccelerator*());
 
-  MOCK_METHOD5(CreateTextures,
-               bool(int32_t count,
-                    const gfx::Size& size,
-                    std::vector<uint32_t>* texture_ids,
-                    std::vector<gpu::Mailbox>* texture_mailboxes,
-                    uint32_t texture_target));
-  MOCK_METHOD1(DeleteTexture, void(uint32_t texture_id));
-  MOCK_METHOD0(CreateSyncToken, gpu::SyncToken());
-  MOCK_METHOD1(WaitSyncToken, void(const gpu::SyncToken& sync_token));
-  MOCK_METHOD2(SignalSyncToken,
-               void(const gpu::SyncToken& sync_token,
-                    base::OnceClosure callback));
-  MOCK_METHOD0(ShallowFlushCHROMIUM, void());
   MOCK_METHOD0(GetTaskRunner, scoped_refptr<base::SingleThreadTaskRunner>());
-  MOCK_METHOD0(GetVideoDecodeAcceleratorCapabilities,
-               VideoDecodeAccelerator::Capabilities());
   MOCK_METHOD0(GetVideoEncodeAcceleratorSupportedProfiles,
                VideoEncodeAccelerator::SupportedProfiles());
   MOCK_METHOD0(GetMediaContextProvider,
-               scoped_refptr<ws::ContextProviderCommandBuffer>());
-  MOCK_METHOD0(GetMediaContextProviderContextSupport, gpu::ContextSupport*());
+               scoped_refptr<viz::ContextProviderCommandBuffer>());
   MOCK_METHOD1(SetRenderingColorSpace, void(const gfx::ColorSpace&));
 
   std::unique_ptr<gfx::GpuMemoryBuffer> CreateGpuMemoryBuffer(
@@ -80,13 +64,16 @@ class MockGpuVideoAcceleratorFactories : public GpuVideoAcceleratorFactories {
   unsigned ImageTextureTarget(gfx::BufferFormat format) override;
   OutputFormat VideoFrameOutputFormat(VideoPixelFormat pixel_format) override {
     return video_frame_output_format_;
-  };
+  }
 
-  gpu::gles2::GLES2Interface* ContextGL() override { return gles2_; }
+  gpu::SharedImageInterface* SharedImageInterface() override { return sii_; }
+  gpu::GpuMemoryBufferManager* GpuMemoryBufferManager() override {
+    return nullptr;
+  }
 
   void SetVideoFrameOutputFormat(const OutputFormat video_frame_output_format) {
     video_frame_output_format_ = video_frame_output_format;
-  };
+  }
 
   void SetFailToAllocateGpuMemoryBufferForTesting(bool fail) {
     fail_to_allocate_gpu_memory_buffer_ = fail;
@@ -96,13 +83,8 @@ class MockGpuVideoAcceleratorFactories : public GpuVideoAcceleratorFactories {
 
   std::unique_ptr<base::SharedMemory> CreateSharedMemory(size_t size) override;
 
-  std::unique_ptr<VideoDecodeAccelerator> CreateVideoDecodeAccelerator()
-      override;
-
   std::unique_ptr<VideoEncodeAccelerator> CreateVideoEncodeAccelerator()
       override;
-
-  gpu::gles2::GLES2Interface* GetGLES2Interface() { return gles2_; }
 
   const std::vector<gfx::GpuMemoryBuffer*>& created_memory_buffers() {
     return created_memory_buffers_;
@@ -116,7 +98,7 @@ class MockGpuVideoAcceleratorFactories : public GpuVideoAcceleratorFactories {
 
   bool fail_to_allocate_gpu_memory_buffer_ = false;
 
-  gpu::gles2::GLES2Interface* gles2_;
+  gpu::SharedImageInterface* sii_;
 
   std::vector<gfx::GpuMemoryBuffer*> created_memory_buffers_;
 };

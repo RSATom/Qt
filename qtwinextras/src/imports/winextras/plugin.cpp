@@ -57,7 +57,7 @@ class QWinExtrasQmlPlugin : public QQmlExtensionPlugin
     Q_PLUGIN_METADATA(IID QQmlExtensionInterface_iid)
 
 public:
-    QWinExtrasQmlPlugin(QObject *parent = 0) : QQmlExtensionPlugin(parent) { }
+    QWinExtrasQmlPlugin(QObject *parent = nullptr) : QQmlExtensionPlugin(parent) { }
     void registerTypes(const char *uri) Q_DECL_OVERRIDE
     {
         Q_ASSERT(uri == QLatin1String("QtWinExtras"));

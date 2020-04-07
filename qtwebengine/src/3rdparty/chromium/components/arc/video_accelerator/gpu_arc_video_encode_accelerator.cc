@@ -6,30 +6,26 @@
 
 #include <utility>
 
+#include "base/bind.h"
+#include "base/bind_helpers.h"
 #include "base/logging.h"
 #include "base/system/sys_info.h"
 #include "components/arc/video_accelerator/arc_video_accelerator_util.h"
 #include "media/base/video_types.h"
 #include "media/gpu/gpu_video_encode_accelerator_factory.h"
+#include "media/gpu/macros.h"
 #include "mojo/public/cpp/bindings/strong_binding.h"
 #include "mojo/public/cpp/bindings/type_converter.h"
 #include "mojo/public/cpp/system/platform_handle.h"
 
-#define DVLOGF(x) DVLOG(x) << __func__ << "(): "
-
 namespace arc {
-
-namespace {
-
-void DropSharedMemory(std::unique_ptr<base::SharedMemory> shm) {
-  // Just let |shm| fall out of scope.
-}
-
-}  // namespace
 
 GpuArcVideoEncodeAccelerator::GpuArcVideoEncodeAccelerator(
     const gpu::GpuPreferences& gpu_preferences)
-    : gpu_preferences_(gpu_preferences) {}
+    : gpu_preferences_(gpu_preferences),
+      input_storage_type_(
+          media::VideoEncodeAccelerator::Config::StorageType::kShmem),
+      bitstream_buffer_serial_(0) {}
 
 GpuArcVideoEncodeAccelerator::~GpuArcVideoEncodeAccelerator() = default;
 
@@ -95,16 +91,6 @@ void GpuArcVideoEncodeAccelerator::Initialize(
   }
   client_ = std::move(client);
   std::move(callback).Run(true);
-}
-
-void GpuArcVideoEncodeAccelerator::EncodeDeprecated(
-    mojo::ScopedHandle handle,
-    std::vector<::arc::VideoFramePlane> planes,
-    int64_t timestamp,
-    bool force_keyframe,
-    EncodeCallback callback) {
-  Encode(input_pixel_format_, std::move(handle), planes, timestamp,
-         force_keyframe, std::move(callback));
 }
 
 void GpuArcVideoEncodeAccelerator::Encode(
@@ -204,8 +190,9 @@ void GpuArcVideoEncodeAccelerator::EncodeSharedMemory(
   // Add the function to relase |shm| and |callback| to |frame|'s  destruction
   // observer. When the |frame| goes out of scope, it unmaps and releases the
   // shared memory as well as executes |callback|.
-  frame->AddDestructionObserver(
-      base::BindOnce(&DropSharedMemory, std::move(shm)));
+  frame->AddDestructionObserver(base::BindOnce(
+      base::DoNothing::Once<std::unique_ptr<base::SharedMemory>>(),
+      std::move(shm)));
   frame->AddDestructionObserver(std::move(callback));
   accelerator_->Encode(frame, force_keyframe);
 }
@@ -227,6 +214,12 @@ void GpuArcVideoEncodeAccelerator::UseBitstreamBuffer(
     return;
   }
 
+  size_t shmem_size;
+  if (!GetFileSize(fd.get(), &shmem_size)) {
+    client_->NotifyError(Error::kInvalidArgumentError);
+    return;
+  }
+
   // TODO(rockot): Pass GUIDs through Mojo. https://crbug.com/713763.
   // TODO(rockot): This fd comes from a mojo::ScopedHandle in
   // GpuArcVideoService::BindSharedMemory. That should be passed through,
@@ -234,10 +227,17 @@ void GpuArcVideoEncodeAccelerator::UseBitstreamBuffer(
   // TODO(rockot): Pass through a real size rather than |0|.
   base::UnguessableToken guid = base::UnguessableToken::Create();
   base::SharedMemoryHandle shm_handle(base::FileDescriptor(fd.release(), true),
-                                      0u, guid);
+                                      shmem_size, guid);
   use_bitstream_cbs_.emplace(bitstream_buffer_serial_, std::move(callback));
-  accelerator_->UseOutputBitstreamBuffer(media::BitstreamBuffer(
-      bitstream_buffer_serial_, shm_handle, size, offset));
+  accelerator_->UseOutputBitstreamBuffer(
+      media::BitstreamBuffer(bitstream_buffer_serial_, shm_handle,
+                             false /* read_only */, size, offset));
+
+  // Close |shm_handle| because it is actually duplicated on the ctor of
+  // media::BitstreamBuffer and it will not close itself on the dtor.
+  if (shm_handle.IsValid()) {
+    shm_handle.Close();
+  }
 
   // Mask against 30 bits to avoid (undefined) wraparound on signed integer.
   bitstream_buffer_serial_ = (bitstream_buffer_serial_ + 1) & 0x3FFFFFFF;

@@ -29,6 +29,7 @@ class AudioDebugRecordingSession;
 namespace content {
 
 class WebContents;
+class WebRtcInternalsConnectionsObserver;
 class WebRTCInternalsUIObserver;
 
 // This is a singleton class running in the browser UI thread.
@@ -80,10 +81,16 @@ class CONTENT_EXPORT WebRTCInternals : public RenderProcessHostObserver,
                               const std::string& type,
                               const std::string& value);
 
-  // This method is called when results from PeerConnectionInterface::GetStats
-  // are available. |pid| is the renderer process id, |lid| is the renderer
-  // local id, |value| is the list of stats reports.
-  void OnAddStats(base::ProcessId pid, int lid, const base::ListValue& value);
+  // These methods are called when results from
+  // PeerConnectionInterface::GetStats (legacy or standard API) are available.
+  // |pid| is the renderer process id, |lid| is the renderer local id, |value|
+  // is the list of stats reports.
+  void OnAddStandardStats(base::ProcessId pid,
+                          int lid,
+                          const base::ListValue& value);
+  void OnAddLegacyStats(base::ProcessId pid,
+                        int lid,
+                        const base::ListValue& value);
 
   // This method is called when getUserMedia is called. |render_process_id| is
   // the id of the render process (not OS pid), which is needed because we might
@@ -104,6 +111,12 @@ class CONTENT_EXPORT WebRTCInternals : public RenderProcessHostObserver,
   // Methods for adding or removing WebRTCInternalsUIObserver.
   void AddObserver(WebRTCInternalsUIObserver* observer);
   void RemoveObserver(WebRTCInternalsUIObserver* observer);
+
+  // Methods for adding or removing WebRtcInternalsConnectionsObserver.
+  // |observer| is notified when there is a change in the count of active WebRTC
+  // connections.
+  void AddConnectionsObserver(WebRtcInternalsConnectionsObserver* observer);
+  void RemoveConnectionsObserver(WebRtcInternalsConnectionsObserver* observer);
 
   // Sends all update data to |observer|.
   void UpdateObserver(WebRTCInternalsUIObserver* observer);
@@ -194,6 +207,8 @@ class CONTENT_EXPORT WebRTCInternals : public RenderProcessHostObserver,
 
   base::ObserverList<WebRTCInternalsUIObserver>::Unchecked observers_;
 
+  base::ObserverList<WebRtcInternalsConnectionsObserver> connections_observers_;
+
   // |peer_connection_data_| is a list containing all the PeerConnection
   // updates.
   // Each item of the list represents the data for one PeerConnection, which
@@ -278,7 +293,7 @@ class CONTENT_EXPORT WebRTCInternals : public RenderProcessHostObserver,
   const int aggregate_updates_ms_;
 
   // Weak factory for this object that we use for bulking up updates.
-  base::WeakPtrFactory<WebRTCInternals> weak_factory_;
+  base::WeakPtrFactory<WebRTCInternals> weak_factory_{this};
 };
 
 }  // namespace content

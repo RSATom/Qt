@@ -43,7 +43,7 @@ Item {
         x: 0
         y: 0
         quality: LottieAnimation.HighQuality
-        source: ":/rec_pos_col_opa.json"
+        source: "rec_pos_col_opa.json"
 
         onFinished: {
             bmAnim.start();

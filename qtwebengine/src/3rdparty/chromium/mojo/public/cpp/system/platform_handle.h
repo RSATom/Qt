@@ -76,6 +76,14 @@ enum class UnwrappedSharedMemoryHandleProtection {
   kReadOnly,
 };
 
+// Wraps and unwraps base::subtle::PlatformSharedMemoryRegions. This should be
+// used only while transitioning from the legacy shared memory API. In new code
+// only base::*SharedMemoryRegion should be used instead.
+MOJO_CPP_SYSTEM_EXPORT ScopedSharedBufferHandle
+WrapPlatformSharedMemoryRegion(base::subtle::PlatformSharedMemoryRegion region);
+MOJO_CPP_SYSTEM_EXPORT base::subtle::PlatformSharedMemoryRegion
+UnwrapPlatformSharedMemoryRegion(ScopedSharedBufferHandle mojo_handle);
+
 // Wraps a PlatformHandle from the C++ platform support library as a Mojo
 // handle.
 MOJO_CPP_SYSTEM_EXPORT ScopedHandle WrapPlatformHandle(PlatformHandle handle);

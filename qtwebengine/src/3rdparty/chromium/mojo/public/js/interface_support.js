@@ -3,14 +3,15 @@
 // found in the LICENSE file.
 'use strict';
 
-goog.require('mojo.interfaceControl');
+goog.require('mojo.interfaceControl.kRunMessageId');
+goog.require('mojo.interfaceControl.RunResponseMessageParamsSpec');
 goog.require('mojo.internal');
 
 goog.provide('mojo.internal.interfaceSupport');
 
 
 /**
- * Handles incoming interface control messages on a proxy or router endpoint.
+ * Handles incoming interface control messages on a remote or router endpoint.
  */
 mojo.internal.interfaceSupport.ControlMessageHandler = class {
   /** @param {!MojoHandle} handle */
@@ -27,7 +28,7 @@ mojo.internal.interfaceSupport.ControlMessageHandler = class {
       mojo.internal.serializeAndSendMessage(
           this.handle_, mojo.interfaceControl.kRunMessageId, requestId,
           mojo.internal.kMessageFlagExpectsResponse,
-          mojo.interfaceControl.RunMessageParams.$, {'input': input});
+          mojo.interfaceControl.RunMessageParamsSpec.$, {'input': input});
       this.pendingFlushResolvers_.set(requestId, resolve);
     });
   }
@@ -47,12 +48,13 @@ mojo.internal.interfaceSupport.ControlMessageHandler = class {
 
   handleRunRequest_(requestId, decoder) {
     const input = decoder.decodeStructInline(
-        mojo.interfaceControl.RunMessageParams.$.$.structSpec)['input'];
+        mojo.interfaceControl.RunMessageParamsSpec.$.$.structSpec)['input'];
     if (input.hasOwnProperty('flushForTesting')) {
       mojo.internal.serializeAndSendMessage(
           this.handle_, mojo.interfaceControl.kRunMessageId, requestId,
           mojo.internal.kMessageFlagIsResponse,
-          mojo.interfaceControl.RunResponseMessageParams.$, {'output': null});
+          mojo.interfaceControl.RunResponseMessageParamsSpec.$,
+          {'output': null});
       return true;
     }
 
@@ -70,8 +72,8 @@ mojo.internal.interfaceSupport.ControlMessageHandler = class {
 };
 
 /**
- * Captures metadata about a request which was sent by a local proxy, for which
- * a response is expected.
+ * Captures metadata about a request which was sent by a remote, for which a
+ * response is expected.
  */
 mojo.internal.interfaceSupport.PendingResponse = class {
   /**
@@ -148,21 +150,26 @@ mojo.internal.interfaceSupport.ConnectionErrorEventRouter = class {
 };
 
 /**
- * Generic helper used to implement all generated proxy classes. Knows how to
+ * Generic helper used to implement all generated remote classes. Knows how to
  * serialize requests and deserialize their replies, both according to
  * declarative message structure specs.
+ * @template T
  * @export
  */
-mojo.internal.interfaceSupport.InterfaceProxyBase = class {
+mojo.internal.interfaceSupport.InterfaceRemoteBase = class {
   /**
-   * @param {MojoHandle=} opt_handle The message pipe handle to use as a proxy
+   * @param {!function(new:T, !MojoHandle)} requestType
+   * @param {MojoHandle=} opt_handle The message pipe handle to use as a remote
    *     endpoint. If null, this object must be bound with bindHandle before
    *     it can be used to send any messages.
    * @public
    */
-  constructor(opt_handle) {
+  constructor(requestType, opt_handle) {
     /** @public {?MojoHandle} */
     this.handle = null;
+
+    /** @private {!function(new:T, !MojoHandle)} */
+    this.requestType_ = requestType;
 
     /** @private {?mojo.internal.interfaceSupport.HandleReader} */
     this.reader_ = null;
@@ -187,12 +194,21 @@ mojo.internal.interfaceSupport.InterfaceProxyBase = class {
   }
 
   /**
+   * @return {!T}
+   */
+  bindNewPipeAndPassReceiver() {
+    let {handle0, handle1} = Mojo.createMessagePipe();
+    this.bindHandle(handle0);
+    return new this.requestType_(handle1);
+  }
+
+  /**
    * @param {!MojoHandle} handle
    * @export
    */
   bindHandle(handle) {
     if (this.handle)
-      throw new Error('Proxy already bound.');
+      throw new Error('Remote already bound.');
     this.handle = handle;
 
     const reader = new mojo.internal.interfaceSupport.HandleReader(handle);
@@ -211,6 +227,11 @@ mojo.internal.interfaceSupport.InterfaceProxyBase = class {
   unbind() {
     if (this.reader_)
       this.reader_.stop();
+  }
+
+  /** @export */
+  close() {
+    this.cleanupAndFlushPendingResponses_('Message pipe closed.');
   }
 
   /**
@@ -232,12 +253,13 @@ mojo.internal.interfaceSupport.InterfaceProxyBase = class {
   sendMessage(ordinal, paramStruct, responseStruct, args) {
     if (!this.handle) {
       throw new Error(
-          'Attempting to use an unbound proxy. Try createRequest() first.')
+        'Attempting to use an unbound remote. Try ' +
+        '$.bindNewPipeAndPassReceiver() first.')
     }
 
     // The pipe has already been closed, so just drop the message.
-    if (!this.reader_ || this.reader_.isStopped())
-      return Promise.reject();
+    if (responseStruct && (!this.reader_ || this.reader_.isStopped()))
+      return Promise.reject(new Error('The pipe has already been closed.'));
 
     const requestId = this.nextRequestId_++;
     const value = {};
@@ -305,14 +327,70 @@ mojo.internal.interfaceSupport.InterfaceProxyBase = class {
    * @private
    */
   onError_(opt_reason) {
+    this.cleanupAndFlushPendingResponses_(opt_reason);
+    this.connectionErrorEventRouter_.dispatchErrorEvent();
+  }
+
+  /**
+   * @param {string=} opt_reason
+   * @private
+   */
+  cleanupAndFlushPendingResponses_(opt_reason) {
     this.reader_.stopAndCloseHandle();
     this.reader_ = null;
     for (const id of this.pendingResponses_.keys())
       this.pendingResponses_.get(id).reject(new Error(opt_reason));
     this.pendingResponses_ = new Map;
-    this.connectionErrorEventRouter_.dispatchErrorEvent();
   }
 };
+
+/**
+ * Wrapper around mojo.internal.interfaceSupport.InterfaceRemoteBase that
+ * exposes the subset of InterfaceRemoteBase's method that users are allowed
+ * to use.
+ * @template T
+ * @export
+ */
+mojo.internal.interfaceSupport.InterfaceRemoteBaseWrapper = class {
+  /**
+   * @param {!mojo.internal.interfaceSupport.InterfaceRemoteBase<T>} remote
+   * @public
+   */
+  constructor(remote) {
+    /** @private {!mojo.internal.interfaceSupport.InterfaceRemoteBase<T>} */
+    this.remote_ = remote;
+  }
+
+  // TODO(ortuno): Remove once new names are used in the exposed interfaces.
+  /**
+   * @return {!T}
+   * @export
+   */
+  createRequest() {
+    return this.remote_.bindNewPipeAndPassReceiver();
+  }
+
+  /**
+   * @return {!T}
+   * @export
+   */
+  bindNewPipeAndPassReceiver() {
+    return this.remote_.bindNewPipeAndPassReceiver();
+  }
+
+  /** @export */
+  close() {
+    this.remote_.close();
+  }
+
+  /**
+   * @return {!Promise}
+   * @export
+   */
+  flushForTesting() {
+    return this.remote_.flushForTesting();
+  }
+}
 
 /**
  * Helper used by generated EventRouter types to dispatch incoming interface
@@ -349,7 +427,7 @@ mojo.internal.interfaceSupport.CallbackRouter = class {
  * messages to listeners.
  * @export
  */
-mojo.internal.interfaceSupport.InterfaceCallbackTarget = class {
+mojo.internal.interfaceSupport.InterfaceCallbackReceiver = class {
   /**
    * @public
    * @param {!mojo.internal.interfaceSupport.CallbackRouter} callbackRouter
@@ -381,7 +459,7 @@ mojo.internal.interfaceSupport.InterfaceCallbackTarget = class {
    * @return {!Function}
    * @export
    */
-  createTargetHandler(expectsResponse) {
+  createReceiverHandler(expectsResponse) {
     if (expectsResponse)
       return this.dispatchWithResponse_.bind(this);
     return this.dispatch_.bind(this);
@@ -420,7 +498,7 @@ mojo.internal.interfaceSupport.InterfaceCallbackTarget = class {
 };
 
 /**
- * Wraps message handlers attached to an InterfaceTarget.
+ * Wraps message handlers attached to an InterfaceReceiver.
  */
 mojo.internal.interfaceSupport.MessageHandler = class {
   /**
@@ -442,20 +520,28 @@ mojo.internal.interfaceSupport.MessageHandler = class {
 };
 
 /**
- * Listens for incoming request messages on a message pipe, dispatching them to
- * any registered handlers. Handlers are registered against a specific ordinal
- * message number.
+ * Generic helper that listens for incoming request messages on a message pipe,
+ * dispatching them to any registered handlers. Handlers are registered against
+ * a specific ordinal message number. It has methods to perform operations
+ * related to the interface pipe e.g. bind the pipe, close it, etc. Should only
+ * be used by the generated receiver classes.
+ * @template T
  * @export
  */
-mojo.internal.interfaceSupport.InterfaceTarget = class {
-  /** @public */
-  constructor() {
+mojo.internal.interfaceSupport.InterfaceReceiverHelperInternal = class {
+  /**
+   * @param {!function(new:T)} remoteType
+   * @public
+   */
+  constructor(remoteType) {
     /**
      * @private {!Map<MojoHandle,
      *     !mojo.internal.interfaceSupport.HandleReader>}
      */
     this.readers_ = new Map;
 
+    /** @private {!function(new:T)} */
+    this.remoteType_ = remoteType;
     /**
      * @private {!Map<number, !mojo.internal.interfaceSupport.MessageHandler>}
      */
@@ -463,6 +549,10 @@ mojo.internal.interfaceSupport.InterfaceTarget = class {
 
     /** @private {mojo.internal.interfaceSupport.ControlMessageHandler} */
     this.controlMessageHandler_ = null;
+
+    /** @private {!mojo.internal.interfaceSupport.ConnectionErrorEventRouter} */
+    this.connectionErrorEventRouter_ =
+      new mojo.internal.interfaceSupport.ConnectionErrorEventRouter;
   }
 
   /**
@@ -493,11 +583,29 @@ mojo.internal.interfaceSupport.InterfaceTarget = class {
         new mojo.internal.interfaceSupport.ControlMessageHandler(handle);
   }
 
+  /**
+   * @return {!T}
+   * @export
+   */
+  bindNewPipeAndPassRemote() {
+    let remote = new this.remoteType_;
+    this.bindHandle(remote.$.bindNewPipeAndPassReceiver().handle);
+    return remote;
+  }
+
   /** @export */
   closeBindings() {
     for (const reader of this.readers_.values())
       reader.stopAndCloseHandle();
     this.readers_.clear();
+  }
+
+  /**
+   * @return {!mojo.internal.interfaceSupport.ConnectionErrorEventRouter}
+   * @export
+   */
+  getConnectionErrorEventRouter() {
+    return this.connectionErrorEventRouter_;
   }
 
   /**
@@ -512,7 +620,7 @@ mojo.internal.interfaceSupport.InterfaceTarget = class {
     if (this.controlMessageHandler_.maybeHandleControlMessage(header, buffer))
       return;
     if (header.flags & mojo.internal.kMessageFlagIsResponse)
-      throw new Error('Received unexpected response on interface target');
+      throw new Error('Received unexpected response on interface receiver');
     const handler = this.messageHandlers_.get(header.ordinal);
     if (!handler)
       throw new Error('Received unknown message');
@@ -566,15 +674,75 @@ mojo.internal.interfaceSupport.InterfaceTarget = class {
     const reader = this.readers_.get(handle);
     if (!reader)
       return;
+    this.connectionErrorEventRouter_.dispatchErrorEvent();
     reader.stopAndCloseHandle();
     this.readers_.delete(handle);
   }
 };
 
 /**
+ * Generic helper used to perform operations related to the interface pipe e.g.
+ * bind the pipe, close it, flush it for testing, etc. Wraps
+ * mojo.internal.interfaceSupport.InterfaceReceiverHelperInternal and exposes a
+ * subset of methods that meant to be used by users of a receiver class.
+ *
+ * @template T
+ * @export
+ */
+mojo.internal.interfaceSupport.InterfaceReceiverHelper = class {
+  /**
+   * @param {!mojo.internal.interfaceSupport.InterfaceReceiverHelperInternal<T>}
+   *     helper_internal
+   * @public
+   */
+  constructor(helper_internal) {
+    /**
+     * @private {!mojo.internal.interfaceSupport.InterfaceReceiverHelperInternal<T>}
+     */
+    this.helper_internal_ = helper_internal;
+  }
+
+  /**
+   * Binds a new handle to this object. Messages which arrive on the handle will
+   * be read and dispatched to this object.
+   *
+   * @param {!MojoHandle} handle
+   * @export
+   */
+  bindHandle(handle) {
+    this.helper_internal_.bindHandle(handle);
+  }
+
+  // TODO(ortuno): Remove once new names are used in the exposed interfaces.
+  /**
+   * Returns a remote for this interface which sends messages directly to this
+   * object. Any number of proxies may be created to the same object.
+   *
+   * @return {!T}
+   * @export
+   */
+  createProxy() {
+    return this.helper_internal_.bindNewPipeAndPassRemote();
+  }
+
+  /**
+   * @return {!T}
+   * @export
+   */
+  bindNewPipeAndPassRemote() {
+    return this.helper_internal_.bindNewPipeAndPassRemote();
+  }
+
+  /** @export */
+  close() {
+    this.helper_internal_.closeBindings();
+  }
+}
+
+/**
  * Watches a MojoHandle for readability or peer closure, forwarding either event
- * to one of two callbacks on the reader. Used by both InterfaceProxyBase and
- * InterfaceTarget to watch for incoming messages.
+ * to one of two callbacks on the reader. Used by both InterfaceRemoteBase and
+ * InterfaceReceiverHelperInternal to watch for incoming messages.
  */
 mojo.internal.interfaceSupport.HandleReader = class {
   /**
@@ -611,6 +779,8 @@ mojo.internal.interfaceSupport.HandleReader = class {
   }
 
   stopAndCloseHandle() {
+    if (!this.watcher_)
+      return;
     this.stop();
     this.handle_.close();
   }

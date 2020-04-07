@@ -9,6 +9,7 @@
 #include <string>
 #include <vector>
 
+#include "base/bind.h"
 #include "base/containers/queue.h"
 #include "base/json/json_reader.h"
 #include "base/metrics/histogram_macros.h"
@@ -16,12 +17,20 @@
 #include "base/values.h"
 #include "build/build_config.h"
 #include "content/public/browser/content_browser_client.h"
+#include "content/public/browser/system_connector.h"
+#include "services/data_decoder/public/cpp/safe_xml_parser.h"
+#include "services/data_decoder/public/mojom/constants.mojom.h"
+#include "services/data_decoder/public/mojom/xml_parser.mojom.h"
+#include "services/service_manager/public/cpp/connector.h"
 #include "third_party/blink/public/platform/web_speech_synthesis_constants.h"
 
 namespace content {
 
 // A value to be used to indicate that there is no char index available.
 const int kInvalidCharIndex = -1;
+
+// A value to be used to indicate that there is no length available.
+const int kInvalidLength = -1;
 
 //
 // VoiceData
@@ -105,9 +114,18 @@ void TtsControllerImpl::SpeakOrEnqueue(TtsUtterance* utterance) {
 }
 
 void TtsControllerImpl::Stop() {
+  Stop(GURL());
+}
+
+void TtsControllerImpl::Stop(const GURL& source_url) {
   base::RecordAction(base::UserMetricsAction("TextToSpeech.Stop"));
 
   paused_ = false;
+
+  if (!source_url.is_empty() && current_utterance_ &&
+      current_utterance_->GetSrcUrl().GetOrigin() != source_url.GetOrigin())
+    return;
+
   if (current_utterance_ && !current_utterance_->GetEngineId().empty()) {
     if (GetTtsControllerDelegate()->GetTtsEngineDelegate())
       GetTtsControllerDelegate()->GetTtsEngineDelegate()->Stop(
@@ -119,7 +137,7 @@ void TtsControllerImpl::Stop() {
 
   if (current_utterance_)
     current_utterance_->OnTtsEvent(TTS_EVENT_INTERRUPTED, kInvalidCharIndex,
-                                   std::string());
+                                   kInvalidLength, std::string());
   FinishCurrentUtterance();
   ClearUtteranceQueue(true);  // Send events.
 }
@@ -157,6 +175,7 @@ void TtsControllerImpl::Resume() {
 void TtsControllerImpl::OnTtsEvent(int utterance_id,
                                    TtsEventType event_type,
                                    int char_index,
+                                   int length,
                                    const std::string& error_message) {
   // We may sometimes receive completion callbacks "late", after we've
   // already finished the utterance (for example because another utterance
@@ -205,7 +224,7 @@ void TtsControllerImpl::OnTtsEvent(int utterance_id,
   UMA_HISTOGRAM_ENUMERATION("TextToSpeech.Event", metric,
                             UMATextToSpeechEvent::COUNT);
 
-  current_utterance_->OnTtsEvent(event_type, char_index, error_message);
+  current_utterance_->OnTtsEvent(event_type, char_index, length, error_message);
   if (current_utterance_->IsFinished()) {
     FinishCurrentUtterance();
     SpeakNextUtterance();
@@ -313,11 +332,6 @@ void TtsControllerImpl::SpeakNow(TtsUtterance* utterance) {
   if (!GetTtsControllerDelegate())
     return;
 
-  // Ensure we have all built-in voices loaded. This is a no-op if already
-  // loaded.
-  bool loaded_built_in =
-      GetTtsPlatform()->LoadBuiltInTtsEngine(utterance->GetBrowserContext());
-
   // Get all available voices and try to find a matching voice.
   std::vector<VoiceData> voices;
   GetVoices(utterance->GetBrowserContext(), &voices);
@@ -376,25 +390,31 @@ void TtsControllerImpl::SpeakNow(TtsUtterance* utterance) {
     // during |speak|.
     current_utterance_ = utterance;
     GetTtsPlatform()->ClearError();
-    bool success = GetTtsPlatform()->Speak(
-        utterance->GetId(), utterance->GetText(), utterance->GetLang(), voice,
-        utterance->GetContinuousParameters());
-    if (!success)
-      current_utterance_ = nullptr;
+    GetTtsPlatform()->Speak(utterance->GetId(), utterance->GetText(),
+                            utterance->GetLang(), voice,
+                            utterance->GetContinuousParameters(),
+                            base::BindOnce(&TtsControllerImpl::OnSpeakFinished,
+                                           base::Unretained(this), utterance));
+  }
+}
 
-    // If the native voice wasn't able to process this speech, see if
-    // the browser has built-in TTS that isn't loaded yet.
-    if (!success && loaded_built_in) {
-      utterance_queue_.push(utterance);
-      return;
-    }
+void TtsControllerImpl::OnSpeakFinished(TtsUtterance* utterance, bool success) {
+  if (!success)
+    current_utterance_ = nullptr;
 
-    if (!success) {
-      utterance->OnTtsEvent(TTS_EVENT_ERROR, kInvalidCharIndex,
-                            GetTtsPlatform()->GetError());
-      delete utterance;
-      return;
-    }
+  // If the native voice wasn't able to process this speech, see if
+  // the browser has built-in TTS that isn't loaded yet.
+  if (!success &&
+      GetTtsPlatform()->LoadBuiltInTtsEngine(utterance->GetBrowserContext())) {
+    utterance_queue_.push(utterance);
+    return;
+  }
+
+  if (!success) {
+    utterance->OnTtsEvent(TTS_EVENT_ERROR, kInvalidCharIndex, kInvalidLength,
+                          GetTtsPlatform()->GetError());
+    delete utterance;
+    return;
   }
 }
 
@@ -404,7 +424,7 @@ void TtsControllerImpl::ClearUtteranceQueue(bool send_events) {
     utterance_queue_.pop();
     if (send_events)
       utterance->OnTtsEvent(TTS_EVENT_CANCELLED, kInvalidCharIndex,
-                            std::string());
+                            kInvalidLength, std::string());
     else
       utterance->Finish();
     delete utterance;
@@ -415,7 +435,7 @@ void TtsControllerImpl::FinishCurrentUtterance() {
   if (current_utterance_) {
     if (!current_utterance_->IsFinished())
       current_utterance_->OnTtsEvent(TTS_EVENT_INTERRUPTED, kInvalidCharIndex,
-                                     std::string());
+                                     kInvalidLength, std::string());
     delete current_utterance_;
     current_utterance_ = nullptr;
   }
@@ -462,6 +482,77 @@ TtsControllerDelegate* TtsControllerImpl::GetTtsControllerDelegate() {
     return delegate_;
   }
   return nullptr;
+}
+
+void TtsControllerImpl::StripSSML(
+    const std::string& utterance,
+    base::OnceCallback<void(const std::string&)> on_ssml_parsed) {
+  // Skip parsing and return if not xml.
+  if (utterance.find("<?xml") == std::string::npos) {
+    std::move(on_ssml_parsed).Run(utterance);
+    return;
+  }
+
+  // Parse using safe, out-of-process Xml Parser.
+  service_manager::Connector* connector = GetSystemConnector();
+  DCHECK(connector);
+  data_decoder::ParseXml(connector, utterance,
+                         base::BindOnce(&TtsControllerImpl::StripSSMLHelper,
+                                        utterance, std::move(on_ssml_parsed)));
+}
+
+// Called when ParseXml finishes.
+// Uses parsed xml to build parsed utterance text.
+void TtsControllerImpl::StripSSMLHelper(
+    const std::string& utterance,
+    base::OnceCallback<void(const std::string&)> on_ssml_parsed,
+    std::unique_ptr<base::Value> value,
+    const base::Optional<std::string>& error_message) {
+  // Error checks.
+  // If invalid xml, return original utterance text.
+  if (!value || error_message) {
+    std::move(on_ssml_parsed).Run(utterance);
+    return;
+  }
+
+  std::string root_tag_name;
+  data_decoder::GetXmlElementTagName(*value, &root_tag_name);
+  // Root element must be <speak>.
+  if (root_tag_name.compare("speak") != 0) {
+    std::move(on_ssml_parsed).Run(utterance);
+    return;
+  }
+
+  std::string parsed_text = "";
+  // Change from unique_ptr to base::Value* so recursion will work.
+  PopulateParsedText(&parsed_text, &(*value));
+
+  // Run with parsed_text.
+  std::move(on_ssml_parsed).Run(parsed_text);
+}
+
+void TtsControllerImpl::PopulateParsedText(std::string* parsed_text,
+                                           const base::Value* element) {
+  DCHECK(parsed_text);
+  if (!element)
+    return;
+  // Add element's text if present.
+  // Note: We don't use data_decoder::GetXmlElementText because it gets the text
+  // of element's first child, not text of current element.
+  const base::Value* text_value = element->FindKeyOfType(
+      data_decoder::mojom::XmlParser::kTextKey, base::Value::Type::STRING);
+  if (text_value)
+    *parsed_text += text_value->GetString();
+
+  const base::Value* children = data_decoder::GetXmlElementChildren(*element);
+  if (!children || !children->is_list())
+    return;
+
+  for (size_t i = 0; i < children->GetList().size(); ++i) {
+    // We need to iterate over all children because some text elements are
+    // nested within other types of elements, such as <emphasis> tags.
+    PopulateParsedText(parsed_text, &children->GetList()[i]);
+  }
 }
 
 }  // namespace content

@@ -8,22 +8,23 @@
 
 #include <sstream>
 
+#include "base/bind.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/path_service.h"
 #include "base/strings/string_piece.h"
 #include "base/time/time.h"
-#include "cc/base/lap_timer.h"
+#include "base/timer/lap_timer.h"
 #include "cc/layers/nine_patch_layer.h"
 #include "cc/layers/solid_color_layer.h"
 #include "cc/layers/texture_layer.h"
 #include "cc/test/fake_content_layer_client.h"
 #include "cc/test/layer_tree_json_parser.h"
 #include "cc/test/layer_tree_test.h"
+#include "cc/test/test_layer_tree_frame_sink.h"
 #include "cc/trees/layer_tree_impl.h"
 #include "components/viz/common/resources/single_release_callback.h"
 #include "components/viz/test/paths.h"
-#include "components/viz/test/test_layer_tree_frame_sink.h"
 #include "gpu/command_buffer/common/mailbox.h"
 #include "gpu/command_buffer/common/sync_token.h"
 #include "testing/perf/perf_test.h"
@@ -47,7 +48,7 @@ class LayerTreeHostPerfTest : public LayerTreeTest {
         measure_commit_cost_(false) {
   }
 
-  std::unique_ptr<viz::TestLayerTreeFrameSink> CreateLayerTreeFrameSink(
+  std::unique_ptr<TestLayerTreeFrameSink> CreateLayerTreeFrameSink(
       const viz::RendererSettings& renderer_settings,
       double refresh_rate,
       scoped_refptr<viz::ContextProvider> compositor_context_provider,
@@ -57,7 +58,7 @@ class LayerTreeHostPerfTest : public LayerTreeTest {
     bool synchronous_composite =
         !HasImplThread() &&
         !layer_tree_host()->GetSettings().single_thread_proxy_scheduler;
-    return std::make_unique<viz::TestLayerTreeFrameSink>(
+    return std::make_unique<TestLayerTreeFrameSink>(
         compositor_context_provider, std::move(worker_context_provider),
         gpu_memory_buffer_manager(), renderer_settings, ImplThreadTaskRunner(),
         synchronous_composite, disable_display_vsync, refresh_rate);
@@ -107,16 +108,18 @@ class LayerTreeHostPerfTest : public LayerTreeTest {
   void AfterTest() override {
     CHECK(!test_name_.empty()) << "Must SetTestName() before AfterTest().";
     perf_test::PrintResult("layer_tree_host_frame_time", "", test_name_,
-                           1000 * draw_timer_.MsPerLap(), "us", true);
+                           draw_timer_.TimePerLap().InMicrosecondsF(), "us",
+                           true);
     if (measure_commit_cost_) {
       perf_test::PrintResult("layer_tree_host_commit_time", "", test_name_,
-                             1000 * commit_timer_.MsPerLap(), "us", true);
+                             commit_timer_.TimePerLap().InMicrosecondsF(), "us",
+                             true);
     }
   }
 
  protected:
-  LapTimer draw_timer_;
-  LapTimer commit_timer_;
+  base::LapTimer draw_timer_;
+  base::LapTimer commit_timer_;
 
   std::string test_name_;
   FakeContentLayerClient fake_content_layer_client_;
@@ -327,8 +330,11 @@ class BrowserCompositorInvalidateLayerTreePerfTest
                                    gpu::CommandBufferId::FromUnsafeValue(1),
                                    next_fence_sync_);
     next_sync_token.SetVerifyFlush();
+
+    constexpr gfx::Size size(64, 64);
     viz::TransferableResource resource = viz::TransferableResource::MakeGL(
-        gpu_mailbox, GL_LINEAR, GL_TEXTURE_2D, next_sync_token);
+        gpu_mailbox, GL_LINEAR, GL_TEXTURE_2D, next_sync_token, size,
+        false /* is_overlay_candidate */);
     next_fence_sync_++;
 
     tab_contents_->SetTransferableResource(resource, std::move(callback));

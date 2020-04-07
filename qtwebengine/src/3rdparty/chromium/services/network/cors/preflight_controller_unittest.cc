@@ -7,6 +7,7 @@
 #include <memory>
 #include <utility>
 
+#include "base/bind.h"
 #include "base/run_loop.h"
 #include "base/test/scoped_task_environment.h"
 #include "net/base/load_flags.h"
@@ -32,8 +33,8 @@ namespace {
 
 TEST(PreflightControllerCreatePreflightRequestTest, LexicographicalOrder) {
   ResourceRequest request;
-  request.fetch_request_mode = mojom::FetchRequestMode::kCors;
-  request.fetch_credentials_mode = mojom::FetchCredentialsMode::kOmit;
+  request.mode = mojom::RequestMode::kCors;
+  request.credentials_mode = mojom::CredentialsMode::kOmit;
   request.request_initiator = url::Origin();
   request.headers.SetHeader("Orange", "Orange");
   request.headers.SetHeader("Apple", "Red");
@@ -57,8 +58,8 @@ TEST(PreflightControllerCreatePreflightRequestTest, LexicographicalOrder) {
 
 TEST(PreflightControllerCreatePreflightRequestTest, ExcludeSimpleHeaders) {
   ResourceRequest request;
-  request.fetch_request_mode = mojom::FetchRequestMode::kCors;
-  request.fetch_credentials_mode = mojom::FetchCredentialsMode::kOmit;
+  request.mode = mojom::RequestMode::kCors;
+  request.credentials_mode = mojom::CredentialsMode::kOmit;
   request.request_initiator = url::Origin();
   request.headers.SetHeader("Accept", "everything");
   request.headers.SetHeader(net::HttpRequestHeaders::kAcceptLanguage,
@@ -79,26 +80,23 @@ TEST(PreflightControllerCreatePreflightRequestTest, ExcludeSimpleHeaders) {
 
 TEST(PreflightControllerCreatePreflightRequestTest, Credentials) {
   ResourceRequest request;
-  request.fetch_request_mode = mojom::FetchRequestMode::kCors;
-  request.fetch_credentials_mode = mojom::FetchCredentialsMode::kInclude;
+  request.mode = mojom::RequestMode::kCors;
+  request.credentials_mode = mojom::CredentialsMode::kInclude;
   request.request_initiator = url::Origin();
   request.headers.SetHeader("Orange", "Orange");
 
   std::unique_ptr<ResourceRequest> preflight =
       PreflightController::CreatePreflightRequestForTesting(request);
 
-  EXPECT_EQ(mojom::FetchCredentialsMode::kOmit,
-            preflight->fetch_credentials_mode);
-  EXPECT_TRUE(preflight->load_flags & net::LOAD_DO_NOT_SAVE_COOKIES);
-  EXPECT_TRUE(preflight->load_flags & net::LOAD_DO_NOT_SEND_COOKIES);
-  EXPECT_TRUE(preflight->load_flags & net::LOAD_DO_NOT_SEND_AUTH_DATA);
+  EXPECT_EQ(mojom::CredentialsMode::kOmit, preflight->credentials_mode);
+  EXPECT_FALSE(preflight->allow_credentials);
 }
 
 TEST(PreflightControllerCreatePreflightRequestTest,
      ExcludeSimpleContentTypeHeader) {
   ResourceRequest request;
-  request.fetch_request_mode = mojom::FetchRequestMode::kCors;
-  request.fetch_credentials_mode = mojom::FetchCredentialsMode::kOmit;
+  request.mode = mojom::RequestMode::kCors;
+  request.credentials_mode = mojom::CredentialsMode::kOmit;
   request.request_initiator = url::Origin();
   request.headers.SetHeader(net::HttpRequestHeaders::kContentType,
                             "text/plain");
@@ -112,10 +110,25 @@ TEST(PreflightControllerCreatePreflightRequestTest,
       header_names::kAccessControlRequestHeaders, &header));
 }
 
+TEST(PreflightControllerCreatePreflightRequestTest, IncludeSecFetchModeHeader) {
+  ResourceRequest request;
+  request.mode = mojom::RequestMode::kCors;
+  request.credentials_mode = mojom::CredentialsMode::kOmit;
+  request.request_initiator = url::Origin();
+  request.headers.SetHeader("X-Custom-Header", "foobar");
+
+  std::unique_ptr<ResourceRequest> preflight =
+      PreflightController::CreatePreflightRequestForTesting(request);
+
+  std::string header;
+  EXPECT_TRUE(preflight->headers.GetHeader("Sec-Fetch-Mode", &header));
+  EXPECT_EQ("cors", header);
+}
+
 TEST(PreflightControllerCreatePreflightRequestTest, IncludeNonSimpleHeader) {
   ResourceRequest request;
-  request.fetch_request_mode = mojom::FetchRequestMode::kCors;
-  request.fetch_credentials_mode = mojom::FetchCredentialsMode::kOmit;
+  request.mode = mojom::RequestMode::kCors;
+  request.credentials_mode = mojom::CredentialsMode::kOmit;
   request.request_initiator = url::Origin();
   request.headers.SetHeader("X-Custom-Header", "foobar");
 
@@ -131,8 +144,8 @@ TEST(PreflightControllerCreatePreflightRequestTest, IncludeNonSimpleHeader) {
 TEST(PreflightControllerCreatePreflightRequestTest,
      IncludeNonSimpleContentTypeHeader) {
   ResourceRequest request;
-  request.fetch_request_mode = mojom::FetchRequestMode::kCors;
-  request.fetch_credentials_mode = mojom::FetchCredentialsMode::kOmit;
+  request.mode = mojom::RequestMode::kCors;
+  request.credentials_mode = mojom::CredentialsMode::kOmit;
   request.request_initiator = url::Origin();
   request.headers.SetHeader(net::HttpRequestHeaders::kContentType,
                             "application/octet-stream");
@@ -148,8 +161,8 @@ TEST(PreflightControllerCreatePreflightRequestTest,
 
 TEST(PreflightControllerCreatePreflightRequestTest, ExcludeForbiddenHeaders) {
   ResourceRequest request;
-  request.fetch_request_mode = mojom::FetchRequestMode::kCors;
-  request.fetch_credentials_mode = mojom::FetchCredentialsMode::kOmit;
+  request.mode = mojom::RequestMode::kCors;
+  request.credentials_mode = mojom::CredentialsMode::kOmit;
   request.request_initiator = url::Origin();
   request.headers.SetHeader("referer", "https://www.google.com/");
 
@@ -163,8 +176,8 @@ TEST(PreflightControllerCreatePreflightRequestTest, ExcludeForbiddenHeaders) {
 
 TEST(PreflightControllerCreatePreflightRequestTest, Tainted) {
   ResourceRequest request;
-  request.fetch_request_mode = mojom::FetchRequestMode::kCors;
-  request.fetch_credentials_mode = mojom::FetchCredentialsMode::kOmit;
+  request.mode = mojom::RequestMode::kCors;
+  request.credentials_mode = mojom::CredentialsMode::kOmit;
   request.request_initiator = url::Origin::Create(GURL("https://example.com"));
 
   std::unique_ptr<ResourceRequest> preflight =
@@ -174,6 +187,36 @@ TEST(PreflightControllerCreatePreflightRequestTest, Tainted) {
   EXPECT_TRUE(
       preflight->headers.GetHeader(net::HttpRequestHeaders::kOrigin, &header));
   EXPECT_EQ(header, "null");
+}
+
+TEST(PreflightControllerCreatePreflightRequestTest, FetchWindowId) {
+  ResourceRequest request;
+  request.mode = mojom::RequestMode::kCors;
+  request.credentials_mode = mojom::CredentialsMode::kOmit;
+  request.request_initiator = url::Origin();
+  request.headers.SetHeader(net::HttpRequestHeaders::kContentType,
+                            "application/octet-stream");
+  request.fetch_window_id = base::UnguessableToken::Create();
+
+  std::unique_ptr<ResourceRequest> preflight =
+      PreflightController::CreatePreflightRequestForTesting(request);
+
+  EXPECT_EQ(request.fetch_window_id, preflight->fetch_window_id);
+}
+
+TEST(PreflightControllerCreatePreflightRequestTest, RenderFrameId) {
+  ResourceRequest request;
+  request.mode = mojom::RequestMode::kCors;
+  request.credentials_mode = mojom::CredentialsMode::kOmit;
+  request.request_initiator = url::Origin();
+  request.headers.SetHeader(net::HttpRequestHeaders::kContentType,
+                            "application/octet-stream");
+  request.render_frame_id = 99;
+
+  std::unique_ptr<ResourceRequest> preflight =
+      PreflightController::CreatePreflightRequestForTesting(request);
+
+  EXPECT_EQ(request.render_frame_id, preflight->render_frame_id);
 }
 
 class PreflightControllerTest : public testing::Test {
@@ -218,10 +261,8 @@ class PreflightControllerTest : public testing::Test {
     preflight_controller_->PerformPreflightCheck(
         base::BindOnce(&PreflightControllerTest::HandleRequestCompletion,
                        base::Unretained(this)),
-        0 /* request_id */, request, tainted, TRAFFIC_ANNOTATION_FOR_TESTS,
-        url_loader_factory_ptr_.get(),
-        base::BindOnce(&PreflightControllerTest::CancelPreflight,
-                       base::Unretained(this)));
+        request, tainted, TRAFFIC_ANNOTATION_FOR_TESTS,
+        url_loader_factory_ptr_.get());
     run_loop_->Run();
   }
 
@@ -229,7 +270,6 @@ class PreflightControllerTest : public testing::Test {
   base::Optional<CorsErrorStatus> status() { return status_; }
   base::Optional<CorsErrorStatus> success() { return base::nullopt; }
   size_t access_count() { return access_count_; }
-  bool cancel_preflight_called() const { return cancel_preflight_called_; }
 
  private:
   void SetUp() override {
@@ -271,8 +311,6 @@ class PreflightControllerTest : public testing::Test {
     return response;
   }
 
-  void CancelPreflight() { cancel_preflight_called_ = true; }
-
   base::test::ScopedTaskEnvironment scoped_task_environment_;
   std::unique_ptr<base::RunLoop> run_loop_;
 
@@ -282,7 +320,6 @@ class PreflightControllerTest : public testing::Test {
 
   net::test_server::EmbeddedTestServer test_server_;
   size_t access_count_ = 0;
-  bool cancel_preflight_called_ = false;
 
   std::unique_ptr<PreflightController> preflight_controller_;
   int net_error_ = net::OK;
@@ -291,8 +328,8 @@ class PreflightControllerTest : public testing::Test {
 
 TEST_F(PreflightControllerTest, CheckInvalidRequest) {
   ResourceRequest request;
-  request.fetch_request_mode = mojom::FetchRequestMode::kCors;
-  request.fetch_credentials_mode = mojom::FetchCredentialsMode::kOmit;
+  request.mode = mojom::RequestMode::kCors;
+  request.credentials_mode = mojom::CredentialsMode::kOmit;
   request.url = GetURL("/404");
   request.request_initiator = url::Origin::Create(request.url);
 
@@ -305,8 +342,8 @@ TEST_F(PreflightControllerTest, CheckInvalidRequest) {
 
 TEST_F(PreflightControllerTest, CheckValidRequest) {
   ResourceRequest request;
-  request.fetch_request_mode = mojom::FetchRequestMode::kCors;
-  request.fetch_credentials_mode = mojom::FetchCredentialsMode::kOmit;
+  request.mode = mojom::RequestMode::kCors;
+  request.credentials_mode = mojom::CredentialsMode::kOmit;
   request.url = GetURL("/allow");
   request.request_initiator = url::Origin::Create(request.url);
 
@@ -319,12 +356,31 @@ TEST_F(PreflightControllerTest, CheckValidRequest) {
   EXPECT_EQ(net::OK, net_error());
   ASSERT_FALSE(status());
   EXPECT_EQ(1u, access_count());  // Should be from the preflight cache.
+
+  // Verify if cache related flags work to skip the preflight cache.
+  request.load_flags = net::LOAD_VALIDATE_CACHE;
+  PerformPreflightCheck(request);
+  EXPECT_EQ(net::OK, net_error());
+  ASSERT_FALSE(status());
+  EXPECT_EQ(2u, access_count());
+
+  request.load_flags = net::LOAD_BYPASS_CACHE;
+  PerformPreflightCheck(request);
+  EXPECT_EQ(net::OK, net_error());
+  ASSERT_FALSE(status());
+  EXPECT_EQ(3u, access_count());
+
+  request.load_flags = net::LOAD_DISABLE_CACHE;
+  PerformPreflightCheck(request);
+  EXPECT_EQ(net::OK, net_error());
+  ASSERT_FALSE(status());
+  EXPECT_EQ(4u, access_count());
 }
 
 TEST_F(PreflightControllerTest, CheckTaintedRequest) {
   ResourceRequest request;
-  request.fetch_request_mode = mojom::FetchRequestMode::kCors;
-  request.fetch_credentials_mode = mojom::FetchCredentialsMode::kOmit;
+  request.mode = mojom::RequestMode::kCors;
+  request.credentials_mode = mojom::CredentialsMode::kOmit;
   request.url = GetURL("/tainted");
   request.request_initiator = url::Origin::Create(request.url);
 
@@ -334,21 +390,22 @@ TEST_F(PreflightControllerTest, CheckTaintedRequest) {
   EXPECT_EQ(1u, access_count());
 }
 
-// TODO(yhirano): Remove this test case when the network service is fully
-// enabled.
-TEST_F(PreflightControllerTest, CancelPreflightIsCalled) {
+TEST_F(PreflightControllerTest, CheckResponseWithNullHeaders) {
+  GURL url = GURL("https://google.com/finullurl");
+  const ResourceResponseHead response_head;
   ResourceRequest request;
-  request.fetch_request_mode = mojom::FetchRequestMode::kCors;
-  request.fetch_credentials_mode = mojom::FetchCredentialsMode::kOmit;
-  request.url = GetURL("/allow");
+  request.url = url;
   request.request_initiator = url::Origin::Create(request.url);
+  const bool tainted = false;
+  base::Optional<CorsErrorStatus> detected_error_status;
 
-  EXPECT_FALSE(cancel_preflight_called());
-  PerformPreflightCheck(request);
-  EXPECT_EQ(net::OK, net_error());
-  ASSERT_FALSE(status());
-  EXPECT_TRUE(cancel_preflight_called());
-  EXPECT_EQ(1u, access_count());
+  EXPECT_FALSE(response_head.headers);
+
+  std::unique_ptr<PreflightResult> result =
+      PreflightController::CreatePreflightResultForTesting(
+          url, response_head, request, tainted, &detected_error_status);
+
+  EXPECT_FALSE(result);
 }
 
 }  // namespace

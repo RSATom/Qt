@@ -7,6 +7,7 @@
 
 #include <memory>
 #include "base/macros.h"
+#include "base/unguessable_token.h"
 
 namespace content {
 
@@ -28,27 +29,26 @@ class ChromeAppCacheService;
 //   2) When the navigation request is sent to the IO thread, we include a
 //      pointer to the AppCacheNavigationHandleCore.
 //
-//   3. The AppCacheHost instance is created and its ownership is passed to the
-//      AppCacheNavigationHandleCore instance. Now the app cache host id is
-//      updated.
+//   3) The AppCacheHost instance is created and its ownership is passed to the
+//      AppCacheNavigationHandleCore instance.
 //
-//   4) The AppCacheNavigationHandleCore instance informs the
-//      AppCacheNavigationHandle instance on the UI thread that the app cache
-//      host id was updated.
-//
-//   5) When the navigation is ready to commit, the NavigationRequest will
+//   4) When the navigation is ready to commit, the NavigationRequest will
 //      update the CommitNavigationParams based on the id from the
 //      AppCacheNavigationHandle.
 //
-//   6) The commit leads to AppCache registrations happening from the renderer.
-//      This is via the IPC message AppCacheHostMsg_RegisterHost. The
-//      AppCacheDispatcherHost class which handles these IPCs will be informed
+//   5) The commit leads to AppCache registrations happening from the renderer.
+//      This is via the AppCacheBackend.RegisterHost mojo call. The
+//      AppCacheBackendImpl class which handles these calls will be informed
 //      about these hosts when the navigation commits. It will ignore the
 //      host registrations as they have already been registered. The
 //      ownership of the AppCacheHost is passed from the
-//      AppCacheNavigationHandle core to the AppCacheBackend.
-
-//   7) When the navigation finishes, the AppCacheNavigationHandle is
+//      AppCacheNavigationHandle core to the AppCacheBackendImpl.
+//
+//   6) Meanwhile, RenderFrameHostImpl takes ownership of
+//      AppCacheNavigationHandle once navigation commits, so that precreated
+//      AppCacheHost is not destroyed before IPC above reaches AppCacheBackend.
+//
+//   7) When the next navigation commits, previous AppCacheNavigationHandle is
 //      destroyed. The destructor of the AppCacheNavigationHandle posts a
 //      task to destroy the AppCacheNavigationHandleCore on the IO thread.
 
@@ -58,7 +58,9 @@ class AppCacheNavigationHandle {
                            int process_id);
   ~AppCacheNavigationHandle();
 
-  int appcache_host_id() const { return appcache_host_id_; }
+  const base::UnguessableToken& appcache_host_id() const {
+    return appcache_host_id_;
+  }
   AppCacheNavigationHandleCore* core() const { return core_.get(); }
 
   // Called by NavigationHandleImpl::ReadyToCommitNavigation, because this is
@@ -72,7 +74,7 @@ class AppCacheNavigationHandle {
   void SetProcessId(int process_id);
 
  private:
-  const int appcache_host_id_;
+  const base::UnguessableToken appcache_host_id_;
   std::unique_ptr<AppCacheNavigationHandleCore> core_;
 
   DISALLOW_COPY_AND_ASSIGN(AppCacheNavigationHandle);

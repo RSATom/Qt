@@ -51,8 +51,9 @@
 //
 
 #include "qv4global_p.h"
-#include <private/qv4compileddata_p.h>
+#include <private/qv4executablecompilationunit_p.h>
 #include <private/qv4context_p.h>
+#include <private/qv4string_p.h>
 
 namespace JSC {
 class MacroAssemblerCodeRef;
@@ -65,9 +66,13 @@ struct QQmlSourceLocation;
 namespace QV4 {
 
 struct Q_QML_EXPORT FunctionData {
-    CompiledData::CompilationUnit *compilationUnit;
+    CompiledData::CompilationUnitBase *compilationUnit;
 
-    FunctionData(CompiledData::CompilationUnit *compilationUnit)
+    // Intentionally require an ExecutableCompilationUnit but save only a pointer to
+    // CompilationUnitBase. This is so that we can take advantage of the standard layout
+    // of CompilationUnitBase in the JIT. Furthermore we can safely static_cast to
+    // ExecutableCompilationUnit where we need it.
+    FunctionData(ExecutableCompilationUnit *compilationUnit)
         : compilationUnit(compilationUnit)
     {}
 };
@@ -76,11 +81,23 @@ Q_STATIC_ASSERT(std::is_standard_layout< FunctionData >::value);
 
 struct Q_QML_EXPORT Function : public FunctionData {
 private:
-    Function(ExecutionEngine *engine, CompiledData::CompilationUnit *unit, const CompiledData::Function *function);
+    Function(ExecutionEngine *engine, ExecutableCompilationUnit *unit,
+             const CompiledData::Function *function);
     ~Function();
 
 public:
     const CompiledData::Function *compiledFunction;
+
+    QV4::ExecutableCompilationUnit *executableCompilationUnit() const
+    {
+        // This is safe: We require an ExecutableCompilationUnit in the ctor.
+        return static_cast<QV4::ExecutableCompilationUnit *>(compilationUnit);
+    }
+
+    QV4::Heap::String *runtimeString(uint i) const
+    {
+        return compilationUnit->runtimeStrings[i];
+    }
 
     ReturnedValue call(const Value *thisObject, const Value *argv, int argc, const ExecutionContext *context);
 
@@ -96,20 +113,21 @@ public:
     int interpreterCallCount = 0;
     bool isEval = false;
 
-    static Function *create(ExecutionEngine *engine, CompiledData::CompilationUnit *unit, const CompiledData::Function *function);
+    static Function *create(ExecutionEngine *engine, ExecutableCompilationUnit *unit,
+                            const CompiledData::Function *function);
     void destroy();
 
     // used when dynamically assigning signal handlers (QQmlConnection)
     void updateInternalClass(ExecutionEngine *engine, const QList<QByteArray> &parameters);
 
     inline Heap::String *name() const {
-        return compilationUnit->runtimeStrings[compiledFunction->nameIndex];
+        return runtimeString(compiledFunction->nameIndex);
     }
 
     static QString prettyName(const Function *function, const void *address);
 
-    inline QString sourceFile() const { return compilationUnit->fileName(); }
-    inline QUrl finalUrl() const { return compilationUnit->finalUrl(); }
+    inline QString sourceFile() const { return executableCompilationUnit()->fileName(); }
+    inline QUrl finalUrl() const { return executableCompilationUnit()->finalUrl(); }
 
     inline bool isStrict() const { return compiledFunction->flags & CompiledData::Function::IsStrict; }
     inline bool isArrowFunction() const { return compiledFunction->flags & CompiledData::Function::IsArrowFunction; }
@@ -121,32 +139,7 @@ public:
     {
         if (compiledFunction->nestedFunctionIndex == std::numeric_limits<uint32_t>::max())
             return nullptr;
-        return compilationUnit->runtimeFunctions[compiledFunction->nestedFunctionIndex];
-    }
-
-    Q_NEVER_INLINE QString traceInfoToString();
-
-    quint8 *traceInfo(uint i)
-    {
-#if QT_CONFIG(qml_tracing)
-        Q_ASSERT((tracingEnabled() && i < traceInfoCount()) || (i == 0));
-        return reinterpret_cast<quint8 *>(this) + sizeof(Function) + i;
-#else
-        Q_UNUSED(i);
-        return nullptr;
-#endif
-    }
-
-    quint32 traceInfoCount() const
-    { return compiledFunction->nTraceInfos; }
-
-    bool tracingEnabled() const
-    {
-#if QT_CONFIG(qml_tracing)
-        return traceInfoCount() != CompiledData::Function::NoTracing();
-#else
-        return false;
-#endif
+        return executableCompilationUnit()->runtimeFunctions[compiledFunction->nestedFunctionIndex];
     }
 };
 

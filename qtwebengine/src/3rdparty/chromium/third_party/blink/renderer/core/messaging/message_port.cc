@@ -35,7 +35,6 @@
 #include "third_party/blink/renderer/core/events/message_event.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
 #include "third_party/blink/renderer/core/frame/local_dom_window.h"
-#include "third_party/blink/renderer/core/frame/use_counter.h"
 #include "third_party/blink/renderer/core/frame/user_activation.h"
 #include "third_party/blink/renderer/core/inspector/thread_debugger.h"
 #include "third_party/blink/renderer/core/messaging/blink_transferable_message_struct_traits.h"
@@ -43,7 +42,8 @@
 #include "third_party/blink/renderer/core/workers/worker_global_scope.h"
 #include "third_party/blink/renderer/platform/bindings/exception_state.h"
 #include "third_party/blink/renderer/platform/bindings/script_state.h"
-#include "third_party/blink/renderer/platform/cross_thread_functional.h"
+#include "third_party/blink/renderer/platform/instrumentation/use_counter.h"
+#include "third_party/blink/renderer/platform/wtf/cross_thread_functional.h"
 #include "third_party/blink/renderer/platform/wtf/text/atomic_string.h"
 
 namespace blink {
@@ -54,10 +54,6 @@ constexpr int kMaximumMessagesPerTask = 200;
 // The threshold to stop processing new tasks.
 constexpr base::TimeDelta kYieldThreshold =
     base::TimeDelta::FromMilliseconds(50);
-
-MessagePort* MessagePort::Create(ExecutionContext& execution_context) {
-  return MakeGarbageCollected<MessagePort>(execution_context);
-}
 
 MessagePort::MessagePort(ExecutionContext& execution_context)
     : ContextLifecycleObserver(&execution_context),
@@ -243,12 +239,12 @@ MessagePortArray* MessagePort::EntanglePorts(
 MessagePortArray* MessagePort::EntanglePorts(
     ExecutionContext& context,
     WebVector<MessagePortChannel> channels) {
-  // https://html.spec.whatwg.org/multipage/comms.html#message-ports
+  // https://html.spec.whatwg.org/C/#message-ports
   // |ports| should be an empty array, not null even when there is no ports.
   wtf_size_t count = SafeCast<wtf_size_t>(channels.size());
   MessagePortArray* port_array = MakeGarbageCollected<MessagePortArray>(count);
   for (wtf_size_t i = 0; i < count; ++i) {
-    MessagePort* port = MessagePort::Create(context);
+    auto* port = MakeGarbageCollected<MessagePort>(context);
     port->Entangle(std::move(channels[i]));
     (*port_array)[i] = port;
   }

@@ -78,14 +78,16 @@ Ensure `depot_tools` is in your path as it provides ninja.
 
 ### Building with Visual Studio
 
-Run `scripts/msvs_projects.py` to generate a Visual Studio solution in `out/sln/ANGLE.sln`.
-This script runs GN and consolidates all the targets in `out` into a single meta-solution.
+To generate the Visual Studio solution in `out/Debug/angle-debug.sln`:
+```
+gn gen out/Debug --sln=angle-debug --ide=vs<2017/2019>
+```
 
 In Visual Studio:
- 1. Open the ANGLE solution file `out/sln/ANGLE.sln`.
- 2. The configurations found in your `out` directory will be mapped to configurations in the configuration manager.  For compatibility reasons all configurations are listed as 64-bits.
- 3. Right click the "all" solution and select build.  "Build Solution" is not functional with GN; instead build one target at a time."
-Once the build completes the output directory for your selected configuration (e.g. `out/Release_x64`) will contain the required libraries and dlls to build and run an OpenGL ES 2.0 application.  ANGLE executables (tests and samples) are under out/sln.
+ 1. Open the ANGLE solution file `out/Debug/angle-debug.sln`.
+ 2. Right click the "all" solution and select build.  "Build Solution" is not functional with GN; instead build one target at a time."
+
+Once the build completes all ANGLE libraries, tests, and samples will be located in out/Debug.
 
 ### Building ANGLE for Android
 Building ANGLE for Android is heavily dependent on the Chromium toolchain. It is not currently possible to build ANGLE for Android without a Chromium checkout. See http://anglebug.com/2344 for more details on why.
@@ -107,25 +109,27 @@ target_cpu = "arm64"          # Nexus 5X is 64 bit, remove this on 32 bit device
 target_os = "android"
 use_goma = true               # Remove this if you don't have goma
 ```
-Additional flags to build the Vulkan backend, enable only if running on Android N or higher:
+Additional flags to build the Vulkan backend, enable only if running on Android O or higher:
 ```
-android32_ndk_api_level = 24
-android64_ndk_api_level = 24
+android32_ndk_api_level = 26
+android64_ndk_api_level = 26
 ```
 
 These ANGLE targets are supported:
-`ninja -C out/Release translator libEGL libGLESv2 angle_unittests angle_end2end_tests angle_white_box_tests angle_deqp_gles2_tests angle_deqp_gles3_tests angle_deqp_egl_tests angle_perftests`
-In order to run ANGLE tests, prepend `bin/run_` to the test name, for example: `./out/Release/bin/run_angle_unittests`.
-Additional details are in [Android Test Instructions](https://chromium.googlesource.com/chromium/src/+/master/docs/android_test_instructions.md).
+`ninja -C out/Release translator libEGL libGLESv2 angle_unittests angle_end2end_tests angle_white_box_tests angle_deqp_gles2_tests angle_deqp_gles3_tests angle_deqp_egl_tests angle_perftests angle_white_box_perftests`
 
-Note: Running the tests not using the test runner is tricky, but is necessary in order to get a complete TestResults.qpa from the dEQP tests (since the runner shards the tests, only the results of the last shard will be available when using the test runner). First, use the runner to install the APK, test data and test expectations on the device. After the tests start running, the test runner can be stopped with Ctrl+C. Then, run
+In order to run ANGLE tests, prepend `bin/run_` to the test name, for example: `./out/Release/bin/run_angle_unittests`.
+Additional details are in [Android Test Instructions](https://chromium.googlesource.com/chromium/src/+/master/docs/testing/android_test_instructions.md).
+
+**dEQP Note**: Running the tests not using the test runner is tricky, but is necessary in order to get a complete TestResults.qpa from the dEQP tests (since the runner shards the tests, only the results of the last shard will be available when using the test runner). First, use the runner to install the APK, test data and test expectations on the device. After the tests start running, the test runner can be stopped with Ctrl+C. Then, run
 ```
 adb shell am start -a android.intent.action.MAIN -n org.chromium.native_test/.NativeUnitTestNativeActivity -e org.chromium.native_test.NativeTest.StdoutFile /sdcard/chromium_tests_root/out.txt
 ```
 After the tests finish, get the results with
 ```
-adb pull /sdcard/chromium_tests_root/third_party/deqp/src/data/TestResults.qpa .
+adb pull /sdcard/chromium_tests_root/third_party/angle/third_party/deqp/src/data/TestResults.qpa .
 ```
+Note: this location might change, one can double-check with `adb logcat -d | grep qpa`.
 
 In order to run GPU telemetry tests, build `chrome_public_apk` target. Then follow [GPU Testing](http://www.chromium.org/developers/testing/gpu-testing#TOC-Running-the-GPU-Tests-Locally) doc, using `--browser=android-chromium` argument. Make sure to set your `CHROMIUM_OUT_DIR` environment variable, so that your browser is found, otherwise the stock one will run.
 

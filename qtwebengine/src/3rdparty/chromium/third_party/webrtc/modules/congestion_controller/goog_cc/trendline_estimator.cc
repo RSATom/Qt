@@ -13,15 +13,43 @@
 #include <math.h>
 
 #include <algorithm>
+#include <string>
 
 #include "absl/types/optional.h"
+#include "modules/remote_bitrate_estimator/include/bwe_defines.h"
 #include "modules/remote_bitrate_estimator/test/bwe_test_logging.h"
 #include "rtc_base/checks.h"
+#include "rtc_base/logging.h"
 #include "rtc_base/numerics/safe_minmax.h"
 
 namespace webrtc {
 
 namespace {
+
+// Parameters for linear least squares fit of regression line to noisy data.
+constexpr size_t kDefaultTrendlineWindowSize = 20;
+constexpr double kDefaultTrendlineSmoothingCoeff = 0.9;
+constexpr double kDefaultTrendlineThresholdGain = 4.0;
+const char kBweWindowSizeInPacketsExperiment[] =
+    "WebRTC-BweWindowSizeInPackets";
+
+size_t ReadTrendlineFilterWindowSize(
+    const WebRtcKeyValueConfig* key_value_config) {
+  std::string experiment_string =
+      key_value_config->Lookup(kBweWindowSizeInPacketsExperiment);
+  size_t window_size;
+  int parsed_values =
+      sscanf(experiment_string.c_str(), "Enabled-%zu", &window_size);
+  if (parsed_values == 1) {
+    if (window_size > 1)
+      return window_size;
+    RTC_LOG(WARNING) << "Window size must be greater than 1.";
+  }
+  RTC_LOG(LS_WARNING) << "Failed to parse parameters for BweWindowSizeInPackets"
+                         " experiment from field trial string. Using default.";
+  return kDefaultTrendlineWindowSize;
+}
+
 absl::optional<double> LinearFitSlope(
     const std::deque<std::pair<double, double>>& points) {
   RTC_DCHECK(points.size() >= 2);
@@ -53,9 +81,23 @@ constexpr int kDeltaCounterMax = 1000;
 
 }  // namespace
 
-TrendlineEstimator::TrendlineEstimator(size_t window_size,
-                                       double smoothing_coef,
-                                       double threshold_gain)
+TrendlineEstimator::TrendlineEstimator(
+    const WebRtcKeyValueConfig* key_value_config,
+    NetworkStatePredictor* network_state_predictor)
+    : TrendlineEstimator(
+          key_value_config->Lookup(kBweWindowSizeInPacketsExperiment)
+                      .find("Enabled") == 0
+              ? ReadTrendlineFilterWindowSize(key_value_config)
+              : kDefaultTrendlineWindowSize,
+          kDefaultTrendlineSmoothingCoeff,
+          kDefaultTrendlineThresholdGain,
+          network_state_predictor) {}
+
+TrendlineEstimator::TrendlineEstimator(
+    size_t window_size,
+    double smoothing_coef,
+    double threshold_gain,
+    NetworkStatePredictor* network_state_predictor)
     : window_size_(window_size),
       smoothing_coef_(smoothing_coef),
       threshold_gain_(threshold_gain),
@@ -73,51 +115,65 @@ TrendlineEstimator::TrendlineEstimator(size_t window_size,
       prev_trend_(0.0),
       time_over_using_(-1),
       overuse_counter_(0),
-      hypothesis_(BandwidthUsage::kBwNormal) {}
+      hypothesis_(BandwidthUsage::kBwNormal),
+      hypothesis_predicted_(BandwidthUsage::kBwNormal),
+      network_state_predictor_(network_state_predictor) {
+  RTC_LOG(LS_INFO)
+      << "Using Trendline filter for delay change estimation with window size "
+      << window_size_;
+}
 
 TrendlineEstimator::~TrendlineEstimator() {}
 
 void TrendlineEstimator::Update(double recv_delta_ms,
                                 double send_delta_ms,
-                                int64_t arrival_time_ms) {
-  const double delta_ms = recv_delta_ms - send_delta_ms;
-  ++num_of_deltas_;
-  num_of_deltas_ = std::min(num_of_deltas_, kDeltaCounterMax);
-  if (first_arrival_time_ms_ == -1)
-    first_arrival_time_ms_ = arrival_time_ms;
+                                int64_t send_time_ms,
+                                int64_t arrival_time_ms,
+                                bool calculated_deltas) {
+  if (calculated_deltas) {
+    const double delta_ms = recv_delta_ms - send_delta_ms;
+    ++num_of_deltas_;
+    num_of_deltas_ = std::min(num_of_deltas_, kDeltaCounterMax);
+    if (first_arrival_time_ms_ == -1)
+      first_arrival_time_ms_ = arrival_time_ms;
 
-  // Exponential backoff filter.
-  accumulated_delay_ += delta_ms;
-  BWE_TEST_LOGGING_PLOT(1, "accumulated_delay_ms", arrival_time_ms,
-                        accumulated_delay_);
-  smoothed_delay_ = smoothing_coef_ * smoothed_delay_ +
-                    (1 - smoothing_coef_) * accumulated_delay_;
-  BWE_TEST_LOGGING_PLOT(1, "smoothed_delay_ms", arrival_time_ms,
-                        smoothed_delay_);
+    // Exponential backoff filter.
+    accumulated_delay_ += delta_ms;
+    BWE_TEST_LOGGING_PLOT(1, "accumulated_delay_ms", arrival_time_ms,
+                          accumulated_delay_);
+    smoothed_delay_ = smoothing_coef_ * smoothed_delay_ +
+                      (1 - smoothing_coef_) * accumulated_delay_;
+    BWE_TEST_LOGGING_PLOT(1, "smoothed_delay_ms", arrival_time_ms,
+                          smoothed_delay_);
 
-  // Simple linear regression.
-  delay_hist_.push_back(std::make_pair(
-      static_cast<double>(arrival_time_ms - first_arrival_time_ms_),
-      smoothed_delay_));
-  if (delay_hist_.size() > window_size_)
-    delay_hist_.pop_front();
-  double trend = prev_trend_;
-  if (delay_hist_.size() == window_size_) {
-    // Update trend_ if it is possible to fit a line to the data. The delay
-    // trend can be seen as an estimate of (send_rate - capacity)/capacity.
-    // 0 < trend < 1   ->  the delay increases, queues are filling up
-    //   trend == 0    ->  the delay does not change
-    //   trend < 0     ->  the delay decreases, queues are being emptied
-    trend = LinearFitSlope(delay_hist_).value_or(trend);
+    // Simple linear regression.
+    delay_hist_.push_back(std::make_pair(
+        static_cast<double>(arrival_time_ms - first_arrival_time_ms_),
+        smoothed_delay_));
+    if (delay_hist_.size() > window_size_)
+      delay_hist_.pop_front();
+    double trend = prev_trend_;
+    if (delay_hist_.size() == window_size_) {
+      // Update trend_ if it is possible to fit a line to the data. The delay
+      // trend can be seen as an estimate of (send_rate - capacity)/capacity.
+      // 0 < trend < 1   ->  the delay increases, queues are filling up
+      //   trend == 0    ->  the delay does not change
+      //   trend < 0     ->  the delay decreases, queues are being emptied
+      trend = LinearFitSlope(delay_hist_).value_or(trend);
+    }
+
+    BWE_TEST_LOGGING_PLOT(1, "trendline_slope", arrival_time_ms, trend);
+
+    Detect(trend, send_delta_ms, arrival_time_ms);
   }
-
-  BWE_TEST_LOGGING_PLOT(1, "trendline_slope", arrival_time_ms, trend);
-
-  Detect(trend, send_delta_ms, arrival_time_ms);
+  if (network_state_predictor_) {
+    hypothesis_predicted_ = network_state_predictor_->Update(
+        send_time_ms, arrival_time_ms, hypothesis_);
+  }
 }
 
 BandwidthUsage TrendlineEstimator::State() const {
-  return hypothesis_;
+  return network_state_predictor_ ? hypothesis_predicted_ : hypothesis_;
 }
 
 void TrendlineEstimator::Detect(double trend, double ts_delta, int64_t now_ms) {

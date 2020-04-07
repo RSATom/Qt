@@ -8,12 +8,12 @@
 #ifndef GrPathRendererChain_DEFINED
 #define GrPathRendererChain_DEFINED
 
-#include "GrPathRenderer.h"
+#include "src/gpu/GrPathRenderer.h"
 
-#include "GrTypesPriv.h"
-#include "SkNoncopyable.h"
-#include "SkTypes.h"
-#include "SkTArray.h"
+#include "include/core/SkTypes.h"
+#include "include/private/GrTypesPriv.h"
+#include "include/private/SkNoncopyable.h"
+#include "include/private/SkTArray.h"
 
 class GrContext;
 class GrCoverageCountingPathRenderer;
@@ -30,7 +30,7 @@ public:
         bool fAllowPathMaskCaching = false;
         GpuPathRenderers fGpuPathRenderers = GpuPathRenderers::kAll;
     };
-    GrPathRendererChain(GrContext* context, const Options&);
+    GrPathRendererChain(GrRecordingContext* context, const Options&);
 
     /** Documents how the caller plans to use a GrPathRenderer to draw a path. It affects the PR
         returned by getPathRenderer */

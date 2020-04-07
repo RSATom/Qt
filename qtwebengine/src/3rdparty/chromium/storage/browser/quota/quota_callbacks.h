@@ -17,7 +17,7 @@
 #include "base/optional.h"
 #include "base/stl_util.h"
 #include "storage/browser/quota/quota_client.h"
-#include "third_party/blink/public/mojom/quota/quota_types.mojom.h"
+#include "third_party/blink/public/mojom/quota/quota_types.mojom-forward.h"
 
 namespace url {
 class Origin;
@@ -90,7 +90,7 @@ class CallbackQueueMap {
   }
 
   bool HasCallbacks(const Key& key) const {
-    return base::ContainsKey(callback_map_, key);
+    return base::Contains(callback_map_, key);
   }
 
   bool HasAnyCallbacks() const { return !callback_map_.empty(); }

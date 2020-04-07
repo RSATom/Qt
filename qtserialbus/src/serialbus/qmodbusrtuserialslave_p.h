@@ -280,8 +280,7 @@ public:
             storeModbusCommEvent(event); // store the final event after processing
         });
 
-        using TypeId = void (QSerialPort::*)(QSerialPort::SerialPortError);
-        QObject::connect(m_serialPort, static_cast<TypeId>(&QSerialPort::error), q,
+        QObject::connect(m_serialPort, &QSerialPort::errorOccurred, q,
                          [this](QSerialPort::SerialPortError error) {
             if (error == QSerialPort::NoError)
                 return;
@@ -354,6 +353,8 @@ public:
 
         m_requestBuffer.clear();
     }
+
+    QIODevice *device() const override { return m_serialPort; }
 
     QByteArray m_requestBuffer;
     bool m_processesBroadcast = false;

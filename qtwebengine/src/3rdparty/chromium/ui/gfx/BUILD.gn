@@ -23,6 +23,22 @@ source_set("gfx_export") {
   ]
 }
 
+# Used for color generation at build time without importing all the gfx.
+jumbo_component("color_utils") {
+  sources = [
+    "color_palette.h",
+    "color_utils.cc",
+    "color_utils.h",
+  ]
+  defines = [ "GFX_IMPLEMENTATION" ]
+  public_deps = [
+    ":gfx_export",
+    "//base",
+    "//skia",
+    "//ui/gfx/geometry",
+  ]
+}
+
 jumbo_component("geometry_skia") {
   sources = [
     "geometry_skia_export.h",
@@ -53,11 +69,8 @@ jumbo_component("gfx") {
     "break_list.h",
     "color_analysis.cc",
     "color_analysis.h",
-    "color_palette.h",
     "color_transform.cc",
     "color_transform.h",
-    "color_utils.cc",
-    "color_utils.h",
     "decorated_text.cc",
     "decorated_text.h",
     "decorated_text_mac.h",
@@ -69,7 +82,6 @@ jumbo_component("gfx") {
     "font.cc",
     "font.h",
     "font_fallback.h",
-    "font_fallback_android.cc",
     "font_fallback_linux.cc",
     "font_fallback_linux.h",
     "font_fallback_mac.mm",
@@ -81,7 +93,6 @@ jumbo_component("gfx") {
     "font_list_impl.h",
     "font_render_params.cc",
     "font_render_params.h",
-    "font_render_params_android.cc",
     "font_render_params_linux.cc",
     "font_render_params_mac.cc",
     "font_render_params_win.cc",
@@ -127,6 +138,8 @@ jumbo_component("gfx") {
     "mac/scoped_cocoa_disable_screen_updates.mm",
     "nine_image_painter.cc",
     "nine_image_painter.h",
+    "overlay_transform_utils.cc",
+    "overlay_transform_utils.h",
     "path_mac.h",
     "path_mac.mm",
     "path_win.cc",
@@ -157,6 +170,8 @@ jumbo_component("gfx") {
     "skbitmap_operations.h",
     "sys_color_change_listener.cc",
     "sys_color_change_listener.h",
+    "system_fonts_win.cc",
+    "system_fonts_win.h",
     "text_constants.h",
     "text_elider.cc",
     "text_elider.h",
@@ -166,8 +181,11 @@ jumbo_component("gfx") {
     "ui_gfx_exports.cc",
     "utf16_indexing.cc",
     "utf16_indexing.h",
+    "video_types.h",
     "vsync_provider.cc",
     "vsync_provider.h",
+    "win/crash_id_helper.cc",
+    "win/crash_id_helper.h",
     "win/direct_write.cc",
     "win/direct_write.h",
     "win/hwnd_util.cc",
@@ -237,6 +255,7 @@ jumbo_component("gfx") {
 
   public_deps = [
     ":color_space",
+    ":color_utils",
     ":geometry_skia",
     ":gfx_switches",
     ":memory_buffer_sources",
@@ -253,6 +272,7 @@ jumbo_component("gfx") {
   ]
   deps += [
     ":gfx_export",
+    ":resize_image_dimensions",
     "//base",
     "//base:base_static",
     "//base:i18n",
@@ -262,7 +282,7 @@ jumbo_component("gfx") {
     "//third_party/zlib",
   ]
 
-  if (is_linux || is_android || is_fuchsia) {
+  if (!is_mac && !is_ios) {
     sources += [
       "platform_font_skia.cc",
       "platform_font_skia.h",
@@ -276,6 +296,7 @@ jumbo_component("gfx") {
     set_sources_assignment_filter([])
     sources += [ "scoped_cg_context_save_gstate_mac.h" ]
     set_sources_assignment_filter(sources_assignment_filter)
+    deps += [ "//third_party/google_toolbox_for_mac" ]
   } else {
     public_deps += [ "//cc/paint" ]
     deps += [ "//third_party:freetype_harfbuzz" ]
@@ -295,8 +316,24 @@ jumbo_component("gfx") {
     ]
   }
 
+  if (is_android || is_fuchsia) {
+    sources += [
+      "font_fallback_skia.cc",
+      "font_render_params_skia.cc",
+    ]
+  }
+
+  if (is_android || is_fuchsia || is_win) {
+    sources += [
+      "font_fallback_skia_impl.cc",
+      "font_fallback_skia_impl.h",
+    ]
+  }
+
   if (!is_ios) {
     sources += [
+      "bidi_line_iterator.cc",
+      "bidi_line_iterator.h",
       "harfbuzz_font_skia.cc",
       "harfbuzz_font_skia.h",
       "paint_vector_icon.cc",
@@ -318,6 +355,7 @@ jumbo_component("gfx") {
       "setupapi.lib",
       "dwrite.lib",
     ]
+    deps += [ "//components/crash/core/common" ]
   } else {
     sources -= [
       "gdi_util.cc",
@@ -357,13 +395,6 @@ jumbo_component("gfx") {
   } else {
     sources -= [ "path_x11.cc" ]
   }
-
-  if (is_fuchsia) {
-    sources += [
-      "font_fallback_fuchsia.cc",
-      "font_render_params_fuchsia.cc",
-    ]
-  }
 }
 
 jumbo_component("color_space") {
@@ -400,6 +431,14 @@ jumbo_component("color_space") {
     configs += [ "//build/config/linux:x11" ]
   }
   defines = [ "COLOR_SPACE_IMPLEMENTATION" ]
+}
+
+# Depend on this to use image/resize_image_dimensions.h without pulling in
+# all of gfx.
+source_set("resize_image_dimensions") {
+  sources = [
+    "image/resize_image_dimensions.h",
+  ]
 }
 
 # Depend on this to use native_widget_types.h without pulling in all of gfx.
@@ -481,6 +520,8 @@ jumbo_source_set("memory_buffer_sources") {
   sources = [
     "buffer_format_util.cc",
     "buffer_format_util.h",
+    "buffer_usage_util.cc",
+    "buffer_usage_util.h",
     "ca_layer_params.cc",
     "ca_layer_params.h",
     "client_native_pixmap.h",
@@ -493,8 +534,6 @@ jumbo_source_set("memory_buffer_sources") {
     "gpu_fence_handle.cc",
     "gpu_fence_handle.h",
     "native_pixmap.h",
-    "native_pixmap_handle.cc",
-    "native_pixmap_handle.h",
     "overlay_transform.h",
   ]
 
@@ -514,6 +553,7 @@ jumbo_source_set("memory_buffer_sources") {
   ]
 
   deps = [
+    ":gfx_switches",
     ":native_widget_types",
     "//base",
     "//ui/gfx/geometry",
@@ -547,6 +587,13 @@ jumbo_source_set("memory_buffer_sources") {
 
   if (is_win) {
     public_deps += [ "//ipc:message_support" ]
+  }
+
+  if ((is_linux || use_ozone) && !is_nacl) {
+    sources += [
+      "native_pixmap_handle.cc",
+      "native_pixmap_handle.h",
+    ]
   }
 }
 
@@ -601,6 +648,13 @@ jumbo_static_library("test_support") {
 
     deps += [ "//third_party:freetype_harfbuzz" ]
   }
+
+  if (is_win) {
+    sources += [
+      "test/font_fallback_test_data.cc",
+      "test/font_fallback_test_data.h",
+    ]
+  }
 }
 
 test("gfx_unittests") {
@@ -621,9 +675,10 @@ test("gfx_unittests") {
     "text_utils_unittest.cc",
   ]
 
+  include_dirs = [ "//third_party/skia/include/private" ]
+
   data = [
     "test/data/",
-    "$root_out_dir/ui_test.pak",
   ]
 
   if (!is_ios) {
@@ -656,6 +711,7 @@ test("gfx_unittests") {
       "geometry/quad_unittest.cc",
       "geometry/quaternion_unittest.cc",
       "geometry/rect_unittest.cc",
+      "geometry/rounded_corners_f_unittest.cc",
       "geometry/safe_integer_conversions_unittest.cc",
       "geometry/scroll_offset_unittest.cc",
       "geometry/size_unittest.cc",
@@ -668,6 +724,8 @@ test("gfx_unittests") {
       "mac/coordinate_conversion_unittest.mm",
       "mojo/struct_traits_unittest.cc",
       "nine_image_painter_unittest.cc",
+      "overlay_transform_utils_unittest.cc",
+      "paint_vector_icon_unittest.cc",
       "path_mac_unittest.mm",
       "platform_font_mac_unittest.mm",
       "range/range_mac_unittest.mm",
@@ -677,19 +735,17 @@ test("gfx_unittests") {
       "sequential_id_generator_unittest.cc",
       "shadow_value_unittest.cc",
       "skbitmap_operations_unittest.cc",
+      "skia_util_unittest.cc",
       "skia_vector_animation_unittest.cc",
       "skrect_conversion_unittest.cc",
       "transform_util_unittest.cc",
       "utf16_indexing_unittest.cc",
     ]
+    data += [ "$root_out_dir/ui_test.pak" ]
   }
 
   if (is_linux || is_android || is_fuchsia) {
     sources += [ "platform_font_skia_unittest.cc" ]
-  }
-
-  if (!is_ios) {
-    sources += [ "paint_vector_icon_unittest.cc" ]
   }
 
   deps = [
@@ -710,13 +766,20 @@ test("gfx_unittests") {
   ]
 
   if (!is_ios) {
-    sources += [ "render_text_unittest.cc" ]
+    sources += [
+      "bidi_line_iterator_unittest.cc",
+      "render_text_unittest.cc",
+    ]
     deps += [ "//third_party:freetype_harfbuzz" ]
   }
 
   data_deps = [
     "//ui/resources:ui_test_pak",
   ]
+
+  if (is_mac || is_ios) {
+    deps += [ "//ui/resources:ui_test_pak_bundle_data" ]
+  }
 
   if (!is_mac && !is_ios) {
     sources += [
@@ -727,6 +790,10 @@ test("gfx_unittests") {
 
   if (is_android) {
     deps += [ "//ui/android:ui_java" ]
+  }
+
+  if (is_android || is_fuchsia) {
+    sources += [ "font_fallback_skia_unittest.cc" ]
   }
 
   if (!use_aura && !is_ios) {
@@ -745,6 +812,9 @@ test("gfx_unittests") {
       "icon_util_unittests_resource.h",
       "path_win_unittest.cc",
       "platform_font_win_unittest.cc",
+      "system_fonts_win_unittest.cc",
+      "win/crash_id_helper_unittest.cc",
+      "win/direct_write_unittest.cc",
       "win/text_analysis_source_unittest.cc",
     ]
 
@@ -777,16 +847,21 @@ test("gfx_unittests") {
 
   if (is_linux) {
     sources += [ "linux/native_pixmap_dmabuf_unittest.cc" ]
+    deps += [ "//third_party/fontconfig" ]
+  }
+
+  if (is_fuchsia) {
+    deps += [ "//skia:test_fonts" ]
   }
 }
 
 if (is_android) {
   generate_jni("gfx_jni_headers") {
     sources = [
+      "../android/java/src/org/chromium/ui/gfx/Animation.java",
       "../android/java/src/org/chromium/ui/gfx/BitmapHelper.java",
       "../android/java/src/org/chromium/ui/gfx/ViewConfigurationHelper.java",
     ]
-    jni_package = "gfx"
   }
 }
 

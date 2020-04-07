@@ -20,8 +20,8 @@
 #include <bitset>
 #include <memory>
 
-#include "perfetto/base/scoped_file.h"
-#include "perfetto/base/weak_ptr.h"
+#include "perfetto/ext/base/scoped_file.h"
+#include "perfetto/ext/base/weak_ptr.h"
 #include "perfetto/tracing/core/data_source_config.h"
 #include "src/traced/probes/probes_data_source.h"
 
@@ -54,10 +54,14 @@ class AndroidPowerDataSource : public ProbesDataSource {
   struct DynamicLibLoader;
 
   void Tick();
+  void WriteBatteryCounters();
+  void WritePowerRailsData();
 
   base::TaskRunner* const task_runner_;
   uint32_t poll_rate_ms_ = 0;
   std::bitset<8> counters_enabled_;
+  bool rails_collection_enabled_;
+  bool rail_descriptors_logged_;
   std::unique_ptr<TraceWriter> writer_;
   std::unique_ptr<DynamicLibLoader> lib_;
   base::WeakPtrFactory<AndroidPowerDataSource> weak_factory_;  // Keep last.

@@ -270,12 +270,11 @@ void QDialogPrivate::deletePlatformHelper()
 
     The most common way to display a modal dialog is to call its
     exec() function. When the user closes the dialog, exec() will
-    provide a useful \l{#return}{return value}. Typically,
-    to get the dialog to close and return the appropriate value, we
-    connect a default button, e.g. \uicontrol OK, to the accept() slot and a
-    \uicontrol Cancel button to the reject() slot.
-    Alternatively you can call the done() slot with \c Accepted or
-    \c Rejected.
+    provide a useful \l{#return}{return value}. To close the dialog
+    and return the appropriate value, you must connect a default button,
+    e.g. an \uicontrol OK button to the accept() slot and a
+    \uicontrol Cancel button to the reject() slot. Alternatively, you
+    can call the done() slot with \c Accepted or \c Rejected.
 
     An alternative is to call setModal(true) or setWindowModality(),
     then show(). Unlike exec(), show() returns control to the caller
@@ -283,7 +282,7 @@ void QDialogPrivate::deletePlatformHelper()
     progress dialogs, where the user must have the ability to interact
     with the dialog, e.g.  to cancel a long running operation. If you
     use show() and setModal(true) together to perform a long operation,
-    you must call QApplication::processEvents() periodically during
+    you must call QCoreApplication::processEvents() periodically during
     processing to enable the user to interact with the dialog. (See
     QProgressDialog.)
 
@@ -692,7 +691,7 @@ void QDialog::contextMenuEvent(QContextMenuEvent *e)
         if (p.data()->exec(e->globalPos()) == wt) {
             QHelpEvent e(QEvent::WhatsThis, w->rect().center(),
                          w->mapToGlobal(w->rect().center()));
-            QApplication::sendEvent(w, &e);
+            QCoreApplication::sendEvent(w, &e);
         }
         delete p.data();
     }
@@ -827,7 +826,7 @@ QT_WARNING_POP
 #endif
         if (fw && !fw->hasFocus()) {
             QFocusEvent e(QEvent::FocusIn, Qt::TabFocusReason);
-            QApplication::sendEvent(fw, &e);
+            QCoreApplication::sendEvent(fw, &e);
         }
 
 #ifndef QT_NO_ACCESSIBILITY

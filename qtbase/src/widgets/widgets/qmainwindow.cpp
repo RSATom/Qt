@@ -1138,6 +1138,7 @@ void QMainWindow::splitDockWidget(QDockWidget *after, QDockWidget *dockwidget,
     d_func()->layout->splitDockWidget(after, dockwidget, orientation);
 }
 
+#if QT_CONFIG(tabbar)
 /*!
     \fn void QMainWindow::tabifyDockWidget(QDockWidget *first, QDockWidget *second)
 
@@ -1164,9 +1165,6 @@ void QMainWindow::tabifyDockWidget(QDockWidget *first, QDockWidget *second)
 QList<QDockWidget*> QMainWindow::tabifiedDockWidgets(QDockWidget *dockwidget) const
 {
     QList<QDockWidget*> ret;
-#if !QT_CONFIG(tabbar)
-    Q_UNUSED(dockwidget);
-#else
     const QDockAreaLayoutInfo *info = d_func()->layout->layoutState.dockAreaLayout.info(dockwidget);
     if (info && info->tabbed && info->tabBar) {
         for(int i = 0; i < info->item_list.count(); ++i) {
@@ -1180,9 +1178,9 @@ QList<QDockWidget*> QMainWindow::tabifiedDockWidgets(QDockWidget *dockwidget) co
             }
         }
     }
-#endif
     return ret;
 }
+#endif // QT_CONFIG(tabbar)
 
 
 /*!
@@ -1366,6 +1364,8 @@ void QMainWindow::setUnifiedTitleAndToolBarOnMac(bool set)
         createWinId();
 
         QPlatformNativeInterface *nativeInterface = QGuiApplication::platformNativeInterface();
+        if (!nativeInterface)
+            return; // Not Cocoa platform plugin.
         QPlatformNativeInterface::NativeResourceForIntegrationFunction function =
             nativeInterface->nativeResourceFunctionForIntegration("setContentBorderEnabled");
         if (!function)

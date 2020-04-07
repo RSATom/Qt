@@ -307,19 +307,19 @@ static QLatin1String modifierToName(Qt::KeyboardModifier modifier)
 {
     switch (modifier) {
     case Qt::NoModifier:
-        return QLatin1Literal("No");
+        return QLatin1String("No");
         break;
     case Qt::ControlModifier:
-        return QLatin1Literal("Ctrl");
+        return QLatin1String("Ctrl");
         break;
     case Qt::ShiftModifier:
-        return QLatin1Literal("Shift");
+        return QLatin1String("Shift");
         break;
     case Qt::AltModifier:
-        return QLatin1Literal("Alt");
+        return QLatin1String("Alt");
         break;
     case Qt::MetaModifier:
-        return QLatin1Literal("Meta");
+        return QLatin1String("Meta");
         break;
     default:
         qFatal("Unexpected keyboard modifier");
@@ -331,25 +331,24 @@ static QLatin1String sectionToName(const QDateTimeEdit::Section section)
 {
     switch (section) {
     case QDateTimeEdit::SecondSection:
-        return QLatin1Literal("Second");
+        return QLatin1String("Second");
     case QDateTimeEdit::MinuteSection:
-        return QLatin1Literal("Minute");
+        return QLatin1String("Minute");
     case QDateTimeEdit::HourSection:
-        return QLatin1Literal("Hours");
+        return QLatin1String("Hours");
     case QDateTimeEdit::DaySection:
-        return QLatin1Literal("Day");
+        return QLatin1String("Day");
     case QDateTimeEdit::MonthSection:
-        return QLatin1Literal("Month");
+        return QLatin1String("Month");
     case QDateTimeEdit::YearSection:
-        return QLatin1Literal("Year");
+        return QLatin1String("Year");
     default:
         qFatal("Unexpected section");
         return QLatin1String();
     }
 }
 
-static QDate stepDate(const QDate& startDate, const QDateTimeEdit::Section section,
-                      const int steps)
+static QDate stepDate(QDate startDate, const QDateTimeEdit::Section section, const int steps)
 {
     switch (section) {
     case QDateTimeEdit::DaySection:
@@ -364,8 +363,7 @@ static QDate stepDate(const QDate& startDate, const QDateTimeEdit::Section secti
     }
 }
 
-static QTime stepTime(const QTime& startTime, const QDateTimeEdit::Section section,
-                      const int steps)
+static QTime stepTime(QTime startTime, const QDateTimeEdit::Section section, const int steps)
 {
     switch (section) {
     case QDateTimeEdit::SecondSection:
@@ -3141,7 +3139,6 @@ void tst_QDateTimeEdit::wheelEvent_data()
 {
 #if QT_CONFIG(wheelevent)
     QTest::addColumn<QPoint>("angleDelta");
-    QTest::addColumn<int>("qt4Delta");
     QTest::addColumn<int>("stepModifier");
     QTest::addColumn<Qt::KeyboardModifiers>("modifiers");
     QTest::addColumn<Qt::MouseEventSource>("source");
@@ -3217,16 +3214,16 @@ void tst_QDateTimeEdit::wheelEvent_data()
                         QLatin1String sourceName;
                         switch (source) {
                         case Qt::MouseEventNotSynthesized:
-                            sourceName = QLatin1Literal("NotSynthesized");
+                            sourceName = QLatin1String("NotSynthesized");
                             break;
                         case Qt::MouseEventSynthesizedBySystem:
-                            sourceName = QLatin1Literal("SynthesizedBySystem");
+                            sourceName = QLatin1String("SynthesizedBySystem");
                             break;
                         case Qt::MouseEventSynthesizedByQt:
-                            sourceName = QLatin1Literal("SynthesizedByQt");
+                            sourceName = QLatin1String("SynthesizedByQt");
                             break;
                         case Qt::MouseEventSynthesizedByApplication:
-                            sourceName = QLatin1Literal("SynthesizedByApplication");
+                            sourceName = QLatin1String("SynthesizedByApplication");
                             break;
                         default:
                             qFatal("Unexpected wheel event source");
@@ -3255,7 +3252,6 @@ void tst_QDateTimeEdit::wheelEvent_data()
                                           modifierName.latin1(),
                                           sourceName.latin1())
                                     << angleDelta
-                                    << units
                                     << static_cast<int>(stepModifier)
                                     << modifiers
                                     << source
@@ -3277,7 +3273,6 @@ void tst_QDateTimeEdit::wheelEvent()
 {
 #if QT_CONFIG(wheelevent)
     QFETCH(QPoint, angleDelta);
-    QFETCH(int, qt4Delta);
     QFETCH(int, stepModifier);
     QFETCH(Qt::KeyboardModifiers, modifiers);
     QFETCH(Qt::MouseEventSource, source);
@@ -3294,9 +3289,8 @@ void tst_QDateTimeEdit::wheelEvent()
     style->stepModifier = static_cast<Qt::KeyboardModifier>(stepModifier);
     edit.setStyle(style.data());
 
-    QWheelEvent event(QPointF(), QPointF(), QPoint(), angleDelta, qt4Delta,
-                      Qt::Vertical, Qt::NoButton, modifiers, Qt::NoScrollPhase,
-                      source);
+    QWheelEvent event(QPointF(), QPointF(), QPoint(), angleDelta,
+                      Qt::NoButton, modifiers, Qt::NoScrollPhase, false, source);
 
     QCOMPARE(edit.date(), startDate);
     for (QDate expected : expectedDates) {
@@ -3454,7 +3448,7 @@ void tst_QDateTimeEdit::timeSpec()
         }
         QVERIFY(edit.minimumTime() != min.time());
         QVERIFY(edit.minimumDateTime().timeSpec() != min.timeSpec());
-        QCOMPARE(edit.minimumDateTime().toTime_t(), min.toTime_t());
+        QCOMPARE(edit.minimumDateTime().toSecsSinceEpoch(), min.toSecsSinceEpoch());
     } else {
         QSKIP("Not tested in the GMT timezone");
     }

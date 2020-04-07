@@ -11,7 +11,9 @@ namespace blink {
 
 class ServiceWorkerGlobalScopePush {
  public:
-  DEFINE_STATIC_ATTRIBUTE_EVENT_LISTENER(push, kPush);
+  DEFINE_STATIC_ATTRIBUTE_EVENT_LISTENER(push, kPush)
+  DEFINE_STATIC_ATTRIBUTE_EVENT_LISTENER(pushsubscriptionchange,
+                                         kPushsubscriptionchange)
 };
 
 }  // namespace blink

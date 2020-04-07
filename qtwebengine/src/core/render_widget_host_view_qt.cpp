@@ -48,14 +48,19 @@
 #include "touch_selection_controller_client_qt.h"
 #include "touch_selection_menu_controller.h"
 #include "type_conversion.h"
+#include "web_contents_adapter.h"
 #include "web_contents_adapter_client.h"
 #include "web_event_factory.h"
 
+#include "base/threading/thread_task_runner_handle.h"
+#include "components/viz/common/features.h"
+#include "components/viz/common/frame_sinks/begin_frame_source.h"
 #include "components/viz/common/surfaces/frame_sink_id_allocator.h"
 #include "components/viz/host/host_frame_sink_manager.h"
 #include "content/browser/compositor/surface_utils.h"
 #include "content/browser/frame_host/frame_tree.h"
 #include "content/browser/frame_host/render_frame_host_impl.h"
+#include "content/browser/renderer_host/input/synthetic_gesture_target.h"
 #include "content/browser/renderer_host/render_view_host_delegate.h"
 #include "content/browser/renderer_host/render_view_host_impl.h"
 #include "content/common/content_switches_internal.h"
@@ -116,8 +121,7 @@ static inline ui::LatencyInfo CreateLatencyInfo(const blink::WebInputEvent& even
   if (!event.TimeStamp().is_null()) {
     latency_info.AddLatencyNumberWithTimestamp(
         ui::INPUT_EVENT_LATENCY_ORIGINAL_COMPONENT,
-        event.TimeStamp(),
-        1);
+        event.TimeStamp());
   }
   return latency_info;
 }
@@ -270,10 +274,13 @@ static content::ScreenInfo screenInfoFromQScreen(QScreen *screen)
 
 RenderWidgetHostViewQt::RenderWidgetHostViewQt(content::RenderWidgetHost *widget)
     : content::RenderWidgetHostViewBase::RenderWidgetHostViewBase(widget)
+    , m_taskRunner(base::ThreadTaskRunnerHandle::Get())
     , m_gestureProvider(QtGestureProviderConfig(), this)
     , m_sendMotionActionDown(false)
     , m_touchMotionStarted(false)
-    , m_compositor(new Compositor(widget))
+    , m_enableViz(features::IsVizDisplayCompositorEnabled())
+    , m_visible(false)
+    , m_needsBeginFrames(false)
     , m_loadVisuallyCommittedState(NotCommitted)
     , m_adapterClient(0)
     , m_imeInProgress(false)
@@ -287,13 +294,38 @@ RenderWidgetHostViewQt::RenderWidgetHostViewQt(content::RenderWidgetHost *widget
     , m_mouseWheelPhaseHandler(this)
     , m_frameSinkId(host()->GetFrameSinkId())
 {
-    host()->SetView(this);
-
     if (GetTextInputManager())
         GetTextInputManager()->AddObserver(this);
 
     const QPlatformInputContext *context = QGuiApplicationPrivate::platformIntegration()->inputContext();
     m_imeHasHiddenTextCapability = context && context->hasCapability(QPlatformInputContext::HiddenTextCapability);
+
+    if (m_enableViz) {
+        m_rootLayer.reset(new ui::Layer(ui::LAYER_SOLID_COLOR));
+        m_rootLayer->SetColor(SK_ColorTRANSPARENT);
+
+        m_delegatedFrameHost.reset(new content::DelegatedFrameHost(
+                                           host()->GetFrameSinkId(),
+                                           &m_delegatedFrameHostClient,
+                                           true /* should_register_frame_sink_id */));
+
+        content::ImageTransportFactory *imageTransportFactory = content::ImageTransportFactory::GetInstance();
+        ui::ContextFactory *contextFactory = imageTransportFactory->GetContextFactory();
+        ui::ContextFactoryPrivate *contextFactoryPrivate = imageTransportFactory->GetContextFactoryPrivate();
+        m_uiCompositor.reset(new ui::Compositor(
+                                     contextFactoryPrivate->AllocateFrameSinkId(),
+                                     contextFactory,
+                                     contextFactoryPrivate,
+                                     m_taskRunner,
+                                     false /* enable_pixel_canvas */));
+        m_uiCompositor->SetAcceleratedWidget(gfx::kNullAcceleratedWidget); // null means offscreen
+        m_uiCompositor->SetRootLayer(m_rootLayer.get());
+
+        m_displayFrameSink = DisplayFrameSink::findOrCreate(m_uiCompositor->frame_sink_id());
+        m_displayFrameSink->connect(this);
+    } else {
+        m_compositor.reset(new Compositor(widget));
+    }
 
     if (host()->delegate() && host()->delegate()->GetInputEventRouter())
         host()->delegate()->GetInputEventRouter()->AddFrameSinkIdOwner(GetFrameSinkId(), this);
@@ -304,11 +336,21 @@ RenderWidgetHostViewQt::RenderWidgetHostViewQt(content::RenderWidgetHost *widget
     config.tap_slop = ui::GestureConfiguration::GetInstance()->max_touch_move_in_pixels_for_click();
     config.enable_longpress_drag_selection = false;
     m_touchSelectionController.reset(new ui::TouchSelectionController(m_touchSelectionControllerClient.get(), config));
+
+    host()->render_frame_metadata_provider()->ReportAllFrameSubmissionsForTesting(true);
+
+    // May call SetNeedsBeginFrames
+    host()->SetView(this);
 }
 
 RenderWidgetHostViewQt::~RenderWidgetHostViewQt()
 {
+    m_delegate.reset();
+
     QObject::disconnect(m_adapterClientDestroyedConnection);
+
+    if (m_enableViz)
+        m_displayFrameSink->disconnect(this);
 
     if (text_input_manager_)
         text_input_manager_->RemoveObserver(this);
@@ -359,7 +401,7 @@ void RenderWidgetHostViewQt::SetBounds(const gfx::Rect &windowRectInDips)
     m_delegate->resize(windowRectInDips.width(), windowRectInDips.height());
 }
 
-gfx::NativeView RenderWidgetHostViewQt::GetNativeView() const
+gfx::NativeView RenderWidgetHostViewQt::GetNativeView()
 {
     // gfx::NativeView is a typedef to a platform specific view
     // pointer (HWND, NSView*, GtkWidget*) and other ports use
@@ -396,13 +438,15 @@ void RenderWidgetHostViewQt::Focus()
     host()->Focus();
 }
 
-bool RenderWidgetHostViewQt::HasFocus() const
+bool RenderWidgetHostViewQt::HasFocus()
 {
     return m_delegate->hasKeyboardFocus();
 }
 
-bool RenderWidgetHostViewQt::IsSurfaceAvailableForCopy() const
+bool RenderWidgetHostViewQt::IsSurfaceAvailableForCopy()
 {
+    if (m_enableViz)
+        return m_delegatedFrameHost->CanCopyFromCompositingSurface();
     return true;
 }
 
@@ -410,6 +454,11 @@ void RenderWidgetHostViewQt::CopyFromSurface(const gfx::Rect &src_rect,
                                              const gfx::Size &output_size,
                                              base::OnceCallback<void(const SkBitmap &)> callback)
 {
+    if (m_enableViz) {
+        m_delegatedFrameHost->CopyFromCompositingSurface(src_rect, output_size, std::move(callback));
+        return;
+    }
+
     QImage image;
     if (m_delegate->copySurface(toQt(src_rect), toQt(output_size), image))
         std::move(callback).Run(toSkBitmap(image));
@@ -433,18 +482,27 @@ bool RenderWidgetHostViewQt::IsShowing()
 }
 
 // Retrieve the bounds of the View, in screen coordinates.
-gfx::Rect RenderWidgetHostViewQt::GetViewBounds() const
+gfx::Rect RenderWidgetHostViewQt::GetViewBounds()
 {
     return m_viewRectInDips;
 }
 
 void RenderWidgetHostViewQt::UpdateBackgroundColor()
 {
-    auto color = GetBackgroundColor();
-    if (color) {
-        m_delegate->setClearColor(toQt(*color));
-        host()->Send(new RenderViewObserverQt_SetBackgroundColor(host()->GetRoutingID(), *color));
+    DCHECK(GetBackgroundColor());
+    SkColor color = *GetBackgroundColor();
+
+    m_delegate->setClearColor(toQt(color));
+
+    if (m_enableViz) {
+        bool opaque = SkColorGetA(color) == SK_AlphaOPAQUE;
+        m_rootLayer->SetFillsBoundsOpaquely(opaque);
+        m_rootLayer->SetColor(color);
+        m_uiCompositor->SetBackgroundColor(color);
     }
+
+    content::RenderViewHost *rvh = content::RenderViewHost::From(host());
+    host()->Send(new RenderViewObserverQt_SetBackgroundColor(rvh->GetRoutingID(), color));
 }
 
 // Return value indicates whether the mouse is locked successfully or not.
@@ -470,117 +528,125 @@ void RenderWidgetHostViewQt::UpdateCursor(const content::WebCursor &webCursor)
 
 void RenderWidgetHostViewQt::DisplayCursor(const content::WebCursor &webCursor)
 {
-    content::CursorInfo cursorInfo;
-    webCursor.GetCursorInfo(&cursorInfo);
+    const content::CursorInfo &cursorInfo = webCursor.info();
     Qt::CursorShape shape = Qt::ArrowCursor;
 #if defined(USE_AURA)
     ui::CursorType auraType = ui::CursorType::kNull;
 #endif
     switch (cursorInfo.type) {
-    case blink::WebCursorInfo::kTypePointer:
+    case ui::CursorType::kNull:
+    case ui::CursorType::kPointer:
         shape = Qt::ArrowCursor;
         break;
-    case blink::WebCursorInfo::kTypeCross:
+    case ui::CursorType::kCross:
         shape = Qt::CrossCursor;
         break;
-    case blink::WebCursorInfo::kTypeHand:
+    case ui::CursorType::kHand:
         shape = Qt::PointingHandCursor;
         break;
-    case blink::WebCursorInfo::kTypeIBeam:
+    case ui::CursorType::kIBeam:
         shape = Qt::IBeamCursor;
         break;
-    case blink::WebCursorInfo::kTypeWait:
+    case ui::CursorType::kWait:
         shape = Qt::WaitCursor;
         break;
-    case blink::WebCursorInfo::kTypeHelp:
+    case ui::CursorType::kHelp:
         shape = Qt::WhatsThisCursor;
         break;
-    case blink::WebCursorInfo::kTypeEastResize:
-    case blink::WebCursorInfo::kTypeWestResize:
-    case blink::WebCursorInfo::kTypeEastWestResize:
-    case blink::WebCursorInfo::kTypeEastPanning:
-    case blink::WebCursorInfo::kTypeWestPanning:
+    case ui::CursorType::kEastResize:
+    case ui::CursorType::kWestResize:
+    case ui::CursorType::kEastWestResize:
+    case ui::CursorType::kEastPanning:
+    case ui::CursorType::kWestPanning:
+    case ui::CursorType::kMiddlePanningHorizontal:
         shape = Qt::SizeHorCursor;
         break;
-    case blink::WebCursorInfo::kTypeNorthResize:
-    case blink::WebCursorInfo::kTypeSouthResize:
-    case blink::WebCursorInfo::kTypeNorthSouthResize:
-    case blink::WebCursorInfo::kTypeNorthPanning:
-    case blink::WebCursorInfo::kTypeSouthPanning:
+    case ui::CursorType::kNorthResize:
+    case ui::CursorType::kSouthResize:
+    case ui::CursorType::kNorthSouthResize:
+    case ui::CursorType::kNorthPanning:
+    case ui::CursorType::kSouthPanning:
+    case ui::CursorType::kMiddlePanningVertical:
         shape = Qt::SizeVerCursor;
         break;
-    case blink::WebCursorInfo::kTypeNorthEastResize:
-    case blink::WebCursorInfo::kTypeSouthWestResize:
-    case blink::WebCursorInfo::kTypeNorthEastSouthWestResize:
-    case blink::WebCursorInfo::kTypeNorthEastPanning:
-    case blink::WebCursorInfo::kTypeSouthWestPanning:
+    case ui::CursorType::kNorthEastResize:
+    case ui::CursorType::kSouthWestResize:
+    case ui::CursorType::kNorthEastSouthWestResize:
+    case ui::CursorType::kNorthEastPanning:
+    case ui::CursorType::kSouthWestPanning:
         shape = Qt::SizeBDiagCursor;
         break;
-    case blink::WebCursorInfo::kTypeNorthWestResize:
-    case blink::WebCursorInfo::kTypeSouthEastResize:
-    case blink::WebCursorInfo::kTypeNorthWestSouthEastResize:
-    case blink::WebCursorInfo::kTypeNorthWestPanning:
-    case blink::WebCursorInfo::kTypeSouthEastPanning:
+    case ui::CursorType::kNorthWestResize:
+    case ui::CursorType::kSouthEastResize:
+    case ui::CursorType::kNorthWestSouthEastResize:
+    case ui::CursorType::kNorthWestPanning:
+    case ui::CursorType::kSouthEastPanning:
         shape = Qt::SizeFDiagCursor;
         break;
-    case blink::WebCursorInfo::kTypeColumnResize:
+    case ui::CursorType::kColumnResize:
         shape = Qt::SplitHCursor;
         break;
-    case blink::WebCursorInfo::kTypeRowResize:
+    case ui::CursorType::kRowResize:
         shape = Qt::SplitVCursor;
         break;
-    case blink::WebCursorInfo::kTypeMiddlePanning:
-    case blink::WebCursorInfo::kTypeMove:
+    case ui::CursorType::kMiddlePanning:
+    case ui::CursorType::kMove:
         shape = Qt::SizeAllCursor;
         break;
-    case blink::WebCursorInfo::kTypeProgress:
+    case ui::CursorType::kProgress:
         shape = Qt::BusyCursor;
         break;
-    case blink::WebCursorInfo::kTypeCopy:
+    case ui::CursorType::kDndNone:
+    case ui::CursorType::kDndMove:
+        shape = Qt::DragMoveCursor;
+        break;
+    case ui::CursorType::kDndCopy:
+    case ui::CursorType::kCopy:
         shape = Qt::DragCopyCursor;
         break;
-    case blink::WebCursorInfo::kTypeAlias:
+    case ui::CursorType::kDndLink:
+    case ui::CursorType::kAlias:
         shape = Qt::DragLinkCursor;
         break;
 #if defined(USE_AURA)
-    case blink::WebCursorInfo::kTypeVerticalText:
+    case ui::CursorType::kVerticalText:
         auraType = ui::CursorType::kVerticalText;
         break;
-    case blink::WebCursorInfo::kTypeCell:
+    case ui::CursorType::kCell:
         auraType = ui::CursorType::kCell;
         break;
-    case blink::WebCursorInfo::kTypeContextMenu:
+    case ui::CursorType::kContextMenu:
         auraType = ui::CursorType::kContextMenu;
         break;
-    case blink::WebCursorInfo::kTypeZoomIn:
+    case ui::CursorType::kZoomIn:
         auraType = ui::CursorType::kZoomIn;
         break;
-    case blink::WebCursorInfo::kTypeZoomOut:
+    case ui::CursorType::kZoomOut:
         auraType = ui::CursorType::kZoomOut;
         break;
 #else
-    case blink::WebCursorInfo::kTypeVerticalText:
-    case blink::WebCursorInfo::kTypeCell:
-    case blink::WebCursorInfo::kTypeContextMenu:
-    case blink::WebCursorInfo::kTypeZoomIn:
-    case blink::WebCursorInfo::kTypeZoomOut:
+    case ui::CursorType::kVerticalText:
+    case ui::CursorType::kCell:
+    case ui::CursorType::kContextMenu:
+    case ui::CursorType::kZoomIn:
+    case ui::CursorType::kZoomOut:
         // FIXME: Support on OS X
         break;
 #endif
-    case blink::WebCursorInfo::kTypeNoDrop:
-    case blink::WebCursorInfo::kTypeNotAllowed:
+    case ui::CursorType::kNoDrop:
+    case ui::CursorType::kNotAllowed:
         shape = Qt::ForbiddenCursor;
         break;
-    case blink::WebCursorInfo::kTypeNone:
+    case ui::CursorType::kNone:
         shape = Qt::BlankCursor;
         break;
-    case blink::WebCursorInfo::kTypeGrab:
+    case ui::CursorType::kGrab:
         shape = Qt::OpenHandCursor;
         break;
-    case blink::WebCursorInfo::kTypeGrabbing:
+    case ui::CursorType::kGrabbing:
         shape = Qt::ClosedHandCursor;
         break;
-    case blink::WebCursorInfo::kTypeCustom:
+    case ui::CursorType::kCustom:
         if (cursorInfo.custom_image.colorType() == SkColorType::kN32_SkColorType) {
             QImage cursor = toQImage(cursorInfo.custom_image, QImage::Format_ARGB32);
             m_delegate->updateCursor(QCursor(QPixmap::fromImage(cursor), cursorInfo.hotspot.x(), cursorInfo.hotspot.y()));
@@ -634,14 +700,8 @@ void RenderWidgetHostViewQt::ImeCompositionRangeChanged(const gfx::Range&, const
     QT_NOT_YET_IMPLEMENTED
 }
 
-void RenderWidgetHostViewQt::RenderProcessGone(base::TerminationStatus terminationStatus,
-                                               int exitCode)
+void RenderWidgetHostViewQt::RenderProcessGone()
 {
-    if (m_adapterClient) {
-        m_adapterClient->renderProcessTerminated(
-                    m_adapterClient->renderProcessExitStatus(terminationStatus),
-                    exitCode);
-    }
     Destroy();
 }
 
@@ -661,17 +721,15 @@ void RenderWidgetHostViewQt::DisplayTooltipText(const base::string16 &tooltip_te
         m_adapterClient->setToolTip(toQt(tooltip_text));
 }
 
-void RenderWidgetHostViewQt::DidCreateNewRendererCompositorFrameSink(viz::mojom::CompositorFrameSinkClient *frameSink)
+void RenderWidgetHostViewQt::DidCreateNewRendererCompositorFrameSink(viz::mojom::CompositorFrameSinkClient *frameSinkClient)
 {
-    m_compositor->setFrameSinkClient(frameSink);
+    DCHECK(!m_enableViz);
+    m_compositor->setFrameSinkClient(frameSinkClient);
 }
 
-void RenderWidgetHostViewQt::SubmitCompositorFrame(const viz::LocalSurfaceId &local_surface_id, viz::CompositorFrame frame, base::Optional<viz::HitTestRegionList>)
+void RenderWidgetHostViewQt::SubmitCompositorFrame(const viz::LocalSurfaceId &local_surface_id, viz::CompositorFrame frame, base::Optional<viz::HitTestRegionList> hit_test_region_list)
 {
-    bool scrollOffsetChanged = (m_lastScrollOffset != frame.metadata.root_scroll_offset);
-    bool contentsSizeChanged = (m_lastContentsSize != frame.metadata.root_layer_size);
-    m_lastScrollOffset = frame.metadata.root_scroll_offset;
-    m_lastContentsSize = frame.metadata.root_layer_size;
+    DCHECK(!m_enableViz);
 
     // Force to process swap messages
     uint32_t frame_token = frame.metadata.frame_token;
@@ -680,22 +738,10 @@ void RenderWidgetHostViewQt::SubmitCompositorFrame(const viz::LocalSurfaceId &lo
 
     m_compositor->submitFrame(
         std::move(frame),
-        base::BindOnce(&RenderWidgetHostViewQtDelegate::update, base::Unretained(m_delegate.get())));
-
-    if (m_loadVisuallyCommittedState == NotCommitted) {
-        m_loadVisuallyCommittedState = DidFirstCompositorFrameSwap;
-    } else if (m_loadVisuallyCommittedState == DidFirstVisuallyNonEmptyPaint) {
-        m_adapterClient->loadVisuallyCommitted();
-        m_loadVisuallyCommittedState = NotCommitted;
-    }
-
-    if (scrollOffsetChanged)
-        m_adapterClient->updateScrollPosition(toQt(m_lastScrollOffset));
-    if (contentsSizeChanged)
-        m_adapterClient->updateContentsSize(toQt(m_lastContentsSize));
+        base::BindOnce(&RenderWidgetHostViewQt::callUpdate, base::Unretained(this)));
 }
 
-void RenderWidgetHostViewQt::GetScreenInfo(content::ScreenInfo *results) const
+void RenderWidgetHostViewQt::GetScreenInfo(content::ScreenInfo *results)
 {
     *results = m_screenInfo;
 }
@@ -781,7 +827,7 @@ void RenderWidgetHostViewQt::OnTextSelectionChanged(content::TextInputManager *t
 #if defined(USE_OZONE)
     if (!selection->selected_text().empty() && selection->user_initiated()) {
         // Set the CLIPBOARD_TYPE_SELECTION to the ui::Clipboard.
-        ui::ScopedClipboardWriter clipboard_writer(ui::CLIPBOARD_TYPE_SELECTION);
+        ui::ScopedClipboardWriter clipboard_writer(ui::ClipboardType::kSelection);
         clipboard_writer.WriteText(selection->selected_text());
     }
 #endif // defined(USE_OZONE)
@@ -908,7 +954,7 @@ viz::ScopedSurfaceIdAllocator RenderWidgetHostViewQt::DidUpdateVisualProperties(
     base::OnceCallback<void()> allocation_task =
         base::BindOnce(&RenderWidgetHostViewQt::OnDidUpdateVisualPropertiesComplete,
                        base::Unretained(this), metadata);
-    return viz::ScopedSurfaceIdAllocator(std::move(allocation_task));
+    return viz::ScopedSurfaceIdAllocator(&m_dfhLocalSurfaceIdAllocator, std::move(allocation_task));
 }
 
 void RenderWidgetHostViewQt::OnDidUpdateVisualPropertiesComplete(const cc::RenderFrameMetadata &metadata)
@@ -916,19 +962,76 @@ void RenderWidgetHostViewQt::OnDidUpdateVisualPropertiesComplete(const cc::Rende
     synchronizeVisualProperties(metadata.local_surface_id_allocation);
 }
 
+void RenderWidgetHostViewQt::OnDidFirstVisuallyNonEmptyPaint()
+{
+    if (m_loadVisuallyCommittedState == NotCommitted) {
+        m_loadVisuallyCommittedState = DidFirstVisuallyNonEmptyPaint;
+    } else if (m_loadVisuallyCommittedState == DidFirstCompositorFrameSwap) {
+        m_adapterClient->loadVisuallyCommitted();
+        m_loadVisuallyCommittedState = NotCommitted;
+    }
+}
+
+void RenderWidgetHostViewQt::scheduleUpdate()
+{
+    DCHECK(m_enableViz);
+    m_taskRunner->PostTask(
+            FROM_HERE,
+            base::BindOnce(&RenderWidgetHostViewQt::callUpdate, m_weakPtrFactory.GetWeakPtr()));
+}
+
+void RenderWidgetHostViewQt::callUpdate()
+{
+    m_delegate->update();
+
+    if (m_loadVisuallyCommittedState == NotCommitted) {
+        m_loadVisuallyCommittedState = DidFirstCompositorFrameSwap;
+    } else if (m_loadVisuallyCommittedState == DidFirstVisuallyNonEmptyPaint) {
+        m_adapterClient->loadVisuallyCommitted();
+        m_loadVisuallyCommittedState = NotCommitted;
+    }
+}
+
 QSGNode *RenderWidgetHostViewQt::updatePaintNode(QSGNode *oldNode)
 {
+    if (m_enableViz)
+        return m_displayFrameSink->updatePaintNode(oldNode, m_delegate.get());
     return m_compositor->updatePaintNode(oldNode, m_delegate.get());
 }
 
 void RenderWidgetHostViewQt::notifyShown()
 {
-    host()->WasShown(false);
+    if (m_enableViz) {
+        // Handle possible frame eviction:
+        if (!m_dfhLocalSurfaceIdAllocator.HasValidLocalSurfaceIdAllocation())
+            m_dfhLocalSurfaceIdAllocator.GenerateId();
+        if (m_visible)
+            return;
+        m_visible = true;
+    }
+
+    host()->WasShown(base::nullopt);
+
+    if (m_enableViz) {
+        m_delegatedFrameHost->AttachToCompositor(m_uiCompositor.get());
+        m_delegatedFrameHost->WasShown(GetLocalSurfaceIdAllocation().local_surface_id(),
+                                       m_viewRectInDips.size(),
+                                       base::nullopt);
+    }
 }
 
 void RenderWidgetHostViewQt::notifyHidden()
 {
-    host()->WasHidden();
+    if (m_enableViz) {
+        if (!m_visible)
+            return;
+        m_visible = false;
+        host()->WasHidden();
+        m_delegatedFrameHost->WasHidden(content::DelegatedFrameHost::HiddenCause::kOther);
+        m_delegatedFrameHost->DetachFromCompositor();
+    } else {
+        host()->WasHidden();
+    }
 }
 
 void RenderWidgetHostViewQt::visualPropertiesChanged()
@@ -984,7 +1087,7 @@ bool RenderWidgetHostViewQt::forwardEvent(QEvent *event)
 #endif
         };
 
-        if (!inputMethodQuery(Qt::ImEnabled).toBool() && !acceptKeyOutOfInputField(keyEvent))
+        if (!inputMethodQuery(Qt::ImEnabled).toBool() && !(inputMethodQuery(Qt::ImHints).toInt() & Qt::ImhHiddenText) && !acceptKeyOutOfInputField(keyEvent))
             return false;
 
         Q_ASSERT(m_editCommand.empty());
@@ -1200,6 +1303,14 @@ void RenderWidgetHostViewQt::handleKeyEvent(QKeyEvent *ev)
             return;
         }
     }
+
+    // Ignore autorepeating KeyRelease events so that the generated web events
+    // conform to the spec, which requires autorepeat to result in a sequence of
+    // keypress events and only one final keyup event:
+    // https://developer.mozilla.org/en-US/docs/Web/API/KeyboardEvent#Auto-repeat_handling
+    // https://w3c.github.io/uievents/#dom-keyboardevent-repeat
+    if (ev->type() == QEvent::KeyRelease && ev->isAutoRepeat())
+        return;
 
     content::NativeWebKeyboardEvent webEvent = WebEventFactory::toWebKeyboardEvent(ev);
     if (webEvent.GetType() == blink::WebInputEvent::kRawKeyDown && !m_editCommand.empty()) {
@@ -1462,7 +1573,12 @@ void RenderWidgetHostViewQt::handleTouchEvent(QTouchEvent *ev)
     eventTimestamp += m_eventsToNowDelta;
 
     QList<QTouchEvent::TouchPoint> touchPoints = mapTouchPointIds(ev->touchPoints());
-    {
+    // Make sure that ACTION_POINTER_DOWN is delivered before ACTION_MOVE,
+    // and ACTION_MOVE before ACTION_POINTER_UP.
+    std::sort(touchPoints.begin(), touchPoints.end(), compareTouchPoints);
+
+    // Check first if the touch event should be routed to the selectionController
+    if (!touchPoints.isEmpty()) {
         ui::MotionEvent::Action action;
         switch (touchPoints[0].state()) {
         case Qt::TouchPointPressed:
@@ -1481,6 +1597,23 @@ void RenderWidgetHostViewQt::handleTouchEvent(QTouchEvent *ev)
 
         MotionEventQt motionEvent(touchPoints, eventTimestamp, action, ev->modifiers(), 0);
         if (m_touchSelectionController->WillHandleTouchEvent(motionEvent)) {
+            m_previousTouchPoints = touchPoints;
+            ev->accept();
+            return;
+        }
+    } else {
+        // An empty touchPoints always corresponds to a TouchCancel event.
+        // We can't forward touch cancellations without a previously processed touch event,
+        // as Chromium expects the previous touchPoints for Action::CANCEL.
+        // If both are empty that means the TouchCancel was sent without an ongoing touch,
+        // so there's nothing to cancel anyway.
+        touchPoints = m_previousTouchPoints;
+        if (touchPoints.isEmpty())
+            return;
+
+        MotionEventQt cancelEvent(touchPoints, eventTimestamp, ui::MotionEvent::Action::CANCEL, ev->modifiers());
+        if (m_touchSelectionController->WillHandleTouchEvent(cancelEvent)) {
+            m_previousTouchPoints.clear();
             ev->accept();
             return;
         }
@@ -1497,21 +1630,13 @@ void RenderWidgetHostViewQt::handleTouchEvent(QTouchEvent *ev)
         break;
     case QEvent::TouchCancel:
     {
-        // Don't process a TouchCancel event if no motion was started beforehand, or if there are
-        // no touch points in the current event or in the previously processed event.
-        if (!m_touchMotionStarted || (touchPoints.isEmpty() && m_previousTouchPoints.isEmpty())) {
-            clearPreviousTouchMotionState();
-            return;
+        // Only process TouchCancel events received following a TouchBegin or TouchUpdate event
+        if (m_touchMotionStarted) {
+            MotionEventQt cancelEvent(touchPoints, eventTimestamp, ui::MotionEvent::Action::CANCEL, ev->modifiers());
+            processMotionEvent(cancelEvent);
         }
 
-        // Use last saved touch points for the cancel event, to get rid of a QList assert,
-        // because Chromium expects a MotionEvent::ACTION_CANCEL instance to contain at least
-        // one touch point, whereas a QTouchCancel may not contain any touch points at all.
-        if (touchPoints.isEmpty())
-            touchPoints = m_previousTouchPoints;
         clearPreviousTouchMotionState();
-        MotionEventQt cancelEvent(touchPoints, eventTimestamp, ui::MotionEvent::Action::CANCEL, ev->modifiers());
-        processMotionEvent(cancelEvent);
         return;
     }
     case QEvent::TouchEnd:
@@ -1535,11 +1660,6 @@ void RenderWidgetHostViewQt::handleTouchEvent(QTouchEvent *ev)
 #endif
     }
 
-    // Make sure that ACTION_POINTER_DOWN is delivered before ACTION_MOVE,
-    // and ACTION_MOVE before ACTION_POINTER_UP.
-    std::sort(touchPoints.begin(), touchPoints.end(), compareTouchPoints);
-
-    m_previousTouchPoints = touchPoints;
     for (int i = 0; i < touchPoints.size(); ++i) {
         ui::MotionEvent::Action action;
         switch (touchPoints[i].state()) {
@@ -1566,6 +1686,8 @@ void RenderWidgetHostViewQt::handleTouchEvent(QTouchEvent *ev)
         MotionEventQt motionEvent(touchPoints, eventTimestamp, action, ev->modifiers(), i);
         processMotionEvent(motionEvent);
     }
+
+    m_previousTouchPoints = touchPoints;
 }
 
 #if QT_CONFIG(tabletevent)
@@ -1650,7 +1772,8 @@ void RenderWidgetHostViewQt::handleFocusEvent(QFocusEvent *ev)
 
 void RenderWidgetHostViewQt::SetNeedsBeginFrames(bool needs_begin_frames)
 {
-    m_compositor->setNeedsBeginFrames(needs_begin_frames);
+    m_needsBeginFrames = needs_begin_frames;
+    UpdateNeedsBeginFramesInternal();
 }
 
 content::RenderFrameHost *RenderWidgetHostViewQt::getFocusedFrameHost()
@@ -1685,30 +1808,41 @@ ui::TextInputType RenderWidgetHostViewQt::getTextInputType() const
 
 void RenderWidgetHostViewQt::SetWantsAnimateOnlyBeginFrames()
 {
+    if (m_enableViz)
+        m_delegatedFrameHost->SetWantsAnimateOnlyBeginFrames();
 }
 
 viz::SurfaceId RenderWidgetHostViewQt::GetCurrentSurfaceId() const
 {
+    if (m_enableViz)
+        return m_delegatedFrameHost->GetCurrentSurfaceId();
     return viz::SurfaceId();
 }
 
 const viz::FrameSinkId &RenderWidgetHostViewQt::GetFrameSinkId() const
 {
+    if (m_enableViz)
+        return m_delegatedFrameHost->frame_sink_id();
     return m_frameSinkId;
 }
 
 const viz::LocalSurfaceIdAllocation &RenderWidgetHostViewQt::GetLocalSurfaceIdAllocation() const
 {
-    return m_localSurfaceIdAllocator.GetCurrentLocalSurfaceIdAllocation();
+    return m_dfhLocalSurfaceIdAllocator.GetCurrentLocalSurfaceIdAllocation();
 }
 
 void RenderWidgetHostViewQt::TakeFallbackContentFrom(content::RenderWidgetHostView *view)
 {
     DCHECK(!static_cast<RenderWidgetHostViewBase*>(view)->IsRenderWidgetHostViewChildFrame());
     DCHECK(!static_cast<RenderWidgetHostViewBase*>(view)->IsRenderWidgetHostViewGuest());
-    base::Optional<SkColor> color = view->GetBackgroundColor();
+    RenderWidgetHostViewQt *viewQt = static_cast<RenderWidgetHostViewQt *>(view);
+    base::Optional<SkColor> color = viewQt->GetBackgroundColor();
     if (color)
         SetBackgroundColor(*color);
+    if (m_enableViz) {
+        m_delegatedFrameHost->TakeFallbackContentFrom(viewQt->m_delegatedFrameHost.get());
+        host()->GetContentRenderingTimeoutFrom(viewQt->host());
+    }
 }
 
 void RenderWidgetHostViewQt::EnsureSurfaceSynchronizedForWebTest()
@@ -1735,16 +1869,58 @@ void RenderWidgetHostViewQt::OnRenderFrameMetadataChangedAfterActivation()
         m_selectionEnd = metadata.selection.end;
         m_touchSelectionControllerClient->UpdateClientSelectionBounds(m_selectionStart, m_selectionEnd);
     }
+
+    gfx::Vector2dF scrollOffset = metadata.root_scroll_offset.value_or(gfx::Vector2dF());
+    gfx::SizeF contentsSize = metadata.root_layer_size;
+    std::swap(m_lastScrollOffset, scrollOffset);
+    std::swap(m_lastContentsSize, contentsSize);
+    if (scrollOffset != m_lastScrollOffset)
+        m_adapterClient->updateScrollPosition(toQt(m_lastScrollOffset));
+    if (contentsSize != m_lastContentsSize)
+        m_adapterClient->updateContentsSize(toQt(m_lastContentsSize));
 }
 
 void RenderWidgetHostViewQt::synchronizeVisualProperties(const base::Optional<viz::LocalSurfaceIdAllocation> &childSurfaceId)
 {
     if (childSurfaceId)
-        m_localSurfaceIdAllocator.UpdateFromChild(*childSurfaceId);
+        m_dfhLocalSurfaceIdAllocator.UpdateFromChild(*childSurfaceId);
     else
-        m_localSurfaceIdAllocator.GenerateId();
+        m_dfhLocalSurfaceIdAllocator.GenerateId();
+
+    if (m_enableViz) {
+        gfx::Size viewSizeInDips = GetRequestedRendererSize();
+        gfx::Size viewSizeInPixels = GetCompositorViewportPixelSize();
+        m_rootLayer->SetBounds(gfx::Rect(gfx::Point(), viewSizeInPixels));
+        m_uiCompositorLocalSurfaceIdAllocator.GenerateId();
+        m_uiCompositor->SetScaleAndSize(
+                m_screenInfo.device_scale_factor,
+                viewSizeInPixels,
+                m_uiCompositorLocalSurfaceIdAllocator.GetCurrentLocalSurfaceIdAllocation());
+        m_delegatedFrameHost->EmbedSurface(
+                m_dfhLocalSurfaceIdAllocator.GetCurrentLocalSurfaceIdAllocation().local_surface_id(),
+                viewSizeInDips,
+                cc::DeadlinePolicy::UseDefaultDeadline());
+    }
 
     host()->SynchronizeVisualProperties();
+}
+
+std::unique_ptr<content::SyntheticGestureTarget> RenderWidgetHostViewQt::CreateSyntheticGestureTarget()
+{
+    return nullptr;
+}
+
+ui::Compositor *RenderWidgetHostViewQt::GetCompositor()
+{
+    return m_uiCompositor.get();
+}
+
+void RenderWidgetHostViewQt::UpdateNeedsBeginFramesInternal()
+{
+    if (m_enableViz)
+        m_delegatedFrameHost->SetNeedsBeginFrames(m_needsBeginFrames);
+    else
+        m_compositor->setNeedsBeginFrames(m_needsBeginFrames);
 }
 
 } // namespace QtWebEngineCore

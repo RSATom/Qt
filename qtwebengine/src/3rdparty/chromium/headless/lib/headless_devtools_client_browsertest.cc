@@ -5,6 +5,7 @@
 #include <memory>
 
 #include "base/base_paths.h"
+#include "base/bind.h"
 #include "base/files/file_util.h"
 #include "base/json/json_reader.h"
 #include "base/json/json_writer.h"
@@ -17,6 +18,7 @@
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/url_constants.h"
 #include "content/public/test/browser_test.h"
+#include "content/public/test/no_renderer_crashes_assertion.h"
 #include "headless/lib/browser/headless_web_contents_impl.h"
 #include "headless/public/devtools/domains/browser.h"
 #include "headless/public/devtools/domains/dom.h"
@@ -178,7 +180,7 @@ class HeadlessDevToolsClientChangeWindowStateTest
  public:
   explicit HeadlessDevToolsClientChangeWindowStateTest(
       browser::WindowState state)
-      : state_(state){};
+      : state_(state) {}
 
   void RunDevTooledTest() override {
     SetWindowState(
@@ -213,7 +215,7 @@ class HeadlessDevToolsClientMinimizeWindowTest
  public:
   HeadlessDevToolsClientMinimizeWindowTest()
       : HeadlessDevToolsClientChangeWindowStateTest(
-            browser::WindowState::MINIMIZED){};
+            browser::WindowState::MINIMIZED) {}
 };
 
 HEADLESS_ASYNC_DEVTOOLED_TEST_F(HeadlessDevToolsClientMinimizeWindowTest);
@@ -223,7 +225,7 @@ class HeadlessDevToolsClientMaximizeWindowTest
  public:
   HeadlessDevToolsClientMaximizeWindowTest()
       : HeadlessDevToolsClientChangeWindowStateTest(
-            browser::WindowState::MAXIMIZED){};
+            browser::WindowState::MAXIMIZED) {}
 };
 
 HEADLESS_ASYNC_DEVTOOLED_TEST_F(HeadlessDevToolsClientMaximizeWindowTest);
@@ -233,7 +235,7 @@ class HeadlessDevToolsClientFullscreenWindowTest
  public:
   HeadlessDevToolsClientFullscreenWindowTest()
       : HeadlessDevToolsClientChangeWindowStateTest(
-            browser::WindowState::FULLSCREEN){};
+            browser::WindowState::FULLSCREEN) {}
 };
 
 HEADLESS_ASYNC_DEVTOOLED_TEST_F(HeadlessDevToolsClientFullscreenWindowTest);
@@ -472,6 +474,9 @@ class HeadlessCrashObserverTest : public HeadlessAsyncDevTooledBrowserTest,
     EXPECT_EQ(base::TERMINATION_STATUS_ABNORMAL_TERMINATION, status);
 #endif
   }
+
+ private:
+  content::ScopedAllowRendererCrashes scoped_allow_renderer_crashes_;
 };
 
 HEADLESS_ASYNC_DEVTOOLED_TEST_F(HeadlessCrashObserverTest);

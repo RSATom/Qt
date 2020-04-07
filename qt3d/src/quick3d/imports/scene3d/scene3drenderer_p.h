@@ -54,6 +54,8 @@
 #include <QtCore/QObject>
 #include <QtCore/qsize.h>
 #include <QtCore/QMutex>
+#include <QtCore/QSemaphore>
+#include <scene3ditem_p.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -69,8 +71,8 @@ namespace Qt3DRender {
 
 class QRenderAspect;
 class Scene3DCleaner;
-class Scene3DItem;
 class Scene3DSGNode;
+class Scene3DViews;
 
 class Scene3DRenderer : public QObject
 {
@@ -81,12 +83,12 @@ public:
                     QRenderAspect *renderAspect);
     ~Scene3DRenderer();
 
-    QOpenGLFramebufferObject *createMultisampledFramebufferObject(const QSize &size);
-    QOpenGLFramebufferObject *createFramebufferObject(const QSize &size);
-    void scheduleRootEntityChange();
     void setSGNode(Scene3DSGNode *node);
     void setCleanerHelper(Scene3DCleaner *cleaner);
-    void synchronize();
+    void allowRender();
+    void setCompositingMode(Scene3DItem::CompositingMode mode);
+    void setSkipFrame(bool skip);
+    void setScene3DViews(const QVector<Scene3DView *> views);
 
 public Q_SLOTS:
     void render();
@@ -95,6 +97,11 @@ public Q_SLOTS:
     void onWindowChanged(QQuickWindow *w);
 
 private:
+    QOpenGLFramebufferObject *createMultisampledFramebufferObject(const QSize &size);
+    QOpenGLFramebufferObject *createFramebufferObject(const QSize &size);
+    void beforeSynchronize();
+    void scheduleRootEntityChange();
+
     Scene3DItem *m_item; // Will be released by the QQuickWindow/QML Engine
     Qt3DCore::QAspectEngine *m_aspectEngine; // Will be released by the Scene3DRendererCleaner
     QRenderAspect *m_renderAspect; // Will be released by the aspectEngine
@@ -109,8 +116,13 @@ private:
     bool m_multisample;
     bool m_lastMultisample;
     bool m_needsShutdown;
-    bool m_blocking;
     bool m_forceRecreate;
+    bool m_shouldRender;
+    bool m_dirtyViews;
+    bool m_skipFrame;
+    QSemaphore m_allowRendering;
+    Scene3DItem::CompositingMode m_compositingMode;
+    QVector<Scene3DView *> m_views;
 
     friend class Scene3DCleaner;
 };

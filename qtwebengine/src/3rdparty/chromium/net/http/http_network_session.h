@@ -26,15 +26,16 @@
 #include "net/base/host_mapping_rules.h"
 #include "net/base/host_port_pair.h"
 #include "net/base/net_export.h"
-#include "net/dns/host_resolver.h"
 #include "net/http/http_auth_cache.h"
 #include "net/http/http_stream_factory.h"
 #include "net/net_buildflags.h"
 #include "net/quic/quic_stream_factory.h"
+#include "net/socket/connect_job.h"
 #include "net/socket/next_proto.h"
 #include "net/socket/websocket_endpoint_lock_manager.h"
 #include "net/spdy/spdy_session_pool.h"
 #include "net/ssl/ssl_client_auth_cache.h"
+#include "net/ssl/ssl_client_session_cache.h"
 #include "net/third_party/quiche/src/spdy/core/spdy_protocol.h"
 
 namespace base {
@@ -52,16 +53,16 @@ namespace net {
 
 class CTPolicyEnforcer;
 class CertVerifier;
-class ChannelIDService;
 class ClientSocketFactory;
+class ClientSocketPool;
 class ClientSocketPoolManager;
 class CTVerifier;
 class HostResolver;
 class HttpAuthHandlerFactory;
 class HttpNetworkSessionPeer;
-class HttpProxyClientSocketPool;
 class HttpResponseBodyDrainer;
 class HttpServerProperties;
+class HttpUserAgentSettings;
 class NetLog;
 #if BUILDFLAG(ENABLE_REPORTING)
 class NetworkErrorLoggingService;
@@ -75,10 +76,7 @@ class QuicCryptoClientStreamFactory;
 class ReportingService;
 #endif
 class SocketPerformanceWatcherFactory;
-class SOCKSClientSocketPool;
-class SSLClientSocketPool;
 class SSLConfigService;
-class TransportClientSocketPool;
 class TransportSecurityState;
 
 // Specifies the maximum HPACK dynamic table size the server is allowed to set.
@@ -129,106 +127,20 @@ class NET_EXPORT HttpNetworkSession {
     // Whether to enable Websocket over HTTP/2.
     bool enable_websocket_over_http2;
 
+    // Enables 0-RTT support.
+    bool enable_early_data;
+
     // Enables QUIC support.
     bool enable_quic;
 
     // If true, HTTPS URLs can be sent to QUIC proxies.
     bool enable_quic_proxies_for_https_urls;
 
-    // QUIC runtime configuration options.
+    // QUIC runtime configuration options and active experiments.
+    QuicParams quic_params;
 
-    // Versions of QUIC which may be used.
-    quic::QuicTransportVersionVector quic_supported_versions;
-    // User agent description to send in the QUIC handshake.
-    std::string quic_user_agent_id;
-    // Limit on the size of QUIC packets.
-    size_t quic_max_packet_length;
-    // Maximum number of server configs that are to be stored in
-    // HttpServerProperties, instead of the disk cache.
-    size_t quic_max_server_configs_stored_in_properties;
-    // QUIC will be used for all connections in this set.
-    std::set<HostPortPair> origins_to_force_quic_on;
-    // Set of QUIC tags to send in the handshake's connection options.
-    quic::QuicTagVector quic_connection_options;
-    // Set of QUIC tags to send in the handshake's connection options that only
-    // affect the client.
-    quic::QuicTagVector quic_client_connection_options;
-    // Enables experimental optimization for receiving data in UDPSocket.
-    bool quic_enable_socket_recv_optimization;
-
-    // Active QUIC experiments
-
-    // Marks a QUIC server broken when a connection blackholes after the
-    // handshake is confirmed.
-    bool mark_quic_broken_when_network_blackholes;
-    // Retry requests which fail with QUIC_PROTOCOL_ERROR, and mark QUIC
-    // broken if the retry succeeds.
-    bool retry_without_alt_svc_on_quic_errors;
-    // If true, alt-svc headers advertising QUIC in IETF format will be
-    // supported.
-    bool support_ietf_format_quic_altsvc;
-    // If true, all QUIC sessions are closed when any local IP address changes.
-    bool quic_close_sessions_on_ip_change;
-    // If true, all QUIC sessions are marked as goaway when any local IP address
-    // changes.
-    bool quic_goaway_sessions_on_ip_change;
-    // Specifies QUIC idle connection state lifetime.
-    int quic_idle_connection_timeout_seconds;
-    // Specifies the reduced ping timeout subsequent connections should use when
-    // a connection was timed out with open streams.
-    int quic_reduced_ping_timeout_seconds;
-    // Maximum time the session can be alive before crypto handshake is
-    // finished.
-    int quic_max_time_before_crypto_handshake_seconds;
-    // Maximum idle time before the crypto handshake has completed.
-    int quic_max_idle_time_before_crypto_handshake_seconds;
-    // If true, connection migration v2 will be used to migrate existing
-    // sessions to network when the platform indicates that the default network
-    // is changing.
-    bool quic_migrate_sessions_on_network_change_v2;
-    // If true, connection migration v2 may be used to migrate active QUIC
-    // sessions to alternative network if current network connectivity is poor.
-    bool quic_migrate_sessions_early_v2;
-    // If true, a new connection may be kicked off on an alternate network when
-    // a connection fails on the default network before handshake is confirmed.
-    bool quic_retry_on_alternate_network_before_handshake;
-    // If true, the quic stream factory may race connection from stale dns
-    // result with the original dns resolution
-    bool quic_race_stale_dns_on_connection;
-    // If true, the quic session may mark itself as GOAWAY on path degrading.
-    bool quic_go_away_on_path_degrading;
-    // Maximum time the session could be on the non-default network before
-    // migrates back to default network. Defaults to
-    // kMaxTimeOnNonDefaultNetwork.
-    base::TimeDelta quic_max_time_on_non_default_network;
-    // Maximum number of migrations to the non-default network on write error
-    // per network for each session.
-    int quic_max_migrations_to_non_default_network_on_write_error;
-    // Maximum number of migrations to the non-default network on path
-    // degrading per network for each session.
-    int quic_max_migrations_to_non_default_network_on_path_degrading;
-    // If true, allows migration of QUIC connections to a server-specified
-    // alternate server address.
-    bool quic_allow_server_migration;
-    // If true, allows QUIC to use alternative services with a different
-    // hostname from the origin.
-    bool quic_allow_remote_alt_svc;
-    // If true, bidirectional streams over QUIC will be disabled.
-    bool quic_disable_bidirectional_streams;
-    // If true, enable force HOL blocking.  For measurement purposes.
-    bool quic_force_hol_blocking;
-    // If true, race cert verification with host resolution.
-    bool quic_race_cert_verification;
-    // If true, estimate the initial RTT for QUIC connections based on network.
-    bool quic_estimate_initial_rtt;
-    // If true, client headers will include HTTP/2 stream dependency info
-    // derived from the request priority.
-    bool quic_headers_include_h2_stream_dependency;
     // If non-empty, QUIC will only be spoken to hosts in this list.
     base::flat_set<std::string> quic_host_whitelist;
-
-    // Enable Channel ID. Channel ID is being deprecated.
-    bool enable_channel_id;
 
     // Enable HTTP/0.9 for HTTP/HTTPS on ports other than the default one for
     // each protocol.
@@ -248,12 +160,12 @@ class NET_EXPORT HttpNetworkSession {
     ClientSocketFactory* client_socket_factory;
     HostResolver* host_resolver;
     CertVerifier* cert_verifier;
-    ChannelIDService* channel_id_service;
     TransportSecurityState* transport_security_state;
     CTVerifier* cert_transparency_verifier;
     CTPolicyEnforcer* ct_policy_enforcer;
     ProxyResolutionService* proxy_resolution_service;
     ProxyDelegate* proxy_delegate;
+    const HttpUserAgentSettings* http_user_agent_settings;
     SSLConfigService* ssl_config_service;
     HttpAuthHandlerFactory* http_auth_handler_factory;
     HttpServerProperties* http_server_properties;
@@ -292,17 +204,11 @@ class NET_EXPORT HttpNetworkSession {
   // Removes the drainer from the session. Does not dispose of it.
   void RemoveResponseDrainer(HttpResponseBodyDrainer* drainer);
 
-  TransportClientSocketPool* GetTransportSocketPool(SocketPoolType pool_type);
-  SSLClientSocketPool* GetSSLSocketPool(SocketPoolType pool_type);
-  SOCKSClientSocketPool* GetSocketPoolForSOCKSProxy(
-      SocketPoolType pool_type,
-      const ProxyServer& socks_proxy);
-  HttpProxyClientSocketPool* GetSocketPoolForHTTPLikeProxy(
-      SocketPoolType pool_type,
-      const ProxyServer& http_proxy);
-  SSLClientSocketPool* GetSocketPoolForSSLWithProxy(
-      SocketPoolType pool_type,
-      const ProxyServer& proxy_server);
+  // Returns the socket pool of the given type for use with the specified
+  // ProxyServer. Use ProxyServer::Direct() to get the pool for use with direct
+  // connections.
+  ClientSocketPool* GetSocketPool(SocketPoolType pool_type,
+                                  const ProxyServer& proxy_server);
 
   CertVerifier* cert_verifier() { return cert_verifier_; }
   ProxyResolutionService* proxy_resolution_service() {
@@ -326,6 +232,7 @@ class NET_EXPORT HttpNetworkSession {
   NetLog* net_log() {
     return net_log_;
   }
+  HostResolver* host_resolver() { return host_resolver_; }
 #if BUILDFLAG(ENABLE_REPORTING)
   ReportingService* reporting_service() const { return reporting_service_; }
   NetworkErrorLoggingService* network_error_logging_service() const {
@@ -375,6 +282,16 @@ class NET_EXPORT HttpNetworkSession {
   // Disable QUIC for new streams.
   void DisableQuic();
 
+  // Clear the SSL session cache.
+  void ClearSSLSessionCache();
+
+  // Returns a CommonConnectJobParams that references the NetworkSession's
+  // components. If |for_websockets| is true, the Params'
+  // |websocket_endpoint_lock_manager| field will be populated. Otherwise, it
+  // will be nullptr.
+  CommonConnectJobParams CreateCommonConnectJobParams(
+      bool for_websockets = false);
+
  private:
   friend class HttpNetworkSessionPeer;
 
@@ -388,6 +305,7 @@ class NET_EXPORT HttpNetworkSession {
   HttpServerProperties* const http_server_properties_;
   CertVerifier* const cert_verifier_;
   HttpAuthHandlerFactory* const http_auth_handler_factory_;
+  HostResolver* const host_resolver_;
 
 #if BUILDFLAG(ENABLE_REPORTING)
   ReportingService* const reporting_service_;
@@ -398,6 +316,8 @@ class NET_EXPORT HttpNetworkSession {
 
   HttpAuthCache http_auth_cache_;
   SSLClientAuthCache ssl_client_auth_cache_;
+  SSLClientSessionCache ssl_client_session_cache_;
+  SSLClientContext ssl_client_context_;
   WebSocketEndpointLockManager websocket_endpoint_lock_manager_;
   std::unique_ptr<ClientSocketPoolManager> normal_socket_pool_manager_;
   std::unique_ptr<ClientSocketPoolManager> websocket_socket_pool_manager_;

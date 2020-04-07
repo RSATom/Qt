@@ -26,7 +26,6 @@
 #include "third_party/blink/renderer/core/html/html_source_element.h"
 
 #include "third_party/blink/public/platform/task_type.h"
-#include "third_party/blink/renderer/bindings/core/v8/usv_string_or_trusted_url.h"
 #include "third_party/blink/renderer/core/css/media_list.h"
 #include "third_party/blink/renderer/core/css/media_query_list.h"
 #include "third_party/blink/renderer/core/css/media_query_matcher.h"
@@ -62,13 +61,11 @@ class HTMLSourceElement::Listener final : public MediaQueryListListener {
   Member<HTMLSourceElement> element_;
 };
 
-inline HTMLSourceElement::HTMLSourceElement(Document& document)
+HTMLSourceElement::HTMLSourceElement(Document& document)
     : HTMLElement(kSourceTag, document),
       listener_(MakeGarbageCollected<Listener>(this)) {
   DVLOG(SOURCE_LOG_LEVEL) << "HTMLSourceElement - " << (void*)this;
 }
-
-DEFINE_NODE_FACTORY(HTMLSourceElement)
 
 HTMLSourceElement::~HTMLSourceElement() = default;
 
@@ -87,7 +84,7 @@ void HTMLSourceElement::CreateMediaQueryList(const AtomicString& media) {
   }
 
   scoped_refptr<MediaQuerySet> set = MediaQuerySet::Create(media);
-  media_query_list_ = MediaQueryList::Create(
+  media_query_list_ = MakeGarbageCollected<MediaQueryList>(
       &GetDocument(), &GetDocument().GetMediaQueryMatcher(), set);
   AddMediaQueryListListener();
 }
@@ -103,20 +100,22 @@ Node::InsertionNotificationRequest HTMLSourceElement::InsertedInto(
   Element* parent = parentElement();
   if (auto* media = ToHTMLMediaElementOrNull(parent))
     media->SourceWasAdded(this);
-  if (auto* picture = ToHTMLPictureElementOrNull(parent))
-    picture->SourceOrMediaChanged();
+  if (parent == insertion_point && IsHTMLPictureElement(parent))
+    ToHTMLPictureElement(parent)->SourceOrMediaChanged();
   return kInsertionDone;
 }
 
 void HTMLSourceElement::RemovedFrom(ContainerNode& removal_root) {
   Element* parent = parentElement();
-  if (!parent && removal_root.IsElementNode())
-    parent = ToElement(&removal_root);
+  bool was_removed_from_parent = !parent;
+  if (was_removed_from_parent)
+    parent = DynamicTo<Element>(&removal_root);
   if (auto* media = ToHTMLMediaElementOrNull(parent))
     media->SourceWasRemoved(this);
   if (auto* picture = ToHTMLPictureElementOrNull(parent)) {
     RemoveMediaQueryListListener();
-    picture->SourceOrMediaChanged();
+    if (was_removed_from_parent)
+      picture->SourceOrMediaChanged();
   }
   HTMLElement::RemovedFrom(removal_root);
 }
@@ -129,15 +128,6 @@ void HTMLSourceElement::RemoveMediaQueryListListener() {
 void HTMLSourceElement::AddMediaQueryListListener() {
   if (media_query_list_)
     media_query_list_->AddListener(listener_);
-}
-
-void HTMLSourceElement::SetSrc(const String& url) {
-  setAttribute(kSrcAttr, AtomicString(url));
-}
-
-void HTMLSourceElement::SetSrc(const USVStringOrTrustedURL& usvStringOrURL,
-                               ExceptionState& exception_state) {
-  setAttribute(kSrcAttr, usvStringOrURL, exception_state);
 }
 
 const AtomicString& HTMLSourceElement::type() const {

@@ -23,10 +23,10 @@
 #include <vector>
 
 #include "perfetto/base/task_runner.h"
-#include "perfetto/base/thread_checker.h"
-#include "perfetto/base/unix_socket.h"
-#include "perfetto/ipc/deferred.h"
-#include "perfetto/ipc/host.h"
+#include "perfetto/ext/base/thread_checker.h"
+#include "perfetto/ext/base/unix_socket.h"
+#include "perfetto/ext/ipc/deferred.h"
+#include "perfetto/ext/ipc/host.h"
 #include "src/ipc/buffered_frame_deserializer.h"
 
 namespace perfetto {
@@ -90,8 +90,8 @@ class HostImpl : public Host, public base::UnixSocket::EventListener {
   std::map<base::UnixSocket*, ClientConnection*> clients_by_socket_;
   ServiceID last_service_id_ = 0;
   ClientID last_client_id_ = 0;
-  base::WeakPtrFactory<HostImpl> weak_ptr_factory_;
   PERFETTO_THREAD_CHECKER(thread_checker_)
+  base::WeakPtrFactory<HostImpl> weak_ptr_factory_;  // Keep last.
 };
 
 }  // namespace ipc

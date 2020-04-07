@@ -7,9 +7,9 @@
 #include "third_party/blink/renderer/core/frame/local_frame_view.h"
 #include "third_party/blink/renderer/core/layout/layout_block.h"
 #include "third_party/blink/renderer/core/paint/paint_layer.h"
+#include "third_party/blink/renderer/core/scroll/scroll_types.h"
 #include "third_party/blink/renderer/core/testing/core_unit_test_helper.h"
 #include "third_party/blink/renderer/platform/graphics/graphics_layer.h"
-#include "third_party/blink/renderer/platform/scroll/scroll_types.h"
 #include "third_party/blink/renderer/platform/testing/runtime_enabled_features_test_helpers.h"
 #include "third_party/blink/renderer/platform/testing/testing_platform_support.h"
 
@@ -18,12 +18,12 @@ namespace blink {
 class CompositingReasonFinderTest : public RenderingTest {
  public:
   CompositingReasonFinderTest()
-      : RenderingTest(SingleChildLocalFrameClient::Create()) {}
+      : RenderingTest(MakeGarbageCollected<SingleChildLocalFrameClient>()) {}
 
  private:
   void SetUp() override {
-    RenderingTest::SetUp();
     EnableCompositing();
+    RenderingTest::SetUp();
   }
 };
 
@@ -144,57 +144,6 @@ TEST_F(CompositingReasonFinderTest, OnlyScrollingStickyPositionPromoted) {
           ->GetCompositingState());
 }
 
-TEST_F(CompositingReasonFinderTest, RequiresCompositingForTransformAnimation) {
-  scoped_refptr<ComputedStyle> style = ComputedStyle::Create();
-  style->SetSubtreeWillChangeContents(false);
-
-  style->SetHasCurrentTransformAnimation(false);
-  style->SetIsRunningTransformAnimationOnCompositor(false);
-  EXPECT_FALSE(
-      CompositingReasonFinder::RequiresCompositingForTransformAnimation(
-          *style));
-
-  style->SetHasCurrentTransformAnimation(false);
-  style->SetIsRunningTransformAnimationOnCompositor(true);
-  EXPECT_FALSE(
-      CompositingReasonFinder::RequiresCompositingForTransformAnimation(
-          *style));
-
-  style->SetHasCurrentTransformAnimation(true);
-  style->SetIsRunningTransformAnimationOnCompositor(false);
-  EXPECT_TRUE(CompositingReasonFinder::RequiresCompositingForTransformAnimation(
-      *style));
-
-  style->SetHasCurrentTransformAnimation(true);
-  style->SetIsRunningTransformAnimationOnCompositor(true);
-  EXPECT_TRUE(CompositingReasonFinder::RequiresCompositingForTransformAnimation(
-      *style));
-
-  style->SetSubtreeWillChangeContents(true);
-
-  style->SetHasCurrentTransformAnimation(false);
-  style->SetIsRunningTransformAnimationOnCompositor(false);
-  EXPECT_FALSE(
-      CompositingReasonFinder::RequiresCompositingForTransformAnimation(
-          *style));
-
-  style->SetHasCurrentTransformAnimation(false);
-  style->SetIsRunningTransformAnimationOnCompositor(true);
-  EXPECT_TRUE(CompositingReasonFinder::RequiresCompositingForTransformAnimation(
-      *style));
-
-  style->SetHasCurrentTransformAnimation(true);
-  style->SetIsRunningTransformAnimationOnCompositor(false);
-  EXPECT_FALSE(
-      CompositingReasonFinder::RequiresCompositingForTransformAnimation(
-          *style));
-
-  style->SetHasCurrentTransformAnimation(true);
-  style->SetIsRunningTransformAnimationOnCompositor(true);
-  EXPECT_TRUE(CompositingReasonFinder::RequiresCompositingForTransformAnimation(
-      *style));
-}
-
 TEST_F(CompositingReasonFinderTest, CompositingReasonsForAnimation) {
   scoped_refptr<ComputedStyle> style = ComputedStyle::Create();
 
@@ -241,8 +190,8 @@ TEST_F(CompositingReasonFinderTest, DontPromoteEmptyIframe) {
   )HTML");
   UpdateAllLifecyclePhasesForTest();
 
-  LocalFrame* child_frame =
-      ToLocalFrame(GetDocument().GetFrame()->Tree().FirstChild());
+  auto* child_frame =
+      To<LocalFrame>(GetDocument().GetFrame()->Tree().FirstChild());
   ASSERT_TRUE(child_frame);
   LocalFrameView* child_frame_view = child_frame->View();
   ASSERT_TRUE(child_frame_view);

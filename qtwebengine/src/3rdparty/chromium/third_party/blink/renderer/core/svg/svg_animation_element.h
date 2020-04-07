@@ -65,14 +65,16 @@ class CORE_EXPORT SVGAnimationElement : public SVGSMILElement {
   void endElement() { endElementAt(0); }
   void endElementAt(float offset);
 
-  DEFINE_ATTRIBUTE_EVENT_LISTENER(begin, kBeginEvent);
-  DEFINE_ATTRIBUTE_EVENT_LISTENER(end, kEndEvent);
-  DEFINE_ATTRIBUTE_EVENT_LISTENER(repeat, kRepeatEvent);
+  DEFINE_ATTRIBUTE_EVENT_LISTENER(begin, kBeginEvent)
+  DEFINE_ATTRIBUTE_EVENT_LISTENER(end, kEndEvent)
+  DEFINE_ATTRIBUTE_EVENT_LISTENER(repeat, kRepeatEvent)
 
   virtual bool IsAdditive();
   bool IsAccumulated() const;
   AnimationMode GetAnimationMode() const { return animation_mode_; }
   CalcMode GetCalcMode() const { return calc_mode_; }
+
+  bool OverwritesUnderlyingAnimationValue() override;
 
   template <typename AnimatedType>
   void AnimateDiscreteType(float percentage,

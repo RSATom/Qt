@@ -9,7 +9,9 @@
 #include "third_party/blink/public/common/features.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
+#include "third_party/blink/renderer/core/html/anchor_element_metrics.h"
 #include "third_party/blink/renderer/core/html/html_anchor_element.h"
+#include "ui/gfx/geometry/mojo/geometry.mojom-shared.h"
 
 namespace blink {
 
@@ -19,9 +21,9 @@ namespace {
 // navigation prediction.
 bool ShouldDiscardAnchorElement(const HTMLAnchorElement& anchor_element) {
   Frame* frame = anchor_element.GetDocument().GetFrame();
-  if (!frame || !frame->IsLocalFrame())
+  auto* local_frame = DynamicTo<LocalFrame>(frame);
+  if (!local_frame)
     return true;
-  LocalFrame* local_frame = ToLocalFrame(frame);
   return local_frame->IsAdSubframe();
 }
 
@@ -66,11 +68,13 @@ void AnchorElementMetricsSender::SendClickedAnchorMetricsToBrowser(
 }
 
 void AnchorElementMetricsSender::SendAnchorMetricsVectorToBrowser(
-    Vector<mojom::blink::AnchorElementMetricsPtr> metrics) {
+    Vector<mojom::blink::AnchorElementMetricsPtr> metrics,
+    const IntSize& viewport_size) {
   if (!AssociateInterface())
     return;
 
-  metrics_host_->ReportAnchorElementMetricsOnLoad(std::move(metrics));
+  metrics_host_->ReportAnchorElementMetricsOnLoad(std::move(metrics),
+                                                  viewport_size);
   has_onload_report_sent_ = true;
   anchor_elements_.clear();
 }
@@ -117,6 +121,23 @@ bool AnchorElementMetricsSender::AssociateInterface() {
 AnchorElementMetricsSender::AnchorElementMetricsSender(Document& document)
     : Supplement<Document>(document) {
   DCHECK(!document.ParentDocument());
+}
+
+void AnchorElementMetricsSender::DidFinishLifecycleUpdate(
+    const LocalFrameView& local_frame_view) {
+  // Check that layout is stable. If it is, we can perform the onload update and
+  // stop observing future events.
+  Document* document = local_frame_view.GetFrame().GetDocument();
+  if (document->Lifecycle().GetState() <
+      DocumentLifecycle::kAfterPerformLayout) {
+    return;
+  }
+
+  // Stop listening to updates, as the onload report can be sent now.
+  document->View()->UnregisterFromLifecycleNotifications(this);
+
+  // Send onload report.
+  AnchorElementMetrics::MaybeReportViewportMetricsOnLoad(*document);
 }
 
 }  // namespace blink

@@ -5,11 +5,11 @@
  * found in the LICENSE file.
  */
 
-#include "Sample.h"
-#include "SkCanvas.h"
-#include "SkPaint.h"
-#include "SkPath.h"
-#include "SkRandom.h"
+#include "include/core/SkCanvas.h"
+#include "include/core/SkPaint.h"
+#include "include/core/SkPath.h"
+#include "include/utils/SkRandom.h"
+#include "samplecode/Sample.h"
 
 // Generates y values for the chart plots.
 static void gen_data(SkScalar yAvg, SkScalar ySpread, int count, SkTDArray<SkScalar>* dataPts) {
@@ -81,20 +81,14 @@ static void gen_paths(const SkTDArray<SkScalar>& topData,
 // A set of scrolling line plots with the area between each plot filled. Stresses out GPU path
 // filling
 class ChartView : public Sample {
-public:
-    ChartView() {
-        fShift = 0;
-        fSize.set(-1, -1);
-    }
+    static constexpr int kNumGraphs = 5;
+    static constexpr int kPixelsPerTick = 3;
+    static constexpr int kShiftPerFrame = 1;
+    int                 fShift = 0;
+    SkISize             fSize = {-1, -1};
+    SkTDArray<SkScalar> fData[kNumGraphs];
 
-protected:
-    bool onQuery(Sample::Event* evt) override {
-        if (Sample::TitleQ(*evt)) {
-            Sample::TitleR(evt, "Chart");
-            return true;
-        }
-        return this->INHERITED::onQuery(evt);
-    }
+    SkString name() override { return SkString("Chart"); }
 
     void onDrawContent(SkCanvas* canvas) override {
         bool sizeChanged = false;
@@ -164,19 +158,6 @@ protected:
 
         fShift += kShiftPerFrame;
     }
-
-private:
-    enum {
-        kNumGraphs = 5,
-        kPixelsPerTick = 3,
-        kShiftPerFrame = 1,
-    };
-    int                 fShift;
-    SkISize             fSize;
-    SkTDArray<SkScalar> fData[kNumGraphs];
-    typedef Sample INHERITED;
 };
-
-//////////////////////////////////////////////////////////////////////////////
 
 DEF_SAMPLE( return new ChartView(); )

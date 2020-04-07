@@ -39,9 +39,10 @@
 #include "base/time/time.h"
 #include "components/download/public/common/download_interrupt_reasons.h"
 #include "components/download/public/common/download_item.h"
-#include "components/download/public/common/download_stream.mojom.h"
+#include "components/download/public/common/download_stream.mojom-forward.h"
 #include "components/download/public/common/download_url_parameters.h"
 #include "components/download/public/common/input_stream.h"
+#include "components/download/public/common/simple_download_manager.h"
 #include "content/common/content_export.h"
 #include "net/base/net_errors.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
@@ -61,7 +62,8 @@ class BrowserContext;
 class DownloadManagerDelegate;
 
 // Browser's download manager: manages all downloads and destination view.
-class CONTENT_EXPORT DownloadManager : public base::SupportsUserData::Data {
+class CONTENT_EXPORT DownloadManager : public base::SupportsUserData::Data,
+                                       public download::SimpleDownloadManager {
  public:
   ~DownloadManager() override {}
 
@@ -72,7 +74,7 @@ class CONTENT_EXPORT DownloadManager : public base::SupportsUserData::Data {
   // Sets/Gets the delegate for this DownloadManager. The delegate has to live
   // past its Shutdown method being called (by the DownloadManager).
   virtual void SetDelegate(DownloadManagerDelegate* delegate) = 0;
-  virtual DownloadManagerDelegate* GetDelegate() const = 0;
+  virtual DownloadManagerDelegate* GetDelegate() = 0;
 
   // Shutdown the download manager. Content calls this when BrowserContext is
   // being destructed. If the embedder needs this to be called earlier, it can
@@ -112,12 +114,6 @@ class CONTENT_EXPORT DownloadManager : public base::SupportsUserData::Data {
     virtual ~Observer() {}
   };
 
-  typedef std::vector<download::DownloadItem*> DownloadVector;
-
-  // Add all download items to |downloads|, no matter the type or state, without
-  // clearing |downloads| first.
-  virtual void GetAllDownloads(DownloadVector* downloads) = 0;
-
   // Called by a download source (Currently DownloadResourceHandler)
   // to initiate the non-source portions of a download.
   // If the DownloadCreateInfo specifies an id, that id will be used.
@@ -139,11 +135,7 @@ class CONTENT_EXPORT DownloadManager : public base::SupportsUserData::Data {
       base::Time remove_begin,
       base::Time remove_end) = 0;
 
-  // See download::DownloadUrlParameters for details about controlling the
-  // download.
-  virtual void DownloadUrl(
-      std::unique_ptr<download::DownloadUrlParameters> parameters) = 0;
-
+  using SimpleDownloadManager::DownloadUrl;
   // For downloads of blob URLs, the caller can pass a BlobDataHandle object so
   // that the blob will remain valid until the download starts. The
   // BlobDataHandle will be attached to the associated URLRequest.
@@ -206,25 +198,20 @@ class CONTENT_EXPORT DownloadManager : public base::SupportsUserData::Data {
       DownloadInitializationDependency dependency) = 0;
 
   // Returns if the manager has been initialized and loaded all the data.
-  virtual bool IsManagerInitialized() const = 0;
+  virtual bool IsManagerInitialized() = 0;
 
   // The number of in progress (including paused) downloads.
   // Performance note: this loops over all items. If profiling finds that this
   // is too slow, use an AllDownloadItemNotifier to count in-progress items.
-  virtual int InProgressCount() const = 0;
+  virtual int InProgressCount() = 0;
 
   // The number of in progress (including paused) downloads.
   // Performance note: this loops over all items. If profiling finds that this
   // is too slow, use an AllDownloadItemNotifier to count in-progress items.
   // This excludes downloads that are marked as malicious.
-  virtual int NonMaliciousInProgressCount() const = 0;
+  virtual int NonMaliciousInProgressCount() = 0;
 
-  virtual BrowserContext* GetBrowserContext() const = 0;
-
-  // Checks whether downloaded files still exist. Updates state of downloads
-  // that refer to removed files. The check runs in the background and may
-  // finish asynchronously after this method returns.
-  virtual void CheckForHistoryFilesRemoval() = 0;
+  virtual BrowserContext* GetBrowserContext() = 0;
 
   // Called when download history query completes. Call
   // |load_history_downloads_cb| to load all the history downloads.
@@ -238,10 +225,6 @@ class CONTENT_EXPORT DownloadManager : public base::SupportsUserData::Data {
   // download::DownloadItem if you need to keep track of a specific download.
   // (http://crbug.com/593020)
   virtual download::DownloadItem* GetDownload(uint32_t id) = 0;
-
-  // Get the download item for |guid|.
-  virtual download::DownloadItem* GetDownloadByGuid(
-      const std::string& guid) = 0;
 
   using GetNextIdCallback = base::OnceCallback<void(uint32_t)>;
   // Called to get an ID for a new download. |callback| may be called

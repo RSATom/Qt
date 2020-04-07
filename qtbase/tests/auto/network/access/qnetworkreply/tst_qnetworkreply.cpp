@@ -32,8 +32,11 @@
 #include <QtCore/QDataStream>
 #include <QtCore/QUrl>
 #include <QtCore/QEventLoop>
+#include <QtCore/QElapsedTimer>
 #include <QtCore/QFile>
 #include <QtCore/QRandomGenerator>
+#include <QtCore/QRegularExpression>
+#include <QtCore/QRegularExpressionMatch>
 #include <QtCore/QSharedPointer>
 #include <QtCore/QScopedPointer>
 #include <QtCore/QTemporaryFile>
@@ -123,7 +126,7 @@ class tst_QNetworkReply: public QObject
         if (!seedCreated) {
             seedCreated = true; // not thread-safe, but who cares
         }
-        return QString::number(QTime(0, 0, 0).msecsTo(QTime::currentTime()))
+        return QString::number(QTime::currentTime().msecsSinceStartOfDay())
             + QLatin1Char('-') + QString::number(QCoreApplication::applicationPid())
             + QLatin1Char('-') + QString::number(QRandomGenerator::global()->generate());
     }
@@ -502,6 +505,11 @@ private Q_SLOTS:
 #ifndef QT_NO_SSL
     void putWithServerClosingConnectionImmediately();
 #endif
+
+    void autoDeleteRepliesAttribute_data();
+    void autoDeleteRepliesAttribute();
+    void autoDeleteReplies_data();
+    void autoDeleteReplies();
 
     // NOTE: This test must be last!
     void parentingRepliesToTheApp();
@@ -1142,7 +1150,7 @@ protected:
         }
 
         // now write in "blocking mode", this is where the rate measuring starts
-        QTime timer;
+        QElapsedTimer timer;
         timer.start();
         //const qint64 writtenBefore = dataIndex;
         //qint64 measuredTotalBytes = wantedSize - writtenBefore;
@@ -1241,7 +1249,7 @@ protected:
         }
 
         qint64 bytesRead = 0;
-        QTime stopWatch;
+        QElapsedTimer stopWatch;
         stopWatch.start();
         do {
             if (device->bytesAvailable() == 0) {
@@ -1304,9 +1312,9 @@ tst_QNetworkReply::tst_QNetworkReply()
                              "+socksauth", true);
     } else {
 #endif // !QT_NO_NETWORKPROXY
-        printf("==================================================================\n");
-        printf("Proxy could not be looked up. No proxy will be used while testing!\n");
-        printf("==================================================================\n");
+        fprintf(stderr, "==================================================================\n");
+        fprintf(stderr, "Proxy could not be looked up. No proxy will be used while testing!\n");
+        fprintf(stderr, "==================================================================\n");
 #ifndef QT_NO_NETWORKPROXY
     }
 #endif // !QT_NO_NETWORKPROXY
@@ -1552,7 +1560,7 @@ void tst_QNetworkReply::initTestCase()
 
     QDir::setSearchPaths("testdata", QStringList() << testDataDir);
 #ifndef QT_NO_SSL
-    QSslSocket::defaultCaCertificates(); //preload certificates
+    QSslConfiguration::defaultConfiguration().caCertificates(); //preload certificates
 #endif
 #ifndef QT_NO_BEARERMANAGEMENT
     netConfMan = new QNetworkConfigurationManager(this);
@@ -4142,10 +4150,10 @@ void tst_QNetworkReply::ioGetFromHttpWithCache()
     request.setAttribute(QNetworkRequest::CacheSaveControlAttribute, false);
 
     QFETCH(QStringList, extraHttpHeaders);
-    QStringListIterator it(extraHttpHeaders);
-    while (it.hasNext()) {
-        QString header = it.next();
-        QString value = it.next();
+    QVERIFY(extraHttpHeaders.size() % 2 == 0);
+    for (auto it = extraHttpHeaders.cbegin(), end = extraHttpHeaders.cend(); it != end; /*double-stepping*/) {
+        QString header = *it++;
+        QString value = *it++;
         request.setRawHeader(header.toLatin1(), value.toLatin1()); // To latin1? Deal with it!
     }
 
@@ -5143,8 +5151,8 @@ void tst_QNetworkReply::ioGetFromBuiltinHttp()
     const int rate = 200; // in kB per sec
     RateControlledReader reader(server, reply.data(), rate, bufferSize);
 
-    QTime loopTime;
-    loopTime.start();
+    QElapsedTimer loopTimer;
+    loopTimer.start();
 
     const int result = waitForFinish(reply);
     if (notEnoughDataForFastSender) {
@@ -5154,7 +5162,7 @@ void tst_QNetworkReply::ioGetFromBuiltinHttp()
 
     QVERIFY2(result == Success, msgWaitForFinished(reply));
 
-    const int elapsedTime = loopTime.elapsed();
+    const int elapsedTime = loopTimer.elapsed();
     server.wait();
     reader.wrapUp();
 
@@ -5440,12 +5448,12 @@ void tst_QNetworkReply::rateControl()
     RateControlledReader reader(sender, reply.data(), rate, 20);
 
     // this test is designed to run for 25 seconds at most
-    QTime loopTime;
-    loopTime.start();
+    QElapsedTimer loopTimer;
+    loopTimer.start();
 
     QVERIFY2(waitForFinish(reply) == Success, msgWaitForFinished(reply));
 
-    int elapsedTime = loopTime.elapsed();
+    int elapsedTime = loopTimer.elapsed();
 
     if (!errorSpy.isEmpty()) {
         qDebug() << "ERROR!" << errorSpy[0][0] << reply->errorString();
@@ -6115,8 +6123,8 @@ void tst_QNetworkReply::httpConnectionCount()
     }
 
     int pendingConnectionCount = 0;
-    QTime time;
-    time.start();
+    QElapsedTimer timer;
+    timer.start();
 
     while(pendingConnectionCount <= 20) {
         QTestEventLoop::instance().enterLoop(1);
@@ -6128,7 +6136,7 @@ void tst_QNetworkReply::httpConnectionCount()
         }
 
         // at max. wait 10 sec
-        if (time.elapsed() > 10000)
+        if (timer.elapsed() > 10000)
             break;
     }
 
@@ -6418,7 +6426,8 @@ void tst_QNetworkReply::abortOnEncrypted()
         QSKIP("Server fails to listen. Skipping since QTcpServer is covered in another test.");
 
     server.connect(&server, &SslServer::newEncryptedConnection, [&server]() {
-            connect(server.socket, &QTcpSocket::readyRead, server.socket, []() {
+            // MSVC 201X C4573-misunderstands connect() or QObject::connect(), so use server.connect():
+            server.connect(server.socket, &QTcpSocket::readyRead, server.socket, []() {
                 // This slot must not be invoked!
                 QVERIFY(false);
             });
@@ -6466,8 +6475,8 @@ void tst_QNetworkReply::sslSessionSharing_data()
 
 void tst_QNetworkReply::sslSessionSharing()
 {
-#ifdef QT_SECURETRANSPORT
-    QSKIP("Not implemented with SecureTransport");
+#if QT_CONFIG(schannel) || defined(QT_SECURETRANSPORT)
+    QSKIP("Not implemented with SecureTransport/Schannel");
 #endif
 
     QString urlString("https://" + QtNetworkSettings::httpServerName());
@@ -6534,8 +6543,8 @@ void tst_QNetworkReply::sslSessionSharingFromPersistentSession_data()
 
 void tst_QNetworkReply::sslSessionSharingFromPersistentSession()
 {
-#ifdef QT_SECURETRANSPORT
-    QSKIP("Not implemented with SecureTransport");
+#if QT_CONFIG(schannel) || defined(QT_SECURETRANSPORT)
+    QSKIP("Not implemented with SecureTransport/Schannel");
 #endif
 
     QString urlString("https://" + QtNetworkSettings::httpServerName());
@@ -7905,9 +7914,10 @@ void tst_QNetworkReply::synchronousAuthenticationCache()
                 "Content-Type: text/plain\r\n"
                 "\r\n"
                 "auth";
-            QRegExp rx("Authorization: Basic ([^\r\n]*)\r\n");
-            if (rx.indexIn(receivedData) > 0) {
-                if (QByteArray::fromBase64(rx.cap(1).toLatin1()) == "login:password") {
+            QRegularExpression rx("Authorization: Basic ([^\r\n]*)\r\n");
+            QRegularExpressionMatch match = rx.match(receivedData);
+            if (match.hasMatch()) {
+                if (QByteArray::fromBase64(match.captured(1).toLatin1()) == "login:password") {
                     dataToTransmit =
                           "HTTP/1.0 200 OK\r\n"
                           "Content-Type: text/plain\r\n"
@@ -8143,16 +8153,17 @@ void tst_QNetworkReply::backgroundRequest()
         SLOT(sslErrors(QNetworkReply*,QList<QSslError>)));
 #endif
 
-    const QWeakPointer<const QNetworkSession> session = QNetworkAccessManagerPrivate::getNetworkSession(&manager);
-    QVERIFY(session);
-    QNetworkSession::UsagePolicies original = session.data()->usagePolicies();
-    QNetworkSessionPrivate::setUsagePolicies(*const_cast<QNetworkSession *>(session.data()), QNetworkSession::UsagePolicies(policy));
+    const QWeakPointer<const QNetworkSession> sessionWeakPtr = QNetworkAccessManagerPrivate::getNetworkSession(&manager);
+    QVERIFY(!sessionWeakPtr.isNull());
+    auto session = const_cast<QNetworkSession *>(sessionWeakPtr.toStrongRef().data());
+    QNetworkSession::UsagePolicies original = session->usagePolicies();
+    QNetworkSessionPrivate::setUsagePolicies(*session, QNetworkSession::UsagePolicies(policy));
 
     QNetworkReplyPtr reply(manager.get(request));
 
     QVERIFY(waitForFinish(reply) != Timeout);
     if (session)
-        QNetworkSessionPrivate::setUsagePolicies(*const_cast<QNetworkSession *>(session.data()), original);
+        QNetworkSessionPrivate::setUsagePolicies(*session, original);
 
     QVERIFY(reply->isFinished());
     QCOMPARE(reply->error(), error);
@@ -8190,6 +8201,9 @@ void tst_QNetworkReply::backgroundRequestInterruption_data()
 void tst_QNetworkReply::backgroundRequestInterruption()
 {
 #ifndef QT_NO_BEARERMANAGEMENT
+    if (QNetworkStatusMonitor::isEnabled() && QByteArray(QTest::currentDataTag()).startsWith("http"))
+        QSKIP("This test (currently) doesn't make any sense when QNetworkStatusMonitor is enabled");
+
     QFETCH(QUrl, url);
     QFETCH(bool, background);
     QFETCH(QNetworkReply::NetworkError, error);
@@ -8207,10 +8221,11 @@ void tst_QNetworkReply::backgroundRequestInterruption()
         SLOT(sslErrors(QNetworkReply*,QList<QSslError>)));
 #endif
 
-    const QWeakPointer<const QNetworkSession> session = QNetworkAccessManagerPrivate::getNetworkSession(&manager);
-    QVERIFY(session);
-    QNetworkSession::UsagePolicies original = session.data()->usagePolicies();
-    QNetworkSessionPrivate::setUsagePolicies(*const_cast<QNetworkSession *>(session.data()), QNetworkSession::NoPolicy);
+    const QWeakPointer<const QNetworkSession> sessionWeakPtr = QNetworkAccessManagerPrivate::getNetworkSession(&manager);
+    QVERIFY(!sessionWeakPtr.isNull());
+    auto session = const_cast<QNetworkSession *>(sessionWeakPtr.toStrongRef().data());
+    QNetworkSession::UsagePolicies original = session->usagePolicies();
+    QNetworkSessionPrivate::setUsagePolicies(*session, QNetworkSession::NoPolicy);
 
     request.setAttribute(QNetworkRequest::MaximumDownloadBufferSizeAttribute, 8192);
     QNetworkReplyPtr reply(manager.get(request));
@@ -8219,14 +8234,14 @@ void tst_QNetworkReply::backgroundRequestInterruption()
     QSignalSpy spy(reply.data(), SIGNAL(readyRead()));
     QTRY_VERIFY(spy.count() > 0);
 
-    QNetworkSessionPrivate::setUsagePolicies(*const_cast<QNetworkSession *>(session.data()), QNetworkSession::NoBackgroundTrafficPolicy);
+    QNetworkSessionPrivate::setUsagePolicies(*session, QNetworkSession::NoBackgroundTrafficPolicy);
 
     // After we have changed the policy we can download at full speed.
     reply->setReadBufferSize(0);
 
     QVERIFY(waitForFinish(reply) != Timeout);
     if (session)
-        QNetworkSessionPrivate::setUsagePolicies(*const_cast<QNetworkSession *>(session.data()), original);
+        QNetworkSessionPrivate::setUsagePolicies(*session, original);
 
     QVERIFY(reply->isFinished());
     QCOMPARE(reply->error(), error);
@@ -8266,8 +8281,8 @@ void tst_QNetworkReply::backgroundRequestConnectInBackground()
 
     QWeakPointer<const QNetworkSession> session = QNetworkAccessManagerPrivate::getNetworkSession(&manager);
     //force QNAM to reopen the session.
-    if (session && session.data()->isOpen()) {
-        const_cast<QNetworkSession *>(session.data())->close();
+    if (session && session.toStrongRef().data()->isOpen()) {
+        const_cast<QNetworkSession *>(session.toStrongRef().data())->close();
         QCoreApplication::processEvents(); //let signals propagate inside QNAM
     }
 
@@ -8276,19 +8291,19 @@ void tst_QNetworkReply::backgroundRequestConnectInBackground()
 
     session = QNetworkAccessManagerPrivate::getNetworkSession(&manager);
     QVERIFY(session);
-    QNetworkSession::UsagePolicies original = session.data()->usagePolicies();
-    QNetworkSessionPrivate::setUsagePolicies(*const_cast<QNetworkSession *>(session.data()), QNetworkSession::NoPolicy);
+    QNetworkSession::UsagePolicies original = session.toStrongRef().data()->usagePolicies();
+    QNetworkSessionPrivate::setUsagePolicies(*const_cast<QNetworkSession *>(session.toStrongRef().data()), QNetworkSession::NoPolicy);
 
     QNetworkReplyPtr reply(manager.get(request));
 
     QVERIFY(waitForFinish(reply) != Timeout);
     session = QNetworkAccessManagerPrivate::getNetworkSession(&manager);
     if (session) {
-        QVariant cib = session.data()->sessionProperty(QStringLiteral("ConnectInBackground"));
+        QVariant cib = session.toStrongRef().data()->sessionProperty(QStringLiteral("ConnectInBackground"));
         if (!cib.isValid())
             QSKIP("inconclusive - ConnectInBackground session property not supported by the bearer plugin");
         QCOMPARE(cib.toBool(), background);
-        QNetworkSessionPrivate::setUsagePolicies(*const_cast<QNetworkSession *>(session.data()), original);
+        QNetworkSessionPrivate::setUsagePolicies(*const_cast<QNetworkSession *>(session.toStrongRef().data()), original);
     } else {
         QSKIP("inconclusive - network session has been destroyed");
     }
@@ -9166,6 +9181,166 @@ void tst_QNetworkReply::putWithServerClosingConnectionImmediately()
 }
 
 #endif
+
+void tst_QNetworkReply::autoDeleteRepliesAttribute_data()
+{
+    QTest::addColumn<QUrl>("destination");
+
+    QTest::newRow("http") << QUrl("http://QInvalidDomain.qt/test");
+    QTest::newRow("https") << QUrl("https://QInvalidDomain.qt/test");
+    QTest::newRow("ftp") << QUrl("ftp://QInvalidDomain.qt/test");
+    QTest::newRow("file") << QUrl("file:///thisfolderdoesn'texist/probably.txt");
+#ifdef Q_OS_WIN
+    // Only supported on windows.
+    QTest::newRow("remote-file") << QUrl("file://QInvalidHost/thisfolderdoesn'texist/probably.txt");
+#endif
+    QTest::newRow("qrc") << QUrl("qrc:///path/to/nowhere");
+    QTest::newRow("data") << QUrl("data:,Some%20plaintext%20data");
+}
+
+void tst_QNetworkReply::autoDeleteRepliesAttribute()
+{
+    QFETCH(QUrl, destination);
+    {
+        // Get
+        QNetworkRequest request(destination);
+        request.setAttribute(QNetworkRequest::AutoDeleteReplyOnFinishAttribute, true);
+        QNetworkReply *reply = manager.get(request);
+        QSignalSpy finishedSpy(reply, &QNetworkReply::finished);
+        QSignalSpy destroyedSpy(reply, &QObject::destroyed);
+        QVERIFY(finishedSpy.wait());
+        QCOMPARE(destroyedSpy.count(), 0);
+        QVERIFY(destroyedSpy.wait());
+    }
+    {
+        // Post
+        QNetworkRequest request(destination);
+        request.setAttribute(QNetworkRequest::AutoDeleteReplyOnFinishAttribute, true);
+        QNetworkReply *reply = manager.post(request, QByteArrayLiteral("datastring"));
+        QSignalSpy finishedSpy(reply, &QNetworkReply::finished);
+        QSignalSpy destroyedSpy(reply, &QObject::destroyed);
+        QVERIFY(finishedSpy.wait());
+        QCOMPARE(destroyedSpy.count(), 0);
+        QVERIFY(destroyedSpy.wait());
+    }
+    // Now repeated, but without the attribute to make sure it does not get deleted automatically.
+    // We need two calls to processEvents to test that the QNetworkReply doesn't get deleted.
+    // The first call executes a metacall event which adds the deleteLater meta event which
+    // would be executed in the second call. But that shouldn't happen without the attribute.
+    {
+        // Get
+        QNetworkRequest request(destination);
+        QScopedPointer<QNetworkReply> reply(manager.get(request));
+        QSignalSpy finishedSpy(reply.data(), &QNetworkReply::finished);
+        QSignalSpy destroyedSpy(reply.data(), &QObject::destroyed);
+        QVERIFY(finishedSpy.wait());
+        QCOMPARE(destroyedSpy.count(), 0);
+        QCoreApplication::processEvents();
+        QCoreApplication::processEvents();
+        QCOMPARE(destroyedSpy.count(), 0);
+    }
+    {
+        // Post
+        QNetworkRequest request(destination);
+        QScopedPointer<QNetworkReply> reply(manager.post(request, QByteArrayLiteral("datastring")));
+        QSignalSpy finishedSpy(reply.data(), &QNetworkReply::finished);
+        QSignalSpy destroyedSpy(reply.data(), &QObject::destroyed);
+        QVERIFY(finishedSpy.wait());
+        QCOMPARE(destroyedSpy.count(), 0);
+        QCoreApplication::processEvents();
+        QCoreApplication::processEvents();
+        QCOMPARE(destroyedSpy.count(), 0);
+    }
+}
+
+void tst_QNetworkReply::autoDeleteReplies_data()
+{
+    autoDeleteRepliesAttribute_data();
+}
+
+void tst_QNetworkReply::autoDeleteReplies()
+{
+    QFETCH(QUrl, destination);
+    manager.setAutoDeleteReplies(true);
+    auto cleanup = qScopeGuard([this] { manager.setAutoDeleteReplies(false); });
+    {
+        // Get
+        QNetworkRequest request(destination);
+        QNetworkReply *reply = manager.get(request);
+        QSignalSpy finishedSpy(reply, &QNetworkReply::finished);
+        QSignalSpy destroyedSpy(reply, &QObject::destroyed);
+        QVERIFY(finishedSpy.wait());
+        QCOMPARE(destroyedSpy.count(), 0);
+        QVERIFY(destroyedSpy.wait());
+    }
+    {
+        // Post
+        QNetworkRequest request(destination);
+        QNetworkReply *reply = manager.post(request, QByteArrayLiteral("datastring"));
+        QSignalSpy finishedSpy(reply, &QNetworkReply::finished);
+        QSignalSpy destroyedSpy(reply, &QObject::destroyed);
+        QVERIFY(finishedSpy.wait());
+        QCOMPARE(destroyedSpy.count(), 0);
+        QVERIFY(destroyedSpy.wait());
+    }
+    // Here we repeat the test, but override the auto-deletion in the QNetworkRequest
+    // We need two calls to processEvents to test that the QNetworkReply doesn't get deleted.
+    // The first call executes a metacall event which adds the deleteLater meta event which
+    // would be executed in the second call. But that shouldn't happen in this case.
+    {
+        // Get
+        QNetworkRequest request(destination);
+        request.setAttribute(QNetworkRequest::AutoDeleteReplyOnFinishAttribute, false);
+        QScopedPointer<QNetworkReply> reply(manager.get(request));
+        QSignalSpy finishedSpy(reply.data(), &QNetworkReply::finished);
+        QSignalSpy destroyedSpy(reply.data(), &QObject::destroyed);
+        QVERIFY(finishedSpy.wait());
+        QCOMPARE(destroyedSpy.count(), 0);
+        QCoreApplication::processEvents();
+        QCoreApplication::processEvents();
+        QCOMPARE(destroyedSpy.count(), 0);
+    }
+    {
+        // Post
+        QNetworkRequest request(destination);
+        request.setAttribute(QNetworkRequest::AutoDeleteReplyOnFinishAttribute, false);
+        QScopedPointer<QNetworkReply> reply(manager.post(request, QByteArrayLiteral("datastring")));
+        QSignalSpy finishedSpy(reply.data(), &QNetworkReply::finished);
+        QSignalSpy destroyedSpy(reply.data(), &QObject::destroyed);
+        QVERIFY(finishedSpy.wait());
+        QCOMPARE(destroyedSpy.count(), 0);
+        QCoreApplication::processEvents();
+        QCoreApplication::processEvents();
+        QCOMPARE(destroyedSpy.count(), 0);
+    }
+    // Now we repeat the test with autoDeleteReplies set to false
+    cleanup.dismiss();
+    manager.setAutoDeleteReplies(false);
+    {
+        // Get
+        QNetworkRequest request(destination);
+        QScopedPointer<QNetworkReply> reply(manager.get(request));
+        QSignalSpy finishedSpy(reply.data(), &QNetworkReply::finished);
+        QSignalSpy destroyedSpy(reply.data(), &QObject::destroyed);
+        QVERIFY(finishedSpy.wait());
+        QCOMPARE(destroyedSpy.count(), 0);
+        QCoreApplication::processEvents();
+        QCoreApplication::processEvents();
+        QCOMPARE(destroyedSpy.count(), 0);
+    }
+    {
+        // Post
+        QNetworkRequest request(destination);
+        QScopedPointer<QNetworkReply> reply(manager.post(request, QByteArrayLiteral("datastring")));
+        QSignalSpy finishedSpy(reply.data(), &QNetworkReply::finished);
+        QSignalSpy destroyedSpy(reply.data(), &QObject::destroyed);
+        QVERIFY(finishedSpy.wait());
+        QCOMPARE(destroyedSpy.count(), 0);
+        QCoreApplication::processEvents();
+        QCoreApplication::processEvents();
+        QCOMPARE(destroyedSpy.count(), 0);
+    }
+}
 
 // NOTE: This test must be last testcase in tst_qnetworkreply!
 void tst_QNetworkReply::parentingRepliesToTheApp()

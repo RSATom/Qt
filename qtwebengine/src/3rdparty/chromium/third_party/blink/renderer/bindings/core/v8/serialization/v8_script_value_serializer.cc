@@ -8,6 +8,7 @@
 #include "third_party/blink/public/platform/web_blob_info.h"
 #include "third_party/blink/renderer/bindings/core/v8/to_v8_for_core.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_blob.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_dom_exception.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_dom_matrix.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_dom_matrix_read_only.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_dom_point.h"
@@ -145,7 +146,7 @@ void V8ScriptValueSerializer::FinalizeTransfer(
     ExceptionState& exception_state) {
   // TODO(jbroman): Strictly speaking, this is not correct; transfer should
   // occur in the order of the transfer list.
-  // https://html.spec.whatwg.org/multipage/infrastructure.html#structuredclonewithtransfer
+  // https://html.spec.whatwg.org/C/#structuredclonewithtransfer
 
   v8::Isolate* isolate = script_state_->GetIsolate();
 
@@ -195,8 +196,8 @@ void V8ScriptValueSerializer::WriteUTF8String(const String& string) {
   // TODO(jbroman): Ideally this method would take a WTF::StringView, but the
   // StringUTF8Adaptor trick doesn't yet work with StringView.
   StringUTF8Adaptor utf8(string);
-  WriteUint32(utf8.length());
-  WriteRawBytes(utf8.Data(), utf8.length());
+  WriteUint32(utf8.size());
+  WriteRawBytes(utf8.data(), utf8.size());
 }
 
 bool V8ScriptValueSerializer::WriteDOMObject(ScriptWrappable* wrappable,
@@ -565,6 +566,17 @@ bool V8ScriptValueSerializer::WriteDOMObject(ScriptWrappable* wrappable,
                                       transferables_->writable_streams.size()));
     return true;
   }
+  if (wrapper_type_info == V8DOMException::GetWrapperTypeInfo()) {
+    DOMException* exception = wrappable->ToImpl<DOMException>();
+    WriteTag(kDOMExceptionTag);
+    WriteUTF8String(exception->name());
+    WriteUTF8String(exception->message());
+    // We may serialize the stack property in the future, so we store a null
+    // string in order to avoid future scheme changes.
+    String stack_unused;
+    WriteUTF8String(stack_unused);
+    return true;
+  }
   return false;
 }
 
@@ -575,7 +587,7 @@ bool V8ScriptValueSerializer::WriteFile(File* file,
   if (blob_info_array_) {
     size_t index = blob_info_array_->size();
     DCHECK_LE(index, std::numeric_limits<uint32_t>::max());
-    long long size = -1;
+    uint64_t size;
     double last_modified_ms = InvalidFileTime();
     file->CaptureSnapshot(size, last_modified_ms);
     // FIXME: transition WebBlobInfo.lastModified to be milliseconds-based also.
@@ -594,11 +606,11 @@ bool V8ScriptValueSerializer::WriteFile(File* file,
     // Why this inconsistency?
     if (file->HasValidSnapshotMetadata()) {
       WriteUint32(1);
-      long long size;
+      uint64_t size;
       double last_modified_ms;
       file->CaptureSnapshot(size, last_modified_ms);
-      DCHECK_GE(size, 0);
-      WriteUint64(static_cast<uint64_t>(size));
+      DCHECK_NE(size, std::numeric_limits<uint64_t>::max());
+      WriteUint64(size);
       WriteDouble(last_modified_ms);
     } else {
       WriteUint32(0);

@@ -59,9 +59,21 @@ QAspectJobPrivate::QAspectJobPrivate()
 {
 }
 
+QAspectJobPrivate::~QAspectJobPrivate() = default;
+
 QAspectJobPrivate *QAspectJobPrivate::get(QAspectJob *job)
 {
     return job->d_func();
+}
+
+const QAspectJobPrivate *QAspectJobPrivate::get(const QAspectJob *job)
+{
+    return job->d_func();
+}
+
+void QAspectJobPrivate::postFrame(QAspectManager *aspectManager)
+{
+    Q_UNUSED(aspectManager)
 }
 
 QAspectJob::QAspectJob()

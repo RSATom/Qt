@@ -81,6 +81,7 @@ class MRUCacheBase {
   // example, maybe it has special work to do when something is evicted), it
   // can pass NO_AUTO_EVICT to not restrict the cache size.
   explicit MRUCacheBase(size_type max_size) : max_size_(max_size) {}
+  MRUCacheBase(MRUCacheBase&&) = default;
 
   virtual ~MRUCacheBase() = default;
 
@@ -228,8 +229,9 @@ class MRUCache : public MRUCacheBase<KeyType, PayloadType, CompareType> {
 
  public:
   // See MRUCacheBase, noting the possibility of using NO_AUTO_EVICT.
-  explicit MRUCache(typename ParentType::size_type max_size)
+  MRUCache(typename ParentType::size_type max_size)
       : ParentType(max_size) {}
+  MRUCache(MRUCache&&) = default;
   virtual ~MRUCache() = default;
 
  private:

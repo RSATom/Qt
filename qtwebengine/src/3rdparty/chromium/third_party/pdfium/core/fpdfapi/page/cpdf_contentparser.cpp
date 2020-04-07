@@ -19,9 +19,8 @@
 #include "core/fpdfapi/parser/cpdf_stream_acc.h"
 #include "core/fxcrt/fx_safe_types.h"
 #include "core/fxcrt/pauseindicator_iface.h"
+#include "core/fxge/render_defines.h"
 #include "third_party/base/ptr_util.h"
-
-#define PARSE_STEP_LIMIT 100
 
 CPDF_ContentParser::CPDF_ContentParser(CPDF_Page* pPage)
     : m_CurrentStage(Stage::kGetContent), m_pObjectHolder(pPage) {
@@ -34,37 +33,28 @@ CPDF_ContentParser::CPDF_ContentParser(CPDF_Page* pPage)
   CPDF_Object* pContent =
       pPage->GetDict()->GetDirectObjectFor(pdfium::page_object::kContents);
   if (!pContent) {
-    m_CurrentStage = Stage::kComplete;
+    HandlePageContentFailure();
     return;
   }
 
   CPDF_Stream* pStream = pContent->AsStream();
   if (pStream) {
-    m_pSingleStream = pdfium::MakeRetain<CPDF_StreamAcc>(pStream);
-    m_pSingleStream->LoadAllDataFiltered();
-    m_CurrentStage = Stage::kPrepareContent;
+    HandlePageContentStream(pStream);
     return;
   }
 
   CPDF_Array* pArray = pContent->AsArray();
-  if (!pArray) {
-    m_CurrentStage = Stage::kComplete;
+  if (pArray && HandlePageContentArray(pArray))
     return;
-  }
 
-  m_nStreams = pArray->size();
-  if (m_nStreams == 0) {
-    m_CurrentStage = Stage::kComplete;
-    return;
-  }
-  m_StreamArray.resize(m_nStreams);
+  HandlePageContentFailure();
 }
 
 CPDF_ContentParser::CPDF_ContentParser(CPDF_Form* pForm,
-                                       CPDF_AllStates* pGraphicStates,
+                                       const CPDF_AllStates* pGraphicStates,
                                        const CFX_Matrix* pParentMatrix,
                                        CPDF_Type3Char* pType3Char,
-                                       std::set<const uint8_t*>* parsedSet)
+                                       std::set<const uint8_t*>* pParsedSet)
     : m_CurrentStage(Stage::kParse),
       m_pObjectHolder(pForm),
       m_pType3Char(pType3Char) {
@@ -94,7 +84,7 @@ CPDF_ContentParser::CPDF_ContentParser(CPDF_Form* pForm,
   m_pParser = pdfium::MakeUnique<CPDF_StreamContentParser>(
       pForm->GetDocument(), pForm->m_pPageResources.Get(),
       pForm->m_pResources.Get(), pParentMatrix, pForm, pResources, form_bbox,
-      pGraphicStates, parsedSet);
+      pGraphicStates, pParsedSet);
   m_pParser->GetCurStates()->m_CTM = form_matrix;
   m_pParser->GetCurStates()->m_ParentMatrix = form_matrix;
   if (ClipPath.HasRef()) {
@@ -194,12 +184,12 @@ CPDF_ContentParser::Stage CPDF_ContentParser::PrepareContent() {
 
 CPDF_ContentParser::Stage CPDF_ContentParser::Parse() {
   if (!m_pParser) {
-    m_parsedSet = pdfium::MakeUnique<std::set<const uint8_t*>>();
+    m_pParsedSet = pdfium::MakeUnique<std::set<const uint8_t*>>();
     m_pParser = pdfium::MakeUnique<CPDF_StreamContentParser>(
         m_pObjectHolder->GetDocument(), m_pObjectHolder->m_pPageResources.Get(),
         nullptr, nullptr, m_pObjectHolder.Get(),
         m_pObjectHolder->m_pResources.Get(), m_pObjectHolder->GetBBox(),
-        nullptr, m_parsedSet.get());
+        nullptr, m_pParsedSet.get());
     m_pParser->GetCurStates()->m_ColorState.SetDefault();
   }
   if (m_CurrentOffset >= m_Size)
@@ -208,8 +198,9 @@ CPDF_ContentParser::Stage CPDF_ContentParser::Parse() {
   if (m_StreamSegmentOffsets.empty())
     m_StreamSegmentOffsets.push_back(0);
 
+  static constexpr uint32_t kParseStepLimit = 100;
   m_CurrentOffset += m_pParser->Parse(m_pData.Get(), m_Size, m_CurrentOffset,
-                                      PARSE_STEP_LIMIT, m_StreamSegmentOffsets);
+                                      kParseStepLimit, m_StreamSegmentOffsets);
   return Stage::kParse;
 }
 
@@ -219,7 +210,7 @@ CPDF_ContentParser::Stage CPDF_ContentParser::CheckClip() {
                                            m_pParser->GetType3Data());
   }
 
-  for (auto& pObj : *m_pObjectHolder->GetPageObjectList()) {
+  for (auto& pObj : *m_pObjectHolder) {
     if (!pObj->m_ClipPath.HasRef())
       continue;
     if (pObj->m_ClipPath.GetPathCount() != 1)
@@ -238,4 +229,23 @@ CPDF_ContentParser::Stage CPDF_ContentParser::CheckClip() {
       pObj->m_ClipPath.SetNull();
   }
   return Stage::kComplete;
+}
+
+void CPDF_ContentParser::HandlePageContentStream(CPDF_Stream* pStream) {
+  m_pSingleStream = pdfium::MakeRetain<CPDF_StreamAcc>(pStream);
+  m_pSingleStream->LoadAllDataFiltered();
+  m_CurrentStage = Stage::kPrepareContent;
+}
+
+bool CPDF_ContentParser::HandlePageContentArray(CPDF_Array* pArray) {
+  m_nStreams = pArray->size();
+  if (m_nStreams == 0)
+    return false;
+
+  m_StreamArray.resize(m_nStreams);
+  return true;
+}
+
+void CPDF_ContentParser::HandlePageContentFailure() {
+  m_CurrentStage = Stage::kComplete;
 }

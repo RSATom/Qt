@@ -70,7 +70,7 @@ void FieldTrialTest::SetNetworkQueriesWithVariationsService(
 
   std::map<std::string, std::string> params;
   params["RandomQueryProbability"] = base::NumberToString(query_probability);
-  params["CheckTimeIntervalSeconds"] = base::Int64ToString(360);
+  params["CheckTimeIntervalSeconds"] = base::NumberToString(360);
   std::string fetch_behavior_param;
   switch (fetch_behavior) {
     case NetworkTimeTracker::FETCH_BEHAVIOR_UNKNOWN:
@@ -111,8 +111,13 @@ void FieldTrialTest::SetNetworkQueriesWithVariationsService(
 
   // refcounted, and reference held by the singleton FieldTrialList.
   base::FieldTrial* trial = base::FieldTrialList::FactoryGetFieldTrial(
-      kTrialName, 100, kGroupName, 1971, 1, 1,
-      base::FieldTrial::SESSION_RANDOMIZED, nullptr /* default_group_number */);
+      kTrialName, 100, kGroupName, base::FieldTrial::SESSION_RANDOMIZED,
+      nullptr /* default_group_number */);
+  // Disabling the field trial selects the default group, with which we
+  // associate the provided params. Disabling the field trial does not disable
+  // the feature itself, but just provides a default group to use to set the
+  // feature enabled/disabled state below.
+  trial->Disable();
   ASSERT_TRUE(
       variations::AssociateVariationParams(kTrialName, kGroupName, params));
 

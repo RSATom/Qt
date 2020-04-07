@@ -7,8 +7,8 @@
 
 #include <memory>
 #include "media/midi/midi_service.mojom-blink.h"
-#include "third_party/blink/public/platform/modules/permissions/permission.mojom-blink.h"
-#include "third_party/blink/public/platform/modules/permissions/permission_status.mojom-blink.h"
+#include "third_party/blink/public/mojom/permissions/permission.mojom-blink.h"
+#include "third_party/blink/public/mojom/permissions/permission_status.mojom-blink.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise_resolver.h"
 #include "third_party/blink/renderer/modules/modules_export.h"
@@ -24,6 +24,8 @@ class ScriptState;
 
 class MODULES_EXPORT MIDIAccessInitializer : public ScriptPromiseResolver,
                                              public MIDIAccessorClient {
+  USING_PRE_FINALIZER(MIDIAccessInitializer, Dispose);
+
  public:
   struct PortDescriptor {
     DISALLOW_NEW();
@@ -59,9 +61,7 @@ class MODULES_EXPORT MIDIAccessInitializer : public ScriptPromiseResolver,
   MIDIAccessInitializer(ScriptState*, const MIDIOptions*);
   ~MIDIAccessInitializer() override = default;
 
-  // Eager finalization to allow dispose() operation access
-  // other (non eager) heap objects.
-  EAGERLY_FINALIZE();
+  void Dispose();
 
   // MIDIAccessorClient
   void DidAddInputPort(const String& id,
@@ -82,7 +82,7 @@ class MODULES_EXPORT MIDIAccessInitializer : public ScriptPromiseResolver,
   void DidReceiveMIDIData(unsigned port_index,
                           const unsigned char* data,
                           wtf_size_t length,
-                          TimeTicks time_stamp) override {}
+                          base::TimeTicks time_stamp) override {}
 
   void Trace(Visitor*) override;
 

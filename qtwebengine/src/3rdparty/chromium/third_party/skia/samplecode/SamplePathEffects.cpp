@@ -5,19 +5,19 @@
  * found in the LICENSE file.
  */
 
-#include "Sample.h"
-#include "SkAnimTimer.h"
-#include "SkCanvas.h"
-#include "SkGradientShader.h"
-#include "SkPath.h"
-#include "SkRegion.h"
-#include "SkShader.h"
-#include "SkUTF.h"
-#include "Sk1DPathEffect.h"
-#include "SkCornerPathEffect.h"
-#include "SkPathMeasure.h"
-#include "SkRandom.h"
-#include "SkColorPriv.h"
+#include "include/core/SkCanvas.h"
+#include "include/core/SkColorPriv.h"
+#include "include/core/SkPath.h"
+#include "include/core/SkPathMeasure.h"
+#include "include/core/SkRegion.h"
+#include "include/core/SkShader.h"
+#include "include/effects/Sk1DPathEffect.h"
+#include "include/effects/SkCornerPathEffect.h"
+#include "include/effects/SkGradientShader.h"
+#include "include/utils/SkRandom.h"
+#include "samplecode/Sample.h"
+#include "src/utils/SkUTF.h"
+#include "tools/timer/TimeUtils.h"
 
 #define CORNER_RADIUS   12
 
@@ -65,7 +65,7 @@ static sk_sp<SkPathEffect> make_warp_pe(SkScalar phase) {
 
 ///////////////////////////////////////////////////////////
 
-#include "SkColorFilter.h"
+#include "include/core/SkColorFilter.h"
 
 class PathEffectView : public Sample {
     SkPath  fPath;
@@ -108,13 +108,7 @@ protected:
         this->setBGColor(0xFFDDDDDD);
     }
 
-    bool onQuery(Sample::Event* evt) override {
-        if (Sample::TitleQ(*evt)) {
-            Sample::TitleR(evt, "PathEffects");
-            return true;
-        }
-        return this->INHERITED::onQuery(evt);
-    }
+    SkString name() override { return SkString("PathEffects"); }
 
     void onDrawContent(SkCanvas* canvas) override {
         SkPaint paint;
@@ -138,8 +132,8 @@ protected:
         canvas->drawPath(fPath, paint);
     }
 
-    bool onAnimate(const SkAnimTimer& timer) override {
-        fPhase = timer.scaled(40);
+    bool onAnimate(double nanos) override {
+        fPhase = TimeUtils::Scaled(1e-9 * nanos, 40);
         return true;
     }
 

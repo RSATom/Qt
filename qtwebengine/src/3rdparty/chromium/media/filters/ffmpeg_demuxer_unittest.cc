@@ -22,9 +22,11 @@
 #include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
 #include "media/base/decrypt_config.h"
+#include "media/base/media_client.h"
 #include "media/base/media_tracks.h"
 #include "media/base/media_util.h"
 #include "media/base/mock_demuxer_host.h"
+#include "media/base/mock_filters.h"
 #include "media/base/mock_media_log.h"
 #include "media/base/test_helpers.h"
 #include "media/base/timestamp_constants.h"
@@ -35,9 +37,12 @@
 #include "media/formats/mp4/bitstream_converter.h"
 #include "media/media_buildflags.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "ui/gfx/color_space.h"
 
+using ::testing::_;
 using ::testing::AnyNumber;
 using ::testing::DoAll;
+using ::testing::Eq;
 using ::testing::Exactly;
 using ::testing::InSequence;
 using ::testing::Invoke;
@@ -47,7 +52,6 @@ using ::testing::SaveArg;
 using ::testing::SetArgPointee;
 using ::testing::StrictMock;
 using ::testing::WithArgs;
-using ::testing::_;
 
 namespace media {
 
@@ -66,9 +70,11 @@ MATCHER_P(SimpleCreatedFFmpegDemuxerStream, stream_type, "") {
 
 MATCHER_P(FailedToCreateValidDecoderConfigFromStream, stream_type, "") {
   return CONTAINS_STRING(
-      arg, "\"debug\":\"Warning, FFmpegDemuxer failed to create a valid " +
-               std::string(stream_type) +
-               " decoder configuration from muxed stream");
+      arg,
+      "\"debug\":\"Warning, FFmpegDemuxer failed to create a "
+      "valid/supported " +
+          std::string(stream_type) +
+          " decoder configuration from muxed stream");
 }
 
 MATCHER_P(SkippingUnsupportedStream, stream_type, "") {
@@ -97,8 +103,7 @@ static void EosOnReadDone(bool* got_eos_buffer,
   EXPECT_TRUE(buffer->data());
   EXPECT_GT(buffer->data_size(), 0u);
   *got_eos_buffer = false;
-};
-
+}
 
 // Fixture class to facilitate writing tests.  Takes care of setting up the
 // FFmpeg, pipeline and filter host mocks.
@@ -374,7 +379,8 @@ TEST_F(FFmpegDemuxerTest, Initialize_Successful) {
 
   const VideoDecoderConfig& video_config = stream->video_decoder_config();
   EXPECT_EQ(kCodecVP8, video_config.codec());
-  EXPECT_EQ(PIXEL_FORMAT_I420, video_config.format());
+  EXPECT_EQ(VideoDecoderConfig::AlphaMode::kIsOpaque,
+            video_config.alpha_mode());
   EXPECT_EQ(320, video_config.coded_size().width());
   EXPECT_EQ(240, video_config.coded_size().height());
   EXPECT_EQ(0, video_config.visible_rect().x());
@@ -1211,11 +1217,12 @@ TEST_P(Mp3SeekFFmpegDemuxerTest, TestFastSeek) {
 // MP3s should seek quickly without sequentially reading up to the seek point.
 // VBR vs CBR and the presence/absence of TOC influence the seeking algorithm.
 // See http://crbug.com/530043 and FFmpeg flag AVFMT_FLAG_FAST_SEEK.
-INSTANTIATE_TEST_CASE_P(, Mp3SeekFFmpegDemuxerTest,
-                        ::testing::Values("bear-audio-10s-CBR-has-TOC.mp3",
-                                          "bear-audio-10s-CBR-no-TOC.mp3",
-                                          "bear-audio-10s-VBR-has-TOC.mp3",
-                                          "bear-audio-10s-VBR-no-TOC.mp3"));
+INSTANTIATE_TEST_SUITE_P(,
+                         Mp3SeekFFmpegDemuxerTest,
+                         ::testing::Values("bear-audio-10s-CBR-has-TOC.mp3",
+                                           "bear-audio-10s-CBR-no-TOC.mp3",
+                                           "bear-audio-10s-VBR-has-TOC.mp3",
+                                           "bear-audio-10s-VBR-no-TOC.mp3"));
 
 #if BUILDFLAG(USE_PROPRIETARY_CODECS)
 static void ValidateAnnexB(DemuxerStream* stream,
@@ -1247,7 +1254,7 @@ static void ValidateAnnexB(DemuxerStream* stream,
   }
 
   stream->Read(base::Bind(&ValidateAnnexB, stream));
-};
+}
 
 TEST_F(FFmpegDemuxerTest, IsValidAnnexB) {
   const char* files[] = {
@@ -1282,7 +1289,7 @@ TEST_F(FFmpegDemuxerTest, Rotate_Metadata_0) {
   ASSERT_TRUE(stream);
 
   const VideoDecoderConfig& video_config = stream->video_decoder_config();
-  ASSERT_EQ(VIDEO_ROTATION_0, video_config.video_rotation());
+  ASSERT_EQ(VIDEO_ROTATION_0, video_config.video_transformation().rotation);
 }
 
 TEST_F(FFmpegDemuxerTest, Rotate_Metadata_90) {
@@ -1293,7 +1300,7 @@ TEST_F(FFmpegDemuxerTest, Rotate_Metadata_90) {
   ASSERT_TRUE(stream);
 
   const VideoDecoderConfig& video_config = stream->video_decoder_config();
-  ASSERT_EQ(VIDEO_ROTATION_90, video_config.video_rotation());
+  ASSERT_EQ(VIDEO_ROTATION_90, video_config.video_transformation().rotation);
 }
 
 TEST_F(FFmpegDemuxerTest, Rotate_Metadata_180) {
@@ -1304,7 +1311,7 @@ TEST_F(FFmpegDemuxerTest, Rotate_Metadata_180) {
   ASSERT_TRUE(stream);
 
   const VideoDecoderConfig& video_config = stream->video_decoder_config();
-  ASSERT_EQ(VIDEO_ROTATION_180, video_config.video_rotation());
+  ASSERT_EQ(VIDEO_ROTATION_180, video_config.video_transformation().rotation);
 }
 
 TEST_F(FFmpegDemuxerTest, Rotate_Metadata_270) {
@@ -1315,7 +1322,7 @@ TEST_F(FFmpegDemuxerTest, Rotate_Metadata_270) {
   ASSERT_TRUE(stream);
 
   const VideoDecoderConfig& video_config = stream->video_decoder_config();
-  ASSERT_EQ(VIDEO_ROTATION_270, video_config.video_rotation());
+  ASSERT_EQ(VIDEO_ROTATION_270, video_config.video_transformation().rotation);
 }
 
 TEST_F(FFmpegDemuxerTest, NaturalSizeWithoutPASP) {
@@ -1343,6 +1350,20 @@ TEST_F(FFmpegDemuxerTest, NaturalSizeWithPASP) {
 TEST_F(FFmpegDemuxerTest, HEVC_in_MP4_container) {
   CreateDemuxer("bear-hevc-frag.mp4");
 #if BUILDFLAG(ENABLE_HEVC_DEMUXING)
+  // HEVC is not supported by default media platform. Embedders who add support
+  // must declare it via MediaClient.
+  MockMediaClient media_client;
+  SetMediaClient(&media_client);
+
+  VideoColorSpace color_space(VideoColorSpace::PrimaryID::SMPTE170M,
+                              VideoColorSpace::TransferID::SMPTE170M,
+                              VideoColorSpace::MatrixID::SMPTE170M,
+                              gfx::ColorSpace::RangeID::LIMITED);
+  VideoType hevc_type = {VideoCodec::kCodecHEVC,
+                         VideoCodecProfile::HEVCPROFILE_MAIN, 10, color_space};
+  EXPECT_CALL(media_client, IsSupportedVideoType(Eq(hevc_type)))
+      .WillRepeatedly(Return(true));
+
   InitializeDemuxer();
 
   DemuxerStream* video = GetStream(DemuxerStream::VIDEO);
@@ -1353,6 +1374,8 @@ TEST_F(FFmpegDemuxerTest, HEVC_in_MP4_container) {
 
   video->Read(NewReadCB(FROM_HERE, 1042, 200200, false));
   base::RunLoop().Run();
+
+  SetMediaClient(nullptr);
 #else
   InitializeDemuxerAndExpectPipelineStatus(DEMUXER_ERROR_NO_SUPPORTED_STREAMS);
 #endif
@@ -1361,6 +1384,15 @@ TEST_F(FFmpegDemuxerTest, HEVC_in_MP4_container) {
 TEST_F(FFmpegDemuxerTest, Read_AC3_Audio) {
   CreateDemuxer("bear-ac3-only-frag.mp4");
 #if BUILDFLAG(ENABLE_AC3_EAC3_AUDIO_DEMUXING)
+  // AC3 is not supported by default media platform. Embedders who add support
+  // must declare it via MediaClient.
+  MockMediaClient media_client;
+  SetMediaClient(&media_client);
+
+  AudioType ac3_type = {AudioCodec::kCodecAC3};
+  EXPECT_CALL(media_client, IsSupportedAudioType(Eq(ac3_type)))
+      .WillRepeatedly(Return(true));
+
   InitializeDemuxer();
 
   // Attempt a read from the audio stream and run the message loop until done.
@@ -1372,6 +1404,8 @@ TEST_F(FFmpegDemuxerTest, Read_AC3_Audio) {
 
   audio->Read(NewReadCB(FROM_HERE, 836, 34830, true));
   base::RunLoop().Run();
+
+  SetMediaClient(nullptr);
 #else
   InitializeDemuxerAndExpectPipelineStatus(DEMUXER_ERROR_NO_SUPPORTED_STREAMS);
 #endif
@@ -1380,6 +1414,15 @@ TEST_F(FFmpegDemuxerTest, Read_AC3_Audio) {
 TEST_F(FFmpegDemuxerTest, Read_EAC3_Audio) {
   CreateDemuxer("bear-eac3-only-frag.mp4");
 #if BUILDFLAG(ENABLE_AC3_EAC3_AUDIO_DEMUXING)
+  // EAC3 is not supported by default media platform. Embedders who add support
+  // must declare it via MediaClient.
+  MockMediaClient media_client;
+  SetMediaClient(&media_client);
+
+  AudioType eac3_type = {AudioCodec::kCodecEAC3};
+  EXPECT_CALL(media_client, IsSupportedAudioType(Eq(eac3_type)))
+      .WillRepeatedly(Return(true));
+
   InitializeDemuxer();
 
   // Attempt a read from the audio stream and run the message loop until done.
@@ -1391,6 +1434,8 @@ TEST_F(FFmpegDemuxerTest, Read_EAC3_Audio) {
 
   audio->Read(NewReadCB(FROM_HERE, 872, 34830, true));
   base::RunLoop().Run();
+
+  SetMediaClient(nullptr);
 #else
   InitializeDemuxerAndExpectPipelineStatus(DEMUXER_ERROR_NO_SUPPORTED_STREAMS);
 #endif
@@ -1405,16 +1450,16 @@ TEST_F(FFmpegDemuxerTest, Read_Mp4_Media_Track_Info) {
   const MediaTrack& audio_track = *(media_tracks_->tracks()[1]);
   EXPECT_EQ(audio_track.type(), MediaTrack::Audio);
   EXPECT_EQ(audio_track.bytestream_track_id(), 2);
-  EXPECT_EQ(audio_track.kind(), "main");
-  EXPECT_EQ(audio_track.label(), "SoundHandler");
-  EXPECT_EQ(audio_track.language(), "und");
+  EXPECT_EQ(audio_track.kind().value(), "main");
+  EXPECT_EQ(audio_track.label().value(), "SoundHandler");
+  EXPECT_EQ(audio_track.language().value(), "und");
 
   const MediaTrack& video_track = *(media_tracks_->tracks()[0]);
   EXPECT_EQ(video_track.type(), MediaTrack::Video);
   EXPECT_EQ(video_track.bytestream_track_id(), 1);
-  EXPECT_EQ(video_track.kind(), "main");
-  EXPECT_EQ(video_track.label(), "VideoHandler");
-  EXPECT_EQ(video_track.language(), "und");
+  EXPECT_EQ(video_track.kind().value(), "main");
+  EXPECT_EQ(video_track.label().value(), "VideoHandler");
+  EXPECT_EQ(video_track.language().value(), "und");
 }
 
 TEST_F(FFmpegDemuxerTest, Read_Mp4_Multiple_Tracks) {
@@ -1426,30 +1471,30 @@ TEST_F(FFmpegDemuxerTest, Read_Mp4_Multiple_Tracks) {
   const MediaTrack& video_track = *(media_tracks_->tracks()[0]);
   EXPECT_EQ(video_track.type(), MediaTrack::Video);
   EXPECT_EQ(video_track.bytestream_track_id(), 1);
-  EXPECT_EQ(video_track.kind(), "main");
-  EXPECT_EQ(video_track.label(), "VideoHandler");
-  EXPECT_EQ(video_track.language(), "und");
+  EXPECT_EQ(video_track.kind().value(), "main");
+  EXPECT_EQ(video_track.label().value(), "VideoHandler");
+  EXPECT_EQ(video_track.language().value(), "und");
 
   const MediaTrack& audio_track = *(media_tracks_->tracks()[1]);
   EXPECT_EQ(audio_track.type(), MediaTrack::Audio);
   EXPECT_EQ(audio_track.bytestream_track_id(), 2);
-  EXPECT_EQ(audio_track.kind(), "main");
-  EXPECT_EQ(audio_track.label(), "SoundHandler");
-  EXPECT_EQ(audio_track.language(), "und");
+  EXPECT_EQ(audio_track.kind().value(), "main");
+  EXPECT_EQ(audio_track.label().value(), "SoundHandler");
+  EXPECT_EQ(audio_track.language().value(), "und");
 
   const MediaTrack& video_track2 = *(media_tracks_->tracks()[2]);
   EXPECT_EQ(video_track2.type(), MediaTrack::Video);
   EXPECT_EQ(video_track2.bytestream_track_id(), 3);
-  EXPECT_EQ(video_track2.kind(), "main");
-  EXPECT_EQ(video_track2.label(), "VideoHandler");
-  EXPECT_EQ(video_track2.language(), "und");
+  EXPECT_EQ(video_track2.kind().value(), "main");
+  EXPECT_EQ(video_track2.label().value(), "VideoHandler");
+  EXPECT_EQ(video_track2.language().value(), "und");
 
   const MediaTrack& audio_track2 = *(media_tracks_->tracks()[3]);
   EXPECT_EQ(audio_track2.type(), MediaTrack::Audio);
   EXPECT_EQ(audio_track2.bytestream_track_id(), 4);
-  EXPECT_EQ(audio_track2.kind(), "main");
-  EXPECT_EQ(audio_track2.label(), "SoundHandler");
-  EXPECT_EQ(audio_track2.language(), "und");
+  EXPECT_EQ(audio_track2.kind().value(), "main");
+  EXPECT_EQ(audio_track2.label().value(), "SoundHandler");
+  EXPECT_EQ(audio_track2.language().value(), "und");
 }
 
 TEST_F(FFmpegDemuxerTest, Read_Mp4_Crbug657437) {
@@ -1495,16 +1540,16 @@ TEST_F(FFmpegDemuxerTest, Read_Webm_Media_Track_Info) {
   const MediaTrack& video_track = *(media_tracks_->tracks()[0]);
   EXPECT_EQ(video_track.type(), MediaTrack::Video);
   EXPECT_EQ(video_track.bytestream_track_id(), 1);
-  EXPECT_EQ(video_track.kind(), "main");
-  EXPECT_EQ(video_track.label(), "");
-  EXPECT_EQ(video_track.language(), "");
+  EXPECT_EQ(video_track.kind().value(), "main");
+  EXPECT_EQ(video_track.label().value(), "");
+  EXPECT_EQ(video_track.language().value(), "");
 
   const MediaTrack& audio_track = *(media_tracks_->tracks()[1]);
   EXPECT_EQ(audio_track.type(), MediaTrack::Audio);
   EXPECT_EQ(audio_track.bytestream_track_id(), 2);
-  EXPECT_EQ(audio_track.kind(), "main");
-  EXPECT_EQ(audio_track.label(), "");
-  EXPECT_EQ(audio_track.language(), "");
+  EXPECT_EQ(audio_track.kind().value(), "main");
+  EXPECT_EQ(audio_track.label().value(), "");
+  EXPECT_EQ(audio_track.language().value(), "");
 }
 
 // UTCDateToTime_* tests here assume FFmpegDemuxer's ExtractTimelineOffset

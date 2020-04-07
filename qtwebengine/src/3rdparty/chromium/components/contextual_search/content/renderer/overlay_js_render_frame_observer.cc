@@ -21,7 +21,7 @@ namespace contextual_search {
 OverlayJsRenderFrameObserver::OverlayJsRenderFrameObserver(
     content::RenderFrame* render_frame,
     service_manager::BinderRegistry* registry)
-    : RenderFrameObserver(render_frame), weak_factory_(this) {}
+    : RenderFrameObserver(render_frame) {}
 
 OverlayJsRenderFrameObserver::~OverlayJsRenderFrameObserver() {}
 
@@ -45,8 +45,7 @@ void OverlayJsRenderFrameObserver::EnableJsApi(bool should_enable) {
 }
 
 bool OverlayJsRenderFrameObserver::EnsureServiceConnected() {
-  if (render_frame() && (!contextual_search_js_api_service_ ||
-                         !contextual_search_js_api_service_.is_bound())) {
+  if (render_frame() && !contextual_search_js_api_service_) {
     render_frame()->GetRemoteInterfaces()->GetInterface(
         &contextual_search_js_api_service_);
     return true;

@@ -57,36 +57,44 @@ inline QSharedNetworkSessionManager* sharedNetworkSessionManager()
     return rv;
 }
 
-static void doDeleteLater(QObject* obj)
+struct DeleteLater {
+    void operator()(QObject* obj) const
+    {
+        obj->deleteLater();
+    }
+};
+
+template <typename Container>
+static void maybe_prune_expired(Container &c)
 {
-    obj->deleteLater();
+    if (c.size() > 16) {
+        for (auto it = c.cbegin(), end = c.cend(); it != end; /*erasing*/) {
+            if (!it->second.lock())
+                it = c.erase(it);
+            else
+                ++it;
+        }
+    }
 }
 
 QSharedPointer<QNetworkSession> QSharedNetworkSessionManager::getSession(const QNetworkConfiguration &config)
 {
-    QSharedNetworkSessionManager *m(sharedNetworkSessionManager());
-    const auto it = m->sessions.constFind(config);
+    QSharedNetworkSessionManager *m = sharedNetworkSessionManager();
+    maybe_prune_expired(m->sessions);
+    auto &entry = m->sessions[config];
     //if already have a session, return it
-    if (it != m->sessions.cend()) {
-        QSharedPointer<QNetworkSession> p = it.value().toStrongRef();
-        if (!p.isNull())
-            return p;
-    }
+    if (auto p = entry.toStrongRef())
+        return p;
     //otherwise make one
-    QSharedPointer<QNetworkSession> session(new QNetworkSession(config), doDeleteLater);
-    m->sessions[config] = session;
+    QSharedPointer<QNetworkSession> session(new QNetworkSession(config), DeleteLater{});
+    entry = session;
     return session;
 }
 
 void QSharedNetworkSessionManager::setSession(const QNetworkConfiguration &config, QSharedPointer<QNetworkSession> session)
 {
-    QSharedNetworkSessionManager *m(sharedNetworkSessionManager());
-    m->sessions[config] = session;
-}
-
-uint qHash(const QNetworkConfiguration& config)
-{
-    return ((uint)config.type()) | (((uint)config.bearerType()) << 8) | (((uint)config.purpose()) << 16);
+    QSharedNetworkSessionManager *m = sharedNetworkSessionManager();
+    m->sessions[config] = std::move(session);
 }
 
 QT_END_NAMESPACE

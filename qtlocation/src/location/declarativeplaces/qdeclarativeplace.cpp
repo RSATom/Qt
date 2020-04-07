@@ -1085,7 +1085,7 @@ void QDeclarativePlace::pullExtendedAttributes()
     QStringList attributeTypes = m_src.extendedAttributeTypes();
     foreach (const QString &attributeType, attributeTypes) {
         m_extendedAttributes->insert(attributeType,
-            qVariantFromValue(new QDeclarativePlaceAttribute(m_src.extendedAttribute(attributeType))));
+            QVariant::fromValue(new QDeclarativePlaceAttribute(m_src.extendedAttribute(attributeType))));
     }
 
     emit extendedAttributesChanged();

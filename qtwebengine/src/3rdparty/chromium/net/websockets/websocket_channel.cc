@@ -25,6 +25,7 @@
 #include "base/time/time.h"
 #include "net/base/auth.h"
 #include "net/base/io_buffer.h"
+#include "net/base/ip_endpoint.h"
 #include "net/http/http_request_headers.h"
 #include "net/http/http_response_headers.h"
 #include "net/http/http_util.h"
@@ -198,19 +199,20 @@ class WebSocketChannel::ConnectDelegate
   void OnSSLCertificateError(
       std::unique_ptr<WebSocketEventInterface::SSLErrorCallbacks>
           ssl_error_callbacks,
+      int net_error,
       const SSLInfo& ssl_info,
       bool fatal) override {
-    creator_->OnSSLCertificateError(std::move(ssl_error_callbacks), ssl_info,
-                                    fatal);
+    creator_->OnSSLCertificateError(std::move(ssl_error_callbacks), net_error,
+                                    ssl_info, fatal);
   }
 
-  int OnAuthRequired(scoped_refptr<AuthChallengeInfo> auth_info,
+  int OnAuthRequired(const AuthChallengeInfo& auth_info,
                      scoped_refptr<HttpResponseHeaders> headers,
-                     const HostPortPair& host_port_pair,
+                     const IPEndPoint& remote_endpoint,
                      base::OnceCallback<void(const AuthCredentials*)> callback,
                      base::Optional<AuthCredentials>* credentials) override {
-    return creator_->OnAuthRequired(std::move(auth_info), std::move(headers),
-                                    host_port_pair, std::move(callback),
+    return creator_->OnAuthRequired(auth_info, std::move(headers),
+                                    remote_endpoint, std::move(callback),
                                     credentials);
   }
 
@@ -319,13 +321,6 @@ void WebSocketChannel::SendAddChannelRequest(
 void WebSocketChannel::SetState(State new_state) {
   DCHECK_NE(state_, new_state);
 
-  if (new_state == CONNECTED)
-    established_on_ = base::TimeTicks::Now();
-  if (state_ == CONNECTED && !established_on_.is_null()) {
-    UMA_HISTOGRAM_LONG_TIMES(
-        "Net.WebSocket.Duration", base::TimeTicks::Now() - established_on_);
-  }
-
   state_ = new_state;
 }
 
@@ -390,7 +385,13 @@ WebSocketChannel::ChannelState WebSocketChannel::SendFrame(
   // |this| may have been deleted.
 }
 
-ChannelState WebSocketChannel::SendFlowControl(int64_t quota) {
+// Overrides default quota resend threshold size for WebSocket. This flag will
+// be used to investigate the performance issue of crbug.com/865001 and be
+// deleted later on.
+const char kWebSocketReceiveQuotaThreshold[] =
+    "websocket-renderer-receive-quota-max";
+
+ChannelState WebSocketChannel::AddReceiveFlowControlQuota(int64_t quota) {
   DCHECK(state_ == CONNECTING || state_ == CONNECTED || state_ == SEND_CLOSED ||
          state_ == CLOSE_WAIT);
   // TODO(ricea): Kill the renderer if it tries to send us a negative quota
@@ -569,7 +570,7 @@ void WebSocketChannel::OnConnectSuccess(
   // TODO(ricea): Get flow control information from the WebSocketStream once we
   // have a multiplexing WebSocketStream.
   current_send_quota_ = send_quota_high_water_mark_;
-  event_interface_->OnFlowControl(send_quota_high_water_mark_);
+  event_interface_->OnSendFlowControlQuotaAdded(send_quota_high_water_mark_);
 
   // |stream_request_| is not used once the connection has succeeded.
   stream_request_.reset();
@@ -594,20 +595,21 @@ void WebSocketChannel::OnConnectFailure(const std::string& message) {
 void WebSocketChannel::OnSSLCertificateError(
     std::unique_ptr<WebSocketEventInterface::SSLErrorCallbacks>
         ssl_error_callbacks,
+    int net_error,
     const SSLInfo& ssl_info,
     bool fatal) {
-  event_interface_->OnSSLCertificateError(std::move(ssl_error_callbacks),
-                                          socket_url_, ssl_info, fatal);
+  event_interface_->OnSSLCertificateError(
+      std::move(ssl_error_callbacks), socket_url_, net_error, ssl_info, fatal);
 }
 
 int WebSocketChannel::OnAuthRequired(
-    scoped_refptr<AuthChallengeInfo> auth_info,
+    const AuthChallengeInfo& auth_info,
     scoped_refptr<HttpResponseHeaders> response_headers,
-    const HostPortPair& host_port_pair,
+    const IPEndPoint& remote_endpoint,
     base::OnceCallback<void(const AuthCredentials*)> callback,
     base::Optional<AuthCredentials>* credentials) {
   return event_interface_->OnAuthRequired(
-      std::move(auth_info), std::move(response_headers), host_port_pair,
+      auth_info, std::move(response_headers), remote_endpoint,
       std::move(callback), credentials);
 }
 
@@ -666,7 +668,7 @@ ChannelState WebSocketChannel::OnWriteDone(bool synchronous, int result) {
           // server, if the protocol in use supports quota.
           int fresh_quota = send_quota_high_water_mark_ - current_send_quota_;
           current_send_quota_ += fresh_quota;
-          event_interface_->OnFlowControl(fresh_quota);
+          event_interface_->OnSendFlowControlQuotaAdded(fresh_quota);
           return CHANNEL_ALIVE;
         }
       }
@@ -887,7 +889,7 @@ ChannelState WebSocketChannel::HandleDataFrame(
     // This call is not redundant when size == 0 because it tells us what
     // the current state is.
     StreamingUtf8Validator::State state = incoming_utf8_validator_.AddBytes(
-        size ? data_buffer->data() : NULL, static_cast<size_t>(size));
+        size ? data_buffer->data() : nullptr, static_cast<size_t>(size));
     if (state == StreamingUtf8Validator::INVALID ||
         (state == StreamingUtf8Validator::VALID_MIDPOINT && final)) {
       FailChannel("Could not decode a text frame as UTF-8.",

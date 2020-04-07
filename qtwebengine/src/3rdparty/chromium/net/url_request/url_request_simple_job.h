@@ -12,7 +12,6 @@
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
 #include "base/strings/string_piece.h"
-#include "net/base/completion_callback.h"
 #include "net/base/completion_once_callback.h"
 #include "net/base/net_export.h"
 #include "net/url_request/url_range_request_job.h"
@@ -71,7 +70,7 @@ class NET_EXPORT URLRequestSimpleJob : public URLRangeRequestJob {
   std::string charset_;
   scoped_refptr<base::RefCountedMemory> data_;
   int64_t next_data_offset_;
-  base::WeakPtrFactory<URLRequestSimpleJob> weak_factory_;
+  base::WeakPtrFactory<URLRequestSimpleJob> weak_factory_{this};
 };
 
 }  // namespace net

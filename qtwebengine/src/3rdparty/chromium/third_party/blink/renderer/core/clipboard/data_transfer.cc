@@ -48,11 +48,11 @@
 #include "third_party/blink/renderer/core/layout/layout_object.h"
 #include "third_party/blink/renderer/core/loader/resource/image_resource_content.h"
 #include "third_party/blink/renderer/core/page/chrome_client.h"
+#include "third_party/blink/renderer/core/page/drag_image.h"
 #include "third_party/blink/renderer/core/page/page.h"
 #include "third_party/blink/renderer/core/paint/paint_info.h"
 #include "third_party/blink/renderer/core/paint/paint_layer.h"
 #include "third_party/blink/renderer/core/paint/paint_layer_painter.h"
-#include "third_party/blink/renderer/platform/drag_image.h"
 #include "third_party/blink/renderer/platform/graphics/paint/paint_canvas.h"
 #include "third_party/blink/renderer/platform/graphics/paint/paint_record_builder.h"
 #include "third_party/blink/renderer/platform/graphics/static_bitmap_image.h"
@@ -91,7 +91,7 @@ class DraggedNodeImageBuilder {
 #if DCHECK_IS_ON()
     DCHECK_EQ(dom_tree_version_, node_->GetDocument().DomTreeVersion());
 #endif
-    // Construct layout object for |m_node| with pseudo class "-webkit-drag"
+    // Construct layout object for |node_| with pseudo class "-webkit-drag"
     local_frame_->View()->UpdateAllLifecyclePhasesExceptPaint();
     LayoutObject* const dragged_layout_object = node_->GetLayoutObject();
     if (!dragged_layout_object)
@@ -101,10 +101,9 @@ class DraggedNodeImageBuilder {
     // object contains transparency and there are other elements in the same
     // stacking context which stacked below.
     PaintLayer* layer = dragged_layout_object->EnclosingLayer();
-    if (!layer->GetLayoutObject().StyleRef().IsStackingContext()) {
-      layer =
-          PaintLayerStackingNode::AncestorStackingContextNode(layer)->Layer();
-    }
+    if (!layer->GetLayoutObject().StyleRef().IsStackingContext())
+      layer = layer->AncestorStackingContext();
+
     IntRect absolute_bounding_box =
         dragged_layout_object->AbsoluteBoundingBoxRectIncludingDescendants();
     // TODO(chrishtr): consider using the root frame's visible rect instead
@@ -119,12 +118,11 @@ class DraggedNodeImageBuilder {
 
     FloatRect bounding_box =
         layer->GetLayoutObject()
-            .AbsoluteToLocalQuad(FloatQuad(absolute_bounding_box),
-                                 kUseTransforms)
+            .AbsoluteToLocalQuad(FloatQuad(absolute_bounding_box))
             .BoundingBox();
     PaintLayerPaintingInfo painting_info(
         layer, CullRect(EnclosingIntRect(bounding_box)),
-        kGlobalPaintFlattenCompositingLayers, LayoutSize());
+        kGlobalPaintFlattenCompositingLayers, PhysicalOffset());
     PaintLayerFlags flags = kPaintLayerHaveTransparency |
                             kPaintLayerUncachedClipRects;
     PaintRecordBuilder builder;
@@ -159,7 +157,7 @@ class DraggedNodeImageBuilder {
 }  // namespace
 static DragOperation ConvertEffectAllowedToDragOperation(const String& op) {
   // Values specified in
-  // http://www.whatwg.org/specs/web-apps/current-work/multipage/dnd.html#dom-datatransfer-effectallowed
+  // https://html.spec.whatwg.org/multipage/dnd.html#dom-datatransfer-effectallowed
   if (op == "uninitialized")
     return kDragOperationEvery;
   if (op == "none")
@@ -263,7 +261,7 @@ void DataTransfer::setEffectAllowed(const String& effect) {
   if (ConvertEffectAllowedToDragOperation(effect) == kDragOperationPrivate) {
     // This means that there was no conversion, and the effectAllowed that
     // we are passed isn't a valid effectAllowed, so we should ignore it,
-    // and not set m_effectAllowed.
+    // and not set |effect_allowed_|.
 
     // The attribute must ignore any attempts to set it to a value other than
     // none, copy, copyLink, copyMove, link, linkMove, move, all, and
@@ -320,15 +318,15 @@ Vector<String> DataTransfer::types() {
 }
 
 FileList* DataTransfer::files() const {
-  FileList* files = FileList::Create();
+  auto* files = MakeGarbageCollected<FileList>();
   if (!CanReadData())
     return files;
 
   for (uint32_t i = 0; i < data_object_->length(); ++i) {
     if (data_object_->Item(i)->Kind() == DataObjectItem::kFileKind) {
       Blob* blob = data_object_->Item(i)->GetAsFile();
-      if (blob && blob->IsFile())
-        files->Append(ToFile(blob));
+      if (auto* file = DynamicTo<File>(blob))
+        files->Append(file);
     }
   }
 
@@ -597,11 +595,11 @@ bool DataTransfer::HasDropZoneType(const String& keyword) {
 }
 
 DataTransferItemList* DataTransfer::items() {
-  // FIXME: According to the spec, we are supposed to return the same collection
+  // TODO: According to the spec, we are supposed to return the same collection
   // of items each time. We now return a wrapper that always wraps the *same*
   // set of items, so JS shouldn't be able to tell, but we probably still want
   // to fix this.
-  return DataTransferItemList::Create(this, data_object_);
+  return MakeGarbageCollected<DataTransferItemList>(this, data_object_);
 }
 
 DataObject* DataTransfer::GetDataObject() const {

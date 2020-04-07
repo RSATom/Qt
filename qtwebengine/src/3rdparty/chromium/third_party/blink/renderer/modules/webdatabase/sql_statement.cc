@@ -38,7 +38,6 @@
 #include "third_party/blink/renderer/modules/webdatabase/sql_transaction.h"
 #include "third_party/blink/renderer/modules/webdatabase/sqlite/sqlite_database.h"
 #include "third_party/blink/renderer/modules/webdatabase/sqlite/sqlite_statement.h"
-#include "third_party/blink/renderer/platform/wtf/text/cstring.h"
 
 namespace blink {
 
@@ -81,12 +80,6 @@ bool SQLStatement::OnErrorV8Impl::OnError(SQLTransaction* transaction,
     return true;
   }
   return return_value;
-}
-
-SQLStatement* SQLStatement::Create(Database* database,
-                                   OnSuccessCallback* callback,
-                                   OnErrorCallback* error_callback) {
-  return MakeGarbageCollected<SQLStatement>(database, callback, error_callback);
 }
 
 SQLStatement::SQLStatement(Database* database,
@@ -136,8 +129,8 @@ bool SQLStatement::PerformCallback(SQLTransaction* transaction) {
   // error, because then we need to jump to the transaction error callback.
   if (error) {
     if (error_callback) {
-      callback_error =
-          error_callback->OnError(transaction, SQLError::Create(*error));
+      callback_error = error_callback->OnError(
+          transaction, MakeGarbageCollected<SQLError>(*error));
     }
   } else if (callback) {
     callback_error =

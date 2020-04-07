@@ -72,8 +72,27 @@ class QXmlStreamReader;
 QT_END_NAMESPACE
 #endif
 
-#ifdef QT_WINRT_BLUETOOTH
+#ifdef QT_WIN_BLUETOOTH
+#include <QtCore/QVariant>
+
+QT_BEGIN_NAMESPACE
+class QThread;
+
+class ThreadWorkerFind : public QObject
+{
+    Q_OBJECT
+signals:
+    void findFinished(QVariant result);
+};
+QT_END_NAMESPACE
+
+#elif defined(QT_WINRT_BLUETOOTH)
 #include <QtCore/QPointer>
+#endif
+
+#ifdef QT_OSX_BLUETOOTH
+#include "osx/btdelegates_p.h"
+#include "osx/btraii_p.h"
 #endif
 
 QT_BEGIN_NAMESPACE
@@ -91,10 +110,13 @@ class QWinRTBluetoothServiceDiscoveryWorker;
 #endif
 
 class QBluetoothServiceDiscoveryAgentPrivate
-#if defined QT_WINRT_BLUETOOTH
+#if defined QT_WINRT_BLUETOOTH || defined QT_WIN_BLUETOOTH
         : public QObject
 {
     Q_OBJECT
+#elif defined(QT_OSX_BLUETOOTH)
+        : public QObject, public DarwinBluetooth::SDPInquiryDelegate
+{
 #else
 {
 #endif
@@ -149,6 +171,10 @@ public:
     void _q_fetchUuidsTimeout();
     void _q_hostModeStateChanged(QBluetoothLocalDevice::HostMode state);
 #endif
+#ifdef QT_WIN_BLUETOOTH
+    void _q_nextSdpScan(const QVariant &input);
+    bool serviceMatches(const QBluetoothServiceInfo &info);
+#endif
 
 private:
     void start(const QBluetoothAddress &address);
@@ -200,6 +226,15 @@ private:
     QMap<QBluetoothAddress,QPair<QBluetoothDeviceInfo,QList<QBluetoothUuid> > > sdpCache;
 #endif
 
+#ifdef QT_WIN_BLUETOOTH
+private:
+    bool pendingStop;
+    bool pendingFinish;
+
+    QThread *threadFind = nullptr;
+    ThreadWorkerFind *threadWorkerFind = nullptr;
+#endif
+
 #ifdef QT_WINRT_BLUETOOTH
 private slots:
     void processFoundService(quint64 deviceAddress, const QBluetoothServiceInfo &info);
@@ -210,6 +245,19 @@ private slots:
 private:
     QPointer<QWinRTBluetoothServiceDiscoveryWorker> worker;
 #endif
+
+#ifdef QT_OSX_BLUETOOTH
+    // SDPInquiryDelegate:
+    void SDPInquiryFinished(void *device) override;
+    void SDPInquiryError(void *device, IOReturn errorCode) override;
+
+    void performMinimalServiceDiscovery(const QBluetoothAddress &deviceAddress);
+    //void serviceDiscoveryFinished();
+
+    bool serviceHasMatchingUuid(const QBluetoothServiceInfo &serviceInfo) const;
+
+    DarwinBluetooth::ScopedPointer serviceInquiry;
+#endif // QT_OSX_BLUETOOTH
 
 protected:
     QBluetoothServiceDiscoveryAgent *q_ptr;

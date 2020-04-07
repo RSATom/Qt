@@ -51,19 +51,23 @@ class TextResourceDecoder;
 
 class XHRReplayData final : public GarbageCollectedFinalized<XHRReplayData> {
  public:
-  static XHRReplayData* Create(const AtomicString& method,
+  static XHRReplayData* Create(ExecutionContext*,
+                               const AtomicString& method,
                                const KURL&,
                                bool async,
                                scoped_refptr<EncodedFormData>,
                                bool include_credentials);
 
-  XHRReplayData(const AtomicString& method,
+  XHRReplayData(ExecutionContext*,
+                const AtomicString& method,
                 const KURL&,
                 bool async,
                 scoped_refptr<EncodedFormData>,
                 bool include_credentials);
 
   void AddHeader(const AtomicString& key, const AtomicString& value);
+
+  ExecutionContext* GetExecutionContext() const { return execution_context_; }
   const AtomicString& Method() const { return method_; }
   const KURL& Url() const { return url_; }
   bool Async() const { return async_; }
@@ -71,12 +75,18 @@ class XHRReplayData final : public GarbageCollectedFinalized<XHRReplayData> {
   const HTTPHeaderMap& Headers() const { return headers_; }
   bool IncludeCredentials() const { return include_credentials_; }
 
-  virtual void Trace(blink::Visitor*) {}
+  virtual void Trace(blink::Visitor* visitor) {
+    visitor->Trace(execution_context_);
+  }
+
+  void DeleteFormData() { form_data_ = nullptr; }
 
  private:
+  WeakMember<ExecutionContext> execution_context_;
   AtomicString method_;
   KURL url_;
   bool async_;
+  // TODO(http://crbug.com/958524): Remove form_data_ after OutOfBlinkCORS is launched.
   scoped_refptr<EncodedFormData> form_data_;
   HTTPHeaderMap headers_;
   bool include_credentials_;
@@ -90,7 +100,6 @@ class NetworkResourcesData final
 
    public:
     ResourceData(NetworkResourcesData*,
-                 ExecutionContext*,
                  const String& request_id,
                  const String& loader_id,
                  const KURL&);
@@ -134,8 +143,8 @@ class NetworkResourcesData final
       buffer_ = std::move(buffer);
     }
 
-    Resource* CachedResource() const { return cached_resource_.Get(); }
-    void SetResource(Resource*);
+    const Resource* CachedResource() const { return cached_resource_.Get(); }
+    void SetResource(const Resource*);
 
     XHRReplayData* XhrReplayData() const { return xhr_replay_data_.Get(); }
     void SetXHRReplayData(XHRReplayData* xhr_replay_data) {
@@ -167,7 +176,6 @@ class NetworkResourcesData final
       post_data_ = post_data;
     }
     EncodedFormData* PostData() const { return post_data_.get(); }
-    ExecutionContext* GetExecutionContext() const { return execution_context_; }
     void Trace(blink::Visitor*);
 
    private:
@@ -196,11 +204,10 @@ class NetworkResourcesData final
     int64_t pending_encoded_data_length_;
 
     scoped_refptr<SharedBuffer> buffer_;
-    WeakMember<Resource> cached_resource_;
+    WeakMember<const Resource> cached_resource_;
     scoped_refptr<BlobDataHandle> downloaded_file_blob_;
     Vector<AtomicString> certificate_;
     scoped_refptr<EncodedFormData> post_data_;
-    Member<ExecutionContext> execution_context_;
   };
 
   static NetworkResourcesData* Create(size_t total_buffer_size,
@@ -212,8 +219,7 @@ class NetworkResourcesData final
   NetworkResourcesData(size_t total_buffer_size, size_t resource_buffer_size);
   ~NetworkResourcesData();
 
-  void ResourceCreated(ExecutionContext*,
-                       const String& request_id,
+  void ResourceCreated(const String& request_id,
                        const String& loader_id,
                        const KURL&,
                        scoped_refptr<EncodedFormData>);
@@ -231,7 +237,7 @@ class NetworkResourcesData final
                             const char* data,
                             uint64_t data_length);
   void MaybeDecodeDataToContent(const String& request_id);
-  void AddResource(const String& request_id, Resource*);
+  void AddResource(const String& request_id, const Resource*);
   ResourceData const* Data(const String& request_id);
   void Clear(const String& preserved_loader_id = String());
 

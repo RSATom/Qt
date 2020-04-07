@@ -18,11 +18,11 @@
 #include "media/base/logging_override_if_enabled.h"
 #include "media/base/media_permission.h"
 #include "media/base/mime_util.h"
-#include "media/blink/webmediaplayer_util.h"
 #include "third_party/blink/public/platform/url_conversion.h"
 #include "third_party/blink/public/platform/web_media_key_system_configuration.h"
 #include "third_party/blink/public/platform/web_string.h"
 #include "third_party/blink/public/platform/web_vector.h"
+#include "third_party/blink/public/web/modules/media/webmediaplayer_util.h"
 #include "url/gurl.h"
 #include "url/origin.h"
 
@@ -306,8 +306,7 @@ KeySystemConfigSelector::KeySystemConfigSelector(
     MediaPermission* media_permission)
     : key_systems_(key_systems),
       media_permission_(media_permission),
-      is_supported_media_type_cb_(base::BindRepeating(&IsSupportedMediaType)),
-      weak_factory_(this) {
+      is_supported_media_type_cb_(base::BindRepeating(&IsSupportedMediaType)) {
   DCHECK(key_systems_);
   DCHECK(media_permission_);
 }
@@ -517,22 +516,20 @@ KeySystemConfigSelector::GetSupportedConfiguration(
 
   // 3. If the initDataTypes member of candidate configuration is non-empty,
   //    run the following steps:
-  if (!candidate.init_data_types.IsEmpty()) {
+  if (!candidate.init_data_types.empty()) {
     // 3.1. Let supported types be an empty sequence of DOMStrings.
-    std::vector<blink::WebEncryptedMediaInitDataType> supported_types;
+    std::vector<EmeInitDataType> supported_types;
 
     // 3.2. For each value in candidate configuration's initDataTypes member:
     for (size_t i = 0; i < candidate.init_data_types.size(); i++) {
       // 3.2.1. Let initDataType be the value.
-      blink::WebEncryptedMediaInitDataType init_data_type =
-          candidate.init_data_types[i];
+      EmeInitDataType init_data_type = candidate.init_data_types[i];
 
       // 3.2.2. If the implementation supports generating requests based on
       //        initDataType, add initDataType to supported types. String
       //        comparison is case-sensitive. The empty string is never
       //        supported.
-      if (key_systems_->IsSupportedInitDataType(
-              key_system, ConvertToEmeInitDataType(init_data_type))) {
+      if (key_systems_->IsSupportedInitDataType(key_system, init_data_type)) {
         supported_types.push_back(init_data_type);
       }
     }
@@ -705,8 +702,8 @@ KeySystemConfigSelector::GetSupportedConfiguration(
 
   // 15. If the videoCapabilities and audioCapabilities members in candidate
   //     configuration are both empty, return NotSupported.
-  if (candidate.video_capabilities.IsEmpty() &&
-      candidate.audio_capabilities.IsEmpty()) {
+  if (candidate.video_capabilities.empty() &&
+      candidate.audio_capabilities.empty()) {
     DVLOG(2) << "Rejecting requested configuration because "
              << "neither audioCapabilities nor videoCapabilities is specified";
     return CONFIGURATION_NOT_SUPPORTED;
@@ -715,7 +712,7 @@ KeySystemConfigSelector::GetSupportedConfiguration(
   // 16. If the videoCapabilities member in candidate configuration is
   //     non-empty:
   std::vector<blink::WebMediaKeySystemMediaCapability> video_capabilities;
-  if (!candidate.video_capabilities.IsEmpty()) {
+  if (!candidate.video_capabilities.empty()) {
     // 16.1. Let video capabilities be the result of executing the Get
     //       Supported Capabilities for Audio/Video Type algorithm on Video,
     //       candidate configuration's videoCapabilities member, accumulated
@@ -741,7 +738,7 @@ KeySystemConfigSelector::GetSupportedConfiguration(
   // 17. If the audioCapabilities member in candidate configuration is
   //     non-empty:
   std::vector<blink::WebMediaKeySystemMediaCapability> audio_capabilities;
-  if (!candidate.audio_capabilities.IsEmpty()) {
+  if (!candidate.audio_capabilities.empty()) {
     // 17.1. Let audio capabilities be the result of executing the Get
     //       Supported Capabilities for Audio/Video Type algorithm on Audio,
     //       candidate configuration's audioCapabilities member, accumulated

@@ -32,7 +32,7 @@
 
 #include "third_party/blink/renderer/core/html/track/text_track_cue.h"
 #include "third_party/blink/renderer/platform/heap/handle.h"
-#include "third_party/blink/renderer/platform/wtf/allocator.h"
+#include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 
 namespace blink {
 
@@ -61,16 +61,12 @@ struct VTTDisplayParameters {
 
 class VTTCueBox final : public HTMLDivElement {
  public:
-  static VTTCueBox* Create(Document& document) {
-    return MakeGarbageCollected<VTTCueBox>(document);
-  }
-
   explicit VTTCueBox(Document&);
 
   void ApplyCSSProperties(const VTTDisplayParameters&);
 
  private:
-  LayoutObject* CreateLayoutObject(const ComputedStyle&) override;
+  LayoutObject* CreateLayoutObject(const ComputedStyle&, LegacyLayout) override;
 
   // The computed line position for snap-to-lines layout, and NaN for
   // non-snap-to-lines layout where no adjustment should take place.

@@ -12,8 +12,13 @@
 #include "components/download/public/common/url_download_handler.h"
 #include "mojo/public/cpp/bindings/binding.h"
 #include "net/cert/cert_status_flags.h"
+#include "services/device/public/mojom/wake_lock.mojom.h"
 #include "services/network/public/cpp/resource_request.h"
 #include "services/network/public/mojom/url_loader.mojom.h"
+
+namespace service_manager {
+class Connector;
+}  // namespace service_manager
 
 namespace download {
 class DownloadURLLoaderFactoryGetter;
@@ -36,6 +41,8 @@ class COMPONENTS_DOWNLOAD_EXPORT ResourceDownloader
       const GURL& tab_referrer_url,
       bool is_new_download,
       bool is_parallel_request,
+      std::unique_ptr<service_manager::Connector> connector,
+      bool is_background_mode,
       const scoped_refptr<base::SingleThreadTaskRunner>& task_runner);
 
   // Create a ResourceDownloader from a navigation that turns to be a download.
@@ -50,12 +57,14 @@ class COMPONENTS_DOWNLOAD_EXPORT ResourceDownloader
       const GURL& tab_url,
       const GURL& tab_referrer_url,
       std::vector<GURL> url_chain,
-      const scoped_refptr<network::ResourceResponse>& response,
       net::CertStatus cert_status,
+      const scoped_refptr<network::ResourceResponse>& response_head,
+      mojo::ScopedDataPipeConsumerHandle response_body,
       network::mojom::URLLoaderClientEndpointsPtr url_loader_client_endpoints,
       scoped_refptr<download::DownloadURLLoaderFactoryGetter>
           url_loader_factory_getter,
       const URLSecurityPolicy& url_security_policy,
+      std::unique_ptr<service_manager::Connector> connector,
       const scoped_refptr<base::SingleThreadTaskRunner>& task_runner);
 
   ResourceDownloader(
@@ -70,7 +79,8 @@ class COMPONENTS_DOWNLOAD_EXPORT ResourceDownloader
       const scoped_refptr<base::SingleThreadTaskRunner>& task_runner,
       scoped_refptr<download::DownloadURLLoaderFactoryGetter>
           url_loader_factory_getter,
-      const URLSecurityPolicy& url_security_policy);
+      const URLSecurityPolicy& url_security_policy,
+      std::unique_ptr<service_manager::Connector> connector);
   ~ResourceDownloader() override;
 
   // download::DownloadResponseHandler::Delegate
@@ -86,13 +96,15 @@ class COMPONENTS_DOWNLOAD_EXPORT ResourceDownloader
   // Helper method to start the network request.
   void Start(
       std::unique_ptr<download::DownloadUrlParameters> download_url_parameters,
-      bool is_parallel_request);
+      bool is_parallel_request,
+      bool is_background_mode);
 
   // Intercepts the navigation response.
   void InterceptResponse(
-      const scoped_refptr<network::ResourceResponse>& response,
       std::vector<GURL> url_chain,
       net::CertStatus cert_status,
+      const scoped_refptr<network::ResourceResponse>& response_head,
+      mojo::ScopedDataPipeConsumerHandle response_body,
       network::mojom::URLLoaderClientEndpointsPtr url_loader_client_endpoints);
 
   // UrlDownloadHandler implementations.
@@ -100,6 +112,9 @@ class COMPONENTS_DOWNLOAD_EXPORT ResourceDownloader
 
   // Ask the |delegate_| to destroy this object.
   void Destroy();
+
+  // Requests the wake lock using |connector|.
+  void RequestWakeLock(service_manager::Connector* connector);
 
   base::WeakPtr<download::UrlDownloadHandler::Delegate> delegate_;
 
@@ -157,7 +172,12 @@ class COMPONENTS_DOWNLOAD_EXPORT ResourceDownloader
   // Whether download is initated by the content on the page.
   bool is_content_initiated_;
 
-  base::WeakPtrFactory<ResourceDownloader> weak_ptr_factory_;
+  // Used to keep the system from sleeping while a download is ongoing. If the
+  // system enters power saving mode while a download is alive, it can cause
+  // download to be interrupted.
+  device::mojom::WakeLockPtr wake_lock_;
+
+  base::WeakPtrFactory<ResourceDownloader> weak_ptr_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(ResourceDownloader);
 };

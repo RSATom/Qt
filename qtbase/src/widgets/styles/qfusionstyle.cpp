@@ -88,6 +88,7 @@
 #include <private/qstylehelper_p.h>
 #include <private/qdrawhelper_p.h>
 #include <private/qapplication_p.h>
+#include <private/qwidget_p.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -250,8 +251,9 @@ static void qt_fusion_draw_arrow(Qt::ArrowType type, QPainter *painter, const QS
     if (rect.isEmpty())
         return;
 
-    const int arrowWidth = QStyleHelper::dpiScaled(14);
-    const int arrowHeight = QStyleHelper::dpiScaled(8);
+    const qreal dpi = QStyleHelper::dpi(option);
+    const int arrowWidth = int(QStyleHelper::dpiScaled(14, dpi));
+    const int arrowHeight = int(QStyleHelper::dpiScaled(8, dpi));
 
     const int arrowMax = qMin(arrowHeight, arrowWidth);
     const int rectMax = qMin(rect.height(), rect.width());
@@ -363,6 +365,11 @@ static void qt_fusion_draw_mdibutton(QPainter *painter, const QStyleOptionTitleB
     painter->drawPoint(tmp.right() , tmp.bottom() - 1);
 }
 
+static QWindow *qt_getWindow(const QWidget *widget)
+{
+    return widget ? QWidgetPrivate::get(widget)->windowHandle(QWidgetPrivate::WindowHandleMode::Closest) : nullptr;
+}
+
 /*
     \internal
 */
@@ -465,15 +472,24 @@ void QFusionStyle::drawPrimitive(PrimitiveElement elem,
 
     switch (elem) {
 
+#if QT_CONFIG(groupbox)
     // No frame drawn
     case PE_FrameGroupBox:
     {
         QPixmap pixmap(QLatin1String(":/qt-project.org/styles/commonstyle/images/fusion_groupbox.png"));
-        int topMargin = qMax(pixelMetric(PM_ExclusiveIndicatorHeight), option->fontMetrics.height()) + groupBoxTopMargin;
+        int topMargin = 0;
+        auto control = dynamic_cast<const QGroupBox *>(widget);
+        if (control && !control->isCheckable() && control->title().isEmpty()) {
+            // Shrinking the topMargin if Not checkable AND title is empty
+            topMargin = groupBoxTopMargin;
+        } else {
+            topMargin = qMax(pixelMetric(PM_ExclusiveIndicatorHeight), option->fontMetrics.height()) + groupBoxTopMargin;
+        }
         QRect frame = option->rect.adjusted(0, topMargin, 0, 0);
         qDrawBorderPixmap(painter, frame, QMargins(6, 6, 6, 6), pixmap);
         break;
     }
+#endif // QT_CONFIG(groupbox)
     case PE_IndicatorBranch: {
         if (!(option->state & State_Children))
             break;
@@ -779,12 +795,13 @@ void QFusionStyle::drawPrimitive(PrimitiveElement elem,
                 painter->drawRect(rect.adjusted(checkMarkPadding, checkMarkPadding, -checkMarkPadding, -checkMarkPadding));
 
             } else if (checkbox->state & State_On) {
-                qreal penWidth = QStyleHelper::dpiScaled(1.5);
+                const qreal dpi = QStyleHelper::dpi(option);
+                qreal penWidth = QStyleHelper::dpiScaled(1.5, dpi);
                 penWidth = qMax<qreal>(penWidth, 0.13 * rect.height());
                 penWidth = qMin<qreal>(penWidth, 0.20 * rect.height());
                 QPen checkPen = QPen(checkMarkColor, penWidth);
                 checkMarkColor.setAlpha(210);
-                painter->translate(dpiScaled(-0.8), dpiScaled(0.5));
+                painter->translate(dpiScaled(-0.8, dpi), dpiScaled(0.5, dpi));
                 painter->setPen(checkPen);
                 painter->setBrush(Qt::NoBrush);
 
@@ -984,7 +1001,7 @@ void QFusionStyle::drawPrimitive(PrimitiveElement elem,
             d->tabBarcloseButtonIcon = proxy()->standardIcon(SP_DialogCloseButton, option, widget);
         if ((option->state & State_Enabled) && (option->state & State_MouseOver))
             proxy()->drawPrimitive(PE_PanelButtonCommand, option, painter, widget);
-        QPixmap pixmap = d->tabBarcloseButtonIcon.pixmap(QSize(16, 16), QIcon::Normal, QIcon::On);
+        QPixmap pixmap = d->tabBarcloseButtonIcon.pixmap(qt_getWindow(widget), QSize(16, 16), QIcon::Normal, QIcon::On);
         proxy()->drawItemPixmap(painter, option->rect, Qt::AlignCenter, pixmap);
     }
         break;
@@ -1024,7 +1041,7 @@ void QFusionStyle::drawControl(ControlElement element, const QStyleOption *optio
             if (!cb->currentIcon.isNull()) {
                 QIcon::Mode mode = cb->state & State_Enabled ? QIcon::Normal
                                                              : QIcon::Disabled;
-                QPixmap pixmap = cb->currentIcon.pixmap(cb->iconSize, mode);
+                QPixmap pixmap = cb->currentIcon.pixmap(qt_getWindow(widget), cb->iconSize, mode);
                 QRect iconRect(editRect);
                 iconRect.setWidth(cb->iconSize.width() + 4);
                 iconRect = alignedRect(cb->direction,
@@ -1535,7 +1552,7 @@ void QFusionStyle::drawControl(ControlElement element, const QStyleOption *optio
             QColor highlight = option->palette.highlight().color();
             if (menuItem->menuItemType == QStyleOptionMenuItem::Separator) {
                 int w = 0;
-                const int margin = QStyleHelper::dpiScaled(5);
+                const int margin = int(QStyleHelper::dpiScaled(5, option));
                 if (!menuItem->text.isEmpty()) {
                     painter->setFont(menuItem->font);
                     proxy()->drawItemText(painter, menuItem->rect.adjusted(margin, 0, -margin, 0), Qt::AlignLeft | Qt::AlignVCenter,
@@ -1565,7 +1582,7 @@ void QFusionStyle::drawControl(ControlElement element, const QStyleOption *optio
             bool ignoreCheckMark = false;
             const int checkColHOffset = windowsItemHMargin + windowsItemFrame - 1;
             int checkcol = qMax<int>(menuItem->rect.height() * 0.79,
-                                     qMax<int>(menuItem->maxIconWidth, dpiScaled(21))); // icon checkbox's highlight column width
+                                     qMax<int>(menuItem->maxIconWidth, dpiScaled(21, option))); // icon checkbox's highlight column width
             if (
 #if QT_CONFIG(combobox)
                 qobject_cast<const QComboBox*>(widget) ||
@@ -1575,7 +1592,7 @@ void QFusionStyle::drawControl(ControlElement element, const QStyleOption *optio
 
             if (!ignoreCheckMark) {
                 // Check, using qreal and QRectF to avoid error accumulation
-                const qreal boxMargin = dpiScaled(3.5);
+                const qreal boxMargin = dpiScaled(3.5, option);
                 const qreal boxWidth = checkcol - 2 * boxMargin;
                 QRectF checkRectF(option->rect.left() + boxMargin + checkColHOffset, option->rect.center().y() - boxWidth/2 + 1, boxWidth, boxWidth);
                 QRect checkRect = checkRectF.toRect();
@@ -1636,9 +1653,9 @@ void QFusionStyle::drawControl(ControlElement element, const QStyleOption *optio
                     iconSize = combo->iconSize();
 #endif
                 if (checked)
-                    pixmap = menuItem->icon.pixmap(iconSize, mode, QIcon::On);
+                    pixmap = menuItem->icon.pixmap(qt_getWindow(widget), iconSize, mode, QIcon::On);
                 else
-                    pixmap = menuItem->icon.pixmap(iconSize, mode);
+                    pixmap = menuItem->icon.pixmap(qt_getWindow(widget), iconSize, mode);
 
                 const int pixw = pixmap.width() / pixmap.devicePixelRatio();
                 const int pixh = pixmap.height() / pixmap.devicePixelRatio();
@@ -1753,59 +1770,10 @@ void QFusionStyle::drawControl(ControlElement element, const QStyleOption *optio
         break;
     case CE_PushButtonLabel:
         if (const QStyleOptionButton *button = qstyleoption_cast<const QStyleOptionButton *>(option)) {
-            QRect ir = button->rect;
-            uint tf = Qt::AlignVCenter;
-            if (styleHint(SH_UnderlineShortcut, button, widget))
-                tf |= Qt::TextShowMnemonic;
-            else
-                tf |= Qt::TextHideMnemonic;
-
-            if (!button->icon.isNull()) {
-                //Center both icon and text
-                QPoint point;
-
-                QIcon::Mode mode = button->state & State_Enabled ? QIcon::Normal
-                                                                 : QIcon::Disabled;
-                if (mode == QIcon::Normal && button->state & State_HasFocus)
-                    mode = QIcon::Active;
-                QIcon::State state = QIcon::Off;
-                if (button->state & State_On)
-                    state = QIcon::On;
-
-                QPixmap pixmap = button->icon.pixmap(button->iconSize, mode, state);
-                int w = pixmap.width() / pixmap.devicePixelRatio();
-                int h = pixmap.height() / pixmap.devicePixelRatio();
-
-                if (!button->text.isEmpty())
-                    w += button->fontMetrics.boundingRect(option->rect, tf, button->text).width() + 2;
-
-                point = QPoint(ir.x() + ir.width() / 2 - w / 2,
-                               ir.y() + ir.height() / 2 - h / 2);
-
-                w = pixmap.width() / pixmap.devicePixelRatio();
-
-                if (button->direction == Qt::RightToLeft)
-                    point.rx() += w;
-
-                painter->drawPixmap(visualPos(button->direction, button->rect, point), pixmap);
-
-                if (button->direction == Qt::RightToLeft)
-                    ir.translate(-point.x() - 2, 0);
-                else
-                    ir.translate(point.x() + w, 0);
-
-                // left-align text if there is
-                if (!button->text.isEmpty())
-                    tf |= Qt::AlignLeft;
-
-            } else {
-                tf |= Qt::AlignHCenter;
-            }
-
-            if (button->features & QStyleOptionButton::HasMenu)
-                ir = ir.adjusted(0, 0, -proxy()->pixelMetric(PM_MenuButtonIndicator, button, widget), 0);
-            proxy()->drawItemText(painter, ir, tf, button->palette, (button->state & State_Enabled),
-                                  button->text, QPalette::ButtonText);
+            QStyleOptionButton b(*button);
+            // no PM_ButtonShiftHorizontal and PM_ButtonShiftVertical for fusion style
+            b.state &= ~(State_On | State_Sunken);
+            QCommonStyle::drawControl(element, &b, painter, widget);
         }
         break;
     case CE_MenuBarEmptyArea:
@@ -2446,7 +2414,7 @@ void QFusionStyle::drawComplexControl(ComplexControl control, const QStyleOption
                 QStyle::State oldState = static_cast<QStyle::State>(styleObject->property("_q_stylestate").value<QStyle::State::Int>());
                 uint oldActiveControls = styleObject->property("_q_stylecontrols").toUInt();
 
-                // a scrollbar is transient when the the scrollbar itself and
+                // a scrollbar is transient when the scrollbar itself and
                 // its sibling are both inactive (ie. not pressed/hovered/moved)
                 bool transient = !option->activeSubControls && !(option->state & State_On);
 
@@ -3175,7 +3143,7 @@ int QFusionStyle::pixelMetric(PixelMetric metric, const QStyleOption *option, co
     default:
         return QCommonStyle::pixelMetric(metric, option, widget);
     }
-    return QStyleHelper::dpiScaled(val);
+    return QStyleHelper::dpiScaled(val, option);
 }
 
 /*!
@@ -3227,7 +3195,7 @@ QSize QFusionStyle::sizeFromContents(ContentsType type, const QStyleOption *opti
             if (menuItem->text.contains(QLatin1Char('\t')))
                 w += tabSpacing;
             else if (menuItem->menuItemType == QStyleOptionMenuItem::SubMenu)
-                w += 2 * QStyleHelper::dpiScaled(QFusionStylePrivate::menuArrowHMargin);
+                w += 2 * QStyleHelper::dpiScaled(QFusionStylePrivate::menuArrowHMargin, option);
             else if (menuItem->menuItemType == QStyleOptionMenuItem::DefaultItem) {
                 QFontMetrics fm(menuItem->font);
                 QFont fontBold = menuItem->font;
@@ -3235,9 +3203,10 @@ QSize QFusionStyle::sizeFromContents(ContentsType type, const QStyleOption *opti
                 QFontMetrics fmBold(fontBold);
                 w += fmBold.horizontalAdvance(menuItem->text) - fm.horizontalAdvance(menuItem->text);
             }
-            const int checkcol = qMax<int>(maxpmw, QStyleHelper::dpiScaled(QFusionStylePrivate::menuCheckMarkWidth)); // Windows always shows a check column
+            const qreal dpi = QStyleHelper::dpi(option);
+            const int checkcol = qMax<int>(maxpmw, QStyleHelper::dpiScaled(QFusionStylePrivate::menuCheckMarkWidth, dpi)); // Windows always shows a check column
             w += checkcol;
-            w += QStyleHelper::dpiScaled(int(QFusionStylePrivate::menuRightBorder) + 10);
+            w += QStyleHelper::dpiScaled(int(QFusionStylePrivate::menuRightBorder) + 10, dpi);
             newSize.setWidth(w);
             if (menuItem->menuItemType == QStyleOptionMenuItem::Separator) {
                 if (!menuItem->text.isEmpty()) {
@@ -3251,8 +3220,8 @@ QSize QFusionStyle::sizeFromContents(ContentsType type, const QStyleOption *opti
                 }
 #endif
             }
-            newSize.setWidth(newSize.width() + QStyleHelper::dpiScaled(12));
-            newSize.setWidth(qMax<int>(newSize.width(), QStyleHelper::dpiScaled(120)));
+            newSize.setWidth(newSize.width() + int(QStyleHelper::dpiScaled(12, dpi)));
+            newSize.setWidth(qMax<int>(newSize.width(), int(QStyleHelper::dpiScaled(120, dpi))));
         }
         break;
     case CT_SizeGrip:
@@ -3378,8 +3347,8 @@ QRect QFusionStyle::subControlRect(ComplexControl control, const QStyleOptionCom
             switch (subControl) {
             case SC_SliderHandle: {
                 if (slider->orientation == Qt::Horizontal) {
-                    rect.setHeight(proxy()->pixelMetric(PM_SliderThickness));
-                    rect.setWidth(proxy()->pixelMetric(PM_SliderLength));
+                    rect.setHeight(proxy()->pixelMetric(PM_SliderThickness, option));
+                    rect.setWidth(proxy()->pixelMetric(PM_SliderLength, option));
                     int centerY = slider->rect.center().y() - rect.height() / 2;
                     if (slider->tickPosition & QSlider::TicksAbove)
                         centerY += tickSize;
@@ -3387,8 +3356,8 @@ QRect QFusionStyle::subControlRect(ComplexControl control, const QStyleOptionCom
                         centerY -= tickSize;
                     rect.moveTop(centerY);
                 } else {
-                    rect.setWidth(proxy()->pixelMetric(PM_SliderThickness));
-                    rect.setHeight(proxy()->pixelMetric(PM_SliderLength));
+                    rect.setWidth(proxy()->pixelMetric(PM_SliderThickness, option));
+                    rect.setHeight(proxy()->pixelMetric(PM_SliderLength, option));
                     int centerX = slider->rect.center().x() - rect.width() / 2;
                     if (slider->tickPosition & QSlider::TicksAbove)
                         centerX += tickSize;
@@ -3400,7 +3369,7 @@ QRect QFusionStyle::subControlRect(ComplexControl control, const QStyleOptionCom
                 break;
             case SC_SliderGroove: {
                 QPoint grooveCenter = slider->rect.center();
-                const int grooveThickness = QStyleHelper::dpiScaled(7);
+                const int grooveThickness = QStyleHelper::dpiScaled(7, option);
                 if (slider->orientation == Qt::Horizontal) {
                     rect.setHeight(grooveThickness);
                     if (slider->tickPosition & QSlider::TicksAbove)
@@ -3429,7 +3398,7 @@ QRect QFusionStyle::subControlRect(ComplexControl control, const QStyleOptionCom
             int center = spinbox->rect.height() / 2;
             int fw = spinbox->frame ? 3 : 0; // Is drawn with 3 pixels width in drawComplexControl, independently from PM_SpinBoxFrameWidth
             int y = fw;
-            const int buttonWidth = QStyleHelper::dpiScaled(14);
+            const int buttonWidth = QStyleHelper::dpiScaled(14, option);
             int x, lx, rx;
             x = spinbox->rect.width() - y - buttonWidth + 2;
             lx = fw;
@@ -3513,17 +3482,19 @@ QRect QFusionStyle::subControlRect(ComplexControl control, const QStyleOptionCom
 
     case CC_ComboBox:
         switch (subControl) {
-        case SC_ComboBoxArrow:
+        case SC_ComboBoxArrow: {
+            const qreal dpi = QStyleHelper::dpi(option);
             rect = visualRect(option->direction, option->rect, rect);
-            rect.setRect(rect.right() - QStyleHelper::dpiScaled(18), rect.top() - 2,
-                         QStyleHelper::dpiScaled(19), rect.height() + 4);
+            rect.setRect(rect.right() - int(QStyleHelper::dpiScaled(18, dpi)), rect.top() - 2,
+                         int(QStyleHelper::dpiScaled(19, dpi)), rect.height() + 4);
             rect = visualRect(option->direction, option->rect, rect);
+        }
             break;
         case SC_ComboBoxEditField: {
             int frameWidth = 2;
             rect = visualRect(option->direction, option->rect, rect);
             rect.setRect(option->rect.left() + frameWidth, option->rect.top() + frameWidth,
-                         option->rect.width() - int(QStyleHelper::dpiScaled(19)) - 2 * frameWidth,
+                         option->rect.width() - int(QStyleHelper::dpiScaled(19, option)) - 2 * frameWidth,
                          option->rect.height() - 2 * frameWidth);
             if (const QStyleOptionComboBox *box = qstyleoption_cast<const QStyleOptionComboBox *>(option)) {
                 if (!box->editable) {

@@ -11,7 +11,7 @@
 #include <functional>
 #include <vector>
 
-#include "core/fpdfapi/page/cpdf_pageobjectlist.h"
+#include "core/fpdfapi/page/cpdf_pageobjectholder.h"
 #include "core/fxcrt/cfx_widetextbuf.h"
 #include "core/fxcrt/fx_coordinates.h"
 #include "core/fxcrt/fx_string.h"
@@ -22,10 +22,6 @@ class CPDF_Font;
 class CPDF_FormObject;
 class CPDF_Page;
 class CPDF_TextObject;
-
-#define FPDFTEXT_MATCHCASE 0x00000001
-#define FPDFTEXT_MATCHWHOLEWORD 0x00000002
-#define FPDFTEXT_CONSECUTIVE 0x00000004
 
 #define FPDFTEXT_CHAR_NORMAL 0
 #define FPDFTEXT_CHAR_GENERATED 1
@@ -93,8 +89,9 @@ class CPDF_TextPage {
   bool IsParsed() const { return m_bIsParsed; }
   int CharIndexFromTextIndex(int TextIndex) const;
   int TextIndexFromCharIndex(int CharIndex) const;
+  size_t size() const { return m_CharList.size(); }
   int CountChars() const;
-  void GetCharInfo(int index, FPDF_CHAR_INFO* info) const;
+  void GetCharInfo(size_t index, FPDF_CHAR_INFO* info) const;
   std::vector<CFX_FloatRect> GetRectArray(int start, int nCount) const;
   int GetIndexAtPos(const CFX_PointF& point, const CFX_SizeF& tolerance) const;
   WideString GetTextByRect(const CFX_FloatRect& rect) const;
@@ -131,15 +128,15 @@ class CPDF_TextPage {
   void ProcessTextObject(PDFTEXT_Obj pObj);
   void ProcessTextObject(CPDF_TextObject* pTextObj,
                          const CFX_Matrix& formMatrix,
-                         const CPDF_PageObjectList* pObjList,
-                         CPDF_PageObjectList::const_iterator ObjPos);
+                         const CPDF_PageObjectHolder* pObjList,
+                         CPDF_PageObjectHolder::const_iterator ObjPos);
   GenerateCharacter ProcessInsertObject(const CPDF_TextObject* pObj,
                                         const CFX_Matrix& formMatrix);
   const PAGECHAR_INFO* GetPrevCharInfo() const;
   Optional<PAGECHAR_INFO> GenerateCharInfo(wchar_t unicode);
   bool IsSameAsPreTextObject(CPDF_TextObject* pTextObj,
-                             const CPDF_PageObjectList* pObjList,
-                             CPDF_PageObjectList::const_iterator ObjPos);
+                             const CPDF_PageObjectHolder* pObjList,
+                             CPDF_PageObjectHolder::const_iterator iter);
   bool IsSameTextObject(CPDF_TextObject* pTextObj1, CPDF_TextObject* pTextObj2);
   void CloseTempLine();
   FPDFText_MarkedContent PreMarkedContent(PDFTEXT_Obj pObj);

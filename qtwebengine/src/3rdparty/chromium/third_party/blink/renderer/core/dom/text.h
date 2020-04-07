@@ -25,7 +25,9 @@
 #define THIRD_PARTY_BLINK_RENDERER_CORE_DOM_TEXT_H_
 
 #include "third_party/blink/renderer/core/core_export.h"
+#include "third_party/blink/renderer/core/css/style_recalc.h"
 #include "third_party/blink/renderer/core/dom/character_data.h"
+#include "third_party/blink/renderer/platform/wtf/casting.h"
 
 namespace blink {
 
@@ -57,17 +59,16 @@ class CORE_EXPORT Text : public CharacterData {
   String wholeText() const;
   Text* ReplaceWholeText(const String&);
 
-  void RecalcTextStyle(StyleRecalcChange);
+  void RecalcTextStyle(const StyleRecalcChange);
   void RebuildTextLayoutTree(WhitespaceAttacher&);
   bool TextLayoutObjectIsNeeded(const AttachContext&,
-                                const ComputedStyle&,
-                                const LayoutObject& parent) const;
-  LayoutText* CreateTextLayoutObject(const ComputedStyle&);
+                                const ComputedStyle&) const;
+  LayoutText* CreateTextLayoutObject(const ComputedStyle&, LegacyLayout);
   void UpdateTextLayoutObject(unsigned offset_of_replaced_data,
                               unsigned length_of_replaced_data);
 
   void AttachLayoutTree(AttachContext&) final;
-  void ReattachLayoutTreeIfNeeded(const AttachContext&);
+  void ReattachLayoutTreeIfNeeded(AttachContext&);
 
   bool CanContainRangeEndPoint() const final { return true; }
   NodeType getNodeType() const override;
@@ -81,12 +82,13 @@ class CORE_EXPORT Text : public CharacterData {
   bool IsTextNode() const =
       delete;  // This will catch anyone doing an unnecessary check.
 
-  bool NeedsWhitespaceLayoutObject();
-
   virtual Text* CloneWithData(Document&, const String&) const;
 };
 
-DEFINE_NODE_TYPE_CASTS(Text, IsTextNode());
+template <>
+struct DowncastTraits<Text> {
+  static bool AllowFrom(const Node& node) { return node.IsTextNode(); }
+};
 
 }  // namespace blink
 

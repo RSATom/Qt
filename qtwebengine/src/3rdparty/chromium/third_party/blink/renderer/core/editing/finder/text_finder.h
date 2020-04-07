@@ -54,8 +54,6 @@ struct WebRect;
 class CORE_EXPORT TextFinder final
     : public GarbageCollectedFinalized<TextFinder> {
  public:
-  static TextFinder* Create(WebLocalFrameImpl& owner_frame);
-
   bool Find(int identifier,
             const WebString& search_text,
             const mojom::blink::FindOptions& options,
@@ -130,7 +128,7 @@ class CORE_EXPORT TextFinder final
    public:
     FindMatch(Range*, int ordinal);
 
-    void Trace(blink::Visitor*);
+    void Trace(Visitor*);
 
     Member<Range> range_;
 
@@ -142,7 +140,7 @@ class CORE_EXPORT TextFinder final
     FloatRect rect_;
   };
 
-  void Trace(blink::Visitor*);
+  void Trace(Visitor*);
 
  private:
   // Notifies the delegate about a new selection rect.
@@ -249,6 +247,6 @@ class CORE_EXPORT TextFinder final
 
 }  // namespace blink
 
-WTF_ALLOW_INIT_WITH_MEM_FUNCTIONS(blink::TextFinder::FindMatch);
+WTF_ALLOW_INIT_WITH_MEM_FUNCTIONS(blink::TextFinder::FindMatch)
 
 #endif  // THIRD_PARTY_BLINK_RENDERER_CORE_EDITING_FINDER_TEXT_FINDER_H_

@@ -8,6 +8,4 @@ SOURCES += \
 
 QT += quick-private qml gui-private core-private waylandcompositor waylandcompositor-private
 
-requires(qtConfig(wayland-compositor-texture-sharing-experimental))
-
 load(qml_plugin)

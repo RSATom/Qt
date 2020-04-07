@@ -8,6 +8,7 @@
 #include <memory>
 
 #include "base/big_endian.h"
+#include "base/bind.h"
 #include "base/files/scoped_temp_dir.h"
 #include "base/stl_util.h"
 #include "base/strings/utf_string_conversions.h"
@@ -30,7 +31,6 @@ using syncer::DataBatch;
 using syncer::EntityChange;
 using syncer::EntityChangeList;
 using syncer::EntityData;
-using syncer::EntityDataPtr;
 using syncer::KeyAndData;
 using syncer::MetadataBatch;
 using syncer::MetadataChangeList;
@@ -233,7 +233,7 @@ class TestHistoryBackendDelegate : public HistoryBackend::Delegate {
 class TestHistoryBackend : public HistoryBackend {
  public:
   TestHistoryBackend()
-      : HistoryBackend(new TestHistoryBackendDelegate(),
+      : HistoryBackend(std::make_unique<TestHistoryBackendDelegate>(),
                        nullptr,
                        base::ThreadTaskRunnerHandle::Get()) {}
 
@@ -378,7 +378,8 @@ class TypedURLSyncBridgeTest : public testing::Test {
       metadata_changes->UpdateMetadata(storage_key, metadata);
     }
 
-    bridge()->ApplySyncChanges(std::move(metadata_changes), entity_changes);
+    bridge()->ApplySyncChanges(std::move(metadata_changes),
+                               std::move(entity_changes));
     return visits;
   }
 
@@ -399,11 +400,11 @@ class TypedURLSyncBridgeTest : public testing::Test {
     return bridge()->GetStorageKeyInternal(url);
   }
 
-  EntityDataPtr SpecificsToEntity(const TypedUrlSpecifics& specifics) {
-    EntityData data;
-    data.client_tag_hash = "ignored";
-    *data.specifics.mutable_typed_url() = specifics;
-    return data.PassToPtr();
+  std::unique_ptr<EntityData> SpecificsToEntity(
+      const TypedUrlSpecifics& specifics) {
+    auto data = std::make_unique<EntityData>();
+    *data->specifics.mutable_typed_url() = specifics;
+    return data;
   }
 
   EntityChangeList CreateEntityChangeList(

@@ -43,13 +43,6 @@ AXInlineTextBox::AXInlineTextBox(
     AXObjectCacheImpl& ax_object_cache)
     : AXObject(ax_object_cache), inline_text_box_(std::move(inline_text_box)) {}
 
-AXInlineTextBox* AXInlineTextBox::Create(
-    scoped_refptr<AbstractInlineTextBox> inline_text_box,
-    AXObjectCacheImpl& ax_object_cache) {
-  return MakeGarbageCollected<AXInlineTextBox>(std::move(inline_text_box),
-                                               ax_object_cache);
-}
-
 void AXInlineTextBox::Init() {}
 
 void AXInlineTextBox::Detach() {
@@ -140,8 +133,9 @@ AXObject* AXInlineTextBox::ComputeParent() const {
   DCHECK(!IsDetached());
   if (!inline_text_box_ || !ax_object_cache_)
     return nullptr;
-
   LineLayoutText line_layout_text = inline_text_box_->GetLineLayoutItem();
+  if (!line_layout_text)
+    return nullptr;
   return ax_object_cache_->GetOrCreate(
       LineLayoutAPIShim::LayoutObjectFrom(line_layout_text));
 }
@@ -174,27 +168,27 @@ Node* AXInlineTextBox::GetNode() const {
 }
 
 AXObject* AXInlineTextBox::NextOnLine() const {
+  if (inline_text_box_->IsLast())
+    return ParentObject()->NextOnLine();
+
   scoped_refptr<AbstractInlineTextBox> next_on_line =
       inline_text_box_->NextOnLine();
   if (next_on_line)
     return ax_object_cache_->GetOrCreate(next_on_line.get());
 
-  if (!inline_text_box_->IsLast())
-    return nullptr;
-
-  return ParentObject()->NextOnLine();
+  return nullptr;
 }
 
 AXObject* AXInlineTextBox::PreviousOnLine() const {
+  if (inline_text_box_->IsFirst())
+    return ParentObject()->PreviousOnLine();
+
   scoped_refptr<AbstractInlineTextBox> previous_on_line =
       inline_text_box_->PreviousOnLine();
   if (previous_on_line)
     return ax_object_cache_->GetOrCreate(previous_on_line.get());
 
-  if (!inline_text_box_->IsFirst())
-    return nullptr;
-
-  return ParentObject()->PreviousOnLine();
+  return nullptr;
 }
 
 }  // namespace blink

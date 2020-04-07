@@ -52,7 +52,6 @@
 #include "third_party/blink/renderer/core/frame/csp/content_security_policy.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/frame/settings.h"
-#include "third_party/blink/renderer/core/frame/use_counter.h"
 #include "third_party/blink/renderer/core/html/custom/custom_element.h"
 #include "third_party/blink/renderer/core/html/custom/custom_element_registry.h"
 #include "third_party/blink/renderer/core/html/custom/element_internals.h"
@@ -75,12 +74,13 @@
 #include "third_party/blink/renderer/core/trustedtypes/trusted_script.h"
 #include "third_party/blink/renderer/core/xml_names.h"
 #include "third_party/blink/renderer/platform/bindings/exception_state.h"
+#include "third_party/blink/renderer/platform/heap/heap.h"
+#include "third_party/blink/renderer/platform/instrumentation/use_counter.h"
 #include "third_party/blink/renderer/platform/language.h"
 #include "third_party/blink/renderer/platform/text/bidi_resolver.h"
 #include "third_party/blink/renderer/platform/text/bidi_text_run.h"
 #include "third_party/blink/renderer/platform/text/text_run_iterator.h"
 #include "third_party/blink/renderer/platform/wtf/std_lib_extras.h"
-#include "third_party/blink/renderer/platform/wtf/text/cstring.h"
 
 namespace blink {
 
@@ -101,9 +101,10 @@ namespace {
 
 // https://w3c.github.io/editing/execCommand.html#editing-host
 bool IsEditingHost(const Node& node) {
-  if (!node.IsHTMLElement())
+  auto* html_element = DynamicTo<HTMLElement>(node);
+  if (!html_element)
     return false;
-  String normalized_value = ToHTMLElement(node).contentEditable();
+  String normalized_value = html_element->contentEditable();
   if (normalized_value == "true" || normalized_value == "plaintext-only")
     return true;
   return node.GetDocument().InDesignMode() &&
@@ -114,27 +115,26 @@ bool IsEditingHost(const Node& node) {
 bool IsEditable(const Node& node) {
   if (IsEditingHost(node))
     return false;
-  if (node.IsHTMLElement() && ToHTMLElement(node).contentEditable() == "false")
+  auto* html_element = DynamicTo<HTMLElement>(node);
+  if (html_element && html_element->contentEditable() == "false")
     return false;
   if (!node.parentNode())
     return false;
   if (!IsEditingHost(*node.parentNode()) && !IsEditable(*node.parentNode()))
     return false;
-  if (node.IsHTMLElement())
+  if (html_element)
     return true;
   if (IsSVGSVGElement(node))
     return true;
-  if (node.IsElementNode() &&
-      ToElement(node).HasTagName(mathml_names::kMathTag))
+  auto* element = DynamicTo<Element>(node);
+  if (element && element->HasTagName(mathml_names::kMathTag))
     return true;
-  return !node.IsElementNode() && node.parentNode()->IsHTMLElement();
+  return !element && node.parentNode()->IsHTMLElement();
 }
 
 const WebFeature kNoWebFeature = static_cast<WebFeature>(0);
 
 }  // anonymous namespace
-
-DEFINE_ELEMENT_FACTORY_WITH_TAGNAME(HTMLElement);
 
 String HTMLElement::DebugNodeName() const {
   if (GetDocument().IsHTMLDocument()) {
@@ -175,11 +175,11 @@ bool HTMLElement::ShouldSerializeEndTag() const {
 
 static inline CSSValueID UnicodeBidiAttributeForDirAuto(HTMLElement* element) {
   if (element->HasTagName(kPreTag) || element->HasTagName(kTextareaTag))
-    return CSSValueWebkitPlaintext;
+    return CSSValueID::kWebkitPlaintext;
   // FIXME: For bdo element, dir="auto" should result in "bidi-override isolate"
   // but we don't support having multiple values in unicode-bidi yet.
   // See https://bugs.webkit.org/show_bug.cgi?id=73164.
-  return CSSValueWebkitIsolate;
+  return CSSValueID::kWebkitIsolate;
 }
 
 unsigned HTMLElement::ParseBorderWidthAttribute(
@@ -195,11 +195,11 @@ unsigned HTMLElement::ParseBorderWidthAttribute(
 void HTMLElement::ApplyBorderAttributeToStyle(
     const AtomicString& value,
     MutableCSSPropertyValueSet* style) {
-  AddPropertyToPresentationAttributeStyle(style, CSSPropertyBorderWidth,
+  AddPropertyToPresentationAttributeStyle(style, CSSPropertyID::kBorderWidth,
                                           ParseBorderWidthAttribute(value),
                                           CSSPrimitiveValue::UnitType::kPixels);
-  AddPropertyToPresentationAttributeStyle(style, CSSPropertyBorderStyle,
-                                          CSSValueSolid);
+  AddPropertyToPresentationAttributeStyle(style, CSSPropertyID::kBorderStyle,
+                                          CSSValueID::kSolid);
 }
 
 void HTMLElement::MapLanguageAttributeToLocale(
@@ -208,7 +208,7 @@ void HTMLElement::MapLanguageAttributeToLocale(
   if (!value.IsEmpty()) {
     // Have to quote so the locale id is treated as a string instead of as a CSS
     // keyword.
-    AddPropertyToPresentationAttributeStyle(style, CSSPropertyWebkitLocale,
+    AddPropertyToPresentationAttributeStyle(style, CSSPropertyID::kWebkitLocale,
                                             SerializeString(value));
 
     // FIXME: Remove the following UseCounter code when we collect enough
@@ -235,8 +235,8 @@ void HTMLElement::MapLanguageAttributeToLocale(
     }
   } else {
     // The empty string means the language is explicitly unknown.
-    AddPropertyToPresentationAttributeStyle(style, CSSPropertyWebkitLocale,
-                                            CSSValueAuto);
+    AddPropertyToPresentationAttributeStyle(style, CSSPropertyID::kWebkitLocale,
+                                            CSSValueID::kAuto);
   }
 }
 
@@ -260,20 +260,21 @@ void HTMLElement::CollectStyleForPresentationAttribute(
     const AtomicString& value,
     MutableCSSPropertyValueSet* style) {
   if (name == kAlignAttr) {
-    if (DeprecatedEqualIgnoringCase(value, "middle"))
-      AddPropertyToPresentationAttributeStyle(style, CSSPropertyTextAlign,
-                                              CSSValueCenter);
-    else
-      AddPropertyToPresentationAttributeStyle(style, CSSPropertyTextAlign,
+    if (DeprecatedEqualIgnoringCase(value, "middle")) {
+      AddPropertyToPresentationAttributeStyle(style, CSSPropertyID::kTextAlign,
+                                              CSSValueID::kCenter);
+    } else {
+      AddPropertyToPresentationAttributeStyle(style, CSSPropertyID::kTextAlign,
                                               value);
+    }
   } else if (name == kContenteditableAttr) {
     if (value.IsEmpty() || DeprecatedEqualIgnoringCase(value, "true")) {
       AddPropertyToPresentationAttributeStyle(
-          style, CSSPropertyWebkitUserModify, CSSValueReadWrite);
-      AddPropertyToPresentationAttributeStyle(style, CSSPropertyOverflowWrap,
-                                              CSSValueBreakWord);
-      AddPropertyToPresentationAttributeStyle(style, CSSPropertyWebkitLineBreak,
-                                              CSSValueAfterWhiteSpace);
+          style, CSSPropertyID::kWebkitUserModify, CSSValueID::kReadWrite);
+      AddPropertyToPresentationAttributeStyle(
+          style, CSSPropertyID::kOverflowWrap, CSSValueID::kBreakWord);
+      AddPropertyToPresentationAttributeStyle(
+          style, CSSPropertyID::kWebkitLineBreak, CSSValueID::kAfterWhiteSpace);
       UseCounter::Count(GetDocument(), WebFeature::kContentEditableTrue);
       if (HasTagName(kHTMLTag)) {
         UseCounter::Count(GetDocument(),
@@ -281,46 +282,50 @@ void HTMLElement::CollectStyleForPresentationAttribute(
       }
     } else if (DeprecatedEqualIgnoringCase(value, "plaintext-only")) {
       AddPropertyToPresentationAttributeStyle(
-          style, CSSPropertyWebkitUserModify, CSSValueReadWritePlaintextOnly);
-      AddPropertyToPresentationAttributeStyle(style, CSSPropertyOverflowWrap,
-                                              CSSValueBreakWord);
-      AddPropertyToPresentationAttributeStyle(style, CSSPropertyWebkitLineBreak,
-                                              CSSValueAfterWhiteSpace);
+          style, CSSPropertyID::kWebkitUserModify,
+          CSSValueID::kReadWritePlaintextOnly);
+      AddPropertyToPresentationAttributeStyle(
+          style, CSSPropertyID::kOverflowWrap, CSSValueID::kBreakWord);
+      AddPropertyToPresentationAttributeStyle(
+          style, CSSPropertyID::kWebkitLineBreak, CSSValueID::kAfterWhiteSpace);
       UseCounter::Count(GetDocument(),
                         WebFeature::kContentEditablePlainTextOnly);
     } else if (DeprecatedEqualIgnoringCase(value, "false")) {
       AddPropertyToPresentationAttributeStyle(
-          style, CSSPropertyWebkitUserModify, CSSValueReadOnly);
+          style, CSSPropertyID::kWebkitUserModify, CSSValueID::kReadOnly);
     }
   } else if (name == kHiddenAttr) {
-    AddPropertyToPresentationAttributeStyle(style, CSSPropertyDisplay,
-                                            CSSValueNone);
+    AddPropertyToPresentationAttributeStyle(style, CSSPropertyID::kDisplay,
+                                            CSSValueID::kNone);
   } else if (name == kDraggableAttr) {
     UseCounter::Count(GetDocument(), WebFeature::kDraggableAttribute);
     if (DeprecatedEqualIgnoringCase(value, "true")) {
-      AddPropertyToPresentationAttributeStyle(style, CSSPropertyWebkitUserDrag,
-                                              CSSValueElement);
-      AddPropertyToPresentationAttributeStyle(style, CSSPropertyUserSelect,
-                                              CSSValueNone);
+      AddPropertyToPresentationAttributeStyle(
+          style, CSSPropertyID::kWebkitUserDrag, CSSValueID::kElement);
+      AddPropertyToPresentationAttributeStyle(style, CSSPropertyID::kUserSelect,
+                                              CSSValueID::kNone);
     } else if (DeprecatedEqualIgnoringCase(value, "false")) {
-      AddPropertyToPresentationAttributeStyle(style, CSSPropertyWebkitUserDrag,
-                                              CSSValueNone);
+      AddPropertyToPresentationAttributeStyle(
+          style, CSSPropertyID::kWebkitUserDrag, CSSValueID::kNone);
     }
   } else if (name == kDirAttr) {
     if (DeprecatedEqualIgnoringCase(value, "auto")) {
       AddPropertyToPresentationAttributeStyle(
-          style, CSSPropertyUnicodeBidi, UnicodeBidiAttributeForDirAuto(this));
+          style, CSSPropertyID::kUnicodeBidi,
+          UnicodeBidiAttributeForDirAuto(this));
     } else {
-      if (IsValidDirAttribute(value))
-        AddPropertyToPresentationAttributeStyle(style, CSSPropertyDirection,
-                                                value);
-      else if (IsHTMLBodyElement(*this))
-        AddPropertyToPresentationAttributeStyle(style, CSSPropertyDirection,
-                                                "ltr");
+      if (IsValidDirAttribute(value)) {
+        AddPropertyToPresentationAttributeStyle(
+            style, CSSPropertyID::kDirection, value);
+      } else if (IsHTMLBodyElement(*this)) {
+        AddPropertyToPresentationAttributeStyle(
+            style, CSSPropertyID::kDirection, "ltr");
+      }
       if (!HasTagName(kBdiTag) && !HasTagName(kBdoTag) &&
-          !HasTagName(kOutputTag))
-        AddPropertyToPresentationAttributeStyle(style, CSSPropertyUnicodeBidi,
-                                                CSSValueIsolate);
+          !HasTagName(kOutputTag)) {
+        AddPropertyToPresentationAttributeStyle(
+            style, CSSPropertyID::kUnicodeBidi, CSSValueID::kIsolate);
+      }
     }
   } else if (name.Matches(xml_names::kLangAttr)) {
     MapLanguageAttributeToLocale(value, style);
@@ -359,6 +364,8 @@ AttributeTriggers* HTMLElement::TriggersForAttributeName(
       {kOnanimationstartAttr, kNoWebFeature, event_type_names::kAnimationstart,
        nullptr},
       {kOnauxclickAttr, kNoWebFeature, event_type_names::kAuxclick, nullptr},
+      {kOnbeforeactivateAttr, kNoWebFeature, event_type_names::kBeforeactivate,
+       nullptr},
       {kOnbeforecopyAttr, kNoWebFeature, event_type_names::kBeforecopy,
        nullptr},
       {kOnbeforecutAttr, kNoWebFeature, event_type_names::kBeforecut, nullptr},
@@ -440,8 +447,8 @@ AttributeTriggers* HTMLElement::TriggersForAttributeName(
        nullptr},
       {kOnpointeroverAttr, kNoWebFeature, event_type_names::kPointerover,
        nullptr},
-      {kOnpointerrawmoveAttr, kNoWebFeature, event_type_names::kPointerrawmove,
-       nullptr},
+      {kOnpointerrawupdateAttr, kNoWebFeature,
+       event_type_names::kPointerrawupdate, nullptr},
       {kOnpointerupAttr, kNoWebFeature, event_type_names::kPointerup, nullptr},
       {kOnprogressAttr, kNoWebFeature, event_type_names::kProgress, nullptr},
       {kOnratechangeAttr, kNoWebFeature, event_type_names::kRatechange,
@@ -647,12 +654,10 @@ void HTMLElement::ParseAttribute(const AttributeModificationParams& params) {
 
   if (triggers->web_feature != kNoWebFeature) {
     // Count usage of attributes but ignore attributes in user agent shadow DOM.
-    if (ShadowRoot* shadow = ContainingShadowRoot()) {
-      if (shadow->IsUserAgent())
-        UseCounter::Count(GetDocument(), triggers->web_feature);
+    if (!IsInUserAgentShadowRoot()) {
+      UseCounter::Count(GetDocument(), triggers->web_feature);
     }
   }
-
   if (triggers->function)
     ((*this).*(triggers->function))(params);
 }
@@ -681,7 +686,7 @@ DocumentFragment* HTMLElement::TextToFragment(const String& text,
     if (i == length)
       break;
 
-    fragment->AppendChild(HTMLBRElement::Create(GetDocument()),
+    fragment->AppendChild(MakeGarbageCollected<HTMLBRElement>(GetDocument()),
                           exception_state);
     if (exception_state.HadException())
       return nullptr;
@@ -781,11 +786,13 @@ void HTMLElement::setOuterText(const String& text,
   parent->ReplaceChild(new_child, this, exception_state);
 
   Node* node = next ? next->previousSibling() : nullptr;
-  if (!exception_state.HadException() && node && node->IsTextNode())
-    MergeWithNextTextNode(ToText(node), exception_state);
+  auto* next_text_node = DynamicTo<Text>(node);
+  if (!exception_state.HadException() && next_text_node)
+    MergeWithNextTextNode(next_text_node, exception_state);
 
+  auto* prev_text_node = DynamicTo<Text>(prev);
   if (!exception_state.HadException() && prev && prev->IsTextNode())
-    MergeWithNextTextNode(ToText(prev), exception_state);
+    MergeWithNextTextNode(prev_text_node, exception_state);
 }
 
 void HTMLElement::ApplyAlignmentAttributeToStyle(
@@ -793,38 +800,40 @@ void HTMLElement::ApplyAlignmentAttributeToStyle(
     MutableCSSPropertyValueSet* style) {
   // Vertical alignment with respect to the current baseline of the text
   // right or left means floating images.
-  CSSValueID float_value = CSSValueInvalid;
-  CSSValueID vertical_align_value = CSSValueInvalid;
+  CSSValueID float_value = CSSValueID::kInvalid;
+  CSSValueID vertical_align_value = CSSValueID::kInvalid;
 
   if (DeprecatedEqualIgnoringCase(alignment, "absmiddle")) {
-    vertical_align_value = CSSValueMiddle;
+    vertical_align_value = CSSValueID::kMiddle;
   } else if (DeprecatedEqualIgnoringCase(alignment, "absbottom")) {
-    vertical_align_value = CSSValueBottom;
+    vertical_align_value = CSSValueID::kBottom;
   } else if (DeprecatedEqualIgnoringCase(alignment, "left")) {
-    float_value = CSSValueLeft;
-    vertical_align_value = CSSValueTop;
+    float_value = CSSValueID::kLeft;
+    vertical_align_value = CSSValueID::kTop;
   } else if (DeprecatedEqualIgnoringCase(alignment, "right")) {
-    float_value = CSSValueRight;
-    vertical_align_value = CSSValueTop;
+    float_value = CSSValueID::kRight;
+    vertical_align_value = CSSValueID::kTop;
   } else if (DeprecatedEqualIgnoringCase(alignment, "top")) {
-    vertical_align_value = CSSValueTop;
+    vertical_align_value = CSSValueID::kTop;
   } else if (DeprecatedEqualIgnoringCase(alignment, "middle")) {
-    vertical_align_value = CSSValueWebkitBaselineMiddle;
+    vertical_align_value = CSSValueID::kWebkitBaselineMiddle;
   } else if (DeprecatedEqualIgnoringCase(alignment, "center")) {
-    vertical_align_value = CSSValueMiddle;
+    vertical_align_value = CSSValueID::kMiddle;
   } else if (DeprecatedEqualIgnoringCase(alignment, "bottom")) {
-    vertical_align_value = CSSValueBaseline;
+    vertical_align_value = CSSValueID::kBaseline;
   } else if (DeprecatedEqualIgnoringCase(alignment, "texttop")) {
-    vertical_align_value = CSSValueTextTop;
+    vertical_align_value = CSSValueID::kTextTop;
   }
 
-  if (float_value != CSSValueInvalid)
-    AddPropertyToPresentationAttributeStyle(style, CSSPropertyFloat,
+  if (IsValidCSSValueID(float_value)) {
+    AddPropertyToPresentationAttributeStyle(style, CSSPropertyID::kFloat,
                                             float_value);
+  }
 
-  if (vertical_align_value != CSSValueInvalid)
-    AddPropertyToPresentationAttributeStyle(style, CSSPropertyVerticalAlign,
-                                            vertical_align_value);
+  if (IsValidCSSValueID(vertical_align_value)) {
+    AddPropertyToPresentationAttributeStyle(
+        style, CSSPropertyID::kVerticalAlign, vertical_align_value);
+  }
 }
 
 bool HTMLElement::HasCustomFocusLogic() const {
@@ -997,8 +1006,9 @@ HTMLFormElement* HTMLElement::FindFormAncestor() const {
 }
 
 static inline bool ElementAffectsDirectionality(const Node* node) {
-  return node->IsHTMLElement() && (IsHTMLBDIElement(ToHTMLElement(*node)) ||
-                                   ToHTMLElement(*node).hasAttribute(kDirAttr));
+  auto* html_element = DynamicTo<HTMLElement>(node);
+  return html_element && (IsHTMLBDIElement(*html_element) ||
+                          html_element->hasAttribute(kDirAttr));
 }
 
 void HTMLElement::ChildrenChanged(const ChildrenChange& change) {
@@ -1008,7 +1018,7 @@ void HTMLElement::ChildrenChanged(const ChildrenChange& change) {
 
 bool HTMLElement::HasDirectionAuto() const {
   // <bdi> defaults to dir="auto"
-  // https://html.spec.whatwg.org/multipage/semantics.html#the-bdi-element
+  // https://html.spec.whatwg.org/C/#the-bdi-element
   const AtomicString& direction = FastGetAttribute(kDirAttr);
   return (IsHTMLBDIElement(*this) && direction == g_null_atom) ||
          DeprecatedEqualIgnoringCase(direction, "auto");
@@ -1022,37 +1032,30 @@ TextDirection HTMLElement::DirectionalityIfhasDirAutoAttribute(
   return Directionality();
 }
 
-TextDirection HTMLElement::Directionality(
-    Node** strong_directionality_text_node) const {
+TextDirection HTMLElement::Directionality() const {
   if (auto* input_element = ToHTMLInputElementOrNull(*this)) {
     bool has_strong_directionality;
     TextDirection text_direction = DetermineDirectionality(
         input_element->value(), &has_strong_directionality);
-    if (strong_directionality_text_node) {
-      *strong_directionality_text_node =
-          has_strong_directionality
-              ? const_cast<HTMLInputElement*>(input_element)
-              : nullptr;
-    }
     return text_direction;
   }
 
   Node* node = FlatTreeTraversal::FirstChild(*this);
   while (node) {
     // Skip bdi, script, style and text form controls.
+    auto* element = DynamicTo<Element>(node);
     if (DeprecatedEqualIgnoringCase(node->nodeName(), "bdi") ||
         IsHTMLScriptElement(*node) || IsHTMLStyleElement(*node) ||
-        (node->IsElementNode() && ToElement(node)->IsTextControl()) ||
-        (node->IsElementNode() &&
-         ToElement(node)->ShadowPseudoId() == "-webkit-input-placeholder")) {
+        (element && element->IsTextControl()) ||
+        (element && element->ShadowPseudoId() == "-webkit-input-placeholder")) {
       node = FlatTreeTraversal::NextSkippingChildren(*node, this);
       continue;
     }
 
     // Skip elements with valid dir attribute
-    if (node->IsElementNode()) {
+    if (auto* element_node = DynamicTo<Element>(node)) {
       AtomicString dir_attribute_value =
-          ToElement(node)->FastGetAttribute(kDirAttr);
+          element_node->FastGetAttribute(kDirAttr);
       if (IsValidDirAttribute(dir_attribute_value)) {
         node = FlatTreeTraversal::NextSkippingChildren(*node, this);
         continue;
@@ -1063,16 +1066,11 @@ TextDirection HTMLElement::Directionality(
       bool has_strong_directionality;
       TextDirection text_direction = DetermineDirectionality(
           node->textContent(true), &has_strong_directionality);
-      if (has_strong_directionality) {
-        if (strong_directionality_text_node)
-          *strong_directionality_text_node = node;
+      if (has_strong_directionality)
         return text_direction;
-      }
     }
     node = FlatTreeTraversal::Next(*node, this);
   }
-  if (strong_directionality_text_node)
-    *strong_directionality_text_node = nullptr;
   return TextDirection::kLtr;
 }
 
@@ -1124,7 +1122,7 @@ void HTMLElement::AdjustDirectionalityIfNeededAfterChildrenChanged(
        element_to_adjust =
            FlatTreeTraversal::ParentElement(*element_to_adjust)) {
     if (ElementAffectsDirectionality(element_to_adjust)) {
-      ToHTMLElement(element_to_adjust)->CalculateAndAdjustDirectionality();
+      To<HTMLElement>(element_to_adjust)->CalculateAndAdjustDirectionality();
       return;
     }
   }
@@ -1165,7 +1163,7 @@ void HTMLElement::AddHTMLLengthToStyle(MutableCSSPropertyValueSet* style,
   HTMLDimension dimension;
   if (!ParseDimensionValue(value, dimension))
     return;
-  if (property_id == CSSPropertyWidth &&
+  if (property_id == CSSPropertyID::kWidth &&
       (dimension.IsPercentage() || dimension.IsRelative())) {
     UseCounter::Count(GetDocument(), WebFeature::kHTMLElementDeprecatedWidth);
   }
@@ -1334,6 +1332,8 @@ bool HTMLElement::MatchesReadWritePseudoClass() const {
 void HTMLElement::HandleKeypressEvent(KeyboardEvent& event) {
   if (!IsSpatialNavigationEnabled(GetDocument().GetFrame()) || !SupportsFocus())
     return;
+  if (RuntimeEnabledFeatures::FocuslessSpatialNavigationEnabled())
+    return;
   GetDocument().UpdateStyleAndLayoutTree();
   // if the element is a text form control (like <input type=text> or
   // <textarea>) or has contentEditable attribute on, we should enter a space or
@@ -1396,7 +1396,7 @@ int HTMLElement::offsetHeightForBinding() {
 }
 
 Element* HTMLElement::unclosedOffsetParent() {
-  GetDocument().UpdateStyleAndLayoutIgnorePendingStylesheetsForNode(this);
+  GetDocument().UpdateStyleAndLayoutForNode(this);
 
   LayoutObject* layout_object = GetLayoutObject();
   if (!layout_object)
@@ -1411,11 +1411,10 @@ void HTMLElement::OnDirAttrChanged(const AttributeModificationParams& params) {
   if (!CanParticipateInFlatTree())
     return;
   UpdateDistributionForFlatTreeTraversal();
-  Element* parent = FlatTreeTraversal::ParentElement(*this);
-  if (parent && parent->IsHTMLElement() &&
-      ToHTMLElement(parent)->SelfOrAncestorHasDirAutoAttribute()) {
-    ToHTMLElement(parent)
-        ->AdjustDirectionalityIfNeededAfterChildAttributeChanged(this);
+  auto* parent =
+      DynamicTo<HTMLElement>(FlatTreeTraversal::ParentElement(*this));
+  if (parent && parent->SelfOrAncestorHasDirAutoAttribute()) {
+    parent->AdjustDirectionalityIfNeededAfterChildAttributeChanged(this);
   }
 
   if (DeprecatedEqualIgnoringCase(params.new_value, "auto"))
@@ -1458,30 +1457,30 @@ void HTMLElement::OnXMLLangAttrChanged(
 
 ElementInternals* HTMLElement::attachInternals(
     ExceptionState& exception_state) {
+  if (IsValue()) {
+    exception_state.ThrowDOMException(
+        DOMExceptionCode::kNotSupportedError,
+        "Unable to attach ElementInternals to a customized built-in element.");
+    return nullptr;
+  }
   CustomElementRegistry* registry = CustomElement::Registry(*this);
   auto* definition =
       registry ? registry->DefinitionForName(localName()) : nullptr;
   if (!definition) {
     exception_state.ThrowDOMException(
-        DOMExceptionCode::kInvalidStateError,
+        DOMExceptionCode::kNotSupportedError,
         "Unable to attach ElementInternals to non-custom elements.");
-    return nullptr;
-  }
-  if (!definition->Descriptor().IsAutonomous()) {
-    exception_state.ThrowDOMException(
-        DOMExceptionCode::kInvalidStateError,
-        "Unable to attach ElementInternals to a customized built-in element.");
     return nullptr;
   }
   if (definition->DisableInternals()) {
     exception_state.ThrowDOMException(
-        DOMExceptionCode::kInvalidStateError,
+        DOMExceptionCode::kNotSupportedError,
         "ElementInternals is disabled by disabledFeature static field.");
     return nullptr;
   }
   if (DidAttachInternals()) {
     exception_state.ThrowDOMException(
-        DOMExceptionCode::kInvalidStateError,
+        DOMExceptionCode::kNotSupportedError,
         "ElementInternals for the specified element was already attached.");
     return nullptr;
   }
@@ -1496,7 +1495,7 @@ bool HTMLElement::IsFormAssociatedCustomElement() const {
 
 bool HTMLElement::SupportsFocus() const {
   return Element::SupportsFocus() && !IsDisabledFormControl();
-};
+}
 
 bool HTMLElement::IsDisabledFormControl() const {
   if (!IsFormAssociatedCustomElement())
@@ -1531,6 +1530,12 @@ bool HTMLElement::IsLabelable() const {
   return IsFormAssociatedCustomElement();
 }
 
+void HTMLElement::FinishParsingChildren() {
+  Element::FinishParsingChildren();
+  if (IsFormAssociatedCustomElement())
+    EnsureElementInternals().TakeStateAndRestore();
+}
+
 }  // namespace blink
 
 #ifndef NDEBUG
@@ -1539,6 +1544,6 @@ bool HTMLElement::IsLabelable() const {
 void dumpInnerHTML(blink::HTMLElement*);
 
 void dumpInnerHTML(blink::HTMLElement* element) {
-  printf("%s\n", element->InnerHTMLAsString().Ascii().data());
+  printf("%s\n", element->InnerHTMLAsString().Ascii().c_str());
 }
 #endif

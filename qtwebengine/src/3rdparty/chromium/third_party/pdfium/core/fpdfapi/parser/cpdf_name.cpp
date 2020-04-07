@@ -23,8 +23,8 @@ CPDF_Object::Type CPDF_Name::GetType() const {
   return kName;
 }
 
-std::unique_ptr<CPDF_Object> CPDF_Name::Clone() const {
-  return pdfium::MakeUnique<CPDF_Name>(nullptr, m_Name);
+RetainPtr<CPDF_Object> CPDF_Name::Clone() const {
+  return pdfium::MakeRetain<CPDF_Name>(nullptr, m_Name);
 }
 
 ByteString CPDF_Name::GetString() const {
@@ -48,7 +48,7 @@ const CPDF_Name* CPDF_Name::AsName() const {
 }
 
 WideString CPDF_Name::GetUnicodeText() const {
-  return PDF_DecodeText(m_Name.AsRawSpan());
+  return PDF_DecodeText(m_Name.raw_span());
 }
 
 bool CPDF_Name::WriteTo(IFX_ArchiveStream* archive,

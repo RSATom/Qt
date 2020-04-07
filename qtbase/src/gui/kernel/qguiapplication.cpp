@@ -58,6 +58,7 @@
 #include <QtCore/private/qabstracteventdispatcher_p.h>
 #include <QtCore/qmutex.h>
 #include <QtCore/private/qthread_p.h>
+#include <QtCore/private/qlocking_p.h>
 #include <QtCore/qdir.h>
 #include <QtCore/qlibraryinfo.h>
 #include <QtCore/qnumeric.h>
@@ -68,7 +69,7 @@
 #include <qpalette.h>
 #include <qscreen.h>
 #include "qsessionmanager.h"
-#include <private/qcolorprofile_p.h>
+#include <private/qcolortrclut_p.h>
 #include <private/qscreen_p.h>
 
 #include <QtGui/qgenericpluginfactory.h>
@@ -146,6 +147,14 @@ QString QGuiApplicationPrivate::styleOverride;
 
 Qt::ApplicationState QGuiApplicationPrivate::applicationState = Qt::ApplicationInactive;
 
+Qt::HighDpiScaleFactorRoundingPolicy QGuiApplicationPrivate::highDpiScaleFactorRoundingPolicy =
+#ifdef Q_OS_ANDROID
+    // On Android, Qt has newer rounded the scale factor. Preserve
+    // that behavior by disabling rounding by default.
+    Qt::HighDpiScaleFactorRoundingPolicy::PassThrough;
+#else
+    Qt::HighDpiScaleFactorRoundingPolicy::Round;
+#endif
 bool QGuiApplicationPrivate::highDpiScalingUpdated = false;
 
 QPointer<QWindow> QGuiApplicationPrivate::currentDragWindow;
@@ -163,7 +172,6 @@ bool QGuiApplicationPrivate::is_fallback_session_management_enabled = true;
 
 enum ApplicationResourceFlags
 {
-    ApplicationPaletteExplicitlySet = 0x1,
     ApplicationFontExplicitlySet = 0x2
 };
 
@@ -597,8 +605,13 @@ static QWindowGeometrySpecification windowGeometrySpecification = Q_WINDOW_GEOME
     The following parameters are available for \c {-platform windows}:
 
     \list
+        \li \c {altgr}, detect the key \c {AltGr} found on some keyboards as
+               Qt::GroupSwitchModifier (since Qt 5.12).
         \li \c {dialogs=[xp|none]}, \c xp uses XP-style native dialogs and
             \c none disables them.
+
+        \li \c {dpiawareness=[0|1|2]} Sets the DPI awareness of the process
+               (see \l{High DPI Displays}, since Qt 5.4).
         \li \c {fontengine=freetype}, uses the FreeType font engine.
         \li \c {menus=[native|none]}, controls the use of native menus.
 
@@ -608,10 +621,23 @@ static QWindowGeometrySpecification windowGeometrySpecification = Q_WINDOW_GEOME
                provide hover signals. They are mainly intended for Qt Quick.
                By default, they will be used if the application is not an
                instance of QApplication or for Qt Quick Controls 2
-               applications.
+               applications (since Qt 5.10).
 
-        \li \c {altgr}, detect the key \c {AltGr} found on some keyboards as
-               Qt::GroupSwitchModifier.
+        \li \c {nocolorfonts} Turn off DirectWrite Color fonts
+               (since Qt 5.8).
+
+        \li \c {nodirectwrite} Turn off DirectWrite fonts (since Qt 5.8).
+
+        \li \c {nomousefromtouch} Ignores mouse events synthesized
+               from touch events by the operating system.
+
+        \li \c {nowmpointer} Switches from Pointer Input Messages handling
+               to legacy mouse handling (since Qt 5.12).
+        \li \c {reverse} Activates Right-to-left mode (experimental).
+               Windows title bars will be shown accordingly in Right-to-left locales
+               (since Qt 5.13).
+        \li \c {tabletabsoluterange=<value>} Sets a value for mouse mode detection
+               of WinTab tablets (Legacy, since Qt 5.3).
     \endlist
 
     The following parameter is available for \c {-platform cocoa} (on macOS):
@@ -1306,6 +1332,60 @@ static void init_plugins(const QList<QByteArray> &pluginList)
     }
 }
 
+#if QT_CONFIG(commandlineparser)
+void QGuiApplicationPrivate::addQtOptions(QList<QCommandLineOption> *options)
+{
+    QCoreApplicationPrivate::addQtOptions(options);
+
+#if defined(Q_OS_UNIX) && !defined(Q_OS_DARWIN)
+    const QByteArray sessionType = qgetenv("XDG_SESSION_TYPE");
+    const bool x11 = sessionType == "x11";
+    // Technically the x11 aliases are only available if platformName is "xcb", but we can't know that here.
+#else
+    const bool x11 = false;
+#endif
+
+    options->append(QCommandLineOption(QStringLiteral("platform"),
+                    QGuiApplication::tr("QPA plugin. See QGuiApplication documentation for available options for each plugin."), QStringLiteral("platformName[:options]")));
+    options->append(QCommandLineOption(QStringLiteral("platformpluginpath"),
+                    QGuiApplication::tr("Path to the platform plugins."), QStringLiteral("path")));
+    options->append(QCommandLineOption(QStringLiteral("platformtheme"),
+                    QGuiApplication::tr("Platform theme."), QStringLiteral("theme")));
+    options->append(QCommandLineOption(QStringLiteral("plugin"),
+                    QGuiApplication::tr("Additional plugins to load, can be specified multiple times."), QStringLiteral("plugin")));
+    options->append(QCommandLineOption(QStringLiteral("qwindowgeometry"),
+                    QGuiApplication::tr("Window geometry for the main window, using the X11-syntax, like 100x100+50+50."), QStringLiteral("geometry")));
+    options->append(QCommandLineOption(QStringLiteral("qwindowicon"),
+                    QGuiApplication::tr("Default window icon."), QStringLiteral("icon")));
+    options->append(QCommandLineOption(QStringLiteral("qwindowtitle"),
+                    QGuiApplication::tr("Title of the first window."), QStringLiteral("title")));
+    options->append(QCommandLineOption(QStringLiteral("reverse"),
+                    QGuiApplication::tr("Sets the application's layout direction to Qt::RightToLeft (debugging helper).")));
+    options->append(QCommandLineOption(QStringLiteral("session"),
+                    QGuiApplication::tr("Restores the application from an earlier session."), QStringLiteral("session")));
+
+    if (x11) {
+         options->append(QCommandLineOption(QStringLiteral("display"),
+                         QGuiApplication::tr("Display name, overrides $DISPLAY."), QStringLiteral("display")));
+         options->append(QCommandLineOption(QStringLiteral("name"),
+                         QGuiApplication::tr("Instance name according to ICCCM 4.1.2.5."), QStringLiteral("name")));
+         options->append(QCommandLineOption(QStringLiteral("nograb"),
+                         QGuiApplication::tr("Disable mouse grabbing (useful in debuggers).")));
+         options->append(QCommandLineOption(QStringLiteral("dograb"),
+                         QGuiApplication::tr("Force mouse grabbing (even when running in a debugger).")));
+         options->append(QCommandLineOption(QStringLiteral("visual"),
+                         QGuiApplication::tr("ID of the X11 Visual to use."), QStringLiteral("id")));
+         // Not using the "QStringList names" solution for those aliases, because it makes the first column too wide
+         options->append(QCommandLineOption(QStringLiteral("geometry"),
+                         QGuiApplication::tr("Alias for --windowgeometry."), QStringLiteral("geometry")));
+         options->append(QCommandLineOption(QStringLiteral("icon"),
+                         QGuiApplication::tr("Alias for --windowicon."), QStringLiteral("icon")));
+         options->append(QCommandLineOption(QStringLiteral("title"),
+                         QGuiApplication::tr("Alias for --windowtitle."), QStringLiteral("title")));
+    }
+}
+#endif // QT_CONFIG(commandlineparser)
+
 void QGuiApplicationPrivate::createPlatformIntegration()
 {
     QHighDpiScaling::initHighDpiScaling();
@@ -1635,21 +1715,13 @@ QGuiApplicationPrivate::~QGuiApplicationPrivate()
         qt_gl_set_global_share_context(0);
     }
 #endif
-#ifdef Q_OS_WASM
-    EM_ASM(
-        // unmount persistent directory as IDBFS
-        // see QTBUG-70002
-        FS.unmount('/home/web_user');
-    );
-#endif
+
     platform_integration->destroy();
 
     delete platform_theme;
     platform_theme = 0;
     delete platform_integration;
     platform_integration = 0;
-    delete m_a8ColorProfile.load();
-    delete m_a32ColorProfile.load();
 
     window_list.clear();
     screen_list.clear();
@@ -1806,7 +1878,20 @@ bool QGuiApplication::event(QEvent *e)
 {
     if(e->type() == QEvent::LanguageChange) {
         setLayoutDirection(qt_detectRTLLanguage()?Qt::RightToLeft:Qt::LeftToRight);
+    } else if (e->type() == QEvent::Quit) {
+        // Close open windows. This is done in order to deliver de-expose
+        // events while the event loop is still running.
+        for (QWindow *topLevelWindow : QGuiApplication::topLevelWindows()) {
+            // Already closed windows will not have a platform window, skip those
+            if (!topLevelWindow->handle())
+                continue;
+            if (!topLevelWindow->close()) {
+                e->ignore();
+                return true;
+            }
+        }
     }
+
     return QCoreApplication::event(e);
 }
 
@@ -1832,7 +1917,11 @@ bool QGuiApplicationPrivate::sendQWindowEventToQPlatformWindow(QWindow *window, 
     return platformWindow->windowEvent(event);
 }
 
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+bool QGuiApplicationPrivate::processNativeEvent(QWindow *window, const QByteArray &eventType, void *message, qintptr *result)
+#else
 bool QGuiApplicationPrivate::processNativeEvent(QWindow *window, const QByteArray &eventType, void *message, long *result)
+#endif
 {
     return window->nativeEvent(eventType, message, result);
 }
@@ -1878,6 +1967,9 @@ void QGuiApplicationPrivate::processWindowSystemEvent(QWindowSystemInterfacePriv
     case QWindowSystemInterfacePrivate::ApplicationStateChanged: {
         QWindowSystemInterfacePrivate::ApplicationStateChangedEvent * changeEvent = static_cast<QWindowSystemInterfacePrivate::ApplicationStateChangedEvent *>(e);
         QGuiApplicationPrivate::setApplicationState(changeEvent->newState, changeEvent->forcePropagate); }
+        break;
+    case QWindowSystemInterfacePrivate::ApplicationTermination:
+        QGuiApplicationPrivate::processApplicationTermination(e);
         break;
     case QWindowSystemInterfacePrivate::FlushEvents: {
         QWindowSystemInterfacePrivate::FlushEventsEvent *flushEventsEvent = static_cast<QWindowSystemInterfacePrivate::FlushEventsEvent *>(e);
@@ -2183,8 +2275,16 @@ void QGuiApplicationPrivate::processWheelEvent(QWindowSystemInterfacePrivate::Wh
         return;
     }
 
+#if QT_DEPRECATED_SINCE(5, 14)
+QT_WARNING_PUSH
+QT_WARNING_DISABLE_DEPRECATED
      QWheelEvent ev(localPoint, globalPoint, e->pixelDelta, e->angleDelta, e->qt4Delta, e->qt4Orientation,
                     mouse_buttons, e->modifiers, e->phase, e->source, e->inverted);
+QT_WARNING_POP
+#else
+    QWheelEvent ev(localPoint, globalPoint, e->pixelDelta, e->angleDelta,
+                   mouse_buttons, e->modifiers, e->phase, e->inverted, e->source);
+#endif
      ev.setTimestamp(e->timestamp);
      QGuiApplication::sendSpontaneousEvent(window, &ev);
 #else
@@ -2458,9 +2558,8 @@ void QGuiApplicationPrivate::processCloseEvent(QWindowSystemInterfacePrivate::Cl
 
     QCloseEvent event;
     QGuiApplication::sendSpontaneousEvent(e->window.data(), &event);
-    if (e->accepted) {
-        *(e->accepted) = event.isAccepted();
-    }
+
+    e->eventAccepted = event.isAccepted();
 }
 
 void QGuiApplicationPrivate::processFileOpenEvent(QWindowSystemInterfacePrivate::FileOpenEvent *e)
@@ -2777,10 +2876,12 @@ void QGuiApplicationPrivate::processTouchEvent(QWindowSystemInterfacePrivate::To
             if (touchPoint.state() == Qt::TouchPointStationary) {
                 if (touchInfo.touchPoint.velocity() != touchPoint.velocity()) {
                     touchInfo.touchPoint.setVelocity(touchPoint.velocity());
+                    touchPoint.d->stationaryWithModifiedProperty = true;
                     stationaryTouchPointChangedProperty = true;
                 }
                 if (!qFuzzyCompare(touchInfo.touchPoint.pressure(), touchPoint.pressure())) {
                     touchInfo.touchPoint.setPressure(touchPoint.pressure());
+                    touchPoint.d->stationaryWithModifiedProperty = true;
                     stationaryTouchPointChangedProperty = true;
                 }
             } else {
@@ -3204,18 +3305,26 @@ QPalette QGuiApplication::palette()
 */
 void QGuiApplication::setPalette(const QPalette &pal)
 {
-    if (QGuiApplicationPrivate::app_pal && pal.isCopyOf(*QGuiApplicationPrivate::app_pal))
+    if (!QGuiApplicationPrivate::setPalette(pal))
         return;
-    if (!QGuiApplicationPrivate::app_pal)
-        QGuiApplicationPrivate::app_pal = new QPalette(pal);
-    else
-        *QGuiApplicationPrivate::app_pal = pal;
 
-    applicationResourceFlags |= ApplicationPaletteExplicitlySet;
     QCoreApplication::setAttribute(Qt::AA_SetPalette);
 
     if (qGuiApp)
-        emit qGuiApp->paletteChanged(*QGuiApplicationPrivate::app_pal);
+        qGuiApp->d_func()->sendApplicationPaletteChange();
+}
+
+bool QGuiApplicationPrivate::setPalette(const QPalette &palette)
+{
+    if (app_pal && palette.isCopyOf(*app_pal))
+        return false;
+
+    if (!app_pal)
+        app_pal = new QPalette(palette);
+    else
+        *app_pal = palette;
+
+    return true;
 }
 
 void QGuiApplicationPrivate::applyWindowGeometrySpecificationTo(QWindow *window)
@@ -3240,7 +3349,7 @@ void QGuiApplicationPrivate::applyWindowGeometrySpecificationTo(QWindow *window)
 QFont QGuiApplication::font()
 {
     Q_ASSERT_X(QGuiApplicationPrivate::self, "QGuiApplication::font()", "no QGuiApplication instance");
-    QMutexLocker locker(&applicationFontMutex);
+    const auto locker = qt_scoped_lock(applicationFontMutex);
     initFontUnlocked();
     return *QGuiApplicationPrivate::app_font;
 }
@@ -3252,7 +3361,7 @@ QFont QGuiApplication::font()
 */
 void QGuiApplication::setFont(const QFont &font)
 {
-    QMutexLocker locker(&applicationFontMutex);
+    auto locker = qt_unique_lock(applicationFontMutex);
     const bool emitChange = !QGuiApplicationPrivate::app_font
                             || (*QGuiApplicationPrivate::app_font != font);
     if (!QGuiApplicationPrivate::app_font)
@@ -3419,6 +3528,13 @@ bool QGuiApplicationPrivate::tryCloseRemainingWindows(QWindowList processedWindo
     return true;
 }
 
+void QGuiApplicationPrivate::processApplicationTermination(QWindowSystemInterfacePrivate::WindowSystemEvent *windowSystemEvent)
+{
+    QEvent event(QEvent::Quit);
+    QGuiApplication::sendSpontaneousEvent(QGuiApplication::instance(), &event);
+    windowSystemEvent->eventAccepted = event.isAccepted();
+}
+
 /*!
     \since 5.2
     \fn Qt::ApplicationState QGuiApplication::applicationState()
@@ -3434,6 +3550,48 @@ bool QGuiApplicationPrivate::tryCloseRemainingWindows(QWindowList processedWindo
 Qt::ApplicationState QGuiApplication::applicationState()
 {
     return QGuiApplicationPrivate::applicationState;
+}
+
+/*!
+    \since 5.14
+
+    Sets the high-DPI scale factor rounding policy for the application. The
+    \a policy decides how non-integer scale factors (such as Windows 150%) are
+    handled, for applications that have AA_EnableHighDpiScaling enabled.
+
+    The two principal options are whether fractional scale factors should
+    be rounded to an integer or not. Keeping the scale factor as-is will
+    make the user interface size match the OS setting exactly, but may cause
+    painting errors, for example with the Windows style.
+
+    If rounding is wanted, then which type of rounding should be decided
+    next. Mathematically correct rounding is supported but may not give
+    the best visual results: Consider if you want to render 1.5x as 1x
+    ("small UI") or as 2x ("large UI"). See the Qt::HighDpiScaleFactorRoundingPolicy
+    enum for a complete list of all options.
+
+    This function must be called before creating the application object,
+    and can be overridden by setting the QT_SCALE_FACTOR_ROUNDING_POLICY
+    environment variable. The QGuiApplication::highDpiScaleFactorRoundingPolicy()
+    accessor will reflect the environment, if set.
+
+    The default value is Qt::HighDpiScaleFactorRoundingPolicy::Round.
+    On Qt for Android the default is Qt::HighDpiScaleFactorRoundingPolicy::PassThrough,
+    which preserves historical behavior from earlier Qt versions.
+*/
+void QGuiApplication::setHighDpiScaleFactorRoundingPolicy(Qt::HighDpiScaleFactorRoundingPolicy policy)
+{
+    QGuiApplicationPrivate::highDpiScaleFactorRoundingPolicy = policy;
+}
+
+/*!
+  \since 5.14
+
+  Returns the high-DPI scale factor rounding policy.
+*/
+Qt::HighDpiScaleFactorRoundingPolicy QGuiApplication::highDpiScaleFactorRoundingPolicy()
+{
+    return QGuiApplicationPrivate::highDpiScaleFactorRoundingPolicy;
 }
 
 /*!
@@ -3967,16 +4125,13 @@ QPixmap QGuiApplicationPrivate::getPixmapCursor(Qt::CursorShape cshape)
 
 void QGuiApplicationPrivate::notifyThemeChanged()
 {
-    if (!(applicationResourceFlags & ApplicationPaletteExplicitlySet) &&
-        !QCoreApplication::testAttribute(Qt::AA_SetPalette)) {
+    if (!testAttribute(Qt::AA_SetPalette)) {
         clearPalette();
         initPalette();
-        emit qGuiApp->paletteChanged(*app_pal);
-        if (is_app_running && !is_app_closing)
-            sendApplicationPaletteChange();
+        sendApplicationPaletteChange();
     }
     if (!(applicationResourceFlags & ApplicationFontExplicitlySet)) {
-        QMutexLocker locker(&applicationFontMutex);
+        const auto locker = qt_scoped_lock(applicationFontMutex);
         clearFontUnlocked();
         initFontUnlocked();
     }
@@ -3986,7 +4141,12 @@ void QGuiApplicationPrivate::notifyThemeChanged()
 void QGuiApplicationPrivate::sendApplicationPaletteChange(bool toAllWidgets, const char *className)
 {
     Q_UNUSED(toAllWidgets)
-    Q_UNUSED(className)
+
+    if (!className)
+        emit qGuiApp->paletteChanged(*QGuiApplicationPrivate::app_pal);
+
+    if (!is_app_running || is_app_closing)
+        return;
 
     QEvent event(QEvent::ApplicationPaletteChange);
     QGuiApplication::sendEvent(QGuiApplication::instance(), &event);
@@ -4000,32 +4160,26 @@ void QGuiApplicationPrivate::notifyDragStarted(const QDrag *drag)
 }
 #endif
 
-const QColorProfile *QGuiApplicationPrivate::colorProfileForA8Text()
+const QColorTrcLut *QGuiApplicationPrivate::colorProfileForA8Text()
 {
 #ifdef Q_OS_WIN
-    QColorProfile *result = m_a8ColorProfile.load();
-    if (!result){
-        QColorProfile *cs = QColorProfile::fromGamma(2.31); // This is a hard-coded thing for Windows text rendering
-        if (!m_a8ColorProfile.testAndSetRelease(0, cs))
-            delete cs;
-        result = m_a8ColorProfile.load();
+    if (!m_a8ColorProfile){
+        QColorTrcLut *cs = QColorTrcLut::fromGamma(2.31); // This is a hard-coded thing for Windows text rendering
+        m_a8ColorProfile.reset(cs);
     }
-    return result;
+    return m_a8ColorProfile.get();
 #else
     return colorProfileForA32Text();
 #endif
 }
 
-const QColorProfile *QGuiApplicationPrivate::colorProfileForA32Text()
+const QColorTrcLut *QGuiApplicationPrivate::colorProfileForA32Text()
 {
-    QColorProfile *result = m_a32ColorProfile.load();
-    if (!result){
-        QColorProfile *cs = QColorProfile::fromGamma(fontSmoothingGamma);
-        if (!m_a32ColorProfile.testAndSetRelease(0, cs))
-            delete cs;
-        result = m_a32ColorProfile.load();
+    if (!m_a32ColorProfile) {
+        QColorTrcLut *cs = QColorTrcLut::fromGamma(fontSmoothingGamma);
+        m_a32ColorProfile.reset(cs);
     }
-    return result;
+    return m_a32ColorProfile.get();
 }
 
 void QGuiApplicationPrivate::_q_updateFocusObject(QObject *object)

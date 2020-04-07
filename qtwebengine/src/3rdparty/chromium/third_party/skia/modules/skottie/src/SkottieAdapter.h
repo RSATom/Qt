@@ -8,15 +8,18 @@
 #ifndef SkottieAdapter_DEFINED
 #define SkottieAdapter_DEFINED
 
-#include "SkPoint.h"
-#include "SkRefCnt.h"
-#include "SkSize.h"
-#include "SkottieValue.h"
+#include "include/core/SkPoint.h"
+#include "include/core/SkRefCnt.h"
+#include "include/core/SkSize.h"
+#include "modules/skottie/src/SkottieValue.h"
 
 namespace sksg {
 
+class BlurImageFilter;
 class Color;
 class Draw;
+class DropShadowImageFilter;
+class ExternalColorFilter;
 class Gradient;
 class Group;
 class LinearGradient;
@@ -24,11 +27,18 @@ template <typename>
 class Matrix;
 class Path;
 class RadialGradient;
+class RenderNode;
 class RRect;
-class TextBlob;
+class ShaderEffect;
+class Transform;
+class TransformEffect;
 class TrimEffect;
 
 };
+
+namespace skjson {
+    class ObjectValue;
+}
 
 namespace skottie {
 
@@ -104,10 +114,10 @@ private:
     sk_sp<sksg::Matrix<SkMatrix>> fMatrixNode;
 };
 
-class TransformAdapter3D final : public SkNVRefCnt<TransformAdapter3D> {
+class TransformAdapter3D : public SkRefCnt {
 public:
-    explicit TransformAdapter3D(sk_sp<sksg::Matrix<SkMatrix44>>);
-    ~TransformAdapter3D();
+    TransformAdapter3D();
+    ~TransformAdapter3D() override;
 
     struct Vec3 {
         float fX, fY, fZ;
@@ -125,12 +135,62 @@ public:
     ADAPTER_PROPERTY(Rotation   , Vec3, Vec3({  0,   0,   0}))
     ADAPTER_PROPERTY(Scale      , Vec3, Vec3({100, 100, 100}))
 
-    SkMatrix44 totalMatrix() const;
+    sk_sp<sksg::Transform> refTransform() const;
+
+protected:
+    void apply();
+
+private:
+    virtual SkMatrix44 totalMatrix() const;
+
+    sk_sp<sksg::Matrix<SkMatrix44>> fMatrixNode;
+
+    using INHERITED = SkRefCnt;
+};
+
+class CameraAdapter final : public TransformAdapter3D {
+public:
+    explicit CameraAdapter(const SkSize& viewport_size);
+    ~CameraAdapter() override;
+
+    ADAPTER_PROPERTY(Zoom, SkScalar, 0)
+
+private:
+    SkMatrix44 totalMatrix() const override;
+
+    const SkSize fViewportSize;
+
+    using INHERITED = TransformAdapter3D;
+};
+
+class RepeaterAdapter final : public SkNVRefCnt<RepeaterAdapter> {
+public:
+    enum class Composite { kAbove, kBelow };
+
+    RepeaterAdapter(sk_sp<sksg::RenderNode>, Composite);
+    ~RepeaterAdapter();
+
+    // Repeater props
+    ADAPTER_PROPERTY(Count       , SkScalar, 0)
+    ADAPTER_PROPERTY(Offset      , SkScalar, 0)
+
+    // Transform props
+    ADAPTER_PROPERTY(AnchorPoint , SkPoint , SkPoint::Make(0, 0))
+    ADAPTER_PROPERTY(Position    , SkPoint , SkPoint::Make(0, 0))
+    ADAPTER_PROPERTY(Scale       , SkVector, SkPoint::Make(100, 100))
+    ADAPTER_PROPERTY(Rotation    , SkScalar, 0)
+    ADAPTER_PROPERTY(StartOpacity, SkScalar, 100)
+    ADAPTER_PROPERTY(EndOpacity  , SkScalar, 100)
+
+    const sk_sp<sksg::Group>& root() const { return fRoot; }
 
 private:
     void apply();
 
-    sk_sp<sksg::Matrix<SkMatrix44>> fMatrixNode;
+    const sk_sp<sksg::RenderNode> fRepeaterNode;
+    const Composite               fComposite;
+
+    sk_sp<sksg::Group>            fRoot;
 };
 
 class GradientAdapter : public SkRefCnt {
@@ -188,32 +248,6 @@ private:
 
     sk_sp<sksg::TrimEffect> fTrimEffect;
 };
-
-class TextAdapter final : public SkNVRefCnt<TextAdapter> {
-public:
-    explicit TextAdapter(sk_sp<sksg::Group> root);
-    ~TextAdapter();
-
-    ADAPTER_PROPERTY(Text, TextValue, TextValue())
-
-    const sk_sp<sksg::Group>& root() const { return fRoot; }
-
-private:
-    void apply();
-    sk_sp<SkTextBlob> makeBlob() const;
-
-    sk_sp<sksg::Group>     fRoot;
-    sk_sp<sksg::TextBlob>  fTextNode;
-    sk_sp<sksg::Color>     fFillColor,
-                           fStrokeColor;
-    sk_sp<sksg::Draw>      fFillNode,
-                           fStrokeNode;
-
-    bool                   fHadFill   : 1, //  - state cached from the prev apply()
-                           fHadStroke : 1; //  /
-};
-
-#undef ADAPTER_PROPERTY
 
 } // namespace skottie
 

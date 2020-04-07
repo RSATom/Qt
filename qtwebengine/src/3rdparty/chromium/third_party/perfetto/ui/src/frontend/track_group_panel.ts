@@ -22,7 +22,12 @@ import {globals} from './globals';
 import {drawGridLines} from './gridline_helper';
 import {Panel, PanelSize} from './panel';
 import {Track} from './track';
+import {TrackContent} from './track_panel';
 import {trackRegistry} from './track_registry';
+import {
+  drawVerticalLineAtTime,
+  drawVerticalSelection
+} from './vertical_line_helper';
 
 
 interface Attrs {
@@ -53,7 +58,10 @@ export class TrackGroupPanel extends Panel<Attrs> {
 
   view({attrs}: m.CVnode<Attrs>) {
     const collapsed = this.trackGroupState.collapsed;
-    const name = StripPathFromExecutable(this.trackGroupState.name);
+    let name = this.trackGroupState.name;
+    if (name[0] === '/') {
+      name = StripPathFromExecutable(name);
+    }
     return m(
         `.track-group-panel[collapsed=${collapsed}]`,
         m('.shell',
@@ -61,17 +69,19 @@ export class TrackGroupPanel extends Panel<Attrs> {
             {
               title: name,
             },
-            name),
+            name + '\u200E'),
           m('.fold-button',
             {
-              onclick: () =>
-                  globals.dispatch(Actions.toggleTrackGroupCollapsed({
-                    trackGroupId: attrs.trackGroupId,
-                  })),
+              onclick: (e: MouseEvent) => {
+                globals.dispatch(Actions.toggleTrackGroupCollapsed({
+                  trackGroupId: attrs.trackGroupId,
+                })),
+                e.stopPropagation();
+              }
             },
             m('i.material-icons',
-              this.trackGroupState.collapsed ? 'expand_more' :
-                                               'expand_less'))));
+              this.trackGroupState.collapsed ? 'expand_more' : 'expand_less'))),
+        this.summaryTrack ? m(TrackContent, {track: this.summaryTrack}) : null);
   }
 
   oncreate(vnode: m.CVnodeDOM<Attrs>) {
@@ -102,8 +112,56 @@ export class TrackGroupPanel extends Panel<Attrs> {
         size.height);
 
     ctx.translate(this.shellWidth, 0);
-    this.summaryTrack.renderCanvas(ctx);
+    if (this.summaryTrack) {
+      this.summaryTrack.renderCanvas(ctx);
+    }
     ctx.restore();
+
+    const localState = globals.frontendLocalState;
+    // Draw vertical line when hovering on the notes panel.
+    if (localState.showNotePreview) {
+      drawVerticalLineAtTime(ctx,
+                            localState.timeScale,
+                            localState.hoveredTimestamp,
+                            size.height,
+                            `#aaa`);
+    }
+    // Draw vertical line when shift is pressed.
+    if (localState.showTimeSelectPreview) {
+      drawVerticalLineAtTime(ctx,
+                            localState.timeScale,
+                            localState.hoveredTimestamp,
+                            size.height,
+                            `rgb(52,69,150)`);
+    }
+    if (globals.state.currentSelection !== null) {
+      if (globals.state.currentSelection.kind === 'NOTE') {
+        const note = globals.state.notes[globals.state.currentSelection.id];
+        drawVerticalLineAtTime(ctx,
+                               localState.timeScale,
+                               note.timestamp,
+                               size.height,
+                               note.color);
+      }
+      if (globals.state.currentSelection.kind === 'TIMESPAN') {
+        drawVerticalSelection(
+            ctx,
+            localState.timeScale,
+            globals.state.currentSelection.startTs,
+            globals.state.currentSelection.endTs,
+            size.height,
+            `rgba(0,0,0,0.5)`);
+      }
+      if (globals.state.currentSelection.kind === 'SLICE' &&
+          globals.sliceDetails.wakeupTs !== undefined) {
+        drawVerticalLineAtTime(
+            ctx,
+            localState.timeScale,
+            globals.sliceDetails.wakeupTs,
+            size.height,
+            `black`);
+      }
+    }
   }
 }
 

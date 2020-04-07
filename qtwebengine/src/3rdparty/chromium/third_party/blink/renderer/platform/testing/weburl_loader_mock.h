@@ -21,7 +21,7 @@ class WebURLLoaderTestDelegate;
 class WebURLRequest;
 class WebURLResponse;
 
-const int kRedirectResponseOverheadBytes = 300;
+const uint32_t kRedirectResponseOverheadBytes = 300;
 
 // A simple class for mocking WebURLLoader.
 // If the WebURLLoaderMockFactory it is associated with has been configured to
@@ -55,10 +55,10 @@ class WebURLLoaderMock : public WebURLLoader {
                          blink::WebBlobInfo& downloaded_blob) override;
   void LoadAsynchronously(const WebURLRequest& request,
                           WebURLLoaderClient* client) override;
-  void Cancel() override;
   void SetDefersLoading(bool defer) override;
   void DidChangePriority(WebURLRequest::Priority new_priority,
                          int intra_priority_value) override;
+  scoped_refptr<base::SingleThreadTaskRunner> GetTaskRunner() override;
 
   bool is_deferred() { return is_deferred_; }
   bool is_cancelled() { return !client_; }
@@ -66,13 +66,15 @@ class WebURLLoaderMock : public WebURLLoader {
   base::WeakPtr<WebURLLoaderMock> GetWeakPtr();
 
  private:
+  void Cancel();
+
   WebURLLoaderMockFactoryImpl* factory_ = nullptr;
   WebURLLoaderClient* client_ = nullptr;
   std::unique_ptr<WebURLLoader> default_loader_;
   bool using_default_loader_ = false;
   bool is_deferred_ = false;
 
-  base::WeakPtrFactory<WebURLLoaderMock> weak_factory_;
+  base::WeakPtrFactory<WebURLLoaderMock> weak_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(WebURLLoaderMock);
 };

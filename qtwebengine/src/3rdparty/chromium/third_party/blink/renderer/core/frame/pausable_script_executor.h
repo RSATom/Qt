@@ -7,7 +7,7 @@
 
 #include "base/memory/scoped_refptr.h"
 #include "third_party/blink/renderer/core/core_export.h"
-#include "third_party/blink/renderer/core/dom/context_lifecycle_observer.h"
+#include "third_party/blink/renderer/core/execution_context/context_lifecycle_observer.h"
 #include "third_party/blink/renderer/platform/bindings/dom_wrapper_world.h"
 #include "third_party/blink/renderer/platform/heap/handle.h"
 #include "third_party/blink/renderer/platform/scheduler/public/post_cancellable_task.h"
@@ -29,12 +29,6 @@ class CORE_EXPORT PausableScriptExecutor final
  public:
   enum BlockingOption { kNonBlocking, kOnloadBlocking };
 
-  static PausableScriptExecutor* Create(
-      LocalFrame*,
-      scoped_refptr<DOMWrapperWorld>,
-      const HeapVector<ScriptSourceCode>& sources,
-      bool user_gesture,
-      WebScriptExecutionCallback*);
   static void CreateAndRun(LocalFrame*,
                            v8::Isolate*,
                            v8::Local<v8::Context>,
@@ -53,6 +47,11 @@ class CORE_EXPORT PausableScriptExecutor final
     virtual void Trace(blink::Visitor* visitor) {}
   };
 
+  PausableScriptExecutor(LocalFrame*,
+                         scoped_refptr<DOMWrapperWorld>,
+                         const HeapVector<ScriptSourceCode>&,
+                         bool,
+                         WebScriptExecutionCallback*);
   PausableScriptExecutor(LocalFrame*,
                          ScriptState*,
                          WebScriptExecutionCallback*,

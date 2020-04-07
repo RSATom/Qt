@@ -318,7 +318,7 @@ Q_BLUETOOTH_EXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* /*reserved*/)
     UnionJNIEnvToVoid uenv;
     uenv.venv = 0;
 
-    if (vm->GetEnv(&uenv.venv, JNI_VERSION_1_4) != JNI_OK) {
+    if (vm->GetEnv(&uenv.venv, JNI_VERSION_1_6) != JNI_OK) {
         __android_log_print(ANDROID_LOG_FATAL, logTag, "GetEnv failed");
         return -1;
     }
@@ -332,5 +332,5 @@ Q_BLUETOOTH_EXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* /*reserved*/)
     if (QT_BT_ANDROID().isDebugEnabled())
         __android_log_print(ANDROID_LOG_INFO, logTag, "Bluetooth start");
 
-    return JNI_VERSION_1_4;
+    return JNI_VERSION_1_6;
 }

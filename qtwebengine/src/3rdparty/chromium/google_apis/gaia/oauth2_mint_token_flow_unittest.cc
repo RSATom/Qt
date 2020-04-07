@@ -142,7 +142,8 @@ class MockMintTokenFlow : public OAuth2MintTokenFlow {
       : OAuth2MintTokenFlow(delegate, parameters) {}
   ~MockMintTokenFlow() override {}
 
-  MOCK_METHOD0(CreateAccessTokenFetcher, OAuth2AccessTokenFetcher*());
+  MOCK_METHOD0(CreateAccessTokenFetcher,
+               std::unique_ptr<OAuth2AccessTokenFetcher>());
 };
 
 }  // namespace
@@ -168,14 +169,14 @@ class OAuth2MintTokenFlowTest : public testing::Test {
     std::string ext_id = "ext1";
     std::string client_id = "client1";
     std::vector<std::string> scopes(CreateTestScopes());
-    flow_.reset(new MockMintTokenFlow(
+    flow_ = std::make_unique<MockMintTokenFlow>(
         delegate, OAuth2MintTokenFlow::Parameters(ext_id, client_id, scopes,
-                                                  device_id, mode)));
+                                                  device_id, mode));
   }
 
   // Helper to parse the given string to DictionaryValue.
   static base::DictionaryValue* ParseJson(const std::string& str) {
-    std::unique_ptr<base::Value> value = base::JSONReader::Read(str);
+    std::unique_ptr<base::Value> value = base::JSONReader::ReadDeprecated(str);
     EXPECT_TRUE(value.get());
     EXPECT_EQ(base::Value::Type::DICTIONARY, value->type());
     return static_cast<base::DictionaryValue*>(value.release());
@@ -347,7 +348,7 @@ TEST_F(OAuth2MintTokenFlowTest, ProcessApiCallSuccess) {
 TEST_F(OAuth2MintTokenFlowTest, ProcessApiCallFailure) {
   network::ResourceResponseHead head;
   {  // Null delegate should work fine.
-    CreateFlow(NULL, OAuth2MintTokenFlow::MODE_MINT_TOKEN_NO_FORCE, "");
+    CreateFlow(nullptr, OAuth2MintTokenFlow::MODE_MINT_TOKEN_NO_FORCE, "");
     flow_->ProcessApiCallFailure(net::ERR_FAILED, &head, nullptr);
   }
 

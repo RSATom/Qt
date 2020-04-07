@@ -52,18 +52,13 @@ class CORE_EXPORT PerformanceResourceTiming : public PerformanceEntry {
   // This constructor is for PerformanceNavigationTiming.
   // Related doc: https://goo.gl/uNecAj.
   PerformanceResourceTiming(const AtomicString& name,
-                            TimeTicks time_origin,
+                            base::TimeTicks time_origin,
+                            bool is_secure_context,
                             const WebVector<WebServerTimingInfo>&);
   PerformanceResourceTiming(const WebResourceTimingInfo&,
-                            TimeTicks time_origin,
+                            base::TimeTicks time_origin,
                             const AtomicString& initiator_type);
   ~PerformanceResourceTiming() override;
-  static PerformanceResourceTiming* Create(const WebResourceTimingInfo& info,
-                                           TimeTicks time_origin,
-                                           const AtomicString& initiator_type) {
-    return MakeGarbageCollected<PerformanceResourceTiming>(info, time_origin,
-                                                           initiator_type);
-  }
 
   AtomicString entryType() const override;
   PerformanceEntryType EntryTypeEnum() const override;
@@ -83,9 +78,9 @@ class CORE_EXPORT PerformanceResourceTiming : public PerformanceEntry {
   DOMHighResTimeStamp requestStart() const;
   DOMHighResTimeStamp responseStart() const;
   virtual DOMHighResTimeStamp responseEnd() const;
-  unsigned long long transferSize() const;
-  unsigned long long encodedBodySize() const;
-  unsigned long long decodedBodySize() const;
+  uint64_t transferSize() const;
+  uint64_t encodedBodySize() const;
+  uint64_t decodedBodySize() const;
   const HeapVector<Member<PerformanceServerTiming>>& serverTiming() const;
 
   void Trace(blink::Visitor*) override;
@@ -96,7 +91,7 @@ class CORE_EXPORT PerformanceResourceTiming : public PerformanceEntry {
   virtual AtomicString AlpnNegotiatedProtocol() const;
   virtual AtomicString ConnectionInfo() const;
 
-  TimeTicks TimeOrigin() const { return time_origin_; }
+  base::TimeTicks TimeOrigin() const { return time_origin_; }
 
  private:
   static AtomicString GetNextHopProtocol(
@@ -108,24 +103,24 @@ class CORE_EXPORT PerformanceResourceTiming : public PerformanceEntry {
   virtual ResourceLoadTiming* GetResourceLoadTiming() const;
   virtual bool AllowTimingDetails() const;
   virtual bool DidReuseConnection() const;
-  virtual unsigned long long GetTransferSize() const;
-  virtual unsigned long long GetEncodedBodySize() const;
-  virtual unsigned long long GetDecodedBodySize() const;
+  virtual uint64_t GetTransferSize() const;
+  virtual uint64_t GetEncodedBodySize() const;
+  virtual uint64_t GetDecodedBodySize() const;
 
   AtomicString initiator_type_;
   AtomicString alpn_negotiated_protocol_;
   AtomicString connection_info_;
-  TimeTicks time_origin_;
+  base::TimeTicks time_origin_;
   scoped_refptr<ResourceLoadTiming> timing_;
-  TimeTicks last_redirect_end_time_;
-  TimeTicks finish_time_;
-  unsigned long long transfer_size_;
-  unsigned long long encoded_body_size_;
-  unsigned long long decoded_body_size_;
-  bool did_reuse_connection_;
-  bool allow_timing_details_;
-  bool allow_redirect_details_;
-  bool allow_negative_value_;
+  base::TimeTicks last_redirect_end_time_;
+  base::TimeTicks response_end_;
+  uint64_t transfer_size_ = 0;
+  uint64_t encoded_body_size_ = 0;
+  uint64_t decoded_body_size_ = 0;
+  bool did_reuse_connection_ = false;
+  bool allow_timing_details_ = false;
+  bool allow_redirect_details_ = false;
+  bool allow_negative_value_ = false;
   bool is_secure_context_ = false;
   HeapVector<Member<PerformanceServerTiming>> server_timing_;
 };

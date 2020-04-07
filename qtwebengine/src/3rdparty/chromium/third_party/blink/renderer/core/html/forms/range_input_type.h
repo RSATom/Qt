@@ -43,9 +43,7 @@ class RangeInputType final : public InputType, public InputTypeView {
   USING_GARBAGE_COLLECTED_MIXIN(RangeInputType);
 
  public:
-  static InputType* Create(HTMLInputElement&);
-
-  RangeInputType(HTMLInputElement&);
+  explicit RangeInputType(HTMLInputElement&);
 
   void Trace(Visitor*) override;
   using InputType::GetElement;
@@ -65,7 +63,8 @@ class RangeInputType final : public InputType, public InputTypeView {
   bool IsSteppable() const override;
   void HandleMouseDownEvent(MouseEvent&) override;
   void HandleKeydownEvent(KeyboardEvent&) override;
-  LayoutObject* CreateLayoutObject(const ComputedStyle&) const override;
+  LayoutObject* CreateLayoutObject(const ComputedStyle&,
+                                   LegacyLayout) const override;
   void CreateShadowSubtree() override;
   Decimal ParseToNumber(const String&, const Decimal&) const override;
   String Serialize(const Decimal&) const override;

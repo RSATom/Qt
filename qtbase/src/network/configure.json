@@ -94,9 +94,37 @@
                     "condition": "config.msvc"
                 },
                 {
+                    "libs": "-lssl_arm64-v8a -lcrypto_arm64-v8a",
+                    "condition": "config.android"
+                },
+                {
                     "libs": "-lssl -lcrypto",
                     "condition": "!config.msvc"
                 }
+            ]
+        },
+        "gssapi": {
+            "label": "KRB5 GSSAPI Support",
+            "test": {
+                "head": [
+                    "#if defined(__APPLE__) && (defined(__GNUC__) || defined(__xlC__) || defined(__xlc__))",
+                    "#  include <TargetConditionals.h>",
+                    "#  if defined(TARGET_OS_MAC) && TARGET_OS_MAC",
+                    "#    include <GSS/GSS.h>",
+                    "#  endif",
+                    "#else",
+                    "#  include <gssapi/gssapi.h>",
+                    "#endif"
+                ],
+                "main": [
+                  "gss_ctx_id_t ctx;",
+                  "gss_context_time(nullptr, ctx, nullptr);"
+                ]
+            },
+            "sources": [
+                { "libs": "-framework GSS", "condition": "config.darwin" },
+                { "type": "pkgConfig", "args": "krb5-gssapi" },
+                "-lgssapi_krb5"
             ]
         }
     },
@@ -199,6 +227,22 @@
                 ]
             },
             "use": "openssl"
+        },
+        "netlistmgr": {
+            "label": "Network List Manager",
+            "type": "compile",
+            "test": {
+                "include": [ "netlistmgr.h", "wrl/client.h" ],
+                "main": [
+                    "using namespace Microsoft::WRL;",
+                    "ComPtr<INetworkListManager> networkListManager;",
+                    "ComPtr<IConnectionPoint> connectionPoint;",
+                    "ComPtr<IConnectionPointContainer> connectionPointContainer;",
+                    "networkListManager.As(&connectionPointContainer);",
+                    "connectionPointContainer->FindConnectionPoint(IID_INetworkConnectionEvents, &connectionPoint);"
+                ],
+                "qmake": "LIBS += -lOle32"
+            }
         }
     },
 
@@ -261,7 +305,7 @@
             "disable": "input.securetransport == 'no' || input.ssl == 'no'",
             "condition": "config.darwin && (input.openssl == '' || input.openssl == 'no')",
             "output": [
-                "privateFeature",
+                "publicFeature",
                 { "type": "define", "name": "QT_SECURETRANSPORT" }
             ]
         },
@@ -283,7 +327,7 @@
             "label": "DTLS",
             "purpose": "Provides a DTLS implementation",
             "section": "Networking",
-            "condition": "features.openssl && tests.dtls",
+            "condition": "features.openssl && features.udpsocket && tests.dtls",
             "output": [ "publicFeature" ]
         },
         "ocsp": {
@@ -378,13 +422,34 @@
             "purpose": "Provides API for DNS lookups.",
             "section": "Networking",
             "output": [ "publicFeature" ]
+        },
+        "gssapi": {
+            "label": "GSSAPI",
+            "purpose": "Enable SPNEGO authentication through GSSAPI",
+            "section": "Networking",
+            "condition": "!config.win32 && libs.gssapi",
+            "output": [ "publicFeature", "feature" ]
+        },
+        "sspi": {
+            "label": "SSPI",
+            "purpose": "Enable NTLM/SPNEGO authentication through SSPI",
+            "section": "Networking",
+            "condition": "config.win32 && !config.winrt",
+            "output": [ "publicFeature", "feature" ]
+        },
+        "netlistmgr": {
+            "label": "Network List Manager",
+            "purpose": "Use Network List Manager to keep track of network connectivity",
+            "section": "Networking",
+            "condition": "config.win32 && tests.netlistmgr",
+            "output": [ "privateFeature" ]
         }
     },
 
     "report": [
         {
             "type": "note",
-            "condition": "features.openssl-linked && libs.openssl.source != 0
+            "condition": "!config.android && features.openssl-linked && libs.openssl.source != 0
                           && input.openssl.prefix == '' && input.openssl.libs == '' && input.openssl.libs.debug == ''",
             "message": "When linking against OpenSSL, you can override the default
 library names through OPENSSL_LIBS.
@@ -437,7 +502,8 @@ For example:
                 "dtls",
                 "ocsp",
                 "sctp",
-                "system-proxies"
+                "system-proxies",
+                "gssapi"
             ]
         }
     ]

@@ -17,7 +17,7 @@
 #include "chrome/browser/ui/webui/print_preview/printer_handler.h"
 #include "components/prefs/pref_member.h"
 #include "components/printing/browser/print_manager.h"
-#include "components/services/pdf_compositor/public/interfaces/pdf_compositor.mojom.h"
+#include "components/services/pdf_compositor/public/mojom/pdf_compositor.mojom.h"
 #include "content/public/browser/notification_observer.h"
 #include "content/public/browser/notification_registrar.h"
 #include "printing/buildflags/buildflags.h"
@@ -90,7 +90,7 @@ class PrintViewManagerBase : public content::NotificationObserver,
   // currently a print job, safely disconnect from it. Returns false if it is
   // impossible to safely disconnect from the current print job or it is
   // impossible to create a new print job.
-  virtual bool CreateNewPrintJob(PrinterQuery* query);
+  virtual bool CreateNewPrintJob(std::unique_ptr<PrinterQuery> query);
 
   // Manages the low-level talk to the printer.
   scoped_refptr<PrintJob> print_job_;
@@ -123,17 +123,15 @@ class PrintViewManagerBase : public content::NotificationObserver,
 
 // Helpers for PrintForPrintPreview();
 #if BUILDFLAG(ENABLE_PRINT_PREVIEW)
-  void OnPrintSettingsDone(
-      const scoped_refptr<base::RefCountedMemory>& print_data,
-      int page_count,
-      PrinterHandler::PrintCallback callback,
-      scoped_refptr<PrinterQuery> printer_query);
+  void OnPrintSettingsDone(scoped_refptr<base::RefCountedMemory> print_data,
+                           int page_count,
+                           PrinterHandler::PrintCallback callback,
+                           std::unique_ptr<PrinterQuery> printer_query);
 
-  void StartLocalPrintJob(
-      const scoped_refptr<base::RefCountedMemory>& print_data,
-      int page_count,
-      scoped_refptr<PrinterQuery> printer_query,
-      PrinterHandler::PrintCallback callback);
+  void StartLocalPrintJob(scoped_refptr<base::RefCountedMemory> print_data,
+                          int page_count,
+                          int cookie,
+                          PrinterHandler::PrintCallback callback);
 #endif  // BUILDFLAG(ENABLE_PRINT_PREVIEW)
 
   // Processes a NOTIFY_PRINT_JOB_EVENT notification.
@@ -150,7 +148,7 @@ class PrintViewManagerBase : public content::NotificationObserver,
   // Starts printing the |document| in |print_job_| with the given |print_data|.
   // This method assumes PrintJobHasDocument() has been called, and |print_data|
   // contains valid data.
-  void PrintDocument(const scoped_refptr<base::RefCountedMemory>& print_data,
+  void PrintDocument(scoped_refptr<base::RefCountedMemory> print_data,
                      const gfx::Size& page_size,
                      const gfx::Rect& content_area,
                      const gfx::Point& offsets);
@@ -210,7 +208,7 @@ class PrintViewManagerBase : public content::NotificationObserver,
 
   scoped_refptr<PrintQueriesQueue> queue_;
 
-  base::WeakPtrFactory<PrintViewManagerBase> weak_ptr_factory_;
+  base::WeakPtrFactory<PrintViewManagerBase> weak_ptr_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(PrintViewManagerBase);
 };

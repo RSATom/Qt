@@ -48,6 +48,9 @@ Polymer({
     },
 
     /** @private */
+    hasIncognito_: Boolean,
+
+    /** @private */
     tooltipText_: String,
   },
 
@@ -62,6 +65,9 @@ Polymer({
     this.addWebUIListener(
         'contentSettingChooserPermissionChanged',
         this.objectWithinChooserTypeChanged_.bind(this));
+    this.addWebUIListener(
+        'onIncognitoStatusChanged', this.onIncognitoStatusChanged_.bind(this));
+    this.browserProxy.updateIncognitoStatus();
   },
 
   /**
@@ -80,6 +86,17 @@ Polymer({
   },
 
   /**
+   * Called for each chooser-exception-list when incognito is enabled or
+   * disabled. Only called on change (opening N incognito windows only fires one
+   * message). Another message is sent when the *last* incognito window closes.
+   * @private
+   */
+  onIncognitoStatusChanged_: function(hasIncognito) {
+    this.hasIncognito_ = hasIncognito;
+    this.populateList_();
+  },
+
+  /**
    * Configures the visibility of the widget and shows the list.
    * @private
    */
@@ -92,6 +109,10 @@ Polymer({
     switch (this.chooserType) {
       case settings.ChooserType.USB_DEVICES:
         this.emptyListMessage_ = this.i18n('noUsbDevicesFound');
+        break;
+      case settings.ChooserType.SERIAL_PORTS:
+        this.emptyListMessage_ = this.i18n('noSerialPortsFound');
+        break;
       default:
         this.emptyListMessage_ = '';
     }
@@ -155,6 +176,17 @@ Polymer({
       return Object.assign(exception, {sites});
     });
 
-    this.updateList('chooserExceptions', x => x.displayName, exceptions);
+    if (!this.updateList(
+            'chooserExceptions', x => x.displayName, exceptions,
+            true /* uidBasedUpdate */)) {
+      // The chooser objects have not been changed, so check if their site
+      // permissions have changed. The |exceptions| and |this.chooserExceptions|
+      // arrays should be the same length.
+      const siteUidGetter = x => x.origin + x.embeddingOrigin + x.incognito;
+      exceptions.forEach((exception, index) => {
+        const propertyPath = 'chooserExceptions.' + index + '.sites';
+        this.updateList(propertyPath, siteUidGetter, exception.sites);
+      }, this);
+    }
   },
 });

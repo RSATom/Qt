@@ -54,7 +54,7 @@ bool waitForSignal(QVector<Storage> *storage, QSignalSpy *spy)
         ++runs;
         if (spy->wait() && !spy->isEmpty()){
 
-            foreach (const Storage &row, *storage) {
+            for (const Storage &row : qAsConst(*storage)) {
                 for (int i = 0; i < spy->size(); ++i) {
                     const QList<QVariant> &signal = spy->at(i);
                     if (row.match(signal)) {
@@ -63,7 +63,7 @@ bool waitForSignal(QVector<Storage> *storage, QSignalSpy *spy)
                     }
                 }
             }
-            foreach (const Storage &row, rowsToRemove)
+            for (const Storage &row : qAsConst(rowsToRemove))
                 storage->removeAll(row);
             if (storage->isEmpty())
                 break;
@@ -141,12 +141,12 @@ inline void dumpModel(const QAbstractItemModel *model, const QModelIndex &parent
             s.fill(QChar(' '), level*2);
             cout << qPrintable(s);
             cout << QString(QLatin1String("%1:%2")).arg(i).arg(j);
-            foreach (int role, roles.keys()) {
-                const QVariant v = model->data(index, role);
+            for (auto it = roles.cbegin(), end = roles.cend(); it != end; ++it) {
+                const QVariant v = model->data(index, it.key());
                 if (!v.isValid()) continue;
                 QString t;
                 QDebug(&t) << v;
-                cout << " " << QString::fromUtf8(roles[role]) << "=" << t.trimmed();
+                cout << " " << QString::fromUtf8(it.value()) << "=" << t.trimmed();
             }
 
             {
@@ -174,7 +174,8 @@ void compareData(const QAbstractItemModel *sourceModel, const QAbstractItemModel
 
     for (int i = 0; i < sourceModel->rowCount(); ++i) {
         for (int j = 0; j < sourceModel->columnCount(); ++j) {
-            foreach (int role, replica->availableRoles()) {
+            const auto roles = replica->availableRoles();
+            for (int role : roles) {
                 QCOMPARE(replica->index(i, j).data(role), sourceModel->index(i, j).data(role));
             }
         }
@@ -186,7 +187,7 @@ void compareIndex(const QModelIndex &sourceIndex, const QModelIndex &replicaInde
 {
     QVERIFY(sourceIndex.isValid());
     QVERIFY(replicaIndex.isValid());
-    foreach (int role, roles) {
+    for (int role : roles) {
         QCOMPARE(replicaIndex.data(role), sourceIndex.data(role));
     }
     const QAbstractItemModel *sourceModel = sourceIndex.model();
@@ -203,7 +204,10 @@ void compareIndex(const QModelIndex &sourceIndex, const QModelIndex &replicaInde
         QCOMPARE(replicaColumnCount, sourceColumnCount);
     for (int i = 0; i < sourceRowCount; ++i) {
         for (int j = 0; j < sourceColumnCount; ++j) {
-            compareIndex(sourceIndex.child(i, j), replicaIndex.child(i, j), roles);
+            auto sourceChild = sourceModel->index(i, j, sourceIndex);
+            auto replicaChild = replicaModel->index(i, j, replicaIndex);
+            compareIndex(sourceChild, replicaChild, roles);
+
         }
     }
 }
@@ -334,7 +338,7 @@ public:
 
     void addData(const QModelIndex &index, const QVector<int> &roles)
     {
-        foreach (int role, roles) {
+        for (int role : roles) {
             const bool cached = m_replica->hasData(index, role);
             if (cached)
                 continue;
@@ -376,7 +380,7 @@ public:
         pending.detach();
         QHash<QPersistentModelIndex, QVector<int> >::ConstIterator it(pending.constBegin()), end(pending.constEnd());
         for (; it != end; ++it) {
-            foreach (int role, it.value()) {
+            for (int role : it.value()) {
                 QVariant v = m_replica->data(it.key(), role);
                 Q_UNUSED(v);
             }
@@ -455,7 +459,7 @@ private:
                 if (roles.isEmpty()) {
                     itroles.clear();
                 } else {
-                    foreach (int r, roles) {
+                    for (int r : roles) {
                         itroles.removeAll(r);
                     }
                 }
@@ -729,7 +733,7 @@ void TestModelView::testFlags()
     for (int i = 10; i < 20; ++i) {
         QStandardItem* firstItem = m_sourceModel.item(i, 0);
         QStandardItem* secondItem = m_sourceModel.item(i, 1);
-        firstItem->setFlags(firstItem->flags() | Qt::ItemIsEnabled | Qt::ItemIsTristate);
+        firstItem->setFlags(firstItem->flags() | Qt::ItemIsEnabled | Qt::ItemIsAutoTristate);
         secondItem->setFlags(firstItem->flags() | Qt::ItemIsEnabled);
     }
     bool signalsReceived = false;
@@ -788,7 +792,7 @@ void TestModelView::testDataInsertion()
         ++runs;
         if (rowSpy.wait() && !rowSpy.isEmpty()){
 
-            foreach (const InsertedRow &irow, insertedRows) {
+            for (const InsertedRow &irow : qAsConst(insertedRows)) {
                 for (int i = 0; i < rowSpy.size(); ++i) {
                     const QList<QVariant> &signal = rowSpy.at(i);
                     if (irow.match(signal)) {
@@ -808,7 +812,7 @@ void TestModelView::testDataInsertion()
                     }
                 }
             }
-            foreach (const InsertedRow &irow, rowsToRemove)
+            for (const InsertedRow &irow : qAsConst(rowsToRemove))
                 insertedRows.removeAll(irow);
             if (insertedRows.isEmpty())
                 break;
@@ -875,7 +879,7 @@ void TestModelView::testDataInsertionTree()
         ++runs;
         if (rowSpy.wait() && !rowSpy.isEmpty()){
 
-            foreach (const InsertedRow &irow, insertedRows) {
+            for (const InsertedRow &irow : qAsConst(insertedRows)) {
                 for (int i = 0; i < rowSpy.size(); ++i) {
                     const QList<QVariant> &signal = rowSpy.at(i);
                     if (irow.match(signal)) {
@@ -895,7 +899,7 @@ void TestModelView::testDataInsertionTree()
                     }
                 }
             }
-            foreach (const InsertedRow &irow, rowsToRemove)
+            for (const InsertedRow &irow : qAsConst(rowsToRemove))
                 insertedRows.removeAll(irow);
             if (insertedRows.isEmpty())
                 break;

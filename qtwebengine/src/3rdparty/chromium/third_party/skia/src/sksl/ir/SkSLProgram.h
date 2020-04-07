@@ -11,12 +11,13 @@
 #include <vector>
 #include <memory>
 
-#include "SkSLBoolLiteral.h"
-#include "SkSLExpression.h"
-#include "SkSLIntLiteral.h"
-#include "SkSLModifiers.h"
-#include "SkSLProgramElement.h"
-#include "SkSLSymbolTable.h"
+#include "src/sksl/ir/SkSLBoolLiteral.h"
+#include "src/sksl/ir/SkSLExpression.h"
+#include "src/sksl/ir/SkSLFloatLiteral.h"
+#include "src/sksl/ir/SkSLIntLiteral.h"
+#include "src/sksl/ir/SkSLModifiers.h"
+#include "src/sksl/ir/SkSLProgramElement.h"
+#include "src/sksl/ir/SkSLSymbolTable.h"
 
 // name of the render target width uniform
 #define SKSL_RTWIDTH_NAME "u_skRTWidth"
@@ -46,6 +47,10 @@ struct Program {
             : fKind(kInt_Kind)
             , fValue(i) {}
 
+            Value(float f)
+            : fKind(kFloat_Kind)
+            , fValue(f) {}
+
             std::unique_ptr<Expression> literal(const Context& context, int offset) const {
                 switch (fKind) {
                     case Program::Settings::Value::kBool_Kind:
@@ -54,6 +59,10 @@ struct Program {
                                                                            fValue));
                     case Program::Settings::Value::kInt_Kind:
                         return std::unique_ptr<Expression>(new IntLiteral(context,
+                                                                          offset,
+                                                                          fValue));
+                    case Program::Settings::Value::kFloat_Kind:
+                        return std::unique_ptr<Expression>(new FloatLiteral(context,
                                                                           offset,
                                                                           fValue));
                     default:
@@ -65,12 +74,13 @@ struct Program {
             enum {
                 kBool_Kind,
                 kInt_Kind,
+                kFloat_Kind,
             } fKind;
 
             int fValue;
         };
 
-#ifdef SKSL_STANDALONE
+#if defined(SKSL_STANDALONE) || !SK_SUPPORT_GPU
         const StandaloneShaderCaps* fCaps = &standaloneCaps;
 #else
         const GrShaderCaps* fCaps = nullptr;
@@ -203,7 +213,8 @@ struct Program {
         kVertex_Kind,
         kGeometry_Kind,
         kFragmentProcessor_Kind,
-        kPipelineStage_Kind
+        kPipelineStage_Kind,
+        kGeneric_Kind,
     };
 
     Program(Kind kind,

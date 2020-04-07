@@ -72,11 +72,27 @@ typedef QPair<qreal, qreal> QDpi;
 
 #ifndef QT_NO_HIGHDPISCALING
 class Q_GUI_EXPORT QHighDpiScaling {
+    Q_GADGET
 public:
+    enum class DpiAdjustmentPolicy {
+        Unset,
+        Enabled,
+        Disabled,
+        UpOnly
+    };
+    Q_ENUM(DpiAdjustmentPolicy)
+
+    QHighDpiScaling() = delete;
+    ~QHighDpiScaling() = delete;
+    QHighDpiScaling(const QHighDpiScaling &) = delete;
+    QHighDpiScaling &operator=(const QHighDpiScaling &) = delete;
+    QHighDpiScaling(QHighDpiScaling &&) = delete;
+    QHighDpiScaling &operator=(QHighDpiScaling &&) = delete;
+
     static void initHighDpiScaling();
     static void updateHighDpiScaling();
     static void setGlobalFactor(qreal factor);
-    static void setScreenFactor(QScreen *window, qreal factor);
+    static void setScreenFactor(QScreen *screen, qreal factor);
 
     static bool isActive() { return m_active; }
 
@@ -98,9 +114,12 @@ public:
     static QPoint mapPositionToNative(const QPoint &pos, const QPlatformScreen *platformScreen);
     static QPoint mapPositionToGlobal(const QPoint &pos, const QPoint &windowGlobalPosition, const QWindow *window);
     static QPoint mapPositionFromGlobal(const QPoint &pos, const QPoint &windowGlobalPosition, const QWindow *window);
-    static QDpi logicalDpi();
+    static QDpi logicalDpi(const QScreen *screen);
 
 private:
+    static qreal rawScaleFactor(const QPlatformScreen *screen);
+    static qreal roundScaleFactor(qreal rawFactor);
+    static QDpi effectiveLogicalDpi(const QPlatformScreen *screen, qreal rawFactor, qreal roundedFactor);
     static qreal screenSubfactor(const QPlatformScreen *screen);
 
     static qreal m_factor;
@@ -292,6 +311,8 @@ public:
     static inline QPoint origin(const QPlatformScreen *) { return QPoint(); }
     static inline QPoint mapPositionFromNative(const QPoint &pos, const QPlatformScreen *) { return pos; }
     static inline QPoint mapPositionToNative(const QPoint &pos, const QPlatformScreen *) { return pos; }
+    static inline QPoint mapPositionToGlobal(const QPoint &pos, const QPoint &windowGlobalPosition, const QWindow *window) { return pos; }
+    static inline QPoint mapPositionFromGlobal(const QPoint &pos, const QPoint &windowGlobalPosition, const QWindow *window) { return pos; }
     static inline QDpi logicalDpi() { return QDpi(-1,-1); }
 };
 

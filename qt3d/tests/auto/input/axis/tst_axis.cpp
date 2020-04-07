@@ -30,7 +30,6 @@
 #include <qbackendnodetester.h>
 #include <Qt3DCore/private/qnode_p.h>
 #include <Qt3DCore/private/qscene_p.h>
-#include <Qt3DCore/qpropertyupdatedchange.h>
 #include <Qt3DCore/qpropertynodeaddedchange.h>
 #include <Qt3DCore/qpropertynoderemovedchange.h>
 #include <Qt3DInput/private/axis_p.h>
@@ -65,7 +64,7 @@ private Q_SLOTS:
         axis.addInput(&axisInput);
 
         // WHEN
-        simulateInitialization(&axis, &backendAxis);
+        simulateInitializationSync(&axis, &backendAxis);
 
         // THEN
         QCOMPARE(backendAxis.peerId(), axis.id());
@@ -97,7 +96,7 @@ private Q_SLOTS:
         axis.addInput(&axisInput);
 
         // WHEN
-        simulateInitialization(&axis, &backendAxis);
+        simulateInitializationSync(&axis, &backendAxis);
         backendAxis.setAxisValue(883.0f);
         backendAxis.cleanup();
 
@@ -110,67 +109,33 @@ private Q_SLOTS:
     void checkPropertyChanges()
     {
         // GIVEN
+        Qt3DInput::QAxis axis;
         Qt3DInput::Input::Axis backendAxis;
-        Qt3DCore::QPropertyUpdatedChangePtr updateChange;
+        simulateInitializationSync(&axis, &backendAxis);
 
         // WHEN
-        updateChange = QSharedPointer<Qt3DCore::QPropertyUpdatedChange>::create(Qt3DCore::QNodeId());
-        updateChange->setPropertyName("enabled");
-        updateChange->setValue(true);
-        backendAxis.sceneChangeEvent(updateChange);
+        axis.setEnabled(false);
+        backendAxis.syncFromFrontEnd(&axis, false);
 
         // THEN
-        QCOMPARE(backendAxis.isEnabled(), true);
+        QCOMPARE(backendAxis.isEnabled(), false);
 
         // WHEN
         DummyAxisInput input;
         const Qt3DCore::QNodeId inputId = input.id();
-        const auto nodeAddedChange = Qt3DCore::QPropertyNodeAddedChangePtr::create(Qt3DCore::QNodeId(), &input);
-        nodeAddedChange->setPropertyName("input");
-        backendAxis.sceneChangeEvent(nodeAddedChange);
+        axis.addInput(&input);
+        backendAxis.syncFromFrontEnd(&axis, false);
 
         // THEN
         QCOMPARE(backendAxis.inputs().size(), 1);
         QCOMPARE(backendAxis.inputs().first(), inputId);
 
         // WHEN
-        const auto nodeRemovedChange = Qt3DCore::QPropertyNodeRemovedChangePtr::create(Qt3DCore::QNodeId(), &input);
-        nodeRemovedChange->setPropertyName("input");
-        backendAxis.sceneChangeEvent(nodeRemovedChange);
+        axis.removeInput(&input);
+        backendAxis.syncFromFrontEnd(&axis, false);
 
         // THEN
         QCOMPARE(backendAxis.inputs().size(), 0);
-    }
-
-    void checkValuePropertyBackendNotification()
-    {
-        // GIVEN
-        TestArbiter arbiter;
-        Qt3DInput::Input::Axis backendAxis;
-        backendAxis.setEnabled(true);
-        Qt3DCore::QBackendNodePrivate::get(&backendAxis)->setArbiter(&arbiter);
-
-        // WHEN
-        backendAxis.setAxisValue(454.0f);
-
-        // THEN
-        QCOMPARE(backendAxis.axisValue(), 454.0f);
-        QCOMPARE(arbiter.events.count(), 1);
-        Qt3DCore::QPropertyUpdatedChangePtr change = arbiter.events.first().staticCast<Qt3DCore::QPropertyUpdatedChange>();
-        QCOMPARE(change->propertyName(), "value");
-        QCOMPARE(change->value().toFloat(), backendAxis.axisValue());
-
-        arbiter.events.clear();
-
-        // WHEN
-        backendAxis.setAxisValue(454.0f);
-
-        // THEN
-        QCOMPARE(backendAxis.axisValue(), 454.0f);
-        QCOMPARE(arbiter.events.count(), 0);
-
-        arbiter.events.clear();
-
     }
 
     void shouldNotChangeValueWhenDisabled()

@@ -71,15 +71,13 @@ SerialRunner::SerialRunner(const Queue& bound_fns,
                            const PipelineStatusCB& done_cb)
     : task_runner_(base::ThreadTaskRunnerHandle::Get()),
       bound_fns_(bound_fns),
-      done_cb_(done_cb),
-      weak_factory_(this) {
+      done_cb_(done_cb) {
   // Respect both cancellation and calling stack guarantees for |done_cb|
   // when empty.
   if (bound_fns_.empty()) {
-    task_runner_->PostTask(FROM_HERE,
-                           base::Bind(&SerialRunner::RunNextInSeries,
-                                      weak_factory_.GetWeakPtr(),
-                                      PIPELINE_OK));
+    task_runner_->PostTask(
+        FROM_HERE, base::BindOnce(&SerialRunner::RunNextInSeries,
+                                  weak_factory_.GetWeakPtr(), PIPELINE_OK));
     return;
   }
 

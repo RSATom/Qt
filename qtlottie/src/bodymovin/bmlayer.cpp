@@ -56,7 +56,7 @@ BMLayer::BMLayer(const BMLayer &other)
     if (other.m_effects) {
         m_effects = new BMBase;
         for (BMBase *effect : other.m_effects->children())
-            m_effects->addChild(effect->clone());
+            m_effects->appendChild(effect->clone());
     }
     //m_transformAtFirstFrame = other.m_transformAtFirstFrame;
 }
@@ -249,7 +249,7 @@ void BMLayer::parseEffects(const QJsonArray &definition, BMBase *effectRoot)
         {
             BMBase *slider = new BMBase;
             slider->parse(effect);
-            effectRoot->addChild(slider);
+            effectRoot->appendChild(slider);
             break;
         }
         case 5:
@@ -257,7 +257,7 @@ void BMLayer::parseEffects(const QJsonArray &definition, BMBase *effectRoot)
             if (effect.value(QLatin1String("en")).toInt()) {
                 BMBase *group = new BMBase;
                 group->parse(effect);
-                effectRoot->addChild(group);
+                effectRoot->appendChild(group);
                 parseEffects(effect.value(QLatin1String("ef")).toArray(), group);
             }
             break;
@@ -266,7 +266,7 @@ void BMLayer::parseEffects(const QJsonArray &definition, BMBase *effectRoot)
         {
             BMFillEffect *fill = new BMFillEffect;
             fill->construct(effect);
-            effectRoot->addChild(fill);
+            effectRoot->appendChild(fill);
             break;
         }
         default:

@@ -44,7 +44,7 @@ namespace blink {
 
 PerformanceResourceTiming::PerformanceResourceTiming(
     const WebResourceTimingInfo& info,
-    TimeTicks time_origin,
+    base::TimeTicks time_origin,
     const AtomicString& initiator_type)
     : PerformanceEntry(info.name,
                        Performance::MonotonicTimeToDOMHighResTimeStamp(
@@ -53,7 +53,7 @@ PerformanceResourceTiming::PerformanceResourceTiming(
                            info.allow_negative_values),
                        Performance::MonotonicTimeToDOMHighResTimeStamp(
                            time_origin,
-                           info.finish_time,
+                           info.response_end,
                            info.allow_negative_values)),
       initiator_type_(initiator_type.IsEmpty()
                           ? fetch_initiator_type_names::kOther
@@ -64,7 +64,7 @@ PerformanceResourceTiming::PerformanceResourceTiming(
       time_origin_(time_origin),
       timing_(info.timing),
       last_redirect_end_time_(info.last_redirect_end_time),
-      finish_time_(info.finish_time),
+      response_end_(info.response_end),
       transfer_size_(info.transfer_size),
       encoded_body_size_(info.encoded_body_size),
       decoded_body_size_(info.decoded_body_size),
@@ -80,10 +80,12 @@ PerformanceResourceTiming::PerformanceResourceTiming(
 // This constructor is for PerformanceNavigationTiming.
 PerformanceResourceTiming::PerformanceResourceTiming(
     const AtomicString& name,
-    TimeTicks time_origin,
+    base::TimeTicks time_origin,
+    bool is_secure_context,
     const WebVector<WebServerTimingInfo>& server_timing)
     : PerformanceEntry(name, 0.0, 0.0),
       time_origin_(time_origin),
+      is_secure_context_(is_secure_context),
       server_timing_(
           PerformanceServerTiming::FromParsedServerTiming(server_timing)) {}
 
@@ -109,15 +111,15 @@ bool PerformanceResourceTiming::DidReuseConnection() const {
   return did_reuse_connection_;
 }
 
-unsigned long long PerformanceResourceTiming::GetTransferSize() const {
+uint64_t PerformanceResourceTiming::GetTransferSize() const {
   return transfer_size_;
 }
 
-unsigned long long PerformanceResourceTiming::GetEncodedBodySize() const {
+uint64_t PerformanceResourceTiming::GetEncodedBodySize() const {
   return encoded_body_size_;
 }
 
-unsigned long long PerformanceResourceTiming::GetDecodedBodySize() const {
+uint64_t PerformanceResourceTiming::GetDecodedBodySize() const {
   return decoded_body_size_;
 }
 
@@ -235,7 +237,7 @@ DOMHighResTimeStamp PerformanceResourceTiming::connectStart() const {
     return domainLookupEnd();
 
   // connectStart includes any DNS time, so we may need to trim that off.
-  TimeTicks connect_start = timing->ConnectStart();
+  base::TimeTicks connect_start = timing->ConnectStart();
   if (!timing->DnsEnd().is_null())
     connect_start = timing->DnsEnd();
 
@@ -292,7 +294,7 @@ DOMHighResTimeStamp PerformanceResourceTiming::responseStart() const {
   if (!timing)
     return requestStart();
 
-  TimeTicks response_start = timing->ReceiveHeadersStart();
+  base::TimeTicks response_start = timing->ReceiveHeadersStart();
   if (response_start.is_null())
     response_start = timing->ReceiveHeadersEnd();
   if (response_start.is_null())
@@ -303,28 +305,28 @@ DOMHighResTimeStamp PerformanceResourceTiming::responseStart() const {
 }
 
 DOMHighResTimeStamp PerformanceResourceTiming::responseEnd() const {
-  if (finish_time_.is_null())
+  if (response_end_.is_null())
     return responseStart();
 
   return Performance::MonotonicTimeToDOMHighResTimeStamp(
-      time_origin_, finish_time_, allow_negative_value_);
+      time_origin_, response_end_, allow_negative_value_);
 }
 
-unsigned long long PerformanceResourceTiming::transferSize() const {
+uint64_t PerformanceResourceTiming::transferSize() const {
   if (!AllowTimingDetails())
     return 0;
 
   return GetTransferSize();
 }
 
-unsigned long long PerformanceResourceTiming::encodedBodySize() const {
+uint64_t PerformanceResourceTiming::encodedBodySize() const {
   if (!AllowTimingDetails())
     return 0;
 
   return GetEncodedBodySize();
 }
 
-unsigned long long PerformanceResourceTiming::decodedBodySize() const {
+uint64_t PerformanceResourceTiming::decodedBodySize() const {
   if (!AllowTimingDetails())
     return 0;
 

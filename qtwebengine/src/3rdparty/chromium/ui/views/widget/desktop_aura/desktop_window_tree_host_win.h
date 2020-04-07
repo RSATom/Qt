@@ -41,6 +41,10 @@ namespace corewm {
 class TooltipWin;
 }
 
+namespace test {
+class DesktopWindowTreeHostWinTestApi;
+}
+
 class VIEWS_EXPORT DesktopWindowTreeHostWin
     : public DesktopWindowTreeHost,
       public wm::AnimationHost,
@@ -91,8 +95,8 @@ class VIEWS_EXPORT DesktopWindowTreeHostWin
   bool IsMaximized() const override;
   bool IsMinimized() const override;
   bool HasCapture() const override;
-  void SetAlwaysOnTop(bool always_on_top) override;
-  bool IsAlwaysOnTop() const override;
+  void SetZOrderLevel(ui::ZOrderLevel order) override;
+  ui::ZOrderLevel GetZOrderLevel() const override;
   void SetVisibleOnAllWorkspaces(bool always_visible) override;
   bool IsVisibleOnAllWorkspaces() const override;
   bool SetWindowTitle(const base::string16& title) override;
@@ -128,10 +132,7 @@ class VIEWS_EXPORT DesktopWindowTreeHostWin
   void ShowImpl() override;
   void HideImpl() override;
   gfx::Rect GetBoundsInPixels() const override;
-  void SetBoundsInPixels(
-      const gfx::Rect& bounds,
-      const viz::LocalSurfaceIdAllocation& local_surface_id_allocation =
-          viz::LocalSurfaceIdAllocation()) override;
+  void SetBoundsInPixels(const gfx::Rect& bounds) override;
   gfx::Point GetLocationOnScreenInPixels() const override;
   void SetCapture() override;
   void ReleaseCapture() override;
@@ -157,8 +158,7 @@ class VIEWS_EXPORT DesktopWindowTreeHostWin
   FrameMode GetFrameMode() const override;
   bool HasFrame() const override;
   void SchedulePaint() override;
-  void SetAlwaysRenderAsActive(bool always_render_as_active) override;
-  bool IsAlwaysRenderAsActive() override;
+  bool ShouldPaintAsActive() const override;
   bool CanResize() const override;
   bool CanMaximize() const override;
   bool CanMinimize() const override;
@@ -178,7 +178,6 @@ class VIEWS_EXPORT DesktopWindowTreeHostWin
   gfx::Size DIPToScreenSize(const gfx::Size& dip_size) const override;
   void ResetWindowControls() override;
   gfx::NativeViewAccessible GetNativeViewAccessible() override;
-  void HandleAppDeactivated() override;
   void HandleActivationChanged(bool active) override;
   bool HandleAppCommand(short command) override;
   void HandleCancelMode() override;
@@ -232,6 +231,8 @@ class VIEWS_EXPORT DesktopWindowTreeHostWin
   HWND GetHWND() const;
 
  private:
+  friend class ::views::test::DesktopWindowTreeHostWinTestApi;
+
   void SetWindowTransparency();
 
   // Returns true if a modal window is active in the current root window chain.
@@ -305,6 +306,10 @@ class VIEWS_EXPORT DesktopWindowTreeHostWin
   // Indicates if current window will receive mouse events when should not
   // become activated.
   bool wants_mouse_events_when_inactive_ = false;
+
+  // The z-order level of the window; the window exhibits "always on top"
+  // behavior if > 0.
+  ui::ZOrderLevel z_order_ = ui::ZOrderLevel::kNormal;
 
   DISALLOW_COPY_AND_ASSIGN(DesktopWindowTreeHostWin);
 };

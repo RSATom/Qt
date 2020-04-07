@@ -23,8 +23,6 @@ import os
 import re
 import sys
 
-SCRIPT_PATH = os.path.abspath(os.path.dirname(__file__))
-
 
 class StreamLenState:
   START = 1
@@ -151,6 +149,7 @@ def insert_includes(input_path, output_file, visited_set):
           output_file.write(line)
   except IOError:
     print >> sys.stderr, 'failed to include %s' % input_path
+    raise
   visited_set.discard(input_path)
 
 

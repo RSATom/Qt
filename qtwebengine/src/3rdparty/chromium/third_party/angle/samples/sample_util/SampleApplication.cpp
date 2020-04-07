@@ -56,30 +56,20 @@ SampleApplication::SampleApplication(std::string name,
       mEGLWindow(nullptr),
       mOSWindow(nullptr)
 {
-    EGLint requestedRenderer = EGL_PLATFORM_ANGLE_TYPE_DEFAULT_ANGLE;
+    mPlatformParams.renderer     = EGL_PLATFORM_ANGLE_TYPE_DEFAULT_ANGLE;
 
     if (argc > 1 && strncmp(argv[1], kUseAngleArg, strlen(kUseAngleArg)) == 0)
     {
-        requestedRenderer = GetDisplayTypeFromArg(argv[1] + strlen(kUseAngleArg));
+        mPlatformParams.renderer = GetDisplayTypeFromArg(argv[1] + strlen(kUseAngleArg));
     }
 
     // Load EGL library so we can initialize the display.
-    mEntryPointsLib.reset(angle::OpenSharedLibrary(ANGLE_EGL_LIBRARY_NAME));
+    mEntryPointsLib.reset(
+        angle::OpenSharedLibrary(ANGLE_EGL_LIBRARY_NAME, angle::SearchType::ApplicationDir));
 
-    mEGLWindow = EGLWindow::New(glesMajorVersion, glesMinorVersion,
-                                EGLPlatformParameters(requestedRenderer));
+    mEGLWindow = EGLWindow::New(glesMajorVersion, glesMinorVersion);
     mTimer.reset(CreateTimer());
     mOSWindow = OSWindow::New();
-
-    mEGLWindow->setConfigRedBits(8);
-    mEGLWindow->setConfigGreenBits(8);
-    mEGLWindow->setConfigBlueBits(8);
-    mEGLWindow->setConfigAlphaBits(8);
-    mEGLWindow->setConfigDepthBits(24);
-    mEGLWindow->setConfigStencilBits(8);
-
-    // Disable vsync
-    mEGLWindow->setSwapInterval(0);
 }
 
 SampleApplication::~SampleApplication()
@@ -138,7 +128,21 @@ int SampleApplication::run()
 
     mOSWindow->setVisible(true);
 
-    if (!mEGLWindow->initializeGL(mOSWindow, mEntryPointsLib.get()))
+    ConfigParameters configParams;
+    configParams.redBits     = 8;
+    configParams.greenBits   = 8;
+    configParams.blueBits    = 8;
+    configParams.alphaBits   = 8;
+    configParams.depthBits   = 24;
+    configParams.stencilBits = 8;
+
+    if (!mEGLWindow->initializeGL(mOSWindow, mEntryPointsLib.get(), mPlatformParams, configParams))
+    {
+        return -1;
+    }
+
+    // Disable vsync
+    if (!mEGLWindow->setSwapInterval(0))
     {
         return -1;
     }

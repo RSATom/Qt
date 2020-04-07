@@ -36,7 +36,6 @@
 #include <Qt3DRender/private/renderer_p.h>
 #include <Qt3DRender/private/texture_p.h>
 #include <Qt3DRender/private/textureimage_p.h>
-#include <Qt3DRender/private/texturedatamanager_p.h>
 #include <Qt3DRender/private/nodemanagers_p.h>
 #include <Qt3DRender/private/managers_p.h>
 #include <Qt3DRender/private/gltexturemanager_p.h>
@@ -142,6 +141,11 @@ public:
     {
     }
 
+    void updateGenerator()
+    {
+        Qt3DRender::QAbstractTextureImage::notifyDataGeneratorChanged();
+    }
+
     Qt3DRender::QTextureImageDataGeneratorPtr dataGenerator() const
     {
         return Qt3DRender::QTextureImageDataGeneratorPtr(new TestImageDataGenerator(m_genId));
@@ -189,20 +193,20 @@ class tst_RenderTextures : public Qt3DCore::QBackendNodeTester
     Qt3DRender::Render::Texture *createBackendTexture(Qt3DRender::QAbstractTexture *frontend,
                                                       Qt3DRender::Render::TextureManager *texMgr,
                                                       Qt3DRender::Render::TextureImageManager *texImgMgr,
-                                                      Qt3DRender::Render::TextureImageDataManager *texImgDataManager)
+                                                      Qt3DRender::Render::AbstractRenderer *renderer)
     {
         Qt3DRender::Render::Texture *backend = texMgr->getOrCreateResource(frontend->id());
-        simulateInitialization(frontend, backend);
+        backend->setRenderer(renderer);
+        simulateInitializationSync(frontend, backend);
 
         // create texture images
         for (const auto texImgFrontend : frontend->textureImages()) {
             // make sure TextureImageManager has backend node for this QTextureImage
             if (!texImgMgr->contains(texImgFrontend->id())) {
                 Qt3DRender::Render::TextureImage *texImgBackend = texImgMgr->getOrCreateResource(texImgFrontend->id());
-                texImgBackend->setTextureImageDataManager(texImgDataManager);
-                simulateInitialization(texImgFrontend, texImgBackend);
+                texImgBackend->setRenderer(renderer);
+                simulateInitializationSync(texImgFrontend, texImgBackend);
             }
-            backend->addTextureImage(texImgFrontend->id());
         }
 
         return backend;
@@ -212,6 +216,7 @@ private Q_SLOTS:
 
     void shouldCreateSameGLTextures()
     {
+        QSKIP("Texture Sharing is now disabled");
         QScopedPointer<Qt3DRender::Render::NodeManagers> mgrs(new Qt3DRender::Render::NodeManagers());
         Qt3DRender::Render::Renderer renderer(Qt3DRender::QRenderAspect::Synchronous);
         renderer.setNodeManagers(mgrs.data());
@@ -224,11 +229,11 @@ private Q_SLOTS:
         Qt3DRender::Render::Texture *bt1a = createBackendTexture(tex1a,
                                                                  mgrs->textureManager(),
                                                                  mgrs->textureImageManager(),
-                                                                 mgrs->textureImageDataManager());
+                                                                 &renderer);
         Qt3DRender::Render::Texture *bt1b = createBackendTexture(tex1b,
                                                                  mgrs->textureManager(),
                                                                  mgrs->textureImageManager(),
-                                                                 mgrs->textureImageDataManager());
+                                                                 &renderer);
         renderer.updateTexture(bt1a);
         renderer.updateTexture(bt1b);
 
@@ -259,7 +264,7 @@ private Q_SLOTS:
             Qt3DRender::Render::Texture *backendTexture = createBackendTexture(t,
                                                                                mgrs->textureManager(),
                                                                                mgrs->textureImageManager(),
-                                                                               mgrs->textureImageDataManager());
+                                                                               &renderer);
             backend.push_back(backendTexture);
             renderer.updateTexture(backendTexture);
         }
@@ -309,11 +314,11 @@ private Q_SLOTS:
             Qt3DRender::Render::Texture *bt1 = createBackendTexture(tex1a,
                                                                     mgrs->textureManager(),
                                                                     mgrs->textureImageManager(),
-                                                                    mgrs->textureImageDataManager());
+                                                                    &renderer);
             Qt3DRender::Render::Texture *bt2 = createBackendTexture(tex1b,
                                                                     mgrs->textureManager(),
                                                                     mgrs->textureImageManager(),
-                                                                    mgrs->textureImageDataManager());
+                                                                    &renderer);
             // THEN
             QCOMPARE(bt1->sharedTextureId(), 1);
             QCOMPARE(bt2->sharedTextureId(), 1);
@@ -340,11 +345,11 @@ private Q_SLOTS:
             Qt3DRender::Render::Texture *bt1 = createBackendTexture(tex1a,
                                                                     mgrs->textureManager(),
                                                                     mgrs->textureImageManager(),
-                                                                    mgrs->textureImageDataManager());
+                                                                    &renderer);
             Qt3DRender::Render::Texture *bt2 = createBackendTexture(tex1b,
                                                                     mgrs->textureManager(),
                                                                     mgrs->textureImageManager(),
-                                                                    mgrs->textureImageDataManager());
+                                                                    &renderer);
             // THEN
             QCOMPARE(bt1->sharedTextureId(), 1);
             QCOMPARE(bt2->sharedTextureId(), 2);
@@ -382,7 +387,7 @@ private Q_SLOTS:
             Qt3DRender::Render::Texture *backendTexture = createBackendTexture(t,
                                                                                mgrs->textureManager(),
                                                                                mgrs->textureImageManager(),
-                                                                               mgrs->textureImageDataManager());
+                                                                               &renderer);
             backend.push_back(backendTexture);
             renderer.updateTexture(backendTexture);
         }
@@ -406,32 +411,6 @@ private Q_SLOTS:
         QVERIFY(!(*idg1a == *idg2));
         QCOMPARE(*tg1a, *tg1b);
         QVERIFY(!(*tg1a == *tg2));
-        Qt3DRender::Render::TextureImageDataManager *imgDataMgr = mgrs->textureImageDataManager();
-        Qt3DRender::Render::TextureDataManager *texDataMgr = mgrs->textureDataManager();
-        QVERIFY(imgDataMgr->getData(idg1a) == nullptr);
-        QVERIFY(imgDataMgr->getData(idg2) == nullptr);
-        QVERIFY(texDataMgr->getData(tg1a) == nullptr);
-        QVERIFY(texDataMgr->getData(tg2) == nullptr);
-
-        // WHEN
-        for (const auto gen : imgDataMgr->pendingGenerators())
-            imgDataMgr->assignData(gen, (*gen)());
-        for (const auto gen : texDataMgr->pendingGenerators())
-            texDataMgr->assignData(gen, (*gen)());
-
-        // THEN
-        QVERIFY(imgDataMgr->getData(idg1a) != nullptr);
-        QVERIFY(imgDataMgr->getData(idg1b) != nullptr);
-        QVERIFY(imgDataMgr->getData(idg2) != nullptr);
-        QVERIFY(texDataMgr->getData(tg1a) != nullptr);
-        QVERIFY(texDataMgr->getData(tg1b) != nullptr);
-        QVERIFY(texDataMgr->getData(tg2) != nullptr);
-
-        QCOMPARE(imgDataMgr->getData(idg1a), imgDataMgr->getData(idg1b));
-        QVERIFY(imgDataMgr->getData(idg1a) != imgDataMgr->getData(idg2));
-
-        QCOMPARE(texDataMgr->getData(tg1a), texDataMgr->getData(tg1b));
-        QVERIFY(texDataMgr->getData(tg1a) != texDataMgr->getData(tg2));
 
         renderer.shutdown();
     }
@@ -447,23 +426,20 @@ private Q_SLOTS:
         QCOMPARE(img.isDirty(), false);
         QCOMPARE(img.face(), Qt3DRender::QAbstractTexture::CubeMapPositiveX);
         QVERIFY(img.dataGenerator().isNull());
-        QVERIFY(img.textureImageDataManager() == nullptr);
     }
 
     void checkTextureImageCleanupState()
     {
         // GIVEN
-        QScopedPointer<Qt3DRender::Render::NodeManagers> mgrs(new Qt3DRender::Render::NodeManagers());
-        Qt3DRender::Render::TextureImageDataManager *texImgDataMgr = mgrs->textureImageDataManager();
-
+        Qt3DRender::Render::Renderer renderer(Qt3DRender::QRenderAspect::Synchronous);
         TestTextureImage img(1);
         img.setLayer(2);
         img.setMipLevel(3);
 
         // WHEN
         Qt3DRender::Render::TextureImage texImgBackend;
-        texImgBackend.setTextureImageDataManager(texImgDataMgr);
-        simulateInitialization(&img, &texImgBackend);
+        texImgBackend.setRenderer(&renderer);
+        simulateInitializationSync(&img, &texImgBackend);
         texImgBackend.cleanup();
 
         // THEN
@@ -472,15 +448,14 @@ private Q_SLOTS:
         QCOMPARE(texImgBackend.mipLevel(), 0);
         QCOMPARE(texImgBackend.face(), Qt3DRender::QAbstractTexture::CubeMapPositiveX);
         QVERIFY(texImgBackend.dataGenerator().isNull());
-        QVERIFY(texImgBackend.textureImageDataManager() != nullptr);
+
+        renderer.shutdown();
     }
 
     void checkTextureImageInitializeFromPeer()
     {
         // GIVEN
-        QScopedPointer<Qt3DRender::Render::NodeManagers> mgrs(new Qt3DRender::Render::NodeManagers());
-        Qt3DRender::Render::TextureImageDataManager *texImgDataMgr = mgrs->textureImageDataManager();
-
+        Qt3DRender::Render::Renderer renderer(Qt3DRender::QRenderAspect::Synchronous);
         TestTextureImage img(1);
 
         {
@@ -489,8 +464,8 @@ private Q_SLOTS:
             img.setMipLevel(3);
 
             Qt3DRender::Render::TextureImage texImgBackend;
-            texImgBackend.setTextureImageDataManager(texImgDataMgr);
-            simulateInitialization(&img, &texImgBackend);
+            texImgBackend.setRenderer(&renderer);
+            simulateInitializationSync(&img, &texImgBackend);
 
             // THEN
             QCOMPARE(texImgBackend.isEnabled(), true);
@@ -507,32 +482,31 @@ private Q_SLOTS:
             img.setEnabled(false);
 
             Qt3DRender::Render::TextureImage texImgBackend;
-            texImgBackend.setTextureImageDataManager(texImgDataMgr);
-            simulateInitialization(&img, &texImgBackend);
+            texImgBackend.setRenderer(&renderer);
+            simulateInitializationSync(&img, &texImgBackend);
 
             // THEN
             QCOMPARE(texImgBackend.isEnabled(), false);
             QCOMPARE(texImgBackend.peerId(), img.id());
         }
+
+        renderer.shutdown();
     }
 
     void checkTextureImageSceneChangeEvents()
     {
         // GIVEN
-        QScopedPointer<Qt3DRender::Render::NodeManagers> mgrs(new Qt3DRender::Render::NodeManagers());
-        Qt3DRender::Render::TextureImageDataManager *texImgDataMgr = mgrs->textureImageDataManager();
         Qt3DRender::Render::TextureImage backendImage;
+        TestTextureImage textureImage(1);
         TestRenderer renderer;
         backendImage.setRenderer(&renderer);
-        backendImage.setTextureImageDataManager(texImgDataMgr);
+        simulateInitializationSync(&textureImage, &backendImage);
 
         {
             // WHEN
             const bool newValue = false;
-            const auto change = Qt3DCore::QPropertyUpdatedChangePtr::create(Qt3DCore::QNodeId());
-            change->setPropertyName("enabled");
-            change->setValue(newValue);
-            backendImage.sceneChangeEvent(change);
+            textureImage.setEnabled(newValue);
+            backendImage.syncFromFrontEnd(&textureImage, false);
 
             // THEN
             QCOMPARE(backendImage.isEnabled(), newValue);
@@ -545,10 +519,8 @@ private Q_SLOTS:
         {
             // WHEN
             const int newValue = 7;
-            const auto change = Qt3DCore::QPropertyUpdatedChangePtr::create(Qt3DCore::QNodeId());
-            change->setPropertyName("layer");
-            change->setValue(newValue);
-            backendImage.sceneChangeEvent(change);
+            textureImage.setLayer(newValue);
+            backendImage.syncFromFrontEnd(&textureImage, false);
 
             // THEN
             QCOMPARE(backendImage.layer(), newValue);
@@ -561,10 +533,9 @@ private Q_SLOTS:
         {
             // WHEN
             const int newValue = 3;
-            const auto change = Qt3DCore::QPropertyUpdatedChangePtr::create(Qt3DCore::QNodeId());
-            change->setPropertyName("mipLevel");
-            change->setValue(newValue);
-            backendImage.sceneChangeEvent(change);
+            textureImage.setMipLevel(newValue);
+            backendImage.syncFromFrontEnd(&textureImage, false);
+
 
             // THEN
             QCOMPARE(backendImage.mipLevel(), newValue);
@@ -577,10 +548,8 @@ private Q_SLOTS:
         {
             // WHEN
             const Qt3DRender::QAbstractTexture::CubeMapFace newValue = Qt3DRender::QAbstractTexture::CubeMapNegativeX;
-            const auto change = Qt3DCore::QPropertyUpdatedChangePtr::create(Qt3DCore::QNodeId());
-            change->setPropertyName("face");
-            change->setValue(newValue);
-            backendImage.sceneChangeEvent(change);
+            textureImage.setFace(newValue);
+            backendImage.syncFromFrontEnd(&textureImage, false);
 
             // THEN
             QCOMPARE(backendImage.face(), newValue);
@@ -592,46 +561,20 @@ private Q_SLOTS:
 
         {
             // WHEN
-            Qt3DRender::QTextureImageDataGeneratorPtr generator1(new TestImageDataGenerator(883));
-            auto change = Qt3DCore::QPropertyUpdatedChangePtr::create(Qt3DCore::QNodeId());
-            change->setPropertyName("dataGenerator");
-            change->setValue(QVariant::fromValue(generator1));
-            backendImage.sceneChangeEvent(change);
+            textureImage.updateGenerator();
+            backendImage.syncFromFrontEnd(&textureImage, false);
 
             // THEN
-            QCOMPARE(backendImage.dataGenerator(), generator1);
-            QVERIFY(texImgDataMgr->contains(generator1));
             QVERIFY(backendImage.isDirty());
             QVERIFY(renderer.dirtyBits() & Qt3DRender::Render::AbstractRenderer::AllDirty);
             renderer.clearDirtyBits(Qt3DRender::Render::AbstractRenderer::AllDirty);
             backendImage.unsetDirty();
 
             // WHEN
-            Qt3DRender::QTextureImageDataGeneratorPtr generator2(new TestImageDataGenerator(1584));
-            change = Qt3DCore::QPropertyUpdatedChangePtr::create(Qt3DCore::QNodeId());
-            change->setPropertyName("dataGenerator");
-            change->setValue(QVariant::fromValue(generator2));
-            backendImage.sceneChangeEvent(change);
+            textureImage.updateGenerator();
+            backendImage.syncFromFrontEnd(&textureImage, false);
 
             // THEN
-            QVERIFY(!texImgDataMgr->contains(generator1));
-            QVERIFY(texImgDataMgr->contains(generator2));
-            QVERIFY(backendImage.isDirty());
-            QVERIFY(renderer.dirtyBits() & Qt3DRender::Render::AbstractRenderer::AllDirty);
-            renderer.clearDirtyBits(Qt3DRender::Render::AbstractRenderer::AllDirty);
-            backendImage.unsetDirty();
-
-            // WHEN
-            Qt3DRender::QTextureImageDataGeneratorPtr generator3;
-            change = Qt3DCore::QPropertyUpdatedChangePtr::create(Qt3DCore::QNodeId());
-            change->setPropertyName("dataGenerator");
-            change->setValue(QVariant::fromValue(generator3));
-            backendImage.sceneChangeEvent(change);
-
-            // THEN
-            QVERIFY(!texImgDataMgr->contains(generator1));
-            QVERIFY(!texImgDataMgr->contains(generator2));
-            QVERIFY(backendImage.dataGenerator().isNull());
             QVERIFY(backendImage.isDirty());
             QVERIFY(renderer.dirtyBits() & Qt3DRender::Render::AbstractRenderer::AllDirty);
             renderer.clearDirtyBits(Qt3DRender::Render::AbstractRenderer::AllDirty);
@@ -647,14 +590,14 @@ private Q_SLOTS:
         Qt3DRender::Render::Renderer renderer(Qt3DRender::QRenderAspect::Synchronous);
         Qt3DRender::Render::TextureManager *texMgr = mgrs->textureManager();
         Qt3DRender::Render::TextureImageManager *texImgMgr = mgrs->textureImageManager();
-        Qt3DRender::Render::TextureImageDataManager *texImgDataMgr = mgrs->textureImageDataManager();
         renderer.setNodeManagers(mgrs.data());
 
         // GIVEN
         Qt3DRender::QAbstractTexture* frontendTexture = createQTexture(1, {1}, true);
 
         Qt3DRender::Render::Texture *backendTexture = texMgr->getOrCreateResource(frontendTexture->id());
-        simulateInitialization(frontendTexture, backendTexture);
+        backendTexture->setRenderer(&renderer);
+        simulateInitializationSync(frontendTexture, backendTexture);
 
         // THEN
         QCOMPARE(backendTexture->textureImageIds().size(), 1);
@@ -666,42 +609,17 @@ private Q_SLOTS:
 
         // THEN
         QVERIFY(!frontendGenerator.isNull());
-        QCOMPARE(texImgDataMgr->pendingGenerators().size(), 0);
-        QVERIFY(!texImgDataMgr->contains(frontendGenerator));
-        QVERIFY(texImgDataMgr->getData(frontendGenerator).isNull());
 
         // WHEN
         Qt3DRender::Render::TextureImage *texImgBackend = texImgMgr->getOrCreateResource(texImgFrontend->id());
-        texImgBackend->setTextureImageDataManager(texImgDataMgr);
-        simulateInitialization(texImgFrontend, texImgBackend);
+        texImgBackend->setRenderer(&renderer);
+        simulateInitializationSync(texImgFrontend, texImgBackend);
 
         // THEN
         qDebug() << frontendGenerator << texImgBackend->dataGenerator();
         const Qt3DRender::QTextureImageDataGeneratorPtr backendGenerator = texImgFrontend->dataGenerator();
         QVERIFY(frontendGenerator != backendGenerator);
         QVERIFY(*frontendGenerator == *backendGenerator);
-        QVERIFY(texImgDataMgr->contains(frontendGenerator));
-        QVERIFY(texImgDataMgr->contains(backendGenerator));
-        QVERIFY(texImgDataMgr->getData(frontendGenerator).isNull());
-        QCOMPARE(texImgDataMgr->pendingGenerators().size(), 1);
-
-        // WHEN
-        texImgDataMgr->assignData(frontendGenerator, (*frontendGenerator)());
-
-        // THEN
-        QVERIFY(!texImgDataMgr->getData(frontendGenerator).isNull());
-        QVERIFY(!texImgDataMgr->getData(backendGenerator).isNull());
-        QVERIFY(texImgDataMgr->getData(backendGenerator) == texImgDataMgr->getData(frontendGenerator));
-
-        // WHEN
-        texImgBackend->cleanup();
-
-        // THEN
-        QVERIFY(!texImgDataMgr->contains(frontendGenerator));
-        QVERIFY(!texImgDataMgr->contains(backendGenerator));
-        QCOMPARE(texImgDataMgr->pendingGenerators().size(), 0);
-        QVERIFY(texImgDataMgr->getData(frontendGenerator).isNull());
-        QVERIFY(texImgDataMgr->getData(backendGenerator).isNull());
 
         renderer.shutdown();
     }
@@ -720,7 +638,8 @@ private Q_SLOTS:
         Qt3DRender::QAbstractTexture* frontendTexture = createQTexture(1, {1}, true);
 
         Qt3DRender::Render::Texture *backendTexture = static_cast<Qt3DRender::Render::Texture *>(textureBackendNodeMapper.create(creationChange(frontendTexture)));
-        simulateInitialization(frontendTexture, backendTexture);
+        backendTexture->setRenderer(&renderer);
+        simulateInitializationSync(frontendTexture, backendTexture);
 
         // THEN
         QVERIFY(backendTexture != nullptr);
@@ -753,7 +672,8 @@ private Q_SLOTS:
         Qt3DRender::QAbstractTexture* frontendTexture = createQTexture(1, {1}, true);
 
         Qt3DRender::Render::Texture *backendTexture = static_cast<Qt3DRender::Render::Texture *>(textureBackendNodeMapper.create(creationChange(frontendTexture)));
-        simulateInitialization(frontendTexture, backendTexture);
+        backendTexture->setRenderer(&renderer);
+        simulateInitializationSync(frontendTexture, backendTexture);
 
         // WHEN
         textureBackendNodeMapper.destroy(frontendTexture->id());
@@ -765,7 +685,8 @@ private Q_SLOTS:
 
         // WHEN
         backendTexture = static_cast<Qt3DRender::Render::Texture *>(textureBackendNodeMapper.create(creationChange(frontendTexture)));
-        simulateInitialization(frontendTexture, backendTexture);
+        backendTexture->setRenderer(&renderer);
+        simulateInitializationSync(frontendTexture, backendTexture);
 
         // THEN
         QVERIFY(backendTexture != nullptr);
@@ -785,10 +706,10 @@ private Q_SLOTS:
         renderer.setNodeManagers(mgrs.data());
 
         Qt3DRender::QTexture2D *texture1 = new Qt3DRender::QTexture2D();
-        Qt3DRender::QAbstractTextureImage *image1 = new EmptyTextureImage();
+        TestTextureImage *image1 = new TestTextureImage(1);
 
         Qt3DRender::QTexture2D *texture2 = new Qt3DRender::QTexture2D();
-        Qt3DRender::QAbstractTextureImage *image2 = new EmptyTextureImage();
+        TestTextureImage *image2 = new TestTextureImage(2);
 
         Qt3DRender::QTexture2D *texture3 = new Qt3DRender::QTexture2D();
 
@@ -803,18 +724,17 @@ private Q_SLOTS:
         Qt3DRender::Render::TextureImage *backendImage1 = texImgMgr->getOrCreateResource(image1->id());
         Qt3DRender::Render::TextureImage *backendImage2 = texImgMgr->getOrCreateResource(image2->id());
 
-        simulateInitialization(texture1, backendTexture1);
-        simulateInitialization(texture2, backendTexture2);
-        simulateInitialization(texture3, backendTexture3);
-        simulateInitialization(image1, backendImage1);
-        simulateInitialization(image2, backendImage2);
-
         backendTexture1->setRenderer(&renderer);
         backendTexture2->setRenderer(&renderer);
         backendTexture3->setRenderer(&renderer);
         backendImage1->setRenderer(&renderer);
         backendImage2->setRenderer(&renderer);
 
+        simulateInitializationSync(texture1, backendTexture1);
+        simulateInitializationSync(texture2, backendTexture2);
+        simulateInitializationSync(texture3, backendTexture3);
+        simulateInitializationSync(image1, backendImage1);
+        simulateInitializationSync(image2, backendImage2);
 
         // THEN
         QCOMPARE(backendTexture1->textureImageIds().size(), 1);
@@ -847,9 +767,8 @@ private Q_SLOTS:
 
         // WHEN
         // Make Image1 dirty
-        const auto change = Qt3DCore::QPropertyUpdatedChangePtr::create(Qt3DCore::QNodeId());
-        change->setPropertyName("dataGenerator");
-        backendImage1->sceneChangeEvent(change);
+        image1->updateGenerator();
+        backendImage1->syncFromFrontEnd(image1, false);
 
         // THEN
         QVERIFY(backendImage1->isDirty());
@@ -870,7 +789,8 @@ private Q_SLOTS:
         backendTexture3->unsetDirty();
 
         // WHEN
-        backendImage2->sceneChangeEvent(change);
+        image2->updateGenerator();
+        backendImage2->syncFromFrontEnd(image2, false);
 
         // THEN
         QVERIFY(backendImage2->isDirty());

@@ -65,13 +65,24 @@ static QByteArray qmlSource()
 }
 
 QWebEngineWebViewPrivate::QWebEngineWebViewPrivate(QObject *p)
-    : QAbstractWebView(p)
+    : QAbstractWebView(p), m_profile(nullptr)
 {
     m_webEngineView.m_parent = this;
 }
 
 QWebEngineWebViewPrivate::~QWebEngineWebViewPrivate()
 {
+}
+
+QString QWebEngineWebViewPrivate::httpUserAgent() const
+{
+    return m_httpUserAgent;
+}
+
+void QWebEngineWebViewPrivate::setHttpUserAgent(const QString &userAgent)
+{
+    m_profile->setHttpUserAgent(userAgent);
+    Q_EMIT httpUserAgentChanged(userAgent);
 }
 
 QUrl QWebEngineWebViewPrivate::url() const
@@ -195,6 +206,30 @@ void QWebEngineWebViewPrivate::q_loadingChanged(QQuickWebEngineLoadRequest *load
     Q_EMIT loadingChanged(lr);
 }
 
+void QWebEngineWebViewPrivate::q_profileChanged()
+{
+    auto profile = m_webEngineView->profile();
+    if (profile == m_profile)
+        return;
+
+    m_profile = profile;
+    auto userAgent = m_profile->httpUserAgent();
+    if (m_httpUserAgent == userAgent)
+        return;
+    m_httpUserAgent = userAgent;
+    QObject::connect(m_profile, &QQuickWebEngineProfile::httpUserAgentChanged, this, &QWebEngineWebViewPrivate::q_httpUserAgentChanged);
+    Q_EMIT httpUserAgentChanged(userAgent);
+}
+
+void QWebEngineWebViewPrivate::q_httpUserAgentChanged()
+{
+    QString httpUserAgent = m_profile->httpUserAgent();
+    if (m_httpUserAgent == httpUserAgent)
+        return;
+     m_httpUserAgent = httpUserAgent;
+     Q_EMIT httpUserAgentChanged(m_httpUserAgent);
+}
+
 void QWebEngineWebViewPrivate::QQuickWebEngineViewPtr::init() const
 {
     Q_ASSERT(!m_webEngineView);
@@ -218,10 +253,15 @@ void QWebEngineWebViewPrivate::QQuickWebEngineViewPtr::init() const
     component->setData(qmlSource(), QUrl::fromLocalFile(QLatin1String("")));
     QQuickWebEngineView *webEngineView = qobject_cast<QQuickWebEngineView *>(component->create());
     Q_ASSERT(webEngineView);
+    QQuickWebEngineProfile *profile = webEngineView->profile();
+    m_parent->m_profile = profile;
+    m_parent->m_httpUserAgent = profile->httpUserAgent();
     QObject::connect(webEngineView, &QQuickWebEngineView::urlChanged, m_parent, &QWebEngineWebViewPrivate::q_urlChanged);
     QObject::connect(webEngineView, &QQuickWebEngineView::loadProgressChanged, m_parent, &QWebEngineWebViewPrivate::q_loadProgressChanged);
     QObject::connect(webEngineView, &QQuickWebEngineView::loadingChanged, m_parent, &QWebEngineWebViewPrivate::q_loadingChanged);
     QObject::connect(webEngineView, &QQuickWebEngineView::titleChanged, m_parent, &QWebEngineWebViewPrivate::q_titleChanged);
+    QObject::connect(webEngineView, &QQuickWebEngineView::profileChanged,m_parent, &QWebEngineWebViewPrivate::q_profileChanged);
+    QObject::connect(profile, &QQuickWebEngineProfile::httpUserAgentChanged, m_parent, &QWebEngineWebViewPrivate::q_httpUserAgentChanged);
     webEngineView->setParentItem(parentItem);
     m_webEngineView.reset(webEngineView);
 }

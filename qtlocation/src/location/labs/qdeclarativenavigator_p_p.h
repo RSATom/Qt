@@ -53,6 +53,9 @@
 #include <QtCore/qpointer.h>
 #include <QtLocation/qgeoroute.h>
 #include <QtLocation/private/qdeclarativenavigator_p.h>
+#include <QAbstractListModel>
+#include <QtLocation/private/qdeclarativegeoroute_p.h>
+#include <QtLocation/private/qdeclarativegeoroutemodel_p.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -66,6 +69,48 @@ class QGeoMapParameter;
 class QDeclarativeGeoRouteSegment;
 class QParameterizableObject;
 class QAbstractNavigator;
+
+template<typename T, int Role>
+class ReadOnlyListModel : public QAbstractListModel
+{
+public:
+    explicit ReadOnlyListModel(const QByteArray &dataRoleName, QObject *parent = nullptr)
+        : QAbstractListModel(parent)
+    {
+        m_roleNames.insert(Role, dataRoleName);
+    }
+
+    int rowCount(const QModelIndex &) const override
+    {
+        return m_data.size();
+    }
+
+    QVariant data(const QModelIndex &index, int role = Qt::DisplayRole) const override
+    {
+        const int row = index.row();
+        if (!index.isValid() || row < 0 || row >= m_data.size() || role != Role)
+            return QVariant();
+
+        return QVariant::fromValue(m_data.at(row));
+    }
+
+    QHash<int, QByteArray> roleNames() const override
+    {
+        return m_roleNames;
+    }
+
+    void updateData(const QList<T*> &data)
+    {
+        beginResetModel();
+        qDeleteAll(m_data);
+        m_data = data;
+        endResetModel();
+    }
+
+protected:
+    QHash<int, QByteArray> m_roleNames;
+    QList<T*> m_data;
+};
 
 class Q_LOCATION_PRIVATE_EXPORT QDeclarativeNavigationBasicDirections : public QObject
 {
@@ -83,6 +128,7 @@ class Q_LOCATION_PRIVATE_EXPORT QDeclarativeNavigationBasicDirections : public Q
     Q_PROPERTY(QDeclarativeGeoRoute *currentRoute READ currentRoute NOTIFY currentRouteChanged)
     Q_PROPERTY(QDeclarativeGeoRouteLeg *currentRouteLeg READ currentRouteLeg NOTIFY currentRouteChanged)
     Q_PROPERTY(int currentSegment READ currentSegment NOTIFY currentSegmentChanged)
+    Q_PROPERTY(QAbstractItemModel *alternativeRoutes READ alternativeRoutes CONSTANT)
 
 public:
     explicit QDeclarativeNavigationBasicDirections(QDeclarativeNavigator *parent);
@@ -100,6 +146,7 @@ public:
     QDeclarativeGeoRoute *currentRoute() const;
     QDeclarativeGeoRouteLeg *currentRouteLeg() const;
     int currentSegment() const;
+    QAbstractItemModel *alternativeRoutes();
 
 Q_SIGNALS:
     void progressInformationChanged();
@@ -113,12 +160,14 @@ Q_SIGNALS:
 protected slots:
     void onCurrentRouteChanged();
     void onCurrentRouteLegChanged();
+    void onAlternativeRoutesChanged();
 
 protected:
     QDeclarativeNavigator *m_navigator;
     QDeclarativeNavigatorPrivate *m_navigatorPrivate;
     QPointer<QDeclarativeGeoRoute> m_currentRoute;
     QPointer<QDeclarativeGeoRouteLeg> m_currentRouteLeg;
+    ReadOnlyListModel<QDeclarativeGeoRoute, QDeclarativeGeoRouteModel::RouteRole> m_routes;
 
     friend class QDeclarativeNavigator;
 };
@@ -132,6 +181,7 @@ public:
     QPointer<QDeclarativePositionSource> m_positionSource;
     QList<QPointer<QGeoMapParameter>> m_parameters;
     bool m_trackPositionSource = true;
+    bool m_autoRerouting = true;
 };
 
 class QDeclarativeNavigatorPrivate

@@ -159,6 +159,7 @@ Type Moc::parseType()
     bool isVoid = false;
     type.firstToken = lookup();
     for (;;) {
+        skipCxxAttributes();
         switch (next()) {
             case SIGNED:
             case UNSIGNED:
@@ -188,8 +189,11 @@ Type Moc::parseType()
         }
         break;
     }
+
+    skipCxxAttributes();
     test(ENUM) || test(CLASS) || test(STRUCT);
     for(;;) {
+        skipCxxAttributes();
         switch (next()) {
         case IDENTIFIER:
             // void mySlot(unsigned myArg)
@@ -281,6 +285,7 @@ bool Moc::parseEnum(EnumDef *def)
             break;
         next(IDENTIFIER);
         def->values += lexem();
+        skipCxxAttributes();
     } while (test(EQ) ? until(COMMA) : test(COMMA));
     next(RBRACE);
     if (isTypdefEnum) {
@@ -356,6 +361,15 @@ bool Moc::testFunctionAttribute(Token tok, FunctionDef *def)
     return false;
 }
 
+bool Moc::skipCxxAttributes()
+{
+    auto rewind = index;
+    if (test(LBRACK) && test(LBRACK) && until(RBRACK) && test(RBRACK))
+        return true;
+    index = rewind;
+    return false;
+}
+
 bool Moc::testFunctionRevision(FunctionDef *def)
 {
     if (test(Q_REVISION_TOKEN)) {
@@ -381,7 +395,7 @@ bool Moc::parseFunction(FunctionDef *def, bool inMacro)
     //skip modifiers and attributes
     while (test(INLINE) || (test(STATIC) && (def->isStatic = true) == true) ||
         (test(VIRTUAL) && (def->isVirtual = true) == true) //mark as virtual
-        || testFunctionAttribute(def) || testFunctionRevision(def)) {}
+        || skipCxxAttributes() || testFunctionAttribute(def) || testFunctionRevision(def)) {}
     bool templateFunction = (lookup() == TEMPLATE);
     def->type = parseType();
     if (def->type.name.isEmpty()) {
@@ -454,10 +468,11 @@ bool Moc::parseFunction(FunctionDef *def, bool inMacro)
             until(RBRACE);
         else if ((def->isAbstract = test(EQ)))
             until(SEMIC);
+        else if (skipCxxAttributes())
+            until(SEMIC);
         else
             error();
     }
-
     if (scopedFunctionName) {
         const QByteArray msg = "Function declaration " + def->name
                 + " contains extra qualification. Ignoring as signal or slot.";
@@ -475,7 +490,7 @@ bool Moc::parseMaybeFunction(const ClassDef *cdef, FunctionDef *def)
     //skip modifiers and attributes
     while (test(EXPLICIT) || test(INLINE) || (test(STATIC) && (def->isStatic = true) == true) ||
         (test(VIRTUAL) && (def->isVirtual = true) == true) //mark as virtual
-        || testFunctionAttribute(def) || testFunctionRevision(def)) {}
+        || skipCxxAttributes() || testFunctionAttribute(def) || testFunctionRevision(def)) {}
     bool tilde = test(TILDE);
     def->type = parseType();
     if (def->type.name.isEmpty())
@@ -565,6 +580,7 @@ void Moc::parse()
                     } else if (!test(SEMIC)) {
                         NamespaceDef def;
                         def.classname = nsName;
+                        def.doGenerate = currentFilenames.size() <= 1;
 
                         next(LBRACE);
                         def.begin = index - 1;
@@ -572,25 +588,22 @@ void Moc::parse()
                         def.end = index;
                         index = def.begin + 1;
 
-                        const bool parseNamespace = currentFilenames.size() <= 1;
-                        if (parseNamespace) {
-                            for (int i = namespaceList.size() - 1; i >= 0; --i) {
-                                if (inNamespace(&namespaceList.at(i))) {
-                                    def.qualified.prepend(namespaceList.at(i).classname + "::");
-                                }
-                            }
-                            for (const QByteArray &ns : nested) {
-                                NamespaceDef parentNs;
-                                parentNs.classname = ns;
-                                parentNs.qualified = def.qualified;
-                                def.qualified += ns + "::";
-                                parentNs.begin = def.begin;
-                                parentNs.end = def.end;
-                                namespaceList += parentNs;
+                        for (int i = namespaceList.size() - 1; i >= 0; --i) {
+                            if (inNamespace(&namespaceList.at(i))) {
+                                def.qualified.prepend(namespaceList.at(i).classname + "::");
                             }
                         }
+                        for (const QByteArray &ns : nested) {
+                            NamespaceDef parentNs;
+                            parentNs.classname = ns;
+                            parentNs.qualified = def.qualified;
+                            def.qualified += ns + "::";
+                            parentNs.begin = def.begin;
+                            parentNs.end = def.end;
+                            namespaceList += parentNs;
+                        }
 
-                        while (parseNamespace && inNamespace(&def) && hasNext()) {
+                        while (inNamespace(&def) && hasNext()) {
                             switch (next()) {
                             case NAMESPACE:
                                 if (test(IDENTIFIER)) {
@@ -605,6 +618,13 @@ void Moc::parse()
                                 }
                                 break;
                             case Q_NAMESPACE_TOKEN:
+                                def.hasQNamespace = true;
+                                break;
+                            case Q_NAMESPACE_EXPORT_TOKEN:
+                                next(LPAREN);
+                                while (test(IDENTIFIER))
+                                    {}
+                                next(RPAREN);
                                 def.hasQNamespace = true;
                                 break;
                             case Q_ENUMS_TOKEN:
@@ -915,7 +935,8 @@ void Moc::parse()
         } else {
             knownGadgets.insert(def.classname, def.qualified);
             knownGadgets.insert(def.qualified, def.qualified);
-            classList += def;
+            if (n.doGenerate)
+                classList += def;
         }
     }
 }
@@ -1180,6 +1201,15 @@ void Moc::createPropertyDef(PropertyDef &propDef)
 
     propDef.type = type;
 
+    auto checkIsFunction = [&](const QByteArray &def, const char *name) {
+        if (def.endsWith(')')) {
+            QByteArray msg = "Providing a function for ";
+            msg += name;
+            msg += " in a property declaration is deprecated and will not be supported in Qt 6 anymore.";
+            warning(msg.constData());
+        }
+    };
+
     next();
     propDef.name = lexem();
     while (test(IDENTIFIER)) {
@@ -1229,11 +1259,13 @@ void Moc::createPropertyDef(PropertyDef &propDef)
                 error(2);
             break;
         case 'S':
-            if (l == "SCRIPTABLE")
+            if (l == "SCRIPTABLE") {
                 propDef.scriptable = v + v2;
-            else if (l == "STORED")
+                checkIsFunction(propDef.scriptable, "SCRIPTABLE");
+            } else if (l == "STORED") {
                 propDef.stored = v + v2;
-            else
+                checkIsFunction(propDef.stored, "STORED");
+            } else
                 error(2);
             break;
         case 'W': if (l != "WRITE") error(2);
@@ -1241,15 +1273,18 @@ void Moc::createPropertyDef(PropertyDef &propDef)
             break;
         case 'D': if (l != "DESIGNABLE") error(2);
             propDef.designable = v + v2;
+            checkIsFunction(propDef.designable, "DESIGNABLE");
             break;
         case 'E': if (l != "EDITABLE") error(2);
             propDef.editable = v + v2;
+            checkIsFunction(propDef.editable, "EDITABLE");
             break;
         case 'N': if (l != "NOTIFY") error(2);
             propDef.notify = v;
             break;
         case 'U': if (l != "USER") error(2);
             propDef.user = v + v2;
+            checkIsFunction(propDef.user, "USER");
             break;
         default:
             error(2);
@@ -1297,6 +1332,9 @@ void Moc::parsePluginData(ClassDef *def)
         if (l == "IID") {
             next(STRING_LITERAL);
             def->pluginData.iid = unquotedLexem();
+        } else if (l == "URI") {
+            next(STRING_LITERAL);
+            def->pluginData.uri = unquotedLexem();
         } else if (l == "FILE") {
             next(STRING_LITERAL);
             QByteArray metaDataFile = unquotedLexem();
@@ -1337,6 +1375,7 @@ void Moc::parsePluginData(ClassDef *def)
                     + " does not contain a valid JSON object. Declaration will be ignored";
             warning(msg.constData());
             def->pluginData.iid = QByteArray();
+            def->pluginData.uri = QByteArray();
             return;
         }
     }

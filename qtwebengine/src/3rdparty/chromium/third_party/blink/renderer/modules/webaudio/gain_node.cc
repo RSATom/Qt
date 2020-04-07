@@ -137,7 +137,8 @@ GainNode::GainNode(BaseAudioContext& context)
     : AudioNode(context),
       gain_(AudioParam::Create(
           context,
-          kParamTypeGainGain,
+          Uuid(),
+          AudioParamHandler::kParamTypeGainGain,
           1.0,
           AudioParamHandler::AutomationRate::kAudio,
           AudioParamHandler::AutomationRateMode::kVariable)) {
@@ -148,11 +149,6 @@ GainNode::GainNode(BaseAudioContext& context)
 GainNode* GainNode::Create(BaseAudioContext& context,
                            ExceptionState& exception_state) {
   DCHECK(IsMainThread());
-
-  if (context.IsContextClosed()) {
-    context.ThrowExceptionForClosedState(exception_state);
-    return nullptr;
-  }
 
   return MakeGarbageCollected<GainNode>(context);
 }

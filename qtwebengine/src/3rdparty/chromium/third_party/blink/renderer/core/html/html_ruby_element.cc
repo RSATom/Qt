@@ -11,17 +11,16 @@ namespace blink {
 
 using namespace html_names;
 
-inline HTMLRubyElement::HTMLRubyElement(Document& document)
+HTMLRubyElement::HTMLRubyElement(Document& document)
     : HTMLElement(kRubyTag, document) {}
 
-DEFINE_NODE_FACTORY(HTMLRubyElement)
-
-LayoutObject* HTMLRubyElement::CreateLayoutObject(const ComputedStyle& style) {
+LayoutObject* HTMLRubyElement::CreateLayoutObject(const ComputedStyle& style,
+                                                  LegacyLayout legacy) {
   if (style.Display() == EDisplay::kInline)
     return new LayoutRubyAsInline(this);
   if (style.Display() == EDisplay::kBlock)
     return new LayoutRubyAsBlock(this);
-  return LayoutObject::CreateObject(this, style);
+  return LayoutObject::CreateObject(this, style, legacy);
 }
 
 }  // namespace blink

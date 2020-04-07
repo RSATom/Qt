@@ -9,10 +9,11 @@
 namespace content {
 
 RenderProcess::RenderProcess(
-    const std::string& task_scheduler_name,
-    std::unique_ptr<base::TaskScheduler::InitParams> task_scheduler_init_params)
+    const std::string& thread_pool_name,
+    std::unique_ptr<base::ThreadPoolInstance::InitParams>
+        thread_pool_init_params)
     : ChildProcess(base::ThreadPriority::NORMAL,
-                   task_scheduler_name,
-                   std::move(task_scheduler_init_params)) {}
+                   thread_pool_name,
+                   std::move(thread_pool_init_params)) {}
 
 }  // namespace content

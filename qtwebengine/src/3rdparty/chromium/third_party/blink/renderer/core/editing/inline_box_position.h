@@ -32,7 +32,7 @@
 
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/editing/forward.h"
-#include "third_party/blink/renderer/platform/wtf/allocator.h"
+#include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 #include "third_party/blink/renderer/platform/wtf/assertions.h"
 
 namespace blink {
@@ -82,7 +82,7 @@ InlineBoxPosition ComputeInlineBoxPositionForInlineAdjustedPosition(
     const PositionInFlatTreeWithAffinity&);
 
 // The print for |InlineBoxPosition| is available only for testing
-// in "webkit_unit_tests", and implemented in
+// in "blink_unittests", and implemented in
 // "core/editing/inline_box_position_test.cc".
 std::ostream& operator<<(std::ostream&, const InlineBoxPosition&);
 

@@ -5,13 +5,13 @@
  * found in the LICENSE file.
  */
 
-#include "Benchmark.h"
-#include "SkCanvas.h"
-#include "SkPaint.h"
-#include "SkRandom.h"
-#include "SkShader.h"
-#include "SkString.h"
-#include "SkVertices.h"
+#include "bench/Benchmark.h"
+#include "include/core/SkCanvas.h"
+#include "include/core/SkPaint.h"
+#include "include/core/SkShader.h"
+#include "include/core/SkString.h"
+#include "include/core/SkVertices.h"
+#include "include/utils/SkRandom.h"
 
 enum VertFlags {
     kColors_VertFlag,
@@ -91,7 +91,79 @@ protected:
 private:
     typedef Benchmark INHERITED;
 };
-
-///////////////////////////////////////////////////////////////////////////////
-
 DEF_BENCH(return new VertBench();)
+
+/////////////////////////////////////////////////////////////////////////////////////////////////
+
+#include "include/core/SkRSXform.h"
+#include "include/utils/SkRandom.h"
+#include "tools/Resources.h"
+
+enum AtlasFlags {
+    kColors_Flag = 1 << 0,
+    kVerts_Flag  = 1 << 1,
+};
+
+class AtlasBench : public Benchmark {
+    unsigned fFlags;
+    SkString fName;
+    enum {
+        W = 640,
+        H = 480,
+        N = 10*1000,
+    };
+
+    sk_sp<SkImage>  fAtlas;
+    SkRSXform       fXforms[N];
+    SkRect          fRects[N];
+    SkColor         fColors[N];
+
+public:
+    AtlasBench(unsigned flags) : fFlags(flags) {
+        fName.printf("drawAtlas_%d", flags);
+    }
+    ~AtlasBench() override {}
+
+protected:
+    const char* onGetName() override { return fName.c_str(); }
+    void onDelayedSetup() override {
+        fAtlas = GetResourceAsImage("images/mandrill_256.png");
+        if (fAtlas) {
+            fAtlas = fAtlas->makeRasterImage();
+        }
+
+        const SkScalar imageW = fAtlas->width();
+        const SkScalar imageH = fAtlas->height();
+
+        SkRandom rand;
+        for (int i = 0; i < N; ++i) {
+            fRects[i] = SkRect::MakeXYWH(rand.nextF() * (imageW - 8),
+                                         rand.nextF() * (imageH - 8), 8, 8);
+            fColors[i] = rand.nextU();
+            fXforms[i] = SkRSXform::Make(1, 0, rand.nextF() * W, rand.nextF() * H);
+        }
+    }
+    void onDraw(int loops, SkCanvas* canvas) override {
+        const SkRect* cullRect = nullptr;
+        const SkPaint* paintPtr = nullptr;
+        const SkColor* colors = nullptr;
+        const SkImage* atlas = nullptr;
+        if (fFlags & kColors_Flag) {
+            colors = fColors;
+        }
+        if (fFlags & kVerts_Flag) {
+            atlas = fAtlas.get();
+        }
+        for (int i = 0; i < loops; i++) {
+            canvas->drawAtlas(atlas, fXforms, fRects, colors, N, SkBlendMode::kSrcOver,
+                              cullRect, paintPtr);
+        }
+    }
+private:
+    typedef Benchmark INHERITED;
+};
+//DEF_BENCH(return new AtlasBench(0);)
+//DEF_BENCH(return new AtlasBench(kColors_Flag);)
+DEF_BENCH(return new AtlasBench(kVerts_Flag);)
+DEF_BENCH(return new AtlasBench(kVerts_Flag | kColors_Flag);)
+

@@ -19,7 +19,6 @@
 #include "third_party/blink/renderer/core/html/canvas/canvas_rendering_context_factory.h"
 #include "third_party/blink/renderer/core/html/canvas/image_data.h"
 #include "third_party/blink/renderer/core/imagebitmap/image_bitmap.h"
-#include "third_party/blink/renderer/core/origin_trials/origin_trials.h"
 #include "third_party/blink/renderer/core/workers/worker_global_scope.h"
 #include "third_party/blink/renderer/platform/graphics/canvas_resource_dispatcher.h"
 #include "third_party/blink/renderer/platform/graphics/canvas_resource_provider.h"
@@ -27,15 +26,18 @@
 #include "third_party/blink/renderer/platform/graphics/image.h"
 #include "third_party/blink/renderer/platform/graphics/skia/skia_utils.h"
 #include "third_party/blink/renderer/platform/graphics/static_bitmap_image.h"
-#include "third_party/blink/renderer/platform/histogram.h"
 #include "third_party/blink/renderer/platform/image-encoders/image_encoder_utils.h"
+#include "third_party/blink/renderer/platform/instrumentation/histogram.h"
 #include "third_party/blink/renderer/platform/instrumentation/tracing/trace_event.h"
 #include "third_party/blink/renderer/platform/wtf/math_extras.h"
 #include "third_party/skia/include/core/SkSurface.h"
 
 namespace blink {
 
-OffscreenCanvas::OffscreenCanvas(const IntSize& size) : size_(size) {
+OffscreenCanvas::OffscreenCanvas(const IntSize& size)
+    : CanvasRenderingContextHost(
+          CanvasRenderingContextHost::HostType::kOffscreenCanvasHost),
+      size_(size) {
   UpdateMemoryUsage();
 }
 
@@ -54,10 +56,9 @@ void OffscreenCanvas::Commit(scoped_refptr<CanvasResource> canvas_resource,
                              const SkIRect& damage_rect) {
   if (!HasPlaceholderCanvas() || !canvas_resource)
     return;
-  RecordCanvasSizeToUMA(
-      Size(), CanvasRenderingContextHost::HostType::kOffscreenCanvasHost);
+  RecordCanvasSizeToUMA(Size());
 
-  base::TimeTicks commit_start_time = WTF::CurrentTimeTicks();
+  base::TimeTicks commit_start_time = base::TimeTicks::Now();
   current_frame_damage_rect_.join(damage_rect);
   GetOrCreateResourceDispatcher()->DispatchFrameSync(
       std::move(canvas_resource), commit_start_time, current_frame_damage_rect_,
@@ -162,7 +163,7 @@ ImageBitmap* OffscreenCanvas::transferToImageBitmap(
   if (!image) {
     // Undocumented exception (not in spec)
     exception_state.ThrowDOMException(DOMExceptionCode::kUnknownError,
-                                      "Out of memory");
+                                      "ImageBitmap construction failed");
   }
 
   return image;
@@ -220,7 +221,7 @@ CanvasRenderingContext* OffscreenCanvas::GetCanvasRenderingContext(
   // Unknown type.
   if (context_type == CanvasRenderingContext::kContextTypeUnknown ||
       (context_type == CanvasRenderingContext::kContextXRPresent &&
-       !origin_trials::WebXREnabled(execution_context))) {
+       !RuntimeEnabledFeatures::WebXREnabled(execution_context))) {
     return nullptr;
   }
 
@@ -306,7 +307,13 @@ CanvasResourceProvider* OffscreenCanvas::GetOrCreateResourceProvider() {
     bool can_use_gpu = false;
     CanvasResourceProvider::PresentationMode presentation_mode =
         CanvasResourceProvider::kDefaultPresentationMode;
-    if (Is2d()) {
+    if (Is3d()) {
+      if (RuntimeEnabledFeatures::WebGLImageChromiumEnabled()) {
+        presentation_mode =
+            CanvasResourceProvider::kAllowImageChromiumPresentationMode;
+      }
+      can_use_gpu = SharedGpuContext::IsGpuCompositingEnabled();
+    } else {
       if (RuntimeEnabledFeatures::Canvas2dImageChromiumEnabled()) {
         presentation_mode =
             CanvasResourceProvider::kAllowImageChromiumPresentationMode;
@@ -315,33 +322,32 @@ CanvasResourceProvider* OffscreenCanvas::GetOrCreateResourceProvider() {
           RuntimeEnabledFeatures::Accelerated2dCanvasEnabled()) {
         can_use_gpu = true;
       }
-    } else if (Is3d()) {
-      if (RuntimeEnabledFeatures::WebGLImageChromiumEnabled()) {
-        presentation_mode =
-            CanvasResourceProvider::kAllowImageChromiumPresentationMode;
-      }
-      can_use_gpu = SharedGpuContext::IsGpuCompositingEnabled();
     }
 
     IntSize surface_size(width(), height());
     CanvasResourceProvider::ResourceUsage usage;
     if (can_use_gpu) {
-      if (HasPlaceholderCanvas())
-        usage = CanvasResourceProvider::kAcceleratedCompositedResourceUsage;
-      else
-        usage = CanvasResourceProvider::kAcceleratedResourceUsage;
+      if (HasPlaceholderCanvas()) {
+        usage = CanvasResourceProvider::ResourceUsage::
+            kAcceleratedCompositedResourceUsage;
+      } else {
+        usage =
+            CanvasResourceProvider::ResourceUsage::kAcceleratedResourceUsage;
+      }
     } else {
-      if (HasPlaceholderCanvas())
-        usage = CanvasResourceProvider::kSoftwareCompositedResourceUsage;
-      else
-        usage = CanvasResourceProvider::kSoftwareResourceUsage;
+      if (HasPlaceholderCanvas()) {
+        usage = CanvasResourceProvider::ResourceUsage::
+            kSoftwareCompositedResourceUsage;
+      } else {
+        usage = CanvasResourceProvider::ResourceUsage::kSoftwareResourceUsage;
+      }
     }
 
     base::WeakPtr<CanvasResourceDispatcher> dispatcher_weakptr =
         HasPlaceholderCanvas() ? GetOrCreateResourceDispatcher()->GetWeakPtr()
                                : nullptr;
 
-    ReplaceResourceProvider(CanvasResourceProvider::Create(
+    ReplaceResourceProvider(CanvasResourceProvider::CreateForCanvas(
         surface_size, usage, SharedGpuContext::ContextProviderWrapper(), 0,
         context_->ColorParams(), presentation_mode,
         std::move(dispatcher_weakptr), false /* is_origin_top_left */));
@@ -412,7 +418,7 @@ void OffscreenCanvas::PushFrame(scoped_refptr<CanvasResource> canvas_resource,
   current_frame_damage_rect_.join(damage_rect);
   if (current_frame_damage_rect_.isEmpty() || !canvas_resource)
     return;
-  const base::TimeTicks commit_start_time = WTF::CurrentTimeTicks();
+  const base::TimeTicks commit_start_time = base::TimeTicks::Now();
   GetOrCreateResourceDispatcher()->DispatchFrame(
       std::move(canvas_resource), commit_start_time, current_frame_damage_rect_,
       !RenderingContext()->IsOriginTopLeft() /* needs_vertical_flip */,

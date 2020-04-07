@@ -77,6 +77,9 @@
 
     QWebSocketServer only supports version 13 of the WebSocket protocol, as outlined in \l{RFC 6455}.
 
+    There is a default connection handshake timeout of 10 seconds to avoid denial of service,
+    which can be customized using setHandshakeTimeout().
+
     \sa {WebSocket Server Example}, QWebSocket
 */
 
@@ -350,6 +353,32 @@ int QWebSocketServer::maxPendingConnections() const
 }
 
 /*!
+    \fn std::chrono::milliseconds QWebSocketServer::handshakeTimeout() const
+    Returns the handshake timeout for new connections in milliseconds.
+
+    The default is 10 seconds. If a peer uses more time to complete the
+    handshake their connection is closed.
+
+    \sa setHandshakeTimeout(), handshakeTimeoutMS()
+    \since 5.14
+ */
+
+/*!
+    Returns the handshake timeout for new connections in milliseconds.
+
+    The default is 10 seconds. If a peer uses more time to complete the
+    handshake their connection is closed.
+
+    \sa setHandshakeTimeout(), handshakeTimeout()
+    \since 5.14
+ */
+int QWebSocketServer::handshakeTimeoutMS() const
+{
+    Q_D(const QWebSocketServer);
+    return d->handshakeTimeout();
+}
+
+/*!
     Returns the next pending connection as a connected QWebSocket object.
     QWebSocketServer does not take ownership of the returned QWebSocket object.
     It is up to the caller to delete the object explicitly when it will no longer be used,
@@ -574,6 +603,27 @@ void QWebSocketServer::setMaxPendingConnections(int numConnections)
     d->setMaxPendingConnections(numConnections);
 }
 
+/*!
+    \fn void QWebSocketServer::setHandshakeTimeout(std::chrono::milliseconds msec)
+    Sets the handshake timeout for new connections to \a msec milliseconds.
+
+    By default this is set to 10 seconds. If a peer uses more time to
+    complete the handshake, their connection is closed. You can pass a
+    negative value (e.g. -1) to disable the timeout.
+
+    \sa handshakeTimeout(), handshakeTimeoutMS()
+    \since 5.14
+ */
+
+/*!
+    \overload
+*/
+void QWebSocketServer::setHandshakeTimeout(int msec)
+{
+    Q_D(QWebSocketServer);
+    d->setHandshakeTimeout(msec);
+}
+
 #if (QT_VERSION >= QT_VERSION_CHECK(6, 0, 0))
 /*!
     Sets the socket descriptor this server should use when listening for incoming connections to
@@ -606,31 +656,6 @@ qintptr QWebSocketServer::socketDescriptor() const
     return d->socketDescriptor();
 }
 
-/*!
-    \fn QWebSocketServer::nativeDescriptor
-    \deprecated
-
-    Returns the native socket descriptor the server uses to listen for incoming instructions,
-    or -1 if the server is not listening.
-    If the server is using QNetworkProxy, the returned descriptor may not be usable with
-    native socket functions.
-
-    \sa socketDescriptor(), setSocketDescriptor(), setNativeDescriptor(), isListening()
-    \since 5.12
- */
-/*!
-    \fn QWebSocketServer::setNativeDescriptor
-    \deprecated
-
-    Sets the socket descriptor this server should use when listening for incoming connections to
-    \a socketDescriptor.
-
-    Returns true if the socket is set successfully; otherwise returns false.
-    The socket is assumed to be in listening state.
-
-    \sa socketDescriptor(), setSocketDescriptor(), nativeDescriptor(), isListening()
-    \since 5.12
- */
 #else // ### Qt 6: Remove leftovers
 /*!
     \deprecated

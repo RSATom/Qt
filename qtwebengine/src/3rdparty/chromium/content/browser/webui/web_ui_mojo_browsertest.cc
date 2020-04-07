@@ -5,6 +5,7 @@
 #include <limits>
 #include <utility>
 
+#include "base/bind.h"
 #include "base/callback.h"
 #include "base/containers/flat_map.h"
 #include "base/files/file_path.h"
@@ -33,6 +34,7 @@
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/content_browser_test.h"
 #include "content/public/test/content_browser_test_utils.h"
+#include "content/public/test/test_utils.h"
 #include "content/shell/browser/shell.h"
 #include "content/test/data/web_ui_test_mojo_bindings.mojom.h"
 #include "mojo/public/cpp/bindings/binding.h"
@@ -58,12 +60,12 @@ base::FilePath GetFilePathForJSResource(const std::string& path) {
 
 // The bindings for the page are generated from a .mojom file. This code looks
 // up the generated file from disk and returns it.
-bool GetResource(const std::string& id,
+void GetResource(const std::string& id,
                  const WebUIDataSource::GotDataCallback& callback) {
   base::ScopedAllowBlockingForTesting allow_blocking;
 
   std::string contents;
-  if (base::EndsWith(id, ".mojom.js", base::CompareCase::SENSITIVE)) {
+  if (base::EndsWith(id, ".mojom-lite.js", base::CompareCase::SENSITIVE)) {
     CHECK(base::ReadFileToString(GetFilePathForJSResource(id), &contents))
         << id;
   } else {
@@ -76,7 +78,6 @@ bool GetResource(const std::string& id,
   base::RefCountedString* ref_contents = new base::RefCountedString;
   ref_contents->data() = contents;
   callback.Run(ref_contents);
-  return true;
 }
 
 class BrowserTargetImpl : public mojom::BrowserTarget {
@@ -112,18 +113,21 @@ class TestWebUIController : public WebUIController {
     web_ui->SetBindings(bindings);
     {
       WebUIDataSource* data_source = WebUIDataSource::Create("mojo-web-ui");
-      data_source->SetRequestFilter(base::BindRepeating(&GetResource));
+      data_source->SetRequestFilter(
+          base::BindRepeating([](const std::string& path) { return true; }),
+          base::BindRepeating(&GetResource));
       WebUIDataSource::Add(web_ui->GetWebContents()->GetBrowserContext(),
                            data_source);
     }
     {
       WebUIDataSource* data_source = WebUIDataSource::Create("dummy-web-ui");
-      data_source->SetRequestFilter(base::BindRepeating(
-          [](const std::string& id,
-             const WebUIDataSource::GotDataCallback& callback) {
-            callback.Run(new base::RefCountedString);
-            return true;
-          }));
+      data_source->SetRequestFilter(
+          base::BindRepeating([](const std::string& path) { return true; }),
+          base::BindRepeating(
+              [](const std::string& id,
+                 const WebUIDataSource::GotDataCallback& callback) {
+                callback.Run(new base::RefCountedString);
+              }));
       WebUIDataSource::Add(web_ui->GetWebContents()->GetBrowserContext(),
                            data_source);
     }
@@ -190,7 +194,7 @@ class TestWebUIControllerFactory : public WebUIControllerFactory {
 
   std::unique_ptr<WebUIController> CreateWebUIControllerForURL(
       WebUI* web_ui,
-      const GURL& url) const override {
+      const GURL& url) override {
     if (!web_ui_enabled_ || !url.SchemeIs(kChromeUIScheme))
       return nullptr;
 
@@ -202,7 +206,7 @@ class TestWebUIControllerFactory : public WebUIControllerFactory {
   }
 
   WebUI::TypeID GetWebUIType(BrowserContext* browser_context,
-                             const GURL& url) const override {
+                             const GURL& url) override {
     if (!web_ui_enabled_ || !url.SchemeIs(kChromeUIScheme))
       return WebUI::kNoWebUI;
 
@@ -210,11 +214,11 @@ class TestWebUIControllerFactory : public WebUIControllerFactory {
   }
 
   bool UseWebUIForURL(BrowserContext* browser_context,
-                      const GURL& url) const override {
+                      const GURL& url) override {
     return GetWebUIType(browser_context, url) != WebUI::kNoWebUI;
   }
   bool UseWebUIBindingsForURL(BrowserContext* browser_context,
-                              const GURL& url) const override {
+                              const GURL& url) override {
     return GetWebUIType(browser_context, url) != WebUI::kNoWebUI;
   }
 
@@ -261,10 +265,8 @@ class WebUIMojoTest : public ContentBrowserTest {
   void NavigateWithNewWebUI(const std::string& path) {
     // Load a dummy WebUI URL first so that a new WebUI is set up when we load
     // the URL we're actually interested in.
-    EXPECT_TRUE(NavigateToURL(shell(), GURL("chrome://dummy-web-ui")));
-
-    constexpr char kChromeUIMojoWebUIOrigin[] = "chrome://mojo-web-ui/";
-    EXPECT_TRUE(NavigateToURL(shell(), GURL(kChromeUIMojoWebUIOrigin + path)));
+    EXPECT_TRUE(NavigateToURL(shell(), GetWebUIURL("dummy-web-ui")));
+    EXPECT_TRUE(NavigateToURL(shell(), GetWebUIURL("mojo-web-ui/" + path)));
   }
 
   // Run |script| and return a boolean result.
@@ -299,30 +301,61 @@ bool IsGeneratedResourceAvailable(const std::string& resource_path) {
 // it from the browser to the page and back.
 IN_PROC_BROWSER_TEST_F(WebUIMojoTest, EndToEndPing) {
   if (!IsGeneratedResourceAvailable(
-          "content/test/data/web_ui_test_mojo_bindings.mojom.js"))
+          "content/test/data/web_ui_test_mojo_bindings.mojom-lite.js"))
     return;
+  GURL test_url(GetWebUIURL("mojo-web-ui/web_ui_mojo.html?ping"));
 
-  g_got_message = false;
-  base::RunLoop run_loop;
-  factory()->set_run_loop(&run_loop);
-  GURL test_url("chrome://mojo-web-ui/web_ui_mojo.html?ping");
-  NavigateToURL(shell(), test_url);
-  // RunLoop is quit when message received from page.
-  run_loop.Run();
-  EXPECT_TRUE(g_got_message);
+  {
+    g_got_message = false;
+    base::RunLoop run_loop;
+    factory()->set_run_loop(&run_loop);
+    NavigateToURL(shell(), test_url);
+    // RunLoop is quit when message received from page.
+    run_loop.Run();
+    EXPECT_TRUE(g_got_message);
+  }
 
-  // Check that a second render frame in the same renderer process works
-  // correctly.
-  Shell* other_shell = CreateBrowser();
-  g_got_message = false;
-  base::RunLoop other_run_loop;
-  factory()->set_run_loop(&other_run_loop);
-  NavigateToURL(other_shell, test_url);
-  // RunLoop is quit when message received from page.
-  other_run_loop.Run();
-  EXPECT_TRUE(g_got_message);
-  EXPECT_EQ(shell()->web_contents()->GetMainFrame()->GetProcess(),
-            other_shell->web_contents()->GetMainFrame()->GetProcess());
+  {
+    // Check that a second shell works correctly.
+    Shell* other_shell = CreateBrowser();
+    g_got_message = false;
+    base::RunLoop other_run_loop;
+    factory()->set_run_loop(&other_run_loop);
+    NavigateToURL(other_shell, test_url);
+    // RunLoop is quit when message received from page.
+    other_run_loop.Run();
+    EXPECT_TRUE(g_got_message);
+
+    // We expect two independent chrome://foo tabs/shells to use a separate
+    // process.
+    EXPECT_NE(shell()->web_contents()->GetMainFrame()->GetProcess(),
+              other_shell->web_contents()->GetMainFrame()->GetProcess());
+
+    // Close the second shell and wait until its process exits.
+    RenderProcessHostWatcher process_watcher(
+        other_shell->web_contents()->GetMainFrame()->GetProcess(),
+        RenderProcessHostWatcher::WATCH_FOR_PROCESS_EXIT);
+    other_shell->Close();
+    process_watcher.Wait();
+  }
+
+  {
+    // Check that a third shell works correctly, even if we force it to share a
+    // process with the first shell, by forcing an artificially low process
+    // limit.
+    RenderProcessHost::SetMaxRendererProcessCount(1);
+
+    Shell* other_shell = CreateBrowser();
+    g_got_message = false;
+    base::RunLoop other_run_loop;
+    factory()->set_run_loop(&other_run_loop);
+    NavigateToURL(other_shell, test_url);
+    // RunLoop is quit when message received from page.
+    other_run_loop.Run();
+    EXPECT_TRUE(g_got_message);
+    EXPECT_EQ(shell()->web_contents()->GetMainFrame()->GetProcess(),
+              other_shell->web_contents()->GetMainFrame()->GetProcess());
+  }
 }
 
 // Disabled due to flakiness: crbug.com/860385.

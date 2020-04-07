@@ -7,6 +7,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "base/bind_helpers.h"
 #include "base/callback_helpers.h"
 #include "base/run_loop.h"
 #include "base/strings/string16.h"
@@ -46,22 +47,22 @@ TEST_F(ClipboardHostImplTest, SimpleImage) {
   SkBitmap bitmap;
   bitmap.allocN32Pixels(3, 2);
   bitmap.eraseARGB(255, 0, 255, 0);
-  mojo_clipboard()->WriteImage(ui::CLIPBOARD_TYPE_COPY_PASTE, bitmap);
+  mojo_clipboard()->WriteImage(bitmap);
   uint64_t sequence_number =
-      system_clipboard()->GetSequenceNumber(ui::CLIPBOARD_TYPE_COPY_PASTE);
-  mojo_clipboard()->CommitWrite(ui::CLIPBOARD_TYPE_COPY_PASTE);
+      system_clipboard()->GetSequenceNumber(ui::ClipboardType::kCopyPaste);
+  mojo_clipboard()->CommitWrite();
   base::RunLoop().RunUntilIdle();
 
   EXPECT_NE(sequence_number, system_clipboard()->GetSequenceNumber(
-                                 ui::CLIPBOARD_TYPE_COPY_PASTE));
+                                 ui::ClipboardType::kCopyPaste));
   EXPECT_FALSE(system_clipboard()->IsFormatAvailable(
       ui::ClipboardFormatType::GetPlainTextType(),
-      ui::CLIPBOARD_TYPE_COPY_PASTE));
+      ui::ClipboardType::kCopyPaste));
   EXPECT_TRUE(system_clipboard()->IsFormatAvailable(
-      ui::ClipboardFormatType::GetBitmapType(), ui::CLIPBOARD_TYPE_COPY_PASTE));
+      ui::ClipboardFormatType::GetBitmapType(), ui::ClipboardType::kCopyPaste));
 
   SkBitmap actual =
-      system_clipboard()->ReadImage(ui::CLIPBOARD_TYPE_COPY_PASTE);
+      system_clipboard()->ReadImage(ui::ClipboardType::kCopyPaste);
   EXPECT_TRUE(gfx::BitmapsAreEqual(bitmap, actual));
 }
 
@@ -74,7 +75,7 @@ TEST_F(ClipboardHostImplTest, ReentrancyInSyncCall) {
 
   // ReadText() is a sync method, so normally, one wouldn't call this method
   // directly. These are not normal times though...
-  mojo_clipboard()->ReadText(ui::CLIPBOARD_TYPE_COPY_PASTE, base::DoNothing());
+  mojo_clipboard()->ReadText(ui::ClipboardType::kCopyPaste, base::DoNothing());
 
   // Now purposely write a raw message which (hopefully) won't deserialize to
   // anything valid. The receiver side should still be in the midst of

@@ -80,10 +80,10 @@ class CONTENT_EXPORT GestureEventQueue {
                     const Config& config);
   ~GestureEventQueue();
 
-  // Uses fling controller to filter the gesture event. Returns true if the
-  // event was filtered by the fling controller and shouldn't be further
+  // Allow the fling controller to observe the gesture event. Returns true if
+  // the event was filtered by the fling controller and shouldn't be further
   // forwarded.
-  bool FlingControllerFilterEvent(const GestureEventWithLatencyInfo&);
+  bool PassToFlingController(const GestureEventWithLatencyInfo&);
 
   // Filter the event for debouncing or forward it to the renderer. Returns
   // true if the event was forwarded, false if was filtered for debouncing.
@@ -117,8 +117,6 @@ class CONTENT_EXPORT GestureEventQueue {
 
   // Calls |fling_controller_.StopFling| to halt an active fling if such exists.
   void StopFling();
-
-  bool FlingCancellationIsDeferred() const;
 
   gfx::Vector2dF CurrentFlingVelocity() const;
 

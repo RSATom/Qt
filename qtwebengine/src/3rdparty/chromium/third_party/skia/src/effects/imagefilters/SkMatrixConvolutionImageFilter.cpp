@@ -5,21 +5,20 @@
  * found in the LICENSE file.
  */
 
-#include "SkMatrixConvolutionImageFilter.h"
-#include "SkBitmap.h"
-#include "SkColorData.h"
-#include "SkColorSpaceXformer.h"
-#include "SkImageFilterPriv.h"
-#include "SkReadBuffer.h"
-#include "SkSpecialImage.h"
-#include "SkWriteBuffer.h"
-#include "SkRect.h"
-#include "SkUnPreMultiply.h"
+#include "include/core/SkBitmap.h"
+#include "include/core/SkRect.h"
+#include "include/core/SkUnPreMultiply.h"
+#include "include/effects/SkMatrixConvolutionImageFilter.h"
+#include "include/private/SkColorData.h"
+#include "src/core/SkImageFilterPriv.h"
+#include "src/core/SkReadBuffer.h"
+#include "src/core/SkSpecialImage.h"
+#include "src/core/SkWriteBuffer.h"
 
 #if SK_SUPPORT_GPU
-#include "GrContext.h"
-#include "GrTextureProxy.h"
-#include "effects/GrMatrixConvolutionEffect.h"
+#include "include/gpu/GrContext.h"
+#include "src/gpu/GrTextureProxy.h"
+#include "src/gpu/effects/GrMatrixConvolutionEffect.h"
 #endif
 
 // We need to be able to read at most SK_MaxS32 bytes, so divide that
@@ -339,7 +338,7 @@ sk_sp<SkSpecialImage> SkMatrixConvolutionImageFilter::onFilterImage(SkSpecialIma
     // Note: if the kernel is too big, the GPU path falls back to SW
     if (source->isTextureBacked() &&
         fKernelSize.width() * fKernelSize.height() <= MAX_KERNEL_SIZE) {
-        GrContext* context = source->getContext();
+        auto context = source->getContext();
 
         // Ensure the input is in the destination color space. Typically applyCropRect will have
         // called pad_image to account for our dilation of bounds, so the result will already be
@@ -350,10 +349,14 @@ sk_sp<SkSpecialImage> SkMatrixConvolutionImageFilter::onFilterImage(SkSpecialIma
         sk_sp<GrTextureProxy> inputProxy(input->asTextureProxyRef(context));
         SkASSERT(inputProxy);
 
+        const auto isProtected = inputProxy->isProtected();
+
         offset->fX = dstBounds.left();
         offset->fY = dstBounds.top();
         dstBounds.offset(-inputOffset);
         srcBounds.offset(-inputOffset);
+        // Map srcBounds from input's logical image domain to that of the proxy
+        srcBounds.offset(input->subset().x(), input->subset().y());
 
         auto fp = GrMatrixConvolutionEffect::Make(std::move(inputProxy),
                                                   srcBounds,
@@ -368,12 +371,12 @@ sk_sp<SkSpecialImage> SkMatrixConvolutionImageFilter::onFilterImage(SkSpecialIma
             return nullptr;
         }
 
-        return DrawWithFP(context, std::move(fp), dstBounds, ctx.outputProperties());
+        return DrawWithFP(context, std::move(fp), dstBounds, ctx.outputProperties(),
+                          isProtected ? GrProtected::kYes : GrProtected::kNo);
     }
 #endif
 
     SkBitmap inputBM;
-
     if (!input->getROPixels(&inputBM)) {
         return nullptr;
     }
@@ -434,19 +437,6 @@ sk_sp<SkSpecialImage> SkMatrixConvolutionImageFilter::onFilterImage(SkSpecialIma
 
     return SkSpecialImage::MakeFromRaster(SkIRect::MakeWH(dstBounds.width(), dstBounds.height()),
                                           dst);
-}
-
-sk_sp<SkImageFilter> SkMatrixConvolutionImageFilter::onMakeColorSpace(SkColorSpaceXformer* xformer)
-const {
-    SkASSERT(1 == this->countInputs());
-
-    sk_sp<SkImageFilter> input = xformer->apply(this->getInput(0));
-    if (input.get() != this->getInput(0)) {
-        return SkMatrixConvolutionImageFilter::Make(fKernelSize, fKernel, fGain, fBias,
-                                                    fKernelOffset, fTileMode, fConvolveAlpha,
-                                                    std::move(input), this->getCropRectIfSet());
-    }
-    return this->refMe();
 }
 
 SkIRect SkMatrixConvolutionImageFilter::onFilterNodeBounds(const SkIRect& src, const SkMatrix& ctm,

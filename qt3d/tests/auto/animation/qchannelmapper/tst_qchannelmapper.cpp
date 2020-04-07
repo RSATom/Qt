@@ -35,10 +35,6 @@
 #include <Qt3DAnimation/private/qchannelmapper_p.h>
 #include <Qt3DAnimation/qchannelmapping.h>
 
-#include <Qt3DCore/QPropertyUpdatedChange>
-#include <Qt3DCore/QPropertyNodeAddedChange>
-#include <Qt3DCore/QPropertyNodeRemovedChange>
-
 #include "testpostmanarbiter.h"
 
 class tst_QChannelmapper : public Qt3DAnimation::QChannelMapper
@@ -102,16 +98,12 @@ private Q_SLOTS:
 
         // WHEN
         mapper->setEnabled(false);
-        QCoreApplication::processEvents();
 
         // THEN
-        QCOMPARE(arbiter.events.size(), 1);
-        Qt3DCore::QPropertyUpdatedChangePtr propertyChange = arbiter.events.first().staticCast<Qt3DCore::QPropertyUpdatedChange>();
-        QCOMPARE(propertyChange->propertyName(), "enabled");
-        QCOMPARE(propertyChange->value().toBool(), mapper->isEnabled());
-        QCOMPARE(propertyChange->type(), Qt3DCore::PropertyUpdated);
+        QCOMPARE(arbiter.dirtyNodes.size(), 1);
+        QCOMPARE(arbiter.dirtyNodes.front(), mapper.data());
 
-        arbiter.events.clear();
+        arbiter.dirtyNodes.clear();
     }
 
     void checkMappingBookkeeping()

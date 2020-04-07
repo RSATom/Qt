@@ -13,6 +13,7 @@
 #include <utility>
 #include <vector>
 
+#include "constants/annotation_flags.h"
 #include "core/fpdfapi/page/cpdf_page.h"
 #include "core/fpdfapi/parser/cfdf_document.h"
 #include "core/fpdfapi/parser/cpdf_array.h"
@@ -28,7 +29,6 @@
 #include "fpdfsdk/cpdfsdk_annot.h"
 #include "fpdfsdk/cpdfsdk_annotiterator.h"
 #include "fpdfsdk/cpdfsdk_formfillenvironment.h"
-#include "fpdfsdk/cpdfsdk_helpers.h"
 #include "fpdfsdk/cpdfsdk_pageview.h"
 #include "fpdfsdk/cpdfsdk_widget.h"
 #include "fpdfsdk/formfiller/cffl_formfiller.h"
@@ -101,7 +101,7 @@ bool FDFToURLEncodedData(std::vector<uint8_t>* pBuffer) {
     name = pField->GetUnicodeTextFor("T");
     ByteString name_b = name.ToDefANSI();
     ByteString csBValue = pField->GetStringFor("V");
-    WideString csWValue = PDF_DecodeText(csBValue.AsRawSpan());
+    WideString csWValue = PDF_DecodeText(csBValue.raw_span());
     ByteString csValue_b = csWValue.ToDefANSI();
     fdfEncodedData << name_b << "=" << csValue_b;
     if (i != pFields->size() - 1)
@@ -134,15 +134,6 @@ CPDFSDK_InteractiveForm::~CPDFSDK_InteractiveForm() {
 #ifdef PDF_ENABLE_XFA
   m_XFAMap.clear();
 #endif  // PDF_ENABLE_XFA
-}
-
-CPDFSDK_Widget* CPDFSDK_InteractiveForm::GetSibling(CPDFSDK_Widget* pWidget,
-                                                    bool bNext) const {
-  auto pIterator = pdfium::MakeUnique<CPDFSDK_AnnotIterator>(
-      pWidget->GetPageView(), CPDF_Annot::Subtype::WIDGET);
-
-  return ToCPDFSDKWidget(bNext ? pIterator->GetNextAnnot(pWidget)
-                               : pIterator->GetPrevAnnot(pWidget));
 }
 
 CPDFSDK_Widget* CPDFSDK_InteractiveForm::GetWidget(
@@ -178,7 +169,7 @@ CPDFSDK_Widget* CPDFSDK_InteractiveForm::GetWidget(
 
 void CPDFSDK_InteractiveForm::GetWidgets(
     const WideString& sFieldName,
-    std::vector<CPDFSDK_Annot::ObservedPtr>* widgets) const {
+    std::vector<ObservedPtr<CPDFSDK_Annot>>* widgets) const {
   for (int i = 0, sz = m_pInteractiveForm->CountFields(sFieldName); i < sz;
        ++i) {
     CPDF_FormField* pFormField = m_pInteractiveForm->GetField(i, sFieldName);
@@ -189,7 +180,7 @@ void CPDFSDK_InteractiveForm::GetWidgets(
 
 void CPDFSDK_InteractiveForm::GetWidgets(
     CPDF_FormField* pField,
-    std::vector<CPDFSDK_Annot::ObservedPtr>* widgets) const {
+    std::vector<ObservedPtr<CPDFSDK_Annot>>* widgets) const {
   for (int i = 0, sz = pField->CountControls(); i < sz; ++i) {
     CPDF_FormControl* pFormCtrl = pField->GetControl(i);
     ASSERT(pFormCtrl);
@@ -440,12 +431,12 @@ bool CPDFSDK_InteractiveForm::DoAction_Hide(const CPDF_Action& action) {
 
       if (CPDFSDK_Widget* pWidget = GetWidget(pControl)) {
         uint32_t nFlags = pWidget->GetFlags();
-        nFlags &= ~ANNOTFLAG_INVISIBLE;
-        nFlags &= ~ANNOTFLAG_NOVIEW;
+        nFlags &= ~pdfium::annotation_flags::kInvisible;
+        nFlags &= ~pdfium::annotation_flags::kNoView;
         if (bHide)
-          nFlags |= ANNOTFLAG_HIDDEN;
+          nFlags |= pdfium::annotation_flags::kHidden;
         else
-          nFlags &= ~ANNOTFLAG_HIDDEN;
+          nFlags &= ~pdfium::annotation_flags::kHidden;
         pWidget->SetFlags(nFlags);
         pWidget->GetPageView()->UpdateView(pWidget);
         bChanged = true;

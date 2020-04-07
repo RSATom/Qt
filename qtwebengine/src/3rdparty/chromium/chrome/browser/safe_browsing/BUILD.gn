@@ -2,10 +2,10 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+import("//build/config/jumbo.gni")
 import("//extensions/buildflags/buildflags.gni")
-import("//third_party/protobuf/proto_library.gni")
 
-static_library("safe_browsing") {
+jumbo_static_library("safe_browsing") {
   sources = [
     "safe_browsing_controller_client.cc",
     "safe_browsing_controller_client.h",
@@ -21,8 +21,6 @@ static_library("safe_browsing") {
     "//chrome/common:constants",
     "//chrome/common/safe_browsing:file_type_policies",
     "//components/browser_sync",
-    "//components/chrome_cleaner/public/interfaces",
-    "//components/data_use_measurement/core",
     "//components/keyed_service/content",
     "//components/language/core/browser",
     "//components/password_manager/core/browser",
@@ -38,44 +36,15 @@ static_library("safe_browsing") {
     "//components/safe_browsing/web_ui",
     "//components/search_engines",
     "//components/sessions",
+    "//components/signin/public/identity_manager",
     "//components/url_formatter",
     "//mojo/public/cpp/platform",
     "//mojo/public/cpp/system",
-    "//services/identity/public/cpp",
     "//services/preferences/public/cpp",
   ]
 
   if (enable_extensions) {
     sources += [
-      "chrome_cleaner/chrome_cleaner_controller_impl_win.cc",
-      "chrome_cleaner/chrome_cleaner_controller_impl_win.h",
-      "chrome_cleaner/chrome_cleaner_controller_win.cc",
-      "chrome_cleaner/chrome_cleaner_controller_win.h",
-      "chrome_cleaner/chrome_cleaner_dialog_controller_impl_win.cc",
-      "chrome_cleaner/chrome_cleaner_dialog_controller_impl_win.h",
-      "chrome_cleaner/chrome_cleaner_dialog_controller_win.h",
-      "chrome_cleaner/chrome_cleaner_extensions_util_win.h",
-      "chrome_cleaner/chrome_cleaner_fetcher_win.cc",
-      "chrome_cleaner/chrome_cleaner_fetcher_win.h",
-      "chrome_cleaner/chrome_cleaner_navigation_util_win.cc",
-      "chrome_cleaner/chrome_cleaner_navigation_util_win.h",
-      "chrome_cleaner/chrome_cleaner_reboot_dialog_controller_impl_win.cc",
-      "chrome_cleaner/chrome_cleaner_reboot_dialog_controller_impl_win.h",
-      "chrome_cleaner/chrome_cleaner_reboot_dialog_controller_win.h",
-      "chrome_cleaner/chrome_cleaner_runner_win.cc",
-      "chrome_cleaner/chrome_cleaner_runner_win.h",
-      "chrome_cleaner/chrome_cleaner_scanner_results_win.cc",
-      "chrome_cleaner/chrome_cleaner_scanner_results_win.h",
-      "chrome_cleaner/reporter_runner_win.cc",
-      "chrome_cleaner/reporter_runner_win.h",
-      "chrome_cleaner/settings_resetter_win.cc",
-      "chrome_cleaner/settings_resetter_win.h",
-      "chrome_cleaner/srt_chrome_prompt_impl_win.cc",
-      "chrome_cleaner/srt_chrome_prompt_impl_win.h",
-      "chrome_cleaner/srt_client_info_win.cc",
-      "chrome_cleaner/srt_client_info_win.h",
-      "chrome_cleaner/srt_field_trial_win.cc",
-      "chrome_cleaner/srt_field_trial_win.h",
       "settings_reset_prompt/default_settings_fetcher.cc",
       "settings_reset_prompt/default_settings_fetcher.h",
       "settings_reset_prompt/settings_reset_prompt_config.cc",
@@ -89,24 +58,13 @@ static_library("safe_browsing") {
       "settings_reset_prompt/settings_reset_prompt_util_win.cc",
       "settings_reset_prompt/settings_reset_prompt_util_win.h",
     ]
-    deps += [
-      "//components/keep_alive_registry",
-      "//extensions/browser",
-    ]
-  }
-
-  if (is_chrome_branded && is_win) {
-    sources += [ "chrome_cleaner/chrome_cleaner_extension_util_win.cc" ]
-  } else {
-    sources += [ "chrome_cleaner/chrome_cleaner_extension_util_win_noop.cc" ]
+    deps += [ "//extensions/browser" ]
   }
 
   if (safe_browsing_mode != 0) {
     # "Safe Browsing Basic" files used for safe browsing in full mode
     # (safe_browsing=1) and mobile (=2)
     sources += [
-      "../loader/data_reduction_proxy_resource_throttle_android.cc",
-      "../loader/data_reduction_proxy_resource_throttle_android.h",
       "certificate_reporting_metrics_provider.cc",
       "certificate_reporting_metrics_provider.h",
       "certificate_reporting_service.cc",
@@ -137,16 +95,18 @@ static_library("safe_browsing") {
       "//chrome/common/safe_browsing:proto",
       "//components/safe_browsing:csd_proto",
       "//components/safe_browsing:safe_browsing",
-      "//components/safe_browsing/browser:browser",
-      "//components/safe_browsing/common:common",
+      "//components/safe_browsing/browser",
+      "//components/safe_browsing/common",
       "//components/safe_browsing/common:safe_browsing_prefs",
+      "//components/safe_browsing/db:allowlist_checker_client",
       "//components/safe_browsing/db:metadata_proto",
-      "//components/safe_browsing/db:whitelist_checker_client",
       "//components/safe_browsing/password_protection",
+      "//components/safe_browsing/triggers",
+      "//components/safe_browsing/triggers:ad_popup_trigger",
+      "//components/safe_browsing/triggers:ad_redirect_trigger",
       "//components/safe_browsing/triggers:ad_sampler_trigger",
       "//components/safe_browsing/triggers:suspicious_site_trigger",
       "//components/safe_browsing/triggers:trigger_throttler",
-      "//components/safe_browsing/triggers:triggers",
     ]
     if (safe_browsing_mode == 1) {
       # "Safe Browsing Full" files in addition to the "basic" ones to use for
@@ -154,8 +114,6 @@ static_library("safe_browsing") {
       sources += [
         "../download/download_completion_blocker.cc",
         "../download/download_completion_blocker.h",
-        "../loader/safe_browsing_resource_throttle.cc",
-        "../loader/safe_browsing_resource_throttle.h",
         "browser_feature_extractor.cc",
         "browser_feature_extractor.h",
         "browser_features.cc",
@@ -168,6 +126,8 @@ static_library("safe_browsing") {
         "client_side_detection_service.h",
         "client_side_model_loader.cc",
         "client_side_model_loader.h",
+        "download_protection/binary_upload_service.cc",
+        "download_protection/binary_upload_service.h",
         "download_protection/check_client_download_request.cc",
         "download_protection/check_client_download_request.h",
         "download_protection/download_feedback.cc",
@@ -182,6 +142,8 @@ static_library("safe_browsing") {
         "download_protection/download_url_sb_client.h",
         "download_protection/file_analyzer.cc",
         "download_protection/file_analyzer.h",
+        "download_protection/multipart_uploader.cc",
+        "download_protection/multipart_uploader.h",
         "download_protection/path_sanitizer.cc",
         "download_protection/path_sanitizer.h",
         "download_protection/ppapi_download_request.cc",
@@ -247,28 +209,42 @@ static_library("safe_browsing") {
         "//chrome/common/safe_browsing:disk_image_type_sniffer_mac",
         "//chrome/common/safe_browsing:download_type_util",
         "//chrome/services/file_util/public/cpp",
-        "//components/content_settings/core/browser:browser",
-        "//components/language/core/common:common",
-        "//components/prefs:prefs",
-        "//components/safe_browsing/db:db",
+        "//components/content_settings/core/browser",
+        "//components/language/core/common",
+        "//components/prefs",
+        "//components/safe_browsing:webprotect_proto",
+        "//components/safe_browsing/db",
         "//components/security_interstitials/content:security_interstitial_page",
-        "//components/signin/core/browser:browser",
-        "//content/public/browser:browser",
-        "//net:net",
+        "//content/public/browser",
+        "//net",
       ]
       if (is_win) {
         deps += [ "//chrome/browser/safe_browsing/incident_reporting:state_store_data_proto" ]
       }
     } else if (safe_browsing_mode == 2) {
       sources += [
-        "../loader/safe_browsing_resource_throttle.cc",
-        "../loader/safe_browsing_resource_throttle.h",
+        "android/file_type_policies.cc",
         "android/services_delegate_android.cc",
         "android/services_delegate_android.h",
         "telemetry/android/android_telemetry_service.cc",
         "telemetry/android/android_telemetry_service.h",
       ]
-      deps += [ "//components/safe_browsing/android:safe_browsing_mobile" ]
+      deps += [
+        "//chrome/android:jni_headers",
+        "//components/safe_browsing/android:safe_browsing_mobile",
+      ]
+    } else if (safe_browsing_mode == 3) {
+      sources += [
+        "android/file_type_policies.cc",
+        "android/services_delegate_android.cc",
+        "android/services_delegate_android.h",
+        "telemetry/android/android_telemetry_service.cc",
+        "telemetry/android/android_telemetry_service.h",
+      ]
+      deps += [
+        "//chrome/android:jni_headers",
+        "//components/safe_browsing/db:db",
+      ]
     }
   }
 }
@@ -282,11 +258,12 @@ static_library("advanced_protection") {
   ]
 
   deps = [
-    "//components/prefs:prefs",
-    "//components/safe_browsing/common:common",
+    "//components/keyed_service/content",
+    "//components/prefs",
+    "//components/safe_browsing/common",
     "//components/safe_browsing/common:safe_browsing_prefs",
-    "//components/signin/core/browser:browser",
-    "//content/public/browser:browser",
+    "//components/signin/public/identity_manager",
+    "//content/public/browser",
   ]
 }
 
@@ -298,8 +275,12 @@ source_set("test_support") {
     ]
 
     deps = [
+      ":safe_browsing",
       "//chrome/common/safe_browsing:proto",
-      "//content/public/browser:browser",
+      "//components/safe_browsing/db:database_manager",
+      "//components/safe_browsing/db:test_database_manager",
+      "//components/safe_browsing/db:v4_protocol_manager_util",
+      "//content/public/browser",
     ]
   }
 }

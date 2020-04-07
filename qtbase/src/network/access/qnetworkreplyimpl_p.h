@@ -74,7 +74,7 @@ class QNetworkReplyImpl: public QNetworkReply
 {
     Q_OBJECT
 public:
-    QNetworkReplyImpl(QObject *parent = 0);
+    QNetworkReplyImpl(QObject *parent = nullptr);
     ~QNetworkReplyImpl();
     virtual void abort() override;
 
@@ -116,8 +116,6 @@ public:
         NotifyCloseDownstreamChannel,
         NotifyCopyFinished
     };
-
-    typedef QQueue<InternalNotifications> NotificationQueue;
 
     QNetworkReplyImplPrivate();
 
@@ -178,7 +176,7 @@ public:
     bool cacheEnabled;
     QIODevice *cacheSaveDevice;
 
-    NotificationQueue pendingNotifications;
+    std::vector<InternalNotifications> pendingNotifications;
     bool notificationHandlingPaused;
 
     QUrl urlForLastAuthentication;
@@ -209,7 +207,6 @@ public:
 };
 Q_DECLARE_TYPEINFO(QNetworkReplyImplPrivate::InternalNotifications, Q_PRIMITIVE_TYPE);
 
-#ifndef QT_NO_BEARERMANAGEMENT
 class QDisabledNetworkReply : public QNetworkReply
 {
     Q_OBJECT
@@ -223,7 +220,6 @@ public:
 protected:
     qint64 readData(char *, qint64) override { return -1; }
 };
-#endif
 
 QT_END_NAMESPACE
 

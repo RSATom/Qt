@@ -16,13 +16,14 @@
 
 #include "src/tracing/core/shared_memory_arbiter_impl.h"
 
-#include "gmock/gmock.h"
-#include "gtest/gtest.h"
-#include "perfetto/base/utils.h"
-#include "perfetto/tracing/core/basic_types.h"
-#include "perfetto/tracing/core/commit_data_request.h"
-#include "perfetto/tracing/core/shared_memory_abi.h"
-#include "perfetto/tracing/core/trace_writer.h"
+#include <gmock/gmock.h>
+#include <gtest/gtest.h>
+#include "perfetto/ext/base/utils.h"
+#include "perfetto/ext/tracing/core/basic_types.h"
+#include "perfetto/ext/tracing/core/commit_data_request.h"
+#include "perfetto/ext/tracing/core/shared_memory_abi.h"
+#include "perfetto/ext/tracing/core/trace_writer.h"
+#include "src/base/test/gtest_test_suite.h"
 #include "src/base/test/test_task_runner.h"
 #include "src/tracing/core/patch_list.h"
 #include "src/tracing/test/aligned_buffer_test.h"
@@ -38,12 +39,15 @@ class MockProducerEndpoint : public TracingService::ProducerEndpoint {
   void RegisterDataSource(const DataSourceDescriptor&) override {}
   void UnregisterDataSource(const std::string&) override {}
   void NotifyFlushComplete(FlushRequestID) override {}
+  void NotifyDataSourceStarted(DataSourceInstanceID) override {}
   void NotifyDataSourceStopped(DataSourceInstanceID) override {}
+  void ActivateTriggers(const std::vector<std::string>&) {}
   SharedMemory* shared_memory() const override { return nullptr; }
   size_t shared_buffer_page_size_kb() const override { return 0; }
   std::unique_ptr<TraceWriter> CreateTraceWriter(BufferID) override {
     return nullptr;
   }
+  SharedMemoryArbiter* GetInProcessShmemArbiter() override { return nullptr; }
 
   MOCK_METHOD2(CommitData, void(const CommitDataRequest&, CommitDataCallback));
   MOCK_METHOD2(RegisterTraceWriter, void(uint32_t, uint32_t));
@@ -72,9 +76,9 @@ class SharedMemoryArbiterImplTest : public AlignedBufferTest {
 };
 
 size_t const kPageSizes[] = {4096, 65536};
-INSTANTIATE_TEST_CASE_P(PageSize,
-                        SharedMemoryArbiterImplTest,
-                        ::testing::ValuesIn(kPageSizes));
+INSTANTIATE_TEST_SUITE_P(PageSize,
+                         SharedMemoryArbiterImplTest,
+                         ::testing::ValuesIn(kPageSizes));
 
 // The buffer has 14 pages (kNumPages), each will be partitioned in 14 chunks.
 // The test requests 30 chunks (2 full pages + 2 chunks from a 3rd page) and
@@ -86,7 +90,8 @@ TEST_P(SharedMemoryArbiterImplTest, GetAndReturnChunks) {
   static constexpr size_t kTotChunks = kNumPages * 14;
   SharedMemoryABI::Chunk chunks[kTotChunks];
   for (size_t i = 0; i < 14 * 2 + 2; i++) {
-    chunks[i] = arbiter_->GetNewChunk({}, 0 /*size_hint*/);
+    chunks[i] = arbiter_->GetNewChunk(
+        {}, SharedMemoryArbiter::BufferExhaustedPolicy::kStall);
     ASSERT_TRUE(chunks[i].is_valid());
   }
 
@@ -160,6 +165,44 @@ TEST_P(SharedMemoryArbiterImplTest, WriterIDsAllocation) {
 
   // This should run the Register/UnregisterTraceWriter calls expected above.
   task_runner_->RunUntilCheckpoint("last_unregistered", 15000);
+}
+
+// Verify that getting a new chunk doesn't stall when kDrop policy is chosen.
+TEST_P(SharedMemoryArbiterImplTest, BufferExhaustedPolicyDrop) {
+  // Grab all chunks in the SMB.
+  SharedMemoryArbiterImpl::set_default_layout_for_testing(
+      SharedMemoryABI::PageLayout::kPageDiv1);
+  static constexpr size_t kTotChunks = kNumPages;
+  SharedMemoryABI::Chunk chunks[kTotChunks];
+  for (size_t i = 0; i < kTotChunks; i++) {
+    chunks[i] = arbiter_->GetNewChunk(
+        {}, SharedMemoryArbiter::BufferExhaustedPolicy::kDrop);
+    ASSERT_TRUE(chunks[i].is_valid());
+  }
+
+  // SMB is exhausted, thus GetNewChunk() should return an invalid chunk. In
+  // kStall mode, this would stall.
+  SharedMemoryABI::Chunk invalid_chunk = arbiter_->GetNewChunk(
+      {}, SharedMemoryArbiter::BufferExhaustedPolicy::kDrop);
+  ASSERT_FALSE(invalid_chunk.is_valid());
+
+  // Returning the chunk is not enough to be able to reacquire it.
+  PatchList ignored;
+  arbiter_->ReturnCompletedChunk(std::move(chunks[0]), 0, &ignored);
+
+  invalid_chunk = arbiter_->GetNewChunk(
+      {}, SharedMemoryArbiter::BufferExhaustedPolicy::kDrop);
+  ASSERT_FALSE(invalid_chunk.is_valid());
+
+  // After releasing the chunk as free, we can reacquire it.
+  chunks[0] =
+      arbiter_->shmem_abi_for_testing()->TryAcquireChunkForReading(0, 0);
+  ASSERT_TRUE(chunks[0].is_valid());
+  arbiter_->shmem_abi_for_testing()->ReleaseChunkAsFree(std::move(chunks[0]));
+
+  chunks[0] = arbiter_->GetNewChunk(
+      {}, SharedMemoryArbiter::BufferExhaustedPolicy::kDrop);
+  ASSERT_TRUE(chunks[0].is_valid());
 }
 
 // TODO(primiano): add multi-threaded tests.

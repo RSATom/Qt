@@ -312,6 +312,7 @@ LayoutUnit FlexLine::ApplyMainAxisAutoMarginAdjustment() {
 
 void FlexLine::ComputeLineItemsPosition(LayoutUnit main_axis_offset,
                                         LayoutUnit& cross_axis_offset) {
+  this->main_axis_offset = main_axis_offset;
   // Recalculate the remaining free space. The adjustment for flex factors
   // between 0..1 means we can't just use remainingFreeSpace here.
   remaining_free_space = container_main_inner_size;
@@ -326,8 +327,11 @@ void FlexLine::ComputeLineItemsPosition(LayoutUnit main_axis_offset,
 
   LayoutUnit auto_margin_offset = ApplyMainAxisAutoMarginAdjustment();
   const LayoutUnit available_free_space = remaining_free_space;
-  main_axis_offset += FlexLayoutAlgorithm::InitialContentPositionOffset(
-      available_free_space, justify_content, line_items.size());
+  LayoutUnit initial_position =
+      FlexLayoutAlgorithm::InitialContentPositionOffset(
+          available_free_space, justify_content, line_items.size());
+  main_axis_offset += initial_position;
+  sum_justify_adjustments += initial_position;
   LayoutUnit max_descent;  // Used when align-items: baseline.
   LayoutUnit max_child_cross_axis_extent;
   bool should_flip_main_axis = !algorithm->StyleRef().IsColumnFlexDirection() &&
@@ -352,8 +356,8 @@ void FlexLine::ComputeLineItemsPosition(LayoutUnit main_axis_offset,
 
       child_cross_axis_margin_box_extent = max_ascent + max_descent;
     } else {
-      child_cross_axis_margin_box_extent = flex_item.cross_axis_intrinsic_size +
-                                           flex_item.CrossAxisMarginExtent();
+      child_cross_axis_margin_box_extent =
+          flex_item.cross_axis_size + flex_item.CrossAxisMarginExtent();
     }
     max_child_cross_axis_extent = std::max(max_child_cross_axis_extent,
                                            child_cross_axis_margin_box_extent);
@@ -373,9 +377,11 @@ void FlexLine::ComputeLineItemsPosition(LayoutUnit main_axis_offset,
 
     if (i != line_items.size() - 1) {
       // The last item does not get extra space added.
-      main_axis_offset +=
+      LayoutUnit space_between =
           FlexLayoutAlgorithm::ContentDistributionSpaceBetweenChildren(
               available_free_space, justify_content, line_items.size());
+      main_axis_offset += space_between;
+      sum_justify_adjustments += space_between;
     }
   }
 
@@ -481,13 +487,68 @@ bool FlexLayoutAlgorithm::ShouldApplyMinSizeAutoForChild(
 
   // TODO(crbug.com/927066): We calculate an incorrect intrinsic logical height
   // when percentages are involved, so for now don't apply min-height: auto
-  // in such cases.
-  if (IsColumnFlow() && child.IsFlexibleBox() &&
-      ToLayoutBlock(child).HasPercentHeightDescendants())
+  // in such cases. (This is only a problem if the child has a definite height)
+  const LayoutBlock* child_block = DynamicTo<LayoutBlock>(child);
+  if (IsColumnFlow() && child_block &&
+      child_block->HasPercentHeightDescendants() &&
+      child_block->HasDefiniteLogicalHeight())
     return false;
 
   return !child.ShouldApplySizeContainment() &&
+         !child.DisplayLockInducesSizeContainment() &&
          MainAxisOverflowForChild(child) == EOverflow::kVisible;
+}
+
+LayoutUnit FlexLayoutAlgorithm::IntrinsicContentBlockSize() const {
+  if (flex_lines_.IsEmpty())
+    return LayoutUnit();
+
+  if (IsColumnFlow()) {
+    LayoutUnit max_size;
+    for (const FlexLine& line : flex_lines_) {
+      // Subtract main_axis_offset to remove border/padding
+      max_size = std::max(line.main_axis_extent - line.sum_justify_adjustments -
+                              line.main_axis_offset,
+                          max_size);
+    }
+    return max_size;
+  }
+
+  const FlexLine& last_line = flex_lines_.back();
+  // Subtract the first line's offset to remove border/padding
+  return last_line.cross_axis_offset + last_line.cross_axis_extent -
+         flex_lines_.front().cross_axis_offset;
+}
+
+void FlexLayoutAlgorithm::AlignFlexLines(LayoutUnit cross_axis_content_extent) {
+  const StyleContentAlignmentData align_content = ResolvedAlignContent(*style_);
+  if (align_content.GetPosition() == ContentPosition::kFlexStart)
+    return;
+  if (flex_lines_.IsEmpty() || !IsMultiline())
+    return;
+  LayoutUnit available_cross_axis_space = cross_axis_content_extent;
+  for (const FlexLine& line : flex_lines_)
+    available_cross_axis_space -= line.cross_axis_extent;
+
+  LayoutUnit line_offset = InitialContentPositionOffset(
+      available_cross_axis_space, align_content, flex_lines_.size());
+  for (FlexLine& line_context : flex_lines_) {
+    line_context.cross_axis_offset += line_offset;
+
+    for (FlexItem& flex_item : line_context.line_items) {
+      flex_item.desired_location.SetY(flex_item.desired_location.Y() +
+                                      line_offset);
+    }
+    if (align_content.Distribution() == ContentDistributionType::kStretch &&
+        available_cross_axis_space > 0) {
+      line_context.cross_axis_extent +=
+          available_cross_axis_space /
+          static_cast<unsigned>(flex_lines_.size());
+    }
+
+    line_offset += ContentDistributionSpaceBetweenChildren(
+        available_cross_axis_space, align_content, flex_lines_.size());
+  }
 }
 
 TransformedWritingMode FlexLayoutAlgorithm::GetTransformedWritingMode() const {

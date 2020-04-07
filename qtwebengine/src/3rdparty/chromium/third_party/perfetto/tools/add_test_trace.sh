@@ -21,7 +21,7 @@ cp $1 /tmp/latest-test-data
 echo ""
 echo "Zipping file back up"
 echo ""
-NEW_TEST_DATA="test-data-$(date +%Y%m%d).zip"
+NEW_TEST_DATA="test-data-$(date +%Y%m%d-%H%M%S).zip"
 CWD="$(pwd)"
 cd /tmp/latest-test-data
 zip -r /tmp/$NEW_TEST_DATA *
@@ -39,11 +39,12 @@ gsutil acl ch -u AllUsers:R gs://perfetto/$NEW_TEST_DATA
 
 echo ""
 echo "SHA1 of file $NEW_TEST_DATA is"
-if which shasum; then
-echo $(shasum /tmp/$NEW_TEST_DATA)  # Mac OS
+if which shasum > /dev/null; then
+NEW_SHA=$(shasum /tmp/$NEW_TEST_DATA | cut -c1-40)  # Mac OS
 else
-echo $(sha1sum /tmp/$NEW_TEST_DATA)  # Linux
+NEW_SHA=$(sha1sum /tmp/$NEW_TEST_DATA | cut -c1-40)  # Linux
 fi
+echo $NEW_SHA
 
 echo ""
 echo "Cleaning up leftover files"
@@ -53,6 +54,18 @@ rm /tmp/latest-test-data.zip
 rm /tmp/$NEW_TEST_DATA
 
 echo ""
-echo "All done! Please update tools/install-build-deps"
-echo "with the new file name and sha1sum"
+echo "Updating tools/install-build-deps"
 echo ""
+
+OLD_SHA=$(cat tools/install-build-deps | grep '/test-data-.*.zip' -A1 | tail -n1 | cut -c5-44)
+
+# Cannot easily use sed -i, it has different syntax on Linux vs Mac.
+cat tools/install-build-deps \
+  | sed -e 's|/test-data-.*.zip|/'$NEW_TEST_DATA'|g' \
+  | sed -e 's|'$OLD_SHA'|'$NEW_SHA'|g' \
+  > tools/install-build-deps.tmp
+
+mv -f tools/install-build-deps.tmp tools/install-build-deps
+chmod 755 tools/install-build-deps
+
+echo "All done!"

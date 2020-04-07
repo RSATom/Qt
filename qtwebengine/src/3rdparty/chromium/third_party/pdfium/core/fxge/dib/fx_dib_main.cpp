@@ -9,9 +9,10 @@
 #include <tuple>
 #include <utility>
 
+#include "build/build_config.h"
 #include "core/fxcrt/fx_extension.h"
 
-#if _FX_PLATFORM_ == _FX_PLATFORM_WINDOWS_
+#if defined(OS_WIN)
 static_assert(sizeof(FX_COLORREF) == sizeof(COLORREF),
               "FX_COLORREF vs. COLORREF mismatch");
 #endif
@@ -56,26 +57,10 @@ const int16_t SDP_Table[513] = {
 
 FXDIB_ResampleOptions::FXDIB_ResampleOptions() = default;
 
-FXDIB_ResampleOptions::FXDIB_ResampleOptions(bool downsample,
-                                             bool bilinear,
-                                             bool bicubic,
-                                             bool halftone,
-                                             bool no_smoothing,
-                                             bool lossy)
-    : bInterpolateDownsample(downsample),
-      bInterpolateBilinear(bilinear),
-      bInterpolateBicubic(bicubic),
-      bHalftone(halftone),
-      bNoSmoothing(no_smoothing),
-      bLossy(lossy) {}
-
 bool FXDIB_ResampleOptions::HasAnyOptions() const {
   return bInterpolateDownsample || bInterpolateBilinear ||
          bInterpolateBicubic || bHalftone || bNoSmoothing || bLossy;
 }
-
-const FXDIB_ResampleOptions kBilinearInterpolation = {
-    false, /*bilinear=*/true, false, false, false, false};
 
 FX_RECT FXDIB_SwapClipBox(const FX_RECT& clip,
                           int width,
@@ -119,14 +104,14 @@ FX_ARGB AlphaAndColorRefToArgb(int a, FX_COLORREF colorref) {
                     FXSYS_GetBValue(colorref));
 }
 
-FX_ARGB StringToFXARGB(WideStringView wsValue) {
+FX_ARGB StringToFXARGB(WideStringView view) {
   static constexpr FX_ARGB kDefaultValue = 0xff000000;
-  if (wsValue.GetLength() == 0)
+  if (view.GetLength() == 0)
     return kDefaultValue;
 
   int cc = 0;
-  const wchar_t* str = wsValue.unterminated_c_str();
-  int len = wsValue.GetLength();
+  const wchar_t* str = view.unterminated_c_str();
+  int len = view.GetLength();
   while (cc < len && FXSYS_iswspace(str[cc]))
     cc++;
 
@@ -169,5 +154,5 @@ FX_ARGB StringToFXARGB(WideStringView wsValue) {
       }
     }
   }
-  return (0xff << 24) | (r << 16) | (g << 8) | b;
+  return (0xffU << 24) | (r << 16) | (g << 8) | b;
 }

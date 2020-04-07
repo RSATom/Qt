@@ -166,15 +166,16 @@ Q_SIGNALS:
     void directoryLoaded(const QString &path);
 
 public:
-    explicit QFileInfoGatherer(QObject *parent = 0);
+    explicit QFileInfoGatherer(QObject *parent = nullptr);
     ~QFileInfoGatherer();
 
-#if QT_CONFIG(filesystemwatcher) && defined(Q_OS_WIN)
-    QStringList watchedFiles() const            { return watcher->files(); }
-    QStringList watchedDirectories() const      { return watcher->directories(); }
-    void watchPaths(const QStringList &paths)   { watcher->addPaths(paths); }
-    void unwatchPaths(const QStringList &paths) { watcher->removePaths(paths); }
-#endif // filesystemwatcher && Q_OS_WIN
+    QStringList watchedFiles() const;
+    QStringList watchedDirectories() const;
+    void watchPaths(const QStringList &paths);
+    void unwatchPaths(const QStringList &paths);
+
+    bool isWatching() const;
+    void setWatching(bool v);
 
     // only callable from this->thread():
     void clear();
@@ -201,6 +202,8 @@ private:
     void fetch(const QFileInfo &info, QElapsedTimer &base, bool &firstTime, QVector<QPair<QString, QFileInfo> > &updatedFiles, const QString &path);
 
 private:
+    void createWatcher();
+
     mutable QMutex mutex;
     // begin protected by mutex
     QWaitCondition condition;
@@ -210,13 +213,16 @@ private:
     QAtomicInt abort;
 
 #if QT_CONFIG(filesystemwatcher)
-    QFileSystemWatcher *watcher;
-#endif
-#ifdef Q_OS_WIN
-    bool m_resolveSymlinks; // not accessed by run()
+    QFileSystemWatcher *m_watcher = nullptr;
 #endif
     QFileIconProvider *m_iconProvider; // not accessed by run()
     QFileIconProvider defaultProvider;
+#ifdef Q_OS_WIN
+    bool m_resolveSymlinks = true; // not accessed by run()
+#endif
+#if QT_CONFIG(filesystemwatcher)
+    bool m_watching = true;
+#endif
 };
 
 QT_END_NAMESPACE

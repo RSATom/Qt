@@ -65,7 +65,7 @@ namespace QSGCompressedAtlasTexture
 {
 
 Atlas::Atlas(const QSize &size, uint format)
-    : QSGAtlasTexture::AtlasBase(size)
+    : QSGOpenGLAtlasTexture::AtlasBase(size)
     , m_format(format)
 {
 }
@@ -88,10 +88,20 @@ Texture *Atlas::create(const QByteArray &data, int dataLength, int dataOffset, c
 
 void Atlas::generateTexture()
 {
+    int bytesPerBlock = 8;
+    switch (m_format) {
+    case QOpenGLTexture::RGBA8_ETC2_EAC:
+    case QOpenGLTexture::RGBA_DXT3:
+    case QOpenGLTexture::RGBA_DXT5:
+        bytesPerBlock = 16;
+    default:
+        break;
+    }
+
     QOpenGLFunctions *funcs = QOpenGLContext::currentContext()->functions();
     funcs->glCompressedTexImage2D(GL_TEXTURE_2D, 0, m_format,
                                   m_size.width(), m_size.height(), 0,
-                                  (m_size.width() * m_size.height()) / 2,
+                                  (m_size.width() / 4 * m_size.height() / 4) * bytesPerBlock,
                                   nullptr);
 }
 
@@ -117,7 +127,7 @@ void Atlas::uploadPendingTexture(int i)
 }
 
 Texture::Texture(Atlas *atlas, const QRect &textureRect, const QByteArray &data, int dataLength, int dataOffset, const QSize &size)
-    : QSGAtlasTexture::TextureBase(atlas, textureRect)
+    : QSGOpenGLAtlasTexture::TextureBase(atlas, textureRect)
     , m_nonatlas_texture(nullptr)
     , m_data(data)
     , m_size(size)
@@ -126,12 +136,12 @@ Texture::Texture(Atlas *atlas, const QRect &textureRect, const QByteArray &data,
 {
     float w = atlas->size().width();
     float h = atlas->size().height();
-    QRect nopad = atlasSubRect();
+    const QRect &r = atlasSubRect();
     // offset by half-pixel to prevent bleeding when scaling
-    m_texture_coords_rect = QRectF((nopad.x() + .5) / w,
-                                   (nopad.y() + .5) / h,
-                                   (nopad.width() - 1.) / w,
-                                   (nopad.height() - 1.) / h);
+    m_texture_coords_rect = QRectF((r.x() + .5) / w,
+                                   (r.y() + .5) / h,
+                                   (size.width() - 1.) / w,
+                                   (size.height() - 1.) / h);
 }
 
 Texture::~Texture()
@@ -141,7 +151,7 @@ Texture::~Texture()
 
 bool Texture::hasAlphaChannel() const
 {
-    return QSGCompressedTexture::formatIsOpaque(static_cast<Atlas*>(m_atlas)->format());
+    return !QSGCompressedTexture::formatIsOpaque(static_cast<Atlas*>(m_atlas)->format());
 }
 
 QSGTexture *Texture::removedFromAtlas() const

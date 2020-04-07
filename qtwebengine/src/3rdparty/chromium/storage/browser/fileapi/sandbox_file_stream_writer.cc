@@ -10,14 +10,18 @@
 #include <tuple>
 #include <utility>
 
+#include "base/bind.h"
+#include "base/memory/weak_ptr.h"
 #include "base/sequenced_task_runner.h"
-#include "base/trace_event/trace_event.h"
 #include "net/base/io_buffer.h"
 #include "net/base/net_errors.h"
 #include "storage/browser/fileapi/file_observers.h"
 #include "storage/browser/fileapi/file_stream_reader.h"
 #include "storage/browser/fileapi/file_system_context.h"
+#include "storage/browser/fileapi/file_system_features.h"
 #include "storage/browser/fileapi/file_system_operation_runner.h"
+#include "storage/browser/fileapi/obfuscated_file_util_memory_delegate.h"
+#include "storage/browser/fileapi/plugin_private_file_system_backend.h"
 #include "storage/browser/quota/quota_manager_proxy.h"
 #include "storage/common/fileapi/file_system_util.h"
 
@@ -69,7 +73,7 @@ int SandboxFileStreamWriter::Write(net::IOBuffer* buf,
   DCHECK(!write_callback_);
   has_pending_operation_ = true;
   write_callback_ = std::move(callback);
-  if (local_file_writer_)
+  if (file_writer_)
     return WriteInternal(buf, buf_len);
 
   net::CompletionOnceCallback write_task = base::BindOnce(
@@ -103,11 +107,11 @@ int SandboxFileStreamWriter::WriteInternal(net::IOBuffer* buf, int buf_len) {
   if (buf_len > allowed_bytes_to_write_ - total_bytes_written_)
     buf_len = allowed_bytes_to_write_ - total_bytes_written_;
 
-  DCHECK(local_file_writer_.get());
-  const int result = local_file_writer_->Write(
-      buf, buf_len,
-      base::BindOnce(&SandboxFileStreamWriter::DidWrite,
-                     weak_factory_.GetWeakPtr()));
+  DCHECK(file_writer_.get());
+  const int result =
+      file_writer_->Write(buf, buf_len,
+                          base::BindOnce(&SandboxFileStreamWriter::DidWrite,
+                                         weak_factory_.GetWeakPtr()));
   if (result != net::ERR_IO_PENDING)
     has_pending_operation_ = false;
   return result;
@@ -134,18 +138,34 @@ void SandboxFileStreamWriter::DidCreateSnapshotFile(
   }
   file_size_ = file_info.size;
   if (initial_offset_ > file_size_) {
-    LOG(ERROR) << initial_offset_ << ", " << file_size_;
-    // This shouldn't happen as long as we check offset in the renderer.
-    NOTREACHED();
-    initial_offset_ = file_size_;
+    // We should not be writing pass the end of the file.
+    std::move(callback).Run(net::ERR_REQUEST_RANGE_NOT_SATISFIABLE);
+    return;
   }
-  DCHECK(!local_file_writer_.get());
-  local_file_writer_.reset(FileStreamWriter::CreateForLocalFile(
-      file_system_context_->default_file_task_runner(),
-      platform_path,
-      initial_offset_,
-      FileStreamWriter::OPEN_EXISTING_FILE));
+  DCHECK(!file_writer_.get());
 
+  if (file_system_context_->is_incognito() &&
+      base::FeatureList::IsEnabled(features::kEnableFilesystemInIncognito)) {
+    base::WeakPtr<ObfuscatedFileUtilMemoryDelegate> memory_file_util_delegate;
+    if (url_.type() == kFileSystemTypePluginPrivate) {
+      auto* backend = static_cast<PluginPrivateFileSystemBackend*>(
+          file_system_context_->GetFileSystemBackend(
+              kFileSystemTypePluginPrivate));
+      memory_file_util_delegate =
+          backend->obfuscated_file_util_memory_delegate()->GetWeakPtr();
+    } else {
+      memory_file_util_delegate =
+          file_system_context_->sandbox_delegate()->memory_file_util_delegate();
+    }
+    file_writer_ = FileStreamWriter::CreateForMemoryFile(
+        memory_file_util_delegate, platform_path, initial_offset_,
+        FileStreamWriter::OPEN_EXISTING_FILE);
+
+  } else {
+    file_writer_ = FileStreamWriter::CreateForLocalFile(
+        file_system_context_->default_file_task_runner(), platform_path,
+        initial_offset_, FileStreamWriter::OPEN_EXISTING_FILE);
+  }
   storage::QuotaManagerProxy* quota_manager_proxy =
       file_system_context_->quota_manager_proxy();
   if (!quota_manager_proxy) {
@@ -156,13 +176,9 @@ void SandboxFileStreamWriter::DidCreateSnapshotFile(
     return;
   }
 
-  // crbug.com/349708
-  TRACE_EVENT0("io", "SandboxFileStreamWriter::DidCreateSnapshotFile");
-
   DCHECK(quota_manager_proxy->quota_manager());
   quota_manager_proxy->quota_manager()->GetUsageAndQuota(
-      url::Origin::Create(url_.origin()),
-      FileSystemTypeToQuotaStorageType(url_.type()),
+      url_.origin(), FileSystemTypeToQuotaStorageType(url_.type()),
       base::BindOnce(&SandboxFileStreamWriter::DidGetUsageAndQuota,
                      weak_factory_.GetWeakPtr(), std::move(callback)));
 }
@@ -177,15 +193,9 @@ void SandboxFileStreamWriter::DidGetUsageAndQuota(
   if (status != blink::mojom::QuotaStatusCode::kOk) {
     LOG(WARNING) << "Got unexpected quota error : " << static_cast<int>(status);
 
-    // crbug.com/349708
-    TRACE_EVENT0("io", "SandboxFileStreamWriter::DidGetUsageAndQuota FAILED");
-
     std::move(callback).Run(net::ERR_FAILED);
     return;
   }
-
-  // crbug.com/349708
-  TRACE_EVENT0("io", "SandboxFileStreamWriter::DidGetUsageAndQuota OK");
 
   allowed_bytes_to_write_ = quota - usage;
   std::move(callback).Run(net::OK);
@@ -247,10 +257,10 @@ int SandboxFileStreamWriter::Flush(net::CompletionOnceCallback callback) {
   DCHECK(cancel_callback_.is_null());
 
   // Write() is not called yet, so there's nothing to flush.
-  if (!local_file_writer_)
+  if (!file_writer_)
     return net::OK;
 
-  return local_file_writer_->Flush(std::move(callback));
+  return file_writer_->Flush(std::move(callback));
 }
 
 }  // namespace storage

@@ -59,7 +59,7 @@ QT_BEGIN_NAMESPACE
 /*!
     \qmltype Control
     \inherits Item
-    \instantiates QQuickControl
+//!     \instantiates QQuickControl
     \inqmlmodule QtQuick.Controls
     \since 5.7
     \brief Abstract base type providing functionality common to all controls.
@@ -178,6 +178,12 @@ bool QQuickControlPrivate::acceptTouch(const QTouchEvent::TouchPoint &point)
         return true;
     }
 
+    // If the control is on a Flickable that has a pressDelay, then the press is never
+    // sent as a touch event, therefore we need to check for this case.
+    if (touchId == -1 && pressWasTouch && point.state() == Qt::TouchPointReleased &&
+        point.pos() == previousPressPos) {
+        return true;
+    }
     return false;
 }
 #endif
@@ -213,6 +219,8 @@ void QQuickControlPrivate::handleRelease(const QPointF &)
     if ((focusPolicy & Qt::ClickFocus) == Qt::ClickFocus && QGuiApplication::styleHints()->setFocusOnTouchRelease())
         setActiveFocus(q, Qt::MouseFocusReason);
     touchId = -1;
+    pressWasTouch = false;
+    previousPressPos = QPointF();
 }
 
 void QQuickControlPrivate::handleUngrab()
@@ -549,7 +557,13 @@ void QQuickControlPrivate::inheritFont(const QFont &font)
     parentFont.resolve(extra.isAllocated() ? extra->requestedFont.resolve() | font.resolve() : font.resolve());
 
     const QFont defaultFont = q->defaultFont();
-    const QFont resolvedFont = parentFont.resolve(defaultFont);
+    QFont resolvedFont = parentFont.resolve(defaultFont);
+    // Since resolving the font will put the family() into the
+    // families() list if it is empty then we need to unset it
+    // so it does not act as if the font has changed (when it
+    // has not actually changed)
+    if (defaultFont.families().isEmpty())
+        resolvedFont.setFamilies(QStringList());
 
     setFont_helper(resolvedFont);
 }
@@ -1627,8 +1641,10 @@ void QQuickControl::setBackground(QQuickItem *background)
     \endcode
 
     \note The content item is automatically positioned and resized to fit
-    within the \l padding of the control. Bindings to the \l x, \l y, \l width,
-    and \l height properties of the contentItem are not respected.
+    within the \l padding of the control. Bindings to the
+    \l[QtQuick]{Item::}{x}, \l[QtQuick]{Item::}{y},
+    \l[QtQuick]{Item::}{width}, and \l[QtQuick]{Item::}{height}
+    properties of the contentItem are not respected.
 
     \note Most controls use the implicit size of the content item to calculate
     the implicit size of the control itself. If you replace the content item
@@ -2095,6 +2111,10 @@ void QQuickControl::mousePressEvent(QMouseEvent *event)
 {
     Q_D(QQuickControl);
     d->handlePress(event->localPos());
+    if (event->source() == Qt::MouseEventSynthesizedByQt) {
+        d->pressWasTouch = true;
+        d->previousPressPos = event->localPos();
+    }
     event->accept();
 }
 
@@ -2274,11 +2294,13 @@ QString QQuickControl::accessibleName() const
     return QString();
 }
 
-void QQuickControl::setAccessibleName(const QString &name)
+void QQuickControl::maybeSetAccessibleName(const QString &name)
 {
 #if QT_CONFIG(accessibility)
-    if (QQuickAccessibleAttached *accessibleAttached = QQuickControlPrivate::accessibleAttached(this))
-        accessibleAttached->setName(name);
+    if (QQuickAccessibleAttached *accessibleAttached = QQuickControlPrivate::accessibleAttached(this)) {
+        if (!accessibleAttached->wasNameExplicitlySet())
+            accessibleAttached->setNameImplicitly(name);
+    }
 #else
     Q_UNUSED(name)
 #endif

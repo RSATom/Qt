@@ -80,11 +80,12 @@ const uint32_t kMaxBackgroundFetchIntervalSeconds = 6 * 60 * 60;  // 6 hours.
 #endif
 
 // This is the default backoff policy used to communicate with the Data
-// Reduction Proxy configuration service.
+// Reduction Proxy configuration service. The policy gets overwritten based on
+// kDataReductionProxyAggressiveConfigFetch.
 const net::BackoffEntry::Policy kDefaultBackoffPolicy = {
     0,                // num_errors_to_ignore
-    30 * 1000,        // initial_delay_ms
-    4,                // multiply_factor
+    10 * 1000,        // initial_delay_ms
+    3,                // multiply_factor
     0.25,             // jitter_factor,
     128 * 60 * 1000,  // maximum_backoff_ms
     -1,               // entry_lifetime_ms
@@ -97,13 +98,11 @@ std::vector<DataReductionProxyServer> GetProxiesForHTTP(
   std::vector<DataReductionProxyServer> proxies;
   for (const auto& server : proxy_config.http_proxy_servers()) {
     if (server.scheme() != ProxyServer_ProxyScheme_UNSPECIFIED) {
-      proxies.push_back(DataReductionProxyServer(
-          net::ProxyServer(
-              protobuf_parser::SchemeFromProxyScheme(server.scheme()),
-              net::HostPortPair(server.host(), server.port()),
-              /* HTTPS proxies are marked as trusted. */
-              server.scheme() == ProxyServer_ProxyScheme_HTTPS),
-          server.type()));
+      proxies.push_back(DataReductionProxyServer(net::ProxyServer(
+          protobuf_parser::SchemeFromProxyScheme(server.scheme()),
+          net::HostPortPair(server.host(), server.port()),
+          /* HTTPS proxies are marked as trusted. */
+          server.scheme() == ProxyServer_ProxyScheme_HTTPS)));
     }
   }
 
@@ -136,8 +135,16 @@ void RecordAuthExpiredSessionKey(bool matches) {
 
 }  // namespace
 
-const net::BackoffEntry::Policy& GetBackoffPolicy() {
-  return kDefaultBackoffPolicy;
+net::BackoffEntry::Policy GetBackoffPolicy() {
+  net::BackoffEntry::Policy policy = kDefaultBackoffPolicy;
+  if (base::FeatureList::IsEnabled(
+          features::kDataReductionProxyAggressiveConfigFetch)) {
+    // Disabling always_use_initial_delay allows no backoffs until
+    // num_errors_to_ignore failures have occurred.
+    policy.num_errors_to_ignore = 2;
+    policy.always_use_initial_delay = false;
+  }
+  return policy;
 }
 
 DataReductionProxyConfigServiceClient::DataReductionProxyConfigServiceClient(
@@ -154,7 +161,8 @@ DataReductionProxyConfigServiceClient::DataReductionProxyConfigServiceClient(
       io_data_(io_data),
       network_connection_tracker_(network_connection_tracker),
       config_storer_(config_storer),
-      backoff_entry_(&backoff_policy),
+      backoff_policy_(backoff_policy),
+      backoff_entry_(&backoff_policy_),
       config_service_url_(util::AddApiKeyToUrl(params::GetConfigServiceURL())),
       enabled_(false),
       remote_config_applied_(false),
@@ -170,6 +178,7 @@ DataReductionProxyConfigServiceClient::DataReductionProxyConfigServiceClient(
   DCHECK(config);
   DCHECK(io_data);
   DCHECK(config_service_url_.is_valid());
+  DCHECK(!params::IsIncludedInHoldbackFieldTrial());
 
   const base::CommandLine& command_line =
       *base::CommandLine::ForCurrentProcess();
@@ -194,7 +203,10 @@ DataReductionProxyConfigServiceClient::CalculateNextConfigRefreshTime(
 
 #if defined(OS_ANDROID)
   foreground_fetch_pending_ = false;
-  if (!fetch_succeeded && IsApplicationStateBackground()) {
+  if (!fetch_succeeded &&
+      !base::FeatureList::IsEnabled(
+          features::kDataReductionProxyAggressiveConfigFetch) &&
+      IsApplicationStateBackground()) {
     // If Chromium is in background, then fetch the config when Chromium comes
     // to foreground or after max of |kMaxBackgroundFetchIntervalSeconds| and
     // |backoff_delay|.
@@ -259,11 +271,6 @@ void DataReductionProxyConfigServiceClient::RetrieveConfig() {
     return;
   }
 
-  // Strip off query string parameters
-  GURL::Replacements replacements;
-  replacements.ClearQuery();
-  GURL base_config_service_url =
-      config_service_url_.ReplaceComponents(replacements);
   config_fetch_start_time_ = base::TimeTicks::Now();
 
   RetrieveRemoteConfig();
@@ -408,6 +415,8 @@ void DataReductionProxyConfigServiceClient::OnURLLoadComplete(
 
 void DataReductionProxyConfigServiceClient::RetrieveRemoteConfig() {
   DCHECK(thread_checker_.CalledOnValidThread());
+  DCHECK(!params::IsIncludedInHoldbackFieldTrial());
+
   CreateClientConfigRequest request;
   std::string serialized_request;
 #if defined(OS_ANDROID)
@@ -464,11 +473,10 @@ void DataReductionProxyConfigServiceClient::RetrieveRemoteConfig() {
   auto resource_request = std::make_unique<network::ResourceRequest>();
   resource_request->url = config_service_url_;
   resource_request->method = "POST";
-  resource_request->load_flags = net::LOAD_BYPASS_PROXY |
-                                 net::LOAD_DO_NOT_SEND_COOKIES |
-                                 net::LOAD_DO_NOT_SAVE_COOKIES;
+  resource_request->load_flags = net::LOAD_BYPASS_PROXY;
+  resource_request->allow_credentials = false;
   // Attach variations headers.
-  url_loader_ = variations::CreateSimpleURLLoaderWithVariationsHeaders(
+  url_loader_ = variations::CreateSimpleURLLoaderWithVariationsHeader(
       std::move(resource_request), variations::InIncognito::kNo,
       variations::SignedIn::kNo, traffic_annotation);
 
@@ -534,6 +542,23 @@ void DataReductionProxyConfigServiceClient::HandleResponse(
     std::string encoded_config;
     base::Base64Encode(config_data, &encoded_config);
     config_storer_.Run(encoded_config);
+
+    // Record timing metrics on successful requests only.
+    const network::ResourceResponseHead* info = url_loader_->ResponseInfo();
+    base::TimeDelta http_request_rtt =
+        info->response_start - info->request_start;
+    UMA_HISTOGRAM_TIMES("DataReductionProxy.ConfigService.HttpRequestRTT",
+                        http_request_rtt);
+
+    if (info->load_timing.connect_timing.connect_end > base::TimeTicks() &&
+        info->load_timing.connect_timing.connect_start > base::TimeTicks()) {
+      base::TimeDelta connection_setup =
+          info->load_timing.connect_timing.connect_end -
+          info->load_timing.connect_timing.connect_start;
+      UMA_HISTOGRAM_TIMES(
+          "DataReductionProxy.ConfigService.ConnectionSetupTime",
+          connection_setup);
+    }
   } else {
     ++failed_attempts_before_success_;
   }

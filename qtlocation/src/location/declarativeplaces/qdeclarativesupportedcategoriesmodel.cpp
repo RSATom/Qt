@@ -631,24 +631,24 @@ QStringList QDeclarativeSupportedCategoriesModel::populateCategories(QPlaceManag
     Q_ASSERT(manager);
 
     QStringList childIds;
-    PlaceCategoryNode *node;
 
-    QMap<QString, QPlaceCategory> sortedCategories;
-    foreach ( const QPlaceCategory &category, manager->childCategories(parent.categoryId()))
-        sortedCategories.insert(category.name(), category);
+    const auto byName = [](const QPlaceCategory &lhs, const QPlaceCategory &rhs) {
+        return lhs.name() < rhs.name();
+    };
 
-    QMapIterator<QString, QPlaceCategory> iter(sortedCategories);
-    while (iter.hasNext()) {
-        iter.next();
-        node = new PlaceCategoryNode;
+    auto categories = manager->childCategories(parent.categoryId());
+    std::sort(categories.begin(), categories.end(), byName);
+
+    for (const auto &category : qAsConst(categories)) {
+        auto node = new PlaceCategoryNode;
         node->parentId = parent.categoryId();
-        node->declCategory = QSharedPointer<QDeclarativeCategory>(new QDeclarativeCategory(iter.value(), m_plugin ,this));
+        node->declCategory = QSharedPointer<QDeclarativeCategory>(new QDeclarativeCategory(category, m_plugin ,this));
 
         if (m_hierarchical)
-            node->childIds = populateCategories(manager, iter.value());
+            node->childIds = populateCategories(manager, category);
 
         m_categoriesTree.insert(node->declCategory->categoryId(), node);
-        childIds.append(iter.value().categoryId());
+        childIds.append(category.categoryId());
 
         if (!m_hierarchical) {
             childIds.append(populateCategories(manager,node->declCategory->category()));

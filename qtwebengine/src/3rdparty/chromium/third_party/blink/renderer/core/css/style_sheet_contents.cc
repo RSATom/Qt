@@ -29,11 +29,11 @@
 #include "third_party/blink/renderer/core/css/style_rule_namespace.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/dom/node.h"
-#include "third_party/blink/renderer/core/frame/use_counter.h"
 #include "third_party/blink/renderer/core/inspector/inspector_trace_events.h"
 #include "third_party/blink/renderer/core/loader/resource/css_style_sheet_resource.h"
-#include "third_party/blink/renderer/platform/histogram.h"
+#include "third_party/blink/renderer/platform/heap/heap.h"
 #include "third_party/blink/renderer/platform/instrumentation/tracing/trace_event.h"
+#include "third_party/blink/renderer/platform/instrumentation/use_counter.h"
 #include "third_party/blink/renderer/platform/weborigin/security_origin.h"
 
 namespace blink {
@@ -66,9 +66,9 @@ unsigned StyleSheetContents::EstimatedSizeInBytes() const {
   return size;
 }
 
-StyleSheetContents::StyleSheetContents(StyleRuleImport* owner_rule,
+StyleSheetContents::StyleSheetContents(const CSSParserContext* context,
                                        const String& original_url,
-                                       const CSSParserContext* context)
+                                       StyleRuleImport* owner_rule)
     : owner_rule_(owner_rule),
       original_url_(original_url),
       default_namespace_(g_star_atom),
@@ -159,10 +159,9 @@ bool StyleSheetContents::IsCacheableForStyleElement() const {
 }
 
 void StyleSheetContents::ParserAppendRule(StyleRuleBase* rule) {
-  if (rule->IsImportRule()) {
+  if (auto* import_rule = DynamicTo<StyleRuleImport>(rule)) {
     // Parser enforces that @import rules come before anything else
     DCHECK(child_rules_.IsEmpty());
-    StyleRuleImport* import_rule = ToStyleRuleImport(rule);
     if (import_rule->MediaQueries())
       SetHasMediaQueries();
     import_rules_.push_back(import_rule);
@@ -171,13 +170,12 @@ void StyleSheetContents::ParserAppendRule(StyleRuleBase* rule) {
     return;
   }
 
-  if (rule->IsNamespaceRule()) {
+  if (auto* namespace_rule = DynamicTo<StyleRuleNamespace>(rule)) {
     // Parser enforces that @namespace rules come before all rules other than
     // import/charset rules
     DCHECK(child_rules_.IsEmpty());
-    StyleRuleNamespace& namespace_rule = ToStyleRuleNamespace(*rule);
-    ParserAddNamespace(namespace_rule.Prefix(), namespace_rule.Uri());
-    namespace_rules_.push_back(&namespace_rule);
+    ParserAddNamespace(namespace_rule->Prefix(), namespace_rule->Uri());
+    namespace_rules_.push_back(namespace_rule);
     return;
   }
 
@@ -228,10 +226,10 @@ bool StyleSheetContents::WrapperInsertRule(StyleRuleBase* rule,
   if (index < import_rules_.size() ||
       (index == import_rules_.size() && rule->IsImportRule())) {
     // Inserting non-import rule before @import is not allowed.
-    if (!rule->IsImportRule())
+    auto* import_rule = DynamicTo<StyleRuleImport>(rule);
+    if (!import_rule)
       return false;
 
-    StyleRuleImport* import_rule = ToStyleRuleImport(rule);
     if (import_rule->MediaQueries())
       SetHasMediaQueries();
 
@@ -252,14 +250,14 @@ bool StyleSheetContents::WrapperInsertRule(StyleRuleBase* rule,
       (index == namespace_rules_.size() && rule->IsNamespaceRule())) {
     // Inserting non-namespace rules other than import rule before @namespace is
     // not allowed.
-    if (!rule->IsNamespaceRule())
+    auto* namespace_rule = DynamicTo<StyleRuleNamespace>(rule);
+    if (!namespace_rule)
       return false;
     // Inserting @namespace rule when rules other than import/namespace/charset
     // are present is not allowed.
     if (!child_rules_.IsEmpty())
       return false;
 
-    StyleRuleNamespace* namespace_rule = ToStyleRuleNamespace(rule);
     namespace_rules_.insert(index, namespace_rule);
     // For now to be compatible with IE and Firefox if namespace rule with same
     // prefix is added irrespective of adding the rule at any index, last added
@@ -287,8 +285,6 @@ bool StyleSheetContents::WrapperDeleteRule(unsigned index) {
 
   if (index < import_rules_.size()) {
     import_rules_[index]->ClearParentStyleSheet();
-    if (import_rules_[index]->IsFontFaceRule())
-      NotifyRemoveFontFaceRule(ToStyleRuleFontFace(import_rules_[index].Get()));
     import_rules_.EraseAt(index);
     return true;
   }
@@ -303,7 +299,7 @@ bool StyleSheetContents::WrapperDeleteRule(unsigned index) {
   index -= namespace_rules_.size();
 
   if (child_rules_[index]->IsFontFaceRule())
-    NotifyRemoveFontFaceRule(ToStyleRuleFontFace(child_rules_[index].Get()));
+    NotifyRemoveFontFaceRule(To<StyleRuleFontFace>(child_rules_[index].Get()));
   child_rules_.EraseAt(index);
   return true;
 }
@@ -332,7 +328,6 @@ void StyleSheetContents::ParseAuthorStyleSheet(
   TRACE_EVENT1(
       "blink,devtools.timeline", "ParseAuthorStyleSheet", "data",
       inspector_parse_author_style_sheet_event::Data(cached_style_sheet));
-  TimeTicks start_time = CurrentTimeTicks();
 
   const ResourceResponse& response = cached_style_sheet->GetResponse();
   CSSStyleSheetResource::MIMETypeCheck mime_type_check =
@@ -349,15 +344,10 @@ void StyleSheetContents::ParseAuthorStyleSheet(
     source_map_url_ = response.HttpHeaderField(http_names::kXSourceMap);
   }
 
-  const CSSParserContext* context =
-      CSSParserContext::CreateWithStyleSheetContents(ParserContext(), this);
+  const auto* context =
+      MakeGarbageCollected<CSSParserContext>(ParserContext(), this);
   CSSParser::ParseSheet(context, this, sheet_text,
                         CSSDeferPropertyParsing::kYes);
-
-  DEFINE_STATIC_LOCAL(CustomCountHistogram, parse_histogram,
-                      ("Style.AuthorStyleSheet.ParseTime", 0, 10000000, 50));
-  TimeDelta parse_duration = (CurrentTimeTicks() - start_time);
-  parse_histogram.CountMicroseconds(parse_duration);
 }
 
 ParseSheetResult StyleSheetContents::ParseString(const String& sheet_text,
@@ -370,8 +360,8 @@ ParseSheetResult StyleSheetContents::ParseStringAtPosition(
     const String& sheet_text,
     const TextPosition& start_position,
     bool allow_import_rules) {
-  const CSSParserContext* context =
-      CSSParserContext::CreateWithStyleSheetContents(ParserContext(), this);
+  const auto* context =
+      MakeGarbageCollected<CSSParserContext>(ParserContext(), this);
   return CSSParser::ParseSheet(context, this, sheet_text,
                                CSSDeferPropertyParsing::kNo,
                                allow_import_rules);
@@ -500,18 +490,18 @@ static bool ChildRulesHaveFailedOrCanceledSubresources(
     const StyleRuleBase* rule = rules[i].Get();
     switch (rule->GetType()) {
       case StyleRuleBase::kStyle:
-        if (ToStyleRule(rule)->PropertiesHaveFailedOrCanceledSubresources())
+        if (To<StyleRule>(rule)->PropertiesHaveFailedOrCanceledSubresources())
           return true;
         break;
       case StyleRuleBase::kFontFace:
-        if (ToStyleRuleFontFace(rule)
+        if (To<StyleRuleFontFace>(rule)
                 ->Properties()
                 .HasFailedOrCanceledSubresources())
           return true;
         break;
       case StyleRuleBase::kMedia:
         if (ChildRulesHaveFailedOrCanceledSubresources(
-                ToStyleRuleMedia(rule)->ChildRules()))
+                To<StyleRuleMedia>(rule)->ChildRules()))
           return true;
         break;
       case StyleRuleBase::kCharset:
@@ -520,6 +510,7 @@ static bool ChildRulesHaveFailedOrCanceledSubresources(
         NOTREACHED();
         break;
       case StyleRuleBase::kPage:
+      case StyleRuleBase::kProperty:
       case StyleRuleBase::kKeyframes:
       case StyleRuleBase::kKeyframe:
       case StyleRuleBase::kSupports:
@@ -612,7 +603,7 @@ void StyleSheetContents::ClearReferencedFromResource() {
 RuleSet& StyleSheetContents::EnsureRuleSet(const MediaQueryEvaluator& medium,
                                            AddRuleFlags add_rule_flags) {
   if (!rule_set_) {
-    rule_set_ = RuleSet::Create();
+    rule_set_ = MakeGarbageCollected<RuleSet>();
     rule_set_->AddRulesFromSheet(this, medium, add_rule_flags);
   }
   return *rule_set_.Get();
@@ -663,10 +654,9 @@ static void FindFontFaceRulesFromRules(
   for (unsigned i = 0; i < rules.size(); ++i) {
     StyleRuleBase* rule = rules[i].Get();
 
-    if (rule->IsFontFaceRule()) {
-      font_face_rules.push_back(ToStyleRuleFontFace(rule));
-    } else if (rule->IsMediaRule()) {
-      StyleRuleMedia* media_rule = ToStyleRuleMedia(rule);
+    if (auto* font_face_rule = DynamicTo<StyleRuleFontFace>(rule)) {
+      font_face_rules.push_back(font_face_rule);
+    } else if (auto* media_rule = DynamicTo<StyleRuleMedia>(rule)) {
       // We cannot know whether the media rule matches or not, but
       // for safety, remove @font-face in the media rule (if exists).
       FindFontFaceRulesFromRules(media_rule->ChildRules(), font_face_rules);

@@ -7,11 +7,11 @@
 
 #include "base/optional.h"
 #include "third_party/blink/renderer/core/core_export.h"
+#include "third_party/blink/renderer/core/layout/geometry/logical_size.h"
+#include "third_party/blink/renderer/core/layout/geometry/physical_size.h"
 #include "third_party/blink/renderer/core/layout/ng/exclusions/ng_exclusion_space.h"
 #include "third_party/blink/renderer/core/layout/ng/geometry/ng_bfc_offset.h"
-#include "third_party/blink/renderer/core/layout/ng/geometry/ng_logical_size.h"
 #include "third_party/blink/renderer/core/layout/ng/geometry/ng_margin_strut.h"
-#include "third_party/blink/renderer/core/layout/ng/geometry/ng_physical_size.h"
 #include "third_party/blink/renderer/core/layout/ng/inline/ng_baseline.h"
 #include "third_party/blink/renderer/core/layout/ng/ng_floats_utils.h"
 #include "third_party/blink/renderer/platform/text/text_direction.h"
@@ -21,7 +21,7 @@
 
 namespace blink {
 
-class LayoutBox;
+class LayoutBlock;
 class NGConstraintSpaceBuilder;
 
 enum NGFragmentationType {
@@ -31,13 +31,26 @@ enum NGFragmentationType {
   kFragmentRegion
 };
 
+// "adjoining" objects (either floats or inline-level OOF-positioned nodes) are
+// used to indicate that a particular node might need a relayout once its BFC
+// block-offset is resvoled. E.g. their position depends on the final BFC
+// block-offset being known.
+enum NGAdjoiningObjectTypeValue {
+  kAdjoiningNone = 0b000,
+  kAdjoiningFloatLeft = 0b001,
+  kAdjoiningFloatRight = 0b010,
+  kAdjoiningFloatBoth = 0b011,
+  kAdjoiningInlineOutOfFlow = 0b100
+};
+typedef int NGAdjoiningObjectTypes;
+
 // Tables have two passes, a "measure" phase (for determining the table row
 // height), and a "layout" phase.
 // See: https://drafts.csswg.org/css-tables-3/#row-layout
 //
 // This enum is used for communicating to *direct* children of table cells,
 // which layout phase the table cell is in.
-enum NGTableCellChildLayoutPhase {
+enum class NGTableCellChildLayoutPhase {
   kNotTableCellChild,  // The node isn't a table cell child.
   kMeasure,  // The node is a table cell child, in the "measure" phase.
   kLayout    // The node is a table cell child, in the "layout" phase.
@@ -60,20 +73,16 @@ class CORE_EXPORT NGConstraintSpace final {
  public:
   enum ConstraintSpaceFlags {
     kOrthogonalWritingModeRoot = 1 << 0,
-    kFixedSizeInline = 1 << 1,
-    kFixedSizeBlock = 1 << 2,
-    kFixedSizeBlockIsDefinite = 1 << 3,
-    kShrinkToFit = 1 << 4,
-    kIntermediateLayout = 1 << 5,
-    kSeparateLeadingFragmentainerMargins = 1 << 6,
-    kNewFormattingContext = 1 << 7,
-    kAnonymous = 1 << 8,
-    kUseFirstLineStyle = 1 << 9,
-    kForceClearance = 1 << 10,
-    kHasRareData = 1 << 11,
+    kFixedSizeBlockIsDefinite = 1 << 1,
+    kIntermediateLayout = 1 << 2,
+    kSeparateLeadingFragmentainerMargins = 1 << 3,
+    kNewFormattingContext = 1 << 4,
+    kAnonymous = 1 << 5,
+    kUseFirstLineStyle = 1 << 6,
+    kAncestorHasClearancePastAdjoiningFloats = 1 << 7,
 
     // Size of bitfield used to store the flags.
-    kNumberOfConstraintSpaceFlags = 12
+    kNumberOfConstraintSpaceFlags = 8
   };
 
   // To ensure that the bfc_offset_, rare_data_ union doesn't get polluted,
@@ -136,7 +145,7 @@ class CORE_EXPORT NGConstraintSpace final {
   // Creates NGConstraintSpace representing LayoutObject's containing block.
   // This should live on NGBlockNode or another layout bridge and probably take
   // a root NGConstraintSpace.
-  static NGConstraintSpace CreateFromLayoutObject(const LayoutBox&);
+  static NGConstraintSpace CreateFromLayoutObject(const LayoutBlock&);
 
   const NGExclusionSpace& ExclusionSpace() const { return exclusion_space_; }
 
@@ -154,7 +163,7 @@ class CORE_EXPORT NGConstraintSpace final {
 
   // The available space size.
   // See: https://drafts.csswg.org/css-sizing/#available
-  NGLogicalSize AvailableSize() const { return available_size_; }
+  LogicalSize AvailableSize() const { return available_size_; }
 
   // The size to use for percentage resolution.
   // See: https://drafts.csswg.org/css-sizing/#percentage-sizing
@@ -169,7 +178,7 @@ class CORE_EXPORT NGConstraintSpace final {
       case kZero:
         return LayoutUnit();
       case kIndefinite:
-        return NGSizeIndefinite;
+        return kIndefiniteSize;
       case kRareDataPercentage:
         DCHECK(HasRareData());
         return rare_data_->percentage_resolution_size.inline_size;
@@ -187,34 +196,19 @@ class CORE_EXPORT NGConstraintSpace final {
       case kZero:
         return LayoutUnit();
       case kIndefinite:
-        return NGSizeIndefinite;
+        return kIndefiniteSize;
       case kRareDataPercentage:
         DCHECK(HasRareData());
         return rare_data_->percentage_resolution_size.block_size;
     }
   }
 
-  NGLogicalSize PercentageResolutionSize() const {
+  LogicalSize PercentageResolutionSize() const {
     return {PercentageResolutionInlineSize(), PercentageResolutionBlockSize()};
   }
 
   LayoutUnit ReplacedPercentageResolutionInlineSize() const {
-    switch (static_cast<NGPercentageStorage>(
-        bitfields_.replaced_percentage_inline_storage)) {
-      case kSameAsAvailable:
-        return available_size_.inline_size;
-      case kZero:
-        return LayoutUnit();
-      case kIndefinite:
-        return NGSizeIndefinite;
-      case kRareDataPercentage:
-        DCHECK(HasRareData());
-        return rare_data_->replaced_percentage_resolution_size.inline_size;
-      default:
-        NOTREACHED();
-    }
-
-    return available_size_.inline_size;
+    return PercentageResolutionInlineSize();
   }
 
   LayoutUnit ReplacedPercentageResolutionBlockSize() const {
@@ -225,10 +219,10 @@ class CORE_EXPORT NGConstraintSpace final {
       case kZero:
         return LayoutUnit();
       case kIndefinite:
-        return NGSizeIndefinite;
+        return kIndefiniteSize;
       case kRareDataPercentage:
         DCHECK(HasRareData());
-        return rare_data_->replaced_percentage_resolution_size.block_size;
+        return rare_data_->replaced_percentage_resolution_block_size;
       default:
         NOTREACHED();
     }
@@ -237,7 +231,7 @@ class CORE_EXPORT NGConstraintSpace final {
   }
 
   // The size to use for percentage resolution of replaced elements.
-  NGLogicalSize ReplacedPercentageResolutionSize() const {
+  LogicalSize ReplacedPercentageResolutionSize() const {
     return {ReplacedPercentageResolutionInlineSize(),
             ReplacedPercentageResolutionBlockSize()};
   }
@@ -248,7 +242,7 @@ class CORE_EXPORT NGConstraintSpace final {
   LayoutUnit PercentageResolutionInlineSizeForParentWritingMode() const {
     if (!IsOrthogonalWritingModeRoot())
       return PercentageResolutionInlineSize();
-    if (PercentageResolutionBlockSize() != NGSizeIndefinite)
+    if (PercentageResolutionBlockSize() != kIndefiniteSize)
       return PercentageResolutionBlockSize();
     // TODO(mstensho): Figure out why we get here. It seems wrong, but we do get
     // here in some grid layout situations.
@@ -257,7 +251,7 @@ class CORE_EXPORT NGConstraintSpace final {
 
   LayoutUnit FragmentainerBlockSize() const {
     return HasRareData() ? rare_data_->fragmentainer_block_size
-                         : NGSizeIndefinite;
+                         : kIndefiniteSize;
   }
 
   // Return the block space that was available in the current fragmentainer at
@@ -267,7 +261,7 @@ class CORE_EXPORT NGConstraintSpace final {
   LayoutUnit FragmentainerSpaceAtBfcStart() const {
     DCHECK(HasBlockFragmentation());
     return HasRareData() ? rare_data_->fragmentainer_space_at_bfc_start
-                         : NGSizeIndefinite;
+                         : kIndefiniteSize;
   }
 
   // Whether the current constraint space is for the newly established
@@ -295,6 +289,16 @@ class CORE_EXPORT NGConstraintSpace final {
   // Also note this is true only when the document has ':first-line' rules.
   bool UseFirstLineStyle() const { return HasFlag(kUseFirstLineStyle); }
 
+  // Returns true if an ancestor had clearance past adjoining floats.
+  //
+  // Typically this can be detected by seeing if a |ForcedBfcBlockOffset| is
+  // set. However new formatting contexts may require additional passes (if
+  // margins are adjoining or not), and without this extra bit of information
+  // can get into a bad state.
+  bool AncestorHasClearancePastAdjoiningFloats() const {
+    return HasFlag(kAncestorHasClearancePastAdjoiningFloats);
+  }
+
   // Some layout modes “stretch” their children to a fixed size (e.g. flex,
   // grid). These flags represented whether a layout needs to produce a
   // fragment that satisfies a fixed constraint in the inline and block
@@ -302,9 +306,9 @@ class CORE_EXPORT NGConstraintSpace final {
   //
   // If these flags are true, the AvailableSize() is interpreted as the fixed
   // border-box size of this box in the respective dimension.
-  bool IsFixedSizeInline() const { return HasFlag(kFixedSizeInline); }
+  bool IsFixedSizeInline() const { return bitfields_.is_fixed_size_inline; }
 
-  bool IsFixedSizeBlock() const { return HasFlag(kFixedSizeBlock); }
+  bool IsFixedSizeBlock() const { return bitfields_.is_fixed_size_block; }
 
   // Whether a fixed block size should be considered definite.
   bool FixedSizeBlockIsDefinite() const {
@@ -313,7 +317,7 @@ class CORE_EXPORT NGConstraintSpace final {
 
   // Whether an auto inline-size should be interpreted as shrink-to-fit
   // (ie. fit-content). This is used for inline-block, floats, etc.
-  bool IsShrinkToFit() const { return HasFlag(kShrinkToFit); }
+  bool IsShrinkToFit() const { return bitfields_.is_shrink_to_fit; }
 
   // Whether this constraint space is used for an intermediate layout in a
   // multi-pass layout. In such a case, we should not copy back the resulting
@@ -341,6 +345,10 @@ class CORE_EXPORT NGConstraintSpace final {
         bitfields_.table_cell_child_layout_phase);
   }
 
+  bool IsInRestrictedBlockSizeTableCell() const {
+    return bitfields_.is_in_restricted_block_size_table_cell;
+  }
+
   NGMarginStrut MarginStrut() const {
     return HasRareData() ? rare_data_->margin_strut : NGMarginStrut();
   }
@@ -365,33 +373,63 @@ class CORE_EXPORT NGConstraintSpace final {
     return HasRareData() ? rare_data_->bfc_offset : bfc_offset_;
   }
 
-  // If present, and the current layout hasn't resolved its BFC offset yet (see
-  // BfcOffset), the layout should position all of its unpositioned floats at
-  // this offset. This value is the BFC offset that we calculated in the
-  // previous pass, a pass which aborted once the BFC offset got resolved,
-  // because we had walked past content (i.e. floats) that depended on it being
-  // resolved.
+  // If present, and the current layout hasn't resolved its BFC block-offset
+  // yet (see BfcOffset), the layout should position all of its floats at this
+  // offset.
   //
-  // This value should be propogated to child layouts if the current layout
+  // This value is present if:
+  //   - An ancestor had clearance past adjoining floats. In this case this
+  //     value is calculated ahead of time.
+  //   - A second layout pass is required as there were adjoining-floats
+  //     within the tree, and an arbitrary sibling determined their BFC
+  //     block-offset.
+  //
+  // This value should be propagated to child layouts if the current layout
   // hasn't resolved its BFC offset yet.
-  //
-  // This value is calculated *after* an initial pass of the tree, and should
-  // only be present during subsequent passes.
-  base::Optional<LayoutUnit> FloatsBfcBlockOffset() const {
-    return HasRareData() ? rare_data_->floats_bfc_block_offset : base::nullopt;
+  base::Optional<LayoutUnit> ForcedBfcBlockOffset() const {
+    return HasRareData() ? base::pass_optional(rare_data_->forced_bfc_block_offset) : base::nullopt;
   }
 
-  // Return the types (none, left, right, both) of preceding adjoining
-  // floats. These are floats that are added while the in-flow BFC offset is
-  // still unknown. The floats may or may not be unpositioned (pending). That
-  // depends on which layout pass we're in. They are typically positioned if
-  // FloatsBfcOffset() is known. Adjoining floats should be treated differently
-  // when calculating clearance on a block with adjoining block-start margin.
-  // (in such cases we will know up front that the block will need clearance,
-  // since, if it doesn't, the float will be pulled along with the block, and
-  // the block will fail to clear).
-  NGFloatTypes AdjoiningFloatTypes() const {
-    return bitfields_.adjoining_floats;
+  // If present, this is a hint as to where place any adjoining objects. This
+  // isn't necessarily the final position, just where they ended up in a
+  // previous layout pass.
+  base::Optional<LayoutUnit> OptimisticBfcBlockOffset() const {
+    return HasRareData() ? base::pass_optional(rare_data_->optimistic_bfc_block_offset)
+                         : base::nullopt;
+  }
+
+  // The "expected" BFC block-offset is:
+  //  - The |ForcedBfcBlockOffset| if set.
+  //  - The |OptimisticBfcBlockOffset| if set.
+  //  - Otherwise the |BfcOffset|.
+  //
+  // This represents where any adjoining-objects should be placed (potentially
+  // optimistically)
+  LayoutUnit ExpectedBfcBlockOffset() const {
+    // A short-circuit optimization (must equivalent to below).
+    if (!HasRareData()) {
+      DCHECK(!ForcedBfcBlockOffset());
+      DCHECK(!OptimisticBfcBlockOffset());
+      return bfc_offset_.block_offset;
+    }
+
+    return ForcedBfcBlockOffset().value_or(
+        OptimisticBfcBlockOffset().value_or(BfcOffset().block_offset));
+  }
+
+  // Returns the types of preceding adjoining objects.
+  // See |NGAdjoiningObjectTypes|.
+  //
+  // Adjoining floats are positioned at their correct position if the
+  // |ForcedBfcBlockOffset()| is known.
+  //
+  // Adjoining floats should be treated differently when calculating clearance
+  // on a block with adjoining block-start margin (in such cases we will know
+  // up front that the block will need clearance, since, if it doesn't, the
+  // float will be pulled along with the block, and the block will fail to
+  // clear).
+  NGAdjoiningObjectTypes AdjoiningObjectTypes() const {
+    return bitfields_.adjoining_object_types;
   }
 
   // Return true if there were any earlier floats that may affect the current
@@ -405,28 +443,6 @@ class CORE_EXPORT NGConstraintSpace final {
     return HasRareData() ? rare_data_->clearance_offset : LayoutUnit::Min();
   }
 
-  // Return true if the fragment needs to have clearance applied to it,
-  // regardless of its hypothetical position. The fragment will then go exactly
-  // below the relevant floats. This happens when a cleared child gets separated
-  // from floats that would otherwise be adjoining; example:
-  //
-  // <div id="container">
-  //   <div id="float" style="float:left; width:100px; height:100px;"></div>
-  //   <div id="clearee" style="clear:left; margin-top:12345px;">text</div>
-  // </div>
-  //
-  // Clearance separates #clearee from #container, and #float is positioned at
-  // the block-start content edge of #container. Without clearance, margins
-  // would have been adjoining and the large margin on #clearee would have
-  // pulled both #container and #float along with it. No margin, no matter how
-  // large, would ever be able to pull #clearee below the float then. But we
-  // have clearance, the margins are separated, and in this case we know that we
-  // have clearance even before we have laid out (because of the adjoining
-  // float). So it would just be wrong to check for clearance when we position
-  // #clearee. Nothing can prevent clearance here. A large margin on the cleared
-  // child will be canceled out with negative clearance.
-  bool ShouldForceClearance() const { return HasFlag(kForceClearance); }
-
   const NGBaselineRequestList BaselineRequests() const {
     return NGBaselineRequestList(bitfields_.baseline_requests);
   }
@@ -436,19 +452,26 @@ class CORE_EXPORT NGConstraintSpace final {
   // to verify that any constraint space size (available size, percentage size,
   // and so on) and BFC offset changes won't require re-layout, before skipping.
   bool MaySkipLayout(const NGConstraintSpace& other) const {
-    if (HasRareData() && other.HasRareData()) {
-      if (!rare_data_->MaySkipLayout(*other.rare_data_))
-        return false;
-    } else if (!HasRareData() && !other.HasRareData()) {
-      if (bfc_offset_.line_offset != other.bfc_offset_.line_offset)
-        return false;
-    } else {
-      // We have a bfc_offset_, and a rare_data_ (or vice-versa).
+    if (!bitfields_.MaySkipLayout(other.bitfields_))
       return false;
-    }
 
-    return exclusion_space_ == other.exclusion_space_ &&
-           bitfields_.MaySkipLayout(other.bitfields_);
+    if (!HasRareData() && !other.HasRareData())
+      return true;
+
+    if (HasRareData() && other.HasRareData())
+      return rare_data_->MaySkipLayout(*other.rare_data_);
+
+    if (HasRareData())
+      return rare_data_->IsInitialForMaySkipLayout();
+
+    DCHECK(other.HasRareData());
+    return other.rare_data_->IsInitialForMaySkipLayout();
+  }
+
+  // Returns true if the size constraints (shrink-to-fit, fixed-inline-size)
+  // are equal.
+  bool AreSizeConstraintsEqual(const NGConstraintSpace& other) const {
+    return bitfields_.AreSizeConstraintsEqual(other.bitfields_);
   }
 
   bool AreSizesEqual(const NGConstraintSpace& other) const {
@@ -461,10 +484,6 @@ class CORE_EXPORT NGConstraintSpace final {
 
     if (bitfields_.percentage_block_storage !=
         other.bitfields_.percentage_block_storage)
-      return false;
-
-    if (bitfields_.replaced_percentage_inline_storage !=
-        other.bitfields_.replaced_percentage_inline_storage)
       return false;
 
     if (bitfields_.replaced_percentage_block_storage !=
@@ -488,25 +507,14 @@ class CORE_EXPORT NGConstraintSpace final {
             other.rare_data_->percentage_resolution_size.block_size)
       return false;
 
-    if (bitfields_.replaced_percentage_inline_storage == kRareDataPercentage &&
-        other.bitfields_.replaced_percentage_inline_storage ==
-            kRareDataPercentage &&
-        rare_data_->replaced_percentage_resolution_size.inline_size !=
-            other.rare_data_->replaced_percentage_resolution_size.inline_size)
-      return false;
-
     if (bitfields_.replaced_percentage_block_storage == kRareDataPercentage &&
         other.bitfields_.replaced_percentage_block_storage ==
             kRareDataPercentage &&
-        rare_data_->replaced_percentage_resolution_size.block_size !=
-            other.rare_data_->replaced_percentage_resolution_size.block_size)
+        rare_data_->replaced_percentage_resolution_block_size !=
+            other.rare_data_->replaced_percentage_resolution_block_size)
       return false;
 
     return true;
-  }
-  bool operator==(const NGConstraintSpace&) const;
-  bool operator!=(const NGConstraintSpace& other) const {
-    return !(*this == other);
   }
 
   String ToString() const;
@@ -538,30 +546,38 @@ class CORE_EXPORT NGConstraintSpace final {
     RareData(const RareData&) = default;
     ~RareData() = default;
 
-    NGLogicalSize percentage_resolution_size;
-    NGLogicalSize replaced_percentage_resolution_size;
+    LogicalSize percentage_resolution_size;
+    LayoutUnit replaced_percentage_resolution_block_size;
 
     NGBfcOffset bfc_offset;
     NGMarginStrut margin_strut;
 
-    base::Optional<LayoutUnit> floats_bfc_block_offset;
+    base::Optional<LayoutUnit> optimistic_bfc_block_offset;
+    base::Optional<LayoutUnit> forced_bfc_block_offset;
     LayoutUnit clearance_offset = LayoutUnit::Min();
 
-    LayoutUnit fragmentainer_block_size = NGSizeIndefinite;
-    LayoutUnit fragmentainer_space_at_bfc_start = NGSizeIndefinite;
+    LayoutUnit fragmentainer_block_size = kIndefiniteSize;
+    LayoutUnit fragmentainer_space_at_bfc_start = kIndefiniteSize;
 
     unsigned block_direction_fragmentation_type : 2;
 
     bool MaySkipLayout(const RareData& other) const {
       return margin_strut == other.margin_strut &&
-             bfc_offset.line_offset == other.bfc_offset.line_offset &&
-             floats_bfc_block_offset == other.floats_bfc_block_offset &&
-             clearance_offset == other.clearance_offset &&
+             forced_bfc_block_offset == other.forced_bfc_block_offset &&
              fragmentainer_block_size == other.fragmentainer_block_size &&
              fragmentainer_space_at_bfc_start ==
                  other.fragmentainer_space_at_bfc_start &&
              block_direction_fragmentation_type ==
                  other.block_direction_fragmentation_type;
+    }
+
+    // Must be kept in sync with members checked within |MaySkipLayout|.
+    bool IsInitialForMaySkipLayout() const {
+      return margin_strut == NGMarginStrut() &&
+             forced_bfc_block_offset == base::nullopt &&
+             fragmentainer_block_size == kIndefiniteSize &&
+             fragmentainer_space_at_bfc_start == kIndefiniteSize &&
+             block_direction_fragmentation_type == kFragmentNone;
     }
   };
 
@@ -572,40 +588,57 @@ class CORE_EXPORT NGConstraintSpace final {
     DISALLOW_NEW();
 
    public:
-    // We explicitly define a default constructor to ensure the kHasRareData
-    // bitfield doesn't accidently get set.
     Bitfields() : Bitfields(WritingMode::kHorizontalTb) {}
 
     explicit Bitfields(WritingMode writing_mode)
-        : table_cell_child_layout_phase(
-              static_cast<unsigned>(kNotTableCellChild)),
-          adjoining_floats(static_cast<unsigned>(kFloatTypeNone)),
+        : has_rare_data(false),
+          adjoining_object_types(static_cast<unsigned>(kAdjoiningNone)),
           writing_mode(static_cast<unsigned>(writing_mode)),
           direction(static_cast<unsigned>(TextDirection::kLtr)),
+          is_shrink_to_fit(false),
+          is_fixed_size_inline(false),
+          is_fixed_size_block(false),
+          is_in_restricted_block_size_table_cell(false),
+          table_cell_child_layout_phase(static_cast<unsigned>(
+              NGTableCellChildLayoutPhase::kNotTableCellChild)),
           flags(kFixedSizeBlockIsDefinite),
           percentage_inline_storage(kSameAsAvailable),
           percentage_block_storage(kSameAsAvailable),
-          replaced_percentage_inline_storage(kSameAsAvailable),
           replaced_percentage_block_storage(kSameAsAvailable) {}
 
     bool MaySkipLayout(const Bitfields& other) const {
-      return table_cell_child_layout_phase ==
-                 other.table_cell_child_layout_phase &&
-             adjoining_floats == other.adjoining_floats &&
+      return adjoining_object_types == other.adjoining_object_types &&
              writing_mode == other.writing_mode && flags == other.flags &&
              baseline_requests == other.baseline_requests;
     }
 
-    unsigned table_cell_child_layout_phase : 2;  // NGTableCellChildLayoutPhase
-    unsigned adjoining_floats : 2;               // NGFloatTypes
+    bool AreSizeConstraintsEqual(const Bitfields& other) const {
+      return is_shrink_to_fit == other.is_shrink_to_fit &&
+             is_fixed_size_inline == other.is_fixed_size_inline &&
+             is_fixed_size_block == other.is_fixed_size_block &&
+             is_in_restricted_block_size_table_cell ==
+                 other.is_in_restricted_block_size_table_cell &&
+             table_cell_child_layout_phase ==
+                 other.table_cell_child_layout_phase;
+    }
+
+    unsigned has_rare_data : 1;
+    unsigned adjoining_object_types : 3;  // NGAdjoiningObjectTypes
     unsigned writing_mode : 3;
     unsigned direction : 1;
+
+    // Size constraints.
+    unsigned is_shrink_to_fit : 1;
+    unsigned is_fixed_size_inline : 1;
+    unsigned is_fixed_size_block : 1;
+    unsigned is_in_restricted_block_size_table_cell : 1;
+    unsigned table_cell_child_layout_phase : 2;  // NGTableCellChildLayoutPhase
+
     unsigned flags : kNumberOfConstraintSpaceFlags;  // ConstraintSpaceFlags
     unsigned baseline_requests : NGBaselineRequestList::kSerializedBits;
 
     unsigned percentage_inline_storage : 2;           // NGPercentageStorage
     unsigned percentage_block_storage : 2;            // NGPercentageStorage
-    unsigned replaced_percentage_inline_storage : 2;  // NGPercentageStorage
     unsigned replaced_percentage_block_storage : 2;   // NGPercentageStorage
   };
 
@@ -613,21 +646,21 @@ class CORE_EXPORT NGConstraintSpace final {
     return bitfields_.flags & static_cast<unsigned>(mask);
   }
 
-  inline bool HasRareData() const { return HasFlag(kHasRareData); }
+  inline bool HasRareData() const { return bitfields_.has_rare_data; }
 
   RareData* EnsureRareData() {
     if (!HasRareData()) {
       rare_data_ = new RareData(bfc_offset_);
-      bitfields_.flags |= kHasRareData;
+      bitfields_.has_rare_data = true;
     }
 
     return rare_data_;
   }
 
-  NGLogicalSize available_size_;
+  LogicalSize available_size_;
 
   // To save a little space, we union these two fields. rare_data_ is valid if
-  // the kHasRareData bitfield is set, otherwise bfc_offset_ is valid.
+  // the |has_rare_data| bit is set, otherwise bfc_offset_ is valid.
   union {
     NGBfcOffset bfc_offset_;
     RareData* rare_data_;

@@ -37,6 +37,7 @@
 #include <Qt3DCore/qpropertynodeaddedchange.h>
 #include <Qt3DCore/qpropertynoderemovedchange.h>
 #include <Qt3DCore/private/qnodecreatedchangegenerator_p.h>
+#include <Qt3DCore/private/qnodevisitor_p.h>
 #include <Qt3DCore/qnodecreatedchange.h>
 #include "testpostmanarbiter.h"
 
@@ -464,25 +465,22 @@ private Q_SLOTS:
         {
             // WHEN
             abstractTexture.setFormat(Qt3DRender::QAbstractTexture::RG8_UNorm);
-            QCoreApplication::processEvents();
 
             // THEN
-            QCOMPARE(arbiter.events.size(), 1);
-            auto change = arbiter.events.first().staticCast<Qt3DCore::QPropertyUpdatedChange>();
-            QCOMPARE(change->propertyName(), "format");
-            QCOMPARE(change->value().value<Qt3DRender::QAbstractTexture::TextureFormat>(), abstractTexture.format());
-            QCOMPARE(change->type(), Qt3DCore::PropertyUpdated);
+            QCOMPARE(arbiter.events.size(), 0);
+            QCOMPARE(arbiter.dirtyNodes.size(), 1);
+            QCOMPARE(arbiter.dirtyNodes.front(), &abstractTexture);
 
-            arbiter.events.clear();
+            arbiter.dirtyNodes.clear();
         }
 
         {
             // WHEN
             abstractTexture.setFormat(Qt3DRender::QAbstractTexture::RG8_UNorm);
-            QCoreApplication::processEvents();
 
             // THEN
             QCOMPARE(arbiter.events.size(), 0);
+            QCOMPARE(arbiter.dirtyNodes.size(), 0);
         }
 
     }
@@ -497,25 +495,22 @@ private Q_SLOTS:
         {
             // WHEN
             abstractTexture.setGenerateMipMaps(true);
-            QCoreApplication::processEvents();
 
             // THEN
-            QCOMPARE(arbiter.events.size(), 1);
-            auto change = arbiter.events.first().staticCast<Qt3DCore::QPropertyUpdatedChange>();
-            QCOMPARE(change->propertyName(), "generateMipMaps");
-            QCOMPARE(change->value().value<bool>(), abstractTexture.generateMipMaps());
-            QCOMPARE(change->type(), Qt3DCore::PropertyUpdated);
+            QCOMPARE(arbiter.events.size(), 0);
+            QCOMPARE(arbiter.dirtyNodes.size(), 1);
+            QCOMPARE(arbiter.dirtyNodes.front(), &abstractTexture);
 
-            arbiter.events.clear();
+            arbiter.dirtyNodes.clear();
         }
 
         {
             // WHEN
             abstractTexture.setGenerateMipMaps(true);
-            QCoreApplication::processEvents();
 
             // THEN
             QCOMPARE(arbiter.events.size(), 0);
+            QCOMPARE(arbiter.dirtyNodes.size(), 0);
         }
 
     }
@@ -530,25 +525,22 @@ private Q_SLOTS:
         {
             // WHEN
             abstractTexture.setWidth(1024);
-            QCoreApplication::processEvents();
 
             // THEN
-            QCOMPARE(arbiter.events.size(), 1);
-            auto change = arbiter.events.first().staticCast<Qt3DCore::QPropertyUpdatedChange>();
-            QCOMPARE(change->propertyName(), "width");
-            QCOMPARE(change->value().value<int>(), abstractTexture.width());
-            QCOMPARE(change->type(), Qt3DCore::PropertyUpdated);
+            QCOMPARE(arbiter.events.size(), 0);
+            QCOMPARE(arbiter.dirtyNodes.size(), 1);
+            QCOMPARE(arbiter.dirtyNodes.front(), &abstractTexture);
 
-            arbiter.events.clear();
+            arbiter.dirtyNodes.clear();
         }
 
         {
             // WHEN
             abstractTexture.setWidth(1024);
-            QCoreApplication::processEvents();
 
             // THEN
             QCOMPARE(arbiter.events.size(), 0);
+            QCOMPARE(arbiter.dirtyNodes.size(), 0);
         }
 
     }
@@ -563,25 +555,22 @@ private Q_SLOTS:
         {
             // WHEN
             abstractTexture.setHeight(256);
-            QCoreApplication::processEvents();
 
             // THEN
-            QCOMPARE(arbiter.events.size(), 1);
-            auto change = arbiter.events.first().staticCast<Qt3DCore::QPropertyUpdatedChange>();
-            QCOMPARE(change->propertyName(), "height");
-            QCOMPARE(change->value().value<int>(), abstractTexture.height());
-            QCOMPARE(change->type(), Qt3DCore::PropertyUpdated);
+            QCOMPARE(arbiter.events.size(), 0);
+            QCOMPARE(arbiter.dirtyNodes.size(), 1);
+            QCOMPARE(arbiter.dirtyNodes.front(), &abstractTexture);
 
-            arbiter.events.clear();
+            arbiter.dirtyNodes.clear();
         }
 
         {
             // WHEN
             abstractTexture.setHeight(256);
-            QCoreApplication::processEvents();
 
             // THEN
             QCOMPARE(arbiter.events.size(), 0);
+            QCOMPARE(arbiter.dirtyNodes.size(), 0);
         }
 
     }
@@ -596,25 +585,22 @@ private Q_SLOTS:
         {
             // WHEN
             abstractTexture.setDepth(512);
-            QCoreApplication::processEvents();
 
             // THEN
-            QCOMPARE(arbiter.events.size(), 1);
-            auto change = arbiter.events.first().staticCast<Qt3DCore::QPropertyUpdatedChange>();
-            QCOMPARE(change->propertyName(), "depth");
-            QCOMPARE(change->value().value<int>(), abstractTexture.depth());
-            QCOMPARE(change->type(), Qt3DCore::PropertyUpdated);
+            QCOMPARE(arbiter.events.size(), 0);
+            QCOMPARE(arbiter.dirtyNodes.size(), 1);
+            QCOMPARE(arbiter.dirtyNodes.front(), &abstractTexture);
 
-            arbiter.events.clear();
+            arbiter.dirtyNodes.clear();
         }
 
         {
             // WHEN
             abstractTexture.setDepth(512);
-            QCoreApplication::processEvents();
 
             // THEN
             QCOMPARE(arbiter.events.size(), 0);
+            QCOMPARE(arbiter.dirtyNodes.size(), 0);
         }
 
     }
@@ -629,25 +615,22 @@ private Q_SLOTS:
         {
             // WHEN
             abstractTexture.setMagnificationFilter(Qt3DRender::QAbstractTexture::NearestMipMapLinear);
-            QCoreApplication::processEvents();
 
             // THEN
-            QCOMPARE(arbiter.events.size(), 1);
-            auto change = arbiter.events.first().staticCast<Qt3DCore::QPropertyUpdatedChange>();
-            QCOMPARE(change->propertyName(), "magnificationFilter");
-            QCOMPARE(change->value().value<Qt3DRender::QAbstractTexture::Filter>(), abstractTexture.magnificationFilter());
-            QCOMPARE(change->type(), Qt3DCore::PropertyUpdated);
+            QCOMPARE(arbiter.events.size(), 0);
+            QCOMPARE(arbiter.dirtyNodes.size(), 1);
+            QCOMPARE(arbiter.dirtyNodes.front(), &abstractTexture);
 
-            arbiter.events.clear();
+            arbiter.dirtyNodes.clear();
         }
 
         {
             // WHEN
             abstractTexture.setMagnificationFilter(Qt3DRender::QAbstractTexture::NearestMipMapLinear);
-            QCoreApplication::processEvents();
 
             // THEN
             QCOMPARE(arbiter.events.size(), 0);
+            QCOMPARE(arbiter.dirtyNodes.size(), 0);
         }
 
     }
@@ -662,25 +645,22 @@ private Q_SLOTS:
         {
             // WHEN
             abstractTexture.setMinificationFilter(Qt3DRender::QAbstractTexture::NearestMipMapLinear);
-            QCoreApplication::processEvents();
 
             // THEN
-            QCOMPARE(arbiter.events.size(), 1);
-            auto change = arbiter.events.first().staticCast<Qt3DCore::QPropertyUpdatedChange>();
-            QCOMPARE(change->propertyName(), "minificationFilter");
-            QCOMPARE(change->value().value<Qt3DRender::QAbstractTexture::Filter>(), abstractTexture.minificationFilter());
-            QCOMPARE(change->type(), Qt3DCore::PropertyUpdated);
+            QCOMPARE(arbiter.events.size(), 0);
+            QCOMPARE(arbiter.dirtyNodes.size(), 1);
+            QCOMPARE(arbiter.dirtyNodes.front(), &abstractTexture);
 
-            arbiter.events.clear();
+            arbiter.dirtyNodes.clear();
         }
 
         {
             // WHEN
             abstractTexture.setMinificationFilter(Qt3DRender::QAbstractTexture::NearestMipMapLinear);
-            QCoreApplication::processEvents();
 
             // THEN
             QCOMPARE(arbiter.events.size(), 0);
+            QCOMPARE(arbiter.dirtyNodes.size(), 0);
         }
 
     }
@@ -695,25 +675,22 @@ private Q_SLOTS:
         {
             // WHEN
             abstractTexture.setMaximumAnisotropy(327.0f);
-            QCoreApplication::processEvents();
 
             // THEN
-            QCOMPARE(arbiter.events.size(), 1);
-            auto change = arbiter.events.first().staticCast<Qt3DCore::QPropertyUpdatedChange>();
-            QCOMPARE(change->propertyName(), "maximumAnisotropy");
-            QCOMPARE(change->value().value<float>(), abstractTexture.maximumAnisotropy());
-            QCOMPARE(change->type(), Qt3DCore::PropertyUpdated);
+            QCOMPARE(arbiter.events.size(), 0);
+            QCOMPARE(arbiter.dirtyNodes.size(), 1);
+            QCOMPARE(arbiter.dirtyNodes.front(), &abstractTexture);
 
-            arbiter.events.clear();
+            arbiter.dirtyNodes.clear();
         }
 
         {
             // WHEN
             abstractTexture.setMaximumAnisotropy(327.0f);
-            QCoreApplication::processEvents();
 
             // THEN
             QCOMPARE(arbiter.events.size(), 0);
+            QCOMPARE(arbiter.dirtyNodes.size(), 0);
         }
 
     }
@@ -728,25 +705,22 @@ private Q_SLOTS:
         {
             // WHEN
             abstractTexture.setComparisonFunction(Qt3DRender::QAbstractTexture::CompareAlways);
-            QCoreApplication::processEvents();
 
             // THEN
-            QCOMPARE(arbiter.events.size(), 1);
-            auto change = arbiter.events.first().staticCast<Qt3DCore::QPropertyUpdatedChange>();
-            QCOMPARE(change->propertyName(), "comparisonFunction");
-            QCOMPARE(change->value().value<Qt3DRender::QAbstractTexture::ComparisonFunction>(), abstractTexture.comparisonFunction());
-            QCOMPARE(change->type(), Qt3DCore::PropertyUpdated);
+            QCOMPARE(arbiter.events.size(), 0);
+            QCOMPARE(arbiter.dirtyNodes.size(), 1);
+            QCOMPARE(arbiter.dirtyNodes.front(), &abstractTexture);
 
-            arbiter.events.clear();
+            arbiter.dirtyNodes.clear();
         }
 
         {
             // WHEN
             abstractTexture.setComparisonFunction(Qt3DRender::QAbstractTexture::CompareAlways);
-            QCoreApplication::processEvents();
 
             // THEN
             QCOMPARE(arbiter.events.size(), 0);
+            QCOMPARE(arbiter.dirtyNodes.size(), 0);
         }
 
     }
@@ -761,25 +735,22 @@ private Q_SLOTS:
         {
             // WHEN
             abstractTexture.setComparisonMode(Qt3DRender::QAbstractTexture::CompareRefToTexture);
-            QCoreApplication::processEvents();
 
             // THEN
-            QCOMPARE(arbiter.events.size(), 1);
-            auto change = arbiter.events.first().staticCast<Qt3DCore::QPropertyUpdatedChange>();
-            QCOMPARE(change->propertyName(), "comparisonMode");
-            QCOMPARE(change->value().value<Qt3DRender::QAbstractTexture::ComparisonMode>(), abstractTexture.comparisonMode());
-            QCOMPARE(change->type(), Qt3DCore::PropertyUpdated);
+            QCOMPARE(arbiter.events.size(), 0);
+            QCOMPARE(arbiter.dirtyNodes.size(), 1);
+            QCOMPARE(arbiter.dirtyNodes.front(), &abstractTexture);
 
-            arbiter.events.clear();
+            arbiter.dirtyNodes.clear();
         }
 
         {
             // WHEN
             abstractTexture.setComparisonMode(Qt3DRender::QAbstractTexture::CompareRefToTexture);
-            QCoreApplication::processEvents();
 
             // THEN
             QCOMPARE(arbiter.events.size(), 0);
+            QCOMPARE(arbiter.dirtyNodes.size(), 0);
         }
 
     }
@@ -794,25 +765,22 @@ private Q_SLOTS:
         {
             // WHEN
             abstractTexture.setLayers(64);
-            QCoreApplication::processEvents();
 
             // THEN
-            QCOMPARE(arbiter.events.size(), 1);
-            auto change = arbiter.events.first().staticCast<Qt3DCore::QPropertyUpdatedChange>();
-            QCOMPARE(change->propertyName(), "layers");
-            QCOMPARE(change->value().value<int>(), abstractTexture.layers());
-            QCOMPARE(change->type(), Qt3DCore::PropertyUpdated);
+            QCOMPARE(arbiter.events.size(), 0);
+            QCOMPARE(arbiter.dirtyNodes.size(), 1);
+            QCOMPARE(arbiter.dirtyNodes.front(), &abstractTexture);
 
-            arbiter.events.clear();
+            arbiter.dirtyNodes.clear();
         }
 
         {
             // WHEN
             abstractTexture.setLayers(64);
-            QCoreApplication::processEvents();
 
             // THEN
             QCOMPARE(arbiter.events.size(), 0);
+            QCOMPARE(arbiter.dirtyNodes.size(), 0);
         }
 
     }
@@ -827,25 +795,22 @@ private Q_SLOTS:
         {
             // WHEN
             abstractTexture.setSamples(16);
-            QCoreApplication::processEvents();
 
             // THEN
-            QCOMPARE(arbiter.events.size(), 1);
-            auto change = arbiter.events.first().staticCast<Qt3DCore::QPropertyUpdatedChange>();
-            QCOMPARE(change->propertyName(), "samples");
-            QCOMPARE(change->value().value<int>(), abstractTexture.samples());
-            QCOMPARE(change->type(), Qt3DCore::PropertyUpdated);
+            QCOMPARE(arbiter.events.size(), 0);
+            QCOMPARE(arbiter.dirtyNodes.size(), 1);
+            QCOMPARE(arbiter.dirtyNodes.front(), &abstractTexture);
 
-            arbiter.events.clear();
+            arbiter.dirtyNodes.clear();
         }
 
         {
             // WHEN
             abstractTexture.setSamples(16);
-            QCoreApplication::processEvents();
 
             // THEN
             QCOMPARE(arbiter.events.size(), 0);
+            QCOMPARE(arbiter.dirtyNodes.size(), 0);
         }
 
     }
@@ -864,13 +829,11 @@ private Q_SLOTS:
             QCoreApplication::processEvents();
 
             // THEN
-            QCOMPARE(arbiter.events.size(), 1);
-            auto change = arbiter.events.last().staticCast<Qt3DCore::QPropertyNodeAddedChange>();
-            QCOMPARE(change->type(), Qt3DCore::PropertyValueAdded);
-            QCOMPARE(change->propertyName(), "textureImage");
-            QCOMPARE(change->addedNodeId(), image.id());
+            QCOMPARE(arbiter.events.size(), 0);
+            QCOMPARE(arbiter.dirtyNodes.size(), 1);
+            QCOMPARE(arbiter.dirtyNodes.front(), &abstractTexture);
 
-            arbiter.events.clear();
+            arbiter.dirtyNodes.clear();
         }
     }
 
@@ -889,13 +852,11 @@ private Q_SLOTS:
             QCoreApplication::processEvents();
 
             // THEN
-            QCOMPARE(arbiter.events.size(), 1);
-            auto change = arbiter.events.last().staticCast<Qt3DCore::QPropertyNodeRemovedChange>();
-            QCOMPARE(change->type(), Qt3DCore::PropertyValueRemoved);
-            QCOMPARE(change->propertyName(), "textureImage");
-            QCOMPARE(change->removedNodeId(), image.id());
+            QCOMPARE(arbiter.events.size(), 0);
+            QCOMPARE(arbiter.dirtyNodes.size(), 1);
+            QCOMPARE(arbiter.dirtyNodes.front(), &abstractTexture);
 
-            arbiter.events.clear();
+            arbiter.dirtyNodes.clear();
         }
     }
 
@@ -1128,6 +1089,27 @@ private Q_SLOTS:
             QCOMPARE(spy.count(), 0);
             QCOMPARE(arbiter.events.size(), 0);
             QCOMPARE(abstractTexture.handle(), QVariant(1));
+        }
+    }
+
+    void checkTextureDataUpdate()
+    {
+        {
+            // GIVEN
+            TestArbiter arbiter;
+            FakeTexture abstractTexture;
+            Qt3DRender::QTextureDataUpdate update;
+            arbiter.setArbiterOnNode(&abstractTexture);
+
+            // WHEN
+            abstractTexture.updateData(update);
+            QCoreApplication::processEvents();
+
+            // THEN (arbiter -> should not be stored in the initial changes but only send as a property change)
+            auto d = static_cast<Qt3DRender::QAbstractTexturePrivate*>(Qt3DRender::QAbstractTexturePrivate::get(&abstractTexture));
+            QCOMPARE(d->m_pendingDataUpdates.size(), 1);
+            QCOMPARE(arbiter.dirtyNodes.size(), 1);
+            QCOMPARE(arbiter.dirtyNodes.front(), &abstractTexture);
         }
     }
 

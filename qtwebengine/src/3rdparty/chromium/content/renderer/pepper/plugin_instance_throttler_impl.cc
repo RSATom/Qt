@@ -4,6 +4,7 @@
 
 #include "content/renderer/pepper/plugin_instance_throttler_impl.h"
 
+#include "base/bind.h"
 #include "base/memory/ptr_util.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/time/time.h"
@@ -67,8 +68,7 @@ PluginInstanceThrottlerImpl::PluginInstanceThrottlerImpl(
           base::TimeDelta::FromMilliseconds(
               kAudioThrottledFrameTimeoutMilliseconds),
           this,
-          &PluginInstanceThrottlerImpl::EngageThrottle),
-      weak_factory_(this) {}
+          &PluginInstanceThrottlerImpl::EngageThrottle) {}
 
 PluginInstanceThrottlerImpl::~PluginInstanceThrottlerImpl() {
   for (auto& observer : observer_list_)
@@ -170,8 +170,9 @@ void PluginInstanceThrottlerImpl::Initialize(
     // is disabled.
     frame->RegisterPeripheralPlugin(
         content_origin,
-        base::Bind(&PluginInstanceThrottlerImpl::MarkPluginEssential,
-                   weak_factory_.GetWeakPtr(), UNTHROTTLE_METHOD_BY_WHITELIST));
+        base::BindOnce(&PluginInstanceThrottlerImpl::MarkPluginEssential,
+                       weak_factory_.GetWeakPtr(),
+                       UNTHROTTLE_METHOD_BY_WHITELIST));
   }
 }
 

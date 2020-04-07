@@ -30,6 +30,7 @@
 
 #include "third_party/blink/renderer/core/animation/document_animations.h"
 
+#include "cc/animation/animation_host.h"
 #include "third_party/blink/renderer/core/animation/animation_clock.h"
 #include "third_party/blink/renderer/core/animation/document_timeline.h"
 #include "third_party/blink/renderer/core/animation/pending_animations.h"
@@ -39,7 +40,6 @@
 #include "third_party/blink/renderer/core/dom/node.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/frame/local_frame_view.h"
-#include "third_party/blink/renderer/platform/animation/compositor_animation_host.h"
 
 namespace blink {
 
@@ -70,15 +70,15 @@ void DocumentAnimations::UpdateAnimationTimingIfNeeded(Document& document) {
 void DocumentAnimations::UpdateAnimations(
     Document& document,
     DocumentLifecycle::LifecycleState required_lifecycle_state,
-    const base::Optional<CompositorElementIdSet>& composited_element_ids) {
+    const PaintArtifactCompositor* paint_artifact_compositor) {
   DCHECK(document.Lifecycle().GetState() >= required_lifecycle_state);
 
-  if (document.GetPendingAnimations().Update(composited_element_ids)) {
+  if (document.GetPendingAnimations().Update(paint_artifact_compositor)) {
     DCHECK(document.View());
     document.View()->ScheduleAnimation();
   }
   if (document.View()) {
-    if (CompositorAnimationHost* host =
+    if (cc::AnimationHost* host =
             document.View()->GetCompositorAnimationHost()) {
       wtf_size_t total_animations_count = 0;
       if (document.Timeline().HasAnimations()) {

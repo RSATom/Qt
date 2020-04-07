@@ -12,9 +12,8 @@
 #include <stack>
 #include <utility>
 
+#include "constants/form_fields.h"
 #include "core/fdrm/fx_crypt.h"
-#include "core/fpdfapi/edit/cpdf_encryptor.h"
-#include "core/fpdfapi/edit/cpdf_flateencoder.h"
 #include "core/fpdfapi/parser/cpdf_dictionary.h"
 #include "core/fpdfapi/parser/cpdf_number.h"
 #include "core/fpdfapi/parser/cpdf_object_walker.h"
@@ -29,8 +28,6 @@ namespace {
 
 constexpr char kContentsKey[] = "Contents";
 constexpr char kTypeKey[] = "Type";
-constexpr char kFTKey[] = "FT";
-constexpr char kSignTypeValue[] = "Sig";
 
 }  // namespace
 
@@ -41,8 +38,8 @@ bool CPDF_CryptoHandler::IsSignatureDictionary(
     return false;
   const CPDF_Object* type_obj = dictionary->GetDirectObjectFor(kTypeKey);
   if (!type_obj)
-    type_obj = dictionary->GetDirectObjectFor(kFTKey);
-  return type_obj && type_obj->GetString() == kSignTypeValue;
+    type_obj = dictionary->GetDirectObjectFor(pdfium::form_fields::kFT);
+  return type_obj && type_obj->GetString() == pdfium::form_fields::kSig;
 }
 
 void CPDF_CryptoHandler::CryptBlock(bool bEncrypt,
@@ -266,7 +263,7 @@ ByteString CPDF_CryptoHandler::Decrypt(uint32_t objnum,
                                        const ByteString& str) {
   CFX_BinaryBuf dest_buf;
   void* context = DecryptStart(objnum, gennum);
-  DecryptStream(context, str.AsRawSpan(), dest_buf);
+  DecryptStream(context, str.raw_span(), dest_buf);
   DecryptFinish(context, dest_buf);
   return ByteString(dest_buf.GetBuffer(), dest_buf.GetSize());
 }
@@ -282,10 +279,9 @@ bool CPDF_CryptoHandler::IsCipherAES() const {
   return m_Cipher == FXCIPHER_AES;
 }
 
-std::unique_ptr<CPDF_Object> CPDF_CryptoHandler::DecryptObjectTree(
-    std::unique_ptr<CPDF_Object> object) {
+bool CPDF_CryptoHandler::DecryptObjectTree(RetainPtr<CPDF_Object> object) {
   if (!object)
-    return nullptr;
+    return false;
 
   struct MayBeSignature {
     const CPDF_Dictionary* parent;
@@ -296,7 +292,7 @@ std::unique_ptr<CPDF_Object> CPDF_CryptoHandler::DecryptObjectTree(
   const uint32_t obj_num = object->GetObjNum();
   const uint32_t gen_num = object->GetGenNum();
 
-  CPDF_Object* object_to_decrypt = object.get();
+  CPDF_Object* object_to_decrypt = object.Get();
   while (object_to_decrypt) {
     CPDF_NonConstObjectWalker walker(object_to_decrypt);
     object_to_decrypt = nullptr;
@@ -304,7 +300,8 @@ std::unique_ptr<CPDF_Object> CPDF_CryptoHandler::DecryptObjectTree(
       const CPDF_Dictionary* parent_dict =
           walker.GetParent() ? walker.GetParent()->GetDict() : nullptr;
       if (walker.dictionary_key() == kContentsKey &&
-          (parent_dict->KeyExist(kTypeKey) || parent_dict->KeyExist(kFTKey))) {
+          (parent_dict->KeyExist(kTypeKey) ||
+           parent_dict->KeyExist(pdfium::form_fields::kFT))) {
         // This object may be contents of signature dictionary.
         // But now values of 'Type' and 'FT' of dictionary keys are encrypted,
         // and we can not check this.
@@ -345,7 +342,7 @@ std::unique_ptr<CPDF_Object> CPDF_CryptoHandler::DecryptObjectTree(
         decrypt_result &= DecryptFinish(context, decrypted_buf);
         if (decrypt_result) {
           const uint32_t decrypted_size = decrypted_buf.GetSize();
-          stream->SetData(decrypted_buf.DetachBuffer(), decrypted_size);
+          stream->TakeData(decrypted_buf.DetachBuffer(), decrypted_size);
         } else {
           // Decryption failed, set the stream to empty
           stream->SetData({});
@@ -354,7 +351,7 @@ std::unique_ptr<CPDF_Object> CPDF_CryptoHandler::DecryptObjectTree(
     }
     // Signature dictionaries check.
     while (!may_be_sign_dictionaries.empty()) {
-      auto dict_and_contents = std::move(may_be_sign_dictionaries.top());
+      auto dict_and_contents = may_be_sign_dictionaries.top();
       may_be_sign_dictionaries.pop();
       if (!IsSignatureDictionary(dict_and_contents.parent)) {
         // This is not signature dictionary. Do decrypt its contents.
@@ -363,7 +360,7 @@ std::unique_ptr<CPDF_Object> CPDF_CryptoHandler::DecryptObjectTree(
       }
     }
   }
-  return object;
+  return true;
 }
 
 bool CPDF_CryptoHandler::DecryptStream(void* context,

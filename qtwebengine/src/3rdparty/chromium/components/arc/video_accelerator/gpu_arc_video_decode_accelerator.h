@@ -46,6 +46,12 @@ class GpuArcVideoDecodeAccelerator
                              uint32_t textures_per_buffer,
                              const gfx::Size& dimensions,
                              uint32_t texture_target) override;
+  void ProvidePictureBuffersWithVisibleRect(uint32_t requested_num_of_buffers,
+                                            media::VideoPixelFormat format,
+                                            uint32_t textures_per_buffer,
+                                            const gfx::Size& dimensions,
+                                            const gfx::Rect& visible_rect,
+                                            uint32_t texture_target) override;
   void PictureReady(const media::Picture& picture) override;
   void DismissPictureBuffer(int32_t picture_buffer_id) override;
   void NotifyEndOfBitstreamBuffer(int32_t bitstream_buffer_id) override;
@@ -58,7 +64,8 @@ class GpuArcVideoDecodeAccelerator
                   mojom::VideoDecodeClientPtr client,
                   InitializeCallback callback) override;
   void Decode(mojom::BitstreamBufferPtr bitstream_buffer) override;
-  void AssignPictureBuffers(uint32_t count) override;
+  void AssignPictureBuffersDeprecated(uint32_t count) override;
+  void AssignPictureBuffers(uint32_t count, const gfx::Size& size) override;
   void ImportBufferForPicture(int32_t picture_buffer_id,
                               mojom::HalPixelFormat format,
                               mojo::ScopedHandle handle,
@@ -76,8 +83,6 @@ class GpuArcVideoDecodeAccelerator
                 "The type of PendingCallback must match FlushCallback");
   using PendingRequest =
       base::OnceCallback<void(PendingCallback, media::VideoDecodeAccelerator*)>;
-
-  class ScopedBitstreamBuffer;
 
   // Initialize GpuArcVDA and create VDA. It returns SUCCESS if they are
   // successful. Otherwise, returns an error status.
@@ -100,7 +105,7 @@ class GpuArcVideoDecodeAccelerator
   // Requested VDA methods are executed in these functions.
   void FlushRequest(PendingCallback cb, media::VideoDecodeAccelerator* vda);
   void ResetRequest(PendingCallback cb, media::VideoDecodeAccelerator* vda);
-  void DecodeRequest(ScopedBitstreamBuffer bitstream_buffer,
+  void DecodeRequest(media::BitstreamBuffer bitstream_buffer,
                      PendingCallback cb,
                      media::VideoDecodeAccelerator* vda);
 

@@ -285,11 +285,15 @@ namespace QtPrivate {
     {
     };
 
+    template <typename T>
+    using is_bool = std::is_same<bool, typename std::decay<T>::type>;
+
     template<typename From, typename To>
     struct AreArgumentsNarrowedBase<From, To, typename std::enable_if<sizeof(From) && sizeof(To)>::type>
         : std::integral_constant<bool,
               (std::is_floating_point<From>::value && std::is_integral<To>::value) ||
               (std::is_floating_point<From>::value && std::is_floating_point<To>::value && sizeof(From) > sizeof(To)) ||
+              ((std::is_pointer<From>::value || std::is_member_pointer<From>::value) && QtPrivate::is_bool<To>::value) ||
               ((std::is_integral<From>::value || std::is_enum<From>::value) && std::is_floating_point<To>::value) ||
               (std::is_integral<From>::value && std::is_integral<To>::value
                && (sizeof(From) > sizeof(To)
@@ -386,8 +390,8 @@ namespace QtPrivate {
     public:
         explicit QSlotObjectBase(ImplFn fn) : m_ref(1), m_impl(fn) {}
 
-        inline int ref() Q_DECL_NOTHROW { return m_ref.ref(); }
-        inline void destroyIfLastRef() Q_DECL_NOTHROW
+        inline int ref() noexcept { return m_ref.ref(); }
+        inline void destroyIfLastRef() noexcept
         { if (!m_ref.deref()) m_impl(Destroy, this, nullptr, nullptr, nullptr); }
 
         inline bool compare(void **a) { bool ret = false; m_impl(Compare, this, nullptr, a, &ret); return ret; }

@@ -67,7 +67,7 @@ class QDESIGNER_SHARED_EXPORT LanguageResourceDialog : public QDialog
 {
     Q_OBJECT
 
-    explicit LanguageResourceDialog(QDesignerResourceBrowserInterface *rb, QWidget *parent = 0);
+    explicit LanguageResourceDialog(QDesignerResourceBrowserInterface *rb, QWidget *parent = nullptr);
 
 public:
     ~LanguageResourceDialog() override;
@@ -80,7 +80,7 @@ public:
 private:
     QScopedPointer<class LanguageResourceDialogPrivate> d_ptr;
     Q_DECLARE_PRIVATE(LanguageResourceDialog)
-    Q_DISABLE_COPY(LanguageResourceDialog)
+    Q_DISABLE_COPY_MOVE(LanguageResourceDialog)
     Q_PRIVATE_SLOT(d_func(), void slotAccepted())
     Q_PRIVATE_SLOT(d_func(), void slotPathChanged(QString))
 
@@ -90,7 +90,7 @@ class QDESIGNER_SHARED_EXPORT IconSelector: public QWidget
 {
     Q_OBJECT
 public:
-    IconSelector(QWidget *parent = 0);
+    IconSelector(QWidget *parent = nullptr);
     ~IconSelector() override;
 
     void setFormEditor(QDesignerFormEditorInterface *core); // required for dialog gui.
@@ -102,7 +102,7 @@ public:
 
     // Check whether a pixmap may be read
     enum CheckMode { CheckFast, CheckFully };
-    static bool checkPixmap(const QString &fileName, CheckMode cm = CheckFully, QString *errorMessage = 0);
+    static bool checkPixmap(const QString &fileName, CheckMode cm = CheckFully, QString *errorMessage = nullptr);
     // Choose a pixmap from file
     static QString choosePixmapFile(const QString &directory, QDesignerDialogGuiInterface *dlgGui, QWidget *parent);
     // Choose a pixmap from resource; use language-dependent resource browser if present
@@ -113,7 +113,7 @@ signals:
 private:
     QScopedPointer<class IconSelectorPrivate> d_ptr;
     Q_DECLARE_PRIVATE(IconSelector)
-    Q_DISABLE_COPY(IconSelector)
+    Q_DISABLE_COPY_MOVE(IconSelector)
 
     Q_PRIVATE_SLOT(d_func(), void slotStateActivated())
     Q_PRIVATE_SLOT(d_func(), void slotSetActivated())
@@ -130,7 +130,7 @@ class QDESIGNER_SHARED_EXPORT IconThemeEditor : public QWidget
     Q_OBJECT
     Q_PROPERTY(QString theme READ theme WRITE setTheme DESIGNABLE true)
 public:
-    explicit IconThemeEditor(QWidget *parent = 0, bool wantResetButton = true);
+    explicit IconThemeEditor(QWidget *parent = nullptr, bool wantResetButton = true);
     ~IconThemeEditor() override;
 
     QString theme() const;

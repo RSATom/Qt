@@ -6,11 +6,14 @@
 
 #include "third_party/blink/renderer/bindings/core/v8/idl_types.h"
 #include "third_party/blink/renderer/bindings/core/v8/native_value_traits_impl.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_no_argument_constructor.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_object_parser.h"
 #include "third_party/blink/renderer/bindings/core/v8/worker_or_worklet_script_controller.h"
+#include "third_party/blink/renderer/bindings/modules/v8/v8_paint_callback.h"
 #include "third_party/blink/renderer/bindings/modules/v8/v8_paint_rendering_context_2d_settings.h"
 #include "third_party/blink/renderer/core/css/css_property_names.h"
 #include "third_party/blink/renderer/core/css/css_syntax_descriptor.h"
+#include "third_party/blink/renderer/core/css/css_syntax_string_parser.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/frame/local_dom_window.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
@@ -23,14 +26,17 @@
 #include "third_party/blink/renderer/modules/csspaint/css_paint_worklet.h"
 #include "third_party/blink/renderer/modules/csspaint/paint_worklet.h"
 #include "third_party/blink/renderer/modules/csspaint/paint_worklet_proxy_client.h"
+#include "third_party/blink/renderer/platform/bindings/callback_method_retriever.h"
 #include "third_party/blink/renderer/platform/bindings/v8_binding_macros.h"
+#include "third_party/blink/renderer/platform/runtime_enabled_features.h"
+#include "third_party/blink/renderer/platform/wtf/wtf.h"
 
 namespace blink {
 
 namespace {
 
 bool ParseInputArguments(v8::Local<v8::Context> context,
-                         v8::Local<v8::Function> constructor,
+                         v8::Local<v8::Object> constructor,
                          Vector<CSSSyntaxDescriptor>* input_argument_types,
                          ExceptionState* exception_state) {
   v8::Isolate* isolate = context->GetIsolate();
@@ -53,12 +59,13 @@ bool ParseInputArguments(v8::Local<v8::Context> context,
         return false;
 
       for (const auto& type : argument_types) {
-        CSSSyntaxDescriptor syntax_descriptor(type);
-        if (!syntax_descriptor.IsValid()) {
+        base::Optional<CSSSyntaxDescriptor> syntax_descriptor =
+            CSSSyntaxStringParser(type).Parse();
+        if (!syntax_descriptor) {
           exception_state->ThrowTypeError("Invalid argument types.");
           return false;
         }
-        input_argument_types->push_back(std::move(syntax_descriptor));
+        input_argument_types->push_back(std::move(*syntax_descriptor));
       }
     }
   }
@@ -67,7 +74,7 @@ bool ParseInputArguments(v8::Local<v8::Context> context,
 
 PaintRenderingContext2DSettings* ParsePaintRenderingContext2DSettings(
     v8::Local<v8::Context> context,
-    v8::Local<v8::Function> constructor,
+    v8::Local<v8::Object> constructor,
     ExceptionState* exception_state) {
   v8::Isolate* isolate = context->GetIsolate();
   v8::TryCatch block(isolate);
@@ -92,17 +99,10 @@ PaintRenderingContext2DSettings* ParsePaintRenderingContext2DSettings(
 PaintWorkletGlobalScope* PaintWorkletGlobalScope::Create(
     LocalFrame* frame,
     std::unique_ptr<GlobalScopeCreationParams> creation_params,
-    WorkerReportingProxy& reporting_proxy,
-    PaintWorkletPendingGeneratorRegistry* pending_generator_registry,
-    size_t global_scope_number) {
-  DCHECK(!RuntimeEnabledFeatures::OffMainThreadCSSPaintEnabled());
+    WorkerReportingProxy& reporting_proxy) {
   auto* global_scope = MakeGarbageCollected<PaintWorkletGlobalScope>(
-      frame, std::move(creation_params), reporting_proxy,
-      pending_generator_registry);
-  String context_name("PaintWorklet #");
-  context_name.append(String::Number(global_scope_number));
-  global_scope->ScriptController()->InitializeContextIfNeeded(context_name,
-                                                              NullURL());
+      frame, std::move(creation_params), reporting_proxy);
+  global_scope->ScriptController()->Initialize(NullURL());
   MainThreadDebugger::Instance()->ContextCreated(
       global_scope->ScriptController()->GetScriptState(),
       global_scope->GetFrame(), global_scope->DocumentSecurityOrigin());
@@ -121,10 +121,8 @@ PaintWorkletGlobalScope* PaintWorkletGlobalScope::Create(
 PaintWorkletGlobalScope::PaintWorkletGlobalScope(
     LocalFrame* frame,
     std::unique_ptr<GlobalScopeCreationParams> creation_params,
-    WorkerReportingProxy& reporting_proxy,
-    PaintWorkletPendingGeneratorRegistry* pending_generator_registry)
-    : WorkletGlobalScope(std::move(creation_params), reporting_proxy, frame),
-      pending_generator_registry_(pending_generator_registry) {}
+    WorkerReportingProxy& reporting_proxy)
+    : WorkletGlobalScope(std::move(creation_params), reporting_proxy, frame) {}
 
 PaintWorkletGlobalScope::PaintWorkletGlobalScope(
     std::unique_ptr<GlobalScopeCreationParams> creation_params,
@@ -137,22 +135,22 @@ PaintWorkletGlobalScope::~PaintWorkletGlobalScope() = default;
 
 void PaintWorkletGlobalScope::Dispose() {
   DCHECK(IsContextThread());
-  if (RuntimeEnabledFeatures::OffMainThreadCSSPaintEnabled()) {
+  if (!WTF::IsMainThread()) {
     if (PaintWorkletProxyClient* proxy_client =
             PaintWorkletProxyClient::From(Clients()))
       proxy_client->Dispose();
   } else {
     MainThreadDebugger::Instance()->ContextWillBeDestroyed(
         ScriptController()->GetScriptState());
-    pending_generator_registry_ = nullptr;
   }
   WorkletGlobalScope::Dispose();
 }
 
-void PaintWorkletGlobalScope::registerPaint(
-    const String& name,
-    const ScriptValue& constructor_value,
-    ExceptionState& exception_state) {
+void PaintWorkletGlobalScope::registerPaint(const String& name,
+                                            V8NoArgumentConstructor* paint_ctor,
+                                            ExceptionState& exception_state) {
+  // https://drafts.css-houdini.org/css-paint-api/#dom-paintworkletglobalscope-registerpaint
+
   RegisterWithProxyClientIfNeeded();
 
   if (name.IsEmpty()) {
@@ -162,22 +160,26 @@ void PaintWorkletGlobalScope::registerPaint(
 
   if (paint_definitions_.Contains(name)) {
     exception_state.ThrowDOMException(
-        DOMExceptionCode::kNotSupportedError,
+        DOMExceptionCode::kInvalidModificationError,
         "A class with name:'" + name + "' is already registered.");
+    return;
+  }
+
+  if (!paint_ctor->IsConstructor()) {
+    exception_state.ThrowTypeError(
+        "The provided callback is not a constructor.");
     return;
   }
 
   v8::Local<v8::Context> context = ScriptController()->GetContext();
 
-  DCHECK(constructor_value.V8Value()->IsFunction());
-  v8::Local<v8::Function> constructor =
-      v8::Local<v8::Function>::Cast(constructor_value.V8Value());
+  v8::Local<v8::Object> v8_paint_ctor = paint_ctor->CallbackObject();
 
   Vector<CSSPropertyID> native_invalidation_properties;
   Vector<AtomicString> custom_invalidation_properties;
 
   if (!V8ObjectParser::ParseCSSPropertyList(
-          context, constructor, "inputProperties",
+          context, v8_paint_ctor, "inputProperties",
           &native_invalidation_properties, &custom_invalidation_properties,
           &exception_state))
     return;
@@ -185,64 +187,43 @@ void PaintWorkletGlobalScope::registerPaint(
   // Get input argument types. Parse the argument type values only when
   // cssPaintAPIArguments is enabled.
   Vector<CSSSyntaxDescriptor> input_argument_types;
-  if (!ParseInputArguments(context, constructor, &input_argument_types,
+  if (!ParseInputArguments(context, v8_paint_ctor, &input_argument_types,
                            &exception_state))
     return;
 
   PaintRenderingContext2DSettings* context_settings =
-      ParsePaintRenderingContext2DSettings(context, constructor,
+      ParsePaintRenderingContext2DSettings(context, v8_paint_ctor,
                                            &exception_state);
   if (!context_settings)
     return;
 
-  v8::Local<v8::Object> prototype;
-  if (!V8ObjectParser::ParsePrototype(context, constructor, &prototype,
-                                      &exception_state))
+  CallbackMethodRetriever retriever(paint_ctor);
+
+  retriever.GetPrototypeObject(exception_state);
+  if (exception_state.HadException())
     return;
 
-  v8::Local<v8::Function> paint;
-  if (!V8ObjectParser::ParseFunction(context, prototype, "paint", &paint,
-                                     &exception_state))
+  v8::Local<v8::Function> v8_paint =
+      retriever.GetMethodOrThrow("paint", exception_state);
+  if (exception_state.HadException())
     return;
+  V8PaintCallback* paint = V8PaintCallback::Create(v8_paint);
 
-  CSSPaintDefinition* definition = CSSPaintDefinition::Create(
-      ScriptController()->GetScriptState(), constructor, paint,
+  auto* definition = MakeGarbageCollected<CSSPaintDefinition>(
+      ScriptController()->GetScriptState(), paint_ctor, paint,
       native_invalidation_properties, custom_invalidation_properties,
       input_argument_types, context_settings);
   paint_definitions_.Set(name, definition);
 
-  // TODO(xidachen): the following steps should be done with a postTask when
-  // we move PaintWorklet off main thread.
-  if (!RuntimeEnabledFeatures::OffMainThreadCSSPaintEnabled()) {
+  if (!WTF::IsMainThread()) {
+    PaintWorkletProxyClient* proxy_client =
+        PaintWorkletProxyClient::From(Clients());
+    proxy_client->RegisterCSSPaintDefinition(name, definition, exception_state);
+  } else {
     PaintWorklet* paint_worklet =
         PaintWorklet::From(*GetFrame()->GetDocument()->domWindow());
-    PaintWorklet::DocumentDefinitionMap& document_definition_map =
-        paint_worklet->GetDocumentDefinitionMap();
-    if (document_definition_map.Contains(name)) {
-      DocumentPaintDefinition* existing_document_definition =
-          document_definition_map.at(name);
-      if (existing_document_definition == kInvalidDocumentPaintDefinition)
-        return;
-      if (!existing_document_definition->RegisterAdditionalPaintDefinition(
-              *definition)) {
-        document_definition_map.Set(name, kInvalidDocumentPaintDefinition);
-        exception_state.ThrowDOMException(
-            DOMExceptionCode::kNotSupportedError,
-            "A class with name:'" + name +
-                "' was registered with a different definition.");
-        return;
-      }
-      // Notify the generator ready only when register paint is called the
-      // second time with the same |name| (i.e. there is already a document
-      // definition associated with |name|
-      if (existing_document_definition->GetRegisteredDefinitionCount() ==
-          PaintWorklet::kNumGlobalScopes)
-        pending_generator_registry_->NotifyGeneratorReady(name);
-    } else {
-      DocumentPaintDefinition* document_definition =
-          MakeGarbageCollected<DocumentPaintDefinition>(definition);
-      document_definition_map.Set(name, document_definition);
-    }
+    paint_worklet->RegisterCSSPaintDefinition(name, definition,
+                                              exception_state);
   }
 }
 
@@ -254,24 +235,21 @@ CSSPaintDefinition* PaintWorkletGlobalScope::FindDefinition(
 double PaintWorkletGlobalScope::devicePixelRatio() const {
   // TODO(smcgruer): Implement |devicePixelRatio| for worklet-thread bound
   // PaintWorkletGlobalScope.
-  return RuntimeEnabledFeatures::OffMainThreadCSSPaintEnabled()
-             ? 1.0
-             : GetFrame()->DevicePixelRatio();
+  return WTF::IsMainThread() ? GetFrame()->DevicePixelRatio() : 1.0;
 }
 
 void PaintWorkletGlobalScope::Trace(blink::Visitor* visitor) {
   visitor->Trace(paint_definitions_);
-  visitor->Trace(pending_generator_registry_);
   WorkletGlobalScope::Trace(visitor);
 }
 
 void PaintWorkletGlobalScope::RegisterWithProxyClientIfNeeded() {
-  if (registered_ || !RuntimeEnabledFeatures::OffMainThreadCSSPaintEnabled())
+  if (registered_ || WTF::IsMainThread())
     return;
 
   if (PaintWorkletProxyClient* proxy_client =
           PaintWorkletProxyClient::From(Clients())) {
-    proxy_client->SetGlobalScope(this);
+    proxy_client->AddGlobalScope(this);
     registered_ = true;
   }
 }

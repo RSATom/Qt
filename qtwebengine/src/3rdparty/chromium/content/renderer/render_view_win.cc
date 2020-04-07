@@ -3,8 +3,8 @@
 // found in the LICENSE file.
 
 #include "content/child/webthemeengine_impl_default.h"
-#include "content/public/common/renderer_preferences.h"
 #include "content/renderer/render_view_impl.h"
+#include "third_party/blink/public/mojom/renderer_preferences.mojom.h"
 #include "third_party/blink/public/web/win/web_font_rendering.h"
 #include "third_party/skia/include/core/SkFontLCDConfig.h"
 #include "ui/gfx/font_render_params.h"
@@ -14,7 +14,7 @@ using blink::WebFontRendering;
 namespace content {
 
 void RenderViewImpl::UpdateFontRenderingFromRendererPrefs() {
-  const RendererPreferences& prefs = renderer_preferences_;
+  const blink::mojom::RendererPreferences& prefs = renderer_preferences_;
 
   // Cache the system font metrics in blink.
   blink::WebFontRendering::SetMenuFontMetrics(
@@ -42,7 +42,7 @@ void RenderViewImpl::UpdateFontRenderingFromRendererPrefs() {
 }
 
 void RenderViewImpl::UpdateThemePrefs() {
-  WebThemeEngineImpl::cacheScrollBarMetrics(
+  WebThemeEngineDefault::cacheScrollBarMetrics(
       renderer_preferences_.vertical_scroll_bar_width_in_dips,
       renderer_preferences_.horizontal_scroll_bar_height_in_dips,
       renderer_preferences_.arrow_bitmap_height_vertical_scroll_bar_in_dips,

@@ -8,6 +8,7 @@
 #include <utility>
 
 #include "base/bind.h"
+#include "base/bind_helpers.h"
 #include "base/command_line.h"
 #include "base/feature_list.h"
 #include "base/lazy_instance.h"
@@ -57,7 +58,8 @@ class URLLoaderFactoryGetter::URLLoaderFactoryForIOThread
       bool is_corb_enabled)
       : factory_getter_(std::move(factory_getter)),
         is_corb_enabled_(is_corb_enabled) {
-    DCHECK_CURRENTLY_ON(BrowserThread::IO);
+    DCHECK(!BrowserThread::IsThreadInitialized(BrowserThread::IO) ||
+           BrowserThread::CurrentlyOn(BrowserThread::IO));
   }
 
   explicit URLLoaderFactoryForIOThread(
@@ -166,7 +168,8 @@ URLLoaderFactoryGetter::GetNetworkFactory() {
 
 scoped_refptr<network::SharedURLLoaderFactory>
 URLLoaderFactoryGetter::GetNetworkFactoryWithCORBEnabled() {
-  DCHECK_CURRENTLY_ON(BrowserThread::IO);
+  DCHECK(!BrowserThread::IsThreadInitialized(BrowserThread::IO) ||
+         BrowserThread::CurrentlyOn(BrowserThread::IO));
   return base::MakeRefCounted<URLLoaderFactoryForIOThread>(
       base::WrapRefCounted(this), true);
 }

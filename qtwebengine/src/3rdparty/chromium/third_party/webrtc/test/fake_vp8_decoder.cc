@@ -13,12 +13,12 @@
 #include <stddef.h>
 
 #include "absl/types/optional.h"
+#include "api/scoped_refptr.h"
 #include "api/video/i420_buffer.h"
 #include "api/video/video_frame.h"
 #include "api/video/video_frame_buffer.h"
 #include "api/video/video_rotation.h"
 #include "modules/video_coding/include/video_error_codes.h"
-#include "rtc_base/scoped_ref_ptr.h"
 #include "rtc_base/time_utils.h"
 
 namespace webrtc {
@@ -46,7 +46,6 @@ int32_t FakeVp8Decoder::InitDecode(const VideoCodec* config,
 
 int32_t FakeVp8Decoder::Decode(const EncodedImage& input,
                                bool missing_frames,
-                               const CodecSpecificInfo* codec_specific_info,
                                int64_t render_time_ms) {
   constexpr size_t kMinPayLoadHeaderLength = 10;
   if (input.size() < kMinPayLoadHeaderLength) {

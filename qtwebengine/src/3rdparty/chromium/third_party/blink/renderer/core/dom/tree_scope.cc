@@ -63,7 +63,8 @@ TreeScope::TreeScope(ContainerNode& root_node, Document& document)
     : root_node_(&root_node),
       document_(&document),
       parent_tree_scope_(&document),
-      id_target_observer_registry_(IdTargetObserverRegistry::Create()) {
+      id_target_observer_registry_(
+          MakeGarbageCollected<IdTargetObserverRegistry>()) {
   DCHECK_NE(root_node, document);
   root_node_->SetTreeScope(this);
 }
@@ -72,7 +73,8 @@ TreeScope::TreeScope(Document& document)
     : root_node_(document),
       document_(&document),
       parent_tree_scope_(nullptr),
-      id_target_observer_registry_(IdTargetObserverRegistry::Create()) {
+      id_target_observer_registry_(
+          MakeGarbageCollected<IdTargetObserverRegistry>()) {
   root_node_->SetTreeScope(this);
 }
 
@@ -82,8 +84,7 @@ void TreeScope::ResetTreeScope() {
   selection_ = nullptr;
 }
 
-bool TreeScope::IsInclusiveOlderSiblingShadowRootOrAncestorTreeScopeOf(
-    const TreeScope& scope) const {
+bool TreeScope::IsInclusiveAncestorTreeScopeOf(const TreeScope& scope) const {
   for (const TreeScope* current = &scope; current;
        current = current->ParentTreeScope()) {
     if (current == this)
@@ -103,7 +104,7 @@ void TreeScope::SetParentTreeScope(TreeScope& new_parent_scope) {
 ScopedStyleResolver& TreeScope::EnsureScopedStyleResolver() {
   CHECK(this);
   if (!scoped_style_resolver_)
-    scoped_style_resolver_ = ScopedStyleResolver::Create(*this);
+    scoped_style_resolver_ = MakeGarbageCollected<ScopedStyleResolver>(*this);
   return *scoped_style_resolver_;
 }
 
@@ -119,7 +120,7 @@ Element* TreeScope::getElementById(const AtomicString& element_id) const {
   Element* element = elements_by_id_->GetElementById(element_id, *this);
   if (element && &RootNode() == &GetDocument() &&
       GetDocument().InDOMNodeRemovedHandler()) {
-    if (NodeChildRemovalTracker::IsBeingRemoved(element))
+    if (NodeChildRemovalTracker::IsBeingRemoved(*element))
       GetDocument().CountDetachingNodeAccessInDOMNodeRemovedHandler();
   }
   return element;
@@ -139,7 +140,7 @@ const HeapVector<Member<Element>>& TreeScope::GetAllElementsById(
 void TreeScope::AddElementById(const AtomicString& element_id,
                                Element& element) {
   if (!elements_by_id_)
-    elements_by_id_ = TreeOrderedMap::Create();
+    elements_by_id_ = MakeGarbageCollected<TreeOrderedMap>();
   elements_by_id_->Add(element_id, element);
   id_target_observer_registry_->NotifyObservers(element_id);
 }
@@ -170,7 +171,7 @@ void TreeScope::AddImageMap(HTMLMapElement& image_map) {
   if (!name)
     return;
   if (!image_maps_by_name_)
-    image_maps_by_name_ = TreeOrderedMap::Create();
+    image_maps_by_name_ = MakeGarbageCollected<TreeOrderedMap>();
   image_maps_by_name_->Add(name, image_map);
 }
 
@@ -208,7 +209,7 @@ static bool PointInFrameContentIfVisible(Document& document,
     return false;
 
   // The VisibleContentRect check below requires that scrollbars are up-to-date.
-  document.UpdateStyleAndLayoutIgnorePendingStylesheets();
+  document.UpdateStyleAndLayout();
 
   auto* scrollable_area = frame_view->LayoutViewport();
   IntRect visible_frame_rect(IntPoint(),
@@ -264,11 +265,11 @@ Element* TreeScope::HitTestPointInternal(Node* node,
   if (node->IsPseudoElement() || node->IsTextNode())
     element = node->ParentOrShadowHostElement();
   else
-    element = ToElement(node);
+    element = To<Element>(node);
   if (!element)
     return nullptr;
   if (type == HitTestPointType::kWebExposed)
-    return Retarget(*element);
+    return &Retarget(*element);
   return element;
 }
 
@@ -283,7 +284,7 @@ static bool ShouldAcceptNonElementNode(const Node& node) {
   // SVG text content elements has no background, and are thus not
   // hit during the background phase of hit-testing. Because of that
   // we need to allow any child (Text) node of these elements.
-  return IsSVGTextContentElement(*parent);
+  return IsA<SVGTextContentElement>(parent);
 }
 
 HeapVector<Member<Element>> TreeScope::ElementsFromHitTestResult(
@@ -301,8 +302,8 @@ HeapVector<Member<Element>> TreeScope::ElementsFromHitTestResult(
     if (node == last_node)
       continue;
 
-    if (node && node->IsElementNode()) {
-      elements.push_back(ToElement(node));
+    if (auto* element = DynamicTo<Element>(node)) {
+      elements.push_back(element);
       last_node = node;
     }
   }
@@ -384,7 +385,7 @@ DOMSelection* TreeScope::GetSelection() const {
   // FIXME: The correct selection in Shadow DOM requires that Position can have
   // a ShadowRoot as a container.  See
   // https://bugs.webkit.org/show_bug.cgi?id=82697
-  selection_ = DOMSelection::Create(this);
+  selection_ = MakeGarbageCollected<DOMSelection>(this);
   return selection_.Get();
 }
 
@@ -425,10 +426,10 @@ void TreeScope::AdoptIfNeeded(Node& node) {
 // This retargets |target| against the root of |this|.
 // The steps are different with the spec for performance reasons,
 // but the results should be the same.
-Element* TreeScope::Retarget(const Element& target) const {
+Element& TreeScope::Retarget(const Element& target) const {
   const TreeScope& target_scope = target.GetTreeScope();
   if (!target_scope.RootNode().IsShadowRoot())
-    return const_cast<Element*>(&target);
+    return const_cast<Element&>(target);
 
   HeapVector<Member<const TreeScope>> target_ancestor_scopes;
   HeapVector<Member<const TreeScope>> context_ancestor_scopes;
@@ -449,10 +450,10 @@ Element* TreeScope::Retarget(const Element& target) const {
   }
 
   if (target_ancestor_riterator == target_ancestor_scopes.rend())
-    return const_cast<Element*>(&target);
+    return const_cast<Element&>(target);
   Node& first_different_scope_root =
       (*target_ancestor_riterator).Get()->RootNode();
-  return &ToShadowRoot(first_different_scope_root).host();
+  return To<ShadowRoot>(first_different_scope_root).host();
 }
 
 Element* TreeScope::AdjustedFocusedElementInternal(
@@ -488,8 +489,8 @@ Element* TreeScope::AdjustedFocusedElement() const {
       // - InsertionPoint
       // - shadow host
       // - Document::focusedElement()
-      // So, it's safe to do toElement().
-      return ToElement(context.Target()->ToNode());
+      // So, it's safe to do To<Element>().
+      return To<Element>(context.Target()->ToNode());
     }
   }
   return nullptr;
@@ -512,7 +513,7 @@ Element* TreeScope::AdjustedElement(const Element& target) const {
   return nullptr;
 }
 
-unsigned short TreeScope::ComparePosition(const TreeScope& other_scope) const {
+uint16_t TreeScope::ComparePosition(const TreeScope& other_scope) const {
   if (other_scope == this)
     return Node::kDocumentPositionEquivalent;
 

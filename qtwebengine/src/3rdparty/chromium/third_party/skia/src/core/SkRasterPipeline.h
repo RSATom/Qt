@@ -8,12 +8,12 @@
 #ifndef SkRasterPipeline_DEFINED
 #define SkRasterPipeline_DEFINED
 
-#include "SkArenaAlloc.h"
-#include "SkColor.h"
-#include "SkImageInfo.h"
-#include "SkNx.h"
-#include "SkTArray.h" // TODO: unused
-#include "SkTypes.h"
+#include "include/core/SkColor.h"
+#include "include/core/SkImageInfo.h"
+#include "include/core/SkTypes.h"
+#include "include/private/SkNx.h"
+#include "include/private/SkTArray.h"
+#include "src/core/SkArenaAlloc.h"
 #include <functional>
 #include <vector>  // TODO: unused
 
@@ -33,28 +33,35 @@
  */
 
 #define SK_RASTER_PIPELINE_STAGES(M)                               \
-    M(callback)                                                    \
+    M(callback) M(interpreter)                                     \
     M(move_src_dst) M(move_dst_src)                                \
-    M(clamp_0) M(clamp_1) M(clamp_a) M(clamp_a_dst) M(clamp_gamut) \
+    M(clamp_0) M(clamp_1) M(clamp_a) M(clamp_gamut)                \
     M(unpremul) M(premul) M(premul_dst)                            \
     M(force_opaque) M(force_opaque_dst)                            \
     M(set_rgb) M(unbounded_set_rgb) M(swap_rb) M(swap_rb_dst)      \
     M(from_srgb) M(to_srgb)                                        \
     M(black_color) M(white_color) M(uniform_color) M(unbounded_uniform_color) \
     M(seed_shader) M(dither)                                       \
-    M(load_a8)   M(load_a8_dst)   M(store_a8)   M(gather_a8)       \
-    M(load_565)  M(load_565_dst)  M(store_565)  M(gather_565)      \
-    M(load_4444) M(load_4444_dst) M(store_4444) M(gather_4444)     \
-    M(load_f16)  M(load_f16_dst)  M(store_f16)  M(gather_f16)      \
-    M(load_f32)  M(load_f32_dst)  M(store_f32)  M(gather_f32)      \
-    M(load_8888) M(load_8888_dst) M(store_8888) M(gather_8888)     \
+    M(load_a8)     M(load_a8_dst)   M(store_a8)    M(gather_a8)    \
+    M(load_565)    M(load_565_dst)  M(store_565)   M(gather_565)   \
+    M(load_4444)   M(load_4444_dst) M(store_4444)  M(gather_4444)  \
+    M(load_f16)    M(load_f16_dst)  M(store_f16)   M(gather_f16)   \
+    M(load_af16)                    M(store_af16)                  \
+    M(load_rgf16)                   M(store_rgf16)                 \
+    M(load_f32)    M(load_f32_dst)  M(store_f32)   M(gather_f32)   \
+    M(load_rgf32)                   M(store_rgf32)                 \
+    M(load_8888)   M(load_8888_dst) M(store_8888)  M(gather_8888)  \
+    M(load_rg88)                    M(store_rg88)                  \
+    M(load_a16)                     M(store_a16)                   \
+    M(load_rg1616)                  M(store_rg1616)                \
+    M(load_16161616)                M(store_16161616)              \
     M(load_1010102) M(load_1010102_dst) M(store_1010102) M(gather_1010102) \
-    M(alpha_to_gray) M(alpha_to_gray_dst) M(luminance_to_alpha)    \
+    M(alpha_to_gray) M(alpha_to_gray_dst) M(bt709_luminance_or_luma_to_alpha)         \
     M(bilerp_clamp_8888)                                           \
     M(store_u16_be)                                                \
-    M(load_rgba) M(store_rgba)                                     \
+    M(load_src) M(store_src) M(load_dst) M(store_dst)              \
     M(scale_u8) M(scale_565) M(scale_1_float)                      \
-    M( lerp_u8) M( lerp_565) M( lerp_1_float)                      \
+    M( lerp_u8) M( lerp_565) M( lerp_1_float) M(lerp_native)       \
     M(dstatop) M(dstin) M(dstout) M(dstover)                       \
     M(srcatop) M(srcin) M(srcout) M(srcover)                       \
     M(clear) M(modulate) M(multiply) M(plus_) M(screen) M(xor_)    \
@@ -65,7 +72,7 @@
     M(matrix_translate) M(matrix_scale_translate)                  \
     M(matrix_2x3) M(matrix_3x3) M(matrix_3x4) M(matrix_4x5) M(matrix_4x3) \
     M(matrix_perspective)                                          \
-    M(parametric) M(gamma)                                         \
+    M(parametric) M(gamma_)                                        \
     M(mirror_x)   M(repeat_x)                                      \
     M(mirror_y)   M(repeat_y)                                      \
     M(decal_x)    M(decal_y)   M(decal_x_and_y)                    \
@@ -93,7 +100,8 @@
     M(byte_tables)                                                 \
     M(rgb_to_hsl) M(hsl_to_rgb)                                    \
     M(gauss_a_to_rgba)                                             \
-    M(emboss)
+    M(emboss)                                                      \
+    M(swizzle)
 
 // The largest number of pixels we handle at a time.
 static const int SkRasterPipeline_kMaxStride = 16;
@@ -142,9 +150,19 @@ struct SkRasterPipeline_CallbackCtx {
     float* read_from = rgba;
 };
 
-// This should line up with the memory layout of SkColorSpaceTransferFn.
-struct SkRasterPipeline_ParametricTransferFunction {
-    float G, A,B,C,D,E,F;
+namespace SkSL {
+struct ByteCode;
+struct ByteCodeFunction;
+}
+
+struct SkRasterPipeline_InterpreterCtx {
+    const SkSL::ByteCode*         byteCode;
+    const SkSL::ByteCodeFunction* fn;
+
+    SkColor4f   paintColor;
+    const void* inputs;
+    int         ninputs;
+    bool        shaderConvention;  // if false, we're a colorfilter
 };
 
 struct SkRasterPipeline_GradientCtx {
@@ -198,6 +216,7 @@ public:
     };
     void append(StockStage, void* = nullptr);
     void append(StockStage stage, const void* ctx) { this->append(stage, const_cast<void*>(ctx)); }
+    void append(StockStage, uintptr_t ctx);
     // For raw functions (i.e. from a JIT).  Don't use this unless you know exactly what fn needs to
     // be. :)
     void append(void* fn, void* ctx);

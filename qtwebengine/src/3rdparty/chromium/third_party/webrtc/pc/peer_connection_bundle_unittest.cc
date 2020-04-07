@@ -83,19 +83,13 @@ class PeerConnectionWrapperForBundleTest : public PeerConnectionWrapper {
     return false;
   }
 
-  rtc::PacketTransportInternal* voice_rtp_transport() {
-    return (voice_channel() ? voice_channel()->rtp_packet_transport()
-                            : nullptr);
-  }
-
-  rtc::PacketTransportInternal* voice_rtcp_transport() {
-    return (voice_channel() ? voice_channel()->rtcp_packet_transport()
-                            : nullptr);
+  RtpTransportInternal* voice_rtp_transport() {
+    return (voice_channel() ? voice_channel()->rtp_transport() : nullptr);
   }
 
   cricket::VoiceChannel* voice_channel() {
     auto transceivers = GetInternalPeerConnection()->GetTransceiversInternal();
-    for (auto transceiver : transceivers) {
+    for (const auto& transceiver : transceivers) {
       if (transceiver->media_type() == cricket::MEDIA_TYPE_AUDIO) {
         return static_cast<cricket::VoiceChannel*>(
             transceiver->internal()->channel());
@@ -104,19 +98,13 @@ class PeerConnectionWrapperForBundleTest : public PeerConnectionWrapper {
     return nullptr;
   }
 
-  rtc::PacketTransportInternal* video_rtp_transport() {
-    return (video_channel() ? video_channel()->rtp_packet_transport()
-                            : nullptr);
-  }
-
-  rtc::PacketTransportInternal* video_rtcp_transport() {
-    return (video_channel() ? video_channel()->rtcp_packet_transport()
-                            : nullptr);
+  RtpTransportInternal* video_rtp_transport() {
+    return (video_channel() ? video_channel()->rtp_transport() : nullptr);
   }
 
   cricket::VideoChannel* video_channel() {
     auto transceivers = GetInternalPeerConnection()->GetTransceiversInternal();
-    for (auto transceiver : transceivers) {
+    for (const auto& transceiver : transceivers) {
       if (transceiver->media_type() == cricket::MEDIA_TYPE_VIDEO) {
         return static_cast<cricket::VideoChannel*>(
             transceiver->internal()->channel());
@@ -282,6 +270,7 @@ SdpContentMutator RemoveRtcpMux() {
 std::vector<int> GetCandidateComponents(
     const std::vector<IceCandidateInterface*> candidates) {
   std::vector<int> components;
+  components.reserve(candidates.size());
   for (auto* candidate : candidates) {
     components.push_back(candidate->candidate().component());
   }
@@ -457,7 +446,7 @@ TEST_P(PeerConnectionBundleMatrixTest,
 // and multiplex audio/video from the start.
 // For all other policies, bundling should only be enabled if negotiated by the
 // answer.
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     PeerConnectionBundleTest,
     PeerConnectionBundleMatrixTest,
     Combine(Values(SdpSemantics::kPlanB, SdpSemantics::kUnifiedPlan),
@@ -551,14 +540,14 @@ TEST_P(PeerConnectionBundleTest, NeverCreateRtcpTransportWithRtcpMuxRequired) {
 
   ASSERT_TRUE(callee->SetRemoteDescription(caller->CreateOfferAndSetAsLocal()));
 
-  EXPECT_FALSE(caller->voice_rtcp_transport());
-  EXPECT_FALSE(caller->video_rtcp_transport());
+  EXPECT_FALSE(caller->voice_rtp_transport()->rtcp_mux_enabled());
+  EXPECT_FALSE(caller->video_rtp_transport()->rtcp_mux_enabled());
 
   ASSERT_TRUE(
       caller->SetRemoteDescription(callee->CreateAnswerAndSetAsLocal()));
 
-  EXPECT_FALSE(caller->voice_rtcp_transport());
-  EXPECT_FALSE(caller->video_rtcp_transport());
+  EXPECT_TRUE(caller->voice_rtp_transport()->rtcp_mux_enabled());
+  EXPECT_TRUE(caller->video_rtp_transport()->rtcp_mux_enabled());
 }
 
 // When negotiating RTCP multiplexing, the PeerConnection makes RTCP transports
@@ -572,14 +561,14 @@ TEST_P(PeerConnectionBundleTest,
 
   ASSERT_TRUE(callee->SetRemoteDescription(caller->CreateOfferAndSetAsLocal()));
 
-  EXPECT_TRUE(caller->voice_rtcp_transport());
-  EXPECT_TRUE(caller->video_rtcp_transport());
+  EXPECT_FALSE(caller->voice_rtp_transport()->rtcp_mux_enabled());
+  EXPECT_FALSE(caller->video_rtp_transport()->rtcp_mux_enabled());
 
   ASSERT_TRUE(
       caller->SetRemoteDescription(callee->CreateAnswerAndSetAsLocal()));
 
-  EXPECT_FALSE(caller->voice_rtcp_transport());
-  EXPECT_FALSE(caller->video_rtcp_transport());
+  EXPECT_TRUE(caller->voice_rtp_transport()->rtcp_mux_enabled());
+  EXPECT_TRUE(caller->video_rtp_transport()->rtcp_mux_enabled());
 }
 
 TEST_P(PeerConnectionBundleTest, FailToSetDescriptionWithBundleAndNoRtcpMux) {
@@ -698,11 +687,13 @@ TEST_P(PeerConnectionBundleTest,
   ASSERT_GE(offer->description()->contents().size(), 2U);
   offer->description()
       ->contents()[0]
-      .description->mutable_streams()[0]
+      .media_description()
+      ->mutable_streams()[0]
       .ssrcs[0] = 1111222;
   offer->description()
       ->contents()[1]
-      .description->mutable_streams()[0]
+      .media_description()
+      ->mutable_streams()[0]
       .ssrcs[0] = 1111222;
   EXPECT_TRUE(
       caller->SetLocalDescription(CloneSessionDescription(offer.get())));
@@ -860,10 +851,10 @@ TEST_P(PeerConnectionBundleTest, RemoveContentFromBundleGroup) {
       callee->SetLocalDescription(CloneSessionDescription(answer.get())));
 }
 
-INSTANTIATE_TEST_CASE_P(PeerConnectionBundleTest,
-                        PeerConnectionBundleTest,
-                        Values(SdpSemantics::kPlanB,
-                               SdpSemantics::kUnifiedPlan));
+INSTANTIATE_TEST_SUITE_P(PeerConnectionBundleTest,
+                         PeerConnectionBundleTest,
+                         Values(SdpSemantics::kPlanB,
+                                SdpSemantics::kUnifiedPlan));
 
 // According to RFC5888, if an endpoint understands the semantics of an
 // "a=group", it MUST return an answer with that group. So, an empty BUNDLE

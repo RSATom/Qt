@@ -31,7 +31,8 @@ UI.XLink = class extends UI.XElement {
     this.style.setProperty('display', 'inline');
     UI.ARIAUtils.markAsLink(this);
     this.tabIndex = 0;
-    this.setAttribute('target', '_blank');
+    this.target = '_blank';
+    this.rel = 'noopener';
 
     /** @type {?string} */
     this._href = null;
@@ -71,11 +72,20 @@ UI.XLink = class extends UI.XElement {
     }
 
     if (attr === 'href') {
-      let href = newValue;
-      if (newValue.trim().toLowerCase().startsWith('javascript:'))
+      // For invalid or non-absolute URLs, `href` should remain `null`.
+      if (!newValue) {
+        newValue = '';
+      }
+      let href = null;
+      let url = null;
+      try {
+        url = new URL(newValue);
+        href = url.toString();
+      } catch (error) {
+      }
+      if (url && url.protocol === 'javascript:') {
         href = null;
-      if (Common.ParsedURL.isRelativeURL(newValue))
-        href = null;
+      }
 
       this._href = href;
       this.title = newValue;

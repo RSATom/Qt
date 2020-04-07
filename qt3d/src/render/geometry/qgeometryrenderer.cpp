@@ -41,9 +41,6 @@
 #include "qgeometryrenderer_p.h"
 
 #include <private/qcomponent_p.h>
-#include <Qt3DCore/qpropertyupdatedchange.h>
-#include <Qt3DCore/qpropertynodeaddedchange.h>
-#include <Qt3DCore/qpropertynoderemovedchange.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -152,7 +149,7 @@ QGeometryRendererPrivate::~QGeometryRendererPrivate()
  */
 
 /*!
-    \qmlproperty int GeometryRenderer::restartIndex
+    \qmlproperty int GeometryRenderer::restartIndexValue
 
     Holds the restart index.
  */
@@ -164,7 +161,7 @@ QGeometryRendererPrivate::~QGeometryRendererPrivate()
  */
 
 /*!
-    \qmlproperty bool GeometryRenderer::primitiveRestart
+    \qmlproperty bool GeometryRenderer::primitiveRestartEnabled
 
     Holds the primitive restart flag.
  */
@@ -218,6 +215,11 @@ QGeometryRenderer::~QGeometryRenderer()
  */
 QGeometryRenderer::QGeometryRenderer(QGeometryRendererPrivate &dd, QNode *parent)
     : QComponent(dd, parent)
+{
+}
+
+// TODO Unused remove in Qt6
+void QGeometryRenderer::sceneChangeEvent(const QSceneChangePtr &)
 {
 }
 
@@ -480,25 +482,7 @@ void QGeometryRenderer::setGeometryFactory(const QGeometryFactoryPtr &factory)
     if (factory && d->m_geometryFactory && *factory == *d->m_geometryFactory)
         return;
     d->m_geometryFactory = factory;
-    if (d->m_changeArbiter != nullptr) {
-        auto change = QPropertyUpdatedChangePtr::create(d->m_id);
-        change->setPropertyName("geometryFactory");
-        change->setValue(QVariant::fromValue(d->m_geometryFactory));
-        d->notifyObservers(change);
-    }
-}
-
-/*!
-    \internal
- */
-void QGeometryRenderer::sceneChangeEvent(const Qt3DCore::QSceneChangePtr &e)
-{
-    auto change = qSharedPointerCast<QStaticPropertyUpdatedChangeBase>(e);
-    if (change->type() == PropertyUpdated && change->propertyName() == QByteArrayLiteral("geometry")) {
-        auto typedChange = qSharedPointerCast<QGeometryChange>(e);
-        auto geometry = std::move(typedChange->data);
-        setGeometry(geometry.release());
-    }
+    d->update();
 }
 
 Qt3DCore::QNodeCreatedChangeBasePtr QGeometryRenderer::createNodeCreationChange() const

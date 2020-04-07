@@ -78,7 +78,6 @@ QAXFACTORY_END()
 int main(int argc, char *argv[])
 {
     QApplication::setAttribute(Qt::AA_EnableHighDpiScaling);
-    QApplication::setColorSpec(QApplication::CustomColor);
     QApplication a(argc,argv);
 
     if (QOpenGLContext::openGLModuleType() != QOpenGLContext::LibGL) {

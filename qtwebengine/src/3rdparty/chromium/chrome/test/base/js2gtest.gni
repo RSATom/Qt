@@ -2,8 +2,8 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+import("//v8/gni/snapshot_toolchain.gni")
 import("//v8/gni/v8.gni")
-import("//v8/snapshot_toolchain.gni")
 
 # Variables:
 #   test_type: One of 'webui', 'unit' or 'extension' indicating what
@@ -19,11 +19,10 @@ import("//v8/snapshot_toolchain.gni")
 #   deps
 #   visibility
 template("js2gtest") {
-  assert(
-      defined(invoker.test_type) &&
-      (invoker.test_type == "webui" || invoker.test_type == "unit" ||
-       invoker.test_type == "extension" || invoker.test_type == "mojo_webui" ||
-       invoker.test_type == "mojo_lite_webui"))
+  assert(defined(invoker.test_type) &&
+         (invoker.test_type == "webui" || invoker.test_type == "unit" ||
+          invoker.test_type == "extension" ||
+          invoker.test_type == "mojo_lite_webui"))
   action_name = target_name + "_action"
   source_set_name = target_name
 
@@ -86,7 +85,7 @@ template("js2gtest") {
     }
     args += [
       "{{source}}",
-      "{{source_root_relative_dir}}/{{source_file_part}}",
+      rebase_path("//", root_build_dir),  # Path to source root.
       gen_source_pattern,
       rebase_path(copied_source_pattern, root_build_dir),
     ]
@@ -117,7 +116,12 @@ template("js2gtest") {
                              "defines",
                              "visibility",
                            ])
-    sources = get_target_outputs(":$action_name")
+    sources = process_file_template(invoker.sources, [ gen_source_pattern ])
+
+    # This empty public header is intentional to remove unnecessary build
+    # dependency.
+    public = []
+
     deps = [
       ":$action_name",
 
@@ -129,6 +133,9 @@ template("js2gtest") {
     ]
     if (defined(invoker.deps)) {
       deps += invoker.deps
+    }
+    if (defined(invoker.gen_include_files)) {
+      data = invoker.gen_include_files
     }
     if (defined(invoker.extra_js_files)) {
       data_deps = [

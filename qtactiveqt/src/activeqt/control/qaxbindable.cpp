@@ -94,10 +94,7 @@ QT_BEGIN_NAMESPACE
 /*!
     Constructs an empty QAxBindable object.
 */
-QAxBindable::QAxBindable()
-:activex(0)
-{
-}
+QAxBindable::QAxBindable() = default;
 
 /*!
     Destroys the QAxBindable object.
@@ -152,7 +149,7 @@ void QAxBindable::propertyChanged(const char *property)
 IUnknown *QAxBindable::clientSite() const
 {
     if (!activex)
-        return 0;
+        return nullptr;
 
     return activex->clientSite();
 }
@@ -167,7 +164,7 @@ IUnknown *QAxBindable::clientSite() const
 */
 QAxAggregated *QAxBindable::createAggregate()
 {
-    return 0;
+    return nullptr;
 }
 
 /*!

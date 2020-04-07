@@ -7,6 +7,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "base/bind.h"
 #include "base/logging.h"
 #include "third_party/blink/public/web/web_view.h"
 
@@ -14,7 +15,7 @@ using blink::WebView;
 
 namespace visitedlink {
 
-VisitedLinkSlave::VisitedLinkSlave() : binding_(this), weak_factory_(this) {}
+VisitedLinkSlave::VisitedLinkSlave() : binding_(this) {}
 
 VisitedLinkSlave::~VisitedLinkSlave() {
   FreeTable();

@@ -7,6 +7,7 @@
 #include <string>
 #include <utility>
 
+#include "base/bind.h"
 #include "base/sequenced_task_runner.h"
 #include "mojo/public/cpp/bindings/strong_binding.h"
 #include "services/device/serial/serial_device_enumerator.h"
@@ -38,15 +39,18 @@ void SerialPortManagerImpl::GetDevices(GetDevicesCallback callback) {
   std::move(callback).Run(enumerator_->GetDevices());
 }
 
-void SerialPortManagerImpl::GetPort(const base::UnguessableToken& token,
-                                    mojom::SerialPortRequest request) {
+void SerialPortManagerImpl::GetPort(
+    const base::UnguessableToken& token,
+    mojom::SerialPortRequest request,
+    mojom::SerialPortConnectionWatcherPtr watcher) {
   if (!enumerator_)
     enumerator_ = SerialDeviceEnumerator::Create();
   base::Optional<base::FilePath> path = enumerator_->GetPathFromToken(token);
   if (path) {
     io_task_runner_->PostTask(
-        FROM_HERE, base::BindOnce(&SerialPortImpl::Create, *path,
-                                  std::move(request), ui_task_runner_));
+        FROM_HERE,
+        base::BindOnce(&SerialPortImpl::Create, *path, std::move(request),
+                       watcher.PassInterface(), ui_task_runner_));
   }
 }
 

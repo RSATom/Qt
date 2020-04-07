@@ -42,6 +42,58 @@ class ExtensionDownloaderDelegate {
     CRX_FETCH_FAILED,
   };
 
+  // Passed as an argument OnExtensionDownloadStageChanged() to detail how
+  // downloading is going on. Typical sequence is: PENDING ->
+  // QUEUED_FOR_MANIFEST -> DOWNLOADING_MANIFEST -> PARSING_MANIFEST ->
+  // MANIFEST_LOADED -> QUEUED_FOR_CRX -> DOWNLOADING_CRX -> FINISHED. Stages
+  // QUEUED_FOR_MANIFEST and QUEUED_FOR_CRX are optional and may be skipped.
+  // Failure on any stage will result in skipping all remained stages, moving to
+  // FINISHED instantly. Special stages DOWNLOADING_MANIFEST_RETRY and
+  // DOWNLOADING_CRX_RETRY are similar to QUEUED_* ones, but signify that
+  // download failed at least once already. So, this may result in sequence like
+  // ... -> MANIFEST_LOADED -> QUEUED_FOR_CRX -> DOWNLOADING_CRX ->
+  // DOWNLOADING_CRX_RETRY -> DOWNLOADING_CRX -> FINISHED.
+  // Note: enum used for UMA. Do NOT reorder or remove entries. Don't forget to
+  // update enums.xml (name: ExtensionInstallationDownloadingStage) when adding
+  // new entries.
+  enum Stage {
+    // Downloader just received extension download request.
+    PENDING = 0,
+
+    // Extension is in manifest loading queue.
+    QUEUED_FOR_MANIFEST = 1,
+
+    // There is an active request to download extension's manifest.
+    DOWNLOADING_MANIFEST = 2,
+
+    // There were one or more unsuccessful tries to download manifest, but we'll
+    // try more.
+    DOWNLOADING_MANIFEST_RETRY = 3,
+
+    // Manifest downloaded and is about to parse.
+    PARSING_MANIFEST = 4,
+
+    // Manifest downloaded and successfully parsed.
+    MANIFEST_LOADED = 5,
+
+    // Extension in CRX loading queue.
+    QUEUED_FOR_CRX = 6,
+
+    // There is an active request to download extension archive.
+    DOWNLOADING_CRX = 7,
+
+    // There were one or more unsuccessful tries to download archive, but we'll
+    // try more.
+    DOWNLOADING_CRX_RETRY = 8,
+
+    // Downloading finished, either successfully or not.
+    FINISHED = 9,
+
+    // Magic constant used by the histogram macros.
+    // Always update it to the max value.
+    kMaxValue = FINISHED,
+  };
+
   // Passed as an argument to the completion callbacks to signal whether
   // the extension update sent a ping.
   struct PingResult {
@@ -72,6 +124,11 @@ class ExtensionDownloaderDelegate {
   // request id is unique. The OnExtensionDownload related callbacks will then
   // be called with all request ids that resulted in that extension being
   // checked.
+
+  // Invoked several times during downloading, |stage| contains current stage
+  // of downloading.
+  virtual void OnExtensionDownloadStageChanged(const std::string& id,
+                                               Stage stage);
 
   // Invoked if the extension couldn't be downloaded. |error| contains the
   // failure reason.

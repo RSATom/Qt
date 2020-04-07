@@ -77,8 +77,7 @@ PepperMediaStreamAudioTrackHost::AudioSink::AudioSink(
       number_of_buffers_(kDefaultNumberOfAudioBuffers),
       bytes_per_second_(0),
       bytes_per_frame_(0),
-      user_buffer_duration_(kDefaultDuration),
-      weak_factory_(this) {}
+      user_buffer_duration_(kDefaultDuration) {}
 
 PepperMediaStreamAudioTrackHost::AudioSink::~AudioSink() {
   DCHECK_EQ(main_task_runner_, base::ThreadTaskRunnerHandle::Get());
@@ -348,7 +347,7 @@ int32_t PepperMediaStreamAudioTrackHost::OnHostMsgConfigure(
 
 void PepperMediaStreamAudioTrackHost::OnClose() {
   if (connected_) {
-    MediaStreamAudioSink::RemoveFromAudioTrack(&audio_sink_, track_);
+    blink::WebMediaStreamAudioSink::RemoveFromAudioTrack(&audio_sink_, track_);
     connected_ = false;
   }
   audio_sink_.SendConfigureReply(PP_ERROR_ABORTED);
@@ -363,13 +362,13 @@ void PepperMediaStreamAudioTrackHost::OnNewBufferEnqueued() {
 void PepperMediaStreamAudioTrackHost::DidConnectPendingHostToResource() {
   if (!connected_) {
     media::AudioParameters format =
-        MediaStreamAudioSink::GetFormatFromAudioTrack(track_);
+        blink::WebMediaStreamAudioSink::GetFormatFromAudioTrack(track_);
     // Although this should only be called on the audio capture thread, that
     // can't happen until the sink is added to the audio track below.
     if (format.IsValid())
       audio_sink_.OnSetFormat(format);
 
-    MediaStreamAudioSink::AddToAudioTrack(&audio_sink_, track_);
+    blink::WebMediaStreamAudioSink::AddToAudioTrack(&audio_sink_, track_);
     connected_ = true;
   }
 }

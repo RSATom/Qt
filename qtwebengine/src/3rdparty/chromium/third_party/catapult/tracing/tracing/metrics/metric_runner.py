@@ -1,18 +1,24 @@
 # Copyright 2016 The Chromium Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
+from __future__ import absolute_import
+from __future__ import division
+from __future__ import print_function
+
 import os
 import sys
 
+import six
+from tracing.mre import file_handle
 from tracing.mre import function_handle
 from tracing.mre import gtest_progress_reporter
-from tracing.mre import map_runner
-from tracing.mre import file_handle
 from tracing.mre import job as job_module
+from tracing.mre import map_runner
+from tracing.mre import map_single_trace
 
 
 try:
-  StringTypes = basestring
+  StringTypes = six.string_types # pylint: disable=invalid-name
 except NameError:
   StringTypes = str
 
@@ -47,6 +53,22 @@ def RunMetric(filename, metrics, extra_import_options=None,
   result = RunMetricOnTraceHandles(
       [trace_handle], metrics, extra_import_options, report_progress)
   return result[canonical_url]
+
+def RunMetricOnSingleTrace(filename, metrics, extra_import_options=None,
+                           canonical_url=None, timeout=None):
+  """A simplified RunMetric() that skips using MapRunner.
+
+  This avoids the complexity of multithreading and progress
+  reporting.
+  """
+  filename_url = 'file://' + filename
+  if canonical_url is None:
+    canonical_url = filename_url
+  trace_handle = file_handle.URLFileHandle(canonical_url, filename_url)
+  job = _GetMetricRunnerHandle(metrics)
+  return map_single_trace.MapSingleTrace(
+      trace_handle, job, extra_import_options=extra_import_options,
+      timeout=timeout)
 
 def RunMetricOnTraceHandles(trace_handles, metrics, extra_import_options=None,
                             report_progress=True):

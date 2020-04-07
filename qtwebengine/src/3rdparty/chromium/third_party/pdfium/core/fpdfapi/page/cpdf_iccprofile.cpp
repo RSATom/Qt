@@ -6,9 +6,8 @@
 
 #include "core/fpdfapi/page/cpdf_iccprofile.h"
 
-#include "core/fpdfapi/cpdf_modulemgr.h"
 #include "core/fpdfapi/parser/cpdf_stream.h"
-#include "core/fxcodec/codec/ccodec_iccmodule.h"
+#include "core/fxcodec/icc/iccmodule.h"
 
 namespace {
 
@@ -27,10 +26,9 @@ CPDF_IccProfile::CPDF_IccProfile(const CPDF_Stream* pStream,
     return;
   }
 
-  auto* pIccModule = CPDF_ModuleMgr::Get()->GetIccModule();
-  m_Transform = pIccModule->CreateTransform_sRGB(span);
+  m_Transform = IccModule::CreateTransformSRGB(span);
   if (m_Transform)
     m_nSrcComponents = m_Transform->components();
 }
 
-CPDF_IccProfile::~CPDF_IccProfile() {}
+CPDF_IccProfile::~CPDF_IccProfile() = default;

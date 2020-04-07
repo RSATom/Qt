@@ -48,9 +48,15 @@
 **
 ****************************************************************************/
 
-#include <QtWidgets>
-
 #include "window.h"
+
+#include <QCheckBox>
+#include <QComboBox>
+#include <QDateTimeEdit>
+#include <QGroupBox>
+#include <QHBoxLayout>
+#include <QLabel>
+#include <QSpinBox>
 
 //! [0]
 Window::Window(QWidget *parent)
@@ -176,7 +182,7 @@ void Window::createDateTimeEdits()
     formatComboBox->addItem("hh:mm ap");
 //! [9] //! [10]
 
-    connect(formatComboBox, QOverload<const QString &>::of(&QComboBox::activated),
+    connect(formatComboBox, &QComboBox::textActivated,
             this, &Window::setFormatString);
 //! [10]
 

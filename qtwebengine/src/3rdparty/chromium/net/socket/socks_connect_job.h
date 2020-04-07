@@ -12,25 +12,22 @@
 #include "base/memory/ref_counted.h"
 #include "base/time/time.h"
 #include "net/base/completion_once_callback.h"
+#include "net/base/host_port_pair.h"
 #include "net/base/net_export.h"
 #include "net/base/request_priority.h"
-#include "net/dns/host_resolver.h"
 #include "net/socket/connect_job.h"
 #include "net/traffic_annotation/network_traffic_annotation.h"
 
 namespace net {
 
-class ClientSocketHandle;
-class HostPortPair;
-class NetLog;
+class SocketTag;
 class StreamSocket;
-class TransportClientSocketPool;
 class TransportSocketParams;
 
 class NET_EXPORT_PRIVATE SOCKSSocketParams
     : public base::RefCounted<SOCKSSocketParams> {
  public:
-  SOCKSSocketParams(const scoped_refptr<TransportSocketParams>& proxy_server,
+  SOCKSSocketParams(scoped_refptr<TransportSocketParams> proxy_server_params,
                     bool socks_v5,
                     const HostPortPair& host_port_pair,
                     const NetworkTrafficAnnotationTag& traffic_annotation);
@@ -38,7 +35,7 @@ class NET_EXPORT_PRIVATE SOCKSSocketParams
   const scoped_refptr<TransportSocketParams>& transport_params() const {
     return transport_params_;
   }
-  const HostResolver::RequestInfo& destination() const { return destination_; }
+  const HostPortPair& destination() const { return destination_; }
   bool is_socks_v5() const { return socks_v5_; }
 
   const NetworkTrafficAnnotationTag traffic_annotation() {
@@ -52,7 +49,7 @@ class NET_EXPORT_PRIVATE SOCKSSocketParams
   // The transport (likely TCP) connection must point toward the proxy server.
   const scoped_refptr<TransportSocketParams> transport_params_;
   // This is the HTTP destination.
-  HostResolver::RequestInfo destination_;
+  const HostPortPair destination_;
   const bool socks_v5_;
 
   NetworkTrafficAnnotationTag traffic_annotation_;
@@ -60,26 +57,25 @@ class NET_EXPORT_PRIVATE SOCKSSocketParams
   DISALLOW_COPY_AND_ASSIGN(SOCKSSocketParams);
 };
 
-// SOCKSConnectJob handles the handshake to a socks server after setting up
-// an underlying transport socket.
-class NET_EXPORT_PRIVATE SOCKSConnectJob : public ConnectJob {
+// SOCKSConnectJob handles establishing a connection to a SOCKS4 or SOCKS5 proxy
+// and then sending a handshake to establish a tunnel.
+class NET_EXPORT_PRIVATE SOCKSConnectJob : public ConnectJob,
+                                           public ConnectJob::Delegate {
  public:
-  SOCKSConnectJob(const std::string& group_name,
-                  RequestPriority priority,
+  SOCKSConnectJob(RequestPriority priority,
                   const SocketTag& socket_tag,
-                  bool respect_limits,
-                  const scoped_refptr<SOCKSSocketParams>& params,
-                  TransportClientSocketPool* transport_pool,
-                  HostResolver* host_resolver,
-                  Delegate* delegate,
-                  NetLog* net_log);
+                  const CommonConnectJobParams* common_connect_job_params,
+                  scoped_refptr<SOCKSSocketParams> socks_params,
+                  ConnectJob::Delegate* delegate,
+                  const NetLogWithSource* net_log);
   ~SOCKSConnectJob() override;
 
   // ConnectJob methods.
   LoadState GetLoadState() const override;
+  bool HasEstablishedConnection() const override;
 
-  // Returns the connection timeout used by SOCKSConnectJobs.
-  static base::TimeDelta ConnectionTimeout();
+  // Returns the handshake timeout used by SOCKSConnectJobs.
+  static base::TimeDelta HandshakeTimeoutForTesting();
 
  private:
   enum State {
@@ -91,6 +87,13 @@ class NET_EXPORT_PRIVATE SOCKSConnectJob : public ConnectJob {
   };
 
   void OnIOComplete(int result);
+
+  // ConnectJob::Delegate methods.
+  void OnConnectJobComplete(int result, ConnectJob* job) override;
+  void OnNeedsProxyAuth(const HttpResponseInfo& response,
+                        HttpAuthController* auth_controller,
+                        base::OnceClosure restart_with_auth_callback,
+                        ConnectJob* job) override;
 
   // Runs the state transition loop.
   int DoLoop(int result);
@@ -108,11 +111,9 @@ class NET_EXPORT_PRIVATE SOCKSConnectJob : public ConnectJob {
   void ChangePriorityInternal(RequestPriority priority) override;
 
   scoped_refptr<SOCKSSocketParams> socks_params_;
-  TransportClientSocketPool* const transport_pool_;
-  HostResolver* const resolver_;
 
   State next_state_;
-  std::unique_ptr<ClientSocketHandle> transport_socket_handle_;
+  std::unique_ptr<ConnectJob> transport_connect_job_;
   std::unique_ptr<StreamSocket> socket_;
 
   DISALLOW_COPY_AND_ASSIGN(SOCKSConnectJob);

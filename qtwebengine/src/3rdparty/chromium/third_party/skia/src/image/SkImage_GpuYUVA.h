@@ -8,10 +8,10 @@
 #ifndef SkImage_GpuYUVA_DEFINED
 #define SkImage_GpuYUVA_DEFINED
 
-#include "GrBackendSurface.h"
-#include "GrContext.h"
-#include "SkCachedData.h"
-#include "SkImage_GpuBase.h"
+#include "include/gpu/GrBackendSurface.h"
+#include "include/gpu/GrContext.h"
+#include "src/core/SkCachedData.h"
+#include "src/image/SkImage_GpuBase.h"
 
 class GrTexture;
 struct SkYUVASizeInfo;
@@ -29,74 +29,35 @@ public:
                     GrSurfaceOrigin, sk_sp<SkColorSpace>);
     ~SkImage_GpuYUVA() override;
 
-    SkImageInfo onImageInfo() const override;
+    GrSemaphoresSubmitted onFlush(GrContext*, const GrFlushInfo&) override;
 
-    GrTextureProxy* peekProxy() const override { return this->asTextureProxyRef().get(); }
-    sk_sp<GrTextureProxy> asTextureProxyRef() const override;
+    // This returns the single backing proxy if the YUV channels have already been flattened but
+    // nullptr if they have not.
+    GrTextureProxy* peekProxy() const override;
+    sk_sp<GrTextureProxy> asTextureProxyRef(GrRecordingContext*) const override;
 
-    virtual bool onIsTextureBacked() const override { return SkToBool(fProxies[0].get()); }
+    virtual bool onIsTextureBacked() const override { return fProxies[0] || fRGBProxy; }
 
-    sk_sp<SkImage> onMakeColorTypeAndColorSpace(SkColorType, sk_sp<SkColorSpace>) const final;
+    sk_sp<SkImage> onMakeColorTypeAndColorSpace(GrRecordingContext*,
+                                                SkColorType, sk_sp<SkColorSpace>) const final;
 
     virtual bool isYUVA() const override { return true; }
-    virtual bool asYUVATextureProxiesRef(sk_sp<GrTextureProxy> proxies[4],
-                                         SkYUVAIndex yuvaIndices[4],
-                                         SkYUVColorSpace* yuvColorSpace) const override {
-        for (int i = 0; i < 4; ++i) {
-            proxies[i] = fProxies[i];
-            yuvaIndices[i] = fYUVAIndices[i];
-        }
-        *yuvColorSpace = fYUVColorSpace;
-        return true;
-    }
 
-    bool setupMipmapsForPlanes() const;
+    bool setupMipmapsForPlanes(GrRecordingContext*) const;
 
     // Returns a ref-ed texture proxy with miplevels
-    sk_sp<GrTextureProxy> asMippedTextureProxyRef() const;
+    sk_sp<GrTextureProxy> asMippedTextureProxyRef(GrRecordingContext*) const;
 
-    SkColorSpace* targetColorSpace() const { return fTargetColorSpace.get(); }
+#if GR_TEST_UTILS
+    bool testingOnly_IsFlattened() const {
+        // We should only have the flattened proxy or the planar proxies at one point in time.
+        SkASSERT(SkToBool(fRGBProxy) != SkToBool(fProxies[0]));
+        return SkToBool(fRGBProxy);
+    }
+#endif
 
     /**
-        Create a new SkImage_GpuYUVA that's very similar to SkImage created by MakeFromYUVATextures.
-        The main difference is that the client doesn't have the backend textures on the gpu yet but
-        they know all the properties of the texture. So instead of passing in GrBackendTextures the
-        client supplies GrBackendFormats and the image size.
-
-        When we actually send the draw calls to the GPU, we will call the textureFulfillProc and
-        the client will return the GrBackendTextures to us. The properties of the GrBackendTextures
-        must match those set during the SkImage creation, and it must have valid backend gpu
-        textures. The gpu textures supplied by the client must stay valid until we call the
-        textureReleaseProc.
-
-        When we are done with the texture returned by the textureFulfillProc we will call the
-        textureReleaseProc passing in the textureContext. This is a signal to the client that they
-        are free to delete the underlying gpu textures. If future draws also use the same promise
-        image we will call the textureFulfillProc again if we've already called the
-        textureReleaseProc. We will always call textureFulfillProc and textureReleaseProc in pairs.
-        In other words we will never call textureFulfillProc or textureReleaseProc multiple times
-        for the same textureContext before calling the other.
-
-        We call the promiseDoneProc when we will no longer call the textureFulfillProc again. We
-        also guarantee that there will be no outstanding textureReleaseProcs that still need to be
-        called when we call the textureDoneProc. Thus when the textureDoneProc gets called the
-        client is able to cleanup all GPU objects and meta data needed for the textureFulfill call.
-
-        @param context             Gpu context
-        @param yuvColorSpace       color range of expected YUV pixels
-        @param yuvaFormats         formats of promised gpu textures for each YUVA plane
-        @param yuvaSizes           width and height of promised gpu textures
-        @param yuvaIndices         mapping from yuv plane index to texture representing that plane
-        @param width               width of promised gpu texture
-        @param height              height of promised gpu texture
-        @param imageOrigin         one of: kBottomLeft_GrSurfaceOrigin, kTopLeft_GrSurfaceOrigin
-        @param imageColorSpace     range of colors; may be nullptr
-        @param textureFulfillProc  function called to get actual gpu texture
-        @param textureReleaseProc  function called when texture can be released
-        @param textureDoneProc     function called when we will no longer call textureFulfillProc
-        @param textureContexts     per-texture state passed to textureFulfillProc,
-                                   textureReleaseProc, and textureDoneProc
-        @return                    created SkImage, or nullptr
+     * This is the implementation of SkDeferredDisplayListRecorder::makeYUVAPromiseTexture.
      */
     static sk_sp<SkImage> MakePromiseYUVATexture(GrContext* context,
                                                  SkYUVColorSpace yuvColorSpace,
@@ -110,7 +71,8 @@ public:
                                                  PromiseImageTextureFulfillProc textureFulfillProc,
                                                  PromiseImageTextureReleaseProc textureReleaseProc,
                                                  PromiseImageTextureDoneProc textureDoneProc,
-                                                 PromiseImageTextureContext textureContexts[]);
+                                                 PromiseImageTextureContext textureContexts[],
+                                                 PromiseImageApiVersion);
 
 private:
     SkImage_GpuYUVA(const SkImage_GpuYUVA* image, sk_sp<SkColorSpace>);
@@ -122,7 +84,10 @@ private:
     SkYUVAIndex                      fYUVAIndices[4];
     const SkYUVColorSpace            fYUVColorSpace;
     GrSurfaceOrigin                  fOrigin;
-    const sk_sp<SkColorSpace>        fTargetColorSpace;
+    // If this is non-null then the planar data should be converted from fFromColorSpace to
+    // this->colorSpace(). Otherwise we assume the planar data (post YUV->RGB conversion) is already
+    // in this->colorSpace().
+    const sk_sp<SkColorSpace> fFromColorSpace;
 
     // Repeated calls to onMakeColorSpace will result in a proliferation of unique IDs and
     // SkImage_GpuYUVA instances. Cache the result of the last successful onMakeColorSpace call.

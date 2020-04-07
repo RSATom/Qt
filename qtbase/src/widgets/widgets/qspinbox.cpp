@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2020 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtWidgets module of the Qt Toolkit.
@@ -128,9 +128,10 @@ public:
     manually. The spin box supports integer values but can be extended to
     use different strings with validate(), textFromValue() and valueFromText().
 
-    Every time the value changes QSpinBox emits two valueChanged() signals,
-    one providing an int and the other a QString. The QString overload
-    provides the value with both prefix() and suffix().
+    Every time the value changes QSpinBox emits valueChanged() and
+    textChanged() signals, the former providing a int and the latter
+    a QString. The textChanged() signal provides the value with both
+    prefix() and suffix().
     The current value can be fetched with value() and set with setValue().
 
     Clicking the up/down buttons or using the keyboard accelerator's
@@ -183,12 +184,23 @@ public:
 */
 
 /*!
+    \fn void QSpinBox::textChanged(const QString &text)
+    \since 5.14
+
+    This signal is emitted whenever the spin box's text is changed.
+    The new text is passed in \a text with prefix() and suffix().
+*/
+
+#if QT_DEPRECATED_SINCE(5, 14)
+/*!
     \fn void QSpinBox::valueChanged(const QString &text)
 
     \overload
+    \obsolete Use textChanged(QString) instead
 
     The new value is passed in \a text with prefix() and suffix().
 */
+#endif
 
 /*!
     Constructs a spin box with 0 as minimum value and 99 as maximum value, a
@@ -372,7 +384,7 @@ void QSpinBox::setMinimum(int minimum)
 {
     Q_D(QSpinBox);
     const QVariant m(minimum);
-    d->setRange(m, (d->variantCompare(d->maximum, m) > 0 ? d->maximum : m));
+    d->setRange(m, (QSpinBoxPrivate::variantCompare(d->maximum, m) > 0 ? d->maximum : m));
 }
 
 /*!
@@ -400,7 +412,7 @@ void QSpinBox::setMaximum(int maximum)
 {
     Q_D(QSpinBox);
     const QVariant m(maximum);
-    d->setRange((d->variantCompare(d->minimum, m) < 0 ? d->minimum : m), m);
+    d->setRange((QSpinBoxPrivate::variantCompare(d->minimum, m) < 0 ? d->minimum : m), m);
 }
 
 /*!
@@ -594,9 +606,9 @@ void QSpinBox::fixup(QString &input) const
     values but can be extended to use different strings with
     validate(), textFromValue() and valueFromText().
 
-    Every time the value changes QDoubleSpinBox emits two
-    valueChanged() signals, one taking providing a double and the other
-    a QString. The QString overload provides the value with both
+    Every time the value changes QDoubleSpinBox emits valueChanged() and
+    textChanged() signals, the former providing a double and the latter
+    a QString. The textChanged() signal provides the value with both
     prefix() and suffix(). The current value can be fetched with
     value() and set with setValue().
 
@@ -644,12 +656,23 @@ void QSpinBox::fixup(QString &input) const
 */
 
 /*!
+    \fn void QDoubleSpinBox::textChanged(const QString &text)
+    \since 5.14
+
+    This signal is emitted whenever the spin box's text is changed.
+    The new text is passed in \a text with prefix() and suffix().
+*/
+
+#if QT_DEPRECATED_SINCE(5, 14)
+/*!
     \fn void QDoubleSpinBox::valueChanged(const QString &text);
 
     \overload
+    \obsolete Use textChanged(QString) instead
 
     The new value is passed in \a text with prefix() and suffix().
 */
+#endif
 
 /*!
     Constructs a spin box with 0.0 as minimum value and 99.99 as maximum value,
@@ -841,7 +864,7 @@ void QDoubleSpinBox::setMinimum(double minimum)
     Q_D(QDoubleSpinBox);
     d->actualMin = minimum;
     const QVariant m(d->round(minimum));
-    d->setRange(m, (d->variantCompare(d->maximum, m) > 0 ? d->maximum : m));
+    d->setRange(m, (QDoubleSpinBoxPrivate::variantCompare(d->maximum, m) > 0 ? d->maximum : m));
 }
 
 /*!
@@ -872,7 +895,7 @@ void QDoubleSpinBox::setMaximum(double maximum)
     Q_D(QDoubleSpinBox);
     d->actualMax = maximum;
     const QVariant m(d->round(maximum));
-    d->setRange((d->variantCompare(d->minimum, m) < 0 ? d->minimum : m), m);
+    d->setRange((QDoubleSpinBoxPrivate::variantCompare(d->minimum, m) < 0 ? d->minimum : m), m);
 }
 
 /*!
@@ -1072,7 +1095,13 @@ void QSpinBoxPrivate::emitSignals(EmitPolicy ep, const QVariant &old)
     if (ep != NeverEmit) {
         pendingEmit = false;
         if (ep == AlwaysEmit || value != old) {
+#if QT_DEPRECATED_SINCE(5, 14)
+QT_WARNING_PUSH
+QT_WARNING_DISABLE_DEPRECATED
             emit q->valueChanged(edit->displayText());
+QT_WARNING_POP
+#endif
+            emit q->textChanged(edit->displayText());
             emit q->valueChanged(value.toInt());
         }
     }
@@ -1139,11 +1168,11 @@ QVariant QSpinBoxPrivate::validateAndInterpret(QString &input, int &pos,
         } else {
             num = locale.toInt(copy, &ok);
             if (!ok && (max >= 1000 || min <= -1000)) {
-                const QChar sep = locale.groupSeparator();
-                const QChar doubleSep[2] = {sep, sep};
-                if (copy.contains(sep) && !copy.contains(QString(doubleSep, 2))) {
+                const QString sep(locale.groupSeparator());
+                const QString doubleSep = sep + sep;
+                if (copy.contains(sep) && !copy.contains(doubleSep)) {
                     QString copy2 = copy;
-                    copy2.remove(locale.groupSeparator());
+                    copy2.remove(sep);
                     num = locale.toInt(copy2, &ok);
                 }
             }
@@ -1223,7 +1252,13 @@ void QDoubleSpinBoxPrivate::emitSignals(EmitPolicy ep, const QVariant &old)
     if (ep != NeverEmit) {
         pendingEmit = false;
         if (ep == AlwaysEmit || value != old) {
+#if QT_DEPRECATED_SINCE(5, 14)
+QT_WARNING_PUSH
+QT_WARNING_DISABLE_DEPRECATED
             emit q->valueChanged(edit->displayText());
+QT_WARNING_POP
+#endif
+            emit q->textChanged(edit->displayText());
             emit q->valueChanged(value.toDouble());
         }
     }
@@ -1279,6 +1314,10 @@ QVariant QDoubleSpinBoxPrivate::validateAndInterpret(QString &input, int &pos,
     const bool plus = max >= 0;
     const bool minus = min <= 0;
 
+    const QString group(locale.groupSeparator());
+    const uint groupUcs = (group.size() > 1 && group.at(0).isHighSurrogate()
+                           ? QChar::surrogateToUcs4(group.at(0), group.at(1))
+                           : group.at(0).unicode());
     switch (len) {
     case 0:
         state = max != min ? QValidator::Intermediate : QValidator::Invalid;
@@ -1325,14 +1364,15 @@ QVariant QDoubleSpinBoxPrivate::validateAndInterpret(QString &input, int &pos,
                 }
             }
         } else {
-            const QChar last = copy.at(len - 1);
-            const QChar secondLast = copy.at(len - 2);
-            if ((last == locale.groupSeparator() || last.isSpace())
-                && (secondLast == locale.groupSeparator() || secondLast.isSpace())) {
+            const QChar last = copy.back();
+            const bool groupEnd = copy.endsWith(group);
+            const QStringView head(copy.constData(), groupEnd ? len - group.size() : len - 1);
+            const QChar secondLast = head.back();
+            if ((groupEnd || last.isSpace()) && (head.endsWith(group) || secondLast.isSpace())) {
                 state = QValidator::Invalid;
                 QSBDEBUG() << __FILE__ << __LINE__<< "state is set to Invalid";
                 goto end;
-            } else if (last.isSpace() && (!locale.groupSeparator().isSpace() || secondLast.isSpace())) {
+            } else if (last.isSpace() && (!QChar::isSpace(groupUcs) || secondLast.isSpace())) {
                 state = QValidator::Invalid;
                 QSBDEBUG() << __FILE__ << __LINE__<< "state is set to Invalid";
                 goto end;
@@ -1346,26 +1386,31 @@ QVariant QDoubleSpinBoxPrivate::validateAndInterpret(QString &input, int &pos,
         QSBDEBUG() << __FILE__ << __LINE__ << locale << copy << num << ok;
 
         if (!ok) {
-            if (locale.groupSeparator().isPrint()) {
-                if (max < 1000 && min > -1000 && copy.contains(locale.groupSeparator())) {
+            if (QChar::isPrint(groupUcs)) {
+                if (max < 1000 && min > -1000 && copy.contains(group)) {
                     state = QValidator::Invalid;
                     QSBDEBUG() << __FILE__ << __LINE__<< "state is set to Invalid";
                     goto end;
                 }
 
                 const int len = copy.size();
-                for (int i=0; i<len- 1; ++i) {
-                    if (copy.at(i) == locale.groupSeparator() && copy.at(i + 1) == locale.groupSeparator()) {
-                        QSBDEBUG() << __FILE__ << __LINE__<< "state is set to Invalid";
-                        state = QValidator::Invalid;
-                        goto end;
+                for (int i = 0; i < len - 1;) {
+                    if (QStringView(copy).mid(i).startsWith(group)) {
+                        if (QStringView(copy).mid(i + group.size()).startsWith(group)) {
+                            QSBDEBUG() << __FILE__ << __LINE__<< "state is set to Invalid";
+                            state = QValidator::Invalid;
+                            goto end;
+                        }
+                        i += group.size();
+                    } else {
+                        i++;
                     }
                 }
 
                 QString copy2 = copy;
-                copy2.remove(locale.groupSeparator());
+                copy2.remove(group);
                 num = locale.toDouble(copy2, &ok);
-                QSBDEBUG() << locale.groupSeparator() << num << copy2 << ok;
+                QSBDEBUG() << group << num << copy2 << ok;
 
                 if (!ok) {
                     state = QValidator::Invalid;

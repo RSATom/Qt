@@ -53,7 +53,7 @@ class SequenceBoundTest : public ::testing::Test {
   // Another base class, which sets ints to different values.
   class Other {
    public:
-    Other(Value* ptr) : ptr_(ptr) { *ptr = kOtherCtorValue; };
+    Other(Value* ptr) : ptr_(ptr) { *ptr = kOtherCtorValue; }
     virtual ~Other() { *ptr_ = kOtherDtorValue; }
     void SetValue(Value value) { *ptr_ = value; }
     Value* ptr_;
@@ -80,6 +80,7 @@ class SequenceBoundTest : public ::testing::Test {
 TEST_F(SequenceBoundTest, MAYBE_ConstructThenPostThenReset) {
   auto derived = SequenceBound<Derived>(task_runner_, &value);
   EXPECT_FALSE(derived.is_null());
+  EXPECT_TRUE(derived);
 
   // Nothing should happen until we run the message loop.
   EXPECT_EQ(value, kInitialValue);
@@ -96,6 +97,7 @@ TEST_F(SequenceBoundTest, MAYBE_ConstructThenPostThenReset) {
   // report that it is null immediately.
   derived.Reset();
   EXPECT_TRUE(derived.is_null());
+  EXPECT_FALSE(derived);
   EXPECT_EQ(value, kDifferentValue);
   base::RunLoop().RunUntilIdle();
   EXPECT_EQ(value, kDerivedDtorValue);
@@ -319,6 +321,27 @@ TEST_F(SequenceBoundTest, IsVirtualBaseClassOf) {
                 "|Base| should be a virtual base of |VirtuallyDerived|");
   static_assert(!internal::is_virtual_base_of<VirtuallyDerived, Base>::value,
                 "|VirtuallyDerived shouldn't be a virtual base of |Base|");
+}
+
+TEST_F(SequenceBoundTest, LvalueConstructionParameter) {
+  // Note here that |value_ptr| is an lvalue, while |&value| would be an rvalue.
+  Value value = kInitialValue;
+  Value* value_ptr = &value;
+  SequenceBound<Derived> derived(task_runner_, value_ptr);
+  {
+    derived.Post(FROM_HERE, &Derived::SetValue, kDifferentValue);
+    base::RunLoop run_loop;
+    task_runner_->PostTask(FROM_HERE, run_loop.QuitClosure());
+    run_loop.Run();
+    EXPECT_EQ(value, kDifferentValue);
+  }
+  {
+    derived.Reset();
+    base::RunLoop run_loop;
+    task_runner_->PostTask(FROM_HERE, run_loop.QuitClosure());
+    run_loop.Run();
+    EXPECT_EQ(value, kDerivedDtorValue);
+  }
 }
 
 }  // namespace base

@@ -43,7 +43,7 @@ declare_args() {
   enable_one_click_signin =
       is_win || is_mac || (is_linux && !is_chromeos && !is_chromecast)
 
-  enable_service_discovery = (enable_mdns && !is_android && !is_ios) || is_mac
+  enable_service_discovery = (enable_mdns && !is_android) || is_mac
 
   # Enables use of the session service, which is enabled by default.
   # Android stores them separately on the Java side.
@@ -57,6 +57,7 @@ declare_args() {
   enable_simple_browser_service_out_of_process =
       is_chromeos && (is_debug || dcheck_always_on)
 
+  # TODO(crbug.com/980869): Change this to is_chromeos || is_android.
   enable_supervised_users = !is_chromecast
 
   # Indicates if Wayland display server support is enabled.

@@ -23,10 +23,6 @@ class MODULES_EXPORT InspectorCacheStorageAgent final
  public:
   using CachesMap = HashMap<String, mojom::blink::CacheStoragePtr>;
 
-  static InspectorCacheStorageAgent* Create(InspectedFrames* frames) {
-    return MakeGarbageCollected<InspectorCacheStorageAgent>(frames);
-  }
-
   explicit InspectorCacheStorageAgent(InspectedFrames*);
   ~InspectorCacheStorageAgent() override;
   void Trace(blink::Visitor*) override;
@@ -46,6 +42,8 @@ class MODULES_EXPORT InspectorCacheStorageAgent final
   void requestCachedResponse(
       const String& cache_id,
       const String& request_url,
+      const std::unique_ptr<protocol::Array<protocol::CacheStorage::Header>>
+          request_headers,
       std::unique_ptr<RequestCachedResponseCallback>) override;
 
  private:

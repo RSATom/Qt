@@ -81,10 +81,40 @@ void QAbstractTexturePrivate::setDataFunctor(const QTextureGeneratorPtr &generat
 {
     if (generator != m_dataFunctor) {
         m_dataFunctor = generator;
-        auto change = Qt3DCore::QPropertyUpdatedChangePtr::create(m_id);
-        change->setPropertyName("generator");
-        change->setValue(QVariant::fromValue(generator));
-        notifyObservers(change);
+        update();
+    }
+}
+
+void QAbstractTexturePrivate::setStatus(QAbstractTexture::Status status)
+{
+    Q_Q(QAbstractTexture);
+    if (m_status != status) {
+        m_status = status;
+        const bool blocked = q->blockNotifications(true);
+        q->statusChanged(status);
+        q->blockNotifications(blocked);
+    }
+}
+
+void QAbstractTexturePrivate::setHandle(const QVariant &handle)
+{
+    Q_Q(QAbstractTexture);
+    if (m_handle != handle) {
+        m_handle = handle;
+        const bool blocked = q->blockNotifications(true);
+        emit q->handleChanged(handle);
+        q->blockNotifications(blocked);
+    }
+}
+
+void QAbstractTexturePrivate::setHandleType(QAbstractTexture::HandleType type)
+{
+    Q_Q(QAbstractTexture);
+    if (m_handleType != type) {
+        m_handleType = type;
+        const bool blocked = q->blockNotifications(true);
+        emit q->handleTypeChanged(type);
+        q->blockNotifications(blocked);
     }
 }
 
@@ -94,12 +124,39 @@ void QAbstractTexturePrivate::setDataFunctor(const QTextureGeneratorPtr &generat
     \since 5.5
     \brief A base class to be used to provide textures.
 
-    The QAbstractTexture class shouldn't be used directly but rather
-    through one of its subclasses. Each subclass implements a given texture
-    target (2D, 2DArray, 3D, CubeMap ...) Each subclass provides a set of
-    functors for each layer, cube map face and mipmap level. In turn the
-    backend uses those functor to properly fill a corresponding OpenGL texture
-    with data.
+    The QAbstractTexture class shouldn't be used directly but rather through
+    one of its subclasses. Each subclass implements a given texture target (2D,
+    2DArray, 3D, CubeMap ...) Each subclass provides a set of functors for each
+    layer, cube map face and mipmap level. In turn the backend uses those
+    functor to properly fill a corresponding OpenGL texture with data. It is
+    expected the functor does as minimal processing as possible so as not
+    to slow down textures generation and upload. If the content of a texture is
+    the result of a slow procedural generation process, it is recommended not
+    to implement this directly in a functor.
+
+    All textures are unique. If you instantiate twice the same texture this
+    will create 2 identical textures on the GPU, no sharing will take place.
+ */
+
+/*!
+    \qmltype AbstractTexture
+    \instantiates Qt3DRender::QAbstractTexture
+    \inqmlmodule Qt3D.Render
+    \since 5.5
+    \brief A base class to be used to provide textures.
+
+    The AbstractTexture class shouldn't be used directly but rather through one
+    of its subclasses. Each subclass implements a given texture target (2D,
+    2DArray, 3D, CubeMap ...) Each subclass provides a set of functors for each
+    layer, cube map face and mipmap level. In turn the backend uses those
+    functor to properly fill a corresponding OpenGL texture with data. It is
+    expected the functor does as minimal processing as possible so as not to
+    slow down textures generation and upload. If the content of a texture is
+    the result of a slow procedural generation process, it is recommended not
+    to implement this directly in a functor.
+
+    All textures are unique. If you instantiate twice the same texture this
+    will create 2 identical textures on the GPU, no sharing will take place.
  */
 
 /*!
@@ -240,6 +297,8 @@ void QAbstractTexturePrivate::setDataFunctor(const QTextureGeneratorPtr &generat
     \value RGBA4
           GL_RGBA4
     \value RGB10A2
+          GL_RGB10_A2
+    \value RGB10A2U
           GL_RGB10_A2UI
     \value D16
           GL_DEPTH_COMPONENT16
@@ -371,6 +430,12 @@ void QAbstractTexture::setSize(int w, int h, int d)
     Holds the width of the texture provider.
  */
 /*!
+    \qmlproperty int Qt3DRender::QAbstractTexture::width
+
+    Holds the width of the texture provider.
+ */
+
+/*!
     Set the width of the texture provider to \a width.
 */
 void QAbstractTexture::setWidth(int width)
@@ -388,6 +453,11 @@ void QAbstractTexture::setWidth(int width)
     Holds the height of the texture provider.
  */
 /*!
+    \qmlproperty int Qt3DRender::QAbstractTexture::height
+
+    Holds the height of the texture provider.
+ */
+/*!
     Set the height to \a height.
 */
 void QAbstractTexture::setHeight(int height)
@@ -401,6 +471,11 @@ void QAbstractTexture::setHeight(int height)
 
 /*!
     \property Qt3DRender::QAbstractTexture::depth
+
+    Holds the depth of the texture provider.
+ */
+/*!
+    \qmlproperty int Qt3DRender::QAbstractTexture::depth
 
     Holds the depth of the texture provider.
  */
@@ -453,6 +528,15 @@ int QAbstractTexture::depth() const
     array target formats.
  */
 /*!
+    \qmlproperty int Qt3DRender::QAbstractTexture::layers
+
+    Holds the maximum layer count of the texture provider. By default, the
+    maximum layer count is 1.
+
+    \note this has a meaning only for texture providers that have 3D or
+    array target formats.
+ */
+/*!
     Set the maximum layer count to \a layers.
 */
 void QAbstractTexture::setLayers(int layers)
@@ -478,6 +562,15 @@ int QAbstractTexture::layers() const
 
 /*!
     \property Qt3DRender::QAbstractTexture::samples
+
+    Holds the number of samples per texel for the texture provider.
+    By default, the number of samples is 1.
+
+    \note this has a meaning only for texture providers that have multisample
+    formats.
+ */
+/*!
+    \qmlproperty int Qt3DRender::QAbstractTexture::samples
 
     Holds the number of samples per texel for the texture provider.
     By default, the number of samples is 1.
@@ -515,6 +608,11 @@ int QAbstractTexture::samples() const
     Holds the format of the texture provider.
  */
 /*!
+    \qmlproperty TextureFormat Qt3DRender::QAbstractTexture::format
+
+    Holds the format of the texture provider.
+ */
+/*!
     Set the texture format to \a format.
 */
 void QAbstractTexture::setFormat(TextureFormat format)
@@ -540,6 +638,11 @@ QAbstractTexture::TextureFormat QAbstractTexture::format() const
 
     Holds the current status of the texture provider.
  */
+/*!
+    \qmlproperty Status Qt3DRender::QAbstractTexture::status readonly
+
+    Holds the current status of the texture provider.
+ */
 
 /*!
     \enum Qt3DRender::QAbstractTexture::Status
@@ -559,7 +662,9 @@ void QAbstractTexture::setStatus(Status status)
     Q_D(QAbstractTexture);
     if (status != d->m_status) {
         d->m_status = status;
+        const bool blocked = blockNotifications(true);
         emit statusChanged(status);
+        blockNotifications(blocked);
     }
 }
 
@@ -602,6 +707,13 @@ QAbstractTexture::Status QAbstractTexture::status() const
 
 /*!
     \property Qt3DRender::QAbstractTexture::target readonly
+
+    Holds the target format of the texture provider.
+
+    \note The target format can only be set once.
+ */
+/*!
+    \qmlproperty Target Qt3DRender::QAbstractTexture::target readonly
 
     Holds the target format of the texture provider.
 
@@ -668,11 +780,7 @@ void QAbstractTexture::addTextureImage(QAbstractTextureImage *textureImage)
         if (!textureImage->parent())
             textureImage->setParent(this);
 
-        if (d->m_changeArbiter != nullptr) {
-            const auto change = QPropertyNodeAddedChangePtr::create(id(), textureImage);
-            change->setPropertyName("textureImage");
-            d->notifyObservers(change);
-        }
+        d->updateNode(textureImage, "textureImage", PropertyValueAdded);
     }
 }
 
@@ -683,12 +791,9 @@ void QAbstractTexture::removeTextureImage(QAbstractTextureImage *textureImage)
 {
     Q_ASSERT(textureImage);
     Q_D(QAbstractTexture);
-    if (d->m_changeArbiter != nullptr) {
-        const auto change = QPropertyNodeRemovedChangePtr::create(id(), textureImage);
-        change->setPropertyName("textureImage");
-        d->notifyObservers(change);
-    }
-    d->m_textureImages.removeOne(textureImage);
+    if (!d->m_textureImages.removeOne(textureImage))
+        return;
+    d->updateNode(textureImage, "textureImage", PropertyValueRemoved);
     // Remove bookkeeping connection
     d->unregisterDestructionHelper(textureImage);
 }
@@ -705,6 +810,11 @@ QVector<QAbstractTextureImage *> QAbstractTexture::textureImages() const
 
 /*!
     \property Qt3DRender::QAbstractTexture::generateMipMaps
+
+    Holds whether the texture provider should auto generate mipmaps.
+ */
+/*!
+    \qmlproperty bool Qt3DRender::QAbstractTexture::generateMipMaps
 
     Holds whether the texture provider should auto generate mipmaps.
  */
@@ -729,6 +839,11 @@ bool QAbstractTexture::generateMipMaps() const
 
 /*!
     \property Qt3DRender::QAbstractTexture::minificationFilter
+
+    Holds the minification filter of the texture provider.
+ */
+/*!
+    \qmlproperty Filter Qt3DRender::QAbstractTexture::minificationFilter
 
     Holds the minification filter of the texture provider.
  */
@@ -767,6 +882,11 @@ void QAbstractTexture::setMinificationFilter(Filter f)
     Holds the magnification filter of the texture provider.
  */
 /*!
+    \qmlproperty Filter Qt3DRender::QAbstractTexture::magnificationFilter
+
+    Holds the magnification filter of the texture provider.
+ */
+/*!
     Set the magnification filter to \a f.
 */
 void QAbstractTexture::setMagnificationFilter(Filter f)
@@ -796,6 +916,11 @@ QAbstractTexture::Filter QAbstractTexture::magnificationFilter() const
     Holds the wrap mode of the texture provider.
  */
 /*!
+    \qmlproperty QTextureWrapMode Qt3DRender::QAbstractTexture::wrapMode
+
+    Holds the wrap mode of the texture provider.
+ */
+/*!
     Set the wrapmode to the value specified in \a wrapMode.
 */
 void QAbstractTexture::setWrapMode(const QTextureWrapMode &wrapMode)
@@ -803,24 +928,15 @@ void QAbstractTexture::setWrapMode(const QTextureWrapMode &wrapMode)
     Q_D(QAbstractTexture);
     if (d->m_wrapMode.x() != wrapMode.x()) {
         d->m_wrapMode.setX(wrapMode.x());
-        auto e = QPropertyUpdatedChangePtr::create(d->m_id);
-        e->setPropertyName("wrapModeX");
-        e->setValue(static_cast<int>(d->m_wrapMode.x()));
-        d->notifyObservers(e);
+        d->update();
     }
     if (d->m_wrapMode.y() != wrapMode.y()) {
         d->m_wrapMode.setY(wrapMode.y());
-        auto e = QPropertyUpdatedChangePtr::create(d->m_id);
-        e->setPropertyName("wrapModeY");
-        e->setValue(static_cast<int>(d->m_wrapMode.y()));
-        d->notifyObservers(e);
+        d->update();
     }
     if (d->m_wrapMode.z() != wrapMode.z()) {
         d->m_wrapMode.setZ(wrapMode.z());
-        auto e = QPropertyUpdatedChangePtr::create(d->m_id);
-        e->setPropertyName("wrapModeZ");
-        e->setValue(static_cast<int>(d->m_wrapMode.z()));
-        d->notifyObservers(e);
+        d->update();
     }
 }
 
@@ -832,6 +948,11 @@ QTextureWrapMode *QAbstractTexture::wrapMode()
 
 /*!
     \property Qt3DRender::QAbstractTexture::maximumAnisotropy
+
+    Holds the maximum anisotropy of the texture provider.
+ */
+/*!
+    \qmlproperty bool Qt3DRender::QAbstractTexture::maximumAnisotropy
 
     Holds the maximum anisotropy of the texture provider.
  */
@@ -857,7 +978,12 @@ float QAbstractTexture::maximumAnisotropy() const
 }
 
 /*!
-    \property Qt3DRender::QAbstractTexture::ComparisonFunction
+    \property Qt3DRender::QAbstractTexture::comparisonFunction
+
+    Holds the comparison function of the texture provider.
+ */
+/*!
+    \qmlproperty ComparisonFunction Qt3DRender::QAbstractTexture::ComparisonFunction
 
     Holds the comparison function of the texture provider.
  */
@@ -883,7 +1009,13 @@ QAbstractTexture::ComparisonFunction QAbstractTexture::comparisonFunction() cons
 }
 
 /*!
-    \property Qt3DRender::QAbstractTexture::ComparisonMode
+    \property Qt3DRender::QAbstractTexture::comparisonMode
+
+    Holds the comparison mode of the texture provider.
+ */
+
+/*!
+    \qmlproperty ComparisonMode Qt3DRender::QAbstractTexture::ComparisonMode
 
     Holds the comparison mode of the texture provider.
  */
@@ -924,9 +1056,12 @@ QTextureGeneratorPtr QAbstractTexture::dataGenerator() const
  */
 
 /*!
- * \qmlproperty handleType
+ * \qmlproperty enumeration AbstractTexture::handleType
  *
  * Holds the current texture handle type.
+ *
+ * \value AbstractTexture.NoHandle
+ * \value AbstractTexture.OpenGLTextureId
  */
 
 /*!
@@ -939,7 +1074,6 @@ QAbstractTexture::HandleType QAbstractTexture::handleType() const
     return d->m_handleType;
 }
 
-
 /*!
  * \property Qt3DRender::QAbstractTexture::handle
  *
@@ -948,7 +1082,7 @@ QAbstractTexture::HandleType QAbstractTexture::handleType() const
  */
 
 /*!
- * \qmlproperty handle
+ * \qmlproperty var AbstractTexture::handle
  *
  * Holds the current texture handle, if Qt 3D is using the OpenGL renderer,
  * handle is a texture id integer.
@@ -964,6 +1098,19 @@ QVariant QAbstractTexture::handle() const
 {
     Q_D(const QAbstractTexture);
     return d->m_handle;
+}
+
+/*!
+ * Updates a sub region of the texture, defined by \a update, without having
+ * to change the data generator or rely on adding or removing texture images.
+ * \since 5.14
+ */
+void QAbstractTexture::updateData(const QTextureDataUpdate &update)
+{
+    Q_D(QAbstractTexture);
+
+    d->m_pendingDataUpdates.push_back(update);
+    d->update();
 }
 
 Qt3DCore::QNodeCreatedChangeBasePtr QAbstractTexture::createNodeCreationChange() const
@@ -990,6 +1137,7 @@ Qt3DCore::QNodeCreatedChangeBasePtr QAbstractTexture::createNodeCreationChange()
     data.samples = d->m_samples;
     data.dataFunctor = d->m_dataFunctor;
     data.sharedTextureId = d->m_sharedTextureId;
+    data.initialDataUpdates = d->m_pendingDataUpdates;
     return creationChange;
 }
 

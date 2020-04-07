@@ -12,8 +12,8 @@
 #include "net/base/net_export.h"
 #include "net/log/net_log_with_source.h"
 #include "net/socket/datagram_client_socket.h"
-#include "net/third_party/quic/core/quic_packets.h"
-#include "net/third_party/quic/core/quic_time.h"
+#include "net/third_party/quiche/src/quic/core/quic_packets.h"
+#include "net/third_party/quiche/src/quic/core/quic_time.h"
 
 namespace quic {
 class QuicClock;
@@ -70,7 +70,7 @@ class NET_EXPORT_PRIVATE QuicChromiumPacketReader {
   scoped_refptr<IOBufferWithSize> read_buffer_;
   NetLogWithSource net_log_;
 
-  base::WeakPtrFactory<QuicChromiumPacketReader> weak_factory_;
+  base::WeakPtrFactory<QuicChromiumPacketReader> weak_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(QuicChromiumPacketReader);
 };

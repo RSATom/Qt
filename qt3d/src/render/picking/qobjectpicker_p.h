@@ -51,6 +51,7 @@
 #include <Qt3DCore/private/qcomponent_p.h>
 #include <Qt3DCore/qnodeid.h>
 #include <Qt3DRender/private/qt3drender_global_p.h>
+#include <Qt3DRender/private/objectpicker_p.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -107,8 +108,16 @@ struct QObjectPickerData
     int priority;
 };
 
+struct QObjectPickerEvent
+{
+    QPickEventPtr event;
+    Qt3DCore::QNodeId viewportNodeId;
+};
+
 } // namespace Qt3DRender
 
 QT_END_NAMESPACE
+
+Q_DECLARE_METATYPE(Qt3DRender::QObjectPickerEvent);
 
 #endif // QT3DRENDER_QOBJECTPICKER_P_H

@@ -107,8 +107,8 @@ int main(int argc, char* argv[])
     Qt3DRender::QGeometryRenderer *customMeshRenderer = new Qt3DRender::QGeometryRenderer;
     Qt3DRender::QGeometry *customGeometry = new Qt3DRender::QGeometry(customMeshRenderer);
 
-    Qt3DRender::QBuffer *vertexDataBuffer = new Qt3DRender::QBuffer(Qt3DRender::QBuffer::VertexBuffer, customGeometry);
-    Qt3DRender::QBuffer *indexDataBuffer = new Qt3DRender::QBuffer(Qt3DRender::QBuffer::IndexBuffer, customGeometry);
+    Qt3DRender::QBuffer *vertexDataBuffer = new Qt3DRender::QBuffer(customGeometry);
+    Qt3DRender::QBuffer *indexDataBuffer = new Qt3DRender::QBuffer(customGeometry);
 
     // vec3 for position
     // vec3 for colors
@@ -149,7 +149,7 @@ int main(int argc, char* argv[])
     QVector3D blue(0.0f, 0.0f, 1.0f);
     QVector3D white(1.0f, 1.0f, 1.0f);
 
-    QVector<QVector3D> vertices = QVector<QVector3D>()
+    const QVector<QVector3D> vertices = QVector<QVector3D>()
             << v0 << n0 << red
             << v1 << n1 << blue
             << v2 << n2 << green
@@ -158,7 +158,7 @@ int main(int argc, char* argv[])
     float *rawVertexArray = reinterpret_cast<float *>(vertexBufferData.data());
     int idx = 0;
 
-    Q_FOREACH (const QVector3D &v, vertices) {
+    for (const QVector3D &v : vertices) {
         rawVertexArray[idx++] = v.x();
         rawVertexArray[idx++] = v.y();
         rawVertexArray[idx++] = v.z();

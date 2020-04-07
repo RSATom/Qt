@@ -4,6 +4,7 @@
 
 #include "services/device/generic_sensor/platform_sensor_win.h"
 
+#include "base/bind.h"
 #include "base/single_thread_task_runner.h"
 
 namespace device {
@@ -17,7 +18,7 @@ PlatformSensorWin::PlatformSensorWin(
     SensorReadingSharedBuffer* reading_buffer,
     PlatformSensorProvider* provider,
     scoped_refptr<base::SingleThreadTaskRunner> sensor_thread_runner,
-    std::unique_ptr<PlatformSensorReaderWin> sensor_reader)
+    std::unique_ptr<PlatformSensorReaderWinBase> sensor_reader)
     : PlatformSensor(type, reading_buffer, provider),
       sensor_thread_runner_(sensor_thread_runner),
       sensor_reader_(sensor_reader.release()),
@@ -37,11 +38,11 @@ mojom::ReportingMode PlatformSensorWin::GetReportingMode() {
 }
 
 double PlatformSensorWin::GetMaximumSupportedFrequency() {
-  double minimal_reporting_interval_ms =
-      sensor_reader_->GetMinimalReportingIntervalMs();
-  if (!minimal_reporting_interval_ms)
+  base::TimeDelta minimal_reporting_interval_ms =
+      sensor_reader_->GetMinimalReportingInterval();
+  if (minimal_reporting_interval_ms.is_zero())
     return kDefaultSensorReportingFrequency;
-  return base::Time::kMillisecondsPerSecond / minimal_reporting_interval_ms;
+  return 1.0 / minimal_reporting_interval_ms.InSecondsF();
 }
 
 void PlatformSensorWin::OnReadingUpdated(const SensorReading& reading) {
@@ -50,8 +51,8 @@ void PlatformSensorWin::OnReadingUpdated(const SensorReading& reading) {
 
 void PlatformSensorWin::OnSensorError() {
   task_runner_->PostTask(FROM_HERE,
-                         base::Bind(&PlatformSensorWin::NotifySensorError,
-                                    weak_factory_.GetWeakPtr()));
+                         base::BindOnce(&PlatformSensorWin::NotifySensorError,
+                                        weak_factory_.GetWeakPtr()));
 }
 
 bool PlatformSensorWin::StartSensor(
@@ -68,12 +69,11 @@ void PlatformSensorWin::StopSensor() {
 bool PlatformSensorWin::CheckSensorConfiguration(
     const PlatformSensorConfiguration& configuration) {
   DCHECK(task_runner_->BelongsToCurrentThread());
-  double minimal_reporting_interval_ms =
-      sensor_reader_->GetMinimalReportingIntervalMs();
-  if (minimal_reporting_interval_ms == 0)
+  base::TimeDelta minimal_reporting_interval_ms =
+      sensor_reader_->GetMinimalReportingInterval();
+  if (minimal_reporting_interval_ms.is_zero())
     return true;
-  double max_frequency =
-      base::Time::kMillisecondsPerSecond / minimal_reporting_interval_ms;
+  double max_frequency = 1.0 / minimal_reporting_interval_ms.InSecondsF();
   return configuration.frequency() <= max_frequency;
 }
 

@@ -21,6 +21,7 @@
 #include "net/traffic_annotation/network_traffic_annotation.h"
 #include "net/url_request/url_request.h"
 #include "services/network/public/cpp/resource_request_body.h"
+#include "services/network/public/mojom/fetch_api.mojom-shared.h"
 #include "storage/browser/blob/blob_data_handle.h"
 #include "url/gurl.h"
 #include "url/origin.h"
@@ -180,6 +181,12 @@ class COMPONENTS_DOWNLOAD_EXPORT DownloadUrlParameters {
   // See |DownloadSaveInfo.length|.
   void set_length(int64_t length) { save_info_.length = length; }
 
+  // Sets the offset to start writing to the file. If set, The data received
+  // before |file_offset| are discarded or are used for validation purpose.
+  void set_file_offset(int64_t file_offset) {
+    save_info_.file_offset = file_offset;
+  }
+
   // If |offset| is non-zero, then |hash_of_partial_file| contains the raw
   // SHA-256 hash of the first |offset| bytes of the target file. Only
   // meaningful if a partial file exists and is identified by either the
@@ -204,11 +211,13 @@ class COMPONENTS_DOWNLOAD_EXPORT DownloadUrlParameters {
     do_not_prompt_for_login_ = do_not_prompt;
   }
 
-  // If |follow_cross_origin_redirects| is true, we will follow cross origin
-  // redirects while downloading, otherwise, we'll attempt to navigate to the
-  // URL or cancel the download.
-  void set_follow_cross_origin_redirects(bool follow_cross_origin_redirects) {
-    follow_cross_origin_redirects_ = follow_cross_origin_redirects;
+  // If |cross_origin_redirects| is kFollow, we will follow cross origin
+  // redirects while downloading.  If it is kManual, then we'll attempt to
+  // navigate to the URL or cancel the download.  If it is kError, then we will
+  // fail the download (kFail).
+  void set_cross_origin_redirects(
+      network::mojom::RedirectMode cross_origin_redirects) {
+    cross_origin_redirects_ = cross_origin_redirects;
   }
 
   // Sets whether to download the response body even if the server returns
@@ -243,6 +252,17 @@ class COMPONENTS_DOWNLOAD_EXPORT DownloadUrlParameters {
   void set_upload_progress_callback(
       const UploadProgressCallback& upload_callback) {
     upload_callback_ = upload_callback;
+  }
+
+  // Sets whether the download will require safety checks for its URL chain and
+  // downloaded content.
+  void set_require_safety_checks(bool require_safety_checks) {
+    require_safety_checks_ = require_safety_checks;
+  }
+
+  // Sets whether to ignore content length mismatch errors.
+  void set_ignore_content_length_mismatch(bool ignore_content_length_mismatch) {
+    ignore_content_length_mismatch_ = ignore_content_length_mismatch;
   }
 
   const OnStartedCallback& callback() const { return callback_; }
@@ -291,12 +311,16 @@ class COMPONENTS_DOWNLOAD_EXPORT DownloadUrlParameters {
   bool prompt() const { return save_info_.prompt_for_save_location; }
   const GURL& url() const { return url_; }
   bool do_not_prompt_for_login() const { return do_not_prompt_for_login_; }
-  bool follow_cross_origin_redirects() const {
-    return follow_cross_origin_redirects_;
+  network::mojom::RedirectMode cross_origin_redirects() const {
+    return cross_origin_redirects_;
   }
   bool fetch_error_body() const { return fetch_error_body_; }
   bool is_transient() const { return transient_; }
   std::string guid() const { return guid_; }
+  bool require_safety_checks() const { return require_safety_checks_; }
+  bool ignore_content_length_mismatch() const {
+    return ignore_content_length_mismatch_;
+  }
 
   // STATE CHANGING: All save_info_ sub-objects will be in an indeterminate
   // state following this call.
@@ -335,7 +359,7 @@ class COMPONENTS_DOWNLOAD_EXPORT DownloadUrlParameters {
   DownloadSaveInfo save_info_;
   GURL url_;
   bool do_not_prompt_for_login_;
-  bool follow_cross_origin_redirects_;
+  network::mojom::RedirectMode cross_origin_redirects_;
   bool fetch_error_body_;
   bool transient_;
   std::string guid_;
@@ -343,6 +367,8 @@ class COMPONENTS_DOWNLOAD_EXPORT DownloadUrlParameters {
   std::string request_origin_;
   DownloadSource download_source_;
   UploadProgressCallback upload_callback_;
+  bool require_safety_checks_;
+  bool ignore_content_length_mismatch_;
 
   DISALLOW_COPY_AND_ASSIGN(DownloadUrlParameters);
 };

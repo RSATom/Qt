@@ -39,6 +39,7 @@
 
 #include "qcolor.h"
 #include "qcolor_p.h"
+#include "qfloat16.h"
 #include "qnamespace.h"
 #include "qdatastream.h"
 #include "qvariant.h"
@@ -146,6 +147,7 @@ static bool get_hex_rgb(const QChar *str, size_t len, QRgba64 *rgb)
 #endif
 #define rgb(r,g,b) (0xff000000 | (r << 16) |  (g << 8) | b)
 
+// keep this is in sync with QColorConstants
 static const struct RGBData {
     const char name[21];
     uint  value;
@@ -474,25 +476,43 @@ static QStringList get_colornames()
 
     \section1 Predefined Colors
 
-    There are 20 predefined QColors described by the Qt::GlobalColor enum,
-    including black, white, primary and secondary colors, darker versions
-    of these colors and three shades of gray. QColor also recognizes a
-    variety of color names; the static colorNames() function returns a
-    QStringList color names that QColor knows about.
+    There are 20 predefined QColor objects in the \c{QColorConstants}
+    namespace, including black, white, primary and secondary colors,
+    darker versions of these colors, and three shades of gray.
+    Furthermore, the \c{QColorConstants::Svg} namespace defines QColor
+    objects for the standard \l{https://www.w3.org/TR/SVG11/types.html#ColorKeywords}{SVG color keyword names}.
 
     \image qt-colors.png Qt Colors
 
-    Additionally, the Qt::color0, Qt::color1 and Qt::transparent colors
-    are used for special purposes.
+    The \c{QColorConstants::Color0}, \c{QColorConstants::Color1} and
+    \c{QColorConstants::Transparent} colors are used for special
+    purposes.
 
-    Qt::color0 (zero pixel value) and Qt::color1 (non-zero pixel value)
-    are special colors for drawing in QBitmaps. Painting with Qt::color0
-    sets the bitmap bits to 0 (transparent; i.e., background), and painting
-    with Qt::color1 sets the bits to 1 (opaque; i.e., foreground).
+    \c{QColorConstants::Color0} (zero pixel value) and
+    \c{QColorConstants::Color1} (non-zero pixel value) are special
+    colors for drawing in QBitmaps. Painting with
+    \c{QColorConstants::Color0} sets the bitmap bits to 0 (transparent;
+    i.e., background), and painting with c{QColorConstants::Color1}
+    sets the bits to 1 (opaque; i.e., foreground).
 
-    Qt::transparent is used to indicate a transparent pixel. When painting
-    with this value, a pixel value will be used that is appropriate for the
-    underlying pixel format in use.
+    \c{QColorConstants::Transparent} is used to indicate a transparent
+    pixel. When painting with this value, a pixel value will be used
+    that is appropriate for the underlying pixel format in use.
+
+    For historical reasons, the 20 predefined colors are also available
+    in the Qt::GlobalColor enumeration.
+
+    Finally, QColor recognizes a variety of color names (as strings);
+    the static colorNames() function returns a QStringList color names
+    that QColor knows about.
+
+    \section1 The Extended RGB Color Model
+
+    The extended RGB color model, also known as the scRGB color space,
+    is the same the RGB color model except it allows values under 0.0,
+    and over 1.0. This makes it possible to represent colors that would
+    otherwise be outside the range of the RGB colorspace but still use
+    the same values for colors inside the RGB colorspace.
 
     \section1 The HSV Color Model
 
@@ -577,7 +597,7 @@ static QStringList get_colornames()
     alpha-channel to feature \l {QColor#Alpha-Blended
     Drawing}{alpha-blended drawing}.
 
-    \sa QPalette, QBrush
+    \sa QPalette, QBrush, QColorConstants
 */
 
 #define QCOLOR_INT_RANGE_CHECK(fn, var) \
@@ -603,12 +623,13 @@ static QStringList get_colornames()
 /*!
     \enum QColor::Spec
 
-    The type of color specified, either RGB, HSV, CMYK or HSL.
+    The type of color specified, either RGB, extended RGB, HSV, CMYK or HSL.
 
     \value Rgb
     \value Hsv
     \value Cmyk
     \value Hsl
+    \value ExtendedRgb
     \value Invalid
 
     \sa spec(), convertTo()
@@ -653,7 +674,7 @@ static QStringList get_colornames()
 
     \sa isValid(), {QColor#Predefined Colors}{Predefined Colors}
  */
-QColor::QColor(Qt::GlobalColor color) Q_DECL_NOTHROW
+QColor::QColor(Qt::GlobalColor color) noexcept
 {
 #define QRGB(r, g, b) \
     QRgb(((0xffu << 24) | ((r & 0xff) << 16) | ((g & 0xff) << 8) | (b & 0xff)))
@@ -728,7 +749,7 @@ QColor::QColor(Qt::GlobalColor color) Q_DECL_NOTHROW
     \sa fromRgb(), isValid()
 */
 
-QColor::QColor(QRgb color) Q_DECL_NOTHROW
+QColor::QColor(QRgb color) noexcept
 {
     cspec = Rgb;
     ct.argb.alpha = 0xffff;
@@ -746,7 +767,7 @@ QColor::QColor(QRgb color) Q_DECL_NOTHROW
     \sa fromRgba64()
 */
 
-QColor::QColor(QRgba64 rgba64) Q_DECL_NOTHROW
+QColor::QColor(QRgba64 rgba64) noexcept
 {
     setRgba64(rgba64);
 }
@@ -760,7 +781,7 @@ QColor::QColor(QRgba64 rgba64) Q_DECL_NOTHROW
     becomes a valid color by accident.
 */
 
-QColor::QColor(Spec spec) Q_DECL_NOTHROW
+QColor::QColor(Spec spec) noexcept
 {
     switch (spec) {
     case Invalid:
@@ -777,6 +798,10 @@ QColor::QColor(Spec spec) Q_DECL_NOTHROW
         break;
     case Hsl:
         setHsl(0, 0, 0, 0);
+        break;
+    case ExtendedRgb:
+        cspec = spec;
+        setRgbF(0, 0, 0, 0);
         break;
     }
 }
@@ -872,7 +897,8 @@ QString QColor::name(NameFormat format) const
     \li #AARRGGBB (Since 5.2)
     \li #RRRGGGBBB
     \li #RRRRGGGGBBBB
-    \li A name from the list of colors defined in the list of \l{http://www.w3.org/TR/SVG/types.html#ColorKeywords}{SVG color keyword names}
+    \li A name from the list of colors defined in the list of
+       \l{https://www.w3.org/TR/SVG11/types.html#ColorKeywords}{SVG color keyword names}
        provided by the World Wide Web Consortium; for example, "steelblue" or "gainsboro".
        These color names work on all platforms. Note that these color names are \e not the
        same as defined by the Qt::GlobalColor enums, e.g. "green" and Qt::green does not
@@ -933,7 +959,7 @@ bool QColor::isValidColor(const QString &name)
     \overload
     \since 5.10
 */
-bool QColor::isValidColor(QStringView name) Q_DECL_NOTHROW
+bool QColor::isValidColor(QStringView name) noexcept
 {
     return name.size() && QColor().setColorFromString(name);
 }
@@ -942,7 +968,7 @@ bool QColor::isValidColor(QStringView name) Q_DECL_NOTHROW
     \overload
     \since 5.8
 */
-bool QColor::isValidColor(QLatin1String name) Q_DECL_NOTHROW
+bool QColor::isValidColor(QLatin1String name) noexcept
 {
     return name.size() && QColor().setColorFromString(name);
 }
@@ -1211,6 +1237,17 @@ void QColor::setHsl(int h, int s, int l, int a)
     ct.ahsl.pad        = 0;
 }
 
+static inline qfloat16 &castF16(quint16 &v)
+{
+    // this works because qfloat16 internally is a quint16
+    return *reinterpret_cast<qfloat16 *>(&v);
+}
+
+static inline const qfloat16 &castF16(const quint16 &v)
+{
+    return *reinterpret_cast<const qfloat16 *>(&v);
+}
+
 /*!
     Sets the contents pointed to by \a r, \a g, \a b, and \a a, to the red,
     green, blue, and alpha-channel (transparency) components of the color's
@@ -1226,18 +1263,27 @@ void QColor::getRgbF(qreal *r, qreal *g, qreal *b, qreal *a) const
     if (!r || !g || !b)
         return;
 
-    if (cspec != Invalid && cspec != Rgb) {
+    if (cspec == Invalid)
+        return;
+
+    if (cspec != Rgb && cspec != ExtendedRgb) {
         toRgb().getRgbF(r, g, b, a);
         return;
     }
 
-    *r = ct.argb.red   / qreal(USHRT_MAX);
-    *g = ct.argb.green / qreal(USHRT_MAX);
-    *b = ct.argb.blue  / qreal(USHRT_MAX);
-
-    if (a)
-        *a = ct.argb.alpha / qreal(USHRT_MAX);
-
+    if (cspec == Rgb) {
+        *r = ct.argb.red   / qreal(USHRT_MAX);
+        *g = ct.argb.green / qreal(USHRT_MAX);
+        *b = ct.argb.blue  / qreal(USHRT_MAX);
+        if (a)
+            *a = ct.argb.alpha / qreal(USHRT_MAX);
+    }  else {
+        *r = castF16(ct.argbExtended.redF16);
+        *g = castF16(ct.argbExtended.greenF16);
+        *b = castF16(ct.argbExtended.blueF16);
+        if (a)
+            *a = castF16(ct.argbExtended.alphaF16);
+    }
 }
 
 /*!
@@ -1274,26 +1320,35 @@ void QColor::getRgb(int *r, int *g, int *b, int *a) const
     Sets the color channels of this color to \a r (red), \a g (green),
     \a b (blue) and \a a (alpha, transparency).
 
-    All values must be in the range 0.0-1.0.
+    The alpha value must be in the range 0.0-1.0.
+    If any of the other values are outside the range of 0.0-1.0 the
+    color model will be set as \c ExtendedRgb.
 
     \sa rgb(), getRgbF(), setRgb()
 */
 void QColor::setRgbF(qreal r, qreal g, qreal b, qreal a)
 {
-    if (r < qreal(0.0) || r > qreal(1.0)
-        || g < qreal(0.0) || g > qreal(1.0)
-        || b < qreal(0.0) || b > qreal(1.0)
-        || a < qreal(0.0) || a > qreal(1.0)) {
-        qWarning("QColor::setRgbF: RGB parameters out of range");
+    if (a < qreal(0.0) || a > qreal(1.0)) {
+        qWarning("QColor::setRgbF: Alpha parameter is out of range");
         invalidate();
         return;
     }
-
+    if (r < qreal(0.0) || r > qreal(1.0) ||
+        g < qreal(0.0) || g > qreal(1.0) ||
+        b < qreal(0.0) || b > qreal(1.0) || cspec == ExtendedRgb) {
+        cspec = ExtendedRgb;
+        castF16(ct.argbExtended.redF16)   = qfloat16(r);
+        castF16(ct.argbExtended.greenF16) = qfloat16(g);
+        castF16(ct.argbExtended.blueF16)  = qfloat16(b);
+        castF16(ct.argbExtended.alphaF16) = qfloat16(a);
+        ct.argbExtended.pad   = 0;
+        return;
+    }
     cspec = Rgb;
-    ct.argb.alpha = qRound(a * USHRT_MAX);
     ct.argb.red   = qRound(r * USHRT_MAX);
     ct.argb.green = qRound(g * USHRT_MAX);
     ct.argb.blue  = qRound(b * USHRT_MAX);
+    ct.argb.alpha = qRound(a * USHRT_MAX);
     ct.argb.pad   = 0;
 }
 
@@ -1306,7 +1361,7 @@ void QColor::setRgbF(qreal r, qreal g, qreal b, qreal a)
 */
 void QColor::setRgb(int r, int g, int b, int a)
 {
-    if ((uint)r > 255 || (uint)g > 255 || (uint)b > 255 || (uint)a > 255) {
+    if (!isRgbaValid(r, g, b, a)) {
         qWarning("QColor::setRgb: RGB parameters out of range");
         invalidate();
         return;
@@ -1330,7 +1385,7 @@ void QColor::setRgb(int r, int g, int b, int a)
     \sa setRgba(), rgb(), rgba64()
 */
 
-QRgb QColor::rgba() const Q_DECL_NOTHROW
+QRgb QColor::rgba() const noexcept
 {
     if (cspec != Invalid && cspec != Rgb)
         return toRgb().rgba();
@@ -1342,7 +1397,7 @@ QRgb QColor::rgba() const Q_DECL_NOTHROW
 
     \sa rgba(), rgb(), setRgba64()
 */
-void QColor::setRgba(QRgb rgba) Q_DECL_NOTHROW
+void QColor::setRgba(QRgb rgba) noexcept
 {
     cspec = Rgb;
     ct.argb.alpha = qAlpha(rgba) * 0x101;
@@ -1362,7 +1417,7 @@ void QColor::setRgba(QRgb rgba) Q_DECL_NOTHROW
     \sa setRgba64(), rgba(), rgb()
 */
 
-QRgba64 QColor::rgba64() const Q_DECL_NOTHROW
+QRgba64 QColor::rgba64() const noexcept
 {
     if (cspec != Invalid && cspec != Rgb)
         return toRgb().rgba64();
@@ -1376,7 +1431,7 @@ QRgba64 QColor::rgba64() const Q_DECL_NOTHROW
 
     \sa setRgba(), rgba64()
 */
-void QColor::setRgba64(QRgba64 rgba) Q_DECL_NOTHROW
+void QColor::setRgba64(QRgba64 rgba) noexcept
 {
     cspec = Rgb;
     ct.argb.alpha = rgba.alpha();
@@ -1393,7 +1448,7 @@ void QColor::setRgba64(QRgba64 rgba) Q_DECL_NOTHROW
 
     \sa getRgb(), rgba()
 */
-QRgb QColor::rgb() const Q_DECL_NOTHROW
+QRgb QColor::rgb() const noexcept
 {
     if (cspec != Invalid && cspec != Rgb)
         return toRgb().rgb();
@@ -1405,7 +1460,7 @@ QRgb QColor::rgb() const Q_DECL_NOTHROW
 
     Sets the RGB value to \a rgb. The alpha value is set to opaque.
 */
-void QColor::setRgb(QRgb rgb) Q_DECL_NOTHROW
+void QColor::setRgb(QRgb rgb) noexcept
 {
     cspec = Rgb;
     ct.argb.alpha = 0xffff;
@@ -1420,8 +1475,12 @@ void QColor::setRgb(QRgb rgb) Q_DECL_NOTHROW
 
     \sa setAlpha(), alphaF(), {QColor#Alpha-Blended Drawing}{Alpha-Blended Drawing}
 */
-int QColor::alpha() const Q_DECL_NOTHROW
-{ return ct.argb.alpha >> 8; }
+int QColor::alpha() const noexcept
+{
+    if (cspec == ExtendedRgb)
+        return qRound(qreal(castF16(ct.argbExtended.alphaF16)) * 255);
+    return ct.argb.alpha >> 8;
+}
 
 
 /*!
@@ -1434,6 +1493,11 @@ int QColor::alpha() const Q_DECL_NOTHROW
 void QColor::setAlpha(int alpha)
 {
     QCOLOR_INT_RANGE_CHECK("QColor::setAlpha", alpha);
+    if (cspec == ExtendedRgb) {
+        constexpr qreal f = qreal(1.0) / 255;
+        castF16(ct.argbExtended.alphaF16) = alpha * f;
+        return;
+    }
     ct.argb.alpha = alpha * 0x101;
 }
 
@@ -1442,8 +1506,12 @@ void QColor::setAlpha(int alpha)
 
     \sa setAlphaF(), alpha(), {QColor#Alpha-Blended Drawing}{Alpha-Blended Drawing}
 */
-qreal QColor::alphaF() const Q_DECL_NOTHROW
-{ return ct.argb.alpha / qreal(USHRT_MAX); }
+qreal QColor::alphaF() const noexcept
+{
+    if (cspec == ExtendedRgb)
+        return castF16(ct.argbExtended.alphaF16);
+    return ct.argb.alpha / qreal(USHRT_MAX);
+}
 
 /*!
     Sets the alpha of this color to \a alpha. qreal alpha is specified in the
@@ -1455,6 +1523,10 @@ qreal QColor::alphaF() const Q_DECL_NOTHROW
 void QColor::setAlphaF(qreal alpha)
 {
     QCOLOR_REAL_RANGE_CHECK("QColor::setAlphaF", alpha);
+    if (cspec == ExtendedRgb) {
+        castF16(ct.argbExtended.alphaF16) = alpha;
+        return;
+    }
     qreal tmp = alpha * USHRT_MAX;
     ct.argb.alpha = qRound(tmp);
 }
@@ -1465,7 +1537,7 @@ void QColor::setAlphaF(qreal alpha)
 
     \sa setRed(), redF(), getRgb()
 */
-int QColor::red() const Q_DECL_NOTHROW
+int QColor::red() const noexcept
 {
     if (cspec != Invalid && cspec != Rgb)
         return toRgb().red();
@@ -1492,7 +1564,7 @@ void QColor::setRed(int red)
 
     \sa setGreen(), greenF(), getRgb()
 */
-int QColor::green() const Q_DECL_NOTHROW
+int QColor::green() const noexcept
 {
     if (cspec != Invalid && cspec != Rgb)
         return toRgb().green();
@@ -1520,7 +1592,7 @@ void QColor::setGreen(int green)
 
     \sa setBlue(), blueF(), getRgb()
 */
-int QColor::blue() const Q_DECL_NOTHROW
+int QColor::blue() const noexcept
 {
     if (cspec != Invalid && cspec != Rgb)
         return toRgb().blue();
@@ -1548,27 +1620,31 @@ void QColor::setBlue(int blue)
 
     \sa setRedF(), red(), getRgbF()
 */
-qreal QColor::redF() const Q_DECL_NOTHROW
+qreal QColor::redF() const noexcept
 {
-    if (cspec != Invalid && cspec != Rgb)
-        return toRgb().redF();
-    return ct.argb.red / qreal(USHRT_MAX);
+    if (cspec == Rgb || cspec == Invalid)
+        return ct.argb.red / qreal(USHRT_MAX);
+    if (cspec == ExtendedRgb)
+        return castF16(ct.argbExtended.redF16);
+
+    return toRgb().redF();
 }
 
 
 /*!
-    Sets the red color component of this color to \a red. Float components
-    are specified in the range 0.0-1.0.
+    Sets the red color component of this color to \a red. If \a red lies outside
+    the 0.0-1.0 range, the color model will be changed to \c ExtendedRgb.
 
     \sa redF(), red(), setRgbF()
 */
 void QColor::setRedF(qreal red)
 {
-    QCOLOR_REAL_RANGE_CHECK("QColor::setRedF", red);
-    if (cspec != Rgb)
-        setRgbF(red, greenF(), blueF(), alphaF());
-    else
+    if (cspec == Rgb && red >= qreal(0.0) && red <= qreal(1.0))
         ct.argb.red = qRound(red * USHRT_MAX);
+    else if (cspec == ExtendedRgb)
+        castF16(ct.argbExtended.redF16) = red;
+    else
+        setRgbF(red, greenF(), blueF(), alphaF());
 }
 
 /*!
@@ -1576,27 +1652,31 @@ void QColor::setRedF(qreal red)
 
     \sa setGreenF(), green(), getRgbF()
 */
-qreal QColor::greenF() const Q_DECL_NOTHROW
+qreal QColor::greenF() const noexcept
 {
-    if (cspec != Invalid && cspec != Rgb)
-        return toRgb().greenF();
-    return ct.argb.green / qreal(USHRT_MAX);
+    if (cspec == Rgb || cspec == Invalid)
+        return ct.argb.green / qreal(USHRT_MAX);
+    if (cspec == ExtendedRgb)
+        return castF16(ct.argbExtended.greenF16);
+
+    return toRgb().greenF();
 }
 
 
 /*!
-    Sets the green color component of this color to \a green. Float components
-    are specified in the range 0.0-1.0.
+    Sets the green color component of this color to \a green. If \a green lies outside
+    the 0.0-1.0 range, the color model will be changed to \c ExtendedRgb.
 
     \sa greenF(), green(), setRgbF()
 */
 void QColor::setGreenF(qreal green)
 {
-    QCOLOR_REAL_RANGE_CHECK("QColor::setGreenF", green);
-    if (cspec != Rgb)
-        setRgbF(redF(), green, blueF(), alphaF());
-    else
+    if (cspec == Rgb && green >= qreal(0.0) && green <= qreal(1.0))
         ct.argb.green = qRound(green * USHRT_MAX);
+    else if (cspec == ExtendedRgb)
+        castF16(ct.argbExtended.greenF16) = green;
+    else
+        setRgbF(redF(), green, blueF(), alphaF());
 }
 
 /*!
@@ -1604,26 +1684,29 @@ void QColor::setGreenF(qreal green)
 
      \sa setBlueF(), blue(), getRgbF()
 */
-qreal QColor::blueF() const Q_DECL_NOTHROW
+qreal QColor::blueF() const noexcept
 {
-    if (cspec != Invalid && cspec != Rgb)
-        return toRgb().blueF();
-    return ct.argb.blue / qreal(USHRT_MAX);
+    if (cspec == Rgb || cspec == Invalid)
+        return ct.argb.blue / qreal(USHRT_MAX);
+    if (cspec == ExtendedRgb)
+        return castF16(ct.argbExtended.blueF16);
+
+    return toRgb().blueF();
 }
 
 /*!
-    Sets the blue color component of this color to \a blue. Float components
-    are specified in the range 0.0-1.0.
-
+    Sets the blue color component of this color to \a blue. If \a blue lies outside
+    the 0.0-1.0 range, the color model will be changed to \c ExtendedRgb.
     \sa blueF(), blue(), setRgbF()
 */
 void QColor::setBlueF(qreal blue)
 {
-    QCOLOR_REAL_RANGE_CHECK("QColor::setBlueF", blue);
-    if (cspec != Rgb)
-        setRgbF(redF(), greenF(), blue, alphaF());
-    else
+    if (cspec == Rgb && blue >= qreal(0.0) && blue <= qreal(1.0))
         ct.argb.blue = qRound(blue * USHRT_MAX);
+    else if (cspec == ExtendedRgb)
+        castF16(ct.argbExtended.blueF16) = blue;
+    else
+        setRgbF(redF(), greenF(), blue, alphaF());
 }
 
 /*!
@@ -1634,7 +1717,7 @@ void QColor::setBlueF(qreal blue)
     \sa hsvHue(), hslHue(), hueF(), getHsv(), {QColor#The HSV Color Model}{The HSV Color Model}
 */
 
-int QColor::hue() const Q_DECL_NOTHROW
+int QColor::hue() const noexcept
 {
     return hsvHue();
 }
@@ -1644,7 +1727,7 @@ int QColor::hue() const Q_DECL_NOTHROW
 
     \sa hueF(), hslHue(), getHsv(), {QColor#The HSV Color Model}{The HSV Color Model}
 */
-int QColor::hsvHue() const Q_DECL_NOTHROW
+int QColor::hsvHue() const noexcept
 {
     if (cspec != Invalid && cspec != Hsv)
         return toHsv().hue();
@@ -1660,7 +1743,7 @@ int QColor::hsvHue() const Q_DECL_NOTHROW
     Model}
 */
 
-int QColor::saturation() const Q_DECL_NOTHROW
+int QColor::saturation() const noexcept
 {
     return hsvSaturation();
 }
@@ -1670,7 +1753,7 @@ int QColor::saturation() const Q_DECL_NOTHROW
 
     \sa saturationF(), hslSaturation(), getHsv(), {QColor#The HSV Color Model}{The HSV Color Model}
 */
-int QColor::hsvSaturation() const Q_DECL_NOTHROW
+int QColor::hsvSaturation() const noexcept
 {
     if (cspec != Invalid && cspec != Hsv)
         return toHsv().saturation();
@@ -1682,7 +1765,7 @@ int QColor::hsvSaturation() const Q_DECL_NOTHROW
 
     \sa valueF(), getHsv(), {QColor#The HSV Color Model}{The HSV Color Model}
 */
-int QColor::value() const Q_DECL_NOTHROW
+int QColor::value() const noexcept
 {
     if (cspec != Invalid && cspec != Hsv)
         return toHsv().value();
@@ -1696,7 +1779,7 @@ int QColor::value() const Q_DECL_NOTHROW
 
     \sa hsvHueF(), hslHueF(), hue(), getHsvF(), {QColor#The HSV Color Model}{The HSV Color Model}
 */
-qreal QColor::hueF() const Q_DECL_NOTHROW
+qreal QColor::hueF() const noexcept
 {
     return hsvHueF();
 }
@@ -1707,7 +1790,7 @@ qreal QColor::hueF() const Q_DECL_NOTHROW
     \sa hue(), hslHueF(), getHsvF(), {QColor#The HSV Color Model}{The HSV Color
     Model}
 */
-qreal QColor::hsvHueF() const Q_DECL_NOTHROW
+qreal QColor::hsvHueF() const noexcept
 {
     if (cspec != Invalid && cspec != Hsv)
         return toHsv().hueF();
@@ -1722,7 +1805,7 @@ qreal QColor::hsvHueF() const Q_DECL_NOTHROW
     \sa hsvSaturationF(), hslSaturationF(), saturation(), getHsvF(), {QColor#The HSV Color Model}{The HSV Color
     Model}
 */
-qreal QColor::saturationF() const Q_DECL_NOTHROW
+qreal QColor::saturationF() const noexcept
 {
     return hsvSaturationF();
 }
@@ -1732,7 +1815,7 @@ qreal QColor::saturationF() const Q_DECL_NOTHROW
 
     \sa saturation(), hslSaturationF(), getHsvF(), {QColor#The HSV Color Model}{The HSV Color Model}
 */
-qreal QColor::hsvSaturationF() const Q_DECL_NOTHROW
+qreal QColor::hsvSaturationF() const noexcept
 {
     if (cspec != Invalid && cspec != Hsv)
         return toHsv().saturationF();
@@ -1744,7 +1827,7 @@ qreal QColor::hsvSaturationF() const Q_DECL_NOTHROW
 
     \sa value(), getHsvF(), {QColor#The HSV Color Model}{The HSV Color Model}
 */
-qreal QColor::valueF() const Q_DECL_NOTHROW
+qreal QColor::valueF() const noexcept
 {
     if (cspec != Invalid && cspec != Hsv)
         return toHsv().valueF();
@@ -1758,7 +1841,7 @@ qreal QColor::valueF() const Q_DECL_NOTHROW
 
     \sa hslHueF(), hsvHue(), getHsl(), {QColor#The HSL Color Model}{The HSL Color Model}
 */
-int QColor::hslHue() const Q_DECL_NOTHROW
+int QColor::hslHue() const noexcept
 {
     if (cspec != Invalid && cspec != Hsl)
         return toHsl().hslHue();
@@ -1772,7 +1855,7 @@ int QColor::hslHue() const Q_DECL_NOTHROW
 
     \sa hslSaturationF(), hsvSaturation(), getHsl(), {QColor#The HSL Color Model}{The HSL Color Model}
 */
-int QColor::hslSaturation() const Q_DECL_NOTHROW
+int QColor::hslSaturation() const noexcept
 {
     if (cspec != Invalid && cspec != Hsl)
         return toHsl().hslSaturation();
@@ -1786,7 +1869,7 @@ int QColor::hslSaturation() const Q_DECL_NOTHROW
 
     \sa lightnessF(), getHsl()
 */
-int QColor::lightness() const Q_DECL_NOTHROW
+int QColor::lightness() const noexcept
 {
     if (cspec != Invalid && cspec != Hsl)
         return toHsl().lightness();
@@ -1800,7 +1883,7 @@ int QColor::lightness() const Q_DECL_NOTHROW
 
     \sa hslHue(), hsvHueF(), getHslF()
 */
-qreal QColor::hslHueF() const Q_DECL_NOTHROW
+qreal QColor::hslHueF() const noexcept
 {
     if (cspec != Invalid && cspec != Hsl)
         return toHsl().hslHueF();
@@ -1814,7 +1897,7 @@ qreal QColor::hslHueF() const Q_DECL_NOTHROW
 
     \sa hslSaturation(), hsvSaturationF(), getHslF(), {QColor#The HSL Color Model}{The HSL Color Model}
 */
-qreal QColor::hslSaturationF() const Q_DECL_NOTHROW
+qreal QColor::hslSaturationF() const noexcept
 {
     if (cspec != Invalid && cspec != Hsl)
         return toHsl().hslSaturationF();
@@ -1828,7 +1911,7 @@ qreal QColor::hslSaturationF() const Q_DECL_NOTHROW
 
     \sa value(), getHslF()
 */
-qreal QColor::lightnessF() const Q_DECL_NOTHROW
+qreal QColor::lightnessF() const noexcept
 {
     if (cspec != Invalid && cspec != Hsl)
         return toHsl().lightnessF();
@@ -1840,7 +1923,7 @@ qreal QColor::lightnessF() const Q_DECL_NOTHROW
 
     \sa cyanF(), getCmyk(), {QColor#The CMYK Color Model}{The CMYK Color Model}
 */
-int QColor::cyan() const Q_DECL_NOTHROW
+int QColor::cyan() const noexcept
 {
     if (cspec != Invalid && cspec != Cmyk)
         return toCmyk().cyan();
@@ -1852,7 +1935,7 @@ int QColor::cyan() const Q_DECL_NOTHROW
 
     \sa magentaF(), getCmyk(), {QColor#The CMYK Color Model}{The CMYK Color Model}
 */
-int QColor::magenta() const Q_DECL_NOTHROW
+int QColor::magenta() const noexcept
 {
     if (cspec != Invalid && cspec != Cmyk)
         return toCmyk().magenta();
@@ -1864,7 +1947,7 @@ int QColor::magenta() const Q_DECL_NOTHROW
 
     \sa yellowF(), getCmyk(), {QColor#The CMYK Color Model}{The CMYK Color Model}
 */
-int QColor::yellow() const Q_DECL_NOTHROW
+int QColor::yellow() const noexcept
 {
     if (cspec != Invalid && cspec != Cmyk)
         return toCmyk().yellow();
@@ -1877,7 +1960,7 @@ int QColor::yellow() const Q_DECL_NOTHROW
     \sa blackF(), getCmyk(), {QColor#The CMYK Color Model}{The CMYK Color Model}
 
 */
-int QColor::black() const Q_DECL_NOTHROW
+int QColor::black() const noexcept
 {
     if (cspec != Invalid && cspec != Cmyk)
         return toCmyk().black();
@@ -1889,7 +1972,7 @@ int QColor::black() const Q_DECL_NOTHROW
 
     \sa cyan(), getCmykF(), {QColor#The CMYK Color Model}{The CMYK Color Model}
 */
-qreal QColor::cyanF() const Q_DECL_NOTHROW
+qreal QColor::cyanF() const noexcept
 {
     if (cspec != Invalid && cspec != Cmyk)
         return toCmyk().cyanF();
@@ -1901,7 +1984,7 @@ qreal QColor::cyanF() const Q_DECL_NOTHROW
 
     \sa magenta(), getCmykF(), {QColor#The CMYK Color Model}{The CMYK Color Model}
 */
-qreal QColor::magentaF() const Q_DECL_NOTHROW
+qreal QColor::magentaF() const noexcept
 {
     if (cspec != Invalid && cspec != Cmyk)
         return toCmyk().magentaF();
@@ -1913,7 +1996,7 @@ qreal QColor::magentaF() const Q_DECL_NOTHROW
 
      \sa yellow(), getCmykF(), {QColor#The CMYK Color Model}{The CMYK Color Model}
 */
-qreal QColor::yellowF() const Q_DECL_NOTHROW
+qreal QColor::yellowF() const noexcept
 {
     if (cspec != Invalid && cspec != Cmyk)
         return toCmyk().yellowF();
@@ -1925,7 +2008,7 @@ qreal QColor::yellowF() const Q_DECL_NOTHROW
 
     \sa black(), getCmykF(), {QColor#The CMYK Color Model}{The CMYK Color Model}
 */
-qreal QColor::blackF() const Q_DECL_NOTHROW
+qreal QColor::blackF() const noexcept
 {
     if (cspec != Invalid && cspec != Cmyk)
         return toCmyk().blackF();
@@ -1933,18 +2016,43 @@ qreal QColor::blackF() const Q_DECL_NOTHROW
 }
 
 /*!
+    Create and returns an extended RGB QColor based on this color.
+    \since 5.14
+
+    \sa toRgb, convertTo()
+*/
+QColor QColor::toExtendedRgb() const noexcept
+{
+    if (!isValid() || cspec == ExtendedRgb)
+        return *this;
+    if (cspec != Rgb)
+        return toRgb().toExtendedRgb();
+
+    constexpr qreal f = qreal(1.0) / USHRT_MAX;
+    QColor color;
+    color.cspec = ExtendedRgb;
+    castF16(color.ct.argbExtended.alphaF16) = qfloat16(ct.argb.alpha * f);
+    castF16(color.ct.argbExtended.redF16)   = qfloat16(ct.argb.red   * f);
+    castF16(color.ct.argbExtended.greenF16) = qfloat16(ct.argb.green * f);
+    castF16(color.ct.argbExtended.blueF16)  = qfloat16(ct.argb.blue  * f);
+    color.ct.argbExtended.pad = 0;
+    return color;
+}
+
+/*!
     Create and returns an RGB QColor based on this color.
 
     \sa fromRgb(), convertTo(), isValid()
 */
-QColor QColor::toRgb() const Q_DECL_NOTHROW
+QColor QColor::toRgb() const noexcept
 {
     if (!isValid() || cspec == Rgb)
         return *this;
 
     QColor color;
     color.cspec = Rgb;
-    color.ct.argb.alpha = ct.argb.alpha;
+    if (cspec != ExtendedRgb)
+        color.ct.argb.alpha = ct.argb.alpha;
     color.ct.argb.pad = 0;
 
     switch (cspec) {
@@ -2066,6 +2174,12 @@ QColor QColor::toRgb() const Q_DECL_NOTHROW
             color.ct.argb.blue  = qRound((qreal(1.0) - (y * (qreal(1.0) - k) + k)) * USHRT_MAX);
             break;
         }
+    case ExtendedRgb:
+        color.ct.argb.alpha = qRound(USHRT_MAX * qreal(castF16(ct.argbExtended.alphaF16)));
+        color.ct.argb.red   = qRound(USHRT_MAX * qBound(qreal(0.0), qreal(castF16(ct.argbExtended.redF16)),   qreal(1.0)));
+        color.ct.argb.green = qRound(USHRT_MAX * qBound(qreal(0.0), qreal(castF16(ct.argbExtended.greenF16)), qreal(1.0)));
+        color.ct.argb.blue  = qRound(USHRT_MAX * qBound(qreal(0.0), qreal(castF16(ct.argbExtended.blueF16)),  qreal(1.0)));
+        break;
     default:
         break;
     }
@@ -2083,7 +2197,7 @@ QColor QColor::toRgb() const Q_DECL_NOTHROW
 
     \sa fromHsv(), convertTo(), isValid(), {QColor#The HSV Color Model}{The HSV Color Model}
 */
-QColor QColor::toHsv() const Q_DECL_NOTHROW
+QColor QColor::toHsv() const noexcept
 {
     if (!isValid() || cspec == Hsv)
         return *this;
@@ -2134,7 +2248,7 @@ QColor QColor::toHsv() const Q_DECL_NOTHROW
 
     \sa fromHsl(), convertTo(), isValid(), {QColor#The HSL Color Model}{The HSL Color Model}
 */
-QColor QColor::toHsl() const Q_DECL_NOTHROW
+QColor QColor::toHsl() const noexcept
 {
     if (!isValid() || cspec == Hsl)
         return *this;
@@ -2190,7 +2304,7 @@ QColor QColor::toHsl() const Q_DECL_NOTHROW
 
     \sa fromCmyk(), convertTo(), isValid(), {QColor#The CMYK Color Model}{The CMYK Color Model}
 */
-QColor QColor::toCmyk() const Q_DECL_NOTHROW
+QColor QColor::toCmyk() const noexcept
 {
     if (!isValid() || cspec == Cmyk)
         return *this;
@@ -2231,13 +2345,15 @@ QColor QColor::toCmyk() const Q_DECL_NOTHROW
     return color;
 }
 
-QColor QColor::convertTo(QColor::Spec colorSpec) const Q_DECL_NOTHROW
+QColor QColor::convertTo(QColor::Spec colorSpec) const noexcept
 {
     if (colorSpec == cspec)
         return *this;
     switch (colorSpec) {
     case Rgb:
         return toRgb();
+    case ExtendedRgb:
+        return toExtendedRgb();
     case Hsv:
         return toHsv();
     case Cmyk:
@@ -2262,7 +2378,7 @@ QColor QColor::convertTo(QColor::Spec colorSpec) const Q_DECL_NOTHROW
     \sa fromRgba(), fromRgbF(), toRgb(), isValid()
 */
 
-QColor QColor::fromRgb(QRgb rgb) Q_DECL_NOTHROW
+QColor QColor::fromRgb(QRgb rgb) noexcept
 {
     return fromRgb(qRed(rgb), qGreen(rgb), qBlue(rgb));
 }
@@ -2278,7 +2394,7 @@ QColor QColor::fromRgb(QRgb rgb) Q_DECL_NOTHROW
     \sa fromRgb(), fromRgba64(), isValid()
 */
 
-QColor QColor::fromRgba(QRgb rgba) Q_DECL_NOTHROW
+QColor QColor::fromRgba(QRgb rgba) noexcept
 {
     return fromRgb(qRed(rgba), qGreen(rgba), qBlue(rgba), qAlpha(rgba));
 }
@@ -2294,10 +2410,7 @@ QColor QColor::fromRgba(QRgb rgba) Q_DECL_NOTHROW
 */
 QColor QColor::fromRgb(int r, int g, int b, int a)
 {
-    if (r < 0 || r > 255
-        || g < 0 || g > 255
-        || b < 0 || b > 255
-        || a < 0 || a > 255) {
+    if (!isRgbaValid(r, g, b, a)) {
         qWarning("QColor::fromRgb: RGB parameters out of range");
         return QColor();
     }
@@ -2317,18 +2430,30 @@ QColor QColor::fromRgb(int r, int g, int b, int a)
     color values, \a r (red), \a g (green), \a b (blue), and \a a
     (alpha-channel, i.e. transparency).
 
-    All the values must be in the range 0.0-1.0.
+    The alpha value must be in the range 0.0-1.0.
+    If any of the other values are outside the range of 0.0-1.0 the
+    color model will be set as \c ExtendedRgb.
 
     \sa fromRgb(), fromRgba64(), toRgb(), isValid()
 */
 QColor QColor::fromRgbF(qreal r, qreal g, qreal b, qreal a)
 {
-    if (r < qreal(0.0) || r > qreal(1.0)
-        || g < qreal(0.0) || g > qreal(1.0)
-        || b < qreal(0.0) || b > qreal(1.0)
-        || a < qreal(0.0) || a > qreal(1.0)) {
-        qWarning("QColor::fromRgbF: RGB parameters out of range");
+    if (a < qreal(0.0) || a > qreal(1.0)) {
+        qWarning("QColor::fromRgbF: Alpha parameter out of range");
         return QColor();
+    }
+
+    if (r < qreal(0.0) || r > qreal(1.0)
+            || g < qreal(0.0) || g > qreal(1.0)
+            || b < qreal(0.0) || b > qreal(1.0)) {
+        QColor color;
+        color.cspec = ExtendedRgb;
+        castF16(color.ct.argbExtended.alphaF16) = qfloat16(a);
+        castF16(color.ct.argbExtended.redF16)   = qfloat16(r);
+        castF16(color.ct.argbExtended.greenF16) = qfloat16(g);
+        castF16(color.ct.argbExtended.blueF16)  = qfloat16(b);
+        color.ct.argbExtended.pad   = 0;
+        return color;
     }
 
     QColor color;
@@ -2351,7 +2476,7 @@ QColor QColor::fromRgbF(qreal r, qreal g, qreal b, qreal a)
 
     \sa fromRgb(), fromRgbF(), toRgb(), isValid()
 */
-QColor QColor::fromRgba64(ushort r, ushort g, ushort b, ushort a) Q_DECL_NOTHROW
+QColor QColor::fromRgba64(ushort r, ushort g, ushort b, ushort a) noexcept
 {
     QColor color;
     color.setRgba64(qRgba64(r, g, b, a));
@@ -2366,7 +2491,7 @@ QColor QColor::fromRgba64(ushort r, ushort g, ushort b, ushort a) Q_DECL_NOTHROW
 
     \sa fromRgb(), fromRgbF(), toRgb(), isValid()
 */
-QColor QColor::fromRgba64(QRgba64 rgba64) Q_DECL_NOTHROW
+QColor QColor::fromRgba64(QRgba64 rgba64) noexcept
 {
     QColor color;
     color.setRgba64(rgba64);
@@ -2714,7 +2839,7 @@ QColor QColor::fromCmykF(qreal c, qreal m, qreal y, qreal k, qreal a)
 
     \sa darker(), isValid()
 */
-QColor QColor::lighter(int factor) const Q_DECL_NOTHROW
+QColor QColor::lighter(int factor) const noexcept
 {
     if (factor <= 0)                                // invalid lightness factor
         return *this;
@@ -2759,7 +2884,7 @@ QColor QColor::lighter(int factor) const Q_DECL_NOTHROW
 
     \sa lighter(), isValid()
 */
-QColor QColor::darker(int factor) const Q_DECL_NOTHROW
+QColor QColor::darker(int factor) const noexcept
 {
     if (factor <= 0)                                // invalid darkness factor
         return *this;
@@ -2779,7 +2904,7 @@ QColor QColor::darker(int factor) const Q_DECL_NOTHROW
 
     Use lighter(\a factor) instead.
 */
-QColor QColor::light(int factor) const Q_DECL_NOTHROW
+QColor QColor::light(int factor) const noexcept
 {
     return lighter(factor);
 }
@@ -2789,7 +2914,7 @@ QColor QColor::light(int factor) const Q_DECL_NOTHROW
 
     Use darker(\a factor) instead.
 */
-QColor QColor::dark(int factor) const Q_DECL_NOTHROW
+QColor QColor::dark(int factor) const noexcept
 {
     return darker(factor);
 }
@@ -2799,7 +2924,7 @@ QColor QColor::dark(int factor) const Q_DECL_NOTHROW
 /*!
     Assigns a copy of \a color to this color, and returns a reference to it.
 */
-QColor &QColor::operator=(const QColor &color) Q_DECL_NOTHROW
+QColor &QColor::operator=(const QColor &color) noexcept
 {
     cspec = color.cspec;
     ct.argb = color.ct.argb;
@@ -2810,7 +2935,7 @@ QColor &QColor::operator=(const QColor &color) Q_DECL_NOTHROW
 /*! \overload
     Assigns a copy of \a color and returns a reference to this color.
  */
-QColor &QColor::operator=(Qt::GlobalColor color) Q_DECL_NOTHROW
+QColor &QColor::operator=(Qt::GlobalColor color) noexcept
 {
     return operator=(QColor(color));
 }
@@ -2819,7 +2944,7 @@ QColor &QColor::operator=(Qt::GlobalColor color) Q_DECL_NOTHROW
     Returns \c true if this color has the same RGB and alpha values as \a color;
     otherwise returns \c false.
 */
-bool QColor::operator==(const QColor &color) const Q_DECL_NOTHROW
+bool QColor::operator==(const QColor &color) const noexcept
 {
     if (cspec == Hsl && cspec == color.cspec) {
         return (ct.argb.alpha == color.ct.argb.alpha
@@ -2846,7 +2971,7 @@ bool QColor::operator==(const QColor &color) const Q_DECL_NOTHROW
     Returns \c true if this color has a different RGB and alpha values from
     \a color; otherwise returns \c false.
 */
-bool QColor::operator!=(const QColor &color) const Q_DECL_NOTHROW
+bool QColor::operator!=(const QColor &color) const noexcept
 { return !operator==(color); }
 
 
@@ -2863,7 +2988,7 @@ QColor::operator QVariant() const
     Marks the color as invalid and sets all components to zero (alpha is set
     to fully opaque for compatibility with Qt 3).
 */
-void QColor::invalidate() Q_DECL_NOTHROW
+void QColor::invalidate() noexcept
 {
     cspec = Invalid;
     ct.argb.alpha = USHRT_MAX;
@@ -2885,6 +3010,8 @@ QDebug operator<<(QDebug dbg, const QColor &c)
         dbg.nospace() << "QColor(Invalid)";
     else if (c.spec() == QColor::Rgb)
         dbg.nospace() << "QColor(ARGB " << c.alphaF() << ", " << c.redF() << ", " << c.greenF() << ", " << c.blueF() << ')';
+    else if (c.spec() == QColor::ExtendedRgb)
+        dbg.nospace() << "QColor(Ext. ARGB " << c.alphaF() << ", " << c.redF() << ", " << c.greenF() << ", " << c.blueF() << ')';
     else if (c.spec() == QColor::Hsv)
         dbg.nospace() << "QColor(AHSV " << c.alphaF() << ", " << c.hueF() << ", " << c.saturationF() << ", " << c.valueF() << ')';
     else if (c.spec() == QColor::Cmyk)
@@ -3132,6 +3259,44 @@ const uint qt_inv_premul_factor[256] = {
     \l{QColor#Alpha-Blended Drawing}{Alpha-Blended Drawing} section.
 
     \sa QColor::rgb(), QColor::rgba()
+*/
+
+/*!
+    \namespace QColorConstants
+    \inmodule QtGui
+    \since 5.14
+
+    \brief The QColorConstants namespace contains QColor predefined constants.
+
+    These constants are usable everywhere a QColor object is expected:
+
+    \code
+    painter.setBrush(QColorConstants::Svg::lightblue);
+    \endcode
+
+    Their usage is much cheaper than e.g. passing a string to QColor's constructor,
+    as they don't require any parsing of the string, and always result in a valid
+    QColor object:
+
+    \badcode
+    object.setColor(QColor("lightblue")); // expensive
+    \endcode
+
+    \section1 Qt Colors
+
+    The following colors are defined in the \c{QColorConstants} namespace:
+
+    \include qt-colors.qdocinc
+
+    \section1 SVG Colors
+
+    The following table lists the available
+    \l {http://www.w3.org/TR/SVG/types.html#ColorKeywords}{SVG colors}.
+    They are available in the \c{QColorConstants::Svg} inner namespace.
+
+    \include svg-colors.qdocinc
+
+    \sa QColor, Qt::GlobalColor
 */
 
 QT_END_NAMESPACE

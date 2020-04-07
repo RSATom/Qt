@@ -47,6 +47,8 @@
 #include <QtCore/qdebug.h>
 #include <QtCore/qmutex.h>
 
+#include <mutex>
+
 #define UPDATE_INTERVAL_5S  5000
 
 typedef QHash<QString, QGeoAreaMonitorInfo> MonitorTable;
@@ -74,7 +76,7 @@ class QGeoAreaMonitorPollingPrivate : public QObject
 {
     Q_OBJECT
 public:
-    QGeoAreaMonitorPollingPrivate() : source(0), mutex(QMutex::Recursive)
+    QGeoAreaMonitorPollingPrivate()
     {
         nextExpiryTimer = new QTimer(this);
         nextExpiryTimer->setSingleShot(true);
@@ -84,7 +86,7 @@ public:
 
     void startMonitoring(const QGeoAreaMonitorInfo &monitor)
     {
-        QMutexLocker locker(&mutex);
+        const std::lock_guard<QRecursiveMutex> locker(mutex);
 
         activeMonitorAreas.insert(monitor.identifier(), monitor);
         singleShotTrigger.remove(monitor.identifier());
@@ -95,7 +97,7 @@ public:
 
     void requestUpdate(const QGeoAreaMonitorInfo &monitor, int signalId)
     {
-        QMutexLocker locker(&mutex);
+        const std::lock_guard<QRecursiveMutex> locker(mutex);
 
         activeMonitorAreas.insert(monitor.identifier(), monitor);
         singleShotTrigger.insert(monitor.identifier(), signalId);
@@ -106,7 +108,7 @@ public:
 
     QGeoAreaMonitorInfo stopMonitoring(const QGeoAreaMonitorInfo &monitor)
     {
-        QMutexLocker locker(&mutex);
+        const std::lock_guard<QRecursiveMutex> locker(mutex);
 
         QGeoAreaMonitorInfo mon = activeMonitorAreas.take(monitor.identifier());
 
@@ -118,7 +120,7 @@ public:
 
     void registerClient(QGeoAreaMonitorPolling *client)
     {
-        QMutexLocker locker(&mutex);
+        const std::lock_guard<QRecursiveMutex> locker(mutex);
 
         connect(this, SIGNAL(timeout(QGeoAreaMonitorInfo)),
                 client, SLOT(timeout(QGeoAreaMonitorInfo)));
@@ -134,7 +136,7 @@ public:
 
     void deregisterClient(QGeoAreaMonitorPolling *client)
     {
-        QMutexLocker locker(&mutex);
+        const std::lock_guard<QRecursiveMutex> locker(mutex);
 
         registeredClients.removeAll(client);
         if (registeredClients.isEmpty())
@@ -143,7 +145,7 @@ public:
 
     void setPositionSource(QGeoPositionInfoSource *newSource)
     {
-        QMutexLocker locker(&mutex);
+        const std::lock_guard<QRecursiveMutex> locker(mutex);
 
         if (newSource == source)
             return;
@@ -169,20 +171,20 @@ public:
 
     QGeoPositionInfoSource* positionSource() const
     {
-        QMutexLocker locker(&mutex);
+        const std::lock_guard<QRecursiveMutex> locker(mutex);
         return source;
     }
 
     MonitorTable activeMonitors() const
     {
-        QMutexLocker locker(&mutex);
+        const std::lock_guard<QRecursiveMutex> locker(mutex);
 
         return activeMonitorAreas;
     }
 
     void checkStartStop()
     {
-        QMutexLocker locker(&mutex);
+        const std::lock_guard<QRecursiveMutex> locker(mutex);
 
         bool signalsConnected = false;
         foreach (const QGeoAreaMonitorPolling *client, registeredClients) {
@@ -307,9 +309,9 @@ private:
 
     MonitorTable activeMonitorAreas;
 
-    QGeoPositionInfoSource* source;
+    QGeoPositionInfoSource* source = nullptr;
     QList<QGeoAreaMonitorPolling*> registeredClients;
-    mutable QMutex mutex;
+    mutable QRecursiveMutex mutex;
 };
 
 Q_GLOBAL_STATIC(QGeoAreaMonitorPollingPrivate, pollingPrivate)

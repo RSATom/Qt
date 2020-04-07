@@ -8,6 +8,7 @@
 #include <utility>
 #include <vector>
 
+#include "base/bind.h"
 #include "base/run_loop.h"
 #include "base/test/scoped_task_environment.h"
 #include "base/threading/thread.h"
@@ -41,7 +42,7 @@ class FakeRemoteFactory : public mojom::RendererAudioOutputStreamFactory {
 
   void RequestDeviceAuthorization(
       media::mojom::AudioOutputStreamProviderRequest stream_provider,
-      int32_t session_id,
+      const base::Optional<base::UnguessableToken>& session_id,
       const std::string& device_id,
       RequestDeviceAuthorizationCallback callback) override {
     std::move(callback).Run(
@@ -87,7 +88,8 @@ class AudioOutputIPCFactoryTest : public testing::Test {
 
   void RequestAuthorizationOnIOThread(
       std::unique_ptr<media::AudioOutputIPC> output_ipc) {
-    output_ipc->RequestDeviceAuthorization(&fake_delegate, 0, "");
+    output_ipc->RequestDeviceAuthorization(&fake_delegate,
+                                           base::UnguessableToken(), "");
 
     output_ipc->CloseStream();
   }

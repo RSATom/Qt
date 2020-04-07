@@ -20,11 +20,11 @@
 #include "base/test/scoped_feature_list.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
-#include "components/autofill/core/browser/autofill_metadata.h"
-#include "components/autofill/core/browser/autofill_profile.h"
 #include "components/autofill/core/browser/autofill_test_utils.h"
 #include "components/autofill/core/browser/autofill_type.h"
-#include "components/autofill/core/browser/credit_card.h"
+#include "components/autofill/core/browser/data_model/autofill_metadata.h"
+#include "components/autofill/core/browser/data_model/autofill_profile.h"
+#include "components/autofill/core/browser/data_model/credit_card.h"
 #include "components/autofill/core/browser/payments/payments_customer_data.h"
 #include "components/autofill/core/browser/webdata/autofill_change.h"
 #include "components/autofill/core/browser/webdata/autofill_entry.h"
@@ -818,33 +818,9 @@ TEST_F(AutofillTableTest,
   changes.clear();
 }
 
-// Tests that we set the change type to REMOVE for expired elements when the
-// Autocomplete Retention Policy feature flag is off.
-TEST_F(AutofillTableTest, RemoveExpiredFormElements_FlagOff_Removes) {
-  scoped_feature_list_.InitAndDisableFeature(
-      features::kAutocompleteRetentionPolicyEnabled);
-  auto kNow = AutofillClock::Now();
-  auto k4MonthsOld = kNow - base::TimeDelta::FromDays(4 * 30);
-
-  AutofillChangeList changes;
-  FormFieldData field;
-  field.name = ASCIIToUTF16("Name");
-  field.value = ASCIIToUTF16("Superman");
-  EXPECT_TRUE(table_->AddFormFieldValueTime(field, &changes, k4MonthsOld));
-  changes.clear();
-
-  EXPECT_TRUE(table_->RemoveExpiredFormElements(&changes));
-
-  EXPECT_EQ(AutofillChange(AutofillChange::REMOVE,
-                           AutofillKey(field.name, field.value)),
-            changes[0]);
-}
-
-// Tests that we set the change type to EXPIRE for expired elements when the
-// Autocomplete Retention Policy feature flag is on.
-TEST_F(AutofillTableTest, RemoveExpiredFormElements_FlagOn_Expires) {
-  scoped_feature_list_.InitAndEnableFeature(
-      features::kAutocompleteRetentionPolicyEnabled);
+// Tests that we set the change type to EXPIRE for expired elements and we
+// delete an old entry.
+TEST_F(AutofillTableTest, RemoveExpiredFormElements_Expires_DeleteEntry) {
   auto kNow = AutofillClock::Now();
   auto k2YearsOld = kNow - base::TimeDelta::FromDays(
                                2 * kAutocompleteRetentionPolicyPeriodInDays);
@@ -863,11 +839,9 @@ TEST_F(AutofillTableTest, RemoveExpiredFormElements_FlagOn_Expires) {
             changes[0]);
 }
 
-// Tests that, with the Autocomplete Retention Policy feature flag on, we don't
+// Tests that we don't
 // delete non-expired entries' data from the SQLite table.
-TEST_F(AutofillTableTest, RemoveExpiredFormElements_FlagOn_NotOldEnough) {
-  scoped_feature_list_.InitAndEnableFeature(
-      features::kAutocompleteRetentionPolicyEnabled);
+TEST_F(AutofillTableTest, RemoveExpiredFormElements_NotOldEnough) {
   auto kNow = AutofillClock::Now();
   auto k2DaysOld = kNow - base::TimeDelta::FromDays(2);
 
@@ -1519,16 +1493,15 @@ TEST_F(AutofillTableTest, RemoveAutofillDataModifiedBetween) {
       "VALUES('00000000-0000-0000-0000-000000000011', 67);"));
 
   // Remove all entries modified in the bounded time range [17,41).
-  std::vector<std::string> profile_guids;
-  std::vector<std::string> credit_card_guids;
+  std::vector<std::unique_ptr<AutofillProfile>> profiles;
+  std::vector<std::unique_ptr<CreditCard>> credit_cards;
   table_->RemoveAutofillDataModifiedBetween(
-      Time::FromTimeT(17), Time::FromTimeT(41),
-      &profile_guids, &credit_card_guids);
+      Time::FromTimeT(17), Time::FromTimeT(41), &profiles, &credit_cards);
 
   // Two profiles should have been removed.
-  ASSERT_EQ(2UL, profile_guids.size());
-  EXPECT_EQ("00000000-0000-0000-0000-000000000001", profile_guids[0]);
-  EXPECT_EQ("00000000-0000-0000-0000-000000000002", profile_guids[1]);
+  ASSERT_EQ(2UL, profiles.size());
+  EXPECT_EQ("00000000-0000-0000-0000-000000000001", profiles[0]->guid());
+  EXPECT_EQ("00000000-0000-0000-0000-000000000002", profiles[1]->guid());
 
   // Make sure that only the expected profiles are still present.
   sql::Statement s_autofill_profiles_bounded(
@@ -1595,10 +1568,10 @@ TEST_F(AutofillTableTest, RemoveAutofillDataModifiedBetween) {
   EXPECT_FALSE(s_autofill_profile_phones_bounded.Step());
 
   // Three cards should have been removed.
-  ASSERT_EQ(3UL, credit_card_guids.size());
-  EXPECT_EQ("00000000-0000-0000-0000-000000000006", credit_card_guids[0]);
-  EXPECT_EQ("00000000-0000-0000-0000-000000000007", credit_card_guids[1]);
-  EXPECT_EQ("00000000-0000-0000-0000-000000000008", credit_card_guids[2]);
+  ASSERT_EQ(3UL, credit_cards.size());
+  EXPECT_EQ("00000000-0000-0000-0000-000000000006", credit_cards[0]->guid());
+  EXPECT_EQ("00000000-0000-0000-0000-000000000007", credit_cards[1]->guid());
+  EXPECT_EQ("00000000-0000-0000-0000-000000000008", credit_cards[2]->guid());
 
   // Make sure the expected profiles are still present.
   sql::Statement s_credit_cards_bounded(
@@ -1614,12 +1587,11 @@ TEST_F(AutofillTableTest, RemoveAutofillDataModifiedBetween) {
   EXPECT_FALSE(s_credit_cards_bounded.Step());
 
   // Remove all entries modified on or after time 51 (unbounded range).
-  table_->RemoveAutofillDataModifiedBetween(
-      Time::FromTimeT(51), Time(),
-      &profile_guids, &credit_card_guids);
-  ASSERT_EQ(2UL, profile_guids.size());
-  EXPECT_EQ("00000000-0000-0000-0000-000000000004", profile_guids[0]);
-  EXPECT_EQ("00000000-0000-0000-0000-000000000005", profile_guids[1]);
+  table_->RemoveAutofillDataModifiedBetween(Time::FromTimeT(51), Time(),
+                                            &profiles, &credit_cards);
+  ASSERT_EQ(2UL, profiles.size());
+  EXPECT_EQ("00000000-0000-0000-0000-000000000004", profiles[0]->guid());
+  EXPECT_EQ("00000000-0000-0000-0000-000000000005", profiles[1]->guid());
 
   // Make sure that only the expected profile names are still present.
   sql::Statement s_autofill_profiles_unbounded(
@@ -1670,9 +1642,9 @@ TEST_F(AutofillTableTest, RemoveAutofillDataModifiedBetween) {
   EXPECT_FALSE(s_autofill_profile_phones_unbounded.Step());
 
   // Two cards should have been removed.
-  ASSERT_EQ(2UL, credit_card_guids.size());
-  EXPECT_EQ("00000000-0000-0000-0000-000000000010", credit_card_guids[0]);
-  EXPECT_EQ("00000000-0000-0000-0000-000000000011", credit_card_guids[1]);
+  ASSERT_EQ(2UL, credit_cards.size());
+  EXPECT_EQ("00000000-0000-0000-0000-000000000010", credit_cards[0]->guid());
+  EXPECT_EQ("00000000-0000-0000-0000-000000000011", credit_cards[1]->guid());
 
   // Make sure the remaining card is the expected one.
   sql::Statement s_credit_cards_unbounded(
@@ -1684,14 +1656,13 @@ TEST_F(AutofillTableTest, RemoveAutofillDataModifiedBetween) {
   EXPECT_FALSE(s_credit_cards_unbounded.Step());
 
   // Remove all remaining entries.
-  table_->RemoveAutofillDataModifiedBetween(
-      Time(), Time(),
-      &profile_guids, &credit_card_guids);
+  table_->RemoveAutofillDataModifiedBetween(Time(), Time(), &profiles,
+                                            &credit_cards);
 
   // Two profiles should have been removed.
-  ASSERT_EQ(2UL, profile_guids.size());
-  EXPECT_EQ("00000000-0000-0000-0000-000000000000", profile_guids[0]);
-  EXPECT_EQ("00000000-0000-0000-0000-000000000003", profile_guids[1]);
+  ASSERT_EQ(2UL, profiles.size());
+  EXPECT_EQ("00000000-0000-0000-0000-000000000000", profiles[0]->guid());
+  EXPECT_EQ("00000000-0000-0000-0000-000000000003", profiles[1]->guid());
 
   // Make sure there are no profiles remaining.
   sql::Statement s_autofill_profiles_empty(
@@ -1722,8 +1693,8 @@ TEST_F(AutofillTableTest, RemoveAutofillDataModifiedBetween) {
   EXPECT_FALSE(s_autofill_profile_phones_empty.Step());
 
   // One credit card should have been deleted.
-  ASSERT_EQ(1UL, credit_card_guids.size());
-  EXPECT_EQ("00000000-0000-0000-0000-000000000009", credit_card_guids[0]);
+  ASSERT_EQ(1UL, credit_cards.size());
+  EXPECT_EQ("00000000-0000-0000-0000-000000000009", credit_cards[0]->guid());
 
   // There should be no cards left.
   sql::Statement s_credit_cards_empty(
@@ -2677,12 +2648,12 @@ TEST_F(AutofillTableTest, DeleteUnmaskedCard) {
   table_->UnmaskServerCreditCard(masked_card, full_number);
 
   // Delete data in a range a year in the future.
-  std::vector<std::string> profile_guids;
-  std::vector<std::string> credit_card_guids;
+  std::vector<std::unique_ptr<AutofillProfile>> profiles;
+  std::vector<std::unique_ptr<CreditCard>> credit_cards;
   ASSERT_TRUE(table_->RemoveAutofillDataModifiedBetween(
       unmasked_time + base::TimeDelta::FromDays(365),
-      unmasked_time + base::TimeDelta::FromDays(530),
-      &profile_guids, &credit_card_guids));
+      unmasked_time + base::TimeDelta::FromDays(530), &profiles,
+      &credit_cards));
 
   // This should not affect the unmasked card (should be unmasked).
   std::vector<std::unique_ptr<CreditCard>> outputs;
@@ -2697,8 +2668,7 @@ TEST_F(AutofillTableTest, DeleteUnmaskedCard) {
   // the database uses.
   base::Time now = base::Time::Now() + base::TimeDelta::FromSeconds(1);
   ASSERT_TRUE(table_->RemoveAutofillDataModifiedBetween(
-      now - base::TimeDelta::FromDays(1), now,
-      &profile_guids, &credit_card_guids));
+      now - base::TimeDelta::FromDays(1), now, &profiles, &credit_cards));
 
   // This should re-mask.
   ASSERT_TRUE(table_->GetServerCreditCards(&outputs));
@@ -2717,7 +2687,7 @@ TEST_F(AutofillTableTest, DeleteUnmaskedCard) {
 
   // Delete all data.
   ASSERT_TRUE(table_->RemoveAutofillDataModifiedBetween(
-      base::Time(), base::Time::Max(), &profile_guids, &credit_card_guids));
+      base::Time(), base::Time::Max(), &profiles, &credit_cards));
 
   // Should be masked again.
   ASSERT_TRUE(table_->GetServerCreditCards(&outputs));
@@ -2797,9 +2767,8 @@ class GetFormValuesTest : public testing::TestWithParam<GetFormValuesTestCase> {
 };
 
 TEST_P(GetFormValuesTest, GetFormValuesForElementName_SubstringMatchEnabled) {
-  // Token matching is currently behind a flag.
-  base::CommandLine::ForCurrentProcess()->AppendSwitch(
-      switches::kEnableSuggestionsWithSubstringMatch);
+  base::test::ScopedFeatureList features;
+  features.InitAndEnableFeature(features::kAutofillTokenPrefixMatching);
 
   auto test_case = GetParam();
   SCOPED_TRACE(testing::Message()
@@ -2831,7 +2800,7 @@ TEST_P(GetFormValuesTest, GetFormValuesForElementName_SubstringMatchEnabled) {
   table_->RemoveFormElementsAddedBetween(t1, Time(), &changes);
 }
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     AutofillTableTest,
     GetFormValuesTest,
     testing::Values(GetFormValuesTestCase{{"user.test", "test_user"},
@@ -2912,8 +2881,8 @@ TEST_P(AutofillTableTestPerModelType, AutofillGetAllSyncMetadata) {
   EntityMetadataMap metadata_records = metadata_batch.TakeAllMetadata();
 
   EXPECT_EQ(metadata_records.size(), 2u);
-  EXPECT_EQ(metadata_records[storage_key].sequence_number(), 1);
-  EXPECT_EQ(metadata_records[storage_key2].sequence_number(), 2);
+  EXPECT_EQ(metadata_records[storage_key]->sequence_number(), 1);
+  EXPECT_EQ(metadata_records[storage_key2]->sequence_number(), 2);
 
   // Now check that a model type state update replaces the old value
   model_type_state.set_initial_sync_done(false);
@@ -2979,10 +2948,10 @@ TEST_P(AutofillTableTestPerModelType, AutofillCorruptModelTypeState) {
   EXPECT_FALSE(table_->GetAllSyncMetadata(model_type, &metadata_batch));
 }
 
-INSTANTIATE_TEST_CASE_P(AutofillTableTest,
-                        AutofillTableTestPerModelType,
-                        testing::Values(syncer::AUTOFILL,
-                                        syncer::AUTOFILL_PROFILE));
+INSTANTIATE_TEST_SUITE_P(AutofillTableTest,
+                         AutofillTableTestPerModelType,
+                         testing::Values(syncer::AUTOFILL,
+                                         syncer::AUTOFILL_PROFILE));
 
 TEST_F(AutofillTableTest, RemoveOrphanAutofillTableRows) {
   // Populate the different tables.

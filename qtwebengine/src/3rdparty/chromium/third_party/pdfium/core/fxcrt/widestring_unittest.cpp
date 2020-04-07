@@ -8,6 +8,7 @@
 #include <iterator>
 #include <vector>
 
+#include "build/build_config.h"
 #include "core/fxcrt/fx_string.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/base/span.h"
@@ -24,7 +25,7 @@ TEST(WideString, ElementAccess) {
   EXPECT_DEATH({ abc[4]; }, ".*");
 #endif
 
-  pdfium::span<const wchar_t> abc_span = abc.AsSpan();
+  pdfium::span<const wchar_t> abc_span = abc.span();
   EXPECT_EQ(3u, abc_span.size());
   EXPECT_EQ(0, wmemcmp(abc_span.data(), L"abc", 3));
 
@@ -1081,7 +1082,7 @@ TEST(WideString, ToLatin1) {
 
 TEST(WideString, ToDefANSI) {
   EXPECT_EQ("", WideString().ToDefANSI());
-#if _FX_PLATFORM_ == _FX_PLATFORM_WINDOWS_
+#if defined(OS_WIN)
   const char* kResult =
       "x"
       "?"
@@ -1133,7 +1134,7 @@ TEST(WideString, FromLatin1) {
 
 TEST(WideString, FromDefANSI) {
   EXPECT_EQ(L"", WideString::FromDefANSI(ByteStringView()));
-#if _FX_PLATFORM_ == _FX_PLATFORM_WINDOWS_
+#if defined(OS_WIN)
   const wchar_t* kResult =
       L"x"
       L"\u20ac"
@@ -1549,7 +1550,7 @@ TEST(WideString, FormatString) {
   EXPECT_EQ(L"cla", WideString::Format(L"%.3ls", L"clams"));
   EXPECT_EQ(L"\u043e\u043f", WideString(L"\u043e\u043f"));
 
-#if _FX_OS_ != _FX_OS_MACOSX_
+#if !defined(OS_MACOSX)
   // See https://bugs.chromium.org/p/pdfium/issues/detail?id=1132
   EXPECT_EQ(L"\u043e\u043f", WideString::Format(L"\u043e\u043f"));
   EXPECT_EQ(L"\u043e\u043f", WideString::Format(L"%ls", L"\u043e\u043f"));
@@ -1566,7 +1567,7 @@ TEST(WideString, Empty) {
   EXPECT_NE(nullptr, cstr);
   EXPECT_EQ(0u, wcslen(cstr));
 
-  pdfium::span<const wchar_t> cspan = empty_str.AsSpan();
+  pdfium::span<const wchar_t> cspan = empty_str.span();
   EXPECT_TRUE(cspan.empty());
   EXPECT_EQ(nullptr, cspan.data());
 }

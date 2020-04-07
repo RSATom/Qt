@@ -32,7 +32,6 @@
 #include <qcoreapplication.h>
 #include <qpointer.h>
 #include <qtimer.h>
-#include <qregexp.h>
 #include <qregularexpression.h>
 #include <qmetaobject.h>
 #include <qvariant.h>
@@ -82,7 +81,9 @@ private slots:
     void senderTest();
     void declareInterface();
     void qpointerResetBeforeDestroyedSignal();
+#ifndef QT_NO_USERDATA
     void testUserData();
+#endif
     void childDeletesItsSibling();
     void dynamicProperties();
     void floatProperty();
@@ -154,6 +155,8 @@ private slots:
     void mutableFunctor();
     void checkArgumentsForNarrowing();
     void nullReceiver();
+    void functorReferencesConnection();
+    void disconnectDisconnects();
 };
 
 struct QObjectCreatedOnShutdown
@@ -535,91 +538,91 @@ void tst_QObject::findChildren()
 
     QObject *op = 0;
 
-    op = qFindChild<QObject*>(&o, "o1");
+    op = o.findChild<QObject*>("o1");
     QCOMPARE(op, &o1);
-    op = qFindChild<QObject*>(&o, "o2");
+    op = o.findChild<QObject*>("o2");
     QCOMPARE(op, &o2);
-    op = qFindChild<QObject*>(&o, "o11");
+    op = o.findChild<QObject*>("o11");
     QCOMPARE(op, &o11);
-    op = qFindChild<QObject*>(&o, "o12");
+    op = o.findChild<QObject*>("o12");
     QCOMPARE(op, &o12);
-    op = qFindChild<QObject*>(&o, "o111");
+    op = o.findChild<QObject*>("o111");
     QCOMPARE(op, &o111);
-    op = qFindChild<QObject*>(&o, "t1");
+    op = o.findChild<QObject*>("t1");
     QCOMPARE(op, static_cast<QObject *>(&t1));
-    op = qFindChild<QObject*>(&o, "t121");
+    op = o.findChild<QObject*>("t121");
     QCOMPARE(op, static_cast<QObject *>(&t121));
-    op = qFindChild<QTimer*>(&o, "t1");
+    op = o.findChild<QTimer*>("t1");
     QCOMPARE(op, static_cast<QObject *>(&t1));
-    op = qFindChild<QTimer*>(&o, "t121");
+    op = o.findChild<QTimer*>("t121");
     QCOMPARE(op, static_cast<QObject *>(&t121));
-    op = qFindChild<QTimer*>(&o, "o12");
+    op = o.findChild<QTimer*>("o12");
     QCOMPARE(op, static_cast<QObject *>(0));
-    op = qFindChild<QObject*>(&o, "o");
+    op = o.findChild<QObject*>("o");
     QCOMPARE(op, static_cast<QObject *>(0));
-    op = qFindChild<QObject*>(&o, "harry");
+    op = o.findChild<QObject*>("harry");
     QCOMPARE(op, static_cast<QObject *>(0));
-    op = qFindChild<QObject*>(&o, "o1");
+    op = o.findChild<QObject*>("o1");
     QCOMPARE(op, &o1);
 
     QList<QObject*> l;
     QList<QTimer*> tl;
 
-    l = qFindChildren<QObject*>(&o, "o1");
+    l = o.findChildren<QObject*>("o1");
     QCOMPARE(l.size(), 1);
     QCOMPARE(l.at(0), &o1);
-    l = qFindChildren<QObject*>(&o, "o2");
+    l = o.findChildren<QObject*>("o2");
     QCOMPARE(l.size(), 1);
     QCOMPARE(l.at(0), &o2);
-    l = qFindChildren<QObject*>(&o, "o11");
+    l = o.findChildren<QObject*>("o11");
     QCOMPARE(l.size(), 1);
     QCOMPARE(l.at(0), &o11);
-    l = qFindChildren<QObject*>(&o, "o12");
+    l = o.findChildren<QObject*>("o12");
     QCOMPARE(l.size(), 1);
     QCOMPARE(l.at(0), &o12);
-    l = qFindChildren<QObject*>(&o, "o111");
+    l = o.findChildren<QObject*>("o111");
     QCOMPARE(l.size(), 1);
     QCOMPARE(l.at(0), &o111);
-    l = qFindChildren<QObject*>(&o, "t1");
+    l = o.findChildren<QObject*>("t1");
     QCOMPARE(l.size(), 1);
     QCOMPARE(l.at(0), static_cast<QObject *>(&t1));
-    l = qFindChildren<QObject*>(&o, "t121");
+    l = o.findChildren<QObject*>("t121");
     QCOMPARE(l.size(), 1);
     QCOMPARE(l.at(0), static_cast<QObject *>(&t121));
-    tl = qFindChildren<QTimer*>(&o, "t1");
+    tl = o.findChildren<QTimer*>("t1");
     QCOMPARE(tl.size(), 1);
     QCOMPARE(tl.at(0), &t1);
-    tl = qFindChildren<QTimer*>(&o, "t121");
+    tl = o.findChildren<QTimer*>("t121");
     QCOMPARE(tl.size(), 1);
     QCOMPARE(tl.at(0), &t121);
-    l = qFindChildren<QObject*>(&o, "o");
+    l = o.findChildren<QObject*>("o");
     QCOMPARE(l.size(), 0);
-    l = qFindChildren<QObject*>(&o, "harry");
+    l = o.findChildren<QObject*>("harry");
     QCOMPARE(l.size(), 0);
-    tl = qFindChildren<QTimer*>(&o, "o12");
+    tl = o.findChildren<QTimer*>("o12");
     QCOMPARE(tl.size(), 0);
-    l = qFindChildren<QObject*>(&o, "o1");
+    l = o.findChildren<QObject*>("o1");
     QCOMPARE(l.size(), 1);
     QCOMPARE(l.at(0), &o1);
 
-    l = qFindChildren<QObject*>(&o, QRegExp("o.*"));
+    l = o.findChildren<QObject*>(QRegularExpression("^o.*$"));
     QCOMPARE(l.size(), 5);
     QVERIFY(l.contains(&o1));
     QVERIFY(l.contains(&o2));
     QVERIFY(l.contains(&o11));
     QVERIFY(l.contains(&o12));
     QVERIFY(l.contains(&o111));
-    l = qFindChildren<QObject*>(&o, QRegExp("t.*"));
+    l = o.findChildren<QObject*>(QRegularExpression("t.*"));
     QCOMPARE(l.size(), 2);
     QVERIFY(l.contains(&t1));
     QVERIFY(l.contains(&t121));
-    tl = qFindChildren<QTimer*>(&o, QRegExp(".*"));
+    tl = o.findChildren<QTimer*>(QRegularExpression("^.*$"));
     QCOMPARE(tl.size(), 3);
     QVERIFY(tl.contains(&t1));
     QVERIFY(tl.contains(&t121));
-    tl = qFindChildren<QTimer*>(&o, QRegExp("o.*"));
+    tl = o.findChildren<QTimer*>(QRegularExpression("^o.*$"));
     QCOMPARE(tl.size(), 0);
-    l = qFindChildren<QObject*>(&o, QRegExp("harry"));
+    l = o.findChildren<QObject*>(QRegularExpression("^harry$"));
     QCOMPARE(l.size(), 0);
 
     l = o.findChildren<QObject*>(QRegularExpression("o.*"));
@@ -643,18 +646,18 @@ void tst_QObject::findChildren()
     QCOMPARE(l.size(), 0);
 
     // empty and null string check
-    op = qFindChild<QObject*>(&o);
+    op = o.findChild<QObject*>();
     QCOMPARE(op, &o1);
-    op = qFindChild<QObject*>(&o, "");
+    op = o.findChild<QObject*>("");
     QCOMPARE(op, &unnamed);
-    op = qFindChild<QObject*>(&o, "unnamed");
+    op = o.findChild<QObject*>("unnamed");
     QCOMPARE(op, static_cast<QObject *>(0));
 
-    l = qFindChildren<QObject*>(&o);
+    l = o.findChildren<QObject*>();
     QCOMPARE(l.size(), 9);
-    l = qFindChildren<QObject*>(&o, "");
+    l = o.findChildren<QObject*>("");
     QCOMPARE(l.size(), 2);
-    l = qFindChildren<QObject*>(&o, "unnamed");
+    l = o.findChildren<QObject*>("unnamed");
     QCOMPARE(l.size(), 0);
 
     tl = o.findChildren<QTimer *>("t1");
@@ -722,19 +725,19 @@ void tst_QObject::findChildren()
     QCOMPARE(l.size(), 1);
     QCOMPARE(l.at(0), &o1);
 
-    l = o.findChildren<QObject*>(QRegExp("o.*"), Qt::FindDirectChildrenOnly);
+    l = o.findChildren<QObject*>(QRegularExpression("^o.*$"), Qt::FindDirectChildrenOnly);
     QCOMPARE(l.size(), 2);
     QVERIFY(l.contains(&o1));
     QVERIFY(l.contains(&o2));
-    l = o.findChildren<QObject*>(QRegExp("t.*"), Qt::FindDirectChildrenOnly);
+    l = o.findChildren<QObject*>(QRegularExpression("^t.*$"), Qt::FindDirectChildrenOnly);
     QCOMPARE(l.size(), 1);
     QVERIFY(l.contains(&t1));
-    tl = o.findChildren<QTimer*>(QRegExp(".*"), Qt::FindDirectChildrenOnly);
+    tl = o.findChildren<QTimer*>(QRegularExpression("^.*$"), Qt::FindDirectChildrenOnly);
     QCOMPARE(tl.size(), 2);
     QVERIFY(tl.contains(&t1));
-    tl = o.findChildren<QTimer*>(QRegExp("o.*"), Qt::FindDirectChildrenOnly);
+    tl = o.findChildren<QTimer*>(QRegularExpression("^o.*$"), Qt::FindDirectChildrenOnly);
     QCOMPARE(tl.size(), 0);
-    l = o.findChildren<QObject*>(QRegExp("harry"), Qt::FindDirectChildrenOnly);
+    l = o.findChildren<QObject*>(QRegularExpression("^harry$"), Qt::FindDirectChildrenOnly);
     QCOMPARE(l.size(), 0);
 
     // empty and null string check
@@ -1033,18 +1036,16 @@ public Q_SLOTS:
 void tst_QObject::connectNotify_connectSlotsByName()
 {
     ConnectByNameNotifyReceiverObject testObject;
-    QList<ConnectByNameNotifySenderObject *> senders =
-            qFindChildren<ConnectByNameNotifySenderObject *>(&testObject);
-    for (int i = 0; i < senders.size(); ++i) {
-        ConnectByNameNotifySenderObject *o = senders.at(i);
+    const QList<ConnectByNameNotifySenderObject *> senders =
+            testObject.findChildren<ConnectByNameNotifySenderObject *>();
+    for (ConnectByNameNotifySenderObject *o : senders) {
         QVERIFY(o->connectedSignals.isEmpty());
         QVERIFY(o->disconnectedSignals.isEmpty());
     }
 
     QMetaObject::connectSlotsByName(&testObject);
 
-    for (int i = 0; i < senders.size(); ++i) {
-        ConnectByNameNotifySenderObject *o = senders.at(i);
+    for (ConnectByNameNotifySenderObject *o : senders) {
         QCOMPARE(o->connectedSignals.size(), 1);
         QCOMPARE(o->connectedSignals.at(0), QMetaMethod::fromSignal(&ConnectByNameNotifySenderObject::signal1));
         QVERIFY(o->disconnectedSignals.isEmpty());
@@ -1400,6 +1401,7 @@ struct CustomType
     CustomType(const CustomType &other): i1(other.i1), i2(other.i2), i3(other.i3)
     { ++instanceCount; playWithObjects(); }
     ~CustomType() { --instanceCount; playWithObjects(); }
+    CustomType &operator=(const CustomType &) = default;
 
     int i1, i2, i3;
     int value() { return i1 + i2 + i3; }
@@ -1629,7 +1631,7 @@ void tst_QObject::thread()
         QObject object;
         // thread affinity for objects with no parent should be the
         // current thread
-        QVERIFY(object.thread() != 0);
+        QVERIFY(object.thread() != nullptr);
         QCOMPARE(object.thread(), currentThread);
         // children inherit their parent's thread
         QObject child(&object);
@@ -1641,7 +1643,7 @@ void tst_QObject::thread()
 
     {
         TestThread thr;
-        QVERIFY(thr.thread() != 0);
+        QVERIFY(thr.thread() != nullptr);
         QCOMPARE(thr.thread(), currentThread);
 
         thr.object = &object;
@@ -1800,8 +1802,8 @@ void tst_QObject::moveToThread()
         QMetaObject::invokeMethod(object, "deleteLater", Qt::QueuedConnection);
         thread.wait();
 
-        QVERIFY(opointer == 0);
-        QVERIFY(cpointer == 0);
+        QVERIFY(opointer == nullptr);
+        QVERIFY(cpointer == nullptr);
     }
 
     {
@@ -2339,6 +2341,7 @@ void tst_QObject::declareInterface()
 
 }
 
+#ifndef QT_NO_USERDATA
 class CustomData : public QObjectUserData
 {
 public:
@@ -2377,10 +2380,11 @@ void tst_QObject::testUserData()
     for (int i=0; i<USER_DATA_COUNT; ++i) {
         int id = user_data_ids[i];
         CustomData *data = static_cast<CustomData *>(my_test_object.userData(id));
-        QVERIFY(data != 0);
+        QVERIFY(data != nullptr);
         QCOMPARE(data->id, id);
     }
 }
+#endif // QT_NO_USERDATA
 
 class DestroyedListener : public QObject
 {
@@ -3409,12 +3413,11 @@ void tst_QObject::disconnectSelfInSlotAndDeleteAfterEmit()
 void tst_QObject::dumpObjectInfo()
 {
     QObject a, b;
-    QObject::connect(&a, SIGNAL(destroyed(QObject*)), &b, SLOT(deleteLater()));
-    a.disconnect(&b);
+    QObject::connect(&a, &QObject::destroyed, &b, &QObject::deleteLater);
     QTest::ignoreMessage(QtDebugMsg, "OBJECT QObject::unnamed");
     QTest::ignoreMessage(QtDebugMsg, "  SIGNALS OUT");
     QTest::ignoreMessage(QtDebugMsg, "        signal: destroyed(QObject*)");
-    QTest::ignoreMessage(QtDebugMsg, "          <Disconnected receiver>");
+    QTest::ignoreMessage(QtDebugMsg, "          <functor or function pointer>");
     QTest::ignoreMessage(QtDebugMsg, "  SIGNALS IN");
     QTest::ignoreMessage(QtDebugMsg, "        <None>");
     a.dumpObjectInfo(); // should not crash
@@ -3626,7 +3629,7 @@ class OverloadObject : public QObject
         void sig(int i, int j = 12);
         void sig(QObject *o, QObject *p, QObject *q = 0, QObject *r = 0) const;
         void other(int a = 0);
-        void sig(QObject *o, OverloadObject *p = 0, QObject *q = 0, QObject *r = 0);
+        void sig(QObject *o, OverloadObject *p = 0, QObject *q = 0, QObject *r = nullptr);
         void sig(double r = 0.5);
     public slots:
         void slo(int i, int j = 43)
@@ -4793,13 +4796,13 @@ class LotsOfSignalsAndSlots: public QObject
 
     public slots:
         void slot_v() {}
-        void slot_v_noexcept() Q_DECL_NOTHROW {}
+        void slot_v_noexcept() noexcept {}
         void slot_vi(int) {}
-        void slot_vi_noexcept() Q_DECL_NOTHROW {}
+        void slot_vi_noexcept() noexcept {}
         void slot_vii(int, int) {}
         void slot_viii(int, int, int) {}
         int slot_i() { return 0; }
-        int slot_i_noexcept() Q_DECL_NOTHROW { return 0; }
+        int slot_i_noexcept() noexcept { return 0; }
         int slot_ii(int) { return 0; }
         int slot_iii(int, int) { return 0; }
         int slot_iiii(int, int, int) { return 0; }
@@ -4813,18 +4816,18 @@ class LotsOfSignalsAndSlots: public QObject
         void slot_vPFvvE(fptr) {}
 
         void const_slot_v() const {};
-        void const_slot_v_noexcept() const Q_DECL_NOTHROW {}
+        void const_slot_v_noexcept() const noexcept {}
         void const_slot_vi(int) const {};
-        void const_slot_vi_noexcept(int) const Q_DECL_NOTHROW {}
+        void const_slot_vi_noexcept(int) const noexcept {}
 
         static void static_slot_v() {}
-        static void static_slot_v_noexcept() Q_DECL_NOTHROW {}
+        static void static_slot_v_noexcept() noexcept {}
         static void static_slot_vi(int) {}
-        static void static_slot_vi_noexcept(int) Q_DECL_NOTHROW {}
+        static void static_slot_vi_noexcept(int) noexcept {}
         static void static_slot_vii(int, int) {}
         static void static_slot_viii(int, int, int) {}
         static int static_slot_i() { return 0; }
-        static int static_slot_i_noexcept() Q_DECL_NOTHROW { return 0; }
+        static int static_slot_i_noexcept() noexcept { return 0; }
         static int static_slot_ii(int) { return 0; }
         static int static_slot_iii(int, int) { return 0; }
         static int static_slot_iiii(int, int, int) { return 0; }
@@ -4987,11 +4990,11 @@ void tst_QObject::connectCxx0xTypeMatching()
 
 }
 
-void receiverFunction_noexcept() Q_DECL_NOTHROW {}
-struct Functor_noexcept { void operator()() Q_DECL_NOTHROW {} };
+void receiverFunction_noexcept() noexcept {}
+struct Functor_noexcept { void operator()() noexcept {} };
 void tst_QObject::connectCxx17Noexcept()
 {
-    // this is about connecting signals to slots with the Q_DECL_NOTHROW qualifier
+    // this is about connecting signals to slots with the noexcept qualifier
     // as semantics changed due to http://www.open-std.org/jtc1/sc22/wg21/docs/papers/2015/p0012r1.html
     typedef LotsOfSignalsAndSlots Foo;
     Foo obj;
@@ -5981,7 +5984,7 @@ void ConnectToPrivateSlot::test(SenderObject* obj1) {
     obj1->signal1();
     QCOMPARE(d->receivedCount, 1);
     QCOMPARE(d->receivedValue, QVariant());
-    obj1->signal7(666, QLatin1Literal("_"));
+    obj1->signal7(666, QLatin1String("_"));
     QCOMPARE(d->receivedCount, 2);
     QCOMPARE(d->receivedValue, QVariant(666));
     QVERIFY(QObjectPrivate::connect(obj1, &SenderObject::signal2, d, &ConnectToPrivateSlotPrivate::thisIsAPrivateSlot, Qt::UniqueConnection));
@@ -6028,7 +6031,6 @@ void tst_QObject::connectFunctorArgDifference()
     QStringListModel model;
     connect(&model, &QStringListModel::rowsInserted, SlotFunctor());
 
-#if defined(Q_COMPILER_LAMBDA)
     connect(&timer, &QTimer::timeout, [=](){});
     connect(&timer, &QTimer::objectNameChanged, [=](const QString &){});
     connect(qApp, &QCoreApplication::aboutToQuit, [=](){});
@@ -6036,7 +6038,6 @@ void tst_QObject::connectFunctorArgDifference()
     connect(&timer, &QTimer::objectNameChanged, [=](){});
     connect(&model, &QStringListModel::rowsInserted, [=](){});
     connect(&model, &QStringListModel::rowsInserted, [=](const QModelIndex &){});
-#endif
 
     QVERIFY(true);
 }
@@ -6074,7 +6075,6 @@ void tst_QObject::connectFunctorQueued()
     e.exec();
     QCOMPARE(status, 2);
 
-#if defined(Q_COMPILER_LAMBDA)
     status = 1;
     connect(&obj, &SenderObject::signal1, this, [&status] { status = 2; }, Qt::QueuedConnection);
 
@@ -6082,7 +6082,6 @@ void tst_QObject::connectFunctorQueued()
     QCOMPARE(status, 1);
     e.exec();
     QCOMPARE(status, 2);
-#endif
 }
 
 void tst_QObject::connectFunctorWithContext()
@@ -6116,7 +6115,6 @@ void tst_QObject::connectFunctorWithContext()
     e.exec();
     QCOMPARE(status, 2);
 
-#if defined(Q_COMPILER_LAMBDA)
     status = 1;
     connect(&obj, &SenderObject::signal1, this, [this, &status, &obj] { status = 2; QCOMPARE(sender(), &obj); }, Qt::QueuedConnection);
 
@@ -6124,7 +6122,6 @@ void tst_QObject::connectFunctorWithContext()
     QCOMPARE(status, 1);
     e.exec();
     QCOMPARE(status, 2);
-#endif
 
     // Free
     context->deleteLater();
@@ -6434,7 +6431,7 @@ void connectFunctorOverload_impl(Signal signal, int expOverload, QList<QVariant>
 
 void tst_QObject::connectFunctorOverloads()
 {
-#if defined (Q_COMPILER_DECLTYPE) && defined (Q_COMPILER_VARIADIC_TEMPLATES)
+#if defined (Q_COMPILER_VARIADIC_TEMPLATES)
     connectFunctorOverload_impl<ComplexFunctor>(&FunctorArgDifferenceObject::signal_ii, 1,
                                 (QList<QVariant>() << 1 << 2));
     connectFunctorOverload_impl<ComplexFunctor>(&FunctorArgDifferenceObject::signal_iiS, 1,
@@ -6608,7 +6605,6 @@ void tst_QObject::disconnectDoesNotLeakFunctor()
     }
     QCOMPARE(countedStructObjectsCount, 0);
     {
-#if defined(Q_COMPILER_LAMBDA)
         CountedStruct s;
         QCOMPARE(countedStructObjectsCount, 1);
         QTimer timer;
@@ -6618,7 +6614,6 @@ void tst_QObject::disconnectDoesNotLeakFunctor()
         QCOMPARE(countedStructObjectsCount, 2);
         QVERIFY(QObject::disconnect(c));
         QCOMPARE(countedStructObjectsCount, 1);
-#endif // Q_COMPILER_LAMBDA
     }
     QCOMPARE(countedStructObjectsCount, 0);
 }
@@ -6666,7 +6661,6 @@ void tst_QObject::contextDoesNotLeakFunctor()
     }
     QCOMPARE(countedStructObjectsCount, 0);
     {
-#if defined(Q_COMPILER_LAMBDA)
         CountedStruct s;
         QEventLoop e;
         ContextObject *context = new ContextObject;
@@ -6679,7 +6673,6 @@ void tst_QObject::contextDoesNotLeakFunctor()
         context->deleteLater();
         e.exec();
         QCOMPARE(countedStructObjectsCount, 1);
-#endif // Q_COMPILER_LAMBDA
     }
     QCOMPARE(countedStructObjectsCount, 0);
 }
@@ -6726,16 +6719,16 @@ void tst_QObject::connectWarnings()
     ReceiverObject r1;
     r1.reset();
 
-    QTest::ignoreMessage(QtWarningMsg, "QObject::connect(SenderObject, ReceiverObject): invalid null parameter");
+    QTest::ignoreMessage(QtWarningMsg, "QObject::connect(SenderObject, ReceiverObject): invalid nullptr parameter");
     connect(static_cast<const SenderObject *>(nullptr), &SubSender::signal1, &r1, &ReceiverObject::slot1);
 
-    QTest::ignoreMessage(QtWarningMsg, "QObject::connect(SubSender, Unknown): invalid null parameter");
+    QTest::ignoreMessage(QtWarningMsg, "QObject::connect(SubSender, Unknown): invalid nullptr parameter");
     connect(&sub, &SubSender::signal1, static_cast<ReceiverObject *>(nullptr), &ReceiverObject::slot1);
 
-    QTest::ignoreMessage(QtWarningMsg, "QObject::connect(SenderObject, ReceiverObject): invalid null parameter");
+    QTest::ignoreMessage(QtWarningMsg, "QObject::connect(SenderObject, ReceiverObject): invalid nullptr parameter");
     connect(static_cast<const SenderObject *>(nullptr), &SenderObject::signal1, &r1, &ReceiverObject::slot1);
 
-    QTest::ignoreMessage(QtWarningMsg, "QObject::connect(SenderObject, Unknown): invalid null parameter");
+    QTest::ignoreMessage(QtWarningMsg, "QObject::connect(SenderObject, Unknown): invalid nullptr parameter");
     connect(&obj, &SenderObject::signal1, static_cast<ReceiverObject *>(nullptr), &ReceiverObject::slot1);
 }
 
@@ -7469,6 +7462,12 @@ void tst_QObject::checkArgumentsForNarrowing()
     FITS(bool, const QObject *&);
     FITS(int (*)(bool), void (QObject::*)());
 
+    {
+        // wg21.link/P1957
+        NARROWS(char*, bool);
+        NARROWS(void (QObject::*)(), bool);
+    }
+
 #undef IS_UNSCOPED_ENUM_SIGNED
 
 #undef NARROWS_IF
@@ -7485,6 +7484,167 @@ void tst_QObject::nullReceiver()
     QVERIFY(!connect(&o, &QObject::destroyed, nullObj, [] {}));
     QVERIFY(!connect(&o, &QObject::destroyed, nullObj, Functor_noexcept()));
     QVERIFY(!connect(&o, SIGNAL(destroyed()), nullObj, SLOT(deleteLater())));
+}
+
+void tst_QObject::functorReferencesConnection()
+{
+    countedStructObjectsCount = 0;
+    QMetaObject::Connection globalCon;
+    {
+        GetSenderObject obj;
+        CountedStruct counted(&obj);
+        QCOMPARE(countedStructObjectsCount, 1);
+        auto c = QSharedPointer<QMetaObject::Connection>::create();
+        int slotCalled = 0;
+        *c = connect(&obj, &GetSenderObject::aSignal, &obj, [&slotCalled, c, counted] {
+            QObject::disconnect(*c);
+            slotCalled++;
+        });
+        globalCon = *c; // keep a handle to the connection somewhere;
+        QVERIFY(globalCon);
+        QCOMPARE(countedStructObjectsCount, 2);
+        obj.triggerSignal();
+        QCOMPARE(slotCalled, 1);
+        QCOMPARE(countedStructObjectsCount, 1);
+        QVERIFY(!globalCon);
+        obj.triggerSignal();
+        QCOMPARE(slotCalled, 1);
+        QCOMPARE(countedStructObjectsCount, 1);
+    }
+    QCOMPARE(countedStructObjectsCount, 0);
+
+    {
+        GetSenderObject obj;
+        CountedStruct counted(&obj);
+        QCOMPARE(countedStructObjectsCount, 1);
+        auto *rec = new QObject;
+        int slotCalled = 0;
+        globalCon = connect(&obj, &GetSenderObject::aSignal, rec, [&slotCalled, rec, counted] {
+            delete rec;
+            slotCalled++;
+        });
+        QCOMPARE(countedStructObjectsCount, 2);
+        obj.triggerSignal();
+        QCOMPARE(slotCalled, 1);
+        QCOMPARE(countedStructObjectsCount, 1);
+        QVERIFY(!globalCon);
+        obj.triggerSignal();
+        QCOMPARE(slotCalled, 1);
+        QCOMPARE(countedStructObjectsCount, 1);
+    }
+    QCOMPARE(countedStructObjectsCount, 0);
+    {
+        int slotCalled = 0;
+        QEventLoop eventLoop;
+        {
+            // Sender will be destroyed when the labda goes out of scope lambda, so it will exit the event loop
+            auto sender = QSharedPointer<GetSenderObject>::create();
+            connect(sender.data(), &QObject::destroyed, &eventLoop, &QEventLoop::quit, Qt::QueuedConnection);
+            globalCon = connect(sender.data(), &GetSenderObject::aSignal, this, [&slotCalled, sender, &globalCon, this] {
+                ++slotCalled;
+                // This signal will be connected, but should never be called as the sender will be destroyed before
+                auto c2 = connect(sender.data(), &GetSenderObject::aSignal, [] { QFAIL("Should not be called"); });
+                QVERIFY(c2);
+                QVERIFY(QObject::disconnect(sender.data(), nullptr, this, nullptr));
+                QVERIFY(!globalCon); // this connection has been disconnected
+                QVERIFY(c2); // sender should not have been deleted yet, only after the emission is done
+            });
+            QMetaObject::invokeMethod(sender.data(), &GetSenderObject::triggerSignal, Qt::QueuedConnection);
+            QMetaObject::invokeMethod(sender.data(), &GetSenderObject::triggerSignal, Qt::QueuedConnection);
+            QMetaObject::invokeMethod(sender.data(), &GetSenderObject::triggerSignal, Qt::QueuedConnection);
+        }
+        eventLoop.exec();
+        QCOMPARE(slotCalled, 1);
+    }
+
+    {
+        GetSenderObject obj;
+        CountedStruct counted(&obj);
+        QCOMPARE(countedStructObjectsCount, 1);
+        auto c1 = QSharedPointer<QMetaObject::Connection>::create();
+        auto c2 = QSharedPointer<QMetaObject::Connection>::create();
+        int slot1Called = 0;
+        int slot3Called = 0;
+        *c1 = connect(&obj, &GetSenderObject::aSignal, &obj, [&slot1Called, &slot3Called, &obj, c1, c2, counted] {
+            auto c3 = connect(&obj, &GetSenderObject::aSignal, [counted, &slot3Called] {
+                slot3Called++;
+            });
+            // top-level + the one in the 3 others lambdas
+            QCOMPARE(countedStructObjectsCount, 4);
+            QObject::disconnect(*c2);
+            slot1Called++;
+        });
+        connect(&obj, &GetSenderObject::aSignal, [] {}); // just a dummy signal to fill the connection list
+        *c2 = connect(&obj, &GetSenderObject::aSignal, [counted, c2] { QFAIL("should not be called"); });
+        QVERIFY(c1 && c2);
+        QCOMPARE(countedStructObjectsCount, 3); // top-level + c1 + c2
+        obj.triggerSignal();
+        QCOMPARE(slot1Called, 1);
+        QCOMPARE(slot3Called, 0);
+        QCOMPARE(countedStructObjectsCount, 3); // top-level + c1 + c3
+        QObject::disconnect(*c1);
+        QCOMPARE(countedStructObjectsCount, 2); // top-level + c3
+        obj.triggerSignal();
+        QCOMPARE(slot1Called, 1);
+        QCOMPARE(slot3Called, 1);
+    }
+    {
+        struct DestroyEmit {
+            Q_DISABLE_COPY(DestroyEmit);
+            explicit DestroyEmit(SenderObject *obj) : obj(obj) {}
+            SenderObject *obj;
+            ~DestroyEmit() {
+                obj->emitSignal1();
+            }
+        };
+        SenderObject obj;
+        int slot1Called = 0;
+        int slot2Called = 0;
+        int slot3Called = 0;
+        auto c1 = QSharedPointer<QMetaObject::Connection>::create();
+        auto de = QSharedPointer<DestroyEmit>::create(&obj);
+        *c1 = connect(&obj, &SenderObject::signal1, [&slot1Called, &slot3Called, de, c1, &obj] {
+            connect(&obj, &SenderObject::signal1, [&slot3Called] { slot3Called++; });
+            slot1Called++;
+            QObject::disconnect(*c1);
+        });
+        de.clear();
+        connect(&obj, &SenderObject::signal1, [&slot2Called] { slot2Called++; });
+        obj.emitSignal1();
+        QCOMPARE(slot1Called, 1);
+        QCOMPARE(slot2Called, 2); // because also called from ~DestroyEmit
+        QCOMPARE(slot3Called, 1);
+    }
+}
+
+void tst_QObject::disconnectDisconnects()
+{
+    // Test what happens if the destructor of an functor slot also disconnects more slot;
+
+    SenderObject s1;
+    QScopedPointer<QObject> receiver(new QObject);
+
+    auto s2 = QSharedPointer<SenderObject>::create();
+    QPointer<QObject> s2_tracker = s2.data();
+    int count = 0;
+    connect(&s1, &SenderObject::signal1, [&count] { count++; }); // α
+    connect(&s1, &SenderObject::signal1, receiver.data(), [s2] { QFAIL("!!"); }); // β
+    connect(s2.data(), &SenderObject::signal1, receiver.data(), [] { QFAIL("!!"); });
+    connect(&s1, &SenderObject::signal2, receiver.data(), [] { QFAIL("!!"); });
+    connect(s2.data(), &SenderObject::signal2, receiver.data(), [] { QFAIL("!!"); });
+    connect(&s1, &SenderObject::signal1, [&count] { count++; }); // γ
+    connect(&s1, &SenderObject::signal2, [&count] { count++; }); // δ
+    s2.clear();
+
+    QVERIFY(s2_tracker);
+    receiver
+        .reset(); // this will delete the receiver which must also delete s2 as β is disconnected
+    QVERIFY(!s2_tracker);
+    // test that the data structures are still in order
+    s1.emitSignal1();
+    QCOMPARE(count, 2); // α + γ
+    s1.emitSignal2();
+    QCOMPARE(count, 3); // + δ
 }
 
 // Test for QtPrivate::HasQ_OBJECT_Macro

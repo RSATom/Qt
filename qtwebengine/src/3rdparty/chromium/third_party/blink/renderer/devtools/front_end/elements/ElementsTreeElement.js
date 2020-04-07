@@ -250,7 +250,8 @@ Elements.ElementsTreeElement = class extends UI.TreeElement {
   _createHint() {
     if (this.listItemElement && !this._hintElement) {
       this._hintElement = this.listItemElement.createChild('span', 'selected-hint');
-      this._hintElement.title = Common.UIString('Use $0 in the console to refer to this element.');
+      const selectedElementCommand = '$0';
+      this._hintElement.title = ls`Use ${selectedElementCommand} in the console to refer to this element.`;
       UI.ARIAUtils.markAsHidden(this._hintElement);
     }
   }
@@ -286,16 +287,18 @@ Elements.ElementsTreeElement = class extends UI.TreeElement {
 
   /**
    * @override
+   * @returns {!Promise}
    */
-  onpopulate() {
-    this.treeOutline.populateTreeElement(this);
+  async onpopulate() {
+    return this.treeOutline.populateTreeElement(this);
   }
 
   /**
    * @override
    */
-  expandRecursively() {
-    this._node.getSubtree(-1, true).then(UI.TreeElement.prototype.expandRecursively.bind(this, Number.MAX_VALUE));
+  async expandRecursively() {
+    await this._node.getSubtree(-1, true);
+    await super.expandRecursively(Number.MAX_VALUE);
   }
 
   /**
@@ -523,9 +526,13 @@ Elements.ElementsTreeElement = class extends UI.TreeElement {
       section.appendItem(Common.UIString('Copy selector'), this._copyCSSPath.bind(this));
       section.appendItem(
           Common.UIString('Copy JS path'), this._copyJSPath.bind(this), !Elements.DOMPath.canGetJSPath(this._node));
+      section.appendItem(ls`Copy styles`, this._copyStyles.bind(this));
     }
-    if (!isShadowRoot)
+    if (!isShadowRoot) {
       section.appendItem(Common.UIString('Copy XPath'), this._copyXPath.bind(this));
+      section.appendItem(ls`Copy full XPath`, this._copyFullXPath.bind(this));
+    }
+
     if (!isShadowRoot) {
       menuItem = copyMenu.clipboardSection().appendItem(
           Common.UIString('Cut element'), treeOutline.performCopyOrCut.bind(treeOutline, true, this._node),
@@ -1325,7 +1332,7 @@ Elements.ElementsTreeElement = class extends UI.TreeElement {
       //     `indexOfSpace - 1` as a URL and repeat step 1).
       // 2b) Else, collect the preceding characters as a URL.
       // 3) Collect the characters from `indexOfSpace` up to the next comma as the size descriptor and repeat step 1).
-      // https://html.spec.whatwg.org/multipage/embedded-content.html#parse-a-srcset-attribute
+      // https://html.spec.whatwg.org/C/#parse-a-srcset-attribute
       const fragment = createDocumentFragment();
       let i = 0;
       while (value.length) {
@@ -1629,6 +1636,34 @@ Elements.ElementsTreeElement = class extends UI.TreeElement {
 
   _copyXPath() {
     InspectorFrontendHost.copyText(Elements.DOMPath.xPath(this._node, true));
+  }
+
+  _copyFullXPath() {
+    InspectorFrontendHost.copyText(Elements.DOMPath.xPath(this._node, false));
+  }
+
+  async _copyStyles() {
+    const node = this._node;
+    const cssModel = node.domModel().cssModel();
+    const cascade = await cssModel.cachedMatchedCascadeForNode(node);
+    if (!cascade)
+      return;
+    /** @type {!Array<string>} */
+    const lines = [];
+    for (const style of cascade.nodeStyles().reverse()) {
+      for (const property of style.leadingProperties()) {
+        if (!property.parsedOk || property.disabled || !property.activeInStyle() || property.implicit)
+          continue;
+        if (cascade.isInherited(style) && !SDK.cssMetadata().isPropertyInherited(property.name))
+          continue;
+        if (style.parentRule && style.parentRule.isUserAgent())
+          continue;
+        if (cascade.propertyState(property) !== SDK.CSSMatchedStyles.PropertyState.Active)
+          continue;
+        lines.push(`${property.name}: ${property.value};`);
+      }
+    }
+    InspectorFrontendHost.copyText(lines.join('\n'));
   }
 
   _highlightSearchResults() {

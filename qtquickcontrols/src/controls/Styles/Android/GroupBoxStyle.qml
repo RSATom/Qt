@@ -37,6 +37,7 @@
 **
 ****************************************************************************/
 
+import QtQml 2.14 as Qml
 import QtQuick 2.2
 import QtQuick.Window 2.2
 import QtQuick.Controls 1.2
@@ -54,10 +55,30 @@ GroupBoxStyle {
 
         readonly property real contentMargin: label.implicitHeight / 3
         readonly property real topMargin: control.checkable ? indicator.height : label.height
-        Binding { target: root; property: "padding.top"; value: topMargin + contentMargin }
-        Binding { target: root; property: "padding.left"; value: contentMargin }
-        Binding { target: root; property: "padding.right"; value: contentMargin }
-        Binding { target: root; property: "padding.bottom"; value: contentMargin }
+        Qml.Binding {
+            target: root
+            property: "padding.top"
+            value: topMargin + contentMargin
+            restoreMode: Binding.RestoreBinding
+        }
+        Qml.Binding {
+            target: root
+            property: "padding.left"
+            value: contentMargin
+            restoreMode: Binding.RestoreBinding
+        }
+        Qml.Binding {
+            target: root
+            property: "padding.right"
+            value: contentMargin
+            restoreMode: Binding.RestoreBinding
+        }
+        Qml.Binding {
+            target: root
+            property: "padding.bottom"
+            value: contentMargin
+            restoreMode: Binding.RestoreBinding
+        }
 
         DrawableLoader {
             anchors.top: parent.top

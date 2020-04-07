@@ -14,8 +14,10 @@
 #include <functional>
 #include <set>
 #include <string>
+#include <utility>
 #include <vector>
 
+#include "absl/algorithm/container.h"
 #include "p2p/base/basic_packet_socket_factory.h"
 #include "p2p/base/port.h"
 #include "p2p/base/relay_port.h"
@@ -30,6 +32,7 @@
 
 using rtc::CreateRandomId;
 
+namespace cricket {
 namespace {
 
 enum {
@@ -111,9 +114,37 @@ void FilterNetworks(NetworkList* networks, NetworkFilter filter) {
   networks->erase(start_to_remove, networks->end());
 }
 
+bool IsAllowedByCandidateFilter(const Candidate& c, uint32_t filter) {
+  // When binding to any address, before sending packets out, the getsockname
+  // returns all 0s, but after sending packets, it'll be the NIC used to
+  // send. All 0s is not a valid ICE candidate address and should be filtered
+  // out.
+  if (c.address().IsAnyIP()) {
+    return false;
+  }
+
+  if (c.type() == RELAY_PORT_TYPE) {
+    return ((filter & CF_RELAY) != 0);
+  } else if (c.type() == STUN_PORT_TYPE) {
+    return ((filter & CF_REFLEXIVE) != 0);
+  } else if (c.type() == LOCAL_PORT_TYPE) {
+    if ((filter & CF_REFLEXIVE) && !c.address().IsPrivateIP()) {
+      // We allow host candidates if the filter allows server-reflexive
+      // candidates and the candidate is a public IP. Because we don't generate
+      // server-reflexive candidates if they have the same IP as the host
+      // candidate (i.e. when the host candidate is a public IP), filtering to
+      // only server-reflexive candidates won't work right when the host
+      // candidates have public IPs.
+      return true;
+    }
+
+    return ((filter & CF_HOST) != 0);
+  }
+  return false;
+}
+
 }  // namespace
 
-namespace cricket {
 const uint32_t DISABLE_ALL_PHASES =
     PORTALLOCATOR_DISABLE_UDP | PORTALLOCATOR_DISABLE_TCP |
     PORTALLOCATOR_DISABLE_STUN | PORTALLOCATOR_DISABLE_RELAY;
@@ -306,21 +337,57 @@ void BasicPortAllocatorSession::SetCandidateFilter(uint32_t filter) {
   if (filter == candidate_filter_) {
     return;
   }
-  // We assume the filter will only change from "ALL" to something else.
-  RTC_DCHECK(candidate_filter_ == CF_ALL);
+  uint32_t prev_filter = candidate_filter_;
   candidate_filter_ = filter;
-  for (PortData& port : ports_) {
-    if (!port.has_pairable_candidate()) {
+  for (PortData& port_data : ports_) {
+    if (port_data.error() || port_data.pruned()) {
       continue;
     }
-    const auto& candidates = port.port()->Candidates();
+    PortData::State cur_state = port_data.state();
+    bool found_signalable_candidate = false;
+    bool found_pairable_candidate = false;
+    cricket::Port* port = port_data.port();
+    for (const auto& c : port->Candidates()) {
+      if (!IsStopped() && !IsAllowedByCandidateFilter(c, prev_filter) &&
+          IsAllowedByCandidateFilter(c, filter)) {
+        // This candidate was not signaled because of not matching the previous
+        // filter (see OnCandidateReady below). Let the Port to fire the signal
+        // again.
+        //
+        // Note that
+        //  1) we would need the Port to enter the state of in-progress of
+        //     gathering to have candidates signaled;
+        //
+        //  2) firing the signal would also let the session set the port ready
+        //     if needed, so that we could form candidate pairs with candidates
+        //     from this port;
+        //
+        //  *  See again OnCandidateReady below for 1) and 2).
+        //
+        //  3) we only try to resurface candidates if we have not stopped
+        //     getting ports, which is always true for the continual gathering.
+        if (!found_signalable_candidate) {
+          found_signalable_candidate = true;
+          port_data.set_state(PortData::STATE_INPROGRESS);
+        }
+        port->SignalCandidateReady(port, c);
+      }
+
+      if (CandidatePairable(c, port)) {
+        found_pairable_candidate = true;
+      }
+    }
+    // Restore the previous state.
+    port_data.set_state(cur_state);
     // Setting a filter may cause a ready port to become non-ready
     // if it no longer has any pairable candidates.
-    if (!std::any_of(candidates.begin(), candidates.end(),
-                     [this, &port](const Candidate& candidate) {
-                       return CandidatePairable(candidate, port.port());
-                     })) {
-      port.set_has_pairable_candidate(false);
+    //
+    // Note that we only set for the negative case here, since a port would be
+    // set to have pairable candidates when it signals a ready candidate, which
+    // requires the port is still in the progress of gathering/surfacing
+    // candidates, and would be done in the firing of the signal above.
+    if (!found_pairable_candidate) {
+      port_data.set_has_pairable_candidate(false);
     }
   }
 }
@@ -417,8 +484,7 @@ void BasicPortAllocatorSession::RegatherOnFailedNetworks() {
   // regathers ports and candidates.
   for (AllocationSequence* sequence : sequences_) {
     if (!sequence->network_failed() &&
-        std::find(failed_networks.begin(), failed_networks.end(),
-                  sequence->network()) != failed_networks.end()) {
+        absl::c_linear_search(failed_networks, sequence->network())) {
       sequence->set_network_failed();
     }
   }
@@ -462,6 +528,19 @@ void BasicPortAllocatorSession::Regather(
     SignalIceRegathering(this, reason);
 
     DoAllocate(disable_equivalent_phases);
+  }
+}
+
+void BasicPortAllocatorSession::GetCandidateStatsFromReadyPorts(
+    CandidateStatsList* candidate_stats_list) const {
+  auto ports = ReadyPorts();
+  for (auto* port : ports) {
+    auto candidates = port->Candidates();
+    for (const auto& candidate : candidates) {
+      CandidateStats candidate_stats(allocator_->SanitizeCandidate(candidate));
+      port->GetStunStats(&candidate_stats.stun_stats);
+      candidate_stats_list->push_back(std::move(candidate_stats));
+    }
   }
 }
 
@@ -513,35 +592,12 @@ void BasicPortAllocatorSession::GetCandidatesFromPort(
     if (!CheckCandidateFilter(candidate)) {
       continue;
     }
-    auto sanitized_candidate = SanitizeCandidate(candidate);
-    candidates->push_back(sanitized_candidate);
+    candidates->push_back(allocator_->SanitizeCandidate(candidate));
   }
 }
 
-bool BasicPortAllocatorSession::MdnsObfuscationEnabled() const {
-  return allocator_->network_manager()->GetMdnsResponder() != nullptr;
-}
-
-Candidate BasicPortAllocatorSession::SanitizeCandidate(
-    const Candidate& c) const {
-  RTC_DCHECK_RUN_ON(network_thread_);
-  // If the candidate has a generated hostname, we need to obfuscate its IP
-  // address when signaling this candidate.
-  bool use_hostname_address =
-      !c.address().hostname().empty() && !c.address().IsUnresolvedIP();
-  // If adapter enumeration is disabled or host candidates are disabled,
-  // clear the raddr of STUN candidates to avoid local address leakage.
-  bool filter_stun_related_address =
-      ((flags() & PORTALLOCATOR_DISABLE_ADAPTER_ENUMERATION) &&
-       (flags() & PORTALLOCATOR_DISABLE_DEFAULT_LOCAL_CANDIDATE)) ||
-      !(candidate_filter_ & CF_HOST) || MdnsObfuscationEnabled();
-  // If the candidate filter doesn't allow reflexive addresses, empty TURN raddr
-  // to avoid reflexive address leakage.
-  bool filter_turn_related_address = !(candidate_filter_ & CF_REFLEXIVE);
-  bool filter_related_address =
-      ((c.type() == STUN_PORT_TYPE && filter_stun_related_address) ||
-       (c.type() == RELAY_PORT_TYPE && filter_turn_related_address));
-  return c.ToSanitizedCopy(use_hostname_address, filter_related_address);
+bool BasicPortAllocator::MdnsObfuscationEnabled() const {
+  return network_manager()->GetMdnsResponder() != nullptr;
 }
 
 bool BasicPortAllocatorSession::CandidatesAllocationDone() const {
@@ -553,18 +609,17 @@ bool BasicPortAllocatorSession::CandidatesAllocationDone() const {
   }
 
   // Check that all port allocation sequences are complete (not running).
-  if (std::any_of(sequences_.begin(), sequences_.end(),
-                  [](const AllocationSequence* sequence) {
-                    return sequence->state() == AllocationSequence::kRunning;
-                  })) {
+  if (absl::c_any_of(sequences_, [](const AllocationSequence* sequence) {
+        return sequence->state() == AllocationSequence::kRunning;
+      })) {
     return false;
   }
 
   // If all allocated ports are no longer gathering, session must have got all
   // expected candidates. Session will trigger candidates allocation complete
   // signal.
-  return std::none_of(ports_.begin(), ports_.end(),
-                      [](const PortData& port) { return port.inprogress(); });
+  return absl::c_none_of(
+      ports_, [](const PortData& port) { return port.inprogress(); });
 }
 
 void BasicPortAllocatorSession::OnMessage(rtc::Message* message) {
@@ -599,6 +654,7 @@ void BasicPortAllocatorSession::UpdateIceParametersInternal() {
 
 void BasicPortAllocatorSession::GetPortConfigurations() {
   RTC_DCHECK_RUN_ON(network_thread_);
+
   PortConfiguration* config =
       new PortConfiguration(allocator_->stun_servers(), username(), password());
 
@@ -635,7 +691,7 @@ void BasicPortAllocatorSession::OnConfigStop() {
     if (it->inprogress()) {
       // Updating port state to error, which didn't finish allocating candidates
       // yet.
-      it->set_error();
+      it->set_state(PortData::STATE_ERROR);
       send_signal = true;
     }
   }
@@ -828,8 +884,7 @@ void BasicPortAllocatorSession::OnNetworksChanged() {
     // Mark the sequence as "network failed" if its network is not in
     // |networks|.
     if (!sequence->network_failed() &&
-        std::find(networks.begin(), networks.end(), sequence->network()) ==
-            networks.end()) {
+        !absl::c_linear_search(networks, sequence->network())) {
       sequence->OnNetworkFailed();
       failed_networks.push_back(sequence->network());
     }
@@ -889,6 +944,8 @@ void BasicPortAllocatorSession::AddAllocatedPort(Port* port,
 
   port->SignalCandidateReady.connect(
       this, &BasicPortAllocatorSession::OnCandidateReady);
+  port->SignalCandidateError.connect(
+      this, &BasicPortAllocatorSession::OnCandidateError);
   port->SignalPortComplete.connect(this,
                                    &BasicPortAllocatorSession::OnPortComplete);
   port->SignalDestroyed.connect(this,
@@ -948,7 +1005,7 @@ void BasicPortAllocatorSession::OnCandidateReady(Port* port,
 
   if (data->ready() && CheckCandidateFilter(c)) {
     std::vector<Candidate> candidates;
-    candidates.push_back(SanitizeCandidate(c));
+    candidates.push_back(allocator_->SanitizeCandidate(c));
     SignalCandidatesReady(this, candidates);
   } else {
     RTC_LOG(LS_INFO) << "Discarding candidate because it doesn't match filter.";
@@ -958,6 +1015,15 @@ void BasicPortAllocatorSession::OnCandidateReady(Port* port,
   if (pruned) {
     MaybeSignalCandidatesAllocationDone();
   }
+}
+
+void BasicPortAllocatorSession::OnCandidateError(
+    Port* port,
+    const IceCandidateErrorEvent& event) {
+  RTC_DCHECK_RUN_ON(network_thread_);
+  RTC_DCHECK(FindPort(port));
+
+  SignalCandidateError(this, event);
 }
 
 Port* BasicPortAllocatorSession::GetBestTurnPortForNetwork(
@@ -1028,7 +1094,7 @@ void BasicPortAllocatorSession::OnPortComplete(Port* port) {
   }
 
   // Moving to COMPLETE state.
-  data->set_complete();
+  data->set_state(PortData::STATE_COMPLETE);
   // Send candidate allocation complete signal if this was the last port.
   MaybeSignalCandidatesAllocationDone();
 }
@@ -1046,7 +1112,7 @@ void BasicPortAllocatorSession::OnPortError(Port* port) {
 
   // SignalAddressError is currently sent from StunPort/TurnPort.
   // But this signal itself is generic.
-  data->set_error();
+  data->set_state(PortData::STATE_ERROR);
   // Send candidate allocation complete signal if this was the last port.
   MaybeSignalCandidatesAllocationDone();
 }
@@ -1054,34 +1120,7 @@ void BasicPortAllocatorSession::OnPortError(Port* port) {
 bool BasicPortAllocatorSession::CheckCandidateFilter(const Candidate& c) const {
   RTC_DCHECK_RUN_ON(network_thread_);
 
-  uint32_t filter = candidate_filter_;
-
-  // When binding to any address, before sending packets out, the getsockname
-  // returns all 0s, but after sending packets, it'll be the NIC used to
-  // send. All 0s is not a valid ICE candidate address and should be filtered
-  // out.
-  if (c.address().IsAnyIP()) {
-    return false;
-  }
-
-  if (c.type() == RELAY_PORT_TYPE) {
-    return ((filter & CF_RELAY) != 0);
-  } else if (c.type() == STUN_PORT_TYPE) {
-    return ((filter & CF_REFLEXIVE) != 0);
-  } else if (c.type() == LOCAL_PORT_TYPE) {
-    if ((filter & CF_REFLEXIVE) && !c.address().IsPrivateIP()) {
-      // We allow host candidates if the filter allows server-reflexive
-      // candidates and the candidate is a public IP. Because we don't generate
-      // server-reflexive candidates if they have the same IP as the host
-      // candidate (i.e. when the host candidate is a public IP), filtering to
-      // only server-reflexive candidates won't work right when the host
-      // candidates have public IPs.
-      return true;
-    }
-
-    return ((filter & CF_HOST) != 0);
-  }
-  return false;
+  return IsAllowedByCandidateFilter(c, candidate_filter_);
 }
 
 bool BasicPortAllocatorSession::CandidatePairable(const Candidate& c,
@@ -1159,8 +1198,7 @@ BasicPortAllocatorSession::GetUnprunedPorts(
   std::vector<PortData*> unpruned_ports;
   for (PortData& port : ports_) {
     if (!port.pruned() &&
-        std::find(networks.begin(), networks.end(),
-                  port.sequence()->network()) != networks.end()) {
+        absl::c_linear_search(networks, port.sequence()->network())) {
       unpruned_ports.push_back(&port);
     }
   }
@@ -1263,23 +1301,39 @@ void AllocationSequence::DisableEquivalentPhases(rtc::Network* network,
   // This can happen if, say, there's a network change event right before an
   // application-triggered ICE restart. Hopefully this problem will just go
   // away if we get rid of the gathering "phases" though, which is planned.
-  if (std::any_of(session_->ports_.begin(), session_->ports_.end(),
-                  [this](const BasicPortAllocatorSession::PortData& p) {
-                    return p.port()->Network() == network_ &&
-                           p.port()->GetProtocol() == PROTO_UDP && !p.error();
-                  })) {
+  //
+  //
+  // PORTALLOCATOR_DISABLE_UDP is used to disable a Port from gathering the host
+  // candidate (and srflx candidate if Port::SharedSocket()), and we do not want
+  // to disable the gathering of these candidates just becaue of an existing
+  // Port over PROTO_UDP, namely a TurnPort over UDP.
+  if (absl::c_any_of(session_->ports_,
+                     [this](const BasicPortAllocatorSession::PortData& p) {
+                       return !p.pruned() && p.port()->Network() == network_ &&
+                              p.port()->GetProtocol() == PROTO_UDP &&
+                              p.port()->Type() == LOCAL_PORT_TYPE && !p.error();
+                     })) {
     *flags |= PORTALLOCATOR_DISABLE_UDP;
   }
-  if (std::any_of(session_->ports_.begin(), session_->ports_.end(),
-                  [this](const BasicPortAllocatorSession::PortData& p) {
-                    return p.port()->Network() == network_ &&
-                           p.port()->GetProtocol() == PROTO_TCP && !p.error();
-                  })) {
+  // Similarly we need to check both the protocol used by an existing Port and
+  // its type.
+  if (absl::c_any_of(session_->ports_,
+                     [this](const BasicPortAllocatorSession::PortData& p) {
+                       return !p.pruned() && p.port()->Network() == network_ &&
+                              p.port()->GetProtocol() == PROTO_TCP &&
+                              p.port()->Type() == LOCAL_PORT_TYPE && !p.error();
+                     })) {
     *flags |= PORTALLOCATOR_DISABLE_TCP;
   }
 
   if (config_ && config) {
-    if (config_->StunServers() == config->StunServers()) {
+    // We need to regather srflx candidates if either of the following
+    // conditions occurs:
+    //  1. The STUN servers are different from the previous gathering.
+    //  2. We will regather host candidates, hence possibly inducing new NAT
+    //     bindings.
+    if (config_->StunServers() == config->StunServers() &&
+        (*flags & PORTALLOCATOR_DISABLE_UDP)) {
       // Already got this STUN servers covered.
       *flags |= PORTALLOCATOR_DISABLE_STUN;
     }
@@ -1619,7 +1673,7 @@ void AllocationSequence::OnPortDestroyed(PortInterface* port) {
     return;
   }
 
-  auto it = std::find(relay_ports_.begin(), relay_ports_.end(), port);
+  auto it = absl::c_find(relay_ports_, port);
   if (it != relay_ports_.end()) {
     relay_ports_.erase(it);
   } else {

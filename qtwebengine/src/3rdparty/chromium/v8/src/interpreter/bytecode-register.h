@@ -9,8 +9,8 @@
 
 #include "src/base/macros.h"
 #include "src/base/platform/platform.h"
-#include "src/frame-constants.h"
-#include "src/globals.h"
+#include "src/common/globals.h"
+#include "src/execution/frame-constants.h"
 
 namespace v8 {
 namespace internal {
@@ -87,7 +87,7 @@ class V8_EXPORT_PRIVATE Register final {
   }
 
  private:
-  DISALLOW_NEW_AND_DELETE();
+  DISALLOW_NEW_AND_DELETE()
 
   static const int kInvalidIndex = kMaxInt;
   static const int kRegisterFileStartOffset =

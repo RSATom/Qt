@@ -107,8 +107,8 @@ bool ConvertFromUTF16(UConverter* converter,
 
   // ucnv_fromUChars returns size not including terminating null
   int actual_size =
-      ucnv_fromUChars(converter, &(*encoded)[0], encoded_max_length,
-                      reinterpret_cast<const UChar*>(src.data()), src.length(), &status);
+      ucnv_fromUChars(converter, &(*encoded)[0], encoded_max_length, src.data(),
+                      src.length(), &status);
   encoded->resize(actual_size);
   ucnv_close(converter);
   if (U_SUCCESS(status))
@@ -179,7 +179,7 @@ bool CodepageToUTF16(base::StringPiece encoded,
 
   SetUpErrorHandlerForToUChars(on_error, converter, &status);
   std::unique_ptr<char16[]> buffer(new char16[uchar_max_length]);
-  int actual_size = ucnv_toUChars(converter, reinterpret_cast<UChar*>(buffer.get()),
+  int actual_size = ucnv_toUChars(converter, buffer.get(),
       static_cast<int>(uchar_max_length), encoded.data(),
       static_cast<int>(encoded.length()), &status);
   ucnv_close(converter);

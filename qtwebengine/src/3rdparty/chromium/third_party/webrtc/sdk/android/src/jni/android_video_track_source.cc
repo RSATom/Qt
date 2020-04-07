@@ -10,9 +10,10 @@
 
 #include "sdk/android/src/jni/android_video_track_source.h"
 
+#include "sdk/android/generated_video_jni/NativeAndroidVideoTrackSource_jni.h"
+
 #include <utility>
 
-#include "api/video_track_source_proxy.h"
 #include "rtc_base/logging.h"
 
 namespace webrtc {
@@ -21,6 +22,20 @@ namespace jni {
 namespace {
 // MediaCodec wants resolution to be divisible by 2.
 const int kRequiredResolutionAlignment = 2;
+
+VideoRotation jintToVideoRotation(jint rotation) {
+  RTC_DCHECK(rotation == 0 || rotation == 90 || rotation == 180 ||
+             rotation == 270);
+  return static_cast<VideoRotation>(rotation);
+}
+
+absl::optional<std::pair<int, int>> OptionalAspectRatio(jint j_width,
+                                                        jint j_height) {
+  if (j_width > 0 && j_height > 0)
+    return std::pair<int, int>(j_width, j_height);
+  return absl::nullopt;
+}
+
 }  // namespace
 
 AndroidVideoTrackSource::AndroidVideoTrackSource(rtc::Thread* signaling_thread,
@@ -32,7 +47,6 @@ AndroidVideoTrackSource::AndroidVideoTrackSource(rtc::Thread* signaling_thread,
       is_screencast_(is_screencast),
       align_timestamps_(align_timestamps) {
   RTC_LOG(LS_INFO) << "AndroidVideoTrackSource ctor";
-  camera_thread_checker_.DetachFromThread();
 }
 AndroidVideoTrackSource::~AndroidVideoTrackSource() = default;
 
@@ -44,11 +58,17 @@ absl::optional<bool> AndroidVideoTrackSource::needs_denoising() const {
   return false;
 }
 
-void AndroidVideoTrackSource::SetState(SourceState state) {
+void AndroidVideoTrackSource::SetState(JNIEnv* env,
+                                       const JavaRef<jobject>& j_caller,
+                                       jboolean j_is_live) {
+  InternalSetState(j_is_live ? kLive : kEnded);
+}
+
+void AndroidVideoTrackSource::InternalSetState(SourceState state) {
   if (rtc::Thread::Current() != signaling_thread_) {
     invoker_.AsyncInvoke<void>(
         RTC_FROM_HERE, signaling_thread_,
-        rtc::Bind(&AndroidVideoTrackSource::SetState, this, state));
+        rtc::Bind(&AndroidVideoTrackSource::InternalSetState, this, state));
     return;
   }
 
@@ -66,70 +86,85 @@ bool AndroidVideoTrackSource::remote() const {
   return false;
 }
 
-void AndroidVideoTrackSource::OnFrameCaptured(
-    JNIEnv* jni,
-    int width,
-    int height,
-    int64_t timestamp_ns,
-    VideoRotation rotation,
-    const JavaRef<jobject>& j_video_frame_buffer) {
-  RTC_DCHECK(camera_thread_checker_.CalledOnValidThread());
+ScopedJavaLocalRef<jobject> AndroidVideoTrackSource::AdaptFrame(
+    JNIEnv* env,
+    const JavaRef<jobject>& j_caller,
+    jint j_width,
+    jint j_height,
+    jint j_rotation,
+    jlong j_timestamp_ns) {
+  const VideoRotation rotation = jintToVideoRotation(j_rotation);
 
-  int64_t camera_time_us = timestamp_ns / rtc::kNumNanosecsPerMicrosec;
-  int64_t translated_camera_time_us =
-      align_timestamps_ ? timestamp_aligner_.TranslateTimestamp(
-                              camera_time_us, rtc::TimeMicros())
-                        : camera_time_us;
+  const int64_t camera_time_us = j_timestamp_ns / rtc::kNumNanosecsPerMicrosec;
+  const int64_t aligned_timestamp_ns =
+      align_timestamps_ ? rtc::kNumNanosecsPerMicrosec *
+                              timestamp_aligner_.TranslateTimestamp(
+                                  camera_time_us, rtc::TimeMicros())
+                        : j_timestamp_ns;
 
-  int adapted_width;
-  int adapted_height;
-  int crop_width;
-  int crop_height;
-  int crop_x;
-  int crop_y;
+  int adapted_width = 0;
+  int adapted_height = 0;
+  int crop_width = 0;
+  int crop_height = 0;
+  int crop_x = 0;
+  int crop_y = 0;
+  bool drop;
 
+  // TODO(magjed): Move this logic to users of NativeAndroidVideoTrackSource
+  // instead, in order to keep this native wrapping layer as thin as possible.
   if (rotation % 180 == 0) {
-    if (!AdaptFrame(width, height, camera_time_us, &adapted_width,
-                    &adapted_height, &crop_width, &crop_height, &crop_x,
-                    &crop_y)) {
-      return;
-    }
+    drop = !rtc::AdaptedVideoTrackSource::AdaptFrame(
+        j_width, j_height, camera_time_us, &adapted_width, &adapted_height,
+        &crop_width, &crop_height, &crop_x, &crop_y);
   } else {
     // Swap all width/height and x/y.
-    if (!AdaptFrame(height, width, camera_time_us, &adapted_height,
-                    &adapted_width, &crop_height, &crop_width, &crop_y,
-                    &crop_x)) {
-      return;
-    }
+    drop = !rtc::AdaptedVideoTrackSource::AdaptFrame(
+        j_height, j_width, camera_time_us, &adapted_height, &adapted_width,
+        &crop_height, &crop_width, &crop_y, &crop_x);
   }
 
+  return Java_NativeAndroidVideoTrackSource_createFrameAdaptationParameters(
+      env, crop_x, crop_y, crop_width, crop_height, adapted_width,
+      adapted_height, aligned_timestamp_ns, drop);
+}
+
+void AndroidVideoTrackSource::OnFrameCaptured(
+    JNIEnv* env,
+    const JavaRef<jobject>& j_caller,
+    jint j_rotation,
+    jlong j_timestamp_ns,
+    const JavaRef<jobject>& j_video_frame_buffer) {
   rtc::scoped_refptr<VideoFrameBuffer> buffer =
-      AndroidVideoBuffer::Create(jni, j_video_frame_buffer)
-          ->CropAndScale(jni, crop_x, crop_y, crop_width, crop_height,
-                         adapted_width, adapted_height);
+      AndroidVideoBuffer::Create(env, j_video_frame_buffer);
+  const VideoRotation rotation = jintToVideoRotation(j_rotation);
 
   // AdaptedVideoTrackSource handles applying rotation for I420 frames.
-  if (apply_rotation() && rotation != kVideoRotation_0) {
+  if (apply_rotation() && rotation != kVideoRotation_0)
     buffer = buffer->ToI420();
-  }
 
   OnFrame(VideoFrame::Builder()
               .set_video_frame_buffer(buffer)
               .set_rotation(rotation)
-              .set_timestamp_us(translated_camera_time_us)
+              .set_timestamp_us(j_timestamp_ns / rtc::kNumNanosecsPerMicrosec)
               .build());
 }
 
-void AndroidVideoTrackSource::OnOutputFormatRequest(int landscape_width,
-                                                    int landscape_height,
-                                                    int portrait_width,
-                                                    int portrait_height,
-                                                    int fps) {
+void AndroidVideoTrackSource::AdaptOutputFormat(
+    JNIEnv* env,
+    const JavaRef<jobject>& j_caller,
+    jint j_landscape_width,
+    jint j_landscape_height,
+    const JavaRef<jobject>& j_max_landscape_pixel_count,
+    jint j_portrait_width,
+    jint j_portrait_height,
+    const JavaRef<jobject>& j_max_portrait_pixel_count,
+    const JavaRef<jobject>& j_max_fps) {
   video_adapter()->OnOutputFormatRequest(
-      std::make_pair(landscape_width, landscape_height),
-      landscape_width * landscape_height,
-      std::make_pair(portrait_width, portrait_height),
-      portrait_width * portrait_height, fps);
+      OptionalAspectRatio(j_landscape_width, j_landscape_height),
+      JavaToNativeOptionalInt(env, j_max_landscape_pixel_count),
+      OptionalAspectRatio(j_portrait_width, j_portrait_height),
+      JavaToNativeOptionalInt(env, j_max_portrait_pixel_count),
+      JavaToNativeOptionalInt(env, j_max_fps));
 }
 
 }  // namespace jni

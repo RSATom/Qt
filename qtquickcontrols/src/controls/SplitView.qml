@@ -186,7 +186,7 @@ Item {
     onOrientationChanged: d.changeOrientation()
 
     /*! \qmlmethod void SplitView::addItem(Item item)
-        Add an item to the end of the view.
+        Add an \a item to the end of the view.
         \since QtQuick.Controls 1.3 */
     function addItem(item) {
         d.updateLayoutGuard = true

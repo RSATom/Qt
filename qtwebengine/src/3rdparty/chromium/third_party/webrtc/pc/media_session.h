@@ -13,7 +13,6 @@
 #ifndef PC_MEDIA_SESSION_H_
 #define PC_MEDIA_SESSION_H_
 
-#include <algorithm>
 #include <map>
 #include <memory>
 #include <string>
@@ -25,7 +24,9 @@
 #include "p2p/base/ice_credentials_iterator.h"
 #include "p2p/base/transport_description_factory.h"
 #include "pc/jsep_transport.h"
+#include "pc/media_protocol_names.h"
 #include "pc/session_description.h"
+#include "rtc_base/unique_id_generator.h"
 
 namespace cricket {
 
@@ -76,15 +77,7 @@ struct MediaDescriptionOptions {
   // Note: There's no equivalent "RtpReceiverOptions" because only send
   // stream information goes in the local descriptions.
   std::vector<SenderOptions> sender_options;
-  // |receive_rids| and |receive_simulcast_layers| are used with spec-compliant
-  // simulcast. When Simulcast is used, they should both not be empty.
-  // All RIDs in |receive_simulcast_layers| must appear in receive_rids as well.
-  // |receive_rids| could also be used outside of simulcast. It is possible to
-  // add restrictions on the incoming stream during negotiation outside the
-  // simulcast scenario. This is currently not fully supported, as meaningful
-  // restrictions are not handled by this library.
-  std::vector<RidDescription> receive_rids;
-  SimulcastLayerList receive_simulcast_layers;
+  std::vector<webrtc::RtpCodecCapability> codec_preferences;
 
  private:
   // Doesn't DCHECK on |type|.
@@ -113,12 +106,24 @@ struct MediaSessionOptions {
   bool rtcp_mux_enabled = true;
   bool bundle_enabled = false;
   bool offer_extmap_allow_mixed = false;
+  bool raw_packetization_for_video = false;
   std::string rtcp_cname = kDefaultRtcpCname;
   webrtc::CryptoOptions crypto_options;
   // List of media description options in the same order that the media
   // descriptions will be generated.
   std::vector<MediaDescriptionOptions> media_description_options;
   std::vector<IceParameters> pooled_ice_credentials;
+
+  // An optional media transport settings.
+  // In the future we may consider using a vector here, to indicate multiple
+  // supported transports.
+  absl::optional<cricket::SessionDescription::MediaTransportSetting>
+      media_transport_settings;
+  // Use the draft-ietf-mmusic-sctp-sdp-03 obsolete syntax for SCTP
+  // datachannels.
+  // Default is true for backwards compatibility with clients that use
+  // this internal interface.
+  bool use_obsolete_sctp_sdp = true;
 };
 
 // Creates media session descriptions according to the supplied codecs and
@@ -127,15 +132,19 @@ struct MediaSessionOptions {
 // of the various fields to determine the proper result.
 class MediaSessionDescriptionFactory {
  public:
-  // Default ctor; use methods below to set configuration.
-  // The TransportDescriptionFactory is not owned by MediaSessionDescFactory,
-  // so it must be kept alive by the user of this class.
-  explicit MediaSessionDescriptionFactory(
-      const TransportDescriptionFactory* factory);
+  // Simple constructor that does not set any configuration for the factory.
+  // When using this constructor, the methods below can be used to set the
+  // configuration.
+  // The TransportDescriptionFactory and the UniqueRandomIdGenerator are not
+  // owned by MediaSessionDescriptionFactory, so they must be kept alive by the
+  // user of this class.
+  MediaSessionDescriptionFactory(const TransportDescriptionFactory* factory,
+                                 rtc::UniqueRandomIdGenerator* ssrc_generator);
   // This helper automatically sets up the factory to get its configuration
   // from the specified ChannelManager.
   MediaSessionDescriptionFactory(ChannelManager* cmanager,
-                                 const TransportDescriptionFactory* factory);
+                                 const TransportDescriptionFactory* factory,
+                                 rtc::UniqueRandomIdGenerator* ssrc_generator);
 
   const AudioCodecs& audio_sendrecv_codecs() const;
   const AudioCodecs& audio_send_codecs() const;
@@ -152,8 +161,10 @@ class MediaSessionDescriptionFactory {
     video_rtp_extensions_ = extensions;
   }
   RtpHeaderExtensions video_rtp_header_extensions() const;
-  const DataCodecs& data_codecs() const { return data_codecs_; }
-  void set_data_codecs(const DataCodecs& codecs) { data_codecs_ = codecs; }
+  const RtpDataCodecs& rtp_data_codecs() const { return rtp_data_codecs_; }
+  void set_rtp_data_codecs(const RtpDataCodecs& codecs) {
+    rtp_data_codecs_ = codecs;
+  }
   SecurePolicy secure() const { return secure_; }
   void set_secure(SecurePolicy s) { secure_ = s; }
 
@@ -183,15 +194,16 @@ class MediaSessionDescriptionFactory {
       const std::vector<const ContentInfo*>& current_active_contents,
       AudioCodecs* audio_codecs,
       VideoCodecs* video_codecs,
-      DataCodecs* data_codecs) const;
+      RtpDataCodecs* rtp_data_codecs) const;
   void GetCodecsForAnswer(
       const std::vector<const ContentInfo*>& current_active_contents,
       const SessionDescription& remote_offer,
       AudioCodecs* audio_codecs,
       VideoCodecs* video_codecs,
-      DataCodecs* data_codecs) const;
+      RtpDataCodecs* rtp_data_codecs) const;
   void GetRtpHdrExtsToOffer(
       const std::vector<const ContentInfo*>& current_active_contents,
+      bool extmap_allow_mixed,
       RtpHeaderExtensions* audio_extensions,
       RtpHeaderExtensions* video_extensions) const;
   bool AddTransportOffer(const std::string& content_name,
@@ -238,12 +250,32 @@ class MediaSessionDescriptionFactory {
       SessionDescription* desc,
       IceCredentialsIterator* ice_credentials) const;
 
+  bool AddSctpDataContentForOffer(
+      const MediaDescriptionOptions& media_description_options,
+      const MediaSessionOptions& session_options,
+      const ContentInfo* current_content,
+      const SessionDescription* current_description,
+      StreamParamsVec* current_streams,
+      SessionDescription* desc,
+      IceCredentialsIterator* ice_credentials) const;
+  bool AddRtpDataContentForOffer(
+      const MediaDescriptionOptions& media_description_options,
+      const MediaSessionOptions& session_options,
+      const ContentInfo* current_content,
+      const SessionDescription* current_description,
+      const RtpDataCodecs& rtp_data_codecs,
+      StreamParamsVec* current_streams,
+      SessionDescription* desc,
+      IceCredentialsIterator* ice_credentials) const;
+  // This function calls either AddRtpDataContentForOffer or
+  // AddSctpDataContentForOffer depending on protocol.
+  // The codecs argument is ignored for SCTP.
   bool AddDataContentForOffer(
       const MediaDescriptionOptions& media_description_options,
       const MediaSessionOptions& session_options,
       const ContentInfo* current_content,
       const SessionDescription* current_description,
-      const DataCodecs& data_codecs,
+      const RtpDataCodecs& rtp_data_codecs,
       StreamParamsVec* current_streams,
       SessionDescription* desc,
       IceCredentialsIterator* ice_credentials) const;
@@ -282,7 +314,7 @@ class MediaSessionDescriptionFactory {
       const ContentInfo* current_content,
       const SessionDescription* current_description,
       const TransportInfo* bundle_transport,
-      const DataCodecs& data_codecs,
+      const RtpDataCodecs& rtp_data_codecs,
       StreamParamsVec* current_streams,
       SessionDescription* answer,
       IceCredentialsIterator* ice_credentials) const;
@@ -299,7 +331,9 @@ class MediaSessionDescriptionFactory {
   RtpHeaderExtensions audio_rtp_extensions_;
   VideoCodecs video_codecs_;
   RtpHeaderExtensions video_rtp_extensions_;
-  DataCodecs data_codecs_;
+  RtpDataCodecs rtp_data_codecs_;
+  // This object is not owned by the channel so it must outlive it.
+  rtc::UniqueRandomIdGenerator* const ssrc_generator_;
   bool enable_encrypted_rtp_header_extensions_ = false;
   // TODO(zhihuang): Rename secure_ to sdec_policy_; rename the related getter
   // and setter.
@@ -326,7 +360,9 @@ const AudioContentDescription* GetFirstAudioContentDescription(
     const SessionDescription* sdesc);
 const VideoContentDescription* GetFirstVideoContentDescription(
     const SessionDescription* sdesc);
-const DataContentDescription* GetFirstDataContentDescription(
+const RtpDataContentDescription* GetFirstRtpDataContentDescription(
+    const SessionDescription* sdesc);
+const SctpDataContentDescription* GetFirstSctpDataContentDescription(
     const SessionDescription* sdesc);
 // Non-const versions of the above functions.
 // Useful when modifying an existing description.
@@ -343,7 +379,9 @@ AudioContentDescription* GetFirstAudioContentDescription(
     SessionDescription* sdesc);
 VideoContentDescription* GetFirstVideoContentDescription(
     SessionDescription* sdesc);
-DataContentDescription* GetFirstDataContentDescription(
+RtpDataContentDescription* GetFirstRtpDataContentDescription(
+    SessionDescription* sdesc);
+SctpDataContentDescription* GetFirstSctpDataContentDescription(
     SessionDescription* sdesc);
 
 // Helper functions to return crypto suites used for SDES.
@@ -365,9 +403,6 @@ void GetSupportedVideoSdesCryptoSuiteNames(
 void GetSupportedDataSdesCryptoSuiteNames(
     const webrtc::CryptoOptions& crypto_options,
     std::vector<std::string>* crypto_suite_names);
-
-// Returns true if the given media section protocol indicates use of RTP.
-bool IsRtpProtocol(const std::string& protocol);
 
 }  // namespace cricket
 

@@ -31,6 +31,7 @@ class MEDIA_EXPORT VideoDecodeStatsDBImpl : public VideoDecodeStatsDB {
  public:
   static const char kMaxFramesPerBufferParamName[];
   static const char kMaxDaysToKeepStatsParamName[];
+  static const char kEnableUnweightedEntriesParamName[];
 
   // Create an instance! |db_dir| specifies where to store LevelDB files to
   // disk. LevelDB generates a handful of files, so its recommended to provide a
@@ -72,6 +73,10 @@ class MEDIA_EXPORT VideoDecodeStatsDBImpl : public VideoDecodeStatsDB {
   // been due to one-off circumstances.
   static int GetMaxDaysToKeepStats();
 
+  // When true, each playback entry in the DB should be given equal weight
+  // regardless of how many frames were decoded.
+  static bool GetEnableUnweightedEntries();
+
   // Called when the database has been initialized. Will immediately call
   // |init_cb| to forward |success|.
   void OnInit(InitializeCB init_cb, bool success);
@@ -109,8 +114,12 @@ class MEDIA_EXPORT VideoDecodeStatsDBImpl : public VideoDecodeStatsDB {
   void OnStatsCleared(base::OnceClosure clear_done_cb, bool success);
 
   // Return true if:
-  //     "now" - stats_proto.last_write_date > GeMaxDaysToKeepStats()
-  bool AreStatsExpired(const DecodeStatsProto* const stats_proto);
+  //    values aren't corrupted nonsense (e.g. way more frames dropped than
+  //    decoded, or number of frames_decoded < frames_power_efficient)
+  // &&
+  //    stats aren't expired.
+  //       ("now" - stats_proto.last_write_date > GeMaxDaysToKeepStats())
+  bool AreStatsUsable(const DecodeStatsProto* const stats_proto);
 
   void set_wall_clock_for_test(const base::Clock* tick_clock) {
     wall_clock_ = tick_clock;
@@ -140,7 +149,7 @@ class MEDIA_EXPORT VideoDecodeStatsDBImpl : public VideoDecodeStatsDB {
   // callbacks to this happen on the checked sequence.
   SEQUENCE_CHECKER(sequence_checker_);
 
-  base::WeakPtrFactory<VideoDecodeStatsDBImpl> weak_ptr_factory_;
+  base::WeakPtrFactory<VideoDecodeStatsDBImpl> weak_ptr_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(VideoDecodeStatsDBImpl);
 };

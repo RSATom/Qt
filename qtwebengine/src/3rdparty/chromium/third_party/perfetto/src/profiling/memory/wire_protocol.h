@@ -29,6 +29,8 @@
 #include <unwindstack/UserX86.h>
 #include <unwindstack/UserX86_64.h>
 
+#include "src/profiling/memory/shared_ring_buffer.h"
+
 namespace perfetto {
 
 namespace base {
@@ -37,11 +39,19 @@ class UnixSocketRaw;
 
 namespace profiling {
 
+struct ClientConfiguration {
+  // On average, sample one allocation every interval bytes,
+  // If interval == 1, sample every allocation.
+  // Must be >= 1.
+  uint64_t interval;
+  bool block_client;
+};
+
 // Types needed for the wire format used for communication between the client
 // and heapprofd. The basic format of a record is
 // record size (uint64_t) | record type (RecordType = uint64_t) | record
 // If record type is malloc, the record format is AllocMetdata | raw stack.
-// If the record type is free, the record is a sequence of FreePageEntry.
+// If the record type is free, the record is a sequence of FreeBatchEntry.
 
 // Use uint64_t to make sure the following data is aligned as 64bit is the
 // strongest alignment requirement.
@@ -68,7 +78,7 @@ constexpr size_t kMaxRegisterDataSize =
   );
 // clang-format on
 
-constexpr size_t kFreePageSize = 1024;
+constexpr size_t kFreeBatchSize = 1024;
 
 enum class RecordType : uint64_t {
   Free = 0,
@@ -80,47 +90,50 @@ struct AllocMetadata {
   // Size of the allocation that was made.
   uint64_t alloc_size;
   // Total number of bytes attributed to this allocation.
-  uint64_t total_size;
+  uint64_t sample_size;
   // Pointer returned by malloc(2) for this allocation.
   uint64_t alloc_address;
   // Current value of the stack pointer.
   uint64_t stack_pointer;
   // Offset of the data at stack_pointer from the start of this record.
   uint64_t stack_pointer_offset;
+  uint64_t clock_monotonic_coarse_timestamp;
   alignas(uint64_t) char register_data[kMaxRegisterDataSize];
-  // CPU architecture of the client. This determines the size of the
-  // register data that follows this struct.
+  // CPU architecture of the client.
   unwindstack::ArchEnum arch;
 };
 
-struct FreePageEntry {
+struct FreeBatchEntry {
   uint64_t sequence_number;
   uint64_t addr;
 };
 
-struct ClientConfiguration {
-  // On average, sample one allocation every interval bytes,
-  // If interval == 1, sample every allocation.
-  // Must be >= 1.
-  uint64_t interval;
+struct FreeBatch {
+  uint64_t num_entries;
+  uint64_t clock_monotonic_coarse_timestamp;
+  FreeBatchEntry entries[kFreeBatchSize];
+
+  FreeBatch() { num_entries = 0; }
 };
 
-struct FreeMetadata {
-  uint64_t num_entries;
-  FreePageEntry entries[kFreePageSize];
+enum HandshakeFDs : size_t {
+  kHandshakeMaps = 0,
+  kHandshakeMem,
+  kHandshakePageIdle,
+  kHandshakeSize,
 };
 
 struct WireMessage {
   RecordType record_type;
 
   AllocMetadata* alloc_header;
-  FreeMetadata* free_header;
+  FreeBatch* free_header;
 
   char* payload;
   size_t payload_size;
 };
 
-bool SendWireMessage(base::UnixSocketRaw*, const WireMessage& msg);
+bool SendWireMessage(SharedRingBuffer* buf, const WireMessage& msg);
 
 // Parse message received over the wire.
 // |buf| has to outlive |out|.

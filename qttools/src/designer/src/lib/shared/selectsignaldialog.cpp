@@ -53,7 +53,7 @@ namespace qdesigner_internal {
 
 enum { MethodRole = Qt::UserRole + 1 };
 
-typedef QVector<SelectSignalDialog::Method> Methods;
+using Methods = QVector<SelectSignalDialog::Method>;
 
 SelectSignalDialog::SelectSignalDialog(QWidget *parent)
     : QDialog(parent)
@@ -117,7 +117,7 @@ static void appendClass(const QString &className, Methods methods, QStandardItem
     for (const SelectSignalDialog::Method &m : qAsConst(methods)) {
         QStandardItem *item = new QStandardItem(m.signature);
         item->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable);
-        item->setData(qVariantFromValue(m), MethodRole);
+        item->setData(QVariant::fromValue(m), MethodRole);
         topLevelItem->appendRow(item);
     }
 }
@@ -129,7 +129,7 @@ static QString declaredInClass(const QDesignerMetaObjectInterface *metaObject, c
 
     for (;;) {
         const QDesignerMetaObjectInterface *tmpMeta = meta->superClass();
-        if (tmpMeta == 0)
+        if (tmpMeta == nullptr)
             break;
         if (tmpMeta->indexOfMethod(member) == -1)
             break;

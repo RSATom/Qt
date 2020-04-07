@@ -92,28 +92,28 @@ public:
     QMutexPrivate();
 
     bool wait(int timeout = -1);
-    void wakeUp() Q_DECL_NOTHROW;
+    void wakeUp() noexcept;
 
     // Control the lifetime of the privates
     QAtomicInt refCount;
     int id;
 
     bool ref() {
-        Q_ASSERT(refCount.load() >= 0);
+        Q_ASSERT(refCount.loadRelaxed() >= 0);
         int c;
         do {
-            c = refCount.load();
+            c = refCount.loadRelaxed();
             if (c == 0)
                 return false;
         } while (!refCount.testAndSetRelaxed(c, c + 1));
-        Q_ASSERT(refCount.load() >= 0);
+        Q_ASSERT(refCount.loadRelaxed() >= 0);
         return true;
     }
     void deref() {
-        Q_ASSERT(refCount.load() >= 0);
+        Q_ASSERT(refCount.loadRelaxed() >= 0);
         if (!refCount.deref())
             release();
-        Q_ASSERT(refCount.load() >= 0);
+        Q_ASSERT(refCount.loadRelaxed() >= 0);
     }
     void release();
     static QMutexPrivate *allocate();
@@ -125,7 +125,7 @@ public:
                                     when the mutex is unlocked.
                                   */
     enum { BigNumber = 0x100000 }; //Must be bigger than the possible number of waiters (number of threads)
-    void derefWaiters(int value) Q_DECL_NOTHROW;
+    void derefWaiters(int value) noexcept;
 
     //platform specific stuff
 #if defined(Q_OS_MAC)

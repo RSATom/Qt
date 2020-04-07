@@ -1,9 +1,5 @@
+file://components/search/OWNERS
 fserb@chromium.org
-kmilka@chromium.org
-kristipark@chromium.org
-mathp@chromium.org
-ramyan@chromium.org
-treib@chromium.org
 
 # TEAM: ntp-dev@chromium.org
 # COMPONENT: UI>Browser>NewTabPage

@@ -35,35 +35,32 @@ all_devtools_files = [
   "front_end/application_test_runner/ResourcesTestRunner.js",
   "front_end/application_test_runner/ResourceTreeTestRunner.js",
   "front_end/application_test_runner/ServiceWorkersTestRunner.js",
-  "front_end/audits2_worker.js",
-  "front_end/audits2_worker.json",
-  "front_end/audits2_worker/Audits2Service.js",
-  "front_end/audits2_worker/lighthouse/lighthouse-dt-bundle.js",
-  "front_end/audits2_worker/module.json",
-  "front_end/audits2/Audits2Panel.js",
-  "front_end/audits2/Audits2Controller.js",
-  "front_end/audits2/Audits2ReportSelector.js",
-  "front_end/audits2/Audits2ReportRenderer.js",
-  "front_end/audits2/Audits2StartView.js",
-  "front_end/audits2/Audits2ProtocolService.js",
-  "front_end/audits2/Audits2StatusView.js",
-  "front_end/audits2/audits2Dialog.css",
-  "front_end/audits2/audits2StartView.css",
-  "front_end/audits2/audits2Panel.css",
-  "front_end/audits2/RadioSetting.js",
-  "front_end/audits2/lighthouse/renderer/dom.js",
-  "front_end/audits2/lighthouse/renderer/details-renderer.js",
-  "front_end/audits2/lighthouse/renderer/category-renderer.js",
-  "front_end/audits2/lighthouse/renderer/performance-category-renderer.js",
-  "front_end/audits2/lighthouse/renderer/pwa-category-renderer.js",
-  "front_end/audits2/lighthouse/renderer/crc-details-renderer.js",
-  "front_end/audits2/lighthouse/renderer/report-renderer.js",
-  "front_end/audits2/lighthouse/renderer/util.js",
-  "front_end/audits2/lighthouse/report-styles.css",
-  "front_end/audits2/lighthouse/templates.html",
-  "front_end/audits2/module.json",
-  "front_end/audits2_test_runner/Audits2TestRunner.js",
-  "front_end/audits2_test_runner/module.json",
+  "front_end/audits_worker.js",
+  "front_end/audits_worker.json",
+  "front_end/audits_worker/AuditsService.js",
+  "front_end/audits_worker/lighthouse/lighthouse-dt-bundle.js",
+  "front_end/audits_worker/module.json",
+  "front_end/audits/AuditsPanel.js",
+  "front_end/audits/AuditsController.js",
+  "front_end/audits/AuditsReportSelector.js",
+  "front_end/audits/AuditsReportRenderer.js",
+  "front_end/audits/AuditsStartView.js",
+  "front_end/audits/AuditsProtocolService.js",
+  "front_end/audits/AuditsStatusView.js",
+  "front_end/audits/auditsDialog.css",
+  "front_end/audits/auditsStartView.css",
+  "front_end/audits/auditsPanel.css",
+  "front_end/audits/RadioSetting.js",
+  "front_end/audits/lighthouse/report.css",
+  "front_end/audits/lighthouse/report.js",
+  "front_end/audits/lighthouse/report-generator.js",
+  "front_end/audits/lighthouse/template.html",
+  "front_end/audits/lighthouse/templates.html",
+  "front_end/audits/module.json",
+  "front_end/audits_test_runner/AuditsTestRunner.js",
+  "front_end/audits_test_runner/module.json",
+  "front_end/axe_core_test_runner/AxeCoreTestRunner.js",
+  "front_end/axe_core_test_runner/module.json",
   "front_end/bindings/BlackboxManager.js",
   "front_end/bindings/BreakpointManager.js",
   "front_end/bindings/CompilerScriptMapping.js",
@@ -104,7 +101,7 @@ all_devtools_files = [
   "front_end/changes/changesSidebar.css",
   "front_end/changes/ChangesSidebar.js",
   "front_end/changes/module.json",
-  "front_end/cm/activeline.js",
+  "front_end/cm/active-line.js",
   "front_end/cm/brace-fold.js",
   "front_end/cm/closebrackets.js",
   "front_end/cm/codemirror.css",
@@ -112,7 +109,7 @@ all_devtools_files = [
   "front_end/cm/comment.js",
   "front_end/cm/foldcode.js",
   "front_end/cm/foldgutter.js",
-  "front_end/cm/markselection.js",
+  "front_end/cm/mark-selection.js",
   "front_end/cm/matchbrackets.js",
   "front_end/cm/module.json",
   "front_end/cm/multiplex.js",
@@ -260,6 +257,7 @@ all_devtools_files = [
   "front_end/elements_test_runner/EditDOMTestRunner.js",
   "front_end/elements_test_runner/ElementsPanelShadowSelectionOnRefreshTestRunner.js",
   "front_end/elements_test_runner/ElementsTestRunner.js",
+  "front_end/elements_test_runner/module.json",
   "front_end/elements_test_runner/SetOuterHTMLTestRunner.js",
   "front_end/elements_test_runner/StylesUpdateLinksTestRunner.js",
   "front_end/emulated_devices/module.json",
@@ -288,7 +286,6 @@ all_devtools_files = [
   "front_end/event_listeners/module.json",
   "front_end/extensions/ExtensionAPI.js",
   "front_end/extensions/ExtensionPanel.js",
-  "front_end/extensions/ExtensionRegistryStub.js",
   "front_end/extensions/ExtensionServer.js",
   "front_end/extensions/ExtensionTraceProvider.js",
   "front_end/extensions/ExtensionView.js",
@@ -401,7 +398,9 @@ all_devtools_files = [
   "front_end/mobile_throttling/throttlingSettingsTab.css",
   "front_end/mobile_throttling/ThrottlingSettingsTab.js",
   "front_end/ndb_app.json",
+  "front_end/network/binaryResourceView.css",
   "front_end/network/blockedURLsPane.css",
+  "front_end/network/BinaryResourceView.js",
   "front_end/network/BlockedURLsPane.js",
   "front_end/network/eventSourceMessagesView.css",
   "front_end/network/EventSourceMessagesView.js",
@@ -464,6 +463,7 @@ all_devtools_files = [
   "front_end/perf_ui/FlameChart.js",
   "front_end/perf_ui/GCActionDelegate.js",
   "front_end/perf_ui/LineLevelProfile.js",
+  "front_end/perf_ui/LiveHeapProfile.js",
   "front_end/perf_ui/NetworkPriorities.js",
   "front_end/perf_ui/OverviewGrid.js",
   "front_end/perf_ui/PieChart.js",
@@ -489,6 +489,7 @@ all_devtools_files = [
   "front_end/persistence/FileSystemWorkspaceBinding.js",
   "front_end/persistence/IsolatedFileSystem.js",
   "front_end/persistence/IsolatedFileSystemManager.js",
+  "front_end/persistence/module.json",
   "front_end/persistence/NetworkPersistenceManager.js",
   "front_end/persistence/Persistence.js",
   "front_end/persistence/PersistenceActions.js",
@@ -519,6 +520,8 @@ all_devtools_files = [
   "front_end/profiler/HeapSnapshotView.js",
   "front_end/profiler/HeapTimelineOverview.js",
   "front_end/profiler/IsolateSelector.js",
+  "front_end/profiler/LiveHeapProfileView.js",
+  "front_end/profiler/liveHeapProfile.css",
   "front_end/profiler/module.json",
   "front_end/profiler/ProfileDataGrid.js",
   "front_end/profiler/ProfileHeader.js",
@@ -545,6 +548,9 @@ all_devtools_files = [
   "front_end/resources/ApplicationPanelSidebar.js",
   "front_end/resources/appManifestView.css",
   "front_end/resources/AppManifestView.js",
+  "front_end/resources/BackgroundServiceModel.js",
+  "front_end/resources/backgroundServiceView.css",
+  "front_end/resources/BackgroundServiceView.js",
   "front_end/resources/clearStorageView.css",
   "front_end/resources/ClearStorageView.js",
   "front_end/resources/CookieItemsView.js",
@@ -596,6 +602,7 @@ all_devtools_files = [
   "front_end/sdk/FilmStripModel.js",
   "front_end/sdk/HARLog.js",
   "front_end/sdk/HeapProfilerModel.js",
+  "front_end/sdk/IsolateManager.js",
   "front_end/sdk/LayerTreeBase.js",
   "front_end/sdk/LogModel.js",
   "front_end/sdk/module.json",
@@ -624,6 +631,7 @@ all_devtools_files = [
   "front_end/sdk/TracingModel.js",
   "front_end/sdk_test_runner/module.json",
   "front_end/sdk_test_runner/PageMockTestRunner.js",
+  "front_end/search/module.json",
   "front_end/search/SearchConfig.js",
   "front_end/search/searchResultsPane.css",
   "front_end/search/SearchResultsPane.js",
@@ -638,6 +646,7 @@ all_devtools_files = [
   "front_end/security/sidebar.css",
   "front_end/security_test_runner/module.json",
   "front_end/security_test_runner/SecurityTestRunner.js",
+  "front_end/services/module.json",
   "front_end/services/ServiceManager.js",
   "front_end/settings/frameworkBlackboxSettingsTab.css",
   "front_end/settings/FrameworkBlackboxSettingsTab.js",
@@ -647,6 +656,7 @@ all_devtools_files = [
   "front_end/snippets/module.json",
   "front_end/snippets/ScriptSnippetFileSystem.js",
   "front_end/snippets/SnippetsQuickOpen.js",
+  "front_end/source_frame/BinaryResourceViewFactory.js",
   "front_end/source_frame/fontView.css",
   "front_end/source_frame/FontView.js",
   "front_end/source_frame/imageView.css",
@@ -689,13 +699,11 @@ all_devtools_files = [
   "front_end/sources/NavigatorView.js",
   "front_end/sources/OpenFileQuickOpen.js",
   "front_end/sources/OutlineQuickOpen.js",
-  "front_end/sources/revisionHistory.css",
   "front_end/sources/scopeChainSidebarPane.css",
   "front_end/sources/ScopeChainSidebarPane.js",
   "front_end/sources/ScriptFormatterEditorAction.js",
   "front_end/sources/ScriptOriginPlugin.js",
   "front_end/sources/SearchSourcesView.js",
-  "front_end/sources/serviceWorkersSidebar.css",
   "front_end/sources/SimpleHistoryManager.js",
   "front_end/sources/SnippetsPlugin.js",
   "front_end/sources/SourceFormatter.js",
@@ -719,6 +727,7 @@ all_devtools_files = [
   "front_end/sources_test_runner/SearchTestRunner.js",
   "front_end/sources_test_runner/SourcesTestRunner.js",
   "front_end/sources_test_runner/module.json",
+  "front_end/terminal/module.json",
   "front_end/terminal/terminal.css",
   "front_end/terminal/TerminalWidget.js",
   "front_end/terminal/xterm.js/addons/fit/fit.js",
@@ -868,8 +877,16 @@ all_devtools_files = [
   "front_end/ui/XLink.js",
   "front_end/ui/XWidget.js",
   "front_end/ui/ZoomManager.js",
+  "front_end/web_audio/AudioContextContentBuilder.js",
+  "front_end/web_audio/audioContextSelector.css",
+  "front_end/web_audio/AudioContextSelector.js",
+  "front_end/web_audio/module.json",
+  "front_end/web_audio/webAudio.css",
+  "front_end/web_audio/WebAudioModel.js",
+  "front_end/web_audio/WebAudioView.js",
   "front_end/worker_main/WorkerMain.js",
   "front_end/worker_main/module.json",
+  "front_end/worker_service/module.json",
   "front_end/worker_service/ServiceDispatcher.js",
   "front_end/workspace/FileManager.js",
   "front_end/workspace/module.json",
@@ -889,8 +906,10 @@ devtools_test_files = [
   "front_end/application_test_runner/ResourcesTestRunner.js",
   "front_end/application_test_runner/ResourceTreeTestRunner.js",
   "front_end/application_test_runner/ServiceWorkersTestRunner.js",
-  "front_end/audits2_test_runner/Audits2TestRunner.js",
-  "front_end/audits2_test_runner/module.json",
+  "front_end/audits_test_runner/AuditsTestRunner.js",
+  "front_end/audits_test_runner/module.json",
+  "front_end/axe_core_test_runner/AxeCoreTestRunner.js",
+  "front_end/axe_core_test_runner/module.json",
   "front_end/bindings_test_runner/AutomappingTestRunner.js",
   "front_end/bindings_test_runner/BindingsTestRunner.js",
   "front_end/bindings_test_runner/IsolatedFilesystemTestRunner.js",
@@ -996,11 +1015,11 @@ devtools_image_files = [
   "front_end/Images/accelerometer-right.png",
   "front_end/Images/accelerometer-top.png",
   "front_end/Images/audits_logo.svg",
-  "front_end/Images/breakpoint.png",
-  "front_end/Images/breakpoint_2x.png",
-  "front_end/Images/breakpointConditional.png",
-  "front_end/Images/breakpointConditional_2x.png",
+  "front_end/Images/breakpoint.svg",
+  "front_end/Images/breakpointConditional.svg",
+  "front_end/Images/checkboxCheckmark.svg",
   "front_end/Images/checker.png",
+  "front_end/Images/chevrons.svg",
   "front_end/Images/chromeDisabledSelect.png",
   "front_end/Images/chromeDisabledSelect_2x.png",
   "front_end/Images/chromeLeft.png",
@@ -1008,10 +1027,11 @@ devtools_image_files = [
   "front_end/Images/chromeRight.png",
   "front_end/Images/chromeSelect.png",
   "front_end/Images/chromeSelect_2x.png",
-  "front_end/Images/errorWave.png",
-  "front_end/Images/errorWave_2x.png",
+  "front_end/Images/errorWave.svg",
   "front_end/Images/ic_info_black_18dp.svg",
   "front_end/Images/ic_warning_black_18dp.svg",
+  "front_end/Images/largeIcons.svg",
+  "front_end/Images/mediumIcons.svg",
   "front_end/Images/navigationControls.png",
   "front_end/Images/navigationControls_2x.png",
   "front_end/Images/nodeIcon.png",
@@ -1029,26 +1049,19 @@ devtools_image_files = [
   "front_end/Images/resourceCSSIcon.png",
   "front_end/Images/resourceDocumentIcon.png",
   "front_end/Images/resourceDocumentIconSmall.png",
-  "front_end/Images/mediumIcons.png",
-  "front_end/Images/mediumIcons_2x.png",
   "front_end/Images/resourceJSIcon.png",
   "front_end/Images/resourcePlainIcon.png",
   "front_end/Images/resourcePlainIconSmall.png",
   "front_end/Images/resourcesTimeGraphIcon.png",
   "front_end/Images/searchNext.png",
   "front_end/Images/searchPrev.png",
-  "front_end/Images/securityIcons_2x.png",
-  "front_end/Images/securityIcons.png",
-  "front_end/Images/smallIcons.png",
-  "front_end/Images/smallIcons_2x.png",
+  "front_end/Images/securityIcons.svg",
   "front_end/Images/speech.png",
-  "front_end/Images/treeoutlineTriangles.png",
-  "front_end/Images/treeoutlineTriangles_2x.png",
-  "front_end/Images/largeIcons.png",
-  "front_end/Images/largeIcons_2x.png",
+  "front_end/Images/smallIcons.svg",
   "front_end/Images/toolbarResizerVertical.png",
   "front_end/Images/touchCursor.png",
   "front_end/Images/touchCursor_2x.png",
+  "front_end/Images/treeoutlineTriangles.svg",
   "front_end/Images/whatsnew.png",
 ]
 
@@ -1074,7 +1087,7 @@ application_templates = [
 ]
 
 generated_applications = [
-  "$resources_out_dir/audits2_worker.js",
+  "$resources_out_dir/audits_worker.js",
   "$resources_out_dir/devtools_app.html",
   "$resources_out_dir/devtools_app.js",
   "$resources_out_dir/formatter_worker.js",
@@ -1094,7 +1107,7 @@ generated_applications = [
 
 generated_non_autostart_non_remote_modules = [
   "$resources_out_dir/animation/animation_module.js",
-  "$resources_out_dir/audits2/audits2_module.js",
+  "$resources_out_dir/audits/audits_module.js",
   "$resources_out_dir/browser_debugger/browser_debugger_module.js",
   "$resources_out_dir/changes/changes_module.js",
   "$resources_out_dir/protocol_monitor/protocol_monitor_module.js",
@@ -1134,12 +1147,13 @@ generated_non_autostart_non_remote_modules = [
   "$resources_out_dir/text_editor/text_editor_module.js",
   "$resources_out_dir/timeline_model/timeline_model_module.js",
   "$resources_out_dir/timeline/timeline_module.js",
+  "$resources_out_dir/web_audio/web_audio_module.js",
   "$resources_out_dir/workspace_diff/workspace_diff_module.js",
 ]
 
 generated_remote_modules = [
   "$resources_out_dir/accessibility/accessibility_module.js",
-  "$resources_out_dir/audits2_worker/audits2_worker_module.js",
+  "$resources_out_dir/audits_worker/audits_worker_module.js",
   "$resources_out_dir/cm_modes/cm_modes_module.js",
   "$resources_out_dir/emulated_devices/emulated_devices_module.js",
   "$resources_out_dir/product_registry_impl/product_registry_impl_module.js",
@@ -1148,7 +1162,8 @@ generated_remote_modules = [
 generated_test_modules = [
   "$resources_out_dir/accessibility_test_runner/accessibility_test_runner_module.js",
   "$resources_out_dir/application_test_runner/application_test_runner_module.js",
-  "$resources_out_dir/audits2_test_runner/audits2_test_runner_module.js",
+  "$resources_out_dir/audits_test_runner/audits_test_runner_module.js",
+  "$resources_out_dir/axe_core_test_runner/axe_core_test_runner_module.js",
   "$resources_out_dir/bindings_test_runner/bindings_test_runner_module.js",
   "$resources_out_dir/console_test_runner/console_test_runner_module.js",
   "$resources_out_dir/coverage_test_runner/coverage_test_runner_module.js",
@@ -1170,7 +1185,7 @@ generated_test_modules = [
 ]
 
 devtools_applications = [
-  "audits2_worker",
+  "audits_worker",
   "devtools_app",
   "formatter_worker",
   "heap_snapshot_worker",
@@ -1190,26 +1205,38 @@ visibility = [ "//third_party/blink/*" ]
 
 group("devtools_all_files") {
   data = all_devtools_files
+  deps = [
+    ":devtools_frontend_resources_data",
+  ]
+}
+
+devtools_frontend_resources_deps = [
+  ":aria_properties",
+  ":build_release_devtools",
+  ":copy_embedder_scripts",
+  ":copy_emulated_devices_images",
+  ":copy_htaccess",
+  ":copy_inspector_images",
+  ":devtools_extension_api",
+  ":frontend_protocol_sources",
+  ":supported_css_properties",
+]
+
+if (debug_devtools) {
+  devtools_frontend_resources_deps += [
+    ":build_debug_devtools",
+    ":copy_aria_properties",
+    ":copy_generated_scripts",
+  ]
 }
 
 group("devtools_frontend_resources") {
-  public_deps = [
-    ":aria_properties",
-    ":build_release_devtools",
-    ":copy_embedder_scripts",
-    ":copy_emulated_devices_images",
-    ":copy_htaccess",
-    ":copy_inspector_images",
-    ":devtools_extension_api",
-    ":frontend_protocol_sources",
-    ":supported_css_properties",
-  ]
-  if (debug_devtools) {
-    public_deps += [
-      ":build_debug_devtools",
-      ":copy_aria_properties",
-    ]
-  }
+  public_deps = devtools_frontend_resources_deps
+}
+
+# Do not use this unless you need unpacked devtools at runtime.
+group("devtools_frontend_resources_data") {
+  data_deps = devtools_frontend_resources_deps
 }
 
 copy("copy_embedder_scripts") {
@@ -1217,7 +1244,6 @@ copy("copy_embedder_scripts") {
   outputs = [
     "$resources_out_dir/{{source_file_part}}",
   ]
-  data = process_file_template(sources, outputs)
 }
 
 copy("copy_htaccess") {
@@ -1227,7 +1253,6 @@ copy("copy_htaccess") {
   outputs = [
     "$resources_out_dir/.htaccess",
   ]
-  data = outputs
 }
 
 copy("copy_inspector_images") {
@@ -1235,7 +1260,6 @@ copy("copy_inspector_images") {
   outputs = [
     "$resources_out_dir/Images/{{source_file_part}}",
   ]
-  data = process_file_template(sources, outputs)
 }
 
 copy("copy_emulated_devices_images") {
@@ -1243,7 +1267,6 @@ copy("copy_emulated_devices_images") {
   outputs = [
     "$resources_out_dir/emulated_devices/{{source_file_part}}",
   ]
-  data = process_file_template(sources, outputs)
 }
 
 action("generate_devtools_grd") {
@@ -1292,7 +1315,6 @@ action("devtools_extension_api") {
   outputs = [
     "$resources_out_dir/devtools_extension_api.js",
   ]
-  data = outputs
 
   args = rebase_path(outputs, root_build_dir) +
          rebase_path(devtools_extension_api_files, root_build_dir)
@@ -1308,7 +1330,6 @@ action("supported_css_properties") {
   outputs = [
     "$resources_out_dir/SupportedCSSProperties.js",
   ]
-  data = outputs
 
   args =
       rebase_path(inputs, root_build_dir) + rebase_path(outputs, root_build_dir)
@@ -1324,7 +1345,6 @@ action("aria_properties") {
   outputs = [
     "$resources_out_dir/accessibility/ARIAProperties.js",
   ]
-  data = outputs
 
   args =
       rebase_path(inputs, root_build_dir) + rebase_path(outputs, root_build_dir)
@@ -1341,7 +1361,6 @@ action("frontend_protocol_sources") {
   outputs = [
     "$resources_out_dir/InspectorBackendCommands.js",
   ]
-  data = outputs
 
   args = rebase_path(inputs, root_build_dir) + [
            "--output_js_dir",
@@ -1368,7 +1387,6 @@ action("build_release_devtools") {
   outputs =
       generated_applications + generated_non_autostart_non_remote_modules +
       generated_remote_modules + generated_test_modules
-  data = outputs
 
   args = devtools_applications + [
            "--input_path",
@@ -1399,7 +1417,6 @@ if (debug_devtools) {
       "$resources_out_debug_dir/toolbox.html",
       "$resources_out_debug_dir/worker_app.html",
     ]
-    data = outputs
 
     args = devtools_applications + [
              "--input_path",
@@ -1418,7 +1435,6 @@ if (debug_devtools) {
     outputs = [
       "$resources_out_debug_dir/{{source_file_part}}",
     ]
-    data = process_file_template(sources, outputs)
   }
 
   copy("copy_aria_properties") {
@@ -1432,7 +1448,6 @@ if (debug_devtools) {
     outputs = [
       "$resources_out_debug_dir/accessibility/{{source_file_part}}",
     ]
-    data = process_file_template(sources, outputs)
   }
 }
 
@@ -1452,7 +1467,7 @@ group("devtools_closure_compile") {
     "//testing/xvfb.py",
     "//third_party/blink/renderer/core/inspector/browser_protocol.pdl",
     "//third_party/inspector_protocol/pdl.py",
-    "//v8/src/inspector/js_protocol.pdl",
+    "//v8/include/js_protocol.pdl",
   ]
 }
 

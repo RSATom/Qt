@@ -28,12 +28,11 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-// https://html.spec.whatwg.org/#client-identification
+// https://html.spec.whatwg.org/C/#client-identification
 
 [
-    NoInterfaceObject, // Always used on target of 'implements'
     Exposed=(Window,Worker)
-] interface NavigatorID {
+] interface mixin NavigatorID {
     readonly attribute DOMString appCodeName; // constant "Mozilla"
     readonly attribute DOMString appName; // constant "Netscape"
     [HighEntropy, MeasureAs=NavigatorAppVersion] readonly attribute DOMString appVersion;

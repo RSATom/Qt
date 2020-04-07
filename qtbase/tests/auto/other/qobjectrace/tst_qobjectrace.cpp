@@ -85,7 +85,7 @@ class RaceThread : public QThread
 {
     Q_OBJECT
     RaceObject *object;
-    QTime stopWatch;
+    QElapsedTimer stopWatch;
 
 public:
     RaceThread()
@@ -378,6 +378,10 @@ public:
         connect(timer, &QTimer::timeout, this, &DeleteReceiverRaceReceiver::onTimeout);
         timer->start(1);
     }
+    ~DeleteReceiverRaceReceiver()
+    {
+        delete receiver;
+    }
 
     void onTimeout()
     {
@@ -410,7 +414,7 @@ void tst_QObjectRace::disconnectRace()
 {
     enum { ThreadCount = 20, TimeLimit = 3000 };
 
-    QCOMPARE(countedStructObjectsCount.load(), 0u);
+    QCOMPARE(countedStructObjectsCount.loadRelaxed(), 0u);
 
     {
         QScopedPointer<DisconnectRaceSenderObject> sender(new DisconnectRaceSenderObject());
@@ -428,15 +432,15 @@ void tst_QObjectRace::disconnectRace()
 
         for (int i = 0; i < ThreadCount; ++i) {
             threads[i]->requestInterruption();
-            QVERIFY(threads[i]->wait(300));
+            QVERIFY(threads[i]->wait());
             delete threads[i];
         }
 
         senderThread->quit();
-        QVERIFY(senderThread->wait(300));
+        QVERIFY(senderThread->wait());
     }
 
-    QCOMPARE(countedStructObjectsCount.load(), 0u);
+    QCOMPARE(countedStructObjectsCount.loadRelaxed(), 0u);
 
     {
         QScopedPointer<DisconnectRaceSenderObject> sender(new DisconnectRaceSenderObject());
@@ -453,16 +457,16 @@ void tst_QObjectRace::disconnectRace()
         QTest::qWait(TimeLimit);
 
         senderThread->requestInterruption();
-        QVERIFY(senderThread->wait(300));
+        QVERIFY(senderThread->wait());
 
         for (int i = 0; i < ThreadCount; ++i) {
             threads[i]->quit();
-            QVERIFY(threads[i]->wait(300));
+            QVERIFY(threads[i]->wait());
             delete threads[i];
         }
     }
 
-    QCOMPARE(countedStructObjectsCount.load(), 0u);
+    QCOMPARE(countedStructObjectsCount.loadRelaxed(), 0u);
 }
 
 QTEST_MAIN(tst_QObjectRace)

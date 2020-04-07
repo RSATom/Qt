@@ -219,8 +219,7 @@ MetricsService::MetricsService(MetricsStateManager* state_manager,
       test_mode_active_(false),
       state_(INITIALIZED),
       idle_since_last_transmission_(false),
-      session_id_(-1),
-      self_ptr_factory_(this) {
+      session_id_(-1) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DCHECK(state_manager_);
   DCHECK(client_);
@@ -390,9 +389,11 @@ void MetricsService::RecordCompletedSessionEnd() {
 }
 
 #if defined(OS_ANDROID) || defined(OS_IOS)
-void MetricsService::OnAppEnterBackground() {
-  rotation_scheduler_->Stop();
-  reporting_service_.Stop();
+void MetricsService::OnAppEnterBackground(bool keep_recording_in_background) {
+  if (!keep_recording_in_background) {
+    rotation_scheduler_->Stop();
+    reporting_service_.Stop();
+  }
 
   MarkAppCleanShutdownAndCommit(state_manager_->clean_exit_beacon(),
                                 local_state_);

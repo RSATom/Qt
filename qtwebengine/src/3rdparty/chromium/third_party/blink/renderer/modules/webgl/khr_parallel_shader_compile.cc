@@ -25,6 +25,8 @@
 
 #include "third_party/blink/renderer/modules/webgl/khr_parallel_shader_compile.h"
 
+#include <thread>
+
 #include "gpu/command_buffer/client/gles2_interface.h"
 
 namespace blink {
@@ -34,8 +36,9 @@ KHRParallelShaderCompile::KHRParallelShaderCompile(
     : WebGLExtension(context) {
   context->ExtensionsUtil()->EnsureExtensionEnabled(
       "GL_KHR_parallel_shader_compile");
-  // Use 2 background threads per WebGL context by default.
-  context->ContextGL()->MaxShaderCompilerThreadsKHR(2);
+
+  GLuint max_threads = std::max(4u, std::thread::hardware_concurrency() / 2);
+  context->ContextGL()->MaxShaderCompilerThreadsKHR(max_threads);
 }
 
 WebGLExtensionName KHRParallelShaderCompile::GetName() const {
@@ -45,16 +48,6 @@ WebGLExtensionName KHRParallelShaderCompile::GetName() const {
 KHRParallelShaderCompile* KHRParallelShaderCompile::Create(
     WebGLRenderingContextBase* context) {
   return MakeGarbageCollected<KHRParallelShaderCompile>(context);
-}
-
-void KHRParallelShaderCompile::maxShaderCompilerThreadsKHR(GLuint count) {
-  WebGLExtensionScopedContext scoped(this);
-  if (scoped.IsLost())
-    return;
-  // For WebGL contexts, we don't want applications to be able to spin up huge
-  // numbers of shader compliation threads. Enforce a maximum of 2 here.
-  scoped.Context()->ContextGL()->MaxShaderCompilerThreadsKHR(
-      std::min(2u, count));
 }
 
 bool KHRParallelShaderCompile::Supported(WebGLRenderingContextBase* context) {

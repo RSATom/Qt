@@ -8,11 +8,13 @@
 #include "base/single_thread_task_runner.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/scroll/scrollable_area.h"
+#include "third_party/blink/renderer/platform/graphics/scroll_types.h"
+#include "third_party/blink/renderer/platform/wtf/casting.h"
 
 namespace blink {
 
 class LocalFrameView;
-class LayoutRect;
+struct PhysicalRect;
 struct WebScrollIntoViewParams;
 
 // ScrollableArea for the root frame's viewport. This class ties together the
@@ -30,12 +32,6 @@ class CORE_EXPORT RootFrameViewport final
   USING_GARBAGE_COLLECTED_MIXIN(RootFrameViewport);
 
  public:
-  static RootFrameViewport* Create(ScrollableArea& visual_viewport,
-                                   ScrollableArea& layout_viewport) {
-    return MakeGarbageCollected<RootFrameViewport>(visual_viewport,
-                                                   layout_viewport);
-  }
-
   RootFrameViewport(ScrollableArea& visual_viewport,
                     ScrollableArea& layout_viewport);
 
@@ -50,9 +46,9 @@ class CORE_EXPORT RootFrameViewport final
   // and so the root content is the layout viewport's content but if the page
   // sets a custom root scroller via document.rootScroller, another element
   // may be the layout viewport.
-  LayoutRect RootContentsToLayoutViewportContents(
+  PhysicalRect RootContentsToLayoutViewportContents(
       LocalFrameView& root_frame_view,
-      const LayoutRect&) const;
+      const PhysicalRect&) const;
 
   void RestoreToAnchor(const ScrollOffset&);
 
@@ -63,12 +59,13 @@ class CORE_EXPORT RootFrameViewport final
   bool IsRootFrameViewport() const override { return true; }
   void SetScrollOffset(const ScrollOffset&,
                        ScrollType,
-                       ScrollBehavior = kScrollBehaviorInstant) override;
-  LayoutRect ScrollIntoView(const LayoutRect&,
-                            const WebScrollIntoViewParams&) override;
+                       ScrollBehavior,
+                       ScrollCallback on_finish) override;
+  PhysicalRect ScrollIntoView(const PhysicalRect&,
+                              const WebScrollIntoViewParams&) override;
   IntRect VisibleContentRect(
       IncludeScrollbarsInRect = kExcludeScrollbars) const override;
-  LayoutRect VisibleScrollSnapportRect(
+  PhysicalRect VisibleScrollSnapportRect(
       IncludeScrollbarsInRect = kExcludeScrollbars) const override;
   bool ShouldUseIntegerScrollOffset() const override;
   bool IsThrottled() const override {
@@ -105,7 +102,9 @@ class CORE_EXPORT RootFrameViewport final
   int VerticalScrollbarWidth(
       OverlayScrollbarClipBehavior =
           kIgnorePlatformOverlayScrollbarSize) const override;
-  ScrollResult UserScroll(ScrollGranularity, const FloatSize&) override;
+  ScrollResult UserScroll(ScrollGranularity,
+                          const FloatSize&,
+                          ScrollableArea::ScrollCallback on_finish) override;
   CompositorElementId GetCompositorElementId() const override;
   CompositorElementId GetScrollbarElementId(
       ScrollbarOrientation orientation) override;
@@ -124,22 +123,35 @@ class CORE_EXPORT RootFrameViewport final
   scoped_refptr<base::SingleThreadTaskRunner> GetTimerTaskRunner() const final;
   ScrollbarTheme& GetPageScrollbarTheme() const override;
 
+
+  void SetPendingHistoryRestoreScrollOffset(
+      const HistoryItem::ViewState& view_state,
+      bool should_restore_scroll) override {
+    pending_view_state_ = view_state;
+    should_restore_scroll_ = should_restore_scroll;
+  }
+  bool ApplyPendingHistoryRestoreScrollOffset() override;
+
  private:
+  FRIEND_TEST_ALL_PREFIXES(RootFrameViewportTest, DistributeScrollOrder);
+
   enum ViewportToScrollFirst { kVisualViewport, kLayoutViewport };
 
   ScrollOffset ScrollOffsetFromScrollAnimators() const;
 
-  void DistributeScrollBetweenViewports(const ScrollOffset&,
-                                        ScrollType,
-                                        ScrollBehavior,
-                                        ViewportToScrollFirst);
+  void DistributeScrollBetweenViewports(
+      const ScrollOffset&,
+      ScrollType,
+      ScrollBehavior,
+      ViewportToScrollFirst,
+      ScrollCallback on_finish = ScrollCallback());
 
   // If either of the layout or visual viewports are scrolled explicitly (i.e.
   // not through this class), their updated offset will not be reflected in this
   // class' animator so use this method to pull updated values when necessary.
   void UpdateScrollAnimator();
 
-  ScrollableArea& VisualViewport() const {
+  ScrollableArea& GetVisualViewport() const {
     DCHECK(visual_viewport_);
     return *visual_viewport_;
   }
@@ -148,13 +160,16 @@ class CORE_EXPORT RootFrameViewport final
 
   Member<ScrollableArea> visual_viewport_;
   Member<ScrollableArea> layout_viewport_;
+  base::Optional<HistoryItem::ViewState> pending_view_state_;
+  bool should_restore_scroll_;
 };
 
-DEFINE_TYPE_CASTS(RootFrameViewport,
-                  ScrollableArea,
-                  scrollableArea,
-                  scrollableArea->IsRootFrameViewport(),
-                  scrollableArea.IsRootFrameViewport());
+template <>
+struct DowncastTraits<RootFrameViewport> {
+  static bool AllowFrom(const ScrollableArea& scrollable_area) {
+    return scrollable_area.IsRootFrameViewport();
+  }
+};
 
 }  // namespace blink
 

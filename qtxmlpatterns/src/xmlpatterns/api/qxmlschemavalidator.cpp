@@ -154,13 +154,14 @@ bool QXmlSchemaValidator::validate(const QUrl &source) const
     d->m_context->setMessageHandler(messageHandler());
     d->m_context->setUriResolver(uriResolver());
     d->m_context->setNetworkAccessManager(networkAccessManager());
+    const QUrl resolved = QPatternist::XPathHelper::normalizeQueryURI(source);
 
-    const QPatternist::AutoPtr<QNetworkReply> reply(QPatternist::AccelTreeResourceLoader::load(source, d->m_context->networkAccessManager(),
-                                                                                               d->m_context, QPatternist::AccelTreeResourceLoader::ContinueOnError));
-    if (reply)
-        return validate(reply.data(), source);
-    else
-        return false;
+    const QPatternist::AutoPtr<QNetworkReply> reply(
+        QPatternist::AccelTreeResourceLoader::load(
+            resolved, d->m_context->networkAccessManager(),
+            d->m_context, QPatternist::AccelTreeResourceLoader::ContinueOnError));
+
+    return reply && validate(reply.data(), source);
 }
 
 /*!

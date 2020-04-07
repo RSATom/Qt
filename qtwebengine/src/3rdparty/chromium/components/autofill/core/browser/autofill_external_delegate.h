@@ -13,8 +13,8 @@
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/strings/string16.h"
-#include "components/autofill/core/browser/autofill_popup_delegate.h"
-#include "components/autofill/core/browser/suggestion.h"
+#include "components/autofill/core/browser/ui/autofill_popup_delegate.h"
+#include "components/autofill/core/browser/ui/suggestion.h"
 #include "components/autofill/core/common/form_data.h"
 #include "components/autofill/core/common/form_field_data.h"
 #include "ui/gfx/geometry/rect_f.h"
@@ -53,10 +53,17 @@ class AutofillExternalDelegate : public AutofillPopupDelegate {
                                    base::string16* body) override;
   bool RemoveSuggestion(const base::string16& value, int identifier) override;
   void ClearPreviewedForm() override;
+
   // Returns PopupType::kUnspecified for all popups prior to |onQuery|, or the
   // popup type after call to |onQuery|.
   PopupType GetPopupType() const override;
+
   AutofillDriver* GetAutofillDriver() override;
+
+  // Returns the ax node id associated with the current web contents' element
+  // who has a controller relation to the current autofill popup.
+  int32_t GetWebContentsPopupControllerAxId() const override;
+
   void RegisterDeletionCallback(base::OnceClosure deletion_callback) override;
 
   // Records and associates a query_id with web form data.  Called

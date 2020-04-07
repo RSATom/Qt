@@ -131,10 +131,8 @@ namespace QtWin
 
     inline bool isWindowExcludedFromPeek(QWidget *window)
     {
-        if (!window->windowHandle())
-            return false;
-        else
-            return isWindowExcludedFromPeek(window->windowHandle());
+        auto handle = window->windowHandle();
+        return handle && isWindowExcludedFromPeek(handle);
     }
 
     inline void setWindowDisallowPeek(QWidget *window, bool disallow)
@@ -145,10 +143,8 @@ namespace QtWin
 
     inline bool isWindowPeekDisallowed(QWidget *window)
     {
-        if (!window->windowHandle())
-            return false;
-        else
-            return isWindowPeekDisallowed(window->windowHandle());
+        auto handle = window->windowHandle();
+        return handle && isWindowPeekDisallowed(handle);
     }
 
     inline void setWindowFlip3DPolicy(QWidget *window, WindowFlip3DPolicy policy)

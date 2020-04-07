@@ -9,6 +9,7 @@
 #include "third_party/skia/include/core/SkColor.h"
 #include "ui/gfx/animation/animation_export.h"
 #include "ui/gfx/geometry/rect.h"
+#include "ui/gfx/geometry/rect_f.h"
 #include "ui/gfx/geometry/size_f.h"
 #include "ui/gfx/transform.h"
 
@@ -73,13 +74,21 @@ class ANIMATION_EXPORT Tween {
                                     const gfx::Rect& start,
                                     const gfx::Rect& target);
 
+  static gfx::RectF RectFValueBetween(double value,
+                                      const gfx::RectF& start,
+                                      const gfx::RectF& target);
+
   static gfx::Transform TransformValueBetween(double value,
                                               const gfx::Transform& start,
                                               const gfx::Transform& target);
 
-  static gfx::SizeF SizeValueBetween(double value,
-                                     const gfx::SizeF& start,
-                                     const gfx::SizeF& target);
+  static gfx::Size SizeValueBetween(double value,
+                                    const gfx::Size& start,
+                                    const gfx::Size& target);
+
+  static gfx::SizeF SizeFValueBetween(double value,
+                                      const gfx::SizeF& start,
+                                      const gfx::SizeF& target);
 
  private:
   Tween();

@@ -46,6 +46,9 @@
 
 #include "base/logging.h"
 #include "base/path_service.h"
+#include "base/stl_util.h"
+#include "base/values.h"
+
 #include "chrome/grit/component_extension_resources_map.h"
 
 namespace extensions {
@@ -73,11 +76,13 @@ bool ComponentExtensionResourceManagerQt::IsComponentExtensionResource(const bas
     relative_path = relative_path.Append(resource_path);
     relative_path = relative_path.NormalizePathSeparators();
 
-    std::map<base::FilePath, int>::const_iterator entry = path_to_resource_id_.find(relative_path);
-    if (entry != path_to_resource_id_.end())
+    auto entry = path_to_resource_id_.find(relative_path);
+    if (entry != path_to_resource_id_.end()) {
         *resource_id = entry->second;
+        return true;
+    }
 
-    return entry != path_to_resource_id_.end();
+    return false;
 }
 
 const ui::TemplateReplacements *ComponentExtensionResourceManagerQt::GetTemplateReplacementsForExtension(const std::string &) const
@@ -91,7 +96,7 @@ void ComponentExtensionResourceManagerQt::AddComponentResourceEntries(const Grit
         base::FilePath resource_path = base::FilePath().AppendASCII(entries[i].name);
         resource_path = resource_path.NormalizePathSeparators();
 
-        DCHECK(path_to_resource_id_.find(resource_path) == path_to_resource_id_.end());
+        DCHECK(!base::Contains(path_to_resource_id_, resource_path));
         path_to_resource_id_[resource_path] = entries[i].value;
     }
 }

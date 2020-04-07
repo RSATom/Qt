@@ -270,9 +270,7 @@ namespace qdesigner_internal
     {
     }
 
-    PropertySheetPixmapValue::PropertySheetPixmapValue()
-    {
-    }
+    PropertySheetPixmapValue::PropertySheetPixmapValue() = default;
 
     PropertySheetPixmapValue::PixmapSource PropertySheetPixmapValue::getPixmapSource(QDesignerFormEditorInterface *core, const QString & path)
     {
@@ -693,7 +691,7 @@ namespace qdesigner_internal
 
     QDESIGNER_SHARED_EXPORT QAction *preferredEditAction(QDesignerFormEditorInterface *core, QWidget *managedWidget)
     {
-        QAction *action = 0;
+        QAction *action = nullptr;
         if (const QDesignerTaskMenuExtension *taskMenu = qt_extension<QDesignerTaskMenuExtension*>(core->extensionManager(), managedWidget)) {
             action = taskMenu->preferredEditAction();
             if (!action) {
@@ -716,13 +714,25 @@ namespace qdesigner_internal
         return action;
     }
 
-    QDESIGNER_SHARED_EXPORT bool runUIC(const QString &fileName, QByteArray& ba, QString &errorMessage)
+    QDESIGNER_SHARED_EXPORT bool runUIC(const QString &fileName, UicLanguage language,
+                                        QByteArray& ba, QString &errorMessage)
     {
-        const QString binary = QLibraryInfo::location(QLibraryInfo::BinariesPath) + QStringLiteral("/uic");
         QProcess uic;
-        uic.start(binary, QStringList(fileName));
+        QStringList arguments;
+        QString binary = QLibraryInfo::location(QLibraryInfo::BinariesPath) + QStringLiteral("/uic");
+        switch (language) {
+        case UicLanguage::Cpp:
+            break;
+        case UicLanguage::Python:
+            arguments << QLatin1String("-g") << QLatin1String("python");
+            break;
+        }
+        arguments << fileName;
+
+        uic.start(binary, arguments);
         if (!uic.waitForStarted()) {
-            errorMessage = QApplication::translate("Designer", "Unable to launch %1.").arg(binary);
+            errorMessage = QApplication::translate("Designer", "Unable to launch %1: %2").
+                           arg(QDir::toNativeSeparators(binary), uic.errorString());
             return false;
         }
         if (!uic.waitForFinished()) {

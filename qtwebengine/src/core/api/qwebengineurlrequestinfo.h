@@ -76,8 +76,10 @@ public:
         ResourceTypeServiceWorker,  // the main resource of a service worker.
         ResourceTypeCspReport,      // Content Security Policy (CSP) violation report
         ResourceTypePluginResource, // A resource requested by a plugin
+        ResourceTypeNavigationPreloadMainFrame = 19, // A main-frame service worker navigation preload request
+        ResourceTypeNavigationPreloadSubFrame,  // A sub-frame service worker navigation preload request
 #ifndef Q_QDOC
-        ResourceTypeLast,
+        ResourceTypeLast = ResourceTypeNavigationPreloadSubFrame,
 #endif
         ResourceTypeUnknown = 255
     };
@@ -88,7 +90,8 @@ public:
         NavigationTypeFormSubmitted,
         NavigationTypeBackForward,
         NavigationTypeReload,
-        NavigationTypeOther
+        NavigationTypeOther,
+        NavigationTypeRedirect,
     };
 
     ResourceType resourceType() const;
@@ -96,6 +99,7 @@ public:
 
     QUrl requestUrl() const;
     QUrl firstPartyUrl() const;
+    QUrl initiator() const;
     QByteArray requestMethod() const;
     bool changed() const;
 

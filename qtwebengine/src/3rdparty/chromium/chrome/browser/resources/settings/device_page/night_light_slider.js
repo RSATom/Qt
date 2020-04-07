@@ -43,7 +43,7 @@ Polymer({
   behaviors: [
     PrefsBehavior,
     Polymer.IronResizableBehavior,
-    Polymer.PaperInkyFocusBehavior,
+    Polymer.PaperRippleBehavior,
   ],
 
   properties: {
@@ -100,7 +100,7 @@ Polymer({
       return false;
     });
 
-    this.async(function() {
+    setTimeout(() => {
       // This is needed to make sure that the positions of the knobs and their
       // label bubbles are correctly updated when the display settings page is
       // opened for the first time after login. The page need to be fully
@@ -341,7 +341,8 @@ Polymer({
    * @private
    */
   updateKnobs_: function() {
-    if (!this.isReady_ || !this.prefsAvailable()) {
+    if (!this.isReady_ || !this.prefsAvailable() ||
+        this.$.sliderBar.offsetWidth == 0) {
       return;
     }
     const startOffsetMinutes = /** @type {number} */ (
@@ -549,7 +550,7 @@ Polymer({
   },
 
   /**
-   * Overrides _createRipple() from PaperInkyFocusBehavior to create the ripple
+   * Overrides _createRipple() from PaperRippleBehavior to create the ripple
    * only on a knob if it's focused, or on a dummy hidden element so that it
    * doesn't show.
    * @protected
@@ -559,13 +560,16 @@ Polymer({
       this._rippleContainer = this.shadowRoot.activeElement;
     } else {
       // We can't just skip the ripple creation and return early with null here.
-      // The code inherited from PaperInkyFocusBehavior expects that this
-      // function returns a ripple element. So to avoid crashes, we'll setup the
-      // ripple to be created under a hidden element.
+      // The code inherited from PaperRippleBehavior expects that this function
+      // returns a ripple element. So to avoid crashes, we'll setup the ripple
+      // to be created under a hidden element.
       this._rippleContainer = this.$.dummyRippleContainer;
     }
-
-    return Polymer.PaperInkyFocusBehaviorImpl._createRipple.call(this);
+    const ripple = Polymer.PaperRippleBehavior._createRipple();
+    ripple.id = 'ink';
+    ripple.setAttribute('recenters', '');
+    ripple.classList.add('circle', 'toggle-ink');
+    return ripple;
   },
 
   /**
@@ -670,14 +674,5 @@ Polymer({
       this.updatePref_(value + delta, false);
     }
   },
-
-  /** @private */
-  _focusedChanged: function(receivedFocusFromKeyboard) {
-    // Overrides the _focusedChanged() from the PaperInkyFocusBehavior so that
-    // it does nothing. This function is called only once for the entire
-    // night-light-slider element even when focus is moved between the two
-    // knobs. This doesn't allow us to decide on which knob the ripple will be
-    // created. Hence we handle focus and blur explicitly above.
-  }
 });
 })();

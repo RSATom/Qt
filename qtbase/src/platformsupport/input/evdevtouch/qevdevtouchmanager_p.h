@@ -51,6 +51,8 @@
 // We mean it.
 //
 
+#include <QtInputSupport/private/devicehandlerlist_p.h>
+
 #include <QObject>
 #include <QHash>
 #include <QSocketNotifier>
@@ -63,7 +65,7 @@ class QEvdevTouchScreenHandlerThread;
 class QEvdevTouchManager : public QObject
 {
 public:
-    QEvdevTouchManager(const QString &key, const QString &spec, QObject *parent = 0);
+    QEvdevTouchManager(const QString &key, const QString &spec, QObject *parent = nullptr);
     ~QEvdevTouchManager();
 
     void addDevice(const QString &deviceNode);
@@ -73,8 +75,7 @@ public:
 
 private:
     QString m_spec;
-    QDeviceDiscovery *m_deviceDiscovery;
-    QHash<QString, QEvdevTouchScreenHandlerThread *> m_activeDevices;
+    QtInputSupport::DeviceHandlerList<QEvdevTouchScreenHandlerThread> m_activeDevices;
 };
 
 QT_END_NAMESPACE

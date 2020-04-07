@@ -148,7 +148,6 @@ int main(int argc, char *argv[])
     ui->resize(550, 370);
     ui->show();
 
-    qsrand(QTime(0,0,0).secsTo(QTime::currentTime()));
     return app.exec();
 //! [4]
 }

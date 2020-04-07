@@ -61,8 +61,19 @@ SUBDIRS += \
     raycasting-qml \
     shared_texture_image \
     texture_property_updates \
+    raster-cpp \
+    raster-qml \
     qtbug-72236 \
-    qtbug-76766
+    qtbug-76766 \
+    shader-image-qml \
+    scene3d-in-sync \
+    compressed_textures \
+    subtree-enabler-qml \
+    scene3d-visibility \
+    manual-renderloop
+
+!macos:!uikit: SUBDIRS += compute-manual
+
 
 qtHaveModule(multimedia): {
     SUBDIRS += \
@@ -74,5 +85,6 @@ qtHaveModule(widgets): {
     SUBDIRS += \
         assimp-cpp \
         paintedtexture-cpp \
-        rendercapture-cpp
+        rendercapture-cpp \
+        texture-updates-cpp
 }

@@ -21,7 +21,6 @@ bool QueryCancellationTraitsForNonCancellables(
       return true;
   }
   NOTREACHED();
-  return false;
 }
 
 }  // namespace

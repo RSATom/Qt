@@ -150,7 +150,7 @@
 // factory loader
 #include <qcoreapplication.h>
 #include <private/qfactoryloader_p.h>
-#include <QMutexLocker>
+#include <QtCore/private/qlocking_p.h>
 
 // for qt_getImageText
 #include <private/qimage_p.h>
@@ -186,8 +186,8 @@ static QImageIOHandler *createReadHandlerHelper(QIODevice *device,
     QByteArray suffix;
 
 #ifndef QT_NO_IMAGEFORMATPLUGIN
-    static QMutex mutex;
-    QMutexLocker locker(&mutex);
+    static QBasicMutex mutex;
+    const auto locker = qt_scoped_lock(mutex);
 
     typedef QMultiMap<int, QString> PluginKeyMap;
 
@@ -197,7 +197,7 @@ static QImageIOHandler *createReadHandlerHelper(QIODevice *device,
 
 #ifdef QIMAGEREADER_DEBUG
     qDebug() << "QImageReader::createReadHandler( device =" << (void *)device << ", format =" << format << "),"
-             << keyMap.size() << "plugins available: " << keyMap.values();
+             << keyMap.uniqueKeys().size() << "plugins available: " << keyMap;
 #endif
 
     int suffixPluginIndex = -1;
@@ -325,6 +325,29 @@ static QImageIOHandler *createReadHandlerHelper(QIODevice *device,
 #endif
     }
 
+    if (handler && device && !suffix.isEmpty()) {
+        Q_ASSERT(qobject_cast<QFile *>(device));
+        // We have a file claiming to be of a recognized format. Now confirm that
+        // the handler also recognizes the file contents.
+        const qint64 pos = device->pos();
+        handler->setDevice(device);
+        if (!form.isEmpty())
+            handler->setFormat(form);
+        bool canRead = handler->canRead();
+        device->seek(pos);
+        if (canRead) {
+            // ok, we're done.
+            return handler;
+        }
+#ifdef QIMAGEREADER_DEBUG
+        qDebug() << "QImageReader::createReadHandler: the" << suffix << "handler can not read this file";
+#endif
+        // File may still be valid, just with wrong suffix, so fall back to
+        // finding a handler based on contents, below.
+        delete handler;
+        handler = nullptr;
+    }
+
 #ifndef QT_NO_IMAGEFORMATPLUGIN
     if (!handler && (autoDetectImageFormat || ignoresFormatAndExtension)) {
         // check if any of our plugins recognize the file from its contents.
@@ -336,7 +359,7 @@ static QImageIOHandler *createReadHandlerHelper(QIODevice *device,
                 if (plugin && plugin->capabilities(device, QByteArray()) & QImageIOPlugin::CanRead) {
                     handler = plugin->create(device, testFormat);
 #ifdef QIMAGEREADER_DEBUG
-                    qDebug() << "QImageReader::createReadHandler: the" << keyMap.keys().at(i) << "plugin can read this data";
+                    qDebug() << "QImageReader::createReadHandler: the" << keyMap.value(i) << "plugin can read this data";
 #endif
                     break;
                 }
@@ -1115,8 +1138,10 @@ bool QImageReader::autoTransform() const
     case QImageReaderPrivate::DoNotApplyTransform:
         return false;
     case QImageReaderPrivate::UsePluginDefault:
+#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
         if (d->initHandler())
             return d->handler->supportsOption(QImageIOHandler::TransformedByDefault);
+#endif
         Q_FALLTHROUGH();
     default:
         break;

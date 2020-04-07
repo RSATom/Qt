@@ -25,7 +25,6 @@
 #include "components/viz/common/resources/shared_bitmap.h"
 #include "content/common/content_export.h"
 #include "content/common/content_param_traits.h"
-#include "content/common/date_time_suggestion.h"
 #include "content/common/frame_replication_state.h"
 #include "content/common/navigation_gesture.h"
 #include "content/public/common/common_param_traits.h"
@@ -33,7 +32,6 @@
 #include "content/public/common/page_state.h"
 #include "content/public/common/page_zoom.h"
 #include "content/public/common/referrer.h"
-#include "content/public/common/renderer_preferences.h"
 #include "content/public/common/three_d_api_types.h"
 #include "ipc/ipc_channel_handle.h"
 #include "ipc/ipc_message_macros.h"
@@ -43,9 +41,10 @@
 #include "net/base/network_change_notifier.h"
 #include "ppapi/buildflags/buildflags.h"
 #include "third_party/blink/public/common/manifest/web_display_mode.h"
+#include "third_party/blink/public/mojom/renderer_preferences.mojom.h"
+#include "third_party/blink/public/platform/web_text_autosizer_page_info.h"
 #include "third_party/blink/public/web/web_plugin_action.h"
 #include "third_party/blink/public/web/web_text_direction.h"
-#include "ui/base/ime/text_input_mode.h"
 #include "ui/base/ime/text_input_type.h"
 #include "ui/gfx/color_space.h"
 #include "ui/gfx/geometry/point.h"
@@ -104,39 +103,13 @@ IPC_STRUCT_TRAITS_BEGIN(content::MenuItem)
   IPC_STRUCT_TRAITS_MEMBER(submenu)
 IPC_STRUCT_TRAITS_END()
 
-IPC_STRUCT_TRAITS_BEGIN(content::DateTimeSuggestion)
-  IPC_STRUCT_TRAITS_MEMBER(value)
-  IPC_STRUCT_TRAITS_MEMBER(localized_value)
-  IPC_STRUCT_TRAITS_MEMBER(label)
-IPC_STRUCT_TRAITS_END()
-
-IPC_STRUCT_BEGIN(ViewHostMsg_DateTimeDialogValue_Params)
-  IPC_STRUCT_MEMBER(ui::TextInputType, dialog_type)
-  IPC_STRUCT_MEMBER(double, dialog_value)
-  IPC_STRUCT_MEMBER(double, minimum)
-  IPC_STRUCT_MEMBER(double, maximum)
-  IPC_STRUCT_MEMBER(double, step)
-  IPC_STRUCT_MEMBER(std::vector<content::DateTimeSuggestion>, suggestions)
-IPC_STRUCT_END()
-
 // Messages sent from the browser to the renderer.
-
-#if defined(OS_ANDROID)
-// Tells the renderer to cancel an opened date/time dialog.
-IPC_MESSAGE_ROUTED0(ViewMsg_CancelDateTimeDialog)
-
-// Replaces a date time input field.
-IPC_MESSAGE_ROUTED1(ViewMsg_ReplaceDateTime,
-                    double /* dialog_value */)
-
-#endif
 
 // Make the RenderWidget background transparent or opaque.
 IPC_MESSAGE_ROUTED1(ViewMsg_SetBackgroundOpaque, bool /* opaque */)
 
 // Sends updated preferences to the renderer.
-IPC_MESSAGE_ROUTED1(ViewMsg_SetRendererPrefs,
-                    content::RendererPreferences)
+IPC_MESSAGE_ROUTED1(ViewMsg_SetRendererPrefs, blink::mojom::RendererPreferences)
 
 // This passes a set of webkit preferences down to the renderer.
 IPC_MESSAGE_ROUTED1(ViewMsg_UpdateWebPreferences,
@@ -245,6 +218,13 @@ IPC_MESSAGE_ROUTED2(ViewHostMsg_ShowWidget,
 IPC_MESSAGE_ROUTED1(ViewHostMsg_ShowFullscreenWidget,
                     int /* route_id */)
 
+// Sent from an inactive renderer for the browser to route to the active
+// renderer, instructing it to close.
+//
+// TODO(http://crbug.com/419087): Move this thing to Frame as it's a signal
+// from a swapped out frame to the mainframe of the frame tree.
+IPC_MESSAGE_ROUTED0(ViewHostMsg_RouteCloseEvent)
+
 // Indicates that the current page has been closed, after a ClosePage
 // message.
 IPC_MESSAGE_ROUTED0(ViewHostMsg_ClosePage_ACK)
@@ -269,18 +249,6 @@ IPC_SYNC_MESSAGE_CONTROL1_2(ViewHostMsg_ResolveProxy,
                             bool /* result */,
                             std::string /* proxy list */)
 
-// Tells the browser that a specific Appcache manifest in the current page
-// was accessed.
-IPC_MESSAGE_ROUTED2(ViewHostMsg_AppCacheAccessed,
-                    GURL /* manifest url */,
-                    bool /* blocked by policy */)
-
-// Used to go to the session history entry at the given offset (ie, -1 will
-// return the "back" item).
-IPC_MESSAGE_ROUTED2(ViewHostMsg_GoToEntryAtOffset,
-                    int /* offset (from current) of history item to get */,
-                    bool /* has_user_gesture */)
-
 // Notifies that the preferred size of the content changed.
 IPC_MESSAGE_ROUTED1(ViewHostMsg_DidContentsPreferredSizeChange,
                     gfx::Size /* pref_size */)
@@ -302,13 +270,13 @@ IPC_MESSAGE_ROUTED3(ViewHostMsg_RequestPpapiBrokerPermission,
 IPC_MESSAGE_ROUTED1(ViewHostMsg_TakeFocus,
                     bool /* reverse */)
 
-// Required for opening a date/time dialog
-IPC_MESSAGE_ROUTED1(ViewHostMsg_OpenDateTimeDialog,
-                    ViewHostMsg_DateTimeDialogValue_Params /* value */)
-
 // Sent when the renderer changes its page scale factor.
 IPC_MESSAGE_ROUTED1(ViewHostMsg_PageScaleFactorChanged,
                     float /* page_scale_factor */)
+
+IPC_MESSAGE_ROUTED1(
+    ViewHostMsg_NotifyTextAutosizerPageInfoChangedInLocalMainFrame,
+    blink::WebTextAutosizerPageInfo /* page_info */)
 
 // Updates the minimum/maximum allowed zoom percent for this tab from the
 // default values.  If |remember| is true, then the zoom setting is applied to

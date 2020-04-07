@@ -32,6 +32,7 @@
 using namespace google::protobuf;
 using namespace google::protobuf::compiler;
 using namespace google::protobuf::io;
+static constexpr auto TYPE_MESSAGE = FieldDescriptor::TYPE_MESSAGE;
 
 namespace {
 
@@ -99,14 +100,19 @@ std::string GetFwdDeclType(const Descriptor* msg, bool with_namespace = false) {
   return full_type;
 }
 
-void GenFwdDecl(const Descriptor* msg, Printer* p) {
-  p->Print("class $n$;", "n", GetFwdDeclType(msg));
+void GenFwdDecl(const Descriptor* msg, Printer* p, bool root_cpp_only = false) {
+  if (!root_cpp_only) {
+    p->Print("class $n$;", "n", GetFwdDeclType(msg));
+  } else if (msg->full_name() == msg->file()->package() + "." + msg->name()) {
+    p->Print("class $n$;", "n", msg->name());
+  }
 
   // Recurse into subtypes
   for (int i = 0; i < msg->field_count(); i++) {
     const FieldDescriptor* field = msg->field(i);
-    if (field->type() == FieldDescriptor::TYPE_MESSAGE)
-      GenFwdDecl(field->message_type(), p);
+    if (field->type() == TYPE_MESSAGE && !field->options().lazy()) {
+      GenFwdDecl(field->message_type(), p, root_cpp_only);
+    }
   }
 }
 
@@ -188,6 +194,7 @@ std::string ProtoToCpp::GetCppType(const FieldDescriptor* field,
     case FieldDescriptor::TYPE_BYTES:
       return constref ? "const std::string&" : "std::string";
     case FieldDescriptor::TYPE_MESSAGE:
+      PERFETTO_CHECK(!field->options().lazy());
       return constref ? "const " + field->message_type()->name() + "&"
                       : field->message_type()->name();
     case FieldDescriptor::TYPE_ENUM:
@@ -229,23 +236,43 @@ void ProtoToCpp::Convert(const std::string& src_proto) {
   header_printer.Print("#include <vector>\n");
   header_printer.Print("#include <string>\n");
   header_printer.Print("#include <type_traits>\n\n");
+  header_printer.Print("#include \"perfetto/base/copyable_ptr.h\"\n");
   header_printer.Print("#include \"perfetto/base/export.h\"\n\n");
 
   cpp_printer.Print(kHeader, "f", __FILE__, "p", src_proto);
-  PERFETTO_CHECK(dst_header.find("include/") == 0);
-  cpp_printer.Print("#include \"$f$\"\n", "f",
-                    dst_header.substr(strlen("include/")));
+  if (dst_header.find("include/") == 0) {
+    cpp_printer.Print("#include \"$f$\"\n", "f",
+                      dst_header.substr(strlen("include/")));
+  } else {
+    cpp_printer.Print("#include \"$f$\"\n", "f", dst_header);
+  }
 
   // Generate includes for translated types of dependencies.
-  for (int i = 0; i < proto_file->dependency_count(); i++) {
-    const FileDescriptor* dep = proto_file->dependency(i);
-    header_printer.Print("#include \"$f$\"\n", "f", GetIncludePath(dep));
+
+  // Figure out the subset of imports that are used only for lazy fields. We
+  // won't emit a C++ #include for them. This code is overly aggressive at
+  // removing imports: it rules them out as soon as it sees one lazy field
+  // whose type is defined in that import. A 100% correct solution would require
+  // to check that *all* dependent types for a given import are lazy before
+  // excluding that. In practice we don't need that because we don't use imports
+  // for both lazy and non-lazy fields.
+  std::set<std::string> lazy_imports;
+  for (int m = 0; m < proto_file->message_type_count(); m++) {
+    const Descriptor* msg = proto_file->message_type(m);
+    for (int i = 0; i < msg->field_count(); i++) {
+      const FieldDescriptor* field = msg->field(i);
+      if (field->options().lazy()) {
+        lazy_imports.insert(field->message_type()->file()->name());
+      }
+    }
   }
-  header_printer.Print("\n");
 
   cpp_printer.Print("\n#include \"$f$\"\n", "f", GetProtoHeader(proto_file));
   for (int i = 0; i < proto_file->dependency_count(); i++) {
     const FileDescriptor* dep = proto_file->dependency(i);
+    if (lazy_imports.count(dep->name()))
+      continue;
+    cpp_printer.Print("\n#include \"$f$\"\n", "f", GetIncludePath(dep));
     cpp_printer.Print("#include \"$f$\"\n", "f", GetProtoHeader(dep));
   }
 
@@ -261,6 +288,11 @@ void ProtoToCpp::Convert(const std::string& src_proto) {
 
   header_printer.Print("\nnamespace perfetto {\n");
   cpp_printer.Print("\nnamespace perfetto {\n");
+
+  // Generate fwd declarations for top-level classes.
+  for (int i = 0; i < proto_file->message_type_count(); i++)
+    GenFwdDecl(proto_file->message_type(i), &header_printer, true);
+  header_printer.Print("\n");
 
   for (int i = 0; i < proto_file->message_type_count(); i++) {
     const Descriptor* msg = proto_file->message_type(i);
@@ -297,7 +329,7 @@ void ProtoToCpp::GenHeader(const Descriptor* msg, Printer* p) {
                  std::to_string(value->number()));
       }
       p->Print("};\n");
-    } else if (field->type() == FieldDescriptor::TYPE_MESSAGE &&
+    } else if (field->type() == TYPE_MESSAGE &&
                field->message_type()->file() == msg->file()) {
       GenHeader(field->message_type(), p);
     }
@@ -309,24 +341,41 @@ void ProtoToCpp::GenHeader(const Descriptor* msg, Printer* p) {
   p->Print("$n$& operator=($n$&&);\n", "n", msg->name());
   p->Print("$n$(const $n$&);\n", "n", msg->name());
   p->Print("$n$& operator=(const $n$&);\n", "n", msg->name());
+  p->Print("bool operator==(const $n$&) const;\n", "n", msg->name());
+  p->Print(
+      "bool operator!=(const $n$& other) const { return !(*this == other); }\n",
+      "n", msg->name());
   p->Print("\n");
 
   std::string proto_type = GetFwdDeclType(msg, true);
+  p->Print("// Raw proto decoding.\n");
+  p->Print("void ParseRawProto(const std::string&);\n");
   p->Print("// Conversion methods from/to the corresponding protobuf types.\n");
-  p->Print("void FromProto(const $p$&);\n", "n", msg->name(), "p", proto_type);
+  p->Print("void FromProto(const $p$&);\n", "p", proto_type);
   p->Print("void ToProto($p$*) const;\n", "p", proto_type);
 
   // Generate accessors.
   for (int i = 0; i < msg->field_count(); i++) {
     const FieldDescriptor* field = msg->field(i);
     p->Print("\n");
-    if (!field->is_repeated()) {
-      p->Print("$t$ $n$() const { return $n$_; }\n", "t",
-               GetCppType(field, true), "n", field->lowercase_name());
-      if (field->type() == FieldDescriptor::TYPE_MESSAGE) {
-        p->Print("$t$* mutable_$n$() { return &$n$_; }\n", "t",
+    if (field->options().lazy()) {
+      if (field->is_repeated() || field->type() != TYPE_MESSAGE) {
+        PERFETTO_FATAL(
+            "[lazy=true] is supported only on non-repeated submessage fields");
+      }
+      p->Print("const std::string& $n$_raw() const { return $n$_; }\n", "n",
+               field->lowercase_name());
+      p->Print("void set_$n$_raw(const std::string& raw) { $n$_ = raw; }\n",
+               "n", field->lowercase_name());
+    } else if (!field->is_repeated()) {
+      if (field->type() == TYPE_MESSAGE) {
+        p->Print("$t$ $n$() const { return *$n$_; }\n", "t",
+                 GetCppType(field, true), "n", field->lowercase_name());
+        p->Print("$t$* mutable_$n$() { return $n$_.get(); }\n", "t",
                  GetCppType(field, false), "n", field->lowercase_name());
       } else {
+        p->Print("$t$ $n$() const { return $n$_; }\n", "t",
+                 GetCppType(field, true), "n", field->lowercase_name());
         p->Print("void set_$n$($t$ value) { $n$_ = value; }\n", "t",
                  GetCppType(field, true), "n", field->lowercase_name());
         if (field->type() == FieldDescriptor::TYPE_BYTES) {
@@ -342,8 +391,21 @@ void ProtoToCpp::GenHeader(const Descriptor* msg, Printer* p) {
           "t", GetCppType(field, false), "n", field->lowercase_name());
       p->Print("const std::vector<$t$>& $n$() const { return $n$_; }\n", "t",
                GetCppType(field, false), "n", field->lowercase_name());
-      p->Print("$t$* add_$n$() { $n$_.emplace_back(); return &$n$_.back(); }\n",
-               "t", GetCppType(field, false), "n", field->lowercase_name());
+      p->Print("std::vector<$t$>* mutable_$n$() { return &$n$_; }\n", "t",
+               GetCppType(field, false), "n", field->lowercase_name());
+      p->Print("void clear_$n$() { $n$_.clear(); }\n", "n",
+               field->lowercase_name());
+
+      if (field->type() == TYPE_MESSAGE && !field->options().lazy()) {
+        p->Print(
+            "$t$* add_$n$() { $n$_.emplace_back(); return &$n$_.back(); "
+            "}\n",
+            "t", GetCppType(field, false), "n", field->lowercase_name());
+      } else {
+        p->Print(
+            "$t$* add_$n$() { $n$_.emplace_back(); return &$n$_.back(); }\n",
+            "t", GetCppType(field, false), "n", field->lowercase_name());
+      }
     }
   }
   p->Outdent();
@@ -353,9 +415,17 @@ void ProtoToCpp::GenHeader(const Descriptor* msg, Printer* p) {
   // Generate fields.
   for (int i = 0; i < msg->field_count(); i++) {
     const FieldDescriptor* field = msg->field(i);
-    if (!field->is_repeated()) {
-      p->Print("$t$ $n$_ = {};\n", "t", GetCppType(field, false), "n",
+    if (field->options().lazy()) {
+      p->Print("std::string $n$_;  // [lazy=true]\n", "n",
                field->lowercase_name());
+    } else if (!field->is_repeated()) {
+      std::string type = GetCppType(field, false);
+      if (field->type() == TYPE_MESSAGE) {
+        type = "::perfetto::base::CopyablePtr<" + type + ">";
+        p->Print("$t$ $n$_;\n", "t", type, "n", field->lowercase_name());
+      } else {
+        p->Print("$t$ $n$_{};\n", "t", type, "n", field->lowercase_name());
+      }
     } else {  // is_repeated()
       p->Print("std::vector<$t$> $n$_;\n", "t", GetCppType(field, false), "n",
                field->lowercase_name());
@@ -372,6 +442,7 @@ void ProtoToCpp::GenHeader(const Descriptor* msg, Printer* p) {
 void ProtoToCpp::GenCpp(const Descriptor* msg, Printer* p, std::string prefix) {
   p->Print("\n");
   std::string full_name = prefix + msg->name();
+
   p->Print("$f$::$n$() = default;\n", "f", full_name, "n", msg->name());
   p->Print("$f$::~$n$() = default;\n", "f", full_name, "n", msg->name());
   p->Print("$f$::$n$(const $f$&) = default;\n", "f", full_name, "n",
@@ -385,7 +456,36 @@ void ProtoToCpp::GenCpp(const Descriptor* msg, Printer* p, std::string prefix) {
 
   p->Print("\n");
 
+  // Comparison operator
+  p->Print("#pragma GCC diagnostic push\n");
+  p->Print("#pragma GCC diagnostic ignored \"-Wfloat-equal\"\n");
+  p->Print("bool $f$::operator==(const $f$& other) const {\n", "f", full_name,
+           "n", msg->name());
+  p->Indent();
+
+  p->Print("return ");
+  for (int i = 0; i < msg->field_count(); i++) {
+    if (i > 0)
+      p->Print("\n && ");
+    const FieldDescriptor* field = msg->field(i);
+    p->Print("($n$_ == other.$n$_)", "n", field->name());
+  }
+  p->Print(";");
+  p->Outdent();
+  p->Print("}\n");
+  p->Print("#pragma GCC diagnostic pop\n\n");
+
   std::string proto_type = GetFwdDeclType(msg, true);
+
+  // Genrate the ParseRawProto() method definition.
+  p->Print("void $f$::ParseRawProto(const std::string& raw) {\n", "f",
+           full_name);
+  p->Indent();
+  p->Print("$p$ proto;\n", "p", proto_type);
+  p->Print("proto.ParseFromString(raw);\n");
+  p->Print("FromProto(proto);\n");
+  p->Outdent();
+  p->Print("}\n\n");
 
   // Genrate the FromProto() method definition.
   p->Print("void $f$::FromProto(const $p$& proto) {\n", "f", full_name, "p",
@@ -394,9 +494,11 @@ void ProtoToCpp::GenCpp(const Descriptor* msg, Printer* p, std::string prefix) {
   for (int i = 0; i < msg->field_count(); i++) {
     p->Print("\n");
     const FieldDescriptor* field = msg->field(i);
-    if (!field->is_repeated()) {
-      if (field->type() == FieldDescriptor::TYPE_MESSAGE) {
-        p->Print("$n$_.FromProto(proto.$n$());\n", "n", field->name());
+    if (field->options().lazy()) {
+      p->Print("$n$_ = proto.$n$().SerializeAsString();\n", "n", field->name());
+    } else if (!field->is_repeated()) {
+      if (field->type() == TYPE_MESSAGE) {
+        p->Print("$n$_->FromProto(proto.$n$());\n", "n", field->name());
       } else {
         p->Print(
             "static_assert(sizeof($n$_) == sizeof(proto.$n$()), \"size "
@@ -409,7 +511,7 @@ void ProtoToCpp::GenCpp(const Descriptor* msg, Printer* p, std::string prefix) {
       p->Print("$n$_.clear();\n", "n", field->name());
       p->Print("for (const auto& field : proto.$n$()) {\n", "n", field->name());
       p->Print("  $n$_.emplace_back();\n", "n", field->name());
-      if (field->type() == FieldDescriptor::TYPE_MESSAGE) {
+      if (field->type() == TYPE_MESSAGE) {
         p->Print("  $n$_.back().FromProto(field);\n", "n", field->name());
       } else {
         p->Print(
@@ -435,9 +537,12 @@ void ProtoToCpp::GenCpp(const Descriptor* msg, Printer* p, std::string prefix) {
   for (int i = 0; i < msg->field_count(); i++) {
     p->Print("\n");
     const FieldDescriptor* field = msg->field(i);
-    if (!field->is_repeated()) {
-      if (field->type() == FieldDescriptor::TYPE_MESSAGE) {
-        p->Print("$n$_.ToProto(proto->mutable_$n$());\n", "n", field->name());
+    if (field->options().lazy()) {
+      p->Print("proto->mutable_$n$()->ParseFromString($n$_);\n", "n",
+               field->name());
+    } else if (!field->is_repeated()) {
+      if (field->type() == TYPE_MESSAGE) {
+        p->Print("$n$_->ToProto(proto->mutable_$n$());\n", "n", field->name());
       } else {
         p->Print(
             "static_assert(sizeof($n$_) == sizeof(proto->$n$()), \"size "
@@ -448,7 +553,7 @@ void ProtoToCpp::GenCpp(const Descriptor* msg, Printer* p, std::string prefix) {
       }
     } else {  // is_repeated()
       p->Print("for (const auto& it : $n$_) {\n", "n", field->name());
-      if (field->type() == FieldDescriptor::TYPE_MESSAGE) {
+      if (field->type() == TYPE_MESSAGE) {
         p->Print("  auto* entry = proto->add_$n$();\n", "n", field->name());
         p->Print("  it.ToProto(entry);\n");
       } else {
@@ -470,8 +575,12 @@ void ProtoToCpp::GenCpp(const Descriptor* msg, Printer* p, std::string prefix) {
   // Recurse into nested types.
   for (int i = 0; i < msg->field_count(); i++) {
     const FieldDescriptor* field = msg->field(i);
+    // [lazy=true] field are not recursesd and exposed as raw-strings
+    // containing proto-encoded bytes.
+    if (field->options().lazy())
+      continue;
 
-    if (field->type() == FieldDescriptor::TYPE_MESSAGE &&
+    if (field->type() == TYPE_MESSAGE &&
         field->message_type()->file() == msg->file()) {
       std::string child_prefix = prefix + msg->name() + "::";
       GenCpp(field->message_type(), p, child_prefix);

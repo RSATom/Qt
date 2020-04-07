@@ -69,8 +69,7 @@ namespace qdesigner_internal {
 // ----------- ActionModel
 ActionModel::ActionModel(QWidget *parent ) :
     QStandardItemModel(parent),
-    m_emptyIcon(emptyIcon()),
-    m_core(0)
+    m_emptyIcon(emptyIcon())
 {
     QStringList headers;
     headers += tr("Name");
@@ -234,7 +233,7 @@ QMimeData *ActionModel::mimeData(const QModelIndexList &indexes ) const
         if (QStandardItem *item = itemFromIndex(index))
             if (QAction *action = actionOfItem(item))
                 actions.insert(action);
-    return new ActionRepositoryMimeData(actions.toList(), Qt::CopyAction);
+    return new ActionRepositoryMimeData(actions.values(), Qt::CopyAction);
 }
 
 // Resource images are plain text. The drag needs to be restricted, however.
@@ -270,10 +269,10 @@ bool ActionModel::dropMimeData(const QMimeData *data, Qt::DropAction action, int
 QAction *ActionModel::actionAt(const  QModelIndex &index) const
 {
     if (!index.isValid())
-        return 0;
+        return nullptr;
     QStandardItem *i = itemFromIndex(index);
     if (!i)
-        return 0;
+        return nullptr;
     return actionOfItem(i);
 }
 

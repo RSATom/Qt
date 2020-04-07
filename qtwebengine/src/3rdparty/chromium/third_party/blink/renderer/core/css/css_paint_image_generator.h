@@ -30,7 +30,7 @@ class CORE_EXPORT CSSPaintImageGenerator
   class Observer : public GarbageCollectedFinalized<Observer> {
    public:
     virtual ~Observer() = default;
-    ;
+
     virtual void PaintImageGeneratorReady() = 0;
     virtual void Trace(blink::Visitor* visitor) {}
   };
@@ -45,19 +45,22 @@ class CORE_EXPORT CSSPaintImageGenerator
       const Document&,
       Observer*);
   static void Init(CSSPaintImageGeneratorCreateFunction);
+  static CSSPaintImageGeneratorCreateFunction* GetCreateFunctionForTesting();
 
   // Invokes the CSS Paint API 'paint' callback. May return a nullptr
   // representing an invalid image if an error occurred.
   // The |container_size| is the container size with subpixel snapping.
   virtual scoped_refptr<Image> Paint(const ImageResourceObserver&,
                                      const FloatSize& container_size,
-                                     const CSSStyleValueVector*) = 0;
+                                     const CSSStyleValueVector*,
+                                     float device_scale_factor) = 0;
 
   virtual const Vector<CSSPropertyID>& NativeInvalidationProperties() const = 0;
   virtual const Vector<AtomicString>& CustomInvalidationProperties() const = 0;
   virtual bool HasAlpha() const = 0;
   virtual const Vector<CSSSyntaxDescriptor>& InputArgumentTypes() const = 0;
   virtual bool IsImageGeneratorReady() const = 0;
+  virtual int WorkletId() const = 0;
 
   virtual void Trace(blink::Visitor* visitor) {}
 };

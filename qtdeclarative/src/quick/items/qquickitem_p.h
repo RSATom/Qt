@@ -532,7 +532,7 @@ public:
     void refWindow(QQuickWindow *);
     void derefWindow();
 
-    QQuickItem *subFocusItem;
+    QPointer<QQuickItem> subFocusItem;
     void updateSubFocusItem(QQuickItem *scope, bool focus);
 
     QTransform windowToItemTransform() const;
@@ -591,6 +591,11 @@ public:
 
     QPointF computeTransformOrigin() const;
     virtual void transformChanged();
+
+    QPointF adjustedPosForTransform(const QPointF &centroid,
+                                    const QPointF &startPos, const QVector2D &activeTranslatation,
+                                    qreal startScale, qreal activeScale,
+                                    qreal startRotation, qreal activeRotation);
 
     void deliverKeyEvent(QKeyEvent *);
     bool filterKeyEvent(QKeyEvent *, bool post);

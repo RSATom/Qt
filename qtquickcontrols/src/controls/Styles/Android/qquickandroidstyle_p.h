@@ -41,6 +41,7 @@
 #define QQUICKANDROIDSTYLE_P_H
 
 #include <QtCore/qobject.h>
+#include <QtCore/qurl.h>
 #include <QtGui/qcolor.h>
 
 QT_BEGIN_NAMESPACE
@@ -57,7 +58,7 @@ public:
     QByteArray data() const;
 
     Q_INVOKABLE QColor colorValue(uint value) const;
-    Q_INVOKABLE QString filePath(const QString &fileName) const;
+    Q_INVOKABLE QUrl filePath(const QString &fileName) const;
 
     enum Gravity {
         NO_GRAVITY = 0x0000,

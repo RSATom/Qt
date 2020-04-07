@@ -30,6 +30,7 @@ class CONTENT_EXPORT SourceStreamToDataPipe {
 
   // Start reading the source.
   void Start();
+  int64_t TransferredBytes() const { return transferred_bytes_; }
 
  private:
   void ReadMore();
@@ -42,11 +43,12 @@ class CONTENT_EXPORT SourceStreamToDataPipe {
   std::unique_ptr<net::SourceStream> source_;
   mojo::ScopedDataPipeProducerHandle dest_;
   base::OnceCallback<void(int)> completion_callback_;
+  int64_t transferred_bytes_ = 0;
 
   scoped_refptr<network::NetToMojoPendingBuffer> pending_write_;
   mojo::SimpleWatcher writable_handle_watcher_;
 
-  base::WeakPtrFactory<SourceStreamToDataPipe> weak_factory_;
+  base::WeakPtrFactory<SourceStreamToDataPipe> weak_factory_{this};
 };
 
 }  // namespace content

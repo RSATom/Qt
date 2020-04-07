@@ -12,8 +12,8 @@ windows
 windows
 
 [grant]
-*
+windows
+linux
 [authenticatedCalls]
-*
-[prepareRequestCalls]
-*
+windows
+linux amd

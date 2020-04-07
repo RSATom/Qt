@@ -20,6 +20,8 @@ Resources.ServiceWorkersView = class extends UI.VBox {
 
     /** @type {!Map<!SDK.ServiceWorkerRegistration, !Resources.ServiceWorkersView.Section>} */
     this._sections = new Map();
+    /** @type {symbol} */
+    this._registrationSymbol = Symbol('Resources.ServiceWorkersView');
 
     /** @type {?SDK.ServiceWorkerManager} */
     this._manager = null;
@@ -36,16 +38,15 @@ Resources.ServiceWorkersView = class extends UI.VBox {
     this._otherSWFilter.addEventListener('keydown', event => {
       if (event.target !== this._otherSWFilter)
         return;
-      if (isEnterKey(event) || event.keyCode === UI.KeyboardShortcut.Keys.Space.code)
+      if (isEnterKey(event) || event.key === ' ')
         this._toggleFilter();
     });
     const filterLabel = this._otherSWFilter.createChild('label', 'service-worker-filter-label');
-    filterLabel.textContent = Common.UIString('Service workers from other domains');
-    filterLabel.setAttribute('for', 'expand-all');
+    filterLabel.textContent = Common.UIString('Service workers from other origins');
     filterLabel.addEventListener('click', () => this._toggleFilter());
 
     const toolbar = new UI.Toolbar('service-worker-filter-toolbar', this._otherSWFilter);
-    this._filter = new UI.ToolbarInput('Filter', 1);
+    this._filter = new UI.ToolbarInput(ls`Filter service worker`, 1);
     this._filter.addEventListener(UI.ToolbarInput.Event.TextChanged, () => this._filterChanged());
     toolbar.appendToolbarItem(this._filter);
 
@@ -113,6 +114,33 @@ Resources.ServiceWorkersView = class extends UI.VBox {
     this._securityOriginManager = null;
   }
 
+
+  /**
+   * @param {!SDK.ServiceWorkerRegistration} registration
+   * @return {number}
+   */
+  _getTimeStamp(registration) {
+    const versions = registration.versionsByMode();
+
+    let timestamp = 0;
+
+    const active = versions.get(SDK.ServiceWorkerVersion.Modes.Active);
+    const installing = versions.get(SDK.ServiceWorkerVersion.Modes.Installing);
+    const waiting = versions.get(SDK.ServiceWorkerVersion.Modes.Waiting);
+    const redundant = versions.get(SDK.ServiceWorkerVersion.Modes.Redundant);
+
+    if (active)
+      timestamp = active.scriptResponseTime;
+    else if (waiting)
+      timestamp = waiting.scriptResponseTime;
+    else if (installing)
+      timestamp = installing.scriptResponseTime;
+    else if (redundant)
+      timestamp = redundant.scriptResponseTime;
+
+    return timestamp;
+  }
+
   _updateSectionVisibility() {
     let hasOthers = false;
     let hasThis = false;
@@ -130,6 +158,13 @@ Resources.ServiceWorkersView = class extends UI.VBox {
       this._removeRegistrationFromList(registration);
       this._updateRegistration(registration, true);
     }
+
+    this._currentWorkersView.sortSections((a, b) => {
+      const aTimestamp = this._getTimeStamp(a[this._registrationSymbol]);
+      const bTimestamp = this._getTimeStamp(b[this._registrationSymbol]);
+      // the newest (largest timestamp value) should be the first
+      return bTimestamp - aTimestamp;
+    });
 
     const scorer = new Sources.FilePathScoreFunction(this._filter.value());
     this._otherWorkersView.sortSections((a, b) => {
@@ -184,7 +219,8 @@ Resources.ServiceWorkersView = class extends UI.VBox {
    * @return {!UI.ReportView}
    */
   _getReportViewForOrigin(origin) {
-    if (this._securityOriginManager.securityOrigins().includes(origin))
+    if (this._securityOriginManager.securityOrigins().includes(origin) ||
+        this._securityOriginManager.unreachableMainSecurityOrigin() === origin)
       return this._currentWorkersView;
     else
       return this._otherWorkersView;
@@ -197,10 +233,11 @@ Resources.ServiceWorkersView = class extends UI.VBox {
   _updateRegistration(registration, skipUpdate) {
     let section = this._sections.get(registration);
     if (!section) {
-      const title = Resources.ServiceWorkersView._displayScopeURL(registration.scopeURL);
+      const title = registration.scopeURL;
+      const uiSection = this._getReportViewForOrigin(registration.securityOrigin).appendSection(title);
+      uiSection[this._registrationSymbol] = registration;
       section = new Resources.ServiceWorkersView.Section(
-          /** @type {!SDK.ServiceWorkerManager} */ (this._manager),
-          this._getReportViewForOrigin(registration.securityOrigin).appendSection(title), registration);
+          /** @type {!SDK.ServiceWorkerManager} */ (this._manager), uiSection, registration);
       this._sections.set(registration, section);
     }
     if (skipUpdate)
@@ -254,18 +291,6 @@ Resources.ServiceWorkersView = class extends UI.VBox {
     else
       this._otherWorkersView.hideWidget();
     this._otherWorkersView.setHeaderVisible(false);
-  }
-
-  /**
-   * @param {string} scopeURL
-   * @return {string}
-   */
-  static _displayScopeURL(scopeURL) {
-    const parsedURL = scopeURL.asParsedURL();
-    let path = parsedURL.path;
-    if (path.endsWith('/'))
-      path = path.substring(0, path.length - 1);
-    return parsedURL.host + path;
   }
 
   _updateListVisibility() {
@@ -337,6 +362,7 @@ Resources.ServiceWorkersView.Section = class {
 
     editor.value = initialValue;
     editor.placeholder = placeholder;
+    UI.ARIAUtils.setAccessibleName(editor, label);
 
     form.addEventListener('submit', e => {
       callback(editor.value || '');
@@ -399,11 +425,19 @@ Resources.ServiceWorkersView.Section = class {
     this._sourceField.removeChildren();
     const fileName = Common.ParsedURL.extractName(version.scriptURL);
     const name = this._sourceField.createChild('div', 'report-field-value-filename');
-    name.appendChild(Components.Linkifier.linkifyURL(version.scriptURL, {text: fileName}));
+    const link = Components.Linkifier.linkifyURL(version.scriptURL, {text: fileName});
+    link.tabIndex = 0;
+    name.appendChild(link);
     if (this._registration.errors.length) {
-      const errorsLabel = UI.createLabel(String(this._registration.errors.length), 'smallicon-error');
+      const errorsLabel = UI.createIconLabel(String(this._registration.errors.length), 'smallicon-error');
       errorsLabel.classList.add('link');
+      errorsLabel.tabIndex = 0;
+      UI.ARIAUtils.setAccessibleName(errorsLabel, ls`${this._registration.errors.length} registration errors`);
       errorsLabel.addEventListener('click', () => Common.console.show());
+      errorsLabel.addEventListener('keydown', event => {
+        if (isEnterKey(event) || event.key === ' ')
+          Common.console.show();
+      });
       name.appendChild(errorsLabel);
     }
     this._sourceField.createChild('div', 'report-field-value-subtitle').textContent =
@@ -422,7 +456,7 @@ Resources.ServiceWorkersView.Section = class {
     this._toolbar.setEnabled(!this._registration.isDeleted);
 
     const versions = this._registration.versionsByMode();
-    const scopeURL = Resources.ServiceWorkersView._displayScopeURL(this._registration.scopeURL);
+    const scopeURL = this._registration.scopeURL;
     const title = this._registration.isDeleted ? Common.UIString('%s - deleted', scopeURL) : scopeURL;
     this._section.setTitle(title);
 
@@ -442,11 +476,11 @@ Resources.ServiceWorkersView.Section = class {
           Common.UIString('#%s activated and is %s', active.id, active.runningStatus));
 
       if (active.isRunning() || active.isStarting()) {
-        createLink(activeEntry, Common.UIString('stop'), this._stopButtonClicked.bind(this, active.id));
+        this._createLink(activeEntry, Common.UIString('stop'), this._stopButtonClicked.bind(this, active.id));
         if (!this._targetForVersionId(active.id))
-          createLink(activeEntry, Common.UIString('inspect'), this._inspectButtonClicked.bind(this, active.id));
+          this._createLink(activeEntry, Common.UIString('inspect'), this._inspectButtonClicked.bind(this, active.id));
       } else if (active.isStartable()) {
-        createLink(activeEntry, Common.UIString('start'), this._startButtonClicked.bind(this));
+        this._createLink(activeEntry, Common.UIString('start'), this._startButtonClicked.bind(this));
       }
       this._updateClientsField(active);
     } else if (redundant) {
@@ -459,34 +493,40 @@ Resources.ServiceWorkersView.Section = class {
     if (waiting) {
       const waitingEntry = this._addVersion(
           versionsStack, 'service-worker-waiting-circle', Common.UIString('#%s waiting to activate', waiting.id));
-      createLink(waitingEntry, Common.UIString('skipWaiting'), this._skipButtonClicked.bind(this));
+      this._createLink(waitingEntry, Common.UIString('skipWaiting'), this._skipButtonClicked.bind(this));
       waitingEntry.createChild('div', 'service-worker-subtitle').textContent =
           Common.UIString('Received %s', new Date(waiting.scriptResponseTime * 1000).toLocaleString());
       if (!this._targetForVersionId(waiting.id) && (waiting.isRunning() || waiting.isStarting()))
-        createLink(waitingEntry, Common.UIString('inspect'), this._inspectButtonClicked.bind(this, waiting.id));
+        this._createLink(waitingEntry, Common.UIString('inspect'), this._inspectButtonClicked.bind(this, waiting.id));
     }
     if (installing) {
       const installingEntry = this._addVersion(
-          versionsStack, 'service-worker-installing-circle', Common.UIString('#%s installing', installing.id));
+          versionsStack, 'service-worker-installing-circle', Common.UIString('#%s trying to install', installing.id));
       installingEntry.createChild('div', 'service-worker-subtitle').textContent =
           Common.UIString('Received %s', new Date(installing.scriptResponseTime * 1000).toLocaleString());
-      if (!this._targetForVersionId(installing.id) && (installing.isRunning() || installing.isStarting()))
-        createLink(installingEntry, Common.UIString('inspect'), this._inspectButtonClicked.bind(this, installing.id));
-    }
-
-    /**
-     * @param {!Element} parent
-     * @param {string} title
-     * @param {function()} listener
-     * @return {!Element}
-     */
-    function createLink(parent, title, listener) {
-      const span = parent.createChild('span', 'link');
-      span.textContent = title;
-      span.addEventListener('click', listener, false);
-      return span;
+      if (!this._targetForVersionId(installing.id) && (installing.isRunning() || installing.isStarting())) {
+        this._createLink(
+            installingEntry, Common.UIString('inspect'), this._inspectButtonClicked.bind(this, installing.id));
+      }
     }
     return Promise.resolve();
+  }
+
+  /**
+   * @param {!Element} parent
+   * @param {string} title
+   * @param {function()} listener
+   * @param {string=} className
+   * @param {boolean=} useCapture
+   * @return {!Element}
+   */
+  _createLink(parent, title, listener, className, useCapture) {
+    const button = parent.createChild('button', className);
+    button.classList.add('link');
+    button.textContent = title;
+    button.tabIndex = 0;
+    button.addEventListener('click', listener, useCapture);
+    return button;
   }
 
   /**
@@ -537,15 +577,14 @@ Resources.ServiceWorkersView.Section = class {
   _updateClientInfo(element, targetInfo) {
     if (targetInfo.type !== 'page' && targetInfo.type === 'iframe') {
       const clientString = element.createChild('span', 'service-worker-client-string');
-      clientString.createTextChild(ls`Worker: ` + targetInfo.url);
+      clientString.createTextChild(ls`Worker: ${targetInfo.url}`);
       return;
     }
     element.removeChildren();
     const clientString = element.createChild('span', 'service-worker-client-string');
     clientString.createTextChild(targetInfo.url);
-    const focusLabel = element.createChild('label', 'link service-worker-client-focus-link');
-    focusLabel.createTextChild('focus');
-    focusLabel.addEventListener('click', this._activateTarget.bind(this, targetInfo.targetId), true);
+    this._createLink(
+        element, ls`focus`, this._activateTarget.bind(this, targetInfo.targetId), 'service-worker-client-focus-link');
   }
 
   /**

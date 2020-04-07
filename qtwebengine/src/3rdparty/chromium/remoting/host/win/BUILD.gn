@@ -77,7 +77,7 @@ source_set("win") {
   sources = [
     "audio_volume_filter_win.cc",
     "audio_volume_filter_win.h",
-    "com_imported_mstscax.tlh",
+    "com_imported_mstscax.h",
     "com_security.cc",
     "com_security.h",
     "default_audio_device_change_detector.cc",
@@ -118,7 +118,7 @@ source_set("win") {
 
   if (is_clang) {
     # TODO(thakis): Remove this once midl.exe no longer produces nonstandard
-    # C++ (see the enums in com_imported_mstscax.tlh).
+    # C++ (see the enums in com_imported_mstscax.h).
     cflags = [ "-Wno-microsoft-enum-forward-reference" ]
   }
 
@@ -164,12 +164,12 @@ source_set("unit_tests") {
 
   deps = [
     "//ipc",
-    "//remoting/host",
+    "//remoting/host:common",
     "//remoting/host:test_support",
     "//remoting/host/it2me:common",
     "//remoting/host/native_messaging",
     "//remoting/host/security_key:unit_tests",
-    "//remoting/host/setup",
+    "//remoting/host/setup:common",
     "//remoting/proto",
     "//remoting/resources",
     "//skia",
@@ -202,6 +202,7 @@ midl("remoting_lib_idl") {
   deps = [
     ":generate_idl",
   ]
+  writes_tlb = true
 }
 
 config("MIDL_config") {
@@ -224,7 +225,19 @@ config("MIDL_config") {
 }
 
 static_library("remoting_lib_ps") {
-  configs += [ ":MIDL_config" ]
+  sources = [
+    "$root_gen_dir/remoting/host/win/chromoting_lib.dlldata.c",
+    "$root_gen_dir/remoting/host/win/chromoting_lib_p.c",
+  ]
+
+  configs -= [ "//build/config/compiler:chromium_code" ]
+  configs += [
+    "//build/config/compiler:no_chromium_code",
+
+    # Must be after no_chromium_code so the -Wno flags appear after the /W3
+    # added by no_chromium_code.
+    ":MIDL_config",
+  ]
 
   defines = [
     "ENTRY_PREFIX=Ps",
@@ -233,11 +246,6 @@ static_library("remoting_lib_ps") {
 
   deps = [
     ":remoting_lib_idl",
-  ]
-
-  sources = [
-    "$root_gen_dir/remoting/host/win/chromoting_lib.dlldata.c",
-    "$root_gen_dir/remoting/host/win/chromoting_lib_p.c",
   ]
 }
 
@@ -286,6 +294,7 @@ executable("remoting_console") {
   ]
 
   if (!is_asan) {
+    no_default_deps = true
     ldflags = [
       "/ENTRY:HostEntryPoint",
       # "/NODEFAULTLIB",
@@ -316,6 +325,7 @@ executable("remoting_me2me_host") {
   output_name = "remoting_host"
 
   if (!is_asan) {
+    no_default_deps = true
     ldflags = [
       "/ENTRY:HostEntryPoint",
       # "/NODEFAULTLIB",
@@ -462,6 +472,7 @@ executable("remoting_desktop") {
   ]
 
   if (!is_asan) {
+    no_default_deps = true
     ldflags = [
       "/ENTRY:HostEntryPoint",
       # "/NODEFAULTLIB",

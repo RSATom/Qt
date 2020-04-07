@@ -15,12 +15,17 @@
 #include "video/video_stream_encoder.h"
 
 namespace webrtc {
+
 std::unique_ptr<VideoStreamEncoderInterface> CreateVideoStreamEncoder(
+    Clock* clock,
+    TaskQueueFactory* task_queue_factory,
     uint32_t number_of_cores,
     VideoStreamEncoderObserver* encoder_stats_observer,
     const VideoStreamEncoderSettings& settings) {
   return absl::make_unique<VideoStreamEncoder>(
-      number_of_cores, encoder_stats_observer, settings,
-      absl::make_unique<OveruseFrameDetector>(encoder_stats_observer));
+      clock, number_of_cores, encoder_stats_observer, settings,
+      absl::make_unique<OveruseFrameDetector>(encoder_stats_observer),
+      task_queue_factory);
 }
+
 }  // namespace webrtc

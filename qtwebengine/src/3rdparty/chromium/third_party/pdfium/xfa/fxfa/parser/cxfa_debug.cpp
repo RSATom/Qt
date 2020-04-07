@@ -6,16 +6,19 @@
 
 #include "xfa/fxfa/parser/cxfa_debug.h"
 
+#include "fxjs/xfa/cjx_node.h"
+#include "third_party/base/ptr_util.h"
+
 namespace {
 
 const CXFA_Node::PropertyData kDebugPropertyData[] = {
     {XFA_Element::Uri, 1, 0},
-    {XFA_Element::Unknown, 0, 0}};
+};
 
 const CXFA_Node::AttributeData kDebugAttributeData[] = {
     {XFA_Attribute::Desc, XFA_AttributeType::CData, nullptr},
     {XFA_Attribute::Lock, XFA_AttributeType::Integer, (void*)0},
-    {XFA_Attribute::Unknown, XFA_AttributeType::Integer, nullptr}};
+};
 
 }  // namespace
 
@@ -26,6 +29,7 @@ CXFA_Debug::CXFA_Debug(CXFA_Document* doc, XFA_PacketType packet)
                 XFA_ObjectType::Node,
                 XFA_Element::Debug,
                 kDebugPropertyData,
-                kDebugAttributeData) {}
+                kDebugAttributeData,
+                pdfium::MakeUnique<CJX_Node>(this)) {}
 
 CXFA_Debug::~CXFA_Debug() = default;

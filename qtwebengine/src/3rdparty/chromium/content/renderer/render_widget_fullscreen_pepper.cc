@@ -69,7 +69,7 @@ WebMouseEvent WebMouseEventFromGestureEvent(const WebGestureEvent& gesture) {
 
   // Only convert touch screen gesture events, do not convert
   // touchpad/mouse wheel gesture events. (crbug.com/620974)
-  if (gesture.SourceDevice() != blink::kWebGestureDeviceTouchscreen)
+  if (gesture.SourceDevice() != blink::WebGestureDevice::kTouchscreen)
     return WebMouseEvent();
 
   WebInputEvent::Type type = WebInputEvent::kUndefined;
@@ -141,7 +141,7 @@ class PepperWidget : public WebWidget {
   virtual ~PepperWidget() {}
 
   // WebWidget API
-  void SetLayerTreeView(blink::WebLayerTreeView*) override {
+  void SetLayerTreeView(blink::WebLayerTreeView*, cc::AnimationHost*) override {
     // Does nothing, as the LayerTreeView can be accessed from the RenderWidget
     // directly.
   }
@@ -159,7 +159,6 @@ class PepperWidget : public WebWidget {
     size_ = size;
     WebRect plugin_rect(0, 0, size_.width, size_.height);
     widget_->plugin()->ViewChanged(plugin_rect, plugin_rect, plugin_rect);
-    widget_->Invalidate();
   }
 
   void ThemeChanged() override { NOTIMPLEMENTED(); }
@@ -313,14 +312,6 @@ RenderWidgetFullscreenPepper::RenderWidgetFullscreenPepper(
 RenderWidgetFullscreenPepper::~RenderWidgetFullscreenPepper() {
 }
 
-void RenderWidgetFullscreenPepper::Invalidate() {
-  InvalidateRect(gfx::Rect(size()));
-}
-
-void RenderWidgetFullscreenPepper::InvalidateRect(const blink::WebRect& rect) {
-  DidInvalidateRect(rect);
-}
-
 void RenderWidgetFullscreenPepper::ScrollRect(
     int dx, int dy, const blink::WebRect& rect) {
 }
@@ -353,12 +344,12 @@ void RenderWidgetFullscreenPepper::PepperDidChangeCursor(
 void RenderWidgetFullscreenPepper::SetLayer(cc::Layer* layer) {
   layer_ = layer;
   if (!layer_) {
-    if (layer_tree_view())
-      layer_tree_view()->ClearRootLayer();
+    RenderWidget::SetRootLayer(nullptr);
     return;
   }
   UpdateLayerBounds();
   layer_->SetIsDrawable(true);
+  layer_->SetHitTestable(true);
   layer_tree_view()->SetNonBlinkManagedRootLayer(layer_);
 }
 
@@ -402,19 +393,18 @@ void RenderWidgetFullscreenPepper::UpdateLayerBounds() {
   if (!layer_)
     return;
 
+  // The |layer_| is sized here to cover the entire renderer's compositor
+  // viewport.
+  gfx::Size layer_size = gfx::Rect(ViewRect()).size();
+  // When IsUseZoomForDSFEnabled() is true, layout and compositor layer sizes
+  // given by blink are all in physical pixels, and the compositor does not do
+  // any scaling. But the ViewRect() is always in DIP so we must scale the layer
+  // here as the compositor won't.
   if (compositor_deps()->IsUseZoomForDSFEnabled()) {
-    // Note that root cc::Layers' bounds are specified in pixels (in contrast
-    // with non-root cc::Layers' bounds, which are specified in DIPs).
-    layer_->SetBounds(blink::WebSize(compositor_viewport_pixel_size()));
-  } else {
-    // For reasons that are unclear, the above comment doesn't appear to apply
-    // when zoom for DSF is not enabled.
-    // https://crbug.com/822252
-    gfx::Size dip_size =
-        gfx::ConvertSizeToDIP(GetOriginalScreenInfo().device_scale_factor,
-                              compositor_viewport_pixel_size());
-    layer_->SetBounds(blink::WebSize(dip_size));
+    layer_size = gfx::ScaleToCeiledSize(
+        layer_size, GetOriginalScreenInfo().device_scale_factor);
   }
+  layer_->SetBounds(layer_size);
 }
 
 }  // namespace content

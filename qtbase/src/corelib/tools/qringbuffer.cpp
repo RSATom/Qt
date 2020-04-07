@@ -59,7 +59,7 @@ void QRingChunk::detach()
     const int chunkSize = size();
     QByteArray x(chunkSize, Qt::Uninitialized);
     ::memcpy(x.data(), chunk.constData() + headOffset, chunkSize);
-    chunk = qMove(x);
+    chunk = std::move(x);
     headOffset = 0;
     tailOffset = chunkSize;
 }
@@ -105,7 +105,7 @@ const char *QRingBuffer::readPointerAtPosition(qint64 pos, qint64 &length) const
     }
 
     length = 0;
-    return 0;
+    return nullptr;
 }
 
 void QRingBuffer::free(qint64 bytes)

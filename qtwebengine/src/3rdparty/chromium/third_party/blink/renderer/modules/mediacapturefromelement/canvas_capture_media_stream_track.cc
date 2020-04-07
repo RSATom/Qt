@@ -13,25 +13,6 @@
 
 namespace blink {
 
-CanvasCaptureMediaStreamTrack* CanvasCaptureMediaStreamTrack::Create(
-    MediaStreamComponent* component,
-    HTMLCanvasElement* element,
-    ExecutionContext* context,
-    std::unique_ptr<WebCanvasCaptureHandler> handler) {
-  return MakeGarbageCollected<CanvasCaptureMediaStreamTrack>(
-      component, element, context, std::move(handler));
-}
-
-CanvasCaptureMediaStreamTrack* CanvasCaptureMediaStreamTrack::Create(
-    MediaStreamComponent* component,
-    HTMLCanvasElement* element,
-    ExecutionContext* context,
-    std::unique_ptr<WebCanvasCaptureHandler> handler,
-    double frame_rate) {
-  return MakeGarbageCollected<CanvasCaptureMediaStreamTrack>(
-      component, element, context, std::move(handler), frame_rate);
-}
-
 HTMLCanvasElement* CanvasCaptureMediaStreamTrack::canvas() const {
   return canvas_element_.Get();
 }
@@ -69,9 +50,10 @@ CanvasCaptureMediaStreamTrack::CanvasCaptureMediaStreamTrack(
     MediaStreamComponent* component,
     HTMLCanvasElement* element,
     ExecutionContext* context,
-    std::unique_ptr<WebCanvasCaptureHandler> handler)
+    std::unique_ptr<CanvasCaptureHandler> handler)
     : MediaStreamTrack(context, component), canvas_element_(element) {
-  draw_listener_ = AutoCanvasDrawListener::Create(std::move(handler));
+  draw_listener_ =
+      MakeGarbageCollected<AutoCanvasDrawListener>(std::move(handler));
   canvas_element_->AddListener(draw_listener_.Get());
 }
 
@@ -79,11 +61,12 @@ CanvasCaptureMediaStreamTrack::CanvasCaptureMediaStreamTrack(
     MediaStreamComponent* component,
     HTMLCanvasElement* element,
     ExecutionContext* context,
-    std::unique_ptr<WebCanvasCaptureHandler> handler,
+    std::unique_ptr<CanvasCaptureHandler> handler,
     double frame_rate)
     : MediaStreamTrack(context, component), canvas_element_(element) {
   if (frame_rate == 0) {
-    draw_listener_ = OnRequestCanvasDrawListener::Create(std::move(handler));
+    draw_listener_ =
+        MakeGarbageCollected<OnRequestCanvasDrawListener>(std::move(handler));
   } else {
     draw_listener_ = TimedCanvasDrawListener::Create(std::move(handler),
                                                      frame_rate, context);

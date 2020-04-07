@@ -188,8 +188,7 @@ void QQuickRenderControlPrivate::windowDestroyed()
     if (window) {
         rc->invalidate();
 
-        delete QQuickWindowPrivate::get(window)->animationController;
-        QQuickWindowPrivate::get(window)->animationController = nullptr;
+        QQuickWindowPrivate::get(window)->animationController.reset();
 
 #if QT_CONFIG(quick_shadereffect) && QT_CONFIG(opengl)
         if (QOpenGLContext::currentContext())
@@ -242,7 +241,18 @@ void QQuickRenderControl::initialize(QOpenGLContext *gl)
     // It cannot be done here since the surface to use may not be the
     // surface belonging to window. In fact window may not have a native
     // window/surface at all.
-    d->rc->initialize(gl);
+    QSGDefaultRenderContext *rc = qobject_cast<QSGDefaultRenderContext *>(d->rc);
+    if (rc) {
+        QSGDefaultRenderContext::InitParams params;
+        params.sampleCount = qMax(1, gl->format().samples());
+        params.openGLContext = gl;
+        params.initialSurfacePixelSize = d->window->size() * d->window->effectiveDevicePixelRatio();
+        params.maybeSurface = d->window;
+        rc->initialize(&params);
+    } else {
+        // can this happen?
+        d->rc->initialize(nullptr);
+    }
 #else
     Q_UNUSED(gl)
 #endif

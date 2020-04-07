@@ -53,33 +53,6 @@ public:
     using MacroAssemblerX86Common::loadDouble;
     using MacroAssemblerX86Common::convertInt32ToDouble;
 
-#if defined(V4_BOOTSTRAP)
-    void loadPtr(ImplicitAddress address, RegisterID dest)
-    {
-        load64(address, dest);
-    }
-
-    void subPtr(TrustedImm32 imm, RegisterID dest)
-    {
-        sub64(imm, dest);
-    }
-
-    void addPtr(TrustedImm32 imm, RegisterID dest)
-    {
-        add64(imm, dest);
-    }
-
-    void addPtr(TrustedImm32 imm, RegisterID src, RegisterID dest)
-    {
-        add64(imm, src, dest);
-    }
-
-    void storePtr(RegisterID src, ImplicitAddress address)
-    {
-        store64(src, address);
-    }
-#endif
-
     void add32(TrustedImm32 imm, AbsoluteAddress address)
     {
         move(TrustedImmPtr(address.m_ptr), scratchRegister);
@@ -114,6 +87,23 @@ public:
     {
         move(TrustedImmPtr(address.m_ptr), scratchRegister);
         sub32(imm, Address(scratchRegister));
+    }
+
+    void load16(ExtendedAddress address, RegisterID dest)
+    {
+        TrustedImmPtr addr(reinterpret_cast<void*>(address.offset));
+        MacroAssemblerX86Common::move(addr, scratchRegister);
+        MacroAssemblerX86Common::load16(BaseIndex(scratchRegister, address.base, TimesTwo), dest);
+    }
+
+    void load16(BaseIndex address, RegisterID dest)
+    {
+        MacroAssemblerX86Common::load16(address, dest);
+    }
+
+    void load16(Address address, RegisterID dest)
+    {
+        MacroAssemblerX86Common::load16(address, dest);
     }
 
     void load32(const void* address, RegisterID dest)

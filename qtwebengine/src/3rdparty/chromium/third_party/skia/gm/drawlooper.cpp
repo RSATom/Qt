@@ -5,14 +5,27 @@
  * found in the LICENSE file.
  */
 
-#include "gm.h"
-#include "sk_tool_utils.h"
-#include "SkBlurMask.h"
-#include "SkCanvas.h"
-#include "SkGraphics.h"
-#include "SkLayerDrawLooper.h"
-#include "SkMaskFilter.h"
-#include "SkRandom.h"
+#include "gm/gm.h"
+#include "include/core/SkBlendMode.h"
+#include "include/core/SkBlurTypes.h"
+#include "include/core/SkCanvas.h"
+#include "include/core/SkColor.h"
+#include "include/core/SkDrawLooper.h"
+#include "include/core/SkFont.h"
+#include "include/core/SkMaskFilter.h"
+#include "include/core/SkPaint.h"
+#include "include/core/SkPoint.h"
+#include "include/core/SkRefCnt.h"
+#include "include/core/SkScalar.h"
+#include "include/core/SkSize.h"
+#include "include/core/SkString.h"
+#include "include/core/SkTypeface.h"
+#include "include/core/SkTypes.h"
+#include "include/effects/SkLayerDrawLooper.h"
+#include "src/core/SkBlurMask.h"
+#include "tools/ToolUtils.h"
+
+#ifdef SK_SUPPORT_LEGACY_DRAWLOOPER
 
 #define WIDTH   200
 #define HEIGHT  200
@@ -39,7 +52,7 @@ protected:
         paint.setAntiAlias(true);
         paint.setLooper(fLooper);
 
-        SkFont font(sk_tool_utils::create_portable_typeface(), 72);
+        SkFont font(ToolUtils::create_portable_typeface(), 72);
 
         canvas->drawCircle(50, 50, 30, paint);
         canvas->drawRect({ 150, 50, 200, 100 }, paint);
@@ -91,3 +104,5 @@ private:
 //////////////////////////////////////////////////////////////////////////////
 
 DEF_GM( return new DrawLooperGM; )
+
+#endif

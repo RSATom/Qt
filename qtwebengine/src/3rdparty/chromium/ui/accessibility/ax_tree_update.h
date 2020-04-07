@@ -32,9 +32,11 @@ namespace ui {
 //
 // Suppose that the next AXNodeData to be applied is |node|. The following
 // invariants must hold:
-// 1. Either |node.id| is already in the tree, or else the tree is empty,
-//        |node| is the new root of the tree, and
-//        |node.role| == WebAXRoleRootWebArea.
+// 1. Either
+//   a) |node.id| is already in the tree, or
+//   b) the tree is empty, and
+//      |node| is the new root of the tree, and
+//      |node.role| == WebAXRoleRootWebArea.
 // 2. Every child id in |node.child_ids| must either be already a child
 //        of this node, or a new id not previously in the tree. It is not
 //        allowed to "reparent" a child to this node without first removing
@@ -90,12 +92,11 @@ std::string AXTreeUpdateBase<AXNodeData, AXTreeData>::ToString() const {
 
   if (node_id_to_clear != 0) {
     result += "AXTreeUpdate: clear node " +
-        base::IntToString(node_id_to_clear) + "\n";
+              base::NumberToString(node_id_to_clear) + "\n";
   }
 
   if (root_id != 0) {
-    result += "AXTreeUpdate: root id " +
-        base::IntToString(root_id) + "\n";
+    result += "AXTreeUpdate: root id " + base::NumberToString(root_id) + "\n";
   }
 
   // The challenge here is that we want to indent the nodes being updated
@@ -113,6 +114,26 @@ std::string AXTreeUpdateBase<AXNodeData, AXTreeData>::ToString() const {
   }
 
   return result;
+}
+
+// Two tree updates can be merged into one if the second one
+// doesn't clear a subtree, doesn't have new tree data, and
+// doesn't have a new root id - in other words the second tree
+// update consists of only changes to nodes.
+template <typename AXNodeData, typename AXTreeData>
+bool TreeUpdatesCanBeMerged(
+    const AXTreeUpdateBase<AXNodeData, AXTreeData>& u1,
+    const AXTreeUpdateBase<AXNodeData, AXTreeData>& u2) {
+  if (u2.node_id_to_clear)
+    return false;
+
+  if (u2.has_tree_data && u2.tree_data != u1.tree_data)
+    return false;
+
+  if (u2.root_id != u1.root_id)
+    return false;
+
+  return true;
 }
 
 }  // namespace ui

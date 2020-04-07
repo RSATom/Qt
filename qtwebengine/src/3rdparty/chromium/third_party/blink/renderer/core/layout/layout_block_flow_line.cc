@@ -21,6 +21,7 @@
  *
  */
 
+#include "base/containers/span.h"
 #include "build/build_config.h"
 #include "third_party/blink/renderer/core/accessibility/ax_object_cache.h"
 #include "third_party/blink/renderer/core/editing/editing_utilities.h"
@@ -56,7 +57,7 @@ class ExpansionOpportunities {
     unsigned opportunities_in_run;
     if (text.Is8Bit()) {
       opportunities_in_run = Character::ExpansionOpportunityCount(
-          text.Characters8() + run.start_, run.stop_ - run.start_,
+          {text.Characters8() + run.start_, size_t(run.stop_ - run.start_)},
           run.box_->Direction(), is_after_expansion, text_justify);
     } else if (run.line_layout_item_.IsCombineText()) {
       // Justfication applies to before and after the combined text as if
@@ -66,7 +67,7 @@ class ExpansionOpportunities {
       is_after_expansion = true;
     } else {
       opportunities_in_run = Character::ExpansionOpportunityCount(
-          text.Characters16() + run.start_, run.stop_ - run.start_,
+          {text.Characters16() + run.start_, size_t(run.stop_ - run.start_)},
           run.box_->Direction(), is_after_expansion, text_justify);
     }
     runs_with_expansions_.push_back(opportunities_in_run);
@@ -2220,15 +2221,25 @@ void LayoutBlockFlow::DetermineEndPosition(LineLayoutState& layout_state,
                                            BidiStatus& clean_line_bidi_status) {
   DCHECK(!layout_state.EndLine());
   RootInlineBox* last = nullptr;
+  bool previous_was_clean = false;
   for (RootInlineBox* curr = start_line->NextRootBox(); curr;
        curr = curr->NextRootBox()) {
     if (!curr->IsDirty() && LineBoxHasBRWithClearance(curr))
       return;
 
-    if (curr->IsDirty())
+    // A line is considered clean when it's not marked dirty, AND it either
+    // doesn't contain floats, or follows another clean line. The legacy line
+    // layout engine has issues with handling floats at line boundaries,
+    // potentially resulting in a float belonging to two different lines,
+    // causing all kinds of misery.
+    if (curr->IsDirty() || (curr->FloatsPtr() && !previous_was_clean)) {
       last = nullptr;
-    else if (!last)
-      last = curr;
+      previous_was_clean = false;
+    } else {
+      if (!last)
+        last = curr;
+      previous_was_clean = true;
+    }
   }
 
   if (!last)
@@ -2313,10 +2324,11 @@ bool LayoutBlockFlow::MatchedEndLine(LineLayoutState& layout_state,
 
   // The first clean line doesn't match, but we can check a handful of following
   // lines to try to match back up.
-  static int num_lines = 8;  // The # of lines we're willing to match against.
+  // The # of lines we're willing to match against.
+  constexpr int kNumLines = 8;
   RootInlineBox* original_end_line = layout_state.EndLine();
   RootInlineBox* line = original_end_line;
-  for (int i = 0; i < num_lines && line; i++, line = line->NextRootBox()) {
+  for (int i = 0; i < kNumLines && line; i++, line = line->NextRootBox()) {
     if (line->LineBreakObj() == resolver.GetPosition().GetLineLayoutItem() &&
         line->LineBreakPos() == resolver.GetPosition().Offset()) {
       // We have a match.
@@ -2360,10 +2372,24 @@ void LayoutBlockFlow::AddVisualOverflowFromInlineChildren() {
   if (HasOverflowClip() && !end_padding && GetNode() &&
       IsRootEditableElement(*GetNode()) && StyleRef().IsLeftToRightDirection())
     end_padding = LayoutUnit(1);
-  for (RootInlineBox* curr = FirstRootBox(); curr; curr = curr->NextRootBox()) {
-    LayoutRect visual_overflow =
-        curr->VisualOverflowRect(curr->LineTop(), curr->LineBottom());
-    AddContentsVisualOverflow(visual_overflow);
+
+  if (const NGPaintFragment* paint_fragment = PaintFragment()) {
+    for (const NGPaintFragment* child : paint_fragment->Children()) {
+      if (child->HasSelfPaintingLayer())
+        continue;
+      PhysicalRect child_rect = child->InkOverflow();
+      if (!child_rect.IsEmpty()) {
+        child_rect.offset += child->Offset();
+        AddContentsVisualOverflow(child_rect);
+      }
+    }
+  } else {
+    for (RootInlineBox* curr = FirstRootBox(); curr;
+         curr = curr->NextRootBox()) {
+      LayoutRect visual_overflow =
+          curr->VisualOverflowRect(curr->LineTop(), curr->LineBottom());
+      AddContentsVisualOverflow(visual_overflow);
+    }
   }
 
   if (!ContainsInlineWithOutlineAndContinuation())
@@ -2371,19 +2397,19 @@ void LayoutBlockFlow::AddVisualOverflowFromInlineChildren() {
 
   // Add outline rects of continuations of descendant inlines into visual
   // overflow of this block.
-  LayoutRect outline_bounds_of_all_continuations;
+  PhysicalRect outline_bounds_of_all_continuations;
   for (InlineWalker walker(LineLayoutBlockFlow(this)); !walker.AtEnd();
        walker.Advance()) {
     const LayoutObject& o = *walker.Current().GetLayoutObject();
     if (!IsInlineWithOutlineAndContinuation(o))
       continue;
 
-    Vector<LayoutRect> outline_rects;
+    Vector<PhysicalRect> outline_rects;
     ToLayoutInline(o).AddOutlineRectsForContinuations(
-        outline_rects, LayoutPoint(),
+        outline_rects, PhysicalOffset(),
         o.OutlineRectsShouldIncludeBlockVisualOverflow());
     if (!outline_rects.IsEmpty()) {
-      LayoutRect outline_bounds = UnionRectEvenIfEmpty(outline_rects);
+      PhysicalRect outline_bounds = UnionRectEvenIfEmpty(outline_rects);
       outline_bounds.Inflate(LayoutUnit(o.StyleRef().OutlineOutsetExtent()));
       outline_bounds_of_all_continuations.Unite(outline_bounds);
     }
@@ -2696,8 +2722,8 @@ LayoutUnit LayoutBlockFlow::StartAlignedOffsetForLine(
 void LayoutBlockFlow::SetShouldDoFullPaintInvalidationForFirstLine() {
   DCHECK(ChildrenInline());
   if (RootInlineBox* first_root_box = FirstRootBox())
-    first_root_box->SetShouldDoFullPaintInvalidationRecursively();
-  else if (NGPaintFragment* paint_fragment = PaintFragment())
+    first_root_box->SetShouldDoFullPaintInvalidationForFirstLine();
+  else if (const NGPaintFragment* paint_fragment = PaintFragment())
     paint_fragment->SetShouldDoFullPaintInvalidationForFirstLine();
 }
 

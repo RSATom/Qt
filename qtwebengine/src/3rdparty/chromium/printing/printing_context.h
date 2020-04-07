@@ -12,6 +12,7 @@
 #include "base/macros.h"
 #include "base/strings/string16.h"
 #include "base/values.h"
+#include "build/build_config.h"
 #include "printing/native_drawing_context.h"
 #include "printing/print_settings.h"
 #include "ui/gfx/native_widget_types.h"
@@ -124,9 +125,7 @@ class PRINTING_EXPORT PrintingContext {
   void set_margin_type(MarginType type);
   void set_is_modifiable(bool is_modifiable);
 
-  const PrintSettings& settings() const {
-    return settings_;
-  }
+  const PrintSettings& settings() const { return settings_; }
 
   int job_id() const { return job_id_; }
 

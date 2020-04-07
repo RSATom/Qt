@@ -483,6 +483,162 @@ error::Error GLES2DecoderPassthroughImpl::HandleGetProgramInfoLog(
   return error::kNoError;
 }
 
+error::Error GLES2DecoderPassthroughImpl::HandleGetProgramResourceiv(
+    uint32_t immediate_data_size,
+    const volatile void* cmd_data) {
+  if (!feature_info_->IsWebGL2ComputeContext()) {
+    return error::kUnknownCommand;
+  }
+  const volatile gles2::cmds::GetProgramResourceiv& c =
+      *static_cast<const volatile gles2::cmds::GetProgramResourceiv*>(cmd_data);
+  GLuint program = static_cast<GLuint>(c.program);
+  GLenum program_interface = static_cast<GLenum>(c.program_interface);
+  GLuint index = static_cast<GLuint>(c.index);
+  uint32_t props_bucket_id = c.props_bucket_id;
+  uint32_t params_shm_id = c.params_shm_id;
+  uint32_t params_shm_offset = c.params_shm_offset;
+
+  Bucket* bucket = GetBucket(props_bucket_id);
+  if (!bucket) {
+    return error::kInvalidArguments;
+  }
+  GLsizei prop_count = static_cast<GLsizei>(bucket->size() / sizeof(GLenum));
+  const GLenum* props = bucket->GetDataAs<const GLenum*>(0, bucket->size());
+  unsigned int buffer_size = 0;
+  typedef cmds::GetProgramResourceiv::Result Result;
+  Result* result = GetSharedMemoryAndSizeAs<Result*>(
+      params_shm_id, params_shm_offset, sizeof(Result), &buffer_size);
+  GLint* params = result ? result->GetData() : nullptr;
+  if (params == nullptr) {
+    return error::kOutOfBounds;
+  }
+  // Check that the client initialized the result.
+  if (result->size != 0) {
+    return error::kInvalidArguments;
+  }
+  GLsizei bufsize = Result::ComputeMaxResults(buffer_size);
+  GLsizei length = 0;
+  error::Error error = DoGetProgramResourceiv(
+      program, program_interface, index, prop_count, props, bufsize, &length,
+      params);
+  if (error != error::kNoError) {
+    return error;
+  }
+  if (length > bufsize) {
+    return error::kOutOfBounds;
+  }
+  result->SetNumResults(length);
+  return error::kNoError;
+}
+
+error::Error GLES2DecoderPassthroughImpl::HandleGetProgramResourceIndex(
+    uint32_t immediate_data_size,
+    const volatile void* cmd_data) {
+  if (!feature_info_->IsWebGL2ComputeContext()) {
+    return error::kUnknownCommand;
+  }
+  const volatile gles2::cmds::GetProgramResourceIndex& c =
+      *static_cast<const volatile gles2::cmds::GetProgramResourceIndex*>(
+          cmd_data);
+  GLuint program = static_cast<GLuint>(c.program);
+  GLenum program_interface = static_cast<GLenum>(c.program_interface);
+  uint32_t name_bucket_id = c.name_bucket_id;
+  uint32_t index_shm_id = c.index_shm_id;
+  uint32_t index_shm_offset = c.index_shm_offset;
+
+  Bucket* bucket = GetBucket(name_bucket_id);
+  if (!bucket) {
+    return error::kInvalidArguments;
+  }
+  std::string name_str;
+  if (!bucket->GetAsString(&name_str)) {
+    return error::kInvalidArguments;
+  }
+  GLuint* index = GetSharedMemoryAs<GLuint*>(
+      index_shm_id, index_shm_offset, sizeof(GLuint));
+  if (!index) {
+    return error::kOutOfBounds;
+  }
+  if (*index != GL_INVALID_INDEX) {
+    return error::kInvalidArguments;
+  }
+  return DoGetProgramResourceIndex(
+      program, program_interface, name_str.c_str(), index);
+}
+
+error::Error GLES2DecoderPassthroughImpl::HandleGetProgramResourceLocation(
+    uint32_t immediate_data_size,
+    const volatile void* cmd_data) {
+  if (!feature_info_->IsWebGL2ComputeContext()) {
+    return error::kUnknownCommand;
+  }
+  const volatile gles2::cmds::GetProgramResourceLocation& c =
+      *static_cast<const volatile gles2::cmds::GetProgramResourceLocation*>(
+          cmd_data);
+  GLuint program = static_cast<GLuint>(c.program);
+  GLenum program_interface = static_cast<GLenum>(c.program_interface);
+  uint32_t name_bucket_id = c.name_bucket_id;
+  uint32_t location_shm_id = c.location_shm_id;
+  uint32_t location_shm_offset = c.location_shm_offset;
+
+  Bucket* bucket = GetBucket(name_bucket_id);
+  if (!bucket) {
+    return error::kInvalidArguments;
+  }
+  std::string name_str;
+  if (!bucket->GetAsString(&name_str)) {
+    return error::kInvalidArguments;
+  }
+  GLint* location = GetSharedMemoryAs<GLint*>(
+      location_shm_id, location_shm_offset, sizeof(GLint));
+  if (!location) {
+    return error::kOutOfBounds;
+  }
+  if (*location != -1) {
+    return error::kInvalidArguments;
+  }
+  return DoGetProgramResourceLocation(
+      program, program_interface, name_str.c_str(), location);
+}
+
+error::Error GLES2DecoderPassthroughImpl::HandleGetProgramResourceName(
+    uint32_t immediate_data_size,
+    const volatile void* cmd_data) {
+  if (!feature_info_->IsWebGL2ComputeContext()) {
+    return error::kUnknownCommand;
+  }
+  const volatile gles2::cmds::GetProgramResourceName& c =
+      *static_cast<const volatile gles2::cmds::GetProgramResourceName*>(
+          cmd_data);
+  GLuint program = static_cast<GLuint>(c.program);
+  GLenum program_interface = static_cast<GLenum>(c.program_interface);
+  GLuint index = static_cast<GLuint>(c.index);
+  uint32_t name_bucket_id = c.name_bucket_id;
+  uint32_t result_shm_id = c.result_shm_id;
+  uint32_t result_shm_offset = c.result_shm_offset;
+
+  typedef cmds::GetProgramResourceName::Result Result;
+  Result* result = GetSharedMemoryAs<Result*>(
+      result_shm_id, result_shm_offset, sizeof(*result));
+  if (!result) {
+    return error::kOutOfBounds;
+  }
+  // Check that the client initialized the result.
+  if (*result != 0) {
+    return error::kInvalidArguments;
+  }
+  std::string name;
+  error::Error error =
+      DoGetProgramResourceName(program, program_interface, index, &name);
+  if (error != error::kNoError) {
+    return error;
+  }
+  *result = 1;
+  Bucket* bucket = CreateBucket(name_bucket_id);
+  bucket->SetFromString(name.c_str());
+  return error::kNoError;
+}
+
 error::Error GLES2DecoderPassthroughImpl::HandleGetShaderInfoLog(
     uint32_t immediate_data_size,
     const volatile void* cmd_data) {
@@ -1862,17 +2018,6 @@ error::Error GLES2DecoderPassthroughImpl::HandleDescheduleUntilFinishedCHROMIUM(
   return DoDescheduleUntilFinishedCHROMIUM();
 }
 
-error::Error GLES2DecoderPassthroughImpl::HandleInsertFenceSyncCHROMIUM(
-    uint32_t immediate_data_size,
-    const volatile void* cmd_data) {
-  const volatile gles2::cmds::InsertFenceSyncCHROMIUM& c =
-      *static_cast<const volatile gles2::cmds::InsertFenceSyncCHROMIUM*>(
-          cmd_data);
-  GLuint64 release_count = c.release_count();
-
-  return DoInsertFenceSyncCHROMIUM(release_count);
-}
-
 error::Error GLES2DecoderPassthroughImpl::HandleDiscardBackbufferCHROMIUM(
     uint32_t immediate_data_size,
     const volatile void* cmd_data) {
@@ -1896,12 +2041,13 @@ error::Error GLES2DecoderPassthroughImpl::HandleScheduleOverlayPlaneCHROMIUM(
   GLfloat uv_y = static_cast<GLfloat>(c.uv_y);
   GLfloat uv_width = static_cast<GLfloat>(c.uv_width);
   GLfloat uv_height = static_cast<GLfloat>(c.uv_height);
+  bool enable_blend = static_cast<bool>(c.enable_blend);
   GLuint gpu_fence_id = static_cast<GLuint>(c.gpu_fence_id);
 
-  return DoScheduleOverlayPlaneCHROMIUM(plane_z_order, plane_transform,
-                                        overlay_texture_id, bounds_x, bounds_y,
-                                        bounds_width, bounds_height, uv_x, uv_y,
-                                        uv_width, uv_height, gpu_fence_id);
+  return DoScheduleOverlayPlaneCHROMIUM(
+      plane_z_order, plane_transform, overlay_texture_id, bounds_x, bounds_y,
+      bounds_width, bounds_height, uv_x, uv_y, uv_width, uv_height,
+      enable_blend, gpu_fence_id);
 }
 
 error::Error
@@ -1918,14 +2064,17 @@ GLES2DecoderPassthroughImpl::HandleScheduleCALayerSharedStateCHROMIUM(
   uint32_t shm_id = c.shm_id;
   uint32_t shm_offset = c.shm_offset;
 
+  // 4 for |clip_rect|, 5 for |rounded_corner_bounds|, 16 for |transform|.
   const GLfloat* mem = GetSharedMemoryAs<const GLfloat*>(shm_id, shm_offset,
-                                                         20 * sizeof(GLfloat));
+                                                         25 * sizeof(GLfloat));
   if (!mem) {
     return error::kOutOfBounds;
   }
   const GLfloat* clip_rect = mem + 0;
-  const GLfloat* transform = mem + 4;
+  const GLfloat* rounded_corner_bounds = mem + 4;
+  const GLfloat* transform = mem + 9;
   return DoScheduleCALayerSharedStateCHROMIUM(opacity, is_clipped, clip_rect,
+                                              rounded_corner_bounds,
                                               sorting_context_id, transform);
 }
 
@@ -1938,6 +2087,7 @@ error::Error GLES2DecoderPassthroughImpl::HandleScheduleCALayerCHROMIUM(
   GLuint contents_texture_id = static_cast<GLint>(c.contents_texture_id);
   GLuint background_color = static_cast<GLuint>(c.background_color);
   GLuint edge_aa_mask = static_cast<GLuint>(c.edge_aa_mask);
+  GLenum filter = static_cast<GLenum>(c.filter);
   uint32_t shm_id = c.shm_id;
   uint32_t shm_offset = c.shm_offset;
 
@@ -1949,7 +2099,8 @@ error::Error GLES2DecoderPassthroughImpl::HandleScheduleCALayerCHROMIUM(
   const GLfloat* contents_rect = mem;
   const GLfloat* bounds_rect = mem + 4;
   return DoScheduleCALayerCHROMIUM(contents_texture_id, contents_rect,
-                                   background_color, edge_aa_mask, bounds_rect);
+                                   background_color, edge_aa_mask, filter,
+                                   bounds_rect);
 }
 
 error::Error GLES2DecoderPassthroughImpl::HandleSetColorSpaceMetadataCHROMIUM(

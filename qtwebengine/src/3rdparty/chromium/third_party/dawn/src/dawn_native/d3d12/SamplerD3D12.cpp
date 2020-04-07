@@ -24,12 +24,10 @@ namespace dawn_native { namespace d3d12 {
             switch (mode) {
                 case dawn::AddressMode::Repeat:
                     return D3D12_TEXTURE_ADDRESS_MODE_WRAP;
-                case dawn::AddressMode::MirroredRepeat:
+                case dawn::AddressMode::MirrorRepeat:
                     return D3D12_TEXTURE_ADDRESS_MODE_MIRROR;
                 case dawn::AddressMode::ClampToEdge:
                     return D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
-                case dawn::AddressMode::ClampToBorderColor:
-                    return D3D12_TEXTURE_ADDRESS_MODE_BORDER;
                 default:
                     UNREACHABLE();
             }
@@ -85,27 +83,9 @@ namespace dawn_native { namespace d3d12 {
         mSamplerDesc.AddressW = AddressMode(descriptor->addressModeW);
         mSamplerDesc.MipLODBias = 0.f;
         mSamplerDesc.MaxAnisotropy = 1;
-        mSamplerDesc.ComparisonFunc = ToD3D12ComparisonFunc(descriptor->compareFunction);
+        mSamplerDesc.ComparisonFunc = ToD3D12ComparisonFunc(descriptor->compare);
         mSamplerDesc.MinLOD = descriptor->lodMinClamp;
         mSamplerDesc.MaxLOD = descriptor->lodMaxClamp;
-
-        switch (descriptor->borderColor) {
-            case dawn::BorderColor::TransparentBlack:
-                mSamplerDesc.BorderColor[0] = mSamplerDesc.BorderColor[1] =
-                    mSamplerDesc.BorderColor[2] = mSamplerDesc.BorderColor[3] = 0;
-                break;
-            case dawn::BorderColor::OpaqueBlack:
-                mSamplerDesc.BorderColor[0] = mSamplerDesc.BorderColor[1] =
-                    mSamplerDesc.BorderColor[2] = 0;
-                mSamplerDesc.BorderColor[3] = 1;
-                break;
-            case dawn::BorderColor::OpaqueWhite:
-                mSamplerDesc.BorderColor[0] = mSamplerDesc.BorderColor[1] =
-                    mSamplerDesc.BorderColor[2] = mSamplerDesc.BorderColor[3] = 1;
-                break;
-            default:
-                UNREACHABLE();
-        }
     }
 
     const D3D12_SAMPLER_DESC& Sampler::GetSamplerDescriptor() const {

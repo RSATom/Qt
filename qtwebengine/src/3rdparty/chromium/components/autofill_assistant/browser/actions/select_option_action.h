@@ -13,21 +13,23 @@
 #include "components/autofill_assistant/browser/actions/action.h"
 
 namespace autofill_assistant {
+
 // An action to select an option on a given element on Web.
 class SelectOptionAction : public Action {
  public:
-  explicit SelectOptionAction(const ActionProto& proto);
+  explicit SelectOptionAction(ActionDelegate* delegate,
+                              const ActionProto& proto);
   ~SelectOptionAction() override;
 
  private:
   // Overrides Action:
-  void InternalProcessAction(ActionDelegate* delegate,
-                             ProcessActionCallback callback) override;
+  void InternalProcessAction(ProcessActionCallback callback) override;
 
-  void OnWaitForElement(ActionDelegate* delegate,
-                        ProcessActionCallback callback,
+  void OnWaitForElement(ProcessActionCallback callback,
+                        const Selector& selector,
                         bool element_found);
-  void OnSelectOption(ProcessActionCallback callback, bool status);
+  void OnSelectOption(ProcessActionCallback callback,
+                      const ClientStatus& status);
 
   base::WeakPtrFactory<SelectOptionAction> weak_ptr_factory_;
 

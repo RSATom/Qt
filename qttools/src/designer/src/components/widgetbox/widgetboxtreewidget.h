@@ -55,11 +55,11 @@ class WidgetBoxTreeWidget : public QTreeWidget
     Q_OBJECT
 
 public:
-    typedef QDesignerWidgetBoxInterface::Widget Widget;
-    typedef QDesignerWidgetBoxInterface::Category Category;
-    typedef QDesignerWidgetBoxInterface::CategoryList CategoryList;
+    using Widget = QDesignerWidgetBoxInterface::Widget;
+    using Category = QDesignerWidgetBoxInterface::Category;
+    using CategoryList = QDesignerWidgetBoxInterface::CategoryList;
 
-    explicit WidgetBoxTreeWidget(QDesignerFormEditorInterface *core, QWidget *parent = 0);
+    explicit WidgetBoxTreeWidget(QDesignerFormEditorInterface *core, QWidget *parent = nullptr);
     ~WidgetBoxTreeWidget();
 
     int categoryCount() const;
@@ -82,14 +82,14 @@ public:
     QIcon iconForWidget(const QString &iconName) const;
 
 signals:
-    void pressed(const QString name, const QString dom_xml, const QPoint &global_mouse_pos);
+    void pressed(const QString &name, const QString &dom_xml, const QPoint &global_mouse_pos);
 
 public slots:
     void filter(const QString &);
 
 protected:
-    void contextMenuEvent(QContextMenuEvent *e);
-    void resizeEvent(QResizeEvent *e);
+    void contextMenuEvent(QContextMenuEvent *e) override;
+    void resizeEvent(QResizeEvent *e) override;
 
 private slots:
     void slotSave();
@@ -123,7 +123,7 @@ private:
 
     QDesignerFormEditorInterface *m_core;
     QString m_file_name;
-    typedef QHash<QString, QIcon> IconCache;
+    using IconCache = QHash<QString, QIcon>;
     mutable IconCache m_pluginIcons;
     bool m_iconMode;
     QTimer *m_scratchPadDeleteTimer;

@@ -24,10 +24,8 @@ from __future__ import print_function
 
 try:
     import http.server as httpserver
-    import socketserver
 except ImportError:
     import BaseHTTPServer as httpserver
-    import SocketServer as socketserver
 import argparse
 import cgi
 import os
@@ -207,14 +205,10 @@ parser.add_argument('-f', default='build.ninja',
 parser.add_argument('initial_target', default='all', nargs='?',
     help='Initial target to show (default %(default)s)')
 
-class HTTPServer(socketserver.ThreadingMixIn, httpserver.HTTPServer):
-    # terminate server immediately when Python exits.
-    daemon_threads = True
-
 args = parser.parse_args()
 port = args.port
 hostname = args.hostname
-httpd = HTTPServer((hostname,port), RequestHandler)
+httpd = httpserver.HTTPServer((hostname,port), RequestHandler)
 try:
     if hostname == "":
         hostname = socket.gethostname()

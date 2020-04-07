@@ -59,16 +59,21 @@ SOURCES = \
         compositor/compositor_resource_tracker.cpp \
         compositor/content_gpu_client_qt.cpp \
         compositor/delegated_frame_node.cpp \
+        compositor/display_frame_sink.cpp \
+        compositor/display_overrides.cpp \
+        compositor/display_software_output_surface.cpp \
         content_client_qt.cpp \
         content_browser_client_qt.cpp \
         content_main_delegate_qt.cpp \
         content_utility_client_qt.cpp \
+        delegated_frame_host_client_qt.cpp \
         desktop_screen_qt.cpp \
         devtools_frontend_qt.cpp \
         devtools_manager_delegate_qt.cpp \
         download_manager_delegate_qt.cpp \
         favicon_manager.cpp \
         file_picker_controller.cpp \
+        find_text_helper.cpp \
         javascript_dialog_controller.cpp \
         javascript_dialog_manager_qt.cpp \
         login_delegate_qt.cpp \
@@ -81,6 +86,7 @@ SOURCES = \
         net/network_delegate_qt.cpp \
         net/proxy_config_service_qt.cpp \
         net/qrc_url_scheme_handler.cpp \
+        net/restricted_cookie_manager_qt.cpp \
         net/ssl_host_state_delegate_qt.cpp \
         net/url_request_context_getter_qt.cpp \
         net/url_request_custom_job.cpp \
@@ -104,6 +110,7 @@ SOURCES = \
         profile_io_data_qt.cpp \
         quota_permission_context_qt.cpp \
         quota_request_controller_impl.cpp \
+        pref_service_adapter.cpp \
         register_protocol_handler_request_controller_impl.cpp \
         render_view_context_menu_qt.cpp \
         render_widget_host_view_qt.cpp \
@@ -162,16 +169,20 @@ HEADERS = \
         compositor/compositor_resource_tracker.h \
         compositor/content_gpu_client_qt.h \
         compositor/delegated_frame_node.h \
+        compositor/display_frame_sink.h \
+        compositor/display_software_output_surface.h \
         content_client_qt.h \
         content_browser_client_qt.h \
         content_main_delegate_qt.h \
         content_utility_client_qt.h \
+        delegated_frame_host_client_qt.h \
         desktop_screen_qt.h \
         devtools_frontend_qt.h \
         devtools_manager_delegate_qt.h \
         download_manager_delegate_qt.h \
         favicon_manager.h \
         file_picker_controller.h \
+        find_text_helper.h \
         global_descriptors_qt.h \
         javascript_dialog_controller_p.h \
         javascript_dialog_controller.h \
@@ -185,6 +196,7 @@ HEADERS = \
         net/custom_protocol_handler.h \
         net/network_delegate_qt.h \
         net/qrc_url_scheme_handler.h \
+        net/restricted_cookie_manager_qt.h \
         net/ssl_host_state_delegate_qt.h \
         net/url_request_context_getter_qt.h \
         net/url_request_custom_job.h \
@@ -201,6 +213,7 @@ HEADERS = \
         ozone/surface_factory_qt.h \
         permission_manager_qt.h \
         platform_notification_service_qt.h \
+        pref_service_adapter.h \
         process_main.h \
         profile_adapter.h \
         profile_adapter_client.h \
@@ -243,7 +256,6 @@ HEADERS = \
         web_engine_library_info.h \
         web_engine_settings.h \
         web_event_factory.h
-
 
 qtConfig(webengine-ozone-x11) {
     HEADERS += ozone/gl_ozone_glx_qt.h \
@@ -291,11 +303,13 @@ qtConfig(webengine-printing-and-pdf) {
 contains(QT_CONFIG, opengl) {
     SOURCES += \
         compositor/compositor_resource_fence.cpp \
+        compositor/display_gl_output_surface.cpp \
+        compositor/display_gl_output_surface_qsg.cpp \
         compositor/stream_video_node.cpp \
         compositor/yuv_video_node.cpp
-
     HEADERS += \
         compositor/compositor_resource_fence.h \
+        compositor/display_gl_output_surface.h \
         compositor/stream_video_node.h \
         compositor/yuv_video_node.h
 }

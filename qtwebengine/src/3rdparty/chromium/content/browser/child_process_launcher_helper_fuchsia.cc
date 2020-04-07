@@ -18,8 +18,7 @@ void ChildProcessLauncherHelper::SetProcessPriorityOnLauncherThread(
     base::Process process,
     const ChildProcessLauncherPriority& priority) {
   DCHECK(CurrentlyOnProcessLauncherTaskRunner());
-  // TODO(fuchsia): Implement this. (crbug.com/707031)
-  NOTIMPLEMENTED();
+  // TODO(https://crbug.com/926583): Fuchsia does not currently support this.
 }
 
 ChildProcessTerminationInfo ChildProcessLauncherHelper::GetTerminationInfo(
@@ -41,18 +40,15 @@ bool ChildProcessLauncherHelper::TerminateProcess(const base::Process& process,
 void ChildProcessLauncherHelper::SetRegisteredFilesForService(
     const std::string& service_name,
     std::map<std::string, base::FilePath> required_files) {
-  // TODO(fuchsia): Implement this. (crbug.com/707031)
-  NOTIMPLEMENTED();
+  NOTREACHED() << " for service " << service_name;
 }
 
 // static
 void ChildProcessLauncherHelper::ResetRegisteredFilesForTesting() {
-  // TODO(fuchsia): Implement this. (crbug.com/707031)
-  NOTIMPLEMENTED();
 }
 
 void ChildProcessLauncherHelper::BeforeLaunchOnClientThread() {
-  DCHECK_CURRENTLY_ON(client_thread_id_);
+  DCHECK(client_task_runner_->RunsTasksInCurrentSequence());
 
   sandbox_policy_.Initialize(delegate_->GetSandboxType());
 }
@@ -64,7 +60,7 @@ ChildProcessLauncherHelper::GetFilesToMap() {
 }
 
 bool ChildProcessLauncherHelper::BeforeLaunchOnLauncherThread(
-    const PosixFileDescriptorInfo& files_to_register,
+    PosixFileDescriptorInfo& files_to_register,
     base::LaunchOptions* options) {
   DCHECK(CurrentlyOnProcessLauncherTaskRunner());
 
@@ -85,7 +81,6 @@ ChildProcessLauncherHelper::LaunchProcessOnLauncherThread(
   DCHECK(mojo_channel_);
   DCHECK(mojo_channel_->remote_endpoint().is_valid());
 
-  // TODO(750938): Implement sandboxed/isolated subprocess launching.
   Process child_process;
   child_process.process = base::LaunchProcess(*command_line(), options);
   return child_process;

@@ -12,6 +12,7 @@
 #include <utility>
 #include <vector>
 
+#include "base/containers/flat_set.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/observer_list.h"
@@ -21,6 +22,7 @@
 #include "content/common/content_export.h"
 #include "content/public/browser/global_routing_id.h"
 #include "content/public/browser/service_worker_context.h"
+#include "content/public/browser/service_worker_running_info.h"
 
 namespace base {
 class FilePath;
@@ -41,6 +43,7 @@ class BrowserContext;
 class ChromeBlobStorageContext;
 class ResourceContext;
 class ServiceWorkerContextObserver;
+class ServiceWorkerContextWatcher;
 class StoragePartitionImpl;
 class URLLoaderFactoryGetter;
 
@@ -72,8 +75,6 @@ class CONTENT_EXPORT ServiceWorkerContextWrapper
 
   // Init and Shutdown are for use on the UI thread when the profile,
   // storagepartition is being setup and torn down.
-  // |blob_context| and |url_loader_factory_getter| are used only
-  // when IsServicificationEnabled is true.
   void Init(const base::FilePath& user_data_directory,
             storage::QuotaManagerProxy* quota_manager_proxy,
             storage::SpecialStoragePolicy* special_storage_policy,
@@ -95,6 +96,9 @@ class CONTENT_EXPORT ServiceWorkerContextWrapper
 
   void set_storage_partition(StoragePartitionImpl* storage_partition);
 
+  // UI thread.
+  BrowserContext* browser_context();
+
   // The ResourceContext for the associated BrowserContext. This should only
   // be accessed on the IO thread, and can be null during initialization and
   // shutdown.
@@ -108,7 +112,13 @@ class CONTENT_EXPORT ServiceWorkerContextWrapper
   // ServiceWorkerContextCoreObserver implementation:
   void OnRegistrationCompleted(int64_t registration_id,
                                const GURL& scope) override;
+  void OnRegistrationStored(int64_t registration_id,
+                            const GURL& scope) override;
+  void OnReportConsoleMessage(int64_t version_id,
+                              const ConsoleMessage& message) override;
   void OnNoControllees(int64_t version_id, const GURL& scope) override;
+  void OnRunningStateChanged(int64_t version_id,
+                             EmbeddedWorkerStatus running_status) override;
   void OnVersionStateChanged(int64_t version_id,
                              const GURL& scope,
                              ServiceWorkerVersion::Status status) override;
@@ -133,7 +143,6 @@ class CONTENT_EXPORT ServiceWorkerContextWrapper
   void DeleteForOrigin(const GURL& origin, ResultCallback callback) override;
   void PerformStorageCleanup(base::OnceClosure callback) override;
   void CheckHasServiceWorker(const GURL& url,
-                             const GURL& other_url,
                              CheckHasServiceWorkerCallback callback) override;
   void ClearAllServiceWorkersForTest(base::OnceClosure callback) override;
   void StartWorkerForScope(const GURL& scope,
@@ -152,6 +161,11 @@ class CONTENT_EXPORT ServiceWorkerContextWrapper
       StartServiceWorkerForNavigationHintCallback callback) override;
   void StopAllServiceWorkersForOrigin(const GURL& origin) override;
   void StopAllServiceWorkers(base::OnceClosure callback) override;
+  void GetAllServiceWorkerRunningInfos(
+      GetAllServiceWorkerRunningInfosCallback callback) override;
+  void GetServiceWorkerRunningInfo(
+      int64_t version_id,
+      GetServiceWorkerRunningInfoCallback callback) override;
 
   // These methods must only be called from the IO thread.
   ServiceWorkerRegistration* GetLiveRegistration(int64_t registration_id);
@@ -266,6 +280,9 @@ class CONTENT_EXPORT ServiceWorkerContextWrapper
   void GetUserDataForAllRegistrationsByKeyPrefix(
       const std::string& key_prefix,
       GetUserDataForAllRegistrationsCallback callback);
+  void ClearUserDataForAllRegistrationsByKeyPrefix(
+      const std::string& key_prefix,
+      StatusCallback callback);
 
   // This function can be called from any thread, but the callback will always
   // be called on the UI thread.
@@ -282,17 +299,14 @@ class CONTENT_EXPORT ServiceWorkerContextWrapper
 
   bool is_incognito() const { return is_incognito_; }
 
-  // S13nServiceWorker:
-  // Used for starting a shared worker. Returns a provider host for the shared
-  // worker and fills |out_provider_info| with info to send to the renderer to
-  // connect to the host. The host stays alive as long as this info stays alive
-  // (namely, as long as |out_provider_info->host_ptr_info| stays alive).
-  //
-  // Must be called on the IO thread.
-  base::WeakPtr<ServiceWorkerProviderHost> PreCreateHostForSharedWorker(
-      int process_id,
-      blink::mojom::ServiceWorkerProviderInfoForSharedWorkerPtr*
-          out_provider_info);
+  // The core context is only for use on the IO thread.
+  // Can be null before/during init, during/after shutdown, and after
+  // DeleteAndStartOver fails.
+  ServiceWorkerContextCore* context();
+
+  // Whether |origin| has any registrations. Must be called on UI thread.
+  bool HasRegistrationForOrigin(const GURL& origin) const;
+  void WaitForRegistrationsInitializedForTest();
 
  private:
   friend class BackgroundSyncManagerTest;
@@ -301,7 +315,6 @@ class CONTENT_EXPORT ServiceWorkerContextWrapper
   friend class EmbeddedWorkerBrowserTest;
   friend class FakeServiceWorkerContextWrapper;
   friend class ServiceWorkerClientsApiBrowserTest;
-  friend class ServiceWorkerDispatcherHost;
   friend class ServiceWorkerInternalsUI;
   friend class ServiceWorkerNavigationHandleCore;
   friend class ServiceWorkerProcessManager;
@@ -310,13 +323,14 @@ class CONTENT_EXPORT ServiceWorkerContextWrapper
 
   ~ServiceWorkerContextWrapper() override;
 
-  void InitInternal(
-      const base::FilePath& user_data_directory,
-      scoped_refptr<base::SequencedTaskRunner> database_task_runner,
-      storage::QuotaManagerProxy* quota_manager_proxy,
-      storage::SpecialStoragePolicy* special_storage_policy,
-      ChromeBlobStorageContext* blob_context,
-      URLLoaderFactoryGetter* url_loader_factory_getter);
+  void InitOnIO(const base::FilePath& user_data_directory,
+                scoped_refptr<base::SequencedTaskRunner> database_task_runner,
+                storage::QuotaManagerProxy* quota_manager_proxy,
+                storage::SpecialStoragePolicy* special_storage_policy,
+                ChromeBlobStorageContext* blob_context,
+                URLLoaderFactoryGetter* url_loader_factory_getter,
+                std::unique_ptr<blink::URLLoaderFactoryBundleInfo>
+                    non_network_loader_factory_bundle_info_for_update_check);
   void ShutdownOnIO();
 
   // If |include_installing_version| is true, |callback| is called if there is
@@ -400,10 +414,31 @@ class CONTENT_EXPORT ServiceWorkerContextWrapper
       blink::ServiceWorkerStatusCode status,
       scoped_refptr<ServiceWorkerRegistration> registration);
 
-  // The core context is only for use on the IO thread.
-  // Can be null before/during init, during/after shutdown, and after
-  // DeleteAndStartOver fails.
-  ServiceWorkerContextCore* context();
+  void GetAllServiceWorkerRunningInfosOnIO(
+      GetAllServiceWorkerRunningInfosCallback callback,
+      scoped_refptr<base::SingleThreadTaskRunner> task_runner_for_callback);
+
+  void GetServiceWorkerRunningInfoOnIO(
+      int64_t version_id,
+      GetServiceWorkerRunningInfoCallback callback,
+      scoped_refptr<base::SingleThreadTaskRunner> task_runner_for_callback);
+
+  ServiceWorkerRunningInfo ExtractServiceWorkerRunningInfoFromVersionInfo(
+      const ServiceWorkerVersionInfo& version_info);
+
+  // RUNNING and STOPPING are considered "running". See the comments in
+  // OnRunningStateChange.
+  bool IsRunningStatus(EmbeddedWorkerStatus status);
+
+  // Called when ServiceWorkerImportedScriptUpdateCheck is enabled.
+  std::unique_ptr<blink::URLLoaderFactoryBundleInfo>
+  CreateNonNetworkURLLoaderFactoryBundleInfoForUpdateCheck(
+      BrowserContext* browser_context);
+
+  // Called when the stored registrations are loaded, and each time a new
+  // service worker is registered.
+  void OnRegistrationUpdated(
+      const std::vector<ServiceWorkerRegistrationInfo>& registrations);
 
   // Observers of |context_core_| which live within content's implementation
   // boundary. Shared with |context_core_|.
@@ -427,6 +462,20 @@ class CONTENT_EXPORT ServiceWorkerContextWrapper
 
   // The ResourceContext associated with this context.
   ResourceContext* resource_context_ = nullptr;
+
+  // The set of workers that are considered "running". For dispatching
+  // OnVersionRunningStatusChanged events.
+  base::flat_set<int64_t /* version_id */> running_service_workers_;
+
+  // Maps the origin to a set of registration ids for that origin. Must be
+  // accessed on UI thread.
+  // TODO(http://crbug.com/824858): This can be removed when service workers are
+  // fully converted to running on the UI thread.
+  base::flat_map<GURL, base::flat_set<int64_t>> registrations_for_origin_;
+  bool registrations_initialized_ = false;
+  base::OnceClosure on_registrations_initialized_;
+
+  scoped_refptr<ServiceWorkerContextWatcher> watcher_;
 
   DISALLOW_COPY_AND_ASSIGN(ServiceWorkerContextWrapper);
 };

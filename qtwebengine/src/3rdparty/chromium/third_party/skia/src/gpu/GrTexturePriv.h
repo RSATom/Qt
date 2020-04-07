@@ -8,7 +8,7 @@
 #ifndef GrTexturePriv_DEFINED
 #define GrTexturePriv_DEFINED
 
-#include "GrTexture.h"
+#include "include/gpu/GrTexture.h"
 
 /** Class that adds methods to GrTexture that are only intended for use internal to Skia.
     This class is purely a privileged window into GrTexture. It should never have additional data
@@ -50,11 +50,9 @@ public:
                                              : GrSamplerState::Filter::kMipMap;
     }
 
-    static void ComputeScratchKey(const GrSurfaceDesc&, GrScratchKey*);
-    static void ComputeScratchKey(GrPixelConfig config, int width, int height,
-                                  bool isRenderTarget, int sampleCnt,
-                                  GrMipMapped, GrScratchKey* key);
-
+    static void ComputeScratchKey(const GrSurfaceDesc&, GrRenderable, int sampleCnt, GrScratchKey*);
+    static void ComputeScratchKey(GrPixelConfig config, int width, int height, GrRenderable,
+                                  int sampleCnt, GrMipMapped, GrScratchKey* key);
 
 private:
     GrTexturePriv(GrTexture* texture) : fTexture(texture) { }

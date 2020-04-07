@@ -18,18 +18,20 @@ TEST(RRectFTest, IsEmpty) {
 }
 
 TEST(RRectFTest, Equals) {
-  ASSERT_TRUE(RRectF(0, 0, 0, 0, 0, 0) == RRectF(0, 0, 0, 0, 0, 0));
-  ASSERT_TRUE(RRectF(1, 2, 3, 4, 5, 6) == RRectF(1, 2, 3, 4, 5, 6));
-  ASSERT_TRUE(RRectF(1, 2, 3, 4, 5, 5) == RRectF(1, 2, 3, 4, 5));
-  ASSERT_TRUE(RRectF(0, 0, 2, 3, 0, 0) == RRectF(0, 0, 2, 3, 0, 1));
-  ASSERT_TRUE(RRectF(0, 0, 2, 3, 0, 0) == RRectF(0, 0, 2, 3, 1, 0));
+  EXPECT_EQ(RRectF(0, 0, 0, 0, 0, 0), RRectF(0, 0, 0, 0, 0, 0));
+  EXPECT_EQ(RRectF(1, 2, 3, 4, 5, 6), RRectF(1, 2, 3, 4, 5, 6));
+  EXPECT_EQ(RRectF(1, 2, 3, 4, 5, 5), RRectF(1, 2, 3, 4, 5));
+  EXPECT_EQ(RRectF(0, 0, 2, 3, 0, 0), RRectF(0, 0, 2, 3, 0, 1));
+  EXPECT_EQ(RRectF(0, 0, 2, 3, 0, 0), RRectF(0, 0, 2, 3, 1, 0));
+  EXPECT_EQ(RRectF(1, 2, 3, 0, 5, 6), RRectF(0, 0, 0, 0, 0, 0));
+  EXPECT_EQ(RRectF(0, 0, 0, 0, 5, 6), RRectF(0, 0, 0, 0, 0, 0));
 
-  ASSERT_TRUE(RRectF(10, 20, 30, 40, 7, 8) != RRectF(1, 20, 30, 40, 7, 8));
-  ASSERT_TRUE(RRectF(10, 20, 30, 40, 7, 8) != RRectF(10, 2, 30, 40, 7, 8));
-  ASSERT_TRUE(RRectF(10, 20, 30, 40, 7, 8) != RRectF(10, 20, 3, 40, 7, 8));
-  ASSERT_TRUE(RRectF(10, 20, 30, 40, 7, 8) != RRectF(10, 20, 30, 4, 7, 8));
-  ASSERT_TRUE(RRectF(10, 20, 30, 40, 7, 8) != RRectF(10, 20, 30, 40, 5, 8));
-  ASSERT_TRUE(RRectF(10, 20, 30, 40, 7, 8) != RRectF(10, 20, 30, 40, 7, 6));
+  EXPECT_NE(RRectF(10, 20, 30, 40, 7, 8), RRectF(1, 20, 30, 40, 7, 8));
+  EXPECT_NE(RRectF(10, 20, 30, 40, 7, 8), RRectF(10, 2, 30, 40, 7, 8));
+  EXPECT_NE(RRectF(10, 20, 30, 40, 7, 8), RRectF(10, 20, 3, 40, 7, 8));
+  EXPECT_NE(RRectF(10, 20, 30, 40, 7, 8), RRectF(10, 20, 30, 4, 7, 8));
+  EXPECT_NE(RRectF(10, 20, 30, 40, 7, 8), RRectF(10, 20, 30, 40, 5, 8));
+  EXPECT_NE(RRectF(10, 20, 30, 40, 7, 8), RRectF(10, 20, 30, 40, 7, 6));
 }
 
 TEST(RRectFTest, PlusMinusOffset) {
@@ -102,17 +104,20 @@ TEST(RRectFTest, RRectRadii) {
   RRectF a(40, 50, 60, 70, 0);
   CheckRadii(a, 0, 0, 0, 0, 0, 0, 0, 0);
 
-  a.SetCornerRadii(RRectF::Corner::kUpperLeft, gfx::Vector2dF(1, 2));
+  a.SetCornerRadii(RRectF::Corner::kUpperLeft, 1, 2);
   CheckRadii(a, 1, 2, 0, 0, 0, 0, 0, 0);
 
-  a.SetCornerRadii(RRectF::Corner::kUpperRight, gfx::Vector2dF(3, 4));
+  a.SetCornerRadii(RRectF::Corner::kUpperRight, 3, 4);
   CheckRadii(a, 1, 2, 3, 4, 0, 0, 0, 0);
 
-  a.SetCornerRadii(RRectF::Corner::kLowerRight, gfx::Vector2dF(5, 6));
+  a.SetCornerRadii(RRectF::Corner::kLowerRight, 5, 6);
   CheckRadii(a, 1, 2, 3, 4, 5, 6, 0, 0);
 
-  a.SetCornerRadii(RRectF::Corner::kLowerLeft, gfx::Vector2dF(7, 8));
+  a.SetCornerRadii(RRectF::Corner::kLowerLeft, 7, 8);
   CheckRadii(a, 1, 2, 3, 4, 5, 6, 7, 8);
+
+  RRectF b(40, 50, 60, 70, 1, 2, 3, 4, 5, 6, 7, 8);
+  EXPECT_EQ(a, b);
 }
 
 TEST(RRectFTest, FromRectF) {
@@ -135,6 +140,25 @@ TEST(RRectFTest, FromSkRRect) {
   b = RRectF(40, 50, 60, 70, 15);
   c = RRectF(a);
   EXPECT_EQ(b, c);
+}
+
+TEST(RRectFTest, FromRoundedCornersF) {
+  constexpr RectF kRect(50.0f, 40.0f);
+  constexpr RoundedCornersF kCorners(1.5f, 2.5f, 3.5f, 4.5f);
+  const RRectF rrect_f(kRect, kCorners);
+
+  const auto upper_left = rrect_f.GetCornerRadii(RRectF::Corner::kUpperLeft);
+  EXPECT_EQ(kCorners.upper_left(), upper_left.x());
+  EXPECT_EQ(kCorners.upper_left(), upper_left.y());
+  const auto upper_right = rrect_f.GetCornerRadii(RRectF::Corner::kUpperRight);
+  EXPECT_EQ(kCorners.upper_right(), upper_right.x());
+  EXPECT_EQ(kCorners.upper_right(), upper_right.y());
+  const auto lower_right = rrect_f.GetCornerRadii(RRectF::Corner::kLowerRight);
+  EXPECT_EQ(kCorners.lower_right(), lower_right.x());
+  EXPECT_EQ(kCorners.lower_right(), lower_right.y());
+  const auto lower_left = rrect_f.GetCornerRadii(RRectF::Corner::kLowerLeft);
+  EXPECT_EQ(kCorners.lower_left(), lower_left.x());
+  EXPECT_EQ(kCorners.lower_left(), lower_left.y());
 }
 
 TEST(RRectFTest, ToString) {
@@ -184,38 +208,55 @@ TEST(RRectFTest, Contains) {
 
 TEST(RRectFTest, Scale) {
   // Note that SKRRect (the backing for RRectF) does not support scaling by NaN,
-  // scaling out of numerical bounds, or scaling to zero. So this test doesn't
-  // exercise those.
+  // or scaling out of numerical bounds. So this test doesn't exercise those.
   static const struct Test {
     float x1;  // source
     float y1;
     float w1;
     float h1;
-    float r1;
+    float x_rad1;
+    float y_rad1;
 
-    float scale;
+    float x_scale;
+    float y_scale;
     float x2;  // target
     float y2;
     float w2;
     float h2;
-    float r2;
+    float x_rad2;
+    float y_rad2;
   } tests[] = {
-      {3.0f, 4.0f, 5.0f, 6.0f, 1.0f, 1.5f, 4.5f, 6.0f, 7.5f, 9.0f, 1.5f},
-      {3.0f, 4.0f, 5.0f, 6.0f, 0.0f, 1.5f, 4.5f, 6.0f, 7.5f, 9.0f, 0.0f},
+      {3.0f, 4.0f, 5.0f, 6.0f, 0.0f, 0.0f, 1.5f, 1.5f, 4.5f, 6.0f, 7.5f, 9.0f,
+       0.0f, 0.0f},
+      {3.0f, 4.0f, 5.0f, 6.0f, 1.0f, 1.0f, 1.5f, 1.5f, 4.5f, 6.0f, 7.5f, 9.0f,
+       1.5f, 1.5f},
+      {3.0f, 4.0f, 5.0f, 6.0f, 0.0f, 0.0f, 1.5f, 3.0f, 4.5f, 12.0f, 7.5f, 18.0f,
+       0.0f, 0.0f},
+      {3.0f, 4.0f, 5.0f, 6.0f, 1.0f, 1.0f, 1.5f, 3.0f, 4.5f, 12.0f, 7.5f, 18.0f,
+       1.5f, 3.0f},
+      {3.0f, 4.0f, 0.0f, 6.0f, 1.0f, 1.0f, 1.5f, 1.5f, 0.0f, 0.0f, 0.0f, 0.0f,
+       0.0f, 0.0f},
+      {3.0f, 4.0f, 5.0f, 6.0f, 1.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f,
+       0.0f, 0.0f},
+      {3.0f, 4.0f, 5.0f, 6.0f, 1.0f, 1.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f,
+       0.0f, 0.0f},
+      {3.0f, 4.0f, 5.0f, 6.0f, 1.0f, 1.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f,
+       0.0f, 0.0f},
   };
 
   for (size_t i = 0; i < base::size(tests); ++i) {
-    RRectF r1(tests[i].x1, tests[i].y1, tests[i].w1, tests[i].h1, tests[i].r1);
-    RRectF r2(tests[i].x2, tests[i].y2, tests[i].w2, tests[i].h2, tests[i].r2);
+    RRectF r1(tests[i].x1, tests[i].y1, tests[i].w1, tests[i].h1,
+              tests[i].x_rad1, tests[i].y_rad1);
+    RRectF r2(tests[i].x2, tests[i].y2, tests[i].w2, tests[i].h2,
+              tests[i].x_rad2, tests[i].y_rad2);
 
-    r1.Scale(tests[i].scale);
-    EXPECT_TRUE((r1.GetType() == RRectF::Type::kRect) ||
-                (r1.GetType() == RRectF::Type::kSingle));
+    r1.Scale(tests[i].x_scale, tests[i].y_scale);
+    ASSERT_TRUE(r1.GetType() <= RRectF::Type::kSimple);
     EXPECT_EQ(r1.rect().x(), r2.rect().x());
     EXPECT_EQ(r1.rect().y(), r2.rect().y());
     EXPECT_EQ(r1.rect().width(), r2.rect().width());
     EXPECT_EQ(r1.rect().height(), r2.rect().height());
-    EXPECT_EQ(r1.GetSimpleRadius(), r2.GetSimpleRadius());
+    EXPECT_EQ(r1.GetSimpleRadii(), r2.GetSimpleRadii());
   }
 }
 

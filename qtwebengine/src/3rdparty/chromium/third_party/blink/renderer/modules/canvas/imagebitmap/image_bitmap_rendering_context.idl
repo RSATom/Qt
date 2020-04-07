@@ -2,11 +2,13 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-// https://html.spec.whatwg.org/multipage/scripting.html#the-imagebitmap-rendering-context
+// https://html.spec.whatwg.org/C/#the-imagebitmap-rendering-context
 
-interface ImageBitmapRenderingContext {
+[
+     Exposed=(Window,Worker)
+] interface ImageBitmapRenderingContext {
     // back-reference to the canvas
-    readonly attribute HTMLCanvasElement canvas;
+    [ImplementedAs=getHTMLOrOffscreenCanvas] readonly attribute (HTMLCanvasElement or OffscreenCanvas) canvas;
 
     [RaisesException] void transferFromImageBitmap(ImageBitmap? bitmap);
 };

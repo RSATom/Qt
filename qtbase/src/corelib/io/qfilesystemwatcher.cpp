@@ -41,13 +41,13 @@
 #include "qfilesystemwatcher_p.h"
 
 #include <qdatetime.h>
-#include <qdebug.h>
 #include <qdir.h>
 #include <qfileinfo.h>
+#include <qloggingcategory.h>
 #include <qset.h>
 #include <qtimer.h>
 
-#if defined(Q_OS_LINUX) || (defined(Q_OS_QNX) && !defined(QT_NO_INOTIFY))
+#if (defined(Q_OS_LINUX) || defined(Q_OS_QNX)) && QT_CONFIG(inotify)
 #define USE_INOTIFY
 #endif
 
@@ -66,6 +66,8 @@
 #include <iterator>
 
 QT_BEGIN_NAMESPACE
+
+Q_LOGGING_CATEGORY(lcWatcher, "qt.core.filesystemwatcher")
 
 QFileSystemWatcherEngine *QFileSystemWatcherPrivate::createNativeEngine(QObject *parent)
 {
@@ -137,6 +139,7 @@ void QFileSystemWatcherPrivate::initPollerEngine()
 void QFileSystemWatcherPrivate::_q_fileChanged(const QString &path, bool removed)
 {
     Q_Q(QFileSystemWatcher);
+    qCDebug(lcWatcher) << "file changed" << path << "removed?" << removed << "watching?" << files.contains(path);
     if (!files.contains(path)) {
         // the path was removed after a change was detected, but before we delivered the signal
         return;
@@ -149,6 +152,7 @@ void QFileSystemWatcherPrivate::_q_fileChanged(const QString &path, bool removed
 void QFileSystemWatcherPrivate::_q_directoryChanged(const QString &path, bool removed)
 {
     Q_Q(QFileSystemWatcher);
+    qCDebug(lcWatcher) << "directory changed" << path << "removed?" << removed << "watching?" << directories.contains(path);
     if (!directories.contains(path)) {
         // perhaps the path was removed after a change was detected, but before we delivered the signal
         return;
@@ -311,6 +315,17 @@ bool QFileSystemWatcher::addPath(const QString &path)
     return paths.isEmpty();
 }
 
+static QStringList empty_paths_pruned(const QStringList &paths)
+{
+    QStringList p;
+    p.reserve(paths.size());
+    const auto isEmpty = [](const QString &s) { return s.isEmpty(); };
+    std::remove_copy_if(paths.begin(), paths.end(),
+                        std::back_inserter(p),
+                        isEmpty);
+    return p;
+}
+
 /*!
     Adds each path in \a paths to the file system watcher. Paths are
     not added if they not exist, or if they are already being
@@ -338,47 +353,41 @@ QStringList QFileSystemWatcher::addPaths(const QStringList &paths)
 {
     Q_D(QFileSystemWatcher);
 
-    QStringList p = paths;
-    QMutableListIterator<QString> it(p);
-
-    while (it.hasNext()) {
-        const QString &path = it.next();
-        if (path.isEmpty())
-            it.remove();
-    }
+    QStringList p = empty_paths_pruned(paths);
 
     if (p.isEmpty()) {
         qWarning("QFileSystemWatcher::addPaths: list is empty");
-        return QStringList();
+        return p;
     }
+    qCDebug(lcWatcher) << "adding" << paths;
+    const auto selectEngine = [this, d]() -> QFileSystemWatcherEngine* {
+#ifdef QT_BUILD_INTERNAL
+        const QString on = objectName();
 
-    QFileSystemWatcherEngine *engine = 0;
-
-    const QString on = objectName();
-
-    if (!on.startsWith(QLatin1String("_qt_autotest_force_engine_"))) {
+        if (Q_UNLIKELY(on.startsWith(QLatin1String("_qt_autotest_force_engine_")))) {
+            // Autotest override case - use the explicitly selected engine only
+            const QStringRef forceName = on.midRef(26);
+            if (forceName == QLatin1String("poller")) {
+                qCDebug(lcWatcher, "QFileSystemWatcher: skipping native engine, using only polling engine");
+                d_func()->initPollerEngine();
+                return d->poller;
+            } else if (forceName == QLatin1String("native")) {
+                qCDebug(lcWatcher, "QFileSystemWatcher: skipping polling engine, using only native engine");
+                return d->native;
+            }
+            return nullptr;
+        }
+#endif
         // Normal runtime case - search intelligently for best engine
         if(d->native) {
-            engine = d->native;
+            return d->native;
         } else {
             d_func()->initPollerEngine();
-            engine = d->poller;
+            return d->poller;
         }
+    };
 
-    } else {
-        // Autotest override case - use the explicitly selected engine only
-        const QStringRef forceName = on.midRef(26);
-        if(forceName == QLatin1String("poller")) {
-            qDebug("QFileSystemWatcher: skipping native engine, using only polling engine");
-            d_func()->initPollerEngine();
-            engine = d->poller;
-        } else if(forceName == QLatin1String("native")) {
-            qDebug("QFileSystemWatcher: skipping polling engine, using only native engine");
-            engine = d->native;
-        }
-    }
-
-    if(engine)
+    if (auto engine = selectEngine())
         p = engine->addPaths(p, &d->files, &d->directories);
 
     return p;
@@ -420,19 +429,13 @@ QStringList QFileSystemWatcher::removePaths(const QStringList &paths)
 {
     Q_D(QFileSystemWatcher);
 
-    QStringList p = paths;
-    QMutableListIterator<QString> it(p);
-
-    while (it.hasNext()) {
-        const QString &path = it.next();
-        if (path.isEmpty())
-            it.remove();
-    }
+    QStringList p = empty_paths_pruned(paths);
 
     if (p.isEmpty()) {
         qWarning("QFileSystemWatcher::removePaths: list is empty");
-        return QStringList();
+        return p;
     }
+    qCDebug(lcWatcher) << "removing" << paths;
 
     if (d->native)
         p = d->native->removePaths(p, &d->files, &d->directories);
@@ -447,6 +450,12 @@ QStringList QFileSystemWatcher::removePaths(const QStringList &paths)
 
     This signal is emitted when the file at the specified \a path is
     modified, renamed or removed from disk.
+
+    \note As a safety measure, many applications save an open file by
+    writing a new file and then deleting the old one. In your slot
+    function, you can check \c watcher.files().contains(path).
+    If it returns \c false, check whether the file still exists
+    and then call \c addPath() to continue watching it.
 
     \sa directoryChanged()
 */

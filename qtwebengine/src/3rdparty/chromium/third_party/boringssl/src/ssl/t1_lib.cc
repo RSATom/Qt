@@ -199,10 +199,14 @@ static bool tls1_check_duplicate_extensions(const CBS *cbs) {
   return true;
 }
 
-bool ssl_client_hello_init(SSL *ssl, SSL_CLIENT_HELLO *out,
+static bool is_post_quantum_group(uint16_t id) {
+  return id == SSL_CURVE_CECPQ2 || id == SSL_CURVE_CECPQ2b;
+}
+
+bool ssl_client_hello_init(const SSL *ssl, SSL_CLIENT_HELLO *out,
                            const SSLMessage &msg) {
   OPENSSL_memset(out, 0, sizeof(*out));
-  out->ssl = ssl;
+  out->ssl = const_cast<SSL *>(ssl);
   out->client_hello = CBS_data(&msg.body);
   out->client_hello_len = CBS_len(&msg.body);
 
@@ -292,22 +296,9 @@ static const uint16_t kDefaultGroups[] = {
     SSL_CURVE_SECP384R1,
 };
 
-// TLS 1.3 servers will pick CECPQ2 if offered by a client, but it's not enabled
-// by default for clients.
-static const uint16_t kDefaultGroupsServer[] = {
-    // CECPQ2 is not yet enabled by default.
-    // SSL_CURVE_CECPQ2,
-    SSL_CURVE_X25519,
-    SSL_CURVE_SECP256R1,
-    SSL_CURVE_SECP384R1,
-};;
-
 Span<const uint16_t> tls1_get_grouplist(const SSL_HANDSHAKE *hs) {
   if (!hs->config->supported_group_list.empty()) {
     return hs->config->supported_group_list;
-  }
-  if (hs->ssl->server) {
-    return Span<const uint16_t>(kDefaultGroupsServer);
   }
   return Span<const uint16_t>(kDefaultGroups);
 }
@@ -338,10 +329,10 @@ bool tls1_get_shared_group(SSL_HANDSHAKE *hs, uint16_t *out_group_id) {
   for (uint16_t pref_group : pref) {
     for (uint16_t supp_group : supp) {
       if (pref_group == supp_group &&
-          // CECPQ2 doesn't fit in the u8-length-prefixed ECPoint field in TLS
-          // 1.2 and below.
+          // CECPQ2(b) doesn't fit in the u8-length-prefixed ECPoint field in
+          // TLS 1.2 and below.
           (ssl_protocol_version(ssl) >= TLS1_3_VERSION ||
-           pref_group != SSL_CURVE_CECPQ2)) {
+           !is_post_quantum_group(pref_group))) {
         *out_group_id = pref_group;
         return true;
       }
@@ -403,9 +394,9 @@ bool tls1_set_curves_list(Array<uint16_t> *out_group_ids, const char *curves) {
 }
 
 bool tls1_check_group_id(const SSL_HANDSHAKE *hs, uint16_t group_id) {
-  if (group_id == SSL_CURVE_CECPQ2 &&
+  if (is_post_quantum_group(group_id) &&
       ssl_protocol_version(hs->ssl) < TLS1_3_VERSION) {
-    // CECPQ2 requires TLS 1.3.
+    // CECPQ2(b) requires TLS 1.3.
     return false;
   }
 
@@ -1803,7 +1794,7 @@ static bool ext_ec_point_add_extension(SSL_HANDSHAKE *hs, CBB *out) {
 }
 
 static bool ext_ec_point_add_clienthello(SSL_HANDSHAKE *hs, CBB *out) {
-  // The point format extension is unneccessary in TLS 1.3.
+  // The point format extension is unnecessary in TLS 1.3.
   if (hs->min_version >= TLS1_3_VERSION) {
     return true;
   }
@@ -2070,20 +2061,46 @@ static bool ext_psk_key_exchange_modes_parse_clienthello(SSL_HANDSHAKE *hs,
 
 static bool ext_early_data_add_clienthello(SSL_HANDSHAKE *hs, CBB *out) {
   SSL *const ssl = hs->ssl;
-  if (!ssl->enable_early_data ||
-      // Session must be 0-RTT capable.
-      ssl->session == nullptr ||
-      ssl_session_protocol_version(ssl->session.get()) < TLS1_3_VERSION ||
-      ssl->session->ticket_max_early_data == 0 ||
-      // The second ClientHello never offers early data.
-      hs->received_hello_retry_request ||
-      // In case ALPN preferences changed since this session was established,
-      // avoid reporting a confusing value in |SSL_get0_alpn_selected|.
-      (!ssl->session->early_alpn.empty() &&
-       !ssl_is_alpn_protocol_allowed(hs, ssl->session->early_alpn))) {
+  // The second ClientHello never offers early data, and we must have already
+  // filled in |early_data_reason| by this point.
+  if (hs->received_hello_retry_request) {
+    assert(ssl->s3->early_data_reason != ssl_early_data_unknown);
     return true;
   }
 
+  if (!ssl->enable_early_data) {
+    ssl->s3->early_data_reason = ssl_early_data_disabled;
+    return true;
+  }
+
+  if (hs->max_version < TLS1_3_VERSION) {
+    // We discard inapplicable sessions, so this is redundant with the session
+    // checks below, but we check give a more useful reason.
+    ssl->s3->early_data_reason = ssl_early_data_protocol_version;
+    return true;
+  }
+
+  if (ssl->session == nullptr) {
+    ssl->s3->early_data_reason = ssl_early_data_no_session_offered;
+    return true;
+  }
+
+  if (ssl_session_protocol_version(ssl->session.get()) < TLS1_3_VERSION ||
+      ssl->session->ticket_max_early_data == 0) {
+    ssl->s3->early_data_reason = ssl_early_data_unsupported_for_session;
+    return true;
+  }
+
+  // In case ALPN preferences changed since this session was established, avoid
+  // reporting a confusing value in |SSL_get0_alpn_selected| and sending early
+  // data we know will be rejected.
+  if (!ssl->session->early_alpn.empty() &&
+      !ssl_is_alpn_protocol_allowed(hs, ssl->session->early_alpn)) {
+    ssl->s3->early_data_reason = ssl_early_data_alpn_mismatch;
+    return true;
+  }
+
+  // |early_data_reason| will be filled in later when the server responds.
   hs->early_data_offered = true;
 
   if (!CBB_add_u16(out, TLSEXT_TYPE_early_data) ||
@@ -2096,11 +2113,26 @@ static bool ext_early_data_add_clienthello(SSL_HANDSHAKE *hs, CBB *out) {
 }
 
 static bool ext_early_data_parse_serverhello(SSL_HANDSHAKE *hs,
-                                             uint8_t *out_alert, CBS *contents) {
+                                             uint8_t *out_alert,
+                                             CBS *contents) {
   SSL *const ssl = hs->ssl;
   if (contents == NULL) {
+    if (hs->early_data_offered && !hs->received_hello_retry_request) {
+      ssl->s3->early_data_reason = ssl->s3->session_reused
+                                       ? ssl_early_data_peer_declined
+                                       : ssl_early_data_session_not_resumed;
+    } else {
+      // We already filled in |early_data_reason| when declining to offer 0-RTT
+      // or handling the implicit HelloRetryRequest reject.
+      assert(ssl->s3->early_data_reason != ssl_early_data_unknown);
+    }
     return true;
   }
+
+  // If we received an HRR, the second ClientHello never offers early data, so
+  // the extensions logic will automatically reject early data extensions as
+  // unsolicited. This covered by the ServerAcceptsEarlyDataOnHRR test.
+  assert(!hs->received_hello_retry_request);
 
   if (CBS_len(contents) != 0) {
     *out_alert = SSL_AD_DECODE_ERROR;
@@ -2113,6 +2145,7 @@ static bool ext_early_data_parse_serverhello(SSL_HANDSHAKE *hs,
     return false;
   }
 
+  ssl->s3->early_data_reason = ssl_early_data_accepted;
   ssl->s3->early_data_accepted = true;
   return true;
 }
@@ -2199,8 +2232,8 @@ static bool ext_key_share_add_clienthello(SSL_HANDSHAKE *hs, CBB *out) {
 
     group_id = groups[0];
 
-    if (group_id == SSL_CURVE_CECPQ2 && groups.size() >= 2) {
-      // CECPQ2 is not sent as the only initial key share. We'll include the
+    if (is_post_quantum_group(group_id) && groups.size() >= 2) {
+      // CECPQ2(b) is not sent as the only initial key share. We'll include the
       // 2nd preference group too to avoid round-trips.
       second_group_id = groups[1];
       assert(second_group_id != group_id);
@@ -2437,7 +2470,7 @@ static bool ext_supported_groups_add_clienthello(SSL_HANDSHAKE *hs, CBB *out) {
   }
 
   for (uint16_t group : tls1_get_grouplist(hs)) {
-    if (group == SSL_CURVE_CECPQ2 &&
+    if (is_post_quantum_group(group) &&
         hs->max_version < TLS1_3_VERSION) {
       continue;
     }
@@ -2715,6 +2748,36 @@ static bool ext_quic_transport_params_add_serverhello(SSL_HANDSHAKE *hs,
   return true;
 }
 
+// Delegated credentials.
+//
+// https://tools.ietf.org/html/draft-ietf-tls-subcerts
+
+static bool ext_delegated_credential_add_clienthello(SSL_HANDSHAKE *hs,
+                                                     CBB *out) {
+  return true;
+}
+
+static bool ext_delegated_credential_parse_clienthello(SSL_HANDSHAKE *hs,
+                                                       uint8_t *out_alert,
+                                                       CBS *contents) {
+  assert(TLSEXT_TYPE_delegated_credential == 0xff02);
+  // TODO: Check that the extension is empty.
+  //
+  // As of draft-03, the client sends an empty extension in order indicate
+  // support for delegated credentials. This could change, however, since the
+  // spec is not yet finalized. This assertion is here to remind us to enforce
+  // this check once the extension ID is assigned.
+
+  if (contents == nullptr || ssl_protocol_version(hs->ssl) < TLS1_3_VERSION) {
+    // Don't use delegated credentials unless we're negotiating TLS 1.3 or
+    // higher.
+    return true;
+  }
+
+  hs->delegated_credential_requested = true;
+  return true;
+}
+
 // Certificate compression
 
 static bool cert_compression_add_clienthello(SSL_HANDSHAKE *hs, CBB *out) {
@@ -2820,6 +2883,67 @@ static bool cert_compression_parse_clienthello(SSL_HANDSHAKE *hs,
 }
 
 static bool cert_compression_add_serverhello(SSL_HANDSHAKE *hs, CBB *out) {
+  return true;
+}
+
+
+// Post-quantum experiment signal
+//
+// This extension may be used in order to identify a control group for
+// experimenting with post-quantum key exchange algorithms.
+
+static bool ext_pq_experiment_signal_add_clienthello(SSL_HANDSHAKE *hs,
+                                                     CBB *out) {
+  if (hs->ssl->ctx->pq_experiment_signal &&
+      (!CBB_add_u16(out, TLSEXT_TYPE_pq_experiment_signal) ||
+       !CBB_add_u16(out, 0))) {
+    return false;
+  }
+
+  return true;
+}
+
+static bool ext_pq_experiment_signal_parse_serverhello(SSL_HANDSHAKE *hs,
+                                                       uint8_t *out_alert,
+                                                       CBS *contents) {
+  if (contents == nullptr) {
+    return true;
+  }
+
+  if (!hs->ssl->ctx->pq_experiment_signal || CBS_len(contents) != 0) {
+    return false;
+  }
+
+  hs->ssl->s3->pq_experiment_signal_seen = true;
+  return true;
+}
+
+static bool ext_pq_experiment_signal_parse_clienthello(SSL_HANDSHAKE *hs,
+                                                       uint8_t *out_alert,
+                                                       CBS *contents) {
+  if (contents == nullptr) {
+    return true;
+  }
+
+  if (CBS_len(contents) != 0) {
+    return false;
+  }
+
+  if (hs->ssl->ctx->pq_experiment_signal) {
+    hs->ssl->s3->pq_experiment_signal_seen = true;
+  }
+
+  return true;
+}
+
+static bool ext_pq_experiment_signal_add_serverhello(SSL_HANDSHAKE *hs,
+                                                     CBB *out) {
+  if (hs->ssl->s3->pq_experiment_signal_seen &&
+      (!CBB_add_u16(out, TLSEXT_TYPE_pq_experiment_signal) ||
+       !CBB_add_u16(out, 0))) {
+    return false;
+  }
+
   return true;
 }
 
@@ -3003,6 +3127,22 @@ static const struct tls_extension kExtensions[] = {
     cert_compression_parse_clienthello,
     cert_compression_add_serverhello,
   },
+  {
+    TLSEXT_TYPE_delegated_credential,
+    NULL,
+    ext_delegated_credential_add_clienthello,
+    forbid_parse_serverhello,
+    ext_delegated_credential_parse_clienthello,
+    dont_add_serverhello,
+  },
+  {
+    TLSEXT_TYPE_pq_experiment_signal,
+    NULL,
+    ext_pq_experiment_signal_add_clienthello,
+    ext_pq_experiment_signal_parse_serverhello,
+    ext_pq_experiment_signal_parse_clienthello,
+    ext_pq_experiment_signal_add_serverhello,
+  },
 };
 
 #define kNumExtensions (sizeof(kExtensions) / sizeof(struct tls_extension))
@@ -3036,6 +3176,9 @@ bool ssl_add_clienthello_tlsext(SSL_HANDSHAKE *hs, CBB *out,
     return false;
   }
 
+  // Note we may send multiple ClientHellos for DTLS HelloVerifyRequest and TLS
+  // 1.3 HelloRetryRequest. For the latter, the extensions may change, so it is
+  // important to reset this value.
   hs->extensions.sent = 0;
 
   for (size_t i = 0; i < kNumExtensions; i++) {
@@ -3629,6 +3772,7 @@ bool tls1_get_legacy_signature_algorithm(uint16_t *out, const EVP_PKEY *pkey) {
 bool tls1_choose_signature_algorithm(SSL_HANDSHAKE *hs, uint16_t *out) {
   SSL *const ssl = hs->ssl;
   CERT *cert = hs->config->cert.get();
+  DC *dc = cert->dc.get();
 
   // Before TLS 1.2, the signature algorithm isn't negotiated as part of the
   // handshake.
@@ -3641,19 +3785,13 @@ bool tls1_choose_signature_algorithm(SSL_HANDSHAKE *hs, uint16_t *out) {
   }
 
   Span<const uint16_t> sigalgs = kSignSignatureAlgorithms;
-  if (!cert->sigalgs.empty()) {
+  if (ssl_signing_with_dc(hs)) {
+    sigalgs = MakeConstSpan(&dc->expected_cert_verify_algorithm, 1);
+  } else if (!cert->sigalgs.empty()) {
     sigalgs = cert->sigalgs;
   }
 
-  Span<const uint16_t> peer_sigalgs = hs->peer_sigalgs;
-  if (peer_sigalgs.empty() && ssl_protocol_version(ssl) < TLS1_3_VERSION) {
-    // If the client didn't specify any signature_algorithms extension then
-    // we can assume that it supports SHA1. See
-    // http://tools.ietf.org/html/rfc5246#section-7.4.1.4.1
-    static const uint16_t kDefaultPeerAlgorithms[] = {SSL_SIGN_RSA_PKCS1_SHA1,
-                                                      SSL_SIGN_ECDSA_SHA1};
-    peer_sigalgs = kDefaultPeerAlgorithms;
-  }
+  Span<const uint16_t> peer_sigalgs = tls1_get_peer_verify_algorithms(hs);
 
   for (uint16_t sigalg : sigalgs) {
     // SSL_SIGN_RSA_PKCS1_MD5_SHA1 is an internal value and should never be
@@ -3673,6 +3811,19 @@ bool tls1_choose_signature_algorithm(SSL_HANDSHAKE *hs, uint16_t *out) {
 
   OPENSSL_PUT_ERROR(SSL, SSL_R_NO_COMMON_SIGNATURE_ALGORITHMS);
   return false;
+}
+
+Span<const uint16_t> tls1_get_peer_verify_algorithms(const SSL_HANDSHAKE *hs) {
+  Span<const uint16_t> peer_sigalgs = hs->peer_sigalgs;
+  if (peer_sigalgs.empty() && ssl_protocol_version(hs->ssl) < TLS1_3_VERSION) {
+    // If the client didn't specify any signature_algorithms extension then
+    // we can assume that it supports SHA1. See
+    // http://tools.ietf.org/html/rfc5246#section-7.4.1.4.1
+    static const uint16_t kDefaultPeerAlgorithms[] = {SSL_SIGN_RSA_PKCS1_SHA1,
+                                                      SSL_SIGN_ECDSA_SHA1};
+    peer_sigalgs = kDefaultPeerAlgorithms;
+  }
+  return peer_sigalgs;
 }
 
 bool tls1_verify_channel_id(SSL_HANDSHAKE *hs, const SSLMessage &msg) {

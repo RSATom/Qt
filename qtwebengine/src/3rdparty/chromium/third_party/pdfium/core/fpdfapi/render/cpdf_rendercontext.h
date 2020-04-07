@@ -45,17 +45,17 @@ class CPDF_RenderContext {
 
   void Render(CFX_RenderDevice* pDevice,
               const CPDF_RenderOptions* pOptions,
-              const CFX_Matrix* pFinalMatrix);
+              const CFX_Matrix* pLastMatrix);
 
   void Render(CFX_RenderDevice* pDevice,
               const CPDF_PageObject* pStopObj,
               const CPDF_RenderOptions* pOptions,
-              const CFX_Matrix* pFinalMatrix);
+              const CFX_Matrix* pLastMatrix);
 
   void GetBackground(const RetainPtr<CFX_DIBitmap>& pBuffer,
                      const CPDF_PageObject* pObj,
                      const CPDF_RenderOptions* pOptions,
-                     CFX_Matrix* pFinalMatrix);
+                     const CFX_Matrix& mtFinal);
 
   size_t CountLayers() const { return m_Layers.size(); }
   Layer* GetLayer(uint32_t index) { return &m_Layers[index]; }
@@ -66,7 +66,7 @@ class CPDF_RenderContext {
 
  protected:
   UnownedPtr<CPDF_Document> const m_pDocument;
-  UnownedPtr<CPDF_Dictionary> m_pPageResources;
+  RetainPtr<CPDF_Dictionary> m_pPageResources;
   UnownedPtr<CPDF_PageRenderCache> m_pPageCache;
   std::vector<Layer> m_Layers;
 };

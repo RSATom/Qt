@@ -35,12 +35,13 @@ using HandledEventCallback =
 // on the main thread.
 class CONTENT_EXPORT MainThreadEventQueueClient {
  public:
-  // Handle an |event| that was previously queued (possibly
-  // coalesced with another event). Implementors must implement
-  // this callback.
-  virtual void HandleInputEvent(const blink::WebCoalescedInputEvent& event,
+  // Handle an |event| that was previously queued (possibly coalesced with
+  // another event). Returns false if the event will not be handled, and the
+  // |handled_callback| will not be run.
+  virtual bool HandleInputEvent(const blink::WebCoalescedInputEvent& event,
                                 const ui::LatencyInfo& latency_info,
                                 HandledEventCallback handled_callback) = 0;
+  // Requests a BeginMainFrame callback from the compositor.
   virtual void SetNeedsMainFrame() = 0;
 };
 
@@ -103,7 +104,7 @@ class CONTENT_EXPORT MainThreadEventQueue
   void SetNeedsLowLatency(bool low_latency);
   void SetNeedsUnbufferedInputForDebugger(bool unbuffered);
 
-  void HasPointerRawMoveEventHandlers(bool has_handlers);
+  void HasPointerRawUpdateEventHandlers(bool has_handlers);
 
   // Request unbuffered input events until next pointerup.
   void RequestUnbufferedInputEvents();
@@ -126,11 +127,13 @@ class CONTENT_EXPORT MainThreadEventQueue
   void DispatchEvents();
   void PossiblyScheduleMainFrame();
   void SetNeedsMainFrame();
-  void HandleEventOnMainThread(const blink::WebCoalescedInputEvent& event,
+  // Returns false if the event can not be handled and the HandledEventCallback
+  // will not be run.
+  bool HandleEventOnMainThread(const blink::WebCoalescedInputEvent& event,
                                const ui::LatencyInfo& latency,
                                HandledEventCallback handled_callback);
 
-  bool IsRawMoveEvent(
+  bool IsRawUpdateEvent(
       const std::unique_ptr<MainThreadEventQueueTask>& item) const;
   bool ShouldFlushQueue(
       const std::unique_ptr<MainThreadEventQueueTask>& item) const;
@@ -152,7 +155,7 @@ class CONTENT_EXPORT MainThreadEventQueue
   bool needs_unbuffered_input_for_debugger_;
   bool allow_raf_aligned_input_;
   bool needs_low_latency_until_pointer_up_ = false;
-  bool has_pointerrawmove_handlers_ = false;
+  bool has_pointerrawupdate_handlers_ = false;
 
   // Contains data to be shared between main thread and compositor thread.
   struct SharedState {

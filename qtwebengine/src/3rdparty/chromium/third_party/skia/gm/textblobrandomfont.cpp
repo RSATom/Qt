@@ -5,22 +5,35 @@
  * found in the LICENSE file.
  */
 
-#include "gm.h"
-#include "sk_tool_utils.h"
+#include "gm/gm.h"
+#include "include/core/SkCanvas.h"
+#include "include/core/SkColor.h"
+#include "include/core/SkColorSpace.h"
+#include "include/core/SkFont.h"
+#include "include/core/SkFontStyle.h"
+#include "include/core/SkFontTypes.h"
+#include "include/core/SkImageInfo.h"
+#include "include/core/SkPaint.h"
+#include "include/core/SkRect.h"
+#include "include/core/SkRefCnt.h"
+#include "include/core/SkScalar.h"
+#include "include/core/SkSize.h"
+#include "include/core/SkString.h"
+#include "include/core/SkSurface.h"
+#include "include/core/SkSurfaceProps.h"
+#include "include/core/SkTextBlob.h"
+#include "include/core/SkTypeface.h"
+#include "include/gpu/GrContext.h"
+#include "tools/ToolUtils.h"
+#include "tools/fonts/RandomScalerContext.h"
 
-#include "Resources.h"
-#include "SkCanvas.h"
-#include "SkGradientShader.h"
-#include "SkRandomScalerContext.h"
-#include "SkStream.h"
-#include "SkSurface.h"
-#include "SkTextBlob.h"
-#include "SkTypeface.h"
+#include <string.h>
+#include <utility>
 
-#include "GrContext.h"
+class GrRenderTargetContext;
 
 namespace skiagm {
-class TextBlobRandomFont : public GM {
+class TextBlobRandomFont : public GpuGM {
 public:
     // This gm tests that textblobs can be translated and scaled with a font that returns random
     // but deterministic masks
@@ -42,7 +55,7 @@ protected:
         font.setEdging(SkFont::Edging::kSubpixelAntiAlias);
 
         // Setup our random scaler context
-        auto typeface = sk_tool_utils::create_portable_typeface("sans-serif", SkFontStyle::Bold());
+        auto typeface = ToolUtils::create_portable_typeface("sans-serif", SkFontStyle::Bold());
         if (!typeface) {
             typeface = SkTypeface::MakeDefault();
         }
@@ -50,9 +63,9 @@ protected:
 
         SkScalar y = 0;
         SkRect bounds;
-        font.measureText(text, strlen(text), kUTF8_SkTextEncoding, &bounds);
+        font.measureText(text, strlen(text), SkTextEncoding::kUTF8, &bounds);
         y -= bounds.fTop;
-        sk_tool_utils::add_to_text_blob(&builder, text, font, 0, y);
+        ToolUtils::add_to_text_blob(&builder, text, font, 0, y);
         y += bounds.fBottom;
 
         // A8
@@ -61,23 +74,23 @@ protected:
         font.setSize(160);
         font.setSubpixel(false);
         font.setEdging(SkFont::Edging::kAntiAlias);
-        font.measureText(bigtext1, strlen(bigtext1), kUTF8_SkTextEncoding, &bounds);
+        font.measureText(bigtext1, strlen(bigtext1), SkTextEncoding::kUTF8, &bounds);
         y -= bounds.fTop;
-        sk_tool_utils::add_to_text_blob(&builder, bigtext1, font, 0, y);
+        ToolUtils::add_to_text_blob(&builder, bigtext1, font, 0, y);
         y += bounds.fBottom;
 
-        font.measureText(bigtext2, strlen(bigtext2), kUTF8_SkTextEncoding, &bounds);
+        font.measureText(bigtext2, strlen(bigtext2), SkTextEncoding::kUTF8, &bounds);
         y -= bounds.fTop;
-        sk_tool_utils::add_to_text_blob(&builder, bigtext2, font, 0, y);
+        ToolUtils::add_to_text_blob(&builder, bigtext2, font, 0, y);
         y += bounds.fBottom;
 
         // color emoji
-        if (sk_sp<SkTypeface> origEmoji = sk_tool_utils::emoji_typeface()) {
+        if (sk_sp<SkTypeface> origEmoji = ToolUtils::emoji_typeface()) {
             font.setTypeface(sk_make_sp<SkRandomTypeface>(origEmoji, paint, false));
-            const char* emojiText = sk_tool_utils::emoji_sample_text();
-            font.measureText(emojiText, strlen(emojiText), kUTF8_SkTextEncoding, &bounds);
+            const char* emojiText = ToolUtils::emoji_sample_text();
+            font.measureText(emojiText, strlen(emojiText), SkTextEncoding::kUTF8, &bounds);
             y -= bounds.fTop;
-            sk_tool_utils::add_to_text_blob(&builder, emojiText, font, 0, y);
+            ToolUtils::add_to_text_blob(&builder, emojiText, font, 0, y);
             y += bounds.fBottom;
         }
 
@@ -93,25 +106,21 @@ protected:
         return SkISize::Make(kWidth, kHeight);
     }
 
-    void onDraw(SkCanvas* canvas) override {
+    DrawResult onDraw(GrContext* context, GrRenderTargetContext*, SkCanvas* canvas,
+                      SkString* errorMsg) override {
         // This GM exists to test a specific feature of the GPU backend.
-        // This GM uses sk_tool_utils::makeSurface which doesn't work well with vias.
+        // This GM uses ToolUtils::makeSurface which doesn't work well with vias.
         // This GM uses SkRandomTypeface which doesn't work well with serialization.
-        if (nullptr == canvas->getGrContext()) {
-            skiagm::GM::DrawGpuOnlyMessage(canvas);
-            return;
-        }
-
         canvas->drawColor(SK_ColorWHITE);
 
         SkImageInfo info = SkImageInfo::Make(kWidth, kHeight, canvas->imageInfo().colorType(),
                                              kPremul_SkAlphaType,
                                              canvas->imageInfo().refColorSpace());
         SkSurfaceProps props(0, kUnknown_SkPixelGeometry);
-        auto surface(sk_tool_utils::makeSurface(canvas, info, &props));
+        auto           surface(ToolUtils::makeSurface(canvas, info, &props));
         if (!surface) {
-            canvas->drawString("This test requires a surface", 10, 100, SkFont(), SkPaint());
-            return;
+            *errorMsg = "This test requires a surface";
+            return DrawResult::kFail;
         }
 
         SkPaint paint;
@@ -132,24 +141,19 @@ protected:
         yOffset += stride;
         canvas->restore();
 
-        // this will test lcd masks when not requested
-        // on cpu this currently causes unspecified behavior, so avoid until it is fixed
-        if (canvas->getGrContext()) {
-            // Rotate in the surface canvas, not the final canvas, to avoid aliasing
-            surfaceCanvas->rotate(-0.05f);
-            surfaceCanvas->drawTextBlob(fBlob, 10, yOffset, paint);
-            surface->draw(canvas, 0, 0, nullptr);
-        }
+        // Rotate in the surface canvas, not the final canvas, to avoid aliasing
+        surfaceCanvas->rotate(-0.05f);
+        surfaceCanvas->drawTextBlob(fBlob, 10, yOffset, paint);
+        surface->draw(canvas, 0, 0, nullptr);
         yOffset += stride;
 
         // free gpu resources and verify
-        if (canvas->getGrContext()) {
-            canvas->getGrContext()->freeGpuResources();
-        }
+        context->freeGpuResources();
 
         canvas->rotate(-0.05f);
         canvas->drawTextBlob(fBlob, 10, yOffset, paint);
         yOffset += stride;
+        return DrawResult::kOk;
     }
 
 private:

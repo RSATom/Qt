@@ -8,12 +8,13 @@
 #ifndef GrTextTarget_DEFINED
 #define GrTextTarget_DEFINED
 
-#include "GrColorSpaceInfo.h"
-#include "SkPaint.h"
+#include "include/core/SkPaint.h"
+#include "src/gpu/GrColorSpaceInfo.h"
 
 class GrAtlasTextOp;
 class GrClip;
 class GrPaint;
+class GrRecordingContext;
 class GrShape;
 class SkGlyphRunListPainter;
 class SkMatrix;
@@ -37,13 +38,15 @@ public:
     virtual void makeGrPaint(GrMaskFormat, const SkPaint&, const SkMatrix& viewMatrix,
                              GrPaint*) = 0;
 
-    virtual GrContext* getContext() = 0;
+    virtual GrRecordingContext* getContext() = 0;
 
     virtual SkGlyphRunListPainter* glyphPainter() = 0;
 
 protected:
     GrTextTarget(int width, int height, const GrColorSpaceInfo& colorSpaceInfo)
-            : fWidth(width), fHeight(height), fColorSpaceInfo(colorSpaceInfo) {}
+            : fWidth(width), fHeight(height), fColorSpaceInfo(colorSpaceInfo) {
+        SkASSERT(kPremul_SkAlphaType == colorSpaceInfo.alphaType());
+    }
 
 private:
     int fWidth;

@@ -92,7 +92,7 @@ SDK.ServiceWorkerCacheModel = class extends SDK.SDKModel {
    * @param {number} skipCount
    * @param {number} pageSize
    * @param {string} pathFilter
-   * @param {function(!Array.<!Protocol.CacheStorage.DataEntry>, boolean)} callback
+   * @param {function(!Array.<!Protocol.CacheStorage.DataEntry>, number)} callback
    */
   loadCacheData(cache, skipCount, pageSize, pathFilter, callback) {
     this._requestEntries(cache, skipCount, pageSize, pathFilter, callback);
@@ -235,7 +235,7 @@ SDK.ServiceWorkerCacheModel = class extends SDK.SDKModel {
    * @param {number} skipCount
    * @param {number} pageSize
    * @param {string} pathFilter
-   * @param {function(!Array<!Protocol.CacheStorage.DataEntry>, boolean)} callback
+   * @param {function(!Array<!Protocol.CacheStorage.DataEntry>, number)} callback
    */
   async _requestEntries(cache, skipCount, pageSize, pathFilter, callback) {
     const response =
@@ -244,7 +244,7 @@ SDK.ServiceWorkerCacheModel = class extends SDK.SDKModel {
       console.error('ServiceWorkerCacheAgent error while requesting entries: ', response[Protocol.Error]);
       return;
     }
-    callback(response.cacheDataEntries, response.hasMore);
+    callback(response.cacheDataEntries, response.returnCount);
   }
 
   /**
@@ -332,9 +332,10 @@ SDK.ServiceWorkerCacheModel.Cache = class {
 
   /**
    * @param {string} url
+   * @param {!Array.<!SDK.NetworkRequest.NameValue>} requestHeaders
    * @return {!Promise<?Protocol.CacheStorage.CachedResponse>}
    */
-  requestCachedResponse(url) {
-    return this._model._cacheAgent.requestCachedResponse(this.cacheId, url);
+  requestCachedResponse(url, requestHeaders) {
+    return this._model._cacheAgent.requestCachedResponse(this.cacheId, url, requestHeaders);
   }
 };

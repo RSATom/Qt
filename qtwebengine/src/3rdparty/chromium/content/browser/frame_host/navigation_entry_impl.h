@@ -17,6 +17,7 @@
 #include "base/optional.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
+#include "content/browser/frame_host/back_forward_cache_metrics.h"
 #include "content/browser/frame_host/frame_navigation_entry.h"
 #include "content/browser/frame_host/frame_tree_node.h"
 #include "content/browser/site_instance_impl.h"
@@ -30,6 +31,7 @@
 #include "content/public/browser/ssl_status.h"
 #include "content/public/common/page_state.h"
 #include "content/public/common/previews_state.h"
+#include "url/origin.h"
 
 namespace content {
 struct CommonNavigationParams;
@@ -38,10 +40,9 @@ struct CommitNavigationParams;
 class CONTENT_EXPORT NavigationEntryImpl : public NavigationEntry {
  public:
   // Represents a tree of FrameNavigationEntries that make up this joint session
-  // history item.  The tree currently only tracks the main frame by default,
-  // and is populated with subframe nodes in --site-per-process mode.
+  // history item.
   struct TreeNode {
-    TreeNode(TreeNode* parent, FrameNavigationEntry* frame_entry);
+    TreeNode(TreeNode* parent, scoped_refptr<FrameNavigationEntry> frame_entry);
     ~TreeNode();
 
     // Returns whether this TreeNode corresponds to |frame_tree_node|.  If this
@@ -58,7 +59,7 @@ class CONTENT_EXPORT NavigationEntryImpl : public NavigationEntry {
     // TODO(creis): For --site-per-process, share FrameNavigationEntries between
     // NavigationEntries of the same tab.
     std::unique_ptr<TreeNode> CloneAndReplace(
-        FrameNavigationEntry* frame_navigation_entry,
+        scoped_refptr<FrameNavigationEntry> frame_navigation_entry,
         bool clone_children_of_target,
         FrameTreeNode* target_frame_tree_node,
         FrameTreeNode* current_frame_tree_node,
@@ -89,6 +90,7 @@ class CONTENT_EXPORT NavigationEntryImpl : public NavigationEntry {
       scoped_refptr<SiteInstanceImpl> instance,
       const GURL& url,
       const Referrer& referrer,
+      const base::Optional<url::Origin>& initiator_origin,
       const base::string16& title,
       ui::PageTransition transition_type,
       bool is_renderer_initiated,
@@ -138,10 +140,6 @@ class CONTENT_EXPORT NavigationEntryImpl : public NavigationEntry {
   base::Time GetTimestamp() override;
   void SetCanLoadLocalResources(bool allow) override;
   bool GetCanLoadLocalResources() override;
-  void SetExtraData(const std::string& key,
-                    const base::string16& data) override;
-  bool GetExtraData(const std::string& key, base::string16* data) override;
-  void ClearExtraData(const std::string& key) override;
   void SetHttpStatusCode(int http_status_code) override;
   int GetHttpStatusCode() override;
   void SetRedirectChain(const std::vector<GURL>& redirects) override;
@@ -151,6 +149,7 @@ class CONTENT_EXPORT NavigationEntryImpl : public NavigationEntry {
   bool IsRestored() override;
   std::string GetExtraHeaders() override;
   void AddExtraHeaders(const std::string& extra_headers) override;
+  int64_t GetMainFrameDocumentSequenceNumber() override;
 
   // Creates a copy of this NavigationEntryImpl that can be modified
   // independently from the original.  Does not copy any value that would be
@@ -170,7 +169,7 @@ class CONTENT_EXPORT NavigationEntryImpl : public NavigationEntry {
   // that shares the existing FrameNavigationEntries (for use within the same
   // tab) and one that draws them from a different pool (for use in a new tab).
   std::unique_ptr<NavigationEntryImpl> CloneAndReplace(
-      FrameNavigationEntry* frame_entry,
+      scoped_refptr<FrameNavigationEntry> frame_entry,
       bool clone_children_of_target,
       FrameTreeNode* target_frame_tree_node,
       FrameTreeNode* root_frame_tree_node) const;
@@ -191,7 +190,6 @@ class CONTENT_EXPORT NavigationEntryImpl : public NavigationEntry {
       const GURL& original_url,
       const base::Optional<url::Origin>& origin_to_commit,
       const std::string& original_method,
-      bool is_history_navigation_in_new_child,
       const std::map<std::string, bool>& subframe_unique_names,
       bool intended_as_new_entry,
       int pending_offset_to_send,
@@ -232,6 +230,7 @@ class CONTENT_EXPORT NavigationEntryImpl : public NavigationEntry {
       const GURL& url,
       const base::Optional<url::Origin>& origin,
       const Referrer& referrer,
+      const base::Optional<url::Origin>& initiator_origin,
       const std::vector<GURL>& redirect_chain,
       const PageState& page_state,
       const std::string& method,
@@ -417,6 +416,17 @@ class CONTENT_EXPORT NavigationEntryImpl : public NavigationEntry {
     should_skip_on_back_forward_ui_ = should_skip;
   }
 
+  BackForwardCacheMetrics* back_forward_cache_metrics() {
+    return back_forward_cache_metrics_.get();
+  }
+
+  void set_back_forward_cache_metrics(
+      scoped_refptr<BackForwardCacheMetrics> metrics) {
+    DCHECK(metrics);
+    DCHECK(!back_forward_cache_metrics_);
+    back_forward_cache_metrics_ = metrics;
+  }
+
  private:
   // WARNING WARNING WARNING WARNING WARNING WARNING WARNING WARNING WARNING
   // Session/Tab restore save portions of this class so that it can be recreated
@@ -519,11 +529,6 @@ class CONTENT_EXPORT NavigationEntryImpl : public NavigationEntry {
   // Determine if the navigation was started within a context menu.
   bool started_from_context_menu_;
 
-  // Used to store extra data to support browser features. This member is not
-  // persisted, unless specific data is taken out/put back in at save/restore
-  // time (see TabNavigation for an example of this).
-  std::map<std::string, base::string16> extra_data_;
-
   // Set to true if the navigation controller gets notified about a SSL error
   // for a pending navigation. Defaults to false.
   bool ssl_error_;
@@ -546,6 +551,11 @@ class CONTENT_EXPORT NavigationEntryImpl : public NavigationEntry {
   // navigations.
   // TODO(shivanisha): Persist this field once the intervention is stable.
   bool should_skip_on_back_forward_ui_;
+
+  // TODO(altimin, crbug.com/933147): Remove this logic after we are done
+  // with implement back-forward cache.
+  // It is preserved at commit but not persisted.
+  scoped_refptr<BackForwardCacheMetrics> back_forward_cache_metrics_;
 
   DISALLOW_COPY_AND_ASSIGN(NavigationEntryImpl);
 };

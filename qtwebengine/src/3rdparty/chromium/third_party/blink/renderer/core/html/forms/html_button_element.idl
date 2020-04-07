@@ -18,9 +18,11 @@
  * Boston, MA 02110-1301, USA.
  */
 
-// https://html.spec.whatwg.org/#the-button-element
-[HTMLConstructor]
-interface HTMLButtonElement : HTMLElement {
+// https://html.spec.whatwg.org/C/#the-button-element
+[
+    Exposed=Window,
+    HTMLConstructor
+] interface HTMLButtonElement : HTMLElement {
     [CEReactions, Reflect] attribute boolean autofocus;
     [CEReactions, Reflect] attribute boolean disabled;
     [ImplementedAs=formOwner] readonly attribute HTMLFormElement? form;

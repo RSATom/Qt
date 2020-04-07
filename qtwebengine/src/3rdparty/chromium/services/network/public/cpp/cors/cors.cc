@@ -148,7 +148,7 @@ base::Optional<CorsErrorStatus> CheckAccess(
     const int response_status_code,
     const base::Optional<std::string>& allow_origin_header,
     const base::Optional<std::string>& allow_credentials_header,
-    mojom::FetchCredentialsMode credentials_mode,
+    mojom::CredentialsMode credentials_mode,
     const url::Origin& origin) {
   // TODO(toyoshim): This response status code check should not be needed. We
   // have another status code check after a CheckAccess() call if it is needed.
@@ -159,7 +159,7 @@ base::Optional<CorsErrorStatus> CheckAccess(
     // A wildcard Access-Control-Allow-Origin can not be used if credentials are
     // to be sent, even with Access-Control-Allow-Credentials set to true.
     // See https://fetch.spec.whatwg.org/#cors-protocol-and-credentials.
-    if (credentials_mode != mojom::FetchCredentialsMode::kInclude)
+    if (credentials_mode != mojom::CredentialsMode::kInclude)
       return base::nullopt;
 
     // Since the credential is a concept for network schemes, we perform the
@@ -212,7 +212,7 @@ base::Optional<CorsErrorStatus> CheckAccess(
                            *allow_origin_header);
   }
 
-  if (credentials_mode == mojom::FetchCredentialsMode::kInclude) {
+  if (credentials_mode == mojom::CredentialsMode::kInclude) {
     // https://fetch.spec.whatwg.org/#http-access-control-allow-credentials.
     // This check should be case sensitive.
     // See also https://fetch.spec.whatwg.org/#http-new-header-syntax.
@@ -224,12 +224,34 @@ base::Optional<CorsErrorStatus> CheckAccess(
   return base::nullopt;
 }
 
+bool ShouldCheckCors(const GURL& request_url,
+                     const base::Optional<url::Origin>& request_initiator,
+                     mojom::RequestMode request_mode) {
+  if (request_mode == network::mojom::RequestMode::kNavigate ||
+      request_mode == network::mojom::RequestMode::kNoCors) {
+    return false;
+  }
+
+  // CORS needs a proper origin (including a unique opaque origin). If the
+  // request doesn't have one, CORS should not work.
+  DCHECK(request_initiator);
+
+  // TODO(crbug.com/870173): Remove following scheme check once the network
+  // service is fully enabled.
+  if (request_url.SchemeIs(url::kDataScheme))
+    return false;
+
+  if (request_initiator->IsSameOriginWith(url::Origin::Create(request_url)))
+    return false;
+  return true;
+}
+
 base::Optional<CorsErrorStatus> CheckPreflightAccess(
     const GURL& response_url,
     const int response_status_code,
     const base::Optional<std::string>& allow_origin_header,
     const base::Optional<std::string>& allow_credentials_header,
-    mojom::FetchCredentialsMode actual_credentials_mode,
+    mojom::CredentialsMode actual_credentials_mode,
     const url::Origin& origin) {
   const auto error_status =
       CheckAccess(response_url, response_status_code, allow_origin_header,
@@ -271,7 +293,7 @@ base::Optional<CorsErrorStatus> CheckPreflightAccess(
 
 base::Optional<CorsErrorStatus> CheckRedirectLocation(
     const GURL& url,
-    mojom::FetchRequestMode request_mode,
+    mojom::RequestMode request_mode,
     const base::Optional<url::Origin>& origin,
     bool cors_flag,
     bool tainted) {
@@ -321,9 +343,9 @@ base::Optional<CorsErrorStatus> CheckExternalPreflight(
                          *allow_external);
 }
 
-bool IsCorsEnabledRequestMode(mojom::FetchRequestMode mode) {
-  return mode == mojom::FetchRequestMode::kCors ||
-         mode == mojom::FetchRequestMode::kCorsWithForcedPreflight;
+bool IsCorsEnabledRequestMode(mojom::RequestMode mode) {
+  return mode == mojom::RequestMode::kCors ||
+         mode == mojom::RequestMode::kCorsWithForcedPreflight;
 }
 
 bool IsCorsSafelistedMethod(const std::string& method) {
@@ -359,15 +381,38 @@ bool IsCorsSafelistedHeader(const std::string& name, const std::string& value) {
   // Treat 'Intervention' as a CORS-safelisted header, since it is added by
   // Chrome when an intervention is (or may be) applied.
   static const char* const safe_names[] = {
-      "accept", "accept-language", "content-language", "intervention",
-      "content-type", "save-data",
+      "accept",
+      "accept-language",
+      "content-language",
+      "intervention",
+      "content-type",
+      "save-data",
       // The Device Memory header field is a number that indicates the client’s
       // device memory i.e. approximate amount of ram in GiB. The header value
       // must satisfy ABNF  1*DIGIT [ "." 1*DIGIT ]
       // See
       // https://w3c.github.io/device-memory/#sec-device-memory-client-hint-header
       // for more details.
-      "device-memory", "dpr", "width", "viewport-width"};
+      "device-memory",
+      "dpr",
+      "width",
+      "viewport-width",
+
+      // The `Sec-CH-Lang` header field is a proposed replacement for
+      // `Accept-Language`, using the Client Hints infrastructure.
+      //
+      // https://tools.ietf.org/html/draft-west-lang-client-hint
+      "sec-ch-lang",
+
+      // The `Sec-CH-UA-*` header fields are proposed replacements for
+      // `User-Agent`, using the Client Hints infrastructure.
+      //
+      // https://tools.ietf.org/html/draft-west-ua-client-hints
+      "sec-ch-ua",
+      "sec-ch-ua-platform",
+      "sec-ch-ua-arch",
+      "sec-ch-ua-model",
+  };
   const std::string lower_name = base::ToLowerASCII(name);
   if (std::find(std::begin(safe_names), std::end(safe_names), lower_name) ==
       std::end(safe_names))
@@ -375,7 +420,8 @@ bool IsCorsSafelistedHeader(const std::string& name, const std::string& value) {
 
   // Client hints are device specific, and not origin specific. As such all
   // client hint headers are considered as safe.
-  // See third_party/WebKit/public/platform/web_client_hints_types.mojom.
+  // See
+  // third_party/blink/public/mojom/web_client_hints/web_client_hints_types.mojom.
   // Client hint headers can be added by Chrome automatically or via JavaScript.
   if (lower_name == "device-memory" || lower_name == "dpr")
     return IsSimilarToDoubleABNF(value);
@@ -555,7 +601,7 @@ bool IsCorsCrossOriginResponseType(mojom::FetchResponseType type) {
   }
 }
 
-bool CalculateCredentialsFlag(mojom::FetchCredentialsMode credentials_mode,
+bool CalculateCredentialsFlag(mojom::CredentialsMode credentials_mode,
                               mojom::FetchResponseType response_tainting) {
   // Let |credentials flag| be set if one of
   //  - |request|’s credentials mode is "include"
@@ -563,11 +609,11 @@ bool CalculateCredentialsFlag(mojom::FetchCredentialsMode credentials_mode,
   //    response tainting is "basic"
   // is true, and unset otherwise.
   switch (credentials_mode) {
-    case network::mojom::FetchCredentialsMode::kOmit:
+    case network::mojom::CredentialsMode::kOmit:
       return false;
-    case network::mojom::FetchCredentialsMode::kSameOrigin:
+    case network::mojom::CredentialsMode::kSameOrigin:
       return response_tainting == network::mojom::FetchResponseType::kBasic;
-    case network::mojom::FetchCredentialsMode::kInclude:
+    case network::mojom::CredentialsMode::kInclude:
       return true;
   }
 }

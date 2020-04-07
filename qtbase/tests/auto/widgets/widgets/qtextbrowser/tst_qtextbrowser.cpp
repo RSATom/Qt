@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2019 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the test suite of the Qt Toolkit.
@@ -38,7 +38,7 @@
 class TestBrowser : public QTextBrowser
 {
 public:
-    inline TestBrowser() : htmlLoadAttempts(0) {
+    inline TestBrowser() {
         show();
         QApplication::setActiveWindow(this);
         activateWindow();
@@ -47,11 +47,12 @@ public:
         QVERIFY(hasFocus());
     }
 
-    virtual QVariant loadResource(int type, const QUrl &name);
+    QVariant loadResource(int type, const QUrl &name) override;
 
-    int htmlLoadAttempts;
+    int htmlLoadAttempts = 0;
     QUrl lastResource;
     QUrl sourceInsideLoadResource;
+    QUrl baseInsideLoadResource;
 };
 
 QVariant TestBrowser::loadResource(int type, const QUrl &name)
@@ -60,6 +61,7 @@ QVariant TestBrowser::loadResource(int type, const QUrl &name)
         htmlLoadAttempts++;
     lastResource = name;
     sourceInsideLoadResource = source();
+    baseInsideLoadResource = document()->baseUrl();
     return QTextBrowser::loadResource(type, name);
 }
 
@@ -90,6 +92,10 @@ private slots:
     void focusIndicator();
     void focusHistory();
     void urlEncoding();
+    void sourceType_data();
+    void sourceType();
+    void unicode_data();
+    void unicode();
 
 private:
     TestBrowser *browser;
@@ -108,7 +114,7 @@ void tst_QTextBrowser::init()
 void tst_QTextBrowser::cleanup()
 {
     delete browser;
-    browser = 0;
+    browser = nullptr;
 }
 
 void tst_QTextBrowser::noReloadOnAnchorJump()
@@ -428,11 +434,18 @@ void tst_QTextBrowser::sourceInsideLoadResource()
 #ifdef Q_OS_WINRT
     QSKIP("Paths cannot be compared if applications are sandboxed.");
 #endif
-    QUrl url = QUrl::fromLocalFile("pagewithimage.html");
+    QUrl url = QUrl::fromLocalFile("pagewithimage.html"); // "file://pagewithimage.html"
     browser->setSource(url);
     QCOMPARE(browser->lastResource, QUrl::fromLocalFile(QDir::current().filePath("foobar.png")));
+    // baseUrl was not set because the source URL was a relative one
+    QCOMPARE(browser->baseInsideLoadResource, QUrl());
     QEXPECT_FAIL("", "This is currently not supported", Continue);
     QCOMPARE(browser->sourceInsideLoadResource.toString(), url.toString());
+    url = QUrl::fromLocalFile(QDir::current().filePath("pagewithimage.html")); // "file:///home/user/path/to/pagewithimage.html"
+    browser->setSource(url);
+    QCOMPARE(browser->lastResource, QUrl::fromLocalFile(QDir::current().filePath("foobar.png")));
+    // baseUrl has the full path, and that's where relative-path resources come from
+    QCOMPARE(browser->baseInsideLoadResource, QUrl::fromLocalFile(QDir::currentPath() + QLatin1Char('/')));
 }
 
 void tst_QTextBrowser::textInteractionFlags_vs_readOnly()
@@ -667,6 +680,73 @@ void tst_QTextBrowser::urlEncoding()
     QCOMPARE(url.toEncoded(), QByteArray("http://www.google.com/q=%22"));
 
     delete browser;
+}
+
+void tst_QTextBrowser::sourceType_data()
+{
+    QTest::addColumn<QString>("sourceFile");
+    QTest::addColumn<QTextDocument::ResourceType>("sourceType");
+    QTest::addColumn<int>("expectedMaxHeadingLevel");
+    QTest::addColumn<QTextDocument::ResourceType>("expectedSourceType");
+
+#if QT_CONFIG(textmarkdownreader)
+    const int maxMdHeadingLevel = 3;
+    const QTextDocument::ResourceType mdExpectedType = QTextDocument::MarkdownResource;
+#else
+    // If Qt doesn't support markdown, and we read a MD document anyway, it won't have any H3's.
+    const int maxMdHeadingLevel = 0;
+    const QTextDocument::ResourceType mdExpectedType = QTextDocument::HtmlResource;
+#endif
+    QTest::newRow("markdown detected") << "markdown.md" << QTextDocument::UnknownResource << maxMdHeadingLevel << mdExpectedType;
+    QTest::newRow("markdown specified") << "markdown.really" << QTextDocument::MarkdownResource << maxMdHeadingLevel << mdExpectedType;
+    QTest::newRow("markdown not identified") << "markdown.really" << QTextDocument::UnknownResource << 0 << QTextDocument::HtmlResource;
+    QTest::newRow("html detected") << "heading.html" << QTextDocument::UnknownResource << 3 << QTextDocument::HtmlResource;
+    QTest::newRow("html specified") << "heading.html" << QTextDocument::HtmlResource << 3 << QTextDocument::HtmlResource;
+}
+
+void tst_QTextBrowser::sourceType()
+{
+    QFETCH(QString, sourceFile);
+    QFETCH(QTextDocument::ResourceType, sourceType);
+    QFETCH(int, expectedMaxHeadingLevel);
+    QFETCH(QTextDocument::ResourceType, expectedSourceType);
+    if (sourceType == QTextDocument::UnknownResource)
+        // verify that the property setter works, with its default parameter for sourceType
+        browser->setProperty("source", QUrl::fromLocalFile(QFINDTESTDATA(sourceFile)));
+    else
+        browser->setSource(QUrl::fromLocalFile(QFINDTESTDATA(sourceFile)), sourceType);
+    QCOMPARE(browser->sourceType(), expectedSourceType);
+    QTextFrame::iterator iterator = browser->document()->rootFrame()->begin();
+    int maxHeadingLevel = -1;
+    while (!iterator.atEnd())
+        maxHeadingLevel = qMax(iterator++.currentBlock().blockFormat().intProperty(QTextFormat::HeadingLevel), maxHeadingLevel);
+    QCOMPARE(maxHeadingLevel, expectedMaxHeadingLevel);
+}
+
+void tst_QTextBrowser::unicode_data()
+{
+    QTest::addColumn<QString>("sourceFile");
+    QTest::addColumn<QTextDocument::ResourceType>("sourceType");
+    QTest::addColumn<QString>("expectedText");
+
+#if QT_CONFIG(textmarkdownreader)
+    QTest::newRow("markdown with quotes and fractions") << "quotesAndFractions.md" << QTextDocument::MarkdownResource <<
+        "you\u2019ll hope to see \u275Dquotes\u275E \uFE601\u00BD \u2154 \u00BC \u2157 \u215A \u215D some \u201Cvulgar\u201D fractions (pardon my \u00ABFrench\u00BB)";
+#endif
+}
+
+void tst_QTextBrowser::unicode()
+{
+    QFETCH(QString, sourceFile);
+    QFETCH(QTextDocument::ResourceType, sourceType);
+    QFETCH(QString, expectedText);
+    browser->setSource(QUrl::fromLocalFile(QFINDTESTDATA(sourceFile)), sourceType);
+    QTextFrame::iterator iterator = browser->document()->rootFrame()->begin();
+    while (!iterator.atEnd()) {
+        QString blockText = iterator++.currentBlock().text();
+        if (!blockText.isEmpty())
+            QCOMPARE(blockText, expectedText);
+    }
 }
 
 QTEST_MAIN(tst_QTextBrowser)

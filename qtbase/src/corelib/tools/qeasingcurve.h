@@ -41,6 +41,9 @@
 #define QEASINGCURVE_H
 
 #include <QtCore/qglobal.h>
+
+QT_REQUIRE_CONFIG(easingcurve);
+
 #include <QtCore/qobjectdefs.h>
 #include <QtCore/qvector.h>
 #if QT_DEPRECATED_SINCE(5, 0)
@@ -80,13 +83,11 @@ public:
 
     QEasingCurve &operator=(const QEasingCurve &other)
     { if ( this != &other ) { QEasingCurve copy(other); swap(copy); } return *this; }
-#ifdef Q_COMPILER_RVALUE_REFS
-    QEasingCurve(QEasingCurve &&other) Q_DECL_NOTHROW : d_ptr(other.d_ptr) { other.d_ptr = nullptr; }
-    QEasingCurve &operator=(QEasingCurve &&other) Q_DECL_NOTHROW
+    QEasingCurve(QEasingCurve &&other) noexcept : d_ptr(other.d_ptr) { other.d_ptr = nullptr; }
+    QEasingCurve &operator=(QEasingCurve &&other) noexcept
     { qSwap(d_ptr, other.d_ptr); return *this; }
-#endif
 
-    void swap(QEasingCurve &other) Q_DECL_NOTHROW { qSwap(d_ptr, other.d_ptr); }
+    void swap(QEasingCurve &other) noexcept { qSwap(d_ptr, other.d_ptr); }
 
     bool operator==(const QEasingCurve &other) const;
     inline bool operator!=(const QEasingCurve &other) const

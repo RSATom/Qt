@@ -53,7 +53,7 @@ namespace QPatternistSDK
      * @ingroup PatternistSDK
      * @author Frans Englich <frans.englich@nokia.com>
      */
-    class Q_PATTERNISTSDK_EXPORT TreeModel : public QAbstractItemModel
+    class TreeModel : public QAbstractItemModel
     {
         Q_OBJECT
     public:

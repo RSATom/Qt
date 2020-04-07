@@ -38,8 +38,12 @@ void PopulateTerminationInfo(
       content_info.remaining_process_with_moderate_binding;
   info->remaining_process_with_waived_binding =
       content_info.remaining_process_with_waived_binding;
+  info->best_effort_reverse_rank = content_info.best_effort_reverse_rank;
   info->was_oom_protected_status =
       content_info.status == base::TERMINATION_STATUS_OOM_PROTECTED;
+  info->renderer_has_visible_clients =
+      content_info.renderer_has_visible_clients;
+  info->renderer_was_subframe = content_info.renderer_was_subframe;
 }
 
 }  // namespace
@@ -139,7 +143,8 @@ void ChildExitObserver::BrowserChildProcessHostDisconnected(
     browser_child_process_info_.erase(it);
   } else {
     info.process_host_id = data.id;
-    info.pid = data.GetProcess().Pid();
+    if (data.GetProcess().IsValid())
+      info.pid = data.GetProcess().Pid();
     info.process_type = static_cast<content::ProcessType>(data.process_type);
     info.app_state = base::android::ApplicationStatusListener::GetState();
     info.normal_termination = true;
@@ -151,7 +156,7 @@ void ChildExitObserver::BrowserChildProcessKilled(
     const content::ChildProcessData& data,
     const content::ChildProcessTerminationInfo& content_info) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
-  DCHECK(!base::ContainsKey(browser_child_process_info_, data.id));
+  DCHECK(!base::Contains(browser_child_process_info_, data.id));
   TerminationInfo info;
   info.process_host_id = data.id;
   info.pid = data.GetProcess().Pid();

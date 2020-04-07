@@ -4,15 +4,14 @@
 
 #include "cc/raster/paint_worklet_image_provider.h"
 
-#include "cc/tiles/paint_worklet_image_cache.h"
+#include <utility>
+#include "base/bind_helpers.h"
 
 namespace cc {
 
 PaintWorkletImageProvider::PaintWorkletImageProvider(
-    PaintWorkletImageCache* cache)
-    : cache_(cache) {
-  DCHECK(cache_);
-}
+    PaintWorkletRecordMap records)
+    : records_(std::move(records)) {}
 
 PaintWorkletImageProvider::~PaintWorkletImageProvider() = default;
 
@@ -21,5 +20,14 @@ PaintWorkletImageProvider::PaintWorkletImageProvider(
 
 PaintWorkletImageProvider& PaintWorkletImageProvider::operator=(
     PaintWorkletImageProvider&& other) = default;
+
+ImageProvider::ScopedResult PaintWorkletImageProvider::GetPaintRecordResult(
+    scoped_refptr<PaintWorkletInput> input) {
+  // The |records_| contains all known PaintWorkletInputs, whether they are
+  // painted or not, so |input| should always exist in it.
+  auto it = records_.find(input);
+  DCHECK(it != records_.end());
+  return ImageProvider::ScopedResult(it->second);
+}
 
 }  // namespace cc

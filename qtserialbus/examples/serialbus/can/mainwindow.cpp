@@ -60,7 +60,8 @@
 
 MainWindow::MainWindow(QWidget *parent) :
     QMainWindow(parent),
-    m_ui(new Ui::MainWindow)
+    m_ui(new Ui::MainWindow),
+    m_busStatusTimer(new QTimer(this))
 {
     m_ui->setupUi(this);
 
@@ -74,12 +75,12 @@ MainWindow::MainWindow(QWidget *parent) :
 
     initActionsConnections();
     QTimer::singleShot(50, m_connectDialog, &ConnectDialog::show);
+
+    connect(m_busStatusTimer, &QTimer::timeout, this, &MainWindow::busStatus);
 }
 
 MainWindow::~MainWindow()
 {
-    delete m_canDevice;
-
     delete m_connectDialog;
     delete m_ui;
 }
@@ -90,9 +91,15 @@ void MainWindow::initActionsConnections()
     m_ui->sendFrameBox->setEnabled(false);
 
     connect(m_ui->sendFrameBox, &SendFrameBox::sendFrame, this, &MainWindow::sendFrame);
-    connect(m_ui->actionConnect, &QAction::triggered, m_connectDialog, &ConnectDialog::show);
+    connect(m_ui->actionConnect, &QAction::triggered, [this]() {
+        m_canDevice.release()->deleteLater();
+        m_connectDialog->show();
+    });
     connect(m_connectDialog, &QDialog::accepted, this, &MainWindow::connectDevice);
     connect(m_ui->actionDisconnect, &QAction::triggered, this, &MainWindow::disconnectDevice);
+    connect(m_ui->actionResetController, &QAction::triggered, this, [this]() {
+        m_canDevice->resetController();
+    });
     connect(m_ui->actionQuit, &QAction::triggered, this, &QWidget::close);
     connect(m_ui->actionAboutQt, &QAction::triggered, qApp, &QApplication::aboutQt);
     connect(m_ui->actionClearLog, &QAction::triggered, m_ui->receivedMessagesEdit, &QTextEdit::clear);
@@ -121,8 +128,8 @@ void MainWindow::connectDevice()
     const ConnectDialog::Settings p = m_connectDialog->settings();
 
     QString errorString;
-    m_canDevice = QCanBus::instance()->createDevice(p.pluginName, p.deviceInterfaceName,
-                                                    &errorString);
+    m_canDevice.reset(QCanBus::instance()->createDevice(p.pluginName, p.deviceInterfaceName,
+                                                        &errorString));
     if (!m_canDevice) {
         m_status->setText(tr("Error creating device '%1', reason: '%2'")
                           .arg(p.pluginName).arg(errorString));
@@ -131,9 +138,12 @@ void MainWindow::connectDevice()
 
     m_numberFramesWritten = 0;
 
-    connect(m_canDevice, &QCanBusDevice::errorOccurred, this, &MainWindow::processErrors);
-    connect(m_canDevice, &QCanBusDevice::framesReceived, this, &MainWindow::processReceivedFrames);
-    connect(m_canDevice, &QCanBusDevice::framesWritten, this, &MainWindow::processFramesWritten);
+    connect(m_canDevice.get(), &QCanBusDevice::errorOccurred,
+            this, &MainWindow::processErrors);
+    connect(m_canDevice.get(), &QCanBusDevice::framesReceived,
+            this, &MainWindow::processReceivedFrames);
+    connect(m_canDevice.get(), &QCanBusDevice::framesWritten,
+            this, &MainWindow::processFramesWritten);
 
     if (p.useConfigurationEnabled) {
         for (const ConnectDialog::ConfigurationItem &item : p.configurations)
@@ -143,8 +153,7 @@ void MainWindow::connectDevice()
     if (!m_canDevice->connectDevice()) {
         m_status->setText(tr("Connection error: %1").arg(m_canDevice->errorString()));
 
-        delete m_canDevice;
-        m_canDevice = nullptr;
+        m_canDevice.reset();
     } else {
         m_ui->actionConnect->setEnabled(false);
         m_ui->actionDisconnect->setEnabled(true);
@@ -170,6 +179,38 @@ void MainWindow::connectDevice()
             m_status->setText(tr("Plugin: %1, connected to %2")
                     .arg(p.pluginName).arg(p.deviceInterfaceName));
         }
+
+        if (m_canDevice->hasBusStatus())
+            m_busStatusTimer->start(2000);
+        else
+            m_ui->busStatus->setText(tr("No CAN bus status available."));
+    }
+}
+
+void MainWindow::busStatus()
+{
+    if (!m_canDevice || !m_canDevice->hasBusStatus()) {
+        m_ui->busStatus->setText(tr("No CAN bus status available."));
+        m_busStatusTimer->stop();
+        return;
+    }
+
+    switch (m_canDevice->busStatus()) {
+    case QCanBusDevice::CanBusStatus::Good:
+        m_ui->busStatus->setText("CAN bus status: Good.");
+        break;
+    case QCanBusDevice::CanBusStatus::Warning:
+        m_ui->busStatus->setText("CAN bus status: Warning.");
+        break;
+    case QCanBusDevice::CanBusStatus::Error:
+        m_ui->busStatus->setText("CAN bus status: Error.");
+        break;
+    case QCanBusDevice::CanBusStatus::BusOff:
+        m_ui->busStatus->setText("CAN bus status: Bus Off.");
+        break;
+    default:
+        m_ui->busStatus->setText("CAN bus status: Unknown.");
+        break;
     }
 }
 
@@ -178,9 +219,9 @@ void MainWindow::disconnectDevice()
     if (!m_canDevice)
         return;
 
+    m_busStatusTimer->stop();
+
     m_canDevice->disconnectDevice();
-    delete m_canDevice;
-    m_canDevice = nullptr;
 
     m_ui->actionConnect->setEnabled(true);
     m_ui->actionDisconnect->setEnabled(false);

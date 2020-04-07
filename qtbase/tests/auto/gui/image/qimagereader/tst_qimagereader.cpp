@@ -30,6 +30,7 @@
 #include <QtTest/QtTest>
 
 #include <QBuffer>
+#include <QColorSpace>
 #include <QDebug>
 #include <QImage>
 #include <QImageReader>
@@ -157,6 +158,9 @@ private slots:
 
     void saveFormat_data();
     void saveFormat();
+
+    void saveColorSpace_data();
+    void saveColorSpace();
 
     void readText_data();
     void readText();
@@ -1859,6 +1863,7 @@ void tst_QImageReader::saveFormat_data()
     QTest::newRow("Format_RGB555") << QImage::Format_RGB555;
     QTest::newRow("Format_ARGB8555_Premultiplied") << QImage::Format_ARGB8555_Premultiplied;
     QTest::newRow("Format_RGB888") << QImage::Format_RGB888;
+    QTest::newRow("Format_BGR888") << QImage::Format_BGR888;
     QTest::newRow("Format_RGB444") << QImage::Format_RGB444;
     QTest::newRow("Format_ARGB4444_Premultiplied") << QImage::Format_ARGB4444_Premultiplied;
     QTest::newRow("Format_RGBA64") << QImage::Format_RGBA64;
@@ -1883,6 +1888,40 @@ void tst_QImageReader::saveFormat()
     QCOMPARE(stored, converted);
 }
 
+void tst_QImageReader::saveColorSpace_data()
+{
+    QTest::addColumn<QColorSpace::NamedColorSpace>("namedColorSpace");
+
+    QTest::newRow("sRGB")         << QColorSpace::SRgb;
+    QTest::newRow("sRGB(linear)") << QColorSpace::SRgbLinear;
+    QTest::newRow("AdobeRGB")     << QColorSpace::AdobeRgb;
+    QTest::newRow("DisplayP3")    << QColorSpace::DisplayP3;
+    QTest::newRow("ProPhotoRgb")  << QColorSpace::ProPhotoRgb;
+}
+
+void tst_QImageReader::saveColorSpace()
+{
+    QFETCH(QColorSpace::NamedColorSpace, namedColorSpace);
+
+    QImage orig(":/images/kollada.png");
+
+    orig.setColorSpace(namedColorSpace);
+    QBuffer buf;
+    buf.open(QIODevice::WriteOnly);
+    QVERIFY(orig.save(&buf, "png"));
+    buf.close();
+    QImage stored = QImage::fromData(buf.buffer(), "png");
+
+    QCOMPARE(stored, orig);
+    QCOMPARE(stored.colorSpace(), orig.colorSpace());
+
+    buf.open(QIODevice::WriteOnly);
+    QVERIFY(orig.save(&buf, "jpeg"));
+    buf.close();
+    stored = QImage::fromData(buf.buffer(), "jpeg");
+
+    QCOMPARE(stored.colorSpace(), orig.colorSpace());
+}
 
 void tst_QImageReader::readText_data()
 {

@@ -1352,7 +1352,7 @@ void tst_QScriptValue::toQObject_nonQObject_data()
     QTest::newRow("array") << engine->newArray();
     QTest::newRow("date") << engine->newDate(124);
     QTest::newRow("variant(12345)") << engine->newVariant(12345);
-    QTest::newRow("variant((QObject*)0)") << engine->newVariant(qVariantFromValue((QObject*)0));
+    QTest::newRow("variant((QObject*)0)") << engine->newVariant(QVariant::fromValue((QObject*)0));
     QTest::newRow("newQObject(0)") << engine->newQObject(0);
 }
 
@@ -1390,19 +1390,19 @@ void tst_QScriptValue::toQObject()
     QCOMPARE(qscriptvalue_cast<QPushButton*>(qbutton), &button);
 
     // wrapping a QObject* as variant
-    QScriptValue variant = eng.newVariant(qVariantFromValue((QObject*)&button));
+    QScriptValue variant = eng.newVariant(QVariant::fromValue((QObject*)&button));
     QCOMPARE(variant.toQObject(), (QObject*)&button);
     QCOMPARE(qscriptvalue_cast<QObject*>(variant), (QObject*)&button);
     QCOMPARE(qscriptvalue_cast<QWidget*>(variant), (QWidget*)&button);
     QCOMPARE(qscriptvalue_cast<QPushButton*>(variant), &button);
 
-    QScriptValue variant2 = eng.newVariant(qVariantFromValue((QWidget*)&button));
+    QScriptValue variant2 = eng.newVariant(QVariant::fromValue((QWidget*)&button));
     QCOMPARE(variant2.toQObject(), (QObject*)&button);
     QCOMPARE(qscriptvalue_cast<QObject*>(variant2), (QObject*)&button);
     QCOMPARE(qscriptvalue_cast<QWidget*>(variant2), (QWidget*)&button);
     QCOMPARE(qscriptvalue_cast<QPushButton*>(variant2), &button);
 
-    QScriptValue variant3 = eng.newVariant(qVariantFromValue(&button));
+    QScriptValue variant3 = eng.newVariant(QVariant::fromValue(&button));
     QVERIFY(variant3.isQObject());
     QCOMPARE(variant3.toQObject(), (QObject*)&button);
     QCOMPARE(qscriptvalue_cast<QObject*>(variant3), (QObject*)&button);
@@ -1524,7 +1524,7 @@ void tst_QScriptValue::toDateTime()
     QDateTime dt = eng.evaluate("new Date(0)").toDateTime();
     QVERIFY(dt.isValid());
     QCOMPARE(dt.timeSpec(), Qt::LocalTime);
-    QCOMPARE(dt.toUTC(), QDateTime(QDate(1970, 1, 1), QTime(0, 0, 0), Qt::UTC));
+    QCOMPARE(dt.toUTC(), QDateTime::fromMSecsSinceEpoch(0, Qt::UTC));
 
     QVERIFY(!eng.evaluate("[]").toDateTime().isValid());
     QVERIFY(!eng.evaluate("{}").toDateTime().isValid());
@@ -3580,7 +3580,7 @@ void tst_QScriptValue::castToPointer()
         double *dp = qscriptvalue_cast<double*>(v);
         QVERIFY(dp == 0);
 
-        QScriptValue v2 = eng.newVariant(qVariantFromValue(ip));
+        QScriptValue v2 = eng.newVariant(QVariant::fromValue(ip));
         QCOMPARE(qscriptvalue_cast<int*>(v2), ip);
     }
     {
@@ -3593,7 +3593,7 @@ void tst_QScriptValue::castToPointer()
         QBrush *bp = qscriptvalue_cast<QBrush*>(v);
         QVERIFY(bp == 0);
 
-        QScriptValue v2 = eng.newVariant(qVariantFromValue(cp));
+        QScriptValue v2 = eng.newVariant(QVariant::fromValue(cp));
         QCOMPARE(qscriptvalue_cast<QColor*>(v2), cp);
     }
 }

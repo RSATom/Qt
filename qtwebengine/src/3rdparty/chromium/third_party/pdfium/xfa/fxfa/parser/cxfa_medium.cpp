@@ -6,7 +6,7 @@
 
 #include "xfa/fxfa/parser/cxfa_medium.h"
 
-#include "fxjs/xfa/cjx_medium.h"
+#include "fxjs/xfa/cjx_node.h"
 #include "third_party/base/ptr_util.h"
 
 namespace {
@@ -25,7 +25,7 @@ const CXFA_Node::AttributeData kMediumAttributeData[] = {
     {XFA_Attribute::Usehref, XFA_AttributeType::CData, nullptr},
     {XFA_Attribute::Stock, XFA_AttributeType::CData, nullptr},
     {XFA_Attribute::Long, XFA_AttributeType::Measure, (void*)L"0in"},
-    {XFA_Attribute::Unknown, XFA_AttributeType::Integer, nullptr}};
+};
 
 }  // namespace
 
@@ -35,8 +35,8 @@ CXFA_Medium::CXFA_Medium(CXFA_Document* doc, XFA_PacketType packet)
                 (XFA_XDPPACKET_Template | XFA_XDPPACKET_Form),
                 XFA_ObjectType::Node,
                 XFA_Element::Medium,
-                nullptr,
+                {},
                 kMediumAttributeData,
-                pdfium::MakeUnique<CJX_Medium>(this)) {}
+                pdfium::MakeUnique<CJX_Node>(this)) {}
 
 CXFA_Medium::~CXFA_Medium() = default;

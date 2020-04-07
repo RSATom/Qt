@@ -5,13 +5,23 @@
  * found in the LICENSE file.
  */
 
-#include "gm.h"
-#include "SkBlurImageFilter.h"
-#include "SkCanvas.h"
-#include "SkDashPathEffect.h"
-#include "SkGradientShader.h"
-#include "SkMaskFilter.h"
-#include "SkRegion.h"
+#include "gm/gm.h"
+#include "include/core/SkBlurTypes.h"
+#include "include/core/SkCanvas.h"
+#include "include/core/SkColor.h"
+#include "include/core/SkImageFilter.h"
+#include "include/core/SkMaskFilter.h"
+#include "include/core/SkPaint.h"
+#include "include/core/SkPathEffect.h"
+#include "include/core/SkPoint.h"
+#include "include/core/SkRegion.h"
+#include "include/core/SkShader.h"
+#include "include/core/SkSize.h"
+#include "include/core/SkString.h"
+#include "include/core/SkTileMode.h"
+#include "include/effects/SkBlurImageFilter.h"
+#include "include/effects/SkDashPathEffect.h"
+#include "include/effects/SkGradientShader.h"
 
 class DrawRegionModesGM : public skiagm::GM {
 public:
@@ -68,7 +78,7 @@ protected:
         SkPoint points[] = { SkPoint::Make(50.0f, 50.0f), SkPoint::Make(150.0f, 150.0f) };
         SkColor colors[] = { SK_ColorBLUE, SK_ColorYELLOW };
         paint.setShader(SkGradientShader::MakeLinear(points, colors, nullptr, 2,
-                                                     SkShader::kClamp_TileMode));
+                                                     SkTileMode::kClamp));
         canvas->drawRegion(fRegion, paint);
     }
 

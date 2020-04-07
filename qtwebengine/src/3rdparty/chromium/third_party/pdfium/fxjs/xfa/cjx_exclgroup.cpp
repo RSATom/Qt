@@ -81,9 +81,10 @@ CJS_Result CJX_ExclGroup::execValidate(
   if (!notify)
     return CJS_Result::Success(runtime->NewBoolean(false));
 
-  int32_t iRet = notify->ExecEventByDeepFirst(GetXFANode(), XFA_EVENT_Validate,
-                                              false, true);
-  return CJS_Result::Success(runtime->NewBoolean(iRet != XFA_EVENTERROR_Error));
+  XFA_EventError iRet = notify->ExecEventByDeepFirst(
+      GetXFANode(), XFA_EVENT_Validate, false, true);
+  return CJS_Result::Success(
+      runtime->NewBoolean(iRet != XFA_EventError::kError));
 }
 
 CJS_Result CJX_ExclGroup::selectedMember(
@@ -107,9 +108,8 @@ CJS_Result CJX_ExclGroup::selectedMember(
     return CJS_Result::Success(runtime->NewNull());
 
   CFXJSE_Value* value =
-      GetDocument()->GetScriptContext()->GetJSValueFromMap(pReturnNode);
-  if (!value)
-    return CJS_Result::Success(runtime->NewNull());
+      GetDocument()->GetScriptContext()->GetOrCreateJSBindingFromMap(
+          pReturnNode);
 
   return CJS_Result::Success(
       value->DirectGetValue().Get(runtime->GetIsolate()));
@@ -147,38 +147,9 @@ void CJX_ExclGroup::transient(CFXJSE_Value* pValue,
                               bool bSetting,
                               XFA_Attribute eAttribute) {}
 
-void CJX_ExclGroup::borderColor(CFXJSE_Value* pValue,
-                                bool bSetting,
-                                XFA_Attribute eAttribute) {
-  ScriptSomBorderColor(pValue, bSetting, eAttribute);
-}
-
-void CJX_ExclGroup::borderWidth(CFXJSE_Value* pValue,
-                                bool bSetting,
-                                XFA_Attribute eAttribute) {
-  ScriptSomBorderWidth(pValue, bSetting, eAttribute);
-}
-
-void CJX_ExclGroup::fillColor(CFXJSE_Value* pValue,
+void CJX_ExclGroup::errorText(CFXJSE_Value* pValue,
                               bool bSetting,
                               XFA_Attribute eAttribute) {
-  ScriptSomFillColor(pValue, bSetting, eAttribute);
-}
-
-void CJX_ExclGroup::mandatory(CFXJSE_Value* pValue,
-                              bool bSetting,
-                              XFA_Attribute eAttribute) {
-  ScriptSomMandatory(pValue, bSetting, eAttribute);
-}
-
-void CJX_ExclGroup::mandatoryMessage(CFXJSE_Value* pValue,
-                                     bool bSetting,
-                                     XFA_Attribute eAttribute) {
-  ScriptSomMandatoryMessage(pValue, bSetting, eAttribute);
-}
-
-void CJX_ExclGroup::validationMessage(CFXJSE_Value* pValue,
-                                      bool bSetting,
-                                      XFA_Attribute eAttribute) {
-  ScriptSomValidationMessage(pValue, bSetting, eAttribute);
+  if (bSetting)
+    ThrowInvalidPropertyException();
 }

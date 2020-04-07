@@ -12,20 +12,28 @@
 namespace viz {
 
 StreamVideoDrawQuad::StreamVideoDrawQuad() = default;
+StreamVideoDrawQuad::~StreamVideoDrawQuad() = default;
+StreamVideoDrawQuad::StreamVideoDrawQuad(const StreamVideoDrawQuad& quad) =
+    default;
 
-void StreamVideoDrawQuad::SetNew(const SharedQuadState* shared_quad_state,
-                                 const gfx::Rect& rect,
-                                 const gfx::Rect& visible_rect,
-                                 bool needs_blending,
-                                 unsigned resource_id,
-                                 gfx::Size resource_size_in_pixels,
-                                 const gfx::Transform& matrix) {
-  DrawQuad::SetAll(shared_quad_state, DrawQuad::STREAM_VIDEO_CONTENT, rect,
-                   visible_rect, needs_blending);
+void StreamVideoDrawQuad::SetNew(
+    const SharedQuadState* shared_quad_state,
+    const gfx::Rect& rect,
+    const gfx::Rect& visible_rect,
+    bool needs_blending,
+    unsigned resource_id,
+    gfx::Size resource_size_in_pixels,
+    const gfx::PointF& uv_top_left,
+    const gfx::PointF& uv_bottom_right,
+    const base::Optional<gpu::VulkanYCbCrInfo>& ycbcr_info) {
+  DrawQuad::SetAll(shared_quad_state, DrawQuad::Material::kStreamVideoContent,
+                   rect, visible_rect, needs_blending);
   resources.ids[kResourceIdIndex] = resource_id;
   overlay_resources.size_in_pixels[kResourceIdIndex] = resource_size_in_pixels;
   resources.count = 1;
-  this->matrix = matrix;
+  this->uv_top_left = uv_top_left;
+  this->uv_bottom_right = uv_bottom_right;
+  this->ycbcr_info = ycbcr_info;
 }
 
 void StreamVideoDrawQuad::SetAll(const SharedQuadState* shared_quad_state,
@@ -34,25 +42,28 @@ void StreamVideoDrawQuad::SetAll(const SharedQuadState* shared_quad_state,
                                  bool needs_blending,
                                  unsigned resource_id,
                                  gfx::Size resource_size_in_pixels,
-                                 const gfx::Transform& matrix) {
-  DrawQuad::SetAll(shared_quad_state, DrawQuad::STREAM_VIDEO_CONTENT, rect,
-                   visible_rect, needs_blending);
+                                 const gfx::PointF& uv_top_left,
+                                 const gfx::PointF& uv_bottom_right) {
+  DrawQuad::SetAll(shared_quad_state, DrawQuad::Material::kStreamVideoContent,
+                   rect, visible_rect, needs_blending);
   resources.ids[kResourceIdIndex] = resource_id;
   overlay_resources.size_in_pixels[kResourceIdIndex] = resource_size_in_pixels;
   resources.count = 1;
-  this->matrix = matrix;
+  this->uv_top_left = uv_top_left;
+  this->uv_bottom_right = uv_bottom_right;
 }
 
 const StreamVideoDrawQuad* StreamVideoDrawQuad::MaterialCast(
     const DrawQuad* quad) {
-  DCHECK(quad->material == DrawQuad::STREAM_VIDEO_CONTENT);
+  DCHECK(quad->material == DrawQuad::Material::kStreamVideoContent);
   return static_cast<const StreamVideoDrawQuad*>(quad);
 }
 
 void StreamVideoDrawQuad::ExtendValue(
     base::trace_event::TracedValue* value) const {
   value->SetInteger("resource_id", resources.ids[kResourceIdIndex]);
-  cc::MathUtil::AddToTracedValue("matrix", matrix, value);
+  cc::MathUtil::AddToTracedValue("uv_top_left", uv_top_left, value);
+  cc::MathUtil::AddToTracedValue("uv_bottom_right", uv_bottom_right, value);
 }
 
 StreamVideoDrawQuad::OverlayResources::OverlayResources() {}

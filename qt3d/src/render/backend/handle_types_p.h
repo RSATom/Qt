@@ -94,10 +94,12 @@ class Light;
 class EnvironmentLight;
 class ComputeCommand;
 class GLBuffer;
+class GLTexture;
 class RenderStateNode;
 class Armature;
 class Skeleton;
 class Joint;
+class ShaderImage;
 
 typedef Qt3DCore::QHandle<RenderTargetOutput> HAttachment;
 typedef Qt3DCore::QHandle<CameraLens> HCamera;
@@ -132,10 +134,12 @@ typedef Qt3DCore::QHandle<Light> HLight;
 typedef Qt3DCore::QHandle<EnvironmentLight> HEnvironmentLight;
 typedef Qt3DCore::QHandle<ComputeCommand> HComputeCommand;
 typedef Qt3DCore::QHandle<GLBuffer> HGLBuffer;
+typedef Qt3DCore::QHandle<GLTexture> HGLTexture;
 typedef Qt3DCore::QHandle<RenderStateNode> HRenderState;
 typedef Qt3DCore::QHandle<Armature> HArmature;
 typedef Qt3DCore::QHandle<Skeleton> HSkeleton;
 typedef Qt3DCore::QHandle<Joint> HJoint;
+typedef Qt3DCore::QHandle<ShaderImage> HShaderImage;
 
 } // namespace Render
 

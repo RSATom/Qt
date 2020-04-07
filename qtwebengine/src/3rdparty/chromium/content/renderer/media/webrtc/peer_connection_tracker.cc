@@ -12,6 +12,7 @@
 #include <utility>
 #include <vector>
 
+#include "base/bind.h"
 #include "base/numerics/safe_conversions.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/utf_string_conversions.h"
@@ -334,6 +335,27 @@ static const char* GetIceConnectionStateString(
   }
 }
 
+static const char* GetConnectionStateString(
+    webrtc::PeerConnectionInterface::PeerConnectionState state) {
+  switch (state) {
+    case webrtc::PeerConnectionInterface::PeerConnectionState::kNew:
+      return "new";
+    case webrtc::PeerConnectionInterface::PeerConnectionState::kConnecting:
+      return "connecting";
+    case webrtc::PeerConnectionInterface::PeerConnectionState::kConnected:
+      return "connected";
+    case webrtc::PeerConnectionInterface::PeerConnectionState::kDisconnected:
+      return "disconnected";
+    case webrtc::PeerConnectionInterface::PeerConnectionState::kFailed:
+      return "failed";
+    case webrtc::PeerConnectionInterface::PeerConnectionState::kClosed:
+      return "closed";
+    default:
+      NOTREACHED();
+      return "";
+  }
+}
+
 static const char* GetIceGatheringStateString(
     webrtc::PeerConnectionInterface::IceGatheringState state) {
   switch (state) {
@@ -432,10 +454,16 @@ static std::unique_ptr<base::DictionaryValue> GetDictValue(
   return result;
 }
 
-class InternalStatsObserver : public webrtc::StatsObserver {
+// chrome://webrtc-internals displays stats and stats graphs. The call path
+// involves thread and process hops (IPC). This is the webrtc::StatsObserver
+// that is used when webrtc-internals wants legacy stats. It starts in
+// webrtc_internals.js performing requestLegacyStats and the result gets
+// asynchronously delivered to webrtc_internals.js at addLegacyStats.
+class InternalLegacyStatsObserver : public webrtc::StatsObserver {
  public:
-  InternalStatsObserver(int lid,
-                        scoped_refptr<base::SingleThreadTaskRunner> main_thread)
+  InternalLegacyStatsObserver(
+      int lid,
+      scoped_refptr<base::SingleThreadTaskRunner> main_thread)
       : lid_(lid), main_thread_(std::move(main_thread)) {}
 
   void OnComplete(const StatsReports& reports) override {
@@ -449,13 +477,14 @@ class InternalStatsObserver : public webrtc::StatsObserver {
 
     if (!list->empty()) {
       main_thread_->PostTask(
-          FROM_HERE, base::BindOnce(&InternalStatsObserver::OnCompleteImpl,
-                                    std::move(list), lid_));
+          FROM_HERE,
+          base::BindOnce(&InternalLegacyStatsObserver::OnCompleteImpl,
+                         std::move(list), lid_));
     }
   }
 
  protected:
-  ~InternalStatsObserver() override {
+  ~InternalLegacyStatsObserver() override {
     // Will be destructed on libjingle's signaling thread.
     // The signaling thread is where libjingle's objects live and from where
     // libjingle makes callbacks.  This may or may not be the same thread as
@@ -468,7 +497,107 @@ class InternalStatsObserver : public webrtc::StatsObserver {
   static void OnCompleteImpl(std::unique_ptr<base::ListValue> list, int lid) {
     DCHECK(!list->empty());
     RenderThreadImpl::current()->Send(
-        new PeerConnectionTrackerHost_AddStats(lid, *list.get()));
+        new PeerConnectionTrackerHost_AddLegacyStats(lid, *list.get()));
+  }
+
+  const int lid_;
+  const scoped_refptr<base::SingleThreadTaskRunner> main_thread_;
+};
+
+// chrome://webrtc-internals displays stats and stats graphs. The call path
+// involves thread and process hops (IPC). This is the ----webrtc::StatsObserver
+// that is used when webrtc-internals wants standard stats. It starts in
+// webrtc_internals.js performing requestStandardStats and the result gets
+// asynchronously delivered to webrtc_internals.js at addStandardStats.
+class InternalStandardStatsObserver : public webrtc::RTCStatsCollectorCallback {
+ public:
+  InternalStandardStatsObserver(
+      int lid,
+      scoped_refptr<base::SingleThreadTaskRunner> main_thread)
+      : lid_(lid), main_thread_(std::move(main_thread)) {}
+
+  void OnStatsDelivered(
+      const rtc::scoped_refptr<const webrtc::RTCStatsReport>& report) override {
+    // We're on the signaling thread.
+    DCHECK(!main_thread_->BelongsToCurrentThread());
+    main_thread_->PostTask(
+        FROM_HERE,
+        base::BindOnce(
+            &InternalStandardStatsObserver::OnStatsDeliveredOnMainThread,
+            scoped_refptr<InternalStandardStatsObserver>(this), report));
+  }
+
+ protected:
+  ~InternalStandardStatsObserver() override {}
+
+ private:
+  void OnStatsDeliveredOnMainThread(
+      rtc::scoped_refptr<const webrtc::RTCStatsReport> report) {
+    auto list = ReportToList(report);
+    RenderThreadImpl::current()->Send(
+        new PeerConnectionTrackerHost_AddStandardStats(lid_, *list.get()));
+  }
+
+  std::unique_ptr<base::ListValue> ReportToList(
+      const rtc::scoped_refptr<const webrtc::RTCStatsReport>& report) {
+    std::unique_ptr<base::ListValue> result_list(new base::ListValue());
+    for (const auto& stats : *report) {
+      // The format of "stats_subdictionary" is:
+      // {timestamp:<milliseconds>, values: [<key-value pairs>]}
+      auto stats_subdictionary = std::make_unique<base::DictionaryValue>();
+      // Timestamp is reported in milliseconds.
+      stats_subdictionary->SetDouble("timestamp",
+                                     stats.timestamp_us() / 1000.0);
+      // Values are reported as
+      // "values": ["member1", value, "member2", value...]
+      auto name_value_pairs = std::make_unique<base::ListValue>();
+      for (const auto* member : stats.Members()) {
+        if (!member->is_defined())
+          continue;
+        name_value_pairs->AppendString(member->name());
+        name_value_pairs->Append(MemberToValue(*member));
+      }
+      stats_subdictionary->Set("values", std::move(name_value_pairs));
+
+      // The format of "stats_dictionary" is:
+      // {id:<string>, stats:<stats_subdictionary>, type:<string>}
+      auto stats_dictionary = std::make_unique<base::DictionaryValue>();
+      stats_dictionary->Set("stats", std::move(stats_subdictionary));
+      stats_dictionary->SetString("id", stats.id());
+      stats_dictionary->SetString("type", stats.type());
+      result_list->Append(std::move(stats_dictionary));
+    }
+    return result_list;
+  }
+
+  std::unique_ptr<base::Value> MemberToValue(
+      const webrtc::RTCStatsMemberInterface& member) {
+    switch (member.type()) {
+      // Types supported by base::Value are passed as the appropriate type.
+      case webrtc::RTCStatsMemberInterface::Type::kBool:
+        return std::make_unique<base::Value>(
+            *member.cast_to<webrtc::RTCStatsMember<bool>>());
+      case webrtc::RTCStatsMemberInterface::Type::kInt32:
+        return std::make_unique<base::Value>(
+            *member.cast_to<webrtc::RTCStatsMember<int32_t>>());
+      case webrtc::RTCStatsMemberInterface::Type::kString:
+        return std::make_unique<base::Value>(
+            *member.cast_to<webrtc::RTCStatsMember<std::string>>());
+      // Types not supported by base::Value are converted to string.
+      case webrtc::RTCStatsMemberInterface::Type::kUint32:
+      case webrtc::RTCStatsMemberInterface::Type::kInt64:
+      case webrtc::RTCStatsMemberInterface::Type::kUint64:
+      case webrtc::RTCStatsMemberInterface::Type::kDouble:
+      case webrtc::RTCStatsMemberInterface::Type::kSequenceBool:
+      case webrtc::RTCStatsMemberInterface::Type::kSequenceInt32:
+      case webrtc::RTCStatsMemberInterface::Type::kSequenceUint32:
+      case webrtc::RTCStatsMemberInterface::Type::kSequenceInt64:
+      case webrtc::RTCStatsMemberInterface::Type::kSequenceUint64:
+      case webrtc::RTCStatsMemberInterface::Type::kSequenceDouble:
+      case webrtc::RTCStatsMemberInterface::Type::kSequenceString:
+      default:
+        return std::make_unique<base::Value>(member.ValueToString());
+    }
   }
 
   const int lid_;
@@ -496,7 +625,9 @@ bool PeerConnectionTracker::OnControlMessageReceived(
     const IPC::Message& message) {
   bool handled = true;
   IPC_BEGIN_MESSAGE_MAP(PeerConnectionTracker, message)
-    IPC_MESSAGE_HANDLER(PeerConnectionTracker_GetAllStats, OnGetAllStats)
+    IPC_MESSAGE_HANDLER(PeerConnectionTracker_GetStandardStats,
+                        OnGetStandardStats)
+    IPC_MESSAGE_HANDLER(PeerConnectionTracker_GetLegacyStats, OnGetLegacyStats)
     IPC_MESSAGE_HANDLER(PeerConnectionTracker_OnSuspend, OnSuspend)
     IPC_MESSAGE_HANDLER(PeerConnectionTracker_StartEventLog, OnStartEventLog)
     IPC_MESSAGE_HANDLER(PeerConnectionTracker_StopEventLog, OnStopEventLog)
@@ -505,19 +636,30 @@ bool PeerConnectionTracker::OnControlMessageReceived(
   return handled;
 }
 
-void PeerConnectionTracker::OnGetAllStats() {
+void PeerConnectionTracker::OnGetStandardStats() {
   DCHECK_CALLED_ON_VALID_THREAD(main_thread_);
 
   const std::string empty_track_id;
-  for (auto it = peer_connection_id_map_.begin();
-       it != peer_connection_id_map_.end(); ++it) {
-    rtc::scoped_refptr<InternalStatsObserver> observer(
-        new rtc::RefCountedObject<InternalStatsObserver>(
-            it->second, main_thread_task_runner_));
+  for (const auto& pair : peer_connection_local_id_map_) {
+    scoped_refptr<InternalStandardStatsObserver> observer(
+        new rtc::RefCountedObject<InternalStandardStatsObserver>(
+            pair.second, main_thread_task_runner_));
+    pair.first->GetStandardStatsForTracker(observer);
+  }
+}
 
-    it->first->GetStats(observer,
-                        webrtc::PeerConnectionInterface::kStatsOutputLevelDebug,
-                        nullptr);
+void PeerConnectionTracker::OnGetLegacyStats() {
+  DCHECK_CALLED_ON_VALID_THREAD(main_thread_);
+
+  const std::string empty_track_id;
+  for (const auto& pair : peer_connection_local_id_map_) {
+    rtc::scoped_refptr<InternalLegacyStatsObserver> observer(
+        new rtc::RefCountedObject<InternalLegacyStatsObserver>(
+            pair.second, main_thread_task_runner_));
+
+    pair.first->GetStats(
+        observer, webrtc::PeerConnectionInterface::kStatsOutputLevelDebug,
+        nullptr);
   }
 }
 
@@ -530,27 +672,27 @@ RenderThread* PeerConnectionTracker::SendTarget() {
 
 void PeerConnectionTracker::OnSuspend() {
   DCHECK_CALLED_ON_VALID_THREAD(main_thread_);
-  for (auto it = peer_connection_id_map_.begin();
-       it != peer_connection_id_map_.end(); ++it) {
+  for (auto it = peer_connection_local_id_map_.begin();
+       it != peer_connection_local_id_map_.end(); ++it) {
     it->first->CloseClientPeerConnection();
   }
 }
 
-void PeerConnectionTracker::OnStartEventLog(int peer_connection_id,
+void PeerConnectionTracker::OnStartEventLog(int peer_connection_local_id,
                                             int output_period_ms) {
   DCHECK_CALLED_ON_VALID_THREAD(main_thread_);
-  for (auto& it : peer_connection_id_map_) {
-    if (it.second == peer_connection_id) {
+  for (auto& it : peer_connection_local_id_map_) {
+    if (it.second == peer_connection_local_id) {
       it.first->StartEventLog(output_period_ms);
       return;
     }
   }
 }
 
-void PeerConnectionTracker::OnStopEventLog(int peer_connection_id) {
+void PeerConnectionTracker::OnStopEventLog(int peer_connection_local_id) {
   DCHECK_CALLED_ON_VALID_THREAD(main_thread_);
-  for (auto& it : peer_connection_id_map_) {
-    if (it.second == peer_connection_id) {
+  for (auto& it : peer_connection_local_id_map_) {
+    if (it.second == peer_connection_local_id) {
       it.first->StopEventLog();
       return;
     }
@@ -569,9 +711,6 @@ void PeerConnectionTracker::RegisterPeerConnection(
   PeerConnectionInfo info;
 
   info.lid = GetNextLocalID();
-  // RTCPeerConnection.id is guaranteed to be an ASCII string. The ID's origin
-  // is local, so this conversion is safe.
-  info.peer_connection_id = pc_handler->Id().Ascii();
   info.rtc_configuration = SerializeConfiguration(config);
 
   info.constraints = SerializeMediaConstraints(constraints);
@@ -581,7 +720,7 @@ void PeerConnectionTracker::RegisterPeerConnection(
     info.url = "test:testing";
   SendTarget()->Send(new PeerConnectionTrackerHost_AddPeerConnection(info));
 
-  peer_connection_id_map_.insert(std::make_pair(pc_handler, info.lid));
+  peer_connection_local_id_map_.insert(std::make_pair(pc_handler, info.lid));
 }
 
 void PeerConnectionTracker::UnregisterPeerConnection(
@@ -589,9 +728,9 @@ void PeerConnectionTracker::UnregisterPeerConnection(
   DCHECK_CALLED_ON_VALID_THREAD(main_thread_);
   DVLOG(1) << "PeerConnectionTracker::UnregisterPeerConnection()";
 
-  auto it = peer_connection_id_map_.find(pc_handler);
+  auto it = peer_connection_local_id_map_.find(pc_handler);
 
-  if (it == peer_connection_id_map_.end()) {
+  if (it == peer_connection_local_id_map_.end()) {
     // The PeerConnection might not have been registered if its initilization
     // failed.
     return;
@@ -599,7 +738,7 @@ void PeerConnectionTracker::UnregisterPeerConnection(
 
   GetPeerConnectionTrackerHost()->RemovePeerConnection(it->second);
 
-  peer_connection_id_map_.erase(it);
+  peer_connection_local_id_map_.erase(it);
 }
 
 void PeerConnectionTracker::TrackCreateOffer(
@@ -683,10 +822,12 @@ void PeerConnectionTracker::TrackAddIceCandidate(
   int id = GetLocalIDForHandler(pc_handler);
   if (id == -1)
     return;
-  std::string value =
-      "sdpMid: " + candidate->SdpMid().Utf8() + ", " +
-      "sdpMLineIndex: " + base::UintToString(candidate->SdpMLineIndex()) +
-      ", " + "candidate: " + candidate->Candidate().Utf8();
+  std::string value = "sdpMid: " + candidate->SdpMid().Utf8() + ", " +
+                      "sdpMLineIndex: " +
+                      (candidate->SdpMLineIndex()
+                           ? base::NumberToString(*candidate->SdpMLineIndex())
+                           : "null") +
+                      ", " + "candidate: " + candidate->Candidate().Utf8();
 
   // OnIceCandidate always succeeds as it's a callback from the browser.
   DCHECK(source != SOURCE_LOCAL || succeeded);
@@ -763,7 +904,7 @@ void PeerConnectionTracker::TrackTransceiver(
         blink::WebRTCRtpTransceiverImplementationType::kPlanBReceiverOnly);
     result += "getReceivers()";
   }
-  result += "[" + base::UintToString(transceiver_index) + "]:";
+  result += "[" + base::NumberToString(transceiver_index) + "]:";
   result += SerializeTransceiver(transceiver);
   SendPeerConnectionUpdate(id, callback_type, result);
 }
@@ -803,6 +944,17 @@ void PeerConnectionTracker::TrackSignalingStateChange(
       id, "signalingStateChange", GetSignalingStateString(state));
 }
 
+void PeerConnectionTracker::TrackLegacyIceConnectionStateChange(
+    RTCPeerConnectionHandler* pc_handler,
+    webrtc::PeerConnectionInterface::IceConnectionState state) {
+  DCHECK_CALLED_ON_VALID_THREAD(main_thread_);
+  int id = GetLocalIDForHandler(pc_handler);
+  if (id == -1)
+    return;
+  SendPeerConnectionUpdate(id, "legacyIceConnectionStateChange",
+                           GetIceConnectionStateString(state));
+}
+
 void PeerConnectionTracker::TrackIceConnectionStateChange(
     RTCPeerConnectionHandler* pc_handler,
     webrtc::PeerConnectionInterface::IceConnectionState state) {
@@ -813,6 +965,17 @@ void PeerConnectionTracker::TrackIceConnectionStateChange(
   SendPeerConnectionUpdate(
       id, "iceConnectionStateChange",
       GetIceConnectionStateString(state));
+}
+
+void PeerConnectionTracker::TrackConnectionStateChange(
+    RTCPeerConnectionHandler* pc_handler,
+    webrtc::PeerConnectionInterface::PeerConnectionState state) {
+  DCHECK_CALLED_ON_VALID_THREAD(main_thread_);
+  int id = GetLocalIDForHandler(pc_handler);
+  if (id == -1)
+    return;
+  SendPeerConnectionUpdate(id, "connectionStateChange",
+                           GetConnectionStateString(state));
 }
 
 void PeerConnectionTracker::TrackIceGatheringStateChange(
@@ -859,6 +1022,19 @@ void PeerConnectionTracker::TrackSessionDescriptionCallback(
   SendPeerConnectionUpdate(id, update_type.c_str(), value);
 }
 
+void PeerConnectionTracker::TrackSessionId(RTCPeerConnectionHandler* pc_handler,
+                                           const std::string& session_id) {
+  DCHECK_CALLED_ON_VALID_THREAD(main_thread_);
+  DCHECK(pc_handler);
+  DCHECK(!session_id.empty());
+  const int local_id = GetLocalIDForHandler(pc_handler);
+  if (local_id == -1) {
+    return;
+  }
+  GetPeerConnectionTrackerHost().get()->OnPeerConnectionSessionIdSet(
+      local_id, session_id);
+}
+
 void PeerConnectionTracker::TrackOnRenegotiationNeeded(
     RTCPeerConnectionHandler* pc_handler) {
   DCHECK_CALLED_ON_VALID_THREAD(main_thread_);
@@ -899,8 +1075,8 @@ int PeerConnectionTracker::GetNextLocalID() {
 int PeerConnectionTracker::GetLocalIDForHandler(
     RTCPeerConnectionHandler* handler) const {
   DCHECK_CALLED_ON_VALID_THREAD(main_thread_);
-  const auto found = peer_connection_id_map_.find(handler);
-  if (found == peer_connection_id_map_.end())
+  const auto found = peer_connection_local_id_map_.find(handler);
+  if (found == peer_connection_local_id_map_.end())
     return -1;
   DCHECK_NE(found->second, -1);
   return found->second;

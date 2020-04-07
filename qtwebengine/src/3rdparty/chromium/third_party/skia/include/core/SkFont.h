@@ -8,9 +8,9 @@
 #ifndef SkFont_DEFINED
 #define SkFont_DEFINED
 
-#include "SkFontTypes.h"
-#include "SkScalar.h"
-#include "SkTypeface.h"
+#include "include/core/SkFontTypes.h"
+#include "include/core/SkScalar.h"
+#include "include/core/SkTypeface.h"
 
 class SkMatrix;
 class SkPaint;
@@ -94,15 +94,15 @@ public:
     */
     bool isEmbeddedBitmaps() const { return SkToBool(fFlags & kEmbeddedBitmaps_PrivFlag); }
 
-    /** Returns true if glyphs at different sub-pixel positions may differ on pixel edge coverage.
+    /** Returns true if glyphs may be drawn at sub-pixel offsets.
 
-        @return  true if glyph positioned in pixel using transparency
+        @return  true if glyphs may be drawn at sub-pixel offsets.
     */
     bool isSubpixel() const { return SkToBool(fFlags & kSubpixel_PrivFlag); }
 
-    /** Returns true if text is converted to SkPath before drawing and measuring.
+    /** Returns true if font and glyph metrics are requested to be linearly scalable.
 
-        @return  true glyph hints are never applied
+        @return  true if font and glyph metrics are requested to be linearly scalable.
     */
     bool isLinearMetrics() const { return SkToBool(fFlags & kLinearMetrics_PrivFlag); }
 
@@ -134,10 +134,12 @@ public:
     */
     void setSubpixel(bool subpixel);
 
-    /** Requests, but does not require, that glyphs are converted to SkPath
-        before drawing and measuring.
+    /** Requests, but does not require, linearly scalable font and glyph metrics.
 
-        @param linearMetrics  setting for converting glyphs to paths
+        For outline fonts 'true' means font and glyph metrics should ignore hinting and rounding.
+        Note that some bitmap formats may not be able to scale linearly and will ignore this flag.
+
+        @param linearMetrics  setting for linearly scalable font and glyph metrics.
     */
     void setLinearMetrics(bool linearMetrics);
 
@@ -270,7 +272,7 @@ public:
         If byteLength equals zero, returns zero.
         If byteLength includes a partial character, the partial character is ignored.
 
-        If encoding is kUTF8_SkTextEncoding and text contains an invalid UTF-8 sequence,
+        If encoding is SkTextEncoding::kUTF8 and text contains an invalid UTF-8 sequence,
         zero is returned.
 
         When encoding is SkTextEncoding::kUTF8, SkTextEncoding::kUTF16, or
@@ -284,8 +286,8 @@ public:
 
         @param text          character storage encoded with SkTextEncoding
         @param byteLength    length of character storage in bytes
-        @param encoding      one of: kUTF8_SkTextEncoding, kUTF16_SkTextEncoding,
-                             kUTF32_SkTextEncoding, kGlyphID_SkTextEncoding
+        @param encoding      one of: SkTextEncoding::kUTF8, SkTextEncoding::kUTF16,
+                             SkTextEncoding::kUTF32, SkTextEncoding::kGlyphID
         @param glyphs        storage for glyph indices; may be nullptr
         @param maxGlyphCount storage capacity
         @return              number of glyphs represented by text of length byteLength
@@ -300,60 +302,25 @@ public:
         @param uni  Unicode character
         @return     glyph index
     */
-    uint16_t unicharToGlyph(SkUnichar uni) const {
-        return fTypeface->unicharToGlyph(uni);
-    }
+    SkGlyphID unicharToGlyph(SkUnichar uni) const;
+
+    void unicharsToGlyphs(const SkUnichar uni[], int count, SkGlyphID glyphs[]) const;
 
     /** Returns number of glyphs represented by text.
 
-        If encoding is kUTF8_SkTextEncoding, kUTF16_SkTextEncoding, or
-        kUTF32_SkTextEncoding; then each Unicode codepoint is mapped to a
+        If encoding is SkTextEncoding::kUTF8, SkTextEncoding::kUTF16, or
+        SkTextEncoding::kUTF32; then each Unicode codepoint is mapped to a
         single glyph.
 
         @param text          character storage encoded with SkTextEncoding
         @param byteLength    length of character storage in bytes
-        @param encoding      one of: kUTF8_SkTextEncoding, kUTF16_SkTextEncoding,
-                             kUTF32_SkTextEncoding, kGlyphID_SkTextEncoding
+        @param encoding      one of: SkTextEncoding::kUTF8, SkTextEncoding::kUTF16,
+                             SkTextEncoding::kUTF32, SkTextEncoding::kGlyphID
         @return              number of glyphs represented by text of length byteLength
     */
     int countText(const void* text, size_t byteLength, SkTextEncoding encoding) const {
         return this->textToGlyphs(text, byteLength, encoding, nullptr, 0);
     }
-
-    /** Returns true if all text corresponds to a non-zero glyph index.
-        Returns false if any characters in text are not supported in
-        SkTypeface.
-
-        If SkTextEncoding is kGlyphID_SkTextEncoding,
-        returns true if all glyph indices in text are non-zero;
-        does not check to see if text contains valid glyph indices for SkTypeface.
-
-        Returns true if byteLength is zero.
-
-        @param text        array of characters or glyphs
-        @param byteLength  number of bytes in text array
-        @param encoding    text encoding
-        @return            true if all text corresponds to a non-zero glyph index
-     */
-    bool containsText(const void* text, size_t byteLength, SkTextEncoding encoding) const;
-
-    /** Returns the bytes of text that fit within maxWidth.
-        The text fragment fits if its advance width is less than or equal to maxWidth.
-        Measures only while the advance is less than or equal to maxWidth.
-        Returns the advance or the text fragment in measuredWidth if it not nullptr.
-        Uses encoding to decode text, SkTypeface to get the font metrics,
-        and text size to scale the metrics.
-        Does not scale the advance or bounds by fake bold.
-
-        @param text           character codes or glyph indices to be measured
-        @param length         number of bytes of text to measure
-        @param encoding       text encoding
-        @param maxWidth       advance limit; text is measured while advance is less than maxWidth
-        @param measuredWidth  returns the width of the text less than or equal to maxWidth
-        @return               bytes of text that fit, always less than or equal to length
-    */
-    size_t breakText(const void* text, size_t length, SkTextEncoding encoding, SkScalar maxWidth,
-                     SkScalar* measuredWidth = nullptr) const;
 
     /** Returns the advance width of text.
         The advance is the normal distance to move before drawing additional text.
@@ -361,8 +328,8 @@ public:
 
         @param text        character storage encoded with SkTextEncoding
         @param byteLength  length of character storage in bytes
-        @param encoding    one of: kUTF8_SkTextEncoding, kUTF16_SkTextEncoding,
-                           kUTF32_SkTextEncoding, kGlyphID_SkTextEncoding
+        @param encoding    one of: SkTextEncoding::kUTF8, SkTextEncoding::kUTF16,
+                           SkTextEncoding::kUTF32, SkTextEncoding::kGlyphID
         @param bounds      returns bounding box relative to (0, 0) if not nullptr
         @return            number of glyphs represented by text of length byteLength
     */
@@ -378,8 +345,8 @@ public:
 
         @param text        character storage encoded with SkTextEncoding
         @param byteLength  length of character storage in bytes
-        @param encoding    one of: kUTF8_SkTextEncoding, kUTF16_SkTextEncoding,
-                           kUTF32_SkTextEncoding, kGlyphID_SkTextEncoding
+        @param encoding    one of: SkTextEncoding::kUTF8, SkTextEncoding::kUTF16,
+                           SkTextEncoding::kUTF32, SkTextEncoding::kGlyphID
         @param bounds      returns bounding box relative to (0, 0) if not nullptr
         @param paint       optional; may be nullptr
         @return            number of glyphs represented by text of length byteLength
@@ -398,12 +365,12 @@ public:
         @param widths      returns text advances for each glyph; may be nullptr
         @param bounds      returns bounds for each glyph relative to (0, 0); may be nullptr
     */
-    void getWidths(const uint16_t glyphs[], int count, SkScalar widths[], SkRect bounds[]) const {
+    void getWidths(const SkGlyphID glyphs[], int count, SkScalar widths[], SkRect bounds[]) const {
         this->getWidthsBounds(glyphs, count, widths, bounds, nullptr);
     }
 
     // DEPRECATED
-    void getWidths(const uint16_t glyphs[], int count, SkScalar widths[], std::nullptr_t) const {
+    void getWidths(const SkGlyphID glyphs[], int count, SkScalar widths[], std::nullptr_t) const {
         this->getWidths(glyphs, count, widths);
     }
 
@@ -416,7 +383,7 @@ public:
         @param count       number of glyphs
         @param widths      returns text advances for each glyph
      */
-    void getWidths(const uint16_t glyphs[], int count, SkScalar widths[]) const {
+    void getWidths(const SkGlyphID glyphs[], int count, SkScalar widths[]) const {
         this->getWidthsBounds(glyphs, count, widths, nullptr, nullptr);
     }
 
@@ -431,7 +398,7 @@ public:
         @param bounds      returns bounds for each glyph relative to (0, 0); may be nullptr
         @param paint       optional, specifies stroking, SkPathEffect and SkMaskFilter
      */
-    void getWidthsBounds(const uint16_t glyphs[], int count, SkScalar widths[], SkRect bounds[],
+    void getWidthsBounds(const SkGlyphID glyphs[], int count, SkScalar widths[], SkRect bounds[],
                          const SkPaint* paint) const;
 
 
@@ -444,7 +411,7 @@ public:
         @param bounds      returns bounds for each glyph relative to (0, 0); may be nullptr
         @param paint       optional, specifies stroking, SkPathEffect, and SkMaskFilter
      */
-    void getBounds(const uint16_t glyphs[], int count, SkRect bounds[],
+    void getBounds(const SkGlyphID glyphs[], int count, SkRect bounds[],
                    const SkPaint* paint) const {
         this->getWidthsBounds(glyphs, count, nullptr, bounds, paint);
     }
@@ -457,7 +424,7 @@ public:
         @param pos      returns glyphs positions
         @param origin   location of the first glyph. Defaults to {0, 0}.
      */
-    void getPos(const uint16_t glyphs[], int count, SkPoint pos[], SkPoint origin = {0, 0}) const;
+    void getPos(const SkGlyphID glyphs[], int count, SkPoint pos[], SkPoint origin = {0, 0}) const;
 
     /** Retrieves the x-positions for each glyph, beginning at the specified origin. The caller
         must allocated at least count number of elements in the xpos[] array.
@@ -467,7 +434,7 @@ public:
         @param xpos     returns glyphs x-positions
         @param origin   x-position of the first glyph. Defaults to 0.
      */
-    void getXPos(const uint16_t glyphs[], int count, SkScalar xpos[], SkScalar origin = 0) const;
+    void getXPos(const SkGlyphID glyphs[], int count, SkScalar xpos[], SkScalar origin = 0) const;
 
     /** Returns path corresponding to glyph outline.
         If glyph has an outline, copies outline to path and returns true.
@@ -478,7 +445,7 @@ public:
         @param path     pointer to existing SkPath
         @return         true if glyphID is described by path
      */
-    bool getPath(uint16_t glyphID, SkPath* path) const;
+    bool getPath(SkGlyphID glyphID, SkPath* path) const;
 
     /** Returns path corresponding to glyph array.
 
@@ -487,7 +454,7 @@ public:
         @param glyphPathProc function returning one glyph description as path
         @param ctx           function context
    */
-    void getPaths(const uint16_t glyphIDs[], int count,
+    void getPaths(const SkGlyphID glyphIDs[], int count,
                   void (*glyphPathProc)(const SkPath* pathOrNull, const SkMatrix& mx, void* ctx),
                   void* ctx) const;
 
@@ -514,20 +481,7 @@ public:
     */
     SkScalar getSpacing() const { return this->getMetrics(nullptr); }
 
-#ifdef SK_SUPPORT_LEGACY_PAINT_FONT_FIELDS
-    /** Deprecated.
-    */
-    void LEGACY_applyToPaint(SkPaint* paint) const;
-    /** Deprecated.
-     */
-    void LEGACY_applyPaintFlags(uint32_t paintFlags);
-    /** Deprecated.
-    */
-    static SkFont LEGACY_ExtractFromPaint(const SkPaint& paint);
-#endif
-
-    /** Experimental.
-     *  Dumps fields of the font to SkDebugf. May change its output over time, so clients should
+    /** Dumps fields of the font to SkDebugf. May change its output over time, so clients should
      *  not rely on this for anything specific. Used to aid in debugging.
      */
     void dump() const;
@@ -554,15 +508,11 @@ private:
     SkScalar setupForAsPaths(SkPaint*);
     bool hasSomeAntiAliasing() const;
 
-    void glyphsToUnichars(const SkGlyphID glyphs[], int count, SkUnichar text[]) const;
-
     friend class GrTextBlob;
-    friend class SkCanonicalizeFont;
     friend class SkFontPriv;
     friend class SkGlyphRunListPainter;
-    friend class SkPaint;
     friend class SkTextBlobCacheDiffCanvas;
-    friend class SVGTextBuilder;
+    friend class SkStrikeSpec;
 };
 
 #endif

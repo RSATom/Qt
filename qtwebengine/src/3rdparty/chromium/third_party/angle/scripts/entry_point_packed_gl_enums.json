@@ -43,10 +43,13 @@
         "target": "TextureTarget"
     },
     "glCompressedTexImage3D": {
-        "target": "TextureType"
+        "target": "TextureTarget"
+    },
+    "glCompressedTexImage3DOES": {
+        "target": "TextureTarget"
     },
     "glCompressedTexImage3DRobustANGLE": {
-        "target": "TextureType"
+        "target": "TextureTarget"
     },
     "glCompressedTexSubImage2D": {
         "target": "TextureTarget"
@@ -55,10 +58,13 @@
         "target": "TextureTarget"
     },
     "glCompressedTexSubImage3D": {
-        "target": "TextureType"
+        "target": "TextureTarget"
+    },
+    "glCompressedTexSubImage3DOES": {
+        "target": "TextureTarget"
     },
     "glCompressedTexSubImage3DRobustANGLE": {
-        "target": "TextureType"
+        "target": "TextureTarget"
     },
     "glCopyTexImage2D": {
         "target": "TextureTarget"
@@ -73,7 +79,10 @@
         "target": "TextureTarget"
     },
     "glCopyTexSubImage3D": {
-        "target": "TextureType"
+        "target": "TextureTarget"
+    },
+    "glCopyTexSubImage3DOES": {
+        "target": "TextureTarget"
     },
     "glCopySubTexture3DANGLE": {
         "destTarget": "TextureTarget"
@@ -109,6 +118,9 @@
     "glDrawArraysInstancedANGLE": {
         "mode": "PrimitiveMode"
     },
+    "glDrawArraysInstancedEXT": {
+        "mode": "PrimitiveMode"
+    },
     "glDrawElements": {
         "mode": "PrimitiveMode",
         "type": "DrawElementsType"
@@ -122,6 +134,10 @@
         "type": "DrawElementsType"
     },
     "glDrawElementsInstancedANGLE": {
+        "mode": "PrimitiveMode",
+        "type": "DrawElementsType"
+    },
+    "glDrawElementsInstancedEXT": {
         "mode": "PrimitiveMode",
         "type": "DrawElementsType"
     },
@@ -151,6 +167,12 @@
         "textarget": "TextureTarget"
     },
     "glFramebufferTexture2DOES": {
+        "textarget": "TextureTarget"
+    },
+    "glFramebufferTexture3D": {
+        "textarget": "TextureTarget"
+    },
+    "glFramebufferTexture3DOES": {
         "textarget": "TextureTarget"
     },
     "glGenerateMipmap": {
@@ -249,13 +271,28 @@
     "glGetTexParameterIuivRobustANGLE": {
         "target": "TextureType"
     },
+    "glGetTexParameterIiv": {
+        "target": "TextureType"
+    },
     "glGetTexParameterIivOES": {
+        "target": "TextureType"
+    },
+    "glGetTexParameterIuiv": {
         "target": "TextureType"
     },
     "glGetTexParameterIuivOES": {
         "target": "TextureType"
     },
     "glGetTexParameterxv": {
+        "target": "TextureType"
+    },
+    "glImportMemoryFdEXT": {
+        "handleType": "HandleType"
+    },
+    "glImportSemaphoreFdEXT": {
+        "handleType": "HandleType"
+    },
+    "glInvalidateTextureANGLE": {
         "target": "TextureType"
     },
     "glLightf" : {
@@ -272,6 +309,10 @@
     },
     "glLogicOp" : {
         "opcode" : "LogicalOperation"
+    },
+    "glLoseContextCHROMIUM" : {
+        "current" : "GraphicsResetStatus",
+        "other" : "GraphicsResetStatus"
     },
     "glMapBuffer": {
         "target": "BufferBinding"
@@ -300,11 +341,18 @@
     "glMatrixMode": {
         "mode": "MatrixType"
     },
+    "glMultiDrawArrays": {
+        "mode": "PrimitiveMode"
+    },
     "glMultiDrawArraysANGLE": {
         "mode": "PrimitiveMode"
     },
     "glMultiDrawArraysInstancedANGLE": {
         "mode": "PrimitiveMode"
+    },
+    "glMultiDrawElements": {
+        "mode": "PrimitiveMode",
+        "type": "DrawElementsType"
     },
     "glMultiDrawElementsANGLE": {
         "mode": "PrimitiveMode",
@@ -332,8 +380,14 @@
     "glPointSizePointerOES": {
         "type" : "VertexAttribType"
     },
+    "glProvokingVertex": {
+        "mode": "ProvokingVertexConvention"
+    },
     "glProvokingVertexANGLE": {
-        "mode": "ProvokingVertex"
+        "mode": "ProvokingVertexConvention"
+    },
+    "glQueryCounter": {
+        "target": "QueryType"
     },
     "glQueryCounterEXT": {
         "target": "QueryType"
@@ -371,14 +425,20 @@
     "glTexImage2D": {
         "target": "TextureTarget"
     },
+    "glTexImage2DExternalANGLE": {
+        "target": "TextureTarget"
+    },
     "glTexImage2DRobustANGLE": {
         "target": "TextureTarget"
     },
     "glTexImage3D": {
-        "target": "TextureType"
+        "target": "TextureTarget"
+    },
+    "glTexImage3DOES": {
+        "target": "TextureTarget"
     },
     "glTexImage3DRobustANGLE": {
-        "target": "TextureType"
+        "target": "TextureTarget"
     },
     "glTexParameterf": {
         "target": "TextureType"
@@ -404,7 +464,13 @@
     "glTexParameterIuivRobustANGLE": {
         "target": "TextureType"
     },
+    "glTexParameterIiv": {
+        "target": "TextureType"
+    },
     "glTexParameterIivOES": {
+        "target": "TextureType"
+    },
+    "glTexParameterIuiv": {
         "target": "TextureType"
     },
     "glTexParameterIuivOES": {
@@ -428,7 +494,25 @@
     "glTexStorage2DMultisampleANGLE": {
         "target": "TextureType"
     },
+    "glTexStorage3DMultisample": {
+        "target": "TextureType"
+    },
     "glTexStorage3DMultisampleOES": {
+        "target": "TextureType"
+    },
+    "glTexStorageMem2DEXT": {
+        "target": "TextureType"
+    },
+    "glTexStorageMem2DMultisampleEXT": {
+        "target": "TextureType"
+    },
+    "glTexStorageMem3DEXT": {
+        "target": "TextureType"
+    },
+    "glTexStorageMem3DMultisampleEXT": {
+        "target": "TextureType"
+    },
+    "glBufferStorageMemEXT": {
         "target": "TextureType"
     },
     "glTexStorage3D": {
@@ -444,10 +528,13 @@
         "target": "TextureTarget"
     },
     "glTexSubImage3D": {
-        "target": "TextureType"
+        "target": "TextureTarget"
+    },
+    "glTexSubImage3DOES": {
+        "target": "TextureTarget"
     },
     "glTexSubImage3DRobustANGLE": {
-        "target": "TextureType"
+        "target": "TextureTarget"
     },
     "glUnmapBuffer": {
         "target": "BufferBinding"

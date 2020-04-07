@@ -18,7 +18,6 @@
 
 class GURL;
 struct FrameHostMsg_DidCommitProvisionalLoad_Params;
-struct FrameHostMsg_DidFailProvisionalLoadWithError_Params;
 
 namespace base {
 class TimeTicks;
@@ -32,6 +31,7 @@ namespace content {
 
 class FrameNavigationEntry;
 class FrameTreeNode;
+class PrefetchedSignedExchangeCache;
 class RenderFrameHostImpl;
 struct CommonNavigationParams;
 
@@ -55,7 +55,10 @@ class CONTENT_EXPORT Navigator : public base::RefCounted<Navigator> {
   // The RenderFrameHostImpl has failed a provisional load.
   virtual void DidFailProvisionalLoadWithError(
       RenderFrameHostImpl* render_frame_host,
-      const FrameHostMsg_DidFailProvisionalLoadWithError_Params& params) {}
+      const GURL& url,
+      int error_code,
+      const base::string16& error_description,
+      bool showing_repost_interstitial) {}
 
   // The RenderFrameHostImpl has failed to load the document.
   virtual void DidFailLoadWithError(RenderFrameHostImpl* render_frame_host,
@@ -81,11 +84,9 @@ class CONTENT_EXPORT Navigator : public base::RefCounted<Navigator> {
   // process looks up the corresponding FrameNavigationEntry for the new frame
   // navigates it in the correct process. Returns false if the
   // FrameNavigationEntry can't be found or the navigation fails.
-  // TODO(creis): Remove |default_url| once we have collected UMA stats on the
-  // cases that we use a different URL from history than the frame's src.
   virtual bool StartHistoryNavigationInNewSubframe(
       RenderFrameHostImpl* render_frame_host,
-      const GURL& default_url);
+      mojom::NavigationClientAssociatedPtrInfo* navigation_client);
 
   // Navigation requests -------------------------------------------------------
 
@@ -150,7 +151,9 @@ class CONTENT_EXPORT Navigator : public base::RefCounted<Navigator> {
       mojom::BeginNavigationParamsPtr begin_params,
       scoped_refptr<network::SharedURLLoaderFactory> blob_url_loader_factory,
       mojom::NavigationClientAssociatedPtrInfo navigation_client,
-      blink::mojom::NavigationInitiatorPtr navigation_initiator);
+      blink::mojom::NavigationInitiatorPtr navigation_initiator,
+      scoped_refptr<PrefetchedSignedExchangeCache>
+          prefetched_signed_exchange_cache);
 
   // Used to restart a navigation that was thought to be same-document in
   // cross-document mode.

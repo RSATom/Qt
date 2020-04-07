@@ -1113,6 +1113,7 @@ bool XsdValidatingInstanceReader::selectNodeSets(const XsdElement::Ptr&, const Q
 
                 const QXmlNodeModelIndex index = fieldItem.toNodeModelIndex();
                 const SchemaType::Ptr type = m_model->assignedType(index);
+                Q_ASSERT(type);
 
                 bool typeOk = true;
                 if (type->isComplexType()) {
@@ -1136,6 +1137,15 @@ bool XsdValidatingInstanceReader::selectNodeSets(const XsdElement::Ptr&, const Q
                         targetType = XsdSimpleType::Ptr(type)->primitiveType();
                     else
                         targetType = XsdComplexType::Ptr(type)->contentType()->simpleType();
+
+                    if (!targetType) {
+                        // QTBUG-77620: pattern type within a union doesn't get
+                        // its primitive type set.  FIXME: find root cause and
+                        // fix that, so we can remove this (and an XFAIL).
+                        error(QtXmlPatterns::tr("Field %1 is missing its simple type.")
+                                                        .arg(formatData(field->expression())));
+                        return false;
+                    }
                 } else {
                     if (BuiltinTypes::xsAnySimpleType->name(m_namePool) == type->name(m_namePool)) {
                         targetType = BuiltinTypes::xsString;

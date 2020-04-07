@@ -6,6 +6,7 @@
 #define CONTENT_RENDERER_LOADER_RESOURCE_LOAD_STATS_H_
 
 #include "build/build_config.h"
+#include "content/public/common/previews_state.h"
 #include "content/public/common/resource_load_info.mojom.h"
 #include "content/public/common/resource_type.h"
 
@@ -39,7 +40,8 @@ mojom::ResourceLoadInfoPtr NotifyResourceLoadInitiated(
     const GURL& request_url,
     const std::string& http_method,
     const GURL& referrer,
-    ResourceType resource_type);
+    ResourceType resource_type,
+    net::RequestPriority request_priority);
 
 void NotifyResourceRedirectReceived(
     int render_frame_id,
@@ -50,7 +52,8 @@ void NotifyResourceRedirectReceived(
 void NotifyResourceResponseReceived(
     int render_frame_id,
     mojom::ResourceLoadInfo* resource_load_info,
-    const network::ResourceResponseHead& response_head);
+    const network::ResourceResponseHead& response_head,
+    PreviewsState previews_state);
 
 void NotifyResourceTransferSizeUpdated(
     int render_frame_id,

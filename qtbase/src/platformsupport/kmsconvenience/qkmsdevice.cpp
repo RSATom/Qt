@@ -66,6 +66,8 @@ enum OutputConfiguration {
 
 int QKmsDevice::crtcForConnector(drmModeResPtr resources, drmModeConnectorPtr connector)
 {
+    int candidate = -1;
+
     for (int i = 0; i < connector->count_encoders; i++) {
         drmModeEncoderPtr encoder = drmModeGetEncoder(m_dri_fd, connector->encoders[i]);
         if (!encoder) {
@@ -73,19 +75,30 @@ int QKmsDevice::crtcForConnector(drmModeResPtr resources, drmModeConnectorPtr co
             continue;
         }
 
+        quint32 encoderId = encoder->encoder_id;
+        quint32 crtcId = encoder->crtc_id;
         quint32 possibleCrtcs = encoder->possible_crtcs;
         drmModeFreeEncoder(encoder);
 
         for (int j = 0; j < resources->count_crtcs; j++) {
             bool isPossible = possibleCrtcs & (1 << j);
             bool isAvailable = !(m_crtc_allocator & (1 << j));
+            // Preserve the existing CRTC -> encoder -> connector routing if
+            // any. It makes the initialization faster, and may be better
+            // since we have a very dumb picking algorithm.
+            bool isBestChoice = (!connector->encoder_id ||
+                                 (connector->encoder_id == encoderId &&
+                                  resources->crtcs[j] == crtcId));
 
-            if (isPossible && isAvailable)
+            if (isPossible && isAvailable && isBestChoice) {
                 return j;
+            } else if (isPossible && isAvailable) {
+                candidate = j;
+            }
         }
     }
 
-    return -1;
+    return candidate;
 }
 
 static const char * const connector_type_names[] = { // must match DRM_MODE_CONNECTOR_*
@@ -381,23 +394,26 @@ QPlatformScreen *QKmsDevice::createScreenForConnector(drmModeResPtr resources,
     if (!cloneSource.isEmpty())
         qCDebug(qLcKmsDebug) << "Output" << connectorName << " clones output " << cloneSource;
 
-    const QByteArray fbsize = userConnectorConfig.value(QStringLiteral("size")).toByteArray().toLower();
     QSize framebufferSize;
-    framebufferSize.setWidth(modes[selected_mode].hdisplay);
-    framebufferSize.setHeight(modes[selected_mode].vdisplay);
-
+    bool framebufferSizeSet = false;
+    const QByteArray fbsize = userConnectorConfig.value(QStringLiteral("size")).toByteArray().toLower();
+    if (!fbsize.isEmpty()) {
+        if (sscanf(fbsize.constData(), "%dx%d", &framebufferSize.rwidth(), &framebufferSize.rheight()) == 2) {
 #if QT_CONFIG(drm_atomic)
-    if (hasAtomicSupport()) {
-        if (sscanf(fbsize.constData(), "%dx%d", &framebufferSize.rwidth(), &framebufferSize.rheight()) != 2) {
-            qWarning("Framebuffer size format is invalid.");
-        }
-    } else {
-        qWarning("Setting framebuffer size is only available with DRM atomic API");
-    }
-#else
-    if (fbsize.size())
-        qWarning("Setting framebuffer size is only available with DRM atomic API");
+            if (hasAtomicSupport())
+                framebufferSizeSet = true;
 #endif
+            if (!framebufferSizeSet)
+                qWarning("Setting framebuffer size is only available with DRM atomic API");
+        } else {
+            qWarning("Invalid framebuffer size '%s'", fbsize.constData());
+        }
+    }
+    if (!framebufferSizeSet) {
+        framebufferSize.setWidth(modes[selected_mode].hdisplay);
+        framebufferSize.setHeight(modes[selected_mode].vdisplay);
+    }
+
     qCDebug(qLcKmsDebug) << "Output" << connectorName << "framebuffer size is " << framebufferSize;
 
     QKmsOutput output;
@@ -799,9 +815,7 @@ void QKmsDevice::discoverPlanes()
         for (int i = 0; i < countFormats; ++i) {
             uint32_t f = drmplane->formats[i];
             plane.supportedFormats.append(f);
-            QString s;
-            s.sprintf("%c%c%c%c ", f, f >> 8, f >> 16, f >> 24);
-            formatStr += s;
+            formatStr += QString::asprintf("%c%c%c%c ", f, f >> 8, f >> 16, f >> 24);
         }
 
         qCDebug(qLcKmsDebug, "plane %d: id = %u countFormats = %d possibleCrtcs = 0x%x supported formats = %s",
@@ -848,6 +862,8 @@ void QKmsDevice::discoverPlanes()
                 plane.crtcYPropertyId = prop->prop_id;
             } else if (!strcasecmp(prop->name, "zpos")) {
                 plane.zposPropertyId = prop->prop_id;
+            } else if (!strcasecmp(prop->name, "blend_op")) {
+                plane.blendOpPropertyId = prop->prop_id;
             }
         });
 

@@ -64,7 +64,7 @@ private Q_SLOTS:
 
         qWarning() << "From client";
         const MyPOD initialValue(42, 3.14f, QStringLiteral("SubClass"));
-        if (objectMode == QLatin1Literal("ObjectPointer")) {
+        if (objectMode == QLatin1String("ObjectPointer")) {
             QSignalSpy tracksSpy(m_rep->tracks(), &QAbstractItemModelReplica::initialized);
             QVERIFY(m_rep->subClass() != nullptr);
             QCOMPARE(m_rep->subClass()->myPOD(), initialValue);
@@ -79,7 +79,7 @@ private Q_SLOTS:
 
         QSignalSpy advanceSpy(m_rep.data(), SIGNAL(advance()));
         QVERIFY(advanceSpy.wait());
-        if (objectMode == QLatin1Literal("ObjectPointer")) {
+        if (objectMode == QLatin1String("ObjectPointer")) {
             QVERIFY(m_rep->subClass() != nullptr);
             QCOMPARE(m_rep->subClass()->myPOD(), initialValue);
             QVERIFY(m_rep->tracks() != nullptr);

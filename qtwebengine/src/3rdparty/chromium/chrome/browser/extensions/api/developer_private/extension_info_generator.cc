@@ -11,7 +11,7 @@
 #include <vector>
 
 #include "base/base64.h"
-#include "base/callback_helpers.h"
+#include "base/bind.h"
 #include "base/location.h"
 #include "base/single_thread_task_runner.h"
 #include "base/stl_util.h"
@@ -398,9 +398,7 @@ ExtensionInfoGenerator::ExtensionInfoGenerator(
       warning_service_(WarningService::Get(browser_context)),
       error_console_(ErrorConsole::Get(browser_context)),
       image_loader_(ImageLoader::Get(browser_context)),
-      pending_image_loads_(0u),
-      weak_factory_(this) {
-}
+      pending_image_loads_(0u) {}
 
 ExtensionInfoGenerator::~ExtensionInfoGenerator() {
 }
@@ -780,7 +778,7 @@ void ExtensionInfoGenerator::OnImageLoaded(
   if (pending_image_loads_ == 0) {  // All done!
     ExtensionInfoList list = std::move(list_);
     list_.clear();
-    base::ResetAndReturn(&callback_).Run(std::move(list));
+    std::move(callback_).Run(std::move(list));
     // WARNING: |this| is possibly deleted after this line!
   }
 }

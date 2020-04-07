@@ -30,8 +30,6 @@
 #include <Qt3DCore/private/qnode_p.h>
 #include <Qt3DCore/private/qscene_p.h>
 #include <Qt3DCore/private/qnodecreatedchangegenerator_p.h>
-#include <Qt3DCore/qpropertynodeaddedchange.h>
-#include <Qt3DCore/qpropertynoderemovedchange.h>
 
 #include <Qt3DRender/qlayer.h>
 #include <Qt3DRender/qlayerfilter.h>
@@ -119,14 +117,11 @@ private Q_SLOTS:
         QCoreApplication::processEvents();
 
         // THEN
-        QCOMPARE(arbiter.events.size(), 1);
-        auto addChange = arbiter.events.first().staticCast<Qt3DCore::QPropertyNodeAddedChange>();
-        QCOMPARE(addChange->propertyName(), "layer");
-        QCOMPARE(addChange->subjectId(), layerFilter->id());
-        QCOMPARE(addChange->addedNodeId(), layerFilter->layers().at(0)->id());
-        QCOMPARE(addChange->type(), Qt3DCore::PropertyValueAdded);
+        QCOMPARE(arbiter.events.size(), 0);
+        QCOMPARE(arbiter.dirtyNodes.size(), 1);
+        QVERIFY(arbiter.dirtyNodes.contains(layerFilter.data()));
 
-        arbiter.events.clear();
+        arbiter.dirtyNodes.clear();
 
         // WHEN
         layer = new Qt3DRender::QLayer(layerFilter.data());
@@ -135,14 +130,11 @@ private Q_SLOTS:
         QCoreApplication::processEvents();
 
         // THEN
-        QCOMPARE(arbiter.events.size(), 1);
-        addChange = arbiter.events.first().staticCast<Qt3DCore::QPropertyNodeAddedChange>();
-        QCOMPARE(addChange->propertyName(), "layer");
-        QCOMPARE(addChange->subjectId(), layerFilter->id());
-        QCOMPARE(addChange->addedNodeId(), layerFilter->layers().at(1)->id());
-        QCOMPARE(addChange->type(), Qt3DCore::PropertyValueAdded);
+        QCOMPARE(arbiter.events.size(), 0);
+        QCOMPARE(arbiter.dirtyNodes.size(), 1);
+        QVERIFY(arbiter.dirtyNodes.contains(layerFilter.data()));
 
-        arbiter.events.clear();
+        arbiter.dirtyNodes.clear();
 
         // WHEN
         layer = layerFilter->layers().at(0);
@@ -150,14 +142,11 @@ private Q_SLOTS:
         QCoreApplication::processEvents();
 
         // THEN
-        QCOMPARE(arbiter.events.size(), 1);
-        auto removeChange = arbiter.events.first().staticCast<Qt3DCore::QPropertyNodeRemovedChange>();
-        QCOMPARE(removeChange->propertyName(), "layer");
-        QCOMPARE(removeChange->subjectId(), layerFilter->id());
-        QCOMPARE(removeChange->removedNodeId(), layer->id());
-        QCOMPARE(removeChange->type(), Qt3DCore::PropertyValueRemoved);
+        QCOMPARE(arbiter.events.size(), 0);
+        QCOMPARE(arbiter.dirtyNodes.size(), 1);
+        QVERIFY(arbiter.dirtyNodes.contains(layerFilter.data()));
 
-        arbiter.events.clear();
+        arbiter.dirtyNodes.clear();
     }
 
     void checkLayerBookkeeping()

@@ -52,7 +52,9 @@ void tst_QJSValue::ctor_invalid()
     {
         QJSValue v;
         QVERIFY(v.isUndefined());
+#ifdef QT_DEPRECATED
         QCOMPARE(v.engine(), (QJSEngine *)nullptr);
+#endif
     }
 }
 
@@ -63,7 +65,9 @@ void tst_QJSValue::ctor_undefinedWithEngine()
         QJSValue v = eng.toScriptValue(QVariant());
         QVERIFY(v.isUndefined());
         QCOMPARE(v.isObject(), false);
+#ifdef QT_DEPRECATED
         QCOMPARE(v.engine(), &eng);
+#endif
     }
 }
 
@@ -75,7 +79,9 @@ void tst_QJSValue::ctor_nullWithEngine()
         QVERIFY(!v.isUndefined());
         QCOMPARE(v.isNull(), true);
         QCOMPARE(v.isObject(), false);
+#ifdef QT_DEPRECATED
         QCOMPARE(v.engine(), &eng);
+#endif
     }
 }
 
@@ -88,7 +94,9 @@ void tst_QJSValue::ctor_boolWithEngine()
         QCOMPARE(v.isBool(), true);
         QCOMPARE(v.isObject(), false);
         QCOMPARE(v.toBool(), false);
+#ifdef QT_DEPRECATED
         QCOMPARE(v.engine(), &eng);
+#endif
     }
 }
 
@@ -101,7 +109,9 @@ void tst_QJSValue::ctor_intWithEngine()
         QCOMPARE(v.isNumber(), true);
         QCOMPARE(v.isObject(), false);
         QCOMPARE(v.toNumber(), 1.0);
+#ifdef QT_DEPRECATED
         QCOMPARE(v.engine(), &eng);
+#endif
     }
 }
 
@@ -118,7 +128,9 @@ void tst_QJSValue::ctor_int()
         QCOMPARE(v.isNumber(), true);
         QCOMPARE(v.isObject(), false);
         QCOMPARE(v.toNumber(), 1.0);
+#ifdef QT_DEPRECATED
         QCOMPARE(v.engine(), (QJSEngine *)nullptr);
+#endif
     }
 }
 
@@ -131,7 +143,9 @@ void tst_QJSValue::ctor_uintWithEngine()
         QCOMPARE(v.isNumber(), true);
         QCOMPARE(v.isObject(), false);
         QCOMPARE(v.toNumber(), 1.0);
+#ifdef QT_DEPRECATED
         QCOMPARE(v.engine(), &eng);
+#endif
     }
 }
 
@@ -148,7 +162,9 @@ void tst_QJSValue::ctor_uint()
         QCOMPARE(v.isNumber(), true);
         QCOMPARE(v.isObject(), false);
         QCOMPARE(v.toNumber(), 1.0);
+#ifdef QT_DEPRECATED
         QCOMPARE(v.engine(), (QJSEngine *)nullptr);
+#endif
     }
 }
 
@@ -161,7 +177,9 @@ void tst_QJSValue::ctor_floatWithEngine()
         QCOMPARE(v.isNumber(), true);
         QCOMPARE(v.isObject(), false);
         QCOMPARE(v.toNumber(), 1.0);
+#ifdef QT_DEPRECATED
         QCOMPARE(v.engine(), &eng);
+#endif
     }
 }
 
@@ -178,7 +196,9 @@ void tst_QJSValue::ctor_float()
         QCOMPARE(v.isNumber(), true);
         QCOMPARE(v.isObject(), false);
         QCOMPARE(v.toNumber(), 1.0);
+#ifdef QT_DEPRECATED
         QCOMPARE(v.engine(), (QJSEngine *)nullptr);
+#endif
     }
 }
 
@@ -191,7 +211,9 @@ void tst_QJSValue::ctor_stringWithEngine()
         QCOMPARE(v.isString(), true);
         QCOMPARE(v.isObject(), false);
         QCOMPARE(v.toString(), QLatin1String("ciao"));
+#ifdef QT_DEPRECATED
         QCOMPARE(v.engine(), &eng);
+#endif
     }
 }
 
@@ -203,7 +225,9 @@ void tst_QJSValue::ctor_string()
         QCOMPARE(v.isString(), true);
         QCOMPARE(v.isObject(), false);
         QCOMPARE(v.toString(), QLatin1String("ciao"));
+#ifdef QT_DEPRECATED
         QCOMPARE(v.engine(), (QJSEngine *)nullptr);
+#endif
     }
     {
         QJSValue v("ciao");
@@ -211,7 +235,9 @@ void tst_QJSValue::ctor_string()
         QCOMPARE(v.isString(), true);
         QCOMPARE(v.isObject(), false);
         QCOMPARE(v.toString(), QLatin1String("ciao"));
+#ifdef QT_DEPRECATED
         QCOMPARE(v.engine(), (QJSEngine *)nullptr);
+#endif
     }
 }
 
@@ -223,12 +249,16 @@ void tst_QJSValue::ctor_copyAndAssignWithEngine()
         QJSValue v = eng.toScriptValue(1.0);
         QJSValue v2(v);
         QCOMPARE(v2.strictlyEquals(v), true);
+#ifdef QT_DEPRECATED
         QCOMPARE(v2.engine(), &eng);
+#endif
 
         QJSValue v3(v);
         QCOMPARE(v3.strictlyEquals(v), true);
         QCOMPARE(v3.strictlyEquals(v2), true);
+#ifdef QT_DEPRECATED
         QCOMPARE(v3.engine(), &eng);
+#endif
 
         QJSValue v4 = eng.toScriptValue(2.0);
         QCOMPARE(v4.strictlyEquals(v), false);
@@ -253,7 +283,9 @@ void tst_QJSValue::ctor_undefined()
     QJSValue v(QJSValue::UndefinedValue);
     QVERIFY(v.isUndefined());
     QCOMPARE(v.isObject(), false);
+#ifdef QT_DEPRECATED
     QCOMPARE(v.engine(), (QJSEngine *)nullptr);
+#endif
 }
 
 void tst_QJSValue::ctor_null()
@@ -262,7 +294,9 @@ void tst_QJSValue::ctor_null()
     QVERIFY(!v.isUndefined());
     QCOMPARE(v.isNull(), true);
     QCOMPARE(v.isObject(), false);
+#ifdef QT_DEPRECATED
     QCOMPARE(v.engine(), (QJSEngine *)nullptr);
+#endif
 }
 
 void tst_QJSValue::ctor_bool()
@@ -273,7 +307,9 @@ void tst_QJSValue::ctor_bool()
     QCOMPARE(v.isBool(), true);
     QCOMPARE(v.isObject(), false);
     QCOMPARE(v.toBool(), false);
+#ifdef QT_DEPRECATED
     QCOMPARE(v.engine(), (QJSEngine *)nullptr);
+#endif
 }
 
 void tst_QJSValue::ctor_copyAndAssign()
@@ -281,12 +317,16 @@ void tst_QJSValue::ctor_copyAndAssign()
     QJSValue v(1.0);
     QJSValue v2(v);
     QCOMPARE(v2.strictlyEquals(v), true);
+#ifdef QT_DEPRECATED
     QCOMPARE(v2.engine(), (QJSEngine *)nullptr);
+#endif
 
     QJSValue v3(v);
     QCOMPARE(v3.strictlyEquals(v), true);
     QCOMPARE(v3.strictlyEquals(v2), true);
+#ifdef QT_DEPRECATED
     QCOMPARE(v3.engine(), (QJSEngine *)nullptr);
+#endif
 
     QJSValue v4(2.0);
     QCOMPARE(v4.strictlyEquals(v), false);
@@ -411,8 +451,8 @@ void tst_QJSValue::toString()
     // variant should use internal valueOf(), then fall back to QVariant::toString(),
     // then fall back to "QVariant(typename)"
     QJSValue variant = eng.toScriptValue(QPoint(10, 20));
-    QVERIFY(variant.isVariant());
-    QCOMPARE(variant.toString(), QString::fromLatin1("QVariant(QPoint, QPoint(10,20))"));
+    QVERIFY(!variant.isVariant());
+    QCOMPARE(variant.toString(), QString::fromLatin1("QPoint(10, 20)"));
     variant = eng.toScriptValue(QUrl());
     QVERIFY(variant.isVariant());
     QVERIFY(variant.toString().isEmpty());
@@ -423,7 +463,9 @@ void tst_QJSValue::toString()
         QCOMPARE(o.toString(), QStringLiteral("[object Object]"));
 
         o = createUnboundValue(o);
+#ifdef QT_DEPRECATED
         QVERIFY(!o.engine());
+#endif
         QCOMPARE(o.toString(), QStringLiteral("[object Object]"));
     }
 
@@ -435,7 +477,9 @@ void tst_QJSValue::toString()
         QCOMPARE(o.toString(), QStringLiteral("1,2,3"));
 
         o = createUnboundValue(o);
+#ifdef QT_DEPRECATED
         QVERIFY(!o.engine());
+#endif
         QCOMPARE(o.toString(), QStringLiteral("1,2,3"));
     }
 
@@ -1034,6 +1078,20 @@ void tst_QJSValue::toVariant()
         QJSValue rxObject = eng.toScriptValue(rx);
         QVERIFY(rxObject.isRegExp());
         QVariant var = rxObject.toVariant();
+
+        // We can't roundtrip a QRegExp this way, as toVariant() has no information on whether we
+        // want QRegExp or QRegularExpression. It will always create a QRegularExpression.
+        QCOMPARE(var.type(), QMetaType::QRegularExpression);
+        QRegularExpression result = var.toRegularExpression();
+        QCOMPARE(result.pattern(), rx.pattern());
+        QCOMPARE(result.patternOptions() & QRegularExpression::CaseInsensitiveOption, 0);
+    }
+
+    {
+        QRegularExpression rx = QRegularExpression("[0-9a-z]+");
+        QJSValue rxObject = eng.toScriptValue(rx);
+        QVERIFY(rxObject.isRegExp());
+        QVariant var = rxObject.toVariant();
         QCOMPARE(var, QVariant(rx));
     }
 
@@ -1070,6 +1128,10 @@ void tst_QJSValue::toVariant()
 
     // array
     {
+        auto handler = qInstallMessageHandler([](QtMsgType type, const QMessageLogContext &, const QString &) {
+            if (type == QtMsgType::QtWarningMsg)
+                QFAIL("Converting QJSValue to QVariant should not cause error messages");
+        });
         QVariantList listIn;
         listIn << 123 << "hello";
         QJSValue array = eng.toScriptValue(listIn);
@@ -1087,8 +1149,9 @@ void tst_QJSValue::toVariant()
         QCOMPARE(array2.property("length").toInt(), array.property("length").toInt());
         for (int i = 0; i < array.property("length").toInt(); ++i)
             QVERIFY(array2.property(i).strictlyEquals(array.property(i)));
-    }
 
+        qInstallMessageHandler(handler);
+    }
 }
 
 void tst_QJSValue::toQObject_nonQObject_data()
@@ -1114,7 +1177,7 @@ void tst_QJSValue::toQObject_nonQObject_data()
     QTest::newRow("array") << engine->newArray();
     QTest::newRow("date") << engine->evaluate("new Date(124)");
     QTest::newRow("variant(12345)") << engine->toScriptValue(QVariant(12345));
-    QTest::newRow("variant((QObject*)0)") << engine->toScriptValue(qVariantFromValue((QObject*)nullptr));
+    QTest::newRow("variant((QObject*)0)") << engine->toScriptValue(QVariant::fromValue((QObject*)nullptr));
     QTest::newRow("newQObject(0)") << engine->newQObject(nullptr);
 }
 
@@ -1199,6 +1262,32 @@ void tst_QJSValue::toRegExp()
     QVERIFY(qjsvalue_cast<QRegExp>(QJSValue(false)).isEmpty());
     QVERIFY(qjsvalue_cast<QRegExp>(eng.evaluate("null")).isEmpty());
     QVERIFY(qjsvalue_cast<QRegExp>(eng.toScriptValue(QVariant())).isEmpty());
+}
+
+void tst_QJSValue::toRegularExpression()
+{
+    QJSEngine eng;
+    {
+        QRegularExpression rx = qjsvalue_cast<QRegularExpression>(eng.evaluate("/foo/"));
+        QVERIFY(rx.isValid());
+        QCOMPARE(rx.pattern(), QString::fromLatin1("foo"));
+        QVERIFY(!(rx.patternOptions() & QRegularExpression::CaseInsensitiveOption));
+    }
+    {
+        QRegularExpression rx = qjsvalue_cast<QRegularExpression>(eng.evaluate("/bar/gi"));
+        QVERIFY(rx.isValid());
+        QCOMPARE(rx.pattern(), QString::fromLatin1("bar"));
+        QVERIFY(rx.patternOptions() & QRegularExpression::CaseInsensitiveOption);
+    }
+
+    QVERIFY(qjsvalue_cast<QRegularExpression>(eng.evaluate("[]")).pattern().isEmpty());
+    QVERIFY(qjsvalue_cast<QRegularExpression>(eng.evaluate("{}")).pattern().isEmpty());
+    QVERIFY(qjsvalue_cast<QRegularExpression>(eng.globalObject()).pattern().isEmpty());
+    QVERIFY(qjsvalue_cast<QRegularExpression>(QJSValue()).pattern().isEmpty());
+    QVERIFY(qjsvalue_cast<QRegularExpression>(QJSValue(123)).pattern().isEmpty());
+    QVERIFY(qjsvalue_cast<QRegularExpression>(QJSValue(false)).pattern().isEmpty());
+    QVERIFY(qjsvalue_cast<QRegularExpression>(eng.evaluate("null")).pattern().isEmpty());
+    QVERIFY(qjsvalue_cast<QRegularExpression>(eng.toScriptValue(QVariant())).pattern().isEmpty());
 }
 
 void tst_QJSValue::isArray_data()
@@ -1601,10 +1690,14 @@ void tst_QJSValue::getSetProperty()
     QCOMPARE(object.property("baz").toNumber(), num.toNumber());
 
     QJSValue strstr = QJSValue("bar");
+#ifdef QT_DEPRECATED
     QCOMPARE(strstr.engine(), (QJSEngine *)nullptr);
+#endif
     object.setProperty("foo", strstr);
     QCOMPARE(object.property("foo").toString(), strstr.toString());
+#ifdef QT_DEPRECATED
     QCOMPARE(strstr.engine(), &eng); // the value has been bound to the engine
+#endif
 
     QJSValue numnum = QJSValue(123.0);
     object.setProperty("baz", numnum);
@@ -2255,8 +2348,8 @@ void tst_QJSValue::strictlyEquals()
     {
         QJSValue var1 = eng.toScriptValue(QVariant(QStringList() << "a"));
         QJSValue var2 = eng.toScriptValue(QVariant(QStringList() << "a"));
-        QVERIFY(var1.isArray());
-        QVERIFY(var2.isArray());
+        QVERIFY(!var1.isArray());
+        QVERIFY(!var2.isArray());
         QVERIFY(!var1.strictlyEquals(var2));
     }
     {
@@ -2294,7 +2387,7 @@ void tst_QJSValue::castToPointer()
         QBrush *bp = qjsvalue_cast<QBrush*>(v);
         QVERIFY(!bp);
 
-        QJSValue v2 = eng.toScriptValue(qVariantFromValue(cp));
+        QJSValue v2 = eng.toScriptValue(QVariant::fromValue(cp));
         QCOMPARE(qjsvalue_cast<QColor*>(v2), cp);
     }
 }
@@ -2496,15 +2589,18 @@ void tst_QJSValue::engineDeleted()
     delete eng;
 
     QVERIFY(v1.isUndefined());
-    QVERIFY(!v1.engine());
     QVERIFY(v2.isUndefined());
-    QVERIFY(!v2.engine());
     QVERIFY(v3.isUndefined());
-    QVERIFY(!v3.engine());
     QVERIFY(v4.isUndefined());
-    QVERIFY(!v4.engine());
     QVERIFY(v5.isString()); // was not bound to engine
+
+#ifdef QT_DEPRECATED
+    QVERIFY(!v1.engine());
+    QVERIFY(!v2.engine());
+    QVERIFY(!v3.engine());
+    QVERIFY(!v4.engine());
     QVERIFY(!v5.engine());
+#endif
 
     QVERIFY(v3.property("foo").isUndefined());
 }
@@ -2615,6 +2711,70 @@ void tst_QJSValue::nestedObjectToVariant()
     QVERIFY(!o.isError());
     QVERIFY(o.isObject());
     QCOMPARE(o.toVariant(), expected);
+}
+
+static int instanceCount = 0;
+
+struct MyType
+{
+    MyType(int n = 0, const char *t=nullptr): number(n), text(t)
+    {
+        ++instanceCount;
+    }
+    MyType(const MyType &other)
+        : number(other.number), text(other.text)
+    {
+        ++instanceCount;
+    }
+    ~MyType()
+    {
+        --instanceCount;
+    }
+    int number;
+    const char *text;
+};
+
+Q_DECLARE_METATYPE(MyType)
+Q_DECLARE_METATYPE(MyType*)
+
+void tst_QJSValue::jsvalueArrayToSequenceType()
+{
+    QCOMPARE(instanceCount, 0);
+    {
+        QJSEngine eng {};
+        auto testObject = eng.newObject();
+        testObject.setProperty("test", 42);
+        testObject.setProperty("mytypeobject", eng.toScriptValue(QVariant::fromValue(MyType {42, "hello"})));
+        auto array = eng.newArray(4);
+        array.setProperty(0, QLatin1String("Hello World"));
+        array.setProperty(1, 42);
+        array.setProperty(2, QJSValue(QJSValue::UndefinedValue));
+        array.setProperty(3, testObject);
+        auto asVariant = QVariant::fromValue(array);
+        QVERIFY(asVariant.canConvert<QVariantList>());
+        auto asIterable = asVariant.value<QSequentialIterable>();
+        for (auto it = asIterable.begin(); it != asIterable.end(); ++it) {
+            Q_UNUSED(*it)
+        }
+        int i = 0;
+        for (QVariant myVariant: asIterable) {
+            QCOMPARE(myVariant.isValid(), i != 2);
+            ++i;
+        }
+        QVERIFY(asIterable.at(2).value<QVariant>().isNull());
+        QCOMPARE(asIterable.at(3).value<QVariantMap>().find("mytypeobject")->value<MyType>().number, 42);
+        QCOMPARE(asIterable.at(0).value<QVariant>().toString(), QLatin1String("Hello World"));
+        auto it1 = asIterable.begin();
+        auto it2 = asIterable.begin();
+        QCOMPARE((*it1).value<QVariant>().toString(), (*it2).value<QVariant>().toString());
+        QCOMPARE((*it1).value<QVariant>().toString(), QLatin1String("Hello World"));
+        ++it2;
+        QCOMPARE((*it1).value<QVariant>().toString(), QLatin1String("Hello World"));
+        QCOMPARE((*it2).value<QVariant>().toInt(), 42);
+    }
+    // tests need to be done after engine has been destroyed, else it will hold a reference until
+    // the gc decides to collect it
+    QCOMPARE(instanceCount, 0);
 }
 
 void tst_QJSValue::deleteFromDifferentThread()

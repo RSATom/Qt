@@ -22,6 +22,7 @@ namespace blink {
 class Document;
 class Element;
 class ExceptionState;
+class FileOrUSVStringOrFormData;
 class HTMLElement;
 class HTMLFormElement;
 class QualifiedName;
@@ -76,7 +77,8 @@ class CORE_EXPORT CustomElementDefinition
   bool HasStyleAttributeChangedCallback() const;
   virtual bool HasFormAssociatedCallback() const = 0;
   virtual bool HasFormResetCallback() const = 0;
-  virtual bool HasDisabledStateChangedCallback() const = 0;
+  virtual bool HasFormDisabledCallback() const = 0;
+  virtual bool HasFormStateRestoreCallback() const = 0;
 
   virtual void RunConnectedCallback(Element&) = 0;
   virtual void RunDisconnectedCallback(Element&) = 0;
@@ -90,8 +92,11 @@ class CORE_EXPORT CustomElementDefinition
   virtual void RunFormAssociatedCallback(Element& element,
                                          HTMLFormElement* nullable_form) = 0;
   virtual void RunFormResetCallback(Element& element) = 0;
-  virtual void RunDisabledStateChangedCallback(Element& element,
-                                               bool is_disabled) = 0;
+  virtual void RunFormDisabledCallback(Element& element, bool is_disabled) = 0;
+  virtual void RunFormStateRestoreCallback(
+      Element& element,
+      const FileOrUSVStringOrFormData& value,
+      const String& mode) = 0;
 
   void EnqueueUpgradeReaction(Element&,
                               bool upgrade_invisible_elements = false);
@@ -117,6 +122,7 @@ class CORE_EXPORT CustomElementDefinition
   bool HasDefaultStyleSheets() const {
     return !default_style_sheets_.IsEmpty();
   }
+  bool DisableShadow() const { return disable_shadow_; }
   bool DisableInternals() const { return disable_internals_; }
   bool IsFormAssociated() const { return is_form_associated_; }
 
@@ -157,6 +163,7 @@ class CORE_EXPORT CustomElementDefinition
   HashSet<AtomicString> observed_attributes_;
   bool has_style_attribute_changed_callback_;
   bool added_default_style_sheet_ = false;
+  bool disable_shadow_ = false;
   bool disable_internals_ = false;
   bool is_form_associated_ = false;
 
